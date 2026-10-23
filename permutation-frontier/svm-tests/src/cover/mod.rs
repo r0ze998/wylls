@@ -15,6 +15,7 @@
 //! | `clash` | W4-A |
 //! | `transit`, `defence` | W4-B |
 //! | `conquest` (MC: DeclareSiege, SettleSiege, SettleCapture, FoldMarch, RetireHost, CloseMarch) | CQ2-C |
+//! | `caravan` (S1 1b: BuildVault, SendCaravan, SettleCaravan, RaidCaravan, SeizeVault, CloseVault, DefaultRaid) | S1 |
 //!
 //! **MC (ABI v2, conquest contract §13.3 G13).** [`covered_by`] matches
 //! `frontier_abi::v2::Ix` (57 tags), so the seven MC instructions are in
@@ -38,6 +39,7 @@ pub use frontier_abi::v2::CqError as Cq;
 use frontier_abi::v2::Ix as I;
 
 pub mod beacon;
+pub mod caravan;
 pub mod citizen;
 pub mod clash;
 pub mod conquest;
@@ -140,6 +142,14 @@ pub fn covered_by(ix: I) -> &'static [Cover] {
         I::FoldMarch => conquest::FOLD_MARCH,
         I::RetireHost => conquest::RETIRE_HOST,
         I::CloseMarch => conquest::CLOSE_MARCH,
+        // S1 (stage 1b)
+        I::BuildVault => caravan::BUILD_VAULT,
+        I::SendCaravan => caravan::SEND_CARAVAN,
+        I::SettleCaravan => caravan::SETTLE_CARAVAN,
+        I::RaidCaravan => caravan::RAID_CARAVAN,
+        I::SeizeVault => caravan::SEIZE_VAULT,
+        I::CloseVault => caravan::CLOSE_VAULT,
+        I::DefaultRaid => caravan::DEFAULT_RAID,
     }
 }
 
@@ -187,6 +197,7 @@ pub fn pending() -> Vec<(&'static str, &'static str)> {
         transit::PENDING,
         defence::PENDING,
         conquest::PENDING,
+        caravan::PENDING,
     ]
     .concat()
 }

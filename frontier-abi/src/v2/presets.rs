@@ -564,8 +564,13 @@ pub const PRESETS: [(&str, SeasonParamsV2); 4] = [
 pub const fn s1(p: SeasonParamsV2) -> SeasonParamsV2 {
     let mut q = p;
     q.base.program_version = PROGRAM_VERSION_S1;
+    q.base.reveal_loaded_limit = REVEAL_LOADED_LIMIT_S1;
     q
 }
+
+/// `L(Reveal)` under the S1 release (`budgets::loaded_limit_s1`; pinned by
+/// `reveal_profile_matches_v2_budgets`).
+pub const REVEAL_LOADED_LIMIT_S1: u32 = 1_867_776;
 
 /// `S1_LOCAL_7D`, `S1_LOCAL_14D` and `S1_TEST`: the MC presets of the same
 /// names for the S1 program (redesign 30, J5: stage 1 runs in a new
@@ -625,14 +630,14 @@ mod tests {
 
     #[test]
     fn reveal_profile_matches_v2_budgets() {
-        for (_, p) in PRESETS {
+        for (_, p) in PRESETS.iter().chain(PRESETS_S1.iter()) {
             assert_eq!(
                 p.base.reveal_cu_limit,
                 crate::v2::budgets::budget(crate::v2::Ix::Reveal).cu_limit
             );
             assert_eq!(
                 p.base.reveal_loaded_limit,
-                crate::v2::budgets::loaded_limit(crate::v2::Ix::Reveal)
+                crate::v2::budgets::loaded_limit_for(p.base.program_version, crate::v2::Ix::Reveal)
             );
         }
     }

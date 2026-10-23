@@ -404,6 +404,18 @@ impl Addresses {
         let s = frontier_abi::v2::addr::march_seed(m, n);
         with_seed(&self.season, s.as_bytes(), &self.program)
     }
+    /// S1 (1b): the Vault on tile `tile` of Province `(p, q)`, seed
+    /// `va‖hex(le32 p ‖ le32 q ‖ tile)` (frontier-abi's `vault_seed`).
+    pub fn vault(&self, p: i32, q: i32, tile: u8) -> Address {
+        let s = frontier_abi::v2::addr::vault_seed(p, q, tile);
+        with_seed(&self.season, s.as_bytes(), &self.program)
+    }
+    /// S1 (1b): the owner's `seq`-th Caravan, seed `cv‖hex(le64 owner_tag ‖
+    /// le32 seq)` (frontier-abi's `caravan_seed`).
+    pub fn caravan(&self, owner_tag: u64, seq: u32) -> Address {
+        let s = frontier_abi::v2::addr::caravan_seed(owner_tag, seq);
+        with_seed(&self.season, s.as_bytes(), &self.program)
+    }
     /// An address **no instruction ever creates**: the placeholder every
     /// "absent canonical address" account of a v2 list takes (DeclareSiege's
     /// `owner_citizen` for a Free City and `nearby_province` when no proof
@@ -460,6 +472,15 @@ mod tests {
         }
         let key = host_id(4, -1, 7, 2, 0).unwrap();
         assert_eq!(a.holding_of_key(key).unwrap(), a.holding(4, -1, 7));
+        // S1 (1b): the Vault and Caravan addresses are frontier-abi's.
+        assert_eq!(
+            a.vault(-2, 5, 33).to_bytes(),
+            frontier_abi::v2::addr::vault(&ctx, -2, 5, 33)
+        );
+        assert_eq!(
+            a.caravan(0xDEAD_BEEF_0123, 9).to_bytes(),
+            frontier_abi::v2::addr::caravan(&ctx, 0xDEAD_BEEF_0123, 9)
+        );
     }
 
     #[test]

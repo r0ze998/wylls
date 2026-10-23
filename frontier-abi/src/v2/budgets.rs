@@ -197,6 +197,15 @@ pub fn loaded_accounts(ix: Ix) -> (u32, u8) {
 /// The Wave-2 release `.so` (1,132,312 B, `max_len` 1,417,216) fits the table.
 const _: () = assert!(1_417_216 <= PLACEHOLDER_PROGRAMDATA_LEN_V2);
 
+/// The S1 release `.so` (its own program, its own seasons): stage 1b
+/// measured **1,272,440 B** (max_len 1,593,344) with the vault and caravan
+/// handlers; rounded up to 1.375 MiB, headroom for stages 1c–1e, until the
+/// S1 build of record regenerates it. The MC table above stays the MC
+/// release's (its presets carry `reveal_loaded_limit`).
+pub const PLACEHOLDER_SO_LEN_S1: u32 = 1_441_792;
+pub const PLACEHOLDER_PROGRAMDATA_LEN_S1: u32 = max_len_for(PLACEHOLDER_SO_LEN_S1);
+const _: () = assert!(1_593_344 <= PLACEHOLDER_PROGRAMDATA_LEN_S1);
+
 /// Loaded-data need of `ix`'s worst v2 set at a programdata length.
 pub fn loaded_need(ix: Ix, programdata_len: u32) -> u64 {
     let (bytes, n) = loaded_accounts(ix);
@@ -209,9 +218,27 @@ pub fn loaded_need(ix: Ix, programdata_len: u32) -> u64 {
 /// `L(kind)` v2 at the placeholder programdata length, never below the
 /// 1-MiB working default.
 pub fn loaded_limit(ix: Ix) -> u32 {
+    loaded_limit_at(ix, PLACEHOLDER_PROGRAMDATA_LEN_V2)
+}
+
+/// `L(kind)` under the S1 release's programdata length.
+pub fn loaded_limit_s1(ix: Ix) -> u32 {
+    loaded_limit_at(ix, PLACEHOLDER_PROGRAMDATA_LEN_S1)
+}
+
+/// `L(kind)` for a season's `program_version` (S1 seasons run the S1
+/// program, MC seasons the MC one).
+pub fn loaded_limit_for(program_version: u16, ix: Ix) -> u32 {
+    if program_version >= crate::v2::presets::PROGRAM_VERSION_S1 {
+        loaded_limit_s1(ix)
+    } else {
+        loaded_limit(ix)
+    }
+}
+
+fn loaded_limit_at(ix: Ix, programdata_len: u32) -> u32 {
     let (bytes, n) = loaded_accounts(ix);
-    let l =
-        permutation_rules::frontier::fees::loaded_limit(PLACEHOLDER_PROGRAMDATA_LEN_V2, bytes, n);
+    let l = permutation_rules::frontier::fees::loaded_limit(programdata_len, bytes, n);
     l.max(LOADED_LIMIT_WORKING_DEFAULT)
 }
 
@@ -275,6 +302,21 @@ mod tests {
             assert!(skip_gate(n, n) <= budget(Ix::SkipQuiet).cu_limit);
         }
         assert_eq!(PLACEHOLDER_PROGRAMDATA_LEN_V2, 1_474_560);
+        assert_eq!(PLACEHOLDER_PROGRAMDATA_LEN_S1, 1_802_240);
+        for ix in Ix::ALL {
+            let s1 = loaded_limit_s1(*ix);
+            assert_eq!(s1 % 32_768, 0);
+            assert!(s1 >= loaded_limit(*ix), "{}", ix.name());
+            assert!(loaded_need(*ix, PLACEHOLDER_PROGRAMDATA_LEN_S1) <= s1 as u64);
+            assert_eq!(
+                loaded_limit_for(crate::v2::presets::PROGRAM_VERSION_V2, *ix),
+                loaded_limit(*ix)
+            );
+            assert_eq!(
+                loaded_limit_for(crate::v2::presets::PROGRAM_VERSION_S1, *ix),
+                s1
+            );
+        }
         // an MC Province loads 640 B more than an M1 one
         let v1 = crate::budgets::loaded_accounts(crate::tags::Ix::ResolveFromInputs).0;
         assert_eq!(loaded_accounts(Ix::ResolveFromInputs).0, v1 + 640);

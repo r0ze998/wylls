@@ -797,7 +797,7 @@ mod cq {
         assert_ne!(RULESET_HASH_V2, presets::RULESET_HASH, "M1's is another");
         assert_eq!(rd_u16(&d, S::RULES_VERSION), 12);
         assert_eq!(rd_u16(&d, S::PROGRAM_VERSION), PROGRAM_VERSION_S1);
-        assert!(PROGRAM_VERSION_S1 > PROGRAM_VERSION_V2);
+        const { assert!(PROGRAM_VERSION_S1 > PROGRAM_VERSION_V2) };
         assert_eq!(
             ConquestParams::of_season(&d),
             Some(w.params.cq),

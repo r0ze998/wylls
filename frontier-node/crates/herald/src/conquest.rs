@@ -747,6 +747,13 @@ fn fold_record(
                 wt,
             );
         }
+        // S1 (stage 1b): vaults and caravans are not conquest events; the
+        // herald's caravan feed reads them (`caravan.rs`).
+        CqKind::VAULT_BUILT
+        | CqKind::CARAVAN_SENT
+        | CqKind::CARAVAN_SETTLED
+        | CqKind::CARAVAN_RAIDED
+        | CqKind::VAULT_SEIZED => {}
     }
 }
 

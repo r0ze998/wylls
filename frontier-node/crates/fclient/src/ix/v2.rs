@@ -437,6 +437,284 @@ pub fn create_season(
     super::create_season(a, authority, &params.to_bytes(), payout)
 }
 
+// ------------------------------------------------------------ S1 (stage 1b)
+
+/// A caravan's origin or destination: a Holding or a Vault of a given
+/// generation (`frontier_abi::v2::layout::s1::place`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PlaceRef {
+    Holding { h: HoldingRef, gen: u8 },
+    Vault { p: i16, q: i16, tile: u8, gen: u8 },
+}
+
+impl PlaceRef {
+    pub fn address(&self, a: &Addresses) -> Address {
+        match *self {
+            PlaceRef::Holding { h, .. } => h.address(a),
+            PlaceRef::Vault { p, q, tile, .. } => a.vault(p as i32, q as i32, tile),
+        }
+    }
+    /// The Province the place stands in.
+    pub fn province(&self) -> (i16, i16) {
+        match *self {
+            PlaceRef::Holding { h, .. } => (h.p, h.q),
+            PlaceRef::Vault { p, q, .. } => (p, q),
+        }
+    }
+    /// `(kind, p, q, site or tile, gen)` as instruction data names it.
+    pub fn data(&self) -> (u8, i16, i16, u8, u8) {
+        use frontier_abi::v2::layout::s1::place as pl;
+        match *self {
+            PlaceRef::Holding { h, gen } => (pl::KIND_HOLDING, h.p, h.q, h.site, gen),
+            PlaceRef::Vault { p, q, tile, gen } => (pl::KIND_VAULT, p, q, tile, gen),
+        }
+    }
+}
+
+/// The Caravan of `owner_tag`'s `seq`-th send, by the owner's wallet.
+pub fn caravan_of_wallet(a: &Addresses, wallet: &Address, seq: u32) -> Address {
+    a.caravan(addr::citizen_tag_u64(&a.citizen(wallet)), seq)
+}
+
+fn provinces(a: &Addresses, ps: &[(i16, i16)], writable: bool) -> Vec<AccountMeta> {
+    ps.iter()
+        .map(|&(p, q)| {
+            let k = a.province(p as i32, q as i32);
+            if writable {
+                w(k)
+            } else {
+                r(k)
+            }
+        })
+        .collect()
+}
+
+/// 0xB0 BuildVault (P): P + `[holding w] [holding_province r] [province r]
+/// [vault w] [system]`: a vault on `tile` of Province `at`, paid by `h`.
+pub fn build_vault(
+    a: &Addresses,
+    p: &Player,
+    h: HoldingRef,
+    at: (i16, i16),
+    tile: u8,
+) -> Instruction {
+    let mut m = prologue(a, p);
+    m.extend([
+        w(h.address(a)),
+        r(h.province(a)),
+        r(a.province(at.0 as i32, at.1 as i32)),
+        w(a.vault(at.0 as i32, at.1 as i32, tile)),
+        r(addr::system_program()),
+    ]);
+    build(a, m, d2::BuildVault { tile }.to_bytes().to_vec())
+}
+
+/// SendCaravan's arguments (contract §3.2).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SendCaravanArgs {
+    /// `Citizen.CARAVANS` of the sender.
+    pub seq: u32,
+    pub src: PlaceRef,
+    pub dst: PlaceRef,
+    /// Packed directions (`permutation_rules::frontier::caravan::pack`).
+    pub steps: u8,
+    pub path: [u8; 12],
+    /// Whole units per resource.
+    pub cargo: [u32; 8],
+    pub fee: u64,
+    /// The provinces the walk enters, the origin's first (1–4).
+    pub provinces: Vec<(i16, i16)>,
+}
+
+/// 0xB1 SendCaravan (P): P + `[src w] [dst r] [caravan w] [system]
+/// [path_province w ×1..4]`.
+pub fn send_caravan(a: &Addresses, p: &Player, x: &SendCaravanArgs) -> Instruction {
+    let (dst_kind, dst_p, dst_q, dst_at, dst_gen) = x.dst.data();
+    let mut m = prologue(a, p);
+    m.extend([
+        w(x.src.address(a)),
+        r(x.dst.address(a)),
+        w(caravan_of_wallet(a, &p.wallet, x.seq)),
+        r(addr::system_program()),
+    ]);
+    m.extend(provinces(a, &x.provinces, true));
+    let data = d2::SendCaravan {
+        seq: x.seq,
+        dst_kind,
+        dst_p,
+        dst_q,
+        dst_at,
+        dst_gen,
+        steps: x.steps,
+        path: x.path,
+        cargo: d2::cargo_bytes(&x.cargo),
+        fee: x.fee,
+    };
+    build(a, m, data.to_bytes().to_vec())
+}
+
+/// 0xB2 SettleCaravan (D): `[fee_payer s,w] [season r] [caravan w] [dst w]
+/// [beneficiary w] [rent_to w] [path_province r ×1..4]`; `provinces` are
+/// the Caravan's (`PROVINCES`, in order), `rent_to` its `RENT_TO`.
+#[allow(clippy::too_many_arguments)]
+pub fn settle_caravan(
+    a: &Addresses,
+    fee_payer: Address,
+    caravan: Address,
+    dst: Address,
+    beneficiary: Address,
+    rent_to: Address,
+    path_provinces: &[(i16, i16)],
+) -> Instruction {
+    let mut m = vec![
+        ws(fee_payer),
+        r(a.season),
+        w(caravan),
+        w(dst),
+        w(beneficiary),
+        w(rent_to),
+    ];
+    m.extend(provinces(a, path_provinces, false));
+    let data = d2::SettleCaravan {
+        beneficiary: beneficiary.to_bytes(),
+    };
+    build(a, m, data.to_bytes().to_vec())
+}
+
+/// RaidCaravan's arguments (contract §3.5).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RaidCaravanArgs {
+    pub caravan: Address,
+    /// The Province of the raided slot (the loot's origin province).
+    pub raid: (i16, i16),
+    /// The holding of the raiding host (`split_host_id(slot.raider)`).
+    pub raider_holding: HoldingRef,
+    /// `l2::raid_choice::TAKE` or `BURN`.
+    pub choice: u8,
+    /// The raider's `Citizen.CARAVANS` (the loot caravan's sequence).
+    pub loot_seq: u32,
+    /// Where a take goes (`None` for a burn: the raider holding stands in).
+    pub dst: Option<PlaceRef>,
+    pub steps: u8,
+    pub path: [u8; 12],
+    pub fee: u64,
+    /// The loot's path provinces after the raid's (0–3).
+    pub provinces: Vec<(i16, i16)>,
+}
+
+/// 0xB3 RaidCaravan (P, the raider): P + `[caravan w] [raider_holding r]
+/// [loot w] [dst r] [system] [path_province w ×1..4]` (the raid's Province
+/// first).
+pub fn raid_caravan(a: &Addresses, p: &Player, x: &RaidCaravanArgs) -> Instruction {
+    let (dst_kind, dst_p, dst_q, dst_at, dst_gen) = x.dst.map_or((0, 0, 0, 0, 0), |d| d.data());
+    let dst = x.dst.map_or(x.raider_holding.address(a), |d| d.address(a));
+    let mut m = prologue(a, p);
+    m.extend([
+        w(x.caravan),
+        r(x.raider_holding.address(a)),
+        w(caravan_of_wallet(a, &p.wallet, x.loot_seq)),
+        r(dst),
+        r(addr::system_program()),
+    ]);
+    let mut ps = vec![x.raid];
+    ps.extend(x.provinces.iter().copied().filter(|v| *v != x.raid));
+    m.extend(provinces(a, &ps, true));
+    let data = d2::RaidCaravan {
+        p: x.raid.0,
+        q: x.raid.1,
+        choice: x.choice,
+        loot_seq: x.loot_seq,
+        dst_kind,
+        dst_p,
+        dst_q,
+        dst_at,
+        dst_gen,
+        steps: x.steps,
+        path: x.path,
+        fee: x.fee,
+    };
+    build(a, m, data.to_bytes().to_vec())
+}
+
+/// 0xB4 SeizeVault (P, the captor): P + `[vault w] [province r]
+/// [host_holding r] [owner_citizen w]`.
+pub fn seize_vault(
+    a: &Addresses,
+    p: &Player,
+    vault: (i16, i16, u8),
+    host_holding: HoldingRef,
+    owner_citizen: Address,
+    entry: u8,
+) -> Instruction {
+    let (vp, vq, tile) = vault;
+    let mut m = prologue(a, p);
+    m.extend([
+        w(a.vault(vp as i32, vq as i32, tile)),
+        r(a.province(vp as i32, vq as i32)),
+        r(host_holding.address(a)),
+        w(owner_citizen),
+    ]);
+    build(a, m, d2::SeizeVault { entry }.to_bytes().to_vec())
+}
+
+/// 0xB5 CloseVault (P, the owner's wallet): P + `[vault w] [rent_to w]`.
+pub fn close_vault(
+    a: &Addresses,
+    p: &Player,
+    vault: (i16, i16, u8),
+    rent_to: Address,
+) -> Instruction {
+    let (vp, vq, tile) = vault;
+    let mut m = prologue(a, p);
+    m.extend([w(a.vault(vp as i32, vq as i32, tile)), w(rent_to)]);
+    build(a, m, d2::CloseVault {}.to_bytes().to_vec())
+}
+
+/// DefaultRaid's arguments (contract §3.5).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DefaultRaidArgs {
+    pub caravan: Address,
+    pub raid: (i16, i16),
+    pub raider_holding: HoldingRef,
+    pub raider_citizen: Address,
+    /// The raider's `Citizen.CARAVANS`.
+    pub loot_seq: u32,
+    pub steps: u8,
+    pub path: [u8; 12],
+    pub beneficiary: Address,
+    /// The loot's path provinces after the raid's (0–3).
+    pub provinces: Vec<(i16, i16)>,
+}
+
+/// 0xB6 DefaultRaid (D): `[fee_payer s,w] [season r] [caravan w]
+/// [raider_holding r] [raider_citizen w] [loot w] [beneficiary w] [system]
+/// [path_province w ×1..4]`.
+pub fn default_raid(a: &Addresses, fee_payer: Address, x: &DefaultRaidArgs) -> Instruction {
+    let raider_tag = addr::citizen_tag_u64(&x.raider_citizen);
+    let mut m = vec![
+        ws(fee_payer),
+        r(a.season),
+        w(x.caravan),
+        r(x.raider_holding.address(a)),
+        w(x.raider_citizen),
+        w(a.caravan(raider_tag, x.loot_seq)),
+        w(x.beneficiary),
+        r(addr::system_program()),
+    ];
+    let mut ps = vec![x.raid];
+    ps.extend(x.provinces.iter().copied().filter(|v| *v != x.raid));
+    m.extend(provinces(a, &ps, true));
+    let data = d2::DefaultRaid {
+        p: x.raid.0,
+        q: x.raid.1,
+        loot_seq: x.loot_seq,
+        steps: x.steps,
+        path: x.path,
+        beneficiary: x.beneficiary.to_bytes(),
+    };
+    build(a, m, data.to_bytes().to_vec())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -507,6 +785,12 @@ mod tests {
             p: 2,
             q: 1,
             site: 5,
+        };
+        let vault = PlaceRef::Vault {
+            p: 3,
+            q: 1,
+            tile: 20,
+            gen: 1,
         };
         let sites = [
             Site {
@@ -596,7 +880,100 @@ mod tests {
                 Ix::CreateSeason,
                 create_season(&a, k, &frontier_abi::v2::presets::MC_TEST, &[0; 128]),
             ),
+            // S1 (stage 1b)
+            (Ix::BuildVault, build_vault(&a, &pl, h, (3, 1), 20)),
+            (Ix::SendCaravan, send_caravan(&a, &pl, &sc_args(1))),
+            (Ix::SendCaravan, send_caravan(&a, &pl, &sc_args(4))),
+            (
+                Ix::SettleCaravan,
+                settle_caravan(&a, k, k, h.address(&a), k, w2, &[(3, 0)]),
+            ),
+            (
+                Ix::SettleCaravan,
+                settle_caravan(
+                    &a,
+                    k,
+                    k,
+                    h.address(&a),
+                    k,
+                    w2,
+                    &[(3, 0), (3, 1), (4, 1), (4, 2)],
+                ),
+            ),
+            (Ix::RaidCaravan, raid_caravan(&a, &pl, &raid_args(None, 0))),
+            (
+                Ix::RaidCaravan,
+                raid_caravan(&a, &pl, &raid_args(Some(vault), 3)),
+            ),
+            (Ix::SeizeVault, seize_vault(&a, &pl, (3, 1, 20), home, k, 4)),
+            (Ix::CloseVault, close_vault(&a, &pl, (3, 1, 20), k)),
+            (Ix::DefaultRaid, default_raid(&a, k, &dr_args(0))),
+            (Ix::DefaultRaid, default_raid(&a, k, &dr_args(3))),
         ]
+    }
+
+    const S1_PROVINCES: [(i16, i16); 4] = [(3, 0), (3, 1), (4, 1), (4, 2)];
+
+    fn sc_args(n: usize) -> SendCaravanArgs {
+        SendCaravanArgs {
+            seq: 2,
+            src: PlaceRef::Holding {
+                h: HoldingRef {
+                    p: 3,
+                    q: 0,
+                    site: 2,
+                },
+                gen: 1,
+            },
+            dst: PlaceRef::Vault {
+                p: 3,
+                q: 1,
+                tile: 20,
+                gen: 1,
+            },
+            steps: 30,
+            path: [0x55; 12],
+            cargo: [100; 8],
+            fee: 50_000,
+            provinces: S1_PROVINCES[..n].to_vec(),
+        }
+    }
+
+    fn raid_args(dst: Option<PlaceRef>, extra: usize) -> RaidCaravanArgs {
+        RaidCaravanArgs {
+            caravan: Address::new_from_array([5; 32]),
+            raid: (3, 0),
+            raider_holding: HoldingRef {
+                p: 2,
+                q: 1,
+                site: 5,
+            },
+            choice: if dst.is_some() { 0 } else { 1 },
+            loot_seq: 0,
+            dst,
+            steps: 3,
+            path: [0; 12],
+            fee: 50_000,
+            provinces: S1_PROVINCES[1..1 + extra].to_vec(),
+        }
+    }
+
+    fn dr_args(extra: usize) -> DefaultRaidArgs {
+        DefaultRaidArgs {
+            caravan: Address::new_from_array([5; 32]),
+            raid: (3, 0),
+            raider_holding: HoldingRef {
+                p: 2,
+                q: 1,
+                site: 5,
+            },
+            raider_citizen: Address::new_from_array([6; 32]),
+            loot_seq: 7,
+            steps: 3,
+            path: [0; 12],
+            beneficiary: Address::new_from_array([9; 32]),
+            provinces: S1_PROVINCES[1..1 + extra].to_vec(),
+        }
     }
 
     /// MC §5.5–§5.6: one builder per new tag and per changed account list;
@@ -607,6 +984,13 @@ mod tests {
         let k = Address::new_from_array([9; 32]);
         let bh = solana_hash::Hash::new_from_array([1; 32]);
         let all = all_v2();
+        for t in Ix::S1 {
+            assert!(
+                all.iter().any(|(ix, _)| *ix == t),
+                "{} has a builder",
+                t.name()
+            );
+        }
         let mut tags: Vec<u8> = all.iter().map(|(_, i)| i.data[0]).collect();
         tags.sort();
         tags.dedup();

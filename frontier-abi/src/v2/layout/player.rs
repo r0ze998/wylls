@@ -165,7 +165,10 @@ mod tests {
         );
         // S1: the Citizen's reserve at 312 holds the vault and caravan
         // counters.
-        assert_eq!((citizen::VAULTS, citizen::CARAVANS, citizen::RSV_320), (312, 316, 320));
+        assert_eq!(
+            (citizen::VAULTS, citizen::CARAVANS, citizen::RSV_320),
+            (312, 316, 320)
+        );
         same_except(v1::holding::FIELDS, holding::FIELDS, &["RSV"]);
         assert_eq!(citizen::SIEGES_TODAY, 145);
         assert_eq!(citizen::SIEGE_DAY, 150);

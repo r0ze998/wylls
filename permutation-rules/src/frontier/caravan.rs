@@ -188,8 +188,8 @@ pub fn walk(
             s = s * ROAD_BPS as u64 / BPS_ONE as u64;
         }
         base += s;
-        let at = base * CARAVAN_SLOW_BPS as u64 / BPS_ONE as u64 * caravan_bps as u64
-            / BPS_ONE as u64;
+        let at =
+            base * CARAVAN_SLOW_BPS as u64 / BPS_ONE as u64 * caravan_bps as u64 / BPS_ONE as u64;
         out.push(Step {
             province: pc,
             tile,
@@ -484,7 +484,10 @@ mod tests {
         let s = walk((pc, centre()), &path, 3, &[plain(pc)], BPS_ONE).unwrap();
         assert_eq!(s.len(), 3);
         // 120 s × 1.5 a step.
-        assert_eq!(s.iter().map(|x| x.at_secs).collect::<Vec<_>>(), [180, 360, 540]);
+        assert_eq!(
+            s.iter().map(|x| x.at_secs).collect::<Vec<_>>(),
+            [180, 360, 540]
+        );
         assert_eq!(s[2].tile, tile_index(Hex::new(3, 0)).unwrap());
         // B Tide's doctrine: ×0.8.
         let b = walk((pc, centre()), &path, 3, &[plain(pc)], 8_000).unwrap();
@@ -509,7 +512,14 @@ mod tests {
         );
         // The origin's province must come first; no empty path.
         assert!(walk((pc, centre()), &path, 0, &[plain(pc)], BPS_ONE).is_err());
-        assert!(walk((pc, centre()), &path, 1, &[plain(ProvinceCoord::new(0, 2))], BPS_ONE).is_err());
+        assert!(walk(
+            (pc, centre()),
+            &path,
+            1,
+            &[plain(ProvinceCoord::new(0, 2))],
+            BPS_ONE
+        )
+        .is_err());
     }
 
     #[test]
@@ -539,7 +549,10 @@ mod tests {
         assert_eq!(runs[0].first_bell, 11);
         // The tile at +599 s: 3 steps done (540 s ≤ 599 < 720).
         let third = steps[2];
-        assert_eq!((runs[0].province, runs[0].tiles[0]), (third.province, third.tile));
+        assert_eq!(
+            (runs[0].province, runs[0].tiles[0]),
+            (third.province, third.tile)
+        );
     }
 
     #[test]

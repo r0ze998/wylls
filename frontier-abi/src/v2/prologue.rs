@@ -184,92 +184,106 @@ pub fn accounts_of(ix: Ix) -> &'static [Group] {
         }
         // S1 (1b; S1-1B-CONTRACT §3). The origin's Province is the first
         // path Province (writable: it gets the caravan's first slot).
-        Ix::BuildVault => const {
-            &[
-                one!(PLAYER_PROLOGUE),
-                one!(&[
-                    HOLDING_W,
-                    s!("holding_province", KindV2(K2::Province), false, R),
-                    s!("province", KindV2(K2::Province), false, R),
-                    s!("vault", KindV2(K2::Vault), false, W),
-                    SYSTEM,
-                ]),
-            ]
-        },
-        Ix::SendCaravan => const {
-            &[
-                one!(PLAYER_PROLOGUE),
-                one!(&[
-                    s!("src", EitherV2(K2::Holding, K2::Vault), false, W),
-                    s!("dst", EitherV2(K2::Holding, K2::Vault), false, R),
-                    s!("caravan", KindV2(K2::Caravan), false, W),
-                    SYSTEM,
-                ]),
-                rep!(&[s!("path_province", KindV2(K2::Province), false, W)], 1, 4),
-            ]
-        },
-        Ix::SettleCaravan => const {
-            &[
-                one!(&[
-                    FEE_PAYER,
-                    SEASON_R,
-                    s!("caravan", KindV2(K2::Caravan), false, W),
-                    s!("dst", EitherV2(K2::Holding, K2::Vault), false, W),
-                    s!("beneficiary", Wallet, false, W),
-                    s!("rent_to", Wallet, false, W),
-                ]),
-                rep!(&[s!("path_province", KindV2(K2::Province), false, R)], 1, 4),
-            ]
-        },
-        Ix::RaidCaravan => const {
-            &[
-                one!(PLAYER_PROLOGUE),
-                one!(&[
-                    s!("caravan", KindV2(K2::Caravan), false, W),
-                    s!("raider_holding", KindV2(K2::Holding), false, R),
-                    s!("loot", KindV2(K2::Caravan), false, W),
-                    s!("dst", EitherV2(K2::Holding, K2::Vault), false, R),
-                    SYSTEM,
-                ]),
-                // the raid's Province first, then the loot's path
-                rep!(&[s!("path_province", KindV2(K2::Province), false, W)], 1, 4),
-            ]
-        },
-        Ix::SeizeVault => const {
-            &[
-                one!(PLAYER_PROLOGUE),
-                one!(&[
-                    s!("vault", KindV2(K2::Vault), false, W),
-                    PROVINCE_R,
-                    s!("host_holding", KindV2(K2::Holding), false, R),
-                    s!("owner_citizen", KindV2(K2::Citizen), false, W),
-                ]),
-            ]
-        },
-        Ix::CloseVault => const {
-            &[
-                one!(PLAYER_PROLOGUE),
-                one!(&[
-                    s!("vault", KindV2(K2::Vault), false, W),
-                    s!("rent_to", Wallet, false, W),
-                ]),
-            ]
-        },
-        Ix::DefaultRaid => const {
-            &[
-                one!(&[
-                    FEE_PAYER,
-                    SEASON_R,
-                    s!("caravan", KindV2(K2::Caravan), false, W),
-                    s!("raider_holding", KindV2(K2::Holding), false, R),
-                    s!("raider_citizen", KindV2(K2::Citizen), false, W),
-                    s!("loot", KindV2(K2::Caravan), false, W),
-                    s!("beneficiary", Wallet, false, W),
-                    SYSTEM,
-                ]),
-                rep!(&[s!("path_province", KindV2(K2::Province), false, W)], 1, 4),
-            ]
-        },
+        Ix::BuildVault => {
+            const {
+                &[
+                    one!(PLAYER_PROLOGUE),
+                    one!(&[
+                        HOLDING_W,
+                        s!("holding_province", KindV2(K2::Province), false, R),
+                        s!("province", KindV2(K2::Province), false, R),
+                        s!("vault", KindV2(K2::Vault), false, W),
+                        SYSTEM,
+                    ]),
+                ]
+            }
+        }
+        Ix::SendCaravan => {
+            const {
+                &[
+                    one!(PLAYER_PROLOGUE),
+                    one!(&[
+                        s!("src", EitherV2(K2::Holding, K2::Vault), false, W),
+                        s!("dst", EitherV2(K2::Holding, K2::Vault), false, R),
+                        s!("caravan", KindV2(K2::Caravan), false, W),
+                        SYSTEM,
+                    ]),
+                    rep!(&[s!("path_province", KindV2(K2::Province), false, W)], 1, 4),
+                ]
+            }
+        }
+        Ix::SettleCaravan => {
+            const {
+                &[
+                    one!(&[
+                        FEE_PAYER,
+                        SEASON_R,
+                        s!("caravan", KindV2(K2::Caravan), false, W),
+                        s!("dst", EitherV2(K2::Holding, K2::Vault), false, W),
+                        s!("beneficiary", Wallet, false, W),
+                        s!("rent_to", Wallet, false, W),
+                    ]),
+                    rep!(&[s!("path_province", KindV2(K2::Province), false, R)], 1, 4),
+                ]
+            }
+        }
+        Ix::RaidCaravan => {
+            const {
+                &[
+                    one!(PLAYER_PROLOGUE),
+                    one!(&[
+                        s!("caravan", KindV2(K2::Caravan), false, W),
+                        s!("raider_holding", KindV2(K2::Holding), false, R),
+                        s!("loot", KindV2(K2::Caravan), false, W),
+                        s!("dst", EitherV2(K2::Holding, K2::Vault), false, R),
+                        SYSTEM,
+                    ]),
+                    // the raid's Province first, then the loot's path
+                    rep!(&[s!("path_province", KindV2(K2::Province), false, W)], 1, 4),
+                ]
+            }
+        }
+        Ix::SeizeVault => {
+            const {
+                &[
+                    one!(PLAYER_PROLOGUE),
+                    one!(&[
+                        s!("vault", KindV2(K2::Vault), false, W),
+                        PROVINCE_R,
+                        s!("host_holding", KindV2(K2::Holding), false, R),
+                        s!("owner_citizen", KindV2(K2::Citizen), false, W),
+                    ]),
+                ]
+            }
+        }
+        Ix::CloseVault => {
+            const {
+                &[
+                    one!(PLAYER_PROLOGUE),
+                    one!(&[
+                        s!("vault", KindV2(K2::Vault), false, W),
+                        s!("rent_to", Wallet, false, W),
+                    ]),
+                ]
+            }
+        }
+        Ix::DefaultRaid => {
+            const {
+                &[
+                    one!(&[
+                        FEE_PAYER,
+                        SEASON_R,
+                        s!("caravan", KindV2(K2::Caravan), false, W),
+                        s!("raider_holding", KindV2(K2::Holding), false, R),
+                        s!("raider_citizen", KindV2(K2::Citizen), false, W),
+                        s!("loot", KindV2(K2::Caravan), false, W),
+                        s!("beneficiary", Wallet, false, W),
+                        SYSTEM,
+                    ]),
+                    rep!(&[s!("path_province", KindV2(K2::Province), false, W)], 1, 4),
+                ]
+            }
+        }
         // §5.6: Harvest and Train gain `[province r]` (the capture lock).
         Ix::Harvest | Ix::Train => {
             const { &[one!(PLAYER_PROLOGUE), one!(&[HOLDING_W, PROVINCE_R])] }

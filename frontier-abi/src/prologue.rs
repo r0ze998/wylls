@@ -77,7 +77,10 @@ pub enum Acc {
     /// by an M1 table): the v2 Province (4,736 B) or a MarchState.
     KindV2(crate::v2::layout::AccountKind),
     /// One of two ABI v2 kinds (S1: a caravan's holding or vault place).
-    EitherV2(crate::v2::layout::AccountKind, crate::v2::layout::AccountKind),
+    EitherV2(
+        crate::v2::layout::AccountKind,
+        crate::v2::layout::AccountKind,
+    ),
 }
 
 /// Writability of a position.

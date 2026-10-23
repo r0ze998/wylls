@@ -283,16 +283,19 @@ mod tests {
         let names: alloc::vec::Vec<_> = s1.iter().map(|f| (f.name, f.off, f.len)).collect();
         assert_eq!(
             names,
-            [("CARAVANS", 3_864, 180), ("TOWERS", 4_044, 48), ("RSV_4092", 4_092, 4)]
+            [
+                ("CARAVANS", 3_864, 180),
+                ("TOWERS", 4_044, 48),
+                ("RSV_4092", 4_092, 4)
+            ]
         );
         assert_eq!(province::FIELDS[keep.len() + 3].off, 4_096);
         assert_eq!(province::SIZE, 4_736);
-        assert_eq!(caravan_slot::SIZE, permutation_rules::frontier::caravan::SLOT_SIZE);
         assert_eq!(
-            5 * caravan_slot::SIZE,
-            180,
-            "MAX_CARAVAN_SLOTS slots"
+            caravan_slot::SIZE,
+            permutation_rules::frontier::caravan::SLOT_SIZE
         );
+        assert_eq!(5 * caravan_slot::SIZE, 180, "MAX_CARAVAN_SLOTS slots");
         assert_eq!(permutation_rules::frontier::caravan::MAX_CARAVAN_SLOTS, 5);
     }
 

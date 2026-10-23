@@ -307,6 +307,15 @@ fn route(
     }
     let lands = &lands[..provinces.len()];
     let bps = of_faction_v3(faction).ok_or(BAD_ACCOUNT)?.caravan_time_bps;
+    // A loot caravan raided on its destination's own tile has no step to
+    // walk: it arrives at once, with no slot (only a raid can start on its
+    // destination; a send's two places never share a tile).
+    if steps == 0 {
+        if origin != dst {
+            return Err(FrontierError::Path.into());
+        }
+        return Ok((now, [0u8; log_run::LEN * log_run::N], 0));
+    }
     let walked = kc::walk(origin, path, steps, lands, bps).map_err(|_| FrontierError::Path)?;
     let last = walked.last().ok_or(FrontierError::Path)?;
     if (last.province, last.tile) != dst {

@@ -318,7 +318,10 @@ mod tests {
         assert_eq!(CloseMarch::LEN, 1);
         // S1
         assert_eq!(BuildVault::LEN, 2);
-        assert_eq!(SendCaravan::LEN, 1 + 4 + 1 + 2 + 2 + 1 + 1 + 1 + 12 + 32 + 8);
+        assert_eq!(
+            SendCaravan::LEN,
+            1 + 4 + 1 + 2 + 2 + 1 + 1 + 1 + 12 + 32 + 8
+        );
         assert_eq!(SettleCaravan::LEN, 33);
         let units = [0, 120, 0, 40, 9, 0, 0, 0];
         let m = cargo_milli(&cargo_bytes(&units)).unwrap();

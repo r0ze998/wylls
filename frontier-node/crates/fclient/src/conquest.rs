@@ -21,7 +21,8 @@ pub const SNAP_RING_HOURS: u32 = p2::SNAP_N as u32;
 
 // ------------------------------------------------------------ log records
 
-/// One MC log record (kinds 80–88), its key and payload as typed fields.
+/// One MC or S1 log record (kinds 80–88, 90–94), its key and payload as
+/// typed fields.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CqEvent {
     SiegeDeclared {
@@ -106,10 +107,137 @@ pub enum CqEvent {
         order: u8,
         gen: u8,
     },
+    // S1 (stage 1b, kinds 90–94).
+    VaultBuilt {
+        p: i32,
+        q: i32,
+        tile: u8,
+        owner_tag: u64,
+        faction: u8,
+        gen: u8,
+        holding_key: u64,
+    },
+    CaravanSent {
+        owner_tag: u64,
+        seq: u32,
+        faction: u8,
+        src: LogPlace,
+        dst: LogPlace,
+        steps: u8,
+        /// Whole units per resource.
+        cargo: [u32; 8],
+        arrive_ts: i64,
+        runs: Vec<LogRun>,
+    },
+    CaravanSettled {
+        owner_tag: u64,
+        seq: u32,
+        /// `l2::caravan_outcome`.
+        outcome: u8,
+        dst: LogPlace,
+        cargo: [u32; 8],
+        fee: u64,
+    },
+    CaravanRaided {
+        owner_tag: u64,
+        seq: u32,
+        p: i32,
+        q: i32,
+        bell: u32,
+        /// `l2::raid_choice` TAKE or BURN.
+        choice: u8,
+        /// `l2::raid_choice` BY_RAIDER or BY_DEFAULT.
+        by: u8,
+        raider_tag: u64,
+        taken: [u32; 8],
+        /// The loot caravan's sequence (`u32::MAX`: none).
+        loot_seq: u32,
+    },
+    VaultSeized {
+        p: i32,
+        q: i32,
+        tile: u8,
+        captor_tag: u64,
+        prev_tag: u64,
+        new_gen: u8,
+        domestic: bool,
+        host_id: u64,
+    },
+}
+
+/// A caravan's origin or destination as logged (`l2::log_place`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LogPlace {
+    /// 1 holding, 2 vault, 3 a raid's field tile.
+    pub kind: u8,
+    pub p: i16,
+    pub q: i16,
+    /// Holding: the site; vault or field: the tile.
+    pub at: u8,
+    pub gen: u8,
+    pub tile: u8,
+}
+
+impl LogPlace {
+    pub fn parse(b: &[u8]) -> Option<LogPlace> {
+        if b.len() != l2::log_place::LEN {
+            return None;
+        }
+        Some(LogPlace {
+            kind: b[0],
+            p: i16::from_le_bytes([b[1], b[2]]),
+            q: i16::from_le_bytes([b[3], b[4]]),
+            at: b[5],
+            gen: b[6],
+            tile: b[7],
+        })
+    }
+}
+
+/// One province's share of a caravan's schedule as logged (`l2::log_run`):
+/// the caravan stands there at the start of bells `first_bell..first_bell
+/// + n`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LogRun {
+    pub p: i16,
+    pub q: i16,
+    pub first_bell: u32,
+    pub n: u8,
+}
+
+/// The runs of a CARAVAN_SENT payload (the empty ones dropped).
+pub fn parse_runs(b: &[u8]) -> Option<Vec<LogRun>> {
+    if b.len() != l2::log_run::LEN * l2::log_run::N {
+        return None;
+    }
+    Some(
+        b.chunks(l2::log_run::LEN)
+            .map(|e| LogRun {
+                p: i16::from_le_bytes([e[0], e[1]]),
+                q: i16::from_le_bytes([e[2], e[3]]),
+                first_bell: u32::from_le_bytes([e[4], e[5], e[6], e[7]]),
+                n: e[8],
+            })
+            .filter(|r| r.n > 0)
+            .collect(),
+    )
+}
+
+/// Eight logged `u32` amounts.
+fn units8(b: &[u8]) -> Option<[u32; 8]> {
+    if b.len() != 32 {
+        return None;
+    }
+    let mut out = [0u32; 8];
+    for (i, o) in out.iter_mut().enumerate() {
+        *o = u32::from_le_bytes(b[4 * i..4 * i + 4].try_into().ok()?);
+    }
+    Some(out)
 }
 
 impl CqEvent {
-    /// The Province the record is about (`None` for MARCH_FOLD and RETIRE).
+    /// The Province the record is about (`None` for MARCH_FOLD and RETIRE;
+    /// a caravan's origin when sent, its destination when settled).
     pub fn province(&self) -> Option<(i32, i32)> {
         use CqEvent::*;
         match self {
@@ -119,8 +247,13 @@ impl CqEvent {
             | CaptureSettled { p, q, .. }
             | Keep { p, q, .. }
             | Neutral { p, q, .. }
-            | OutpostSettled { p, q, .. } => Some((*p, *q)),
+            | OutpostSettled { p, q, .. }
+            | VaultBuilt { p, q, .. }
+            | CaravanRaided { p, q, .. }
+            | VaultSeized { p, q, .. } => Some((*p, *q)),
             MarchFold { .. } | Retire { .. } => None,
+            CaravanSent { src, .. } => Some((src.p as i32, src.q as i32)),
+            CaravanSettled { dst, .. } => Some((dst.p as i32, dst.q as i32)),
         }
     }
 }
@@ -235,6 +368,56 @@ pub fn parse(body: &[u8]) -> Option<CqLog> {
             citizen_tag: u("citizen_tag")?,
             order: b8("order")?,
             gen: b8("gen")?,
+        },
+        CqKind::VAULT_BUILT => CqEvent::VaultBuilt {
+            p: i("p")?,
+            q: i("q")?,
+            tile: b8("tile")?,
+            owner_tag: u("owner_tag")?,
+            faction: b8("faction")?,
+            gen: b8("gen")?,
+            holding_key: u("holding_key")?,
+        },
+        CqKind::CARAVAN_SENT => CqEvent::CaravanSent {
+            owner_tag: u("owner_tag")?,
+            seq: u("seq")? as u32,
+            faction: b8("faction")?,
+            src: LogPlace::parse(f("src")?)?,
+            dst: LogPlace::parse(f("dst")?)?,
+            steps: b8("steps")?,
+            cargo: units8(f("cargo")?)?,
+            arrive_ts: u("arrive_ts")? as i64,
+            runs: parse_runs(f("runs")?)?,
+        },
+        CqKind::CARAVAN_SETTLED => CqEvent::CaravanSettled {
+            owner_tag: u("owner_tag")?,
+            seq: u("seq")? as u32,
+            outcome: b8("outcome")?,
+            dst: LogPlace::parse(f("dst")?)?,
+            cargo: units8(f("cargo")?)?,
+            fee: u("fee")?,
+        },
+        CqKind::CARAVAN_RAIDED => CqEvent::CaravanRaided {
+            owner_tag: u("owner_tag")?,
+            seq: u("seq")? as u32,
+            p: i("p")?,
+            q: i("q")?,
+            bell: u("bell")? as u32,
+            choice: b8("choice")?,
+            by: b8("by")?,
+            raider_tag: u("raider_tag")?,
+            taken: units8(f("taken")?)?,
+            loot_seq: u("loot_seq")? as u32,
+        },
+        CqKind::VAULT_SEIZED => CqEvent::VaultSeized {
+            p: i("p")?,
+            q: i("q")?,
+            tile: b8("tile")?,
+            captor_tag: u("captor_tag")?,
+            prev_tag: u("prev_tag")?,
+            new_gen: b8("new_gen")?,
+            domestic: b8("domestic")? != 0,
+            host_id: u("host_id")?,
         },
     };
     Some(CqLog {

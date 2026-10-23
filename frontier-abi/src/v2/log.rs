@@ -480,6 +480,22 @@ pub fn chains_of(kind: AnyKind, key: &[u8], payload: &[u8]) -> Option<Chains> {
     use EntityRefV2::{Base, Caravan, March, Vault};
     let mut c = Chains::new();
     let k = match kind {
+        // S1: the CLOSE of a Vault or a Caravan chains the closed account
+        // (M1's CLOSE rule; its v1 table knows only the v1 kinds).
+        AnyKind::V1(crate::log::Kind::CLOSE)
+            if key.first() == Some(&(crate::v2::layout::AccountKind::Vault as u8)) =>
+        {
+            let (p, q, tile) = (rd_i32(key, 1)?, rd_i32(key, 5)?, *key.get(9)?);
+            c.push(E::Vault, Vault { p, q, tile }, false);
+            return Some(c);
+        }
+        AnyKind::V1(crate::log::Kind::CLOSE)
+            if key.first() == Some(&(crate::v2::layout::AccountKind::Caravan as u8)) =>
+        {
+            let (owner_tag, seq) = (rd_u64(key, 1)?, rd_u32(key, 9)?);
+            c.push(E::Caravan, Caravan { owner_tag, seq }, false);
+            return Some(c);
+        }
         AnyKind::V1(k) => {
             let v = chains_of_v1(k, key, payload)?;
             for x in v.iter() {
@@ -822,6 +838,37 @@ pub fn key_arr<const N: usize>(key: &[u8], off: usize) -> Option<[u8; N]> {
 
 #[cfg(test)]
 mod tests {
+
+    /// S1: a Vault's or a Caravan's CLOSE chains the closed account.
+    #[test]
+    fn s1_close_chains_the_closed_account() {
+        let k = AnyKind::V1(crate::log::Kind::CLOSE);
+        let v = chains_of(k, &close_key_vault(-3, 4, 17), &[]).expect("vault close");
+        let e: alloc::vec::Vec<_> = v.iter().map(|x| (x.entity, x.who)).collect();
+        assert_eq!(
+            e,
+            [(
+                EntityKind::Vault,
+                EntityRefV2::Vault {
+                    p: -3,
+                    q: 4,
+                    tile: 17
+                }
+            )]
+        );
+        let v = chains_of(k, &close_key_caravan(0xABCD, 9), &[]).expect("caravan close");
+        let e: alloc::vec::Vec<_> = v.iter().map(|x| (x.entity, x.who)).collect();
+        assert_eq!(
+            e,
+            [(
+                EntityKind::Caravan,
+                EntityRefV2::Caravan {
+                    owner_tag: 0xABCD,
+                    seq: 9
+                }
+            )]
+        );
+    }
     use super::*;
 
     #[test]
