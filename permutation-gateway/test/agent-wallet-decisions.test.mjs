@@ -161,3 +161,26 @@ test('the strict schema (opt-in): one branch per action with its required fields
   // Only the allowed names get a branch.
   assert.deepEqual(decisionSchema(['Harvest'], { strict: true }).anyOf.map(b => b.properties.action.const), ['Harvest', 'rest']);
 });
+
+test('the owner took the key back on chain while the server is in auto: the runner makes no paid call (nothing could be sent)', async () => {
+  const { AgentScheduler } = await import('../src/frontier/agent/runner.mjs');
+  const r = relay({ prices: { inference: '10000' } });
+  const a = await ready(r, { balance: 100_000n });
+  let calls = 0;
+  const llm = { alias: 'fake', async complete() { calls++; return { ok: true, content: JSON.stringify({ action: 'Harvest', fields: {}, reason: 'x' }), usage: null }; } };
+  const s = new AgentScheduler({ gateway: r.gateway, decider: llmDecider({ llm }), minCallGapMs: 0, log: () => {} });
+  await s.tick();
+  assert.equal(calls, 1, 'delegated: the model is asked');
+  // SetSession back to another key (the owner's own): still auto on the server.
+  delegate(r, a.o, Keypair.generate().publicKey.toBase58());
+  assert.equal(r.gateway.view(a.agentId).mode, 'auto');
+  const spent = r.gateway.view(a.agentId).balance.spent.inference;
+  for (let i = 0; i < 5; i++) assert.equal((await s.tick())[0].skipped, 'not-delegated');
+  assert.equal(calls, 1, 'no call while the chain does not name the agent key');
+  assert.equal(r.gateway.view(a.agentId).balance.spent.inference, spent, 'nothing charged');
+  // A delegation the relay cannot read is not a delegation either.
+  r.gateway.delegation = async () => { throw new Error('rpc down'); };
+  assert.equal((await s.tick())[0].skipped, 'delegation-unread');
+  assert.equal(calls, 1);
+  sound(r);
+});

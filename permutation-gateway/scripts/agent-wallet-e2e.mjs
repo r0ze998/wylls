@@ -483,6 +483,57 @@ async function run() {
   assert.equal(revoked.delegation?.delegated, false, 'after the owner\'s SetSession the chain no longer names the agent key');
   check('owner-plays-again', { setSession: back, delegatedOnChain: revoked.delegation.delegated });
 
+  // 5b. After the revocation, the old credentials cannot act (STATUS-2026-10-23.ja.md §4; PLAN-NEXT stage 3).
+  // (a) The owner rotates the capability: the old token is refused at once.
+  const rotated = await api('/f/agent/command', command(keypair, 'rotate-capability', { agentId }));
+  assert.equal(rotated.status, 200, json(rotated));
+  const newCapability = rotated.body.capability.token;
+  assert.notEqual(newCapability, capability);
+  const oldToken = await api('/f/agent/action', { capability, request: request() });
+  assert.equal(oldToken.body.code, 'BadCapability', json(oldToken));
+  // (b) Back to auto on the server although the chain no longer names the agent key: the new token's request is refused
+  //     by the chain's delegation, nothing is sent or charged, and the runner makes no paid model call.
+  const reAuto = await api('/f/agent/command', command(keypair, 'mode', { agentId, params: { mode: 'auto' } }));
+  assert.equal(reAuto.body.agent?.mode, 'auto', json(reAuto));
+  const v5b = await agentView(agentId);
+  const sentBefore = v5b.history.filter(x => x.type === 'action' && x.status === 'sent').length;
+  const notDelegated = await api('/f/agent/action', { capability: newCapability, request: request({ policyVersion: v5b.policy.version, modeEpoch: v5b.modeEpoch }) });
+  assert.equal(notDelegated.body.status, 'refused', json(notDelegated));
+  assert.equal(notDelegated.body.error?.code, 'SessionNotDelegated', json(notDelegated));
+  const callsAtReAuto = model.calls;
+  await sleep(3 * terms.body.runner.tickMs);
+  const v5b2 = await agentView(agentId);
+  assert.equal(v5b2.history.filter(x => x.type === 'action' && x.status === 'sent').length, sentBefore, 'nothing sent without the delegation');
+  assert.equal(v5b2.balance.spent.inference, v5b.balance.spent.inference, 'no paid model call without the delegation');
+  if (!realModel) assert.equal(model.calls, callsAtReAuto, 'the stand-in model was not asked');
+  const skippedNotDelegated = (await api('/f/agent/terms')).body.runner?.stats?.skipped?.['not-delegated'] ?? null;
+  // (c) The old agent key, used directly against the chain (around the relay, paying its own fee): the program refuses it.
+  //     Needs the relay's key directory (AGENT_E2E_RUN_DIR); recorded as not checked otherwise.
+  let direct5b = { checked: false, why: 'AGENT_E2E_RUN_DIR not set' };
+  if (runDir) {
+    const seedHex = readFileSync(path.join(runDir, 'relay', 'agent-keys', `${agentId}.key`), 'utf8').trim();
+    const oldKey = Keypair.fromSeed(Buffer.from(seedHex, 'hex'));
+    assert.equal(oldKey.publicKey.toBase58(), agentKey);
+    const payer = Keypair.generate();
+    await rpc('requestAirdrop', [payer.publicKey.toBase58(), 1_000_000_000]);
+    await eventually('the payer funded', async () => (await rpc('getBalance', [payer.publicKey.toBase58()]))?.value > 0);
+    const { blockhash } = (await rpc('getLatestBlockhash', [])).value;
+    const msg = shapeMessage({ programId: pin.programId, name: 'Harvest', accounts: accountsFor('Harvest', { ...player.context, actor: agentKey }), fields: {}, feePayer: payer.publicKey.toBase58(), recentBlockhash: blockhash, profile: 2 });
+    const wire = wireTransaction(msg, { [payer.publicKey.toBase58()]: signTalk(msg, payer), [agentKey]: signTalk(msg, oldKey) });
+    const raw = async (skipPreflight) => (await (await fetch(rpcUrl, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'sendTransaction', params: [toBase64(wire), { encoding: 'base64', skipPreflight }] }) })).json());
+    const pre = await raw(false);
+    assert.ok(pre.error, `the simulation must refuse the old agent key: ${json(pre)}`);
+    // And sent without the simulation: it may land as a failed transaction, never as a successful one.
+    const sent = await raw(true);
+    let st = null;
+    if (sent.result) st = await eventually('the direct send settles or is dropped', async () => (await rpc('getSignatureStatuses', [[sent.result], { searchTransactionHistory: true }]))?.value?.[0] ?? null, 20_000).catch(() => null);
+    assert.ok(!st || st.err, `the old agent key's direct Harvest must not succeed: ${json(st)}`);
+    direct5b = { checked: true, preflight: String(pre.error?.message ?? '').slice(0, 200), sentWithoutPreflight: sent.result ? { signature: sent.result, status: st } : { error: String(sent.error?.message ?? '').slice(0, 200) } };
+  }
+  // Stopped again for what follows.
+  await api('/f/agent/command', command(keypair, 'mode', { agentId, params: { mode: 'manual' } }));
+  check('after-revocation', { oldTokenRefused: oldToken.body.code, newTokenWithoutDelegation: notDelegated.body.error.code, noPaidCall: true, skippedNotDelegated, directRpcByOldKey: direct5b });
+
   // 6. The unused balance goes back to the owner's wallet.
   const walletBefore = await tokenBalance(wallet.address);
   const w = await api('/f/agent/command', command(keypair, 'withdraw', { agentId, params: { all: true } }));

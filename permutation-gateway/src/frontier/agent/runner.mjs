@@ -497,6 +497,13 @@ export class AgentScheduler {
           out.push({ ...this.#skip(id, d.why), triggers: d.triggers });
           continue;
         }
+        // The chain's delegation before a paid call: when the owner took the key back (SetSession) while the server
+        // is still in auto, nothing the model decides could be sent, so no call is made (and none is charged).
+        // An unreadable delegation is treated the same way: the gateway would have to refuse anyway.
+        if (typeof this.gateway.delegation === 'function') {
+          const del = await this.gateway.delegation(id).catch(() => null);
+          if (!del || del.delegated !== true) { out.push({ ...this.#skip(id, del ? 'not-delegated' : 'delegation-unread'), triggers: d.triggers }); continue; }
+        }
         this.inflight.add(id);
         try {
           const r = await runOnce(this.gateway, id, this.decider, { now: this.now, observation: { ...obs, triggers: d.triggers } });
