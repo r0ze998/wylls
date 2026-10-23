@@ -129,4 +129,8 @@ export default {
   '送った行動の結果をチェーンで確定できません（運営の確認待ち）': 'The sent action\'s result cannot be confirmed on chain (waiting for the operator)',
   'チェーンで結果を確定できない送信が {0} あります。確定するまで「いま使える」には戻しません（二重の引き出しを防ぐため）。': '{0} in sent transactions cannot be confirmed on chain. It does not return to "available" until it is (so it cannot be withdrawn twice).',
   '今日の送信回数の残り {0}（あなたの手動の操作と代理人で共有。使い切ると、代理人は判断料を払わずに日付が変わるのを待ちます）': 'Sponsored transactions left today: {0} (shared by your own play and the agent; when they run out, the agent waits for the day to roll without paying for decisions)',
+  'ウォレットが見つかりません': 'No wallet found',
+  '{0}でつなぐ': 'Connect {0}',
+  'テスト用ウォレットはこのブラウザにだけある鍵です。拡張機能のウォレットは、ローカルのテスト用チェーン（solana:localnet）への署名に対応しているものだけが選べます。': 'The test wallet is a key kept in this browser only. A browser-extension wallet can be chosen only if it signs for the local test chain (solana:localnet).',
+  '{0}は使えません：{1}': '{0} cannot be used: {1}',
 };
