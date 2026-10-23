@@ -27,16 +27,16 @@ export const CENTRE_TILE = 30;
 
 /** The words of the marks. */
 export const S1_WORDS = Object.freeze({
-  vault: () => L`倉庫`,
+  vault: () => L`貯蔵庫`,
   tower: () => L`物見櫓`,
   palisade: () => L`柵`,
   fort: () => L`要塞`,
   caravan: () => L`隊商`,
-  raided: () => L`襲われた隊商`,
+  raided: () => L`略奪された隊商`,
 });
 /** A caravan's tag: when it arrives. */
 // (the cart's place is an estimate between its two ends; the tag says so, so nobody plans an ambush on a guess)
-export const caravanTagText = (bell, raided = false) => (raided ? L`襲われた隊商 ターン ${fmtNum(bell)} 着` : L`隊商 ターン ${fmtNum(bell)} 着 · 位置は推定`);
+export const caravanTagText = (bell, raided = false) => (raided ? L`略奪された隊商 ターン ${fmtNum(bell)} 着` : L`隊商 ターン ${fmtNum(bell)} 着 · 位置は推定`);
 
 /** The bell a caravan arrives at: after its last run (the bells it spends in each province on its way). */
 export function caravanArriveBell(c) {

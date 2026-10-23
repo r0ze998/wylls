@@ -31,6 +31,8 @@ import { materialBytes } from '../marchbook.mjs';
 import { cardHead, chip, fold, label } from '../screens/parts.mjs';
 import { conquestEnabled, keepFor, renderKeep, renderOutpost } from '../screens/conquest.mjs';
 import { territoryEnabled, territoryOf, territoryOwner } from '../territory.mjs';
+import { s1On } from '../fs1.mjs';
+import { renderS1Tile } from '../screens/s1.mjs';
 
 /** Site states as the overview carries them (herald SITE_STATE) and the mirror (3 = released: a Free City). */
 const SITE_TEXT = { free: () => L`村を置ける場所`, holding: () => L`村`, camp: () => L`蛮族の野営地`, reserved: () => L`予約済みの場所`, freeCity: () => L`自由都市` };
@@ -232,6 +234,7 @@ export function render(FS, terrainOf, activities = null) {
     ${m.opened && m.level < 3 ? html`<p class="insp-survey">${chip(m.level === 2 ? L`測量済み` : L`未測量`, '', 'chart')}<span class="muted">${m.level === 2 ? L`前に見た範囲です。土地と村を、色を落として描きます。` : L`まだ見ていない範囲です。地形だけを図にしています。`}</span></p>` : ''}
     ${main.length ? html`<div class="actions insp-acts">${main.map((a, i) => btn({ ...a, primary: a.primary && i === main.findIndex(x => x.primary) }))}</div>` : ''}
     ${hosts}${doing}
+    ${s1On() && FS.mode === 'play' && t && m.level === 3 ? renderS1Tile(FS, { p: m.p, q: m.q, idx: t.idx }) : ''}
     ${keepVisible && m.ring >= 2 ? renderKeep(FS, keep) : ''}
     ${site && ['free', 'freeCity'].includes(site.state) && m.level === 3 && !territoryEnabled(FS) ? renderOutpost(FS, { p: m.p, q: m.q, site: site.index }) : ''}
     ${!m.loaded && m.opened ? html`<p class="muted">${L`この州のようすを読み込んでいます…`}</p>` : ''}

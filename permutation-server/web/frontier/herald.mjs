@@ -830,6 +830,12 @@ function caravanOf(v, at) {
       return { p: intOf(ro, 'p', -COORD, COORD, a), q: intOf(ro, 'q', -COORD, COORD, a), firstBell: intOf(ro, 'firstBell', 0, U32, a), n: intOf(ro, 'n', 0, 255, a) };
     }),
     raided,
+    // the packed walk and the Provinces it enters, the origin's first (a checkpoint older than them has neither)
+    path: Object.hasOwn(o, 'path') ? (() => { const a = arrOf(o, 'path', at); check(a.length === 12, 'BadSchema', `${at}: path is not 12 bytes`); return a.map((_, i) => intOf(a, i, 0, 255, `${at}.path`)); })() : null,
+    provinces: Object.hasOwn(o, 'provinces') ? arrOf(o, 'provinces', at).map((x, i) => {
+      check(Array.isArray(x) && x.length === 2, 'BadSchema', `${at}.provinces[${i}] is not [p, q]`);
+      return { p: intOf(x, 0, -COORD, COORD, `${at}.provinces[${i}]`), q: intOf(x, 1, -COORD, COORD, `${at}.provinces[${i}]`) };
+    }) : null,
   };
 }
 function vaultOf(v, at) {
@@ -842,7 +848,8 @@ function vaultOf(v, at) {
 
 /**
  * `/h/caravans.json` → `{v: 1, moving: [{ownerTag, seq, faction, src, dst,
- * steps, cargo[8], arriveTs, runs: [{p, q, firstBell, n}], raided}], vaults:
+ * steps, cargo[8], arriveTs, runs: [{p, q, firstBell, n}], raided, path (12 bytes | null),
+ * provinces ([{p, q}] | null)}], vaults:
  * [{p, q, tile, ownerTag, faction, gen}]}`, checked. Tags stay decimal strings.
  */
 export function parseCaravans(input) {

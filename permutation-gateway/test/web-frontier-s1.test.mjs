@@ -101,7 +101,8 @@ const place = (kind, tile) => ({ kind, p: 3, q: 0, at: 2, gen: 1, tile });
 const CARAVANS = {
   v: 1,
   moving: [{ ownerTag: '18446744073709551615', seq: 0, faction: 1, src: place(1, 20), dst: place(2, 40), steps: 7,
-    cargo: [0, 100, 0, 0, 0, 0, 0, 0], arriveTs: 1790000000, runs: [{ p: 3, q: 0, firstBell: 290, n: 2 }], raided: false }],
+    cargo: [0, 100, 0, 0, 0, 0, 0, 0], arriveTs: 1790000000, runs: [{ p: 3, q: 0, firstBell: 290, n: 2 }], raided: false,
+    path: [0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], provinces: [[3, 0], [4, 0]] }],
   vaults: [{ p: 3, q: 0, tile: 40, ownerTag: '9', faction: 1, gen: 1 }],
 };
 const STRUCTURES = {
@@ -129,7 +130,9 @@ const code = fn => { try { fn(); return null; } catch (e) { return e.code; } };
 
 test('the caravans feed is read as herald/src/caravan.rs writes it', () => {
   const c = parseCaravans(JSON.stringify(CARAVANS));
-  assert.deepEqual(c, CARAVANS);
+  assert.deepEqual(c, { ...CARAVANS, moving: [{ ...CARAVANS.moving[0], provinces: [{ p: 3, q: 0 }, { p: 4, q: 0 }] }] });
+  const older = clone(CARAVANS); delete older.moving[0].path; delete older.moving[0].provinces;
+  assert.equal(parseCaravans(older).moving[0].provinces, null, 'a checkpoint from before the route was published');
   assert.equal(c.moving[0].ownerTag, '18446744073709551615', 'tags stay exact decimal strings');
   const bad = [
     o => { o.v = 2; },
@@ -140,6 +143,8 @@ test('the caravans feed is read as herald/src/caravan.rs writes it', () => {
     o => { o.moving[0].faction = 6; },
     o => { delete o.moving[0].runs; },
     o => { o.vaults[0].tile = 61; },
+    o => { o.moving[0].path.pop(); },
+    o => { o.moving[0].provinces[1] = [4]; },
   ];
   for (const f of bad) { const o = clone(CARAVANS); f(o); assert.ok(code(() => parseCaravans(o)), String(f)); }
   assert.deepEqual(parseCaravans({ v: 1, moving: [], vaults: [] }), { v: 1, moving: [], vaults: [] });
@@ -277,7 +282,7 @@ test('the S1 caravan and vault numbers are caravan.rs\'s and travel.rs\'s', () =
   for (const n of ['FLAT_HEX_SECS', 'ROUGH_HEX_SECS', 'ROAD_BPS', 'MAX_PATH_STEPS', 'MAX_PATH_PROVINCES']) assert.equal(CAR[n], Number(c(tr, n)), n);
 });
 
-import { seasonAddresses } from '../../permutation-server/web/frontier/faddr.mjs';
+import { seasonAddresses, hostId } from '../../permutation-server/web/frontier/faddr.mjs';
 
 test('the S1 accounts\' addresses are fclient\'s (vault, structure, caravan, nation)', () => {
   const V = JSON.parse(readFileSync(new URL('./fixtures/s1-addresses-v1.json', import.meta.url), 'utf8'));
@@ -346,4 +351,151 @@ test('the S1 shapes are fclient\'s instructions, key for key and byte for byte, 
     const problems = io.messageProblems(message, { feePayer: V.payer, blockhash: V.program, tag: ix.data[0], signers: [V.actor], cuLimit: null, loadedLimit: null, expected: ix });
     assert.deepEqual(problems, [], `${name} #${i}`);
   });
+});
+
+// ---------------------------------------------------------------- the play screens (screens/s1.mjs) and their orders
+
+import * as SCR from '../../permutation-server/web/frontier/screens/s1.mjs';
+import * as C from '../../permutation-server/web/frontier/controller.mjs';
+import { FS } from '../../permutation-server/web/frontier/fstate.mjs';
+
+const ALL = (1n << 61n) - 1n;
+const store = units => ({ value: BigInt(units) * 1000n, rate: 0n, cap: 10n ** 12n, t0: 10n ** 12n, frac: 0n });
+const holding = (p, q, site, tile, units = 1000) => ({ p, q, site, tile, gen: 1, state: 2, tier: 1, faction: 1, stores: Array.from({ length: 8 }, () => store(units)), reserve: [300, 0, 0, 0, 0, 0, 0, 0], queue: [] });
+const prov = (p, q, extra = {}) => ({ p, q, layoutVersion: 2, passableMask: ALL, roughMask: 0n, roadMask: 0n, siteCount: 2, sites: [5, 6], camp: { state: 1, tile: 7 }, keep: { tile: 8, holder: 1 }, resolvedNext: 10, structures: [], forts: [], caravans: [], ...extra });
+const world = (extra = {}) => ({ mode: 'play', nowBell: 100, chain: { now: () => 1000 }, citizen: { faction: 1, vaults: 0, towers: 0, palisades: 0, forts: 0, caravans: 4, voted: [0, 0, 0, 0] },
+  holdings: [holding(0, 0, 0, 30), holding(1, 0, 2, 20)], activeHolding: 0, provinces: new Map(), s1: { caravans: { moving: [], vaults: [] }, structures: { structures: [], sightings: [] }, nations: null }, ...extra });
+
+test('a tile takes a storehouse or a structure only where the program allows it, paid from the village in hand', () => {
+  const P = prov(0, 0);
+  assert.equal(SCR.siteProblem(P, 30), null);
+  assert.equal(SCR.siteProblem(P, 5), 'Site');
+  assert.equal(SCR.siteProblem(P, 7), 'Camp');
+  assert.equal(SCR.siteProblem(P, 8), 'Keep');
+  assert.equal(SCR.siteProblem({ ...P, passableMask: ALL ^ (1n << 30n) }, 30), 'Impassable');
+  assert.equal(SCR.siteProblem(null, 30), 'Unknown');
+  const fs = world({ provinces: new Map([['0,0', { province: P }]]) });
+  const m = SCR.s1TileModel(fs, { p: 0, q: 0, idx: 31 });
+  assert.deepEqual(m.build.vault.blocks, []);
+  assert.deepEqual(m.build.structures.map(s => s.blocks), [[], [], []]);
+  const poor = SCR.s1TileModel({ ...fs, holdings: [holding(0, 0, 0, 30, 10)] }, { p: 0, q: 0, idx: 31 });
+  assert.ok(poor.build.vault.blocks.includes('Insufficient'));
+  const full = SCR.s1TileModel({ ...fs, citizen: { ...fs.citizen, vaults: 3, forts: 1 } }, { p: 0, q: 0, idx: 31 });
+  assert.ok(full.build.vault.blocks.includes('VaultLimit'));
+  assert.ok(full.build.structures[2].blocks.includes('StructureLimit'));
+  const crowded = SCR.s1TileModel({ ...fs, provinces: new Map([['0,0', { province: { ...P, forts: [{ state: 1 }, { state: 1 }] } }]]) }, { p: 0, q: 0, idx: 31 });
+  assert.deepEqual(crowded.build.structures.map(s => s.blocks.includes('StructureFull')), [false, false, true], 'two forts fill a province');
+  const taken = SCR.s1TileModel({ ...fs, s1: { ...fs.s1, caravans: { moving: [], vaults: [{ p: 0, q: 0, tile: 31, ownerTag: '9', faction: 2, gen: 1 }] } } }, { p: 0, q: 0, idx: 31 });
+  assert.ok(taken.build.vault.blocks.includes('Taken'));
+  assert.equal(taken.vault.faction, 2);
+  assert.match(String(SCR.renderS1Tile(fs, { p: 0, q: 0, idx: 31 })), /data-act="s1-vault"[^>]*data-tile="31"/);
+  assert.match(String(SCR.renderS1Tile(fs, { p: 0, q: 0, idx: 31 })), /data-act="s1-structure"[^>]*data-kind="3"/);
+  assert.match(String(SCR.renderS1Tile(fs, { p: 0, q: 0, idx: 5 })), /data-act="s1-vault"[^>]*data-tile="5" disabled>/, 'on a village\'s site the offer stands, disabled');
+  assert.doesNotMatch(String(SCR.renderS1Tile(fs, { p: 0, q: 0, idx: 31 })), /data-act="s1-vault"[^>]*disabled/);
+});
+
+test('a raid the viewer\'s host has won is offered on its tile until its window closes', () => {
+  const c = { ownerTag: '77', seq: 1, faction: 2, src: { p: 0, q: 0, tile: 1 }, dst: { p: 2, q: 0, tile: 1 }, runs: [], raided: false, provinces: [{ p: 0, q: 0 }, { p: 1, q: 0 }] };
+  const raider = hostId({ p: 1, q: 0, site: 2, gen: 1, seq: 3 });
+  const slot = { id: SCR.caravanId(77n, 1), faction: 2, n: 3, raidOff: 1, raidPos: 0, firstBell: 98, tiles: [10, 11, 12, 0, 0, 0, 0, 0], raider };
+  const fs = world({ provinces: new Map([['1,0', { province: prov(1, 0, { caravans: [slot, { id: 0n }] }) }]]), s1: { caravans: { moving: [c], vaults: [] } } });
+  const r = SCR.raidOffers(fs);
+  assert.equal(r.length, 1);
+  assert.deepEqual([r[0].p, r[0].q, r[0].tile, r[0].slot, r[0].raidBell, r[0].decideBy, r[0].open], [1, 0, 11, 0, 99, 105, true]);
+  assert.equal(SCR.raidOffers({ ...fs, nowBell: 106 })[0].open, false);
+  assert.equal(SCR.raidOffers({ ...fs, holdings: [holding(0, 0, 0, 30)] }).length, 0, 'another\'s host');
+  assert.equal(SCR.raidOffers({ ...fs, provinces: new Map([['1,0', { province: prov(1, 0, { caravans: [{ ...slot, raidOff: SCR.RAID_SETTLED }] }) }]]) }).length, 0, 'settled');
+  assert.match(String(SCR.renderS1Tile(fs, { p: 1, q: 0, idx: 11 })), /data-act="s1-raid"[^>]*data-choice="take"/);
+  assert.equal(SCR.caravanId(77n, 1), (1n << 63n) | (77n << 16n) | 1n);
+});
+
+test('the village offers caravans to its other places, its fort, and its nation\'s votes', () => {
+  const tag = 5n;
+  const fs = world({ provinces: new Map([['0,0', { province: prov(0, 0, { forts: [{ tile: 33, state: 1, troops: 150000, pend: 20 }] }) }]]),
+    s1: { caravans: { moving: [{ ownerTag: '5', seq: 0, faction: 1, runs: [{ p: 0, q: 0, firstBell: 99, n: 4 }], raided: false }], vaults: [{ p: 0, q: 1, tile: 9, ownerTag: '5', faction: 1, gen: 2 }] },
+      structures: { structures: [{ p: 0, q: 0, tile: 33, kind: 3, faction: 1, ownerTag: '5', gen: 1, notify: 0, cover: [], sent: 170 }], sightings: [] },
+      nations: { stances: Array.from({ length: 6 }, () => Array(6).fill(0)).map((r, n) => (n === 1 ? [0, 0, 2, 1, 0, 0] : r)),
+        proposals: [{ faction: 1, id: 7, slot: 2, kind: 'stance', targetFaction: 4, value: 1, yes: 2, no: 0, closeBell: 120, state: 'open' }, { faction: 2, id: 1, slot: 0, kind: 'stance', targetFaction: 1, value: 0, yes: 0, no: 0, closeBell: 120, state: 'open' }], expelled: [], domesticRaids: [] } } });
+  // the viewer's tag (people/ui ownTag: a holding's owner)
+  fs.holdings.forEach(h => { h.ownerCitizen = new Uint8Array([5, 0, 0, 0, 0, 0, 0, 0, ...Array(24).fill(0)]); });
+  const m = SCR.s1VillageModel(fs);
+  assert.equal(SCR.viewerTag(fs), tag);
+  assert.deepEqual(m.destinations, [{ kind: 'holding', p: 1, q: 0, site: 2, gen: 1 }, { kind: 'vault', p: 0, q: 1, tile: 9, gen: 2 }]);
+  assert.equal(m.caravans[0].arriveBell, 103);
+  assert.deepEqual(m.forts.map(f => [f.tile, f.troops, f.room]), [[33, 170, 1830]]);
+  assert.equal(m.spearmen, 300);
+  assert.deepEqual(m.nation.stances.map(s => s.stance), ['war', 'ally', 'pass', 'war', 'war']);
+  assert.deepEqual(m.nation.proposals.map(x => [x.id, x.voted, x.closesIn]), [[7, false, 20]], 'its own nation\'s open proposals');
+  const html = String(SCR.renderS1Village(fs));
+  for (const f of ['s1-caravan', 's1-fort', 's1-propose']) assert.match(html, new RegExp(`data-form="${f}"`));
+  assert.match(html, /data-act="s1-vote"[^>]*data-id="7"[^>]*data-yes="1"/);
+  const voted = SCR.s1VillageModel({ ...fs, citizen: { ...fs.citizen, voted: [0, 0, 7, 0] } });
+  assert.equal(voted.nation.proposals[0].voted, true);
+  assert.match(String(SCR.proposalText(m.nation.proposals[0])), /通行を許す/);
+});
+
+test('a caravan is sent along the fastest road, and a raid taken home, as SendCaravan and RaidCaravan', async () => {
+  const saved = { ...FS };
+  const sent = [];
+  const V = JSON.parse(readFileSync(new URL('./fixtures/s1-addresses-v1.json', import.meta.url), 'utf8'));
+  io.setPin({ programId: V.program, cluster: 'localnet', seasonId: V.seasonId, rulesetHash: rulesetFor(3) });
+  const wallet = 'Gh9ZwEmdLJ8DscKNTkTqPbNwLNNBjuSzaG9Vp2KGtKJr';
+  try {
+    const provinces = new Map();
+    for (const c of CAR.landsWanted({ p: 0, q: 0 }, { p: 1, q: 0 })) provinces.set(`${c.p},${c.q}`, { province: prov(c.p, c.q) });
+    Object.assign(FS, world({ provinces }), { wallet: { address: wallet }, session: { publicKey: V.program, sign: async () => new Uint8Array(64) }, notice: null, inFlight: 0 });
+    C.useTransport({ submit: async req => { sent.push(req); return { ok: false, code: 'Stop' }; } });
+    await C.FORMS['s1-caravan']({ elements: { dst: { value: '0' }, c1: { value: '120' }, c2: { value: '0' } } });
+    assert.equal(sent.length, 1);
+    const q = sent[0];
+    assert.equal(q.name, 'SendCaravan');
+    assert.equal(q.fields.seq, 4, 'the Citizen\'s next caravan');
+    assert.equal(q.fields.fee, CAR.CARAVAN_FEE);
+    assert.deepEqual([q.fields.dst_kind, q.fields.dst_p, q.fields.dst_q, q.fields.dst_at, q.fields.dst_gen], [1, 1, 0, 2, 1]);
+    const plan = CAR.fastestPath({ p: 0, q: 0, tile: 30 }, { p: 1, q: 0, tile: 20 }, [...provinces.values()].map(e => CAR.landOfProvince(e.province)));
+    assert.equal(q.fields.steps, plan.dirs.length);
+    assert.deepEqual([...q.fields.path], [...CAR.pack(plan.dirs)]);
+    assert.equal(new DataView(q.fields.cargo.buffer).getUint32(4, true), 120);
+    const A = io.pinned().addresses;
+    assert.deepEqual(q.accounts.path_province, plan.provinces.map(p => A.of('Province', p)));
+    // nothing to carry, or more than the village has: refused before anything is built
+    await C.FORMS['s1-caravan']({ elements: { dst: { value: '0' } } });
+    await C.FORMS['s1-caravan']({ elements: { dst: { value: '0' }, c1: { value: '5000' } } });
+    assert.equal(sent.length, 1);
+    // a raid won by the host of the village at (1, 0): taken home
+    const raider = hostId({ p: 1, q: 0, site: 2, gen: 1, seq: 3 });
+    const c = { ownerTag: '77', seq: 1, faction: 2, runs: [], raided: false, provinces: [{ p: 0, q: 0 }, { p: 1, q: 0 }, { p: 1, q: -1 }] };
+    FS.provinces.set('1,0', { province: prov(1, 0, { caravans: [{ id: SCR.caravanId(77n, 1), raidOff: 0, firstBell: 99, tiles: [40], raider }] }) });
+    FS.s1 = { ...FS.s1, caravans: { moving: [c], vaults: [] } };
+    await C.ACTIONS['s1-raid']({ p: '1', q: '0', slot: '0', choice: 'take' });
+    const r = sent[1];
+    assert.equal(r.name, 'RaidCaravan');
+    assert.equal(r.fields.choice, 0);
+    assert.equal(r.accounts.caravan, A.of('Caravan', { ownerTag: 77n, seq: 1 }));
+    assert.equal(r.accounts.path_province[0], A.of('Province', { p: 1, q: 0 }), 'the raid\'s Province first');
+    assert.ok(r.accounts.path_province.includes(A.of('Province', { p: 1, q: -1 })), 'the old route\'s others after');
+    await C.ACTIONS['s1-raid']({ p: '1', q: '0', slot: '0', choice: 'burn' });
+    assert.equal(sent[2].fields.choice, 1);
+    assert.equal(sent[2].accounts.path_province.length, 1);
+  } finally {
+    C.useTransport(null);
+    Object.assign(FS, saved);
+  }
+});
+
+test('the structure and raid numbers the panels offer by are structure.rs\'s and caravan.rs\'s', () => {
+  const st = readFileSync(new URL('../../permutation-rules/src/frontier/structure.rs', import.meta.url), 'utf8');
+  const cv = readFileSync(new URL('../../permutation-rules/src/frontier/caravan.rs', import.meta.url), 'utf8');
+  const c = (src, n) => src.match(new RegExp(`pub const ${n}: [^=]+= ([^;]+);`))[1].replace(/_/g, '');
+  for (const [kind, name] of [[1, 'KIND_TOWER'], [2, 'KIND_PALISADE'], [3, 'KIND_FORT']]) {
+    assert.equal(Number(c(st, name)), kind);
+    assert.deepEqual([...SCR.STRUCTURE_COST[kind]], JSON.parse(st.match(new RegExp(`${name} => (\\[[^\\]]+\\])`))[1]), `${name} cost`);
+    assert.equal(SCR.STRUCTURE_MAX[kind], Number(st.match(new RegExp(`${name} => (\\d+),`))[1]), `${name} max`);
+  }
+  assert.equal(SCR.PROVINCE_STRUCTURES, Number(c(st, 'PROVINCE_STRUCTURES')));
+  assert.equal(SCR.PROVINCE_FORTS, Number(c(st, 'PROVINCE_FORTS')));
+  assert.equal(SCR.FORT_MAX_TROOPS, Number(c(st, 'FORT_MAX_TROOPS')));
+  assert.equal(SCR.RAID_NONE, Number(c(cv, 'RAID_NONE')));
+  assert.equal(SCR.RAID_SETTLED, Number(c(cv, 'RAID_SETTLED')));
+  assert.equal(SCR.RAID_DECIDE_BELLS, Number(c(cv, 'RAID_DECIDE_BELLS')));
 });
