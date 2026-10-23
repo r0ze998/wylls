@@ -201,6 +201,17 @@ export function paintS1Marks(g, marks, { zoom = 1, faction = null, stand = (x, y
   const ART = { tower: paintTowerArt, palisade: paintPalisadeArt, fort: paintFortArt };
   for (const v of marks.vaults) { const p = at(v, -0.22, 0.2); if (p) stand(p.x, p.y, () => paintVaultArt(g, p.x, p.y, u, v)); }
   for (const s of marks.structures) { const p = at(s, 0.24, 0.18); if (p) stand(p.x, p.y, () => (ART[s.kind] ?? paintStructure)(g, p.x, p.y, u, s)); }
+  // a caravan's way (everything about a caravan is public, decision J1): a faint dashed line from where it left to
+  // where it goes, its end ringed; the feed names provinces, not tiles, so the line is straight, as its place is
+  for (const c of marks.caravans) {
+    const p = caravanPoint(c);
+    if (!p || !g?.setLineDash) continue;
+    g.save(); g.lineCap = 'round';
+    g.strokeStyle = 'rgba(20,14,6,.35)'; g.lineWidth = 4.2 / zoom; g.setLineDash([]); g.beginPath(); g.moveTo(p.a.x, p.a.y); g.lineTo(p.b.x, p.b.y); g.stroke();
+    g.strokeStyle = c.own ? YOURS.gold : FACTION_COLORS[c.faction] ?? '#9a9a9a'; g.lineWidth = 2 / zoom; g.setLineDash([7 / zoom, 6 / zoom]); g.beginPath(); g.moveTo(p.a.x, p.a.y); g.lineTo(p.b.x, p.b.y); g.stroke();
+    g.setLineDash([]); g.beginPath(); g.ellipse?.(p.b.x, p.b.y, RADIUS * 0.34, RADIUS * 0.34 * 0.76, 0, 0, Math.PI * 2); g.stroke();
+    g.restore();
+  }
   for (const c of marks.caravans) {
     const p = caravanPoint(c);
     if (!p) continue;

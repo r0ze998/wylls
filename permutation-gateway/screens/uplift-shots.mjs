@@ -66,12 +66,26 @@ const SCENES = [
     await page.locator('#hand .hand-chip[data-host]:not(.hand-back)').first().click({ timeout: 8000 }).catch(() => {});
     await tapTile(page, { ...W.HOME, tile: W.CAMP_TILE });
     await page.locator('#mc-title').waitFor({ timeout: 8000 }).catch(() => {});
+    // (on a phone the camp may lie under the sheet: the same order through the card's own coordinates form)
+    if (!(await page.locator('.mc-dest-name').count())) {
+      await page.locator('#tabs [data-tab="hosts"]').click().catch(() => {});
+      await page.locator('#panel-body button:not([disabled]):has-text("進軍させる")').first().click({ timeout: 5000 }).catch(() => {});
+      await page.evaluate(({ p, q, tile }) => { const f = document.querySelector('form[data-form="dest"]'); if (!f) return; f.querySelector('[name=p]').value = p; f.querySelector('[name=q]').value = q; f.querySelector('[name=tile]').value = tile; f.requestSubmit(); }, { ...W.HOME, tile: W.CAMP_TILE });
+    }
     await page.locator('[data-act="march-send"]:not([disabled])').waitFor({ timeout: 15000 }).catch(() => {});
   }],
   ['s05-far', 'the world chart', async page => { await page.locator('#frontier-map').focus(); await page.keyboard.press('m'); }],
   ['s06-holding', 'the village drawer', async page => { await page.locator('#tabs [data-tab="holding"]').click(); }],
   ['s07-hosts', 'the hosts drawer', async page => { await page.locator('#tabs [data-tab="hosts"]').click(); }],
   ['s08-more', 'the more drawer', async page => { await page.locator('#tabs [data-tab="more"]').click(); }],
+  ['s10-compare', 'a march on a defended village: the outlook and the stances compared', async page => {
+    await page.locator('#tabs [data-tab="hosts"]').click().catch(() => {});
+    await page.locator('#panel-body button:not([disabled]):has-text("進軍させる")').first().click({ timeout: 5000 }).catch(() => {});
+    await page.evaluate(() => { const f = document.querySelector('form[data-form="dest"]'); if (!f) return; f.querySelector('[name=p]').value = 2; f.querySelector('[name=q]').value = 0; f.querySelector('[name=tile]').value = 26; f.requestSubmit(); });
+    await page.locator('.mc-compare .mcc-row, .mc-outlook').first().waitFor({ timeout: 12000 }).catch(() => {});
+    await page.waitForTimeout(2500);
+    await page.locator('.mc-compare, .picks-4').first().scrollIntoViewIfNeeded().catch(() => {});
+  }],
   // A SAMPLE of the herald's S1 feeds laid into the page (the fixture serves none, and no S1 world can be started
   // locally yet: docs/design/uplift/00-SCOPE 2): a vault, an enemy tower and palisade, the viewer's fort and a cart of
   // ore on the home province, to see how the stage-1 things stand on the board. Not a record of any season.

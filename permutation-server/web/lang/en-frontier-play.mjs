@@ -1095,7 +1095,7 @@ export default {
   'ルールで {0} 回試した幅': 'Range over {0} tries with the rules',
   '構えを比べる': 'Compare stances',
   'この相手には、構えを変えても結果の幅は同じです。': 'Against these defenders every stance gives the same range.',
-  'いまは出せません': 'Not yet available', '行き先の州の記録がそろうと出ます': 'Shown once the destination province is settled',
+  'いまは出せません': 'Not yet available', '行き先の州の記録がそろうと出ます': 'Shown once the destination province\'s records are in',
   '予測と確定': 'Forecast and result', '出発時': 'at departure','確かめると出ます': 'shown once checked', '予測の幅の外': 'outside the forecast',
   '予測は、出発したときにこの端末がルールで試した幅です。確定は、チェーンの記録の数です。': 'The forecast is the range this device worked out with the rules when the march left. The result is the number in the chain\'s record.',
   '残る兵': 'Troops left',

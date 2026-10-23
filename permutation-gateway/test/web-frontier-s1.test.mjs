@@ -232,7 +232,8 @@ test('the marks are painted: a tower of the viewer\'s nation rims its cover; eve
   const marks = MARKS.s1Marks(s1, { bell: 291 });
   const strokes = faction => { const { ctx, calls } = recorder(); const stood = []; const tags = MARKS.paintS1Marks(ctx, marks, { faction, stand: (x, y, fn) => { stood.push([x, y]); fn(); } }); return { calls, stood, tags }; };
   const mine = strokes(1), other = strokes(4);
-  const dashed = r => r.calls.filter(c => c[0] === 'setLineDash').length;
+  // (rewritten with the uplift: a caravan's way is a dashed line too now, so the tower's watch is told by its own dash, 5 on 4)
+  const dashed = r => r.calls.filter(c => c[0] === 'setLineDash' && JSON.stringify(c[1]) === '[5,4]').length;
   assert.equal(dashed(mine), 1, 'faction 1 sees its tower\'s watch');
   assert.equal(dashed(other), 0);
   assert.equal(mine.stood.length, 4, 'a vault, two structures and a caravan');

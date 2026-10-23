@@ -52,9 +52,23 @@
 .rp-out { font-size: var(--t1); color: var(--st-fail); font-weight: 700; }
 .rp-note { margin: 4px 0 0 !important; font-size: var(--t1); }
 
+/* ---- the drawers' stamps speak the same states, by shape too (frontier.css .stamp-word keeps its look otherwise):
+   a waiting word (進軍中, 建設中…) is round, a refusal or a lack (満杯, 体力が足りません) has a cut corner */
+.stamp-word.stamp-warn, .stamp-warn .stamp-ink { border-radius: 9px; }
+.stamp-word.stamp-warn { color: var(--st-wait); }
+.stamp-word.stamp-bad { color: var(--st-fail); clip-path: polygon(0 0, calc(100% - 7px) 0, 100% 7px, 100% 100%, 0 100%); }
+.stamp-word.stamp-ok { color: var(--st-done); }
+
+/* ---- the ledger: a store about to be full says when (the prompt is to spend it) */
+.ledger-fullin { display: block; font-size: var(--t1); font-weight: 700; color: var(--st-wait); white-space: nowrap; }
+
 /* ---- the send track: each step a state (wait while under way, done once past) */
 .send-track li.now { color: var(--st-wait); font-weight: 700; }
 .send-track li.done { color: var(--st-done); }
+
+/* ---- the notices never lie under a milestone's banner (found on the local chain at 1024 px with the first village's
+   drawer open: frontier.css moved them only between 1100 and 1399 px, and the banner covered the first notice) */
+@media (min-width: 760px) { body:has(#mile-banner:not([hidden])) .feed { top: calc(var(--strip) + var(--dial) + 104px); } }
 
 @media (max-width: 759px) {
   .mc-outlook { grid-template-columns: repeat(2, minmax(0, 1fr)); }

@@ -136,7 +136,7 @@ function storeRow(s) {
     <th scope="row">${icon(RESOURCE_ICON[s.resource] ?? 'crate', 'ledger-ic')}<span class="ledger-name">${RESOURCES[s.resource]}</span></th>
     <td class="ledger-val">${fmtNum(s.value)}</td>
     <td class="ledger-cap"><span aria-hidden="true">/ </span>${fmtNum(s.cap)}</td>
-    <td class="ledger-rate">${full ? stamp(L`満杯`, 'bad') : s.perHour !== 0 ? L`${signedRate(s.perHour)}/時` : html`<span aria-hidden="true">—</span>`}</td></tr>`;
+    <td class="ledger-rate">${full ? stamp(L`満杯`, 'bad') : s.perHour !== 0 ? L`${signedRate(s.perHour)}/時` : html`<span aria-hidden="true">—</span>`}${near ? html`<span class="ledger-fullin">${L`満杯まで ${span(((s.cap - s.value) / s.perHour) * 3600)}`}</span>` : ''}</td></tr>`;
 }
 /** The stores as a ruled ledger: a line per resource. */
 export function renderLedger(stores) {

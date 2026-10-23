@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wylls 変更前後</title>
+<style>
+  :root { color-scheme: light; font: 14px/1.6 system-ui, -apple-system, "Hiragino Sans", sans-serif; }
+  body { margin: 0; background: #ece5d2; color: #1d2622; }
+  header, section { max-width: 1500px; margin: 0 auto; padding: 16px 20px; }
+  h1, h2 { font-family: "Hiragino Mincho ProN", "Yu Mincho", serif; margin: 0 0 6px; }
+  .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 10px 0 28px; }
+  .pair.phone { grid-template-columns: repeat(2, minmax(0, 300px)); }
+  figure { margin: 0; } img { width: 100%; height: auto; display: block; border-radius: 6px; box-shadow: 0 4px 14px rgba(0,0,0,.2); }
+  figcaption { font-size: 12px; color: #4c5852; margin-top: 4px; }
+  .note { font-size: 13px; color: #3b4440; max-width: 900px; }
+  @media (max-width: 700px) { .pair { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>変更前後（同じ固定の場面）</h1>
+  <p class="note">左が変更前（起点 e4019d7a）、右が変更後（design/visual-uplift）。どちらも見本の世界（固定の時計、同じ乱数）を、同じ大きさで撮った。撮り方は permutation-gateway/screens/uplift-shots.mjs。s09 は S1 の情報の見本を差し込んだ場面で、どの季の記録でもない。</p>
+</header>
+<section id="pairs"></section>
+<section>
+  <h2>美術方針の比較（プレビュー）</h2>
+  <p class="note">同じ場面を 3 案で描いた。A を推奨（01-ART-DIRECTION）。未実装の機能は A の上のプレビュー。</p>
+  <div id="dirs" class="pair"></div>
+</section>
+<script>
+  const P = [
+    ['s01-rest-desk', '普段の地図：マス目を息に'],
+    ['s03-host-desk', '軍を選ぶ：届く範囲だけ格子'],
+    ['s04-compose-desk', '進軍の命令：見通し（到着・費用・相手・予測）と取り消せない一行'],
+    ['s10-compare-desk', '守り手のいる村へ：構えを比べる（ルールの予測）'],
+    ['s09-s1sample-desk', 'S1 の施設と荷車（見本の情報）：村と同じ筆致'],
+    ['s06-holding-desk', '村の引き出し'],
+    ['s07-hosts-desk', '軍勢の引き出し：状態の判を形でも区別'],
+  ];
+  const PH = [['s01-rest-phone', '普段（スマホ）'], ['s04-compose-phone', '進軍の命令（スマホ）'], ['s10-compare-phone', '構えを比べる（スマホ）']];
+  const pairs = document.getElementById('pairs');
+  for (const [s, t] of [...P, ...PH]) {
+    const phone = s.endsWith('phone');
+    pairs.insertAdjacentHTML('beforeend', `<h2>${t}</h2><div class="pair${phone ? ' phone' : ''}"><figure><img src="before/${s}.jpg" alt="変更前：${t}" loading="lazy"><figcaption>変更前</figcaption></figure><figure><img src="after/${s}.jpg" alt="変更後：${t}" loading="lazy"><figcaption>変更後</figcaption></figure></div>`);
+  }
+  const dirs = document.getElementById('dirs');
+  for (const [f, t] of [['all-rest', '3 案：普段'], ['all-select', '3 案：選ぶ・比べる'], ['A-select', 'A：選ぶ・比べる'], ['A-result', 'A：結果（予測と確定）'], ['B-select', 'B：選ぶ・比べる'], ['C-select', 'C：選ぶ・比べる'], ['A-caravan', 'プレビュー：隊商を送る'], ['A-raid', 'プレビュー：奪うか焼くか'], ['A-ai', 'プレビュー：AI の代理の状態'], ['A-season', 'プレビュー：戦期']])
+    dirs.insertAdjacentHTML('beforeend', `<figure><img src="directions/${f}.jpg" alt="${t}" loading="lazy"><figcaption>${t}</figcaption></figure>`);
+</script>
+</body>
+</html>
