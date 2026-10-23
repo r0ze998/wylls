@@ -19,7 +19,8 @@
 // Pure functions; no DOM, no clock of its own.
 import { hostParts } from '../faddr.mjs';
 import { DIRECTIONS, hexDistance, locate, tileHex } from '../fgeo.mjs';
-import { BUILD_ITEMS, QUEUE_KIND, accrualAt, baseProduction, hostsIn, queueItem } from '../fland.mjs';
+import { BUILD_ITEMS, QUEUE_KIND, accrualAt, baseProduction, hostsIn, queueItem, WORKSHOP } from '../fland.mjs';
+import { s1On } from '../fs1.mjs';
 import { DEPART_STAMINA, RULES } from '../fmarch.mjs';
 import { conquestEnabled, keepFromProvince } from '../fconquest.mjs';
 
@@ -313,6 +314,12 @@ export function buildingsOf(holding) {
     // (a fixture or an older record may keep the building's production alone, without the base)
     const over = p >= base[i] ? p - base[i] : p;
     out[b.item] = Math.max(0, Math.min(12, Number(over / BigInt(b.perHour * 1000))));
+  }
+  // S1: the workshops, as the rules count them (permutation-rules arms.rs `workshops_built`: the arms production over
+  // one workshop's; no base production makes arms). The seventh entry: map/village.mjs draws a forge for it.
+  if (s1On()) {
+    const arms = big(holding.production[4]) ?? 0n;
+    out.push(arms > 0n ? Math.min(12, Number(arms / BigInt(WORKSHOP.perHour * 1000))) : 0);
   }
   return out;
 }

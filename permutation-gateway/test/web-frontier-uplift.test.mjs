@@ -10,6 +10,8 @@ import { outlook, stanceCompare } from '../../permutation-server/web/frontier/hu
 import { compareKey, forecastKey } from '../../permutation-server/web/frontier/hud/forecast.mjs';
 import { keepForecast, forecastFor } from '../../permutation-server/web/frontier/hud/forecastbook.mjs';
 import { renderPrediction } from '../../permutation-server/web/frontier/screens/report.mjs';
+import { buildingsOf } from '../../permutation-server/web/frontier/map/board.mjs';
+import { setS1 } from '../../permutation-server/web/frontier/fs1.mjs';
 import { loadOf, paintVaultArt, paintTowerArt, paintPalisadeArt, paintFortArt, paintCartArt } from '../../permutation-server/web/frontier/map/structures.mjs';
 
 const memory = () => { const m = new Map(); return { get: k => m.get(k) ?? null, set: (k, v) => { m.set(k, v); return true; } }; };
@@ -68,6 +70,13 @@ test('the forecast kept at departure is laid beside the record; a row without on
   assert.match(text(renderPrediction([{ ...rows[0], after: null }], 50, of)), /確かめると出ます/);
   assert.equal(String(renderPrediction([{ ...rows[0], id: '13' }], 50, of)), '', 'no kept forecast, no row');
   assert.equal(String(renderPrediction(rows, 50, null)), '');
+});
+
+test('an S1 village shows its workshops as the rules count them (arms production over one workshop\'s); other seasons have no seventh entry', () => {
+  const production = [0, 0, 0, 0, 8000, 0, 0, 0].map(BigInt);
+  setS1({ layoutVersion: 2, programVersion: 4 });
+  try { assert.equal(buildingsOf({ tier: 0, production })[6], 2); } finally { setS1(null); }
+  assert.equal(buildingsOf({ tier: 0, production }).length, 6);
 });
 
 test('the stage-1 things: quiet on a context that cannot paint, drawn on one that can; a cart shows its largest load', () => {

@@ -8,7 +8,7 @@
 |---|---|---|---|
 | 速い試験 `node --test test/web-*.test.mjs screens/logic.screen.mjs screens/fixtures.screen.mjs` | 972 件中 7 件失敗 | 977 件中 7 件失敗（新規 5 件はすべて成功） | 失敗の 7 件は両方で同じ（見本の世界の旗の試作 `claims` と最初の数分の通し）。この作業の前からの失敗 |
 | 操作の試験 `screens/interaction.screen.mjs`（Chromium） | 29 / 29 | 29 / 29 | 封をした進軍の到着と開封、断られた命令、スマホの引き出し、キーボード、傾いた盤の上の押下など |
-| 写真と axe の行列 `screens/frontier.screen.mjs` | MATRIX_BEFORE | MATRIX_AFTER | |
+| 写真と axe の行列 `screens/frontier.screen.mjs`（画面 × JA/EN × 360/390/1440、横はみ出し、切れ、axe） | MATRIX_BEFORE | 78 / 78 | |
 
 書き直した試験：`test/web-frontier-s1.test.mjs` の 1 行。破線の数を数えていたが、隊商の道も破線になったので、物見櫓の範囲の破線（5 と 4）だけを数えるようにした。言っていることは同じ（自国の塔の範囲だけが縁取られる）。
 

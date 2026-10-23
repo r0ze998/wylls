@@ -51,7 +51,7 @@ export const passable = t => t && t.terrain !== 'Water' && t.terrain !== 'Mounta
 export const VIEWER = 0;
 export const VILLAGES = [
   // the viewer's town: farms 2, woodcutter 1, quarry 1, the S1 workshop (buildings by kind: the Holding's own record)
-  { id: 'lamar', name: 'ラマール', en: 'Lamar', q: -2, r: 1, faction: 0, tier: 1, own: true, annex: [2, 1, 1, 0, 0, 0], workshop: true, garrison: 300 },
+  { id: 'lamar', name: 'ラマール', en: 'Lamar', q: -2, r: 1, faction: 0, tier: 1, own: true, annex: [2, 1, 1, 0, 0, 0, 1], workshop: true, garrison: 300 },
   // a hill village of another nation: its ore comes from the hills round it (S1: radius 2 in its province)
   { id: 'olsen', name: 'オルセン', en: 'Olsen', q: -5, r: 0, faction: 2, tier: 0, own: false, annex: null, garrison: 90 },
   // the far side
