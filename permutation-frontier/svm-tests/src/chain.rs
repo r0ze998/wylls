@@ -255,10 +255,12 @@ impl Profile {
     /// CU limit and `L(kind)` for the deployed programdata length. This is
     /// the profile the G1 gate (W5-A) measures against. **ABI v2 (MC):**
     /// the v2 table (`frontier_abi::v2::budgets`: M1's rows, §5.4's for the
-    /// new and changed kinds); `ix` is an M1 or a v2 tag.
+    /// new and changed kinds); `ix` is an M1 or a v2 tag. The program runs
+    /// S1 seasons only, so the limit is the S1 one (`cu_limit_s1`: the S1
+    /// rows, stage 1d, over the MC table).
     pub fn client<I: AnyIx>(ix: I, programdata_len: u32) -> Profile {
         Profile {
-            cu_limit: Some(frontier_abi::v2::budgets::budget(ix.v2()).cu_limit),
+            cu_limit: Some(frontier_abi::v2::budgets::cu_limit_s1(ix.v2())),
             cu_price: 0,
             loaded_limit: Some(loaded_limit(ix, programdata_len)),
             heap: None,

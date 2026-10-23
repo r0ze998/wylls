@@ -1,11 +1,11 @@
 //! Real VM coverage for the version-3 first-village path.
-use fclient::ix::{HoldingRef, Site};
 use fclient::ix::v2 as ix;
+use fclient::ix::{HoldingRef, Site};
+use frontier_abi::layout::player::queue_item as Q;
+use frontier_abi::layout::world::{frontier as F, season as SE};
+use frontier_abi::log::{EntityKind, Kind};
 use frontier_abi::v2::layout::player::{citizen as C, holding as H};
 use frontier_abi::v2::layout::province::{province as P, site as S};
-use frontier_abi::layout::world::{frontier as F, season as SE};
-use frontier_abi::layout::player::queue_item as Q;
-use frontier_abi::log::{EntityKind, Kind};
 use permutation_frontier_svm_tests::chain::{assert_code, expect_lands, with_account, Chain};
 use permutation_frontier_svm_tests::records::{one, ChainWatch};
 use permutation_frontier_svm_tests::world::land::{rd_i64, rd_u32, Citizen};

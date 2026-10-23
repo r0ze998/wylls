@@ -84,6 +84,8 @@ pub struct Facts {
     pub pk: [u8; 96],
     /// CreateSeason's parameters, the transaction and its time.
     pub params: Option<SeasonParams>,
+    /// A conquest season's conquest block (CreateSeason v2; `None` for M1).
+    pub cq: Option<frontier_abi::v2::presets::ConquestParams>,
     pub payout: Vec<u8>,
     pub create_tx: Option<usize>,
     pub announce_rec: Option<usize>,
@@ -117,12 +119,23 @@ pub struct Facts {
 }
 
 impl Facts {
+    /// The conquest step's parameters of a conquest season (the Season's
+    /// genesis time and end, the CreateSeason conquest block); `None` for M1.
+    pub fn step_params(&self) -> Option<frontier_abi::conquest_model::StepParams> {
+        Some(frontier_abi::conquest_model::StepParams {
+            genesis_ts: self.genesis_ts,
+            end_bell: self.params?.end_bell,
+            cq: self.cq?,
+        })
+    }
+
     pub fn build(w: &World, cfg: &Config) -> Facts {
         let ctx = findex::addr_ctx(&cfg.program, cfg.season_id);
         let mut f = Facts {
             ctx,
             pk: cfg.quicknet_pk,
             params: None,
+            cq: None,
             payout: vec![],
             create_tx: None,
             announce_rec: None,
@@ -156,7 +169,18 @@ impl Facts {
                 };
                 match tag {
                     Ix::CreateSeason if f.params.is_none() => {
-                        if let Ok(c) = aix::CreateSeason::decode(&ix.data) {
+                        // A conquest program's CreateSeason carries SeasonParams v2
+                        // (M1's fields, then the conquest block).
+                        use frontier_abi::v2::{ix::CreateSeasonV2, presets::PROGRAM_VERSION_V2};
+                        if let Some(c) = CreateSeasonV2::decode(&ix.data)
+                            .ok()
+                            .filter(|c| c.params.base.program_version == PROGRAM_VERSION_V2)
+                        {
+                            f.params = Some(c.params.base);
+                            f.cq = Some(c.params.cq);
+                            f.payout = c.payout.to_vec();
+                            f.create_tx = Some(i);
+                        } else if let Ok(c) = aix::CreateSeason::decode(&ix.data) {
                             f.params = Some(c.params);
                             f.payout = c.payout.to_vec();
                             f.create_tx = Some(i);

@@ -338,7 +338,7 @@ pub fn tile_offset(idx: u8) -> Option<Hex> {
     Some(Hex::new(q as i32, r as i32))
 }
 
-const TILE_OFFSETS: [(i8, i8); 61] = {
+pub(crate) const TILE_OFFSETS: [(i8, i8); 61] = {
     const R: i32 = PROVINCE_RADIUS;
     let mut t = [(0i8, 0i8); 61];
     let mut n = 0;

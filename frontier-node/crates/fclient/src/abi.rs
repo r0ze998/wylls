@@ -75,6 +75,23 @@ pub mod tag {
     pub const FOLD_MARCH: u8 = 0xA5;
     pub const RETIRE_HOST: u8 = 0xA6;
     pub const CLOSE_MARCH: u8 = 0xA7;
+    // S1 (stage 1b).
+    pub const BUILD_VAULT: u8 = 0xB0;
+    pub const SEND_CARAVAN: u8 = 0xB1;
+    pub const SETTLE_CARAVAN: u8 = 0xB2;
+    pub const RAID_CARAVAN: u8 = 0xB3;
+    pub const SEIZE_VAULT: u8 = 0xB4;
+    pub const CLOSE_VAULT: u8 = 0xB5;
+    pub const DEFAULT_RAID: u8 = 0xB6;
+    // S1 (stage 1d).
+    pub const BUILD_STRUCTURE: u8 = 0xB7;
+    pub const SEIZE_STRUCTURE: u8 = 0xB8;
+    pub const CLOSE_STRUCTURE: u8 = 0xB9;
+    pub const FORT_GARRISON: u8 = 0xBA;
+    pub const PROPOSE: u8 = 0xBB;
+    pub const VOTE: u8 = 0xBC;
+    pub const SETTLE_PROPOSAL: u8 = 0xBD;
+    pub const RAID_DOMESTIC: u8 = 0xBE;
 }
 
 /// Keeper class of an instruction (§5.5, I-21).
@@ -205,6 +222,8 @@ pub fn ix_info(tag: u8) -> Option<&'static IxInfo> {
 pub const PROGRAM_VERSION_V1: u16 = 1;
 /// `program_version` of an MC season (ABI v2, MC contract §5.1).
 pub const PROGRAM_VERSION_V2: u16 = frontier_abi::v2::presets::PROGRAM_VERSION_V2;
+/// The S1 program (redesign stage 1): ABI v2 with the S1 instructions.
+pub const PROGRAM_VERSION_S1: u16 = frontier_abi::v2::presets::PROGRAM_VERSION_S1;
 /// `layout_version` of every v2 chained header (R-22: readers dispatch on it).
 pub const LAYOUT_VERSION_V2: u16 = 2;
 
@@ -214,7 +233,7 @@ pub const LAYOUT_VERSION_V2: u16 = 2;
 /// lower ones, and lowering a gate is not MC's). The `tx_max` column is
 /// the contract's (§5.4 "Tx B max"); `twin_tests` pins every row to
 /// `frontier_abi::v2::budgets`.
-pub const INSTRUCTIONS_V2: [IxInfo; 58] = [
+pub const INSTRUCTIONS_V2: [IxInfo; 73] = [
     ix(0x01, "CreateSeason", Class::O, 70_000, 1_100, false),
     ix(0x02, "InitShards", Class::O, 45_000, 600, false),
     ix(0x03, "ConsumeGenesisSeed", Class::D, 345_000, 760, true),
@@ -273,6 +292,25 @@ pub const INSTRUCTIONS_V2: [IxInfo; 58] = [
     ix(0xA5, "FoldMarch", Class::D, 36_000, 720, false),
     ix(0xA6, "RetireHost", Class::P, 17_000, 480, false),
     ix(0xA7, "CloseMarch", Class::N, 8_000, 300, false),
+    // S1 (stage 1b): vaults and caravans (placeholders until measured).
+    ix(0xB0, "BuildVault", Class::P, 40_000, 600, false),
+    ix(0xB1, "SendCaravan", Class::P, 120_000, 1_000, false),
+    ix(0xB2, "SettleCaravan", Class::D, 40_000, 700, false),
+    ix(0xB3, "RaidCaravan", Class::P, 120_000, 1_100, false),
+    ix(0xB4, "SeizeVault", Class::P, 30_000, 600, false),
+    ix(0xB5, "CloseVault", Class::P, 10_000, 500, false),
+    ix(0xB6, "DefaultRaid", Class::D, 120_000, 1_100, false),
+    // S1 (stages 1d, 1e): structures (placeholders until measured).
+    ix(0xB7, "BuildStructure", Class::P, 40_000, 600, false),
+    ix(0xB8, "SeizeStructure", Class::P, 30_000, 600, false),
+    ix(0xB9, "CloseStructure", Class::P, 15_000, 500, false),
+    ix(0xBA, "FortGarrison", Class::P, 20_000, 600, false),
+    // S1 (stage 1e): nations (measured).
+    ix(0xBB, "Propose", Class::P, 20_000, 600, false),
+    ix(0xBC, "Vote", Class::P, 12_000, 500, false),
+    ix(0xBD, "SettleProposal", Class::D, 20_000, 600, false),
+    // S1 (stage 1e): domestic raids (measured).
+    ix(0xBE, "RaidDomestic", Class::P, 20_000, 600, false),
 ];
 
 /// The ABI v2 row of `tag`.
@@ -325,6 +363,13 @@ pub mod magic {
     /// ABI v2: MarchState (MC contract §5.2.6). Every other v2 kind keeps
     /// its M1 magic (an MC Province differs by size and `layout_version`).
     pub const MARCH_STATE: &[u8; 8] = b"PSF1MRCH";
+    /// S1 (stage 1b): Vault and Caravan.
+    pub const VAULT: &[u8; 8] = b"PSF1VALT";
+    pub const CARAVAN: &[u8; 8] = b"PSF1CRVN";
+    /// S1 (stage 1d).
+    pub const STRUCTURE: &[u8; 8] = b"PSF1STRC";
+    /// S1 (stage 1e).
+    pub const NATION: &[u8; 8] = b"PSF1NATN";
 }
 
 /// Account sizes in bytes (§5.2).
@@ -351,6 +396,13 @@ pub mod size {
     pub const PROVINCE_V2: usize = 4_736;
     /// ABI v2 (MC contract §5.2.6).
     pub const MARCH_STATE: usize = 256;
+    /// S1 (stage 1b).
+    pub const VAULT: usize = 512;
+    pub const CARAVAN: usize = 320;
+    /// S1 (stage 1d).
+    pub const STRUCTURE: usize = 256;
+    /// S1 (stage 1e).
+    pub const NATION: usize = 384;
 }
 
 /// Rent of an account of `space` bytes at mainnet rates (§4.2):
@@ -449,7 +501,7 @@ pub const ERRORS: [(u32, &str); 62] = [
 
 /// ABI v2 error codes (MC contract §5.3), stable forever; disjoint from
 /// [`ERRORS`].
-pub const ERRORS_V2: [(u32, &str); 17] = [
+pub const ERRORS_V2: [(u32, &str); 32] = [
     (62, "CapturePending"),
     (63, "Immune"),
     (64, "SiegeBusy"),
@@ -467,6 +519,24 @@ pub const ERRORS_V2: [(u32, &str); 17] = [
     (76, "FoldOutOfOrder"),
     (77, "FoldTooEarly"),
     (78, "NotLead"),
+    // S1 (stage 1b)
+    (79, "VaultSite"),
+    (80, "VaultLimit"),
+    (81, "WalletRequired"),
+    (82, "ProvinceBusy"),
+    (83, "CaravanEarly"),
+    (84, "RaidState"),
+    (85, "RaidWindow"),
+    (86, "NotOnTile"),
+    // S1 (stage 1d)
+    (87, "StructureSite"),
+    (88, "StructureLimit"),
+    (89, "StructureFull"),
+    (90, "FortManned"),
+    // S1 (stage 1e)
+    (91, "ProposalsFull"),
+    (92, "NotVoter"),
+    (93, "ProposalState"),
 ];
 
 /// The name of a program error code of either ABI (the code spaces are
@@ -671,9 +741,25 @@ pub mod kind {
     pub const OUTPOST_SETTLED: u8 = 88;
     /// Reserved (never emitted).
     pub const RESERVED_89: u8 = 89;
+    // S1 (stage 1b): kinds 90–94.
+    pub const VAULT_BUILT: u8 = 90;
+    pub const CARAVAN_SENT: u8 = 91;
+    pub const CARAVAN_SETTLED: u8 = 92;
+    pub const CARAVAN_RAIDED: u8 = 93;
+    pub const VAULT_SEIZED: u8 = 94;
+    // S1 (stage 1d): kinds 95–97.
+    pub const STRUCTURE_BUILT: u8 = 95;
+    pub const STRUCTURE_SEIZED: u8 = 96;
+    pub const STRUCTURE_CLOSED: u8 = 97;
+    // S1 (stage 1e): kinds 98–102.
+    pub const NATION_PROPOSED: u8 = 98;
+    pub const NATION_VOTED: u8 = 99;
+    pub const NATION_DECIDED: u8 = 100;
+    pub const RAID_OPENED: u8 = 101;
+    pub const FORT_GARRISONED: u8 = 102;
 
-    /// (kind, name) of every MC record kind.
-    pub const ALL_V2: [(u8, &str); 9] = [
+    /// (kind, name) of every MC and S1 record kind.
+    pub const ALL_V2: [(u8, &str); 22] = [
         (SIEGE_DECLARED, "SIEGE_DECLARED"),
         (SIEGE_SETTLED, "SIEGE_SETTLED"),
         (CONQUEST, "CONQUEST"),
@@ -683,6 +769,19 @@ pub mod kind {
         (RETIRE, "RETIRE"),
         (NEUTRAL, "NEUTRAL"),
         (OUTPOST_SETTLED, "OUTPOST_SETTLED"),
+        (VAULT_BUILT, "VAULT_BUILT"),
+        (CARAVAN_SENT, "CARAVAN_SENT"),
+        (CARAVAN_SETTLED, "CARAVAN_SETTLED"),
+        (CARAVAN_RAIDED, "CARAVAN_RAIDED"),
+        (VAULT_SEIZED, "VAULT_SEIZED"),
+        (STRUCTURE_BUILT, "STRUCTURE_BUILT"),
+        (STRUCTURE_SEIZED, "STRUCTURE_SEIZED"),
+        (STRUCTURE_CLOSED, "STRUCTURE_CLOSED"),
+        (NATION_PROPOSED, "NATION_PROPOSED"),
+        (NATION_VOTED, "NATION_VOTED"),
+        (NATION_DECIDED, "NATION_DECIDED"),
+        (RAID_OPENED, "RAID_OPENED"),
+        (FORT_GARRISONED, "FORT_GARRISONED"),
     ];
 }
 
@@ -698,8 +797,15 @@ pub mod entity {
     pub const MAX: u8 = 7;
     /// ABI v2 (MC contract §5.1): MarchState, chained by MARCH_FOLD only.
     pub const MARCH_STATE: u8 = 8;
+    /// S1 (stage 1b): Vault and Caravan.
+    pub const VAULT: u8 = 9;
+    pub const CARAVAN: u8 = 10;
+    /// S1 (stages 1d, 1e): Structure.
+    pub const STRUCTURE: u8 = 11;
+    /// S1 (stage 1e): Nation.
+    pub const NATION: u8 = 12;
     /// The largest entity kind of a v2 tail.
-    pub const MAX_V2: u8 = 8;
+    pub const MAX_V2: u8 = 12;
 }
 
 /// Seal verdict codes judged by SettleTransit (§5.3, I-44).
@@ -1392,6 +1498,21 @@ mod twin_tests {
             tag::FOLD_MARCH,
             tag::RETIRE_HOST,
             tag::CLOSE_MARCH,
+            tag::BUILD_VAULT,
+            tag::SEND_CARAVAN,
+            tag::SETTLE_CARAVAN,
+            tag::RAID_CARAVAN,
+            tag::SEIZE_VAULT,
+            tag::CLOSE_VAULT,
+            tag::DEFAULT_RAID,
+            tag::BUILD_STRUCTURE,
+            tag::SEIZE_STRUCTURE,
+            tag::CLOSE_STRUCTURE,
+            tag::FORT_GARRISON,
+            tag::PROPOSE,
+            tag::VOTE,
+            tag::SETTLE_PROPOSAL,
+            tag::RAID_DOMESTIC,
         ] {
             let x = frontier_abi::v2::Ix::from_tag(t).expect("v2 tag");
             assert!(x.is_new() && ix_info(t).is_none() && ix_info_v2(t).is_some());
@@ -1441,7 +1562,17 @@ mod twin_tests {
                 "{k:?}"
             );
         }
-        let ours_v2: Vec<&[u8; 8]> = ours.iter().copied().chain([magic::MARCH_STATE]).collect();
+        let ours_v2: Vec<&[u8; 8]> = ours
+            .iter()
+            .copied()
+            .chain([
+                magic::MARCH_STATE,
+                magic::VAULT,
+                magic::CARAVAN,
+                magic::STRUCTURE,
+                magic::NATION,
+            ])
+            .collect();
         for k in K2::ALL {
             assert!(ours_v2.contains(&&k.magic()), "{k:?}");
             assert_eq!(rent(k.size()), k.rent(), "{k:?}");
@@ -1451,8 +1582,20 @@ mod twin_tests {
         assert_eq!(&K2::MarchState.magic(), magic::MARCH_STATE);
         assert_eq!(rent(size::PROVINCE_V2), 24_709_120);
         assert_eq!(rent(size::MARCH_STATE), 1_950_720);
+        assert_eq!(size::VAULT, K2::Vault.size());
+        assert_eq!(size::CARAVAN, K2::Caravan.size());
+        assert_eq!(size::STRUCTURE, K2::Structure.size());
+        assert_eq!(size::NATION, K2::Nation.size());
         for k in K2::ALL {
-            if k != K2::Province && k != K2::MarchState {
+            if !matches!(
+                k,
+                K2::Province
+                    | K2::MarchState
+                    | K2::Vault
+                    | K2::Caravan
+                    | K2::Structure
+                    | K2::Nation
+            ) {
                 assert_eq!(Some(k.size()), k.to_v1().map(|v| v.size()), "{k:?}");
             }
         }

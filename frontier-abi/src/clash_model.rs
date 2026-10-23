@@ -1279,14 +1279,137 @@ pub fn host_of(e: &Entry) -> R<Host> {
 // [`BuiltV2::base`] lists the keep in `garrisons` but not in `gar_site`,
 // so v1's [`apply`] (which walks `garrisons.zip(gar_site)`) writes back
 // every site and the camp and [`apply_v2`] then writes the keep.
+//
+// **S1 caravans (stage 1c, `S1-1B-CONTRACT.md` §3.5).** Each live caravan
+// slot standing in the Province at the bell's start (`CaravanSlot::
+// tile_at(b)`) joins as a **0-troop garrison** of its faction on its tile,
+// Hold, after the sites and the camp and before the keep, in slot order,
+// while fewer than `MAX_GARRISONS` garrisons stand (so the worst case
+// stays 12 plus the keep). A 0-troop garrison never fights; its escort is
+// whoever of its faction stands on the tile (residents, J1, or arrivals).
+// A caravan on a tile another garrison already holds (a site, the camp,
+// the keep or an earlier caravan) is sheltered there and does not join:
+// garrisons never share a tile. It is **raided** when the kernel reports
+// `attackers_hold` for it; the slot then records the bell offset, the
+// raider (the lowest id among the non-scout hosts of the holding factions
+// that stay on the tile; a resident or an arrival) and the raider's
+// ClashInputs position (0xFF for a resident). Slots are zero in an MC
+// Province, so MC clashes and digests are unchanged: the digests append
+// the slots only when one is in use.
 
 use crate::v2::kernel::{camp2, keep as kkeep};
-use crate::v2::layout::province::{province as P2, site as SM2};
+use crate::v2::layout::province::{caravan_slot as CS, province as P2, site as SM2};
+use permutation_rules::frontier::caravan::{CaravanSlot, MAX_CARAVAN_SLOTS};
+
+/// Domain of the caravan slots appended to the S1 digests.
+pub const CARAVAN_DOMAIN: &[u8] = b"PSF-CARAVAN-v1";
+/// `RAID_POS` of a raid by a resident (no ClashInputs position).
+pub const RAID_POS_RESIDENT: u8 = 0xFF;
+/// `RAID_POS` of a raid opened by RaidDomestic (S1 1e, decision K4): a
+/// host of the caravan's own faction stood on its tile; never a clash's.
+pub const RAID_POS_DOMESTIC: u8 = 0xFE;
+
+/// The caravan slots of a v2 Province.
+pub fn caravan_slots(pd: &[u8]) -> R<[CaravanSlot; MAX_CARAVAN_SLOTS]> {
+    let mut out = [CaravanSlot::default(); MAX_CARAVAN_SLOTS];
+    for (i, o) in out.iter_mut().enumerate() {
+        *o = pd
+            .get(CS::at(i)..CS::at(i) + CS::SIZE)
+            .and_then(CaravanSlot::decode)
+            .ok_or(BAD_ACCOUNT)?;
+    }
+    Ok(out)
+}
+
+/// The caravan slot block's bytes when a slot is in use (the S1 digests'
+/// suffix), else `None`.
+fn caravan_block(pd: &[u8]) -> R<Option<&[u8]>> {
+    let b = pd
+        .get(CS::at(0)..CS::at(0) + MAX_CARAVAN_SLOTS * CS::SIZE)
+        .ok_or(BAD_ACCOUNT)?;
+    let used = caravan_slots(pd)?.iter().any(|s| s.id != 0);
+    Ok(used.then_some(b))
+}
+
+/// A caravan as the clash of one bell sees it: its slot index and its
+/// garrison.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CaravanIn {
+    pub slot: u8,
+    pub id: u64,
+    pub faction: u8,
+    pub tile: u8,
+}
 
 /// Domain of CLASH's input digest under ABI v2.
 pub const INPUT_DOMAIN_V2: &[u8] = b"PSF-CLASH-INPUT-v2";
 /// Domain of SKIP's quiet digest under ABI v2.
 pub const QUIET_DOMAIN_V2: &[u8] = b"PSF-QUIET-v2";
+
+/// A fort as the clash of one bell sees it (S1 1e, `S1-1E-CONTRACT` §2.6):
+/// its record index and garrison, its troops at the bell (milli, the
+/// pending troops folded when due) and whether that fold happened.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FortIn {
+    pub idx: u8,
+    pub id: u64,
+    pub faction: u8,
+    pub tile: u8,
+    pub troops: u32,
+    pub folded: bool,
+}
+
+/// The site field of a fort's garrison id: 12 + its record index (a value
+/// no host id carries, so it never collides with a site's or a host's).
+pub const FORT_ID_SITE_BASE: u64 = 12;
+
+/// A live fort's record at one bell (see [`forts_at`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FortAt {
+    pub idx: u8,
+    pub tile: u8,
+    pub faction: u8,
+    pub gen: u8,
+    /// Milli-troops, the due pending part folded.
+    pub troops: u32,
+    /// The pending part was due and is counted in `troops`.
+    pub folded: bool,
+}
+
+/// The live forts of a v2 Province at bell `b` with their effective troops
+/// (`troops + pend × 1,000` once `pend_bell ≤ b`). An MC Province's block
+/// is zero (none).
+pub fn forts_at(pd: &[u8], b: u32) -> R<Vec<FortAt>> {
+    use crate::v2::layout::province::fort_record as FR;
+    let mut out = Vec::new();
+    for i in 0..FR::N {
+        let o = FR::at(i);
+        let r = pd.get(o..o + FR::SIZE).ok_or(BAD_ACCOUNT)?;
+        if r[FR::STATE] != FR::STATE_LIVE {
+            continue;
+        }
+        let u32_at = |k: usize| u32::from_le_bytes([r[k], r[k + 1], r[k + 2], r[k + 3]]);
+        let (troops, pend_bell) = (u32_at(FR::TROOPS), u32_at(FR::PEND_BELL));
+        let pend = u16::from_le_bytes([r[FR::PEND], r[FR::PEND + 1]]) as u32;
+        let folded = pend > 0 && pend_bell <= b;
+        let eff = if folded {
+            troops
+                .checked_add(pend.checked_mul(MILLI as u32).ok_or(OVERFLOW)?)
+                .ok_or(OVERFLOW)?
+        } else {
+            troops
+        };
+        out.push(FortAt {
+            idx: i as u8,
+            tile: r[FR::TILE],
+            faction: r[FR::FACTION],
+            gen: r[FR::GEN],
+            troops: eff,
+            folded,
+        });
+    }
+    Ok(out)
+}
 
 /// The keep as the clash of one bell sees it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1296,11 +1419,16 @@ pub struct KeepIn {
     pub id: u64,
 }
 
-/// [`Built`] of an MC Province: the base input (keep last in
-/// `garrisons`, absent from `gar_site`) and the keep.
+/// [`Built`] of an MC Province: the base input (`garrisons` = the sites
+/// and the camp as in `gar_site`, then the forts, then the caravans, then
+/// the keep) and the forts, keep and caravans.
 pub struct BuiltV2 {
     pub base: Built,
     pub keep: Option<KeepIn>,
+    /// S1 1e: the manned forts in the clash (after `gar_site`).
+    pub forts: Vec<FortIn>,
+    /// S1: the caravans in the clash (after the forts).
+    pub caravans: Vec<CaravanIn>,
 }
 
 impl BuiltV2 {
@@ -1315,12 +1443,17 @@ pub struct AppliedV2 {
     pub base: Applied,
     /// The keep's garrison changed in the clash.
     pub keep_changed: bool,
+    /// S1: slots whose caravan was raided (bit = slot index).
+    pub raided: u8,
+    /// S1 1e: forts whose troops the clash changed (bit = record index).
+    pub forts_changed: u8,
 }
 
 impl AppliedV2 {
-    /// An entry, a garrison, the camp or the keep changed.
+    /// An entry, a garrison, the camp, the keep, a caravan or a fort
+    /// changed.
     pub const fn changed(&self) -> bool {
-        self.base.changed || self.keep_changed
+        self.base.changed || self.keep_changed || self.raided != 0 || self.forts_changed != 0
     }
 }
 
@@ -1369,6 +1502,26 @@ pub fn camp_check_v2(
         n.gen = c.gen.wrapping_add(1);
     }
     Ok(Some((n, spawn.is_some())))
+}
+
+/// The quiet test of an MC or S1 bell over its [`build_v2`]: the kernel's
+/// `is_quiet`, and (S1) no caravan in the clash with a hostile non-civilian
+/// host on its tile. The kernel ignores a 0-troop garrison, but such a host
+/// raids it, so the bell is not quiet: SkipQuiet must not pass it.
+pub fn is_quiet_v2(built: &BuiltV2) -> Result<bool, kc::ClashError> {
+    let rel = built.base.relations;
+    let threatened = built.caravans.iter().any(|c| {
+        built
+            .base
+            .residents
+            .iter()
+            .chain(built.base.arrivals.iter())
+            .any(|f| f.tile == c.tile && !f.unit.is_civilian() && rel.hostile(f.faction, c.faction))
+    });
+    if threatened {
+        return Ok(false);
+    }
+    kc::is_quiet(&kc::frontier_ruleset(), &built.input(&[0; 32]))
 }
 
 /// [`build`] for an MC Province (module note above).
@@ -1493,9 +1646,83 @@ pub fn build_v2_probed<Pr: Probe>(pd: &[u8], inputs: Option<&[u8]>, b: u32) -> R
         });
         gar_site.push(CAMP_SITE);
     }
+    // S1 1e: the manned forts, after the sites and the camp, while there is
+    // room (module note). A fort fights as a walled garrison of its
+    // faction, every other faction on its tile (the clash has no
+    // alliances, as for a site's garrison).
+    let mut forts = Vec::new();
+    for FortAt {
+        idx,
+        tile,
+        faction,
+        gen,
+        troops,
+        folded,
+    } in forts_at(pd, b)?
+    {
+        if troops == 0 || garrisons.len() >= MAX_GARRISONS {
+            continue;
+        }
+        let taken = garrisons.iter().any(|g| g.tile == tile)
+            || keep.is_some_and(|k| k.tile == tile)
+            || tile as usize >= PROVINCE_TILES;
+        if taken {
+            continue;
+        }
+        let id = key_base | (FORT_ID_SITE_BASE + idx as u64) << 40 | (gen as u64) << 32;
+        garrisons.push(Garrison {
+            id,
+            faction,
+            tile,
+            troops: troops.min(MAX_HOST_TROOPS),
+            walls: true,
+            posture: Posture::Stance(Stance::Hold),
+        });
+        forts.push(FortIn {
+            idx,
+            id,
+            faction,
+            tile,
+            troops: troops.min(MAX_HOST_TROOPS),
+            folded,
+        });
+    }
+    // S1: the caravans standing here at the bell's start (module note).
+    let mut caravans = Vec::new();
+    for (i, slot) in caravan_slots(pd)?.iter().enumerate() {
+        let Some(tile) = slot.tile_at(b) else {
+            continue;
+        };
+        if garrisons.len() >= MAX_GARRISONS {
+            break;
+        }
+        let taken = garrisons.iter().any(|g| g.tile == tile || g.id == slot.id)
+            || keep.is_some_and(|k| k.tile == tile)
+            || tile as usize >= PROVINCE_TILES;
+        if taken {
+            continue;
+        }
+        garrisons.push(Garrison {
+            id: slot.id,
+            faction: slot.faction,
+            tile,
+            troops: 0,
+            walls: false,
+            posture: Posture::Stance(Stance::Hold),
+        });
+        caravans.push(CaravanIn {
+            slot: i as u8,
+            id: slot.id,
+            faction: slot.faction,
+            tile,
+        });
+    }
     let keep_in = match keep {
         Some(k) => {
             let g = kkeep::garrison(&k).map_err(|_| kernel(sub::CLASH_INPUT))?;
+            if garrisons.iter().any(|x| x.id == g.id) {
+                return Err(kernel(sub::CLASH_INPUT));
+            }
             garrisons.push(g);
             Some(KeepIn { keep: k, id: g.id })
         }
@@ -1546,6 +1773,8 @@ pub fn build_v2_probed<Pr: Probe>(pd: &[u8], inputs: Option<&[u8]>, b: u32) -> R
             camp_checked,
         },
         keep: keep_in,
+        forts,
+        caravans,
     })
 }
 
@@ -1559,10 +1788,81 @@ pub fn apply_v2(pd: &mut [u8], b: &BuiltV2, out: &ClashOutcome) -> R<AppliedV2> 
 /// [`apply_v2`] with the caller's checkpoints.
 pub fn apply_v2_probed<Pr: Probe>(pd: &mut [u8], b: &BuiltV2, out: &ClashOutcome) -> R<AppliedV2> {
     let keep_n = b.keep.is_some() as usize;
-    if b.base.gar_site.len() + keep_n != b.base.garrisons.len() {
+    if b.base.gar_site.len() + b.forts.len() + b.caravans.len() + keep_n != b.base.garrisons.len() {
         return Err(BAD_ACCOUNT);
     }
     let base = apply_probed::<Pr>(pd, &b.base, out)?;
+    // S1: the raids (module note).
+    let mut raided = 0u8;
+    for c in &b.caravans {
+        let gr = out
+            .garrisons
+            .iter()
+            .find(|x| x.id == c.id)
+            .ok_or(BAD_ACCOUNT)?;
+        if !gr.attackers_hold {
+            continue;
+        }
+        let units = b.base.residents.iter().chain(b.base.arrivals.iter());
+        let raider = units
+            .filter(|f| {
+                !f.unit.is_civilian()
+                    && gr.holders & (1u8 << f.faction.min(7)) != 0
+                    && out
+                        .fighter(f.id)
+                        .is_some_and(|r| matches!(r.fate, Fate::Stays { tile } if tile == c.tile))
+            })
+            .map(|f| f.id)
+            .min();
+        let Some(raider) = raider else {
+            continue;
+        };
+        let pos = b
+            .base
+            .arrivals
+            .iter()
+            .zip(&b.base.arr_pos)
+            .find(|(f, _)| f.id == raider)
+            .map_or(RAID_POS_RESIDENT, |(_, &k)| k);
+        let i = c.slot as usize;
+        let o = CS::at(i);
+        let mut slot = pd
+            .get(o..o + CS::SIZE)
+            .and_then(CaravanSlot::decode)
+            .ok_or(BAD_ACCOUNT)?;
+        if slot.id != c.id || b.base.bell < slot.first_bell {
+            return Err(BAD_ACCOUNT);
+        }
+        slot.raid_off = u8::try_from(b.base.bell - slot.first_bell).map_err(|_| OVERFLOW)?;
+        slot.raid_pos = pos;
+        slot.raider = raider;
+        slot.encode(pd.get_mut(o..o + CS::SIZE).ok_or(BAD_ACCOUNT)?)
+            .ok_or(BAD_ACCOUNT)?;
+        raided |= 1 << i;
+    }
+    // S1 1e: a fort's troops after the clash (the pending part folded into
+    // them); a fort the clash left as it was keeps its record (a due
+    // pending part is folded again by the next build). At 0 it has fallen.
+    let mut forts_changed = 0u8;
+    for f in &b.forts {
+        use crate::v2::layout::province::fort_record as FR;
+        let gr = out
+            .garrisons
+            .iter()
+            .find(|x| x.id == f.id)
+            .ok_or(BAD_ACCOUNT)?;
+        if gr.troops == f.troops {
+            continue;
+        }
+        let o = FR::at(f.idx as usize);
+        let r = pd.get_mut(o..o + FR::SIZE).ok_or(BAD_ACCOUNT)?;
+        r[FR::TROOPS..FR::TROOPS + 4].copy_from_slice(&gr.troops.to_le_bytes());
+        if f.folded {
+            r[FR::PEND_BELL..FR::PEND_BELL + 4].copy_from_slice(&u32::MAX.to_le_bytes());
+            r[FR::PEND..FR::PEND + 2].fill(0);
+        }
+        forts_changed |= 1 << f.idx;
+    }
     let mut keep_changed = false;
     if let Some(k) = &b.keep {
         let gr = out
@@ -1578,7 +1878,12 @@ pub fn apply_v2_probed<Pr: Probe>(pd: &mut [u8], b: &BuiltV2, out: &ClashOutcome
             keep_changed = true;
         }
     }
-    Ok(AppliedV2 { base, keep_changed })
+    Ok(AppliedV2 {
+        base,
+        keep_changed,
+        raided,
+        forts_changed,
+    })
 }
 
 /// The quiet model's per-tile faction mask (§5.7 Skip): bit f of
@@ -1666,6 +1971,18 @@ pub fn trivially_quiet_v2(pd: &[u8], b: u32) -> R<bool> {
             return Ok(false);
         }
     }
+    // S1: a caravan standing on a tile where a host of another faction
+    // stands may be raided (the escort may lose): not quiet. A sheltered
+    // caravan (a garrison's tile) is not in the clash, but the test stays
+    // conservative and counts it too.
+    for slot in caravan_slots(pd)?.iter() {
+        if let Some(t) = slot.tile_at(b) {
+            let t = t as usize;
+            if t >= PROVINCE_TILES || (fac[t] != NONE && fac[t] != slot.faction) {
+                return Ok(false);
+            }
+        }
+    }
     let r = Ro(pd);
     let n = (r.u8(P::SITE_COUNT)? as usize).min(P::SITES_N);
     let sites: [u8; P::SITES_N] = r.arr(P::SITES)?;
@@ -1703,6 +2020,18 @@ pub fn trivially_quiet_v2(pd: &[u8], b: u32) -> R<bool> {
         }
         fac[t] = NEUTRAL;
     }
+    // S1 1e: a manned fort is a garrison of its faction on its tile (the
+    // test is conservative: it counts every manned fort, joined or not).
+    for f in forts_at(pd, b)? {
+        if f.troops == 0 {
+            continue;
+        }
+        let t = f.tile as usize;
+        if t >= PROVINCE_TILES || (fac[t] != NONE && fac[t] != f.faction) {
+            return Ok(false);
+        }
+        fac[t] = f.faction;
+    }
     if let Some(k) = crate::conquest_model::read_keep(pd)? {
         let t = k.tile as usize;
         if t >= PROVINCE_TILES || (fac[t] != NONE && fac[t] != k.holder) {
@@ -1714,24 +2043,27 @@ pub fn trivially_quiet_v2(pd: &[u8], b: u32) -> R<bool> {
 
 /// CLASH's input digest under ABI v2: `sha256("PSF-CLASH-INPUT-v2" ‖ b ‖
 /// seed ‖ province[SITE_MIRROR..TICKET_COHORTS] ‖ province[4,096..4,736] ‖
-/// arrivals)`.
+/// arrivals [‖ "PSF-CARAVAN-v1" ‖ CARAVANS[5]])`, the caravan suffix only
+/// when a slot is in use (S1; an MC Province's slots are zero).
 pub fn input_digest_v2(pd: &[u8], ci: &[u8], b: u32, seed: &[u8; 32]) -> R<[u8; 32]> {
     let st = pd.get(STATE_BLOCK).ok_or(BAD_ACCOUNT)?;
     let cq = pd.get(P2::CQ_BLOCK).ok_or(BAD_ACCOUNT)?;
     let ar = ci.get(ARRIVALS_BLOCK).ok_or(BAD_ACCOUNT)?;
-    Ok(sha256(&[
-        INPUT_DOMAIN_V2,
-        &b.to_le_bytes(),
-        seed,
-        st,
-        cq,
-        ar,
-    ]))
+    let bb = b.to_le_bytes();
+    Ok(match caravan_block(pd)? {
+        None => sha256(&[INPUT_DOMAIN_V2, &bb, seed, st, cq, ar]),
+        Some(cv) => sha256(&[INPUT_DOMAIN_V2, &bb, seed, st, cq, ar, CARAVAN_DOMAIN, cv]),
+    })
 }
 
-/// SKIP's quiet digest under ABI v2 (the conquest block added).
+/// SKIP's quiet digest under ABI v2 (the conquest block added; S1: the
+/// caravan suffix when a slot is in use).
 pub fn quiet_digest_v2(pd: &[u8], b0: u32, n: u8) -> R<[u8; 32]> {
     let st = pd.get(STATE_BLOCK).ok_or(BAD_ACCOUNT)?;
     let cq = pd.get(P2::CQ_BLOCK).ok_or(BAD_ACCOUNT)?;
-    Ok(sha256(&[QUIET_DOMAIN_V2, &b0.to_le_bytes(), &[n], st, cq]))
+    let bb = b0.to_le_bytes();
+    Ok(match caravan_block(pd)? {
+        None => sha256(&[QUIET_DOMAIN_V2, &bb, &[n], st, cq]),
+        Some(cv) => sha256(&[QUIET_DOMAIN_V2, &bb, &[n], st, cq, CARAVAN_DOMAIN, cv]),
+    })
 }

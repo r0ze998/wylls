@@ -378,6 +378,113 @@ fn g01_resolve_from_inputs_all_fills() {
     );
 }
 
+/// S1 stage 1c (S1-1B-CONTRACT §4.6): ResolveFromInputs over every fill
+/// with the caravan scan at its worst: five caravan slots exposed at the
+/// bell, each on a resident's tile (its faction another's, so a raid is
+/// due) or a free tile, joining while garrison room lasts. CU and heap
+/// within the same ceilings as the fills without them.
+#[test]
+fn g01_s1_resolve_from_inputs_with_caravans() {
+    use frontier_abi::v2::layout::province::caravan_slot as CSL;
+    use permutation_rules::frontier::caravan::{caravan_id, CaravanSlot, RAID_NONE, SLOT_TILES};
+    let fills = all_fills();
+    let (mut c, w) = world_on(Build::Release);
+    let (mut ct, wt) = world_on(Build::Trace);
+    let pd = c.programdata_len();
+    let ceil = ceilings(Ix::ResolveFromInputs, 0, pd);
+    let (mut worst, mut worst_heap, mut raids) = ((0u64, String::new()), 0u32, 0usize);
+    for (set, f) in &fills {
+        let need_of = |c: &mut Chain, w: &World| {
+            ready(c, w, f);
+            let k = w.a.province(f.p, f.q);
+            let d = c.data(&k);
+            let sites = &d[P::SITES..P::SITES + d[P::SITE_COUNT] as usize];
+            let camp = d[P::CAMP + CP::TILE];
+            // resident tiles first (a raid is due there), then free ones
+            let mut tiles: Vec<(u8, u8)> = vec![];
+            for i in 0..P::ENTRIES_N {
+                let e = read_entry(&d, i).unwrap();
+                if e.state == EN::STATE_ROSTER && !tiles.iter().any(|t| t.0 == e.tile) {
+                    tiles.push((e.tile, (e.faction + 1) % 6));
+                }
+            }
+            for t in 0..61u8 {
+                if f.terrain.terrain[t as usize].is_passable() && !tiles.iter().any(|x| x.0 == t) {
+                    tiles.push((t, 0));
+                }
+            }
+            tiles.retain(|(t, _)| !sites.contains(t) && *t != camp);
+            c.edit(&k, |d| {
+                // Five site garrisons give way to five caravans: still 12
+                // garrisons, the worst case (the kernel's cap).
+                let mut freed = 0;
+                for si in (0..d[P::SITE_COUNT] as usize).rev() {
+                    let o = P::site(si);
+                    if freed < 5 && d[o + SM::STATE] != 0 {
+                        d[o + SM::STATE] = 0;
+                        freed += 1;
+                    }
+                }
+                for (i, (t, fac)) in tiles.iter().take(5).enumerate() {
+                    let mut tl = [0u8; SLOT_TILES];
+                    tl[0] = *t;
+                    let s = CaravanSlot {
+                        id: caravan_id(0x51_0000 + i as u64, i as u32),
+                        faction: *fac,
+                        n: 1,
+                        raid_off: RAID_NONE,
+                        raid_pos: 0,
+                        first_bell: B,
+                        tiles: tl,
+                        raider: 0,
+                    };
+                    s.encode(&mut d[CSL::at(i)..CSL::at(i) + CSL::SIZE])
+                        .unwrap();
+                }
+            });
+            for ix in w.gather_parts(c, f.dest(), B, &THIRDS) {
+                expect_lands(keeper_send(c, w, ix), "GatherClash");
+            }
+            let rix = w.resolve_ix(f.dest(), B);
+            let need = c
+                .measure(std::slice::from_ref(&rix), &[&w.keeper])
+                .expect("resolve");
+            expect_lands(keeper_send(c, w, rix), "ResolveFromInputs with caravans");
+            let d = c.data(&k);
+            let raided = (0..5)
+                .filter(|&i| {
+                    CaravanSlot::decode(&d[CSL::at(i)..CSL::at(i) + CSL::SIZE])
+                        .is_some_and(|s| s.raid_open())
+                })
+                .count();
+            (need, raided)
+        };
+        let (need, r) = need_of(&mut c, &w);
+        let (tneed, _) = need_of(&mut ct, &wt);
+        let heap = tneed.heap.expect("trace build heap");
+        assert!(
+            need.cu <= ceil.cu as u64,
+            "{set} {}: {} CU",
+            f.name,
+            need.cu
+        );
+        assert!(heap <= ceil.heap, "{set} {}: heap {heap} B", f.name);
+        raids += r;
+        if need.cu > worst.0 {
+            worst = (need.cu, format!("{set} {}", f.name));
+        }
+        worst_heap = worst_heap.max(heap);
+    }
+    assert!(raids > 0, "the fills raid some caravans");
+    println!(
+        "S1 RFI with caravans, {} fills: CU max {} ({}), heap max {worst_heap} B, {raids} raids (ceiling {} CU)",
+        fills.len(),
+        worst.0,
+        worst.1,
+        ceil.cu
+    );
+}
+
 // ================================================================ G11 / SkipQuiet
 
 /// A quiet roster at `(p, q)`: 6 factions × `per` residents, each faction
@@ -4342,8 +4449,16 @@ fn cq_keep_taken_sends_the_donor_home_through_the_return_settle() {
         (0, 4_500, 1, 5)
     );
     let scored = c.data(&w.a.province(f.p, f.q));
-    assert_eq!(u64_at(&scored, P2::TERRITORY_BELLS + 5 * 8), 1, "old owner earns capture bell");
-    assert_eq!(u64_at(&scored, P2::TERRITORY_BELLS), 0, "no instant capture bonus");
+    assert_eq!(
+        u64_at(&scored, P2::TERRITORY_BELLS + 5 * 8),
+        1,
+        "old owner earns capture bell"
+    );
+    assert_eq!(
+        u64_at(&scored, P2::TERRITORY_BELLS),
+        0,
+        "no instant capture bonus"
+    );
     let en = w.entries(&c, f.dest());
     let (i, x) = en
         .iter()
@@ -4365,7 +4480,11 @@ fn cq_keep_taken_sends_the_donor_home_through_the_return_settle() {
     assert_eq!(skip_n(&l.logs), 1);
     let scored = c.data(&w.a.province(f.p, f.q));
     assert_eq!(u64_at(&scored, P2::TERRITORY_BELLS + 5 * 8), 1);
-    assert_eq!(u64_at(&scored, P2::TERRITORY_BELLS), 1, "new owner earns the next full bell");
+    assert_eq!(
+        u64_at(&scored, P2::TERRITORY_BELLS),
+        1,
+        "new owner earns the next full bell"
+    );
 
     // the return settle credits the rest home
     let before = u32_at(&c.data(&hk), H::reserve(0));

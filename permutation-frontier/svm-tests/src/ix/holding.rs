@@ -9,8 +9,8 @@
 //! the same signatures, so every caller sends the v2 shape.
 
 use fclient::addr::Addresses;
-pub use fclient::ix::{settle_explore, HoldingRef, Player, SeedSource};
 pub use fclient::ix::v2::explore;
+pub use fclient::ix::{settle_explore, HoldingRef, Player, SeedSource};
 use solana_instruction::{AccountMeta, Instruction};
 
 /// The Build item of the tier-up (after the six buildings and the walls).

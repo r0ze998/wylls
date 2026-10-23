@@ -308,6 +308,7 @@ fn position_data(acc: Acc, ix_sysvar: u32) -> u32 {
     match acc {
         Acc::Kind(k) => k.size() as u32,
         Acc::KindV2(k) => k.size() as u32,
+        Acc::EitherV2(a, b) => a.size().max(b.size()) as u32,
         Acc::Either(a, b) => {
             let (x, y) = (a.size() as u32, b.size() as u32);
             if x > y {

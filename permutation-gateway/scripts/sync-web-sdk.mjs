@@ -48,7 +48,7 @@ const V1_GENERATED = {
   'abi-errors.mjs': { from: 'errors.json', name: 'ERRORS', keep: v => pick(v, ['abi_version', 'contract', 'errors']) },
   'abi-budgets.mjs': { from: 'budgets.json', name: 'BUDGETS', keep: v => pick(v, ['abi_version', 'contract', 'constants', 'instructions']) },
   'abi-layouts.mjs': { from: 'layouts.json', name: 'LAYOUTS', keep: v => pick(v, ['abi_version', 'contract', 'accounts', 'records', 'season_params', 'rent_per_byte', 'season_tombstone_size', 'reserved_magic']) },
-  'abi-presets.mjs': { from: 'presets.json', name: 'PRESETS', keep: v => ({ ...pick(v, ['abi_version', 'contract', 'quicknet', 'payout_params_rev3_borsh', 'presets']), ruleset_hash: v.ruleset_hash ?? v.ruleset_hash_v2 }) },
+  'abi-presets.mjs': { from: 'presets.json', name: 'PRESETS', keep: v => ({ ...pick(v, ['abi_version', 'contract', 'quicknet', 'payout_params_rev3_borsh', 'presets']), ruleset_hash: v.ruleset_hash ?? v.ruleset_hash_v2, ruleset_hash_v3: v.ruleset_hash_v3 }) },
 };
 export const FRONTIER_GENERATED = Object.freeze({ ...V1_GENERATED, ...Object.fromEntries(Object.entries(V1_GENERATED).map(([name, row]) => [name.replace('abi-', 'abi-v2-'), { ...row, from: `v2/${row.from}` }])) });
 

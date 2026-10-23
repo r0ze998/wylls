@@ -505,7 +505,9 @@ fn holding_addr(ctx: &AddrCtx, p: i32, q: i32, site: u8) -> [u8; 32] {
 /// Holding): `Ok(true)` when a host is recorded (module note). A matching
 /// transit (state 2 or 3) is stamped
 /// with this destination (`FLAG_GATHERED`, `DEST_P`, `DEST_Q`), so
-/// SettleTransit can settle it only here (v1.7, W4-B F1). Fixed-offset
+/// SettleTransit can settle it only here (v1.7, W4-B F1). S1 1d: the
+/// first stamp wears the transit's troops by the slot's `WORN_BPS` and the
+/// record takes the worn troops; a re-gather reads them as they are. Fixed-offset
 /// reads and writes (the per-position cost bounds a gather, §13.1).
 #[allow(clippy::too_many_arguments)]
 fn gather_position(
@@ -563,6 +565,9 @@ fn gather_position(
     rec[AR::UNIT] = s[AS::UNIT];
     rec[AR::TILE] = s[AS::TILE];
     rec[AR::STANCE] = s[AS::STANCE];
+    // S1 1d: the tower wear Reveal judged (zero in an MC season).
+    let wo = frontier_abi::v2::layout::s1::arrival::WORN_BPS;
+    let worn = u16::from_le_bytes([s[wo], s[wo + 1]]);
     drop(sd);
     if !prologue::presence(holding, program, AccountKind::Holding, sid)? {
         return Ok(true);
@@ -589,6 +594,12 @@ fn gather_position(
         {
             continue;
         }
+        // Already stamped with this destination: a re-gather, whose
+        // transit already carries the wear.
+        let same = tr[T::FLAGS] & T::FLAG_GATHERED != 0
+            && tr[T::DEST_P..T::DEST_P + 2] == pp.to_le_bytes()
+            && tr[T::DEST_Q..T::DEST_Q + 2] == pq.to_le_bytes();
+        let mut worn_troops = None;
         let stamp = match st {
             T::STATE_DEPARTED => return Err(FrontierError::DepartureUnsettled.into()),
             T::STATE_DESTROYED_AT_ORIGIN => {
@@ -596,7 +607,14 @@ fn gather_position(
                 true
             }
             _ => {
-                let troops = t32(T::TROOPS_AFTER);
+                // S1 1d (contract §3.2): the first stamp wears the transit's
+                // troops; the record and the transit both carry the result.
+                let mut troops = t32(T::TROOPS_AFTER);
+                if !same && worn > 0 {
+                    troops =
+                        permutation_rules::frontier::structure::wear(troops as u64, worn) as u32;
+                    worn_troops = Some(troops);
+                }
                 let stamina = model::arrival_stamina(
                     u16::from_le_bytes([tr[T::STAMINA_AFTER], tr[T::STAMINA_AFTER + 1]]),
                     t32(T::DEPART_BELL),
@@ -616,11 +634,11 @@ fn gather_position(
             return Ok(true);
         }
         let tr = hd.get_mut(o..o + T::SIZE).ok_or(BAD_ACCOUNT)?;
-        let same = tr[T::FLAGS] & T::FLAG_GATHERED != 0
-            && tr[T::DEST_P..T::DEST_P + 2] == pp.to_le_bytes()
-            && tr[T::DEST_Q..T::DEST_Q + 2] == pq.to_le_bytes();
         if same {
             return Ok(true);
+        }
+        if let Some(t) = worn_troops {
+            tr[T::TROOPS_AFTER..T::TROOPS_AFTER + 4].copy_from_slice(&t.to_le_bytes());
         }
         tr[T::FLAGS] |= T::FLAG_GATHERED;
         tr[T::DEST_P..T::DEST_P + 2].copy_from_slice(&pp.to_le_bytes());
@@ -1028,7 +1046,10 @@ pub mod cqlog {
                 p += s.payload[j].1;
                 j += 1;
             }
-            t[s.kind as usize - FIRST as usize] = (true, k as u16, p as u16);
+            // The clash writes MC kinds only (S1's 90.. are not its).
+            if (s.kind as usize) < FIRST as usize + 10 {
+                t[s.kind as usize - FIRST as usize] = (true, k as u16, p as u16);
+            }
             i += 1;
         }
         t
@@ -1514,8 +1535,9 @@ pub fn skip_quiet(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
 /// Cities and the keep as garrisons).
 fn kernel_quiet(pd: &[u8], b: u32, v2: bool) -> R<bool> {
     let q = if v2 {
+        // S1: a caravan a hostile host would raid is not quiet.
         let built = model::build_v2(pd, None, b)?;
-        kc::is_quiet(&kc::frontier_ruleset(), &built.input(&[0; 32]))
+        model::is_quiet_v2(&built)
     } else {
         let built = model::build(pd, None, b)?;
         kc::is_quiet(&kc::frontier_ruleset(), &built.input(&[0; 32]))
@@ -2230,7 +2252,9 @@ mod tests {
             frontier_abi::v2::layout::AccountKind::Province,
             3
         ));
-        for spec in l2::CQ_SPECS {
+        // S1's kinds (90–94) are chained by the caravan handlers, not
+        // here: WIDTHS covers 80–89.
+        for spec in l2::CQ_SPECS.iter().filter(|s| (s.kind as u8) < 90) {
             let w = cqlog::WIDTHS[spec.kind as usize - 80];
             assert!(w.0, "{}", spec.name);
             let kind = AnyKind::Cq(spec.kind);

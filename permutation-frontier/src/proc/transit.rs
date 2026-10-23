@@ -117,7 +117,7 @@ use frontier_abi::layout::AccountKind;
 use frontier_abi::log::{divert_reason, seal_code, transit_outcome as TO, EntityKind, Kind};
 use frontier_abi::tags::Ix;
 use permutation_rules::frontier::clash::{admit_arrival, SlotDecision, SlotEntry};
-use permutation_rules::frontier::doctrine::of_faction;
+use permutation_rules::frontier::doctrine::of_faction_v3 as of_faction;
 use permutation_rules::frontier::fees::{self, DefenceParams};
 use permutation_rules::frontier::geometry::{region_of, ProvinceCoord};
 use permutation_rules::frontier::host::{

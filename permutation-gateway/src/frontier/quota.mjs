@@ -15,7 +15,14 @@
 // wall clock; it resets at the game midnight.
 import { RouteError } from '../routes/errors.mjs';
 
-export const QUOTA = Object.freeze({ earlyPerDay: 40, latePerDay: 20, earlyDays: 7, burst: 60, departsPerDay: 24 });
+// A local script-bot fleet (frontier-stack runs) sends more than a person's
+// allowance: FRONTIER_RELAY_TXS_PER_DAY raises the daily transactions of
+// both periods for this process only (the burst follows). Never set it on
+// a public relay: the contract's D4 allowance is 40 and 20 a day.
+const perDayOverride = Number(process.env.FRONTIER_RELAY_TXS_PER_DAY) || 0;
+export const QUOTA = Object.freeze(perDayOverride > 0
+  ? { earlyPerDay: perDayOverride, latePerDay: perDayOverride, earlyDays: 7, burst: Math.max(60, perDayOverride * 2), departsPerDay: 24 }
+  : { earlyPerDay: 40, latePerDay: 20, earlyDays: 7, burst: 60, departsPerDay: 24 });
 export const GAME_DAY_SECS = 86_400;
 
 /** Sponsored transactions a key gets on game day `day`. */

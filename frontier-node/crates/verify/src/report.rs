@@ -46,7 +46,7 @@ pub fn json(r: &Report) -> Value {
         "provenance": r.provenance,
         "mutated_build": crate::mutated(),
     });
-    if r.checks_run.iter().any(|c| c.starts_with("CQ")) {
+    if r.checks_run.iter().any(|c| c.starts_with("CQ")) && !r.checks_run.contains(&"V5") {
         out["liveness"] = Value::Null;
     }
     out
@@ -76,7 +76,7 @@ pub fn markdown(r: &Report) -> String {
         "- Transactions {} ({} failed); seals {}, reveals {}, bad seals {}, clashes {}, skips {}, tickets {}, explores {}\n",
         c.tx, c.failed_tx, c.seals, c.reveals, c.bad_seals, c.clashes, c.skips, c.tickets, c.explores
     ));
-    if r.checks_run.iter().any(|c| c.starts_with("CQ")) {
+    if r.checks_run.iter().any(|c| c.starts_with("CQ")) && !r.checks_run.contains(&"V5") {
         s.push_str("- Liveness, seal cryptography and full combat/economy replay: not assessed by this CQ audit.\n\n");
     } else {
         let l = &r.liveness;

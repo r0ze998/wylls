@@ -23,6 +23,8 @@ use frontier_agents::policy::{
     self, Ctx, DepartPlan, Intent, Route, SealKind, Target, MAX_HOST, MIN_HOST,
 };
 use frontier_agents::profile::BELLS_PER_DAY;
+use frontier_agents::rules::Rules;
+use permutation_rules::frontier::arms;
 use permutation_rules::frontier::catalog;
 use permutation_rules::frontier::doctrine::DOCTRINES;
 use permutation_rules::frontier::geometry::ProvinceCoord;
@@ -245,7 +247,9 @@ pub fn resource_name(r: usize) -> &'static str {
         Some(Resource::Wood) => "wood",
         Some(Resource::Stone) => "stone",
         Some(Resource::Ore) => "ore",
-        Some(Resource::Horses) => "horses",
+        // S1: the Horses slot holds arms (`arms::ARMS`); no M1 or MC
+        // building makes horses, so the slot is only ever arms.
+        Some(Resource::Horses) => "arms",
         Some(Resource::Gold) => "gold",
         Some(Resource::Science) => "science",
         Some(Resource::Influence) => "influence",
@@ -254,6 +258,9 @@ pub fn resource_name(r: usize) -> &'static str {
 }
 
 pub fn building_name(item: u8) -> &'static str {
+    if item == arms::ITEM_WORKSHOP {
+        return "workshop";
+    }
     catalog::BUILDINGS
         .get(item as usize)
         .map(|b| resource_name(b.resource as usize))
@@ -671,11 +678,13 @@ pub fn default_stance(faction: u8) -> u8 {
         .map_or(0, |(s, _)| s as u8)
 }
 
-/// Largest affordable multiple of 100 troops of `unit` (0 when not even 100).
-fn max_train(stores: &[i64; RESOURCES], unit: u8) -> u32 {
+/// Largest affordable multiple of 100 troops of `unit` (0 when not even
+/// 100), at the season's train cost (`Rules::train`: M1's, K2's under MC,
+/// the arms economy's under S1).
+fn max_train(stores: &[i64; RESOURCES], unit: u8, rules: Rules) -> u32 {
     let mut k = 0u32;
     while k < 300 {
-        match catalog::train(unit, 100 * (k + 1)) {
+        match rules.train(unit, 100 * (k + 1)) {
             Some(c) if afford(stores, &c) => k += 1,
             _ => break,
         }
@@ -693,34 +702,48 @@ fn economy_offers(inp: &Inputs) -> Vec<Offer> {
     let h = inp.h;
     let now = obs.now;
     let bell = obs.bell();
-    let doctrine = &DOCTRINES[(h.faction % 6) as usize];
+    let rules = Rules::of_obs(obs);
+    let doctrine = rules.doctrine(h.faction);
     let stores = policy::stores_at(h, now);
     let mut out = vec![];
     let shares = || vec![json!(25), json!(50), json!(75)];
     if policy::queue_free(h, now) {
-        // The 2 cheapest affordable buildings, distinct.
+        // The 2 cheapest affordable buildings, distinct; S1: the workshop
+        // is always among the offers while affordable (its arms are what
+        // the doctrine's strong unit needs; `Rules::needs_arms`).
         let mut b: Vec<(i64, u8, [i64; RESOURCES])> = vec![];
-        for item in 0..catalog::BUILDINGS.len() as u8 {
+        for &item in rules.building_items() {
             let n = policy::copies(h, item, now) + 1;
-            let Some((cost, _, secs)) = catalog::building(item, n, doctrine) else {
+            let Some((cost, _, secs)) = rules.building(item, n, doctrine) else {
                 continue;
             };
             if afford(&stores, &cost) {
-                b.push((cost.iter().sum(), item, cost));
+                let total: i64 = cost.iter().sum();
+                let total = if item == arms::ITEM_WORKSHOP {
+                    i64::MIN
+                } else {
+                    total
+                };
+                b.push((total, item, cost));
                 let _ = secs;
             }
         }
         b.sort_by_key(|x| (x.0, x.1));
         for (_, item, cost) in b.into_iter().take(2) {
             let n = policy::copies(h, item, now) + 1;
-            let secs = catalog::building(item, n, doctrine).map_or(0, |x| x.2);
+            let secs = rules.building(item, n, doctrine).map_or(0, |x| x.2);
             let after: [i64; RESOURCES] = core::array::from_fn(|i| stores[i] - cost[i]);
             let name = building_name(item);
+            let label = if item == arms::ITEM_WORKSHOP {
+                format!("Build a workshop: ore and wood into arms (copy {n})")
+            } else {
+                format!("Build a {name} producer (copy {n})")
+            };
             out.push(Offer {
                 cand: Candidate {
                     id: String::new(),
                     kind: format!("build:{name}"),
-                    label: format!("Build a {name} producer (copy {n})"),
+                    label,
                     facts: json!({
                         "item": name,
                         "copy": n,
@@ -736,7 +759,7 @@ fn economy_offers(inp: &Inputs) -> Vec<Offer> {
                 action: Action::Build { item },
             });
         }
-        if let Some((cost, _, secs)) = catalog::building(catalog::ITEM_WALLS, 1, doctrine) {
+        if let Some((cost, _, secs)) = rules.building(catalog::ITEM_WALLS, 1, doctrine) {
             if afford(&stores, &cost) {
                 let after: [i64; RESOURCES] = core::array::from_fn(|i| stores[i] - cost[i]);
                 out.push(Offer {
@@ -761,8 +784,16 @@ fn economy_offers(inp: &Inputs) -> Vec<Offer> {
             }
         }
     }
-    let unit = doctrine.unit as u8;
-    let affordable_troops = max_train(&stores, unit);
+    // S1: a doctrine whose strong unit lacks arms trains Spearmen meanwhile.
+    let unit = {
+        let u = doctrine.unit as u8;
+        if rules.needs_arms(u) && max_train(&stores, u, rules) < MIN_HOST {
+            permutation_rules::units::UnitType::Spearman as u8
+        } else {
+            u
+        }
+    };
+    let affordable_troops = max_train(&stores, unit, rules);
     if affordable_troops >= MIN_HOST {
         let mut params = BTreeMap::new();
         params.insert("share".to_string(), shares());
@@ -1237,7 +1268,8 @@ pub fn replan_with(
     let h = inp.h;
     let now = obs.now;
     let bell = obs.bell();
-    let doctrine = &DOCTRINES[(h.faction % 6) as usize];
+    let rules = Rules::of_obs(obs);
+    let doctrine = rules.doctrine(h.faction);
     let mut stores = policy::stores_at(h, now);
     for (s, c) in stores.iter_mut().zip(taken.spent.iter()) {
         *s -= c;
@@ -1377,7 +1409,7 @@ pub fn replan_with(
                 return Err("queue full");
             }
             let n = policy::copies(h, *item, now) + 1;
-            let (cost, _, _) = catalog::building(*item, n, doctrine).ok_or("not priced")?;
+            let (cost, _, _) = rules.building(*item, n, doctrine).ok_or("not priced")?;
             if !afford(&stores, &cost) {
                 return Err("not affordable");
             }
@@ -1398,8 +1430,9 @@ pub fn replan_with(
             if taken.builds >= queue_free_slots(h, now) {
                 return Err("queue full");
             }
-            let (cost, _, _) =
-                catalog::building(catalog::ITEM_WALLS, 1, doctrine).ok_or("not priced")?;
+            let (cost, _, _) = rules
+                .building(catalog::ITEM_WALLS, 1, doctrine)
+                .ok_or("not priced")?;
             if !afford(&stores, &cost) {
                 return Err("not affordable");
             }
@@ -1417,12 +1450,12 @@ pub fn replan_with(
             ))
         }
         Action::Train { unit } => {
-            let k = max_train(&stores, *unit);
+            let k = max_train(&stores, *unit, rules);
             if k < MIN_HOST {
                 return Err("not affordable");
             }
             let n = share_of(k, p.share.unwrap_or(50)).min(k);
-            if let Some(cost) = catalog::train(*unit, n) {
+            if let Some(cost) = rules.train(*unit, n) {
                 for (s, c) in taken.spent.iter_mut().zip(cost.iter()) {
                     *s += c;
                 }

@@ -23,6 +23,7 @@ use frontier_abi::layout::world::{
 use frontier_abi::log::{settle_outcome, EntityKind, Kind};
 use frontier_abi::prologue::{cohort_closed, finality_due, HoldingHdr};
 use frontier_abi::tags::Ix;
+use frontier_abi::v2::layout::player::holding as H2;
 use permutation_frontier_svm_tests::budget::{assert_within, ceilings, Need};
 use permutation_frontier_svm_tests::chain::{
     assert_code, expect_lands, loaded_limit, with_account, without_signer, Build, Chain, Profile,
@@ -30,6 +31,7 @@ use permutation_frontier_svm_tests::chain::{
 use permutation_frontier_svm_tests::ix::citizen::{self as cix, player_at, settle_at};
 use permutation_frontier_svm_tests::records::one;
 use permutation_frontier_svm_tests::wallets;
+use permutation_frontier_svm_tests::world::holding::site_terrain_ore;
 use permutation_frontier_svm_tests::world::land::{
     provinces_of, rd_i64, rd_u16, rd_u32, rd_u64, region, ChainTrack, Citizen,
 };
@@ -494,9 +496,16 @@ fn citizen_file_and_settle_a_fresh_holding() {
     assert_eq!(&hd[H::RENT_PAYER..H::RENT_PAYER + 32], a.key().as_ref());
     let s_round = w.seed_round(&c, bell, r0);
     assert_eq!(rd_i64(&hd, H::FINAL_TS), World::round_time(s_round) + 600);
-    // The founded holding: Hamlet base production and the starter kit.
+    // The founded holding: Hamlet base production (S1: the site's terrain
+    // ore, also written into TERRAIN_ORE) and the starter kit.
+    let ore = {
+        let pd = c.data(&pk);
+        site_terrain_ore(&pd, hd[H::TILE])
+    };
+    assert_eq!(rd_i64(&hd, H2::TERRAIN_ORE), ore);
+    assert!(ore >= permutation_rules::frontier::arms::ORE_BASE_PER_HOUR * 1_000);
     let mut want = Holding::found(c.now, w.now_bell(&c) / 144, 1);
-    want.production = catalog::base_production(Tier::Hamlet);
+    want.production = permutation_rules::frontier::arms::base_production(Tier::Hamlet, ore);
     for r in 0..8 {
         assert_eq!(
             rd_u64(&hd, H::PRODUCTION + 8 * r) as i64,
@@ -2117,8 +2126,14 @@ mod cq {
             rd_i64(&hd, H::SHIELD_UNTIL),
             now + MC_TEST.cq.outpost_shield_secs as i64
         );
+        let ore = site_terrain_ore(&c.data(&pk), hd[H::TILE]);
+        assert_eq!(
+            rd_i64(&hd, H2::TERRAIN_ORE),
+            ore,
+            "S1: the site's terrain ore"
+        );
         let mut want = Holding::found(now, nb / 144, 2);
-        want.production = catalog::base_production(Tier::Hamlet);
+        want.production = permutation_rules::frontier::arms::base_production(Tier::Hamlet, ore);
         for r in 0..8 {
             assert_eq!(rd_u64(&hd, H::store(r)), 0, "no starter kit (store {r})");
             assert_eq!(
@@ -2170,15 +2185,32 @@ mod cq {
         w.fold(&mut c);
         assert_eq!(rd_u32(&c.data(&w.a.frontier()), FR::OCCUPIED_SITES), 2);
         // Slot 3 waits for slot 2 to be final, and authenticates that account.
-        let second = fclient::ix::HoldingRef { p: t.0, q: t.1, site: s0 };
+        let second = fclient::ix::HoldingRef {
+            p: t.0,
+            q: t.1,
+            site: s0,
+        };
         let s1 = w.free_sites(&c, t.0, t.1)[0];
-        let third = fclient::ix::v2::file_outpost_with_second(&w.a, &e.player(),
-            &[site(t, s1)], e.href(), cix::anchor_key(e.href(), e.gen), Some(second));
+        let third = fclient::ix::v2::file_outpost_with_second(
+            &w.a,
+            &e.player(),
+            &[site(t, s1)],
+            e.href(),
+            cix::anchor_key(e.href(), e.gen),
+            Some(second),
+        );
         assert_code(send(&mut c.fork(), &e, third.clone()), Cq::OutpostRule);
         c.set_time(rd_i64(&hd, H::FINAL_TS) + 600);
         let nb = w.now_bell(&c);
         w.set_resolved_next(&mut c, &pk, nb);
-        expect_lands(send(&mut c, &e, fclient::ix::v2::harvest(&w.a, &e.player(), second)), "Harvest slot 2 finality");
+        expect_lands(
+            send(
+                &mut c,
+                &e,
+                fclient::ix::v2::harvest(&w.a, &e.player(), second),
+            ),
+            "Harvest slot 2 finality",
+        );
         let anchor1 = read_kholding(&c.data(&e.holding));
         expect_lands(send(&mut c, &e, third), "FileOutpost (slot 3)");
         assert_eq!(c.data(&e.citizen)[C2::SLOTS] & 3, 3);
@@ -2360,22 +2392,38 @@ mod cq {
         let s0 = w.free_sites(&c, t.0, t.1)[0];
         w.fold(&mut c);
         let ok = w.file_outpost_ix(&e, &[site(t, s0)], &e);
-        expect_lands(send(&mut c.fork(), &e, ok.clone()), "FileOutpost home anchor");
+        expect_lands(
+            send(&mut c.fork(), &e, ok.clone()),
+            "FileOutpost home anchor",
+        );
         let mut locked = c.fork();
-        locked.edit(&e.province, |d| d[PV::site(e.site as usize) + SM::GEN] = e.gen + 1);
+        locked.edit(&e.province, |d| {
+            d[PV::site(e.site as usize) + SM::GEN] = e.gen + 1
+        });
         assert_code(send(&mut locked, &e, ok), Cq::CapturePending);
 
         let o = settled_outpost(&mut c, &w, &e, t, s0);
         c.advance(600);
         let s1 = w.free_sites(&c, t.0, t.1)[0];
-        let ix = fclient::ix::v2::file_outpost_with_second(&w.a, &e.player(),
-            &[site(t, s1)], e.href(), cix::anchor_key(e.href(), e.gen), Some(o.href()));
-        expect_lands(send(&mut c.fork(), &e, ix.clone()), "FileOutpost (outpost anchor)");
+        let ix = fclient::ix::v2::file_outpost_with_second(
+            &w.a,
+            &e.player(),
+            &[site(t, s1)],
+            e.href(),
+            cix::anchor_key(e.href(), e.gen),
+            Some(o.href()),
+        );
+        expect_lands(
+            send(&mut c.fork(), &e, ix.clone()),
+            "FileOutpost (outpost anchor)",
+        );
         let mut provisional = c.fork();
         provisional.edit(&o.holding, |d| d[H::STATE] = H::STATE_PROVISIONAL);
         assert_code(send(&mut provisional, &e, ix.clone()), Cq::OutpostRule);
         let mut locked = c.fork();
-        locked.edit(&o.province, |d| d[PV::site(s0 as usize) + SM::GEN] = o.gen + 1);
+        locked.edit(&o.province, |d| {
+            d[PV::site(s0 as usize) + SM::GEN] = o.gen + 1
+        });
         assert_code(send(&mut locked, &e, ix), Cq::CapturePending);
     }
 

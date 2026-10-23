@@ -69,6 +69,13 @@ pub const SEASON_PARAMS_V2_LEN: usize = SEASON_PARAMS_LEN + CONQUEST_PARAMS_LEN;
 pub const PARAMS_DOMAIN_V2: &[u8] = b"PSF-PARAMS-v2";
 /// `program_version` of an MC season.
 pub const PROGRAM_VERSION_V2: u16 = 3;
+/// `program_version` of an S1 season (redesign stage 1: the arms economy).
+/// Readers that test `program_version >= PROGRAM_VERSION_V2` treat an S1
+/// season as conquest (S1 keeps every MC rule); S1 behaviour is gated on
+/// `>= PROGRAM_VERSION_S1`.
+pub const PROGRAM_VERSION_S1: u16 = 4;
+/// Rules version of the S1 kernels (`RULES_VERSION_FRONTIER` 11 → 12).
+pub const RULES_VERSION_S1: u16 = permutation_rules::frontier::RULES_VERSION_FRONTIER_V3;
 /// `conquest_version` of the block.
 pub const CONQUEST_VERSION: u8 = 1;
 /// Rules version of the MC kernels (`RULES_VERSION_FRONTIER` 10 → 11, §3.13).
@@ -105,6 +112,16 @@ const _: () = {
 pub const RULESET_HASH_V2: [u8; 32] = [
     0x5f, 0xba, 0xf6, 0x78, 0xbc, 0xc9, 0xf6, 0x6c, 0x74, 0x99, 0xc2, 0xd2, 0x6c, 0xe1, 0x95, 0xc9,
     0xca, 0x3f, 0x78, 0xb3, 0x2a, 0x9f, 0x67, 0xf1, 0x10, 0x89, 0x78, 0x9b, 0x82, 0xc0, 0x1a, 0x8b,
+];
+
+/// `RULESET_HASH_V3`: the hash the S1 program embeds and CreateSeason
+/// writes in an S1 season, pinned by `ruleset_hash_v3_is_the_kernels`
+/// against `permutation_rules::frontier::ruleset_hash_v3` (and by the rules
+/// crate's `s1_ruleset_hash_pinned_and_older_hashes_unchanged`). The M1 and
+/// MC hashes are unchanged.
+pub const RULESET_HASH_V3: [u8; 32] = [
+    0x23, 0x4c, 0x0d, 0xc2, 0x25, 0xe5, 0xce, 0x32, 0x36, 0x87, 0x75, 0x6b, 0x91, 0x3f, 0x78, 0xe3,
+    0x30, 0x75, 0x7a, 0xbb, 0x96, 0x9d, 0xf2, 0x90, 0x74, 0x5e, 0xae, 0x1e, 0x9a, 0xae, 0x42, 0x2d,
 ];
 
 /// The conquest block (§5.2.5).
@@ -364,11 +381,14 @@ impl SeasonParamsV2 {
         })
     }
 
-    /// M1's ranges, `program_version = 3`, the block's ranges and the
-    /// dormancy timers agreeing in both parts.
+    /// M1's ranges, `program_version` 3 (MC) or 4 (S1, same parameters),
+    /// the block's ranges and the dormancy timers agreeing in both parts.
+    /// The program refuses a version other than its own.
     pub fn validate(&self) -> Result<(), &'static str> {
         self.base.validate()?;
-        if self.base.program_version != PROGRAM_VERSION_V2 {
+        if self.base.program_version != PROGRAM_VERSION_V2
+            && self.base.program_version != PROGRAM_VERSION_S1
+        {
             return Err("program_version");
         }
         if self.base.dormant_after_secs != self.cq.dormant_after_secs
@@ -538,6 +558,35 @@ pub const PRESETS: [(&str, SeasonParamsV2); 4] = [
     ("MC_TEST", MC_TEST),
 ];
 
+/// An MC preset as an S1 season: the same parameters with
+/// `program_version = 4` (the S1 rules live in the kernels, not in the
+/// parameters).
+pub const fn s1(p: SeasonParamsV2) -> SeasonParamsV2 {
+    let mut q = p;
+    q.base.program_version = PROGRAM_VERSION_S1;
+    q.base.reveal_loaded_limit = REVEAL_LOADED_LIMIT_S1;
+    q.base.reveal_cu_limit = crate::v2::budgets::REVEAL_CU_LIMIT_S1;
+    q
+}
+
+/// `L(Reveal)` under the S1 release (`budgets::loaded_limit_s1`; pinned by
+/// `reveal_profile_matches_v2_budgets`).
+pub const REVEAL_LOADED_LIMIT_S1: u32 = 1_867_776;
+
+/// `S1_LOCAL_7D`, `S1_LOCAL_14D` and `S1_TEST`: the MC presets of the same
+/// names for the S1 program (redesign 30, J5: stage 1 runs in a new
+/// season).
+pub const S1_LOCAL_7D: SeasonParamsV2 = s1(MC_LOCAL_7D);
+pub const S1_LOCAL_14D: SeasonParamsV2 = s1(MC_LOCAL_14D);
+pub const S1_TEST: SeasonParamsV2 = s1(MC_TEST);
+
+/// Every S1 preset with its name (vectors).
+pub const PRESETS_S1: [(&str, SeasonParamsV2); 3] = [
+    ("S1_LOCAL_7D", S1_LOCAL_7D),
+    ("S1_LOCAL_14D", S1_LOCAL_14D),
+    ("S1_TEST", S1_TEST),
+];
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -560,15 +609,36 @@ mod tests {
     }
 
     #[test]
+    fn ruleset_hash_v3_is_the_kernels() {
+        assert_eq!(
+            RULESET_HASH_V3,
+            permutation_rules::frontier::ruleset_hash_v3(),
+            "the S1 kernels changed: update RULESET_HASH_V3 and regenerate the vectors"
+        );
+        assert_ne!(RULESET_HASH_V3, RULESET_HASH_V2);
+        assert_eq!(RULES_VERSION_S1, 12);
+        for (name, p) in PRESETS_S1 {
+            assert_eq!(p.base.program_version, PROGRAM_VERSION_S1, "{name}");
+            assert_eq!(p.validate(), Ok(()), "{name}");
+            let mc = PRESETS
+                .iter()
+                .find(|(n, _)| n[3..] == name[3..])
+                .map(|(_, q)| *q)
+                .unwrap();
+            assert_eq!(s1(mc), p);
+        }
+    }
+
+    #[test]
     fn reveal_profile_matches_v2_budgets() {
-        for (_, p) in PRESETS {
+        for (_, p) in PRESETS.iter().chain(PRESETS_S1.iter()) {
             assert_eq!(
                 p.base.reveal_cu_limit,
-                crate::v2::budgets::budget(crate::v2::Ix::Reveal).cu_limit
+                crate::v2::budgets::cu_limit_for(p.base.program_version, crate::v2::Ix::Reveal)
             );
             assert_eq!(
                 p.base.reveal_loaded_limit,
-                crate::v2::budgets::loaded_limit(crate::v2::Ix::Reveal)
+                crate::v2::budgets::loaded_limit_for(p.base.program_version, crate::v2::Ix::Reveal)
             );
         }
     }

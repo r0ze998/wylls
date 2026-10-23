@@ -158,6 +158,10 @@ pub struct ConquestDuty {
     tried: BTreeMap<String, u64>,
     /// Horn-rate alerts raised (one per bell).
     pub alerts: Vec<(u64, String)>,
+    /// S1 stage 1b: deliveries and default raids (`crate::caravans`).
+    pub caravans: crate::caravans::CaravanDuty,
+    /// S1 stage 1e: proposal settlements (`crate::nations`).
+    pub nations: crate::nations::NationDuty,
 }
 
 /// The write kinds of this duty (engine stats, journal).
@@ -248,6 +252,7 @@ impl ConquestDuty {
 
     /// The horn watcher (§8.2): an MC record from the feed.
     pub fn on_log(&mut self, log: &CqLog, slot: u64, journal: Option<&Journal>) {
+        self.caravans.on_log(log);
         match &log.event {
             CqEvent::CaptureSettled { p, q, site, .. } => {
                 self.captured_sites.insert((*p as i16, *q as i16, *site));
@@ -307,6 +312,9 @@ impl ConquestDuty {
         now_bell: u32,
         journal: Option<&Journal>,
     ) -> bool {
+        if self.caravans.on_outcome(key, o) || self.nations.on_outcome(key, o) {
+            return false;
+        }
         let kind = key.split(':').next().unwrap_or("");
         let Some(kind) = KINDS.iter().find(|k| **k == kind).copied() else {
             return false;
@@ -408,6 +416,12 @@ impl ConquestDuty {
             if now_bell >= t.season.end_bell && retire_on && !self.unsupported.contains("retire") {
                 self.retires(t, port, engine).await?;
             }
+            // S1 stage 1b: deliveries and default raids.
+            self.caravans
+                .plan(t, port, engine, &self.provs, now_bell)
+                .await?;
+            // S1 stage 1e: closed proposals.
+            self.nations.plan(t, port, engine, now_bell).await?;
         }
         if t.cfg.has_role("fold") && !self.unsupported.contains("fmarch") {
             self.folds(t, port, engine, opened, now_bell).await?;
@@ -987,6 +1001,8 @@ impl ConquestDuty {
             .copied()
             .unwrap_or(0);
         json!({
+            "caravans": self.caravans.status(),
+            "nations": self.nations.status(),
             "sieges_active": count(|c| c.sieges),
             "keeps_contested": keeps,
             "occupations": count(|c| c.occupations),
@@ -1333,6 +1349,131 @@ mod tests {
     /// `citizen_tag == actor`), its JoinShard, and for a holding the
     /// victim, its JoinShard and the Holding's rent payer; for a Free City
     /// the D-2 placeholders. Landed: counted once with its latency.
+    /// S1 stage 1b: a caravan past its arrival whose Province resolved past
+    /// its slot is settled (class D, its Caravan's accounts); an open raid
+    /// past the raider's window is taken home along the kernel's fastest
+    /// path; a burn waits for the delay when no walk reaches home.
+    #[tokio::test]
+    async fn s1_caravan_settles_and_default_raids() {
+        use frontier_abi::layout::province::province as PV;
+        use frontier_abi::v2::layout::province::caravan_slot as CSL;
+        use frontier_abi::v2::layout::s1::{caravan as CVL, place as PLL};
+        use permutation_rules::frontier::caravan as kc;
+        let mut e = env(&["settle"], 1_008);
+        e.season.program_version = fclient::abi::PROGRAM_VERSION_S1;
+        let mut c = ConquestDuty::default();
+        let (owner_tag, seq) = (0x1234_5678u64, 3u32);
+        let rent_to = Address::new_from_array([0xAB; 32]);
+        let owner = Address::new_from_array([0xC3; 32]);
+        let dst = fclient::conquest::LogPlace {
+            kind: PLL::KIND_VAULT,
+            p: 3,
+            q: 0,
+            at: 40,
+            gen: 1,
+            tile: 40,
+        };
+        // CARAVAN_SENT from the feed: one run of 2 bells at 290.
+        c.on_log(
+            &fclient::conquest::CqLog {
+                bell: 289,
+                event: fclient::conquest::CqEvent::CaravanSent {
+                    owner_tag,
+                    seq,
+                    faction: 0,
+                    src: dst,
+                    dst,
+                    steps: 4,
+                    cargo: [0; 8],
+                    arrive_ts: G,
+                    runs: vec![fclient::conquest::LogRun {
+                        p: 3,
+                        q: 0,
+                        first_bell: 290,
+                        n: 2,
+                    }],
+                    worn_bps: 0,
+                    path: [0; 12],
+                },
+            },
+            1,
+            None,
+        );
+        let mut cd = vec![0u8; CVL::SIZE];
+        assert!(frontier_abi::v2::layout::write_header(
+            &mut cd,
+            frontier_abi::v2::layout::AccountKind::Caravan,
+            7
+        ));
+        cd[CVL::STATE] = CVL::STATE_MOVING;
+        cd[CVL::N_PROV] = 1;
+        cd[CVL::province(0)..CVL::province(0) + 2].copy_from_slice(&3i16.to_le_bytes());
+        cd[CVL::RENT_TO..CVL::RENT_TO + 32].copy_from_slice(rent_to.as_ref());
+        cd[CVL::OWNER_CITIZEN..CVL::OWNER_CITIZEN + 32].copy_from_slice(owner.as_ref());
+        e.put(e.addrs.caravan(owner_tag, seq), cd);
+        let mut pd = testkit::province_v2(3, 0, 300);
+        pd[PV::PASSABLE_MASK..PV::PASSABLE_MASK + 8]
+            .copy_from_slice(&((1u64 << 61) - 1).to_le_bytes());
+        c.observe((3, 0), &pd, 300, 0, 1);
+        let cits = citizens_of(&e, &[]);
+        e.conquest(&mut c, 20, after_close(300), &cits, &BTreeSet::new())
+            .await;
+        let (class, tg, ixs) = e.preview(&format!("csettle:{owner_tag:x}:{seq}"));
+        assert_eq!((class, tg), (Class::D, tag::SETTLE_CARAVAN));
+        let acc: Vec<Address> = ixs[0].accounts.iter().map(|m| m.pubkey).collect();
+        assert_eq!(acc[2], e.addrs.caravan(owner_tag, seq));
+        assert_eq!(acc[3], e.addrs.vault(3, 0, 40));
+        assert_eq!(acc[5], rent_to);
+        assert_eq!(acc[6], e.addrs.province(3, 0));
+
+        // An open raid of the caravan at bell 290 by a host of (3,0,6).
+        let raider = Address::new_from_array([0xD4; 32]);
+        let mut hd = testkit::holding_v2(3, 0, 6, 1, raider, rent_to, None);
+        hd[frontier_abi::v2::layout::player::holding::TILE] = 30;
+        e.put(e.addrs.holding(3, 0, 6), hd);
+        e.put(raider, testkit::citizen_v2(1, 2, rent_to));
+        let slot = kc::CaravanSlot {
+            id: kc::caravan_id(owner_tag, seq),
+            faction: 0,
+            n: 2,
+            raid_off: 0,
+            raid_pos: 0,
+            first_bell: 290,
+            tiles: [20, 21, 0, 0, 0, 0, 0, 0],
+            raider: fclient::addr::host_id(3, 0, 6, 1, 0).unwrap(),
+        };
+        slot.encode(&mut pd[CSL::at(0)..CSL::at(0) + CSL::SIZE])
+            .unwrap();
+        c.observe((3, 0), &pd, 300, 0, 2);
+        e.conquest(&mut c, 40, after_close(300), &cits, &BTreeSet::new())
+            .await;
+        let key = format!("draid:{owner_tag:x}:{seq}:290");
+        let (class, tg, ixs) = e.preview(&key);
+        assert_eq!((class, tg), (Class::D, tag::DEFAULT_RAID));
+        let x = frontier_abi::v2::ix::DefaultRaid::decode(&ixs[0].data).unwrap();
+        let dirs: Vec<u8> = (0..x.steps as usize)
+            .map(|i| kc::dir_of(&x.path, i))
+            .collect();
+        let (want, _) = kc::fastest_path(
+            (
+                permutation_rules::frontier::geometry::ProvinceCoord::new(3, 0),
+                20,
+            ),
+            (
+                permutation_rules::frontier::geometry::ProvinceCoord::new(3, 0),
+                30,
+            ),
+            &[crate::caravans::land(&pd).unwrap()],
+        )
+        .unwrap();
+        assert_eq!(dirs, want, "the kernel's fastest path home");
+        let acc: Vec<Address> = ixs[0].accounts.iter().map(|m| m.pubkey).collect();
+        assert_eq!(acc[3], e.addrs.holding(3, 0, 6));
+        assert_eq!(acc[4], raider);
+        // The open raid holds the delivery.
+        assert!(e.keys("csettle").is_empty() || c.caravans.stats.settles_planned == 1);
+    }
+
     #[tokio::test]
     async fn cq_settle_capture_names_captor_and_victim() {
         let mut e = env(&["settle"], 1_008);

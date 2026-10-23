@@ -467,6 +467,34 @@ fn g13_cq_declare_siege_on_a_first_holding_reserves_nothing() {
     assert_eq!(k.c.lamports(&k.x.citizen), cl0);
 }
 
+/// S1 1e: a siege burns `arms::SIEGE_ARMS` arms from the source with the
+/// stake; without them DeclareSiege is refused (`Insufficient`).
+#[test]
+fn g13_s1_declare_siege_burns_the_siege_arms() {
+    use permutation_rules::frontier::arms::{ARMS, SIEGE_ARMS};
+    let mut k = Cast::new();
+    let a = ARMS as usize;
+    let xh = k.x.holding;
+    let arms = |c: &Chain| read_kholding(&c.data(&xh)).stores[a].value;
+    // Without the arms.
+    let mut f = k.c.fork();
+    let x = Estate {
+        wallet: k.x.wallet.insecure_clone(),
+        ..k.x
+    };
+    k.w.edit_kholding(&mut f, &x, |h| h.stores[a].value = SIEGE_ARMS * 1_000 - 1);
+    unshield(&mut f, &k.x.holding);
+    assert_code(send_declare(&mut f, &k.x, k.declare_ix()), E::Insufficient);
+    // With them: paid, and nothing gives them back.
+    let before = arms(&k.c);
+    expect_lands(k.declare(), "DeclareSiege");
+    let after = arms(&k.c);
+    assert!(
+        before - after >= SIEGE_ARMS * 1_000 - 1_000 && before - after <= SIEGE_ARMS * 1_000,
+        "the arms paid: {before} → {after}"
+    );
+}
+
 /// §3.4 on a Free City: no owner, no vigil, `neutral` flag, a slot
 /// reserved; the declarer's own shield does not matter (step 8 skipped).
 #[test]
@@ -1933,8 +1961,8 @@ fn retire_ix(
 fn return_ix(k: &Cast, province: Address, holding: Address) -> Instruction {
     let mut ix = qix::settle_return(&k.w.a, k.w.keeper.pubkey(), province, holding);
     let d = k.c.data(&holding);
-    let hp = i16::from_le_bytes(d[H::P..H::P+2].try_into().unwrap());
-    let hq = i16::from_le_bytes(d[H::Q..H::Q+2].try_into().unwrap());
+    let hp = i16::from_le_bytes(d[H::P..H::P + 2].try_into().unwrap());
+    let hq = i16::from_le_bytes(d[H::Q..H::Q + 2].try_into().unwrap());
     ix.accounts[4].pubkey = k.w.a.province(hp as i32, hq as i32);
     ix
 }
@@ -2839,7 +2867,7 @@ fn replay_siege(
     let first = CR::target_kind(r.target) == CR::TARGET_FIRST;
     let mut b = r.bell;
     // This crafted history begins immediately after declaration.
-    pd[P::SCORE_NEXT_BELL..P::SCORE_NEXT_BELL+4].copy_from_slice(&(b+1).to_le_bytes());
+    pd[P::SCORE_NEXT_BELL..P::SCORE_NEXT_BELL + 4].copy_from_slice(&(b + 1).to_le_bytes());
     let mut counted = 0u32;
     loop {
         b += 1;
@@ -4202,7 +4230,9 @@ mod keep_model {
 
     fn score_fixture_history(pd: &mut [u8], b: u32) {
         let next = frontier_abi::bytes::rd_u32(pd, P::SCORE_NEXT_BELL).unwrap();
-        for prior in next..b { qm::score_territory(pd, prior, prm().end_bell).unwrap(); }
+        for prior in next..b {
+            qm::score_territory(pd, prior, prm().end_bell).unwrap();
+        }
     }
 
     /// The program's resolve of bell `b` (the kernel clash included).
