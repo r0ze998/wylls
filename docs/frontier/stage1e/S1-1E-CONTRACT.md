@@ -182,12 +182,15 @@ in each slot), `PROPOSED u32` (the id of the citizen's open proposal).
 
 ## 5. Siege arms
 
-- Conquest params `SIEGE_ARMS @77` (u32 whole arms, from the reserve);
-  `0` in every MC preset (MC unchanged), **20** in the S1 presets [phase 6].
-- DeclareSiege pays `SIEGE_ARMS` arms with the stake from the source
-  holding; arms are **burned** (never returned).
-- No record change: the Season holds the amount and V7 judges the paid
-  arms with the stake.
+- The amount is the arms kernel's `SIEGE_ARMS` (50 whole arms
+  [phase 6], `arms::siege_cost`), already bound into `RULESET_HASH_V3`
+  in stage 1a. (The first draft put a `SIEGE_ARMS` field in the conquest
+  params; the kernel constant serves the same purpose without a layout or
+  preset change, and the S1 program runs S1 seasons only.)
+- DeclareSiege pays the arms with the stake from the source holding
+  (`Insufficient` without them); they are **burned**, never returned.
+- No record change: V7 judges the arms paid with the stake in an S1
+  season.
 
 ## 6. Records (S1 kinds)
 

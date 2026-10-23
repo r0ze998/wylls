@@ -467,6 +467,34 @@ fn g13_cq_declare_siege_on_a_first_holding_reserves_nothing() {
     assert_eq!(k.c.lamports(&k.x.citizen), cl0);
 }
 
+/// S1 1e: a siege burns `arms::SIEGE_ARMS` arms from the source with the
+/// stake; without them DeclareSiege is refused (`Insufficient`).
+#[test]
+fn g13_s1_declare_siege_burns_the_siege_arms() {
+    use permutation_rules::frontier::arms::{ARMS, SIEGE_ARMS};
+    let mut k = Cast::new();
+    let a = ARMS as usize;
+    let xh = k.x.holding;
+    let arms = |c: &Chain| read_kholding(&c.data(&xh)).stores[a].value;
+    // Without the arms.
+    let mut f = k.c.fork();
+    let x = Estate {
+        wallet: k.x.wallet.insecure_clone(),
+        ..k.x
+    };
+    k.w.edit_kholding(&mut f, &x, |h| h.stores[a].value = SIEGE_ARMS * 1_000 - 1);
+    unshield(&mut f, &k.x.holding);
+    assert_code(send_declare(&mut f, &k.x, k.declare_ix()), E::Insufficient);
+    // With them: paid, and nothing gives them back.
+    let before = arms(&k.c);
+    expect_lands(k.declare(), "DeclareSiege");
+    let after = arms(&k.c);
+    assert!(
+        before - after >= SIEGE_ARMS * 1_000 - 1_000 && before - after <= SIEGE_ARMS * 1_000,
+        "the arms paid: {before} → {after}"
+    );
+}
+
 /// §3.4 on a Free City: no owner, no vigil, `neutral` flag, a slot
 /// reserved; the declarer's own shield does not matter (step 8 skipped).
 #[test]

@@ -1054,7 +1054,8 @@ fn outpost_anchor_holdings(
 }
 
 /// The stake DeclareSiege in `tx` pays from Holding `k` (its fifth
-/// account), as a cost: `siege_stake_gold` in gold; `None` when no
+/// account), as a cost: `siege_stake_gold` in gold, and in an S1 season
+/// the siege's arms (`arms::siege_cost`, stage 1e: burned); `None` when no
 /// DeclareSiege of the transaction names `k` as its source.
 fn siege_source_stake(f: &Facts, tx: &crate::world::Tx, k: &[u8; 32]) -> Option<[i64; RESOURCES]> {
     let tag = frontier_abi::v2::tags::Ix::DeclareSiege.tag();
@@ -1063,7 +1064,15 @@ fn siege_source_stake(f: &Facts, tx: &crate::world::Tx, k: &[u8; 32]) -> Option<
         .iter()
         .filter(|i| i.tag() == Some(tag))
         .find(|i| i.key(4).as_ref() == Some(k))?;
-    let mut c = [0i64; RESOURCES];
+    let s1 = f
+        .params
+        .as_ref()
+        .is_some_and(|p| p.program_version >= frontier_abi::v2::presets::PROGRAM_VERSION_S1);
+    let mut c = if s1 {
+        permutation_rules::frontier::arms::siege_cost()
+    } else {
+        [0i64; RESOURCES]
+    };
     c[Resource::Gold as usize] = (cq.siege_stake_gold as i64).checked_mul(MILLI)?;
     Some(c)
 }

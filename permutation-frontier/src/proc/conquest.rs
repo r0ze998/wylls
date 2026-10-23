@@ -797,9 +797,11 @@ pub fn declare_siege(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         return Err(cq(CqError::TooLate));
     }
 
-    // 10. The stake from the source Holding; the escrow for a capture.
+    // 10. The stake from the source Holding; the escrow for a capture. S1
+    // (1e): the siege's arms too, burned (`arms::siege_cost`; the program
+    // runs S1 seasons only).
     let mut h = hold::load_touched(src, now)?;
-    let mut cost = [0i64; permutation_rules::frontier::holding::RESOURCES];
+    let mut cost = permutation_rules::frontier::arms::siege_cost();
     cost[GOLD] = (stake_gold as i64).checked_mul(MILLI).ok_or(OVERFLOW)?;
     h.pay(now, &cost).map_err(hold::holding_err)?;
     let mut topped = 0u64;

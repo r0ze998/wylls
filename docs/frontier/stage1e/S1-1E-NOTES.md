@@ -129,6 +129,16 @@ stood.
   domestic raids in `h/nations.json` (`domesticRaids`, the newest 64).
 - **Measured**: 12,059 CU with a light roster; budget row 20,000.
 
-## Steps 4–5
+## Step 4: siege arms (done)
 
-Not yet built: siege arms, forts in the clash.
+DeclareSiege pays `arms::siege_cost()` (50 arms, the kernel constant
+stage 1a already hashed) with the stake from the source holding, and
+the arms are burned. The contract draft's conquest-params field was
+dropped in favour of that constant (no layout or preset change). V7
+judges the arms with the stake in an S1 season. LiteSVM:
+`conquest::g13_s1_declare_siege_burns_the_siege_arms`.
+
+## Step 5
+
+Not yet built: forts in the clash (FortGarrison, joining the clash,
+seizure after a fall).
