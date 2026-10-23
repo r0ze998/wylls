@@ -184,7 +184,7 @@ mod tests {
     fn cq_v2_budgets_cover_every_v2_kind() {
         let b = Budgets::canonical_for(abi::PROGRAM_VERSION_V2);
         assert_eq!(b, Budgets::canonical_v2());
-        for row in abi::INSTRUCTIONS_V2 {
+        for row in abi::INSTRUCTIONS_V2.iter() {
             let x = b.get(row.tag);
             assert!(x.loaded_limit >= crate::fees::PAGE, "{}", row.name);
             assert_eq!(x.loaded_limit % crate::fees::PAGE, 0, "{}", row.name);
