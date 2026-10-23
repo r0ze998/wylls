@@ -134,8 +134,13 @@ test('a village played by hand, handed to its agent, taken back and played by ha
   const l2 = await landed(aiAction.signature);
   assert.ok(l2.ok, JSON.stringify(l2));
   await waitText(agent, '行動 Harvest：送信');
-  await waitText(agent, '無料の自動運転（ルール）で動いています');
-  await step(agent, 'agent-acted', { signature: aiAction.signature, chain: l2.status, driver: acted.driver, spent: acted.balance.spent, note: 'the agent\'s Harvest (the free rule autopilot) landed; nothing charged' });
+  // What the page must say follows the relay's own reading of who drove (view.driver): the free rule autopilot on a
+  // stack without a model; the autopilot standing in (with its cause) when a model is configured but failed or was
+  // refused; the model when it decided.
+  const drv = (await json(`${HERALD}/gw/f/agent?id=${agentId}`)).driver;
+  const sentence = drv.state === 'model' ? 'モデルが判断しています' : drv.cause ? '無料の自動運転が代わりに動いています' : '無料の自動運転（ルール）で動いています';
+  await waitText(agent, sentence);
+  await step(agent, 'agent-acted', { signature: aiAction.signature, chain: l2.status, driver: acted.driver, spent: acted.balance.spent, note: `the agent's Harvest landed (driver: ${acted.driver.state}${acted.driver.cause ? ', ' + acted.driver.cause : ''}); the page said "${sentence}"` });
 
   // While the agent holds the key, the play page's own key no longer signs for the village: record what the page gets.
   await play.reload();
