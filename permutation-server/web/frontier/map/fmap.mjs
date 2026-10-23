@@ -78,6 +78,7 @@ import { syncProtoChip } from './protochip.mjs';
 import { setProtoLegend } from './legend.mjs';
 // the keeps of a conquest season (the program's version 3): map/keeps.mjs
 import { KeepBoard } from './keeps.mjs';
+import { paintS1Marks, caravanTagText } from './s1marks.mjs';
 
 /** The zoom below which a lit set is not framed on a narrow screen: neighbouring tiles stand about 44 px apart there (a tile's width is RADIUS × √3 world px, flattened by the tilt). */
 export const TOUCH_TILE_ZOOM = 0.87;
@@ -3008,6 +3009,8 @@ export class FrontierMap {
       // (the keeps a host in hand can reach stay lit through that dim: map/keeps.mjs)
       if (F.A && F.KB) F.KB.lightTop(ctx, F);
       this.boardTop(ctx, F);
+      // S1: vaults, structures and caravans on the road (map/s1marks.mjs)
+      F.s1Tags = src.s1 ? paintS1Marks(ctx, src.s1, { zoom: z, faction: F.faction, stand: (x, y, fn) => standing(ctx, F.up?.(x, y) ?? null, x, y, fn) }) : null;
       // the banners on their poles (the prototype)
       if (this.proto.on) this.proto.top(ctx, F);
     }
@@ -3073,6 +3076,12 @@ export class FrontierMap {
     const A = F.A;
     const hid = hex => { const at = hex ? locate(hex.q, hex.r) : null; return !!at && !!pass?.hiddenAt(`${at.p},${at.q},${at.idx}`); };
     this.boardOver(ctx, F, hid);
+    // S1: when each caravan on the road arrives
+    for (const t of F.s1Tags ?? []) {
+      const [q, r] = inverseHex(t.x, t.y).split(',').map(Number);
+      if (hid({ q, r })) continue;
+      paintBellTag(ctx, t.x, t.y - RADIUS * 0.5, caravanTagText(t.c.arriveBell, t.c.raided), { zoom: z, place: 'above', gap: 3, accent: FACTION_COLORS[t.c.faction] ?? undefined, anchor: t, pass, size: 11 });
+    }
     // (`piece`: a set piece — a battle — has the stage: the prototype's line of what a tile's land is steps back with every other word)
     F.piece = !!this.piece;
     if (this.proto.on) this.proto.over(ctx, F, hid);

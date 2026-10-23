@@ -198,3 +198,47 @@ test('the herald client fetches the S1 feeds from h/', async () => {
   files['/s/h/nations.json'] = { ...NATIONS, v: 9 };
   assert.equal((await h.nations()).ok, false);
 });
+
+// ---------------------------------------------------------------- the map's marks
+
+import * as MARKS from '../../permutation-server/web/frontier/map/s1marks.mjs';
+
+const recorder = () => {
+  const calls = [];
+  const ctx = new Proxy({ globalAlpha: 1 }, { get(t, k) { if (k in t) return t[k]; return (...a) => { calls.push([k, ...a]); }; }, set(t, k, v) { t[k] = v; return true; }, has: (t, k) => k in t });
+  return { ctx, calls };
+};
+
+test('the marks: the feeds\' vaults, structures and caravans, the viewer\'s own told apart, a caravan placed by its bells', () => {
+  const s1 = { caravans: parseCaravans(CARAVANS), structures: parseStructures(STRUCTURES), nations: null };
+  const m = MARKS.s1Marks(s1, { own: 9n, bell: 290 });
+  assert.deepEqual(m.vaults.map(v => [v.kind, v.own]), [['vault', true]]);
+  assert.deepEqual(m.structures.map(s => [s.kind, s.own, s.sent]), [['tower', false, 0], ['fort', false, 300]]);
+  const c = m.caravans[0];
+  assert.equal(c.own, false);
+  assert.equal(c.arriveBell, 292, 'after its last run');
+  assert.equal(c.share, 0, 'at its first bell it stands at its origin');
+  assert.equal(MARKS.s1Marks(s1, { bell: 291 }).caravans[0].share, 0.5);
+  assert.equal(MARKS.s1Marks(s1, { bell: 400 }).caravans[0].share, 1);
+  assert.equal(MARKS.s1Marks(s1, { own: 18446744073709551615n }).caravans[0].own, true, 'tags compare exactly beyond 2^53');
+  assert.equal(MARKS.s1Marks(s1).caravans[0].share, null, 'no bell, no place');
+  assert.deepEqual(MARKS.s1Marks(null), { vaults: [], structures: [], caravans: [] });
+  const p = MARKS.caravanPoint({ ...c, share: 0.5 });
+  assert.ok(Math.abs(p.x - (p.a.x + p.b.x) / 2) < 1e-9 && Math.abs(p.y - (p.a.y + p.b.y) / 2) < 1e-9);
+});
+
+test('the marks are painted: a tower of the viewer\'s nation rims its cover; every figure stands; a caravan is tagged', () => {
+  const s1 = { caravans: parseCaravans(CARAVANS), structures: parseStructures(STRUCTURES) };
+  const marks = MARKS.s1Marks(s1, { bell: 291 });
+  const strokes = faction => { const { ctx, calls } = recorder(); const stood = []; const tags = MARKS.paintS1Marks(ctx, marks, { faction, stand: (x, y, fn) => { stood.push([x, y]); fn(); } }); return { calls, stood, tags }; };
+  const mine = strokes(1), other = strokes(4);
+  const dashed = r => r.calls.filter(c => c[0] === 'setLineDash').length;
+  assert.equal(dashed(mine), 1, 'faction 1 sees its tower\'s watch');
+  assert.equal(dashed(other), 0);
+  assert.equal(mine.stood.length, 4, 'a vault, two structures and a caravan');
+  assert.equal(mine.tags.length, 1);
+  assert.match(String(MARKS.caravanTagText(292)), /292/);
+  for (const f of [MARKS.paintVault, MARKS.paintStructure, MARKS.paintCaravan]) assert.doesNotThrow(() => f(null, 0, 0, 10));
+  for (const kind of ['tower', 'palisade', 'fort']) { const { ctx, calls } = recorder(); MARKS.paintStructure(ctx, 0, 0, 10, { kind, own: true }); assert.ok(calls.some(c => c[0] === 'fill'), kind); }
+  assert.notEqual(String(MARKS.S1_WORDS.fort()), '砦', 'a fort is not a conquest keep');
+});

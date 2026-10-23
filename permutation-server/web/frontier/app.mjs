@@ -1,5 +1,6 @@
 import { territoryEnabled, territoryOf } from './territory.mjs';
 import { setS1 } from './fs1.mjs';
+import { s1Marks } from './map/s1marks.mjs';
 import * as territoryScreen from './screens/territory.mjs';
 import * as conquestScreen from './screens/conquest.mjs';
 import { conquestEnabled, outpostOffer } from './fconquest.mjs';
@@ -1868,6 +1869,18 @@ function waitNow() {
 }
 /** The village that lands now, the first time this device sees it (map/landing.mjs). */
 const landingBook = createLandingBook();
+// the S1 marks, rebuilt when a feed or the bell changes (the map asks for its source every frame)
+let s1Memo = null;
+function s1MarksNow() {
+  const s1 = FS.s1;
+  if (!s1) return null;
+  const bell = FS.nowBell ?? null;
+  if (s1Memo?.c !== s1.caravans || s1Memo.s !== s1.structures || s1Memo.bell !== bell || s1Memo.n !== FS.holdings?.length) {
+    s1Memo = { c: s1.caravans, s: s1.structures, bell, n: FS.holdings?.length, marks: s1Marks(s1, { own: ownTag(FS), bell }) };
+  }
+  return s1Memo.marks;
+}
+
 function landingNow() {
   if (FS.mode !== 'play' || !viewerKnown || !FS.wallet?.address) return null;
   const sc = scope();
@@ -3522,6 +3535,8 @@ export async function boot() {
           note: FS.mapNote ?? null,
           // a village this device sees land for the first time (map/landing.mjs)
           landing: landingNow(), landingSoon: landingSoon(),
+          // S1: vaults, structures and caravans from the herald's feeds (map/s1marks.mjs)
+          s1: s1MarksNow(),
           // the wait for the village on the map (map/waitview.mjs): when the next turn begins and, with a request out, when its result is due
           wait: waitNow(),
           // the viewer's pins (hud/pins.mjs)
