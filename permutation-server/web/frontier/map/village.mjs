@@ -266,6 +266,14 @@ function kit(g, x, y, u, lw) {
 }
 
 /**
+ * The same kit for the other things that stand on the board in the villages' hand (map/structures.mjs: the vault,
+ * the watchtower, the palisade, the fort, the cart): `u` as paintVillage's, the line width its own. With the
+ * palettes, so a storehouse's timber is the villages' timber.
+ */
+export const villageKit = (g, x, y, u) => kit(g, x, y, u, Math.max(0.011 * u, 0.5));
+export const VILLAGE_PALETTE = Object.freeze({ WALL, WOOD, STONE, BRASS, F, roofOf });
+
+/**
  * What a village has built, added to its picture (UX design 14.2: "when it completes the annex is added to the
  * village's picture"): one small addition for each kind of building it has at least one of (fland.mjs BUILD_ITEMS:
  * 0 farm, 1 woodcutter, 2 quarry, 3 mine, 4 market, 5 school), so a village with farms and a mine looks different

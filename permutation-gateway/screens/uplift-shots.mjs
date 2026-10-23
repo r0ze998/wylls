@@ -1,0 +1,112 @@
+// Before/after pictures for the visual uplift (docs/design/uplift/): the same
+// scenes, the same frozen fixture world, the same viewports, for any checkout
+// of the client. Not a test; a camera.
+//
+//   node uplift-shots.mjs --tree <checkout root> --out <dir> [--only s01,s04] [--vp desk,phone] [--lang ja|en]
+//
+// The fixture server, its world and its storage come from the checkout named
+// by --tree (so an older client is photographed against its own fixture);
+// Playwright comes from this folder. The clock is fixed at the fixture's
+// latest moment, Math.random is seeded, and nothing is sent anywhere.
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { chromium } from 'playwright-core';
+
+const arg = (k, d) => { const i = process.argv.indexOf(`--${k}`); return i > 0 ? process.argv[i + 1] : d; };
+const tree = resolve(arg('tree', '../..'));
+const out = resolve(arg('out', 'artifacts/uplift'));
+const only = (arg('only', '') || '').split(',').filter(Boolean);
+const vps = (arg('vp', 'desk,phone') || '').split(',');
+const lang = arg('lang', 'ja');
+const VIEWPORTS = { desk: { width: 1440, height: 900 }, phone: { width: 390, height: 844 } };
+
+const S = join(tree, 'permutation-gateway/screens');
+const { startServer } = await import(pathToFileURL(join(S, 'server.mjs')).href);
+const W = await import(pathToFileURL(join(S, 'world.mjs')).href);
+
+function initScript({ storage }) {
+  let s = 0x2545f491;
+  Math.random = () => { s ^= s << 13; s >>>= 0; s ^= s >>> 17; s ^= s << 5; s >>>= 0; return s / 2 ** 32; };
+  try { for (const [k, v] of Object.entries(storage)) localStorage.setItem(k, v); } catch { /* no storage */ }
+}
+
+const mapOf = page => page.evaluate(async () => {
+  if (window.__map) return true;
+  const { FrontierMap } = await import('/frontier/map/fmap.mjs');
+  const P = FrontierMap.prototype, draw = P.draw;
+  P.draw = function (...a) { window.__map = this; return draw.apply(this, a); };
+  for (let i = 0; i < 80 && !window.__map; i++) { window.dispatchEvent(new Event('resize')); await new Promise(r => setTimeout(r, 50)); }
+  return !!window.__map;
+});
+const tileAt = async (page, at) => {
+  await mapOf(page);
+  return page.evaluate(async at => {
+    const m = window.__map, frame = () => new Promise(r => requestAnimationFrame(r));
+    for (let still = 0, i = 0; still < 10 && i < 400; i++) { await frame(); still = m.cam.moving || m.reachFly ? 0 : still + 1; }
+    const { tileHex } = await import('/frontier/fgeo.mjs');
+    const { project } = await import('/map.mjs');
+    const h = tileHex(at.p, at.q, at.tile), c = project(h.q, h.r);
+    return m.project(c.x, c.y);
+  }, at);
+};
+const tapTile = async (page, at) => { const p = await tileAt(page, at); await page.mouse.click(p.x, p.y); };
+const settle = async (page, ms = 900) => { await page.waitForTimeout(ms); await mapOf(page).catch(() => {}); await page.evaluate(() => new Promise(r => { let n = 0; const f = () => (++n > 20 ? r() : requestAnimationFrame(f)); f(); })); };
+
+/** The scenes: `[id, title, run(page, vp)]`; each starts from a fresh page on the viewer's home. */
+const SCENES = [
+  ['s01-rest', 'the map at rest, nothing selected', async () => {}],
+  ['s02-village', 'the village selected', async page => { await tapTile(page, W.HOME); await page.locator('#hand [data-hand="build"]').waitFor({ timeout: 8000 }).catch(() => {}); }],
+  ['s03-host', 'a host in hand, its reach lit', async page => {
+    await tapTile(page, W.HOME);
+    await page.locator('#hand .hand-chip[data-host]:not(.hand-back)').first().click({ timeout: 8000 }).catch(() => {});
+  }],
+  ['s04-compose', 'a march written to the camp', async page => {
+    await tapTile(page, W.HOME);
+    await page.locator('#hand .hand-chip[data-host]:not(.hand-back)').first().click({ timeout: 8000 }).catch(() => {});
+    await tapTile(page, { ...W.HOME, tile: W.CAMP_TILE });
+    await page.locator('#mc-title').waitFor({ timeout: 8000 }).catch(() => {});
+    await page.locator('[data-act="march-send"]:not([disabled])').waitFor({ timeout: 15000 }).catch(() => {});
+  }],
+  ['s05-far', 'the world chart', async page => { await page.locator('#frontier-map').focus(); await page.keyboard.press('m'); }],
+  ['s06-holding', 'the village drawer', async page => { await page.locator('#tabs [data-tab="holding"]').click(); }],
+  ['s07-hosts', 'the hosts drawer', async page => { await page.locator('#tabs [data-tab="hosts"]').click(); }],
+  ['s08-more', 'the more drawer', async page => { await page.locator('#tabs [data-tab="more"]').click(); }],
+];
+
+const srv = await startServer();
+const browser = await chromium.launch();
+const shots = [];
+mkdirSync(out, { recursive: true });
+try {
+  for (const vpId of vps) {
+    const vp = VIEWPORTS[vpId];
+    const phone = vp.width < 760;
+    for (const [id, title, run] of SCENES) {
+      if (only.length && !only.includes(id)) continue;
+      srv.stage('holding');
+      const context = await browser.newContext({ viewport: vp, isMobile: phone, hasTouch: phone, locale: lang === 'ja' ? 'ja-JP' : 'en-GB', timezoneId: 'UTC', deviceScaleFactor: 1 });
+      await context.addInitScript(initScript, { storage: W.storageFor(srv.viewer, { stage: 'holding', lang, intro: false, live: false }) });
+      const page = await context.newPage();
+      const errors = [];
+      page.on('pageerror', e => errors.push(e.message));
+      await page.clock.setFixedTime(new Date(W.LATEST_UNIX * 1000 + 500));
+      const t0 = Date.now();
+      await page.goto(`${srv.url}/frontier/index.html`);
+      await page.waitForFunction(() => /\d/.test(document.getElementById('bell-chip')?.textContent ?? '') && document.body.dataset.stage !== 'loading', null, { timeout: 30000 });
+      await page.locator('#frontier-map[data-lod="tile"]').waitFor({ timeout: 15000 }).catch(() => {});
+      await settle(page, 1500);
+      try { await run(page, vp); } catch (e) { errors.push(`scene: ${e.message}`); }
+      await settle(page, 1400);
+      const file = `${id}-${vpId}.png`;
+      await page.screenshot({ path: join(out, file) });
+      shots.push({ id, title, vp: vpId, file, ms: Date.now() - t0, errors });
+      console.log(`${file} ${errors.length ? `errors: ${errors.join(' | ')}` : 'ok'}`);
+      await context.close();
+    }
+  }
+} finally {
+  await browser.close();
+  await srv.close();
+  writeFileSync(join(out, 'shots.json'), `${JSON.stringify({ tree, lang, shots }, null, 1)}\n`);
+}
