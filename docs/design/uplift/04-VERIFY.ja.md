@@ -8,7 +8,7 @@
 |---|---|---|---|
 | 速い試験 `node --test test/web-*.test.mjs screens/logic.screen.mjs screens/fixtures.screen.mjs` | 972 件中 7 件失敗 | 978 件中 7 件失敗（新規 6 件はすべて成功） | 失敗の 7 件は両方で同じ（見本の世界の旗の試作 `claims` と最初の数分の通し）。この作業の前からの失敗 |
 | 操作の試験 `screens/interaction.screen.mjs`（Chromium） | 29 / 29 | 29 / 29 | 封をした進軍の到着と開封、断られた命令、スマホの引き出し、キーボード、傾いた盤の上の押下など |
-| 写真と axe の行列 `screens/frontier.screen.mjs`（画面 × JA/EN × 360/390/1440、横はみ出し、切れ、axe） | 78 / 78 | 78 / 78 | |
+| 写真と axe の行列 `screens/frontier.screen.mjs`（画面 × JA/EN × 360/390/1440、横はみ出し、切れ、axe） | 78 / 78 | 78 / 78 | 変更後は最終の状態（`1db0cef1`）でも再実行して 78 / 78 |
 
 書き直した試験：`test/web-frontier-s1.test.mjs` の 1 行（破線の数を数えていたが、隊商の道も破線になったので、物見櫓の範囲の破線だけを数える。言っていることは同じ）と、`test/web-frontier-board.test.mjs` の 1 行（村の絵の付け足しの場所の数 6 → 7。工房の鍛冶場。右側を空ける決まりはそのまま守る）。
 
