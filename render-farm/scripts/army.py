@@ -71,6 +71,11 @@ def shield_mat(nation):
     L.new(c3.outputs[2], b.inputs['Base Color'])
     return m
 
+def _squash(res, cy, k):
+    """Scale a part's depth (y) about cy, so round parts follow the oval body."""
+    for v in res['verts']: v.co.y = cy + (v.co.y - cy) * k
+    return res
+
 def _cyl(bm, p0, p1, r0, r1, seg=10):
     """A capped tube with extra rings near both ends, so that one level of subdivision keeps its length and
     radius (a plain two-ring cylinder shrinks into a lozenge and pulls away from what it should touch)."""
@@ -125,12 +130,13 @@ def character(nation, pose, variant, coll):
         _tag(_ell(bm, (sgn * 0.13, -fw - 0.05, 0.08), 0.11, (1.0, 1.45, 0.75)), 3)
     # body: a barrel of mail under the tabard / surcoat
     bw = 0.27 * build
-    _tag(_ell(bm, P(0, 0, 0.82), bw, (1.0, 0.82, 1.15)), 1)
+    _tag(_ell(bm, P(0, 0, 0.82), bw, (0.9, 0.76, 1.02)), 1)           # mail: kept inside the tabard so they never cross
+    _tag(_cyl(bm, P(0, 0.0, 1.06), P(0, 0.0, 1.13), bw * 0.56, bw * 0.48, 16), 1)    # the mail collar at the neck
     _tag(_ell(bm, P(0, 0.0, 0.8), bw * 1.05, (0.96, 0.85, 1.12)), 0)          # tabard all round, so the nation reads from behind
     _tag(_ell(bm, P(0, bw * 0.7, 0.8), bw * 1.08, (0.98, 0.3, 1.25)), 0)       # short cape down the back
     _tag(_cyl(bm, P(0, bw * 0.78, 0.48), P(0, bw * 0.84, 0.53), bw * 0.95, bw * 0.95, 16), 12)   # its dark hem
-    _tag(_cyl(bm, P(0, -0.01, 0.42), P(0, -0.01, 0.74), bw * 1.18, bw * 1.0, 16), 0)      # skirts
-    _tag(_cyl(bm, P(0, 0, 0.6), P(0, 0, 0.67), bw * 1.07, bw * 1.07, 18), 3)              # belt
+    _tag(_squash(_cyl(bm, P(0, -0.01, 0.42), P(0, -0.01, 0.72), bw * 1.18, bw * 0.86, 16), -0.01, 0.88), 0)   # skirts, tucked under the tabard
+    _tag(_squash(_cyl(bm, P(0, 0, 0.6), P(0, 0, 0.67), bw * 1.07, bw * 1.07, 18), 0.0, 0.9), 3)   # belt, oval like the body
     _tag(_ell(bm, P(0, -bw * 1.02, 0.635), 0.045, (1.2, 0.5, 1.0)), 11)                   # buckle
     if nation == 'aster':      # the gold keystone on the tabard
         ks = bmesh.ops.create_cone(bm, cap_ends=True, segments=4, radius1=0.085, radius2=0.06, depth=0.02,
