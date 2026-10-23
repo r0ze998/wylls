@@ -144,26 +144,34 @@ test('a village played by hand, handed to its agent, taken back and played by ha
   await waitText(agent, sentence);
   await step(agent, 'agent-acted', { signature: aiAction.signature, chain: l2.status, driver: acted.driver, spent: acted.balance.spent, note: `the agent's Harvest landed (driver: ${acted.driver.state}${acted.driver.cause ? ', ' + acted.driver.cause : ''}); the page said "${sentence}"` });
 
-  // While the agent holds the key, the play page's own key no longer signs for the village: record what the page gets.
+  // While the agent holds the key, the play page's own key no longer signs for the village. The page says so
+  // (web/frontier/fdelegation.mjs): the "handed to your agent" card, and a refusal that says why.
   await play.reload();
   await play.locator('[data-act="intro-close"]').first().click().catch(() => {});
-  await play.waitForTimeout(3000);
+  await waitText(play, '代理人に任せています', 90_000);
+  assert.ok(await play.locator('a[data-agent-link]').count() > 0, 'the agent page is linked');
   let whileDelegated = null;
   if (await play.locator('[data-act="harvest"]').count()) {
     const h = await harvestByHand(play, playSends).catch(e => ({ error: String(e.message) }));
     whileDelegated = { status: h.status ?? null, code: h.body?.code ?? null, error: h.body?.error ?? h.error ?? null };
+    await waitText(play, '代理人に任せているため', 30_000);
   }
-  await step(play, 'play-while-delegated', { whileDelegated, note: 'the play page while the agent holds the key (expected: refused, nothing sent for the owner\'s old key)' });
+  await step(play, 'play-while-delegated', { whileDelegated, note: 'the play page while the agent holds the key: the "handed to your agent" card and the agent page link; a refused send says why' });
 
-  // ---- stop, take the key back (wallet-signed SetSession to the play page's session key), play by hand again
+  // ---- take the key back from the play page (its card: the wallet-signed SetSession); the page says the agent stays
+  // in auto on the server; then the owner stops it on the agent page and plays by hand again
+  await play.locator('[data-act="session"]').first().click();
+  await waitText(play, 'サーバー上ではまだ自動です', 120_000);
+  const back = await until('the chain no longer names the agent key', async () => { const v = await json(`${HERALD}/gw/f/agent?id=${agentId}`); return v.delegation?.delegated === false ? v : null; }, 60_000);
+  assert.equal(back.mode, 'auto', 'taking the key back on the play page does not stop the agent on the server (and the page says so)');
+  await step(play, 'taken-back-on-play-page', { delegation: back.delegation, mode: back.mode, note: 'the key taken back from the play page; the page says the agent is still in auto on the server' });
+  await agent.reload();
+  await agent.locator('[data-act="connect"]').first().click().catch(() => {});
   await agent.locator('[data-act="mode"][data-mode="manual"]').click();
   await waitText(agent, '停止中：あなたが手動に戻しました');
-  await agent.locator('[data-act="revoke"]').click();
-  await waitText(agent, '鍵を取り戻しました', 120_000);
-  const back = await json(`${HERALD}/gw/f/agent?id=${agentId}`);
-  assert.equal(back.mode, 'manual');
-  assert.equal(back.delegation.delegated, false);
-  await step(agent, 'taken-back', { delegation: back.delegation, note: 'stopped (server) and the key taken back (chain)' });
+  const stopped = await json(`${HERALD}/gw/f/agent?id=${agentId}`);
+  assert.equal(stopped.mode, 'manual');
+  await step(agent, 'taken-back', { delegation: stopped.delegation, note: 'the agent stopped on its page after the key came back' });
 
   await play.reload();
   await play.locator('[data-act="intro-close"]').first().click().catch(() => {});
