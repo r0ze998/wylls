@@ -26,6 +26,8 @@ const outDir = path.resolve(process.env.AGENT_BENCH_OUT ?? fileURLToPath(new URL
 mkdirSync(outDir, { recursive: true });
 const repeats = Number(process.env.AGENT_BENCH_REPEATS ?? 1);
 const variant = process.env.AGENT_BENCH_VARIANT ?? 'plain';
+// AGENT_BENCH_STRICT=1: the opt-in strict schema (one branch per action, required fields and ranges; runner.mjs decisionSchema)
+const strictSchema = process.env.AGENT_BENCH_STRICT === '1';
 const promptOptions = variant === 'catalog-reversed' ? { catalog: { build: [...CATALOG.build].reverse(), train: [...CATALOG.train].reverse() } } : variant === 'stores-reversed' ? { reverseStores: true } : {};
 
 const ALL = ['Harvest', 'Train', 'Build', 'SetVigil'];
@@ -69,7 +71,8 @@ async function main() {
   const models = await (await fetch(`${llmUrl}/v1/models`)).json().catch(() => null);
   const model = { mode: 'real', url: llmUrl, alias: models?.data?.[0]?.id ?? null, modelPath: props?.model_path ?? props?.default_generation_settings?.model ?? null, n_ctx: props?.default_generation_settings?.n_ctx ?? null, settings: { temperature: 0, top_k: 1, seed: 7, max_tokens: 160, response_format: 'json_schema (strict)' } };
   if (!model.alias) throw new Error(`no model at ${llmUrl}`);
-  const decider = llmDecider({ llm, alias: model.alias, promptOptions });
+  model.settings.schema = strictSchema ? 'strict (per action)' : 'loose (the measured runs\' schema)';
+  const decider = llmDecider({ llm, alias: model.alias, promptOptions, strictSchema });
   const autopilot = ruleDecider();
   const situations = [...SITUATIONS];
   if (process.env.AGENT_BENCH_HERALD && process.env.AGENT_BENCH_OWNER && process.env.AGENT_BENCH_VILLAGE) {
@@ -109,7 +112,7 @@ async function main() {
   writeFileSync(path.join(outDir, 'report.json'), `${JSON.stringify(report, null, 2)}\n`);
   const rows = report.situations.map(s => `| ${s.name} | ${s.expect ? s.expect.join('/') : '(live)'} | ${s.runs.map(r => `${r.answer ?? '?'}${r.fields ? ' ' + JSON.stringify(r.fields) : ''}`).join('; ')} | ${s.runs.map(r => r.judgement).join('; ')} | ${s.runs.map(r => r.code === 'accepted' ? 'accepted' : 'refused').join('; ')} | ${s.runs.map(r => r.ms).join('; ')} | ${s.autopilot} |`);
   const sm = report.summary;
-  writeFileSync(path.join(outDir, 'report.md'), `# Decision bench — ${model.alias} (${variant}, ${repeats}×)\n\n${model.modelPath ?? ''}; temperature 0, seed 7, JSON schema.\n\nThe model's judgement: ${sm.judgement.right} of ${sm.runsJudged} judged runs as a careful player would (a refused answer counts as wrong). The code's safety: ${sm.safety.refusedByCode} answer(s) refused before the chain; the autopilot plays free then.\n\n| situation | expected | model | judgement | code | ms | autopilot |\n|---|---|---|---|---|---|---|\n${rows.join('\n')}\n`);
+  writeFileSync(path.join(outDir, 'report.md'), `# Decision bench — ${model.alias} (${variant}, ${repeats}×)\n\n${model.modelPath ?? ''}; temperature 0, seed 7, JSON schema: ${model.settings.schema}.\n\nThe model's judgement: ${sm.judgement.right} of ${sm.runsJudged} judged runs as a careful player would (a refused answer counts as wrong). The code's safety: ${sm.safety.refusedByCode} answer(s) refused before the chain; the autopilot plays free then.\n\n| situation | expected | model | judgement | code | ms | autopilot |\n|---|---|---|---|---|---|---|\n${rows.join('\n')}\n`);
   console.log(`bench (${variant}, ${repeats}×): judgement ${sm.judgement.right}/${sm.runsJudged} right; ${sm.safety.refusedByCode} refused by the code; ${path.join(outDir, 'report.json')}`);
 }
 await main();

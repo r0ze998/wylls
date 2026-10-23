@@ -143,3 +143,21 @@ test('the page: decision lines, the driver sentence, the owner\'s call cap in th
   assert.equal(parsePolicyForm({ groups, total: '1', perDay: '0.5', callsPerDay: '-1' }).ok, false);
   assert.equal(parsePolicyForm({ groups, total: '1', perDay: '0.5', callsPerDay: '1.5' }).ok, false);
 });
+
+test('the strict schema (opt-in): one branch per action with its required fields and ranges; the loose one is the default', async () => {
+  const { decisionSchema, CANDIDATES, CATALOG } = await import('../src/frontier/agent/runner.mjs');
+  const loose = decisionSchema(['Harvest', 'Train']);
+  assert.equal(loose.anyOf, undefined, 'the default keeps the measured runs\' schema');
+  const strict = decisionSchema(['Harvest', 'Train', 'Build', 'SetVigil'], { strict: true });
+  const by = Object.fromEntries(strict.anyOf.map(b => [b.properties.action.const, b]));
+  assert.deepEqual(Object.keys(by).sort(), ['Build', 'Harvest', 'SetVigil', 'Train', 'rest']);
+  assert.deepEqual(by.Train.properties.fields.required, Object.keys(CANDIDATES.Train));
+  assert.deepEqual(by.Train.properties.fields.properties.unit.enum, CATALOG.train.map(u => u.unit));
+  assert.equal(by.Train.properties.fields.properties.n.minimum, 1);
+  assert.deepEqual(by.Build.properties.fields.properties.item.enum, [0, 1, 2, 3, 4, 5], 'walls (6) are not offered');
+  assert.deepEqual([by.SetVigil.properties.fields.properties.start_min.minimum, by.SetVigil.properties.fields.properties.start_min.maximum], [0, 1439]);
+  assert.deepEqual(by.Harvest.properties.fields.required, []);
+  for (const b of strict.anyOf) assert.equal(b.additionalProperties, false);
+  // Only the allowed names get a branch.
+  assert.deepEqual(decisionSchema(['Harvest'], { strict: true }).anyOf.map(b => b.properties.action.const), ['Harvest', 'rest']);
+});

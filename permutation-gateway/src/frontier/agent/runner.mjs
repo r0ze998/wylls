@@ -260,8 +260,31 @@ export function ruleDecider() {
   };
 }
 
-/** The JSON schema the model must answer with: one of `names`, its fields, a one-line reason. */
-export function decisionSchema(names) {
+/** The ranges of each candidate's fields in the strict schema (the catalog's items and units; a vigil minute of the day). */
+const FIELD_RANGES = Object.freeze({
+  Train: { unit: { enum: CATALOG.train.map(u => u.unit) }, n: { minimum: 1, maximum: 10_000 } },
+  Build: { item: { enum: CATALOG.build.map(b => b.item) } },
+  SetVigil: { start_min: { minimum: 0, maximum: 1439 } },
+});
+
+/**
+ * The JSON schema the model must answer with: one of `names`, its fields, a one-line reason.
+ * `strict` (opt-in, --agent-llm-strict-schema; off by default so the measured runs keep their setup):
+ * one branch per action with its required fields and their ranges, so a grammar-constrained server
+ * cannot produce a missing field or an out-of-catalog unit. Whether the stores can pay stays the
+ * decider's check (affordable()); the program stays the rule.
+ */
+export function decisionSchema(names, { strict = false } = {}) {
+  if (strict) {
+    const branch = (action, fields) => ({ type: 'object', additionalProperties: false, required: ['action', 'fields', 'reason'],
+      properties: { action: { const: action }, fields, reason: { type: 'string', maxLength: 200 } } });
+    const fieldsOf = n => {
+      const spec = CANDIDATES[n];
+      const props = Object.fromEntries(Object.keys(spec).map(k => [k, { type: 'integer', ...(FIELD_RANGES[n]?.[k] ?? { minimum: 0 }) }]));
+      return { type: 'object', additionalProperties: false, required: Object.keys(spec), properties: props };
+    };
+    return { anyOf: [...names.map(n => branch(n, fieldsOf(n))), branch('rest', { type: 'object', additionalProperties: false, properties: {} })] };
+  }
   return {
     type: 'object', additionalProperties: false, required: ['action', 'fields', 'reason'],
     properties: {
@@ -302,14 +325,14 @@ export function promptOf(view, names, obs = null, { catalog: cat = CATALOG, reve
  * A model decider over citizens/mind/llm.mjs `createLlm(...)`. `alias`,
  * `maxTokens`, `deadlineMs` as the AI citizens use them. Charged per call.
  */
-export function llmDecider({ llm, alias = llm.alias, maxTokens = 160, deadlineMs = 30_000, seed = 7, promptOptions = {} }) {
+export function llmDecider({ llm, alias = llm.alias, maxTokens = 160, deadlineMs = 30_000, seed = 7, promptOptions = {}, strictSchema = false }) {
   return {
     name: `model:${alias}`, free: false,
     async decide(view, obs = null) {
       const names = Object.keys(CANDIDATES).filter(n => view.policy.allowed.includes(n));
       if (!names.length) return null;
       const body = { model: alias, messages: promptOf(view, names, obs, promptOptions), temperature: 0, top_k: 1, seed, cache_prompt: false, max_tokens: maxTokens, stream: false,
-        response_format: { type: 'json_schema', json_schema: { name: 'agent_decision', strict: true, schema: decisionSchema(names) } } };
+        response_format: { type: 'json_schema', json_schema: { name: 'agent_decision', strict: true, schema: decisionSchema(names, { strict: strictSchema }) } } };
       const r = await llm.complete(body, { deadlineMs });
       const tokens = r.usage ? { prompt: r.usage.prompt_tokens ?? null, completion: r.usage.completion_tokens ?? null } : null;
       if (!r.ok) throw Object.assign(new Error(`model: ${r.error ?? 'failed'}`), { tokens });
