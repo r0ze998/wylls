@@ -160,6 +160,9 @@ pub enum CqEvent {
         dst: LogPlace,
         /// The old route's Provinces (beside the raid's) a take cleared.
         cleared: Vec<(i16, i16)>,
+        /// S1 1e (K4): the raid was RaidDomestic's (the raider's faction is
+        /// the caravan's).
+        domestic: bool,
     },
     VaultSeized {
         p: i32,
@@ -207,7 +210,19 @@ pub enum CqEvent {
         entry: u8,
         kind: u8,
     },
-    // S1 (stage 1e, kinds 98–100).
+    // S1 (stage 1e, kinds 98–101).
+    /// A raid RaidDomestic opened (RaidCaravan or DefaultRaid settles it).
+    RaidOpened {
+        owner_tag: u64,
+        seq: u32,
+        p: i32,
+        q: i32,
+        /// The bell the caravan and the raiding host stood on its tile.
+        bell: u32,
+        raider_host: u64,
+        raider_tag: u64,
+        domestic: bool,
+    },
     NationProposed {
         faction: u8,
         id: u32,
@@ -332,6 +347,7 @@ impl CqEvent {
             | OutpostSettled { p, q, .. }
             | VaultBuilt { p, q, .. }
             | CaravanRaided { p, q, .. }
+            | RaidOpened { p, q, .. }
             | VaultSeized { p, q, .. }
             | StructureBuilt { p, q, .. }
             | StructureSeized { p, q, .. }
@@ -500,6 +516,7 @@ pub fn parse(body: &[u8]) -> Option<CqLog> {
             taken: units8(f("taken")?)?,
             dst: LogPlace::parse(f("dst")?)?,
             cleared: l2::log_cleared::read(f("cleared")?)?,
+            domestic: b8("domestic")? != 0,
         },
         CqKind::VAULT_SEIZED => CqEvent::VaultSeized {
             p: i("p")?,
@@ -542,6 +559,16 @@ pub fn parse(body: &[u8]) -> Option<CqLog> {
             owner_tag: u("owner_tag")?,
             entry: b8("entry")?,
             kind: b8("kind")?,
+        },
+        CqKind::RAID_OPENED => CqEvent::RaidOpened {
+            owner_tag: u("owner_tag")?,
+            seq: u("seq")? as u32,
+            p: i("p")?,
+            q: i("q")?,
+            bell: u("bell")? as u32,
+            raider_host: u("raider_host")?,
+            raider_tag: u("raider_tag")?,
+            domestic: b8("domestic")? != 0,
         },
         CqKind::NATION_PROPOSED => CqEvent::NationProposed {
             faction: b8("faction")?,

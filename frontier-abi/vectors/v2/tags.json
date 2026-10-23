@@ -5266,6 +5266,89 @@
           ]
         }
       ]
+    },
+    {
+      "name": "RaidDomestic",
+      "tag": 190,
+      "class": "P",
+      "new_in_v2": true,
+      "changed_in_v2": false,
+      "top_level_only": false,
+      "relay_player_shape": true,
+      "relay_settle_shape": false,
+      "data_len": [6, 6],
+      "data": [
+        {
+          "name": "bell",
+          "len": 4
+        },
+        {
+          "name": "entry",
+          "len": 1
+        }
+      ],
+      "account_groups": [
+        {
+          "min": 1,
+          "max": 1,
+          "accounts": [
+            {
+              "name": "actor",
+              "kind": "wallet",
+              "signer": true,
+              "writable": "r"
+            },
+            {
+              "name": "payer",
+              "kind": "wallet",
+              "signer": true,
+              "writable": "w"
+            },
+            {
+              "name": "season",
+              "kind": "Season",
+              "signer": false,
+              "writable": "r"
+            },
+            {
+              "name": "citizen",
+              "kind": "Citizen",
+              "signer": false,
+              "writable": "w"
+            }
+          ]
+        },
+        {
+          "min": 1,
+          "max": 1,
+          "accounts": [
+            {
+              "name": "caravan",
+              "kind": "Caravan",
+              "signer": false,
+              "writable": "r"
+            },
+            {
+              "name": "province",
+              "kind": "Province",
+              "signer": false,
+              "writable": "w"
+            },
+            {
+              "name": "host_holding",
+              "kind": "Holding",
+              "signer": false,
+              "writable": "r"
+            },
+            {
+              "name": "owner_citizen",
+              "kind": "Citizen",
+              "signer": false,
+              "writable": "r"
+            }
+          ]
+        }
+      ]
     }
   ],
   "reserved_tags": [
@@ -5298,7 +5381,6 @@
     174,
     175,
     186,
-    190,
     191
   ],
   "samples": [

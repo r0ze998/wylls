@@ -145,6 +145,10 @@ ix_data_v2! {
     Vote { slot: u8, id: u32, yes: u8 }
     /// 0xBD (D, S1, 1e): settles proposal `id` in `slot` once closed.
     SettleProposal { slot: u8, id: u32 }
+    /// 0xBE (P, S1, 1e): the citizen's roster host `entry` stood on the
+    /// tile the caravan (of its own faction) stood on at `bell`; opens the
+    /// raid there (decision K4).
+    RaidDomestic { bell: u32, entry: u8 }
 }
 
 /// SendCaravan's and RaidCaravan's cargo as milli-units (whole units ×
@@ -309,6 +313,7 @@ pub fn fixed_len(ix: Ix) -> Option<usize> {
         Ix::Propose => Propose::LEN,
         Ix::Vote => Vote::LEN,
         Ix::SettleProposal => SettleProposal::LEN,
+        Ix::RaidDomestic => RaidDomestic::LEN,
         Ix::FileOutpost | Ix::CreateSeason => return None,
         other => return crate::ix::fixed_len(other.to_v1()?),
     })
@@ -336,6 +341,7 @@ pub fn wire_of(ix: Ix) -> Option<&'static [(&'static str, usize)]> {
         Ix::Propose => Propose::WIRE,
         Ix::Vote => Vote::WIRE,
         Ix::SettleProposal => SettleProposal::WIRE,
+        Ix::RaidDomestic => RaidDomestic::WIRE,
         Ix::FileOutpost | Ix::CreateSeason => return None,
         other => return crate::ix::wire_of(other.to_v1()?),
     })

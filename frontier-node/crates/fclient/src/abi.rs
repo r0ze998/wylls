@@ -90,6 +90,7 @@ pub mod tag {
     pub const PROPOSE: u8 = 0xBB;
     pub const VOTE: u8 = 0xBC;
     pub const SETTLE_PROPOSAL: u8 = 0xBD;
+    pub const RAID_DOMESTIC: u8 = 0xBE;
 }
 
 /// Keeper class of an instruction (§5.5, I-21).
@@ -231,7 +232,7 @@ pub const LAYOUT_VERSION_V2: u16 = 2;
 /// lower ones, and lowering a gate is not MC's). The `tx_max` column is
 /// the contract's (§5.4 "Tx B max"); `twin_tests` pins every row to
 /// `frontier_abi::v2::budgets`.
-pub const INSTRUCTIONS_V2: [IxInfo; 71] = [
+pub const INSTRUCTIONS_V2: [IxInfo; 72] = [
     ix(0x01, "CreateSeason", Class::O, 70_000, 1_100, false),
     ix(0x02, "InitShards", Class::O, 45_000, 600, false),
     ix(0x03, "ConsumeGenesisSeed", Class::D, 345_000, 760, true),
@@ -306,6 +307,8 @@ pub const INSTRUCTIONS_V2: [IxInfo; 71] = [
     ix(0xBB, "Propose", Class::P, 20_000, 600, false),
     ix(0xBC, "Vote", Class::P, 12_000, 500, false),
     ix(0xBD, "SettleProposal", Class::D, 20_000, 600, false),
+    // S1 (stage 1e): domestic raids (measured).
+    ix(0xBE, "RaidDomestic", Class::P, 20_000, 600, false),
 ];
 
 /// The ABI v2 row of `tag`.
@@ -746,13 +749,14 @@ pub mod kind {
     pub const STRUCTURE_BUILT: u8 = 95;
     pub const STRUCTURE_SEIZED: u8 = 96;
     pub const STRUCTURE_CLOSED: u8 = 97;
-    // S1 (stage 1e): kinds 98–100.
+    // S1 (stage 1e): kinds 98–101.
     pub const NATION_PROPOSED: u8 = 98;
     pub const NATION_VOTED: u8 = 99;
     pub const NATION_DECIDED: u8 = 100;
+    pub const RAID_OPENED: u8 = 101;
 
     /// (kind, name) of every MC and S1 record kind.
-    pub const ALL_V2: [(u8, &str); 20] = [
+    pub const ALL_V2: [(u8, &str); 21] = [
         (SIEGE_DECLARED, "SIEGE_DECLARED"),
         (SIEGE_SETTLED, "SIEGE_SETTLED"),
         (CONQUEST, "CONQUEST"),
@@ -773,6 +777,7 @@ pub mod kind {
         (NATION_PROPOSED, "NATION_PROPOSED"),
         (NATION_VOTED, "NATION_VOTED"),
         (NATION_DECIDED, "NATION_DECIDED"),
+        (RAID_OPENED, "RAID_OPENED"),
     ];
 }
 
@@ -1502,6 +1507,7 @@ mod twin_tests {
             tag::PROPOSE,
             tag::VOTE,
             tag::SETTLE_PROPOSAL,
+            tag::RAID_DOMESTIC,
         ] {
             let x = frontier_abi::v2::Ix::from_tag(t).expect("v2 tag");
             assert!(x.is_new() && ix_info(t).is_none() && ix_info_v2(t).is_some());

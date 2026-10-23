@@ -206,6 +206,8 @@ pub fn dispatch(
         Ix::Propose => nation::propose(p, a, data),
         Ix::Vote => nation::vote(p, a, data),
         Ix::SettleProposal => nation::settle_proposal(p, a, data),
+        // S1 (stage 1e): domestic raids.
+        Ix::RaidDomestic => caravan::raid_domestic(p, a, data),
     };
     heap::trace_checkpoint(0xffff);
     r

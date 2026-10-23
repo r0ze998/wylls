@@ -781,7 +781,8 @@ fn fold_record(
         | CqKind::STRUCTURE_CLOSED
         | CqKind::NATION_PROPOSED
         | CqKind::NATION_VOTED
-        | CqKind::NATION_DECIDED => {}
+        | CqKind::NATION_DECIDED
+        | CqKind::RAID_OPENED => {}
     }
 }
 

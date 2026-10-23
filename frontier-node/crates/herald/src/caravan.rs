@@ -212,6 +212,7 @@ mod tests {
             taken: [0, 100, 0, 0, 0, 50, 0, 0],
             dst: here(0),
             cleared: vec![],
+            domestic: false,
         });
         let f = c.file();
         assert_eq!(f["moving"][0]["raided"], json!(true));

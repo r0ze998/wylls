@@ -2278,6 +2278,44 @@ pub fn s1_t56(run: &Input) -> Made {
     })
 }
 
+/// T57: a domestic raid without the raider's host (V23): the raider's
+/// roster entry moved off the tile in the Province before the RaidDomestic.
+pub fn s1_t57(run: &Input) -> Made {
+    use frontier_abi::layout::province::{entry as EN, province as PV};
+    let mut inp = run.clone();
+    let tag = frontier_abi::v2::tags::Ix::RaidDomestic.tag();
+    let t = first_with(&inp, tag).need("a RaidDomestic")?;
+    let keys = ix_keys(&inp, t, tag).need("its accounts")?;
+    let province = *keys.get(5).need("its Province")?;
+    let u = last_post_before(&inp, &province, t).need("the Province before")?;
+    let entry = {
+        let tx = fclient::tx::from_wire(&inp.txs[t].tx).expect("tx");
+        let program = inp.cfg.program;
+        let ks = tx.message.account_keys.clone();
+        let ci = tx
+            .message
+            .instructions
+            .iter()
+            .find(|c| ks[c.program_id_index as usize] == program && c.data.first() == Some(&tag))
+            .expect("instruction");
+        // data: tag ‖ bell u32 ‖ entry u8
+        ci.data[5] as usize
+    };
+    edit_account_at(&mut inp, &province, u, |d| {
+        let o = PV::entry(entry) + EN::TILE;
+        d[o] = d[o].wrapping_add(1) % 61;
+    })
+    .then_some(())
+    .need("the Province's post-state")?;
+    Ok(Case {
+        class: "T57",
+        what: "a domestic raid without the raider's host on the tile",
+        feature: None,
+        codes: &[CARAVAN_MISMATCH],
+        input: inp,
+    })
+}
+
 /// The S1 classes (stages 1b, 1d and 1e, S1-1B-CONTRACT §4.1 and S1-1D-CONTRACT
 /// §5.1, as numbered after the
 /// conquest's T25–T48) an S1 season runs: extras until an S1 fixture with
@@ -2299,6 +2337,7 @@ pub fn s1_classes() -> Vec<Class> {
         c("T54", vec![("tower seized without a host", s1_t54)]),
         c("T55", vec![("vote counted twice", s1_t55)]),
         c("T56", vec![("stance without a passed proposal", s1_t56)]),
+        c("T57", vec![("domestic raid without a host", s1_t57)]),
     ]
 }
 

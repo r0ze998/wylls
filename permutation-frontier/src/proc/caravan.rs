@@ -28,6 +28,7 @@
 use solana_program::{account_info::AccountInfo, pubkey::Pubkey};
 
 use frontier_abi::addr::{host_id, split_host_id};
+use frontier_abi::clash_model::RAID_POS_DOMESTIC;
 use frontier_abi::v2::ix as ix2;
 use frontier_abi::v2::layout::province::caravan_slot as CS;
 use frontier_abi::v2::layout::s1::{caravan as CV, place as PL, vault as VA};
@@ -1301,7 +1302,9 @@ fn settle_raid(
     // CARAVAN_RAIDED: the raid's Province, the old route's others it
     // cleared, the caravan.
     let cleared_b = log_cleared::write(&cleared).ok_or(BAD_ACCOUNT)?;
-    let payload = crate::events::Buf::<79>::new()
+    // 1e (K4): a raid RaidDomestic opened is logged as domestic.
+    let domestic = slot.raid_pos == RAID_POS_DOMESTIC;
+    let payload = crate::events::Buf::<80>::new()
         .bytes(&(raid_pq.0 as i32).to_le_bytes())
         .bytes(&(raid_pq.1 as i32).to_le_bytes())
         .u32(raid_bell)
@@ -1310,7 +1313,8 @@ fn settle_raid(
         .u64(raider_tag)
         .bytes(&cargo_log(&cargo))
         .bytes(&dst_log)
-        .bytes(&cleared_b);
+        .bytes(&cleared_b)
+        .u8(domestic as u8);
     {
         let mut pds = alloc::vec::Vec::with_capacity(4);
         pds.push(rc.provinces[0].try_borrow_mut_data()?);
@@ -1532,6 +1536,144 @@ pub fn default_raid(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         Rw(&mut cd).set_u64(CV::FEE, 0)?;
     }
     Ok(())
+}
+
+// ------------------------------------------------------------ 0xBE RaidDomestic
+
+/// 0xBE RaidDomestic(bell, entry): P + `[caravan r] [province w]
+/// [host_holding r] [owner_citizen r]` (1e contract §4, decision K4). A
+/// clash never raids a caravan of the raider's own faction; here a village
+/// shows that its host stood where such a caravan stood: the caravan's
+/// slot in the Province had it on a tile at `bell` (resolved, and at most
+/// `RAID_DECIDE_BELLS` ago, not raided there before), the actor's roster
+/// host `entry` has stood on that tile since `bell` or earlier, and none of
+/// the owner's hosts stands there (`NotOnTile`). The slot's raid then opens
+/// as a clash opens it, its position `RAID_POS_DOMESTIC`; RaidCaravan or
+/// DefaultRaid settles it.
+pub fn raid_domestic(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+    use frontier_abi::layout::province::entry as E;
+    check_accounts_v2(Ix2::RaidDomestic, a, None)?;
+    let x = ix2::RaidDomestic::decode(d)?;
+    let pl: Player = hold::player(p, a)?;
+    let [_, _payer, _season, citizen, caravan, province, host_holding, owner_citizen] = a else {
+        return Err(FrontierError::TooManyAccounts.into());
+    };
+    let sid = pl.pc.season.id;
+    let now_bell = pl.pc.now_bell;
+    let (tag, seq) = caravan_of(p, &pl.ctx, sid, caravan)?;
+    let id = caravan_id(tag, seq);
+    let (owner, cfaction) = {
+        let cd = caravan.try_borrow_data()?;
+        let r = Ro(&cd);
+        if r.u8(CV::STATE)? != CV::STATE_MOVING {
+            return Err(cq(CqError::RaidState));
+        }
+        (r.arr::<32>(CV::OWNER_CITIZEN)?, r.u8(CV::FACTION)?)
+    };
+    expect_key(owner_citizen, &owner)?;
+    present_v2(owner_citizen, p, K2::Citizen, sid)?;
+    let (raider_tag, faction) = {
+        let cd = citizen.try_borrow_data()?;
+        let r = Ro(&cd);
+        (r.u64(C::CITIZEN_TAG)?, r.u8(C::FACTION)?)
+    };
+    // Domestic only: the caravan is the actor's faction's, not its own.
+    if faction != cfaction || owner == citizen.key.to_bytes() {
+        return Err(FrontierError::BadData.into());
+    }
+    if now_bell > x.bell.saturating_add(RAID_DECIDE_BELLS) {
+        return Err(cq(CqError::RaidWindow));
+    }
+    // The owner's holdings (their host ids' holding part).
+    let owner_holdings: [u64; 3] = {
+        let od = owner_citizen.try_borrow_data()?;
+        let mut hs = [u64::MAX; 3];
+        for (i, h) in hs.iter_mut().enumerate() {
+            let (hp, hq, site, gen) = super::conquest::holding_ref(&od, (i + 1) as u8)?;
+            if gen != C::EMPTY_GEN {
+                *h = host_id(hp as i32, hq as i32, site, gen, 0).ok_or(BAD_ACCOUNT)?;
+            }
+        }
+        hs
+    };
+    let holding_part = |id: u64| id & !0xFFFF_FFFF;
+    present_v2(province, p, K2::Province, sid)?;
+    let (pp, pq, si, mut slot, host) = {
+        let pd = province.try_borrow_data()?;
+        let r = Ro(&pd);
+        let (pp, pq) = (r.i16(P::P)?, r.i16(P::Q)?);
+        expect_key(province, &pl.ctx.province(pp as i32, pq as i32))?;
+        if x.bell >= r.u32(P::RESOLVED_NEXT)? {
+            return Err(cq(CqError::RaidWindow));
+        }
+        let (si, slot) = slot_of(&pd, id)?.ok_or(cq(CqError::RaidState))?;
+        let tile = slot.tile_at(x.bell).ok_or(cq(CqError::RaidState))?;
+        for i in 0..P::ENTRIES_N {
+            let o = P::entry(i);
+            if r.u8(o + E::STATE)? == E::STATE_ROSTER && r.u8(o + E::TILE)? == tile {
+                let hid = r.u64(o + E::ID)?;
+                if owner_holdings
+                    .iter()
+                    .any(|&h| h != u64::MAX && holding_part(hid) == h)
+                {
+                    return Err(cq(CqError::NotOnTile));
+                }
+            }
+        }
+        let o = P::entry(x.entry as usize);
+        if (x.entry as usize) >= P::ENTRIES_N
+            || r.u8(o + E::STATE)? != E::STATE_ROSTER
+            || r.u8(o + E::TILE)? != tile
+            || r.u32(o + E::FROM_BELL)? > x.bell
+        {
+            return Err(cq(CqError::NotOnTile));
+        }
+        (pp, pq, si, slot, r.u64(o + E::ID)?)
+    };
+    // The raiding host is the actor's.
+    let parts = split_host_id(host).ok_or(BAD_ACCOUNT)?;
+    expect_key(
+        host_holding,
+        &pl.ctx
+            .holding(parts.province.p, parts.province.q, parts.site),
+    )?;
+    present_v2(host_holding, p, K2::Holding, sid)?;
+    {
+        let hd = host_holding.try_borrow_data()?;
+        let r = Ro(&hd);
+        if r.u8(H::GEN)? != parts.gen || r.arr::<32>(H::OWNER_CITIZEN)? != citizen.key.to_bytes() {
+            return Err(cq(CqError::NotOnTile));
+        }
+    }
+    slot.raid_off = u8::try_from(x.bell - slot.first_bell).map_err(|_| OVERFLOW)?;
+    slot.raid_pos = RAID_POS_DOMESTIC;
+    slot.raider = host;
+    write_slot(&mut province.try_borrow_mut_data()?, si, &slot)?;
+    let payload = crate::events::Buf::<29>::new()
+        .bytes(&(pp as i32).to_le_bytes())
+        .bytes(&(pq as i32).to_le_bytes())
+        .u32(x.bell)
+        .u64(host)
+        .u64(raider_tag)
+        .u8(1);
+    let mut cd = citizen.try_borrow_mut_data()?;
+    let mut pd = province.try_borrow_mut_data()?;
+    cqlog::emit(
+        kind(CqKind::RAID_OPENED),
+        now_bell,
+        &caravan_key(tag, seq),
+        payload.get()?,
+        &mut [
+            Chained2 {
+                entity: E2::Citizen,
+                data: &mut cd,
+            },
+            Chained2 {
+                entity: E2::Province,
+                data: &mut pd,
+            },
+        ],
+    )
 }
 
 // ------------------------------------------------------------ 0xB4 SeizeVault

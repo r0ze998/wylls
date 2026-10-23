@@ -100,6 +100,9 @@ pub const MC_ROWS: &[(Ix, u32, u32, u32)] = &[
     (Ix::Propose, 20_000, 0, 600),
     (Ix::Vote, 12_000, 0, 500),
     (Ix::SettleProposal, 20_000, 0, 600),
+    // S1 (1e; S1-1E-CONTRACT §8): measured 12,059 (`tests/caravan.rs`);
+    // a full roster on the tile adds its entries' reads.
+    (Ix::RaidDomestic, 20_000, 0, 600),
 ];
 
 /// The v2 row of `ix`.

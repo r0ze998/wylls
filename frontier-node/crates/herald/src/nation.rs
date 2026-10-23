@@ -1,7 +1,7 @@
 //! The nations feed (S1 stage 1e, `S1-1E-CONTRACT.md` §3 and §7): each
 //! nation's stances, its proposals and their tallies, and the expelled
-//! villages, folded from NATION_PROPOSED, NATION_VOTED and NATION_DECIDED.
-//! The domestic raids join it in a later step.
+//! villages, folded from NATION_PROPOSED, NATION_VOTED and NATION_DECIDED,
+//! and the domestic raids (RAID_OPENED, decision K4).
 //!
 //! `h/nations.json` (live, rewritten when a record changes it):
 //!
@@ -11,7 +11,9 @@
 //!  "proposals": [{"faction": 0, "id": 3, "slot": 1, "kind": "expel",
 //!    "targetFaction": 0, "value": 0, "proposerTag": "…", "targetTag": "…",
 //!    "openBell": 300, "closeBell": 444, "yes": 3, "no": 1, "state": "open"}],
-//!  "expelled": [{"tag": "…", "faction": 0, "since": 445}]}
+//!  "expelled": [{"tag": "…", "faction": 0, "since": 445}],
+//!  "domesticRaids": [{"ownerTag": "…", "seq": 0, "p": 3, "q": 0, "bell": 450,
+//!    "raiderHost": "…", "raiderTag": "…"}]}
 //! ```
 //!
 //! `stances[n][f]` is nation `n`'s stance toward faction `f`
@@ -29,6 +31,20 @@ use serde_json::{json, Value};
 
 /// Decided proposals kept in the feed.
 pub const DECIDED_MAX: usize = 64;
+/// Domestic raids kept in the feed (the newest).
+pub const RAIDS_MAX: usize = 64;
+
+/// A domestic raid as RAID_OPENED logged it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DomesticRaid {
+    pub owner_tag: u64,
+    pub seq: u32,
+    pub p: i32,
+    pub q: i32,
+    pub bell: u32,
+    pub raider_host: u64,
+    pub raider_tag: u64,
+}
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Prop {
@@ -53,6 +69,8 @@ pub struct Nations {
     pub proposals: BTreeMap<(u8, u32), Prop>,
     /// The expelled villages' tags → `(faction, since bell)`.
     pub expelled: BTreeMap<u64, (u8, u32)>,
+    /// The newest domestic raids, oldest first.
+    pub raids: std::collections::VecDeque<DomesticRaid>,
     /// Changed since the file was last written.
     pub dirty: bool,
 }
@@ -172,6 +190,29 @@ impl Nations {
                 }
                 self.prune();
             }
+            CqEvent::RaidOpened {
+                owner_tag,
+                seq,
+                p,
+                q,
+                bell,
+                raider_host,
+                raider_tag,
+                domestic: true,
+            } => {
+                self.raids.push_back(DomesticRaid {
+                    owner_tag,
+                    seq,
+                    p,
+                    q,
+                    bell,
+                    raider_host,
+                    raider_tag,
+                });
+                while self.raids.len() > RAIDS_MAX {
+                    self.raids.pop_front();
+                }
+            }
             _ => return false,
         }
         self.dirty = true;
@@ -213,7 +254,17 @@ impl Nations {
             .iter()
             .map(|(t, (f, since))| json!({"tag": t.to_string(), "faction": f, "since": since}))
             .collect();
-        json!({"v": 1, "stances": self.stances, "proposals": proposals, "expelled": expelled})
+        let raids: Vec<Value> = self
+            .raids
+            .iter()
+            .map(|r| {
+                json!({"ownerTag": r.owner_tag.to_string(), "seq": r.seq, "p": r.p, "q": r.q,
+                    "bell": r.bell, "raiderHost": r.raider_host.to_string(),
+                    "raiderTag": r.raider_tag.to_string()})
+            })
+            .collect();
+        json!({"v": 1, "stances": self.stances, "proposals": proposals, "expelled": expelled,
+            "domesticRaids": raids})
     }
 
     pub fn to_json(&self) -> Value {
@@ -251,6 +302,23 @@ impl Nations {
                 x["tag"].as_str()?.parse().ok()?,
                 (x["faction"].as_u64()? as u8, x["since"].as_u64()? as u32),
             );
+        }
+        // Absent in a checkpoint written before the domestic raids.
+        for x in v
+            .get("domesticRaids")
+            .and_then(|x| x.as_array())
+            .into_iter()
+            .flatten()
+        {
+            n.raids.push_back(DomesticRaid {
+                owner_tag: x["ownerTag"].as_str()?.parse().ok()?,
+                seq: x["seq"].as_u64()? as u32,
+                p: x["p"].as_i64()? as i32,
+                q: x["q"].as_i64()? as i32,
+                bell: x["bell"].as_u64()? as u32,
+                raider_host: x["raiderHost"].as_str()?.parse().ok()?,
+                raider_tag: x["raiderTag"].as_str()?.parse().ok()?,
+            });
         }
         Some(n)
     }
@@ -309,6 +377,22 @@ mod tests {
         assert_eq!(back.stances, n.stances);
         assert_eq!(back.proposals, n.proposals);
         assert_eq!(back.expelled, n.expelled);
+        // A domestic raid is listed (and survives the round trip).
+        assert!(n.fold(
+            700,
+            &CqEvent::RaidOpened {
+                owner_tag: 5,
+                seq: 2,
+                p: -1,
+                q: 3,
+                bell: 699,
+                raider_host: 1 << 40,
+                raider_tag: 8,
+                domestic: true,
+            }
+        ));
+        assert_eq!(n.raids.len(), 1);
+        assert_eq!(Nations::from_json(&n.to_json()).unwrap().raids, n.raids);
         n.fold(1_100, &decided(3, KIND_READMIT, 0, 0, 99));
         assert!(n.expelled.is_empty());
         // Other records are not the feed's.

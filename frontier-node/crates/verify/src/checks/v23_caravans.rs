@@ -24,6 +24,12 @@
 //! - **Tower wear (1d):** a send's and a take's cargo is the cargo worn by
 //!   the towers standing on the route before it (`tower::caravan_secs_in_range`;
 //!   `TowerWearMismatch`).
+//! - **RaidDomestic** (1e, decision K4): the caravan moving and of the
+//!   raider's faction (not the raider's own), its slot on a tile at the
+//!   named bell (resolved, within `RAID_DECIDE_BELLS`, not raided there
+//!   before), the raider's roster host on that tile since that bell, no
+//!   host of the owner's holdings there; the slot opened with the bell's
+//!   offset, `RAID_POS_DOMESTIC` and the host, nothing else changed.
 //! - **SeizeVault:** the captor's roster host on the vault's tile, no host
 //!   of the owner's holdings there, the new owner and generation, the
 //!   counters.
@@ -812,6 +818,96 @@ pub fn judge_raid(s: &dyn States, at: At, x: &RaidIx, choice: u8) -> Result<(), 
 
 /// SeizeVault (accounts: 3 captor citizen, 4 vault, 5 province, 6
 /// host_holding, 7 owner_citizen).
+/// RaidDomestic (accounts: 3 raider citizen, 4 caravan, 5 province, 6
+/// host holding, 7 owner citizen).
+pub fn judge_raid_domestic(ix: &crate::world::Ix, s: &dyn States, at: At) -> Result<(), Wrong> {
+    use frontier_abi::clash_model::RAID_POS_DOMESTIC;
+    let x = ix2::RaidDomestic::decode(&ix.data).map_err(|_| caravan_wrong("does not decode"))?;
+    let keys: Vec<Key> = (0..ix.accounts.len()).filter_map(|i| ix.key(i)).collect();
+    if keys.len() < 8 {
+        return Err(caravan_wrong("the accounts are missing"));
+    }
+    let (raider, caravan, province, hk, owner) = (keys[3], keys[4], keys[5], keys[6], keys[7]);
+    let before = |k: &Key, what: &str| {
+        s.before(k)
+            .ok_or_else(|| caravan_wrong(format!("no {what} before")))
+    };
+    let cd = before(&caravan, "Caravan")?;
+    let rd = before(&raider, "raider Citizen")?;
+    let od = before(&owner, "owner Citizen")?;
+    let pd = before(&province, "Province")?;
+    let pa = s
+        .after(&province)
+        .ok_or_else(|| caravan_wrong("no Province after"))?;
+    if cd[CV::STATE] != CV::STATE_MOVING
+        || key_at(&cd, CV::OWNER_CITIZEN).ok() != Some(owner)
+        || owner == raider
+        || cd[CV::FACTION] != rd[C2::FACTION]
+    {
+        return Err(caravan_wrong(
+            "a domestic raid on a caravan the rules refuse",
+        ));
+    }
+    let rn = u32_at(&pd, PV::RESOLVED_NEXT).map_err(caravan_wrong)?;
+    if x.bell >= rn || at.bell > x.bell + RAID_DECIDE_BELLS {
+        return Err(caravan_wrong("a domestic raid outside its window"));
+    }
+    let id = kc::caravan_id(
+        u64_at(&cd, CV::OWNER_TAG).map_err(caravan_wrong)?,
+        u32_at(&cd, CV::SEQ).map_err(caravan_wrong)?,
+    );
+    let sb = slots_of(&pd).map_err(caravan_wrong)?;
+    let i = sb
+        .iter()
+        .position(|x| x.id == id)
+        .ok_or_else(|| caravan_wrong("a domestic raid where the caravan has no slot"))?;
+    let tile = sb[i]
+        .tile_at(x.bell)
+        .ok_or_else(|| caravan_wrong("a domestic raid at a bell the caravan was not there"))?;
+    let owner_holdings: Vec<u64> = (1..=3u8)
+        .filter_map(|slot| {
+            let o = C2::holding_of_slot(slot);
+            let (p, q) = (i16_at(&od, o).ok()?, i16_at(&od, o + 2).ok()?);
+            let (site, gen) = (*od.get(o + 4)?, *od.get(o + 5)?);
+            (gen != C2::EMPTY_GEN)
+                .then(|| frontier_abi::addr::host_id(p as i32, q as i32, site, gen, 0))
+                .flatten()
+        })
+        .collect();
+    let part = |id: u64| id & !0xFFFF_FFFF;
+    let mut host = None;
+    for e in 0..PV::ENTRIES_N {
+        let o = PV::entry(e);
+        let en = pd
+            .get(o..o + EN::SIZE)
+            .ok_or_else(|| caravan_wrong("short Province"))?;
+        if en[EN::STATE] != EN::STATE_ROSTER || en[EN::TILE] != tile {
+            continue;
+        }
+        let hid = le(&en[EN::ID..EN::ID + 8]);
+        if owner_holdings.contains(&part(hid)) {
+            return Err(caravan_wrong("a domestic raid past the owner's escort"));
+        }
+        if e == x.entry as usize && le(&en[EN::FROM_BELL..EN::FROM_BELL + 4]) as u32 <= x.bell {
+            host = Some(hid);
+        }
+    }
+    let host = host.ok_or_else(|| caravan_wrong("a domestic raid without the raider's host"))?;
+    let hd = before(&hk, "host Holding")?;
+    let parts = frontier_abi::addr::split_host_id(host).ok_or_else(|| caravan_wrong("host id"))?;
+    if hd.get(H2::GEN) != Some(&parts.gen) || key_at(&hd, H2::OWNER_CITIZEN).ok() != Some(raider) {
+        return Err(caravan_wrong("the raiding host is not the raider's"));
+    }
+    let mut want = sb.clone();
+    want[i].raid_off = (x.bell - sb[i].first_bell) as u8;
+    want[i].raid_pos = RAID_POS_DOMESTIC;
+    want[i].raider = host;
+    if slots_of(&pa).map_err(caravan_wrong)? != want {
+        return Err(caravan_wrong("the slots are not the domestic raid's"));
+    }
+    Ok(())
+}
+
 pub fn judge_seize_vault(ix: &crate::world::Ix, s: &dyn States) -> Result<(), Wrong> {
     let x = ix2::SeizeVault::decode(&ix.data).map_err(|_| vault_wrong("does not decode"))?;
     let keys: Vec<Key> = (0..ix.accounts.len()).filter_map(|i| ix.key(i)).collect();
@@ -969,6 +1065,7 @@ pub fn run(cx: &mut Ctx) {
         V2Ix::SeizeVault,
         V2Ix::CloseVault,
         V2Ix::DefaultRaid,
+        V2Ix::RaidDomestic,
     ];
     let any = w.txs.iter().any(|tx| {
         tx.ok
@@ -1063,6 +1160,7 @@ pub fn run(cx: &mut Ctx) {
                     }
                     Err(_) => Err(caravan_wrong("a DefaultRaid that does not decode")),
                 },
+                Some(V2Ix::RaidDomestic) => judge_raid_domestic(ix, &st, at),
                 Some(V2Ix::SeizeVault) => judge_seize_vault(ix, &st),
                 Some(V2Ix::CloseVault) => judge_close_vault(ix, &st),
                 _ => continue,

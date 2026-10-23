@@ -164,14 +164,17 @@ in each slot), `PROPOSED u32` (the id of the citizen's open proposal).
 
 ## 4. Domestic raids (K4)
 
-- **RaidDomestic (0xBE)** `P + [caravan r] [province w] [host_holding r]`;
+- **RaidDomestic (0xBE)** `P + [caravan r] [province w] [host_holding r]
+  [owner_citizen r]` (the owner's Citizen names its holdings for the
+  escort rule; added when built);
   data `bell u32, entry u8`. The caravan's slot in the Province stood on a
   tile at `bell` (`tile_at(bell)`), the bell is resolved (`bell <
   RESOLVED_NEXT`) and no older than `RAID_DECIDE_BELLS`; the actor's roster
   host `entry` stands on that tile with `from_bell ≤ bell`; the caravan is
   of the actor's own faction; no roster host of the caravan owner's
   holdings is on the tile (`NotOnTile`). The slot's raid opens as the
-  clash opens it (`raid_off`, `raider`, `raid_pos` resident).
+  clash opens it (`raid_off`, `raider`), its `raid_pos` the new marker
+  `RAID_POS_DOMESTIC` (0xFE), so the settlement logs it as domestic.
 - Then 1c's RaidCaravan / DefaultRaid settle it.
 - **Records:** RAID_OPENED (101): key `owner_tag, seq`; payload `p, q,
   bell, raider_host, raider_tag, domestic`. CARAVAN_RAIDED gains

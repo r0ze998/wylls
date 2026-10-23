@@ -102,6 +102,33 @@ expelling (or readmitting) one of its own.
   Nation's creation), Vote 6,631, SettleProposal 8,074 (an expulsion with
   one holding). The budget rows are 20,000, 12,000 and 20,000.
 
-## Steps 3–5
+## Step 3: domestic raids (done)
 
-Not yet built: domestic raids, siege arms, forts in the clash.
+Decision K4: a clash never raids a caravan of the raider's own faction,
+so a village shows instead that its host stood where such a caravan
+stood.
+
+- **RaidDomestic (0xBE)** `P + [caravan r] [province w] [host_holding r]
+  [owner_citizen r]`, data `bell u32, entry u8`. The caravan is moving
+  and belongs to the actor's faction but not to the actor. Its slot had
+  it on a tile at `bell`, which is resolved, at most `RAID_DECIDE_BELLS`
+  ago, and not raided there before. The actor's roster host `entry` has
+  stood on that tile since `bell` or earlier, and none of the owner's
+  hosts stands there (`NotOnTile`). The owner's Citizen is an account the
+  contract draft lacked; the escort rule needs it to name the owner's
+  holdings. The owner cannot raid its own caravan: its Citizen would be
+  both the writable actor and the read-only owner, so the account check
+  refuses it (`BadAccount`).
+- The slot's raid opens as a clash opens one (`raid_off`, `raider`), with
+  `raid_pos` set to the new marker `RAID_POS_DOMESTIC` (0xFE), which no
+  clash writes. RaidCaravan and DefaultRaid then settle it unchanged.
+  CARAVAN_RAIDED gains `domestic` (from the marker, so even a default
+  burn knows it), and the opening is logged as RAID_OPENED (101).
+- **Off-chain**: fclient builder and events; V23 re-judges RaidDomestic
+  (tamper T57: the raider's host moved off the tile); the herald lists the
+  domestic raids in `h/nations.json` (`domesticRaids`, the newest 64).
+- **Measured**: 12,059 CU with a light roster; budget row 20,000.
+
+## Steps 4–5
+
+Not yet built: siege arms, forts in the clash.

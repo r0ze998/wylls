@@ -800,6 +800,31 @@ pub fn settle_proposal(
     build(a, m, d2::SettleProposal { slot, id }.to_bytes().to_vec())
 }
 
+/// 0xBE RaidDomestic (P, S1 1e): P + `[caravan r] [province w]
+/// [host_holding r] [owner_citizen r]`: the citizen's roster host `entry`
+/// in Province `at` stood where the caravan (of its own faction, owned by
+/// `owner_citizen`) stood at `bell`.
+#[allow(clippy::too_many_arguments)]
+pub fn raid_domestic(
+    a: &Addresses,
+    p: &Player,
+    caravan: Address,
+    at: (i16, i16),
+    host_holding: HoldingRef,
+    owner_citizen: Address,
+    bell: u32,
+    entry: u8,
+) -> Instruction {
+    let mut m = prologue(a, p);
+    m.extend([
+        r(caravan),
+        w(a.province(at.0 as i32, at.1 as i32)),
+        r(host_holding.address(a)),
+        r(owner_citizen),
+    ]);
+    build(a, m, d2::RaidDomestic { bell, entry }.to_bytes().to_vec())
+}
+
 /// 0xB8 SeizeStructure (P, the captor): P + `[structure w] [province w]
 /// [host_holding r] [owner_citizen w]`.
 pub fn seize_structure(
@@ -1089,6 +1114,10 @@ mod tests {
             (Ix::Propose, propose(&a, &pl, 2, 2, 2, 0, Some(k))),
             (Ix::Propose, propose(&a, &pl, 2, 1, 4, 1, None)),
             (Ix::Vote, vote(&a, &pl, 2, 3, 17, true)),
+            (
+                Ix::RaidDomestic,
+                raid_domestic(&a, &pl, k, (3, 1), home, k, 90, 4),
+            ),
             (
                 Ix::SettleProposal,
                 settle_proposal(&a, k, 2, 3, 17, None, &[]),

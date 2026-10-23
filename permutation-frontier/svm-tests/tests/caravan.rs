@@ -1157,3 +1157,153 @@ fn g13_s1_close_vault() {
     assert_eq!(k.c.lamports(&rent_to) + l.fee, before + rent);
     assert_eq!(k.c.data(&k.a.citizen)[C::VAULTS], 0);
 }
+
+// ------------------------------------------------------------ domestic raids (1e)
+
+/// A caravan of A's (faction 0) on the road, D (faction 0 too) on site 2
+/// of the same Province with a host on the caravan's first tile (entry
+/// 10), the caravan's first bell resolved: `(cast, D, bell, tile)`.
+fn domestic() -> (Cast, Estate, u32, u8) {
+    let mut k = Cast::new();
+    let d = k.w.cq_estate(&mut k.c, "d", 0, (k.a.p, k.a.q), 2);
+    expect_lands(k.build_vault(), "BuildVault");
+    let x = k.send_args(0, [0, 100, 0, 0, 0, 50, 0, 0]);
+    expect_lands(k.send(&x), "SendCaravan");
+    let id = caravan_id(k.a.citizen_tag(), 0);
+    let (_, s) = slot_of(&k.c, &k.a.province, id).expect("slot");
+    let (bell, tile) = (s.first_bell, s.tiles[0]);
+    let province = k.a.province;
+    k.w.craft_host(&mut k.c, &d, &province, 10, 0, 0, 300, tile);
+    k.w.to_bell(&mut k.c, bell + 1, 5);
+    k.w.set_resolved_next(&mut k.c, &province, bell + 1);
+    (k, d, bell, tile)
+}
+
+fn raid_domestic(k: &mut Cast, by: &Estate, bell: u32, entry: u8) -> SendResult {
+    let ix = fx::raid_domestic(
+        &k.w.a,
+        &by.player(),
+        k.caravan(0),
+        (k.a.p, k.a.q),
+        by.href(),
+        k.a.citizen,
+        bell,
+        entry,
+    );
+    let w = by.wallet.insecure_clone();
+    s1_send(&mut k.c, I2::RaidDomestic, ix, &[&w])
+}
+
+/// Decision K4: a village whose host stood where a caravan of its own
+/// faction stood opens the raid there (`RAID_POS_DOMESTIC`, its host the
+/// raider); it settles as any raid, logged as domestic.
+#[test]
+fn g13_s1_raid_domestic_opens_a_raid_the_raider_settles() {
+    use frontier_abi::clash_model::RAID_POS_DOMESTIC;
+    let (mut k, d, bell, _) = domestic();
+    let l = expect_lands(raid_domestic(&mut k, &d, bell, 10), "RaidDomestic");
+    let row = frontier_abi::v2::budgets::budget(I2::RaidDomestic).cu_limit as u64;
+    println!("RaidDomestic: {} CU (row {row})", l.cu);
+    assert!(l.cu <= row);
+    let id = caravan_id(k.a.citizen_tag(), 0);
+    let (_, s) = slot_of(&k.c, &k.a.province, id).expect("slot");
+    assert_eq!(
+        (s.raid_off, s.raid_pos, s.raider),
+        (0, RAID_POS_DOMESTIC, d.host_id(0))
+    );
+    assert!(s.raid_open());
+    match event(&l, CqKind::RAID_OPENED) {
+        fclient::conquest::CqEvent::RaidOpened {
+            owner_tag,
+            seq,
+            bell: b,
+            raider_host,
+            raider_tag,
+            domestic,
+            ..
+        } => assert_eq!(
+            (owner_tag, seq, b, raider_host, raider_tag, domestic),
+            (
+                k.a.citizen_tag(),
+                0,
+                bell,
+                d.host_id(0),
+                d.citizen_tag(),
+                true
+            )
+        ),
+        e => panic!("{e:?}"),
+    }
+    // Not twice.
+    assert_cq(raid_domestic(&mut k, &d, bell, 10), Cq::RaidState);
+    // D burns it: CARAVAN_RAIDED says domestic.
+    let x = RaidCaravanArgs {
+        caravan: k.caravan(0),
+        raid: (k.a.p, k.a.q),
+        raider_holding: d.href(),
+        choice: raid_choice::BURN,
+        dst: None,
+        steps: 0,
+        path: [0; 12],
+        path_provinces: vec![],
+        old_route: vec![(k.a.p, k.a.q)],
+    };
+    let ix = fx::raid_caravan(&k.w.a, &d.player(), &x);
+    let dw = d.wallet.insecure_clone();
+    let l = expect_lands(
+        s1_send(&mut k.c, I2::RaidCaravan, ix, &[&dw]),
+        "RaidCaravan",
+    );
+    match event(&l, CqKind::CARAVAN_RAIDED) {
+        fclient::conquest::CqEvent::CaravanRaided {
+            raider_tag,
+            domestic,
+            ..
+        } => assert_eq!((raider_tag, domestic), (d.citizen_tag(), true)),
+        e => panic!("{e:?}"),
+    }
+}
+
+#[test]
+fn g13_s1_raid_domestic_refusals() {
+    let (mut k, d, bell, tile) = domestic();
+    let province = k.a.province;
+    let base = k.c.fork();
+    // Not resolved yet.
+    k.w.set_resolved_next(&mut k.c, &province, bell);
+    assert_cq(raid_domestic(&mut k, &d, bell, 10), Cq::RaidWindow);
+    k.c = base.fork();
+    // Past the window.
+    k.w.to_bell(&mut k.c, bell + RAID_DECIDE_BELLS + 1, 5);
+    assert_cq(raid_domestic(&mut k, &d, bell, 10), Cq::RaidWindow);
+    k.c = base.fork();
+    // A bell the caravan was not in this Province.
+    assert_cq(raid_domestic(&mut k, &d, bell - 1, 10), Cq::RaidState);
+    // Another faction's village (the clash's business), or the owner itself.
+    let r = clone_estate(&k.r);
+    assert_code(raid_domestic(&mut k, &r, bell, 10), E::BadData);
+    // (The owner's own Citizen would be both the writable actor and the
+    // read-only owner: the account check refuses it first.)
+    let a = clone_estate(&k.a);
+    assert_code(raid_domestic(&mut k, &a, bell, 10), E::BadAccount);
+    // No host of D's at that entry on the tile.
+    assert_cq(raid_domestic(&mut k, &d, bell, 11), Cq::NotOnTile);
+    // A host that came after the bell.
+    k.c.edit(&province, |pd| {
+        use frontier_abi::layout::province::entry as EN;
+        let o = P::entry(10) + EN::FROM_BELL;
+        pd[o..o + 4].copy_from_slice(&(bell + 1).to_le_bytes());
+    });
+    assert_cq(raid_domestic(&mut k, &d, bell, 10), Cq::NotOnTile);
+    k.c = base.fork();
+    // The owner's escort on the tile.
+    k.w.craft_host(&mut k.c, &a, &province, 12, 0, 0, 100, tile);
+    assert_cq(raid_domestic(&mut k, &d, bell, 10), Cq::NotOnTile);
+}
+
+fn clone_estate(e: &Estate) -> Estate {
+    Estate {
+        wallet: e.wallet.insecure_clone(),
+        ..*e
+    }
+}

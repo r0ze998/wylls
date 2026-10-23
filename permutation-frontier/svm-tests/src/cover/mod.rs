@@ -159,6 +159,7 @@ pub fn covered_by(ix: I) -> &'static [Cover] {
         I::Propose => nation::PROPOSE,
         I::Vote => nation::VOTE,
         I::SettleProposal => nation::SETTLE_PROPOSAL,
+        I::RaidDomestic => caravan::RAID_DOMESTIC,
     }
 }
 

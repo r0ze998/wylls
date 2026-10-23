@@ -385,6 +385,7 @@ mod tests {
                 taken: [0; 8],
                 dst: sent(2).clone_dst(),
                 cleared: vec![],
+                domestic: false,
             },
         );
         assert_eq!(t.sightings[2]["what"], json!("raid"));

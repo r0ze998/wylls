@@ -890,13 +890,17 @@
         {
           "name": "cleared",
           "len": 17
+        },
+        {
+          "name": "domestic",
+          "len": 1
         }
       ],
-      "body_without_tail_len": 97,
+      "body_without_tail_len": 98,
       "vector": {
         "bell": 2093,
-        "body_without_tail": "015d2d080000213e5b7895b2cfec213e5b7805000000ffffffff6b88a5c26b6b6b88a5c2dffc19366b88a5c2dffc193653708daac7e4011e3b587592afcce90623405d7a97b4d1ee6b88a5c2dffc19366b88a5c2dffc193653708daac7e4011e3b",
-        "body": "015d2d080000213e5b7895b2cfec213e5b7805000000ffffffff6b88a5c26b6b6b88a5c2dffc19366b88a5c2dffc193653708daac7e4011e3b587592afcce90623405d7a97b4d1ee6b88a5c2dffc19366b88a5c2dffc193653708daac7e4011e3b00",
+        "body_without_tail": "015d2d080000213e5b7895b2cfec213e5b7805000000ffffffff6b88a5c26b6b6b88a5c2dffc19366b88a5c2dffc193653708daac7e4011e3b587592afcce90623405d7a97b4d1ee6b88a5c2dffc19366b88a5c2dffc193653708daac7e4011e3b6b",
+        "body": "015d2d080000213e5b7895b2cfec213e5b7805000000ffffffff6b88a5c26b6b6b88a5c2dffc19366b88a5c2dffc193653708daac7e4011e3b587592afcce90623405d7a97b4d1ee6b88a5c2dffc19366b88a5c2dffc193653708daac7e4011e3b6b00",
         "decodes": true,
         "chains": []
       }
@@ -1352,6 +1356,71 @@
         "body": "01643408000021213e5b786b6b6b6b6b88a5c2dffc19366b886b886b88a5c2dffc193653708daac7e4011e3b587592afcce90600",
         "decodes": true,
         "chains": []
+      }
+    },
+    {
+      "kind": 101,
+      "name": "RAID_OPENED",
+      "key": [
+        {
+          "name": "owner_tag",
+          "len": 8
+        },
+        {
+          "name": "seq",
+          "len": 4
+        }
+      ],
+      "payload": [
+        {
+          "name": "p",
+          "len": 4
+        },
+        {
+          "name": "q",
+          "len": 4
+        },
+        {
+          "name": "bell",
+          "len": 4
+        },
+        {
+          "name": "raider_host",
+          "len": 8
+        },
+        {
+          "name": "raider_tag",
+          "len": 8
+        },
+        {
+          "name": "domestic",
+          "len": 1
+        }
+      ],
+      "body_without_tail_len": 47,
+      "vector": {
+        "bell": 2101,
+        "body_without_tail": "016535080000213e5b7895b2cfec213e5b7805000000ffffffff6b88a5c26b88a5c2dffc19366b88a5c2dffc19366b",
+        "body": "016535080000213e5b7895b2cfec213e5b7805000000ffffffff6b88a5c26b88a5c2dffc19366b88a5c2dffc19366b020404000000000000005809f52ad33c0ad3850ccdac716973cd7f248309cc1460385590a26749a8e4240605000000000000001e63b1d3ec616029867a9a9467db31bd407c08b374281f3613a72c4e8582cf8c",
+        "decodes": true,
+        "chains": [
+          {
+            "entity": 4,
+            "who": "Base(Citizen(Tag8(3898424990439409771)))",
+            "prev_seq": 3,
+            "prev_head": "298f2c8bac01c38709d4c0ecaabbb77ae0c8799f833817760879f764f354d4f6",
+            "seq": 4,
+            "head": "5809f52ad33c0ad3850ccdac716973cd7f248309cc1460385590a26749a8e424"
+          },
+          {
+            "entity": 6,
+            "who": "Base(Province { p: 5, q: -1 })",
+            "prev_seq": 4,
+            "prev_head": "e105af65fdc47a3a20561774b0a4ba730242a550a718ad09f22bf2e3ba9f1438",
+            "seq": 5,
+            "head": "1e63b1d3ec616029867a9a9467db31bd407c08b374281f3613a72c4e8582cf8c"
+          }
+        ]
       }
     }
   ],

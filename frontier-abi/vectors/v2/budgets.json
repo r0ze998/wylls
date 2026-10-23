@@ -1150,6 +1150,22 @@
       "loaded_limit": 1507328,
       "loaded_limit_s1": 1835008,
       "cu_limit_s1": 20000
+    },
+    {
+      "name": "RaidDomestic",
+      "tag": 190,
+      "cu_budget": 20000,
+      "cu_per_unit": 0,
+      "cu_limit": 20000,
+      "measured": 0,
+      "tx_contract": 600,
+      "tx_ceiling": 600,
+      "tx_worst_estimate": 531,
+      "accounts": [8, 8],
+      "loaded_need_placeholder": 1484561,
+      "loaded_limit": 1507328,
+      "loaded_limit_s1": 1835008,
+      "cu_limit_s1": 20000
     }
   ]
 }

@@ -132,7 +132,7 @@ cq_kinds! {
     VAULT_BUILT = 90; key ["p": 4, "q": 4, "tile": 1]; payload ["owner_tag": 8, "faction": 1, "gen": 1, "holding_key": 8, "cost_digest": 32];
     CARAVAN_SENT = 91; key ["owner_tag": 8, "seq": 4]; payload ["faction": 1, "src": 8, "dst": 8, "steps": 1, "cargo": 32, "arrive_ts": 8, "runs": 36, "worn_bps": 2, "path": 12];
     CARAVAN_SETTLED = 92; key ["owner_tag": 8, "seq": 4]; payload ["outcome": 1, "dst": 8, "cargo": 32, "fee": 8];
-    CARAVAN_RAIDED = 93; key ["owner_tag": 8, "seq": 4]; payload ["p": 4, "q": 4, "bell": 4, "choice": 1, "by": 1, "raider_tag": 8, "taken": 32, "dst": 8, "cleared": 17];
+    CARAVAN_RAIDED = 93; key ["owner_tag": 8, "seq": 4]; payload ["p": 4, "q": 4, "bell": 4, "choice": 1, "by": 1, "raider_tag": 8, "taken": 32, "dst": 8, "cleared": 17, "domestic": 1];
     VAULT_SEIZED = 94; key ["p": 4, "q": 4, "tile": 1]; payload ["captor_tag": 8, "prev_tag": 8, "new_gen": 1, "domestic": 1, "host_id": 8];
     STRUCTURE_BUILT = 95; key ["p": 4, "q": 4, "tile": 1]; payload ["owner_tag": 8, "faction": 1, "gen": 1, "entry": 1, "notify": 1, "holding_key": 8, "cost_digest": 32, "kind": 1];
     STRUCTURE_SEIZED = 96; key ["p": 4, "q": 4, "tile": 1]; payload ["captor_tag": 8, "prev_tag": 8, "new_gen": 1, "faction": 1, "domestic": 1, "host_id": 8, "kind": 1];
@@ -140,6 +140,7 @@ cq_kinds! {
     NATION_PROPOSED = 98; key ["faction": 1, "id": 4]; payload ["slot": 1, "kind": 1, "target_faction": 1, "value": 1, "proposer_tag": 8, "target_tag": 8, "close_bell": 4];
     NATION_VOTED = 99; key ["faction": 1, "id": 4]; payload ["voter_tag": 8, "yes": 1, "yes_now": 2, "no_now": 2];
     NATION_DECIDED = 100; key ["faction": 1, "id": 4]; payload ["passed": 1, "kind": 1, "target_faction": 1, "value": 1, "target_tag": 8, "yes": 2, "no": 2, "holdings": 24];
+    RAID_OPENED = 101; key ["owner_tag": 8, "seq": 4]; payload ["p": 4, "q": 4, "bell": 4, "raider_host": 8, "raider_tag": 8, "domestic": 1];
 }
 
 /// S1 caravan places as logged (8 B): `kind u8 ‖ p i16 ‖ q i16 ‖
@@ -742,6 +743,14 @@ pub fn chains_of(kind: AnyKind, key: &[u8], payload: &[u8]) -> Option<Chains> {
             let (p, q) = pq()?;
             c.push(E::Province, Base(EntityRef::Province { p, q }), false);
         }
+        CqKind::RAID_OPENED => {
+            // The raider's Citizen and the raid's Province (the caravan is
+            // only read).
+            let (p, q) = (rd_i32(pay("p")?, 0)?, rd_i32(pay("q")?, 0)?);
+            let me = CitizenRef::Tag8(rd_u64(pay("raider_tag")?, 0)?);
+            c.push(E::Citizen, Base(EntityRef::Citizen(me)), false);
+            c.push(E::Province, Base(EntityRef::Province { p, q }), false);
+        }
         CqKind::NATION_PROPOSED => {
             let faction = rd_u8(key, 0)?;
             let me = CitizenRef::Tag8(rd_u64(pay("proposer_tag")?, 0)?);
@@ -1044,7 +1053,7 @@ mod tests {
                 k.body_len()
             );
         }
-        assert_eq!(CQ_SPECS.len(), 20, "MC's 9 and S1's 11");
+        assert_eq!(CQ_SPECS.len(), 21, "MC's 9 and S1's 12");
         assert_eq!(AnyKind::Cq(CqKind::CONQUEST).body_len(), 137);
         assert_eq!(
             AnyKind::Cq(CqKind::CONQUEST).payload_len(),

@@ -122,3 +122,21 @@ pub const DEFAULT_RAID: &[Cover] = &[
         &[Lands("DefaultRaid late burn"), CqErr(Cq::RaidWindow)],
     ),
 ];
+
+/// S1 1e (decision K4).
+pub const RAID_DOMESTIC: &[Cover] = &[
+    Cover::Test(
+        "caravan::g13_s1_raid_domestic_opens_a_raid_the_raider_settles",
+        &[Lands("RaidDomestic"), CqErr(Cq::RaidState)],
+    ),
+    Cover::Test(
+        "caravan::g13_s1_raid_domestic_refusals",
+        &[
+            CqErr(Cq::RaidWindow),
+            CqErr(Cq::RaidState),
+            CqErr(Cq::NotOnTile),
+            Err(E::BadData),
+            Err(E::BadAccount),
+        ],
+    ),
+];

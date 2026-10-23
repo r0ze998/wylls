@@ -1305,6 +1305,9 @@ use permutation_rules::frontier::caravan::{CaravanSlot, MAX_CARAVAN_SLOTS};
 pub const CARAVAN_DOMAIN: &[u8] = b"PSF-CARAVAN-v1";
 /// `RAID_POS` of a raid by a resident (no ClashInputs position).
 pub const RAID_POS_RESIDENT: u8 = 0xFF;
+/// `RAID_POS` of a raid opened by RaidDomestic (S1 1e, decision K4): a
+/// host of the caravan's own faction stood on its tile; never a clash's.
+pub const RAID_POS_DOMESTIC: u8 = 0xFE;
 
 /// The caravan slots of a v2 Province.
 pub fn caravan_slots(pd: &[u8]) -> R<[CaravanSlot; MAX_CARAVAN_SLOTS]> {
