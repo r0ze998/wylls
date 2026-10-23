@@ -4,6 +4,9 @@
 //! frontier-sim run   [--agents N] [--seed S] [--sizes 3,1,1,1,1,1] [--bots 0.05]
 //!                    [--doctrines] [--rotation K] [--gamma 3/5] [--day0 0.6]
 //! frontier-sim suite [--agents N] [--seeds K] [--out PATH]
+//! frontier-sim arms  [--seed S] [--only MAX_RING]   (stage 1a: ore and arms on the map)
+//! frontier-sim trade [--seed S] [--only MAX_RING]   (stage 1b: dependence, caravan reach,
+//!                    trip time and exposure, exchange; FRONTIER_SIM_WORKSHOPS=K, default 2)
 //! frontier-sim doctrines [--agents N] [--seeds K] [--set kernel|draft|m0|s1]
 //!                    [--dx "C.arrival=10500,D.drill=10500"] [--unpaired]
 //!                    [--first-seed N] [--gate]
@@ -47,6 +50,7 @@ mod rng;
 mod settle;
 mod sim;
 mod suite;
+mod trade;
 
 use config::Config;
 use permutation_rules::frontier::index::IndexParams;
@@ -335,6 +339,18 @@ fn main() {
                 .as_deref()
                 .map_or(4, |s| s.parse().expect("--only RING"));
             println!("{}", arms::report(cfg.seed, max_ring));
+        }
+        "trade" => {
+            // Stage 1b: whether the arms economy makes holdings trade, and
+            // what a caravan costs, on the map of --seed.
+            let max_ring = only
+                .as_deref()
+                .map_or(4, |s| s.parse().expect("--only RING"));
+            let workshops = std::env::var("FRONTIER_SIM_WORKSHOPS")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(2);
+            println!("{}", trade::report(cfg.seed, max_ring, workshops));
         }
         "run" => {
             let t = std::time::Instant::now();
