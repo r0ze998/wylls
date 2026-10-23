@@ -59,7 +59,49 @@ stands, which takes the worst walk past the MC row's 26,000 (FirstOfBell
 already did. The worst with a full list of hostile towers in all four
 Provinces stays under it (27,586).
 
-## Steps 2–5
+## Step 2: nations (done)
 
-Not yet built: nations (proposals, votes, stances, expulsion), domestic
-raids, siege arms, forts in the clash.
+Decisions K1 and K2: each faction's villages vote on its stances and on
+expelling (or readmitting) one of its own.
+
+- **The kernel** (`permutation-rules/src/frontier/nation.rs`): eligibility
+  (a member that joined `ELIGIBLE_BELLS` = 288 ago), the window
+  (`WINDOW_BELLS` = 144), the readmission wait (`READMIT_BELLS` = 432),
+  the pass rule (`yes > no` and `yes ≥ 3`), the 64-byte `Proposal`. It is
+  a new kernel name, so `RULESET_HASH_V3` was re-pinned.
+- **The ABI**: account kind 22 `Nation` (`na‖faction`, 384 B: faction,
+  next id, four proposal slots); Propose 0xBB, Vote 0xBC, SettleProposal
+  0xBD (class D); codes `ProposalsFull` 91, `NotVoter` 92, `ProposalState`
+  93; records NATION_PROPOSED 98, NATION_VOTED 99, NATION_DECIDED 100;
+  entity kind 12. The contract's proposal could not hold both the target's
+  key and its tag in 64 bytes; it keeps the key and the records carry the
+  tag. Code 92 was drafted as `NotEligible`, which M1's code 43 already
+  names; an ABI test now keeps names unique across both code spaces.
+- **The program** (`proc/nation.rs`): Propose creates the Nation at its
+  first use. One vote per Citizen per proposal: `VOTED[slot]` holds the id
+  voted on, and a slot's next proposal gets a new id. One open proposal
+  per proposer (`PROPOSED`). SettleProposal is permissionless once the
+  window closes. It re-checks that the target still qualifies (an
+  expulsion of someone already expelled settles as failed), writes the
+  Season's `STANCES` cell for a passed stance, and for a passed expulsion
+  sets `EXPELLED_SINCE` and `FLAG_EXPELLED` on every live holding of the
+  target (all must be listed, in reference order); a readmission clears
+  both. Every path that gives a holding an owner (PlaceHome, a settled
+  ticket or outpost, both capture paths) sets the flag from its new
+  owner's Citizen. So an expelled village's new holdings carry the flag,
+  and a holding captured from an expelled village drops it.
+- **Off-chain**: fclient builders and events. Verifier **V25**
+  (`v25_nations`) re-judges every Propose, Vote and settlement from the
+  states, with tamper classes T55 (a vote counted twice) and T56 (a
+  stance no proposal passed). The keeper settles closed proposals
+  (`keeper/src/nations.rs`, role `settle`). The herald publishes
+  `h/nations.json` (stances, proposals with tallies, the expelled). The
+  gateway allows a Nation's rent on Propose and counts it in the daily
+  cap, and has texts for codes 91–93.
+- **Measured** (LiteSVM `tests/nation.rs`): Propose 11,957 CU (with the
+  Nation's creation), Vote 6,631, SettleProposal 8,074 (an expulsion with
+  one holding). The budget rows are 20,000, 12,000 and 20,000.
+
+## Steps 3–5
+
+Not yet built: domestic raids, siege arms, forts in the clash.

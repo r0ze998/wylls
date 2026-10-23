@@ -19,7 +19,7 @@ use permutation_rules::hash::sha256;
 pub use crate::log::{next_head, LINK_LEN, PREFIX, SOFT_BODY_MAX};
 
 /// Chained entity kinds of a v2 tail: M1's 1–7, MarchState 8 and S1's
-/// Vault 9, Caravan 10, Structure 11.
+/// Vault 9, Caravan 10, Structure 11, Nation 12.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(u8)]
 pub enum EntityKind {
@@ -37,10 +37,12 @@ pub enum EntityKind {
     Caravan = 10,
     /// S1 (1d).
     Structure = 11,
+    /// S1 (1e).
+    Nation = 12,
 }
 
 impl EntityKind {
-    pub const ALL: [EntityKind; 11] = [
+    pub const ALL: [EntityKind; 12] = [
         EntityKind::Season,
         EntityKind::Frontier,
         EntityKind::JoinShard,
@@ -52,6 +54,7 @@ impl EntityKind {
         EntityKind::Vault,
         EntityKind::Caravan,
         EntityKind::Structure,
+        EntityKind::Nation,
     ];
     pub fn from_u8(v: u8) -> Option<EntityKind> {
         Self::ALL.iter().copied().find(|k| *k as u8 == v)
@@ -73,6 +76,7 @@ impl EntityKind {
             EntityKind::Vault => A::Vault,
             EntityKind::Caravan => A::Caravan,
             EntityKind::Structure => A::Structure,
+            EntityKind::Nation => A::Nation,
         }
     }
 }
@@ -133,6 +137,9 @@ cq_kinds! {
     STRUCTURE_BUILT = 95; key ["p": 4, "q": 4, "tile": 1]; payload ["owner_tag": 8, "faction": 1, "gen": 1, "entry": 1, "notify": 1, "holding_key": 8, "cost_digest": 32, "kind": 1];
     STRUCTURE_SEIZED = 96; key ["p": 4, "q": 4, "tile": 1]; payload ["captor_tag": 8, "prev_tag": 8, "new_gen": 1, "faction": 1, "domestic": 1, "host_id": 8, "kind": 1];
     STRUCTURE_CLOSED = 97; key ["p": 4, "q": 4, "tile": 1]; payload ["owner_tag": 8, "entry": 1, "kind": 1];
+    NATION_PROPOSED = 98; key ["faction": 1, "id": 4]; payload ["slot": 1, "kind": 1, "target_faction": 1, "value": 1, "proposer_tag": 8, "target_tag": 8, "close_bell": 4];
+    NATION_VOTED = 99; key ["faction": 1, "id": 4]; payload ["voter_tag": 8, "yes": 1, "yes_now": 2, "no_now": 2];
+    NATION_DECIDED = 100; key ["faction": 1, "id": 4]; payload ["passed": 1, "kind": 1, "target_faction": 1, "value": 1, "target_tag": 8, "yes": 2, "no": 2, "holdings": 24];
 }
 
 /// S1 caravan places as logged (8 B): `kind u8 ‖ p i16 ‖ q i16 ‖
@@ -463,6 +470,8 @@ pub enum EntityRefV2 {
     Caravan { owner_tag: u64, seq: u32 },
     /// S1 (1d): a Structure by its tile.
     Structure { p: i32, q: i32, tile: u8 },
+    /// S1 (1e): a faction's Nation.
+    Nation { faction: u8 },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -523,7 +532,7 @@ impl Chains {
 /// kinds keep M1's table ([`crate::log::chains_of`]).
 pub fn chains_of(kind: AnyKind, key: &[u8], payload: &[u8]) -> Option<Chains> {
     use EntityKind as E;
-    use EntityRefV2::{Base, Caravan, March, Structure, Vault};
+    use EntityRefV2::{Base, Caravan, March, Nation, Structure, Vault};
     let mut c = Chains::new();
     let k = match kind {
         // S1: the CLOSE of a Vault, a Caravan or a Structure chains the closed account
@@ -733,6 +742,41 @@ pub fn chains_of(kind: AnyKind, key: &[u8], payload: &[u8]) -> Option<Chains> {
             let (p, q) = pq()?;
             c.push(E::Province, Base(EntityRef::Province { p, q }), false);
         }
+        CqKind::NATION_PROPOSED => {
+            let faction = rd_u8(key, 0)?;
+            let me = CitizenRef::Tag8(rd_u64(pay("proposer_tag")?, 0)?);
+            c.push(E::Citizen, Base(EntityRef::Citizen(me)), false);
+            c.push(E::Nation, Nation { faction }, false);
+        }
+        CqKind::NATION_VOTED => {
+            let faction = rd_u8(key, 0)?;
+            let me = CitizenRef::Tag8(rd_u64(pay("voter_tag")?, 0)?);
+            c.push(E::Citizen, Base(EntityRef::Citizen(me)), false);
+            c.push(E::Nation, Nation { faction }, false);
+        }
+        CqKind::NATION_DECIDED => {
+            // A passed stance writes the Season's stances; a passed
+            // expulsion or readmission the target Citizen and the flag of
+            // each of its holdings (their keys; 0 an empty slot).
+            let faction = rd_u8(key, 0)?;
+            let passed = pay("passed")?[0] != 0;
+            let k = pay("kind")?[0];
+            if passed && k == crate::v2::layout::s1::proposal::KIND_STANCE {
+                c.push(E::Season, Base(EntityRef::Season), false);
+            }
+            if passed && k != crate::v2::layout::s1::proposal::KIND_STANCE {
+                let t = CitizenRef::Tag8(rd_u64(pay("target_tag")?, 0)?);
+                c.push(E::Citizen, Base(EntityRef::Citizen(t)), false);
+                let hs = pay("holdings")?;
+                for i in 0..3 {
+                    let hk = rd_u64(hs, 8 * i)?;
+                    if hk != 0 {
+                        c.push(E::Holding, Base(holding_of_key(hk)?), false);
+                    }
+                }
+            }
+            c.push(E::Nation, Nation { faction }, false);
+        }
         CqKind::STRUCTURE_SEIZED => {
             let (p, q) = pq()?;
             let tile = rd_u8(key, 8)?;
@@ -782,6 +826,7 @@ pub fn march_address(ctx: &crate::addr::AddrCtx, who: &EntityRefV2) -> Option<[u
         EntityRefV2::Caravan { owner_tag, seq } => {
             Some(crate::v2::addr::caravan(ctx, *owner_tag, *seq))
         }
+        EntityRefV2::Nation { faction } => Some(crate::v2::addr::nation(ctx, *faction)),
         EntityRefV2::Base(b) => b.address(ctx),
     }
 }
@@ -999,7 +1044,7 @@ mod tests {
                 k.body_len()
             );
         }
-        assert_eq!(CQ_SPECS.len(), 17, "MC's 9 and S1's 8");
+        assert_eq!(CQ_SPECS.len(), 20, "MC's 9 and S1's 11");
         assert_eq!(AnyKind::Cq(CqKind::CONQUEST).body_len(), 137);
         assert_eq!(
             AnyKind::Cq(CqKind::CONQUEST).payload_len(),

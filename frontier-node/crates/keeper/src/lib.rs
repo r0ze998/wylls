@@ -46,6 +46,7 @@ pub mod genesis;
 pub mod holdings;
 pub mod journal;
 pub mod landindex;
+pub mod nations;
 pub mod play;
 pub mod playindex;
 pub mod pools;

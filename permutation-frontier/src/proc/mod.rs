@@ -61,6 +61,7 @@ pub mod defence;
 pub mod holding;
 pub mod host;
 pub mod map;
+pub mod nation;
 pub mod reveal;
 pub mod season;
 pub mod structure;

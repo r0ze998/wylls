@@ -207,6 +207,43 @@ pub enum CqEvent {
         entry: u8,
         kind: u8,
     },
+    // S1 (stage 1e, kinds 98–100).
+    NationProposed {
+        faction: u8,
+        id: u32,
+        slot: u8,
+        /// `nation::KIND_*`.
+        kind: u8,
+        target_faction: u8,
+        value: u8,
+        proposer_tag: u64,
+        /// The target Citizen's tag (0 for a stance).
+        target_tag: u64,
+        close_bell: u32,
+    },
+    NationVoted {
+        faction: u8,
+        id: u32,
+        voter_tag: u64,
+        yes: bool,
+        /// The tallies after this vote.
+        yes_now: u16,
+        no_now: u16,
+    },
+    NationDecided {
+        faction: u8,
+        id: u32,
+        passed: bool,
+        kind: u8,
+        target_faction: u8,
+        value: u8,
+        target_tag: u64,
+        yes: u16,
+        no: u16,
+        /// The holding keys a passed expulsion or readmission flagged (0:
+        /// none).
+        holdings: [u64; 3],
+    },
 }
 
 /// A caravan's origin or destination as logged (`l2::log_place`).
@@ -280,7 +317,8 @@ fn units8(b: &[u8]) -> Option<[u32; 8]> {
 }
 
 impl CqEvent {
-    /// The Province the record is about (`None` for MARCH_FOLD and RETIRE;
+    /// The Province the record is about (`None` for MARCH_FOLD, RETIRE and
+    /// the nation records;
     /// a caravan's origin when sent, its destination when settled).
     pub fn province(&self) -> Option<(i32, i32)> {
         use CqEvent::*;
@@ -298,7 +336,11 @@ impl CqEvent {
             | StructureBuilt { p, q, .. }
             | StructureSeized { p, q, .. }
             | StructureClosed { p, q, .. } => Some((*p, *q)),
-            MarchFold { .. } | Retire { .. } => None,
+            MarchFold { .. }
+            | Retire { .. }
+            | NationProposed { .. }
+            | NationVoted { .. }
+            | NationDecided { .. } => None,
             CaravanSent { src, .. } => Some((src.p as i32, src.q as i32)),
             CaravanSettled { dst, .. } => Some((dst.p as i32, dst.q as i32)),
         }
@@ -501,6 +543,44 @@ pub fn parse(body: &[u8]) -> Option<CqLog> {
             entry: b8("entry")?,
             kind: b8("kind")?,
         },
+        CqKind::NATION_PROPOSED => CqEvent::NationProposed {
+            faction: b8("faction")?,
+            id: u("id")? as u32,
+            slot: b8("slot")?,
+            kind: b8("kind")?,
+            target_faction: b8("target_faction")?,
+            value: b8("value")?,
+            proposer_tag: u("proposer_tag")?,
+            target_tag: u("target_tag")?,
+            close_bell: u("close_bell")? as u32,
+        },
+        CqKind::NATION_VOTED => CqEvent::NationVoted {
+            faction: b8("faction")?,
+            id: u("id")? as u32,
+            voter_tag: u("voter_tag")?,
+            yes: b8("yes")? != 0,
+            yes_now: u("yes_now")? as u16,
+            no_now: u("no_now")? as u16,
+        },
+        CqKind::NATION_DECIDED => {
+            let hs = f("holdings")?;
+            let mut holdings = [0u64; 3];
+            for (i, h) in holdings.iter_mut().enumerate() {
+                *h = u64::from_le_bytes(hs.get(8 * i..8 * i + 8)?.try_into().ok()?);
+            }
+            CqEvent::NationDecided {
+                faction: b8("faction")?,
+                id: u("id")? as u32,
+                passed: b8("passed")? != 0,
+                kind: b8("kind")?,
+                target_faction: b8("target_faction")?,
+                value: b8("value")?,
+                target_tag: u("target_tag")?,
+                yes: u("yes")? as u16,
+                no: u("no")? as u16,
+                holdings,
+            }
+        }
     };
     Some(CqLog {
         bell: r.bell,

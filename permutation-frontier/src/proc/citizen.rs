@@ -1252,6 +1252,8 @@ pub fn place_home(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         let mut w = Rw(&mut hd);
         w.set_u8(H::STATE, H::STATE_FINAL)?;
         w.set_u8(H::FLAGS, H::FLAG_INTRO_BUILD_AVAILABLE)?;
+        // S1 1e: an expelled village's holdings carry the flag.
+        super::nation::mark_holding(&mut hd, &citizen.try_borrow_data()?)?;
     }
     {
         let mut cd = citizen.try_borrow_mut_data()?;
@@ -1921,6 +1923,8 @@ pub fn settle_ticket(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         {
             let mut hd = holding.try_borrow_mut_data()?;
             write_holding(&mut hd, &f, &h)?;
+            // S1 1e: an expelled village's holdings carry the flag.
+            super::nation::mark_holding(&mut hd, &citizen.try_borrow_data()?)?;
         }
         let shield_bell = bell_from(hdr.genesis_ts, shield_until);
         {

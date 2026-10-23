@@ -160,6 +160,8 @@ pub struct ConquestDuty {
     pub alerts: Vec<(u64, String)>,
     /// S1 stage 1b: deliveries and default raids (`crate::caravans`).
     pub caravans: crate::caravans::CaravanDuty,
+    /// S1 stage 1e: proposal settlements (`crate::nations`).
+    pub nations: crate::nations::NationDuty,
 }
 
 /// The write kinds of this duty (engine stats, journal).
@@ -310,7 +312,7 @@ impl ConquestDuty {
         now_bell: u32,
         journal: Option<&Journal>,
     ) -> bool {
-        if self.caravans.on_outcome(key, o) {
+        if self.caravans.on_outcome(key, o) || self.nations.on_outcome(key, o) {
             return false;
         }
         let kind = key.split(':').next().unwrap_or("");
@@ -418,6 +420,8 @@ impl ConquestDuty {
             self.caravans
                 .plan(t, port, engine, &self.provs, now_bell)
                 .await?;
+            // S1 stage 1e: closed proposals.
+            self.nations.plan(t, port, engine, now_bell).await?;
         }
         if t.cfg.has_role("fold") && !self.unsupported.contains("fmarch") {
             self.folds(t, port, engine, opened, now_bell).await?;
@@ -998,6 +1002,7 @@ impl ConquestDuty {
             .unwrap_or(0);
         json!({
             "caravans": self.caravans.status(),
+            "nations": self.nations.status(),
             "sieges_active": count(|c| c.sieges),
             "keeps_contested": keeps,
             "occupations": count(|c| c.occupations),

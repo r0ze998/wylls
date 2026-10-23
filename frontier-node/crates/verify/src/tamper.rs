@@ -2220,7 +2220,65 @@ pub fn s1_t54(run: &Input) -> Made {
     })
 }
 
-/// The S1 classes (stages 1b and 1d, S1-1B-CONTRACT §4.1 and S1-1D-CONTRACT
+// ------------------------------------------------------------ S1 classes (stage 1e, T55–T56)
+
+/// T55: a vote counted twice (V25): the first Vote's proposal tallies
+/// raised by one more in the Nation it left.
+pub fn s1_t55(run: &Input) -> Made {
+    use frontier_abi::v2::layout::s1::{nation as NA, proposal as PR};
+    let mut inp = run.clone();
+    let tag = frontier_abi::v2::tags::Ix::Vote.tag();
+    let t = first_with(&inp, tag).need("a Vote")?;
+    let keys = ix_keys(&inp, t, tag).need("its accounts")?;
+    let nation = *keys.get(4).need("its Nation")?;
+    edit_account_at(&mut inp, &nation, t, |d| {
+        for i in 0..NA::N {
+            let o = NA::at(i) + PR::YES;
+            if let Some(b) = d.get_mut(o..o + 2) {
+                let v = u16::from_le_bytes([b[0], b[1]]);
+                b.copy_from_slice(&v.wrapping_add(1).to_le_bytes());
+            }
+        }
+    })
+    .then_some(())
+    .need("the Nation's post-state")?;
+    Ok(Case {
+        class: "T55",
+        what: "a vote counted twice",
+        feature: None,
+        codes: &[NATION_MISMATCH],
+        input: inp,
+    })
+}
+
+/// T56: a stance written without a passed proposal (V25): the first
+/// SettleProposal's Season left with one more stance changed.
+pub fn s1_t56(run: &Input) -> Made {
+    use frontier_abi::v2::layout::world::season as S2;
+    let mut inp = run.clone();
+    let tag = frontier_abi::v2::tags::Ix::SettleProposal.tag();
+    let t = first_with(&inp, tag).need("a SettleProposal")?;
+    let keys = ix_keys(&inp, t, tag).need("its accounts")?;
+    let season = *keys.get(1).need("its Season")?;
+    edit_account_at(&mut inp, &season, t, |d| {
+        // The last cell (5 → 5) is never a proposal's.
+        let o = S2::STANCES + 35;
+        if let Some(b) = d.get_mut(o) {
+            *b ^= 1;
+        }
+    })
+    .then_some(())
+    .need("the Season's post-state")?;
+    Ok(Case {
+        class: "T56",
+        what: "a stance written without a passed proposal",
+        feature: None,
+        codes: &[NATION_MISMATCH],
+        input: inp,
+    })
+}
+
+/// The S1 classes (stages 1b, 1d and 1e, S1-1B-CONTRACT §4.1 and S1-1D-CONTRACT
 /// §5.1, as numbered after the
 /// conquest's T25–T48) an S1 season runs: extras until an S1 fixture with
 /// caravans is committed.
@@ -2239,6 +2297,8 @@ pub fn s1_classes() -> Vec<Class> {
         c("T52", vec![("march wear zeroed", s1_t52)]),
         c("T53", vec![("gather skipped the wear", s1_t53)]),
         c("T54", vec![("tower seized without a host", s1_t54)]),
+        c("T55", vec![("vote counted twice", s1_t55)]),
+        c("T56", vec![("stance without a passed proposal", s1_t56)]),
     ]
 }
 

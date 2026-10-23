@@ -32,6 +32,8 @@ export const BUILD_VAULT_TAG = 0xB0;
 export const SEND_CARAVAN_TAG = 0xB1;
 // S1 stage 1d: BuildStructure moves a tower's rent.
 export const BUILD_STRUCTURE_TAG = 0xB7;
+// S1 stage 1e: a first Propose creates its faction's Nation (its rent).
+export const PROPOSE_TAG = 0xBB;
 /** Tags of the player shapes (from the ABI's `relay_player_shape`). */
 export const PLAYER_TAGS = Object.freeze(TAGS.instructions.filter(i => i.relay_player_shape).map(i => i.tag));
 /** Tags of the settle shapes (`relay_settle_shape`). */

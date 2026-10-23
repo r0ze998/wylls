@@ -114,6 +114,10 @@ tags_v2! {
     BuildStructure = 0xB7, P, false;
     SeizeStructure = 0xB8, P, false;
     CloseStructure = 0xB9, P, false;
+    // S1 (1e: nations)
+    Propose = 0xBB, P, false;
+    Vote = 0xBC, P, false;
+    SettleProposal = 0xBD, D, false;
 }
 
 impl Ix {
@@ -128,8 +132,8 @@ impl Ix {
         Ix::CloseMarch,
     ];
 
-    /// The S1 instructions (1b, 1d), refused by the MC program.
-    pub const S1: [Ix; 10] = [
+    /// The S1 instructions (1b, 1d, 1e), refused by the MC program.
+    pub const S1: [Ix; 13] = [
         Ix::BuildVault,
         Ix::SendCaravan,
         Ix::SettleCaravan,
@@ -140,6 +144,9 @@ impl Ix {
         Ix::BuildStructure,
         Ix::SeizeStructure,
         Ix::CloseStructure,
+        Ix::Propose,
+        Ix::Vote,
+        Ix::SettleProposal,
     ];
 
     /// Whether the instruction is S1's.
@@ -202,10 +209,10 @@ impl crate::tags::Ix {
     pub const ALL_V2: &'static [Ix] = Ix::ALL;
 }
 
-/// Reserved v2 tags: M1's reserved set, 0xA4, 0xA8–0xAF and S1's
-/// 0xBA–0xBF.
+/// Reserved v2 tags: M1's reserved set, 0xA4, 0xA8–0xAF and S1's 0xBA
+/// and 0xBE–0xBF.
 pub const fn is_reserved(t: u8) -> bool {
-    crate::tags::is_reserved(t) || matches!(t, 0xA4 | 0xA8..=0xAF | 0xBA..=0xBF)
+    crate::tags::is_reserved(t) || matches!(t, 0xA4 | 0xA8..=0xAF | 0xBA | 0xBE..=0xBF)
 }
 
 /// Player instructions the relay may sponsor (§8.3): M1's, DeclareSiege,
@@ -226,6 +233,8 @@ pub const fn relay_player_shape(ix: Ix) -> bool {
                 | Ix::BuildStructure
                 | Ix::SeizeStructure
                 | Ix::CloseStructure
+                | Ix::Propose
+                | Ix::Vote
         ),
     }
 }
@@ -245,6 +254,7 @@ pub const fn relay_settle_shape(ix: Ix) -> bool {
                 | Ix::RetireHost
                 | Ix::SettleCaravan
                 | Ix::DefaultRaid
+                | Ix::SettleProposal
         ),
     }
 }
@@ -255,8 +265,8 @@ mod tests {
 
     #[test]
     fn v2_extends_m1() {
-        assert_eq!(Ix::ALL.len(), 68);
-        assert_eq!(crate::tags::Ix::ALL_V2.len(), 68);
+        assert_eq!(Ix::ALL.len(), 71);
+        assert_eq!(crate::tags::Ix::ALL_V2.len(), 71);
         for v1 in crate::tags::Ix::ALL {
             let v = Ix::of_v1(*v1);
             assert_eq!(v.tag(), v1.tag());

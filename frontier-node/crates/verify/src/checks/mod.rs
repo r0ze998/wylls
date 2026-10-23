@@ -15,6 +15,7 @@ pub mod v20_end;
 pub mod v22_outposts;
 pub mod v23_caravans;
 pub mod v24_structures;
+pub mod v25_nations;
 pub mod v2_program;
 pub mod v3_random;
 pub mod v4_windows;
@@ -230,12 +231,15 @@ pub fn run(input: &Input) -> Report {
         v22_outposts::run(&mut cx);
         ran.push("V22:outpost-filing");
     }
-    // S1 stages 1b and 1d: vaults, caravans and towers, on an S1 season only.
+    // S1 stages 1b, 1d and 1e: vaults, caravans, structures and nations, on
+    // an S1 season only.
     if cx.s1 {
         v23_caravans::run(&mut cx);
         ran.push("V23:caravans");
         v24_structures::run(&mut cx);
         ran.push("V24:structures");
+        v25_nations::run(&mut cx);
+        ran.push("V25:nations");
     }
     ran.push("V10");
     counts(&mut cx);

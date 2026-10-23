@@ -369,8 +369,8 @@ pub mod cqlog {
     use crate::error::{Error, BAD_ACCOUNT, OVERFLOW};
     use crate::layout::{chain_of, set_chain};
 
-    /// Highest kind code a v2 record carries (97: S1's STRUCTURE_CLOSED).
-    pub const MAX_KIND: usize = 97;
+    /// Highest kind code a v2 record carries (100: S1's NATION_DECIDED).
+    pub const MAX_KIND: usize = 100;
 
     /// `(defined, key width, payload width)` per kind: M1's and MC's.
     pub const WIDTHS: [(bool, u16, u16); MAX_KIND + 1] = {
@@ -1301,6 +1301,8 @@ pub fn settle_capture(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
             w.set_i64(H::TERRAIN_ORE, site_ore)?;
             hold::write_holding(&mut hd, &h, now.ts)?;
             Rw(&mut hd).set_i64(H::SHIELD_UNTIL, 0)?;
+            // S1 1e: the captor's expelled state.
+            super::nation::mark_holding(&mut hd, &captor_c.try_borrow_data()?)?;
         }
         walls_after = 0;
     } else {
@@ -1431,6 +1433,8 @@ pub fn settle_capture(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
             for u in 0..H::RESERVE_N {
                 w.set_u32(H::RESERVE + 4 * u, 0)?;
             }
+            // S1 1e: the captor's expelled state, not the victim's.
+            super::nation::mark_holding(&mut hd, &captor_c.try_borrow_data()?)?;
         }
         // The victim's Citizen and JoinShard.
         {

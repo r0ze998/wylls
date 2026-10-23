@@ -136,6 +136,17 @@ ix_data_v2! {
     CloseStructure {}
 }
 
+ix_data_v2! {
+    /// 0xBB (P, S1, 1e): the citizen proposes to its Nation: a stance of
+    /// `value` toward `target_faction` (`nation::KIND_STANCE`), or the
+    /// expulsion or readmission of the Citizen at account 5.
+    Propose { kind: u8, target_faction: u8, value: u8 }
+    /// 0xBC (P, S1, 1e): the citizen's vote on proposal `id` in `slot`.
+    Vote { slot: u8, id: u32, yes: u8 }
+    /// 0xBD (D, S1, 1e): settles proposal `id` in `slot` once closed.
+    SettleProposal { slot: u8, id: u32 }
+}
+
 /// SendCaravan's and RaidCaravan's cargo as milli-units (whole units ×
 /// 1,000), checked.
 pub fn cargo_milli(cargo: &[u8; 32]) -> Option<[i64; 8]> {
@@ -295,6 +306,9 @@ pub fn fixed_len(ix: Ix) -> Option<usize> {
         Ix::BuildStructure => BuildStructure::LEN,
         Ix::SeizeStructure => SeizeStructure::LEN,
         Ix::CloseStructure => CloseStructure::LEN,
+        Ix::Propose => Propose::LEN,
+        Ix::Vote => Vote::LEN,
+        Ix::SettleProposal => SettleProposal::LEN,
         Ix::FileOutpost | Ix::CreateSeason => return None,
         other => return crate::ix::fixed_len(other.to_v1()?),
     })
@@ -319,6 +333,9 @@ pub fn wire_of(ix: Ix) -> Option<&'static [(&'static str, usize)]> {
         Ix::BuildStructure => BuildStructure::WIRE,
         Ix::SeizeStructure => SeizeStructure::WIRE,
         Ix::CloseStructure => CloseStructure::WIRE,
+        Ix::Propose => Propose::WIRE,
+        Ix::Vote => Vote::WIRE,
+        Ix::SettleProposal => SettleProposal::WIRE,
         Ix::FileOutpost | Ix::CreateSeason => return None,
         other => return crate::ix::wire_of(other.to_v1()?),
     })

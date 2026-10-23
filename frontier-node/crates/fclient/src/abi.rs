@@ -87,6 +87,9 @@ pub mod tag {
     pub const BUILD_STRUCTURE: u8 = 0xB7;
     pub const SEIZE_STRUCTURE: u8 = 0xB8;
     pub const CLOSE_STRUCTURE: u8 = 0xB9;
+    pub const PROPOSE: u8 = 0xBB;
+    pub const VOTE: u8 = 0xBC;
+    pub const SETTLE_PROPOSAL: u8 = 0xBD;
 }
 
 /// Keeper class of an instruction (§5.5, I-21).
@@ -228,7 +231,7 @@ pub const LAYOUT_VERSION_V2: u16 = 2;
 /// lower ones, and lowering a gate is not MC's). The `tx_max` column is
 /// the contract's (§5.4 "Tx B max"); `twin_tests` pins every row to
 /// `frontier_abi::v2::budgets`.
-pub const INSTRUCTIONS_V2: [IxInfo; 68] = [
+pub const INSTRUCTIONS_V2: [IxInfo; 71] = [
     ix(0x01, "CreateSeason", Class::O, 70_000, 1_100, false),
     ix(0x02, "InitShards", Class::O, 45_000, 600, false),
     ix(0x03, "ConsumeGenesisSeed", Class::D, 345_000, 760, true),
@@ -299,6 +302,10 @@ pub const INSTRUCTIONS_V2: [IxInfo; 68] = [
     ix(0xB7, "BuildStructure", Class::P, 40_000, 600, false),
     ix(0xB8, "SeizeStructure", Class::P, 30_000, 600, false),
     ix(0xB9, "CloseStructure", Class::P, 15_000, 500, false),
+    // S1 (stage 1e): nations (measured).
+    ix(0xBB, "Propose", Class::P, 20_000, 600, false),
+    ix(0xBC, "Vote", Class::P, 12_000, 500, false),
+    ix(0xBD, "SettleProposal", Class::D, 20_000, 600, false),
 ];
 
 /// The ABI v2 row of `tag`.
@@ -356,6 +363,8 @@ pub mod magic {
     pub const CARAVAN: &[u8; 8] = b"PSF1CRVN";
     /// S1 (stage 1d).
     pub const STRUCTURE: &[u8; 8] = b"PSF1STRC";
+    /// S1 (stage 1e).
+    pub const NATION: &[u8; 8] = b"PSF1NATN";
 }
 
 /// Account sizes in bytes (§5.2).
@@ -387,6 +396,8 @@ pub mod size {
     pub const CARAVAN: usize = 320;
     /// S1 (stage 1d).
     pub const STRUCTURE: usize = 256;
+    /// S1 (stage 1e).
+    pub const NATION: usize = 384;
 }
 
 /// Rent of an account of `space` bytes at mainnet rates (§4.2):
@@ -485,7 +496,7 @@ pub const ERRORS: [(u32, &str); 62] = [
 
 /// ABI v2 error codes (MC contract §5.3), stable forever; disjoint from
 /// [`ERRORS`].
-pub const ERRORS_V2: [(u32, &str); 29] = [
+pub const ERRORS_V2: [(u32, &str); 32] = [
     (62, "CapturePending"),
     (63, "Immune"),
     (64, "SiegeBusy"),
@@ -517,6 +528,10 @@ pub const ERRORS_V2: [(u32, &str); 29] = [
     (88, "StructureLimit"),
     (89, "StructureFull"),
     (90, "FortManned"),
+    // S1 (stage 1e)
+    (91, "ProposalsFull"),
+    (92, "NotVoter"),
+    (93, "ProposalState"),
 ];
 
 /// The name of a program error code of either ABI (the code spaces are
@@ -731,9 +746,13 @@ pub mod kind {
     pub const STRUCTURE_BUILT: u8 = 95;
     pub const STRUCTURE_SEIZED: u8 = 96;
     pub const STRUCTURE_CLOSED: u8 = 97;
+    // S1 (stage 1e): kinds 98–100.
+    pub const NATION_PROPOSED: u8 = 98;
+    pub const NATION_VOTED: u8 = 99;
+    pub const NATION_DECIDED: u8 = 100;
 
     /// (kind, name) of every MC and S1 record kind.
-    pub const ALL_V2: [(u8, &str); 17] = [
+    pub const ALL_V2: [(u8, &str); 20] = [
         (SIEGE_DECLARED, "SIEGE_DECLARED"),
         (SIEGE_SETTLED, "SIEGE_SETTLED"),
         (CONQUEST, "CONQUEST"),
@@ -751,6 +770,9 @@ pub mod kind {
         (STRUCTURE_BUILT, "STRUCTURE_BUILT"),
         (STRUCTURE_SEIZED, "STRUCTURE_SEIZED"),
         (STRUCTURE_CLOSED, "STRUCTURE_CLOSED"),
+        (NATION_PROPOSED, "NATION_PROPOSED"),
+        (NATION_VOTED, "NATION_VOTED"),
+        (NATION_DECIDED, "NATION_DECIDED"),
     ];
 }
 
@@ -771,8 +793,10 @@ pub mod entity {
     pub const CARAVAN: u8 = 10;
     /// S1 (stages 1d, 1e): Structure.
     pub const STRUCTURE: u8 = 11;
+    /// S1 (stage 1e): Nation.
+    pub const NATION: u8 = 12;
     /// The largest entity kind of a v2 tail.
-    pub const MAX_V2: u8 = 11;
+    pub const MAX_V2: u8 = 12;
 }
 
 /// Seal verdict codes judged by SettleTransit (§5.3, I-44).
@@ -1475,6 +1499,9 @@ mod twin_tests {
             tag::BUILD_STRUCTURE,
             tag::SEIZE_STRUCTURE,
             tag::CLOSE_STRUCTURE,
+            tag::PROPOSE,
+            tag::VOTE,
+            tag::SETTLE_PROPOSAL,
         ] {
             let x = frontier_abi::v2::Ix::from_tag(t).expect("v2 tag");
             assert!(x.is_new() && ix_info(t).is_none() && ix_info_v2(t).is_some());
@@ -1532,6 +1559,7 @@ mod twin_tests {
                 magic::VAULT,
                 magic::CARAVAN,
                 magic::STRUCTURE,
+                magic::NATION,
             ])
             .collect();
         for k in K2::ALL {
@@ -1546,10 +1574,16 @@ mod twin_tests {
         assert_eq!(size::VAULT, K2::Vault.size());
         assert_eq!(size::CARAVAN, K2::Caravan.size());
         assert_eq!(size::STRUCTURE, K2::Structure.size());
+        assert_eq!(size::NATION, K2::Nation.size());
         for k in K2::ALL {
             if !matches!(
                 k,
-                K2::Province | K2::MarchState | K2::Vault | K2::Caravan | K2::Structure
+                K2::Province
+                    | K2::MarchState
+                    | K2::Vault
+                    | K2::Caravan
+                    | K2::Structure
+                    | K2::Nation
             ) {
                 assert_eq!(Some(k.size()), k.to_v1().map(|v| v.size()), "{k:?}");
             }

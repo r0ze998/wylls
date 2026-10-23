@@ -74,10 +74,18 @@ pub enum CqError {
     StructureFull = 89,
     /// S1 (1e): SeizeStructure of a fort that still has troops.
     FortManned = 90,
+    /// S1 (1e): Propose with every proposal slot of the Nation open.
+    ProposalsFull = 91,
+    /// S1 (1e): Propose or Vote by a Citizen not yet eligible, or expelled.
+    NotVoter = 92,
+    /// S1 (1e): the proposal is not in the state the instruction needs (a
+    /// vote on a closed one, a settle of an open one, a second open
+    /// proposal of the proposer, a target that does not qualify).
+    ProposalState = 93,
 }
 
 impl CqError {
-    pub const ALL: [CqError; 29] = {
+    pub const ALL: [CqError; 32] = {
         use CqError::*;
         [
             CapturePending,
@@ -109,6 +117,9 @@ impl CqError {
             StructureLimit,
             StructureFull,
             FortManned,
+            ProposalsFull,
+            NotVoter,
+            ProposalState,
         ]
     };
 
@@ -152,6 +163,9 @@ impl CqError {
             StructureLimit => "StructureLimit",
             StructureFull => "StructureFull",
             FortManned => "FortManned",
+            ProposalsFull => "ProposalsFull",
+            NotVoter => "NotVoter",
+            ProposalState => "ProposalState",
         }
     }
 
@@ -224,6 +238,17 @@ pub fn all_codes() -> impl Iterator<Item = Code> {
 mod tests {
     use super::*;
 
+    /// One name a code: the clients name codes, so an MC or S1 code never
+    /// reuses an M1 name (S1 1e's 92 was drafted as M1's NotEligible).
+    #[test]
+    fn names_are_unique_across_both_spaces() {
+        let names: std::vec::Vec<&str> = all_codes().map(|c| c.name()).collect();
+        let mut sorted = names.clone();
+        sorted.sort();
+        sorted.dedup();
+        assert_eq!(sorted.len(), names.len(), "a name names two codes");
+    }
+
     #[test]
     fn codes_are_the_contract_table() {
         let mut expect = 62u32;
@@ -235,7 +260,8 @@ mod tests {
         }
         assert_eq!(CqError::NotLead.code(), 78);
         let all: std::vec::Vec<u32> = all_codes().map(|c| c.code()).collect();
-        assert_eq!(all.len(), 62 + 29);
+        assert_eq!(all.len(), 62 + 32);
+        assert_eq!(CqError::ProposalState.code(), 93);
         assert_eq!(CqError::NotOnTile.code(), 86);
         assert_eq!(CqError::StructureFull.code(), 89);
         assert!(all.windows(2).all(|w| w[0] < w[1]), "code order");
@@ -249,7 +275,8 @@ mod tests {
         );
         assert_eq!(Code::from_code(79), Some(Code::Cq(CqError::VaultSite)));
         assert_eq!(Code::from_code(87), Some(Code::Cq(CqError::StructureSite)));
-        assert_eq!(Code::from_code(91), None);
+        assert_eq!(Code::from_code(91), Some(Code::Cq(CqError::ProposalsFull)));
+        assert_eq!(Code::from_code(94), None);
         assert_eq!(
             Code::Cq(CqError::FoldTooEarly).keeper_action(),
             KeeperAction::Wait

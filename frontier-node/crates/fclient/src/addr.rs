@@ -416,6 +416,12 @@ impl Addresses {
         let s = frontier_abi::v2::addr::structure_seed(p, q, tile);
         with_seed(&self.season, s.as_bytes(), &self.program)
     }
+    /// S1 (1e): the Nation of `faction`, seed `na‖hex(faction)`
+    /// (frontier-abi's `nation_seed`).
+    pub fn nation(&self, faction: u8) -> Address {
+        let s = frontier_abi::v2::addr::nation_seed(faction);
+        with_seed(&self.season, s.as_bytes(), &self.program)
+    }
     /// S1 (1b): the owner's `seq`-th Caravan, seed `cv‖hex(le64 owner_tag ‖
     /// le32 seq)` (frontier-abi's `caravan_seed`).
     pub fn caravan(&self, owner_tag: u64, seq: u32) -> Address {

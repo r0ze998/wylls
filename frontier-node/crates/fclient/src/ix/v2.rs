@@ -720,6 +720,86 @@ pub fn build_structure(
     )
 }
 
+/// 0xBB Propose (P, S1 1e): P + `[nation w] [target r|w] [system]`: a
+/// proposal to the citizen's Nation of `faction`. `target` is the Citizen
+/// to expel or readmit (`nation::KIND_EXPEL`/`KIND_READMIT`), `None` for a
+/// stance of `value` toward `target_faction` (the Nation stands in).
+pub fn propose(
+    a: &Addresses,
+    p: &Player,
+    faction: u8,
+    kind: u8,
+    target_faction: u8,
+    value: u8,
+    target: Option<Address>,
+) -> Instruction {
+    let nation = a.nation(faction);
+    let mut m = prologue(a, p);
+    m.extend([
+        w(nation),
+        match target {
+            Some(t) => r(t),
+            None => w(nation),
+        },
+        r(addr::system_program()),
+    ]);
+    build(
+        a,
+        m,
+        d2::Propose {
+            kind,
+            target_faction,
+            value,
+        }
+        .to_bytes()
+        .to_vec(),
+    )
+}
+
+/// 0xBC Vote (P, S1 1e): P + `[nation w]`: the citizen's vote on proposal
+/// `id` in `slot` of its Nation of `faction`.
+pub fn vote(a: &Addresses, p: &Player, faction: u8, slot: u8, id: u32, yes: bool) -> Instruction {
+    let mut m = prologue(a, p);
+    m.push(w(a.nation(faction)));
+    build(
+        a,
+        m,
+        d2::Vote {
+            slot,
+            id,
+            yes: yes as u8,
+        }
+        .to_bytes()
+        .to_vec(),
+    )
+}
+
+/// 0xBD SettleProposal (D, S1 1e): `[fee_payer s,w] [season w] [nation w]
+/// [target r|w] [holding w ×0..3]`: settles proposal `id` in `slot` once
+/// closed. `target` is the proposal's target Citizen (`None` for a stance:
+/// the Nation stands in); `holdings` the target's live holdings in its
+/// reference order when a membership change passes (empty otherwise).
+#[allow(clippy::too_many_arguments)]
+pub fn settle_proposal(
+    a: &Addresses,
+    fee_payer: Address,
+    faction: u8,
+    slot: u8,
+    id: u32,
+    target: Option<Address>,
+    holdings: &[HoldingRef],
+) -> Instruction {
+    let nation = a.nation(faction);
+    let mut m = vec![ws(fee_payer), w(a.season), w(nation)];
+    m.push(match target {
+        // Writable: a passed membership change writes it.
+        Some(t) => w(t),
+        None => w(nation),
+    });
+    m.extend(holdings.iter().map(|h| w(h.address(a))));
+    build(a, m, d2::SettleProposal { slot, id }.to_bytes().to_vec())
+}
+
 /// 0xB8 SeizeStructure (P, the captor): P + `[structure w] [province w]
 /// [host_holding r] [owner_citizen w]`.
 pub fn seize_structure(
@@ -1006,6 +1086,17 @@ mod tests {
                 seize_structure(&a, &pl, (3, 1, 21), home, k, 4),
             ),
             (Ix::CloseStructure, close_structure(&a, &pl, (3, 1, 21), k)),
+            (Ix::Propose, propose(&a, &pl, 2, 2, 2, 0, Some(k))),
+            (Ix::Propose, propose(&a, &pl, 2, 1, 4, 1, None)),
+            (Ix::Vote, vote(&a, &pl, 2, 3, 17, true)),
+            (
+                Ix::SettleProposal,
+                settle_proposal(&a, k, 2, 3, 17, None, &[]),
+            ),
+            (
+                Ix::SettleProposal,
+                settle_proposal(&a, k, 2, 3, 17, Some(k), &[h, home, h]),
+            ),
         ]
     }
 

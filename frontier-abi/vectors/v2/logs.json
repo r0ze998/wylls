@@ -47,6 +47,10 @@
     {
       "code": 11,
       "account": "Structure"
+    },
+    {
+      "code": 12,
+      "account": "Nation"
     }
   ],
   "kinds": [
@@ -1166,6 +1170,188 @@
             "head": "b3f684940650fdc5e066853bf72678452d984d50d9f826596218f3ebba0038fd"
           }
         ]
+      }
+    },
+    {
+      "kind": 98,
+      "name": "NATION_PROPOSED",
+      "key": [
+        {
+          "name": "faction",
+          "len": 1
+        },
+        {
+          "name": "id",
+          "len": 4
+        }
+      ],
+      "payload": [
+        {
+          "name": "slot",
+          "len": 1
+        },
+        {
+          "name": "kind",
+          "len": 1
+        },
+        {
+          "name": "target_faction",
+          "len": 1
+        },
+        {
+          "name": "value",
+          "len": 1
+        },
+        {
+          "name": "proposer_tag",
+          "len": 8
+        },
+        {
+          "name": "target_tag",
+          "len": 8
+        },
+        {
+          "name": "close_bell",
+          "len": 4
+        }
+      ],
+      "body_without_tail_len": 35,
+      "vector": {
+        "bell": 2098,
+        "body_without_tail": "01623208000021213e5b786b6b6b6b6b88a5c2dffc19366b88a5c2dffc19366b88a5c2",
+        "body": "01623208000021213e5b786b6b6b6b6b88a5c2dffc19366b88a5c2dffc19366b88a5c20204040000000000000019a38332092a56328df15dcdabf5b1796ec05185a06001753075f1863ab7029c0c0500000000000000637e6286119b5c87fd0fe713789efe39c5b23b2d510d3453fe5ad931a13468f8",
+        "decodes": true,
+        "chains": [
+          {
+            "entity": 4,
+            "who": "Base(Citizen(Tag8(3898424990439409771)))",
+            "prev_seq": 3,
+            "prev_head": "cedc9c5fb8d17596cde3fc1c9751bf607197b655c3f7fcaaa92cd44c3143248f",
+            "seq": 4,
+            "head": "19a38332092a56328df15dcdabf5b1796ec05185a06001753075f1863ab7029c"
+          },
+          {
+            "entity": 12,
+            "who": "Nation { faction: 33 }",
+            "prev_seq": 4,
+            "prev_head": "905ba45c7059df4cf40645572dab7e25fbc09555235c575ac09feb52ad50c6f5",
+            "seq": 5,
+            "head": "637e6286119b5c87fd0fe713789efe39c5b23b2d510d3453fe5ad931a13468f8"
+          }
+        ]
+      }
+    },
+    {
+      "kind": 99,
+      "name": "NATION_VOTED",
+      "key": [
+        {
+          "name": "faction",
+          "len": 1
+        },
+        {
+          "name": "id",
+          "len": 4
+        }
+      ],
+      "payload": [
+        {
+          "name": "voter_tag",
+          "len": 8
+        },
+        {
+          "name": "yes",
+          "len": 1
+        },
+        {
+          "name": "yes_now",
+          "len": 2
+        },
+        {
+          "name": "no_now",
+          "len": 2
+        }
+      ],
+      "body_without_tail_len": 24,
+      "vector": {
+        "bell": 2099,
+        "body_without_tail": "01633308000021213e5b786b88a5c2dffc19366b6b886b88",
+        "body": "01633308000021213e5b786b88a5c2dffc19366b6b886b880204040000000000000061f8fbebf0501b62eef2bbea39cea5faa5f5ce41b0307aee7f492cf0fad273a90c05000000000000006088cc371b766daae10d2b9ad83ab63e59d033d2f1e832a811d75e26e98d9872",
+        "decodes": true,
+        "chains": [
+          {
+            "entity": 4,
+            "who": "Base(Citizen(Tag8(3898424990439409771)))",
+            "prev_seq": 3,
+            "prev_head": "991ee73f02d7d3187045f574c12cc145ba75b39f16e74f29488c5a31762b1aba",
+            "seq": 4,
+            "head": "61f8fbebf0501b62eef2bbea39cea5faa5f5ce41b0307aee7f492cf0fad273a9"
+          },
+          {
+            "entity": 12,
+            "who": "Nation { faction: 33 }",
+            "prev_seq": 4,
+            "prev_head": "1a02ca1f4c575185c25739b0af52d8b69d986175570bdf522695da35bf014f0f",
+            "seq": 5,
+            "head": "6088cc371b766daae10d2b9ad83ab63e59d033d2f1e832a811d75e26e98d9872"
+          }
+        ]
+      }
+    },
+    {
+      "kind": 100,
+      "name": "NATION_DECIDED",
+      "key": [
+        {
+          "name": "faction",
+          "len": 1
+        },
+        {
+          "name": "id",
+          "len": 4
+        }
+      ],
+      "payload": [
+        {
+          "name": "passed",
+          "len": 1
+        },
+        {
+          "name": "kind",
+          "len": 1
+        },
+        {
+          "name": "target_faction",
+          "len": 1
+        },
+        {
+          "name": "value",
+          "len": 1
+        },
+        {
+          "name": "target_tag",
+          "len": 8
+        },
+        {
+          "name": "yes",
+          "len": 2
+        },
+        {
+          "name": "no",
+          "len": 2
+        },
+        {
+          "name": "holdings",
+          "len": 24
+        }
+      ],
+      "body_without_tail_len": 51,
+      "vector": {
+        "bell": 2100,
+        "body_without_tail": "01643408000021213e5b786b6b6b6b6b88a5c2dffc19366b886b886b88a5c2dffc193653708daac7e4011e3b587592afcce906",
+        "body": "01643408000021213e5b786b6b6b6b6b88a5c2dffc19366b886b886b88a5c2dffc193653708daac7e4011e3b587592afcce90600",
+        "decodes": true,
+        "chains": []
       }
     }
   ],

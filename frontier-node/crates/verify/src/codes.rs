@@ -81,6 +81,10 @@ pub const STRUCTURE_MISMATCH: &str = "StructureMismatch";
 /// A march's or a caravan's tower wear other than the tower kernel's (a
 /// slot's `WORN_BPS`, a gathered record, a transit, a caravan's cargo).
 pub const TOWER_WEAR_MISMATCH: &str = "TowerWearMismatch";
+// V25 nations (S1 stage 1e)
+/// A proposal, vote or settlement against the nation rules (a stance or
+/// an expulsion the votes did not pass, a vote counted twice).
+pub const NATION_MISMATCH: &str = "NationMismatch";
 // V17 capture bookkeeping (conquest contract §8.5; partial)
 pub const CAPTURE_RULE: &str = "CaptureRule";
 pub const CAPTURE_BOOKKEEPING: &str = "CaptureBookkeeping";
@@ -153,6 +157,7 @@ pub const FAIL_CODES: &[&str] = &[
     VAULT_MISMATCH,
     STRUCTURE_MISMATCH,
     TOWER_WEAR_MISMATCH,
+    NATION_MISMATCH,
 ];
 
 /// Warning codes (PASS with a warning).

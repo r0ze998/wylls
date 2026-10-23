@@ -15,7 +15,7 @@ fn hex(b: &[u8]) -> String {
 
 /// `RULESET_HASH_V3`. Pinned here and in `frontier-abi`; a change to any S1
 /// kernel version or table moves it on purpose.
-const V3_RULESET_HASH: &str = "a1d9d29786b9154079e43b3769d0ec9b64ac6e85587701ad076ba40db40dc178";
+const V3_RULESET_HASH: &str = "234c0dc225e5ce323687756b913f78e330757abb969df290745eae1e9aae422d";
 
 #[test]
 fn s1_ruleset_hash_pinned_and_older_hashes_unchanged() {
@@ -40,6 +40,7 @@ fn s1_ruleset_hash_pinned_and_older_hashes_unchanged() {
     doctrine::write_table_v3(&mut tables);
     fr::caravan::write_tables(&mut tables);
     fr::structure::write_tables(&mut tables);
+    fr::nation::write_tables(&mut tables);
     assert!(v3.ends_with(&tables));
     let mut v2_head = fr::RULESET_DOMAIN_V2.len() + 1;
     for (n, _) in KERNEL_VERSIONS_V2 {
@@ -58,6 +59,7 @@ fn s1_ruleset_hash_pinned_and_older_hashes_unchanged() {
         ("arms", None, 1),
         ("caravan", None, 1),
         ("structure", None, 1),
+        ("nation", None, 1),
     ] {
         assert_eq!((ver2(n), ver3(n)), (a, b), "{n}");
     }

@@ -15,7 +15,7 @@ import { budgetOf, CARAVAN_FEE } from '../client/src/frontier/budgets.mjs';
 import { ixOf, layoutOf } from '../client/src/frontier/codec.mjs';
 import { profileForHash, profileForSeason, rulesetFor, isV2 } from '../client/src/frontier/profile.mjs';
 import { rent } from '../client/src/frontier/fees.mjs';
-import { allowanceFor, CARAVAN_COST, drainGuard, lamportsPerDay, STRUCTURE_RENT, VAULT_RENT } from '../src/frontier/shapes.mjs';
+import { allowanceFor, CARAVAN_COST, drainGuard, lamportsPerDay, NATION_RENT, STRUCTURE_RENT, VAULT_RENT } from '../src/frontier/shapes.mjs';
 
 const S1_TAGS = { BuildVault: 0xB0, SendCaravan: 0xB1, SettleCaravan: 0xB2, RaidCaravan: 0xB3, SeizeVault: 0xB4, CloseVault: 0xB5, DefaultRaid: 0xB6, BuildStructure: 0xB7, SeizeStructure: 0xB8, CloseStructure: 0xB9 };
 
@@ -54,6 +54,10 @@ test('the S1 allowances: a vault rent, one caravan, never a larger fee', () => {
   assert.equal(allowanceFor({ tag: 0xB1 }, { season: {} }), CARAVAN_COST);
   assert.equal(STRUCTURE_RENT, rent(256));
   assert.equal(allowanceFor({ tag: 0xB7 }, { season: {} }), STRUCTURE_RENT);
+  // S1 stage 1e: a first Propose creates its faction's Nation; a vote moves nothing.
+  assert.equal(NATION_RENT, rent(384));
+  assert.equal(allowanceFor({ tag: 0xBB }, { season: {} }), NATION_RENT);
+  assert.equal(allowanceFor({ tag: 0xBC }, { season: {} }), 0n);
   for (const tag of [0xB2, 0xB3, 0xB4, 0xB5, 0xB6, 0xB8, 0xB9]) assert.equal(allowanceFor({ tag }, { season: {} }), 0n);
   // A SendCaravan whose fee is above CARAVAN_FEE drains more: refused.
   const pre = 10n * CARAVAN_COST;
@@ -65,6 +69,6 @@ test('an S1 season\'s daily lamport cap: caravans count like Departs, plus a vau
   const mc = { MIN_REVEAL_PRIORITY_MILLI: 433, REVEAL_CU_LIMIT: 26_000, REVEAL_LOADED_LIMIT: 1_048_576, MARCH_FEE: 10_000n, SEAL_BOND: 20_000n, RULESET_HASH: PRESETS.ruleset_hash };
   const s1 = { ...mc, RULESET_HASH: PRESETS.ruleset_hash_v3 };
   const base = lamportsPerDay(mc);
-  assert.ok(lamportsPerDay(s1) >= base + VAULT_RENT + STRUCTURE_RENT);
+  assert.ok(lamportsPerDay(s1) >= base + VAULT_RENT + STRUCTURE_RENT + NATION_RENT);
   assert.ok(lamportsPerDay(s1) >= 24n * CARAVAN_COST + VAULT_RENT + STRUCTURE_RENT);
 });

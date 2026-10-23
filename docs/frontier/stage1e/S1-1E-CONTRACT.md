@@ -127,7 +127,9 @@ A palisade's tile is impassable to every walker it stops:
 Proposal (64 B): `id u32, state u8 (0 none, 1 open, 2 passed, 3 failed),
 kind u8 (1 stance, 2 expel, 3 readmit), target_faction u8, value u8,
 open_bell u32, close_bell u32, yes u16, no u16, proposer_tag u64,
-target_tag u64, target [u8;32] (the target Citizen)`.
+target [u8;32] (the target Citizen; zero for a stance), reserve 4`. (The
+first draft also stored `target_tag`, which does not fit in 64 bytes; the
+records read the target's tag from its Citizen.)
 
 Created at the first Propose (the payer pays its rent).
 
@@ -158,7 +160,7 @@ in each slot), `PROPOSED u32` (the id of the citizen's open proposal).
 - **The expelled** cannot propose or vote; their nation's palisades stop
   them and its towers wear them; they lose the nation's prize share (the
   prize code reads `EXPELLED_SINCE`; stage 1 has no prize change).
-- Codes: `NotEligible` (92), `ProposalState` (93).
+- Codes: `NotVoter` (92; first drafted as NotEligible, which M1's code 43 already names), `ProposalState` (93).
 
 ## 4. Domestic raids (K4)
 

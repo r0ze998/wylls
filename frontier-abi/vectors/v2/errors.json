@@ -635,6 +635,27 @@
       "keeper": "refused"
     },
     {
+      "code": 91,
+      "name": "ProposalsFull",
+      "program": true,
+      "mc": true,
+      "keeper": "refused"
+    },
+    {
+      "code": 92,
+      "name": "NotVoter",
+      "program": true,
+      "mc": true,
+      "keeper": "refused"
+    },
+    {
+      "code": 93,
+      "name": "ProposalState",
+      "program": true,
+      "mc": true,
+      "keeper": "refused"
+    },
+    {
       "code": 99,
       "name": "NotImplemented",
       "program": false,

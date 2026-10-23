@@ -311,6 +311,53 @@ pub fn accounts_of(ix: Ix) -> &'static [Group] {
                 ]
             }
         }
+        // S1 (1e; S1-1E-CONTRACT §3.3): the target is the Citizen to expel
+        // or readmit, or (a stance) the Nation itself, `r|w` either way.
+        Ix::Propose => {
+            const {
+                &[
+                    one!(PLAYER_PROLOGUE),
+                    one!(&[
+                        s!("nation", KindV2(K2::Nation), false, W),
+                        s!(
+                            "target",
+                            EitherV2(K2::Citizen, K2::Nation),
+                            false,
+                            Wr::Either
+                        ),
+                        SYSTEM,
+                    ]),
+                ]
+            }
+        }
+        Ix::Vote => {
+            const {
+                &[
+                    one!(PLAYER_PROLOGUE),
+                    one!(&[s!("nation", KindV2(K2::Nation), false, W)]),
+                ]
+            }
+        }
+        // The Season is writable (a passed stance); the holdings are the
+        // target's live ones (a passed expulsion or readmission flags them).
+        Ix::SettleProposal => {
+            const {
+                &[
+                    one!(&[
+                        FEE_PAYER,
+                        s!("season", KindV2(K2::Season), false, W),
+                        s!("nation", KindV2(K2::Nation), false, W),
+                        s!(
+                            "target",
+                            EitherV2(K2::Citizen, K2::Nation),
+                            false,
+                            Wr::Either
+                        ),
+                    ]),
+                    rep!(&[s!("holding", KindV2(K2::Holding), false, W)], 0, 3),
+                ]
+            }
+        }
         Ix::DefaultRaid => {
             const {
                 &[
@@ -523,6 +570,9 @@ mod tests {
         assert_eq!(count_bounds(Ix::BuildStructure), (9, 9));
         assert_eq!(count_bounds(Ix::SeizeStructure), (8, 8));
         assert_eq!(count_bounds(Ix::CloseStructure), (7, 7));
+        assert_eq!(count_bounds(Ix::Propose), (7, 7));
+        assert_eq!(count_bounds(Ix::Vote), (5, 5));
+        assert_eq!(count_bounds(Ix::SettleProposal), (4, 7));
         assert_eq!(count_bounds(Ix::DefaultRaid), (7, 13));
         // §5.6: the three resident actions gain the Province
         for ix in [Ix::Harvest, Ix::Build, Ix::Train] {

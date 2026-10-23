@@ -690,5 +690,8 @@ export default {
   'この種類の建物は、もう持てません': 'You already hold the most structures of this kind allowed.',
   'この州には、これ以上この建物を建てられません': 'This province has no room for another structure of this kind.',
   '兵が残っている砦は奪えません。先に戦いで兵を倒してください': 'A fort that still has troops cannot be seized: defeat them in battle first.',
+  '国の議題がいっぱいです。決着を待ってから出してください': 'Your nation has no free proposal slot: wait for one to be decided.',
+  'まだ投票や提案はできません（参加から2日たっていないか、国を追放されています）': 'You cannot propose or vote yet (you joined less than two days ago, or you are expelled from your nation).',
+  'この議題には今それはできません（受付が終わった、まだ締め切り前、または対象が条件を満たしません）': 'Not possible on this proposal now (voting has closed, it has not closed yet, or its target does not qualify).',
   'この包囲の先導者だけが行える操作です': 'Only the siege leader can perform this action.',
 };

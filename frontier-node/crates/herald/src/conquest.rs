@@ -136,6 +136,9 @@ pub struct Cq {
     /// S1 stages 1d and 1e: the structures and the towers' sightings
     /// (`h/structures.json`, [`crate::structure`]).
     pub structures: crate::structure::Structures,
+    /// S1 stage 1e: the nations' stances, proposals and the expelled
+    /// (`h/nations.json`, [`crate::nation`]).
+    pub nations: crate::nation::Nations,
     pub alarms: CqAlarms,
     /// Province-bell views awaiting their control and overview v2 files.
     pub views: BTreeMap<(i16, i16, u32), View>,
@@ -437,7 +440,7 @@ pub fn on_record(f: &mut Fold, tx: &TxRecord, body: &[u8]) -> bool {
         cq.structures.sight(r.bell, e);
     }
     match &s1 {
-        Some(e) if cq.caravans.fold(e) || cq.structures.fold(e) => {}
+        Some(e) if cq.caravans.fold(e) || cq.structures.fold(e) || cq.nations.fold(r.bell, e) => {}
         _ => fold_record(&mut cq, f, tx, kind, &r, seq, &sig),
     }
     f.cq = cq;
@@ -775,7 +778,10 @@ fn fold_record(
         | CqKind::VAULT_SEIZED
         | CqKind::STRUCTURE_BUILT
         | CqKind::STRUCTURE_SEIZED
-        | CqKind::STRUCTURE_CLOSED => {}
+        | CqKind::STRUCTURE_CLOSED
+        | CqKind::NATION_PROPOSED
+        | CqKind::NATION_VOTED
+        | CqKind::NATION_DECIDED => {}
     }
 }
 
@@ -1616,6 +1622,7 @@ pub fn complete(f: &mut Fold, tx: &TxRecord) {
     keeps_out(&mut cq, f);
     caravans_out(&mut cq, f);
     structures_out(&mut cq, f);
+    nations_out(&mut cq, f);
     final_file(&mut cq, f, si.as_ref());
     f.cq = cq;
 }
@@ -2061,6 +2068,14 @@ fn structures_out(cq: &mut Cq, f: &mut Fold) {
     }
 }
 
+/// `h/nations.json` when a record changed it.
+fn nations_out(cq: &mut Cq, f: &mut Fold) {
+    if std::mem::take(&mut cq.nations.dirty) {
+        let j = cq.nations.file().to_string();
+        write(f, "h/nations.json", j.as_bytes(), false);
+    }
+}
+
 /// S1 stage 1d: the tower sightings of an M1-kind record (DEPART's origin,
 /// REVEAL's destination; `S1-1D-CONTRACT` §5.4).
 pub fn on_v1_record(f: &mut Fold, r: &frontier_abi::log::Record<'_>) {
@@ -2425,6 +2440,7 @@ impl Cq {
             "finalDone": self.final_done,
             "caravans": self.caravans.to_json(),
             "structures": self.structures.to_json(),
+            "nations": self.nations.to_json(),
         });
         if self.on {
             out["scoreVersion"] = json!(3);
@@ -2451,6 +2467,10 @@ impl Cq {
         // S1: absent in a checkpoint written before stage 1d.
         if let Some(tv) = v.get("structures").filter(|x| !x.is_null()) {
             c.structures = crate::structure::Structures::from_json(tv)?;
+        }
+        // S1: absent in a checkpoint written before stage 1e.
+        if let Some(nv) = v.get("nations").filter(|x| !x.is_null()) {
+            c.nations = crate::nation::Nations::from_json(nv)?;
         }
         let a: Vec<u64> = v["alarms"]
             .as_array()?

@@ -3138,6 +3138,85 @@
           "ty": "rsv"
         }
       ]
+    },
+    {
+      "kind": "Nation",
+      "code": 22,
+      "magic": "PSF1NATN",
+      "size": 384,
+      "rent": 2600960,
+      "chained": true,
+      "changed_in_v2": true,
+      "seed_tag": "na",
+      "raw_key_len": 1,
+      "fields": [
+        {
+          "name": "HDR_MAGIC",
+          "off": 0,
+          "len": 8,
+          "ty": "[u8;8]"
+        },
+        {
+          "name": "SEASON_ID",
+          "off": 8,
+          "len": 8,
+          "ty": "u64"
+        },
+        {
+          "name": "LAYOUT_VERSION",
+          "off": 16,
+          "len": 2,
+          "ty": "u16"
+        },
+        {
+          "name": "RSV_HEADER",
+          "off": 18,
+          "len": 6,
+          "ty": "rsv"
+        },
+        {
+          "name": "EVENT_SEQ",
+          "off": 24,
+          "len": 8,
+          "ty": "u64"
+        },
+        {
+          "name": "EVENT_HEAD",
+          "off": 32,
+          "len": 32,
+          "ty": "[u8;32]"
+        },
+        {
+          "name": "FACTION",
+          "off": 64,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "RSV_65",
+          "off": 65,
+          "len": 3,
+          "ty": "rsv"
+        },
+        {
+          "name": "NEXT_ID",
+          "off": 68,
+          "len": 4,
+          "ty": "u32"
+        },
+        {
+          "name": "PROPOSALS",
+          "off": 72,
+          "len": 256,
+          "ty": "rec:Proposal x4"
+        },
+        {
+          "name": "RSV",
+          "off": 328,
+          "len": 56,
+          "ty": "rsv"
+        }
+      ]
     }
   ],
   "records": [
@@ -3635,6 +3714,84 @@
           "name": "RSV_8",
           "off": 8,
           "len": 8,
+          "ty": "rsv"
+        }
+      ]
+    },
+    {
+      "name": "Proposal",
+      "size": 64,
+      "fields": [
+        {
+          "name": "ID",
+          "off": 0,
+          "len": 4,
+          "ty": "u32"
+        },
+        {
+          "name": "STATE",
+          "off": 4,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "KIND",
+          "off": 5,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "TARGET_FACTION",
+          "off": 6,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "VALUE",
+          "off": 7,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "OPEN_BELL",
+          "off": 8,
+          "len": 4,
+          "ty": "u32"
+        },
+        {
+          "name": "CLOSE_BELL",
+          "off": 12,
+          "len": 4,
+          "ty": "u32"
+        },
+        {
+          "name": "YES",
+          "off": 16,
+          "len": 2,
+          "ty": "u16"
+        },
+        {
+          "name": "NO",
+          "off": 18,
+          "len": 2,
+          "ty": "u16"
+        },
+        {
+          "name": "PROPOSER_TAG",
+          "off": 20,
+          "len": 8,
+          "ty": "u64"
+        },
+        {
+          "name": "TARGET",
+          "off": 28,
+          "len": 32,
+          "ty": "[u8;32]"
+        },
+        {
+          "name": "RSV_60",
+          "off": 60,
+          "len": 4,
           "ty": "rsv"
         }
       ]

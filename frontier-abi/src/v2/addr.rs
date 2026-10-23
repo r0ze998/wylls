@@ -51,6 +51,21 @@ pub const STRUCTURE: [u8; 2] = *b"tw";
 /// Raw key length of a Structure (`p i32, q i32, tile u8`).
 pub const STRUCTURE_RAW_LEN: usize = 9;
 
+/// The Nation seed tag (S1, 1e).
+pub const NATION: [u8; 2] = *b"na";
+/// Raw key length of a Nation (`faction u8`).
+pub const NATION_RAW_LEN: usize = 1;
+
+/// `na‖hex(faction)`.
+pub fn nation_seed(faction: u8) -> Seed {
+    Seed::new(NATION, &[faction])
+}
+
+/// The Nation address of `faction`.
+pub fn nation(ctx: &AddrCtx, faction: u8) -> [u8; 32] {
+    ctx.of(&nation_seed(faction))
+}
+
 /// `va‖hex(le32 p ‖ le32 q ‖ tile)`.
 pub fn vault_seed(p: i32, q: i32, tile: u8) -> Seed {
     let mut raw = [0u8; VAULT_RAW_LEN];
@@ -99,6 +114,7 @@ pub fn tag_of(kind: AccountKind) -> Option<[u8; 2]> {
         AccountKind::Vault => Some(VAULT),
         AccountKind::Caravan => Some(CARAVAN),
         AccountKind::Structure => Some(STRUCTURE),
+        AccountKind::Nation => Some(NATION),
         k => crate::addr::tag_of(k.to_v1()?),
     }
 }
@@ -110,6 +126,7 @@ pub fn raw_len(kind: AccountKind) -> usize {
         AccountKind::Vault => VAULT_RAW_LEN,
         AccountKind::Caravan => CARAVAN_RAW_LEN,
         AccountKind::Structure => STRUCTURE_RAW_LEN,
+        AccountKind::Nation => NATION_RAW_LEN,
         k => k.to_v1().map(crate::addr::raw_len).unwrap_or(0),
     }
 }
@@ -139,8 +156,8 @@ mod tests {
             assert_eq!(march_of(p, q), (m, n));
         }
         assert_eq!(tag_of(AccountKind::MarchState), Some(MARCH));
-        // S1: three more tags, distinct from every other.
-        for t in [VAULT, CARAVAN, STRUCTURE] {
+        // S1: four more tags, distinct from every other.
+        for t in [VAULT, CARAVAN, STRUCTURE, NATION] {
             for k in crate::layout::AccountKind::ALL {
                 assert_ne!(crate::addr::tag_of(k), Some(t), "{}", k.name());
             }

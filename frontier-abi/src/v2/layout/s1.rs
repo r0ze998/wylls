@@ -59,6 +59,48 @@ pub mod structure {
     pub use permutation_rules::frontier::structure::{KIND_FORT, KIND_PALISADE, KIND_TOWER};
 }
 
+/// Nation (384 B): `na‖faction` (S1 1e; `S1-1E-CONTRACT.md` §3.1): a
+/// faction's proposals (stances, expulsions, readmissions). Created at its
+/// first Propose.
+pub mod nation {
+    crate::layout::chained!(b"PSF1NATN", 384;
+        FACTION @ 64 : "u8" = 1;
+        RSV_65 @ 65 : "rsv" = 3;
+        NEXT_ID @ 68 : "u32" = 4;
+        PROPOSALS @ 72 : "rec:Proposal x4" = 256;
+        RSV @ 328 : "rsv" = 56;
+    );
+    /// Proposal slots.
+    pub const N: usize = permutation_rules::frontier::nation::PROPOSALS;
+    /// Offset of proposal slot `i`.
+    pub const fn at(i: usize) -> usize {
+        PROPOSALS + super::proposal::SIZE * i
+    }
+    const _: () = assert!(super::proposal::SIZE * N == 256);
+}
+
+/// One proposal of a Nation (64 B; `nation::Proposal`).
+pub mod proposal {
+    crate::layout::fields!(size = 64;
+        ID @ 0 : "u32" = 4;
+        STATE @ 4 : "u8" = 1;
+        KIND @ 5 : "u8" = 1;
+        TARGET_FACTION @ 6 : "u8" = 1;
+        VALUE @ 7 : "u8" = 1;
+        OPEN_BELL @ 8 : "u32" = 4;
+        CLOSE_BELL @ 12 : "u32" = 4;
+        YES @ 16 : "u16" = 2;
+        NO @ 18 : "u16" = 2;
+        PROPOSER_TAG @ 20 : "u64" = 8;
+        TARGET @ 28 : "[u8;32]" = 32;
+        RSV_60 @ 60 : "rsv" = 4;
+    );
+    pub use permutation_rules::frontier::nation::{
+        KIND_EXPEL, KIND_READMIT, KIND_STANCE, STATE_FAILED, STATE_NONE, STATE_OPEN, STATE_PASSED,
+    };
+    const _: () = assert!(SIZE == permutation_rules::frontier::nation::PROPOSAL_SIZE);
+}
+
 /// The S1 reading of an ArrivalSlot (1d): the v1 table keeps the name
 /// `RSV_54` (the MC layout tables are unchanged); in an S1 season Reveal
 /// writes the march's tower wear there.
