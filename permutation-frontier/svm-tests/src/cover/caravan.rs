@@ -3,8 +3,9 @@
 //! SettleCaravan, RaidCaravan, SeizeVault, CloseVault and DefaultRaid. S1
 //! codes are asserted as `CqErr(Cq::X)` (the v2 error space).
 //!
-//! The raids are crafted in the Province's caravan slot until stage 1c's
-//! clash raids caravans (`tests/caravan.rs`, module note).
+//! Most raids are crafted in the Province's caravan slot; the
+//! `g13_s1_clash_*` tests raid (and escort) through the program's own
+//! clash (stage 1c).
 
 use super::{Cover, Cq, CqErr, Err, Lands, E};
 
@@ -77,6 +78,10 @@ pub const RAID_CARAVAN: &[Cover] = &[
     Cover::Test(
         "caravan::g13_s1_raid_take_on_the_raiders_own_tile",
         &[Lands("RaidCaravan take on the raider")],
+    ),
+    Cover::Test(
+        "caravan::g13_s1_clash_raids_a_caravan_and_the_raider_takes_it",
+        &[Lands("RaidCaravan take after a real clash")],
     ),
     Cover::Test(
         "caravan::g13_s1_raid_burn_and_the_window",

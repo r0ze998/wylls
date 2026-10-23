@@ -229,13 +229,24 @@ them** (§4.3).
   case stays 12 garrisons plus the keep (plan §1-7).
 - Its escort is whoever of its faction stands on that tile: residents
   (J1: a sealed march that arrived there earlier) or arrivals.
+- **Sheltered:** a caravan on a tile another garrison already holds (a
+  site's hex, the camp's, the keep's, or an earlier caravan's) does not
+  join (garrisons never share a tile): a settlement shelters a caravan, its
+  origin's included. [implementation, 1c]
 - **Raided** when the kernel reports `attackers_hold` for it. The slot
   then records:
   - `RAID_OFF` = the bell offset;
-  - `RAID_POS` = the lowest ClashInputs position among the holders that
-    stay on the tile;
-  - `RAIDER` = that arrival's host id.
+  - `RAIDER` = the lowest id among the non-scout hosts of the holding
+    factions (`holders`) that stay on the tile: a **resident** (an ambush
+    by the raider, J1's mirror) or an arrival;
+  - `RAID_POS` = that host's ClashInputs position, `0xFF` for a resident.
 - An escort that holds the tile keeps the caravan safe.
+- **Quiet:** SkipQuiet must not pass a raid. `clash_model::is_quiet_v2`
+  (the program, the verifier's V7 skip replay and the herald's fixtures)
+  is the kernel's `is_quiet` and no caravan in the clash with a hostile
+  non-civilian host on its tile (the kernel ignores 0-troop garrisons);
+  `trivially_quiet_v2` refuses any host of another faction on an exposed
+  caravan's tile.
 - A caravan of the same faction cannot be raided here: the clash treats a
   faction as friendly. Domestic raids are 1e's.
 
@@ -362,6 +373,12 @@ slot write-back are part of the model.
 The ResolveFromInputs worst case is re-measured with 12 garrisons, 24
 arrivals and the caravan scan. If it goes over the 290k gate, the gate is
 raised by amendment.
+
+**Measured (1c):** all 1,240 adversarial fills with five site garrisons
+replaced by five exposed caravans (still 12 garrisons, 24 arrivals, 48
+residents; 2,520 raids): max **280,855 CU** (gate 290,000; without
+caravans 275,254), heap max 15,328 B (gate 28 KiB)
+(`svm-tests/tests/clash.rs` `g01_s1_resolve_from_inputs_with_caravans`).
 
 ## 5. Layout amendments (ABI v2, S1)
 

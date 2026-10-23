@@ -50,7 +50,7 @@ use frontier_abi::v2::layout::world::{join_shard as JS2, march_state as MS, seas
 use frontier_abi::v2::layout::{write_header, AccountKind};
 use frontier_abi::v2::log::{self as v2log, AnyKind, CqKind, EntityKind, Link};
 use frontier_abi::v2::presets::{ConquestParams, MC_TEST};
-use permutation_rules::frontier::clash::{frontier_ruleset, is_quiet, resolve_clash};
+use permutation_rules::frontier::clash::{frontier_ruleset, resolve_clash};
 use permutation_rules::frontier::geometry::{
     march_members, march_of, provinces_within, MarchCoord, ProvinceCoord,
 };
@@ -275,7 +275,7 @@ impl World {
         cm::trivially_quiet_v2(pd, b).unwrap_or(false)
             || cm::build_v2(pd, None, b)
                 .ok()
-                .and_then(|built| is_quiet(&frontier_ruleset(), &built.input(&[0; 32])).ok())
+                .and_then(|built| cm::is_quiet_v2(&built).ok())
                 .unwrap_or(false)
     }
 

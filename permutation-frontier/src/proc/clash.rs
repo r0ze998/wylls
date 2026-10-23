@@ -1517,8 +1517,9 @@ pub fn skip_quiet(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
 /// Cities and the keep as garrisons).
 fn kernel_quiet(pd: &[u8], b: u32, v2: bool) -> R<bool> {
     let q = if v2 {
+        // S1: a caravan a hostile host would raid is not quiet.
         let built = model::build_v2(pd, None, b)?;
-        kc::is_quiet(&kc::frontier_ruleset(), &built.input(&[0; 32]))
+        model::is_quiet_v2(&built)
     } else {
         let built = model::build(pd, None, b)?;
         kc::is_quiet(&kc::frontier_ruleset(), &built.input(&[0; 32]))

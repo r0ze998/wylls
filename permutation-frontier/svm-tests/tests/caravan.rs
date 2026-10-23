@@ -80,6 +80,11 @@ struct Cast {
 
 impl Cast {
     fn new() -> Cast {
+        Cast::far(4)
+    }
+
+    /// The cast with the vault `steps` steps from A's holding.
+    fn far(steps: usize) -> Cast {
         let (mut c, w) = s1_world();
         let t = ring4(0, 0);
         let a = w.cq_estate(&mut c, "a", 0, t, 0);
@@ -87,7 +92,7 @@ impl Cast {
         w.open_tiles(&mut c, t.0, t.1, &(0..61).collect::<Vec<u8>>());
         w.enrich(&mut c, &a, 5_000);
         w.enrich(&mut c, &r, 5_000);
-        let vt = far_tile(&c, &w, &a, 4);
+        let vt = far_tile(&c, &w, &a, steps);
         Cast { c, w, a, r, vt }
     }
 
@@ -957,6 +962,97 @@ fn g13_s1_default_raid_burns_when_the_raiders_holding_is_gone() {
         }
         e => panic!("{e:?}"),
     }
+}
+
+// ------------------------------------------------------------ the raid in the clash (stage 1c)
+
+/// The first bell the caravan stands on a tile no garrison holds (it is
+/// sheltered on a site's hex, its origin's included): `(bell offset,
+/// tile)`.
+fn exposed(k: &Cast) -> (u8, u8) {
+    let id = caravan_id(k.a.citizen_tag(), 0);
+    let (_, s) = slot_of(&k.c, &k.a.province, id).expect("slot");
+    let pd = k.c.data(&k.a.province);
+    let sites = &pd[P::SITES..P::SITES + pd[P::SITE_COUNT] as usize];
+    (0..s.n)
+        .find(|&i| !sites.contains(&s.tiles[i as usize]))
+        .map(|i| (i, s.tiles[i as usize]))
+        .expect("an exposed bell")
+}
+
+/// Resolves the caravan's bell `first_bell + off` through the program's
+/// own clash (GatherClash with no arrival, ResolveFromInputs), after
+/// SkipQuiet refuses it as not quiet. Returns the bell.
+fn clash_at(k: &mut Cast, off: u8) -> u32 {
+    let id = caravan_id(k.a.citizen_tag(), 0);
+    let (_, s) = slot_of(&k.c, &k.a.province, id).expect("slot");
+    let b = s.first_bell + off as u32;
+    let dest = (k.a.p as i32, k.a.q as i32);
+    let region = k.c.data(&k.a.province)[P::REGION];
+    k.w.set_resolved_next(&mut k.c, &k.a.province, b);
+    k.w.ready_bell(&mut k.c, b, region, None);
+    let ix = k.w.skip_ix(dest, b, 1);
+    let r = k.c.send(&[ix], &[&k.w.keeper]);
+    assert_code(r, E::NotQuiet);
+    let ix = k.w.gather_ix(&k.c, dest, b, 0, 1);
+    expect_lands(k.c.send(&[ix], &[&k.w.keeper]), "GatherClash");
+    let ix = k.w.resolve_ix(dest, b);
+    expect_lands(k.c.send(&[ix], &[&k.w.keeper]), "ResolveFromInputs");
+    b
+}
+
+/// Stage 1c end to end: R's host waits on the caravan's first tile (J1's
+/// ambush, by the raider); the program's clash raids the caravan; R takes
+/// it (J2) and it is delivered to R's holding.
+#[test]
+fn g13_s1_clash_raids_a_caravan_and_the_raider_takes_it() {
+    let mut k = Cast::far(8);
+    expect_lands(k.build_vault(), "BuildVault");
+    let x = k.send_args(0, [0, 100, 0, 0, 0, 50, 0, 0]);
+    expect_lands(k.send(&x), "SendCaravan");
+    let id = caravan_id(k.a.citizen_tag(), 0);
+    let (off, tile) = exposed(&k);
+    let province = k.a.province;
+    let raider =
+        k.w.craft_host(&mut k.c, &k.r, &province, 0, 0, 0, 300, tile);
+    let b = clash_at(&mut k, off);
+    let (_, raided) = slot_of(&k.c, &k.a.province, id).expect("slot");
+    assert_eq!(raided.raid_off, off, "raided at bell {b}");
+    assert_eq!(raided.raider, raider);
+    assert_eq!(
+        raided.raid_pos,
+        frontier_abi::clash_model::RAID_POS_RESIDENT
+    );
+    // R takes it within the window; it arrives at R's holding.
+    let x = raid_args(&k, raid_choice::TAKE);
+    expect_lands(raid(&mut k, &x), "RaidCaravan take after a real clash");
+    let rb = store(&k.c, &k.r.holding, 1);
+    let keeper = k.c.funded(b"s1-keeper", 1);
+    let d = k.r.holding;
+    expect_lands(settle_at(&mut k, d, &keeper), "settle at R's");
+    assert!(store(&k.c, &k.r.holding, 1) >= rb + 100 * MILLI);
+}
+
+/// An escort of A's faction holding the caravan's tile against R's
+/// smaller host: no raid; the caravan is delivered to A's vault.
+#[test]
+fn g13_s1_clash_escort_holds_and_the_caravan_arrives() {
+    let mut k = Cast::far(8);
+    expect_lands(k.build_vault(), "BuildVault");
+    let x = k.send_args(0, [0, 100, 0, 0, 0, 50, 0, 0]);
+    expect_lands(k.send(&x), "SendCaravan");
+    let id = caravan_id(k.a.citizen_tag(), 0);
+    let (off, tile) = exposed(&k);
+    let province = k.a.province;
+    k.w.craft_host(&mut k.c, &k.a, &province, 0, 0, 0, 800, tile);
+    k.w.craft_host(&mut k.c, &k.r, &province, 1, 0, 0, 100, tile);
+    clash_at(&mut k, off);
+    let (_, after) = slot_of(&k.c, &k.a.province, id).expect("slot");
+    assert_eq!(after.raid_off, kc::RAID_NONE, "the escort held");
+    let keeper = k.c.funded(b"s1-keeper", 1);
+    let d = k.vault();
+    expect_lands(settle_at(&mut k, d, &keeper), "settle at A's vault");
+    assert_eq!(vault_store(&k.c, &k.vault(), 1), 100 * MILLI);
 }
 
 // ------------------------------------------------------------ SeizeVault, CloseVault
