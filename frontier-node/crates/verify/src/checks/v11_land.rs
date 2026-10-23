@@ -147,10 +147,8 @@ pub fn run(cx: &mut Ctx) {
         let cmp = if cx.f.cq.is_some() {
             use frontier_abi::v2::kernel::keep as kkeep;
             let keep_tile = match c.wedge() {
-                Some(wd) if c.ring() >= 2 => {
-                    kkeep::keep_tile(&t, &t.sites, t.site_count, wd)
-                        .filter(|&x| (x as usize) < PROVINCE_TILES)
-                }
+                Some(wd) if c.ring() >= 2 => kkeep::keep_tile(&t, &t.sites, t.site_count, wd)
+                    .filter(|&x| (x as usize) < PROVINCE_TILES),
                 _ => None,
             };
             camp::place_v2(seed, c, &t, day, false, true, keep_tile)

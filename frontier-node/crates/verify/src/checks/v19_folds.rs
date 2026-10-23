@@ -36,8 +36,17 @@ pub fn run(cx: &mut Ctx) {
     let Some(cq) = f.cq.as_ref() else { return };
     let tag = V2Ix::FoldMarch.tag();
     if !w.has_post {
-        if w.txs.iter().any(|tx| tx.ixs.iter().any(|i| i.tag() == Some(tag))) {
-            cx.missing(V, "marches", 0, None, "no post-states: a fold cannot be replayed");
+        if w.txs
+            .iter()
+            .any(|tx| tx.ixs.iter().any(|i| i.tag() == Some(tag)))
+        {
+            cx.missing(
+                V,
+                "marches",
+                0,
+                None,
+                "no post-states: a fold cannot be replayed",
+            );
         }
         return;
     }
@@ -46,7 +55,8 @@ pub fn run(cx: &mut Ctx) {
         if !tx.ok {
             continue;
         }
-        let folds: Vec<&crate::world::Ix> = tx.ixs.iter().filter(|i| i.tag() == Some(tag)).collect();
+        let folds: Vec<&crate::world::Ix> =
+            tx.ixs.iter().filter(|i| i.tag() == Some(tag)).collect();
         if folds.is_empty() {
             continue;
         }
@@ -59,14 +69,24 @@ pub fn run(cx: &mut Ctx) {
         let mut states: Vec<([u8; 32], Vec<u8>)> = vec![];
         for ix in folds {
             let Ok(x) = FoldMarch::decode(&ix.data) else {
-                bad.push((t, "march".into(), 0, "the FoldMarch instruction does not decode".into()));
+                bad.push((
+                    t,
+                    "march".into(),
+                    0,
+                    "the FoldMarch instruction does not decode".into(),
+                ));
                 continue;
             };
             let what = format!("march ({}, {})", x.m, x.n);
             let bell = x.hour.saturating_mul(cm::HOUR_BELLS);
             let mk = march_state(&f.ctx, x.m, x.n);
             if ix.key(2) != Some(mk) || ix.accounts.len() < 11 {
-                bad.push((t, what, bell, "the instruction's MarchState is not the March's".into()));
+                bad.push((
+                    t,
+                    what,
+                    bell,
+                    "the instruction's MarchState is not the March's".into(),
+                ));
                 continue;
             }
             let coords = march_members(x.m, x.n);
@@ -75,7 +95,12 @@ pub fn run(cx: &mut Ctx) {
             for (i, (mp, mq)) in coords.iter().enumerate() {
                 let k = f.ctx.province(*mp, *mq);
                 if ix.key(3 + i) != Some(k) {
-                    bad.push((t, what.clone(), bell, format!("member {i} is not the canonical Province ({mp}, {mq})")));
+                    bad.push((
+                        t,
+                        what.clone(),
+                        bell,
+                        format!("member {i} is not the canonical Province ({mp}, {mq})"),
+                    ));
                     ok = false;
                     break;
                 }
@@ -89,7 +114,12 @@ pub fn run(cx: &mut Ctx) {
             let mut md = match w.state_before(&mk, t) {
                 Some(d) if d.len() == MS::SIZE => d.to_vec(),
                 Some(_) => {
-                    bad.push((t, what, bell, "the MarchState before is not a MarchState".into()));
+                    bad.push((
+                        t,
+                        what,
+                        bell,
+                        "the MarchState before is not a MarchState".into(),
+                    ));
                     continue;
                 }
                 None => {
@@ -117,14 +147,24 @@ pub fn run(cx: &mut Ctx) {
                 let hf = match cm::fold(&views, h) {
                     Ok(hf) => hf,
                     Err(e) => {
-                        bad.push((t, what.clone(), h * cm::HOUR_BELLS, format!("hour {h} does not fold: {e:?}")));
+                        bad.push((
+                            t,
+                            what.clone(),
+                            h * cm::HOUR_BELLS,
+                            format!("hour {h} does not fold: {e:?}"),
+                        ));
                         break;
                     }
                 };
                 match cm::apply_fold(&mut md, &hf, cq.dominion_per_hour) {
                     Ok(log) => expected.push((x.m, x.n, h, log.to_bytes())),
                     Err(e) => {
-                        bad.push((t, what.clone(), h * cm::HOUR_BELLS, format!("hour {h} does not apply: {e:?}")));
+                        bad.push((
+                            t,
+                            what.clone(),
+                            h * cm::HOUR_BELLS,
+                            format!("hour {h} does not apply: {e:?}"),
+                        ));
                         break;
                     }
                 }
@@ -145,7 +185,12 @@ pub fn run(cx: &mut Ctx) {
                             "record {i} is the fold of ({rm}, {rn}) hour {rh}, the replay's is ({m}, {n}) hour {h}"
                         )));
                     } else if r.payload[..] != pl[..] {
-                        let diff = r.payload.iter().zip(pl.iter()).position(|(a, b)| a != b).unwrap_or(44);
+                        let diff = r
+                            .payload
+                            .iter()
+                            .zip(pl.iter())
+                            .position(|(a, b)| a != b)
+                            .unwrap_or(44);
                         let field = match diff {
                             0..=27 => "weight",
                             28 => "controller",
@@ -161,8 +206,20 @@ pub fn run(cx: &mut Ctx) {
                         )));
                     }
                 }
-                (Some(r), None) => bad.push((t, "march".into(), r.bell, format!("record {i}: a MARCH_FOLD the replayed folds do not leave"))),
-                (None, Some((m, n, h, _))) => bad.push((t, format!("march ({m}, {n})"), h * cm::HOUR_BELLS, format!("hour {h}: the replayed fold leaves a MARCH_FOLD the chain did not log"))),
+                (Some(r), None) => bad.push((
+                    t,
+                    "march".into(),
+                    r.bell,
+                    format!("record {i}: a MARCH_FOLD the replayed folds do not leave"),
+                )),
+                (None, Some((m, n, h, _))) => bad.push((
+                    t,
+                    format!("march ({m}, {n})"),
+                    h * cm::HOUR_BELLS,
+                    format!(
+                        "hour {h}: the replayed fold leaves a MARCH_FOLD the chain did not log"
+                    ),
+                )),
                 (None, None) => {}
             }
         }
@@ -170,12 +227,25 @@ pub fn run(cx: &mut Ctx) {
             match tx.post_data(&mk) {
                 Some(after) if after.len() == MS::SIZE => {
                     if after[OWNED] != md[OWNED] {
-                        let at = after[OWNED].iter().zip(md[OWNED].iter()).position(|(a, b)| a != b).map(|o| o + MS::M).unwrap_or(0);
-                        let (m, n) = (le(&md[MS::M..MS::M + 4]) as u32 as i32, le(&md[MS::N..MS::N + 4]) as u32 as i32);
+                        let at = after[OWNED]
+                            .iter()
+                            .zip(md[OWNED].iter())
+                            .position(|(a, b)| a != b)
+                            .map(|o| o + MS::M)
+                            .unwrap_or(0);
+                        let (m, n) = (
+                            le(&md[MS::M..MS::M + 4]) as u32 as i32,
+                            le(&md[MS::N..MS::N + 4]) as u32 as i32,
+                        );
                         bad.push((t, format!("march ({m}, {n})"), 0, format!("the MarchState written differs from the replay (first at byte {at})")));
                     }
                 }
-                _ => bad.push((t, "march".into(), 0, "no MarchState post-state after the fold".into())),
+                _ => bad.push((
+                    t,
+                    "march".into(),
+                    0,
+                    "no MarchState post-state after the fold".into(),
+                )),
             }
         }
     }

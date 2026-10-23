@@ -87,7 +87,6 @@ use frontier_abi::tags::Ix;
 use frontier_abi::v2::ix::FileOutpost as V2FileOutpost;
 use frontier_abi::v2::Ix as V2Ix;
 use permutation_rules::frontier::beacon;
-use permutation_rules::frontier::catalog;
 use permutation_rules::frontier::clash::NEUTRAL;
 use permutation_rules::frontier::geometry::ProvinceCoord;
 use permutation_rules::frontier::holding::{
@@ -96,6 +95,7 @@ use permutation_rules::frontier::holding::{
 };
 use permutation_rules::frontier::laurel::strength_weight;
 use permutation_rules::frontier::siege;
+use permutation_rules::frontier::{arms, catalog};
 use permutation_rules::rng;
 
 use crate::addr::{self, AddrCtx};
@@ -1205,6 +1205,10 @@ pub fn place_home(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         record_is_zero(&pd, x.site)?;
         home_site(&pd, x.site, pc.now_bell)?
     };
+    let ore = {
+        let pd = province.try_borrow_data()?;
+        super::holding::site_terrain_ore(&pd, tile)?
+    };
     let rent = init::rent(H::SIZE)?;
     init::init_with_seed(
         payer,
@@ -1216,7 +1220,7 @@ pub fn place_home(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         rent,
         p,
     )?;
-    let h = founded_holding(now.ts, addr::day_of(pc.now_bell))?;
+    let h = founded_holding(now.ts, addr::day_of(pc.now_bell), ore)?;
     let life = {
         let sd = season_ai.try_borrow_data()?;
         lifecycle(&season_cq(&sd)?)
@@ -1239,6 +1243,7 @@ pub fn place_home(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         final_ts: now.ts,
         pool_owed: 0,
         shield_until,
+        terrain_ore: ore,
     };
     {
         let mut hd = holding.try_borrow_mut_data()?;
@@ -1398,10 +1403,11 @@ fn bell_from(genesis_ts: i64, t: i64) -> u32 {
 }
 
 /// A founded (or re-founded) holding (module doc): `Holding::found(now,
-/// day, 1)`, Hamlet base production, food upkeep 0, the starter kit.
-pub fn founded_holding(now: i64, day: u32) -> R<Holding> {
+/// day, 1)`, Hamlet base production (S1: with the site's terrain ore,
+/// `terrain_ore` milli per hour), food upkeep 0, the starter kit.
+pub fn founded_holding(now: i64, day: u32, terrain_ore: i64) -> R<Holding> {
     let mut h = Holding::found(now, day, 1);
-    h.production = catalog::base_production(Tier::Hamlet);
+    h.production = arms::base_production(Tier::Hamlet, terrain_ore);
     h.set_upkeep(now, Resource::Food, 0)
         .map_err(|_| FrontierError::Kernel)?;
     let kit = catalog::starter_kit();
@@ -1415,10 +1421,12 @@ pub fn founded_holding(now: i64, day: u32) -> R<Holding> {
 }
 
 /// A founded outpost (MC §3.8): `Holding::found(now, day, slot)` with
-/// Hamlet base production and food upkeep 0, **no starter kit**.
-pub fn founded_outpost(now: i64, day: u32, slot: u8) -> R<Holding> {
+/// Hamlet base production (S1: the site's terrain ore) and food upkeep 0,
+/// **no starter kit**. An outpost on rich ore is how a citizen works the
+/// veins beyond its home (redesign 30, J6).
+pub fn founded_outpost(now: i64, day: u32, slot: u8, terrain_ore: i64) -> R<Holding> {
     let mut h = Holding::found(now, day, slot);
-    h.production = catalog::base_production(Tier::Hamlet);
+    h.production = arms::base_production(Tier::Hamlet, terrain_ore);
     h.set_upkeep(now, Resource::Food, 0)
         .map_err(|_| FrontierError::Kernel)?;
     Ok(h)
@@ -1440,6 +1448,8 @@ struct Founding {
     pool_owed: u64,
     /// MC §3.9: the season's shield for this order (not M1's constant).
     shield_until: i64,
+    /// S1: the site's terrain ore, milli per hour (`holding2::TERRAIN_ORE`).
+    terrain_ore: i64,
 }
 
 fn write_holding(d: &mut [u8], f: &Founding, h: &Holding) -> R<()> {
@@ -1479,6 +1489,7 @@ fn write_holding(d: &mut [u8], f: &Founding, h: &Holding) -> R<()> {
     w.set_i64(H::FOOD_SHORTFALL, h.food_shortfall)?;
     w.set_arr(H::RENT_PAYER, &f.rent_payer)?;
     w.set_i64(H::FINAL_TS, f.final_ts)?;
+    w.set_i64(H2::TERRAIN_ORE, f.terrain_ore)?;
     w.set_u64(H::POOL_OWED, f.pool_owed)
 }
 
@@ -1786,14 +1797,16 @@ pub fn settle_ticket(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     let wedge = coord.wedge().unwrap_or(0);
     let rent_h = init::rent(H::SIZE)?;
     if won {
-        let (tile, old_gen) = {
+        let (tile, old_gen, ore) = {
             let pd = province.try_borrow_data()?;
             let r = Ro(&pd);
             // MC S1: the site's conquest record must be zero.
             record_is_zero(&pd, site)?;
+            let tile = r.u8(PV::SITES + site as usize)?;
             (
-                r.u8(PV::SITES + site as usize)?,
+                tile,
                 r.u8(PV::site(site as usize) + SM::GEN)?,
+                super::holding::site_terrain_ore(&pd, tile)?,
             )
         };
         gen = old_gen.checked_add(1).ok_or(OVERFLOW)?;
@@ -1881,9 +1894,9 @@ pub fn settle_ticket(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         }
         let day = addr::day_of(now_bell);
         let h = if slot <= 1 {
-            founded_holding(now.ts, day)?
+            founded_holding(now.ts, day, ore)?
         } else {
-            founded_outpost(now.ts, day, slot)?
+            founded_outpost(now.ts, day, slot, ore)?
         };
         shield_until = now
             .ts
@@ -1903,6 +1916,7 @@ pub fn settle_ticket(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
             final_ts,
             pool_owed,
             shield_until,
+            terrain_ore: ore,
         };
         {
             let mut hd = holding.try_borrow_mut_data()?;
@@ -2574,9 +2588,10 @@ mod tests {
 
     #[test]
     fn founded_holding_has_the_kit_and_base_production() {
-        let h = founded_holding(1_000_000, 3).unwrap();
+        let h = founded_holding(1_000_000, 3, 7_000).unwrap();
         assert_eq!(h.order, 1);
-        assert_eq!(h.production, catalog::base_production(Tier::Hamlet));
+        assert_eq!(h.production, arms::base_production(Tier::Hamlet, 7_000));
+        assert_eq!(h.production[Resource::Ore as usize], 7_000);
         let stock = h.stock_at(1_000_000);
         assert_eq!(stock, catalog::starter_kit());
     }

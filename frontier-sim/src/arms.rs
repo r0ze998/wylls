@@ -15,12 +15,12 @@
 //! measures where supply and need part ways, not whether trade happens.
 
 use permutation_rules::fixed::MILLI;
-use permutation_rules::frontier_next::arms::{
-    plan_conversion, settle_conversion, terrain_ore_per_hour, WORKSHOP_ORE_PER_HOUR,
+use permutation_rules::frontier::arms::{
+    terrain_ore_per_hour, ARMS, WORKSHOP_DELTA, WORKSHOP_ORE_PER_HOUR,
 };
 use permutation_rules::frontier::catalog::{BASE_PROD, STARTER_KIT};
 use permutation_rules::frontier::geometry::ring_provinces;
-use permutation_rules::frontier::holding::{Accrual, Resource, HOUR};
+use permutation_rules::frontier::holding::{Holding, Resource, HOUR};
 use permutation_rules::frontier::terrain::generate_province;
 use permutation_rules::hash::sha256;
 
@@ -42,19 +42,22 @@ fn pct(sorted: &[i64], p: usize) -> i64 {
 }
 
 /// Arms one workshop makes in `secs` at a site making `ore_ph` ore per
-/// hour, from the starter kit, with M1's Hamlet wood production.
+/// hour, from the starter kit, with M1's Hamlet wood production: the
+/// holding kernel's own conversion (`Holding::settle`), under a Hamlet's
+/// storage cap.
 fn arms_after(ore_ph: i64, secs: i64) -> i64 {
     let t0 = 0;
-    let ore0 = STARTER_KIT[Resource::Ore as usize] * MILLI;
-    let wood0 = STARTER_KIT[Resource::Wood as usize] * MILLI;
-    let wood_ph = BASE_PROD[Resource::Wood as usize] * MILLI;
-    let plan = plan_conversion(1, ore0, wood0, ore_ph * MILLI, wood_ph);
-    let cap = i64::MAX / 4;
-    let mut ore = Accrual::new(ore0, plan.full.ore, cap, t0);
-    let mut wood = Accrual::new(wood0, plan.full.wood, cap, t0);
-    let mut arms = Accrual::new(0, plan.full.arms, cap, t0);
-    settle_conversion(&mut ore, &mut wood, &mut arms, &plan, t0, t0 + secs);
-    arms.value / MILLI
+    let mut h = Holding::found(t0, 0, 1);
+    h.production[Resource::Ore as usize] = ore_ph * MILLI;
+    h.production[Resource::Wood as usize] = BASE_PROD[Resource::Wood as usize] * MILLI;
+    h.production[ARMS as usize] = WORKSHOP_DELTA;
+    for r in [Resource::Ore, Resource::Wood] {
+        h.credit(t0, r, STARTER_KIT[r as usize] * MILLI)
+            .expect("credit");
+    }
+    h.touch_owner(t0).expect("touch");
+    h.settle(t0 + secs).expect("settle");
+    h.stores[ARMS as usize].value / MILLI
 }
 
 /// The report for the map of `seed`, nation rings 2..=`max_ring`.
@@ -123,7 +126,11 @@ pub fn report(seed: u64, max_ring: u32) -> String {
         share(surplus)
     ));
     for d in 2..=max_ring {
-        let mut r: Vec<i64> = sites.iter().filter(|s| s.ring == d).map(|s| s.ore).collect();
+        let mut r: Vec<i64> = sites
+            .iter()
+            .filter(|s| s.ring == d)
+            .map(|s| s.ore)
+            .collect();
         r.sort_unstable();
         if r.is_empty() {
             continue;
@@ -137,7 +144,11 @@ pub fn report(seed: u64, max_ring: u32) -> String {
         ));
     }
     let wedge_sorted = |w: u8| {
-        let mut v: Vec<i64> = sites.iter().filter(|s| s.wedge == w).map(|s| s.ore).collect();
+        let mut v: Vec<i64> = sites
+            .iter()
+            .filter(|s| s.wedge == w)
+            .map(|s| s.ore)
+            .collect();
         v.sort_unstable();
         v
     };

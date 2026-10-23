@@ -13,8 +13,8 @@
 
 use frontier_abi::layout::province::province as PV;
 use frontier_abi::layout::world::season as S;
-use frontier_abi::v2::layout::province::{conquest as CR, province as P2};
 use frontier_abi::log::NO_BELL;
+use frontier_abi::v2::layout::province::{conquest as CR, province as P2};
 use frontier_abi::v2::log::{event, ConquestPayload, CqKind};
 
 use super::Ctx;

@@ -156,7 +156,7 @@ pub struct Config {
     /// MC (CONQUEST-CONTRACT v1.1 §8.7): the rule set (`--rules`).
     pub rules: crate::mc::Rules,
     /// Stage 1a (design/redesign 30, J3; `--arms`): under MC, a march's
-    /// unit-variant surcharge is what `frontier_next::arms::train_v3`
+    /// unit-variant surcharge is what `frontier::arms::train_v3`
     /// charges above a Spearman, its arms paid as the ore and wood a
     /// workshop needs to make them (`k2::march_surcharge_arms`).
     pub arms: bool,

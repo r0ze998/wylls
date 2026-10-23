@@ -1518,10 +1518,10 @@
           "ty": "u64"
         },
         {
-          "name": "RSV_1272",
+          "name": "TERRAIN_ORE",
           "off": 1272,
           "len": 8,
-          "ty": "rsv"
+          "ty": "i64"
         }
       ]
     },

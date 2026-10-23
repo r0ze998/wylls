@@ -4342,8 +4342,16 @@ fn cq_keep_taken_sends_the_donor_home_through_the_return_settle() {
         (0, 4_500, 1, 5)
     );
     let scored = c.data(&w.a.province(f.p, f.q));
-    assert_eq!(u64_at(&scored, P2::TERRITORY_BELLS + 5 * 8), 1, "old owner earns capture bell");
-    assert_eq!(u64_at(&scored, P2::TERRITORY_BELLS), 0, "no instant capture bonus");
+    assert_eq!(
+        u64_at(&scored, P2::TERRITORY_BELLS + 5 * 8),
+        1,
+        "old owner earns capture bell"
+    );
+    assert_eq!(
+        u64_at(&scored, P2::TERRITORY_BELLS),
+        0,
+        "no instant capture bonus"
+    );
     let en = w.entries(&c, f.dest());
     let (i, x) = en
         .iter()
@@ -4365,7 +4373,11 @@ fn cq_keep_taken_sends_the_donor_home_through_the_return_settle() {
     assert_eq!(skip_n(&l.logs), 1);
     let scored = c.data(&w.a.province(f.p, f.q));
     assert_eq!(u64_at(&scored, P2::TERRITORY_BELLS + 5 * 8), 1);
-    assert_eq!(u64_at(&scored, P2::TERRITORY_BELLS), 1, "new owner earns the next full bell");
+    assert_eq!(
+        u64_at(&scored, P2::TERRITORY_BELLS),
+        1,
+        "new owner earns the next full bell"
+    );
 
     // the return settle credits the rest home
     let before = u32_at(&c.data(&hk), H::reserve(0));

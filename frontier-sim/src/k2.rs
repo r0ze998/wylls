@@ -32,7 +32,7 @@ pub fn march_surcharge_mc(unit: UnitType, k: i64) -> [Milli; RESOURCES] {
 }
 
 /// Stage 1a (design/redesign 30, J3; `--arms`): the per-march surcharge
-/// under the stage-1a train table (`frontier_next::arms::train_v3`). The
+/// under the stage-1a train table (`frontier::arms::train_v3`). The
 /// simulator has no workshops or arms stores yet, so the arms a strong
 /// unit needs are paid as the ore and wood a workshop turns into them
 /// (`WORKSHOP_ORE_PER_HOUR` and `WORKSHOP_WOOD_PER_HOUR` per
@@ -44,7 +44,7 @@ pub fn march_surcharge_arms(
     per100: Option<[i64; 3]>,
 ) -> [Milli; RESOURCES] {
     use permutation_rules::fixed::MILLI;
-    use permutation_rules::frontier_next::arms::{
+    use permutation_rules::frontier::arms::{
         train_v3, ARMS, WORKSHOP_ARMS_PER_HOUR, WORKSHOP_ORE_PER_HOUR, WORKSHOP_WOOD_PER_HOUR,
     };
     let mut c = surcharge_from(train_v3, unit, k);

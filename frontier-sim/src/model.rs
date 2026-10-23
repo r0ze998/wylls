@@ -264,7 +264,9 @@ pub const ENGINE_PER_HOLDING: u64 = 450;
 
 use permutation_rules::fixed::BPS_ONE;
 pub use permutation_rules::frontier::doctrine::Doctrine as KernelDoctrine;
-use permutation_rules::frontier::doctrine::{DOCTRINES as KERNEL_DOCTRINES, NEUTRAL};
+use permutation_rules::frontier::doctrine::{
+    DOCTRINES as KERNEL_DOCTRINES, DOCTRINES_V3 as S1_DOCTRINES, NEUTRAL,
+};
 
 /// A doctrine as the simulator plays it: the kernel's knobs
 /// (`permutation_rules::frontier::doctrine`) plus the draft table's
@@ -315,6 +317,9 @@ pub enum DoctrineSet {
     Draft,
     /// The M0 proposal: the draft without those multipliers (M0 §E2).
     M0,
+    /// The S1 table (`DOCTRINES_V3`, redesign 30 J3: A Pikeman, C
+    /// Crossbowman, F Knight); play it with `--rules mc --arms`.
+    S1,
 }
 
 impl DoctrineSet {
@@ -323,7 +328,8 @@ impl DoctrineSet {
             "kernel" => DoctrineSet::Kernel,
             "draft" => DoctrineSet::Draft,
             "m0" => DoctrineSet::M0,
-            x => panic!("doctrine set {x}: kernel, draft or m0"),
+            "s1" => DoctrineSet::S1,
+            x => panic!("doctrine set {x}: kernel, draft, m0 or s1"),
         }
     }
     pub fn label(self) -> &'static str {
@@ -331,6 +337,7 @@ impl DoctrineSet {
             DoctrineSet::Kernel => "rules-v10 kernel table",
             DoctrineSet::Draft => "draft table of design §4.1",
             DoctrineSet::M0 => "M0 proposal (draft minus multipliers on scored facts)",
+            DoctrineSet::S1 => "S1 kernel table (strong units that cost arms)",
         }
     }
 }
@@ -401,6 +408,7 @@ pub fn doctrine_table(set: DoctrineSet, tweaks: &str) -> [Doctrine; 6] {
         DoctrineSet::Kernel => KERNEL_DOCTRINES.map(Doctrine::kernel),
         DoctrineSet::Draft => DRAFT_DOCTRINES,
         DoctrineSet::M0 => M0_DOCTRINES,
+        DoctrineSet::S1 => S1_DOCTRINES.map(Doctrine::kernel),
     };
     apply_tweaks(&mut t, tweaks);
     t

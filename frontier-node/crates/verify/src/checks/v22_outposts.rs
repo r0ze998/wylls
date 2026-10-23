@@ -91,11 +91,23 @@ pub fn run(cx: &mut Ctx) {
         return;
     }
     let Some(end) = f.params.as_ref().map(|p| p.end_bell) else {
-        cx.missing(V, "season", 0, None, "no CreateSeason parameters: end_bell unknown");
+        cx.missing(
+            V,
+            "season",
+            0,
+            None,
+            "no CreateSeason parameters: end_bell unknown",
+        );
         return;
     };
     if !w.has_post {
-        cx.missing(V, "outposts", 0, None, "no post-states: a FileOutpost cannot be re-judged");
+        cx.missing(
+            V,
+            "outposts",
+            0,
+            None,
+            "no post-states: a FileOutpost cannot be re-judged",
+        );
         return;
     }
     let mut bad: Vec<(usize, String, u32, String)> = vec![];
@@ -112,11 +124,21 @@ pub fn run(cx: &mut Ctx) {
             .unwrap_or_else(|| frontier_abi::prologue::bell_at(f.genesis_ts, tx.time).unwrap_or(0));
         let what = |s: &str| format!("outpost filing {s}");
         let Ok(x) = FileOutpost::decode(&ix.data) else {
-            bad.push((t, what("?"), bell, "the FileOutpost instruction does not decode".into()));
+            bad.push((
+                t,
+                what("?"),
+                bell,
+                "the FileOutpost instruction does not decode".into(),
+            ));
             continue;
         };
         let Some(ak) = split_host_id(x.anchor_site_key).filter(|a| a.seq == 0) else {
-            bad.push((t, what("?"), bell, "the anchor is not a holding's site key".into()));
+            bad.push((
+                t,
+                what("?"),
+                bell,
+                "the anchor is not a holding's site key".into(),
+            ));
             continue;
         };
         let anchor = ProvinceCoord::new(ak.province.p, ak.province.q);
@@ -125,15 +147,33 @@ pub fn run(cx: &mut Ctx) {
             ak.province.p, ak.province.q, ak.site
         ));
         let (Some(citizen_k), Some(frontier_k)) = (ix.key(3), ix.key(4)) else {
-            bad.push((t, what, bell, "the instruction names no citizen or Frontier".into()));
+            bad.push((
+                t,
+                what,
+                bell,
+                "the instruction names no citizen or Frontier".into(),
+            ));
             continue;
         };
-        let (Some(cd), Some(fd)) = (w.state_before(&citizen_k, t), w.state_before(&frontier_k, t)) else {
-            missing.push((t, what, bell, "no state of the Citizen or the Frontier before the filing".into()));
+        let (Some(cd), Some(fd)) = (
+            w.state_before(&citizen_k, t),
+            w.state_before(&frontier_k, t),
+        ) else {
+            missing.push((
+                t,
+                what,
+                bell,
+                "no state of the Citizen or the Frontier before the filing".into(),
+            ));
             continue;
         };
         if cd.len() != C::SIZE || fd.len() < FR::OCCUPIED_SITES + 4 {
-            bad.push((t, what, bell, "the Citizen or the Frontier before the filing is not that account".into()));
+            bad.push((
+                t,
+                what,
+                bell,
+                "the Citizen or the Frontier before the filing is not that account".into(),
+            ));
             continue;
         }
         if le(&cd[C::TICKET_BELL..C::TICKET_BELL + 4]) as u32 != C::NO_TICKET {
@@ -146,21 +186,36 @@ pub fn run(cx: &mut Ctx) {
         let slot = C2::lowest_free_slot(slots, gen_of(2), gen_of(3));
         let ak_key = f.ctx.holding(ak.province.p, ak.province.q, ak.site);
         let Some(ah) = w.state_before(&ak_key, t) else {
-            missing.push((t, what, bell, "no state of the anchor Holding before the filing".into()));
+            missing.push((
+                t,
+                what,
+                bell,
+                "no state of the anchor Holding before the filing".into(),
+            ));
             continue;
         };
         if ah.len() != H::SIZE
             || ah[H::GEN] != ak.gen
             || ah[H::OWNER_CITIZEN..H::OWNER_CITIZEN + 32] != citizen_k[..]
         {
-            bad.push((t, what, bell, "the anchor is not the citizen's holding at the named generation".into()));
+            bad.push((
+                t,
+                what,
+                bell,
+                "the anchor is not the citizen's holding at the named generation".into(),
+            ));
             continue;
         }
         if ah[H::STATE] != H::STATE_FINAL || ah[H::ORDER] != 1 {
-            bad.push((t, what, bell, "the anchor is not a final first holding".into()));
+            bad.push((
+                t,
+                what,
+                bell,
+                "the anchor is not a final first holding".into(),
+            ));
             continue;
         }
-        let first_tier = match hr::read(ah).and_then(|mut h| hr::touch(&mut h, tx.time).map(|()| h.tier)) {
+        let first_tier = match hr::read_touched(ah, tx.time).map(|h| h.tier) {
             Ok(x) => x,
             Err(e) => {
                 bad.push((t, what, bell, format!("the anchor's kernel state: {e}")));
@@ -181,8 +236,9 @@ pub fn run(cx: &mut Ctx) {
                 le(&cd[o + HR::Q..o + HR::Q + 2]) as u16 as i16 as i32,
                 cd[o + HR::SITE],
             );
-            w.state_before(&f.ctx.holding(p, q, s), t)
-                .is_some_and(|d| d.len() == H::SIZE && d[H::STATE] == H::STATE_FINAL && d[H::ORDER] == 2)
+            w.state_before(&f.ctx.holding(p, q, s), t).is_some_and(|d| {
+                d.len() == H::SIZE && d[H::STATE] == H::STATE_FINAL && d[H::ORDER] == 2
+            })
         };
         let rings_opened = le(&fd[FR::RINGS_OPENED..FR::RINGS_OPENED + 2]) as u32;
         let open_sites = le(&fd[FR::OPEN_SITES..FR::OPEN_SITES + 4]);
@@ -207,7 +263,12 @@ pub fn run(cx: &mut Ctx) {
             outpost_close_bells: cq.outpost_close_bells,
         };
         if let Err(e) = may_found_outpost(&base) {
-            bad.push((t, what, bell, format!("the count or the prerequisite: {e:?}")));
+            bad.push((
+                t,
+                what,
+                bell,
+                format!("the count or the prerequisite: {e:?}"),
+            ));
             continue;
         }
         for s in x.sites.iter().take(x.n as usize) {
@@ -215,19 +276,42 @@ pub fn run(cx: &mut Ctx) {
             let target = ProvinceCoord::new(p, q);
             let site_what = format!("{what} to ({p}, {q}, {})", s.site);
             if target.ring() < 2 || target.ring() >= rings_opened {
-                bad.push((t, site_what, bell, format!("the target ring {} is reserved or not opened ({rings_opened} rings)", target.ring())));
+                bad.push((
+                    t,
+                    site_what,
+                    bell,
+                    format!(
+                        "the target ring {} is reserved or not opened ({rings_opened} rings)",
+                        target.ring()
+                    ),
+                ));
                 continue;
             }
             let Some(pd) = w.state_before(&f.ctx.province(p, q), t) else {
-                missing.push((t, site_what, bell, "no state of the target Province before the filing".into()));
+                missing.push((
+                    t,
+                    site_what,
+                    bell,
+                    "no state of the target Province before the filing".into(),
+                ));
                 continue;
             };
             if pd.len() != P2::SIZE {
-                bad.push((t, site_what, bell, "the target Province is not a conquest Province".into()));
+                bad.push((
+                    t,
+                    site_what,
+                    bell,
+                    "the target Province is not a conquest Province".into(),
+                ));
                 continue;
             }
             if s.site as usize >= (pd[PV::SITE_COUNT] as usize).min(PV::SITES_N) {
-                bad.push((t, site_what, bell, "the site is not one of the Province's".into()));
+                bad.push((
+                    t,
+                    site_what,
+                    bell,
+                    "the site is not one of the Province's".into(),
+                ));
                 continue;
             }
             let (mine, total) = match province_weights(pd, faction, bell) {
@@ -244,12 +328,28 @@ pub fn run(cx: &mut Ctx) {
                 province_weight: total,
                 ..base
             }) {
-                bad.push((t, site_what, bell, format!("{e:?} (range {}, share {mine} of {total})", anchor.distance(target))));
+                bad.push((
+                    t,
+                    site_what,
+                    bell,
+                    format!(
+                        "{e:?} (range {}, share {mine} of {total})",
+                        anchor.distance(target)
+                    ),
+                ));
                 continue;
             }
             let o = P2::record(s.site as usize);
-            if pd.get(o..o + CR::SIZE).is_none_or(|r| r.iter().any(|&b| b != 0)) {
-                bad.push((t, site_what, bell, "the site's conquest record is not zero (a siege is busy)".into()));
+            if pd
+                .get(o..o + CR::SIZE)
+                .is_none_or(|r| r.iter().any(|&b| b != 0))
+            {
+                bad.push((
+                    t,
+                    site_what,
+                    bell,
+                    "the site's conquest record is not zero (a siege is busy)".into(),
+                ));
             }
         }
     }

@@ -37,6 +37,10 @@ pub const DOCTRINE_VERSION: u16 = 1;
 /// `KERNEL_VERSIONS_V2`): v2 adds the Knight bound ([`validate_table_v2`],
 /// PO-2, CQH1(2)). The Season 1 table itself is unchanged and passes it.
 pub const DOCTRINE_VERSION_V2: u16 = 2;
+/// The doctrine kernel's version under the S1 rules (`KERNEL_VERSIONS_V3`):
+/// v3 is the S1 table ([`DOCTRINES_V3`], redesign 30 J3: the strong units
+/// that cost arms are fielded) with no refused line.
+pub const DOCTRINE_VERSION_V3: u16 = 3;
 
 use super::siege::required_bells;
 use super::stance::{Posture, Stance};
@@ -209,13 +213,62 @@ pub const DOCTRINES: [Doctrine; 6] = [
     },
 ];
 
+/// The S1 doctrine table (redesign 30, J3), faction 0..6 = A..F: the
+/// Season 1 table with **A on the Pikeman line, C on the Crossbowman line
+/// and F on the Knight line at a plain variant weight** (×1.0). These
+/// three strong units cost arms to train (`arms::TRAIN_ARMS_PER_100`), so
+/// three doctrines create the demand for workshops.
+///
+/// **Not yet inside the balance band.** At the CI gate's size (10,000
+/// wallets × 60 seeds × 6 rotations, `frontier-sim doctrines --rules mc
+/// --arms`) five doctrines sit within ±0.28% of the mean index and B Tide
+/// near −0.7% (`docs/frontier/stage1a/J3-NOTES.md`); the gate is ±0.2%.
+/// The arms costs are [phase 6] numbers and B's cause is open.
+pub const DOCTRINES_V3: [Doctrine; 6] = [
+    Doctrine {
+        unit: UnitType::Pikeman,
+        ..DOCTRINES[0]
+    },
+    DOCTRINES[1],
+    Doctrine {
+        unit: UnitType::Crossbowman,
+        ..DOCTRINES[2]
+    },
+    DOCTRINES[3],
+    DOCTRINES[4],
+    Doctrine {
+        unit: UnitType::Knight,
+        variant_bps: BPS_ONE,
+        ..DOCTRINES[5]
+    },
+];
+
+/// Doctrine of faction `f` under the S1 rules ([`DOCTRINES_V3`]).
+pub const fn of_faction_v3(f: u8) -> Option<&'static Doctrine> {
+    if (f as usize) < DOCTRINES_V3.len() {
+        Some(&DOCTRINES_V3[f as usize])
+    } else {
+        None
+    }
+}
+
 /// The doctrine table as bytes for `RULESET_HASH` (every field, in
 /// declaration order, per doctrine A..F; integers little-endian, the name
 /// length-prefixed, `drill` as a presence byte then stance and bps).
 pub fn write_table(out: &mut alloc::vec::Vec<u8>) {
-    out.extend_from_slice(&DOCTRINE_VERSION.to_le_bytes());
-    out.push(DOCTRINES.len() as u8);
-    for d in &DOCTRINES {
+    write_doctrines(out, DOCTRINE_VERSION, &DOCTRINES);
+}
+
+/// The S1 doctrine table's bytes for `ruleset_hash_input_v3`, in
+/// [`write_table`]'s encoding with [`DOCTRINE_VERSION_V3`].
+pub fn write_table_v3(out: &mut alloc::vec::Vec<u8>) {
+    write_doctrines(out, DOCTRINE_VERSION_V3, &DOCTRINES_V3);
+}
+
+fn write_doctrines(out: &mut alloc::vec::Vec<u8>, version: u16, table: &[Doctrine; 6]) {
+    out.extend_from_slice(&version.to_le_bytes());
+    out.push(table.len() as u8);
+    for d in table {
         out.push(d.name.len() as u8);
         out.extend_from_slice(d.name.as_bytes());
         out.push(d.unit as u8);
@@ -532,6 +585,35 @@ pub fn write_bounds_v2(out: &mut alloc::vec::Vec<u8>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn s1_table_fields_the_strong_units() {
+        assert_eq!(validate_table(&DOCTRINES_V3), Ok(()));
+        let lines: alloc::vec::Vec<UnitType> = DOCTRINES_V3.iter().map(|d| d.unit).collect();
+        assert_eq!(
+            lines,
+            [
+                UnitType::Pikeman,
+                UnitType::Horseman,
+                UnitType::Crossbowman,
+                UnitType::Spearman,
+                UnitType::Spearman,
+                UnitType::Knight
+            ]
+        );
+        // Only the unit lines (and F's variant weight) differ from Season 1.
+        for (a, b) in DOCTRINES.iter().zip(&DOCTRINES_V3) {
+            assert_eq!(a.drill, b.drill);
+            assert_eq!(a.arrival_bps, b.arrival_bps);
+            assert_eq!(a.name, b.name);
+        }
+        let mut v1 = alloc::vec::Vec::new();
+        let mut v3 = alloc::vec::Vec::new();
+        write_table(&mut v1);
+        write_table_v3(&mut v3);
+        assert_ne!(v1, v3);
+        assert_eq!(&v3[..2], &DOCTRINE_VERSION_V3.to_le_bytes());
+    }
 
     #[test]
     fn cq_the_season_table_passes_the_knight_bound() {

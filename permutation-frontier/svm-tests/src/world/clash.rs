@@ -49,7 +49,7 @@ use permutation_rules::frontier::clash::{
     frontier_ruleset, resolve_clash, ClashInput, ClashOutcome, Fighter, Garrison, Occupancy,
     Relations,
 };
-use permutation_rules::frontier::doctrine::of_faction;
+use permutation_rules::frontier::doctrine::of_faction_v3 as of_faction;
 use permutation_rules::frontier::geometry::{region_of, ProvinceCoord, PROVINCE_TILES};
 use permutation_rules::frontier::host::{Host, Stamina};
 use permutation_rules::frontier::stance::{Posture, Stance};

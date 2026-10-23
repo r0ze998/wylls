@@ -53,7 +53,7 @@ use frontier_abi::log::Kind;
 use frontier_abi::tags::Ix;
 use permutation_rules::fixed::BPS_ONE;
 use permutation_rules::frontier::clash::{FactionSlots, SlotDecision, SlotEntry, SlotRefusal};
-use permutation_rules::frontier::doctrine::of_faction;
+use permutation_rules::frontier::doctrine::of_faction_v3 as of_faction;
 use permutation_rules::frontier::geometry::{region_of, ProvinceCoord};
 use permutation_rules::frontier::seal::{self as ks, Plain};
 use permutation_rules::frontier::stance::{Posture, Stance};

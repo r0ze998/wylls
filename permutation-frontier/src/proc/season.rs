@@ -26,6 +26,12 @@
 //! `RULESET_HASH_V2`, `RULES_VERSION` 11 and the conquest block at
 //! 896..1,024. A failing parameter is `BadData`, as in M1 (§5.3's
 //! `BadParams` is not an M1 code; CQ2-A notes D-1).
+//!
+//! **S1** (redesign stage 1): the same data with `program_version = 4`
+//! (the program's own, so an MC season is `BadData`); the S1 doctrine
+//! table (`DOCTRINES_V3`, the strong units fielded) passes the M1 table
+//! rules (`doctrine::validate_table`), without MC's Knight bound; the
+//! Season stores `RULESET_HASH_V3` and `RULES_VERSION` 12.
 
 use borsh::BorshDeserialize;
 use solana_program::{account_info::AccountInfo, pubkey::Pubkey};
@@ -282,8 +288,9 @@ pub fn create_season(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     if x.params.validate().is_err()
         || prm.quicknet_pk_hash != crate::QUICKNET_PK_HASH
         || prm.program_version != crate::PROGRAM_VERSION
-        || permutation_rules::frontier::doctrine::validate_table_v2(
-            &permutation_rules::frontier::doctrine::DOCTRINES,
+        // S1: the S1 table (strong units fielded, no refused line).
+        || permutation_rules::frontier::doctrine::validate_table(
+            &permutation_rules::frontier::doctrine::DOCTRINES_V3,
         )
         .is_err()
     {

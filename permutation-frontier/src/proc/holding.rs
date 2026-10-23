@@ -64,12 +64,12 @@ use frontier_abi::log::{EntityKind, Kind};
 use frontier_abi::prologue::{self as ap, HoldingHdr, PlayerCtx};
 use frontier_abi::tags::Ix;
 use permutation_rules::fixed::MILLI;
-use permutation_rules::frontier::catalog;
 use permutation_rules::frontier::geometry::{tile_offset, ProvinceCoord};
 use permutation_rules::frontier::holding::{
     Accrual, Effect, Holding as KHolding, HoldingError, QueueItem, Resource, Tier, QUEUE_SLOTS,
     RESOURCES,
 };
+use permutation_rules::frontier::{arms, catalog};
 use permutation_rules::hex::Hex;
 
 use crate::addr::{self, AddrCtx};
@@ -79,8 +79,8 @@ use crate::events::{self, Buf, Chained};
 use crate::layout::beacon::{archive_archived, archive_entry_of, archive_key, Anchor, Cache};
 use crate::layout::player::{accrual, queue_item as QI};
 use crate::layout::{
-    citizen as C, explore as X, holding as H, province as P, season as S, site as SM, site2 as SM2,
-    AccountKindV2, Ro, Rw,
+    citizen as C, explore as X, holding as H, holding2 as H2, province as P, season as S,
+    site as SM, site2 as SM2, AccountKindV2, Ro, Rw,
 };
 use crate::prologue::{self, check_accounts, expect_key, key, view, Now};
 use crate::{FrontierError, R, RULESET_HASH};
@@ -472,7 +472,11 @@ pub fn write_holding(d: &mut [u8], h: &KHolding, now: i64) -> R<()> {
 /// `settle(now)` split at every finished tier-up, applying the new tier's
 /// base production from the tier-up's completion (the simulator's
 /// `apply_tier_bonus`).
-pub fn settle_tiered(h: &mut KHolding, now: i64) -> R<()> {
+///
+/// **S1:** the base production is `arms::base_production(tier,
+/// terrain_ore)`: the holding's terrain ore ([`terrain_ore`]) under the
+/// tier bonus in place of the flat ore base.
+pub fn settle_tiered(h: &mut KHolding, now: i64, terrain_ore: i64) -> R<()> {
     loop {
         let next = h
             .queue
@@ -487,8 +491,8 @@ pub fn settle_tiered(h: &mut KHolding, now: i64) -> R<()> {
         h.settle(t).map_err(holding_err)?;
         if h.tier != old {
             let (a, b) = (
-                catalog::base_production(old),
-                catalog::base_production(h.tier),
+                arms::base_production(old, terrain_ore),
+                arms::base_production(h.tier, terrain_ore),
             );
             for r in 0..RESOURCES {
                 h.production[r] = h.production[r].saturating_add(b[r] - a[r]);
@@ -506,32 +510,59 @@ pub fn settle_tiered(h: &mut KHolding, now: i64) -> R<()> {
 
 /// The owner touch: tier-aware settle, `touch_owner(now)`,
 /// `commit_walls(now)`.
-pub fn touch(h: &mut KHolding, now: i64) -> R<()> {
-    settle_tiered(h, now)?;
+pub fn touch(h: &mut KHolding, now: i64, terrain_ore: i64) -> R<()> {
+    settle_tiered(h, now, terrain_ore)?;
     h.touch_owner(now).map_err(holding_err)?;
     h.commit_walls(now);
     Ok(())
 }
 
-/// Copy number of building `item` (0..6) the next Build makes (module
-/// note).
-pub fn copy_number(h: &KHolding, item: u8) -> R<u32> {
-    let bd = catalog::BUILDINGS
-        .get(item as usize)
-        .ok_or(FrontierError::BadData)?;
-    let r = bd.resource as usize;
-    let per = bd.per_hour.checked_mul(MILLI).ok_or(OVERFLOW)?;
-    let base = catalog::base_production(h.tier)[r];
+/// Copy number of building `item` (0..6, or the S1 workshop) the next
+/// Build makes (module note): built copies are the production above the
+/// tier's base (`arms::base_production` with the holding's terrain ore)
+/// over the building's rate; a workshop's are the arms production over
+/// `arms::WORKSHOP_DELTA` (no base makes arms).
+pub fn copy_number(h: &KHolding, item: u8, terrain_ore: i64) -> R<u32> {
+    let (resource, per, base) = if item == arms::ITEM_WORKSHOP {
+        (arms::ARMS, arms::WORKSHOP_DELTA, 0)
+    } else {
+        let bd = catalog::BUILDINGS
+            .get(item as usize)
+            .ok_or(FrontierError::BadData)?;
+        let per = bd.per_hour.checked_mul(MILLI).ok_or(OVERFLOW)?;
+        let base = arms::base_production(h.tier, terrain_ore)[bd.resource as usize];
+        (bd.resource, per, base)
+    };
+    let r = resource as usize;
     let built = (h.production[r].saturating_sub(base)).max(0) / per.max(1);
     let queued = h
         .queue
         .iter()
         .flatten()
-        .filter(
-            |q| matches!(q.effect, Effect::Production { resource, .. } if resource == bd.resource),
-        )
+        .filter(|q| matches!(q.effect, Effect::Production { resource: x, .. } if x == resource))
         .count() as i64;
     u32::try_from(built + queued + 1).map_err(|_| OVERFLOW)
+}
+
+/// S1: the holding's terrain ore (milli-units per hour), written at
+/// founding or capture (`holding2::TERRAIN_ORE`).
+pub fn terrain_ore(d: &[u8]) -> R<i64> {
+    Ro(d).i64(H2::TERRAIN_ORE)
+}
+
+/// S1: the terrain ore of `tile` in a Province (its stored terrain block,
+/// `arms::terrain_ore_per_hour_bytes`).
+pub fn site_terrain_ore(province: &[u8], tile: u8) -> R<i64> {
+    let n = permutation_rules::frontier::geometry::PROVINCE_TILES;
+    let t: &[u8; 61] = province
+        .get(P::TERRAIN..P::TERRAIN + n)
+        .and_then(|x| x.try_into().ok())
+        .ok_or(BAD_ACCOUNT)?;
+    let r: &[u8; 61] = province
+        .get(P::RESOURCE..P::RESOURCE + n)
+        .and_then(|x| x.try_into().ok())
+        .ok_or(BAD_ACCOUNT)?;
+    arms::terrain_ore_per_hour_bytes(t, r, tile).ok_or(BAD_ACCOUNT)
 }
 
 /// `sha256` of the eight stores (value, rate, cap, t0, frac, LE): HARVEST's
@@ -556,7 +587,7 @@ pub fn cost_digest(c: &[i64; RESOURCES]) -> [u8; 32] {
 pub(crate) fn load_touched(holding: &AccountInfo, now: i64) -> R<KHolding> {
     let hd = holding.try_borrow_data()?;
     let mut h = read_holding(&hd)?;
-    touch(&mut h, now)?;
+    touch(&mut h, now, terrain_ore(&hd)?)?;
     Ok(h)
 }
 
@@ -658,7 +689,7 @@ pub fn harvest(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
 pub fn build(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     let x = aix::Build::decode(d)?;
     check_accounts(V2Ix::Build, a, None)?;
-    if x.item > ITEM_TIER_UP {
+    if x.item > ITEM_TIER_UP && x.item != arms::ITEM_WORKSHOP {
         return Err(FrontierError::BadData.into());
     }
     let walls = x.item == catalog::ITEM_WALLS;
@@ -688,8 +719,16 @@ pub fn build(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         }
         catalog::tier_up_item(h.tier).ok_or_else(|| kernel(sub::HOLDING_TOP_TIER))?
     } else {
-        let n = if walls { 1 } else { copy_number(&h, x.item)? };
-        catalog::building(x.item, n, doctrine).ok_or(FrontierError::BadData)?
+        let n = if walls {
+            1
+        } else {
+            let ore = {
+                let hd = holding.try_borrow_data()?;
+                terrain_ore(&hd)?
+            };
+            copy_number(&h, x.item, ore)?
+        };
+        arms::building(x.item, n, doctrine).ok_or(FrontierError::BadData)?
     };
     let intro = x.item < catalog::ITEM_WALLS && {
         let hd = holding.try_borrow_data()?;
@@ -760,7 +799,7 @@ fn faction_doctrine(
         let hd = holding.try_borrow_data()?;
         Ro(&hd).u8(H::FACTION)?
     };
-    permutation_rules::frontier::doctrine::of_faction(f).ok_or(BAD_ACCOUNT)
+    permutation_rules::frontier::doctrine::of_faction_v3(f).ok_or(BAD_ACCOUNT)
 }
 
 /// Writes a wall item into the site mirror: `{effective_bell =
@@ -862,10 +901,11 @@ pub fn train(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     )
 }
 
-/// The MC train cost (K2, §3.16): `catalog::train_v2` through the ABI
-/// bridge (an MC season always; M1 seasons keep the M1 program).
+/// The S1 train cost: `arms::train_v3`, the MC cost (`catalog::train_v2`,
+/// K2) plus arms for the strong units (an S1 season always; MC seasons
+/// keep the MC program).
 pub fn train_cost(unit: u8, n: u32) -> Option<permutation_rules::frontier::catalog::Cost> {
-    frontier_abi::v2::kernel::catalog2::train_v2(unit, n)
+    arms::train_v3(unit, n)
 }
 
 // ------------------------------------------------------------ Explore
@@ -1166,9 +1206,12 @@ mod tests {
     use super::*;
     use permutation_rules::frontier::holding::HOUR;
 
+    /// A site's terrain ore in these tests, milli per hour.
+    const ORE: i64 = 10 * MILLI;
+
     fn founded(now: i64) -> KHolding {
         let mut h = KHolding::found(now, 0, 1);
-        h.production = catalog::base_production(Tier::Hamlet);
+        h.production = arms::base_production(Tier::Hamlet, ORE);
         let kit = catalog::starter_kit();
         for (r, v) in kit.iter().enumerate() {
             h.credit(now, Resource::ALL[r], *v).unwrap();
@@ -1231,18 +1274,20 @@ mod tests {
         h.pay(now, &cost).unwrap();
         let done = h.enqueue(now, secs as i64, e).unwrap();
         let mut a = h.clone();
-        settle_tiered(&mut a, done + 2 * HOUR).unwrap();
+        settle_tiered(&mut a, done + 2 * HOUR, ORE).unwrap();
         assert_eq!(a.tier, Tier::Town);
-        assert_eq!(a.production, catalog::base_production(Tier::Town));
+        assert_eq!(a.production, arms::base_production(Tier::Town, ORE));
+        // S1: the terrain ore takes the tier bonus (Town +50%).
+        assert_eq!(a.production[Resource::Ore as usize], 15 * MILLI);
         // Two hours at the Town rate after completion, not at the Hamlet's.
         let mut b = h.clone();
-        settle_tiered(&mut b, done).unwrap();
+        settle_tiered(&mut b, done, ORE).unwrap();
         let wood = Resource::Wood as usize;
         let gained = a.stores[wood].value - b.stores[wood].value;
-        assert_eq!(gained, 2 * catalog::base_production(Tier::Town)[wood]);
+        assert_eq!(gained, 2 * arms::base_production(Tier::Town, ORE)[wood]);
         // idempotent
         let mut c = a.clone();
-        settle_tiered(&mut c, done + 2 * HOUR).unwrap();
+        settle_tiered(&mut c, done + 2 * HOUR, ORE).unwrap();
         assert_eq!(c, a);
     }
 
@@ -1250,9 +1295,9 @@ mod tests {
     fn copy_numbers_follow_production_and_the_queue() {
         let now = 1_800_000_000;
         let mut h = founded(now);
-        assert_eq!(copy_number(&h, 0).unwrap(), 1);
+        assert_eq!(copy_number(&h, 0, ORE).unwrap(), 1);
         h.production[Resource::Food as usize] += 2 * 12 * MILLI;
-        assert_eq!(copy_number(&h, 0).unwrap(), 3);
+        assert_eq!(copy_number(&h, 0, ORE).unwrap(), 3);
         h.enqueue(
             now,
             10,
@@ -1262,9 +1307,27 @@ mod tests {
             },
         )
         .unwrap();
-        assert_eq!(copy_number(&h, 0).unwrap(), 4);
-        assert_eq!(copy_number(&h, 1).unwrap(), 1);
-        assert!(copy_number(&h, 6).is_err());
+        assert_eq!(copy_number(&h, 0, ORE).unwrap(), 4);
+        assert_eq!(copy_number(&h, 1, ORE).unwrap(), 1);
+        assert!(copy_number(&h, 6, ORE).is_err());
+        // S1: the ore building counts above the terrain base, the workshop
+        // from the arms production and its queued copies.
+        assert_eq!(copy_number(&h, 3, ORE).unwrap(), 1);
+        h.production[Resource::Ore as usize] += 6 * MILLI;
+        assert_eq!(copy_number(&h, 3, ORE).unwrap(), 2);
+        assert_eq!(copy_number(&h, arms::ITEM_WORKSHOP, ORE).unwrap(), 1);
+        h.production[arms::ARMS as usize] += 2 * arms::WORKSHOP_DELTA;
+        assert_eq!(copy_number(&h, arms::ITEM_WORKSHOP, ORE).unwrap(), 3);
+        h.enqueue(
+            now,
+            10,
+            Effect::Production {
+                resource: arms::ARMS,
+                delta: arms::WORKSHOP_DELTA,
+            },
+        )
+        .unwrap();
+        assert_eq!(copy_number(&h, arms::ITEM_WORKSHOP, ORE).unwrap(), 4);
     }
 
     #[test]

@@ -124,7 +124,7 @@ pub mod holding {
         RSV_1258 @ 1258 : "rsv" = 2;
         CAPTURED_BELL @ 1260 : "u32" = 4;
         PREV_HOME @ 1264 : "u64" = 8;
-        RSV_1272 @ 1272 : "rsv" = 8;
+        TERRAIN_ORE @ 1272 : "i64" = 8;
     );
     pub use crate::layout::player::holding::{
         queue, reserve, store, transit, FLAG_DORMANT_CACHE, FLAG_INTRO_BUILD_AVAILABLE,
