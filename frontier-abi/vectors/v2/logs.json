@@ -59,6 +59,10 @@
     {
       "code": 14,
       "account": "Lot"
+    },
+    {
+      "code": 15,
+      "account": "Escrow"
     }
   ],
   "kinds": [
@@ -2033,6 +2037,243 @@
         "body": "016f3f080000213e5b7895b2cfec213e5b786b88a5c2dffc19366b88a5c2dffc19366b88a5c26b88a5c26b6b886b886b88a5c2dffc19366b88a5c2dffc193600",
         "decodes": true,
         "chains": []
+      }
+    },
+    {
+      "kind": 112,
+      "name": "ESCROW_OPENED",
+      "key": [
+        {
+          "name": "maker_tag",
+          "len": 8
+        },
+        {
+          "name": "seq",
+          "len": 4
+        }
+      ],
+      "payload": [
+        {
+          "name": "taker_tag",
+          "len": 8
+        },
+        {
+          "name": "deadline_bell",
+          "len": 4
+        },
+        {
+          "name": "give_kind",
+          "len": 1
+        },
+        {
+          "name": "give_amount",
+          "len": 8
+        },
+        {
+          "name": "lot_tag",
+          "len": 8
+        },
+        {
+          "name": "lot_seq",
+          "len": 4
+        },
+        {
+          "name": "src",
+          "len": 8
+        },
+        {
+          "name": "want_kind",
+          "len": 1
+        },
+        {
+          "name": "want_amount",
+          "len": 8
+        },
+        {
+          "name": "want_lot_tag",
+          "len": 8
+        },
+        {
+          "name": "want_lot_seq",
+          "len": 4
+        },
+        {
+          "name": "rent_to",
+          "len": 32
+        },
+        {
+          "name": "give_resource",
+          "len": 1
+        },
+        {
+          "name": "want_resource",
+          "len": 1
+        }
+      ],
+      "body_without_tail_len": 114,
+      "vector": {
+        "bell": 2112,
+        "body_without_tail": "017040080000213e5b7895b2cfec213e5b786b88a5c2dffc19366b88a5c26b6b88a5c2dffc19366b88a5c2dffc19366b88a5c26b88a5c2dffc19366b6b88a5c2dffc19366b88a5c2dffc19366b88a5c26b88a5c2dffc193653708daac7e4011e3b587592afcce90623405d7a97b4d1ee6b6b",
+        "body": "017040080000213e5b7895b2cfec213e5b786b88a5c2dffc19366b88a5c26b6b88a5c2dffc19366b88a5c2dffc19366b88a5c26b88a5c2dffc19366b6b88a5c2dffc19366b88a5c2dffc19366b88a5c26b88a5c2dffc193653708daac7e4011e3b587592afcce90623405d7a97b4d1ee6b6b00",
+        "decodes": true,
+        "chains": []
+      }
+    },
+    {
+      "kind": 113,
+      "name": "ESCROW_SETTLED",
+      "key": [
+        {
+          "name": "maker_tag",
+          "len": 8
+        },
+        {
+          "name": "seq",
+          "len": 4
+        }
+      ],
+      "payload": [
+        {
+          "name": "taker_tag",
+          "len": 8
+        },
+        {
+          "name": "maker_kind",
+          "len": 1
+        },
+        {
+          "name": "taker_kind",
+          "len": 1
+        },
+        {
+          "name": "maker_lot_tag",
+          "len": 8
+        },
+        {
+          "name": "maker_lot_seq",
+          "len": 4
+        },
+        {
+          "name": "taker_lot_tag",
+          "len": 8
+        },
+        {
+          "name": "taker_lot_seq",
+          "len": 4
+        },
+        {
+          "name": "src",
+          "len": 8
+        },
+        {
+          "name": "closed",
+          "len": 1
+        }
+      ],
+      "body_without_tail_len": 61,
+      "vector": {
+        "bell": 2113,
+        "body_without_tail": "017141080000213e5b7895b2cfec213e5b786b88a5c2dffc19366b6b6b88a5c2dffc19366b88a5c26b88a5c2dffc19366b88a5c26b88a5c2dffc19366b",
+        "body": "017141080000213e5b7895b2cfec213e5b786b88a5c2dffc19366b6b6b88a5c2dffc19366b88a5c26b88a5c2dffc19366b88a5c26b88a5c2dffc19366b00",
+        "decodes": true,
+        "chains": []
+      }
+    },
+    {
+      "kind": 114,
+      "name": "ESCROW_CANCELLED",
+      "key": [
+        {
+          "name": "maker_tag",
+          "len": 8
+        },
+        {
+          "name": "seq",
+          "len": 4
+        }
+      ],
+      "payload": [
+        {
+          "name": "by_tag",
+          "len": 8
+        },
+        {
+          "name": "released",
+          "len": 1
+        },
+        {
+          "name": "lot_tag",
+          "len": 8
+        },
+        {
+          "name": "lot_seq",
+          "len": 4
+        },
+        {
+          "name": "src",
+          "len": 8
+        }
+      ],
+      "body_without_tail_len": 47,
+      "vector": {
+        "bell": 2114,
+        "body_without_tail": "017242080000213e5b7895b2cfec213e5b786b88a5c2dffc19366b6b88a5c2dffc19366b88a5c26b88a5c2dffc1936",
+        "body": "017242080000213e5b7895b2cfec213e5b786b88a5c2dffc19366b6b88a5c2dffc19366b88a5c26b88a5c2dffc193600",
+        "decodes": true,
+        "chains": []
+      }
+    },
+    {
+      "kind": 115,
+      "name": "ESCROW_WITHDRAWN",
+      "key": [
+        {
+          "name": "maker_tag",
+          "len": 8
+        },
+        {
+          "name": "seq",
+          "len": 4
+        }
+      ],
+      "payload": [
+        {
+          "name": "receiver_tag",
+          "len": 8
+        },
+        {
+          "name": "side",
+          "len": 1
+        },
+        {
+          "name": "amount",
+          "len": 8
+        },
+        {
+          "name": "caravan_seq",
+          "len": 4
+        },
+        {
+          "name": "closed",
+          "len": 1
+        }
+      ],
+      "body_without_tail_len": 40,
+      "vector": {
+        "bell": 2115,
+        "body_without_tail": "017343080000213e5b7895b2cfec213e5b786b88a5c2dffc19366b6b88a5c2dffc19366b88a5c26b",
+        "body": "017343080000213e5b7895b2cfec213e5b786b88a5c2dffc19366b6b88a5c2dffc19366b88a5c26b010f0400000000000000b6c91746c366705ef6df30d88008fea5ead11d80457b022d121bbe7cf5bc8ca6",
+        "decodes": true,
+        "chains": [
+          {
+            "entity": 15,
+            "who": "Escrow { maker_tag: 17064053868169215521, seq: 2019245601 }",
+            "prev_seq": 3,
+            "prev_head": "6db0a4ad3116a1a9777e88314d404dc2601d573059105e1a19d71491e64548e9",
+            "seq": 4,
+            "head": "b6c91746c366705ef6df30d88008fea5ead11d80457b022d121bbe7cf5bc8ca6"
+          }
+        ]
       }
     }
   ],

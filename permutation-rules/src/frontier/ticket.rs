@@ -20,7 +20,7 @@ use crate::frontier::holding::RESOURCES;
 /// Version of this module's rules (bound into `RULESET_HASH_V4`): 2 adds
 /// the share rules of 2b ([`minted`], [`basket`]), 3 the receipts' period of
 /// 2c ([`Period`], [`grant`]), 4 the use runs of 2d ([`run_change`]).
-pub const TICKET_VERSION: u16 = 4;
+pub const TICKET_VERSION: u16 = 5;
 
 /// Runs a day per workshop copy (2d, L4): its hours.
 pub const RUNS_PER_COPY: u32 = 24;
@@ -63,6 +63,11 @@ pub const NO_END: u32 = u32::MAX;
 
 /// Live issues a citizen may have [phase 6].
 pub const MAX_OPEN_ISSUES: u8 = 8;
+/// How far ahead an escrow's deadline may be, in bells (2e: 7 days) [phase 6].
+pub const ESCROW_MAX_BELLS: u32 = 7 * crate::frontier::travel::BELLS_PER_DAY;
+/// The most goods (milli) one escrow side may name (2e): far above any
+/// vault's cap, far below `i64::MAX`.
+pub const ESCROW_MAX_GOODS: u64 = 1_000_000_000_000;
 /// Units of one issue [phase 6].
 pub const MAX_SUPPLY: u64 = 1_000_000;
 /// The fee to issue tickets (whole units: gold), paid from a holding and
@@ -251,6 +256,8 @@ pub fn write_tables(out: &mut alloc::vec::Vec<u8>) {
     out.extend_from_slice(&MAX_SUPPLY.to_le_bytes());
     out.extend_from_slice(&RATIO_ONE.to_le_bytes());
     out.extend_from_slice(&RUNS_PER_COPY.to_le_bytes());
+    out.extend_from_slice(&ESCROW_MAX_BELLS.to_le_bytes());
+    out.extend_from_slice(&ESCROW_MAX_GOODS.to_le_bytes());
     let (o, w, a) = run_change(1);
     for v in [o, w, a] {
         out.extend_from_slice(&v.to_le_bytes());

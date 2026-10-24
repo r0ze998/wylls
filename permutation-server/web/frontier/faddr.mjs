@@ -16,7 +16,7 @@ import { LAYOUTS as LAYOUTS_V2 } from '../sdk/frontier/abi-v2-layouts.mjs';
 import { provinceFromIndex, provinceIndex, SITES_PER_PROVINCE } from './fgeo.mjs';
 
 // S1 and S2 (ABI v2): the vault, caravan, structure, nation, issue and lot tags come from the v2 layout table.
-const S1_KINDS = ['Vault', 'Caravan', 'Structure', 'Nation', 'Issue', 'Lot'];
+const S1_KINDS = ['Vault', 'Caravan', 'Structure', 'Nation', 'Issue', 'Lot', 'Escrow'];
 const TAG = Object.fromEntries([
   ...Object.entries(ACCOUNTS).filter(([, a]) => a.tag).map(([k, a]) => [k, a.tag]),
   ...LAYOUTS_V2.accounts.filter(a => S1_KINDS.includes(a.kind) && a.seed_tag).map(a => [a.kind, a.seed_tag]),
@@ -60,6 +60,8 @@ export const RAW = Object.freeze({
   // S2 (2a): issue_seed (issuer tag, seq) and lot_seed (the first holder's tag, seq).
   Issue: ({ tag, seq }) => concat(u64(tag), u32(seq)),
   Lot: ({ tag, seq }) => concat(u64(tag), u32(seq)),
+  // S2 (2e): escrow_seed (the maker's tag, seq).
+  Escrow: ({ tag, seq }) => concat(u64(tag), u32(seq)),
 });
 
 /**

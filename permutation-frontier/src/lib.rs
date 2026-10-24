@@ -232,6 +232,10 @@ pub fn dispatch(
         Ix::WithdrawReceipt => ticket::withdraw_receipt(p, a, data),
         // S2 (stage 2d): use runs.
         Ix::UseRun => ticket::use_run(p, a, data),
+        Ix::OpenEscrow => ticket::open_escrow(p, a, data),
+        Ix::AcceptEscrow => ticket::accept_escrow(p, a, data),
+        Ix::CancelEscrow => ticket::cancel_escrow(p, a, data),
+        Ix::WithdrawEscrow => ticket::withdraw_escrow(p, a, data),
     };
     heap::trace_checkpoint(0xffff);
     r

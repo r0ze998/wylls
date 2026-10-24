@@ -2581,6 +2581,32 @@ pub fn s2_t66(run: &Input) -> Made {
     })
 }
 
+/// T67: escrowed goods released twice (V26): the first WithdrawEscrow's
+/// vault left with its hold lowered by one unit more.
+pub fn s2_t67(run: &Input) -> Made {
+    use frontier_abi::v2::layout::s1::vault as VA;
+    let mut inp = run.clone();
+    let tag = frontier_abi::v2::tags::Ix::WithdrawEscrow.tag();
+    let t = first_with(&inp, tag).need("a WithdrawEscrow")?;
+    let keys = ix_keys(&inp, t, tag).need("its accounts")?;
+    let vault = *keys.get(5).need("its vault")?;
+    edit_account_at(&mut inp, &vault, t, |d| {
+        // The first resource: any hold lowered more than the goods paid.
+        let o = VA::held(0);
+        let v = u64::from_le_bytes(d[o..o + 8].try_into().unwrap());
+        d[o..o + 8].copy_from_slice(&v.wrapping_sub(1_000).to_le_bytes());
+    })
+    .then_some(())
+    .need("the vault's post-state")?;
+    Ok(Case {
+        class: "T67",
+        what: "escrowed goods released twice",
+        feature: None,
+        codes: &[TICKET_MISMATCH],
+        input: inp,
+    })
+}
+
 /// The S2 classes (stage 2a, S2-2A-CONTRACT §4.2) an S2 season runs:
 /// extras until an S2 fixture with tickets is committed.
 pub fn s2_classes() -> Vec<Class> {
@@ -2604,6 +2630,8 @@ pub fn s2_classes() -> Vec<Class> {
         c("T65", vec![("claim counted twice", s2_t65)]),
         // 2d (S2-2D-CONTRACT §5).
         c("T66", vec![("more arms than the runs", s2_t66)]),
+        // 2e (S2-2E-CONTRACT §5).
+        c("T67", vec![("escrowed goods released twice", s2_t67)]),
     ]
 }
 

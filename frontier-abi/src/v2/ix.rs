@@ -187,6 +187,50 @@ ix_data_v2! {
     /// 0xC8 (P, S2, 2d): `runs` workshop-hours of the citizen's use lot,
     /// converted at once in its vault in the workshop's Province.
     UseRun { runs: u8 }
+    /// 0xC9 (P, S2, 2e): the citizen opens an escrow with the citizen
+    /// tagged `taker_tag`: it gives `give_*` (put in escrow now) for
+    /// `want_*`, acceptable until `deadline_bell`. An item is goods
+    /// (`kind` 1: `amount` milli of `resource`, the vault at `p, q, tile`;
+    /// a want's vault is the taker's choice) or a whole lot (`kind` 2:
+    /// `lot_tag, lot_seq`).
+    OpenEscrow {
+        deadline_bell: u32,
+        taker_tag: u64,
+        give_kind: u8,
+        give_resource: u8,
+        give_p: i16,
+        give_q: i16,
+        give_tile: u8,
+        give_amount: u64,
+        give_lot_tag: u64,
+        give_lot_seq: u32,
+        want_kind: u8,
+        want_resource: u8,
+        want_amount: u64,
+        want_lot_tag: u64,
+        want_lot_seq: u32,
+    }
+    /// 0xCA (P, S2, 2e): the taker puts its item in (goods from its vault at
+    /// `vault_p, vault_q, vault_tile`) and the swap happens.
+    AcceptEscrow { vault_p: i16, vault_q: i16, vault_tile: u8 }
+    /// 0xCB (P, S2, 2e): cancels an open escrow (the maker's item released),
+    /// or closes a settled one whose owed goods are all void.
+    CancelEscrow {}
+    /// 0xCC (P, S2, 2e): the receiver sends goods side `side` (0 the maker's,
+    /// 1 the taker's) out of its vault as caravan `seq` (otherwise as
+    /// SendCaravan).
+    WithdrawEscrow {
+        side: u8,
+        seq: u32,
+        dst_kind: u8,
+        dst_p: i16,
+        dst_q: i16,
+        dst_at: u8,
+        dst_gen: u8,
+        steps: u8,
+        path: [u8; 12],
+        fee: u64,
+    }
 }
 
 ix_data_v2! {
@@ -373,6 +417,10 @@ pub fn fixed_len(ix: Ix) -> Option<usize> {
         Ix::ClaimReceipt => ClaimReceipt::LEN,
         Ix::WithdrawReceipt => WithdrawReceipt::LEN,
         Ix::UseRun => UseRun::LEN,
+        Ix::OpenEscrow => OpenEscrow::LEN,
+        Ix::AcceptEscrow => AcceptEscrow::LEN,
+        Ix::CancelEscrow => CancelEscrow::LEN,
+        Ix::WithdrawEscrow => WithdrawEscrow::LEN,
         Ix::Propose => Propose::LEN,
         Ix::Vote => Vote::LEN,
         Ix::SettleProposal => SettleProposal::LEN,
@@ -411,6 +459,10 @@ pub fn wire_of(ix: Ix) -> Option<&'static [(&'static str, usize)]> {
         Ix::ClaimReceipt => ClaimReceipt::WIRE,
         Ix::WithdrawReceipt => WithdrawReceipt::WIRE,
         Ix::UseRun => UseRun::WIRE,
+        Ix::OpenEscrow => OpenEscrow::WIRE,
+        Ix::AcceptEscrow => AcceptEscrow::WIRE,
+        Ix::CancelEscrow => CancelEscrow::WIRE,
+        Ix::WithdrawEscrow => WithdrawEscrow::WIRE,
         Ix::Propose => Propose::WIRE,
         Ix::Vote => Vote::WIRE,
         Ix::SettleProposal => SettleProposal::WIRE,

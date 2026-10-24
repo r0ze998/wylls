@@ -171,7 +171,7 @@ export const decodeSeasonParams = bytes => readFields(Uint8Array.from(bytes), 0,
 /** Byte-array fields of instruction data (every other field is an integer). */
 const BYTE_FIELDS = new Set(['session', 'commit', 'seal', 'plain', 'salt', 'ct_hash', 'beneficiary', 'hints', 'sig48', 'params_hash', 'tiles']);
 /** Signed integer fields (two's complement). */
-const SIGNED_FIELDS = new Set(['p', 'q', 'm', 'n', 'delta', 'session_expiry', 'expiry', 't_create_min', 'dst_p', 'dst_q']);
+const SIGNED_FIELDS = new Set(['p', 'q', 'm', 'n', 'delta', 'session_expiry', 'expiry', 't_create_min', 'dst_p', 'dst_q', 'give_p', 'give_q', 'vault_p', 'vault_q']);
 
 /** An instruction's ABI row (`{name, tag, class, top_level_only, relay_*_shape, data_len, data, account_groups}`) by tag or name, or null. */
 export const ixOf = (which, profile = 1) => (typeof which === 'number' ? (profile >= 2 ? ixByTagV2 : ixByTag).get(which) : (profile >= 2 ? ixByNameV2 : ixByName).get(which)) ?? null;

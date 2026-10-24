@@ -25,7 +25,10 @@
 //! `runs` (2d) its runs of its last run day (USE_RUN; a gift moves used
 //! runs with the units, as the program does). Share issues
 //! (2b, kind 1) follow SHARES_OPENED, SHARES_DEPOSITED (a holder's deposit
-//! lot, created at its first deposit) and SHARES_WITHDRAWN.
+//! lot, created at its first deposit) and SHARES_WITHDRAWN. Escrows (2e):
+//! `escrows` lists each open or settled escrow (its two items, the goods
+//! still `owed` per side) from ESCROW_OPENED until its CANCELLED or last
+//! WITHDRAWN; a swap moves the lots' holders.
 
 use std::collections::BTreeMap;
 
@@ -58,12 +61,41 @@ pub struct LotRow {
     pub amount: u64,
 }
 
+/// 2e: an escrow in the feed (open, or settled with goods owed).
+#[derive(Clone, Debug, PartialEq)]
+pub struct EscrowRow {
+    pub taker_tag: u64,
+    pub deadline_bell: u32,
+    /// 1 open, 2 settled.
+    pub state: u8,
+    /// The maker's item: kind (1 goods, 2 lot), amount, lot, goods' vault.
+    pub give_kind: u8,
+    pub give_amount: u64,
+    pub give_lot: (u64, u32),
+    pub give_src: LogPlace,
+    /// The taker's item as wanted (goods: kind 1 and the milli).
+    pub want_kind: u8,
+    pub want_amount: u64,
+    pub want_lot: (u64, u32),
+    /// The rent's payee (base58 in the feed).
+    pub rent_to: [u8; 32],
+    /// The goods' resources (0 for a lot).
+    pub give_resource: u8,
+    pub want_resource: u8,
+    /// The taker's goods' vault once settled.
+    pub take_src: Option<LogPlace>,
+    /// Goods still owed, per side (0 the maker's, 1 the taker's).
+    pub owed: [bool; 2],
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Tickets {
     /// `(issuer_tag, seq)` → the live issue.
     pub issues: BTreeMap<(u64, u32), IssueRow>,
     /// `(seed_tag, seq)` → the live lot.
     pub lots: BTreeMap<(u64, u32), LotRow>,
+    /// 2e: `(maker_tag, seq)` → the escrow until it closes.
+    pub escrows: BTreeMap<(u64, u32), EscrowRow>,
     /// Changed since the file was last written.
     pub dirty: bool,
 }
@@ -306,6 +338,87 @@ impl Tickets {
                 new_gen,
                 ..
             } => return self.regen(SRC_HOLDING, p, q, site, new_gen),
+            // 2e: escrows; a swap rewrites the lots' holders in place.
+            CqEvent::EscrowOpened {
+                maker_tag,
+                seq,
+                taker_tag,
+                deadline_bell,
+                give_kind,
+                give_amount,
+                lot,
+                src,
+                want_kind,
+                want_amount,
+                want_lot,
+                rent_to,
+                give_resource,
+                want_resource,
+            } => {
+                self.escrows.insert(
+                    (maker_tag, seq),
+                    EscrowRow {
+                        taker_tag,
+                        deadline_bell,
+                        state: 1,
+                        give_kind,
+                        give_amount,
+                        give_lot: lot,
+                        give_src: src,
+                        want_kind,
+                        want_amount,
+                        want_lot,
+                        rent_to,
+                        give_resource,
+                        want_resource,
+                        take_src: None,
+                        owed: [false; 2],
+                    },
+                );
+            }
+            CqEvent::EscrowSettled {
+                maker_tag,
+                seq,
+                taker_tag,
+                maker_kind,
+                taker_kind,
+                maker_lot,
+                taker_lot,
+                src,
+                ..
+            } => {
+                if maker_kind == 2 {
+                    if let Some(l) = self.lots.get_mut(&maker_lot) {
+                        l.holder_tag = taker_tag;
+                    }
+                }
+                if taker_kind == 2 {
+                    if let Some(l) = self.lots.get_mut(&taker_lot) {
+                        l.holder_tag = maker_tag;
+                    }
+                }
+                if let Some(e) = self.escrows.get_mut(&(maker_tag, seq)) {
+                    e.state = 2;
+                    e.owed = [maker_kind == 1, taker_kind == 1];
+                    e.take_src = (taker_kind == 1).then_some(src);
+                }
+            }
+            CqEvent::EscrowCancelled { maker_tag, seq, .. } => {
+                self.escrows.remove(&(maker_tag, seq));
+            }
+            CqEvent::EscrowWithdrawn {
+                maker_tag,
+                seq,
+                side,
+                closed,
+                ..
+            } => {
+                if closed {
+                    self.escrows.remove(&(maker_tag, seq));
+                } else if let Some(e) = self.escrows.get_mut(&(maker_tag, seq)) {
+                    e.owed[(side as usize).min(1)] = false;
+                }
+            }
             // 2d: a lot's runs of the day.
             CqEvent::UseRun {
                 lot, day, lot_runs, ..
@@ -364,7 +477,21 @@ impl Tickets {
                     "runDay": l.runs.map(|r| r.0), "runs": l.runs.map(|r| r.1)})
             })
             .collect();
-        json!({"v": 1, "issues": issues, "lots": lots})
+        let escrows: Vec<Value> = self
+            .escrows
+            .iter()
+            .map(|((tag, seq), e)| {
+                json!({"makerTag": tag.to_string(), "seq": seq, "takerTag": e.taker_tag.to_string(),
+                    "deadlineBell": e.deadline_bell, "state": e.state, "giveKind": e.give_kind,
+                    "giveAmount": e.give_amount, "giveLot": [e.give_lot.0.to_string(), e.give_lot.1],
+                    "giveSrc": place(&e.give_src), "wantKind": e.want_kind, "wantAmount": e.want_amount,
+                    "wantLot": [e.want_lot.0.to_string(), e.want_lot.1],
+                    "rentTo": fclient::Address::new_from_array(e.rent_to).to_string(),
+                    "giveResource": e.give_resource, "wantResource": e.want_resource,
+                    "takeSrc": e.take_src.as_ref().map(place), "owed": e.owed})
+            })
+            .collect();
+        json!({"v": 1, "issues": issues, "lots": lots, "escrows": escrows})
     }
 
     /// The checkpoint form (the file's).
@@ -410,6 +537,34 @@ impl Tickets {
                     issue_seq: x["issueSeq"].as_u64()? as u32,
                     holder_tag: tag_of(&x["holderTag"])?,
                     amount: x["amount"].as_u64()?,
+                },
+            );
+        }
+        // 2e (absent from older checkpoints).
+        for x in v.get("escrows").and_then(|e| e.as_array()).into_iter().flatten() {
+            let gl = x["giveLot"].as_array()?;
+            let owed = x["owed"].as_array()?;
+            t.escrows.insert(
+                (tag_of(&x["makerTag"])?, x["seq"].as_u64()? as u32),
+                EscrowRow {
+                    taker_tag: tag_of(&x["takerTag"])?,
+                    deadline_bell: x["deadlineBell"].as_u64()? as u32,
+                    state: x["state"].as_u64()? as u8,
+                    give_kind: x["giveKind"].as_u64()? as u8,
+                    give_amount: x["giveAmount"].as_u64()?,
+                    give_lot: (tag_of(gl.first()?)?, gl.get(1)?.as_u64()? as u32),
+                    give_src: place_of(&x["giveSrc"])?,
+                    want_kind: x["wantKind"].as_u64()? as u8,
+                    want_amount: x["wantAmount"].as_u64()?,
+                    want_lot: {
+                        let w = x["wantLot"].as_array()?;
+                        (tag_of(w.first()?)?, w.get(1)?.as_u64()? as u32)
+                    },
+                    rent_to: x["rentTo"].as_str()?.parse::<fclient::Address>().ok()?.to_bytes(),
+                    give_resource: x["giveResource"].as_u64()? as u8,
+                    want_resource: x["wantResource"].as_u64()? as u8,
+                    take_src: if x["takeSrc"].is_null() { None } else { Some(place_of(&x["takeSrc"])?) },
+                    owed: [owed.first()?.as_bool()?, owed.get(1)?.as_bool()?],
                 },
             );
         }
@@ -623,6 +778,58 @@ mod tests {
         let mut back = Tickets::from_json(&t.to_json()).unwrap();
         back.dirty = t.dirty;
         assert_eq!(back, t);
+    }
+
+
+    /// 2e: an escrow opened, settled (a lot for goods), collected.
+    #[test]
+    fn escrows_fold() {
+        let mut t = Tickets::default();
+        t.fold(&issued());
+        assert!(t.fold(&CqEvent::EscrowOpened {
+            maker_tag: 22,
+            seq: 3,
+            taker_tag: 11,
+            deadline_bell: 90,
+            give_kind: 1,
+            give_amount: 50_000,
+            lot: (0, 0),
+            src: vault_src(1),
+            want_kind: 2,
+            want_amount: 0,
+            want_lot: (11, 0),
+            rent_to: [7; 32],
+            give_resource: 3,
+            want_resource: 0,
+        }));
+        assert!(t.fold(&CqEvent::EscrowSettled {
+            maker_tag: 22,
+            seq: 3,
+            taker_tag: 11,
+            maker_kind: 1,
+            taker_kind: 2,
+            maker_lot: (0, 0),
+            taker_lot: (11, 0),
+            src: LogPlace { kind: 0, p: 0, q: 0, at: 0, gen: 0, tile: 0 },
+            closed: false,
+        }));
+        assert_eq!(t.lots[&(11, 0)].holder_tag, 22);
+        assert_eq!(t.escrows[&(22, 3)].owed, [true, false]);
+        let f = t.file();
+        assert_eq!(f["escrows"][0]["state"], json!(2));
+        let mut back = Tickets::from_json(&t.to_json()).unwrap();
+        back.dirty = t.dirty;
+        assert_eq!(back, t);
+        assert!(t.fold(&CqEvent::EscrowWithdrawn {
+            maker_tag: 22,
+            seq: 3,
+            receiver_tag: 11,
+            side: 0,
+            amount: 50_000,
+            caravan_seq: 0,
+            closed: true,
+        }));
+        assert!(t.escrows.is_empty());
     }
 
 }

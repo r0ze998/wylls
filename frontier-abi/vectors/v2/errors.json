@@ -703,6 +703,13 @@
       "program": true,
       "mc": true,
       "keeper": "refused"
+    },
+    {
+      "code": 101,
+      "name": "EscrowState",
+      "program": true,
+      "mc": true,
+      "keeper": "refused"
     }
   ]
 }

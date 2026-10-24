@@ -93,6 +93,9 @@ if RES_DAY != today:
 if CLAIM_DAY != today: CLAIMS = 0, CLAIM_DAY = today
 ```
 
+Since 2e the roll's `stock` is the vault's stock less what escrows hold
+(`HELD`): held goods are promised already.
+
 It runs in: ClaimReceipt, WithdrawReceipt, SendCaravan from a vault,
 SettleCaravan and SettleDeposit into a vault (when delivered), and 2d's use
 runs later. `ticket::roll` holds it; the verifier replays it.

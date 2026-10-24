@@ -4,7 +4,7 @@
 
 **対象：** ブランチ `ccr-184d6862-fqutoz`（段階1の1a〜1f まで入ったもの）。
 
-**進み具合（2026-10-24）：** 2a（札の土台）、2b（持ち分の札）、2c（受け取りの札）、2d（使用権の札）を実装しました。契約は [S2-2A-CONTRACT](../../frontier/stage2/S2-2A-CONTRACT.md)、[S2-2B-CONTRACT](../../frontier/stage2/S2-2B-CONTRACT.md)、[S2-2C-CONTRACT](../../frontier/stage2/S2-2C-CONTRACT.md)、[S2-2D-CONTRACT](../../frontier/stage2/S2-2D-CONTRACT.md) です。それぞれで決めたことのうち、あなたに見てほしいものは各契約の9章にあります。3つの独立レビュー（プログラム・検証器・オフチェーン）の指摘は直し、直さなかったものは各契約の10章「Known limits」に書きました。
+**進み具合（2026-10-24）：** 2a（札の土台）、2b（持ち分の札）、2c（受け取りの札）、2d（使用権の札）、2e（引き換えの預かり）を実装しました。契約は [S2-2A-CONTRACT](../../frontier/stage2/S2-2A-CONTRACT.md)、[S2-2B-CONTRACT](../../frontier/stage2/S2-2B-CONTRACT.md)、[S2-2C-CONTRACT](../../frontier/stage2/S2-2C-CONTRACT.md)、[S2-2D-CONTRACT](../../frontier/stage2/S2-2D-CONTRACT.md)、[S2-2E-CONTRACT](../../frontier/stage2/S2-2E-CONTRACT.md) です。残りは 2f（AI と画面の仕上げ。預かりを画面から出す操作もここ）です。それぞれで決めたことのうち、あなたに見てほしいものは各契約の9章にあります。3つの独立レビュー（プログラム・検証器・オフチェーン）の指摘は直し、直さなかったものは各契約の10章「Known limits」に書きました。
 
 **段階2で作るもの（決定済み。[20](20-stage2-play.ja.md)、[29](29-remaining-decisions.ja.md) の A1〜A3）：**
 - 札3種：持ち分の札、受け取りの札、使用権の札。

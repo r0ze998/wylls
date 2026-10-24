@@ -728,6 +728,9 @@ pub(crate) enum SendBy {
     /// A receipt holder out of a vault, its grant already taken from the
     /// reservation (2c WithdrawReceipt).
     Receipt,
+    /// An escrow's receiver out of the giver's vault, its hold already
+    /// released (2e WithdrawEscrow).
+    Escrow,
 }
 
 /// A vault's receipts period (2c).
@@ -768,12 +771,32 @@ pub(crate) fn vault_stock(vd: &[u8]) -> R<[i64; RESOURCES]> {
     Ok(out)
 }
 
+/// A vault's goods held for escrows (2e, `HELD`).
+pub(crate) fn vault_held(vd: &[u8]) -> R<[i64; RESOURCES]> {
+    let mut out = [0i64; RESOURCES];
+    for (r, v) in out.iter_mut().enumerate() {
+        *v = Ro(vd).u64(VA::held(r))? as i64;
+    }
+    Ok(out)
+}
+
+/// A vault's stock less what escrows hold (2e): what receipts, the owner's
+/// sends and use runs may count on.
+pub(crate) fn vault_free(vd: &[u8]) -> R<[i64; RESOURCES]> {
+    let (mut s, h) = (vault_stock(vd)?, vault_held(vd)?);
+    for r in 0..RESOURCES {
+        s[r] -= h[r];
+    }
+    Ok(s)
+}
+
 /// Rolls a vault's receipts period at the bell's day when it ever had a
-/// claim (2c, `ticket::Period::roll`), before its stock changes.
+/// claim (2c, `ticket::Period::roll`), before its stock changes. Goods held
+/// for escrows are promised already (2e): the roll sees the free stock.
 pub(crate) fn roll_vault(vd: &mut [u8], bell: u32) -> R<kt::Period> {
     let mut p = period_of(vd)?;
     if p.active() && bell != NO_BELL {
-        p.roll(bell / BELLS_PER_DAY, &vault_stock(vd)?);
+        p.roll(bell / BELLS_PER_DAY, &vault_free(vd)?);
         put_period(vd, &p)?;
     }
     Ok(p)
@@ -870,12 +893,14 @@ pub(crate) fn send(
         // receipt grants hold.
         let period = roll_vault(&mut vd, pl.pc.now_bell)?;
         let today = pl.pc.now_bell / BELLS_PER_DAY;
+        let held = vault_held(&vd)?;
         for (r, c) in cargo.iter().enumerate() {
             let have = Ro(&vd).i64(VA::store(r))?;
-            let may = if by == SendBy::Owner {
-                period.available(today, r, have)
-            } else {
-                have
+            // 2e: an escrow's goods leave only by their own withdrawal.
+            let may = match by {
+                SendBy::Owner => period.available(today, r, have - held[r]),
+                SendBy::Escrow => have,
+                _ => have - held[r],
             };
             if may < *c {
                 return Err(FrontierError::Insufficient.into());
@@ -2028,8 +2053,12 @@ pub fn seize_vault(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         w.set_u8(VA::SHARES_ON, 0)?;
         w.set_u32(VA::SHARES_SEQ, 0)?;
         w.set_u64(VA::SHARES_ISSUER_TAG, 0)?;
-        // 2c: and its receipts' claims and grants.
+        // 2c: and its receipts' claims and grants; 2e: and its escrows'
+        // holds.
         put_period(&mut vd, &kt::Period::default())?;
+        for r in 0..RESOURCES {
+            Rw(&mut vd).set_u64(VA::held(r), 0)?;
+        }
     }
     {
         let mut cd = citizen.try_borrow_mut_data()?;

@@ -222,6 +222,25 @@ fn vault_stores(vd: &[u8]) -> Result<[i64; RES], String> {
     Ok(c)
 }
 
+/// A vault's goods held for escrows (2e, `HELD`).
+pub fn vault_held(vd: &[u8]) -> Result<[i64; RES], String> {
+    let mut c = [0i64; RES];
+    for (r, v) in c.iter_mut().enumerate() {
+        *v = u64_at(vd, VA::held(r))? as i64;
+    }
+    Ok(c)
+}
+
+/// A vault's stock less its escrows' holds (2e): what the roll, the owner's
+/// sends and use runs count on.
+pub fn vault_free(vd: &[u8]) -> Result<[i64; RES], String> {
+    let (mut s, h) = (vault_stores(vd)?, vault_held(vd)?);
+    for r in 0..RES {
+        s[r] -= h[r];
+    }
+    Ok(s)
+}
+
 // ------------------------------------------------------------ BuildVault
 
 /// BuildVault (accounts: 3 citizen, 6 province, 7 vault).
@@ -526,6 +545,8 @@ pub enum SendBy {
     Shares,
     /// A receipt holder (2c; V26 judges the grant and the period).
     Receipt,
+    /// An escrow's receiver (2e; V26 judges the hold released).
+    Escrow,
 }
 
 /// A vault's receipts period (2c).
@@ -550,7 +571,7 @@ pub fn rolled(d: &[u8], bell: u32) -> Result<permutation_rules::frontier::ticket
     if p.active() {
         p.roll(
             bell / permutation_rules::frontier::travel::BELLS_PER_DAY,
-            &vault_stores(d)?,
+            &vault_free(d)?,
         );
     }
     Ok(p)
@@ -583,7 +604,7 @@ pub fn judge_send(
     if by == SendBy::Shares && !vault_shared(&sb) {
         return Err(caravan_wrong("a withdrawal from an unshared vault"));
     }
-    if by == SendBy::Receipt && (sp.kind != PL::KIND_VAULT || vault_shared(&sb)) {
+    if matches!(by, SendBy::Receipt | SendBy::Escrow) && (sp.kind != PL::KIND_VAULT || vault_shared(&sb)) {
         return Err(caravan_wrong(
             "a receipt withdrawal not from an unshared vault",
         ));
@@ -642,7 +663,13 @@ pub fn judge_send(
         if by != SendBy::Receipt {
             let p = rolled(&sb, at.bell).map_err(caravan_wrong)?;
             let today = at.bell / permutation_rules::frontier::travel::BELLS_PER_DAY;
-            if by == SendBy::Owner && (0..RES).any(|r| cargo[r] > p.available(today, r, b[r])) {
+            let held = vault_held(&sb).map_err(caravan_wrong)?;
+            let ok = |r: usize| match by {
+                SendBy::Owner => cargo[r] <= p.available(today, r, b[r] - held[r]),
+                SendBy::Escrow => true,
+                _ => cargo[r] <= b[r] - held[r],
+            };
+            if !(0..RES).all(ok) {
                 return Err(vault_wrong(
                     "a send took goods reserved for today's receipts",
                 ));
@@ -661,7 +688,8 @@ pub fn judge_send(
             o < 64
                 || (VA::STORES..VA::STORES + 64).contains(&o)
                 || (VA::SENT..VA::SENT + 4).contains(&o)
-                || (VA::CLAIM_DAY..VA::RSV).contains(&o)
+                || (VA::CLAIM_DAY..VA::HELD).contains(&o)
+                || (by == SendBy::Escrow && (VA::HELD..VA::RSV).contains(&o))
         };
         if sb.len() != va.len() || (0..sb.len()).any(|o| !touched(o) && sb[o] != va[o]) {
             return Err(vault_wrong("a send changed more of the vault than its goods"));
@@ -735,6 +763,41 @@ pub fn judge_receipt_caravan(ix: &crate::world::Ix, s: &dyn States, at: At) -> R
         paid[r] = b[r] - a[r];
     }
     judge_send(s, at, &send, &paid, SendBy::Receipt)
+}
+
+/// WithdrawEscrow's caravan (S2 2e; accounts: 0 actor, 2 season, 3
+/// citizen, 4 escrow, 5 src, 6 dst, 7 caravan, 8 system, 9 rent_to, 10..
+/// path Provinces): a send of what the vault paid (V26 judges that it is
+/// the owed goods and their hold released).
+pub fn judge_escrow_caravan(ix: &crate::world::Ix, s: &dyn States, at: At) -> Result<(), Wrong> {
+    let x = ix2::WithdrawEscrow::decode(&ix.data).map_err(|_| caravan_wrong("does not decode"))?;
+    let keys: Vec<Key> = (0..ix.accounts.len()).filter_map(|i| ix.key(i)).collect();
+    if keys.len() < 11 {
+        return Err(caravan_wrong("the accounts are missing"));
+    }
+    let send = SendIx {
+        actor: keys[0],
+        season: keys[2],
+        citizen: keys[3],
+        src: keys[5],
+        dst: keys[6],
+        caravan: keys[7],
+        provinces: keys[10..].to_vec(),
+        seq: x.seq,
+        dst_named: (x.dst_kind, x.dst_p, x.dst_q, x.dst_at, x.dst_gen),
+        steps: x.steps,
+        path: x.path,
+        fee: x.fee,
+    };
+    let (b, a) = (
+        vault_stores(&s.before(&send.src).unwrap_or_default()).map_err(caravan_wrong)?,
+        vault_stores(&s.after(&send.src).unwrap_or_default()).map_err(caravan_wrong)?,
+    );
+    let mut paid = [0i64; RES];
+    for r in 0..RES {
+        paid[r] = b[r] - a[r];
+    }
+    judge_send(s, at, &send, &paid, SendBy::Escrow)
 }
 
 // ------------------------------------------------------------ SettleCaravan
@@ -1191,8 +1254,10 @@ pub fn judge_seize_vault(ix: &crate::world::Ix, s: &dyn States) -> Result<(), Wr
     // S2: the shares (2b) and the receipts' period (2c) of the old
     // generation are gone.
     let share_ids = va.get(VA::SHARES_SEQ..VA::SHARES_SEQ + 12);
+    let held = va.get(VA::HELD..VA::RSV);
     if vault_shared(&va)
         || share_ids.is_none_or(|b| b.iter().any(|&x| x != 0))
+        || held.is_none_or(|b| b.iter().any(|&x| x != 0))
         || period_of(&va).map_err(vault_wrong)? != Default::default()
     {
         return Err(vault_wrong("a seizure kept the old generation's tickets"));
@@ -1290,6 +1355,7 @@ pub fn run(cx: &mut Ctx) {
         V2Ix::WithdrawShares,
         V2Ix::SettleDeposit,
         V2Ix::WithdrawReceipt,
+        V2Ix::WithdrawEscrow,
     ];
     let any = w.txs.iter().any(|tx| {
         tx.ok
@@ -1338,6 +1404,8 @@ pub fn run(cx: &mut Ctx) {
                 Some(V2Ix::WithdrawShares) => judge_withdraw_caravan(ix, &st, at),
                 // 2c: a receipt withdrawal's caravan (V26 judges the grant).
                 Some(V2Ix::WithdrawReceipt) => judge_receipt_caravan(ix, &st, at),
+                // 2e: an escrow collection's caravan (V26 judges the hold).
+                Some(V2Ix::WithdrawEscrow) => judge_escrow_caravan(ix, &st, at),
                 Some(V2Ix::RaidCaravan) => match ix2::RaidCaravan::decode(&ix.data) {
                     Ok(x) => {
                         let keys: Vec<Key> =

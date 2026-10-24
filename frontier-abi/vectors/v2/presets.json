@@ -614,7 +614,7 @@
       "params_hash_with_rev3_payout": "3662a841c053fbd82c690cc8b773011bfcbae3cd0721831750571b14adf77f09"
     }
   ],
-  "ruleset_hash_v4": "9733e01fac31d39eb8842640dcde5424ed4444341e62c99e8615aef61dabe928",
+  "ruleset_hash_v4": "012d14ca3e5094a4b83445a2c7cfff3ed40cdca02b325d99288caaa5d78c953a",
   "ruleset_hash_v4_status": "pinned: permutation_rules::frontier::ruleset_hash_v4() (S2 2a: the v3 inputs and ticket 1)",
   "program_version_s2": 5,
   "presets_s2": [

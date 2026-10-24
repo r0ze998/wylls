@@ -227,6 +227,36 @@ const BELLS_PER_DAY = 144;
 const USE = 3;
 
 /**
+ * S2 (2e): the escrows naming the viewer, with what it may do now:
+ * `{bell, escrows: [{makerTag, seq, takerTag, deadlineBell, state,
+ * giveKind, giveAmount, giveLot, giveSrc, wantKind, wantAmount, takeSrc,
+ * owed, mineAs: 'maker'|'taker', canAccept, canCancel, collect: side|null,
+ * collectFrom: {p, q, tile}|null}]}`. Accepting goods takes them from the
+ * viewer's own unshared vault (`acceptVault`, the first; the program checks
+ * the stock).
+ */
+export function s2EscrowsModel(FS) {
+  const mine = viewerTag(FS);
+  const bell = Number(FS.nowBell ?? 0);
+  const vaults = (FS.s1?.caravans?.vaults ?? []).filter(v => isMine(v.ownerTag, mine) && !v.shares);
+  const escrows = (FS.s1?.tickets?.escrows ?? []).map(e => {
+    const maker = isMine(e.makerTag, mine), taker = isMine(e.takerTag, mine);
+    if (!maker && !taker) return null;
+    const open = e.state === 1, late = bell > e.deadlineBell;
+    // Goods owed to the viewer: the other side's.
+    const side = maker ? 1 : 0;
+    const from = side === 0 ? e.giveSrc : e.takeSrc;
+    const collect = !open && e.owed?.[side] && from ? side : null;
+    const acceptVault = e.wantKind === 1 ? (vaults[0] ? { p: vaults[0].p, q: vaults[0].q, tile: vaults[0].tile } : null) : null;
+    return { ...e, mineAs: maker ? 'maker' : 'taker',
+      canAccept: open && taker && !late && (e.wantKind !== 1 || !!acceptVault), acceptVault,
+      canCancel: open ? maker || late : !(e.owed ?? []).some(Boolean),
+      collect, collectFrom: collect === null ? null : { p: from.p, q: from.q, tile: from.at } };
+  }).filter(Boolean);
+  return { bell, escrows };
+}
+
+/**
  * S2 (2d): the viewer's live use lots, each with its runs left today and the
  * viewer's own vault in the workshop's Province (where a run converts):
  * `{today, lots: [{key, issuerTag, issueSeq, amount, perUnit, workshop:
@@ -339,7 +369,8 @@ export function renderS1Village(FS) {
     ${nation ? fold('s1-nation', html`${icon('banner')}${L`国の議会`}`, nation) : ''}
     ${s2On() ? fold('s2-shares', html`${icon('scroll')}${L`持ち分の札`}`, renderShares(FS)) : ''}
     ${s2On() ? fold('s2-receipts', html`${icon('scroll')}${L`受け取りの札`}`, renderReceipts(FS)) : ''}
-    ${s2On() ? fold('s2-uses', html`${icon('scroll')}${L`工房の利用札`}`, renderUses(FS)) : ''}</section>`;
+    ${s2On() ? fold('s2-uses', html`${icon('scroll')}${L`工房の利用札`}`, renderUses(FS)) : ''}
+    ${s2On() ? fold('s2-escrows', html`${icon('scroll')}${L`引き換えの預かり`}`, renderEscrows(FS)) : ''}</section>`;
 }
 
 /** S2 (2b): the viewer's share lots and the withdrawal form. */
@@ -377,6 +408,21 @@ function renderUses(FS) {
       <label class="field">${L`利用札`}<select name="lot">${m.lots.map((l, i) => html`<option value="${i}" ${raw(l.canRun ? '' : 'disabled')}>${L`工房（${l.workshop.p}, ${l.workshop.q}）`}</option>`)}</select></label>
       <div class="count-row"><label class="count-label" for="s2-runs">${L`回数`}</label><input id="s2-runs" name="runs" type="number" min="1" max="255" step="1" value="1" inputmode="numeric"></div>
       <div class="actions"><button type="submit" class="btn" ${raw(m.lots.some(l => l.canRun) ? '' : 'disabled')}>${L`貯蔵庫で作る`}</button></div></form>${note}`;
+}
+
+/** S2 (2e): an escrow item in words. */
+const itemText = (kind, amount, resource) => (kind === 1
+  ? `${RESOURCES[RESOURCE_ORDER[resource ?? 0]] ?? ''} ${fmtNum(Math.floor(Number(amount) / 1000))}`
+  : L`札 ${fmtNum(Number(amount))} 枚`);
+
+/** S2 (2e): the escrows naming the viewer: accept, cancel, collect. */
+function renderEscrows(FS) {
+  const m = s2EscrowsModel(FS);
+  const note = html`<p class="muted">${L`両方の品がそろった時に同時に交換します。物は相手の貯蔵庫から隊商で受け取ります。期限までに受け入れられなければ取り消せます。`}</p>`;
+  if (!m.escrows.length) return html`<p class="muted">${L`あなたあての預かりはありません。`}</p>${note}`;
+  return html`<ul class="list">${m.escrows.map((e, i) => html`<li>${icon('scroll')}${e.mineAs === 'maker' ? L`あなたが出した預かり` : L`あなたあての預かり`}
+    <span class="muted">${L`出す: ${itemText(e.giveKind, e.giveAmount, e.giveResource)} · 求める: ${itemText(e.wantKind, e.wantAmount, e.wantResource)}`}</span>
+    <span class="actions">${e.mineAs === 'taker' && e.state === 1 ? btn('s2-escrow-accept', { i }, L`受け入れる`, { primary: true, disabled: !e.canAccept }) : ''}${e.collect !== null ? btn('s2-escrow-collect', { i }, L`物を受け取る`, { primary: true }) : ''}${btn('s2-escrow-cancel', { i }, L`預かりを取り消す`, { disabled: !e.canCancel })}</span></li>`)}</ul>${note}`;
 }
 
 /** A proposal in words. */

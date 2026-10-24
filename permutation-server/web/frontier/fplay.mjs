@@ -61,6 +61,8 @@ export const SIGNED_BY = Object.freeze({
   ClaimReceipt: 'session', WithdrawReceipt: 'session',
   // S2 (2d): use runs, in the holder's own vault.
   UseRun: 'session',
+  // S2 (2e): escrows (L7: both parties consent, the session key signs).
+  OpenEscrow: 'session', AcceptEscrow: 'session', CancelEscrow: 'session', WithdrawEscrow: 'session',
 });
 /** S1 `layout::s1::place` kinds (a caravan's origin or destination). */
 export const PLACE_KIND = Object.freeze({ holding: 1, vault: 2 });
@@ -86,6 +88,9 @@ export function ticketProvinces(sites) {
  * `actor` is the signing key (the session key, or the wallet). Throws on a
  * shape this page does not send.
  */
+/** S2 (2e): an escrow item's account (its vault or its lot). */
+export const escrowItemAddress = (A, it) => (it.kind === 'goods' ? A.of('Vault', it.vault) : A.of('Lot', it.lot));
+
 export function accountsFor(name, v) {
   if (!SIGNED_BY[name]) throw new Error(`fplay: ${name} is not a shape this page sends`);
   const A = v.addresses;
@@ -172,6 +177,20 @@ export function accountsFor(name, v) {
     // holder's own {p, q, tile} in its Province.
     case 'UseRun':
       return { ...base, lot: A.of('Lot', v.lot), issue: A.of('Issue', v.issue), holding: A.of('Holding', v.workshop), vault: A.of('Vault', v.vault) };
+    // S2 (2e): an escrow is {tag, seq} (its maker's); an item {kind:
+    // 'goods', vault: {p, q, tile}} or {kind: 'lot', lot: {tag, seq}};
+    // `rentTo` the escrow's (the feed's).
+    case 'OpenEscrow':
+      return { ...base, escrow: A.of('Escrow', v.escrow), taker: v.taker, give_src: escrowItemAddress(A, v.give) };
+    case 'AcceptEscrow':
+      return { ...base, escrow: A.of('Escrow', v.escrow), maker_src: escrowItemAddress(A, v.makerItem),
+        taker_src: escrowItemAddress(A, v.takerItem) };
+    case 'CancelEscrow':
+      return { ...base, escrow: A.of('Escrow', v.escrow), rent_to: v.rentTo, src: v.srcs.map(x => escrowItemAddress(A, x)) };
+    case 'WithdrawEscrow':
+      return { ...base, escrow: A.of('Escrow', v.escrow), src: A.of('Vault', v.vault), dst: placeAddress(A, v.dst),
+        caravan: A.of('Caravan', { ownerTag: citizenTag(citizen), seq: v.seq }), rent_to: v.rentTo,
+        path_province: v.provinces.map(p => A.of('Province', p)) };
     case 'CloseLot':
       return { ...base, issue: A.of('Issue', v.issue), source: placeAddress(A, v.source), issue_rent_to: v.issueRentTo,
         ...(v.lot ? { lot: A.of('Lot', v.lot), rent_to: v.rentTo } : {}) };

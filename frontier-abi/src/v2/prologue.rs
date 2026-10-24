@@ -474,6 +474,63 @@ pub fn accounts_of(ix: Ix) -> &'static [Group] {
                 ]
             }
         }
+        // S2 (2e; S2-2E-CONTRACT §3): the maker's item is its vault (goods)
+        // or its lot.
+        Ix::OpenEscrow => {
+            const {
+                &[
+                    one!(PLAYER_PROLOGUE),
+                    one!(&[
+                        s!("escrow", KindV2(K2::Escrow), false, W),
+                        s!("taker", KindV2(K2::Citizen), false, R),
+                        s!("give_src", EitherV2(K2::Vault, K2::Lot), false, W),
+                        SYSTEM,
+                    ]),
+                ]
+            }
+        }
+        Ix::AcceptEscrow => {
+            const {
+                &[
+                    one!(PLAYER_PROLOGUE),
+                    one!(&[
+                        s!("escrow", KindV2(K2::Escrow), false, W),
+                        s!("maker_src", EitherV2(K2::Vault, K2::Lot), false, W),
+                        s!("taker_src", EitherV2(K2::Vault, K2::Lot), false, W),
+                    ]),
+                ]
+            }
+        }
+        // `src` the maker's item (open), or each owed goods side's vault
+        // (settled, void).
+        Ix::CancelEscrow => {
+            const {
+                &[
+                    one!(PLAYER_PROLOGUE),
+                    one!(&[
+                        s!("escrow", KindV2(K2::Escrow), false, W),
+                        s!("rent_to", Wallet, false, W),
+                    ]),
+                    rep!(&[s!("src", EitherV2(K2::Vault, K2::Lot), false, W)], 1, 2),
+                ]
+            }
+        }
+        Ix::WithdrawEscrow => {
+            const {
+                &[
+                    one!(PLAYER_PROLOGUE),
+                    one!(&[
+                        s!("escrow", KindV2(K2::Escrow), false, W),
+                        s!("src", KindV2(K2::Vault), false, W),
+                        s!("dst", EitherV2(K2::Holding, K2::Vault), false, R),
+                        s!("caravan", KindV2(K2::Caravan), false, W),
+                        SYSTEM,
+                        s!("rent_to", Wallet, false, W),
+                    ]),
+                    rep!(&[s!("path_province", KindV2(K2::Province), false, W)], 1, 4),
+                ]
+            }
+        }
         // S1 (1e; S1-1E-CONTRACT §2.6): the holding pays from its reserve;
         // the fort's Province holds its record (the holding's own).
         Ix::FortGarrison => {
@@ -776,6 +833,10 @@ mod tests {
         assert_eq!(count_bounds(Ix::ClaimReceipt), (7, 7));
         assert_eq!(count_bounds(Ix::WithdrawReceipt), (11, 14));
         assert_eq!(count_bounds(Ix::UseRun), (8, 8));
+        assert_eq!(count_bounds(Ix::OpenEscrow), (8, 8));
+        assert_eq!(count_bounds(Ix::AcceptEscrow), (7, 7));
+        assert_eq!(count_bounds(Ix::CancelEscrow), (7, 8));
+        assert_eq!(count_bounds(Ix::WithdrawEscrow), (11, 14));
         assert_eq!(count_bounds(Ix::DefaultRaid), (7, 13));
         // §5.6: the three resident actions gain the Province
         for ix in [Ix::Harvest, Ix::Build, Ix::Train] {

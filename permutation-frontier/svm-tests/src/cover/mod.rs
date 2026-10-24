@@ -18,7 +18,7 @@
 //! | `caravan` (S1 1b: BuildVault, SendCaravan, SettleCaravan, RaidCaravan, SeizeVault, CloseVault, DefaultRaid) | S1 |
 //! | `tower` (S1 1d: BuildStructure, SeizeStructure, CloseStructure) | S1 |
 //! | `ticket` (S2 2a: IssueTickets, GiveLot, CloseLot) | S2 |
-//! | `shares`, `receipts`, `uses` (S2 2b–2d) | S2 |
+//! | `shares`, `receipts`, `uses`, `escrow` (S2 2b–2e) | S2 |
 //!
 //! **MC (ABI v2, conquest contract §13.3 G13).** [`covered_by`] matches
 //! `frontier_abi::v2::Ix` (57 tags), so the seven MC instructions are in
@@ -47,6 +47,7 @@ pub mod citizen;
 pub mod clash;
 pub mod conquest;
 pub mod defence;
+pub mod escrow;
 pub mod holding;
 pub mod host;
 pub mod map;
@@ -180,6 +181,11 @@ pub fn covered_by(ix: I) -> &'static [Cover] {
         I::WithdrawReceipt => receipts::WITHDRAW_RECEIPT,
         // S2 (2d): use runs
         I::UseRun => uses::USE_RUN,
+        // S2 (2e): escrows
+        I::OpenEscrow => escrow::OPEN_ESCROW,
+        I::AcceptEscrow => escrow::ACCEPT_ESCROW,
+        I::CancelEscrow => escrow::CANCEL_ESCROW,
+        I::WithdrawEscrow => escrow::WITHDRAW_ESCROW,
     }
 }
 

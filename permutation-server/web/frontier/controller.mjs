@@ -38,7 +38,7 @@ import { emit as fxEmit } from './fx/bus.mjs';
 import { reachOrigins } from './screens/conquest.mjs';
 import { s1On, s2On } from './fs1.mjs';
 import { fastestPath, pack, landsWanted, landOfProvince, CARAVAN_FEE } from './fcaravan.mjs';
-import { raidOffers, s1VillageModel, s2SharesModel, s2ReceiptsModel, s2UsesModel, KIND, PROPOSE_STANCE } from './screens/s1.mjs';
+import { raidOffers, s1VillageModel, s2SharesModel, s2ReceiptsModel, s2UsesModel, s2EscrowsModel, KIND, PROPOSE_STANCE } from './screens/s1.mjs';
 import { placeData, raidProvinces, cargoBytes, RAID_CHOICE } from './fplay.mjs';
 import { cachedReach, reachKey, reachableKeeps } from './fkeepreach.mjs';
 import * as fprize from './fprize.mjs';
@@ -1523,10 +1523,47 @@ function s2UseRun(i, runs) {
     fields: { runs }, say: () => L`貯蔵庫で武具を ${fmtNum(runs * 4)} 作りました` });
 }
 
+/** S2 (2e): an escrow's item `{kind, ...}` as fplay takes it. */
+const escrowItem = (kind, lot, vault) => (kind === 1 ? { kind: 'goods', vault } : { kind: 'lot', lot: { tag: BigInt(lot[0]), seq: Number(lot[1]) } });
+/** S2 (2e) AcceptEscrow: the viewer puts its item in and the swap happens. */
+function s2EscrowAccept(i) {
+  const e = s2EscrowsModel(FS).escrows[i];
+  if (!e || !e.canAccept) return s1Refused(L`この預かりは今は受け入れられません`);
+  const maker = escrowItem(e.giveKind, e.giveLot, { p: e.giveSrc.p, q: e.giveSrc.q, tile: e.giveSrc.at });
+  const taker = e.wantKind === 1 ? { kind: 'goods', vault: e.acceptVault } : escrowItem(2, e.wantLot);
+  return act('AcceptEscrow', { v: { escrow: { tag: BigInt(e.makerTag), seq: e.seq }, makerItem: maker, takerItem: taker },
+    fields: { vault_p: e.acceptVault?.p ?? 0, vault_q: e.acceptVault?.q ?? 0, vault_tile: e.acceptVault?.tile ?? 0 }, say: () => L`預かりを受け入れ、交換しました` });
+}
+/** S2 (2e) CancelEscrow: the maker's item released (open), or a settled escrow closed. */
+function s2EscrowCancel(i) {
+  const e = s2EscrowsModel(FS).escrows[i];
+  if (!e || !e.canCancel) return s1Refused(L`この預かりは今は取り消せません`);
+  const srcs = e.state === 1 ? [escrowItem(e.giveKind, e.giveLot, { p: e.giveSrc.p, q: e.giveSrc.q, tile: e.giveSrc.at })] : [];
+  return act('CancelEscrow', { v: { escrow: { tag: BigInt(e.makerTag), seq: e.seq }, rentTo: e.rentTo, srcs }, fields: {}, say: () => L`預かりを取り消しました` });
+}
+/** S2 (2e) WithdrawEscrow: the goods owed to the viewer, by caravan to the village in hand. */
+async function s2EscrowCollect(i) {
+  const e = s2EscrowsModel(FS).escrows[i], h = activeHolding(FS);
+  if (!e || e.collect === null) return s1Refused(L`受け取れる物がありません`);
+  if (!h || !Number.isInteger(h.tile)) return s1Refused(L`届け先の村を選んでください`);
+  const v = e.collectFrom;
+  busy(() => L`道を探しています…`);
+  const plan = fastestPath({ p: v.p, q: v.q, tile: v.tile }, { p: h.p, q: h.q, tile: h.tile }, await landsFor(v, h));
+  if (!plan || !plan.dirs.length) return failed({ code: 'Path' });
+  const seq = Number(FS.citizen?.caravans ?? 0);
+  const dst = { kind: 'holding', p: h.p, q: h.q, site: h.site, gen: h.gen ?? 0 };
+  return act('WithdrawEscrow', { v: { escrow: { tag: BigInt(e.makerTag), seq: e.seq }, vault: v, dst, seq, rentTo: e.rentTo, provinces: plan.provinces },
+    fields: { side: e.collect, seq, ...placeData(dst), steps: plan.dirs.length, path: pack(plan.dirs), fee: CARAVAN_FEE },
+    order: orderOf('s2-escrow', 'WithdrawEscrow', { say: () => L`預かりの荷が村へ向かいました` }) });
+}
+
 export const ACTIONS = {
   'cq-refresh': () => refreshConquest(),
   's2-claim': d => s2Claim(num(d.i)),
   's2-withdraw-receipt': d => s2WithdrawReceipt(num(d.i)),
+  's2-escrow-accept': d => s2EscrowAccept(num(d.i)),
+  's2-escrow-cancel': d => s2EscrowCancel(num(d.i)),
+  's2-escrow-collect': d => s2EscrowCollect(num(d.i)),
   // S2 (screens/s1.mjs)
   's2-open-shares': d => s2OpenShares(s1Tile(d)),
   // S1 (screens/s1.mjs)

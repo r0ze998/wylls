@@ -10,12 +10,12 @@ import { budgetOf } from '../client/src/frontier/budgets.mjs';
 import { ixOf, layoutOf } from '../client/src/frontier/codec.mjs';
 import { profileForHash, profileForSeason, rulesetFor, isS1, isV2 } from '../client/src/frontier/profile.mjs';
 import { rent } from '../client/src/frontier/fees.mjs';
-import { allowanceFor, CARAVAN_COST, drainGuard, ISSUE_RENT, LOT_RENT, lamportsPerDay } from '../src/frontier/shapes.mjs';
+import { allowanceFor, CARAVAN_COST, drainGuard, ESCROW_RENT, ISSUE_RENT, LOT_RENT, lamportsPerDay } from '../src/frontier/shapes.mjs';
 
-const S2_TAGS = { IssueTickets: 0xC0, GiveLot: 0xC1, CloseLot: 0xC2, OpenShares: 0xC3, WithdrawShares: 0xC4, ClaimReceipt: 0xC6, WithdrawReceipt: 0xC7, UseRun: 0xC8 };
+const S2_TAGS = { IssueTickets: 0xC0, GiveLot: 0xC1, CloseLot: 0xC2, OpenShares: 0xC3, WithdrawShares: 0xC4, ClaimReceipt: 0xC6, WithdrawReceipt: 0xC7, UseRun: 0xC8, OpenEscrow: 0xC9, AcceptEscrow: 0xCA, CancelEscrow: 0xCB, WithdrawEscrow: 0xCC };
 
 test('profile 4 is the S2 program: its hash, the v2 tables, S1\'s limits', () => {
-  assert.equal(PRESETS.ruleset_hash_v4, '9733e01fac31d39eb8842640dcde5424ed4444341e62c99e8615aef61dabe928');
+  assert.equal(PRESETS.ruleset_hash_v4, '012d14ca3e5094a4b83445a2c7cfff3ed40cdca02b325d99288caaa5d78c953a');
   assert.equal(profileForHash(PRESETS.ruleset_hash_v4), 4);
   assert.equal(rulesetFor(4), PRESETS.ruleset_hash_v4);
   assert.equal(profileForSeason({ RULESET_HASH: PRESETS.ruleset_hash_v4 }), 4);
@@ -51,6 +51,12 @@ test('the S2 allowances: an issue and its first lot, one lot a gift, nothing a c
   assert.equal(allowanceFor({ tag: 0xC7 }, { season: {} }), CARAVAN_COST);
   // 2d: a use run moves no lamports.
   assert.equal(allowanceFor({ tag: 0xC8 }, { season: {} }), 0n);
+  // 2e: an escrow's rent at opening, a caravan's cost at collection.
+  assert.equal(ESCROW_RENT, rent(272));
+  assert.equal(allowanceFor({ tag: 0xC9 }, { season: {} }), ESCROW_RENT);
+  assert.equal(allowanceFor({ tag: 0xCA }, { season: {} }), 0n);
+  assert.equal(allowanceFor({ tag: 0xCB }, { season: {} }), 0n);
+  assert.equal(allowanceFor({ tag: 0xCC }, { season: {} }), CARAVAN_COST);
   const pre = 10n * LOT_RENT;
   assert.throws(() => drainGuard({ pre, post: pre - LOT_RENT - 1n, fee: 0n, allowance: LOT_RENT }), /relay refused/);
 });
@@ -59,5 +65,5 @@ test('an S2 season\'s daily lamport cap adds one issue and four lots to S1\'s', 
   const mc = { MIN_REVEAL_PRIORITY_MILLI: 433, REVEAL_CU_LIMIT: 26_000, REVEAL_LOADED_LIMIT: 1_048_576, MARCH_FEE: 10_000n, SEAL_BOND: 20_000n, RULESET_HASH: PRESETS.ruleset_hash };
   const s1 = lamportsPerDay({ ...mc, RULESET_HASH: PRESETS.ruleset_hash_v3 });
   const s2 = lamportsPerDay({ ...mc, RULESET_HASH: PRESETS.ruleset_hash_v4 });
-  assert.equal(s2, s1 + ISSUE_RENT + 4n * LOT_RENT);
+  assert.equal(s2, s1 + ISSUE_RENT + 4n * LOT_RENT + 2n * ESCROW_RENT);
 });

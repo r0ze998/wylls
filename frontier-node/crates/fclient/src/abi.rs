@@ -246,7 +246,7 @@ pub const LAYOUT_VERSION_V2: u16 = 2;
 /// lower ones, and lowering a gate is not MC's). The `tx_max` column is
 /// the contract's (§5.4 "Tx B max"); `twin_tests` pins every row to
 /// `frontier_abi::v2::budgets`.
-pub const INSTRUCTIONS_V2: [IxInfo; 82] = [
+pub const INSTRUCTIONS_V2: [IxInfo; 86] = [
     ix(0x01, "CreateSeason", Class::O, 70_000, 1_100, false),
     ix(0x02, "InitShards", Class::O, 45_000, 600, false),
     ix(0x03, "ConsumeGenesisSeed", Class::D, 345_000, 760, true),
@@ -337,6 +337,11 @@ pub const INSTRUCTIONS_V2: [IxInfo; 82] = [
     ix(0xC7, "WithdrawReceipt", Class::P, 120_000, 1_100, false),
     // S2 (stage 2d): use runs.
     ix(0xC8, "UseRun", Class::P, 20_000, 600, false),
+    // S2 (stage 2e): escrows.
+    ix(0xC9, "OpenEscrow", Class::P, 30_000, 700, false),
+    ix(0xCA, "AcceptEscrow", Class::P, 25_000, 700, false),
+    ix(0xCB, "CancelEscrow", Class::P, 20_000, 600, false),
+    ix(0xCC, "WithdrawEscrow", Class::P, 120_000, 1_100, false),
 ];
 
 /// The ABI v2 row of `tag`.
@@ -399,6 +404,7 @@ pub mod magic {
     /// S2 (stage 2a): ticket issues and lots.
     pub const ISSUE: &[u8; 8] = b"PSF1ISSU";
     pub const LOT: &[u8; 8] = b"PSF1TLOT";
+    pub const ESCROW: &[u8; 8] = b"PSF1ESCR";
 }
 
 /// Account sizes in bytes (§5.2).
@@ -533,7 +539,7 @@ pub const ERRORS: [(u32, &str); 62] = [
 
 /// ABI v2 error codes (MC contract §5.3), stable forever; disjoint from
 /// [`ERRORS`].
-pub const ERRORS_V2: [(u32, &str); 38] = [
+pub const ERRORS_V2: [(u32, &str); 39] = [
     (62, "CapturePending"),
     (63, "Immune"),
     (64, "SiegeBusy"),
@@ -579,6 +585,7 @@ pub const ERRORS_V2: [(u32, &str); 38] = [
     (98, "ReceiptState"),
     // S2 (stage 2d; 99 is M1's NotImplemented)
     (100, "UseLimit"),
+    (101, "EscrowState"),
 ];
 
 /// The name of a program error code of either ABI (the code spaces are
@@ -812,9 +819,14 @@ pub mod kind {
     pub const RECEIPT_WITHDRAWN: u8 = 110;
     // S2 (stage 2d): kind 111.
     pub const USE_RUN: u8 = 111;
+    // S2 (stage 2e): kinds 112–115.
+    pub const ESCROW_OPENED: u8 = 112;
+    pub const ESCROW_SETTLED: u8 = 113;
+    pub const ESCROW_CANCELLED: u8 = 114;
+    pub const ESCROW_WITHDRAWN: u8 = 115;
 
     /// (kind, name) of every MC and S1 record kind.
-    pub const ALL_V2: [(u8, &str); 31] = [
+    pub const ALL_V2: [(u8, &str); 35] = [
         (SIEGE_DECLARED, "SIEGE_DECLARED"),
         (SIEGE_SETTLED, "SIEGE_SETTLED"),
         (CONQUEST, "CONQUEST"),
@@ -846,6 +858,10 @@ pub mod kind {
         (RECEIPT_CLAIMED, "RECEIPT_CLAIMED"),
         (RECEIPT_WITHDRAWN, "RECEIPT_WITHDRAWN"),
         (USE_RUN, "USE_RUN"),
+        (ESCROW_OPENED, "ESCROW_OPENED"),
+        (ESCROW_SETTLED, "ESCROW_SETTLED"),
+        (ESCROW_CANCELLED, "ESCROW_CANCELLED"),
+        (ESCROW_WITHDRAWN, "ESCROW_WITHDRAWN"),
     ];
 }
 
@@ -871,8 +887,10 @@ pub mod entity {
     /// S2 (stage 2a): Issue and Lot.
     pub const ISSUE: u8 = 13;
     pub const LOT: u8 = 14;
+    /// S2 (stage 2e): Escrow.
+    pub const ESCROW: u8 = 15;
     /// The largest entity kind of a v2 tail.
-    pub const MAX_V2: u8 = 14;
+    pub const MAX_V2: u8 = 15;
 }
 
 /// Seal verdict codes judged by SettleTransit (§5.3, I-44).
@@ -1640,6 +1658,7 @@ mod twin_tests {
                 magic::NATION,
                 magic::ISSUE,
                 magic::LOT,
+                magic::ESCROW,
             ])
             .collect();
         for k in K2::ALL {
@@ -1668,6 +1687,7 @@ mod twin_tests {
                     | K2::Nation
                     | K2::Issue
                     | K2::Lot
+                    | K2::Escrow
             ) {
                 assert_eq!(Some(k.size()), k.to_v1().map(|v| v.size()), "{k:?}");
             }

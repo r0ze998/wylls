@@ -99,10 +99,13 @@ pub enum CqError {
     /// S2 (2d): the use lot's or the workshop's runs for today are used up,
     /// or the holding has no workshop (99 is M1's NotImplemented).
     UseLimit = 100,
+    /// S2 (2e): the escrow is not open (or not settled), its deadline has
+    /// passed, or the signer is not its party.
+    EscrowState = 101,
 }
 
 impl CqError {
-    pub const ALL: [CqError; 38] = {
+    pub const ALL: [CqError; 39] = {
         use CqError::*;
         [
             CapturePending,
@@ -143,6 +146,7 @@ impl CqError {
             VaultShared,
             ReceiptState,
             UseLimit,
+            EscrowState,
         ]
     };
 
@@ -195,6 +199,7 @@ impl CqError {
             VaultShared => "VaultShared",
             ReceiptState => "ReceiptState",
             UseLimit => "UseLimit",
+            EscrowState => "EscrowState",
         }
     }
 
@@ -297,8 +302,9 @@ mod tests {
         }
         assert_eq!(CqError::NotLead.code(), 78);
         let all: std::vec::Vec<u32> = all_codes().map(|c| c.code()).collect();
-        assert_eq!(all.len(), 62 + 38);
+        assert_eq!(all.len(), 62 + 39);
         assert_eq!(CqError::UseLimit.code(), 100);
+        assert_eq!(CqError::EscrowState.code(), 101);
         assert_eq!(CqError::ReceiptState.code(), 98);
         assert_eq!(CqError::VaultShared.code(), 97);
         assert_eq!(CqError::TicketTerms.code(), 96);
@@ -308,7 +314,7 @@ mod tests {
         assert!(all.windows(2).all(|w| w[0] < w[1]), "code order");
         assert_eq!(all[60], 61);
         assert_eq!(all[61], 62);
-        assert_eq!(*all.last().unwrap(), 100);
+        assert_eq!(*all.last().unwrap(), 101);
         assert_eq!(Code::from_code(66), Some(Code::Cq(CqError::SiegeCap)));
         assert_eq!(
             Code::from_code(52),

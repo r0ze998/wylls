@@ -6309,6 +6309,435 @@
           ]
         }
       ]
+    },
+    {
+      "name": "OpenEscrow",
+      "tag": 201,
+      "class": "P",
+      "new_in_v2": true,
+      "changed_in_v2": false,
+      "top_level_only": false,
+      "relay_player_shape": true,
+      "relay_settle_shape": false,
+      "data_len": [62, 62],
+      "data": [
+        {
+          "name": "deadline_bell",
+          "len": 4
+        },
+        {
+          "name": "taker_tag",
+          "len": 8
+        },
+        {
+          "name": "give_kind",
+          "len": 1
+        },
+        {
+          "name": "give_resource",
+          "len": 1
+        },
+        {
+          "name": "give_p",
+          "len": 2
+        },
+        {
+          "name": "give_q",
+          "len": 2
+        },
+        {
+          "name": "give_tile",
+          "len": 1
+        },
+        {
+          "name": "give_amount",
+          "len": 8
+        },
+        {
+          "name": "give_lot_tag",
+          "len": 8
+        },
+        {
+          "name": "give_lot_seq",
+          "len": 4
+        },
+        {
+          "name": "want_kind",
+          "len": 1
+        },
+        {
+          "name": "want_resource",
+          "len": 1
+        },
+        {
+          "name": "want_amount",
+          "len": 8
+        },
+        {
+          "name": "want_lot_tag",
+          "len": 8
+        },
+        {
+          "name": "want_lot_seq",
+          "len": 4
+        }
+      ],
+      "account_groups": [
+        {
+          "min": 1,
+          "max": 1,
+          "accounts": [
+            {
+              "name": "actor",
+              "kind": "wallet",
+              "signer": true,
+              "writable": "r"
+            },
+            {
+              "name": "payer",
+              "kind": "wallet",
+              "signer": true,
+              "writable": "w"
+            },
+            {
+              "name": "season",
+              "kind": "Season",
+              "signer": false,
+              "writable": "r"
+            },
+            {
+              "name": "citizen",
+              "kind": "Citizen",
+              "signer": false,
+              "writable": "w"
+            }
+          ]
+        },
+        {
+          "min": 1,
+          "max": 1,
+          "accounts": [
+            {
+              "name": "escrow",
+              "kind": "Escrow",
+              "signer": false,
+              "writable": "w"
+            },
+            {
+              "name": "taker",
+              "kind": "Citizen",
+              "signer": false,
+              "writable": "r"
+            },
+            {
+              "name": "give_src",
+              "kind": "Vault|Lot",
+              "signer": false,
+              "writable": "w"
+            },
+            {
+              "name": "system",
+              "kind": "system",
+              "signer": false,
+              "writable": "r"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "AcceptEscrow",
+      "tag": 202,
+      "class": "P",
+      "new_in_v2": true,
+      "changed_in_v2": false,
+      "top_level_only": false,
+      "relay_player_shape": true,
+      "relay_settle_shape": false,
+      "data_len": [6, 6],
+      "data": [
+        {
+          "name": "vault_p",
+          "len": 2
+        },
+        {
+          "name": "vault_q",
+          "len": 2
+        },
+        {
+          "name": "vault_tile",
+          "len": 1
+        }
+      ],
+      "account_groups": [
+        {
+          "min": 1,
+          "max": 1,
+          "accounts": [
+            {
+              "name": "actor",
+              "kind": "wallet",
+              "signer": true,
+              "writable": "r"
+            },
+            {
+              "name": "payer",
+              "kind": "wallet",
+              "signer": true,
+              "writable": "w"
+            },
+            {
+              "name": "season",
+              "kind": "Season",
+              "signer": false,
+              "writable": "r"
+            },
+            {
+              "name": "citizen",
+              "kind": "Citizen",
+              "signer": false,
+              "writable": "w"
+            }
+          ]
+        },
+        {
+          "min": 1,
+          "max": 1,
+          "accounts": [
+            {
+              "name": "escrow",
+              "kind": "Escrow",
+              "signer": false,
+              "writable": "w"
+            },
+            {
+              "name": "maker_src",
+              "kind": "Vault|Lot",
+              "signer": false,
+              "writable": "w"
+            },
+            {
+              "name": "taker_src",
+              "kind": "Vault|Lot",
+              "signer": false,
+              "writable": "w"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "CancelEscrow",
+      "tag": 203,
+      "class": "P",
+      "new_in_v2": true,
+      "changed_in_v2": false,
+      "top_level_only": false,
+      "relay_player_shape": true,
+      "relay_settle_shape": false,
+      "data_len": [1, 1],
+      "data": [],
+      "account_groups": [
+        {
+          "min": 1,
+          "max": 1,
+          "accounts": [
+            {
+              "name": "actor",
+              "kind": "wallet",
+              "signer": true,
+              "writable": "r"
+            },
+            {
+              "name": "payer",
+              "kind": "wallet",
+              "signer": true,
+              "writable": "w"
+            },
+            {
+              "name": "season",
+              "kind": "Season",
+              "signer": false,
+              "writable": "r"
+            },
+            {
+              "name": "citizen",
+              "kind": "Citizen",
+              "signer": false,
+              "writable": "w"
+            }
+          ]
+        },
+        {
+          "min": 1,
+          "max": 1,
+          "accounts": [
+            {
+              "name": "escrow",
+              "kind": "Escrow",
+              "signer": false,
+              "writable": "w"
+            },
+            {
+              "name": "rent_to",
+              "kind": "wallet",
+              "signer": false,
+              "writable": "w"
+            }
+          ]
+        },
+        {
+          "min": 1,
+          "max": 2,
+          "accounts": [
+            {
+              "name": "src",
+              "kind": "Vault|Lot",
+              "signer": false,
+              "writable": "w"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "WithdrawEscrow",
+      "tag": 204,
+      "class": "P",
+      "new_in_v2": true,
+      "changed_in_v2": false,
+      "top_level_only": false,
+      "relay_player_shape": true,
+      "relay_settle_shape": false,
+      "data_len": [34, 34],
+      "data": [
+        {
+          "name": "side",
+          "len": 1
+        },
+        {
+          "name": "seq",
+          "len": 4
+        },
+        {
+          "name": "dst_kind",
+          "len": 1
+        },
+        {
+          "name": "dst_p",
+          "len": 2
+        },
+        {
+          "name": "dst_q",
+          "len": 2
+        },
+        {
+          "name": "dst_at",
+          "len": 1
+        },
+        {
+          "name": "dst_gen",
+          "len": 1
+        },
+        {
+          "name": "steps",
+          "len": 1
+        },
+        {
+          "name": "path",
+          "len": 12
+        },
+        {
+          "name": "fee",
+          "len": 8
+        }
+      ],
+      "account_groups": [
+        {
+          "min": 1,
+          "max": 1,
+          "accounts": [
+            {
+              "name": "actor",
+              "kind": "wallet",
+              "signer": true,
+              "writable": "r"
+            },
+            {
+              "name": "payer",
+              "kind": "wallet",
+              "signer": true,
+              "writable": "w"
+            },
+            {
+              "name": "season",
+              "kind": "Season",
+              "signer": false,
+              "writable": "r"
+            },
+            {
+              "name": "citizen",
+              "kind": "Citizen",
+              "signer": false,
+              "writable": "w"
+            }
+          ]
+        },
+        {
+          "min": 1,
+          "max": 1,
+          "accounts": [
+            {
+              "name": "escrow",
+              "kind": "Escrow",
+              "signer": false,
+              "writable": "w"
+            },
+            {
+              "name": "src",
+              "kind": "Vault",
+              "signer": false,
+              "writable": "w"
+            },
+            {
+              "name": "dst",
+              "kind": "Holding|Vault",
+              "signer": false,
+              "writable": "r"
+            },
+            {
+              "name": "caravan",
+              "kind": "Caravan",
+              "signer": false,
+              "writable": "w"
+            },
+            {
+              "name": "system",
+              "kind": "system",
+              "signer": false,
+              "writable": "r"
+            },
+            {
+              "name": "rent_to",
+              "kind": "wallet",
+              "signer": false,
+              "writable": "w"
+            }
+          ]
+        },
+        {
+          "min": 1,
+          "max": 4,
+          "accounts": [
+            {
+              "name": "path_province",
+              "kind": "Province",
+              "signer": false,
+              "writable": "w"
+            }
+          ]
+        }
+      ]
     }
   ],
   "reserved_tags": [
@@ -6341,10 +6770,6 @@
     174,
     175,
     191,
-    201,
-    202,
-    203,
-    204,
     205,
     206,
     207

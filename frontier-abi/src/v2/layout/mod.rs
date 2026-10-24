@@ -57,10 +57,11 @@ pub enum AccountKind {
     Nation = 22,
     Issue = 23,
     Lot = 24,
+    Escrow = 25,
 }
 
 impl AccountKind {
-    pub const ALL: [AccountKind; 24] = {
+    pub const ALL: [AccountKind; 25] = {
         use AccountKind::*;
         [
             Season,
@@ -87,6 +88,7 @@ impl AccountKind {
             Nation,
             Issue,
             Lot,
+            Escrow,
         ]
     };
 
@@ -116,6 +118,7 @@ impl AccountKind {
             Nation => s1::nation::SIZE,
             Issue => s2::issue::SIZE,
             Lot => s2::lot::SIZE,
+            Escrow => s2::escrow::SIZE,
             Citizen => player::citizen::SIZE,
             Holding => player::holding::SIZE,
             JoinShard => world::join_shard::SIZE,
@@ -144,6 +147,7 @@ impl AccountKind {
             AccountKind::Nation => s1::nation::MAGIC,
             AccountKind::Issue => s2::issue::MAGIC,
             AccountKind::Lot => s2::lot::MAGIC,
+            AccountKind::Escrow => s2::escrow::MAGIC,
             // Same code, same magic as M1 (`tests::magics_are_m1s`).
             k => v1_kind(k).magic(),
         }
@@ -167,6 +171,7 @@ impl AccountKind {
                 | Nation
                 | Issue
                 | Lot
+                | Escrow
         )
     }
 
@@ -181,6 +186,7 @@ impl AccountKind {
             Nation => s1::nation::FIELDS,
             Issue => s2::issue::FIELDS,
             Lot => s2::lot::FIELDS,
+            Escrow => s2::escrow::FIELDS,
             Citizen => player::citizen::FIELDS,
             Holding => player::holding::FIELDS,
             JoinShard => world::join_shard::FIELDS,
@@ -202,6 +208,7 @@ impl AccountKind {
             AccountKind::Nation => "Nation",
             AccountKind::Issue => "Issue",
             AccountKind::Lot => "Lot",
+            AccountKind::Escrow => "Escrow",
             k => v1_kind(k).name(),
         }
     }
@@ -223,6 +230,7 @@ impl AccountKind {
                 | Nation
                 | Issue
                 | Lot
+                | Escrow
         )
     }
 

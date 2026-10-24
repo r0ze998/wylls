@@ -134,6 +134,11 @@ tags_v2! {
     WithdrawReceipt = 0xC7, P, false;
     // S2 (2d: use runs)
     UseRun = 0xC8, P, false;
+    // S2 (2e: escrowed exchange)
+    OpenEscrow = 0xC9, P, false;
+    AcceptEscrow = 0xCA, P, false;
+    CancelEscrow = 0xCB, P, false;
+    WithdrawEscrow = 0xCC, P, false;
 }
 
 impl Ix {
@@ -167,8 +172,8 @@ impl Ix {
         Ix::FortGarrison,
     ];
 
-    /// The S2 instructions (2a, 2b).
-    pub const S2: [Ix; 9] = [
+    /// The S2 instructions (2a–2e).
+    pub const S2: [Ix; 13] = [
         Ix::IssueTickets,
         Ix::GiveLot,
         Ix::CloseLot,
@@ -178,6 +183,10 @@ impl Ix {
         Ix::ClaimReceipt,
         Ix::WithdrawReceipt,
         Ix::UseRun,
+        Ix::OpenEscrow,
+        Ix::AcceptEscrow,
+        Ix::CancelEscrow,
+        Ix::WithdrawEscrow,
     ];
 
     /// Whether the instruction is S1's (S2's included: an S2 season plays
@@ -247,9 +256,9 @@ impl crate::tags::Ix {
 }
 
 /// Reserved v2 tags: M1's reserved set, 0xA4, 0xA8–0xAF, S1's 0xBF and
-/// S2's 0xC9–0xCF (2e).
+/// S2's 0xCD–0xCF.
 pub const fn is_reserved(t: u8) -> bool {
-    crate::tags::is_reserved(t) || matches!(t, 0xA4 | 0xA8..=0xAF | 0xBF | 0xC9..=0xCF)
+    crate::tags::is_reserved(t) || matches!(t, 0xA4 | 0xA8..=0xAF | 0xBF | 0xCD..=0xCF)
 }
 
 /// Player instructions the relay may sponsor (§8.3): M1's, DeclareSiege,
@@ -282,6 +291,10 @@ pub const fn relay_player_shape(ix: Ix) -> bool {
                 | Ix::ClaimReceipt
                 | Ix::WithdrawReceipt
                 | Ix::UseRun
+                | Ix::OpenEscrow
+                | Ix::AcceptEscrow
+                | Ix::CancelEscrow
+                | Ix::WithdrawEscrow
         ),
     }
 }
@@ -313,8 +326,8 @@ mod tests {
 
     #[test]
     fn v2_extends_m1() {
-        assert_eq!(Ix::ALL.len(), 82);
-        assert_eq!(crate::tags::Ix::ALL_V2.len(), 82);
+        assert_eq!(Ix::ALL.len(), 86);
+        assert_eq!(crate::tags::Ix::ALL_V2.len(), 86);
         for v1 in crate::tags::Ix::ALL {
             let v = Ix::of_v1(*v1);
             assert_eq!(v.tag(), v1.tag());

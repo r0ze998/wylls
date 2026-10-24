@@ -607,6 +607,9 @@ pub fn judge_open(ix: &crate::world::Ix, s: &dyn States, bell: u32) -> Result<()
     if per.claims.iter().chain(per.res.iter()).any(|&c| c > 0) {
         return Err(wrong("shares opened on a vault with receipts pending"));
     }
+    if vb.get(VA::HELD..VA::RSV).is_none_or(|h| h.iter().any(|&x| x != 0)) {
+        return Err(wrong("shares opened on a vault holding escrowed goods"));
+    }
     if va.get(VA::CLAIM_DAY..VA::RSV) != vb.get(VA::CLAIM_DAY..VA::RSV) {
         return Err(wrong("the vault's period changed at the opening"));
     }
@@ -832,7 +835,7 @@ pub fn judge_claim(ix: &crate::world::Ix, s: &dyn States, bell: u32) -> Result<(
     }
     let r = ib.resource as usize;
     let mut p = super::v23_caravans::period_of(&vb).map_err(wrong)?;
-    p.roll(today, &stores_of(&vb)?);
+    p.roll(today, &super::v23_caravans::vault_free(&vb).map_err(wrong)?);
     let claim = lb.amount.saturating_mul(ib.per_unit);
     let pending = lb.day + 1 == today + 1 && kt::grant(lb.day_amount, p.ratio[r]) > 0;
     if lb.day == today + 1 || pending || claim == 0 {
@@ -962,9 +965,10 @@ pub fn judge_use_run(ix: &crate::world::Ix, s: &dyn States, bell: u32) -> Result
     }
     let per = super::v23_caravans::rolled(&vb, bell).map_err(wrong)?;
     let b = stores_of(&vb)?;
+    let free = super::v23_caravans::vault_free(&vb).map_err(wrong)?;
     let (ore, wood, made) = kt::run_change(x.runs as u32);
     let (o, w, m) = (3usize, 1usize, arms::ARMS as usize);
-    if per.available(today, o, b[o]) < ore || per.available(today, w, b[w]) < wood {
+    if per.available(today, o, free[o]) < ore || per.available(today, w, free[w]) < wood {
         return Err(wrong("a run took goods it lacked or reserved for receipts"));
     }
     let cap = u64_of(&vb, VA::CAP).ok_or_else(|| short("Vault"))? as i64;
@@ -986,6 +990,413 @@ pub fn judge_use_run(ix: &crate::world::Ix, s: &dyn States, bell: u32) -> Result
     wl.day_amount = lot_runs;
     if Lot::decode(&v.after(&lot, "Lot")?)? != wl {
         return Err(wrong("the lot's runs of the day are not counted"));
+    }
+    Ok(())
+}
+
+// ------------------------------------------------------------ escrows (2e)
+
+use frontier_abi::v2::layout::s2::escrow as ES;
+
+/// One side of an Escrow as stored.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Side {
+    citizen: Key,
+    tag: u64,
+    kind: u8,
+    state: u8,
+    resource: u8,
+    gen: u8,
+    p: i16,
+    q: i16,
+    tile: u8,
+    amount: u64,
+    lot_tag: u64,
+    lot_seq: u32,
+}
+
+/// An Escrow as stored.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Escrow {
+    state: u8,
+    seq: u32,
+    deadline: u32,
+    opened: u32,
+    sides: [Side; 2],
+    rent_to: Key,
+}
+
+impl Escrow {
+    fn decode(d: &[u8]) -> Result<Escrow, Wrong> {
+        if d.len() != ES::SIZE || d[..8] != ES::MAGIC {
+            return Err(wrong("not an Escrow"));
+        }
+        let e = || short("Escrow");
+        let side = |i: usize| -> Result<Side, Wrong> {
+            use ES::side as S;
+            let o = ES::side(i);
+            let i16_of = |x: usize| d.get(x..x + 2).map(|b| le(b) as u16 as i16).ok_or_else(e);
+            Ok(Side {
+                citizen: key_of(d, o + S::CITIZEN).ok_or_else(e)?,
+                tag: u64_of(d, o + S::TAG).ok_or_else(e)?,
+                kind: d[o + S::KIND],
+                state: d[o + S::STATE],
+                resource: d[o + S::RESOURCE],
+                gen: d[o + S::GEN],
+                p: i16_of(o + S::P)?,
+                q: i16_of(o + S::Q)?,
+                tile: d[o + S::TILE],
+                amount: u64_of(d, o + S::AMOUNT).ok_or_else(e)?,
+                lot_tag: u64_of(d, o + S::LOT_TAG).ok_or_else(e)?,
+                lot_seq: u32_of(d, o + S::LOT_SEQ).ok_or_else(e)?,
+            })
+        };
+        Ok(Escrow {
+            state: d[ES::STATE],
+            seq: u32_of(d, ES::SEQ).ok_or_else(e)?,
+            deadline: u32_of(d, ES::DEADLINE_BELL).ok_or_else(e)?,
+            opened: u32_of(d, ES::OPENED_BELL).ok_or_else(e)?,
+            sides: [side(0)?, side(1)?],
+            rent_to: key_of(d, ES::RENT_TO).ok_or_else(e)?,
+        })
+    }
+}
+
+/// Goods put in escrow: `amount` of `r` held in `vault` (the citizen's,
+/// live, unshared), the free stock less today's reservation enough; the
+/// vault after is the rolled one with the hold grown and nothing else.
+fn judge_hold(s: &dyn States, vault: &Key, citizen: &Key, r: u8, amount: u64, bell: u32) -> Result<super::v23_caravans::Place, Wrong> {
+    let v = Seen { s };
+    let vb = v.before(vault, "Vault")?;
+    let va = v.after(vault, "Vault")?;
+    let (pl, owner) = live_place(&vb).ok_or_else(|| wrong("the escrow's vault is not live"))?;
+    if pl.kind != PL::KIND_VAULT || owner != *citizen || vault_shared(&vb) {
+        return Err(wrong("goods held in a vault not the giver's own"));
+    }
+    let r = r as usize;
+    if r >= 8 || amount == 0 || amount % 1_000 != 0 || amount > kt::ESCROW_MAX_GOODS {
+        return Err(wrong("goods the rules refuse"));
+    }
+    let per = super::v23_caravans::rolled(&vb, bell).map_err(wrong)?;
+    let free = super::v23_caravans::vault_free(&vb).map_err(wrong)?;
+    if per.available(bell / BELLS_PER_DAY, r, free[r]) < amount as i64 {
+        return Err(wrong("goods held beyond the free stock"));
+    }
+    let mut want = vb.clone();
+    let h = u64_of(&vb, VA::held(r)).ok_or_else(|| short("Vault"))? + amount;
+    want[VA::held(r)..VA::held(r) + 8].copy_from_slice(&h.to_le_bytes());
+    if super::v23_caravans::period_of(&va).map_err(wrong)? != per
+        || va.len() != want.len()
+        || (64..va.len()).filter(|o| !(VA::CLAIM_DAY..VA::HELD).contains(o)).any(|o| va[o] != want[o])
+    {
+        return Err(wrong("the vault is not the hold's"));
+    }
+    Ok(pl)
+}
+
+/// A whole lot put in escrow: the citizen's, live, not escrowed, not a
+/// deposit lot, with units (the caller judges its after-state).
+fn judge_lot_in(s: &dyn States, lot: &Key, citizen: &Key) -> Result<Lot, Wrong> {
+    let v = Seen { s };
+    let lb = Lot::decode(&v.before(lot, "Lot")?)?;
+    if lb.holder != *citizen
+        || lb.state != STATE_LIVE
+        || lb.escrow != 0
+        || lb.amount == 0
+        || frontier_abi::v2::addr::is_deposit_seq(lb.seq)
+    {
+        return Err(wrong("a lot put in escrow the rules refuse"));
+    }
+    Ok(lb)
+}
+
+/// OpenEscrow (accounts: 1 payer, 3 citizen, 4 escrow, 5 taker, 6
+/// give_src).
+pub fn judge_open_escrow(ix: &crate::world::Ix, s: &dyn States, bell: u32) -> Result<(), Wrong> {
+    let x = ix2::OpenEscrow::decode(&ix.data).map_err(|_| wrong("does not decode"))?;
+    let (Some(payer), Some(citizen), Some(escrow), Some(taker), Some(src)) =
+        (ix.key(1), ix.key(3), ix.key(4), ix.key(5), ix.key(6))
+    else {
+        return Err(wrong("the accounts are missing"));
+    };
+    let v = Seen { s };
+    let cb = v.before(&citizen, "Citizen")?;
+    let ca = v.after(&citizen, "Citizen")?;
+    if x.deadline_bell <= bell || x.deadline_bell - bell > kt::ESCROW_MAX_BELLS {
+        return Err(wrong("a deadline the rules refuse"));
+    }
+    let td = v.before(&taker, "taker")?;
+    let ttag = u64_of(&td, C2::CITIZEN_TAG).ok_or_else(|| short("taker"))?;
+    if taker == citizen || ttag != x.taker_tag {
+        return Err(wrong("an escrow with oneself or another taker"));
+    }
+    let e = || short("Citizen");
+    let tag = u64_of(&cb, C2::CITIZEN_TAG).ok_or_else(e)?;
+    let seq = u32_of(&cb, C2::LOTS).ok_or_else(e)?;
+    let mark = frontier_abi::v2::addr::escrow_mark(tag, seq);
+    let mut give = Side {
+        citizen,
+        tag,
+        kind: x.give_kind,
+        state: ES::SIDE_IN,
+        resource: 0,
+        gen: 0,
+        p: 0,
+        q: 0,
+        tile: 0,
+        amount: 0,
+        lot_tag: 0,
+        lot_seq: 0,
+    };
+    match x.give_kind {
+        ES::ITEM_GOODS => {
+            let pl = judge_hold(s, &src, &citizen, x.give_resource, x.give_amount, bell)?;
+            if (pl.p, pl.q, pl.at) != (x.give_p, x.give_q, x.give_tile) {
+                return Err(wrong("goods held in another vault than named"));
+            }
+            (give.resource, give.gen, give.p, give.q, give.tile, give.amount) =
+                (x.give_resource, pl.gen, pl.p, pl.q, pl.at, x.give_amount);
+        }
+        ES::ITEM_LOT => {
+            let lb = judge_lot_in(s, &src, &citizen)?;
+            if (lb.seed_tag, lb.seq) != (x.give_lot_tag, x.give_lot_seq) {
+                return Err(wrong("another lot put in escrow than named"));
+            }
+            let mut want = lb;
+            want.escrow = mark;
+            if Lot::decode(&v.after(&src, "Lot")?)? != want {
+                return Err(wrong("the lot is not marked with its escrow"));
+            }
+            (give.amount, give.lot_tag, give.lot_seq) = (lb.amount, lb.seed_tag, lb.seq);
+        }
+        _ => return Err(wrong("an item kind the rules refuse")),
+    }
+    let goods = x.want_kind == ES::ITEM_GOODS;
+    let bad_goods = x.want_resource >= 8
+        || x.want_amount % 1_000 != 0
+        || x.want_amount > kt::ESCROW_MAX_GOODS;
+    if x.want_amount == 0 || (goods && bad_goods) || !matches!(x.want_kind, ES::ITEM_GOODS | ES::ITEM_LOT) {
+        return Err(wrong("a want the rules refuse"));
+    }
+    let want = Side {
+        citizen: taker,
+        tag: ttag,
+        kind: x.want_kind,
+        state: ES::SIDE_PROMISED,
+        resource: if goods { x.want_resource } else { 0 },
+        gen: 0,
+        p: 0,
+        q: 0,
+        tile: 0,
+        amount: x.want_amount,
+        lot_tag: if goods { 0 } else { x.want_lot_tag },
+        lot_seq: if goods { 0 } else { x.want_lot_seq },
+    };
+    let expect = Escrow {
+        state: ES::STATE_OPEN,
+        seq,
+        deadline: x.deadline_bell,
+        opened: bell,
+        sides: [give, want],
+        rent_to: payer,
+    };
+    if s.before(&escrow).is_some() || Escrow::decode(&v.after(&escrow, "Escrow")?)? != expect {
+        return Err(wrong("the Escrow is not the opening's"));
+    }
+    let issues = u32_of(&cb, C2::ISSUES).ok_or_else(e)?;
+    citizen_counters(&cb, &ca, issues, seq + 1, cb[C2::OPEN_ISSUES])
+}
+
+/// AcceptEscrow (accounts: 3 citizen, 4 escrow, 5 maker_src, 6 taker_src).
+pub fn judge_accept_escrow(ix: &crate::world::Ix, s: &dyn States, bell: u32) -> Result<(), Wrong> {
+    let x = ix2::AcceptEscrow::decode(&ix.data).map_err(|_| wrong("does not decode"))?;
+    let (Some(citizen), Some(escrow), Some(msrc), Some(tsrc)) =
+        (ix.key(3), ix.key(4), ix.key(5), ix.key(6))
+    else {
+        return Err(wrong("the accounts are missing"));
+    };
+    let v = Seen { s };
+    let eb = Escrow::decode(&v.before(&escrow, "Escrow")?)?;
+    let [mut ms, mut ts] = eb.sides;
+    if eb.state != ES::STATE_OPEN || bell > eb.deadline || ts.citizen != citizen {
+        return Err(wrong("an acceptance the escrow refuses"));
+    }
+    let mark = frontier_abi::v2::addr::escrow_mark(ms.tag, eb.seq);
+    if ts.kind == ES::ITEM_GOODS {
+        let pl = judge_hold(s, &tsrc, &citizen, ts.resource, ts.amount, bell)?;
+        if (pl.p, pl.q, pl.at) != (x.vault_p, x.vault_q, x.vault_tile) {
+            return Err(wrong("goods held in another vault than named"));
+        }
+        (ts.gen, ts.p, ts.q, ts.tile) = (pl.gen, pl.p, pl.q, pl.at);
+        ts.state = ES::SIDE_OWED;
+    } else {
+        let lb = judge_lot_in(s, &tsrc, &citizen)?;
+        if (lb.seed_tag, lb.seq, lb.amount) != (ts.lot_tag, ts.lot_seq, ts.amount) {
+            return Err(wrong("another lot than the escrow wants"));
+        }
+        let mut want = lb;
+        want.holder = ms.citizen;
+        want.holder_tag = ms.tag;
+        if Lot::decode(&v.after(&tsrc, "Lot")?)? != want {
+            return Err(wrong("the taker's lot is not the maker's"));
+        }
+        ts.state = ES::SIDE_DONE;
+    }
+    if ms.kind == ES::ITEM_LOT {
+        let lb = Lot::decode(&v.before(&msrc, "Lot")?)?;
+        if lb.escrow != mark || (lb.seed_tag, lb.seq) != (ms.lot_tag, ms.lot_seq) {
+            return Err(wrong("the maker's lot is not the escrow's"));
+        }
+        let mut want = lb;
+        want.holder = ts.citizen;
+        want.holder_tag = ts.tag;
+        want.escrow = 0;
+        if Lot::decode(&v.after(&msrc, "Lot")?)? != want {
+            return Err(wrong("the maker's lot is not the taker's"));
+        }
+        ms.state = ES::SIDE_DONE;
+    } else {
+        if !owed_live(&ms, s.before(&msrc).as_deref()) {
+            return Err(wrong("an acceptance of void goods"));
+        }
+        ms.state = ES::SIDE_OWED;
+        if s.after(&msrc) != s.before(&msrc) {
+            return Err(wrong("the maker's vault changed at the acceptance"));
+        }
+    }
+    let mut want = eb;
+    want.state = ES::STATE_SETTLED;
+    want.sides = [ms, ts];
+    if Escrow::decode(&v.after(&escrow, "Escrow")?)? != want {
+        return Err(wrong("the Escrow is not the swap's"));
+    }
+    Ok(())
+}
+
+/// Whether owed goods side `s` is still live (its vault live in its
+/// generation, state `d`).
+fn owed_live(s: &Side, d: Option<&[u8]>) -> bool {
+    d.and_then(live_place).is_some_and(|(pl, _)| {
+        (pl.kind, pl.p, pl.q, pl.at, pl.gen) == (PL::KIND_VAULT, s.p, s.q, s.tile, s.gen)
+    })
+}
+
+/// CancelEscrow (accounts: 3 citizen, 4 escrow, 5 rent_to, 6.. srcs).
+pub fn judge_cancel_escrow(ix: &crate::world::Ix, s: &dyn States, bell: u32) -> Result<(), Wrong> {
+    let (Some(citizen), Some(escrow), Some(rent_to)) = (ix.key(3), ix.key(4), ix.key(5)) else {
+        return Err(wrong("the accounts are missing"));
+    };
+    let srcs: Vec<Key> = (6..ix.accounts.len()).filter_map(|i| ix.key(i)).collect();
+    let v = Seen { s };
+    let eb = Escrow::decode(&v.before(&escrow, "Escrow")?)?;
+    let [ms, ts] = eb.sides;
+    if rent_to != eb.rent_to || s.after(&escrow).is_some() {
+        return Err(wrong("the escrow is not closed to its payer"));
+    }
+    if eb.state == ES::STATE_OPEN {
+        if citizen != ms.citizen && bell <= eb.deadline {
+            return Err(wrong("an open escrow cancelled by another before its deadline"));
+        }
+        let src = *srcs.first().ok_or_else(|| wrong("the maker's item is missing"))?;
+        if ms.kind == ES::ITEM_GOODS {
+            let vb = s.before(&src);
+            if owed_live(&ms, vb.as_deref()) {
+                let vb = vb.unwrap_or_default();
+                let mut want = vb.clone();
+                let r = ms.resource as usize;
+                let h = u64_of(&vb, VA::held(r))
+                    .and_then(|h| h.checked_sub(ms.amount))
+                    .ok_or_else(|| wrong("a release beyond the hold"))?;
+                want[VA::held(r)..VA::held(r) + 8].copy_from_slice(&h.to_le_bytes());
+                let va = v.after(&src, "Vault")?;
+                if va.len() != want.len() || (64..va.len()).any(|o| va[o] != want[o]) {
+                    return Err(wrong("the hold is not released"));
+                }
+            } else if s.after(&src) != s.before(&src) {
+                return Err(wrong("a void hold's vault changed at a cancel"));
+            }
+        } else if let Some(lb) = s.before(&src) {
+            let lb = Lot::decode(&lb)?;
+            if (lb.seed_tag, lb.seq) != (ms.lot_tag, ms.lot_seq) {
+                return Err(wrong("another lot released than the escrow's"));
+            }
+            let mark = frontier_abi::v2::addr::escrow_mark(ms.tag, eb.seq);
+            let mut want = lb;
+            if lb.escrow == mark {
+                want.escrow = 0;
+            }
+            if Lot::decode(&v.after(&src, "Lot")?)? != want {
+                return Err(wrong("the lot is not released"));
+            }
+        }
+        return Ok(());
+    }
+    if citizen != ms.citizen && citizen != ts.citizen {
+        return Err(wrong("a settled escrow closed by another than a party"));
+    }
+    let mut it = srcs.iter();
+    for sd in [&ms, &ts] {
+        if sd.state == ES::SIDE_OWED {
+            let k = it.next().ok_or_else(|| wrong("an owed side's vault is missing"))?;
+            if owed_live(sd, s.before(k).as_deref()) {
+                return Err(wrong("a settled escrow closed with goods still owed"));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// WithdrawEscrow (accounts: 3 citizen, 4 escrow, 5 src, 9 rent_to): the
+/// owed goods' hold released, the side done (V23 judges the caravan).
+pub fn judge_withdraw_escrow(ix: &crate::world::Ix, s: &dyn States) -> Result<(), Wrong> {
+    let x = ix2::WithdrawEscrow::decode(&ix.data).map_err(|_| wrong("does not decode"))?;
+    let (Some(citizen), Some(escrow), Some(src), Some(rent_to)) =
+        (ix.key(3), ix.key(4), ix.key(5), ix.key(9))
+    else {
+        return Err(wrong("the accounts are missing"));
+    };
+    let v = Seen { s };
+    let eb = Escrow::decode(&v.before(&escrow, "Escrow")?)?;
+    let i = x.side as usize;
+    if i > 1 {
+        return Err(wrong("a side the escrow lacks"));
+    }
+    let (sd, other) = (eb.sides[i], eb.sides[1 - i]);
+    let vb = v.before(&src, "Vault")?;
+    if eb.state != ES::STATE_SETTLED
+        || sd.kind != ES::ITEM_GOODS
+        || sd.state != ES::SIDE_OWED
+        || other.citizen != citizen
+        || !owed_live(&sd, Some(&vb))
+    {
+        return Err(wrong("a collection the escrow refuses"));
+    }
+    let va = v.after(&src, "Vault")?;
+    let r = sd.resource as usize;
+    let (hb, ha) = (
+        super::v23_caravans::vault_held(&vb).map_err(wrong)?,
+        super::v23_caravans::vault_held(&va).map_err(wrong)?,
+    );
+    let (b, a) = (stores_of(&vb)?, stores_of(&va)?);
+    let amount = sd.amount as i64;
+    if (0..8).any(|k| {
+        let (dh, ds) = if k == r { (amount, amount) } else { (0, 0) };
+        hb[k] - ha[k] != dh || b[k] - a[k] != ds
+    }) {
+        return Err(wrong("the vault paid other than the owed goods"));
+    }
+    let mut sides = eb.sides;
+    sides[i].state = ES::SIDE_DONE;
+    if sides.iter().all(|s| s.state != ES::SIDE_OWED) {
+        if rent_to != eb.rent_to || s.after(&escrow).is_some() {
+            return Err(wrong("the escrow is not closed to its payer"));
+        }
+    } else {
+        let mut want = eb;
+        want.sides = sides;
+        if Escrow::decode(&v.after(&escrow, "Escrow")?)? != want {
+            return Err(wrong("the Escrow side is not done"));
+        }
     }
     Ok(())
 }
@@ -1037,6 +1448,10 @@ pub fn run(cx: &mut Ctx) {
         V2Ix::ClaimReceipt,
         V2Ix::WithdrawReceipt,
         V2Ix::UseRun,
+        V2Ix::OpenEscrow,
+        V2Ix::AcceptEscrow,
+        V2Ix::CancelEscrow,
+        V2Ix::WithdrawEscrow,
     ];
     if !w.has_post {
         let any = w.txs.iter().any(|tx| {
@@ -1091,6 +1506,10 @@ pub fn run(cx: &mut Ctx) {
                 Some(V2Ix::WithdrawShares) => judge_withdraw(ix, &st),
                 Some(V2Ix::SettleDeposit) => judge_deposit(ix, &st),
                 Some(V2Ix::UseRun) => judge_use_run(ix, &st, bell),
+                Some(V2Ix::OpenEscrow) => judge_open_escrow(ix, &st, bell),
+                Some(V2Ix::AcceptEscrow) => judge_accept_escrow(ix, &st, bell),
+                Some(V2Ix::CancelEscrow) => judge_cancel_escrow(ix, &st, bell),
+                Some(V2Ix::WithdrawEscrow) => judge_withdraw_escrow(ix, &st),
                 _ => continue,
             };
             if let Err((code, detail)) = r {
@@ -1692,6 +2111,194 @@ mod tests {
         m.after
             .insert(VAULT, Some(goods(vault(YOU, 1), 84_000, 92_000, 8_000)));
         assert!(judge_use_run(&i, &m, bell).is_err(), "another's vault");
+    }
+
+
+    fn escrow_bytes(e: &Escrow) -> Vec<u8> {
+        let mut d = vec![0u8; ES::SIZE];
+        d[..8].copy_from_slice(&ES::MAGIC);
+        d[ES::STATE] = e.state;
+        d[ES::SEQ..ES::SEQ + 4].copy_from_slice(&e.seq.to_le_bytes());
+        d[ES::DEADLINE_BELL..ES::DEADLINE_BELL + 4].copy_from_slice(&e.deadline.to_le_bytes());
+        d[ES::OPENED_BELL..ES::OPENED_BELL + 4].copy_from_slice(&e.opened.to_le_bytes());
+        for (i, sd) in e.sides.iter().enumerate() {
+            use ES::side as S;
+            let o = ES::side(i);
+            d[o + S::CITIZEN..o + S::CITIZEN + 32].copy_from_slice(&sd.citizen);
+            d[o + S::TAG..o + S::TAG + 8].copy_from_slice(&sd.tag.to_le_bytes());
+            d[o + S::KIND] = sd.kind;
+            d[o + S::STATE] = sd.state;
+            d[o + S::RESOURCE] = sd.resource;
+            d[o + S::GEN] = sd.gen;
+            d[o + S::P..o + S::P + 2].copy_from_slice(&sd.p.to_le_bytes());
+            d[o + S::Q..o + S::Q + 2].copy_from_slice(&sd.q.to_le_bytes());
+            d[o + S::TILE] = sd.tile;
+            d[o + S::AMOUNT..o + S::AMOUNT + 8].copy_from_slice(&sd.amount.to_le_bytes());
+            d[o + S::LOT_TAG..o + S::LOT_TAG + 8].copy_from_slice(&sd.lot_tag.to_le_bytes());
+            d[o + S::LOT_SEQ..o + S::LOT_SEQ + 4].copy_from_slice(&sd.lot_seq.to_le_bytes());
+        }
+        d[ES::RENT_TO..ES::RENT_TO + 32].copy_from_slice(&e.rent_to);
+        d
+    }
+
+    fn holding_ore(mut d: Vec<u8>, ore: i64, held: u64) -> Vec<u8> {
+        d[VA::store(3)..VA::store(3) + 8].copy_from_slice(&ore.to_le_bytes());
+        d[VA::held(3)..VA::held(3) + 8].copy_from_slice(&held.to_le_bytes());
+        d
+    }
+
+    /// ME gives 50 ore held in its vault for YOU's lot: the hold, the swap,
+    /// the collection; a hold beyond the free stock and a collection that
+    /// releases more than the goods (T67's shape) fail.
+    #[test]
+    fn escrows_hold_swap_and_release() {
+        const ESC: Key = [11; 32];
+        const PAYER: Key = [12; 32];
+        let you_tag = 22u64;
+        let goods = Side {
+            citizen: ME,
+            tag: 11,
+            kind: ES::ITEM_GOODS,
+            state: ES::SIDE_IN,
+            resource: 3,
+            gen: 1,
+            p: 3,
+            q: -2,
+            tile: 17,
+            amount: 50_000,
+            lot_tag: 0,
+            lot_seq: 0,
+        };
+        let lot_side = Side {
+            citizen: YOU,
+            tag: you_tag,
+            kind: ES::ITEM_LOT,
+            state: ES::SIDE_PROMISED,
+            resource: 0,
+            gen: 0,
+            p: 0,
+            q: 0,
+            tile: 0,
+            amount: 5,
+            lot_tag: you_tag,
+            lot_seq: 0,
+        };
+        let open = Escrow {
+            state: ES::STATE_OPEN,
+            seq: 1,
+            deadline: 60,
+            opened: 50,
+            sides: [goods, lot_side],
+            rent_to: PAYER,
+        };
+        let data = ix2::OpenEscrow {
+            deadline_bell: 60,
+            taker_tag: you_tag,
+            give_kind: ES::ITEM_GOODS,
+            give_resource: 3,
+            give_p: 3,
+            give_q: -2,
+            give_tile: 17,
+            give_amount: 50_000,
+            give_lot_tag: 0,
+            give_lot_seq: 0,
+            want_kind: ES::ITEM_LOT,
+            want_resource: 0,
+            want_amount: 5,
+            want_lot_tag: you_tag,
+            want_lot_seq: 0,
+        }
+        .to_bytes()
+        .to_vec();
+        let i = ix(data, &[SESSION, PAYER, [0; 32], ME, ESC, YOU, VAULT]);
+        let mut m = Mock {
+            before: HashMap::from([
+                (ME, citizen(11, WALLET, 0, 1, 0)),
+                (YOU, citizen(you_tag, [0; 32], 0, 1, 0)),
+                (VAULT, holding_ore(vault(ME, 1), 100_000, 0)),
+            ]),
+            after: HashMap::from([
+                (ME, Some(citizen(11, WALLET, 0, 2, 0))),
+                (VAULT, Some(holding_ore(vault(ME, 1), 100_000, 50_000))),
+                (ESC, Some(escrow_bytes(&open))),
+            ]),
+        };
+        assert_eq!(judge_open_escrow(&i, &m, 50), Ok(()));
+        m.before.insert(VAULT, holding_ore(vault(ME, 1), 40_000, 0));
+        assert!(judge_open_escrow(&i, &m, 50).is_err(), "beyond the free stock");
+        // YOU accepts with its lot.
+        let you_lot = Lot {
+            holder: YOU,
+            holder_tag: you_tag,
+            seed_tag: you_tag,
+            issuer_tag: you_tag,
+            amount: 5,
+            ..the_lot()
+        };
+        let mut settled = open;
+        settled.state = ES::STATE_SETTLED;
+        settled.sides[0].state = ES::SIDE_OWED;
+        settled.sides[1].state = ES::SIDE_DONE;
+        let data = ix2::AcceptEscrow {
+            vault_p: 0,
+            vault_q: 0,
+            vault_tile: 0,
+        }
+        .to_bytes()
+        .to_vec();
+        let i = ix(data, &[SESSION, PAYER, [0; 32], YOU, ESC, VAULT, LOT]);
+        let held = holding_ore(vault(ME, 1), 100_000, 50_000);
+        let m = Mock {
+            before: HashMap::from([
+                (ESC, escrow_bytes(&open)),
+                (VAULT, held.clone()),
+                (LOT, lot_bytes(&you_lot)),
+            ]),
+            after: HashMap::from([
+                (ESC, Some(escrow_bytes(&settled))),
+                (
+                    LOT,
+                    Some(lot_bytes(&Lot {
+                        holder: ME,
+                        holder_tag: 11,
+                        ..you_lot
+                    })),
+                ),
+            ]),
+        };
+        assert_eq!(judge_accept_escrow(&i, &m, 55), Ok(()));
+        assert!(judge_accept_escrow(&i, &m, 61).is_err(), "after the deadline");
+        // YOU collects the ore; the escrow closes.
+        let data = ix2::WithdrawEscrow {
+            side: 0,
+            seq: 0,
+            dst_kind: 1,
+            dst_p: 0,
+            dst_q: 0,
+            dst_at: 0,
+            dst_gen: 1,
+            steps: 0,
+            path: [0; 12],
+            fee: 0,
+        }
+        .to_bytes()
+        .to_vec();
+        let i = ix(
+            data,
+            &[SESSION, PAYER, [0; 32], YOU, ESC, VAULT, [0; 32], [0; 32], [0; 32], PAYER],
+        );
+        let mut m = Mock {
+            before: HashMap::from([(ESC, escrow_bytes(&settled)), (VAULT, held.clone())]),
+            after: HashMap::from([
+                (ESC, None),
+                (VAULT, Some(holding_ore(vault(ME, 1), 50_000, 0))),
+            ]),
+        };
+        assert_eq!(judge_withdraw_escrow(&i, &m), Ok(()));
+        let mut twice = holding_ore(vault(ME, 1), 50_000, 0);
+        twice[VA::held(3)..VA::held(3) + 8].copy_from_slice(&(-1_000i64 as u64).to_le_bytes());
+        m.after.insert(VAULT, Some(twice));
+        assert!(judge_withdraw_escrow(&i, &m).is_err(), "T67");
     }
 
 }

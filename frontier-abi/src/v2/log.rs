@@ -19,7 +19,8 @@ use permutation_rules::hash::sha256;
 pub use crate::log::{next_head, LINK_LEN, PREFIX, SOFT_BODY_MAX};
 
 /// Chained entity kinds of a v2 tail: M1's 1–7, MarchState 8, S1's
-/// Vault 9, Caravan 10, Structure 11, Nation 12, and S2's Issue 13, Lot 14.
+/// Vault 9, Caravan 10, Structure 11, Nation 12, and S2's Issue 13, Lot 14,
+/// Escrow 15.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(u8)]
 pub enum EntityKind {
@@ -43,10 +44,12 @@ pub enum EntityKind {
     Issue = 13,
     /// S2 (2a).
     Lot = 14,
+    /// S2 (2e).
+    Escrow = 15,
 }
 
 impl EntityKind {
-    pub const ALL: [EntityKind; 14] = [
+    pub const ALL: [EntityKind; 15] = [
         EntityKind::Season,
         EntityKind::Frontier,
         EntityKind::JoinShard,
@@ -61,6 +64,7 @@ impl EntityKind {
         EntityKind::Nation,
         EntityKind::Issue,
         EntityKind::Lot,
+        EntityKind::Escrow,
     ];
     pub fn from_u8(v: u8) -> Option<EntityKind> {
         Self::ALL.iter().copied().find(|k| *k as u8 == v)
@@ -85,6 +89,7 @@ impl EntityKind {
             EntityKind::Nation => A::Nation,
             EntityKind::Issue => A::Issue,
             EntityKind::Lot => A::Lot,
+            EntityKind::Escrow => A::Escrow,
         }
     }
 }
@@ -159,6 +164,10 @@ cq_kinds! {
     RECEIPT_CLAIMED = 109; key ["issuer_tag": 8, "seq": 4]; payload ["holder_tag": 8, "lot_tag": 8, "lot_seq": 4, "day": 4, "claim": 8, "claims": 8, "src": 8];
     RECEIPT_WITHDRAWN = 110; key ["issuer_tag": 8, "seq": 4]; payload ["holder_tag": 8, "lot_tag": 8, "lot_seq": 4, "day": 4, "claim": 8, "ratio_ppm": 4, "grant": 8, "caravan_seq": 4];
     USE_RUN = 111; key ["issuer_tag": 8, "seq": 4]; payload ["holder_tag": 8, "lot_tag": 8, "lot_seq": 4, "day": 4, "runs": 1, "lot_runs": 2, "holding_runs": 2, "holding_key": 8, "src": 8];
+    ESCROW_OPENED = 112; key ["maker_tag": 8, "seq": 4]; payload ["taker_tag": 8, "deadline_bell": 4, "give_kind": 1, "give_amount": 8, "lot_tag": 8, "lot_seq": 4, "src": 8, "want_kind": 1, "want_amount": 8, "want_lot_tag": 8, "want_lot_seq": 4, "rent_to": 32, "give_resource": 1, "want_resource": 1];
+    ESCROW_SETTLED = 113; key ["maker_tag": 8, "seq": 4]; payload ["taker_tag": 8, "maker_kind": 1, "taker_kind": 1, "maker_lot_tag": 8, "maker_lot_seq": 4, "taker_lot_tag": 8, "taker_lot_seq": 4, "src": 8, "closed": 1];
+    ESCROW_CANCELLED = 114; key ["maker_tag": 8, "seq": 4]; payload ["by_tag": 8, "released": 1, "lot_tag": 8, "lot_seq": 4, "src": 8];
+    ESCROW_WITHDRAWN = 115; key ["maker_tag": 8, "seq": 4]; payload ["receiver_tag": 8, "side": 1, "amount": 8, "caravan_seq": 4, "closed": 1];
 }
 
 /// S1 caravan places as logged (8 B): `kind u8 ‖ p i16 ‖ q i16 ‖
@@ -495,6 +504,8 @@ pub enum EntityRefV2 {
     Issue { issuer_tag: u64, seq: u32 },
     /// S2 (2a): a Lot by its first holder's tag and sequence.
     Lot { tag: u64, seq: u32 },
+    /// S2 (2e): an Escrow by its maker's tag and sequence.
+    Escrow { maker_tag: u64, seq: u32 },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -555,7 +566,7 @@ impl Chains {
 /// kinds keep M1's table ([`crate::log::chains_of`]).
 pub fn chains_of(kind: AnyKind, key: &[u8], payload: &[u8]) -> Option<Chains> {
     use EntityKind as E;
-    use EntityRefV2::{Base, Caravan, Issue, Lot, March, Nation, Structure, Vault};
+    use EntityRefV2::{Base, Caravan, Escrow, Issue, Lot, March, Nation, Structure, Vault};
     let mut c = Chains::new();
     let k = match kind {
         // S1: the CLOSE of a Vault, a Caravan or a Structure chains the closed account
@@ -586,6 +597,13 @@ pub fn chains_of(kind: AnyKind, key: &[u8], payload: &[u8]) -> Option<Chains> {
         {
             let (tag, seq) = (rd_u64(key, 1)?, rd_u32(key, 9)?);
             c.push(E::Lot, Lot { tag, seq }, false);
+            return Some(c);
+        }
+        AnyKind::V1(crate::log::Kind::CLOSE)
+            if key.first() == Some(&(crate::v2::layout::AccountKind::Escrow as u8)) =>
+        {
+            let (maker_tag, seq) = (rd_u64(key, 1)?, rd_u32(key, 9)?);
+            c.push(E::Escrow, Escrow { maker_tag, seq }, false);
             return Some(c);
         }
         AnyKind::V1(crate::log::Kind::CLOSE)
@@ -918,6 +936,55 @@ pub fn chains_of(kind: AnyKind, key: &[u8], payload: &[u8]) -> Option<Chains> {
             );
             place_link(&mut c, pay("src")?)?;
         }
+        // S2 (2e): the maker's Citizen (its counter), the Escrow and the
+        // item put in (the vault holding the goods, or the lot).
+        CqKind::ESCROW_OPENED => {
+            let (maker_tag, seq) = (rd_u64(key, 0)?, rd_u32(key, 8)?);
+            c.push(
+                E::Citizen,
+                Base(EntityRef::Citizen(CitizenRef::Tag8(maker_tag))),
+                false,
+            );
+            c.push(E::Escrow, Escrow { maker_tag, seq }, false);
+            item_link(&mut c, rd_u8(pay("give_kind")?, 0)?, pay("src")?, pay("lot_tag")?, pay("lot_seq")?)?;
+        }
+        // The Escrow, each lot that changed holder and the taker's vault
+        // holding its goods.
+        CqKind::ESCROW_SETTLED => {
+            let (maker_tag, seq) = (rd_u64(key, 0)?, rd_u32(key, 8)?);
+            c.push(E::Escrow, Escrow { maker_tag, seq }, false);
+            if rd_u8(pay("maker_kind")?, 0)? == crate::v2::layout::s2::escrow::ITEM_LOT {
+                c.push(
+                    E::Lot,
+                    Lot {
+                        tag: rd_u64(pay("maker_lot_tag")?, 0)?,
+                        seq: rd_u32(pay("maker_lot_seq")?, 0)?,
+                    },
+                    false,
+                );
+            }
+            item_link(
+                &mut c,
+                rd_u8(pay("taker_kind")?, 0)?,
+                pay("src")?,
+                pay("taker_lot_tag")?,
+                pay("taker_lot_seq")?,
+            )?;
+        }
+        // The Escrow and what it released (none for a void settled one).
+        CqKind::ESCROW_CANCELLED => {
+            let (maker_tag, seq) = (rd_u64(key, 0)?, rd_u32(key, 8)?);
+            c.push(E::Escrow, Escrow { maker_tag, seq }, false);
+            let released = rd_u8(pay("released")?, 0)?;
+            if released != 0 {
+                item_link(&mut c, released, pay("src")?, pay("lot_tag")?, pay("lot_seq")?)?;
+            }
+        }
+        // The Escrow (the vault is the same transaction's CARAVAN_SENT).
+        CqKind::ESCROW_WITHDRAWN => {
+            let (maker_tag, seq) = (rd_u64(key, 0)?, rd_u32(key, 8)?);
+            c.push(E::Escrow, Escrow { maker_tag, seq }, false);
+        }
         // S2 (2d): the lot, the workshop's holding (its day's runs) and the
         // user's vault.
         CqKind::USE_RUN => {
@@ -1038,6 +1105,29 @@ pub fn chains_of(kind: AnyKind, key: &[u8], payload: &[u8]) -> Option<Chains> {
 }
 
 /// The chain link of a logged S1 place (a holding or a vault).
+/// An escrow item's link: the vault of goods (`kind` 1, `src` its place) or
+/// the lot (`kind` 2).
+fn item_link(c: &mut Chains, kind: u8, src: &[u8], lot_tag: &[u8], lot_seq: &[u8]) -> Option<()> {
+    use crate::v2::layout::s2::escrow as ES;
+    match kind {
+        ES::ITEM_GOODS => place_link(c, src),
+        // No item (a zeroed record) links nothing.
+        0 => Some(()),
+        ES::ITEM_LOT => {
+            c.push(
+                EntityKind::Lot,
+                EntityRefV2::Lot {
+                    tag: rd_u64(lot_tag, 0)?,
+                    seq: rd_u32(lot_seq, 0)?,
+                },
+                false,
+            );
+            Some(())
+        }
+        _ => None,
+    }
+}
+
 fn place_link(c: &mut Chains, place: &[u8]) -> Option<()> {
     use crate::v2::layout::s1::place as PL;
     let kind = rd_u8(place, 0)?;
@@ -1076,6 +1166,9 @@ pub fn march_address(ctx: &crate::addr::AddrCtx, who: &EntityRefV2) -> Option<[u
             Some(crate::v2::addr::issue(ctx, *issuer_tag, *seq))
         }
         EntityRefV2::Lot { tag, seq } => Some(crate::v2::addr::lot(ctx, *tag, *seq)),
+        EntityRefV2::Escrow { maker_tag, seq } => {
+            Some(crate::v2::addr::escrow(ctx, *maker_tag, *seq))
+        }
         EntityRefV2::Base(b) => b.address(ctx),
     }
 }
@@ -1243,6 +1336,15 @@ pub fn close_key_lot(seed_tag: u64, seq: u32) -> [u8; 16] {
     k
 }
 
+/// The CLOSE key of an Escrow: `kind ‖ maker_tag ‖ seq` (16 B, zero padded).
+pub fn close_key_escrow(maker_tag: u64, seq: u32) -> [u8; 16] {
+    let mut k = [0u8; 16];
+    k[0] = crate::v2::layout::AccountKind::Escrow as u8;
+    k[1..9].copy_from_slice(&maker_tag.to_le_bytes());
+    k[9..13].copy_from_slice(&seq.to_le_bytes());
+    k
+}
+
 /// Reads an `[u8; N]` key part (helper for readers).
 pub fn key_arr<const N: usize>(key: &[u8], off: usize) -> Option<[u8; N]> {
     rd_arr(key, off)
@@ -1311,7 +1413,7 @@ mod tests {
                 k.body_len()
             );
         }
-        assert_eq!(CQ_SPECS.len(), 31, "MC's 9, S1's 13 and S2's 9");
+        assert_eq!(CQ_SPECS.len(), 35, "MC's 9, S1's 13 and S2's 13");
         assert_eq!(AnyKind::Cq(CqKind::CONQUEST).body_len(), 137);
         assert_eq!(
             AnyKind::Cq(CqKind::CONQUEST).payload_len(),

@@ -98,7 +98,9 @@ pub fn structure(ctx: &AddrCtx, p: i32, q: i32, tile: u8) -> [u8; 32] {
 pub const ISSUE: [u8; 2] = *b"ti";
 /// The Lot seed tag (S2, 2a).
 pub const LOT: [u8; 2] = *b"tl";
-/// Raw key length of an Issue or a Lot (`tag u64, seq u32`).
+/// The Escrow seed tag (S2, 2e).
+pub const ESCROW: [u8; 2] = *b"te";
+/// Raw key length of an Issue, a Lot or an Escrow (`tag u64, seq u32`).
 pub const TICKET_RAW_LEN: usize = 12;
 
 fn tag_seq(tag: u64, seq: u32) -> [u8; TICKET_RAW_LEN] {
@@ -150,6 +152,22 @@ pub const fn is_deposit_seq(seq: u32) -> bool {
     seq & DEPOSIT_BIT != 0
 }
 
+/// `te‖hex(le64 maker_tag ‖ le32 seq)`.
+pub fn escrow_seed(maker_tag: u64, seq: u32) -> Seed {
+    Seed::new(ESCROW, &tag_seq(maker_tag, seq))
+}
+
+/// The Escrow address of a maker's escrow by its sequence.
+pub fn escrow(ctx: &AddrCtx, maker_tag: u64, seq: u32) -> [u8; 32] {
+    ctx.of(&escrow_seed(maker_tag, seq))
+}
+
+/// The mark an escrowed Lot carries in `ESCROW` (2e): nonzero, derived
+/// from the escrow's key (a lot names its escrow; the escrow names its lot).
+pub fn escrow_mark(maker_tag: u64, seq: u32) -> u64 {
+    (maker_tag.rotate_left(32) ^ ((seq as u64) << 1)) | 1
+}
+
 /// `cv‖hex(le64 owner_tag ‖ le32 seq)`.
 pub fn caravan_seed(owner_tag: u64, seq: u32) -> Seed {
     let mut raw = [0u8; CARAVAN_RAW_LEN];
@@ -173,6 +191,7 @@ pub fn tag_of(kind: AccountKind) -> Option<[u8; 2]> {
         AccountKind::Nation => Some(NATION),
         AccountKind::Issue => Some(ISSUE),
         AccountKind::Lot => Some(LOT),
+        AccountKind::Escrow => Some(ESCROW),
         k => crate::addr::tag_of(k.to_v1()?),
     }
 }
@@ -185,7 +204,7 @@ pub fn raw_len(kind: AccountKind) -> usize {
         AccountKind::Caravan => CARAVAN_RAW_LEN,
         AccountKind::Structure => STRUCTURE_RAW_LEN,
         AccountKind::Nation => NATION_RAW_LEN,
-        AccountKind::Issue | AccountKind::Lot => TICKET_RAW_LEN,
+        AccountKind::Issue | AccountKind::Lot | AccountKind::Escrow => TICKET_RAW_LEN,
         k => k.to_v1().map(crate::addr::raw_len).unwrap_or(0),
     }
 }
@@ -216,7 +235,7 @@ mod tests {
         }
         assert_eq!(tag_of(AccountKind::MarchState), Some(MARCH));
         // S1: four more tags, distinct from every other.
-        for t in [VAULT, CARAVAN, STRUCTURE, NATION, ISSUE, LOT] {
+        for t in [VAULT, CARAVAN, STRUCTURE, NATION, ISSUE, LOT, ESCROW] {
             for k in crate::layout::AccountKind::ALL {
                 assert_ne!(crate::addr::tag_of(k), Some(t), "{}", k.name());
             }

@@ -979,10 +979,14 @@ pub fn open_shares(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         // (claims and withdrawals are refused once it is shared).
         let mut period = period_of(&vd)?;
         if period.active() {
-            period.roll(bell / BELLS_PER_DAY, &super::caravan::vault_stock(&vd)?);
+            period.roll(bell / BELLS_PER_DAY, &super::caravan::vault_free(&vd)?);
             if period.claims.iter().chain(period.res.iter()).any(|&v| v > 0) {
                 return Err(cq(CqError::ReceiptState));
             }
+        }
+        // 2e: nor escrows' holds (they would leave with the basket).
+        if super::caravan::vault_held(&vd)?.iter().any(|&h| h != 0) {
+            return Err(cq(CqError::EscrowState));
         }
         let mut stores = [0i64; RESOURCES];
         for (r, v) in stores.iter_mut().enumerate() {
@@ -1374,7 +1378,7 @@ pub fn claim_receipt(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     let claims = {
         let mut vd = vault.try_borrow_mut_data()?;
         let mut period = period_of(&vd)?;
-        period.roll(today, &super::caravan::vault_stock(&vd)?);
+        period.roll(today, &super::caravan::vault_free(&vd)?);
         // Once a day; yesterday's claim withdrawn first, unless it grants
         // nothing (then it lapses).
         let pending = lv.day + 1 == today1 && kt::grant(lv.day_amount, period.ratio[r]) > 0;
@@ -1584,12 +1588,13 @@ pub fn use_run(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         // 2c: the day boundary first; reserved goods stay.
         let period = roll_vault(&mut vd, bell)?;
         let stock = super::caravan::vault_stock(&vd)?;
+        let free = super::caravan::vault_free(&vd)?;
         let (o, w, m) = (
             permutation_rules::frontier::holding::Resource::Ore as usize,
             permutation_rules::frontier::holding::Resource::Wood as usize,
             arms::ARMS as usize,
         );
-        if period.available(today, o, stock[o]) < ore || period.available(today, w, stock[w]) < wood
+        if period.available(today, o, free[o]) < ore || period.available(today, w, free[w]) < wood
         {
             return Err(FrontierError::Insufficient.into());
         }
@@ -1653,4 +1658,696 @@ pub fn use_run(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
             },
         ],
     )
+}
+
+// ------------------------------------------------------------ 0xC9–0xCC escrows (2e)
+
+use frontier_abi::v2::layout::s2::escrow as ES;
+
+/// One side of an Escrow as stored (`S2-2E-CONTRACT.md` §2.1).
+#[derive(Clone, Copy)]
+struct Side {
+    citizen: [u8; 32],
+    tag: u64,
+    kind: u8,
+    state: u8,
+    resource: u8,
+    gen: u8,
+    p: i16,
+    q: i16,
+    tile: u8,
+    amount: u64,
+    lot_tag: u64,
+    lot_seq: u32,
+}
+
+impl Side {
+    fn read(d: &[u8], i: usize) -> R<Side> {
+        let (o, r) = (ES::side(i), Ro(d));
+        use ES::side as S;
+        Ok(Side {
+            citizen: r.arr(o + S::CITIZEN)?,
+            tag: r.u64(o + S::TAG)?,
+            kind: r.u8(o + S::KIND)?,
+            state: r.u8(o + S::STATE)?,
+            resource: r.u8(o + S::RESOURCE)?,
+            gen: r.u8(o + S::GEN)?,
+            p: r.i16(o + S::P)?,
+            q: r.i16(o + S::Q)?,
+            tile: r.u8(o + S::TILE)?,
+            amount: r.u64(o + S::AMOUNT)?,
+            lot_tag: r.u64(o + S::LOT_TAG)?,
+            lot_seq: r.u32(o + S::LOT_SEQ)?,
+        })
+    }
+    fn write(&self, d: &mut [u8], i: usize) -> R<()> {
+        let o = ES::side(i);
+        use ES::side as S;
+        let mut w = Rw(d);
+        w.set_arr(o + S::CITIZEN, &self.citizen)?;
+        w.set_u64(o + S::TAG, self.tag)?;
+        w.set_u8(o + S::KIND, self.kind)?;
+        w.set_u8(o + S::STATE, self.state)?;
+        w.set_u8(o + S::RESOURCE, self.resource)?;
+        w.set_u8(o + S::GEN, self.gen)?;
+        w.set_i16(o + S::P, self.p)?;
+        w.set_i16(o + S::Q, self.q)?;
+        w.set_u8(o + S::TILE, self.tile)?;
+        w.set_u64(o + S::AMOUNT, self.amount)?;
+        w.set_u64(o + S::LOT_TAG, self.lot_tag)?;
+        w.set_u32(o + S::LOT_SEQ, self.lot_seq)?;
+        Ok(())
+    }
+    /// The logged place of a goods side's vault (zeros for a lot).
+    fn src_log(&self) -> [u8; 8] {
+        if self.kind != ES::ITEM_GOODS {
+            return [0; 8];
+        }
+        Place {
+            kind: PL::KIND_VAULT,
+            p: self.p,
+            q: self.q,
+            at: self.tile,
+            gen: self.gen,
+            tile: self.tile,
+            owner: [0; 32],
+        }
+        .log()
+    }
+}
+
+/// An Escrow's header fields.
+struct EscrowView {
+    state: u8,
+    seq: u32,
+    deadline: u32,
+    sides: [Side; 2],
+    rent_to: [u8; 32],
+}
+
+fn read_escrow(p: &Pubkey, pl: &Player, ai: &AccountInfo) -> R<EscrowView> {
+    present_v2(ai, p, K2::Escrow, pl.pc.season.id)?;
+    let d = ai.try_borrow_data()?;
+    let r = Ro(&d);
+    let v = EscrowView {
+        state: r.u8(ES::STATE)?,
+        seq: r.u32(ES::SEQ)?,
+        deadline: r.u32(ES::DEADLINE_BELL)?,
+        sides: [Side::read(&d, 0)?, Side::read(&d, 1)?],
+        rent_to: r.arr(ES::RENT_TO)?,
+    };
+    expect_key(
+        ai,
+        &frontier_abi::v2::addr::escrow(&pl.ctx, v.sides[0].tag, v.seq),
+    )?;
+    Ok(v)
+}
+
+/// Puts goods in escrow: `amount` milli of `r` held in the citizen's own
+/// live unshared vault `vault` (rolled first; only the free stock, less
+/// today's receipt reservation, may be held). Returns the vault's place.
+fn hold_goods(
+    p: &Pubkey,
+    pl: &Player,
+    citizen: &AccountInfo,
+    vault: &AccountInfo,
+    at: (i16, i16, u8),
+    r: u8,
+    amount: u64,
+) -> R<Place> {
+    let v: Place = place_of(p, &pl.ctx, pl.pc.season.id, vault)?.ok_or(cq(CqError::TicketTerms))?;
+    if v.kind != PL::KIND_VAULT || (v.p, v.q, v.at) != at {
+        return Err(BAD_ACCOUNT);
+    }
+    if v.owner != citizen.key.to_bytes() {
+        return Err(FrontierError::NotOwner.into());
+    }
+    let r = r as usize;
+    if r >= RESOURCES || !goods_amount_ok(amount) {
+        return Err(FrontierError::BadData.into());
+    }
+    let mut vd = vault.try_borrow_mut_data()?;
+    if vault_shares(&vd)?.is_some() {
+        return Err(cq(CqError::VaultShared));
+    }
+    let bell = pl.pc.now_bell;
+    let period = roll_vault(&mut vd, bell)?;
+    let free = super::caravan::vault_free(&vd)?;
+    if period.available(bell / BELLS_PER_DAY, r, free[r]) < amount as i64 {
+        return Err(FrontierError::Insufficient.into());
+    }
+    let held = Ro(&vd).u64(VA::held(r))?;
+    Rw(&mut vd).set_u64(VA::held(r), held.checked_add(amount).ok_or(OVERFLOW)?)?;
+    Ok(v)
+}
+
+/// An escrowed goods amount: whole units, nonzero, within a vault's reach
+/// (`ESCROW_MAX_GOODS`; a larger one would wrap the signed stock maths).
+fn goods_amount_ok(amount: u64) -> bool {
+    amount != 0 && amount % 1_000 == 0 && amount <= kt::ESCROW_MAX_GOODS
+}
+
+/// Puts a whole lot in escrow (marked with `mark`): the citizen's, live,
+/// not escrowed, not a share deposit lot, with units.
+fn hold_lot(p: &Pubkey, pl: &Player, citizen: &AccountInfo, lot: &AccountInfo, key: (u64, u32), mark: u64) -> R<()> {
+    expect_key(lot, &frontier_abi::v2::addr::lot(&pl.ctx, key.0, key.1))?;
+    let lv = read_lot(p, pl, lot)?;
+    if lv.holder != citizen.key.to_bytes() {
+        return Err(FrontierError::NotOwner.into());
+    }
+    if lv.state != STATE_LIVE || lv.escrow != 0 || lv.amount == 0 || is_deposit_seq(lv.seq) {
+        return Err(cq(CqError::TicketTerms));
+    }
+    Rw(&mut lot.try_borrow_mut_data()?).set_u64(LT::ESCROW, mark)
+}
+
+/// 0xC9 OpenEscrow (2e): P + `[escrow w] [taker r] [give_src w] [system]`
+/// (`S2-2E-CONTRACT.md` §3.1).
+pub fn open_escrow(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+    check_accounts_v2(Ix2::OpenEscrow, a, None)?;
+    let x = ix2::OpenEscrow::decode(d)?;
+    let pl: Player = hold::player(p, a)?;
+    let [_, payer, season_ai, citizen, escrow, taker, give_src, _system] = a else {
+        return Err(FrontierError::TooManyAccounts.into());
+    };
+    let sid = pl.pc.season.id;
+    let bell = pl.pc.now_bell;
+    if x.deadline_bell <= bell || x.deadline_bell - bell > kt::ESCROW_MAX_BELLS {
+        return Err(FrontierError::BadData.into());
+    }
+    present_v2(taker, p, K2::Citizen, sid)?;
+    let ttag = Ro(&taker.try_borrow_data()?).u64(C::CITIZEN_TAG)?;
+    if taker.key == citizen.key || ttag != x.taker_tag {
+        return Err(FrontierError::BadData.into());
+    }
+    match x.want_kind {
+        ES::ITEM_GOODS => {
+            if x.want_resource as usize >= RESOURCES || !goods_amount_ok(x.want_amount) {
+                return Err(FrontierError::BadData.into());
+            }
+        }
+        // A wanted lot names the units it must hold at acceptance.
+        ES::ITEM_LOT => {
+            if x.want_amount == 0 {
+                return Err(FrontierError::BadData.into());
+            }
+        }
+        _ => return Err(FrontierError::BadData.into()),
+    }
+    let tag = pl.pc.citizen_tag;
+    let seq = Ro(&citizen.try_borrow_data()?).u32(C::LOTS)?;
+    expect_key(escrow, &frontier_abi::v2::addr::escrow(&pl.ctx, tag, seq))?;
+    if !init::is_absent(escrow) {
+        return Err(BAD_ACCOUNT);
+    }
+    let mark = frontier_abi::v2::addr::escrow_mark(tag, seq);
+    let mut give = Side {
+        citizen: citizen.key.to_bytes(),
+        tag,
+        kind: x.give_kind,
+        state: ES::SIDE_IN,
+        resource: 0,
+        gen: 0,
+        p: 0,
+        q: 0,
+        tile: 0,
+        amount: 0,
+        lot_tag: 0,
+        lot_seq: 0,
+    };
+    match x.give_kind {
+        ES::ITEM_GOODS => {
+            let v = hold_goods(
+                p,
+                &pl,
+                citizen,
+                give_src,
+                (x.give_p, x.give_q, x.give_tile),
+                x.give_resource,
+                x.give_amount,
+            )?;
+            (give.resource, give.gen, give.p, give.q, give.tile) =
+                (x.give_resource, v.gen, v.p, v.q, v.at);
+            give.amount = x.give_amount;
+        }
+        ES::ITEM_LOT => {
+            hold_lot(p, &pl, citizen, give_src, (x.give_lot_tag, x.give_lot_seq), mark)?;
+            give.amount = Ro(&give_src.try_borrow_data()?).u64(LT::AMOUNT)?;
+            (give.lot_tag, give.lot_seq) = (x.give_lot_tag, x.give_lot_seq);
+        }
+        _ => return Err(FrontierError::BadData.into()),
+    }
+    let want = Side {
+        citizen: taker.key.to_bytes(),
+        tag: ttag,
+        kind: x.want_kind,
+        state: ES::SIDE_PROMISED,
+        resource: if x.want_kind == ES::ITEM_GOODS { x.want_resource } else { 0 },
+        gen: 0,
+        p: 0,
+        q: 0,
+        tile: 0,
+        amount: x.want_amount,
+        lot_tag: if x.want_kind == ES::ITEM_LOT { x.want_lot_tag } else { 0 },
+        lot_seq: if x.want_kind == ES::ITEM_LOT { x.want_lot_seq } else { 0 },
+    };
+    // The Escrow, funded by the payer.
+    {
+        let signer = SeasonSigner::new(sid, pl.pc.season.bump);
+        let seed = frontier_abi::v2::addr::escrow_seed(tag, seq);
+        let rent = init::rent(ES::SIZE)?;
+        init::init_with_seed(payer, escrow, season_ai, &signer, &seed, ES::SIZE, rent, p)?;
+        let mut ed = escrow.try_borrow_mut_data()?;
+        if !frontier_abi::v2::layout::write_header(&mut ed, K2::Escrow, sid) {
+            return Err(BAD_ACCOUNT);
+        }
+        {
+            let mut w = Rw(&mut ed);
+            w.set_u8(ES::STATE, ES::STATE_OPEN)?;
+            w.set_u32(ES::SEQ, seq)?;
+            w.set_u32(ES::DEADLINE_BELL, x.deadline_bell)?;
+            w.set_u32(ES::OPENED_BELL, bell)?;
+            w.set_arr(ES::RENT_TO, payer.key.as_ref())?;
+        }
+        give.write(&mut ed, 0)?;
+        want.write(&mut ed, 1)?;
+    }
+    {
+        let mut cd = citizen.try_borrow_mut_data()?;
+        Rw(&mut cd).set_u32(C::LOTS, seq.checked_add(1).ok_or(OVERFLOW)?)?;
+    }
+    let payload = crate::events::Buf::<96>::new()
+        .u64(ttag)
+        .u32(x.deadline_bell)
+        .u8(give.kind)
+        .u64(give.amount)
+        .u64(give.lot_tag)
+        .u32(give.lot_seq)
+        .bytes(&give.src_log())
+        .u8(want.kind)
+        .u64(want.amount)
+        .u64(want.lot_tag)
+        .u32(want.lot_seq)
+        .bytes(payer.key.as_ref())
+        .u8(give.resource)
+        .u8(want.resource);
+    let mut cd = citizen.try_borrow_mut_data()?;
+    let mut gd = give_src.try_borrow_mut_data()?;
+    let mut ed = escrow.try_borrow_mut_data()?;
+    let give_entity = if give.kind == ES::ITEM_GOODS { E2::Vault } else { E2::Lot };
+    cqlog::emit(
+        CqKind::ESCROW_OPENED as u8,
+        bell,
+        &key12(tag, seq),
+        payload.get()?,
+        &mut [
+            Chained2 {
+                entity: E2::Citizen,
+                data: &mut cd,
+            },
+            Chained2 {
+                entity: give_entity,
+                data: &mut gd,
+            },
+            Chained2 {
+                entity: E2::Escrow,
+                data: &mut ed,
+            },
+        ],
+    )
+}
+
+/// The item account of side `s` (its vault or its lot) at its address.
+fn expect_item(pl: &Player, ai: &AccountInfo, s: &Side) -> R<()> {
+    let want = if s.kind == ES::ITEM_GOODS {
+        frontier_abi::v2::addr::vault(&pl.ctx, s.p as i32, s.q as i32, s.tile)
+    } else {
+        frontier_abi::v2::addr::lot(&pl.ctx, s.lot_tag, s.lot_seq)
+    };
+    expect_key(ai, &want)
+}
+
+/// Gives an escrowed lot to `to` (holder rewritten in place, mark cleared).
+fn hand_lot(lot: &AccountInfo, to: &[u8; 32], to_tag: u64, mark: u64) -> R<()> {
+    let mut ld = lot.try_borrow_mut_data()?;
+    if Ro(&ld).u64(LT::ESCROW)? != mark {
+        return Err(cq(CqError::EscrowState));
+    }
+    let mut w = Rw(&mut ld);
+    w.set_arr(LT::HOLDER_CITIZEN, to)?;
+    w.set_u64(LT::HOLDER_TAG, to_tag)?;
+    w.set_u64(LT::ESCROW, 0)
+}
+
+/// 0xCA AcceptEscrow (2e): P + `[escrow w] [maker_src w] [taker_src w]` (`S2-2E-CONTRACT.md` §3.2): the taker's item in, and the
+/// swap.
+pub fn accept_escrow(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+    check_accounts_v2(Ix2::AcceptEscrow, a, None)?;
+    let x = ix2::AcceptEscrow::decode(d)?;
+    let pl: Player = hold::player(p, a)?;
+    let [_, _, _, citizen, escrow, maker_src, taker_src] = a else {
+        return Err(FrontierError::TooManyAccounts.into());
+    };
+    let bell = pl.pc.now_bell;
+    let ev = read_escrow(p, &pl, escrow)?;
+    let [mut ms, mut ts] = ev.sides;
+    if ev.state != ES::STATE_OPEN || bell > ev.deadline || ts.citizen != citizen.key.to_bytes() {
+        return Err(cq(CqError::EscrowState));
+    }
+    expect_item(&pl, maker_src, &ms)?;
+    // The maker's goods must still be owed from a live vault (a seizure
+    // since the opening voided them).
+    if ms.kind == ES::ITEM_GOODS && !goods_live(p, &pl, maker_src, &ms)? {
+        return Err(cq(CqError::TicketVoid));
+    }
+    let mark = frontier_abi::v2::addr::escrow_mark(ms.tag, ev.seq);
+    // The taker's item in.
+    if ts.kind == ES::ITEM_GOODS {
+        let v = hold_goods(
+            p,
+            &pl,
+            citizen,
+            taker_src,
+            (x.vault_p, x.vault_q, x.vault_tile),
+            ts.resource,
+            ts.amount,
+        )?;
+        (ts.gen, ts.p, ts.q, ts.tile) = (v.gen, v.p, v.q, v.at);
+    } else {
+        hold_lot(p, &pl, citizen, taker_src, (ts.lot_tag, ts.lot_seq), mark)?;
+        if Ro(&taker_src.try_borrow_data()?).u64(LT::AMOUNT)? != ts.amount {
+            return Err(cq(CqError::EscrowState));
+        }
+    }
+    // The swap: lots change holder now, goods become owed.
+    if ms.kind == ES::ITEM_LOT {
+        hand_lot(maker_src, &ts.citizen, ts.tag, mark)?;
+        ms.state = ES::SIDE_DONE;
+    } else {
+        ms.state = ES::SIDE_OWED;
+    }
+    if ts.kind == ES::ITEM_LOT {
+        hand_lot(taker_src, &ms.citizen, ms.tag, mark)?;
+        ts.state = ES::SIDE_DONE;
+    } else {
+        ts.state = ES::SIDE_OWED;
+    }
+    let nothing_owed = ms.state != ES::SIDE_OWED && ts.state != ES::SIDE_OWED;
+    {
+        let mut ed = escrow.try_borrow_mut_data()?;
+        Rw(&mut ed).set_u8(ES::STATE, ES::STATE_SETTLED)?;
+        ms.write(&mut ed, 0)?;
+        ts.write(&mut ed, 1)?;
+    }
+    let payload = crate::events::Buf::<43>::new()
+        .u64(ts.tag)
+        .u8(ms.kind)
+        .u8(ts.kind)
+        .u64(ms.lot_tag)
+        .u32(ms.lot_seq)
+        .u64(ts.lot_tag)
+        .u32(ts.lot_seq)
+        .bytes(&ts.src_log())
+        .u8(nothing_owed as u8);
+    let mut ed = escrow.try_borrow_mut_data()?;
+    let mut td = taker_src.try_borrow_mut_data()?;
+    let key = key12(ms.tag, ev.seq);
+    let t_entity = if ts.kind == ES::ITEM_GOODS { E2::Vault } else { E2::Lot };
+    if ms.kind == ES::ITEM_LOT {
+        let mut md = maker_src.try_borrow_mut_data()?;
+        // Tail order: a vault (9) before the lots (14), the maker's lot
+        // before the taker's.
+        let mut chain = [
+            Chained2 {
+                entity: E2::Lot,
+                data: &mut md,
+            },
+            Chained2 {
+                entity: t_entity,
+                data: &mut td,
+            },
+            Chained2 {
+                entity: E2::Escrow,
+                data: &mut ed,
+            },
+        ];
+        if t_entity == E2::Vault {
+            chain.swap(0, 1);
+        }
+        cqlog::emit(CqKind::ESCROW_SETTLED as u8, bell, &key, payload.get()?, &mut chain)
+    } else {
+        cqlog::emit(
+            CqKind::ESCROW_SETTLED as u8,
+            bell,
+            &key,
+            payload.get()?,
+            &mut [
+                Chained2 {
+                    entity: t_entity,
+                    data: &mut td,
+                },
+                Chained2 {
+                    entity: E2::Escrow,
+                    data: &mut ed,
+                },
+            ],
+        )
+    }
+}
+
+/// Whether goods side `s` is still owed from a live vault in its
+/// generation (`vault` at its address).
+fn goods_live(p: &Pubkey, pl: &Player, vault: &AccountInfo, s: &Side) -> R<bool> {
+    expect_item(pl, vault, s)?;
+    if init::is_absent(vault) {
+        return Ok(false);
+    }
+    Ok(place_of(p, &pl.ctx, pl.pc.season.id, vault)?.is_some_and(|v| v.gen == s.gen))
+}
+
+/// Releases goods side `s` held in `vault` when it is live in its
+/// generation (a seizure cleared the holds already). `true` when released.
+fn release_goods(p: &Pubkey, pl: &Player, vault: &AccountInfo, s: &Side) -> R<bool> {
+    if !goods_live(p, pl, vault, s)? {
+        return Ok(false);
+    }
+    let mut vd = vault.try_borrow_mut_data()?;
+    let r = s.resource as usize;
+    let held = Ro(&vd).u64(VA::held(r))?;
+    Rw(&mut vd).set_u64(VA::held(r), held.checked_sub(s.amount).ok_or(OVERFLOW)?)?;
+    Ok(true)
+}
+
+/// 0xCB CancelEscrow (2e): P + `[escrow w] [rent_to w]` + `[src w ×1..2]`
+/// (`S2-2E-CONTRACT.md` §3.3).
+pub fn cancel_escrow(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+    let n_src = a.len().checked_sub(6).ok_or(FrontierError::TooManyAccounts)?;
+    check_accounts_v2(Ix2::CancelEscrow, a, Some(&[1, 1, n_src as u8]))?;
+    ix2::CancelEscrow::decode(d)?;
+    let pl: Player = hold::player(p, a)?;
+    let [_, _, _, citizen, escrow, rent_to, srcs @ ..] = a else {
+        return Err(FrontierError::TooManyAccounts.into());
+    };
+    let bell = pl.pc.now_bell;
+    let ev = read_escrow(p, &pl, escrow)?;
+    if rent_to.key.to_bytes() != ev.rent_to {
+        return Err(BAD_ACCOUNT);
+    }
+    let me = citizen.key.to_bytes();
+    let [ms, ts] = ev.sides;
+    let party = me == ms.citizen || me == ts.citizen;
+    let mut released = 0u8;
+    let mut rel_src: Option<&AccountInfo> = None;
+    if ev.state == ES::STATE_OPEN {
+        // The maker any time; anyone after the deadline.
+        if me != ms.citizen && bell <= ev.deadline {
+            return Err(cq(CqError::EscrowState));
+        }
+        let src = srcs.first().ok_or(FrontierError::TooManyAccounts)?;
+        if ms.kind == ES::ITEM_GOODS {
+            if release_goods(p, &pl, src, &ms)? {
+                released = ES::ITEM_GOODS;
+            }
+        } else {
+            expect_item(&pl, src, &ms)?;
+            let mark = frontier_abi::v2::addr::escrow_mark(ms.tag, ev.seq);
+            if !init::is_absent(src) {
+                let mut ld = src.try_borrow_mut_data()?;
+                if Ro(&ld).u64(LT::ESCROW)? == mark {
+                    Rw(&mut ld).set_u64(LT::ESCROW, 0)?;
+                    released = ES::ITEM_LOT;
+                }
+            }
+        }
+        if released != 0 {
+            rel_src = Some(src);
+        }
+    } else {
+        // Settled: a party closes it once nothing owed is live.
+        if !party {
+            return Err(cq(CqError::EscrowState));
+        }
+        let mut it = srcs.iter();
+        for s in [&ms, &ts] {
+            if s.state == ES::SIDE_OWED {
+                let v = it.next().ok_or(FrontierError::TooManyAccounts)?;
+                if goods_live(p, &pl, v, s)? {
+                    return Err(cq(CqError::EscrowState));
+                }
+            }
+        }
+    }
+    let payload = crate::events::Buf::<29>::new()
+        .u64(pl.pc.citizen_tag)
+        .u8(released)
+        .u64(if released == ES::ITEM_LOT { ms.lot_tag } else { 0 })
+        .u32(if released == ES::ITEM_LOT { ms.lot_seq } else { 0 })
+        .bytes(&if released == ES::ITEM_GOODS { ms.src_log() } else { [0; 8] });
+    let key = key12(ms.tag, ev.seq);
+    {
+        let mut ed = escrow.try_borrow_mut_data()?;
+        match rel_src {
+            Some(src) => {
+                let mut sd = src.try_borrow_mut_data()?;
+                let entity = if released == ES::ITEM_GOODS { E2::Vault } else { E2::Lot };
+                cqlog::emit(
+                    CqKind::ESCROW_CANCELLED as u8,
+                    bell,
+                    &key,
+                    payload.get()?,
+                    &mut [
+                        Chained2 {
+                            entity,
+                            data: &mut sd,
+                        },
+                        Chained2 {
+                            entity: E2::Escrow,
+                            data: &mut ed,
+                        },
+                    ],
+                )?;
+            }
+            None => cqlog::emit(
+                CqKind::ESCROW_CANCELLED as u8,
+                bell,
+                &key,
+                payload.get()?,
+                &mut [Chained2 {
+                    entity: E2::Escrow,
+                    data: &mut ed,
+                }],
+            )?,
+        }
+    }
+    close_account(
+        p,
+        escrow,
+        rent_to,
+        E2::Escrow,
+        &frontier_abi::v2::log::close_key_escrow(ms.tag, ev.seq),
+        bell,
+    )
+}
+
+/// 0xCC WithdrawEscrow (2e): P + `[escrow w] [src w] [dst r] [caravan w]
+/// [system] [rent_to w] [path_province w ×1..4]` (`S2-2E-CONTRACT.md`
+/// §3.4): the receiver sends owed goods out of the giver's vault.
+pub fn withdraw_escrow(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+    let n_prov = a
+        .len()
+        .checked_sub(10)
+        .ok_or(FrontierError::TooManyAccounts)?;
+    check_accounts_v2(Ix2::WithdrawEscrow, a, Some(&[1, 1, n_prov as u8]))?;
+    let x = ix2::WithdrawEscrow::decode(d)?;
+    let pl: Player = hold::player(p, a)?;
+    let [_, payer, season_ai, citizen, escrow, src, dst, caravan, _system, rent_to, provinces @ ..] = a
+    else {
+        return Err(FrontierError::TooManyAccounts.into());
+    };
+    let bell = pl.pc.now_bell;
+    let ev = read_escrow(p, &pl, escrow)?;
+    let i = x.side as usize;
+    if i > 1 {
+        return Err(FrontierError::BadData.into());
+    }
+    let mut sides = ev.sides;
+    let (s, other) = (sides[i], sides[1 - i]);
+    if ev.state != ES::STATE_SETTLED
+        || s.kind != ES::ITEM_GOODS
+        || s.state != ES::SIDE_OWED
+        || other.citizen != citizen.key.to_bytes()
+    {
+        return Err(cq(CqError::EscrowState));
+    }
+    if rent_to.key.to_bytes() != ev.rent_to {
+        return Err(BAD_ACCOUNT);
+    }
+    // The day boundary first, on the stock the hold still covers (2c).
+    if goods_live(p, &pl, src, &s)? {
+        roll_vault(&mut src.try_borrow_mut_data()?, bell)?;
+    }
+    if !release_goods(p, &pl, src, &s)? {
+        return Err(cq(CqError::TicketVoid));
+    }
+    let mut cargo = [0i64; RESOURCES];
+    cargo[s.resource as usize] = s.amount as i64;
+    send(
+        p,
+        &pl,
+        &SendAccounts {
+            payer,
+            season_ai,
+            citizen,
+            src,
+            dst,
+            caravan,
+            provinces,
+        },
+        &SendOrder {
+            seq: x.seq,
+            dst: (x.dst_kind, x.dst_p, x.dst_q, x.dst_at, x.dst_gen),
+            steps: x.steps,
+            path: x.path,
+            fee: x.fee,
+        },
+        &cargo,
+        SendBy::Escrow,
+    )?;
+    sides[i].state = ES::SIDE_DONE;
+    let closed = sides.iter().all(|s| s.state != ES::SIDE_OWED);
+    {
+        let mut ed = escrow.try_borrow_mut_data()?;
+        sides[i].write(&mut ed, i)?;
+    }
+    let payload = crate::events::Buf::<22>::new()
+        .u64(pl.pc.citizen_tag)
+        .u8(x.side)
+        .u64(s.amount)
+        .u32(x.seq)
+        .u8(closed as u8);
+    let key = key12(sides[0].tag, ev.seq);
+    {
+        let mut ed = escrow.try_borrow_mut_data()?;
+        cqlog::emit(
+            CqKind::ESCROW_WITHDRAWN as u8,
+            bell,
+            &key,
+            payload.get()?,
+            &mut [Chained2 {
+                entity: E2::Escrow,
+                data: &mut ed,
+            }],
+        )?;
+    }
+    if closed {
+        close_account(
+            p,
+            escrow,
+            rent_to,
+            E2::Escrow,
+            &frontier_abi::v2::log::close_key_escrow(sides[0].tag, ev.seq),
+            bell,
+        )?;
+    }
+    Ok(())
 }

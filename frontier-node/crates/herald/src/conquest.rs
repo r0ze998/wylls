@@ -797,7 +797,11 @@ fn fold_record(
         | CqKind::SHARES_WITHDRAWN
         | CqKind::RECEIPT_CLAIMED
         | CqKind::RECEIPT_WITHDRAWN
-        | CqKind::USE_RUN => {}
+        | CqKind::USE_RUN
+        | CqKind::ESCROW_OPENED
+        | CqKind::ESCROW_SETTLED
+        | CqKind::ESCROW_CANCELLED
+        | CqKind::ESCROW_WITHDRAWN => {}
     }
 }
 

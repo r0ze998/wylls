@@ -1717,3 +1717,196 @@ pub fn use_run(
     ]);
     build(a, m, d2::UseRun { runs }.to_bytes().to_vec())
 }
+
+/// An escrow item (S2 2e): goods `amount` milli of `resource` in the vault
+/// at `(p, q, tile)` (a want's vault is the taker's choice: ignored), or a
+/// whole lot `(seed_tag, seq)`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EscrowItem {
+    Goods {
+        resource: u8,
+        amount: u64,
+        vault: (i16, i16, u8),
+    },
+    /// A whole lot; `units` the units a wanted lot must hold (ignored for
+    /// the lot given: the program reads it).
+    Lot { lot: (u64, u32), units: u64 },
+}
+
+impl EscrowItem {
+    /// The item's account (its vault or its lot).
+    pub fn address(&self, a: &Addresses) -> Address {
+        match *self {
+            EscrowItem::Goods { vault, .. } => a.vault(vault.0 as i32, vault.1 as i32, vault.2),
+            EscrowItem::Lot { lot, .. } => a.lot(lot.0, lot.1),
+        }
+    }
+}
+
+/// 0xC9 OpenEscrow (P, S2 2e): P + `[escrow w] [taker r] [give_src w]
+/// [system]`: the maker (`maker_tag`, its `Citizen.LOTS` = `seq`) gives
+/// `give` for `want` from the citizen `taker` (wallet `taker_wallet`).
+#[allow(clippy::too_many_arguments)]
+pub fn open_escrow(
+    a: &Addresses,
+    p: &Player,
+    maker_tag: u64,
+    seq: u32,
+    taker_wallet: &Address,
+    deadline_bell: u32,
+    give: EscrowItem,
+    want: EscrowItem,
+) -> Instruction {
+    let mut m = prologue(a, p);
+    m.extend([
+        w(a.escrow(maker_tag, seq)),
+        r(a.citizen(taker_wallet)),
+        w(give.address(a)),
+        r(addr::system_program()),
+    ]);
+    let taker_tag = frontier_abi::addr::citizen_tag(&a.citizen(taker_wallet).to_bytes());
+    let mut x = d2::OpenEscrow {
+        deadline_bell,
+        taker_tag,
+        give_kind: 0,
+        give_resource: 0,
+        give_p: 0,
+        give_q: 0,
+        give_tile: 0,
+        give_amount: 0,
+        give_lot_tag: 0,
+        give_lot_seq: 0,
+        want_kind: 0,
+        want_resource: 0,
+        want_amount: 0,
+        want_lot_tag: 0,
+        want_lot_seq: 0,
+    };
+    match give {
+        EscrowItem::Goods {
+            resource,
+            amount,
+            vault,
+        } => {
+            x.give_kind = 1;
+            x.give_resource = resource;
+            (x.give_p, x.give_q, x.give_tile) = vault;
+            x.give_amount = amount;
+        }
+        EscrowItem::Lot { lot, .. } => {
+            x.give_kind = 2;
+            (x.give_lot_tag, x.give_lot_seq) = lot;
+        }
+    }
+    match want {
+        EscrowItem::Goods {
+            resource, amount, ..
+        } => {
+            x.want_kind = 1;
+            x.want_resource = resource;
+            x.want_amount = amount;
+        }
+        EscrowItem::Lot { lot, units } => {
+            x.want_kind = 2;
+            x.want_amount = units;
+            (x.want_lot_tag, x.want_lot_seq) = lot;
+        }
+    }
+    build(a, m, x.to_bytes().to_vec())
+}
+
+/// 0xCA AcceptEscrow (P, S2 2e): P + `[escrow w] [maker_src w] [taker_src
+/// w]`: the taker puts `taker_item` in (goods from its vault) against the
+/// maker's `maker_item`.
+pub fn accept_escrow(
+    a: &Addresses,
+    p: &Player,
+    escrow: (u64, u32),
+    maker_item: EscrowItem,
+    taker_item: EscrowItem,
+) -> Instruction {
+    let mut m = prologue(a, p);
+    m.extend([
+        w(a.escrow(escrow.0, escrow.1)),
+        w(maker_item.address(a)),
+        w(taker_item.address(a)),
+    ]);
+    let (vault_p, vault_q, vault_tile) = match taker_item {
+        EscrowItem::Goods { vault, .. } => vault,
+        EscrowItem::Lot { .. } => (0, 0, 0),
+    };
+    build(
+        a,
+        m,
+        d2::AcceptEscrow {
+            vault_p,
+            vault_q,
+            vault_tile,
+        }
+        .to_bytes()
+        .to_vec(),
+    )
+}
+
+/// 0xCB CancelEscrow (P, S2 2e): P + `[escrow w] [rent_to w]` + `srcs` (the
+/// maker's item when open; each owed side's vault when settled).
+pub fn cancel_escrow(
+    a: &Addresses,
+    p: &Player,
+    escrow: (u64, u32),
+    rent_to: Address,
+    srcs: &[Address],
+) -> Instruction {
+    let mut m = prologue(a, p);
+    m.extend([w(a.escrow(escrow.0, escrow.1)), w(rent_to)]);
+    m.extend(srcs.iter().map(|s| w(*s)));
+    build(a, m, d2::CancelEscrow {}.to_bytes().to_vec())
+}
+
+/// The arguments of [`withdraw_escrow`].
+#[derive(Clone, Debug)]
+pub struct WithdrawEscrowArgs {
+    pub escrow: (u64, u32),
+    /// 0 the maker's goods, 1 the taker's.
+    pub side: u8,
+    /// The side's vault `(p, q, tile)`.
+    pub vault: (i16, i16, u8),
+    /// `Citizen.CARAVANS` of the receiver.
+    pub seq: u32,
+    pub dst: PlaceRef,
+    pub steps: u8,
+    pub path: [u8; 12],
+    pub fee: u64,
+    pub rent_to: Address,
+    /// The provinces the walk enters, the vault's first (1–4).
+    pub provinces: Vec<(i16, i16)>,
+}
+
+/// 0xCC WithdrawEscrow (P, S2 2e): P + `[escrow w] [src w] [dst r] [caravan
+/// w] [system] [rent_to w] [path_province w ×1..4]`.
+pub fn withdraw_escrow(a: &Addresses, p: &Player, x: &WithdrawEscrowArgs) -> Instruction {
+    let (dst_kind, dst_p, dst_q, dst_at, dst_gen) = x.dst.data();
+    let mut m = prologue(a, p);
+    m.extend([
+        w(a.escrow(x.escrow.0, x.escrow.1)),
+        w(a.vault(x.vault.0 as i32, x.vault.1 as i32, x.vault.2)),
+        r(x.dst.address(a)),
+        w(caravan_of_wallet(a, &p.wallet, x.seq)),
+        r(addr::system_program()),
+        w(x.rent_to),
+    ]);
+    m.extend(provinces(a, &x.provinces, true));
+    let data = d2::WithdrawEscrow {
+        side: x.side,
+        seq: x.seq,
+        dst_kind,
+        dst_p,
+        dst_q,
+        dst_at,
+        dst_gen,
+        steps: x.steps,
+        path: x.path,
+        fee: x.fee,
+    };
+    build(a, m, data.to_bytes().to_vec())
+}

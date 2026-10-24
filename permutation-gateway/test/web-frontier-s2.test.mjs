@@ -60,6 +60,15 @@ test('the ticket shapes are fclient\'s instructions, and the relay\'s profile 4 
       dst: { kind: 'holding', ...h, gen: 1 }, seq: 6, provinces: [{ p: 4, q: -2 }, { p: 3, q: -1 }] },
     { seq: 6, ...placeData({ kind: 'holding', ...h, gen: 1 }), steps: 2, path: CAR.pack([3, 4]), fee: 50000n }],
     ['UseRun', { lot: { tag: ME, seq: 3 }, issue: { tag: ME, seq: 1 }, workshop: h, vault: { p: 3, q: -1, tile: 20 } }, { runs: 2 }],
+    ['OpenEscrow', { escrow: { tag: ME, seq: 4 }, taker: V.recipient, give: { kind: 'goods', vault: { p: 4, q: -2, tile: 17 } } },
+      { deadline_bell: 500, taker_tag: BigInt(V.takerTag), give_kind: 1, give_resource: 3, give_p: 4, give_q: -2, give_tile: 17, give_amount: 50000n, give_lot_tag: 0n, give_lot_seq: 0,
+        want_kind: 2, want_resource: 0, want_amount: 5n, want_lot_tag: 0x99n, want_lot_seq: 2 }],
+    ['AcceptEscrow', { escrow: { tag: 0x99n, seq: 4 }, makerItem: { kind: 'lot', lot: { tag: 0x99n, seq: 2 } }, takerItem: { kind: 'goods', vault: { p: 4, q: -2, tile: 17 } } },
+      { vault_p: 4, vault_q: -2, vault_tile: 17 }],
+    ['CancelEscrow', { escrow: { tag: ME, seq: 4 }, rentTo: V.rentTo, srcs: [{ kind: 'lot', lot: { tag: ME, seq: 0 } }] }, {}],
+    ['WithdrawEscrow', { escrow: { tag: 0x99n, seq: 4 }, vault: { p: 4, q: -2, tile: 17 }, dst: { kind: 'holding', ...h, gen: 1 }, seq: 7, rentTo: V.rentTo,
+      provinces: [{ p: 4, q: -2 }, { p: 3, q: -1 }] },
+    { side: 0, seq: 7, ...placeData({ kind: 'holding', ...h, gen: 1 }), steps: 2, path: CAR.pack([3, 4]), fee: 50000n }],
   ];
   assert.equal(shapes.length, V.cases.length);
   const hex = b => Array.from(b, x => x.toString(16).padStart(2, '0')).join('');
@@ -198,4 +207,21 @@ test('the uses model: runs left today, the vault in the workshop\'s province (2d
   assert.deepEqual(at(lot(null, null), 10).vault, { p: 3, q: 0, tile: 40 });
   assert.equal(at(lot(null, null), 10, [{ ...vault, q: 1 }]).canRun, false, 'no vault in the province');
   assert.deepEqual(at(lot(null, null), 10).workshop, { p: 3, q: 0, site: 4 });
+});
+
+test('the escrows model: accept, cancel, collect (2e)', () => {
+  const me = new Uint8Array(32); me[0] = 9;
+  const src = { kind: 2, p: 3, q: 0, at: 40, gen: 1, tile: 40 };
+  const esc = over => ({ makerTag: '7', seq: 1, takerTag: '9', deadlineBell: 100, state: 1, giveKind: 1, giveAmount: 50000, giveLot: ['0', 0],
+    giveSrc: src, wantKind: 2, wantAmount: 0, wantLot: ['9', 2], rentTo: '11111111111111111111111111111111', giveResource: 3, wantResource: 0,
+    takeSrc: null, owed: [false, false], ...over });
+  const at = (e, bell) => SCR.s2EscrowsModel({ nowBell: bell, holdings: [{ ownerCitizen: me }], s1: { tickets: { v: 1, issues: [], lots: [], escrows: [e] }, caravans: { moving: [], vaults: [] } } }).escrows[0];
+  const open = at(esc({}), 10);
+  assert.deepEqual([open.mineAs, open.canAccept, open.canCancel, open.collect], ['taker', true, false, null]);
+  assert.deepEqual([at(esc({}), 101).canAccept, at(esc({}), 101).canCancel], [false, true], 'past the deadline');
+  const owed = at(esc({ state: 2, owed: [true, false] }), 10);
+  assert.deepEqual([owed.collect, owed.collectFrom, owed.canCancel], [0, { p: 3, q: 0, tile: 40 }, false]);
+  assert.equal(at(esc({ makerTag: '1', takerTag: '2' }), 10), undefined, 'not the viewer\'s');
+  // Wanted goods need a vault of the viewer's.
+  assert.equal(at(esc({ wantKind: 1, wantAmount: 10000 }), 10).canAccept, false);
 });

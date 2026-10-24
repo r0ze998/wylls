@@ -435,6 +435,12 @@ impl Addresses {
         with_seed(&self.season, s.as_bytes(), &self.program)
     }
 
+    /// S2 (2e): the maker's `seq`-th escrow.
+    pub fn escrow(&self, maker_tag: u64, seq: u32) -> Address {
+        let s = frontier_abi::v2::addr::escrow_seed(maker_tag, seq);
+        with_seed(&self.season, s.as_bytes(), &self.program)
+    }
+
     /// S2 (2b): a holder's deposit lot of the share issue `(issuer_tag,
     /// seq)` (`frontier_abi::v2::addr::deposit_seq`).
     pub fn deposit_lot(&self, holder_tag: u64, issuer_tag: u64, seq: u32) -> Address {

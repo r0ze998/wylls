@@ -2908,9 +2908,15 @@
           "ty": "[u32;8]"
         },
         {
-          "name": "RSV",
+          "name": "HELD",
           "off": 416,
-          "len": 96,
+          "len": 64,
+          "ty": "[u64;8]"
+        },
+        {
+          "name": "RSV",
+          "off": 480,
+          "len": 32,
           "ty": "rsv"
         }
       ]
@@ -3599,6 +3605,259 @@
         {
           "name": "RENT_TO",
           "off": 160,
+          "len": 32,
+          "ty": "[u8;32]"
+        }
+      ]
+    },
+    {
+      "kind": "Escrow",
+      "code": 25,
+      "magic": "PSF1ESCR",
+      "size": 272,
+      "rent": 2032000,
+      "chained": true,
+      "changed_in_v2": true,
+      "seed_tag": "te",
+      "raw_key_len": 12,
+      "fields": [
+        {
+          "name": "HDR_MAGIC",
+          "off": 0,
+          "len": 8,
+          "ty": "[u8;8]"
+        },
+        {
+          "name": "SEASON_ID",
+          "off": 8,
+          "len": 8,
+          "ty": "u64"
+        },
+        {
+          "name": "LAYOUT_VERSION",
+          "off": 16,
+          "len": 2,
+          "ty": "u16"
+        },
+        {
+          "name": "RSV_HEADER",
+          "off": 18,
+          "len": 6,
+          "ty": "rsv"
+        },
+        {
+          "name": "EVENT_SEQ",
+          "off": 24,
+          "len": 8,
+          "ty": "u64"
+        },
+        {
+          "name": "EVENT_HEAD",
+          "off": 32,
+          "len": 32,
+          "ty": "[u8;32]"
+        },
+        {
+          "name": "STATE",
+          "off": 64,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "RSV_65",
+          "off": 65,
+          "len": 3,
+          "ty": "rsv"
+        },
+        {
+          "name": "SEQ",
+          "off": 68,
+          "len": 4,
+          "ty": "u32"
+        },
+        {
+          "name": "DEADLINE_BELL",
+          "off": 72,
+          "len": 4,
+          "ty": "u32"
+        },
+        {
+          "name": "OPENED_BELL",
+          "off": 76,
+          "len": 4,
+          "ty": "u32"
+        },
+        {
+          "name": "MAKER_CITIZEN",
+          "off": 80,
+          "len": 32,
+          "ty": "[u8;32]"
+        },
+        {
+          "name": "MAKER_TAG",
+          "off": 112,
+          "len": 8,
+          "ty": "u64"
+        },
+        {
+          "name": "MAKER_KIND",
+          "off": 120,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "MAKER_STATE",
+          "off": 121,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "MAKER_RESOURCE",
+          "off": 122,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "MAKER_GEN",
+          "off": 123,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "MAKER_P",
+          "off": 124,
+          "len": 2,
+          "ty": "i16"
+        },
+        {
+          "name": "MAKER_Q",
+          "off": 126,
+          "len": 2,
+          "ty": "i16"
+        },
+        {
+          "name": "MAKER_TILE",
+          "off": 128,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "RSV_129",
+          "off": 129,
+          "len": 7,
+          "ty": "rsv"
+        },
+        {
+          "name": "MAKER_AMOUNT",
+          "off": 136,
+          "len": 8,
+          "ty": "u64"
+        },
+        {
+          "name": "MAKER_LOT_TAG",
+          "off": 144,
+          "len": 8,
+          "ty": "u64"
+        },
+        {
+          "name": "MAKER_LOT_SEQ",
+          "off": 152,
+          "len": 4,
+          "ty": "u32"
+        },
+        {
+          "name": "RSV_156",
+          "off": 156,
+          "len": 4,
+          "ty": "rsv"
+        },
+        {
+          "name": "TAKER_CITIZEN",
+          "off": 160,
+          "len": 32,
+          "ty": "[u8;32]"
+        },
+        {
+          "name": "TAKER_TAG",
+          "off": 192,
+          "len": 8,
+          "ty": "u64"
+        },
+        {
+          "name": "TAKER_KIND",
+          "off": 200,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "TAKER_STATE",
+          "off": 201,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "TAKER_RESOURCE",
+          "off": 202,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "TAKER_GEN",
+          "off": 203,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "TAKER_P",
+          "off": 204,
+          "len": 2,
+          "ty": "i16"
+        },
+        {
+          "name": "TAKER_Q",
+          "off": 206,
+          "len": 2,
+          "ty": "i16"
+        },
+        {
+          "name": "TAKER_TILE",
+          "off": 208,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "RSV_209",
+          "off": 209,
+          "len": 7,
+          "ty": "rsv"
+        },
+        {
+          "name": "TAKER_AMOUNT",
+          "off": 216,
+          "len": 8,
+          "ty": "u64"
+        },
+        {
+          "name": "TAKER_LOT_TAG",
+          "off": 224,
+          "len": 8,
+          "ty": "u64"
+        },
+        {
+          "name": "TAKER_LOT_SEQ",
+          "off": 232,
+          "len": 4,
+          "ty": "u32"
+        },
+        {
+          "name": "RSV_236",
+          "off": 236,
+          "len": 4,
+          "ty": "rsv"
+        },
+        {
+          "name": "RENT_TO",
+          "off": 240,
           "len": 32,
           "ty": "[u8;32]"
         }

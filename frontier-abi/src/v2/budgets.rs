@@ -118,6 +118,15 @@ pub const MC_ROWS: &[(Ix, u32, u32, u32)] = &[
     // S2 (2d; S2-2D-CONTRACT §3): measured in LiteSVM (`tests/uses.rs`)
     // UseRun 12,546 (a roll included), with room.
     (Ix::UseRun, 20_000, 0, 600),
+    // S2 (2e; S2-2E-CONTRACT §3): measured in LiteSVM (`tests/escrow.rs`)
+    // OpenEscrow 15,435 (the Escrow's creation and a hold), AcceptEscrow
+    // 10,625 (a lot for goods), CancelEscrow 9,975 (a lot released, the
+    // close), WithdrawEscrow 28,649 (one Province; the path and towers as
+    // SendCaravan's budget), with room.
+    (Ix::OpenEscrow, 30_000, 0, 700),
+    (Ix::AcceptEscrow, 25_000, 0, 700),
+    (Ix::CancelEscrow, 20_000, 0, 600),
+    (Ix::WithdrawEscrow, 120_000, 0, 1_100),
     // S1 (1e; S1-1E-CONTRACT §8): measured in LiteSVM (`tests/nation.rs`)
     // Propose 11,957 (the Nation's creation included), Vote 6,631,
     // SettleProposal 8,074 (an expulsion with one holding), with room.

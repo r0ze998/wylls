@@ -342,6 +342,61 @@ pub enum CqEvent {
         holding_key: u64,
         src: LogPlace,
     },
+    /// S2 (2e): the maker's escrow `seq` with `taker_tag`; it gave
+    /// `give_kind` (1 goods of `give_amount` milli held in `src`, 2 the lot
+    /// `lot` of `give_amount` units) for `want_kind` (`want_amount` milli of
+    /// goods).
+    EscrowOpened {
+        maker_tag: u64,
+        seq: u32,
+        taker_tag: u64,
+        deadline_bell: u32,
+        give_kind: u8,
+        give_amount: u64,
+        lot: (u64, u32),
+        src: LogPlace,
+        want_kind: u8,
+        want_amount: u64,
+        want_lot: (u64, u32),
+        /// Who the escrow's rent returns to (its opener's payer).
+        rent_to: [u8; 32],
+        /// The goods' resources (0 for a lot).
+        give_resource: u8,
+        want_resource: u8,
+    },
+    /// S2 (2e): the taker put its item in and the swap happened; `src` the
+    /// taker's goods vault; `closed` when nothing is owed.
+    EscrowSettled {
+        maker_tag: u64,
+        seq: u32,
+        taker_tag: u64,
+        maker_kind: u8,
+        taker_kind: u8,
+        maker_lot: (u64, u32),
+        taker_lot: (u64, u32),
+        src: LogPlace,
+        closed: bool,
+    },
+    /// S2 (2e): the escrow closed by `by_tag`; `released` the maker's item
+    /// kind it released (0 none).
+    EscrowCancelled {
+        maker_tag: u64,
+        seq: u32,
+        by_tag: u64,
+        released: u8,
+        lot: (u64, u32),
+        src: LogPlace,
+    },
+    /// S2 (2e): owed goods of `side` collected by caravan `caravan_seq`.
+    EscrowWithdrawn {
+        maker_tag: u64,
+        seq: u32,
+        receiver_tag: u64,
+        side: u8,
+        amount: u64,
+        caravan_seq: u32,
+        closed: bool,
+    },
     /// S2 (2b): units burned from `lot` for the basket of the holder's
     /// caravan `caravan_seq`.
     SharesWithdrawn {
@@ -492,7 +547,11 @@ impl CqEvent {
             | LotClosed { .. }
             | SharesDeposited { .. }
             | SharesWithdrawn { .. }
-            | ReceiptWithdrawn { .. } => None,
+            | ReceiptWithdrawn { .. }
+            | EscrowSettled { .. }
+            | EscrowCancelled { .. }
+            | EscrowWithdrawn { .. } => None,
+            EscrowOpened { src, .. } => (src.kind != 0).then_some((src.p as i32, src.q as i32)),
             ReceiptClaimed { src, .. } | UseRun { src, .. } => Some((src.p as i32, src.q as i32)),
             SharesOpened { src, .. } => Some((src.p as i32, src.q as i32)),
             TicketsIssued { src, .. } => Some((src.p as i32, src.q as i32)),
@@ -785,6 +844,50 @@ pub fn parse(body: &[u8]) -> Option<CqLog> {
             holding_runs: u("holding_runs")? as u16,
             holding_key: u("holding_key")?,
             src: LogPlace::parse(f("src")?)?,
+        },
+        CqKind::ESCROW_OPENED => CqEvent::EscrowOpened {
+            maker_tag: u("maker_tag")?,
+            seq: u("seq")? as u32,
+            taker_tag: u("taker_tag")?,
+            deadline_bell: u("deadline_bell")? as u32,
+            give_kind: b8("give_kind")?,
+            give_amount: u("give_amount")?,
+            lot: (u("lot_tag")?, u("lot_seq")? as u32),
+            src: LogPlace::parse(f("src")?)?,
+            want_kind: b8("want_kind")?,
+            want_amount: u("want_amount")?,
+            want_lot: (u("want_lot_tag")?, u("want_lot_seq")? as u32),
+            rent_to: f("rent_to")?.try_into().ok()?,
+            give_resource: b8("give_resource")?,
+            want_resource: b8("want_resource")?,
+        },
+        CqKind::ESCROW_SETTLED => CqEvent::EscrowSettled {
+            maker_tag: u("maker_tag")?,
+            seq: u("seq")? as u32,
+            taker_tag: u("taker_tag")?,
+            maker_kind: b8("maker_kind")?,
+            taker_kind: b8("taker_kind")?,
+            maker_lot: (u("maker_lot_tag")?, u("maker_lot_seq")? as u32),
+            taker_lot: (u("taker_lot_tag")?, u("taker_lot_seq")? as u32),
+            src: LogPlace::parse(f("src")?)?,
+            closed: b8("closed")? != 0,
+        },
+        CqKind::ESCROW_CANCELLED => CqEvent::EscrowCancelled {
+            maker_tag: u("maker_tag")?,
+            seq: u("seq")? as u32,
+            by_tag: u("by_tag")?,
+            released: b8("released")?,
+            lot: (u("lot_tag")?, u("lot_seq")? as u32),
+            src: LogPlace::parse(f("src")?)?,
+        },
+        CqKind::ESCROW_WITHDRAWN => CqEvent::EscrowWithdrawn {
+            maker_tag: u("maker_tag")?,
+            seq: u("seq")? as u32,
+            receiver_tag: u("receiver_tag")?,
+            side: b8("side")?,
+            amount: u("amount")?,
+            caravan_seq: u("caravan_seq")? as u32,
+            closed: b8("closed")? != 0,
         },
         CqKind::SHARES_WITHDRAWN => CqEvent::SharesWithdrawn {
             issuer_tag: u("issuer_tag")?,

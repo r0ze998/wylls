@@ -30,7 +30,9 @@ pub mod vault {
         CLAIMS @ 256 : "[u64;8]" = 64;
         RES @ 320 : "[u64;8]" = 64;
         RATIO @ 384 : "[u32;8]" = 32;
-        RSV @ 416 : "rsv" = 96;
+        // S2 (2e, S2-2E-CONTRACT §2.2): milli held for escrows.
+        HELD @ 416 : "[u64;8]" = 64;
+        RSV @ 480 : "rsv" = 32;
     );
     pub const STATE_NONE: u8 = 0;
     pub const STATE_LIVE: u8 = 1;
@@ -47,6 +49,10 @@ pub mod vault {
     }
     pub const fn ratio(r: usize) -> usize {
         RATIO + 4 * r
+    }
+    /// Offset of `HELD[r]` (2e).
+    pub const fn held(r: usize) -> usize {
+        HELD + 8 * r
     }
 }
 
