@@ -462,6 +462,23 @@ export function paintReachDim(g, A, { box, now = fxNow(), still = false, dim = 1
   g.restore();
 }
 
+/** How far the world outside a selected village's land steps back: a grey veil (colour out), then a little dark. */
+export const LENS = Object.freeze({ grey: 'rgba(122,122,114,.5)', dark: 'rgba(8,16,15,.22)' });
+/**
+ * The village's lens (docs/design/uplift 06): everything in the box outside the loops (a village's land, world px)
+ * greyed and darkened, so the land the village works is the one thing in colour. Drawn over what stands.
+ */
+export function paintLandLens(g, loops, box) {
+  if (!g?.save || !box || typeof Path2D === 'undefined') return;
+  const path = new Path2D();
+  path.rect(box.x0, box.y0, box.x1 - box.x0, box.y1 - box.y0);
+  for (const l of loops) { l.forEach(([x, y], i) => (i ? path.lineTo(x, y) : path.moveTo(x, y))); path.closePath(); }
+  g.save();
+  g.fillStyle = LENS.grey; g.fill(path, 'evenodd');
+  g.fillStyle = LENS.dark; g.fill(path, 'evenodd');
+  g.restore();
+}
+
 /**
  * Over what stands on the land: the contour once more, thin (a wood never hides where the reach ends), and a
  * badge with its glyph on every target: crossed swords, a house, an eye, or a tick for a tile that was chosen.

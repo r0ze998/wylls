@@ -50,7 +50,7 @@ import { CHART, YOURS, fxNow, paintCandidates, paintWedge } from './chart.mjs';
 import { wedgeBox } from './opening.mjs';
 import { STANDARD_AT, STANDARD_UNIT, landShape, landTiles, landingAt, paintBeacon, paintOwnBreath, paintOwnLand, paintOwnOutline, paintProvisionalTag, paintStandard, standardUnit, villageKey } from './ownland.mjs';
 import { reachSteps } from '../hud/reach.mjs';
-import { NOTE_MS, reachText, reachTop, actionPalette, actorText, arrivalText, blockText, paintActionGround, paintActionPulse, paintActionTop, paintReachDim, reachBox, rolledOut, paintHoverGround, paintHoverTop, paintRefusal, paintRibbon, paintSelectionGround, paintSelectionTop, paintTag } from './actions.mjs';
+import { NOTE_MS, reachText, reachTop, actionPalette, actorText, arrivalText, blockText, paintActionGround, paintActionPulse, paintActionTop, paintReachDim, paintLandLens, reachBox, rolledOut, paintHoverGround, paintHoverTop, paintRefusal, paintRibbon, paintSelectionGround, paintSelectionTop, paintTag } from './actions.mjs';
 import { edgePointer, mountHomePointer } from './homepointer.mjs';
 import { layoutLabels } from './labels.mjs';
 import { plateRise } from './plates.mjs';
@@ -3001,6 +3001,12 @@ export class FrontierMap {
     if (F.lod === 'tile') {
       // a reach is lit by contrast: everything outside it is a little darker (the land, what stands on it, who walks there)
       if (F.A && F.seen) paintReachDim(ctx, F.A, { box: F.seen, now: fx, still, dim: F.A.dest ? 0.5 : 1 });
+      // the village's lens (docs/design/uplift/06-MAP-REST): the viewer's village selected, its own land stays in colour
+      // and everything else steps back, greyed, so what the village works is read at a glance
+      else if (F.seen && src.selected && Number.isInteger(src.selected.idx)) {
+        const s = src.selected, land = F.lands().find(l => l.village?.p === s.p && l.village?.q === s.q && l.village?.tile === s.idx);
+        if (land?.shape?.loops?.length) paintLandLens(ctx, land.shape.loops, F.seen);
+      }
       // (the gold line of the viewer's land stays in sight through the reach and its dim: drawn again, and stronger then)
       for (const land of F.lands()) { const flood = this.floodOf(land, fx); paintOwnOutline(ctx, land, { zoom: z, shown: flood ? flood.border : 1, strong: !!F.A }); }
       if (F.A) paintActionTop(ctx, F.A, { zoom: z, now: fx, still, dim: F.A.dest ? 0.5 : 1, palette: F.palette });

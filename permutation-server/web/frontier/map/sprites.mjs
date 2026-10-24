@@ -52,6 +52,11 @@ import { villageSprite } from './village.mjs';
 import { OPEN_PASS } from './labelpass.mjs';
 import { paintBellTower, towerSprite } from './belltower.mjs';
 import { RELIEF, paintMountainShadow, paintWoodFloor, reliefSprite, woodOf } from './relief.mjs';
+import { paintBlend, paintShores, forgetShores, spriteColour, waterLoops, clipOutside } from './groundblend.mjs';
+import { landUse, paintLandUse } from './landuse.mjs';
+
+/** The tile view's land is painted as one country (map/groundblend.mjs: blended kinds of land, whole coasts); `?country=0` shows the hexagons as they were. */
+const SHORES_DRAWN = !/[?&]country=0(?:&|$)/.test(globalThis.location?.search ?? '');
 
 const BASE = new URL('../art/', import.meta.url);
 /** The far bitmaps' resolutions (device px per world px) and their cache budget in pixels. */
@@ -1067,11 +1072,12 @@ export class SpriteArt {
         const nb = nameAt(t.q + dq, t.r + dr);
         if (!nb || nb === 'cloud') return;
         if (t.name === 'water' && nb !== 'water') {
-          const o = this.image('overlays', s.key, `shore_${e}`); if (o) draw(o, t);
+          // (the tile view's coasts are drawn whole by map/groundblend.mjs: the edge-by-edge shore and beach followed the hexagons)
+          if (!SHORES_DRAWN || far) { const o = this.image('overlays', s.key, `shore_${e}`); if (o) draw(o, t); }
           const rt = byHex.get(keyOf(t.q + dq, t.r + dr));
           if (rt?.river && (rt.river >> ((e + 3) % 6) & 1)) { const m = this.image('overlays', s.key, `mouth_${e}`); if (m) draw(m, t); }
         }
-        else if (t.name !== 'water' && nb === 'water') { const o = this.image('overlays', s.key, `beach_${e}`); if (o) draw(o, t); }
+        else if (t.name !== 'water' && nb === 'water' && (!SHORES_DRAWN || far)) { const o = this.image('overlays', s.key, `beach_${e}`); if (o) draw(o, t); }
       });
       if (t.road && !t.river) {
         const pre = `${t.name}_${t.v}`;
@@ -1081,6 +1087,22 @@ export class SpriteArt {
         });
         const c = this.image('roads', s.key, `${pre}_c`); if (c) draw(c, t);
       }
+    };
+    // the land as one country (map/groundblend.mjs): the art's colour of a hex, whether it is painted land here, and the
+    // two passes over a set of tiles' ground (where kinds of land meet; the coasts), at the tile view only
+    if (this.shoreTiles !== tiles) { forgetShores(); this.shoreTiles = tiles; }
+    const colourAt = (q, r) => {
+      const t = byHex.get(keyOf(q, r)), name = t?.name ?? terrainAt(q, r);
+      if (!name || name === 'cloud' || !FLAT[name]) return null;
+      const img = t?.river ? null : this.image(t && siteGround(t) ? 'sites' : 'terrain', s.key, `${t ? (coded(t) ? RELIEF_GROUND[name] : name) : CODE_RELIEF[name] && !RELIEF_OFF ? RELIEF_GROUND[name] : name}_${t?.v ?? artVariant(q, r)}`);
+      return img ? spriteColour(img) : null;
+    };
+    const paintsAt = (q, r) => { const t = byHex.get(keyOf(q, r)); return !!t && !t.cloud && painted(t); };
+    const country = (list) => {
+      if (far || !SHORES_DRAWN) return;
+      const opts = { nameAt: chartName, colourAt, paints: paintsAt };
+      paintBlend(g, list, opts);
+      paintShores(g, list, opts);
     };
     // territory over the ground of one tile: the nation's wash, and its border where the realm ends
     const washOf = (t) => {
@@ -1095,9 +1117,14 @@ export class SpriteArt {
       if (w.quiet) g.globalAlpha = 1;
     };
     const gridOf = (list) => {
+      // (the grid stays off the water: a lake is one body, not hexagons; map/groundblend.mjs)
+      const loops = SHORES_DRAWN && !far ? waterLoops(list.filter(t => !t.cloud), chartName) : [];
+      g.save();
+      clipOutside(g, loops);
       g.beginPath();
       for (const t of list) if (!t.cloud) hexPoints(t.x, t.y, 0).forEach(([px, py], j) => (j ? g.lineTo(px, py) : g.moveTo(px, py)));
       g.strokeStyle = GRID_INK; g.lineWidth = GRID_WORLD; g.stroke();
+      g.restore();
     };
     const has = (name) => part === null || part === name || part === 'world';
     if (has('ground') && far !== 'props') {
@@ -1168,6 +1195,7 @@ export class SpriteArt {
           this.misses = 0;
           g = gg;
           for (const t of list) if (painted(t)) groundOf(t);
+          country(list);
           // a skirt that hangs over a tile of the next province belongs under that tile: cut it away (the
           // neighbour's own bitmap has the tile), a hair inside the hex so no seam opens between the two;
           // then the territory and the grid, which stay inside this province's own hexes
@@ -1232,6 +1260,7 @@ export class SpriteArt {
       }
       const rest = baked.size ? tiles.filter(t => !baked.has(t.pk)) : tiles;
       for (const t of rest) if (!t.cloud && painted(t)) groundOf(t);
+      if (rest.length) country(rest.filter(t => !t.cloud));
       for (const t of rest) washOf(t);
       // the hex grid, exactly on the game's hexes, under the props (not in the far view: land, not a board)
       if (!far) gridOf(rest.filter(painted));
@@ -1367,6 +1396,12 @@ export class SpriteArt {
     // and so under the hosts, the people and their labels too
     if (has('props') && !far) for (const e of entries) if (e.fog !== 'unopened') this.frame(ctx, { p: e.p, q: e.q, fog: 'clear', selected: e.selected, zoom, sv: svOf(e), survey });
     // pass 2: props, holdings, cloud sea
+    // the land the villages work, worked (map/landuse.mjs): flat on the ground, under everything that stands
+    if (has('props') && !far && SHORES_DRAWN) {
+      const villages = tiles.filter(t => !t.cloud && t.site !== undefined && t.state === 1 && t.owner < 6 && painted(t))
+        .map(t => ({ q: t.q, r: t.r, tier: t.tier ?? 0, own: !!t.hero, built: t.hero && workNow && workNow.p === t.p && workNow.q === t.pq && workNow.tile === t.idx ? workNow.built : null }));
+      if (villages.length) paintLandUse(g, landUse(villages, (q, r) => { const t = byHex.get(keyOf(q, r)); return t && !t.cloud && painted(t) ? t : null; }), { muted: t => t.lv === L2 });
+    }
     if (has('props')) { for (const t of tiles) propsOf(t); for (const t of tiles) if (t.hero && !t.cloud && t.state === 1 && t.owner < 6 && t.lv >= L2 && !far) villageOf(t); }
     // the far view's bitmap stops here: land, props, holdings, territory (map/sprites.mjs farBitmap)
     if (far || part === 'props') return tiles.length;
