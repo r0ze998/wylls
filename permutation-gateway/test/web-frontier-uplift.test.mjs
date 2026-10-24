@@ -11,6 +11,8 @@ import { compareKey, forecastKey } from '../../permutation-server/web/frontier/h
 import { keepForecast, forecastFor } from '../../permutation-server/web/frontier/hud/forecastbook.mjs';
 import { renderPrediction } from '../../permutation-server/web/frontier/screens/report.mjs';
 import { buildingsOf } from '../../permutation-server/web/frontier/map/board.mjs';
+import { waterBody, forgetShores } from '../../permutation-server/web/frontier/map/groundblend.mjs';
+import { landUse } from '../../permutation-server/web/frontier/map/landuse.mjs';
 import { setS1 } from '../../permutation-server/web/frontier/fs1.mjs';
 import { loadOf, paintVaultArt, paintTowerArt, paintPalisadeArt, paintFortArt, paintCartArt } from '../../permutation-server/web/frontier/map/structures.mjs';
 
@@ -77,6 +79,35 @@ test('an S1 village shows its workshops as the rules count them (arms production
   setS1({ layoutVersion: 2, programVersion: 4 });
   try { assert.equal(buildingsOf({ tier: 0, production })[6], 2); } finally { setS1(null); }
   assert.equal(buildingsOf({ tier: 0, production }).length, 6);
+});
+
+test('a body of water has one coast whichever of its tiles asks; the coast is rounded and the same every time', () => {
+  forgetShores();
+  const water = new Set(['0,0', '1,0', '1,-1', '5,5']);
+  const nameAt = (q, r) => (water.has(`${q},${r}`) ? 'water' : 'grassland');
+  const a = waterBody(0, 0, nameAt), b = waterBody(1, -1, nameAt);
+  assert.equal(a, b, 'the same body');
+  assert.equal(a.set.size, 3, 'a lake of three, not the pond far away');
+  assert.notEqual(waterBody(5, 5, nameAt), a);
+  // (the loop may begin at another of its points; the coast, its points, is the same)
+  const pts = b => b.loops.flat().map(([x, y]) => `${x.toFixed(3)},${y.toFixed(3)}`).sort();
+  const again = (forgetShores(), waterBody(1, 0, nameAt));
+  assert.deepEqual(pts(again), pts(a), 'the same coast after it was forgotten');
+  // rounded: three rounds of a quarter's cut give 8 points for every corner of the outline
+  assert.equal(a.loops[0].length % 8, 0);
+  forgetShores();
+});
+
+test('worked land: 1 + tier fields for every village, the viewer\'s own buildings on fitting land, one picture a tile', () => {
+  const kinds = { '0,0': 'grassland', '1,0': 'plains', '0,1': 'grassland', '-1,1': 'hills', '-1,0': 'forest', '0,-1': 'grassland', '1,-1': 'hills', '2,0': 'hills', '0,2': 'grassland' };
+  const tileAt = (q, r) => (kinds[`${q},${r}`] ? { q, r, name: kinds[`${q},${r}`], x: 0, y: 0 } : null);
+  const other = landUse([{ q: 0, r: 0, tier: 1, own: false, built: null }], tileAt);
+  assert.deepEqual(other.map(u => u.kind), ['field', 'field']);
+  const own = landUse([{ q: 0, r: 0, tier: 0, own: true, built: [1, 1, 1, 1, 0, 0] }], tileAt);
+  assert.deepEqual(own.map(u => u.kind).sort(), ['field', 'field', 'mine', 'quarry', 'timber']);
+  assert.equal(new Set(own.map(u => `${u.t.q},${u.t.r}`)).size, own.length, 'one picture a tile');
+  assert.ok(own.filter(u => u.kind === 'quarry' || u.kind === 'mine').every(u => u.t.name === 'hills'));
+  assert.deepEqual(landUse([{ q: 0, r: 0, tier: 0, own: true, built: [1, 1, 1, 1, 0, 0] }], tileAt), own, 'the same every time');
 });
 
 test('the stage-1 things: quiet on a context that cannot paint, drawn on one that can; a cart shows its largest load', () => {

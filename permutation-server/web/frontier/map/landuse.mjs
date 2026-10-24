@@ -19,7 +19,7 @@ import { FLATTEN, RADIUS, hexPoints } from '../../map.mjs';
 import { WORKED_RADIUS } from './survey.mjs';
 
 /** What kind of land each picture wants. */
-const WANTS = Object.freeze({ field: ['plains', 'grassland'], timber: ['grassland', 'plains', 'hills'], quarry: ['hills'], mine: ['hills', 'mountain'] });
+const WANTS = Object.freeze({ field: ['plains', 'grassland'], timber: ['grassland', 'plains'], quarry: ['hills'], mine: ['hills', 'mountain'] });
 const dist = (a, b) => (Math.abs(a.q - b.q) + Math.abs(a.r - b.r) + Math.abs(a.q + a.r - b.q - b.r)) / 2;
 const hash = (q, r, n = 0) => { const v = Math.sin(q * 127.1 + r * 311.7 + n * 74.7) * 43758.5453; return v - Math.floor(v); };
 
@@ -42,12 +42,13 @@ export function landUse(villages, tileAt) {
       if (t && t.site === undefined && !t.river) near.push(t);
     }
     near.sort((a, b) => dist(a, v) - dist(b, v) || hash(a.q, a.r) - hash(b.q, b.r));
+    // (the scarcest land chooses first: a mine and a quarry need hills, a yard needs a wood beside it, a field any open land)
     const want = [];
     const b = v.own && v.built ? v.built : null;
-    for (let i = 0; i < 1 + Math.min(3, v.tier ?? 0) + Math.min(4, b?.[0] ?? 0); i++) want.push('field');
-    if (b?.[1] > 0) want.push('timber');
-    if (b?.[2] > 0) want.push('quarry');
     if (b?.[3] > 0) want.push('mine');
+    if (b?.[2] > 0) want.push('quarry');
+    if (b?.[1] > 0) want.push('timber');
+    for (let i = 0; i < 1 + Math.min(3, v.tier ?? 0) + Math.min(4, b?.[0] ?? 0); i++) want.push('field');
     for (const kind of want) {
       // the yard of a woodcutter stands where a wood is next to it
       const fits = t => WANTS[kind].includes(t.name) && !taken.has(`${t.q},${t.r}`) && (kind !== 'timber' || [[0, -1], [-1, 0], [-1, 1], [0, 1], [1, 0], [1, -1]].some(([dq, dr]) => tileAt(t.q + dq, t.r + dr)?.name === 'forest'));
