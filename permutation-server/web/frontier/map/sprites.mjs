@@ -291,8 +291,9 @@ export const FLAT = Object.freeze({
   hills: ['#8e9a5c', '#737d49'], mountain: ['#8a847a', '#6c675f'], water: ['#467f8c', '#3a6c78'],
 });
 // (docs/design/uplift 01: at rest the land is the subject and the grid a breath; the lattice where an order can go
-// is drawn crisp by map/actions.mjs paintActionGround. It was 0.32.)
-const GRID_INK = 'rgba(24,34,26,0.13)';
+// is drawn crisp by map/actions.mjs paintActionGround. It was 0.32; 0.13 made the hexes hard to count at rest, and
+// distance is a rule: the design review of 2026-10-24. 0.2 keeps every hex countable and the land still one country.)
+const GRID_INK = 'rgba(24,34,26,0.2)';
 /** A ground bitmap's box around its province's centre (world px): the tiles and their sprites' cells. */
 const GROUND_BOX = Object.freeze({ left: 352, right: 352, top: 258, bottom: 252 });
 /** A nation's land from afar: how strong its wash is on the world chart and nearer, and its one rim (screen px). */
