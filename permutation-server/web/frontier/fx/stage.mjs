@@ -343,9 +343,24 @@ export function playMoment(fx, m, { bus = defaultBus } = {}) {
         fx.play('burst', { ...at, kind: 'smoke', n: 14, height: 0.3, radius: 0.35, stagger: 0.6, seed });
       }
       fx.play('dust', { ...at, power: 1.2, delay: 0.1, seed });
-      caption(MOMENT_LABEL.village(m), { ...(to !== null ? { color: fill(to), icon: 'banner' } : { tone: 'ivory' }), delay: 0.45, dur: 2.3, lift: to !== null ? 2.95 : 1.5 });
+      // (lost or taken: the band below says it; the tile's own labels still make way while the flag changes)
+      if (m.lost || m.taken) fx.hush(at, 3.6);
+      else caption(MOMENT_LABEL.village(m), { ...(to !== null ? { color: fill(to), icon: 'banner' } : { tone: 'ivory' }), delay: 0.45, dur: 2.3, lift: to !== null ? 2.95 : 1.5 });
       fx.play('pip', { ...at, color: to !== null ? fill(to) : '#d8cfb8', seed });
-      if (m.own) fx.sound('drum', { delay: 0.1, seed, level: 0.7 });
+      // the two largest things that happen to a player get the weight of a battle's verdict: a band over the map, a held
+      // beat, the drum (the design review of 2026-10-24: losing a village played as small as a finished sawmill).
+      // From the record only: `lost` / `taken` are the page's own reading of its holdings (app.mjs checkMoments)
+      if (m.lost) {
+        fx.play('banner', { title: L`村を失いました`, sub: to !== null ? L`${factionName(to)}の村になりました` : L`村は残っていません`, tone: 'loss', y: 0.05, dur: 3.2, delay: 0.5, seed: `${seed}|lost` });
+        fx.shake(3, 180, { seed });
+        fx.sound('drum', { delay: 0.1, seed, level: 1 });
+        fx.sound('drum', { delay: 0.55, seed: `${seed}|2`, level: 0.8 });
+      } else if (m.taken) {
+        fx.play('banner', { title: L`村を奪いました`, sub: L`${factionName(m.from)}から`, tone: 'win', color: fill(to), y: 0.05, dur: 3.0, delay: 0.5, seed: `${seed}|taken` });
+        fx.play('burst', { ...at, kind: 'spark', n: 26, height: 0.6, power: 1.1, delay: 0.15, seed: `${seed}|s`, colors: ['#fff6dc', TONE.you, fill(to)] });
+        fx.sound('shimmer', { delay: 0.5, seed });
+        fx.sound('drum', { delay: 0.1, seed, level: 0.9 });
+      } else if (m.own) fx.sound('drum', { delay: 0.1, seed, level: 0.7 });
       break;
     }
     case 'depart':

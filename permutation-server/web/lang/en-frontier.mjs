@@ -127,6 +127,11 @@ export default {
   '{0}の新しい村': 'New village of {0}',
   '{0}の村になった': 'Now a village of {0}',
   '村がなくなった': 'The village is gone',
+  '村を失いました': 'Village lost',
+  '{0}の村になりました': 'Now a village of {0}',
+  '村は残っていません': 'Nothing of it remains',
+  '村を奪いました': 'Village taken',
+  '{0}から': 'From {0}',
 
   // ---- season status
   '予告済み': 'Announced',

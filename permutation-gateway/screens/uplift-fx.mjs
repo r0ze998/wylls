@@ -25,18 +25,19 @@ const FX = {
   turn: [0.4, 1.4, 2.6, 4.0],
   action: [0.3, 1.2, 2.4],
   landed: [0.1, 0.35, 0.9],
-  refused: [0.1, 0.3, 0.9],
+  refused: [0.1, 0.9, 1.4, 2.0, 2.8],
   seal: [0.3, 1.0, 2.2],
   built: [0.1, 0.4, 1.2],
   harvest: [0.2, 0.7, 1.4],
   muster: [0.2, 0.8],
-  promotion: [0.3, 1.0, 2.0],
+  promotion: [0.3, 1.0, 2.0, 3.0, 4.0],
   arrive: [0.3, 1.0],
   battle: [0.6, 2.0, 3.6, 5.6, 6.8],
   reveal: [0.4, 1.2],
   camp: [0.4, 1.2],
   village: [0.4, 1.4],
-  'village-lost': [0.4, 1.4],
+  'village-lost': [0.2, 0.6, 1.4, 2.4, 3.4],
+  'village-taken': [0.6, 1.4],
 };
 
 function initScript({ storage }) {

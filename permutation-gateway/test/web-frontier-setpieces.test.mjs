@@ -658,6 +658,26 @@ test('moments on the page: each has its parts and a pip for the far view; an own
   } finally { e.done(); setLang('ja'); }
 });
 
+test('a village of the viewer\'s lost, or one taken: a band with the drum, not a caption; read as the record says (the uplift)', () => {
+  setLang('ja');
+  for (const level of ['full', 'off']) {
+    const s = staged(level);
+    try {
+      playMoment(s.fx, { kind: 'village', p: 2, q: 0, tile: 7, site: 3, from: 0, to: 2, own: true, lost: true });
+      assert.ok(s.fx.playing().includes('banner'), `${level}: the loss has its band`);
+      assert.ok(!s.fx.playing().includes('tag'), `${level}: and no caption that says it again`);
+      if (level === 'full') assert.ok(s.sounds.filter(x => x[0] === 'drum').length >= 2, 'the drum, twice');
+      s.fx.clear();
+      playMoment(s.fx, { kind: 'village', p: 2, q: 0, tile: 7, site: 3, from: 2, to: 0, own: true, taken: true });
+      assert.ok(s.fx.playing().includes('banner'), `${level}: the taking has its band`);
+      s.fx.clear();
+      // another nation's village changing hands stays a caption
+      playMoment(s.fx, { kind: 'village', p: 2, q: 0, tile: 7, site: 3, from: 2, to: 4 });
+      assert.ok(!s.fx.playing().includes('banner') && s.fx.playing().includes('tag'), `${level}: someone else's is a caption`);
+    } finally { s.done(); }
+  }
+});
+
 // ================================================================== idle life
 test('idle life: glints on water, shadows that drift, smoke over villages that are drawn; nothing in reduced motion, far out, or under what the viewer has not surveyed', () => {
   const tiles = [

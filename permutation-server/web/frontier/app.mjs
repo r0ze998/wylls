@@ -2043,6 +2043,8 @@ const settledHolding = (h, now) => { try { return h ? settled(h, now) : h; } cat
 
 /** Once a second: compare the page's state with the last look and start the moments it shows (people/moments.mjs). */
 let momentPrev = null;
+/** The viewer's villages ("P,Q,site") at the last look of checkMoments. */
+let ownSitesSeen = new Set();
 function checkMoments() {
   if (!FS.provinces) return;
   const next = momentSnapshot({ life: FS.life ?? new Map(), constructions: constructionsNow(), provinces: FS.provinces, bell: FS.nowBell ?? null, logged: FS.chronicle !== undefined && FS.isMine !== undefined });
@@ -2050,7 +2052,17 @@ function checkMoments() {
   const fresh = detectMoments(momentPrev, next, t);
   momentPrev = next;
   // each is reported on the effects bus and played by fx/stage.mjs (`own`: the viewer's own village or host)
-  for (const m of fresh) fxEmit('moment', { ...m, own: (FS.holdings ?? []).some(h => h.p === m.p && h.q === m.q && (h.site === m.site || h.tile === m.tile)) || (m.faction !== undefined && m.faction === FS.citizen?.faction && ['muster', 'depart'].includes(m.kind) && (FS.holdings ?? []).some(h => h.p === m.p && h.q === m.q)) });
+  // (`lost` / `taken`: a site that was a village of the viewer's at the last look and is someone else's now, or none; a
+  // site the viewer holds now that another nation held: the two largest things that happen to a player, which played
+  // as small as a finished sawmill. The holdings no longer list a village just taken, so the last look's are kept)
+  const mineNow = new Set((FS.holdings ?? []).map(h => `${h.p},${h.q},${h.site}`));
+  for (const m of fresh) {
+    const key = `${m.p},${m.q},${m.site}`, village = m.kind === 'village';
+    const lost = village && ownSitesSeen.has(key) && !mineNow.has(key);
+    const taken = village && mineNow.has(key) && !ownSitesSeen.has(key) && Number.isInteger(m.from) && m.from < 6 && m.from !== FS.citizen?.faction;
+    fxEmit('moment', { ...m, lost, taken, own: lost || (FS.holdings ?? []).some(h => h.p === m.p && h.q === m.q && (h.site === m.site || h.tile === m.tile)) || (m.faction !== undefined && m.faction === FS.citizen?.faction && ['muster', 'depart'].includes(m.kind) && (FS.holdings ?? []).some(h => h.p === m.p && h.q === m.q)) });
+  }
+  if (FS.holdings) ownSitesSeen = mineNow;
 }
 
 /** The waiting view's one clock (screens/join.mjs waitClock marks the nodes): its text and its ring, every second. */

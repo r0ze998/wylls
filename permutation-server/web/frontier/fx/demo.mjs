@@ -239,8 +239,10 @@ export const SAMPLES = Object.freeze({
   muster: moment('muster', { unit: 0, troops: 400 }),
   arrive: moment('arrive', { faction: 2, own: false }),
   camp: moment('camp', { own: false }),
-  village: moment('village', { from: 2, to: 0 }),
-  'village-lost': moment('village', { from: 0, to: null }),
+  village: moment('village', { from: 2, to: 0, own: false }),
+  // (the viewer's own village taken by another nation, and one the viewer took: the page's `lost` / `taken`)
+  'village-lost': moment('village', { from: 0, to: 2, lost: true }),
+  'village-taken': moment('village', { from: 2, to: 0, taken: true }),
   depart: moment('depart', { faction: 3, own: false }),
   // the six leaders on six tiles by the demo tile, for the owner to judge the figures on the real board: they walk a tile, strike,
   // take a hit (people/leader-demo.mjs; the game has no leader on the map: this is the demo's alone)
