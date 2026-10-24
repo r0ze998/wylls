@@ -80,6 +80,23 @@ const STATES = [
     ok(!m.cut.length, `nothing clipped in the outlook or the comparison (${m.cut.join(' | ') || 'none'})`);
     ok(m.rows.every(h => h >= 44), `rows at least 44 px high (${m.rows.join(', ')})`);
   }],
+  ['report', 'the report beside what this device forecast at departure: 予測 and 確定 apart, a miss said in words', { kept: { min: 540, max: 580 } }, async (page, ok) => {
+    await page.locator('#tabs [data-tab="marches"]').click();
+    await page.locator('#panel-body [data-act="report-open"]').first().click({ timeout: 10000 });
+    await page.locator('#panel .rep-predict').waitFor({ timeout: 10000 });
+    const t = (await page.locator('#panel .rep-predict').innerText()).replace(/\s+/g, ' ');
+    ok(/予測/.test(t) && /確定/.test(t), `both columns are named (${t.slice(0, 90)})`);
+    ok(/540〜580/.test(t), 'the kept range is shown as kept');
+    ok(/520/.test(t), 'the record\'s number is shown');
+    ok(/予測の幅の外/.test(t), 'a result outside the range is said in words');
+  }],
+  ['report-none', 'the report on a device that kept no forecast: the result alone, no forecast made up', {}, async (page, ok) => {
+    await page.locator('#tabs [data-tab="marches"]').click();
+    await page.locator('#panel-body [data-act="report-open"]').first().click({ timeout: 10000 });
+    await page.locator('#panel #report-title').waitFor({ timeout: 10000 });
+    await page.waitForTimeout(800);
+    ok(!(await page.locator('#panel .rep-predict').count()), 'no forecast section');
+  }],
   ['grey', 'the card without colour: states still differ by shape and word', { grey: true }, async (page, ok) => {
     await compose(page); await waitCompare(page);
     // (the page's CSP refuses an injected style sheet; a CSSOM change is the browser's own)
@@ -100,7 +117,10 @@ try {
     srv.stage('holding');
     const vp = o.vp ?? { width: 1440, height: 900 }, lang = o.lang ?? 'ja';
     const context = await browser.newContext({ viewport: vp, isMobile: !!o.phone, hasTouch: !!o.phone, locale: lang === 'ja' ? 'ja-JP' : 'en-GB', timezoneId: 'UTC', deviceScaleFactor: 1, reducedMotion: o.reducedMotion ?? 'no-preference' });
-    await context.addInitScript(initScript, { storage: W.storageFor(srv.viewer, { stage: 'holding', lang, intro: false, live: false }) });
+    const storage = W.storageFor(srv.viewer, { stage: 'holding', lang, intro: false, live: false });
+    // (a forecast this device kept when the viewer's host left for the report's turn: hud/forecastbook.mjs)
+    if (o.kept) storage[`ps-ffc:${W.SEASON_ID}`] = JSON.stringify([{ host: String(W.HOSTS.free), bell: W.REPORT_BELL, stance: 3, start: 600, runs: 8, fates: { Stays: 8 }, ...o.kept }]);
+    await context.addInitScript(initScript, { storage });
     if (o.block) await context.route(o.block, r => r.abort());
     if (o.failRelay) await context.route(/\/f\/(relay|tx)/, r => r.fulfill({ status: 503, contentType: 'application/json', body: '{"ok":false,"code":"Unavailable"}' }));
     const page = await context.newPage();
