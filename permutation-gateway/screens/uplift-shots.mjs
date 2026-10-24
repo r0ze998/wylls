@@ -51,6 +51,15 @@ const tileAt = async (page, at) => {
   }, at);
 };
 const tapTile = async (page, at) => { const p = await tileAt(page, at); await page.mouse.click(p.x, p.y); };
+/** Out by `n` steps: the map's own button (a phone has none: pinch, or the map's − key, two of which are about one button step). */
+const zoomOut = async (page, n) => {
+  const b = page.locator('button[aria-label="地図を縮小"], button[aria-label="Zoom out"]').first();
+  for (let i = 0; i < n; i++) {
+    if (await b.isVisible()) await b.click();
+    else { await page.locator('#frontier-map').focus(); await page.keyboard.press('-'); await page.keyboard.press('-'); }
+    await page.waitForTimeout(900);
+  }
+};
 const settle = async (page, ms = 900) => { await page.waitForTimeout(ms); await mapOf(page).catch(() => {}); await page.evaluate(() => new Promise(r => { let n = 0; const f = () => (++n > 20 ? r() : requestAnimationFrame(f)); f(); })); };
 
 /** The scenes: `[id, title, run(page, vp)]`; each starts from a fresh page on the viewer's home. */
@@ -89,12 +98,8 @@ const SCENES = [
   // The village's lens on an S1 season: the page is told the season plays S1 (fs1.mjs setS1; the fixture's season does
   // not), then the village is selected: the hills and mountains near it carry what they add to its ore. A SAMPLE of how
   // an S1 season shows it, on the fixture's land.
-  ['s12-mid', 'one step out from the rest (several provinces in view)', async page => {
-    await page.locator('button[aria-label="地図を縮小"], button[aria-label="Zoom out"]').first().click(); await page.waitForTimeout(900);
-  }],
-  ['s13-mid2', 'two steps out from the rest', async page => {
-    for (let i = 0; i < 2; i++) { await page.locator('button[aria-label="地図を縮小"], button[aria-label="Zoom out"]').first().click(); await page.waitForTimeout(900); }
-  }],
+  ['s12-mid', 'one step out from the rest (several provinces in view)', async page => { await zoomOut(page, 1); }],
+  ['s13-mid2', 'two steps out from the rest', async page => { await zoomOut(page, 2); }],
   ['s11-orelens', 'the village lens on an S1 season (sample)', async page => {
     await page.evaluate(async () => { (await import('/frontier/fs1.mjs')).setS1({ layoutVersion: 2, programVersion: 4 }); });
     await tapTile(page, W.HOME);
@@ -106,13 +111,19 @@ const SCENES = [
     await page.evaluate(async ({ p, q }) => {
       const { FS } = await import('/frontier/fstate.mjs');
       const { parseCaravans, parseStructures } = await import('/frontier/herald.mjs');
+      // (each thing on a tile the rules would allow: passable, not a village site, not the camp; the sample once stood
+      // the fort on a lake)
+      const tr = FS.terrainOf?.(p, q);
+      const sites = new Set(tr?.sites ?? []), dry = t => tr && !/water|lake|sea|ocean|mountain/i.test(String(tr.names?.[tr.terrain?.[t]] ?? ''));
+      const fit = (...want) => want.find(t => dry(t) && !sites.has(t) && t !== 32) ?? want[0];
+      const T = { vault: fit(21, 20, 28), tower: fit(40, 47, 46), palisade: fit(41, 34, 48), fort: fit(33, 27, 34, 25, 36) };
       const pl = (kind, t) => ({ kind, p, q, at: 2, gen: 1, tile: t });
       FS.s1 = { nations: null, error: null,
-        caravans: parseCaravans({ v: 1, moving: [{ ownerTag: '1', seq: 0, faction: 0, src: pl(1, 21), dst: pl(3, 33), steps: 4, cargo: [0, 0, 0, 3000, 0, 0, 0, 0], arriveTs: 1800030000, runs: [{ p, q, firstBell: (FS.nowBell ?? 40) - 1, n: 3 }], raided: false }], vaults: [{ p, q, tile: 21, ownerTag: '1', faction: 0, gen: 1 }] }),
+        caravans: parseCaravans({ v: 1, moving: [{ ownerTag: '1', seq: 0, faction: 0, src: pl(1, T.vault), dst: pl(3, T.fort), steps: 4, cargo: [0, 0, 0, 3000, 0, 0, 0, 0], arriveTs: 1800030000, runs: [{ p, q, firstBell: (FS.nowBell ?? 40) - 1, n: 3 }], raided: false }], vaults: [{ p, q, tile: T.vault, ownerTag: '1', faction: 0, gen: 1 }] }),
         structures: parseStructures({ v: 1, sightings: [], structures: [
-          { p, q, tile: 40, kind: 1, faction: 3, ownerTag: '7', gen: 1, notify: 0, cover: [], sent: 0 },
-          { p, q, tile: 41, kind: 2, faction: 3, ownerTag: '7', gen: 2, notify: 0, cover: [], sent: 0 },
-          { p, q, tile: 33, kind: 3, faction: 0, ownerTag: '1', gen: 3, notify: 0, cover: [], sent: 0 }] }) };
+          { p, q, tile: T.tower, kind: 1, faction: 3, ownerTag: '7', gen: 1, notify: 0, cover: [], sent: 0 },
+          { p, q, tile: T.palisade, kind: 2, faction: 3, ownerTag: '7', gen: 2, notify: 0, cover: [], sent: 0 },
+          { p, q, tile: T.fort, kind: 3, faction: 0, ownerTag: '1', gen: 3, notify: 0, cover: [], sent: 0 }] }) };
       window.dispatchEvent(new Event('resize'));
     }, W.HOME);
   }, '?at=2,0,30,1.5'],

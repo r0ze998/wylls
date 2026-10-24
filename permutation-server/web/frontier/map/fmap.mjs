@@ -2940,7 +2940,8 @@ export class FrontierMap {
       // (the marker stands `top` world px over the ribbon on a flat board; the tag hangs under it, clear of the face)
       paintBellTag(ctx, k.at.x, k.at.y - k.top * (F.up ? 1.1 : 1), k.m.arrived ? awaitKeyText() : marchTagText(k.m.arriveBell), { zoom: z, place: 'above', gap: 5, accent: col, anchor: k.at, pass, size: 12, hud: true });
     }
-    if (B.away && !(F.selHex && F.A)) paintBellTag(ctx, B.away.at.x, B.away.at.y + RADIUS * 0.34, awayText(B.away.arriveBell), { zoom: z, place: 'below', gap: 4, accent: col, anchor: B.away.at, pass, size: 12 });
+    // (under the leader's feet and clear of the village's bottom row: centred on the leader, its left half lay over the houses)
+    if (B.away && !(F.selHex && F.A)) paintBellTag(ctx, B.away.at.x, B.away.at.y + RADIUS * 0.6, awayText(B.away.arriveBell), { zoom: z, place: 'below', gap: 4, accent: col, anchor: B.away.at, pass, size: 12 });
     if (B.explores.length) {
       const e = B.explores[0], hex = tileHex(e.p, e.q, e.tile);
       // (over the flag's top: the flag itself stays in sight)
