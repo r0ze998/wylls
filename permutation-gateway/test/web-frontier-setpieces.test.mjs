@@ -313,9 +313,10 @@ test('the bell: the banner is carried by #bell-toll and is visible in every moti
       assert.ok(s.sounds.some(x => x[0] === 'bell'), 'the bell');
       s.run(900);
       assert.ok(s.toll.classList.contains('fx-banner-host') && s.toll.classList.contains('fx-banner'), level);
-      // (wave 2: the title is two parts and the dash between them, so a narrow map breaks it between the parts, never inside a word)
+      // (the uplift: the title names the turn alone, 「新しいターン」 is its small line: it said ターン twice)
       const title = s.toll.children.find(k => k.classes.has('fx-banner-title'));
-      assert.deepEqual(title.children.map(k => k.textContent), ['新しいターン', ' — ', 'ターン 43']);
+      assert.equal(title.textContent, 'ターン 43');
+      assert.equal(s.toll.children.find(k => k.classes.has('fx-banner-sub'))?.textContent, '新しいターン');
       assert.equal(s.toll.hidden, false);
       assert.ok(Number(s.toll.vars.get('--fx-o')) > 0.9, `${level}: fully visible`);
       assert.ok(Number(s.toll.vars.get('--fx-to')) > 0.9);
@@ -330,7 +331,7 @@ test('the bell: the banner is carried by #bell-toll and is visible in every moti
       assert.equal(s.toll.classList.contains('fx-banner-host'), false, 'handed back');
       assert.equal(s.toll.hidden, true, 'and hidden: no frame of its resting style shows');
       assert.equal(s.toll.children.length, 0);
-      assert.equal(s.toll.textContent, '新しいターン — ターン 43');
+      assert.equal(s.toll.textContent, 'ターン 43');
       assert.equal(s.toll.vars.size, 0);
     } finally { s.done(); }
   }
@@ -339,7 +340,8 @@ test('the bell: the banner is carried by #bell-toll and is visible in every moti
   try {
     s.bus.emit('bell', { turn: 1234 });
     s.run(600);
-    assert.equal(s.toll.children.find(k => k.classes.has('fx-banner-title')).children.map(k => k.textContent).join(''), 'A new turn — Turn 1,234');
+    assert.equal(s.toll.children.find(k => k.classes.has('fx-banner-title')).textContent, 'Turn 1,234');
+    assert.equal(s.toll.children.find(k => k.classes.has('fx-banner-sub')).textContent, 'A new turn');
   } finally { s.done(); setLang('ja'); }
   // the stylesheet gives the carried banner a visible state of its own (no animation needed)
   const css = readFileSync(`${WEB}fx/fx.css`, 'utf8');

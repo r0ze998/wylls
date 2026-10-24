@@ -109,5 +109,5 @@ export function render({ mode = 'play', live = '', stage = null } = {}) {
     </div>`;
 }
 
-/** The bell toll's banner: the bell tolled, the turn that begins (the page puts the bell icon beside it). */
-export const tollText = bell => L`新しいターン — ターン ${fmtNum(bell)}`;
+/** The toll's banner: the turn that begins (fx/stage.mjs playToll says 「新しいターン」 under it). */
+export const tollText = bell => L`ターン ${fmtNum(bell)}`;

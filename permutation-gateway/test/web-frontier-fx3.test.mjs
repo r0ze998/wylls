@@ -525,7 +525,7 @@ test('captions are tags (bell metal, the serif, a leader to the tile); words and
 });
 
 // ================================================================== the bell
-test('the bell: the banner sits under the dial inside the free stage, breaks between its two parts on a phone, and has faded under a tenth before this turn\'s results begin', () => {
+test('the bell: the banner sits under the dial inside the free stage, on one line between a phone\'s columns, and has faded under a tenth before this turn\'s results begin', () => {
   assert.ok(Math.abs(TOLL_CLEAR - (TOLL_BANNER_AT + bannerGone(TOLL_BANNER_SECS))) < 1e-9);
   for (const [name, hud, width, height] of [['1440', DESKTOP, 1440, 900], ['390', PHONE, 390, 786]]) {
     const s = staged({ page: fakePage({ width, height, hud }) });
@@ -541,7 +541,8 @@ test('the bell: the banner sits under the dial inside the free stage, breaks bet
       const free = s.fx.free();
       assert.ok(mid > free.centre.top && mid < free.centre.top + 120, `${name}: right under the dial (${mid.toFixed(0)})`);
       if (width < 760) {
-        assert.equal(s.toll.dataset.wrap, 'true', 'two lines on a phone');
+        // (the uplift: 「ターン 43」 alone fits one line; it was two lines of 「新しいターン — ターン 43」)
+        assert.equal(s.toll.dataset.wrap, 'false', 'one line on a phone');
         assert.ok(left >= 52 - 0.5 && left + w <= 338 + 0.5, 'between the two columns of buttons');
         assert.ok(px(s.toll.vars.get('--fx-fs')) >= 22, 'at a size worth reading');
       } else assert.equal(s.toll.dataset.wrap, 'false');

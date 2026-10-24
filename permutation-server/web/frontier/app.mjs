@@ -193,14 +193,24 @@ export function dialMarkup(chip) {
   const parts = dialParts(chip);
   let rest = chipText(chip);
   const out = [];
+  // (the word that says the time is what is LEFT, 「残り」 / "left", stands beside the time, small: 「9:26」 alone read as
+  // time gone as well as time left: the design review of 2026-10-24. The rest of the glue stays for a screen reader)
+  const glue = (seg, nextToLeft) => {
+    const word = nextToLeft ? seg.replace(/[·\s]+/g, ' ').trim() : '';
+    if (!word) { out.push(html`<span class="visually-hidden">${seg}</span>`); return; }
+    const at = seg.indexOf(word);
+    if (at > 0) out.push(html`<span class="visually-hidden">${seg.slice(0, at)}</span>`);
+    out.push(html`<span class="dial-word">${word}</span>`);
+    if (at + word.length < seg.length) out.push(html`<span class="visually-hidden">${seg.slice(at + word.length)}</span>`);
+  };
   for (const [cls, text] of [['dial-label', parts.label], ['dial-num', parts.num], ['dial-left', parts.left]]) {
     const i = text ? rest.indexOf(text) : -1;
     if (i < 0) continue;
-    if (i > 0) out.push(html`<span class="visually-hidden">${rest.slice(0, i)}</span>`);
+    if (i > 0) glue(rest.slice(0, i), cls === 'dial-left');
     out.push(html`<span class="${cls}">${text}</span>`);
     rest = rest.slice(i + text.length);
   }
-  if (rest) out.push(html`<span class="visually-hidden">${rest}</span>`);
+  if (rest) glue(rest, !!parts.left && out.length > 0 && String(out[out.length - 1]).includes('dial-left'));
   return out;
 }
 
@@ -2759,7 +2769,7 @@ export function closeIntro() {
 let tollBell = null, urgentBell = null;
 /**
  * The bell toll: reported on the effects bus; fx/stage.mjs sends the brass ripple across the map, writes
- * 「新しいターン — ターン N」 into #bell-toll and sounds the bell; the dial swings (a class, visual only).
+ * 「ターン N」 (and 「新しいターン」 under it) into #bell-toll and sounds the bell; the dial swings (a class, visual only).
  * In the last 30 s of a turn `turn:urgent` goes out once.
  */
 function ringToll(bell, left = null) {

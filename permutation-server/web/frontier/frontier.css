@@ -173,7 +173,12 @@ body[data-urgency="crit"] main::after { box-shadow: inset 0 0 0 4px #c8412f; }
 .dial-track, .dial-arc { fill: none; stroke-width: 5; }
 .dial-track { stroke: rgba(255,255,255,.1); }
 .dial-arc { stroke: var(--brass-hi); stroke-linecap: round; stroke-dasharray: 100; stroke-dashoffset: calc(var(--f, 0) * 100px); transition: stroke-dashoffset 1s linear, stroke .3s; filter: drop-shadow(0 0 3px rgba(240,212,138,.55)); }
-.dial-text { display: grid; justify-items: center; line-height: 1; white-space: nowrap; }
+.dial-text { display: flex; flex-wrap: wrap; justify-content: center; align-items: baseline; column-gap: 3px; line-height: 1; white-space: nowrap; }
+.dial-label, .dial-num { flex-basis: 100%; text-align: center; }
+/* 「残り」 / "left" beside the time, small: the time is what is left of the turn */
+.dial-word { margin-top: 3px; font: 600 8.5px/1 var(--ui); letter-spacing: 0; color: var(--brass-hi); }
+.dial-text:has(.dial-word) .dial-left { font-size: 12.5px; letter-spacing: -.01em; }
+.dial[data-urgency="warn"] .dial-word { color: var(--amber); } .dial[data-urgency="crit"] .dial-word { color: #ffb4a4; }
 .dial-label { font: 600 var(--t1)/1 var(--ui); letter-spacing: .1em; color: var(--brass-hi); }
 .dial-num { margin-top: 3px; font: 700 var(--t4)/1 var(--display); font-variant-numeric: tabular-nums lining-nums; color: #fffaf0; text-shadow: 0 1px 2px rgba(0,0,0,.6); }
 .dial-left { margin-top: 3px; font: 600 var(--t2)/1 var(--ui); font-variant-numeric: tabular-nums; color: var(--hud-ink); }

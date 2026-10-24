@@ -55,7 +55,6 @@ export default {
   '演出の見本': 'Effects demo',
   '演出の見本です。実際の記録ではありません。': 'This is an effects demo, not a real record.',
   '勝利': 'Victory',
-  '新しいターン — ターン {0}': 'A new turn — Turn {0}',
   '進軍が開封されました': 'The seal of a march was opened',
   '衝突が決着しました': 'A clash was resolved',
 

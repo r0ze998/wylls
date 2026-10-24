@@ -27,8 +27,10 @@
 .mo-k { font-size: var(--t1); font-weight: 600; color: var(--ink-2); line-height: 1.4; }
 .mo-v { font: 700 var(--t3)/1.25 var(--display); color: var(--ink); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .mo-n { font-size: var(--t1); line-height: 1.4; color: var(--ink-2); }
-.mo-fc { background: repeating-linear-gradient(135deg, #fbf6e8 0 8px, #f6efdc 8px 9px); }
-.mo-fc .mo-v { color: var(--st-forecast); }
+.mo-fc { background: repeating-linear-gradient(135deg, #fbf6e8 0 8px, #f6efdc 8px 9px); outline: 1.5px dashed color-mix(in srgb, var(--st-forecast) 55%, transparent); outline-offset: -4px; }
+/* (a forecast never in the facts' voice: the facts are the serif at full ink, the forecast the gothic, lighter and a
+   step smaller, so 「残る兵 567〜572」 is not remembered as a promise: the design review of 2026-10-24) */
+.mo-fc .mo-v { font: 600 var(--t2)/1.35 var(--ui); color: var(--st-forecast); letter-spacing: .01em; }
 
 /* ---- the stances compared: each row is the stance's button */
 .mc-compare { display: grid; gap: 4px; }

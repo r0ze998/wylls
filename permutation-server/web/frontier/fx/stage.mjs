@@ -45,7 +45,9 @@ const worldOf = at => { if (!at) return null; const h = Number.isInteger(at.tile
 
 /** When the toll's banner comes after the stroke and how long it stays (s), and the gap between two results played one after another. */
 export const TOLL_BANNER_AT = 0.3;
-export const TOLL_BANNER_SECS = 2.6;
+// (1.6 s: the dial carries the turn; the banner only names it, and this turn's results, which wait for it, come a
+// second sooner. It was 2.6 s with 「新しいターン — ターン N」, which said ターン twice: the design review of 2026-10-24)
+export const TOLL_BANNER_SECS = 1.6;
 export const RESULT_GAP = 0.7;
 /** How long one result's mark plays (the card's row is lit as long), and the pause after a battle that played as its own result. */
 export const RESULT_SECS = 1.5;
@@ -93,7 +95,7 @@ export function playToll(fx, { turn, home = null, wait = 0 } = {}) {
   // under the dial, at the top of the stage the HUD leaves free (a phone: between its two columns of buttons, on two lines)
   // (`wait`: a battle is on stage and its verdict stands where this banner would: the stroke and the bell are now, the
   // banner's words come when the scene has ended)
-  fx.play('banner', { title: L`新しいターン — ターン ${fmtNum(turn)}`, into: fx.doc?.getElementById?.('bell-toll') ?? '#bell-toll', y: 0, dur: TOLL_BANNER_SECS, delay: TOLL_BANNER_AT + Math.max(0, wait), seed });
+  fx.play('banner', { title: L`ターン ${fmtNum(turn)}`, sub: L`新しいターン`, into: fx.doc?.getElementById?.('bell-toll') ?? '#bell-toll', y: 0, dur: TOLL_BANNER_SECS, delay: TOLL_BANNER_AT + Math.max(0, wait), seed });
   fx.sound('bell', { delay: 0.2, seed });
 }
 
