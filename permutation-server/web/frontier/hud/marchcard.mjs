@@ -38,7 +38,7 @@ import { tileName, provinceCoords } from './place.mjs';
 import { conquestOn, crest, holdTurns } from './keephand.mjs';
 import { STANCE_PIC, RETREAT_PIC, sealPic } from './pictos.mjs';
 import { miniCardUrl, MINI_KINDS } from '../people/minis.mjs';
-import { compareKey } from './forecast.mjs';
+import { compareKey, forecastKey } from './forecast.mjs';
 
 const BEATS = { Assault: 'Flank', Flank: 'Brace', Brace: 'Assault' };
 const RETREAT_SHORT = { never: () => L`撤退しない`, x2: () => L`2倍で撤退`, 'x1.5': () => L`1.5倍で撤退`, x1: () => L`同数で撤退`, 'x0.5': () => L`半分で撤退`, custom: () => L`倍率を指定する` };
@@ -113,6 +113,21 @@ export function renderForecast(fc) {
     <ul class="mc-fates">${fates.map(([k, n]) => html`<li class="mc-fate-${k}">${bar(n, fc.runs)}<span>${FATE_SHORT[k]?.() ?? k}</span><span class="muted">${L`${fmtNum(n)}/${fmtNum(fc.runs)}回`}</span></li>`)}</ul>
     <p class="muted">${L`ルールで${fmtNum(fc.runs)}回試した結果の幅です。ほかの軍勢の到着は封印中のため、数えていません。`}${fc.certain ? '' : html` ${L`このターンは野営地の見直しがあるため、守り手が変わるかもしれません。`}`}</p></div>`;
 }
+
+/**
+ * The order's forecast as the card may show it: the one made for the order as it stands (its key), else "being
+ * made" while a route is still coming, else none. A new destination keeps the old forecast object until its own is
+ * made (the route is found first); the independent review of 2026-10-24 found the outlook showing the last
+ * destination's 残る兵 beside the new one's defenders, and for good when the new route failed.
+ */
+export const forecastNow = c => (c?.forecast && c.forecast.key === forecastKey(c) ? c.forecast : c?.forecast && !c.routeError ? { pending: true } : null);
+
+/**
+ * The stances compared as the card may show them: by their own key alone, which leaves the stance out, so choosing a
+ * stance keeps the table standing (and the keyboard's focus on its row). They waited for the chosen stance's own
+ * forecast too, and fell back to the plain pictures while it was made (the same review).
+ */
+export const compareNow = c => (c?.compare && c.compare.key === compareKey(c) ? c.compare : null);
 
 /** A forecast's range of troops left, as words: "310〜470" or "388". */
 const leftText = fc => (fc.troops.min === fc.troops.max ? fmtNum(fc.troops.min) : L`${fmtNum(fc.troops.min)}〜${fmtNum(fc.troops.max)}`);
@@ -265,6 +280,7 @@ export function render(FS) {
   // the folded part. The same sentence stands in the foot while the sheet is folded on a phone (frontier.css
   // `.mc-moved-foot`); it is hidden from assistive technology there, which has the line above)
   const movedFoot = movedLine ? html`<p class="mc-moved mc-moved-foot" aria-hidden="true">${icon('hourglass')}<span>${L`時間が進んだので、到着はターン ${fmtNum(c.moved.to)} になりました（さきほどまではターン ${fmtNum(c.moved.from)}）。`}</span></p>` : '';
+  const fcNow = forecastNow(c);
   const sum = html`<button type="button" class="order-sum" data-act="order-open" aria-label="${w ? L`命令のまとめ：${destName}へ、ターン ${fmtNum(w.value)} に到着、構えは${stanceText}` : L`命令のまとめ：${destName}へ、構えは${stanceText}`}">
     <span class="os-main">${icon('pin', 'os-ic')}<strong class="os-dest">${destName}</strong></span>${w ? html`<span class="os-part">${icon('bell', 'os-ic')}${L`ターン ${fmtNum(w.value)}`}</span>` : ''}<span class="os-part">${icon('shield', 'os-ic')}${stanceText}</span>${icon('chevron', 'os-go')}</button>`;
   return html`<section class="order" aria-labelledby="mc-title"><div class="order-body" data-scroll="order">${headBlock}
@@ -273,7 +289,7 @@ export function render(FS) {
       <span class="mc-route">${c.route ? routeLine(c.route) : c.routeError ? clientText(c.routeError) : L`道のりを探しています…`}${!c.route && NO_ROUTE.includes(c.routeError) && !territoryEnabled(FS) ? html` ${reachLink(FS)}` : ''}</span>
       ${keepLine}
       <span class="mc-sealed">${icon('lock')}<span>${sealLine()}</span></span></div>
-    ${outlook({ w, awayLine, stam, nowB, def, odds, fc: c.forecast, sight })}
+    ${outlook({ w, awayLine, stam, nowB, def, odds, fc: fcNow, sight })}
     ${w ? html`${label(L`到着`)}${stepper({ cls: 'mc-bell', label: L`到着のターン`,
       prev: { act: 'mc-bell', data: { d: -1 }, label: L`1ターン早く`, disabled: w.value <= w.min },
       next: { act: 'mc-bell', data: { d: 1 }, label: L`1ターン遅く`, disabled: w.value >= w.max },
@@ -282,7 +298,7 @@ export function render(FS) {
       <p class="muted mc-when">${c.route ? L`進軍は、ターンの始まりにそろって到着します。いちばん早くてターン ${fmtNum(w.min)} です。` : L`進軍は、ターンの始まりにそろって到着します。`}</p>` : ''}
     ${timing ? html`<p class="muted mc-result-time">${L`結果の目安まで ${span(timing.resultIn)}（ゲーム内）`}</p>` : ''}
     ${label(def?.total ? L`構えを比べる` : L`構え`, termButton('stance'))}
-    ${def?.total ? stanceCompare(m.stance, c.compare?.key === compareKey(c) && c.forecast?.ok ? c.compare : null) : stancePicks(m.stance)}
+    ${def?.total ? stanceCompare(m.stance, compareNow(c)) : stancePicks(m.stance)}
     ${label(L`撤退`, termButton('retreat'))}
     ${retreatPicks(m.retreat.choice)}
     <p class="pick-line">${custom ? L`倍率を指定しています：${m.retreat.ratio ?? '—'}` : retreatLine(m.retreat.choice)}</p>
@@ -294,7 +310,7 @@ export function render(FS) {
       ${fold('o-odds', L`守り手と結果の幅`, html`
         ${def.residents.length || def.garrison || def.camp || def.keep ? html`<ul class="list mc-def">${def.residents.map(r => html`<li>${swatch(r.faction)}${factionName(r.faction)} ${fmtNum(r.troops)}</li>`)}${def.garrison ? html`<li>${L`守備隊 ${fmtNum(def.garrison)}`}</li>` : ''}${def.camp ? html`<li>${L`蛮族 ${fmtNum(def.camp)}`}</li>` : ''}${def.keep ? html`<li>${L`砦の守備兵`} ${fmtNum(def.keep)}</li>` : ''}</ul>` : html`<p class="muted">${L`いまは守り手がいません。`}</p>`}
         <p class="muted">${L`あなた ${fmtNum(c.host.troops)}（${STANCE_TEXT[stance]}）対 守り ${fmtNum(def.total)}。実際の結果は、到着のターンが始まるときにそこにいる守り手と、戦いの運で決まります。`}</p>
-        ${renderForecast(c.forecast)}`)}
+        ${renderForecast(fcNow)}`)}
       ${keepOnly ? html`<p class="muted mc-unseen">${L`砦の守備兵は記録のとおりです。ほかの軍勢がいるかどうかは、ここからはわかりません。`}</p>` : ''}
     </div>` : html`<p class="muted mc-unseen">${sight < 2 ? L`未測量の土地です。守り手は、ここからはわかりません。` : sight < 3 ? L`いまは見えていない土地です。守り手は、ここからはわかりません。` : L`行き先のようすを読み込むと、守り手が出ます。`}</p>`}
     ${fold('o-more', L`詳しい設定`, html`

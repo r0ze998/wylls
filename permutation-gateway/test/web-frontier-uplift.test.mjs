@@ -49,6 +49,22 @@ test('the stances compared: one button a stance, the chosen one pressed, the sam
   assert.match(String(stanceCompare(0, null)), /class="picks picks-4"/);
 });
 
+test('the card shows a forecast only for the order as it stands; a stale one is "being made", or nothing once the route failed', async () => {
+  const { forecastNow } = await import('../../permutation-server/web/frontier/hud/marchcard.mjs');
+  const c = { host: { id: '7' }, dest: { p: 2, q: 0, tile: 26 }, arriveBell: 44, stance: 0, retreat: 'r', ratio: null };
+  const made = { key: forecastKey(c), ok: true, troops: { min: 584, max: 586, start: 600 }, runs: 8, fates: { Stays: 8 } };
+  assert.equal(forecastNow({ ...c, forecast: made }), made);
+  const moved = { ...c, dest: { p: 1, q: 1, tile: 9 }, forecast: made };
+  assert.deepEqual(forecastNow(moved), { pending: true }, 'the last destination\'s forecast is not shown for the new one');
+  assert.equal(forecastNow({ ...moved, routeError: 'NoRoute' }), null, 'no route: no forecast at all, not the old one');
+  assert.equal(forecastNow({ ...c, forecast: null }), null);
+  const { compareNow } = await import('../../permutation-server/web/frontier/hud/marchcard.mjs');
+  const cmp = { key: compareKey(c), rows: [] };
+  assert.equal(compareNow({ ...c, compare: cmp, forecast: { key: 'other', pending: true } }), cmp, 'a stance change (its forecast being made) keeps the table');
+  assert.equal(compareNow({ ...c, stance: 3, compare: cmp }), cmp, 'the table is for every stance');
+  assert.equal(compareNow({ ...c, dest: { p: 1, q: 1, tile: 9 }, compare: cmp }), null, 'never the last destination\'s');
+});
+
 test('the comparison key leaves the stance out, the forecast key does not', () => {
   const c = { host: { id: 7n }, dest: { p: 1, q: 2, tile: 3 }, arriveBell: 45, stance: 0, retreat: 'never', ratio: null };
   assert.equal(compareKey(c), compareKey({ ...c, stance: 2 }));

@@ -35,7 +35,12 @@ const STATES = [
     const rows = page.locator('.mc-compare .mcc-row');
     const before = await rows.evaluateAll(r => r.findIndex(x => x.getAttribute('aria-checked') === 'true'));
     await rows.nth(before).focus();
+    // (the comparison stays standing through the change: it fell back to the plain pictures while the new stance's own
+    // forecast was made, and the focus went with it: the independent review of 2026-10-24)
+    const watch = page.evaluate(async () => { let gone = 0; for (let i = 0; i < 90; i++) { await new Promise(r => requestAnimationFrame(r)); if (!document.querySelector('.mc-compare')) gone++; } return gone; });
     await page.keyboard.press('ArrowDown');
+    const gone = await watch;
+    ok(gone === 0, `the comparison stood in every frame after the change (${gone} frames without it)`);
     await page.waitForTimeout(400);
     const after = await page.locator('.mc-compare .mcc-row').evaluateAll(r => r.findIndex(x => x.getAttribute('aria-checked') === 'true'));
     const focused = await page.evaluate(() => document.activeElement?.closest?.('.mcc-row')?.dataset.v ?? null);
@@ -43,6 +48,25 @@ const STATES = [
     ok(focused !== null && Number(focused) === after, `the focus followed the choice (on ${focused})`);
     await page.keyboard.press('Home'); await page.waitForTimeout(300);
     ok(await page.locator('.mc-compare .mcc-row').first().getAttribute('aria-checked') === 'true', 'Home chose the first stance');
+  }],
+  ['newdest', 'a new destination: the last one\'s forecast is never shown beside the new defenders', {}, async (page, ok) => {
+    await compose(page); await waitCompare(page);
+    await page.locator('.mc-outlook .mo-fc').filter({ hasText: /\d/ }).waitFor({ timeout: 15000 });
+    const before = (await page.locator('.mc-outlook .mo-fc').innerText()).replace(/\s+/g, ' ');
+    const beforeName = await page.locator('.mc-dest-name').innerText();
+    // to the camp of the home province (another defended tile), sampled in the frames right after the change
+    const seen = await page.evaluate(async ({ p, q, tile }) => {
+      const f = document.querySelector('form[data-form="dest"]');
+      f.querySelector('[name=p]').value = p; f.querySelector('[name=q]').value = q; f.querySelector('[name=tile]').value = tile; f.requestSubmit();
+      const out = [];
+      for (let i = 0; i < 30; i++) { await new Promise(r => requestAnimationFrame(r)); out.push([document.querySelector('.mc-dest-name')?.textContent ?? '', document.querySelector('.mc-outlook .mo-fc')?.textContent?.replace(/\s+/g, ' ') ?? '']); }
+      return out;
+    }, { p: W.HOME.p, q: W.HOME.q, tile: W.CAMP_TILE });
+    const oldNums = before.match(/\d[\d,]*〜?[\d,]*/)?.[0];
+    const moved = seen.filter(([name]) => name && name !== beforeName);
+    const stale = moved.filter(([, fc]) => fc.includes(oldNums));
+    ok(!!oldNums && moved.length > 0, `the card moved to the new destination in ${moved.length} of ${seen.length} frames (old forecast ${oldNums})`);
+    ok(!stale.length, `the old destination's forecast never stood beside the new one (${stale.length} frames)`);
   }],
   ['motion', 'reduced motion: nothing in the card moves', { reducedMotion: 'reduce' }, async (page, ok) => {
     await compose(page); await waitCompare(page);
