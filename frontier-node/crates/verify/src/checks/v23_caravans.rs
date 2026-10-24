@@ -227,7 +227,11 @@ fn vault_stores(vd: &[u8]) -> Result<[i64; RES], String> {
 /// BuildVault (accounts: 3 citizen, 6 province, 7 vault).
 pub fn judge_build_vault(ix: &crate::world::Ix, s: &dyn States, at: At) -> Result<(), Wrong> {
     let x = ix2::BuildVault::decode(&ix.data).map_err(|_| vault_wrong("does not decode"))?;
-    let (Some(citizen), Some(province), Some(vault)) = (ix.key(3), ix.key(6), ix.key(7)) else {
+    let (Some(citizen), Some(province), Some(vault)) = (
+        ix.account("citizen"),
+        ix.account("province"),
+        ix.account("vault"),
+    ) else {
         return Err(vault_wrong("the accounts are missing"));
     };
     let pd = s
@@ -552,7 +556,7 @@ pub fn judge_settle_caravan(
     at: At,
     delivered: Option<bool>,
 ) -> Result<(), Wrong> {
-    let (Some(caravan), Some(dst)) = (ix.key(2), ix.key(3)) else {
+    let (Some(caravan), Some(dst)) = (ix.account("caravan"), ix.account("dst")) else {
         return Err(caravan_wrong("the accounts are missing"));
     };
     let cb = s
@@ -994,7 +998,7 @@ fn ca_vaults_over(s: &dyn States, captor: &Key) -> bool {
 
 /// CloseVault (accounts: 3 citizen, 4 vault).
 pub fn judge_close_vault(ix: &crate::world::Ix, s: &dyn States) -> Result<(), Wrong> {
-    let (Some(citizen), Some(vault)) = (ix.key(3), ix.key(4)) else {
+    let (Some(citizen), Some(vault)) = (ix.account("citizen"), ix.account("vault")) else {
         return Err(vault_wrong("the accounts are missing"));
     };
     let vb = s

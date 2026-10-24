@@ -84,21 +84,25 @@ fn judge(cx: &Ctx, r: &CqRec) -> Vec<(&'static str, String)> {
         ));
         return bad;
     };
-    let key = |i: usize| ix.key(i);
-    let before = |i: usize| {
-        ix.key(i)
+    // Accounts by their SettleCapture names (`frontier_abi::v2::prologue`).
+    let key = |name: &str| ix.account(name);
+    let before = |name: &str| {
+        ix.account(name)
             .and_then(|k| w.state_before(&k, t).map(|d| d.to_vec()))
     };
-    let after = |i: usize| ix.key(i).and_then(|k| tx.post_data(&k).map(|d| d.to_vec()));
+    let after = |name: &str| {
+        ix.account(name)
+            .and_then(|k| tx.post_data(&k).map(|d| d.to_vec()))
+    };
     let hk = f.ctx.holding(p, q, site);
-    if key(2) != Some(hk) || key(3) != Some(f.ctx.province(p, q)) {
+    if key("holding") != Some(hk) || key("province") != Some(f.ctx.province(p, q)) {
         bad.push((
             CAPTURE_RULE,
             "the instruction's Holding or Province is not the record's".into(),
         ));
         return bad;
     }
-    let (Some(pd), Some(pd_after)) = (before(3), after(3)) else {
+    let (Some(pd), Some(pd_after)) = (before("province"), after("province")) else {
         bad.push((
             CAPTURE_RULE,
             "no Province state before or after the settlement".into(),
@@ -137,7 +141,7 @@ fn judge(cx: &Ctx, r: &CqRec) -> Vec<(&'static str, String)> {
     let mo = PV::site(site as usize);
     let (mgen, mtier) = (pd[mo + SM::GEN], pd[mo + SM::TIER]);
     // 2. The captor.
-    let (Some(captor_k), Some(cd)) = (key(4), before(4)) else {
+    let (Some(captor_k), Some(cd)) = (key("captor_citizen"), before("captor_citizen")) else {
         bad.push((CAPTURE_RULE, "no captor Citizen before".into()));
         return bad;
     };
@@ -157,7 +161,7 @@ fn judge(cx: &Ctx, r: &CqRec) -> Vec<(&'static str, String)> {
         ));
     }
     // 3. The Holding after (and before, for a captured holding).
-    let Some(hd) = after(2) else {
+    let Some(hd) = after("holding") else {
         bad.push((
             CAPTURE_BOOKKEEPING,
             "no Holding after the settlement".into(),
@@ -171,7 +175,7 @@ fn judge(cx: &Ctx, r: &CqRec) -> Vec<(&'static str, String)> {
         ));
         return bad;
     }
-    let hb = before(2).filter(|d| d.len() == H::SIZE);
+    let hb = before("holding").filter(|d| d.len() == H::SIZE);
     let mut victim_tag = 0u64;
     let mut walls_want = 0u32;
     if free_city {
@@ -231,7 +235,11 @@ fn judge(cx: &Ctx, r: &CqRec) -> Vec<(&'static str, String)> {
                 format!("the Holding before (gen {hgen}, order {horder}) is not the captured one"),
             ));
         }
-        let (Some(victim_k), Some(vd), Some(vd_after)) = (key(6), before(6), after(6)) else {
+        let (Some(victim_k), Some(vd), Some(vd_after)) = (
+            key("victim_citizen"),
+            before("victim_citizen"),
+            after("victim_citizen"),
+        ) else {
             bad.push((CAPTURE_RULE, "no victim Citizen before or after".into()));
             return bad;
         };
@@ -262,7 +270,7 @@ fn judge(cx: &Ctx, r: &CqRec) -> Vec<(&'static str, String)> {
                 ));
             }
         }
-        if let (Some(jb), Some(ja)) = (before(7), after(7)) {
+        if let (Some(jb), Some(ja)) = (before("victim_joinshard"), after("victim_joinshard")) {
             if u32_at(&ja, JS2::EXTRA_HOLDINGS)
                 != u32_at(&jb, JS2::EXTRA_HOLDINGS).saturating_sub(1)
                 || u32_at(&ja, JS2::CAPTURED_OUT) != u32_at(&jb, JS2::CAPTURED_OUT) + 1
@@ -356,7 +364,7 @@ fn judge(cx: &Ctx, r: &CqRec) -> Vec<(&'static str, String)> {
     }
     // 4. The captor's Citizen and JoinShard after.
     let rent_moved = pu("rent_moved");
-    if let Some(ca) = after(4).filter(|d| d.len() == C::SIZE) {
+    if let Some(ca) = after("captor_citizen").filter(|d| d.len() == C::SIZE) {
         if holding_ref(&ca, slot) != (p as i16, q as i16, site, mgen) {
             bad.push((
                 CAPTURE_BOOKKEEPING,
@@ -383,7 +391,7 @@ fn judge(cx: &Ctx, r: &CqRec) -> Vec<(&'static str, String)> {
             ));
         }
     }
-    if let (Some(jb), Some(ja)) = (before(5), after(5)) {
+    if let (Some(jb), Some(ja)) = (before("captor_joinshard"), after("captor_joinshard")) {
         if u32_at(&ja, JS2::EXTRA_HOLDINGS) != u32_at(&jb, JS2::EXTRA_HOLDINGS) + 1
             || u32_at(&ja, JS2::CAPTURED_IN) != u32_at(&jb, JS2::CAPTURED_IN) + 1
         {
@@ -396,7 +404,7 @@ fn judge(cx: &Ctx, r: &CqRec) -> Vec<(&'static str, String)> {
     // 5. The stake back to a live source of the siege's generation (capped).
     if let Some(sp) = split_host_id(src) {
         let sk = f.ctx.holding(sp.province.p, sp.province.q, sp.site);
-        if key(9) != Some(sk) {
+        if key("stake_holding") != Some(sk) {
             bad.push((
                 CAPTURE_RULE,
                 "the stake Holding named is not the siege's source".into(),

@@ -105,7 +105,7 @@ pub const QUICKNET_PK_HASH: [u8; 32] = crypto::quick::PK_HASH;
 pub const PROGRAM_VERSION: u16 = frontier_abi::v2::presets::PROGRAM_VERSION_S1;
 
 /// Routes one instruction by its ABI v2 tag (M1 §5.5; MC contract §5.4:
-/// M1's 50 tags and 0xA0–0xA3, 0xA5–0xA7). Unknown and reserved tags
+/// M1's 51 tags, 0xA0–0xA3, 0xA5–0xA7 and S1's 0xB0–0xBE). Unknown and reserved tags
 /// (0xA4, 0xA8–0xAF included) are `BadData`; ResolveClash exists only in
 /// the `oracle` build.
 #[cfg(feature = "program")]

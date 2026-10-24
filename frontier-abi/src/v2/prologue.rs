@@ -500,12 +500,26 @@ pub fn accounts_of(ix: Ix) -> &'static [Group] {
 
 /// Fewest and most accounts of a v2 instruction.
 pub fn count_bounds(ix: Ix) -> (usize, usize) {
-    accounts_of(ix).iter().fold((0, 0), |(lo, hi), g| {
-        (
-            lo + g.specs.len() * g.min as usize,
-            hi + g.specs.len() * g.max as usize,
-        )
-    })
+    crate::prologue::bounds_in(accounts_of(ix))
+}
+
+/// The v2 position list for given repeat counts
+/// ([`crate::prologue::resolve`] over the v2 table).
+pub fn resolve(ix: Ix, counts: &[u8], out: &mut [Spec]) -> Option<usize> {
+    crate::prologue::resolve_in(accounts_of(ix), counts, out)
+}
+
+/// The v2 repeat counts from the account count
+/// ([`crate::prologue::counts_from_len`] over the v2 table).
+pub fn counts_from_len(ix: Ix, n_accounts: usize, out: &mut [u8]) -> Option<usize> {
+    crate::prologue::counts_in(accounts_of(ix), n_accounts, out)
+}
+
+/// The position of the `nth` account named `name` in a v2 instruction of
+/// `n_accounts` accounts (the names of [`accounts_of`]); see
+/// [`crate::prologue::position_in`].
+pub fn position(ix: Ix, n_accounts: usize, name: &str, nth: usize) -> Option<usize> {
+    crate::prologue::position_in(accounts_of(ix), n_accounts, name, nth)
 }
 
 /// The data size SIMD-0186 counts for one position under ABI v2 (an M1
@@ -605,6 +619,41 @@ mod tests {
         assert_eq!(count_bounds(Ix::RaidDomestic), (8, 8));
         assert_eq!(count_bounds(Ix::FortGarrison), (7, 7));
         assert_eq!(count_bounds(Ix::DefaultRaid), (7, 13));
+        // Named positions, as off-chain readers look them up.
+        let at = |ix, n, name| position(ix, n, name, 0);
+        assert_eq!(at(Ix::FileOutpost, 11, "citizen"), Some(3));
+        assert_eq!(at(Ix::FileOutpost, 11, "frontier"), Some(4));
+        assert_eq!(at(Ix::FileOutpost, 11, "anchor_holding"), Some(7));
+        assert_eq!(at(Ix::FileOutpost, 13, "anchor_holding"), Some(9));
+        assert_eq!(position(Ix::FileOutpost, 13, "province", 2), Some(7));
+        assert_eq!(position(Ix::FileOutpost, 13, "province", 3), None);
+        assert_eq!(at(Ix::FileOutpost, 14, "citizen"), None);
+        assert_eq!(at(Ix::DeclareSiege, 11, "target_holding"), Some(6));
+        assert_eq!(at(Ix::SettleCapture, 11, "stake_holding"), Some(9));
+        assert_eq!(position(Ix::FoldMarch, 11, "member", 6), Some(9));
+        // S1, as the verifier's V7, V23, V24 and V25 read them.
+        assert_eq!(at(Ix::BuildVault, 9, "holding"), Some(4));
+        assert_eq!(at(Ix::BuildVault, 9, "province"), Some(6));
+        assert_eq!(at(Ix::BuildVault, 9, "vault"), Some(7));
+        assert_eq!(at(Ix::SendCaravan, 9, "src"), Some(4));
+        assert_eq!(at(Ix::SettleCaravan, 7, "caravan"), Some(2));
+        assert_eq!(at(Ix::SettleCaravan, 10, "dst"), Some(3));
+        assert_eq!(at(Ix::CloseVault, 6, "vault"), Some(4));
+        assert_eq!(at(Ix::BuildStructure, 9, "structure"), Some(7));
+        assert_eq!(at(Ix::CloseStructure, 7, "structure"), Some(4));
+        assert_eq!(at(Ix::CloseStructure, 7, "province"), Some(5));
+        assert_eq!(at(Ix::FortGarrison, 7, "structure"), Some(6));
+        assert_eq!(at(Ix::Propose, 7, "target"), Some(5));
+        assert_eq!(at(Ix::Vote, 5, "nation"), Some(4));
+        let mut counts = [0u8; 4];
+        let ng = counts_from_len(Ix::FileOutpost, 12, &mut counts).unwrap();
+        assert_eq!(&counts[..ng], &[1, 1, 2, 1]);
+        let mut specs = [PLAYER_PROLOGUE[0]; 16];
+        assert_eq!(
+            resolve(Ix::FileOutpost, &counts[..ng], &mut specs),
+            Some(12)
+        );
+        assert_eq!(specs[8].name, "anchor_holding");
         // §5.6: the three resident actions gain the Province
         for ix in [Ix::Harvest, Ix::Build, Ix::Train] {
             let v1 = crate::prologue::count_bounds(ix.to_v1().unwrap());

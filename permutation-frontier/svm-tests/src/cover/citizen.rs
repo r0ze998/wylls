@@ -341,6 +341,6 @@ pub const FILE_OUTPOST: &[Cover] = &[
     ),
     Cover::Test(
         "citizen::g01_cq_file_outpost_three_provinces_full_cohorts",
-        &[Loaded, Lands("FileOutpost at the 28k limit")],
+        &[Loaded, Lands("FileOutpost at its CU budget")],
     ),
 ];

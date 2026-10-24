@@ -83,13 +83,29 @@ export function capturePending(fs, h) {
   return m?.state === 1 && m.gen === ((h.gen + 1) & 255);
 }
 
+/**
+ * One site's strength weight, as the rules' `laurel::strength_weight`: tier
+ * weight × garrison factor × holding-order quarters / 4, `order0` 0-based
+ * (a Free City counts as 0). Checked against frontier-abi's
+ * vectors/v2/web-rules.json.
+ */
+export const siteWeight = (tier, garrisonMilli, order0) =>
+  Math.floor([100,130,160,200][tier] * Math.min(15000, 10000 + Math.floor(garrisonMilli/200)) * (order0 <= 0 ? 4 : order0 === 1 ? 2 : 1) / 4);
+
+/**
+ * The settler cost of the next outpost of a citizen holding `holdings`
+ * villages, in whole units: `duplicate_cost(SETTLER_COST, holdings)` (the
+ * program's `settler_cost`). Checked against vectors/v2/web-rules.json.
+ */
+export const settlerCost = holdings => [800,800,400,0,0,200,0,0].map(x => Math.floor(x * (2 + Math.max(0,holdings-1)**2) / 2));
+
 /** Filing uses full strength weights, not the rounded display snapshots. */
 export function provinceWeights(pv, faction, bell) {
   let mine = 0, total = 0;
   for (const m of pv.siteMirror.slice(0,pv.siteCount)) {
     if (![1,5].includes(m.state)) continue;
     const tier = m.state === 1 && m.tierNext !== undefined && m.tierNext !== 255 && m.tierNextBell <= bell ? m.tierNext : m.tier;
-    const weight = Math.floor([100,130,160,200][tier] * Math.min(15000, 10000 + Math.floor(m.garrison/200)) * (m.state === 5 || m.order <= 1 ? 4 : m.order === 2 ? 2 : 1) / 4);
+    const weight = siteWeight(tier, m.garrison, m.state === 5 ? 0 : m.order - 1);
     total += weight; if (m.state === 1 && m.faction === faction) mine += weight;
   }
   return { mine, total };
@@ -100,7 +116,7 @@ export function provinceWeights(pv, faction, bell) {
 export function outpostOffer(fs, target) {
   const hs = fs.holdings ?? [], home = hs.find(h => h.order === 1), pv = fs.provinces.get(`${target.p},${target.q}`)?.province;
   const n = hs.length, season = fs.season, params = season.conquestParams ?? season, citizen = fs.citizen;
-  const cost = [800,800,400,0,0,200,0,0].map(x => Math.floor(x * (2 + Math.max(0,n-1)**2) / 2) * 1000);
+  const cost = settlerCost(n).map(x => x * 1000);
   const base = { target, cost: cost.map(x => x/1000), eligible: false, pending: false };
   const no = reason => ({ ...base, reason });
   if (!citizen || !home) return no(L`最初の村を築いてください。`);

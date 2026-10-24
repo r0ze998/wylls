@@ -96,67 +96,6 @@ impl IxTable for frontier_abi::v2::Ix {
     }
 }
 
-/// Fewest and most accounts of a table.
-fn bounds(groups: &[ap::Group]) -> (usize, usize) {
-    groups.iter().fold((0, 0), |(lo, hi), g| {
-        (
-            lo + g.specs.len() * g.min as usize,
-            hi + g.specs.len() * g.max as usize,
-        )
-    })
-}
-
-/// `frontier_abi::prologue::counts_from_len` over a table: the repeat
-/// counts from the account count when at most one group varies.
-fn counts_from_len(groups: &[ap::Group], n_accounts: usize, out: &mut [u8]) -> Option<usize> {
-    if out.len() < groups.len() {
-        return None;
-    }
-    let fixed: usize = groups.iter().map(|g| g.specs.len() * g.min as usize).sum();
-    let varying = groups.iter().filter(|g| g.min != g.max).count();
-    for (o, g) in out.iter_mut().zip(groups) {
-        *o = g.min;
-    }
-    if varying == 0 {
-        return (n_accounts == fixed).then_some(groups.len());
-    }
-    if varying > 1 {
-        return None;
-    }
-    let (i, g) = groups.iter().enumerate().find(|(_, g)| g.min != g.max)?;
-    let extra = n_accounts.checked_sub(fixed)?;
-    let w = g.specs.len();
-    if extra % w != 0 {
-        return None;
-    }
-    let c = g.min as usize + extra / w;
-    if c > g.max as usize {
-        return None;
-    }
-    *out.get_mut(i)? = c as u8;
-    Some(groups.len())
-}
-
-/// `frontier_abi::prologue::resolve` over a table.
-fn resolve(groups: &[ap::Group], counts: &[u8], out: &mut [Spec]) -> Option<usize> {
-    if counts.len() != groups.len() {
-        return None;
-    }
-    let mut n = 0;
-    for (g, &c) in groups.iter().zip(counts) {
-        if c < g.min || c > g.max {
-            return None;
-        }
-        for _ in 0..c {
-            for sp in g.specs {
-                *out.get_mut(n)? = *sp;
-                n += 1;
-            }
-        }
-    }
-    Some(n)
-}
-
 /// Checks the account list against the instruction's table: the exact
 /// count (`TooManyAccounts`), missing signatures (`Auth`), writability
 /// (`BadAccount`) and the fixed program ids (System, instructions sysvar,
@@ -175,15 +114,15 @@ pub fn check_accounts<I: IxTable>(ix: I, accounts: &[AccountInfo], counts: Optio
             given.len()
         }
         None => {
-            counts_from_len(groups, accounts.len(), &mut c).ok_or(FrontierError::TooManyAccounts)?
+            ap::counts_in(groups, accounts.len(), &mut c).ok_or(FrontierError::TooManyAccounts)?
         }
     };
-    let (_, hi) = bounds(groups);
+    let (_, hi) = ap::bounds_in(groups);
     if accounts.len() > hi {
         return Err(FrontierError::TooManyAccounts.into());
     }
     let mut specs = alloc::vec![NO_SPEC; hi];
-    let n = resolve(
+    let n = ap::resolve_in(
         groups,
         c.get(..ng).ok_or(FrontierError::TooManyAccounts)?,
         &mut specs,

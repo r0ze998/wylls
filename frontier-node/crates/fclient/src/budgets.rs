@@ -202,7 +202,7 @@ mod tests {
     fn cq_v2_budgets_cover_every_v2_kind() {
         let b = Budgets::canonical_for(abi::PROGRAM_VERSION_V2);
         assert_eq!(b, Budgets::canonical_v2());
-        for row in abi::INSTRUCTIONS_V2 {
+        for row in abi::INSTRUCTIONS_V2.iter() {
             let x = b.get(row.tag);
             assert!(x.loaded_limit >= crate::fees::PAGE, "{}", row.name);
             assert_eq!(x.loaded_limit % crate::fees::PAGE, 0, "{}", row.name);
@@ -230,7 +230,7 @@ mod tests {
         // An S1 season: the S1 CU limits (the v2 rows', Reveal's own), the
         // S1 loaded limits, every S1 kind.
         let s1 = Budgets::canonical_for(abi::PROGRAM_VERSION_S1);
-        for row in abi::INSTRUCTIONS_V2 {
+        for row in abi::INSTRUCTIONS_V2.iter() {
             let ix = frontier_abi::v2::Ix::from_tag(row.tag).unwrap();
             let x = s1.get(row.tag);
             assert_eq!(

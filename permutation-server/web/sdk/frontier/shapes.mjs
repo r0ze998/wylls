@@ -18,23 +18,26 @@
 // address itself, so the relay does not.
 import { budgetOf, budgetPrefix, COMPUTE_BUDGET_PROGRAM, PACKET_BYTES, parseComputeBudgetIx } from './budgets.mjs';
 import { accountSpec, decodeIxData, encodeIxData, ixOf, TAGS } from './codec.mjs';
+import { TAGS as TAGS_V2 } from './abi-v2-tags.mjs';
 import { SYSTEM_PROGRAM } from './addresses.mjs';
 import { compileMessage } from '../solana-tx.mjs';
 
-export const REVEAL_TAG = 0x51;
-export const JOIN_TAG = 0x30;
-export const DEPART_TAG = 0x50;
-export const FILE_TICKET_TAG = 0x33;
-export const PLACE_HOME_TAG = 0x38;
-export const FILE_OUTPOST_TAG = 0xA3;
-export const DECLARE_SIEGE_TAG = 0xA0;
+/** The tag of the instruction named `name` (ABI v2's tags extend M1's, same numbers). */
+const tagOf = name => TAGS_V2.instructions.find(i => i.name === name).tag;
+export const REVEAL_TAG = tagOf('Reveal');
+export const JOIN_TAG = tagOf('Join');
+export const DEPART_TAG = tagOf('Depart');
+export const FILE_TICKET_TAG = tagOf('FileTicket');
+export const PLACE_HOME_TAG = tagOf('PlaceHome');
+export const FILE_OUTPOST_TAG = tagOf('FileOutpost');
+export const DECLARE_SIEGE_TAG = tagOf('DeclareSiege');
 // S1 stage 1b: the vault and caravan instructions that move the fee payer's lamports.
-export const BUILD_VAULT_TAG = 0xB0;
-export const SEND_CARAVAN_TAG = 0xB1;
+export const BUILD_VAULT_TAG = tagOf('BuildVault');
+export const SEND_CARAVAN_TAG = tagOf('SendCaravan');
 // S1 stage 1d: BuildStructure moves a tower's rent.
-export const BUILD_STRUCTURE_TAG = 0xB7;
+export const BUILD_STRUCTURE_TAG = tagOf('BuildStructure');
 // S1 stage 1e: a first Propose creates its faction's Nation (its rent).
-export const PROPOSE_TAG = 0xBB;
+export const PROPOSE_TAG = tagOf('Propose');
 /** Tags of the player shapes (from the ABI's `relay_player_shape`). */
 export const PLAYER_TAGS = Object.freeze(TAGS.instructions.filter(i => i.relay_player_shape).map(i => i.tag));
 /** Tags of the settle shapes (`relay_settle_shape`). */

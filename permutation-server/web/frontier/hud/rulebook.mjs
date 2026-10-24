@@ -21,6 +21,7 @@
 //   COUNTER_BPS                             permutation-rules/src/combat.rs  COUNTER
 //   settled                                 holding.rs  Holding::settle / apply; proc/holding.rs settle_tiered
 import { BUILD_ITEMS, QUEUE_KIND, BASE_PROD, TIER_BONUS_PCT, baseProduction, queueItem, projectedHolding } from '../fland.mjs';
+import { RESOURCE_ORDER } from '../resources.mjs';
 
 const HOUR = 3600;
 export const TIER_MAX = 3;
@@ -118,7 +119,7 @@ export function settled(holding, now) {
 export function copyNumber(h, item) {
   const b = BUILD_ITEMS[item];
   if (!b || !(b.perHour > 0)) return 1;
-  const r = ['Food', 'Wood', 'Stone', 'Ore', 'Horses', 'Gold', 'Science', 'Influence'].indexOf(b.resource);
+  const r = RESOURCE_ORDER.indexOf(b.resource);
   const base = baseProduction(Number(h.tier ?? 0))[r] ?? 0n;
   const have = h.production?.[r] !== undefined ? big(h.production[r]) : base;
   const above = have > base ? have - base : 0n;

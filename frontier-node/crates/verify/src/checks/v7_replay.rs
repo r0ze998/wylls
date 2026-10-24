@@ -1034,7 +1034,7 @@ fn continuity(cx: &mut Ctx) {
 }
 
 /// `holdings_n` of the citizen whose FileOutpost in `tx` names Holding `k`
-/// as its anchor (the instruction's fourth account from the end), from the
+/// as its anchor (the instruction's `anchor_holding`), from the
 /// Citizen's state before the transaction; `None` when no FileOutpost of
 /// the transaction anchors on `k`.
 fn outpost_anchor_holdings(
@@ -1047,16 +1047,16 @@ fn outpost_anchor_holdings(
     let tag = frontier_abi::v2::tags::Ix::FileOutpost.tag();
     tx.ixs
         .iter()
-        .filter(|i| i.tag() == Some(tag) && i.accounts.len() >= 10)
-        .find(|i| i.key(i.accounts.len() - 4).as_ref() == Some(k))
-        .and_then(|i| i.key(3))
+        .filter(|i| i.tag() == Some(tag))
+        .find(|i| i.account("anchor_holding").as_ref() == Some(k))
+        .and_then(|i| i.account("citizen"))
         .and_then(|c| w.state_before(&c, t).map(|d| d.to_vec()))
         .filter(|d| d.len() == C::SIZE)
         .map(|d| d[C::HOLDINGS_N])
 }
 
-/// The stake DeclareSiege in `tx` pays from Holding `k` (its fifth
-/// account), as a cost: `siege_stake_gold` in gold, and in an S1 season
+/// The stake DeclareSiege in `tx` pays from Holding `k` (its
+/// `src_holding`), as a cost: `siege_stake_gold` in gold, and in an S1 season
 /// the siege's arms (`arms::siege_cost`, stage 1e: burned); `None` when no
 /// DeclareSiege of the transaction names `k` as its source.
 fn siege_source_stake(f: &Facts, tx: &crate::world::Tx, k: &[u8; 32]) -> Option<[i64; RESOURCES]> {
@@ -1065,7 +1065,7 @@ fn siege_source_stake(f: &Facts, tx: &crate::world::Tx, k: &[u8; 32]) -> Option<
     tx.ixs
         .iter()
         .filter(|i| i.tag() == Some(tag))
-        .find(|i| i.key(4).as_ref() == Some(k))?;
+        .find(|i| i.account("src_holding").as_ref() == Some(k))?;
     let s1 = f
         .params
         .as_ref()
@@ -1096,7 +1096,7 @@ fn caravan_holding_write(
     use frontier_abi::v2::tags::Ix as V2;
     for ix in &tx.ixs {
         let tag = ix.tag();
-        if tag == Some(V2::BuildVault.tag()) && ix.key(4).as_ref() == Some(k) {
+        if tag == Some(V2::BuildVault.tag()) && ix.account("holding").as_ref() == Some(k) {
             return Some((
                 "a BuildVault's holding (the touch and the vault's cost)",
                 crate::holding::touched_paid(
@@ -1106,7 +1106,7 @@ fn caravan_holding_write(
                 ),
             ));
         }
-        if tag == Some(V2::BuildStructure.tag()) && ix.key(4).as_ref() == Some(k) {
+        if tag == Some(V2::BuildStructure.tag()) && ix.account("holding").as_ref() == Some(k) {
             return Some((
                 "a BuildStructure's holding (the touch and the structure's cost)",
                 frontier_abi::v2::ix::BuildStructure::decode(&ix.data)
@@ -1120,7 +1120,7 @@ fn caravan_holding_write(
                     }),
             ));
         }
-        if tag == Some(V2::SendCaravan.tag()) && ix.key(4).as_ref() == Some(k) {
+        if tag == Some(V2::SendCaravan.tag()) && ix.account("src").as_ref() == Some(k) {
             let cargo = ix2::SendCaravan::decode(&ix.data)
                 .ok()
                 .and_then(|x| ix2::cargo_milli(&x.cargo));
@@ -1131,8 +1131,8 @@ fn caravan_holding_write(
                     .and_then(|c| crate::holding::touched_paid(before, tx.time, &c)),
             ));
         }
-        if tag == Some(V2::SettleCaravan.tag()) && ix.key(3).as_ref() == Some(k) {
-            let Some(cd) = ix.key(2).and_then(|c| w.state_before(&c, t)) else {
+        if tag == Some(V2::SettleCaravan.tag()) && ix.account("dst").as_ref() == Some(k) {
+            let Some(cd) = ix.account("caravan").and_then(|c| w.state_before(&c, t)) else {
                 return Some((
                     "a SettleCaravan's destination",
                     Err("no state of the Caravan before the settlement".into()),
@@ -1256,9 +1256,9 @@ fn owner_actions(cx: &mut Ctx) {
             let (p, q, site) = r.pqs();
             let hk = f.ctx.holding(p, q, site);
             // The Holding an instruction acts on: its fifth account, or a
-            // FileOutpost's anchor (the fourth from its end).
+            // FileOutpost's `anchor_holding`.
             let acted = if ix.tag() == Some(outpost) {
-                ix.key(ix.accounts.len().saturating_sub(4))
+                ix.account("anchor_holding")
             } else {
                 ix.key(4)
             };
