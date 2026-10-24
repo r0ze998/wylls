@@ -1043,6 +1043,12 @@ p.fact-chips { display: flex; flex-wrap: wrap; gap: var(--s1); margin: var(--s2)
 .doc-head { display: flex; align-items: flex-start; gap: var(--s3); margin: 0 0 var(--s3); padding-bottom: var(--s2); border-bottom: 3px double rgba(60,48,20,.4); }
 .doc-titles { flex: 1 1 auto; min-width: 0; display: grid; gap: 2px; }
 .doc-head h3 { margin: 0; font: 700 var(--t4)/1.25 var(--display); letter-spacing: .03em; }
+/* the kind of paper small above the place it is about */
+.doc-head h3 .doc-kicker { display: block; margin-bottom: 2px; font: 700 var(--t1)/1.3 var(--ui); letter-spacing: .14em; color: var(--ink-stamp); }
+.doc-head h3 .doc-place { display: block; text-wrap: balance; }
+/* (in the phone's sheet the drawer's head already says 衝突の報告: the kicker stays for a reader, not for the eye) */
+@media (max-width: 759px) { .panel .doc-head h3 .doc-kicker { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; } }
+.report-x { display: inline-flex; align-items: center; gap: 4px; }
 .doc-head .chip { margin-top: 5px; }
 .doc-cols { display: grid; gap: var(--s4); }
 .doc-col { min-width: 0; }

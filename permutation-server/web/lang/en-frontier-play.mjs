@@ -564,6 +564,7 @@ export default {
   '退くのも兵法のうちだ。兵は残った。': 'Falling back is part of the art of war. The troops live.',
   '痛い負けだ。だが辺境は広い。立て直そう。': 'A hard loss. But the frontier is wide: we rebuild.',
   '結末はまだ分からぬ。確かめてから語ろう。': 'The outcome is not known yet. Let us check it first.',
+  'たどり着いた。この地を守り抜こう。': 'We made it. Now we hold this ground.',
   'この地はわれらのものだ。': 'This ground is ours.',
   // ---- joining is choosing a faction; the first holding's site ticket is filed automatically (owner decision V2)
   '国を選ぶ': 'Choose a nation',
