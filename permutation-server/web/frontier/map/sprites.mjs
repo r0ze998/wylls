@@ -847,7 +847,15 @@ export class SpriteArt {
       const ore = (t.name === 'hills' ? 2 : t.name === 'mountain' ? 3 : 0) + (t.res === 2 ? 4 : 0);
       if (ore) { out.push({ x: t.x, y: t.y, ore }); total += ore; }
     }
-    return { tiles: out, total: Math.min(ORE_TERRAIN_MAX, total), capped: total > ORE_TERRAIN_MAX };
+    // (hills and mountains as near but in the next province, which the rule does not count: said by the lens, so the
+    // land in sight does not seem to contradict it: the design review of 2026-10-24)
+    let across = 0;
+    for (let dq = -ORE_RADIUS; dq <= ORE_RADIUS; dq++) for (let dr = -ORE_RADIUS; dr <= ORE_RADIUS; dr++) {
+      if (Math.abs(dq + dr) > ORE_RADIUS || (!dq && !dr)) continue;
+      const t = m.byHex?.get(keyOf(home.q + dq, home.r + dr));
+      if (t && (t.p !== p || t.pq !== q) && (t.name === 'hills' || t.name === 'mountain')) across++;
+    }
+    return { tiles: out, total: Math.min(ORE_TERRAIN_MAX, total), capped: total > ORE_TERRAIN_MAX, across };
   }
 
   model(entries, { demoRoads = false, relics = [], waystones = [], demoSpecials = false, rivers = [], demoRivers = false, ringsOpen = null, alliedPairs = [], stamp = undefined, survey = null }) {
@@ -1063,7 +1071,7 @@ export class SpriteArt {
     const opening = this.opening && openFrame < OPEN_GLOW.length ? this.opening.ring : null;
     const k = RADIUS / s.r;
     const { tiles, byHex, byId, byProv, washSig } = this.model(entries, { demoRoads, relics, waystones, demoSpecials, rivers, demoRivers, ringsOpen, alliedPairs, stamp, survey });
-    this.lastModel = { byId, byProv };
+    this.lastModel = { byId, byProv, byHex };
     const nameAt = (q, r) => byHex.get(keyOf(q, r))?.name ?? terrainAt(q, r);
     // the survey of this frame: a province's kind and signature, and what of a tile is painted
     const svOf = (e) => (survey && e.fog !== 'unopened' ? survey.province(e.p, e.q) : null);

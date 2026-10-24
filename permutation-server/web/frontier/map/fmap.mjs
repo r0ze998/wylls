@@ -3016,7 +3016,9 @@ export class FrontierMap {
           for (const o of ore.tiles) paintTag(ctx, o.x, o.y, L`鉱石 +${fmtNum(o.ore)}`, { zoom: z, place: 'above', gap: 2, size: 11, anchor: o });
           const h = tileHex(s.p, s.q, s.idx), v = project(h.q, h.r);
           // (a village with no hill or mountain near it makes only the base ore: said, since that is why it trades for ore)
-          const say = !ore.tiles.length ? L`同じ州の 2 マス以内に丘も山もありません（地形の鉱石なし）`
+          // (hills and mountains in sight but across the province's edge do not count: then it says so, in place of the
+          // longer sentence, so the land in sight does not seem to contradict it)
+          const say = !ore.tiles.length ? (ore.across ? L`地形の鉱石なし（となりの州の丘と山は数えません）` : L`同じ州の 2 マス以内に丘も山もありません（地形の鉱石なし）`)
             : ore.capped ? L`まわりの丘と山から 鉱石 +${fmtNum(ore.total)}/時（上限）` : L`まわりの丘と山から 鉱石 +${fmtNum(ore.total)}/時`;
           paintTag(ctx, v.x, v.y + RADIUS * 0.9, say, { zoom: z, place: 'below', size: 11.5, anchor: v });
         }

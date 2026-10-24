@@ -1104,6 +1104,7 @@ export default {
   'いまは出せません': 'Not yet available',
   '鉱石 +{0}': 'Ore +{0}',
   '同じ州の 2 マス以内に丘も山もありません（地形の鉱石なし）': 'No hills or mountains within 2 tiles in this province (no ore from the land)',
+  '地形の鉱石なし（となりの州の丘と山は数えません）': 'No ore from the land (hills and mountains in the next province do not count)',
   'まわりの丘と山から 鉱石 +{0}/時': 'Ore +{0}/h from the hills and mountains around',
   'まわりの丘と山から 鉱石 +{0}/時（上限）': 'Ore +{0}/h from the hills and mountains around (the most it can be)', '行き先の州の記録がそろうと出ます': 'Shown once the destination province\'s records are in',
   '予測と確定': 'Forecast and result', '出発時': 'at departure','確かめると出ます': 'shown once checked', '予測の幅の外': 'outside the forecast',

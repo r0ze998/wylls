@@ -2524,6 +2524,9 @@ if (globalThis.document) globalThis.__wyllsHud = { noGo: () => noGoRects() };
 function showTip(hit, at) {
   const tip = $('map-tip');
   if (!tip) return;
+  // (mouse only, as said: a touch screen's tap also "hovers", and the tip then stood over the village and the lens's
+  // words beside the open card that says the same: the design review of 2026-10-24)
+  if (globalThis.matchMedia?.('(hover: none)')?.matches) { tip.hidden = true; return; }
   const acts = hit && Number.isInteger(hit.idx) ? mapRef?.art?.activities?.get(`${hit.p},${hit.q},${hit.idx}`) : null;
   const t = acts || hit ? mapRef?.art?.tiles?.find(u => u.p === hit?.p && u.pq === hit?.q && u.idx === hit?.idx) : null;
   const owner = t && t.state === 1 && t.site !== undefined ? rosterRef?.ownerOf(hit.p, hit.q, t.site) : null;
