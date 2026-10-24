@@ -88,13 +88,16 @@ function villageModel(FS, sub) {
   const cheapest = shortOf(trainCost(0, 100, FS.season?.programVersion), m.have);
   const musterBlock = m.blocks.Muster.includes('NotFinal') ? 'NotFinal' : !reserve.some(r => r.troops >= HOST_TROOPS.min) ? 'NoReserve' : m.blocks.Muster[0] ?? null;
   const promo = m.promotion;
+  // (each figure says what it counts: 「25:00」 beside three rings, 「控え 400」, 「400」 and 「都市へ」 were read as codes:
+  // the design review of 2026-10-24. The time is what is left; the reserve is people; a host takes up to that many; a
+  // promotion the stores cannot pay says how many goods are short)
   const buttons = [
     { id: 'build', icon: 'hammer', word: L`建てる`, act: 'hand-pop', data: { pop: 'build' },
-      figure: m.queue.length ? took(running.doneIn) : L`空き ${fmtNum(m.slots)}`, rings: m.queue.length ? Array.from({ length: m.slots }, (_, i) => (m.queue[i] ? { share: m.queue[i].share ?? 0, on: true } : { share: 0, on: false })) : null,
+      figure: m.queue.length ? L`あと ${took(running.doneIn)}` : L`空き ${fmtNum(m.slots)}`, rings: m.queue.length ? Array.from({ length: m.slots }, (_, i) => (m.queue[i] ? { share: m.queue[i].share ?? 0, on: true } : { share: 0, on: false })) : null,
       tone: m.queue.length >= m.slots ? 'warn' : '', hint: m.queue.length >= m.slots ? whyText('QueueFull', { tier, freeIn }) : L`建設中 ${fmtNum(m.queue.length)}/${fmtNum(m.slots)}` },
-    { id: 'train', icon: 'helmet', word: L`訓練`, act: 'hand-pop', data: { pop: 'train' }, figure: L`控え ${fmtNum(musterable)}`,
+    { id: 'train', icon: 'helmet', word: L`訓練`, act: 'hand-pop', data: { pop: 'train' }, figure: L`控え ${fmtNum(musterable)}人`,
       tone: cheapest.length ? 'warn' : '', hint: cheapest.length ? shortWords(cheapest) : L`訓練はすぐに終わり、兵は控えに入ります` },
-    { id: 'muster', icon: 'ranks', word: L`編成`, act: 'hand-pop', data: { pop: 'muster' }, figure: fmtNum(musterable),
+    { id: 'muster', icon: 'ranks', word: L`編成`, act: 'hand-pop', data: { pop: 'muster' }, figure: L`最大 ${fmtNum(musterable)}人`,
       why: musterBlock ? (musterBlock === 'NotFinal' ? whyText('NotFinal') : whyText(musterBlock)) : null, hint: L`控えの兵を軍勢にして、州のマスに集めます` },
     { id: 'harvest', icon: 'grain', word: L`収穫`, act: 'harvest', data: {},
       // (nothing has grown since the last settling — any order settles the stores —: the figure says what an hour brings, not a dead "+0")
@@ -102,13 +105,15 @@ function villageModel(FS, sub) {
       why: m.blocks.Harvest.length ? whyText(m.blocks.Harvest[0]) : null,
       hint: hv.full.length ? L`${hv.full.map(r => RESOURCES[r]).join(' / ')}が満杯：これ以上は増えません。使いましょう` : harvestHint(hv) },
     promo ? { id: 'promote', icon: 'tierup', word: L`昇格`, act: 'hand-pop', data: { pop: 'promote' },
-      figure: promo.running ? L`あと ${took(promo.doneIn)}` : L`${TIERS[promo.to]}へ`, tone: promo.running ? 'busy' : promo.blocks.length ? 'warn' : '',
+      figure: promo.running ? L`あと ${took(promo.doneIn)}` : promo.short.length ? L`足りない ${fmtNum(promo.short.length)}` : L`${TIERS[promo.to]}へ`, tone: promo.running ? 'busy' : promo.blocks.length ? 'warn' : '',
       hint: promo.running ? L`${TIERS[promo.to]}へ昇格中` : promo.short.length ? shortWords(promo.short) : L`${TIERS[promo.to]}へ：${costWords(promo.cost)}` }
       : { id: 'promote', icon: 'tierup', word: L`昇格`, act: 'hand-pop', data: { pop: 'promote' }, figure: '', why: whyText('TopTier') },
   ];
   const name = holdingName(sub.holding);
+  // (the rank under the name, unless the name says it already: 「ラマールの町」 over 「町」)
+  const rank = TIERS[tier] ?? '', said = !!rank && String(name).toLowerCase().includes(String(rank).toLowerCase());
   return { kind: 'village', key: `v:${sub.holding.p},${sub.holding.q},${sub.holding.site}`, name, label: L`${name}の行動`, icon: 'home',
-    sub: provisional ? L`仮の村` : TIERS[tier] ?? '', note: provisional ? provisionalNote(FS, sub.holding) : null,
+    sub: provisional ? L`仮の村` : said ? '' : rank, note: provisional ? provisionalNote(FS, sub.holding) : null,
     chips: sub.hosts.map(r => hostChip(FS, r)), buttons, m, hv, reserve, musterable, promo, tier, provisional };
 }
 /** The 収穫 button's words: what has grown, and that the strip already counts it (the instruction settles; it gives nothing more). */
@@ -215,7 +220,7 @@ const chipHtml = c => html`<button type="button" class="hand-chip${c.ready ? ' r
 export function renderHand(model) {
   if (!model) return '';
   const head = model.kind === 'village'
-    ? html`<span class="hand-medal">${icon('home')}</span><span class="hand-who"><strong class="hand-name">${model.name}</strong><span class="hand-sub">${model.sub}</span></span>`
+    ? html`<span class="hand-medal">${icon('home')}</span><span class="hand-who"><strong class="hand-name">${model.name}</strong>${model.sub ? html`<span class="hand-sub">${model.sub}</span>` : ''}</span>`
     : html`<span class="hand-medal hand-unit">${unitPic(model.faction, model.unit, 32)}</span><span class="hand-who"><strong class="hand-name">${model.name}</strong><span class="hand-sub tone-${model.tone ?? ''}">${model.sub}</span></span>`;
   return html`<div class="hand-head">${head}
       ${model.kind === 'host' && model.villageHere ? html`<button type="button" class="hand-chip hand-back" data-act="hand-host" data-host="" aria-label="${L`${model.villageHere}を選ぶ`}">${icon('home')}<span>${model.villageHere}</span></button>` : ''}
