@@ -62,6 +62,19 @@ node uplift-perf.mjs --tree <変更前のチェックアウト>
 node uplift-perf.mjs --tree ../..
 ```
 
+### 4b. 状態ごとの確認と、生きた世界での前後比較
+
+```sh
+cd permutation-gateway/screens
+node uplift-states.mjs                    # 命令の札と報告を 10 の状態で（キーボード、動きを減らす、規則モジュールなし、中継の故障、英語 360、横向き、色なし、報告 2 つ、行き先の変更）
+node uplift-shots.mjs --tree ../.. --out ../../.local/shots/land --vp land    # スマホを横に（844 × 390）
+# 動いている世界（herald のポート H）に、変更前と変更後のクライアントを並べる
+node uplift-proxy.mjs <変更前のチェックアウト>/permutation-server/web 41396 H &
+node uplift-proxy.mjs ../../permutation-server/web 41395 H &
+node uplift-perf-live.mjs 3 "before=http://127.0.0.1:41396/frontier/frontier/spectate.html?intro=0&probe=2&at=1,0,30,0.9" \
+                            "after=http://127.0.0.1:41395/frontier/frontier/spectate.html?intro=0&probe=2&at=1,0,30,0.9"
+```
+
 同じ固定の時計、同じ乱数、同じ場面で撮る。`s09-s1sample` は S1 の情報の **見本** を差し込んだ場面（フィクスチャは S1 の情報を配らない）。
 
 ## ファイル
