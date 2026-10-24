@@ -1099,6 +1099,8 @@ export default {
   'ルールで {0} 回試した幅': 'Range over {0} tries with the rules',
   '構えを比べる': 'Compare stances',
   '構えを比べる（予測）': 'Compare stances (forecast)',
+  '出しません': 'None given',
+  '見えていない土地です（ほかの軍勢がいるかわかりません）': 'Land out of sight (other hosts may be there)',
   '構えごとに、ルールで試した見込み': 'What the rules\' tries give for each stance',
   '{0}回中{1}回': '{1} of {0} tries',
   'この相手には、構えを変えても結果の幅は同じです。': 'Against these defenders every stance gives the same range.',

@@ -2005,6 +2005,13 @@ function updateForecast() {
   const key = forecastKey(c);
   if (!key || !c.route || c.sending) return;
   if (c.forecast?.key === key || fcBusy === key) return;
+  // (a destination out of sight: no forecast. It would be worked out from the province's whole record, the hosts the
+  // viewer cannot see among them, and its numbers would tell of them: a fort's tile out of sight said only "守り N"
+  // while the forecast counted N and every host on it. The independent audit of 2026-10-24, older than the uplift,
+  // which had made it easier to see. Same reading of sight as the card's: hud/marchcard.mjs)
+  if (FS.survey && !FS.survey.showAll && FS.survey.levelOf(c.dest.p, c.dest.q, c.dest.tile) < 3) {
+    c.forecast = { key, ok: false, why: 'OutOfSight' }; c.compare = null; invalidate('panel'); return;
+  }
   fcBusy = key;
   c.forecast = { key, pending: true };
   invalidate('panel');

@@ -147,6 +147,7 @@ export function outlook({ w, awayLine, stam, nowB, def, odds, fc, sight }) {
   // (a forecast of a march nobody opposes says only that the host arrives whole: no cell for it)
   const fcCell = !def?.total ? '' : fc?.pending ? cell(html`<span class="state-tag state-forecast">${L`予測`}</span>`, L`計算中…`, '', 'mo-fc')
     : fc?.ok ? cell(html`<span class="state-tag state-forecast">${L`予測`}</span>`, L`残る兵 ${leftText(fc)}`, L`ルールで ${fmtNum(fc.runs)} 回試した幅`, 'mo-fc')
+    : fc?.why === 'OutOfSight' ? cell(html`<span class="state-tag state-forecast">${L`予測`}</span>`, L`出しません`, L`見えていない土地です（ほかの軍勢がいるかわかりません）`, 'mo-fc')
     : fc ? cell(html`<span class="state-tag state-forecast">${L`予測`}</span>`, L`いまは出せません`, L`行き先の州の記録がそろうと出ます`, 'mo-fc') : '';
   return html`<div class="mc-outlook" role="group" aria-label="${L`この命令の見通し`}">
     ${w ? cell(L`到着`, L`ターン ${fmtNum(w.value)}`, awayLine) : ''}

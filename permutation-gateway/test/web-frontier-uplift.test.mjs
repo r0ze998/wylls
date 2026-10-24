@@ -5,6 +5,7 @@
 //  - the stage-1 things painted in the villages' hand (and quiet on a context that cannot paint them); a cart's load.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { setLang } from '../../permutation-server/web/lang.mjs';
 import { outlook, stanceCompare } from '../../permutation-server/web/frontier/hud/marchcard.mjs';
 import { compareKey, forecastKey } from '../../permutation-server/web/frontier/hud/forecast.mjs';
@@ -63,6 +64,16 @@ test('the card shows a forecast only for the order as it stands; a stale one is 
   assert.equal(compareNow({ ...c, compare: cmp, forecast: { key: 'other', pending: true } }), cmp, 'a stance change (its forecast being made) keeps the table');
   assert.equal(compareNow({ ...c, stance: 3, compare: cmp }), cmp, 'the table is for every stance');
   assert.equal(compareNow({ ...c, dest: { p: 1, q: 1, tile: 9 }, compare: cmp }), null, 'never the last destination\'s');
+});
+
+test('a destination out of sight: the outlook gives no forecast and says why, never a number', () => {
+  setLang('ja');
+  // a keep out of sight: its recorded defenders are known (def), the rest of the tile is not
+  const out = text(outlook({ w: { value: 45 }, awayLine: '', stam: 112, nowB: 42, def: { total: 300 }, odds: { text: '互角' }, fc: { key: 'k', ok: false, why: 'OutOfSight' }, sight: 2 }));
+  assert.match(out, /予測 出しません 見えていない土地です/);
+  assert.doesNotMatch(out, /残る兵/);
+  const src = readFileSync(new URL('../../permutation-server/web/frontier/app.mjs', import.meta.url), 'utf8');
+  assert.match(src, /levelOf\(c\.dest\.p, c\.dest\.q, c\.dest\.tile\) < 3\) \{\s*c\.forecast = \{ key, ok: false, why: 'OutOfSight' \}; c\.compare = null;/, 'the page makes no forecast for a destination out of sight');
 });
 
 test('the comparison key leaves the stance out, the forecast key does not', () => {
@@ -127,7 +138,6 @@ test('worked land: 1 + tier fields for every village, the viewer\'s own building
 });
 
 test('the lens\'s ore numbers are arms.rs\'s (ORE_RADIUS, the per-tile amounts, the cap)', async () => {
-  const { readFileSync } = await import('node:fs');
   const rs = readFileSync(new URL('../../permutation-rules/src/frontier/arms.rs', import.meta.url), 'utf8');
   const c = n => Number(rs.match(new RegExp(`pub const ${n}: [^=]+= ([^;]+);`))?.[1]);
   const S = await import('../../permutation-server/web/frontier/map/sprites.mjs');
