@@ -51,6 +51,34 @@ export const FRONTIER_DEFAULTS = Object.freeze({
   minPayerLamports: 50_000_000,
   /** Allow a pool below 150 keys (tests, dev stacks). */
   dev: false,
+  /** The agent wallet (docs/agent-wallet/DESIGN.md): off unless --agent-wallet; localnet test USDC (the prize mint) only. */
+  agentWallet: false,
+  /** The test custody account's keypair (created on first use, mode 0600) and the agents' key files. */
+  agentCustodyKeyFile: path.join(FRONTIER_DIR, 'agent-custody.json'),
+  agentKeysDir: path.join(FRONTIER_DIR, 'agent-keys'),
+  /** The ledger's own state file; null: `agent-wallet.json` next to --state-file. */
+  agentStateFile: null,
+  /** Fixed test price of one model call (base units of the 6-decimal test mint: 10,000 = 0.01). TEST VALUE. */
+  agentInferencePrice: 10_000,
+  /** A JSON file `{actionName: baseUnits}` of USDC prices for game actions; none: every action stays free or resource-paid. */
+  agentGamePricesFile: null,
+  /** How often sent holds and withdrawals are reconciled with the chain (ms). */
+  agentReconcileMs: 15_000,
+  /** The in-process runner for agents in auto mode: off unless --agent-runner; the rule autopilot, or a loopback llama-server. */
+  agentRunner: false,
+  agentTickMs: 30_000,
+  agentLlmUrl: null,
+  /** The model name the runner asks the server for and records with each charge (a single-model llama-server answers with whatever it loaded: set this to what was loaded). */
+  agentLlmAlias: 'gemma-4-26b-a4b-it',
+  /** Opt-in: one schema branch per action with required fields and ranges (DESIGN.md §7.2). Off: the measured runs' schema. */
+  agentLlmStrictSchema: false,
+  /** PROPOSED test values (DESIGN.md §7.1), not production ones: the least time between two model calls of one agent, and the operator's cap on calls a day. */
+  agentMinCallGapMs: 60_000,
+  /** PROPOSED test value: a burst of owner commands is answered once per this gap. */
+  agentOwnerCallGapMs: 10_000,
+  agentMaxCallsPerDay: 200,
+  /** The proposed deadline rule for unresolved model calls (DESIGN.md §6.5): null keeps them for the operator's decision. Off until the owner approves it. */
+  agentUnresolvedReleaseMs: null,
 });
 
 /** Whether an M1 service may bind `port` (§10.3); the reason if not. */
@@ -64,12 +92,17 @@ export function portProblem(port, what = 'port') {
 
 const LOOPBACK = new Set(['127.0.0.1', '::1', 'localhost']);
 
+/** Flags that take no value. */
+const BOOLEAN_FLAGS = Object.freeze({ dev: 'dev', 'agent-wallet': 'agentWallet', 'agent-runner': 'agentRunner', 'agent-llm-strict-schema': 'agentLlmStrictSchema' });
+
 /**
  * The relay's configuration from flags (`--rpc URL --program ID --season N
  * --port P --public-port Q --herald-peer A --keeper URL --keeper-token-file F
  * --pool-size N --master-seed-file F --gate-key-file F --invite-secret-file F
- * --state-file F --min-pool-sol X --dev`) over FRONTIER_* environment
- * variables over the defaults. Throws on a bad value.
+ * --state-file F --min-pool-sol X --dev --agent-wallet --agent-custody-key-file F
+ * --agent-keys-dir D --agent-state-file F --agent-inference-price N --agent-game-prices-file F
+ * --agent-reconcile-ms N --agent-runner --agent-tick-ms N --agent-llm URL`) over FRONTIER_*
+ * environment variables over the defaults. Throws on a bad value.
  */
 export function loadFrontierConfig(argv = [], env = {}) {
   const flags = {};
@@ -77,7 +110,7 @@ export function loadFrontierConfig(argv = [], env = {}) {
     const a = argv[i];
     if (!a.startsWith('--')) throw new Error(`unexpected argument ${a}`);
     const name = a.slice(2);
-    if (name === 'dev') { flags.dev = true; continue; }
+    if (BOOLEAN_FLAGS[name]) { flags[BOOLEAN_FLAGS[name]] = true; continue; }
     if (i + 1 >= argv.length) throw new Error(`${a} needs a value`);
     flags[name] = argv[++i];
   }
@@ -113,6 +146,22 @@ export function loadFrontierConfig(argv = [], env = {}) {
     minPoolSol: Number(pick('min-pool-sol', 'FRONTIER_MIN_POOL_SOL', d.minPoolSol)),
     minPayerLamports: int(pick('min-payer-lamports', 'FRONTIER_MIN_PAYER_LAMPORTS', d.minPayerLamports), '--min-payer-lamports'),
     dev: !!(flags.dev ?? (env.FRONTIER_DEV === '1' || d.dev)),
+    agentWallet: !!(flags.agentWallet ?? (env.FRONTIER_AGENT_WALLET === '1' || d.agentWallet)),
+    agentCustodyKeyFile: pick('agent-custody-key-file', 'FRONTIER_AGENT_CUSTODY_KEY_FILE', d.agentCustodyKeyFile),
+    agentKeysDir: pick('agent-keys-dir', 'FRONTIER_AGENT_KEYS_DIR', d.agentKeysDir),
+    agentStateFile: pick('agent-state-file', 'FRONTIER_AGENT_STATE_FILE', d.agentStateFile),
+    agentInferencePrice: int(pick('agent-inference-price', 'FRONTIER_AGENT_INFERENCE_PRICE', d.agentInferencePrice), '--agent-inference-price'),
+    agentGamePricesFile: pick('agent-game-prices-file', 'FRONTIER_AGENT_GAME_PRICES_FILE', d.agentGamePricesFile),
+    agentReconcileMs: int(pick('agent-reconcile-ms', 'FRONTIER_AGENT_RECONCILE_MS', d.agentReconcileMs), '--agent-reconcile-ms'),
+    agentRunner: !!(flags.agentRunner ?? (env.FRONTIER_AGENT_RUNNER === '1' || d.agentRunner)),
+    agentTickMs: int(pick('agent-tick-ms', 'FRONTIER_AGENT_TICK_MS', d.agentTickMs), '--agent-tick-ms'),
+    agentLlmUrl: pick('agent-llm', 'FRONTIER_AGENT_LLM_URL', d.agentLlmUrl),
+    agentLlmAlias: pick('agent-llm-alias', 'FRONTIER_AGENT_LLM_ALIAS', d.agentLlmAlias),
+    agentLlmStrictSchema: !!(flags.agentLlmStrictSchema ?? (env.FRONTIER_AGENT_LLM_STRICT_SCHEMA === '1' || d.agentLlmStrictSchema)),
+    agentMinCallGapMs: int(pick('agent-min-call-gap-ms', 'FRONTIER_AGENT_MIN_CALL_GAP_MS', d.agentMinCallGapMs), '--agent-min-call-gap-ms'),
+    agentOwnerCallGapMs: int(pick('agent-owner-call-gap-ms', 'FRONTIER_AGENT_OWNER_CALL_GAP_MS', d.agentOwnerCallGapMs), '--agent-owner-call-gap-ms'),
+    agentMaxCallsPerDay: int(pick('agent-max-calls-per-day', 'FRONTIER_AGENT_MAX_CALLS_PER_DAY', d.agentMaxCallsPerDay), '--agent-max-calls-per-day'),
+    agentUnresolvedReleaseMs: (v => (v === null || v === undefined || v === '' ? null : int(v, '--agent-unresolved-release-ms')))(pick('agent-unresolved-release-ms', 'FRONTIER_AGENT_UNRESOLVED_RELEASE_MS', d.agentUnresolvedReleaseMs)),
     operatorToken: env.FRONTIER_OPERATOR_TOKEN ?? null,
   };
   const bad = checkFrontierConfig(cfg);
@@ -138,6 +187,21 @@ export function checkFrontierConfig(cfg) {
   if (!!cfg.prizeProgram !== !!cfg.prizeMint) out.push('--prize-program and --prize-mint go together');
   if (cfg.faucetKeyFile && cfg.cluster !== 'localnet') out.push('--faucet-key-file: the test-token faucet exists on localnet only');
   if (!(cfg.minPoolSol >= 0)) out.push('--min-pool-sol must be ≥ 0');
+  if (cfg.agentWallet) {
+    // Test custody only: the prize mint is the local test USDC; no live cluster, no live money.
+    if (!cfg.prizeMint) out.push('--agent-wallet needs --prize-mint (the local test USDC mint)');
+    if (cfg.cluster !== 'localnet') out.push('--agent-wallet: the test custody exists on localnet only');
+    if (cfg.agentReconcileMs < 1_000) out.push('--agent-reconcile-ms must be at least 1000');
+  }
+  if (cfg.agentRunner) {
+    if (!cfg.agentWallet) out.push('--agent-runner needs --agent-wallet');
+    if (cfg.agentTickMs < 1_000) out.push('--agent-tick-ms must be at least 1000');
+  }
+  if (cfg.agentLlmUrl) {
+    let host = null;
+    try { host = new URL(cfg.agentLlmUrl).hostname; } catch { host = null; }
+    if (!host || !LOOPBACK.has(host)) out.push(`--agent-llm ${cfg.agentLlmUrl}: a local model server on loopback only`);
+  }
   return out;
 }
 

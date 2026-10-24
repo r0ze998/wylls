@@ -28,20 +28,23 @@ import { QuotaBook } from './quota.mjs';
 import { keeperRoutes } from './routes/keeper.mjs';
 import { operatorRoutes } from './routes/operator.mjs';
 import { prizeRoutes } from './routes/prize.mjs';
+import { agentRoutes } from './routes/agent.mjs';
 import { relayRoutes } from './routes/relay.mjs';
 import { seasonRoutes } from './routes/season.mjs';
 
-export const FRONTIER_ROUTES = Object.freeze({ ...seasonRoutes, ...relayRoutes, ...keeperRoutes, ...operatorRoutes, ...prizeRoutes });
+export const FRONTIER_ROUTES = Object.freeze({ ...seasonRoutes, ...relayRoutes, ...keeperRoutes, ...operatorRoutes, ...prizeRoutes, ...agentRoutes });
 
 /** What the public listener serves ('GET /f/tx/' is a prefix: /f/tx/{signature}). */
 export const FRONTIER_PUBLIC_ROUTES = Object.freeze([
   'GET /f/season', 'GET /f/relay', 'GET /f/quota', 'GET /f/tx/',
   'POST /f/relay', 'POST /f/join', 'POST /f/reveal', 'POST /f/nudge',
   'GET /f/prize', 'GET /f/prize/ledger', 'POST /f/faucet', 'POST /f/x402/join', 'POST /f/prize/claim',
+  // The agent wallet (404 AgentWalletDisabled unless --agent-wallet); the operator's reconcile is not public.
+  'GET /f/agent', 'GET /f/agent/terms', 'GET /f/agent/session-terms', 'GET /f/agent/by-owner', 'POST /f/agent/command', 'POST /f/agent/deposit', 'POST /f/agent/action',
 ]);
 
 /** Routes that make the relay pool pay: paused (503 OperatorLowFunds) while the pool is below its minimum. */
-export const FRONTIER_FUNDED_ROUTES = Object.freeze(['POST /f/relay', 'POST /f/join', 'POST /f/x402/join', 'POST /f/faucet', 'POST /f/prize/claim']);
+export const FRONTIER_FUNDED_ROUTES = Object.freeze(['POST /f/relay', 'POST /f/join', 'POST /f/x402/join', 'POST /f/faucet', 'POST /f/prize/claim', 'POST /f/agent/command', 'POST /f/agent/action', 'POST /f/agent/deposit']);
 
 /** Per client address on the public listener (burst, then a steady rate; §8.3). */
 export const FRONTIER_IP_LIMITS = Object.freeze({
@@ -58,6 +61,13 @@ export const FRONTIER_IP_LIMITS = Object.freeze({
   'POST /f/faucet': { burst: 5, perSecond: 0.1 },
   'POST /f/x402/join': { burst: 10, perSecond: 0.2 },
   'POST /f/prize/claim': { burst: 5, perSecond: 0.2 },
+  'POST /f/agent/command': { burst: 20, perSecond: 0.5 },
+  'POST /f/agent/deposit': { burst: 10, perSecond: 0.2 },
+  'POST /f/agent/action': { burst: 40, perSecond: 2 },
+  'GET /f/agent': { burst: 40, perSecond: 3 },
+  'GET /f/agent/terms': { burst: 20, perSecond: 2 },
+  'GET /f/agent/session-terms': { burst: 20, perSecond: 2 },
+  'GET /f/agent/by-owner': { burst: 20, perSecond: 2 },
 });
 
 export const FRONTIER_MAX_BODY_BYTES = 64 << 10;

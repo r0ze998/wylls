@@ -174,6 +174,31 @@ test('whose hand: the village on its tile, a host by its chip, a host standing e
   assert.equal(hand.subjectOf({ ...FS, mode: 'spectate', selected: { kind: 'tile', p: 2, q: 0, idx: 30 } }), null, 'a watcher has no hand');
 });
 
+test('the village\'s bar while the owner\'s agent holds the key: the note says so, takes the key back (the page\'s session action) and links the agent page', () => {
+  setLang('ja');
+  const { FS } = world();
+  FS.selected = { kind: 'tile', p: 2, q: 0, idx: 30 };
+  assert.equal(hand.handModel(FS).noteTone ?? null, null, 'not delegated: no note');
+  Object.assign(FS, { sessionProblem: 'SessionMismatch', delegation: { agentId: 'a1', mode: 'auto' } });
+  const m = hand.handModel(FS);
+  assert.equal(m.noteTone, 'agent');
+  const bar = String(hand.renderHand(m));
+  assert.match(bar, /hand-note-agent/);
+  assert.match(bar, /代理人に任せています（自動）/);
+  assert.match(bar, /data-act="session"/);
+  assert.match(bar, /href="agent\.html" data-agent-link/);
+  FS.delegation = { agentId: 'a1', mode: 'manual' };
+  assert.match(String(hand.renderHand(hand.handModel(FS))), /代理人は停止中/);
+  FS.sessionProblem = null;
+  assert.equal(hand.handModel(FS).noteTone ?? null, null, 'the key matches again: no note');
+  setLang('en');
+  FS.sessionProblem = 'SessionMismatch';
+  const en = String(hand.renderHand(hand.handModel(FS)));
+  assert.match(en, /Take the key back/);
+  assert.doesNotMatch(en.replace(/<[^>]*>/g, ''), /[぀-ヿ一-鿿]/, 'no Japanese left in English');
+  setLang('ja');
+});
+
 test('the village\'s bar: five orders, each an icon, a word and one live figure; the reason stands on a button that cannot be pressed', () => {
   setLang('ja');
   const { FS } = world();
