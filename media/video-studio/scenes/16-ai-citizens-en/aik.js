@@ -18,7 +18,7 @@
     if (document.getElementById('aik-css')) return;
     const s = document.createElement('style'); s.id = 'aik-css';
     s.textContent = `
-.aik-t { position:absolute; color:#fffaf0; white-space:nowrap; text-shadow:0 4px 30px rgba(0,0,0,.55); }
+.aik-t { position:absolute; color:#fffaf0; white-space:nowrap; text-shadow:0 3px 14px rgba(0,0,0,.5); }
 .aik-t .ln { display:block; }
 .aik-t .acc { color:#f0d48a; }
 .aik-t .gold { color:#ffd24d; }
@@ -106,8 +106,8 @@
 
   AIK.overlay = (stage, { z = 35 } = {}) => {
     const v = WY.el('div', { class: 'wy-vignette' }, stage); v.style.zIndex = z; v.style.opacity = 0.7;
-    const gr = WY.el('div', { class: 'wy-grain' }, stage); gr.style.zIndex = z + 1;
-    return { render(t) { gr.style.transform = `translate(${(Math.floor(t * 24) * 37) % 200 - 100}px, ${(Math.floor(t * 24) * 53) % 200 - 100}px)`; } };
+    // no animated grain: a full-frame blended layer made every frame several times slower to render on the shared machine
+    return { render() {} };
   };
 
   /** Kinetic text. `str`: lines split by \n; [[x]] = accent, {{x}} = gold, ((x)) = teal, <<x>> = dim. */
@@ -199,7 +199,7 @@
   };
 
   /** clear a 2D canvas and touch it, so the compositor always takes the new (possibly empty) frame */
-  AIK.clear = (g, t = 0) => { g.setTransform(1, 0, 0, 1, 0, 0); g.globalAlpha = 1; g.clearRect(0, 0, g.canvas.width, g.canvas.height); g.fillStyle = `rgba(0,0,0,${0.004 + 0.002 * ((t * 60) % 2)})`; g.fillRect(0, 0, 2, 2); };
+  AIK.clear = (g, t = 0) => { g.setTransform(1, 0, 0, 1, 0, 0); g.globalAlpha = 1; g.clearRect(0, 0, g.canvas.width, g.canvas.height); g.fillStyle = `rgba(0,0,0,${(0.004 + 0.004 * ((t * 7.31) % 1)).toFixed(5)})`; g.fillRect(0, 0, 2, 2); };
 
   window.AIK = AIK;
 })();
