@@ -4,15 +4,22 @@
 
 この手順で確かめないこと：本番の価格や上限、実資金。テスト用 USDC とローカルのテスト用チェーンだけを使う。
 
-> **2026-10-24 追記：どのコミットで実施するか**
->
-> `agent-wallet/integrate` には、2026-10-23 に main（PR #11 の S1）が入りました。その main では、`frontier-stack up --conquest` でシーズンを作れません。プログラムは版 4（S1）のシーズンしか受け付けず、スタックはまだ版 3 の征服シーズンを作るためです。詳しくは `STATUS-2026-10-23.ja.md` §9.12 を見てください。
->
-> main 側でスタックが S1 に対応するまでは、main を取り込む前のコミット **`49941463`** を使ってください。この PR の修正は、すべてこのコミットに入っています。
->
-> ```sh
-> git fetch origin agent-wallet/integrate && git worktree add ../aw-stage5 49941463
-> ```
+## 前提：どの木で行うか（2026-10-24 改訂）
+
+段階 5 は、**最新の S1 と agent wallet を統合した `agent-wallet/integrate` の HEAD** で行う。
+
+- 以前この手順書に書いた旧コミット `49941463`（S1 より前のプログラム）は、比較と再現のためだけに残す。段階 5 の結果としては扱わない。
+- 統合先は main。PR #10 のマージは、段階 5 を含む最新の検証が済むまで保留している。
+
+**始める前に満たしていること（どれか 1 つでも欠けていたら、まだ始めない）**
+
+1. S1 のローカルスタックの修正（`HANDOFF-S1-LOCAL-STACK.ja.md` §4 の 1〜5）が main に入り、`agent-wallet/integrate` に取り込まれている。
+   - 確かめ方：§1 の「S1 のシーズンが立つか」の手順がすべて通る。
+2. agent の runner が S1 の費用を知っている。
+   - 2026-10-24 の時点では、**まだ知らない**。runner がモデルに伝える建設と訓練の費用は、征服シーズン（MC）の表のままで、S1 の「武具（arms）」と「工房」が入っていない。
+   - S1 では、強い兵（パイク兵・クロスボウ兵・騎士）の訓練に武具が要る（`permutation-rules/src/frontier/arms.rs` の `train_v3`）。そのため、モデルが武具の足りない訓練を選ぶと、コードの事前確認は通るのに、チェーンで失敗して判断料だけがかかる。
+   - この修正が入るまでの結果は、厳密スキーマの既定値を決める材料にしない。
+3. `STATUS-2026-10-23.ja.md` に、最新の HEAD での実チェーンと実ブラウザの確認（作成〜出金、手動プレイへの復帰）が記録されている。段階 5 はその上で行う。
 
 ## 0. 守ること
 
@@ -27,12 +34,33 @@
 git fetch origin agent-wallet/integrate
 git worktree add ../aw-stage5 origin/agent-wallet/integrate     # 既存の作業ツリーには触れない
 cd ../aw-stage5
-git log -1 --format=%H                                          # 検証したコミットとして記録する
+git log -1 --format=%H                                          # 検証したコミットとして記録する（49941463 ではないこと）
 scripts/build-frontier.sh --features test-beacon
 scripts/build-prize.sh
 npm ci --prefix permutation-gateway
 (cd frontier-node && cargo build --locked --release --workspace)
 ```
+
+**S1 のシーズンが立つか（最初に 1 回）**：モデルなしで短く立てて、S1 であることを確かめてから片付ける。
+
+```sh
+RUN=stage5-s1check; R=$PWD/frontier-node/.local/frontier/$RUN/relay
+FRONTIER_AGENT_WALLET=1 FRONTIER_AGENT_RUNNER=1 FRONTIER_AGENT_CUSTODY_KEY_FILE=$R/agent-custody.json FRONTIER_AGENT_KEYS_DIR=$R/agent-keys \
+frontier-node/target/release/frontier-stack up --conquest --mode accel --beacon test-key --preseason-scale 2000 --scale 10 \
+  --game-hours 48 --season-end-at-play-end --bots 0 --personas off --prize-so permutation-prize/target/deploy/permutation_prize.so \
+  --entry-fee 25000000 --run-id $RUN --base-port 41600 --season 69 &
+# 「s of setup」が出てから、数分待って：
+curl -s http://127.0.0.1:41640/h/season | grep -o '"rulesetHash":"[0-9a-f]*"'   # 234c0dc2…（RULESET_HASH_V3、S1）であること
+curl -s http://127.0.0.1:41640/h/status/conquest | grep -o '"conquest":[a-z]*'      # true であること
+curl -s http://127.0.0.1:41640/h/status | grep -o '"rings":\[[^]]*\]'              # ring が 5 つ公開されていること
+frontier-node/target/release/frontier-stack down --run-id $RUN
+```
+
+- 起動の途中で `run failed: … {"Custom":1}` と出る：S1 のスタック修正がまだ入っていない（CreateSeason が `BadData`）。
+- `rulesetHash` が `5fbaf678…`（RULESET_HASH_V2、MC）：S1 のプログラムではない。ビルドし直す。
+- ring が公開されない：keeper の読み込み上限が S1 用になっていない（`HANDOFF-S1-LOCAL-STACK.ja.md` §3 の 2）。
+
+どれかに当たったら、段階 5 は始めない。
 
 モデルサーバーを起動する（固定設定：別名 `gemma-4-26b-a4b-it`、41901 番、スロット 1、コンテキスト 16384、thinking off）。
 
@@ -70,7 +98,8 @@ FRONTIER_AGENT_CUSTODY_KEY_FILE=$R/agent-custody.json FRONTIER_AGENT_KEYS_DIR=$R
 frontier-node/target/release/frontier-stack up --conquest --mode accel --beacon test-key --preseason-scale 2000 --scale 10 \
   --game-hours 48 --season-end-at-play-end --bots 0 --personas off --prize-so permutation-prize/target/deploy/permutation_prize.so \
   --entry-fee 25000000 --run-id $RUN --base-port 41600 --season $SEASON &
-# 別のターミナルで（E2E は、シーズンが参加を受け付けるまで最大 5 分待つ）：
+# 別のターミナルで（E2E は、シーズンが参加を受け付けるまで最大 5 分待つ）。まず、このシーズンが S1 であることを記録する：
+mkdir -p .local/stage5/$RUN && curl -s http://127.0.0.1:41640/h/season > .local/stage5/$RUN/season.json
 AGENT_E2E_URL=http://127.0.0.1:41640 AGENT_E2E_RPC=http://127.0.0.1:41610 AGENT_E2E_MODEL=real AGENT_E2E_LLM=http://127.0.0.1:41901 \
 AGENT_E2E_WINDOW_MS=420000 AGENT_E2E_RUN_DIR=$PWD/frontier-node/.local/frontier/$RUN AGENT_E2E_OUT=$PWD/.local/stage5/$RUN \
 node permutation-gateway/scripts/agent-wallet-e2e.mjs
@@ -101,26 +130,29 @@ frontier-node/target/release/frontier-stack down --run-id $RUN
 node permutation-gateway/scripts/agent-stage5-summary.mjs --dir .local/stage5 > .local/stage5/summary.md
 ```
 
+- シーズンの種類（S1／MC／M1）は、各回の `season.json` の `rulesetHash` から読みます。
 - スキーマの種類は、記録から読みます（ベンチの `model.settings.schema`、relay の `terms.runner.schema`）。ディレクトリ名からは判断しません。
 - 読み込んだモデルのファイルも一覧にします。Gemma 4 でなければ、そう書きます。
 - ファイルが欠けている欄は、そのことを表に書きます。
 
-| 回 | スキーマ | E2E のチェック | 呼び出し | 判断料 | モデルが送った行動 | うち finalized を個別確認 | chain で失敗 | コードの拒否 | 休み | autopilot の代行 | 検証器 |
-|---|---|---|---|---|---|---|---|---|---|---|---|
-| off-1 | off | /19 | | | | | | | | | |
-| on-1 | on | /19 | | | | | | | | | |
-| …（6 回） | | | | | | | | | | | |
+| 回 | シーズン | スキーマ | E2E のチェック | 呼び出し | 判断料 | モデルが送った行動 | うち finalized を個別確認 | chain で失敗 | コードの拒否 | 休み | autopilot の代行 | 検証器 |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| off-1 | S1 | off | /19 | | | | | | | | | |
+| on-1 | S1 | on | /19 | | | | | | | | | |
+| …（6 回） | | | | | | | | | | | | |
 
 10 月 17 日の数値（判断 24/30、run 10a〜c）は比較のために並べてよいが、同じ表の行には混ぜない。条件（コミット、スキーマ、tick、間隔）を併記する。
 
 ## 5. 合格の目安と、決めるための判断
 
+- 各回のシーズンが S1 である（`season.json` の `rulesetHash` が `RULESET_HASH_V3`。集計表の「シーズン」欄が S1）。
 - 各回の E2E が 19/19（段階 3 の「委任解除後」の手順を含む）。
 - モデルが送った行動のうち、finalized を個別に確認できた件数を数える（「送信」だけでは数えない）。
 - 検証器が PASS。
+- 「chain で失敗」が出たら、その行動の内容を記録する。武具の足りない訓練なら、前提 2（runner が S1 の費用を知らない）による失敗。
 - 厳密スキーマの既定値は、判断（正解数）・コードの拒否・費用・モデルが送った行動の数を、off と on で比べて決める。判断が下がるなら on にしない。拒否だけが減って判断が変わらないなら on を推奨する。
 
 ## 6. 片付けと共有
 
 - llama-server を止める。`frontier-stack down` を全 run で済ませる。
-- 共有するのは `.local/stage5/` の `transcript.json`、`report.md`／`report.json`、`finalized.json`、`verify.txt` だけ。`frontier-node/.local/frontier/<run>/relay/` と `keys/` は共有しない。
+- 共有するのは `.local/stage5/` の `season.json`、`transcript.json`、`report.md`／`report.json`、`finalized.json`、`verify.txt` だけ。`frontier-node/.local/frontier/<run>/relay/` と `keys/` は共有しない。
