@@ -467,16 +467,22 @@ async function run() {
   const stale = await api('/f/agent/action', { capability, request: request({ modeEpoch: epoch }) });
   assert.equal(stale.body.error?.code, 'AgentStopped');
   const callsAtStop = model.calls;
-  const spendsAtStop = (await agentView(agentId)).history.filter(x => x.type === 'spend').length;
-  const actionsAtStop = (await agentView(agentId)).history.filter(x => x.type === 'action' && x.source === 'ai').length;
+  const atStop = await agentView(agentId);
+  const spendsAtStop = atStop.history.filter(x => x.type === 'spend').length;
+  const actionsAtStop = atStop.history.filter(x => x.type === 'action' && x.source === 'ai').length;
+  // A model call already under way at the stop (a slow real model) keeps its hold and is charged once when its answer
+  // arrives; its decision is not carried out (DESIGN.md §6). Those holds are known now; nothing else may be charged.
+  const inFlight = new Set((atStop.holds ?? []).filter(h => h.category === 'inference').map(h => h.key));
   await sleep(2.5 * terms.body.runner.tickMs);
+  await eventually('the calls under way at the stop settled', async () => ((await agentView(agentId)).holds ?? []).some(h => inFlight.has(h.key)) ? null : true, 90_000);
   const after = await agentView(agentId);
   assert.equal(after.history.filter(x => x.type === 'action' && x.source === 'ai').length, actionsAtStop, 'no new agent action after the stop');
   assert.equal(model.calls, callsAtStop, 'no model call after the stop');
-  assert.equal(after.history.filter(x => x.type === 'spend').length, spendsAtStop, 'no new charge after the stop');
+  const newSpends = after.history.filter(x => x.type === 'spend').slice(spendsAtStop);
+  assert.ok(newSpends.every(x => inFlight.has(x.key)), `no new charge after the stop but a call already under way at it: ${json(newSpends)} (under way: ${json([...inFlight])})`);
   assert.equal(after.balance.reserved, '0', 'nothing left reserved');
   assert.equal(after.delegation?.delegated, true, 'a server-side stop does not revoke the on-chain delegation: the owner\'s SetSession does');
-  check('stopped', { modeEpoch: after.modeEpoch, refused: stopped.body.error.code, spentInference: after.balance.spent.inference, stillDelegatedOnChain: after.delegation.delegated });
+  check('stopped', { modeEpoch: after.modeEpoch, refused: stopped.body.error.code, spentInference: after.balance.spent.inference, chargedForCallsUnderWayAtStop: newSpends.length, stillDelegatedOnChain: after.delegation.delegated });
   const back = await walletShape('SetSession', player, { session: session.publicKeyBytes, expiry: BigInt(s.record.latestUnix) + 7n * 86_400n });
   await action('Harvest', player, {});
   const revoked = await agentView(agentId);
