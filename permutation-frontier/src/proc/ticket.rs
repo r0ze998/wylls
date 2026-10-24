@@ -1679,6 +1679,7 @@ struct Side {
     amount: u64,
     lot_tag: u64,
     lot_seq: u32,
+    stamp: u32,
 }
 
 impl Side {
@@ -1698,6 +1699,7 @@ impl Side {
             amount: r.u64(o + S::AMOUNT)?,
             lot_tag: r.u64(o + S::LOT_TAG)?,
             lot_seq: r.u32(o + S::LOT_SEQ)?,
+            stamp: r.u32(o + S::STAMP)?,
         })
     }
     fn write(&self, d: &mut [u8], i: usize) -> R<()> {
@@ -1716,6 +1718,7 @@ impl Side {
         w.set_u64(o + S::AMOUNT, self.amount)?;
         w.set_u64(o + S::LOT_TAG, self.lot_tag)?;
         w.set_u32(o + S::LOT_SEQ, self.lot_seq)?;
+        w.set_u32(o + S::STAMP, self.stamp)?;
         Ok(())
     }
     /// The logged place of a goods side's vault (zeros for a lot).
@@ -1874,6 +1877,7 @@ pub fn open_escrow(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         amount: 0,
         lot_tag: 0,
         lot_seq: 0,
+        stamp: 0,
     };
     match x.give_kind {
         ES::ITEM_GOODS => {
@@ -1888,6 +1892,7 @@ pub fn open_escrow(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
             )?;
             (give.resource, give.gen, give.p, give.q, give.tile) =
                 (x.give_resource, v.gen, v.p, v.q, v.at);
+            give.stamp = vault_stamp(give_src)?;
             give.amount = x.give_amount;
         }
         ES::ITEM_LOT => {
@@ -1910,6 +1915,7 @@ pub fn open_escrow(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         amount: x.want_amount,
         lot_tag: if x.want_kind == ES::ITEM_LOT { x.want_lot_tag } else { 0 },
         lot_seq: if x.want_kind == ES::ITEM_LOT { x.want_lot_seq } else { 0 },
+        stamp: 0,
     };
     // The Escrow, funded by the payer.
     {
@@ -2033,6 +2039,7 @@ pub fn accept_escrow(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
             ts.amount,
         )?;
         (ts.gen, ts.p, ts.q, ts.tile) = (v.gen, v.p, v.q, v.at);
+        ts.stamp = vault_stamp(taker_src)?;
     } else {
         hold_lot(p, &pl, citizen, taker_src, (ts.lot_tag, ts.lot_seq), mark)?;
         if Ro(&taker_src.try_borrow_data()?).u64(LT::AMOUNT)? != ts.amount {
@@ -2122,7 +2129,14 @@ fn goods_live(p: &Pubkey, pl: &Player, vault: &AccountInfo, s: &Side) -> R<bool>
     if init::is_absent(vault) {
         return Ok(false);
     }
-    Ok(place_of(p, &pl.ctx, pl.pc.season.id, vault)?.is_some_and(|v| v.gen == s.gen))
+    let live = place_of(p, &pl.ctx, pl.pc.season.id, vault)?.is_some_and(|v| v.gen == s.gen);
+    Ok(live && vault_stamp(vault)? == s.stamp)
+}
+
+/// A vault's stamp as an escrow side records it (2e): the low 32 bits of
+/// its `BUILT_TS`.
+fn vault_stamp(vault: &AccountInfo) -> R<u32> {
+    Ok(Ro(&vault.try_borrow_data()?).i64(VA::BUILT_TS)? as u32)
 }
 
 /// Releases goods side `s` held in `vault` when it is live in its
@@ -2165,6 +2179,10 @@ pub fn cancel_escrow(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         }
         let src = srcs.first().ok_or(FrontierError::TooManyAccounts)?;
         if ms.kind == ES::ITEM_GOODS {
+            // The day boundary first, on the stock the hold still covers.
+            if goods_live(p, &pl, src, &ms)? {
+                roll_vault(&mut src.try_borrow_mut_data()?, bell)?;
+            }
             if release_goods(p, &pl, src, &ms)? {
                 released = ES::ITEM_GOODS;
             }

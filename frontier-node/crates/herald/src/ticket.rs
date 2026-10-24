@@ -201,11 +201,13 @@ impl Tickets {
                         amount: 0,
                     });
                     row.amount += amount;
+                    // Never over a newer day the recipient already ran.
                     if let Some((d, m)) = moved.filter(|&(_, m)| m > 0) {
-                        row.runs = Some(match row.runs {
-                            Some((rd, ru)) if rd == d => (d, ru + m),
-                            _ => (d, m),
-                        });
+                        row.runs = match row.runs {
+                            Some((rd, ru)) if rd == d => Some((d, ru + m)),
+                            Some((rd, ru)) if rd > d => Some((rd, ru)),
+                            _ => Some((d, m)),
+                        };
                     }
                 }
             }

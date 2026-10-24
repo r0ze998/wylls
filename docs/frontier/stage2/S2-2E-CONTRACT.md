@@ -75,7 +75,8 @@ cancel, collect); opening one from the web is not built yet.
 goods, 2 lot), `STATE u8` @41 (0 promised, 1 in escrow, 2 owed, 3 done),
 `RESOURCE u8` @42, `GEN u8` @43 (the vault's), `P i16` @44, `Q i16` @46,
 `TILE u8` @48, rsv @49 (7), `AMOUNT u64` @56 (goods milli; a lot's units),
-`LOT_TAG u64` @64, `LOT_SEQ u32` @72, rsv @76 (4). A goods side names the
+`LOT_TAG u64` @64, `LOT_SEQ u32` @72, `STAMP u32` @76 (a goods side's
+vault: the low 32 bits of its `BUILT_TS`). A goods side names the
 vault by `P, Q, TILE, GEN`; a lot side the lot by `LOT_TAG, LOT_SEQ`.
 
 The account is 272 B (`RENT_TO` ends at 272).
@@ -215,22 +216,32 @@ deadline has passed, or the signer is not its party".
 
 ## 10. Known limits
 
-Reviewed 2026-10-24 by an independent read; fixed: the amount cap, the
-wanted lot's units, the collection rolling before it releases its hold,
-acceptance of goods voided by a seizure, and the escrow mark (`seq` no
-longer collides with `seq + 1`). Left:
+Reviewed 2026-10-24 by three independent reads; fixed: the amount cap,
+the wanted lot's units, the collection and the cancel rolling before they
+release a hold, acceptance of goods voided by a seizure, the escrow mark
+(`seq` no longer collides with `seq + 1`), and **the vault's stamp**: a
+goods side records the low 32 bits of its vault's `BUILT_TS` (side offset
+76), so a vault seized, closed and built again (generation 1 again) never
+revives old owed goods or releases another escrow's hold. The verifier
+also refuses a cancel naming another vault or lot than the escrow's.
+Left:
 
-- **A held vault's generation is a u8**: after 256 seizures an owed side
-  would look live again. 256 seizures of one vault in a season are not a
-  realistic path.
+- **A held vault's generation is a u8**: after 256 seizures of one vault
+  (it keeps its stamp) an owed side would look live again; not a
+  realistic path in a season.
 - **Owed goods have no time limit**: a receiver that never collects keeps
   the giver's goods held until a seizure. [proposal for 2f: a collection
   deadline.]
 - **A lot handed over keeps its day state** (a receipt claim or the runs
   used today travel with it).
-
-- **The vault's generation, not its stamp**, ties owed goods to their
-  vault: a vault closed and rebuilt in the same generation would owe them
-  again. A vault holding goods cannot be closed (its stores are not 0), so
-  only a seizure (a new generation) ends a hold.
+- **Session keys may exchange** (decision L7): both parties consent, so a
+  stolen session key could swap a citizen's item for a worthless one.
+  The wallet stays required for one-way gifts (GiveLot to another).
+- **The web cannot yet close a settled escrow whose owed goods are void**
+  (the feed carries no vault generation); a client passing the vaults can.
+- **Relay rent:** a collection that closes the escrow returns its rent to
+  the opener's payer; the relay's drain guard sees that refund.
+- **Verifier:** a cancel naming an absent account for the side's vault or
+  lot is accepted when the vault is closed (the verifier derives no
+  addresses here; V9 ties live accounts to their keys).
 

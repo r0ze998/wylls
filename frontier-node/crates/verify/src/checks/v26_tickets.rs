@@ -1013,6 +1013,7 @@ struct Side {
     amount: u64,
     lot_tag: u64,
     lot_seq: u32,
+    stamp: u32,
 }
 
 /// An Escrow as stored.
@@ -1049,6 +1050,7 @@ impl Escrow {
                 amount: u64_of(d, o + S::AMOUNT).ok_or_else(e)?,
                 lot_tag: u64_of(d, o + S::LOT_TAG).ok_or_else(e)?,
                 lot_seq: u32_of(d, o + S::LOT_SEQ).ok_or_else(e)?,
+                stamp: u32_of(d, o + S::STAMP).ok_or_else(e)?,
             })
         };
         Ok(Escrow {
@@ -1147,6 +1149,7 @@ pub fn judge_open_escrow(ix: &crate::world::Ix, s: &dyn States, bell: u32) -> Re
         amount: 0,
         lot_tag: 0,
         lot_seq: 0,
+        stamp: 0,
     };
     match x.give_kind {
         ES::ITEM_GOODS => {
@@ -1156,6 +1159,7 @@ pub fn judge_open_escrow(ix: &crate::world::Ix, s: &dyn States, bell: u32) -> Re
             }
             (give.resource, give.gen, give.p, give.q, give.tile, give.amount) =
                 (x.give_resource, pl.gen, pl.p, pl.q, pl.at, x.give_amount);
+            give.stamp = stamp_of(&v.before(&src, "Vault")?) as u32;
         }
         ES::ITEM_LOT => {
             let lb = judge_lot_in(s, &src, &citizen)?;
@@ -1191,6 +1195,7 @@ pub fn judge_open_escrow(ix: &crate::world::Ix, s: &dyn States, bell: u32) -> Re
         amount: x.want_amount,
         lot_tag: if goods { 0 } else { x.want_lot_tag },
         lot_seq: if goods { 0 } else { x.want_lot_seq },
+        stamp: 0,
     };
     let expect = Escrow {
         state: ES::STATE_OPEN,
@@ -1228,6 +1233,7 @@ pub fn judge_accept_escrow(ix: &crate::world::Ix, s: &dyn States, bell: u32) -> 
             return Err(wrong("goods held in another vault than named"));
         }
         (ts.gen, ts.p, ts.q, ts.tile) = (pl.gen, pl.p, pl.q, pl.at);
+        ts.stamp = stamp_of(&v.before(&tsrc, "Vault")?) as u32;
         ts.state = ES::SIDE_OWED;
     } else {
         let lb = judge_lot_in(s, &tsrc, &citizen)?;
@@ -1276,8 +1282,23 @@ pub fn judge_accept_escrow(ix: &crate::world::Ix, s: &dyn States, bell: u32) -> 
 /// Whether owed goods side `s` is still live (its vault live in its
 /// generation, state `d`).
 fn owed_live(s: &Side, d: Option<&[u8]>) -> bool {
-    d.and_then(live_place).is_some_and(|(pl, _)| {
-        (pl.kind, pl.p, pl.q, pl.at, pl.gen) == (PL::KIND_VAULT, s.p, s.q, s.tile, s.gen)
+    d.is_some_and(|d| {
+        live_place(d).is_some_and(|(pl, _)| {
+            (pl.kind, pl.p, pl.q, pl.at, pl.gen) == (PL::KIND_VAULT, s.p, s.q, s.tile, s.gen)
+        }) && stamp_of(d) as u32 == s.stamp
+    })
+}
+
+/// Whether `d` (when present) is the vault side `s` names: a present
+/// account of another place cannot stand for it (an absent one is the
+/// closed vault, or a key V9 ties to nothing).
+fn names_side_vault(s: &Side, d: Option<&[u8]>) -> bool {
+    d.is_none_or(|d| {
+        d.len() == VA::SIZE
+            && d[..8] == VA::MAGIC
+            && d.get(VA::P..VA::P + 2).map(|b| le(b) as u16 as i16) == Some(s.p)
+            && d.get(VA::Q..VA::Q + 2).map(|b| le(b) as u16 as i16) == Some(s.q)
+            && d.get(VA::TILE) == Some(&s.tile)
     })
 }
 
@@ -1300,6 +1321,9 @@ pub fn judge_cancel_escrow(ix: &crate::world::Ix, s: &dyn States, bell: u32) -> 
         let src = *srcs.first().ok_or_else(|| wrong("the maker's item is missing"))?;
         if ms.kind == ES::ITEM_GOODS {
             let vb = s.before(&src);
+            if !names_side_vault(&ms, vb.as_deref()) {
+                return Err(wrong("another vault than the escrow's"));
+            }
             if owed_live(&ms, vb.as_deref()) {
                 let vb = vb.unwrap_or_default();
                 let mut want = vb.clone();
@@ -1309,7 +1333,12 @@ pub fn judge_cancel_escrow(ix: &crate::world::Ix, s: &dyn States, bell: u32) -> 
                     .ok_or_else(|| wrong("a release beyond the hold"))?;
                 want[VA::held(r)..VA::held(r) + 8].copy_from_slice(&h.to_le_bytes());
                 let va = v.after(&src, "Vault")?;
-                if va.len() != want.len() || (64..va.len()).any(|o| va[o] != want[o]) {
+                let per = super::v23_caravans::rolled(&vb, bell).map_err(wrong)?;
+                let period = |o: &usize| (VA::CLAIM_DAY..VA::HELD).contains(o);
+                if va.len() != want.len()
+                    || super::v23_caravans::period_of(&va).map_err(wrong)? != per
+                    || (64..va.len()).filter(|o| !period(o)).any(|o| va[o] != want[o])
+                {
                     return Err(wrong("the hold is not released"));
                 }
             } else if s.after(&src) != s.before(&src) {
@@ -1338,7 +1367,7 @@ pub fn judge_cancel_escrow(ix: &crate::world::Ix, s: &dyn States, bell: u32) -> 
     for sd in [&ms, &ts] {
         if sd.state == ES::SIDE_OWED {
             let k = it.next().ok_or_else(|| wrong("an owed side's vault is missing"))?;
-            if owed_live(sd, s.before(k).as_deref()) {
+            if !names_side_vault(sd, s.before(k).as_deref()) || owed_live(sd, s.before(k).as_deref()) {
                 return Err(wrong("a settled escrow closed with goods still owed"));
             }
         }
@@ -2136,6 +2165,7 @@ mod tests {
             d[o + S::AMOUNT..o + S::AMOUNT + 8].copy_from_slice(&sd.amount.to_le_bytes());
             d[o + S::LOT_TAG..o + S::LOT_TAG + 8].copy_from_slice(&sd.lot_tag.to_le_bytes());
             d[o + S::LOT_SEQ..o + S::LOT_SEQ + 4].copy_from_slice(&sd.lot_seq.to_le_bytes());
+            d[o + S::STAMP..o + S::STAMP + 4].copy_from_slice(&sd.stamp.to_le_bytes());
         }
         d[ES::RENT_TO..ES::RENT_TO + 32].copy_from_slice(&e.rent_to);
         d
@@ -2168,6 +2198,7 @@ mod tests {
             amount: 50_000,
             lot_tag: 0,
             lot_seq: 0,
+            stamp: 0,
         };
         let lot_side = Side {
             citizen: YOU,
@@ -2182,6 +2213,7 @@ mod tests {
             amount: 5,
             lot_tag: you_tag,
             lot_seq: 0,
+            stamp: 0,
         };
         let open = Escrow {
             state: ES::STATE_OPEN,

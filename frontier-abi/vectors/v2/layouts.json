@@ -3766,10 +3766,10 @@
           "ty": "u32"
         },
         {
-          "name": "RSV_156",
+          "name": "MAKER_STAMP",
           "off": 156,
           "len": 4,
-          "ty": "rsv"
+          "ty": "u32"
         },
         {
           "name": "TAKER_CITIZEN",
@@ -3850,10 +3850,10 @@
           "ty": "u32"
         },
         {
-          "name": "RSV_236",
+          "name": "TAKER_STAMP",
           "off": 236,
           "len": 4,
-          "ty": "rsv"
+          "ty": "u32"
         },
         {
           "name": "RENT_TO",

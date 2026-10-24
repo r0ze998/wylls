@@ -395,6 +395,20 @@ fn g13_s2_escrow_owed_goods_die_with_their_vault() {
     assert_eq!(u64_at(&k.c.data(&rv), VA::held(ORE)), 0);
     // (A collects nothing: the vault's generation moved.)
     let _ = trace;
+    // Review fix: A empties and closes the seized vault, R builds it again
+    // (generation 1 again): the old owed ore stays void (the stamp).
+    k.c.edit(&rv, |d| d[VA::store(ORE)..VA::store(ORE) + 8].copy_from_slice(&0i64.to_le_bytes()));
+    let vr = Address::new_from_array(k.c.data(&rv)[VA::RENT_TO..VA::RENT_TO + 32].try_into().unwrap());
+    let ix = fx::close_vault(&k.w.a, &a.player(), (r.p, r.q, rt), vr);
+    expect_lands(s2_send(&mut k.c, I2::CloseVault, ix, &[&a.wallet]), "CloseVault");
+    let b = k.w.bell(&k.c);
+    k.w.to_bell(&mut k.c, b + 2, 5);
+    let ix = fx::build_vault(&k.w.a, &r.player(), r.href(), (r.p, r.q), rt);
+    expect_lands(s2_send(&mut k.c, I2::BuildVault, ix, &[&r.wallet]), "BuildVault again");
+    assert_eq!(k.c.data(&rv)[VA::GEN], 1);
+    k.c.edit(&rv, |d| d[VA::store(ORE)..VA::store(ORE) + 8].copy_from_slice(&(40 * MILLI).to_le_bytes()));
+    let (l, _) = withdraw(&mut k, &a, id, 1, rt);
+    assert_cq(l, Cq::TicketVoid);
     expect_lands(cancel(&mut k, &a, id, &[rv]), "CancelEscrow (void goods)");
 }
 

@@ -80,7 +80,7 @@ pub mod escrow {
         MAKER_AMOUNT @ 136 : "u64" = 8;
         MAKER_LOT_TAG @ 144 : "u64" = 8;
         MAKER_LOT_SEQ @ 152 : "u32" = 4;
-        RSV_156 @ 156 : "rsv" = 4;
+        MAKER_STAMP @ 156 : "u32" = 4;
         TAKER_CITIZEN @ 160 : "[u8;32]" = 32;
         TAKER_TAG @ 192 : "u64" = 8;
         TAKER_KIND @ 200 : "u8" = 1;
@@ -94,7 +94,7 @@ pub mod escrow {
         TAKER_AMOUNT @ 216 : "u64" = 8;
         TAKER_LOT_TAG @ 224 : "u64" = 8;
         TAKER_LOT_SEQ @ 232 : "u32" = 4;
-        RSV_236 @ 236 : "rsv" = 4;
+        TAKER_STAMP @ 236 : "u32" = 4;
         RENT_TO @ 240 : "[u8;32]" = 32;
     );
     pub const STATE_OPEN: u8 = 1;
@@ -121,6 +121,9 @@ pub mod escrow {
         pub const AMOUNT: usize = 56;
         pub const LOT_TAG: usize = 64;
         pub const LOT_SEQ: usize = 72;
+        /// A goods side's vault stamp: the low 32 bits of its `BUILT_TS`
+        /// (a vault closed and built again is another vault).
+        pub const STAMP: usize = 76;
         pub const SIZE: usize = 80;
     }
     /// The start of side `i` (0 the maker's, 1 the taker's).

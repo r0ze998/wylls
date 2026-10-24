@@ -189,7 +189,7 @@ export function s2SharesModel(FS) {
   const t = FS.s1?.tickets ?? { issues: [], lots: [] };
   const mine = viewerTag(FS);
   const issueOf = l => t.issues.find(i => i.issuerTag === l.issuerTag && i.seq === l.issueSeq);
-  const lots = t.lots.filter(l => !l.void && isMine(l.holderTag, mine)).map(l => {
+  const lots = t.lots.filter(l => !l.void && isMine(l.holderTag, mine) && !escrowedLot(FS, l.key)).map(l => {
     const i = issueOf(l);
     const share = i && i.kind === SHARE && i.src.kind === 2 && !i.void;
     return { ...l, supply: i?.supply ?? 0, vault: share ? { p: i.src.p, q: i.src.q, tile: i.src.at } : null };
@@ -209,7 +209,7 @@ export function s2ReceiptsModel(FS) {
   const t = FS.s1?.tickets ?? { issues: [], lots: [] };
   const mine = viewerTag(FS);
   const today = Math.floor(Number(FS.nowBell ?? 0) / BELLS_PER_DAY);
-  const lots = t.lots.filter(l => !l.void && isMine(l.holderTag, mine)).map(l => {
+  const lots = t.lots.filter(l => !l.void && isMine(l.holderTag, mine) && !escrowedLot(FS, l.key)).map(l => {
     const i = t.issues.find(x => x.issuerTag === l.issuerTag && x.seq === l.issueSeq);
     if (!i || i.kind !== RECEIPT || i.void || i.src.kind !== 2) return null;
     const ended = i.untilDay !== 0xffffffff && today > i.untilDay;
@@ -226,6 +226,12 @@ export function s2ReceiptsModel(FS) {
 const BELLS_PER_DAY = 144;
 const USE = 3;
 
+/** S2 (2e): whether lot `key` is in an open escrow (its maker's item). */
+export function escrowedLot(FS, key) {
+  return (FS.s1?.tickets?.escrows ?? []).some(e => e.state === 1 && e.giveKind === 2
+    && e.giveLot?.[0] === key?.[0] && e.giveLot?.[1] === key?.[1]);
+}
+
 /**
  * S2 (2e): the escrows naming the viewer, with what it may do now:
  * `{bell, escrows: [{makerTag, seq, takerTag, deadlineBell, state,
@@ -237,6 +243,7 @@ const USE = 3;
  */
 export function s2EscrowsModel(FS) {
   const mine = viewerTag(FS);
+  const lots = FS.s1?.tickets?.lots ?? [];
   const bell = Number(FS.nowBell ?? 0);
   const vaults = (FS.s1?.caravans?.vaults ?? []).filter(v => isMine(v.ownerTag, mine) && !v.shares);
   const escrows = (FS.s1?.tickets?.escrows ?? []).map(e => {
@@ -248,8 +255,12 @@ export function s2EscrowsModel(FS) {
     const from = side === 0 ? e.giveSrc : e.takeSrc;
     const collect = !open && e.owed?.[side] && from ? side : null;
     const acceptVault = e.wantKind === 1 ? (vaults[0] ? { p: vaults[0].p, q: vaults[0].q, tile: vaults[0].tile } : null) : null;
+    // A wanted lot: the viewer's, free, with exactly the units wanted.
+    const wanted = e.wantKind === 2 && lots.find(l => l.key?.[0] === e.wantLot?.[0] && l.key?.[1] === e.wantLot?.[1]);
+    const lotOk = e.wantKind !== 2 || (!!wanted && isMine(wanted.holderTag, mine) && !wanted.void
+      && Number(wanted.amount) === Number(e.wantAmount) && !escrowedLot(FS, wanted.key));
     return { ...e, mineAs: maker ? 'maker' : 'taker',
-      canAccept: open && taker && !late && (e.wantKind !== 1 || !!acceptVault), acceptVault,
+      canAccept: open && taker && !late && (e.wantKind !== 1 || !!acceptVault) && lotOk, acceptVault,
       canCancel: open ? maker || late : !(e.owed ?? []).some(Boolean),
       collect, collectFrom: collect === null ? null : { p: from.p, q: from.q, tile: from.at } };
   }).filter(Boolean);
@@ -269,7 +280,7 @@ export function s2UsesModel(FS) {
   const mine = viewerTag(FS);
   const today = Math.floor(Number(FS.nowBell ?? 0) / BELLS_PER_DAY);
   const vaults = (FS.s1?.caravans?.vaults ?? []).filter(v => isMine(v.ownerTag, mine) && !v.shares);
-  const lots = t.lots.filter(l => !l.void && isMine(l.holderTag, mine)).map(l => {
+  const lots = t.lots.filter(l => !l.void && isMine(l.holderTag, mine) && !escrowedLot(FS, l.key)).map(l => {
     const i = t.issues.find(x => x.issuerTag === l.issuerTag && x.seq === l.issueSeq);
     if (!i || i.kind !== USE || i.void || i.src.kind !== 1) return null;
     const ended = i.untilDay !== 0xffffffff && today > i.untilDay;

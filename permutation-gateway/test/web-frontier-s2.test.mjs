@@ -213,15 +213,19 @@ test('the escrows model: accept, cancel, collect (2e)', () => {
   const me = new Uint8Array(32); me[0] = 9;
   const src = { kind: 2, p: 3, q: 0, at: 40, gen: 1, tile: 40 };
   const esc = over => ({ makerTag: '7', seq: 1, takerTag: '9', deadlineBell: 100, state: 1, giveKind: 1, giveAmount: 50000, giveLot: ['0', 0],
-    giveSrc: src, wantKind: 2, wantAmount: 0, wantLot: ['9', 2], rentTo: '11111111111111111111111111111111', giveResource: 3, wantResource: 0,
+    giveSrc: src, wantKind: 2, wantAmount: 5, wantLot: ['9', 2], rentTo: '11111111111111111111111111111111', giveResource: 3, wantResource: 0,
     takeSrc: null, owed: [false, false], ...over });
-  const at = (e, bell) => SCR.s2EscrowsModel({ nowBell: bell, holdings: [{ ownerCitizen: me }], s1: { tickets: { v: 1, issues: [], lots: [], escrows: [e] }, caravans: { moving: [], vaults: [] } } }).escrows[0];
+  const lot = { key: ['9', 2], issuerTag: '9', issueSeq: 0, holderTag: '9', amount: 5, state: 1, void: false };
+  const at = (e, bell, lots = [lot]) => SCR.s2EscrowsModel({ nowBell: bell, holdings: [{ ownerCitizen: me }], s1: { tickets: { v: 1, issues: [], lots, escrows: [e] }, caravans: { moving: [], vaults: [] } } }).escrows[0];
   const open = at(esc({}), 10);
   assert.deepEqual([open.mineAs, open.canAccept, open.canCancel, open.collect], ['taker', true, false, null]);
   assert.deepEqual([at(esc({}), 101).canAccept, at(esc({}), 101).canCancel], [false, true], 'past the deadline');
   const owed = at(esc({ state: 2, owed: [true, false] }), 10);
   assert.deepEqual([owed.collect, owed.collectFrom, owed.canCancel], [0, { p: 3, q: 0, tile: 40 }, false]);
   assert.equal(at(esc({ makerTag: '1', takerTag: '2' }), 10), undefined, 'not the viewer\'s');
+  // The wanted lot must be the viewer's, with the units wanted.
+  assert.equal(at(esc({}), 10, [{ ...lot, amount: 4 }]).canAccept, false, 'short of units');
+  assert.equal(at(esc({}), 10, []).canAccept, false, 'not held');
   // Wanted goods need a vault of the viewer's.
   assert.equal(at(esc({ wantKind: 1, wantAmount: 10000 }), 10).canAccept, false);
 });

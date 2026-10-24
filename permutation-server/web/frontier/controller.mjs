@@ -1538,7 +1538,11 @@ function s2EscrowAccept(i) {
 function s2EscrowCancel(i) {
   const e = s2EscrowsModel(FS).escrows[i];
   if (!e || !e.canCancel) return s1Refused(L`この預かりは今は取り消せません`);
-  const srcs = e.state === 1 ? [escrowItem(e.giveKind, e.giveLot, { p: e.giveSrc.p, q: e.giveSrc.q, tile: e.giveSrc.at })] : [];
+  // Open: the maker's item. Settled: each owed side's vault (maker's
+  // first), or the maker's item as the one account the shape needs.
+  const give = escrowItem(e.giveKind, e.giveLot, { p: e.giveSrc.p, q: e.giveSrc.q, tile: e.giveSrc.at });
+  const owedVaults = [[0, e.giveSrc], [1, e.takeSrc]].filter(([s, v]) => e.owed?.[s] && v).map(([, v]) => ({ kind: 'goods', vault: { p: v.p, q: v.q, tile: v.at } }));
+  const srcs = e.state === 1 || !owedVaults.length ? [give] : owedVaults;
   return act('CancelEscrow', { v: { escrow: { tag: BigInt(e.makerTag), seq: e.seq }, rentTo: e.rentTo, srcs }, fields: {}, say: () => L`預かりを取り消しました` });
 }
 /** S2 (2e) WithdrawEscrow: the goods owed to the viewer, by caravan to the village in hand. */
