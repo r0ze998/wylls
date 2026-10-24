@@ -118,7 +118,10 @@ pub mod holding {
         UPKEEP @ 536 : "[i64;8]" = 64;
         QUEUE @ 600 : "rec:QueueItem x4" = 96;
         WALLS @ 696 : "u32" = 4;
-        RSV_700 @ 700 : "rsv" = 4;
+        // S2 (2d, S2-2D-CONTRACT §2.1): the day (+1) and the runs of the
+        // holding's workshops used by tickets.
+        USE_DAY @ 700 : "u16" = 2;
+        USE_RUNS @ 702 : "u16" = 2;
         WALLS_COMMITTED_BEFORE @ 704 : "i64" = 8;
         FOOD_SHORTFALL @ 712 : "i64" = 8;
         RESERVE @ 720 : "[u32;8]" = 32;
@@ -196,7 +199,7 @@ mod tests {
             (citizen::ISSUES, citizen::LOTS, citizen::OPEN_ISSUES),
             (348, 352, 356)
         );
-        same_except(v1::holding::FIELDS, holding::FIELDS, &["RSV"]);
+        same_except(v1::holding::FIELDS, holding::FIELDS, &["RSV", "RSV_700"]);
         assert_eq!(citizen::SIEGES_TODAY, 145);
         assert_eq!(citizen::SIEGE_DAY, 150);
         assert_eq!(citizen::SLOTS, 187);

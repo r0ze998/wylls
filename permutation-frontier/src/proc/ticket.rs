@@ -80,6 +80,7 @@ struct IssueView {
     resource: u8,
     per_unit: u64,
     until_day: u32,
+    src_stamp: i64,
 }
 
 fn read_issue(p: &Pubkey, pl: &Player, ai: &AccountInfo) -> R<IssueView> {
@@ -106,13 +107,26 @@ fn read_issue_at(p: &Pubkey, ctx: &AddrCtx, sid: u64, ai: &AccountInfo) -> R<Iss
         resource: r.u8(IS::RESOURCE)?,
         per_unit: r.u64(IS::PER_UNIT)?,
         until_day: r.u32(IS::UNTIL_DAY)?,
+        src_stamp: r.i64(IS::SRC_STAMP)?,
     };
     expect_key(ai, &frontier_abi::v2::addr::issue(ctx, v.issuer_tag, v.seq))?;
     Ok(v)
 }
 
+/// A live source's stamp: a vault's `BUILT_TS`, a holding's `FOUNDED_TS`.
+fn source_stamp(source: &AccountInfo) -> R<i64> {
+    let d = source.try_borrow_data()?;
+    let r = Ro(&d);
+    if d.len() == VA::SIZE && d[..8] == VA::MAGIC {
+        r.i64(VA::BUILT_TS)
+    } else {
+        r.i64(H::FOUNDED_TS)
+    }
+}
+
 /// The issue's source account at its canonical address; its generation
-/// now, or `None` when it is gone or no longer live (its tickets are void).
+/// now, or `None` when it is gone, no longer live, or rebuilt since the
+/// issue (another stamp): its tickets are void.
 fn source_now(p: &Pubkey, pl: &Player, iv: &IssueView, source: &AccountInfo) -> R<Option<u8>> {
     let want = match iv.src_kind {
         SRC_VAULT => frontier_abi::v2::addr::vault(&pl.ctx, iv.p as i32, iv.q as i32, iv.at),
@@ -123,7 +137,11 @@ fn source_now(p: &Pubkey, pl: &Player, iv: &IssueView, source: &AccountInfo) -> 
     if init::is_absent(source) {
         return Ok(None);
     }
-    Ok(place_of(p, &pl.ctx, pl.pc.season.id, source)?.map(|s| s.gen))
+    let place = place_of(p, &pl.ctx, pl.pc.season.id, source)?;
+    if place.is_some() && source_stamp(source)? != iv.src_stamp {
+        return Ok(None);
+    }
+    Ok(place.map(|s| s.gen))
 }
 
 /// Whether the issue's tickets are valid now (live issue, source live in
@@ -253,6 +271,7 @@ fn init_lot_at<'a>(
 
 /// What [`create_issue`] writes.
 struct NewIssue<'s> {
+    stamp: i64,
     kind: u8,
     src_kind: u8,
     src: &'s Place,
@@ -305,6 +324,7 @@ fn create_issue<'a>(
     w.set_u64(IS::SUPPLY, x.supply)?;
     w.set_u64(IS::PER_UNIT, x.per_unit)?;
     w.set_u32(IS::UNTIL_DAY, x.until_day)?;
+    w.set_i64(IS::SRC_STAMP, x.stamp)?;
     w.set_u32(IS::CREATED_BELL, pl.pc.now_bell)?;
     w.set_arr(IS::RENT_TO, payer.key.as_ref())
 }
@@ -415,6 +435,7 @@ pub fn issue_tickets(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         citizen,
         issue,
         &NewIssue {
+            stamp: source_stamp(source)?,
             kind: x.kind,
             src_kind,
             src: &src,
@@ -522,6 +543,13 @@ pub fn give_lot(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     let giver_tag = pl.pc.citizen_tag;
     let whole = x.amount == from.amount;
     let today1 = bell / BELLS_PER_DAY + 1;
+    // 2d: runs used today travel with the units (as many as they carry),
+    // so a split never renews a lot's runs of the day.
+    let moved_runs = if iv.kind == KIND_USE && from.day == today1 {
+        from.day_amount.min(x.amount.saturating_mul(iv.per_unit))
+    } else {
+        0
+    };
     let (to_key, new_lot) = if to_lot.key == lot.key {
         // A whole-lot gift, in place (never a deposit lot: its address is
         // its holder's, 2b).
@@ -540,14 +568,24 @@ pub fn give_lot(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         init_lot(
             p, &pl, payer, season_ai, to_lot, &iv, &rkey, rtag, giver_tag, seq, x.amount,
         )?;
-        if iv.kind == KIND_RECEIPT && from.day == today1 {
-            Rw(&mut to_lot.try_borrow_mut_data()?).set_u32(LT::DAY, today1)?;
+        if (iv.kind == KIND_RECEIPT && from.day == today1) || moved_runs > 0 {
+            let mut td = to_lot.try_borrow_mut_data()?;
+            let mut w = Rw(&mut td);
+            w.set_u32(LT::DAY, today1)?;
+            w.set_u64(LT::DAY_AMOUNT, moved_runs)?;
         }
         {
             let mut cd = citizen.try_borrow_mut_data()?;
             Rw(&mut cd).set_u32(C::LOTS, seq.checked_add(1).ok_or(OVERFLOW)?)?;
         }
-        Rw(&mut lot.try_borrow_mut_data()?).set_u64(LT::AMOUNT, from.amount - x.amount)?;
+        {
+            let mut ld = lot.try_borrow_mut_data()?;
+            let mut w = Rw(&mut ld);
+            w.set_u64(LT::AMOUNT, from.amount - x.amount)?;
+            if moved_runs > 0 {
+                w.set_u64(LT::DAY_AMOUNT, from.day_amount - moved_runs)?;
+            }
+        }
         ((giver_tag, seq), true)
     } else {
         // Added to the recipient's lot of the same issue.
@@ -566,7 +604,21 @@ pub fn give_lot(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         }
         let sum = to.amount.checked_add(x.amount).ok_or(OVERFLOW)?;
         Rw(&mut to_lot.try_borrow_mut_data()?).set_u64(LT::AMOUNT, sum)?;
-        Rw(&mut lot.try_borrow_mut_data()?).set_u64(LT::AMOUNT, from.amount - x.amount)?;
+        if moved_runs > 0 {
+            let used = if to.day == today1 { to.day_amount } else { 0 };
+            let mut td = to_lot.try_borrow_mut_data()?;
+            let mut w = Rw(&mut td);
+            w.set_u32(LT::DAY, today1)?;
+            w.set_u64(LT::DAY_AMOUNT, used.saturating_add(moved_runs))?;
+        }
+        {
+            let mut ld = lot.try_borrow_mut_data()?;
+            let mut w = Rw(&mut ld);
+            w.set_u64(LT::AMOUNT, from.amount - x.amount)?;
+            if moved_runs > 0 {
+                w.set_u64(LT::DAY_AMOUNT, from.day_amount - moved_runs)?;
+            }
+        }
         ((to.seed_tag, to.seq), false)
     };
     let payload = crate::events::Buf::<58>::new()
@@ -676,6 +728,15 @@ pub fn close_lot(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         _ => return Err(FrontierError::TooManyAccounts.into()),
     };
     let bell = pl.pc.now_bell;
+    // An issue already closed (void and closed by its issuer) leaves its
+    // lots void: each closes alone.
+    if init::is_absent(issue) {
+        let (lot, rent_to) = lot.ok_or(FrontierError::BadData)?;
+        if x.close_issue != 0 {
+            return Err(FrontierError::BadData.into());
+        }
+        return close_orphan_lot(p, &pl, citizen, issue, lot, rent_to, bell);
+    }
     let iv = read_issue(p, &pl, issue)?;
     if iv.state != STATE_LIVE {
         return Err(cq(CqError::TicketVoid));
@@ -828,6 +889,63 @@ pub fn close_lot(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     Ok(())
 }
 
+/// CloseLot of a lot whose issue is gone (its issuer closed it void): the
+/// holder's lot closes with its units (void), logged `LOT_CLOSED` with
+/// `issue_closed` (the issue is already closed).
+fn close_orphan_lot<'a>(
+    p: &Pubkey,
+    pl: &Player,
+    citizen: &AccountInfo<'a>,
+    issue: &AccountInfo<'a>,
+    lot: &AccountInfo<'a>,
+    rent_to: &AccountInfo<'a>,
+    bell: u32,
+) -> R<()> {
+    let lv = read_lot(p, pl, lot)?;
+    expect_key(
+        issue,
+        &frontier_abi::v2::addr::issue(&pl.ctx, lv.issuer_tag, lv.issue_seq),
+    )?;
+    if lv.holder != citizen.key.to_bytes() {
+        return Err(FrontierError::NotOwner.into());
+    }
+    if lv.state != STATE_LIVE || lv.escrow != 0 || lv.rent_to != rent_to.key.to_bytes() {
+        return Err(BAD_ACCOUNT);
+    }
+    let payload = crate::events::Buf::<40>::new()
+        .u64(pl.pc.citizen_tag)
+        .u64(lv.seed_tag)
+        .u32(lv.seq)
+        .u64(lv.amount)
+        .u8(1)
+        .u8(1)
+        .u8(1)
+        .bytes(&[0u8; 8])
+        .u8(0);
+    {
+        let mut cd = citizen.try_borrow_mut_data()?;
+        cqlog::emit(
+            CqKind::LOT_CLOSED as u8,
+            bell,
+            &key12(lv.issuer_tag, lv.issue_seq),
+            payload.get()?,
+            &mut [Chained2 {
+                entity: E2::Citizen,
+                data: &mut cd,
+            }],
+        )?;
+    }
+    Rw(&mut lot.try_borrow_mut_data()?).set_u8(LT::STATE, STATE_CLOSED)?;
+    close_account(
+        p,
+        lot,
+        rent_to,
+        E2::Lot,
+        &close_key_lot(lv.seed_tag, lv.seq),
+        bell,
+    )
+}
+
 // ------------------------------------------------------------ 0xC3 OpenShares
 
 /// 0xC3 OpenShares (2b): P + `[holding w] [holding_province r] [vault w]
@@ -856,11 +974,21 @@ pub fn open_shares(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         if vault_shares(&vd)?.is_some() {
             return Err(cq(CqError::VaultShared));
         }
+        // Receipts and shares never share a vault (2b §9, 2c §1): no claim
+        // of yesterday or today and no grant of today may be outstanding
+        // (claims and withdrawals are refused once it is shared).
+        let mut period = period_of(&vd)?;
+        if period.active() {
+            period.roll(bell / BELLS_PER_DAY, &super::caravan::vault_stock(&vd)?);
+            if period.claims.iter().chain(period.res.iter()).any(|&v| v > 0) {
+                return Err(cq(CqError::ReceiptState));
+            }
+        }
         let mut stores = [0i64; RESOURCES];
         for (r, v) in stores.iter_mut().enumerate() {
             *v = Ro(&vd).i64(VA::store(r))?;
         }
-        kt::value_of(&stores).min(u64::MAX as u128) as u64
+        (kt::value_of(&stores) / 1_000).min(u64::MAX as u128) as u64
     };
     let seq = {
         let cd = citizen.try_borrow_data()?;
@@ -880,6 +1008,7 @@ pub fn open_shares(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         citizen,
         issue,
         &NewIssue {
+            stamp: source_stamp(vault)?,
             kind: KIND_SHARE,
             src_kind: SRC_VAULT,
             src: &src,
@@ -1161,7 +1290,7 @@ pub(crate) fn deposit(
     let payload = crate::events::Buf::<49>::new()
         .u64(holder_tag)
         .u32(lot_seq)
-        .u64(dv.min(u64::MAX as u128) as u64)
+        .u64((dv / 1_000).min(u64::MAX as u128) as u64)
         .u64(minted)
         .u64(supply)
         .u64(at.caravan.0)
@@ -1216,6 +1345,10 @@ fn receipt_lot(
     }
     if !issue_valid(p, pl, &iv, vault)? || lv.src_gen != iv.src_gen {
         return Err(cq(CqError::TicketVoid));
+    }
+    // A shared vault's goods are its holders' (2b): no receipts on it.
+    if vault_shares(&vault.try_borrow_data()?)?.is_some() {
+        return Err(cq(CqError::VaultShared));
     }
     Ok((lv, iv))
 }
@@ -1365,5 +1498,159 @@ pub fn withdraw_receipt(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
             entity: E2::Lot,
             data: &mut ld,
         }],
+    )
+}
+
+// ------------------------------------------------------------ 0xC8 UseRun
+
+/// 0xC8 UseRun(runs) (2d): P + `[lot w] [issue r] [holding w] [vault w]`
+/// (`S2-2D-CONTRACT.md` §3): `runs` workshop-hours converted at once in the
+/// citizen's vault in the workshop's Province (L4).
+pub fn use_run(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+    check_accounts_v2(Ix2::UseRun, a, None)?;
+    let x = ix2::UseRun::decode(d)?;
+    let pl: Player = hold::player(p, a)?;
+    let [_, _, _, citizen, lot, issue, holding, vault] = a else {
+        return Err(FrontierError::TooManyAccounts.into());
+    };
+    let sid = pl.pc.season.id;
+    let bell = pl.pc.now_bell;
+    let today = bell / BELLS_PER_DAY;
+    let today1 = today + 1;
+    let runs = x.runs as u32;
+    if runs == 0 {
+        return Err(FrontierError::BadData.into());
+    }
+    // The lot and its issue, valid now.
+    let lv = read_lot(p, &pl, lot)?;
+    if lv.holder != citizen.key.to_bytes() {
+        return Err(FrontierError::NotOwner.into());
+    }
+    if lv.state != STATE_LIVE || lv.escrow != 0 {
+        return Err(cq(CqError::TicketVoid));
+    }
+    let iv = read_issue(p, &pl, issue)?;
+    if (iv.issuer_tag, iv.seq) != (lv.issuer_tag, lv.issue_seq) {
+        return Err(BAD_ACCOUNT);
+    }
+    if iv.kind != KIND_USE {
+        return Err(cq(CqError::TicketTerms));
+    }
+    if !issue_valid(p, &pl, &iv, holding)? || lv.src_gen != iv.src_gen {
+        return Err(cq(CqError::TicketVoid));
+    }
+    if iv.until_day != kt::NO_END && today > iv.until_day {
+        return Err(cq(CqError::TicketTerms));
+    }
+    // The limits: the lot's and the workshop's runs today.
+    let lot_used = if lv.day == today1 { lv.day_amount } else { 0 };
+    let lot_runs = lot_used.checked_add(runs as u64).ok_or(OVERFLOW)?;
+    if lot_runs > lv.amount.saturating_mul(iv.per_unit) {
+        return Err(cq(CqError::UseLimit));
+    }
+    let holding_runs = {
+        let hd = holding.try_borrow_data()?;
+        let r = Ro(&hd);
+        let mut production = [0i64; RESOURCES];
+        for (i, v) in production.iter_mut().enumerate() {
+            *v = r.i64(H::PRODUCTION + 8 * i)?;
+        }
+        let cap = arms::workshops_built(&production).max(0) as u32 * kt::RUNS_PER_COPY;
+        let used = if r.u16(H::USE_DAY)? as u32 == today1 {
+            r.u16(H::USE_RUNS)? as u32
+        } else {
+            0
+        };
+        let total = used + runs;
+        if cap == 0 || total > cap {
+            return Err(cq(CqError::UseLimit));
+        }
+        total
+    };
+    // The citizen's own unshared vault in the workshop's Province.
+    let v: Place = place_of(p, &pl.ctx, sid, vault)?.ok_or(cq(CqError::TicketTerms))?;
+    if v.kind != PL::KIND_VAULT || v.owner != citizen.key.to_bytes() {
+        return Err(FrontierError::NotOwner.into());
+    }
+    if (v.p, v.q) != (iv.p, iv.q) {
+        return Err(cq(CqError::TicketTerms));
+    }
+    let (ore, wood, made) = kt::run_change(runs);
+    {
+        let mut vd = vault.try_borrow_mut_data()?;
+        if vault_shares(&vd)?.is_some() {
+            return Err(cq(CqError::VaultShared));
+        }
+        // 2c: the day boundary first; reserved goods stay.
+        let period = roll_vault(&mut vd, bell)?;
+        let stock = super::caravan::vault_stock(&vd)?;
+        let (o, w, m) = (
+            permutation_rules::frontier::holding::Resource::Ore as usize,
+            permutation_rules::frontier::holding::Resource::Wood as usize,
+            arms::ARMS as usize,
+        );
+        if period.available(today, o, stock[o]) < ore || period.available(today, w, stock[w]) < wood
+        {
+            return Err(FrontierError::Insufficient.into());
+        }
+        let cap = Ro(&vd).i64(VA::CAP)?;
+        if stock[m].checked_add(made).ok_or(OVERFLOW)? > cap {
+            return Err(FrontierError::BadData.into());
+        }
+        let mut wr = Rw(&mut vd);
+        wr.set_i64(VA::store(o), stock[o] - ore)?;
+        wr.set_i64(VA::store(w), stock[w] - wood)?;
+        wr.set_i64(VA::store(m), stock[m] + made)?;
+    }
+    {
+        let mut ld = lot.try_borrow_mut_data()?;
+        let mut w = Rw(&mut ld);
+        w.set_u32(LT::DAY, today1)?;
+        w.set_u64(LT::DAY_AMOUNT, lot_runs)?;
+    }
+    {
+        let mut hd = holding.try_borrow_mut_data()?;
+        let mut w = Rw(&mut hd);
+        w.set_u16(H::USE_DAY, today1 as u16)?;
+        w.set_u16(H::USE_RUNS, holding_runs as u16)?;
+    }
+    let (hp, hq, hsite, hgen) = {
+        let hd = holding.try_borrow_data()?;
+        let r = Ro(&hd);
+        (r.i16(H::P)?, r.i16(H::Q)?, r.u8(H::SITE)?, r.u8(H::GEN)?)
+    };
+    let hkey = host_id(hp as i32, hq as i32, hsite, hgen, 0).ok_or(BAD_ACCOUNT)?;
+    let payload = crate::events::Buf::<47>::new()
+        .u64(pl.pc.citizen_tag)
+        .u64(lv.seed_tag)
+        .u32(lv.seq)
+        .u32(today)
+        .u8(x.runs)
+        .u16(lot_runs as u16)
+        .u16(holding_runs as u16)
+        .u64(hkey)
+        .bytes(&v.log());
+    let mut ld = lot.try_borrow_mut_data()?;
+    let mut hd = holding.try_borrow_mut_data()?;
+    let mut vd = vault.try_borrow_mut_data()?;
+    cqlog::emit(
+        CqKind::USE_RUN as u8,
+        bell,
+        &key12(iv.issuer_tag, iv.seq),
+        payload.get()?,
+        &mut [
+            Chained2 {
+                entity: E2::Holding,
+                data: &mut hd,
+            },
+            Chained2 {
+                entity: E2::Vault,
+                data: &mut vd,
+            },
+            Chained2 {
+                entity: E2::Lot,
+                data: &mut ld,
+            },
+        ],
     )
 }

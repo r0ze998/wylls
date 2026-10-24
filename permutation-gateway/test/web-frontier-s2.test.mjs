@@ -59,6 +59,7 @@ test('the ticket shapes are fclient\'s instructions, and the relay\'s profile 4 
     ['WithdrawReceipt', { lot: { tag: ME, seq: 1 }, issue: { tag: ME, seq: 0 }, vault: { p: 4, q: -2, tile: 17 },
       dst: { kind: 'holding', ...h, gen: 1 }, seq: 6, provinces: [{ p: 4, q: -2 }, { p: 3, q: -1 }] },
     { seq: 6, ...placeData({ kind: 'holding', ...h, gen: 1 }), steps: 2, path: CAR.pack([3, 4]), fee: 50000n }],
+    ['UseRun', { lot: { tag: ME, seq: 3 }, issue: { tag: ME, seq: 1 }, workshop: h, vault: { p: 3, q: -1, tile: 20 } }, { runs: 2 }],
   ];
   assert.equal(shapes.length, V.cases.length);
   const hex = b => Array.from(b, x => x.toString(16).padStart(2, '0')).join('');
@@ -178,7 +179,23 @@ test('the receipts model: claim once a day, collect the next day (2c)', () => {
   const at = (l, bell) => SCR.s2ReceiptsModel({ nowBell: bell, holdings: [{ ownerCitizen: me }], s1: { tickets: { v: 1, issues: [issue], lots: [l] } } }).lots[0];
   assert.deepEqual([at(lot(null, null), 10).canClaim, at(lot(null, null), 10).canWithdraw], [true, false]);
   assert.deepEqual([at(lot(0, 20000), 10).canClaim, at(lot(0, 20000), 10).canWithdraw], [false, false], 'claimed today');
-  assert.deepEqual([at(lot(0, 20000), 150).canClaim, at(lot(0, 20000), 150).canWithdraw], [false, true], 'collect first');
+  // Yesterday's claim: collect it, or claim anew when its grant rounds to 0
+  // (the program decides; the feed has no ratio before a withdrawal).
+  assert.deepEqual([at(lot(0, 20000), 150).canClaim, at(lot(0, 20000), 150).canWithdraw], [true, true], 'collect, or claim');
   assert.deepEqual([at(lot(0, 0), 150).canClaim, at(lot(0, 20000), 300).canClaim], [true, true], 'collected, or lapsed');
   assert.equal(at(lot(null, null), 10).vault.tile, 40);
+});
+
+test('the uses model: runs left today, the vault in the workshop\'s province (2d)', () => {
+  const me = new Uint8Array(32); me[0] = 9;
+  const issue = { issuerTag: '7', seq: 1, kind: 3, src: { kind: 1, p: 3, q: 0, at: 4, gen: 1, tile: 12 }, resource: 0, perUnit: 2, untilDay: 4294967295, supply: 3, state: 1, void: false, ratioPpm: null, ratioDay: null };
+  const lot = (runDay, runs) => ({ key: ['7', 2], issuerTag: '7', issueSeq: 1, holderTag: '9', amount: 3, state: 1, void: false, claimDay: null, claim: null, runDay, runs });
+  const vault = { p: 3, q: 0, tile: 40, ownerTag: '9', faction: 0, gen: 1, shares: null };
+  const at = (l, bell, vaults = [vault]) => SCR.s2UsesModel({ nowBell: bell, holdings: [{ ownerCitizen: me }], s1: { tickets: { v: 1, issues: [issue], lots: [l] }, caravans: { moving: [], vaults } } }).lots[0];
+  assert.deepEqual([at(lot(null, null), 10).runsLeft, at(lot(null, null), 10).canRun], [6, true]);
+  assert.deepEqual([at(lot(0, 6), 10).runsLeft, at(lot(0, 6), 10).canRun], [0, false], 'used up today');
+  assert.equal(at(lot(0, 6), 150).runsLeft, 6, 'a new day');
+  assert.deepEqual(at(lot(null, null), 10).vault, { p: 3, q: 0, tile: 40 });
+  assert.equal(at(lot(null, null), 10, [{ ...vault, q: 1 }]).canRun, false, 'no vault in the province');
+  assert.deepEqual(at(lot(null, null), 10).workshop, { p: 3, q: 0, site: 4 });
 });

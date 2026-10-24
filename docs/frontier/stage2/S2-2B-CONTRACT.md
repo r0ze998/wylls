@@ -31,9 +31,11 @@ the wallet's signature and the page signs sends with the session key
   number of units outstanding; a holder of `a` units owns `a / SUPPLY` of
   every store. Nothing accrues to a unit, so a gift needs no settlement
   (design §5 "settle at every transfer" holds by construction).
-- **Value** counts mixed stores in one number (L2): `value = Σ ⌊store_r /
-  1000⌋ × SHARE_VALUE[r]` (`ticket::value_of`; science and influence are
-  worth 0 and cannot be stored in a vault anyway).
+- **Value** counts mixed stores in one number (L2): `value = Σ store_r
+  (milli) × SHARE_VALUE[r]`, exact in milli value units (`ticket::value_of`;
+  science and influence are worth 0 and cannot be stored in a vault
+  anyway). Review fix: whole units per store let a 1-milli deposit that
+  crossed a unit boundary count as a whole unit's value.
 - **Opening** (`OpenShares`): the vault's owner turns it into a shared
   vault. The owner receives units equal to the vault's value now. The fee
   is the issue fee (L8).
@@ -42,8 +44,9 @@ the wallet's signature and the page signs sends with the session key
   raider). `minted = ⌊dv × SUPPLY / v0⌋`, where `v0` is the vault's value
   before the credit and `dv` the value the credit added (the vault's cap
   can cut the credit; only what is credited counts). When `SUPPLY` is 0
-  the depositor takes `dv + v0` (the remainder left by rounding);
-  when `v0` is 0 and `SUPPLY` is not, `minted = dv × SUPPLY` [proposal]:
+  the depositor takes `⌊(dv + v0) / 1000⌋` (the remainder left by
+  rounding); when `v0` is 0 and `SUPPLY` is not, `minted = ⌊dv × SUPPLY /
+  1000⌋` [proposal]:
   units of an empty vault are worth nothing, so the depositor ends with
   nearly all of it.
 - **Withdrawing** (`WithdrawShares`, L3): a holder burns `amount` units and
@@ -100,11 +103,12 @@ The opener's own units go to the opener's deposit lot.
 Accounts: P + `[holding w] [holding_province r] [vault w] [issue w] [lot w]
 [system]`.
 
-- The vault is the citizen's, live, and not shared. The paying holding is
+- The vault is the citizen's, live, and not shared, with no receipt claim
+  or grant outstanding once its period is rolled (2c; `ReceiptState`). The paying holding is
   the citizen's, final and unlocked (as IssueTickets).
 - `OPEN_ISSUES < MAX_OPEN_ISSUES`; the fee is paid and burned.
 - Creates the Issue (`KIND_SHARE`, source the vault in its generation,
-  `SUPPLY = value_of(stores)`, `PER_UNIT 0`, `UNTIL_DAY NO_END`, `seq =
+  `SUPPLY = ⌊value_of(stores) / 1000⌋`, `PER_UNIT 0`, `UNTIL_DAY NO_END`, `seq =
   Citizen.ISSUES`) and the opener's deposit lot with the whole supply.
 - Writes the vault's shares; `ISSUES += 1`, `OPEN_ISSUES += 1` (`LOTS`
   unchanged).
@@ -224,5 +228,19 @@ follows (2,031,616).
 3. **The deposit address** is derived from the holder and the issue
    (§2.2), so the settler need not read the holder; a deposit lot cannot be
    given whole in place.
-4. **No receipts on a shared vault** until 2c decides how receipts and
-   shares share a vault.
+4. **Receipts and shares never share a vault** (settled with 2c): a vault
+   with a receipt claim or grant outstanding cannot be opened, and a shared
+   vault refuses claims and withdrawals of receipts (`VaultShared`).
+
+## 10. Known limits (review, 2026-10-24)
+
+- **The issuer may close a share issue while a deposit is on the road.**
+  The issue is closable once its supply is 0 (or void); a caravan still
+  travelling to the vault then settles into an unshared vault and mints
+  nothing. The depositor keeps nothing back but the goods land in the
+  owner's vault. A depositor sending into a vault whose supply is 0 takes
+  this risk.
+- **Saturation.** `minted` and the supply saturate at `u64::MAX`; a vault's
+  cap keeps value far below it.
+- **The record's `value`** (SHARES_DEPOSITED) is in whole value units
+  (`⌊dv / 1000⌋`); the rule itself counts milli.

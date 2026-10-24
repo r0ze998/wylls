@@ -637,12 +637,12 @@ pub fn judge_send(
         if (0..RES).any(|i| a[i] != b[i] - cargo[i]) {
             return Err(vault_wrong("the source vault is not debited by the cargo"));
         }
-        // 2c: the owner's send rolls the period first and leaves today's
+        // 2c: every send rolls the period first; the owner's leaves today's
         // reservation (a receipt withdrawal's period is V26's).
-        if by == SendBy::Owner {
+        if by != SendBy::Receipt {
             let p = rolled(&sb, at.bell).map_err(caravan_wrong)?;
             let today = at.bell / permutation_rules::frontier::travel::BELLS_PER_DAY;
-            if (0..RES).any(|r| cargo[r] > p.available(today, r, b[r])) {
+            if by == SendBy::Owner && (0..RES).any(|r| cargo[r] > p.available(today, r, b[r])) {
                 return Err(vault_wrong(
                     "a send took goods reserved for today's receipts",
                 ));
@@ -650,6 +650,21 @@ pub fn judge_send(
             if period_of(&va).map_err(caravan_wrong)? != p {
                 return Err(vault_wrong("the vault's receipts period is not the roll's"));
             }
+        }
+        let sent = u32_at(&sb, VA::SENT).map_err(caravan_wrong)?;
+        if u32_at(&va, VA::SENT).ok() != Some(sent.saturating_add(1)) {
+            return Err(vault_wrong("the vault's sends are not counted"));
+        }
+        // Nothing else of the vault changes (its chain header, stores, sends
+        // and period aside).
+        let touched = |o: usize| {
+            o < 64
+                || (VA::STORES..VA::STORES + 64).contains(&o)
+                || (VA::SENT..VA::SENT + 4).contains(&o)
+                || (VA::CLAIM_DAY..VA::RSV).contains(&o)
+        };
+        if sb.len() != va.len() || (0..sb.len()).any(|o| !touched(o) && sb[o] != va[o]) {
+            return Err(vault_wrong("a send changed more of the vault than its goods"));
         }
     }
     Ok(())
@@ -1175,7 +1190,11 @@ pub fn judge_seize_vault(ix: &crate::world::Ix, s: &dyn States) -> Result<(), Wr
     }
     // S2: the shares (2b) and the receipts' period (2c) of the old
     // generation are gone.
-    if vault_shared(&va) || period_of(&va).map_err(vault_wrong)? != Default::default() {
+    let share_ids = va.get(VA::SHARES_SEQ..VA::SHARES_SEQ + 12);
+    if vault_shared(&va)
+        || share_ids.is_none_or(|b| b.iter().any(|&x| x != 0))
+        || period_of(&va).map_err(vault_wrong)? != Default::default()
+    {
         return Err(vault_wrong("a seizure kept the old generation's tickets"));
     }
     let (cb, ca) = (s.before(&captor), s.after(&captor));

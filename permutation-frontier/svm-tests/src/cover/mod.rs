@@ -18,6 +18,7 @@
 //! | `caravan` (S1 1b: BuildVault, SendCaravan, SettleCaravan, RaidCaravan, SeizeVault, CloseVault, DefaultRaid) | S1 |
 //! | `tower` (S1 1d: BuildStructure, SeizeStructure, CloseStructure) | S1 |
 //! | `ticket` (S2 2a: IssueTickets, GiveLot, CloseLot) | S2 |
+//! | `shares`, `receipts`, `uses` (S2 2b–2d) | S2 |
 //!
 //! **MC (ABI v2, conquest contract §13.3 G13).** [`covered_by`] matches
 //! `frontier_abi::v2::Ix` (57 tags), so the seven MC instructions are in
@@ -57,6 +58,7 @@ pub mod shares;
 pub mod structure;
 pub mod ticket;
 pub mod transit;
+pub mod uses;
 
 /// An outcome a test asserts.
 #[derive(Clone, Copy, Debug)]
@@ -176,6 +178,8 @@ pub fn covered_by(ix: I) -> &'static [Cover] {
         // S2 (2c): receipts
         I::ClaimReceipt => receipts::CLAIM_RECEIPT,
         I::WithdrawReceipt => receipts::WITHDRAW_RECEIPT,
+        // S2 (2d): use runs
+        I::UseRun => uses::USE_RUN,
     }
 }
 

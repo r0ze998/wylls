@@ -103,6 +103,8 @@ pub mod tag {
     // S2 (stage 2c): receipts.
     pub const CLAIM_RECEIPT: u8 = 0xC6;
     pub const WITHDRAW_RECEIPT: u8 = 0xC7;
+    // S2 (stage 2d): use runs.
+    pub const USE_RUN: u8 = 0xC8;
 }
 
 /// Keeper class of an instruction (§5.5, I-21).
@@ -244,7 +246,7 @@ pub const LAYOUT_VERSION_V2: u16 = 2;
 /// lower ones, and lowering a gate is not MC's). The `tx_max` column is
 /// the contract's (§5.4 "Tx B max"); `twin_tests` pins every row to
 /// `frontier_abi::v2::budgets`.
-pub const INSTRUCTIONS_V2: [IxInfo; 81] = [
+pub const INSTRUCTIONS_V2: [IxInfo; 82] = [
     ix(0x01, "CreateSeason", Class::O, 70_000, 1_100, false),
     ix(0x02, "InitShards", Class::O, 45_000, 600, false),
     ix(0x03, "ConsumeGenesisSeed", Class::D, 345_000, 760, true),
@@ -333,6 +335,8 @@ pub const INSTRUCTIONS_V2: [IxInfo; 81] = [
     // S2 (stage 2c): receipts (measured).
     ix(0xC6, "ClaimReceipt", Class::P, 20_000, 600, false),
     ix(0xC7, "WithdrawReceipt", Class::P, 120_000, 1_100, false),
+    // S2 (stage 2d): use runs.
+    ix(0xC8, "UseRun", Class::P, 20_000, 600, false),
 ];
 
 /// The ABI v2 row of `tag`.
@@ -529,7 +533,7 @@ pub const ERRORS: [(u32, &str); 62] = [
 
 /// ABI v2 error codes (MC contract §5.3), stable forever; disjoint from
 /// [`ERRORS`].
-pub const ERRORS_V2: [(u32, &str); 37] = [
+pub const ERRORS_V2: [(u32, &str); 38] = [
     (62, "CapturePending"),
     (63, "Immune"),
     (64, "SiegeBusy"),
@@ -573,6 +577,8 @@ pub const ERRORS_V2: [(u32, &str); 37] = [
     (97, "VaultShared"),
     // S2 (stage 2c)
     (98, "ReceiptState"),
+    // S2 (stage 2d; 99 is M1's NotImplemented)
+    (100, "UseLimit"),
 ];
 
 /// The name of a program error code of either ABI (the code spaces are
@@ -804,9 +810,11 @@ pub mod kind {
     // S2 (stage 2c): kinds 109–110.
     pub const RECEIPT_CLAIMED: u8 = 109;
     pub const RECEIPT_WITHDRAWN: u8 = 110;
+    // S2 (stage 2d): kind 111.
+    pub const USE_RUN: u8 = 111;
 
     /// (kind, name) of every MC and S1 record kind.
-    pub const ALL_V2: [(u8, &str); 30] = [
+    pub const ALL_V2: [(u8, &str); 31] = [
         (SIEGE_DECLARED, "SIEGE_DECLARED"),
         (SIEGE_SETTLED, "SIEGE_SETTLED"),
         (CONQUEST, "CONQUEST"),
@@ -837,6 +845,7 @@ pub mod kind {
         (SHARES_WITHDRAWN, "SHARES_WITHDRAWN"),
         (RECEIPT_CLAIMED, "RECEIPT_CLAIMED"),
         (RECEIPT_WITHDRAWN, "RECEIPT_WITHDRAWN"),
+        (USE_RUN, "USE_RUN"),
     ];
 }
 

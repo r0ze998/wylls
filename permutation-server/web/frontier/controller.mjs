@@ -38,7 +38,7 @@ import { emit as fxEmit } from './fx/bus.mjs';
 import { reachOrigins } from './screens/conquest.mjs';
 import { s1On, s2On } from './fs1.mjs';
 import { fastestPath, pack, landsWanted, landOfProvince, CARAVAN_FEE } from './fcaravan.mjs';
-import { raidOffers, s1VillageModel, s2SharesModel, s2ReceiptsModel, KIND, PROPOSE_STANCE } from './screens/s1.mjs';
+import { raidOffers, s1VillageModel, s2SharesModel, s2ReceiptsModel, s2UsesModel, KIND, PROPOSE_STANCE } from './screens/s1.mjs';
 import { placeData, raidProvinces, cargoBytes, RAID_CHOICE } from './fplay.mjs';
 import { cachedReach, reachKey, reachableKeeps } from './fkeepreach.mjs';
 import * as fprize from './fprize.mjs';
@@ -1514,6 +1514,15 @@ async function s2WithdrawReceipt(i) {
     order: orderOf('s2-withdraw', 'WithdrawReceipt', { say: () => L`受け取りの荷が村へ向かいました` }) });
 }
 
+/** S2 (2d) UseRun: `runs` workshop-hours of the viewer's use lot `i` in its own vault. */
+function s2UseRun(i, runs) {
+  const l = s2UsesModel(FS).lots[i];
+  if (!l || !l.canRun) return s1Refused(L`この札は今は使えません（今日の回数を使い切ったか、工房の州に貯蔵庫がありません）`);
+  if (!(runs >= 1) || runs > Math.min(255, l.runsLeft)) return s1Refused(L`回数は 1 から ${fmtNum(Math.min(255, l.runsLeft))} です`);
+  return act('UseRun', { v: { lot: { tag: BigInt(l.key[0]), seq: l.key[1] }, issue: { tag: BigInt(l.issuerTag), seq: l.issueSeq }, workshop: l.workshop, vault: l.vault },
+    fields: { runs }, say: () => L`貯蔵庫で武具を ${fmtNum(runs * 4)} 作りました` });
+}
+
 export const ACTIONS = {
   'cq-refresh': () => refreshConquest(),
   's2-claim': d => s2Claim(num(d.i)),
@@ -1749,6 +1758,7 @@ export const FORMS = {
   's2-issue-receipt': f => s2IssueReceipt({ p: Math.trunc(formNum(f, 'p')), q: Math.trunc(formNum(f, 'q')), tile: Math.trunc(formNum(f, 'tile')) },
     Math.trunc(formNum(f, 'resource')), Math.trunc(formNum(f, 'amount')), Math.trunc(formNum(f, 'perUnit'))),
   's2-withdraw': f => s2Withdraw(Math.trunc(formNum(f, 'lot')), Math.trunc(formNum(f, 'amount'))),
+  's2-use-run': f => s2UseRun(Math.trunc(formNum(f, 'lot')), Math.trunc(formNum(f, 'runs'))),
   's1-caravan': f => s1Caravan(Math.trunc(formNum(f, 'dst')), Array.from({ length: 8 }, (_, i) => Math.max(0, Math.trunc(formNum(f, `c${i}`) || 0)))),
   's1-fort': f => {
     const h = activeHolding(FS), troops = Math.trunc(formNum(f, 'troops')), tile = Math.trunc(formNum(f, 'tile'));

@@ -1133,6 +1133,23 @@ fn caravan_holding_write(
                 ),
             ));
         }
+        if tag == Some(V2::UseRun.tag()) && ix.key(6).as_ref() == Some(k) {
+            // S2 2d: a use run counts the workshop's runs of the day and
+            // nothing else of the holding (V26 judges the count).
+            let mut d = before.to_vec();
+            use frontier_abi::v2::layout::player::holding as H2;
+            let span = H2::USE_DAY..H2::USE_RUNS + 2;
+            return Some((
+                "a UseRun's workshop (its runs of the day)",
+                match w.state_after(k, t).and_then(|a| a.get(span.clone())) {
+                    Some(b) => {
+                        d[span].copy_from_slice(b);
+                        Ok(d)
+                    }
+                    None => Err("no state of the workshop after the run".into()),
+                },
+            ));
+        }
         if tag == Some(V2::SendCaravan.tag()) && ix.key(4).as_ref() == Some(k) {
             let cargo = ix2::SendCaravan::decode(&ix.data)
                 .ok()

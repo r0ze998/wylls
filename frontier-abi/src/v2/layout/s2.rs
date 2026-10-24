@@ -21,7 +21,11 @@ pub mod issue {
         PER_UNIT @ 128 : "u64" = 8;
         UNTIL_DAY @ 136 : "u32" = 4;
         CREATED_BELL @ 140 : "u32" = 4;
-        PERIOD @ 144 : "rsv" = 48;
+        // The source's stamp when issued (a vault's BUILT_TS, a holding's
+        // FOUNDED_TS): a source rebuilt at the same place and generation is
+        // another source (its tickets stay void).
+        SRC_STAMP @ 144 : "i64" = 8;
+        PERIOD @ 152 : "rsv" = 40;
         RENT_TO @ 192 : "[u8;32]" = 32;
         RSV @ 224 : "rsv" = 32;
     );

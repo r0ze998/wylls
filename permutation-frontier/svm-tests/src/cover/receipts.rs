@@ -13,6 +13,14 @@ pub const CLAIM_RECEIPT: &[Cover] = &[
         "receipts::g13_s2_receipts_gifts_and_seizure",
         &[CqErr(Cq::TicketVoid)],
     ),
+    Cover::Test(
+        "receipts::g13_s2_receipts_die_with_a_closed_vault",
+        &[CqErr(Cq::TicketVoid)],
+    ),
+    Cover::Test(
+        "receipts::g13_s2_receipts_and_shares_exclude",
+        &[CqErr(Cq::VaultShared)],
+    ),
 ];
 
 pub const WITHDRAW_RECEIPT: &[Cover] = &[

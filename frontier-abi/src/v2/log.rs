@@ -158,6 +158,7 @@ cq_kinds! {
     SHARES_WITHDRAWN = 108; key ["issuer_tag": 8, "seq": 4]; payload ["holder_tag": 8, "lot_tag": 8, "lot_seq": 4, "amount": 8, "supply": 8, "caravan_seq": 4];
     RECEIPT_CLAIMED = 109; key ["issuer_tag": 8, "seq": 4]; payload ["holder_tag": 8, "lot_tag": 8, "lot_seq": 4, "day": 4, "claim": 8, "claims": 8, "src": 8];
     RECEIPT_WITHDRAWN = 110; key ["issuer_tag": 8, "seq": 4]; payload ["holder_tag": 8, "lot_tag": 8, "lot_seq": 4, "day": 4, "claim": 8, "ratio_ppm": 4, "grant": 8, "caravan_seq": 4];
+    USE_RUN = 111; key ["issuer_tag": 8, "seq": 4]; payload ["holder_tag": 8, "lot_tag": 8, "lot_seq": 4, "day": 4, "runs": 1, "lot_runs": 2, "holding_runs": 2, "holding_key": 8, "src": 8];
 }
 
 /// S1 caravan places as logged (8 B): `kind u8 ‖ p i16 ‖ q i16 ‖
@@ -917,6 +918,24 @@ pub fn chains_of(kind: AnyKind, key: &[u8], payload: &[u8]) -> Option<Chains> {
             );
             place_link(&mut c, pay("src")?)?;
         }
+        // S2 (2d): the lot, the workshop's holding (its day's runs) and the
+        // user's vault.
+        CqKind::USE_RUN => {
+            c.push(
+                E::Lot,
+                Lot {
+                    tag: rd_u64(pay("lot_tag")?, 0)?,
+                    seq: rd_u32(pay("lot_seq")?, 0)?,
+                },
+                false,
+            );
+            c.push(
+                E::Holding,
+                Base(holding_of_key(rd_u64(pay("holding_key")?, 0)?)?),
+                false,
+            );
+            place_link(&mut c, pay("src")?)?;
+        }
         // The lot (its claim spent; the vault is the same transaction's
         // CARAVAN_SENT).
         CqKind::RECEIPT_WITHDRAWN => {
@@ -1292,7 +1311,7 @@ mod tests {
                 k.body_len()
             );
         }
-        assert_eq!(CQ_SPECS.len(), 30, "MC's 9, S1's 13 and S2's 8");
+        assert_eq!(CQ_SPECS.len(), 31, "MC's 9, S1's 13 and S2's 9");
         assert_eq!(AnyKind::Cq(CqKind::CONQUEST).body_len(), 137);
         assert_eq!(
             AnyKind::Cq(CqKind::CONQUEST).payload_len(),

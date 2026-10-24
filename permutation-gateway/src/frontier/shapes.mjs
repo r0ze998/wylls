@@ -20,7 +20,7 @@
 //   sees the real amount); 2b's OpenShares: rent(Issue) + rent(Lot);
 //   WithdrawShares: a caravan's cost (as SendCaravan); SettleDeposit: rent(Lot)
 //   (the depositor's first deposit creates its lot); 2c's WithdrawReceipt: a
-//   caravan's cost; ClaimReceipt: 0;
+//   caravan's cost; ClaimReceipt: 0; 2d's UseRun: 0;
 // * who is charged: a player shape its citizen, a settle shape its
 //   requester's citizen (the requester signed the request and is, on chain,
 //   that citizen's wallet or unexpired session key), else the client-address

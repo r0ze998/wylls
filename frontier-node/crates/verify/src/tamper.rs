@@ -2556,6 +2556,31 @@ pub fn s2_t65(run: &Input) -> Made {
     })
 }
 
+/// T66: more arms than the runs (V26): the first UseRun's vault left with
+/// one arm more.
+pub fn s2_t66(run: &Input) -> Made {
+    use frontier_abi::v2::layout::s1::vault as VA;
+    let mut inp = run.clone();
+    let tag = frontier_abi::v2::tags::Ix::UseRun.tag();
+    let t = first_with(&inp, tag).need("a UseRun")?;
+    let keys = ix_keys(&inp, t, tag).need("its accounts")?;
+    let vault = *keys.get(7).need("its vault")?;
+    edit_account_at(&mut inp, &vault, t, |d| {
+        let o = VA::store(permutation_rules::frontier::arms::ARMS as usize);
+        let v = i64::from_le_bytes(d[o..o + 8].try_into().unwrap());
+        d[o..o + 8].copy_from_slice(&(v + 1_000).to_le_bytes());
+    })
+    .then_some(())
+    .need("the vault's post-state")?;
+    Ok(Case {
+        class: "T66",
+        what: "more arms than the runs",
+        feature: None,
+        codes: &[TICKET_MISMATCH],
+        input: inp,
+    })
+}
+
 /// The S2 classes (stage 2a, S2-2A-CONTRACT §4.2) an S2 season runs:
 /// extras until an S2 fixture with tickets is committed.
 pub fn s2_classes() -> Vec<Class> {
@@ -2577,6 +2602,8 @@ pub fn s2_classes() -> Vec<Class> {
         // 2c (S2-2C-CONTRACT §6).
         c("T64", vec![("receipt grant above the ratio", s2_t64)]),
         c("T65", vec![("claim counted twice", s2_t65)]),
+        // 2d (S2-2D-CONTRACT §5).
+        c("T66", vec![("more arms than the runs", s2_t66)]),
     ]
 }
 

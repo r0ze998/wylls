@@ -13,6 +13,10 @@ pub const OPEN_SHARES: &[Cover] = &[
         "shares::g13_s2_a_shared_vault_is_the_holders",
         &[CqErr(Cq::VaultShared)],
     ),
+    Cover::Test(
+        "receipts::g13_s2_receipts_and_shares_exclude",
+        &[Lands("OpenShares"), CqErr(Cq::ReceiptState)],
+    ),
 ];
 
 pub const WITHDRAW_SHARES: &[Cover] = &[

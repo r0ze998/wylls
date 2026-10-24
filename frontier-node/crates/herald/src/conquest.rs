@@ -796,7 +796,8 @@ fn fold_record(
         | CqKind::SHARES_DEPOSITED
         | CqKind::SHARES_WITHDRAWN
         | CqKind::RECEIPT_CLAIMED
-        | CqKind::RECEIPT_WITHDRAWN => {}
+        | CqKind::RECEIPT_WITHDRAWN
+        | CqKind::USE_RUN => {}
     }
 }
 

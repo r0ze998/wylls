@@ -1310,6 +1310,22 @@
       "loaded_limit": 1507328,
       "loaded_limit_s1": 1998848,
       "cu_limit_s1": 120000
+    },
+    {
+      "name": "UseRun",
+      "tag": 200,
+      "cu_budget": 20000,
+      "cu_per_unit": 0,
+      "cu_limit": 20000,
+      "measured": 0,
+      "tx_contract": 600,
+      "tx_ceiling": 600,
+      "tx_worst_estimate": 527,
+      "accounts": [8, 8],
+      "loaded_need_placeholder": 1480081,
+      "loaded_limit": 1507328,
+      "loaded_limit_s1": 1998848,
+      "cu_limit_s1": 20000
     }
   ]
 }

@@ -1695,3 +1695,25 @@ pub fn withdraw_receipt(a: &Addresses, p: &Player, x: &WithdrawReceiptArgs) -> I
     };
     build(a, m, data.to_bytes().to_vec())
 }
+
+/// 0xC8 UseRun (P, S2 2d): P + `[lot w] [issue r] [holding w] [vault w]`:
+/// `runs` workshop-hours of the use lot in the citizen's vault `vault`
+/// (in the workshop holding's Province).
+pub fn use_run(
+    a: &Addresses,
+    p: &Player,
+    lot: Address,
+    issue: (u64, u32),
+    workshop: HoldingRef,
+    vault: (i16, i16, u8),
+    runs: u8,
+) -> Instruction {
+    let mut m = prologue(a, p);
+    m.extend([
+        w(lot),
+        r(a.issue(issue.0, issue.1)),
+        w(workshop.address(a)),
+        w(a.vault(vault.0 as i32, vault.1 as i32, vault.2)),
+    ]);
+    build(a, m, d2::UseRun { runs }.to_bytes().to_vec())
+}

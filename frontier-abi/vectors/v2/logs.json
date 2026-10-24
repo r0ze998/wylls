@@ -1974,6 +1974,66 @@
           }
         ]
       }
+    },
+    {
+      "kind": 111,
+      "name": "USE_RUN",
+      "key": [
+        {
+          "name": "issuer_tag",
+          "len": 8
+        },
+        {
+          "name": "seq",
+          "len": 4
+        }
+      ],
+      "payload": [
+        {
+          "name": "holder_tag",
+          "len": 8
+        },
+        {
+          "name": "lot_tag",
+          "len": 8
+        },
+        {
+          "name": "lot_seq",
+          "len": 4
+        },
+        {
+          "name": "day",
+          "len": 4
+        },
+        {
+          "name": "runs",
+          "len": 1
+        },
+        {
+          "name": "lot_runs",
+          "len": 2
+        },
+        {
+          "name": "holding_runs",
+          "len": 2
+        },
+        {
+          "name": "holding_key",
+          "len": 8
+        },
+        {
+          "name": "src",
+          "len": 8
+        }
+      ],
+      "body_without_tail_len": 63,
+      "vector": {
+        "bell": 2111,
+        "body_without_tail": "016f3f080000213e5b7895b2cfec213e5b786b88a5c2dffc19366b88a5c2dffc19366b88a5c26b88a5c26b6b886b886b88a5c2dffc19366b88a5c2dffc1936",
+        "body": "016f3f080000213e5b7895b2cfec213e5b786b88a5c2dffc19366b88a5c2dffc19366b88a5c26b88a5c26b6b886b886b88a5c2dffc19366b88a5c2dffc193600",
+        "decodes": true,
+        "chains": []
+      }
     }
   ],
   "reserved_kind": 89,

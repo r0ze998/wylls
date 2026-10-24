@@ -230,6 +230,8 @@ pub fn dispatch(
         // S2 (stage 2c): receipts.
         Ix::ClaimReceipt => ticket::claim_receipt(p, a, data),
         Ix::WithdrawReceipt => ticket::withdraw_receipt(p, a, data),
+        // S2 (stage 2d): use runs.
+        Ix::UseRun => ticket::use_run(p, a, data),
     };
     heap::trace_checkpoint(0xffff);
     r

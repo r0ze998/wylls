@@ -96,10 +96,13 @@ pub enum CqError {
     /// S2 (2c): a receipt claim already made today, nothing to withdraw, or
     /// yesterday's claim not yet withdrawn.
     ReceiptState = 98,
+    /// S2 (2d): the use lot's or the workshop's runs for today are used up,
+    /// or the holding has no workshop (99 is M1's NotImplemented).
+    UseLimit = 100,
 }
 
 impl CqError {
-    pub const ALL: [CqError; 37] = {
+    pub const ALL: [CqError; 38] = {
         use CqError::*;
         [
             CapturePending,
@@ -139,6 +142,7 @@ impl CqError {
             TicketTerms,
             VaultShared,
             ReceiptState,
+            UseLimit,
         ]
     };
 
@@ -190,6 +194,7 @@ impl CqError {
             TicketTerms => "TicketTerms",
             VaultShared => "VaultShared",
             ReceiptState => "ReceiptState",
+            UseLimit => "UseLimit",
         }
     }
 
@@ -250,12 +255,16 @@ impl Code {
 /// Every v2 code in code order (M1's 1–61, MC's 62–78, S1's 79–90,
 /// then 99).
 pub fn all_codes() -> impl Iterator<Item = Code> {
+    // In code order: M1's below 99, MC's and S1's/S2's below 99, M1's 99
+    // (NotImplemented), then S2's from 100.
     let v1 = FrontierError::ALL.iter().copied();
+    let cq = CqError::ALL.iter().copied();
     v1.clone()
         .filter(|e| e.code() < 99)
         .map(Code::V1)
-        .chain(CqError::ALL.iter().copied().map(Code::Cq))
+        .chain(cq.clone().filter(|e| e.code() < 99).map(Code::Cq))
         .chain(v1.filter(|e| e.code() >= 99).map(Code::V1))
+        .chain(cq.filter(|e| e.code() >= 99).map(Code::Cq))
 }
 
 #[cfg(test)]
@@ -277,6 +286,10 @@ mod tests {
     fn codes_are_the_contract_table() {
         let mut expect = 62u32;
         for e in CqError::ALL {
+            // 99 is M1's NotImplemented: S2's UseLimit is 100.
+            if expect == 99 {
+                expect += 1;
+            }
             assert_eq!(e.code(), expect, "{}", e.name());
             assert_eq!(CqError::from_code(expect), Some(e));
             assert_eq!(FrontierError::from_code(expect), None, "no M1 collision");
@@ -284,7 +297,8 @@ mod tests {
         }
         assert_eq!(CqError::NotLead.code(), 78);
         let all: std::vec::Vec<u32> = all_codes().map(|c| c.code()).collect();
-        assert_eq!(all.len(), 62 + 37);
+        assert_eq!(all.len(), 62 + 38);
+        assert_eq!(CqError::UseLimit.code(), 100);
         assert_eq!(CqError::ReceiptState.code(), 98);
         assert_eq!(CqError::VaultShared.code(), 97);
         assert_eq!(CqError::TicketTerms.code(), 96);
@@ -294,7 +308,7 @@ mod tests {
         assert!(all.windows(2).all(|w| w[0] < w[1]), "code order");
         assert_eq!(all[60], 61);
         assert_eq!(all[61], 62);
-        assert_eq!(*all.last().unwrap(), 99);
+        assert_eq!(*all.last().unwrap(), 100);
         assert_eq!(Code::from_code(66), Some(Code::Cq(CqError::SiegeCap)));
         assert_eq!(
             Code::from_code(52),

@@ -380,6 +380,127 @@ fn g13_s2_receipts_gifts_and_seizure() {
     assert_cq(claim(&mut k, &a, la), Cq::TicketVoid);
 }
 
+fn rent_of(c: &Chain, key: &Address, at: usize) -> Address {
+    Address::new_from_array(c.data(key)[at..at + 32].try_into().unwrap())
+}
+
+/// A vault closed and built again on its tile is another source: the old
+/// receipts stay void though the generation is the same (the stamp).
+#[test]
+fn g13_s2_receipts_die_with_a_closed_vault() {
+    let mut k = Cast::new();
+    issue_receipt(&mut k, 4, 10_000);
+    let a = clone_estate(&k.a);
+    let la = lot(&k, 0);
+    let vr = rent_of(&k.c, &k.vault(), VA::RENT_TO);
+    let ix = fx::close_vault(&k.w.a, &a.player(), (a.p, a.q, k.vt), vr);
+    expect_lands(
+        s2_send(&mut k.c, I2::CloseVault, ix, &[&a.wallet]),
+        "CloseVault",
+    );
+    assert_cq(claim(&mut k, &a, la), Cq::TicketVoid);
+    next_day(&mut k);
+    let ix = fx::build_vault(&k.w.a, &a.player(), a.href(), (a.p, a.q), k.vt);
+    expect_lands(
+        s2_send(&mut k.c, I2::BuildVault, ix, &[&a.wallet]),
+        "BuildVault again",
+    );
+    assert_eq!(k.c.data(&k.vault())[VA::GEN], 1);
+    k.set_store(ORE, 100);
+    assert_cq(claim(&mut k, &a, la), Cq::TicketVoid);
+}
+
+/// Receipts and shares never share a vault: no opening while a claim or a
+/// grant is outstanding, and no claim once shared.
+#[test]
+fn g13_s2_receipts_and_shares_exclude() {
+    let mut k = Cast::new();
+    issue_receipt(&mut k, 4, 10_000);
+    let a = clone_estate(&k.a);
+    let la = lot(&k, 0);
+    let open = |k: &mut Cast| {
+        let seq = u32_at(&k.c.data(&a.citizen), C::ISSUES);
+        let ix = fx::open_shares(
+            &k.w.a,
+            &a.player(),
+            a.href(),
+            (a.p, a.q, k.vt),
+            a.citizen_tag(),
+            seq,
+        );
+        s2_send(&mut k.c, I2::OpenShares, ix, &[&a.wallet])
+    };
+    expect_lands(claim(&mut k, &a, la), "ClaimReceipt");
+    assert_cq(open(&mut k), Cq::ReceiptState);
+    // The empty vault grants nothing at the boundary: nothing is pending.
+    next_day(&mut k);
+    expect_lands(open(&mut k), "OpenShares");
+    assert_cq(claim(&mut k, &a, la), Cq::VaultShared);
+}
+
+/// A void issue closed by its issuer leaves its lots to close alone, units
+/// and all.
+#[test]
+fn g13_s2_orphan_lots_close() {
+    let mut k = Cast::new();
+    k.set_store(ORE, 100);
+    issue_receipt(&mut k, 4, 10_000);
+    let (a, r) = (clone_estate(&k.a), clone_estate(&k.r));
+    let (la, lr) = (lot(&k, 0), lot(&k, 1));
+    expect_lands(give(&mut k, la, lr, 1), "GiveLot");
+    let province = a.province;
+    k.w.craft_host(&mut k.c, &r, &province, 0, 0, 0, 500, k.vt);
+    let ix = fx::seize_vault(
+        &k.w.a,
+        &r.player(),
+        (a.p, a.q, k.vt),
+        r.href(),
+        a.citizen,
+        0,
+    );
+    expect_lands(
+        s2_send(&mut k.c, I2::SeizeVault, ix, &[&r.wallet]),
+        "SeizeVault",
+    );
+    let src = TicketSource::Vault {
+        p: a.p,
+        q: a.q,
+        tile: k.vt,
+    };
+    let issue = k.w.a.issue(k.tag(), 0);
+    let issue_rent = rent_of(&k.c, &issue, frontier_abi::v2::layout::s2::issue::RENT_TO);
+    let ix = fx::close_lot(&k.w.a, &a.player(), (k.tag(), 0), src, issue_rent, None, true);
+    expect_lands(
+        s2_send(&mut k.c, I2::CloseLot, ix, &[&a.wallet]),
+        "CloseLot (the void issue)",
+    );
+    assert!(k.c.account(&issue).is_none_or(|x| x.lamports == 0));
+    for (e, l) in [(&r, lr), (&a, la)] {
+        let ix = fx::close_lot(
+            &k.w.a,
+            &e.player(),
+            (k.tag(), 0),
+            src,
+            issue_rent,
+            Some((l, rent_of(&k.c, &l, LT::RENT_TO))),
+            false,
+        );
+        let landed = expect_lands(
+            s2_send(&mut k.c, I2::CloseLot, ix, &[&e.wallet]),
+            "CloseLot (an orphan lot)",
+        );
+        match event(&landed, CqKind::LOT_CLOSED) {
+            fclient::conquest::CqEvent::LotClosed {
+                void,
+                lot_closed,
+                issue_closed,
+                ..
+            } => assert!(void && lot_closed && issue_closed),
+            e => panic!("{e:?}"),
+        }
+    }
+}
+
 fn clone_estate(e: &Estate) -> Estate {
     Estate {
         wallet: e.wallet.insecure_clone(),

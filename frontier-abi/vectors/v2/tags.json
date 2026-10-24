@@ -6230,6 +6230,85 @@
           ]
         }
       ]
+    },
+    {
+      "name": "UseRun",
+      "tag": 200,
+      "class": "P",
+      "new_in_v2": true,
+      "changed_in_v2": false,
+      "top_level_only": false,
+      "relay_player_shape": true,
+      "relay_settle_shape": false,
+      "data_len": [2, 2],
+      "data": [
+        {
+          "name": "runs",
+          "len": 1
+        }
+      ],
+      "account_groups": [
+        {
+          "min": 1,
+          "max": 1,
+          "accounts": [
+            {
+              "name": "actor",
+              "kind": "wallet",
+              "signer": true,
+              "writable": "r"
+            },
+            {
+              "name": "payer",
+              "kind": "wallet",
+              "signer": true,
+              "writable": "w"
+            },
+            {
+              "name": "season",
+              "kind": "Season",
+              "signer": false,
+              "writable": "r"
+            },
+            {
+              "name": "citizen",
+              "kind": "Citizen",
+              "signer": false,
+              "writable": "w"
+            }
+          ]
+        },
+        {
+          "min": 1,
+          "max": 1,
+          "accounts": [
+            {
+              "name": "lot",
+              "kind": "Lot",
+              "signer": false,
+              "writable": "w"
+            },
+            {
+              "name": "issue",
+              "kind": "Issue",
+              "signer": false,
+              "writable": "r"
+            },
+            {
+              "name": "holding",
+              "kind": "Holding",
+              "signer": false,
+              "writable": "w"
+            },
+            {
+              "name": "vault",
+              "kind": "Vault",
+              "signer": false,
+              "writable": "w"
+            }
+          ]
+        }
+      ]
     }
   ],
   "reserved_tags": [
@@ -6262,7 +6341,6 @@
     174,
     175,
     191,
-    200,
     201,
     202,
     203,

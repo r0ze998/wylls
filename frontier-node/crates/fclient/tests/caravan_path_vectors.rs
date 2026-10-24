@@ -363,6 +363,7 @@ fn s2_ticket_vectors() {
                 fee: 50_000,
                 provinces: vec![(4, -2), (3, -1)],
             })),
+            ix_json("UseRun", &v2::use_run(&a, &p, a.lot(me, 3), (me, 1), h, (3, -1, 20), 2)),
         ],
         "depositLot": a.deposit_lot(me, me, 2).to_string(),
     });

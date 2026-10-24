@@ -21,7 +21,9 @@
 //! tickets are void"). Closed lots and issues leave the feed. Receipts (2c):
 //! a lot's `claimDay` and `claim` (milli still to withdraw; null before its
 //! first claim) follow RECEIPT_CLAIMED and RECEIPT_WITHDRAWN, an issue's
-//! `ratioPpm` and `ratioDay` its last withdrawal. Share issues
+//! `ratioPpm` and `ratioDay` its last withdrawal; a use lot's `runDay` and
+//! `runs` (2d) its runs of its last run day (USE_RUN; a gift moves used
+//! runs with the units, as the program does). Share issues
 //! (2b, kind 1) follow SHARES_OPENED, SHARES_DEPOSITED (a holder's deposit
 //! lot, created at its first deposit) and SHARES_WITHDRAWN.
 
@@ -48,6 +50,8 @@ pub struct IssueRow {
 pub struct LotRow {
     /// 2c: the day of the lot's last claim and its milli still to withdraw.
     pub claim: Option<(u32, u64)>,
+    /// 2d: the day of the lot's last use run and its runs used that day.
+    pub runs: Option<(u32, u64)>,
     pub issuer_tag: u64,
     pub issue_seq: u32,
     pub holder_tag: u64,
@@ -116,6 +120,7 @@ impl Tickets {
                     (issuer_tag, lot_seq),
                     LotRow {
                         claim: None,
+                        runs: None,
                         issuer_tag,
                         issue_seq: seq,
                         holder_tag: issuer_tag,
@@ -138,19 +143,38 @@ impl Tickets {
                         l.holder_tag = recipient_tag;
                     }
                 } else {
+                    // 2c: units of a lot that claimed carry its claim day
+                    // (nothing to withdraw), so a split-off lot of today's
+                    // claimant reads "claimed today" as the program has it.
+                    // 2d: runs used on the lot's last run day travel with
+                    // the units, as many as they carry (the program's rule
+                    // for today; an older day's runs are spent anyway).
+                    let per_unit = self.issues.get(&(issuer_tag, seq)).map_or(0, |i| i.per_unit);
+                    let (mut day, mut moved) = (None, None);
                     if let Some(l) = self.lots.get_mut(&from) {
                         l.amount = l.amount.saturating_sub(amount);
+                        day = l.claim.map(|c| (c.0, 0));
+                        if let Some((d, used)) = l.runs {
+                            let m = used.min(amount.saturating_mul(per_unit));
+                            l.runs = Some((d, used - m));
+                            moved = Some((d, m));
+                        }
                     }
-                    self.lots
-                        .entry(to)
-                        .or_insert(LotRow {
-                            claim: None,
-                            issuer_tag,
-                            issue_seq: seq,
-                            holder_tag: recipient_tag,
-                            amount: 0,
-                        })
-                        .amount += amount;
+                    let row = self.lots.entry(to).or_insert(LotRow {
+                        claim: day,
+                        runs: None,
+                        issuer_tag,
+                        issue_seq: seq,
+                        holder_tag: recipient_tag,
+                        amount: 0,
+                    });
+                    row.amount += amount;
+                    if let Some((d, m)) = moved.filter(|&(_, m)| m > 0) {
+                        row.runs = Some(match row.runs {
+                            Some((rd, ru)) if rd == d => (d, ru + m),
+                            _ => (d, m),
+                        });
+                    }
                 }
             }
             CqEvent::LotClosed {
@@ -198,6 +222,7 @@ impl Tickets {
                     (issuer_tag, lot_seq),
                     LotRow {
                         claim: None,
+                        runs: None,
                         issuer_tag,
                         issue_seq: seq,
                         holder_tag: issuer_tag,
@@ -216,6 +241,7 @@ impl Tickets {
             } => {
                 let l = self.lots.entry((holder_tag, lot_seq)).or_insert(LotRow {
                     claim: None,
+                        runs: None,
                     issuer_tag,
                     issue_seq: seq,
                     holder_tag,
@@ -280,6 +306,14 @@ impl Tickets {
                 new_gen,
                 ..
             } => return self.regen(SRC_HOLDING, p, q, site, new_gen),
+            // 2d: a lot's runs of the day.
+            CqEvent::UseRun {
+                lot, day, lot_runs, ..
+            } => {
+                if let Some(l) = self.lots.get_mut(&lot) {
+                    l.runs = Some((day, lot_runs as u64));
+                }
+            }
             _ => return false,
         }
         self.dirty = true;
@@ -326,7 +360,8 @@ impl Tickets {
                 json!({"key": [tag.to_string(), seq], "issuerTag": l.issuer_tag.to_string(),
                     "issueSeq": l.issue_seq, "holderTag": l.holder_tag.to_string(),
                     "amount": l.amount, "state": STATE_LIVE, "void": self.lot_void(l),
-                    "claimDay": l.claim.map(|c| c.0), "claim": l.claim.map(|c| c.1)})
+                    "claimDay": l.claim.map(|c| c.0), "claim": l.claim.map(|c| c.1),
+                    "runDay": l.runs.map(|r| r.0), "runs": l.runs.map(|r| r.1)})
             })
             .collect();
         json!({"v": 1, "issues": issues, "lots": lots})
@@ -365,6 +400,10 @@ impl Tickets {
                 LotRow {
                     claim: match (x["claimDay"].as_u64(), x["claim"].as_u64()) {
                         (Some(d), Some(c)) => Some((d as u32, c)),
+                        _ => None,
+                    },
+                    runs: match (x["runDay"].as_u64(), x["runs"].as_u64()) {
+                        (Some(d), Some(r)) => Some((d as u32, r)),
                         _ => None,
                     },
                     issuer_tag: tag_of(&x["issuerTag"])?,
@@ -555,4 +594,35 @@ mod tests {
         back.dirty = t.dirty;
         assert_eq!(back, t);
     }
+
+    /// 2d: a use lot's runs, and a gift that carries used runs.
+    #[test]
+    fn use_runs_fold() {
+        let mut t = Tickets::default();
+        t.fold(&issued());
+        t.issues.get_mut(&(11, 0)).unwrap().per_unit = 2;
+        assert!(t.fold(&CqEvent::UseRun {
+            issuer_tag: 11,
+            seq: 0,
+            holder_tag: 11,
+            lot: (11, 0),
+            day: 4,
+            runs: 5,
+            lot_runs: 5,
+            holding_runs: 5,
+            holding_key: 0,
+            src: vault_src(1),
+        }));
+        assert_eq!(t.lots[&(11, 0)].runs, Some((4, 5)));
+        // 2 units carry 4 of the 5 used runs.
+        t.fold(&moved((22, 0), 2, false));
+        assert_eq!(t.lots[&(11, 0)].runs, Some((4, 1)));
+        assert_eq!(t.lots[&(22, 0)].runs, Some((4, 4)));
+        let f = t.file();
+        assert_eq!(f["lots"][1]["runs"], json!(4));
+        let mut back = Tickets::from_json(&t.to_json()).unwrap();
+        back.dirty = t.dirty;
+        assert_eq!(back, t);
+    }
+
 }

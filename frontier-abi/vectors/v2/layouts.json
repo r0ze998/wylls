@@ -1488,10 +1488,16 @@
           "ty": "u32"
         },
         {
-          "name": "RSV_700",
+          "name": "USE_DAY",
           "off": 700,
-          "len": 4,
-          "ty": "rsv"
+          "len": 2,
+          "ty": "u16"
+        },
+        {
+          "name": "USE_RUNS",
+          "off": 702,
+          "len": 2,
+          "ty": "u16"
         },
         {
           "name": "WALLS_COMMITTED_BEFORE",
@@ -3434,9 +3440,15 @@
           "ty": "u32"
         },
         {
-          "name": "PERIOD",
+          "name": "SRC_STAMP",
           "off": 144,
-          "len": 48,
+          "len": 8,
+          "ty": "i64"
+        },
+        {
+          "name": "PERIOD",
+          "off": 152,
+          "len": 40,
           "ty": "rsv"
         },
         {

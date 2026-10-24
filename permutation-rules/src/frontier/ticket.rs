@@ -19,8 +19,25 @@ use crate::frontier::holding::RESOURCES;
 
 /// Version of this module's rules (bound into `RULESET_HASH_V4`): 2 adds
 /// the share rules of 2b ([`minted`], [`basket`]), 3 the receipts' period of
-/// 2c ([`Period`], [`grant`]).
-pub const TICKET_VERSION: u16 = 3;
+/// 2c ([`Period`], [`grant`]), 4 the use runs of 2d ([`run_change`]).
+pub const TICKET_VERSION: u16 = 4;
+
+/// Runs a day per workshop copy (2d, L4): its hours.
+pub const RUNS_PER_COPY: u32 = 24;
+
+/// What `runs` use runs take and make (milli, 2d, L4): one workshop-hour
+/// each (`arms::WORKSHOP_*_PER_HOUR`): `(ore, wood, arms)`.
+pub fn run_change(runs: u32) -> (i64, i64, i64) {
+    use crate::frontier::arms::{
+        WORKSHOP_ARMS_PER_HOUR, WORKSHOP_ORE_PER_HOUR, WORKSHOP_WOOD_PER_HOUR,
+    };
+    let n = runs as i64 * 1_000;
+    (
+        n * WORKSHOP_ORE_PER_HOUR,
+        n * WORKSHOP_WOOD_PER_HOUR,
+        n * WORKSHOP_ARMS_PER_HOUR,
+    )
+}
 
 /// A receipt grant's ratio of one (parts per million, 2c).
 pub const RATIO_ONE: u32 = 1_000_000;
@@ -117,26 +134,28 @@ pub const fn valid(ticket_gen: u8, source_gen: u8, source_live: bool) -> bool {
     source_live && ticket_gen == source_gen
 }
 
-/// A vault's value in share value units: Σ stores (milli) / 1000 ×
-/// [`SHARE_VALUE`] (2b).
+/// A vault's value in milli share-value units: Σ stores (milli) ×
+/// [`SHARE_VALUE`] (2b). Exact, so no fraction of a store rounds a deposit
+/// up (an opening's units are its whole value units, `value / 1000`).
 pub fn value_of(stores: &[Milli; RESOURCES]) -> u128 {
     stores
         .iter()
         .zip(SHARE_VALUE.iter())
-        .map(|(&s, &v)| (s.max(0) as u128 / 1_000) * v as u128)
+        .map(|(&s, &v)| s.max(0) as u128 * v as u128)
         .sum()
 }
 
 /// Units a deposit mints into a share issue (2b, `S2-2B-CONTRACT.md` §1):
-/// `dv` the value the credit added, `supply` the units outstanding and `v0`
-/// the vault's value before the credit. With no units out the depositor
-/// takes the vault (`dv + v0`); units of an empty vault are worth nothing
-/// against a deposit (`dv × supply`). Saturates at `u64::MAX`.
+/// `dv` the (milli) value the credit added, `supply` the units outstanding
+/// and `v0` the vault's (milli) value before the credit. With no units out
+/// the depositor takes the vault (`(dv + v0) / 1000`); units of an empty
+/// vault are worth nothing against a deposit (`dv / 1000 × supply`).
+/// Saturates at `u64::MAX`.
 pub fn minted(dv: u128, supply: u64, v0: u128) -> u64 {
     let m = if supply == 0 {
-        dv.saturating_add(v0)
+        dv.saturating_add(v0) / 1_000
     } else if v0 == 0 {
-        dv.saturating_mul(supply as u128)
+        dv.saturating_mul(supply as u128) / 1_000
     } else {
         dv.saturating_mul(supply as u128) / v0
     };
@@ -231,6 +250,11 @@ pub fn write_tables(out: &mut alloc::vec::Vec<u8>) {
     out.push(MAX_OPEN_ISSUES);
     out.extend_from_slice(&MAX_SUPPLY.to_le_bytes());
     out.extend_from_slice(&RATIO_ONE.to_le_bytes());
+    out.extend_from_slice(&RUNS_PER_COPY.to_le_bytes());
+    let (o, w, a) = run_change(1);
+    for v in [o, w, a] {
+        out.extend_from_slice(&v.to_le_bytes());
+    }
     for f in ISSUE_FEE {
         out.extend_from_slice(&f.to_le_bytes());
     }
@@ -299,11 +323,13 @@ mod tests {
 
     #[test]
     fn minting() {
-        assert_eq!(minted(100, 0, 0), 100, "the first deposit");
-        assert_eq!(minted(100, 0, 3), 103, "takes the remainder");
-        assert_eq!(minted(50, 200, 100), 100, "at the vault's price");
-        assert_eq!(minted(1, 3, 2), 1, "rounds down");
-        assert_eq!(minted(10, 7, 0), 70, "units of an empty vault");
+        assert_eq!(minted(100_000, 0, 0), 100, "the first deposit");
+        assert_eq!(minted(100_000, 0, 3_000), 103, "takes the remainder");
+        assert_eq!(minted(50_000, 200, 100_000), 100, "at the vault's price");
+        assert_eq!(minted(1_000, 3, 2_000), 1, "rounds down");
+        assert_eq!(minted(10_000, 7, 0), 70, "units of an empty vault");
+        // A milli of ore crossing a whole unit adds 2 milli of value, not 2.
+        assert_eq!(minted(2, 100, 200_000), 0, "no rounding gain");
         assert_eq!(minted(u128::MAX / 2, u64::MAX, 1), u64::MAX);
     }
 
@@ -349,6 +375,12 @@ mod tests {
     }
 
     #[test]
+    fn a_run_is_a_workshop_hour() {
+        assert_eq!(run_change(1), (8_000, 4_000, 4_000));
+        assert_eq!(run_change(3), (24_000, 12_000, 12_000));
+    }
+
+    #[test]
     fn grants_are_whole_units() {
         assert_eq!(grant(20_000, RATIO_ONE), 20_000);
         assert_eq!(grant(1_999, RATIO_ONE), 1_000);
@@ -360,8 +392,8 @@ mod tests {
     fn a_vaults_value() {
         let mut s = [0i64; RESOURCES];
         s[1] = 100_000; // 100 wood
-        s[3] = 50_500; // 50.5 ore: whole units count
+        s[3] = 50_500; // 50.5 ore: every milli counts
         s[6] = 9_000_000; // science is no good
-        assert_eq!(value_of(&s), 100 + 50 * 2);
+        assert_eq!(value_of(&s), 100_000 + 50_500 * 2);
     }
 }

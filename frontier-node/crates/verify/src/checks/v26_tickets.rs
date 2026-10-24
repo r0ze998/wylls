@@ -85,6 +85,9 @@ struct Issue {
     per_unit: u64,
     until_day: u32,
     created_bell: u32,
+    /// The source's stamp when issued (a rebuilt source is another one).
+    src_stamp: i64,
+    rent_to: Key,
 }
 
 impl Issue {
@@ -110,6 +113,8 @@ impl Issue {
             per_unit: u64_of(d, IS::PER_UNIT).ok_or_else(e)?,
             until_day: u32_of(d, IS::UNTIL_DAY).ok_or_else(e)?,
             created_bell: u32_of(d, IS::CREATED_BELL).ok_or_else(e)?,
+            src_stamp: u64_of(d, IS::SRC_STAMP).ok_or_else(e)? as i64,
+            rent_to: key_of(d, IS::RENT_TO).ok_or_else(e)?,
         })
     }
 }
@@ -131,6 +136,7 @@ struct Lot {
     /// 2c: the day (+1) of its last claim and the milli claimed.
     day: u32,
     day_amount: u64,
+    rent_to: Key,
 }
 
 impl Lot {
@@ -153,6 +159,7 @@ impl Lot {
             escrow: u64_of(d, LT::ESCROW).ok_or_else(e)?,
             day: u32_of(d, LT::DAY).ok_or_else(e)?,
             day_amount: u64_of(d, LT::DAY_AMOUNT).ok_or_else(e)?,
+            rent_to: key_of(d, LT::RENT_TO).ok_or_else(e)?,
         })
     }
     fn of(&self, i: &Issue) -> bool {
@@ -177,8 +184,18 @@ impl Seen<'_> {
     }
 }
 
+/// A source's stamp: a vault's `BUILT_TS`, a holding's `FOUNDED_TS`.
+fn stamp_of(d: &[u8]) -> i64 {
+    let o = if d.len() == VA::SIZE && d[..8] == VA::MAGIC {
+        VA::BUILT_TS
+    } else {
+        H2::FOUNDED_TS
+    };
+    u64_of(d, o).unwrap_or(0) as i64
+}
+
 /// Whether an issue's tickets are valid with its source's state `sd`
-/// (live, at the issue's place, in its generation).
+/// (live, at the issue's place, in its generation, not rebuilt since).
 fn valid_now(i: &Issue, sd: Option<&[u8]>) -> bool {
     let want_kind = match i.src_kind {
         SRC_VAULT => PL::KIND_VAULT,
@@ -189,6 +206,7 @@ fn valid_now(i: &Issue, sd: Option<&[u8]>) -> bool {
         return false;
     };
     (pl.kind, pl.p, pl.q, pl.at) == (want_kind, i.p, i.q, i.at)
+        && sd.is_some_and(|d| stamp_of(d) == i.src_stamp)
         && kt::valid(i.src_gen, pl.gen, i.state == STATE_LIVE)
 }
 
@@ -203,8 +221,16 @@ fn citizen_counters(cb: &[u8], ca: &[u8], issues: u32, lots: u32, open: u8) -> R
             "the Citizen's ticket counters are not ({issues}, {lots}, {open})"
         )));
     }
-    if cb.len() != ca.len() {
+    if cb.len() != ca.len() || cb.len() < 64 {
         return Err(short("Citizen"));
+    }
+    // Nothing else of the Citizen may change (its chain header aside).
+    let counters = [(C2::ISSUES, 4), (C2::LOTS, 4), (C2::OPEN_ISSUES, 1)];
+    let other = (64..cb.len())
+        .filter(|&o| !counters.iter().any(|&(at, n)| (at..at + n).contains(&o)))
+        .any(|o| cb[o] != ca[o]);
+    if other {
+        return Err(wrong("the Citizen changed beyond its ticket counters"));
     }
     Ok(())
 }
@@ -214,8 +240,8 @@ fn citizen_counters(cb: &[u8], ca: &[u8], issues: u32, lots: u32, open: u8) -> R
 /// IssueTickets (accounts: 3 citizen, 4 holding, 6 source, 7 issue, 8 lot).
 pub fn judge_issue(ix: &crate::world::Ix, s: &dyn States, bell: u32) -> Result<(), Wrong> {
     let x = ix2::IssueTickets::decode(&ix.data).map_err(|_| wrong("does not decode"))?;
-    let (Some(citizen), Some(source), Some(issue), Some(lot)) =
-        (ix.key(3), ix.key(6), ix.key(7), ix.key(8))
+    let (Some(payer), Some(citizen), Some(source), Some(issue), Some(lot)) =
+        (ix.key(1), ix.key(3), ix.key(6), ix.key(7), ix.key(8))
     else {
         return Err(wrong("the accounts are missing"));
     };
@@ -238,7 +264,10 @@ pub fn judge_issue(ix: &crate::world::Ix, s: &dyn States, bell: u32) -> Result<(
         KIND_USE if pl.kind == PL::KIND_HOLDING => {
             let o = H2::PRODUCTION + 8 * arms::ARMS as usize;
             let rate = u64_of(&sd, o).ok_or_else(|| short("Holding"))? as i64;
-            if sd[H2::STATE] != H2::STATE_FINAL || rate < arms::WORKSHOP_DELTA {
+            // The handler finalizes the paying holding first, which may be
+            // the source: its state is read after.
+            let sa = s.after(&source).unwrap_or_else(|| sd.clone());
+            if sa.get(H2::STATE) != Some(&H2::STATE_FINAL) || rate < arms::WORKSHOP_DELTA {
                 return Err(wrong("a use ticket of a holding without a workshop"));
             }
             (SRC_HOLDING, 0)
@@ -279,6 +308,8 @@ pub fn judge_issue(ix: &crate::world::Ix, s: &dyn States, bell: u32) -> Result<(
         per_unit: x.per_unit,
         until_day: x.until_day,
         created_bell: bell,
+        src_stamp: stamp_of(&sd),
+        rent_to: payer,
     };
     if s.before(&issue).is_some() {
         return Err(wrong("an Issue written over one"));
@@ -300,6 +331,7 @@ pub fn judge_issue(ix: &crate::world::Ix, s: &dyn States, bell: u32) -> Result<(
         escrow: 0,
         day: 0,
         day_amount: 0,
+        rent_to: payer,
     };
     if s.before(&lot).is_some() {
         return Err(wrong("a Lot written over one"));
@@ -318,7 +350,7 @@ pub fn judge_give(ix: &crate::world::Ix, s: &dyn States, bell: u32) -> Result<()
     let today1 = bell / BELLS_PER_DAY + 1;
     let x = ix2::GiveLot::decode(&ix.data).map_err(|_| wrong("does not decode"))?;
     let keys: Vec<Option<Key>> = (0..9).map(|i| ix.key(i)).collect();
-    let [Some(actor), _, _, Some(citizen), Some(lot), Some(issue), Some(source), Some(recipient), Some(to_lot)] =
+    let [Some(actor), Some(payer), _, Some(citizen), Some(lot), Some(issue), Some(source), Some(recipient), Some(to_lot)] =
         keys[..]
     else {
         return Err(wrong("the accounts are missing"));
@@ -355,6 +387,12 @@ pub fn judge_give(ix: &crate::world::Ix, s: &dyn States, bell: u32) -> Result<()
     let issues = u32_of(&cb, C2::ISSUES).ok_or_else(|| short("Citizen"))?;
     let open = cb[C2::OPEN_ISSUES];
     let whole = x.amount == from.amount;
+    // 2d: runs used today travel with the units.
+    let moved = if ib.kind == KIND_USE && from.day == today1 {
+        from.day_amount.min(x.amount.saturating_mul(ib.per_unit))
+    } else {
+        0
+    };
     let fa = Lot::decode(&v.after(&lot, "Lot")?)?;
     if to_lot == lot {
         if !whole || to_self || frontier_abi::v2::addr::is_deposit_seq(from.seq) {
@@ -370,6 +408,7 @@ pub fn judge_give(ix: &crate::world::Ix, s: &dyn States, bell: u32) -> Result<()
     }
     let mut left = from;
     left.amount = from.amount - x.amount;
+    left.day_amount -= moved;
     if fa != left {
         return Err(wrong("the giver's lot did not lose the amount"));
     }
@@ -384,8 +423,9 @@ pub fn judge_give(ix: &crate::world::Ix, s: &dyn States, bell: u32) -> Result<()
                 seed_tag: gtag,
                 seq: lots,
                 amount: x.amount,
-                day: if claimed { today1 } else { 0 },
-                day_amount: 0,
+                day: if claimed || moved > 0 { today1 } else { 0 },
+                day_amount: moved,
+                rent_to: payer,
                 ..from
             };
             if ta != want {
@@ -413,6 +453,11 @@ pub fn judge_give(ix: &crate::world::Ix, s: &dyn States, bell: u32) -> Result<()
                 .amount
                 .checked_add(x.amount)
                 .ok_or_else(|| wrong("overflow"))?;
+            if moved > 0 {
+                let used = if tb.day == today1 { tb.day_amount } else { 0 };
+                want.day = today1;
+                want.day_amount = used + moved;
+            }
             if ta != want {
                 return Err(wrong("the recipient's lot did not gain the amount"));
             }
@@ -433,6 +478,30 @@ pub fn judge_close(ix: &crate::world::Ix, s: &dyn States) -> Result<(), Wrong> {
     let v = Seen { s };
     let cb = v.before(&citizen, "Citizen")?;
     let ca = v.after(&citizen, "Citizen")?;
+    let e = || short("Citizen");
+    let issues = u32_of(&cb, C2::ISSUES).ok_or_else(e)?;
+    let lots = u32_of(&cb, C2::LOTS).ok_or_else(e)?;
+    let open = *cb.get(C2::OPEN_ISSUES).ok_or_else(e)?;
+    // A lot whose issue its issuer closed void: it closes alone, units and
+    // all, and nothing else changes.
+    if s.before(&issue).is_none() {
+        let (Some(lot), Some(rent_to)) = (ix.key(7), ix.key(8)) else {
+            return Err(wrong("a close of a gone issue without its lot"));
+        };
+        let lb = Lot::decode(&v.before(&lot, "Lot")?)?;
+        if x.close_issue != 0
+            || lb.holder != citizen
+            || lb.state != STATE_LIVE
+            || lb.escrow != 0
+            || lb.rent_to != rent_to
+        {
+            return Err(wrong("an orphan lot closed the rules refuse"));
+        }
+        if s.after(&lot).is_some() || s.after(&issue).is_some() {
+            return Err(wrong("the orphan lot is not closed"));
+        }
+        return citizen_counters(&cb, &ca, issues, lots, open);
+    }
     let ib = Issue::decode(&v.before(&issue, "Issue")?)?;
     if ib.state != STATE_LIVE {
         return Err(wrong("a close on a closed issue"));
@@ -445,6 +514,9 @@ pub fn judge_close(ix: &crate::world::Ix, s: &dyn States) -> Result<(), Wrong> {
         if !lb.of(&ib) || lb.holder != citizen || lb.state != STATE_LIVE || lb.escrow != 0 {
             return Err(wrong("a lot closed by another than its holder"));
         }
+        if ix.key(8) != Some(lb.rent_to) {
+            return Err(wrong("a lot's rent returned to another than its payer"));
+        }
         let void = !valid || lb.src_gen != ib.src_gen;
         if lb.amount > 0 && !void {
             return Err(wrong("a valid lot closed with units in it"));
@@ -455,11 +527,10 @@ pub fn judge_close(ix: &crate::world::Ix, s: &dyn States) -> Result<(), Wrong> {
         supply = supply.saturating_sub(lb.amount);
         closed_lot = true;
     }
-    let e = || short("Citizen");
-    let issues = u32_of(&cb, C2::ISSUES).ok_or_else(e)?;
-    let lots = u32_of(&cb, C2::LOTS).ok_or_else(e)?;
-    let open = *cb.get(C2::OPEN_ISSUES).ok_or_else(e)?;
     if x.close_issue != 0 {
+        if ix.key(6) != Some(ib.rent_to) {
+            return Err(wrong("an issue's rent returned to another than its payer"));
+        }
         if ib.issuer != citizen {
             return Err(wrong("an issue closed by another than its issuer"));
         }
@@ -513,8 +584,8 @@ fn stores_of(d: &[u8]) -> Result<[i64; 8], Wrong> {
 
 /// OpenShares (accounts: 3 citizen, 6 vault, 7 issue, 8 lot).
 pub fn judge_open(ix: &crate::world::Ix, s: &dyn States, bell: u32) -> Result<(), Wrong> {
-    let (Some(citizen), Some(vault), Some(issue), Some(lot)) =
-        (ix.key(3), ix.key(6), ix.key(7), ix.key(8))
+    let (Some(payer), Some(citizen), Some(vault), Some(issue), Some(lot)) =
+        (ix.key(1), ix.key(3), ix.key(6), ix.key(7), ix.key(8))
     else {
         return Err(wrong("the accounts are missing"));
     };
@@ -530,11 +601,20 @@ pub fn judge_open(ix: &crate::world::Ix, s: &dyn States, bell: u32) -> Result<()
     if vault_shared(&vb) {
         return Err(wrong("shares opened twice"));
     }
+    // 2c: receipts and shares never share a vault: no claim or grant may be
+    // left once the period is rolled (the opening writes no period).
+    let per = super::v23_caravans::rolled(&vb, bell).map_err(wrong)?;
+    if per.claims.iter().chain(per.res.iter()).any(|&c| c > 0) {
+        return Err(wrong("shares opened on a vault with receipts pending"));
+    }
+    if va.get(VA::CLAIM_DAY..VA::RSV) != vb.get(VA::CLAIM_DAY..VA::RSV) {
+        return Err(wrong("the vault's period changed at the opening"));
+    }
     let stores = stores_of(&vb)?;
     if stores_of(&va)? != stores {
         return Err(wrong("the vault's stores changed at the opening"));
     }
-    let supply = kt::value_of(&stores).min(u64::MAX as u128) as u64;
+    let supply = (kt::value_of(&stores) / 1_000).min(u64::MAX as u128) as u64;
     let e = || short("Citizen");
     let seq = u32_of(&cb, C2::ISSUES).ok_or_else(e)?;
     let lots = u32_of(&cb, C2::LOTS).ok_or_else(e)?;
@@ -559,6 +639,8 @@ pub fn judge_open(ix: &crate::world::Ix, s: &dyn States, bell: u32) -> Result<()
         per_unit: 0,
         until_day: kt::NO_END,
         created_bell: bell,
+        src_stamp: stamp_of(&vb),
+        rent_to: payer,
     };
     if s.before(&issue).is_some() || Issue::decode(&v.after(&issue, "Issue")?)? != want {
         return Err(wrong("the share Issue is not the vault's value"));
@@ -577,6 +659,7 @@ pub fn judge_open(ix: &crate::world::Ix, s: &dyn States, bell: u32) -> Result<()
         escrow: 0,
         day: 0,
         day_amount: 0,
+        rent_to: payer,
     };
     if s.before(&lot).is_some() || Lot::decode(&v.after(&lot, "Lot")?)? != want_lot {
         return Err(wrong("the opener's deposit lot is not the whole supply"));
@@ -636,8 +719,8 @@ pub fn judge_withdraw(ix: &crate::world::Ix, s: &dyn States) -> Result<(), Wrong
 /// the delivery minted (V23 judges the delivery).
 pub fn judge_deposit(ix: &crate::world::Ix, s: &dyn States) -> Result<(), Wrong> {
     use frontier_abi::v2::layout::s1::caravan as CV;
-    let (Some(caravan), Some(dst), Some(issue), Some(lot)) =
-        (ix.key(2), ix.key(3), ix.key(6), ix.key(7))
+    let (Some(payer), Some(caravan), Some(dst), Some(issue), Some(lot)) =
+        (ix.key(0), ix.key(2), ix.key(3), ix.key(6), ix.key(7))
     else {
         return Err(wrong("the accounts are missing"));
     };
@@ -673,6 +756,7 @@ pub fn judge_deposit(ix: &crate::world::Ix, s: &dyn States) -> Result<(), Wrong>
             escrow: 0,
             day: 0,
             day_amount: 0,
+            rent_to: payer,
         },
         Some(d) => {
             let lb = Lot::decode(&d)?;
@@ -727,6 +811,9 @@ fn receipt_lot(
     }
     if ib.kind != KIND_RECEIPT || !valid_now(&ib, Some(&vb)) || lb.src_gen != ib.src_gen {
         return Err(wrong("a void receipt used"));
+    }
+    if vault_shared(&vb) {
+        return Err(wrong("a receipt used on a shared vault"));
     }
     if Issue::decode(&v.after(&issue, "Issue")?)? != ib {
         return Err(wrong("the receipt Issue changed"));
@@ -805,6 +892,104 @@ pub fn judge_withdraw_receipt(
     Ok(())
 }
 
+// ------------------------------------------------------------ use runs (2d)
+
+/// UseRun (accounts: 3 citizen, 4 lot, 5 issue, 6 holding, 7 vault): the
+/// lot's and the workshop's runs of the day, and the conversion in the
+/// holder's own unshared vault in the workshop's Province.
+pub fn judge_use_run(ix: &crate::world::Ix, s: &dyn States, bell: u32) -> Result<(), Wrong> {
+    let x = ix2::UseRun::decode(&ix.data).map_err(|_| wrong("does not decode"))?;
+    let (Some(citizen), Some(lot), Some(issue), Some(holding), Some(vault)) =
+        (ix.key(3), ix.key(4), ix.key(5), ix.key(6), ix.key(7))
+    else {
+        return Err(wrong("the accounts are missing"));
+    };
+    let v = Seen { s };
+    let today = bell / BELLS_PER_DAY;
+    let today1 = today + 1;
+    let lb = Lot::decode(&v.before(&lot, "Lot")?)?;
+    let ib = Issue::decode(&v.before(&issue, "Issue")?)?;
+    let hb = v.before(&holding, "Holding")?;
+    let ha = v.after(&holding, "Holding")?;
+    let vb = v.before(&vault, "Vault")?;
+    let va = v.after(&vault, "Vault")?;
+    if lb.holder != citizen || lb.state != STATE_LIVE || lb.escrow != 0 || !lb.of(&ib) {
+        return Err(wrong("a use lot not the citizen's"));
+    }
+    if ib.kind != KIND_USE || !valid_now(&ib, Some(&hb)) || lb.src_gen != ib.src_gen {
+        return Err(wrong("a void use ticket used"));
+    }
+    if ib.until_day != kt::NO_END && today > ib.until_day {
+        return Err(wrong("a run after the ticket's end"));
+    }
+    if Issue::decode(&v.after(&issue, "Issue")?)? != ib {
+        return Err(wrong("the use Issue changed"));
+    }
+    let runs = x.runs as u64;
+    let lot_runs = if lb.day == today1 { lb.day_amount } else { 0 } + runs;
+    if runs == 0 || lot_runs > lb.amount.saturating_mul(ib.per_unit) {
+        return Err(wrong("runs beyond the lot's of the day"));
+    }
+    // The workshop's runs of the day.
+    let e = || short("Holding");
+    let u16_of = |d: &[u8], o: usize| d.get(o..o + 2).map(|b| le(b) as u16).ok_or_else(e);
+    let mut production = [0i64; 8];
+    for (r, p) in production.iter_mut().enumerate() {
+        *p = u64_of(&hb, H2::PRODUCTION + 8 * r).ok_or_else(e)? as i64;
+    }
+    let cap = arms::workshops_built(&production).max(0) as u64 * kt::RUNS_PER_COPY as u64;
+    let used = if u16_of(&hb, H2::USE_DAY)? as u32 == today1 {
+        u16_of(&hb, H2::USE_RUNS)? as u64
+    } else {
+        0
+    };
+    let holding_runs = used + runs;
+    if holding_runs > cap {
+        return Err(wrong("runs beyond the workshop's of the day"));
+    }
+    if (u16_of(&ha, H2::USE_DAY)? as u32, u16_of(&ha, H2::USE_RUNS)? as u64)
+        != (today1, holding_runs)
+    {
+        return Err(wrong("the workshop's runs of the day are not counted"));
+    }
+    // The vault: the citizen's, unshared, in the workshop's Province.
+    let (vp, vown) = live_place(&vb).ok_or_else(|| wrong("the vault is not live"))?;
+    if vp.kind != PL::KIND_VAULT || vown != citizen || (vp.p, vp.q) != (ib.p, ib.q) {
+        return Err(wrong("a run in a vault not the holder's in the workshop's Province"));
+    }
+    if vault_shared(&vb) {
+        return Err(wrong("a run in a shared vault"));
+    }
+    let per = super::v23_caravans::rolled(&vb, bell).map_err(wrong)?;
+    let b = stores_of(&vb)?;
+    let (ore, wood, made) = kt::run_change(x.runs as u32);
+    let (o, w, m) = (3usize, 1usize, arms::ARMS as usize);
+    if per.available(today, o, b[o]) < ore || per.available(today, w, b[w]) < wood {
+        return Err(wrong("a run took goods it lacked or reserved for receipts"));
+    }
+    let cap = u64_of(&vb, VA::CAP).ok_or_else(|| short("Vault"))? as i64;
+    if b[m] + made > cap {
+        return Err(wrong("a run beyond the vault's cap"));
+    }
+    let mut want = b;
+    want[o] -= ore;
+    want[w] -= wood;
+    want[m] += made;
+    if stores_of(&va)? != want {
+        return Err(wrong("the vault's goods are not the runs' conversion"));
+    }
+    if super::v23_caravans::period_of(&va).map_err(wrong)? != per {
+        return Err(wrong("the vault's receipts period is not the roll's"));
+    }
+    let mut wl = lb;
+    wl.day = today1;
+    wl.day_amount = lot_runs;
+    if Lot::decode(&v.after(&lot, "Lot")?)? != wl {
+        return Err(wrong("the lot's runs of the day are not counted"));
+    }
+    Ok(())
+}
+
 // ------------------------------------------------------------ the check
 
 /// Every final Issue's supply against its final lots: `(issue key, what)`.
@@ -851,6 +1036,7 @@ pub fn run(cx: &mut Ctx) {
         V2Ix::SettleDeposit,
         V2Ix::ClaimReceipt,
         V2Ix::WithdrawReceipt,
+        V2Ix::UseRun,
     ];
     if !w.has_post {
         let any = w.txs.iter().any(|tx| {
@@ -876,6 +1062,23 @@ pub fn run(cx: &mut Ctx) {
     for (t, tx) in w.txs.iter().enumerate().filter(|(_, tx)| tx.ok) {
         let bell = frontier_abi::prologue::bell_at(genesis_ts, tx.time).unwrap_or(0);
         let st = TxStates { w, tx, t };
+        // The states are the transaction's: two ticket instructions in one
+        // cannot be told apart, so such a transaction is not judged.
+        let n = tx
+            .ixs
+            .iter()
+            .filter(|i| i.tag().is_some_and(|x| tags.iter().any(|t| t.tag() == x)))
+            .count();
+        if n > 1 {
+            cx.missing(
+                V,
+                "tickets",
+                bell,
+                Some(t),
+                "several ticket instructions in one transaction: not re-judged",
+            );
+            continue;
+        }
         for ix in &tx.ixs {
             let Some(tag) = ix.tag() else { continue };
             let r = match V2Ix::from_tag(tag) {
@@ -887,6 +1090,7 @@ pub fn run(cx: &mut Ctx) {
                 Some(V2Ix::OpenShares) => judge_open(ix, &st, bell),
                 Some(V2Ix::WithdrawShares) => judge_withdraw(ix, &st),
                 Some(V2Ix::SettleDeposit) => judge_deposit(ix, &st),
+                Some(V2Ix::UseRun) => judge_use_run(ix, &st, bell),
                 _ => continue,
             };
             if let Err((code, detail)) = r {
@@ -990,6 +1194,8 @@ mod tests {
         d[IS::PER_UNIT..IS::PER_UNIT + 8].copy_from_slice(&i.per_unit.to_le_bytes());
         d[IS::UNTIL_DAY..IS::UNTIL_DAY + 4].copy_from_slice(&i.until_day.to_le_bytes());
         d[IS::CREATED_BELL..IS::CREATED_BELL + 4].copy_from_slice(&i.created_bell.to_le_bytes());
+        d[IS::SRC_STAMP..IS::SRC_STAMP + 8].copy_from_slice(&i.src_stamp.to_le_bytes());
+        d[IS::RENT_TO..IS::RENT_TO + 32].copy_from_slice(&i.rent_to);
         d
     }
 
@@ -1009,6 +1215,7 @@ mod tests {
         d[LT::ESCROW..LT::ESCROW + 8].copy_from_slice(&l.escrow.to_le_bytes());
         d[LT::DAY..LT::DAY + 4].copy_from_slice(&l.day.to_le_bytes());
         d[LT::DAY_AMOUNT..LT::DAY_AMOUNT + 8].copy_from_slice(&l.day_amount.to_le_bytes());
+        d[LT::RENT_TO..LT::RENT_TO + 32].copy_from_slice(&l.rent_to);
         d
     }
 
@@ -1029,6 +1236,8 @@ mod tests {
             per_unit: 2_000,
             until_day: kt::NO_END,
             created_bell: 50,
+            src_stamp: 0,
+            rent_to: [0; 32],
         }
     }
 
@@ -1047,6 +1256,7 @@ mod tests {
             escrow: 0,
             day: 0,
             day_amount: 0,
+            rent_to: [0; 32],
         }
     }
 
@@ -1195,6 +1405,7 @@ mod tests {
             seed_tag: tag,
             seq: frontier_abi::v2::addr::deposit_seq(11, 0),
             amount,
+            rent_to: SESSION,
             ..the_lot()
         }
     }
@@ -1366,4 +1577,121 @@ mod tests {
         };
         assert!(judge_claim(&c, &m, 3).is_err());
     }
+
+    fn workshop(owner: Key, use_day: u16, use_runs: u16) -> Vec<u8> {
+        let mut d = vec![0u8; H2::SIZE];
+        d[..8].copy_from_slice(&H2::MAGIC);
+        d[H2::STATE] = H2::STATE_FINAL;
+        d[H2::P..H2::P + 2].copy_from_slice(&3i16.to_le_bytes());
+        d[H2::Q..H2::Q + 2].copy_from_slice(&(-2i16).to_le_bytes());
+        d[H2::SITE] = 2;
+        d[H2::GEN] = 1;
+        d[H2::OWNER_CITIZEN..H2::OWNER_CITIZEN + 32].copy_from_slice(&owner);
+        let o = H2::PRODUCTION + 8 * arms::ARMS as usize;
+        d[o..o + 8].copy_from_slice(&arms::WORKSHOP_DELTA.to_le_bytes());
+        d[H2::USE_DAY..H2::USE_DAY + 2].copy_from_slice(&use_day.to_le_bytes());
+        d[H2::USE_RUNS..H2::USE_RUNS + 2].copy_from_slice(&use_runs.to_le_bytes());
+        d
+    }
+
+    fn goods(mut d: Vec<u8>, ore: i64, wood: i64, made: i64) -> Vec<u8> {
+        for (r, v) in [(3, ore), (1, wood), (arms::ARMS as usize, made)] {
+            d[VA::store(r)..VA::store(r) + 8].copy_from_slice(&v.to_le_bytes());
+        }
+        d
+    }
+
+    /// Two runs of a 3-unit lot of 2 runs a day convert 16 ore + 8 wood into
+    /// 8 arms in the holder's vault; one arm more (T66's shape) fails, as do
+    /// runs beyond the lot's or the workshop's of the day.
+    #[test]
+    fn use_runs_convert() {
+        let issue = Issue {
+            kind: KIND_USE,
+            src_kind: SRC_HOLDING,
+            at: 2,
+            resource: 0,
+            per_unit: 2,
+            supply: 3,
+            issuer: YOU,
+            ..the_issue()
+        };
+        let lot = Lot {
+            kind: KIND_USE,
+            amount: 3,
+            ..the_lot()
+        };
+        let bell = 3;
+        let data = ix2::UseRun { runs: 2 }.to_bytes().to_vec();
+        let i = ix(data, &[SESSION, [0; 32], [0; 32], ME, LOT, ISSUE, HOLDING, VAULT]);
+        let base = Mock {
+            before: HashMap::from([
+                (VAULT, goods(vault(ME, 1), 100_000, 100_000, 0)),
+                (ISSUE, issue_bytes(&issue)),
+                (LOT, lot_bytes(&lot)),
+                (HOLDING, workshop(YOU, 1, 20)),
+            ]),
+            after: HashMap::from([
+                (VAULT, Some(goods(vault(ME, 1), 84_000, 92_000, 8_000))),
+                (
+                    LOT,
+                    Some(lot_bytes(&Lot {
+                        day: 1,
+                        day_amount: 2,
+                        ..lot
+                    })),
+                ),
+                (HOLDING, Some(workshop(YOU, 1, 22))),
+            ]),
+        };
+        assert_eq!(judge_use_run(&i, &base, bell), Ok(()));
+        let mut m = Mock {
+            before: base.before.clone(),
+            after: base.after.clone(),
+        };
+        m.after
+            .insert(VAULT, Some(goods(vault(ME, 1), 84_000, 92_000, 9_000)));
+        assert!(judge_use_run(&i, &m, bell).is_err(), "T66");
+        // The workshop's 24 of the day.
+        let mut m = Mock {
+            before: base.before.clone(),
+            after: base.after.clone(),
+        };
+        m.before.insert(HOLDING, workshop(YOU, 1, 23));
+        m.after.insert(HOLDING, Some(workshop(YOU, 1, 25)));
+        assert!(judge_use_run(&i, &m, bell).is_err(), "the workshop's cap");
+        // The lot's 6 of the day.
+        let mut m = Mock {
+            before: base.before.clone(),
+            after: base.after.clone(),
+        };
+        m.before.insert(
+            LOT,
+            lot_bytes(&Lot {
+                day: 1,
+                day_amount: 5,
+                ..lot
+            }),
+        );
+        m.after.insert(
+            LOT,
+            Some(lot_bytes(&Lot {
+                day: 1,
+                day_amount: 7,
+                ..lot
+            })),
+        );
+        assert!(judge_use_run(&i, &m, bell).is_err(), "the lot's runs");
+        // Another's vault.
+        let mut m = Mock {
+            before: base.before.clone(),
+            after: base.after.clone(),
+        };
+        m.before
+            .insert(VAULT, goods(vault(YOU, 1), 100_000, 100_000, 0));
+        m.after
+            .insert(VAULT, Some(goods(vault(YOU, 1), 84_000, 92_000, 8_000)));
+        assert!(judge_use_run(&i, &m, bell).is_err(), "another's vault");
+    }
+
 }

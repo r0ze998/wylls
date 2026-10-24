@@ -696,6 +696,13 @@
       "program": false,
       "mc": false,
       "keeper": "refused"
+    },
+    {
+      "code": 100,
+      "name": "UseLimit",
+      "program": true,
+      "mc": true,
+      "keeper": "refused"
     }
   ]
 }

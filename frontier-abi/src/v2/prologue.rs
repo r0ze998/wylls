@@ -459,6 +459,21 @@ pub fn accounts_of(ix: Ix) -> &'static [Group] {
                 ]
             }
         }
+        // S2 (2d; S2-2D-CONTRACT §3): the workshop's holding is written
+        // (its day's runs only).
+        Ix::UseRun => {
+            const {
+                &[
+                    one!(PLAYER_PROLOGUE),
+                    one!(&[
+                        s!("lot", KindV2(K2::Lot), false, W),
+                        s!("issue", KindV2(K2::Issue), false, R),
+                        HOLDING_W,
+                        s!("vault", KindV2(K2::Vault), false, W),
+                    ]),
+                ]
+            }
+        }
         // S1 (1e; S1-1E-CONTRACT §2.6): the holding pays from its reserve;
         // the fort's Province holds its record (the holding's own).
         Ix::FortGarrison => {
@@ -760,6 +775,7 @@ mod tests {
         assert_eq!(count_bounds(Ix::SettleDeposit), (10, 13));
         assert_eq!(count_bounds(Ix::ClaimReceipt), (7, 7));
         assert_eq!(count_bounds(Ix::WithdrawReceipt), (11, 14));
+        assert_eq!(count_bounds(Ix::UseRun), (8, 8));
         assert_eq!(count_bounds(Ix::DefaultRaid), (7, 13));
         // §5.6: the three resident actions gain the Province
         for ix in [Ix::Harvest, Ix::Build, Ix::Train] {

@@ -328,6 +328,20 @@ pub enum CqEvent {
         grant: u64,
         caravan_seq: u32,
     },
+    /// S2 (2d): `runs` workshop-hours used on day `day`; the lot's and the
+    /// workshop holding's runs that day after it; `src` the vault.
+    UseRun {
+        issuer_tag: u64,
+        seq: u32,
+        holder_tag: u64,
+        lot: (u64, u32),
+        day: u32,
+        runs: u8,
+        lot_runs: u16,
+        holding_runs: u16,
+        holding_key: u64,
+        src: LogPlace,
+    },
     /// S2 (2b): units burned from `lot` for the basket of the holder's
     /// caravan `caravan_seq`.
     SharesWithdrawn {
@@ -479,7 +493,7 @@ impl CqEvent {
             | SharesDeposited { .. }
             | SharesWithdrawn { .. }
             | ReceiptWithdrawn { .. } => None,
-            ReceiptClaimed { src, .. } => Some((src.p as i32, src.q as i32)),
+            ReceiptClaimed { src, .. } | UseRun { src, .. } => Some((src.p as i32, src.q as i32)),
             SharesOpened { src, .. } => Some((src.p as i32, src.q as i32)),
             TicketsIssued { src, .. } => Some((src.p as i32, src.q as i32)),
             CaravanSent { src, .. } => Some((src.p as i32, src.q as i32)),
@@ -759,6 +773,18 @@ pub fn parse(body: &[u8]) -> Option<CqLog> {
             ratio_ppm: u("ratio_ppm")? as u32,
             grant: u("grant")?,
             caravan_seq: u("caravan_seq")? as u32,
+        },
+        CqKind::USE_RUN => CqEvent::UseRun {
+            issuer_tag: u("issuer_tag")?,
+            seq: u("seq")? as u32,
+            holder_tag: u("holder_tag")?,
+            lot: (u("lot_tag")?, u("lot_seq")? as u32),
+            day: u("day")? as u32,
+            runs: b8("runs")?,
+            lot_runs: u("lot_runs")? as u16,
+            holding_runs: u("holding_runs")? as u16,
+            holding_key: u("holding_key")?,
+            src: LogPlace::parse(f("src")?)?,
         },
         CqKind::SHARES_WITHDRAWN => CqEvent::SharesWithdrawn {
             issuer_tag: u("issuer_tag")?,

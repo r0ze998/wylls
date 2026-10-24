@@ -49,4 +49,8 @@ pub const CLOSE_LOT: &[Cover] = &[
         "ticket::g13_s2_an_empty_lot_and_its_issue_close",
         &[Lands("CloseLot"), Err(E::BadData), Err(E::NotOwner)],
     ),
+    Cover::Test(
+        "receipts::g13_s2_orphan_lots_close",
+        &[Lands("CloseLot (an orphan lot)")],
+    ),
 ];

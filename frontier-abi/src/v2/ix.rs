@@ -184,6 +184,9 @@ ix_data_v2! {
         path: [u8; 12],
         fee: u64,
     }
+    /// 0xC8 (P, S2, 2d): `runs` workshop-hours of the citizen's use lot,
+    /// converted at once in its vault in the workshop's Province.
+    UseRun { runs: u8 }
 }
 
 ix_data_v2! {
@@ -369,6 +372,7 @@ pub fn fixed_len(ix: Ix) -> Option<usize> {
         Ix::SettleDeposit => SettleDeposit::LEN,
         Ix::ClaimReceipt => ClaimReceipt::LEN,
         Ix::WithdrawReceipt => WithdrawReceipt::LEN,
+        Ix::UseRun => UseRun::LEN,
         Ix::Propose => Propose::LEN,
         Ix::Vote => Vote::LEN,
         Ix::SettleProposal => SettleProposal::LEN,
@@ -406,6 +410,7 @@ pub fn wire_of(ix: Ix) -> Option<&'static [(&'static str, usize)]> {
         Ix::SettleDeposit => SettleDeposit::WIRE,
         Ix::ClaimReceipt => ClaimReceipt::WIRE,
         Ix::WithdrawReceipt => WithdrawReceipt::WIRE,
+        Ix::UseRun => UseRun::WIRE,
         Ix::Propose => Propose::WIRE,
         Ix::Vote => Vote::WIRE,
         Ix::SettleProposal => SettleProposal::WIRE,

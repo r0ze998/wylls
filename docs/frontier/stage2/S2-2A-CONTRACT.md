@@ -78,7 +78,8 @@ Both are ABI v2 chained accounts (64-byte header), created with
 | PER_UNIT | 128 | u64 | Receipt: milli of `RESOURCE` per unit per day. Use: runs per unit per day. Share: 0 |
 | UNTIL_DAY | 136 | u32 | Last day the tickets may be used; `0xFFFFFFFF` = no end |
 | CREATED_BELL | 140 | u32 | |
-| PERIOD | 144 | 48 | 2c's daily claim state, zero in 2a (`DAY u32, CLAIMED u64, PREV_DAY u32, PREV_CLAIMED u64, PREV_FILL_BPS u16`, reserved) |
+| SRC_STAMP | 144 | i64 | The source's stamp when issued: a vault's `BUILT_TS`, a holding's `FOUNDED_TS` (review fix: a source closed and built again at the same place and generation is another source, so its old tickets stay void) |
+| PERIOD | 152 | 40 | Reserved (2c keeps the daily state on the vault) |
 | RENT_TO | 192 | [u8;32] | Rent refund at close |
 | RSV | 224 | 32 | |
 
@@ -159,7 +160,9 @@ Accounts: P + `[pay_holding w] [pay_province r] [source w] [source_province r]
 Accounts: P + `[lot w] [issue r] [recipient_citizen r] [to_lot w] [system]`.
 
 - `lot` is live, held by the citizen, not in an escrow, and not void. A
-  void lot is one whose `SRC_GEN` differs from the issue's source today;
+  void lot is one whose `SRC_GEN` differs from the issue's source today,
+  or whose source is gone or another one (its stamp differs from
+  `SRC_STAMP`);
   the program reads the source's `GEN` through the issue's place, so the
   source account is passed too (`[source r]`, appended).
 - `1 ≤ amount ≤ lot.AMOUNT`.
@@ -190,6 +193,9 @@ Accounts: P + `[lot w] [issue w] [source r] [rent_to w]`.
   it is void: pass the issuer's own last lot, or `lot = issue` when no
   lot is left [proposal]. The issue's rent goes to its `RENT_TO`, and
   `OPEN_ISSUES` is lowered.
+- **An orphan lot** (review fix): once its void issue is closed, a lot
+  closes alone with its units (the issue account absent, `close_issue 0`),
+  logged `LOT_CLOSED` with `void`, `lot_closed` and `issue_closed` set.
 - Record `LOT_CLOSED`.
 
 ## 4. Verifier, records, herald, relay
@@ -324,3 +330,12 @@ None in 2a. 2b adds shared vaults to the S1 simulator's sends.
    it is void.
 4. **Relay allowance:** one issue and four lots a day per key, on top of
    S1's.
+
+## 10. Known limits (review, 2026-10-24)
+
+- **A source rebuilt within the same second** keeps its stamp (`BUILT_TS`,
+  `FOUNDED_TS` are seconds), so its old tickets would be valid again. Only
+  a close and a build of the same tile in one second can do this.
+- **The herald does not follow a vault's close** (no record of kind
+  CLOSE_VAULT yet): between a close and a rebuild the feed may list
+  receipts as live; the program refuses them (`TicketVoid`).

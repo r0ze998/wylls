@@ -12,10 +12,10 @@ import { profileForHash, profileForSeason, rulesetFor, isS1, isV2 } from '../cli
 import { rent } from '../client/src/frontier/fees.mjs';
 import { allowanceFor, CARAVAN_COST, drainGuard, ISSUE_RENT, LOT_RENT, lamportsPerDay } from '../src/frontier/shapes.mjs';
 
-const S2_TAGS = { IssueTickets: 0xC0, GiveLot: 0xC1, CloseLot: 0xC2, OpenShares: 0xC3, WithdrawShares: 0xC4, ClaimReceipt: 0xC6, WithdrawReceipt: 0xC7 };
+const S2_TAGS = { IssueTickets: 0xC0, GiveLot: 0xC1, CloseLot: 0xC2, OpenShares: 0xC3, WithdrawShares: 0xC4, ClaimReceipt: 0xC6, WithdrawReceipt: 0xC7, UseRun: 0xC8 };
 
 test('profile 4 is the S2 program: its hash, the v2 tables, S1\'s limits', () => {
-  assert.equal(PRESETS.ruleset_hash_v4, '1789ca3f09d57e8fdc6a81857ce782b0fcc6863296878b0c385dcdd0a4533c33');
+  assert.equal(PRESETS.ruleset_hash_v4, '9733e01fac31d39eb8842640dcde5424ed4444341e62c99e8615aef61dabe928');
   assert.equal(profileForHash(PRESETS.ruleset_hash_v4), 4);
   assert.equal(rulesetFor(4), PRESETS.ruleset_hash_v4);
   assert.equal(profileForSeason({ RULESET_HASH: PRESETS.ruleset_hash_v4 }), 4);
@@ -49,6 +49,8 @@ test('the S2 allowances: an issue and its first lot, one lot a gift, nothing a c
   // 2c: receipts.
   assert.equal(allowanceFor({ tag: 0xC6 }, { season: {} }), 0n);
   assert.equal(allowanceFor({ tag: 0xC7 }, { season: {} }), CARAVAN_COST);
+  // 2d: a use run moves no lamports.
+  assert.equal(allowanceFor({ tag: 0xC8 }, { season: {} }), 0n);
   const pre = 10n * LOT_RENT;
   assert.throws(() => drainGuard({ pre, post: pre - LOT_RENT - 1n, fee: 0n, allowance: LOT_RENT }), /relay refused/);
 });

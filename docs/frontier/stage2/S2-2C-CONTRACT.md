@@ -51,7 +51,9 @@ web (issue a receipt on one's vault, claim, collect).
   refused (`ReceiptState`).
 - **Void.** A seizure (a new generation) voids the receipts (2a) and clears
   the vault's claims and reservation.
-- Receipts stay impossible on a shared vault (2b).
+- Receipts stay impossible on a shared vault (2b): a claim or withdrawal
+  on a shared vault is refused (`VaultShared`), and OpenShares refuses a
+  vault with a claim or grant outstanding after its roll (`ReceiptState`).
 
 ## 2. Accounts
 
@@ -160,7 +162,9 @@ The vault of a withdrawal is chained by the same transaction's
   cost.
 - **Web.** On one's own unshared vault, issue a receipt (2a's
   IssueTickets); one's receipt lots with "claim today" and "withdraw
-  yesterday's".
+  yesterday's". Both stay offered on the day after a claim: a grant that
+  rounds to 0 lapses and today's claim is then allowed, and the feed has no
+  ratio before a withdrawal, so the program decides.
 
 ## 7. Tables
 
