@@ -237,8 +237,9 @@ Left:
 - **Session keys may exchange** (decision L7): both parties consent, so a
   stolen session key could swap a citizen's item for a worthless one.
   The wallet stays required for one-way gifts (GiveLot to another).
-- **The web cannot yet close a settled escrow whose owed goods are void**
-  (the feed carries no vault generation); a client passing the vaults can.
+- **The feed marks owed goods void on a seizure** (`voidSides`, from the
+  vault's new generation), so the web offers the close then; a vault
+  closed without a seizure is not followed by the herald yet.
 - **Relay rent:** a collection that closes the escrow returns its rent to
   the opener's payer; the relay's drain guard sees that refund.
 - **Verifier:** a cancel naming an absent account for the side's vault or

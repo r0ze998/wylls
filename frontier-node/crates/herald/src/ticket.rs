@@ -86,6 +86,9 @@ pub struct EscrowRow {
     pub take_src: Option<LogPlace>,
     /// Goods still owed, per side (0 the maker's, 1 the taker's).
     pub owed: [bool; 2],
+    /// A goods side whose vault moved to another generation (void: the
+    /// escrow can then be closed by a party).
+    pub void_sides: [bool; 2],
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -375,6 +378,7 @@ impl Tickets {
                         want_resource,
                         take_src: None,
                         owed: [false; 2],
+                        void_sides: [false; 2],
                     },
                 );
             }
@@ -446,6 +450,18 @@ impl Tickets {
                 i.void = true;
             }
         }
+        // 2e: goods held in that vault in another generation are void.
+        for e in self.escrows.values_mut() {
+            let goods = [(e.give_kind == 1).then_some(e.give_src), e.take_src];
+            for (side, src) in goods.iter().enumerate() {
+                if let Some(s) = src {
+                    if s.kind == kind && (s.p as i32, s.q as i32, s.at) == (p, q, at) && s.gen != gen {
+                        hit |= !e.void_sides[side];
+                        e.void_sides[side] = true;
+                    }
+                }
+            }
+        }
         self.dirty |= hit;
         hit
     }
@@ -490,7 +506,8 @@ impl Tickets {
                     "wantLot": [e.want_lot.0.to_string(), e.want_lot.1],
                     "rentTo": fclient::Address::new_from_array(e.rent_to).to_string(),
                     "giveResource": e.give_resource, "wantResource": e.want_resource,
-                    "takeSrc": e.take_src.as_ref().map(place), "owed": e.owed})
+                    "takeSrc": e.take_src.as_ref().map(place), "owed": e.owed,
+                    "voidSides": e.void_sides})
             })
             .collect();
         json!({"v": 1, "issues": issues, "lots": lots, "escrows": escrows})
@@ -567,6 +584,10 @@ impl Tickets {
                     want_resource: x["wantResource"].as_u64()? as u8,
                     take_src: if x["takeSrc"].is_null() { None } else { Some(place_of(&x["takeSrc"])?) },
                     owed: [owed.first()?.as_bool()?, owed.get(1)?.as_bool()?],
+                    void_sides: match x["voidSides"].as_array() {
+                        Some(v) => [v.first()?.as_bool()?, v.get(1)?.as_bool()?],
+                        None => [false; 2],
+                    },
                 },
             );
         }
@@ -817,6 +838,10 @@ mod tests {
         }));
         assert_eq!(t.lots[&(11, 0)].holder_tag, 22);
         assert_eq!(t.escrows[&(22, 3)].owed, [true, false]);
+        // A seizure of the maker's vault voids its owed goods.
+        let mut v = t.clone();
+        v.regen(SRC_VAULT, 3, 0, 40, 2);
+        assert_eq!(v.escrows[&(22, 3)].void_sides, [true, false]);
         let f = t.file();
         assert_eq!(f["escrows"][0]["state"], json!(2));
         let mut back = Tickets::from_json(&t.to_json()).unwrap();

@@ -222,6 +222,9 @@ test('the escrows model: accept, cancel, collect (2e)', () => {
   assert.deepEqual([at(esc({}), 101).canAccept, at(esc({}), 101).canCancel], [false, true], 'past the deadline');
   const owed = at(esc({ state: 2, owed: [true, false] }), 10);
   assert.deepEqual([owed.collect, owed.collectFrom, owed.canCancel], [0, { p: 3, q: 0, tile: 40 }, false]);
+  // Its vault seized: nothing to collect, and a party may close it.
+  const lost = at(esc({ state: 2, owed: [true, false], voidSides: [true, false] }), 10);
+  assert.deepEqual([lost.collect, lost.canCancel], [null, true]);
   assert.equal(at(esc({ makerTag: '1', takerTag: '2' }), 10), undefined, 'not the viewer\'s');
   // The wanted lot must be the viewer's, with the units wanted.
   assert.equal(at(esc({}), 10, [{ ...lot, amount: 4 }]).canAccept, false, 'short of units');

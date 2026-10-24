@@ -253,7 +253,8 @@ export function s2EscrowsModel(FS) {
     // Goods owed to the viewer: the other side's.
     const side = maker ? 1 : 0;
     const from = side === 0 ? e.giveSrc : e.takeSrc;
-    const collect = !open && e.owed?.[side] && from ? side : null;
+    const voids = e.voidSides ?? [false, false];
+    const collect = !open && e.owed?.[side] && !voids[side] && from ? side : null;
     const acceptVault = e.wantKind === 1 ? (vaults[0] ? { p: vaults[0].p, q: vaults[0].q, tile: vaults[0].tile } : null) : null;
     // A wanted lot: the viewer's, free, with exactly the units wanted.
     const wanted = e.wantKind === 2 && lots.find(l => l.key?.[0] === e.wantLot?.[0] && l.key?.[1] === e.wantLot?.[1]);
@@ -261,7 +262,7 @@ export function s2EscrowsModel(FS) {
       && Number(wanted.amount) === Number(e.wantAmount) && !escrowedLot(FS, wanted.key));
     return { ...e, mineAs: maker ? 'maker' : 'taker',
       canAccept: open && taker && !late && (e.wantKind !== 1 || !!acceptVault) && lotOk, acceptVault,
-      canCancel: open ? maker || late : !(e.owed ?? []).some(Boolean),
+      canCancel: open ? maker || late : (e.owed ?? []).every((o, i) => !o || voids[i]),
       collect, collectFrom: collect === null ? null : { p: from.p, q: from.q, tile: from.at } };
   }).filter(Boolean);
   return { bell, escrows };
