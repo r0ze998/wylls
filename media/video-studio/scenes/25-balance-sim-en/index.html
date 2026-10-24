@@ -1,22 +1,22 @@
-<!doctype html><html><head><meta charset="utf-8"><title>25 balance sim (ja)</title>
+<!doctype html><html><head><meta charset="utf-8"><title>25 balance sim (en)</title>
 <link rel="stylesheet" href="../../lib/wy.css">
 <script src="../../lib/wy.js"></script><script src="../../lib/wy-audio.js"></script><script src="../../lib/wy-kit.js"></script>
 <script src="kit.js"></script>
 <style>
-  .kick { font: 700 26px/1 var(--sans-jp); letter-spacing: .18em; color: var(--brass-2); }
-  .head { font: 900 78px/1.24 var(--serif-jp); color: var(--ivory); text-shadow: 0 4px 30px rgba(0,0,0,.6); }
-  .body { font: 500 36px/1.55 var(--sans-jp); color: rgba(255,250,240,.86); }
+  .kick { font: 700 24px/1 Inter; letter-spacing: .2em; text-transform: uppercase; color: var(--brass-2); }
+  .head { font: 700 76px/1.08 'Cormorant Garamond'; font-variant-numeric: lining-nums; color: var(--ivory); text-shadow: 0 4px 30px rgba(0,0,0,.6); }
+  .body { font: 500 36px/1.5 Inter; color: rgba(255,250,240,.86); }
   .body b { font-weight: 700; color: #fff; }
   .num { font-family: 'Inter', var(--sans-jp); font-weight: 800; letter-spacing: -.01em; }
   .lab { position: absolute; text-align: center; width: 170px; }
-  .lab .nm { font: 700 28px/1.2 var(--sans-jp); color: var(--ivory); }
-  .lab .dc { font: 500 21px/1.3 var(--sans-jp); color: rgba(255,250,240,.6); margin-top: 6px; }
+  .lab .nm { font: 700 27px/1.2 Inter; color: var(--ivory); }
+  .lab .dc { font: 500 19px/1.3 Inter; color: rgba(255,250,240,.62); margin-top: 6px; white-space: nowrap; }
 </style>
 </head><body><script>
 // Sources: FACTS.md §9 and §2 (doctrine.rs:1-30); per-nation draft values: docs/frontier/m0/SIM-RESULTS.md E1;
 // final values: docs/frontier/m0/M0-FINAL.md (b). All [sim].
-const JA = ['アステル', 'ボレアリス', 'シンダー', 'ダンマール', 'エンバー', 'フィヨルダル'];
-const DOC = ['石の守り手', '潮', '炎', '新緑', '光明', '鉄'];
+const JA = ['Aster', 'Borealis', 'Cinder', 'Dunmar', 'Ember', 'Fjordal'];
+const DOC = ['Wardens of Stone', 'Tide', 'Flame', 'Verdant', 'Lumen', 'Iron'];
 const DRAFT = [0, 0, 0, 0.5, 99.5, 0];
 const FINAL = [15.6, 15.7, 16.9, 17.4, 17.4, 17.0];
 const X0 = 810, X1 = 1800, BASE = 790, TOP = 210, PH = BASE - TOP;
@@ -59,29 +59,29 @@ WY.scene({
       v.innerHTML = '<span style="display:inline-block;padding:4px 12px;border-radius:10px;background:rgba(8,18,14,.82);border:1px solid rgba(240,212,138,.25)"></span>'; valNodes.push(v);
     }
     // the opening question
-    q1 = K.text(stage, '6か国は、<br>公平に勝てるか。', { left: '0px', width: '1920px', top: '300px', textAlign: 'center', font: '900 112px/1.3 var(--serif-jp)', color: '#fffaf0', textShadow: '0 6px 40px rgba(0,0,0,.6)' }, { a: 0.35, b: 4.0, stagger: 0.05, dur: 0.9 });
+    q1 = K.text(stage, 'Can six nations<br>win fairly?', { left: '0px', width: '1920px', top: '290px', textAlign: 'center', font: '700 124px/1.08 \'Cormorant Garamond\'', color: '#fffaf0', textShadow: '0 6px 40px rgba(0,0,0,.6)' }, { a: 0.35, b: 4.0, mode: 'words', stagger: 0.12, dur: 0.9 });
     // left column beats
-    const L = (html, cls, top, a, b, extra = {}) => beats.push(K.text(stage, html, Object.assign({ left: '110px', top: top + 'px' }, extra), { a, b, ...(cls === 'head' ? { stagger: 0.045, dur: 0.8 } : {}) })) && (beats[beats.length - 1].node.className += ' ' + cls);
-    L('最初の案', 'kick', 180, 5.0, 15.5);
-    L('ひとつの国が<br>勝ちすぎた。', 'head', 222, 5.3, 15.5);
-    L('光明の国 <b>エンバー</b> が<br><span class="num">600</span> シーズン中 <b class="num" style="color:#fff3c4">99.5%</b> で勝利', 'body', 450, 9.2, 15.5);
-    L('調整', 'kick', 180, 15.9, 22.2);
-    L('得点への倍率を<br>すべて外す。', 'head', 222, 16.1, 22.2);
-    L('型のちがいは残し、<br>勝ち点そのものは増やさない。', 'body', 450, 17.3, 22.2);
-    L('調整後', 'kick', 180, 22.6, 30.0);
-    L('6か国すべてが<br><span class="num">15.6〜17.4%</span>', 'head', 222, 22.8, 30.0);
-    L('<span class="num">1,500</span> シーズン<br>模擬ウォレット <span class="num">1</span> 万', 'body', 450, 24.0, 30.0);
-    L('1/6 からの差は<br>最大 <b class="num" style="color:var(--gold)">1.1</b> ポイント', 'body', 590, 25.6, 30.0);
+    const L = (html, cls, top, a, b, extra = {}) => beats.push(K.text(stage, html, Object.assign({ left: '110px', top: top + 'px' }, extra), { a, b, mode: 'words', stagger: cls === 'head' ? 0.09 : 0.05, dur: 0.8 })) && (beats[beats.length - 1].node.className += ' ' + cls);
+    L('The first draft', 'kick', 180, 5.0, 15.5);
+    L('One nation<br>ran away with it.', 'head', 222, 5.3, 15.5);
+    L('<b>Ember</b> (doctrine Lumen) won<br><b style="color:#fff3c4">99.5%</b> of 600 simulated seasons.', 'body', 430, 9.2, 15.5);
+    L('The fix', 'kick', 180, 15.9, 22.2);
+    L('No bonus on<br>anything that scores.', 'head', 222, 16.1, 22.2);
+    L('Doctrines still differ,<br>but none multiplies a scored fact.', 'body', 430, 17.3, 22.2);
+    L('After tuning', 'kick', 180, 22.6, 30.0);
+    L('All six win<br>15.6–17.4%', 'head', 222, 22.8, 30.0);
+    L('of 1,500 seasons with<br>10,000 simulated wallets.', 'body', 430, 24.0, 30.0);
+    L('No nation is more than<br><b style="color:var(--gold)">1.1</b> points from one in six.', 'body', 580, 25.6, 30.0);
     // the summary
-    beats.push(K.text(stage, 'シミュレーションでは ―', { left: '0px', width: '1920px', top: '330px', textAlign: 'center', font: '700 34px/1 var(--sans-jp)', letterSpacing: '.14em', color: 'var(--brass-2)' }, { a: T.sum + 0.1, b: T.end - 0.35 }));
-    beats.push(K.text(stage, 'どの国も、<br>およそ<span class="num" style="font-family:var(--serif-jp)">6</span>回に<span style="color:var(--gold)">1</span>回勝つ。', { left: '0px', width: '1920px', top: '400px', textAlign: 'center', font: '900 104px/1.3 var(--serif-jp)', color: '#fffaf0', textShadow: '0 6px 40px rgba(0,0,0,.7)' }, { a: T.sum + 0.4, b: T.end - 0.35, stagger: 0.05, dur: 0.9 }));
-    badge = WYKit.status(stage, 'sim', 'ja', { x: 110, y: 74, size: 24, text: 'シミュレーター出力' });
+    beats.push(K.text(stage, 'IN SIMULATION', { left: '0px', width: '1920px', top: '330px', textAlign: 'center', font: '700 32px/1 Inter', letterSpacing: '.24em', color: 'var(--brass-2)' }, { a: T.sum + 0.1, b: T.end - 0.35, mode: 'words' }));
+    beats.push(K.text(stage, 'Every nation wins about<br><span style="color:var(--gold)">one season in six.</span>', { left: '0px', width: '1920px', top: '395px', textAlign: 'center', font: '700 112px/1.1 \'Cormorant Garamond\'', color: '#fffaf0', textShadow: '0 6px 40px rgba(0,0,0,.7)' }, { a: T.sum + 0.4, b: T.end - 0.35, mode: 'words', stagger: 0.1, dur: 0.9 }));
+    badge = WYKit.status(stage, 'sim', 'en', { x: 110, y: 74, size: 24 });
     badge.node.style.zIndex = 30;
-    foot = WY.el('div', { class: 'wy-abs', text: '想定した行動にもとづくシミュレーター出力です。人による計測ではありません。(2026年9月の設計で計算)' }, stage);
-    WY.css(foot, { left: '110px', top: '1000px', font: '500 22px var(--sans-jp)', color: 'rgba(255,250,240,.62)', zIndex: 30 });
+    foot = WY.el('div', { class: 'wy-abs', text: 'Simulator output with assumed player behaviour, not measured with people. Computed on the September 2026 design.' }, stage);
+    WY.css(foot, { left: '110px', top: '1000px', font: '500 22px Inter', color: 'rgba(255,250,240,.62)', zIndex: 30 });
     flash = WYKit.flash(stage, { color: '#fff7e0' });
     ov = K.overlay(stage);
-    endc = WYKit.endCard(stage, { lang: 'ja', line: '六つの国。ひとつの地図。' });
+    endc = WYKit.endCard(stage, { lang: 'en', line: 'Six nations. One map.' });
   },
   render(t) {
     const E = ease();

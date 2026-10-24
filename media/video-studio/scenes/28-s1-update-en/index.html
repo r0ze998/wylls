@@ -1,22 +1,22 @@
-<!doctype html><html><head><meta charset="utf-8"><title>28 S1 update (ja)</title>
+<!doctype html><html><head><meta charset="utf-8"><title>28 S1 update (en)</title>
 <link rel="stylesheet" href="../../lib/wy.css">
 <script src="../../lib/wy.js"></script><script src="../../lib/wy-audio.js"></script><script src="../../lib/wy-map.js"></script><script src="../../lib/wy-kit.js"></script>
 <script src="kit.js"></script>
 <style>
-  .kick { font: 700 25px/1 var(--sans-jp); letter-spacing: .16em; color: var(--brass-2); }
-  .ttl { font: 900 72px/1.2 var(--serif-jp); color: var(--ivory); text-shadow: 0 4px 24px rgba(0,0,0,.6); }
-  .body { font: 500 34px/1.6 var(--sans-jp); color: rgba(255,250,240,.88); }
+  .kick { font: 700 23px/1 Inter; letter-spacing: .2em; text-transform: uppercase; color: var(--brass-2); }
+  .ttl { font: 700 78px/1.08 'Cormorant Garamond'; font-variant-numeric: lining-nums; color: var(--ivory); text-shadow: 0 4px 24px rgba(0,0,0,.6); }
+  .body { font: 500 34px/1.5 Inter; color: rgba(255,250,240,.88); }
   .body b { color: #fff; font-weight: 700; }
-  .chip { display: inline-block; padding: 6px 16px; border-radius: 999px; border: 1.5px solid rgba(240,212,138,.6); background: rgba(8,18,14,.7); font: 700 24px var(--sans-jp); color: var(--brass-2); margin-right: 10px; }
+  .chip { display: inline-block; padding: 6px 16px; border-radius: 999px; border: 1.5px solid rgba(240,212,138,.6); background: rgba(8,18,14,.7); font: 700 22px Inter; color: var(--brass-2); margin-right: 10px; }
   .num { font-family: Inter, var(--sans-jp); font-weight: 800; }
-  .li { font: 600 36px/1.5 var(--sans-jp); color: #fffaf0; }
+  .li { font: 600 34px/1.6 Inter; color: #fffaf0; }
   .li i { font-style: normal; display: inline-block; width: 52px; color: #7fd69a; }
   .li i.no { color: #f0b46a; }
 </style>
 </head><body><script>
 // Sources: FACTS.md §10 "What S1 adds" (docs/frontier/stage1a, 1b, 1d, 1e notes; commits 1db5a32, 6ea5e32, bb2ce3c);
-// Japanese names from the client (fi18n.mjs: 蔵, 隊商, 砦, 建物) and docs/design/redesign/30-stage1-build-plan.ja.md (工房, 兵器, 見張り塔, 柵).
-const F = { f1: 5.2, f2: 12.6, f3: 20.2, f4: 27.2, f5: 34.4, sum: 41.8, end: 49.0 };
+// English names follow the S1 notes: workshop, arms, vault, caravan, watchtower, palisade, fort.
+const F = { f1: 5.2, f2: 12.6, f3: 20.2, f4: 27.2, f5: 34.4, sum: 43.2, end: 53.2 };
 const ART = WY.ART;
 let mapC, mc, world, panel, beats = [], badge, endc, ov, fx, gx, cards = [];
 let VIL, VAULT, ROUTE, RAID, TOWER, TPATH, PAL, FORT, FPATH, NATVIL;
@@ -103,7 +103,7 @@ function camAt(t) {
 }
 
 WY.scene({
-  width: 1920, height: 1080, duration: 53, fps: 30,
+  width: 1920, height: 1080, duration: 57.5, fps: 30,
   setup(stage) {
     world = WYMap.build({ rings: 8, seed: 28 });
     // preload every map sprite (the map lib requests some only when first drawn)
@@ -121,29 +121,29 @@ WY.scene({
     panel = shade;
     const gC = WY.canvas(stage, 1920, 1080); gC.style.zIndex = 8; gx = gC.getContext('2d');
     // title
-    beats.push(K.text(stage, 'S1アップデート', { left: 0, width: '1920px', top: '380px', textAlign: 'center', font: '900 128px/1.2 var(--serif-jp)', color: '#fffaf0', textShadow: '0 8px 50px rgba(0,0,0,.8)' }, { a: 0.4, b: 4.6, stagger: 0.06, dur: 0.9, z: 12 }));
-    beats.push(K.text(stage, 'ステージ1で、コードに入ったもの', { left: 0, width: '1920px', top: '560px', textAlign: 'center', font: '700 42px var(--sans-jp)', color: 'rgba(255,250,240,.88)', textShadow: '0 2px 20px rgba(0,0,0,.9)' }, { a: 1.4, b: 4.6, z: 12 }));
-    const add = (html, cls, top, a, b, extra = {}) => { const x = K.text(stage, html, Object.assign({ left: '100px', top: top + 'px' }, extra), { a, b, z: 12, ...(cls === 'ttl' ? { stagger: 0.05, dur: 0.8 } : {}) }); x.node.className += ' ' + cls; beats.push(x); };
+    beats.push(K.text(stage, 'The S1 update', { left: 0, width: '1920px', top: '360px', textAlign: 'center', font: '700 150px/1.1 \'Cormorant Garamond\'', color: '#fffaf0', textShadow: '0 8px 50px rgba(0,0,0,.8)' }, { a: 0.4, b: 4.6, mode: 'words', stagger: 0.14, dur: 0.9, z: 12 }));
+    beats.push(K.text(stage, 'What Stage 1 put into the code', { left: 0, width: '1920px', top: '560px', textAlign: 'center', font: '600 44px Inter', color: 'rgba(255,250,240,.88)', textShadow: '0 2px 20px rgba(0,0,0,.9)' }, { mode: 'words', stagger: 0.06, a: 1.4, b: 4.6, z: 12 }));
+    const add = (html, cls, top, a, b, extra = {}) => { const x = K.text(stage, html, Object.assign({ left: '100px', top: top + 'px' }, extra), { a, b, z: 12, mode: 'words', stagger: cls === 'ttl' ? 0.09 : 0.04, dur: 0.8 }); x.node.className += ' ' + cls; beats.push(x); };
     const feat = (n, title, body, chips, a, b, opt = {}) => {
-      add(`新しい要素 ${n} / 5`, 'kick', 190, a, b);
-      add(title, 'ttl', 236, a + 0.2, b);
+      add(`New in S1 · ${n} of 5`, 'kick', 190, a, b);
+      add(title, 'ttl', 230, a + 0.2, b);
       add(body, 'body', opt.bodyTop || 350, a + 1.0, b);
       if (chips) add(chips, '', opt.chipTop || 500, a + 1.8, b);
     };
-    feat('1', '工房と兵器', '', null, F.f1, F.f2 - 0.25);
-    add('長槍兵・弩兵・騎士の訓練に使い、<br>包囲では兵器 <span class="num">50</span> を使い切る。', 'body', 690, F.f1 + 2.4, F.f2 - 0.25);
-    feat('2', '蔵と隊商', '隊商は戦いに加わる。<br>襲われれば、<b>奪われる</b>か<b>焼かれる</b>。', '<span class="chip">奪う:隊商ごと相手のものに</span><br><span class="chip" style="margin-top:14px">焼く:積み荷が失われる</span>', F.f2, F.f3 - 0.25);
-    feat('3', '見張り塔', '範囲を通る軍と隊商を<br>1分ごとに <b class="num">1%</b> 削る。', '<span class="chip">上限 30%</span><span class="chip">近くの公開の出来事を知らせる</span>', F.f3, F.f4 - 0.25);
-    feat('4', '柵と砦', '柵は、そのマスをふさぐ。<br>砦には槍兵を最大 <b class="num">2,000</b>。', '<span class="chip">砦は戦い、落ち、奪われる</span>', F.f4, F.f5 - 0.25);
-    add('※ここでの「砦」は、新しく建てられる建物(fort)。', 'body', 580, F.f4 + 2.6, F.f5 - 0.25, { fontSize: '26px', color: 'rgba(255,250,240,.66)' });
-    feat('5', '国の提案と投票', 'チェーン上で、<b>1村1票</b>。<br>他国への構えと、追放・復帰を決める。', '<span class="chip">参加から288ターン後に投票できる</span><br><span class="chip" style="margin-top:14px">賛成 &gt; 反対、かつ賛成3票以上で可決</span>', F.f5, F.sum - 0.25);
+    feat('1', 'Workshops and arms', '', null, F.f1, F.f2 - 0.25);
+    add('Pikemen, Crossbowmen and Knights<br>need arms; a siege burns <b>50</b>.', 'body', 690, F.f1 + 2.4, F.f2 - 0.25);
+    feat('2', 'Vaults and caravans', 'Caravans join clashes.<br>A raid either <b>takes</b> or <b>burns</b> one.', '<span class="chip">Take: the caravan changes hands</span><br><span class="chip" style="margin-top:14px">Burn: the cargo is lost</span>', F.f2, F.f3 - 0.25);
+    feat('3', 'Watchtowers', 'Marches and caravans in range<br>wear down <b>1%</b> a minute.', '<span class="chip">Capped at 30%</span><span class="chip">Reports public events nearby</span>', F.f3, F.f4 - 0.25);
+    feat('4', 'Palisades and forts', 'A palisade blocks its tile.<br>A fort holds up to <b>2,000</b> Spearmen.', '<span class="chip">Forts fight, fall and can be seized</span>', F.f4, F.f5 - 0.25);
+    add('A fort is a new structure you build, not a keep.', 'body', 580, F.f4 + 2.6, F.f5 - 0.25, { fontSize: '26px', color: 'rgba(255,250,240,.66)' });
+    feat('5', 'Nation votes on chain', 'One vote per village.<br>Votes set stances and expel or readmit.', '<span class="chip">Vote from 288 turns after joining</span><br><span class="chip" style="margin-top:14px">Passes if yes &gt; no and yes ≥ 3</span>', F.f5, F.sum - 0.25);
     // summary
-    add('いまの状態', 'kick', 200, F.sum + 0.2, F.end - 0.3, {});
-    add('コードには入った。<br>画面では、まだ遊べない。', 'ttl', 246, F.sum + 0.4, F.end - 0.3);
-    add('<div class="li"><i>✓</i>プログラム・検証ツール・キーパー・ヘラルドに実装</div><div class="li"><i>✓</i>テスト:LiteSVM <span class="num">389</span>件、ゲートウェイとWeb <span class="num">2,379</span>件が通過</div><div class="li"><i class="no">—</i>隊商と蔵の画面は未実装。ボットもまだ使わない</div><div class="li"><i class="no">—</i>数値の多くは仮置き</div>', '', 520, F.sum + 1.4, F.end - 0.3);
-    badge = WYKit.status(stage, 'code', 'ja', { x: 100, y: 74, size: 24, text: 'コード実装済み・クライアントではまだ遊べません' }); badge.node.style.zIndex = 30;
+    add('Where it stands', 'kick', 200, F.sum + 0.2, F.end - 0.3, {});
+    add('In the code.<br>Not yet playable.', 'ttl', 240, F.sum + 0.4, F.end - 0.3);
+    add('<div class="li"><i>✓</i>In the program, verifier, keeper and herald</div><div class="li"><i>✓</i>Tests pass: 389 LiteSVM, 2,379 gateway and web</div><div class="li"><i class="no">—</i>No caravan or vault screens yet; bots don\'t use S1</div><div class="li"><i class="no">—</i>Many numbers are still placeholders</div>', '', 470, F.sum + 1.4, F.end - 0.3);
+    badge = WYKit.status(stage, 'code', 'en', { x: 100, y: 74, size: 24, text: 'Built in code, not yet playable in the client' }); badge.node.style.zIndex = 30;
     ov = K.overlay(stage, { vignette: 0.5 });
-    endc = WYKit.endCard(stage, { lang: 'ja', line: '世界は、少しずつ深くなる。', note: 'S1はコードに実装済みで、まだWebクライアントでは遊べません。現在はローカルテストチェーンでの開発段階です。' });
+    endc = WYKit.endCard(stage, { lang: 'en', line: 'The world keeps getting deeper.', note: 'S1 is built in code but not yet playable in the web client. In development on a local test chain.' });
   },
   render(t) {
     const e = E();
@@ -171,10 +171,10 @@ WY.scene({
       items.forEach(([im, x], i) => { const k = e.outBack(WY.seg(t, F.f1 + 1.2 + i * 0.2, F.f1 + 1.8 + i * 0.2)); const conv = e.inOutCubic(WY.seg(t, F.f1 + 2.6, F.f1 + 3.4)); g.save(); g.globalAlpha = a * Math.min(1, k) * (1 - conv * 0.6); g.translate(WY.lerp(x + 50, 560, conv * 0.3), y); g.scale(k * (1 - conv * 0.2), k * (1 - conv * 0.2)); g.drawImage(im, -50, -50, 100, 100); g.restore(); });
       g.font = '800 44px Inter'; g.fillStyle = '#f0d48a'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.globalAlpha = a * WY.seg(t, F.f1 + 1.6, F.f1 + 2.0);
       g.fillText('+', 305, y); g.fillText('→', 482, y);
-      g.font = '700 24px "Noto Sans JP"'; g.fillStyle = 'rgba(255,250,240,.85)';
-      g.fillText('鉱石 2', 205, y + 78); g.fillText('木材 1', 400, y + 78);
+      g.font = '700 24px Inter'; g.fillStyle = 'rgba(255,250,240,.85)';
+      g.fillText('2 ore', 205, y + 78); g.fillText('1 wood', 400, y + 78);
       const ak = e.outBack(WY.seg(t, F.f1 + 3.2, F.f1 + 3.9));
-      if (ak > 0) { g.save(); g.translate(600, y); g.scale(ak, ak); g.fillStyle = '#3a3216'; g.beginPath(); g.arc(0, 0, 54, 0, 7); g.fill(); g.strokeStyle = '#ffd24d'; g.lineWidth = 4; g.stroke(); g.strokeStyle = '#fffaf0'; g.lineWidth = 6; g.lineCap = 'round'; GL.arms(g, 56); g.restore(); g.globalAlpha = a; g.font = '700 24px "Noto Sans JP"'; g.fillStyle = '#ffe8a3'; g.fillText('兵器 1', 600, y + 78); }
+      if (ak > 0) { g.save(); g.translate(600, y); g.scale(ak, ak); g.fillStyle = '#3a3216'; g.beginPath(); g.arc(0, 0, 54, 0, 7); g.fill(); g.strokeStyle = '#ffd24d'; g.lineWidth = 4; g.stroke(); g.strokeStyle = '#fffaf0'; g.lineWidth = 6; g.lineCap = 'round'; GL.arms(g, 56); g.restore(); g.globalAlpha = a; g.font = '700 24px Inter'; g.fillStyle = '#ffe8a3'; g.fillText('1 arm', 600, y + 78); }
       // strong units that need arms
       cards.forEach((im, i) => { const k = e.outCubic(WY.seg(t, F.f1 + 4.0 + i * 0.15, F.f1 + 4.7 + i * 0.15)); if (k > 0 && im.naturalWidth) { g.globalAlpha = a * k; g.drawImage(im, 100 + i * 130, 830 + (1 - k) * 30, 112, 140); } });
       g.globalAlpha = 1;
@@ -199,7 +199,7 @@ WY.scene({
       if (away > 0) { cx2 = WY.lerp(cx2, cx2 + 240 * cam.zoom, away); cy2 = WY.lerp(cy2, cy2 + 140 * cam.zoom, away); }
       cart(cx2, cy2 - 10, 1.15 * cam.zoom + 0.2, taken > 0.5 ? 5 : 0, a);
       if (clash > 0 && clash < 1) WYMap.drawClash(fx, cam, RAID, clash, '#ffd24d');
-      if (taken > 0) pill(cx2, cy2 - 80, '奪われた隊商', '#ffe2b0', 'rgba(60,24,10,.9)', 24);
+      if (taken > 0) pill(cx2, cy2 - 80, 'Caravan taken', '#ffe2b0', 'rgba(60,24,10,.9)', 24);
     }
 
     // ---------- 3 watchtower: range + a march worn through it
@@ -216,7 +216,7 @@ WY.scene({
       WYMap.drawMarch(fx, cam, TPATH[0], TPATH[2], mk, { color: WY.NATIONS[0].fill, lift: 0.18 });
       fx.restore();
       const wear = Math.round(30 * WY.seg(t, F.f3 + 2.6, F.f3 + 5.0));
-      if (mk > 0.25) pill(WY.lerp(k0x, k1x, Math.min(mk, 0.9)), WY.lerp(k0y, k1y, Math.min(mk, 0.9)) - 120, wear >= 30 ? '例 −30%(上限)' : `例 −${wear}%`, '#ffd0c4', 'rgba(70,16,16,.9)', 26);
+      if (mk > 0.25) pill(WY.lerp(k0x, k1x, Math.min(mk, 0.9)), WY.lerp(k0y, k1y, Math.min(mk, 0.9)) - 120, wear >= 30 ? 'example: −30% (cap)' : `example: −${wear}%`, '#ffd0c4', 'rgba(70,16,16,.9)', 26);
     }
 
     // ---------- 4 palisade blocks; fort with garrison
@@ -235,7 +235,7 @@ WY.scene({
       const xk = e.outBack(WY.seg(t, F.f4 + 3.2, F.f4 + 3.6));
       if (xk > 0) { fx.translate(stopX + 12, stopY); fx.scale(xk, xk); fx.strokeStyle = '#ff6b5e'; fx.lineWidth = 9; fx.beginPath(); fx.moveTo(-18, -18); fx.lineTo(18, 18); fx.moveTo(18, -18); fx.lineTo(-18, 18); fx.stroke(); }
       fx.restore();
-      if (WY.seg(t, F.f4 + 2.0, F.f4 + 2.4) > 0) { fx.globalAlpha = a * WY.seg(t, F.f4 + 2.0, F.f4 + 2.4); pill(fx2, fy + 70 * cam.zoom + 40, '守備隊 槍兵 ≤ 2,000', '#fffaf0', 'rgba(8,18,14,.9)', 24); fx.globalAlpha = 1; }
+      if (WY.seg(t, F.f4 + 2.0, F.f4 + 2.4) > 0) { fx.globalAlpha = a * WY.seg(t, F.f4 + 2.0, F.f4 + 2.4); pill(fx2, fy + 70 * cam.zoom + 40, 'Garrison ≤ 2,000 Spearmen', '#fffaf0', 'rgba(8,18,14,.9)', 24); fx.globalAlpha = 1; }
     }
 
     // ---------- 5 nation votes: every village of the nation casts one vote
@@ -249,17 +249,17 @@ WY.scene({
         const rise = e.outBack(k);
         fx.save(); fx.globalAlpha = a * Math.min(1, k * 2); fx.translate(x, y - 40 * rise);
         fx.fillStyle = isYes ? '#2f9a5a' : '#9a3a3a'; fx.beginPath(); fx.arc(0, 0, 27, 0, 7); fx.fill(); fx.strokeStyle = '#fffaf0'; fx.lineWidth = 3; fx.stroke();
-        fx.fillStyle = '#fff'; fx.font = '800 26px "Noto Sans JP"'; fx.textAlign = 'center'; fx.textBaseline = 'middle'; fx.fillText(isYes ? '賛' : '反', 0, 1); fx.restore();
+        fx.fillStyle = '#fff'; fx.font = '800 28px Inter'; fx.textAlign = 'center'; fx.textBaseline = 'middle'; fx.fillText(isYes ? '✓' : '✕', 0, 1); fx.restore();
       });
       // tally card (map side)
       const ck = e.outCubic(WY.seg(t, F.f5 + 1.2, F.f5 + 1.8));
       if (ck > 0) {
         const x0 = 1440, y0 = 140; fx.save(); fx.globalAlpha = a * ck;
-        fx.fillStyle = 'rgba(12,28,22,.94)'; K.rr(fx, x0, y0, 380, 180, 16); fx.fill(); fx.strokeStyle = 'rgba(201,162,74,.8)'; fx.lineWidth = 2; fx.stroke();
-        fx.textAlign = 'left'; fx.textBaseline = 'middle'; fx.font = '700 22px "Noto Sans JP"'; fx.fillStyle = '#f0d48a'; fx.fillText('提案:他国への構え(例)', x0 + 24, y0 + 36);
-        fx.font = '800 34px "Noto Sans JP"'; fx.fillStyle = '#7fd69a'; fx.fillText(`賛成 ${yes}`, x0 + 24, y0 + 96); fx.fillStyle = '#f09090'; fx.fillText(`反対 ${no}`, x0 + 210, y0 + 96);
+        fx.fillStyle = 'rgba(12,28,22,.94)'; K.rr(fx, x0 - 20, y0, 400, 186, 16); fx.fill(); fx.strokeStyle = 'rgba(201,162,74,.8)'; fx.lineWidth = 2; fx.stroke();
+        fx.textAlign = 'left'; fx.textBaseline = 'middle'; fx.font = '700 20px Inter'; fx.fillStyle = '#f0d48a'; fx.fillText('Proposal: stance toward a nation', x0 + 24, y0 + 36); fx.font = '500 17px Inter'; fx.fillStyle = 'rgba(255,250,240,.6)'; fx.fillText('example tally', x0 + 24, y0 + 60);
+        fx.font = '800 34px Inter'; fx.fillStyle = '#7fd69a'; fx.fillText(`Yes ${yes}`, x0 + 24, y0 + 104); fx.fillStyle = '#f09090'; fx.fillText(`No ${no}`, x0 + 210, y0 + 104);
         const pass = yes > no && yes >= 3 && t > F.f5 + 5.0;
-        fx.font = '700 24px "Noto Sans JP"'; fx.fillStyle = pass ? '#ffe8a3' : 'rgba(255,250,240,.55)'; fx.fillText(pass ? '可決' : '受付中(144ターン)', x0 + 24, y0 + 150);
+        fx.font = '700 23px Inter'; fx.fillStyle = pass ? '#ffe8a3' : 'rgba(255,250,240,.55)'; fx.fillText(pass ? 'Passed' : 'Open for 144 turns', x0 + 24, y0 + 152);
         fx.restore();
       }
     }

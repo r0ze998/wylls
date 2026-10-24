@@ -1,19 +1,19 @@
-<!doctype html><html><head><meta charset="utf-8"><title>27 prize path (ja)</title>
+<!doctype html><html><head><meta charset="utf-8"><title>27 prize path (en)</title>
 <link rel="stylesheet" href="../../lib/wy.css">
 <script src="../../lib/wy.js"></script><script src="../../lib/wy-audio.js"></script><script src="../../lib/wy-kit.js"></script>
 <script src="kit.js"></script>
 <style>
-  .kick { font: 700 26px/1 var(--sans-jp); letter-spacing: .16em; color: var(--brass-2); }
-  .head { font: 900 74px/1.26 var(--serif-jp); color: var(--ivory); text-shadow: 0 4px 30px rgba(0,0,0,.6); }
-  .body { font: 500 35px/1.6 var(--sans-jp); color: rgba(255,250,240,.86); }
+  .kick { font: 700 24px/1 Inter; letter-spacing: .2em; text-transform: uppercase; color: var(--brass-2); }
+  .head { font: 700 78px/1.08 'Cormorant Garamond'; font-variant-numeric: lining-nums; color: var(--ivory); text-shadow: 0 4px 30px rgba(0,0,0,.6); }
+  .body { font: 500 35px/1.5 Inter; color: rgba(255,250,240,.86); }
   .body b { font-weight: 700; color: #fff; }
   .num { font-family: Inter, var(--sans-jp); font-weight: 800; }
 </style>
 </head><body><script>
 // Sources: FACTS.md §8 (money), §4 (season-winner rule; sc-14d tally and refund), permutation-prize/src/lib.rs header, README §4.
-const T = { b: 4.8, u: 12.8, c: 18.8, d1: 29.2, d2: 36.2, e: 42.6, end: 49.0 };
+const T = { b: 4.8, u: 12.8, c: 19.8, d1: 30.2, d2: 37.2, e: 44.2, end: 51.4 };
 const SX = 1330; // centre of the right-hand stage
-const JA = ['アステル', 'ボレアリス', 'シンダー', 'ダンマール', 'エンバー', 'フィヨルダル'];
+const JA = ['Aster', 'Borealis', 'Cinder', 'Dunmar', 'Ember', 'Fjordal'];
 const KEEPS = [10, 9, 9, 9, 10, 7];
 let bgL, ov, cv, g, beats = [], bTest, bLocal, bPlan, endc, dust, uiWrap, uiBox, uiCap, bUI;
 const E = () => WY.ease;
@@ -28,7 +28,7 @@ function coin(x, y, r, label, a = 1) {
   g.setLineDash([r * 0.12, r * 0.1]); g.strokeStyle = 'rgba(40,55,70,.55)'; g.lineWidth = r * 0.05; g.beginPath(); g.arc(0, 0, r * 0.8, 0, 7); g.stroke(); g.setLineDash([]);
   g.fillStyle = '#2b3b4b'; g.textAlign = 'center'; g.textBaseline = 'middle';
   g.font = `800 ${r * 0.62}px Inter`; g.fillText(label, 0, -r * 0.1);
-  g.font = `700 ${r * 0.28}px "Noto Sans JP"`; g.fillText('テスト', 0, r * 0.42);
+  g.font = `800 ${r * 0.24}px Inter`; g.fillText('TEST', 0, r * 0.44);
   g.restore();
 }
 function panel(x, y, w, h, { glow = 0, r = 16 } = {}) {
@@ -43,56 +43,56 @@ function vault(x, y, s, glow) {
   g.strokeStyle = 'rgba(240,212,138,.8)'; g.lineWidth = 4 * s; g.beginPath(); g.arc(x, y - 10 * s, 62 * s, 0, 7); g.stroke();
   for (let i = 0; i < 6; i++) { const a = i * Math.PI / 3 + glow * 2 + WY.now() * 0.5; g.beginPath(); g.moveTo(x + Math.cos(a) * 20 * s, y - 10 * s + Math.sin(a) * 20 * s); g.lineTo(x + Math.cos(a) * 52 * s, y - 10 * s + Math.sin(a) * 52 * s); g.stroke(); }
   g.fillStyle = '#c9a24a'; g.beginPath(); g.arc(x, y - 10 * s, 14 * s, 0, 7); g.fill();
-  label('賞金プール', x, y + 84 * s, `700 ${26 * s}px "Noto Sans JP"`);
+  label('Prize pool', x, y + 84 * s, `700 ${26 * s}px Inter`);
 }
 function wallet(x, y, s) {
   panel(x - 120 * s, y - 80 * s, 240 * s, 160 * s, { r: 18 * s });
   g.fillStyle = 'rgba(240,212,138,.2)'; K.rr(g, x + 40 * s, y - 24 * s, 60 * s, 48 * s, 10 * s); g.fill(); g.strokeStyle = 'rgba(240,212,138,.8)'; g.lineWidth = 2; g.stroke();
   g.fillStyle = '#f0d48a'; g.beginPath(); g.arc(x + 70 * s, y, 7 * s, 0, 7); g.fill();
-  label('ウォレット', x - 26 * s, y, `700 ${26 * s}px "Noto Sans JP"`);
+  label('Wallet', x - 26 * s, y, `700 ${26 * s}px Inter`);
 }
 
 WY.scene({
-  width: 1920, height: 1080, duration: 53.5, fps: 30,
+  width: 1920, height: 1080, duration: 56, fps: 30,
   setup(stage) {
     bgL = K.bg(stage, { r: 50, top: '#10211b', bottom: '#060c0a' });
     dust = WYKit.dust(stage, { count: 40, color: '240,220,170', speed: 8, z: 3, seed: 27 });
     cv = WY.canvas(stage, 1920, 1080); cv.style.zIndex = 6; g = cv.getContext('2d');
-    const add = (html, cls, top, a, b, extra = {}) => { const x = K.text(stage, html, Object.assign({ left: '110px', top: top + 'px' }, extra), { a, b, ...(cls === 'head' ? { stagger: 0.045, dur: 0.8 } : {}) }); x.node.className += ' ' + cls; beats.push(x); };
+    const add = (html, cls, top, a, b, extra = {}) => { const x = K.text(stage, html, Object.assign({ left: '110px', top: top + 'px' }, extra), { a, b, mode: 'words', stagger: cls === 'head' ? 0.09 : 0.05, dur: 0.8 }); x.node.className += ' ' + cls; beats.push(x); };
     // title
-    beats.push(K.text(stage, '参加費と賞金の仕組み', { left: 0, width: '1920px', top: '360px', textAlign: 'center', font: '900 104px/1.2 var(--serif-jp)', color: '#fffaf0', textShadow: '0 6px 40px rgba(0,0,0,.6)' }, { a: 0.3, b: 4.3, stagger: 0.05, dur: 0.9 }));
-    beats.push(K.text(stage, 'いまは <b style="color:#dfe9f2">テスト用USDC(価値なし)</b> だけで動いています', { left: 0, width: '1920px', top: '540px', textAlign: 'center', font: '500 38px var(--sans-jp)', color: 'rgba(255,250,240,.82)' }, { a: 1.2, b: 4.3 }));
-    add('① 参加する', 'kick', 300, T.b + 0.2, T.u - 0.2);
-    add('参加費<br><span class="num">25</span> テストUSDC', 'head', 342, T.b + 0.4, T.u - 0.2);
-    add('x402 で支払い、<br>賞金プログラムの金庫へ。', 'body', 570, T.b + 1.6, T.u - 0.2);
-    add('② 勝者を決める', 'kick', 300, T.c + 0.2, T.d1 - 0.2);
-    add('砦を数えるのは<br>プログラム。', 'head', 342, T.c + 0.4, T.d1 - 0.2);
-    add('砦をいちばん多く持つ国が勝ち。<br>同点のときのルールは暫定です。', 'body', 570, T.c + 1.8, T.d1 - 0.2);
-    add('実例 ― 14日間のローカル実行', 'kick', 300, T.d1 + 0.2, T.e - 0.2);
-    add('同点を、<br>領地の時間で決着。', 'head', 342, T.d1 + 0.4, T.d2 - 0.2);
-    add('アステルとエンバーが砦 <b class="num">10</b> で並び、<br>エンバーが勝者に。', 'body', 570, T.d1 + 1.6, T.d2 - 0.2);
-    add('勝者側に<br>有料参加者なし。', 'head', 342, T.d2 + 0.2, T.e - 0.2);
-    add('返金モードで、各ウォレットに<br><b class="num">20</b> テスト単位を返却。', 'body', 570, T.d2 + 1.2, T.e - 0.2);
-    add('これから ― 計画', 'kick', 300, T.e + 0.2, T.end - 0.2);
-    add('次の公開シーズンは<br>メインネットで。', 'head', 342, T.e + 0.4, T.end - 0.2);
-    add('<span class="num">25</span> USDC・賞金 <span class="num">80%</span> / 運営 <span class="num">20%</span><br>法的な確認が前提です。', 'body', 570, T.e + 1.6, T.end - 0.2);
-    add('実際のお金は、まだ一度も動いていません。', 'body', 720, T.e + 1.9, T.end - 0.4, { fontSize: '30px', color: 'rgba(255,250,240,.7)' });
+    beats.push(K.text(stage, 'Entry fees and prizes', { left: 0, width: '1920px', top: '350px', textAlign: 'center', font: '700 124px/1.1 \'Cormorant Garamond\'', color: '#fffaf0', textShadow: '0 6px 40px rgba(0,0,0,.6)' }, { a: 0.3, b: 4.5, mode: 'words', stagger: 0.12, dur: 0.9 }));
+    beats.push(K.text(stage, 'Today it runs only on <b style="color:#dfe9f2">valueless test USDC.</b>', { left: 0, width: '1920px', top: '540px', textAlign: 'center', font: '500 40px Inter', color: 'rgba(255,250,240,.84)' }, { a: 1.0, b: 4.5, mode: 'words', stagger: 0.06 }));
+    add('Step 1 · Join', 'kick', 300, T.b + 0.2, T.u - 0.2);
+    add('A 25 test-USDC<br>entry fee', 'head', 342, T.b + 0.4, T.u - 0.2);
+    add('Paid over x402 into<br>the prize program\'s vault.', 'body', 570, T.b + 1.6, T.u - 0.2);
+    add('Step 2 · The winner', 'kick', 300, T.c + 0.2, T.d1 - 0.2);
+    add('The program<br>counts the keeps.', 'head', 342, T.c + 0.4, T.d1 - 0.2);
+    add('The nation holding the most keeps wins.<br>The tie rules are still provisional.', 'body', 570, T.c + 1.8, T.d1 - 0.2);
+    add('Example · the 14-day local run', 'kick', 300, T.d1 + 0.2, T.e - 0.2);
+    add('A tie, broken<br>by territory time.', 'head', 342, T.d1 + 0.4, T.d2 - 0.2);
+    add('Aster and Ember both held <b>10</b> keeps.<br>Ember won the tiebreak.', 'body', 570, T.d1 + 1.6, T.d2 - 0.2);
+    add('No paid entrant<br>on the winning side.', 'head', 342, T.d2 + 0.2, T.e - 0.2);
+    add('Refund mode: each paid test wallet<br>got <b>20</b> of its 25 test units back.', 'body', 570, T.d2 + 1.2, T.e - 0.2);
+    add('Next · planned', 'kick', 300, T.e + 0.2, T.end - 0.2);
+    add('A public season<br>on Solana mainnet.', 'head', 342, T.e + 0.4, T.end - 0.2);
+    add('25 USDC entry · 80% prize / 20% operator,<br>subject to legal review.', 'body', 570, T.e + 1.6, T.end - 0.2);
+    add('No real money has moved yet.', 'body', 720, T.e + 1.9, T.end - 0.4, { fontSize: '30px', color: 'rgba(255,250,240,.7)' });
     // real client: the prize panel (screen fixture with test data)
     uiWrap = WY.el('div', { class: 'wy-fill' }, stage); WY.css(uiWrap, { zIndex: 7, opacity: 0, transformOrigin: '1800px 330px' });
-    const im = WY.el('img', { src: '../../assets/ui/panel-prize-open-ja-1920x1080.png' }, uiWrap); WY.css(im, { position: 'absolute', left: 0, top: 0, width: '1920px', height: '1080px' }); WY.img(im.src);
+    const im = WY.el('img', { src: '../../assets/ui/panel-prize-open-en-1920x1080.png' }, uiWrap); WY.css(im, { position: 'absolute', left: 0, top: 0, width: '1920px', height: '1080px' }); WY.img(im.src);
     uiBox = WY.el('div', { class: 'wy-abs' }, uiWrap); WY.css(uiBox, { left: '1538px', top: '138px', width: '354px', height: '384px', border: '3px solid #ffd24d', borderRadius: '12px', boxShadow: '0 0 0 9999px rgba(0,0,0,.0), 0 0 30px rgba(255,210,77,.6)' });
     const cap = WY.el('div', { class: 'wy-abs' }, stage); WY.css(cap, { left: '80px', top: '700px', width: '840px', height: '296px', zIndex: 8, background: 'linear-gradient(180deg, rgba(16,36,29,.96), rgba(10,22,18,.96))', border: '2px solid rgba(201,162,74,.75)', borderRadius: '16px', opacity: 0 }); uiCap = cap;
-    add('実際のゲーム画面', 'kick', 740, T.u + 0.6, T.c - 0.25, { left: '120px', zIndex: 9 });
-    add('賞金パネル', 'head', 780, T.u + 0.8, T.c - 0.25, { left: '120px', fontSize: '60px', zIndex: 9 });
-    add('参加費 <b class="num">25</b>・賞金プール <b class="num">80%</b> / 運営 <b class="num">20%</b><br><span style="font-size:26px;color:rgba(255,250,240,.66)">表示の数値は、画面確認用のテストデータです</span>', 'body', 868, T.u + 1.6, T.c - 0.25, { left: '120px', fontSize: '32px', zIndex: 9 });
+    add('The real client', 'kick', 740, T.u + 0.6, T.c - 0.25, { left: '120px', zIndex: 9 });
+    add('The prize panel', 'head', 780, T.u + 0.8, T.c - 0.25, { left: '120px', fontSize: '66px', zIndex: 9 });
+    add('Entry 25 · prize pool 80% / operator 20%<br><span style="font-size:25px;color:rgba(255,250,240,.66)">Real panel code, filled with unit-test values.</span>', 'body', 868, T.u + 1.6, T.c - 0.25, { left: '120px', fontSize: '32px', zIndex: 9 });
     beats.slice(-3).forEach(b => (b.node.style.zIndex = 9));
-    bUI = WYKit.status(stage, 'local', 'ja', { x: 470, y: 74, size: 24, text: '実際のクライアント画面(テストデータ)' }); bUI.node.style.zIndex = 30;
-    bTest = WYKit.status(stage, 'test', 'ja', { x: 110, y: 74, size: 24 });
-    bLocal = WYKit.status(stage, 'local', 'ja', { x: 470, y: 74, size: 24 });
-    bPlan = WYKit.status(stage, 'planned', 'ja', { x: 470, y: 74, size: 24, text: '計画(法的な確認が前提)' });
+    bUI = WYKit.status(stage, 'local', 'en', { x: 430, y: 74, size: 24, text: 'Real client screen (test data)' }); bUI.node.style.zIndex = 30;
+    bTest = WYKit.status(stage, 'test', 'en', { x: 110, y: 74, size: 24 });
+    bLocal = WYKit.status(stage, 'local', 'en', { x: 430, y: 74, size: 24 });
+    bPlan = WYKit.status(stage, 'planned', 'en', { x: 430, y: 74, size: 24, text: 'Planned (subject to legal review)' });
     [bTest, bLocal, bPlan].forEach(b => (b.node.style.zIndex = 30));
     ov = K.overlay(stage);
-    endc = WYKit.endCard(stage, { lang: 'ja', line: 'ルールはコードに。お金は、まだテスト用。', note: '現在はローカルテストチェーンとテスト用USDC(価値なし)での開発段階です。メインネットの公開シーズンは計画です。' });
+    endc = WYKit.endCard(stage, { lang: 'en', line: 'The rules live in code. The money is still test money.', note: 'In development on local test chains with valueless test USDC. A mainnet public season is planned, subject to legal review.' });
   },
   render(t) {
     const e = E();
@@ -133,7 +133,7 @@ WY.scene({
     a = vis(t, T.c + 0.05, T.d1 - 0.1);
     if (a > 0) {
       g.globalAlpha = a;
-      const steps = [['Tally', '砦をひとつずつ数える'], ['Finalize', '勝った国を決める'], ['SetShares', '国内の配分を登録'], ['Claim', '参加者が受け取る']];
+      const steps = [['Tally', 'counts every keep once'], ['Finalize', 'names the winning nation'], ['SetShares', 'posts shares inside that nation'], ['Claim', 'paid entrants claim their share']];
       const x0 = 1010, w = 640, h = 112, gap = 34, y0 = 230;
       // spine
       const sp = e.inOutCubic(WY.seg(t, T.c + 0.5, T.c + 6.8));
@@ -144,7 +144,7 @@ WY.scene({
         const y = y0 + i * (h + gap); g.save(); g.globalAlpha = a * p; g.translate((1 - p) * 40, 0);
         panel(x0 + 110, y, w - 110, h, { glow: lit * (i === Math.min(3, Math.floor((t - T.c - 0.6) / 2)) ? 0.6 + 0.4 * Math.sin(t * 4) : 0.2) });
         label(en, x0 + 150, y + 40, '700 30px Inter', '#ffe8a3', 'left');
-        label(ja, x0 + 150, y + 80, '600 28px "Noto Sans JP"', '#fffaf0', 'left');
+        label(ja, x0 + 150, y + 80, '600 28px Inter', '#fffaf0', 'left');
         // node
         g.fillStyle = lit > 0 ? '#ffd24d' : '#3a3216'; g.beginPath(); g.arc(x0 + 56, y + h / 2, 22 + 4 * lit, 0, 7); g.fill();
         g.strokeStyle = '#f0d48a'; g.lineWidth = 3; g.stroke();
@@ -159,7 +159,7 @@ WY.scene({
     if (a > 0) {
       g.globalAlpha = a;
       const x0 = 1000, y0 = 210, rh = 82, bw = 520;
-      label('砦の数(シーズン終了時)', x0, y0 - 40, '700 24px "Noto Sans JP"', 'rgba(240,212,138,.9)', 'left');
+      label('KEEPS HELD AT SEASON END', x0, y0 - 40, '700 22px Inter', 'rgba(240,212,138,.9)', 'left');
       for (let i = 0; i < 6; i++) {
         const y = y0 + i * rh; const n = WY.NATIONS[i];
         const k = e.outCubic(WY.seg(t, T.d1 + 0.6 + i * 0.12, T.d1 + 1.8 + i * 0.12));
@@ -167,7 +167,7 @@ WY.scene({
         const win = i === 4 ? WY.seg(t, T.d1 + 4.4, T.d1 + 5.0) : 0;
         g.save(); g.translate(x0 + 20, y + 30); g.fillStyle = n.fill; g.strokeStyle = n.dark; g.lineWidth = 2;
         const pth = new Path2D(WY.sigilPath(i, 15)); g.fill(pth); g.stroke(pth); g.restore();
-        label(JA[i], x0 + 50, y + 30, '700 26px "Noto Sans JP"', '#fffaf0', 'left');
+        label(JA[i], x0 + 50, y + 30, '700 26px Inter', '#fffaf0', 'left');
         g.fillStyle = 'rgba(255,255,255,.05)'; K.rr(g, x0 + 220, y + 12, bw, 36, 8); g.fill();
         const lg = g.createLinearGradient(x0 + 220, 0, x0 + 220 + bw, 0); lg.addColorStop(0, n.dark); lg.addColorStop(1, n.fill);
         g.fillStyle = lg; K.rr(g, x0 + 220, y + 12, Math.max(8, (bw * KEEPS[i] / 10) * k), 36, 8); g.fill();
@@ -179,9 +179,9 @@ WY.scene({
       if (tk > 0) {
         const y = y0 + 6 * rh + 14; g.save(); g.globalAlpha = a * tk; g.translate(0, (1 - tk) * 20);
         panel(x0, y, 800, 120, { glow: WY.seg(t, T.d1 + 4.4, T.d1 + 5) * 0.8 });
-        label('同点 → 領地の時間(暫定ルール)', x0 + 30, y + 34, '700 24px "Noto Sans JP"', 'rgba(240,212,138,.95)', 'left');
-        label('エンバー 19,968 ターン', x0 + 30, y + 82, '700 30px "Noto Sans JP"', '#fffaf0', 'left');
-        label('アステル 19,936', x0 + 450, y + 82, '600 28px "Noto Sans JP"', 'rgba(255,250,240,.6)', 'left');
+        label('Tie → territory time (provisional rule)', x0 + 30, y + 34, '700 23px Inter', 'rgba(240,212,138,.95)', 'left');
+        label('Ember 19,968 turns', x0 + 30, y + 82, '700 30px Inter', '#fffaf0', 'left');
+        label('Aster 19,936', x0 + 450, y + 82, '600 28px Inter', 'rgba(255,250,240,.6)', 'left');
         g.restore();
       }
       g.globalAlpha = 1;
@@ -196,22 +196,22 @@ WY.scene({
         const into = e.inOutCubic(WY.seg(t, T.d2 + 0.6 + i * 0.25, T.d2 + 1.6 + i * 0.25));
         const back = e.inOutCubic(WY.seg(t, T.d2 + 3.4 + i * 0.2, T.d2 + 4.4 + i * 0.2));
         const wx = 1010 + i * 160;
-        g.save(); g.globalAlpha = a * 0.95; panel(wx - 64, y - 54, 128, 108, { r: 14 }); label('有料参加', wx, y + 34, '600 20px "Noto Sans JP"', 'rgba(255,250,240,.7)'); g.restore();
+        g.save(); g.globalAlpha = a * 0.95; panel(wx - 64, y - 54, 128, 108, { r: 14 }); label('paid entry', wx, y + 34, '600 19px Inter', 'rgba(255,250,240,.7)'); g.restore();
         if (into < 1) coin(WY.lerp(wx, 1600, into), WY.lerp(y - 8, 470, into) - Math.sin(into * Math.PI) * 80, 30, '25', a * (1 - WY.seg(into, 0.9, 1)));
         if (back > 0) coin(WY.lerp(1460, wx, back), WY.lerp(640, y - 8, back) - Math.sin(back * Math.PI) * 90, 30, '20', a);
       }
       // pool and split bar
       const pk = e.outBack(WY.seg(t, T.d2 + 1.2, T.d2 + 1.8));
-      g.save(); g.globalAlpha = a * Math.min(1, pk); panel(1500, 420, 260, 110, { glow: 0.3 }); label('プール', 1630, 450, '700 22px "Noto Sans JP"', 'rgba(240,212,138,.9)'); label('75', 1630, 494, '800 46px Inter', '#ffe8a3'); g.restore();
+      g.save(); g.globalAlpha = a * Math.min(1, pk); panel(1500, 420, 260, 110, { glow: 0.3 }); label('POOL', 1630, 450, '700 20px Inter', 'rgba(240,212,138,.9)'); label('75', 1630, 494, '800 46px Inter', '#ffe8a3'); g.restore();
       const sk = e.outCubic(WY.seg(t, T.d2 + 2.0, T.d2 + 2.8));
       if (sk > 0) {
         const bx = 1000, by = 600, bw = 760;
         g.save(); g.globalAlpha = a * sk;
         g.fillStyle = '#3b6b58'; K.rr(g, bx, by, bw * 0.8 * sk, 70, 10); g.fill();
         g.fillStyle = '#5a4a2a'; K.rr(g, bx + bw * 0.8 + 8, by, (bw * 0.2 - 8) * sk, 70, 10); g.fill();
-        label('賞金 60', bx + bw * 0.4, by + 36, '700 28px "Noto Sans JP"');
-        label('運営 15', bx + bw * 0.9 + 4, by + 36, '700 24px "Noto Sans JP"');
-        label('テスト単位', bx + bw, by + 100, '500 20px "Noto Sans JP"', 'rgba(255,250,240,.6)', 'right');
+        label('Prize 60', bx + bw * 0.4, by + 36, '700 28px Inter');
+        label('Ops 15', bx + bw * 0.9 + 4, by + 36, '700 24px Inter');
+        label('test units', bx + bw, by + 100, '500 20px Inter', 'rgba(255,250,240,.6)', 'right');
         g.restore();
       }
       // refund stamp
@@ -219,8 +219,8 @@ WY.scene({
       if (st > 0) {
         const s = 1 + (1 - e.outBack(st)) * 0.8;
         g.save(); g.globalAlpha = a * Math.min(1, st * 2); g.translate(1180, 760); g.rotate(-0.08); g.scale(s, s);
-        g.strokeStyle = '#e0525c'; g.lineWidth = 6; K.rr(g, -150, -46, 300, 92, 10); g.stroke();
-        label('返金モード', 0, 2, '900 46px "Noto Serif JP"', '#e0525c');
+        g.strokeStyle = '#e0525c'; g.lineWidth = 6; K.rr(g, -190, -46, 380, 92, 10); g.stroke();
+        label('REFUND MODE', 0, 2, '700 40px Cinzel', '#e0525c');
         g.restore();
       }
       g.globalAlpha = 1;
@@ -237,14 +237,14 @@ WY.scene({
       g.strokeStyle = 'rgba(160,140,220,.75)'; g.beginPath(); g.arc(cx, cy, R, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * 0.8 * k); g.stroke();
       g.strokeStyle = 'rgba(201,162,74,.6)'; if (k > 0.99) { g.beginPath(); g.arc(cx, cy, R, -Math.PI / 2 + Math.PI * 2 * 0.8 + 0.03, -Math.PI / 2 + Math.PI * 2 - 0.03); g.stroke(); }
       g.setLineDash([]);
-      label('25', cx, cy - 26, '800 84px Inter', '#fffaf0'); label('USDC / 参加', cx, cy + 40, '600 28px "Noto Sans JP"', 'rgba(255,250,240,.75)');
+      label('25', cx, cy - 26, '800 84px Inter', '#fffaf0'); label('USDC per entry', cx, cy + 40, '600 28px Inter', 'rgba(255,250,240,.75)');
       const lk = WY.seg(t, T.e + 2.4, T.e + 3.0);
       g.globalAlpha = a * lk;
-      label('賞金プール 80%', cx - 300, cy + 190, '700 30px "Noto Sans JP"', '#d6ccff', 'right');
-      label('運営 20%', cx + 210, cy - 250, '700 28px "Noto Sans JP"', '#f0d48a', 'left');
+      label('Prize pool 80%', cx - 300, cy + 190, '700 30px Inter', '#d6ccff', 'right');
+      label('Operator 20%', cx + 210, cy - 250, '700 28px Inter', '#f0d48a', 'left');
       // "planned" stamp
       const st = WY.seg(t, T.e + 3.2, T.e + 3.6);
-      if (st > 0) { const s = 1 + (1 - e.outBack(st)) * 0.8; g.save(); g.globalAlpha = a * Math.min(1, st * 2); g.translate(cx + 250, cy + 220); g.rotate(-0.1); g.scale(s, s); g.strokeStyle = '#c9a8f0'; g.lineWidth = 6; K.rr(g, -100, -48, 200, 96, 12); g.stroke(); label('計画', 0, 3, '900 54px "Noto Serif JP"', '#c9a8f0'); g.restore(); }
+      if (st > 0) { const s = 1 + (1 - e.outBack(st)) * 0.8; g.save(); g.globalAlpha = a * Math.min(1, st * 2); g.translate(cx + 250, cy + 220); g.rotate(-0.1); g.scale(s, s); g.strokeStyle = '#c9a8f0'; g.lineWidth = 6; K.rr(g, -130, -44, 260, 88, 12); g.stroke(); label('PLANNED', 0, 3, '700 42px Cinzel', '#c9a8f0'); g.restore(); }
       g.globalAlpha = 1;
     }
     g.setTransform(1, 0, 0, 1, 0, 0);
