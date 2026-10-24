@@ -465,7 +465,8 @@ test('a strip that cannot show every resource says how many more there are on it
   const two = hud.renderStrip(tokens, null, 2).map(String);
   assert.equal(two.length, 2, 'two tokens, no third piece that could be cut at the plaque\'s point');
   assert.doesNotMatch(two[0], /res-more-n/);
-  assert.match(two[1], /class="res-more-n" aria-hidden="true">\+3</);
+  assert.match(two[1], /class="res-more-n" aria-hidden="true"><span class="res-more-w">ほか 3<\/span><span class="res-more-s"><svg[^]*?<\/svg>3<\/span>/);
+  assert.doesNotMatch(two[1], />\+3</, 'never a bare plus beside a stock');
   assert.ok(two.every(x => /data-r="\*"/.test(x)), 'each opens every resource');
   const allOf = hud.renderStrip(tokens, null, 8).map(String);
   assert.equal(allOf.length, 5); assert.ok(allOf.every(x => !/res-more-n/.test(x)));

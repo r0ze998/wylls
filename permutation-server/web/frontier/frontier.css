@@ -628,6 +628,8 @@ body[data-stage="none"] :is(.lenses, .map-btn[data-map="home"]) { display: none;
 .next-row .todo-medal { background: radial-gradient(circle at 50% 30%, #f6e2a0, #c9a24a 70%, #8d7028); color: #2a1e06; box-shadow: 0 0 0 1px rgba(0,0,0,.45); }
 .next-row-t { min-width: 0; display: grid; gap: 2px; }
 .next-row-t .next-kicker { padding: 0; border: 0; }
+.next-row-k { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.next-row-k .todo-n { padding: 0 6px; font-size: var(--t1); line-height: 1.5; }
 .next-row-t strong { font: 700 var(--t3)/1.2 var(--display); letter-spacing: .02em; color: var(--ivory); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .next-todo .next-row-t strong { font: 650 var(--t2)/1.3 var(--ui); white-space: normal; }
 .next-row-do { max-width: 9.5em; font-weight: 650; text-align: right; color: var(--brass-hi); }
@@ -1732,6 +1734,9 @@ body[data-title="up"] .dial-pop { display: none; }
 
 /* ---- the fix pass on the second review: the phone's strip and the map's own keys ---- */
 .res-more-n { display: inline-block; margin-left: 4px; padding: 1px 5px; border: 1px solid rgba(201,162,74,.6); border-radius: 9px; font-size: var(--t1); font-weight: 700; color: var(--brass-hi); line-height: 1.2; }
+/* (「ほか 3」 where there is room; a list mark and the count where there is not: never a bare 「+3」, which beside a stock read as income) */
+.res-more-s { display: none; align-items: center; gap: 1px; }
+.res-more-ic { width: 10px; height: 10px; }
 .map-tools { align-items: flex-end; }
 .map-btn[data-worded] { display: inline-flex; align-items: center; gap: 5px; width: auto; padding: 0 12px 0 9px; border-radius: 19px; }
 .map-btn-text { font-size: var(--t1); font-weight: 700; letter-spacing: .04em; white-space: nowrap; }
@@ -1740,7 +1745,9 @@ body[data-title="up"] .dial-pop { display: none; }
   .res-strip { overflow: hidden; -webkit-mask-image: none; mask-image: none; }
   .res { padding: 0 3px; gap: 2px; }
   .res:last-child { margin-right: 0; }
-  .res-more-n { margin-left: 1px; padding: 1px 2px; }
+  .res-more-n { margin-left: 1px; padding: 1px 3px; }
+  .res-more-w { display: none; }
+  .res-more-s { display: inline-flex; }
   /* the plate in the sheet has the way home: the map does not carry a second one */
   body:has(.plate-main[data-act="home"]) .map-btn[data-map="home"] { display: none; }
   .map-btn[data-worded] { border-radius: 9px; padding: 0 10px 0 8px; }
