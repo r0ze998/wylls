@@ -76,12 +76,22 @@ curl -s http://127.0.0.1:41901/props | grep -o '"model_path":"[^"]*"'    # 読�
 
 ## 2. 判断ベンチ（チェーン不要、各 3〜5 分）
 
-10 場面 × 3 回を、スキーマ off と on で 1 回ずつ実行する。
+MC の 10 場面 × 3 回と、S1 の 4 場面 × 3 回を、スキーマ off と on で 1 回ずつ実行する（合わせて 4 回）。
 
 ```sh
 AGENT_BENCH_LLM=http://127.0.0.1:41901 AGENT_BENCH_REPEATS=3 AGENT_BENCH_OUT=$PWD/.local/stage5/bench-off node permutation-gateway/scripts/agent-decision-bench.mjs
 AGENT_BENCH_LLM=http://127.0.0.1:41901 AGENT_BENCH_REPEATS=3 AGENT_BENCH_STRICT=1 AGENT_BENCH_OUT=$PWD/.local/stage5/bench-on node permutation-gateway/scripts/agent-decision-bench.mjs
+AGENT_BENCH_LLM=http://127.0.0.1:41901 AGENT_BENCH_REPEATS=3 AGENT_BENCH_RULES=s1 AGENT_BENCH_OUT=$PWD/.local/stage5/bench-s1-off node permutation-gateway/scripts/agent-decision-bench.mjs
+AGENT_BENCH_LLM=http://127.0.0.1:41901 AGENT_BENCH_REPEATS=3 AGENT_BENCH_RULES=s1 AGENT_BENCH_STRICT=1 AGENT_BENCH_OUT=$PWD/.local/stage5/bench-s1-on node permutation-gateway/scripts/agent-decision-bench.mjs
 ```
+
+- `AGENT_BENCH_RULES` を付けないと、これまでと同じ MC の 10 場面だけを実行する（10 月 17 日の結果と比べられる）。
+- S1 の 4 場面：
+  - 武具がないので普通の兵を訓練する。
+  - 武具があり、強い兵も選べる状態で訓練する。
+  - 鉱石が上限まで余っているので工房を建てる。
+  - 何も払えないので休む。
+- S1 の場面では、モデルに S1 の表（工房、強い兵の武具）を伝え、S1 の規則で払えるかを判定する。
 
 `report.md` の 1 行目に、どちらのスキーマで実行したかが書かれる（`JSON schema: loose …` または `strict (per action)`）。
 
@@ -117,10 +127,12 @@ frontier-node/target/release/frontier-stack down --run-id $RUN
 
 **判断ベンチ（10 場面 × 3 回）**
 
-| スキーマ | 判断（正解／30） | コードの拒否 | 同じ答えの再現（10 場面中） | 1 回あたりの時間（中央値） |
-|---|---|---|---|---|
-| off | | | | |
-| on | | | | |
+| 場面 | スキーマ | 判断（正解） | コードの拒否 | 同じ答えの再現 | 1 回あたりの時間（中央値） |
+|---|---|---|---|---|---|
+| MC 10 場面 | off | ／30 | | ／10 | |
+| MC 10 場面 | on | ／30 | | ／10 | |
+| S1 4 場面 | off | ／12 | | ／4 | |
+| S1 4 場面 | on | ／12 | | ／4 | |
 
 **実世界の窓（各 7 分）**：E2E の記録（`transcript.json` の `window`）と `finalized.json` から書く。
 

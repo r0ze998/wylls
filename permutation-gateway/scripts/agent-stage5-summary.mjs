@@ -35,14 +35,15 @@ const out = [`# Stage 5 summary (${dir})`, ''];
 
 // ---- the decision bench
 const benches = readdirSync(dir).map(d => path.join(dir, d, 'report.json')).map(f => ({ f, r: read(f) })).filter(x => x.r?.mode === 'agent-decision-bench');
-out.push('## Decision bench', '', '| dir | schema | judgement (right / judged) | refused by the code | same answer every time (situations) | median ms per call | repeats |', '|---|---|---|---|---|---|---|');
+out.push('## Decision bench', '', '| dir | rules | schema | judgement (right / judged) | MC | S1 | refused by the code | same answer every time (situations) | median ms per call | repeats |', '|---|---|---|---|---|---|---|---|---|---|');
 for (const { f, r } of benches) {
   models.add(r.model?.modelPath ?? '(model path not reported)');
   const runs = r.situations.flatMap(s => s.runs ?? []);
   const same = r.situations.filter(s => s.sameAnswerEveryTime).length;
-  out.push(`| ${path.basename(path.dirname(f))} | ${r.model?.settings?.schema ?? '?'} | ${r.summary.judgement.right} / ${r.summary.runsJudged} | ${r.summary.safety.refusedByCode} | ${same} / ${r.situations.length} | ${or(median(runs.map(x => x.ms)))} | ${r.repeats} |`);
+  const by = k => (r.summary.byRules?.[k]?.judged ? `${r.summary.byRules[k].right} / ${r.summary.byRules[k].judged}` : '—');
+  out.push(`| ${path.basename(path.dirname(f))} | ${r.rules ?? 'mc (before the S1 situations)'} | ${r.model?.settings?.schema ?? '?'} | ${r.summary.judgement.right} / ${r.summary.runsJudged} | ${r.summary.byRules ? by('MC') : `${r.summary.judgement.right} / ${r.summary.runsJudged}`} | ${by('S1')} | ${r.summary.safety.refusedByCode} | ${same} / ${r.situations.length} | ${or(median(runs.map(x => x.ms)))} | ${r.repeats} |`);
 }
-if (!benches.length) out.push('| (no bench report found) | | | | | | |');
+if (!benches.length) out.push('| (no bench report found) | | | | | | | | | |');
 
 // ---- the live windows
 const runs = readdirSync(dir).filter(d => statSync(path.join(dir, d)).isDirectory() && existsSync(path.join(dir, d, 'transcript.json'))).sort();
