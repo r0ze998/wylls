@@ -34,7 +34,7 @@ import { lifeAt } from '../people/life.mjs';
 import { paintBattle, battleTiles } from '../people/battle.mjs';
 import { provinceTokens, paintToken } from '../people/units.mjs';
 import { boardCharacters, characterPlaces } from '../people/onboard.mjs';
-import { canAct, staminaRing, villageWork } from './board.mjs';
+import { buildingsOf, canAct, staminaRing, villageWork } from './board.mjs';
 import { paintSheaves, scaffoldsOf } from './villagework.mjs';
 import { characterCell } from '../people/onboard.mjs';
 import { onMiniLoad, MINI_ANCHOR, MINI_CELL_U } from '../people/minis.mjs';
@@ -1098,11 +1098,28 @@ export class SpriteArt {
       return img ? spriteColour(img) : null;
     };
     const paintsAt = (q, r) => { const t = byHex.get(keyOf(q, r)); return !!t && !t.cloud && painted(t); };
+    // the land the villages work, worked (map/landuse.mjs): lies flat on the ground, so it is baked with it, province by
+    // province; made again when the tiles or the viewer's own buildings change (its signature is in the bitmap's key)
+    const work0 = survey && !survey.showAll ? survey.board?.work ?? null : null;
+    const luKey = work0 ? buildingsOf(work0).join(',') : '';
+    if (!far && SHORES_DRAWN && (this.luTiles !== tiles || this.luKey !== luKey)) {
+      this.luTiles = tiles; this.luKey = luKey;
+      const villages = tiles.filter(t => !t.cloud && t.site !== undefined && t.state === 1 && t.owner < 6 && painted(t))
+        .map(t => ({ q: t.q, r: t.r, tier: t.tier ?? 0, own: !!t.hero, built: t.hero && work0 && work0.p === t.p && work0.q === t.pq && work0.tile === t.idx ? buildingsOf(work0) : null }));
+      const by = new Map();
+      for (const u of landUse(villages, (q, r) => { const t = byHex.get(keyOf(q, r)); return t && !t.cloud && painted(t) ? t : null; })) {
+        const e = by.get(u.t.pk) ?? by.set(u.t.pk, { list: [], sig: '' }).get(u.t.pk);
+        e.list.push(u); e.sig += `${u.kind[0]}${u.t.idx}`;
+      }
+      this.luBy = by;
+    }
     const country = (list) => {
       if (far || !SHORES_DRAWN) return;
       const opts = { nameAt: chartName, colourAt, paints: paintsAt };
       paintBlend(g, list, opts);
       paintShores(g, list, opts);
+      const mine = new Set(list.map(t => t.pk));
+      for (const pk of mine) { const e = this.luBy?.get(pk); if (e) paintLandUse(g, e.list.filter(u => list.includes(u.t)), { muted: t => t.lv === L2 }); }
     };
     // territory over the ground of one tile: the nation's wash, and its border where the realm ends
     const washOf = (t) => {
@@ -1148,7 +1165,7 @@ export class SpriteArt {
         this.waiting = 0;
         const bake = (e, list) => {
           const sv = svOf(e), chartOnly = sv?.kind === 'chart';
-          const key = `${e.p},${e.q}@${s.key}${lo ? `~${lo}` : ''}|${e.prov?.roadMask ?? ''}|${ringsOpen ?? ''}|${washSig.get(`${e.p},${e.q}`) ?? ''}|${sv?.sig ?? ''}`;
+          const key = `${e.p},${e.q}@${s.key}${lo ? `~${lo}` : ''}|${e.prov?.roadMask ?? ''}|${ringsOpen ?? ''}|${washSig.get(`${e.p},${e.q}`) ?? ''}|${sv?.sig ?? ''}|${this.luBy?.get(`${e.p},${e.q}`)?.sig ?? ''}`;
           const hit = this.groundCache.get(key);
           if (hit) { hit.pass = pass; this.groundCache.delete(key); this.groundCache.set(key, hit); return hit; }
           // (`rush`: the opening prepares its first picture. A bitmap made while a sprite of it is still on its way is
@@ -1396,12 +1413,6 @@ export class SpriteArt {
     // and so under the hosts, the people and their labels too
     if (has('props') && !far) for (const e of entries) if (e.fog !== 'unopened') this.frame(ctx, { p: e.p, q: e.q, fog: 'clear', selected: e.selected, zoom, sv: svOf(e), survey });
     // pass 2: props, holdings, cloud sea
-    // the land the villages work, worked (map/landuse.mjs): flat on the ground, under everything that stands
-    if (has('props') && !far && SHORES_DRAWN) {
-      const villages = tiles.filter(t => !t.cloud && t.site !== undefined && t.state === 1 && t.owner < 6 && painted(t))
-        .map(t => ({ q: t.q, r: t.r, tier: t.tier ?? 0, own: !!t.hero, built: t.hero && workNow && workNow.p === t.p && workNow.q === t.pq && workNow.tile === t.idx ? workNow.built : null }));
-      if (villages.length) paintLandUse(g, landUse(villages, (q, r) => { const t = byHex.get(keyOf(q, r)); return t && !t.cloud && painted(t) ? t : null; }), { muted: t => t.lv === L2 });
-    }
     if (has('props')) { for (const t of tiles) propsOf(t); for (const t of tiles) if (t.hero && !t.cloud && t.state === 1 && t.owner < 6 && t.lv >= L2 && !far) villageOf(t); }
     // the far view's bitmap stops here: land, props, holdings, territory (map/sprites.mjs farBitmap)
     if (far || part === 'props') return tiles.length;

@@ -463,7 +463,9 @@ export function paintReachDim(g, A, { box, now = fxNow(), still = false, dim = 1
 }
 
 /** How far the world outside a selected village's land steps back: a grey veil (colour out), then a little dark. */
-export const LENS = Object.freeze({ grey: 'rgba(122,122,114,.5)', dark: 'rgba(8,16,15,.22)' });
+// (softer than a blackout: the page selects the viewer's village by itself after the landing and on the guide's steps,
+// and the world must stay readable round it; seen on the local chain, 2026-10-24)
+export const LENS = Object.freeze({ grey: 'rgba(122,122,114,.36)', dark: 'rgba(8,16,15,.14)' });
 /**
  * The village's lens (docs/design/uplift 06): everything in the box outside the loops (a village's land, world px)
  * greyed and darkened, so the land the village works is the one thing in colour. Drawn over what stands.

@@ -2,6 +2,14 @@
    parchment and use the state tokens of frontier.css :root (--st-*). Every state has a shape as well as a colour:
    forecast = dashed outline, done = solid stamp, wait = ring, fail = cut corner, sealed = lock. */
 
+/* ---- the light over the land (docs/design/uplift/06-MAP-REST): one warm key light from the upper left, a cool fall-off
+   to the lower right, laid soft-light over the board in screen space (no cost per frame). Strongest at the near view,
+   gone at the far view where the chart lies flat; never over the HUD. */
+.map-light { position: absolute; inset: 0; pointer-events: none; mix-blend-mode: soft-light; opacity: calc(.25 + .75 * var(--map-near, 0));
+  background:
+    radial-gradient(ellipse 62% 58% at 28% 26%, rgba(255,232,178,.55), rgba(255,232,178,0) 70%),
+    radial-gradient(ellipse 70% 70% at 82% 88%, rgba(28,44,64,.42), rgba(28,44,64,0) 72%); }
+
 /* ---- the state tag: a small word that says what kind of figure follows */
 .state-tag { display: inline-flex; align-items: center; gap: 3px; padding: 0 6px; min-height: 18px; border-radius: 3px; font: 800 11px/1.5 var(--ui); letter-spacing: .06em; white-space: nowrap; vertical-align: middle; }
 .state-forecast { color: var(--st-forecast); background: var(--st-forecast-bg); border: 1.5px dashed currentColor; }
