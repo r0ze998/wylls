@@ -132,6 +132,8 @@ test('the lens\'s ore numbers are arms.rs\'s (ORE_RADIUS, the per-tile amounts, 
   const c = n => Number(rs.match(new RegExp(`pub const ${n}: [^=]+= ([^;]+);`))?.[1]);
   const S = await import('../../permutation-server/web/frontier/map/sprites.mjs');
   assert.deepEqual([c('ORE_RADIUS'), c('ORE_PER_HILLS'), c('ORE_PER_MOUNTAIN'), c('ORE_PER_IRON'), c('ORE_TERRAIN_MAX')], [S.ORE_RADIUS, 2, 3, 4, S.ORE_TERRAIN_MAX]);
+  const F = await import('../../permutation-server/web/frontier/fs1.mjs');
+  assert.equal(c('ORE_BASE_PER_HOUR'), F.ORE_BASE_PER_HOUR, 'the base of a village\'s terrain ore');
 });
 
 test('the stage-1 things: quiet on a context that cannot paint, drawn on one that can; a cart shows its largest load', () => {
@@ -199,6 +201,23 @@ test('a radio group of buttons: the arrows step and wrap, Home and End go to the
   assert.equal(radioStep(b, b[0], 'End').i, 3);
   assert.equal(radioStep(b, b[0], 'Enter'), null);
   assert.equal(radioStep(b, { i: 9 }, 'ArrowDown'), null, 'not one of the group');
+});
+
+test('S1: a village\'s terrain ore is its base, never mines it did not build', async () => {
+  const { s1OreBase } = await import('../../permutation-server/web/frontier/fs1.mjs');
+  // arms.rs: (4 + min(extra, 30)) a hour, thousandths, × (100 + tier bonus) / 100 rounded down
+  assert.equal(s1OreBase(6, 0), 10_000n);
+  assert.equal(s1OreBase(40, 0), 34_000n, 'the terrain part is capped at 30');
+  assert.equal(s1OreBase(6, 50), 15_000n);
+  setS1({ layoutVersion: 2, programVersion: 4 });
+  try {
+    const prod = ore => [0, 0, 0, ore, 0, 0, 0, 0].map(BigInt);
+    const mine = 3;   // (fland.mjs BUILD_ITEMS: the mine, 6 ore an hour)
+    assert.equal(buildingsOf({ tier: 0, production: prod(10_000) }, { oreExtra: 6 })[mine], 0, 'terrain ore alone: no mine');
+    assert.equal(buildingsOf({ tier: 0, production: prod(16_000) }, { oreExtra: 6 })[mine], 1, 'one mine over the terrain\'s ore');
+    assert.equal(buildingsOf({ tier: 0, production: prod(10_000) })[mine], 0, 'terrain not known: no mine drawn');
+    assert.equal(buildingsOf({ tier: 0, production: prod(4_000) }, { oreExtra: 6 })[mine], 0, 'below the base (a record mid-change): no mine');
+  } finally { setS1({ layoutVersion: 1, programVersion: 1 }); }
 });
 
 test('S1 orders: a vault and a structure are built from the ABI v2 shapes, their addresses from the v2 seed tags', async () => {

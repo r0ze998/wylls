@@ -23,6 +23,14 @@ export const ARMS = 4;
 export const TRAIN_ARMS_PER_100 = Object.freeze([0, 0, 0, 50, 70, 40, 0]);
 /** Arms a siege burns when declared. */
 export const SIEGE_ARMS = 50;
+/** A village's own ore an hour before any terrain (arms.rs ORE_BASE_PER_HOUR); the terrain part is capped at 30. */
+export const ORE_BASE_PER_HOUR = 4;
+/**
+ * A village's base ore production in S1 (arms.rs `base_production`): its terrain ore, `(4 + min(extra, 30))` an hour in
+ * thousandths, with the tier's bonus `× (100 + bonus) / 100`, rounded down as the rules do. `extra` is what the hills,
+ * mountains and iron within 2 tiles add (map/sprites.mjs oreAround). BigInt thousandths.
+ */
+export const s1OreBase = (extra, bonusPct) => (BigInt(ORE_BASE_PER_HOUR + Math.min(30, Math.max(0, extra | 0))) * 1000n * BigInt(100 + (bonusPct | 0))) / 100n;
 /** The workshop: build item 8, arms production per copy and per hour, ore and wood used per arm, its first copy's cost. */
 export const WORKSHOP = Object.freeze({
   item: 8, resource: 'Horses', perHour: 4, orePerArm: 2, woodPerArm: 1,

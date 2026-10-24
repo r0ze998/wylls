@@ -839,6 +839,7 @@ export class SpriteArt {
     let total = 0;
     for (const t of m.byProv.get(`${p},${q}`) ?? []) {
       if (t === home || Math.max(Math.abs(t.q - home.q), Math.abs(t.r - home.r), Math.abs(t.q + t.r - home.q - home.r)) > ORE_RADIUS) continue;
+      if (t.res === null) return null;   // (the record not read yet: an amount without its iron would be too low)
       // (the resource byte: 0 none, else 1 + the rules' TileResource, Iron being 1)
       const ore = (t.name === 'hills' ? 2 : t.name === 'mountain' ? 3 : 0) + (t.res === 2 ? 4 : 0);
       if (ore) { out.push({ x: t.x, y: t.y, ore }); total += ore; }
@@ -882,7 +883,8 @@ export class SpriteArt {
           camp: !!(lv === L3 && e.prov?.camp?.state === 1 && e.prov.camp.tile === i && j === undefined),
           shield: !!(lv === L3 && m && m.shieldUntilBell > 0 && m.shieldUntilBell !== 0xffffffff && m.shieldUntilBell >= (e.prov?.resolvedNext ?? 0)) };
         t.road = lv >= L2 && SITE_LAND.has(name) && roadBit(e.prov?.roadMask, i);
-        t.res = e.prov?.resource?.[i] ?? 0;
+        // (null while the province's record is not read: its iron is not known, and oreAround then says nothing)
+        t.res = e.prov?.resource ? e.prov.resource[i] ?? 0 : null;
         t.ring = ringOf(e.p, e.q);
         t.rel = e.prov?.relations ?? 0;
         const pc = provinceCentre(e.p, e.q);
@@ -1125,11 +1127,13 @@ export class SpriteArt {
     // the land the villages work, worked (map/landuse.mjs): lies flat on the ground, so it is baked with it, province by
     // province; made again when the tiles or the viewer's own buildings change (its signature is in the bitmap's key)
     const work0 = survey && !survey.showAll ? survey.board?.work ?? null : null;
-    const luKey = work0 ? buildingsOf(work0).join(',') : '';
+    // (on S1 the village's ore base is its terrain's: board.mjs buildingsOf counts mines over it, or none without it)
+    const built0 = work0 ? buildingsOf(work0, { oreExtra: this.oreAround(work0.p, work0.q, work0.tile)?.total ?? null }) : null;
+    const luKey = built0 ? built0.join(',') : '';
     if (!far && SHORES_DRAWN && (this.luTiles !== tiles || this.luKey !== luKey)) {
       this.luTiles = tiles; this.luKey = luKey;
       const villages = tiles.filter(t => !t.cloud && t.site !== undefined && t.state === 1 && t.owner < 6 && painted(t))
-        .map(t => ({ q: t.q, r: t.r, tier: t.tier ?? 0, own: !!t.hero, built: t.hero && work0 && work0.p === t.p && work0.q === t.pq && work0.tile === t.idx ? buildingsOf(work0) : null }));
+        .map(t => ({ q: t.q, r: t.r, tier: t.tier ?? 0, own: !!t.hero, built: t.hero && work0 && work0.p === t.p && work0.q === t.pq && work0.tile === t.idx ? built0 : null }));
       const by = new Map();
       for (const u of landUse(villages, (q, r) => { const t = byHex.get(keyOf(q, r)); return t && !t.cloud && painted(t) ? t : null; })) {
         const e = by.get(u.t.pk) ?? by.set(u.t.pk, { list: [], sig: '' }).get(u.t.pk);
