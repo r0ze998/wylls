@@ -314,6 +314,7 @@ export default {
   // ---- the spectator (screens/spectate.mjs)
   'まだ衝突はありません': 'No clash yet',
   'スロット {0} 時点': 'As of slot {0}',
+  'ターン {0} の時点の世界です': 'The world as of turn {0}',
 
   // ---- the HUD (hud/hud.mjs): bell pill, resource strip, attention, left rail
   '満杯です（これ以上は貯まりません）': 'Full (nothing more is stored)',
