@@ -87,3 +87,18 @@
   .panel[data-sheet="peek"] .order-irrev { display: none; }
 }
 @media (prefers-reduced-motion: reduce) { .mcc-row, .mcc-row:active { transition: none; transform: none; } }
+
+/* ---- a phone held sideways (844 × 390, uplift-states.mjs `landscape`): the order card's foot took most of the drawer
+   and left a sliver for the outlook and the stances compared. On a short screen the foot keeps what the decision needs
+   (that it cannot be taken back, and the send) and drops its summary row, which repeats the body's destination, turn
+   and stance; the outlook goes to four in a row */
+@media (min-width: 760px) and (max-height: 480px) {
+  /* (the drawer starts right under the strip, narrow enough to clear the turn dial: frontier.css put it under the
+     dial's whole height between 760 and 899 px, a third of a 390-px screen) */
+  .panel { top: calc(var(--strip) + var(--edge)); width: min(var(--drawer-w), calc(50vw - var(--dial) / 2 - 2 * var(--edge))); max-height: calc(100dvh - var(--strip) - 2 * var(--edge)); }
+  .order-head .seal-pic, .order-head svg:first-child { width: 30px; height: 30px; }
+  .order-foot { gap: 4px; padding-top: 4px; }
+  .order-foot .order-sum { display: none; }
+  .order-irrev { font-size: 12px; line-height: 1.35; }
+  .mc-outlook { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}

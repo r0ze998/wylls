@@ -121,6 +121,16 @@ const STATES = [
     await page.waitForTimeout(800);
     ok(!(await page.locator('#panel .rep-predict').count()), 'no forecast section');
   }],
+  ['landscape', 'a phone held sideways (844 × 390): the card and its send button stay reachable', { vp: { width: 844, height: 390 }, phone: true }, async (page, ok) => {
+    await compose(page); await waitCompare(page);
+    const m = await page.evaluate(() => {
+      const send = document.querySelector('[data-act="march-send"]')?.getBoundingClientRect();
+      return { doc: document.documentElement.scrollWidth - innerWidth, send: send && { top: Math.round(send.top), bottom: Math.round(send.bottom), h: Math.round(send.height) }, vh: innerHeight };
+    });
+    ok(m.doc <= 0, `no sideways scroll (${m.doc} px over)`);
+    ok(!!m.send && m.send.bottom <= m.vh && m.send.top >= 0, `the send button is on screen (${JSON.stringify(m.send)} of ${m.vh})`);
+    ok(!!m.send && m.send.h >= 40, 'the send button is big enough to touch');
+  }],
   ['grey', 'the card without colour: states still differ by shape and word', { grey: true }, async (page, ok) => {
     await compose(page); await waitCompare(page);
     // (the page's CSP refuses an injected style sheet; a CSSOM change is the browser's own)
