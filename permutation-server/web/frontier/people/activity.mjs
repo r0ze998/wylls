@@ -39,7 +39,7 @@ const rank = k => ACTIVITY_ORDER.indexOf(k);
  * prov, rec, sites, clash?}); `ctx`: {bell, departures, explores, own}
  * with `own` the viewer's Holding accounts.
  */
-export function tileActivities(e, { bell = 0, departures = [], explores = [], own = [] } = {}) {
+export function tileActivities(e, { bell = 0, departures = [], explores = [], own = [], now = null } = {}) {
   const out = new Map();
   const add = (idx, a) => { if (!Number.isInteger(idx)) return; if (!out.has(idx)) out.set(idx, []); out.get(idx).push(a); };
   const prov = e.prov ?? null;
@@ -86,7 +86,8 @@ export function tileActivities(e, { bell = 0, departures = [], explores = [], ow
     for (const q of h.queue ?? []) {
       const done = Number(q.doneAt ?? 0);
       const item = queueItem(q);
-      if (done > 0 && item !== null) add(h.tile, { kind: 'build', faction: h.faction, item, untilTs: done });
+      // (`now`, chain seconds: an item whose time is up is built, though the record keeps it until the next settling)
+      if (done > 0 && item !== null && !(Number.isFinite(now) && done <= now)) add(h.tile, { kind: 'build', faction: h.faction, item, untilTs: done });
     }
   }
   for (const list of out.values()) {

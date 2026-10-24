@@ -333,6 +333,9 @@ export function villageWork(holding, now = 0, { starts = null } = {}) {
   let prev = null;
   (holding.queue ?? []).forEach((q, slot) => {
     const doneAt = Number(q?.doneAt ?? 0);
+    // (a building whose time is up is built, though the record keeps it in the queue until the next settling: the
+    // village shows it from that moment, as the copy count and the production already do)
+    if (doneAt > 0 && doneAt <= now && q?.kind === QUEUE_KIND.PRODUCTION) { const i = queueItem(q); if (i !== null && i < 6) built[i]++; }
     if (!(doneAt > 0) || !(doneAt > now) || !q.kind) return;
     const kind = q.kind === QUEUE_KIND.TIER_UP ? 'tier' : q.kind === QUEUE_KIND.WALLS ? 'walls' : 'build';
     const item = queueItem(q);

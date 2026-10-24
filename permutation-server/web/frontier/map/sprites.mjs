@@ -1522,7 +1522,7 @@ export class SpriteArt {
     }
     // pass 2c: people (people/crowds.mjs): townsfolk, carriers, departing columns at their origin, scouts
     // what every tile is doing (people/activity.mjs); kept for the page's hover tip
-    const activities = people ? activitiesFor(entries, { bell: people.bell ?? 0, departures: people.departures ?? [], explores: people.explores ?? [], own: people.own ?? [] }) : null;
+    const activities = people ? activitiesFor(entries, { bell: people.bell ?? 0, departures: people.departures ?? [], explores: people.explores ?? [], own: people.own ?? [], now: survey?.chainNow?.() ?? null }) : null;
     // preview only (?art=1&acts=1): sample activities on the drawn holdings
     if (activities && people.demo) for (const t of tiles) {
       if (t.state !== 1 || !(t.owner < 6) || t.fog === 'unopened') continue;
