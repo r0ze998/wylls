@@ -140,6 +140,18 @@ ix_data_v2! {
 }
 
 ix_data_v2! {
+    /// 0xC0 (P, S2, 2a): the citizen issues `amount` units of a receipt
+    /// (`kind` 2) or use (`kind` 3) ticket of its source (account 7).
+    IssueTickets { kind: u8, resource: u8, amount: u64, per_unit: u64, until_day: u32 }
+    /// 0xC1 (P, S2, 2a): `amount` units of the citizen's lot go to the
+    /// recipient (a split when the recipient is the citizen).
+    GiveLot { amount: u64 }
+    /// 0xC2 (P, S2, 2a): closes the citizen's empty or void lot, and with
+    /// `close_issue` its own issue once nothing is outstanding or it is void.
+    CloseLot { close_issue: u8 }
+}
+
+ix_data_v2! {
     /// 0xBB (P, S1, 1e): the citizen proposes to its Nation: a stance of
     /// `value` toward `target_faction` (`nation::KIND_STANCE`), or the
     /// expulsion or readmission of the Citizen at account 5.
@@ -314,6 +326,9 @@ pub fn fixed_len(ix: Ix) -> Option<usize> {
         Ix::SeizeStructure => SeizeStructure::LEN,
         Ix::CloseStructure => CloseStructure::LEN,
         Ix::FortGarrison => FortGarrison::LEN,
+        Ix::IssueTickets => IssueTickets::LEN,
+        Ix::GiveLot => GiveLot::LEN,
+        Ix::CloseLot => CloseLot::LEN,
         Ix::Propose => Propose::LEN,
         Ix::Vote => Vote::LEN,
         Ix::SettleProposal => SettleProposal::LEN,
@@ -343,6 +358,9 @@ pub fn wire_of(ix: Ix) -> Option<&'static [(&'static str, usize)]> {
         Ix::SeizeStructure => SeizeStructure::WIRE,
         Ix::CloseStructure => CloseStructure::WIRE,
         Ix::FortGarrison => FortGarrison::WIRE,
+        Ix::IssueTickets => IssueTickets::WIRE,
+        Ix::GiveLot => GiveLot::WIRE,
+        Ix::CloseLot => CloseLot::WIRE,
         Ix::Propose => Propose::WIRE,
         Ix::Vote => Vote::WIRE,
         Ix::SettleProposal => SettleProposal::WIRE,

@@ -236,6 +236,45 @@ pub enum CqEvent {
         raider_tag: u64,
         domestic: bool,
     },
+    /// S2 (2a): an issue of tickets and its issuer's first lot.
+    TicketsIssued {
+        issuer_tag: u64,
+        seq: u32,
+        /// `ticket::KIND_*`.
+        kind: u8,
+        src: LogPlace,
+        resource: u8,
+        amount: u64,
+        per_unit: u64,
+        until_day: u32,
+        lot_seq: u32,
+        holding_key: u64,
+    },
+    /// S2 (2a): units of a lot given (or split); `to` the lot they went
+    /// to (`(seed_tag, seq)`; the lot itself for a whole-lot gift).
+    LotMoved {
+        issuer_tag: u64,
+        seq: u32,
+        giver_tag: u64,
+        from: (u64, u32),
+        recipient_tag: u64,
+        to: (u64, u32),
+        amount: u64,
+        whole: bool,
+        new_lot: bool,
+    },
+    /// S2 (2a): a lot closed (empty or void) and/or its issue closed.
+    LotClosed {
+        issuer_tag: u64,
+        seq: u32,
+        closer_tag: u64,
+        /// `(seed_tag, seq)` of the closed lot (`(0, 0)` when none).
+        lot: (u64, u32),
+        amount: u64,
+        void: bool,
+        lot_closed: bool,
+        issue_closed: bool,
+    },
     NationProposed {
         faction: u8,
         id: u32,
@@ -370,7 +409,10 @@ impl CqEvent {
             | Retire { .. }
             | NationProposed { .. }
             | NationVoted { .. }
-            | NationDecided { .. } => None,
+            | NationDecided { .. }
+            | LotMoved { .. }
+            | LotClosed { .. } => None,
+            TicketsIssued { src, .. } => Some((src.p as i32, src.q as i32)),
             CaravanSent { src, .. } => Some((src.p as i32, src.q as i32)),
             CaravanSettled { dst, .. } => Some((dst.p as i32, dst.q as i32)),
         }
@@ -573,6 +615,39 @@ pub fn parse(body: &[u8]) -> Option<CqLog> {
             owner_tag: u("owner_tag")?,
             entry: b8("entry")?,
             kind: b8("kind")?,
+        },
+        CqKind::TICKETS_ISSUED => CqEvent::TicketsIssued {
+            issuer_tag: u("issuer_tag")?,
+            seq: u("seq")? as u32,
+            kind: b8("kind")?,
+            src: LogPlace::parse(f("src")?)?,
+            resource: b8("resource")?,
+            amount: u("amount")?,
+            per_unit: u("per_unit")?,
+            until_day: u("until_day")? as u32,
+            lot_seq: u("lot_seq")? as u32,
+            holding_key: u("holding_key")?,
+        },
+        CqKind::LOT_MOVED => CqEvent::LotMoved {
+            issuer_tag: u("issuer_tag")?,
+            seq: u("seq")? as u32,
+            giver_tag: u("giver_tag")?,
+            from: (u("from_tag")?, u("from_seq")? as u32),
+            recipient_tag: u("recipient_tag")?,
+            to: (u("to_tag")?, u("to_seq")? as u32),
+            amount: u("amount")?,
+            whole: b8("whole")? != 0,
+            new_lot: b8("new_lot")? != 0,
+        },
+        CqKind::LOT_CLOSED => CqEvent::LotClosed {
+            issuer_tag: u("issuer_tag")?,
+            seq: u("seq")? as u32,
+            closer_tag: u("closer_tag")?,
+            lot: (u("lot_tag")?, u("lot_seq")? as u32),
+            amount: u("amount")?,
+            void: b8("void")? != 0,
+            lot_closed: b8("lot_closed")? != 0,
+            issue_closed: b8("issue_closed")? != 0,
         },
         CqKind::FORT_GARRISONED => CqEvent::FortGarrisoned {
             p: i("p")?,

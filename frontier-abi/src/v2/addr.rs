@@ -94,6 +94,40 @@ pub fn structure(ctx: &AddrCtx, p: i32, q: i32, tile: u8) -> [u8; 32] {
     ctx.of(&structure_seed(p, q, tile))
 }
 
+/// The Issue seed tag (S2, 2a).
+pub const ISSUE: [u8; 2] = *b"ti";
+/// The Lot seed tag (S2, 2a).
+pub const LOT: [u8; 2] = *b"tl";
+/// Raw key length of an Issue or a Lot (`tag u64, seq u32`).
+pub const TICKET_RAW_LEN: usize = 12;
+
+fn tag_seq(tag: u64, seq: u32) -> [u8; TICKET_RAW_LEN] {
+    let mut raw = [0u8; TICKET_RAW_LEN];
+    raw[..8].copy_from_slice(&tag.to_le_bytes());
+    raw[8..].copy_from_slice(&seq.to_le_bytes());
+    raw
+}
+
+/// `ti‖hex(le64 issuer_tag ‖ le32 seq)`.
+pub fn issue_seed(issuer_tag: u64, seq: u32) -> Seed {
+    Seed::new(ISSUE, &tag_seq(issuer_tag, seq))
+}
+
+/// The Issue address of the issuer's `seq`-th issue.
+pub fn issue(ctx: &AddrCtx, issuer_tag: u64, seq: u32) -> [u8; 32] {
+    ctx.of(&issue_seed(issuer_tag, seq))
+}
+
+/// `tl‖hex(le64 first_holder_tag ‖ le32 seq)`.
+pub fn lot_seed(first_holder_tag: u64, seq: u32) -> Seed {
+    Seed::new(LOT, &tag_seq(first_holder_tag, seq))
+}
+
+/// The Lot address of a lot by its first holder and sequence.
+pub fn lot(ctx: &AddrCtx, first_holder_tag: u64, seq: u32) -> [u8; 32] {
+    ctx.of(&lot_seed(first_holder_tag, seq))
+}
+
 /// `cv‖hex(le64 owner_tag ‖ le32 seq)`.
 pub fn caravan_seed(owner_tag: u64, seq: u32) -> Seed {
     let mut raw = [0u8; CARAVAN_RAW_LEN];
@@ -115,6 +149,8 @@ pub fn tag_of(kind: AccountKind) -> Option<[u8; 2]> {
         AccountKind::Caravan => Some(CARAVAN),
         AccountKind::Structure => Some(STRUCTURE),
         AccountKind::Nation => Some(NATION),
+        AccountKind::Issue => Some(ISSUE),
+        AccountKind::Lot => Some(LOT),
         k => crate::addr::tag_of(k.to_v1()?),
     }
 }
@@ -127,6 +163,7 @@ pub fn raw_len(kind: AccountKind) -> usize {
         AccountKind::Caravan => CARAVAN_RAW_LEN,
         AccountKind::Structure => STRUCTURE_RAW_LEN,
         AccountKind::Nation => NATION_RAW_LEN,
+        AccountKind::Issue | AccountKind::Lot => TICKET_RAW_LEN,
         k => k.to_v1().map(crate::addr::raw_len).unwrap_or(0),
     }
 }
@@ -157,7 +194,7 @@ mod tests {
         }
         assert_eq!(tag_of(AccountKind::MarchState), Some(MARCH));
         // S1: four more tags, distinct from every other.
-        for t in [VAULT, CARAVAN, STRUCTURE, NATION] {
+        for t in [VAULT, CARAVAN, STRUCTURE, NATION, ISSUE, LOT] {
             for k in crate::layout::AccountKind::ALL {
                 assert_ne!(crate::addr::tag_of(k), Some(t), "{}", k.name());
             }

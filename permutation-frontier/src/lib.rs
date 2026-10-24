@@ -79,7 +79,16 @@ pub use error::{CqError, Error, FrontierError, R};
 /// it refuses every MC Season and an MC program refuses every S1 Season
 /// (redesign 30, J5: stage 1 runs in a new season). MC seasons keep the MC
 /// release `.so`.
-pub const RULESET_HASH: [u8; 32] = frontier_abi::v2::presets::RULESET_HASH_V3;
+///
+/// **S2 (redesign stage 2, tickets):** the program is the S2 program: it
+/// embeds `RULESET_HASH_V4` and writes `program_version` 5, so it refuses
+/// every S1 Season and an S1 program refuses every S2 Season (redesign 32,
+/// L9: stage 2 runs in a new season). S1 seasons keep the S1 release `.so`.
+pub const RULESET_HASH: [u8; 32] = frontier_abi::v2::presets::RULESET_HASH_V4;
+
+/// The S1 program's ruleset hash, for the record and the tests that show
+/// an S1 Season is refused.
+pub const RULESET_HASH_S1: [u8; 32] = frontier_abi::v2::presets::RULESET_HASH_V3;
 
 /// The MC program's ruleset hash (`5fbaf678…1a8b`), for the record and the
 /// tests that show an MC Season is refused.
@@ -101,8 +110,9 @@ pub const QUICKNET_PK_HASH: [u8; 32] = crypto::quick::PK_HASH;
 /// Program version written by CreateSeason's parameters and logged; bumped
 /// with every deployable change. Version 3 integrates first homes and
 /// authoritative province-time scoring on the conquest layout (version 2);
-/// version 4 is the S1 program (the arms economy on the same layout).
-pub const PROGRAM_VERSION: u16 = frontier_abi::v2::presets::PROGRAM_VERSION_S1;
+/// version 4 is the S1 program (the arms economy on the same layout);
+/// version 5 the S2 program (S1 and tickets).
+pub const PROGRAM_VERSION: u16 = frontier_abi::v2::presets::PROGRAM_VERSION_S2;
 
 /// Routes one instruction by its ABI v2 tag (M1 §5.5; MC contract §5.4:
 /// M1's 50 tags and 0xA0–0xA3, 0xA5–0xA7). Unknown and reserved tags
@@ -209,6 +219,10 @@ pub fn dispatch(
         Ix::SettleProposal => nation::settle_proposal(p, a, data),
         // S1 (stage 1e): domestic raids.
         Ix::RaidDomestic => caravan::raid_domestic(p, a, data),
+        // S2 (stage 2a): tickets.
+        Ix::IssueTickets => ticket::issue_tickets(p, a, data),
+        Ix::GiveLot => ticket::give_lot(p, a, data),
+        Ix::CloseLot => ticket::close_lot(p, a, data),
     };
     heap::trace_checkpoint(0xffff);
     r

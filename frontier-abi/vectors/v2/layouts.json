@@ -1277,9 +1277,27 @@
           "ty": "u32"
         },
         {
-          "name": "RSV_348",
+          "name": "ISSUES",
           "off": 348,
-          "len": 36,
+          "len": 4,
+          "ty": "u32"
+        },
+        {
+          "name": "LOTS",
+          "off": 352,
+          "len": 4,
+          "ty": "u32"
+        },
+        {
+          "name": "OPEN_ISSUES",
+          "off": 356,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "RSV_357",
+          "off": 357,
+          "len": 27,
           "ty": "rsv"
         }
       ]
@@ -3215,6 +3233,308 @@
           "off": 328,
           "len": 56,
           "ty": "rsv"
+        }
+      ]
+    },
+    {
+      "kind": "Issue",
+      "code": 23,
+      "magic": "PSF1ISSU",
+      "size": 256,
+      "rent": 1950720,
+      "chained": true,
+      "changed_in_v2": true,
+      "seed_tag": "ti",
+      "raw_key_len": 12,
+      "fields": [
+        {
+          "name": "HDR_MAGIC",
+          "off": 0,
+          "len": 8,
+          "ty": "[u8;8]"
+        },
+        {
+          "name": "SEASON_ID",
+          "off": 8,
+          "len": 8,
+          "ty": "u64"
+        },
+        {
+          "name": "LAYOUT_VERSION",
+          "off": 16,
+          "len": 2,
+          "ty": "u16"
+        },
+        {
+          "name": "RSV_HEADER",
+          "off": 18,
+          "len": 6,
+          "ty": "rsv"
+        },
+        {
+          "name": "EVENT_SEQ",
+          "off": 24,
+          "len": 8,
+          "ty": "u64"
+        },
+        {
+          "name": "EVENT_HEAD",
+          "off": 32,
+          "len": 32,
+          "ty": "[u8;32]"
+        },
+        {
+          "name": "KIND",
+          "off": 64,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "STATE",
+          "off": 65,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "SRC_KIND",
+          "off": 66,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "SRC_GEN",
+          "off": 67,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "P",
+          "off": 68,
+          "len": 2,
+          "ty": "i16"
+        },
+        {
+          "name": "Q",
+          "off": 70,
+          "len": 2,
+          "ty": "i16"
+        },
+        {
+          "name": "AT",
+          "off": 72,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "RESOURCE",
+          "off": 73,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "RSV_74",
+          "off": 74,
+          "len": 2,
+          "ty": "rsv"
+        },
+        {
+          "name": "SEQ",
+          "off": 76,
+          "len": 4,
+          "ty": "u32"
+        },
+        {
+          "name": "ISSUER_CITIZEN",
+          "off": 80,
+          "len": 32,
+          "ty": "[u8;32]"
+        },
+        {
+          "name": "ISSUER_TAG",
+          "off": 112,
+          "len": 8,
+          "ty": "u64"
+        },
+        {
+          "name": "SUPPLY",
+          "off": 120,
+          "len": 8,
+          "ty": "u64"
+        },
+        {
+          "name": "PER_UNIT",
+          "off": 128,
+          "len": 8,
+          "ty": "u64"
+        },
+        {
+          "name": "UNTIL_DAY",
+          "off": 136,
+          "len": 4,
+          "ty": "u32"
+        },
+        {
+          "name": "CREATED_BELL",
+          "off": 140,
+          "len": 4,
+          "ty": "u32"
+        },
+        {
+          "name": "PERIOD",
+          "off": 144,
+          "len": 48,
+          "ty": "rsv"
+        },
+        {
+          "name": "RENT_TO",
+          "off": 192,
+          "len": 32,
+          "ty": "[u8;32]"
+        },
+        {
+          "name": "RSV",
+          "off": 224,
+          "len": 32,
+          "ty": "rsv"
+        }
+      ]
+    },
+    {
+      "kind": "Lot",
+      "code": 24,
+      "magic": "PSF1TLOT",
+      "size": 192,
+      "rent": 1625600,
+      "chained": true,
+      "changed_in_v2": true,
+      "seed_tag": "tl",
+      "raw_key_len": 12,
+      "fields": [
+        {
+          "name": "HDR_MAGIC",
+          "off": 0,
+          "len": 8,
+          "ty": "[u8;8]"
+        },
+        {
+          "name": "SEASON_ID",
+          "off": 8,
+          "len": 8,
+          "ty": "u64"
+        },
+        {
+          "name": "LAYOUT_VERSION",
+          "off": 16,
+          "len": 2,
+          "ty": "u16"
+        },
+        {
+          "name": "RSV_HEADER",
+          "off": 18,
+          "len": 6,
+          "ty": "rsv"
+        },
+        {
+          "name": "EVENT_SEQ",
+          "off": 24,
+          "len": 8,
+          "ty": "u64"
+        },
+        {
+          "name": "EVENT_HEAD",
+          "off": 32,
+          "len": 32,
+          "ty": "[u8;32]"
+        },
+        {
+          "name": "ISSUER_TAG",
+          "off": 64,
+          "len": 8,
+          "ty": "u64"
+        },
+        {
+          "name": "ISSUE_SEQ",
+          "off": 72,
+          "len": 4,
+          "ty": "u32"
+        },
+        {
+          "name": "KIND",
+          "off": 76,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "SRC_GEN",
+          "off": 77,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "STATE",
+          "off": 78,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "RSV_79",
+          "off": 79,
+          "len": 1,
+          "ty": "rsv"
+        },
+        {
+          "name": "HOLDER_CITIZEN",
+          "off": 80,
+          "len": 32,
+          "ty": "[u8;32]"
+        },
+        {
+          "name": "HOLDER_TAG",
+          "off": 112,
+          "len": 8,
+          "ty": "u64"
+        },
+        {
+          "name": "SEED_TAG",
+          "off": 120,
+          "len": 8,
+          "ty": "u64"
+        },
+        {
+          "name": "SEQ",
+          "off": 128,
+          "len": 4,
+          "ty": "u32"
+        },
+        {
+          "name": "DAY",
+          "off": 132,
+          "len": 4,
+          "ty": "u32"
+        },
+        {
+          "name": "AMOUNT",
+          "off": 136,
+          "len": 8,
+          "ty": "u64"
+        },
+        {
+          "name": "DAY_AMOUNT",
+          "off": 144,
+          "len": 8,
+          "ty": "u64"
+        },
+        {
+          "name": "ESCROW",
+          "off": 152,
+          "len": 8,
+          "ty": "u64"
+        },
+        {
+          "name": "RENT_TO",
+          "off": 160,
+          "len": 32,
+          "ty": "[u8;32]"
         }
       ]
     }

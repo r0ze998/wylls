@@ -7,9 +7,9 @@ mod common;
 
 use frontier_abi::layout::world::season as S;
 use frontier_abi::log::{EntityKind, Kind};
-// The S1 program embeds and stores RULESET_HASH_V3 and refuses any other
-// Season (§5.1, A-28); M1's and MC's hashes stay theirs.
-use frontier_abi::v2::presets::RULESET_HASH_V3 as RULESET_HASH;
+// The S2 program embeds and stores RULESET_HASH_V4 and refuses any other
+// Season (§5.1, A-28); M1's, MC's and S1's hashes stay theirs.
+use frontier_abi::v2::presets::RULESET_HASH_V4 as RULESET_HASH;
 use permutation_frontier_svm_tests::chain::{expect_lands, Chain};
 use permutation_frontier_svm_tests::ix::season::set_window_schedule;
 use permutation_frontier_svm_tests::records::{self, head_of, ChainWatch};

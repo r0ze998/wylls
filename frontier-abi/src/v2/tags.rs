@@ -121,6 +121,10 @@ tags_v2! {
     SettleProposal = 0xBD, D, false;
     // S1 (1e: domestic raids)
     RaidDomestic = 0xBE, P, false;
+    // S2 (2a: tickets)
+    IssueTickets = 0xC0, P, false;
+    GiveLot = 0xC1, P, false;
+    CloseLot = 0xC2, P, false;
 }
 
 impl Ix {
@@ -154,9 +158,18 @@ impl Ix {
         Ix::FortGarrison,
     ];
 
-    /// Whether the instruction is S1's.
+    /// The S2 instructions (2a).
+    pub const S2: [Ix; 3] = [Ix::IssueTickets, Ix::GiveLot, Ix::CloseLot];
+
+    /// Whether the instruction is S1's (S2's included: an S2 season plays
+    /// every S1 rule).
     pub const fn is_s1(self) -> bool {
         self.tag() >= 0xB0
+    }
+
+    /// Whether the instruction is S2's.
+    pub const fn is_s2(self) -> bool {
+        self.tag() >= 0xC0
     }
 
     /// The M1 instruction of the same tag (`None` for the MC ones).
@@ -214,9 +227,10 @@ impl crate::tags::Ix {
     pub const ALL_V2: &'static [Ix] = Ix::ALL;
 }
 
-/// Reserved v2 tags: M1's reserved set, 0xA4, 0xA8–0xAF and S1's 0xBF.
+/// Reserved v2 tags: M1's reserved set, 0xA4, 0xA8–0xAF, S1's 0xBF and
+/// S2's 0xC3–0xCF (2b–2e).
 pub const fn is_reserved(t: u8) -> bool {
-    crate::tags::is_reserved(t) || matches!(t, 0xA4 | 0xA8..=0xAF | 0xBF)
+    crate::tags::is_reserved(t) || matches!(t, 0xA4 | 0xA8..=0xAF | 0xBF | 0xC3..=0xCF)
 }
 
 /// Player instructions the relay may sponsor (§8.3): M1's, DeclareSiege,
@@ -241,6 +255,9 @@ pub const fn relay_player_shape(ix: Ix) -> bool {
                 | Ix::Vote
                 | Ix::RaidDomestic
                 | Ix::FortGarrison
+                | Ix::IssueTickets
+                | Ix::GiveLot
+                | Ix::CloseLot
         ),
     }
 }
@@ -271,8 +288,8 @@ mod tests {
 
     #[test]
     fn v2_extends_m1() {
-        assert_eq!(Ix::ALL.len(), 73);
-        assert_eq!(crate::tags::Ix::ALL_V2.len(), 73);
+        assert_eq!(Ix::ALL.len(), 76);
+        assert_eq!(crate::tags::Ix::ALL_V2.len(), 76);
         for v1 in crate::tags::Ix::ALL {
             let v = Ix::of_v1(*v1);
             assert_eq!(v.tag(), v1.tag());

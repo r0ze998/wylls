@@ -73,17 +73,17 @@ fn kind(k: CqKind) -> u8 {
 
 /// A caravan's origin or destination, resolved against its account.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct Place {
-    kind: u8,
-    p: i16,
-    q: i16,
+pub(crate) struct Place {
+    pub(crate) kind: u8,
+    pub(crate) p: i16,
+    pub(crate) q: i16,
     /// Holding: the site; vault: the tile.
-    at: u8,
-    gen: u8,
+    pub(crate) at: u8,
+    pub(crate) gen: u8,
     /// The hex tile.
-    tile: u8,
+    pub(crate) tile: u8,
     /// The owning Citizen.
-    owner: [u8; 32],
+    pub(crate) owner: [u8; 32],
 }
 
 impl Place {
@@ -92,7 +92,7 @@ impl Place {
     }
 
     /// The logged form (8 B, `log_place`).
-    fn log(&self) -> [u8; log_place::LEN] {
+    pub(crate) fn log(&self) -> [u8; log_place::LEN] {
         let mut b = [0u8; log_place::LEN];
         b[0] = self.kind;
         b[1..3].copy_from_slice(&self.p.to_le_bytes());
@@ -128,7 +128,7 @@ impl Place {
     }
 
     /// The account address of the place.
-    fn address(&self, ctx: &AddrCtx) -> R<[u8; 32]> {
+    pub(crate) fn address(&self, ctx: &AddrCtx) -> R<[u8; 32]> {
         match self.kind {
             PL::KIND_HOLDING => Ok(ctx.holding(self.p as i32, self.q as i32, self.at)),
             PL::KIND_VAULT => Ok(frontier_abi::v2::addr::vault(
@@ -144,7 +144,7 @@ impl Place {
 
 /// The live place `ai` is (a v2 Holding in state 1–2, or a live Vault),
 /// at its canonical address; `None` when absent.
-fn place_of(p: &Pubkey, ctx: &AddrCtx, sid: u64, ai: &AccountInfo) -> R<Option<Place>> {
+pub(crate) fn place_of(p: &Pubkey, ctx: &AddrCtx, sid: u64, ai: &AccountInfo) -> R<Option<Place>> {
     let magic = {
         let d = ai.try_borrow_data()?;
         d.get(..8).map(|m| {

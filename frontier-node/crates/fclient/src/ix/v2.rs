@@ -1407,3 +1407,120 @@ mod tests {
         }
     }
 }
+
+// ------------------------------------------------------------ S2 (2a): tickets
+
+/// A ticket's source: a vault (receipts) or a holding (use tickets).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TicketSource {
+    Vault { p: i16, q: i16, tile: u8 },
+    Holding(HoldingRef),
+}
+
+impl TicketSource {
+    pub fn address(&self, a: &Addresses) -> Address {
+        match *self {
+            TicketSource::Vault { p, q, tile } => a.vault(p as i32, q as i32, tile),
+            TicketSource::Holding(h) => h.address(a),
+        }
+    }
+}
+
+/// IssueTickets' terms (`ticket::check_terms`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct IssueArgs {
+    /// `ticket::KIND_RECEIPT` or `KIND_USE`.
+    pub kind: u8,
+    pub resource: u8,
+    pub amount: u64,
+    pub per_unit: u64,
+    pub until_day: u32,
+}
+
+/// 0xC0 IssueTickets (P, S2 2a): P + `[holding w] [holding_province r]
+/// [source r] [issue w] [lot w] [system]`: the citizen's `seq`-th issue
+/// (its `Citizen.ISSUES`) and first lot (its `Citizen.LOTS`, `lot_seq`),
+/// the fee paid from `pay`.
+pub fn issue_tickets(
+    a: &Addresses,
+    p: &Player,
+    pay: HoldingRef,
+    source: TicketSource,
+    issuer_tag: u64,
+    seq: u32,
+    lot_seq: u32,
+    x: &IssueArgs,
+) -> Instruction {
+    let mut m = prologue(a, p);
+    m.extend([
+        w(pay.address(a)),
+        r(pay.province(a)),
+        r(source.address(a)),
+        w(a.issue(issuer_tag, seq)),
+        w(a.lot(issuer_tag, lot_seq)),
+        r(addr::system_program()),
+    ]);
+    let data = d2::IssueTickets {
+        kind: x.kind,
+        resource: x.resource,
+        amount: x.amount,
+        per_unit: x.per_unit,
+        until_day: x.until_day,
+    };
+    build(a, m, data.to_bytes().to_vec())
+}
+
+/// 0xC1 GiveLot (P, S2 2a): P + `[lot w] [issue r] [source r] [recipient r]
+/// [to_lot w] [system]`: `amount` units of `lot` (of the issue
+/// `(issuer_tag, seq)`) to the recipient Citizen, into `to_lot` (a new lot,
+/// the recipient's lot of the issue, or `lot` itself for a whole-lot
+/// gift).
+#[allow(clippy::too_many_arguments)]
+pub fn give_lot(
+    a: &Addresses,
+    p: &Player,
+    lot: Address,
+    issue: (u64, u32),
+    source: TicketSource,
+    recipient: Address,
+    to_lot: Address,
+    amount: u64,
+) -> Instruction {
+    let mut m = prologue(a, p);
+    m.extend([
+        w(lot),
+        r(a.issue(issue.0, issue.1)),
+        r(source.address(a)),
+        r(recipient),
+        w(to_lot),
+        r(addr::system_program()),
+    ]);
+    build(a, m, d2::GiveLot { amount }.to_bytes().to_vec())
+}
+
+/// 0xC2 CloseLot (P, S2 2a): P + `[issue w] [source r] [issue_rent_to w]`
+/// and optionally `[lot w] [rent_to w]`: closes the lot and, with
+/// `close_issue`, the issue.
+pub fn close_lot(
+    a: &Addresses,
+    p: &Player,
+    issue: (u64, u32),
+    source: TicketSource,
+    issue_rent_to: Address,
+    lot: Option<(Address, Address)>,
+    close_issue: bool,
+) -> Instruction {
+    let mut m = prologue(a, p);
+    m.extend([
+        w(a.issue(issue.0, issue.1)),
+        r(source.address(a)),
+        w(issue_rent_to),
+    ]);
+    if let Some((l, rent_to)) = lot {
+        m.extend([w(l), w(rent_to)]);
+    }
+    let data = d2::CloseLot {
+        close_issue: close_issue as u8,
+    };
+    build(a, m, data.to_bytes().to_vec())
+}

@@ -311,6 +311,69 @@ pub fn accounts_of(ix: Ix) -> &'static [Group] {
                 ]
             }
         }
+        // S2 (2a; S2-2A-CONTRACT §3.1): the holding pays the fee; the source
+        // is the vault (a receipt) or the workshop's holding (a use ticket).
+        Ix::IssueTickets => {
+            const {
+                &[
+                    one!(PLAYER_PROLOGUE),
+                    one!(&[
+                        HOLDING_W,
+                        s!("holding_province", KindV2(K2::Province), false, R),
+                        // `r|w`: a use ticket's source may be the paying holding.
+                        s!(
+                            "source",
+                            EitherV2(K2::Holding, K2::Vault),
+                            false,
+                            Wr::Either
+                        ),
+                        s!("issue", KindV2(K2::Issue), false, W),
+                        s!("lot", KindV2(K2::Lot), false, W),
+                        SYSTEM,
+                    ]),
+                ]
+            }
+        }
+        // §3.2: the recipient is the citizen itself for a split; `to_lot`
+        // is the lot itself for a whole-lot gift.
+        Ix::GiveLot => {
+            const {
+                &[
+                    one!(PLAYER_PROLOGUE),
+                    one!(&[
+                        s!("lot", KindV2(K2::Lot), false, W),
+                        s!("issue", KindV2(K2::Issue), false, R),
+                        s!("source", EitherV2(K2::Holding, K2::Vault), false, R),
+                        // `r|w`: a split names the citizen itself.
+                        s!("recipient", KindV2(K2::Citizen), false, Wr::Either),
+                        s!("to_lot", KindV2(K2::Lot), false, W),
+                        SYSTEM,
+                    ]),
+                ]
+            }
+        }
+        // §3.3: the lot (with its rent's payee) is optional: an issuer may
+        // close its issue alone once no lot is left.
+        Ix::CloseLot => {
+            const {
+                &[
+                    one!(PLAYER_PROLOGUE),
+                    one!(&[
+                        s!("issue", KindV2(K2::Issue), false, W),
+                        s!("source", EitherV2(K2::Holding, K2::Vault), false, R),
+                        s!("issue_rent_to", Wallet, false, W),
+                    ]),
+                    rep!(
+                        &[
+                            s!("lot", KindV2(K2::Lot), false, W),
+                            s!("rent_to", Wallet, false, W),
+                        ],
+                        0,
+                        1
+                    ),
+                ]
+            }
+        }
         // S1 (1e; S1-1E-CONTRACT §2.6): the holding pays from its reserve;
         // the fort's Province holds its record (the holding's own).
         Ix::FortGarrison => {
@@ -604,6 +667,9 @@ mod tests {
         assert_eq!(count_bounds(Ix::SettleProposal), (4, 7));
         assert_eq!(count_bounds(Ix::RaidDomestic), (8, 8));
         assert_eq!(count_bounds(Ix::FortGarrison), (7, 7));
+        assert_eq!(count_bounds(Ix::IssueTickets), (10, 10));
+        assert_eq!(count_bounds(Ix::GiveLot), (10, 10));
+        assert_eq!(count_bounds(Ix::CloseLot), (7, 9));
         assert_eq!(count_bounds(Ix::DefaultRaid), (7, 13));
         // §5.6: the three resident actions gain the Province
         for ix in [Ix::Harvest, Ix::Build, Ix::Train] {

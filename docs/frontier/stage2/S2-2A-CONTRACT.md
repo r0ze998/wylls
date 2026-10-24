@@ -89,17 +89,17 @@ Both are ABI v2 chained accounts (64-byte header), created with
 | RSV_79 | 79 | 1 | |
 | HOLDER_CITIZEN | 80 | [u8;32] | |
 | HOLDER_TAG | 112 | u64 | |
-| SEQ | 120 | u32 | `Citizen.LOTS` of the first holder at creation (the seed's) |
-| RSV_124 | 124 | 4 | |
-| AMOUNT | 128 | u64 | Units of the issue |
-| DAY | 136 | u32 | 2c/2d: the day of `DAY_AMOUNT` |
-| RSV_140 | 140 | 4 | |
+| SEED_TAG | 120 | u64 | The first holder's tag (the seed's), kept when the lot is given whole |
+| SEQ | 128 | u32 | The seed's sequence: `Citizen.LOTS` of whoever made the lot |
+| DAY | 132 | u32 | 2c/2d: the day of `DAY_AMOUNT` |
+| AMOUNT | 136 | u64 | Units of the issue |
 | DAY_AMOUNT | 144 | u64 | 2c: claimed that day. 2d: runs used that day |
 | ESCROW | 152 | u64 | 2e: the escrow holding this lot, 0 if none |
 | RENT_TO | 160 | [u8;32] | |
 
-The seed names the **first** holder. A whole-lot gift keeps the address and
-rewrites `HOLDER_*`. Readers find a holder's lots by the herald's feed
+The seed is `SEED_TAG ‖ SEQ`: the tag of whoever made the lot (the issuer, a
+splitting holder, or a giver making the recipient's first lot). A whole-lot
+gift keeps the address and rewrites `HOLDER_*`. Readers find a holder's lots by the herald's feed
 (§4.4), not by deriving addresses.
 
 ### 2.3 Citizen v2 (from `RSV_348`)

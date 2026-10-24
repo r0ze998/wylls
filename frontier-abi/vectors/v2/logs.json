@@ -51,6 +51,14 @@
     {
       "code": 12,
       "account": "Nation"
+    },
+    {
+      "code": 13,
+      "account": "Issue"
+    },
+    {
+      "code": 14,
+      "account": "Lot"
     }
   ],
   "kinds": [
@@ -1469,6 +1477,204 @@
         "body": "01663608000005000000ffffffff216b88a5c2dffc19366b88a5c26b88a5c26b886b88a5c2dffc193600",
         "decodes": true,
         "chains": []
+      }
+    },
+    {
+      "kind": 103,
+      "name": "TICKETS_ISSUED",
+      "key": [
+        {
+          "name": "issuer_tag",
+          "len": 8
+        },
+        {
+          "name": "seq",
+          "len": 4
+        }
+      ],
+      "payload": [
+        {
+          "name": "kind",
+          "len": 1
+        },
+        {
+          "name": "src",
+          "len": 8
+        },
+        {
+          "name": "resource",
+          "len": 1
+        },
+        {
+          "name": "amount",
+          "len": 8
+        },
+        {
+          "name": "per_unit",
+          "len": 8
+        },
+        {
+          "name": "until_day",
+          "len": 4
+        },
+        {
+          "name": "lot_seq",
+          "len": 4
+        },
+        {
+          "name": "holding_key",
+          "len": 8
+        },
+        {
+          "name": "fee_digest",
+          "len": 32
+        }
+      ],
+      "body_without_tail_len": 92,
+      "vector": {
+        "bell": 2103,
+        "body_without_tail": "016737080000213e5b7895b2cfec213e5b786b6b88a5c2dffc19366b6b88a5c2dffc19366b88a5c2dffc19366b88a5c26b88a5c26b88a5c2dffc19366b88a5c2dffc193653708daac7e4011e3b587592afcce90623405d7a97b4d1ee",
+        "body": "016737080000213e5b7895b2cfec213e5b786b6b88a5c2dffc19366b6b88a5c2dffc19366b88a5c2dffc19366b88a5c26b88a5c26b88a5c2dffc19366b88a5c2dffc193653708daac7e4011e3b587592afcce90623405d7a97b4d1ee00",
+        "decodes": true,
+        "chains": []
+      }
+    },
+    {
+      "kind": 104,
+      "name": "LOT_MOVED",
+      "key": [
+        {
+          "name": "issuer_tag",
+          "len": 8
+        },
+        {
+          "name": "seq",
+          "len": 4
+        }
+      ],
+      "payload": [
+        {
+          "name": "giver_tag",
+          "len": 8
+        },
+        {
+          "name": "from_tag",
+          "len": 8
+        },
+        {
+          "name": "from_seq",
+          "len": 4
+        },
+        {
+          "name": "recipient_tag",
+          "len": 8
+        },
+        {
+          "name": "to_tag",
+          "len": 8
+        },
+        {
+          "name": "to_seq",
+          "len": 4
+        },
+        {
+          "name": "amount",
+          "len": 8
+        },
+        {
+          "name": "whole",
+          "len": 1
+        },
+        {
+          "name": "new_lot",
+          "len": 1
+        }
+      ],
+      "body_without_tail_len": 68,
+      "vector": {
+        "bell": 2104,
+        "body_without_tail": "016838080000213e5b7895b2cfec213e5b786b88a5c2dffc19366b88a5c2dffc19366b88a5c26b88a5c2dffc19366b88a5c2dffc19366b88a5c26b88a5c2dffc19366b6b",
+        "body": "016838080000213e5b7895b2cfec213e5b786b88a5c2dffc19366b88a5c2dffc19366b88a5c26b88a5c2dffc19366b88a5c2dffc19366b88a5c26b88a5c2dffc19366b6b020404000000000000000c03831f65f9c5411ce90f0649895a1c1315902f4904040f4d4c4565df50b6de0e0500000000000000d9e4724ae1c7038547710b0aa033a00df1890e798513b58320ac5f8bf62ac973",
+        "decodes": true,
+        "chains": [
+          {
+            "entity": 4,
+            "who": "Base(Citizen(Tag8(3898424990439409771)))",
+            "prev_seq": 3,
+            "prev_head": "700888059424d2ad4f3ad59e549ad60e5c9202ee37c8362142d8175c4ce9ecb1",
+            "seq": 4,
+            "head": "0c03831f65f9c5411ce90f0649895a1c1315902f4904040f4d4c4565df50b6de"
+          },
+          {
+            "entity": 14,
+            "who": "Lot { tag: 3898424990439409771, seq: 3265628267 }",
+            "prev_seq": 4,
+            "prev_head": "af27ac3e5f01be480054d3fab3dfaab35722ab93c1974fa3d34209ac92c0a140",
+            "seq": 5,
+            "head": "d9e4724ae1c7038547710b0aa033a00df1890e798513b58320ac5f8bf62ac973"
+          }
+        ]
+      }
+    },
+    {
+      "kind": 105,
+      "name": "LOT_CLOSED",
+      "key": [
+        {
+          "name": "issuer_tag",
+          "len": 8
+        },
+        {
+          "name": "seq",
+          "len": 4
+        }
+      ],
+      "payload": [
+        {
+          "name": "closer_tag",
+          "len": 8
+        },
+        {
+          "name": "lot_tag",
+          "len": 8
+        },
+        {
+          "name": "lot_seq",
+          "len": 4
+        },
+        {
+          "name": "amount",
+          "len": 8
+        },
+        {
+          "name": "void",
+          "len": 1
+        },
+        {
+          "name": "lot_closed",
+          "len": 1
+        },
+        {
+          "name": "issue_closed",
+          "len": 1
+        }
+      ],
+      "body_without_tail_len": 49,
+      "vector": {
+        "bell": 2105,
+        "body_without_tail": "016939080000213e5b7895b2cfec213e5b786b88a5c2dffc19366b88a5c2dffc19366b88a5c26b88a5c2dffc19366b6b6b",
+        "body": "016939080000213e5b7895b2cfec213e5b786b88a5c2dffc19366b88a5c2dffc19366b88a5c26b88a5c2dffc19366b6b6b0104040000000000000048b9545687871e3f150bca57cdd4e39e96881bab5187963c20fdbfddf0badb5f",
+        "decodes": true,
+        "chains": [
+          {
+            "entity": 4,
+            "who": "Base(Citizen(Tag8(3898424990439409771)))",
+            "prev_seq": 3,
+            "prev_head": "36c69ad150db8c113c6e4d924f6237ae8689edff9285c4b34a510e1580f23ec7",
+            "seq": 4,
+            "head": "48b9545687871e3f150bca57cdd4e39e96881bab5187963c20fdbfddf0badb5f"
+          }
+        ]
       }
     }
   ],

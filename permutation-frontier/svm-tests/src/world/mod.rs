@@ -63,23 +63,23 @@ pub struct World {
     pub bond: u64,
 }
 
-/// The S1 7-day preset's M1 part (`S1_LOCAL_7D.base`: `program_version`
-/// 4, Frontier-7 dormancy, the v2 fund) with the build's beacon key hash.
+/// The S2 7-day preset's M1 part (`S2_LOCAL_7D.base`: `program_version`
+/// 5, Frontier-7 dormancy, the v2 fund) with the build's beacon key hash.
 /// [`World::with_params`] adds Frontier-7's conquest block (the program is
-/// the S1 program and refuses M1 and MC seasons).
+/// the S2 program and refuses M1, MC and S1 seasons).
 pub fn params_for(c: &Chain) -> SeasonParams {
-    let mut p = frontier_abi::v2::presets::S1_LOCAL_7D.base;
+    let mut p = frontier_abi::v2::presets::S2_LOCAL_7D.base;
     p.quicknet_pk_hash = Beacons::for_build(c.build).pk_hash();
     p
 }
 
-/// A v2 preset with the build's beacon key hash, as an S1 season (the
-/// program's `program_version`; `presets::s1`).
+/// A v2 preset with the build's beacon key hash, as an S2 season (the
+/// program's `program_version`; `presets::s2`).
 pub fn params_v2_for(
     c: &Chain,
     p: frontier_abi::v2::presets::SeasonParamsV2,
 ) -> frontier_abi::v2::presets::SeasonParamsV2 {
-    let mut p = frontier_abi::v2::presets::s1(p);
+    let mut p = frontier_abi::v2::presets::s2(p);
     p.base.quicknet_pk_hash = Beacons::for_build(c.build).pk_hash();
     p
 }

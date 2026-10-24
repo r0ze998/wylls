@@ -31,7 +31,7 @@
 //! (the program's own, so an MC season is `BadData`); the S1 doctrine
 //! table (`DOCTRINES_V3`, the strong units fielded) passes the M1 table
 //! rules (`doctrine::validate_table`), without MC's Knight bound; the
-//! Season stores `RULESET_HASH_V3` and `RULES_VERSION` 12.
+//! Season stores `RULESET_HASH_V4` and `RULES_VERSION` 12 (S2).
 
 use borsh::BorshDeserialize;
 use solana_program::{account_info::AccountInfo, pubkey::Pubkey};

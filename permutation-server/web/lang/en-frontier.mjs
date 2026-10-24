@@ -696,5 +696,8 @@ export default {
   '国の議題がいっぱいです。決着を待ってから出してください': 'Your nation has no free proposal slot: wait for one to be decided.',
   'まだ投票や提案はできません（参加から2日たっていないか、国を追放されています）': 'You cannot propose or vote yet (you joined less than two days ago, or you are expelled from your nation).',
   'この議題には今それはできません（受付が終わった、まだ締め切り前、または対象が条件を満たしません）': 'Not possible on this proposal now (voting has closed, it has not closed yet, or its target does not qualify).',
+  '出している札の発行が上限に達しています。古い発行を閉じてから出してください': 'You have reached the limit of open ticket issues. Close an old issue first.',
+  'この札は無効です（発行元の倉や村が奪われたか、閉じられました）': 'This ticket is void (its vault or village was seized, or it was closed).',
+  '札の条件が正しくありません（種類・資源・量・期限を確かめてください）': 'The ticket terms are not valid (check the kind, resource, amount and end day).',
   'この包囲の先導者だけが行える操作です': 'Only the siege leader can perform this action.',
 };

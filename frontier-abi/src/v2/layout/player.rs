@@ -42,7 +42,10 @@ pub mod citizen {
         EXPELLED_SINCE @ 320 : "i64" = 8;
         VOTED @ 328 : "[u32;4]" = 16;
         PROPOSED @ 344 : "u32" = 4;
-        RSV_348 @ 348 : "rsv" = 36;
+        ISSUES @ 348 : "u32" = 4;
+        LOTS @ 352 : "u32" = 4;
+        OPEN_ISSUES @ 356 : "u8" = 1;
+        RSV_357 @ 357 : "rsv" = 27;
     );
     pub use crate::layout::player::citizen::{
         EXPLORES_FLOOR, FLAG_FIRST_HOLDING_FINAL, FLAG_HOME_GRANTED, FLAG_JOINED, FLAG_PROVISIONAL,
@@ -187,6 +190,11 @@ mod tests {
                 citizen::PROPOSED,
             ),
             (312, 313, 314, 315, 316, 320, 328, 344)
+        );
+        // S2: the ticket counters (2a).
+        assert_eq!(
+            (citizen::ISSUES, citizen::LOTS, citizen::OPEN_ISSUES),
+            (348, 352, 356)
         );
         same_except(v1::holding::FIELDS, holding::FIELDS, &["RSV"]);
         assert_eq!(citizen::SIEGES_TODAY, 145);

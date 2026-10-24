@@ -17,6 +17,7 @@
 //! | `conquest` (MC: DeclareSiege, SettleSiege, SettleCapture, FoldMarch, RetireHost, CloseMarch) | CQ2-C |
 //! | `caravan` (S1 1b: BuildVault, SendCaravan, SettleCaravan, RaidCaravan, SeizeVault, CloseVault, DefaultRaid) | S1 |
 //! | `tower` (S1 1d: BuildStructure, SeizeStructure, CloseStructure) | S1 |
+//! | `ticket` (S2 2a: IssueTickets, GiveLot, CloseLot) | S2 |
 //!
 //! **MC (ABI v2, conquest contract §13.3 G13).** [`covered_by`] matches
 //! `frontier_abi::v2::Ix` (57 tags), so the seven MC instructions are in
@@ -52,6 +53,7 @@ pub mod nation;
 pub mod reveal;
 pub mod season;
 pub mod structure;
+pub mod ticket;
 pub mod transit;
 
 /// An outcome a test asserts.
@@ -161,6 +163,10 @@ pub fn covered_by(ix: I) -> &'static [Cover] {
         I::Vote => nation::VOTE,
         I::SettleProposal => nation::SETTLE_PROPOSAL,
         I::RaidDomestic => caravan::RAID_DOMESTIC,
+        // S2 (2a): tickets
+        I::IssueTickets => ticket::ISSUE_TICKETS,
+        I::GiveLot => ticket::GIVE_LOT,
+        I::CloseLot => ticket::CLOSE_LOT,
     }
 }
 

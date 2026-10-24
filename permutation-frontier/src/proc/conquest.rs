@@ -370,7 +370,7 @@ pub mod cqlog {
     use crate::layout::{chain_of, set_chain};
 
     /// Highest kind code a v2 record carries (102: S1's FORT_GARRISONED).
-    pub const MAX_KIND: usize = 102;
+    pub const MAX_KIND: usize = 105;
 
     /// `(defined, key width, payload width)` per kind: M1's and MC's.
     pub const WIDTHS: [(bool, u16, u16); MAX_KIND + 1] = {

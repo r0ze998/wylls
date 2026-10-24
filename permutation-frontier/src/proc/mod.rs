@@ -65,4 +65,5 @@ pub mod nation;
 pub mod reveal;
 pub mod season;
 pub mod structure;
+pub mod ticket;
 pub mod transit;

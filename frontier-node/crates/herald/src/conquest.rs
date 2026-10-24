@@ -783,7 +783,10 @@ fn fold_record(
         | CqKind::NATION_VOTED
         | CqKind::NATION_DECIDED
         | CqKind::RAID_OPENED
-        | CqKind::FORT_GARRISONED => {}
+        | CqKind::FORT_GARRISONED
+        | CqKind::TICKETS_ISSUED
+        | CqKind::LOT_MOVED
+        | CqKind::LOT_CLOSED => {}
     }
 }
 

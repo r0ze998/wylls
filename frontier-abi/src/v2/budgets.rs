@@ -97,6 +97,12 @@ pub const MC_ROWS: &[(Ix, u32, u32, u32)] = &[
     // S1 (1e; S1-1E-CONTRACT §8): measured 12,133 (`tests/structure.rs`),
     // with room for the holding's finality flip.
     (Ix::FortGarrison, 20_000, 0, 600),
+    // S2 (2a; S2-2A-CONTRACT §4.6): measured in LiteSVM (`tests/ticket.rs`)
+    // IssueTickets 24,465 (the Issue's and the Lot's creation included),
+    // GiveLot 15,724 (a new lot), CloseLot 11,563 (a void lot), with room.
+    (Ix::IssueTickets, 40_000, 0, 700),
+    (Ix::GiveLot, 25_000, 0, 700),
+    (Ix::CloseLot, 20_000, 0, 600),
     // S1 (1e; S1-1E-CONTRACT §8): measured in LiteSVM (`tests/nation.rs`)
     // Propose 11,957 (the Nation's creation included), Vote 6,631,
     // SettleProposal 8,074 (an expulsion with one holding), with room.

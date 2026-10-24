@@ -18,8 +18,8 @@ use permutation_rules::hash::sha256;
 
 pub use crate::log::{next_head, LINK_LEN, PREFIX, SOFT_BODY_MAX};
 
-/// Chained entity kinds of a v2 tail: M1's 1–7, MarchState 8 and S1's
-/// Vault 9, Caravan 10, Structure 11, Nation 12.
+/// Chained entity kinds of a v2 tail: M1's 1–7, MarchState 8, S1's
+/// Vault 9, Caravan 10, Structure 11, Nation 12, and S2's Issue 13, Lot 14.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(u8)]
 pub enum EntityKind {
@@ -39,10 +39,14 @@ pub enum EntityKind {
     Structure = 11,
     /// S1 (1e).
     Nation = 12,
+    /// S2 (2a).
+    Issue = 13,
+    /// S2 (2a).
+    Lot = 14,
 }
 
 impl EntityKind {
-    pub const ALL: [EntityKind; 12] = [
+    pub const ALL: [EntityKind; 14] = [
         EntityKind::Season,
         EntityKind::Frontier,
         EntityKind::JoinShard,
@@ -55,6 +59,8 @@ impl EntityKind {
         EntityKind::Caravan,
         EntityKind::Structure,
         EntityKind::Nation,
+        EntityKind::Issue,
+        EntityKind::Lot,
     ];
     pub fn from_u8(v: u8) -> Option<EntityKind> {
         Self::ALL.iter().copied().find(|k| *k as u8 == v)
@@ -77,6 +83,8 @@ impl EntityKind {
             EntityKind::Caravan => A::Caravan,
             EntityKind::Structure => A::Structure,
             EntityKind::Nation => A::Nation,
+            EntityKind::Issue => A::Issue,
+            EntityKind::Lot => A::Lot,
         }
     }
 }
@@ -142,6 +150,9 @@ cq_kinds! {
     NATION_DECIDED = 100; key ["faction": 1, "id": 4]; payload ["passed": 1, "kind": 1, "target_faction": 1, "value": 1, "target_tag": 8, "yes": 2, "no": 2, "holdings": 24];
     RAID_OPENED = 101; key ["owner_tag": 8, "seq": 4]; payload ["p": 4, "q": 4, "bell": 4, "raider_host": 8, "raider_tag": 8, "domestic": 1];
     FORT_GARRISONED = 102; key ["p": 4, "q": 4, "tile": 1]; payload ["owner_tag": 8, "troops": 4, "pend_bell": 4, "pend": 2, "holding_key": 8];
+    TICKETS_ISSUED = 103; key ["issuer_tag": 8, "seq": 4]; payload ["kind": 1, "src": 8, "resource": 1, "amount": 8, "per_unit": 8, "until_day": 4, "lot_seq": 4, "holding_key": 8, "fee_digest": 32];
+    LOT_MOVED = 104; key ["issuer_tag": 8, "seq": 4]; payload ["giver_tag": 8, "from_tag": 8, "from_seq": 4, "recipient_tag": 8, "to_tag": 8, "to_seq": 4, "amount": 8, "whole": 1, "new_lot": 1];
+    LOT_CLOSED = 105; key ["issuer_tag": 8, "seq": 4]; payload ["closer_tag": 8, "lot_tag": 8, "lot_seq": 4, "amount": 8, "void": 1, "lot_closed": 1, "issue_closed": 1];
 }
 
 /// S1 caravan places as logged (8 B): `kind u8 ‖ p i16 ‖ q i16 ‖
@@ -474,6 +485,10 @@ pub enum EntityRefV2 {
     Structure { p: i32, q: i32, tile: u8 },
     /// S1 (1e): a faction's Nation.
     Nation { faction: u8 },
+    /// S2 (2a): an Issue by its issuer's tag and sequence.
+    Issue { issuer_tag: u64, seq: u32 },
+    /// S2 (2a): a Lot by its first holder's tag and sequence.
+    Lot { tag: u64, seq: u32 },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -534,7 +549,7 @@ impl Chains {
 /// kinds keep M1's table ([`crate::log::chains_of`]).
 pub fn chains_of(kind: AnyKind, key: &[u8], payload: &[u8]) -> Option<Chains> {
     use EntityKind as E;
-    use EntityRefV2::{Base, Caravan, March, Nation, Structure, Vault};
+    use EntityRefV2::{Base, Caravan, Issue, Lot, March, Nation, Structure, Vault};
     let mut c = Chains::new();
     let k = match kind {
         // S1: the CLOSE of a Vault, a Caravan or a Structure chains the closed account
@@ -551,6 +566,20 @@ pub fn chains_of(kind: AnyKind, key: &[u8], payload: &[u8]) -> Option<Chains> {
         {
             let (p, q, tile) = (rd_i32(key, 1)?, rd_i32(key, 5)?, *key.get(9)?);
             c.push(E::Structure, Structure { p, q, tile }, false);
+            return Some(c);
+        }
+        AnyKind::V1(crate::log::Kind::CLOSE)
+            if key.first() == Some(&(crate::v2::layout::AccountKind::Issue as u8)) =>
+        {
+            let (issuer_tag, seq) = (rd_u64(key, 1)?, rd_u32(key, 9)?);
+            c.push(E::Issue, Issue { issuer_tag, seq }, false);
+            return Some(c);
+        }
+        AnyKind::V1(crate::log::Kind::CLOSE)
+            if key.first() == Some(&(crate::v2::layout::AccountKind::Lot as u8)) =>
+        {
+            let (tag, seq) = (rd_u64(key, 1)?, rd_u32(key, 9)?);
+            c.push(E::Lot, Lot { tag, seq }, false);
             return Some(c);
         }
         AnyKind::V1(crate::log::Kind::CLOSE)
@@ -744,6 +773,82 @@ pub fn chains_of(kind: AnyKind, key: &[u8], payload: &[u8]) -> Option<Chains> {
             let (p, q) = pq()?;
             c.push(E::Province, Base(EntityRef::Province { p, q }), false);
         }
+        // S2 (2a): the issuer's Citizen (its counters), the paying holding,
+        // the Issue and the issuer's first Lot.
+        CqKind::TICKETS_ISSUED => {
+            let issuer_tag = rd_u64(key, 0)?;
+            let seq = rd_u32(key, 8)?;
+            c.push(
+                E::Citizen,
+                Base(EntityRef::Citizen(CitizenRef::Tag8(issuer_tag))),
+                false,
+            );
+            c.push(
+                E::Holding,
+                Base(holding_of_key(rd_u64(pay("holding_key")?, 0)?)?),
+                false,
+            );
+            c.push(E::Issue, Issue { issuer_tag, seq }, false);
+            let lot_seq = rd_u32(pay("lot_seq")?, 0)?;
+            c.push(
+                E::Lot,
+                Lot {
+                    tag: issuer_tag,
+                    seq: lot_seq,
+                },
+                false,
+            );
+        }
+        // The giver's Citizen (its lot counter when a new lot is made), the
+        // lot given from, and the lot given to when it is another.
+        CqKind::LOT_MOVED => {
+            let giver = rd_u64(pay("giver_tag")?, 0)?;
+            c.push(
+                E::Citizen,
+                Base(EntityRef::Citizen(CitizenRef::Tag8(giver))),
+                false,
+            );
+            let from = (rd_u64(pay("from_tag")?, 0)?, rd_u32(pay("from_seq")?, 0)?);
+            let to = (rd_u64(pay("to_tag")?, 0)?, rd_u32(pay("to_seq")?, 0)?);
+            c.push(
+                E::Lot,
+                Lot {
+                    tag: from.0,
+                    seq: from.1,
+                },
+                false,
+            );
+            if to != from {
+                c.push(
+                    E::Lot,
+                    Lot {
+                        tag: to.0,
+                        seq: to.1,
+                    },
+                    false,
+                );
+            }
+        }
+        // The closer's Citizen (its open-issue count), the Issue (its
+        // supply or state), and the Lot when it stays (a close is CLOSE's).
+        CqKind::LOT_CLOSED => {
+            let closer = rd_u64(pay("closer_tag")?, 0)?;
+            c.push(
+                E::Citizen,
+                Base(EntityRef::Citizen(CitizenRef::Tag8(closer))),
+                false,
+            );
+            if pay("issue_closed")?[0] == 0 {
+                c.push(
+                    E::Issue,
+                    Issue {
+                        issuer_tag: rd_u64(key, 0)?,
+                        seq: rd_u32(key, 8)?,
+                    },
+                    false,
+                );
+            }
+        }
         CqKind::FORT_GARRISONED => {
             let (p, q) = pq()?;
             let me = CitizenRef::Tag8(rd_u64(pay("owner_tag")?, 0)?);
@@ -848,6 +953,10 @@ pub fn march_address(ctx: &crate::addr::AddrCtx, who: &EntityRefV2) -> Option<[u
             Some(crate::v2::addr::caravan(ctx, *owner_tag, *seq))
         }
         EntityRefV2::Nation { faction } => Some(crate::v2::addr::nation(ctx, *faction)),
+        EntityRefV2::Issue { issuer_tag, seq } => {
+            Some(crate::v2::addr::issue(ctx, *issuer_tag, *seq))
+        }
+        EntityRefV2::Lot { tag, seq } => Some(crate::v2::addr::lot(ctx, *tag, *seq)),
         EntityRefV2::Base(b) => b.address(ctx),
     }
 }
@@ -997,6 +1106,24 @@ pub fn close_key_caravan(owner_tag: u64, seq: u32) -> [u8; 16] {
     k
 }
 
+/// The CLOSE key of an Issue: `kind ‖ issuer_tag ‖ seq` (16 B, zero padded).
+pub fn close_key_issue(issuer_tag: u64, seq: u32) -> [u8; 16] {
+    let mut k = [0u8; 16];
+    k[0] = crate::v2::layout::AccountKind::Issue as u8;
+    k[1..9].copy_from_slice(&issuer_tag.to_le_bytes());
+    k[9..13].copy_from_slice(&seq.to_le_bytes());
+    k
+}
+
+/// The CLOSE key of a Lot: `kind ‖ seed_tag ‖ seq` (16 B, zero padded).
+pub fn close_key_lot(seed_tag: u64, seq: u32) -> [u8; 16] {
+    let mut k = [0u8; 16];
+    k[0] = crate::v2::layout::AccountKind::Lot as u8;
+    k[1..9].copy_from_slice(&seed_tag.to_le_bytes());
+    k[9..13].copy_from_slice(&seq.to_le_bytes());
+    k
+}
+
 /// Reads an `[u8; N]` key part (helper for readers).
 pub fn key_arr<const N: usize>(key: &[u8], off: usize) -> Option<[u8; N]> {
     rd_arr(key, off)
@@ -1065,7 +1192,7 @@ mod tests {
                 k.body_len()
             );
         }
-        assert_eq!(CQ_SPECS.len(), 22, "MC's 9 and S1's 13");
+        assert_eq!(CQ_SPECS.len(), 25, "MC's 9, S1's 13 and S2's 3");
         assert_eq!(AnyKind::Cq(CqKind::CONQUEST).body_len(), 137);
         assert_eq!(
             AnyKind::Cq(CqKind::CONQUEST).payload_len(),

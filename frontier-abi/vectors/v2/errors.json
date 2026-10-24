@@ -656,6 +656,27 @@
       "keeper": "refused"
     },
     {
+      "code": 94,
+      "name": "TicketLimit",
+      "program": true,
+      "mc": true,
+      "keeper": "refused"
+    },
+    {
+      "code": 95,
+      "name": "TicketVoid",
+      "program": true,
+      "mc": true,
+      "keeper": "refused"
+    },
+    {
+      "code": 96,
+      "name": "TicketTerms",
+      "program": true,
+      "mc": true,
+      "keeper": "refused"
+    },
+    {
       "code": 99,
       "name": "NotImplemented",
       "program": false,

@@ -1182,6 +1182,54 @@
       "loaded_limit": 1507328,
       "loaded_limit_s1": 1835008,
       "cu_limit_s1": 20000
+    },
+    {
+      "name": "IssueTickets",
+      "tag": 192,
+      "cu_budget": 40000,
+      "cu_per_unit": 0,
+      "cu_limit": 40000,
+      "measured": 0,
+      "tx_contract": 700,
+      "tx_ceiling": 700,
+      "tx_worst_estimate": 614,
+      "accounts": [10, 10],
+      "loaded_need_placeholder": 1485777,
+      "loaded_limit": 1507328,
+      "loaded_limit_s1": 1835008,
+      "cu_limit_s1": 40000
+    },
+    {
+      "name": "GiveLot",
+      "tag": 193,
+      "cu_budget": 25000,
+      "cu_per_unit": 0,
+      "cu_limit": 25000,
+      "measured": 0,
+      "tx_contract": 700,
+      "tx_ceiling": 700,
+      "tx_worst_estimate": 600,
+      "accounts": [10, 10],
+      "loaded_need_placeholder": 1480337,
+      "loaded_limit": 1507328,
+      "loaded_limit_s1": 1835008,
+      "cu_limit_s1": 25000
+    },
+    {
+      "name": "CloseLot",
+      "tag": 194,
+      "cu_budget": 20000,
+      "cu_per_unit": 0,
+      "cu_limit": 20000,
+      "measured": 0,
+      "tx_contract": 600,
+      "tx_ceiling": 600,
+      "tx_worst_estimate": 560,
+      "accounts": [7, 9],
+      "loaded_need_placeholder": 1479633,
+      "loaded_limit": 1507328,
+      "loaded_limit_s1": 1835008,
+      "cu_limit_s1": 20000
     }
   ]
 }

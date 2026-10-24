@@ -5422,6 +5422,295 @@
           ]
         }
       ]
+    },
+    {
+      "name": "IssueTickets",
+      "tag": 192,
+      "class": "P",
+      "new_in_v2": true,
+      "changed_in_v2": false,
+      "top_level_only": false,
+      "relay_player_shape": true,
+      "relay_settle_shape": false,
+      "data_len": [23, 23],
+      "data": [
+        {
+          "name": "kind",
+          "len": 1
+        },
+        {
+          "name": "resource",
+          "len": 1
+        },
+        {
+          "name": "amount",
+          "len": 8
+        },
+        {
+          "name": "per_unit",
+          "len": 8
+        },
+        {
+          "name": "until_day",
+          "len": 4
+        }
+      ],
+      "account_groups": [
+        {
+          "min": 1,
+          "max": 1,
+          "accounts": [
+            {
+              "name": "actor",
+              "kind": "wallet",
+              "signer": true,
+              "writable": "r"
+            },
+            {
+              "name": "payer",
+              "kind": "wallet",
+              "signer": true,
+              "writable": "w"
+            },
+            {
+              "name": "season",
+              "kind": "Season",
+              "signer": false,
+              "writable": "r"
+            },
+            {
+              "name": "citizen",
+              "kind": "Citizen",
+              "signer": false,
+              "writable": "w"
+            }
+          ]
+        },
+        {
+          "min": 1,
+          "max": 1,
+          "accounts": [
+            {
+              "name": "holding",
+              "kind": "Holding",
+              "signer": false,
+              "writable": "w"
+            },
+            {
+              "name": "holding_province",
+              "kind": "Province",
+              "signer": false,
+              "writable": "r"
+            },
+            {
+              "name": "source",
+              "kind": "Holding|Vault",
+              "signer": false,
+              "writable": "r|w"
+            },
+            {
+              "name": "issue",
+              "kind": "Issue",
+              "signer": false,
+              "writable": "w"
+            },
+            {
+              "name": "lot",
+              "kind": "Lot",
+              "signer": false,
+              "writable": "w"
+            },
+            {
+              "name": "system",
+              "kind": "system",
+              "signer": false,
+              "writable": "r"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "GiveLot",
+      "tag": 193,
+      "class": "P",
+      "new_in_v2": true,
+      "changed_in_v2": false,
+      "top_level_only": false,
+      "relay_player_shape": true,
+      "relay_settle_shape": false,
+      "data_len": [9, 9],
+      "data": [
+        {
+          "name": "amount",
+          "len": 8
+        }
+      ],
+      "account_groups": [
+        {
+          "min": 1,
+          "max": 1,
+          "accounts": [
+            {
+              "name": "actor",
+              "kind": "wallet",
+              "signer": true,
+              "writable": "r"
+            },
+            {
+              "name": "payer",
+              "kind": "wallet",
+              "signer": true,
+              "writable": "w"
+            },
+            {
+              "name": "season",
+              "kind": "Season",
+              "signer": false,
+              "writable": "r"
+            },
+            {
+              "name": "citizen",
+              "kind": "Citizen",
+              "signer": false,
+              "writable": "w"
+            }
+          ]
+        },
+        {
+          "min": 1,
+          "max": 1,
+          "accounts": [
+            {
+              "name": "lot",
+              "kind": "Lot",
+              "signer": false,
+              "writable": "w"
+            },
+            {
+              "name": "issue",
+              "kind": "Issue",
+              "signer": false,
+              "writable": "r"
+            },
+            {
+              "name": "source",
+              "kind": "Holding|Vault",
+              "signer": false,
+              "writable": "r"
+            },
+            {
+              "name": "recipient",
+              "kind": "Citizen",
+              "signer": false,
+              "writable": "r|w"
+            },
+            {
+              "name": "to_lot",
+              "kind": "Lot",
+              "signer": false,
+              "writable": "w"
+            },
+            {
+              "name": "system",
+              "kind": "system",
+              "signer": false,
+              "writable": "r"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "CloseLot",
+      "tag": 194,
+      "class": "P",
+      "new_in_v2": true,
+      "changed_in_v2": false,
+      "top_level_only": false,
+      "relay_player_shape": true,
+      "relay_settle_shape": false,
+      "data_len": [2, 2],
+      "data": [
+        {
+          "name": "close_issue",
+          "len": 1
+        }
+      ],
+      "account_groups": [
+        {
+          "min": 1,
+          "max": 1,
+          "accounts": [
+            {
+              "name": "actor",
+              "kind": "wallet",
+              "signer": true,
+              "writable": "r"
+            },
+            {
+              "name": "payer",
+              "kind": "wallet",
+              "signer": true,
+              "writable": "w"
+            },
+            {
+              "name": "season",
+              "kind": "Season",
+              "signer": false,
+              "writable": "r"
+            },
+            {
+              "name": "citizen",
+              "kind": "Citizen",
+              "signer": false,
+              "writable": "w"
+            }
+          ]
+        },
+        {
+          "min": 1,
+          "max": 1,
+          "accounts": [
+            {
+              "name": "issue",
+              "kind": "Issue",
+              "signer": false,
+              "writable": "w"
+            },
+            {
+              "name": "source",
+              "kind": "Holding|Vault",
+              "signer": false,
+              "writable": "r"
+            },
+            {
+              "name": "issue_rent_to",
+              "kind": "wallet",
+              "signer": false,
+              "writable": "w"
+            }
+          ]
+        },
+        {
+          "min": 0,
+          "max": 1,
+          "accounts": [
+            {
+              "name": "lot",
+              "kind": "Lot",
+              "signer": false,
+              "writable": "w"
+            },
+            {
+              "name": "rent_to",
+              "kind": "wallet",
+              "signer": false,
+              "writable": "w"
+            }
+          ]
+        }
+      ]
     }
   ],
   "reserved_tags": [
@@ -5453,7 +5742,20 @@
     173,
     174,
     175,
-    191
+    191,
+    195,
+    196,
+    197,
+    198,
+    199,
+    200,
+    201,
+    202,
+    203,
+    204,
+    205,
+    206,
+    207
   ],
   "samples": [
     {

@@ -92,6 +92,10 @@ pub mod tag {
     pub const VOTE: u8 = 0xBC;
     pub const SETTLE_PROPOSAL: u8 = 0xBD;
     pub const RAID_DOMESTIC: u8 = 0xBE;
+    // S2 (stage 2a): tickets.
+    pub const ISSUE_TICKETS: u8 = 0xC0;
+    pub const GIVE_LOT: u8 = 0xC1;
+    pub const CLOSE_LOT: u8 = 0xC2;
 }
 
 /// Keeper class of an instruction (§5.5, I-21).
@@ -233,7 +237,7 @@ pub const LAYOUT_VERSION_V2: u16 = 2;
 /// lower ones, and lowering a gate is not MC's). The `tx_max` column is
 /// the contract's (§5.4 "Tx B max"); `twin_tests` pins every row to
 /// `frontier_abi::v2::budgets`.
-pub const INSTRUCTIONS_V2: [IxInfo; 73] = [
+pub const INSTRUCTIONS_V2: [IxInfo; 76] = [
     ix(0x01, "CreateSeason", Class::O, 70_000, 1_100, false),
     ix(0x02, "InitShards", Class::O, 45_000, 600, false),
     ix(0x03, "ConsumeGenesisSeed", Class::D, 345_000, 760, true),
@@ -311,6 +315,10 @@ pub const INSTRUCTIONS_V2: [IxInfo; 73] = [
     ix(0xBD, "SettleProposal", Class::D, 20_000, 600, false),
     // S1 (stage 1e): domestic raids (measured).
     ix(0xBE, "RaidDomestic", Class::P, 20_000, 600, false),
+    // S2 (stage 2a): tickets (measured).
+    ix(0xC0, "IssueTickets", Class::P, 40_000, 700, false),
+    ix(0xC1, "GiveLot", Class::P, 25_000, 700, false),
+    ix(0xC2, "CloseLot", Class::P, 20_000, 600, false),
 ];
 
 /// The ABI v2 row of `tag`.
@@ -370,6 +378,9 @@ pub mod magic {
     pub const STRUCTURE: &[u8; 8] = b"PSF1STRC";
     /// S1 (stage 1e).
     pub const NATION: &[u8; 8] = b"PSF1NATN";
+    /// S2 (stage 2a): ticket issues and lots.
+    pub const ISSUE: &[u8; 8] = b"PSF1ISSU";
+    pub const LOT: &[u8; 8] = b"PSF1TLOT";
 }
 
 /// Account sizes in bytes (§5.2).
@@ -403,6 +414,9 @@ pub mod size {
     pub const STRUCTURE: usize = 256;
     /// S1 (stage 1e).
     pub const NATION: usize = 384;
+    /// S2 (stage 2a).
+    pub const ISSUE: usize = 256;
+    pub const LOT: usize = 192;
 }
 
 /// Rent of an account of `space` bytes at mainnet rates (§4.2):
@@ -501,7 +515,7 @@ pub const ERRORS: [(u32, &str); 62] = [
 
 /// ABI v2 error codes (MC contract §5.3), stable forever; disjoint from
 /// [`ERRORS`].
-pub const ERRORS_V2: [(u32, &str); 32] = [
+pub const ERRORS_V2: [(u32, &str); 35] = [
     (62, "CapturePending"),
     (63, "Immune"),
     (64, "SiegeBusy"),
@@ -537,6 +551,10 @@ pub const ERRORS_V2: [(u32, &str); 32] = [
     (91, "ProposalsFull"),
     (92, "NotVoter"),
     (93, "ProposalState"),
+    // S2 (stage 2a)
+    (94, "TicketLimit"),
+    (95, "TicketVoid"),
+    (96, "TicketTerms"),
 ];
 
 /// The name of a program error code of either ABI (the code spaces are
@@ -757,9 +775,13 @@ pub mod kind {
     pub const NATION_DECIDED: u8 = 100;
     pub const RAID_OPENED: u8 = 101;
     pub const FORT_GARRISONED: u8 = 102;
+    // S2 (stage 2a): kinds 103–105.
+    pub const TICKETS_ISSUED: u8 = 103;
+    pub const LOT_MOVED: u8 = 104;
+    pub const LOT_CLOSED: u8 = 105;
 
     /// (kind, name) of every MC and S1 record kind.
-    pub const ALL_V2: [(u8, &str); 22] = [
+    pub const ALL_V2: [(u8, &str); 25] = [
         (SIEGE_DECLARED, "SIEGE_DECLARED"),
         (SIEGE_SETTLED, "SIEGE_SETTLED"),
         (CONQUEST, "CONQUEST"),
@@ -782,6 +804,9 @@ pub mod kind {
         (NATION_DECIDED, "NATION_DECIDED"),
         (RAID_OPENED, "RAID_OPENED"),
         (FORT_GARRISONED, "FORT_GARRISONED"),
+        (TICKETS_ISSUED, "TICKETS_ISSUED"),
+        (LOT_MOVED, "LOT_MOVED"),
+        (LOT_CLOSED, "LOT_CLOSED"),
     ];
 }
 
@@ -804,8 +829,11 @@ pub mod entity {
     pub const STRUCTURE: u8 = 11;
     /// S1 (stage 1e): Nation.
     pub const NATION: u8 = 12;
+    /// S2 (stage 2a): Issue and Lot.
+    pub const ISSUE: u8 = 13;
+    pub const LOT: u8 = 14;
     /// The largest entity kind of a v2 tail.
-    pub const MAX_V2: u8 = 12;
+    pub const MAX_V2: u8 = 14;
 }
 
 /// Seal verdict codes judged by SettleTransit (§5.3, I-44).
@@ -1571,6 +1599,8 @@ mod twin_tests {
                 magic::CARAVAN,
                 magic::STRUCTURE,
                 magic::NATION,
+                magic::ISSUE,
+                magic::LOT,
             ])
             .collect();
         for k in K2::ALL {
@@ -1586,6 +1616,8 @@ mod twin_tests {
         assert_eq!(size::CARAVAN, K2::Caravan.size());
         assert_eq!(size::STRUCTURE, K2::Structure.size());
         assert_eq!(size::NATION, K2::Nation.size());
+        assert_eq!(size::ISSUE, K2::Issue.size());
+        assert_eq!(size::LOT, K2::Lot.size());
         for k in K2::ALL {
             if !matches!(
                 k,
@@ -1595,6 +1627,8 @@ mod twin_tests {
                     | K2::Caravan
                     | K2::Structure
                     | K2::Nation
+                    | K2::Issue
+                    | K2::Lot
             ) {
                 assert_eq!(Some(k.size()), k.to_v1().map(|v| v.size()), "{k:?}");
             }

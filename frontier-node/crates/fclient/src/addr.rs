@@ -422,6 +422,18 @@ impl Addresses {
         let s = frontier_abi::v2::addr::nation_seed(faction);
         with_seed(&self.season, s.as_bytes(), &self.program)
     }
+    /// S2 (2a): the issuer's `seq`-th Issue, seed `ti‖hex(le64 issuer_tag ‖
+    /// le32 seq)` (frontier-abi's `issue_seed`).
+    pub fn issue(&self, issuer_tag: u64, seq: u32) -> Address {
+        let s = frontier_abi::v2::addr::issue_seed(issuer_tag, seq);
+        with_seed(&self.season, s.as_bytes(), &self.program)
+    }
+    /// S2 (2a): a Lot by its seed (the tag and lot counter of whoever made
+    /// it), `tl‖hex(le64 seed_tag ‖ le32 seq)` (frontier-abi's `lot_seed`).
+    pub fn lot(&self, seed_tag: u64, seq: u32) -> Address {
+        let s = frontier_abi::v2::addr::lot_seed(seed_tag, seq);
+        with_seed(&self.season, s.as_bytes(), &self.program)
+    }
     /// S1 (1b): the owner's `seq`-th Caravan, seed `cv‖hex(le64 owner_tag ‖
     /// le32 seq)` (frontier-abi's `caravan_seed`).
     pub fn caravan(&self, owner_tag: u64, seq: u32) -> Address {

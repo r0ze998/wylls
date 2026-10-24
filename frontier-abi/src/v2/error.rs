@@ -82,10 +82,18 @@ pub enum CqError {
     /// vote on a closed one, a settle of an open one, a second open
     /// proposal of the proposer, a target that does not qualify).
     ProposalState = 93,
+    /// S2 (2a): IssueTickets beyond `ticket::MAX_OPEN_ISSUES`.
+    TicketLimit = 94,
+    /// S2 (2a): the lot or issue is void (its source changed generation or
+    /// closed), closed, or held in an escrow.
+    TicketVoid = 95,
+    /// S2 (2a): the ticket's terms (kind, amount, resource, per unit, until
+    /// day) or the source do not qualify.
+    TicketTerms = 96,
 }
 
 impl CqError {
-    pub const ALL: [CqError; 32] = {
+    pub const ALL: [CqError; 35] = {
         use CqError::*;
         [
             CapturePending,
@@ -120,6 +128,9 @@ impl CqError {
             ProposalsFull,
             NotVoter,
             ProposalState,
+            TicketLimit,
+            TicketVoid,
+            TicketTerms,
         ]
     };
 
@@ -166,6 +177,9 @@ impl CqError {
             ProposalsFull => "ProposalsFull",
             NotVoter => "NotVoter",
             ProposalState => "ProposalState",
+            TicketLimit => "TicketLimit",
+            TicketVoid => "TicketVoid",
+            TicketTerms => "TicketTerms",
         }
     }
 
@@ -260,7 +274,8 @@ mod tests {
         }
         assert_eq!(CqError::NotLead.code(), 78);
         let all: std::vec::Vec<u32> = all_codes().map(|c| c.code()).collect();
-        assert_eq!(all.len(), 62 + 32);
+        assert_eq!(all.len(), 62 + 35);
+        assert_eq!(CqError::TicketTerms.code(), 96);
         assert_eq!(CqError::ProposalState.code(), 93);
         assert_eq!(CqError::NotOnTile.code(), 86);
         assert_eq!(CqError::StructureFull.code(), 89);
@@ -276,7 +291,8 @@ mod tests {
         assert_eq!(Code::from_code(79), Some(Code::Cq(CqError::VaultSite)));
         assert_eq!(Code::from_code(87), Some(Code::Cq(CqError::StructureSite)));
         assert_eq!(Code::from_code(91), Some(Code::Cq(CqError::ProposalsFull)));
-        assert_eq!(Code::from_code(94), None);
+        assert_eq!(Code::from_code(94), Some(Code::Cq(CqError::TicketLimit)));
+        assert_eq!(Code::from_code(97), None);
         assert_eq!(
             Code::Cq(CqError::FoldTooEarly).keeper_action(),
             KeeperAction::Wait
