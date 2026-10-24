@@ -273,7 +273,12 @@
 .plate-watch .conquest-scores { table-layout: fixed; border-spacing: 0 2px; margin: 0 0 4px; }
 .plate-watch .conquest-scores th, .plate-watch .conquest-scores td { padding: 3px 4px; border-bottom: 0; }
 .plate-watch .conquest-scores thead th { color: var(--hud-ink-2); font-size: 11px; letter-spacing: 0; text-transform: none; white-space: normal; word-break: normal; overflow-wrap: normal; vertical-align: bottom; line-height: 1.2; }
-.plate-watch .conquest-scores thead th:first-child { width: 38px; } .plate-watch .conquest-scores thead th:nth-child(3) { width: 64px; } .plate-watch .conquest-scores thead th:nth-child(4) { width: 72px; }
+/* (the two number columns were 64 + 72 px and left the nation 92 px: 「フィヨルダル」「ダンマール」「ボレアリス」 lost their
+   last kana under the cell's overflow, seen on a live 12-bot world. 州・時間 has one decimal now: narrower numbers, and
+   a name that still does not fit may wrap) */
+.plate-watch .conquest-scores thead th:first-child { width: 38px; } .plate-watch .conquest-scores thead th:nth-child(3) { width: 48px; } .plate-watch .conquest-scores thead th:nth-child(4) { width: 56px; }
+.conquest-scores tbody th[scope="row"] { word-break: normal; overflow-wrap: anywhere; }
+.conquest-scores .cs-nation, .conquest-scores .cs-nation > span:last-child { min-width: 0; }
 .plate-watch .conquest-scores tbody td, .plate-watch .conquest-scores tbody th[scope="row"] { background: rgba(255,255,255,.06); color: var(--hud-ink); }
 .plate-watch .conquest-scores tbody td:first-child { color: var(--brass-hi); }
 .plate-watch .conquest-scores tbody td:nth-child(3) { color: #fffaf0; }
