@@ -93,6 +93,44 @@ export function paintBlend(g, tiles, { nameAt, colourAt, paints = () => true } =
   g.restore();
 }
 
+// ------------------------------------------------------------------ the land's own light and shade
+/** The broad light and shade over the land: how strong, and how wide its swells are (world px). */
+export const MACRO = Object.freeze({ alpha: 0.3, wave: 520, reach: 1.7 });
+/** A smooth value in −1..1 over the world (a few long waves, the same everywhere for a point). */
+export function swell(x, y) {
+  const w = MACRO.wave;
+  return (Math.sin(x / w * 1.7 + 0.3) * Math.cos(y / w * 2.3 - 1.1) * 0.55 + Math.sin((x + y) / w * 1.1 + 2.0) * 0.3 + Math.cos((x - 2 * y) / w * 0.9) * 0.15);
+}
+/**
+ * Long swells of light and shade across the land, so a stretch of one kind of land is not the same picture hexagon
+ * after hexagon: each land tile and its neighbours lay a soft round wash of warm light or cool shade, by `swell` at
+ * their middles, inside `tiles`' hexagons only (a neighbour of another province lays its wash too: the swell does not
+ * stop at a province's edge).
+ */
+export function paintSwell(g, tiles, { nameAt, paints = () => true } = {}) {
+  if (!canPaint(g) || !g.createRadialGradient) return;
+  const here = tiles.filter(t => LAND.has(t.name) && paints(t.q, t.r));
+  if (!here.length) return;
+  const seeds = new Map();
+  for (const t of here) for (const [dq, dr] of [[0, 0], ...EDGE_DIRS]) {
+    const q = t.q + dq, r = t.r + dr, k = keyOf(q, r);
+    if (!seeds.has(k) && LAND.has(nameAt(q, r))) seeds.set(k, project(q, r));
+  }
+  g.save();
+  g.beginPath(); for (const t of here) hexPath(g, t.x, t.y, -0.3); g.clip();
+  g.globalCompositeOperation = 'soft-light';
+  const rad = RADIUS * MACRO.reach;
+  for (const c of seeds.values()) {
+    const v = swell(c.x, c.y), a = Math.min(1, Math.abs(v)) * MACRO.alpha;
+    if (a < 0.02) continue;
+    const col = v > 0 ? [255, 236, 186] : [22, 40, 34];
+    const gr = g.createRadialGradient(c.x, c.y, 0, c.x, c.y, rad);
+    gr.addColorStop(0, rgba(col, a)); gr.addColorStop(1, rgba(col, 0));
+    g.fillStyle = gr; g.fillRect(c.x - rad, c.y - rad, rad * 2, rad * 2);
+  }
+  g.restore();
+}
+
 // ------------------------------------------------------------------ shores
 const bodies = new Map();
 /**

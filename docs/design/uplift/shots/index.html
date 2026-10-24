@@ -30,7 +30,8 @@
 </section>
 <script>
   const P = [
-    ['s01-rest-desk', '普段の地図：マス目を息に'],
+    ['s01-rest-desk', '普段の地図：ひとつの国土、自然な岸、耕された土地、マス目は息に'],
+    ['s02-village-desk', '村を選ぶ：その土地だけが色を持つ（村のレンズ）'],
     ['s03-host-desk', '軍を選ぶ：届く範囲だけ格子'],
     ['s04-compose-desk', '進軍の命令：見通し（到着・費用・相手・予測）と取り消せない一行'],
     ['s10-compare-desk', '守り手のいる村へ：構えを比べる（ルールの予測）'],
@@ -38,7 +39,7 @@
     ['s06-holding-desk', '村の引き出し'],
     ['s07-hosts-desk', '軍勢の引き出し：状態の判を形でも区別'],
   ];
-  const PH = [['s01-rest-phone', '普段（スマホ）'], ['s04-compose-phone', '進軍の命令（スマホ）'], ['s10-compare-phone', '構えを比べる（スマホ）']];
+  const PH = [['s01-rest-phone', '普段（スマホ）'], ['s02-village-phone', '村を選ぶ（スマホ）'], ['s04-compose-phone', '進軍の命令（スマホ）'], ['s10-compare-phone', '構えを比べる（スマホ）']];
   const pairs = document.getElementById('pairs');
   for (const [s, t] of [...P, ...PH]) {
     const phone = s.endsWith('phone');

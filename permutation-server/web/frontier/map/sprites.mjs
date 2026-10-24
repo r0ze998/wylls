@@ -52,7 +52,7 @@ import { villageSprite } from './village.mjs';
 import { OPEN_PASS } from './labelpass.mjs';
 import { paintBellTower, towerSprite } from './belltower.mjs';
 import { RELIEF, paintMountainShadow, paintWoodFloor, reliefSprite, woodOf } from './relief.mjs';
-import { paintBlend, paintShores, forgetShores, spriteColour, waterLoops, clipOutside } from './groundblend.mjs';
+import { paintBlend, paintSwell, paintShores, forgetShores, spriteColour, waterLoops, clipOutside } from './groundblend.mjs';
 import { landUse, paintLandUse } from './landuse.mjs';
 
 /** The tile view's land is painted as one country (map/groundblend.mjs: blended kinds of land, whole coasts); `?country=0` shows the hexagons as they were. */
@@ -1117,6 +1117,7 @@ export class SpriteArt {
       if (far || !SHORES_DRAWN) return;
       const opts = { nameAt: chartName, colourAt, paints: paintsAt };
       paintBlend(g, list, opts);
+      paintSwell(g, list, opts);
       paintShores(g, list, opts);
       const mine = new Set(list.map(t => t.pk));
       for (const pk of mine) { const e = this.luBy?.get(pk); if (e) paintLandUse(g, e.list.filter(u => list.includes(u.t)), { muted: t => t.lv === L2 }); }
