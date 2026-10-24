@@ -14,6 +14,7 @@
 //! | `/h/call/{day}.json` | Herald's Call | immutable |
 //! | `/h/season/final.json` | the final map, standings and movement | immutable |
 //! | `/h/status/conquest` | the conquest fold's alarms and counters | `no-store` |
+//! | `/h/caravans.json`, `/h/structures.json`, `/h/nations.json` | the S1 feeds as written (`caravan`, `structure`, `nation`: public by design) | `max-age=5` |
 //!
 //! `/h/me/{wallet}` gains `alerts[]` and `sieges[]` in `views::me_json`.
 
@@ -42,6 +43,10 @@ pub fn mount() -> Router<Shared> {
         .route("/h/call/{file}", get(call))
         .route("/h/season/final.json", get(final_json))
         .route("/h/status/conquest", get(status))
+        // S1: the feeds the herald writes (h/caravans.json, …) were written but never served
+        .route("/h/caravans.json", get(|s, h| s1_feed(s, h, "h/caravans.json")))
+        .route("/h/structures.json", get(|s, h| s1_feed(s, h, "h/structures.json")))
+        .route("/h/nations.json", get(|s, h| s1_feed(s, h, "h/nations.json")))
 }
 
 fn err(status: StatusCode, code: &str) -> Response {
@@ -279,6 +284,11 @@ async fn call(State(app): State<Shared>, Path(file): Path<String>, h: HeaderMap)
             .unwrap_or_else(|| err(StatusCode::NOT_FOUND, "NotYet")),
         None => err(StatusCode::NOT_FOUND, "NotFound"),
     }
+}
+
+/// An S1 feed as the fold last wrote it; 404 until a record has written it (an M1 or MC season never does).
+async fn s1_feed(State(app): State<Shared>, h: HeaderMap, rel: &'static str) -> Response {
+    file_of(&app, rel, JSON, "public, max-age=5", &h).unwrap_or_else(|| err(StatusCode::NOT_FOUND, "NotYet"))
 }
 
 async fn final_json(State(app): State<Shared>, h: HeaderMap) -> Response {

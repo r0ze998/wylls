@@ -263,6 +263,14 @@ async fn cq_routes_and_ws_messages() {
         serde_json::from_slice(&ok(addr, "/h/status/conquest", "no-store").await).unwrap();
     assert_eq!(st["conquest"], true);
     assert_eq!(st["alarms"]["conquestMismatch"], 0);
+    // the S1 feeds: not yet on an MC season; served as written once a record writes one
+    for p in ["/h/caravans.json", "/h/structures.json", "/h/nations.json"] {
+        assert_eq!(get(addr, p).await.status, 404, "{p}");
+    }
+    let feed = br#"{"moving":[],"v":1,"vaults":[{"faction":5,"gen":1,"ownerTag":"1","p":2,"q":-2,"tile":41}]}"#;
+    std::fs::create_dir_all(cfg.files_dir().join("h")).unwrap();
+    std::fs::write(cfg.files_dir().join("h/caravans.json"), feed).unwrap();
+    assert_eq!(ok(addr, "/h/caravans.json", "public, max-age=5").await, feed.to_vec());
     // the conquest day of a day past the season: live (empty)
     let live = ok(addr, "/h/conquest/40.json", "public, max-age=5").await;
     assert!(ConquestDay::parse(&live).unwrap().events.is_empty());
