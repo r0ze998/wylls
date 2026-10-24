@@ -89,6 +89,12 @@ const SCENES = [
   // The village's lens on an S1 season: the page is told the season plays S1 (fs1.mjs setS1; the fixture's season does
   // not), then the village is selected: the hills and mountains near it carry what they add to its ore. A SAMPLE of how
   // an S1 season shows it, on the fixture's land.
+  ['s12-mid', 'one step out from the rest (several provinces in view)', async page => {
+    await page.locator('button[aria-label="地図を縮小"], button[aria-label="Zoom out"]').first().click(); await page.waitForTimeout(900);
+  }],
+  ['s13-mid2', 'two steps out from the rest', async page => {
+    for (let i = 0; i < 2; i++) { await page.locator('button[aria-label="地図を縮小"], button[aria-label="Zoom out"]').first().click(); await page.waitForTimeout(900); }
+  }],
   ['s11-orelens', 'the village lens on an S1 season (sample)', async page => {
     await page.evaluate(async () => { (await import('/frontier/fs1.mjs')).setS1({ layoutVersion: 2, programVersion: 4 }); });
     await tapTile(page, W.HOME);

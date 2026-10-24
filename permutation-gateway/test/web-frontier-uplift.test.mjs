@@ -129,3 +129,22 @@ test('the stage-1 things: quiet on a context that cannot paint, drawn on one tha
   assert.equal(loadOf([['鉱石', 'Ore', 30]]), 'ore');
   assert.equal(loadOf(null), null);
 });
+
+test('S1 orders: a vault and a structure are built from the ABI v2 shapes, their addresses from the v2 seed tags', async () => {
+  const { accountsFor, buildShape, SIGNED_BY } = await import('../../permutation-server/web/frontier/fplay.mjs');
+  const { seasonAddresses, seedOf } = await import('../../permutation-server/web/frontier/faddr.mjs');
+  const prog = '11111111111111111111111111111112', key = '4uQeVj5tqViQh7yWWGStvkEG1Zmhx6uasJtWCJziofM';
+  const A = seasonAddresses(prog, 302);
+  // seed = tag ‖ hex(le32 p ‖ le32 q ‖ u8 tile), as frontier-abi's vault_seed / structure_seed
+  assert.equal(seedOf('Vault', { p: 1, q: -1, tile: 20 }), 'va01000000ffffffff14');
+  assert.equal(seedOf('Structure', { p: 1, q: -1, tile: 20 }), 'tw01000000ffffffff14');
+  for (const [name, fields, slot] of [['BuildVault', { tile: 20 }, 'vault'], ['BuildStructure', { kind: 1, tile: 20, notify: 0 }, 'structure']]) {
+    assert.equal(SIGNED_BY[name], 'session');
+    const acc = accountsFor(name, { addresses: A, wallet: key, actor: key, holding: { p: 0, q: 0, site: 3 }, at: { p: 1, q: -1, tile: 20 }, profile: 3 });
+    assert.equal(acc[slot], A.of(name === 'BuildVault' ? 'Vault' : 'Structure', { p: 1, q: -1, tile: 20 }));
+    assert.equal(acc.province, A.of('Province', { p: 1, q: -1 }));
+    assert.equal(acc.holding_province, A.of('Province', { p: 0, q: 0 }));
+    const b = buildShape({ programId: prog, name, accounts: acc, fields, feePayer: key, blockhash: prog, profile: 3 });
+    assert.equal(b.expected.data[0], name === 'BuildVault' ? 0xB0 : 0xB7);
+  }
+});
