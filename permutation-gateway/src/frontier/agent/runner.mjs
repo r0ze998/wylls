@@ -11,6 +11,7 @@
 // sees a key or a token; it sees the agent's public view only.
 import { createHash, randomUUID } from 'node:crypto';
 import { decodeAccount } from '../../../client/src/frontier/codec.mjs';
+import { profileForHash } from '../../../client/src/frontier/profile.mjs';
 import { AgentError, ERR, MODES } from './contract.mjs';
 
 /** The game's turn: 600 s of chain time (web clock.mjs BELL_SECS). */
@@ -51,6 +52,24 @@ export const CATALOG = Object.freeze({
   ].map(Object.freeze)),
   train: Object.freeze([6, 7, 6, 12, 14, 16].map((pc, unit) => Object.freeze({ unit, name: UNITS[unit], cost_per_100: { Food: 60, Ore: Math.floor(20 * pc / 6), Gold: Math.floor(10 * pc / 6) } }))),
 });
+
+/** The S1 store slot 4 (Horses in M1 and MC, without production, cost or effect there) holds arms (permutation-rules arms.rs ARMS). */
+export const RESOURCES_S1 = Object.freeze(RESOURCES.map((r, i) => (i === 4 ? 'Arms' : r)));
+/**
+ * The S1 rules (profile 3, permutation-rules arms.rs, the "arms economy"): the MC catalog, plus the workshop
+ * (item 8, ITEM_WORKSHOP: WORKSHOP_COST for its first copy; each copy turns WORKSHOP_ORE_PER_HOUR ore and
+ * WORKSHOP_WOOD_PER_HOUR wood into WORKSHOP_ARMS_PER_HOUR arms while both last), and the strong units' arms
+ * per started batch of 100 (TRAIN_ARMS_PER_100: Pikeman, Crossbowman, Knight). Pinned against arms.rs by a test.
+ */
+export const CATALOG_S1 = Object.freeze({
+  build: Object.freeze([...CATALOG.build, Object.freeze({ item: 8, produces: 'Arms', per_hour: 4, uses_per_hour: Object.freeze({ Ore: 8, Wood: 4 }), cost: Object.freeze({ Food: 60, Wood: 120, Stone: 80, Ore: 40 }) })]),
+  train: Object.freeze(CATALOG.train.map(u => {
+    const arms = [0, 0, 0, 50, 70, 40][u.unit];
+    return arms ? Object.freeze({ ...u, cost_per_100: Object.freeze({ ...u.cost_per_100, Arms: arms }) }) : u;
+  })),
+});
+/** The catalog of a season's profile (client/src/frontier/profile.mjs: 1 M1, 2 MC, 3 S1); without one, the MC catalog. */
+export const catalogFor = profile => (Number(profile) >= 3 ? CATALOG_S1 : CATALOG);
 const QUEUE_KINDS = ['', 'building', 'upkeep', 'tier-up', 'walls'];
 const num = v => Number(v ?? 0);
 const named = (names, values, scale = 1) => { const o = {}; values.forEach((v, i) => { const n = Math.floor(num(v) / scale); if (n) o[names[i]] = n; }); return o; };
@@ -78,18 +97,19 @@ export function threatOf(state) {
  * Citizen's vigil. Nothing private: these are the herald's public records.
  * `province` and `citizen` may be null (then those parts are left out).
  */
-export function villageState({ holding, province = null, citizen = null, site, now }) {
+export function villageState({ holding, province = null, citizen = null, site, now, profile = 2 }) {
+  const names = Number(profile) >= 3 ? RESOURCES_S1 : RESOURCES;
   const h = holding;
   const t = BigInt(Math.floor(num(now)));
   const stores = {};
-  for (let i = 0; i < RESOURCES.length; i++) {
+  for (let i = 0; i < names.length; i++) {
     const a = h.STORES[i];
     const v = BigInt(a.VALUE), rate = BigInt(a.RATE), cap = BigInt(a.CAP), t0 = BigInt(a.T0);
     let x = t > t0 ? v + (rate * (t - t0)) / 3600n : v;
     if (x < 0n) x = 0n;
     if (rate >= 0n && x > cap) x = v < cap ? cap : v;
     const n = Number(x / 1000n);
-    if (n) stores[RESOURCES[i]] = n;
+    if (n) stores[names[i]] = n;
   }
   const queue = [];
   let free = 0;
@@ -97,13 +117,13 @@ export function villageState({ holding, province = null, citizen = null, site, n
     if (num(q.KIND) === 0) { free++; continue; }
     const kind = QUEUE_KINDS[num(q.KIND)] ?? 'work';
     const done = Number(BigInt(q.DONE_AT) - t);
-    queue.push({ what: num(q.KIND) === 1 ? `${RESOURCES[num(q.ARG)] ?? 'a'} building` : kind, done_in_s: done > 0 ? done : 0 });
+    queue.push({ what: num(q.KIND) === 1 ? `${names[num(q.ARG)] ?? 'a'} building` : kind, done_in_s: done > 0 ? done : 0 });
   }
   const out = {
     tier: TIERS[num(h.TIER)] ?? String(h.TIER),
     stores, store_cap: Number(BigInt(h.STORES[0].CAP) / 1000n),
-    production_per_hour: named(RESOURCES, h.PRODUCTION, 1000),
-    upkeep_per_hour: named(RESOURCES, h.UPKEEP, 1000),
+    production_per_hour: named(names, h.PRODUCTION, 1000),
+    upkeep_per_hour: named(names, h.UPKEEP, 1000),
     queue, free_queue_slots: free,
     walls: num(h.WALLS),
     reserve_troops: named(UNITS, h.RESERVE),
@@ -135,17 +155,18 @@ export function villageState({ holding, province = null, citizen = null, site, n
 /**
  * Whether the stores of `state` (villageState) cover `choice` by the catalog: a building's first-copy cost and a
  * free queue slot, a training's cost per started batch. Informational (the program decides); the decider uses it
- * to refuse an answer that would only be refused on chain. Without a state, or for other actions, true.
+ * to refuse an answer that would only be refused on chain. Without a state, or for other actions, true. `catalog`:
+ * the season's (catalogFor; an S1 season's strong units also need arms).
  */
-export function affordable(choice, state) {
+export function affordable(choice, state, catalog = CATALOG) {
   if (!choice || !state?.stores) return true;
   const have = r => state.stores[r] ?? 0;
   if (choice.name === 'Build') {
-    const it = CATALOG.build.find(b => b.item === choice.fields?.item);
+    const it = catalog.build.find(b => b.item === choice.fields?.item);
     return !!it && (state.free_queue_slots ?? 1) > 0 && Object.entries(it.cost).every(([r, v]) => have(r) >= v);
   }
   if (choice.name === 'Train') {
-    const u = CATALOG.train.find(x => x.unit === choice.fields?.unit);
+    const u = catalog.train.find(x => x.unit === choice.fields?.unit);
     if (!u || !(choice.fields?.n >= 1)) return false;
     const k = Math.ceil(choice.fields.n / 100);
     return Object.entries(u.cost_per_100).every(([r, v]) => have(r) >= v * k);
@@ -188,13 +209,15 @@ export class AgentObserver {
     } catch { return null; } finally { clearTimeout(t); }
   }
 
-  /** `{ok, bell, latestUnix, holding, province, citizen}` (digests) for the owner's village, or `{ok: false}`. */
+  /** `{ok, bell, latestUnix, profile, holding, province, citizen, state}` (digests) for the owner's village, or `{ok: false}`. */
   async observe({ owner, village: [p, q, site] }) {
     const [season, me, province] = await Promise.all([this.#json('/h/season'), this.#json(`/h/me/${owner}`), this.#json(`/h/province/${p},${q}/latest`)]);
     if (!season || !me) return { ok: false };
     const genesis = Number(season.genesisTs);
     const latestUnix = Number(season.latestUnix);
     const bell = latestUnix < genesis ? null : Math.floor((latestUnix - genesis) / BELL_SECS);
+    // The season's rules, from its ruleset hash (the herald's record): which catalog the model is told and checked against.
+    const profile = profileForHash(season.rulesetHash ?? season.record?.rulesetHash ?? null) ?? null;
     let holding = null, decoded = null;
     for (const h of me.holdings ?? []) {
       if (!h?.bytes_b64) continue;
@@ -214,9 +237,9 @@ export class AgentObserver {
     if (decoded) {
       const dp = (() => { try { return pb ? decodeAccount('Province', Buffer.from(pb, 'base64')) : null; } catch { return null; } })();
       const dc = (() => { try { return cb ? decodeAccount('Citizen', cb) : null; } catch { return null; } })();
-      try { state = villageState({ holding: decoded, province: dp, citizen: dc, site, now: latestUnix }); } catch { state = null; }
+      try { state = villageState({ holding: decoded, province: dp, citizen: dc, site, now: latestUnix, profile: profile ?? 2 }); } catch { state = null; }
     }
-    return { ok: true, bell, latestUnix, holding, province: prov, citizen, state };
+    return { ok: true, bell, latestUnix, profile, holding, province: prov, citizen, state };
   }
 }
 
@@ -261,9 +284,9 @@ export function ruleDecider() {
 }
 
 /** The ranges of each candidate's fields in the strict schema (the catalog's items and units; a vigil minute of the day). */
-const FIELD_RANGES = Object.freeze({
-  Train: { unit: { enum: CATALOG.train.map(u => u.unit) }, n: { minimum: 1, maximum: 10_000 } },
-  Build: { item: { enum: CATALOG.build.map(b => b.item) } },
+const fieldRanges = (catalog = CATALOG) => ({
+  Train: { unit: { enum: catalog.train.map(u => u.unit) }, n: { minimum: 1, maximum: 10_000 } },
+  Build: { item: { enum: catalog.build.map(b => b.item) } },
   SetVigil: { start_min: { minimum: 0, maximum: 1439 } },
 });
 
@@ -274,13 +297,14 @@ const FIELD_RANGES = Object.freeze({
  * cannot produce a missing field or an out-of-catalog unit. Whether the stores can pay stays the
  * decider's check (affordable()); the program stays the rule.
  */
-export function decisionSchema(names, { strict = false } = {}) {
+export function decisionSchema(names, { strict = false, catalog = CATALOG } = {}) {
   if (strict) {
+    const ranges = fieldRanges(catalog);
     const branch = (action, fields) => ({ type: 'object', additionalProperties: false, required: ['action', 'fields', 'reason'],
       properties: { action: { const: action }, fields, reason: { type: 'string', maxLength: 200 } } });
     const fieldsOf = n => {
       const spec = CANDIDATES[n];
-      const props = Object.fromEntries(Object.keys(spec).map(k => [k, { type: 'integer', ...(FIELD_RANGES[n]?.[k] ?? { minimum: 0 }) }]));
+      const props = Object.fromEntries(Object.keys(spec).map(k => [k, { type: 'integer', ...(ranges[n]?.[k] ?? { minimum: 0 }) }]));
       return { type: 'object', additionalProperties: false, required: Object.keys(spec), properties: props };
     };
     return { anyOf: [...names.map(n => branch(n, fieldsOf(n))), branch('rest', { type: 'object', additionalProperties: false, properties: {} })] };
@@ -302,9 +326,18 @@ export const ACTION_NOTES = Object.freeze({
   Train: 'train n troops (n >= 1, best a multiple of 100: the price is per started batch of 100) of a unit (0-5) at home now, paid from the stores (Food, Ore, Gold); they wait in the reserve and defend; to train nothing, rest',
   SetVigil: 'set the daily hour (start_min, minutes from UTC midnight, 0-1439) when the owner is awake to defend; takes effect after a day; once a week',
 });
+/** The same under the S1 rules: arms for the strong units, and the workshop that makes them. */
+export const ACTION_NOTES_S1 = Object.freeze({
+  ...ACTION_NOTES,
+  Build: `${ACTION_NOTES.Build}; a workshop (item 8) turns ore and wood into arms while both last`,
+  Train: 'train n troops (n >= 1, best a multiple of 100: the price is per started batch of 100) of a unit (0-5) at home now, paid from the stores (Food, Ore, Gold; Pikeman, Crossbowman and Knight also need Arms, which only workshops make); they wait in the reserve and defend; to train nothing, rest',
+});
+/** The notes of a season's profile. */
+export const notesFor = profile => (Number(profile) >= 3 ? ACTION_NOTES_S1 : ACTION_NOTES);
 
 /** What the model sees: the agent's public view, trimmed, and the village as the herald shows everyone. Never a key, a token or a secret. */
-export function promptOf(view, names, obs = null, { catalog: cat = CATALOG, reverseStores = false } = {}) {
+export function promptOf(view, names, obs = null, { catalog: cat = catalogFor(obs?.profile), reverseStores = false } = {}) {
+  const notes = notesFor(obs?.profile);
   const spent = Object.entries(view.balance.spent).map(([k, v]) => `${k} ${v}`).join(', ');
   const recent = view.history.slice(-8).filter(h => h.type === 'action' || h.type === 'spend').map(h => `${h.type}:${h.name ?? h.category}${h.status ? ':' + h.status : ''}`).join(' ');
   const catalog = {};
@@ -315,7 +348,7 @@ export function promptOf(view, names, obs = null, { catalog: cat = CATALOG, reve
   return [
     { role: 'system', content: 'You run one village in Wylls for its owner within a fixed budget. You are asked only when something changed. Choose exactly one action from the list, or "rest" when nothing is worth doing now. '
       + 'Spend the stores on what the village needs. Defence first: when state.threat says the village is outnumbered (hostile troops in the province, fewer at home) and a batch is affordable, train before anything else. Otherwise build when the stores cover a building and a queue slot is free; rest when nothing useful is affordable or everything needed is already under way. Fields are whole numbers; never spend more than the stores hold. Answer in JSON only.' },
-    { role: 'user', content: JSON.stringify({ village: view.village, allowed: names, fields: Object.fromEntries(names.map(n => [n, CANDIDATES[n]])), actions: Object.fromEntries(names.map(n => [n, ACTION_NOTES[n]])),
+    { role: 'user', content: JSON.stringify({ village: view.village, allowed: names, fields: Object.fromEntries(names.map(n => [n, CANDIDATES[n]])), actions: Object.fromEntries(names.map(n => [n, notes[n]])),
       ...(Object.keys(catalog).length ? { catalog } : {}), ...(state ? { state } : {}),
       balance: { available: view.balance.available, spent }, policy: view.policy.budget, recent, ...(obs ? { turn: obs.bell ?? null, why: obs.triggers ?? [] } : {}) }) },
   ];
@@ -331,8 +364,10 @@ export function llmDecider({ llm, alias = llm.alias, maxTokens = 160, deadlineMs
     async decide(view, obs = null) {
       const names = Object.keys(CANDIDATES).filter(n => view.policy.allowed.includes(n));
       if (!names.length) return null;
-      const body = { model: alias, messages: promptOf(view, names, obs, promptOptions), temperature: 0, top_k: 1, seed, cache_prompt: false, max_tokens: maxTokens, stream: false,
-        response_format: { type: 'json_schema', json_schema: { name: 'agent_decision', strict: true, schema: decisionSchema(names, { strict: strictSchema }) } } };
+      // The season's catalog (an S1 season adds arms and the workshop): told to the model, used by the schema and the check below.
+      const catalog = promptOptions.catalog ?? catalogFor(obs?.profile);
+      const body = { model: alias, messages: promptOf(view, names, obs, { ...promptOptions, catalog }), temperature: 0, top_k: 1, seed, cache_prompt: false, max_tokens: maxTokens, stream: false,
+        response_format: { type: 'json_schema', json_schema: { name: 'agent_decision', strict: true, schema: decisionSchema(names, { strict: strictSchema, catalog }) } } };
       const r = await llm.complete(body, { deadlineMs });
       const tokens = r.usage ? { prompt: r.usage.prompt_tokens ?? null, completion: r.usage.completion_tokens ?? null } : null;
       if (!r.ok) throw Object.assign(new Error(`model: ${r.error ?? 'failed'}`), { tokens });
@@ -350,7 +385,7 @@ export function llmDecider({ llm, alias = llm.alias, maxTokens = 160, deadlineMs
       // Train with no troops is not an action the program takes (the bench saw "Train n=0" for "cannot afford"): invalid, the autopilot plays.
       if (d.action === 'Train' && fields.n < 1) throw Object.assign(new Error('model: Train.n must be at least 1'), { tokens });
       // An answer the stores cannot pay for (the bench saw "Train 100" on Food 20, with the reason admitting it): refused here, not on chain.
-      if (obs?.state && !affordable({ name: d.action, fields }, obs.state)) throw Object.assign(new Error(`model: ${d.action} ${JSON.stringify(fields)} is not affordable by the state`), { tokens });
+      if (obs?.state && !affordable({ name: d.action, fields }, obs.state, catalog)) throw Object.assign(new Error(`model: ${d.action} ${JSON.stringify(fields)} is not affordable by the state`), { tokens });
       return { choice: { name: d.action, fields }, tokens, reason: String(d.reason ?? '').slice(0, 200) };
     },
   };

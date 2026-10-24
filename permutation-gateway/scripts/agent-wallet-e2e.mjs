@@ -141,7 +141,7 @@ async function action(name, player, fields, extra = {}) {
 /** A wallet-signed shape through the relay (SetSession: the wallet is the actor). */
 async function walletShape(name, player, fields) {
   const info = (await api('/f/relay')).body;
-  const message = shapeMessage({ programId: pin.programId, name, accounts: accountsFor(name, player.context), fields, feePayer: info.feePayer, recentBlockhash: info.blockhash, profile: 2 });
+  const message = shapeMessage({ programId: pin.programId, name, accounts: accountsFor(name, player.context), fields, feePayer: info.feePayer, recentBlockhash: info.blockhash, profile: pin.profile });
   const r = await api('/f/relay', { tx: toBase64(wireTransaction(message, { [player.wallet.address]: signTalk(message, player.keypair) })), lastValidBlockHeight: info.lastValidBlockHeight });
   assert.equal(r.status, 200, `${name}: ${json(r)}`);
   const landed = await track(r.body.signature, { tries: 80, every: 500 });
@@ -453,7 +453,7 @@ async function run() {
 
   // 4. The agent's key around the gateway.
   const info = (await api('/f/relay')).body;
-  const msg = shapeMessage({ programId: pin.programId, name: 'Harvest', accounts: accountsFor('Harvest', { ...player.context, actor: agentKey }), fields: {}, feePayer: info.feePayer, recentBlockhash: info.blockhash, profile: 2 });
+  const msg = shapeMessage({ programId: pin.programId, name: 'Harvest', accounts: accountsFor('Harvest', { ...player.context, actor: agentKey }), fields: {}, feePayer: info.feePayer, recentBlockhash: info.blockhash, profile: pin.profile });
   const forgedSig = new Uint8Array(64);
   const direct = await api('/f/relay', { tx: toBase64(wireTransaction(msg, { [agentKey]: forgedSig })) });
   assert.equal(direct.body.code, 'AgentKeyDirect', json(direct));
@@ -518,7 +518,7 @@ async function run() {
     await rpc('requestAirdrop', [payer.publicKey.toBase58(), 1_000_000_000]);
     await eventually('the payer funded', async () => (await rpc('getBalance', [payer.publicKey.toBase58()]))?.value > 0);
     const { blockhash } = (await rpc('getLatestBlockhash', [])).value;
-    const msg = shapeMessage({ programId: pin.programId, name: 'Harvest', accounts: accountsFor('Harvest', { ...player.context, actor: agentKey }), fields: {}, feePayer: payer.publicKey.toBase58(), recentBlockhash: blockhash, profile: 2 });
+    const msg = shapeMessage({ programId: pin.programId, name: 'Harvest', accounts: accountsFor('Harvest', { ...player.context, actor: agentKey }), fields: {}, feePayer: payer.publicKey.toBase58(), recentBlockhash: blockhash, profile: pin.profile });
     const wire = wireTransaction(msg, { [payer.publicKey.toBase58()]: signTalk(msg, payer), [agentKey]: signTalk(msg, oldKey) });
     const raw = async (skipPreflight) => (await (await fetch(rpcUrl, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'sendTransaction', params: [toBase64(wire), { encoding: 'base64', skipPreflight }] }) })).json());
     const pre = await raw(false);
