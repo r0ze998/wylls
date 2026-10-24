@@ -27,7 +27,7 @@ export const VILLAGE = Object.freeze({
   ring: Object.freeze([0.6, 0.78, 0.9, 0.96]),
   top: Object.freeze([0.62, 0.92, 1.12, 1.3]),
   /** The box a picture needs around the middle of its ground. */
-  box: Object.freeze({ left: 1.5, right: 1.75, top: 1.75, bottom: 1.05 }),
+  box: Object.freeze({ left: 2.2, right: 1.8, top: 2.0, bottom: 1.05 }),
   /** Where smoke rises (units of `u` from the ground's middle): the hall's chimney first. */
   chimneys: Object.freeze([
     Object.freeze([[-0.02, -0.36], [0.36, -0.06]]),
@@ -267,81 +267,164 @@ function kit(g, x, y, u, lw) {
 
 /**
  * What a village has built, added to its picture (UX design 14.2: "when it completes the annex is added to the
- * village's picture"): one small addition for each kind of building it has at least one of (fland.mjs BUILD_ITEMS:
- * 0 farm, 1 woodcutter, 2 quarry, 3 mine, 4 market, 5 school), so a village with farms and a mine looks different
- * from a new one. They stand outside the palisade on the far side and to the left, where nothing of the board's
+ * village's picture"): a yard for each kind of building it has at least one of (fland.mjs BUILD_ITEMS: 0 farm,
+ * 1 woodcutter, 2 quarry, 3 mine, 4 mint, 5 library), so a village with farms and a mine looks different from a new
+ * one, and one with three mines from one with one. Each yard has a silhouette of its own that reads at the everyday
+ * zoom (a barn among strip fields, a shed by stacked logs, a stepped pale cut with a hoist, a timbered adit with its
+ * spoil heap, a brass-roofed counting house, a tower of books) on a patch of the ground its work leaves (furrows,
+ * sawdust, stone dust, spoil, cobbles, a garden). How many it has shows in how far the yard has grown: `annexLevel`
+ * (1, 2, 3 and more). They stand outside the palisade on the far side and to the left, where nothing of the board's
  * stands (the standard, the character and the hosts are to the right and in front; a building going up, further
  * left). Buildings have no tile in the rules (Build names an item, not a place): they are part of the village's own
  * picture, never on a hex of their own. `k` = r / 0.78: the ring's size against a town's.
  */
-export const ANNEX_AT = Object.freeze([[-1.3, -0.16], [-1.02, -0.6], [-0.6, -1.0], [0.84, -0.86], [0.34, -1.1], [-0.2, -1.16]]);
+export const ANNEX_AT = Object.freeze([[-1.2, -0.62], [-0.78, -1.26], [-0.12, -1.6], [1.14, -0.94], [0.56, -1.42], [-1.5, -1.2]]);
+/** How far a yard has grown for `n` copies of its building: 0 (none), 1, 2, or 3 (three or more). */
+export const annexLevel = n => Math.max(0, Math.min(3, Math.floor(Number(n) || 0)));
+const SOIL = Object.freeze({
+  furrow: ['#cdb468', 'rgba(140,116,46,.6)'], green: ['#93ad5a', 'rgba(70,104,44,.55)'], fallow: ['#b99a63', 'rgba(110,84,44,.55)'],
+  sawdust: 'rgba(206,170,112,.9)', dust: 'rgba(222,214,192,.7)', spoil: 'rgba(92,82,66,.9)', cobble: 'rgba(196,184,160,.95)', garden: 'rgba(132,158,92,.9)',
+});
 function annexes(g, K, u, lw, k, annex, roof, add) {
-  const has = i => (annex?.[i] ?? 0) > 0;
+  const lv = i => annexLevel(annex?.[i]);
   const at = i => [ANNEX_AT[i][0] * k, ANNEX_AT[i][1] * k];
   const straw = { lit: '#ecd58c', mid: '#d9b860', shade: '#b08f3e', deep: '#8a6e2c', ridge: '#f6e6ad', line: 'rgba(96,70,22,.8)' };
   const slate = { lit: '#9aa7ad', mid: '#77868d', shade: '#56646b', deep: '#3d484e', ridge: '#c3cdd1', line: 'rgba(30,38,42,.8)' };
   const brass = { lit: BRASS.lit, mid: BRASS.mid, shade: '#a67c2c', deep: BRASS.dark, ridge: '#fff0b8', line: 'rgba(70,48,12,.8)' };
-  if (has(0)) {
-    // a farm: one more strip of field, a straw-roofed barn, two stooks
-    const [gx, gy] = at(0);
-    K.field(gx - 0.02, gy + 0.2, 0.2, 0.13, -0.5, ['#d7c070', 'rgba(150,128,52,.55)']);
-    add(gy, () => K.house({ gx: gx + 0.06, gy: gy - 0.1, ha: 0.13, hb: 0.09, h: 0.09, rh: 0.11, along: 'a', roof: straw, wall: { ...WALL, lit: WOOD.lit, shade: WOOD.shade }, door: true }));
-    add(gy + 0.2, () => { K.hay(gx - 0.12, gy + 0.2); K.hay(gx + 0.04, gy + 0.26); });
+  const timber = { ...roof, mid: WOOD.mid, lit: WOOD.lit, shade: WOOD.shade, deep: WOOD.dark, ridge: '#d8b888' };
+  // the ground a yard's work leaves: a soft patch, darker at its rim (painted at once: it lies under everything)
+  const pad = (gx, gy, rx, ry, fill) => {
+    const [px, py] = K.P(gx, gy);
+    g.save(); g.translate(px, py); g.scale(1, F);
+    if (g.createRadialGradient) {
+      const gr = g.createRadialGradient(0, 0, rx * u * 0.15, 0, 0, rx * u);
+      gr.addColorStop(0, fill); gr.addColorStop(0.78, fill); gr.addColorStop(1, 'rgba(0,0,0,0)');
+      g.fillStyle = gr;
+    } else g.fillStyle = fill;
+    g.beginPath(); g.ellipse?.(0, 0, rx * u, ry * u, 0, 0, Math.PI * 2); g.fill();
+    g.strokeStyle = 'rgba(70,54,30,.28)'; g.lineWidth = lw; g.beginPath(); g.ellipse?.(0, 0, rx * u * 0.8, ry * u * 0.8, 0, 0.15, Math.PI - 0.15); g.stroke();
+    g.restore();
+  };
+  const block = (px, py, s, lit = STONE.lit, shade = STONE.shade) => {
+    poly(g, [[px - s, py], [px + s, py], [px + s, py - s * 1.1], [px - s, py - s * 1.1]], lit, STONE.line, lw * 0.8);
+    poly(g, [[px, py], [px + s, py], [px + s, py - s * 1.1], [px, py - s * 1.1]], shade);
+    poly(g, [[px - s, py - s * 1.1], [px + s, py - s * 1.1], [px + s * 0.7, py - s * 1.45], [px - s * 1.3, py - s * 1.45]], STONE.top, STONE.line, lw * 0.6);
+  };
+  const logs = (gx, gy, n) => {
+    for (let i = 0; i < n; i++) for (let j = 0; j < n - i; j++) {
+      const [lx, ly] = K.P(gx + (j + i * 0.5) * 0.05, gy, 0.022 + i * 0.04), r = 0.024 * u;
+      g.fillStyle = '#8a5f34'; g.strokeStyle = 'rgba(46,30,14,.85)'; g.lineWidth = lw * 0.8; g.beginPath(); g.arc(lx, ly, r, 0, Math.PI * 2); g.fill(); g.stroke();
+      g.fillStyle = '#e0bd82'; g.beginPath(); g.arc(lx, ly, r * 0.58, 0, Math.PI * 2); g.fill();
+      g.strokeStyle = 'rgba(140,96,48,.6)'; g.lineWidth = lw * 0.5; g.beginPath(); g.arc(lx, ly, r * 0.3, 0, Math.PI * 2); g.stroke();
+    }
+  };
+  const stump = (gx, gy) => {
+    const [sx, sy] = K.P(gx, gy), r = 0.026 * u;
+    g.fillStyle = WOOD.shade; g.strokeStyle = 'rgba(46,30,14,.8)'; g.lineWidth = lw * 0.8;
+    g.beginPath(); g.ellipse?.(sx, sy, r, r * F, 0, 0, Math.PI); g.lineTo(sx - r, sy - r * 0.9); g.ellipse?.(sx, sy - r * 0.9, r, r * F, 0, Math.PI, 0, true); g.closePath(); g.fill(); g.stroke();
+    g.fillStyle = '#e0bd82'; g.beginPath(); g.ellipse?.(sx, sy - r * 0.9, r, r * F, 0, 0, Math.PI * 2); g.fill(); g.stroke();
+  };
+  const heap = (px, py, w, h, c0, c1) => {
+    g.fillStyle = 'rgba(34,26,14,.22)'; g.beginPath(); g.ellipse?.(px + w * 0.3, py + h * 0.1, w * 1.15, h * 0.32, 0, 0, Math.PI * 2); g.fill();
+    g.fillStyle = c0; g.strokeStyle = 'rgba(36,30,20,.75)'; g.lineWidth = lw;
+    g.beginPath(); g.moveTo(px - w, py); g.quadraticCurveTo(px - w * 0.35, py - h * 1.05, px + w * 0.05, py - h); g.quadraticCurveTo(px + w * 0.5, py - h * 0.95, px + w, py); g.closePath(); g.fill(); g.stroke();
+    g.fillStyle = c1; g.beginPath(); g.moveTo(px - w * 0.72, py - h * 0.3); g.quadraticCurveTo(px - w * 0.3, py - h * 0.98, px + w * 0.05, py - h); g.quadraticCurveTo(px - w * 0.2, py - h * 0.6, px - w * 0.72, py - h * 0.3); g.fill();
+  };
+  if (lv(0)) {
+    // a farm: strip fields that spread outward as the farms grow (one more strip a copy), a straw-roofed barn, stooks
+    const n = lv(0), [gx, gy] = at(0);
+    const strips = [[0.04, 0.26, 0.22, 0.12, -0.5, SOIL.furrow], [-0.22, 0.1, 0.2, 0.11, -0.5, SOIL.green], [-0.16, 0.42, 0.2, 0.1, -0.5, SOIL.fallow], [0.2, 0.5, 0.18, 0.1, -0.5, SOIL.furrow]];
+    for (const [dx, dy, w, d, turn, c] of strips.slice(0, n + 1)) K.field(gx + dx, gy + dy, w, d, turn, c);
+    add(gy - 0.02, () => K.house({ gx: gx + 0.1, gy: gy - 0.08, ha: 0.16, hb: 0.1, h: 0.1, rh: 0.13, along: 'a', roof: straw, wall: { ...WALL, lit: WOOD.lit, shade: WOOD.shade }, door: true }));
+    if (n >= 3) add(gy - 0.12, () => K.house({ gx: gx - 0.18, gy: gy - 0.2, ha: 0.1, hb: 0.08, h: 0.08, rh: 0.1, along: 'b', roof: straw, wall: { ...WALL, lit: WOOD.lit, shade: WOOD.shade }, door: false }));
+    add(gy + 0.24, () => { K.hay(gx - 0.12, gy + 0.22); K.hay(gx + 0.02, gy + 0.28); if (n >= 2) K.hay(gx - 0.3, gy + 0.12); });
   }
-  if (has(1)) {
-    // a woodcutter's yard: an open shed and stacked logs
-    const [gx, gy] = at(1);
-    add(gy, () => K.house({ gx, gy, ha: 0.11, hb: 0.075, h: 0.075, rh: 0.07, along: 'b', roof: { ...roof, mid: WOOD.mid, lit: WOOD.lit, shade: WOOD.shade, deep: WOOD.dark, ridge: '#d8b888' }, wall: { ...WALL, lit: WOOD.mid, shade: WOOD.dark }, door: false }));
-    add(gy + 0.12, () => {
-      for (const [dx, dy, n] of [[-0.17, 0.1, 3], [-0.02, 0.16, 2]]) for (let i = 0; i < n; i++) for (let j = 0; j < n - i; j++) {
-        const [lx, ly] = K.P(gx + dx + (j + i * 0.5) * 0.045, gy + dy, 0.02 + i * 0.036), r = 0.021 * u;
-        g.fillStyle = '#8a5f34'; g.strokeStyle = 'rgba(46,30,14,.8)'; g.lineWidth = lw * 0.8; g.beginPath(); g.arc(lx, ly, r, 0, Math.PI * 2); g.fill(); g.stroke();
-        g.fillStyle = '#d9b47a'; g.beginPath(); g.arc(lx, ly, r * 0.55, 0, Math.PI * 2); g.fill();
-      }
-    });
+  if (lv(1)) {
+    // a woodcutter's yard: sawdust, an open shed, a chopping block and stumps, log stacks (one a copy)
+    const n = lv(1), [gx, gy] = at(1);
+    pad(gx, gy + 0.06, 0.3, 0.22, SOIL.sawdust);
+    add(gy - 0.04, () => K.house({ gx: gx + 0.04, gy: gy - 0.04, ha: 0.13, hb: 0.09, h: 0.08, rh: 0.08, along: 'b', roof: timber, wall: { ...WALL, lit: WOOD.mid, shade: WOOD.dark }, door: false }));
+    add(gy + 0.14, () => { logs(gx - 0.22, gy + 0.12, 3); if (n >= 2) logs(gx - 0.06, gy + 0.2, 2); if (n >= 3) logs(gx + 0.12, gy + 0.18, 3); });
+    add(gy + 0.08, () => { stump(gx + 0.2, gy + 0.08); stump(gx - 0.28, gy - 0.06); });
   }
-  if (has(2)) {
-    // a quarry: a cut face of pale stone, squared blocks, a tripod hoist
-    const [gx, gy] = at(2);
+  if (lv(2)) {
+    // a quarry: a pale cut stepped into the ground (a step deeper a copy), squared blocks, a tripod hoist
+    const n = lv(2), [gx, gy] = at(2);
+    pad(gx, gy + 0.04, 0.32, 0.22, SOIL.dust);
     add(gy, () => {
-      const [x0, y0] = K.P(gx, gy), w = 0.2 * u, h = 0.16 * u;
+      const [x0, y0] = K.P(gx, gy), w = 0.24 * u, h = (0.13 + 0.035 * n) * u;
       g.fillStyle = 'rgba(34,26,14,.22)'; g.beginPath(); g.ellipse?.(x0 + w * 0.2, y0 + h * 0.08, w * 1.1, h * 0.3, 0, 0, Math.PI * 2); g.fill();
       poly(g, [[x0 - w, y0], [x0 - w * 0.86, y0 - h * 0.7], [x0 - w * 0.3, y0 - h], [x0 + w * 0.4, y0 - h * 0.82], [x0 + w, y0 - h * 0.3], [x0 + w, y0]], STONE.mid, STONE.line, lw);
       poly(g, [[x0 - w * 0.86, y0 - h * 0.7], [x0 - w * 0.3, y0 - h], [x0 + w * 0.4, y0 - h * 0.82], [x0 + w * 0.1, y0 - h * 0.5], [x0 - w * 0.5, y0 - h * 0.46]], STONE.top);
-      g.strokeStyle = 'rgba(58,48,32,.45)'; g.lineWidth = lw * 0.8;
-      for (const f of [0.3, 0.6]) { g.beginPath(); g.moveTo(x0 - w * 0.92, y0 - h * f * 0.8); g.lineTo(x0 + w * 0.95, y0 - h * f * 0.5); g.stroke(); }
-      for (const [bx, by] of [[0.5, 0.12], [0.86, 0.2], [0.66, 0.34]]) { const [px, py] = [x0 + bx * w, y0 + by * h], s = 0.036 * u; poly(g, [[px - s, py], [px + s, py], [px + s, py - s * 1.1], [px - s, py - s * 1.1]], STONE.lit, STONE.line, lw * 0.8); poly(g, [[px, py], [px + s, py], [px + s, py - s * 1.1], [px, py - s * 1.1]], STONE.shade); }
-      line(g, [[x0 - w * 0.2, y0 - h * 0.9], [x0 - w * 0.05, y0 - h * 2.0], [x0 + w * 0.2, y0 - h * 0.86]], WOOD.dark, lw * 1.6);
-      line(g, [[x0 - w * 0.05, y0 - h * 2.0], [x0 - w * 0.05, y0 - h * 1.2]], 'rgba(40,30,18,.8)', lw);
+      // the steps of the cut, one a copy
+      for (let i = 0; i < n; i++) {
+        const f = 0.24 + i * 0.22, a = x0 - w * (0.78 - i * 0.12), b = x0 + w * (0.86 - i * 0.1);
+        poly(g, [[a, y0 - h * f], [b, y0 - h * (f - 0.08)], [b, y0 - h * (f - 0.18)], [a, y0 - h * (f - 0.1)]], STONE.shade, 'rgba(58,48,32,.5)', lw * 0.7);
+      }
+      for (const [bx, by] of [[0.52, 0.14], [0.86, 0.22], [0.68, 0.36], [0.3, 0.3], [1.02, 0.36], [0.5, 0.46]].slice(0, 1 + n * 2 - 1)) block(x0 + bx * w, y0 + by * h, 0.036 * u);
+      line(g, [[x0 - w * 0.22, y0 - h * 0.92], [x0 - w * 0.05, y0 - h * 2.0], [x0 + w * 0.2, y0 - h * 0.86]], WOOD.dark, lw * 1.8);
+      line(g, [[x0 - w * 0.05, y0 - h * 2.0], [x0 - w * 0.36, y0 - h * 0.7]], WOOD.dark, lw * 1.4);
+      line(g, [[x0 - w * 0.05, y0 - h * 2.0], [x0 - w * 0.05, y0 - h * 1.2]], 'rgba(40,30,18,.85)', lw);
+      block(x0 - w * 0.05, y0 - h * 1.08, 0.026 * u);
     });
   }
-  if (has(3)) {
-    // a mine: a dark adit in a mound, a timber frame over it, an ore cart on its rail
-    const [gx, gy] = at(3);
+  if (lv(3)) {
+    // a mine: a timbered adit in a mound, its spoil heap (larger a copy), a headframe from the second, an ore cart on its rail
+    const n = lv(3), [gx, gy] = at(3);
+    pad(gx + 0.06, gy + 0.08, 0.34, 0.24, SOIL.spoil);
+    add(gy + 0.1, () => { const [hx, hy] = K.P(gx + 0.26, gy + 0.12); heap(hx, hy, (0.09 + 0.035 * n) * u, (0.06 + 0.03 * n) * u, '#5c5244', '#7c715f'); });
     add(gy, () => {
-      const [x0, y0] = K.P(gx, gy), w = 0.17 * u, h = 0.17 * u;
-      g.fillStyle = 'rgba(34,26,14,.22)'; g.beginPath(); g.ellipse?.(x0 + w * 0.3, y0 + h * 0.06, w * 1.2, h * 0.3, 0, 0, Math.PI * 2); g.fill();
-      g.fillStyle = '#7d7460'; g.strokeStyle = 'rgba(40,34,22,.8)'; g.lineWidth = lw;
+      const [x0, y0] = K.P(gx, gy), w = 0.2 * u, h = 0.2 * u;
+      g.fillStyle = 'rgba(34,26,14,.24)'; g.beginPath(); g.ellipse?.(x0 + w * 0.3, y0 + h * 0.06, w * 1.2, h * 0.3, 0, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#7d7460'; g.strokeStyle = 'rgba(40,34,22,.85)'; g.lineWidth = lw;
       g.beginPath(); g.moveTo(x0 - w, y0); g.quadraticCurveTo(x0 - w * 0.8, y0 - h * 1.1, x0, y0 - h * 1.15); g.quadraticCurveTo(x0 + w * 0.9, y0 - h * 1.0, x0 + w, y0); g.closePath(); g.fill(); g.stroke();
       g.fillStyle = '#a39a82'; g.beginPath(); g.moveTo(x0 - w * 0.7, y0 - h * 0.5); g.quadraticCurveTo(x0 - w * 0.4, y0 - h * 1.05, x0 + w * 0.1, y0 - h * 1.08); g.quadraticCurveTo(x0 - w * 0.2, y0 - h * 0.7, x0 - w * 0.7, y0 - h * 0.5); g.fill();
+      // tufts of grass on the mound: it is a hillside, not a heap
+      g.strokeStyle = 'rgba(86,112,52,.8)'; g.lineWidth = lw;
+      for (const [tx, ty] of [[-0.62, -0.62], [0.46, -0.78], [0.72, -0.42]]) { g.beginPath(); g.moveTo(x0 + tx * w, y0 + ty * h); g.lineTo(x0 + tx * w - 0.012 * u, y0 + ty * h - 0.03 * u); g.moveTo(x0 + tx * w, y0 + ty * h); g.lineTo(x0 + tx * w + 0.012 * u, y0 + ty * h - 0.032 * u); g.stroke(); }
       poly(g, [[x0 - w * 0.34, y0], [x0 - w * 0.34, y0 - h * 0.62], [x0 + w * 0.34, y0 - h * 0.62], [x0 + w * 0.34, y0]], '#1c1712');
-      line(g, [[x0 - w * 0.4, y0], [x0 - w * 0.4, y0 - h * 0.7]], WOOD.lit, lw * 2.2); line(g, [[x0 + w * 0.4, y0], [x0 + w * 0.4, y0 - h * 0.7]], WOOD.mid, lw * 2.2); line(g, [[x0 - w * 0.5, y0 - h * 0.7], [x0 + w * 0.5, y0 - h * 0.7]], WOOD.lit, lw * 2.4);
-      line(g, [[x0 - w * 0.1, y0 + h * 0.06], [x0 + w * 1.1, y0 + h * 0.3]], 'rgba(40,34,22,.7)', lw);
-      const cx = x0 + w * 0.8, cy = y0 + h * 0.2, s = 0.05 * u;
+      line(g, [[x0 - w * 0.4, y0], [x0 - w * 0.4, y0 - h * 0.7]], WOOD.lit, lw * 2.4); line(g, [[x0 + w * 0.4, y0], [x0 + w * 0.4, y0 - h * 0.7]], WOOD.mid, lw * 2.4); line(g, [[x0 - w * 0.52, y0 - h * 0.7], [x0 + w * 0.52, y0 - h * 0.7]], WOOD.lit, lw * 2.6);
+      // a lantern at the adit
+      g.fillStyle = '#ffd37a'; g.beginPath(); g.arc(x0 + w * 0.46, y0 - h * 0.52, 0.016 * u, 0, Math.PI * 2); g.fill();
+      if (n >= 2) {
+        // the headframe over a shaft: two legs, a strut, the wheel
+        const hx = x0 - w * 0.62, hy = y0 - h * 0.86, hh = 0.26 * u;
+        line(g, [[hx - 0.05 * u, hy], [hx, hy - hh], [hx + 0.05 * u, hy]], WOOD.dark, lw * 1.8);
+        line(g, [[hx, hy - hh], [hx + 0.09 * u, hy + 0.01 * u]], WOOD.shade, lw * 1.4);
+        g.strokeStyle = WOOD.dark; g.lineWidth = lw * 1.3; g.beginPath(); g.arc(hx, hy - hh, 0.034 * u, 0, Math.PI * 2); g.stroke();
+        line(g, [[hx - 0.03 * u, hy - hh], [hx + 0.03 * u, hy - hh]], WOOD.dark, lw); line(g, [[hx, hy - hh - 0.03 * u], [hx, hy - hh + 0.03 * u]], WOOD.dark, lw);
+      }
+      // the rail out of the adit and a cart of ore on it
+      line(g, [[x0 - w * 0.12, y0 + h * 0.04], [x0 + w * 1.2, y0 + h * 0.34]], 'rgba(40,34,22,.75)', lw);
+      line(g, [[x0 + w * 0.12, y0 + h * 0.0], [x0 + w * 1.3, y0 + h * 0.26]], 'rgba(40,34,22,.75)', lw);
+      const cx = x0 + w * 0.86, cy = y0 + h * 0.24, s = 0.058 * u;
       poly(g, [[cx - s, cy - s * 0.9], [cx + s, cy - s * 0.9], [cx + s * 0.8, cy], [cx - s * 0.8, cy]], '#5b4a36', 'rgba(30,22,12,.85)', lw * 0.8);
-      g.fillStyle = '#9fb0b8'; g.beginPath(); g.ellipse?.(cx, cy - s * 0.95, s * 0.85, s * 0.36, 0, Math.PI, 0); g.fill();
+      g.fillStyle = '#9fb0b8'; g.beginPath(); g.ellipse?.(cx, cy - s * 0.95, s * 0.85, s * 0.38, 0, Math.PI, 0); g.fill();
+      g.fillStyle = '#c9d6dc'; g.beginPath(); g.arc(cx - s * 0.25, cy - s * 1.08, s * 0.16, 0, Math.PI * 2); g.fill();
       g.fillStyle = '#1c1712'; for (const d of [-0.5, 0.5]) { g.beginPath(); g.arc(cx + d * s, cy + s * 0.08, s * 0.22, 0, Math.PI * 2); g.fill(); }
     });
   }
-  if (has(4)) {
-    // a market hall: a brass roof and a striped awning
-    const [gx, gy] = at(4);
-    add(gy, () => { K.house({ gx, gy, ha: 0.12, hb: 0.085, h: 0.11, rh: 0.1, along: 'a', roof: brass, chimney: false }); K.stall(gx + 0.2, gy + 0.08, BRASS.mid); });
+  if (lv(4)) {
+    // a mint: a stone counting house under a brass roof on a cobbled yard, strongboxes by its door (one a copy)
+    const n = lv(4), [gx, gy] = at(4);
+    pad(gx, gy + 0.04, 0.28, 0.2, SOIL.cobble);
+    add(gy, () => K.house({ gx, gy, ha: 0.14, hb: 0.1, h: 0.14, rh: 0.11, along: 'a', roof: brass, wall: { ...WALL, lit: STONE.lit, mid: STONE.mid, shade: STONE.shade }, chimney: true }));
+    add(gy + 0.16, () => {
+      for (let i = 0; i < n; i++) {
+        const [bx, by] = K.P(gx + 0.2 + i * 0.07, gy + 0.16 - i * 0.02), s = 0.03 * u;
+        poly(g, [[bx - s, by], [bx + s, by], [bx + s, by - s * 0.9], [bx - s, by - s * 0.9]], '#6d4f2b', 'rgba(30,20,10,.9)', lw * 0.8);
+        line(g, [[bx - s, by - s * 0.45], [bx + s, by - s * 0.45]], BRASS.mid, lw * 1.2);
+        g.fillStyle = BRASS.lit; g.beginPath(); g.arc(bx, by - s * 0.45, s * 0.2, 0, Math.PI * 2); g.fill();
+      }
+    });
   }
-  if (has(5)) {
-    // a school: a slender round tower with a slate cap, a brass ball on it
-    const [gx, gy] = at(5);
-    add(gy, () => { K.tower({ gx, gy, r: 0.06, h: 0.36, cone: 0.16, roof: slate }); const [px, py] = K.P(gx, gy, 0.36 + 0.17); g.fillStyle = BRASS.lit; g.strokeStyle = BRASS.dark; g.lineWidth = lw * 0.8; g.beginPath(); g.arc(px, py, 0.018 * u, 0, Math.PI * 2); g.fill(); g.stroke(); });
+  if (lv(5)) {
+    // a library: a slender tower with a slate cap and a brass ball, a hall of books from the second, a second tower from the third
+    const n = lv(5), [gx, gy] = at(5);
+    pad(gx, gy + 0.04, 0.26, 0.18, SOIL.garden);
+    if (n >= 2) add(gy + 0.02, () => K.house({ gx: gx + 0.16, gy: gy + 0.04, ha: 0.13, hb: 0.08, h: 0.11, rh: 0.09, along: 'a', roof: slate, wall: WALL, door: true }));
+    if (n >= 3) add(gy - 0.06, () => K.tower({ gx: gx - 0.16, gy: gy - 0.06, r: 0.05, h: 0.3, cone: 0.14, roof: slate }));
+    add(gy, () => { K.tower({ gx, gy, r: 0.068, h: 0.42, cone: 0.18, roof: slate }); const [px, py] = K.P(gx, gy, 0.42 + 0.2); g.fillStyle = BRASS.lit; g.strokeStyle = BRASS.dark; g.lineWidth = lw * 0.8; g.beginPath(); g.arc(px, py, 0.022 * u, 0, Math.PI * 2); g.fill(); g.stroke(); });
   }
 }
 
@@ -381,11 +464,15 @@ export function paintVillage(g, x, y, u, { tier = 0, faction = 0, walls = false,
   const roof = roofOf(faction), r = VILLAGE.ring[t];
   g.save();
   g.lineJoin = 'round'; g.lineCap = 'round';
-  if (variant) { g.translate(x, 0); g.scale(-1, 1); g.translate(-x, 0); }
+  // (the mirrored layout mirrors the village itself; its yards keep their side, clear of the standard and the hosts)
+  const mirror = () => { if (variant) { g.translate(x, 0); g.scale(-1, 1); g.translate(-x, 0); } };
+  const mirrored = fn => (variant ? () => { g.save(); mirror(); try { fn(); } finally { g.restore(); } } : fn);
   const K = kit(g, x, y, u, lw);
   const stone = walls || t >= 2;
   const things = [];
-  const add = (gy, fn) => things.push({ gy, fn });
+  const plain = (gy, fn) => things.push({ gy, fn });
+  const add = (gy, fn) => things.push({ gy, fn: mirrored(fn) });
+  g.save(); mirror();
   const H = (o) => add(o.gy, () => K.house({ roof, ...o }));
   if (t === 0) {
     ground(g, x, y, u, r, { paths: [Math.PI / 2, Math.PI * 1.08] });
@@ -443,7 +530,8 @@ export function paintVillage(g, x, y, u, { tier = 0, faction = 0, walls = false,
     for (const [gx, gy, al] of [[-0.6, -0.04, 'a'], [0.62, 0.0, 'a'], [-0.56, 0.3, 'a'], [0.56, 0.32, 'a'], [-0.24, 0.42, 'b'], [0.24, 0.44, 'b'], [0, 0.6, 'a'], [-0.68, -0.34, 'b'], [0.7, -0.34, 'b']]) H({ gx, gy, ha: 0.14, hb: 0.095, h: 0.11, rh: 0.1, along: al, chimney: gx > 0 });
     for (const a of [0.1, 0.3, 0.7, 0.9]) add(Math.sin(a * Math.PI) * r + 0.02, () => K.tower({ gx: Math.cos(a * Math.PI) * r, gy: Math.sin(a * Math.PI) * r, r: 0.095, h: 0.38, cone: 0.23, roof }));
   }
-  if (annex?.some?.(n => n > 0)) annexes(g, K, u, lw, r / 0.78, annex, roof, add);
+  g.restore();
+  if (annex?.some?.(n => n > 0)) annexes(g, K, u, lw, r / 0.78, annex, roof, plain);
   things.sort((a, b) => a.gy - b.gy);
   // what stands behind the near half of the ring, then the ring's near half with its gate, then what stands on it
   const nearRing = r * 0.74;
@@ -529,7 +617,8 @@ export function fortressSprite(px, { faction = null, mine = false } = {}) {
  */
 export function villageSprite(px, { tier = 0, faction = 0, walls = false, variant = 0, annex = null } = {}) {
   const r = SIZES.find(s => s >= px * 0.97) ?? SIZES[SIZES.length - 1];
-  const mask = (annex ?? []).reduce((m, n, i) => m | ((n > 0 ? 1 : 0) << i), 0);
+  // (how far each yard has grown, one digit a kind: a village with three mines is a picture of its own)
+  const mask = (annex ?? []).map(annexLevel).join('').replace(/^0+$/, '');
   const key = `${r}|${tier}|${faction}|${walls ? 1 : 0}|${variant ? 1 : 0}|${mask}`;
   if (sprites.has(key)) return sprites.get(key);
   const B = VILLAGE.box, w = Math.ceil((B.left + B.right) * r), h = Math.ceil((B.top + B.bottom) * r);

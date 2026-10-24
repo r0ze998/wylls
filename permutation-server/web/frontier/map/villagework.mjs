@@ -57,7 +57,9 @@ export function fieldSpots(tier = 0, { farm = false } = {}) {
   const t = Math.max(0, Math.min(3, tier | 0));
   const base = [[[-0.86, 0.34, 0.26], [0.9, -0.3, 0.24], [0.84, 0.44, 0.2]], [[-1.06, 0.42, 0.24], [1.1, 0.4, 0.22]], [[-1.2, 0.36, 0.2]], []][t];
   const k = [0.6, 0.78, 0.9, 0.96][t] / 0.78;
-  return farm ? [...base, [-1.32 * k, 0.04 * k, 0.2]] : base;
+  // (the farm's own strip, map/village.mjs ANNEX_AT[0] and its first field: the yards keep their side in a mirrored
+  // village, so it is not mirrored: its fourth entry says so)
+  return farm ? [...base, [(-1.2 + 0.04) * k, (-0.62 + 0.26) * k, 0.22, true]] : base;
 }
 /** How many sheaves stand on a field that is `share` (0..1) grown: none on a field just settled, `max` on a full one. */
 export const sheafCount = (share, max = 5) => (share > 0.02 ? Math.max(1, Math.min(max, Math.round(share * max))) : 0);
@@ -74,8 +76,8 @@ export function paintSheaves(g, cx, cy, U, { tier = 0, farm = false, share = 0, 
   if (!g?.save || !n) return out;
   g.save();
   g.lineJoin = 'round'; g.lineCap = 'round';
-  for (const [gx0, gy, w] of spots) {
-    const gx = flip ? -gx0 : gx0, x0 = cx + gx * U, y0 = cy + gy * F * U;
+  for (const [gx0, gy, w, fixed] of spots) {
+    const gx = flip && !fixed ? -gx0 : gx0, x0 = cx + gx * U, y0 = cy + gy * F * U;
     out.push({ x: x0, y: y0 });
     for (let i = 0; i < n; i++) {
       // stooks in two rows along the furrows
