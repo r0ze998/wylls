@@ -1,0 +1,222 @@
+<!doctype html><html><head><meta charset="utf-8"><title>13 conquest keep own1 (ja)</title>
+<link rel="stylesheet" href="../../lib/wy.css">
+<script src="../../lib/wy.js"></script><script src="../../lib/wy-audio.js"></script>
+<script src="../../lib/wy-map.js"></script><script src="../../lib/wy-kit.js"></script>
+<script src="fx.js"></script>
+<style>
+  .disc { position: absolute; right: 80px; top: 60px; display: flex; gap: 10px; z-index: 31; }
+  .disc span { padding: 8px 16px; border-radius: 999px; background: rgba(90,40,20,.92); border: 1px solid rgba(255,200,150,.45); color: #ffe9d6; font: 700 24px var(--sans-jp); box-shadow: 0 6px 20px rgba(0,0,0,.35); }
+  .unit { position: absolute; left: 90px; top: 210px; width: 380px; padding: 26px; text-align: center; }
+  .unit img { width: 240px; height: 300px; display: block; margin: 0 auto; filter: drop-shadow(0 10px 18px rgba(0,0,0,.5)); }
+  .unit .n { font: 900 64px Inter, sans-serif; color: #ffd24d; margin-top: 8px; }
+  .unit .l { font: 700 32px var(--sans-jp); }
+  .unit .s { font: 500 22px var(--sans-jp); color: rgba(255,250,240,.7); margin-top: 8px; }
+  .tchip { position: absolute; left: 840px; top: 48px; width: 240px; height: 96px; border-radius: 48px; display: flex; align-items: center; justify-content: center; gap: 14px; z-index: 11; }
+  .tchip .a { font: 700 28px var(--sans-jp); color: rgba(255,250,240,.75); }
+  .tchip .b { font: 800 52px Inter, sans-serif; font-variant-numeric: tabular-nums; }
+  .ff { position: absolute; left: 260px; top: 300px; width: 1400px; padding: 50px 70px; text-align: center; }
+  .ff .t { font: 900 76px/1.3 var(--serif-jp); }
+  .ff .s { font: 500 34px/1.6 var(--sans-jp); color: rgba(255,250,240,.82); margin-top: 22px; }
+  .lbl { position: absolute; padding: 8px 18px; border-radius: 10px; background: rgba(8,18,14,.88); border: 1.5px solid rgba(240,212,138,.6); font: 700 28px var(--sans-jp); white-space: nowrap; display: flex; align-items: center; gap: 10px; }
+  .stand { position: absolute; left: 460px; top: 330px; width: 1000px; padding: 40px 54px; }
+  .stand h4 { font: 700 30px var(--sans-jp); color: #f0d48a; margin-bottom: 24px; }
+  .bar { display: flex; align-items: center; gap: 18px; height: 90px; }
+  .bar .nm { width: 310px; white-space: nowrap; font: 700 38px var(--sans-jp); display: flex; align-items: center; gap: 12px; }
+  .bar .tr { flex: 1; height: 34px; border-radius: 17px; background: rgba(255,255,255,.08); overflow: hidden; }
+  .bar .fill { height: 100%; border-radius: 17px; }
+  .bar .v { width: 150px; text-align: right; font: 800 52px Inter, sans-serif; }
+  .bar .v small { font: 600 26px var(--sans-jp); color: rgba(255,250,240,.7); margin-left: 6px; }
+  .stand .s { font: 500 30px/1.5 var(--sans-jp); color: rgba(255,250,240,.82); margin-top: 22px; }
+  .tag { position: absolute; font: 600 20px var(--sans-jp); color: rgba(255,250,240,.78); background: rgba(8,18,14,.85); padding: 6px 14px; border-radius: 8px; }
+</style>
+</head><body><script>
+const W = 1920, H = 1080;
+const S_B = 6, T_DEP = 8.6, S_D = 19, T_CLASH = 19.6, S_E = 24.2, S_F = 31, T_CAP = 31.8, S_G = 38.5, S_H = 45.5, S_END = 50.5;
+let mapCv, mctx, fx, g, world, mcB, mcA, shade, overlay, dust, badge, badgeCode, end, flash, capIm, walk, vic, stA, stF, card, cardCv, cctx;
+let src, keep, T = {}, unit, tchip, ff, lblS, lblK, stand, disc, tagCard;
+
+WY.scene({
+  width: W, height: H, duration: 55, fps: 30,
+  async setup(stage) {
+    mapCv = WY.canvas(stage, W, H); mctx = mapCv.getContext('2d');
+    world = WYMap.build({ rings: 8, seed: 11 });
+    keep = world.keeps.find(k => k.owner === 5);
+    src = world.tiles.filter(t => t.owner === 0 && t.village && !t.keep).sort((a, b) => Math.hypot(a.x - keep.x, a.y - keep.y) - Math.hypot(b.x - keep.x, b.y - keep.y)).find(t => Math.hypot(t.x - keep.x, t.y - keep.y) > 380) || world.keeps[0];
+    const opts = { wash: () => 0.24, fog: tl => (tl.ring >= 8 ? 0.85 : 0) };
+    mcB = await FX.mapCache(world, { zoom: 1.1, opts });
+    mcA = { draw: mcB.draw, cv: mcB.make({ owner: tl => (tl === keep ? 0 : tl.owner) }) };
+    capIm = WY.img(WY.ART + 'vfx/first-v1/capture/aster/atlas-256.webp');
+    walk = WY.leader('aster', 'walk'); vic = WY.leader('aster', 'victory');
+    stA = WY.img(WY.ART + 'leaders3d/stage-v1/aster_idle.webp'); stF = WY.img(WY.ART + 'leaders3d/stage-v1/fjordal_idle.webp');
+    card = WY.img('../../assets/ui/panel-keep-ja-1920x1080.png');
+    shade = WY.el('div', { class: 'wy-fill' }, stage); shade.style.zIndex = 2; shade.style.background = 'rgba(5,11,9,.8)';
+    dust = WYKit.dust(stage, { count: 60, z: 3, seed: 13, color: '255,220,180' });
+    fx = WY.canvas(stage, W, H); fx.style.zIndex = 6; g = fx.getContext('2d');
+    const bot = WY.el('div', { class: 'wy-fill' }, stage); bot.style.zIndex = 5; bot.style.background = 'linear-gradient(180deg, rgba(6,13,10,.6) 0%, rgba(6,13,10,0) 20%, rgba(6,13,10,0) 66%, rgba(6,13,10,.85) 100%)';
+    const tx = (lines, o) => FX.text(stage, lines, o);
+    T.kick = tx(['TAKING  A  KEEP'], { y: 300, size: 32, weight: 700, font: 'Cinzel, serif', ls: '.4em', color: '#f0d48a' });
+    T.title = tx(['砦を奪う'], { y: 360, size: 150, weight: 900, stagger: 0.08 });
+    T.sub = tx(['own1 の記録'], { y: 580, size: 54, weight: 700, font: 'var(--sans-jp)', color: 'rgba(255,250,240,.88)' });
+    T.b = tx(['アステルが、フィヨルダルの砦へ', '[[槍兵500]]の封印進軍を送る。'], { y: 850, size: 64, weight: 800 });
+    T.d = tx(['ターン43、砦で衝突。'], { y: 880, size: 76, weight: 900 });
+    T.f = tx(['ターン110、砦は[[アステル]]のものに。'], { y: 880, size: 76, weight: 900 });
+    T.g = tx(['敵の軍勢が砦のマスを', '[[72ターン(12時間)]]', '保ちつづけると、奪える。'], { x: 90, y: 280, w: 900, align: 'left', size: 60, weight: 800, lh: 1.4 });
+    T.g2 = tx(['包囲できるのは、環4の自由都市と前哨だけ。'], { x: 90, y: 560, w: 900, align: 'left', size: 34, weight: 600, font: 'var(--sans-jp)', color: 'rgba(255,250,240,.85)' });
+    unit = WY.el('div', { class: 'unit wy-panel' }, stage); unit.style.zIndex = 10;
+    unit.innerHTML = `<img src="${WY.ART}units/mobs-v1/cards/0_spearman.webp"><div class="n">500</div><div class="l">槍兵 · 封印進軍</div><div class="s">行き先は到着まで封印</div>`;
+    WY.img(WY.ART + 'units/mobs-v1/cards/0_spearman.webp');
+    tchip = WY.el('div', { class: 'tchip wy-panel' }, stage);
+    tchip.innerHTML = '<span class="a">ターン</span><span class="b" id="tn">40</span>';
+    lblS = WY.el('div', { class: 'lbl', html: `${WY.crest(0, 34)}アステル` }, stage); lblS.style.zIndex = 9;
+    lblK = WY.el('div', { class: 'lbl', html: `${WY.crest(5, 34)}<span id="kl">フィヨルダルの砦</span>` }, stage); lblK.style.zIndex = 9;
+    ff = WY.el('div', { class: 'ff wy-panel' }, stage); ff.style.zIndex = 12;
+    ff.innerHTML = `<div style="font:900 64px Inter;color:#ffd24d;letter-spacing:.05em">▶▶ +72</div><div class="t">ここで時計を<span style="color:#ffd24d">72ターン</span>進めました。</div><div class="s">ローカルの試験用チェーンで時刻を早送りしています。<br>この先は実時間の出来事ではありません。</div>`;
+    cardCv = WY.canvas(stage, 760, 500); WY.css(cardCv, { left: '1040px', top: '260px', zIndex: 10, borderRadius: '14px', boxShadow: '0 30px 80px rgba(0,0,0,.6)' }); cctx = cardCv.getContext('2d');
+    tagCard = WY.el('div', { class: 'tag', text: '実際のWebクライアントの砦カード(テスト用の表示データ)' }, stage); WY.css(tagCard, { left: '1040px', top: '780px', zIndex: 11 });
+    stand = WY.el('div', { class: 'stand wy-panel' }, stage); stand.style.zIndex = 12;
+    stand.innerHTML = `<h4>録画の終わりの州の数(own1)</h4>
+      <div class="bar"><div class="nm">${WY.crest(0, 44)}アステル</div><div class="tr"><div class="fill" style="background:${WY.NATIONS[0].fill}"></div></div><div class="v">10<small>州</small></div></div>
+      <div class="bar"><div class="nm">${WY.crest(5, 44)}フィヨルダル</div><div class="tr"><div class="fill" style="background:${WY.NATIONS[5].fill}"></div></div><div class="v">8<small>州</small></div></div>
+      <div class="s">シーズンは進行中。勝者も支払いもまだありません。<br><span style="font-size:24px;color:rgba(255,250,240,.6)">賞金パネルはテスト用USDC(価値なし)で動いていました。</span></div>`;
+    disc = WY.el('div', { class: 'disc', html: '<span>人間が操作したローカルデモ</span><span>AI・ボットなし</span><span>72ターンの時計送りあり</span>' }, stage);
+    badge = WYKit.status(stage, 'local', 'ja', { x: 80, y: 60, size: 22 }); badge.node.style.zIndex = 30;
+    badgeCode = WYKit.status(stage, 'code', 'ja', { x: 80, y: 60, size: 22, text: 'コード上のルール(現在のプリセット)' }); badgeCode.node.style.zIndex = 30;
+    flash = WYKit.flash(stage, { color: '#fff1d6' });
+    overlay = FX.overlay(stage, { grain: false });
+    end = WYKit.endCard(stage, { lang: 'ja', line: '砦を、奪え。' });
+  },
+
+  render(t) {
+    const E = WY.ease;
+    // ---------------- camera
+    const mid = { x: (src.x + keep.x) / 2, y: (src.y + keep.y) / 2 };
+    let cam;
+    if (t < S_B) cam = { x: WY.drift(t, 1, 40, 0.1), y: 40 + WY.drift(t, 2, 30, 0.1), zoom: 0.5 + t * 0.006 };
+    else if (t < S_D - 0.6) { const k = WY.seg(t, S_B - 0.4, S_B + 1.6, E.inOutCubic); cam = { x: WY.lerp(0, mid.x + 140, k), y: WY.lerp(40, mid.y + 30, k), zoom: WY.lerp(0.53, 0.95, k) + (t - S_B) * 0.006 }; }
+    else { const k = WY.seg(t, S_D - 0.6, S_D + 0.8, E.inOutCubic); cam = { x: WY.lerp(mid.x + 140, keep.x, k), y: WY.lerp(mid.y + 30, keep.y + 20, k), zoom: WY.lerp(0.95 + (S_D - 0.6 - S_B) * 0.006, 1.45, k) + Math.max(0, t - S_D) * 0.006 }; }
+    if (t > S_G - 0.6) { const k = WY.seg(t, S_G - 0.6, S_G + 0.6, E.inOutCubic); cam.x += k * 0; cam.zoom = WY.lerp(cam.zoom, 0.7, k); }
+    const shk = (T0, a) => (t > T0 && t < T0 + 0.5 ? (1 - (t - T0) / 0.5) * a * Math.sin(t * 90) : 0);
+    cam.x += shk(T_CLASH, 12) + shk(T_CAP, 6); cam.W = W; cam.H = H;
+    mctx.clearRect(0, 0, W, H); FX.table(mctx, W, H);
+    const ck = WY.seg(t, T_CAP + 0.5, T_CAP + 1.6);
+    mcB.draw(mctx, cam); if (ck > 0) mcB.draw(mctx, cam, mcA.cv, ck);
+    // E: the clock advance desaturates the map
+    const ffk = WY.env(t, S_E, S_F - 0.2, 0.4, 0.5);
+    mapCv.style.filter = ffk > 0.01 ? `grayscale(${ffk}) blur(${ffk * 3}px)` : 'none';
+    shade.style.opacity = Math.max(WY.env(t, -1, S_B + 0.6, 0.1, 1.0) * 0.85, ffk * 0.55, WY.env(t, S_G, 99, 0.5, 0.5) * 0.85);
+    dust.render(t, 0.8);
+
+    // ---------------- fx
+    g.clearRect(0, 0, W, H); g.fillStyle = 'rgba(0,0,0,0.01)'; g.fillRect(0, 0, 2, 2);
+    // title characters (stage strips, 4 idle frames)
+    const ca = WY.env(t, 0.3, S_B - 0.3, 0.8, 0.5);
+    if (ca > 0) {
+      const f = Math.floor(t * 6) % 4;
+      g.globalAlpha = ca;
+      const sc = 1.75, wdt = 288 * sc, hgt = 360 * sc;
+      g.save(); g.shadowColor = 'rgba(0,0,0,.6)'; g.shadowBlur = 30;
+      WY.drawFrame(g, stA, f, 288, 360, 150 - (1 - ca) * 80, H - hgt + 30, wdt, hgt, 4);
+      g.translate(W, 0); g.scale(-1, 1); WY.drawFrame(g, stF, (f + 2) % 4, 288, 360, 150 - (1 - ca) * 80, H - hgt + 30, wdt, hgt, 4);
+      g.restore(); g.globalAlpha = 1;
+    }
+    // march
+    const prog = WY.seg(t, T_DEP, T_CLASH - 0.1, E.inOutSine);
+    if (t > T_DEP - 0.1 && t < S_E + 0.5) {
+      const fa = 1 - WY.seg(t, S_E - 0.4, S_E + 0.4);
+      g.globalAlpha = fa;
+      const pt = WYMap.drawMarch(g, cam, src, keep, Math.max(0.001, prog), { color: WY.NATIONS[0].fill, width: 9, lift: 0.2 });
+      const [hx, hy] = pt(Math.max(0.001, prog));
+      if (t < T_CLASH) {
+        walk.draw(g, walk.frameAt(t, 12), hx, hy + 30 * cam.zoom, 420 * cam.zoom);
+        WYMap.drawSeal(g, hx + 46 * cam.zoom, hy - 70 * cam.zoom, 30 * Math.max(0.9, cam.zoom) * E.outBack(WY.seg(t, T_DEP, T_DEP + 0.4)));
+      }
+      g.globalAlpha = 1;
+    }
+    const [kx, ky] = WYMap.toScreen(cam, keep.x, keep.y - WYMap.LIFT);
+    if (t > T_CLASH && t < S_E) {
+      const k = WY.seg(t, T_CLASH, T_CLASH + 1.8);
+      WYMap.drawClash(g, cam, keep, k, '#ffd24d');
+      const gr = g.createRadialGradient(kx, ky, 0, kx, ky, 300 * cam.zoom); gr.addColorStop(0, `rgba(255,240,200,${0.9 * (1 - k)})`); gr.addColorStop(1, 'rgba(255,170,60,0)');
+      g.fillStyle = gr; g.beginPath(); g.arc(kx, ky, 300 * cam.zoom, 0, Math.PI * 2); g.fill();
+    }
+    // capture: the game's capture VFX in Aster red, then the victory clip on the keep
+    if (t > T_CAP - 0.1 && t < S_G) {
+      const rad = 88 * cam.zoom;
+      g.save(); g.globalAlpha = 0.5 * WY.env(t, T_CAP, S_G - 0.4, 0.3, 0.6); g.fillStyle = WY.NATIONS[0].fill; FX.hex(g, kx, ky, rad * 0.98, WYMap.FLAT); g.fill(); g.restore();
+      for (let j = 0; j < 3; j++) FX.capture(g, capIm, t - T_CAP - j * 0.35, kx, ky, rad * (1 + j * 0.28), { alpha: 1 - j * 0.25 });
+      const rk = WY.seg(t, T_CAP + 0.4, T_CAP + 2.4, E.outCubic);
+      if (rk > 0 && rk < 1) { g.strokeStyle = `rgba(255,120,120,${1 - rk})`; g.lineWidth = 6; FX.hex(g, kx, ky, rad * (1 + rk * 2.5), WYMap.FLAT); g.stroke(); }
+      const va = WY.env(t, T_CAP + 0.8, S_G - 0.3, 0.4, 0.4);
+      if (va > 0) { g.globalAlpha = va; vic.draw(g, vic.frameAt(t - T_CAP - 0.8, 7, false), kx + 190 * cam.zoom, ky + 110 * cam.zoom, 480 * cam.zoom); g.globalAlpha = 1; }
+    }
+    flash.render(t, t > T_CAP ? T_CAP + 0.3 : T_CLASH, 0.5, 0.55);
+
+    // ---------------- labels following the map
+    const [sx, sy] = WYMap.toScreen(cam, src.x, src.y - WYMap.LIFT);
+    WY.css(lblS, { left: sx - 90 + 'px', top: sy + 50 * cam.zoom + 'px' });
+    WY.css(lblK, { left: kx - 150 + 'px', top: ky - 150 * cam.zoom - 40 + 'px' });
+    FX.show(lblS, t, S_B + 1.4, S_D - 0.6, { dy: 10 });
+    FX.show(lblK, t, S_B + 1.8, S_E - 0.3, { dy: 10 });
+    if (t > T_CAP) { WY.css(lblK, { left: kx - 260 * cam.zoom - 120 + 'px', top: ky + 70 * cam.zoom + 'px' }); lblK.innerHTML = `${WY.crest(0, 34)}<span>アステルの砦</span>`; FX.show(lblK, t, T_CAP + 1.4, S_G - 0.4, { dy: 10 }); }
+    else lblK.innerHTML = `${WY.crest(5, 34)}<span>フィヨルダルの砦</span>`;
+
+    // ---------------- texts, panels
+    T.kick.render(t, 0.6, S_B - 0.4);
+    T.title.render(t, 0.8, S_B - 0.35);
+    T.sub.render(t, 1.6, S_B - 0.35);
+    T.b.render(t, S_B + 1.2, S_D - 0.8);
+    FX.show(unit, t, S_B + 0.8, S_D - 0.8, { dx: -50, dy: 0 });
+    T.d.render(t, T_CLASH + 0.4, S_E - 0.3);
+    // turn chip
+    let turn = 40 + Math.min(3, Math.floor(WY.seg(t, T_DEP, T_CLASH) * 3.999));
+    if (t >= T_CLASH) turn = 43;
+    if (t > S_E + 1.2) turn = t < S_F - 0.6 ? 43 + Math.floor(((t - S_E - 1.2) * 23) % 67) : 110;
+    WY.$('#tn').textContent = turn;
+    const tck = FX.show(tchip, t, T_DEP - 0.8, S_G - 0.4, { dy: -20 });
+    const spin = t > S_E + 1.2 && t < S_F - 0.6;
+    WY.$('#tn').style.filter = spin ? 'blur(2.5px)' : 'none';
+    WY.$('#tn').style.color = t >= S_F - 0.6 ? '#ffd24d' : '#fffaf0';
+    FX.show(ff, t, S_E + 0.5, S_F - 0.5, { dy: 30, s0: 0.96 });
+    T.f.render(t, T_CAP + 1.2, S_G - 0.4);
+    // G: the real keep card
+    T.g.render(t, S_G + 0.4, S_H - 0.35);
+    T.g2.render(t, S_G + 2.6, S_H - 0.35);
+    const ckk = FX.show(cardCv, t, S_G + 0.6, S_H - 0.4, { dx: 60, dy: 0, s0: 0.96 });
+    if (ckk > 0 && card.complete && card.naturalWidth) {
+      const z = 1 + 0.05 * WY.seg(t, S_G, S_H), sw = 680 / z, sh = 447 / z, sx0 = 3095 + (680 - sw) * 0.5, sy0 = 1632 + (447 - sh) * 0.7;
+      cctx.drawImage(card, sx0, sy0, sw, sh, 0, 0, 760, 500);
+      const hk = WY.env(t, S_G + 1.4, S_H - 0.4, 0.4, 0.3);
+      if (hk > 0) { // highlight the 72-turn sentence (source rows y ≈ 1905–2010)
+        const y0 = (1905 - sy0) * (500 / sh), y1 = (2010 - sy0) * (500 / sh);
+        cctx.save(); cctx.globalAlpha = hk; cctx.strokeStyle = '#ffd24d'; cctx.lineWidth = 5; cctx.shadowColor = '#ffd24d'; cctx.shadowBlur = 16; FX.rr(cctx, 14, y0 - 8, 732, y1 - y0 + 16, 10); cctx.stroke(); cctx.restore();
+      }
+    }
+    FX.show(tagCard, t, S_G + 1.0, S_H - 0.4, { dy: 8 });
+    // H: standings
+    FX.show(stand, t, S_H + 0.2, S_END - 0.3, { dy: 30, s0: 0.97 });
+    const bk = WY.seg(t, S_H + 0.6, S_H + 1.8, E.outCubic);
+    const fills = stand.querySelectorAll('.fill'); fills[0].style.width = 100 * bk + '%'; fills[1].style.width = 80 * bk + '%';
+    // disclosure + badges
+    FX.show(disc, t, S_B + 0.3, S_G - 0.3, { dy: -10, blur: 0 });
+    if (t > S_H) FX.show(disc, t, S_H + 0.2, S_END - 0.3, { dy: -10, blur: 0 });
+    badge.render(t, S_B + 0.3, S_G - 0.3);
+    if (t > S_H) badge.render(t, S_H + 0.2, S_END - 0.3);
+    badgeCode.render(t, S_G + 0.2, S_H - 0.2);
+    overlay.render(t);
+    end.render(t - S_END);
+  },
+
+  audio(A) {
+    A.music({ style: 'epic', bpm: 88, key: 'D', minor: true, sections: [[0, 0.35], [S_B, 0.55], [S_D - 1, 0.8], [T_CLASH, 1], [S_E, 0.35], [S_F, 0.9], [S_G, 0.5], [S_H, 0.45]], end: S_END, outro: 'hit' });
+    A.drum(0.8, { gain: 0.9 }); A.hit(0.8, { gain: 0.8 }); A.whoosh(0.4);
+    A.whoosh(S_B - 0.4); A.pop(S_B + 0.8);
+    A.seal(T_DEP); A.march(T_DEP, T_CLASH - 0.3, { gain: 0.45, bpm: 112 });
+    A.riser(T_CLASH - 2, T_CLASH); A.clash(T_CLASH, { gain: 1.1 }); A.hit(T_CLASH, { gain: 1 }); A.boom(T_CLASH + 0.05);
+    A.glitch(S_E + 0.4, { dur: 0.3 }); A.ticks(S_E + 1.2, S_F - 0.6, 0.08, { gain: 0.25, pitch: 1.3 }); A.whoosh(S_F - 0.8, { dur: 0.6 });
+    A.riser(T_CAP - 1.4, T_CAP); A.hit(T_CAP + 0.3, { gain: 1 }); A.sparkle(T_CAP + 0.5); A.chime(T_CAP + 0.8, { note: 'D5', gain: 0.8 });
+    A.whoosh(S_G - 0.4, { dir: 'down' }); A.pop(S_G + 0.6);
+    A.whoosh(S_H - 0.3); A.coin(S_H + 0.8, { gain: 0.5 });
+    A.whoosh(S_END - 0.45);
+  },
+});
+</script></body></html>

@@ -1,0 +1,298 @@
+<!doctype html><html><head><meta charset="utf-8"><title>23 The replay verifier</title>
+<link rel="stylesheet" href="../../lib/wy.css">
+<script src="../../lib/wy.js"></script><script src="../../lib/wy-audio.js"></script><script src="../../lib/wy-kit.js"></script>
+<script src="wyx.js"></script>
+<style>
+  .hd { font: 700 70px/1.1 'Cormorant Garamond', serif; color: #fffaf0; letter-spacing: .01em; text-shadow: 0 4px 30px rgba(0,0,0,.6); }
+  .sb { font: 500 34px/1.35 Inter, sans-serif; color: rgba(255,250,240,.78); }
+  .mono { font-family: 'JetBrains Mono', monospace; }
+  .tab { font-variant-numeric: tabular-nums; }
+  .panel { position: absolute; }
+  .chip { display: inline-flex; align-items: center; justify-content: center; height: 40px; min-width: 64px; padding: 0 12px; border-radius: 8px; font: 700 20px Inter; letter-spacing: .04em; border: 1.5px solid rgba(240,212,138,.35); color: rgba(255,250,240,.45); background: rgba(0,0,0,.25); }
+  .cell { position: absolute; width: 270px; height: 124px; border-radius: 12px; padding: 12px 16px; background: rgba(16,36,29,.92); border: 1.5px solid rgba(201,162,74,.45); box-shadow: 0 10px 30px rgba(0,0,0,.35); overflow: hidden; }
+  .cell .id { font: 800 26px Inter; color: #fffaf0; }
+  .cell .ex { font: 600 13px Inter; letter-spacing: .08em; color: #f0d48a; opacity: .8; margin-left: 8px; vertical-align: 4px; }
+  .cell .va { font: 500 18px/1.25 Inter; color: rgba(255,250,240,.82); margin-top: 6px; height: 46px; }
+  .cell .co { font: 600 15px 'JetBrains Mono'; color: #ff8a8f; margin-top: 4px; white-space: nowrap; }
+  .cell .st { position: absolute; right: 12px; top: 12px; font: 800 13px Inter; letter-spacing: .1em; padding: 5px 8px; border-radius: 6px; background: #b8323c; color: #fff; }
+  .bar-row { position: absolute; left: 115px; width: 1690px; height: 130px; }
+  .bar-lab { position: absolute; left: 0; top: 18px; width: 470px; }
+  .bar-lab b { display: block; font: 700 34px 'JetBrains Mono'; color: #fffaf0; }
+  .bar-lab span { font: 500 22px Inter; color: rgba(255,250,240,.66); }
+  .bar-track { position: absolute; left: 500px; top: 36px; width: 1000px; height: 56px; border-radius: 10px; background: rgba(255,255,255,.05); border: 1px solid rgba(240,212,138,.18); overflow: hidden; }
+  .bar-fill { position: absolute; left: 0; top: 0; bottom: 0; background: linear-gradient(90deg, #1f6b4f, #3fbf87); box-shadow: inset 0 1px 0 rgba(255,255,255,.25); }
+  .bar-num { position: absolute; top: 40px; font: 800 44px Inter; color: #fffaf0; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .pass { display: inline-block; font: 800 20px Inter; letter-spacing: .12em; padding: 6px 12px; border-radius: 7px; background: #2f8a5e; color: #eafff2; margin-left: 18px; vertical-align: 8px; }
+</style>
+</head><body><script>
+const N = WY.NATIONS;
+const TAMPERS = [
+  ['T1', 'drop the last Depart', 'ChainGap +7'], ['T2', 'flip a Reveal plaintext byte', 'RevealCommitMismatch'], ['T3', "shift an unused anchor's A", 'SeedRoundRule'],
+  ['T4', 'inject a second anchor', 'DuplicateAnchor'], ['T5', 'swap a cache signature', 'BeaconSigInvalid'], ['T6', 'set_account on a Province', 'HeadMismatch'],
+  ['T7', 'valid seal settled as bad', 'VerdictDisagreesWithTlock'], ['T8', 'fill slot (no displacement)', 'QuotaSetMismatch'], ['T9', 'departure mass', 'TransitMassMismatch'],
+  ['T10', 'wrong drand key', 'BeaconSigInvalid'], ['T11', 'wrong ruleset hash', 'RulesetMismatch'], ['T12', 'truncate the last game day', 'ChainGap, HeadMismatch'],
+  ['T13', 'Reveal Clock past A + W', 'RevealAfterClose'], ['T14', 'duplicate a FOLD', 'DuplicateEvent'], ['T15', 'origin values', 'OriginValueMismatch'],
+  ['T16', 'wrong genesis round', 'GenesisSeedRule +1'], ['T17', 'skip over an arrival', 'SkipOverArrival +1'], ['T18', 'SETTLE score', 'TicketScoreMismatch'],
+  ['T19', 'terrain digest', 'TerrainMismatch'], ['T20', 'claim injected', 'DefenceRefundMismatch'], ['T21', 'explore find', 'ExploreRollMismatch'],
+  ['T22', 'bad seal logged as surviving', 'BadSealSurvived +1'], ['T24', 'DEPART arriving at end_bell', 'ArrivalAfterEnd'], ['T1b', 'drop an unchained transaction', 'ChainGap', 1],
+  ['T6b', 'rogue write between resolves', 'ClashReplayMismatch', 1], ['T23', 'forged clash write-back', 'ClashReplayMismatch', 1], ['T23b', 'forged skip write-back', 'ClashReplayMismatch', 1],
+  ['H1', 'forged Harvest', 'HoldingReplayMismatch', 1], ['H1b', 'Holding forged at a non-owner write', 'HoldingReplayMismatch', 1], ['V9a', 'non-canonical address', 'NonCanonicalAddress', 1],
+];
+const KINDS = [['Reveal', 10], ['Depart', 10], ['ResolveFromInputs', 9], ['SkipQuiet', 7], ['GatherClash', 7], ['PostAnchor', 5], ['Harvest', 6], ['Muster', 5], ['Train', 5], ['Build', 4], ['Explore', 4], ['SettleTransit', 6], ['FileTicket', 3], ['SettleTicket', 3], ['FoldOccupancy', 3], ['PostBeacon', 3]];
+const KW = KINDS.reduce((s, k) => s + k[1], 0);
+function rowData(i) {
+  const r = WY.rng(i * 7919 + 13); let x = r() * KW, kind = KINDS[0][0];
+  for (const [k, w] of KINDS) { if (x < w) { kind = k; break; } x -= w; }
+  const hex = () => Math.floor(r() * 0xffffffff).toString(16).padStart(8, '0');
+  const n = 3000 + i * 3; // index in the season
+  return { n, slot: 7 + Math.floor(n * 0.5388), bell: Math.floor(n / 139.6), kind, sig: hex() + '…' + hex().slice(0, 4) };
+}
+
+let bg, ov, lg, lgc, hd = {}, badge, badge2, flash, end;
+let cmd, cmdSpans, checks = [], cnt, cntLab, passStamp, vt, vpanel, tpanel, tTitle, tCode, tStamp, grid, cells = [], gCount, gNote, bars = [], hon, honL;
+const LG = { W: 900, H: 700, row: 36 };
+// stream position (rows) as a pure function of t
+function pos(t) {
+  if (t < 13) return 14 * t;
+  const u = Math.min(t - 13, 1.5);
+  return 14 * 13 + 14 * (u - (u * u) / 3);
+}
+const FORGED = Math.floor(pos(20)) + 9; // the row that sits at the scan line once the stream stops
+
+WY.scene({
+  width: 1920, height: 1080, duration: 45, fps: 30,
+  setup(stage) {
+    bg = X.bg(stage, { tint: '#13281f', hex: 0.05, hexSize: 70 });
+    // ledger canvas (drawn in a rect that moves between sections)
+    lgc = WY.canvas(stage, 1920, 1080); lg = lgc.getContext('2d', { willReadFrequently: true }); lgc.style.zIndex = 2;
+
+    // ---- S1 title
+    hd.k1 = X.lines(stage, [{ t: 'WYLLS · M1 EXIT SEASON', css: { font: '600 26px Inter', letterSpacing: '.32em', color: '#f0d48a' } }], { x: 1000, y: 330, w: 840, align: 'left' });
+    hd.t1 = X.lines(stage, [{ t: 'The replay', css: { font: '700 124px/1.0 Cinzel', color: '#fffaf0' } }, { t: 'verifier', css: { font: '700 124px/1.05 Cinzel', color: '#fffaf0' } }], { x: 1000, y: 390, w: 900, align: 'left', lineDelay: 0.12 });
+    hd.s1 = X.lines(stage, [{ t: 'Replay every transaction.', css: { font: '500 40px/1.45 Inter', color: 'rgba(255,250,240,.85)' } }, { t: 'Re-judge every rule.', css: { font: '500 40px/1.45 Inter', color: '#ffd24d' } }], { x: 1000, y: 680, w: 840, align: 'left', lineDelay: 0.5 });
+    [hd.k1, hd.t1, hd.s1].forEach(h => (h.node.style.zIndex = 5));
+
+    // ---- S2 headline + verify panel
+    hd.h2 = X.lines(stage, [{ t: 'Re-run the whole season log.', css: { font: "700 66px 'Cormorant Garamond'", color: '#fffaf0' } }], { x: 80, y: 70, w: 1760, align: 'left' });
+    vpanel = X.box(stage, { left: '1040px', top: '230px', width: '800px', height: '700px', zIndex: 4 }); vpanel.className += ' wy-panel';
+    vpanel.innerHTML = `<div style="padding:30px 36px">
+      <div class="mono" style="font:600 22px 'JetBrains Mono';color:#a9b8ad">$ <span id="cmd" style="color:#f0d48a">frontier-stack verify --run-id m1-exit</span></div>
+      <div style="font:600 18px Inter;letter-spacing:.2em;color:rgba(255,250,240,.5);margin-top:34px">RULE CHECKS</div>
+      <div id="checks" style="display:grid;grid-template-columns:repeat(7,1fr);gap:10px;margin-top:14px"></div>
+      <div style="font:600 18px Inter;letter-spacing:.2em;color:rgba(255,250,240,.5);margin-top:40px">TRANSACTIONS REPLAYED</div>
+      <div id="cnt" class="tab" style="font:800 128px/1.05 Inter;color:#fffaf0;margin-top:6px">0</div>
+      <div id="cntlab" style="font:500 24px Inter;color:rgba(255,250,240,.66);margin-top:6px">M1 exit season · verify took 11 s</div>
+    </div>
+    <div id="pass" style="position:absolute;right:40px;bottom:46px;font:900 64px Cinzel;color:#3fdc93;border:5px solid #3fdc93;border-radius:14px;padding:6px 26px;transform:rotate(-6deg);letter-spacing:.08em;text-shadow:0 0 30px rgba(63,220,147,.5)">PASS</div>`;
+    cmd = WY.$('#cmd', vpanel); cmdSpans = WY.split(cmd);
+    const chk = WY.$('#checks', vpanel);
+    for (let i = 1; i <= 13; i++) checks.push(WY.el('div', { class: 'chip', text: 'V' + i }, chk));
+    cnt = WY.$('#cnt', vpanel); passStamp = WY.$('#pass', vpanel);
+
+    // ---- S3 tamper panel (same place)
+    hd.h3 = X.lines(stage, [{ t: 'Then forge one entry, on purpose.', css: { font: "700 66px 'Cormorant Garamond'", color: '#fffaf0' } }], { x: 80, y: 70, w: 1760, align: 'left' });
+    tpanel = X.box(stage, { left: '1040px', top: '230px', width: '800px', height: '700px', zIndex: 4 }); tpanel.className += ' wy-panel';
+    tpanel.innerHTML = `<div style="padding:30px 36px">
+      <div style="font:600 18px Inter;letter-spacing:.2em;color:rgba(255,250,240,.5)">TAMPER CLASS</div>
+      <div style="font:800 64px Inter;color:#fffaf0;margin-top:8px">T2</div>
+      <div style="font:500 38px/1.3 Inter;color:rgba(255,250,240,.9);margin-top:4px">Flip one byte of a Reveal's plaintext</div>
+      <div id="tscan" style="margin-top:40px;font:600 24px 'JetBrains Mono';color:#a9b8ad">replaying…</div>
+      <div id="tcode" style="margin-top:18px;font:700 34px 'JetBrains Mono';color:#ff6b73">FAIL&nbsp;&nbsp;RevealCommitMismatch</div>
+      <div style="margin-top:22px;font:500 24px/1.4 Inter;color:rgba(255,250,240,.66)">The replayed rules disagree with the log,<br>so the forged season does not pass.</div>
+    </div>
+    <div id="tstamp" style="position:absolute;right:40px;bottom:46px;font:900 58px Cinzel;color:#ff5a64;border:5px solid #ff5a64;border-radius:14px;padding:6px 22px;transform:rotate(-6deg);letter-spacing:.06em;text-shadow:0 0 30px rgba(255,90,100,.5)">DETECTED</div>`;
+    tTitle = WY.$('#tscan', tpanel); tCode = WY.$('#tcode', tpanel); tStamp = WY.$('#tstamp', tpanel);
+
+    // ---- S4 grid
+    hd.h4 = X.lines(stage, [{ t: '30 deliberate tamper classes.', css: { font: "700 66px 'Cormorant Garamond'", color: '#fffaf0' } }], { x: 115, y: 66, w: 1300, align: 'left' });
+    gNote = X.lines(stage, [{ t: 'Each one must make the verifier FAIL. Each one did.', css: { font: '500 30px Inter', color: 'rgba(255,250,240,.75)' } }], { x: 115, y: 158, w: 1300, align: 'left' });
+    gCount = X.box(stage, { left: '1380px', top: '58px', width: '425px', textAlign: 'right', zIndex: 6 }, `<div class="tab" style="font:800 112px/1 Inter;color:#fffaf0"><span id="gc">0</span><span style="color:rgba(255,250,240,.4)">/30</span></div><div style="font:700 22px Inter;letter-spacing:.2em;color:#ff8a8f;margin-top:6px">CAUGHT</div>`);
+    grid = X.box(stage, { left: '0px', top: '0px', width: '1920px', height: '1080px', zIndex: 5 });
+    TAMPERS.forEach(([id, va, co, extra], i) => {
+      const c = WY.el('div', { class: 'cell' }, grid);
+      const col = i % 6, row = Math.floor(i / 6);
+      c.style.left = 115 + col * 284 + 'px'; c.style.top = 236 + row * 136 + 'px';
+      c.innerHTML = `<div class="id">${id}${extra ? '<span class="ex">EXTRA</span>' : ''}</div><div class="va">${va}</div><div class="co">${co}</div><div class="st">DETECTED</div>`;
+      cells.push({ c, st: c.querySelector('.st'), co: c.querySelector('.co') });
+    });
+    gNote.node.style.zIndex = 6; hd.h4.node.style.zIndex = 6;
+    hd.n4 = X.lines(stage, [{ t: '23 required classes (T1–T22, T24) + 7 extra · all built from the M1 exit run', css: { font: '500 21px Inter', color: 'rgba(255,250,240,.55)' } }], { x: 560, y: 974, w: 1245, align: 'right' });
+
+    // ---- S5 bars
+    hd.h5 = X.lines(stage, [{ t: 'Bigger seasons. Same verdict.', css: { font: "700 66px 'Cormorant Garamond'", color: '#fffaf0' } }], { x: 115, y: 70, w: 1700, align: 'left' });
+    const SEAS = [['m1-exit', 'M1 exit · 7 game days · 1,000 script bots', 144300], ['sc-cq2d', 'conquest · 48 game hours · 120 bots', 32687], ['sc-drive', 'conquest · 120 game hours · 1 scripted wallet', 82037], ['sc-14d', '14-day season · 120 rule bots', 272004]];
+    SEAS.forEach(([n, d, v], i) => {
+      const r = X.box(stage, { top: 250 + i * 160 + 'px', zIndex: 5 }); r.className += ' bar-row';
+      r.innerHTML = `<div class="bar-lab"><b>${n}</b><span>${d}</span></div><div class="bar-track"><div class="bar-fill"></div></div><div class="bar-num"><span class="v">0</span><span class="pass">PASS</span></div>`;
+      bars.push({ r, v, fill: r.querySelector('.bar-fill'), num: r.querySelector('.bar-num'), val: r.querySelector('.v'), pass: r.querySelector('.pass') });
+    });
+    hd.n5 = X.lines(stage, [{ t: 'Transactions replayed per season. Every run on a local test chain (LiteSVM).', css: { font: '500 22px Inter', color: 'rgba(255,250,240,.55)' } }], { x: 115, y: 900, w: 1690, align: 'left' });
+
+    // ---- S6 honesty
+    honL = X.lines(stage, [
+      { t: 'Our own verifier.', css: { font: '700 92px/1.15 Cinzel', color: '#fffaf0' } },
+      { t: 'Not an independent audit.', css: { font: "600 72px/1.2 'Cormorant Garamond'", color: '#ffd24d' } },
+    ], { x: 0, y: 300, w: 1920, lineDelay: 0.5 });
+    hon = X.box(stage, { left: '0px', top: '600px', width: '1920px', textAlign: 'center', zIndex: 5 }, `<div style="font:500 34px Inter;color:rgba(255,250,240,.8)">Anyone can run it on a finished season:</div><div class="mono" style="display:inline-block;margin-top:22px;font:600 32px 'JetBrains Mono';color:#f0d48a;padding:14px 28px;border:1.5px solid rgba(240,212,138,.45);border-radius:12px;background:rgba(0,0,0,.3)">$ frontier-stack verify --run-id &lt;run&gt;</div><div style="margin-top:44px;font:500 24px Inter;color:rgba(255,250,240,.55)">The rebuilt game has run only on local test chains, never on devnet or mainnet.</div>`);
+
+    badge = WYKit.status(stage, 'local', 'en', { x: 80, y: 966 }); badge.node.style.zIndex = 20;
+    flash = WYKit.flash(stage, { color: '#ff3040', z: 65 });
+    ov = X.overlay(stage);
+    end = WYKit.endCard(stage, { lang: 'en', line: 'Anyone can replay the season.' });
+  },
+
+  render(t) {
+    const E = WY.ease;
+    // background
+    bg.render(t, { gx: t < 5 ? 0.3 : 0.5, hexA: 0.05 });
+
+    // ---------------- ledger
+    lg.clearRect(0, 0, 1920, 1080);
+    // rect: S1 full-ish left; S2/S3 panel at left
+    const kIn = WY.seg(t, 4.2, 5.4, E.inOutCubic);
+    const rx = WY.lerp(60, 80, kIn), ry = WY.lerp(-40, 230, kIn), rw = WY.lerp(900, LG.W, kIn), rh = WY.lerp(1160, LG.H, kIn);
+    const lgA = WY.env(t, -0.6, 21.4, 0.9, 0.6);
+    lgc.style.display = lgA > 0 ? '' : 'none';
+    if (lgA > 0) {
+      lg.save(); lg.globalAlpha = lgA;
+      // panel frame
+      lg.fillStyle = `rgba(10,22,18,${0.55 + 0.35 * kIn})`; lg.strokeStyle = `rgba(201,162,74,${0.75 * kIn})`; lg.lineWidth = 2;
+      lg.beginPath(); lg.roundRect(rx, ry, rw, rh, 14); lg.fill(); if (kIn > 0) lg.stroke();
+      lg.save(); lg.beginPath(); lg.roundRect(rx, ry, rw, rh, 14); lg.clip();
+      const p = pos(t), top = Math.floor(p), frac = p - top;
+      const scanY = ry + rh * 0.5;
+      const rowsVis = Math.ceil(rh / LG.row) + 2;
+      lg.font = "500 20px 'JetBrains Mono'"; lg.textBaseline = 'middle';
+      // header
+      for (let j = 0; j < rowsVis; j++) {
+        const i = top + j; const y = ry + 60 + (j - frac) * LG.row;
+        if (y < ry + 40 || y > ry + rh + LG.row) continue;
+        const d = rowData(i); const above = y < scanY; const forged = i === FORGED && t > 13;
+        const fade = Math.min(1, Math.min(y - ry - 40, ry + rh - y) / 80);
+        lg.globalAlpha = lgA * Math.max(0, fade) * (above ? 0.95 : 0.5);
+        if (forged) {
+          const pulse = 0.5 + 0.5 * Math.sin(t * 8);
+          lg.globalAlpha = lgA; lg.fillStyle = `rgba(255,60,70,${0.18 + 0.12 * pulse * WY.seg(t, 15.5, 16)})`; lg.fillRect(rx + 10, y - 16, rw - 20, 32);
+          lg.strokeStyle = `rgba(255,90,100,${WY.seg(t, 14, 14.4)})`; lg.lineWidth = 2; lg.strokeRect(rx + 10, y - 16, rw - 20, 32);
+        }
+        const x0 = rx + 26;
+        lg.fillStyle = 'rgba(255,250,240,.38)'; lg.fillText('#' + String(d.n).padStart(6, '0'), x0, y);
+        lg.fillStyle = 'rgba(169,184,173,.9)'; lg.fillText('slot ' + X.num(d.slot).padStart(6, ' '), x0 + 110, y);
+        lg.fillText('bell ' + String(d.bell).padStart(4, ' '), x0 + 280, y);
+        lg.fillStyle = forged ? '#ffd0d3' : '#fffaf0'; lg.fillText(forged ? 'Reveal' : d.kind, x0 + 420, y);
+        let sig = d.sig;
+        if (forged && t > 14.2) { const f = WY.seg(t, 14.2, 14.8); sig = f < 1 ? sig.slice(0, 4) + (Math.floor(t * 30) % 2 ? '3f' : '3e') + sig.slice(6) : sig.slice(0, 4) + '3e' + sig.slice(6); }
+        lg.fillStyle = forged ? '#ff8a8f' : 'rgba(240,212,138,.75)'; lg.fillText(sig, x0 + 650, y);
+        if (above && kIn > 0.5 && !forged) { lg.fillStyle = '#3fdc93'; lg.fillText('✓', rx + rw - 36, y); }
+        if (forged && t > 15.6) { lg.fillStyle = '#ff5a64'; lg.font = "700 20px 'JetBrains Mono'"; lg.fillText('✕', rx + rw - 36, y); lg.font = "500 20px 'JetBrains Mono'"; }
+      }
+      // column header strip
+      lg.globalAlpha = lgA * kIn; lg.fillStyle = 'rgba(16,36,29,.98)'; lg.fillRect(rx, ry, rw, 42);
+      lg.fillStyle = 'rgba(240,212,138,.8)'; lg.font = "600 16px Inter"; [['TX', 0], ['SLOT', 110], ['BELL', 280], ['INSTRUCTION', 420], ['SIGNATURE', 650]].forEach(([h, dx]) => lg.fillText(h, rx + 26 + dx, ry + 22));
+      // scan line
+      if (kIn > 0.3) {
+        lg.globalAlpha = lgA * kIn;
+        const g = lg.createLinearGradient(rx, scanY - 40, rx, scanY + 40); const red = t > 15.5 && t < 21.5;
+        g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(0.5, red ? 'rgba(255,80,90,.22)' : 'rgba(63,220,147,.16)'); g.addColorStop(1, 'rgba(0,0,0,0)');
+        lg.fillStyle = g; lg.fillRect(rx, scanY - 40, rw, 80);
+        lg.strokeStyle = red ? '#ff5a64' : '#3fdc93'; lg.lineWidth = 2; lg.beginPath(); lg.moveTo(rx, scanY - 18); lg.lineTo(rx + rw, scanY - 18); lg.stroke();
+      }
+      lg.restore(); lg.restore();
+    }
+
+    // ---------------- S1 titles
+    hd.k1.render(t, 0.4, 4.4); hd.t1.render(t, 0.6, 4.5); hd.s1.render(t, 1.5, 4.6);
+
+    // ---------------- S2
+    hd.h2.render(t, 5.4, 12.7);
+    const v2 = X.show(vpanel, t, 5.2, 12.8, { dx: 60, dy: 0, fi: 0.7 });
+    if (v2 > 0) {
+      const kc = WY.seg(t, 5.6, 6.9);
+      cmdSpans.forEach((s, i) => (s.style.opacity = i / cmdSpans.length < kc ? 1 : 0));
+      checks.forEach((c, i) => {
+        const on = t > 7.0 + i * 0.22;
+        c.style.color = on ? '#eafff2' : 'rgba(255,250,240,.45)'; c.style.background = on ? '#2f8a5e' : 'rgba(0,0,0,.25)'; c.style.borderColor = on ? '#3fdc93' : 'rgba(240,212,138,.35)';
+        const pk = WY.seg(t, 7.0 + i * 0.22, 7.3 + i * 0.22); c.style.transform = `scale(${1 + 0.18 * Math.sin(pk * Math.PI)})`;
+      });
+      const kn = WY.seg(t, 6.6, 10.6, E.inOutCubic);
+      cnt.textContent = X.num(Math.round(144300 * kn));
+      cnt.style.color = kn >= 1 ? '#3fdc93' : '#fffaf0';
+      const ps = WY.seg(t, 10.7, 11.0, E.outBack);
+      passStamp.style.opacity = t >= 10.7 ? 1 : 0; passStamp.style.transform = `rotate(-6deg) scale(${2.2 - 1.2 * ps})`;
+    }
+
+    // ---------------- S3
+    hd.h3.render(t, 13.2, 20.8);
+    const v3 = X.show(tpanel, t, 13.0, 20.9, { dx: 60, dy: 0, fi: 0.6 });
+    if (v3 > 0) {
+      tTitle.textContent = t < 15.5 ? 'replaying… ' + X.num(Math.min(144300, Math.floor(WY.seg(t, 14.4, 15.5) * 144300))) : 'replaying… stopped at the forged entry';
+      tTitle.style.color = t < 15.5 ? '#a9b8ad' : '#ffb3b8';
+      tCode.style.opacity = WY.seg(t, 15.6, 15.9);
+      const ss = WY.seg(t, 16.3, 16.6, E.outBack);
+      tStamp.style.opacity = t >= 16.3 ? 1 : 0; tStamp.style.transform = `rotate(-6deg) scale(${2.2 - 1.2 * ss})`;
+    }
+    flash.render(t, 15.6, 0.35, 0.25);
+
+    // ---------------- S4 grid
+    hd.h4.render(t, 21.2, 29.2); gNote.render(t, 21.9, 29.2); hd.n4.render(t, 23.5, 29.2);
+    X.show(gCount, t, 21.4, 29.3, { dy: -20 });
+    let caught = 0;
+    const gA = WY.env(t, 21.2, 29.4, 0.3, 0.4);
+    grid.style.display = gA > 0 ? '' : 'none';
+    cells.forEach((cl, i) => {
+      const col = i % 6, row = Math.floor(i / 6);
+      const a = 21.4 + (col + row) * 0.07;
+      const k = WY.seg(t, a, a + 0.6, E.outCubic);
+      const td = 23.4 + i * 0.12; const det = t > td;
+      if (det) caught++;
+      const kd = WY.seg(t, td, td + 0.25);
+      cl.c.style.opacity = k * WY.env(t, 0, 29.4, 0.01, 0.45);
+      cl.c.style.transform = `translateY(${(1 - k) * 30}px) scale(${1 + 0.06 * Math.sin(kd * Math.PI)})`;
+      cl.c.style.borderColor = det ? 'rgba(255,90,100,.85)' : 'rgba(201,162,74,.45)';
+      cl.c.style.background = det ? 'linear-gradient(180deg, rgba(70,20,26,.95), rgba(40,14,18,.95))' : 'rgba(16,36,29,.92)';
+      cl.st.style.opacity = kd; cl.co.style.opacity = 0.35 + 0.65 * kd;
+    });
+    WY.$('#gc').textContent = caught;
+    WY.$('#gc').style.color = caught === 30 ? '#ff8a8f' : '#fffaf0';
+
+    // ---------------- S5 bars
+    hd.h5.render(t, 29.7, 36.8); hd.n5.render(t, 30.4, 36.8);
+    bars.forEach((b, i) => {
+      const a = 30.0 + i * 0.55;
+      const k = X.show(b.r, t, a, 37.0, { dy: 20, fi: 0.5 });
+      if (k <= 0) return;
+      const kf = WY.seg(t, a + 0.3, a + 2.0, E.outQuart);
+      const w = 1000 * (b.v / 272004) * kf;
+      b.fill.style.width = w + 'px';
+      b.num.style.left = 500 + w + 22 + 'px';
+      b.val.textContent = X.num(Math.round(b.v * kf));
+      b.pass.style.opacity = WY.seg(t, a + 2.0, a + 2.3);
+    });
+
+    // ---------------- S6 honesty
+    honL.render(t, 37.2, 40.4);
+    X.show(hon, t, 38.0, 40.6, { dy: 20 });
+
+    badge.render(t, 5.6, 40.8);
+    ov.render(t);
+    end.render(t - 41);
+  },
+
+  audio(A) {
+    A.music({ style: 'tech', bpm: 112, key: 'E', minor: true, sections: [[0, 0.3], [5, 0.6], [13, 0.4], [16.3, 0.5], [21.2, 0.9], [29.6, 0.75], [37, 0.3]], end: 41, outro: 'hit' });
+    A.whoosh(0.3, { dur: 1.2 }); A.hit(0.6, { gain: 0.6 });
+    A.whoosh(4.9); A.type(5.6, 6.9, { cps: 24, gain: 0.4 });
+    for (let i = 0; i < 13; i++) A.tick(7.0 + i * 0.22, { pitch: 1.2 + i * 0.03, gain: 0.7 });
+    A.ok(10.7); A.hit(10.75, { gain: 0.5, bright: 0.8 });
+    A.whoosh(12.8); A.drone(13, 16.3, { note: 'E2', gain: 0.8 });
+    A.glitch(14.2, { dur: 0.6 }); A.bad(15.6); A.hit(16.35, { gain: 0.9 }); A.clash(16.35, { gain: 0.5 });
+    A.whoosh(20.9);
+    for (let i = 0; i < 30; i++) A.tick(23.4 + i * 0.12, { pitch: 0.9 + (i % 6) * 0.05, gain: 0.55 });
+    A.hit(26.9, { gain: 0.7 });
+    A.whoosh(29.4);
+    for (let i = 0; i < 4; i++) { A.riser(30.3 + i * 0.55, 32.0 + i * 0.55, { gain: 0.15 }); A.ok(32.3 + i * 0.55, { gain: 0.5 }); }
+    A.whoosh(36.9); A.swell(37.0, 40.5, { note: 'E3', gain: 0.6 });
+    A.chime(41.2, { note: 'B5', gain: 0.6 });
+  },
+});
+</script></body></html>

@@ -1,0 +1,281 @@
+<!doctype html><html><head><meta charset="utf-8"><title>28 S1 update (ja)</title>
+<link rel="stylesheet" href="../../lib/wy.css">
+<script src="../../lib/wy.js"></script><script src="../../lib/wy-audio.js"></script><script src="../../lib/wy-map.js"></script><script src="../../lib/wy-kit.js"></script>
+<script src="kit.js"></script>
+<style>
+  .kick { font: 700 25px/1 var(--sans-jp); letter-spacing: .16em; color: var(--brass-2); }
+  .ttl { font: 900 72px/1.2 var(--serif-jp); color: var(--ivory); text-shadow: 0 4px 24px rgba(0,0,0,.6); }
+  .body { font: 500 34px/1.6 var(--sans-jp); color: rgba(255,250,240,.88); }
+  .body b { color: #fff; font-weight: 700; }
+  .chip { display: inline-block; padding: 6px 16px; border-radius: 999px; border: 1.5px solid rgba(240,212,138,.6); background: rgba(8,18,14,.7); font: 700 24px var(--sans-jp); color: var(--brass-2); margin-right: 10px; }
+  .num { font-family: Inter, var(--sans-jp); font-weight: 800; }
+  .li { font: 600 36px/1.5 var(--sans-jp); color: #fffaf0; }
+  .li i { font-style: normal; display: inline-block; width: 52px; color: #7fd69a; }
+  .li i.no { color: #f0b46a; }
+</style>
+</head><body><script>
+// Sources: FACTS.md §10 "What S1 adds" (docs/frontier/stage1a, 1b, 1d, 1e notes; commits 1db5a32, 6ea5e32, bb2ce3c);
+// Japanese names from the client (fi18n.mjs: 蔵, 隊商, 砦, 建物) and docs/design/redesign/30-stage1-build-plan.ja.md (工房, 兵器, 見張り塔, 柵).
+const F = { f1: 5.2, f2: 12.6, f3: 20.2, f4: 27.2, f5: 34.4, sum: 41.8, end: 49.0 };
+const ART = WY.ART;
+let mapC, mc, world, panel, beats = [], badge, endc, ov, fx, gx, cards = [];
+let VIL, VAULT, ROUTE, RAID, TOWER, TPATH, PAL, FORT, FPATH, NATVIL;
+const E = () => WY.ease;
+const hexDist = (a, b) => (Math.abs(a.q - b.q) + Math.abs(a.r - b.r) + Math.abs(a.q + a.r - b.q - b.r)) / 2;
+
+function pickTiles() {
+  const T = world.tiles.filter(t => t.terrain !== 'water');
+  const free = t => !t.village && !t.camp && !t.keep && !t.freecity && t.terrain !== 'mountain' && t.terrain !== 'water';
+  VIL = T.filter(t => t.owner === 0 && t.village && !t.keep).sort((a, b) => Math.abs(a.ring - 4) - Math.abs(b.ring - 4) || a.r - b.r)[0];
+  VAULT = T.filter(t => t.owner === 0 && free(t) && hexDist(t, VIL) === 3).sort((a, b) => b.r - a.r)[0];
+  // caravan route: sample world points VIL -> VAULT; the raider waits on the middle tile
+  RAID = T.filter(t => free(t) && hexDist(t, VIL) <= 2 && hexDist(t, VAULT) <= 2).sort((a, b) => Math.abs(hexDist(a, VIL) - hexDist(a, VAULT)) - Math.abs(hexDist(b, VIL) - hexDist(b, VAULT)))[0] || VAULT;
+  TOWER = T.filter(t => t.owner === 1 && free(t) && t.ring >= 3 && t.ring <= 5).sort((a, b) => a.ring - b.ring || a.q - b.q)[0];
+  const k0 = world.keeps.find(k => k.owner === 0);
+  TPATH = [k0, TOWER, { x: TOWER.x + (TOWER.x - k0.x) * 0.45, y: TOWER.y + (TOWER.y - k0.y) * 0.45 }];
+  PAL = T.filter(t => t.owner === 5 && free(t) && t.ring === 4)[0];
+  FORT = T.filter(t => t.owner === 5 && free(t) && hexDist(t, PAL) === 1 && t !== PAL)[0];
+  NATVIL = T.filter(t => t.owner === 0 && t.village);
+}
+
+// ---- glyphs (screen space)
+function medal(x, y, r, color, draw, a = 1) {
+  if (a <= 0) return; const g = fx; g.save(); g.globalAlpha = a; g.translate(x, y);
+  g.strokeStyle = 'rgba(20,12,4,.7)'; g.lineWidth = 3; g.beginPath(); g.moveTo(0, r); g.lineTo(0, r + 26); g.stroke();
+  g.shadowColor = 'rgba(0,0,0,.5)'; g.shadowBlur = 14; g.shadowOffsetY = 5;
+  const lg = g.createLinearGradient(0, -r, 0, r); lg.addColorStop(0, '#24493b'); lg.addColorStop(1, '#0f231c');
+  g.fillStyle = lg; g.beginPath(); g.arc(0, 0, r, 0, 7); g.fill(); g.shadowColor = 'transparent';
+  g.strokeStyle = color; g.lineWidth = 3.5; g.stroke();
+  g.strokeStyle = '#fffaf0'; g.fillStyle = '#fffaf0'; g.lineWidth = r * 0.1; g.lineCap = 'round'; g.lineJoin = 'round';
+  draw(g, r); g.restore();
+}
+const GL = {
+  hammer(g, r) { g.save(); g.rotate(-0.6); g.fillRect(-r * 0.07, -r * 0.2, r * 0.14, r * 0.75); g.fillRect(-r * 0.36, -r * 0.48, r * 0.72, r * 0.3); g.restore(); },
+  arms(g, r) { for (const s of [-1, 1]) { g.save(); g.rotate(s * 0.75); g.beginPath(); g.moveTo(0, -r * 0.62); g.lineTo(0, r * 0.38); g.stroke(); g.beginPath(); g.moveTo(-r * 0.2, r * 0.28); g.lineTo(r * 0.2, r * 0.28); g.stroke(); g.restore(); } },
+  chest(g, r) { g.strokeRect(-r * 0.45, -r * 0.2, r * 0.9, r * 0.55); g.beginPath(); g.moveTo(-r * 0.45, -r * 0.2); g.quadraticCurveTo(0, -r * 0.62, r * 0.45, -r * 0.2); g.stroke(); g.fillRect(-r * 0.08, -r * 0.05, r * 0.16, r * 0.2); },
+  tower(g, r) { g.beginPath(); g.moveTo(-r * 0.25, r * 0.5); g.lineTo(-r * 0.18, -r * 0.3); g.lineTo(r * 0.18, -r * 0.3); g.lineTo(r * 0.25, r * 0.5); g.closePath(); g.stroke(); g.beginPath(); g.moveTo(-r * 0.36, -r * 0.3); g.lineTo(0, -r * 0.62); g.lineTo(r * 0.36, -r * 0.3); g.closePath(); g.fill(); },
+  stakes(g, r) { for (let i = -2; i <= 2; i++) { g.beginPath(); g.moveTo(i * r * 0.2, r * 0.45); g.lineTo(i * r * 0.2, -r * 0.3); g.lineTo(i * r * 0.2 + r * 0.06, -r * 0.45); g.stroke(); } g.beginPath(); g.moveTo(-r * 0.5, r * 0.05); g.lineTo(r * 0.5, r * 0.05); g.stroke(); },
+  fort(g, r) { g.beginPath(); g.moveTo(-r * 0.5, r * 0.45); g.lineTo(-r * 0.5, -r * 0.35); for (let i = 0; i < 5; i++) { const x = -r * 0.5 + i * r * 0.25; g.lineTo(x, -r * 0.35); g.lineTo(x, (i % 2 ? -r * 0.35 : -r * 0.5)); g.lineTo(x + r * 0.25, i % 2 ? -r * 0.35 : -r * 0.5); } g.lineTo(r * 0.5, r * 0.45); g.closePath(); g.stroke(); g.beginPath(); g.arc(0, r * 0.45, r * 0.16, Math.PI, 0); g.stroke(); },
+  ballot(g, r) { g.strokeRect(-r * 0.45, -r * 0.1, r * 0.9, r * 0.55); g.beginPath(); g.moveTo(-r * 0.2, -r * 0.1); g.lineTo(-r * 0.2, -r * 0.55); g.lineTo(r * 0.25, -r * 0.55); g.lineTo(r * 0.25, -r * 0.1); g.stroke(); },
+};
+function cart(x, y, s, n, a = 1) {
+  const g = fx; const N = WY.NATIONS[n]; g.save(); g.globalAlpha = a; g.translate(x, y); g.scale(s, s);
+  g.fillStyle = 'rgba(0,0,0,.35)'; g.beginPath(); g.ellipse(0, 16, 34, 9, 0, 0, 7); g.fill();
+  g.fillStyle = '#7a5532'; g.strokeStyle = '#2a1a0c'; g.lineWidth = 2.5; K.rr(g, -28, -8, 56, 20, 4); g.fill(); g.stroke();
+  g.fillStyle = N.fill; K.rr(g, -22, -30, 44, 24, 6); g.fill(); g.stroke();
+  g.save(); g.translate(0, -18); g.fillStyle = N.on; g.fill(new Path2D(WY.sigilPath(n, 6))); g.restore();
+  for (const wx of [-17, 17]) { g.fillStyle = '#3a2618'; g.beginPath(); g.arc(wx, 13, 8, 0, 7); g.fill(); g.strokeStyle = '#c9a24a'; g.lineWidth = 2; g.stroke(); }
+  g.restore();
+}
+function host(x, y, n, s = 1, a = 1) {
+  const im = WY.img(ART + `hosts/@2x/${WYMap.ART_FACTIONS[n]}_hold.webp`); if (!im.naturalWidth) return;
+  fx.save(); fx.globalAlpha = a; const w = im.naturalWidth * 0.62 * s, h = im.naturalHeight * 0.62 * s; fx.drawImage(im, x - w / 2, y - h * 0.85, w, h); fx.restore();
+}
+function pill(x, y, text, color = '#fffaf0', bg = 'rgba(8,18,14,.88)', size = 24) {
+  const g = fx; g.font = `700 ${size}px "Noto Sans JP"`; const w = g.measureText(text).width + 30;
+  g.fillStyle = bg; K.rr(g, x - w / 2, y - size * 0.85, w, size * 1.7, size * 0.85); g.fill(); g.strokeStyle = 'rgba(240,212,138,.5)'; g.lineWidth = 1.5; g.stroke();
+  g.fillStyle = color; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(text, x, y + 1);
+}
+function hexOutline(cam, t, color, a, fill) {
+  const [x, y] = WYMap.toScreen(cam, t.x, t.y - WYMap.LIFT); WYMap.hexPath(fx, x, y, WYMap.R * cam.zoom, 0.94);
+  if (fill) { fx.globalAlpha = a * 0.22; fx.fillStyle = color; fx.fill(); }
+  fx.globalAlpha = a; fx.strokeStyle = color; fx.lineWidth = 3; fx.stroke(); fx.globalAlpha = 1;
+}
+const scr = (cam, t, lift = 0) => WYMap.toScreen(cam, t.x, t.y - WYMap.LIFT - lift);
+
+// camera: the feature's world point sits at screen (1270, 560)
+function camFor(tile, zoom) { return { x: tile.x - (1270 - 960) / zoom, y: tile.y - WYMap.LIFT - (560 - 540) / zoom, zoom }; }
+function camAt(t) {
+  const keys = [
+    [0, { x: 0, y: 30, zoom: 0.46 }], [4.4, { x: 0, y: 30, zoom: 0.5 }],
+    [F.f1 + 0.2, camFor(VIL, 1.25)], [F.f2 - 0.4, camFor(VIL, 1.3)],
+    [F.f2 + 0.6, camFor(RAID, 1.15)], [F.f3 - 0.4, camFor(RAID, 1.2)],
+    [F.f3 + 0.6, camFor(TOWER, 0.82)], [F.f4 - 0.4, camFor(TOWER, 0.86)],
+    [F.f4 + 0.6, camFor(PAL, 1.25)], [F.f5 - 0.4, camFor(PAL, 1.3)],
+    [F.f5 + 0.8, camFor(NATVIL.reduce((a, b) => ({ x: a.x + b.x / NATVIL.length, y: a.y + b.y / NATVIL.length }), { x: 0, y: 0 }), 0.62)], [F.sum - 0.4, camFor(NATVIL.reduce((a, b) => ({ x: a.x + b.x / NATVIL.length, y: a.y + b.y / NATVIL.length }), { x: 0, y: 0 }), 0.66)],
+    [F.sum + 0.8, { x: 0, y: 30, zoom: 0.5 }], [60, { x: 0, y: 30, zoom: 0.56 }],
+  ];
+  let i = 0; while (i < keys.length - 2 && t >= keys[i + 1][0]) i++;
+  const [t0, a] = keys[i], [t1, b] = keys[i + 1]; const k = E().inOutCubic(WY.seg(t, t0, t1));
+  const z = Math.exp(WY.lerp(Math.log(a.zoom), Math.log(b.zoom), k));
+  // keep the zoom path smooth: interpolate the screen-anchored point
+  return { x: WY.lerp(a.x, b.x, k) + WY.drift(t, 3, 10), y: WY.lerp(a.y, b.y, k) + WY.drift(t, 8, 8), zoom: z, W: 1920, H: 1080 };
+}
+
+WY.scene({
+  width: 1920, height: 1080, duration: 53, fps: 30,
+  setup(stage) {
+    world = WYMap.build({ rings: 8, seed: 28 });
+    // preload every map sprite (the map lib requests some only when first drawn)
+    for (const tr of ['plains', 'grassland', 'forest', 'hills', 'mountain', 'water']) for (let v = 1; v <= 3; v++) WY.img(ART + `terrain/@2x/${tr}_${v}.webp`);
+    for (const k of WYMap.ART_FACTIONS) { for (const h of ['hamlet_o', 'town_o', 'stronghold_w']) WY.img(ART + `holdings/@2x/${h}_${k}.webp`); WY.img(ART + `hosts/@2x/${k}_hold.webp`); }
+    for (const s of ['freecity_town', 'barbarian_1', 'concord_plaza_1', 'concord_paving']) WY.img(ART + `specials/@2x/${s}.webp`);
+    for (let i = 1; i <= 3; i++) WY.img(ART + `fog/@2x/cloud_${i}.webp`);
+    for (const s of ['ore', 'wood']) WY.img(ART + `ui/illustrated/${s}-128.webp`);
+    for (const c of ['0_pikeman', '2_crossbowman', '5_knight']) cards.push(WY.img(ART + `units/mobs-v1/cards/${c}.webp`));
+    pickTiles();
+    mapC = WY.canvas(stage, 1920, 1080); mc = mapC.getContext('2d');
+    const fxC = WY.canvas(stage, 1920, 1080); fxC.style.zIndex = 4; fx = fxC.getContext('2d');
+    // left shade + panel
+    const shade = WY.el('div', { class: 'wy-fill' }, stage); WY.css(shade, { zIndex: 6, background: 'linear-gradient(90deg, rgba(6,12,10,.94) 0%, rgba(6,12,10,.86) 34%, rgba(6,12,10,0) 52%)' });
+    panel = shade;
+    const gC = WY.canvas(stage, 1920, 1080); gC.style.zIndex = 8; gx = gC.getContext('2d');
+    // title
+    beats.push(K.text(stage, 'S1アップデート', { left: 0, width: '1920px', top: '380px', textAlign: 'center', font: '900 128px/1.2 var(--serif-jp)', color: '#fffaf0', textShadow: '0 8px 50px rgba(0,0,0,.8)' }, { a: 0.4, b: 4.6, stagger: 0.06, dur: 0.9, z: 12 }));
+    beats.push(K.text(stage, 'ステージ1で、コードに入ったもの', { left: 0, width: '1920px', top: '560px', textAlign: 'center', font: '700 42px var(--sans-jp)', color: 'rgba(255,250,240,.88)', textShadow: '0 2px 20px rgba(0,0,0,.9)' }, { a: 1.4, b: 4.6, z: 12 }));
+    const add = (html, cls, top, a, b, extra = {}) => { const x = K.text(stage, html, Object.assign({ left: '100px', top: top + 'px' }, extra), { a, b, z: 12, ...(cls === 'ttl' ? { stagger: 0.05, dur: 0.8 } : {}) }); x.node.className += ' ' + cls; beats.push(x); };
+    const feat = (n, title, body, chips, a, b, opt = {}) => {
+      add(`新しい要素 ${n} / 5`, 'kick', 190, a, b);
+      add(title, 'ttl', 236, a + 0.2, b);
+      add(body, 'body', opt.bodyTop || 350, a + 1.0, b);
+      if (chips) add(chips, '', opt.chipTop || 500, a + 1.8, b);
+    };
+    feat('1', '工房と兵器', '', null, F.f1, F.f2 - 0.25);
+    add('長槍兵・弩兵・騎士の訓練に使い、<br>包囲では兵器 <span class="num">50</span> を使い切る。', 'body', 690, F.f1 + 2.4, F.f2 - 0.25);
+    feat('2', '蔵と隊商', '隊商は戦いに加わる。<br>襲われれば、<b>奪われる</b>か<b>焼かれる</b>。', '<span class="chip">奪う:隊商ごと相手のものに</span><br><span class="chip" style="margin-top:14px">焼く:積み荷が失われる</span>', F.f2, F.f3 - 0.25);
+    feat('3', '見張り塔', '範囲を通る軍と隊商を<br>1分ごとに <b class="num">1%</b> 削る。', '<span class="chip">上限 30%</span><span class="chip">近くの公開の出来事を知らせる</span>', F.f3, F.f4 - 0.25);
+    feat('4', '柵と砦', '柵は、そのマスをふさぐ。<br>砦には槍兵を最大 <b class="num">2,000</b>。', '<span class="chip">砦は戦い、落ち、奪われる</span>', F.f4, F.f5 - 0.25);
+    add('※ここでの「砦」は、新しく建てられる建物(fort)。', 'body', 580, F.f4 + 2.6, F.f5 - 0.25, { fontSize: '26px', color: 'rgba(255,250,240,.66)' });
+    feat('5', '国の提案と投票', 'チェーン上で、<b>1村1票</b>。<br>他国への構えと、追放・復帰を決める。', '<span class="chip">参加から288ターン後に投票できる</span><br><span class="chip" style="margin-top:14px">賛成 &gt; 反対、かつ賛成3票以上で可決</span>', F.f5, F.sum - 0.25);
+    // summary
+    add('いまの状態', 'kick', 200, F.sum + 0.2, F.end - 0.3, {});
+    add('コードには入った。<br>画面では、まだ遊べない。', 'ttl', 246, F.sum + 0.4, F.end - 0.3);
+    add('<div class="li"><i>✓</i>プログラム・検証ツール・キーパー・ヘラルドに実装</div><div class="li"><i>✓</i>テスト:LiteSVM <span class="num">389</span>件、ゲートウェイとWeb <span class="num">2,379</span>件が通過</div><div class="li"><i class="no">—</i>隊商と蔵の画面は未実装。ボットもまだ使わない</div><div class="li"><i class="no">—</i>数値の多くは仮置き</div>', '', 520, F.sum + 1.4, F.end - 0.3);
+    badge = WYKit.status(stage, 'code', 'ja', { x: 100, y: 74, size: 24, text: 'コード実装済み・クライアントではまだ遊べません' }); badge.node.style.zIndex = 30;
+    ov = K.overlay(stage, { vignette: 0.5 });
+    endc = WYKit.endCard(stage, { lang: 'ja', line: '世界は、少しずつ深くなる。', note: 'S1はコードに実装済みで、まだWebクライアントでは遊べません。現在はローカルテストチェーンでの開発段階です。' });
+  },
+  render(t) {
+    const e = E();
+    const cam = camAt(t);
+    const intro = WY.seg(t, 0, 3.0);
+    mc.clearRect(0, 0, 1920, 1080);
+    WYMap.draw(mc, world, cam, { t, appear: tl => t > 4 ? 1 : WY.seg(t, tl.ring * 0.22, tl.ring * 0.22 + 0.7), wash: () => 0.22, fog: tl => (tl.ring >= 8 ? 0.7 * WY.seg(t, 1.6, 2.6) : 0) });
+    // shade fades in after the title
+    panel.style.opacity = WY.seg(t, 4.6, 5.4) * (1 - WY.seg(t, F.end - 0.2, F.end));
+    beats.forEach(b => b.render(t)); ov.render(t);
+    badge.render(t, 4.8, F.end - 0.3);
+    fx.clearRect(0, 0, 1920, 1080); gx.clearRect(0, 0, 1920, 1080); K.touch(fx); K.touch(gx);
+    // dim map behind the summary
+    if (t > F.sum - 0.5) { fx.fillStyle = `rgba(6,12,10,${0.55 * WY.seg(t, F.sum - 0.5, F.sum + 0.6)})`; fx.fillRect(0, 0, 1920, 1080); }
+
+    // ---------- 1 workshop: ore + ore + wood -> arms (panel diagram) + a medal on the village
+    let a = WY.env(t, F.f1 + 0.3, F.f2 - 0.2, 0.5, 0.4);
+    if (a > 0) {
+      const [vx, vy] = scr(cam, VIL, 90);
+      medal(vx, vy - 40, 44, '#f0d48a', GL.hammer, a * e.outBack(WY.seg(t, F.f1 + 0.6, F.f1 + 1.2)));
+      // panel diagram
+      const g = gx; g.globalAlpha = a; const y = 430;
+      const ore = WY.img(ART + 'ui/illustrated/ore-128.webp'), wood = WY.img(ART + 'ui/illustrated/wood-128.webp');
+      const items = [[ore, 100], [ore, 210], [wood, 350]];
+      items.forEach(([im, x], i) => { const k = e.outBack(WY.seg(t, F.f1 + 1.2 + i * 0.2, F.f1 + 1.8 + i * 0.2)); const conv = e.inOutCubic(WY.seg(t, F.f1 + 2.6, F.f1 + 3.4)); g.save(); g.globalAlpha = a * Math.min(1, k) * (1 - conv * 0.6); g.translate(WY.lerp(x + 50, 560, conv * 0.3), y); g.scale(k * (1 - conv * 0.2), k * (1 - conv * 0.2)); g.drawImage(im, -50, -50, 100, 100); g.restore(); });
+      g.font = '800 44px Inter'; g.fillStyle = '#f0d48a'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.globalAlpha = a * WY.seg(t, F.f1 + 1.6, F.f1 + 2.0);
+      g.fillText('+', 305, y); g.fillText('→', 482, y);
+      g.font = '700 24px "Noto Sans JP"'; g.fillStyle = 'rgba(255,250,240,.85)';
+      g.fillText('鉱石 2', 205, y + 78); g.fillText('木材 1', 400, y + 78);
+      const ak = e.outBack(WY.seg(t, F.f1 + 3.2, F.f1 + 3.9));
+      if (ak > 0) { g.save(); g.translate(600, y); g.scale(ak, ak); g.fillStyle = '#3a3216'; g.beginPath(); g.arc(0, 0, 54, 0, 7); g.fill(); g.strokeStyle = '#ffd24d'; g.lineWidth = 4; g.stroke(); g.strokeStyle = '#fffaf0'; g.lineWidth = 6; g.lineCap = 'round'; GL.arms(g, 56); g.restore(); g.globalAlpha = a; g.font = '700 24px "Noto Sans JP"'; g.fillStyle = '#ffe8a3'; g.fillText('兵器 1', 600, y + 78); }
+      // strong units that need arms
+      cards.forEach((im, i) => { const k = e.outCubic(WY.seg(t, F.f1 + 4.0 + i * 0.15, F.f1 + 4.7 + i * 0.15)); if (k > 0 && im.naturalWidth) { g.globalAlpha = a * k; g.drawImage(im, 100 + i * 130, 830 + (1 - k) * 30, 112, 140); } });
+      g.globalAlpha = 1;
+    }
+
+    // ---------- 2 vault + caravan + raid
+    a = WY.env(t, F.f2 + 0.3, F.f3 - 0.2, 0.5, 0.4);
+    if (a > 0) {
+      const [vx, vy] = scr(cam, VIL), [bx, by] = scr(cam, VAULT), [rx, ry] = scr(cam, RAID);
+      medal(bx, by - 120 * cam.zoom, 40, '#f0d48a', GL.chest, a * e.outBack(WY.seg(t, F.f2 + 0.6, F.f2 + 1.2)));
+      // route
+      fx.save(); fx.globalAlpha = a; fx.strokeStyle = 'rgba(255,240,200,.85)'; fx.lineWidth = 5; fx.setLineDash([14, 10]); fx.lineDashOffset = -t * 25;
+      fx.beginPath(); fx.moveTo(vx, vy); fx.quadraticCurveTo(rx, ry, bx, by); fx.stroke(); fx.restore();
+      const raider = e.outCubic(WY.seg(t, F.f2 + 1.4, F.f2 + 2.0));
+      host(rx + 30, ry - 6, 5, 1.0 * cam.zoom, a * raider);
+      const u = e.inOutCubic(WY.seg(t, F.f2 + 1.6, F.f2 + 3.6)) * 0.5; // the caravan walks to the raid tile
+      const q = (p) => [(1 - p) * (1 - p) * vx + 2 * (1 - p) * p * rx + p * p * bx, (1 - p) * (1 - p) * vy + 2 * (1 - p) * p * ry + p * p * by];
+      const clash = WY.seg(t, F.f2 + 3.6, F.f2 + 4.4);
+      const taken = WY.seg(t, F.f2 + 4.3, F.f2 + 4.6);
+      const away = e.inOutCubic(WY.seg(t, F.f2 + 4.8, F.f2 + 6.6));
+      let [cx2, cy2] = q(u);
+      if (away > 0) { cx2 = WY.lerp(cx2, cx2 + 240 * cam.zoom, away); cy2 = WY.lerp(cy2, cy2 + 140 * cam.zoom, away); }
+      cart(cx2, cy2 - 10, 1.15 * cam.zoom + 0.2, taken > 0.5 ? 5 : 0, a);
+      if (clash > 0 && clash < 1) WYMap.drawClash(fx, cam, RAID, clash, '#ffd24d');
+      if (taken > 0) pill(cx2, cy2 - 80, '奪われた隊商', '#ffe2b0', 'rgba(60,24,10,.9)', 24);
+    }
+
+    // ---------- 3 watchtower: range + a march worn through it
+    a = WY.env(t, F.f3 + 0.3, F.f4 - 0.2, 0.5, 0.4);
+    if (a > 0) {
+      const ring = world.tiles.filter(tl => hexDist(tl, TOWER) <= 2 && tl.owner === 1);
+      const rk = e.outCubic(WY.seg(t, F.f3 + 1.0, F.f3 + 1.8));
+      ring.forEach(tl => hexOutline(cam, tl, '#7fe0f0', a * rk * (0.6 + 0.2 * Math.sin(t * 3 + hexDist(tl, TOWER))), true));
+      const [tx, ty] = scr(cam, TOWER, 80);
+      medal(tx, ty - 30, 42, '#7fe0f0', GL.tower, a * e.outBack(WY.seg(t, F.f3 + 0.6, F.f3 + 1.2)));
+      const [k0x, k0y] = scr(cam, TPATH[0]), [k1x, k1y] = scr(cam, TPATH[2]);
+      const mk = e.inOutCubic(WY.seg(t, F.f3 + 1.8, F.f3 + 5.6));
+      fx.save(); fx.globalAlpha = a;
+      WYMap.drawMarch(fx, cam, TPATH[0], TPATH[2], mk, { color: WY.NATIONS[0].fill, lift: 0.18 });
+      fx.restore();
+      const wear = Math.round(30 * WY.seg(t, F.f3 + 2.6, F.f3 + 5.0));
+      if (mk > 0.25) pill(WY.lerp(k0x, k1x, Math.min(mk, 0.9)), WY.lerp(k0y, k1y, Math.min(mk, 0.9)) - 120, wear >= 30 ? '例 −30%(上限)' : `例 −${wear}%`, '#ffd0c4', 'rgba(70,16,16,.9)', 26);
+    }
+
+    // ---------- 4 palisade blocks; fort with garrison
+    a = WY.env(t, F.f4 + 0.3, F.f5 - 0.2, 0.5, 0.4);
+    if (a > 0) {
+      const [px, py] = scr(cam, PAL, 70), [fx2, fy] = scr(cam, FORT, 70);
+      hexOutline(cam, PAL, '#f0b46a', a * WY.seg(t, F.f4 + 0.6, F.f4 + 1.2), true);
+      medal(px, py - 40, 40, '#f0b46a', GL.stakes, a * e.outBack(WY.seg(t, F.f4 + 0.6, F.f4 + 1.2)));
+      medal(fx2, fy - 40, 46, '#f0d48a', GL.fort, a * e.outBack(WY.seg(t, F.f4 + 1.0, F.f4 + 1.6)));
+      // a march that stops at the palisade
+      const from = { x: PAL.x - 330, y: PAL.y + 40 }; const [sx, sy] = WYMap.toScreen(cam, from.x, from.y - WYMap.LIFT);
+      const mk = e.outCubic(WY.seg(t, F.f4 + 1.6, F.f4 + 3.2));
+      const [ex, ey] = scr(cam, PAL); const stopX = WY.lerp(sx, ex - 70 * cam.zoom, mk), stopY = WY.lerp(sy, ey, mk);
+      fx.save(); fx.globalAlpha = a; fx.strokeStyle = WY.NATIONS[1].fill; fx.lineWidth = 7; fx.setLineDash([16, 12]); fx.lineCap = 'round';
+      fx.beginPath(); fx.moveTo(sx, sy); fx.lineTo(stopX, stopY); fx.stroke(); fx.setLineDash([]);
+      const xk = e.outBack(WY.seg(t, F.f4 + 3.2, F.f4 + 3.6));
+      if (xk > 0) { fx.translate(stopX + 12, stopY); fx.scale(xk, xk); fx.strokeStyle = '#ff6b5e'; fx.lineWidth = 9; fx.beginPath(); fx.moveTo(-18, -18); fx.lineTo(18, 18); fx.moveTo(18, -18); fx.lineTo(-18, 18); fx.stroke(); }
+      fx.restore();
+      if (WY.seg(t, F.f4 + 2.0, F.f4 + 2.4) > 0) { fx.globalAlpha = a * WY.seg(t, F.f4 + 2.0, F.f4 + 2.4); pill(fx2, fy + 70 * cam.zoom + 40, '守備隊 槍兵 ≤ 2,000', '#fffaf0', 'rgba(8,18,14,.9)', 24); fx.globalAlpha = 1; }
+    }
+
+    // ---------- 5 nation votes: every village of the nation casts one vote
+    a = WY.env(t, F.f5 + 0.4, F.sum - 0.2, 0.5, 0.4);
+    if (a > 0) {
+      let yes = 0, no = 0;
+      NATVIL.forEach((v, i) => {
+        const at = F.f5 + 1.6 + i * (3.0 / NATVIL.length); const k = WY.seg(t, at, at + 0.5); if (k <= 0) return;
+        const isYes = (i * 7) % 5 !== 1; if (k >= 1) isYes ? yes++ : no++;
+        const [x, y] = scr(cam, v, 50);
+        const rise = e.outBack(k);
+        fx.save(); fx.globalAlpha = a * Math.min(1, k * 2); fx.translate(x, y - 40 * rise);
+        fx.fillStyle = isYes ? '#2f9a5a' : '#9a3a3a'; fx.beginPath(); fx.arc(0, 0, 27, 0, 7); fx.fill(); fx.strokeStyle = '#fffaf0'; fx.lineWidth = 3; fx.stroke();
+        fx.fillStyle = '#fff'; fx.font = '800 26px "Noto Sans JP"'; fx.textAlign = 'center'; fx.textBaseline = 'middle'; fx.fillText(isYes ? '賛' : '反', 0, 1); fx.restore();
+      });
+      // tally card (map side)
+      const ck = e.outCubic(WY.seg(t, F.f5 + 1.2, F.f5 + 1.8));
+      if (ck > 0) {
+        const x0 = 1440, y0 = 140; fx.save(); fx.globalAlpha = a * ck;
+        fx.fillStyle = 'rgba(12,28,22,.94)'; K.rr(fx, x0, y0, 380, 180, 16); fx.fill(); fx.strokeStyle = 'rgba(201,162,74,.8)'; fx.lineWidth = 2; fx.stroke();
+        fx.textAlign = 'left'; fx.textBaseline = 'middle'; fx.font = '700 22px "Noto Sans JP"'; fx.fillStyle = '#f0d48a'; fx.fillText('提案:他国への構え(例)', x0 + 24, y0 + 36);
+        fx.font = '800 34px "Noto Sans JP"'; fx.fillStyle = '#7fd69a'; fx.fillText(`賛成 ${yes}`, x0 + 24, y0 + 96); fx.fillStyle = '#f09090'; fx.fillText(`反対 ${no}`, x0 + 210, y0 + 96);
+        const pass = yes > no && yes >= 3 && t > F.f5 + 5.0;
+        fx.font = '700 24px "Noto Sans JP"'; fx.fillStyle = pass ? '#ffe8a3' : 'rgba(255,250,240,.55)'; fx.fillText(pass ? '可決' : '受付中(144ターン)', x0 + 24, y0 + 150);
+        fx.restore();
+      }
+    }
+    endc.render(t - F.end);
+  },
+  audio(A) {
+    A.music({ style: 'heroic', bpm: 96, key: 'D', minor: false, sections: [[0, 0.3], [4.6, 0.55], [F.f2, 0.62], [F.f3, 0.68], [F.f4, 0.72], [F.f5, 0.78], [F.sum, 0.45]], end: F.end, outro: 'ring' });
+    A.swell(0, 3.4, { note: 'D3' }); A.drum(0.4, { gain: 0.8 }); A.hit(1.2, { gain: 0.6 });
+    [F.f1, F.f2, F.f3, F.f4, F.f5, F.sum].forEach(x => A.whoosh(x - 0.3, { dur: 0.8 }));
+    A.pop(F.f1 + 0.6); A.click(F.f1 + 1.2); A.click(F.f1 + 1.4); A.click(F.f1 + 1.6); A.chime(F.f1 + 3.3, { note: 'A5' });
+    A.pop(F.f2 + 0.6); A.march(F.f2 + 1.6, F.f2 + 3.6, { gain: 0.4 }); A.clash(F.f2 + 3.6); A.bad(F.f2 + 4.4, { gain: 0.5 });
+    A.pop(F.f3 + 0.6); A.chime(F.f3 + 1.0, { note: 'E5', gain: 0.5 }); A.ticks(F.f3 + 2.6, F.f3 + 5.0, 0.25, { gain: 0.3 });
+    A.pop(F.f4 + 0.6); A.pop(F.f4 + 1.0); A.bad(F.f4 + 3.2); A.ok(F.f4 + 2.0, { gain: 0.5 });
+    A.pop(F.f5 + 1.2); A.ticks(F.f5 + 1.6, F.f5 + 4.6, 0.3, { gain: 0.35, pitch: 1.3 }); A.seal(F.f5 + 5.0);
+    A.swell(F.sum - 0.3, F.sum + 1.5, { note: 'D3', gain: 0.5 });
+    A.sparkle(F.end + 0.6, { root: 'D5', gain: 0.5 });
+  },
+});
+</script></body></html>

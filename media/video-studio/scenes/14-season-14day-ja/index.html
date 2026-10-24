@@ -1,0 +1,203 @@
+<!doctype html><html><head><meta charset="utf-8"><title>14 the 14-day season (ja)</title>
+<link rel="stylesheet" href="../../lib/wy.css">
+<script src="../../lib/wy.js"></script><script src="../../lib/wy-audio.js"></script>
+<script src="../../lib/wy-map.js"></script><script src="../../lib/wy-kit.js"></script>
+<script src="fx.js"></script>
+<style>
+  .day { position: absolute; top: 640px; width: 96px; height: 110px; border-radius: 12px; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+  .day .d { font: 500 18px var(--sans-jp); color: rgba(255,250,240,.6); }
+  .day .n { font: 800 44px Inter, sans-serif; }
+  .tl { position: absolute; font: 600 26px var(--sans-jp); color: rgba(255,250,240,.8); white-space: nowrap; }
+  .rule { position: absolute; left: 330px; width: 1260px; height: 150px; display: flex; align-items: center; gap: 34px; padding: 0 44px; }
+  .rule .no { font: 900 64px Cinzel, serif; color: #f0d48a; width: 70px; text-align: center; }
+  .rule .tx { flex: 1; font: 800 50px var(--sans-jp); }
+  .rule .tx small { display: block; font: 500 26px var(--sans-jp); color: rgba(255,250,240,.7); margin-top: 6px; }
+  .rule .st { padding: 8px 20px; border-radius: 999px; font: 700 26px var(--sans-jp); }
+  .st.dec { background: #2f6b4a; color: #e9ffe9; }
+  .st.pro { background: #6b5a2a; color: #fff3cf; }
+  .stat { position: absolute; top: 420px; width: 400px; height: 300px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+  .stat .v { font: 800 84px Inter, sans-serif; color: #ffd24d; font-variant-numeric: tabular-nums; }
+  .stat .l { font: 700 32px/1.35 var(--sans-jp); margin-top: 10px; }
+  .stat .s { font: 500 22px var(--sans-jp); color: rgba(255,250,240,.65); margin-top: 8px; }
+  .board { position: absolute; left: 160px; top: 230px; width: 1000px; padding: 30px 40px; }
+  .brow { display: flex; align-items: center; gap: 16px; height: 96px; border-radius: 10px; padding: 0 12px; }
+  .brow .nm { width: 250px; display: flex; align-items: center; gap: 12px; font: 700 36px var(--sans-jp); white-space: nowrap; }
+  .brow .tr { flex: 1; height: 38px; border-radius: 19px; background: rgba(255,255,255,.07); position: relative; overflow: hidden; }
+  .brow .fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 19px; }
+  .brow .v { width: 110px; text-align: right; font: 800 56px Inter, sans-serif; font-variant-numeric: tabular-nums; }
+  .tie { position: absolute; left: 1210px; top: 230px; width: 560px; padding: 34px 40px; }
+  .tie h4 { font: 700 30px var(--sans-jp); color: #f0d48a; }
+  .tie h4 small { display: block; font: 500 22px var(--sans-jp); color: rgba(255,250,240,.65); margin-top: 6px; }
+  .trow { display: flex; align-items: center; justify-content: space-between; height: 96px; border-bottom: 1px solid rgba(240,212,138,.2); font: 700 36px var(--sans-jp); }
+  .trow .v { font: 800 54px Inter, sans-serif; font-variant-numeric: tabular-nums; }
+  .win { margin-top: 22px; padding: 18px; border-radius: 12px; background: rgba(255,210,77,.12); border: 2px solid #ffd24d; text-align: center; font: 800 40px var(--sans-jp); }
+  .win small { display: block; font: 500 24px var(--sans-jp); color: rgba(255,250,240,.75); margin-top: 6px; }
+  .wal { position: absolute; top: 380px; width: 440px; padding: 30px 34px; text-align: center; }
+  .wal .h { font: 700 30px var(--sans-jp); display: flex; justify-content: center; align-items: center; gap: 12px; }
+  .wal .flow { font: 800 58px Inter, sans-serif; margin-top: 18px; font-variant-numeric: tabular-nums; }
+  .wal .flow .a { color: rgba(255,250,240,.6); }
+  .wal .flow .b { color: #8fe39b; }
+  .wal .s { font: 500 24px var(--sans-jp); color: rgba(255,250,240,.7); margin-top: 10px; }
+  .note { position: absolute; font: 500 26px/1.5 var(--sans-jp); color: rgba(255,250,240,.75); text-align: center; left: 160px; width: 1600px; }
+  .honest { position: absolute; left: 260px; top: 300px; width: 1400px; padding: 56px 70px; text-align: center; }
+  .honest .t { font: 800 66px/1.35 var(--serif-jp); }
+  .honest .s { font: 500 32px/1.6 var(--sans-jp); color: rgba(255,250,240,.82); margin-top: 24px; }
+</style>
+</head><body><script>
+const W = 1920, H = 1080;
+const NJ = ['アステル', 'ボレアリス', 'シンダー', 'ダンマール', 'エンバー', 'フィヨルダル'];
+const KEEPS = [10, 9, 9, 9, 10, 7];
+const S_B = 6, S_C = 14, S_D = 21.4, S_E = 28.6, T_TIE = 33.4, S_F = 40.6, S_G = 46.6, S_END = 50.6;
+let mapCv, mctx, world, mc, shade, overlay, dust, bCode, bLocal, bTest, end, flash, emb, fx, g;
+let T = {}, days = [], tls = [], rules = [], stats = [], board, rows = [], tie, wals = [], notes = {}, honest;
+
+WY.scene({
+  width: W, height: H, duration: 55, fps: 30,
+  async setup(stage) {
+    mapCv = WY.canvas(stage, W, H); mctx = mapCv.getContext('2d');
+    world = WYMap.build({ rings: 8, seed: 11 });
+    mc = await FX.mapCache(world, { zoom: 0.6, opts: { wash: () => 0.28, fog: tl => (tl.ring >= 8 ? 0.85 : 0) } });
+    shade = WY.el('div', { class: 'wy-fill' }, stage); shade.style.zIndex = 2; shade.style.background = 'radial-gradient(ellipse at 50% 50%, rgba(6,13,10,.72), rgba(6,13,10,.94))';
+    dust = WYKit.dust(stage, { count: 60, z: 3, seed: 21 });
+    fx = WY.canvas(stage, W, H); fx.style.zIndex = 4; g = fx.getContext('2d');
+    emb = WY.img(WY.ART + 'leaders3d/stage-v1/ember_idle.webp');
+    const tx = (lines, o) => FX.text(stage, lines, o);
+    T.kick = tx(['THE  14-DAY  SEASON'], { y: 250, size: 32, weight: 700, font: 'Cinzel, serif', ls: '.4em', color: '#f0d48a' });
+    T.title = tx(['14日間のシーズン'], { y: 310, size: 132, weight: 900, stagger: 0.06 });
+    T.b = tx(['[[2,016ターン]]で14日。', '参加の締切は、ターン1,512。'], { y: 170, size: 70, weight: 800 });
+    T.c = tx(['勝者の決め方'], { y: 130, size: 76, weight: 900 });
+    T.d = tx(['ローカルで、14日を1回完走した。'], { y: 140, size: 72, weight: 900 });
+    T.d2 = tx(['sc-14d · 20倍速 · 2026-10-17〜18'], { y: 250, size: 32, weight: 600, font: 'var(--sans-jp)', color: 'rgba(255,250,240,.75)' });
+    T.e = tx(['砦の数、最終集計。'], { x: 160, y: 110, w: 1000, align: 'left', size: 64, weight: 900 });
+    T.f = tx(['勝者エンバーに有料の参加者はいなかった。', 'だから、[[払い戻し]]。'], { y: 150, size: 64, weight: 800 });
+    // A: 14 day tiles
+    for (let i = 0; i < 14; i++) { const d = WY.el('div', { class: 'day wy-panel' }, stage); WY.css(d, { left: 960 - 7 * 112 + 8 + i * 112 + 'px', zIndex: 10 }); d.innerHTML = `<div class="d">${i + 1}日目</div><div class="n">${i + 1}</div>`; days.push(d); }
+    // B: timeline labels
+    [['ターン 0', 160, 560], ['ターン 2,016', 1600, 560], ['参加の締切', 1270, 420], ['ターン 1,512', 1270, 690]].forEach(([s, x, y], i) => { const n = WY.el('div', { class: 'tl', text: s }, stage); WY.css(n, { left: x + 'px', top: y + 'px', zIndex: 10 }); if (i === 2) WY.css(n, { color: '#ffd24d', font: '800 36px var(--sans-jp)' }); tls.push(n); });
+    notes.b = WY.el('div', { class: 'note', html: 'プリセット <span style="font-family:var(--mono);color:#f0d48a">MC_LOCAL_14D</span>(S1 以降は同じ時間設定の <span style="font-family:var(--mono);color:#f0d48a">S1_LOCAL_14D</span>)' }, stage); WY.css(notes.b, { top: '860px', zIndex: 10 });
+    // C: rules
+    [['1', '砦を最も多く持つ国が勝つ', 'シーズン終了後、賞金プログラムが砦をひとつずつ数える', 'dec', '決定'], ['2', '同数なら、領土を持った時間が長い国', '', 'pro', '暫定'], ['3', 'それでも同じなら、等分', '', 'pro', '暫定']].forEach(([n, a, b, c, d], i) => {
+      const r = WY.el('div', { class: 'rule wy-panel' }, stage); WY.css(r, { top: 300 + i * 180 + 'px', zIndex: 10 });
+      r.innerHTML = `<div class="no">${n}</div><div class="tx">${a}${b ? `<small>${b}</small>` : ''}</div><div class="st ${c}">${d}</div>`; rules.push(r);
+    });
+    // D: stats
+    [['120', 'ルールBot', '人ではありません'], ['3', '有料の試験ウォレット', 'x402 で各 25 テスト用USDC'], ['272,004', 'トランザクション', '全件を再生して検証'], ['PASS', '検証器の判定', 'チームの検証器・監査ではない']].forEach(([v, l, s], i) => {
+      const n = WY.el('div', { class: 'stat wy-panel' }, stage); WY.css(n, { left: 90 + i * 442 + 'px', zIndex: 10 });
+      n.innerHTML = `<div class="v" data-v="${v}">${v}</div><div class="l">${l}</div><div class="s">${s}</div>`; stats.push(n);
+    });
+    // E: board + tiebreak
+    board = WY.el('div', { class: 'board wy-panel' }, stage); board.style.zIndex = 10;
+    board.innerHTML = NJ.map((nm, i) => `<div class="brow"><div class="nm">${WY.crest(i, 50)}${nm}</div><div class="tr"><div class="fill" style="background:${i === 4 ? 'linear-gradient(90deg,#d9dbd2,#ffffff)' : WY.NATIONS[i].fill}"></div></div><div class="v">0</div></div>`).join('');
+    rows = [...board.querySelectorAll('.brow')];
+    tie = WY.el('div', { class: 'tie wy-panel' }, stage); tie.style.zIndex = 10;
+    tie.innerHTML = `<h4>同数のとき:領土を持った時間<small>単位:ターン · 暫定のルール</small></h4><div class="trow"><span>${WY.crest(4, 44)} エンバー</span><span class="v" id="te">0</span></div><div class="trow"><span>${WY.crest(0, 44)} アステル</span><span class="v" id="ta">0</span></div><div class="win">勝者:エンバー<small>同数10から、タイブレークで決定</small></div>`;
+    tie.querySelectorAll('.trow span:first-child').forEach(s => WY.css(s, { display: 'flex', alignItems: 'center', gap: '12px' }));
+    notes.e = WY.el('div', { class: 'note', text: 'このシーズンのボットは、衝突149回・砦の奪取2回。包囲と前哨は0回でした。' }, stage); WY.css(notes.e, { top: '930px', zIndex: 10 });
+    // F: wallets
+    for (let i = 0; i < 3; i++) {
+      const n = WY.el('div', { class: 'wal wy-panel' }, stage); WY.css(n, { left: 170 + i * 540 + 'px', zIndex: 10 });
+      n.innerHTML = `<div class="h">${WY.crest(i, 44)}${NJ[i]}</div><div class="s" style="margin-top:4px">有料の試験ウォレット</div><div class="flow"><span class="a">25</span> → <span class="b">20</span></div><div class="s">払った25のうち、20が戻った</div>`; wals.push(n);
+    }
+    notes.f = WY.el('div', { class: 'note', html: 'プール 75 = 賞金 60 + 運営 15(テスト単位)。各ウォレットに 20 を返金し、15 は運営へ。<br>すべて価値のないテスト用トークンです。' }, stage); WY.css(notes.f, { top: '760px', zIndex: 10 });
+    honest = WY.el('div', { class: 'honest wy-panel' }, stage); honest.style.zIndex = 12;
+    honest.innerHTML = `<div class="t">これはルールBotによる<br>ローカル実行です。</div><div class="s">人はプレイしていません。同数のときの規則は暫定です。<br>公開シーズンは、まだ走らせていません。</div>`;
+    bCode = WYKit.status(stage, 'code', 'ja', { x: 80, y: 60, size: 24, text: 'コード上のプリセットとルール' }); bCode.node.style.zIndex = 30;
+    bLocal = WYKit.status(stage, 'local', 'ja', { x: 80, y: 60, size: 24 }); bLocal.node.style.zIndex = 30;
+    bTest = WYKit.status(stage, 'test', 'ja', { x: 470, y: 60, size: 24 }); bTest.node.style.zIndex = 30;
+    flash = WYKit.flash(stage, { color: '#fff1d6' });
+    overlay = FX.overlay(stage, { grain: false });
+    end = WYKit.endCard(stage, { lang: 'ja', line: '14日間で、ひとつの地図を奪い合う。' });
+  },
+
+  render(t) {
+    const E = WY.ease;
+    const cam = { x: WY.drift(t, 1, 80, 0.05), y: 30 + WY.drift(t, 2, 60, 0.05), zoom: 0.55 + 0.002 * t, W, H };
+    mctx.clearRect(0, 0, W, H); FX.table(mctx, W, H); mc.draw(mctx, cam);
+    shade.style.opacity = 0.75 + 0.25 * WY.seg(t, 1.5, 3);
+    dust.render(t, 0.8);
+    g.clearRect(0, 0, W, H); g.fillStyle = 'rgba(0,0,0,0.01)'; g.fillRect(0, 0, 2, 2);
+
+    // A: title + days
+    T.kick.render(t, 0.4, S_B - 0.4); T.title.render(t, 0.6, S_B - 0.35);
+    days.forEach((d, i) => { const k = FX.show(d, t, 1.6 + i * 0.12, S_B - 0.3 + i * 0.02, { dy: 40, s0: 0.8, blur: 0 }); });
+    // B: timeline
+    T.b.render(t, S_B + 0.3, S_C - 0.35);
+    const tk = WY.env(t, S_B + 0.2, S_C - 0.3, 0.5, 0.4);
+    if (tk > 0) {
+      const x0 = 160, x1 = 1760, y = 620, fill = WY.seg(t, S_B + 0.6, S_B + 4.5, E.inOutCubic), xc = x0 + (x1 - x0) * (1512 / 2016);
+      g.save(); g.globalAlpha = tk;
+      g.fillStyle = 'rgba(255,255,255,.08)'; FX.rr(g, x0, y - 14, x1 - x0, 28, 14); g.fill();
+      const gr = g.createLinearGradient(x0, 0, x1, 0); gr.addColorStop(0, '#c9a24a'); gr.addColorStop(1, '#ffd24d');
+      g.fillStyle = gr; FX.rr(g, x0, y - 14, Math.max(28, (x1 - x0) * fill), 28, 14); g.fill();
+      for (let d = 0; d <= 14; d++) { const x = x0 + ((x1 - x0) * d) / 14; g.fillStyle = 'rgba(255,250,240,.55)'; g.fillRect(x - 1.5, y + 22, 3, d % 7 === 0 ? 26 : 14); if (d > 0) { g.font = '500 20px "Noto Sans JP"'; g.textAlign = 'center'; g.fillText(`${d}日`, x - (x1 - x0) / 28, y + 70); } }
+      // join-close marker
+      const mk = WY.seg(t, S_B + 2.6, S_B + 3.2, E.outBack);
+      g.globalAlpha = tk * Math.min(1, mk); g.strokeStyle = '#ffd24d'; g.lineWidth = 4; g.beginPath(); g.moveTo(xc, y - 120 + (1 - mk) * 40); g.lineTo(xc, y + 60); g.stroke();
+      g.fillStyle = 'rgba(8,16,12,.6)'; g.fillRect(xc, y - 14, x1 - xc, 28); // after the close: no new joins
+      g.restore();
+    }
+    tls.forEach((n, i) => FX.show(n, t, S_B + (i < 2 ? 0.5 : 2.8), S_C - 0.35, { dy: 12 }));
+    FX.show(notes.b, t, S_B + 3.4, S_C - 0.35, { dy: 10 });
+    // C: rules
+    T.c.render(t, S_C + 0.2, S_D - 0.35);
+    rules.forEach((r, i) => FX.show(r, t, S_C + 0.6 + i * 1.2, S_D - 0.35, { dx: -60, dy: 0 }));
+    // D: stats
+    T.d.render(t, S_D + 0.2, S_E - 0.35); T.d2.render(t, S_D + 0.8, S_E - 0.35);
+    stats.forEach((n, i) => {
+      FX.show(n, t, S_D + 0.8 + i * 0.6, S_E - 0.35, { dy: 50, s0: 0.92 });
+      const v = n.querySelector('.v'), raw = v.dataset.v;
+      if (/^[\d,]+$/.test(raw)) { const target = +raw.replace(/,/g, ''); v.textContent = WY.count(Math.round(target * WY.seg(t, S_D + 0.9 + i * 0.6, S_D + 2.6 + i * 0.6, E.outCubic))); }
+      else v.style.color = t > S_D + 3.4 ? '#8fe39b' : 'rgba(143,227,155,.0)';
+    });
+    // E: the tally race
+    T.e.render(t, S_E + 0.2, S_F - 0.35);
+    FX.show(board, t, S_E + 0.2, S_F - 0.35, { dx: -40, dy: 0 });
+    rows.forEach((r, i) => {
+      const k = WY.seg(t, S_E + 0.8 + i * 0.08, S_E + 3.6 + (KEEPS[i] - 7) * 0.25, E.outCubic);
+      const val = KEEPS[i] * k;
+      r.querySelector('.fill').style.width = (val / 10) * 100 + '%';
+      r.querySelector('.v').textContent = Math.round(val);
+      const tied = (i === 0 || i === 4) && t > S_E + 4.2;
+      const winner = i === 4 && t > T_TIE + 2.6;
+      r.style.background = winner ? 'rgba(255,210,77,.16)' : tied ? `rgba(255,210,77,${0.06 + 0.05 * Math.sin(t * 6)})` : 'transparent';
+      r.style.boxShadow = winner ? 'inset 0 0 0 2px #ffd24d' : tied ? 'inset 0 0 0 1.5px rgba(255,210,77,.5)' : 'none';
+      r.style.opacity = t > S_E + 4.2 && !(i === 0 || i === 4) ? 0.55 : 1;
+    });
+    FX.show(tie, t, T_TIE, S_F - 0.35, { dx: 60, dy: 0 });
+    const tt = WY.seg(t, T_TIE + 0.4, T_TIE + 2.2, E.outCubic);
+    WY.$('#te').textContent = WY.count(Math.round(19968 * tt)); WY.$('#ta').textContent = WY.count(Math.round(19936 * tt));
+    const win = tie.querySelector('.win'); FX.show(win, t, T_TIE + 2.6, S_F - 0.35, { dy: 14, s0: 0.9, blur: 0 });
+    FX.show(notes.e, t, S_E + 4.4, S_F - 0.35, { dy: 8 });
+    // Ember character pops in beside the winner
+    const ea = WY.env(t, T_TIE + 2.8, S_F - 0.35, 0.5, 0.4);
+    if (ea > 0 && emb.complete) { g.globalAlpha = ea; const f = Math.floor(t * 6) % 4; WY.drawFrame(g, emb, f, 288, 360, 1500, 700 + (1 - ea) * 30, 288, 360, 4); g.globalAlpha = 1; }
+    flash.render(t, T_TIE + 2.6, 0.4, 0.35);
+    // F: refund
+    T.f.render(t, S_F + 0.2, S_G - 0.35);
+    wals.forEach((n, i) => FX.show(n, t, S_F + 1.0 + i * 0.4, S_G - 0.35, { dy: 40, s0: 0.95 }));
+    FX.show(notes.f, t, S_F + 2.4, S_G - 0.35, { dy: 10 });
+    // G: honesty
+    FX.show(honest, t, S_G + 0.2, S_END - 0.3, { dy: 30, s0: 0.97 });
+    // badges
+    bCode.render(t, S_B + 0.3, S_D - 0.3);
+    bLocal.render(t, S_D + 0.2, S_END - 0.3);
+    bTest.render(t, S_D + 0.6, S_G - 0.3);
+    overlay.render(t);
+    end.render(t - S_END);
+  },
+
+  audio(A) {
+    A.music({ style: 'epic', bpm: 90, key: 'D', minor: true, sections: [[0, 0.4], [S_B, 0.55], [S_C, 0.6], [S_D, 0.7], [S_E, 0.85], [T_TIE, 1], [S_F, 0.5], [S_G, 0.35]], end: S_END, outro: 'hit' });
+    A.hit(0.6, { gain: 0.8 }); A.whoosh(0.3);
+    for (let i = 0; i < 14; i++) A.tick(1.6 + i * 0.12, { gain: 0.5, pitch: 1 + i * 0.04 });
+    A.whoosh(S_B - 0.3); A.riser(S_B + 0.6, S_B + 4.5, { gain: 0.4 }); A.drum(S_B + 2.8, { gain: 0.8 });
+    A.whoosh(S_C - 0.3, { dir: 'down' }); for (let i = 0; i < 3; i++) A.drum(S_C + 0.6 + i * 1.2, { gain: 0.7, pitch: 1 + i * 0.1 });
+    A.whoosh(S_D - 0.3); for (let i = 0; i < 4; i++) A.pop(S_D + 0.8 + i * 0.6); A.ok(S_D + 3.4);
+    A.whoosh(S_E - 0.3); A.riser(S_E + 0.8, S_E + 4.2, { gain: 0.5 }); A.hit(S_E + 4.2, { gain: 0.7 });
+    A.ticks(T_TIE + 0.4, T_TIE + 2.2, 0.08, { gain: 0.3 }); A.hit(T_TIE + 2.6, { gain: 1 }); A.chime(T_TIE + 2.65, { note: 'D5' }); A.sparkle(T_TIE + 2.8);
+    A.whoosh(S_F - 0.3, { dir: 'down' }); for (let i = 0; i < 3; i++) A.coin(S_F + 1.1 + i * 0.4);
+    A.whoosh(S_G - 0.3, { dir: 'down' });
+    A.whoosh(S_END - 0.45);
+  },
+});
+</script></body></html>

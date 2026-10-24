@@ -1,0 +1,256 @@
+<!doctype html><html><head><meta charset="utf-8"><title>24 M1 in numbers</title>
+<link rel="stylesheet" href="../../lib/wy.css">
+<script src="../../lib/wy.js"></script><script src="../../lib/wy-audio.js"></script><script src="../../lib/wy-kit.js"></script>
+<script src="wyx.js"></script>
+<style>
+  .grp { position: absolute; left: 120px; top: 290px; width: 860px; z-index: 6; }
+  .kk { font: 700 28px var(--sans-jp); letter-spacing: .3em; color: #f0d48a; display: flex; align-items: center; gap: 16px; }
+  .kk i { display: inline-block; width: 46px; height: 2px; background: #c9a24a; }
+  .nm { font: 800 228px/1 Inter; color: #fffaf0; font-variant-numeric: tabular-nums; letter-spacing: -.02em; margin-top: 18px; white-space: nowrap; text-shadow: 0 10px 50px rgba(0,0,0,.5); }
+  .un { font: 700 54px/1.25 var(--sans-jp); color: #fffaf0; margin-top: 10px; }
+  .sb { font: 500 40px/1.5 var(--sans-jp); color: rgba(255,250,240,.82); margin-top: 26px; }
+  .sb b { color: #3fdc93; font-weight: 700; }
+  .nt { position: absolute; left: 120px; top: 862px; font: 500 28px var(--sans-jp); color: #ffd9a0; z-index: 6; display: flex; align-items: center; gap: 12px; }
+  .nt::before { content: ''; width: 10px; height: 10px; border-radius: 50%; background: #ffb057; }
+</style>
+</head><body><script>
+let bg, cv, g, ov, badge, end, flash;
+let intro_wm, intro, grps = [], notes = [], fin = {};
+// [start, end] of each beat
+const B = [[4.2, 10.7], [10.7, 17.0], [17.0, 23.0], [23.0, 29.0], [29.0, 34.6], [34.6, 41.4]];
+const PROF = ['#c9a24a', '#e6d9b8', '#7fb7a4', '#a9b8ad', '#d88f5a', '#8fa8c8', '#c7c08a', '#9c8bbf', '#6fae7c', '#e0b070', '#b0c4b1', '#e27b7b', '#ff5a64'];
+
+WY.scene({
+  width: 1920, height: 1080, duration: 46, fps: 30,
+  setup(stage) {
+    bg = X.bg(stage, { tint: '#14291f', hex: 0.045, hexSize: 60 });
+    cv = WY.canvas(stage, 1920, 1080); g = cv.getContext('2d', { willReadFrequently: true }); cv.style.zIndex = 3;
+
+    intro_wm = X.box(stage, { left: '0px', top: '230px', width: '1920px', textAlign: 'center', font: "900 640px/1 Cinzel", color: 'rgba(240,212,138,.06)', zIndex: 2 }, 'M1');
+    intro = {
+      k: X.lines(stage, [{ t: 'M1 終了シーズン  m1-exit', css: { font: '700 30px var(--sans-jp)', letterSpacing: '.28em', color: '#f0d48a' } }], { y: 300 }),
+      t: X.lines(stage, [{ t: '数字で見る、M1シーズン', css: { font: '900 116px/1.2 var(--serif-jp)', color: '#fffaf0' } }], { y: 380, stagger: 0.05 }),
+      s: X.lines(stage, [{ t: '2026年9月30日 → 10月1日・ローカルのテスト用チェーン', css: { font: '500 38px var(--sans-jp)', color: 'rgba(255,250,240,.75)' } }], { y: 580, stagger: 0.012 }),
+    };
+    Object.values(intro).forEach(l => (l.node.style.zIndex = 6));
+
+    const mk = (kk, un, sb) => { const n = X.box(stage, {}, `<div class="kk"><i></i>${kk}</div><div class="nm">0</div><div class="un">${un}</div><div class="sb">${sb}</div>`); n.className = 'grp'; return { n, nm: n.querySelector('.nm'), parts: [...n.children] }; };
+    grps = [
+      mk('参加者', '体のスクリプトBot', '13種類の行動。<br>不正やスパムをする型も。'),
+      mk('シーズンの長さ', 'ターン(7ゲーム日)', '+ 締めの26ターン<br>実時間 8時間39分・20倍速'),
+      mk('進軍', '件の進軍を清算', '止まったままの進軍 <b>0</b>'),
+      mk('障害テスト', '回の強制終了(kill -9)', 'すべて再起動。クラッシュ <b>0</b>'),
+      mk('観戦の負荷', '体の模擬視聴者', '346万リクエスト・エラー <b>0</b>'),
+    ];
+    const nt = s => { const n = X.box(stage, {}, s); n.className = 'nt'; return n; };
+    notes = [nt('人のプレイヤーではありません'), null, null, null, nt('負荷生成ツールによる模擬。人やブラウザではありません')];
+
+    // final beat: two counters
+    fin.k = X.lines(stage, [{ t: '検証', css: { font: '700 28px var(--sans-jp)', letterSpacing: '.3em', color: '#f0d48a' } }], { y: 210 });
+    fin.a = X.box(stage, { left: '160px', top: '300px', width: '780px', textAlign: 'center', zIndex: 6 }, `<div class="nm" style="font-size:168px">0</div><div class="un" style="font-size:46px">件の取引を再生</div><div style="display:inline-block;margin-top:22px;font:900 54px Cinzel;color:#3fdc93;border:4px solid #3fdc93;border-radius:12px;padding:2px 26px;letter-spacing:.08em">PASS</div>`);
+    fin.b = X.box(stage, { left: '980px', top: '300px', width: '780px', textAlign: 'center', zIndex: 6 }, `<div class="nm" style="font-size:168px">0<span style="color:rgba(255,250,240,.4)">/30</span></div><div class="un" style="font-size:46px">種類の改ざんを、すべて検出</div><div style="display:inline-block;margin-top:22px;font:900 54px Cinzel;color:#ff6b73;border:4px solid #ff6b73;border-radius:12px;padding:2px 26px;letter-spacing:.08em">DETECTED</div>`);
+    fin.an = fin.a.querySelector('.nm'); fin.bn = fin.b.querySelector('.nm');
+    fin.n = X.lines(stage, [{ t: '自前の検証器です。第三者の監査ではありません。', css: { font: '500 36px var(--sans-jp)', color: 'rgba(255,250,240,.78)' } }], { y: 800, stagger: 0.015 });
+    fin.n.node.style.zIndex = 6; fin.k.node.style.zIndex = 6;
+
+    badge = WYKit.status(stage, 'local', 'ja', { x: 80, y: 966 }); badge.node.style.zIndex = 20;
+    flash = WYKit.flash(stage, { color: '#fff', z: 65 });
+    ov = X.overlay(stage);
+    end = WYKit.endCard(stage, { lang: 'ja', line: 'だれでも、シーズンを再生できる。' });
+  },
+
+  render(t) {
+    const E = WY.ease;
+    const bi = B.findIndex(([a, b]) => t >= a && t < b);
+    bg.render(t, { gx: bi >= 0 && bi < 5 ? 0.7 : 0.5, gy: 0.5, hexA: 0.045, shift: t * 20 });
+    g.clearRect(0, 0, 1920, 1080);
+
+    // intro
+    intro.k.render(t, 0.1, 3.9); intro.t.render(t, 0.25, 3.9); intro_wm.style.opacity = WY.env(t, -1, 4.0, 0.5, 0.6); intro_wm.style.transform = `scale(${1.08 - t * 0.02})`; intro.s.render(t, 1.3, 3.95);
+
+    // counters
+    const VALS = [[1000, 0], [1008, 0], [1712, 0], [43, 0], [5000, 0]];
+    grps.forEach((G, i) => {
+      const [a, b] = B[i];
+      const vis = t > a - 0.1 && t < b + 0.1;
+      G.n.style.display = vis ? '' : 'none'; if (!vis) return;
+      G.parts.forEach((p, j) => {
+        const k = WY.env(t, a + 0.1 + j * 0.16, b - 0.05 - (3 - j) * 0.04, 0.55, 0.35, E.outCubic);
+        p.style.opacity = k; p.style.transform = `translateX(${(1 - k) * -50}px)`; p.style.filter = k < 0.99 ? `blur(${(1 - k) * 8}px)` : 'none';
+      });
+      const kc = WY.seg(t, a + 0.3, a + 2.4, E.outQuart);
+      G.nm.textContent = X.num(Math.round(VALS[i][0] * kc));
+    });
+    notes.forEach((n, i) => { if (n) X.show(n, t, B[i][0] + 1.6, B[i][1] - 0.1, { dy: 12 }); });
+    const S = (i) => WY.seg(t, B[i][0], B[i][1]);
+    const A = (i) => WY.env(t, B[i][0], B[i][1], 0.5, 0.4);
+
+    // ---- visual 1: 1,000 bots
+    if (A(0) > 0) {
+      const a0 = B[0][0]; g.save(); g.globalAlpha = A(0);
+      const cols = 40, rows = 25, x0 = 1040, y0 = 250, dx = 20.5, dy = 24;
+      const shown = Math.round(1000 * WY.seg(t, a0 + 0.3, a0 + 2.4, E.outQuart));
+      for (let i = 0; i < 1000; i++) {
+        const r = WY.rng(i * 31 + 7); const p = Math.floor(r() * 13);
+        const c = i % cols, rr = Math.floor(i / cols);
+        if (i >= shown) continue;
+        const ph = r() * 6.28; const life = 0.6 + 0.4 * Math.sin(t * 2 + ph);
+        const x = x0 + c * dx + Math.sin(t * 1.3 + ph) * 2, y = y0 + rr * dy + Math.cos(t * 1.1 + ph) * 2;
+        g.fillStyle = PROF[p]; g.globalAlpha = A(0) * (0.55 + 0.45 * life);
+        g.beginPath(); g.arc(x, y, p >= 11 ? 6 : 5, 0, Math.PI * 2); g.fill();
+      }
+      // legend
+      g.globalAlpha = A(0) * WY.seg(t, a0 + 2.6, a0 + 3.2);
+      g.font = '500 24px "Noto Sans JP"'; g.fillStyle = 'rgba(255,250,240,.7)'; g.textBaseline = 'middle';
+      PROF.forEach((c, i) => { g.fillStyle = c; g.beginPath(); g.arc(1046 + i * 62, 892, 9, 0, 7); g.fill(); });
+      g.fillStyle = 'rgba(255,250,240,.7)'; g.fillText('13種類の行動プロファイル(色分けは図解)', 1036, 940);
+      g.restore();
+    }
+
+    // ---- visual 2: the season ring
+    if (A(1) > 0) {
+      const a1 = B[1][0]; g.save(); g.globalAlpha = A(1);
+      const cx = 1420, cy = 540, R0 = 300;
+      const k = WY.seg(t, a1 + 0.3, a1 + 2.4, E.outQuart);
+      const kd = WY.seg(t, a1 + 2.6, a1 + 3.6, E.outCubic);
+      const rot = -Math.PI / 2 + t * 0.03;
+      for (let i = 0; i < 1008; i++) {
+        const f = i / 1034; const on = i / 1008 <= k;
+        const an = rot + f * Math.PI * 2; const day = Math.floor(i / 144);
+        const len = i % 144 === 0 ? 46 : i % 6 === 0 ? 24 : 14;
+        g.strokeStyle = on ? (day % 2 ? '#f0d48a' : '#c9a24a') : 'rgba(255,250,240,.08)'; g.lineWidth = i % 144 === 0 ? 3 : 1.4;
+        g.beginPath(); g.moveTo(cx + Math.cos(an) * R0, cy + Math.sin(an) * R0); g.lineTo(cx + Math.cos(an) * (R0 - len), cy + Math.sin(an) * (R0 - len)); g.stroke();
+      }
+      for (let i = 1008; i < 1034; i++) {
+        const an = rot + (i / 1034) * Math.PI * 2; const on = (i - 1008) / 26 <= kd && kd > 0;
+        g.strokeStyle = on ? '#ff8a5a' : 'rgba(255,250,240,.06)'; g.lineWidth = 2.4;
+        g.beginPath(); g.moveTo(cx + Math.cos(an) * (R0 + 8), cy + Math.sin(an) * (R0 + 8)); g.lineTo(cx + Math.cos(an) * (R0 + 34), cy + Math.sin(an) * (R0 + 34)); g.stroke();
+      }
+      // day labels
+      g.font = '700 26px "Noto Sans JP"'; g.textAlign = 'center'; g.textBaseline = 'middle';
+      for (let d = 0; d < 7; d++) { const an = rot + ((d * 144 + 72) / 1034) * Math.PI * 2; const on = (d * 144 + 72) / 1008 <= k; g.fillStyle = on ? '#fffaf0' : 'rgba(255,250,240,.2)'; g.fillText(`${d + 1}日目`, cx + Math.cos(an) * (R0 - 86), cy + Math.sin(an) * (R0 - 86)); }
+      const anEnd = rot + (1021 / 1034) * Math.PI * 2; g.globalAlpha = A(1) * kd; g.fillStyle = '#ff9a6a'; g.font = '700 24px "Noto Sans JP"'; g.fillText('締め 26', cx + Math.cos(anEnd) * (R0 + 72), cy + Math.sin(anEnd) * (R0 + 72));
+      // centre
+      g.globalAlpha = A(1); g.fillStyle = '#fffaf0'; g.font = '800 64px Inter'; g.fillText('20×', cx, cy - 24); g.font = '500 28px "Noto Sans JP"'; g.fillStyle = 'rgba(255,250,240,.7)'; g.fillText('1ターン = 10分', cx, cy + 34);
+      // sweep hand
+      const ah = rot + k * (1008 / 1034) * Math.PI * 2 + kd * (26 / 1034) * Math.PI * 2;
+      g.strokeStyle = 'rgba(255,210,77,.8)'; g.lineWidth = 3; g.beginPath(); g.moveTo(cx + Math.cos(ah) * 110, cy + Math.sin(ah) * 110); g.lineTo(cx + Math.cos(ah) * (R0 + 4), cy + Math.sin(ah) * (R0 + 4)); g.stroke();
+      g.restore(); g.textAlign = 'left';
+    }
+
+    // ---- visual 3: marches settled
+    if (A(2) > 0) {
+      const a2 = B[2][0]; g.save(); g.globalAlpha = A(2);
+      const box = { x: 1010, y: 200, w: 830, h: 700 };
+      // node field
+      const NN = 46; const nodes = [];
+      for (let i = 0; i < NN; i++) { const r = WY.rng(900 + i); nodes.push([box.x + 30 + r() * (box.w - 60), box.y + 30 + r() * (box.h - 60)]); }
+      g.fillStyle = 'rgba(240,212,138,.35)'; nodes.forEach(([x, y]) => { g.beginPath(); g.arc(x, y, 5, 0, 7); g.fill(); });
+      const k = WY.seg(t, a2 + 0.3, a2 + 4.8);
+      const M = 140;
+      for (let i = 0; i < M; i++) {
+        const r = WY.rng(4000 + i); const A0 = nodes[Math.floor(r() * NN)], B0 = nodes[Math.floor(r() * NN)]; if (A0 === B0) continue;
+        const st = (i / M) * 0.8, du = 0.12 + r() * 0.06; const p = WY.clamp((k - st) / du);
+        if (p <= 0) continue;
+        const mx = (A0[0] + B0[0]) / 2, my = (A0[1] + B0[1]) / 2 - Math.hypot(B0[0] - A0[0], B0[1] - A0[1]) * 0.25;
+        const pt = u => [(1 - u) * (1 - u) * A0[0] + 2 * (1 - u) * u * mx + u * u * B0[0], (1 - u) * (1 - u) * A0[1] + 2 * (1 - u) * u * my + u * u * B0[1]];
+        const done = p >= 1; const fade = done ? Math.max(0.12, 1 - (k - st - du) * 4) : 1;
+        g.globalAlpha = A(2) * fade; g.strokeStyle = done ? '#3fdc93' : '#ffd24d'; g.lineWidth = 2; g.setLineDash([7, 6]);
+        g.beginPath(); for (let s = 0; s <= 24 * p; s++) { const [x, y] = pt(s / 24); s ? g.lineTo(x, y) : g.moveTo(x, y); } g.stroke(); g.setLineDash([]);
+        if (done) { g.fillStyle = '#3fdc93'; g.beginPath(); g.arc(B0[0], B0[1], 7, 0, 7); g.fill(); }
+        else { const [hx, hy] = pt(p); WYMapSeal(g, hx, hy, 9); }
+      }
+      g.restore();
+    }
+
+    // ---- visual 4: kill -9 timeline
+    if (A(3) > 0) {
+      const a3 = B[3][0]; g.save(); g.globalAlpha = A(3);
+      const x0 = 1010, x1 = 1840, y = 520, k = WY.seg(t, a3 + 0.3, a3 + 2.4, E.outQuart);
+      g.font = '600 22px "JetBrains Mono"'; g.fillStyle = 'rgba(255,250,240,.55)'; g.fillText('0:00', x0, y + 230); g.textAlign = 'right'; g.fillText('8:39', x1, y + 230); g.textAlign = 'left';
+      g.font = '500 24px "Noto Sans JP"'; g.fillText('シーズンの実時間', x0, y - 250);
+      // heartbeat line
+      g.strokeStyle = '#3fdc93'; g.lineWidth = 3; g.beginPath();
+      const kills = []; for (let i = 0; i < 43; i++) { const r = WY.rng(77 + i); kills.push((i + 0.2 + r() * 0.6) / 43); }
+      const xEnd = x0 + (x1 - x0) * k;
+      for (let x = x0; x <= xEnd; x += 2) {
+        const f = (x - x0) / (x1 - x0); let yy = y + Math.sin(x * 0.09 + t * 4) * 6;
+        for (const kf of kills) { const d = (f - kf) * (x1 - x0); if (d > -1 && d < 7) yy = y + 120 * WY.clamp(1 - Math.abs(d - 3) / 4); }
+        x === x0 ? g.moveTo(x, yy) : g.lineTo(x, yy);
+      }
+      g.stroke();
+      kills.forEach((kf, i) => {
+        if (kf > k) return; const x = x0 + (x1 - x0) * kf;
+        g.strokeStyle = 'rgba(255,90,100,.85)'; g.lineWidth = 2; g.beginPath(); g.moveTo(x, y - 170); g.lineTo(x, y - 40); g.stroke();
+        g.fillStyle = '#ff5a64'; g.beginPath(); g.arc(x, y - 170, 5, 0, 7); g.fill();
+        g.fillStyle = '#3fdc93'; g.beginPath(); g.arc(x + 9, y + 2, 4, 0, 7); g.fill();
+      });
+      g.font = '600 24px "JetBrains Mono"'; g.fillStyle = '#ff8a8f'; g.fillText('kill -9', x0, y - 200);
+      g.fillStyle = '#3fdc93'; g.font = '500 24px "Noto Sans JP"'; g.fillText('再起動', x0, y + 190);
+      g.restore();
+    }
+
+    // ---- visual 5: viewers -> herald
+    if (A(4) > 0) {
+      const a4 = B[4][0]; g.save(); g.globalAlpha = A(4);
+      const hx = 1420, hy = 540;
+      const k = WY.seg(t, a4 + 0.3, a4 + 2.4, E.outQuart);
+      const VN = 500, shown = Math.round(VN * k);
+      for (let i = 0; i < shown; i++) {
+        const r = WY.rng(5000 + i); const an = r() * Math.PI * 2, rad = 250 + r() * 170;
+        const x = hx + Math.cos(an) * rad * 1.05, y = hy + Math.sin(an) * rad * 0.95;
+        g.fillStyle = r() < 0.2 ? 'rgba(127,183,164,.85)' : 'rgba(240,212,138,.6)'; g.fillRect(x - 4, y - 3, 8, 6);
+        // request pulse
+        const ph = (t * (0.6 + r() * 0.8) + r()) % 1;
+        if (r() < 0.45) { const px = x + (hx - x) * ph, py = y + (hy - y) * ph; g.fillStyle = `rgba(255,236,190,${0.8 * (1 - ph)})`; g.beginPath(); g.arc(px, py, 2.2, 0, 7); g.fill(); }
+      }
+      // herald node
+      const pulse = 1 + 0.05 * Math.sin(t * 6);
+      g.fillStyle = '#12261f'; g.strokeStyle = '#c9a24a'; g.lineWidth = 4; g.beginPath(); g.arc(hx, hy, 92 * pulse, 0, 7); g.fill(); g.stroke();
+      g.fillStyle = '#fffaf0'; g.font = '700 30px "Noto Sans JP"'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('ヘラルド', hx, hy - 14); g.font = '500 20px "Noto Sans JP"'; g.fillStyle = 'rgba(255,250,240,.65)'; g.fillText('読み取り専用', hx, hy + 22);
+      g.textAlign = 'left';
+      g.font = '500 22px "Noto Sans JP"'; g.fillStyle = 'rgba(255,250,240,.55)'; g.fillText('■ 4,000 ポーリング   ■ 1,000 WebSocket(図は1/10)', 1080, 980 - 40);
+      g.restore();
+    }
+
+    // ---- final: verify
+    const a5 = B[5][0];
+    fin.k.render(t, a5 + 0.1, 40.8);
+    const ka = X.show(fin.a, t, a5 + 0.2, 41.2, { dy: 30 }), kb = X.show(fin.b, t, a5 + 0.5, 41.2, { dy: 30 });
+    if (ka > 0) {
+      const c = WY.seg(t, a5 + 0.4, a5 + 2.4, E.outQuart); fin.an.textContent = X.num(Math.round(144300 * c));
+      fin.a.lastElementChild.style.opacity = WY.seg(t, a5 + 2.4, a5 + 2.6); fin.a.lastElementChild.style.transform = `scale(${1.6 - 0.6 * WY.seg(t, a5 + 2.4, a5 + 2.7, E.outBack)})`;
+    }
+    if (kb > 0) {
+      const c = WY.seg(t, a5 + 0.8, a5 + 2.6, E.outQuart); fin.bn.innerHTML = Math.round(30 * c) + '<span style="color:rgba(255,250,240,.4)">/30</span>';
+      fin.b.lastElementChild.style.opacity = WY.seg(t, a5 + 2.8, a5 + 3.0); fin.b.lastElementChild.style.transform = `scale(${1.6 - 0.6 * WY.seg(t, a5 + 2.8, a5 + 3.1, E.outBack)})`;
+    }
+    fin.n.render(t, a5 + 1.2, 40.7);
+
+    flash.render(t, 4.2, 0.4, 0.12);
+    badge.render(t, 0.8, 41.2);
+    ov.render(t);
+    end.render(t - 41.4);
+  },
+
+  audio(A) {
+    A.music({ style: 'pulse', bpm: 120, key: 'A', minor: true, sections: [[0, 0.3], [4.2, 0.65], [10.7, 0.75], [17, 0.85], [23, 0.9], [29, 0.95], [34.6, 0.6]], end: 41.4, outro: 'hit' });
+    A.whoosh(0.2, { dur: 1.2 }); A.hit(0.7, { gain: 0.5 });
+    B.forEach(([a], i) => { A.whoosh(a - 0.35); A.hit(a, { gain: 0.55, bright: 0.7 }); });
+    A.ticks(4.5, 6.6, 0.07, { gain: 0.35, pitch: 1.4 });
+    A.ticks(11.0, 13.1, 0.07, { gain: 0.35, pitch: 1.2 }); A.chime(13.6, { note: 'E6', gain: 0.4 });
+    A.march(17.3, 21.5, { gain: 0.8, bpm: 240 }); A.ok(19.7, { gain: 0.5 });
+    for (let i = 0; i < 43; i++) A.glitch(23.3 + (i + 0.5) / 43 * 2.1 * 0.7, { dur: 0.04, gain: 0.25 });
+    A.ok(25.6, { gain: 0.5 });
+    A.riser(29.2, 31.4, { gain: 0.4 }); A.ok(31.5, { gain: 0.5 });
+    A.ticks(35.0, 37.0, 0.06, { gain: 0.35, pitch: 1.5 }); A.hit(37.0, { gain: 0.7 }); A.ok(37.05); A.bad(37.45, { gain: 0.4 });
+  },
+});
+
+// a small wax seal (local copy so wy-map.js is not needed)
+function WYMapSeal(ctx, x, y, r) {
+  ctx.save(); ctx.translate(x, y);
+  const gr = ctx.createRadialGradient(-r * 0.3, -r * 0.3, r * 0.1, 0, 0, r); gr.addColorStop(0, '#e0525c'); gr.addColorStop(1, '#a8222c');
+  ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(0, 0, r, 0, 7); ctx.fill(); ctx.restore();
+}
+</script></body></html>

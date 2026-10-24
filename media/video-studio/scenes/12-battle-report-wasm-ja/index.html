@@ -1,0 +1,196 @@
+<!doctype html><html><head><meta charset="utf-8"><title>12 battle report wasm (ja)</title>
+<link rel="stylesheet" href="../../lib/wy.css">
+<script src="../../lib/wy.js"></script><script src="../../lib/wy-audio.js"></script>
+<script src="../../lib/wy-map.js"></script><script src="../../lib/wy-kit.js"></script>
+<script src="fx.js"></script>
+<style>
+  .node { position: absolute; width: 440px; height: 196px; padding: 26px 30px; }
+  .node .a { font: 800 40px/1.2 var(--sans-jp); }
+  .node .b { font: 500 26px/1.4 var(--sans-jp); color: rgba(255,250,240,.75); margin-top: 8px; }
+  .node .c { font: 600 22px var(--mono); color: #f0d48a; margin-top: 14px; }
+  .node.hot { border-color: #ffd24d; box-shadow: 0 0 0 2px rgba(255,210,77,.4), 0 0 50px rgba(255,210,77,.25), 0 24px 60px rgba(0,0,0,.5); }
+  .elabel { position: absolute; font: 600 24px var(--sans-jp); color: #fffaf0; background: rgba(8,18,14,.85); padding: 6px 14px; border-radius: 8px; border: 1px solid rgba(240,212,138,.4); white-space: nowrap; }
+  .proof { position: absolute; left: 900px; top: 120px; width: 940px; height: 860px; padding: 38px 46px; }
+  .proof h3 { font: 700 40px var(--sans-jp); color: #2b2013; display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid rgba(80,60,30,.3); padding-bottom: 18px; }
+  .proof h3 small { font: 600 22px var(--sans-jp); color: #5b4a2e; border: 1.5px solid #8a7550; border-radius: 6px; padding: 4px 12px; }
+  .btn { display: inline-flex; align-items: center; gap: 12px; margin: 26px 0 10px; padding: 14px 26px; border-radius: 8px; border: 2px solid #3d5a46; font: 700 30px var(--sans-jp); color: #1d3a2c; background: #f4ecd6; box-shadow: 0 3px 0 rgba(0,0,0,.2); }
+  .step { display: flex; align-items: center; gap: 20px; height: 76px; border-bottom: 1px dashed rgba(80,60,30,.25); color: #2b2013; font: 500 30px var(--sans-jp); white-space: nowrap; }
+  .step .m { width: 172px; flex: none; white-space: nowrap; font: 800 28px var(--sans-jp); color: #8a7c62; display: flex; align-items: center; gap: 10px; }
+  .step .m i { width: 34px; height: 34px; border-radius: 50%; border: 3px solid #b9ab8c; display: inline-block; font-style: normal; position: relative; }
+  .step.ok .m { color: #1f7a45; }
+  .step.ok .m i { background: #1f7a45; border-color: #1f7a45; }
+  .step.ok .m i::after { content: ''; position: absolute; left: 9px; top: 3px; width: 9px; height: 17px; border: solid #fff; border-width: 0 4px 4px 0; transform: rotate(45deg); }
+  .step.run .m i { border-color: #c79a2e; border-top-color: transparent; }
+  .verdict { margin-top: 22px; padding: 18px 22px; border-radius: 8px; background: rgba(31,122,69,.14); border: 2px solid rgba(31,122,69,.6); color: #18512f; font: 700 30px/1.4 var(--sans-jp); display: flex; gap: 16px; align-items: center; }
+  .verdict b { flex: none; padding: 4px 14px; border-radius: 6px; background: #1f7a45; color: #fff; }
+  .stamp { position: absolute; left: 330px; top: 770px; width: 220px; height: 220px; border-radius: 50%; border: 10px solid #e0483a; color: #e0483a; display: grid; place-items: center; font: 900 74px var(--serif-jp); letter-spacing: -.04em; transform: rotate(-12deg); background: rgba(255,240,225,.06); text-shadow: 0 0 20px rgba(224,72,58,.4); }
+  .dig { position: absolute; left: 90px; top: 470px; width: 760px; padding: 22px 28px; font: 600 30px/1.8 var(--mono); }
+  .dig .l { font: 500 22px var(--sans-jp); color: rgba(255,250,240,.65); }
+  .honest { position: absolute; left: 240px; top: 250px; width: 1440px; padding: 56px 70px; text-align: center; }
+  .honest .t { font: 800 66px/1.35 var(--serif-jp); }
+  .honest .s { font: 500 32px/1.65 var(--sans-jp); color: rgba(255,250,240,.82); margin-top: 28px; }
+  .tag { position: absolute; font: 600 20px var(--sans-jp); color: rgba(255,250,240,.75); background: rgba(8,18,14,.8); padding: 6px 14px; border-radius: 8px; }
+</style>
+</head><body><script>
+const W = 1920, H = 1080;
+const S_B = 8.6, S_C = 17, S_E = 33.2, S_END = 40.6;
+const T_CLASH = 1.0, T_CLICK = S_C + 1.4;
+const STEPS = ['ルールがシーズンのものと同じ', '乱数がこのターンの公開乱数のもの', '衝突の入力がこの州とこのターンのもの', 'このブラウザで衝突を計算し直した', '結果の要約がチェーンの記録と一致', '到着した軍勢の結果がチェーンの記録と一致'];
+const STEP_AT = STEPS.map((_, i) => T_CLICK + 0.9 + i * 1.55);
+const T_MATCH = STEP_AT[5] + 1.0;
+const DIG = '9c41e07a52d3b8f6';
+let mapCv, mctx, fx, g, world, mc, overlay, dust, badge, end, flash, shot, shotCv, sctx;
+let A = null, B = null, T = {}, nodes = {}, labels = [], proof, steps = [], verdict, stamp, dig, honest, shade, tagShot, tagRe;
+
+WY.scene({
+  width: W, height: H, duration: 45, fps: 30,
+  async setup(stage) {
+    mapCv = WY.canvas(stage, W, H); mctx = mapCv.getContext('2d');
+    world = WYMap.build({ rings: 8, seed: 11 });
+    const k0 = world.keeps.find(k => k.owner === 2) || world.keeps[0];
+    B = k0; A = world.tiles.filter(t => t.owner === 0 && t.village).sort((a, b) => Math.hypot(a.x - B.x, a.y - B.y) - Math.hypot(b.x - B.x, b.y - B.y))[0];
+    mc = await FX.mapCache(world, { zoom: 1.2, opts: { wash: () => 0.24, fog: tl => (tl.ring >= 8 ? 0.85 : 0) } });
+    shade = WY.el('div', { class: 'wy-fill' }, stage); shade.style.background = 'rgba(6,13,10,.82)'; shade.style.zIndex = 2;
+    dust = WYKit.dust(stage, { count: 50, z: 3, seed: 4 });
+    // real client screenshot (report panel cropped)
+    shot = WY.img('../../assets/ui/report-verified-ja-1920x1080.png');
+    shotCv = WY.canvas(stage, 980, 572); sctx = shotCv.getContext('2d'); WY.css(shotCv, { left: '860px', top: '200px', zIndex: 8, borderRadius: '12px', boxShadow: '0 30px 80px rgba(0,0,0,.6)' });
+    tagShot = WY.el('div', { class: 'tag', text: '実際のWebクライアントの画面(テスト用の表示データ)' }, stage); WY.css(tagShot, { left: '860px', top: '790px', zIndex: 9 });
+    fx = WY.canvas(stage, W, H); fx.style.zIndex = 6; g = fx.getContext('2d');
+    const tx = (lines, o) => FX.text(stage, lines, o);
+    T.kick = tx(['BATTLE  REPORT  ×  WASM'], { x: 100, y: 330, w: 760, align: 'left', size: 26, weight: 700, font: 'Cinzel, serif', ls: '.3em', color: '#f0d48a' });
+    T.title = tx(['戦闘報告は、', '[[ブラウザで]]', '検算できる。'], { x: 100, y: 390, w: 760, align: 'left', size: 96, weight: 900, lh: 1.25 });
+    T.b = tx(['同じルールを、[[ブラウザの中で]]動かす。'], { y: 870, size: 72, weight: 800 });
+    T.c = tx(['公開された記録から、', '[[このブラウザで]]', '計算し直す。'], { x: 90, y: 150, w: 800, align: 'left', size: 70, weight: 900, lh: 1.3 });
+    // pipeline nodes
+    const mk = (id, x, y, a, b, c) => { const n = WY.el('div', { class: 'node wy-panel' }, stage); WY.css(n, { left: x + 'px', top: y + 'px', zIndex: 8 }); n.innerHTML = `<div class="a">${a}</div><div class="b">${b}</div><div class="c">${c}</div>`; nodes[id] = n; };
+    mk('kernel', 110, 380, 'ルールカーネル', 'Rust · no_std · 決定的', 'permutation-rules/');
+    mk('prog', 740, 150, 'Solana プログラム', '結果を決める、唯一の判定', 'permutation-frontier/');
+    mk('wasm', 740, 560, 'frontier-wasm', 'WebAssembly にビルド', 'frontier.wasm');
+    mk('browser', 1370, 560, 'あなたのブラウザ', '報告を計算し直す', 'resolve_clash()');
+    [['同じルール', 590, 300], ['同じルール', 590, 610], ['公開された記録', 1390, 360]].forEach(([s, x, y]) => { const l = WY.el('div', { class: 'elabel', text: s }, stage); WY.css(l, { left: x + 'px', top: y + 'px', zIndex: 9 }); labels.push(l); });
+    // proof panel (recreated)
+    proof = WY.el('div', { class: 'proof wy-paper' }, stage); proof.style.zIndex = 8;
+    proof.innerHTML = `<h3>検証の詳細<small>再現イメージ</small></h3><div class="btn">✓ このブラウザで確かめる</div>` + STEPS.map(s => `<div class="step"><div class="m"><i></i><span>未確認</span></div><div>${s}</div></div>`).join('') + `<div class="verdict"><b>一致</b><span>このブラウザで計算し直した結果は<br>チェーンの記録と同じです</span></div>`;
+    steps = [...proof.querySelectorAll('.step')];
+    verdict = proof.querySelector('.verdict');
+    stamp = WY.el('div', { class: 'stamp', text: '一致' }, stage); stamp.style.zIndex = 9;
+    dig = WY.el('div', { class: 'dig wy-panel' }, stage); dig.style.zIndex = 9;
+    dig.innerHTML = `<div class="l">チェーンに記録された結果の要約</div><div id="d1"></div><div class="l" style="margin-top:8px">このブラウザで計算した要約</div><div id="d2"></div><div class="l" style="margin-top:8px;font-size:18px">要約の値は例</div>`;
+    honest = WY.el('div', { class: 'honest wy-panel' }, stage); honest.style.zIndex = 12;
+    honest.innerHTML = `<div class="t">これは「計算し直し」です。<br>監査ではありません。</div><div class="s">own1 の録画では 6 項目がすべて通り、下の結果は「Match」。<br>ただし上部の「Unverified」表示は更新されず、古いまま残っていました。</div>`;
+    badge = WYKit.status(stage, 'local', 'ja', { x: 80, y: 60, size: 24 }); badge.node.style.zIndex = 30;
+    flash = WYKit.flash(stage, { color: '#fff1d6' });
+    overlay = FX.overlay(stage, { grain: false });
+    end = WYKit.endCard(stage, { lang: 'ja', line: '戦闘報告は、ブラウザで検算できる。' });
+  },
+
+  render(t) {
+    const E = WY.ease;
+    // ---------------- map (cold open, then a dim backdrop)
+    const kz = WY.seg(t, 0, S_B, E.outCubic);
+    const cam = { x: B.x + WY.lerp(-60, 260, kz) + WY.drift(t, 1, 30, 0.1), y: B.y + 20 + WY.drift(t, 4, 20, 0.1), zoom: WY.lerp(1.6, 1.2, kz) - t * 0.002, W, H };
+    if (t > T_CLASH && t < T_CLASH + 0.4) cam.x += (1 - (t - T_CLASH) / 0.4) * 10 * Math.sin(t * 90);
+    mctx.clearRect(0, 0, W, H); FX.table(mctx, W, H); mc.draw(mctx, cam);
+    shade.style.opacity = 0.35 + 0.5 * WY.seg(t, 1.8, 3) ;
+    dust.render(t, 0.6);
+    g.clearRect(0, 0, W, H); g.fillStyle = 'rgba(0,0,0,0.01)'; g.fillRect(0, 0, 2, 2);
+    if (t < 3.5) {
+      const a = 1 - WY.seg(t, 2.2, 3.2);
+      g.globalAlpha = a;
+      WYMap.drawMarch(g, cam, A, B, WY.seg(t, -0.6, T_CLASH, E.inOutSine), { color: WY.NATIONS[0].fill, width: 9 });
+      g.globalAlpha = 1;
+      if (t > T_CLASH) WYMap.drawClash(g, cam, B, WY.seg(t, T_CLASH, T_CLASH + 1.5), '#ffd24d');
+    }
+    flash.render(t, T_CLASH, 0.45, 0.6);
+
+    // ---------------- A: the real report + title
+    T.kick.render(t, 1.9, S_B - 0.4);
+    T.title.render(t, 2.1, S_B - 0.35);
+    const sk = FX.show(shotCv, t, 2.0, S_B - 0.3, { dy: 60, s0: 0.92, blur: 10 });
+    if (sk > 0 && shot.complete && shot.naturalWidth) {
+      // crop: the report panel above its verdict line (3840x2160 source)
+      const z = 1 + 0.07 * WY.seg(t, 2, S_B), sw = 1794 / z, sh = 1046 / z, sx = 1023 + (1794 - sw) * 0.25, sy = 202 + (1046 - sh) * 0.75;
+      sctx.drawImage(shot, sx, sy, sw, sh, 0, 0, 980, 572);
+      // highlight the "verify in this browser" button
+      const hk = WY.env(t, 4.6, S_B - 0.3, 0.4, 0.3);
+      if (hk > 0) {
+        const bx = (1077 - sx) * (980 / sw), by = (1176 - sy) * (572 / sh), bw = 420 * (980 / sw), bh = 64 * (572 / sh);
+        sctx.save(); sctx.globalAlpha = hk; sctx.strokeStyle = '#ffd24d'; sctx.lineWidth = 5; sctx.shadowColor = '#ffd24d'; sctx.shadowBlur = 14 + 8 * Math.sin(t * 5);
+        FX.rr(sctx, bx - 8, by - 8, bw + 16, bh + 16, 10); sctx.stroke(); sctx.restore();
+      }
+    }
+    FX.show(tagShot, t, 2.6, S_B - 0.3, { dy: 10 });
+
+    // ---------------- B: the pipeline
+    const ids = ['kernel', 'prog', 'wasm', 'browser'];
+    ids.forEach((id, i) => { FX.show(nodes[id], t, S_B + 0.3 + [0, 1.0, 1.6, 2.6][i], S_C - 0.4, { dy: 30, s0: 0.94 }); nodes[id].classList.toggle('hot', (id === 'wasm' && t > S_B + 1.6 && t < S_B + 3.2) || (id === 'browser' && t > S_B + 2.6)); });
+    labels.forEach((l, i) => FX.show(l, t, S_B + [1.3, 1.9, 3.4][i], S_C - 0.4, { dy: 10 }));
+    T.b.render(t, S_B + 3.0, S_C - 0.35);
+    const ek = WY.env(t, S_B + 0.6, S_C - 0.4, 0.5, 0.4);
+    if (ek > 0) {
+      const edges = [[[550, 478], [740, 248], S_B + 1.0], [[550, 478], [740, 658], S_B + 1.6], [[1180, 658], [1370, 658], S_B + 2.6], [[1180, 248], [1590, 560], S_B + 3.2]];
+      g.save(); g.globalAlpha = ek; g.lineCap = 'round';
+      edges.forEach(([[x1, y1], [x2, y2], at], i) => {
+        const k = WY.seg(t, at - 0.3, at + 0.4, E.outCubic); if (k <= 0) return;
+        const xm = WY.lerp(x1, x2, k), ym = WY.lerp(y1, y2, k);
+        g.strokeStyle = i === 3 ? 'rgba(240,212,138,.6)' : 'rgba(255,210,77,.85)'; g.lineWidth = 5; g.setLineDash(i === 3 ? [12, 10] : []);
+        g.beginPath(); g.moveTo(x1, y1); g.lineTo(xm, ym); g.stroke(); g.setLineDash([]);
+        // flowing packets
+        if (k >= 1) for (let p = 0; p < 4; p++) { const u = ((t * 0.6 + p / 4) % 1); g.fillStyle = '#fff3c4'; g.shadowColor = '#ffd24d'; g.shadowBlur = 12; g.beginPath(); g.arc(WY.lerp(x1, x2, u), WY.lerp(y1, y2, u), 6, 0, Math.PI * 2); g.fill(); g.shadowBlur = 0; }
+      });
+      g.restore();
+    }
+
+    // ---------------- C: verify step by step
+    T.c.render(t, S_C + 0.3, S_E - 0.35);
+    const pk = FX.show(proof, t, S_C + 0.1, S_E - 0.3, { dx: 60, dy: 0, s0: 0.97 });
+    const btn = proof.querySelector('.btn');
+    const press = t > T_CLICK && t < T_CLICK + 0.25;
+    btn.style.transform = press ? 'translateY(3px)' : 'none';
+    btn.style.boxShadow = press ? '0 0 0 4px rgba(255,210,77,.6)' : t > T_CLICK - 1 && t < T_CLICK ? `0 0 0 ${3 + 3 * Math.sin(t * 10)}px rgba(255,210,77,.6)` : '0 3px 0 rgba(0,0,0,.2)';
+    steps.forEach((s, i) => {
+      const at = STEP_AT[i];
+      s.classList.toggle('run', t > at - 0.7 && t < at);
+      s.classList.toggle('ok', t >= at);
+      s.querySelector('.m span').textContent = t >= at ? '済' : t > at - 0.7 ? '確認中' : '未確認';
+      const fl = t >= at && t < at + 0.5 ? 1 - (t - at) / 0.5 : 0;
+      s.style.background = fl > 0 ? `rgba(31,122,69,${0.18 * fl})` : 'transparent';
+      if (t > at - 0.7 && t < at) s.querySelector('.m i').style.transform = `rotate(${t * 720}deg)`; else s.querySelector('.m i').style.transform = 'none';
+    });
+    FX.show(verdict, t, T_MATCH, 1e9, { dy: 14, blur: 0 });
+    // digests (during steps 4–6)
+    FX.show(dig, t, STEP_AT[2] + 0.3, S_E - 0.4, { dy: 30 });
+    const d1 = WY.$('#d1'), d2 = WY.$('#d2');
+    const n1 = Math.floor(16 * WY.seg(t, STEP_AT[2] + 0.4, STEP_AT[3] - 0.2));
+    const n2 = Math.floor(16 * WY.seg(t, STEP_AT[3] - 0.5, STEP_AT[4] - 0.1));
+    const fmt = (s, n, match) => [...s].map((c, i) => (i < n ? `<span style="color:${match && t >= STEP_AT[4] ? '#8fe39b' : '#fffaf0'}">${c}</span>` : `<span style="color:rgba(255,255,255,.2)">${'0123456789abcdef'[(i * 7 + Math.floor(t * 20)) % 16]}</span>`)).map((h, i) => (i % 4 === 3 && i < 15 ? h + ' ' : h)).join('');
+    d1.innerHTML = fmt(DIG, n1, true); d2.innerHTML = fmt(DIG, n2, true);
+    // the 一致 stamp
+    const st = WY.seg(t, T_MATCH + 0.4, T_MATCH + 0.75, E.inQuad), so = WY.seg(t, S_E - 0.6, S_E - 0.2);
+    stamp.style.visibility = st > 0 && so < 1 ? 'visible' : 'hidden';
+    stamp.style.opacity = Math.min(1, st * 1.5) * (1 - so) * 0.92;
+    stamp.style.transform = `rotate(-12deg) scale(${2.4 - 1.4 * st})`;
+    // ---------------- E: honesty
+    shade.style.opacity = t > S_E - 0.4 ? 0.85 + 0.1 * WY.seg(t, S_E - 0.4, S_E) : shade.style.opacity;
+    FX.show(honest, t, S_E + 0.2, S_END - 0.3, { dy: 30, s0: 0.97 });
+    badge.render(t, 2.0, S_END - 0.3);
+    overlay.render(t);
+    end.render(t - S_END);
+  },
+
+  audio(A) {
+    A.music({ style: 'tech', bpm: 112, key: 'A', minor: true, sections: [[0, 0.35], [S_B, 0.55], [S_C, 0.7], [T_MATCH, 1], [S_E, 0.3]], end: S_END, outro: 'hit' });
+    A.whoosh(T_CLASH - 0.5); A.clash(T_CLASH); A.hit(T_CLASH, { gain: 0.8 });
+    A.whoosh(1.8, { dur: 0.5 }); A.pop(2.2);
+    A.whoosh(S_B - 0.4); [0, 1.0, 1.6, 2.6].forEach(d => A.pop(S_B + 0.3 + d, { gain: 0.6 }));
+    A.type(S_B + 0.5, S_B + 3.5, { cps: 16, gain: 0.3 });
+    A.whoosh(S_C - 0.4, { dir: 'down' }); A.click(T_CLICK, { gain: 1 });
+    STEP_AT.forEach((at, i) => { A.ticks(at - 0.7, at - 0.05, 0.12, { gain: 0.15, pitch: 1.5 }); A.ok(at, { gain: 0.7 }); });
+    A.type(STEP_AT[2] + 0.4, STEP_AT[4] - 0.1, { cps: 14, gain: 0.25 });
+    A.chime(T_MATCH, { note: 'E5', gain: 0.8 }); A.hit(T_MATCH + 0.75, { gain: 0.9 }); A.seal(T_MATCH + 0.75, { gain: 0.8 });
+    A.whoosh(S_E - 0.3, { dir: 'down' }); A.note(S_E + 0.4, 'A3', 2.5, { type: 'sine', gain: 0.6 });
+    A.whoosh(S_END - 0.45);
+  },
+});
+</script></body></html>

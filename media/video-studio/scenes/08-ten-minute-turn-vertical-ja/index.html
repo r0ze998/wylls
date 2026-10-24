@@ -1,0 +1,308 @@
+<!doctype html><html><head><meta charset="utf-8"><title>08 ten-minute turn (vertical, ja)</title>
+<link rel="stylesheet" href="../../lib/wy.css">
+<script src="../../lib/wy.js"></script><script src="../../lib/wy-audio.js"></script>
+<script src="../../lib/wy-map.js"></script><script src="../../lib/wy-kit.js"></script>
+<script src="fx.js"></script>
+<style>
+  .chip { position: absolute; left: 130px; width: 820px; height: 112px; display: flex; align-items: center; gap: 22px; padding: 0 30px 0 22px; }
+  .seal { width: 66px; height: 66px; border-radius: 50%; flex: none; display: grid; place-items: center; font: 900 34px/1 Cinzel, serif; color: #ffe2c8;
+          background: radial-gradient(circle at 35% 32%, #e0525c, #a8222c 70%); box-shadow: 0 4px 10px rgba(0,0,0,.5), inset 0 0 0 5px rgba(80,10,15,.35); }
+  .chip .who { flex: 1; display: flex; flex-direction: column; gap: 4px; }
+  .chip .nm { font: 700 40px/1.1 var(--sans-jp); }
+  .chip .what { font: 500 28px/1.1 var(--sans-jp); color: rgba(255,250,240,.7); }
+  .chip .tm { text-align: right; font: 700 50px/1 Inter, sans-serif; color: #ffd24d; letter-spacing: .02em; }
+  .chip .tm small { display: block; font: 500 24px/1.2 var(--sans-jp); color: rgba(255,250,240,.6); margin-bottom: 4px; }
+  .big2 { position: absolute; width: 450px; height: 196px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; }
+  .big2 .l1 { font: 500 34px/1 var(--sans-jp); color: rgba(255,250,240,.75); }
+  .big2 .l2 { font: 800 76px/1 Inter, sans-serif; color: #ffd24d; }
+  .res { position: absolute; left: 110px; width: 860px; height: 760px; padding: 34px 44px; }
+  .row { display: flex; align-items: center; height: 128px; border-bottom: 1px solid rgba(240,212,138,.18); }
+  .row:last-child { border-bottom: 0; }
+  .row img { width: 92px; height: 92px; margin-right: 28px; filter: drop-shadow(0 4px 6px rgba(0,0,0,.5)); }
+  .row .rn { flex: 1; font: 700 48px var(--sans-jp); }
+  .row .rv { font: 700 60px Inter, sans-serif; color: #fffaf0; font-variant-numeric: tabular-nums; min-width: 260px; text-align: right; }
+  .row .up { font: 700 30px Inter, sans-serif; color: #8fe39b; margin-left: 18px; width: 40px; }
+  .note { position: absolute; font: 500 32px/1.4 var(--sans-jp); color: rgba(255,250,240,.78); text-align: center; left: 90px; width: 900px; padding: 10px 20px; border-radius: 14px; background: rgba(6,14,11,.8); }
+</style>
+</head><body><script>
+const W = 1080, H = 1920;
+const NJ = ['アステル', 'ボレアリス', 'シンダー', 'ダンマール', 'エンバー', 'フィヨルダル'];
+// timeline
+const B1 = 0.6, B2 = 4.6, B3 = 15.2;           // bells
+const S_B = 4.6, S_C = 8.9, S_D = 15.2, S_E = 20.6, S_F = 25.6, S_END = 30.8;
+const ORDERS = [ // [nation, kind, seconds into the turn]
+  [0, '進軍の命令 · 封印', 42], [3, '偵察の命令', 137], [5, '進軍の命令 · 封印', 295], [1, '進軍の命令 · 封印', 450], [2, '偵察の命令', 588],
+];
+const C_SWEEP0 = 9.3; // turn sweep in section C runs C_SWEEP0 → B3
+const orderAt = s => C_SWEEP0 + (s / 600) * (B3 - C_SWEEP0);
+let mapCv, mctx, ui, g, world, overlay, dust, badge, end, flash, capIm;
+let mc, topShade, logo, T = {}, chips = [], pair = [], box, resPanel, resVals = [], notes = {}, targets = [], dim;
+
+WY.scene({
+  width: W, height: H, duration: 35, fps: 30,
+  async setup(stage) {
+    mapCv = WY.canvas(stage, W, H); mctx = mapCv.getContext('2d');
+    dim = WY.el('div', { class: 'wy-fill' }, stage);
+    dim.style.background = 'linear-gradient(180deg, rgba(6,14,11,.92) 0%, rgba(6,14,11,.55) 35%, rgba(6,14,11,.55) 70%, rgba(6,14,11,.95) 100%)';
+    dust = WYKit.dust(stage, { count: 70, z: 5, seed: 8 });
+    ui = WY.canvas(stage, W, H); ui.style.zIndex = 10; g = ui.getContext('2d');
+    world = WYMap.build({ rings: 7, seed: 11 });
+    mc = await FX.mapCache(world, { zoom: 0.9, opts: { wash: () => 0.24, fog: tl => (tl.ring >= 7 ? 0.9 : 0) } });
+    // pick five targets near the centre and a source for each
+    const cand = world.tiles.filter(t => (t.camp || t.keep || t.village) && t.terrain !== 'water' && t.ring >= 2 && t.ring <= 5).sort((a, b) => Math.hypot(a.x, a.y * 1.6) - Math.hypot(b.x, b.y * 1.6));
+    for (const tgt of cand) {
+      if (targets.length >= 5) break;
+      if (targets.some(o => Math.hypot(o.tile.x - tgt.x, o.tile.y - tgt.y) < 260)) continue;
+      const src = world.tiles.filter(s => s.village && s.owner >= 0 && s.owner !== tgt.owner && Math.hypot(s.x - tgt.x, s.y - tgt.y) > 250 && Math.hypot(s.x - tgt.x, s.y - tgt.y) < 560)[0];
+      if (src) targets.push({ tile: tgt, src, f: src.owner });
+    }
+    const tx = (lines, o) => FX.text(stage, lines, o);
+    T.hook = tx(['10分ごとに、', '[[世界が動く。]]'], { y: 1110, size: 118, weight: 900 });
+    T.b1 = tx(['1ターン = [[10分]]'], { y: 1150, size: 96, weight: 900 });
+    T.b2 = tx(['1日 = [[144]]ターン'], { y: 1290, size: 96, weight: 900 });
+    T.c = tx(['ターンのあいだに、', '全員の命令が届く。'], { y: 612, size: 76, weight: 800 });
+    T.d = tx(['ターンの終わりに、', '[[戦いも進軍も]]一斉に。'], { y: 300, size: 92, weight: 900 });
+    T.e = tx(['1分早く送っても、', '[[得はない。]]'], { y: 300, size: 96, weight: 900 });
+    T.f = tx(['経済は、[[止まらない。]]'], { y: 300, size: 88, weight: 900 });
+    T.f2 = tx(['資源はリアルタイムで', '増え続ける。'], { y: 440, size: 52, weight: 600, font: 'var(--sans-jp)', lh: 1.45, color: 'rgba(255,250,240,.85)' });
+    // order chips (section C)
+    ORDERS.forEach(([f, what, s], i) => {
+      const c = WY.el('div', { class: 'chip wy-panel' }, stage);
+      c.style.top = 850 + i * 128 + 'px'; c.style.zIndex = 15;
+      const mm = Math.floor(s / 60), ss = String(s % 60).padStart(2, '0');
+      c.innerHTML = `<div class="seal">W</div>${WY.crest(f, 70)}<div class="who"><div class="nm">${NJ[f]}</div><div class="what">${what}</div></div><div class="tm"><small>送信</small>${mm}:${ss}</div>`;
+      chips.push({ n: c, at: orderAt(s), i });
+    });
+    // section E: two sends, one turn
+    [['送信 0:30', '早い'], ['送信 9:30', '遅い']].forEach(([a, b], i) => {
+      const c = WY.el('div', { class: 'big2 wy-panel' }, stage);
+      WY.css(c, { left: (i ? 570 : 60) + 'px', top: '720px', zIndex: 15 });
+      c.innerHTML = `<div class="l1">${b}</div><div class="l2">${a.replace('送信 ', '')}</div><div class="l1" style="font-size:28px">に送信</div>`;
+      pair.push(c);
+    });
+    box = WY.el('div', { class: 'wy-panel' }, stage);
+    WY.css(box, { position: 'absolute', left: '110px', top: '1120px', width: '860px', height: '210px', zIndex: 15, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '10px', borderColor: 'rgba(255,210,77,.9)' });
+    box.innerHTML = `<div style="font:500 34px var(--sans-jp);color:rgba(255,250,240,.75)">どちらも</div><div style="font:800 56px/1.2 var(--sans-jp)">同じターンの終わりに<span style="color:#ffd24d">同時に</span>解決</div>`;
+    notes.e = WY.el('div', { class: 'note', html: '同じターンに届いた命令は、<br>州ごとにまとめて解決されます。' }, stage); WY.css(notes.e, { top: '1380px', zIndex: 16 });
+    // section F: resources
+    resPanel = WY.el('div', { class: 'res wy-panel' }, stage); WY.css(resPanel, { top: '650px', zIndex: 15 });
+    const RES = [['food', '食料', 300, 41], ['wood', '木材', 300, 30], ['stone', '石材', 200, 21], ['ore', '鉱石', 100, 15], ['gold', '金', 100, 15]];
+    resPanel.innerHTML = RES.map(([k, nm]) => `<div class="row"><img src="${WY.ART}ui/illustrated/${k}-128.webp"><div class="rn">${nm}</div><div class="rv">0</div><div class="up">▲</div></div>`).join('');
+    RES.forEach(([k], i) => WY.img(WY.ART + `ui/illustrated/${k}-128.webp`));
+    resVals = [...resPanel.querySelectorAll('.rv')].map((n, i) => ({ n, base: RES[i][2], rate: RES[i][3], up: resPanel.querySelectorAll('.up')[i] }));
+    notes.f = WY.el('div', { class: 'note', text: '数値は例(初期セットから増えていく様子)' }, stage); WY.css(notes.f, { top: '1440px', zIndex: 16 });
+    badge = WYKit.status(stage, 'local', 'ja', { x: 40, y: 232, size: 26 }); badge.node.style.zIndex = 30;
+    flash = WYKit.flash(stage, { color: '#fff4d0' });
+    overlay = FX.overlay(stage, { grain: false });
+    topShade = WY.el('div', { class: 'wy-abs' }, stage); WY.css(topShade, { width: W + 'px', height: '760px', zIndex: 12, background: 'linear-gradient(180deg, rgba(6,14,11,.9) 0%, rgba(6,14,11,.75) 45%, rgba(6,14,11,0) 100%)' });
+    logo = WY.el('div', { html: WY.logo(64) }, stage); WY.css(logo, { position: 'absolute', left: 0, width: W + 'px', top: '300px', display: 'flex', justifyContent: 'center', zIndex: 20 });
+    end = WYKit.endCard(stage, { lang: 'ja', line: '10分ごとに、世界が動く。' });
+  },
+
+  render(t) {
+    const E = WY.ease;
+    // ---------------- map background
+    const zoom = t < S_D ? 0.6 + 0.02 * Math.sin(t * 0.2) : WY.lerp(0.6, 0.86, WY.seg(t, S_D, S_D + 1.4, E.outExpo)) - WY.seg(t, S_E, S_E + 1, E.inOutCubic) * 0.2;
+    const cam = { x: WY.drift(t, 3, 40, 0.15), y: 40 + WY.drift(t, 7, 40, 0.15) - t * 3, zoom, W, H };
+    const shake = (B => (t > B && t < B + 0.5 ? (1 - (t - B) / 0.5) * 10 * Math.sin(t * 90) : 0));
+    cam.x += shake(S_D + 0.15);
+    mctx.clearRect(0, 0, W, H);
+    const mapIn = WY.seg(t, -0.5, 2.2);
+    mapCv.style.opacity = (0.35 + 0.65 * WY.seg(t, S_C - 0.3, S_C + 0.6)) * mapIn;
+    FX.table(mctx, W, H); mc.draw(mctx, cam);
+    // marches converge during C, clash simultaneously at the bell
+    if (t > S_C && t < S_E + 0.5) {
+      targets.forEach((m, i) => {
+        const k = WY.seg(t, S_C + 0.4 + i * 0.25, B3, E.inOutSine);
+        if (t < B3) WYMap.drawMarch(mctx, cam, m.src, m.tile, k, { sealed: true, color: WY.NATIONS[m.f].fill, width: 7 });
+        if (t >= B3 + 0.15) {
+          const k = WY.seg(t, B3 + 0.15, B3 + 1.8);
+          WYMap.drawClash(mctx, cam, m.tile, k, '#ffd24d');
+          const [x, y] = WYMap.toScreen(cam, m.tile.x, m.tile.y - WYMap.LIFT);
+          const e = E.outCubic(k), gr = mctx.createRadialGradient(x, y, 0, x, y, 260 * cam.zoom);
+          gr.addColorStop(0, `rgba(255,245,210,${0.9 * (1 - k)})`); gr.addColorStop(0.4, `rgba(255,190,70,${0.5 * (1 - k)})`); gr.addColorStop(1, 'rgba(255,150,40,0)');
+          mctx.fillStyle = gr; mctx.beginPath(); mctx.arc(x, y, 260 * cam.zoom, 0, Math.PI * 2); mctx.fill();
+          mctx.strokeStyle = `rgba(255,230,160,${(1 - k) * 0.9})`; mctx.lineWidth = 6 * (1 - k) + 1; mctx.beginPath(); mctx.ellipse(x, y, 330 * cam.zoom * e, 330 * cam.zoom * e * 0.76, 0, 0, Math.PI * 2); mctx.stroke();
+        }
+      });
+    }
+    dim.style.opacity = t < S_D ? 1 : t < S_E ? 1 - 0.55 * WY.env(t, S_D, S_E - 0.2, 0.4, 0.5) : 1;
+    dust.render(t, 0.8);
+    topShade.style.opacity = WY.seg(t, S_D, S_D + 0.4);
+    FX.show(logo, t, 0.25, S_B - 0.3, { dy: -16 });
+
+    // ---------------- dial
+    g.clearRect(0, 0, W, H); g.fillStyle = 'rgba(0,0,0,0.01)'; g.fillRect(0, 0, 2, 2); // always commit the canvas
+    const toC = WY.seg(t, S_C - 0.4, S_C + 0.4, E.inOutCubic);
+    let cx = 540, cy = WY.lerp(760, 420, toC), R = WY.lerp(300, 150, toC);
+    const dialIn = E.outQuint(WY.seg(t, -0.35, 0.9));
+    const dialOut = WY.seg(t, S_D + 0.05, S_D + 0.6, E.inCubic);
+    const dialA = dialIn * (1 - dialOut);
+    if (dialA > 0.001) {
+      // turn / fraction
+      let turn, frac;
+      if (t < B1) { turn = 42; frac = 0.95 + 0.05 * WY.seg(t, 0, B1); }
+      else if (t < B2) { turn = 43; frac = WY.seg(t, B1 + 0.1, B2, E.inOutSine); }
+      else if (t < C_SWEEP0) { turn = 44; frac = 0.06 * WY.seg(t, B2, C_SWEEP0); }
+      else { turn = 44; frac = WY.lerp(0.06, 1, WY.seg(t, C_SWEEP0, B3)); }
+      const lastBell = t >= B3 ? B3 : t >= B2 ? B2 : t >= B1 ? B1 : -9;
+      const pulse = t - lastBell;
+      const sc = (1 + 0.25 * (1 - dialIn)) * (1 + (pulse < 0.4 ? 0.04 * Math.sin((pulse / 0.4) * Math.PI) : 0));
+      const remain = Math.max(0, Math.round(600 * (1 - frac)));
+      drawDial(g, cx, cy, R * sc, { turn, frac, remain, pulse, alpha: dialA, flip: WY.seg(pulse, 0, 0.35, E.outCubic), prev: turn - 1 });
+      // 144 pips in section B
+      const pipA = WY.env(t, S_B + 1.6, S_C - 0.2, 0.4, 0.4);
+      if (pipA > 0) {
+        const lit = Math.floor(144 * WY.seg(t, S_B + 1.8, S_B + 3.9, E.inOutCubic));
+        for (let i = 0; i < 144; i++) {
+          const a = -Math.PI / 2 + (i / 144) * Math.PI * 2, rr = R * 1.14;
+          g.globalAlpha = pipA * (i < lit ? 1 : 0.35); g.fillStyle = i < lit ? '#ffd24d' : 'rgba(255,255,255,.4)';
+          g.beginPath(); g.arc(cx + Math.cos(a) * rr, cy + Math.sin(a) * rr, i % 6 === 0 ? 5 : 3.4, 0, Math.PI * 2); g.fill();
+        }
+        g.globalAlpha = 1;
+      }
+    }
+    // bell ring bursts
+    for (const B of [B1, B2, B3]) {
+      const k = (t - B) / 1.1; if (k < 0 || k > 1) continue;
+      const rr0 = B === B3 ? 150 : 300, cyy = B === B3 ? 420 : 760;
+      for (let j = 0; j < 3; j++) {
+        const kk = WY.clamp(k * 1.2 - j * 0.12); if (kk <= 0) continue;
+        g.globalAlpha = (1 - kk) * 0.8; g.strokeStyle = '#ffd24d'; g.lineWidth = 8 * (1 - kk) + 1;
+        g.beginPath(); g.arc(540, cyy, rr0 * (1 + E.outCubic(kk) * (B === B3 ? 4 : 0.9)), 0, Math.PI * 2); g.stroke();
+      }
+      g.globalAlpha = 1;
+    }
+    flash.render(t, B3 + 0.12, 0.6, 0.5);
+
+    // ---------------- texts
+    T.hook.render(t, 0.75, S_B - 0.25);
+    T.b1.render(t, S_B + 0.25, S_C - 0.35);
+    T.b2.render(t, S_B + 1.7, S_C - 0.35);
+    T.c.render(t, S_C + 0.3, S_D - 0.3);
+    T.d.render(t, S_D + 0.35, S_E - 0.3);
+    T.e.render(t, S_E + 0.2, S_F - 0.3);
+    T.f.render(t, S_F + 0.2, S_END - 0.35);
+    T.f2.render(t, S_F + 0.8, S_END - 0.35);
+    // chips
+    for (const c of chips) {
+      const kin = WY.seg(t, c.at - 0.05, c.at + 0.45, E.outBack);
+      const kout = WY.seg(t, B3 - 0.05 + c.i * 0.035, B3 + 0.35 + c.i * 0.035, E.inCubic);
+      if (kin <= 0 || kout >= 1) { c.n.style.visibility = 'hidden'; continue; }
+      c.n.style.visibility = 'visible';
+      const ty = 420 - (850 + c.i * 128 + 56);
+      c.n.style.opacity = Math.min(1, kin * 1.5) * (1 - kout);
+      c.n.style.transform = `translate(${(1 - kin) * 420}px, ${kout * ty}px) scale(${1 - kout * 0.8})`;
+      c.n.style.filter = kout > 0 ? `blur(${kout * 6}px)` : 'none';
+    }
+    // pair (section E)
+    pair.forEach((n, i) => FX.show(n, t, S_E + 0.9 + i * 0.25, S_F - 0.35, { dy: 40 }));
+    const bk = FX.show(box, t, S_E + 2.1, S_F - 0.35, { dy: 30, s0: 0.92 });
+    FX.show(notes.e, t, S_E + 2.6, S_F - 0.35, { dy: 10 });
+    // arrows + equals in E
+    const ak = WY.env(t, S_E + 1.6, S_F - 0.35, 0.6, 0.35, E.outCubic);
+    if (ak > 0) {
+      g.save(); g.globalAlpha = ak; g.strokeStyle = '#ffd24d'; g.fillStyle = '#ffd24d'; g.lineWidth = 6; g.lineCap = 'round';
+      for (const x0 of [285, 795]) {
+        const x1 = 540 + (x0 - 540) * 0.25, y0 = 930, y1 = 1100;
+        const k = ak; const xm = WY.lerp(x0, x1, k), ym = WY.lerp(y0, y1, k);
+        g.beginPath(); g.moveTo(x0, y0); g.lineTo(xm, ym); g.stroke();
+        const ang = Math.atan2(y1 - y0, x1 - x0);
+        g.beginPath(); g.moveTo(xm + Math.cos(ang) * 16, ym + Math.sin(ang) * 16); g.lineTo(xm + Math.cos(ang + 2.4) * 18, ym + Math.sin(ang + 2.4) * 18); g.lineTo(xm + Math.cos(ang - 2.4) * 18, ym + Math.sin(ang - 2.4) * 18); g.closePath(); g.fill();
+      }
+      g.font = '800 64px Inter, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('=', 540, 818);
+      g.restore();
+    }
+    // resources (section F)
+    FX.show(resPanel, t, S_F + 1.0, S_END - 0.3, { dy: 50, s0: 0.96 });
+    FX.show(notes.f, t, S_F + 1.6, S_END - 0.3, { dy: 10 });
+    const ft = Math.max(0, t - S_F - 1.0);
+    resVals.forEach((r, i) => {
+      const v = Math.floor(r.base + r.rate * ft * 3.2);
+      r.n.textContent = WY.count(v);
+      r.up.style.opacity = 0.35 + 0.65 * Math.max(0, Math.sin(ft * 6 + i));
+    });
+    badge.render(t, S_B + 0.3, S_END - 0.3);
+    overlay.render(t);
+    end.render(t - S_END);
+  },
+
+  audio(A) {
+    A.music({ style: 'tension', bpm: 100, key: 'D', minor: true, sections: [[0, 0.3], [S_B, 0.5], [S_C, 0.62], [S_D, 1], [S_E, 0.55], [S_F, 0.6], [S_END - 1, 0.4]], end: S_END, outro: 'hit' });
+    for (const B of [B1, B2, B3]) { A.chime(B, { note: 'D5', dur: 3.2, gain: 1.1 }); A.chime(B + 0.01, { note: 'A4', dur: 3.2, gain: 0.7 }); A.boom(B, { gain: B === B3 ? 1.2 : 0.7 }); }
+    A.ticks(B1 + 0.2, B2 - 0.1, 0.25, { gain: 0.45 });
+    A.ticks(S_C + 0.3, B3 - 0.1, 0.5, { gain: 0.35 });
+    A.riser(B3 - 2.2, B3, { gain: 0.6 });
+    A.whoosh(S_C - 0.5, { dur: 0.6 });
+    for (const [, , s] of ORDERS) { A.seal(orderAt(s), { gain: 0.6 }); }
+    for (let i = 0; i < 5; i++) A.clash(B3 + 0.15 + i * 0.02, { gain: 0.5 });
+    A.hit(B3 + 0.12, { gain: 1 });
+    A.whoosh(S_E - 0.4, { dur: 0.5 }); A.pop(S_E + 0.9); A.pop(S_E + 1.15); A.ok(S_E + 2.2);
+    A.whoosh(S_F - 0.4, { dur: 0.5, dir: 'down' });
+    for (let i = 0; i < 14; i++) A.coin(S_F + 1.1 + i * 0.28, { gain: 0.25 });
+    A.whoosh(S_END - 0.45, { dur: 0.6 });
+  },
+});
+
+function drawDial(g, cx, cy, R, o) {
+  g.save(); g.globalAlpha = o.alpha;
+  // glow
+  const gl = g.createRadialGradient(cx, cy, R * 0.8, cx, cy, R * 1.6);
+  gl.addColorStop(0, `rgba(255,210,77,${0.18 + (o.pulse < 1 ? 0.3 * (1 - o.pulse) : 0)})`); gl.addColorStop(1, 'rgba(255,210,77,0)');
+  g.fillStyle = gl; g.beginPath(); g.arc(cx, cy, R * 1.6, 0, Math.PI * 2); g.fill();
+  // disc
+  g.shadowColor = 'rgba(0,0,0,.7)'; g.shadowBlur = R * 0.3; g.shadowOffsetY = R * 0.06;
+  const d = g.createRadialGradient(cx - R * 0.3, cy - R * 0.4, R * 0.1, cx, cy, R);
+  d.addColorStop(0, '#24493b'); d.addColorStop(1, '#0c1d17');
+  g.fillStyle = d; g.beginPath(); g.arc(cx, cy, R, 0, Math.PI * 2); g.fill();
+  g.shadowColor = 'transparent';
+  // brass ring
+  const br = g.createLinearGradient(cx - R, cy - R, cx + R, cy + R);
+  br.addColorStop(0, '#f6e3a8'); br.addColorStop(0.35, '#a57d2c'); br.addColorStop(0.6, '#f0d48a'); br.addColorStop(1, '#6e5016');
+  g.strokeStyle = br; g.lineWidth = R * 0.075; g.beginPath(); g.arc(cx, cy, R * 0.962, 0, Math.PI * 2); g.stroke();
+  g.strokeStyle = 'rgba(0,0,0,.55)'; g.lineWidth = Math.max(1, R * 0.012); g.beginPath(); g.arc(cx, cy, R * 0.915, 0, Math.PI * 2); g.stroke();
+  // track + progress
+  g.lineCap = 'butt';
+  g.strokeStyle = 'rgba(255,255,255,.07)'; g.lineWidth = R * 0.075; g.beginPath(); g.arc(cx, cy, R * 0.82, 0, Math.PI * 2); g.stroke();
+  const a0 = -Math.PI / 2, a1 = a0 + Math.PI * 2 * o.frac;
+  g.shadowColor = 'rgba(255,210,77,.8)'; g.shadowBlur = R * 0.08;
+  const pg = g.createLinearGradient(cx, cy - R, cx, cy + R); pg.addColorStop(0, '#ffe58a'); pg.addColorStop(1, '#e7a92a');
+  g.strokeStyle = pg; g.lineWidth = R * 0.075; g.beginPath(); g.arc(cx, cy, R * 0.82, a0, a1); g.stroke();
+  g.fillStyle = '#fff6d0'; g.beginPath(); g.arc(cx + Math.cos(a1) * R * 0.82, cy + Math.sin(a1) * R * 0.82, R * 0.05, 0, Math.PI * 2); g.fill();
+  g.shadowColor = 'transparent';
+  // ticks: 60 (every 10 s), majors every minute
+  for (let i = 0; i < 60; i++) {
+    const a = a0 + (i / 60) * Math.PI * 2, maj = i % 6 === 0;
+    const r1 = R * 0.9, r2 = maj ? R * 0.74 : R * 0.86;
+    if (maj) continue;
+    g.strokeStyle = 'rgba(240,212,138,.35)'; g.lineWidth = Math.max(1, R * 0.008);
+    g.beginPath(); g.moveTo(cx + Math.cos(a) * r1, cy + Math.sin(a) * r1); g.lineTo(cx + Math.cos(a) * r2, cy + Math.sin(a) * r2); g.stroke();
+  }
+  for (let i = 0; i < 10; i++) {
+    const a = a0 + (i / 10) * Math.PI * 2;
+    g.strokeStyle = '#f0d48a'; g.lineWidth = Math.max(2, R * 0.018);
+    g.beginPath(); g.moveTo(cx + Math.cos(a) * R * 0.9, cy + Math.sin(a) * R * 0.9); g.lineTo(cx + Math.cos(a) * R * 0.75, cy + Math.sin(a) * R * 0.75); g.stroke();
+    if (R > 200) { g.fillStyle = 'rgba(240,212,138,.75)'; g.font = `600 ${R * 0.075}px Inter, sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(String(i), cx + Math.cos(a) * R * 0.66, cy + Math.sin(a) * R * 0.66); }
+  }
+  // centre text
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillStyle = 'rgba(255,250,240,.75)'; g.font = `700 ${R * 0.12}px "Noto Sans JP", sans-serif`; g.fillText('ターン', cx, cy - R * 0.3);
+  // number roll
+  g.save(); g.beginPath(); g.rect(cx - R * 0.6, cy - R * 0.22, R * 1.2, R * 0.48); g.clip();
+  g.font = `800 ${R * 0.4}px Inter, sans-serif`; g.fillStyle = '#fffaf0';
+  const fl = o.pulse >= 0 && o.pulse < 0.35 ? o.flip : 1;
+  if (fl < 1) { g.globalAlpha = o.alpha * (1 - fl); g.fillText(String(o.prev), cx, cy + R * 0.04 - fl * R * 0.45); }
+  g.globalAlpha = o.alpha * (fl < 1 ? fl : 1); g.fillText(String(o.turn), cx, cy + R * 0.04 + (1 - fl) * R * 0.45);
+  g.restore(); g.globalAlpha = o.alpha;
+  const mm = Math.floor(o.remain / 60), ss = String(o.remain % 60).padStart(2, '0');
+  g.fillStyle = '#ffd24d'; g.font = `600 ${R * 0.13}px Inter, sans-serif`; g.fillText(`${mm}:${ss}`, cx, cy + R * 0.42);
+  // bell medallion at the bottom
+  const by = cy + R * 0.99, swing = o.pulse >= 0 && o.pulse < 1.4 ? Math.sin(o.pulse * 14) * (1 - o.pulse / 1.4) * 0.5 : 0;
+  g.fillStyle = '#12261f'; g.strokeStyle = '#f0d48a'; g.lineWidth = R * 0.02; g.beginPath(); g.arc(cx, by, R * 0.13, 0, Math.PI * 2); g.fill(); g.stroke();
+  g.save(); g.translate(cx, by - R * 0.06); g.rotate(swing); g.fillStyle = '#ffd24d';
+  const s = R * 0.07; g.beginPath(); g.moveTo(-s, s * 0.9); g.quadraticCurveTo(-s * 0.9, -s * 0.2, -s * 0.5, -s * 0.5); g.quadraticCurveTo(0, -s * 0.95, s * 0.5, -s * 0.5); g.quadraticCurveTo(s * 0.9, -s * 0.2, s, s * 0.9); g.closePath(); g.fill();
+  g.beginPath(); g.arc(0, s * 1.15, s * 0.22, 0, Math.PI * 2); g.fill();
+  g.restore();
+  g.restore();
+}
+</script></body></html>

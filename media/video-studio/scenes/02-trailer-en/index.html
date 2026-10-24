@@ -1,0 +1,274 @@
+<!doctype html><html><head><meta charset="utf-8"><title>02 trailer-en</title>
+<link rel="stylesheet" href="../../lib/wy.css">
+<script src="../../lib/wy.js"></script><script src="../../lib/wy-audio.js"></script>
+<script src="../../lib/wy-map.js"></script><script src="../../lib/wy-kit.js"></script>
+<script src="../01-trailer-ja/tk.js"></script>
+<style>
+  .chip { position:absolute; width:372px; height:84px; border-radius:14px; display:flex; align-items:center; justify-content:center; font:600 30px var(--sans); color:#fffaf0;
+          background:linear-gradient(180deg, rgba(36,73,59,.95), rgba(18,38,31,.96)); border:2px solid rgba(201,162,74,.55); box-shadow:0 10px 30px rgba(0,0,0,.45) }
+  .chip.pick { border-color:#ffd24d; box-shadow:0 0 0 3px rgba(255,210,77,.35), 0 0 50px rgba(255,210,77,.45), 0 10px 30px rgba(0,0,0,.45) }
+  .lim { font:600 30px/1.5 var(--sans); color:rgba(255,250,240,.9) } .lim b { color:#f0d48a; font-weight:700 }
+  .tx { position:absolute; left:0; width:1080px; height:52px; display:flex; align-items:center; font:500 28px var(--mono); color:rgba(230,240,232,.85); border-bottom:1px solid rgba(240,212,138,.12) }
+  .tx span { display:inline-block } .tx .n { width:220px; color:rgba(240,212,138,.7) } .tx .ix { width:380px } .tx .h { width:330px; color:rgba(200,220,210,.45) } .tx .ok { color:#9fe0b0; font-weight:600 }
+</style>
+</head><body><script>
+const B = 0.6; // 100 bpm
+const T = { q: 0, six: 10 * B, one: 14 * B, ten: 18 * B, bell: 23 * B, seal: 28 * B, stamp: 32 * B, ai: 36 * B, offer: 39 * B, choose: 41 * B, check: 43 * B, replay: 50 * B, title: 60 * B, end: 68 * B };
+const W = 1920, H = 1080;
+const E = WY.ease, seg = WY.seg, clamp = WY.clamp, lerp = WY.lerp;
+const dist = (a, b) => (Math.abs(a.q - b.q) + Math.abs(a.r - b.r) + Math.abs(a.q + a.r - b.q - b.r)) / 2;
+let ctx, world, ov, flash, ring, L = {}, shot, title, end, badge, notes = {}, chips = [], chipWrap, checks, lims, ledger, txRows = [], counter, pass, K = [], marches = [], sealSrc, sealDst, qWords = [];
+
+WY.scene({
+  width: W, height: H, duration: 45, fps: 30,
+  setup(stage) {
+    ctx = WY.canvas(stage, W, H).getContext('2d');
+    world = WYMap.build({ rings: 8, seed: 23 });
+    TK.preloadMap(world);
+    for (let n = 0; n < 6; n++) K[n] = world.tiles.find(t => t.keep && t.owner === n);
+    const camps = world.tiles.filter(t => t.camp);
+    for (let n = 0; n < 6; n++) {
+      const src = world.tiles.filter(t => t.owner === n && t.village && !t.keep).sort((a, b) => dist(a, K[n]) - dist(b, K[n]))[0] || K[n];
+      const dst = camps.filter(c => dist(c, src) >= 2).sort((a, b) => dist(a, src) - dist(b, src))[0];
+      marches.push({ n, src, dst });
+    }
+    sealSrc = K[1];
+    sealDst = camps.filter(c => dist(c, sealSrc) >= 4).sort((a, b) => dist(a, sealSrc) - dist(b, sealSrc))[0];
+
+    // question, word by word
+    const q = WY.el('div', { class: 'wy-center' }, stage); q.style.zIndex = 30;
+    [['What does a game do', 0], ['when AI has a will?', 1]].forEach(([s, li]) => {
+      const d = WY.el('div', {}, q); WY.css(d, { font: `${li ? 'italic 700' : '600'} ${li ? 112 : 92}px/1.2 "Cormorant Garamond", serif`, color: li ? '#ffe7b0' : '#fffaf0', textShadow: '0 6px 40px rgba(0,0,0,.8)' });
+      s.split(' ').forEach((w, i) => { const sp = WY.el('span', { text: w }, d); sp.style.display = 'inline-block'; sp.style.marginRight = '.26em'; qWords.push(sp); });
+    });
+    L.q = q;
+
+    L.six = TK.line(stage, ['Six nations.'], { y: 120, size: 118, font: 'Cinzel, serif', weight: 700, ls: 0.06, stagger: 0.03 });
+    L.one = TK.line(stage, ['One map.'], { y: 740, size: 140, font: 'Cinzel, serif', weight: 900, ls: 0.08, stagger: 0.04, style: 'slam' });
+    L.ten1 = TK.line(stage, ['Every ten minutes,'], { y: 640, size: 92, font: '"Cormorant Garamond", serif', weight: 700, ls: 0.01, stagger: 0.02 });
+    L.ten2 = TK.line(stage, ['the whole world resolves at once.'], { y: 760, size: 92, font: '"Cormorant Garamond", serif', weight: 700, ls: 0.01, stagger: 0.015 });
+    L.seal = TK.line(stage, ['Marches leave sealed.'], { y: 690, size: 112, font: 'Cinzel, serif', weight: 700, ls: 0.03, stagger: 0.025 });
+    L.sealSub = TK.block(stage, '<span style="padding:10px 24px;border-radius:999px;background:rgba(10,20,16,.78);border:1.5px solid rgba(240,212,138,.6)">Destination hidden by a drand time-lock · no recall</span>', { left: '0px', width: W + 'px', top: '870px', textAlign: 'center', font: '600 36px var(--sans)', color: '#f0d48a' });
+    L.ai = TK.line(stage, ['AI citizens play by the same rules.'], { y: 96, size: 84, font: '"Cormorant Garamond", serif', weight: 700, ls: 0.01, stagger: 0.015 });
+    L.replay1 = TK.line(stage, ['Anyone can replay'], { x: 1210, w: 640, y: 300, size: 74, font: '"Cormorant Garamond", serif', weight: 700, align: 'left', ls: 0.02, stagger: 0.02 });
+    L.replay2 = TK.line(stage, ['the season.'], { x: 1210, w: 640, y: 400, size: 74, font: '"Cormorant Garamond", serif', weight: 700, align: 'left', ls: 0.02, stagger: 0.02 });
+
+    shot = TK.shot(stage, TK.ui('join-en'), { label: 'Real client screen · test data', lang: 'en' });
+
+    // AI: chips + triad
+    chipWrap = WY.el('div', { class: 'wy-fill' }, stage); chipWrap.style.zIndex = 22;
+    const labels = ['March · camp · 400', 'Build · Library', 'Scout · north-east', 'Train · 200 Spearmen', 'March · camp · 200', 'Build · Farm', 'Hold', 'Scout · south', 'Train · 100 Archers', 'Build · Walls', 'Build · Lumber camp', 'Build · Mine'];
+    labels.forEach((s, i) => { const c = WY.el('div', { class: 'chip', text: s }, chipWrap); c.style.left = 172 + (i % 4) * 400 + 'px'; c.style.top = 300 + Math.floor(i / 4) * 106 + 'px'; chips.push(c); });
+    const gl = WY.el('div', { text: 'Candidates (example) · at most 12', class: 'wy-abs' }, chipWrap); WY.css(gl, { left: '172px', top: '246px', font: '600 26px var(--sans)', color: 'rgba(240,212,138,.9)', letterSpacing: '.04em' });
+    checks = WY.el('div', { class: 'wy-abs', html: '✓' }, chipWrap);
+    WY.css(checks, { font: '900 34px/56px var(--sans)', width: '56px', height: '56px', textAlign: 'center', color: '#0e2a1f', background: '#9fe0b0', borderRadius: '50%', border: '3px solid #fffaf0', boxShadow: '0 6px 20px rgba(0,0,0,.5)' });
+    L.offer = TK.line(stage, ['The code offers.'], { x: 60, w: 600, y: 650, size: 68, font: '"Cormorant Garamond", serif', weight: 700, ls: 0.01, stagger: 0.02 });
+    L.choose = TK.line(stage, ['The model chooses.'], { x: 660, w: 600, y: 650, size: 68, font: '"Cormorant Garamond", serif', weight: 700, color: '#ffd24d', ls: 0.01, stagger: 0.02 });
+    L.check = TK.line(stage, ['The code checks.'], { x: 1260, w: 600, y: 650, size: 68, font: '"Cormorant Garamond", serif', weight: 700, ls: 0.01, stagger: 0.02 });
+    lims = TK.block(stage, '<div class="lim" style="text-align:center">Plus safety limits: <b>≤ 12 options</b> · <b>≤ 4 model-chosen marches a day</b> · <b>at least 40% of troops kept home</b><br>The model runs locally (Gemma 4, no paid API) and <b>never sees keys</b>.</div>', { left: '0px', width: W + 'px', top: '790px' });
+
+    // replay: ledger
+    ledger = WY.el('div', { class: 'wy-abs' }, stage); WY.css(ledger, { left: '80px', top: '0px', width: '1080px', height: H + 'px', overflow: 'hidden', zIndex: 21 });
+    const ix = ['PlaceHome', 'Build', 'Train', 'Muster', 'Explore', 'Depart', 'PostBeacon', 'Reveal', 'GatherClash', 'ResolveClash', 'SettleTransit', 'Harvest'];
+    const r = WY.rng(5);
+    for (let i = 0; i < 26; i++) {
+      const row = WY.el('div', { class: 'tx' }, ledger);
+      const h = [...Array(10)].map(() => '0123456789abcdef'[(r() * 16) | 0]).join('');
+      row.innerHTML = `<span class="n"></span><span class="ix">${ix[(r() * ix.length) | 0]}</span><span class="h">${h}…</span><span class="ok">✓</span>`;
+      txRows.push(row);
+    }
+    const lfade = WY.el('div', { class: 'wy-fill' }, ledger); lfade.style.background = 'linear-gradient(180deg,#071009 0%, rgba(7,16,9,0) 22%, rgba(7,16,9,0) 70%, #071009 100%)';
+    counter = TK.block(stage, '', { left: '1210px', top: '600px', width: '620px', font: '700 88px var(--mono)', color: '#fffaf0' });
+    pass = TK.block(stage, '<span style="font:700 34px var(--sans);color:#0e2a1f;background:#9fe0b0;border-radius:10px;padding:8px 18px">verify PASS</span><div style="font:500 28px/1.45 var(--sans);color:rgba(255,250,240,.8);margin-top:22px">transactions replayed, every rule re-judged<br>(14-day local run, 120 rule bots)</div>', { left: '1210px', top: '720px', width: '660px' });
+
+    title = TK.title(stage, { size: 190, sub: 'Six nations · one map · AI citizens', subFont: '600 40px Cinzel, serif' });
+    end = TK.end(stage, { lang: 'en', line: 'Play the agent economy.', sub: 'A strategy game where people and AI citizens can fight for one map' });
+
+    badge = WYKit.status(stage, 'local', 'en', { x: 80, y: 70 }); badge.node.style.zIndex = 53;
+    notes.ten = TK.note(stage, '144 turns a day. Sending a minute earlier gives no advantage.', { y: 1000, size: 26, lang: 'en' });
+    notes.ai = TK.note(stage, 'AI citizens ran in local runs with script bots. Formal evaluation pending. No run yet has had people and AI citizens in one world.', { y: 1000, size: 24, lang: 'en' });
+    notes.replay = TK.note(stage, 'Our own replay verifier, not an independent audit. Anyone can run it.', { y: 1000, size: 26, lang: 'en' });
+    notes.seal = TK.note(stage, 'Departure, size and arrival turn are public. A march needs at least 2 turns.', { y: 1000, size: 26, lang: 'en' });
+
+    ov = TK.overlays(stage);
+    flash = WYKit.flash(stage, { color: '#fff6e0' });
+    ring = TK.ring(stage);
+  },
+
+  render(t) {
+    ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, W, H);
+    let lb = 0;
+    // ---------------------------------------------------------- question over a dim, drifting map
+    if (t < T.six) {
+      const cam = { x: -300 + t * 30, y: -120 + t * 8, zoom: 1.25 - t * 0.02, W, H };
+      TK.cloudSea(ctx, cam, t, { from: 8, to: 14 });
+      WYMap.draw(ctx, world, cam, { t, wash: () => 0.25, features: false, background: false });
+      TK.features(ctx, world, cam, { t });
+      ctx.fillStyle = `rgba(3,6,5,${lerp(0.97, 0.72, seg(t, 0, 4))})`; ctx.fillRect(0, 0, W, H);
+      lb = 130;
+    }
+    // ---------------------------------------------------------- one map: world pulls out
+    else if (t >= T.one && t < T.ten) {
+      const k = seg(t, T.one - 0.2, T.ten, E.outCubic);
+      const cam = { x: 0, y: 10, zoom: lerp(0.95, 0.5, k), W, H };
+      TK.cloudSea(ctx, cam, t, { from: 7, to: 14 });
+      const app = tl => seg(t, T.one + tl.ring * 0.12 - 0.3, T.one + tl.ring * 0.12 + 0.2);
+      WYMap.draw(ctx, world, cam, { t, appear: app, wash: () => 0.32, features: false, background: false });
+      TK.features(ctx, world, cam, { t, appear: app, pennant: () => ({ rise: 1, scale: 1.9 }) });
+      const g = ctx.createLinearGradient(0, 600, 0, H); g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(1, 'rgba(0,0,0,.6)'); ctx.fillStyle = g; ctx.fillRect(0, 600, W, H - 600);
+    }
+    // ---------------------------------------------------------- ten minutes: dial, then the bell
+    else if (t >= T.ten && t < T.seal) {
+      if (t < T.bell) {
+        const k = seg(t, T.ten, T.bell);
+        ctx.fillStyle = '#040806'; ctx.fillRect(0, 0, W, H);
+        // radial clock lines
+        ctx.save(); ctx.translate(W / 2, 360);
+        for (let i = 0; i < 120; i++) { const an = (i / 120) * Math.PI * 2 - Math.PI / 2; const on = i / 120 < k; ctx.strokeStyle = on ? 'rgba(255,210,77,.9)' : 'rgba(240,212,138,.18)'; ctx.lineWidth = i % 10 ? 2 : 4; const r0 = 230, r1 = i % 10 ? 252 : 270; ctx.beginPath(); ctx.moveTo(Math.cos(an) * r0, Math.sin(an) * r0); ctx.lineTo(Math.cos(an) * r1, Math.sin(an) * r1); ctx.stroke(); }
+        ctx.restore();
+        const mm = Math.floor((1 - k) * 600), lab = `${Math.floor(mm / 60)}:${String(mm % 60).padStart(2, '0')}`;
+        TK.medallion(ctx, W / 2, 360, 170, { label: 'TURN', turn: 42, clock: lab, k, glow: 0.3 + k * 0.5, lang: 'en' });
+        lb = 0;
+      } else {
+        const k = seg(t, T.bell, T.seal, E.outCubic);
+        const cam = { x: lerp(30, -10, k), y: 0, zoom: lerp(0.7, 0.6, k), W, H };
+        TK.cloudSea(ctx, cam, t, { from: 7, to: 13 });
+        WYMap.draw(ctx, world, cam, { t, wash: () => 0.3, features: false, background: false });
+        TK.features(ctx, world, cam, { t, pennant: () => ({ rise: 1, scale: 1.4 }) });
+        const mk = seg(t, T.bell + 0.05, T.bell + 1.2, E.inOutCubic);
+        for (const m of marches) if (m.dst) {
+          const pt = TK.marchPath(cam, m.src, m.dst, 0.3);
+          if (t < T.bell + 1.2) TK.drawMarch(ctx, pt, Math.max(0.03, mk), { color: m.n === 4 ? '#dfe6e3' : WY.NATIONS[m.n].fill, width: 7, t });
+          else WYMap.drawClash(ctx, cam, m.dst, seg(t, T.bell + 1.2, T.bell + 2.3), '#ffd24d');
+        }
+        TK.medallion(ctx, W / 2, 118, 78, { label: 'TURN', turn: 43, clock: '10:00', k: 0.02, glow: Math.max(0, 1 - (t - T.bell) / 1.2), lang: 'en' });
+        const g = ctx.createLinearGradient(0, 560, 0, H); g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(1, 'rgba(0,0,0,.6)'); ctx.fillStyle = g; ctx.fillRect(0, 560, W, H - 560);
+      }
+    }
+    // ---------------------------------------------------------- sealed
+    else if (t >= T.seal && t < T.ai) {
+      const u = seg(t, T.seal, T.ai, E.inOutSine) * 0.66;
+      const a = sealSrc, b = sealDst; const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2 - Math.hypot(b.x - a.x, b.y - a.y) * 0.28;
+      const wx = (1 - u) * (1 - u) * a.x + 2 * (1 - u) * u * mx + u * u * b.x, wy = (1 - u) * (1 - u) * a.y + 2 * (1 - u) * u * my + u * u * b.y;
+      const zoom = lerp(1.4, 1.1, seg(t, T.seal, T.ai, E.inOutCubic));
+      const cam = { x: wx, y: wy + 60, zoom, W, H };
+      TK.cloudSea(ctx, cam, t, { from: 7, to: 14 });
+      WYMap.draw(ctx, world, cam, { t, wash: () => 0.28, features: false, background: false, fog: tl => (dist(tl, sealDst) <= 1 ? 0.95 : 0) });
+      TK.features(ctx, world, cam, { t, pennant: () => ({ rise: 1, scale: 1.2 }) });
+      TK.drawMarch(ctx, TK.marchPath(cam, a, b, 0.28), u, { color: '#31bedb', width: 9, head: 'seal', t, sealR: 36 });
+      const sk = t - T.stamp;
+      if (sk >= -0.15) {
+        ctx.fillStyle = `rgba(5,8,7,${0.62 * seg(t, T.stamp - 0.15, T.stamp)})`; ctx.fillRect(0, 0, W, H);
+        const p = clamp((sk + 0.15) / 0.15); const sc = sk < 0 ? lerp(3.2, 1, E.inQuad(p)) : 1 + 0.06 * Math.exp(-sk * 6) * Math.cos(sk * 30) + sk * 0.02;
+        const sh = sk > 0 ? Math.exp(-sk * 8) * 14 : 0;
+        ctx.save(); ctx.translate(Math.sin(sk * 70) * sh, Math.cos(sk * 53) * sh); ctx.globalAlpha = sk < 0 ? p : 1; WYMap.drawSeal(ctx, W / 2, 380, 175 * sc); ctx.restore();
+      }
+    }
+    // ---------------------------------------------------------- AI and replay backgrounds
+    else if (t >= T.ai && t < T.title) {
+      const g = ctx.createRadialGradient(W / 2, H * 0.45, 100, W / 2, H / 2, 1200); g.addColorStop(0, t < T.replay ? '#1b3a2f' : '#10241c'); g.addColorStop(1, '#050b08'); ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+      ctx.save(); ctx.strokeStyle = 'rgba(240,212,138,.06)'; ctx.lineWidth = 1.5; const off = (t - T.ai) * 12;
+      for (let r = -2; r < 14; r++) for (let q = -2; q < 22; q++) { const x = q * 100 + (r % 2) * 50 - off % 100, y = r * 86; WYMap.hexPath(ctx, x, y, 56, 1); ctx.stroke(); }
+      ctx.restore();
+    } else if (t >= T.title) {
+      const g = ctx.createRadialGradient(W / 2, H / 2, 50, W / 2, H / 2, 1100); g.addColorStop(0, '#1d2a22'); g.addColorStop(1, '#040605'); ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+      const k = t - T.title; ctx.save(); ctx.globalAlpha = 0.5 * Math.exp(-k * 1.2); const rg = ctx.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, 900); rg.addColorStop(0, 'rgba(255,220,150,.7)'); rg.addColorStop(1, 'rgba(255,200,120,0)'); ctx.fillStyle = rg; ctx.fillRect(0, 0, W, H); ctx.restore();
+    }
+
+    // ---------------------------------------------------------- DOM
+    // question words
+    {
+      const on = t < T.six + 0.4; L.q.style.display = on ? 'flex' : 'none';
+      if (on) {
+        const out = E.inCubic(seg(t, T.six - 0.45, T.six));
+        qWords.forEach((w, i) => { const at = 0.4 + i * 0.36 + (i >= 5 ? 0.5 : 0); const p = E.outExpo(seg(t, at, at + 0.7)); w.style.opacity = p * (1 - out); w.style.transform = `translateY(${(1 - p) * 30 - out * 20}px)`; w.style.filter = p < 0.98 || out > 0 ? `blur(${((1 - p) * 10 + out * 10).toFixed(1)}px)` : 'none'; });
+        L.q.style.transform = `scale(${1 + t * 0.008})`;
+      }
+    }
+    // six nations: the client's title screen
+    { const k = seg(t, T.six, T.one, E.inOutCubic); shot.render(t, T.six, T.one, { x: 960, y: lerp(560, 640, k), s: lerp(1.02, 1.18, k) }, { fade: 0.1 }); }
+    L.six.render(t, T.six + 0.1, T.one - 0.25, { out: 0.25 });
+    L.one.render(t, T.one + 0.05, T.ten - 0.3, { out: 0.3 });
+    L.ten1.render(t, T.ten + 0.2, T.seal - 0.35);
+    L.ten2.render(t, T.bell + 0.05, T.seal - 0.35);
+    notes.ten.render(t, T.bell + 0.4, T.seal - 0.35);
+    L.seal.render(t, T.stamp + 0.12, T.ai - 0.35, { out: 0.3 });
+    L.sealSub.render(t, T.stamp + 0.6, T.ai - 0.35);
+    notes.seal.render(t, T.seal + 0.4, T.stamp - 0.2);
+    // AI
+    {
+      const on = t >= T.ai - 0.05 && t < T.replay + 0.4; chipWrap.style.display = on ? 'block' : 'none';
+      if (on) {
+        chipWrap.style.opacity = 1 - E.inCubic(seg(t, T.replay - 0.35, T.replay));
+        chips.forEach((c, i) => {
+          const p = E.outBack(seg(t, T.offer + i * 0.05, T.offer + 0.4 + i * 0.05)); const sel = seg(t, T.choose, T.choose + 0.3, E.outCubic);
+          c.className = 'chip' + (i === 0 && t >= T.choose ? ' pick' : '');
+          c.style.opacity = p * (i === 0 ? 1 : 1 - 0.65 * sel); c.style.transform = `translateY(${(1 - p) * 30}px) scale(${i === 0 ? 1 + 0.08 * sel : 1 - 0.04 * sel})`;
+        });
+        const ck = seg(t, T.check, T.check + 0.35, E.outBack); WY.css(checks, { left: 172 + 372 - 34 + 'px', top: 300 - 26 + 'px', opacity: ck, transform: `scale(${ck})` });
+      }
+    }
+    L.ai.render(t, T.ai + 0.1, T.replay - 0.35, { out: 0.3 });
+    L.offer.render(t, T.offer + 0.05, T.replay - 0.35, { out: 0.3 });
+    L.choose.render(t, T.choose + 0.05, T.replay - 0.35, { out: 0.3 });
+    L.check.render(t, T.check + 0.05, T.replay - 0.35, { out: 0.3 });
+    lims.render(t, T.check + 1.0, T.replay - 0.35);
+    notes.ai.render(t, T.ai + 0.5, T.replay - 0.35);
+    // replay
+    {
+      const on = t >= T.replay - 0.05 && t < T.title + 0.3; ledger.style.display = on ? 'block' : 'none';
+      if (on) {
+        ledger.style.opacity = WY.env(t, T.replay, T.title - 0.1, 0.4, 0.35);
+        const speed = lerp(4, 40, seg(t, T.replay, T.replay + 3, E.inCubic)); // rows per second
+        const pos = (t - T.replay) * 4 + Math.max(0, t - T.replay - 0.5) * (speed - 4) * 0.5; // smooth-ish acceleration
+        const total = 272004; const kk = seg(t, T.replay + 0.3, T.title - 1.2, E.inOutCubic);
+        txRows.forEach((row, i) => {
+          const slot = ((i - pos) % 26 + 26) % 26; row.style.transform = `translateY(${slot * 52 - 52}px)`;
+          const idx = Math.floor(pos) + Math.round(slot) ; row.firstChild.textContent = '#' + WY.count(Math.max(1, Math.round(kk * total) - (26 - Math.round(slot)) * 7));
+          row.style.opacity = 0.35 + 0.65 * (1 - Math.abs(slot - 13) / 13);
+        });
+      }
+    }
+    L.replay1.render(t, T.replay + 0.15, T.title - 0.35, { out: 0.3 });
+    L.replay2.render(t, T.replay + 0.5, T.title - 0.35, { out: 0.3 });
+    counter.node.textContent = WY.count(Math.round(272004 * seg(t, T.replay + 0.3, T.title - 1.2, E.inOutCubic)));
+    counter.render(t, T.replay + 0.3, T.title - 0.35);
+    pass.render(t, T.title - 1.2, T.title - 0.35);
+    notes.replay.render(t, T.replay + 0.5, T.title - 0.35);
+    // badge: on from the bell to the title
+    badge.render(t, T.bell + 0.2, T.title - 0.35);
+    title.render(t, T.title, T.end - 0.5);
+    end.render(t - T.end);
+    // flashes and rings
+    const fl = [[T.six, 0.3, 0.6], [T.one, 0.3, 0.7], [T.bell, 0.45, 0.8], [T.stamp, 0.35, 0.5], [T.replay, 0.3, 0.35], [T.title, 0.5, 0.9]].filter(e => e[0] <= t).pop() || [-9, 0.1, 0];
+    flash.render(t, ...fl);
+    const rv = [[T.bell, W / 2, 118, 0.9, 12], [T.stamp, W / 2, 380, 0.8, 9], [T.title, W / 2, H / 2, 1.0, 12]].filter(e => e[0] <= t).pop() || [-9, 0, 0, 0.1, 1];
+    ring.render(t, ...rv);
+    ov.render(t, { lb });
+  },
+
+  audio(A) {
+    A.music({ style: 'epic', bpm: 100, key: 'E', minor: true, start: 0, end: T.end,
+      sections: [[0, 0.22], [T.six, 0.6], [T.one, 0.8], [T.ten, 0.4], [T.bell, 0.8], [T.seal, 0.55], [T.stamp, 0.8], [T.ai, 0.5], [T.check, 0.7], [T.replay, 0.9], [T.title - 2.4, 1], [T.title, 0.7]],
+      outro: 'ring' });
+    A.drone(0, T.six, { note: 'E2', gain: 0.7 });
+    for (let i = 0; i < 10; i++) A.tick(0.4 + i * 0.36 + (i >= 5 ? 0.5 : 0), { gain: 0.5, pitch: 1.4 });
+    A.riser(T.six - 2, T.six, { gain: 0.6 });
+    A.hit(T.six); A.whoosh(T.six - 0.3, { dur: 0.4 });
+    A.boom(T.one); A.whoosh(T.one - 0.2, { dur: 0.3 });
+    A.ticks(T.ten, T.bell, B / 2, { gain: 0.6 });
+    A.swell(T.bell - 1.8, T.bell, { gain: 0.8, note: 'E3' });
+    A.chime(T.bell, { note: 'E5', gain: 1.5, dur: 3 }); A.chime(T.bell, { note: 'B4', gain: 1, dur: 3 }); A.hit(T.bell);
+    A.march(T.bell + 0.05, T.bell + 1.2, { bpm: 200 }); A.clash(T.bell + 1.2); A.clash(T.bell + 1.26, { gain: 0.7 }); A.drum(T.bell + 1.2, { gain: 0.9, pitch: 0.7 });
+    A.whoosh(T.seal - 0.3, { dur: 0.5 });
+    A.whoosh(T.stamp - 0.4, { dur: 0.45, dir: 'down' }); A.seal(T.stamp, { gain: 1.6 }); A.boom(T.stamp, { gain: 0.9 });
+    A.whoosh(T.ai - 0.3, { dur: 0.5 }); A.glitch(T.ai + 0.05, { gain: 0.4 });
+    for (let i = 0; i < 12; i++) A.tick(T.offer + i * 0.05, { gain: 0.6, pitch: 1.2 + i * 0.04 });
+    A.drum(T.offer, { gain: 0.7 }); A.drum(T.choose, { gain: 0.7, pitch: 1.1 }); A.chime(T.choose, { note: 'B5', gain: 1 }); A.drum(T.check, { gain: 0.7, pitch: 1.2 }); A.ok(T.check);
+    A.whoosh(T.replay - 0.3, { dur: 0.5 }); A.type(T.replay + 0.2, T.title - 1.3, { cps: 30, gain: 0.35 }); A.ok(T.title - 1.2, { gain: 1.2 });
+    A.riser(T.title - 1.6, T.title, { gain: 0.6 }); A.boom(T.title, { gain: 1.1 });
+    for (let i = 0; i < 5; i++) A.drum(T.title + 0.47 + i * 0.3, { gain: 0.7, pitch: 0.85 + i * 0.05 });
+    A.chime(T.end + 0.2, { note: 'B5', gain: 0.6, dur: 3 });
+  },
+});
+</script></body></html>

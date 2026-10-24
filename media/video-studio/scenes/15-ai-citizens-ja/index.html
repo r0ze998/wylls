@@ -1,0 +1,248 @@
+<!doctype html><html><head><meta charset="utf-8"><title>15 AI市民</title>
+<link rel="stylesheet" href="../../lib/wy.css">
+<script src="../../lib/wy.js"></script><script src="../../lib/wy-audio.js"></script><script src="../../lib/wy-kit.js"></script>
+<script src="aik.js"></script>
+<style>
+.spec { font:600 30px/1 var(--mono); color:#d9e9e4; }
+.model-plate { width:900px; padding:34px 44px; border-radius:26px; background:linear-gradient(180deg,#14302a,#0b1c18); border:2px solid rgba(159,216,201,.55); box-shadow:0 0 0 1px rgba(0,0,0,.6), 0 30px 90px rgba(0,0,0,.6), 0 0 80px rgba(80,200,180,.12) inset; }
+.model-plate .nm { font:800 74px/1 var(--sans); letter-spacing:.01em; color:#fffaf0; }
+.model-plate .nm b { color:#9fe0d2; font-weight:800; }
+.model-plate .row { display:flex; flex-wrap:wrap; gap:12px; margin-top:26px; }
+.model-plate .tg { padding:8px 18px; border-radius:12px; background:rgba(159,216,201,.12); border:1px solid rgba(159,216,201,.35); font:600 26px var(--sans-jp); color:#cfe9e2; }
+.noapi { display:flex; align-items:center; gap:18px; padding:16px 28px; border-radius:18px; background:rgba(120,20,25,.25); border:2px solid rgba(230,90,90,.55); font:700 34px var(--sans-jp); color:#ffd9d4; }
+.noapi .x { font:900 40px var(--sans); color:#ff8a80; }
+.lim { width:330px; height:220px; padding:22px 24px; border-radius:20px; background:linear-gradient(180deg, rgba(27,58,47,.97), rgba(16,36,29,.98)); border:2px solid rgba(201,162,74,.8); box-shadow:0 20px 50px rgba(0,0,0,.45); }
+.lim .v { font:800 64px/1 var(--sans); color:#f0d48a; white-space:nowrap; }
+.lim .v small { font-size:30px; font-weight:700; margin-left:4px; }
+.lim .l { margin-top:14px; font:600 26px/1.4 var(--sans-jp); color:#fffaf0; }
+.same { display:flex; gap:14px; }
+.same span { padding:10px 22px; border-radius:999px; border:1.5px solid rgba(255,250,240,.45); font:600 28px var(--sans-jp); color:#fffaf0; background:rgba(255,255,255,.06); }
+.keypanel { width:600px; height:330px; border-radius:24px; padding:30px 36px; }
+.keypanel .t1 { font:800 46px/1.2 var(--serif-jp); }
+.keypanel .t2 { font:600 28px/1.5 var(--sans-jp); margin-top:14px; }
+.kp-mind { background:linear-gradient(180deg,#14302a,#0b1c18); border:2px solid rgba(159,216,201,.6); color:#e6f6f1; }
+.kp-brain { background:linear-gradient(180deg,#2c2414,#1a140a); border:2px solid rgba(240,212,138,.7); color:#fff3d6; }
+.pend { display:flex; align-items:center; gap:18px; padding:16px 28px; border-radius:16px; font:700 32px var(--sans-jp); background:rgba(10,24,19,.85); border:1.5px solid rgba(255,250,240,.25); color:#fffaf0; white-space:nowrap; }
+.pend .k { min-width:118px; text-align:center; padding:4px 12px; border-radius:10px; font:800 24px var(--sans-jp); }
+.pend .ok { background:#2e5b6e; color:#e3f6ff; }
+.pend .no { background:#5a3a6b; color:#f5e3ff; }
+.cnode-cands { position:absolute; width:94px; height:44px; border-radius:10px; background:#fffdf6; border:1.5px solid #d5cfbd; font:700 20px var(--mono); color:#4c5852; display:flex; align-items:center; padding-left:12px; box-shadow:0 8px 20px rgba(0,0,0,.35); }
+.cnode-cands.chosen { border-color:#1f6f67; background:#d4e8e4; color:#0e4a43; box-shadow:0 0 0 3px #1f6f67, 0 10px 30px rgba(0,0,0,.4); }
+.check { font:600 26px var(--sans-jp); color:#e2efe9; display:flex; gap:12px; align-items:center; white-space:nowrap; }
+.check i { font-style:normal; width:36px; height:36px; border-radius:50%; display:grid; place-items:center; background:#2f6b4a; color:#e9ffe9; font:800 22px var(--sans); }
+.ap { width:620px; padding:22px 30px; border-radius:20px; border:2px dashed rgba(235,230,212,.7); background:rgba(235,230,212,.1); color:#fffaf0; }
+.ap .h { font:800 40px var(--serif-jp); }
+.ap .s { font:600 27px/1.5 var(--sans-jp); margin-top:8px; color:rgba(255,250,240,.85); }
+</style>
+</head><body><script>
+const W = 1920, H = 1080;
+const { seg, env, ease: E, clamp, lerp } = WY;
+let dust, bg, ov, wcv, wg, T = {}, N = {}, badgeL, badgeP, end, flashW, cands = [];
+
+WY.scene({
+  width: W, height: H, duration: 60, fps: 60,
+  setup(stage) {
+    AIK.css();
+    bg = AIK.bg(stage);
+    wcv = WY.canvas(stage, W, H); wcv.style.zIndex = 5; wg = wcv.getContext('2d');
+
+    // A — cold open
+    T.kick = AIK.text(stage, 'WYLLS · AI CITIZENS', { x: 0, y: 330, w: W, size: 26, font: 'var(--sans)', weight: 600, ls: '.4em', color: '#c9a24a', stagger: 0.015 });
+    T.a1 = AIK.text(stage, 'AIが、[[プレイヤーのように]]\n振る舞うゲーム。', { x: 0, y: 410, w: W, size: 104, weight: 800 });
+
+    // B — title
+    T.title = AIK.text(stage, 'AI市民', { x: 0, y: 330, w: W, size: 210, weight: 900, ls: '.08em', stagger: 0.09, dur: 0.9, rise: 70, blur: 20 });
+    T.titleEn = AIK.text(stage, 'AI CITIZENS', { x: 0, y: 610, w: W, size: 44, font: 'Cinzel, serif', weight: 700, ls: '.5em', color: '#f0d48a', stagger: 0.03 });
+    N.titleBadge = AIK.box(stage, '<div class="cc"><span class="badge-ai" style="font-size:28px;padding:6px 20px;border-radius:16px">AI市民（Gemma 4、ローカル）</span></div>', { x: 0, y: 720, w: W, z: 12 });
+    N.titleBadge.style.textAlign = 'center';
+    N.titleNote = AIK.box(stage, '<div style="font:500 26px var(--sans-jp);color:rgba(255,250,240,.7);text-align:center">評議会・監査ページのラベル表記</div>', { x: 0, y: 790, w: W, z: 12 });
+
+    // C — the model
+    T.c1 = AIK.text(stage, '動かすのは、[[ローカルの Gemma 4]]。', { x: 0, y: 150, w: W, size: 84 });
+    N.plate = AIK.box(stage, `<div class="model-plate"><div class="spec" style="color:#9fd8c9;letter-spacing:.2em;font-size:22px">LOCAL MODEL</div>
+      <div class="nm" style="margin-top:16px">Gemma 4 <b>26B A4B</b></div>
+      <div class="row"><span class="tg">llama.cpp</span><span class="tg">thinking オフ</span><span class="tg">温度 0</span><span class="tg">JSONスキーマで出力</span></div></div>`, { x: 510, y: 380, z: 12 });
+    N.noapi = AIK.box(stage, '<div class="noapi"><span class="x">✕</span>有料のAPIは使わない</div>', { x: 0, y: 760, w: W, z: 12 });
+    N.noapi.firstChild.style.width = 'max-content'; N.noapi.firstChild.style.margin = '0 auto';
+    N.noapiNote = AIK.box(stage, '<div style="font:500 26px var(--sans-jp);color:rgba(255,250,240,.66);text-align:center">AnthropicやOpenAIの鍵が環境にあると、実行は起動を拒否します。</div>', { x: 0, y: 870, w: W, z: 12 });
+
+    // D — persona / goals / memory (Wyll card styled after the council page)
+    T.d1 = AIK.text(stage, '人格と、目標と、[[記憶]]。', { x: 120, y: 190, size: 70, align: 'left' });
+    T.d2 = AIK.text(stage, '人格は6種類。\n各AIに信条と4つの目標。\n記憶は、公開記録から\nコードが書いた出来事。', { x: 120, y: 360, size: 40, font: 'var(--sans-jp)', weight: 600, align: 'left', lh: 1.6, stagger: 0.018, rise: 24, blur: 6 });
+    const SHOT = '../../assets/ui/council-opened-ja-1920x1080.png'; WY.img(SHOT);
+    const sc = 860 / 1590;
+    N.wyll = AIK.box(stage, `<div style="position:relative;width:860px;height:713px;overflow:hidden;border-radius:16px;box-shadow:0 40px 120px rgba(0,0,0,.6),0 0 0 2px rgba(201,162,74,.6);background:#e9e5d8">
+      <img id="shot" src="${SHOT}" style="position:absolute;left:${-658 * sc}px;top:${-207 * sc}px;width:${3840 * sc}px;height:${2160 * sc}px;transform-origin:430px 360px">
+      <div id="hlg" style="position:absolute;left:8px;top:500px;width:844px;height:205px;border:4px solid #ffd24d;border-radius:14px;box-shadow:0 0 24px rgba(255,210,77,.6);opacity:0"></div>
+      <div id="hlc" style="position:absolute;left:8px;top:128px;width:844px;height:60px;border:4px solid #ffd24d;border-radius:14px;box-shadow:0 0 24px rgba(255,210,77,.6);opacity:0"></div></div>`, { x: 960, y: 140, z: 12 });
+    N.wyllCap = AIK.box(stage, '<div style="width:860px;font:600 22px/1.45 var(--sans-jp);color:rgba(255,250,240,.75)">評議会・監査ページの実際の画面（Wyllカード）。<span style="color:#ffc9a8">ページ試験用の舞台で撮影：名簿と人格は slice-4 の記録、目標の進み具合などは合成データです。</span></div>', { x: 960, y: 868, z: 12 });
+
+    // E — the loop
+    T.e1 = AIK.text(stage, 'コードが[[候補]]を出し、モデルが[[選び]]、コードが[[確かめる]]。', { x: 0, y: 150, w: W, size: 62, weight: 800 });
+    const nodeY = 300;
+    N.n1 = AIK.box(stage, '<div class="aik-node" style="position:relative;width:440px;height:250px"><div class="n">STEP 1 · CODE</div><div class="h">候補を出す</div><div class="s">合法なものだけ・最大12個</div></div>', { x: 120, y: nodeY, z: 12 });
+    N.n2 = AIK.box(stage, '<div class="aik-node" style="position:relative;width:440px;height:250px;border-color:rgba(159,216,201,.85)"><div class="n" style="color:#9fd8c9">STEP 2 · MODEL</div><div class="h">選ぶ</div><div class="s">ローカルの Gemma 4</div></div>', { x: 740, y: nodeY, z: 12 });
+    N.n3 = AIK.box(stage, '<div class="aik-node" style="position:relative;width:440px;height:250px"><div class="n">STEP 3 · CODE</div><div class="h">確かめる</div><div class="s">形式・上限・盤面の再確認</div></div>', { x: 1360, y: nodeY, z: 12 });
+    N.checks = AIK.box(stage, '<div style="display:flex;flex-direction:column;gap:12px"><div class="check"><i>✓</i>形式と候補の範囲</div><div class="check"><i>✓</i>兵の上限</div><div class="check"><i>✓</i>新しい盤面で再確認</div><div class="check"><i>✓</i>最後はプログラム自身が判定</div></div>', { x: 1400, y: 610, z: 12 });
+    N.send = AIK.box(stage, '<div class="aik-pill" style="font-size:28px">ブレインが署名して送る　→　ローカルテストチェーン</div>', { x: 1080, y: 880, z: 12 });
+    for (let i = 0; i < 12; i++) { const c = WY.el('div', { class: 'cnode-cands', text: `c${i + 1}` }, stage); c.style.zIndex = 13; c.style.opacity = 0; cands.push(c); }
+    N.capC = AIK.box(stage, '<div style="font:500 22px var(--sans-jp);color:rgba(255,250,240,.65)">c1〜c12：コードが作った合法な手（並びは固定）</div>', { x: 752, y: 790, z: 12 });
+    N.ap = AIK.box(stage, '<div class="ap"><div class="h">遅い・無効・拒否 → 自動運転</div><div class="s">内政と義務だけを進める。<br>自分から進軍は、決して始めない。</div></div>', { x: 650, y: 640, z: 12 });
+    T.e2 = AIK.text(stage, 'AIの進軍は、[[モデルの選択]]か、国の攻撃命令だけ。', { x: 0, y: 150, w: W, size: 62, weight: 800 });
+
+    // F — keys
+    T.f1 = AIK.text(stage, 'モデルは、[[鍵を見ない]]。', { x: 0, y: 150, w: W, size: 100 });
+    N.mind = AIK.box(stage, '<div class="keypanel kp-mind"><div class="spec" style="font-size:22px;color:#9fd8c9;letter-spacing:.2em">MIND</div><div class="t1">マインド</div><div class="t2">モデルと話す側。<br>鍵・シード・封印の中身は<br>読めない。</div></div>', { x: 300, y: 400, z: 12 });
+    N.brain = AIK.box(stage, '<div class="keypanel kp-brain"><div class="spec" style="font-size:22px;color:#f0d48a;letter-spacing:.2em">BRAIN</div><div class="t1">ブレイン</div><div class="t2">Botのプロセスの中。<br>盤面を確かめ直し、<br>署名して送る。</div></div>', { x: 1020, y: 400, z: 12 });
+    N.keyNote = AIK.box(stage, '<div style="font:500 28px/1.5 var(--sans-jp);color:rgba(255,250,240,.75);text-align:center">これは秘密ではなく、<b style="color:#f0d48a">構造</b>です。ローカルのテスト鍵は、公開されたシードから導けます。</div>', { x: 0, y: 820, w: W, z: 12 });
+
+    // G — same rules + caps
+    T.g1 = AIK.text(stage, '人と同じルールに、[[安全の上限]]を足す。', { x: 0, y: 150, w: W, size: 76 });
+    N.same = AIK.box(stage, '<div class="same"><span>同じ鍵</span><span>同じ回数枠（1時間30回）</span><span>同じ霧</span><span>同じリレー</span></div>', { x: 0, y: 300, w: W, z: 12 });
+    N.same.firstChild.style.justifyContent = 'center';
+    const L = [['12', '個まで', '候補は、コードが<br>作った合法な手だけ'], ['60', '%まで', '1回の判断・1日で<br>出せる本拠の兵'], ['40', '%以上', '本拠に残す兵<br>（200未満は例外あり）'], ['4', '回/日', 'モデルが選べる<br>進軍の回数'], ['3', '件/ターン', '発言の上限<br>（1日40件まで）']];
+    N.lims = L.map(([v, u, l], i) => AIK.box(stage, `<div class="lim"><div class="v">${v}<small>${u}</small></div><div class="l">${l}</div></div>`, { x: 105 + i * 350, y: 470, z: 12 }));
+
+    // H — status
+    T.h1 = AIK.text(stage, '正式な評価は、[[これから]]。', { x: 0, y: 160, w: W, size: 96 });
+    const P = [['ok', '実行済み', 'take-1：AI市民の進軍、verify-minds 合格'], ['no', '未実施', '正式なA/B比較'], ['no', '未完了', '18体の本走（一度、中止）'], ['no', 'まだ', '人とAIが同じ世界で遊ぶシーズン']];
+    N.pend = P.map(([c, k, s], i) => AIK.box(stage, `<div class="pend"><span class="k ${c}">${k}</span>${s}</div>`, { x: 480, y: 400 + i * 104, z: 12 }));
+
+    badgeL = AIK.status(stage, 'local', 'ローカルテストチェーンで実行', { x: 80, y: 60 });
+    badgeP = AIK.status(stage, 'planned', '正式な評価は未完了', { x: 470, y: 60 });
+    badgeL.node.style.zIndex = 30; badgeP.node.style.zIndex = 30;
+    flashW = WYKit.flash(stage, { color: '#fff5dc' });
+    dust = WYKit.dust(stage, { count: 46, color: '255,230,180', z: 8, speed: 12 });
+    ov = AIK.overlay(stage);
+    end = WYKit.endCard(stage, { lang: 'ja', line: '意志を持つAIと、ひとつの地図を。', sub: '人とAI市民が、ひとつの地図を奪い合える戦略ゲーム' });
+  },
+
+  render(t) {
+    bg.render(t, { glow: t < 5.5 ? 0.3 + 0.3 * seg(t, 0, 4) : 0.6 });
+    ov.render(t); dust.render(t, 0.5);
+    AIK.clear(wg, t);
+
+    // A 0–5.5
+    T.kick.render(t - 0.3, 4.6);
+    T.a1.render(t - 0.6, 4.4); T.a1.node.style.transform = `scale(${1 + 0.03 * seg(t, 0, 5.5)})`;
+    // B 5.5–10.5
+    T.title.render(t - 5.5, 4.4); T.title.node.style.transform = `scale(${1.04 - 0.04 * seg(t, 5.5, 10.5, E.outCubic)})`;
+    T.titleEn.render(t - 6.0, 3.9);
+    AIK.show(N.titleBadge, t, 6.6, 10.0);
+    AIK.show(N.titleNote, t, 7.0, 10.0);
+    if (t > 5.3 && t < 7.5) { // light sweep behind the title
+      const k = seg(t, 5.4, 7.2, E.outCubic);
+      const gr = wg.createRadialGradient(W / 2, 450, 0, W / 2, 450, 700 * k + 1);
+      gr.addColorStop(0, `rgba(255,230,170,${0.35 * (1 - k)})`); gr.addColorStop(1, 'rgba(255,230,170,0)');
+      wg.fillStyle = gr; wg.fillRect(0, 0, W, H);
+    }
+    // C 10.5–17
+    T.c1.render(t - 10.6, 5.8);
+    { const e = AIK.show(N.plate, t, 11.0, 16.4, { y: 50 }); if (e) N.plate.style.transform += ` translateX(${WY.drift(t, 4, 6)}px)`; }
+    AIK.show(N.noapi, t, 12.4, 16.4);
+    AIK.show(N.noapiNote, t, 13.2, 16.4);
+
+    // D 17–24.5
+    T.d1.render(t - 17.1, 6.8);
+    T.d2.render(t - 17.8, 6.2);
+    { const e = AIK.show(N.wyll, t, 17.6, 24.0, { y: 60 }); if (e) { N.wyll.querySelector('#shot').style.transform = `scale(${1 + 0.05 * seg(t, 17.6, 24.4)})`; N.wyll.querySelector('#hlc').style.opacity = env(t, 19.0, 20.6, 0.3, 0.3); N.wyll.querySelector('#hlg').style.opacity = env(t, 20.8, 23.6, 0.3, 0.3); } }
+    AIK.show(N.wyllCap, t, 18.2, 24.0);
+
+    // E 24.5–38
+    T.e1.render(t - 24.6, 8.3);
+    const nodesOut = 37.6;
+    AIK.show(N.n1, t, 24.9, nodesOut); AIK.show(N.n2, t, 25.9, nodesOut); AIK.show(N.n3, t, 27.6, nodesOut);
+    // wires between nodes
+    if (t > 25.4 && t < nodesOut + 0.5) {
+      const a = 1 - seg(t, nodesOut, nodesOut + 0.4);
+      wg.globalAlpha = a;
+      AIK.wire(wg, [[560, 425], [740, 425]], seg(t, 25.6, 26.3, E.outCubic), t);
+      AIK.wire(wg, [[1180, 425], [1360, 425]], seg(t, 27.3, 28.0, E.outCubic), t);
+      AIK.wire(wg, [[1580, 680], [1580, 712]], 0, t);
+      wg.globalAlpha = 1;
+    }
+    // twelve candidates fan out of step 1, travel to the model; one is chosen and goes on
+    cands.forEach((c, i) => {
+      const col = i % 4, row = Math.floor(i / 4);
+      const k0 = 25.3 + i * 0.06;
+      const kin = seg(t, k0, k0 + 0.5, E.outBack);
+      const sx = 132 + col * 106, sy = 600 + row * 58; // grid under step 1
+      const toModel = seg(t, 26.6 + i * 0.03, 27.3 + i * 0.03, E.inOutCubic);
+      const mx = 752 + col * 106, my = 600 + row * 58;      // grid under the model
+      const chosen = i === 4;
+      const pick = seg(t, 28.0, 28.6, E.outBack);
+      let x = lerp(sx, mx, toModel), y = lerp(sy, my, toModel), o = kin, s = lerp(0.6, 1, kin);
+      if (t > 28.0) { if (chosen) { const go = seg(t, 29.0, 29.7, E.inOutCubic); x = lerp(mx, 1533, go); y = lerp(my, 560, go) - 20 * pick * (1 - go); s = 1 + 0.15 * pick * (1 - go); } else o *= 1 - 0.75 * pick; }
+      if (t > 29.9 && chosen) { o *= 1 - seg(t, 29.9, 30.2); }
+      o *= 1 - seg(t, 32.6, 33.0);
+      c.classList.toggle('chosen', chosen && t > 28.0);
+      c.style.opacity = o; c.style.transform = `translate(${x}px, ${y}px) scale(${s})`; c.style.left = '0px'; c.style.top = '0px';
+    });
+    AIK.show(N.capC, t, 26.8, 32.4);
+    { const e = AIK.show(N.checks, t, 30.0, 32.6); if (e) [...N.checks.firstChild.children].forEach((r, i) => { r.style.opacity = seg(t, 30.1 + i * 0.35, 30.5 + i * 0.35); }); }
+    AIK.show(N.send, t, 31.4, 32.8);
+    // autopilot branch 33–38
+    if (t > 32.8 && t < 38.2) {
+      const a = 1 - seg(t, 37.6, 38.0);
+      wg.globalAlpha = a;
+      AIK.wire(wg, [[960, 550], [960, 635]], seg(t, 33.0, 33.6, E.outCubic), t, { color: 'rgba(235,230,212,.75)', dash: [8, 10] });
+      wg.globalAlpha = 1;
+    }
+    AIK.show(N.ap, t, 33.4, 37.6);
+    T.e2.render(t - 33.2 + 0, 4.4);
+    if (t > 32.9 && t < 33.3) T.e1.node.style.opacity = 0;
+
+    // F 38–44
+    T.f1.render(t - 38.2, 5.4);
+    AIK.show(N.mind, t, 38.6, 43.6, { y: 40 });
+    AIK.show(N.brain, t, 39.0, 43.6, { y: 40 });
+    AIK.show(N.keyNote, t, 40.0, 43.6);
+    if (t > 38.8 && t < 44.1) { // the wall between mind and brain
+      const k = seg(t, 39.2, 39.9, E.outCubic), a = 1 - seg(t, 43.6, 44.0);
+      wg.save(); wg.globalAlpha = a; wg.strokeStyle = '#f0d48a'; wg.lineWidth = 5; wg.setLineDash([2, 14]); wg.lineCap = 'round';
+      wg.beginPath(); wg.moveTo(960, 565 - 200 * k); wg.lineTo(960, 565 + 200 * k); wg.stroke(); wg.setLineDash([]);
+      // a key icon on the brain side
+      const kx = 1520, ky = 470, ks = seg(t, 39.8, 40.3, E.outBack);
+      wg.translate(kx, ky); wg.scale(ks, ks); wg.rotate(-0.5 + 0.05 * Math.sin(t * 2));
+      wg.strokeStyle = '#f0d48a'; wg.lineWidth = 7; wg.beginPath(); wg.arc(0, 0, 20, 0, Math.PI * 2); wg.stroke();
+      wg.beginPath(); wg.moveTo(20, 0); wg.lineTo(66, 0); wg.moveTo(52, 0); wg.lineTo(52, 14); wg.moveTo(64, 0); wg.lineTo(64, 12); wg.stroke();
+      wg.restore();
+    }
+
+    // G 44–50
+    T.g1.render(t - 44.2, 5.4);
+    AIK.show(N.same, t, 44.8, 49.6);
+    N.lims.forEach((n, i) => AIK.show(n, t, 45.5 + i * 0.22, 49.6, { y: 50 }));
+
+    // H 50–55.5
+    T.h1.render(t - 50.1, 4.9);
+    N.pend.forEach((n, i) => AIK.show(n, t, 50.7 + i * 0.35, 55.0, { y: 30 }));
+
+    badgeL.render(t, 6.4, 55.0);
+    badgeP.render(t, 6.8, 55.0);
+    flashW.render(t, 5.5, 0.5, 0.55);
+    end.render(t - 55.5);
+  },
+
+  audio(A) {
+    A.music({ style: 'tension', bpm: 96, key: 'D', sections: [[0, 0.22], [5.5, 0.45], [17, 0.55], [24.5, 0.7], [30, 0.0]], end: 31.5, outro: 'none' });
+    A.music({ style: 'epic', bpm: 96, key: 'D', start: 30, sections: [[30, 0.0], [32.5, 0.6], [38, 0.55], [44, 0.8], [50, 0.5]], end: 55.5, outro: 'hit' });
+    A.drone(0, 6, { note: 'D2', gain: 0.5 });
+    A.tick(0.6); A.tick(1.2, { pitch: 0.8 });
+    A.riser(4.0, 5.5, { gain: 0.6 }); A.whoosh(5.25); A.boom(5.5);
+    A.whoosh(10.3, { gain: 0.6 }); A.hit(10.6, { gain: 0.5 }); A.pop(12.5); A.bad(12.5, { gain: 0.35 });
+    A.whoosh(16.9, { gain: 0.6 }); A.pop(17.7);
+    A.whoosh(24.3, { gain: 0.6 }); A.hit(24.6, { gain: 0.6 });
+    for (let i = 0; i < 12; i++) A.tick(25.3 + i * 0.06, { gain: 0.5, pitch: 1.3 });
+    A.whoosh(26.5, { gain: 0.4, dur: 0.6 }); A.chime(28.0, { note: 'A5', gain: 0.7 });
+    for (let i = 0; i < 4; i++) A.ok(30.1 + i * 0.35, { gain: 0.45 });
+    A.lock(31.5, { gain: 0.6 });
+    A.whoosh(33.0, { gain: 0.5, dir: 'down' });
+    A.whoosh(38.0, { gain: 0.6 }); A.hit(38.2, { gain: 0.6 }); A.lock(39.9);
+    A.whoosh(44.0, { gain: 0.6 }); A.hit(44.2, { gain: 0.5 });
+    for (let i = 0; i < 5; i++) A.pop(45.5 + i * 0.22, { gain: 0.6 });
+    A.whoosh(49.9, { gain: 0.5 }); A.chime(50.2, { note: 'D5', gain: 0.6 });
+    for (let i = 0; i < 4; i++) A.tick(50.7 + i * 0.35, { gain: 0.6 });
+  },
+});
+</script></body></html>

@@ -1,0 +1,177 @@
+<!doctype html><html><head><meta charset="utf-8"><title>29 journey (ja)</title>
+<link rel="stylesheet" href="../../lib/wy.css">
+<script src="../../lib/wy.js"></script><script src="../../lib/wy-audio.js"></script><script src="../../lib/wy-map.js"></script><script src="../../lib/wy-kit.js"></script>
+<script src="kit.js"></script>
+</head><body><script>
+// Sources: FACTS.md §10 timeline (SUBMISSION §4, §7; PITCH; git log), §4 (sc-14d), §5 (take-1, own1), §6 (M1).
+const MS = [
+  { date: 'これより前', title: '先行作品', sub: '0xCiv・0xARK', note: 'このリポジトリの外にある、別のプロジェクト', badge: null },
+  { date: '2026年 9月21日〜26日', title: '旧プロトタイプ', sub: 'Solana devnet で1シーズン', note: '180ターン・14メンバー(運営のルールボット12+人2)', badge: ['devnet', 'Solana devnetで実行(旧プロトタイプ・別のゲーム)'] },
+  { date: '9月27日', title: '作り直しの始まり', sub: 'ルールのカーネルとシミュレーター', note: 'M0:6か国のバランスを調整', badge: ['code', 'コード'] },
+  { date: '9月27日〜10月1日', title: 'M1「First Bell」', sub: 'スクリプトボット1,000体で7ゲーム日', note: '10月2日、名前が「Wylls」に', badge: ['local', null] },
+  { date: '10月1日〜11日', title: 'AI市民', sub: 'ローカルの Gemma 4 が進軍を選ぶ', note: 'take-1(AI)と own1(人が操作)は別の実行', badge: ['local', null] },
+  { date: '10月13日 6:50', title: 'コロッセウムに提出', sub: 'Crypto World’s Fair・Gaming部門', note: '前日に PR #4 で統合コードを main へ', badge: null },
+  { date: '10月17日〜18日', title: '14日間のシーズン', sub: 'ローカルで最後まで・272,004件を検証', note: 'ルールボット120体・テスト用USDC', badge: ['local', null] },
+  { date: '10月23日〜24日', title: 'S1', sub: '工房・隊商・砦・国の投票をコードに', note: 'Webクライアントでは、まだ遊べない', badge: ['code', null] },
+  { date: 'これから', title: 'ひとつの文明へ', sub: '技術・時代・外交は設計の段階', note: '次の公開シーズンはメインネットで(計画)', badge: ['planned', '設計・計画'] },
+];
+const T0 = 4.0, STEP = 5.6, TRAVEL = 1.5;
+const ARR = MS.map((_, i) => T0 + i * STEP + TRAVEL);
+const WIDE = ARR[8] + 4.6, END = WIDE + 3.8, DUR = END + 4.6;
+const ART = WY.ART;
+let world, mc, cc, pts = [], cum = [], L = 0, WP = [], WPs = [], badges = [], ov, endc, title = [];
+const E = () => WY.ease;
+
+function buildRoad() {
+  // waypoints on an inward spiral that ends at The Concord
+  const W = [];
+  for (let i = 0; i <= 9; i++) { const ring = 9.4 - i * 0.94, th = 2.5 + i * 0.66; W.push([ring * 152 * Math.cos(th), ring * 118 * Math.sin(th)]); }
+  W[9] = [0, 0];
+  // Catmull-Rom through the waypoints, with a gentle wiggle
+  const P = [W[0], ...W, W[9]];
+  for (let i = 1; i < P.length - 2; i++) {
+    const [p0, p1, p2, p3] = [P[i - 1], P[i], P[i + 1], P[i + 2]];
+    for (let k = 0; k < 60; k++) {
+      const u = k / 60, u2 = u * u, u3 = u2 * u;
+      const f = (a, b, c, d) => 0.5 * (2 * b + (-a + c) * u + (2 * a - 5 * b + 4 * c - d) * u2 + (-a + 3 * b - 3 * c + d) * u3);
+      const w = Math.sin(u * Math.PI) * 26 * Math.sin(i * 1.7);
+      const x = f(p0[0], p1[0], p2[0], p3[0]), y = f(p0[1], p1[1], p2[1], p3[1]);
+      pts.push([x + w * 0.6, y + w * 0.4]);
+    }
+    WPs.push(pts.length - 60);
+  }
+  pts.push(W[9]); WPs.push(pts.length - 1);
+  cum = [0]; for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
+  L = cum[cum.length - 1];
+  WP = WPs.map(i => cum[i]); // road distance of each waypoint (0 = start)
+  // when each tile is revealed (road distance), for the fog
+  for (const t of world.tiles) {
+    let best = Infinity;
+    for (let i = 0; i < pts.length; i += 4) { const d = Math.hypot(pts[i][0] - t.x, (pts[i][1] - t.y) * 1.25); if (d < 430) best = Math.min(best, cum[i] + d * 0.5); }
+    t.rev = t.ring <= 1 ? WP[9] - 40 : best;
+  }
+}
+function at(s) { // point on the road at distance s
+  s = WY.clamp(s, 0, L); let lo = 0, hi = cum.length - 1; while (hi - lo > 1) { const m = (lo + hi) >> 1; if (cum[m] < s) lo = m; else hi = m; }
+  const k = (s - cum[lo]) / Math.max(1e-6, cum[hi] - cum[lo]); return [WY.lerp(pts[lo][0], pts[hi][0], k), WY.lerp(pts[lo][1], pts[hi][1], k)];
+}
+function sAt(t) { // road distance travelled at time t
+  for (let i = MS.length - 1; i >= 0; i--) { const t0 = ARR[i] - TRAVEL; if (t >= t0) return WY.lerp(WP[i], WP[i + 1], E().inOutCubic(WY.seg(t, t0, ARR[i]))); }
+  return 0;
+}
+function camAt(t) {
+  const s = sAt(t); const [x, y] = at(s);
+  // during travel the camera rises a little
+  let travel = 0; for (let i = 0; i < MS.length; i++) travel = Math.max(travel, Math.sin(Math.PI * WY.seg(t, ARR[i] - TRAVEL, ARR[i])));
+  const follow = { x: x + 40, y: y - WYMap.LIFT - 240 / 0.95, zoom: 0.95 - 0.16 * travel };
+  follow.y = y - WYMap.LIFT - 250 / follow.zoom;
+  const wide = { x: 0, y: -210, zoom: 0.42 };
+  const kIn = E().inOutCubic(WY.seg(t, 2.6, T0 + 0.2));
+  const kOut = E().inOutCubic(WY.seg(t, WIDE, END - 0.3));
+  const mix = t < WIDE ? 1 - kIn : kOut;
+  const lz = Math.exp(WY.lerp(Math.log(follow.zoom), Math.log(wide.zoom), mix));
+  return { x: WY.lerp(follow.x, wide.x, mix) + WY.drift(t, 2, 10), y: WY.lerp(follow.y, wide.y, mix) + WY.drift(t, 6, 8), zoom: lz * (1 + 0.01 * Math.sin(t * 0.4)), W: 1920, H: 1080 };
+}
+
+function flag(ctx, x, y, n, k) { // a small numbered pennant for a passed milestone (screen)
+  if (k <= 0) return; ctx.save(); ctx.globalAlpha = k; ctx.translate(x, y);
+  ctx.strokeStyle = '#2a1d10'; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, -64); ctx.stroke();
+  ctx.fillStyle = '#ffd24d'; ctx.strokeStyle = '#6a5510'; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(0, -78, 20, 0, 7); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#3b2f06'; ctx.font = '800 22px Inter'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(String(n), 0, -77);
+  ctx.restore();
+}
+function wrapW(ctx, txt) { return ctx.measureText(txt).width; }
+function card(ctx, x, y, m, i, k, out) { // the milestone card above its waypoint (screen)
+  if (k <= 0) return;
+  const e = E().outBack(k), q = E().inCubic(out);
+  const w = 720, h = m.note ? 268 : 220;
+  ctx.save(); ctx.globalAlpha = Math.min(1, k * 1.6) * (1 - q); ctx.translate(x, y - 40 - 30 * q); ctx.scale(0.85 + 0.15 * e, 0.85 + 0.15 * e);
+  // pole
+  ctx.strokeStyle = '#2a1d10'; ctx.lineWidth = 6; ctx.beginPath(); ctx.moveTo(0, 40); ctx.lineTo(0, -60); ctx.stroke();
+  const cx = -w / 2, cy = -60 - h;
+  ctx.shadowColor = 'rgba(0,0,0,.55)'; ctx.shadowBlur = 40; ctx.shadowOffsetY = 16;
+  const pg = ctx.createLinearGradient(0, cy, 0, cy + h); pg.addColorStop(0, '#f1e6c8'); pg.addColorStop(1, '#dccb9e');
+  ctx.fillStyle = pg; K.rr(ctx, cx, cy, w, h, 14); ctx.fill(); ctx.shadowColor = 'transparent';
+  ctx.strokeStyle = '#8c6a2a'; ctx.lineWidth = 3; ctx.stroke(); ctx.strokeStyle = 'rgba(140,106,42,.35)'; ctx.lineWidth = 1.5; K.rr(ctx, cx + 8, cy + 8, w - 16, h - 16, 9); ctx.stroke();
+  // number seal
+  ctx.fillStyle = '#a8222c'; ctx.beginPath(); ctx.arc(cx + 18, cy + 18, 30, 0, 7); ctx.fill(); ctx.strokeStyle = '#f0d48a'; ctx.lineWidth = 2.5; ctx.stroke();
+  ctx.fillStyle = '#fffaf0'; ctx.font = '800 28px Inter'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(String(i + 1), cx + 18, cy + 19);
+  ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+  ctx.fillStyle = '#7a5a1a'; ctx.font = '700 28px "Noto Sans JP"'; ctx.fillText(m.date, 0, cy + 52);
+  ctx.fillStyle = '#21170b'; ctx.font = '900 56px "Noto Serif JP"'; ctx.fillText(m.title, 0, cy + 120);
+  ctx.fillStyle = '#3a2a14'; ctx.font = '700 31px "Noto Sans JP"'; ctx.fillText(m.sub, 0, cy + 170);
+  if (m.note) { ctx.fillStyle = 'rgba(58,42,20,.72)'; ctx.font = '500 25px "Noto Sans JP"'; ctx.fillText(m.note, 0, cy + 216); }
+  ctx.restore();
+}
+
+WY.scene({
+  width: 1920, height: 1080, duration: DUR, fps: 30,
+  setup(stage) {
+    world = WYMap.build({ rings: 12, seed: 29 });
+    for (const tr of ['plains', 'grassland', 'forest', 'hills', 'mountain', 'water']) for (let v = 1; v <= 3; v++) WY.img(ART + `terrain/@2x/${tr}_${v}.webp`);
+    for (const k of WYMap.ART_FACTIONS) for (const h of ['hamlet_o', 'town_o', 'stronghold_w']) WY.img(ART + `holdings/@2x/${h}_${k}.webp`);
+    for (const s of ['freecity_town', 'barbarian_1', 'concord_plaza_1', 'concord_paving']) WY.img(ART + `specials/@2x/${s}.webp`);
+    for (let i = 1; i <= 3; i++) WY.img(ART + `fog/@2x/cloud_${i}.webp`);
+    buildRoad();
+    mc = WY.canvas(stage, 1920, 1080).getContext('2d');
+    const cC = WY.canvas(stage, 1920, 1080); cC.style.zIndex = 6; cc = cC.getContext('2d');
+    title.push(K.text(stage, '開発の歩み', { left: 0, width: '1920px', top: '370px', textAlign: 'center', font: '900 132px/1.2 var(--serif-jp)', color: '#fffaf0', textShadow: '0 8px 50px rgba(0,0,0,.85)' }, { a: 0.3, b: 3.2, stagger: 0.08, dur: 0.9, z: 12 }));
+    title.push(K.text(stage, 'ひとつの地図ができるまで', { left: 0, width: '1920px', top: '560px', textAlign: 'center', font: '700 44px var(--sans-jp)', color: 'rgba(255,250,240,.9)', textShadow: '0 2px 20px rgba(0,0,0,.95)' }, { a: 1.0, b: 3.2, z: 12 }));
+    const shade = WY.el('div', { class: 'wy-abs' }, stage); WY.css(shade, { left: 0, top: 0, width: '1920px', height: '360px', background: 'linear-gradient(rgba(5,9,7,.85), rgba(5,9,7,0))', zIndex: 11, opacity: 0 }); window.__shade = shade;
+    title.push(K.text(stage, '道のりは、まだ続く。', { left: 0, width: '1920px', top: '78px', textAlign: 'center', font: '900 84px/1.2 var(--serif-jp)', color: '#fffaf0', textShadow: '0 6px 40px rgba(0,0,0,.9)' }, { a: WIDE + 0.4, b: END - 0.25, stagger: 0.07, z: 12 }));
+    MS.forEach((m, i) => { if (!m.badge) return badges.push(null); const b = WYKit.status(stage, m.badge[0], 'ja', { x: 80, y: 64, size: 24, text: m.badge[1] || undefined }); b.node.style.zIndex = 30; badges.push(b); });
+    ov = K.overlay(stage, { vignette: 0.62 });
+    endc = WYKit.endCard(stage, { lang: 'ja', line: '意志を持つAIと、ひとつの地図を。' });
+  },
+  render(t) {
+    const cam = camAt(t); const s = sAt(t);
+    mc.clearRect(0, 0, 1920, 1080);
+    WYMap.draw(mc, world, cam, { t, wash: () => 0.2, fog: tl => (tl.ring >= 12 ? 0.8 : 0), appear: () => 1 });
+    // the unexplored world stays in shadow; the road lights it up
+    mc.fillStyle = '#060a08';
+    for (const tl of world.tiles) {
+      const f = WY.clamp((tl.rev - s) / 320, 0, 1) * (1 - 0.35 * WY.seg(t, WIDE, END)); if (f <= 0.01 || tl.ring >= 12) continue;
+      const [hx, hy] = WYMap.toScreen(cam, tl.x, tl.y - WYMap.LIFT); if (hx < -200 || hx > 2120 || hy < -200 || hy > 1280) continue;
+      WYMap.hexPath(mc, hx, hy, WYMap.R * cam.zoom, 1.04); mc.globalAlpha = 0.7 * f; mc.fill();
+    }
+    mc.globalAlpha = 1;
+    // road: dim ahead, gold behind the traveller
+    const z = cam.zoom; mc.save(); mc.setTransform(z, 0, 0, z, 960 - cam.x * z, 540 - cam.y * z); mc.translate(0, -WYMap.LIFT);
+    const path = (a, b) => { mc.beginPath(); let st = false; for (let i = 0; i < pts.length; i += 2) { if (cum[i] < a || cum[i] > b) continue; st ? mc.lineTo(pts[i][0], pts[i][1]) : mc.moveTo(pts[i][0], pts[i][1]); st = true; } };
+    mc.lineCap = 'round'; mc.lineJoin = 'round';
+    path(0, L); mc.strokeStyle = 'rgba(40,26,12,.55)'; mc.lineWidth = 30; mc.stroke(); mc.strokeStyle = 'rgba(214,190,140,.55)'; mc.lineWidth = 20; mc.stroke();
+    mc.setLineDash([22, 18]); mc.strokeStyle = 'rgba(90,64,30,.6)'; mc.lineWidth = 4; mc.stroke(); mc.setLineDash([]);
+    path(0, s); mc.strokeStyle = 'rgba(255,210,77,.35)'; mc.lineWidth = 34; mc.stroke(); mc.strokeStyle = '#ffd24d'; mc.lineWidth = 9; mc.stroke();
+    mc.restore();
+    // traveller
+    const [px, py] = WYMap.toScreen(cam, ...at(s)); const ty = py - WYMap.LIFT * z;
+    const rg = mc.createRadialGradient(px, ty, 0, px, ty, 90 * z + 20); rg.addColorStop(0, 'rgba(255,236,170,.95)'); rg.addColorStop(0.25, 'rgba(255,210,77,.55)'); rg.addColorStop(1, 'rgba(255,210,77,0)');
+    mc.fillStyle = rg; mc.beginPath(); mc.arc(px, ty, 90 * z + 20, 0, 7); mc.fill();
+    mc.fillStyle = '#fff6d8'; mc.beginPath(); mc.arc(px, ty, 9 + 2 * Math.sin(t * 6), 0, 7); mc.fill();
+
+    // cards + passed flags
+    cc.clearRect(0, 0, 1920, 1080); K.touch(cc);
+    const wideK = WY.seg(t, WIDE - 0.4, WIDE + 0.6);
+    MS.forEach((m, i) => {
+      const [wx, wy] = at(WP[i + 1]); const [sx, sy] = WYMap.toScreen(cam, wx, wy - WYMap.LIFT);
+      const dep = i < MS.length - 1 ? ARR[i + 1] - TRAVEL : WIDE - 0.6;
+      const k = WY.seg(t, ARR[i] - 0.45, ARR[i] + 0.35), out = WY.seg(t, dep - 0.1, dep + 0.45);
+      if (t > dep) flag(cc, sx, sy, i + 1, WY.seg(t, dep + 0.1, dep + 0.6) * (1 - 0.0 * wideK));
+      else card(cc, sx, sy, m, i, k, out);
+      if (badges[i]) badges[i].render(t, ARR[i] - 0.3, dep + 0.2);
+    });
+    window.__shade.style.opacity = WY.env(t, WIDE + 0.2, END - 0.2, 0.6, 0.4);
+    title.forEach(x => x.render(t)); ov.render(t);
+    endc.render(t - END);
+  },
+  audio(A) {
+    A.music({ style: 'calm', bpm: 76, key: 'D', minor: false, sections: [[0, 0.25], [T0, 0.4], [ARR[3], 0.5], [ARR[5], 0.65], [ARR[6], 0.78], [ARR[8], 0.9], [WIDE + 1, 0.6]], end: END, outro: 'ring' });
+    A.music({ style: 'epic', bpm: 76, key: 'D', minor: false, start: ARR[5] - 0.2, sections: [[ARR[5] - 0.2, 0.0], [ARR[6], 0.55], [ARR[7], 0.75], [ARR[8], 0.9], [WIDE + 1.5, 0.5]], end: END, outro: 'hit' });
+    A.swell(0, 3.0, { note: 'D3' }); A.chime(0.4, { note: 'D5', gain: 0.6 });
+    MS.forEach((_, i) => { A.whoosh(ARR[i] - TRAVEL - 0.05, { dur: TRAVEL, gain: 0.7 }); A.drum(ARR[i] - 0.1, { gain: 0.5, pitch: 0.9 }); A.chime(ARR[i] + 0.05, { note: ['A4', 'B4', 'D5', 'E5', 'F#5', 'A5', 'B5', 'D6', 'E6'][i], gain: 0.55 }); });
+    A.hit(ARR[5], { gain: 0.6 });
+    A.riser(WIDE - 1.2, WIDE + 0.4, { gain: 0.6 }); A.swell(WIDE, END, { note: 'D3', gain: 0.7 });
+    A.sparkle(END + 0.6, { root: 'D5', gain: 0.5 });
+  },
+});
+</script></body></html>

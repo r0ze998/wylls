@@ -1,0 +1,233 @@
+<!doctype html><html><head><meta charset="utf-8"><title>05 six nations</title>
+<link rel="stylesheet" href="../../lib/wy.css">
+<script src="../../lib/wy.js"></script><script src="../../lib/wy-audio.js"></script>
+<script src="../../lib/wy-map.js"></script><script src="../../lib/wy-kit.js"></script>
+<script src="lk.js"></script>
+<style>
+  .beat { position: absolute; inset: 0; overflow: hidden; }
+  .jname { font: 900 132px/1.1 var(--serif-jp); color: #fffaf0; text-shadow: 0 6px 30px rgba(0,0,0,.45); letter-spacing: .02em; }
+  .ename { font: 700 40px/1 Cinzel, serif; letter-spacing: .34em; }
+  .quote { font: 600 42px/1.62 var(--sans-jp); color: #fffaf0; text-shadow: 0 2px 12px rgba(0,0,0,.6); }
+  .cap { font: 500 22px/1.4 var(--sans-jp); color: rgba(255,250,240,.62); letter-spacing: .02em; }
+</style>
+</head><body><script>
+const N = WY.NATIONS, E = WY.ease;
+const S0 = 4.0, BEAT = 7.8, FIN = S0 + 6 * BEAT; // 50.8
+const END = 58.0, DUR = 63.0;
+const WIPE = 0.36; // half-length of a wipe
+let world, fx, fxc, lattice, beats = [], open = {}, fin = {}, ov, end, dust, flash, sim;
+
+function wipeX(t, at) { // x of the diagonal edge: 2160 -> -240 over [at-WIPE, at+WIPE]
+  const k = E.inOutCubic(WY.clamp((t - (at - WIPE)) / (2 * WIPE)));
+  return WY.lerp(2160, -240, k);
+}
+function clipFor(t, at) { // polygon revealing a layer from the right
+  const x = wipeX(t, at);
+  if (x <= -239) return 'none';
+  return `polygon(${x + 240}px 0, 1920px 0, 1920px 1080px, ${x}px 1080px)`;
+}
+
+WY.scene({
+  width: 1920, height: 1080, duration: DUR, fps: 30,
+  setup(stage) {
+    world = WYMap.build({ rings: 8, seed: 11 });
+    { const oc = document.createElement('canvas'); oc.width = 64; oc.height = 64; WYMap.draw(oc.getContext('2d'), world, { x: 0, y: 0, zoom: 0.05, W: 64, H: 64 }, { fog: () => 1 }); }
+    lattice = LK.hexLattice(2400, 1300, 64, 'rgba(255,255,255,0.055)', 1.5);
+
+    // ---------- opening
+    open.root = WY.el('div', { class: 'beat' }, stage);
+    open.cv = WY.canvas(open.root, 1920, 1080); open.ctx = open.cv.getContext('2d');
+    open.shade = LK.div(open.root, '', { width: '1920px', height: '1080px', background: 'radial-gradient(ellipse at 50% 50%, rgba(5,10,8,.35) 0%, rgba(5,10,8,.62) 70%)' });
+    open.title = LK.lines(open.root, ['六つの国'], { left: '0px', width: '1920px', top: '360px', textAlign: 'center' }, { font: '900 168px/1.1 var(--serif-jp)', color: '#fffaf0', textShadow: '0 8px 40px rgba(0,0,0,.7)', letterSpacing: '.12em' });
+    open.en = LK.div(open.root, 'SIX NATIONS · ONE MAP', { left: '0px', width: '1920px', top: '580px', textAlign: 'center', font: '700 40px Cinzel, serif', letterSpacing: '.4em', color: '#f0d48a', textShadow: '0 2px 16px rgba(0,0,0,.8)' });
+    open.sub = LK.div(open.root, '大協約を囲む、ひとつの地図', { left: '0px', width: '1920px', top: '650px', textAlign: 'center', font: '600 40px var(--sans-jp)', color: 'rgba(255,250,240,.88)', textShadow: '0 2px 14px rgba(0,0,0,.9)' });
+
+    // ---------- six beats
+    for (let f = 0; f < 6; f++) {
+      const b = { f, s: S0 + f * BEAT };
+      b.root = WY.el('div', { class: 'beat' }, stage);
+      b.cv = WY.canvas(b.root, 1920, 1080); b.ctx = b.cv.getContext('2d');
+      b.fig = LK.figure(LK.KEYS[f]);
+      b.ghost = LK.div(b.root, LK.EN[f].toUpperCase(), { left: '0px', top: '760px', font: '900 330px/1 Cinzel, serif', color: 'rgba(255,255,255,.05)', whiteSpace: 'nowrap', letterSpacing: '.06em' });
+      b.col = WY.el('div', { class: 'wy-abs' }, b.root); WY.css(b.col, { width: '1920px', height: '1080px' });
+      b.idx = LK.div(b.col, `<span style="display:inline-block;vertical-align:middle">${WY.crest(f, 104)}</span><span style="display:inline-block;vertical-align:middle;margin-left:26px;font:700 30px Cinzel,serif;letter-spacing:.3em;color:#f0d48a">0${f + 1} <span style="opacity:.55">/ 06</span></span>`, { left: '1010px', top: '128px' });
+      b.name = LK.lines(b.col, [LK.JA[f]], { left: '1000px', top: '262px' }, { font: '900 132px/1.12 var(--serif-jp)', color: '#fffaf0', textShadow: '0 6px 30px rgba(0,0,0,.45)' });
+      b.en = LK.div(b.col, LK.EN[f].toUpperCase(), { left: '1012px', top: '426px', font: '700 40px/1 Cinzel, serif', letterSpacing: '.34em', color: N[f].light });
+      b.rule = LK.div(b.col, '', { left: '1012px', top: '500px', width: '780px', height: '2px', background: 'linear-gradient(90deg, #f0d48a, rgba(240,212,138,0))', transformOrigin: '0 0' });
+      b.doc = LK.div(b.col, `${LK.pill('教義', { size: 26 })}<span style="font:900 76px/1 var(--serif-jp);margin-left:24px;vertical-align:middle;color:#fffaf0">${LK.DOC[f]}</span><span style="font:italic 600 40px/1 'Cormorant Garamond',serif;margin-left:22px;vertical-align:middle;color:${N[f].light};opacity:.9">${LK.DOC_EN[f]}</span>`, { left: '1012px', top: '536px', whiteSpace: 'nowrap' });
+      b.qbar = LK.div(b.col, '', { left: '1012px', top: '668px', width: '4px', height: '140px', background: '#f0d48a', borderRadius: '2px' });
+      b.quote = LK.lines(b.col, LK.PITCH[f], { left: '1044px', top: '660px' }, { font: '600 42px/1.62 var(--sans-jp)', color: '#fffaf0', textShadow: '0 2px 12px rgba(0,0,0,.6)' });
+      b.cap = LK.div(b.col, 'ゲーム内の教義テキストより ・ 一部の仕組みはまだ実装されていません', { left: '1044px', top: '840px', font: '500 22px/1.4 var(--sans-jp)', color: 'rgba(255,250,240,.6)' });
+      beats.push(b);
+    }
+
+    // ---------- finale
+    fin.root = WY.el('div', { class: 'beat' }, stage);
+    fin.cv = WY.canvas(fin.root, 1920, 1080); fin.ctx = fin.cv.getContext('2d');
+    fin.figs = LK.KEYS.map(k => LK.figure(k));
+    fin.title = LK.lines(fin.root, ['六つの国。ひとつの地図。'], { left: '0px', width: '1920px', top: '118px', textAlign: 'center' }, { font: '900 96px/1.2 var(--serif-jp)', color: '#fffaf0', textShadow: '0 6px 30px rgba(0,0,0,.8)', letterSpacing: '.04em' });
+    fin.cols = [0, 1, 2, 3, 4, 5].map(f => {
+      const pct = [15.6, 15.7, 16.9, 17.4, 17.4, 17.0][f];
+      return LK.div(fin.root, `<div style="display:flex;align-items:center;justify-content:center;gap:10px">${WY.crest(f, 46)}<span style="font:700 30px var(--sans-jp);color:#fffaf0">${LK.JA[f]}</span></div><div style="margin-top:10px;font:800 46px Inter,sans-serif;color:${f === 4 ? '#e8ecea' : N[f].fill};text-shadow:0 2px 12px rgba(0,0,0,.8)">${pct.toFixed(1)}<span style="font-size:26px;opacity:.8">%</span></div>`, { left: 175 + f * 270 - 125 + 'px', top: '734px', width: '250px', textAlign: 'center' });
+    });
+    fin.line = LK.div(fin.root, 'シミュレーションでは、どの国もおよそ6回に1回勝つ', { left: '0px', width: '1920px', top: '876px', textAlign: 'center', font: '700 42px var(--sans-jp)', color: '#fffaf0', textShadow: '0 2px 14px rgba(0,0,0,.9)' });
+    fin.note = LK.div(fin.root, '1,500シーズン分のバランス・シミュレーション(1万の模擬ウォレット、想定した行動)。人のプレイでの計測ではありません。', { left: '0px', width: '1920px', top: '942px', textAlign: 'center', font: '500 24px var(--sans-jp)', color: 'rgba(255,250,240,.7)' });
+    sim = WYKit.status(stage, 'sim', 'ja', { x: 80, y: 60, text: 'シミュレーター出力(想定した行動)' });
+    sim.node.style.zIndex = 30;
+
+    // ---------- overlays
+    fxc = WY.canvas(stage, 1920, 1080); fxc.style.zIndex = 20; fx = fxc.getContext('2d');
+    ov = LK.overlays(stage, 45, { vignette: 0.55 }); ov.g.style.display = 'none';
+    flash = WYKit.flash(stage, { color: '#fff8e8', z: 50 });
+    end = WYKit.endCard(stage, { lang: 'ja', line: '国をひとつ選ぶ。それがあなたの姿になる。' });
+  },
+
+  render(t) {
+    // ---------------- opening (0 .. S0+WIPE)
+    const openVis = t < S0 + WIPE;
+    open.root.style.display = openVis ? 'block' : 'none';
+    if (openVis) {
+      const zoom = WY.lerp(0.46, 0.6, E.outCubic(WY.seg(t, 0, S0 + 0.4)));
+      const cam = { x: 0, y: -20 + WY.drift(t, 3, 10), zoom, W: 1920, H: 1080 };
+      const ap = tl => WY.seg(t, 0.1 + tl.ring * 0.16, 0.7 + tl.ring * 0.16);
+      WYMap.draw(open.ctx, world, cam, { t, appear: ap, wash: () => 0.3, fog: tl => tl.ring >= 8 ? 0.85 * ap(tl) : 0 });
+      WY.revealChars(open.title.spans, t - 0.9, { stagger: 0.09, dur: 0.7, rise: 50, blur: 14 });
+      LK.show(open.en, t, 1.5, 99, { rise: 16 });
+      LK.show(open.sub, t, 1.9, 99, { rise: 16 });
+      open.shade.style.opacity = WY.seg(t, 0.4, 1.6);
+    }
+    // ---------------- nation beats
+    for (const b of beats) {
+      const u = t - b.s;
+      const next = b.f < 5 ? b.s + BEAT : FIN;
+      const vis = t > b.s - WIPE && t < next + WIPE;
+      b.root.style.display = vis ? 'block' : 'none';
+      if (!vis) continue;
+      b.root.style.clipPath = clipFor(t, b.s);
+      drawBeat(b, u, t);
+      const R = (n, a, o = {}) => LK.show(n, u, a, 99, o);
+      b.idx.style.opacity = E.outCubic(WY.seg(u, 0.35, 0.9));
+      b.idx.style.transform = `translateX(${(1 - E.outExpo(WY.seg(u, 0.35, 1.1))) * 40}px)`;
+      const sv = b.idx.querySelector('svg'); sv.style.transform = `scale(${E.outBack(WY.seg(u, 0.35, 0.85))})`;
+      WY.revealChars(b.name.spans, u - 0.5, { stagger: 0.06, dur: 0.6, rise: 46, blur: 12 });
+      R(b.en, 0.85, { rise: 0, x: -30 });
+      b.rule.style.transform = `scaleX(${E.outExpo(WY.seg(u, 0.9, 1.7))})`;
+      R(b.doc, 1.1, { rise: 20 });
+      b.qbar.style.transform = `scaleY(${E.outExpo(WY.seg(u, 1.5, 2.1))})`; b.qbar.style.transformOrigin = '0 0';
+      WY.revealChars(b.quote.spans, u - 1.6, { stagger: 0.022, dur: 0.45, rise: 18, blur: 6 });
+      R(b.cap, 2.6, { rise: 10 });
+      // slow parallax drift of the text column
+      b.col.style.transform = `translateX(${-u * 5}px)`;
+      b.ghost.style.transform = `translateX(${300 - u * 40}px)`;
+    }
+    // ---------------- finale
+    const finVis = t > FIN - WIPE && t < END + 0.6;
+    fin.root.style.display = finVis ? 'block' : 'none';
+    if (finVis) {
+      fin.root.style.clipPath = clipFor(t, FIN);
+      drawFinale(t - FIN, t);
+      WY.revealChars(fin.title.spans, t - FIN - 0.4, { stagger: 0.05, dur: 0.6, rise: 40, blur: 10 });
+      fin.cols.forEach((c, i) => LK.show(c, t - FIN, 1.0 + i * 0.12, 99, { rise: 20 }));
+      LK.show(fin.line, t - FIN, 1.9, 99, { rise: 16 });
+      LK.show(fin.note, t - FIN, 2.4, 99, { rise: 10 });
+    }
+    sim.render(t, FIN + 1.9, END);
+    // ---------------- wipe edges + flashes
+    fx.clearRect(0, 0, 1920, 1080);
+    for (const at of [S0, ...beats.slice(1).map(b => b.s), FIN]) {
+      if (t < at - WIPE || t > at + WIPE) continue;
+      const x = wipeX(t, at);
+      const nf = at === FIN ? null : Math.round((at - S0) / BEAT);
+      const col = nf === null ? '#f0d48a' : (nf === 4 ? '#e8ecea' : N[nf].fill);
+      fx.save();
+      fx.shadowColor = col; fx.shadowBlur = 40;
+      fx.strokeStyle = col; fx.lineWidth = 10;
+      fx.beginPath(); fx.moveTo(x + 240, 0); fx.lineTo(x, 1080); fx.stroke();
+      fx.strokeStyle = '#fff8e8'; fx.lineWidth = 3; fx.stroke();
+      fx.restore();
+    }
+    ov.render(t);
+    flash.render(t, END - 0.05, 0.6, 0.5);
+    end.render(t - END);
+  },
+
+  audio(A) {
+    A.music({ style: 'heroic', bpm: 96, key: 'D', sections: [[0, 0.3], [S0, 0.6], [S0 + BEAT * 2, 0.75], [S0 + BEAT * 4, 0.9], [FIN, 0.75], [END - 1, 0.4]], end: END, outro: 'hit' });
+    A.swell(0, 3.8, { note: 'D3', gain: 0.6 });
+    A.drum(0.9, { gain: 0.7, pitch: 0.7 }); A.hit(1.0, { gain: 0.6 });
+    for (let f = 0; f < 6; f++) {
+      const s = S0 + f * BEAT;
+      A.whoosh(s - 0.45, { dur: 0.6, gain: 0.9, pan: 0.4 });
+      A.hit(s, { gain: f === 0 ? 1 : 0.8 });
+      A.drum(s + 0.4, { gain: 0.5, pitch: 1.1 });
+      A.chime(s + 0.55, { note: ['D5', 'E5', 'F#5', 'A5', 'B5', 'D6'][f], gain: 0.5 });
+      A.whoosh(s + 3.55, { dur: 0.4, gain: 0.4, pan: -0.3 });
+      A.drum(s + 3.75, { gain: 0.45, pitch: 1.3 });
+    }
+    A.whoosh(FIN - 0.45, { dur: 0.6, gain: 0.9 });
+    A.boom(FIN, { gain: 0.8 });
+    A.sparkle(FIN + 1.0, { root: 'D5', gain: 0.5 });
+    A.chime(FIN + 1.9, { note: 'A5', gain: 0.4 });
+  },
+});
+
+function drawBeat(b, u, t) {
+  const g = b.ctx, f = b.f, [c1, c2, c3] = LK.BG[f];
+  // background: deep colour field + spotlight behind the figure
+  const bg = g.createLinearGradient(0, 0, 1920, 1080);
+  bg.addColorStop(0, c2); bg.addColorStop(1, c3);
+  g.fillStyle = bg; g.fillRect(0, 0, 1920, 1080);
+  const cx = 540 + Math.sin(u * 0.4) * 10;
+  const sp = g.createRadialGradient(cx, 520, 20, cx, 560, 640);
+  sp.addColorStop(0, LK.rgba(c1, 0.75)); sp.addColorStop(0.45, LK.rgba(c1, 0.28)); sp.addColorStop(1, LK.rgba(c1, 0));
+  g.fillStyle = sp; g.fillRect(0, 0, 1920, 1080);
+  // hex lattice drifting
+  g.globalAlpha = 0.9; g.drawImage(lattice, -200 - u * 14, -120 - u * 4); g.globalAlpha = 1;
+  // rays
+  g.save(); g.translate(cx, 300); g.rotate(u * 0.05);
+  for (let i = 0; i < 9; i++) {
+    g.rotate(Math.PI * 2 / 9);
+    const rg = g.createLinearGradient(0, 0, 0, 900); rg.addColorStop(0, LK.rgba('#ffffff', 0.08)); rg.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = rg; g.beginPath(); g.moveTo(0, 0); g.lineTo(-60, 900); g.lineTo(60, 900); g.closePath(); g.fill();
+  }
+  g.restore();
+  // big sigil behind
+  g.save(); g.translate(cx, 540); g.rotate(u * 0.04 + f);
+  const sc = 1 + 0.04 * Math.sin(u * 0.8);
+  g.scale(sc, sc);
+  const p = new Path2D(WY.sigilPath(f, 330));
+  g.strokeStyle = LK.rgba('#ffffff', 0.16); g.lineWidth = 6; g.stroke(p);
+  g.fillStyle = LK.rgba(c1, 0.12); g.fill(p);
+  g.restore();
+  // figure
+  const kin = E.outExpo(WY.seg(u, 0, 1.1));
+  const h = 820 * (1.06 - 0.06 * kin) + Math.sin(u * 0.9) * 4;
+  const fxp = cx - (1 - kin) * 140, by = 1015;
+  LK.shadow(g, fxp, by - 18, 260, 46, 0.6 * kin);
+  g.save();
+  g.globalAlpha = WY.seg(u, -0.2, 0.5);
+  g.shadowColor = LK.rgba(c1, 0.8); g.shadowBlur = 50;
+  b.fig.draw(g, u, fxp, by, h, 'idle', 3.7);
+  g.restore();
+}
+
+function drawFinale(u, t) {
+  const g = fin.ctx;
+  const cam = { x: WY.drift(t, 7, 30), y: -40 + WY.drift(t, 8, 16), zoom: WY.lerp(0.5, 0.56, WY.seg(u, 0, 7)), W: 1920, H: 1080 };
+  WYMap.draw(g, world, cam, { t, wash: () => 0.42, fog: tl => tl.ring >= 8 ? 0.85 : 0 });
+  const sh = g.createLinearGradient(0, 0, 0, 1080);
+  sh.addColorStop(0, 'rgba(6,10,8,.72)'); sh.addColorStop(0.45, 'rgba(6,10,8,.35)'); sh.addColorStop(0.7, 'rgba(6,10,8,.6)'); sh.addColorStop(1, 'rgba(6,10,8,.9)');
+  g.fillStyle = sh; g.fillRect(0, 0, 1920, 1080);
+  for (let f = 0; f < 6; f++) {
+    const k = E.outBack(WY.seg(u, 0.3 + f * 0.1, 1.0 + f * 0.1));
+    const x = 175 + f * 270 + 0, by = 720 - Math.sin((f + 0.5) / 6 * Math.PI) * 0;
+    const glow = g.createRadialGradient(x, by - 160, 10, x, by - 160, 200);
+    glow.addColorStop(0, LK.rgba(f === 4 ? '#e8ecea' : N[f].fill, 0.45)); glow.addColorStop(1, 'rgba(0,0,0,0)');
+    g.globalAlpha = WY.clamp(k); g.fillStyle = glow; g.fillRect(x - 220, by - 380, 440, 420);
+    LK.shadow(g, x, by - 8, 110, 22, 0.6);
+    g.globalAlpha = WY.clamp(k * 1.5);
+    fin.figs[f].draw(g, u + f * 0.37, x, by + (1 - k) * 60, 400, 'idle', 1.6 + f * 0.18);
+    g.globalAlpha = 1;
+  }
+}
+</script></body></html>

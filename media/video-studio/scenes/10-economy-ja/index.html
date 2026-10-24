@@ -1,0 +1,265 @@
+<!doctype html><html><head><meta charset="utf-8"><title>10 economy</title>
+<link rel="stylesheet" href="../../lib/wy.css">
+<script src="../../lib/wy.js"></script><script src="../../lib/wy-audio.js"></script>
+<script src="../../lib/wy-map.js"></script><script src="../../lib/wy-kit.js"></script>
+<script src="lk.js"></script>
+<style>
+  .card { position: absolute; border-radius: 18px; background: linear-gradient(180deg, rgba(30,62,50,.97), rgba(15,33,27,.98)); border: 2px solid rgba(201,162,74,.8); box-shadow: inset 0 1px 0 rgba(255,240,200,.14), 0 20px 50px rgba(0,0,0,.5); text-align: center; color: #fffaf0; }
+  .card img { display: block; margin: 0 auto; }
+  .jn { font: 700 44px/1.2 var(--sans-jp); }
+  .en { font: 600 21px/1.2 Inter, sans-serif; letter-spacing: .12em; text-transform: uppercase; color: rgba(240,212,138,.85); margin-top: 6px; }
+  .val { font: 800 46px/1 Inter, sans-serif; color: #ffd24d; margin-top: 10px; }
+  .head { font: 900 92px/1.15 var(--serif-jp); color: #fffaf0; text-shadow: 0 6px 30px rgba(0,0,0,.6); }
+  .sub { font: 600 40px/1.5 var(--sans-jp); color: rgba(255,250,240,.9); }
+  .paper { position: absolute; border-radius: 16px; background: #e9dcbc; color: #2b2013; box-shadow: inset 0 0 60px rgba(120,90,40,.35), 0 26px 60px rgba(0,0,0,.55); border: 2px solid #c9a24a; }
+</style>
+</head><body><script>
+const E = WY.ease;
+const T = { res: 4.5, kit: 14.0, bshot: 19.5, bcards: 23.0, farm: 26.2, tiers: 30.5, up: 34.3, promo: 38.6, end: 41.6 };
+const DUR = 46.0;
+const RES = [['food', '食料', 'Food'], ['wood', '木材', 'Wood'], ['stone', '石材', 'Stone'], ['ore', '鉱石', 'Ore'], ['horse', '馬', 'Horses'], ['gold', '金', 'Gold'], ['science', '学術', 'Science'], ['influence', '影響力', 'Influence']];
+const KIT = { food: 300, wood: 300, stone: 200, ore: 100, gold: 100 };
+const BLD = [['food', '農場', 'Farm', '食料'], ['wood', '伐採場', 'Lumber camp', '木材'], ['stone', '石切り場', 'Quarry', '石材'], ['ore', '鉱山', 'Mine', '鉱石'], ['gold', '造幣所', 'Mint', '金'], ['science', '書庫', 'Library', '学術'], ['walls', '城壁', 'Walls', '守り']];
+const TIER = [['hamlet_o_ember', '集落', 'Hamlet'], ['town_o_ember', '町', 'Town'], ['city_o_ember', '都市', 'City'], ['stronghold_w_ember', '城塞', 'Stronghold']];
+const ICO = n => `${WY.ART}ui/illustrated/${n}-128.webp`;
+let cv, g, lattice, intro = {}, rc = [], heads = {}, bc = [], farm = {}, tiers = {}, shots = {}, badge, ov, end, flash, cap;
+
+function head(stage, label, text, sub, y = 92) {
+  const n = WY.el('div', { class: 'wy-abs' }, stage);
+  WY.css(n, { left: '0px', width: '1920px', top: y + 'px', textAlign: 'center', zIndex: 10 });
+  n.innerHTML = `<div style="margin-bottom:10px">${LK.pill(label, { size: 26 })}</div>`;
+  const h = LK.lines(n, [text], { position: 'relative', left: '0px', width: '1920px' }, { font: '900 88px/1.15 var(--serif-jp)', color: '#fffaf0', textShadow: '0 6px 30px rgba(0,0,0,.6)' });
+  const s = sub ? LK.div(n, sub, { position: 'relative', left: '0px', width: '1920px', marginTop: '12px', font: '600 40px/1.5 var(--sans-jp)', color: 'rgba(255,250,240,.9)' }) : null;
+  return { n, h, s };
+}
+function showHead(H, t, a, b) {
+  const k = WY.env(t, a - 0.05, b, 0.3, 0.35);
+  H.n.style.opacity = k; H.n.style.visibility = k > 0.001 ? 'visible' : 'hidden';
+  WY.revealChars(H.h.spans, t - a, { stagger: 0.05, dur: 0.5, rise: 34, blur: 10 });
+  if (H.s) LK.show(H.s, t, a + 0.6, 99, { rise: 14 });
+}
+
+WY.scene({
+  width: 1920, height: 1080, duration: DUR, fps: 30,
+  setup(stage) {
+    lattice = LK.hexLattice(2400, 1400, 64, 'rgba(240,212,138,0.05)', 1.5);
+    cv = WY.canvas(stage, 1920, 1080); g = cv.getContext('2d');
+    intro.tile = WY.img(WY.ART + 'terrain/@2x/grassland_2.webp');
+    intro.town = WY.img(WY.ART + 'holdings/@2x/town_o_ember.webp');
+    intro.icons = RES.map(r => WY.img(ICO(r[0])));
+    tiers.tile = WY.img(WY.ART + 'terrain/@2x/plains_1.webp');
+    tiers.hold = TIER.map(t => WY.img(`${WY.ART}holdings/@2x/${t[0]}.webp`));
+    tiers.shield = WY.img(WY.ART + 'holdings/@2x/shield.webp');
+    shots.build = WY.img('ui/scene-hand-build-ja.jpg');
+    shots.promo = WY.img('ui/scene-hand-promote-ja.jpg');
+
+    intro.title = LK.lines(stage, ['経済と村の成長'], { left: '0px', width: '1920px', top: '700px', textAlign: 'center', zIndex: 10 }, { font: '900 120px/1.15 var(--serif-jp)', color: '#fffaf0', textShadow: '0 8px 40px rgba(0,0,0,.8)' });
+    intro.sub = LK.div(stage, '資源 ・ 建物 ・ 村の格', { left: '0px', width: '1920px', top: '870px', textAlign: 'center', font: '700 40px var(--sans-jp)', color: '#f0d48a', letterSpacing: '.2em', zIndex: 10 });
+
+    heads.res = head(stage, '資源', '8つの資源', '時間とともに、増え続ける。');
+    heads.kit = head(stage, '資源', '最初の手持ち', 'はじめから、これだけある。');
+    heads.bld = head(stage, '建物', '建てて、生産を増やす', null);
+    heads.tier = head(stage, '村の格', '村は、育つ', null, 80);
+
+    // resource cards (4 x 2)
+    RES.forEach((r, i) => {
+      const c = WY.el('div', { class: 'card' }, stage);
+      const x = 230 + (i % 4) * 375, y = 360 + Math.floor(i / 4) * 330;
+      WY.css(c, { left: x + 'px', top: y + 'px', width: '335px', height: '290px', paddingTop: '22px' });
+      c.innerHTML = `<img src="${ICO(r[0])}" width="128" height="128"><div class="jn">${r[1]}</div><div class="en">${r[2]}</div>`;
+      const v = WY.el('div', { class: 'val' }, c); v.style.display = 'none';
+      rc.push({ c, v, key: r[0], x, y });
+    });
+    // building cards
+    BLD.forEach((b, i) => {
+      const c = WY.el('div', { class: 'card' }, stage);
+      const x = 92 + i * 250, y = 340;
+      WY.css(c, { left: x + 'px', top: y + 'px', width: '236px', height: '420px', paddingTop: '44px' });
+      c.innerHTML = `<img src="${ICO(b[0])}" width="128" height="128"><div class="jn" style="font-size:46px;margin-top:22px">${b[1]}</div><div class="en" style="font-size:19px">${b[2]}</div><div style="margin-top:34px;font:700 30px var(--sans-jp);color:#9fe0b0">→ ${b[3]}</div>`;
+      bc.push({ c, x, y });
+    });
+    // farm formula
+    farm.panel = WY.el('div', { class: 'paper' }, stage);
+    WY.css(farm.panel, { left: '660px', top: '330px', width: '1100px', height: '470px', padding: '44px 60px' });
+    const ic = (n, s = 60) => `<img src="${ICO(n)}" width="${s}" height="${s}" style="vertical-align:middle;margin:0 8px 0 0">`;
+    farm.panel.innerHTML = `<div style="font:900 72px/1.1 var(--serif-jp)">農場 <span style="font:italic 600 36px 'Cormorant Garamond',serif;color:#6b5a2a">Farm</span></div>
+      <div style="height:2px;background:linear-gradient(90deg,#c9a24a,transparent);margin:22px 0 26px"></div>
+      <div style="font:700 46px/1.5 var(--sans-jp);display:flex;align-items:center;gap:18px">${ic('wood')}木材 <b style="font:800 52px Inter">80</b><span style="margin:0 10px;color:#8a6d2a">+</span>${ic('stone')}石材 <b style="font:800 52px Inter">40</b></div>
+      <div style="font:700 46px/1.5 var(--sans-jp);display:flex;align-items:center;gap:18px;margin-top:14px"><span style="color:#8a6d2a;font-size:52px">→</span>${ic('food')}食料 <b style="font:800 58px Inter;color:#2f7d45">+12</b><span style="font-size:36px">/時</span><span style="margin-left:26px;font:600 34px var(--sans-jp);color:#5b4a28">建設 90分</span></div>
+      <div style="font:500 28px/1.5 var(--sans-jp);color:#6b5a3a;margin-top:22px">同じ建物の2つ目からは、費用が上がる。</div>`;
+    // tier labels + upgrade panel
+    tiers.labels = TIER.map((tr, i) => LK.div(stage, `<div style="font:900 60px/1.1 var(--serif-jp);color:#fffaf0">${tr[1]}</div><div style="font:600 22px Inter;letter-spacing:.2em;color:rgba(240,212,138,.85);margin-top:6px;text-transform:uppercase">${tr[2]}</div>`, { left: 330 + i * 420 - 150 + 'px', width: '300px', textAlign: 'center', top: '660px', zIndex: 10 }));
+    tiers.panel = WY.el('div', { class: 'card' }, stage);
+    WY.css(tiers.panel, { left: '260px', top: '790px', width: '1400px', height: '200px', padding: '26px 40px', textAlign: 'left' });
+    tiers.panel.innerHTML = `<div style="display:flex;align-items:center;gap:20px;font:700 40px var(--sans-jp)"><span style="color:#f0d48a">集落 → 町</span>
+      <span style="font:600 32px var(--sans-jp);display:flex;align-items:center;gap:8px;margin-left:16px">${ic('wood', 46)}1,000 ${ic('stone', 46)}600 ${ic('gold', 46)}300</span><span style="font:600 32px var(--sans-jp);color:rgba(255,250,240,.8);margin-left:auto">⌛ 6時間</span></div>
+      <div style="display:flex;gap:18px;margin-top:22px">${['建設枠 <b>3</b>', '蔵の上限 <b>6,000</b>', '産出 <b>+50%</b>'].map(x => `<span style="padding:10px 22px;border-radius:12px;background:rgba(0,0,0,.3);border:1.5px solid rgba(159,224,176,.6);font:600 32px var(--sans-jp);color:#dff7e6">${x.replace(/<b>/, '<b style="color:#ffd24d;font-family:Inter">')}</span>`).join('')}</div>`;
+    cap = LK.div(stage, '', { left: '0px', width: '1840px', textAlign: 'right', top: '1010px', font: '500 22px var(--sans-jp)', color: 'rgba(255,250,240,.62)', zIndex: 10 });
+    shots.label = LK.div(stage, '', { left: '80px', top: '880px', zIndex: 12, font: '900 64px/1.2 var(--serif-jp)', color: '#fffaf0', textShadow: '0 4px 24px rgba(0,0,0,.95), 0 0 4px rgba(0,0,0,.9)' });
+
+    badge = WYKit.status(stage, 'local', 'ja', { x: 80, y: 56 }); badge.node.style.zIndex = 20;
+    ov = LK.overlays(stage, 45, { vignette: 0.5 }); ov.g.style.display = 'none';
+    flash = WYKit.flash(stage, { color: '#fff8e8', z: 50 });
+    end = WYKit.endCard(stage, { lang: 'ja', line: '経済は待たない。村は、育つ。' });
+  },
+
+  render(t) {
+    g.clearRect(0, 0, 1920, 1080);
+    const gr = g.createRadialGradient(960, 520, 60, 960, 540, 1300); gr.addColorStop(0, '#1f4235'); gr.addColorStop(1, '#070d0b');
+    g.fillStyle = gr; g.fillRect(0, 0, 1920, 1080);
+    g.drawImage(lattice, -240 + t * 5, -160 - t * 3);
+
+    // ---------------- intro: a town on a tile, the eight icons orbit
+    if (t < T.res + 0.6) {
+      const k = E.outBack(WY.seg(t, 0.1, 1.0)), out = E.inCubic(WY.seg(t, T.res - 0.4, T.res + 0.4));
+      const s = 2.3 + 0.15 * WY.seg(t, 0, 4.5);
+      g.save(); g.globalAlpha = 1 - out; g.translate(960, 420 - out * 60); g.scale(s * k, s * k);
+      LK.shadow(g, 0, 20, 110, 40, 0.5);
+      if (intro.tile.naturalWidth) g.drawImage(intro.tile, -88, -124, 176, 208);
+      if (intro.town.naturalWidth) g.drawImage(intro.town, -88, -124, 176, 208);
+      g.restore();
+      intro.icons.forEach((im, i) => {
+        const a = -Math.PI / 2 + i * Math.PI / 4 + t * 0.35;
+        const r = E.outExpo(WY.seg(t, 0.5 + i * 0.07, 1.6 + i * 0.07));
+        const x = 960 + Math.cos(a) * 420 * r, y = 400 + Math.sin(a) * 190 * r;
+        g.globalAlpha = WY.seg(t, 0.5 + i * 0.07, 0.9 + i * 0.07) * (1 - out);
+        if (im.naturalWidth) g.drawImage(im, x - 48, y - 48, 96, 96);
+      });
+      g.globalAlpha = 1;
+    }
+    WY.revealChars(intro.title.spans, t - 0.8, { stagger: 0.07, dur: 0.6, rise: 40, blur: 12, out: T.res - 1.1 });
+    LK.show(intro.sub, t, 1.6, T.res - 0.1, { rise: 14 });
+
+    // ---------------- resources + starter kit
+    showHead(heads.res, t, T.res, T.kit - 0.1);
+    showHead(heads.kit, t, T.kit + 0.15, T.bshot - 0.2);
+    rc.forEach((r, i) => {
+      const a = T.res + 0.5 + i * 0.12;
+      const kin = E.outBack(WY.seg(t, a, a + 0.55)), kout = E.inBack(WY.seg(t, T.bshot - 0.6 + i * 0.03, T.bshot - 0.1 + i * 0.03));
+      const inKit = KIT[r.key] !== undefined;
+      const dim = 1 - 0.75 * WY.seg(t, T.kit, T.kit + 0.5) * (inKit ? 0 : 1);
+      const vis = kin > 0 && kout < 1;
+      r.c.style.display = vis ? 'block' : 'none';
+      if (!vis) return;
+      const bob = Math.sin(t * 1.3 + i) * 4;
+      r.c.style.opacity = Math.min(1, kin * 1.4) * (1 - kout) * dim;
+      r.c.style.transform = `translateY(${(1 - kin) * 60 + bob + kout * 80}px) scale(${0.85 + 0.15 * kin})`;
+      // counters for the starter kit
+      if (inKit && t > T.kit + 0.4) {
+        r.v.style.display = 'block';
+        const kc = E.outCubic(WY.seg(t, T.kit + 0.6 + i * 0.1, T.kit + 2.2 + i * 0.1));
+        r.v.textContent = WY.count(Math.round(KIT[r.key] * kc));
+        r.c.style.height = '350px';
+      } else { r.v.style.display = 'none'; r.c.style.height = '290px'; }
+      // "+" motes rising from each icon while they accrue
+      if (t > a + 0.6 && t < T.kit) {
+        for (let p = 0; p < 3; p++) {
+          const ph = ((t * 0.7 + p / 3 + i * 0.13) % 1);
+          g.globalAlpha = Math.sin(ph * Math.PI) * 0.9;
+          g.fillStyle = '#9fe0b0'; g.font = '800 30px Inter'; g.textAlign = 'center';
+          g.fillText('+', r.x + 167 + (p - 1) * 50 + Math.sin(ph * 6 + p) * 6, r.y + 40 - ph * 70 + bob);
+        }
+        g.globalAlpha = 1; g.textAlign = 'left';
+      }
+    });
+
+    // ---------------- buildings: real UI first, then the seven cards, then the farm
+    if (t > T.bshot - 0.4 && t < T.bcards + 0.5) {
+      const k = E.inOutCubic(WY.seg(t, T.bshot - 0.3, T.bshot + 0.3)) * (1 - E.inOutCubic(WY.seg(t, T.bcards - 0.2, T.bcards + 0.4)));
+      const p = E.inOutCubic(WY.seg(t, T.bshot, T.bcards));
+      const v = { x: WY.lerp(0, 560, p), y: WY.lerp(0, 200, p), w: WY.lerp(1920, 900, p) };
+      drawShot(shots.build, v, k, [[622, 245, 1298, 720], WY.env(t, T.bshot + 1.8, T.bcards, 0.3, 0.3)]);
+      cap.textContent = '実際のクライアント画面(テストデータ)'; cap.style.opacity = k;
+      shots.label.textContent = '村のまわりに、建物を建てる。'; LK.show(shots.label, t, T.bshot + 0.5, T.bcards, { rise: 20 });
+    } else if (t > T.promo - 0.4 && t < T.end + 0.3) {
+      const k = E.inOutCubic(WY.seg(t, T.promo - 0.3, T.promo + 0.3)) * (1 - E.inOutCubic(WY.seg(t, T.end - 0.3, T.end)));
+      const p = E.inOutCubic(WY.seg(t, T.promo, T.promo + 1.6));
+      const v = { x: WY.lerp(0, 560, p), y: WY.lerp(0, 540, p), w: WY.lerp(1920, 880, p) };
+      drawShot(shots.promo, v, k, [[715, 648, 1218, 905], WY.env(t, T.promo + 1.6, T.end, 0.3, 0.3)]);
+      cap.textContent = '実際のクライアント画面(テストデータ)'; cap.style.opacity = k;
+      shots.label.textContent = '町の次は、都市へ。'; LK.show(shots.label, t, T.promo + 0.6, T.end - 0.1, { rise: 20 });
+    } else { cap.style.opacity = 0; shots.label.style.opacity = 0; }
+    showHead(heads.bld, t, T.bcards, T.tiers - 0.2);
+    bc.forEach((b, i) => {
+      const a = T.bcards + 0.3 + i * 0.1;
+      const kin = E.outBack(WY.seg(t, a, a + 0.5)), kout = E.inCubic(WY.seg(t, T.tiers - 0.5, T.tiers));
+      const vis = kin > 0 && kout < 1; b.c.style.display = vis ? 'block' : 'none'; if (!vis) return;
+      const f = E.inOutCubic(WY.seg(t, T.farm, T.farm + 0.7));
+      let x = 0, y = (1 - kin) * 60 + Math.sin(t * 1.2 + i) * 4, s = 0.85 + 0.15 * kin, o = Math.min(1, kin * 1.4);
+      if (i === 0) { x = f * (250 - b.x); y += f * 30; s *= 1 + 0.12 * f; }
+      else { o *= 1 - f; y += f * 200; }
+      b.c.style.opacity = o * (1 - kout); b.c.style.transform = `translate(${x}px, ${y}px) scale(${s})`;
+    });
+    LK.show(farm.panel, t, T.farm + 0.4, T.tiers, { rise: 0, x: 60 });
+
+    // ---------------- tiers
+    showHead(heads.tier, t, T.tiers, T.promo - 0.2);
+    if (t > T.tiers - 0.2 && t < T.promo + 0.3) {
+      const out = E.inCubic(WY.seg(t, T.promo - 0.4, T.promo + 0.2));
+      const lift = E.inOutCubic(WY.seg(t, T.up, T.up + 0.6)) * -50;
+      for (let i = 0; i < 4; i++) {
+        const a = T.tiers + 0.4 + i * 0.55, k = E.outBack(WY.seg(t, a, a + 0.6));
+        if (k <= 0) continue;
+        const x = 330 + i * 420, y = 470 + lift, sc = (1.85 + i * 0.1) * k;
+        const grow = 1 + 0.03 * Math.sin(t * 1.5 + i);
+        g.save(); g.globalAlpha = Math.min(1, k) * (1 - out); g.translate(x, y); g.scale(sc * grow, sc * grow);
+        LK.shadow(g, 0, 22, 100, 34, 0.55);
+        if (tiers.tile.naturalWidth) g.drawImage(tiers.tile, -88, -124, 176, 208);
+        if (tiers.hold[i].naturalWidth) g.drawImage(tiers.hold[i], -88, -124, 176, 208);
+        g.restore();
+        if (i < 3) { // arrow
+          const ka = WY.seg(t, a + 0.3, a + 0.8);
+          const hlA = i === 0 ? WY.env(t, T.up, T.promo, 0.3, 0.3) : 0;
+          g.save(); g.globalAlpha = ka * (1 - out); g.fillStyle = hlA > 0.5 ? '#ffd24d' : '#f0d48a';
+          g.translate(x + 210, y - 10); g.beginPath(); g.moveTo(-26, -18); g.lineTo(14, 0); g.lineTo(-26, 18); g.closePath(); g.fill();
+          if (hlA > 0) { g.shadowColor = '#ffd24d'; g.shadowBlur = 20; g.fill(); }
+          g.restore();
+        }
+      }
+    }
+    tiers.labels.forEach((l, i) => {
+      const a = T.tiers + 0.6 + i * 0.55;
+      const k = LK.show(l, t, a, T.promo, { rise: 20 });
+      l.style.marginTop = E.inOutCubic(WY.seg(t, T.up, T.up + 0.6)) * -50 + 'px';
+      if (i === 0 || i === 1) l.querySelector('div').style.color = WY.seg(t, T.up, T.up + 0.4) > 0.5 && t < T.promo ? '#ffd24d' : '#fffaf0';
+    });
+    LK.show(tiers.panel, t, T.up + 0.3, T.promo, { rise: 30 });
+
+    badge.render(t, T.res + 0.3, T.end - 0.3);
+    flash.render(t, T.end - 0.05, 0.6, 0.4);
+    end.render(t - T.end);
+  },
+
+  audio(A) {
+    A.music({ style: 'calm', bpm: 84, key: 'F', minor: false, sections: [[0, 0.3], [T.res, 0.5], [T.bcards, 0.6], [T.tiers, 0.7], [T.end - 0.8, 0.35]], end: T.end, outro: 'ring' });
+    A.swell(0, 3, { note: 'F3', gain: 0.4 }); A.chime(0.3, { note: 'F5', gain: 0.5 });
+    for (let i = 0; i < 8; i++) A.pop(T.res + 0.5 + i * 0.12, { gain: 0.5 });
+    A.whoosh(T.res - 0.35, { gain: 0.5 });
+    for (let i = 0; i < 5; i++) A.coin(T.kit + 0.7 + i * 0.25, { gain: 0.4 });
+    A.whoosh(T.bshot - 0.35, { gain: 0.6 }); A.click(T.bshot + 1.9);
+    A.whoosh(T.bcards - 0.3, { gain: 0.5 }); for (let i = 0; i < 7; i++) A.pop(T.bcards + 0.3 + i * 0.1, { gain: 0.45 });
+    A.whoosh(T.farm + 0.1, { gain: 0.5 }); A.chime(T.farm + 0.6, { note: 'C6', gain: 0.4 });
+    A.whoosh(T.tiers - 0.35, { gain: 0.6 });
+    for (let i = 0; i < 4; i++) { A.drum(T.tiers + 0.4 + i * 0.55, { gain: 0.4 + i * 0.1, pitch: 1.1 - i * 0.1 }); A.chime(T.tiers + 0.5 + i * 0.55, { note: ['F5', 'A5', 'C6', 'F6'][i], gain: 0.4 }); }
+    A.sparkle(T.up + 0.2, { root: 'F5', gain: 0.4 });
+    A.whoosh(T.promo - 0.35, { gain: 0.6 }); A.click(T.promo + 1.7);
+  },
+});
+
+function drawShot(im, v, k, hlRect) {
+  if (k <= 0 || !im.naturalWidth) return;
+  const KK = 2560 / 1920, h = v.w * 1080 / 1920;
+  g.save(); g.globalAlpha = k;
+  g.drawImage(im, v.x * KK, v.y * KK, v.w * KK, h * KK, 0, 0, 1920, 1080);
+  g.fillStyle = 'rgba(0,0,0,.2)'; g.fillRect(0, 0, 1920, 1080);
+  const bgr = g.createLinearGradient(0, 760, 0, 1080); bgr.addColorStop(0, 'rgba(5,10,8,0)'); bgr.addColorStop(0.5, 'rgba(5,10,8,.8)'); bgr.addColorStop(1, 'rgba(5,10,8,.92)'); g.fillStyle = bgr; g.fillRect(0, 760, 1920, 320);
+  const [r, hk] = hlRect;
+  if (hk > 0) {
+    const m = (x, y) => [(x - v.x) / v.w * 1920, (y - v.y) / h * 1080];
+    const [a, b] = m(r[0], r[1]), [c, d] = m(r[2], r[3]);
+    g.globalAlpha = k * hk; g.fillStyle = 'rgba(0,0,0,.35)'; g.beginPath(); g.rect(0, 0, 1920, 1080); g.roundRect(a - 10, b - 10, c - a + 20, d - b + 20, 14); g.fill('evenodd');
+    g.shadowColor = '#ffd24d'; g.shadowBlur = 24; g.strokeStyle = '#ffd24d'; g.lineWidth = 6; g.beginPath(); g.roundRect(a - 10, b - 10, c - a + 20, d - b + 20, 14); g.stroke();
+  }
+  g.restore();
+}
+</script></body></html>

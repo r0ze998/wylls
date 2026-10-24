@@ -1,0 +1,231 @@
+<!doctype html><html><head><meta charset="utf-8"><title>09 sealed march (ja)</title>
+<link rel="stylesheet" href="../../lib/wy.css">
+<script src="../../lib/wy.js"></script><script src="../../lib/wy-audio.js"></script>
+<script src="../../lib/wy-map.js"></script><script src="../../lib/wy-kit.js"></script>
+<script src="fx.js"></script>
+<style>
+  .card { position: absolute; padding: 26px 34px; }
+  .card h4 { font: 700 26px/1 var(--sans-jp); color: #f0d48a; letter-spacing: .08em; margin-bottom: 18px; display: flex; align-items: center; gap: 12px; }
+  .card h4 .en { font: 600 18px Cinzel, serif; color: rgba(240,212,138,.6); letter-spacing: .12em; }
+  .rowx { display: flex; align-items: center; height: 84px; border-top: 1px solid rgba(240,212,138,.18); gap: 18px; }
+  .rowx .k { width: 150px; font: 500 28px var(--sans-jp); color: rgba(255,250,240,.7); }
+  .rowx .v { flex: 1; font: 700 36px var(--sans-jp); }
+  .rowx .ic { width: 112px; text-align: right; font: 700 22px var(--sans-jp); color: #8fe39b; }
+  .rowx.sealed .v { color: #ff8d8d; }
+  .rowx.sealed .ic { color: #ff8d8d; }
+  .rule { position: absolute; top: 300px; width: 520px; height: 400px; padding: 34px 36px; display: flex; flex-direction: column; align-items: center; text-align: center; }
+  .rule svg { margin: 6px 0 22px; }
+  .rule .n { font: 900 26px Cinzel, serif; color: #f0d48a; letter-spacing: .1em; }
+  .rule .t { font: 800 44px/1.25 var(--serif-jp); white-space: nowrap; margin-top: 6px; }
+  .rule .s { font: 500 27px/1.55 var(--sans-jp); white-space: nowrap; color: rgba(255,250,240,.75); margin-top: 16px; }
+  .pill { position: absolute; padding: 12px 26px; border-radius: 999px; background: rgba(10,24,19,.9); border: 2px solid #ffd24d; font: 700 34px var(--sans-jp); white-space: nowrap; box-shadow: 0 10px 30px rgba(0,0,0,.5); }
+  .honest { position: absolute; left: 260px; top: 280px; width: 1400px; padding: 56px 70px; text-align: center; }
+  .honest .t { font: 800 64px/1.35 var(--serif-jp); }
+  .honest .s { font: 500 34px/1.6 var(--sans-jp); color: rgba(255,250,240,.8); margin-top: 26px; }
+  .ex { font: 600 18px var(--sans-jp); color: rgba(255,250,240,.55); }
+</style>
+</head><body><script>
+const W = 1920, H = 1080;
+// sections
+const S_B = 5.5, S_C = 14, S_D = 23.5, S_E = 31.5, S_F = 39.5, S_END = 45.5;
+const T_STAMP = 1.15, T_DEP = 6.6, T_CRACK = 33.2, T_CLASH = 35.2;
+// turn clock for the march: departs on turn 44, arrives on turn 46, the seal opens at the end of 46
+const TURN_AT = [[T_DEP - 1, 44], [18.2, 45], [27.4, 46]];
+let mapCv, mctx, fx, g, world, mc, mcDim, overlay, dust, badge, end, flash;
+let src, dst, decoys = [], T = {}, pub, drand, rules = [], pill, honest, turnChip, bottomShade;
+
+const hexDist = (a, b) => { const dq = a.q - b.q, dr = a.r - b.r; return (Math.abs(dq) + Math.abs(dr) + Math.abs(dq + dr)) / 2; };
+
+WY.scene({
+  width: W, height: H, duration: 50, fps: 30,
+  async setup(stage) {
+    mapCv = WY.canvas(stage, W, H); mctx = mapCv.getContext('2d');
+    world = WYMap.build({ rings: 8, seed: 11 });
+    // the march: an Aster village to a barbarian camp 5–6 hexes away
+    const vil = world.tiles.filter(t => t.owner === 0 && t.village && !t.keep);
+    let best = null;
+    for (const v of vil) for (const c of world.tiles.filter(t => t.camp)) { const d = hexDist(v, c); if (d >= 5 && d <= 6 && (!best || Math.abs(c.y - v.y) > Math.abs(best[1].y - best[0].y))) best = [v, c]; }
+    [src, dst] = best || [vil[0], world.tiles.find(t => t.camp)];
+    decoys = world.tiles.filter(t => t !== dst && (t.camp || t.village || t.keep) && hexDist(t, src) >= 4 && hexDist(t, src) <= 6 && hexDist(t, dst) >= 3).sort((a, b) => hexDist(a, dst) - hexDist(b, dst)).slice(0, 3);
+    mc = await FX.mapCache(world, { zoom: 1.2, opts: { wash: () => 0.24, fog: tl => (tl.ring >= 8 ? 0.85 : 0) } });
+    bottomShade = WY.el('div', { class: 'wy-fill' }, stage);
+    bottomShade.style.background = 'linear-gradient(180deg, rgba(6,14,11,.55) 0%, rgba(6,14,11,0) 22%, rgba(6,14,11,0) 62%, rgba(6,14,11,.88) 100%)';
+    mcDim = WY.el('div', { class: 'wy-fill' }, stage); mcDim.style.background = 'rgba(5,11,9,.72)'; mcDim.style.zIndex = 3;
+    dust = WYKit.dust(stage, { count: 60, z: 4, seed: 9 });
+    fx = WY.canvas(stage, W, H); fx.style.zIndex = 6; g = fx.getContext('2d');
+    const tx = (lines, o) => FX.text(stage, lines, o);
+    T.kick = tx(['SEALED  MARCH'], { y: 628, size: 34, weight: 700, font: 'Cinzel, serif', ls: '.4em', color: '#f0d48a' });
+    T.title = tx(['封印された進軍'], { y: 680, size: 128, weight: 900, stagger: 0.06 });
+    T.b = tx(['出発地・規模・到着ターンは、公開。', '[[行き先だけが]]、封印される。'], { y: 830, size: 62, weight: 800 });
+    T.c = tx(['行き先は drand の時限暗号(tlock)で、', '[[到着ターンの終わりまで]]隠される。'], { y: 830, size: 62, weight: 800 });
+    T.e = tx(['到着ターンの終わりに封印が開き、', '[[開示を持つ誰でも]]開封できる。'], { y: 830, size: 62, weight: 800 });
+    // public card
+    pub = WY.el('div', { class: 'card wy-panel' }, stage); WY.css(pub, { left: '80px', top: '170px', width: '680px', zIndex: 10 });
+    pub.innerHTML = `<h4>出発の記録<span class="en">PUBLIC</span></h4>
+      <div class="rowx"><div class="k">出発地</div><div class="v"><span style="display:inline-flex;vertical-align:-6px;margin-right:8px">${WY.crest(0, 36)}</span>アステルの村</div><div class="ic">◉ 公開</div></div>
+      <div class="rowx"><div class="k">規模</div><div class="v">槍兵 500</div><div class="ic">◉ 公開</div></div>
+      <div class="rowx"><div class="k">到着</div><div class="v">ターン 46</div><div class="ic">◉ 公開</div></div>
+      <div class="rowx sealed"><div class="k">行き先</div><div class="v">■■■■ 封印中</div><div class="ic">封印</div></div>
+      <div class="ex" style="margin-top:14px">規模と地名は説明用の例です</div>`;
+    // drand card
+    drand = WY.el('div', { class: 'card wy-panel' }, stage); WY.css(drand, { left: '1160px', top: '170px', width: '680px', zIndex: 10 });
+    drand.innerHTML = `<h4>drand quicknet<span class="en">TIME-LOCK</span></h4>
+      <div class="rowx"><div class="k">いまのラウンド</div><div class="v" id="rnow" style="font-family:Inter;font-variant-numeric:tabular-nums">—</div></div>
+      <div class="rowx"><div class="k">開封の鍵</div><div class="v" style="font-size:28px;white-space:nowrap">到着ターン終了時のラウンド</div></div>
+      <div style="margin-top:18px;height:22px;border-radius:11px;background:rgba(255,255,255,.08);overflow:hidden;border:1px solid rgba(240,212,138,.35)"><div id="rbar" style="height:100%;width:0;background:linear-gradient(90deg,#a8222c,#ffd24d)"></div></div>
+      <div class="ex" style="margin-top:12px">ラウンド番号は例 · 乱数と封印は drand(BLS12-381)</div>`;
+    drand.querySelectorAll('.rowx .k').forEach(k => (k.style.width = '200px'));
+    // rules
+    const ICON = {
+      two: `<svg width="120" height="96" viewBox="0 0 120 96"><g fill="none" stroke="#f0d48a" stroke-width="5" stroke-linecap="round"><circle cx="30" cy="48" r="22"/><circle cx="90" cy="48" r="22"/><path d="M30 34v14l9 6M90 34v14l9 6"/></g></svg>`,
+      norecall: `<svg width="120" height="96" viewBox="0 0 120 96"><g fill="none" stroke="#f0d48a" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 48h70M74 32l16 16-16 16"/><path d="M40 22l40 52" stroke="#ff8d8d"/><path d="M80 22l-40 52" stroke="#ff8d8d" opacity="0"/></g></svg>`,
+      tab: `<svg width="120" height="96" viewBox="0 0 120 96"><g fill="none" stroke="#f0d48a" stroke-width="5" stroke-linejoin="round"><rect x="14" y="18" width="92" height="62" rx="8"/><path d="M14 34h92"/><path d="M84 23l8 8M92 23l-8 8" stroke-linecap="round"/><path d="M44 58l10 10 22-22" stroke="#8fe39b" stroke-linecap="round"/></g></svg>`,
+    };
+    [['I', '最低2ターン', '着くのは出発の2ターン以上あと。<br>最大は72ターン。', 'two'], ['II', '呼び戻せない', '一度出した軍は、<br>途中で取り消せない。', 'norecall'], ['III', 'タブを閉じても有効', '開示を持つ誰でも開ける。<br>出した人が去っても、進軍は続く。', 'tab']].forEach(([n, t, s, ic], i) => {
+      const r = WY.el('div', { class: 'rule wy-panel' }, stage); WY.css(r, { left: 120 + i * 580 + 'px', zIndex: 10 });
+      r.innerHTML = `<div class="n">${n}</div>${ICON[ic]}<div class="t">${t}</div><div class="s">${s}</div>`;
+      rules.push(r);
+    });
+    pill = WY.el('div', { class: 'pill' }, stage); pill.style.zIndex = 11;
+    pill.innerHTML = '<span style="color:rgba(255,250,240,.7);font-weight:500">行き先:</span> 蛮族の野営地';
+    honest = WY.el('div', { class: 'honest wy-panel' }, stage); honest.style.zIndex = 12;
+    honest.innerHTML = `<div class="t">封印の「秘密性」そのものは、<br>まだ検証していません。</div><div class="s">記録された実行は、アーカイブ済みの drand ラウンドの再生や<br>試験用の鍵を使ったため、封印が秘密を守るかは試していません。</div>`;
+    turnChip = WY.el('div', { class: 'wy-panel' }, stage); WY.css(turnChip, { position: 'absolute', left: '860px', top: '56px', width: '200px', height: '90px', borderRadius: '45px', zIndex: 11, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px' });
+    turnChip.innerHTML = `<span style="font:700 26px var(--sans-jp);color:rgba(255,250,240,.75)">ターン</span><span id="tnum" style="font:800 46px Inter;color:#fffaf0">44</span>`;
+    badge = WYKit.status(stage, 'local', 'ja', { x: 80, y: 66, size: 24 }); badge.node.style.zIndex = 30;
+    flash = WYKit.flash(stage, { color: '#fff1d6' });
+    overlay = FX.overlay(stage, { grain: false });
+    end = WYKit.endCard(stage, { lang: 'ja', line: '行き先は、封印される。' });
+  },
+
+  render(t) {
+    const E = WY.ease;
+    // ---------------- camera
+    const mid = { x: (src.x + dst.x) / 2, y: (src.y + dst.y) / 2 };
+    let cx, cy, zoom;
+    if (t < S_B) { cx = mid.x + 40 * Math.sin(t * 0.3); cy = mid.y - 60 + t * 6; zoom = 1.45 - t * 0.02; }
+    else if (t < S_E - 0.6) { const k = WY.seg(t, S_B - 0.6, S_B + 1.2, E.inOutCubic); cx = WY.lerp(mid.x, mid.x + 20, k) + WY.drift(t, 2, 30, 0.12); cy = WY.lerp(mid.y + 30, mid.y + 60, k) + WY.drift(t, 5, 20, 0.12); zoom = WY.lerp(1.35, 0.95, k) + (t - S_B) * 0.004; }
+    else { const k = WY.seg(t, S_E - 0.6, S_E + 1.4, E.inOutCubic); cx = WY.lerp(mid.x + 20, dst.x, k); cy = WY.lerp(mid.y + 60, dst.y + 40, k); zoom = WY.lerp(0.95 + (S_E - 0.6 - S_B) * 0.004, 1.5, k) + Math.max(0, t - S_E - 1.4) * 0.01; }
+    const sh = (T0, a) => (t > T0 && t < T0 + 0.45 ? (1 - (t - T0) / 0.45) * a * Math.sin(t * 95) : 0);
+    cx += sh(T_STAMP, 8) + sh(T_CRACK, 6) + sh(T_CLASH, 10);
+    const cam = { x: cx, y: cy, zoom, W, H };
+    mctx.clearRect(0, 0, W, H); FX.table(mctx, W, H); mc.draw(mctx, cam);
+    mapCv.style.filter = t < S_B ? `brightness(${0.3 + 0.12 * WY.seg(t, T_STAMP, T_STAMP + 0.4)})` : 'none';
+    mcDim.style.opacity = Math.max(WY.env(t, -1, S_B - 0.2, 0.1, 0.8) * 0.15, WY.env(t, S_D, S_E - 0.6, 0.5, 0.6) * 0.85, WY.env(t, S_F, 99, 0.5, 0.5) * 0.85);
+    dust.render(t, 0.7);
+
+    // ---------------- fx canvas
+    g.clearRect(0, 0, W, H); g.fillStyle = 'rgba(0,0,0,0.01)'; g.fillRect(0, 0, 2, 2);
+    // cold-open seal stamp (screen space)
+    if (t < S_B + 0.6) {
+      const k = WY.seg(t, 0.2, T_STAMP, E.inQuad), out = WY.seg(t, S_B - 0.6, S_B + 0.4, E.inCubic);
+      const r = 150 * (1 + 2.2 * (1 - k)) * (1 - out * 0.9), a = Math.min(1, k * 2) * (1 - out);
+      if (t >= T_STAMP) { // ring of dust at impact
+        const q = WY.seg(t, T_STAMP, T_STAMP + 1.2, E.outCubic);
+        g.globalAlpha = (1 - q) * 0.7; g.strokeStyle = '#f0d48a'; g.lineWidth = 3;
+        for (let j = 0; j < 2; j++) { g.beginPath(); g.ellipse(960, 400, 160 + q * (260 + j * 120), (160 + q * (260 + j * 120)) * 0.42, 0, 0, Math.PI * 2); g.stroke(); }
+        g.globalAlpha = 1;
+      }
+      if (a > 0) { g.globalAlpha = a; g.filter = k < 1 ? `blur(${(1 - k) * 12}px)` : 'none'; WYMap.drawSeal(g, 960, 390 - (1 - k) * 120 - out * 220, r); g.filter = 'none'; g.globalAlpha = 1; }
+    }
+    // destination candidates (question rings) until the reveal
+    const candA = WY.env(t, S_B + 2.2, T_CRACK + 0.3, 0.6, 0.4);
+    if (candA > 0) {
+      [dst, ...decoys].forEach((tl, i) => {
+        const [x, y] = WYMap.toScreen(cam, tl.x, tl.y - WYMap.LIFT);
+        const p = 0.5 + 0.5 * Math.sin(t * 3 + i * 1.7);
+        g.globalAlpha = candA * (0.55 + 0.35 * p); g.strokeStyle = '#ffd24d'; g.lineWidth = 3; g.setLineDash([10, 9]); g.lineDashOffset = -t * 30;
+        FX.hex(g, x, y, 88 * zoom * 0.9, WYMap.FLAT); g.stroke(); g.setLineDash([]);
+        g.font = `900 ${56 * zoom}px Cinzel, serif`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = '#fff3cf';
+        g.shadowColor = 'rgba(0,0,0,.8)'; g.shadowBlur = 10; g.fillText('?', x, y - 40 * zoom - 6 * p); g.shadowBlur = 0;
+      });
+      g.globalAlpha = 1;
+    }
+    // the march: visible trail behind the seal; nothing ahead of it
+    const prog = WY.seg(t, T_DEP, T_CRACK - 0.4, E.inOutSine) * 0.985;
+    if (t > T_DEP - 0.1 && t < T_CLASH + 3) {
+      const trailA = 1 - WY.seg(t, T_CLASH + 0.8, T_CLASH + 2.5);
+      g.globalAlpha = trailA;
+      const pt = WYMap.drawMarch(g, cam, src, dst, t < T_CRACK ? prog : 1, { color: WY.NATIONS[0].fill, width: 9, sealed: false, lift: 0.18 });
+      g.globalAlpha = 1;
+      const [hx, hy] = pt(t < T_CRACK ? prog : 1);
+      if (t < T_CRACK) {
+        // the time-lock ring around the seal
+        const lr = 62 * Math.max(0.8, zoom);
+        g.save(); g.translate(hx, hy - 6); g.rotate(t * 0.8);
+        g.strokeStyle = 'rgba(255,210,77,.85)'; g.lineWidth = 3; g.setLineDash([6, 10]); g.beginPath(); g.arc(0, 0, lr, 0, Math.PI * 2); g.stroke(); g.setLineDash([]);
+        for (let i = 0; i < 12; i++) { const a = (i / 12) * Math.PI * 2; g.beginPath(); g.moveTo(Math.cos(a) * lr * 1.08, Math.sin(a) * lr * 1.08); g.lineTo(Math.cos(a) * lr * 1.22, Math.sin(a) * lr * 1.22); g.stroke(); }
+        g.restore();
+        const pop = E.outBack(WY.seg(t, T_DEP - 0.1, T_DEP + 0.4));
+        WYMap.drawSeal(g, hx, hy - 6, 40 * Math.max(0.8, zoom) * pop);
+      } else crackedSeal(g, hx, hy - 6, 40 * Math.max(0.8, zoom), t - T_CRACK);
+    }
+    // reveal ring + clash on the destination
+    if (t > T_CRACK) {
+      const [x, y] = WYMap.toScreen(cam, dst.x, dst.y - WYMap.LIFT);
+      const k = WY.seg(t, T_CRACK, T_CRACK + 0.8, E.outCubic), fade = 1 - WY.seg(t, S_F - 0.6, S_F);
+      g.globalAlpha = fade; g.strokeStyle = '#ffd24d'; g.lineWidth = 6; g.shadowColor = '#ffd24d'; g.shadowBlur = 18;
+      FX.hex(g, x, y, 88 * zoom * (0.95 + 0.4 * (1 - k)), WYMap.FLAT); g.stroke(); g.shadowBlur = 0; g.globalAlpha = 1;
+      if (t > T_CLASH) WYMap.drawClash(g, cam, dst, WY.seg(t, T_CLASH, T_CLASH + 1.6), '#ffd24d');
+      WY.css(pill, { left: x + 110 * zoom + 'px', top: y - 150 * zoom + 'px' });
+    }
+    FX.show(pill, t, T_CRACK + 0.5, S_F - 0.4, { dy: 20 });
+    flash.render(t, t > T_CLASH ? T_CLASH : T_CRACK, 0.5, 0.55);
+
+    // ---------------- HUD and text
+    let turn = 44; for (const [tt, n] of TURN_AT) if (t >= tt) turn = n;
+    WY.$('#tnum').textContent = turn;
+    const tk = FX.show(turnChip, t, T_DEP - 1.2, S_F - 0.4, { dy: -20 });
+    const last = TURN_AT.filter(([tt]) => t >= tt).pop();
+    if (last && t - last[0] < 0.5) turnChip.style.transform += ` scale(${1 + 0.12 * Math.sin(((t - last[0]) / 0.5) * Math.PI)})`;
+    T.kick.render(t, 1.5, S_B - 0.5);
+    T.title.render(t, 1.35, S_B - 0.4);
+    T.b.render(t, S_B + 1.6, S_C - 0.3);
+    T.c.render(t, S_C + 0.4, S_D - 0.3);
+    T.e.render(t, S_E + 1.8, S_F - 0.3);
+    bottomShade.style.opacity = WY.seg(t, S_B - 0.5, S_B + 0.5) * (1 - WY.seg(t, S_F - 0.4, S_F));
+    FX.show(pub, t, S_B + 0.6, S_D - 0.5, { dx: -40, dy: 0 });
+    FX.show(drand, t, S_C + 0.2, S_D - 0.5, { dx: 40, dy: 0 });
+    const ROUND0 = 12000000, rr = ROUND0 + Math.floor(Math.max(0, t - S_C) * 4);
+    WY.$('#rnow').textContent = WY.count(rr);
+    WY.$('#rbar').style.width = (100 * WY.seg(t, S_C + 0.4, T_CRACK)) + '%';
+    rules.forEach((r, i) => FX.show(r, t, S_D + 0.4 + i * 1.6, S_E - 0.5, { dy: 50, s0: 0.94 }));
+    FX.show(honest, t, S_F + 0.3, S_END - 0.3, { dy: 30, s0: 0.97 });
+    badge.render(t, S_B + 0.6, S_END - 0.3);
+    overlay.render(t);
+    end.render(t - S_END);
+  },
+
+  audio(A) {
+    A.music({ style: 'tension', bpm: 92, key: 'D', minor: true, sections: [[0, 0.25], [S_B, 0.45], [S_C, 0.6], [S_D, 0.5], [S_E, 0.85], [T_CLASH, 1], [S_F, 0.3]], end: S_END, outro: 'ring' });
+    A.whoosh(0.5, { dur: 0.6, dir: 'down' }); A.seal(T_STAMP, { gain: 1.2 }); A.boom(T_STAMP, { gain: 0.8 }); A.drone(0, S_B, { note: 'D2', gain: 0.6 });
+    A.whoosh(S_B - 0.4); A.march(T_DEP, T_DEP + 2.5, { gain: 0.35, bpm: 110 }); A.lock(T_DEP + 0.1);
+    for (const [tt] of TURN_AT.slice(1)) { A.chime(tt, { note: 'A4', dur: 2, gain: 0.6 }); }
+    A.ticks(S_C + 0.4, S_D - 0.5, 0.25, { gain: 0.25, pitch: 1.4 });
+    A.whoosh(S_D - 0.2, { dir: 'down' }); for (let i = 0; i < 3; i++) A.pop(S_D + 0.5 + i * 1.6);
+    A.riser(T_CRACK - 2.4, T_CRACK, { gain: 0.7 });
+    A.glitch(T_CRACK, { dur: 0.2 }); A.hit(T_CRACK, { gain: 0.9 }); A.sparkle(T_CRACK + 0.15);
+    A.clash(T_CLASH, { gain: 1 }); A.hit(T_CLASH, { gain: 0.8 });
+    A.whoosh(S_F - 0.3, { dir: 'down' }); A.note(S_F + 0.4, 'D4', 2.4, { type: 'sine', gain: 0.6 });
+    A.whoosh(S_END - 0.45);
+  },
+});
+
+/** the wax seal splitting along a jagged crack: k seconds since the crack */
+function crackedSeal(g, x, y, r, k) {
+  const sep = WY.ease.outCubic(WY.clamp(k / 0.9)), a = 1 - WY.clamp((k - 0.5) / 0.7);
+  if (a <= 0) return;
+  const crack = [[0, -1.2], [0.15, -0.6], [-0.12, -0.2], [0.14, 0.25], [-0.08, 0.7], [0.05, 1.2]];
+  for (const side of [-1, 1]) {
+    g.save(); g.globalAlpha = a;
+    g.translate(x + side * sep * r * 1.4, y + sep * sep * r * 0.8); g.rotate(side * sep * 0.6);
+    g.beginPath(); g.moveTo(crack[0][0] * r, crack[0][1] * r); for (const [cx, cy] of crack) g.lineTo(cx * r, cy * r);
+    g.lineTo(side * r * 1.4, r * 1.2); g.lineTo(side * r * 1.4, -r * 1.2); g.closePath(); g.clip();
+    WYMap.drawSeal(g, 0, 0, r); g.restore();
+  }
+  // sparks
+  g.save(); g.globalAlpha = a; g.fillStyle = '#ffd24d';
+  for (let i = 0; i < 14; i++) { const an = i * 2.4, d = r * (0.6 + 2.6 * sep) * (0.7 + (i % 3) * 0.2); g.beginPath(); g.arc(x + Math.cos(an) * d, y + Math.sin(an) * d * 0.8, 3 * (1 - sep) + 1, 0, Math.PI * 2); g.fill(); }
+  g.restore();
+}
+</script></body></html>

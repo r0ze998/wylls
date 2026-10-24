@@ -1,0 +1,280 @@
+<!doctype html><html><head><meta charset="utf-8"><title>11 troops and stances</title>
+<link rel="stylesheet" href="../../lib/wy.css">
+<script src="../../lib/wy.js"></script><script src="../../lib/wy-audio.js"></script>
+<script src="../../lib/wy-map.js"></script><script src="../../lib/wy-kit.js"></script>
+<script src="lk.js"></script>
+<style>
+  .unit { position: absolute; left: 0; top: 0; width: 300px; height: 340px; border-radius: 18px; background: linear-gradient(180deg, rgba(58,24,26,.95), rgba(26,12,13,.97)); border: 2px solid rgba(201,162,74,.8); box-shadow: inset 0 1px 0 rgba(255,240,200,.14), 0 18px 40px rgba(0,0,0,.5); text-align: center; transform-origin: 50% 50%; }
+  .unit img { display: block; margin: 8px auto 0; }
+  .unit .jn { font: 700 40px/1.1 var(--sans-jp); color: #fffaf0; margin-top: -4px; }
+  .unit .en { font: 600 19px/1.2 Inter; letter-spacing: .14em; text-transform: uppercase; color: rgba(240,212,138,.85); margin-top: 6px; }
+  .grp { font: 900 50px/1 var(--serif-jp); color: #f0d48a; text-shadow: 0 2px 14px rgba(0,0,0,.8); }
+  .note { font: 600 30px/1.45 var(--sans-jp); color: rgba(255,250,240,.9); }
+  .snode { position: absolute; width: 360px; text-align: center; }
+  .snode .nm { font: 900 58px/1.1 var(--serif-jp); color: #fffaf0; text-shadow: 0 3px 16px rgba(0,0,0,.8); }
+  .snode .st { font: 700 30px/1.3 var(--sans-jp); color: #9fe0b0; margin-top: 6px; }
+</style>
+</head><body><script>
+const E = WY.ease, NAT = 0;
+const T = { grid: 4.2, tri: 10.0, st: 16.8, cyc: 21.2, host: 31.4, end: 40.6 };
+const DUR = 45.0;
+const UNITS = [['spearman', '槍兵', 'Spearman'], ['archer', '弓兵', 'Archer'], ['horseman', '騎兵', 'Horseman'], ['pikeman', '長槍兵', 'Pikeman'], ['crossbowman', '弩兵', 'Crossbowman'], ['knight', '騎士', 'Knight'], ['scout', '斥候', 'Scout'], ['settler', '開拓者', 'Settler']];
+// triangle positions (centre x, y): melee top, cavalry bottom-right, ranged bottom-left; scout / settler to the side
+const TRI = { spearman: [880, 360], pikeman: [1045, 360], horseman: [1250, 770], knight: [1415, 770], archer: [505, 770], crossbowman: [670, 770], scout: [1735, 330], settler: [1735, 690] };
+let cv, g, lattice, units = [], heads = {}, grp = [], notes = {}, ui = {}, sn = [], figs, minis, badge, ov, end, flash, cap, dust;
+
+function head(stage, text, sub, y = 70) {
+  const n = WY.el('div', { class: 'wy-abs' }, stage);
+  WY.css(n, { left: '0px', width: '1920px', top: y + 'px', textAlign: 'center', zIndex: 10 });
+  const h = LK.lines(n, [text], { position: 'relative', left: '0px', width: '1920px' }, { font: '900 84px/1.15 var(--serif-jp)', color: '#fffaf0', textShadow: '0 6px 30px rgba(0,0,0,.7)' });
+  const s = sub ? LK.div(n, sub, { position: 'relative', left: '0px', width: '1920px', marginTop: '8px', font: '600 38px/1.5 var(--sans-jp)', color: 'rgba(255,250,240,.9)' }) : null;
+  return { n, h, s };
+}
+function showHead(H, t, a, b) {
+  const k = WY.env(t, a - 0.05, b, 0.3, 0.35);
+  H.n.style.opacity = k; H.n.style.visibility = k > 0.001 ? 'visible' : 'hidden';
+  WY.revealChars(H.h.spans, t - a, { stagger: 0.05, dur: 0.5, rise: 34, blur: 10 });
+  if (H.s) LK.show(H.s, t, a + 0.6, 99, { rise: 14 });
+}
+
+WY.scene({
+  width: 1920, height: 1080, duration: DUR, fps: 30,
+  setup(stage) {
+    lattice = LK.hexLattice(2400, 1400, 64, 'rgba(240,212,138,0.05)', 1.5);
+    cv = WY.canvas(stage, 1920, 1080); g = cv.getContext('2d');
+    figs = [LK.figure('aster'), LK.figure('fjordal')];
+    minis = WY.img(`${WY.ART}units/mobs-v1/cards/${NAT}_spearman.webp`);
+    ui.row = WY.img('ui/stance-row.png'); ui.train = WY.img('ui/train-panel.jpg');
+    ui.icons = ['food', 'ore', 'gold'].map(n => WY.img(`${WY.ART}ui/illustrated/${n}-64.webp`));
+
+    heads.title = LK.lines(stage, ['8つの兵種と', '4つの構え'], { left: '0px', width: '1920px', top: '650px', textAlign: 'center', zIndex: 10 }, { font: '900 112px/1.2 var(--serif-jp)', color: '#fffaf0', textShadow: '0 8px 40px rgba(0,0,0,.9)' });
+    heads.grid = head(stage, '8つの兵種', null);
+    heads.tri = head(stage, '兵種の相性は、三すくみ', null);
+    heads.st = head(stage, '4つの構え', '進軍ごとに、戦い方を選ぶ。');
+    heads.cyc = head(stage, '構えにも、三すくみ', null);
+    heads.host = head(stage, '軍は、1種類の兵で組む', null);
+
+    UNITS.forEach((u, i) => {
+      const n = WY.el('div', { class: 'unit' }, stage);
+      n.innerHTML = `<img src="${WY.ART}units/mobs-v1/cards/${NAT}_${u[0]}.webp" width="208" height="260"><div class="jn">${u[1]}</div><div class="en">${u[2]}</div>`;
+      n.style.zIndex = 5;
+      const gx = 300 + 150 + (i % 4) * 340, gy = 230 + 170 + Math.floor(i / 4) * 370;
+      units.push({ n, key: u[0], i, gx, gy, tx: TRI[u[0]][0], ty: TRI[u[0]][1] });
+    });
+    grp = [['近接', 962, 500], ['騎兵', 1332, 908], ['射撃', 588, 908]].map(([txt, x, y]) => LK.div(stage, `<span class="grp">${txt}</span>`, { left: x - 150 + 'px', width: '300px', top: y + 'px', textAlign: 'center', zIndex: 8 }));
+    notes.scout = LK.div(stage, '<span class="note">戦わない。<br>となりのマスを探索。</span>', { left: '1610px', width: '260px', top: '450px', textAlign: 'center', zIndex: 8 });
+    notes.mult = ['1.5倍', '1.5倍', '1.5倍'].map(() => LK.div(stage, '<span style="font:800 40px Inter;color:#ffd24d;text-shadow:0 2px 12px rgba(0,0,0,.9)">1.5<span style="font-size:28px">倍</span></span>', { zIndex: 8 }));
+    notes.tri = LK.div(stage, '矢印の先の兵種に強い(与える損害 1.5倍)', { left: '0px', width: '1920px', top: '990px', textAlign: 'center', font: '600 30px var(--sans-jp)', color: 'rgba(255,250,240,.85)', zIndex: 8 });
+
+    // stance nodes: assault (top), flank (bottom-right), brace (bottom-left); hold aside
+    const SN = [['突撃', 'Assault', '側撃に強い', 900, 330], ['側撃', 'Flank', '迎撃に強い', 1225, 760], ['迎撃', 'Brace', '突撃に強い', 575, 760], ['待機の構え', 'Hold', '相性なし', 1640, 540]];
+    sn = SN.map(([nm, en, st, x, y], i) => {
+      const n = LK.div(stage, `<div class="nm">${nm}</div><div style="font:600 20px Inter;letter-spacing:.18em;color:rgba(240,212,138,.8);margin-top:6px;text-transform:uppercase">${en}</div><div class="st" style="${i === 3 ? 'color:rgba(255,250,240,.7)' : ''}">${st}</div>`, { left: x - 180 + 'px', top: y + 'px', zIndex: 8 });
+      n.className += ' snode'; return { n, x, y, i };
+    });
+    notes.win = LK.div(stage, '勝った側は、与える損害が<span style="color:#ffd24d;font-family:Inter;font-weight:800"> 2割 </span>増える。', { left: '0px', width: '1920px', top: '972px', textAlign: 'center', font: '700 42px var(--sans-jp)', color: '#fffaf0', textShadow: '0 2px 14px rgba(0,0,0,.9)', zIndex: 8 });
+    notes.uiCap = LK.div(stage, '実際のクライアント画面:進軍の準備(テストデータ)', { left: '0px', width: '1920px', top: '690px', textAlign: 'center', font: '500 24px var(--sans-jp)', color: 'rgba(255,250,240,.65)', zIndex: 8 });
+
+    // host
+    notes.count = LK.div(stage, '', { left: '0px', width: '1920px', top: '360px', textAlign: 'center', zIndex: 8, font: '800 170px/1 Inter', color: '#fffaf0', textShadow: '0 6px 40px rgba(0,0,0,.9)' });
+    notes.range = LK.div(stage, '1つの軍 = 1種類の兵 <span style="color:#ffd24d;font-family:Inter;font-weight:800">100 〜 30,000</span>', { left: '0px', width: '1920px', top: '560px', textAlign: 'center', font: '700 46px var(--sans-jp)', color: '#fffaf0', textShadow: '0 2px 16px rgba(0,0,0,.95)', zIndex: 8 });
+    const ic = n => `<img src="${WY.ART}ui/illustrated/${n}-64.webp" width="46" height="46" style="vertical-align:middle;margin:0 4px 0 14px">`;
+    notes.cost = LK.div(stage, `<div style="font:700 34px var(--sans-jp);color:#f0d48a;margin-bottom:12px">槍兵 100 の訓練</div><div style="font:800 40px Inter;color:#fffaf0;display:flex;align-items:center">${ic('food')}60${ic('ore')}20${ic('gold')}10</div><div style="font:600 30px var(--sans-jp);color:#9fe0b0;margin-top:14px">訓練はすぐに終わる。</div>`, { left: '200px', top: '730px', zIndex: 8, padding: '24px 34px', borderRadius: '16px', background: 'rgba(10,22,17,.88)', border: '2px solid rgba(201,162,74,.75)' });
+    notes.train = WY.el('div', { class: 'wy-abs' }, stage);
+    WY.css(notes.train, { left: '860px', top: '700px', width: '700px', height: '324px', borderRadius: '14px', overflow: 'hidden', border: '2px solid rgba(201,162,74,.85)', boxShadow: '0 20px 50px rgba(0,0,0,.6)', zIndex: 8, background: `url(ui/train-panel.jpg) 0 0 / 700px 324px` });
+    notes.trainCap = LK.div(stage, '実際のクライアント画面(テストデータ)', { left: '860px', width: '700px', top: '1034px', textAlign: 'right', font: '500 20px var(--sans-jp)', color: 'rgba(255,250,240,.6)', zIndex: 8 });
+    cap = LK.div(stage, 'ゲーム内の兵種説明より', { left: '0px', width: '1840px', top: '1030px', textAlign: 'right', font: '500 22px var(--sans-jp)', color: 'rgba(255,250,240,.6)', zIndex: 8 });
+    badge = WYKit.status(stage, 'local', 'ja', { x: 80, y: 56 }); badge.node.style.zIndex = 20;
+    ov = LK.overlays(stage, 45, { vignette: 0.55 }); ov.g.style.display = 'none'; ov.g.style.display = 'none';
+    flash = WYKit.flash(stage, { color: '#fff3e0', z: 50 });
+    end = WYKit.endCard(stage, { lang: 'ja', line: '兵を選び、構えを選ぶ。それが、あなたの一手。' });
+  },
+
+  render(t) {
+    g.clearRect(0, 0, 1920, 1080);
+    const gr = g.createRadialGradient(960, 520, 60, 960, 540, 1300); gr.addColorStop(0, '#3a1c1f'); gr.addColorStop(0.55, '#1a1012'); gr.addColorStop(1, '#070506');
+    g.fillStyle = gr; g.fillRect(0, 0, 1920, 1080);
+    g.drawImage(lattice, -240 + t * 5, -160 - t * 3);
+
+    // ---------------- opener: two characters strike, the title lands
+    if (t < T.grid + 0.5) {
+      const out = E.inCubic(WY.seg(t, T.grid - 0.5, T.grid + 0.2));
+      [[0, 330, -1], [1, 1590, 1]].forEach(([k, x, side]) => {
+        const kin = E.outExpo(WY.seg(t, 0.1 + k * 0.15, 1.0 + k * 0.15));
+        const xx = x + side * (1 - kin) * 400 + side * out * 300;
+        g.save(); g.globalAlpha = Math.min(1, kin * 1.5) * (1 - out);
+        g.shadowColor = k ? 'rgba(241,146,50,.7)' : 'rgba(204,48,59,.7)'; g.shadowBlur = 40;
+        LK.shadow(g, xx, 900, 200, 40, 0.55);
+        if (side > 0) { g.translate(xx * 2, 0); g.scale(-1, 1); }
+        figs[k].draw(g, t, xx, 920, 640, 'idle', 1.3 + k * 0.25);
+        g.restore();
+      });
+      // soldier fan
+      for (let i = 0; i < 8; i++) {
+        const k = E.outBack(WY.seg(t, 0.4 + i * 0.07, 1.1 + i * 0.07));
+        const a = (i - 3.5) * 0.16;
+        const x = 960 + Math.sin(a) * 620 * k, y = 640 - Math.cos(a) * 340 * k + 40;
+        const im = units[i] && units[i].n.querySelector('img');
+        if (im && im.naturalWidth && k > 0) { g.save(); g.globalAlpha = Math.min(1, k) * (1 - out); g.translate(x, y + out * 80); g.rotate(a * 0.6); g.drawImage(im, -86, -108, 172, 215); g.restore(); }
+      }
+    }
+    WY.revealChars(heads.title.spans, t - 1.0, { stagger: 0.06, dur: 0.55, rise: 50, blur: 12, out: T.grid - 1.4 });
+
+    // ---------------- troop cards: grid -> triangle -> away
+    showHead(heads.grid, t, T.grid, T.tri - 0.1);
+    showHead(heads.tri, t, T.tri + 0.1, T.st - 0.2);
+    const toTri = E.inOutCubic(WY.seg(t, T.tri, T.tri + 0.9));
+    units.forEach(u => {
+      const a = T.grid + 0.3 + u.i * 0.11;
+      const kin = E.outBack(WY.seg(t, a, a + 0.55)), kout = E.inCubic(WY.seg(t, T.st - 0.5 + u.i * 0.02, T.st + u.i * 0.02));
+      const vis = kin > 0 && kout < 1; u.n.style.display = vis ? 'block' : 'none'; if (!vis) return;
+      const side = u.key === 'scout' || u.key === 'settler';
+      const x = WY.lerp(u.gx, u.tx, toTri), y = WY.lerp(u.gy, u.ty, toTri) + Math.sin(t * 1.4 + u.i) * 4;
+      const s = (0.8 + 0.2 * kin) * WY.lerp(1, side ? 0.56 : 0.6, toTri);
+      u.n.style.opacity = Math.min(1, kin * 1.4) * (1 - kout) * (side && u.key === 'settler' ? 1 - 0.45 * toTri : 1);
+      u.n.style.transform = `translate(${x - 150}px, ${y - 170 + (1 - kin) * 60}px) scale(${s})`;
+      // the selected card "attacks": a small hop
+    });
+    grp.forEach((n, i) => LK.show(n, t, T.tri + 0.9 + i * 0.15, T.st - 0.3, { rise: 14 }));
+    LK.show(notes.scout, t, T.tri + 1.2, T.st - 0.3, { rise: 10 });
+    LK.show(notes.tri, t, T.tri + 2.0, T.st - 0.3, { rise: 10 });
+    cap.style.opacity = WY.env(t, T.grid + 0.5, T.st - 0.2, 0.4, 0.3) * 1;
+    if (t > T.tri + 0.9 && t < T.st) drawTriArrows(t, [[962, 470], [1332, 880], [588, 880]], T.tri + 1.3, T.st - 0.3, notes.mult, 1);
+    else notes.mult.forEach(n => (n.style.opacity = 0));
+
+    // ---------------- stances: real UI row, then the cycle
+    showHead(heads.st, t, T.st, T.cyc - 0.15);
+    if (t > T.st && t < T.cyc + 0.3) {
+      const k = E.outExpo(WY.seg(t, T.st + 0.05, T.st + 0.8)) * (1 - E.inCubic(WY.seg(t, T.cyc - 0.4, T.cyc + 0.2)));
+      const w = 1260, h = w * 164 / 700, x = 960 - w / 2, y = 380 + (1 - k) * 40;
+      g.save(); g.globalAlpha = k; g.shadowColor = 'rgba(0,0,0,.6)'; g.shadowBlur = 40;
+      g.fillStyle = '#e9dcbc'; g.beginPath(); g.roundRect(x - 20, y - 20, w + 40, h + 40, 18); g.fill(); g.shadowBlur = 0;
+      if (ui.row.naturalWidth) g.drawImage(ui.row, x, y, w, h);
+      // walk a highlight across the four options
+      const sel = Math.floor(WY.clamp((t - T.st - 1.5) / 0.65, 0, 3.99));
+      if (t > T.st + 1.5) { g.strokeStyle = '#ffd24d'; g.lineWidth = 6; g.shadowColor = '#ffd24d'; g.shadowBlur = 20; g.beginPath(); g.roundRect(x + sel * w / 4 + 6, y - 8, w / 4 - 12, h + 16, 14); g.stroke(); }
+      g.restore();
+    }
+    LK.show(notes.uiCap, t, T.st + 1.0, T.cyc - 0.2, { rise: 8 });
+    showHead(heads.cyc, t, T.cyc + 0.1, T.host - 0.2);
+    sn.forEach((s, i) => {
+      const k = LK.show(s.n, t, T.cyc + 0.5 + i * 0.25, T.host - 0.2, { rise: 20, scale: 0.15 });
+      if (k > 0) drawStanceGlyph(s.i, s.x, s.y - 70, k, t);
+    });
+    if (t > T.cyc + 1.0 && t < T.host) drawTriArrows(t, [[900, 330], [1225, 760], [575, 760]], T.cyc + 1.4, T.host - 0.2, null, 1.25);
+    LK.show(notes.win, t, T.cyc + 3.0, T.host - 0.2, { rise: 14 });
+    if (t > T.cyc && t < T.host) { cap.textContent = 'ゲーム内の説明文とルール(stance.rs)より'; cap.style.opacity = WY.env(t, T.cyc + 1, T.host - 0.2, 0.4, 0.3); }
+    else if (t < T.st) cap.textContent = 'ゲーム内の兵種説明より';
+
+    // ---------------- host
+    showHead(heads.host, t, T.host, T.end - 0.2);
+    if (t > T.host - 0.2 && t < T.end + 0.3) drawHost(t - T.host);
+    const kc = E.inOutQuart(WY.seg(t, T.host + 0.8, T.host + 3.6));
+    notes.count.textContent = WY.count(Math.round((100 + 29900 * kc) / 100) * 100);
+    LK.show(notes.count, t, T.host + 0.5, T.end - 0.1, { rise: 20 });
+    LK.show(notes.range, t, T.host + 1.2, T.end - 0.1, { rise: 14 });
+    LK.show(notes.cost, t, T.host + 3.8, T.end - 0.1, { rise: 0, x: -40 });
+    LK.show(notes.train, t, T.host + 4.3, T.end - 0.1, { rise: 0, x: 40 });
+    LK.show(notes.trainCap, t, T.host + 4.6, T.end - 0.1, { rise: 0 });
+    badge.render(t, T.grid + 0.3, T.end - 0.3);
+    flash.render(t, T.end - 0.05, 0.6, 0.4);
+    end.render(t - T.end);
+  },
+
+  audio(A) {
+    A.music({ style: 'epic', bpm: 104, key: 'D', minor: true, sections: [[0, 0.5], [T.grid, 0.65], [T.tri, 0.72], [T.st, 0.8], [T.cyc, 0.9], [T.host, 1.0], [T.end - 0.6, 0.4]], end: T.end, outro: 'hit' });
+    A.boom(0.15, { gain: 0.7 }); A.clash(1.35, { gain: 0.8 }); A.clash(1.6, { gain: 0.6 }); A.hit(1.0, { gain: 0.6 });
+    for (let i = 0; i < 8; i++) A.pop(T.grid + 0.3 + i * 0.11, { gain: 0.5 });
+    A.whoosh(T.grid - 0.35, { gain: 0.7 }); A.whoosh(T.tri - 0.1, { gain: 0.6 });
+    for (let i = 0; i < 3; i++) A.drum(T.tri + 1.3 + i * 0.5, { gain: 0.45, pitch: 1.2 });
+    A.whoosh(T.st - 0.35, { gain: 0.7 }); A.hit(T.st + 0.4, { gain: 0.5 });
+    for (let i = 0; i < 4; i++) A.click(T.st + 1.5 + i * 0.65, { gain: 0.8 });
+    A.whoosh(T.cyc - 0.3, { gain: 0.7 });
+    for (let i = 0; i < 4; i++) A.drum(T.cyc + 0.5 + i * 0.25, { gain: 0.5, pitch: 1 + i * 0.1 });
+    A.clash(T.cyc + 3.0, { gain: 0.6 });
+    A.whoosh(T.host - 0.35, { gain: 0.8 }); A.riser(T.host + 0.6, T.host + 3.6, { gain: 0.6 }); A.march(T.host + 0.8, T.host + 3.6, { gain: 0.8, bpm: 208 }); A.boom(T.host + 3.6, { gain: 0.8 });
+    A.coin(T.host + 3.9, { gain: 0.5 });
+  },
+});
+
+// cycle arrows between three points, a pulse travelling around; labels optional
+function drawTriArrows(t, P, a, b, labels, scale) {
+  const k = WY.env(t, a, b, 0.5, 0.3);
+  const R = 120 * scale;
+  for (let i = 0; i < 3; i++) {
+    const [x1, y1] = P[i], [x2, y2] = P[(i + 1) % 3];
+    const dx = x2 - x1, dy = y2 - y1, L = Math.hypot(dx, dy), ux = dx / L, uy = dy / L;
+    // offset outward from the triangle centre
+    const cx = (P[0][0] + P[1][0] + P[2][0]) / 3, cy = (P[0][1] + P[1][1] + P[2][1]) / 3;
+    const mx = (x1 + x2) / 2, my = (y1 + y2) / 2; let ox = mx - cx, oy = my - cy; const ol = Math.hypot(ox, oy); ox /= ol; oy /= ol;
+    const sx = x1 + ux * R + ox * 34, sy = y1 + uy * R + oy * 34, ex = x2 - ux * R + ox * 34, ey = y2 - uy * R + oy * 34;
+    const draw = E.outCubic(WY.seg(t, a + i * 0.4, a + i * 0.4 + 0.6));
+    if (draw <= 0) continue;
+    const hx = WY.lerp(sx, ex, draw), hy = WY.lerp(sy, ey, draw);
+    g.save(); g.globalAlpha = k; g.lineCap = 'round';
+    g.strokeStyle = 'rgba(0,0,0,.5)'; g.lineWidth = 14; g.beginPath(); g.moveTo(sx, sy); g.lineTo(hx, hy); g.stroke();
+    g.strokeStyle = '#f0d48a'; g.lineWidth = 7; g.stroke();
+    const ang = Math.atan2(uy, ux); g.translate(hx, hy); g.rotate(ang); g.fillStyle = '#f0d48a'; g.beginPath(); g.moveTo(16, 0); g.lineTo(-18, -18); g.lineTo(-18, 18); g.closePath(); g.fill();
+    g.restore();
+    // travelling pulse
+    const ph = ((t - a) * 0.6 - i / 3) % 1;
+    if (draw >= 1 && ph >= 0) {
+      const px = WY.lerp(sx, ex, ph), py = WY.lerp(sy, ey, ph);
+      const gl = g.createRadialGradient(px, py, 0, px, py, 30); gl.addColorStop(0, `rgba(255,236,170,${0.9 * k})`); gl.addColorStop(1, 'rgba(255,236,170,0)');
+      g.fillStyle = gl; g.beginPath(); g.arc(px, py, 30, 0, Math.PI * 2); g.fill();
+    }
+    if (labels) { const n = labels[i]; n.style.left = mx + ox * 92 - 50 + 'px'; n.style.top = my + oy * 92 - 26 + 'px'; n.style.width = '100px'; n.style.textAlign = 'center'; n.style.opacity = k * draw; }
+  }
+}
+
+// simple stance glyphs in the spirit of the client's march composer icons
+function drawStanceGlyph(i, x, y, k, t) {
+  g.save(); g.globalAlpha = k; g.translate(x, y); const s = 1 + 0.04 * Math.sin(t * 3 + i);
+  g.scale(s, s);
+  g.fillStyle = 'rgba(14,24,20,.92)'; g.strokeStyle = '#c9a24a'; g.lineWidth = 4; g.beginPath(); g.arc(0, 0, 62, 0, Math.PI * 2); g.fill(); g.stroke();
+  const you = '#cc303b', foe = '#e9dcbc';
+  const box = (bx, by, w, h, c, fill = false) => { g.lineWidth = 5; g.strokeStyle = c; g.fillStyle = c; g.beginPath(); g.rect(bx, by, w, h); fill ? g.fill() : g.stroke(); };
+  const ph = (t * 0.9 + i * 0.3) % 1;
+  if (i === 0) { // assault: arrow straight into the target
+    const hx = -30 + 34 * E.outCubic(ph);
+    g.fillStyle = you; g.beginPath(); g.moveTo(-40, -12); g.lineTo(-22, 0); g.lineTo(-40, 12); g.fill();
+    g.strokeStyle = '#ffd24d'; g.lineWidth = 5; g.beginPath(); g.moveTo(-20, 0); g.lineTo(hx + 6, 0); g.stroke();
+    g.fillStyle = '#ffd24d'; g.beginPath(); g.moveTo(hx + 16, 0); g.lineTo(hx + 4, -9); g.lineTo(hx + 4, 9); g.fill();
+    box(24, -22, 18, 44, foe);
+  } else if (i === 1) { // flank: curved arrow onto the side
+    g.fillStyle = you; g.fillRect(-42, 4, 18, 18);
+    g.strokeStyle = '#ffd24d'; g.lineWidth = 5; g.beginPath(); g.moveTo(-30, 0); g.quadraticCurveTo(-6, -46 * E.outCubic(Math.min(1, ph * 1.4)), 26, -22); g.stroke();
+    g.fillStyle = '#ffd24d'; g.beginPath(); g.moveTo(30, -12); g.lineTo(20, -28); g.lineTo(36, -26); g.fill();
+    box(22, -10, 18, 36, foe);
+  } else if (i === 2) { // brace: braced wall, the charge breaks on it
+    g.fillStyle = you; g.fillRect(-40, -24, 14, 48);
+    for (let k2 = 0; k2 < 3; k2++) { g.strokeStyle = you; g.lineWidth = 5; g.beginPath(); g.moveTo(-24, -16 + k2 * 16); g.lineTo(-8, -16 + k2 * 16); g.stroke(); }
+    const ax = 36 - 26 * E.inCubic(ph);
+    g.strokeStyle = foe; g.lineWidth = 5; g.beginPath(); g.moveTo(44, 0); g.lineTo(ax, 0); g.stroke();
+    g.fillStyle = foe; g.beginPath(); g.moveTo(ax - 10, 0); g.lineTo(ax + 2, -9); g.lineTo(ax + 2, 9); g.fill();
+  } else { // hold: standing flag
+    g.strokeStyle = '#e9dcbc'; g.lineWidth = 4; g.beginPath(); g.moveTo(-14, 30); g.lineTo(-14, -30); g.stroke();
+    const wv = Math.sin(t * 4) * 4; g.fillStyle = you; g.beginPath(); g.moveTo(-12, -30); g.quadraticCurveTo(8, -26 + wv, 26, -18); g.lineTo(-12, -6); g.fill();
+    g.fillStyle = 'rgba(233,220,188,.35)'; g.beginPath(); g.ellipse(-14, 32, 28, 8, 0, 0, Math.PI * 2); g.fill();
+  }
+  g.restore();
+}
+
+// a host of Spearmen that grows from 1 card to a crowd while the counter rolls
+function drawHost(u) {
+  const kc = E.inOutQuart(WY.seg(u, 0.8, 3.6));
+  const n = Math.max(1, Math.round(1 + 159 * kc));
+  const cols = 20, cw = 88, ch = 64;
+  const fade = 1 - 0.55 * WY.seg(u, 3.8, 4.4);
+  if (!minis.naturalWidth) return;
+  for (let i = n - 1; i >= 0; i--) {
+    const r = Math.floor(i / cols), c = i % cols;
+    const x = 960 + (c - (cols - 1) / 2) * cw + (r % 2) * cw / 2, y = 330 + r * ch;
+    const born = 0.8 + (i / 160) * 2.8, k = E.outBack(WY.seg(u, born, born + 0.3));
+    if (k <= 0) continue;
+    g.globalAlpha = Math.min(1, k) * fade * (0.55 + 0.45 * (r / 8));
+    g.drawImage(minis, x - 48 * k, y - 60 * k, 96 * k, 120 * k);
+  }
+  g.globalAlpha = 1;
+}
+</script></body></html>

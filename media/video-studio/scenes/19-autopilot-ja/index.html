@@ -1,0 +1,186 @@
+<!doctype html><html><head><meta charset="utf-8"><title>19 自動運転とコードの保証</title>
+<link rel="stylesheet" href="../../lib/wy.css">
+<script src="../../lib/wy.js"></script><script src="../../lib/wy-audio.js"></script><script src="../../lib/wy-kit.js"></script>
+<script src="aik.js"></script>
+<style>
+.blab { position:absolute; font:700 34px var(--sans-jp); color:#fffaf0; white-space:nowrap; text-align:right; width:430px; }
+.blab small { display:block; font:500 24px var(--sans-jp); color:rgba(255,250,240,.65); margin-top:4px; }
+.bval { position:absolute; font:800 64px/1 var(--sans); color:#fffaf0; white-space:nowrap; font-variant-numeric:tabular-nums; }
+.bval small { font-size:30px; font-weight:600; color:rgba(255,250,240,.6); margin-left:6px; }
+.stat { width:560px; padding:30px 38px; border-radius:22px; background:linear-gradient(180deg, rgba(27,58,47,.97), rgba(16,36,29,.98)); border:2px solid rgba(201,162,74,.8); box-shadow:0 24px 60px rgba(0,0,0,.45); }
+.stat .v { font:800 110px/1 var(--sans); color:#f0d48a; }
+.stat .v small { font-size:44px; margin-left:6px; }
+.stat .l { font:700 34px var(--sans-jp); color:#fffaf0; margin-top:14px; }
+.stat .s { font:500 26px var(--sans-jp); color:rgba(255,250,240,.7); margin-top:8px; }
+.flow { position:absolute; display:flex; align-items:center; justify-content:center; text-align:center; flex-direction:column; border-radius:20px; padding:16px 18px; width:300px; height:210px; background:linear-gradient(180deg, rgba(27,58,47,.97), rgba(16,36,29,.98)); border:2px solid rgba(201,162,74,.8); color:#fffaf0; box-shadow:0 20px 50px rgba(0,0,0,.45); }
+.flow .w { font:700 22px var(--mono); letter-spacing:.12em; color:#c9a24a; }
+.flow .h { font:800 38px/1.25 var(--serif-jp); margin-top:8px; }
+.flow .s { font:600 23px/1.4 var(--sans-jp); color:rgba(255,250,240,.75); margin-top:8px; }
+.flow.model { border-color:rgba(159,216,201,.85); }
+.flow.model .w { color:#9fd8c9; }
+.flow.wide { background:rgba(255,255,255,.05); border-style:dashed; border-color:rgba(255,250,240,.35); }
+.apc { width:1060px; padding:34px 44px; border-radius:24px; background:rgba(235,230,212,.08); border:2px dashed rgba(235,230,212,.6); }
+.apc .row { display:flex; align-items:center; gap:22px; font:700 38px/1.3 var(--sans-jp); color:#fffaf0; padding:12px 0; }
+.apc .row i { font-style:normal; flex:none; width:54px; height:54px; border-radius:50%; display:grid; place-items:center; font:800 30px var(--sans); }
+.apc .yes i { background:#2f6b4a; color:#e9ffe9; }
+.apc .no i { background:#8f2418; color:#ffe1dc; }
+.apc .no { color:#ffd9d4; }
+.apc .row small { font:500 26px var(--sans-jp); color:rgba(255,250,240,.65); margin-left:6px; }
+.seglab { position:absolute; font:700 30px/1.35 var(--sans-jp); color:#fffaf0; white-space:nowrap; }
+.seglab b { display:block; font:800 72px/1 var(--sans); }
+.seglab small { display:block; font:500 24px var(--sans-jp); color:rgba(255,250,240,.7); margin-top:6px; }
+.foot { font:500 25px/1.5 var(--sans-jp); color:rgba(255,250,240,.66); text-align:center; }
+</style>
+</head><body><script>
+const W = 1920, H = 1080;
+const { seg, env, ease: E, clamp, lerp } = WY;
+let bg, ov, dust, cv, g, T = {}, N = {}, bLab = [], bVal = [], badgeLab, badgeRun, end, flash;
+const BARS = [['ルールBot', '同じ場面・同じ20判断', 18, '#c9a24a'], ['モデル（得点の説明1行あり）', '素の Gemma 4', 9, '#5fb8a8'], ['モデル（その1行なし）', '素の Gemma 4', 1, '#5fb8a8']];
+const BX = 640, BW = 1000, BY = 380, BH = 92, BG = 150;
+
+WY.scene({
+  width: W, height: H, duration: 45, fps: 60,
+  setup(stage) {
+    AIK.css();
+    bg = AIK.bg(stage, { tint: '20,40,36' });
+    cv = WY.canvas(stage, W, H); cv.style.zIndex = 5; g = cv.getContext('2d');
+
+    // A
+    T.kick = AIK.text(stage, 'WHY GUARANTEES LIVE IN CODE', { x: 0, y: 360, w: W, size: 26, font: 'var(--sans)', weight: 600, ls: '.4em', color: '#c9a24a', stagger: 0.012 });
+    T.a1 = AIK.text(stage, '保証は、[[コード]]に置く。', { x: 0, y: 430, w: W, size: 120, weight: 900 });
+    T.a2 = AIK.text(stage, 'モデルに任せきりにしない理由と、その仕組み。', { x: 0, y: 610, w: W, size: 38, font: 'var(--sans-jp)', weight: 600, color: 'rgba(255,250,240,.8)', stagger: 0.015, rise: 20, blur: 6 });
+
+    // B — the spike
+    T.b1 = AIK.text(stage, 'まず、[[素のモデル]]を試した。', { x: 0, y: 150, w: W, size: 72 });
+    N.bq = AIK.box(stage, '<div style="font:700 30px var(--sans-jp);color:rgba(255,250,240,.85)">進軍を選んだ回数（20判断のうち）</div>', { x: BX, y: 300, z: 12 });
+    BARS.forEach(([l, s], i) => {
+      bLab.push(AIK.box(stage, `<div class="blab">${l}<small>${s}</small></div>`, { x: BX - 470, y: BY + i * BG + 8, z: 12 }));
+      const v = WY.el('div', { class: 'bval' }, stage); v.style.zIndex = 12; v.style.opacity = 0; bVal.push(v);
+    });
+    N.bnote = AIK.box(stage, '<div class="foot" style="text-align:left">モデルの進軍は、指示の1行で 1 ↔ 9 と大きく変わった。</div>', { x: BX, y: 840, z: 12 });
+    N.st1 = AIK.box(stage, '<div class="stat"><div class="v">79<small>%</small></div><div class="l">有効な行動（最良の設定）</div><div class="s">英語 88% ・ 日本語 71%</div></div>', { x: 300, y: 380, z: 12 });
+    N.st2 = AIK.box(stage, '<div class="stat"><div class="v">約5<small>秒</small></div><div class="l">1判断の計算時間</div><div class="s">ローカルのMacで</div></div>', { x: 1060, y: 380, z: 12 });
+    N.st3 = AIK.box(stage, '<div class="foot">この結果から、「AIはBotより強い」とは言いません。保証は、モデルの外に置きます。</div>', { x: 0, y: 760, w: W, z: 12 });
+
+    // C — the code around the model
+    T.c1 = AIK.text(stage, 'だから、[[コードが]]手を絞り、確かめる。', { x: 0, y: 150, w: W, size: 72 });
+    const F = [['ALL', 'あらゆる手', '盤面で考えられる<br>すべての行動', 'wide'], ['CODE', '合法な手だけ', '最大12個の候補', ''], ['MODEL', '1つ選ぶ', 'ローカルの Gemma 4', 'model'], ['CODE', '確かめる', '形式・上限・<br>新しい盤面で再確認', ''], ['PROGRAM', '最後の判定', '違法なら、人と同じく<br>チェーンが拒否', '']];
+    N.flow = F.map(([w, h, s, c], i) => AIK.box(stage, `<div class="flow ${c}" style="position:relative"><div class="w">${w}</div><div class="h">${h}</div><div class="s">${s}</div></div>`, { x: 90 + i * 360, y: 400, z: 12 }));
+    N.cnote = AIK.box(stage, '<div class="foot">モデルが選べるのは、コードが出した候補の中だけ。悪い選択の被害は、安全の上限が抑える。</div>', { x: 0, y: 720, w: W, z: 12 });
+
+    // D — autopilot
+    T.d1 = AIK.text(stage, '遅い・無効・拒否なら、[[自動運転]]。', { x: 0, y: 150, w: W, size: 72 });
+    N.ap = AIK.box(stage, `<div class="apc">
+      <div class="row yes"><i>✓</i>内政：収穫・建設・訓練・召集・探索</div>
+      <div class="row yes"><i>✓</i>義務：参加、進軍の公開と精算など</div>
+      <div class="row yes"><i>✓</i>国の攻撃命令に従う進軍<small>（招かれた場合）</small></div>
+      <div class="row no"><i>✕</i>自分から進軍を始めることは、決してない</div></div>`, { x: 430, y: 330, z: 12 });
+    N.dnote = AIK.box(stage, '<div class="foot">だから、AIの自発の進軍は「モデルの選択」か「国の攻撃命令」のどちらか。証拠は、判断の記録です。</div>', { x: 0, y: 830, w: W, z: 12 });
+
+    // E — smoke-b3 share
+    T.e1 = AIK.text(stage, '実際の操作の大半は、[[自動運転]]。', { x: 0, y: 150, w: W, size: 72 });
+    N.eq = AIK.box(stage, '<div style="font:700 30px var(--sans-jp);color:rgba(255,250,240,.85)">smoke-b3：AIの財布から送った操作 171件</div>', { x: 160, y: 320, z: 12 });
+    N.sl1 = AIK.box(stage, '<div class="seglab" style="position:relative"><b style="color:#9fe0d2">29.8%</b>モデルが選んだ判断の中で送信<small>51件・上限値（同じ手順の義務を含む）</small></div>', { x: 160, y: 560, z: 12 });
+    N.sl2 = AIK.box(stage, '<div class="seglab" style="position:relative"><b style="color:#e8e1c8">64.3%</b>自動運転の内政<small>110件</small></div>', { x: 660, y: 560, z: 12 });
+    N.sl3 = AIK.box(stage, '<div class="seglab" style="position:relative"><b style="color:rgba(255,250,240,.55)">5.8%</b>残り<small>10件</small></div>', { x: 1590, y: 560, z: 12 });
+    N.enote = AIK.box(stage, '<div class="foot">AI 6体（全員が征服者）・閉じたターン86回・10倍速。モデルの判断は52回中52回が有効、フォールバック0。<br>ただし n=52 は、事前に決めた合否の基準（300回以上）に届かない参考値です。</div>', { x: 0, y: 800, w: W, z: 12 });
+
+    badgeLab = AIK.status(stage, 'sim', 'ローカルの実験：素の Gemma 4 ・ 記録済みの場面（AI市民のコードではない）', { x: 80, y: 60 });
+    badgeRun = AIK.status(stage, 'local', 'ローカルテストチェーンで実行 ・ smoke-b3', { x: 80, y: 60 });
+    badgeLab.node.style.zIndex = badgeRun.node.style.zIndex = 30;
+    flash = WYKit.flash(stage, { color: '#fff5dc' });
+    dust = WYKit.dust(stage, { count: 36, color: '200,240,230', z: 8, speed: 10 });
+    ov = AIK.overlay(stage);
+    end = WYKit.endCard(stage, { lang: 'ja', line: 'コードが候補を出し、モデルが選び、コードが確かめる。', sub: '人とAI市民が、ひとつの地図を奪い合える戦略ゲーム' });
+  },
+
+  render(t) {
+    bg.render(t, { glow: 0.5 });
+    ov.render(t); dust.render(t, 0.4);
+    AIK.clear(g, t);
+
+    // A 0–5
+    T.kick.render(t - 0.3, 4.2);
+    T.a1.render(t - 0.6, 3.9); T.a1.node.style.transform = `scale(${1 + 0.03 * seg(t, 0, 5)})`;
+    T.a2.render(t - 1.5, 3.0);
+
+    // B 5–16 : bars 5–10.8, stats 10.8–16
+    T.b1.render(t - 5.1, 10.4);
+    AIK.show(N.bq, t, 5.6, 10.6);
+    BARS.forEach(([l, s, v, c], i) => {
+      const a = 6.0 + i * 0.5;
+      const e = AIK.show(bLab[i], t, a, 10.6, { y: 20 });
+      const k = seg(t, a + 0.2, a + 1.3, E.outExpo) * (1 - seg(t, 10.6, 11.0, E.inCubic));
+      if (k > 0) {
+        const y = BY + i * BG, w = BW * (v / 20) * k;
+        g.fillStyle = 'rgba(255,255,255,.06)'; g.fillRect(BX, y, BW, BH);
+        g.fillStyle = c; g.globalAlpha = 0.95; g.fillRect(BX, y, Math.max(4, w), BH); g.globalAlpha = 1;
+        g.fillStyle = 'rgba(255,255,255,.18)'; g.fillRect(BX, y, Math.max(4, w), 6);
+        bVal[i].innerHTML = `${Math.round(v * clamp(k * 1.05))}<small>/ 20</small>`;
+        bVal[i].style.opacity = clamp(k * 3); bVal[i].style.transform = `translate(${BX + Math.max(4, w) + 22}px, ${y + 14}px)`; bVal[i].style.left = '0px'; bVal[i].style.top = '0px';
+      } else bVal[i].style.opacity = 0;
+    });
+    // tick marks
+    if (t > 5.8 && t < 11) { const a = seg(t, 5.8, 6.3) * (1 - seg(t, 10.6, 11)); g.strokeStyle = `rgba(255,250,240,${0.25 * a})`; g.lineWidth = 2; for (let i = 0; i <= 20; i += 5) { const x = BX + BW * i / 20; g.beginPath(); g.moveTo(x, BY - 14); g.lineTo(x, BY + 2 * BG + BH + 14); g.stroke(); } }
+    AIK.show(N.bnote, t, 8.0, 10.6);
+    AIK.show(N.st1, t, 11.0, 15.6, { y: 50 }); AIK.show(N.st2, t, 11.4, 15.6, { y: 50 }); AIK.show(N.st3, t, 12.2, 15.6);
+    if (t > 10.9 && t < 15) { const v1 = N.st1.querySelector('.v'); v1.innerHTML = `${Math.round(79 * seg(t, 11.0, 12.2, E.outCubic))}<small>%</small>`; }
+
+    // C 16–23
+    T.c1.render(t - 16.1, 6.4);
+    N.flow.forEach((n, i) => AIK.show(n, t, 16.6 + i * 0.4, 22.6, { y: 40 }));
+    if (t > 16.8 && t < 23) {
+      const a = 1 - seg(t, 22.6, 23.0);
+      g.globalAlpha = a;
+      for (let i = 0; i < 4; i++) AIK.wire(g, [[90 + i * 360 + 300, 505], [90 + (i + 1) * 360, 505]], seg(t, 17.0 + i * 0.4, 17.5 + i * 0.4, E.outCubic), t);
+      g.globalAlpha = 1;
+      // a funnel of dots narrowing into the "legal" box
+      const r = WY.rng(7);
+      for (let j = 0; j < 60; j++) { const ph = (t * 0.5 + r()) % 1, yy = 420 + r() * 170; const x = lerp(110, 430, ph), y = lerp(yy, 505 + (yy - 505) * 0.2, ph * ph); g.fillStyle = `rgba(255,236,190,${0.5 * a * (1 - ph)})`; g.beginPath(); g.arc(x, y, 3, 0, Math.PI * 2); g.fill(); }
+    }
+    AIK.show(N.cnote, t, 18.8, 22.6);
+
+    // D 23–31
+    T.d1.render(t - 23.1, 7.4);
+    { const e = AIK.show(N.ap, t, 23.6, 30.6, { y: 40 }); if (e) [...N.ap.firstElementChild.children].forEach((r, i) => { const k = seg(t, 23.9 + i * 0.5, 24.4 + i * 0.5, E.outCubic); r.style.opacity = k; r.style.transform = `translateX(${(1 - k) * 30}px)`; }); }
+    AIK.show(N.dnote, t, 26.4, 30.6);
+
+    // E 31–40.5
+    T.e1.render(t - 31.1, 8.8);
+    AIK.show(N.eq, t, 31.6, 39.9);
+    if (t > 31.6 && t < 40.4) {
+      const a = 1 - seg(t, 39.9, 40.3); const k = seg(t, 32.0, 33.6, E.outExpo);
+      const x0 = 160, w = 1600, y = 400, h = 120, s1 = 51 / 171, s2 = 110 / 171;
+      g.globalAlpha = a;
+      g.fillStyle = 'rgba(255,255,255,.06)'; g.fillRect(x0, y, w, h);
+      const w1 = w * s1 * k, w2 = w * s2 * seg(t, 32.6, 34.2, E.outExpo), w3 = w * (1 - s1 - s2) * seg(t, 33.2, 34.4, E.outExpo);
+      g.fillStyle = '#5fb8a8'; g.fillRect(x0, y, w1, h);
+      g.fillStyle = '#d9d1b5'; g.fillRect(x0 + w * s1, y, w2, h);
+      g.fillStyle = 'rgba(255,250,240,.25)'; g.fillRect(x0 + w * (s1 + s2), y, w3, h);
+      g.fillStyle = 'rgba(0,0,0,.35)'; g.fillRect(x0 + w * s1 - 2, y, 4, h * seg(t, 32.6, 33)); g.fillRect(x0 + w * (s1 + s2) - 2, y, 4, h * seg(t, 33.2, 33.6));
+      g.globalAlpha = 1;
+    }
+    AIK.show(N.sl1, t, 32.6, 39.9); AIK.show(N.sl2, t, 33.4, 39.9); AIK.show(N.sl3, t, 34.0, 39.9);
+    AIK.show(N.enote, t, 34.8, 39.9);
+
+    badgeLab.render(t, 5.6, 15.6);
+    badgeRun.render(t, 31.6, 39.9);
+    flash.render(t, 5.0, 0.4, 0.3);
+    end.render(t - 40.5);
+  },
+
+  audio(A) {
+    A.music({ style: 'tech', bpm: 110, key: 'A', sections: [[0, 0.3], [5, 0.55], [11, 0.6], [16, 0.75], [23, 0.6], [31, 0.85], [38, 0.6]], end: 40.5, outro: 'hit' });
+    A.whoosh(0.4, { gain: 0.5 }); A.hit(0.6, { gain: 0.7 });
+    A.whoosh(4.8, { gain: 0.6 }); A.hit(5.1, { gain: 0.5 });
+    for (let i = 0; i < 3; i++) { A.riser(6.2 + i * 0.5, 7.2 + i * 0.5, { gain: 0.25 }); A.pop(7.3 + i * 0.5); }
+    A.whoosh(10.7, { gain: 0.5 }); A.coin(11.2, { gain: 0.6 }); A.coin(11.6, { gain: 0.5 });
+    A.whoosh(15.9, { gain: 0.6 }); A.hit(16.1, { gain: 0.5 });
+    for (let i = 0; i < 5; i++) A.click(16.6 + i * 0.4, { gain: 0.7 });
+    A.whoosh(22.9, { gain: 0.6 }); A.hit(23.1, { gain: 0.5 });
+    for (let i = 0; i < 3; i++) A.ok(23.9 + i * 0.5, { gain: 0.45 }); A.bad(25.4, { gain: 0.5 });
+    A.whoosh(30.9, { gain: 0.6 }); A.hit(31.1, { gain: 0.6 });
+    A.riser(32.0, 33.6, { gain: 0.4 }); A.pop(32.6); A.pop(33.4); A.pop(34.0);
+  },
+});
+</script></body></html>

@@ -1,0 +1,191 @@
+<!doctype html><html><head><meta charset="utf-8"><title>06 pick your nation</title>
+<link rel="stylesheet" href="../../lib/wy.css">
+<script src="../../lib/wy.js"></script><script src="../../lib/wy-audio.js"></script>
+<script src="../../lib/wy-map.js"></script><script src="../../lib/wy-kit.js"></script>
+<script src="lk.js"></script>
+<style>.card { position: absolute; inset: 0; overflow: hidden; will-change: transform; }</style>
+</head><body><script>
+const W = 1080, H = 1920, N = WY.NATIONS, E = WY.ease;
+// first sentence of each doctrine one-liner (people/leaders.mjs DOCTRINE_PITCH)
+const FIRST = ['城壁が安く、長槍兵は迎撃に強い。', '隊商が速く、軽騎兵で動き回る。', '到着したターンの一撃が重い突撃歩兵。', '補給の消耗が半分。', '進軍が速い。', '兵の維持費が安い重騎兵。'];
+const C0 = 2.6, CARD = 3.15, VIL = C0 + 6 * CARD; // 21.5
+const END = 26.0, DUR = 30.0, SW = 0.42; // swipe length
+let hook = {}, cards = [], vil = {}, lattice, ov, end, dust, flash, badge, dots, head;
+
+WY.scene({
+  width: W, height: H, duration: DUR, fps: 30,
+  setup(stage) {
+    lattice = LK.hexLattice(1500, 2400, 70, 'rgba(255,255,255,0.05)', 1.5);
+    // ---------- hook
+    hook.root = WY.el('div', { class: 'card' }, stage);
+    hook.cv = WY.canvas(hook.root, W, H); hook.ctx = hook.cv.getContext('2d');
+    hook.crests = [0, 1, 2, 3, 4, 5].map(f => LK.div(hook.root, WY.crest(f, 120), { left: '0px', top: '0px' }));
+    hook.text = LK.lines(hook.root, ['あなたは', 'どの国？'], { left: '0px', width: W + 'px', top: '700px', textAlign: 'center' }, { font: '900 168px/1.25 var(--serif-jp)', color: '#fffaf0', textShadow: '0 8px 40px rgba(0,0,0,.8)' });
+    hook.sub = LK.div(hook.root, 'CHOOSE ONE', { left: '0px', width: W + 'px', top: '1160px', textAlign: 'center', font: '700 34px Cinzel, serif', letterSpacing: '.3em', color: '#f0d48a' });
+
+    // ---------- cards
+    for (let f = 0; f < 6; f++) {
+      const c = { f, s: C0 + f * CARD };
+      c.root = WY.el('div', { class: 'card' }, stage);
+      c.cv = WY.canvas(c.root, W, H); c.ctx = c.cv.getContext('2d');
+      c.fig = LK.figure(LK.KEYS[f]);
+      c.plate = LK.div(c.root, '', { left: '0px', top: '1060px', width: W + 'px', height: '860px', background: 'linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(0,0,0,.55) 22%, rgba(0,0,0,.72) 100%)' });
+      c.name = LK.lines(c.root, [LK.JA[f]], { left: '0px', width: W + 'px', top: '1168px', textAlign: 'center' }, { font: '900 138px/1.1 var(--serif-jp)', color: '#fffaf0', textShadow: '0 6px 30px rgba(0,0,0,.6)' });
+      c.en = LK.div(c.root, LK.EN[f].toUpperCase(), { left: '0px', width: W + 'px', top: '1330px', textAlign: 'center', font: '700 38px/1 Cinzel, serif', letterSpacing: '.36em', color: N[f].light });
+      c.doc = LK.div(c.root, `${LK.pill('教義', { size: 30 })}<span style="font:900 72px/1 var(--serif-jp);margin-left:22px;vertical-align:middle;color:#fffaf0">${LK.DOC[f]}</span>`, { left: '0px', width: W + 'px', top: '1398px', textAlign: 'center', whiteSpace: 'nowrap' });
+      c.quote = LK.lines(c.root, [FIRST[f]], { left: '0px', width: W + 'px', top: '1505px', textAlign: 'center' }, { font: '700 50px/1.4 var(--sans-jp)', color: '#fffaf0', textShadow: '0 2px 12px rgba(0,0,0,.8)' });
+      cards.push(c);
+    }
+    head = LK.div(stage, '', { left: '60px', top: '236px', width: '960px', zIndex: 20 });
+    head.innerHTML = `<span style="font:700 40px var(--sans-jp);color:#fffaf0;text-shadow:0 2px 12px rgba(0,0,0,.8)">あなたはどの国？</span><span id="hn" style="float:right;font:700 36px Cinzel,serif;letter-spacing:.2em;color:#f0d48a;text-shadow:0 2px 10px rgba(0,0,0,.8)"></span>`;
+    dots = LK.div(stage, [0, 1, 2, 3, 4, 5].map(f => `<span style="display:inline-block;width:22px;height:22px;margin:0 9px;border-radius:50%;border:2px solid #f0d48a"></span>`).join(''), { left: '0px', width: W + 'px', top: '1590px', textAlign: 'center', zIndex: 20 });
+    dots.spans = [...dots.querySelectorAll('span')];
+    const cap = LK.div(stage, 'ゲーム内の教義テキストより', { left: '0px', width: W + 'px', top: '1636px', textAlign: 'center', font: '500 26px var(--sans-jp)', color: 'rgba(255,250,240,.6)', zIndex: 20 });
+    head.cap = cap;
+
+    // ---------- village
+    vil.world = WYMap.build({ rings: 3, seed: 5, sea: false, concord: -1 });
+    const TER = ['grassland', 'forest', 'plains', 'grassland', 'forest', 'hills'];
+    for (const tl of vil.world.tiles) { tl.village = null; tl.keep = false; tl.camp = false; tl.freecity = false; tl.owner = 0; tl.terrain = TER[Math.abs(tl.q * 7 + tl.r * 13) % 6]; }
+    vil.world.get(0, 0).terrain = 'plains';
+    { const oc = document.createElement('canvas'); oc.width = 64; oc.height = 64; WYMap.draw(oc.getContext('2d'), vil.world, { x: 0, y: 0, zoom: 0.05, W: 64, H: 64 }, {}); }
+    vil.hamlet = WY.img(WY.ART + 'holdings/@2x/hamlet_o_ember.webp');
+    vil.root = WY.el('div', { class: 'card' }, stage);
+    vil.cv = WY.canvas(vil.root, W, H); vil.ctx = vil.cv.getContext('2d');
+    vil.text = LK.lines(vil.root, ['国を選ぶ。', 'それだけで', '村が置かれる。'], { left: '0px', width: W + 'px', top: '300px', textAlign: 'center' }, { font: '900 104px/1.3 var(--serif-jp)', color: '#fffaf0', textShadow: '0 6px 30px rgba(0,0,0,.8)' });
+    vil.note = LK.div(vil.root, 'チケットも抽選もなし。自分の国の土地に、すぐ確定。', { left: '0px', width: W + 'px', top: '1440px', textAlign: 'center', font: '700 40px var(--sans-jp)', color: 'rgba(255,250,240,.9)', textShadow: '0 2px 12px rgba(0,0,0,.9)' });
+    vil.ring = LK.vfx('vfx/first-v1/capture/aster/atlas-256.webp');
+    badge = WYKit.status(stage, 'local', 'ja', { x: 60, y: 1530, size: 28 });
+    badge.node.style.zIndex = 30; badge.node.style.left = '0px'; badge.node.style.width = W + 'px'; badge.node.style.textAlign = 'center';
+    ov = LK.overlays(stage, 45, { vignette: 0.5 }); ov.g.style.display = 'none';
+    flash = WYKit.flash(stage, { color: '#fff8e8', z: 50 });
+    end = WYKit.endCard(stage, { lang: 'ja', line: '国をひとつ選ぶ。<br>そこから始まる。' });
+    end.node.querySelectorAll('div').forEach(d => { if (d.textContent === '国をひとつ選ぶ。<br>そこから始まる。') d.innerHTML = '国をひとつ選ぶ。<br>そこから始まる。'; });
+  },
+
+  render(t) {
+    // ---------- hook
+    const hookVis = t < C0 + SW;
+    hook.root.style.display = hookVis ? 'block' : 'none';
+    if (hookVis) {
+      const g = hook.ctx;
+      const bg = g.createRadialGradient(W / 2, 900, 50, W / 2, 900, 1300); bg.addColorStop(0, '#1d3d31'); bg.addColorStop(1, '#050a08');
+      g.fillStyle = bg; g.fillRect(0, 0, W, H);
+      g.drawImage(lattice, -200, -200 - t * 30);
+      // pulse rings on the beat (120 bpm)
+      for (let i = 0; i < 4; i++) {
+        const k = ((t * 2 + i / 4 * 2) % 2) / 2;
+        g.strokeStyle = `rgba(240,212,138,${0.35 * (1 - k)})`; g.lineWidth = 4;
+        g.beginPath(); g.arc(W / 2, 900, 200 + k * 700, 0, Math.PI * 2); g.stroke();
+      }
+      hook.crests.forEach((n, f) => {
+        const a = -Math.PI / 2 + f * Math.PI / 3 + t * 0.6;
+        const r = E.outExpo(WY.seg(t, 0.05 + f * 0.05, 0.9 + f * 0.05));
+        const pulse = 1 + 0.08 * Math.max(0, Math.cos(t * Math.PI * 4));
+        n.style.transform = `translate(${W / 2 + Math.cos(a) * r * 440 - 51}px, ${900 + Math.sin(a) * r * 600 - 60}px) scale(${pulse})`;
+        n.style.opacity = WY.seg(t, 0.05 + f * 0.05, 0.4 + f * 0.05);
+      });
+      WY.revealChars(hook.text.spans, t + 0.35, { stagger: 0.07, dur: 0.5, rise: 60, blur: 14 });
+      LK.show(hook.sub, t, 0.9, 99, { rise: 14 });
+    }
+    // ---------- cards (carousel)
+    for (const c of cards) {
+      const u = t - c.s, next = c.f < 5 ? c.s + CARD : VIL;
+      const vis = t > c.s - SW && t < next + SW;
+      c.root.style.display = vis ? 'block' : 'none';
+      if (!vis) continue;
+      const kin = E.inOutCubic(WY.seg(t, c.s - SW, c.s + SW * 0.3));
+      const kout = E.inOutCubic(WY.seg(t, next - SW, next + SW * 0.3));
+      const x = (1 - kin) * W - kout * W;
+      c.root.style.transform = `translateX(${x}px) rotate(${(1 - kin) * 3 - kout * 3}deg)`;
+      c.root.style.transformOrigin = '50% 120%';
+      drawCard(c, u);
+      WY.revealChars(c.name.spans, u - 0.15, { stagger: 0.05, dur: 0.5, rise: 40, blur: 10 });
+      LK.show(c.en, u, 0.35, 99, { rise: 0 });
+      LK.show(c.doc, u, 0.45, 99, { rise: 18 });
+      WY.revealChars(c.quote.spans, u - 0.6, { stagger: 0.02, dur: 0.4, rise: 16, blur: 6 });
+    }
+    // header + dots during cards
+    const inCards = WY.env(t, C0 - 0.2, VIL, 0.3, 0.3);
+    head.style.opacity = inCards; head.cap.style.opacity = inCards * 0.9; dots.style.opacity = inCards;
+    const ci = WY.clamp(Math.floor((t - C0 + 0.1) / CARD), 0, 5);
+    WY.$('#hn').textContent = `0${ci + 1} / 06`;
+    dots.spans.forEach((d, i) => { const on = i === ci; d.style.background = on ? (i === 4 ? '#e8ecea' : N[i].fill) : 'transparent'; d.style.transform = `scale(${on ? 1.25 : 1})`; d.style.borderColor = on ? '#fffaf0' : '#f0d48a'; });
+    // ---------- village
+    const vVis = t > VIL - SW && t < END + 0.6;
+    vil.root.style.display = vVis ? 'block' : 'none';
+    if (vVis) {
+      const u = t - VIL;
+      const kin = E.inOutCubic(WY.seg(t, VIL - SW, VIL + SW * 0.3));
+      vil.root.style.transform = `translateX(${(1 - kin) * W}px)`;
+      drawVillage(u, t);
+      WY.revealChars(vil.text.spans, u - 0.25, { stagger: 0.045, dur: 0.5, rise: 40, blur: 10 });
+      LK.show(vil.note, u, 2.0, 99, { rise: 12 });
+    }
+    badge.render(t, VIL + 1.6, END);
+    ov.render(t);
+    flash.render(t, VIL + 1.25, 0.5, 0.45);
+    end.render(t - END);
+  },
+
+  audio(A) {
+    A.music({ style: 'pulse', bpm: 120, key: 'E', minor: true, sections: [[0, 0.55], [C0, 0.8], [C0 + CARD * 3, 0.9], [VIL, 0.6], [END - 0.5, 0.3]], end: END, outro: 'hit' });
+    A.hit(0.15, { gain: 0.9 }); A.riser(1.2, C0, { gain: 0.6 });
+    for (let f = 0; f < 6; f++) { const s = C0 + f * CARD; A.whoosh(s - 0.38, { dur: 0.45, gain: 0.8, pan: 0.5 }); A.hit(s + 0.05, { gain: 0.55, bright: 0.8 }); A.pop(s + 0.5, { gain: 0.6 }); A.drum(s + 1.6, { gain: 0.3, pitch: 1.3 }); }
+    A.whoosh(VIL - 0.38, { dur: 0.45, gain: 0.8 });
+    A.boom(VIL + 1.25, { gain: 0.8 }); A.sparkle(VIL + 1.4, { root: 'E5', gain: 0.5 });
+  },
+});
+
+function drawCard(c, u) {
+  const g = c.ctx, f = c.f, [c1, c2, c3] = LK.BG[f];
+  const bg = g.createLinearGradient(0, 0, W, H); bg.addColorStop(0, c2); bg.addColorStop(1, c3);
+  g.fillStyle = bg; g.fillRect(0, 0, W, H);
+  const sp = g.createRadialGradient(W / 2, 760, 20, W / 2, 800, 760);
+  sp.addColorStop(0, LK.rgba(c1, 0.8)); sp.addColorStop(0.5, LK.rgba(c1, 0.25)); sp.addColorStop(1, LK.rgba(c1, 0));
+  g.fillStyle = sp; g.fillRect(0, 0, W, H);
+  g.drawImage(lattice, -220 - u * 10, -300 - u * 18);
+  g.save(); g.translate(W / 2, 520); g.rotate(u * 0.06);
+  for (let i = 0; i < 10; i++) { g.rotate(Math.PI / 5); const rg = g.createLinearGradient(0, 0, 0, 1200); rg.addColorStop(0, 'rgba(255,255,255,.09)'); rg.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = rg; g.beginPath(); g.moveTo(0, 0); g.lineTo(-70, 1200); g.lineTo(70, 1200); g.closePath(); g.fill(); }
+  g.restore();
+  g.save(); g.translate(W / 2, 760); g.rotate(-u * 0.08 + f); const p = new Path2D(WY.sigilPath(f, 400)); g.strokeStyle = 'rgba(255,255,255,.16)'; g.lineWidth = 7; g.stroke(p); g.fillStyle = LK.rgba(c1, 0.12); g.fill(p); g.restore();
+  const kin = E.outExpo(WY.seg(u, 0, 0.9));
+  const h = 900 * (1.08 - 0.08 * kin) + Math.sin(u * 1.1) * 5;
+  LK.shadow(g, W / 2, 1190, 280, 50, 0.6);
+  g.save(); g.shadowColor = LK.rgba(c1, 0.85); g.shadowBlur = 50;
+  c.fig.draw(g, u, W / 2, 1210, h, 'idle', 1.5);
+  g.restore();
+}
+
+function drawVillage(u, t) {
+  const g = vil.ctx;
+  const bg = g.createRadialGradient(W / 2, 1050, 50, W / 2, 1050, 1300); bg.addColorStop(0, '#2b4a3c'); bg.addColorStop(1, '#060b09');
+  g.fillStyle = bg; g.fillRect(0, 0, W, H);
+  g.drawImage(lattice, -200, -200 - t * 10);
+  const cam = { x: 0, y: 10, zoom: 2.0 + 0.12 * WY.seg(u, 0, 4.5), W, H: 2300 };
+  g.save(); g.translate(0, 0);
+  WYMap.draw(g, vil.world, cam, { t, background: false, features: false, wash: () => 0.08, borders: 0.6, appear: tl => WY.seg(u, 0.1 + tl.ring * 0.15, 0.6 + tl.ring * 0.15) });
+  g.restore();
+  const tg = g.createLinearGradient(0, 0, 0, H); tg.addColorStop(0, 'rgba(5,10,8,.96)'); tg.addColorStop(0.36, 'rgba(5,10,8,.85)'); tg.addColorStop(0.5, 'rgba(5,10,8,0)'); tg.addColorStop(0.72, 'rgba(5,10,8,0)'); tg.addColorStop(0.82, 'rgba(5,10,8,.85)'); tg.addColorStop(1, 'rgba(5,10,8,.96)');
+  g.fillStyle = tg; g.fillRect(0, 0, W, H);
+  // the village drops at u = 1.25
+  const [sx, sy] = WYMap.toScreen(cam, 0, 0);
+  const k = WY.seg(u, 0.9, 1.25, E.inCubic);
+  const hz = cam.zoom * 1.3, tw = 176 * hz, th = 208 * hz;
+  if (u > 0.9) {
+    const yy = sy - (1 - k) * 500;
+    if (u > 1.25) { // gold ring "yours"
+      const r = WY.seg(u, 1.25, 1.9, E.outExpo);
+      g.save(); g.strokeStyle = WY.GOLD; g.lineWidth = 8; g.globalAlpha = 0.9; g.shadowColor = WY.GOLD; g.shadowBlur = 24;
+      WYMap.hexPath(g, sx, sy - WYMap.LIFT * cam.zoom, WYMap.R * cam.zoom * (0.6 + 0.35 * r)); g.stroke(); g.restore();
+      g.save(); g.globalAlpha = 1 - WY.seg(u, 1.25, 2.2); g.strokeStyle = '#fff8e8'; g.lineWidth = 6;
+      g.beginPath(); g.ellipse(sx, sy - 20, 140 + 400 * r, (140 + 400 * r) * 0.76, 0, 0, Math.PI * 2); g.stroke(); g.restore();
+    }
+    g.globalAlpha = WY.seg(u, 0.9, 1.05);
+    if (vil.hamlet.naturalWidth) g.drawImage(vil.hamlet, sx - 88 * hz, yy - 124 * hz, tw, th);
+    g.globalAlpha = 1;
+    if (u > 1.25) WYMap.drawPennant(g, sx + 70, sy - 150, 2.0, 0, t);
+    vil.ring.draw(g, u - 1.25, sx, sy - 30, 520);
+  }
+}
+</script></body></html>

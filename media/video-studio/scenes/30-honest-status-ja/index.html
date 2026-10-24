@@ -1,0 +1,150 @@
+<!doctype html><html><head><meta charset="utf-8"><title>30 honest-status-ja</title>
+<link rel="stylesheet" href="../../lib/wy.css">
+<script src="../../lib/wy.js"></script><script src="../../lib/wy-audio.js"></script>
+<script src="../../lib/wy-map.js"></script><script src="../../lib/wy-kit.js"></script>
+<script src="../01-trailer-ja/tk.js"></script>
+<style>
+  .sheet { position:absolute; left:110px; top:150px; width:1700px; height:830px; padding:34px 46px; }
+  .sheet h2 { font:800 50px var(--serif-jp); color:#3b2a14; margin-bottom:14px; display:flex; justify-content:space-between; align-items:baseline }
+  .sheet h2 small { font:600 24px var(--sans-jp); color:rgba(59,42,20,.65) }
+  .srow { display:grid; grid-template-columns:560px 420px 1fr; align-items:center; height:82px; border-top:1.5px solid rgba(90,60,20,.22); color:#2b2013 }
+  .srow .a { font:700 34px var(--sans-jp) } .srow .a small { display:block; font:500 22px var(--sans-jp); color:rgba(43,32,19,.6); margin-top:2px }
+  .srow .d { font:600 26px/1.35 var(--sans-jp); color:rgba(43,32,19,.82) }
+  .pill { display:inline-flex; align-items:center; gap:10px; padding:8px 18px; border-radius:999px; font:700 25px var(--sans-jp); box-shadow:0 4px 12px rgba(0,0,0,.25) }
+  .pill i { width:12px; height:12px; border-radius:50%; background:currentColor; opacity:.85 }
+  .nc { position:absolute; width:820px; font:600 34px/1.5 var(--sans-jp); color:#fffaf0; padding-left:46px }
+  .nc::before { content:''; position:absolute; left:0; top:20px; width:22px; height:3px; background:#c9a24a }
+  .node { position:absolute; width:380px; text-align:center }
+  .node .t { font:800 40px/1.3 var(--serif-jp); color:#fffaf0 } .node .s { font:600 26px/1.5 var(--sans-jp); color:rgba(255,250,240,.78); margin-top:10px }
+</style>
+</head><body><script>
+const W = 1920, H = 1080;
+const T = { open: 0.2, table: 5.0, nc: 24.0, road: 40.0, end: 50.5 };
+const E = WY.ease, seg = WY.seg, clamp = WY.clamp, lerp = WY.lerp;
+const S = WYKit.STATUS;
+const ROWS = [
+  ['旧プロトタイプ', '6か国 · 180ターン · 別のゲーム', 'devnet', 'Solana devnetで実行', '14メンバー(運営のルールBot 12 + 人 2)'],
+  ['基本ゲーム M1(作り直し版)', '参加 · 建設 · 訓練 · 偵察 · 封印進軍 · 衝突', 'local', 'ローカルテストチェーン', 'スクリプトBot 1,000 で7日分のシーズン'],
+  ['AI市民', 'ローカルの Gemma 4', 'local', 'ローカルで実行', '正式な比較評価と18AIの本番は未完了'],
+  ['征服', '砦 · 包囲 · 占領', 'local', 'ローカルで実行', '人間が操作したデモで砦の奪取を記録'],
+  ['14日シーズンと勝者', '', 'local', 'ローカルで1回完走', '120のルールBot · 公開シーズンはまだ'],
+  ['お金', '参加費と賞金', 'test', 'テスト用USDCのみ', '本物のお金は動いていない'],
+  ['S1 の新要素', '工房 · 荷車 · 見張り塔 · 国の投票', 'code', 'コード実装済み', 'Webクライアントではまだ遊べない'],
+  ['社会', '統治 · 外交 · 交易 · 技術 · 時代', 'design', '設計のみ', '技術・時代・Engineは中身が未設計'],
+];
+const NC = [
+  '作り直した版は、devnet でも mainnet でも<br>動いていない。',
+  '本物のお金は動いていない。<br>賞金も支払いも、まだない。',
+  '1,000 のプレイヤーはスクリプトBot。<br>大勢の人が遊んだ、とは言えない。',
+  '人とAI市民が同じ世界で遊んだ記録は、<br>まだない。',
+  'AIが「望む」「覚えている」とは言わない。<br>言えるのは「引用した」まで。',
+  '攻撃命令が採択された記録は、まだない。',
+  '検証ツールは自前のもの。<br>独立した監査ではない。',
+  '封印の秘匿性は、まだテストしていない。',
+];
+const ROAD = [
+  ['共有された文明', '技術 · 時代 · Engine · 外交', 'design'],
+  ['国のスコアと統治', '市場 · 自分のAIを持ち込む', 'design'],
+  ['AIの正式な評価', 'A/B比較 · 18AIの本番 · 人とAIのシーズン', 'planned'],
+  ['次の公開シーズン', 'Solana mainnet · 本物のUSDC<br>法務の確認が前提', 'planned'],
+];
+let ctx, world, ov, flash, dust, L = {}, sheet, rows = [], ncs = [], road, nodes = [], end, ttlA, ttlB, notes = {};
+const pill = k => `<span class="pill" style="background:${S[k].bg};color:${S[k].fg}"><i></i>%</span>`;
+
+WY.scene({
+  width: W, height: H, duration: 55, fps: 30,
+  setup(stage) {
+    ctx = WY.canvas(stage, W, H).getContext('2d');
+    world = WYMap.build({ rings: 8, seed: 31 }); TK.preloadMap(world);
+    // opening: two words
+    ttlA = TK.line(stage, ['できたこと'], { x: 0, w: W / 2, y: 380, size: 116, color: '#ffe7b0' });
+    ttlB = TK.line(stage, ['まだのこと'], { x: W / 2, w: W / 2, y: 380, size: 116, color: 'rgba(255,250,240,.72)' });
+    L.sub = TK.block(stage, 'Wylls の、いまの正直なステータス。', { left: '0px', width: W + 'px', top: '640px', textAlign: 'center', font: '600 44px var(--sans-jp)', color: 'rgba(255,250,240,.85)' });
+    L.date = TK.block(stage, '2026年10月24日時点 · リポジトリの記録より', { left: '0px', width: W + 'px', top: '720px', textAlign: 'center', font: '500 30px var(--sans-jp)', color: 'rgba(240,212,138,.8)' });
+    // status sheet
+    sheet = WY.el('div', { class: 'sheet wy-paper' }, stage); sheet.style.zIndex = 20;
+    sheet.innerHTML = '<h2>ステータス一覧<small>README §4 より</small></h2>';
+    ROWS.forEach(([a, as, k, lab, d]) => { const r = WY.el('div', { class: 'srow', html: `<div class="a">${a}${as ? `<small>${as}</small>` : ''}</div><div>${pill(k).replace('%', lab)}</div><div class="d">${d}</div>` }, sheet); rows.push(r); });
+    // not claimed
+    L.nch = TK.line(stage, ['まだ、言わないこと。'], { y: 90, size: 92 });
+    NC.forEach((s, i) => { const n = WY.el('div', { class: 'nc', html: s }, stage); WY.css(n, { left: (i % 2 ? 1010 : 130) + 'px', top: 270 + Math.floor(i / 2) * 170 + 'px', zIndex: 22 }); ncs.push(n); });
+    // roadmap
+    L.rh = TK.line(stage, ['これから'], { y: 110, size: 100 });
+    L.rs = TK.block(stage, '順番であって、約束ではない。', { left: '0px', width: W + 'px', top: '260px', textAlign: 'center', font: '600 38px var(--sans-jp)', color: 'rgba(240,212,138,.9)' });
+    road = WY.canvas(stage, W, H); road.style.zIndex = 21;
+    ROAD.forEach(([t, s, k], i) => { const n = WY.el('div', { class: 'node', html: `<div style="margin-bottom:18px">${pill(k).replace('%', S[k].ja)}</div><div class="t">${t}</div><div class="s">${s}</div>` }, stage); WY.css(n, { left: 150 + i * 420 - 0 + 'px', top: '640px', zIndex: 22 }); nodes.push(n); });
+    notes.road = TK.note(stage, '10月22〜23日の再設計の議論で、この順番は変わる可能性があります。', { y: 990, size: 26, align: 'center' });
+    end = TK.end(stage, { lang: 'ja', line: 'できたことは、できたと。まだのことは、まだと。', sub: '人とAI市民が、ひとつの地図を争える戦略ゲーム' });
+    dust = WYKit.dust(stage, { count: 60, z: 8 });
+    ov = TK.overlays(stage, { vig: 0.55 }); flash = WYKit.flash(stage, { color: '#fff6e0' });
+  },
+
+  render(t) {
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    const g = ctx.createRadialGradient(W / 2, H * 0.45, 60, W / 2, H / 2, 1250); g.addColorStop(0, '#1b3a2f'); g.addColorStop(1, '#050a08'); ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    // a very faint world drifting under everything
+    const cam = { x: -300 + t * 12, y: -80 + t * 3, zoom: 0.8, W, H };
+    WYMap.draw(ctx, world, cam, { t, wash: () => 0.25, features: false, background: false, borders: 0.6 });
+    const g2 = ctx.createRadialGradient(W / 2, H * 0.45, 60, W / 2, H / 2, 1250); g2.addColorStop(0, 'rgba(27,58,47,.86)'); g2.addColorStop(1, 'rgba(5,10,8,.95)'); ctx.fillStyle = g2; ctx.fillRect(0, 0, W, H);
+    // opening divider
+    const dv = WY.env(t, T.open + 0.3, T.table - 0.3, 0.8, 0.4);
+    if (dv > 0) { ctx.strokeStyle = `rgba(240,212,138,${0.7 * dv})`; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(W / 2, 540 - 220 * dv); ctx.lineTo(W / 2, 540 + 0 * dv - 30); ctx.stroke(); }
+    ttlA.render(t, T.open + 0.2, T.table - 0.4, { out: 0.35 });
+    ttlB.render(t, T.open + 1.0, T.table - 0.4, { out: 0.35 });
+    L.sub.render(t, T.open + 1.8, T.table - 0.4);
+    L.date.render(t, T.open + 2.4, T.table - 0.4);
+    // ---------- status sheet
+    {
+      const on = t >= T.table - 0.1 && t < T.nc + 0.2; sheet.style.display = on ? 'block' : 'none';
+      if (on) {
+        const inn = E.outExpo(seg(t, T.table, T.table + 0.9)), out = E.inCubic(seg(t, T.nc - 0.5, T.nc));
+        const k = seg(t, T.table, T.nc, E.inOutSine);
+        sheet.style.opacity = clamp(inn * 1.4) * (1 - out);
+        sheet.style.transform = `perspective(2000px) translateY(${(1 - inn) * 120 - out * 40}px) rotateX(${(1 - inn) * 18 + 1.5 - k * 1.5}deg) scale(${0.985 + k * 0.02})`;
+        rows.forEach((r, i) => { const p = E.outCubic(seg(t, T.table + 1.0 + i * 1.15, T.table + 1.5 + i * 1.15)); r.style.opacity = p; r.style.transform = `translateX(${(1 - p) * -40}px)`; const pl = r.querySelector('.pill'); const q = E.outBack(seg(t, T.table + 1.35 + i * 1.15, T.table + 1.75 + i * 1.15)); pl.style.transform = `scale(${q})`; });
+      }
+    }
+    // ---------- not claimed
+    L.nch.render(t, T.nc + 0.2, T.road - 0.5, { out: 0.4 });
+    ncs.forEach((n, i) => { const a = T.nc + 1.3 + i * 0.95; const p = E.outCubic(seg(t, a, a + 0.6)), o = E.inCubic(seg(t, T.road - 0.6 + i * 0.03, T.road - 0.1)); n.style.display = t >= a - 0.05 && t < T.road ? 'block' : 'none'; n.style.opacity = p * (1 - o); n.style.transform = `translateY(${(1 - p) * 24}px)`; });
+    // ---------- roadmap
+    L.rh.render(t, T.road + 0.1, T.end - 0.4, { out: 0.4 });
+    L.rs.render(t, T.road + 0.8, T.end - 0.4);
+    notes.road.render(t, T.road + 4.0, T.end - 0.4);
+    {
+      const rc = road.getContext('2d'); rc.clearRect(0, 0, W, H);
+      const vis = WY.env(t, T.road, T.end, 0.4, 0.4);
+      if (vis > 0) {
+        const p = E.inOutCubic(seg(t, T.road + 0.6, T.road + 3.4));
+        const y = 560, x0 = 120, x1 = 1800;
+        rc.globalAlpha = vis; rc.lineCap = 'round';
+        rc.strokeStyle = 'rgba(240,212,138,.25)'; rc.lineWidth = 6; rc.setLineDash([2, 18]); rc.beginPath(); rc.moveTo(x0, y); rc.lineTo(x1, y); rc.stroke(); rc.setLineDash([]);
+        rc.strokeStyle = '#c9a24a'; rc.lineWidth = 6; rc.beginPath(); rc.moveTo(x0, y); rc.lineTo(lerp(x0, x1, p), y); rc.stroke();
+        // "now" marker
+        rc.fillStyle = '#ffd24d'; rc.beginPath(); rc.arc(x0, y, 14, 0, Math.PI * 2); rc.fill();
+        rc.font = '700 26px "Noto Sans JP"'; rc.fillStyle = '#ffd24d'; rc.textAlign = 'left'; rc.fillText('いま', x0 - 20, y - 36);
+        ROAD.forEach((_, i) => { const cx = 150 + i * 420 + 190; const q = E.outBack(seg(t, T.road + 1.0 + i * 0.7, T.road + 1.4 + i * 0.7)); if (q <= 0) return; rc.save(); rc.translate(cx, y); rc.scale(q, q); rc.fillStyle = '#12261f'; rc.strokeStyle = '#f0d48a'; rc.lineWidth = 4; WYMap.hexPath(rc, 0, 0, 30, 1); rc.fill(); rc.stroke(); rc.restore(); });
+        rc.globalAlpha = 1;
+      }
+      nodes.forEach((n, i) => { const a = T.road + 1.2 + i * 0.7; const q = E.outCubic(seg(t, a, a + 0.6)); const o = E.inCubic(seg(t, T.end - 0.5, T.end)); n.style.opacity = q * (1 - o); n.style.transform = `translateY(${(1 - q) * 30}px)`; });
+    }
+    dust.render(t, 0.6);
+    end.render(t - T.end);
+    const fl = [[T.end, 0.5, 0.35]].filter(e => e[0] <= t).pop() || [-9, 0.1, 0];
+    flash.render(t, ...fl);
+    ov.render(t, { lb: 0 });
+  },
+
+  audio(A) {
+    A.music({ style: 'calm', bpm: 76, key: 'D', minor: false, start: 0, end: T.end, sections: [[0, 0.3], [T.table, 0.45], [T.nc, 0.4], [T.road, 0.62]], outro: 'ring' });
+    A.chime(T.open + 0.2, { note: 'D5', gain: 0.7, dur: 3 }); A.chime(T.open + 1.0, { note: 'A4', gain: 0.6, dur: 3 });
+    A.whoosh(T.table - 0.3, { dur: 0.8, gain: 0.6 });
+    for (let i = 0; i < ROWS.length; i++) A.pop(T.table + 1.35 + i * 1.15, { gain: 0.6, pitch: 0.9 + i * 0.04 });
+    A.whoosh(T.nc - 0.3, { dur: 0.7, gain: 0.5, dir: 'down' });
+    for (let i = 0; i < NC.length; i++) A.tick(T.nc + 1.3 + i * 0.95, { gain: 0.45, pitch: 0.8 });
+    A.swell(T.road - 1.5, T.road, { gain: 0.4, note: 'D3' }); A.chime(T.road, { note: 'F#5', gain: 0.6 });
+    for (let i = 0; i < 4; i++) A.chime(T.road + 1.0 + i * 0.7, { note: ['D5', 'E5', 'F#5', 'A5'][i], gain: 0.45 });
+    A.chime(T.end + 0.3, { note: 'D5', gain: 0.6, dur: 3 });
+  },
+});
+</script></body></html>

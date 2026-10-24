@@ -1,0 +1,221 @@
+<!doctype html><html><head><meta charset="utf-8"><title>26 architecture (en)</title>
+<link rel="stylesheet" href="../../lib/wy.css">
+<script src="../../lib/wy.js"></script><script src="../../lib/wy-audio.js"></script><script src="../../lib/wy-kit.js"></script>
+<script src="kit.js"></script>
+<style>
+  .cap { font: 600 37px/1.36 Inter, sans-serif; color: #fffaf0; text-shadow: 0 2px 16px rgba(0,0,0,.9); }
+  .cap b { color: var(--gold); font-weight: 700; }
+</style>
+</head><body><script>
+// Sources: FACTS.md §6, §7 (README §7; SUBMISSION §2; DESIGN-OVERVIEW §4), §5 (keys, Gemma 4), §8 (prize program).
+const GOLD = '#ffd24d', BRASS = '#c9a24a', CYAN = '#7fe0f0', IVORY = '#fffaf0';
+const NODES = {
+  K: { x: 960, y: 600 },
+  P: { x: 862, y: 262, w: 380, h: 118, title: 'Solana program', sub: ['the only judge of outcomes'], path: 'permutation-frontier', at: 15.0 },
+  Z: { x: 1250, y: 262, w: 270, h: 118, title: 'Prize program', sub: ['test USDC only'], path: 'permutation-prize', at: 25.6 },
+  S: { x: 960, y: 905, w: 340, h: 112, title: 'Balance simulator', sub: ['tunes the six nations'], path: 'frontier-sim', at: 15.6 },
+  V: { x: 1660, y: 720, w: 330, h: 118, title: 'Replay verifier', sub: ['re-judges every rule'], path: 'frontier-node/verify', at: 16.2 },
+  B: { x: 260, y: 690, w: 320, h: 112, title: 'Script bots', sub: ['13 profiles, same quotas'], path: 'frontier-node/bots', at: 16.8 },
+  W: { x: 260, y: 500, w: 320, h: 118, title: 'Web client', sub: ['re-runs reports in WASM'], path: 'frontier-wasm', at: 17.4 },
+  D: { x: 1660, y: 92, w: 330, h: 74, title: 'drand quicknet', sub: ['randomness + time-lock seals'], pill: true, at: 32.6 },
+  KP: { x: 1660, y: 262, w: 330, h: 118, title: 'Keeper', sub: ['permissionless: reveals,', 'resolves, settles'], at: 33.2 },
+  H: { x: 1660, y: 490, w: 330, h: 118, title: 'Herald', sub: ['read-only feed:', 'JSON + WebSocket'], at: 34.0 },
+  R: { x: 522, y: 262, w: 214, h: 118, title: 'Relay', sub: ['pays fees;', "can't change results"], at: 42.6 },
+  C: { x: 260, y: 885, w: 320, h: 132, title: 'AI citizens', halves: ['mind · keyless', 'brain · signs'], at: 43.4 },
+  G: { x: 612, y: 958, w: 236, h: 70, title: 'Gemma 4 · local', sub: ['no paid API'], pill: true, at: 48.4 },
+};
+const BAND = { x: 650, y: 150, w: 780, h: 206, at: 24.8 };
+const cubic = (a, b, c, d) => u => { const v = 1 - u; return [v * v * v * a[0] + 3 * v * v * u * b[0] + 3 * v * u * u * c[0] + u * u * u * d[0], v * v * v * a[1] + 3 * v * v * u * b[1] + 3 * v * u * u * c[1] + u * u * u * d[1]]; };
+const line = (a, b) => cubic(a, [a[0] + (b[0] - a[0]) / 3, a[1] + (b[1] - a[1]) / 3], [a[0] + (2 * (b[0] - a[0])) / 3, a[1] + (2 * (b[1] - a[1])) / 3], b);
+// kernel links: the same code, compiled in
+const KL = [
+  { n: 'P', f: cubic([960, 476], [960, 400], [862, 380], [862, 322]) },
+  { n: 'S', f: line([960, 724], [960, 849]) },
+  { n: 'V', f: cubic([1068, 640], [1250, 700], [1350, 720], [1495, 720]), },
+  { n: 'B', f: cubic([852, 662], [700, 700], [560, 690], [420, 690]) },
+  { n: 'W', f: cubic([852, 538], [700, 500], [560, 500], [420, 500]), label: 'WASM' },
+];
+// runtime flows: particles
+const FL = [
+  { f: line([1660, 130], [1660, 202]), c: CYAN, at: 33.4, n: 5, s: 0.7, lab: 'beacons' },
+  { f: cubic([1495, 262], [1470, 262], [1450, 262], [1432, 262]), c: CYAN, at: 33.6, n: 3, s: 0.9 },
+  { f: cubic([1432, 330], [1470, 340], [1450, 490], [1495, 490]), c: '#e9d9a8', at: 34.4, n: 6, s: 0.55, lab: 'tx log' },
+  { f: cubic([1432, 345], [1470, 380], [1440, 720], [1495, 720]), c: '#e9d9a8', at: 53.4, n: 8, s: 0.5 },
+  { f: cubic([1495, 470], [1100, 330], [700, 360], [420, 470]), c: CYAN, at: 43.8, n: 10, s: 0.3, dash: true, lab: 'read feed' },
+  { f: cubic([420, 470], [480, 420], [522, 380], [522, 321]), c: GOLD, at: 43.2, n: 4, s: 0.6 },
+  { f: cubic([420, 670], [500, 600], [522, 420], [522, 321]), c: GOLD, at: 43.6, n: 4, s: 0.55 },
+  { f: cubic([420, 905], [520, 860], [560, 450], [530, 321]), c: GOLD, at: 44.2, n: 5, s: 0.45 },
+  { f: line([629, 262], [672, 262]), c: GOLD, at: 43.0, n: 2, s: 1.0 },
+  { f: cubic([494, 958], [460, 958], [440, 935], [420, 925]), c: '#c8b4ff', at: 48.6, n: 3, s: 0.8 },
+];
+const CAM = [ // t, x, y, zoom
+  [0, 960, 630, 0.84], [5.2, 960, 630, 0.84], [6.8, 960, 615, 1.85], [13.7, 960, 600, 1.95], [15.2, 960, 630, 0.84], [23.8, 960, 630, 0.84],
+  [25.0, 1040, 385, 1.2], [31.9, 1040, 385, 1.24], [33.1, 1090, 470, 1.04], [41.8, 1110, 470, 1.06], [43.0, 900, 610, 0.9], [52.4, 900, 610, 0.92],
+  [53.6, 960, 630, 0.84], [63, 960, 630, 0.84],
+];
+const MODS = ['clash.rs', 'siege.rs', 'terrain.rs', 'travel.rs', 'holding.rs', 'doctrine.rs', 'caravan.rs', 'structure.rs', 'seal.rs', 'keep.rs'];
+const END = 58.6;
+let cv, g, bgL, ov, caps = [], title, badge, endc;
+
+function camAt(t) {
+  let i = 0; while (i < CAM.length - 2 && t >= CAM[i + 1][0]) i++;
+  const [t0, x0, y0, z0] = CAM[i], [t1, x1, y1, z1] = CAM[i + 1];
+  const k = WY.ease.inOutCubic(WY.seg(t, t0, t1));
+  return { x: WY.lerp(x0, x1, k) + WY.drift(t, 4, 6), y: WY.lerp(y0, y1, k) + WY.drift(t, 9, 5), z: Math.exp(WY.lerp(Math.log(z0), Math.log(z1), k)) * (1 + 0.006 * Math.sin(t * 0.5)) };
+}
+const ap = (t, at, d = 0.7) => WY.seg(t, at, at + d);
+
+function card(n, a, t, hi = 0) {
+  if (a <= 0) return;
+  const e = WY.ease.outBack(a), x = n.x - n.w / 2, y = n.y - n.h / 2;
+  g.save(); g.globalAlpha = Math.min(1, a * 1.5); g.translate(n.x, n.y); g.scale(0.8 + 0.2 * e, 0.8 + 0.2 * e); g.translate(-n.x, -n.y);
+  g.shadowColor = 'rgba(0,0,0,.55)'; g.shadowBlur = 30; g.shadowOffsetY = 12;
+  const lg = g.createLinearGradient(0, y, 0, y + n.h); lg.addColorStop(0, '#1d3f33'); lg.addColorStop(1, '#10241d');
+  g.fillStyle = lg; K.rr(g, x, y, n.w, n.h, n.pill ? n.h / 2 : 14); g.fill();
+  g.shadowColor = 'transparent';
+  g.strokeStyle = hi > 0 ? `rgba(255,210,77,${0.6 + 0.4 * hi})` : 'rgba(201,162,74,.8)'; g.lineWidth = 2 + hi * 2; g.stroke();
+  g.strokeStyle = 'rgba(255,240,200,.08)'; g.lineWidth = 1; K.rr(g, x + 4, y + 4, n.w - 8, n.h - 8, n.pill ? n.h / 2 - 4 : 11); g.stroke();
+  g.textAlign = 'center'; g.textBaseline = 'alphabetic';
+  if (n.pill) {
+    g.fillStyle = IVORY; g.font = '700 25px Inter'; g.fillText(n.title, n.x, n.y - 3);
+    g.fillStyle = 'rgba(255,250,240,.66)'; g.font = '500 17px Inter'; g.fillText(n.sub[0], n.x, n.y + 22);
+  } else if (n.halves) {
+    g.fillStyle = IVORY; g.font = '700 28px Inter'; g.fillText(n.title, n.x, y + 42);
+    const hw = (n.w - 36) / 2;
+    n.halves.forEach((h, i) => {
+      const hx = x + 12 + i * (hw + 12), hy = y + 60;
+      g.fillStyle = i ? 'rgba(255,210,77,.12)' : 'rgba(200,180,255,.12)'; K.rr(g, hx, hy, hw, 56, 10); g.fill();
+      g.strokeStyle = i ? 'rgba(255,210,77,.5)' : 'rgba(200,180,255,.5)'; g.lineWidth = 1.5; g.stroke();
+      g.fillStyle = i ? '#ffe8a3' : '#ddd0ff'; g.font = '600 19px Inter'; g.fillText(h, hx + hw / 2, hy + 35);
+    });
+  } else {
+    const lines = n.sub.length; const top = y + (lines > 1 ? 36 : 42);
+    g.fillStyle = IVORY; g.font = '700 28px Inter'; g.fillText(n.title, n.x, top);
+    g.fillStyle = 'rgba(255,250,240,.72)'; g.font = '500 19px Inter';
+    n.sub.forEach((s, i) => g.fillText(s, n.x, top + 28 + i * 23));
+    if (n.path && lines < 2) { g.fillStyle = 'rgba(240,212,138,.75)'; g.font = '500 15px "JetBrains Mono"'; g.fillText(n.path, n.x, y + n.h - 16); }
+  }
+  g.restore();
+}
+
+function stroke(f, k, color, w, dash) {
+  if (k <= 0) return;
+  g.strokeStyle = color; g.lineWidth = w; g.lineCap = 'round'; if (dash) g.setLineDash(dash);
+  g.beginPath(); const N = 48; for (let i = 0; i <= N * k; i++) { const [x, y] = f(i / N); i ? g.lineTo(x, y) : g.moveTo(x, y); } g.stroke(); g.setLineDash([]);
+}
+function dot(x, y, r, c, a) { g.globalAlpha = a; g.fillStyle = c; g.beginPath(); g.arc(x, y, r, 0, 7); g.fill(); g.globalAlpha = a * 0.22; g.beginPath(); g.arc(x, y, r * 3.2, 0, 7); g.fill(); g.globalAlpha = 1; }
+
+function hexPath(cx, cy, r, rot = 0) { g.beginPath(); for (let i = 0; i < 6; i++) { const a = rot + Math.PI / 6 + (i * Math.PI) / 3; const x = cx + Math.cos(a) * r, y = cy + Math.sin(a) * r; i ? g.lineTo(x, y) : g.moveTo(x, y); } g.closePath(); }
+
+function kernel(t) {
+  const a = ap(t, 5.6, 1.2); if (a <= 0) return;
+  const { x, y } = NODES.K; const e = WY.ease.outBack(a);
+  // halo
+  const pulse = 0.75 + 0.25 * Math.sin(t * 2.2);
+  const rg = g.createRadialGradient(x, y, 0, x, y, 300); rg.addColorStop(0, `rgba(255,210,77,${0.28 * a * pulse})`); rg.addColorStop(1, 'rgba(255,210,77,0)');
+  g.fillStyle = rg; g.fillRect(x - 300, y - 300, 600, 600);
+  // orbiting module names (strong while zoomed in)
+  const orb = ap(t, 6.6, 1.5) * (0.28 + 0.72 * (1 - WY.seg(t, 13.6, 15.0)));
+  if (orb > 0.01) {
+    g.font = '600 15px "JetBrains Mono"'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    MODS.forEach((m, i) => {
+      const an = t * 0.18 + (i / MODS.length) * Math.PI * 2; const ox = x + Math.cos(an) * 205, oy = y + Math.sin(an) * 150;
+      const front = 0.55 + 0.45 * Math.sin(an);
+      g.globalAlpha = orb * front * Math.min(1, WY.seg(t, 6.6 + i * 0.12, 7.2 + i * 0.12) * 1.2);
+      g.fillStyle = 'rgba(8,20,15,.85)'; K.rr(g, ox - 52, oy - 13, 104, 26, 13); g.fill();
+      g.strokeStyle = 'rgba(240,212,138,.5)'; g.lineWidth = 1; g.stroke();
+      g.fillStyle = '#f0d48a'; g.fillText(m, ox, oy + 1);
+    });
+    g.globalAlpha = 1;
+  }
+  g.save(); g.translate(x, y); g.scale(e, e); g.translate(-x, -y);
+  for (let k = 3; k >= 1; k--) { hexPath(x, y, 125 + k * 16, t * 0.1 * (k % 2 ? 1 : -1)); g.strokeStyle = `rgba(255,210,77,${0.12 + 0.06 * k * pulse})`; g.lineWidth = 1.5; g.stroke(); }
+  hexPath(x, y, 125);
+  const lg = g.createLinearGradient(x, y - 125, x, y + 125); lg.addColorStop(0, '#3a3216'); lg.addColorStop(1, '#16140a');
+  g.fillStyle = lg; g.fill(); g.strokeStyle = GOLD; g.lineWidth = 4; g.stroke();
+  hexPath(x, y, 112); g.strokeStyle = 'rgba(255,210,77,.35)'; g.lineWidth = 1.5; g.stroke();
+  g.textAlign = 'center'; g.fillStyle = '#ffe8a3'; g.font = '700 30px Cinzel'; g.fillText('RULES', x, y - 22); g.fillText('KERNEL', x, y + 12);
+  g.fillStyle = 'rgba(255,250,240,.8)'; g.font = '600 17px Inter'; g.fillText('Rust · no_std', x, y + 46);
+  g.fillStyle = 'rgba(240,212,138,.8)'; g.font = '500 15px Inter'; g.fillText('deterministic', x, y + 68);
+  g.restore();
+}
+
+WY.scene({
+  width: 1920, height: 1080, duration: 63, fps: 30,
+  setup(stage) {
+    bgL = K.bg(stage, { top: '#0c1a16', bottom: '#050a08', r: 40, grid: 'rgba(127,224,240,0.045)' });
+    cv = WY.canvas(stage, 1920, 1080); cv.style.zIndex = 5; g = cv.getContext('2d');
+    const shade = WY.el('div', { class: 'wy-abs' }, stage); WY.css(shade, { left: 0, top: '840px', width: '1920px', height: '240px', background: 'linear-gradient(rgba(5,10,8,0), rgba(5,10,8,.95) 40%)', zIndex: 10 });
+    title = [
+      K.text(stage, 'HOW WYLLS IS BUILT', { left: 0, width: '1920px', top: '400px', textAlign: 'center', font: '900 96px Cinzel', letterSpacing: '.06em', color: IVORY, textShadow: '0 6px 40px rgba(0,0,0,.6)' }, { a: 0.4, b: 4.9, stagger: 0.04, dur: 0.8 }),
+      K.text(stage, 'One rules kernel. One judge. A season anyone can replay.', { left: 0, width: '1920px', top: '540px', textAlign: 'center', font: 'italic 600 44px "Cormorant Garamond"', color: 'rgba(255,250,240,.82)' }, { a: 1.4, b: 4.9, mode: 'words', stagger: 0.06 }),
+    ];
+    const C = (html, a, b) => caps.push(K.text(stage, html, { left: '160px', width: '1600px', top: '902px', textAlign: 'center', whiteSpace: 'normal' }, { a, b, mode: 'words', stagger: 0.035, dur: 0.6 })) && (caps[caps.length - 1].node.className += ' cap');
+    C('Every rule lives in <b>one deterministic Rust kernel.</b>', 6.0, 13.6);
+    C('The same code runs in the program, the simulator, the verifier and the bots,<br>and, compiled to WebAssembly, in the browser.', 15.1, 23.7);
+    C('The Solana program is <b>the only judge</b> of outcomes.<br>Today it runs on a local test chain, not devnet or mainnet.', 25.0, 31.8);
+    C('Helpers post drand beacons, open seals and serve the feed.<br>Anyone can run a keeper; the herald only reads.', 33.0, 41.7);
+    C('People, bots and AI citizens all write through one relay.<br>It can refuse to sponsor, but <b>never change an outcome.</b>', 42.8, 48.0);
+    C("An AI citizen's mind asks a local Gemma 4 and <b>never sees keys.</b><br>Its brain signs.", 48.3, 52.7);
+    C('Anyone can replay a finished season: our verifier re-judges every rule.<br>(Our own tool, not an independent audit.)', 53.2, 58.3);
+    badge = WYKit.status(stage, 'local', 'en', { x: 80, y: 60, size: 23 }); badge.node.style.zIndex = 30;
+    ov = K.overlay(stage, { vignette: 0.55 });
+    endc = WYKit.endCard(stage, { lang: 'en', line: 'One rules kernel. One judge. A season anyone can replay.' });
+  },
+  render(t) {
+    const cam = camAt(t);
+    bgL.render(t, { alpha: 1, dx: -cam.x * 0.15 * cam.z, dy: -cam.y * 0.15 * cam.z, glowX: 960, glowY: 520, glow: 0.22 });
+    title.forEach(x => x.render(t)); caps.forEach(c => c.render(t)); ov.render(t);
+    g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, 1920, 1080); K.touch(g);
+    g.setTransform(cam.z, 0, 0, cam.z, 960 - cam.x * cam.z, 540 - cam.y * cam.z);
+
+    // chain band
+    const ba = ap(t, BAND.at, 0.9);
+    if (ba > 0) {
+      const e = WY.ease.outExpo(ba);
+      g.globalAlpha = ba; g.fillStyle = 'rgba(46,91,110,.16)'; K.rr(g, BAND.x, BAND.y, BAND.w * e, BAND.h, 20); g.fill();
+      g.strokeStyle = 'rgba(127,224,240,.55)'; g.lineWidth = 2; g.setLineDash([10, 8]); g.lineDashOffset = -t * 20; g.stroke(); g.setLineDash([]);
+      g.fillStyle = 'rgba(160,230,245,.9)'; g.font = '700 16px Inter'; g.textAlign = 'left'; g.fillText('LOCAL TEST CHAIN · LiteSVM · 400 ms slots', BAND.x + 22, BAND.y + 30);
+      g.globalAlpha = 1;
+    }
+    // kernel links
+    KL.forEach(l => {
+      const n = NODES[l.n]; const k = WY.ease.inOutCubic(ap(t, n.at - 0.3, 0.8));
+      stroke(l.f, k, 'rgba(255,210,77,.22)', 10); stroke(l.f, k, 'rgba(255,210,77,.85)', 2.6);
+      if (k >= 1) for (let i = 0; i < 3; i++) { const u = ((t * 0.35 + i / 3) % 1); const [x, y] = l.f(u); dot(x, y, 4.5, GOLD, Math.sin(u * Math.PI)); }
+      if (l.label && k > 0.9) { const [x, y] = l.f(0.5); g.globalAlpha = WY.seg(k, 0.9, 1); g.fillStyle = 'rgba(10,20,16,.92)'; K.rr(g, x - 44, y - 30, 88, 30, 15); g.fill(); g.strokeStyle = GOLD; g.lineWidth = 1.5; g.stroke(); g.fillStyle = GOLD; g.font = '700 17px Inter'; g.textAlign = 'center'; g.fillText(l.label, x, y - 9); g.globalAlpha = 1; }
+    });
+    // runtime flows
+    FL.forEach(f => {
+      const k = WY.ease.inOutCubic(ap(t, f.at, 0.8)); if (k <= 0) return;
+      stroke(f.f, k, f.c === GOLD ? 'rgba(255,210,77,.3)' : f.c === CYAN ? 'rgba(127,224,240,.32)' : 'rgba(233,217,168,.3)', 2.2, f.dash ? [8, 9] : null);
+      if (k >= 0.6) for (let i = 0; i < f.n; i++) { const u = (t * f.s + i / f.n) % 1; const [x, y] = f.f(u); dot(x, y, 4, f.c, Math.sin(u * Math.PI) * WY.seg(k, 0.6, 1)); }
+      if (f.lab && k > 0.9) { const [x, y] = f.f(0.5); g.globalAlpha = WY.seg(k, 0.9, 1); g.font = '600 16px "JetBrains Mono"'; const w = g.measureText(f.lab).width + 22; g.fillStyle = 'rgba(8,16,14,.9)'; K.rr(g, x - w / 2, y - 14, w, 28, 14); g.fill(); g.fillStyle = f.c; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(f.lab, x, y + 1); g.textBaseline = 'alphabetic'; g.globalAlpha = 1; }
+    });
+    kernel(t);
+    // nodes
+    const hiP = WY.env(t, 25.0, 31.8, 0.5, 0.6) * (0.6 + 0.4 * Math.sin(t * 3));
+    const hiV = WY.env(t, 53.4, 58.2, 0.5, 0.5);
+    const hiR = WY.env(t, 43.0, 47.8, 0.5, 0.5) * (0.6 + 0.4 * Math.sin(t * 3));
+    const hiC = WY.env(t, 48.4, 52.6, 0.5, 0.5) * (0.6 + 0.4 * Math.sin(t * 3));
+    for (const [id, n] of Object.entries(NODES)) { if (id === 'K') continue; card(n, ap(t, n.at, 0.7), t, id === 'P' ? hiP : id === 'V' ? hiV : id === 'R' ? hiR : id === 'C' || id === 'G' ? hiC : 0); }
+    // verifier check mark
+    const ck = WY.ease.outBack(ap(t, 54.0, 0.6));
+    if (ck > 0) { const { x, y, w } = NODES.V; const cx = x + w / 2 - 6, cy = y - 54; g.save(); g.translate(cx, cy); g.scale(ck, ck); g.fillStyle = '#2f9a5a'; g.beginPath(); g.arc(0, 0, 24, 0, 7); g.fill(); g.strokeStyle = '#fff'; g.lineWidth = 5; g.lineCap = 'round'; g.lineJoin = 'round'; g.beginPath(); g.moveTo(-10, 1); g.lineTo(-3, 9); g.lineTo(11, -8); g.stroke(); g.restore(); }
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    badge.render(t, 24.8, END - 0.3);
+    endc.render(t - END);
+  },
+  audio(A) {
+    A.music({ style: 'tech', bpm: 100, key: 'E', minor: true, sections: [[0, 0.22], [5.6, 0.4], [15, 0.58], [25, 0.62], [33, 0.72], [42.8, 0.8], [53.2, 0.9], [57.6, 0.5]], end: END, outro: 'hit' });
+    A.swell(0, 3.5, { note: 'E3', gain: 0.6 });
+    A.whoosh(5.0, { dur: 1.0 }); A.chime(6.0, { note: 'E5' }); A.sparkle(6.8, { root: 'E5', gain: 0.4 });
+    A.whoosh(13.9, { dur: 0.9, dir: 'down' });
+    ['P', 'S', 'V', 'B', 'W'].forEach(k => A.pop(NODES[k].at, { gain: 0.6 }));
+    A.whoosh(24.0); A.lock(25.0); A.pop(NODES.Z.at, { gain: 0.5 });
+    A.whoosh(32.2); ['D', 'KP', 'H'].forEach(k => A.pop(NODES[k].at, { gain: 0.6 }));
+    A.whoosh(41.9); ['R', 'C'].forEach(k => A.pop(NODES[k].at, { gain: 0.6 })); A.pop(NODES.G.at, { gain: 0.5 });
+    A.whoosh(52.6, { dir: 'down' }); A.ok(54.0);
+  },
+});
+</script></body></html>

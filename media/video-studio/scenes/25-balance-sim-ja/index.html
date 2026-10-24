@@ -1,0 +1,248 @@
+<!doctype html><html><head><meta charset="utf-8"><title>25 balance sim (ja)</title>
+<link rel="stylesheet" href="../../lib/wy.css">
+<script src="../../lib/wy.js"></script><script src="../../lib/wy-audio.js"></script><script src="../../lib/wy-kit.js"></script>
+<script src="kit.js"></script>
+<style>
+  .kick { font: 700 26px/1 var(--sans-jp); letter-spacing: .18em; color: var(--brass-2); }
+  .head { font: 900 78px/1.24 var(--serif-jp); color: var(--ivory); text-shadow: 0 4px 30px rgba(0,0,0,.6); }
+  .body { font: 500 36px/1.55 var(--sans-jp); color: rgba(255,250,240,.86); }
+  .body b { font-weight: 700; color: #fff; }
+  .num { font-family: 'Inter', var(--sans-jp); font-weight: 800; letter-spacing: -.01em; }
+  .lab { position: absolute; text-align: center; width: 170px; }
+  .lab .nm { font: 700 28px/1.2 var(--sans-jp); color: var(--ivory); }
+  .lab .dc { font: 500 21px/1.3 var(--sans-jp); color: rgba(255,250,240,.6); margin-top: 6px; }
+</style>
+</head><body><script>
+// Sources: FACTS.md §9 and §2 (doctrine.rs:1-30); per-nation draft values: docs/frontier/m0/SIM-RESULTS.md E1;
+// final values: docs/frontier/m0/M0-FINAL.md (b). All [sim].
+const JA = ['アステル', 'ボレアリス', 'シンダー', 'ダンマール', 'エンバー', 'フィヨルダル'];
+const DOC = ['石の守り手', '潮', '炎', '新緑', '光明', '鉄'];
+const DRAFT = [0, 0, 0, 0.5, 99.5, 0];
+const FINAL = [15.6, 15.7, 16.9, 17.4, 17.4, 17.0];
+const X0 = 810, X1 = 1800, BASE = 790, TOP = 210, PH = BASE - TOP;
+const CX = i => X0 + ((X1 - X0) / 6) * (i + 0.5);
+const BW = 96;
+const T = { crestIn: 0.8, fly: 4.2, axis: 4.7, grow: 6.0, slam: 8.8, drain: 16.0, zoom: 19.8, zoomEnd: 21.9, band: 22.6, sum: 30.4, end: 35.5 };
+
+let bgL, ov, chart, cx, group, crests = [], labs = [], beats = [], badge, foot, q1, endc, flash, dust, valNodes = [];
+const ease = () => WY.ease;
+
+function valueAt(i, t) {
+  if (t < T.grow) return 0;
+  let v;
+  if (t < T.drain) {
+    if (i === 4) v = DRAFT[4] * ease().inOutCubic(WY.seg(t, T.grow + 0.2, T.slam));
+    else v = DRAFT[i] * ease().outCubic(WY.seg(t, T.grow + 0.1 + i * 0.08, T.grow + 1.4 + i * 0.08));
+    return v;
+  }
+  // drain: Ember's bar pours into the others
+  if (i === 4) return WY.lerp(DRAFT[4], FINAL[4], ease().inOutCubic(WY.seg(t, T.drain, T.drain + 2.6)));
+  const j = [0, 1, 2, 3, -1, 4][i];
+  return WY.lerp(DRAFT[i], FINAL[i], ease().inOutCubic(WY.seg(t, T.drain + 0.7 + j * 0.12, T.drain + 3.3 + j * 0.06)));
+}
+const scaleAt = t => WY.lerp(100, 20, ease().inOutCubic(WY.seg(t, T.zoom, T.zoomEnd)));
+const yOf = (v, t) => BASE - (v / scaleAt(t)) * PH;
+
+WY.scene({
+  width: 1920, height: 1080, duration: 40, fps: 30,
+  setup(stage) {
+    bgL = K.bg(stage, { r: 54 });
+    dust = WYKit.dust(stage, { count: 46, color: '240,220,170', speed: 10, z: 3, seed: 25 });
+    group = WY.el('div', { class: 'wy-fill' }, stage); group.style.zIndex = 5; group.style.transformOrigin = '1300px 560px';
+    chart = WY.canvas(group, 1920, 1080); cx = chart.getContext('2d');
+    for (let i = 0; i < 6; i++) {
+      const c = WY.el('div', { class: 'wy-abs', html: WY.crest(i, 66) }, stage); c.style.zIndex = 8; crests.push(c);
+      const l = WY.el('div', { class: 'lab', html: `<div class="nm">${JA[i]}</div><div class="dc">${DOC[i]}</div>` }, group);
+      WY.css(l, { left: CX(i) - 85 + 'px', top: '884px' }); labs.push(l);
+      const v = WY.el('div', { class: 'wy-abs num' }, group);
+      WY.css(v, { width: '160px', textAlign: 'center', font: '800 30px Inter', color: '#fffaf0', textShadow: '0 2px 10px rgba(0,0,0,.7)' });
+      v.innerHTML = '<span style="display:inline-block;padding:4px 12px;border-radius:10px;background:rgba(8,18,14,.82);border:1px solid rgba(240,212,138,.25)"></span>'; valNodes.push(v);
+    }
+    // the opening question
+    q1 = K.text(stage, '6か国は、<br>公平に勝てるか。', { left: '0px', width: '1920px', top: '300px', textAlign: 'center', font: '900 112px/1.3 var(--serif-jp)', color: '#fffaf0', textShadow: '0 6px 40px rgba(0,0,0,.6)' }, { a: 0.35, b: 4.0, stagger: 0.05, dur: 0.9 });
+    // left column beats
+    const L = (html, cls, top, a, b, extra = {}) => beats.push(K.text(stage, html, Object.assign({ left: '110px', top: top + 'px' }, extra), { a, b, ...(cls === 'head' ? { stagger: 0.045, dur: 0.8 } : {}) })) && (beats[beats.length - 1].node.className += ' ' + cls);
+    L('最初の案', 'kick', 180, 5.0, 15.5);
+    L('ひとつの国が<br>勝ちすぎた。', 'head', 222, 5.3, 15.5);
+    L('光明の国 <b>エンバー</b> が<br><span class="num">600</span> シーズン中 <b class="num" style="color:#fff3c4">99.5%</b> で勝利', 'body', 450, 9.2, 15.5);
+    L('調整', 'kick', 180, 15.9, 22.2);
+    L('得点への倍率を<br>すべて外す。', 'head', 222, 16.1, 22.2);
+    L('型のちがいは残し、<br>勝ち点そのものは増やさない。', 'body', 450, 17.3, 22.2);
+    L('調整後', 'kick', 180, 22.6, 30.0);
+    L('6か国すべてが<br><span class="num">15.6〜17.4%</span>', 'head', 222, 22.8, 30.0);
+    L('<span class="num">1,500</span> シーズン<br>模擬ウォレット <span class="num">1</span> 万', 'body', 450, 24.0, 30.0);
+    L('1/6 からの差は<br>最大 <b class="num" style="color:var(--gold)">1.1</b> ポイント', 'body', 590, 25.6, 30.0);
+    // the summary
+    beats.push(K.text(stage, 'シミュレーションでは ―', { left: '0px', width: '1920px', top: '330px', textAlign: 'center', font: '700 34px/1 var(--sans-jp)', letterSpacing: '.14em', color: 'var(--brass-2)' }, { a: T.sum + 0.1, b: T.end - 0.35 }));
+    beats.push(K.text(stage, 'どの国も、<br>およそ<span class="num" style="font-family:var(--serif-jp)">6</span>回に<span style="color:var(--gold)">1</span>回勝つ。', { left: '0px', width: '1920px', top: '400px', textAlign: 'center', font: '900 104px/1.3 var(--serif-jp)', color: '#fffaf0', textShadow: '0 6px 40px rgba(0,0,0,.7)' }, { a: T.sum + 0.4, b: T.end - 0.35, stagger: 0.05, dur: 0.9 }));
+    badge = WYKit.status(stage, 'sim', 'ja', { x: 110, y: 74, size: 24, text: 'シミュレーター出力' });
+    badge.node.style.zIndex = 30;
+    foot = WY.el('div', { class: 'wy-abs', text: '想定した行動にもとづくシミュレーター出力です。人による計測ではありません。(2026年9月の設計で計算)' }, stage);
+    WY.css(foot, { left: '110px', top: '1000px', font: '500 22px var(--sans-jp)', color: 'rgba(255,250,240,.62)', zIndex: 30 });
+    flash = WYKit.flash(stage, { color: '#fff7e0' });
+    ov = K.overlay(stage);
+    endc = WYKit.endCard(stage, { lang: 'ja', line: '六つの国。ひとつの地図。' });
+  },
+  render(t) {
+    const E = ease();
+    bgL.render(t, { alpha: 0.9, dx: t * 6, dy: t * 3, glowX: 1300, glowY: 520, glow: 0.28 + 0.06 * Math.sin(t * 0.7) });
+    dust.render(t, 0.8);
+    q1.render(t);
+    beats.forEach(b => b.render(t));
+    ov.render(t);
+
+    // whole chart: slow drift, recede for the summary
+    const rec = E.inOutCubic(WY.seg(t, T.sum - 0.2, T.sum + 0.8));
+    const shake = t > T.slam && t < T.slam + 0.5 ? Math.sin(t * 90) * 9 * (1 - (t - T.slam) / 0.5) : 0;
+    const gx = WY.drift(t, 3, 8) + shake, gy = WY.drift(t, 7, 6);
+    group.style.transform = `translate(${gx}px,${gy}px) scale(${1 - rec * 0.05})`;
+    group.style.opacity = 1 - rec * 0.82;
+    group.style.filter = rec > 0.01 ? `blur(${rec * 4}px)` : 'none';
+    group.style.visibility = t < T.axis - 0.3 ? 'hidden' : 'visible';
+
+    // crests: a row under the question, then fly to their bars
+    for (let i = 0; i < 6; i++) {
+      const pin = E.outBack(WY.seg(t, T.crestIn + i * 0.12, T.crestIn + 0.6 + i * 0.12));
+      const fly = E.inOutCubic(WY.seg(t, T.fly + i * 0.05, T.fly + 1.0 + i * 0.05));
+      const ax = 960 + (i - 2.5) * 130 - 28, ay = 680;
+      const bx = CX(i) - 28 + gx, by = 806 + gy;
+      const x = WY.lerp(ax, bx, fly), y = WY.lerp(ay, by, fly) - Math.sin(fly * Math.PI) * 60;
+      const c = crests[i];
+      c.style.transform = `translate(${x}px,${y}px) scale(${pin * (1 - rec * 0.05)})`;
+      c.style.opacity = Math.min(1, pin) * (1 - rec * 0.82);
+    }
+    labs.forEach((l, i) => { const k = E.outCubic(WY.seg(t, T.axis + 0.4 + i * 0.07, T.axis + 1.1 + i * 0.07)); l.style.opacity = k; l.style.transform = `translateY(${(1 - k) * 16}px)`; });
+
+    // --------------------------------------------------- chart
+    const g = cx; g.clearRect(0, 0, 1920, 1080); K.touch(g);
+    const ax = E.outExpo(WY.seg(t, T.axis, T.axis + 1.2));
+    const sc = scaleAt(t);
+    // gridlines: two tick sets crossfade while the scale zooms
+    const sets = [[25, 1 - WY.seg(t, T.zoom + 0.4, T.zoom + 1.4)], [5, WY.seg(t, T.zoom + 0.6, T.zoomEnd)]];
+    g.font = '600 20px "JetBrains Mono"'; g.textAlign = 'right'; g.textBaseline = 'middle';
+    for (const [step, al] of sets) {
+      if (al <= 0.01) continue;
+      for (let v = step; v <= 100; v += step) {
+        const y = yOf(v, t); if (y < TOP - 30) break;
+        g.globalAlpha = al * ax * (y < TOP ? Math.max(0, 1 - (TOP - y) / 30) : 1);
+        g.strokeStyle = 'rgba(240,212,138,.14)'; g.lineWidth = 1.5; g.setLineDash([4, 8]);
+        g.beginPath(); g.moveTo(X0 - 10, y); g.lineTo(X0 + (X1 - X0) * ax, y); g.stroke(); g.setLineDash([]);
+        g.fillStyle = 'rgba(240,226,190,.62)'; g.fillText(v + '%', X0 - 22, y);
+      }
+    }
+    g.globalAlpha = 1;
+    // baseline
+    g.strokeStyle = 'rgba(240,212,138,.75)'; g.lineWidth = 3;
+    g.beginPath(); g.moveTo(X0 - 10, BASE); g.lineTo(X0 - 10 + (X1 - X0 + 20) * ax, BASE); g.stroke();
+
+    // the 1/6 target band
+    const bk = E.outCubic(WY.seg(t, T.band, T.band + 1.0));
+    if (bk > 0) {
+      const y0 = yOf(18.7, t), y1 = yOf(14.7, t), ym = yOf(100 / 6, t);
+      g.fillStyle = `rgba(255,210,77,${0.11 * bk})`; g.fillRect(X0 - 10, y0, (X1 - X0 + 20) * bk, y1 - y0);
+      g.strokeStyle = `rgba(255,210,77,${0.95 * bk})`; g.lineWidth = 2.5; g.setLineDash([14, 10]);
+      g.beginPath(); g.moveTo(X0 - 10, ym); g.lineTo(X0 - 10 + (X1 - X0 + 20) * bk, ym); g.stroke(); g.setLineDash([]);
+    }
+
+    // bars
+    for (let i = 0; i < 6; i++) {
+      const n = WY.NATIONS[i]; const v = valueAt(i, t);
+      const x = CX(i) - BW / 2; const y = yOf(v, t); const h = BASE - y;
+      // slot ghost
+      g.fillStyle = `rgba(255,255,255,${0.03 * ax})`; K.rr(g, x, TOP, BW, PH, 10); g.fill();
+      if (h > 0.5) {
+        const lg = g.createLinearGradient(0, y, 0, BASE);
+        lg.addColorStop(0, n.fill); lg.addColorStop(1, i === 4 ? '#8d9894' : n.dark);
+        g.fillStyle = lg; K.rr(g, x, y, BW, h, Math.min(10, h / 2)); g.fill();
+        g.strokeStyle = 'rgba(0,0,0,.35)'; g.lineWidth = 2; g.stroke();
+        // gloss
+        g.fillStyle = 'rgba(255,255,255,.13)'; K.rr(g, x + 8, y + 4, 14, Math.max(0, h - 8), 7); g.fill();
+        // sigil on the bar top
+        if (h > 46) { g.save(); g.translate(CX(i), y + 26); g.fillStyle = n.on; g.globalAlpha = 0.9; g.fill(new Path2D(WY.sigilPath(i, 11))); g.restore(); }
+      }
+      // Ember's glow while it dominates
+      if (i === 4) {
+        const gl = WY.env(t, T.slam - 0.3, T.drain + 0.6, 0.4, 1.2) * (0.7 + 0.3 * Math.sin(t * 5));
+        if (gl > 0.01) { const rg = g.createRadialGradient(CX(4), y, 0, CX(4), y, 260); rg.addColorStop(0, `rgba(255,248,220,${0.45 * gl})`); rg.addColorStop(1, 'rgba(255,248,220,0)'); g.fillStyle = rg; g.fillRect(CX(4) - 260, y - 260, 520, 520); }
+      }
+      // value label
+      const vn = valNodes[i];
+      const show = WY.seg(t, T.grow + 0.2, T.grow + 0.7) * (1 - rec) * (1 - WY.seg(t, T.drain - 0.1, T.drain + 0.3) + WY.seg(t, T.zoomEnd - 0.3, T.zoomEnd + 0.4));
+      const settle = t > T.band ? 1 : 0;
+      vn.firstChild.textContent = (v < 0.05 ? '0' : v.toFixed(1)) + '%';
+      vn.style.opacity = show * (i === 4 && t > T.slam - 0.1 && t < T.drain ? 1 : 0.9);
+      const big = i === 4 ? WY.env(t, T.slam, T.drain + 0.3, 0.25, 0.6) : 0;
+      vn.style.font = `800 ${30 + big * 26}px Inter`;
+      vn.style.color = settle && (FINAL[i] === 17.4 || FINAL[i] === 15.6) ? '#ffe9a6' : '#fffaf0';
+      vn.style.left = CX(i) - 80 + 'px'; vn.style.top = y - 50 - big * 32 + 'px';
+    }
+
+    // the drain: particles from Ember's bar top to the others
+    if (t > T.drain - 0.1 && t < T.drain + 4.2) {
+      const N = 170;
+      for (let p = 0; p < N; p++) {
+        const j = p % 5, tgt = [0, 1, 2, 3, 5][j];
+        const te = T.drain + (p / N) * 2.5 + ((p * 37) % 11) * 0.02;
+        const k = (t - te) / 0.95; if (k < 0 || k > 1) continue;
+        const e = E.inOutCubic(k);
+        const sx = CX(4) + (((p * 13) % 9) - 4) * 8, sy = yOf(valueAt(4, te), t) + 6;
+        const tx = CX(tgt) + (((p * 7) % 9) - 4) * 7, ty = yOf(valueAt(tgt, t), t) - 4;
+        const mx = (sx + tx) / 2, my = Math.min(sy, ty) - 120 - ((p * 17) % 60);
+        const x = (1 - e) * (1 - e) * sx + 2 * (1 - e) * e * mx + e * e * tx;
+        const y = (1 - e) * (1 - e) * sy + 2 * (1 - e) * e * my + e * e * ty;
+        const c0 = [237, 238, 231], c1 = hexRgb(WY.NATIONS[tgt].fill);
+        const col = c0.map((c, q) => Math.round(WY.lerp(c, c1[q], e)));
+        const r = 3.2 + ((p * 5) % 4) * 0.9;
+        g.globalAlpha = Math.sin(k * Math.PI) * 0.95;
+        g.fillStyle = `rgb(${col})`; g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill();
+        g.globalAlpha *= 0.25; g.beginPath(); g.arc(x, y, r * 3, 0, Math.PI * 2); g.fill();
+      }
+      g.globalAlpha = 1;
+    }
+
+    // band labels + the max-gap bracket (drawn after bars)
+    if (bk > 0) {
+      const ym = yOf(100 / 6, t);
+      g.globalAlpha = bk; g.textAlign = 'right'; g.textBaseline = 'middle';
+      g.fillStyle = 'rgba(10,20,16,.9)'; K.rr(g, X0 - 150, ym - 34, 136, 68, 10); g.fill();
+      g.font = '800 24px Inter'; g.fillStyle = '#ffd24d'; g.fillText('16.7%', X0 - 26, ym + 13);
+      g.font = '700 21px "Noto Sans JP"'; g.fillText('1/6', X0 - 26, ym - 14);
+      g.globalAlpha = 1;
+      const gk = E.outCubic(WY.seg(t, 25.6, 26.6));
+      if (gk > 0) {
+        const xA = CX(0) + BW / 2 + 10, yA = yOf(15.6, t);
+        g.strokeStyle = `rgba(255,210,77,${gk})`; g.lineWidth = 3.5;
+        g.beginPath(); g.moveTo(xA - 12, ym); g.lineTo(xA, ym); g.lineTo(xA, ym + (yA - ym) * gk); g.lineTo(xA - 12, ym + (yA - ym) * gk); g.stroke();
+        g.globalAlpha = gk; g.fillStyle = '#ffd24d'; g.font = '800 26px Inter'; g.textAlign = 'left'; g.textBaseline = 'middle';
+        g.fillText('1.1', xA + 8, (ym + yA) / 2 + 2); g.globalAlpha = 1;
+      }
+    }
+
+    // flash on the slam
+    flash.render(t, T.slam, 0.45, 0.35);
+    // status + footnote
+    badge.render(t, 4.8, T.end - 0.2);
+    foot.style.opacity = WY.seg(t, 5.2, 6.0) * (1 - WY.seg(t, T.end - 0.4, T.end));
+    foot.style.fontSize = (22 + 3 * E.inOutCubic(WY.seg(t, T.sum, T.sum + 0.8))) + 'px';
+    endc.render(t - T.end);
+  },
+  audio(A) {
+    A.music({ style: 'tension', bpm: 84, key: 'D', minor: true, sections: [[0, 0.15], [4.6, 0.45], [8.8, 0.9], [13, 0.55], [15.6, 0.0]], end: 16.6, outro: 'none' });
+    A.music({ style: 'calm', bpm: 84, key: 'D', minor: true, start: 15.2, sections: [[15.2, 0.15], [17.2, 0.45], [22.6, 0.6], [30.4, 0.42]], end: T.end, outro: 'ring' });
+    A.swell(0, 4, { note: 'D3', gain: 0.8 });
+    for (let i = 0; i < 6; i++) A.pop(T.crestIn + i * 0.12, { gain: 0.5 });
+    A.whoosh(T.fly - 0.1, { dur: 0.9 });
+    A.tick(T.axis + 0.1); A.tick(T.axis + 0.5, { pitch: 1.2 });
+    A.riser(T.grow + 0.2, T.slam);
+    A.hit(T.slam); A.boom(T.slam, { gain: 0.7 });
+    A.whoosh(T.drain - 0.25, { dur: 0.8, dir: 'down' });
+    A.ticks(T.drain + 0.3, T.drain + 3.1, 0.14, { gain: 0.35, pitch: 1.4 });
+    A.swish(T.zoom - 0.1); A.chime(T.zoomEnd, { note: 'A5', gain: 0.6 });
+    A.chime(T.band + 0.1, { note: 'D5', gain: 0.7 });
+    A.click(25.6);
+    A.swell(T.sum - 0.6, T.sum + 1.2, { note: 'D3', gain: 0.6 });
+    A.sparkle(T.end + 0.6, { root: 'D5', gain: 0.5 });
+  },
+});
+function hexRgb(h) { const n = parseInt(h.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; }
+</script></body></html>

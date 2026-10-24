@@ -1,0 +1,283 @@
+<!doctype html><html><head><meta charset="utf-8"><title>20 評議会と攻撃命令</title>
+<link rel="stylesheet" href="../../lib/wy.css">
+<script src="../../lib/wy.js"></script><script src="../../lib/wy-audio.js"></script>
+<script src="../../lib/wy-map.js"></script><script src="../../lib/wy-kit.js"></script>
+<script src="wyx.js"></script>
+<style>
+  .stp { position: absolute; left: 110px; top: 84px; z-index: 9; }
+  .stp .n { font: 700 28px var(--sans-jp); letter-spacing: .3em; color: #f0d48a; display: flex; align-items: center; gap: 16px; }
+  .stp .n i { width: 46px; height: 2px; background: #c9a24a; display: inline-block; }
+  .stp .h { font: 900 68px/1.3 var(--serif-jp); color: #fffaf0; margin-top: 14px; text-shadow: 0 4px 30px rgba(0,0,0,.8); white-space: nowrap; }
+  .stp .s { font: 500 34px/1.5 var(--sans-jp); color: rgba(255,250,240,.82); margin-top: 10px; text-shadow: 0 2px 14px rgba(0,0,0,.8); }
+  .cand { position: absolute; width: 420px; height: 112px; padding: 18px 26px; z-index: 8; display: flex; align-items: center; gap: 22px; }
+  .cand .pin { width: 62px; height: 62px; border-radius: 50%; display: grid; place-items: center; font: 800 34px Inter; color: #2b1d0a; background: #ffd24d; box-shadow: 0 0 0 4px rgba(0,0,0,.35); }
+  .cand b { font: 900 40px var(--serif-jp); color: #fffaf0; }
+  .cand span { display: block; font: 500 22px var(--sans-jp); color: rgba(255,250,240,.6); margin-top: 2px; }
+  .bub { position: absolute; width: 330px; padding: 16px 20px 18px; z-index: 8; border-radius: 16px; background: rgba(255,250,240,.95); color: #2b2013; box-shadow: 0 16px 40px rgba(0,0,0,.5); }
+  .bub::after { content: ''; position: absolute; left: 50%; bottom: -16px; margin-left: -14px; border: 14px solid transparent; border-top-color: rgba(255,250,240,.95); border-bottom: 0; }
+  .bub .m { font: 700 26px var(--sans-jp); }
+  .bub .l { height: 10px; border-radius: 5px; background: rgba(43,32,19,.22); margin-top: 10px; }
+  .bub .e { position: absolute; right: 14px; top: 12px; font: 700 18px var(--sans-jp); color: #8a5a10; border: 1.5px solid #c9a24a; border-radius: 6px; padding: 1px 8px; }
+  .bar { position: absolute; left: 0; height: 74px; width: 1060px; }
+  .bar .lb { position: absolute; left: 0; top: 14px; width: 190px; font: 700 36px var(--sans-jp); color: #fffaf0; }
+  .bar .tr { position: absolute; left: 210px; top: 8px; width: 720px; height: 58px; border-radius: 10px; background: rgba(255,255,255,.05); border: 1px solid rgba(240,212,138,.2); overflow: hidden; }
+  .bar .fl { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: linear-gradient(90deg, #8d6a22, #e6b84a); }
+  .bar .vt { position: absolute; left: 950px; top: 4px; font: 800 52px Inter; color: #fffaf0; font-variant-numeric: tabular-nums; }
+  .rule { position: absolute; z-index: 8; width: 600px; padding: 26px 30px; }
+  .rule .r { display: flex; align-items: center; gap: 16px; font: 700 34px var(--sans-jp); color: rgba(255,250,240,.9); margin-top: 14px; }
+  .rule .ck { width: 42px; height: 42px; border-radius: 50%; border: 3px solid rgba(255,250,240,.35); display: grid; place-items: center; font: 900 24px Inter; color: transparent; }
+  .stamp { position: absolute; z-index: 9; font: 900 64px var(--serif-jp); padding: 4px 28px; border: 6px solid; border-radius: 14px; transform: rotate(-8deg); letter-spacing: .1em; }
+  .hcard { position: absolute; z-index: 8; width: 760px; padding: 36px 40px; top: 400px; }
+  .hcard .ic { font: 900 64px var(--serif-jp); color: #ffd24d; }
+  .hcard p { font: 700 44px/1.45 var(--sans-jp); color: #fffaf0; margin-top: 12px; }
+  .ill { position: absolute; right: 80px; top: 70px; z-index: 20; font: 700 22px var(--sans-jp); color: #fff3cf; background: #6b5a2a; border: 1px solid rgba(255,255,255,.2); border-radius: 999px; padding: 8px 18px; }
+</style>
+</head><body><script>
+const NF = 0; // the nation shown (Aster, as on the recorded council page); the map is an illustration
+const N = WY.NATIONS[NF];
+let bg, cv, ctx, world, ov, badge, end, flash, ill, dim;
+let title, steps = [], cands = [], bubs = [], seatsT, bars = [], rule, ruleChecks, stA, stB, order, orderSeal, tl, tlDot, hTitle, hcards = [], last;
+let PINS = [], KEEP, FR, SH1, SH2, ill2;
+// beats
+const T = { b0: [0, 5.6], b1: [5.6, 12.2], b2: [12.2, 20.0], b3: [20.0, 28.0], b4: [28.0, 35.6], b5: [35.6, 42.0], b6: [42.0, 47.6] };
+
+WY.scene({
+  width: 1920, height: 1080, duration: 52, fps: 30,
+  setup(stage) {
+    bg = X.bg(stage, { tint: '#1a1a2a', edge: '#06060a', hex: 0.04, glow: 'rgba(163,76,216,.12)' });
+    cv = WY.canvas(stage, 1920, 1080); ctx = cv.getContext('2d'); cv.style.zIndex = 1;
+    world = WYMap.build({ rings: 8, seed: 11 });
+    { const tmp = document.createElement('canvas'); tmp.width = 400; tmp.height = 300; WYMap.draw(tmp.getContext('2d'), world, { x: 0, y: 0, zoom: 0.2, W: 400, H: 300 }, { t: 0 }); }
+    KEEP = world.keeps.find(k => k.owner === NF);
+    // three candidate targets: nearest camps / neutral or foreign tiles near the nation's border
+    const pool = world.tiles.filter(t => t.terrain !== 'water' && (t.camp || (t.owner >= 0 && t.owner !== NF)) && t.ring >= 3);
+    pool.sort((a, b) => Math.hypot(a.x - KEEP.x, a.y - KEEP.y) - Math.hypot(b.x - KEEP.x, b.y - KEEP.y));
+    for (const p of pool) { if (Math.hypot(p.x - KEEP.x, p.y - KEEP.y) < 250) continue; if (PINS.every(q => Math.hypot(q.x - p.x, q.y - p.y) > 280)) PINS.push(p); if (PINS.length === 3) break; }
+    { const pts = [...PINS, KEEP]; const xs = pts.map(p => p.x), ys = pts.map(p => p.y); const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys); FR = { cx: (x0 + x1) / 2, cy: (y0 + y1) / 2, z: Math.min(1.1, 760 / (x1 - x0 + 300), 480 / (y1 - y0 + 260)) }; }
+    dim = X.box(stage, { left: '0px', top: '0px', width: '1920px', height: '1080px', background: 'linear-gradient(180deg, rgba(6,6,10,.92) 0%, rgba(6,6,10,.55) 34%, rgba(6,6,10,.35) 70%, rgba(6,6,10,.8) 100%)', zIndex: 2 });
+
+    title = {
+      k: X.lines(stage, [{ t: '国の評議会', css: { font: '700 32px var(--sans-jp)', letterSpacing: '.5em', color: '#f0d48a' } }], { y: 330 }),
+      t: X.lines(stage, [{ t: '評議会と、攻撃命令。', css: { font: '900 124px/1.2 var(--serif-jp)', color: '#fffaf0', textShadow: '0 6px 40px rgba(0,0,0,.8)' } }], { y: 400, stagger: 0.07 }),
+      s: X.lines(stage, [{ t: '国の市民が、次の標的を話し合う。', css: { font: '500 42px var(--sans-jp)', color: 'rgba(255,250,240,.82)' } }], { y: 600, stagger: 0.03 }),
+    };
+    Object.values(title).forEach(l => (l.node.style.zIndex = 9));
+
+    const mkStep = (n, h, s) => { const d = X.box(stage, {}, `<div class="n"><i></i>${n}</div><div class="h">${h}</div>${s ? `<div class="s">${s}</div>` : ''}`); d.className = 'stp'; return { d, parts: [...d.children] }; };
+    steps = [
+      mkStep('① 提案', 'コードが、目標を3つまで出す。', ''),
+      mkStep('② 動議と投票', '市民が動議を出し、演説し、投票する。', ''),
+      mkStep('③ 採択の条件', '2票以上、かつ、ほかのどの案より多い。', ''),
+      mkStep('④ 攻撃命令', '採択された目標は、封印される。', '攻撃ターンの2ターン後まで、外からは見えない。'),
+      mkStep('ただし', '評議会は、チェーンの外にある。', ''),
+    ];
+
+    // b1 candidate cards
+    const shot = (x, y, w, cx0, cy0, cx1, cy1, cap) => {
+      const s = w / (cx1 - cx0), h = (cy1 - cy0) * s;
+      const wrap = X.box(stage, { left: x + 'px', top: y + 'px', width: w + 'px', height: h + 'px', overflow: 'hidden', borderRadius: '12px', border: '2px solid rgba(201,162,74,.85)', boxShadow: '0 30px 70px rgba(0,0,0,.6)', zIndex: 8, background: '#fffcf3' });
+      const inner = X.box(wrap, { left: '0px', top: '0px', width: '3840px', height: '2160px', transformOrigin: '0 0' });
+      const im = WY.img('../../assets/ui/council-motions-ja-1920x1080.png').cloneNode(); im.style.width = '3840px'; im.style.height = '2160px'; im.style.display = 'block'; inner.appendChild(im);
+      const c = X.box(stage, { left: x + 'px', top: y + h + 14 + 'px', width: w + 'px', zIndex: 8, font: '500 22px var(--sans-jp)', color: 'rgba(255,250,240,.72)' }, cap);
+      return { wrap, inner, s, cx0, cy0, cap: c, h, im };
+    };
+    SH1 = shot(880, 290, 960, 2246, 211, 3811, 864, '実際の評議会ページ(ローカル実行 slice-4、2026-10-04 の記録)');
+    SH1.hl = X.box(SH1.inner, { left: '2270px', top: '590px', width: '1520px', height: '260px', border: '8px solid #ffd24d', borderRadius: '18px', boxShadow: '0 0 40px rgba(255,210,77,.6)' });
+    SH2 = shot(410, 290, 1100, 2246, 858, 3200, 1112, '実際の評議会ページ(slice-4)。動議の発言はモデルが書いた文で、未検証です。');
+
+    // b2 speech bubbles (illustrations)
+    const B2 = [['目標 A を推す', 3], ['目標 A に賛成', 2], ['目標 B を推す', 4]];
+    B2.forEach(([m, n], i) => {
+      const b = X.box(stage, { left: [300, 795, 1290][i] + 'px', top: '330px' }, `<div class="e">例</div><div class="m">${m}</div>${'<div class="l"></div>'.repeat(n).replace(/class="l"/g, (x, k) => x)}`);
+      b.className = 'bub'; [...b.querySelectorAll('.l')].forEach((l, j) => (l.style.width = 70 + ((i * 7 + j * 13) % 30) + '%'));
+      bubs.push(b);
+    });
+
+    // b3 tally
+    const BARS = [['選択肢1', 3, 2], ['選択肢2', 1, 2], ['選択肢3', 0, 0], ['なし', 1, 1]];
+    BARS.forEach(([lb, v1, v2], i) => { const r = X.box(stage, { left: '110px', top: 360 + i * 100 + 'px', zIndex: 8 }, `<div class="lb">${lb}</div><div class="tr"><div class="fl"></div></div><div class="vt">0</div>`); r.className = 'bar'; bars.push({ r, v1, v2, fl: r.querySelector('.fl'), vt: r.querySelector('.vt') }); });
+    rule = X.box(stage, { left: '1220px', top: '340px' }, `<div style="font:700 24px var(--sans-jp);letter-spacing:.24em;color:#f0d48a">採択の条件</div><div class="r"><span class="ck">✓</span>2票以上</div><div class="r"><span class="ck">✓</span>ほかのどの案よりも多い</div>`);
+    rule.className = 'rule wy-panel'; ruleChecks = [...rule.querySelectorAll('.ck')];
+    stA = X.box(stage, { left: '1290px', top: '640px', color: '#ffd24d', borderColor: '#ffd24d', textShadow: '0 0 30px rgba(255,210,77,.5)' }, '採択'); stA.className = 'stamp';
+    stB = X.box(stage, { left: '1250px', top: '640px', color: '#c9c3b5', borderColor: '#c9c3b5' }, '採択なし'); stB.className = 'stamp';
+    T.ex2 = X.box(stage, { left: '110px', top: '800px', zIndex: 8, font: '500 30px var(--sans-jp)', color: 'rgba(255,250,240,.75)' }, '同数なら、どの案も採択されない。');
+
+    // b4 order card + timeline
+    order = X.box(stage, { left: '560px', top: '330px', width: '800px', height: '330px', zIndex: 8, padding: '34px 44px' }, `<div style="font:700 24px var(--sans-jp);letter-spacing:.3em;color:#7a5520">攻撃命令</div><div style="font:900 60px var(--serif-jp);margin-top:14px;color:#2b2013">目標:<span id="tgt" style="display:inline-block;min-width:260px"></span></div><div style="font:500 28px var(--sans-jp);color:rgba(43,32,19,.75);margin-top:18px">国の評議会で採択(図解)</div>`);
+    order.className += ' wy-paper';
+    orderSeal = WY.canvas(stage, 260, 260); orderSeal.style.left = '1150px'; orderSeal.style.top = '430px'; orderSeal.style.zIndex = 9;
+    tl = WY.canvas(stage, 1700, 200); tl.style.left = '110px'; tl.style.top = '720px'; tl.style.zIndex = 8;
+
+    // b5 honesty cards
+    hcards = [
+      X.box(stage, { left: '150px' }, `<div class="ic">チェーンの外</div><p>攻撃命令を、チェーンは<br>何も強制しない。</p>`),
+      X.box(stage, { left: '1010px' }, `<div class="ic">断れる</div><p>AI市民は、命令を<br>公に断ることができる。</p>`),
+    ];
+    hcards.forEach(h => (h.className += ' hcard wy-panel'));
+
+    last = X.lines(stage, [
+      { t: '攻撃命令の採択は、', css: { font: '900 76px/1.35 var(--serif-jp)', color: '#fffaf0' } },
+      { t: 'まだ確かめられた成果ではない。', css: { font: '900 76px/1.35 var(--serif-jp)', color: '#ffd24d' } },
+      { t: 'smoke-b3 では、評議会は9回とも定足数に届かず閉会。', css: { font: '500 34px var(--sans-jp)', color: 'rgba(255,250,240,.75)', marginTop: '40px' } },
+      { t: '正式なA/B比較は、まだこれから。', css: { font: '500 34px/1.6 var(--sans-jp)', color: 'rgba(255,250,240,.75)' } },
+    ], { y: 330, stagger: 0.03, lineDelay: 0.6 });
+    last.node.style.zIndex = 9;
+
+    ill = X.box(stage, {}, '図解:仕組みの説明です(実際の記録ではありません)'); ill.className = 'ill';
+    ill2 = X.box(stage, {}, '背景の地図と印は図解です'); ill2.className = 'ill';
+    badge = WYKit.status(stage, 'code', 'ja', { x: 80, y: 966, text: 'コード実装済み・正式な評価はこれから' }); badge.node.style.zIndex = 20;
+    flash = WYKit.flash(stage, { color: '#ffe0b0', z: 65 });
+    ov = X.overlay(stage);
+    end = WYKit.endCard(stage, { lang: 'ja', line: '話し合い、決めて、封をする。' });
+  },
+
+  render(t) {
+    const E = WY.ease;
+    bg.render(t, { gx: 0.5, gy: 0.55 });
+
+    // ---------- map backdrop (b0–b2)
+    const mapA = WY.env(t, -1, T.b2[1], 0.5, 0.6);
+    cv.style.display = mapA > 0 ? '' : 'none';
+    dim.style.opacity = mapA;
+    if (mapA > 0) {
+      ctx.clearRect(0, 0, 1920, 1080);
+      const kz = WY.seg(t, 4.6, 7.0, E.inOutCubic);
+      const cx0 = (PINS[0].x + PINS[1].x + PINS[2].x + KEEP.x) / 4, cy0 = (PINS[0].y + PINS[1].y + PINS[2].y + KEEP.y) / 4;
+      const z = WY.lerp(0.5, FR.z, kz) * (1 + t * 0.004);
+      const cam = { x: WY.lerp(KEEP.x * 0.5, FR.cx + 480 / z, kz) + WY.drift(t, 3, 12), y: WY.lerp(KEEP.y * 0.5, FR.cy - 90 / z, kz) + WY.drift(t, 4, 8), zoom: z, W: 1920, H: 1080 };
+      WYMap.draw(ctx, world, cam, { t, wash: tl => (tl.owner === NF ? 0.42 : 0.14), fog: tl => (Math.hypot(tl.x - KEEP.x, tl.y - KEEP.y) > 900 ? 0.6 : 0) });
+      // pins
+      PINS.forEach((p, i) => {
+        const k = WY.seg(t, 6.6 + i * 0.35, 7.1 + i * 0.35, E.outBack);
+        if (k <= 0) return;
+        const [x, y] = WYMap.toScreen(cam, p.x, p.y - 30);
+        const pul = (t * 0.8 + i * 0.3) % 1;
+        ctx.save(); ctx.translate(x, y - 50 * k);
+        ctx.strokeStyle = `rgba(255,210,77,${0.7 * (1 - pul)})`; ctx.lineWidth = 3; ctx.beginPath(); ctx.ellipse(0, 50 * k, 30 + 50 * pul, (30 + 50 * pul) * 0.6, 0, 0, 7); ctx.stroke();
+        ctx.scale(k, k); ctx.fillStyle = '#ffd24d'; ctx.strokeStyle = 'rgba(0,0,0,.5)'; ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.arc(0, 0, 30, Math.PI * 0.8, Math.PI * 2.2); ctx.lineTo(0, 52); ctx.closePath(); ctx.fill(); ctx.stroke();
+        ctx.fillStyle = '#2b1d0a'; ctx.font = '800 32px Inter'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('123'[i], 0, 1);
+        ctx.restore();
+      });
+      // council seats around the keep (b2)
+      const ks = WY.env(t, T.b2[0] + 0.2, T.b2[1], 0.6, 0.5);
+      if (ks > 0) {
+        ctx.save(); ctx.globalAlpha = ks;
+        ctx.fillStyle = 'rgba(6,6,10,.55)'; ctx.fillRect(0, 0, 1920, 1080);
+        const seats = 5;
+        for (let i = 0; i < seats; i++) {
+          const x = 560 + i * 200, y = 820 + Math.abs(i - 2) * -26 + 26 * 2;
+          const k = WY.seg(t, T.b2[0] + 0.3 + i * 0.12, T.b2[0] + 0.8 + i * 0.12, E.outBack);
+          ctx.save(); ctx.translate(x, y); ctx.scale(k, k);
+          ctx.fillStyle = N.fill; ctx.strokeStyle = '#f0d48a'; ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(0, 0, 52, 0, 7); ctx.fill(); ctx.stroke();
+          ctx.fillStyle = N.on; ctx.fill(new Path2D(WY.sigilPath(NF, 22)));
+          ctx.restore();
+          // ballot flying into the box (b2 late)
+          const kb = WY.seg(t, T.b2[0] + 4.6 + i * 0.25, T.b2[0] + 5.4 + i * 0.25, E.inOutCubic);
+          if (kb > 0 && kb < 1) { const bx = WY.lerp(x, 960, kb), by = WY.lerp(y - 70, 650, kb) - Math.sin(kb * Math.PI) * 120; ctx.fillStyle = '#fffaf0'; ctx.save(); ctx.translate(bx, by); ctx.rotate(kb * 3); ctx.fillRect(-18, -12, 36, 24); ctx.restore(); }
+        }
+        ctx.font = '500 26px "Noto Sans JP"'; ctx.fillStyle = 'rgba(255,250,240,.7)'; ctx.textAlign = 'center'; ctx.fillText('国の市民', 960, 960);
+        // ballot box
+        const kbox = WY.seg(t, T.b2[0] + 4.2, T.b2[0] + 4.7, E.outBack);
+        if (kbox > 0) { ctx.save(); ctx.translate(960, 700); ctx.scale(kbox, kbox); ctx.fillStyle = '#3a2618'; ctx.strokeStyle = '#c9a24a'; ctx.lineWidth = 4; ctx.beginPath(); ctx.roundRect(-90, -50, 180, 110, 10); ctx.fill(); ctx.stroke(); ctx.fillStyle = '#0b0705'; ctx.fillRect(-50, -46, 100, 10); ctx.fillStyle = '#f0d48a'; ctx.font = '700 28px "Noto Sans JP"'; ctx.textAlign = 'center'; ctx.fillText('投票', 0, 22); ctx.restore(); }
+        ctx.restore();
+      }
+      ctx.textAlign = 'left';
+    }
+
+    // ---------- title
+    title.k.render(t, 0.3, 5.2); title.t.render(t, 0.5, 5.3); title.s.render(t, 1.6, 5.3);
+
+    // ---------- steps
+    const SP = [T.b1, T.b2, T.b3, T.b4, T.b5];
+    steps.forEach((S, i) => {
+      const [a, b] = SP[i]; const vis = t > a - 0.1 && t < b + 0.5;
+      S.d.style.display = vis ? '' : 'none'; if (!vis) return;
+      S.parts.forEach((p, j) => { const k = WY.env(t, a + 0.15 + j * 0.25, b - 0.1, 0.6, 0.4, E.outCubic); p.style.opacity = k; p.style.transform = `translateY(${(1 - k) * 24}px)`; p.style.filter = k < 0.99 ? `blur(${(1 - k) * 6}px)` : 'none'; });
+    });
+
+    // b1 cards
+    bubs.forEach(b => (b.style.display = 'none'));
+    const k1 = X.show(SH1.wrap, t, 6.9, T.b1[1] - 0.1, { dx: 60, dy: 0, fi: 0.7 }); X.show(SH1.cap, t, 7.4, T.b1[1] - 0.1, { dy: 10 });
+    if (k1 > 0) { const z = 1 + 0.06 * WY.seg(t, 6.9, T.b1[1], E.inOutSine); SH1.inner.style.transform = `translate(${-SH1.cx0 * SH1.s * z - 960 * (z - 1) * 0.5}px, ${-SH1.cy0 * SH1.s * z - SH1.h * (z - 1) * 0.6}px) scale(${SH1.s * z})`; const kh = WY.seg(t, 8.6, 9.0, E.outBack); SH1.hl.style.opacity = WY.seg(t, 8.6, 8.8); SH1.hl.style.transform = `scale(${0.9 + 0.1 * kh})`; }
+    const k2 = X.show(SH2.wrap, t, T.b2[0] + 1.0, T.b2[1] - 0.1, { dy: 30, fi: 0.7 }); X.show(SH2.cap, t, T.b2[0] + 1.5, T.b2[1] - 0.1, { dy: 10 });
+    if (k2 > 0) { const z = 1 + 0.04 * WY.seg(t, T.b2[0] + 1, T.b2[1], E.inOutSine); SH2.inner.style.transform = `translate(${-SH2.cx0 * SH2.s * z - 1100 * (z - 1) * 0.5}px, ${-SH2.cy0 * SH2.s * z - SH2.h * (z - 1) * 0.5}px) scale(${SH2.s * z})`; }
+
+    // b3 tally
+    const ex2 = t > 24.6;
+    bars.forEach((B, i) => {
+      const k = X.show(B.r, t, T.b3[0] + 0.4 + i * 0.12, T.b3[1] - 0.1, { dx: -40, dy: 0 });
+      if (k <= 0) return;
+      const k1 = WY.seg(t, T.b3[0] + 0.9, T.b3[0] + 2.0, E.outCubic), k2 = WY.seg(t, 24.6, 25.4, E.inOutCubic);
+      const v = WY.lerp(B.v1 * k1, B.v2, k2);
+      B.fl.style.width = (v / 4) * 720 + 'px'; B.vt.textContent = Math.round(v);
+      const win = !ex2 && i === 0 && t > T.b3[0] + 2.4;
+      B.fl.style.background = win ? 'linear-gradient(90deg, #b8901e, #ffd24d)' : i === 3 ? 'linear-gradient(90deg, #4a4a52, #7a7a86)' : 'linear-gradient(90deg, #6d5420, #b8923c)';
+      B.r.querySelector('.lb').style.color = win ? '#ffd24d' : '#fffaf0';
+    });
+    X.show(rule, t, T.b3[0] + 0.8, T.b3[1] - 0.1, { dx: 40, dy: 0 });
+    ruleChecks.forEach((c, i) => { const on = !ex2 ? t > T.b3[0] + 2.4 + i * 0.4 : i === 0; const bad = ex2 && i === 1 && t > 25.4; c.style.background = on ? '#2f8a5e' : bad ? '#9a2a33' : 'transparent'; c.style.borderColor = on ? '#3fdc93' : bad ? '#ff6b73' : 'rgba(255,250,240,.35)'; c.style.color = on || bad ? '#fff' : 'transparent'; c.textContent = bad ? '✕' : '✓'; });
+    const sa = WY.seg(t, 23.4, 23.7, E.outBack); stA.style.display = t > 23.4 && t < 24.6 ? '' : 'none'; stA.style.transform = `rotate(-8deg) scale(${1.8 - 0.8 * sa})`;
+    const sb = WY.seg(t, 25.9, 26.2, E.outBack); stB.style.display = t > 25.9 && t < T.b3[1] - 0.05 ? '' : 'none'; stB.style.transform = `rotate(-8deg) scale(${1.8 - 0.8 * sb})`;
+    X.show(T.ex2, t, 24.8, T.b3[1] - 0.1, { dy: 16 });
+
+    // b4 order + seal + timeline
+    const ko = X.show(order, t, T.b4[0] + 0.5, T.b4[1] - 0.1, { dy: 40, s0: 0.92 });
+    const sg = orderSeal.getContext('2d'); sg.clearRect(0, 0, 260, 260);
+    orderSeal.style.display = ko > 0 ? '' : 'none';
+    const tg = WY.$('#tgt');
+    const opened = t > T.b4[0] + 5.6;
+    if (ko > 0) {
+      tg.innerHTML = opened ? '<span style="color:#7a1a21">選択肢1</span>' : '<span style="display:inline-block;width:240px;height:52px;vertical-align:-8px;border-radius:8px;background:repeating-linear-gradient(45deg,#3a2618 0 12px,#5a3a20 12px 24px)"></span>';
+      const ks = WY.seg(t, T.b4[0] + 1.6, T.b4[0] + 1.9, E.outBack); const kc = WY.seg(t, T.b4[0] + 5.3, T.b4[0] + 5.8, E.outCubic);
+      if (ks > 0 && kc < 1) {
+        sg.save(); sg.globalAlpha = ko * (1 - kc); sg.translate(130, 130); sg.scale(2.2 - 1.2 * ks, 2.2 - 1.2 * ks); sg.rotate(kc * 0.6);
+        WYMap.drawSeal(sg, kc * -30, kc * 30, 80); sg.restore();
+      }
+    }
+    const kt = WY.env(t, T.b4[0] + 2.0, T.b4[1] - 0.1, 0.6, 0.4);
+    tl.style.display = kt > 0 ? '' : 'none';
+    if (kt > 0) {
+      const g = tl.getContext('2d'); g.clearRect(0, 0, 1700, 200); g.globalAlpha = kt;
+      const xs = [160, 900, 1460], labels = [['採択', ''], ['攻撃ターン', 'S'], ['開封', 'S + 2']];
+      g.strokeStyle = 'rgba(240,212,138,.4)'; g.lineWidth = 4; g.beginPath(); g.moveTo(80, 70); g.lineTo(1620, 70); g.stroke();
+      const prog = WY.seg(t, T.b4[0] + 2.4, T.b4[0] + 5.5, E.inOutCubic); const px = WY.lerp(xs[0], xs[2], prog);
+      g.strokeStyle = '#ffd24d'; g.beginPath(); g.moveTo(xs[0], 70); g.lineTo(px, 70); g.stroke();
+      // turn ticks between S and S+2
+      for (let i = 0; i <= 2; i++) { const x = WY.lerp(xs[1], xs[2], i / 2); g.fillStyle = 'rgba(240,212,138,.6)'; g.fillRect(x - 2, 52, 4, 36); }
+      xs.forEach((x, i) => {
+        const on = px >= x - 1;
+        g.fillStyle = on ? '#ffd24d' : '#2a2a34'; g.strokeStyle = '#f0d48a'; g.lineWidth = 3; g.beginPath(); g.arc(x, 70, 18, 0, 7); g.fill(); g.stroke();
+        g.textAlign = 'center'; g.fillStyle = on ? '#fffaf0' : 'rgba(255,250,240,.5)'; g.font = '700 34px "Noto Sans JP"'; g.fillText(labels[i][0], x, 140);
+        g.font = '600 26px Inter'; g.fillStyle = 'rgba(240,212,138,.85)'; g.fillText(labels[i][1], x, 30);
+      });
+      g.font = '500 24px "Noto Sans JP"'; g.fillStyle = 'rgba(255,250,240,.6)'; g.fillText('2ターン', (xs[1] + xs[2]) / 2, 112);
+      g.textAlign = 'left';
+    }
+    flash.render(t, T.b4[0] + 1.75, 0.35, 0.3);
+
+    // b5
+    hcards.forEach((h, i) => X.show(h, t, T.b5[0] + 0.9 + i * 0.8, T.b5[1] - 0.1, { dy: 40 }));
+    // b6
+    last.render(t, T.b6[0] + 0.2, T.b6[1] - 0.6);
+
+    // illustration tag during the illustrated steps
+    X.show(ill, t, T.b3[0] + 0.3, T.b4[1] - 0.1, { dy: -10 }); X.show(ill2, t, T.b1[0] + 0.5, T.b2[1] - 0.1, { dy: -10 });
+    badge.render(t, 5.8, 47.6);
+    ov.render(t);
+    end.render(t - 47.8);
+  },
+
+  audio(A) {
+    A.music({ style: 'tension', bpm: 84, key: 'C', minor: true, sections: [[0, 0.25], [5.6, 0.45], [12.2, 0.55], [20, 0.65], [28, 0.8], [35.6, 0.45], [42, 0.3]], end: 47.8, outro: 'ring' });
+    A.drone(0, 6, { note: 'C2', gain: 0.9 }); A.whoosh(0.3, { dur: 1.4 }); A.hit(0.6, { gain: 0.5 });
+    A.whoosh(5.3); [0, 1, 2].forEach(i => A.pop(6.7 + i * 0.35));
+    A.whoosh(11.9); [0, 1, 2].forEach(i => A.click(13.5 + i * 0.9, { gain: 0.8 })); for (let i = 0; i < 5; i++) A.tick(17.2 + i * 0.25, { gain: 0.6, pitch: 0.8 });
+    A.whoosh(19.7); A.ticks(20.9, 22.0, 0.1, { gain: 0.35 }); A.ok(22.4, { gain: 0.6 }); A.hit(23.4, { gain: 0.7 }); A.tick(24.6, { gain: 0.6 }); A.bad(25.4, { gain: 0.5 }); A.hit(25.9, { gain: 0.4, bright: 0.2 });
+    A.whoosh(27.7); A.seal(29.6, { gain: 1 }); A.boom(29.6, { gain: 0.4 }); A.ticks(30.4, 33.5, 0.5, { gain: 0.5, pitch: 0.9 }); A.glitch(33.4, { dur: 0.2, gain: 0.4 }); A.chime(33.7, { note: 'G5', gain: 0.5 });
+    A.whoosh(35.3); A.hit(36.5, { gain: 0.4 }); A.hit(37.3, { gain: 0.4 });
+    A.whoosh(41.7); A.swell(42.2, 46.5, { note: 'C3', gain: 0.6 });
+    A.chime(48.2, { note: 'C6', gain: 0.4 });
+  },
+});
+</script></body></html>

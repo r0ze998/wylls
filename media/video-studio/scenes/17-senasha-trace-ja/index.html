@@ -1,0 +1,259 @@
+<!doctype html><html><head><meta charset="utf-8"><title>17 セナシャの決断</title>
+<link rel="stylesheet" href="../../lib/wy.css">
+<script src="../../lib/wy.js"></script><script src="../../lib/wy-audio.js"></script><script src="../../lib/wy-map.js"></script><script src="../../lib/wy-kit.js"></script>
+<script src="aik.js"></script>
+<style>
+.ctx { display:flex; gap:16px; justify-content:center; }
+.ctx span { padding:10px 22px; border-radius:14px; font:700 30px var(--sans-jp); background:rgba(10,24,19,.85); border:1.5px solid rgba(255,250,240,.25); white-space:nowrap; }
+.ctx .ai { border-color:#1f6f67; background:rgba(31,111,103,.35); color:#d4f3ec; }
+.ctx .sc { color:#e8e6dc; }
+.turn { width:340px; height:340px; border-radius:50%; display:grid; place-items:center; text-align:center;
+  background:radial-gradient(circle at 50% 40%, #1d3d31, #0b1512 70%); border:6px solid #c9a24a; box-shadow:0 0 0 3px #3a2618, 0 0 0 10px rgba(240,212,138,.25), 0 30px 80px rgba(0,0,0,.6); }
+.turn .l { font:700 36px var(--sans-jp); color:#f0d48a; letter-spacing:.2em; }
+.turn .n { font:800 150px/1 var(--sans); color:#fffaf0; font-variant-numeric:tabular-nums; }
+.frame { position:absolute; left:700px; top:140px; width:1140px; height:860px; overflow:hidden; border-radius:18px; box-shadow:0 40px 120px rgba(0,0,0,.6), 0 0 0 2px rgba(201,162,74,.55); background:#e9e5d8; }
+.scroll { position:absolute; left:0; top:0; width:1140px; }
+.hl { position:absolute; border:4px solid #ffd24d; border-radius:16px; box-shadow:0 0 0 4000px rgba(10,16,13,.0), 0 0 30px rgba(255,210,77,.5); pointer-events:none; }
+.stamp { padding:16px 30px; border:5px solid #c8402f; color:#c8402f; border-radius:14px; font:900 40px var(--sans-jp); background:rgba(255,253,246,.92); transform:rotate(-6deg); white-space:nowrap; box-shadow:0 10px 30px rgba(0,0,0,.35); }
+.step { font:700 24px var(--mono); color:#c9a24a; letter-spacing:.15em; }
+.mapchip { padding:10px 20px; border-radius:12px; background:rgba(10,24,19,.88); border:1.5px solid rgba(159,216,201,.6); font:700 28px var(--sans-jp); color:#e6f6f1; white-space:nowrap; box-shadow:0 10px 30px rgba(0,0,0,.4); }
+.mapchip.seal { border-color:rgba(230,90,90,.7); color:#ffd9d4; }
+.mapchip.win { border-color:rgba(240,212,138,.9); color:#fff3d6; font-size:34px; }
+.pass { display:flex; align-items:center; gap:28px; padding:26px 54px; border-radius:24px; background:rgba(47,107,74,.35); border:3px solid #6fc79a; font:800 72px var(--sans); color:#e9ffe9; box-shadow:0 0 80px rgba(111,199,154,.25); }
+.pass i { font-style:normal; width:90px; height:90px; border-radius:50%; background:#2f6b4a; display:grid; place-items:center; font-size:38px; }
+</style>
+</head><body><script>
+const W = 1920, H = 1080;
+const { seg, env, ease: E, clamp, lerp } = WY;
+let bg, ov, dust, mcv, mg, wcv, wg, world, home, camp, T = {}, N = {}, badge, end, flash, flashR;
+
+// ------------------------------------------------------------ the decision page (council.html look)
+const CANDS = [
+  ['c1', '通常の運営：内政と義務のみ', 0],
+  ['c2', '待機：軍は帰還したまま', 0],
+  ['c3', '<span class="redact" style="width:300px"></span>', 0],
+  ['c4', '進軍：<b>兵400</b>の軍を<b>野営地</b>へ', 1],
+  ['c5', '<span class="redact" style="width:380px"></span>', 0],
+  ['c6', '建設：<b>学術</b>の施設', 1],
+  ['c7', '<span class="redact" style="width:260px"></span>', 0],
+  ['c8', '<span class="redact" style="width:340px"></span>', 0],
+];
+const pageHTML = `<div class="cc"><div class="cc-top"><span class="mk">◆</span> Wylls · 評議会 <span class="chip">ターン65</span><span style="margin-left:auto;font-weight:500;font-size:20px;opacity:.8">記録 881d797c…</span></div>
+<div class="cc-banner">ローカルテストチェーン</div>
+<div style="padding:18px 22px">
+ <div class="decision">
+  <div class="dec-head"><span class="actor">Senasha</span><span class="badge-ai">AI市民</span><span class="chip chip-model">決めたのは：モデル</span><span class="chip chip-released">公開済み</span><span class="bellmark">ターン65 · 本番の判断</span></div>
+  <div class="sub" id="p-cands">提示された候補（コードが作成）${AIK.ex('例：並びと文面')}</div>
+  <div class="cands">${CANDS.map(([id, l, ch]) => `<div class="cand${ch ? ' chosen' : ''}"><span class="cand-id">${id}</span><span>${l}</span>${ch ? '<span class="chip chip-model">選択</span>' : ''}</div>`).join('')}</div>
+  <p style="margin-top:14px" id="p-chose"><b>選んだもの：</b>野営地への進軍（兵400）＋ 学術の建設</p>
+  <p class="muted small" style="margin-top:2px">行き先：野営地（座標は伏せています）· ターン68に到着</p>
+  <div class="sub" id="p-words">AIの言葉（モデルが書いたもので、検証されていません）</div>
+  <div class="words"><span class="redact" style="width:96%"></span><br><span class="redact" style="width:82%"></span><br><span class="redact" style="width:58%"></span></div>
+  <div class="sub" id="p-mem">引用した記憶（モデルが名指し）：</div>
+  <ul class="remembered" style="margin:6px 0 0;padding-left:14px">
+   <li><span class="redact gold" style="width:78%"></span> <span class="bellmark">ターン■■</span></li>
+   <li><span class="redact gold" style="width:70%"></span> <span class="bellmark">ターン■■</span></li>
+   <li><span class="redact gold" style="width:62%"></span> <span class="bellmark">ターン■■</span></li></ul>
+  <p class="caption" id="p-cap">これらの行は公開記録からコードが書いたものです。引用は、その行がモデルに示されモデルが名指ししたことを示すだけで、判断がそれに基づいたことを示すものではありません。</p>
+  <div class="sub" id="p-tx">送信したトランザクション（ローカルテストチェーン）</div>
+  <div style="display:flex;flex-direction:column;gap:6px;margin-top:6px">
+   <div class="cand"><span>進軍</span><span class="redact" style="width:420px;margin-left:12px"></span><span class="chip chip-released">送信済み</span></div>
+   <div class="cand"><span>建設</span><span class="redact" style="width:420px;margin-left:12px"></span><span class="chip chip-released">送信済み</span></div>
+  </div>
+ </div>
+</div></div>`;
+
+WY.scene({
+  width: W, height: H, duration: 55, fps: 60,
+  setup(stage) {
+    AIK.css();
+    bg = AIK.bg(stage);
+    mcv = WY.canvas(stage, W, H); mcv.style.zIndex = 2; mg = mcv.getContext('2d');
+    world = WYMap.build({ rings: 7, seed: 23 });
+    // the march: from an inland tile to the nearest camp a few hexes away (nation deliberately not shown)
+    const camps = world.tiles.filter(t => t.camp && t.ring >= 2 && t.ring <= 4 && t.terrain !== 'water');
+    camp = camps.sort((a, b) => Math.hypot(a.x, a.y) - Math.hypot(b.x, b.y))[0];
+    const cand = world.tiles.filter(t => t.terrain !== 'water' && t.terrain !== 'mountain' && !t.camp && !t.village && t.owner >= 0);
+    home = cand.map(t => ({ t, d: Math.hypot(t.x - camp.x, t.y - camp.y) })).filter(o => o.d > 460 && o.d < 680 && Math.abs(o.t.y - camp.y) < 0.3 * o.d && o.t.ring >= 2).sort((a, b) => Math.hypot(a.t.x, a.t.y) - Math.hypot(b.t.x, b.t.y))[0].t;
+    wcv = WY.canvas(stage, W, H); wcv.style.zIndex = 6; wg = wcv.getContext('2d');
+
+    // S0
+    T.kick = AIK.text(stage, 'TAKE-1 · 保存された実行の記録', { x: 0, y: 300, w: W, size: 28, font: 'var(--sans-jp)', weight: 700, ls: '.3em', color: '#c9a24a', stagger: 0.02 });
+    T.title = AIK.text(stage, 'セナシャの決断', { x: 0, y: 370, w: W, size: 150, weight: 900, ls: '.06em', stagger: 0.07, dur: 0.9, rise: 60, blur: 18 });
+    T.titleEn = AIK.text(stage, 'SENASHA · AI CITIZEN', { x: 0, y: 580, w: W, size: 36, font: 'Cinzel, serif', weight: 700, ls: '.4em', color: '#9fe0d2', stagger: 0.025 });
+    N.ctx = AIK.box(stage, '<div class="ctx"><span class="ai">AI市民 6体（ローカルの Gemma 4）</span><span class="sc">＋ スクリプトボット 6体</span></div>', { x: 0, y: 690, w: W, z: 12 });
+    N.ctxNote = AIK.box(stage, '<div style="font:500 26px var(--sans-jp);color:rgba(255,250,240,.66);text-align:center">人は参加していません。人の操作が起こした判断でもありません。</div>', { x: 0, y: 790, w: W, z: 12 });
+
+    // S1 turn
+    N.turn = AIK.box(stage, '<div class="turn"><div><div class="l">ターン</div><div class="n" id="tn">64</div></div></div>', { x: 790, y: 300, z: 12 });
+    T.s1 = AIK.text(stage, 'ターン65。[[判断]]の番が来る。', { x: 0, y: 720, w: W, size: 72 });
+    T.s1b = AIK.text(stage, '動くのはモデル。ただし、選べるのはコードが出した手だけ。', { x: 0, y: 830, w: W, size: 36, font: 'var(--sans-jp)', weight: 600, color: 'rgba(255,250,240,.8)', stagger: 0.015, rise: 20, blur: 6 });
+
+    // the page
+    N.frame = WY.el('div', { class: 'frame' }, stage); N.frame.style.zIndex = 12; N.frame.style.opacity = 0;
+    N.scroll = WY.el('div', { class: 'scroll', html: pageHTML }, N.frame);
+    N.hl = WY.el('div', { class: 'hl' }, N.frame); N.hl.style.opacity = 0;
+    N.rows = [...N.scroll.querySelectorAll('.cands .cand')];
+    const top0 = N.scroll.getBoundingClientRect().top, left0 = N.scroll.getBoundingClientRect().left;
+    const R = (el) => { const r = el.getBoundingClientRect(); return { x: r.left - left0, y: r.top - top0, w: r.width, h: r.height }; };
+    const q = s => N.scroll.querySelector(s);
+    const rc4 = R(N.rows[3]), rc6 = R(N.rows[5]), rw = R(q('#p-words')), rwb = R(q('.words')), rm = R(q('#p-mem')), rcap = R(q('#p-cap'));
+    N.geo = { c4: rc4, c6: rc6, words: { x: rw.x, y: rw.y, w: rwb.w, h: rwb.y + rwb.h - rw.y }, mem: { x: rm.x, y: rm.y, w: rcap.w, h: rcap.y + rcap.h - rm.y } };
+    N.yWords = rw.y - 140; N.yMem = rm.y - 160;
+
+    // left column text
+    const L = (s, y, o = {}) => AIK.text(stage, s, Object.assign({ x: 90, y, size: 64, align: 'left' }, o));
+    const S = (s, y) => AIK.text(stage, s, { x: 90, y, size: 32, font: 'var(--sans-jp)', weight: 600, align: 'left', lh: 1.6, color: 'rgba(255,250,240,.82)', stagger: 0.012, rise: 18, blur: 5 });
+    N.st1 = AIK.box(stage, '<div class="step">STEP 1 · 候補</div>', { x: 92, y: 250, z: 12 });
+    T.l1 = L('コードが、\n[[候補]]を出す。', 300);
+    T.l1s = S('合法な手だけ、最大12個。\nモデルは、この中から\n選ぶことしかできない。', 520);
+    N.st2 = AIK.box(stage, '<div class="step">STEP 2 · 選択</div>', { x: 92, y: 250, z: 12 });
+    T.l2 = L('モデルが、\n[[ふたつ]]選ぶ。', 300);
+    T.l2s = S('兵400の軍を、野営地へ。\nそして、学術の建設。\n（記録 mode:model・reason:ok）', 520);
+    N.st3 = AIK.box(stage, '<div class="step">STEP 3 · 理由</div>', { x: 92, y: 250, z: 12 });
+    T.l3 = L('理由は、\n[[モデルが書いた]]。', 300);
+    T.l3s = S('記録された文章であって、\n本当の動機の証明ではない。', 520);
+    N.stamp = AIK.box(stage, '<div class="stamp">モデルが書いた理由・未検証</div>', { x: 120, y: 700, z: 14 });
+    N.st4 = AIK.box(stage, '<div class="step">STEP 4 · 引用</div>', { x: 92, y: 250, z: 12 });
+    T.l4 = L('過去の出来事を、\n[[引用]]した。', 300);
+    T.l4s = S('示された行を、名指ししただけ。\n「それが理由だった」とは\n言えない。', 520);
+    N.redNote = AIK.box(stage, `<div style="font:600 24px/1.5 var(--sans-jp);color:#ffc9a8;padding:12px 18px;border:2px dashed rgba(255,170,120,.6);border-radius:12px;width:540px">実際の候補・理由・引用の文面は、保存記録のページにあり、このリポジトリにはありません。ここでは伏せて表示しています。</div>`, { x: 90, y: 790, z: 12 });
+
+    // S5/S6 map overlays
+    T.m1 = AIK.text(stage, '軍は、[[行き先を封印]]したまま出る。', { x: 0, y: 120, w: W, size: 70 });
+    T.m2 = AIK.text(stage, 'ターン68、[[野営地を制圧]]。', { x: 0, y: 120, w: W, size: 80 });
+    N.chipDep = AIK.box(stage, '<div class="mapchip">ターン65 出発 · 兵400</div>', { x: 0, y: 0, z: 12 });
+    N.chipSeal = AIK.box(stage, '<div class="mapchip seal">行き先：封印中（到着ターンの終わりまで）</div>', { x: 0, y: 0, z: 12 });
+    N.chipWin = AIK.box(stage, '<div class="mapchip win">衝突 → 野営地を制圧</div>', { x: 0, y: 0, z: 12 });
+    N.turnChip = AIK.box(stage, '<div class="mapchip" style="font:800 34px var(--sans-jp);border-color:#c9a24a;color:#f0d48a">ターン <span id="tc">65</span></div>', { x: 1620, y: 56, z: 30 });
+    N.link = AIK.box(stage, '<div style="font:600 28px var(--sans-jp);color:rgba(255,250,240,.85);text-align:center">この結果は、ターン65の同じ判断の記録にひも付いて公開されています。</div>', { x: 0, y: 960, w: W, z: 12 });
+
+    // S7
+    N.pass = AIK.box(stage, '<div class="pass"><i>✓</i>verify-minds　PASS</div>', { x: 0, y: 230, w: W, z: 12 });
+    N.pass.firstChild.style.width = 'max-content'; N.pass.firstChild.style.margin = '0 auto';
+    N.passSub = AIK.box(stage, '<div style="font:600 30px/1.6 var(--sans-jp);color:rgba(255,250,240,.85);text-align:center">保存された take-1 の、AI判断の監査に合格。<br><span style="font-size:24px;opacity:.75">判断の再生は全件ではなく抜き取りです。</span></div>', { x: 0, y: 440, w: W, z: 12 });
+    N.none = AIK.box(stage, `<div class="cc" style="width:max-content;margin:0 auto"><div class="cc-panel" style="padding:18px 30px"><div style="font-weight:700;font-size:27px">人の行動から始まった判断</div><div class="muted" style="font-size:27px;margin-top:4px">まだありません。</div></div></div>`, { x: 0, y: 610, w: W, z: 12 });
+    N.noneSub = AIK.box(stage, '<div style="font:500 26px var(--sans-jp);color:rgba(255,250,240,.66);text-align:center">（評議会・監査ページの表示）　人とAIが同じ世界にいた実行は、まだありません。</div>', { x: 0, y: 800, w: W, z: 12 });
+
+    badge = AIK.status(stage, 'local', 'ローカルテストチェーンで実行', { x: 80, y: 60 });
+    badge.node.style.zIndex = 30;
+    flash = WYKit.flash(stage, { color: '#fff5dc' });
+    dust = WYKit.dust(stage, { count: 40, color: '255,230,180', z: 8, speed: 10 });
+    ov = AIK.overlay(stage);
+    end = WYKit.endCard(stage, { lang: 'ja', line: 'コードが候補を出し、モデルが選び、コードが確かめる。', sub: '人とAI市民が、ひとつの地図を奪い合える戦略ゲーム' });
+    // preload map art used later
+    WYMap.draw(mg, world, { x: 0, y: 0, zoom: 0.5, W, H }, { t: 0 });
+  },
+
+  render(t) {
+    bg.render(t, { glow: 0.55 });
+    ov.render(t); dust.render(t, t < 34 ? 0.5 : 0.25);
+    AIK.clear(mg, t); AIK.clear(wg, t);
+
+    // S0 0–6
+    T.kick.render(t - 0.4, 5.0);
+    T.title.render(t - 0.8, 4.7); T.title.node.style.transform = `scale(${1 + 0.025 * seg(t, 0, 6)})`;
+    T.titleEn.render(t - 1.4, 4.1);
+    AIK.show(N.ctx, t, 2.0, 5.5);
+    AIK.show(N.ctxNote, t, 2.6, 5.5);
+
+    // S1 6–11 : the turn dial ticks 64 → 65
+    { const e = AIK.show(N.turn, t, 6.0, 10.5, { y: 20, s: 0.85 });
+      if (e) { const tn = N.turn.querySelector('#tn'); tn.textContent = t < 7.2 ? '64' : '65'; const p = seg(t, 7.2, 7.6, E.outBack); tn.style.transform = `scale(${t < 7.2 ? 1 : lerp(1.4, 1, p)})`; tn.style.color = t > 7.2 && t < 8.4 ? '#ffd24d' : '#fffaf0'; }
+      if (t > 7.1 && t < 9) { const k = seg(t, 7.2, 8.8, E.outCubic); wg.save(); wg.globalAlpha = (1 - k) * 0.8; wg.strokeStyle = '#f0d48a'; wg.lineWidth = 6; wg.beginPath(); wg.arc(960, 470, 170 + 260 * k, 0, Math.PI * 2); wg.stroke(); wg.restore(); }
+    }
+    T.s1.render(t - 7.4, 3.0);
+    T.s1b.render(t - 8.0, 2.5);
+
+    // S2–S4 11–34 : the page
+    const pin = seg(t, 11.0, 11.9, E.outCubic), pout = seg(t, 33.4, 34.2, E.inCubic);
+    if (t > 10.9 && t < 34.3) {
+      N.frame.style.opacity = clamp(pin * 1.3) * (1 - pout);
+      N.frame.style.transform = `translateY(${(1 - pin) * 60}px) scale(${lerp(0.94, 1, pin) + 0.012 * seg(t, 12, 33)}) `;
+      N.frame.style.filter = pout > 0.01 ? `blur(${pout * 10}px)` : 'none';
+    } else N.frame.style.opacity = 0;
+    // scroll stops: top (cands) → words → memory
+    const yWords = N.yWords, yMem = N.yMem;
+    const sc = lerp(0, yWords, seg(t, 21.6, 22.6, E.inOutCubic)) + (yMem - yWords) * seg(t, 26.6, 27.6, E.inOutCubic);
+    N.scroll.style.transform = `translateY(${-sc}px)`;
+    N.rows.forEach((r, i) => { const k = seg(t, 11.8 + i * 0.12, 12.4 + i * 0.12, E.outCubic); r.style.opacity = k; r.style.transform = `translateX(${(1 - k) * 30}px)`; });
+    // highlight boxes (in frame coords, before scroll)
+    const hlAt = (x, y, w, h, a, b) => ({ x, y, w, h, a, b });
+    const G = N.geo, P = 10, box = (g, a, b) => hlAt(g.x - P, g.y - P, g.w + 2 * P, g.h + 2 * P, a, b);
+    const HL = [box(G.c4, 15.6, 18.4), box(G.c6, 18.4, 21.4), box(G.words, 22.8, 26.4), box(G.mem, 27.8, 33.2)];
+    let hv = 0; N.hl.style.opacity = 0;
+    for (const h of HL) { const k = env(t, h.a, h.b, 0.35, 0.35); if (k > hv) { hv = k; Object.assign(N.hl.style, { left: h.x + 'px', top: (h.y - sc) + 'px', width: h.w + 'px', height: h.h + 'px', opacity: k }); } }
+    // two chosen rows glow brighter while highlighted
+    // left column
+    AIK.show(N.st1, t, 11.6, 15.2); T.l1.render(t - 11.8, 3.4); T.l1s.render(t - 12.6, 2.6);
+    AIK.show(N.st2, t, 15.6, 21.2); T.l2.render(t - 15.8, 5.4); T.l2s.render(t - 16.6, 4.6);
+    AIK.show(N.st3, t, 21.8, 26.2); T.l3.render(t - 22.0, 4.2); T.l3s.render(t - 22.8, 3.4);
+    { const e = AIK.show(N.stamp, t, 23.4, 26.2, { s: 1.6, y: 0, blur: 0 }); if (e) N.stamp.style.transform += ' rotate(0deg)'; }
+    AIK.show(N.st4, t, 26.8, 33.2); T.l4.render(t - 27.0, 6.2); T.l4s.render(t - 27.8, 5.4);
+    AIK.show(N.redNote, t, 12.8, 33.2);
+
+    // S5–S6 34–46.5 : the map
+    if (t > 33.6 && t < 47.2) {
+      const mi = seg(t, 33.6, 34.8, E.outCubic), mo = seg(t, 46.4, 47.1);
+      const midx = (home.x + camp.x) / 2, midy = (home.y + camp.y) / 2;
+      const cam = { x: lerp(home.x, midx, seg(t, 34, 38, E.inOutCubic)) - 160 * seg(t, 34, 38, E.inOutCubic) + WY.drift(t, 2, 14), y: lerp(home.y, midy, seg(t, 34, 38, E.inOutCubic)) + 40 + WY.drift(t, 5, 10), zoom: lerp(1.5, 1.05, seg(t, 33.6, 39, E.inOutCubic)) + 0.12 * seg(t, 41, 46, E.inOutCubic), W, H };
+      const [sx, sy] = AIK.shake(t, 41.6, 16, 0.6); cam.x += sx; cam.y += sy;
+      mcv.style.opacity = mi * (1 - mo);
+      const cleared = t > 42.0; camp.camp = !cleared;
+      WYMap.draw(mg, world, cam, { t, owner: () => -1, wash: () => 0, borders: 0, appear: () => 1, fog: () => 0 });
+      // keep the camp tile's terrain when its sprite fades
+      // home marker: teal ring (AI citizen's army; nation not shown)
+      const [hx, hy] = WYMap.toScreen(cam, home.x, home.y - WYMap.LIFT);
+      mg.save(); mg.strokeStyle = '#9fe0d2'; mg.lineWidth = 6; mg.globalAlpha = 0.9; mg.beginPath(); mg.ellipse(hx, hy, 80 * cam.zoom, 80 * cam.zoom * WYMap.FLAT, 0, 0, Math.PI * 2); mg.stroke(); mg.restore();
+      const mk = seg(t, 35.2, 41.6, E.inOutCubic);
+      const pt = WYMap.drawMarch(mg, cam, home, camp, mk, { sealed: t < 41.5, color: '#9fe0d2', width: 7 });
+      if (t > 41.5) { const [cx, cy] = WYMap.toScreen(cam, camp.x, camp.y - WYMap.LIFT); if (t < 42.4) { const q = seg(t, 41.5, 42.2); mg.save(); mg.globalAlpha = 1 - q; mg.translate(cx, cy); mg.rotate(q * 0.6); WYMap.drawSeal(mg, -q * 40, -q * 30, 22 * (1 + q)); mg.restore(); } WYMap.drawClash(mg, cam, camp, seg(t, 41.6, 43.2)); }
+      if (t > 42.2) { const [cx, cy] = WYMap.toScreen(cam, camp.x, camp.y); const k = seg(t, 42.2, 42.9, E.outBack); mg.save(); mg.strokeStyle = '#9fe0d2'; mg.lineWidth = 7; mg.globalAlpha = 0.6 + 0.4 * Math.sin(t * 4); WYMap.hexPath(mg, cx, cy - WYMap.LIFT * cam.zoom, WYMap.R * cam.zoom * 0.92, k); mg.stroke(); mg.restore(); }
+      // chips that follow the map
+      const [hx2, hy2] = WYMap.toScreen(cam, home.x, home.y);
+      Object.assign(N.chipDep.style, { left: (hx2 - 160) + 'px', top: (hy2 + 60) + 'px' });
+      AIK.show(N.chipDep, t, 35.0, 41.0);
+      const [px, py] = pt(Math.max(0.05, mk));
+      Object.assign(N.chipSeal.style, { left: (px - 280) + 'px', top: (py - 120) + 'px' });
+      AIK.show(N.chipSeal, t, 36.4, 41.2);
+      const [cx2, cy2] = WYMap.toScreen(cam, camp.x, camp.y);
+      Object.assign(N.chipWin.style, { left: (cx2 - 190) + 'px', top: (cy2 + 70) + 'px' });
+      AIK.show(N.chipWin, t, 42.4, 46.2, { s: 0.8 });
+      const tc = t < 37.4 ? 65 : t < 39.4 ? 66 : t < 41.4 ? 67 : 68;
+      N.turnChip.querySelector('#tc').textContent = tc;
+      AIK.show(N.turnChip, t, 34.4, 46.2);
+    } else { mcv.style.opacity = 0; N.chipDep.style.opacity = N.chipSeal.style.opacity = N.chipWin.style.opacity = N.turnChip.style.opacity = 0; }
+    if (t > 33.6 && t < 47.2) { const a = seg(t, 34.2, 35) * (1 - seg(t, 46.4, 47.1)); const gr = wg.createLinearGradient(0, 0, 0, 330); gr.addColorStop(0, `rgba(5,11,9,${0.85 * a})`); gr.addColorStop(1, 'rgba(5,11,9,0)'); wg.fillStyle = gr; wg.fillRect(0, 0, W, 330); }
+    T.m1.render(t - 34.8, 5.6);
+    T.m2.render(t - 42.2, 3.8);
+    AIK.show(N.link, t, 43.0, 46.2);
+    flash.render(t, 41.6, 0.5, 0.6);
+
+    // S7 46.5–50.5
+    AIK.show(N.pass, t, 46.9, 50.2, { s: 0.85 });
+    AIK.show(N.passSub, t, 47.4, 50.2);
+    AIK.show(N.none, t, 47.9, 50.2);
+    AIK.show(N.noneSub, t, 48.3, 50.2);
+
+    badge.render(t, 1.6, 50.2);
+    end.render(t - 50.5);
+  },
+
+  audio(A) {
+    A.music({ style: 'tension', bpm: 88, key: 'E', sections: [[0, 0.25], [6, 0.35], [11, 0.5], [21.5, 0.55], [34, 0.75], [41.6, 0.9], [44, 0.5], [46.5, 0.35]], end: 50.5, outro: 'ring' });
+    A.drone(0, 7, { note: 'E2', gain: 0.5 });
+    A.whoosh(0.6, { gain: 0.5 }); A.hit(0.9, { gain: 0.5 });
+    A.whoosh(5.8, { gain: 0.5 }); A.chime(7.2, { note: 'E5', gain: 0.9, dur: 3 }); A.boom(7.2, { gain: 0.6 });
+    A.whoosh(10.8, { gain: 0.6 });
+    for (let i = 0; i < 8; i++) A.tick(11.8 + i * 0.12, { gain: 0.45, pitch: 1.3 });
+    A.chime(15.7, { note: 'B5', gain: 0.6 }); A.chime(16.0, { note: 'E6', gain: 0.5 });
+    A.whoosh(21.5, { gain: 0.4 }); A.type(22.0, 23.2, { gain: 0.35 }); A.seal(23.5, { gain: 0.7 });
+    A.whoosh(26.5, { gain: 0.4 }); A.sparkle(27.9, { root: 'E5', gain: 0.4 });
+    A.whoosh(33.4, { gain: 0.7 }); A.lock(35.2);
+    A.march(35.2, 41.5, { bpm: 132, gain: 0.8 });
+    A.tick(37.4, { gain: 0.6 }); A.tick(39.4, { gain: 0.6 }); A.tick(41.4, { gain: 0.6 });
+    A.riser(39.6, 41.5, { gain: 0.6 }); A.clash(41.6); A.boom(41.6); A.ok(42.5, { gain: 0.6 });
+    A.whoosh(46.6, { gain: 0.4 }); A.ok(47.0, { gain: 0.8 });
+  },
+});
+</script></body></html>
