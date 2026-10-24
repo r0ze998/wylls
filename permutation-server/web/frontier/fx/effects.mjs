@@ -379,7 +379,11 @@ function tag(a, env) {
       // above its tile by the leader's length (never a stub), then wherever the HUD lets it stand
       // (`rise`: screen px the tag climbs while it stands: a chip that rises from its piece, 「+N マス測量」)
       const lifted = a.rise > 0 && full ? a.rise * outQuart(span(t, 0, dur * 0.7)) : 0;
-      const want = { x: P.x, y: Math.min(P.y, A.y - 20) - box.h / 2 - lifted };
+      // (a tile that carries the map's own name plate (a village): the tag stands above the plate, never on it. 「送信中…」
+      // covered 「ラマール 町」: the design review of 2026-10-24)
+      const pile = Number.isInteger(a.tile) ? s.pileRise?.({ p: a.p, q: a.q, tile: a.tile }) : null;
+      const over = pile > 0 ? s.anchor(x, y).y - pile - 6 : Infinity;
+      const want = { x: P.x, y: Math.min(P.y, A.y - 20, over) - box.h / 2 - lifted };
       const at = s.free.place(want.x, want.y, box.w, box.h, 5, A);
       // the leader runs from the tile to the nearest point of the tag's edge
       const ex = Math.min(at.x + box.w / 2 - 6, Math.max(at.x - box.w / 2 + 6, A.x)), ey = Math.min(at.y + box.h / 2, Math.max(at.y - box.h / 2, A.y));

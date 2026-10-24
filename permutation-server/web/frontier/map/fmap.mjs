@@ -2943,7 +2943,8 @@ export class FrontierMap {
     // (under the leader's feet and clear of the village's bottom row: centred on the leader, its left half lay over the houses;
     // not while the village itself is selected: its card says it, and the lens's own words stand there)
     const villageSel = !!(B.away && F.selHex && B.away.hex && F.selHex.q === B.away.hex.q && F.selHex.r === B.away.hex.r);
-    if (B.away && !(F.selHex && F.A) && !villageSel) paintBellTag(ctx, B.away.at.x, B.away.at.y + RADIUS * 0.6, awayText(B.away.arriveBell), { zoom: z, place: 'below', gap: 4, accent: col, anchor: B.away.at, pass, size: 12 });
+    // (and not while an effect plays there or a set piece has the stage: it stood over a battle's loss numbers)
+    if (B.away && !(F.selHex && F.A) && !villageSel && !this.piece && !(B.away.hex && hid(B.away.hex))) paintBellTag(ctx, B.away.at.x, B.away.at.y + RADIUS * 0.6, awayText(B.away.arriveBell), { zoom: z, place: 'below', gap: 4, accent: col, anchor: B.away.at, pass, size: 12 });
     if (B.explores.length) {
       const e = B.explores[0], hex = tileHex(e.p, e.q, e.tile);
       // (over the flag's top: the flag itself stays in sight)

@@ -310,7 +310,9 @@ export function stageBattle(fx, play, { focus = false, zoom = null, viewerFactio
   // the title stands over the scene: above the loss numbers, inside the free stage (the banner keeps it there)
   const titleY = (s, h) => {
     const c = s.anchor(stage.cx, stage.cy), px = stage.s * s.zoom;
-    const above = c.y - BATTLE_ABOVE * px - 36 - h / 2;
+    // (the loss numbers are screen-sized (LOSS_PX) over a figure that shrinks with the zoom: on a phone the band met
+    // their tops; 18 px more air keeps them whole: the design review of 2026-10-24)
+    const above = c.y - BATTLE_ABOVE * px - 36 - 18 - h / 2;
     const fr = (takes ? s.free.stage : null) ?? s.free.centre;
     return above - h / 2 >= fr.top ? above : Math.max(above, fr.top + h / 2 + 4);
   };

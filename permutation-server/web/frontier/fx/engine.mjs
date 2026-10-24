@@ -126,6 +126,8 @@ export function createEngine({ clock = defaultClock, motion = defaultMotion, bus
       stage: m?.rect ?? { left: 0, top: 0, width: sz.width, height: sz.height, free: sz.height },
       toScreen: (x, y) => toScreen(v, sz, x, y),
       anchor: (x, y) => anchor(x, y, v, sz), unanchor: (x, y) => unanchor(x, y, v, sz), toViewport: (x, y) => anchor(x, y, v, sz),
+      // how far above place `{p, q, tile}` the map's own label pile (a village's name plate) reaches, screen px, or null
+      pileRise: at => { try { return m?.map?.pileRise?.(at, m.map.cam?.drawn?.zoom ?? v.zoom) ?? null; } catch { return null; } },
       get free() { return free(); } };
   }
 
