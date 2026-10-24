@@ -57,7 +57,7 @@
   const PH = [['s01-rest-phone', '普段（スマホ）'], ['s02-village-phone', '村を選ぶ（スマホ）'], ['s04-compose-phone', '進軍の命令（スマホ）'], ['s10-compare-phone', '構えを比べる（スマホ）']];
   const pairs = document.getElementById('pairs');
   // (only after: the lens on an S1 season, a sample)
-  const ONLY_AFTER = [['s11-orelens-desk', 'S1 の季の村のレンズ（見本）：鉱石の出どころを言う'], ['s12-mid-desk', '中くらいの縮尺：村の格の札と国旗はここでも読める'], ['s13-mid2-desk', 'もう一段引いた縮尺']];
+  const ONLY_AFTER = [['s11-orelens-desk', 'S1 の季の村のレンズ（見本）：鉱石の出どころを言う'], ['s12-mid-desk', '中くらいの縮尺：村の格の札と国旗はここでも読める'], ['s13-mid2-desk', 'もう一段引いた縮尺'], ['s01-rest-land', 'スマホを横に：普段'], ['s02-village-land', 'スマホを横に：村を選ぶ'], ['s03-host-land', 'スマホを横に：軍を選ぶ']];
   for (const [s, t] of [...P, ...PH]) {
     const phone = s.endsWith('phone');
     pairs.insertAdjacentHTML('beforeend', `<h2>${t}</h2><div class="pair${phone ? ' phone' : ''}"><figure><img src="before/${s}.jpg" alt="変更前：${t}" loading="lazy"><figcaption>変更前</figcaption></figure><figure><img src="after/${s}.jpg" alt="変更後：${t}" loading="lazy"><figcaption>変更後</figcaption></figure></div>`);
