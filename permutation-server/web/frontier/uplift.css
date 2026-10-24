@@ -93,6 +93,10 @@
    (that it cannot be taken back, and the send) and drops its summary row, which repeats the body's destination, turn
    and stance; the outlook goes to four in a row */
 @media (min-width: 760px) and (max-height: 480px) {
+  /* (at rest the minimap took nearly half the height and the village plate a third of the map: both smaller) */
+  :root { --mini: 112px; --plate-w: 240px; }
+  /* (the lens row stands over the minimap; over the smaller one it met the zoom column: it clears the column's height) */
+  .lenses { bottom: calc(100% + 96px); }
   /* (the drawer starts right under the strip, narrow enough to clear the turn dial: frontier.css put it under the
      dial's whole height between 760 and 899 px, a third of a 390-px screen) */
   .panel { top: calc(var(--strip) + var(--edge)); width: min(var(--drawer-w), calc(50vw - var(--dial) / 2 - 2 * var(--edge))); max-height: calc(100dvh - var(--strip) - 2 * var(--edge)); }

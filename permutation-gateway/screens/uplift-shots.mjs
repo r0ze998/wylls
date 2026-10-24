@@ -19,7 +19,7 @@ const out = resolve(arg('out', 'artifacts/uplift'));
 const only = (arg('only', '') || '').split(',').filter(Boolean);
 const vps = (arg('vp', 'desk,phone') || '').split(',');
 const lang = arg('lang', 'ja');
-const VIEWPORTS = { desk: { width: 1440, height: 900 }, phone: { width: 390, height: 844 } };
+const VIEWPORTS = { desk: { width: 1440, height: 900 }, phone: { width: 390, height: 844 }, land: { width: 844, height: 390 } };
 
 const S = join(tree, 'permutation-gateway/screens');
 const { startServer } = await import(pathToFileURL(join(S, 'server.mjs')).href);
