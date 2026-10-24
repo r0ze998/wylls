@@ -132,7 +132,8 @@ def render(path):
         y0, y1 = map(float, os.environ['BORDER'].split(','))
         r = bpy.context.scene.render; r.use_border = True; r.use_crop_to_border = False
         r.border_min_x, r.border_max_x, r.border_min_y, r.border_max_y = 0, 1, y0, y1
-        r.image_settings.color_mode = 'RGBA'
+        # stay RGB: an RGBA PNG stores straight alpha, which un-premultiplies the haze/sky composite (white halos
+        # on every sky edge, a wrong sky); stack_bands cuts inside each band, so it needs no alpha
     bpy.context.scene.render.filepath = path
     bpy.ops.render.render(write_still=True)
     print('RENDERED', path, flush=True)
