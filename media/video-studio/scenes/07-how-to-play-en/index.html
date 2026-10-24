@@ -1,11 +1,11 @@
-<!doctype html><html><head><meta charset="utf-8"><title>07 how to play</title>
+<!doctype html><html><head><meta charset="utf-8"><title>How to Play</title>
 <link rel="stylesheet" href="../../lib/wy.css">
 <script src="../../lib/wy.js"></script><script src="../../lib/wy-audio.js"></script>
 <script src="../../lib/wy-map.js"></script><script src="../../lib/wy-kit.js"></script>
 <script src="lk.js"></script>
 <style>
   .num { font: 900 210px/1 Cinzel, serif; background: linear-gradient(180deg, #fff3c4 0%, #f0d48a 45%, #b8892e 100%); -webkit-background-clip: text; background-clip: text; color: transparent; filter: drop-shadow(0 6px 18px rgba(0,0,0,.6)); }
-  .chip { display: inline-flex; align-items: center; gap: 12px; padding: 10px 20px; border-radius: 12px; background: rgba(10,24,19,.82); border: 1.5px solid rgba(240,212,138,.55); font: 600 27px/1.2 var(--sans-jp); color: #fffaf0; white-space: nowrap; }
+  .chip { display: inline-flex; align-items: center; gap: 12px; padding: 10px 20px; border-radius: 12px; background: rgba(10,24,19,.82); border: 1.5px solid rgba(240,212,138,.55); font: 600 27px/1.2 Inter, sans-serif; color: #fffaf0; white-space: nowrap; }
   .chip b { color: #f0d48a; font-weight: 700; }
   .frame { position: absolute; border-radius: 16px; overflow: hidden; border: 3px solid rgba(201,162,74,.9); box-shadow: 0 0 0 1px #000, 0 30px 80px rgba(0,0,0,.6), inset 0 0 0 1px rgba(255,240,200,.15); background: #0b1512; }
   .rail span { display: inline-flex; align-items: center; justify-content: center; width: 54px; height: 54px; margin-right: 14px; border-radius: 50%; font: 700 28px Cinzel, serif; border: 2px solid rgba(240,212,138,.6); color: #f0d48a; }
@@ -14,11 +14,11 @@
 const E = WY.ease, N = WY.NATIONS;
 const FX = 790, FY = 214, FW = 1060, FH = 596, K = 2560 / 1920;
 const STEPS = [
-  { s: 4.5, e: 13.5, title: '国を選ぶ', body: ['選ぶのは国だけ。', '村はその場で置かれる。'], chips: ['チケットも抽選もなし ・ 自分の国の土地に<b>すぐ確定</b>'] },
-  { s: 13.5, e: 23.5, title: '育てる', body: ['資源はリアルタイムで増える。', '建てて、兵を訓練する。'], chips: ['経済は<b>リアルタイム</b>、戦いは<b>ターン制</b>'] },
-  { s: 23.5, e: 32.0, title: '偵察する', body: ['斥候を出すと、', '結果は次のターンに届く。'], chips: ['1ターン = <b>10分</b> ・ 1日 <b>144</b> ターン'] },
-  { s: 32.0, e: 42.0, title: '封印して進軍', body: ['行き先は封印される。', '最短2ターン。取り消しはできない。'], chips: ['公開:<b>出発地・兵数・到着ターン</b>', '封印:<b>行き先</b>(drand の時間ロック)'] },
-  { s: 42.0, e: 50.5, title: '報告を読む', body: ['衝突の報告を、', 'ブラウザが同じルールで再計算する。'], chips: ['監査ではなく、<b>同じルールでの再計算</b>'] },
+  { s: 4.5, e: 13.5, title: 'Choose a nation', body: ['Your nation is your only choice.', 'Your village is placed at once.'], chips: ['No ticket, no lottery · <b>final at once</b>'] },
+  { s: 13.5, e: 23.5, title: 'Grow', body: ['Resources build up in real time.', 'Build, then train troops.'], chips: ['Real-time <b>economy</b> · turn-based <b>battles</b>'] },
+  { s: 23.5, e: 32.0, title: 'Scout', body: ['Send scouts out.', 'The result arrives next turn.'], chips: ['1 turn = <b>10 minutes</b> · <b>144</b> turns a day'] },
+  { s: 32.0, e: 42.0, title: 'Seal a march', body: ['The destination is sealed.', 'At least 2 turns. No recall.'], chips: ['Public: <b>start, size, arrival turn</b>', 'Sealed: <b>destination</b> (drand time-lock)'] },
+  { s: 42.0, e: 50.5, title: 'Read the report', body: ['Your browser recomputes', 'the clash with the same rules.'], chips: ['Rust rules → <b>WebAssembly</b> → your browser', 'A recomputation, <b>not an audit</b>'] },
 ];
 const END = 50.5, DUR = 55.0;
 let bg, bgc, intro = {}, frame, fc, steps = [], rail, badge, cap, ov, end, flash, world, imgs = {}, scout, flow, lattice;
@@ -26,7 +26,7 @@ let bg, bgc, intro = {}, frame, fc, steps = [], rail, badge, cap, ov, end, flash
 WY.scene({
   width: 1920, height: 1080, duration: DUR, fps: 30,
   setup(stage) {
-    for (const k of ['scene-join-ja', 'scene-hand-build-ja', 'scene-hand-train-ja', 'scene-march-ja', 'scene-report-ja']) imgs[k] = WY.img(`ui/${k}.jpg`);
+    for (const k of ['scene-join-en', 'scene-hand-build-en', 'scene-hand-train-en', 'scene-march-en', 'live-report41-proof-en']) imgs[k] = WY.img(`ui/${k}.jpg`);
     lattice = LK.hexLattice(2400, 1400, 64, 'rgba(240,212,138,0.05)', 1.5);
     bgc = WY.canvas(stage, 1920, 1080); bg = bgc.getContext('2d');
     // world for map steps: our hamlet at the centre, fog beyond ring 1, a camp to find at (2,-1)
@@ -44,40 +44,40 @@ WY.scene({
     intro.root = WY.el('div', { class: 'wy-fill' }, stage);
     intro.cv = WY.canvas(intro.root, 1920, 1080); intro.ctx = intro.cv.getContext('2d');
     intro.shade = LK.div(intro.root, '', { width: '1920px', height: '1080px', background: 'radial-gradient(ellipse at 50% 50%, rgba(5,10,8,.45) 0%, rgba(5,10,8,.75) 70%)' });
-    intro.title = LK.lines(intro.root, ['Wyllsの遊び方'], { left: '0px', width: '1920px', top: '380px', textAlign: 'center' }, { font: '900 140px/1.15 var(--serif-jp)', color: '#fffaf0', textShadow: '0 8px 40px rgba(0,0,0,.8)' });
-    intro.sub = LK.div(intro.root, '<span style="color:#f0d48a">5</span> つのステップで、ひとつの地図へ', { left: '0px', width: '1920px', top: '590px', textAlign: 'center', font: '700 46px var(--sans-jp)', color: '#fffaf0', textShadow: '0 2px 14px rgba(0,0,0,.9)' });
+    intro.title = LK.lines(intro.root, ['How to play Wylls'], { left: '0px', width: '1920px', top: '380px', textAlign: 'center' }, { font: '700 150px/1.15 "Cormorant Garamond", serif', color: '#fffaf0', textShadow: '0 8px 40px rgba(0,0,0,.8)' });
+    intro.sub = LK.div(intro.root, '<span style="color:#f0d48a">Five</span> steps to one shared map', { left: '0px', width: '1920px', top: '590px', textAlign: 'center', font: '600 46px Inter, sans-serif', color: '#fffaf0', textShadow: '0 2px 14px rgba(0,0,0,.9)' });
 
     // frame (the right-hand viewport)
     frame = WY.el('div', { class: 'frame' }, stage);
     WY.css(frame, { left: FX + 'px', top: FY + 'px', width: FW + 'px', height: FH + 'px' });
     const fcv = WY.canvas(frame, FW, FH); fc = fcv.getContext('2d');
     flow = LK.div(frame, `<div style="display:flex;align-items:center;justify-content:center;gap:18px">
-        <span class="chip" style="font-size:26px">ルール(Rust)</span><span style="font:700 34px Inter;color:#f0d48a">→</span>
+        <span class="chip" style="font-size:26px">Rust rules</span><span style="font:700 34px Inter;color:#f0d48a">→</span>
         <span class="chip" style="font-size:26px">WebAssembly</span><span style="font:700 34px Inter;color:#f0d48a">→</span>
-        <span class="chip" style="font-size:26px">このブラウザ</span></div>
+        <span class="chip" style="font-size:26px">This browser</span></div>
         <div id="match" style="margin:34px auto 0;display:flex;align-items:center;justify-content:center;gap:18px;font:800 54px Inter;color:#dff7e6">
-        <span style="display:inline-grid;place-items:center;width:70px;height:70px;border-radius:50%;background:#2f8f5b;box-shadow:0 0 30px rgba(80,220,140,.6);font-size:44px">✓</span>Match<span style="font:700 34px var(--sans-jp);color:#fffaf0;opacity:.85">再計算の結果が一致</span></div>`,
+        <span style="display:inline-grid;place-items:center;width:70px;height:70px;border-radius:50%;background:#2f8f5b;box-shadow:0 0 30px rgba(80,220,140,.6);font-size:44px">✓</span>Match<span style="font:700 34px var(--sans-jp);color:#fffaf0;opacity:.85">recomputed result matches</span></div>`,
       { left: '0px', top: '0px', width: FW + 'px', height: FH + 'px', paddingTop: '170px', background: 'rgba(6,12,10,.82)' });
     flow.match = flow.querySelector('#match');
-    cap = LK.div(stage, '', { left: FX + 'px', top: FY + FH + 18 + 'px', width: FW + 'px', textAlign: 'right', font: '500 22px var(--sans-jp)', color: 'rgba(255,250,240,.6)' });
+    cap = LK.div(stage, '', { left: FX + 'px', top: FY + FH + 18 + 'px', width: FW + 'px', textAlign: 'right', font: '500 22px Inter, sans-serif', color: 'rgba(255,250,240,.6)' });
 
     // left column per step
     for (let i = 0; i < 5; i++) {
       const S = STEPS[i], st = { ...S, i };
       st.root = WY.el('div', { class: 'wy-fill' }, stage);
-      st.step = LK.div(st.root, 'STEP', { left: '86px', top: '150px', font: '700 30px Cinzel, serif', letterSpacing: '.4em', color: '#f0d48a' });
+      st.step = LK.div(st.root, `STEP <span style="font:600 22px var(--sans-jp);letter-spacing:.1em;opacity:.6;margin-left:8px">${['国を選ぶ', '育てる', '偵察', '封印', '報告'][i]}</span>`, { left: '86px', top: '150px', font: '700 30px Cinzel, serif', letterSpacing: '.4em', color: '#f0d48a' });
       st.num = LK.div(st.root, `<span class="num">${i + 1}</span>`, { left: '76px', top: '186px' });
-      st.title = LK.lines(st.root, [S.title], { left: '80px', top: '410px' }, { font: '900 88px/1.15 var(--serif-jp)', color: '#fffaf0', textShadow: '0 4px 20px rgba(0,0,0,.6)' });
-      st.body = LK.lines(st.root, S.body, { left: '84px', top: '540px' }, { font: '600 40px/1.6 var(--sans-jp)', color: 'rgba(255,250,240,.92)' });
+      st.title = LK.lines(st.root, [S.title], { left: '80px', top: '404px' }, { font: '700 96px/1.1 "Cormorant Garamond", serif', color: '#fffaf0', textShadow: '0 4px 20px rgba(0,0,0,.6)' });
+      st.body = LK.lines(st.root, S.body, { left: '84px', top: '540px' }, { font: '600 40px/1.55 Inter, sans-serif', color: 'rgba(255,250,240,.92)' });
       st.chips = S.chips.map((c, j) => LK.div(st.root, `<span class="chip">${c}</span>`, { left: '84px', top: 700 + j * 70 + 'px' }));
       steps.push(st);
     }
     rail = LK.div(stage, [1, 2, 3, 4, 5].map(n => `<span>${n}</span>`).join(''), { left: '84px', top: '900px' });
     rail.className += ' rail'; rail.dots = [...rail.querySelectorAll('span')];
-    badge = WYKit.status(stage, 'local', 'ja', { x: 80, y: 56 });
+    badge = WYKit.status(stage, 'local', 'en', { x: 80, y: 56 });
     ov = LK.overlays(stage, 45, { vignette: 0.5 }); ov.g.style.display = 'none';
     flash = WYKit.flash(stage, { color: '#fff8e8', z: 50 });
-    end = WYKit.endCard(stage, { lang: 'ja', line: '選ぶ。育てる。偵察する。封をして、進む。' });
+    end = WYKit.endCard(stage, { lang: 'en', line: 'Choose. Grow. Scout. Seal. March.' });
   },
 
   render(t) {
@@ -170,7 +170,7 @@ function hl(m, [x0, y0, x1, y1], k, t) {
   fc.restore();
 }
 function setCap(text) { if (cap.textContent !== text) cap.textContent = text; }
-const REAL = '実際のクライアント画面(テストデータ)', ILLU = '説明用のイメージ(ゲームの地図アートで作図)';
+const REAL = 'Real client screen (test data)', ILLU = 'Illustration, drawn with the game’s map art';
 
 function drawFrame(i, u, t) {
   fc.clearRect(0, 0, FW, FH);
@@ -179,19 +179,19 @@ function drawFrame(i, u, t) {
   const fadeIn = E.inOutCubic(WY.seg(u, -0.3, 0.25));
   if (i === 0) {
     const v = u < 5.5 ? lerpV(FULL, { x: 300, y: 330, w: 1320 }, E.inOutCubic(WY.seg(u, 1.0, 2.6))) : lerpV({ x: 300, y: 330, w: 1320 }, { x: 760, y: 560, w: 900 }, E.inOutCubic(WY.seg(u, 5.5, 6.5)));
-    const m = shot(imgs['scene-join-ja'], v);
-    hl(m, [370, 648, 1550, 883], WY.env(u, 2.6, 5.4, 0.3, 0.3), t);
-    hl(m, [1198, 900, 1423, 946], WY.env(u, 6.2, 9.5, 0.3, 0.3), t);
+    const m = shot(imgs['scene-join-en'], v);
+    hl(m, [370, 655, 1555, 905], WY.env(u, 2.6, 5.4, 0.3, 0.3), t);
+    hl(m, [1247, 918, 1423, 965], WY.env(u, 6.2, 9.5, 0.3, 0.3), t);
     setCap(REAL);
   } else if (i === 1) {
     if (u < 5.3) {
       const v = lerpV(FULL, { x: 520, y: 190, w: 980 }, E.inOutCubic(WY.seg(u, 0.6, 2.2)));
-      const m = shot(imgs['scene-hand-build-ja'], v);
+      const m = shot(imgs['scene-hand-build-en'], v);
       hl(m, [622, 245, 1298, 720], WY.env(u, 2.3, 5.3, 0.3, 0.3), t);
     } else {
       const v = lerpV(FULL, { x: 520, y: 520, w: 880 }, E.inOutCubic(WY.seg(u, 5.4, 6.8)));
-      const m = shot(imgs['scene-hand-train-ja'], v, WY.seg(u, 5.2, 5.6));
-      hl(m, [584, 870, 900, 902], WY.env(u, 7.4, 10.5, 0.3, 0.3), t);
+      const m = shot(imgs['scene-hand-train-en'], v, WY.seg(u, 5.2, 5.6));
+      hl(m, [580, 872, 895, 902], WY.env(u, 7.4, 10.5, 0.3, 0.3), t);
     }
     // live resource counters over the top of the frame
     drawCounters(u);
@@ -202,23 +202,19 @@ function drawFrame(i, u, t) {
   } else if (i === 3) {
     if (u < 4.6) {
       const v = u < 2.4 ? lerpV(FULL, { x: 1140, y: 60, w: 780 }, E.inOutCubic(WY.seg(u, 0.3, 1.5))) : lerpV({ x: 1140, y: 60, w: 780 }, { x: 1140, y: 640, w: 780 }, E.inOutCubic(WY.seg(u, 2.4, 3.2)));
-      const m = shot(imgs['scene-march-ja'], v);
-      hl(m, [1548, 280, 1880, 322], WY.env(u, 1.2, 2.5, 0.25, 0.25), t);
-      hl(m, [1548, 1003, 1803, 1051], WY.env(u, 3.2, 4.8, 0.25, 0.25), t);
+      const m = shot(imgs['scene-march-en'], v);
+      hl(m, [1546, 282, 1884, 320], WY.env(u, 1.2, 2.5, 0.25, 0.25), t);
+      hl(m, [1548, 1003, 1802, 1052], WY.env(u, 3.2, 4.8, 0.25, 0.25), t);
       setCap(REAL);
     } else { drawMap(u, t, 'march'); setCap(ILLU); }
   } else if (i === 4) {
-    const v = lerpV(FULL, { x: 470, y: 90, w: 980 }, E.inOutCubic(WY.seg(u, 0.4, 1.8)));
-    const m = shot(imgs['scene-report-ja'], v);
-    hl(m, [538, 588, 747, 619], WY.env(u, 1.9, 3.3, 0.25, 0.25), t);
-    if (u > 3.2) {
-      flow.style.display = 'block';
-      const k = E.outCubic(WY.seg(u, 3.2, 3.7));
-      flow.style.opacity = k;
-      const km = E.outBack(WY.seg(u, 5.3, 5.8));
-      flow.match.style.opacity = WY.seg(u, 5.3, 5.5); flow.match.style.transform = `scale(${0.7 + 0.3 * km})`;
-    }
-    setCap(u > 3.2 ? 'ブラウザが共通のルールカーネル(frontier-wasm)で報告を再計算' : REAL);
+    // the real report with its proof details open; the camera stays below a transient toast at the top of this capture
+    const A = { x: 480, y: 215, w: 980 }, B = { x: 480, y: 400, w: 980 };
+    const v = u < 3.8 ? lerpV({ x: 380, y: 215, w: 1180 }, A, E.inOutCubic(WY.seg(u, 0, 1.0))) : lerpV(A, B, E.inOutCubic(WY.seg(u, 3.8, 4.8)));
+    const m = shot(imgs['live-report41-proof-en'], v);
+    hl(m, [952, 642, 1388, 808], WY.env(u, 1.2, 3.8, 0.3, 0.3), t);
+    hl(m, [538, 872, 1384, 914], WY.env(u, 4.9, 9.0, 0.3, 0.3), t);
+    setCap('Real client screen · a sample world computed in the browser (test data)');
   }
   // white dissolve at the start of each step
   if (u < 0.35) { fc.fillStyle = `rgba(11,21,18,${1 - fadeIn})`; fc.fillRect(0, 0, FW, FH); }
@@ -239,10 +235,10 @@ function drawCounters(u) {
     if (c.im.naturalWidth) fc.drawImage(c.im, x, y - 2, 46, 46);
     fc.fillStyle = '#fffaf0'; fc.font = '800 30px Inter'; fc.textBaseline = 'middle';
     fc.fillText(WY.count(Math.floor(c.v + c.r * hours)), x + 54, y + 14);
-    fc.fillStyle = '#9fe0b0'; fc.font = '600 18px Inter'; fc.fillText(`+${c.r}/時`, x + 56, y + 40);
+    fc.fillStyle = '#9fe0b0'; fc.font = '600 18px Inter'; fc.fillText(`+${c.r}/h`, x + 56, y + 40);
   });
-  fc.fillStyle = 'rgba(255,250,240,.7)'; fc.font = '500 18px "Noto Sans JP"'; fc.textAlign = 'right';
-  fc.fillText('早送り表示', x0 + w * 5 + 6, y - 24);
+  fc.fillStyle = 'rgba(255,250,240,.7)'; fc.font = '500 18px Inter'; fc.textAlign = 'right';
+  fc.fillText('Time-lapse', x0 + w * 5 + 6, y - 24);
   fc.restore(); fc.textAlign = 'left';
 }
 
@@ -264,23 +260,23 @@ function drawMap(u, t, mode) {
     if (scout.naturalWidth) { fc.globalAlpha = 1 - WY.seg(u, 4.7, 5.2); fc.drawImage(scout, x - 80, y - 180, 160, 200); fc.globalAlpha = 1; }
     // turn dial
     drawDial(u >= 4.6 ? 43 : 42, u, 4.6);
-    if (u > 5.3) tag(tx, ty - 120, '蛮族の野営地を発見', WY.seg(u, 5.3, 5.7));
-    if (u > 1.6 && u < 4.6) tag(x, y - 210, '結果は次のターン', WY.env(u, 1.8, 4.5, 0.3, 0.3));
+    if (u > 5.3) tag(tx, ty - 120, 'Barbarian camp found', WY.seg(u, 5.3, 5.7));
+    if (u > 1.6 && u < 4.6) tag(x, y - 210, 'Result arrives next turn', WY.env(u, 1.8, 4.5, 0.3, 0.3));
   } else {
     const k = E.inOutCubic(WY.seg(u, 4.9, 8.5));
     const sealed = u < 8.6;
     WYMap.drawMarch(fc, cam, home, tgt, Math.max(0.01, k), { sealed, color: '#cc303b', width: 9 });
     const [hx, hy] = WYMap.toScreen(cam, home.x, home.y);
-    tag(hx, hy - 150, '槍兵 600 ・ ターン 44 に到着', WY.seg(u, 5.0, 5.4));
+    tag(hx, hy - 150, '600 Spearmen · arrives turn 44', WY.seg(u, 5.0, 5.4));
     const [tx, ty] = WYMap.toScreen(cam, tgt.x, tgt.y);
-    if (sealed) tag(tx, ty - 140, '行き先 : 封印中', WY.seg(u, 5.6, 6.0), '#a8222c');
-    else { WYMap.drawClash(fc, cam, tgt, WY.seg(u, 8.6, 9.6)); tag(tx, ty - 140, '到着のターンが終わり、開封', WY.seg(u, 8.7, 9.0)); }
+    if (sealed) tag(tx, ty - 140, 'Destination: sealed', WY.seg(u, 5.6, 6.0), '#a8222c');
+    else { WYMap.drawClash(fc, cam, tgt, WY.seg(u, 8.6, 9.6)); tag(tx, ty - 140, 'Arrival turn ends: the seal opens', WY.seg(u, 8.7, 9.0)); }
     drawDial(u < 6.7 ? 42 : u < 8.6 ? 43 : 44, u, u < 6.7 ? 99 : u < 8.6 ? 6.7 : 8.6);
   }
 }
 function tag(x, y, text, k, color = '#12261f') {
   if (k <= 0) return;
-  fc.save(); fc.globalAlpha = k; fc.font = '700 26px "Noto Sans JP"';
+  fc.save(); fc.globalAlpha = k; fc.font = '700 26px Inter';
   const w = fc.measureText(text).width + 36;
   x = WY.clamp(x, w / 2 + 12, FW - w / 2 - 12);
   fc.fillStyle = color; fc.strokeStyle = '#f0d48a'; fc.lineWidth = 2;
@@ -295,8 +291,8 @@ function drawDial(turn, u, ringAt) {
   fc.strokeStyle = '#c9a24a'; fc.lineWidth = 4; fc.stroke();
   const ringK = WY.seg(u, ringAt, ringAt + 0.8);
   if (ringK > 0 && ringK < 1) { fc.strokeStyle = `rgba(255,210,77,${1 - ringK})`; fc.lineWidth = 6; fc.beginPath(); fc.arc(x, y, r + ringK * 50, 0, Math.PI * 2); fc.stroke(); }
-  fc.fillStyle = '#f0d48a'; fc.font = '700 18px "Noto Sans JP"'; fc.textAlign = 'center'; fc.textBaseline = 'middle';
-  fc.fillText('ターン', x, y - 26);
+  fc.fillStyle = '#f0d48a'; fc.font = '700 18px Inter'; fc.textAlign = 'center'; fc.textBaseline = 'middle';
+  fc.fillText('TURN', x, y - 26);
   fc.fillStyle = '#fffaf0'; fc.font = '800 44px Inter'; fc.fillText(String(turn), x, y + 10);
   fc.restore();
 }

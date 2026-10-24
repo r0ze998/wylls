@@ -27,14 +27,14 @@
 .aik-kicker { font:600 26px/1 var(--sans); letter-spacing:.32em; text-transform:uppercase; color:#c9a24a; }
 /* council page tokens (permutation-server/web/frontier/council/council.css), scaled for video */
 .cc { --ink:#1b2e28; --ink-2:#4c5852; --card:#fffdf6; --land:#e9e5d8; --accent:#1f6f67; --line-soft:#d5cfbd; --model-bg:#d4e8e4; --auto-bg:#ebe6d4; --warn-bg:#f6e7c6; --ok-bg:#e2efe9; --gold-bg:#f1e3b8; --gold-ink:#5a4306;
-  font:500 25px/1.45 var(--sans-jp); color:var(--ink); }
+  font:500 25px/1.45 var(--sans); color:var(--ink); }
 .cc-page { background:var(--land); border-radius:18px; overflow:hidden; box-shadow:0 40px 120px rgba(0,0,0,.6), 0 0 0 2px rgba(201,162,74,.55); }
 .cc-top { display:flex; align-items:center; gap:14px; padding:12px 24px; background:#243e38; color:#f4efe0; font-weight:650; }
 .cc-top .mk { color:#9fd8c9; }
 .cc-top .chip { background:rgba(255,255,255,.14); color:#f4efe0; }
 .cc-banner { padding:9px 24px; background:var(--warn-bg); border-bottom:3px solid #c9a43f; font-weight:700; letter-spacing:.03em; font-size:22px; }
 .cc-panel { background:var(--card); border:1.5px solid var(--line-soft); border-radius:16px; padding:18px 22px; }
-.cc h2 { font:700 30px/1.3 var(--sans-jp); margin:0 0 8px; }
+.cc h2 { font:700 30px/1.3 var(--sans); margin:0 0 8px; }
 .cc .muted { color:var(--ink-2); }
 .cc .small { font-size:19px; }
 .cc .chip { display:inline-flex; align-items:center; min-height:36px; padding:0 14px; border-radius:18px; background:var(--auto-bg); color:var(--ink); font-size:20px; font-weight:600; white-space:nowrap; }
@@ -59,15 +59,15 @@
 .cc .remembered { margin-top:6px; padding:10px 14px; background:#faf6e8; border-left:5px solid #c9a43f; border-radius:0 12px 12px 0; }
 .cc .remembered li { list-style:none; padding:3px 0; }
 .cc .caption { margin-top:8px; font-size:18px; color:var(--ink-2); }
-.cc .ex { display:inline-block; margin-left:8px; padding:0 10px; border-radius:8px; border:1.5px dashed #a0522d; color:#8a3b12; background:#fff3e6; font:700 17px/1.6 var(--sans-jp); white-space:nowrap; vertical-align:middle; }
+.cc .ex { display:inline-block; margin-left:8px; padding:0 10px; border-radius:8px; border:1.5px dashed #a0522d; color:#8a3b12; background:#fff3e6; font:700 17px/1.6 var(--sans); white-space:nowrap; vertical-align:middle; }
 .cc .redact { display:inline-block; height:.8em; border-radius:5px; background:linear-gradient(90deg,#b9c9c4,#cfdcd8); vertical-align:middle; }
 .cc .redact.gold { background:linear-gradient(90deg,#e0d2a6,#ece2c2); }
-.aik-pill { display:inline-flex; align-items:center; gap:12px; padding:10px 22px; border-radius:999px; border:1.5px solid rgba(240,212,138,.7); background:rgba(10,24,19,.82); font:600 26px var(--sans-jp); color:#f0d48a; white-space:nowrap; }
+.aik-pill { display:inline-flex; align-items:center; gap:12px; padding:10px 22px; border-radius:999px; border:1.5px solid rgba(240,212,138,.7); background:rgba(10,24,19,.82); font:600 26px var(--sans); color:#f0d48a; white-space:nowrap; }
 .aik-node { position:absolute; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; border-radius:22px; padding:20px 26px;
   background:linear-gradient(180deg, rgba(27,58,47,.97), rgba(16,36,29,.98)); border:2px solid rgba(201,162,74,.8); box-shadow: inset 0 1px 0 rgba(255,240,200,.14), 0 24px 60px rgba(0,0,0,.5); color:#fffaf0; }
 .aik-node .n { font:700 22px var(--mono); color:#c9a24a; letter-spacing:.1em; }
-.aik-node .h { font:800 44px/1.25 var(--serif-jp); margin-top:6px; white-space:nowrap; }
-.aik-node .s { font:500 24px/1.4 var(--sans-jp); color:rgba(255,250,240,.75); margin-top:8px; white-space:nowrap; }
+.aik-node .h { font:700 48px/1.15 'Cormorant Garamond', serif; margin-top:6px; white-space:nowrap; }
+.aik-node .s { font:500 24px/1.4 var(--sans); color:rgba(255,250,240,.75); margin-top:8px; white-space:nowrap; }
 `;
     document.head.appendChild(s);
   };
@@ -111,9 +111,9 @@
   };
 
   /** Kinetic text. `str`: lines split by \n; [[x]] = accent, {{x}} = gold, ((x)) = teal, <<x>> = dim. */
-  AIK.text = (parent, str, { x = 0, y = 0, w = null, size = 96, font = null, weight = 800, align = 'center', lh = 1.25, color = null, z = 10, ls = '.02em', stagger = 0.032, dur = 0.7, rise = 46, blur = 12 } = {}) => {
+  AIK.text = (parent, str, { x = 0, y = 0, w = null, size = 96, font = null, weight = 700, align = 'center', lh = 1.15, color = null, z = 10, ls = '0', stagger = 0.02, dur = 0.7, rise = 46, blur = 12 } = {}) => {
     const n = WY.el('div', { class: 'aik-t' }, parent);
-    WY.css(n, { left: x + 'px', top: y + 'px', font: `${weight} ${size}px/${lh} ${font || 'var(--serif-jp)'}`, textAlign: align, zIndex: z, letterSpacing: ls });
+    WY.css(n, { left: x + 'px', top: y + 'px', font: `${weight} ${size}px/${lh} ${font || "'Cormorant Garamond', serif"}`, textAlign: align, zIndex: z, letterSpacing: ls });
     if (w) n.style.width = w + 'px';
     if (color) n.style.color = color;
     const spans = [];
@@ -169,10 +169,10 @@
   };
 
   /** status pill in the studio's colours; kind from WYKit.STATUS, text override allowed */
-  AIK.status = (stage, kind, text, { x = 80, y = 64, lang = 'ja', size = 24 } = {}) => WYKit.status(stage, kind, lang, { x, y, size, text });
+  AIK.status = (stage, kind, text, { x = 80, y = 64, lang = 'en', size = 24 } = {}) => WYKit.status(stage, kind, lang, { x, y, size, text });
 
   /** a small "例" (illustrative) tag string */
-  AIK.ex = (txt = '例') => `<span class="ex">${txt}</span>`;
+  AIK.ex = (txt = 'illustrative') => `<span class="ex">${txt}</span>`;
 
   /** draw an animated camera shake offset */
   AIK.shake = (t, at, amp = 14, dur = 0.5) => { if (t < at || t > at + dur) return [0, 0]; const k = 1 - (t - at) / dur; return [Math.sin(t * 90) * amp * k, Math.cos(t * 77) * amp * k * 0.7]; };
@@ -200,6 +200,13 @@
 
   /** clear a 2D canvas and touch it, so the compositor always takes the new (possibly empty) frame */
   AIK.clear = (g, t = 0) => { g.setTransform(1, 0, 0, 1, 0, 0); g.globalAlpha = 1; g.clearRect(0, 0, g.canvas.width, g.canvas.height); g.fillStyle = `rgba(0,0,0,${(0.004 + 0.004 * ((t * 7.31) % 1)).toFixed(5)})`; g.fillRect(0, 0, 2, 2); };
+
+  /** piecewise-linear map of x through knots xs -> ys (xs ascending; flat segments allowed) */
+  AIK.remap = (x, xs, ys) => {
+    if (x <= xs[0]) return ys[0] + (x - xs[0]);
+    for (let i = 1; i < xs.length; i++) if (x <= xs[i]) { const d = xs[i] - xs[i - 1]; return d <= 0 ? ys[i] : ys[i - 1] + (ys[i] - ys[i - 1]) * (x - xs[i - 1]) / d; }
+    return ys[ys.length - 1] + (x - xs[xs.length - 1]);
+  };
 
   window.AIK = AIK;
 })();

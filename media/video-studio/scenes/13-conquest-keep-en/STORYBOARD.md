@@ -1,16 +1,16 @@
-# 13 conquest-keep-ja (16:9, 55 s, 30 fps, epic)
+# 13 conquest-keep-en (16:9, 55 s, 30 fps, epic)
 
-The recorded own1 capture (FACTS §4; docs/pitch/DEMO_SCRIPT.md; SUBMISSION §5). Disclosure pills on screen from 6.3 s to 38 s and again with the standings: 人間が操作したローカルデモ / AI・ボットなし / 72ターンの時計送りあり.
+The recorded own1 capture (FACTS §4; docs/pitch/DEMO_SCRIPT.md; SUBMISSION §5). Disclosure pills on screen through the recorded beats and with the standings: "Human-operated local demo" / "No AI, no bots" / "72-turn clock advance".
 
 | t (s) | Beat |
 |---|---|
-| 0–6 | Title 「砦を奪う」「own1 の記録」 with the Aster and Fjordal stage figures (no names) |
-| 6–19 | Aster sends a sealed 500-Spearman march to Fjordal's keep (soldier card, walking Aster motion sprite, turn chip 40→43) |
-| 19–24.2 | Turn 43: clash at the keep |
-| 24.2–31 | Full disclosure card: the clock was advanced 72 turns on the local test chain; map desaturates, the turn chip spins |
-| 31–38.5 | Turn 110: the keep transfers; the game's capture VFX atlas (aster, 8 cols, 24 fps) on the keep tile, the tile and pennant flip to Aster, the Aster victory clip |
-| 38.5–45.5 | Rules [CODE badge]: 72 turns (12 h) of holding takes a keep (real client keep card from assets/ui/panel-keep-ja, labelled as test display data, sentence highlighted); only ring-4 Free Cities and outposts can be besieged |
-| 45.5–50.5 | own1 standings at the end of the recording: Aster 10, Fjordal 8 provinces; season still running, no winner or payout; test-USDC prize panel |
-| 50.5–55 | End card |
+| 0–5.4 | "The own1 recording / Taking a Keep / From the recorded own1 demo", the Aster and Fjordal stage figures (no names) |
+| 5.4–18.2 | "Aster sends a sealed march of 500 Spearmen on Fjordal's keep." Spearman card, walking Aster motion sprite with a seal, turn chip 40→43 |
+| 18.2–23.2 | "Turn 43: the clash at the keep." |
+| 23.2–31.2 | Disclosure card "▶▶ +72 · The clock was advanced 72 turns. Fast-forwarded on the local test chain — not real time." Map desaturates, the turn chip spins |
+| 31.2–38.6 | "Turn 110: the keep is Aster's." Capture VFX atlas (aster) on the keep tile, tile and pennant flip, Aster victory clip |
+| 38.6–46 | [CODE badge] "Hold the keep's tile for 72 turns (12 h) and the keep is yours." + "Sieges: only ring-4 Free Cities and outposts." Real client keep panel (assets/ui/panel-keep-scrolled-en, tagged "Real client keep panel · test values"), 72-turn sentence then the 61/72 contest bar highlighted |
+| 46–50.6 | own1 standings at the end of the recording: Aster 10, Fjordal 8 provinces; season still running, no winner, no payout; test-USDC prize panel |
+| 50.6–55 | End card (en) |
 
 The hex map is the studio's stylised world (WYMap), not a capture of the own1 map.

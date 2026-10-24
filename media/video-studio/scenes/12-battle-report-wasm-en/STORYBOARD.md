@@ -1,9 +1,9 @@
-# 12 battle-report-wasm-ja (16:9, 45 s, 30 fps, tech)
+# 12 battle-report-wasm-en (16:9, 45 s, 30 fps, tech)
 
 | t (s) | Beat | Facts |
 |---|---|---|
-| 0–8.6 | A march meets a keep tile and clashes; the real client's clash report (assets/ui/report-verified-ja, cropped above its verdict line, labelled 「実際のWebクライアントの画面(テスト用の表示データ)」) slides in; the 「このブラウザで確かめる」 button is highlighted. Title 「戦闘報告は、ブラウザで検算できる。」 | §3 battle reports re-run in the browser [LOCAL RUN] |
-| 8.6–17 | Pipeline: rules kernel (Rust, no_std) → Solana program (the only judge) and → frontier-wasm → your browser (`resolve_clash()`); the public record flows from the program to the browser. 「同じルールを、ブラウザの中で動かす。」 | §7 architecture |
-| 17–33.2 | Recreated proof panel (labelled 再現イメージ) with the client's six real step labels (screens/report.mjs STEP_TEXT) ticking 未確認 → 確認中 → 済; digest comparison (values labelled 例); verdict 「一致」 with the client's verdict text and a 一致 stamp | §3: six checks and a lower Match |
-| 33.2–40.6 | Honest card: recomputation, not an audit; own1 had six passing checks and a lower "Match" while the upper "Unverified" badge stayed stale | §3, §6, §11.13, §11.18 |
-| 40.6–45 | End card | |
+| 0–8.6 | A march reaches a keep tile and clashes; the real client's clash report (assets/ui/report-verified-en, cropped above its verdict line, tagged "Real web client · test fixture data") slides in; the "Verify in this browser" button is highlighted. Title "Every battle report can be recomputed in your browser." | §3 [LOCAL RUN] |
+| 8.6–17 | Pipeline: Rules kernel (Rust, no_std) → Solana program (the only judge of outcomes) and → frontier-wasm → Your browser (`resolve_clash()`); public record flows from the program to the browser. "The same rules, running in your browser." | §7 |
+| 17–33.2 | Recreated "Proof details" panel (tagged "Recreated view") with the client's six real English step labels (Not checked → Verifying… → Passed); digest comparison (example values); verdict "Match: the outcome recomputed in this browser is the chain's record"; MATCH stamp | §3: six checks, lower Match |
+| 33.2–40.6 | Honest card: a recomputation, not an audit; own1 had six passing checks and a lower "Match" while the upper "Unverified" badge was stale | §11.13, §11.18 |
+| 40.6–45 | End card (en) | |

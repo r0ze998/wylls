@@ -1,14 +1,14 @@
-# 20 評議会と攻撃命令 (JA, 16:9, 52 s, 30 fps, tension)
+# 20 Council and Strike Order (EN, 16:9, 56.5 s, 30 fps, tension)
 
 | t (s) | Beat | Source |
 |---|---|---|
-| 0–5.6 | Title over the hex world: 「評議会と、攻撃命令。」 | FACTS §1 (second showpiece) |
-| 5.6–12.2 | ① コードが目標を3つまで出す — map pins (illustration) + real council page crop (fixture data from the screenshot stage) with the three options highlighted | FACTS §5 council; assets/ui/council-motions-ja |
-| 12.2–20 | ② 動議・演説・投票 — real council page motion row (synthetic fixture data, labelled as such), citizens' seats, ballots into a box | FACTS §5; council-motions-ja |
-| 20–28 | ③ 2票以上かつ他のどの案より多い — tally illustration (adopted / tie → not adopted), labelled 図解 | FACTS §5 |
-| 28–35.6 | ④ 採択された目標は封印、攻撃ターンの2ターン後に開く — wax seal + S → S+2 timeline (図解) | FACTS §5 |
-| 35.6–42 | 評議会はチェーンの外 / AI市民は公に断れる | FACTS §5 |
-| 42–47.6 | 「攻撃命令の採択は、まだ確かめられた成果ではない。」 smoke-b3: 9 councils closed without quorum; formal A/B pending | FACTS §5 (see report note) |
-| 47.8–52 | End card | |
+| 0–5.6 | "Strike Order" title over the hex world; "Citizens of a nation debate their next target." | FACTS §1, §5 |
+| 5.6–12.2 | Step 1 · Propose: map pins (illustration) + real council page crop (EN, test-fixture data) with the three options highlighted | FACTS §5; assets/ui/council-motions-en |
+| 12.2–20 | Step 2 · Debate: real motion row (fixture data, labelled so), citizen seats, ballots into a box | FACTS §5 |
+| 20–28 | Step 3 · Adopt: ≥ 2 votes and more than any other option; tally illustration (adopted / tie → not adopted) | FACTS §5 |
+| 28–35.6 | Step 4 · Seal: wax seal on the order; Adopted → Strike turn S → Opens S+2 | FACTS §5 |
+| 35.6–44 | Off-chain (chain enforces nothing) / an AI citizen may decline in public | FACTS §5 |
+| 44–52 | "An adopted Strike Order is not yet a confirmed result." smoke-b3: 9 councils, no quorum; formal A/B to come | FACTS §5 |
+| 52.2–56.5 | End card "Debate. Decide. Seal." | |
 
-Badge: code — 「コード実装済み・正式な評価はこれから」. Never shows the council-closed screenshot (its adoption is synthetic fixture data and would imply an adoption).
+Badge: code, "Built in code · formal evaluation pending". Steps 3–4 carry "Illustration of the rules, not a recorded run". The council-closed screenshot is not used (its adoption is synthetic fixture data).

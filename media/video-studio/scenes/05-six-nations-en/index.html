@@ -1,4 +1,4 @@
-<!doctype html><html><head><meta charset="utf-8"><title>05 six nations</title>
+<!doctype html><html><head><meta charset="utf-8"><title>Six Nations</title>
 <link rel="stylesheet" href="../../lib/wy.css">
 <script src="../../lib/wy.js"></script><script src="../../lib/wy-audio.js"></script>
 <script src="../../lib/wy-map.js"></script><script src="../../lib/wy-kit.js"></script>
@@ -38,9 +38,9 @@ WY.scene({
     open.root = WY.el('div', { class: 'beat' }, stage);
     open.cv = WY.canvas(open.root, 1920, 1080); open.ctx = open.cv.getContext('2d');
     open.shade = LK.div(open.root, '', { width: '1920px', height: '1080px', background: 'radial-gradient(ellipse at 50% 50%, rgba(5,10,8,.35) 0%, rgba(5,10,8,.62) 70%)' });
-    open.title = LK.lines(open.root, ['六つの国'], { left: '0px', width: '1920px', top: '360px', textAlign: 'center' }, { font: '900 168px/1.1 var(--serif-jp)', color: '#fffaf0', textShadow: '0 8px 40px rgba(0,0,0,.7)', letterSpacing: '.12em' });
-    open.en = LK.div(open.root, 'SIX NATIONS · ONE MAP', { left: '0px', width: '1920px', top: '580px', textAlign: 'center', font: '700 40px Cinzel, serif', letterSpacing: '.4em', color: '#f0d48a', textShadow: '0 2px 16px rgba(0,0,0,.8)' });
-    open.sub = LK.div(open.root, '大協約を囲む、ひとつの地図', { left: '0px', width: '1920px', top: '650px', textAlign: 'center', font: '600 40px var(--sans-jp)', color: 'rgba(255,250,240,.88)', textShadow: '0 2px 14px rgba(0,0,0,.9)' });
+    open.title = LK.lines(open.root, ['SIX NATIONS'], { left: '0px', width: '1920px', top: '370px', textAlign: 'center' }, { font: '900 156px/1.1 Cinzel, serif', color: '#fffaf0', textShadow: '0 8px 40px rgba(0,0,0,.7)', letterSpacing: '.06em' });
+    open.en = LK.div(open.root, '六つの国', { left: '0px', width: '1920px', top: '570px', textAlign: 'center', font: '700 34px Cinzel, serif', letterSpacing: '.4em', color: '#f0d48a', textShadow: '0 2px 16px rgba(0,0,0,.8)' });
+    open.sub = LK.div(open.root, 'One shared map around The Concord.', { left: '0px', width: '1920px', top: '640px', textAlign: 'center', font: '600 42px Inter, sans-serif', color: 'rgba(255,250,240,.88)', textShadow: '0 2px 14px rgba(0,0,0,.9)' });
 
     // ---------- six beats
     for (let f = 0; f < 6; f++) {
@@ -51,13 +51,13 @@ WY.scene({
       b.ghost = LK.div(b.root, LK.EN[f].toUpperCase(), { left: '0px', top: '760px', font: '900 330px/1 Cinzel, serif', color: 'rgba(255,255,255,.05)', whiteSpace: 'nowrap', letterSpacing: '.06em' });
       b.col = WY.el('div', { class: 'wy-abs' }, b.root); WY.css(b.col, { width: '1920px', height: '1080px' });
       b.idx = LK.div(b.col, `<span style="display:inline-block;vertical-align:middle">${WY.crest(f, 104)}</span><span style="display:inline-block;vertical-align:middle;margin-left:26px;font:700 30px Cinzel,serif;letter-spacing:.3em;color:#f0d48a">0${f + 1} <span style="opacity:.55">/ 06</span></span>`, { left: '1010px', top: '128px' });
-      b.name = LK.lines(b.col, [LK.JA[f]], { left: '1000px', top: '262px' }, { font: '900 132px/1.12 var(--serif-jp)', color: '#fffaf0', textShadow: '0 6px 30px rgba(0,0,0,.45)' });
-      b.en = LK.div(b.col, LK.EN[f].toUpperCase(), { left: '1012px', top: '426px', font: '700 40px/1 Cinzel, serif', letterSpacing: '.34em', color: N[f].light });
+      b.name = LK.lines(b.col, [LK.EN[f].toUpperCase()], { left: '1004px', top: '270px' }, { font: '900 124px/1.1 Cinzel, serif', color: '#fffaf0', textShadow: '0 6px 30px rgba(0,0,0,.45)', letterSpacing: '.03em' });
+      b.en = LK.div(b.col, LK.JA[f], { left: '1012px', top: '426px', font: '700 34px/1 var(--sans-jp)', letterSpacing: '.3em', color: N[f].light, opacity: 0.85 });
       b.rule = LK.div(b.col, '', { left: '1012px', top: '500px', width: '780px', height: '2px', background: 'linear-gradient(90deg, #f0d48a, rgba(240,212,138,0))', transformOrigin: '0 0' });
-      b.doc = LK.div(b.col, `${LK.pill('教義', { size: 26 })}<span style="font:900 76px/1 var(--serif-jp);margin-left:24px;vertical-align:middle;color:#fffaf0">${LK.DOC[f]}</span><span style="font:italic 600 40px/1 'Cormorant Garamond',serif;margin-left:22px;vertical-align:middle;color:${N[f].light};opacity:.9">${LK.DOC_EN[f]}</span>`, { left: '1012px', top: '536px', whiteSpace: 'nowrap' });
-      b.qbar = LK.div(b.col, '', { left: '1012px', top: '668px', width: '4px', height: '140px', background: '#f0d48a', borderRadius: '2px' });
-      b.quote = LK.lines(b.col, LK.PITCH[f], { left: '1044px', top: '660px' }, { font: '600 42px/1.62 var(--sans-jp)', color: '#fffaf0', textShadow: '0 2px 12px rgba(0,0,0,.6)' });
-      b.cap = LK.div(b.col, 'ゲーム内の教義テキストより ・ 一部の仕組みはまだ実装されていません', { left: '1044px', top: '840px', font: '500 22px/1.4 var(--sans-jp)', color: 'rgba(255,250,240,.6)' });
+      b.doc = LK.div(b.col, `${LK.pill('DOCTRINE', { size: 22, font: 'Inter, sans-serif' })}<span style="font:700 68px/1 'Cormorant Garamond',serif;margin-left:24px;vertical-align:middle;color:#fffaf0">${LK.DOC_EN[f]}</span><span style="font:600 30px/1 var(--sans-jp);margin-left:18px;vertical-align:middle;color:${N[f].light};opacity:.8">${LK.DOC[f]}</span>`, { left: '1012px', top: '536px', whiteSpace: 'nowrap' });
+      b.qbar = LK.div(b.col, '', { left: '1012px', top: '656px', width: '4px', height: '176px', background: '#f0d48a', borderRadius: '2px' });
+      b.quote = LK.lines(b.col, LK.PITCH_EN[f], { left: '1044px', top: '648px' }, { font: '600 40px/1.5 Inter, sans-serif', color: '#fffaf0', textShadow: '0 2px 12px rgba(0,0,0,.6)' });
+      b.cap = LK.div(b.col, 'Doctrine text from the game · some of these mechanics are not built yet', { left: '1044px', top: '864px', font: '500 22px/1.4 Inter, sans-serif', color: 'rgba(255,250,240,.6)' });
       beats.push(b);
     }
 
@@ -65,21 +65,21 @@ WY.scene({
     fin.root = WY.el('div', { class: 'beat' }, stage);
     fin.cv = WY.canvas(fin.root, 1920, 1080); fin.ctx = fin.cv.getContext('2d');
     fin.figs = LK.KEYS.map(k => LK.figure(k));
-    fin.title = LK.lines(fin.root, ['六つの国。ひとつの地図。'], { left: '0px', width: '1920px', top: '118px', textAlign: 'center' }, { font: '900 96px/1.2 var(--serif-jp)', color: '#fffaf0', textShadow: '0 6px 30px rgba(0,0,0,.8)', letterSpacing: '.04em' });
+    fin.title = LK.lines(fin.root, ['Six nations. One map.'], { left: '0px', width: '1920px', top: '124px', textAlign: 'center' }, { font: '700 100px/1.15 "Cormorant Garamond", serif', color: '#fffaf0', textShadow: '0 6px 30px rgba(0,0,0,.8)' });
     fin.cols = [0, 1, 2, 3, 4, 5].map(f => {
       const pct = [15.6, 15.7, 16.9, 17.4, 17.4, 17.0][f];
-      return LK.div(fin.root, `<div style="display:flex;align-items:center;justify-content:center;gap:10px">${WY.crest(f, 46)}<span style="font:700 30px var(--sans-jp);color:#fffaf0">${LK.JA[f]}</span></div><div style="margin-top:10px;font:800 46px Inter,sans-serif;color:${f === 4 ? '#e8ecea' : N[f].fill};text-shadow:0 2px 12px rgba(0,0,0,.8)">${pct.toFixed(1)}<span style="font-size:26px;opacity:.8">%</span></div>`, { left: 175 + f * 270 - 125 + 'px', top: '734px', width: '250px', textAlign: 'center' });
+      return LK.div(fin.root, `<div style="display:flex;align-items:center;justify-content:center;gap:10px">${WY.crest(f, 46)}<span style="font:700 30px Cinzel,serif;letter-spacing:.06em;color:#fffaf0">${LK.EN[f]}</span></div><div style="margin-top:10px;font:800 46px Inter,sans-serif;color:${f === 4 ? '#e8ecea' : N[f].fill};text-shadow:0 2px 12px rgba(0,0,0,.8)">${pct.toFixed(1)}<span style="font-size:26px;opacity:.8">%</span></div>`, { left: 175 + f * 270 - 125 + 'px', top: '734px', width: '250px', textAlign: 'center' });
     });
-    fin.line = LK.div(fin.root, 'シミュレーションでは、どの国もおよそ6回に1回勝つ', { left: '0px', width: '1920px', top: '876px', textAlign: 'center', font: '700 42px var(--sans-jp)', color: '#fffaf0', textShadow: '0 2px 14px rgba(0,0,0,.9)' });
-    fin.note = LK.div(fin.root, '1,500シーズン分のバランス・シミュレーション(1万の模擬ウォレット、想定した行動)。人のプレイでの計測ではありません。', { left: '0px', width: '1920px', top: '942px', textAlign: 'center', font: '500 24px var(--sans-jp)', color: 'rgba(255,250,240,.7)' });
-    sim = WYKit.status(stage, 'sim', 'ja', { x: 80, y: 60, text: 'シミュレーター出力(想定した行動)' });
+    fin.line = LK.div(fin.root, 'In simulation, every nation wins about 1 season in 6.', { left: '0px', width: '1920px', top: '872px', textAlign: 'center', font: '700 42px Inter, sans-serif', color: '#fffaf0', textShadow: '0 2px 14px rgba(0,0,0,.9)' });
+    fin.note = LK.div(fin.root, 'Balance simulator: 1,500 paired seasons, 10,000 simulated wallets, assumed behaviour. Not measured with people.', { left: '0px', width: '1920px', top: '938px', textAlign: 'center', font: '500 24px Inter, sans-serif', color: 'rgba(255,250,240,.7)' });
+    sim = WYKit.status(stage, 'sim', 'en', { x: 80, y: 60, text: 'Simulator output (assumed behaviour)' });
     sim.node.style.zIndex = 30;
 
     // ---------- overlays
     fxc = WY.canvas(stage, 1920, 1080); fxc.style.zIndex = 20; fx = fxc.getContext('2d');
     ov = LK.overlays(stage, 45, { vignette: 0.55 }); ov.g.style.display = 'none';
     flash = WYKit.flash(stage, { color: '#fff8e8', z: 50 });
-    end = WYKit.endCard(stage, { lang: 'ja', line: '国をひとつ選ぶ。それがあなたの姿になる。' });
+    end = WYKit.endCard(stage, { lang: 'en', line: 'Six nations. One map. Pick yours.' });
   },
 
   render(t) {
@@ -92,8 +92,8 @@ WY.scene({
       const ap = tl => WY.seg(t, 0.1 + tl.ring * 0.16, 0.7 + tl.ring * 0.16);
       WYMap.draw(open.ctx, world, cam, { t, appear: ap, wash: () => 0.3, fog: tl => tl.ring >= 8 ? 0.85 * ap(tl) : 0 });
       WY.revealChars(open.title.spans, t - 0.9, { stagger: 0.09, dur: 0.7, rise: 50, blur: 14 });
-      LK.show(open.en, t, 1.5, 99, { rise: 16 });
-      LK.show(open.sub, t, 1.9, 99, { rise: 16 });
+      LK.show(open.en, t, 1.2, 99, { rise: 16 });
+      LK.show(open.sub, t, 1.3, 99, { rise: 16 });
       open.shade.style.opacity = WY.seg(t, 0.4, 1.6);
     }
     // ---------------- nation beats

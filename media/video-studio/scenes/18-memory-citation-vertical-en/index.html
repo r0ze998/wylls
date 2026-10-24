@@ -1,0 +1,167 @@
+<!doctype html><html><head><meta charset="utf-8"><title>18 Memory is cited</title>
+<link rel="stylesheet" href="../../lib/wy.css">
+<script src="../../lib/wy.js"></script><script src="../../lib/wy-audio.js"></script><script src="../../lib/wy-kit.js"></script>
+<script src="aik.js"></script>
+<style>
+.logrow { width:900px; padding:22px 28px; border-radius:16px; background:#0a1411; border:1.5px solid rgba(159,216,201,.35); font:600 32px/1.5 var(--mono); color:#bfe3d9; box-shadow:0 20px 50px rgba(0,0,0,.5); }
+.logrow .k { color:#f0d48a; }
+.logrow .h { display:block; font:600 24px var(--sans); color:rgba(191,227,217,.6); margin-bottom:8px; letter-spacing:.05em; }
+.epi { width:900px; padding:24px 30px; border-radius:16px; background:#faf6e8; border-left:8px solid #c9a43f; color:#1b2e28; font:600 38px/1.55 var(--sans); box-shadow:0 20px 50px rgba(0,0,0,.5); }
+.epi .h { display:block; font:700 26px var(--sans); color:#4c5852; margin-bottom:8px; }
+.ex { display:inline-block; margin-left:10px; padding:0 12px; border-radius:8px; border:2px dashed #a0522d; color:#8a3b12; background:#fff3e6; font:700 24px/1.6 var(--sans); vertical-align:middle; }
+.who { display:flex; gap:16px; justify-content:center; }
+.who span { padding:12px 26px; border-radius:999px; font:800 36px var(--sans); white-space:nowrap; }
+.who .code { background:#2f6b4a; color:#e9ffe9; }
+.who .model { background:rgba(143,36,24,.6); color:#ffd9d4; text-decoration:line-through; text-decoration-thickness:4px; }
+.pool { position:absolute; width:56px; height:14px; border-radius:7px; background:rgba(240,212,138,.35); }
+.mem { width:900px; padding:26px 30px; border-radius:20px; background:#fffdf6; color:#1b2e28; box-shadow:0 30px 80px rgba(0,0,0,.55), 0 0 0 2px rgba(201,162,74,.6); }
+.mem .t { font:800 34px var(--sans); }
+.mem .t small { font:600 24px var(--mono); color:#4c5852; margin-left:10px; }
+.mem ul { margin:14px 0 0; padding:0; }
+.mem li { list-style:none; display:flex; align-items:center; gap:16px; padding:9px 12px; border-radius:12px; font:700 26px var(--mono); color:#4c5852; }
+.mem li .bar { height:18px; border-radius:9px; background:linear-gradient(90deg,#e0d2a6,#ece2c2); }
+.mem li.cited { background:#e8dcf0; box-shadow:inset 0 0 0 3px #7a4a9c; color:#4a2a63; }
+.mem li .chip { margin-left:auto; padding:4px 16px; border-radius:16px; background:#7a4a9c; color:#fff; font:800 24px var(--sans); white-space:nowrap; }
+.rule { width:900px; padding:26px 32px; border-radius:20px; background:rgba(10,24,19,.88); border:2px solid rgba(240,212,138,.7); font:700 40px/1.55 var(--sans); color:#fffaf0; text-align:center; }
+.rule .no { color:#ff9e8f; }
+.real { width:900px; padding:26px 30px; border-radius:20px; background:#fffdf6; color:#1b2e28; box-shadow:0 30px 80px rgba(0,0,0,.55), 0 0 0 3px #1f6f67; font:600 36px/1.5 var(--sans); }
+.real .hd { display:flex; flex-wrap:wrap; gap:12px; align-items:center; font:800 36px var(--sans); }
+.real .tag { padding:2px 14px; border-radius:14px; background:#1f6f67; color:#fff; font:800 24px var(--sans); }
+.real .chip { padding:2px 14px; border-radius:14px; background:#d4e8e4; color:#0e4a43; font:800 24px var(--sans); }
+.real .src { font:600 26px/1.45 var(--sans); color:#4c5852; margin-top:6px; }
+.real .lab { font:800 28px var(--sans); color:#4c5852; margin-top:16px; }
+.real .ch { margin-top:4px; padding:10px 14px; border-radius:12px; background:#f1f8f6; border:2px solid #1f6f67; }
+.real .rm { margin-top:4px; padding:10px 14px; border-left:7px solid #c9a43f; background:#faf6e8; border-radius:0 12px 12px 0; }
+.mini { font:500 30px/1.5 var(--sans); color:rgba(255,250,240,.72); text-align:center; }
+</style>
+</head><body><script>
+const W = 1080, H = 1920;
+const { seg, env, ease: E, clamp, lerp } = WY;
+let bg, ov, dust, cv, g, T = {}, N = {}, pools = [], badge, end;
+const POOL = 42;
+
+WY.scene({
+  width: W, height: H, duration: 41.5, fps: 30,
+  setup(stage) {
+    AIK.css();
+    bg = AIK.bg(stage, { tint: '26,40,36' });
+    cv = WY.canvas(stage, W, H); cv.style.zIndex = 5; g = cv.getContext('2d');
+
+    // A
+    T.kick = AIK.text(stage, 'AI CITIZEN MEMORY', { x: 0, y: 560, w: W, size: 36, font: 'Cinzel, serif', weight: 700, ls: '.3em', color: '#c9a24a', stagger: 0.03 });
+    T.a1 = AIK.text(stage, 'We never say\n“it remembers.”', { x: 0, y: 650, w: W, size: 112, weight: 700, lh: 1.15 });
+    T.a2 = AIK.text(stage, 'We say\n“it [[cited]].”', { x: 0, y: 1010, w: W, size: 124, weight: 700, lh: 1.15 });
+
+    // B
+    T.b1 = AIK.text(stage, 'The [[code]] writes\nthe memory lines.', { x: 0, y: 290, w: W, size: 92, lh: 1.1 });
+    N.log = AIK.box(stage, '<div class="logrow"><span class="h">public record (the herald’s log)</span><span class="k">CLASH</span>  turn 41  (-3,2)<br>engagements 2</div>', { x: 90, y: 620, z: 12 });
+    N.epi = AIK.box(stage, '<div class="epi"><span class="h">episode line (code template)<span class="ex">illustrative</span></span>At turn 41 your army at (-3,2) fought the camp: you lost 30, they lost 80; the camp held.</div>', { x: 90, y: 960, z: 12 });
+    N.who = AIK.box(stage, '<div class="who"><span class="code">written by code</span><span class="model">the model</span></div>', { x: 0, y: 1400, w: W, z: 12 });
+    N.bn = AIK.box(stage, '<div class="mini">Numbers and coordinates are illustrative.</div>', { x: 0, y: 1500, w: W, z: 12 });
+
+    // C
+    T.c1 = AIK.text(stage, 'The model sees only\n[[selected lines]].', { x: 0, y: 290, w: W, size: 92, lh: 1.1 });
+    const r = WY.rng(5);
+    for (let i = 0; i < POOL; i++) { const p = WY.el('div', { class: 'pool' }, stage); p.style.zIndex = 11; p.style.opacity = 0; p.dataset.x = 90 + (i % 7) * 130 + r() * 30; p.dataset.y = 620 + Math.floor(i / 7) * 46 + r() * 10; p.style.width = (40 + r() * 70) + 'px'; pools.push(p); }
+    N.poolLab = AIK.box(stage, '<div class="mini">up to 200 per AI, all from public records</div>', { x: 0, y: 920, w: W, z: 12 });
+    N.mem = AIK.box(stage, `<div class="mem"><div class="t">Remembered<small>≤ 750 tokens</small></div><ul>${[...Array(8)].map((_, i) => `<li data-i="${i}">M${i + 1}<span class="bar" style="width:${[560, 470, 610, 420, 530, 590, 450, 500][i]}px"></span></li>`).join('')}</ul></div>`, { x: 90, y: 1000, z: 12 });
+    N.cn = AIK.box(stage, '<div class="mini">top 8 + open grievances (up to 3) + latest 3</div>', { x: 0, y: 1580, w: W, z: 12 });
+
+    // D
+    T.d1 = AIK.text(stage, 'A line it names\nis a [[citation]].', { x: 0, y: 290, w: W, size: 92, lh: 1.1 });
+    N.rule = AIK.box(stage, '<div class="rule">Shown, and named.<br>That is all.<br><span class="no">Not necessarily the reason.</span></div>', { x: 90, y: 1340, z: 12 });
+
+    N.real = AIK.box(stage, `<div class="real"><div class="hd"><span class="tag">REAL</span>AI citizen Noe Iby<span class="chip">by: model</span></div>
+      <div class="src">run slice-4 (local, 2026-10-04) · bell-40 decision record<br>(“bell” is the old word for turn)</div>
+      <div class="lab">Chose</div><div class="ch">March H1 (200 troops) to a barbarian camp + train spearmen</div>
+      <div class="lab">Remembered (cited by the model)</div><div class="rm">At bell 18 your sawmill was finished.<br>At bell 27 your farm was finished.</div></div>`, { x: 90, y: 580, z: 12 });
+    N.rule2 = AIK.box(stage, '<div class="rule" style="font-size:40px">It cited two build records.<br>It chose a march.<br><span class="no">A citation is not a cause.</span></div>', { x: 90, y: 1160, z: 12 });
+
+    // E
+    T.e1 = AIK.text(stage, 'Memory ends\nwith the [[season]].', { x: 0, y: 700, w: W, size: 108, lh: 1.15 });
+    N.en = AIK.box(stage, '<div class="mini" style="font-size:40px">And it is never shared between AIs.</div>', { x: 0, y: 1060, w: W, z: 12 });
+
+    { const ln = T.a1.node.querySelectorAll('.ln')[1]; const r = [...ln.querySelectorAll('.wy-ch')].map(e => e.getBoundingClientRect()); N.st = { x: r[0].left - 6, y: (r[0].top + r[0].bottom) / 2 + 4, w: r[r.length - 1].right - r[0].left + 12 };
+      const acc = [...T.a2.node.querySelectorAll('.acc')].map(e => e.getBoundingClientRect()); N.ul = { x: acc[0].left, y: acc[0].bottom + 2, w: acc[acc.length - 1].right - acc[0].left }; }
+    badge = AIK.status(stage, 'local', 'Ran on a local test chain', { x: 90, y: 236, size: 28 });
+    badge.node.style.zIndex = 30;
+    dust = WYKit.dust(stage, { count: 40, color: '255,230,180', z: 8, speed: 9 });
+    ov = AIK.overlay(stage);
+    end = WYKit.endCard(stage, { lang: 'en', line: 'Not “remembers.” Cited.', sub: 'A strategy game where people and AI citizens can fight for one map' });
+  },
+
+  render(t) {
+    bg.render(t, { glow: 0.5, cy: 0.5 });
+    ov.render(t); dust.render(t, 0.45);
+    AIK.clear(g, t);
+
+    const u = AIK.remap(t, [0, 24.4, 33, 37.5, 41.5], [0, 24.4, 30.5, 34, 38]);
+    // A 0–7.4
+    T.kick.render(u - 0.2, 6.4);
+    T.a1.render(u - 0.4, 6.6); T.a1.node.style.opacity = u < 0.3 || u > 8.2 ? 0 : 1 - 0.45 * seg(u, 4.0, 4.6);
+    if (u > 3.6 && u < 7.4) { const k = seg(u, 3.7, 4.1, E.outCubic), a = 1 - seg(u, 6.9, 7.3); g.fillStyle = `rgba(230,80,70,${0.9 * a})`; g.fillRect(N.st.x, N.st.y, N.st.w * k, 10); }
+    T.a2.render(u - 4.2, 2.8); T.a2.node.style.transform = `scale(${1 + 0.04 * seg(u, 4.2, 7.4)})`;
+    if (u > 4.0 && u < 7.6) { // underline sweep under 'cited'
+      const k = seg(u, 4.9, 5.6, E.outCubic), a = 1 - seg(u, 7.0, 7.4);
+      g.fillStyle = `rgba(240,212,138,${0.85 * a})`; g.fillRect(N.ul.x, N.ul.y, N.ul.w * k, 8);
+    }
+
+    // B 7.4–14
+    T.b1.render(u - 7.6, 6.0);
+    AIK.show(N.log, u, 8.2, 13.6, { y: 40 });
+    AIK.show(N.epi, u, 9.4, 13.6, { y: 40 });
+    if (u > 8.9 && u < 14) { const a = 1 - seg(u, 13.6, 14.0); g.globalAlpha = a; AIK.wire(g, [[540, 820], [540, 950]], seg(u, 9.0, 9.5, E.outCubic), u); g.globalAlpha = 1; }
+    AIK.show(N.who, u, 10.6, 13.6);
+    AIK.show(N.bn, u, 11.2, 13.6);
+
+    // C 14–21
+    T.c1.render(u - 14.1, 6.4);
+    const pick = new Set([1, 5, 9, 12, 17, 22, 30, 36]);
+    pools.forEach((p, i) => {
+      const k = seg(u, 14.4 + i * 0.015, 14.9 + i * 0.015, E.outCubic);
+      const x = +p.dataset.x, y = +p.dataset.y;
+      let o = k * 0.9, tx = x, ty = y, sc = 1;
+      if (pick.has(i)) { const idx = [...pick].indexOf(i); const m = seg(u, 16.0 + idx * 0.08, 16.8 + idx * 0.08, E.inOutCubic); tx = lerp(x, 220, m); ty = lerp(y, 1095 + idx * 56, m); o = k * (1 - seg(u, 16.8 + idx * 0.08, 17.0 + idx * 0.08)); p.style.background = 'rgba(255,210,77,.9)'; }
+      else o *= 1 - 0.7 * seg(u, 16.0, 16.6);
+      o *= 1 - seg(u, 20.4, 20.8);
+      if (u > 21) o = 0;
+      p.style.opacity = o; p.style.transform = `translate(${tx}px, ${ty}px) scale(${sc})`; p.style.left = '0px'; p.style.top = '0px';
+    });
+    AIK.show(N.poolLab, u, 14.8, 16.4);
+    // the Remembered panel stays through D
+    { const e = AIK.show(N.mem, u, 16.6, 24.2, { y: 40 });
+      if (e) { const lis = N.mem.querySelectorAll('li'); lis.forEach((li, i) => { li.style.opacity = seg(u, 16.8 + i * 0.08, 17.2 + i * 0.08); const cited = i === 2 && u > 22.4; li.classList.toggle('cited', cited); let chip = li.querySelector('.chip'); if (cited && !chip) { chip = WY.el('span', { class: 'chip', text: 'cited' }, li); } if (!cited && chip) chip.remove(); if (chip) chip.style.transform = `scale(${seg(u, 22.4, 22.8, E.outBack)})`; }); }
+      // move the panel up a bit in D
+      if (e) N.mem.style.transform += ` translateY(${-260 * seg(u, 21.0, 21.9, E.inOutCubic)}px)`;
+    }
+    AIK.show(N.cn, u, 17.6, 20.6);
+
+    // D 21–30.5 : an illustrative citation, then a real one from slice-4
+    T.d1.render(u - 21.1, 9.0);
+    N.rule.style.opacity = 0;
+    AIK.show(N.real, u, 24.5, 30.1, { y: 40 });
+    AIK.show(N.rule2, u, 26.0, 30.1, { y: 40 });
+
+    // E 30.5–34
+    T.e1.render(u - 30.6, 3.0);
+    AIK.show(N.en, u, 31.3, 33.7);
+
+    badge.render(u, 7.6, 33.7);
+    end.render(t - 37.5);
+  },
+
+  audio(A0) {
+    const M = x => AIK.remap(x, [0, 24.4, 30.5, 34, 38], [0, 24.4, 33, 37.5, 41.5]);
+    const A = new Proxy(A0, { get: (o, k) => (typeof o[k] === 'function' ? (...args) => { if (k === 'music') { const m = Object.assign({}, args[0]); m.sections = m.sections.map(([x, v]) => [M(x), v]); if (m.end) m.end = M(m.end); return o.music(m); } if (typeof args[0] === 'number') args[0] = M(args[0]); if (typeof args[1] === 'number' && ['riser', 'swell', 'drone', 'march', 'type', 'ticks'].includes(k)) args[1] = M(args[1]); return o[k](...args); } : o[k]) });
+    A.music({ style: 'calm', bpm: 76, key: 'F', sections: [[0, 0.3], [7.4, 0.45], [14, 0.55], [21, 0.65], [30.5, 0.4]], end: 34, outro: 'ring' });
+    A.chime(0.4, { note: 'C6', gain: 0.6, dur: 3 });
+    A.whoosh(4.0, { gain: 0.4 }); A.chime(4.3, { note: 'F5', gain: 0.8, dur: 3 });
+    A.whoosh(7.3, { gain: 0.4 }); A.type(8.3, 9.2, { gain: 0.3 }); A.pop(9.5); A.click(10.7, { gain: 0.6 });
+    A.whoosh(13.9, { gain: 0.4 });
+    for (let i = 0; i < 8; i++) A.tick(16.0 + i * 0.08, { gain: 0.4, pitch: 1.4 });
+    A.whoosh(20.9, { gain: 0.4 }); A.sparkle(22.4, { root: 'F5', gain: 0.5 });
+    A.whoosh(24.3, { gain: 0.4 }); A.pop(24.6); A.chime(26.1, { note: 'A5', gain: 0.4 });
+    A.whoosh(30.4, { gain: 0.4 }); A.chime(30.8, { note: 'C5', gain: 0.6, dur: 3 });
+  },
+});
+</script></body></html>

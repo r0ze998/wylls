@@ -1,0 +1,189 @@
+<!doctype html><html><head><meta charset="utf-8"><title>19 Autopilot and guarantees in code</title>
+<link rel="stylesheet" href="../../lib/wy.css">
+<script src="../../lib/wy.js"></script><script src="../../lib/wy-audio.js"></script><script src="../../lib/wy-kit.js"></script>
+<script src="aik.js"></script>
+<style>
+.blab { position:absolute; font:600 32px var(--sans); color:#fffaf0; white-space:nowrap; text-align:right; width:430px; }
+.blab small { display:block; font:500 24px var(--sans); color:rgba(255,250,240,.65); margin-top:4px; }
+.bval { position:absolute; font:800 64px/1 var(--sans); color:#fffaf0; white-space:nowrap; font-variant-numeric:tabular-nums; }
+.bval small { font-size:30px; font-weight:600; color:rgba(255,250,240,.6); margin-left:6px; }
+.stat { width:560px; padding:30px 38px; border-radius:22px; background:linear-gradient(180deg, rgba(27,58,47,.97), rgba(16,36,29,.98)); border:2px solid rgba(201,162,74,.8); box-shadow:0 24px 60px rgba(0,0,0,.45); }
+.stat .v { font:800 110px/1 var(--sans); color:#f0d48a; }
+.stat .v small { font-size:44px; margin-left:6px; }
+.stat .l { font:600 32px var(--sans); color:#fffaf0; margin-top:14px; }
+.stat .s { font:500 26px var(--sans); color:rgba(255,250,240,.7); margin-top:8px; }
+.flow { position:absolute; display:flex; align-items:center; justify-content:center; text-align:center; flex-direction:column; border-radius:20px; padding:16px 18px; width:300px; height:210px; background:linear-gradient(180deg, rgba(27,58,47,.97), rgba(16,36,29,.98)); border:2px solid rgba(201,162,74,.8); color:#fffaf0; box-shadow:0 20px 50px rgba(0,0,0,.45); }
+.flow .w { font:700 22px var(--mono); letter-spacing:.12em; color:#c9a24a; }
+.flow .h { font:700 44px/1.1 'Cormorant Garamond', serif; margin-top:8px; }
+.flow .s { font:500 23px/1.4 var(--sans); color:rgba(255,250,240,.75); margin-top:8px; }
+.flow.model { border-color:rgba(159,216,201,.85); }
+.flow.model .w { color:#9fd8c9; }
+.flow.wide { background:rgba(255,255,255,.05); border-style:dashed; border-color:rgba(255,250,240,.35); }
+.apc { width:1060px; padding:34px 44px; border-radius:24px; background:rgba(235,230,212,.08); border:2px dashed rgba(235,230,212,.6); }
+.apc .row { display:flex; align-items:center; gap:22px; font:600 36px/1.3 var(--sans); color:#fffaf0; padding:12px 0; }
+.apc .row i { font-style:normal; flex:none; width:54px; height:54px; border-radius:50%; display:grid; place-items:center; font:800 30px var(--sans); }
+.apc .yes i { background:#2f6b4a; color:#e9ffe9; }
+.apc .no i { background:#8f2418; color:#ffe1dc; }
+.apc .no { color:#ffd9d4; }
+.apc .row small { font:500 26px var(--sans); color:rgba(255,250,240,.65); margin-left:6px; }
+.seglab { position:absolute; font:600 30px/1.35 var(--sans); color:#fffaf0; white-space:nowrap; }
+.seglab b { display:block; font:800 72px/1 var(--sans); }
+.seglab small { display:block; font:500 24px var(--sans); color:rgba(255,250,240,.7); margin-top:6px; }
+.foot { font:500 26px/1.5 var(--sans); color:rgba(255,250,240,.66); text-align:center; }
+</style>
+</head><body><script>
+const W = 1920, H = 1080;
+const { seg, env, ease: E, clamp, lerp } = WY;
+let bg, ov, dust, cv, g, T = {}, N = {}, bLab = [], bVal = [], badgeLab, badgeRun, end, flash;
+const BARS = [['Rule bot', 'same scenes, same 20 decisions', 18, '#c9a24a'], ['Model + one scoring line', 'bare Gemma 4', 9, '#5fb8a8'], ['Model without that line', 'bare Gemma 4', 1, '#5fb8a8']];
+const BX = 640, BW = 1000, BY = 380, BH = 92, BG = 150;
+
+WY.scene({
+  width: W, height: H, duration: 48, fps: 30,
+  setup(stage) {
+    AIK.css();
+    bg = AIK.bg(stage, { tint: '20,40,36' });
+    cv = WY.canvas(stage, W, H); cv.style.zIndex = 5; g = cv.getContext('2d');
+
+    // A
+    T.kick = AIK.text(stage, 'WHY GUARANTEES LIVE IN CODE', { x: 0, y: 360, w: W, size: 28, font: 'Cinzel, serif', weight: 700, ls: '.4em', color: '#c9a24a', stagger: 0.012 });
+    T.a1 = AIK.text(stage, 'Put the guarantees [[in code]].', { x: 0, y: 425, w: W, size: 124, weight: 700 });
+    T.a2 = AIK.text(stage, 'Why the model is never trusted on its own — and how.', { x: 0, y: 610, w: W, size: 38, font: 'var(--sans)', weight: 500, color: 'rgba(255,250,240,.8)', stagger: 0.015, rise: 20, blur: 6 });
+
+    // B — the spike
+    T.b1 = AIK.text(stage, 'First, we tested the [[bare model]].', { x: 0, y: 150, w: W, size: 76 });
+    N.bq = AIK.box(stage, '<div style="font:600 30px var(--sans);color:rgba(255,250,240,.85)">Marches chosen, out of 20 decisions</div>', { x: BX, y: 300, z: 12 });
+    BARS.forEach(([l, s], i) => {
+      bLab.push(AIK.box(stage, `<div class="blab">${l}<small>${s}</small></div>`, { x: BX - 470, y: BY + i * BG + 8, z: 12 }));
+      const v = WY.el('div', { class: 'bval' }, stage); v.style.zIndex = 12; v.style.opacity = 0; bVal.push(v);
+    });
+    N.bnote = AIK.box(stage, '<div class="foot" style="text-align:left">One instruction line moved the model from 1 march to 9.</div>', { x: BX, y: 840, z: 12 });
+    N.st1 = AIK.box(stage, '<div class="stat"><div class="v">79<small>%</small></div><div class="l">valid actions, best setup</div><div class="s">English 88% · Japanese 71%</div></div>', { x: 300, y: 380, z: 12 });
+    N.st2 = AIK.box(stage, '<div class="stat"><div class="v">~5<small>s</small></div><div class="l">of compute per decision</div><div class="s">on a local Mac</div></div>', { x: 1060, y: 380, z: 12 });
+    N.st3 = AIK.box(stage, '<div class="foot">Not a better player than the bot — so the guarantees live outside the model.</div>', { x: 0, y: 760, w: W, z: 12 });
+
+    // C — the code around the model
+    T.c1 = AIK.text(stage, 'So the [[code]] narrows the moves — and checks.', { x: 0, y: 150, w: W, size: 74 });
+    const F = [['ALL', 'Every move', 'everything possible<br>on the board', 'wide'], ['CODE', 'Legal only', 'at most 12 options', ''], ['MODEL', 'Picks one', 'local Gemma 4', 'model'], ['CODE', 'Checks', 'schema · caps ·<br>fresh re-check', ''], ['PROGRAM', 'Final say', 'refuses anything<br>illegal — for anyone', '']];
+    N.flow = F.map(([w, h, s, c], i) => AIK.box(stage, `<div class="flow ${c}" style="position:relative"><div class="w">${w}</div><div class="h">${h}</div><div class="s">${s}</div></div>`, { x: 90 + i * 360, y: 400, z: 12 }));
+    N.cnote = AIK.box(stage, '<div class="foot">The model can only pick from the code’s options, and safety caps limit the damage of a bad pick.</div>', { x: 0, y: 720, w: W, z: 12 });
+
+    // D — autopilot
+    T.d1 = AIK.text(stage, 'Late, invalid or refused? [[Autopilot.]]', { x: 0, y: 150, w: W, size: 76 });
+    N.ap = AIK.box(stage, `<div class="apc">
+      <div class="row yes"><i>✓</i>Economy: harvest, build, train, muster, explore</div>
+      <div class="row yes"><i>✓</i>Duties: joining, revealing and settling marches</div>
+      <div class="row yes"><i>✓</i>Marches under a council Strike Order<small>(when invited)</small></div>
+      <div class="row no"><i>✕</i>It never starts a march of its own</div></div>`, { x: 430, y: 330, z: 12 });
+    N.dnote = AIK.box(stage, '<div class="foot">So every voluntary AI march is the model’s choice or a council’s order — and the decision record is the evidence.</div>', { x: 0, y: 830, w: W, z: 12 });
+
+    // E — smoke-b3 share
+    T.e1 = AIK.text(stage, 'Most actions are the [[autopilot’s]].', { x: 0, y: 150, w: W, size: 76 });
+    N.eq = AIK.box(stage, '<div style="font:600 30px var(--sans);color:rgba(255,250,240,.85)">smoke-b3: 171 actions sent from AI wallets</div>', { x: 160, y: 320, z: 12 });
+    N.sl1 = AIK.box(stage, '<div class="seglab" style="position:relative"><b style="color:#9fe0d2">29.8%</b>sent in model-chosen steps<small>51 · an upper bound:<br>includes duties sent in the same step</small></div>', { x: 160, y: 560, z: 12 });
+    N.sl2 = AIK.box(stage, '<div class="seglab" style="position:relative"><b style="color:#e8e1c8">64.3%</b>autopilot economy<small>110</small></div>', { x: 660, y: 560, z: 12 });
+    N.sl3 = AIK.box(stage, '<div class="seglab" style="position:relative"><b style="color:rgba(255,250,240,.55)">5.8%</b>the rest<small>10</small></div>', { x: 1590, y: 560, z: 12 });
+    N.enote = AIK.box(stage, '<div class="foot">6 AIs (all Conquerors) · 86 closed turns · 10x speed. 52 of 52 model decisions were valid, with 0 fallbacks.<br>But n = 52 is below the pre-set gate of 300 decisions: a reference value, not a result.</div>', { x: 0, y: 800, w: W, z: 12 });
+
+    badgeLab = AIK.status(stage, 'sim', 'Local lab test: bare Gemma 4 on recorded scenes (not the AI-citizen code)', { x: 80, y: 60 });
+    badgeRun = AIK.status(stage, 'local', 'Ran on a local test chain · smoke-b3', { x: 80, y: 60 });
+    badgeLab.node.style.zIndex = badgeRun.node.style.zIndex = 30;
+    flash = WYKit.flash(stage, { color: '#fff5dc' });
+    dust = WYKit.dust(stage, { count: 36, color: '200,240,230', z: 8, speed: 10 });
+    ov = AIK.overlay(stage);
+    end = WYKit.endCard(stage, { lang: 'en', line: 'The code offers. The model chooses. The code checks.', sub: 'A strategy game where people and AI citizens can fight for one map' });
+  },
+
+  render(t) {
+    bg.render(t, { glow: 0.5 });
+    ov.render(t); dust.render(t, 0.4);
+    AIK.clear(g, t);
+
+    const u = AIK.remap(t, [0, 11, 18.5, 25.5, 34, 44, 48], [0, 10.8, 16, 23, 31, 40.5, 44]);
+    // A 0–5
+    T.kick.render(u - 0.3, 4.2);
+    T.a1.render(u - 0.6, 3.9); T.a1.node.style.transform = `scale(${1 + 0.03 * seg(u, 0, 5)})`;
+    T.a2.render(u - 1.5, 3.0);
+
+    // B 5–16 : bars 5–10.8, stats 10.8–16
+    T.b1.render(u - 5.1, 10.4);
+    AIK.show(N.bq, u, 5.6, 10.6);
+    BARS.forEach(([l, s, v, c], i) => {
+      const a = 6.0 + i * 0.5;
+      const e = AIK.show(bLab[i], u, a, 10.6, { y: 20 });
+      const k = seg(u, a + 0.2, a + 1.3, E.outExpo) * (1 - seg(u, 10.6, 11.0, E.inCubic));
+      if (k > 0) {
+        const y = BY + i * BG, w = BW * (v / 20) * k;
+        g.fillStyle = 'rgba(255,255,255,.06)'; g.fillRect(BX, y, BW, BH);
+        g.fillStyle = c; g.globalAlpha = 0.95; g.fillRect(BX, y, Math.max(4, w), BH); g.globalAlpha = 1;
+        g.fillStyle = 'rgba(255,255,255,.18)'; g.fillRect(BX, y, Math.max(4, w), 6);
+        bVal[i].innerHTML = `${Math.round(v * clamp(k * 1.05))}<small>/ 20</small>`;
+        bVal[i].style.opacity = clamp(k * 3); bVal[i].style.transform = `translate(${BX + Math.max(4, w) + 22}px, ${y + 14}px)`; bVal[i].style.left = '0px'; bVal[i].style.top = '0px';
+      } else bVal[i].style.opacity = 0;
+    });
+    // tick marks
+    if (u > 5.8 && u < 11) { const a = seg(u, 5.8, 6.3) * (1 - seg(u, 10.6, 11)); g.strokeStyle = `rgba(255,250,240,${0.25 * a})`; g.lineWidth = 2; for (let i = 0; i <= 20; i += 5) { const x = BX + BW * i / 20; g.beginPath(); g.moveTo(x, BY - 14); g.lineTo(x, BY + 2 * BG + BH + 14); g.stroke(); } }
+    AIK.show(N.bnote, u, 8.0, 10.6);
+    AIK.show(N.st1, u, 11.0, 15.6, { y: 50 }); AIK.show(N.st2, u, 11.4, 15.6, { y: 50 }); AIK.show(N.st3, u, 12.2, 15.6);
+    if (u > 10.9 && u < 15) { const v1 = N.st1.querySelector('.v'); v1.innerHTML = `${Math.round(79 * seg(u, 11.0, 12.2, E.outCubic))}<small>%</small>`; }
+
+    // C 16–23
+    T.c1.render(u - 16.1, 6.4);
+    N.flow.forEach((n, i) => AIK.show(n, u, 16.6 + i * 0.4, 22.6, { y: 40 }));
+    if (u > 16.8 && u < 23) {
+      const a = 1 - seg(u, 22.6, 23.0);
+      g.globalAlpha = a;
+      for (let i = 0; i < 4; i++) AIK.wire(g, [[90 + i * 360 + 300, 505], [90 + (i + 1) * 360, 505]], seg(u, 17.0 + i * 0.4, 17.5 + i * 0.4, E.outCubic), u);
+      g.globalAlpha = 1;
+      // a funnel of dots narrowing into the "legal" box
+      const r = WY.rng(7);
+      for (let j = 0; j < 60; j++) { const ph = (u * 0.5 + r()) % 1, yy = 420 + r() * 170; const x = lerp(110, 430, ph), y = lerp(yy, 505 + (yy - 505) * 0.2, ph * ph); g.fillStyle = `rgba(255,236,190,${0.5 * a * (1 - ph)})`; g.beginPath(); g.arc(x, y, 3, 0, Math.PI * 2); g.fill(); }
+    }
+    AIK.show(N.cnote, u, 18.8, 22.6);
+
+    // D 23–31
+    T.d1.render(u - 23.1, 7.4);
+    { const e = AIK.show(N.ap, u, 23.6, 30.6, { y: 40 }); if (e) [...N.ap.firstElementChild.children].forEach((r, i) => { const k = seg(u, 23.9 + i * 0.5, 24.4 + i * 0.5, E.outCubic); r.style.opacity = k; r.style.transform = `translateX(${(1 - k) * 30}px)`; }); }
+    AIK.show(N.dnote, u, 26.4, 30.6);
+
+    // E 31–40.5
+    T.e1.render(u - 31.1, 8.8);
+    AIK.show(N.eq, u, 31.6, 39.9);
+    if (u > 31.6 && u < 40.4) {
+      const a = 1 - seg(u, 39.9, 40.3); const k = seg(u, 32.0, 33.6, E.outExpo);
+      const x0 = 160, w = 1600, y = 400, h = 120, s1 = 51 / 171, s2 = 110 / 171;
+      g.globalAlpha = a;
+      g.fillStyle = 'rgba(255,255,255,.06)'; g.fillRect(x0, y, w, h);
+      const w1 = w * s1 * k, w2 = w * s2 * seg(u, 32.6, 34.2, E.outExpo), w3 = w * (1 - s1 - s2) * seg(u, 33.2, 34.4, E.outExpo);
+      g.fillStyle = '#5fb8a8'; g.fillRect(x0, y, w1, h);
+      g.fillStyle = '#d9d1b5'; g.fillRect(x0 + w * s1, y, w2, h);
+      g.fillStyle = 'rgba(255,250,240,.25)'; g.fillRect(x0 + w * (s1 + s2), y, w3, h);
+      g.fillStyle = 'rgba(0,0,0,.35)'; g.fillRect(x0 + w * s1 - 2, y, 4, h * seg(u, 32.6, 33)); g.fillRect(x0 + w * (s1 + s2) - 2, y, 4, h * seg(u, 33.2, 33.6));
+      g.globalAlpha = 1;
+    }
+    AIK.show(N.sl1, u, 32.6, 39.9); AIK.show(N.sl2, u, 33.4, 39.9); AIK.show(N.sl3, u, 34.0, 39.9);
+    AIK.show(N.enote, u, 34.8, 39.9);
+
+    badgeLab.render(u, 5.6, 15.6);
+    badgeRun.render(u, 31.6, 39.9);
+    flash.render(u, 5.0, 0.4, 0.3);
+    end.render(t - 44);
+  },
+
+  audio(A0) {
+    const M = x => AIK.remap(x, [0, 10.8, 16, 23, 31, 40.5, 45], [0, 11, 18.5, 25.5, 34, 44, 48.5]);
+    const A = new Proxy(A0, { get: (o, k) => (typeof o[k] === 'function' ? (...args) => { if (k === 'music') { const m = Object.assign({}, args[0]); m.sections = m.sections.map(([x, v]) => [M(x), v]); if (m.end) m.end = M(m.end); if (m.start) m.start = M(m.start); return o.music(m); } if (typeof args[0] === 'number') args[0] = M(args[0]); if (typeof args[1] === 'number' && ['riser', 'swell', 'drone', 'march', 'type', 'ticks'].includes(k)) args[1] = M(args[1]); return o[k](...args); } : o[k]) });
+    A.music({ style: 'tech', bpm: 110, key: 'A', sections: [[0, 0.3], [5, 0.55], [11, 0.6], [16, 0.75], [23, 0.6], [31, 0.85], [38, 0.6]], end: 40.5, outro: 'hit' });
+    A.whoosh(0.4, { gain: 0.5 }); A.hit(0.6, { gain: 0.7 });
+    A.whoosh(4.8, { gain: 0.6 }); A.hit(5.1, { gain: 0.5 });
+    for (let i = 0; i < 3; i++) { A.riser(6.2 + i * 0.5, 7.2 + i * 0.5, { gain: 0.25 }); A.pop(7.3 + i * 0.5); }
+    A.whoosh(10.7, { gain: 0.5 }); A.coin(11.2, { gain: 0.6 }); A.coin(11.6, { gain: 0.5 });
+    A.whoosh(15.9, { gain: 0.6 }); A.hit(16.1, { gain: 0.5 });
+    for (let i = 0; i < 5; i++) A.click(16.6 + i * 0.4, { gain: 0.7 });
+    A.whoosh(22.9, { gain: 0.6 }); A.hit(23.1, { gain: 0.5 });
+    for (let i = 0; i < 3; i++) A.ok(23.9 + i * 0.5, { gain: 0.45 }); A.bad(25.4, { gain: 0.5 });
+    A.whoosh(30.9, { gain: 0.6 }); A.hit(31.1, { gain: 0.6 });
+    A.riser(32.0, 33.6, { gain: 0.4 }); A.pop(32.6); A.pop(33.4); A.pop(34.0);
+  },
+});
+</script></body></html>

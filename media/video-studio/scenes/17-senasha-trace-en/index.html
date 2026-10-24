@@ -1,24 +1,24 @@
-<!doctype html><html><head><meta charset="utf-8"><title>17 セナシャの決断</title>
+<!doctype html><html><head><meta charset="utf-8"><title>17 Senasha's decision</title>
 <link rel="stylesheet" href="../../lib/wy.css">
 <script src="../../lib/wy.js"></script><script src="../../lib/wy-audio.js"></script><script src="../../lib/wy-map.js"></script><script src="../../lib/wy-kit.js"></script>
 <script src="aik.js"></script>
 <style>
 .ctx { display:flex; gap:16px; justify-content:center; }
-.ctx span { padding:10px 22px; border-radius:14px; font:700 30px var(--sans-jp); background:rgba(10,24,19,.85); border:1.5px solid rgba(255,250,240,.25); white-space:nowrap; }
+.ctx span { padding:10px 22px; border-radius:14px; font:600 30px var(--sans); background:rgba(10,24,19,.85); border:1.5px solid rgba(255,250,240,.25); white-space:nowrap; }
 .ctx .ai { border-color:#1f6f67; background:rgba(31,111,103,.35); color:#d4f3ec; }
 .ctx .sc { color:#e8e6dc; }
 .turn { width:340px; height:340px; border-radius:50%; display:grid; place-items:center; text-align:center;
   background:radial-gradient(circle at 50% 40%, #1d3d31, #0b1512 70%); border:6px solid #c9a24a; box-shadow:0 0 0 3px #3a2618, 0 0 0 10px rgba(240,212,138,.25), 0 30px 80px rgba(0,0,0,.6); }
-.turn .l { font:700 36px var(--sans-jp); color:#f0d48a; letter-spacing:.2em; }
+.turn .l { font:700 30px Cinzel, serif; color:#f0d48a; letter-spacing:.25em; }
 .turn .n { font:800 150px/1 var(--sans); color:#fffaf0; font-variant-numeric:tabular-nums; }
 .frame { position:absolute; left:700px; top:140px; width:1140px; height:860px; overflow:hidden; border-radius:18px; box-shadow:0 40px 120px rgba(0,0,0,.6), 0 0 0 2px rgba(201,162,74,.55); background:#e9e5d8; }
 .scroll { position:absolute; left:0; top:0; width:1140px; }
 .hl { position:absolute; border:4px solid #ffd24d; border-radius:16px; box-shadow:0 0 0 4000px rgba(10,16,13,.0), 0 0 30px rgba(255,210,77,.5); pointer-events:none; }
-.stamp { padding:16px 30px; border:5px solid #c8402f; color:#c8402f; border-radius:14px; font:900 40px var(--sans-jp); background:rgba(255,253,246,.92); transform:rotate(-6deg); white-space:nowrap; box-shadow:0 10px 30px rgba(0,0,0,.35); }
+.stamp { padding:16px 30px; border:5px solid #c8402f; color:#c8402f; border-radius:14px; font:800 30px var(--sans); letter-spacing:.06em; background:rgba(255,253,246,.92); transform:rotate(-6deg); white-space:nowrap; box-shadow:0 10px 30px rgba(0,0,0,.35); }
 .step { font:700 24px var(--mono); color:#c9a24a; letter-spacing:.15em; }
-.mapchip { padding:10px 20px; border-radius:12px; background:rgba(10,24,19,.88); border:1.5px solid rgba(159,216,201,.6); font:700 28px var(--sans-jp); color:#e6f6f1; white-space:nowrap; box-shadow:0 10px 30px rgba(0,0,0,.4); }
+.mapchip { padding:10px 20px; border-radius:12px; background:rgba(10,24,19,.88); border:1.5px solid rgba(159,216,201,.6); font:600 28px var(--sans); color:#e6f6f1; white-space:nowrap; box-shadow:0 10px 30px rgba(0,0,0,.4); }
 .mapchip.seal { border-color:rgba(230,90,90,.7); color:#ffd9d4; }
-.mapchip.win { border-color:rgba(240,212,138,.9); color:#fff3d6; font-size:34px; }
+.mapchip.win { border-color:rgba(240,212,138,.9); color:#fff3d6; font-size:32px; }
 .pass { display:flex; align-items:center; gap:28px; padding:26px 54px; border-radius:24px; background:rgba(47,107,74,.35); border:3px solid #6fc79a; font:800 72px var(--sans); color:#e9ffe9; box-shadow:0 0 80px rgba(111,199,154,.25); }
 .pass i { font-style:normal; width:90px; height:90px; border-radius:50%; background:#2f6b4a; display:grid; place-items:center; font-size:38px; }
 </style>
@@ -29,36 +29,36 @@ let bg, ov, dust, mcv, mg, wcv, wg, world, home, camp, T = {}, N = {}, badge, en
 
 // ------------------------------------------------------------ the decision page (council.html look)
 const CANDS = [
-  ['c1', '通常の運営：内政と義務のみ', 0],
-  ['c2', '待機：軍は帰還したまま', 0],
+  ['c1', 'Routine: economy and duties only, no march', 0],
+  ['c2', 'Hold: duties only, keep the armies home', 0],
   ['c3', '<span class="redact" style="width:300px"></span>', 0],
-  ['c4', '進軍：<b>兵400</b>の軍を<b>野営地</b>へ', 1],
+  ['c4', 'March <b>400 troops</b> to a <b>barbarian camp</b>', 1],
   ['c5', '<span class="redact" style="width:380px"></span>', 0],
-  ['c6', '建設：<b>学術</b>の施設', 1],
+  ['c6', 'Build a <b>science</b> producer', 1],
   ['c7', '<span class="redact" style="width:260px"></span>', 0],
   ['c8', '<span class="redact" style="width:340px"></span>', 0],
 ];
-const pageHTML = `<div class="cc"><div class="cc-top"><span class="mk">◆</span> Wylls · 評議会 <span class="chip">ターン65</span><span style="margin-left:auto;font-weight:500;font-size:20px;opacity:.8">記録 881d797c…</span></div>
-<div class="cc-banner">ローカルテストチェーン</div>
+const pageHTML = `<div class="cc"><div class="cc-top"><span class="mk">◆</span> Wylls · council <span class="chip">turn 65</span><span style="margin-left:auto;font-weight:500;font-size:20px;opacity:.8">record 881d797c…</span></div>
+<div class="cc-banner">LOCAL TEST CHAIN</div>
 <div style="padding:18px 22px">
  <div class="decision">
-  <div class="dec-head"><span class="actor">Senasha</span><span class="badge-ai">AI市民</span><span class="chip chip-model">決めたのは：モデル</span><span class="chip chip-released">公開済み</span><span class="bellmark">ターン65 · 本番の判断</span></div>
-  <div class="sub" id="p-cands">提示された候補（コードが作成）${AIK.ex('例：並びと文面')}</div>
-  <div class="cands">${CANDS.map(([id, l, ch]) => `<div class="cand${ch ? ' chosen' : ''}"><span class="cand-id">${id}</span><span>${l}</span>${ch ? '<span class="chip chip-model">選択</span>' : ''}</div>`).join('')}</div>
-  <p style="margin-top:14px" id="p-chose"><b>選んだもの：</b>野営地への進軍（兵400）＋ 学術の建設</p>
-  <p class="muted small" style="margin-top:2px">行き先：野営地（座標は伏せています）· ターン68に到着</p>
-  <div class="sub" id="p-words">AIの言葉（モデルが書いたもので、検証されていません）</div>
+  <div class="dec-head"><span class="actor">Senasha</span><span class="badge-ai">AI</span><span class="chip chip-model">by: model</span><span class="chip chip-released">released</span><span class="bellmark">turn 65 · session</span></div>
+  <div class="sub" id="p-cands">Candidates it was offered (made by code)${AIK.ex('illustrative wording')}</div>
+  <div class="cands">${CANDS.map(([id, l, ch]) => `<div class="cand${ch ? ' chosen' : ''}"><span class="cand-id">${id}</span><span>${l}</span>${ch ? '<span class="chip chip-model">chosen</span>' : ''}</div>`).join('')}</div>
+  <p style="margin-top:14px" id="p-chose"><b>Chose:</b> a camp march (400 troops) + a science build</p>
+  <p class="muted small" style="margin-top:2px">Destination: a camp (coordinates hidden here) · arrives at turn 68</p>
+  <div class="sub" id="p-words">AI’s words (model-written, not verified)</div>
   <div class="words"><span class="redact" style="width:96%"></span><br><span class="redact" style="width:82%"></span><br><span class="redact" style="width:58%"></span></div>
-  <div class="sub" id="p-mem">引用した記憶（モデルが名指し）：</div>
+  <div class="sub" id="p-mem">Remembered (cited by the model):</div>
   <ul class="remembered" style="margin:6px 0 0;padding-left:14px">
-   <li><span class="redact gold" style="width:78%"></span> <span class="bellmark">ターン■■</span></li>
-   <li><span class="redact gold" style="width:70%"></span> <span class="bellmark">ターン■■</span></li>
-   <li><span class="redact gold" style="width:62%"></span> <span class="bellmark">ターン■■</span></li></ul>
-  <p class="caption" id="p-cap">これらの行は公開記録からコードが書いたものです。引用は、その行がモデルに示されモデルが名指ししたことを示すだけで、判断がそれに基づいたことを示すものではありません。</p>
-  <div class="sub" id="p-tx">送信したトランザクション（ローカルテストチェーン）</div>
+   <li><span class="redact gold" style="width:78%"></span> <span class="bellmark">turn ■■</span></li>
+   <li><span class="redact gold" style="width:70%"></span> <span class="bellmark">turn ■■</span></li>
+   <li><span class="redact gold" style="width:62%"></span> <span class="bellmark">turn ■■</span></li></ul>
+  <p class="caption" id="p-cap">These lines are written by code from public records. A citation shows that the line was shown to the model and named by it, not that the choice rested on it.</p>
+  <div class="sub" id="p-tx">Transactions sent (local test chain)</div>
   <div style="display:flex;flex-direction:column;gap:6px;margin-top:6px">
-   <div class="cand"><span>進軍</span><span class="redact" style="width:420px;margin-left:12px"></span><span class="chip chip-released">送信済み</span></div>
-   <div class="cand"><span>建設</span><span class="redact" style="width:420px;margin-left:12px"></span><span class="chip chip-released">送信済み</span></div>
+   <div class="cand"><span>march</span><span class="redact" style="width:420px;margin-left:12px"></span><span class="chip chip-released">sent</span></div>
+   <div class="cand"><span>build</span><span class="redact" style="width:420px;margin-left:12px"></span><span class="chip chip-released">sent</span></div>
   </div>
  </div>
 </div></div>`;
@@ -78,16 +78,16 @@ WY.scene({
     wcv = WY.canvas(stage, W, H); wcv.style.zIndex = 6; wg = wcv.getContext('2d');
 
     // S0
-    T.kick = AIK.text(stage, 'TAKE-1 · 保存された実行の記録', { x: 0, y: 300, w: W, size: 28, font: 'var(--sans-jp)', weight: 700, ls: '.3em', color: '#c9a24a', stagger: 0.02 });
-    T.title = AIK.text(stage, 'セナシャの決断', { x: 0, y: 370, w: W, size: 150, weight: 900, ls: '.06em', stagger: 0.07, dur: 0.9, rise: 60, blur: 18 });
-    T.titleEn = AIK.text(stage, 'SENASHA · AI CITIZEN', { x: 0, y: 580, w: W, size: 36, font: 'Cinzel, serif', weight: 700, ls: '.4em', color: '#9fe0d2', stagger: 0.025 });
-    N.ctx = AIK.box(stage, '<div class="ctx"><span class="ai">AI市民 6体（ローカルの Gemma 4）</span><span class="sc">＋ スクリプトボット 6体</span></div>', { x: 0, y: 690, w: W, z: 12 });
-    N.ctxNote = AIK.box(stage, '<div style="font:500 26px var(--sans-jp);color:rgba(255,250,240,.66);text-align:center">人は参加していません。人の操作が起こした判断でもありません。</div>', { x: 0, y: 790, w: W, z: 12 });
+    T.kick = AIK.text(stage, 'TAKE-1 · A SAVED LOCAL RUN', { x: 0, y: 300, w: W, size: 28, font: 'Cinzel, serif', weight: 700, ls: '.35em', color: '#c9a24a', stagger: 0.02 });
+    T.title = AIK.text(stage, 'Senasha’s Decision', { x: 0, y: 370, w: W, size: 156, weight: 700, stagger: 0.045, dur: 0.9, rise: 60, blur: 18 });
+    T.titleEn = AIK.text(stage, 'AN AI CITIZEN · LOCAL GEMMA 4', { x: 0, y: 580, w: W, size: 36, font: 'Cinzel, serif', weight: 700, ls: '.4em', color: '#9fe0d2', stagger: 0.025 });
+    N.ctx = AIK.box(stage, '<div class="ctx"><span class="ai">6 AI citizens (local Gemma 4)</span><span class="sc">+ 6 script bots</span></div>', { x: 0, y: 690, w: W, z: 12 });
+    N.ctxNote = AIK.box(stage, '<div style="font:500 28px var(--sans);color:rgba(255,250,240,.7);text-align:center">No person took part, and no human action triggered this decision.</div>', { x: 0, y: 790, w: W, z: 12 });
 
     // S1 turn
-    N.turn = AIK.box(stage, '<div class="turn"><div><div class="l">ターン</div><div class="n" id="tn">64</div></div></div>', { x: 790, y: 300, z: 12 });
-    T.s1 = AIK.text(stage, 'ターン65。[[判断]]の番が来る。', { x: 0, y: 720, w: W, size: 72 });
-    T.s1b = AIK.text(stage, '動くのはモデル。ただし、選べるのはコードが出した手だけ。', { x: 0, y: 830, w: W, size: 36, font: 'var(--sans-jp)', weight: 600, color: 'rgba(255,250,240,.8)', stagger: 0.015, rise: 20, blur: 6 });
+    N.turn = AIK.box(stage, '<div class="turn"><div><div class="l">TURN</div><div class="n" id="tn">64</div></div></div>', { x: 790, y: 300, z: 12 });
+    T.s1 = AIK.text(stage, 'Turn 65. Senasha’s [[move]].', { x: 0, y: 715, w: W, size: 80 });
+    T.s1b = AIK.text(stage, 'It may only choose what the code offers.', { x: 0, y: 830, w: W, size: 36, font: 'var(--sans)', weight: 500, color: 'rgba(255,250,240,.8)', stagger: 0.015, rise: 20, blur: 6 });
 
     // the page
     N.frame = WY.el('div', { class: 'frame' }, stage); N.frame.style.zIndex = 12; N.frame.style.opacity = 0;
@@ -103,45 +103,45 @@ WY.scene({
     N.yWords = rw.y - 140; N.yMem = rm.y - 160;
 
     // left column text
-    const L = (s, y, o = {}) => AIK.text(stage, s, Object.assign({ x: 90, y, size: 64, align: 'left' }, o));
-    const S = (s, y) => AIK.text(stage, s, { x: 90, y, size: 32, font: 'var(--sans-jp)', weight: 600, align: 'left', lh: 1.6, color: 'rgba(255,250,240,.82)', stagger: 0.012, rise: 18, blur: 5 });
-    N.st1 = AIK.box(stage, '<div class="step">STEP 1 · 候補</div>', { x: 92, y: 250, z: 12 });
-    T.l1 = L('コードが、\n[[候補]]を出す。', 300);
-    T.l1s = S('合法な手だけ、最大12個。\nモデルは、この中から\n選ぶことしかできない。', 520);
-    N.st2 = AIK.box(stage, '<div class="step">STEP 2 · 選択</div>', { x: 92, y: 250, z: 12 });
-    T.l2 = L('モデルが、\n[[ふたつ]]選ぶ。', 300);
-    T.l2s = S('兵400の軍を、野営地へ。\nそして、学術の建設。\n（記録 mode:model・reason:ok）', 520);
-    N.st3 = AIK.box(stage, '<div class="step">STEP 3 · 理由</div>', { x: 92, y: 250, z: 12 });
-    T.l3 = L('理由は、\n[[モデルが書いた]]。', 300);
-    T.l3s = S('記録された文章であって、\n本当の動機の証明ではない。', 520);
-    N.stamp = AIK.box(stage, '<div class="stamp">モデルが書いた理由・未検証</div>', { x: 120, y: 700, z: 14 });
-    N.st4 = AIK.box(stage, '<div class="step">STEP 4 · 引用</div>', { x: 92, y: 250, z: 12 });
-    T.l4 = L('過去の出来事を、\n[[引用]]した。', 300);
-    T.l4s = S('示された行を、名指ししただけ。\n「それが理由だった」とは\n言えない。', 520);
-    N.redNote = AIK.box(stage, `<div style="font:600 24px/1.5 var(--sans-jp);color:#ffc9a8;padding:12px 18px;border:2px dashed rgba(255,170,120,.6);border-radius:12px;width:540px">実際の候補・理由・引用の文面は、保存記録のページにあり、このリポジトリにはありません。ここでは伏せて表示しています。</div>`, { x: 90, y: 790, z: 12 });
+    const L = (s, y, o = {}) => AIK.text(stage, s, Object.assign({ x: 90, y, size: 70, align: 'left', lh: 1.05 }, o));
+    const S = (s, y) => AIK.text(stage, s, { x: 92, y, size: 32, font: 'var(--sans)', weight: 500, align: 'left', lh: 1.6, color: 'rgba(255,250,240,.82)', stagger: 0.012, rise: 18, blur: 5 });
+    N.st1 = AIK.box(stage, '<div class="step">STEP 1 · OPTIONS</div>', { x: 92, y: 250, z: 12 });
+    T.l1 = L('The code\n[[offers]] options.', 300);
+    T.l1s = S('Legal moves only —\nat most 12.', 500);
+    N.st2 = AIK.box(stage, '<div class="step">STEP 2 · CHOICE</div>', { x: 92, y: 250, z: 12 });
+    T.l2 = L('The model\npicks [[two]].', 300);
+    T.l2s = S('A 400-troop march to a camp,\nand a science build.\n(record: mode model · reason ok)', 500);
+    N.st3 = AIK.box(stage, '<div class="step">STEP 3 · REASON</div>', { x: 92, y: 250, z: 12 });
+    T.l3 = L('The reason is\n[[model-written]].', 300);
+    T.l3s = S('A recorded statement —\nnot proof of a motive.', 500);
+    N.stamp = AIK.box(stage, '<div class="stamp">MODEL-WRITTEN · NOT VERIFIED</div>', { x: 120, y: 700, z: 14 });
+    N.st4 = AIK.box(stage, '<div class="step">STEP 4 · CITATION</div>', { x: 92, y: 250, z: 12 });
+    T.l4 = L('It [[cited]]\nearlier events.', 300);
+    T.l4s = S('It named lines it was shown.\nThat does not make them\nthe reason.', 500);
+    N.redNote = AIK.box(stage, `<div style="font:500 24px/1.5 var(--sans);color:#ffc9a8;padding:12px 18px;border:2px dashed rgba(255,170,120,.6);border-radius:12px;width:540px">The real option wording, reason and cited lines live on the saved run’s page, not in this repository, so they are blanked out here.</div>`, { x: 90, y: 790, z: 12 });
 
     // S5/S6 map overlays
-    T.m1 = AIK.text(stage, '軍は、[[行き先を封印]]したまま出る。', { x: 0, y: 120, w: W, size: 70 });
-    T.m2 = AIK.text(stage, 'ターン68、[[野営地を制圧]]。', { x: 0, y: 120, w: W, size: 80 });
-    N.chipDep = AIK.box(stage, '<div class="mapchip">ターン65 出発 · 兵400</div>', { x: 0, y: 0, z: 12 });
-    N.chipSeal = AIK.box(stage, '<div class="mapchip seal">行き先：封印中（到着ターンの終わりまで）</div>', { x: 0, y: 0, z: 12 });
-    N.chipWin = AIK.box(stage, '<div class="mapchip win">衝突 → 野営地を制圧</div>', { x: 0, y: 0, z: 12 });
-    N.turnChip = AIK.box(stage, '<div class="mapchip" style="font:800 34px var(--sans-jp);border-color:#c9a24a;color:#f0d48a">ターン <span id="tc">65</span></div>', { x: 1620, y: 56, z: 30 });
-    N.link = AIK.box(stage, '<div style="font:600 28px var(--sans-jp);color:rgba(255,250,240,.85);text-align:center">この結果は、ターン65の同じ判断の記録にひも付いて公開されています。</div>', { x: 0, y: 960, w: W, z: 12 });
+    T.m1 = AIK.text(stage, 'The army leaves with its [[destination sealed]].', { x: 0, y: 120, w: W, size: 74 });
+    T.m2 = AIK.text(stage, 'Turn 68: [[camp cleared]].', { x: 0, y: 120, w: W, size: 84 });
+    N.chipDep = AIK.box(stage, '<div class="mapchip">turn 65 · 400 troops depart</div>', { x: 0, y: 0, z: 12 });
+    N.chipSeal = AIK.box(stage, '<div class="mapchip seal">destination sealed until the arrival turn ends</div>', { x: 0, y: 0, z: 12 });
+    N.chipWin = AIK.box(stage, '<div class="mapchip win">clash → camp cleared</div>', { x: 0, y: 0, z: 12 });
+    N.turnChip = AIK.box(stage, '<div class="mapchip" style="font:700 32px Cinzel, serif;border-color:#c9a24a;color:#f0d48a">TURN <span id="tc">65</span></div>', { x: 1620, y: 56, z: 30 });
+    N.link = AIK.box(stage, '<div style="font:500 28px var(--sans);color:rgba(255,250,240,.85);text-align:center">The result is published on the same turn-65 decision record.</div>', { x: 0, y: 960, w: W, z: 12 });
 
     // S7
     N.pass = AIK.box(stage, '<div class="pass"><i>✓</i>verify-minds　PASS</div>', { x: 0, y: 230, w: W, z: 12 });
     N.pass.firstChild.style.width = 'max-content'; N.pass.firstChild.style.margin = '0 auto';
-    N.passSub = AIK.box(stage, '<div style="font:600 30px/1.6 var(--sans-jp);color:rgba(255,250,240,.85);text-align:center">保存された take-1 の、AI判断の監査に合格。<br><span style="font-size:24px;opacity:.75">判断の再生は全件ではなく抜き取りです。</span></div>', { x: 0, y: 440, w: W, z: 12 });
-    N.none = AIK.box(stage, `<div class="cc" style="width:max-content;margin:0 auto"><div class="cc-panel" style="padding:18px 30px"><div style="font-weight:700;font-size:27px">人の行動から始まった判断</div><div class="muted" style="font-size:27px;margin-top:4px">まだありません。</div></div></div>`, { x: 0, y: 610, w: W, z: 12 });
-    N.noneSub = AIK.box(stage, '<div style="font:500 26px var(--sans-jp);color:rgba(255,250,240,.66);text-align:center">（評議会・監査ページの表示）　人とAIが同じ世界にいた実行は、まだありません。</div>', { x: 0, y: 800, w: W, z: 12 });
+    N.passSub = AIK.box(stage, '<div style="font:500 32px/1.6 var(--sans);color:rgba(255,250,240,.85);text-align:center">The saved take-1 run passed its AI-decision audit.<br><span style="font-size:24px;opacity:.75">Decisions are replayed by sample, not all of them.</span></div>', { x: 0, y: 440, w: W, z: 12 });
+    N.none = AIK.box(stage, `<div class="cc" style="width:max-content;margin:0 auto"><div class="cc-panel" style="padding:18px 30px"><div style="font-weight:700;font-size:27px">Decisions that began with a person’s action</div><div class="muted" style="font-size:27px;margin-top:4px;font-style:italic">None yet.</div></div></div>`, { x: 0, y: 610, w: W, z: 12 });
+    N.noneSub = AIK.box(stage, '<div style="font:500 26px var(--sans);color:rgba(255,250,240,.66);text-align:center">(as shown on the council audit page) · No run has had people and AI citizens in one world yet.</div>', { x: 0, y: 800, w: W, z: 12 });
 
-    badge = AIK.status(stage, 'local', 'ローカルテストチェーンで実行', { x: 80, y: 60 });
+    badge = AIK.status(stage, 'local', 'Ran on a local test chain', { x: 80, y: 60 });
     badge.node.style.zIndex = 30;
     flash = WYKit.flash(stage, { color: '#fff5dc' });
     dust = WYKit.dust(stage, { count: 40, color: '255,230,180', z: 8, speed: 10 });
     ov = AIK.overlay(stage);
-    end = WYKit.endCard(stage, { lang: 'ja', line: 'コードが候補を出し、モデルが選び、コードが確かめる。', sub: '人とAI市民が、ひとつの地図を奪い合える戦略ゲーム' });
+    end = WYKit.endCard(stage, { lang: 'en', line: 'The code offers. The model chooses. The code checks.', sub: 'A strategy game where people and AI citizens can fight for one map' });
     // preload map art used later
     WYMap.draw(mg, world, { x: 0, y: 0, zoom: 0.5, W, H }, { t: 0 });
   },
@@ -164,7 +164,7 @@ WY.scene({
       if (t > 7.1 && t < 9) { const k = seg(t, 7.2, 8.8, E.outCubic); wg.save(); wg.globalAlpha = (1 - k) * 0.8; wg.strokeStyle = '#f0d48a'; wg.lineWidth = 6; wg.beginPath(); wg.arc(960, 470, 170 + 260 * k, 0, Math.PI * 2); wg.stroke(); wg.restore(); }
     }
     T.s1.render(t - 7.4, 3.0);
-    T.s1b.render(t - 8.0, 2.5);
+    T.s1b.render(t - 7.9, 2.7);
 
     // S2–S4 11–34 : the page
     const pin = seg(t, 11.0, 11.9, E.outCubic), pout = seg(t, 33.4, 34.2, E.inCubic);
@@ -178,6 +178,7 @@ WY.scene({
     const sc = lerp(0, yWords, seg(t, 21.6, 22.6, E.inOutCubic)) + (yMem - yWords) * seg(t, 26.6, 27.6, E.inOutCubic);
     N.scroll.style.transform = `translateY(${-sc}px)`;
     N.late.forEach(n => (n.style.opacity = seg(t, 18.6, 19.2)));
+    N.rows.forEach((r, i) => { const ch = CANDS[i][2] && t > 15.6; r.classList.toggle('chosen', !!ch); const chip = r.querySelector('.chip'); if (chip) { chip.style.opacity = ch ? seg(t, 15.6, 16.0) : 0; } });
     N.rows.forEach((r, i) => { const k = seg(t, 11.8 + i * 0.12, 12.4 + i * 0.12, E.outCubic); r.style.opacity = k; r.style.transform = `translateX(${(1 - k) * 30}px)`; });
     // highlight boxes (in frame coords, before scroll)
     const hlAt = (x, y, w, h, a, b) => ({ x, y, w, h, a, b });

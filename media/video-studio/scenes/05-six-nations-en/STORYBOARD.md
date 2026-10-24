@@ -1,10 +1,10 @@
-# 05 six-nations-ja: 六つの国 (16:9, 63 s, heroic)
+# 05 six-nations-en: Six Nations (16:9, 63 s, heroic)
 
 | t (s) | Beat | Sources |
 |---|---|---|
-| 0–4 | The hex world assembles ring by ring (WYMap); title 六つの国 / SIX NATIONS · ONE MAP / 大協約を囲む、ひとつの地図 | FACTS §1, §2; The Concord = 大協約 (lang/en-frontier-play.mjs:438) |
-| 4–50.8 | Six beats of 7.8 s, diagonal wipes in each nation's colour. Stage-v1 idle strip (attack strip once per beat), crest, JA/EN name, doctrine JA/EN, the doctrine one-liner verbatim from `people/leaders.mjs` DOCTRINE_PITCH. Caption: ゲーム内の教義テキストより・一部の仕組みはまだ実装されていません | FACTS §2 (one-liners are UI copy, partly not simulated / not built) |
-| 50.8–58 | The six characters before the map; 六つの国。ひとつの地図。 Per-nation win shares 15.6–17.4 % with badge シミュレーター出力(想定した行動) and note | FACTS §9 |
-| 58–63 | End card | |
+| 0–4 | Hex world assembles ring by ring; SIX NATIONS / 六つの国 (accent) / One shared map around The Concord. | FACTS §1, §2 |
+| 4–50.8 | Six 7.8 s beats with diagonal wipes in each nation's colour: stage-v1 idle strip (attack strip once), crest + sigil, name (EN, JA accent), doctrine (EN, JA accent), the client's English doctrine one-liner verbatim (lang/en-frontier-play.mjs:363-367, 902). Caption: "Doctrine text from the game · some of these mechanics are not built yet". | FACTS §2 |
+| 50.8–58 | The six characters before the map; "Six nations. One map."; win shares 15.6–17.4 %; badge "Simulator output (assumed behaviour)"; "In simulation, every nation wins about 1 season in 6." | FACTS §9 |
+| 58–63 | End card (EN) | |
 
-No names, titles or lore for the characters. Lines are hand-broken at 。/、.
+No names, titles or lore for the characters.

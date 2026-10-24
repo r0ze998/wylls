@@ -1,4 +1,4 @@
-<!doctype html><html><head><meta charset="utf-8"><title>16 AI citizens</title>
+<!doctype html><html><head><meta charset="utf-8"><title>15 AI citizens</title>
 <link rel="stylesheet" href="../../lib/wy.css">
 <script src="../../lib/wy.js"></script><script src="../../lib/wy-audio.js"></script><script src="../../lib/wy-kit.js"></script>
 <script src="aik.js"></script>
@@ -65,7 +65,7 @@ const cardHTML = `<div class="cc en"><div class="cc-panel" style="width:1040px;p
 </div></div>`;
 
 WY.scene({
-  width: W, height: H, duration: 50, fps: 30,
+  width: W, height: H, duration: 60, fps: 30,
   setup(stage) {
     AIK.css();
     bg = AIK.bg(stage, { tint: '20,38,34' });
@@ -81,6 +81,17 @@ WY.scene({
     T.b2 = AIK.text(stage, 'It plays with the same keys, fog\nand rate limits as people —\nplus safety limits.', { x: 124, y: 640, size: 34, font: 'var(--sans)', weight: 500, align: 'left', lh: 1.5, ls: '0', color: 'rgba(255,250,240,.8)', stagger: 0.008, rise: 18, blur: 5 });
     const tiles = [['MODEL', 'Local Gemma 4 26B A4B', 'llama.cpp · thinking off · temperature 0 · no paid API'], ['PERSONA', 'One of six, with a creed', '“My nation’s spears answer first; I lead the march others hesitate to make.”'], ['GOALS', 'Four lasting goals', 'e.g. “March at least once a day.”'], ['MEMORY', 'Lines the code writes', 'short episodes from public records — the model never writes them']];
     N.tiles = tiles.map(([k, h, s], i) => AIK.box(stage, `<div class="tile"><div class="k">${k}</div><div class="h">${h}</div><div class="s">${s}</div></div>`, { x: 1040, y: 100 + i * 236, z: 12 }));
+
+    // W — the Wyll card on the real audit page (page-test stage)
+    T.w1 = AIK.text(stage, 'Every AI citizen has\na public [[Wyll card]].', { x: 100, y: 190, size: 76, align: 'left', lh: 1.1 });
+    T.w2 = AIK.text(stage, 'Persona and creed, four goals,\ntrust, memory excerpts, recent reasons —\nand how often the model, not the autopilot,\nmade the call.', { x: 104, y: 420, size: 34, font: 'var(--sans)', weight: 500, align: 'left', lh: 1.55, color: 'rgba(255,250,240,.82)', stagger: 0.006, rise: 18, blur: 5 });
+    const SHOT = '../../assets/ui/council-opened-en-1920x1080.png'; WY.img(SHOT);
+    const sc = 860 / 1590;
+    const hb = (id, top, h) => `<div id="${id}" style="position:absolute;left:8px;top:${top}px;width:844px;height:${h}px;border:4px solid #ffd24d;border-radius:14px;box-shadow:0 0 24px rgba(255,210,77,.6);opacity:0"></div>`;
+    N.wyll = AIK.box(stage, `<div style="position:relative;width:860px;height:713px;overflow:hidden;border-radius:16px;box-shadow:0 40px 120px rgba(0,0,0,.6),0 0 0 2px rgba(201,162,74,.6);background:#e9e5d8">
+      <img id="shot" src="${SHOT}" style="position:absolute;left:${-658 * sc}px;top:${-207 * sc}px;width:${3840 * sc}px;height:${2160 * sc}px;transform-origin:430px 360px">
+      ${hb('hlc', 128, 58)}${hb('hlw', 262, 212)}${hb('hlg', 492, 214)}</div>`, { x: 960, y: 140, z: 12 });
+    N.wyllCap = AIK.box(stage, '<div style="width:860px;font:500 22px/1.45 var(--sans);color:rgba(255,250,240,.75)">The real council audit page. <span style="color:#ffc9a8">Captured on the page-test stage: roster and personas come from run slice-4; goal progress and some other fields are synthetic.</span></div>', { x: 960, y: 868, z: 12 });
 
     // C
     T.c0 = AIK.text(stage, 'Every decision,\n[[three steps]].', { x: 100, y: 120, size: 64, lh: 1.1, font: serif, weight: 700, align: 'left', ls: '0' });
@@ -129,69 +140,80 @@ WY.scene({
     ov.render(t); dust.render(t, 0.45);
     AIK.clear(g, t);
 
+    // the older 50 s timeline (A–F) is replayed through a piecewise map; the Wyll-card beat W is inserted at 13–19 s
+    const u = AIK.remap(t, [0, 13.05, 19, 35, 43, 49, 55.2], [0, 13.05, 13.05, 29, 36, 41, 45.2]);
     // A 0–6
-    T.a1.render(t - 0.4, 5.0); T.a1.node.style.transform = `scale(${1 + 0.03 * seg(t, 0, 6)})`;
-    T.a2.render(t - 2.4, 3.0);
+    T.a1.render(u - 0.4, 5.0); T.a1.node.style.transform = `scale(${1 + 0.03 * seg(u, 0, 6)})`;
+    T.a2.render(u - 2.4, 3.0);
 
     // B 6–13
-    T.b1.render(t - 6.1, 6.4);
-    T.b2.render(t - 7.0, 5.6);
-    N.tiles.forEach((n, i) => AIK.show(n, t, 6.5 + i * 0.35, 12.6, { y: 40 }));
+    T.b1.render(u - 6.1, 5.4);
+    T.b2.render(u - 7.0, 4.5);
+    N.tiles.forEach((n, i) => AIK.show(n, u, 6.5 + i * 0.35, 12.6, { y: 40 }));
 
     // C 13–29
-    T.c0.render(t - 13.1, 15.4);
-    AIK.show(N.steps, t, 13.4, 28.6);
-    AIK.show(N.card, t, 13.8, 28.6, { y: 50 });
-    AIK.show(N.real, t, 14.2, 28.6, { y: 10 });
+    T.c0.render(u - 13.1, 15.4);
+    AIK.show(N.steps, u, 13.4, 28.6);
+    AIK.show(N.card, u, 13.8, 28.6, { y: 50 });
+    AIK.show(N.real, u, 14.2, 28.6, { y: 10 });
     const act = [[13.6, 17.4], [17.4, 25.0], [25.0, 28.6]];
-    N.sEls.forEach((el, i) => { const k = env(t, act[i][0], act[i][1], 0.3, 0.3); el.style.opacity = 0.28 + 0.72 * Math.max(k, i === 2 && t > 25 ? 1 : 0); el.style.transform = `translateX(${k * 10}px)`; });
+    N.sEls.forEach((el, i) => { const k = env(u, act[i][0], act[i][1], 0.3, 0.3); el.style.opacity = 0.28 + 0.72 * Math.max(k, i === 2 && u > 25 ? 1 : 0); el.style.transform = `translateX(${k * 10}px)`; });
     N.rows.forEach((r, i) => {
-      const k = seg(t, 14.4 + i * 0.1, 14.9 + i * 0.1, E.outCubic); const chosen = CHOSEN.includes(r.dataset.id);
-      const pick = seg(t, 17.8, 18.3);
-      r.classList.toggle('chosen', chosen && t > 17.8);
-      let chip = r.querySelector('.chip'); if (chosen && t > 17.8 && !chip) WY.el('span', { class: 'chip chip-model', text: 'chosen' }, r); if (!(chosen && t > 17.8) && chip) chip.remove();
-      const col = chosen ? 0 : seg(t, 19.0, 19.6, E.inOutCubic);
+      const k = seg(u, 14.4 + i * 0.1, 14.9 + i * 0.1, E.outCubic); const chosen = CHOSEN.includes(r.dataset.id);
+      const pick = seg(u, 17.8, 18.3);
+      r.classList.toggle('chosen', chosen && u > 17.8);
+      let chip = r.querySelector('.chip'); if (chosen && u > 17.8 && !chip) WY.el('span', { class: 'chip chip-model', text: 'chosen' }, r); if (!(chosen && u > 17.8) && chip) chip.remove();
+      const col = chosen ? 0 : seg(u, 19.0, 19.6, E.inOutCubic);
       r.style.opacity = k * (chosen ? 1 : 1 - 0.45 * pick) * (1 - col);
       if (!r.dataset.h) r.dataset.h = r.offsetHeight;
       r.style.height = col > 0 ? (+r.dataset.h * (1 - col)) + 'px' : ''; r.style.paddingTop = r.style.paddingBottom = col > 0 ? (6 * (1 - col)) + 'px' : ''; r.style.borderWidth = col > 0.98 ? '0' : '';
       r.style.marginTop = col > 0 ? (-7 * col) + 'px' : '';
     });
-    N.wl.forEach(n => { n.style.opacity = seg(t, 19.4, 20.0); n.style.display = t < 19.2 ? 'none' : ''; });
-    N.ml.forEach(n => { n.style.opacity = seg(t, 21.6, 22.2); n.style.display = t < 19.2 ? 'none' : ''; });
+    N.wl.forEach(n => { n.style.opacity = seg(u, 19.4, 20.0); n.style.display = u < 19.2 ? 'none' : ''; });
+    N.ml.forEach(n => { n.style.opacity = seg(u, 21.6, 22.2); n.style.display = u < 19.2 ? 'none' : ''; });
     // highlight boxes on the card
-    const hl = (sel, a, b, col) => { const els = sel.map(s => N.card.querySelector(s)); const k = env(t, a, b, 0.3, 0.3); if (k <= 0) return; const r0 = els[0].getBoundingClientRect(), r1 = els[els.length - 1].getBoundingClientRect(); g.save(); g.globalAlpha = k; g.strokeStyle = col; g.lineWidth = 4; g.shadowColor = col; g.shadowBlur = 18; g.beginPath(); g.roundRect(r0.left - 10, r0.top - 8, Math.max(r0.width, r1.width) + 20, r1.bottom - r0.top + 16, 14); g.stroke(); g.restore(); };
+    const hl = (sel, a, b, col) => { const els = sel.map(s => N.card.querySelector(s)); const k = env(u, a, b, 0.3, 0.3); if (k <= 0) return; const r0 = els[0].getBoundingClientRect(), r1 = els[els.length - 1].getBoundingClientRect(); g.save(); g.globalAlpha = k; g.strokeStyle = col; g.lineWidth = 4; g.shadowColor = col; g.shadowBlur = 18; g.beginPath(); g.roundRect(r0.left - 10, r0.top - 8, Math.max(r0.width, r1.width) + 20, r1.bottom - r0.top + 16, 14); g.stroke(); g.restore(); };
     hl(['#w-lab', '#w-txt'], 19.6, 21.4, '#ffd24d');
     hl(['#m-lab', '#m-txt'], 21.8, 24.8, '#c9a0ea');
-    AIK.show(N.cited, t, 22.6, 24.9, { y: 20 });
-    if (t > 25.0 && t < 28.7) { // checks: three ticks over the card
-      ['schema', 'caps', 'fresh re-check', 'program'].forEach((w, i) => { const k = seg(t, 25.4 + i * 0.4, 25.8 + i * 0.4, E.outBack) * (1 - seg(t, 28.2, 28.6)); if (k <= 0) return; const x = [830, 1050, 1240, 1510][i], y = 1010; g.save(); g.globalAlpha = clamp(k); g.fillStyle = '#2f6b4a'; g.beginPath(); g.arc(x, y, 22 * k, 0, Math.PI * 2); g.fill(); g.strokeStyle = '#e9ffe9'; g.lineWidth = 5; g.beginPath(); g.moveTo(x - 9, y); g.lineTo(x - 2, y + 8); g.lineTo(x + 11, y - 9); g.stroke(); g.fillStyle = '#e2efe9'; g.font = '600 26px Inter, sans-serif'; g.fillText(w, x + 34, y + 9); g.restore(); });
+    AIK.show(N.cited, u, 22.6, 24.9, { y: 20 });
+    if (u > 25.0 && u < 28.7) { // checks: three ticks over the card
+      ['schema', 'caps', 'fresh re-check', 'program'].forEach((w, i) => { const k = seg(u, 25.4 + i * 0.4, 25.8 + i * 0.4, E.outBack) * (1 - seg(u, 28.2, 28.6)); if (k <= 0) return; const x = [830, 1050, 1240, 1510][i], y = 1010; g.save(); g.globalAlpha = clamp(k); g.fillStyle = '#2f6b4a'; g.beginPath(); g.arc(x, y, 22 * k, 0, Math.PI * 2); g.fill(); g.strokeStyle = '#e9ffe9'; g.lineWidth = 5; g.beginPath(); g.moveTo(x - 9, y); g.lineTo(x - 2, y + 8); g.lineTo(x + 11, y - 9); g.stroke(); g.fillStyle = '#e2efe9'; g.font = '600 26px Inter, sans-serif'; g.fillText(w, x + 34, y + 9); g.restore(); });
     }
 
     // D 29–36
-    T.d1.render(t - 29.1, 3.2);
-    AIK.show(N.ap, t, 29.5, 32.4, { y: 30 });
-    AIK.show(N.share, t, 30.2, 32.4);
-    T.d2.render(t - 32.7, 3.0);
-    AIK.show(N.keys, t, 33.0, 35.8, { y: 30 });
-    AIK.show(N.keyNote, t, 33.6, 35.8);
+    T.d1.render(u - 29.1, 3.2);
+    AIK.show(N.ap, u, 29.5, 32.4, { y: 30 });
+    AIK.show(N.share, u, 30.2, 32.4);
+    T.d2.render(u - 32.7, 3.0);
+    AIK.show(N.keys, u, 33.0, 35.8, { y: 30 });
+    AIK.show(N.keyNote, u, 33.6, 35.8);
 
     // E 36–41
-    T.e1.render(t - 36.1, 4.6);
-    { const e = AIK.show(N.lims, t, 36.5, 40.8, { y: 30 }); if (e) [...N.lims.firstChild.children].forEach((c, i) => { const k = seg(t, 36.6 + i * 0.22, 37.1 + i * 0.22, E.outBack); c.style.opacity = clamp(k); c.style.transform = `scale(${lerp(0.8, 1, clamp(k))})`; }); }
+    T.e1.render(u - 36.1, 4.6);
+    { const e = AIK.show(N.lims, u, 36.5, 40.8, { y: 30 }); if (e) [...N.lims.firstChild.children].forEach((c, i) => { const k = seg(u, 36.6 + i * 0.22, 37.1 + i * 0.22, E.outBack); c.style.opacity = clamp(k); c.style.transform = `scale(${lerp(0.8, 1, clamp(k))})`; }); }
 
     // F 41–45.5
-    T.f1.render(t - 41.1, 4.0);
-    N.pend.forEach((n, i) => AIK.show(n, t, 41.6 + i * 0.3, 45.1, { y: 30 }));
+    T.f1.render(u - 41.1, 4.0);
+    N.pend.forEach((n, i) => AIK.show(n, u, 41.6 + i * 0.3, 45.1, { y: 30 }));
 
-    badgeL.render(t, 6.4, 45.1);
-    badgeP.render(t, 6.8, 45.1);
-    flash.render(t, 6.0, 0.4, 0.3);
-    end.render(t - 45.5);
+    badgeL.render(u, 6.4, 45.1);
+    badgeP.render(u, 6.8, 45.1);
+    flash.render(u, 6.0, 0.4, 0.3);
+    // W 13–19
+    T.w1.render(t - 12.9, 5.7);
+    T.w2.render(t - 13.6, 5.0);
+    { const e = AIK.show(N.wyll, t, 13.0, 18.7, { y: 60 }); if (e) { N.wyll.querySelector('#shot').style.transform = `scale(${1 + 0.05 * seg(t, 13.4, 19)})`; N.wyll.querySelector('#hlc').style.opacity = env(t, 14.4, 15.6, 0.3, 0.3); N.wyll.querySelector('#hlg').style.opacity = env(t, 15.8, 17.2, 0.3, 0.3); N.wyll.querySelector('#hlw').style.opacity = env(t, 17.2, 18.6, 0.3, 0.3); } }
+    AIK.show(N.wyllCap, t, 13.6, 18.7);
+
+    end.render(t - 55.5);
   },
 
-  audio(A) {
-    A.music({ style: 'tension', bpm: 96, key: 'C', sections: [[0, 0.25], [6, 0.45], [13, 0.6], [25, 0.0]], end: 26.5, outro: 'none' });
-    A.music({ style: 'epic', bpm: 96, key: 'C', start: 25, sections: [[25, 0.0], [26.5, 0.6], [32.5, 0.55], [36, 0.85], [41, 0.5]], end: 45.5, outro: 'hit' });
+  audio(A0) {
+    const M = x => AIK.remap(x, [0, 13.0, 13.05, 29, 36, 41, 45.2, 50], [0, 13.0, 19.0, 35, 43, 49, 55.2, 60]); // old timeline -> new
+    const A = new Proxy(A0, { get: (o, k) => (typeof o[k] === 'function' ? (...args) => { if (typeof args[0] === 'number') args[0] = M(args[0]); if (typeof args[1] === 'number' && ['riser', 'swell', 'drone', 'march', 'type', 'ticks'].includes(k)) args[1] = M(args[1]); return o[k](...args); } : o[k]) });
+    A0.music({ style: 'tension', bpm: 96, key: 'C', sections: [[0, 0.25], [6, 0.45], [13, 0.5], [19, 0.6], [31, 0.0]], end: 32.5, outro: 'none' });
+    A0.music({ style: 'epic', bpm: 96, key: 'C', start: 31, sections: [[31, 0.0], [32.5, 0.6], [39, 0.55], [43, 0.85], [49, 0.5]], end: 55.5, outro: 'hit' });
+    A0.whoosh(12.9, { gain: 0.5 }); A0.pop(13.4); A0.chime(14.4, { note: 'G5', gain: 0.4 }); A0.chime(15.8, { note: 'C6', gain: 0.4 }); A0.chime(17.2, { note: 'E6', gain: 0.4 });
     A.drone(0, 6, { note: 'C2', gain: 0.5 }); A.chime(0.5, { note: 'G5', gain: 0.6, dur: 3 });
     A.riser(4.6, 6.0, { gain: 0.5 }); A.whoosh(5.8); A.hit(6.0, { gain: 0.8 });
     for (let i = 0; i < 4; i++) A.pop(6.5 + i * 0.35, { gain: 0.6 });

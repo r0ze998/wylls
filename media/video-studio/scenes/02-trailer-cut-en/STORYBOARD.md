@@ -1,6 +1,6 @@
-# 02 trailer-en — storyboard (45 s, 16:9, 30 fps, epic 100 bpm)
+# 02 trailer-cut-en — storyboard (45 s, 16:9, 30 fps, epic 100 bpm)
 
-Different structure from 01 (not a translation). Uses `../01-trailer-ja/tk.js`.
+A second, shorter cut with a different structure from 01. Uses `../01-trailer-en/tk.js`.
 
 | t (s) | Shot | Copy / honesty |
 |---|---|---|

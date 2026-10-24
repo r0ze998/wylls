@@ -1,0 +1,121 @@
+<!doctype html><html><head><meta charset="utf-8"><title>16 AI citizens (vertical)</title>
+<link rel="stylesheet" href="../../lib/wy.css">
+<script src="../../lib/wy.js"></script><script src="../../lib/wy-audio.js"></script><script src="../../lib/wy-kit.js"></script>
+<script src="aik.js"></script>
+<style>
+.stepn { display:flex; align-items:center; gap:22px; }
+.stepn .n { width:92px; height:92px; border-radius:50%; display:grid; place-items:center; font:700 54px Cinzel, serif; color:#0b1512; background:#c9a24a; flex:none; }
+.stepn.model .n { background:#9fd8c9; }
+.stepn .h { font:700 76px/1 'Cormorant Garamond', serif; color:#fffaf0; white-space:nowrap; }
+.vc { width:900px; } /* council-style card */
+.cc.vc .cand { font-size:34px; line-height:1.3; padding:14px 18px; border-radius:14px; }
+.cc.vc .cands { gap:12px; }
+.cc.vc .cand-id { font-size:26px; min-width:50px; }
+.cc.vc .cand .chip { font-size:24px; min-height:38px; }
+.cap { font:500 36px/1.4 var(--sans); color:rgba(255,250,240,.78); text-align:center; }
+.chk { display:flex; flex-direction:column; gap:34px; width:900px; }
+.chk div { display:flex; align-items:center; gap:24px; font:600 50px var(--sans); color:#fffaf0; }
+.chk i { font-style:normal; flex:none; width:64px; height:64px; border-radius:50%; display:grid; place-items:center; background:#2f6b4a; color:#e9ffe9; font:800 34px var(--sans); }
+.apv { width:900px; padding:28px 34px; border-radius:22px; border:2px dashed rgba(235,230,212,.7); background:rgba(235,230,212,.08); font:600 40px/1.4 var(--sans); color:#fffaf0; text-align:center; }
+.apv b { color:#ffb3a8; }
+.pv { display:flex; align-items:center; gap:20px; width:900px; padding:26px 26px; border-radius:18px; background:rgba(10,24,19,.88); border:1.5px solid rgba(255,250,240,.25); font:600 38px/1.25 var(--sans); color:#fffaf0; }
+.pv .k { flex:none; width:190px; text-align:center; padding:6px 0; border-radius:10px; font:800 24px var(--sans); letter-spacing:.06em; }
+.pv .ok { background:#2e5b6e; color:#e3f6ff; }
+.pv .no { background:#5a3a6b; color:#f5e3ff; }
+</style>
+</head><body><script>
+const W = 1080, H = 1920;
+const { seg, env, ease: E, clamp, lerp } = WY;
+let bg, ov, dust, cv, g, T = {}, N = {}, badge, end, flash;
+
+WY.scene({
+  width: W, height: H, duration: 31, fps: 30,
+  setup(stage) {
+    AIK.css();
+    bg = AIK.bg(stage, { tint: '22,40,34' });
+    cv = WY.canvas(stage, W, H); cv.style.zIndex = 5; g = cv.getContext('2d');
+
+    // hook
+    T.kick = AIK.text(stage, 'WYLLS · AI CITIZENS', { x: 0, y: 640, w: W, size: 36, font: 'Cinzel, serif', weight: 700, ls: '.35em', color: '#c9a24a', stagger: 0.02 });
+    T.hook = AIK.text(stage, 'An AI that plays\nlike a [[player]].', { x: 0, y: 720, w: W, size: 124, lh: 1.08 });
+    T.hook2 = AIK.text(stage, 'Three steps, every decision.', { x: 0, y: 1040, w: W, size: 46, font: 'var(--sans)', weight: 500, color: 'rgba(255,250,240,.82)', stagger: 0.012, rise: 18, blur: 5 });
+
+    // step 1–3 headers
+    N.s1 = AIK.box(stage, '<div class="stepn"><div class="n">1</div><div class="h">The code offers</div></div>', { x: 90, y: 330, z: 12 });
+    N.s2 = AIK.box(stage, '<div class="stepn model"><div class="n">2</div><div class="h">The model picks</div></div>', { x: 90, y: 330, z: 12 });
+    N.s3 = AIK.box(stage, '<div class="stepn"><div class="n">3</div><div class="h">The code checks</div></div>', { x: 90, y: 330, z: 12 });
+
+    // the candidate list (verbatim labels from the local slice-4 record, shortened list)
+    const C = [['c1', 'Routine: economy and duties only, no march'], ['c2', 'Hold: duties only, keep the armies home'], ['c3', 'March H1 (200 troops) to a barbarian camp, 6 hexes away'], ['c5', 'Build a wood producer (copy 2)'], ['c7', 'Train spearman troops into the reserve'], ['c8', 'Send scout H3 to explore the tiles next to it']];
+    N.card = AIK.box(stage, `<div class="cc vc"><div class="cc-panel" style="padding:22px 24px;box-shadow:0 40px 120px rgba(0,0,0,.6),0 0 0 2px rgba(201,162,74,.55)">
+      <div class="sub" style="margin:0 0 10px;font-size:24px">Candidates it was offered (made by code)</div>
+      <div class="cands">${C.map(([id, l]) => `<div class="cand" data-id="${id}"><span class="cand-id">${id}</span><span>${l}</span></div>`).join('')}</div></div></div>`, { x: 90, y: 520, z: 12 });
+    N.src = AIK.box(stage, '<div class="cap" style="width:900px;font-size:26px">Real labels from local run slice-4 (6 of its 8 options).</div>', { x: 90, y: 1300, z: 12 });
+    N.c1cap = AIK.box(stage, '<div class="cap" style="width:900px">Legal moves only — at most 12.</div>', { x: 90, y: 1400, z: 12 });
+    N.c2cap = AIK.box(stage, '<div class="cap" style="width:900px">Local Gemma 4. No paid API.<br>It picked a camp march and training.</div>', { x: 90, y: 1400, z: 12 });
+    N.chk = AIK.box(stage, '<div class="chk"><div><i>✓</i>schema and option range</div><div><i>✓</i>troop caps</div><div><i>✓</i>a fresh look at the board</div><div><i>✓</i>the program’s own rules</div></div>', { x: 90, y: 560, z: 12 });
+    N.ap = AIK.box(stage, '<div class="apv">Late or invalid? The autopilot plays —<br><b>and it never starts a march.</b></div>', { x: 90, y: 1120, z: 12 });
+
+    // honest status
+    T.st = AIK.text(stage, 'Running locally.\n[[Still to prove.]]', { x: 0, y: 330, w: W, size: 104, lh: 1.08 });
+    const P = [['ok', 'PASSED', 'take-1: an AI citizen’s own march'], ['no', 'PENDING', 'the formal A/B comparison'], ['no', 'PENDING', 'a full 18-AI run'], ['no', 'NOT YET', 'people and AI in one world']];
+    N.pend = P.map(([c, k, s], i) => AIK.box(stage, `<div class="pv"><span class="k ${c}">${k}</span>${s}</div>`, { x: 90, y: 680 + i * 170, z: 12 }));
+
+    badge = AIK.status(stage, 'local', 'Ran on a local test chain', { x: 90, y: 236, size: 28 });
+    badge.node.style.zIndex = 30;
+    flash = WYKit.flash(stage, { color: '#fff5dc' });
+    dust = WYKit.dust(stage, { count: 40, color: '255,230,180', z: 8, speed: 10 });
+    ov = AIK.overlay(stage);
+    end = WYKit.endCard(stage, { lang: 'en', line: 'Play the agent economy.', sub: 'A strategy game where people and AI citizens can fight for one map' });
+    N.rows = [...N.card.querySelectorAll('.cand')];
+  },
+
+  render(t) {
+    bg.render(t, { glow: 0.55, cy: 0.5 });
+    ov.render(t); dust.render(t, 0.45);
+    AIK.clear(g, t);
+
+    // hook 0–4.8
+    T.kick.render(t - 0.2, 4.2);
+    T.hook.render(t - 0.4, 4.0); T.hook.node.style.transform = `scale(${1 + 0.04 * seg(t, 0, 4.8)})`;
+    T.hook2.render(t - 2.0, 2.5);
+
+    // step 1 4.8–10.4
+    AIK.show(N.s1, t, 4.9, 10.0, { y: 30 });
+    { const e = AIK.show(N.card, t, 5.2, 14.6, { y: 50 });
+      N.rows.forEach((r, i) => { const k = seg(t, 5.5 + i * 0.12, 6.0 + i * 0.12, E.outCubic); const chosen = r.dataset.id === 'c3' || r.dataset.id === 'c7'; const on = chosen && t > 11.0; r.classList.toggle('chosen', on); let chip = r.querySelector('.chip'); if (on && !chip) WY.el('span', { class: 'chip chip-model', text: 'chosen' }, r); if (!on && chip) chip.remove(); r.style.opacity = k * (chosen || t < 11 ? 1 : 1 - 0.55 * seg(t, 11.0, 11.5)); r.style.transform = `translateX(${(1 - k) * 30}px)`; }); }
+    AIK.show(N.src, t, 6.4, 14.6);
+    AIK.show(N.c1cap, t, 7.0, 10.0);
+
+    // step 2 10.4–15
+    AIK.show(N.s2, t, 10.4, 14.6, { y: 30 });
+    AIK.show(N.c2cap, t, 11.4, 14.6);
+    flash.render(t, 11.0, 0.35, 0.2);
+
+    // step 3 15–20.6
+    AIK.show(N.s3, t, 15.0, 20.2, { y: 30 });
+    { const e = AIK.show(N.chk, t, 15.3, 20.2, { y: 30 }); if (e) [...N.chk.firstChild.children].forEach((r, i) => { const k = seg(t, 15.4 + i * 0.3, 15.8 + i * 0.3, E.outBack); r.style.opacity = clamp(k); r.style.transform = `translateX(${(1 - clamp(k)) * 30}px)`; }); }
+    AIK.show(N.ap, t, 17.2, 20.2, { y: 30 });
+
+    // status 20.6–25.6
+    T.st.render(t - 20.5, 5.5);
+    N.pend.forEach((n, i) => AIK.show(n, t, 21.1 + i * 0.3, 26.0, { y: 30 }));
+
+    badge.render(t, 4.9, 26.0);
+    end.render(t - 26.4);
+  },
+
+  audio(A) {
+    A.music({ style: 'pulse', bpm: 112, key: 'D', sections: [[0, 0.35], [4.8, 0.7], [10.4, 0.75], [15, 0.85], [20.6, 0.55]], end: 26.4, outro: 'hit' });
+    A.whoosh(0.2, { gain: 0.5 }); A.hit(0.5, { gain: 0.7 });
+    A.whoosh(4.7, { gain: 0.6 }); A.hit(4.9, { gain: 0.5 });
+    for (let i = 0; i < 6; i++) A.tick(5.5 + i * 0.12, { gain: 0.45, pitch: 1.3 });
+    A.whoosh(10.3, { gain: 0.5 }); A.chime(11.0, { note: 'E6', gain: 0.6 });
+    A.whoosh(14.9, { gain: 0.5 });
+    for (let i = 0; i < 4; i++) A.ok(15.4 + i * 0.3, { gain: 0.4 });
+    A.bad(17.2, { gain: 0.35 });
+    A.whoosh(20.5, { gain: 0.6 }); A.hit(20.6, { gain: 0.5 });
+    for (let i = 0; i < 4; i++) A.tick(21.3 + i * 0.3, { gain: 0.6 });
+  },
+});
+</script></body></html>

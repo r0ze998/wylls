@@ -1,21 +1,21 @@
-<!doctype html><html><head><meta charset="utf-8"><title>30 honest-status-ja</title>
+<!doctype html><html><head><meta charset="utf-8"><title>30 honest-status-en</title>
 <link rel="stylesheet" href="../../lib/wy.css">
 <script src="../../lib/wy.js"></script><script src="../../lib/wy-audio.js"></script>
 <script src="../../lib/wy-map.js"></script><script src="../../lib/wy-kit.js"></script>
 <script src="../01-trailer-en/tk.js"></script>
 <style>
   .sheet { position:absolute; left:110px; top:150px; width:1700px; height:830px; padding:34px 46px; }
-  .sheet h2 { font:800 50px var(--serif-jp); color:#3b2a14; margin-bottom:14px; display:flex; justify-content:space-between; align-items:baseline }
-  .sheet h2 small { font:600 24px var(--sans-jp); color:rgba(59,42,20,.65) }
+  .sheet h2 { font:700 54px 'Cormorant Garamond', serif; color:#3b2a14; margin-bottom:14px; display:flex; justify-content:space-between; align-items:baseline }
+  .sheet h2 small { font:500 22px var(--sans); letter-spacing:.06em; color:rgba(59,42,20,.65) }
   .srow { display:grid; grid-template-columns:560px 420px 1fr; align-items:center; height:82px; border-top:1.5px solid rgba(90,60,20,.22); color:#2b2013 }
-  .srow .a { font:700 34px var(--sans-jp) } .srow .a small { display:block; font:500 22px var(--sans-jp); color:rgba(43,32,19,.6); margin-top:2px }
-  .srow .d { font:600 26px/1.35 var(--sans-jp); color:rgba(43,32,19,.82) }
-  .pill { display:inline-flex; align-items:center; gap:10px; padding:8px 18px; border-radius:999px; font:700 25px var(--sans-jp); box-shadow:0 4px 12px rgba(0,0,0,.25) }
+  .srow .a { font:600 32px var(--sans) } .srow .a small { display:block; font:500 21px var(--sans); color:rgba(43,32,19,.6); margin-top:2px }
+  .srow .d { font:500 25px/1.3 var(--sans); color:rgba(43,32,19,.82) }
+  .pill { display:inline-flex; align-items:center; gap:10px; padding:8px 18px; border-radius:999px; font:600 23px var(--sans); box-shadow:0 4px 12px rgba(0,0,0,.25) }
   .pill i { width:12px; height:12px; border-radius:50%; background:currentColor; opacity:.85 }
-  .nc { position:absolute; width:820px; font:600 34px/1.5 var(--sans-jp); color:#fffaf0; padding-left:46px }
+  .nc { position:absolute; width:820px; font:500 34px/1.4 var(--sans); color:#fffaf0; padding-left:46px }
   .nc::before { content:''; position:absolute; left:0; top:20px; width:22px; height:3px; background:#c9a24a }
   .node { position:absolute; width:380px; text-align:center }
-  .node .t { font:800 40px/1.3 var(--serif-jp); color:#fffaf0 } .node .s { font:600 26px/1.5 var(--sans-jp); color:rgba(255,250,240,.78); margin-top:10px }
+  .node .t { font:700 44px/1.1 'Cormorant Garamond', serif; color:#fffaf0 } .node .s { font:500 25px/1.45 var(--sans); color:rgba(255,250,240,.78); margin-top:10px }
 </style>
 </head><body><script>
 const W = 1920, H = 1080;
@@ -23,30 +23,30 @@ const T = { open: 0.2, table: 5.0, nc: 24.0, road: 40.0, end: 50.5 };
 const E = WY.ease, seg = WY.seg, clamp = WY.clamp, lerp = WY.lerp;
 const S = WYKit.STATUS;
 const ROWS = [
-  ['旧プロトタイプ', '6か国 · 180ターン · 別のゲーム', 'devnet', 'Solana devnetで実行', '14メンバー(運営のルールBot 12 + 人 2)'],
-  ['基本ゲーム M1(作り直し版)', '参加 · 建設 · 訓練 · 偵察 · 封印進軍 · 衝突', 'local', 'ローカルテストチェーン', 'スクリプトBot 1,000 で7日分のシーズン'],
-  ['AI市民', 'ローカルの Gemma 4', 'local', 'ローカルで実行', '正式な比較評価と18AIの本番は未完了'],
-  ['征服', '砦 · 包囲 · 占領', 'local', 'ローカルで実行', '人間が操作したデモで砦の奪取を記録'],
-  ['14日シーズンと勝者', '', 'local', 'ローカルで1回完走', '120のルールBot · 公開シーズンはまだ'],
-  ['お金', '参加費と賞金', 'test', 'テスト用USDCのみ', '本物のお金は動いていない'],
-  ['S1 の新要素', '工房 · 荷車 · 見張り塔 · 国の投票', 'code', 'コード実装済み', 'Webクライアントではまだ遊べない'],
-  ['社会', '統治 · 外交 · 交易 · 技術 · 時代', 'design', '設計のみ', '技術・時代・Engineは中身が未設計'],
+  ['Earlier prototype', '6 nations · 180 turns · a different game', 'devnet', 'Ran on Solana devnet', '14 members: 12 operator-run bots + 2 people'],
+  ['Core game M1 (the rebuild)', 'join · build · train · scout · sealed marches', 'local', 'Local test chain', 'One 7-day season with 1,000 script bots'],
+  ['AI citizens', 'local Gemma 4', 'local', 'Running locally', 'Formal A/B and 18-AI main run pending'],
+  ['Conquest', 'keeps · sieges · occupation', 'local', 'Running locally', 'One keep capture, in a human-operated demo'],
+  ['14-day season & winner', 'run to the end once', 'local', 'Local test chain', '120 rule bots · no public season yet'],
+  ['Money', 'entry fee & prize', 'test', 'Test USDC only', 'No real money has moved'],
+  ['S1 additions', 'workshop · caravans · watchtowers · votes', 'code', 'Built in code', 'Not yet playable in the web client'],
+  ['Society', 'governance · diplomacy · trade · tech · eras', 'design', 'Design only', 'Tech, eras and the Engine not yet designed'],
 ];
 const NC = [
-  '作り直した版は、devnet でも mainnet でも<br>動いていない。',
-  '本物のお金は動いていない。<br>賞金も支払いも、まだない。',
-  '1,000 のプレイヤーはスクリプトBot。<br>大勢の人が遊んだ、とは言えない。',
-  '人とAI市民が同じ世界で遊んだ記録は、<br>まだない。',
-  'AIが「望む」「覚えている」とは言わない。<br>言えるのは「引用した」まで。',
-  '攻撃命令が採択された記録は、まだない。',
-  '検証ツールは自前のもの。<br>独立した監査ではない。',
-  '封印の秘匿性は、まだテストしていない。',
+  'The rebuild has not run on devnet or mainnet.',
+  'No real money has moved.<br>No prize, no payout.',
+  'The 1,000 players were script bots,<br>not a crowd of people.',
+  'People and AI citizens have not<br>yet shared a world in any run.',
+  'We don\'t say the AI “wants” or<br>“remembers”. We say it <i>cited</i>.',
+  'No Strike Order has ever been adopted.',
+  'The verifier is our own,<br>not an independent audit.',
+  'Seal secrecy has not been tested.',
 ];
 const ROAD = [
-  ['共有された文明', '技術 · 時代 · Engine · 外交', 'design'],
-  ['国のスコアと統治', '市場 · 自分のAIを持ち込む', 'design'],
-  ['AIの正式な評価', 'A/B比較 · 18AIの本番 · 人とAIのシーズン', 'planned'],
-  ['次の公開シーズン', 'Solana mainnet · 本物のUSDC<br>法務の確認が前提', 'planned'],
+  ['Shared civilisation', 'tech · eras · Engine · diplomacy', 'design'],
+  ['Nation score & governance', 'markets · bring your own AI', 'design'],
+  ['Formal AI evaluation', 'A/B · 18-AI main run<br>a people + AI season', 'planned'],
+  ['Next public season', 'Solana mainnet · live USDC<br>subject to legal review', 'planned'],
 ];
 let ctx, world, ov, flash, dust, L = {}, sheet, rows = [], ncs = [], road, nodes = [], end, ttlA, ttlB, notes = {};
 const pill = k => `<span class="pill" style="background:${S[k].bg};color:${S[k].fg}"><i></i>%</span>`;
@@ -57,24 +57,24 @@ WY.scene({
     ctx = WY.canvas(stage, W, H).getContext('2d');
     world = WYMap.build({ rings: 8, seed: 31 }); TK.preloadMap(world);
     // opening: two words
-    ttlA = TK.line(stage, ['できたこと'], { x: 0, w: W / 2, y: 380, size: 116, color: '#ffe7b0' });
-    ttlB = TK.line(stage, ['まだのこと'], { x: W / 2, w: W / 2, y: 380, size: 116, color: 'rgba(255,250,240,.72)' });
-    L.sub = TK.block(stage, 'Wylls の、いまの正直なステータス。', { left: '0px', width: W + 'px', top: '640px', textAlign: 'center', font: '600 44px var(--sans-jp)', color: 'rgba(255,250,240,.85)' });
-    L.date = TK.block(stage, '2026年10月24日時点 · リポジトリの記録より', { left: '0px', width: W + 'px', top: '720px', textAlign: 'center', font: '500 30px var(--sans-jp)', color: 'rgba(240,212,138,.8)' });
+    ttlA = TK.line(stage, ['What\'s done'], { x: 0, w: W / 2, y: 380, size: 116, font: '"Cormorant Garamond", serif', weight: 700, ls: 0.01, stagger: 0.03, color: '#ffe7b0' });
+    ttlB = TK.line(stage, ['What\'s not yet'], { x: W / 2, w: W / 2, y: 380, size: 116, font: '"Cormorant Garamond", serif', weight: 700, ls: 0.01, stagger: 0.03, color: 'rgba(255,250,240,.72)' });
+    L.sub = TK.block(stage, 'Wylls, honestly: where things stand.', { left: '0px', width: W + 'px', top: '640px', textAlign: 'center', font: '500 46px var(--sans)', color: 'rgba(255,250,240,.85)' });
+    L.date = TK.block(stage, 'As of 24 October 2026 · from the repository\'s records', { left: '0px', width: W + 'px', top: '722px', textAlign: 'center', font: '500 30px var(--sans)', color: 'rgba(240,212,138,.8)' });
     // status sheet
     sheet = WY.el('div', { class: 'sheet wy-paper' }, stage); sheet.style.zIndex = 20;
-    sheet.innerHTML = '<h2>ステータス一覧<small>README §4 より</small></h2>';
+    sheet.innerHTML = '<h2>Status at a glance<small>FROM README §4</small></h2>';
     ROWS.forEach(([a, as, k, lab, d]) => { const r = WY.el('div', { class: 'srow', html: `<div class="a">${a}${as ? `<small>${as}</small>` : ''}</div><div>${pill(k).replace('%', lab)}</div><div class="d">${d}</div>` }, sheet); rows.push(r); });
     // not claimed
-    L.nch = TK.line(stage, ['まだ、言わないこと。'], { y: 90, size: 92 });
+    L.nch = TK.line(stage, ['What we don\'t claim.'], { y: 90, size: 100, font: '"Cormorant Garamond", serif', weight: 700, ls: 0.01, stagger: 0.025 });
     NC.forEach((s, i) => { const n = WY.el('div', { class: 'nc', html: s }, stage); WY.css(n, { left: (i % 2 ? 1010 : 130) + 'px', top: 270 + Math.floor(i / 2) * 170 + 'px', zIndex: 22 }); ncs.push(n); });
     // roadmap
-    L.rh = TK.line(stage, ['これから'], { y: 110, size: 100 });
-    L.rs = TK.block(stage, '順番であって、約束ではない。', { left: '0px', width: W + 'px', top: '260px', textAlign: 'center', font: '600 38px var(--sans-jp)', color: 'rgba(240,212,138,.9)' });
+    L.rh = TK.line(stage, ['What\'s next'], { y: 110, size: 110, font: '"Cormorant Garamond", serif', weight: 700, ls: 0.01, stagger: 0.03 });
+    L.rs = TK.block(stage, 'An order, not a promise.', { left: '0px', width: W + 'px', top: '262px', textAlign: 'center', font: 'italic 600 44px "Cormorant Garamond", serif', color: 'rgba(240,212,138,.9)' });
     road = WY.canvas(stage, W, H); road.style.zIndex = 21;
-    ROAD.forEach(([t, s, k], i) => { const n = WY.el('div', { class: 'node', html: `<div style="margin-bottom:18px">${pill(k).replace('%', S[k].ja)}</div><div class="t">${t}</div><div class="s">${s}</div>` }, stage); WY.css(n, { left: 150 + i * 420 - 0 + 'px', top: '640px', zIndex: 22 }); nodes.push(n); });
-    notes.road = TK.note(stage, '10月22〜23日の再設計の議論で、この順番は変わる可能性があります。', { y: 990, size: 26, align: 'center' });
-    end = TK.end(stage, { lang: 'ja', line: 'できたことは、できたと。まだのことは、まだと。', sub: '人とAI市民が、ひとつの地図を争える戦略ゲーム' });
+    ROAD.forEach(([t, s, k], i) => { const n = WY.el('div', { class: 'node', html: `<div style="margin-bottom:18px">${pill(k).replace('%', S[k].en)}</div><div class="t">${t}</div><div class="s">${s}</div>` }, stage); WY.css(n, { left: 150 + i * 420 - 0 + 'px', top: '640px', zIndex: 22 }); nodes.push(n); });
+    notes.road = TK.note(stage, 'The redesign discussion of 22–23 October may reorder this.', { y: 990, size: 26, align: 'center', lang: 'en' });
+    end = TK.end(stage, { lang: 'en', line: 'Done means done. Not yet means not yet.', sub: 'A strategy game where people and AI citizens can fight for one map' });
     dust = WYKit.dust(stage, { count: 60, z: 8 });
     ov = TK.overlays(stage, { vig: 0.55 }); flash = WYKit.flash(stage, { color: '#fff6e0' });
   },
@@ -122,7 +122,7 @@ WY.scene({
         rc.strokeStyle = '#c9a24a'; rc.lineWidth = 6; rc.beginPath(); rc.moveTo(x0, y); rc.lineTo(lerp(x0, x1, p), y); rc.stroke();
         // "now" marker
         rc.fillStyle = '#ffd24d'; rc.beginPath(); rc.arc(x0, y, 14, 0, Math.PI * 2); rc.fill();
-        rc.font = '700 26px "Noto Sans JP"'; rc.fillStyle = '#ffd24d'; rc.textAlign = 'left'; rc.fillText('いま', x0 - 20, y - 36);
+        rc.font = '700 24px Inter'; rc.fillStyle = '#ffd24d'; rc.textAlign = 'left'; rc.fillText('NOW', x0 - 22, y - 36);
         ROAD.forEach((_, i) => { const cx = 150 + i * 420 + 190; const q = E.outBack(seg(t, T.road + 1.0 + i * 0.7, T.road + 1.4 + i * 0.7)); if (q <= 0) return; rc.save(); rc.translate(cx, y); rc.scale(q, q); rc.fillStyle = '#12261f'; rc.strokeStyle = '#f0d48a'; rc.lineWidth = 4; WYMap.hexPath(rc, 0, 0, 30, 1); rc.fill(); rc.stroke(); rc.restore(); });
         rc.globalAlpha = 1;
       }

@@ -6,9 +6,9 @@
 <style>
   .card { position:absolute; left:110px; top:150px; width:1700px; height:760px; }
   .card .num { position:absolute; left:70px; top:40px; font:900 230px/1 Cinzel, serif; color:#f0d48a; text-shadow:0 10px 40px rgba(0,0,0,.5) }
-  .card .ttl { position:absolute; left:70px; top:290px; width:860px; font:700 88px/1.08 'Cormorant Garamond', serif; color:#fffaf0 }
+  .card .ttl { position:absolute; left:70px; top:300px; width:900px; white-space:nowrap; font:700 94px/1.04 'Cormorant Garamond', serif; color:#fffaf0 }
   .card .acc { font:600 30px var(--serif-jp); color:rgba(240,212,138,.6); letter-spacing:.2em; margin-left:18px; vertical-align:middle }
-  .card .exp { position:absolute; left:74px; top:420px; width:840px; font:500 38px/1.5 var(--sans); color:rgba(255,250,240,.86) }
+  .card .exp { position:absolute; left:74px; top:450px; width:860px; font:500 44px/1.45 var(--sans); color:rgba(255,250,240,.86) }
   .card .vis { position:absolute; left:960px; top:70px; width:660px; height:620px; }
   .mini { position:absolute; border-radius:14px; background:rgba(9,22,17,.85); border:1.5px solid rgba(201,162,74,.5); color:#fffaf0; font:500 30px/1.4 var(--sans); padding:18px 24px }
   .lab { font:600 21px var(--sans); color:#f0d48a; letter-spacing:.08em; text-transform:uppercase; margin-bottom:8px }
@@ -17,15 +17,16 @@
 </style>
 </head><body><script>
 const W = 1920, H = 1080, B = 0.75;
-const T = { will: 0.3, morph: 2.4, kanji: 3.6, q: 8.0, honest: 14.6, honest2: 17.4, forms: 24.75, end: 45.0 };
+const T = { will: 0.3, morph: 2.4, kanji: 3.6, q: 8.0, honest: 14.0, honest2: 16.6, forms: 22.5, end: 45.0 };
+const CD = 4.5;
 const E = WY.ease, seg = WY.seg, clamp = WY.clamp, lerp = WY.lerp;
 let ctx, world, ov, flash, L = {}, end, word, slots = {}, tile, cards = [], pips = [], dust, badges = [], fnotes = [];
 const FORMS = [
-  { n: 'I', ttl: 'Lasting goals', acc: '目標', exp: 'Each persona carries four goals<br>from turn to turn. Progress shows<br>on its public Wyll card.', badge: 'local' },
-  { n: 'II', ttl: 'Reasons that<br>cite memory', acc: '引用', exp: 'Code writes memory lines from<br>public records. The model may<br>cite them in its reason.', badge: 'local' },
-  { n: 'III', ttl: 'Trust, and<br>unanswered grievances', acc: '信頼', exp: 'Who it trusts, and which wrongs<br>are still unanswered — kept<br>on the record.', badge: 'local', note: 'This form is not yet confirmed by the formal main run.' },
-  { n: 'IV', ttl: 'The right to<br>refuse an order', acc: '辞退', exp: 'An AI citizen may publicly<br>decline the council\'s<br>Strike Order.', badge: 'code', btxt: 'Built in code · never recorded in a run', note: 'Not yet confirmed by the formal main run. No Strike Order has been adopted in any recorded run.' },
-  { n: 'V', ttl: 'A voice and a vote<br>in the council', acc: '評議会', exp: 'Code proposes up to 3 targets;<br>citizens speak and vote.<br>The council is off-chain.', badge: 'code', note: 'No Strike Order has been adopted in any recorded run.' },
+  { n: 'I', ttl: 'Lasting goals', acc: '目標', exp: 'Four goals per persona,<br>carried from turn to turn.', badge: 'local' },
+  { n: 'II', ttl: 'Reasons that<br>cite memory', acc: '引用', exp: 'Code writes memory lines.<br>The model may cite them.', badge: 'local' },
+  { n: 'III', ttl: 'Trust, and<br>unanswered grievances', acc: '信頼', exp: 'Who it trusts — and which<br>wrongs are unanswered.', badge: 'local', note: 'This form is not yet confirmed by the formal main run.' },
+  { n: 'IV', ttl: 'The right to<br>refuse an order', acc: '辞退', exp: 'An AI citizen may publicly<br>decline a Strike Order.', badge: 'code', btxt: 'Built in code · never recorded in a run', note: 'Not yet confirmed by the formal main run. No Strike Order has been adopted in any recorded run.' },
+  { n: 'V', ttl: 'A voice and a vote<br>in the council', acc: '評議会', exp: 'Code proposes targets;<br>citizens speak and vote.', badge: 'code', note: 'The council is off-chain. No Strike Order has been adopted in any recorded run.' },
 ];
 
 WY.scene({
@@ -40,20 +41,20 @@ WY.scene({
     slots.W = mk('W', 0.94); slots.i = mk('i', 0.27); const y = WY.el('span', { text: 'y' }, slots.i.s); WY.css(y, { position: 'absolute', left: '0px', right: '0px', bottom: '0px', color: '#ffd24d' }); slots.y = y;
     slots.l1 = mk('l', 0.26); slots.l2 = mk('l', 0.26); slots.s = mk('s', 0.36); slots.s.a.style.color = '#ffd24d';
     L.kanji = TK.line(stage, ['will'], { y: 570, size: 120, font: '"Cormorant Garamond", serif', weight: 600, ls: 0.3, stagger: 0.12, color: '#ffe7b0', style: 'drop' });
-    L.eq = TK.block(stage, 'the name comes from <i>will</i> &nbsp;<span style="font:600 34px var(--serif-jp);opacity:.6;letter-spacing:.2em">意志</span>', { left: '0px', width: W + 'px', top: '780px', textAlign: 'center', font: '500 40px var(--sans)', color: 'rgba(240,212,138,.95)', letterSpacing: '.04em' });
+    L.eq = TK.block(stage, 'the name comes from <i>will</i> &nbsp;<span style="font:600 34px var(--serif-jp);opacity:.6;letter-spacing:.2em">意志</span>', { left: '0px', width: W + 'px', top: '640px', textAlign: 'center', font: '500 50px var(--sans)', color: 'rgba(240,212,138,.95)', letterSpacing: '.04em' });
     // ----- question
     L.q1 = TK.line(stage, ['What happens to a game'], { y: 350, size: 108, font: '"Cormorant Garamond", serif', weight: 700, ls: 0.01, stagger: 0.025 });
     L.q2 = TK.line(stage, ['when AI has a will?'], { y: 490, size: 120, font: '"Cormorant Garamond", serif', weight: 700, ls: 0.01, stagger: 0.03, color: '#ffe7b0', style: 'drop' });
     L.qn = TK.block(stage, 'THE WYLLS THOUGHT EXPERIMENT', { left: '0px', width: W + 'px', top: '720px', textAlign: 'center', font: '600 30px var(--sans)', color: 'rgba(240,212,138,.9)', letterSpacing: '.3em' });
     // ----- honest framing
     L.h1 = TK.line(stage, ['We don\'t claim the model wants anything.'], { y: 300, size: 80, font: '"Cormorant Garamond", serif', weight: 700, ls: 0.01, stagger: 0.018 });
-    L.h2 = TK.line(stage, ['Will is something the system builds —', 'and shows from the outside.'], { y: 450, size: 80, font: '"Cormorant Garamond", serif', weight: 700, color: '#ffe7b0', ls: 0.01, stagger: 0.015, lh: 1.2 });
+    L.h2 = TK.line(stage, ['Will is built by the system —', 'and shown from the outside.'], { y: 450, size: 80, font: '"Cormorant Garamond", serif', weight: 700, color: '#ffe7b0', ls: 0.01, stagger: 0.015, lh: 1.2 });
     L.h3 = TK.block(stage, 'It takes five visible forms.', { left: '0px', width: W + 'px', top: '760px', textAlign: 'center', font: '600 48px var(--sans)', color: '#fffaf0' });
     // ----- five cards
     FORMS.forEach((f, i) => {
       const c = WY.el('div', { class: 'card wy-panel' }, stage); c.style.zIndex = 25;
       c.innerHTML = `<div class="num">${f.n}<span class="acc">${f.acc}</span></div><div class="ttl">${f.ttl}</div><div class="exp">${f.exp}</div><div class="vis"></div>`;
-      if (f.ttl.includes('<br>')) { c.querySelector('.exp').style.top = '500px'; c.querySelector('.ttl').style.top = '270px'; }
+      if (f.ttl.includes('<br>')) { c.querySelector('.exp').style.top = '530px'; c.querySelector('.ttl').style.top = '262px'; }
       const vis = c.querySelector('.vis'); const parts = buildVis(i, vis);
       cards.push({ node: c, parts });
       const b = WYKit.status(stage, f.badge, 'en', { x: 80, y: 60, text: f.btxt || (f.badge === 'code' ? 'Built in code · no adoption on record' : 'Recorded in local runs') }); b.node.style.zIndex = 53; badges.push(b);
@@ -98,8 +99,7 @@ WY.scene({
         const gold = seg(t, T.morph + 1.4, T.morph + 2.4); slots.y.style.color = slots.s.a.style.color = `rgb(${lerp(255, 255, gold)},${lerp(210, 250, gold) | 0},${lerp(77, 240, gold) | 0})`;
       }
     }
-    L.kanji.render(t, T.kanji, T.q - 0.4, { out: 0.4 });
-    L.eq.render(t, T.kanji + 1.0, T.q - 0.4);
+    L.eq.render(t, T.kanji, T.q - 0.4);
     L.q1.render(t, T.q, T.honest - 0.5, { out: 0.45 });
     L.q2.render(t, T.q + 1.6, T.honest - 0.5, { out: 0.45 });
     L.qn.render(t, T.q + 3.6, T.honest - 0.5);
@@ -108,7 +108,7 @@ WY.scene({
     L.h3.render(t, T.honest2 + 3.2, T.forms - 0.55);
     // ---------- cards (4 s each)
     cards.forEach((c, i) => {
-      const a = T.forms + i * 4, b = a + 4;
+      const a = T.forms + i * CD, b = a + CD;
       const vis = t >= a - 0.1 && t < b + 0.5;
       c.node.style.display = vis ? 'block' : 'none';
       if (vis) {
@@ -132,7 +132,7 @@ WY.scene({
 
   audio(A) {
     A.music({ style: 'calm', bpm: 80, key: 'D', minor: true, start: 0, end: T.forms, sections: [[0, 0.32], [T.q, 0.42], [T.honest, 0.36], [T.honest2, 0.5]], outro: 'none' });
-    A.music({ style: 'epic', bpm: 80, key: 'D', minor: true, start: T.forms, end: T.end, sections: [[T.forms, 0.55], [T.forms + 8, 0.7], [T.forms + 16, 0.88]], outro: 'ring' });
+    A.music({ style: 'epic', bpm: 80, key: 'D', minor: true, start: T.forms, end: T.end, sections: [[T.forms, 0.55], [T.forms + 9, 0.7], [T.forms + 18, 0.88]], outro: 'ring' });
     A.drone(0, T.q, { note: 'D2', gain: 0.6 });
     A.chime(T.will + 0.1, { note: 'D5', gain: 0.8, dur: 3 });
     A.whoosh(T.morph - 0.1, { dur: 0.8, gain: 0.7 }); A.sparkle(T.morph + 0.6, { root: 'A5', gain: 0.6 });
@@ -140,9 +140,9 @@ WY.scene({
     A.swell(T.q - 1.5, T.q, { gain: 0.5, note: 'D3' }); A.chime(T.q, { note: 'F5', gain: 0.6 });
     A.chime(T.honest, { note: 'A4', gain: 0.6 }); A.chime(T.honest2, { note: 'D5', gain: 0.7 });
     A.riser(T.forms - 2.5, T.forms, { gain: 0.5 }); A.hit(T.forms, { gain: 0.8 });
-    for (let i = 0; i < 5; i++) { const a = T.forms + i * 4; A.whoosh(a - 0.25, { dur: 0.5, gain: 0.8 }); A.drum(a, { gain: 0.8, pitch: 0.8 + i * 0.05 }); A.chime(a + 0.3, { note: ['D5', 'E5', 'F5', 'G5', 'A5'][i], gain: 0.5 }); }
-    A.click(T.forms + 4 + 1.6, {}); A.ok(T.forms + 4 + 2.4, { gain: 0.6 });
-    A.seal(T.forms + 12 + 2.0, { gain: 1.1 });
+    for (let i = 0; i < 5; i++) { const a = T.forms + i * CD; A.whoosh(a - 0.25, { dur: 0.5, gain: 0.8 }); A.drum(a, { gain: 0.8, pitch: 0.8 + i * 0.05 }); A.chime(a + 0.3, { note: ['D5', 'E5', 'F5', 'G5', 'A5'][i], gain: 0.5 }); }
+    A.click(T.forms + CD + 1.6, {}); A.ok(T.forms + CD + 2.4, { gain: 0.6 });
+    A.seal(T.forms + 3 * CD + 1.8, { gain: 1.1 });
     A.chime(T.end + 0.3, { note: 'D5', gain: 0.7, dur: 3 });
   },
 });

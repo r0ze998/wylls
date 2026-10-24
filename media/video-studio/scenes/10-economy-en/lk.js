@@ -20,6 +20,15 @@
     ['進軍が速い。工兵が道を倍に延ばし、', '探索で周りも見える。'],
     ['兵の維持費が安い重騎兵。', '奪った自由都市は城壁を残す。'],
   ];
+  // the client's English doctrine one-liners (lang/en-frontier-play.mjs:363-367, 902), line breaks are ours
+  LK.PITCH_EN = [
+    ['Cheaper walls, and pikemen', 'who excel in Brace.', 'Its heartland is slow to take.'],
+    ['Faster caravans and', 'roving light cavalry.', 'More Waystones on its roads.'],
+    ['Shock infantry that hits hardest', 'on the turn it arrives.', 'Its war horn announces war.'],
+    ['Half the supply attrition.', 'Rangers who are strong in Flank', 'and range far.'],
+    ['Faster marches. Engineers build', 'roads twice as far, and exploring', 'also shows the tiles around.'],
+    ['Heavy cavalry with cheaper upkeep.', 'Captured Free Cities', 'keep their walls.'],
+  ];
   // spotlight / background tints that keep white text readable on every nation
   LK.BG = [
     ['#cc303b', '#5a1219', '#14070a'],

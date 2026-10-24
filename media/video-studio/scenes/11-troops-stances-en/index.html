@@ -1,4 +1,4 @@
-<!doctype html><html><head><meta charset="utf-8"><title>11 troops and stances</title>
+<!doctype html><html><head><meta charset="utf-8"><title>Troops and Stances</title>
 <link rel="stylesheet" href="../../lib/wy.css">
 <script src="../../lib/wy.js"></script><script src="../../lib/wy-audio.js"></script>
 <script src="../../lib/wy-map.js"></script><script src="../../lib/wy-kit.js"></script>
@@ -6,13 +6,13 @@
 <style>
   .unit { position: absolute; left: 0; top: 0; width: 300px; height: 340px; border-radius: 18px; background: linear-gradient(180deg, rgba(58,24,26,.95), rgba(26,12,13,.97)); border: 2px solid rgba(201,162,74,.8); box-shadow: inset 0 1px 0 rgba(255,240,200,.14), 0 18px 40px rgba(0,0,0,.5); text-align: center; transform-origin: 50% 50%; }
   .unit img { display: block; margin: 8px auto 0; }
-  .unit .jn { font: 700 40px/1.1 var(--sans-jp); color: #fffaf0; margin-top: -4px; }
-  .unit .en { font: 600 19px/1.2 Inter; letter-spacing: .14em; text-transform: uppercase; color: rgba(240,212,138,.85); margin-top: 6px; }
-  .grp { font: 900 50px/1 var(--serif-jp); color: #f0d48a; text-shadow: 0 2px 14px rgba(0,0,0,.8); }
-  .note { font: 600 30px/1.45 var(--sans-jp); color: rgba(255,250,240,.9); }
+  .unit .jn { font: 700 36px/1.1 Inter, sans-serif; color: #fffaf0; margin-top: -4px; white-space: nowrap; }
+  .unit .en { font: 600 21px/1.2 var(--sans-jp); letter-spacing: .2em; color: rgba(240,212,138,.8); margin-top: 8px; }
+  .grp { font: 700 56px/1 'Cormorant Garamond', serif; color: #f0d48a; text-shadow: 0 2px 14px rgba(0,0,0,.8); }
+  .note { font: 600 30px/1.4 Inter, sans-serif; color: rgba(255,250,240,.9); }
   .snode { position: absolute; width: 360px; text-align: center; }
-  .snode .nm { font: 900 58px/1.1 var(--serif-jp); color: #fffaf0; text-shadow: 0 3px 16px rgba(0,0,0,.8); }
-  .snode .st { font: 700 30px/1.3 var(--sans-jp); color: #9fe0b0; margin-top: 6px; }
+  .snode .nm { font: 700 64px/1.05 'Cormorant Garamond', serif; color: #fffaf0; text-shadow: 0 3px 16px rgba(0,0,0,.8); }
+  .snode .st { font: 700 30px/1.3 Inter, sans-serif; color: #9fe0b0; margin-top: 6px; }
 </style>
 </head><body><script>
 const E = WY.ease, NAT = 0;
@@ -26,8 +26,8 @@ let cv, g, lattice, units = [], heads = {}, grp = [], notes = {}, ui = {}, sn = 
 function head(stage, text, sub, y = 70) {
   const n = WY.el('div', { class: 'wy-abs' }, stage);
   WY.css(n, { left: '0px', width: '1920px', top: y + 'px', textAlign: 'center', zIndex: 10 });
-  const h = LK.lines(n, [text], { position: 'relative', left: '0px', width: '1920px' }, { font: '900 84px/1.15 var(--serif-jp)', color: '#fffaf0', textShadow: '0 6px 30px rgba(0,0,0,.7)' });
-  const s = sub ? LK.div(n, sub, { position: 'relative', left: '0px', width: '1920px', marginTop: '8px', font: '600 38px/1.5 var(--sans-jp)', color: 'rgba(255,250,240,.9)' }) : null;
+  const h = LK.lines(n, [text], { position: 'relative', left: '0px', width: '1920px' }, { font: '700 92px/1.1 "Cormorant Garamond", serif', color: '#fffaf0', textShadow: '0 6px 30px rgba(0,0,0,.7)' });
+  const s = sub ? LK.div(n, sub, { position: 'relative', left: '0px', width: '1920px', marginTop: '8px', font: '600 40px/1.5 Inter, sans-serif', color: 'rgba(255,250,240,.9)' }) : null;
   return { n, h, s };
 }
 function showHead(H, t, a, b) {
@@ -47,47 +47,47 @@ WY.scene({
     ui.row = WY.img('ui/stance-row.png'); ui.train = WY.img('ui/train-panel.jpg');
     ui.icons = ['food', 'ore', 'gold'].map(n => WY.img(`${WY.ART}ui/illustrated/${n}-64.webp`));
 
-    heads.title = LK.lines(stage, ['8つの兵種と', '4つの構え'], { left: '0px', width: '1920px', top: '650px', textAlign: 'center', zIndex: 10 }, { font: '900 112px/1.2 var(--serif-jp)', color: '#fffaf0', textShadow: '0 8px 40px rgba(0,0,0,.9)' });
-    heads.grid = head(stage, '8つの兵種', null);
-    heads.tri = head(stage, '兵種の相性は、三すくみ', null);
-    heads.st = head(stage, '4つの構え', '進軍ごとに、戦い方を選ぶ。');
-    heads.cyc = head(stage, '構えにも、三すくみ', null);
-    heads.host = head(stage, '軍は、1種類の兵で組む', null);
+    heads.title = LK.lines(stage, ['Eight troops,', 'four stances'], { left: '0px', width: '1920px', top: '640px', textAlign: 'center', zIndex: 10 }, { font: '700 120px/1.08 "Cormorant Garamond", serif', color: '#fffaf0', textShadow: '0 8px 40px rgba(0,0,0,.9)' });
+    heads.grid = head(stage, 'Eight troop types', null);
+    heads.tri = head(stage, 'Every type has a counter', null);
+    heads.st = head(stage, 'Four stances', 'Each march picks how it fights.');
+    heads.cyc = head(stage, 'Stances form a cycle too', null);
+    heads.host = head(stage, 'A host is one troop type', null);
 
     UNITS.forEach((u, i) => {
       const n = WY.el('div', { class: 'unit' }, stage);
-      n.innerHTML = `<img src="${WY.ART}units/mobs-v1/cards/${NAT}_${u[0]}.webp" width="208" height="260"><div class="jn">${u[1]}</div><div class="en">${u[2]}</div>`;
+      n.innerHTML = `<img src="${WY.ART}units/mobs-v1/cards/${NAT}_${u[0]}.webp" width="208" height="260"><div class="jn">${u[2]}</div><div class="en">${u[1]}</div>`;
       n.style.zIndex = 5;
       const gx = 300 + 150 + (i % 4) * 340, gy = 230 + 170 + Math.floor(i / 4) * 370;
       units.push({ n, key: u[0], i, gx, gy, tx: TRI[u[0]][0], ty: TRI[u[0]][1] });
     });
-    grp = [['近接', 962, 500], ['騎兵', 1332, 908], ['射撃', 588, 908]].map(([txt, x, y]) => LK.div(stage, `<span class="grp">${txt}</span>`, { left: x - 150 + 'px', width: '300px', top: y + 'px', textAlign: 'center', zIndex: 8 }));
-    notes.scout = LK.div(stage, '<span class="note">戦わない。<br>となりのマスを探索。</span>', { left: '1610px', width: '260px', top: '450px', textAlign: 'center', zIndex: 8 });
-    notes.mult = ['1.5倍', '1.5倍', '1.5倍'].map(() => LK.div(stage, '<span style="font:800 40px Inter;color:#ffd24d;text-shadow:0 2px 12px rgba(0,0,0,.9)">1.5<span style="font-size:28px">倍</span></span>', { zIndex: 8 }));
-    notes.tri = LK.div(stage, '矢印の先の兵種に強い(与える損害 1.5倍)', { left: '0px', width: '1920px', top: '990px', textAlign: 'center', font: '600 30px var(--sans-jp)', color: 'rgba(255,250,240,.85)', zIndex: 8 });
+    grp = [['Melee', 962, 500], ['Mounted', 1332, 908], ['Ranged', 588, 908]].map(([txt, x, y]) => LK.div(stage, `<span class="grp">${txt}</span>`, { left: x - 150 + 'px', width: '300px', top: y + 'px', textAlign: 'center', zIndex: 8 }));
+    notes.scout = LK.div(stage, '<span class="note">Does not fight.<br>Explores the tiles<br>next to it.</span>', { left: '1610px', width: '260px', top: '450px', textAlign: 'center', zIndex: 8 });
+    notes.mult = ['1.5倍', '1.5倍', '1.5倍'].map(() => LK.div(stage, '<span style="font:800 40px Inter;color:#ffd24d;text-shadow:0 2px 12px rgba(0,0,0,.9)"><span style="font-size:30px">×</span>1.5</span>', { zIndex: 8 }));
+    notes.tri = LK.div(stage, 'Each type is strong against the one its arrow points to (×1.5).', { left: '0px', width: '1920px', top: '990px', textAlign: 'center', font: '600 32px Inter, sans-serif', color: 'rgba(255,250,240,.85)', zIndex: 8 });
 
     // stance nodes: assault (top), flank (bottom-right), brace (bottom-left); hold aside
-    const SN = [['突撃', 'Assault', '側撃に強い', 900, 330], ['側撃', 'Flank', '迎撃に強い', 1225, 760], ['迎撃', 'Brace', '突撃に強い', 575, 760], ['待機の構え', 'Hold', '相性なし', 1640, 540]];
+    const SN = [['Assault', '突撃', 'beats Flank', 900, 330], ['Flank', '側撃', 'beats Brace', 1225, 760], ['Brace', '迎撃', 'beats Assault', 575, 760], ['Hold', '待機の構え', 'no edge', 1640, 540]];
     sn = SN.map(([nm, en, st, x, y], i) => {
-      const n = LK.div(stage, `<div class="nm">${nm}</div><div style="font:600 20px Inter;letter-spacing:.18em;color:rgba(240,212,138,.8);margin-top:6px;text-transform:uppercase">${en}</div><div class="st" style="${i === 3 ? 'color:rgba(255,250,240,.7)' : ''}">${st}</div>`, { left: x - 180 + 'px', top: y + 'px', zIndex: 8 });
+      const n = LK.div(stage, `<div class="nm">${nm}</div><div style="font:600 22px var(--sans-jp);letter-spacing:.2em;color:rgba(240,212,138,.8);margin-top:8px">${en}</div><div class="st" style="${i === 3 ? 'color:rgba(255,250,240,.7)' : ''}">${st}</div>`, { left: x - 180 + 'px', top: y + 'px', zIndex: 8 });
       n.className += ' snode'; return { n, x, y, i };
     });
-    notes.win = LK.div(stage, '勝った側は、与える損害が<span style="color:#ffd24d;font-family:Inter;font-weight:800"> 2割 </span>増える。', { left: '0px', width: '1920px', top: '972px', textAlign: 'center', font: '700 42px var(--sans-jp)', color: '#fffaf0', textShadow: '0 2px 14px rgba(0,0,0,.9)', zIndex: 8 });
-    notes.uiCap = LK.div(stage, '実際のクライアント画面:進軍の準備(テストデータ)', { left: '0px', width: '1920px', top: '690px', textAlign: 'center', font: '500 24px var(--sans-jp)', color: 'rgba(255,250,240,.65)', zIndex: 8 });
+    notes.win = LK.div(stage, 'The winning stance deals <span style="color:#ffd24d;font-weight:800">20% more</span> damage.', { left: '0px', width: '1920px', top: '972px', textAlign: 'center', font: '700 44px Inter, sans-serif', color: '#fffaf0', textShadow: '0 2px 14px rgba(0,0,0,.9)', zIndex: 8 });
+    notes.uiCap = LK.div(stage, 'Real client screen: the march order (test data)', { left: '0px', width: '1920px', top: '700px', textAlign: 'center', font: '500 24px Inter, sans-serif', color: 'rgba(255,250,240,.65)', zIndex: 8 });
 
     // host
     notes.count = LK.div(stage, '', { left: '0px', width: '1920px', top: '360px', textAlign: 'center', zIndex: 8, font: '800 170px/1 Inter', color: '#fffaf0', textShadow: '0 6px 40px rgba(0,0,0,.9)' });
-    notes.range = LK.div(stage, '1つの軍 = 1種類の兵 <span style="color:#ffd24d;font-family:Inter;font-weight:800">100 〜 30,000</span>', { left: '0px', width: '1920px', top: '560px', textAlign: 'center', font: '700 46px var(--sans-jp)', color: '#fffaf0', textShadow: '0 2px 16px rgba(0,0,0,.95)', zIndex: 8 });
+    notes.range = LK.div(stage, 'One host = one troop type, <span style="color:#ffd24d;font-weight:800">100 to 30,000</span> strong', { left: '0px', width: '1920px', top: '560px', textAlign: 'center', font: '700 48px Inter, sans-serif', color: '#fffaf0', textShadow: '0 2px 16px rgba(0,0,0,.95)', zIndex: 8 });
     const ic = n => `<img src="${WY.ART}ui/illustrated/${n}-64.webp" width="46" height="46" style="vertical-align:middle;margin:0 4px 0 14px">`;
-    notes.cost = LK.div(stage, `<div style="font:700 34px var(--sans-jp);color:#f0d48a;margin-bottom:12px">槍兵 100 の訓練</div><div style="font:800 40px Inter;color:#fffaf0;display:flex;align-items:center">${ic('food')}60${ic('ore')}20${ic('gold')}10</div><div style="font:600 30px var(--sans-jp);color:#9fe0b0;margin-top:14px">訓練はすぐに終わる。</div>`, { left: '200px', top: '730px', zIndex: 8, padding: '24px 34px', borderRadius: '16px', background: 'rgba(10,22,17,.88)', border: '2px solid rgba(201,162,74,.75)' });
+    notes.cost = LK.div(stage, `<div style="font:700 34px Inter,sans-serif;color:#f0d48a;margin-bottom:12px">Training 100 Spearmen</div><div style="font:800 40px Inter;color:#fffaf0;display:flex;align-items:center">${ic('food')}60${ic('ore')}20${ic('gold')}10</div><div style="font:600 32px Inter,sans-serif;color:#9fe0b0;margin-top:14px">Training is instant.</div>`, { left: '200px', top: '730px', zIndex: 8, padding: '24px 34px', borderRadius: '16px', background: 'rgba(10,22,17,.88)', border: '2px solid rgba(201,162,74,.75)' });
     notes.train = WY.el('div', { class: 'wy-abs' }, stage);
-    WY.css(notes.train, { left: '860px', top: '700px', width: '700px', height: '324px', borderRadius: '14px', overflow: 'hidden', border: '2px solid rgba(201,162,74,.85)', boxShadow: '0 20px 50px rgba(0,0,0,.6)', zIndex: 8, background: `url(ui/train-panel.jpg) 0 0 / 700px 324px` });
-    notes.trainCap = LK.div(stage, '実際のクライアント画面(テストデータ)', { left: '860px', width: '700px', top: '1034px', textAlign: 'right', font: '500 20px var(--sans-jp)', color: 'rgba(255,250,240,.6)', zIndex: 8 });
-    cap = LK.div(stage, 'ゲーム内の兵種説明より', { left: '0px', width: '1840px', top: '1030px', textAlign: 'right', font: '500 22px var(--sans-jp)', color: 'rgba(255,250,240,.6)', zIndex: 8 });
-    badge = WYKit.status(stage, 'local', 'ja', { x: 80, y: 56 }); badge.node.style.zIndex = 20;
+    WY.css(notes.train, { left: '860px', top: '676px', width: '700px', height: '355px', borderRadius: '14px', overflow: 'hidden', border: '2px solid rgba(201,162,74,.85)', boxShadow: '0 20px 50px rgba(0,0,0,.6)', zIndex: 8, background: `url(ui/train-panel.jpg) 0 0 / 700px 355px` });
+    notes.trainCap = LK.div(stage, 'Real client screen (test data)', { left: '860px', width: '700px', top: '1038px', textAlign: 'right', font: '500 20px Inter, sans-serif', color: 'rgba(255,250,240,.6)', zIndex: 8 });
+    cap = LK.div(stage, 'From the game’s unit descriptions', { left: '0px', width: '1840px', top: '1030px', textAlign: 'right', font: '500 22px Inter, sans-serif', color: 'rgba(255,250,240,.6)', zIndex: 8 });
+    badge = WYKit.status(stage, 'local', 'en', { x: 80, y: 56 }); badge.node.style.zIndex = 20;
     ov = LK.overlays(stage, 45, { vignette: 0.55 }); ov.g.style.display = 'none'; ov.g.style.display = 'none';
     flash = WYKit.flash(stage, { color: '#fff3e0', z: 50 });
-    end = WYKit.endCard(stage, { lang: 'ja', line: '兵を選び、構えを選ぶ。それが、あなたの一手。' });
+    end = WYKit.endCard(stage, { lang: 'en', line: 'Pick your troops. Pick your stance.' });
   },
 
   render(t) {
@@ -146,7 +146,7 @@ WY.scene({
     showHead(heads.st, t, T.st, T.cyc - 0.15);
     if (t > T.st && t < T.cyc + 0.3) {
       const k = E.outExpo(WY.seg(t, T.st + 0.05, T.st + 0.8)) * (1 - E.inCubic(WY.seg(t, T.cyc - 0.4, T.cyc + 0.2)));
-      const w = 1260, h = w * 164 / 700, x = 960 - w / 2, y = 380 + (1 - k) * 40;
+      const w = 1260, h = w * 174 / 700, x = 960 - w / 2, y = 380 + (1 - k) * 40;
       g.save(); g.globalAlpha = k; g.shadowColor = 'rgba(0,0,0,.6)'; g.shadowBlur = 40;
       g.fillStyle = '#e9dcbc'; g.beginPath(); g.roundRect(x - 20, y - 20, w + 40, h + 40, 18); g.fill(); g.shadowBlur = 0;
       if (ui.row.naturalWidth) g.drawImage(ui.row, x, y, w, h);
@@ -163,8 +163,8 @@ WY.scene({
     });
     if (t > T.cyc + 1.0 && t < T.host) drawTriArrows(t, [[900, 330], [1225, 760], [575, 760]], T.cyc + 1.4, T.host - 0.2, null, 1.25);
     LK.show(notes.win, t, T.cyc + 3.0, T.host - 0.2, { rise: 14 });
-    if (t > T.cyc && t < T.host) { cap.textContent = 'ゲーム内の説明文とルール(stance.rs)より'; cap.style.opacity = WY.env(t, T.cyc + 1, T.host - 0.2, 0.4, 0.3); }
-    else if (t < T.st) cap.textContent = 'ゲーム内の兵種説明より';
+    if (t > T.cyc && t < T.host) { cap.textContent = 'From the game’s help text and rules (stance.rs)'; cap.style.opacity = WY.env(t, T.cyc + 1, T.host - 0.2, 0.4, 0.3); }
+    else if (t < T.st) cap.textContent = 'From the game’s unit descriptions';
 
     // ---------------- host
     showHead(heads.host, t, T.host, T.end - 0.2);
@@ -223,7 +223,7 @@ function drawTriArrows(t, P, a, b, labels, scale) {
       const gl = g.createRadialGradient(px, py, 0, px, py, 30); gl.addColorStop(0, `rgba(255,236,170,${0.9 * k})`); gl.addColorStop(1, 'rgba(255,236,170,0)');
       g.fillStyle = gl; g.beginPath(); g.arc(px, py, 30, 0, Math.PI * 2); g.fill();
     }
-    if (labels) { const n = labels[i]; n.style.left = mx + ox * 92 - 50 + 'px'; n.style.top = my + oy * 92 - 26 + 'px'; n.style.width = '100px'; n.style.textAlign = 'center'; n.style.opacity = k * draw; }
+    if (labels) { const n = labels[i], off = oy > 0.5 ? -80 : 92; n.style.left = mx + ox * off - 50 + 'px'; n.style.top = my + oy * off - 26 + 'px'; n.style.width = '100px'; n.style.textAlign = 'center'; n.style.opacity = k * draw; }
   }
 }
 

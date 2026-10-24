@@ -1,4 +1,4 @@
-<!doctype html><html><head><meta charset="utf-8"><title>10 economy</title>
+<!doctype html><html><head><meta charset="utf-8"><title>The Economy</title>
 <link rel="stylesheet" href="../../lib/wy.css">
 <script src="../../lib/wy.js"></script><script src="../../lib/wy-audio.js"></script>
 <script src="../../lib/wy-map.js"></script><script src="../../lib/wy-kit.js"></script>
@@ -6,8 +6,8 @@
 <style>
   .card { position: absolute; border-radius: 18px; background: linear-gradient(180deg, rgba(30,62,50,.97), rgba(15,33,27,.98)); border: 2px solid rgba(201,162,74,.8); box-shadow: inset 0 1px 0 rgba(255,240,200,.14), 0 20px 50px rgba(0,0,0,.5); text-align: center; color: #fffaf0; }
   .card img { display: block; margin: 0 auto; }
-  .jn { font: 700 44px/1.2 var(--sans-jp); }
-  .en { font: 600 21px/1.2 Inter, sans-serif; letter-spacing: .12em; text-transform: uppercase; color: rgba(240,212,138,.85); margin-top: 6px; }
+  .jn { font: 700 42px/1.2 Inter, sans-serif; }
+  .en { font: 600 22px/1.2 var(--sans-jp); letter-spacing: .2em; color: rgba(240,212,138,.8); margin-top: 8px; }
   .val { font: 800 46px/1 Inter, sans-serif; color: #ffd24d; margin-top: 10px; }
   .head { font: 900 92px/1.15 var(--serif-jp); color: #fffaf0; text-shadow: 0 6px 30px rgba(0,0,0,.6); }
   .sub { font: 600 40px/1.5 var(--sans-jp); color: rgba(255,250,240,.9); }
@@ -19,7 +19,7 @@ const T = { res: 4.5, kit: 14.0, bshot: 19.5, bcards: 23.0, farm: 26.2, tiers: 3
 const DUR = 46.0;
 const RES = [['food', '食料', 'Food'], ['wood', '木材', 'Wood'], ['stone', '石材', 'Stone'], ['ore', '鉱石', 'Ore'], ['horse', '馬', 'Horses'], ['gold', '金', 'Gold'], ['science', '学術', 'Science'], ['influence', '影響力', 'Influence']];
 const KIT = { food: 300, wood: 300, stone: 200, ore: 100, gold: 100 };
-const BLD = [['food', '農場', 'Farm', '食料'], ['wood', '伐採場', 'Lumber camp', '木材'], ['stone', '石切り場', 'Quarry', '石材'], ['ore', '鉱山', 'Mine', '鉱石'], ['gold', '造幣所', 'Mint', '金'], ['science', '書庫', 'Library', '学術'], ['walls', '城壁', 'Walls', '守り']];
+const BLD = [['food', '農場', 'Farm', 'Food'], ['wood', '伐採場', 'Lumber camp', 'Wood'], ['stone', '石切り場', 'Quarry', 'Stone'], ['ore', '鉱山', 'Mine', 'Ore'], ['gold', '造幣所', 'Mint', 'Gold'], ['science', '書庫', 'Library', 'Science'], ['walls', '城壁', 'Walls', 'Defence']];
 const TIER = [['hamlet_o_ember', '集落', 'Hamlet'], ['town_o_ember', '町', 'Town'], ['city_o_ember', '都市', 'City'], ['stronghold_w_ember', '城塞', 'Stronghold']];
 const ICO = n => `${WY.ART}ui/illustrated/${n}-128.webp`;
 let cv, g, lattice, intro = {}, rc = [], heads = {}, bc = [], farm = {}, tiers = {}, shots = {}, badge, ov, end, flash, cap;
@@ -27,9 +27,9 @@ let cv, g, lattice, intro = {}, rc = [], heads = {}, bc = [], farm = {}, tiers =
 function head(stage, label, text, sub, y = 92) {
   const n = WY.el('div', { class: 'wy-abs' }, stage);
   WY.css(n, { left: '0px', width: '1920px', top: y + 'px', textAlign: 'center', zIndex: 10 });
-  n.innerHTML = `<div style="margin-bottom:10px">${LK.pill(label, { size: 26 })}</div>`;
-  const h = LK.lines(n, [text], { position: 'relative', left: '0px', width: '1920px' }, { font: '900 88px/1.15 var(--serif-jp)', color: '#fffaf0', textShadow: '0 6px 30px rgba(0,0,0,.6)' });
-  const s = sub ? LK.div(n, sub, { position: 'relative', left: '0px', width: '1920px', marginTop: '12px', font: '600 40px/1.5 var(--sans-jp)', color: 'rgba(255,250,240,.9)' }) : null;
+  n.innerHTML = `<div style="margin-bottom:10px">${LK.pill(label, { size: 22, font: 'Inter, sans-serif' })}</div>`;
+  const h = LK.lines(n, [text], { position: 'relative', left: '0px', width: '1920px' }, { font: '700 96px/1.1 "Cormorant Garamond", serif', color: '#fffaf0', textShadow: '0 6px 30px rgba(0,0,0,.6)' });
+  const s = sub ? LK.div(n, sub, { position: 'relative', left: '0px', width: '1920px', marginTop: '10px', font: '600 40px/1.5 Inter, sans-serif', color: 'rgba(255,250,240,.9)' }) : null;
   return { n, h, s };
 }
 function showHead(H, t, a, b) {
@@ -50,23 +50,23 @@ WY.scene({
     tiers.tile = WY.img(WY.ART + 'terrain/@2x/plains_1.webp');
     tiers.hold = TIER.map(t => WY.img(`${WY.ART}holdings/@2x/${t[0]}.webp`));
     tiers.shield = WY.img(WY.ART + 'holdings/@2x/shield.webp');
-    shots.build = WY.img('ui/scene-hand-build-ja.jpg');
-    shots.promo = WY.img('ui/scene-hand-promote-ja.jpg');
+    shots.build = WY.img('ui/scene-hand-build-en.jpg');
+    shots.promo = WY.img('ui/scene-hand-promote-en.jpg');
 
-    intro.title = LK.lines(stage, ['経済と村の成長'], { left: '0px', width: '1920px', top: '700px', textAlign: 'center', zIndex: 10 }, { font: '900 120px/1.15 var(--serif-jp)', color: '#fffaf0', textShadow: '0 8px 40px rgba(0,0,0,.8)' });
-    intro.sub = LK.div(stage, '資源 ・ 建物 ・ 村の格', { left: '0px', width: '1920px', top: '870px', textAlign: 'center', font: '700 40px var(--sans-jp)', color: '#f0d48a', letterSpacing: '.2em', zIndex: 10 });
+    intro.title = LK.lines(stage, ['The economy'], { left: '0px', width: '1920px', top: '690px', textAlign: 'center', zIndex: 10 }, { font: '700 140px/1.1 "Cormorant Garamond", serif', color: '#fffaf0', textShadow: '0 8px 40px rgba(0,0,0,.8)' });
+    intro.sub = LK.div(stage, 'RESOURCES · BUILDINGS · VILLAGE TIERS', { left: '0px', width: '1920px', top: '870px', textAlign: 'center', font: '700 34px Cinzel, serif', color: '#f0d48a', letterSpacing: '.24em', zIndex: 10 });
 
-    heads.res = head(stage, '資源', '8つの資源', '時間とともに、増え続ける。');
-    heads.kit = head(stage, '資源', '最初の手持ち', 'はじめから、これだけある。');
-    heads.bld = head(stage, '建物', '建てて、生産を増やす', null);
-    heads.tier = head(stage, '村の格', '村は、育つ', null, 80);
+    heads.res = head(stage, 'RESOURCES', 'Eight resources', 'They build up in real time.');
+    heads.kit = head(stage, 'RESOURCES', 'The starter kit', 'Every new village begins with this.');
+    heads.bld = head(stage, 'BUILDINGS', 'Build to produce more', null);
+    heads.tier = head(stage, 'VILLAGE TIERS', 'Villages grow', null, 80);
 
     // resource cards (4 x 2)
     RES.forEach((r, i) => {
       const c = WY.el('div', { class: 'card' }, stage);
       const x = 230 + (i % 4) * 375, y = 360 + Math.floor(i / 4) * 330;
       WY.css(c, { left: x + 'px', top: y + 'px', width: '335px', height: '290px', paddingTop: '22px' });
-      c.innerHTML = `<img src="${ICO(r[0])}" width="128" height="128"><div class="jn">${r[1]}</div><div class="en">${r[2]}</div>`;
+      c.innerHTML = `<img src="${ICO(r[0])}" width="128" height="128"><div class="jn">${r[2]}</div><div class="en">${r[1]}</div>`;
       const v = WY.el('div', { class: 'val' }, c); v.style.display = 'none';
       rc.push({ c, v, key: r[0], x, y });
     });
@@ -75,32 +75,32 @@ WY.scene({
       const c = WY.el('div', { class: 'card' }, stage);
       const x = 92 + i * 250, y = 340;
       WY.css(c, { left: x + 'px', top: y + 'px', width: '236px', height: '420px', paddingTop: '44px' });
-      c.innerHTML = `<img src="${ICO(b[0])}" width="128" height="128"><div class="jn" style="font-size:46px;margin-top:22px">${b[1]}</div><div class="en" style="font-size:19px">${b[2]}</div><div style="margin-top:34px;font:700 30px var(--sans-jp);color:#9fe0b0">→ ${b[3]}</div>`;
+      c.innerHTML = `<img src="${ICO(b[0])}" width="128" height="128"><div class="jn" style="font-size:${b[2].length > 8 ? 33 : 40}px;margin-top:22px;white-space:nowrap">${b[2]}</div><div class="en" style="font-size:20px">${b[1]}</div><div style="margin-top:34px;font:700 30px Inter,sans-serif;color:#9fe0b0">→ ${b[3]}</div>`;
       bc.push({ c, x, y });
     });
     // farm formula
     farm.panel = WY.el('div', { class: 'paper' }, stage);
     WY.css(farm.panel, { left: '660px', top: '330px', width: '1100px', height: '470px', padding: '44px 60px' });
     const ic = (n, s = 60) => `<img src="${ICO(n)}" width="${s}" height="${s}" style="vertical-align:middle;margin:0 8px 0 0">`;
-    farm.panel.innerHTML = `<div style="font:900 72px/1.1 var(--serif-jp)">農場 <span style="font:italic 600 36px 'Cormorant Garamond',serif;color:#6b5a2a">Farm</span></div>
-      <div style="height:2px;background:linear-gradient(90deg,#c9a24a,transparent);margin:22px 0 26px"></div>
-      <div style="font:700 46px/1.5 var(--sans-jp);display:flex;align-items:center;gap:18px">${ic('wood')}木材 <b style="font:800 52px Inter">80</b><span style="margin:0 10px;color:#8a6d2a">+</span>${ic('stone')}石材 <b style="font:800 52px Inter">40</b></div>
-      <div style="font:700 46px/1.5 var(--sans-jp);display:flex;align-items:center;gap:18px;margin-top:14px"><span style="color:#8a6d2a;font-size:52px">→</span>${ic('food')}食料 <b style="font:800 58px Inter;color:#2f7d45">+12</b><span style="font-size:36px">/時</span><span style="margin-left:26px;font:600 34px var(--sans-jp);color:#5b4a28">建設 90分</span></div>
-      <div style="font:500 28px/1.5 var(--sans-jp);color:#6b5a3a;margin-top:22px">同じ建物の2つ目からは、費用が上がる。</div>`;
+    farm.panel.innerHTML = `<div style="font:700 76px/1.1 'Cormorant Garamond',serif">Farm <span style="font:600 30px var(--sans-jp);color:#6b5a2a;margin-left:10px">農場</span></div>
+      <div style="height:2px;background:linear-gradient(90deg,#c9a24a,transparent);margin:20px 0 26px"></div>
+      <div style="font:700 44px/1.5 Inter,sans-serif;display:flex;align-items:center;gap:16px">${ic('wood')}Wood <b style="font:800 52px Inter">80</b><span style="margin:0 10px;color:#8a6d2a">+</span>${ic('stone')}Stone <b style="font:800 52px Inter">40</b></div>
+      <div style="font:700 44px/1.5 Inter,sans-serif;display:flex;align-items:center;gap:16px;margin-top:14px"><span style="color:#8a6d2a;font-size:52px">→</span>${ic('food')}Food <b style="font:800 58px Inter;color:#2f7d45">+12</b><span style="font-size:36px">/h</span><span style="margin-left:26px;font:600 34px Inter,sans-serif;color:#5b4a28">builds in 90 min</span></div>
+      <div style="font:500 30px/1.5 Inter,sans-serif;color:#6b5a3a;margin-top:22px">Each extra copy of a building costs more.</div>`;
     // tier labels + upgrade panel
-    tiers.labels = TIER.map((tr, i) => LK.div(stage, `<div style="font:900 60px/1.1 var(--serif-jp);color:#fffaf0">${tr[1]}</div><div style="font:600 22px Inter;letter-spacing:.2em;color:rgba(240,212,138,.85);margin-top:6px;text-transform:uppercase">${tr[2]}</div>`, { left: 330 + i * 420 - 150 + 'px', width: '300px', textAlign: 'center', top: '660px', zIndex: 10 }));
+    tiers.labels = TIER.map((tr, i) => LK.div(stage, `<div style="font:700 66px/1.05 'Cormorant Garamond',serif;color:#fffaf0">${tr[2]}</div><div style="font:600 24px var(--sans-jp);letter-spacing:.3em;color:rgba(240,212,138,.85);margin-top:8px">${tr[1]}</div>`, { left: 330 + i * 420 - 150 + 'px', width: '300px', textAlign: 'center', top: '660px', zIndex: 10 }));
     tiers.panel = WY.el('div', { class: 'card' }, stage);
     WY.css(tiers.panel, { left: '260px', top: '790px', width: '1400px', height: '200px', padding: '26px 40px', textAlign: 'left' });
-    tiers.panel.innerHTML = `<div style="display:flex;align-items:center;gap:20px;font:700 40px var(--sans-jp)"><span style="color:#f0d48a">集落 → 町</span>
-      <span style="font:600 32px var(--sans-jp);display:flex;align-items:center;gap:8px;margin-left:16px">${ic('wood', 46)}1,000 ${ic('stone', 46)}600 ${ic('gold', 46)}300</span><span style="font:600 32px var(--sans-jp);color:rgba(255,250,240,.8);margin-left:auto">⌛ 6時間</span></div>
-      <div style="display:flex;gap:18px;margin-top:22px">${['建設枠 <b>3</b>', '蔵の上限 <b>6,000</b>', '産出 <b>+50%</b>'].map(x => `<span style="padding:10px 22px;border-radius:12px;background:rgba(0,0,0,.3);border:1.5px solid rgba(159,224,176,.6);font:600 32px var(--sans-jp);color:#dff7e6">${x.replace(/<b>/, '<b style="color:#ffd24d;font-family:Inter">')}</span>`).join('')}</div>`;
-    cap = LK.div(stage, '', { left: '0px', width: '1840px', textAlign: 'right', top: '1010px', font: '500 22px var(--sans-jp)', color: 'rgba(255,250,240,.62)', zIndex: 10 });
-    shots.label = LK.div(stage, '', { left: '80px', top: '880px', zIndex: 12, font: '900 64px/1.2 var(--serif-jp)', color: '#fffaf0', textShadow: '0 4px 24px rgba(0,0,0,.95), 0 0 4px rgba(0,0,0,.9)' });
+    tiers.panel.innerHTML = `<div style="display:flex;align-items:center;gap:20px;font:700 40px Inter,sans-serif"><span style="color:#f0d48a">Hamlet → Town</span>
+      <span style="font:600 34px Inter,sans-serif;display:flex;align-items:center;gap:8px;margin-left:16px">${ic('wood', 46)}1,000 ${ic('stone', 46)}600 ${ic('gold', 46)}300</span><span style="font:600 34px Inter,sans-serif;color:rgba(255,250,240,.8);margin-left:auto">⌛ 6 h</span></div>
+      <div style="display:flex;gap:18px;margin-top:22px">${['<b>3</b> build slots', 'Store cap <b>6,000</b>', 'Production <b>+50%</b>'].map(x => `<span style="padding:10px 22px;border-radius:12px;background:rgba(0,0,0,.3);border:1.5px solid rgba(159,224,176,.6);font:600 32px Inter,sans-serif;color:#dff7e6">${x.replace(/<b>/, '<b style="color:#ffd24d;font-family:Inter">')}</span>`).join('')}</div>`;
+    cap = LK.div(stage, '', { left: '0px', width: '1840px', textAlign: 'right', top: '1010px', font: '500 22px Inter, sans-serif', color: 'rgba(255,250,240,.62)', zIndex: 10 });
+    shots.label = LK.div(stage, '', { left: '80px', top: '880px', zIndex: 12, font: '700 72px/1.15 "Cormorant Garamond", serif', color: '#fffaf0', textShadow: '0 4px 24px rgba(0,0,0,.95), 0 0 4px rgba(0,0,0,.9)' });
 
-    badge = WYKit.status(stage, 'local', 'ja', { x: 80, y: 56 }); badge.node.style.zIndex = 20;
+    badge = WYKit.status(stage, 'local', 'en', { x: 80, y: 56 }); badge.node.style.zIndex = 20;
     ov = LK.overlays(stage, 45, { vignette: 0.5 }); ov.g.style.display = 'none';
     flash = WYKit.flash(stage, { color: '#fff8e8', z: 50 });
-    end = WYKit.endCard(stage, { lang: 'ja', line: '経済は待たない。村は、育つ。' });
+    end = WYKit.endCard(stage, { lang: 'en', line: 'No waiting on the economy. Your village grows.' });
   },
 
   render(t) {
@@ -169,15 +169,15 @@ WY.scene({
       const p = E.inOutCubic(WY.seg(t, T.bshot, T.bcards));
       const v = { x: WY.lerp(0, 560, p), y: WY.lerp(0, 200, p), w: WY.lerp(1920, 900, p) };
       drawShot(shots.build, v, k, [[622, 245, 1298, 720], WY.env(t, T.bshot + 1.8, T.bcards, 0.3, 0.3)]);
-      cap.textContent = '実際のクライアント画面(テストデータ)'; cap.style.opacity = k;
-      shots.label.textContent = '村のまわりに、建物を建てる。'; LK.show(shots.label, t, T.bshot + 0.5, T.bcards, { rise: 20 });
+      cap.textContent = 'Real client screen (test data)'; cap.style.opacity = k;
+      shots.label.textContent = 'Build around your village.'; LK.show(shots.label, t, T.bshot + 0.5, T.bcards, { rise: 20 });
     } else if (t > T.promo - 0.4 && t < T.end + 0.3) {
       const k = E.inOutCubic(WY.seg(t, T.promo - 0.3, T.promo + 0.3)) * (1 - E.inOutCubic(WY.seg(t, T.end - 0.3, T.end)));
       const p = E.inOutCubic(WY.seg(t, T.promo, T.promo + 1.6));
       const v = { x: WY.lerp(0, 560, p), y: WY.lerp(0, 540, p), w: WY.lerp(1920, 880, p) };
-      drawShot(shots.promo, v, k, [[715, 648, 1218, 905], WY.env(t, T.promo + 1.6, T.end, 0.3, 0.3)]);
-      cap.textContent = '実際のクライアント画面(テストデータ)'; cap.style.opacity = k;
-      shots.label.textContent = '町の次は、都市へ。'; LK.show(shots.label, t, T.promo + 0.6, T.end - 0.1, { rise: 20 });
+      drawShot(shots.promo, v, k, [[702, 645, 1220, 908], WY.env(t, T.promo + 1.6, T.end, 0.3, 0.3)]);
+      cap.textContent = 'Real client screen (test data)'; cap.style.opacity = k;
+      shots.label.textContent = 'After Town comes City.'; LK.show(shots.label, t, T.promo + 0.6, T.end - 0.1, { rise: 20 });
     } else { cap.style.opacity = 0; shots.label.style.opacity = 0; }
     showHead(heads.bld, t, T.bcards, T.tiers - 0.2);
     bc.forEach((b, i) => {
