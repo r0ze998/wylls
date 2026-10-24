@@ -4,6 +4,7 @@
 #   farm.sh setup                     venv + bpy, CC0 assets from Poly Haven, build the world, print its fingerprint
 #   farm.sh video F0 F1 [SAMPLES]     render frames F0..F1 of the intro film, grade them, pack a near-lossless clip
 #   farm.sh still SCRIPT NAME [SAMPLES] [WARM]   render one 2160×2700 still in four bands, stack and grade it
+#   farm.sh trailer SHOT F0 F1 [SAMPLES]  render frames F0..F1 of the v2 trailer (shot 1-6), grade, pack a clip
 #   farm.sh restack NAME [WARM]           re-join existing bands (cut through the overlaps) and re-grade
 #   farm.sh pass SCRIPT NAME MODE [SAMPLES]      one extra full-frame pass for the ⑥ replay (MODE=shade|normal|mist)
 # Resumable: finished frames and bands are skipped.
@@ -47,6 +48,15 @@ still)
   python3 stack_bands.py $B/${NAME}_a.png $B/${NAME}_b.png $B/${NAME}_c.png $B/${NAME}_d.png $R/out/${NAME}_raw.png
   python3 grade.py $R/out/${NAME}_raw.png $R/out/${NAME}.png 0 $WARM
   echo "still $NAME done"
+  ;;
+trailer)
+  SHOT=$2; F0=$3; F1=$4; SAMP=${5:-32}; FR=$WK/tframes
+  $PY tr_v2.py -- 1080 1350 $SAMP $FR $SHOT $F0 $F1 > $WK/trailer_${F0}.log 2>&1
+  python3 grade_range.py $FR $WK/tgraded $F0 $F1
+  ffmpeg -y -loglevel error -framerate 30 -start_number $F0 -i $WK/tgraded/%04d.png -frames:v $((F1 - F0 + 1)) \
+    -c:v libx264 -preset slow -crf 6 -pix_fmt yuv444p $R/out/tseg_$(printf %04d $F0)_$(printf %04d $F1).mp4
+  cp $WK/tgraded/$(printf %04d $F0).png $R/out/tcheck_$(printf %04d $F0).png
+  echo "trailer $F0-$F1 done"
   ;;
 restack)
   NAME=$2; WARM=${3:-0.03}; B=$WK/bands

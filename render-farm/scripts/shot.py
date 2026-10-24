@@ -81,7 +81,20 @@ def haze(color=(0.75, 0.82, 0.92), start=80, depth=900, amount=0.55, falloff='QU
         except Exception:
             try: bl.size_x = bl.size_y = 8
             except Exception as e: print('blur', e)
-    ng.links.new(rl.outputs['Mist'], bl.inputs[0])
+    if os.environ.get('HAZE_MIST') == '1':
+        ng.links.new(rl.outputs['Mist'], bl.inputs[0])
+    else:
+        # Smoke and dust volumes write into the mist pass and came out bleached white. The depth pass sees only
+        # surfaces but isn't antialiased. Take the smaller of the two: surfaces keep the mist pass's clean edges, and a
+        # plume in front of a hill takes the hill's distance. Against open sky (no surface, mist saturated) the
+        # pixel is left to the sky term instead.
+        vl.use_pass_z = True
+        lin_ = math_('DIVIDE', math_('SUBTRACT', rl.outputs['Depth'], float(start)), float(depth))
+        cl = ng.nodes.new('ShaderNodeClamp'); ng.links.new(lin_, cl.inputs['Value'])
+        kd = math_('POWER', cl.outputs[0], 2.0 if falloff == 'QUADRATIC' else 1.0)
+        km = math_('MINIMUM', rl.outputs['Mist'], kd)
+        volsky = math_('MULTIPLY', math_('GREATER_THAN', rl.outputs['Depth'], 1.0e5), math_('GREATER_THAN', rl.outputs['Mist'], 0.97))
+        ng.links.new(math_('MULTIPLY', km, math_('SUBTRACT', 1.0, volsky)), bl.inputs[0])
     k = math_('MULTIPLY', bl.outputs[0], amount); k.node.name = 'HAZE_AMT'     # animatable haze strength
     hz_a = mix('MULTIPLY', 1.0, tuple(color) + (1,), rl.outputs['Alpha'])           # haze colour, premultiplied
     fg = mix('MIX', k, rl.outputs['Image'], hz_a)
@@ -89,6 +102,9 @@ def haze(color=(0.75, 0.82, 0.92), start=80, depth=900, amount=0.55, falloff='QU
     sky_ = mix('MULTIPLY', 1.0, rl.outputs['Environment'], inv)
     out = mix('ADD', 1.0, fg, sky_)
     ng.links.new(out, go.inputs[0])
+    if os.environ.get('HAZE_DEBUG'):                       # show the haze factor (or the raw alpha) instead of the image
+        dbg = {'k': k, 'a': rl.outputs['Alpha']}[os.environ['HAZE_DEBUG']]
+        ng.links.new(dbg, go.inputs[0])
     return ng
 
 def render_settings(samples=128, look='AgX - Medium High Contrast', exposure=0.0):
