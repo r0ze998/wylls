@@ -14,6 +14,7 @@
 // A Reveal is never built here (I-24): marchbook.revealMaterial goes to
 // POST /gw/f/reveal. Every function answers `{ok, …}` and never rejects.
 import { frontierIx } from '../sdk/frontier/shapes.mjs';
+import { isV2 } from '../sdk/frontier/profile.mjs';
 import { budgetOf, budgetPrefix } from '../sdk/frontier/budgets.mjs';
 import { compileMessage, wireTransaction } from '../sdk/solana-tx.mjs';
 import { decode as fromBase58 } from '../sdk/base58.mjs';
@@ -71,7 +72,8 @@ export function ticketProvinces(sites) {
 export function accountsFor(name, v) {
   if (!SIGNED_BY[name]) throw new Error(`fplay: ${name} is not a shape this page sends`);
   const A = v.addresses;
-  const cq = (v.profile ?? io.pinned()?.profile) === 2;
+  // MC and S1 (profile 2 and 3) share the ABI v2 account lists.
+  const cq = isV2(v.profile ?? io.pinned()?.profile);
   const citizen = A.of('Citizen', { wallet: v.wallet });
   const base = { actor: v.actor, season: A.season, citizen };
   const holding = () => A.of('Holding', v.holding);

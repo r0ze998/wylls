@@ -560,6 +560,34 @@ fn cq_m1_season_is_untouched() {
     let _ = std::fs::remove_dir_all(&d);
 }
 
+/// An S1 Season (`program_version` 4, the program's own since stage 1)
+/// is a conquest season to the herald: the same figures as MC's.
+#[test]
+fn cq_s1_season_reads_as_conquest() {
+    use frontier_abi::v2::layout::world::season as SE;
+    use frontier_abi::v2::presets::PROGRAM_VERSION_S1;
+    let season = cqfixture::ctx().season;
+    let mut txs = cqfixture::mini_season();
+    let mut patched = 0;
+    for t in txs.iter_mut() {
+        for (a, acc) in t.post.iter_mut() {
+            let Some(acc) = acc.as_mut().filter(|_| a.to_bytes() == season) else {
+                continue;
+            };
+            acc.data[SE::PROGRAM_VERSION..SE::PROGRAM_VERSION + 2]
+                .copy_from_slice(&PROGRAM_VERSION_S1.to_le_bytes());
+            patched += 1;
+        }
+    }
+    assert!(patched > 0, "the fixture writes the Season");
+    let d = tmp("cqs1");
+    let f = fold_all(&d, &txs);
+    let si = herald_fold::conquest::season_info(&f).expect("an S1 season is a conquest season");
+    assert_eq!(si.end_bell, END_BELL);
+    assert!(f.cq.on);
+    let _ = std::fs::remove_dir_all(&d);
+}
+
 /// `/h/me` of an MC wallet: its alerts (the horn on its holding, the
 /// occupation) and no live siege at the end.
 #[test]
