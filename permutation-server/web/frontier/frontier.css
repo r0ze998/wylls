@@ -742,6 +742,9 @@ legend { padding: 0 4px; font-weight: 600; }
 
 /* ---- the selection inspector (hud/inspect.mjs): a compact card, the name first */
 p.fact-chips { display: flex; flex-wrap: wrap; gap: var(--s1); margin: var(--s2) 0; }
+/* S1: the ore a village takes from the land around it (hud/inspect.mjs; the board lights the same tiles in amber) */
+p.insp-ore { display: flex; gap: var(--s1); align-items: flex-start; margin: 0 0 var(--s2); padding: 6px 8px; border-left: 3px solid #f3c561; background: rgba(243,197,97,.14); border-radius: 4px; font-size: 13px; line-height: 1.45; }
+p.insp-ore svg { flex: none; margin-top: 2px; }
 .insp-acts { margin: var(--s2) 0 0; }
 .insp-hosts { margin: 0; gap: 4px; }
 .host-row { display: flex; align-items: center; gap: var(--s2); padding: 4px 6px; border-radius: 7px; background: rgba(255,255,255,.45); }

@@ -30,6 +30,15 @@ import { materialBytes } from '../marchbook.mjs';
 import { cardHead, chip, fold, label } from '../screens/parts.mjs';
 import { conquestEnabled, keepFor, renderKeep, renderOutpost } from '../screens/conquest.mjs';
 import { territoryEnabled, territoryOf, territoryOwner } from '../territory.mjs';
+import { oreField, oreTagText } from '../map/orefield.mjs';
+
+/** S1: the ore field of the viewer's own village on tile `idx` of province (p, q), or null (map/orefield.mjs). */
+function oreOfVillage(FS, p, q, idx, terrainOf) {
+  const h = (FS.holdings ?? []).find(x => x?.p === p && x?.q === q && x?.tile === idx);
+  if (!h || !(Number(h.terrainOre ?? 0) > 0)) return null;
+  const field = oreField(terrainOf?.(p, q), idx);
+  return field ? { field, terrainOre: Number(h.terrainOre) } : null;
+}
 
 /** Site states as the overview carries them (herald SITE_STATE) and the mirror (3 = released: a Free City). */
 const SITE_TEXT = { free: () => L`村を置ける場所`, holding: () => L`村`, camp: () => L`蛮族の野営地`, reserved: () => L`予約済みの場所`, freeCity: () => L`自由都市` };
@@ -189,6 +198,9 @@ export function render(FS, terrainOf, activities = null) {
   const chips = [];
   if (held && site.garrison !== null) chips.push(chip(L`守備隊 ${fmtNum(site.garrison)}`, '', 'shield'));
   if (site?.shield) chips.push(html`${chip(L`保護中（攻撃されません）`, 'info', 'shield')}`);
+  // (S1: the viewer's own village takes its ore from the land around it; the board lights those tiles while this is open)
+  const ore = site?.mine && t ? oreOfVillage(FS, m.p, m.q, t.idx, terrainOf) : null;
+  const oreLine = ore ? html`<p class="insp-ore">${icon('mountain')}<span>${L`${oreTagText(ore.field, ore.terrainOre)} — 地図の琥珀色のマス`}</span></p>` : '';
   if (m.clash) chips.push(chip(L`このターンに衝突あり`, 'bad', 'swords'));
   // every chip explains itself (UX design 12.6; the second check: the viewer's own village carried 「シンダー 敵対」 with
   // nothing to say whose stance toward whom). On another nation's village the chip says how that nation stands toward
@@ -219,6 +231,7 @@ export function render(FS, terrainOf, activities = null) {
     ${cardHead({ id: 'inspect-title', ic: mark, pic: held ? villageDrawn(site.faction, site.tier ?? 0) : null, title: name ?? provinceName(FS, m.p, m.q), sub: name ? where : (m.opened ? L`第${m.ring}輪` : L`第${m.ring}輪（まだひらいていません）`), side })}
     ${site?.owner ? html`<p class="inspect-owner">${personChip(site.owner, site.faction, { size: 44, full: true, own: !!site.mine, note: L`この村の領主` })}</p>` : ''}
     ${chips.length ? html`<p class="fact-chips">${chips}</p>` : ''}
+    ${oreLine}
     ${m.opened && m.level < 3 ? html`<p class="insp-survey">${chip(m.level === 2 ? L`測量済み` : L`未測量`, '', 'chart')}<span class="muted">${m.level === 2 ? L`前に見た範囲です。土地と村を、色を落として描きます。` : L`まだ見ていない範囲です。地形だけを図にしています。`}</span></p>` : ''}
     ${main.length ? html`<div class="actions insp-acts">${main.map((a, i) => btn({ ...a, primary: a.primary && i === main.findIndex(x => x.primary) }))}</div>` : ''}
     ${hosts}${doing}

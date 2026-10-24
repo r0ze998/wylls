@@ -2998,10 +2998,10 @@ export class FrontierMap {
   }
 
   /** Over what stands on the land: the outlines of the ground marks, the route, the refusal, the standards. */
-  /** S1: the ore field of the viewer's own village while it is selected (map/orefield.mjs), or null. */
+  /** S1: the ore field of the viewer's own village while it is selected with its details open (map/orefield.mjs), or null. */
   oreOf(F) {
     const s = F.src?.selected;
-    if (!F.selOwn || !s) return null;
+    if (!F.selOwn || !s || !F.src.detail) return null;
     const v = F.villages.find(x => x.p === s.p && x.q === s.q && x.tile === s.idx && x.terrainOre > 0);
     const land = v ? (F.terrainOf ?? this.terrainOf)?.(v.p, v.q) : null, field = land ? oreField(land, v.tile) : null;
     return field ? { p: v.p, q: v.q, tile: v.tile, field, terrainOre: v.terrainOre } : null;
