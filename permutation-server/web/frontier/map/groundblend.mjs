@@ -123,6 +123,7 @@ export function paintSwell(g, tiles, { nameAt, paints = () => true } = {}) {
   // over the land once, soft-light, instead of some hundred gradients each blended at the bitmap's full size, which
   // made a province's bitmap a third slower to make on a 61-province world)
   const sheet = swellSheet(seeds, rad);
+  // (plain alpha instead of soft-light saved a little more but greyed the shaded patches: soft-light kept)
   if (sheet) g.drawImage(sheet.cv, sheet.x, sheet.y, sheet.w, sheet.h);
   else for (const c of seeds.values()) {
     const v = swell(c.x, c.y), a = Math.min(1, Math.abs(v)) * MACRO.alpha;
