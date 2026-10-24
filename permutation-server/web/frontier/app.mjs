@@ -2510,6 +2510,9 @@ function showTip(hit, at) {
   const owner = t && t.state === 1 && t.site !== undefined ? rosterRef?.ownerOf(hit.p, hit.q, t.site) : null;
   const land = protoTipLines(hit);
   if (!acts?.length && !owner && !land.length) { tip.hidden = true; return; }
+  // (the selected tile has its panel open, which says all of this: a tip over it would cover what the selection lights there)
+  const sel = FS.selected;
+  if (sel?.kind === 'tile' && sel.p === hit?.p && sel.q === hit?.q && sel.idx === hit?.idx) { tip.hidden = true; return; }
   const lines = [];
   // the place by its name first (map/names.mjs), then who holds it
   if (owner) lines.push(html`<strong class="tip-place">${villageLine({ p: hit.p, q: hit.q, site: t.site }, t.tier, t.owner)}</strong>`);
