@@ -278,7 +278,7 @@ function kit(g, x, y, u, lw) {
  * left). Buildings have no tile in the rules (Build names an item, not a place): they are part of the village's own
  * picture, never on a hex of their own. `k` = r / 0.78: the ring's size against a town's.
  */
-export const ANNEX_AT = Object.freeze([[-1.2, -0.62], [-0.78, -1.26], [-0.12, -1.6], [1.14, -0.94], [0.56, -1.42], [-1.5, -1.2]]);
+export const ANNEX_AT = Object.freeze([[-1.2, -0.62], [-0.78, -1.26], [-0.12, -1.6], [0.6, -1.42], [1.14, -0.94], [-1.5, -1.2]]);
 /** How far a yard has grown for `n` copies of its building: 0 (none), 1, 2, or 3 (three or more). */
 export const annexLevel = n => Math.max(0, Math.min(3, Math.floor(Number(n) || 0)));
 const SOIL = Object.freeze({
