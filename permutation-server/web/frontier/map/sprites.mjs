@@ -57,6 +57,9 @@ import { landUse, paintLandUse } from './landuse.mjs';
 
 /** The tile view's land is painted as one country (map/groundblend.mjs: blended kinds of land, whole coasts); `?country=0` shows the hexagons as they were. */
 const SHORES_DRAWN = !/[?&]country=0(?:&|$)/.test(globalThis.location?.search ?? '');
+/** S1 terrain ore (permutation-rules arms.rs ORE_RADIUS, ORE_TERRAIN_MAX): pinned by web-frontier-uplift.test.mjs. */
+export const ORE_RADIUS = 2;
+export const ORE_TERRAIN_MAX = 30;
 
 const BASE = new URL('../art/', import.meta.url);
 /** The far bitmaps' resolutions (device px per world px) and their cache budget in pixels. */
@@ -823,6 +826,26 @@ export class SpriteArt {
    * (`[{key "P,Q,tile", village, tiles, shape, provisional}]`, map/ownland.mjs paints them). Built once
    * and kept while the same entries, options and map stamp come again (an animation frame builds nothing).
    */
+  /**
+   * S1: the tiles that give a village on tile `idx` of province (p, q) its terrain ore (permutation-rules arms.rs
+   * `terrain_ore_per_hour`: every other tile of the same province within ORE_RADIUS 2 adds ORE_PER_HILLS 2,
+   * ORE_PER_MOUNTAIN 3, ORE_PER_IRON 4 for an iron resource; the terrain part capped at ORE_TERRAIN_MAX 30), from the
+   * last picture's tiles: `{tiles: [{x, y, ore}], total, capped}` (units an hour, before the tier's bonus), or null.
+   */
+  oreAround(p, q, idx) {
+    const m = this.lastModel, home = m?.byId.get(`${p},${q},${idx}`);
+    if (!home) return null;
+    const out = [];
+    let total = 0;
+    for (const t of m.byProv.get(`${p},${q}`) ?? []) {
+      if (t === home || Math.max(Math.abs(t.q - home.q), Math.abs(t.r - home.r), Math.abs(t.q + t.r - home.q - home.r)) > ORE_RADIUS) continue;
+      // (the resource byte: 0 none, else 1 + the rules' TileResource, Iron being 1)
+      const ore = (t.name === 'hills' ? 2 : t.name === 'mountain' ? 3 : 0) + (t.res === 2 ? 4 : 0);
+      if (ore) { out.push({ x: t.x, y: t.y, ore }); total += ore; }
+    }
+    return { tiles: out, total: Math.min(ORE_TERRAIN_MAX, total), capped: total > ORE_TERRAIN_MAX };
+  }
+
   model(entries, { demoRoads = false, relics = [], waystones = [], demoSpecials = false, rivers = [], demoRivers = false, ringsOpen = null, alliedPairs = [], stamp = undefined, survey = null }) {
     const sig = [stamp, survey, survey?.board?.work?.tier ?? -1, demoRoads, demoSpecials, demoRivers, ringsOpen, alliedPairs.join('|'), relics.length ? relics : 0, waystones.length ? waystones : 0, rivers.length ? rivers : 0];
     for (const e of entries) sig.push(e.p, e.q, e.fog, e.terrain, e.sites, e.names, e.rec, e.prov, e.clash, e.tiers, e.territoryMode, e.territory);
@@ -1035,6 +1058,7 @@ export class SpriteArt {
     const opening = this.opening && openFrame < OPEN_GLOW.length ? this.opening.ring : null;
     const k = RADIUS / s.r;
     const { tiles, byHex, byId, byProv, washSig } = this.model(entries, { demoRoads, relics, waystones, demoSpecials, rivers, demoRivers, ringsOpen, alliedPairs, stamp, survey });
+    this.lastModel = { byId, byProv };
     const nameAt = (q, r) => byHex.get(keyOf(q, r))?.name ?? terrainAt(q, r);
     // the survey of this frame: a province's kind and signature, and what of a tile is painted
     const svOf = (e) => (survey && e.fog !== 'unopened' ? survey.province(e.p, e.q) : null);

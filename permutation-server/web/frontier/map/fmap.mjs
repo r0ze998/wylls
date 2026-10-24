@@ -31,7 +31,8 @@
 // ground and props wait in two bitmaps (map/sprites.mjs paints the parts).
 import { paintPins } from '../hud/pins.mjs';
 import { inverseHex } from '../../map.mjs';
-import { L, onLangChange } from '../../lang.mjs';
+import { L, onLangChange, fmtNum } from '../../lang.mjs';
+import { s1On } from '../fs1.mjs';
 import { locate, ringOf, ringProvinces, hexDistance, tileHex } from '../fgeo.mjs';
 import { fogLevel, paintProvince, paintSigil, paintTiles, paintVeil, provincePixel, PROVINCE_CIRCUMRADIUS } from './layers.mjs';
 import { FACTION_COLORS } from '../fi18n.mjs';
@@ -3006,6 +3007,16 @@ export class FrontierMap {
       else if (F.seen && src.selected && Number.isInteger(src.selected.idx)) {
         const s = src.selected, land = F.lands().find(l => l.village?.p === s.p && l.village?.q === s.q && l.village?.tile === s.idx);
         if (land?.shape?.loops?.length) paintLandLens(ctx, land.shape.loops, F.seen);
+        // S1: the hills and mountains that give the village its ore, each with what it adds (the rules' own numbers)
+        const ore = land && s1On() ? this.art?.oreAround?.(s.p, s.q, s.idx) : null;
+        if (ore) {
+          for (const o of ore.tiles) paintTag(ctx, o.x, o.y, L`鉱石 +${fmtNum(o.ore)}`, { zoom: z, place: 'above', gap: 2, size: 11, anchor: o });
+          const h = tileHex(s.p, s.q, s.idx), v = project(h.q, h.r);
+          // (a village with no hill or mountain near it makes only the base ore: said, since that is why it trades for ore)
+          const say = !ore.tiles.length ? L`同じ州の 2 マス以内に丘も山もありません（地形の鉱石なし）`
+            : ore.capped ? L`まわりの丘と山から 鉱石 +${fmtNum(ore.total)}/時（上限）` : L`まわりの丘と山から 鉱石 +${fmtNum(ore.total)}/時`;
+          paintTag(ctx, v.x, v.y + RADIUS * 0.9, say, { zoom: z, place: 'below', size: 11.5, anchor: v });
+        }
       }
       // (the gold line of the viewer's land stays in sight through the reach and its dim: drawn again, and stronger then)
       for (const land of F.lands()) { const flood = this.floodOf(land, fx); paintOwnOutline(ctx, land, { zoom: z, shown: flood ? flood.border : 1, strong: !!F.A }); }

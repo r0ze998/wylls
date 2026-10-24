@@ -86,6 +86,13 @@ const SCENES = [
     await page.waitForTimeout(2500);
     await page.locator('.mc-compare, .picks-4').first().scrollIntoViewIfNeeded().catch(() => {});
   }],
+  // The village's lens on an S1 season: the page is told the season plays S1 (fs1.mjs setS1; the fixture's season does
+  // not), then the village is selected: the hills and mountains near it carry what they add to its ore. A SAMPLE of how
+  // an S1 season shows it, on the fixture's land.
+  ['s11-orelens', 'the village lens on an S1 season (sample)', async page => {
+    await page.evaluate(async () => { (await import('/frontier/fs1.mjs')).setS1({ layoutVersion: 2, programVersion: 4 }); });
+    await tapTile(page, W.HOME);
+  }],
   // A SAMPLE of the herald's S1 feeds laid into the page (the fixture serves none, and no S1 world can be started
   // locally yet: docs/design/uplift/00-SCOPE 2): a vault, an enemy tower and palisade, the viewer's fort and a cart of
   // ore on the home province, to see how the stage-1 things stand on the board. Not a record of any season.

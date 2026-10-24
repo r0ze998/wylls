@@ -110,6 +110,14 @@ test('worked land: 1 + tier fields for every village, the viewer\'s own building
   assert.deepEqual(landUse([{ q: 0, r: 0, tier: 0, own: true, built: [1, 1, 1, 1, 0, 0] }], tileAt), own, 'the same every time');
 });
 
+test('the lens\'s ore numbers are arms.rs\'s (ORE_RADIUS, the per-tile amounts, the cap)', async () => {
+  const { readFileSync } = await import('node:fs');
+  const rs = readFileSync(new URL('../../permutation-rules/src/frontier/arms.rs', import.meta.url), 'utf8');
+  const c = n => Number(rs.match(new RegExp(`pub const ${n}: [^=]+= ([^;]+);`))?.[1]);
+  const S = await import('../../permutation-server/web/frontier/map/sprites.mjs');
+  assert.deepEqual([c('ORE_RADIUS'), c('ORE_PER_HILLS'), c('ORE_PER_MOUNTAIN'), c('ORE_PER_IRON'), c('ORE_TERRAIN_MAX')], [S.ORE_RADIUS, 2, 3, 4, S.ORE_TERRAIN_MAX]);
+});
+
 test('the stage-1 things: quiet on a context that cannot paint, drawn on one that can; a cart shows its largest load', () => {
   for (const f of [paintVaultArt, paintTowerArt, paintPalisadeArt, paintFortArt, paintCartArt]) {
     assert.doesNotThrow(() => f(null, 0, 0, 40));
