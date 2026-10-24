@@ -71,10 +71,15 @@ const llmUrl = process.env.AGENT_E2E_LLM ?? 'http://127.0.0.1:41901';
 // call, a withdrawal empties the agent. Needs AGENT_E2E_RUN_DIR (the stack's run directory: the relay's pid is found by
 // its state file; the operator token is read from relay/operator.token) and AGENT_E2E_OPERATOR_URL (the relay's operator
 // listener, loopback).
-const scenario = process.env.AGENT_E2E_SCENARIO ?? null;
+// Scenario 'inflight-stop' (DESIGN.md §6, a call under way at the stop): before the owner stops the agent, the stand-in
+// holds the next model call open (AGENT_E2E_HOLD_MS, default 8000) and the stop is sent while it waits. The call is charged
+// once when its answer arrives; its decision is refused (AgentStopped) and nothing is sent; nothing else is charged.
+const scenario = process.env.AGENT_E2E_SCENARIO || null;
+const holdMs = Number(process.env.AGENT_E2E_HOLD_MS ?? 8000);
 const runDir = process.env.AGENT_E2E_RUN_DIR ?? null;
 const operatorUrl = process.env.AGENT_E2E_OPERATOR_URL ?? null;
 const waitReleaseMs = Number(process.env.AGENT_E2E_WAIT_RELEASE_MS ?? 0);
+if (scenario === 'inflight-stop') assert.ok(!realModel, 'the scenario uses the stand-in (a held call)');
 if (scenario === 'unresolved') { assert.ok(runDir && operatorUrl, 'AGENT_E2E_RUN_DIR and AGENT_E2E_OPERATOR_URL are needed'); assert.ok(!realModel, 'the scenario uses the stand-in (a held call)'); }
 for (const u of [base, rpcUrl]) assert.ok(['127.0.0.1', 'localhost'].includes(new URL(u).hostname), 'local-only test');
 const outDir = path.resolve(process.env.AGENT_E2E_OUT ?? fileURLToPath(new URL(`../../.local/agent-wallet-e2e/${new Date().toISOString().replace(/[:.]/g, '-')}`, import.meta.url)));
@@ -98,7 +103,7 @@ const api = async (p, body, headers = {}) => { const r = await fetch(gw + p, bod
 const h = createHerald({ base });
 
 // A stand-in for llama-server on loopback: every decision is a Harvest. The relay's runner calls it; each call is charged.
-const model = { calls: 0, stalled: null, onStall: null };
+const model = { calls: 0, stalled: null, onStall: null, hold: false, held: null };
 const modelServer = http.createServer((req, res) => {
   if (req.method === 'GET' && req.url === '/health') { res.writeHead(200, { 'content-type': 'application/json' }); return res.end('{"status":"ok"}'); }
   let body = '';
@@ -110,8 +115,13 @@ const modelServer = http.createServer((req, res) => {
     // Scenario 'unresolved': the first call is held open (never answered); the relay is killed while it waits. Later calls rest.
     if (scenario === 'unresolved' && model.calls === 1) { model.stalled = { at: new Date().toISOString(), messages: b.messages?.length ?? null }; model.onStall?.(); req.socket.on('close', () => { model.stalledClosed = new Date().toISOString(); }); return; }
     const answer = scenario === 'unresolved' ? { action: 'rest', fields: {}, reason: 'e2e scenario: rest' } : { action: 'Harvest', fields: {}, reason: 'e2e' };
-    res.writeHead(200, { 'content-type': 'application/json' });
-    res.end(JSON.stringify({ choices: [{ message: { content: JSON.stringify(answer) }, finish_reason: 'stop' }], usage: { prompt_tokens: 40, completion_tokens: 6 } }));
+    const reply = () => {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ choices: [{ message: { content: JSON.stringify(answer) }, finish_reason: 'stop' }], usage: { prompt_tokens: 40, completion_tokens: 6 } }));
+    };
+    // Scenario 'inflight-stop': once asked to, the next call waits holdMs before its answer (the stop is sent meanwhile).
+    if (scenario === 'inflight-stop' && model.hold && !model.held) { model.held = { at: new Date().toISOString(), call: model.calls }; setTimeout(() => { model.held.answeredAt = new Date().toISOString(); reply(); }, holdMs); return; }
+    reply();
   });
 });
 if (!realModel) await new Promise(r => modelServer.listen(modelPort, '127.0.0.1', r));
@@ -460,6 +470,7 @@ async function run() {
   check('agent-key-direct-refused', { code: direct.body.code, status: direct.status });
 
   // 5. Manual again: the agent stops, the runner stops, the owner takes the key back.
+  if (scenario === 'inflight-stop') { model.hold = true; await eventually('a model call is under way', async () => model.held, 120_000); }
   const manual = await api('/f/agent/command', command(keypair, 'mode', { agentId, params: { mode: 'manual' } }));
   assert.equal(manual.body.agent.mode, 'manual', json(manual));
   const stopped = await api('/f/agent/action', { capability, request: request() });
@@ -481,8 +492,20 @@ async function run() {
   const newSpends = after.history.filter(x => x.type === 'spend').slice(spendsAtStop);
   assert.ok(newSpends.every(x => inFlight.has(x.key)), `no new charge after the stop but a call already under way at it: ${json(newSpends)} (under way: ${json([...inFlight])})`);
   assert.equal(after.balance.reserved, '0', 'nothing left reserved');
+  let inflightStop = null;
+  if (scenario === 'inflight-stop') {
+    assert.ok(model.held?.answeredAt, 'the held call was answered after the stop');
+    assert.equal(inFlight.size, 1, `the held call's hold was there at the stop: ${json(atStop.holds ?? [])}`);
+    assert.equal(newSpends.length, 1, 'the call under way at the stop was charged once');
+    assert.equal(newSpends[0].amount, String(price), 'at the fixed price');
+    const line = after.history.filter(x => x.type === 'decision').find(x => inFlight.has(`${x.key}:infer`));
+    assert.ok(line, `a decision line for the held call: ${json(after.history.filter(x => x.type === 'decision').slice(-3))}`);
+    assert.notEqual(line.outcome, 'sent', 'its decision was not carried out');
+    inflightStop = { heldAt: model.held.at, answeredAt: model.held.answeredAt, holdMs, charged: newSpends[0].amount, decision: { outcome: line.outcome, code: line.code ?? null, action: line.action ?? null } };
+    model.hold = false;
+  }
   assert.equal(after.delegation?.delegated, true, 'a server-side stop does not revoke the on-chain delegation: the owner\'s SetSession does');
-  check('stopped', { modeEpoch: after.modeEpoch, refused: stopped.body.error.code, spentInference: after.balance.spent.inference, chargedForCallsUnderWayAtStop: newSpends.length, stillDelegatedOnChain: after.delegation.delegated });
+  check('stopped', { modeEpoch: after.modeEpoch, refused: stopped.body.error.code, spentInference: after.balance.spent.inference, chargedForCallsUnderWayAtStop: newSpends.length, ...(inflightStop ? { inflightStop } : {}), stillDelegatedOnChain: after.delegation.delegated });
   const back = await walletShape('SetSession', player, { session: session.publicKeyBytes, expiry: BigInt(s.record.latestUnix) + 7n * 86_400n });
   await action('Harvest', player, {});
   const revoked = await agentView(agentId);
