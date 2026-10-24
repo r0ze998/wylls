@@ -5,6 +5,12 @@ import { ringOf, hexDistance } from './fgeo.mjs';
 import { projectedHolding } from './fland.mjs';
 
 export const conquestEnabled = season => Number(season?.layoutVersion) === 2 && Number(season?.programVersion) >= 3;
+/**
+ * The rules kernel a season needs (scripts/build-wasm.sh): an S1 season (program_version 4, its own ruleset hash)
+ * frontier-v3.wasm (--s1), a conquest season frontier-v2.wasm (--cq), any other frontier.wasm. The kernel's
+ * ruleset hash is still checked against the season's on load (wasm.mjs).
+ */
+export const kernelFile = season => (conquestEnabled(season) ? (Number(season.programVersion) >= 4 ? 'frontier-v3.wasm' : 'frontier-v2.wasm') : 'frontier.wasm');
 
 export function territoryStandings(data) {
   if (data?.scoring !== 'territory-time' || data?.scoreUnit !== 'province-bell' || !Number.isInteger(data.bell) || data.bell < 0 || data.factions?.length !== 6) return null;

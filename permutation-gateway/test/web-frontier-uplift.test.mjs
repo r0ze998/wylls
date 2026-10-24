@@ -130,6 +130,34 @@ test('the stage-1 things: quiet on a context that cannot paint, drawn on one tha
   assert.equal(loadOf(null), null);
 });
 
+test('an S1 season loads its own rules kernel; a conquest season and an M1 season keep theirs', async () => {
+  const { kernelFile } = await import('../../permutation-server/web/frontier/fconquest.mjs');
+  assert.equal(kernelFile({ layoutVersion: 2, programVersion: 4 }), 'frontier-v3.wasm');
+  assert.equal(kernelFile({ layoutVersion: 2, programVersion: 3 }), 'frontier-v2.wasm');
+  assert.equal(kernelFile({ layoutVersion: 1, programVersion: 1 }), 'frontier.wasm');
+  assert.equal(kernelFile(null), 'frontier.wasm');
+});
+
+test('joining before the first turn: the button waits and says why; at the first turn it is the nation\'s', async () => {
+  setLang('ja');
+  const { renderNations } = await import('../../permutation-server/web/frontier/screens/join.mjs');
+  const FS = t => ({ season: { programVersion: 3 }, clock: { genesisTs: 1000 }, chain: { now: () => t }, wallet: { address: 'w' }, joinDraft: { faction: 5 }, overviews: new Map() });
+  const before = text(renderNations(FS(1000 - 290)));
+  assert.match(before, /季節の始まりを待っています/);
+  assert.match(before, /あと約 5 分/);
+  assert.match(String(renderNations(FS(1000 - 290))), /data-act="home-confirm"\s+disabled/);
+  const after = String(renderNations(FS(1000 + 5)));
+  assert.doesNotMatch(after, /季節の始まりを待っています/);
+  assert.doesNotMatch(after, /data-act="home-confirm"\s+disabled/);
+});
+
+test('the first village\'s stores are whole units, never more than there is', async () => {
+  setLang('ja');
+  const { renderGrant } = await import('../../permutation-server/web/frontier/screens/join.mjs');
+  const out = text(renderGrant({ season: { programVersion: 3 }, citizen: { faction: 5 }, homeGrant: { p: 2, q: -2, site: 0, state: 2, stores: [306533, 104900, 3266, 103266, 0, 52450, 0, 0].map(v => ({ value: v })) } }));
+  assert.match(out, /食料 306 木材 104 石材 3 鉱石 103 金 52/);
+});
+
 test('S1 orders: a vault and a structure are built from the ABI v2 shapes, their addresses from the v2 seed tags', async () => {
   const { accountsFor, buildShape, SIGNED_BY } = await import('../../permutation-server/web/frontier/fplay.mjs');
   const { seasonAddresses, seedOf } = await import('../../permutation-server/web/frontier/faddr.mjs');

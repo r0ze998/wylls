@@ -5,6 +5,9 @@
 /* ---- the light over the land (docs/design/uplift/06-MAP-REST): one warm key light from the upper left, a cool fall-off
    to the lower right, laid soft-light over the board in screen space (no cost per frame). Strongest at the near view,
    gone at the far view where the chart lies flat; never over the HUD. */
+/* the join line before the first turn: why the button waits */
+.nc-early { grid-column: 1 / -1; margin: 6px 0 0; font-size: var(--t1); line-height: 1.5; color: var(--hud-ink-2); }
+
 .map-light { position: absolute; inset: 0; pointer-events: none; mix-blend-mode: soft-light; opacity: calc(.25 + .75 * var(--map-near, 0));
   background:
     radial-gradient(ellipse 62% 58% at 28% 26%, rgba(255,232,178,.55), rgba(255,232,178,0) 70%),

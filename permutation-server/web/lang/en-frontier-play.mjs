@@ -180,6 +180,8 @@ export default {
   '村の受け取りを確認しています…': 'Confirming your village…',
   '村を築ける土地を探しています…': 'Finding land for your village…',
   '村を準備しています…': 'Preparing your village…',
+  '季節の始まりを待っています': 'Waiting for the season to begin',
+  '最初のターンが始まると参加できます（あと約 {0} 分）。国はいま選んでおけます。': 'You can join once the first turn begins (about {0} min). You can choose your nation now.',
   '斥候から知らせが届きました。探索の結果を受け取りましょう。': 'Your scouts have sent word. Receive their findings.',
   '探索の結果を受け取る': 'Receive the scout report',
   '斥候が周囲を調べています。結果が届くと、ここで受け取れます。': 'Your scouts are exploring. Their findings will arrive here.',

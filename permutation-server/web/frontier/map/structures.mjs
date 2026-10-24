@@ -19,6 +19,8 @@ import { YOURS_MARK } from '../palette.mjs';
 
 const { WOOD, STONE, BRASS, F, roofOf } = VILLAGE_PALETTE;
 const IRON = { lit: '#8e959a', mid: '#5f666b', dark: '#2f3437' };
+/** A slate roof (the vault's): blue-grey, the same light as the villages' roofs. */
+const SLATE = { lit: '#8d98a0', mid: '#66717a', shade: '#4b545c', deep: '#323a40', ridge: '#aeb7bd', line: '#22282c' };
 const EARTH = { lit: '#b9a274', mid: '#93804f', shade: '#6f5f38', deep: '#4e4226' };
 
 const poly = (g, pts, fill, stroke = null, lw = 0) => {
@@ -61,8 +63,9 @@ export function paintVaultArt(g, x, y, u, { faction = 0, own = false } = {}) {
   g.save(); g.lineJoin = 'round'; g.lineCap = 'round';
   contact(g, x, y, u, 0.42, 0.3);
   if (own) paintYoursRing(g, x, y + 0.02 * u, 0.46 * u);
-  // the house: a squat stone body, a heavy roof in the owner's colour
-  K.house({ gx: 0, gy: -0.02, ha: 0.24, hb: 0.17, h: 0.17, rh: 0.15, along: 'a', roof, wall: { lit: STONE.lit, mid: STONE.mid, shade: STONE.shade, dark: STONE.dark, line: STONE.line }, door: false });
+  // the house: a squat stone body under a heavy slate roof (the villages' roofs are the nation's colour: a vault in
+  // that colour read as one more cottage of the village; the nation is on its pennon)
+  K.house({ gx: 0, gy: -0.02, ha: 0.24, hb: 0.17, h: 0.17, rh: 0.15, along: 'a', roof: { ...roof, ...SLATE }, wall: { lit: STONE.lit, mid: STONE.mid, shade: STONE.shade, dark: STONE.dark, line: STONE.line }, door: false });
   // the door: timber planks with two iron bands, on the lit wall
   const q = (a, b, z) => K.Q(0, -0.02, a, b, z);
   poly(g, [q(-0.08, 0.17, 0), q(0.08, 0.17, 0), q(0.08, 0.17, 0.13), q(-0.08, 0.17, 0.13)], WOOD.mid, 'rgba(46,30,14,.85)', lw);

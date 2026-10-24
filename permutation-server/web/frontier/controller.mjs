@@ -6,7 +6,7 @@
 // self-reveal (I-24, §9.1), and turns every `data-act` of the screens into
 // one action: build → check → sign → relay → track (fplay.mjs), the march
 // through fmarch.sendMarch. Nothing here decides a rule; the program does.
-import { conquestEnabled, territoryStandings, keepFromProvince, applyControl, outpostOffer, mergeKeepEvents } from './fconquest.mjs';
+import { conquestEnabled, kernelFile, territoryStandings, keepFromProvince, applyControl, outpostOffer, mergeKeepEvents } from './fconquest.mjs';
 import { holdingByRef } from './fland.mjs';
 import { FS, invalidate, activeHolding } from './fstate.mjs';
 import { updateLife } from './people/life.mjs';
@@ -1195,7 +1195,7 @@ async function refreshOverviews(b) {
 // ------------------------------------------------------------------ the composer
 async function kernelOrNull() {
   if (FS.kernel) return FS.kernel;
-  try { FS.kernel = await loadKernel({ ruleset: Buffer2hex(FS.season.rulesetHash), url: new URL(conquestEnabled(FS.season) ? './wasm/frontier-v2.wasm' : './wasm/frontier.wasm', import.meta.url) }); FS.kernelError = null; } catch (e) { FS.kernelError = e.code ?? 'NoWasm'; FS.kernel = null; }
+  try { FS.kernel = await loadKernel({ ruleset: Buffer2hex(FS.season.rulesetHash), url: new URL(`./wasm/${kernelFile(FS.season)}`, import.meta.url) }); FS.kernelError = null; } catch (e) { FS.kernelError = e.code ?? 'NoWasm'; FS.kernel = null; }
   return FS.kernel;
 }
 

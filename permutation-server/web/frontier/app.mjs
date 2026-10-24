@@ -3,7 +3,7 @@ import { setS1 } from './fs1.mjs';
 import { s1Marks } from './map/s1marks.mjs';
 import * as territoryScreen from './screens/territory.mjs';
 import * as conquestScreen from './screens/conquest.mjs';
-import { conquestEnabled, outpostOffer } from './fconquest.mjs';
+import { conquestEnabled, kernelFile, outpostOffer } from './fconquest.mjs';
 // Boot of the Frontier pages (index, practice, spectate): config → the
 // herald's season record → pins (program, cluster, season, ruleset,
 // beacon) → the chain clock → the shell (bell chip, staleness banner,
@@ -3137,7 +3137,7 @@ const setFlag = (flag, add = true) => setFlags(withFlag(FS.ui?.dismissed ?? [], 
 
 /** The page's kernel, with the season's ruleset required (practice and verify refuse another). */
 async function seasonKernel() {
-  const k = await loadKernel(FS.season ? { ruleset: toHex(FS.season.rulesetHash), url: new URL(conquestEnabled(FS.season) ? './wasm/frontier-v2.wasm' : './wasm/frontier.wasm', import.meta.url) } : undefined);
+  const k = await loadKernel(FS.season ? { ruleset: toHex(FS.season.rulesetHash), url: new URL(`./wasm/${kernelFile(FS.season)}`, import.meta.url) } : undefined);
   if (FS.season && k.rulesetHash() !== toHex(FS.season.rulesetHash)) { const e = new Error('ruleset'); e.code = 'RulesetMismatch'; throw e; }
   return k;
 }
