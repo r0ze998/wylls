@@ -39,7 +39,7 @@ export function createTerrain({ load = () => FS.kernel ?? loadKernel(FS.season ?
     if (!/^[0-9a-f]{64}$/i.test(seed ?? '')) return null;
     const r = k.call('generate_province', { ring_seed: hexBytes(seed), p, q });
     const t = r.ok ? r.value.terrain : null;
-    const v = t ? { terrain: t.terrain, sites: t.sites.slice(0, t.siteCount), names: TERRAIN, passable: r.value.passableMask ?? null } : null;
+    const v = t ? { terrain: t.terrain, resource: t.resource ?? null, sites: t.sites.slice(0, t.siteCount), names: TERRAIN, passable: r.value.passableMask ?? null } : null;
     cache.set(key, v);
     if (cache.size > limit) cache.delete(cache.keys().next().value);
     return v;

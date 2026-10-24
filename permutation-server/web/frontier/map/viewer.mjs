@@ -25,7 +25,8 @@ export function surveyInput(fs, { terrainOf = null, ready = true, scope = null }
   const ringsOpen = fs?.record?.rings?.length ?? 1;
   if (mode !== 'play') return { mode, ringsOpen };
   const holdings = (fs.holdings ?? []).filter(h => h && int(h.p) && int(h.q) && int(h.tile));
-  const villages = holdings.map(h => ({ p: h.p, q: h.q, tile: h.tile, tier: h.tier ?? 0, state: h.state ?? null }));
+  // (an S1 village's terrain ore, milli per hour: the board lights the tiles it comes from when the village is selected, map/orefield.mjs)
+  const villages = holdings.map(h => ({ p: h.p, q: h.q, tile: h.tile, tier: h.tier ?? 0, state: h.state ?? null, ...(Number(h.terrainOre ?? 0) > 0 ? { terrainOre: Number(h.terrainOre) } : {}) }));
   const hosts = [], hostIds = [];
   for (const env of fs.provinces?.values?.() ?? []) {
     const pv = env?.province;

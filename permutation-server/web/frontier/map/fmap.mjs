@@ -78,6 +78,8 @@ import { syncProtoChip } from './protochip.mjs';
 import { setProtoLegend } from './legend.mjs';
 // the keeps of a conquest season (the program's version 3): map/keeps.mjs
 import { KeepBoard } from './keeps.mjs';
+// S1: the tiles an own village's ore comes from, while it is selected: map/orefield.mjs
+import { oreField, paintOreField, paintOreGround } from './orefield.mjs';
 
 /** The zoom below which a lit set is not framed on a narrow screen: neighbouring tiles stand about 44 px apart there (a tile's width is RADIUS × √3 world px, flattened by the tilt). */
 export const TOUCH_TILE_ZOOM = 0.87;
@@ -2540,7 +2542,7 @@ export class FrontierMap {
     return { src, survey, lod, z, fx, still, limited, guide, villages, faction: limited ? survey.faction : null, palette: P ? pickPalette(P.model.kind) : actionPalette(limited ? survey.faction : null), A, selHex, selOwn, hover, hoverLit,
       board, B, lands,
       // (what ground a hex is: the prototype's fill is levelled by it — map/protoland.mjs paintLandTile)
-      terrainAt: this.proto.on ? (this.terrainAtMemo?.of === terrainOf ? this.terrainAtMemo.at : (this.terrainAtMemo = { of: terrainOf, at: terrainLookup(terrainOf) }).at) : null };
+      terrainOf, terrainAt: this.proto.on ? (this.terrainAtMemo?.of === terrainOf ? this.terrainAtMemo.at : (this.terrainAtMemo = { of: terrainOf, at: terrainLookup(terrainOf) }).at) : null };
   }
 
   /**
@@ -2763,6 +2765,7 @@ export class FrontierMap {
     if (F.guide && !F.src.guideChip && this.pileRise(F.guide, z) === null) { paintGuide(ctx, F.guide, z, '', 'ring'); F.live = true; }
     if (F.hover) paintHoverGround(ctx, F.hover, { zoom: z, kind: F.hoverLit?.kind ?? null, palette: F.palette });
     if (F.selHex) { paintSelectionGround(ctx, F.selHex, { zoom: z, own: F.selOwn, now: fx, still }); F.live = true; }
+    { const ore = phase !== 'still' && F.lod === 'tile' ? this.oreOf(F) : null; if (ore) paintOreGround(ctx, { ...ore, zoom: z }); }
     // the host that is ringed (`selectHost`, or the one of the selected tile that acts): a bright ring at its figure's feet
     const ringed = this.hostSel ?? (F.selHex ? this.hostTap ?? null : null) ?? (F.A?.mode === 'select' ? F.A.actor?.id ?? null : null);
     if (ringed !== null && F.lod === 'tile') {
@@ -2995,6 +2998,14 @@ export class FrontierMap {
   }
 
   /** Over what stands on the land: the outlines of the ground marks, the route, the refusal, the standards. */
+  /** S1: the ore field of the viewer's own village while it is selected (map/orefield.mjs), or null. */
+  oreOf(F) {
+    const s = F.src?.selected;
+    if (!F.selOwn || !s) return null;
+    const v = F.villages.find(x => x.p === s.p && x.q === s.q && x.tile === s.idx && x.terrainOre > 0);
+    const land = v ? (F.terrainOf ?? this.terrainOf)?.(v.p, v.q) : null, field = land ? oreField(land, v.tile) : null;
+    return field ? { p: v.p, q: v.q, tile: v.tile, field, terrainOre: v.terrainOre } : null;
+  }
   topPass(ctx, F) {
     const { z, fx, still, src } = F;
     if (F.lod === 'tile') {
@@ -3018,6 +3029,9 @@ export class FrontierMap {
     if (F.lod === 'tile') {
       if (F.hover) paintHoverTop(ctx, F.hover, { zoom: z });
       if (F.selHex) paintSelectionTop(ctx, F.selHex, { zoom: z, own: F.selOwn });
+      // (S1: the viewer's own village selected: the tiles its ore comes from, and the sum, map/orefield.mjs)
+      const ore = this.oreOf(F);
+      if (ore) paintOreField(ctx, { ...ore, zoom: z, pass: F.pass ?? null });
       const note = this.noteOf(F);
       if (note?.hex) { paintRefusal(ctx, note.hex, { zoom: z, age: note.age, still }); if (!still && note.age < 420) F.shaking = true; else this.invalidateSoon(Math.max(30, Math.min(400, NOTE_MS - note.age + 20))); }
     }
