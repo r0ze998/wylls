@@ -2848,9 +2848,33 @@
           "ty": "[u8;32]"
         },
         {
-          "name": "RSV",
+          "name": "SHARES_ON",
           "off": 232,
-          "len": 280,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "RSV_233",
+          "off": 233,
+          "len": 3,
+          "ty": "rsv"
+        },
+        {
+          "name": "SHARES_SEQ",
+          "off": 236,
+          "len": 4,
+          "ty": "u32"
+        },
+        {
+          "name": "SHARES_ISSUER_TAG",
+          "off": 240,
+          "len": 8,
+          "ty": "u64"
+        },
+        {
+          "name": "RSV",
+          "off": 248,
+          "len": 264,
           "ty": "rsv"
         }
       ]

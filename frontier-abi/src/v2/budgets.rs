@@ -103,6 +103,13 @@ pub const MC_ROWS: &[(Ix, u32, u32, u32)] = &[
     (Ix::IssueTickets, 40_000, 0, 700),
     (Ix::GiveLot, 25_000, 0, 700),
     (Ix::CloseLot, 20_000, 0, 600),
+    // S2 (2b; S2-2B-CONTRACT §3): measured in LiteSVM (`tests/shares.rs`)
+    // OpenShares 24,961 (the Issue's and the Lot's creation included),
+    // WithdrawShares 30,104 (one Province; the path and towers as
+    // SendCaravan's budget), SettleDeposit 22,640 (a new lot), with room.
+    (Ix::OpenShares, 40_000, 0, 700),
+    (Ix::WithdrawShares, 120_000, 0, 1_100),
+    (Ix::SettleDeposit, 50_000, 0, 900),
     // S1 (1e; S1-1E-CONTRACT §8): measured in LiteSVM (`tests/nation.rs`)
     // Propose 11,957 (the Nation's creation included), Vote 6,631,
     // SettleProposal 8,074 (an expulsion with one holding), with room.
@@ -221,12 +228,13 @@ const _: () = assert!(1_417_216 <= PLACEHOLDER_PROGRAMDATA_LEN_V2);
 
 /// The S1 release `.so` (its own program, its own seasons): stage 1b
 /// measured **1,272,440 B** (max_len 1,593,344) with the vault and caravan
-/// handlers; rounded up to 1.375 MiB, headroom for stages 1c–1e, until the
-/// S1 build of record regenerates it. The MC table above stays the MC
+/// handlers; S2 2b (the S2 program, which shares S1's table) measured
+/// **1,456,040 B**: rounded up to 1.5 MiB, headroom for stages 2c–2e, until
+/// the build of record regenerates it. The MC table above stays the MC
 /// release's (its presets carry `reveal_loaded_limit`).
-pub const PLACEHOLDER_SO_LEN_S1: u32 = 1_441_792;
+pub const PLACEHOLDER_SO_LEN_S1: u32 = 1_572_864;
 pub const PLACEHOLDER_PROGRAMDATA_LEN_S1: u32 = max_len_for(PLACEHOLDER_SO_LEN_S1);
-const _: () = assert!(1_593_344 <= PLACEHOLDER_PROGRAMDATA_LEN_S1);
+const _: () = assert!(1_822_720 <= PLACEHOLDER_PROGRAMDATA_LEN_S1);
 
 /// Loaded-data need of `ix`'s worst v2 set at a programdata length.
 pub fn loaded_need(ix: Ix, programdata_len: u32) -> u64 {
@@ -350,7 +358,7 @@ mod tests {
             assert!(skip_gate(n, n) <= budget(Ix::SkipQuiet).cu_limit);
         }
         assert_eq!(PLACEHOLDER_PROGRAMDATA_LEN_V2, 1_474_560);
-        assert_eq!(PLACEHOLDER_PROGRAMDATA_LEN_S1, 1_802_240);
+        assert_eq!(PLACEHOLDER_PROGRAMDATA_LEN_S1, 1_966_080);
         for ix in Ix::ALL {
             let s1 = loaded_limit_s1(*ix);
             assert_eq!(s1 % 32_768, 0);

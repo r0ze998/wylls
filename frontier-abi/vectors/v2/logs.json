@@ -1657,22 +1657,203 @@
         {
           "name": "issue_closed",
           "len": 1
+        },
+        {
+          "name": "src",
+          "len": 8
+        },
+        {
+          "name": "shares_cleared",
+          "len": 1
         }
       ],
-      "body_without_tail_len": 49,
+      "body_without_tail_len": 58,
       "vector": {
         "bell": 2105,
-        "body_without_tail": "016939080000213e5b7895b2cfec213e5b786b88a5c2dffc19366b88a5c2dffc19366b88a5c26b88a5c2dffc19366b6b6b",
-        "body": "016939080000213e5b7895b2cfec213e5b786b88a5c2dffc19366b88a5c2dffc19366b88a5c26b88a5c2dffc19366b6b6b0104040000000000000048b9545687871e3f150bca57cdd4e39e96881bab5187963c20fdbfddf0badb5f",
+        "body_without_tail": "016939080000213e5b7895b2cfec213e5b786b88a5c2dffc19366b88a5c2dffc19366b88a5c26b88a5c2dffc19366b6b6b6b88a5c2dffc19366b",
+        "body": "016939080000213e5b7895b2cfec213e5b786b88a5c2dffc19366b88a5c2dffc19366b88a5c26b88a5c2dffc19366b6b6b6b88a5c2dffc19366b00",
+        "decodes": true,
+        "chains": []
+      }
+    },
+    {
+      "kind": 106,
+      "name": "SHARES_OPENED",
+      "key": [
+        {
+          "name": "issuer_tag",
+          "len": 8
+        },
+        {
+          "name": "seq",
+          "len": 4
+        }
+      ],
+      "payload": [
+        {
+          "name": "src",
+          "len": 8
+        },
+        {
+          "name": "supply",
+          "len": 8
+        },
+        {
+          "name": "lot_seq",
+          "len": 4
+        },
+        {
+          "name": "holding_key",
+          "len": 8
+        },
+        {
+          "name": "fee_digest",
+          "len": 32
+        }
+      ],
+      "body_without_tail_len": 78,
+      "vector": {
+        "bell": 2106,
+        "body_without_tail": "016a3a080000213e5b7895b2cfec213e5b786b88a5c2dffc19366b88a5c2dffc19366b88a5c26b88a5c2dffc19366b88a5c2dffc193653708daac7e4011e3b587592afcce90623405d7a97b4d1ee",
+        "body": "016a3a080000213e5b7895b2cfec213e5b786b88a5c2dffc19366b88a5c2dffc19366b88a5c26b88a5c2dffc19366b88a5c2dffc193653708daac7e4011e3b587592afcce90623405d7a97b4d1ee00",
+        "decodes": true,
+        "chains": []
+      }
+    },
+    {
+      "kind": 107,
+      "name": "SHARES_DEPOSITED",
+      "key": [
+        {
+          "name": "issuer_tag",
+          "len": 8
+        },
+        {
+          "name": "seq",
+          "len": 4
+        }
+      ],
+      "payload": [
+        {
+          "name": "holder_tag",
+          "len": 8
+        },
+        {
+          "name": "lot_seq",
+          "len": 4
+        },
+        {
+          "name": "value",
+          "len": 8
+        },
+        {
+          "name": "minted",
+          "len": 8
+        },
+        {
+          "name": "supply",
+          "len": 8
+        },
+        {
+          "name": "caravan_tag",
+          "len": 8
+        },
+        {
+          "name": "caravan_seq",
+          "len": 4
+        },
+        {
+          "name": "new_lot",
+          "len": 1
+        }
+      ],
+      "body_without_tail_len": 67,
+      "vector": {
+        "bell": 2107,
+        "body_without_tail": "016b3b080000213e5b7895b2cfec213e5b786b88a5c2dffc19366b88a5c26b88a5c2dffc19366b88a5c2dffc19366b88a5c2dffc19366b88a5c2dffc19366b88a5c26b",
+        "body": "016b3b080000213e5b7895b2cfec213e5b786b88a5c2dffc19366b88a5c26b88a5c2dffc19366b88a5c2dffc19366b88a5c2dffc19366b88a5c2dffc19366b88a5c26b020d0400000000000000c05ff69c26c61137c4886fdb15d355db0003d6ff3f38c0bc696cb2110b8b0b8a0e0500000000000000b8868f8a2d3f66a64cd4bf24e76d3b0781851858b948f3848c8bd925f571f364",
         "decodes": true,
         "chains": [
           {
-            "entity": 4,
-            "who": "Base(Citizen(Tag8(3898424990439409771)))",
+            "entity": 13,
+            "who": "Issue { issuer_tag: 17064053868169215521, seq: 2019245601 }",
             "prev_seq": 3,
-            "prev_head": "36c69ad150db8c113c6e4d924f6237ae8689edff9285c4b34a510e1580f23ec7",
+            "prev_head": "3fa27d9c936c690c7c2d45bea220be52808001398b5655e14a89e7ca0d0a48a1",
             "seq": 4,
-            "head": "48b9545687871e3f150bca57cdd4e39e96881bab5187963c20fdbfddf0badb5f"
+            "head": "c05ff69c26c61137c4886fdb15d355db0003d6ff3f38c0bc696cb2110b8b0b8a"
+          },
+          {
+            "entity": 14,
+            "who": "Lot { tag: 3898424990439409771, seq: 3265628267 }",
+            "prev_seq": 4,
+            "prev_head": "605b3490457ba1da96b72df5346e0d4196e9bea4ebf10e94d9ce843086620fcc",
+            "seq": 5,
+            "head": "b8868f8a2d3f66a64cd4bf24e76d3b0781851858b948f3848c8bd925f571f364"
+          }
+        ]
+      }
+    },
+    {
+      "kind": 108,
+      "name": "SHARES_WITHDRAWN",
+      "key": [
+        {
+          "name": "issuer_tag",
+          "len": 8
+        },
+        {
+          "name": "seq",
+          "len": 4
+        }
+      ],
+      "payload": [
+        {
+          "name": "holder_tag",
+          "len": 8
+        },
+        {
+          "name": "lot_tag",
+          "len": 8
+        },
+        {
+          "name": "lot_seq",
+          "len": 4
+        },
+        {
+          "name": "amount",
+          "len": 8
+        },
+        {
+          "name": "supply",
+          "len": 8
+        },
+        {
+          "name": "caravan_seq",
+          "len": 4
+        }
+      ],
+      "body_without_tail_len": 58,
+      "vector": {
+        "bell": 2108,
+        "body_without_tail": "016c3c080000213e5b7895b2cfec213e5b786b88a5c2dffc19366b88a5c2dffc19366b88a5c26b88a5c2dffc19366b88a5c2dffc19366b88a5c2",
+        "body": "016c3c080000213e5b7895b2cfec213e5b786b88a5c2dffc19366b88a5c2dffc19366b88a5c26b88a5c2dffc19366b88a5c2dffc19366b88a5c2020d0400000000000000ecbeac986c5773a8d310fd7c6f2ee4bf0fcb9e316a8d9b41525e1920ce5cb5bf0e0500000000000000f700d34f31302291e3b89f14096305aa990fa30df57f74eb93e0174108948689",
+        "decodes": true,
+        "chains": [
+          {
+            "entity": 13,
+            "who": "Issue { issuer_tag: 17064053868169215521, seq: 2019245601 }",
+            "prev_seq": 3,
+            "prev_head": "d4928c290a7b0a2aadfda69e65656a01c1b7185ef7db8d70d540d39253a560a9",
+            "seq": 4,
+            "head": "ecbeac986c5773a8d310fd7c6f2ee4bf0fcb9e316a8d9b41525e1920ce5cb5bf"
+          },
+          {
+            "entity": 14,
+            "who": "Lot { tag: 3898424990439409771, seq: 3265628267 }",
+            "prev_seq": 4,
+            "prev_head": "0399d9214983046fe4660a0f5cb40d3bff04fdb2ed074f6d7a5394473ef01980",
+            "seq": 5,
+            "head": "f700d34f31302291e3b89f14096305aa990fa30df57f74eb93e0174108948689"
           }
         ]
       }

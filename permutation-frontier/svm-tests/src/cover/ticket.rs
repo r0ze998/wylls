@@ -18,6 +18,10 @@ pub const ISSUE_TICKETS: &[Cover] = &[
             Err(E::Insufficient),
         ],
     ),
+    Cover::Test(
+        "shares::g13_s2_a_shared_vault_is_the_holders",
+        &[CqErr(Cq::VaultShared)],
+    ),
 ];
 
 pub const GIVE_LOT: &[Cover] = &[

@@ -1512,9 +1512,10 @@ pub fn close_lot(
     close_issue: bool,
 ) -> Instruction {
     let mut m = prologue(a, p);
+    // The source is writable: closing a share issue clears its vault (2b).
     m.extend([
         w(a.issue(issue.0, issue.1)),
-        r(source.address(a)),
+        w(source.address(a)),
         w(issue_rent_to),
     ]);
     if let Some((l, rent_to)) = lot {
@@ -1522,6 +1523,111 @@ pub fn close_lot(
     }
     let data = d2::CloseLot {
         close_issue: close_issue as u8,
+    };
+    build(a, m, data.to_bytes().to_vec())
+}
+
+/// 0xC3 OpenShares (P, S2 2b): P + `[holding w] [holding_province r]
+/// [vault w] [issue w] [lot w] [system]`: the citizen's `seq`-th issue (its
+/// `Citizen.ISSUES`) and its deposit lot.
+pub fn open_shares(
+    a: &Addresses,
+    p: &Player,
+    pay: HoldingRef,
+    vault: (i16, i16, u8),
+    issuer_tag: u64,
+    seq: u32,
+) -> Instruction {
+    let mut m = prologue(a, p);
+    m.extend([
+        w(pay.address(a)),
+        r(pay.province(a)),
+        w(a.vault(vault.0 as i32, vault.1 as i32, vault.2)),
+        w(a.issue(issuer_tag, seq)),
+        w(a.deposit_lot(issuer_tag, issuer_tag, seq)),
+        r(addr::system_program()),
+    ]);
+    build(a, m, d2::OpenShares {}.to_bytes().to_vec())
+}
+
+/// WithdrawShares' arguments (2b): the lot burned from and the caravan's
+/// order (as SendCaravan's, the basket for its cargo).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WithdrawSharesArgs {
+    pub lot: Address,
+    /// The share issue `(issuer_tag, seq)`.
+    pub issue: (u64, u32),
+    /// The shared vault `(p, q, tile)`.
+    pub vault: (i16, i16, u8),
+    pub amount: u64,
+    /// `Citizen.CARAVANS` of the holder.
+    pub seq: u32,
+    pub dst: PlaceRef,
+    pub steps: u8,
+    pub path: [u8; 12],
+    pub fee: u64,
+    /// The provinces the walk enters, the vault's first (1–4).
+    pub provinces: Vec<(i16, i16)>,
+}
+
+/// 0xC4 WithdrawShares (P, S2 2b): P + `[lot w] [issue w] [src w] [dst r]
+/// [caravan w] [system] [path_province w ×1..4]`.
+pub fn withdraw_shares(a: &Addresses, p: &Player, x: &WithdrawSharesArgs) -> Instruction {
+    let (dst_kind, dst_p, dst_q, dst_at, dst_gen) = x.dst.data();
+    let mut m = prologue(a, p);
+    m.extend([
+        w(x.lot),
+        w(a.issue(x.issue.0, x.issue.1)),
+        w(a.vault(x.vault.0 as i32, x.vault.1 as i32, x.vault.2)),
+        r(x.dst.address(a)),
+        w(caravan_of_wallet(a, &p.wallet, x.seq)),
+        r(addr::system_program()),
+    ]);
+    m.extend(provinces(a, &x.provinces, true));
+    let data = d2::WithdrawShares {
+        seq: x.seq,
+        amount: x.amount,
+        dst_kind,
+        dst_p,
+        dst_q,
+        dst_at,
+        dst_gen,
+        steps: x.steps,
+        path: x.path,
+        fee: x.fee,
+    };
+    build(a, m, data.to_bytes().to_vec())
+}
+
+/// 0xC5 SettleDeposit (D, S2 2b): SettleCaravan's accounts with `[issue w]
+/// [lot w] [system]` before the path: the vault's share issue and the
+/// caravan owner's deposit lot (`holder_tag` the owner's `citizen_tag`).
+#[allow(clippy::too_many_arguments)]
+pub fn settle_deposit(
+    a: &Addresses,
+    fee_payer: Address,
+    caravan: Address,
+    dst: Address,
+    beneficiary: Address,
+    rent_to: Address,
+    issue: (u64, u32),
+    holder_tag: u64,
+    path_provinces: &[(i16, i16)],
+) -> Instruction {
+    let mut m = vec![
+        ws(fee_payer),
+        r(a.season),
+        w(caravan),
+        w(dst),
+        w(beneficiary),
+        w(rent_to),
+        w(a.issue(issue.0, issue.1)),
+        w(a.deposit_lot(holder_tag, issue.0, issue.1)),
+        r(addr::system_program()),
+    ];
+    m.extend(provinces(a, path_provinces, false));
+    let data = d2::SettleDeposit {
+        beneficiary: beneficiary.to_bytes(),
     };
     build(a, m, data.to_bytes().to_vec())
 }

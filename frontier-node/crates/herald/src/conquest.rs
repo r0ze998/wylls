@@ -791,7 +791,10 @@ fn fold_record(
         | CqKind::FORT_GARRISONED
         | CqKind::TICKETS_ISSUED
         | CqKind::LOT_MOVED
-        | CqKind::LOT_CLOSED => {}
+        | CqKind::LOT_CLOSED
+        | CqKind::SHARES_OPENED
+        | CqKind::SHARES_DEPOSITED
+        | CqKind::SHARES_WITHDRAWN => {}
     }
 }
 

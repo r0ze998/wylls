@@ -52,6 +52,7 @@ pub mod map;
 pub mod nation;
 pub mod reveal;
 pub mod season;
+pub mod shares;
 pub mod structure;
 pub mod ticket;
 pub mod transit;
@@ -167,6 +168,10 @@ pub fn covered_by(ix: I) -> &'static [Cover] {
         I::IssueTickets => ticket::ISSUE_TICKETS,
         I::GiveLot => ticket::GIVE_LOT,
         I::CloseLot => ticket::CLOSE_LOT,
+        // S2 (2b): shares
+        I::OpenShares => shares::OPEN_SHARES,
+        I::WithdrawShares => shares::WITHDRAW_SHARES,
+        I::SettleDeposit => shares::SETTLE_DEPOSIT,
     }
 }
 

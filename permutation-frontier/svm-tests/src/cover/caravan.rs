@@ -45,6 +45,10 @@ pub const SEND_CARAVAN: &[Cover] = &[
             CqErr(Cq::ProvinceBusy),
         ],
     ),
+    Cover::Test(
+        "shares::g13_s2_a_shared_vault_is_the_holders",
+        &[CqErr(Cq::VaultShared)],
+    ),
 ];
 
 pub const SETTLE_CARAVAN: &[Cover] = &[
@@ -63,6 +67,10 @@ pub const SETTLE_CARAVAN: &[Cover] = &[
     Cover::Test(
         "caravan::g13_s1_raid_take_makes_the_caravan_the_raiders",
         &[CqErr(Cq::RaidState), Lands("settle the taken caravan")],
+    ),
+    Cover::Test(
+        "shares::g13_s2_open_deposit_and_withdraw_shares",
+        &[CqErr(Cq::VaultShared)],
     ),
 ];
 
@@ -120,6 +128,10 @@ pub const DEFAULT_RAID: &[Cover] = &[
     Cover::Test(
         "caravan::g13_s1_default_raid_burns_late_without_a_walk_home",
         &[Lands("DefaultRaid late burn"), CqErr(Cq::RaidWindow)],
+    ),
+    Cover::Test(
+        "shares::g13_s2_a_shared_vault_is_the_holders",
+        &[CqErr(Cq::VaultShared)],
     ),
 ];
 

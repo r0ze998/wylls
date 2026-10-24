@@ -161,7 +161,7 @@ pub fn emit(
 // ------------------------------------------------------------ ABI v2
 
 /// Highest record kind code of ABI v2 (S2 2a: LOT_CLOSED; 89 reserved, MC §6).
-pub const MAX_KIND_V2: usize = 105;
+pub const MAX_KIND_V2: usize = 108;
 
 /// `(defined, key width, payload width)` per record kind code of ABI v2:
 /// [`WIDTHS`] for M1's kinds and `frontier_abi::v2::log::CQ_SPECS` for

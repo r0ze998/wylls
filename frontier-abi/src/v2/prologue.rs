@@ -360,7 +360,8 @@ pub fn accounts_of(ix: Ix) -> &'static [Group] {
                     one!(PLAYER_PROLOGUE),
                     one!(&[
                         s!("issue", KindV2(K2::Issue), false, W),
-                        s!("source", EitherV2(K2::Holding, K2::Vault), false, R),
+                        // Writable (2b): closing a share issue clears its vault.
+                        s!("source", EitherV2(K2::Holding, K2::Vault), false, W),
                         s!("issue_rent_to", Wallet, false, W),
                     ]),
                     rep!(
@@ -371,6 +372,59 @@ pub fn accounts_of(ix: Ix) -> &'static [Group] {
                         0,
                         1
                     ),
+                ]
+            }
+        }
+        // S2 (2b; S2-2B-CONTRACT §3.1): the holding pays the fee.
+        Ix::OpenShares => {
+            const {
+                &[
+                    one!(PLAYER_PROLOGUE),
+                    one!(&[
+                        HOLDING_W,
+                        s!("holding_province", KindV2(K2::Province), false, R),
+                        s!("vault", KindV2(K2::Vault), false, W),
+                        s!("issue", KindV2(K2::Issue), false, W),
+                        s!("lot", KindV2(K2::Lot), false, W),
+                        SYSTEM,
+                    ]),
+                ]
+            }
+        }
+        // §3.2: SendCaravan's accounts with the lot and the issue first.
+        Ix::WithdrawShares => {
+            const {
+                &[
+                    one!(PLAYER_PROLOGUE),
+                    one!(&[
+                        s!("lot", KindV2(K2::Lot), false, W),
+                        s!("issue", KindV2(K2::Issue), false, W),
+                        s!("src", KindV2(K2::Vault), false, W),
+                        s!("dst", EitherV2(K2::Holding, K2::Vault), false, R),
+                        s!("caravan", KindV2(K2::Caravan), false, W),
+                        SYSTEM,
+                    ]),
+                    rep!(&[s!("path_province", KindV2(K2::Province), false, W)], 1, 4),
+                ]
+            }
+        }
+        // §3.3: SettleCaravan's accounts with the issue, the deposit lot and
+        // the system program before the path.
+        Ix::SettleDeposit => {
+            const {
+                &[
+                    one!(&[
+                        FEE_PAYER,
+                        SEASON_R,
+                        s!("caravan", KindV2(K2::Caravan), false, W),
+                        s!("dst", KindV2(K2::Vault), false, W),
+                        s!("beneficiary", Wallet, false, W),
+                        s!("rent_to", Wallet, false, W),
+                        s!("issue", KindV2(K2::Issue), false, W),
+                        s!("lot", KindV2(K2::Lot), false, W),
+                        SYSTEM,
+                    ]),
+                    rep!(&[s!("path_province", KindV2(K2::Province), false, R)], 1, 4),
                 ]
             }
         }
@@ -670,6 +724,9 @@ mod tests {
         assert_eq!(count_bounds(Ix::IssueTickets), (10, 10));
         assert_eq!(count_bounds(Ix::GiveLot), (10, 10));
         assert_eq!(count_bounds(Ix::CloseLot), (7, 9));
+        assert_eq!(count_bounds(Ix::OpenShares), (10, 10));
+        assert_eq!(count_bounds(Ix::WithdrawShares), (11, 14));
+        assert_eq!(count_bounds(Ix::SettleDeposit), (10, 13));
         assert_eq!(count_bounds(Ix::DefaultRaid), (7, 13));
         // §5.6: the three resident actions gain the Province
         for ix in [Ix::Harvest, Ix::Build, Ix::Train] {

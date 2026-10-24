@@ -128,7 +128,7 @@ mod tests {
     /// (`BadData`).
     #[test]
     fn every_v2_tag_decodes_and_reserved_ones_do_not() {
-        assert_eq!(v2::Ix::ALL.len(), 76);
+        assert_eq!(v2::Ix::ALL.len(), 79);
         for ix in v2::Ix::ALL {
             assert_eq!(v2::tag_of(&[ix.tag()]), Ok(*ix));
             assert!(!v2::is_reserved(ix.tag()));
@@ -136,7 +136,7 @@ mod tests {
         for v1 in Ix::ALL {
             assert_eq!(v2::Ix::of_v1(*v1).tag(), v1.tag());
         }
-        for t in [0xA4u8, 0xA8, 0xAB, 0xAF, 0xBF, 0xC3, 0xCF, 0x53, 0x00, 0xff] {
+        for t in [0xA4u8, 0xA8, 0xAB, 0xAF, 0xBF, 0xC6, 0xCF, 0x53, 0x00, 0xff] {
             assert!(v2::tag_of(&[t]).is_err(), "{t:#x}");
         }
     }

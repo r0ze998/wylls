@@ -223,6 +223,10 @@ pub fn dispatch(
         Ix::IssueTickets => ticket::issue_tickets(p, a, data),
         Ix::GiveLot => ticket::give_lot(p, a, data),
         Ix::CloseLot => ticket::close_lot(p, a, data),
+        // S2 (stage 2b): shares.
+        Ix::OpenShares => ticket::open_shares(p, a, data),
+        Ix::WithdrawShares => ticket::withdraw_shares(p, a, data),
+        Ix::SettleDeposit => caravan::settle_deposit(p, a, data),
     };
     heap::trace_checkpoint(0xffff);
     r

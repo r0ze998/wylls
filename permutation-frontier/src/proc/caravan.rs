@@ -48,6 +48,7 @@ use permutation_rules::frontier::doctrine::of_faction_v3;
 use permutation_rules::frontier::geometry::ProvinceCoord;
 use permutation_rules::frontier::holding::{Resource, RESOURCES};
 use permutation_rules::frontier::structure::{self as ks, Watch};
+use permutation_rules::frontier::ticket as kt;
 
 use super::conquest::{
     absent, check_accounts_v2, cq, cqlog, presence_v2, present_v2, season_v2, Chained2,
@@ -675,6 +676,77 @@ pub fn send_caravan(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     let [_, payer, season_ai, citizen, src, dst, caravan, _system, provinces @ ..] = a else {
         return Err(FrontierError::TooManyAccounts.into());
     };
+    let cargo = ix2::cargo_milli(&x.cargo).ok_or(FrontierError::BadData)?;
+    let order = SendOrder {
+        seq: x.seq,
+        dst: (x.dst_kind, x.dst_p, x.dst_q, x.dst_at, x.dst_gen),
+        steps: x.steps,
+        path: x.path,
+        fee: x.fee,
+    };
+    let accounts = SendAccounts {
+        payer,
+        season_ai,
+        citizen,
+        src,
+        dst,
+        caravan,
+        provinces,
+    };
+    send(p, &pl, &accounts, &order, &cargo, false)
+}
+
+/// What a send names besides its cargo (SendCaravan, WithdrawShares).
+pub(crate) struct SendOrder {
+    pub(crate) seq: u32,
+    pub(crate) dst: (u8, i16, i16, u8, u8),
+    pub(crate) steps: u8,
+    pub(crate) path: [u8; 12],
+    pub(crate) fee: u64,
+}
+
+/// The accounts of a send.
+pub(crate) struct SendAccounts<'b, 'a> {
+    pub(crate) payer: &'b AccountInfo<'a>,
+    pub(crate) season_ai: &'b AccountInfo<'a>,
+    pub(crate) citizen: &'b AccountInfo<'a>,
+    pub(crate) src: &'b AccountInfo<'a>,
+    pub(crate) dst: &'b AccountInfo<'a>,
+    pub(crate) caravan: &'b AccountInfo<'a>,
+    pub(crate) provinces: &'b [AccountInfo<'a>],
+}
+
+/// Whether a vault's bytes are shared (S2 2b): its share issue
+/// `(issuer_tag, seq)` when it is.
+pub(crate) fn vault_shares(vd: &[u8]) -> R<Option<(u64, u32)>> {
+    let r = Ro(vd);
+    if r.u8(VA::SHARES_ON)? == 0 {
+        return Ok(None);
+    }
+    Ok(Some((r.u64(VA::SHARES_ISSUER_TAG)?, r.u32(VA::SHARES_SEQ)?)))
+}
+
+/// A caravan of `cargo` (milli) out of `a.src` (SendCaravan's body). With
+/// `withdraw` the source is a shared vault the caller checked (2b
+/// WithdrawShares); otherwise it is the actor's own place, not a shared
+/// vault.
+pub(crate) fn send(
+    p: &Pubkey,
+    pl: &Player,
+    a: &SendAccounts,
+    x: &SendOrder,
+    cargo: &[i64; RESOURCES],
+    withdraw: bool,
+) -> R<()> {
+    let SendAccounts {
+        payer,
+        season_ai,
+        citizen,
+        src,
+        dst,
+        caravan,
+        provinces,
+    } = *a;
     let sid = pl.pc.season.id;
     let now = pl.now.ts;
     let (seq, faction) = {
@@ -685,15 +757,24 @@ pub fn send_caravan(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     if x.seq != seq || x.fee < CARAVAN_FEE {
         return Err(FrontierError::BadData.into());
     }
-    let cargo = ix2::cargo_milli(&x.cargo).ok_or(FrontierError::BadData)?;
     if cargo.iter().all(|&v| v == 0) {
         return Err(FrontierError::BadData.into());
     }
-    // The source: the actor's own live place; a holding is capture-locked
-    // in its own Province, the path's first.
+    // The source: the actor's own live place (a shared vault only through
+    // shares); a holding is capture-locked in its own Province, the path's
+    // first.
     let s = place_of(p, &pl.ctx, sid, src)?.ok_or(FrontierError::NotFinal)?;
-    if s.owner != citizen.key.to_bytes() {
-        return Err(FrontierError::NotOwner.into());
+    if withdraw {
+        if s.kind != PL::KIND_VAULT {
+            return Err(BAD_ACCOUNT);
+        }
+    } else {
+        if s.owner != citizen.key.to_bytes() {
+            return Err(FrontierError::NotOwner.into());
+        }
+        if s.kind == PL::KIND_VAULT && vault_shares(&src.try_borrow_data()?)?.is_some() {
+            return Err(cq(CqError::VaultShared));
+        }
     }
     let first = provinces.first().ok_or(FrontierError::TooManyAccounts)?;
     expect_key(first, &pl.ctx.province(s.p as i32, s.q as i32))?;
@@ -703,13 +784,7 @@ pub fn send_caravan(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         hold::finality(&pl, &hh, src, citizen, first)?;
     }
     // The destination.
-    let t = named_place(
-        p,
-        &pl.ctx,
-        sid,
-        dst,
-        (x.dst_kind, x.dst_p, x.dst_q, x.dst_at, x.dst_gen),
-    )?;
+    let t = named_place(p, &pl.ctx, sid, dst, x.dst)?;
     if dst.key == src.key {
         return Err(FrontierError::BadData.into());
     }
@@ -907,11 +982,45 @@ pub fn settle_caravan(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         .ok_or(FrontierError::TooManyAccounts)?;
     check_accounts_v2(Ix2::SettleCaravan, a, Some(&[1, n_prov as u8]))?;
     let x = ix2::SettleCaravan::decode(d)?;
-    let now = prologue::now()?;
-    let [_fee_payer, season_ai, caravan, dst, beneficiary, rent_to, provinces @ ..] = a else {
+    let [fee_payer, season_ai, caravan, dst, beneficiary, rent_to, provinces @ ..] = a else {
         return Err(FrontierError::TooManyAccounts.into());
     };
-    if beneficiary.key.to_bytes() != x.beneficiary {
+    let fixed = [fee_payer, season_ai, caravan, dst, beneficiary, rent_to];
+    settle(p, fixed, provinces, &x.beneficiary, None)
+}
+
+/// 0xC5 SettleDeposit(beneficiary) (S2 2b): `[fee_payer s] [season]
+/// [caravan w] [dst w] [beneficiary w] [rent_to w] [issue w] [lot w]
+/// [system] [path_province r ×1..4]`: SettleCaravan into a shared vault,
+/// minting the caravan owner's shares (`S2-2B-CONTRACT.md` §3.3).
+pub fn settle_deposit(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+    let n_prov = a
+        .len()
+        .checked_sub(9)
+        .ok_or(FrontierError::TooManyAccounts)?;
+    check_accounts_v2(Ix2::SettleDeposit, a, Some(&[1, n_prov as u8]))?;
+    let x = ix2::SettleDeposit::decode(d)?;
+    let [fee_payer, season_ai, caravan, dst, beneficiary, rent_to, issue, lot, _system, provinces @ ..] =
+        a
+    else {
+        return Err(FrontierError::TooManyAccounts.into());
+    };
+    let fixed = [fee_payer, season_ai, caravan, dst, beneficiary, rent_to];
+    settle(p, fixed, provinces, &x.beneficiary, Some((issue, lot)))
+}
+
+/// SettleCaravan's body; with `deposit` (the share issue and the deposit
+/// lot) the destination must be a live shared vault, without it must not.
+fn settle<'a>(
+    p: &Pubkey,
+    fixed: [&AccountInfo<'a>; 6],
+    provinces: &[AccountInfo<'a>],
+    beneficiary_key: &[u8; 32],
+    deposit: Option<(&AccountInfo<'a>, &AccountInfo<'a>)>,
+) -> R<()> {
+    let [fee_payer, season_ai, caravan, dst, beneficiary, rent_to] = fixed;
+    let now = prologue::now()?;
+    if beneficiary.key.to_bytes() != *beneficiary_key {
         return Err(BAD_ACCOUNT);
     }
     let hdr = season_v2(season_ai, p, &[S::STATUS_RUNNING, S::STATUS_ENDED], now.ts)?;
@@ -920,7 +1029,7 @@ pub fn settle_caravan(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     let bell = hdr.bell(now.ts).unwrap_or(NO_BELL);
     let (tag, seq) = caravan_of(p, &ctx, sid, caravan)?;
     let id = caravan_id(tag, seq);
-    let (dplace, cargo, fee) = {
+    let (dplace, cargo, fee, holder) = {
         let cd = caravan.try_borrow_data()?;
         let r = Ro(&cd);
         if r.u8(CV::STATE)? != CV::STATE_MOVING {
@@ -937,7 +1046,12 @@ pub fn settle_caravan(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         for (i, c) in cargo.iter_mut().enumerate() {
             *c = r.i64(CV::cargo(i))?;
         }
-        (Place::load(&cd, CV::DST)?, cargo, r.u64(CV::FEE)?)
+        (
+            Place::load(&cd, CV::DST)?,
+            cargo,
+            r.u64(CV::FEE)?,
+            r.arr::<32>(CV::OWNER_CITIZEN)?,
+        )
     };
     // Every bell the caravan stood here is resolved and no raid is open.
     for ai in provinces {
@@ -958,6 +1072,13 @@ pub fn settle_caravan(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         Some(pl) => pl.kind == dplace.kind && pl.gen == dplace.gen,
         None => false,
     };
+    if deposit.is_some() && !(live && dplace.kind == PL::KIND_VAULT) {
+        // A lost delivery or a holding: SettleCaravan's.
+        return Err(BAD_ACCOUNT);
+    }
+    // 2b: `(issue, value before, value after)` of a delivery into a shared
+    // vault.
+    let mut shared: Option<((u64, u32), u128, u128)> = None;
     let outcome = if live {
         if dplace.kind == PL::KIND_HOLDING {
             // A capture-locked holding waits for SettleCapture.
@@ -989,16 +1110,41 @@ pub fn settle_caravan(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
             hold::write_holding(&mut hd, &h, now.ts)?;
         } else {
             let mut vd = dst.try_borrow_mut_data()?;
+            let shares = vault_shares(&vd)?;
+            match (shares, deposit) {
+                (Some(_), None) => return Err(cq(CqError::VaultShared)),
+                (None, Some(_)) => return Err(BAD_ACCOUNT),
+                _ => {}
+            }
             let cap = Ro(&vd).i64(VA::CAP)?;
+            let mut before = [0i64; RESOURCES];
+            let mut after = [0i64; RESOURCES];
             for (r, c) in cargo.iter().enumerate() {
                 let have = Ro(&vd).i64(VA::store(r))?;
                 let to = have.saturating_add(*c).min(cap.max(have));
                 Rw(&mut vd).set_i64(VA::store(r), to)?;
+                (before[r], after[r]) = (have, to);
             }
+            shared = shares.map(|k| (k, kt::value_of(&before), kt::value_of(&after)));
         }
         caravan_outcome::DELIVERED
     } else {
         caravan_outcome::LOST
+    };
+    // 2b: the deposit lot is created (a CPI) before any lamports move.
+    let at = shared.map(|_| super::ticket::DepositAt {
+        ctx: &ctx,
+        sid,
+        bump: hdr.bump,
+        bell,
+        vault_gen: dplace.gen,
+        caravan: (tag, seq),
+    });
+    let new_lot = match (&at, shared, deposit) {
+        (Some(at), Some((issue_key, ..)), Some((issue, lot))) => super::ticket::deposit_lot(
+            p, at, fee_payer, season_ai, issue, lot, issue_key, &holder,
+        )?,
+        _ => false,
     };
     {
         let mut cd = caravan.try_borrow_mut_data()?;
@@ -1062,6 +1208,19 @@ pub fn settle_caravan(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
                 }],
             )?;
         }
+    }
+    if let (Some((issue_key, v0, v1)), Some(at), Some((issue, lot))) = (shared, &at, deposit) {
+        super::ticket::deposit(
+            p,
+            at,
+            issue,
+            lot,
+            issue_key,
+            &holder,
+            v1.saturating_sub(v0),
+            v0,
+            new_lot,
+        )?;
     }
     close_caravan(p, caravan, rent_to, tag, seq, bell)
 }
@@ -1788,6 +1947,10 @@ pub fn seize_vault(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         w.set_u8(VA::FACTION, captor_faction)?;
         w.set_u8(VA::GEN, new_gen)?;
         w.set_u32(VA::SEIZED_BELL, pl.pc.now_bell)?;
+        // S2 (2b): the shares of the old generation are void.
+        w.set_u8(VA::SHARES_ON, 0)?;
+        w.set_u32(VA::SHARES_SEQ, 0)?;
+        w.set_u64(VA::SHARES_ISSUER_TAG, 0)?;
     }
     {
         let mut cd = citizen.try_borrow_mut_data()?;
@@ -1854,6 +2017,9 @@ pub fn close_vault(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         let r = Ro(&vd);
         if r.arr::<32>(VA::OWNER_CITIZEN)? != citizen.key.to_bytes() {
             return Err(FrontierError::NotOwner.into());
+        }
+        if r.u8(VA::SHARES_ON)? != 0 {
+            return Err(cq(CqError::VaultShared));
         }
         if r.arr::<32>(VA::RENT_TO)? != rent_to.key.to_bytes() {
             return Err(BAD_ACCOUNT);

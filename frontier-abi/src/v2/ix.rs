@@ -149,6 +149,25 @@ ix_data_v2! {
     /// 0xC2 (P, S2, 2a): closes the citizen's empty or void lot, and with
     /// `close_issue` its own issue once nothing is outstanding or it is void.
     CloseLot { close_issue: u8 }
+    /// 0xC3 (P, S2, 2b): the owner opens its vault's shares.
+    OpenShares {}
+    /// 0xC4 (P, S2, 2b): the citizen burns `amount` units of its share lot
+    /// and sends the basket out of the vault as caravan `seq` (otherwise as
+    /// SendCaravan).
+    WithdrawShares {
+        seq: u32,
+        amount: u64,
+        dst_kind: u8,
+        dst_p: i16,
+        dst_q: i16,
+        dst_at: u8,
+        dst_gen: u8,
+        steps: u8,
+        path: [u8; 12],
+        fee: u64,
+    }
+    /// 0xC5 (D, S2, 2b): SettleCaravan for a caravan into a shared vault.
+    SettleDeposit { beneficiary: [u8; 32] }
 }
 
 ix_data_v2! {
@@ -329,6 +348,9 @@ pub fn fixed_len(ix: Ix) -> Option<usize> {
         Ix::IssueTickets => IssueTickets::LEN,
         Ix::GiveLot => GiveLot::LEN,
         Ix::CloseLot => CloseLot::LEN,
+        Ix::OpenShares => OpenShares::LEN,
+        Ix::WithdrawShares => WithdrawShares::LEN,
+        Ix::SettleDeposit => SettleDeposit::LEN,
         Ix::Propose => Propose::LEN,
         Ix::Vote => Vote::LEN,
         Ix::SettleProposal => SettleProposal::LEN,
@@ -361,6 +383,9 @@ pub fn wire_of(ix: Ix) -> Option<&'static [(&'static str, usize)]> {
         Ix::IssueTickets => IssueTickets::WIRE,
         Ix::GiveLot => GiveLot::WIRE,
         Ix::CloseLot => CloseLot::WIRE,
+        Ix::OpenShares => OpenShares::WIRE,
+        Ix::WithdrawShares => WithdrawShares::WIRE,
+        Ix::SettleDeposit => SettleDeposit::WIRE,
         Ix::Propose => Propose::WIRE,
         Ix::Vote => Vote::WIRE,
         Ix::SettleProposal => SettleProposal::WIRE,

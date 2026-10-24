@@ -348,6 +348,7 @@ mod tests {
             void: true,
             lot_closed: true,
             issue_closed: false,
+            shares_cleared: false,
         }));
         assert_eq!(t.issues[&(11, 0)].supply, 6);
         let mut back = Tickets::from_json(&t.to_json()).unwrap();

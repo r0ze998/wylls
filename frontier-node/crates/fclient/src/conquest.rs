@@ -274,6 +274,43 @@ pub enum CqEvent {
         void: bool,
         lot_closed: bool,
         issue_closed: bool,
+        /// 2b: a share issue's close cleared its vault's shares.
+        shares_cleared: bool,
+    },
+    /// S2 (2b): a vault's shares opened; the opener's deposit lot
+    /// `(issuer_tag, lot_seq)` holds the whole `supply`.
+    SharesOpened {
+        issuer_tag: u64,
+        seq: u32,
+        src: LogPlace,
+        supply: u64,
+        lot_seq: u32,
+        holding_key: u64,
+    },
+    /// S2 (2b): a delivery into a shared vault minted units into the
+    /// holder's deposit lot `(holder_tag, lot_seq)`.
+    SharesDeposited {
+        issuer_tag: u64,
+        seq: u32,
+        holder_tag: u64,
+        lot_seq: u32,
+        value: u64,
+        minted: u64,
+        supply: u64,
+        /// The caravan `(owner_tag, seq)`.
+        caravan: (u64, u32),
+        new_lot: bool,
+    },
+    /// S2 (2b): units burned from `lot` for the basket of the holder's
+    /// caravan `caravan_seq`.
+    SharesWithdrawn {
+        issuer_tag: u64,
+        seq: u32,
+        holder_tag: u64,
+        lot: (u64, u32),
+        amount: u64,
+        supply: u64,
+        caravan_seq: u32,
     },
     NationProposed {
         faction: u8,
@@ -411,7 +448,10 @@ impl CqEvent {
             | NationVoted { .. }
             | NationDecided { .. }
             | LotMoved { .. }
-            | LotClosed { .. } => None,
+            | LotClosed { .. }
+            | SharesDeposited { .. }
+            | SharesWithdrawn { .. } => None,
+            SharesOpened { src, .. } => Some((src.p as i32, src.q as i32)),
             TicketsIssued { src, .. } => Some((src.p as i32, src.q as i32)),
             CaravanSent { src, .. } => Some((src.p as i32, src.q as i32)),
             CaravanSettled { dst, .. } => Some((dst.p as i32, dst.q as i32)),
@@ -648,6 +688,35 @@ pub fn parse(body: &[u8]) -> Option<CqLog> {
             void: b8("void")? != 0,
             lot_closed: b8("lot_closed")? != 0,
             issue_closed: b8("issue_closed")? != 0,
+            shares_cleared: b8("shares_cleared")? != 0,
+        },
+        CqKind::SHARES_OPENED => CqEvent::SharesOpened {
+            issuer_tag: u("issuer_tag")?,
+            seq: u("seq")? as u32,
+            src: LogPlace::parse(f("src")?)?,
+            supply: u("supply")?,
+            lot_seq: u("lot_seq")? as u32,
+            holding_key: u("holding_key")?,
+        },
+        CqKind::SHARES_DEPOSITED => CqEvent::SharesDeposited {
+            issuer_tag: u("issuer_tag")?,
+            seq: u("seq")? as u32,
+            holder_tag: u("holder_tag")?,
+            lot_seq: u("lot_seq")? as u32,
+            value: u("value")?,
+            minted: u("minted")?,
+            supply: u("supply")?,
+            caravan: (u("caravan_tag")?, u("caravan_seq")? as u32),
+            new_lot: b8("new_lot")? != 0,
+        },
+        CqKind::SHARES_WITHDRAWN => CqEvent::SharesWithdrawn {
+            issuer_tag: u("issuer_tag")?,
+            seq: u("seq")? as u32,
+            holder_tag: u("holder_tag")?,
+            lot: (u("lot_tag")?, u("lot_seq")? as u32),
+            amount: u("amount")?,
+            supply: u("supply")?,
+            caravan_seq: u("caravan_seq")? as u32,
         },
         CqKind::FORT_GARRISONED => CqEvent::FortGarrisoned {
             p: i("p")?,

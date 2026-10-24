@@ -434,6 +434,15 @@ impl Addresses {
         let s = frontier_abi::v2::addr::lot_seed(seed_tag, seq);
         with_seed(&self.season, s.as_bytes(), &self.program)
     }
+
+    /// S2 (2b): a holder's deposit lot of the share issue `(issuer_tag,
+    /// seq)` (`frontier_abi::v2::addr::deposit_seq`).
+    pub fn deposit_lot(&self, holder_tag: u64, issuer_tag: u64, seq: u32) -> Address {
+        self.lot(
+            holder_tag,
+            frontier_abi::v2::addr::deposit_seq(issuer_tag, seq),
+        )
+    }
     /// S1 (1b): the owner's `seq`-th Caravan, seed `cv‖hex(le64 owner_tag ‖
     /// le32 seq)` (frontier-abi's `caravan_seed`).
     pub fn caravan(&self, owner_tag: u64, seq: u32) -> Address {

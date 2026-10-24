@@ -128,6 +128,28 @@ pub fn lot(ctx: &AddrCtx, first_holder_tag: u64, seq: u32) -> [u8; 32] {
     ctx.of(&lot_seed(first_holder_tag, seq))
 }
 
+/// The bit that marks a deposit lot's seq (S2, 2b): `Citizen.LOTS` counts
+/// below it.
+pub const DEPOSIT_BIT: u32 = 0x8000_0000;
+
+/// The seq of a holder's deposit lot of the share issue `(issuer_tag, seq)`
+/// (`S2-2B-CONTRACT.md` §2.2): `DEPOSIT_BIT | (le32(sha256("PSF-DLOT" ‖
+/// le64 issuer_tag ‖ le32 seq)[0..4]) & 0x7fff_ffff)`. The lot's seed tag
+/// is the holder's `citizen_tag`.
+pub fn deposit_seq(issuer_tag: u64, seq: u32) -> u32 {
+    let h = permutation_rules::hash::sha256(&[
+        b"PSF-DLOT",
+        &issuer_tag.to_le_bytes(),
+        &seq.to_le_bytes(),
+    ]);
+    DEPOSIT_BIT | (u32::from_le_bytes([h[0], h[1], h[2], h[3]]) & !DEPOSIT_BIT)
+}
+
+/// Whether a lot seq is a deposit lot's.
+pub const fn is_deposit_seq(seq: u32) -> bool {
+    seq & DEPOSIT_BIT != 0
+}
+
 /// `cv‖hex(le64 owner_tag ‖ le32 seq)`.
 pub fn caravan_seed(owner_tag: u64, seq: u32) -> Seed {
     let mut raw = [0u8; CARAVAN_RAW_LEN];

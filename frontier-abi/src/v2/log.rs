@@ -152,7 +152,10 @@ cq_kinds! {
     FORT_GARRISONED = 102; key ["p": 4, "q": 4, "tile": 1]; payload ["owner_tag": 8, "troops": 4, "pend_bell": 4, "pend": 2, "holding_key": 8];
     TICKETS_ISSUED = 103; key ["issuer_tag": 8, "seq": 4]; payload ["kind": 1, "src": 8, "resource": 1, "amount": 8, "per_unit": 8, "until_day": 4, "lot_seq": 4, "holding_key": 8, "fee_digest": 32];
     LOT_MOVED = 104; key ["issuer_tag": 8, "seq": 4]; payload ["giver_tag": 8, "from_tag": 8, "from_seq": 4, "recipient_tag": 8, "to_tag": 8, "to_seq": 4, "amount": 8, "whole": 1, "new_lot": 1];
-    LOT_CLOSED = 105; key ["issuer_tag": 8, "seq": 4]; payload ["closer_tag": 8, "lot_tag": 8, "lot_seq": 4, "amount": 8, "void": 1, "lot_closed": 1, "issue_closed": 1];
+    LOT_CLOSED = 105; key ["issuer_tag": 8, "seq": 4]; payload ["closer_tag": 8, "lot_tag": 8, "lot_seq": 4, "amount": 8, "void": 1, "lot_closed": 1, "issue_closed": 1, "src": 8, "shares_cleared": 1];
+    SHARES_OPENED = 106; key ["issuer_tag": 8, "seq": 4]; payload ["src": 8, "supply": 8, "lot_seq": 4, "holding_key": 8, "fee_digest": 32];
+    SHARES_DEPOSITED = 107; key ["issuer_tag": 8, "seq": 4]; payload ["holder_tag": 8, "lot_seq": 4, "value": 8, "minted": 8, "supply": 8, "caravan_tag": 8, "caravan_seq": 4, "new_lot": 1];
+    SHARES_WITHDRAWN = 108; key ["issuer_tag": 8, "seq": 4]; payload ["holder_tag": 8, "lot_tag": 8, "lot_seq": 4, "amount": 8, "supply": 8, "caravan_seq": 4];
 }
 
 /// S1 caravan places as logged (8 B): `kind u8 ‖ p i16 ‖ q i16 ‖
@@ -848,6 +851,77 @@ pub fn chains_of(kind: AnyKind, key: &[u8], payload: &[u8]) -> Option<Chains> {
                     false,
                 );
             }
+            // 2b: closing a share issue clears its vault's shares.
+            if pay("shares_cleared")?[0] != 0 {
+                place_link(&mut c, pay("src")?)?;
+            }
+        }
+        // S2 (2b): the opener's Citizen (its counters), the paying holding,
+        // the vault (its shares), the Issue and the opener's deposit lot.
+        CqKind::SHARES_OPENED => {
+            let issuer_tag = rd_u64(key, 0)?;
+            let seq = rd_u32(key, 8)?;
+            c.push(
+                E::Citizen,
+                Base(EntityRef::Citizen(CitizenRef::Tag8(issuer_tag))),
+                false,
+            );
+            c.push(
+                E::Holding,
+                Base(holding_of_key(rd_u64(pay("holding_key")?, 0)?)?),
+                false,
+            );
+            place_link(&mut c, pay("src")?)?;
+            c.push(E::Issue, Issue { issuer_tag, seq }, false);
+            let lot_seq = rd_u32(pay("lot_seq")?, 0)?;
+            c.push(
+                E::Lot,
+                Lot {
+                    tag: issuer_tag,
+                    seq: lot_seq,
+                },
+                false,
+            );
+        }
+        // The Issue (its supply) and the depositor's deposit lot (the
+        // delivery itself is the same transaction's CARAVAN_SETTLED).
+        CqKind::SHARES_DEPOSITED => {
+            c.push(
+                E::Issue,
+                Issue {
+                    issuer_tag: rd_u64(key, 0)?,
+                    seq: rd_u32(key, 8)?,
+                },
+                false,
+            );
+            c.push(
+                E::Lot,
+                Lot {
+                    tag: rd_u64(pay("holder_tag")?, 0)?,
+                    seq: rd_u32(pay("lot_seq")?, 0)?,
+                },
+                false,
+            );
+        }
+        // The lot burned from and the Issue (the caravan is the same
+        // transaction's CARAVAN_SENT).
+        CqKind::SHARES_WITHDRAWN => {
+            c.push(
+                E::Lot,
+                Lot {
+                    tag: rd_u64(pay("lot_tag")?, 0)?,
+                    seq: rd_u32(pay("lot_seq")?, 0)?,
+                },
+                false,
+            );
+            c.push(
+                E::Issue,
+                Issue {
+                    issuer_tag: rd_u64(key, 0)?,
+                    seq: rd_u32(key, 8)?,
+                },
+                false,
+            );
         }
         CqKind::FORT_GARRISONED => {
             let (p, q) = pq()?;
@@ -1192,7 +1266,7 @@ mod tests {
                 k.body_len()
             );
         }
-        assert_eq!(CQ_SPECS.len(), 25, "MC's 9, S1's 13 and S2's 3");
+        assert_eq!(CQ_SPECS.len(), 28, "MC's 9, S1's 13 and S2's 6");
         assert_eq!(AnyKind::Cq(CqKind::CONQUEST).body_len(), 137);
         assert_eq!(
             AnyKind::Cq(CqKind::CONQUEST).payload_len(),

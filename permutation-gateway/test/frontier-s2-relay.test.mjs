@@ -15,7 +15,7 @@ import { allowanceFor, drainGuard, ISSUE_RENT, LOT_RENT, lamportsPerDay } from '
 const S2_TAGS = { IssueTickets: 0xC0, GiveLot: 0xC1, CloseLot: 0xC2 };
 
 test('profile 4 is the S2 program: its hash, the v2 tables, S1\'s limits', () => {
-  assert.equal(PRESETS.ruleset_hash_v4, 'a588e3936869e1b394a031026b4a2d57350179457120eab1cb9c1060bbb8b85d');
+  assert.equal(PRESETS.ruleset_hash_v4, 'f142e56c9f5c8ddf9e64c9893f1a2ae06d69985ae954671f7c93d152ec21abe4');
   assert.equal(profileForHash(PRESETS.ruleset_hash_v4), 4);
   assert.equal(rulesetFor(4), PRESETS.ruleset_hash_v4);
   assert.equal(profileForSeason({ RULESET_HASH: PRESETS.ruleset_hash_v4 }), 4);

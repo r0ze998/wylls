@@ -677,6 +677,13 @@
       "keeper": "refused"
     },
     {
+      "code": 97,
+      "name": "VaultShared",
+      "program": true,
+      "mc": true,
+      "keeper": "refused"
+    },
+    {
       "code": 99,
       "name": "NotImplemented",
       "program": false,

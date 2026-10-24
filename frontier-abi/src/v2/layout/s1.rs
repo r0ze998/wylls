@@ -19,7 +19,12 @@ pub mod vault {
         SENT @ 192 : "u32" = 4;
         SEIZED_BELL @ 196 : "u32" = 4;
         RENT_TO @ 200 : "[u8;32]" = 32;
-        RSV @ 232 : "rsv" = 280;
+        // S2 (2b, S2-2B-CONTRACT §2.1): the vault's live share issue.
+        SHARES_ON @ 232 : "u8" = 1;
+        RSV_233 @ 233 : "rsv" = 3;
+        SHARES_SEQ @ 236 : "u32" = 4;
+        SHARES_ISSUER_TAG @ 240 : "u64" = 8;
+        RSV @ 248 : "rsv" = 264;
     );
     pub const STATE_NONE: u8 = 0;
     pub const STATE_LIVE: u8 = 1;

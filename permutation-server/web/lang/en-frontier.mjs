@@ -699,5 +699,6 @@ export default {
   '出している札の発行が上限に達しています。古い発行を閉じてから出してください': 'You have reached the limit of open ticket issues. Close an old issue first.',
   'この札は無効です（発行元の倉や村が奪われたか、閉じられました）': 'This ticket is void (its vault or village was seized, or it was closed).',
   '札の条件が正しくありません（種類・資源・量・期限を確かめてください）': 'The ticket terms are not valid (check the kind, resource, amount and end day).',
+  'この倉は持ち分で共有されています。中身は持ち分の札で引き出してください（そのままの送り出し・閉鎖・受け取りの札はできません）': 'This vault is shared: its goods belong to its share holders. Withdraw them with shares (no plain send, close or receipt).',
   'この包囲の先導者だけが行える操作です': 'Only the siege leader can perform this action.',
 };

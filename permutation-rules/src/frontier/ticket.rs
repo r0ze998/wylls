@@ -17,8 +17,9 @@
 use crate::fixed::Milli;
 use crate::frontier::holding::RESOURCES;
 
-/// Version of this module's rules (bound into `RULESET_HASH_V4`).
-pub const TICKET_VERSION: u16 = 1;
+/// Version of this module's rules (bound into `RULESET_HASH_V4`): 2 adds
+/// the share rules of 2b ([`minted`], [`basket`]).
+pub const TICKET_VERSION: u16 = 2;
 
 /// Issue kinds.
 pub const KIND_SHARE: u8 = 1;
@@ -122,6 +123,36 @@ pub fn value_of(stores: &[Milli; RESOURCES]) -> u128 {
         .sum()
 }
 
+/// Units a deposit mints into a share issue (2b, `S2-2B-CONTRACT.md` §1):
+/// `dv` the value the credit added, `supply` the units outstanding and `v0`
+/// the vault's value before the credit. With no units out the depositor
+/// takes the vault (`dv + v0`); units of an empty vault are worth nothing
+/// against a deposit (`dv × supply`). Saturates at `u64::MAX`.
+pub fn minted(dv: u128, supply: u64, v0: u128) -> u64 {
+    let m = if supply == 0 {
+        dv.saturating_add(v0)
+    } else if v0 == 0 {
+        dv.saturating_mul(supply as u128)
+    } else {
+        dv.saturating_mul(supply as u128) / v0
+    };
+    m.min(u64::MAX as u128) as u64
+}
+
+/// The basket `amount` of `supply` units withdraw from `stores` (milli):
+/// `⌊store_r × amount / supply⌋` in whole units, as milli (2b).
+pub fn basket(stores: &[Milli; RESOURCES], amount: u64, supply: u64) -> [Milli; RESOURCES] {
+    let mut out = [0; RESOURCES];
+    if supply == 0 || amount > supply {
+        return out;
+    }
+    for (o, &s) in out.iter_mut().zip(stores.iter()) {
+        let take = s.max(0) as u128 * amount as u128 / supply as u128;
+        *o = (take / 1_000 * 1_000) as Milli;
+    }
+    out
+}
+
 /// Appends this module's tables to the S2 ruleset hash input.
 pub fn write_tables(out: &mut alloc::vec::Vec<u8>) {
     out.extend_from_slice(&TICKET_VERSION.to_le_bytes());
@@ -192,6 +223,29 @@ mod tests {
         assert!(valid(3, 3, true));
         assert!(!valid(3, 4, true), "seized");
         assert!(!valid(3, 3, false), "closed");
+    }
+
+    #[test]
+    fn minting() {
+        assert_eq!(minted(100, 0, 0), 100, "the first deposit");
+        assert_eq!(minted(100, 0, 3), 103, "takes the remainder");
+        assert_eq!(minted(50, 200, 100), 100, "at the vault's price");
+        assert_eq!(minted(1, 3, 2), 1, "rounds down");
+        assert_eq!(minted(10, 7, 0), 70, "units of an empty vault");
+        assert_eq!(minted(u128::MAX / 2, u64::MAX, 1), u64::MAX);
+    }
+
+    #[test]
+    fn the_basket() {
+        let mut s = [0i64; RESOURCES];
+        s[0] = 1_000_000; // 1000 food
+        s[3] = 7_500; // 7.5 ore
+        let b = basket(&s, 1, 3);
+        assert_eq!(b[0], 333_000);
+        assert_eq!(b[3], 2_000, "whole units");
+        assert_eq!(basket(&s, 3, 3)[3], 7_000, "the fraction stays");
+        assert_eq!(basket(&s, 4, 3), [0; RESOURCES]);
+        assert_eq!(basket(&s, 1, 0), [0; RESOURCES]);
     }
 
     #[test]

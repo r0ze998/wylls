@@ -96,6 +96,10 @@ pub mod tag {
     pub const ISSUE_TICKETS: u8 = 0xC0;
     pub const GIVE_LOT: u8 = 0xC1;
     pub const CLOSE_LOT: u8 = 0xC2;
+    // S2 (stage 2b): shares.
+    pub const OPEN_SHARES: u8 = 0xC3;
+    pub const WITHDRAW_SHARES: u8 = 0xC4;
+    pub const SETTLE_DEPOSIT: u8 = 0xC5;
 }
 
 /// Keeper class of an instruction (§5.5, I-21).
@@ -237,7 +241,7 @@ pub const LAYOUT_VERSION_V2: u16 = 2;
 /// lower ones, and lowering a gate is not MC's). The `tx_max` column is
 /// the contract's (§5.4 "Tx B max"); `twin_tests` pins every row to
 /// `frontier_abi::v2::budgets`.
-pub const INSTRUCTIONS_V2: [IxInfo; 76] = [
+pub const INSTRUCTIONS_V2: [IxInfo; 79] = [
     ix(0x01, "CreateSeason", Class::O, 70_000, 1_100, false),
     ix(0x02, "InitShards", Class::O, 45_000, 600, false),
     ix(0x03, "ConsumeGenesisSeed", Class::D, 345_000, 760, true),
@@ -319,6 +323,10 @@ pub const INSTRUCTIONS_V2: [IxInfo; 76] = [
     ix(0xC0, "IssueTickets", Class::P, 40_000, 700, false),
     ix(0xC1, "GiveLot", Class::P, 25_000, 700, false),
     ix(0xC2, "CloseLot", Class::P, 20_000, 600, false),
+    // S2 (stage 2b): shares (measured).
+    ix(0xC3, "OpenShares", Class::P, 40_000, 700, false),
+    ix(0xC4, "WithdrawShares", Class::P, 120_000, 1_100, false),
+    ix(0xC5, "SettleDeposit", Class::D, 50_000, 900, false),
 ];
 
 /// The ABI v2 row of `tag`.
@@ -515,7 +523,7 @@ pub const ERRORS: [(u32, &str); 62] = [
 
 /// ABI v2 error codes (MC contract §5.3), stable forever; disjoint from
 /// [`ERRORS`].
-pub const ERRORS_V2: [(u32, &str); 35] = [
+pub const ERRORS_V2: [(u32, &str); 36] = [
     (62, "CapturePending"),
     (63, "Immune"),
     (64, "SiegeBusy"),
@@ -555,6 +563,8 @@ pub const ERRORS_V2: [(u32, &str); 35] = [
     (94, "TicketLimit"),
     (95, "TicketVoid"),
     (96, "TicketTerms"),
+    // S2 (stage 2b)
+    (97, "VaultShared"),
 ];
 
 /// The name of a program error code of either ABI (the code spaces are
@@ -779,9 +789,13 @@ pub mod kind {
     pub const TICKETS_ISSUED: u8 = 103;
     pub const LOT_MOVED: u8 = 104;
     pub const LOT_CLOSED: u8 = 105;
+    // S2 (stage 2b): kinds 106–108.
+    pub const SHARES_OPENED: u8 = 106;
+    pub const SHARES_DEPOSITED: u8 = 107;
+    pub const SHARES_WITHDRAWN: u8 = 108;
 
     /// (kind, name) of every MC and S1 record kind.
-    pub const ALL_V2: [(u8, &str); 25] = [
+    pub const ALL_V2: [(u8, &str); 28] = [
         (SIEGE_DECLARED, "SIEGE_DECLARED"),
         (SIEGE_SETTLED, "SIEGE_SETTLED"),
         (CONQUEST, "CONQUEST"),
@@ -807,6 +821,9 @@ pub mod kind {
         (TICKETS_ISSUED, "TICKETS_ISSUED"),
         (LOT_MOVED, "LOT_MOVED"),
         (LOT_CLOSED, "LOT_CLOSED"),
+        (SHARES_OPENED, "SHARES_OPENED"),
+        (SHARES_DEPOSITED, "SHARES_DEPOSITED"),
+        (SHARES_WITHDRAWN, "SHARES_WITHDRAWN"),
     ];
 }
 
