@@ -30,7 +30,7 @@ import { forceMotion, motion, MOTION_LEVELS } from './motion.mjs';
 import { audio } from './audio.mjs';
 import { TONE } from './effects.mjs';
 import { stageBattle, BATTLE_ZOOM } from './battle.mjs';
-import { playToll, playResult, playBusy, playSent, playLanded, playRefused, playSealed, playMoment, playLanding, playReveal, playRecruits, TOLL_CLEAR, RESULT_GAP } from './stage.mjs';
+import { playToll, playResult, playBusy, playSent, playLanded, playRefused, playSealed, playMoment, playLanding, playReveal, playRecruits, playPromotion, TOLL_CLEAR, RESULT_GAP } from './stage.mjs';
 import { hexKey } from '../map/survey.mjs';
 import { hexDisc } from './effects.mjs';
 import { renderStatus } from '../hud/status.mjs';
@@ -243,6 +243,8 @@ export const SAMPLES = Object.freeze({
   // (the viewer's own village taken by another nation, and one the viewer took: the page's `lost` / `taken`)
   'village-lost': moment('village', { from: 0, to: 2, lost: true }),
   'village-taken': moment('village', { from: 2, to: 0, taken: true }),
+  // the effects' part of a promotion (the map's flood of the land is `promotion` below, on sample records)
+  'promotion-band': { secs: 4.0, run: (c, fx) => playPromotion(fx, { ...tileOf(c), faction: 0, tier: 1, from: 1, to: 2, grew: true }) },
   depart: moment('depart', { faction: 3, own: false }),
   // the six leaders on six tiles by the demo tile, for the owner to judge the figures on the real board: they walk a tile, strike,
   // take a hit (people/leader-demo.mjs; the game has no leader on the map: this is the demo's alone)

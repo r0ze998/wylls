@@ -38,6 +38,7 @@ const FX = {
   village: [0.4, 1.4],
   'village-lost': [0.2, 0.6, 1.4, 2.4, 3.4],
   'village-taken': [0.6, 1.4],
+  'promotion-band': [0.3, 1.2, 2.4],
 };
 
 function initScript({ storage }) {

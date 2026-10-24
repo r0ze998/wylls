@@ -763,6 +763,8 @@ test('the page reports real events on the bus; every set piece has a demo sample
       playPromotion(s.fx, { p: 2, q: 0, tile: 7, faction: 0, tier: 1, from: 1, to: 2, grew: true });
       assert.ok(s.fx.playing().length - counted >= 6, `${lang}: a host formed, recruits, a promotion`);
       assert.ok(s.fx.playing().includes('walker'), `${lang}: the recruits walk`);
+      // (the uplift: a promotion names the new rank on a band, as a verdict is named)
+      assert.ok(s.fx.playing().includes('banner'), `${lang}: the promotion's band`);
     } finally { s.done(); }
   }
   setLang('ja');

@@ -25,7 +25,7 @@ import { L, fmtNum, onLangChange } from '../../lang.mjs';
 import { project, RADIUS as R } from '../../map.mjs';
 import { tileHex, hexDistance, locate } from '../fgeo.mjs';
 import { keyHex } from '../map/survey.mjs';
-import { factionName } from '../fi18n.mjs';
+import { factionName, TIERS } from '../fi18n.mjs';
 import { FACTION_FILL, FACTION_DARK, FACTION_LIGHT } from '../people/avatar.mjs';
 import { UNIT_KINDS, routePoints } from '../people/units.mjs';
 import { bus as defaultBus } from './bus.mjs';
@@ -451,7 +451,11 @@ export function playPromotion(fx, a) {
   fx.play('ripple', { ...at, color: light(a.faction), radius: (a.to ?? 2) + 0.8, delay: 0.12, seed });
   fx.play('ripple', { ...at, color: TONE.you, radius: (a.to ?? 2) + 0.3, delay: 0.5, seed: `${seed}|rim` });
   fx.play('burst', { ...at, kind: 'spark', n: 22, height: 0.5, power: 1.0, delay: 0.12, seed, colors: ['#fff6dc', TONE.you, fill(a.faction)] });
-  fx.play('tag', { ...at, text: a.grew ? L`村のまわりが広がりました` : L`村が大きくなりました`, icon: 'home', tone: 'gold', lift: 3.05, delay: 0.6, dur: 3.0, seed });
+  // (a rank is one of the few things a player works hours for: it is named on a band, as a battle's verdict is, and
+  // what it changed is its small line: the design review of 2026-10-24. It was a caption 「村のまわりが広がりました」)
+  const rank = Number.isInteger(a.tier) && TIERS[a.tier] ? TIERS[a.tier] : null;
+  if (rank) fx.play('banner', { title: L`${rank}になりました`, sub: a.grew ? L`村のまわりが広がりました` : L`村が大きくなりました`, tone: 'win', color: light(a.faction), y: 0.05, dur: 3.0, delay: 0.45, seed: `${seed}|band` });
+  else fx.play('tag', { ...at, text: a.grew ? L`村のまわりが広がりました` : L`村が大きくなりました`, icon: 'home', tone: 'gold', lift: 3.05, delay: 0.6, dur: 3.0, seed });
   fx.hush(at, 3.7);
   fx.play('pip', { ...at, color: TONE.you, seed });
 }
