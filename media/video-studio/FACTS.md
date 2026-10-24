@@ -135,11 +135,15 @@ The nation names and order come from `fi18n.mjs:19` and `i18n.mjs:16`. The colou
   - The page shows the offered options, the cited memory, the model-written reason (marked not verified) and the local-chain transactions.
   - `verify-minds` = **PASS**.
   - No human action triggered it; the page says "Decisions that began with a person's action: None yet."
-- **Council (評議会) and Strike Order (攻撃命令).** (OVERVIEW §6.4) [CODE; no adoption recorded]
+- **Council (評議会) and Strike Order (攻撃命令).** (OVERVIEW §6.4) [LOCAL RUN; adoptions recorded, mostly AI votes only, no human ballot]
   - The code proposes up to 3 targets. Citizens file motions with speech and vote; a target needs ≥ 2 votes and more than every other option.
   - The adopted target stays sealed until 2 turns after the strike.
   - The council is **off-chain**, and the chain enforces nothing. An AI may decline publicly.
-  - **No Strike Order has been adopted in any recorded run.** In smoke-b3, all 9 councils closed without a quorum, and the take-1 footage shows no council vote.
+  - **CORRECTED 2026-10-24:** an earlier version of this sheet said no Strike Order was ever adopted. That is wrong. In smoke-b3 all 9 councils closed without a quorum, but in four later completed local runs (smoke-r4, ai-pilot-A1, ai-record-2, ai-record-3) councils **adopted 39 Strike Orders** (r4 2, pilot 18, record-2 11, record-3 8); **18 of the 39 targets recorded a clash**, and some orders moved armies (e.g. record-3 nation 0 period 1: two AI votes, a host at the target, 7 engagements, camp cleared). (docs/frontier/ai-citizens/RESULTS-2026-10.md §0, §2 G6, §2.2)
+  - Votes were almost all **AI votes only**. The nation-0 seat's ballots were **scripted** by the operator (3 orders). **No human ballot exists in any of the 96 council files.** So never say "people and AI decided together."
+  - The formal **A/B was not run** (0 pairs); the 18-AI main run was not run to completion. The take-1 footage shows no council vote.
+  - Say: "In local test runs, AI councils adopted Strike Orders, mostly by AI votes alone." Don't say: "No Strike Order has ever been adopted," "players and AI voted together," or "the council is enforced on-chain."
+- **Valid-choice rate (G1) in the 12-AI runs:** 82.4%, 84.8% and 88.7% (n = 187, 197, 266), **below the 95% gate**. smoke-r4's 57/57 was 6 Conqueror AIs and is not representative. Don't present 52/52 (smoke-b3) as the general validity rate. (RESULTS-2026-10.md §0)
 - **Personas.** Six types exist in the library: conqueror, guardian, diplomat, avenger, founder, opportunist. (AI-CITIZENS-CONTRACT.md:116-127)
   - Each has 7 temperament numbers, a creed (EN/JA) and 4 goals.
   - The fixed decks are deck-1 = conqueror (smoke runs), deck-2 = avenger + diplomat (12-AI), and deck-3 = avenger + diplomat + conqueror (18-AI).
@@ -294,7 +298,7 @@ All dates are JST unless noted. (SUBMISSION §4, §7; PITCH; git log)
 5. That the **AI is stronger** than bots, **indistinguishable** from people, or **exactly replayable**. Replay is by sample.
 6. That the AI **wants, intends, remembers or holds grudges**. Say "cited," and say "model-written reason (not verified)."
 7. That **memory caused** a choice, or improves play.
-8. That a **Strike Order was adopted**, or that the council is enforced on-chain. The council is off-chain, and no adoption has been recorded.
+8. That **people voted** on a Strike Order, that people and AI decided together, or that the council is enforced on-chain. (Strike Orders *were* adopted in local AI runs, by AI votes and scripted seat ballots only; never say none was adopted.)
 9. That "**AI conquered**" anything, or that the map "moves by itself".
 10. That a **season winner was paid**. The 14-day local run named Ember by tiebreak and refunded the test tokens.
 11. That **seals were proven secret**. They were not tested, because the runs used archived or test-key drand.
