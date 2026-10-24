@@ -88,6 +88,8 @@ def smoke(at, height=18, name='smoke', density=0.6):
     m.node_tree.nodes['DUSTDENS'].outputs[0].default_value = density
     return ob
 
+SMOKE_EPS = 1.0e-3                                   # see plume_mat; shot.haze divides the Emission pass by it
+
 def plume_mat():
     """Chimney smoke: a plume that leaves the flue thin and dense, widens and thins as it rises, broken by
     fine turbulent noise. Drawn inside a box whose origin sits on the chimney top (generated z 0 → 1 upward)."""
@@ -119,7 +121,10 @@ def plume_mat():
     turb = m_('POWER', m_('MAXIMUM', 0.0, m_('SUBTRACT', m_('MULTIPLY', nz.outputs['Fac'], 1.8), 0.62)), 1.5)
     dens = m_('MULTIPLY', m_('MULTIPLY', m_('POWER', core, 1.1), fade), m_('ADD', 0.05, turb))
     dv = nt.nodes.new('ShaderNodeValue'); dv.name = 'PLUMEDENS'; dv.outputs[0].default_value = 6.0
-    L.new(m_('MULTIPLY', dens, dv.outputs[0]), vol.inputs['Density'])
+    dd = m_('MULTIPLY', dens, dv.outputs[0]); L.new(dd, vol.inputs['Density'])
+    # A faint emission in proportion to density makes the Emission pass equal SMOKE_EPS × (1 − transmittance): the
+    # smoke's own opacity, which the haze compositor uses to keep the far hills' haze off a plume in front of them.
+    vol.inputs['Emission Color'].default_value = (1, 1, 1, 1); L.new(m_('MULTIPLY', dd, SMOKE_EPS), vol.inputs['Emission Strength'])
     L.new(vol.outputs[0], out.inputs['Volume'])
     return m
 

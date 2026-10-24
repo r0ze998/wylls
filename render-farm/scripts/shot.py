@@ -94,7 +94,10 @@ def haze(color=(0.75, 0.82, 0.92), start=80, depth=900, amount=0.55, falloff='QU
         kd = math_('POWER', cl.outputs[0], 2.0 if falloff == 'QUADRATIC' else 1.0)
         km = math_('MINIMUM', rl.outputs['Mist'], kd)
         volsky = math_('MULTIPLY', math_('GREATER_THAN', rl.outputs['Depth'], 1.0e5), math_('GREATER_THAN', rl.outputs['Mist'], 0.97))
-        ng.links.new(math_('MULTIPLY', km, math_('SUBTRACT', 1.0, volsky)), bl.inputs[0])
+        # smoke opacity from the Emission pass (stage.plume_mat emits SMOKE_EPS per unit density): haze stays off it
+        vl.use_pass_emit = True
+        smoke = math_('MINIMUM', 1.0, math_('MULTIPLY', rl.outputs['Emission'], 1.0e3))
+        ng.links.new(math_('MULTIPLY', math_('MULTIPLY', km, math_('SUBTRACT', 1.0, volsky)), math_('SUBTRACT', 1.0, smoke)), bl.inputs[0])
     k = math_('MULTIPLY', bl.outputs[0], amount); k.node.name = 'HAZE_AMT'     # animatable haze strength
     hz_a = mix('MULTIPLY', 1.0, tuple(color) + (1,), rl.outputs['Alpha'])           # haze colour, premultiplied
     fg = mix('MIX', k, rl.outputs['Image'], hz_a)
