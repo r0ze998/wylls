@@ -1292,6 +1292,14 @@ fn ruleset_hash_binds_versions_and_catalog() {
         &names[v2_names.len()..],
         &["arms", "caravan", "structure", "nation"]
     );
+    // The S2 rules' hash (`KERNEL_VERSIONS_V4`) appends `ticket` to the S1 list and binds every module.
+    let v3_names = names;
+    let names: Vec<&str> = permutation_rules::frontier::KERNEL_VERSIONS_V4
+        .iter()
+        .map(|(n, _)| *n)
+        .collect();
+    assert_eq!(&names[..v3_names.len()], &v3_names[..], "v4 appends to v3");
+    assert_eq!(&names[v3_names.len()..], &["ticket"]);
     let src = include_str!("../src/frontier/mod.rs");
     let mut modules = 0;
     for line in src.lines() {

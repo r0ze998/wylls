@@ -74,6 +74,11 @@ pub const PROGRAM_VERSION_V2: u16 = 3;
 /// season as conquest (S1 keeps every MC rule); S1 behaviour is gated on
 /// `>= PROGRAM_VERSION_S1`.
 pub const PROGRAM_VERSION_S1: u16 = 4;
+/// `program_version` of an S2 season (redesign stage 2: tickets and
+/// escrowed exchange, `docs/frontier/stage2/`). S2 keeps every S1 rule:
+/// readers that test `>= PROGRAM_VERSION_S1` treat it as S1; S2 behaviour
+/// is gated on `>= PROGRAM_VERSION_S2`.
+pub const PROGRAM_VERSION_S2: u16 = 5;
 /// Rules version of the S1 kernels (`RULES_VERSION_FRONTIER` 11 → 12).
 pub const RULES_VERSION_S1: u16 = permutation_rules::frontier::RULES_VERSION_FRONTIER_V3;
 /// `conquest_version` of the block.
@@ -122,6 +127,16 @@ pub const RULESET_HASH_V2: [u8; 32] = [
 pub const RULESET_HASH_V3: [u8; 32] = [
     0x23, 0x4c, 0x0d, 0xc2, 0x25, 0xe5, 0xce, 0x32, 0x36, 0x87, 0x75, 0x6b, 0x91, 0x3f, 0x78, 0xe3,
     0x30, 0x75, 0x7a, 0xbb, 0x96, 0x9d, 0xf2, 0x90, 0x74, 0x5e, 0xae, 0x1e, 0x9a, 0xae, 0x42, 0x2d,
+];
+
+/// `RULESET_HASH_V4`: the hash the S2 program embeds and CreateSeason
+/// writes in an S2 season (the S1 input and the ticket tables), pinned by
+/// `ruleset_hash_v4_is_the_kernels` against
+/// `permutation_rules::frontier::ruleset_hash_v4`. The older hashes are
+/// unchanged.
+pub const RULESET_HASH_V4: [u8; 32] = [
+    0xa5, 0x88, 0xe3, 0x93, 0x68, 0x69, 0xe1, 0xb3, 0x94, 0xa0, 0x31, 0x02, 0x6b, 0x4a, 0x2d, 0x57,
+    0x35, 0x01, 0x79, 0x45, 0x71, 0x20, 0xea, 0xb1, 0xcb, 0x9c, 0x10, 0x60, 0xbb, 0xb8, 0xb8, 0x5d,
 ];
 
 /// The conquest block (§5.2.5).
@@ -388,6 +403,7 @@ impl SeasonParamsV2 {
         self.base.validate()?;
         if self.base.program_version != PROGRAM_VERSION_V2
             && self.base.program_version != PROGRAM_VERSION_S1
+            && self.base.program_version != PROGRAM_VERSION_S2
         {
             return Err("program_version");
         }
@@ -587,9 +603,52 @@ pub const PRESETS_S1: [(&str, SeasonParamsV2); 3] = [
     ("S1_TEST", S1_TEST),
 ];
 
+/// An S1 preset as an S2 season: the same parameters with
+/// `program_version = 5` (redesign 32, L9: stage 2 runs in a new season;
+/// the S2 release shares S1's budgets).
+pub const fn s2(p: SeasonParamsV2) -> SeasonParamsV2 {
+    let mut q = s1(p);
+    q.base.program_version = PROGRAM_VERSION_S2;
+    q
+}
+
+/// `S2_LOCAL_7D`, `S2_LOCAL_14D` and `S2_TEST`: the MC presets of the same
+/// names for the S2 program.
+pub const S2_LOCAL_7D: SeasonParamsV2 = s2(MC_LOCAL_7D);
+pub const S2_LOCAL_14D: SeasonParamsV2 = s2(MC_LOCAL_14D);
+pub const S2_TEST: SeasonParamsV2 = s2(MC_TEST);
+
+/// Every S2 preset with its name (vectors).
+pub const PRESETS_S2: [(&str, SeasonParamsV2); 3] = [
+    ("S2_LOCAL_7D", S2_LOCAL_7D),
+    ("S2_LOCAL_14D", S2_LOCAL_14D),
+    ("S2_TEST", S2_TEST),
+];
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ruleset_hash_v4_is_the_kernels() {
+        assert_eq!(
+            RULESET_HASH_V4,
+            permutation_rules::frontier::ruleset_hash_v4(),
+            "the S2 tables changed: update RULESET_HASH_V4 and regenerate the vectors"
+        );
+        assert_ne!(RULESET_HASH_V4, RULESET_HASH_V3);
+        for (name, p) in PRESETS_S2 {
+            assert_eq!(p.base.program_version, PROGRAM_VERSION_S2, "{name}");
+            assert_eq!(p.validate(), Ok(()), "{name}");
+            let (_, s1p) = PRESETS_S1
+                .iter()
+                .find(|(n, _)| n[3..] == name[3..])
+                .unwrap();
+            let mut back = p;
+            back.base.program_version = PROGRAM_VERSION_S1;
+            assert_eq!(&back, s1p, "{name}: S1's parameters");
+        }
+    }
 
     /// v1.1 (R-16): the v2 pin, beside M1's (`presets::tests::
     /// ruleset_hash_is_the_kernels` keeps M1's `72c6b583…4bd9`).

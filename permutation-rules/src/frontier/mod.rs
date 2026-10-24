@@ -45,6 +45,7 @@ pub mod siege;
 pub mod stance;
 pub mod structure;
 pub mod terrain;
+pub mod ticket;
 
 pub mod travel;
 
@@ -417,6 +418,56 @@ pub fn ruleset_hash_input_v3() -> alloc::vec::Vec<u8> {
     structure::write_tables(&mut out);
     nation::write_tables(&mut out);
     out
+}
+
+/// Domain of the S2 rules' hash (redesign stage 2: tickets).
+pub const RULESET_DOMAIN_V4: &[u8] = b"PSF-RULESET-v4";
+
+/// The S2 rules' kernel versions (pinned order, append only): the S1 list
+/// and `ticket`. The kernels themselves are S1's.
+pub const KERNEL_VERSIONS_V4: [(&str, u16); 30] = {
+    let mut out = [("", 0u16); 30];
+    let mut i = 0;
+    while i < KERNEL_VERSIONS_V3.len() {
+        out[i] = KERNEL_VERSIONS_V3[i];
+        i += 1;
+    }
+    out[29] = ("ticket", ticket::TICKET_VERSION);
+    out
+};
+
+/// Marks the S2 tables appended to [`ruleset_hash_input_v4`].
+pub const RULESET_V4_TABLES_TAG: &[u8] = b"S2-TABLES-v1";
+
+/// The bytes `RULESET_HASH_V4` (the S2 program) is the sha256 of: exactly
+/// [`ruleset_hash_input_v3`] with [`RULESET_DOMAIN_V4`] and
+/// [`KERNEL_VERSIONS_V4`] in place of its domain and versions, then
+/// [`RULESET_V4_TABLES_TAG`] and the ticket tables (`ticket::write_tables`).
+/// The older inputs are not changed.
+pub fn ruleset_hash_input_v4() -> alloc::vec::Vec<u8> {
+    let v3 = ruleset_hash_input_v3();
+    let mut skip = RULESET_DOMAIN_V3.len() + 1;
+    for (name, _) in KERNEL_VERSIONS_V3 {
+        skip += 1 + name.len() + 2;
+    }
+    let mut out = alloc::vec::Vec::with_capacity(v3.len() + 256);
+    out.extend_from_slice(RULESET_DOMAIN_V4);
+    out.push(KERNEL_VERSIONS_V4.len() as u8);
+    for (name, v) in KERNEL_VERSIONS_V4 {
+        out.push(name.len() as u8);
+        out.extend_from_slice(name.as_bytes());
+        out.extend_from_slice(&v.to_le_bytes());
+    }
+    out.extend_from_slice(&v3[skip..]);
+    out.extend_from_slice(RULESET_V4_TABLES_TAG);
+    ticket::write_tables(&mut out);
+    out
+}
+
+/// `RULESET_HASH_V4 = sha256(ruleset_hash_input_v4())` (pinned by
+/// `frontier-abi`'s `RULESET_HASH_V4` test).
+pub fn ruleset_hash_v4() -> [u8; 32] {
+    crate::hash::sha256(&[&ruleset_hash_input_v4()])
 }
 
 /// `RULESET_HASH_V3 = sha256(ruleset_hash_input_v3())` (pinned by
