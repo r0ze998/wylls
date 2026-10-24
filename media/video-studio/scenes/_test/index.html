@@ -1,0 +1,28 @@
+<!doctype html><html><head><meta charset="utf-8"><title>test</title>
+<link rel="stylesheet" href="../../lib/wy.css"><script src="../../lib/wy.js"></script><script src="../../lib/wy-audio.js"></script></head><body>
+<script type="module">
+import * as THREE from '../../lib/vendor/three.module.min.js';
+let cv, ctx, ld, title, spans, r3, scene3, cam, cube;
+WY.scene({ width: 1920, height: 1080, duration: 6, fps: 30,
+  setup(stage) {
+    cv = WY.canvas(stage, 1920, 1080); ctx = cv.getContext('2d');
+    ld = WY.leader('aster', 'attack');
+    const c3 = WY.el('canvas', { class: 'wy-abs', style: { left: '1300px', top: '100px' } }, stage);
+    r3 = new THREE.WebGLRenderer({ canvas: c3, antialias: true, alpha: true, preserveDrawingBuffer: true }); r3.setSize(500, 500);
+    scene3 = new THREE.Scene(); cam = new THREE.PerspectiveCamera(40, 1, 0.1, 100); cam.position.z = 5;
+    cube = new THREE.Mesh(new THREE.IcosahedronGeometry(1.4, 1), new THREE.MeshStandardMaterial({ color: 0xcc303b, flatShading: true }));
+    scene3.add(cube, new THREE.AmbientLight(0xffffff, .5)); const l = new THREE.DirectionalLight(0xffffff, 2); l.position.set(3, 4, 5); scene3.add(l);
+    const box = WY.el('div', { class: 'wy-center' }, stage);
+    box.innerHTML = WY.logo(120) + '<h1 id="h" style="font:900 96px var(--serif-jp);margin-top:40px">意志を持つAIと、ひとつの地図を。</h1><p style="font:500 34px var(--sans);margin-top:20px">Play the agent economy. 国 村 軍 攻撃命令</p><div style="margin-top:30px">' + [0,1,2,3,4,5].map(f => WY.crest(f, 90)).join('') + '</div>';
+    spans = WY.split(WY.$('#h'));
+  },
+  render(t) {
+    ctx.clearRect(0, 0, 1920, 1080);
+    ctx.fillStyle = '#12261f'; ctx.fillRect(0, 0, 1920, 1080);
+    ld.draw(ctx, ld.frameAt(t, 12), 250, 900, 420);
+    WY.revealChars(spans, t - 0.3);
+    cube.rotation.set(t * 0.7, t, 0); r3.render(scene3, cam);
+  },
+  audio(A) { A.music({ style: 'epic', bpm: 90, sections: [[0, .3], [2, .9]], end: 5, outro: 'hit' }); A.whoosh(0.2); A.hit(1); A.tick(2); A.chime(3); A.seal(4); }
+});
+</script></body></html>

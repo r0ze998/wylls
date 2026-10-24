@@ -1,0 +1,13 @@
+<!doctype html><html><head><meta charset="utf-8"><title>map</title>
+<link rel="stylesheet" href="../../lib/wy.css"><script src="../../lib/wy.js"></script><script src="../../lib/wy-map.js"></script></head><body>
+<script>
+let ctx, world;
+WY.scene({ width: 1920, height: 1080, duration: 8, fps: 30,
+  setup(stage) { ctx = WY.canvas(stage, 1920, 1080).getContext('2d'); world = WYMap.build({ rings: 8, seed: 11 }); },
+  render(t) {
+    const cam = { x: 0, y: 0, zoom: WY.lerp(0.42, 0.5, t / 8), W: 1920, H: 1080 };
+    WYMap.draw(ctx, world, cam, { t, appear: tl => WY.seg(t, tl.ring * 0.25, tl.ring * 0.25 + 0.6), fog: tl => tl.ring >= 7 ? 0.8 : 0 });
+    const k = world.keeps; if (k.length > 1) WYMap.drawMarch(ctx, cam, k[0], k[2], WY.seg(t, 3, 6), { sealed: true, color: WY.NATIONS[0].fill });
+    if (t > 6 && k.length > 2) WYMap.drawClash(ctx, cam, k[2], WY.seg(t, 6, 7.5));
+  } });
+</script></body></html>

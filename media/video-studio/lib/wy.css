@@ -1,0 +1,88 @@
+/* Wylls video studio: fonts, brand tokens and reusable pieces. */
+@font-face { font-family: 'Noto Sans JP'; font-weight: 400; src: url(fonts/noto-sans-jp-japanese-400-normal.woff2) format('woff2'); }
+@font-face { font-family: 'Noto Sans JP'; font-weight: 500; src: url(fonts/noto-sans-jp-japanese-500-normal.woff2) format('woff2'); }
+@font-face { font-family: 'Noto Sans JP'; font-weight: 700; src: url(fonts/noto-sans-jp-japanese-700-normal.woff2) format('woff2'); }
+@font-face { font-family: 'Noto Sans JP'; font-weight: 900; src: url(fonts/noto-sans-jp-japanese-900-normal.woff2) format('woff2'); }
+@font-face { font-family: 'Noto Serif JP'; font-weight: 400; src: url(fonts/noto-serif-jp-japanese-400-normal.woff2) format('woff2'); }
+@font-face { font-family: 'Noto Serif JP'; font-weight: 600; src: url(fonts/noto-serif-jp-japanese-600-normal.woff2) format('woff2'); }
+@font-face { font-family: 'Noto Serif JP'; font-weight: 700; src: url(fonts/noto-serif-jp-japanese-700-normal.woff2) format('woff2'); }
+@font-face { font-family: 'Noto Serif JP'; font-weight: 900; src: url(fonts/noto-serif-jp-japanese-900-normal.woff2) format('woff2'); }
+@font-face { font-family: 'Cinzel'; font-weight: 500; src: url(fonts/cinzel-latin-500-normal.woff2) format('woff2'); }
+@font-face { font-family: 'Cinzel'; font-weight: 700; src: url(fonts/cinzel-latin-700-normal.woff2) format('woff2'); }
+@font-face { font-family: 'Cinzel'; font-weight: 900; src: url(fonts/cinzel-latin-900-normal.woff2) format('woff2'); }
+@font-face { font-family: 'Cormorant Garamond'; font-weight: 500; src: url(fonts/cormorant-garamond-latin-500-normal.woff2) format('woff2'); }
+@font-face { font-family: 'Cormorant Garamond'; font-weight: 600; src: url(fonts/cormorant-garamond-latin-600-normal.woff2) format('woff2'); }
+@font-face { font-family: 'Cormorant Garamond'; font-weight: 700; src: url(fonts/cormorant-garamond-latin-700-normal.woff2) format('woff2'); }
+@font-face { font-family: 'Inter'; font-weight: 400; src: url(fonts/inter-latin-400-normal.woff2) format('woff2'); }
+@font-face { font-family: 'Inter'; font-weight: 500; src: url(fonts/inter-latin-500-normal.woff2) format('woff2'); }
+@font-face { font-family: 'Inter'; font-weight: 600; src: url(fonts/inter-latin-600-normal.woff2) format('woff2'); }
+@font-face { font-family: 'Inter'; font-weight: 700; src: url(fonts/inter-latin-700-normal.woff2) format('woff2'); }
+@font-face { font-family: 'Inter'; font-weight: 800; src: url(fonts/inter-latin-800-normal.woff2) format('woff2'); }
+@font-face { font-family: 'JetBrains Mono'; font-weight: 400; src: url(fonts/jetbrains-mono-latin-400-normal.woff2) format('woff2'); }
+@font-face { font-family: 'JetBrains Mono'; font-weight: 600; src: url(fonts/jetbrains-mono-latin-600-normal.woff2) format('woff2'); }
+
+:root {
+  /* the client's materials */
+  --ink: #171006;           /* keyline / deepest */
+  --night: #0b1512;         /* background for cinematic scenes */
+  --forest: #12261f;        /* panel ground (the client's dark green) */
+  --forest-2: #1b3a2f;
+  --forest-3: #24493b;
+  --parchment: #e6d9b8;     /* the chart's paper */
+  --parchment-2: #d8c79c;
+  --ivory: #fffaf0;
+  --brass: #c9a24a;         /* panel trims */
+  --brass-2: #f0d48a;       /* crest outline */
+  --gold: #ffd24d;          /* "yours" */
+  --wood: #3a2618;          /* table under the map */
+  --muted: #a9b8ad;
+  --red: #cc303b;           /* the W tile */
+  --sea: #2e6f8e;
+  /* type */
+  --display: 'Cinzel', 'Noto Serif JP', serif;
+  --serif: 'Cormorant Garamond', 'Noto Serif JP', serif;
+  --serif-jp: 'Noto Serif JP', 'Cormorant Garamond', serif;
+  --sans: 'Inter', 'Noto Sans JP', sans-serif;
+  --sans-jp: 'Noto Sans JP', 'Inter', sans-serif;
+  --mono: 'JetBrains Mono', 'Noto Sans JP', monospace;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: #000; overflow: hidden; }
+body { font-family: var(--sans-jp); color: var(--ivory); -webkit-font-smoothing: antialiased; text-rendering: geometricPrecision; font-feature-settings: 'palt' 1; }
+#stage { position: absolute; left: 0; top: 0; overflow: hidden; transform-origin: 0 0; background: var(--night); contain: strict; }
+.wy-abs { position: absolute; left: 0; top: 0; }
+.wy-fill { position: absolute; inset: 0; }
+.wy-center { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; flex-direction: column; text-align: center; }
+.wy-ch { display: inline-block; will-change: transform, opacity, filter; white-space: pre; }
+
+/* preview chrome (never in renders) */
+body.wy-preview { background: #050505; }
+#wy-bar { position: fixed; left: 12px; right: 12px; bottom: 10px; display: flex; gap: 12px; align-items: center; font: 13px var(--mono); color: #ccc; }
+#wy-bar button { background: #222; color: #fff; border: 1px solid #444; border-radius: 6px; width: 44px; height: 32px; cursor: pointer; }
+#wy-bar input { flex: 1; }
+
+/* ---------- logo (the client's red W tile) */
+.wy-logo { display: inline-flex; align-items: center; gap: calc(var(--s) * 0.28); }
+.wy-logo-tile { width: var(--s); height: var(--s); border-radius: calc(var(--s) * 0.2); background: linear-gradient(160deg, #e0414b, #a8222c 70%); box-shadow: inset 0 0 0 calc(var(--s) * 0.045) #fffaf0, inset 0 0 0 calc(var(--s) * 0.075) #7a1a21, 0 calc(var(--s) * 0.08) calc(var(--s) * 0.3) rgba(0,0,0,.45); display: grid; place-items: center; }
+.wy-logo-tile span { font: 900 calc(var(--s) * 0.72) / 1 'Cinzel', serif; color: #fffaf0; transform: translateY(calc(var(--s) * 0.02)); text-shadow: 0 calc(var(--s) * 0.03) 0 #6e161d; }
+.wy-logo-word { font: 700 calc(var(--s) * 0.78) / 1 'Cinzel', serif; letter-spacing: 0.04em; }
+
+/* ---------- panels (the client's dark-green, brass-trimmed cards) */
+.wy-panel { background: linear-gradient(180deg, rgba(27,58,47,.96), rgba(16,36,29,.97)); border: 2px solid rgba(201,162,74,.75); border-radius: 14px; box-shadow: inset 0 0 0 1px rgba(0,0,0,.6), inset 0 1px 0 rgba(255,240,200,.12), 0 24px 60px rgba(0,0,0,.5); color: var(--ivory); }
+.wy-paper { background: var(--parchment) url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='400' height='400'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 .35  0 0 0 0 .27  0 0 0 0 .15  0 0 0 .22 0'/></filter><rect width='400' height='400' filter='url(%23n)'/></svg>"); color: #2b2013; border-radius: 10px; box-shadow: inset 0 0 60px rgba(120,90,40,.35), 0 20px 50px rgba(0,0,0,.45); }
+.wy-pill { display: inline-flex; align-items: center; gap: .5em; padding: .35em .9em; border-radius: 999px; border: 1.5px solid rgba(240,212,138,.7); background: rgba(10,24,19,.8); font: 600 22px var(--sans); color: var(--brass-2); letter-spacing: .04em; }
+.wy-tag { display: inline-block; padding: .2em .6em; border-radius: 6px; font: 700 18px var(--sans); letter-spacing: .06em; text-transform: uppercase; }
+.tag-running { background: #2f6b4a; color: #e9ffe9; }
+.tag-local { background: #2e5b6e; color: #e3f6ff; }
+.tag-design { background: #6b5a2a; color: #fff3cf; }
+.tag-planned { background: #5a3a6b; color: #f5e3ff; }
+
+/* ---------- full-frame overlays */
+.wy-vignette { position: absolute; inset: 0; pointer-events: none; background: radial-gradient(ellipse at center, rgba(0,0,0,0) 55%, rgba(0,0,0,.55) 100%); }
+.wy-grain { position: absolute; inset: -50%; pointer-events: none; opacity: .07; mix-blend-mode: overlay; background: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='300' height='300'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/></filter><rect width='300' height='300' filter='url(%23n)'/></svg>"); }
+.wy-letterbox::before, .wy-letterbox::after { content: ''; position: absolute; left: 0; right: 0; height: 0; background: #000; z-index: 50; }
+
+/* ---------- caption (lower third subtitle) */
+.wy-sub { position: absolute; left: 0; right: 0; text-align: center; font: 600 40px/1.45 var(--sans-jp); color: #fff; text-shadow: 0 2px 12px rgba(0,0,0,.8), 0 0 2px rgba(0,0,0,.9); letter-spacing: .02em; }
+.wy-note { position: absolute; font: 500 20px/1.4 var(--sans); color: rgba(255,250,240,.66); letter-spacing: .02em; }
