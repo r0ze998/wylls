@@ -164,14 +164,17 @@ export function stanceCompare(value, cmp) {
   const rows = cmp?.rows;
   if (!rows?.length || !rows.some(r => r.ok)) return stancePicks(value);
   const cap = s => (BEATS[s] ? L`${STANCE_TEXT[BEATS[s]]}に強い` : L`相性なし`);
-  return html`<div class="mc-compare" role="radiogroup" aria-label="${L`構えを比べる`}">
-    <div class="mcc-head" aria-hidden="true"><span>${L`構え`}</span><span>${L`残る兵`}<span class="state-tag state-forecast">${L`予測`}</span></span><span>${L`多かった結果`}</span></div>
+  // (the whole table is a forecast: the tag stands over it, not on one column, so 「戦場に残る」 is never read as a
+  // result: the design review of 2026-10-24)
+  return html`<div class="mc-compare" role="radiogroup" aria-label="${L`構えを比べる（予測）`}">
+    <p class="mcc-cap"><span class="state-tag state-forecast">${L`予測`}</span><span>${L`構えごとに、ルールで試した見込み`}</span></p>
+    <div class="mcc-head" aria-hidden="true"><span>${L`構え`}</span><span>${L`残る兵`}</span><span>${L`多かった結果`}</span></div>
     ${rows.map(r => {
       const s = STANCES[r.stance], f = r.ok ? topFate(r) : null;
       return html`<button type="button" class="mcc-row" role="radio" aria-checked="${r.stance === value ? 'true' : 'false'}" data-act="mc-stance" data-v="${r.stance}">
         <span class="mcc-stance">${STANCE_PIC[s]?.() ?? ''}<span><b>${STANCE_TEXT[s]}</b><small>${cap(s)}</small></span></span>
         <span class="mcc-left">${r.ok ? leftText(r) : '—'}</span>
-        <span class="mcc-fate">${f ? html`${FATE_SHORT[f[0]]?.() ?? f[0]} <small>${`${fmtNum(f[1])}/${fmtNum(r.runs)}`}</small>` : '—'}</span></button>`;
+        <span class="mcc-fate">${f ? html`${FATE_SHORT[f[0]]?.() ?? f[0]} <small>${L`${fmtNum(r.runs)}回中${fmtNum(f[1])}回`}</small>` : '—'}</span></button>`;
     })}
     ${rows.every(r => r.ok && r.troops.min === rows[0].troops?.min && r.troops.max === rows[0].troops?.max) ? html`<p class="mcc-same">${L`この相手には、構えを変えても結果の幅は同じです。`}</p>` : ''}
     <p class="muted mcc-note">${L`構えごとに、ルールで ${fmtNum(rows[0].runs ?? 0)} 回ずつ試した幅です。同じターンに着くほかの進軍は封印中のため、数えていません。`}</p></div>`;

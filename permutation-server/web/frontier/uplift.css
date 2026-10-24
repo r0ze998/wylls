@@ -35,6 +35,7 @@
 .mcc-head, .mcc-row { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 1.1fr); align-items: center; gap: 8px; }
 .mcc-head { padding: 0 10px; font-size: var(--t1); color: var(--ink-2); }
 .mcc-head .state-tag { margin-left: 4px; }
+.mcc-cap { display: flex; align-items: center; gap: 6px; margin: 0 0 4px; font-size: var(--t1); color: var(--ink-2); }
 .mcc-row { min-height: 52px; padding: 6px 10px; border: 1px solid rgba(60,48,20,.3); border-radius: 8px; background: rgba(255,255,255,.5); color: var(--ink); font: inherit; text-align: left; cursor: pointer; transition: background var(--out), border-color var(--out); }
 .mcc-row:hover { background: rgba(255,255,255,.85); border-color: #6f6548; }
 .mcc-row:active { transform: translateY(1px); transition-duration: 70ms; }
@@ -82,6 +83,14 @@
 @media (min-width: 760px) { body:has(#mile-banner:not([hidden])) .feed { top: calc(var(--strip) + var(--dial) + 104px); } }
 
 @media (max-width: 759px) {
+  /* (the phone's sheet: the order's head on one short block, so the outlook comes into the open sheet; the unit's
+     picture is decoration and 「封をした命令」 is what the seal and the foot's line say: the design review of 2026-10-24) */
+  .order-head { padding-bottom: 4px; margin-bottom: 4px; }
+  .order-head .pic-seal { width: 30px; height: 30px; }
+  .order-head .order-kicker, .order-head .order-unit { display: none; }
+  .mc-dest .mc-sealed { display: none; }
+  /* (an open sheet shows the order whole: the foot's summary row, the folded sheet's own content, repeats it there) */
+  .panel:not([data-sheet="peek"]) .order-foot .order-sum:not(.order-sum-empty) { display: none; }
   .mc-outlook { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .mcc-row { min-height: 56px; }
   .panel[data-sheet="peek"] .order-irrev { display: none; }

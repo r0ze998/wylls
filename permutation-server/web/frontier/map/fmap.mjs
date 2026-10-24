@@ -3127,7 +3127,8 @@ export class FrontierMap {
     }
     // when the march would arrive: on the composed route, or on the route under the pointer
     const hr = this.hoverRoute(F);
-    const tagAt = (hex, bell, tone) => { const d = project(hex.q, hex.r); paintTag(ctx, d.x, d.y - RADIUS * FLATTEN * 0.82, arrivalText(bell), { zoom: z, tone, place: 'above', gap: 4, anchor: d, pass }); };
+    // (under the destination: over it stands a village's own name, and the tag lay on it: the design review of 2026-10-24)
+    const tagAt = (hex, bell, tone) => { const d = project(hex.q, hex.r); paintTag(ctx, d.x, d.y + RADIUS * FLATTEN * 0.86, arrivalText(bell), { zoom: z, tone, place: 'below', gap: 4, anchor: d, pass }); };
     if (hr && Number.isInteger(hr.arriveBell)) tagAt(hr.hexes[hr.hexes.length - 1], hr.arriveBell, 'plain');
     else if (src.route?.dest && Number.isInteger(src.route.arriveBell)) tagAt(src.route.dest, src.route.arriveBell, 'you');
     const note = this.noteOf(F);
