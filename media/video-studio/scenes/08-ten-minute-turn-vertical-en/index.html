@@ -1,4 +1,4 @@
-<!doctype html><html><head><meta charset="utf-8"><title>08 ten-minute turn (vertical, ja)</title>
+<!doctype html><html><head><meta charset="utf-8"><title>08 ten-minute turn (vertical, en)</title>
 <link rel="stylesheet" href="../../lib/wy.css">
 <script src="../../lib/wy.js"></script><script src="../../lib/wy-audio.js"></script>
 <script src="../../lib/wy-map.js"></script><script src="../../lib/wy-kit.js"></script>
@@ -8,30 +8,30 @@
   .seal { width: 66px; height: 66px; border-radius: 50%; flex: none; display: grid; place-items: center; font: 900 34px/1 Cinzel, serif; color: #ffe2c8;
           background: radial-gradient(circle at 35% 32%, #e0525c, #a8222c 70%); box-shadow: 0 4px 10px rgba(0,0,0,.5), inset 0 0 0 5px rgba(80,10,15,.35); }
   .chip .who { flex: 1; display: flex; flex-direction: column; gap: 4px; }
-  .chip .nm { font: 700 40px/1.1 var(--sans-jp); }
-  .chip .what { font: 500 28px/1.1 var(--sans-jp); color: rgba(255,250,240,.7); }
+  .chip .nm { font: 700 40px/1.1 var(--sans); }
+  .chip .what { font: 500 28px/1.1 var(--sans); color: rgba(255,250,240,.7); }
   .chip .tm { text-align: right; font: 700 50px/1 Inter, sans-serif; color: #ffd24d; letter-spacing: .02em; }
-  .chip .tm small { display: block; font: 500 24px/1.2 var(--sans-jp); color: rgba(255,250,240,.6); margin-bottom: 4px; }
+  .chip .tm small { display: block; font: 500 24px/1.2 var(--sans); color: rgba(255,250,240,.6); margin-bottom: 4px; }
   .big2 { position: absolute; width: 450px; height: 196px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; }
-  .big2 .l1 { font: 500 34px/1 var(--sans-jp); color: rgba(255,250,240,.75); }
+  .big2 .l1 { font: 500 34px/1 var(--sans); color: rgba(255,250,240,.75); }
   .big2 .l2 { font: 800 76px/1 Inter, sans-serif; color: #ffd24d; }
   .res { position: absolute; left: 110px; width: 860px; height: 760px; padding: 34px 44px; }
   .row { display: flex; align-items: center; height: 128px; border-bottom: 1px solid rgba(240,212,138,.18); }
   .row:last-child { border-bottom: 0; }
   .row img { width: 92px; height: 92px; margin-right: 28px; filter: drop-shadow(0 4px 6px rgba(0,0,0,.5)); }
-  .row .rn { flex: 1; font: 700 48px var(--sans-jp); }
+  .row .rn { flex: 1; font: 700 48px var(--sans); }
   .row .rv { font: 700 60px Inter, sans-serif; color: #fffaf0; font-variant-numeric: tabular-nums; min-width: 260px; text-align: right; }
   .row .up { font: 700 30px Inter, sans-serif; color: #8fe39b; margin-left: 18px; width: 40px; }
-  .note { position: absolute; font: 500 32px/1.4 var(--sans-jp); color: rgba(255,250,240,.78); text-align: center; left: 90px; width: 900px; padding: 10px 20px; border-radius: 14px; background: rgba(6,14,11,.8); }
+  .note { position: absolute; font: 500 32px/1.4 var(--sans); color: rgba(255,250,240,.78); text-align: center; left: 90px; width: 900px; padding: 10px 20px; border-radius: 14px; background: rgba(6,14,11,.8); }
 </style>
 </head><body><script>
 const W = 1080, H = 1920;
-const NJ = ['アステル', 'ボレアリス', 'シンダー', 'ダンマール', 'エンバー', 'フィヨルダル'];
+const NJ = WY.NATIONS.map(n => n.en);
 // timeline
 const B1 = 0.6, B2 = 4.6, B3 = 15.2;           // bells
 const S_B = 4.6, S_C = 8.9, S_D = 15.2, S_E = 20.6, S_F = 25.6, S_END = 30.8;
 const ORDERS = [ // [nation, kind, seconds into the turn]
-  [0, '進軍の命令 · 封印', 42], [3, '偵察の命令', 137], [5, '進軍の命令 · 封印', 295], [1, '進軍の命令 · 封印', 450], [2, '偵察の命令', 588],
+  [0, 'Sealed march', 42], [3, 'Scouting', 137], [5, 'Sealed march', 295], [1, 'Sealed march', 450], [2, 'Scouting', 588],
 ];
 const C_SWEEP0 = 9.3; // turn sweep in section C runs C_SWEEP0 → B3
 const orderAt = s => C_SWEEP0 + (s / 600) * (B3 - C_SWEEP0);
@@ -57,46 +57,46 @@ WY.scene({
       if (src) targets.push({ tile: tgt, src, f: src.owner });
     }
     const tx = (lines, o) => FX.text(stage, lines, o);
-    T.hook = tx(['10分ごとに、', '[[世界が動く。]]'], { y: 1110, size: 118, weight: 900 });
-    T.b1 = tx(['1ターン = [[10分]]'], { y: 1150, size: 96, weight: 900 });
-    T.b2 = tx(['1日 = [[144]]ターン'], { y: 1290, size: 96, weight: 900 });
-    T.c = tx(['ターンのあいだに、', '全員の命令が届く。'], { y: 612, size: 76, weight: 800 });
-    T.d = tx(['ターンの終わりに、', '[[戦いも進軍も]]一斉に。'], { y: 300, size: 92, weight: 900 });
-    T.e = tx(['1分早く送っても、', '[[得はない。]]'], { y: 300, size: 96, weight: 900 });
-    T.f = tx(['経済は、[[止まらない。]]'], { y: 300, size: 88, weight: 900 });
-    T.f2 = tx(['資源はリアルタイムで', '増え続ける。'], { y: 440, size: 52, weight: 600, font: 'var(--sans-jp)', lh: 1.45, color: 'rgba(255,250,240,.85)' });
+    T.hook = tx(['Every ten minutes,', '[[the world moves.]]'], { y: 1100, size: 120 });
+    T.b1 = tx(['1 turn = [[10 minutes]]'], { y: 1150, size: 100 });
+    T.b2 = tx(['1 day = [[144]] turns'], { y: 1285, size: 100 });
+    T.c = tx(['Everyone’s orders', 'arrive during the turn.'], { y: 605, size: 88 });
+    T.d = tx(['When the turn ends,', '[[clashes resolve together.]]'], { y: 300, size: 92 });
+    T.e = tx(['Sending a minute early', '[[gains you nothing.]]'], { y: 300, size: 96 });
+    T.f = tx(['The economy [[never waits.]]'], { y: 300, size: 90 });
+    T.f2 = tx(['Resources keep accruing', 'in real time.'], { y: 425, size: 54, weight: 600, font: 'var(--sans)', lh: 1.35, color: 'rgba(255,250,240,.88)' });
     // order chips (section C)
     ORDERS.forEach(([f, what, s], i) => {
       const c = WY.el('div', { class: 'chip wy-panel' }, stage);
       c.style.top = 850 + i * 128 + 'px'; c.style.zIndex = 15;
       const mm = Math.floor(s / 60), ss = String(s % 60).padStart(2, '0');
-      c.innerHTML = `<div class="seal">W</div>${WY.crest(f, 70)}<div class="who"><div class="nm">${NJ[f]}</div><div class="what">${what}</div></div><div class="tm"><small>送信</small>${mm}:${ss}</div>`;
+      c.innerHTML = `<div class="seal">W</div>${WY.crest(f, 70)}<div class="who"><div class="nm">${NJ[f]}</div><div class="what">${what}</div></div><div class="tm"><small>sent at</small>${mm}:${ss}</div>`;
       chips.push({ n: c, at: orderAt(s), i });
     });
     // section E: two sends, one turn
-    [['送信 0:30', '早い'], ['送信 9:30', '遅い']].forEach(([a, b], i) => {
+    [['0:30', 'Early'], ['9:30', 'Late']].forEach(([a, b], i) => {
       const c = WY.el('div', { class: 'big2 wy-panel' }, stage);
       WY.css(c, { left: (i ? 570 : 60) + 'px', top: '720px', zIndex: 15 });
-      c.innerHTML = `<div class="l1">${b}</div><div class="l2">${a.replace('送信 ', '')}</div><div class="l1" style="font-size:28px">に送信</div>`;
+      c.innerHTML = `<div class="l1">${b}</div><div class="l2">${a}</div><div class="l1" style="font-size:28px">sent at</div>`;
       pair.push(c);
     });
     box = WY.el('div', { class: 'wy-panel' }, stage);
     WY.css(box, { position: 'absolute', left: '110px', top: '1120px', width: '860px', height: '210px', zIndex: 15, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '10px', borderColor: 'rgba(255,210,77,.9)' });
-    box.innerHTML = `<div style="font:500 34px var(--sans-jp);color:rgba(255,250,240,.75)">どちらも</div><div style="font:800 56px/1.2 var(--sans-jp)">同じターンの終わりに<span style="color:#ffd24d">同時に</span>解決</div>`;
-    notes.e = WY.el('div', { class: 'note', html: '同じターンに届いた命令は、<br>州ごとにまとめて解決されます。' }, stage); WY.css(notes.e, { top: '1380px', zIndex: 16 });
+    box.innerHTML = `<div style="font:500 34px var(--sans);color:rgba(255,250,240,.75)">Both</div><div style="font:800 52px/1.2 var(--sans)">resolve <span style="color:#ffd24d">together</span> at turn’s end</div>`;
+    notes.e = WY.el('div', { class: 'note', html: 'Orders in the same turn resolve together,<br>province by province.' }, stage); WY.css(notes.e, { top: '1380px', zIndex: 16 });
     // section F: resources
     resPanel = WY.el('div', { class: 'res wy-panel' }, stage); WY.css(resPanel, { top: '650px', zIndex: 15 });
-    const RES = [['food', '食料', 300, 41], ['wood', '木材', 300, 30], ['stone', '石材', 200, 21], ['ore', '鉱石', 100, 15], ['gold', '金', 100, 15]];
+    const RES = [['food', 'Food', 300, 41], ['wood', 'Wood', 300, 30], ['stone', 'Stone', 200, 21], ['ore', 'Ore', 100, 15], ['gold', 'Gold', 100, 15]];
     resPanel.innerHTML = RES.map(([k, nm]) => `<div class="row"><img src="${WY.ART}ui/illustrated/${k}-128.webp"><div class="rn">${nm}</div><div class="rv">0</div><div class="up">▲</div></div>`).join('');
     RES.forEach(([k], i) => WY.img(WY.ART + `ui/illustrated/${k}-128.webp`));
     resVals = [...resPanel.querySelectorAll('.rv')].map((n, i) => ({ n, base: RES[i][2], rate: RES[i][3], up: resPanel.querySelectorAll('.up')[i] }));
-    notes.f = WY.el('div', { class: 'note', text: '数値は例(初期セットから増えていく様子)' }, stage); WY.css(notes.f, { top: '1440px', zIndex: 16 });
-    badge = WYKit.status(stage, 'local', 'ja', { x: 40, y: 232, size: 26 }); badge.node.style.zIndex = 30;
+    notes.f = WY.el('div', { class: 'note', text: 'Example numbers, rising from the starter kit' }, stage); WY.css(notes.f, { top: '1440px', zIndex: 16 });
+    badge = WYKit.status(stage, 'local', 'en', { x: 40, y: 232, size: 26 }); badge.node.style.zIndex = 30;
     flash = WYKit.flash(stage, { color: '#fff4d0' });
     overlay = FX.overlay(stage, { grain: false });
     topShade = WY.el('div', { class: 'wy-abs' }, stage); WY.css(topShade, { width: W + 'px', height: '760px', zIndex: 12, background: 'linear-gradient(180deg, rgba(6,14,11,.9) 0%, rgba(6,14,11,.75) 45%, rgba(6,14,11,0) 100%)' });
     logo = WY.el('div', { html: WY.logo(64) }, stage); WY.css(logo, { position: 'absolute', left: 0, width: W + 'px', top: '300px', display: 'flex', justifyContent: 'center', zIndex: 20 });
-    end = WYKit.endCard(stage, { lang: 'ja', line: '10分ごとに、世界が動く。' });
+    end = WYKit.endCard(stage, { lang: 'en', line: 'Every ten minutes, the world moves.' });
   },
 
   render(t) {
@@ -178,7 +178,7 @@ WY.scene({
     // ---------------- texts
     T.hook.render(t, 0.75, S_B - 0.25);
     T.b1.render(t, S_B + 0.25, S_C - 0.35);
-    T.b2.render(t, S_B + 1.7, S_C - 0.35);
+    T.b2.render(t, S_B + 1.2, S_C - 0.35);
     T.c.render(t, S_C + 0.3, S_D - 0.3);
     T.d.render(t, S_D + 0.35, S_E - 0.3);
     T.e.render(t, S_E + 0.2, S_F - 0.3);
@@ -286,7 +286,7 @@ function drawDial(g, cx, cy, R, o) {
   }
   // centre text
   g.textAlign = 'center'; g.textBaseline = 'middle';
-  g.fillStyle = 'rgba(255,250,240,.75)'; g.font = `700 ${R * 0.12}px "Noto Sans JP", sans-serif`; g.fillText('ターン', cx, cy - R * 0.3);
+  g.fillStyle = 'rgba(255,250,240,.75)'; g.font = `600 ${R * 0.11}px Cinzel, serif`; g.fillText('TURN', cx, cy - R * 0.3);
   // number roll
   g.save(); g.beginPath(); g.rect(cx - R * 0.6, cy - R * 0.22, R * 1.2, R * 0.48); g.clip();
   g.font = `800 ${R * 0.4}px Inter, sans-serif`; g.fillStyle = '#fffaf0';

@@ -1,13 +1,13 @@
-# 25 balance-sim-ja — 6か国のバランス調整 (40 s, 16:9, 30 fps, tension → calm)
+# 25 balance-sim-en: Balancing six nations (40 s, 16:9, 30 fps, tension → calm)
 
 | t (s) | Beat |
 |---|---|
-| 0–4.2 | Question 「6か国は、公平に勝てるか。」; six crests pop in a row. |
-| 4.2–5.3 | Crests fly to their bar slots (match cut); axis draws. Badge: シミュレーター出力. |
-| 5–15.5 | Draft table (SIM-RESULTS E1): A–C, F 0%, D 0.5%, Ember (光明) rises to 99.5% of 600 seasons, slam + flash. |
-| 15.5–22 | 「得点への倍率をすべて外す。」 Ember's bar pours particles into the other five; the axis zooms 100% → 20%. |
-| 22.5–30 | Final table (M0-FINAL): 15.6 / 15.7 / 16.9 / 17.4 / 17.4 / 17.0 % over 1,500 seasons at 10k simulated wallets; 1/6 band; max gap from 1/6 = 1.1 pt. |
-| 30.4–35.4 | 「シミュレーションでは ― どの国も、およそ6回に1回勝つ。」 |
-| 35.5–40 | End card. |
+| 0–4.2 | "Can six nations win fairly?"; six crests pop in a row. |
+| 4.2–5.3 | The crests fly to their bar slots (match cut) and the axis draws. Badge: Simulator output. |
+| 5–15.5 | THE FIRST DRAFT: "One nation ran away with it." Draft table (SIM-RESULTS E1): A–C and F at 0%, D 0.5%, Ember (doctrine Lumen) at 99.5% of 600 seasons, with a slam and a flash. |
+| 15.5–22 | THE FIX: "No bonus on anything that scores." Ember's bar pours into the other five as particles, and the axis zooms from 100% to 20%. |
+| 22.5–30 | AFTER TUNING (M0-FINAL): 15.6 / 15.7 / 16.9 / 17.4 / 17.4 / 17.0 % of 1,500 seasons with 10,000 simulated wallets; 1/6 band; at most 1.1 points from one in six. |
+| 30.4–35.4 | "In simulation, every nation wins about one season in six." |
+| 35.5–40 | End card: "Six nations. One map." |
 
-Footer the whole time: simulator output with assumed behaviour, not measured with people, computed on the Sept 2026 design.
+A footer stays on screen throughout: simulator output with assumed player behaviour, not measured with people, computed on the September 2026 design.

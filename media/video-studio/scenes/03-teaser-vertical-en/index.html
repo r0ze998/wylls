@@ -1,16 +1,16 @@
-<!doctype html><html><head><meta charset="utf-8"><title>03 teaser-vertical-ja</title>
+<!doctype html><html><head><meta charset="utf-8"><title>03 teaser-vertical-en</title>
 <link rel="stylesheet" href="../../lib/wy.css">
 <script src="../../lib/wy.js"></script><script src="../../lib/wy-audio.js"></script>
 <script src="../../lib/wy-map.js"></script><script src="../../lib/wy-kit.js"></script>
 <script src="../01-trailer-en/tk.js"></script>
 <style>
-  .chip { position:absolute; left:150px; width:780px; height:120px; border-radius:18px; display:flex; align-items:center; justify-content:center; font:700 50px var(--sans-jp); color:#fffaf0;
+  .chip { position:absolute; left:150px; width:780px; height:120px; border-radius:18px; display:flex; align-items:center; justify-content:center; font:600 48px var(--sans); color:#fffaf0;
           background:linear-gradient(180deg, rgba(36,73,59,.96), rgba(18,38,31,.97)); border:3px solid rgba(201,162,74,.55); box-shadow:0 14px 40px rgba(0,0,0,.5) }
   .chip.pick { border-color:#ffd24d; box-shadow:0 0 0 4px rgba(255,210,77,.35), 0 0 70px rgba(255,210,77,.5), 0 14px 40px rgba(0,0,0,.5) }
 </style>
 </head><body><script>
 const W = 1080, H = 1920;
-const T = { hook: 0.12, map: 1.8, seal: 4.2, stamp: 5.4, ai: 9.0, pick: 10.6, chk: 11.6, cast: 13.2, end: 15.0 };
+const T = { hook: 0.12, map: 1.8, seal: 4.2, stamp: 5.3, ai: 8.6, pick: 9.6, chk: 10.4, cast: 13.4, end: 15.2 };
 const E = WY.ease, seg = WY.seg, clamp = WY.clamp, lerp = WY.lerp;
 const dist = (a, b) => (Math.abs(a.q - b.q) + Math.abs(a.r - b.r) + Math.abs(a.q + a.r - b.q - b.r)) / 2;
 let ctx, world, ov, flash, ring, L = {}, cards = [], end, badge, notes = {}, chips = [], chipWrap, checks, K = [], marches = [], sealSrc, sealDst;
@@ -26,27 +26,26 @@ WY.scene({
     sealSrc = world.tiles.filter(t => t.owner === 0 && t.village && !t.keep).sort((a, b) => b.ring - a.ring)[0] || K[0];
     sealDst = camps.filter(c => dist(c, sealSrc) >= 4).sort((a, b) => dist(a, sealSrc) - dist(b, sealSrc))[0];
 
-    L.h1 = TK.line(stage, ['10分ごとに、'], { y: 1130, size: 128, stagger: 0.03 });
-    L.h2 = TK.line(stage, ['世界が動く。'], { y: 1300, size: 140, stagger: 0.04, style: 'slam' });
-    L.s1 = TK.line(stage, ['行き先は、'], { y: 1140, size: 124 });
-    L.s2 = TK.line(stage, ['封印される。'], { y: 1310, size: 140, style: 'slam' });
-    L.sub = TK.block(stage, '<span style="padding:12px 28px;border-radius:999px;background:rgba(10,20,16,.82);border:2px solid rgba(240,212,138,.6)">drand タイムロック · 取り消し不可</span>', { left: '0px', width: W + 'px', top: '1500px', textAlign: 'center', font: '700 42px var(--sans-jp)', color: '#f0d48a' });
-    L.a1 = TK.line(stage, ['その中に、'], { y: 300, size: 112 });
-    L.a2 = TK.line(stage, ['AI市民がいる。'], { y: 450, size: 124 });
+    L.h1 = TK.line(stage, ['Every ten', 'minutes,'], { y: 1060, size: 128, font: '"Cormorant Garamond", serif', weight: 700, ls: 0.01, stagger: 0.03, lh: 1.0 });
+    L.h2 = TK.line(stage, ['the world', 'moves.'], { y: 1320, size: 116, font: 'Cinzel, serif', weight: 900, ls: 0.03, stagger: 0.04, style: 'slam', color: '#ffe7b0', lh: 1.05 });
+    L.s1 = TK.line(stage, ['Where it goes'], { y: 1120, size: 112, font: '"Cormorant Garamond", serif', weight: 700, ls: 0.01, stagger: 0.025 });
+    L.s2 = TK.line(stage, ['stays sealed.'], { y: 1270, size: 112, font: 'Cinzel, serif', weight: 900, ls: 0.03, style: 'slam', stagger: 0.035 });
+    L.sub = TK.block(stage, '<span style="padding:12px 28px;border-radius:999px;background:rgba(10,20,16,.82);border:2px solid rgba(240,212,138,.6)">drand time-lock · no recall</span>', { left: '0px', width: W + 'px', top: '1470px', textAlign: 'center', font: '600 42px var(--sans)', color: '#f0d48a' });
+    L.a1 = TK.line(stage, ['Among them:'], { y: 300, size: 104, font: '"Cormorant Garamond", serif', weight: 700, ls: 0.01, stagger: 0.03 });
+    L.a2 = TK.line(stage, ['AI citizens.'], { y: 440, size: 112, font: 'Cinzel, serif', weight: 900, ls: 0.03, stagger: 0.035, style: 'slam' });
 
     chipWrap = WY.el('div', { class: 'wy-fill' }, stage); chipWrap.style.zIndex = 22;
-    ['進軍 · 野営地 · 400', '建設 · 書庫', '偵察 · 北東', '訓練 · 槍兵 200'].forEach((s, i) => { const c = WY.el('div', { class: 'chip', text: s }, chipWrap); c.style.top = 700 + i * 140 + 'px'; chips.push(c); });
-    const gl = WY.el('div', { class: 'wy-abs', html: '候補(例)— コードが最大12個を出す' }, chipWrap); WY.css(gl, { left: '150px', top: '632px', font: '700 38px var(--sans-jp)', color: 'rgba(240,212,138,.95)' });
-    const cap = WY.el('div', { class: 'wy-abs', html: 'モデルが選び、<br>コードが確かめる。' }, chipWrap); WY.css(cap, { left: '0px', width: W + 'px', top: '1300px', textAlign: 'center', font: '700 60px/1.4 var(--sans-jp)', color: '#fffaf0', textShadow: '0 3px 16px rgba(0,0,0,.8)' }); L.cap = cap;
+    ['March · camp · 400', 'Build · Library', 'Scout · north-east', 'Train · 200 Spearmen'].forEach((s, i) => { const c = WY.el('div', { class: 'chip', text: s }, chipWrap); c.style.top = 700 + i * 140 + 'px'; chips.push(c); });
+    const gl = WY.el('div', { class: 'wy-abs', html: 'Code offers up to 12 moves (example)' }, chipWrap); WY.css(gl, { left: '150px', top: '632px', font: '600 36px var(--sans)', color: 'rgba(240,212,138,.95)' });
+    const cap = WY.el('div', { class: 'wy-abs', html: 'The model picks one.<br>The code checks it.' }, chipWrap); WY.css(cap, { left: '0px', width: W + 'px', top: '1300px', textAlign: 'center', font: '700 72px/1.25 "Cormorant Garamond", serif', color: '#fffaf0', textShadow: '0 3px 16px rgba(0,0,0,.8)' }); L.cap = cap;
     checks = WY.el('div', { class: 'wy-abs', html: '✓' }, chipWrap);
     WY.css(checks, { left: 150 + 780 - 50 + 'px', top: 700 - 36 + 'px', font: '900 52px/84px var(--sans)', width: '84px', height: '84px', textAlign: 'center', color: '#0e2a1f', background: '#9fe0b0', borderRadius: '50%', border: '4px solid #fffaf0', boxShadow: '0 8px 24px rgba(0,0,0,.5)' });
 
-    for (let f = 0; f < 6; f++) cards.push(TK.castCard(stage, f, { portraitSize: 760 }));
-    end = TK.end(stage, { lang: 'ja', line: '意志を持つAIと、ひとつの地図を。', sub: '人とAI市民が、ひとつの地図を<br>争える戦略ゲーム' });
-    end.node.querySelectorAll('div').forEach(d => { if (d.textContent === '意志を持つAIと、ひとつの地図を。') d.innerHTML = '意志を持つAIと、<br>ひとつの地図を。'; });
+    for (let f = 0; f < 6; f++) cards.push(TK.castCard(stage, f, { portraitSize: 760, lang: 'en' }));
+    end = TK.end(stage, { lang: 'en', line: 'Play the agent economy.', sub: 'A strategy game where people<br>and AI citizens can fight for one map' });
 
-    badge = WYKit.status(stage, 'local', 'ja', { x: 60, y: 236, size: 30 }); badge.node.style.zIndex = 53;
-    notes.ai = TK.note(stage, 'ローカルのGemma 4で実行(AI市民とBotの世界)。<br>正式な評価は未完了。', { x: 60, y: 1555, size: 30, w: 960 });
+    badge = WYKit.status(stage, 'local', 'en', { x: 60, y: 236, size: 30 }); badge.node.style.zIndex = 53;
+    notes.ai = TK.note(stage, 'Local runs (AI citizens + script bots), Gemma 4.<br>Formal evaluation pending.', { x: 60, y: 1555, size: 30, w: 960, lang: 'en' });
     ov = TK.overlays(stage); flash = WYKit.flash(stage, { color: '#fff6e0' }); ring = TK.ring(stage);
   },
 
@@ -71,7 +70,7 @@ WY.scene({
       // medallion: huge at first, then shrinks to the top
       const s = seg(t, T.map - 0.2, T.map + 0.6, E.inOutCubic);
       const r = lerp(250, 110, s) * (1 + 0.08 * Math.exp(-Math.max(0, t - T.hook) * 6));
-      TK.medallion(ctx, W / 2, lerp(700, 400, s), r, { turn: t < T.hook ? 42 : 43, clock: t < T.hook ? '0:00' : '10:00', k: t < T.hook ? 1 : 0.02, glow: 0.4 + Math.exp(-Math.max(0, t - T.hook) * 2) * 0.8 });
+      TK.medallion(ctx, W / 2, lerp(700, 400, s), r, { label: 'TURN', lang: 'en', turn: t < T.hook ? 42 : 43, clock: t < T.hook ? '0:00' : '10:00', k: t < T.hook ? 1 : 0.02, glow: 0.4 + Math.exp(-Math.max(0, t - T.hook) * 2) * 0.8 });
     }
     // ---------- sealed march + stamp
     else if (t < T.ai) {

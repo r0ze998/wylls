@@ -1,14 +1,14 @@
-# 27 prize-path-ja — 参加費と賞金の仕組み (53.5 s, 16:9, 30 fps, calm)
+# 27 prize-path-en: Entry fees and prizes (56 s, 16:9, 30 fps, calm)
 
-Badges: テスト用USDC(価値なし) throughout; ローカルテストチェーン for the local beats; 計画 for the mainnet beat.
+Badges: "Test USDC (no value)" throughout; "Ran on a local test chain" for the local beats; "Real client screen (test data)" for the UI beat; "Planned (subject to legal review)" for the mainnet beat.
 
 | t (s) | Beat |
 |---|---|
-| 0–4.5 | Title + 「いまはテスト用USDC(価値なし)だけで動いています」. |
-| 4.8–12.6 | ① 参加: a TEST coin (25) flies wallet → x402 → prize pool vault. |
-| 12.8–18.6 | Real client: push-in on the prize panel screenshot (assets/ui/panel-prize-open-ja), gold highlight box; labelled as a screen fixture with test data. |
-| 18.8–29 | ② Tally → Finalize → SetShares → Claim light up; most keeps wins, tie rule provisional. |
-| 29.2–36 | 14-day local run sc-14d: keeps 10/9/9/9/10/7, Aster–Ember tie, territory time 19,968 vs 19,936 → Ember. |
-| 36.2–42.4 | 3 paid test wallets → pool 75 = prize 60 + ops 15; stamp 返金モード; 20 back to each wallet. |
-| 42.6–48.8 | Planned: mainnet public season, 25 USDC, 80 / 20, subject to legal review; stamp 計画; 「実際のお金は、まだ一度も動いていません。」 |
-| 49–53.5 | End card. |
+| 0–4.5 | "Entry fees and prizes": today it runs only on valueless test USDC. |
+| 4.8–12.6 | STEP 1 · JOIN: a TEST coin worth 25 flies from the wallet over x402 into the prize pool vault. |
+| 12.8–19.6 | The real client: push-in on the prize panel (assets/ui/panel-prize-open-en, real panel code composited with unit-test values), with a gold highlight box. |
+| 19.8–30 | STEP 2 · THE WINNER: Tally → Finalize → SetShares → Claim light up. The nation with the most keeps wins; the tie rules are provisional. |
+| 30.2–37 | 14-day local run sc-14d: keeps 10/9/9/9/10/7; Aster and Ember tie; territory time 19,968 vs 19,936 turns → Ember. |
+| 37.2–44 | 3 paid test wallets → pool 75 = prize 60 + ops 15; REFUND MODE stamp; 20 back to each wallet. |
+| 44.2–51.2 | NEXT · PLANNED: a mainnet public season at 25 USDC, 80/20, subject to legal review; PLANNED stamp; "No real money has moved yet." |
+| 51.4–56 | End card. |

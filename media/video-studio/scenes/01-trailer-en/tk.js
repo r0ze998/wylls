@@ -312,9 +312,10 @@
     const crestHtml = WY.crest(f, portrait ? 110 : 96);
     const nm = lang === 'ja' ? TK.NAT_JA[f] : n.en;
     txt.innerHTML = `<div style="display:flex;align-items:center;gap:22px;${portrait ? 'justify-content:center' : ''}">${crestHtml}<div style="font:600 ${portrait ? 30 : 26}px var(--mono);color:rgba(255,250,240,.6);letter-spacing:.2em">${String(f + 1).padStart(2, '0')} / 06</div></div>
-      <div style="font:900 ${lang === 'ja' ? (portrait ? 150 : 132) : (portrait ? 140 : 128)}px/1.05 ${lang === 'ja' ? 'var(--serif-jp)' : 'Cinzel, serif'};margin-top:18px;color:#fffaf0;text-shadow:0 6px 30px rgba(0,0,0,.6)">${nm}</div>
-      <div style="font:600 ${portrait ? 44 : 36}px Cinzel, serif;letter-spacing:.32em;color:${f === 4 ? '#e9f2f4' : n.light};margin-top:10px">${lang === 'ja' ? n.en.toUpperCase() : TK.DOC_EN[f].toUpperCase()}</div>
-      <div style="font:700 ${portrait ? 46 : 40}px var(--sans-jp);color:rgba(255,250,240,.88);margin-top:26px">${lang === 'ja' ? '教義 · ' + TK.DOC_JA[f] : 'Doctrine'}</div>`;
+      <div style="font:900 ${lang === 'ja' ? (portrait ? 150 : 132) : (portrait ? 132 : 120)}px/1.05 ${lang === 'ja' ? 'var(--serif-jp)' : 'Cinzel, serif'};margin-top:18px;color:#fffaf0;text-shadow:0 6px 30px rgba(0,0,0,.6)">${lang === 'ja' ? nm : nm.toUpperCase()}</div>
+      ${lang === 'ja'
+        ? `<div style="font:600 ${portrait ? 44 : 36}px Cinzel, serif;letter-spacing:.32em;color:${f === 4 ? '#e9f2f4' : n.light};margin-top:10px">${n.en.toUpperCase()}</div><div style="font:700 ${portrait ? 46 : 40}px var(--sans-jp);color:rgba(255,250,240,.88);margin-top:26px">教義 · ${TK.DOC_JA[f]}</div>`
+        : `<div style="font:600 ${portrait ? 30 : 26}px Inter, sans-serif;letter-spacing:.3em;color:${f === 4 ? '#e9f2f4' : n.light};margin-top:22px">DOCTRINE</div><div style="font:italic 700 ${portrait ? 72 : 64}px/1.1 'Cormorant Garamond', serif;color:#fffaf0;margin-top:6px">${TK.DOC_EN[f]}</div><div style="font:600 ${portrait ? 30 : 26}px var(--serif-jp);color:rgba(255,250,240,.45);margin-top:14px;letter-spacing:.2em">${TK.NAT_JA[f]} · ${TK.DOC_JA[f]}</div>`}`;
     WY.css(txt, portrait ? { left: '0px', width: W + 'px', top: '1230px', textAlign: 'center' } : { left: (mirror ? 140 : 1040) + 'px', top: '300px', width: '760px', textAlign: 'left' });
     return {
       node: root,

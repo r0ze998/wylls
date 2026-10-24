@@ -1,19 +1,19 @@
-<!doctype html><html><head><meta charset="utf-8"><title>01 trailer-ja</title>
+<!doctype html><html><head><meta charset="utf-8"><title>01 trailer-en</title>
 <link rel="stylesheet" href="../../lib/wy.css">
 <script src="../../lib/wy.js"></script><script src="../../lib/wy-audio.js"></script>
 <script src="../../lib/wy-map.js"></script><script src="../../lib/wy-kit.js"></script>
 <script src="tk.js"></script>
 <style>
-  .chip { position:absolute; width:372px; height:86px; border-radius:14px; display:flex; align-items:center; justify-content:center; font:700 32px var(--sans-jp); color:#fffaf0;
+  .chip { position:absolute; width:372px; height:86px; border-radius:14px; display:flex; align-items:center; justify-content:center; font:600 29px var(--sans); color:#fffaf0;
           background:linear-gradient(180deg, rgba(36,73,59,.95), rgba(18,38,31,.96)); border:2px solid rgba(201,162,74,.55); box-shadow:0 10px 30px rgba(0,0,0,.45); letter-spacing:.02em }
   .chip.pick { border-color:#ffd24d; box-shadow:0 0 0 3px rgba(255,210,77,.35), 0 0 50px rgba(255,210,77,.45), 0 10px 30px rgba(0,0,0,.45) }
-  .row { display:flex; justify-content:space-between; align-items:center; padding:14px 26px; font:700 36px var(--sans-jp); border-bottom:1px solid rgba(90,60,20,.25) }
-  .row .v { font:700 34px var(--sans-jp) } .row .pub { font:700 24px var(--sans-jp); color:#2f6b4a; padding:4px 12px; border:2px solid #2f6b4a; border-radius:8px; margin-left:22px }
+  .row { display:flex; justify-content:space-between; align-items:center; padding:14px 26px; font:600 34px var(--sans); border-bottom:1px solid rgba(90,60,20,.25) }
+  .row .v { font:700 32px var(--sans) } .row .pub { font:700 20px var(--sans); letter-spacing:.08em; color:#2f6b4a; padding:4px 12px; border:2px solid #2f6b4a; border-radius:8px; margin-left:22px }
   .row .sealed { color:#a8222c; border-color:#a8222c }
 </style>
 </head><body><script>
 const B = 0.625; // beat at 96 bpm
-const T = { bell: 7 * B, six: 13 * B, one: 15 * B, ui: 20 * B, bell2: 24 * B, seal: 30 * B, stamp: 36 * B, ai: 42 * B, keep: 54 * B, clash: 57 * B, cap: 61 * B, cast: 66 * B, title: 78 * B, end: 86 * B };
+const T = { bell: 7 * B, six: 13 * B, one: 15 * B, ui: 20 * B, bell2: 24 * B, seal: 30 * B, stamp: 36 * B, ai: 42 * B, keep: 56 * B, clash: 59 * B, cap: 63 * B, cast: 68 * B, title: 78 * B, end: 86 * B };
 const W = 1920, H = 1080;
 const E = WY.ease, seg = WY.seg, clamp = WY.clamp, lerp = WY.lerp;
 let ctx, world, ov, flash, ring, L = {}, shotUI, cards = [], title, end, badge = {}, notes = {}, chips = [], chipWrap, capLines = [], pubPanel, rows = [], pick, checks;
@@ -42,53 +42,53 @@ WY.scene({
     capSet = new Set(world.tiles.filter(t => t.owner === 5 && dist(t, capKeep) <= 1).map(t => t.q + ',' + t.r));
 
     // --- type
-    L.six = TK.line(stage, ['六つの国。'], { y: 700, size: 116 });
-    L.one = TK.line(stage, ['ひとつの地図。'], { y: 845, size: 116 });
-    L.turn1 = TK.line(stage, ['10分ごとに、'], { y: 640, size: 112 });
-    L.turn2 = TK.line(stage, ['世界が動く。'], { y: 790, size: 112 });
-    L.seal = TK.line(stage, ['行き先は、封印される。'], { y: 690, size: 112 });
-    L.ai = TK.line(stage, ['その中に、AI市民がいる。'], { y: 110, size: 104 });
-    L.keep = TK.line(stage, ['砦を奪え。'], { y: 770, size: 150, style: 'slam', stagger: 0.07 });
-    L.sub = TK.block(stage, '<span style="padding:10px 24px;border-radius:999px;background:rgba(10,20,16,.78);border:1.5px solid rgba(240,212,138,.6)">drand タイムロックで封印 · 取り消し不可</span>', { left: '0px', width: W + 'px', top: '880px', textAlign: 'center', font: '700 38px var(--sans-jp)', color: '#f0d48a' });
-    L.adv = TK.block(stage, '<span style="padding:10px 22px;border-radius:12px;background:rgba(10,20,16,.85);border:1.5px solid rgba(240,212,138,.6)">ローカルで時計を72ターン送り</span>', { left: '0px', width: W + 'px', top: '282px', textAlign: 'center', font: '700 34px var(--sans-jp)', color: '#f0d48a' });
+    L.six = TK.line(stage, ['Six nations.'], { y: 690, size: 118, font: 'Cinzel, serif', weight: 700, ls: 0.05, stagger: 0.03 });
+    L.one = TK.line(stage, ['One map.'], { y: 840, size: 132, font: 'Cinzel, serif', weight: 900, ls: 0.07, stagger: 0.04, style: 'slam' });
+    L.turn1 = TK.line(stage, ['Every ten minutes,'], { y: 650, size: 116, font: '"Cormorant Garamond", serif', weight: 700, ls: 0.01, stagger: 0.02 });
+    L.turn2 = TK.line(stage, ['the world moves.'], { y: 790, size: 116, font: '"Cormorant Garamond", serif', weight: 700, ls: 0.01, stagger: 0.025, color: '#ffe7b0' });
+    L.seal = TK.line(stage, ['Where it goes stays sealed.'], { y: 700, size: 100, font: 'Cinzel, serif', weight: 700, ls: 0.02, stagger: 0.02 });
+    L.ai = TK.line(stage, ['Among them: AI citizens.'], { y: 100, size: 108, font: '"Cormorant Garamond", serif', weight: 700, ls: 0.01, stagger: 0.02 });
+    L.keep = TK.line(stage, ['Take the keep.'], { y: 780, size: 140, font: 'Cinzel, serif', weight: 900, ls: 0.04, style: 'slam', stagger: 0.045 });
+    L.sub = TK.block(stage, '<span style="padding:10px 24px;border-radius:999px;background:rgba(10,20,16,.78);border:1.5px solid rgba(240,212,138,.6)">Sealed by a drand time-lock · no recall</span>', { left: '0px', width: W + 'px', top: '880px', textAlign: 'center', font: '600 36px var(--sans)', color: '#f0d48a' });
+    L.adv = TK.block(stage, '<span style="padding:10px 22px;border-radius:12px;background:rgba(10,20,16,.85);border:1.5px solid rgba(240,212,138,.6)">Clock advanced 72 turns, locally (disclosed)</span>', { left: '0px', width: W + 'px', top: '282px', textAlign: 'center', font: '600 32px var(--sans)', color: '#f0d48a' });
 
     // --- real UI shot
-    shotUI = TK.shot(stage, TK.ui('hand-ja'), { label: '実際のクライアント画面 · テストデータ' });
+    shotUI = TK.shot(stage, TK.ui('hand-en'), { label: 'Real client screen · test data', lang: 'en' });
 
     // --- sealed march public-info panel (parchment)
     pubPanel = WY.el('div', { class: 'wy-abs wy-paper' }, stage);
     WY.css(pubPanel, { left: '1170px', top: '150px', width: '670px', padding: '20px 10px 18px', zIndex: 25, opacity: 0 });
-    pubPanel.innerHTML = '<div style="font:800 34px var(--serif-jp);padding:6px 26px 14px;color:#3b2a14">進軍 — 誰にでも見えること</div>';
-    [['出発', 'ターン 43', '公開'], ['兵数', '400', '公開'], ['到着', 'ターン 46', '公開'], ['行き先', '■■■■', '封印']].forEach(([k, v, p], i) => {
+    pubPanel.innerHTML = '<div style="font:700 40px Cormorant Garamond, serif;padding:6px 26px 14px;color:#3b2a14">A march — what everyone sees</div>';
+    [['Departs', 'turn 43', 'PUBLIC'], ['Troops', '400', 'PUBLIC'], ['Arrives', 'turn 46', 'PUBLIC'], ['Destination', '■■■■', 'SEALED']].forEach(([k, v, p], i) => {
       const r = WY.el('div', { class: 'row', html: `<span>${k}</span><span style="display:flex;align-items:center"><span class="v">${v}</span><span class="pub ${i === 3 ? 'sealed' : ''}">${p}</span></span>` }, pubPanel);
       r.style.color = '#2b2013'; rows.push(r);
     });
 
     // --- AI beat: chips
     chipWrap = WY.el('div', { class: 'wy-fill' }, stage); chipWrap.style.zIndex = 22;
-    const labels = ['進軍 · 野営地 · 400', '建設 · 書庫', '偵察 · 北東', '訓練 · 槍兵 200', '進軍 · 野営地 · 200', '建設 · 農場', '待機', '偵察 · 南', '訓練 · 弓兵 100', '建設 · 城壁', '建設 · 伐採場', '建設 · 鉱山'];
+    const labels = ['March · camp · 400', 'Build · Library', 'Scout · north-east', 'Train · 200 Spearmen', 'March · camp · 200', 'Build · Farm', 'Hold', 'Scout · south', 'Train · 100 Archers', 'Build · Walls', 'Build · Lumber camp', 'Build · Mine'];
     labels.forEach((s, i) => { const c = WY.el('div', { class: 'chip', text: s }, chipWrap); const col = i % 4, row = Math.floor(i / 4); c.style.left = 172 + col * 400 + 'px'; c.style.top = 330 + row * 110 + 'px'; chips.push(c); });
-    const gl = WY.el('div', { html: '候補(例) · 最大12', class: 'wy-abs' }, chipWrap); WY.css(gl, { left: '172px', top: '272px', font: '700 28px var(--sans-jp)', color: 'rgba(240,212,138,.9)', letterSpacing: '.06em' });
+    const gl = WY.el('div', { html: 'Candidates (example) · at most 12', class: 'wy-abs' }, chipWrap); WY.css(gl, { left: '172px', top: '272px', font: '600 26px var(--sans)', color: 'rgba(240,212,138,.9)', letterSpacing: '.06em' });
     checks = WY.el('div', { class: 'wy-abs' }, chipWrap);
     WY.css(checks, { left: '0px', top: '0px', font: '900 34px/56px var(--sans)', width: '56px', height: '56px', textAlign: 'center', color: '#0e2a1f', background: '#9fe0b0', borderRadius: '50%', border: '3px solid #fffaf0', boxShadow: '0 6px 20px rgba(0,0,0,.5)' });
     checks.innerHTML = '✓';
-    const cap = [['コードが候補を出し、', 0], ['モデルが選び、', 1], ['コードが確かめる。', 2]];
-    const capRow = WY.el('div', { class: 'wy-abs' }, chipWrap); WY.css(capRow, { left: '0px', width: W + 'px', top: '720px', textAlign: 'center', font: '700 54px var(--sans-jp)', color: '#fffaf0', textShadow: '0 3px 16px rgba(0,0,0,.8)' });
-    cap.forEach(([s, i]) => { const sp = WY.el('span', { text: s }, capRow); sp.style.display = 'inline-block'; sp.style.color = i === 1 ? '#ffd24d' : '#fffaf0'; capLines.push(sp); });
-    const model = WY.el('div', { class: 'wy-abs', html: 'モデル = ローカルの Gemma 4(有料APIなし)' }, chipWrap);
-    WY.css(model, { left: '0px', width: W + 'px', top: '815px', textAlign: 'center', font: '600 32px var(--sans-jp)', color: 'rgba(255,250,240,.75)' }); capLines.push(model);
+    const cap = [['Code offers the moves.  ', 0], ['The model picks one.  ', 1], ['Code checks it.', 2]];
+    const capRow = WY.el('div', { class: 'wy-abs' }, chipWrap); WY.css(capRow, { left: '0px', width: W + 'px', top: '720px', textAlign: 'center', font: '700 62px "Cormorant Garamond", serif', color: '#fffaf0', textShadow: '0 3px 16px rgba(0,0,0,.8)' });
+    cap.forEach(([s, i]) => { const sp = WY.el('span', { text: s }, capRow); sp.style.display = 'inline-block'; sp.style.whiteSpace = 'pre'; sp.style.color = i === 1 ? '#ffd24d' : '#fffaf0'; capLines.push(sp); });
+    const model = WY.el('div', { class: 'wy-abs', html: 'The model: Gemma 4, run locally · no paid API' }, chipWrap);
+    WY.css(model, { left: '0px', width: W + 'px', top: '815px', textAlign: 'center', font: '500 32px var(--sans)', color: 'rgba(255,250,240,.75)' }); capLines.push(model);
 
     // --- cast
-    for (let f = 0; f < 6; f++) cards.push(TK.castCard(stage, f, { mirror: f % 2 === 1 }));
+    for (let f = 0; f < 6; f++) cards.push(TK.castCard(stage, f, { mirror: f % 2 === 1, lang: 'en' }));
 
-    title = TK.title(stage, { size: 190, sub: 'Play the agent economy.' });
-    end = TK.end(stage, { lang: 'ja', line: '意志を持つAIと、ひとつの地図を。', sub: '人とAI市民が、ひとつの地図を争える戦略ゲーム' });
+    title = TK.title(stage, { size: 190, sub: 'A game where AI behaves like a player.' });
+    end = TK.end(stage, { lang: 'en', line: 'Play the agent economy.', sub: 'A strategy game where people and AI citizens can fight for one map' });
 
     // --- honesty
-    badge.a = WYKit.status(stage, 'local', 'ja', { x: 80, y: 70 }); badge.a.node.style.zIndex = 53;
-    notes.ai = TK.note(stage, 'AI市民:ローカルの Gemma 4 で実行(AI市民とスクリプトBotの世界)。正式な比較評価は未完了。人とAIが同じ世界で遊んだ記録はまだありません。', { y: 985, size: 24 });
-    notes.keep = TK.note(stage, 'own1 の記録を再構成:人間が操作したローカルデモ · AI・ボットなし · 時計を72ターン送ったうえでの奪取', { y: 1000, size: 24 });
-    notes.turn = TK.note(stage, '1日144ターン。同じターンの命令は、いっせいに解決されます。', { y: 1000, size: 26 });
+    badge.a = WYKit.status(stage, 'local', 'en', { x: 80, y: 70 }); badge.a.node.style.zIndex = 53;
+    notes.ai = TK.note(stage, 'Local runs only: AI citizens plus script bots. Formal evaluation pending. People and AI have not yet shared a world.', { y: 990, size: 26, lang: 'en' });
+    notes.keep = TK.note(stage, 'Rebuilt from the own1 recording: a human-operated local demo, no AI or bots, with a disclosed 72-turn clock advance.', { y: 1000, size: 26, lang: 'en' });
+    notes.turn = TK.note(stage, '144 turns a day. Sending a minute earlier gives no advantage.', { y: 1000, size: 26, lang: 'en' });
 
     ov = TK.overlays(stage);
     flash = WYKit.flash(stage, { color: '#fff6e0' });
@@ -107,7 +107,7 @@ WY.scene({
       const a = E.outCubic(clamp(t / 1.2));
       ctx.globalAlpha = a;
       const pulse = Math.max(0, 1 - ((t - 0.375 + 10) % 1) / 0.25) * (t > 0.3 ? 1 : 0);
-      TK.medallion(ctx, W / 2, H / 2, 150 + k * 18, { turn: 42, clock: '0:0' + left, k: k, glow: 0.25 + pulse * 0.6 + k * 0.4 });
+      TK.medallion(ctx, W / 2, H / 2, 150 + k * 18, { label: 'TURN', lang: 'en', turn: 42, clock: '0:0' + left, k: k, glow: 0.25 + pulse * 0.6 + k * 0.4 });
       ctx.globalAlpha = 1;
       // fine dial ticks
       ctx.save(); ctx.translate(W / 2, H / 2); ctx.strokeStyle = 'rgba(240,212,138,.35)'; ctx.lineWidth = 2;
@@ -146,7 +146,7 @@ WY.scene({
       }
       // medallion flips 42 -> 43 at the bell
       const mp = seg(t, T.bell2, T.bell2 + 0.4, E.outBack);
-      TK.medallion(ctx, W / 2, 118, 78 * (0.6 + 0.4 * mp), { turn: 43, clock: '10:00', k: 0.02, glow: Math.max(0, 1 - (t - T.bell2) / 1.2) });
+      TK.medallion(ctx, W / 2, 118, 78 * (0.6 + 0.4 * mp), { label: 'TURN', lang: 'en', turn: 43, clock: '10:00', k: 0.02, glow: Math.max(0, 1 - (t - T.bell2) / 1.2) });
       const g = ctx.createLinearGradient(0, 560, 0, H); g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(1, 'rgba(0,0,0,.6)'); ctx.fillStyle = g; ctx.fillRect(0, 560, W, H - 560);
     }
     // ---------------------------------------------------------------- 3: sealed march
@@ -211,7 +211,7 @@ WY.scene({
       // clock advance
       const ak = seg(t, T.clash + 0.7, T.cap - 0.15);
       const vis = WY.env(t, T.clash + 0.5, T.cap + 1.6, 0.3, 0.4);
-      if (vis > 0) { ctx.globalAlpha = vis; TK.medallion(ctx, W / 2, 160, 92, { turn: Math.round(lerp(43, 110, E.inOutCubic(ak))), clock: ak < 1 ? '▶▶' : '0:00', k: (ak * 7.2) % 1, glow: ak > 0 && ak < 1 ? 0.6 : 0.2 }); ctx.globalAlpha = 1; }
+      if (vis > 0) { ctx.globalAlpha = vis; TK.medallion(ctx, W / 2, 160, 92, { label: 'TURN', lang: 'en', turn: Math.round(lerp(43, 110, E.inOutCubic(ak))), clock: ak < 1 ? '▶▶' : '0:00', k: (ak * 7.2) % 1, glow: ak > 0 && ak < 1 ? 0.6 : 0.2 }); ctx.globalAlpha = 1; }
       const g = ctx.createLinearGradient(0, 600, 0, H); g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(1, 'rgba(0,0,0,.65)'); ctx.fillStyle = g; ctx.fillRect(0, 600, W, H - 600);
     }
     // ---------------------------------------------------------------- 7: title / end
@@ -246,7 +246,7 @@ WY.scene({
       if (on) {
         const out = E.inCubic(seg(t, T.keep - 0.35, T.keep));
         chipWrap.style.opacity = 1 - out;
-        const pickAt = T.ai + 3.75, chkAt = T.ai + 5.0;
+        const pickAt = T.ai + 3.75, chkAt = T.ai + 5.0; // AI beat is 8.75 s
         chips.forEach((c, i) => {
           const p = E.outBack(seg(t, T.ai + 1.25 + i * 0.06, T.ai + 1.65 + i * 0.06));
           const picked = i === 0;
@@ -268,7 +268,7 @@ WY.scene({
     badge.a.render(t, T.bell2 + 0.2, T.seal - 0.3);
     if (t >= T.seal) badge.a.render(t, T.seal + 0.2, T.cast - 0.3);
     // cast
-    cards.forEach((c, i) => c.render(t, T.cast + i * 1.25, i === 5 ? T.title : T.cast + (i + 1) * 1.25 + 0.32));
+    const cd = (T.title - T.cast) / 6; cards.forEach((c, i) => c.render(t, T.cast + i * cd, i === 5 ? T.title : T.cast + (i + 1) * cd + 0.32));
     // title & end
     title.render(t, T.title, T.end - 0.5);
     end.render(t - T.end);
@@ -319,7 +319,7 @@ WY.scene({
     A.type(T.clash + 0.8, T.cap - 0.2, { cps: 26, gain: 0.45 });
     A.swell(T.clash + 0.7, T.cap, { gain: 0.9, note: 'D3' }); A.boom(T.cap); A.sparkle(T.cap + 0.1, { root: 'D5', gain: 0.8 });
     // cast
-    for (let i = 0; i < 6; i++) { const a = T.cast + i * 1.25; A.swish(a, { gain: 0.9, pan: i % 2 ? 0.4 : -0.4 }); A.drum(a, { gain: 0.9, pitch: 0.8 + i * 0.04 }); A.hit(a, { gain: 0.35 }); }
+    for (let i = 0; i < 6; i++) { const a = T.cast + i * (T.title - T.cast) / 6; A.swish(a, { gain: 0.9, pan: i % 2 ? 0.4 : -0.4 }); A.drum(a, { gain: 0.9, pitch: 0.8 + i * 0.04 }); A.hit(a, { gain: 0.35 }); }
     // title
     A.riser(T.title - 1.6, T.title, { gain: 0.6 }); A.boom(T.title, { gain: 1.1 });
     for (let i = 0; i < 5; i++) A.drum(T.title + 0.35 + i * 0.3 + 0.12, { gain: 0.7, pitch: 0.85 + i * 0.05 });

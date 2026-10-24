@@ -4,13 +4,13 @@
 <script src="wyx.js"></script>
 <style>
   .grp { position: absolute; left: 120px; top: 290px; width: 860px; z-index: 6; }
-  .kk { font: 700 28px var(--sans-jp); letter-spacing: .3em; color: #f0d48a; display: flex; align-items: center; gap: 16px; }
+  .kk { font: 700 26px Inter; letter-spacing: .3em; color: #f0d48a; display: flex; align-items: center; gap: 16px; }
   .kk i { display: inline-block; width: 46px; height: 2px; background: #c9a24a; }
   .nm { font: 800 228px/1 Inter; color: #fffaf0; font-variant-numeric: tabular-nums; letter-spacing: -.02em; margin-top: 18px; white-space: nowrap; text-shadow: 0 10px 50px rgba(0,0,0,.5); }
-  .un { font: 700 54px/1.25 var(--sans-jp); color: #fffaf0; margin-top: 10px; }
-  .sb { font: 500 40px/1.5 var(--sans-jp); color: rgba(255,250,240,.82); margin-top: 26px; }
+  .un { font: 700 56px/1.2 Inter; color: #fffaf0; margin-top: 10px; }
+  .sb { font: 500 40px/1.45 Inter; color: rgba(255,250,240,.82); margin-top: 26px; }
   .sb b { color: #3fdc93; font-weight: 700; }
-  .nt { position: absolute; left: 120px; top: 862px; font: 500 28px var(--sans-jp); color: #ffd9a0; z-index: 6; display: flex; align-items: center; gap: 12px; }
+  .nt { position: absolute; left: 120px; top: 862px; font: 600 30px Inter; color: #ffd9a0; z-index: 6; display: flex; align-items: center; gap: 12px; }
   .nt::before { content: ''; width: 10px; height: 10px; border-radius: 50%; background: #ffb057; }
 </style>
 </head><body><script>
@@ -28,35 +28,35 @@ WY.scene({
 
     intro_wm = X.box(stage, { left: '0px', top: '230px', width: '1920px', textAlign: 'center', font: "900 640px/1 Cinzel", color: 'rgba(240,212,138,.06)', zIndex: 2 }, 'M1');
     intro = {
-      k: X.lines(stage, [{ t: 'M1 終了シーズン  m1-exit', css: { font: '700 30px var(--sans-jp)', letterSpacing: '.28em', color: '#f0d48a' } }], { y: 300 }),
-      t: X.lines(stage, [{ t: '数字で見る、M1シーズン', css: { font: '900 116px/1.2 var(--serif-jp)', color: '#fffaf0' } }], { y: 380, stagger: 0.05 }),
-      s: X.lines(stage, [{ t: '2026年9月30日 → 10月1日・ローカルのテスト用チェーン', css: { font: '500 38px var(--sans-jp)', color: 'rgba(255,250,240,.75)' } }], { y: 580, stagger: 0.012 }),
+      k: X.lines(stage, [{ t: 'THE M1 EXIT SEASON · m1-exit', css: { font: '700 30px Inter', letterSpacing: '.3em', color: '#f0d48a' } }], { y: 300 }),
+      t: X.lines(stage, [{ t: 'M1 in numbers', css: { font: '700 132px/1.15 Cinzel', color: '#fffaf0' } }], { y: 380, stagger: 0.05 }),
+      s: X.lines(stage, [{ t: 'Sept 30 → Oct 1, 2026 · on a local test chain', css: { font: '500 40px Inter', color: 'rgba(255,250,240,.78)' } }], { y: 580, stagger: 0.012 }),
     };
     Object.values(intro).forEach(l => (l.node.style.zIndex = 6));
 
     const mk = (kk, un, sb) => { const n = X.box(stage, {}, `<div class="kk"><i></i>${kk}</div><div class="nm">0</div><div class="un">${un}</div><div class="sb">${sb}</div>`); n.className = 'grp'; return { n, nm: n.querySelector('.nm'), parts: [...n.children] }; };
     grps = [
-      mk('参加者', '体のスクリプトBot', '13種類の行動。<br>不正やスパムをする型も。'),
-      mk('シーズンの長さ', 'ターン(7ゲーム日)', '+ 締めの26ターン<br>実時間 8時間39分・20倍速'),
-      mk('進軍', '件の進軍を清算', '止まったままの進軍 <b>0</b>'),
-      mk('障害テスト', '回の強制終了(kill -9)', 'すべて再起動。クラッシュ <b>0</b>'),
-      mk('観戦の負荷', '体の模擬視聴者', '346万リクエスト・エラー <b>0</b>'),
+      mk('PLAYERS', 'script bots', '13 behaviour profiles,<br>cheaters and spammers included.'),
+      mk('SEASON LENGTH', 'turns · 7 game days', '+ 26 closing turns<br>8 h 39 min of real time at 20×'),
+      mk('MARCHES', 'due marches settled', 'Left stuck: <b>0</b>'),
+      mk('CHAOS TEST', 'kill -9 restarts', 'Crashes: <b>0</b>'),
+      mk('SPECTATOR LOAD', 'simulated viewers', '3.46 M requests · errors: <b>0</b>'),
     ];
     const nt = s => { const n = X.box(stage, {}, s); n.className = 'nt'; return n; };
-    notes = [nt('人のプレイヤーではありません'), null, null, null, nt('負荷生成ツールによる模擬。人やブラウザではありません')];
+    notes = [nt('Bots, not people.'), null, null, null, nt('A load generator, not people or browsers.')];
 
     // final beat: two counters
-    fin.k = X.lines(stage, [{ t: '検証', css: { font: '700 28px var(--sans-jp)', letterSpacing: '.3em', color: '#f0d48a' } }], { y: 210 });
-    fin.a = X.box(stage, { left: '160px', top: '300px', width: '780px', textAlign: 'center', zIndex: 6 }, `<div class="nm" style="font-size:168px">0</div><div class="un" style="font-size:46px">件の取引を再生</div><div style="display:inline-block;margin-top:22px;font:900 54px Cinzel;color:#3fdc93;border:4px solid #3fdc93;border-radius:12px;padding:2px 26px;letter-spacing:.08em">PASS</div>`);
-    fin.b = X.box(stage, { left: '980px', top: '300px', width: '780px', textAlign: 'center', zIndex: 6 }, `<div class="nm" style="font-size:168px">0<span style="color:rgba(255,250,240,.4)">/30</span></div><div class="un" style="font-size:46px">種類の改ざんを、すべて検出</div><div style="display:inline-block;margin-top:22px;font:900 54px Cinzel;color:#ff6b73;border:4px solid #ff6b73;border-radius:12px;padding:2px 26px;letter-spacing:.08em">DETECTED</div>`);
+    fin.k = X.lines(stage, [{ t: 'VERIFICATION', css: { font: '700 28px Inter', letterSpacing: '.3em', color: '#f0d48a' } }], { y: 210 });
+    fin.a = X.box(stage, { left: '160px', top: '300px', width: '780px', textAlign: 'center', zIndex: 6 }, `<div class="nm" style="font-size:168px">0</div><div class="un" style="font-size:46px">transactions replayed</div><div style="display:inline-block;margin-top:22px;font:900 54px Cinzel;color:#3fdc93;border:4px solid #3fdc93;border-radius:12px;padding:2px 26px;letter-spacing:.08em">PASS</div>`);
+    fin.b = X.box(stage, { left: '980px', top: '300px', width: '780px', textAlign: 'center', zIndex: 6 }, `<div class="nm" style="font-size:168px">0<span style="color:rgba(255,250,240,.4)">/30</span></div><div class="un" style="font-size:46px">tamper classes caught</div><div style="display:inline-block;margin-top:22px;font:900 54px Cinzel;color:#ff6b73;border:4px solid #ff6b73;border-radius:12px;padding:2px 26px;letter-spacing:.08em">DETECTED</div>`);
     fin.an = fin.a.querySelector('.nm'); fin.bn = fin.b.querySelector('.nm');
-    fin.n = X.lines(stage, [{ t: '自前の検証器です。第三者の監査ではありません。', css: { font: '500 36px var(--sans-jp)', color: 'rgba(255,250,240,.78)' } }], { y: 800, stagger: 0.015 });
+    fin.n = X.lines(stage, [{ t: 'Our own verifier, not an independent audit.', css: { font: '500 38px Inter', color: 'rgba(255,250,240,.8)' } }], { y: 800, stagger: 0.015 });
     fin.n.node.style.zIndex = 6; fin.k.node.style.zIndex = 6;
 
-    badge = WYKit.status(stage, 'local', 'ja', { x: 80, y: 966 }); badge.node.style.zIndex = 20;
+    badge = WYKit.status(stage, 'local', 'en', { x: 80, y: 966 }); badge.node.style.zIndex = 20;
     flash = WYKit.flash(stage, { color: '#fff', z: 65 });
     ov = X.overlay(stage);
-    end = WYKit.endCard(stage, { lang: 'ja', line: 'だれでも、シーズンを再生できる。' });
+    end = WYKit.endCard(stage, { lang: 'en', line: 'Every transaction, replayable by anyone.' });
   },
 
   render(t) {
@@ -101,9 +101,9 @@ WY.scene({
       }
       // legend
       g.globalAlpha = A(0) * WY.seg(t, a0 + 2.6, a0 + 3.2);
-      g.font = '500 24px "Noto Sans JP"'; g.fillStyle = 'rgba(255,250,240,.7)'; g.textBaseline = 'middle';
+      g.font = '500 24px Inter'; g.fillStyle = 'rgba(255,250,240,.7)'; g.textBaseline = 'middle';
       PROF.forEach((c, i) => { g.fillStyle = c; g.beginPath(); g.arc(1046 + i * 62, 892, 9, 0, 7); g.fill(); });
-      g.fillStyle = 'rgba(255,250,240,.7)'; g.fillText('13種類の行動プロファイル(色分けは図解)', 1036, 940);
+      g.fillStyle = 'rgba(255,250,240,.7)'; g.fillText('13 behaviour profiles (colours are illustrative)', 1036, 940);
       g.restore();
     }
 
@@ -127,11 +127,11 @@ WY.scene({
         g.beginPath(); g.moveTo(cx + Math.cos(an) * (R0 + 8), cy + Math.sin(an) * (R0 + 8)); g.lineTo(cx + Math.cos(an) * (R0 + 34), cy + Math.sin(an) * (R0 + 34)); g.stroke();
       }
       // day labels
-      g.font = '700 26px "Noto Sans JP"'; g.textAlign = 'center'; g.textBaseline = 'middle';
-      for (let d = 0; d < 7; d++) { const an = rot + ((d * 144 + 72) / 1034) * Math.PI * 2; const on = (d * 144 + 72) / 1008 <= k; g.fillStyle = on ? '#fffaf0' : 'rgba(255,250,240,.2)'; g.fillText(`${d + 1}日目`, cx + Math.cos(an) * (R0 - 86), cy + Math.sin(an) * (R0 - 86)); }
-      const anEnd = rot + (1021 / 1034) * Math.PI * 2; g.globalAlpha = A(1) * kd; g.fillStyle = '#ff9a6a'; g.font = '700 24px "Noto Sans JP"'; g.fillText('締め 26', cx + Math.cos(anEnd) * (R0 + 72), cy + Math.sin(anEnd) * (R0 + 72));
+      g.font = '700 26px Inter'; g.textAlign = 'center'; g.textBaseline = 'middle';
+      for (let d = 0; d < 7; d++) { const an = rot + ((d * 144 + 72) / 1034) * Math.PI * 2; const on = (d * 144 + 72) / 1008 <= k; g.fillStyle = on ? '#fffaf0' : 'rgba(255,250,240,.2)'; g.fillText(`Day ${d + 1}`, cx + Math.cos(an) * (R0 - 86), cy + Math.sin(an) * (R0 - 86)); }
+      const anEnd = rot + (1021 / 1034) * Math.PI * 2; g.globalAlpha = A(1) * kd; g.fillStyle = '#ff9a6a'; g.font = '700 24px Inter'; g.fillText('+26 closing', cx + Math.cos(anEnd) * (R0 + 72), cy + Math.sin(anEnd) * (R0 + 72));
       // centre
-      g.globalAlpha = A(1); g.fillStyle = '#fffaf0'; g.font = '800 64px Inter'; g.fillText('20×', cx, cy - 24); g.font = '500 28px "Noto Sans JP"'; g.fillStyle = 'rgba(255,250,240,.7)'; g.fillText('1ターン = 10分', cx, cy + 34);
+      g.globalAlpha = A(1); g.fillStyle = '#fffaf0'; g.font = '800 64px Inter'; g.fillText('20×', cx, cy - 24); g.font = '500 28px Inter'; g.fillStyle = 'rgba(255,250,240,.7)'; g.fillText('1 turn = 10 min', cx, cy + 34);
       // sweep hand
       const ah = rot + k * (1008 / 1034) * Math.PI * 2 + kd * (26 / 1034) * Math.PI * 2;
       g.strokeStyle = 'rgba(255,210,77,.8)'; g.lineWidth = 3; g.beginPath(); g.moveTo(cx + Math.cos(ah) * 110, cy + Math.sin(ah) * 110); g.lineTo(cx + Math.cos(ah) * (R0 + 4), cy + Math.sin(ah) * (R0 + 4)); g.stroke();
@@ -168,7 +168,7 @@ WY.scene({
       const a3 = B[3][0]; g.save(); g.globalAlpha = A(3);
       const x0 = 1010, x1 = 1840, y = 520, k = WY.seg(t, a3 + 0.3, a3 + 2.4, E.outQuart);
       g.font = '600 22px "JetBrains Mono"'; g.fillStyle = 'rgba(255,250,240,.55)'; g.fillText('0:00', x0, y + 230); g.textAlign = 'right'; g.fillText('8:39', x1, y + 230); g.textAlign = 'left';
-      g.font = '500 24px "Noto Sans JP"'; g.fillText('シーズンの実時間', x0, y - 250);
+      g.font = '500 24px Inter'; g.fillText('Season wall-clock time', x0, y - 250);
       // heartbeat line
       g.strokeStyle = '#3fdc93'; g.lineWidth = 3; g.beginPath();
       const kills = []; for (let i = 0; i < 43; i++) { const r = WY.rng(77 + i); kills.push((i + 0.2 + r() * 0.6) / 43); }
@@ -186,7 +186,7 @@ WY.scene({
         g.fillStyle = '#3fdc93'; g.beginPath(); g.arc(x + 9, y + 2, 4, 0, 7); g.fill();
       });
       g.font = '600 24px "JetBrains Mono"'; g.fillStyle = '#ff8a8f'; g.fillText('kill -9', x0, y - 200);
-      g.fillStyle = '#3fdc93'; g.font = '500 24px "Noto Sans JP"'; g.fillText('再起動', x0, y + 190);
+      g.fillStyle = '#3fdc93'; g.font = '500 24px Inter'; g.fillText('restarted', x0, y + 190);
       g.restore();
     }
 
@@ -207,9 +207,9 @@ WY.scene({
       // herald node
       const pulse = 1 + 0.05 * Math.sin(t * 6);
       g.fillStyle = '#12261f'; g.strokeStyle = '#c9a24a'; g.lineWidth = 4; g.beginPath(); g.arc(hx, hy, 92 * pulse, 0, 7); g.fill(); g.stroke();
-      g.fillStyle = '#fffaf0'; g.font = '700 30px "Noto Sans JP"'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('ヘラルド', hx, hy - 14); g.font = '500 20px "Noto Sans JP"'; g.fillStyle = 'rgba(255,250,240,.65)'; g.fillText('読み取り専用', hx, hy + 22);
+      g.fillStyle = '#fffaf0'; g.font = '700 30px Inter'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('Herald', hx, hy - 14); g.font = '500 20px Inter'; g.fillStyle = 'rgba(255,250,240,.65)'; g.fillText('read-only', hx, hy + 22);
       g.textAlign = 'left';
-      g.font = '500 22px "Noto Sans JP"'; g.fillStyle = 'rgba(255,250,240,.55)'; g.fillText('■ 4,000 ポーリング   ■ 1,000 WebSocket(図は1/10)', 1080, 980 - 40);
+      g.font = '500 22px Inter'; g.fillStyle = 'rgba(255,250,240,.55)'; g.fillText('■ 4,000 polling   ■ 1,000 WebSocket   (drawn at 1/10)', 1080, 980 - 40);
       g.restore();
     }
 

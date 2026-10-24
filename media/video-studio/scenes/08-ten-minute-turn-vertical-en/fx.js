@@ -30,12 +30,12 @@
     const size = o.size || 80;
     WY.css(n, {
       left: (o.x ?? 0) + 'px', top: (o.y ?? 0) + 'px', width: (o.w ?? WY.W) + 'px', textAlign: o.align || 'center',
-      font: `${o.weight || 800} ${size}px/${o.lh || 1.3} ${o.font || 'var(--serif-jp)'}`, color: o.color || '#fffaf0',
-      letterSpacing: o.ls || '.02em', zIndex: o.z ?? 20, textShadow: o.shadow ?? '0 4px 24px rgba(0,0,0,.75), 0 1px 3px rgba(0,0,0,.8)', visibility: 'hidden',
+      font: `${o.weight || 700} ${size}px/${o.lh || 1.15} ${o.font || 'var(--serif)'}`, color: o.color || '#fffaf0',
+      letterSpacing: o.ls || '.01em', fontVariantNumeric: 'lining-nums', fontFeatureSettings: '"lnum" 1', zIndex: o.z ?? 20, textShadow: o.shadow ?? '0 4px 24px rgba(0,0,0,.75), 0 1px 3px rgba(0,0,0,.8)', visibility: 'hidden',
     });
     const spans = [];
     for (const line of lines) {
-      const d = WY.el('div', {}, n);
+      const d = WY.el('div', {}, n); d.style.whiteSpace = 'nowrap';
       let mode = null;
       const chars = [...line];
       for (let i = 0; i < chars.length; i++) {
@@ -56,7 +56,7 @@
       render(t, a, b) {
         if (t < a - 0.02 || t > b + 1.2) { n.style.visibility = 'hidden'; return; }
         n.style.visibility = 'visible';
-        WY.revealChars(spans, t - a, { stagger: o.stagger ?? 0.028, dur: o.dur ?? 0.55, rise: o.rise ?? 28, blur: o.blur ?? 8, ease: E.outCubic, out: b - a });
+        WY.revealChars(spans, t - a, { stagger: o.stagger ?? 0.016, dur: o.dur ?? 0.55, rise: o.rise ?? 28, blur: o.blur ?? 8, ease: E.outCubic, out: b - a });
       },
     };
   }

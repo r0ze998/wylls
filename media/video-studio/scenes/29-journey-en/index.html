@@ -1,21 +1,21 @@
-<!doctype html><html><head><meta charset="utf-8"><title>29 journey (ja)</title>
+<!doctype html><html><head><meta charset="utf-8"><title>29 journey (en)</title>
 <link rel="stylesheet" href="../../lib/wy.css">
 <script src="../../lib/wy.js"></script><script src="../../lib/wy-audio.js"></script><script src="../../lib/wy-map.js"></script><script src="../../lib/wy-kit.js"></script>
 <script src="kit.js"></script>
 </head><body><script>
 // Sources: FACTS.md §10 timeline (SUBMISSION §4, §7; PITCH; git log), §4 (sc-14d), §5 (take-1, own1), §6 (M1).
 const MS = [
-  { date: 'これより前', title: '先行作品', sub: '0xCiv・0xARK', note: 'このリポジトリの外にある、別のプロジェクト', badge: null },
-  { date: '2026年 9月21日〜26日', title: '旧プロトタイプ', sub: 'Solana devnet で1シーズン', note: '180ターン・14メンバー(運営のルールボット12+人2)', badge: ['devnet', 'Solana devnetで実行(旧プロトタイプ・別のゲーム)'] },
-  { date: '9月27日', title: '作り直しの始まり', sub: 'ルールのカーネルとシミュレーター', note: 'M0:6か国のバランスを調整', badge: ['code', 'コード'] },
-  { date: '9月27日〜10月1日', title: 'M1「First Bell」', sub: 'スクリプトボット1,000体で7ゲーム日', note: '10月2日、名前が「Wylls」に', badge: ['local', null] },
-  { date: '10月1日〜11日', title: 'AI市民', sub: 'ローカルの Gemma 4 が進軍を選ぶ', note: 'take-1(AI)と own1(人が操作)は別の実行', badge: ['local', null] },
-  { date: '10月13日 6:50', title: 'コロッセウムに提出', sub: 'Crypto World’s Fair・Gaming部門', note: '前日に PR #4 で統合コードを main へ', badge: null },
-  { date: '10月17日〜18日', title: '14日間のシーズン', sub: 'ローカルで最後まで・272,004件を検証', note: 'ルールボット120体・テスト用USDC', badge: ['local', null] },
-  { date: '10月23日〜24日', title: 'S1', sub: '工房・隊商・砦・国の投票をコードに', note: 'Webクライアントでは、まだ遊べない', badge: ['code', null] },
-  { date: 'これから', title: 'ひとつの文明へ', sub: '技術・時代・外交は設計の段階', note: '次の公開シーズンはメインネットで(計画)', badge: ['planned', '設計・計画'] },
+  { date: 'Before this repository', title: 'Earlier games', sub: '0xCiv and 0xARK', note: 'Separate projects, not part of this repo', badge: null },
+  { date: 'Sept 21–26, 2026', title: 'The first prototype', sub: 'One season on Solana devnet', note: '180 turns · 14 members (12 operator-run bots + 2 people)', badge: ['devnet', 'Ran on Solana devnet (earlier prototype, a different game)'] },
+  { date: 'Sept 27', title: 'The rebuild begins', sub: 'Rules kernels and a balance simulator', note: 'M0: tuning the six nations', badge: ['code', 'Code'] },
+  { date: 'Sept 27 – Oct 1', title: 'M1 “First Bell”', sub: '1,000 script bots, 7 game days', note: 'Oct 2: the name becomes Wylls', badge: ['local', null] },
+  { date: 'Oct 1–11', title: 'AI citizens', sub: 'A local Gemma 4 picks its own march', note: 'take-1 (AI) and own1 (a human) were separate runs', badge: ['local', null] },
+  { date: 'Oct 13, 06:50 JST', title: 'Submitted to Colosseum', sub: 'Crypto World’s Fair · Gaming track', note: 'PR #4 merged the integrated code the day before', badge: null },
+  { date: 'Oct 17–18', title: 'The 14-day season', sub: 'Run to the end locally; 272,004 tx verified', note: '120 rule bots · test USDC', badge: ['local', null] },
+  { date: 'Oct 23–24', title: 'S1', sub: 'Workshops, caravans, forts, nation votes', note: 'Built in code; not yet playable in the web client', badge: ['code', null] },
+  { date: 'Next', title: 'Toward a shared civilisation', sub: 'Tech, eras and diplomacy are in design', note: 'A public season on mainnet is planned', badge: ['planned', 'Design only · planned'] },
 ];
-const T0 = 4.0, STEP = 5.6, TRAVEL = 1.5;
+const T0 = 4.0, STEP = 6.2, TRAVEL = 1.5;
 const ARR = MS.map((_, i) => T0 + i * STEP + TRAVEL);
 const WIDE = ARR[8] + 4.6, END = WIDE + 3.8, DUR = END + 4.6;
 const ART = WY.ART;
@@ -84,7 +84,7 @@ function wrapW(ctx, txt) { return ctx.measureText(txt).width; }
 function card(ctx, x, y, m, i, k, out) { // the milestone card above its waypoint (screen)
   if (k <= 0) return;
   const e = E().outBack(k), q = E().inCubic(out);
-  const w = 720, h = m.note ? 268 : 220;
+  const w = 800, h = m.note ? 268 : 220;
   ctx.save(); ctx.globalAlpha = Math.min(1, k * 1.6) * (1 - q); ctx.translate(x, y - 40 - 30 * q); ctx.scale(0.85 + 0.15 * e, 0.85 + 0.15 * e);
   // pole
   ctx.strokeStyle = '#2a1d10'; ctx.lineWidth = 6; ctx.beginPath(); ctx.moveTo(0, 40); ctx.lineTo(0, -60); ctx.stroke();
@@ -97,10 +97,10 @@ function card(ctx, x, y, m, i, k, out) { // the milestone card above its waypoin
   ctx.fillStyle = '#a8222c'; ctx.beginPath(); ctx.arc(cx + 18, cy + 18, 30, 0, 7); ctx.fill(); ctx.strokeStyle = '#f0d48a'; ctx.lineWidth = 2.5; ctx.stroke();
   ctx.fillStyle = '#fffaf0'; ctx.font = '800 28px Inter'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(String(i + 1), cx + 18, cy + 19);
   ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
-  ctx.fillStyle = '#7a5a1a'; ctx.font = '700 28px "Noto Sans JP"'; ctx.fillText(m.date, 0, cy + 52);
-  ctx.fillStyle = '#21170b'; ctx.font = '900 56px "Noto Serif JP"'; ctx.fillText(m.title, 0, cy + 120);
-  ctx.fillStyle = '#3a2a14'; ctx.font = '700 31px "Noto Sans JP"'; ctx.fillText(m.sub, 0, cy + 170);
-  if (m.note) { ctx.fillStyle = 'rgba(58,42,20,.72)'; ctx.font = '500 25px "Noto Sans JP"'; ctx.fillText(m.note, 0, cy + 216); }
+  ctx.fillStyle = '#7a5a1a'; ctx.font = '700 25px Inter'; ctx.fillText(m.date.toUpperCase(), 0, cy + 50);
+  ctx.fillStyle = '#21170b'; ctx.font = /\d/.test(m.title) ? '700 50px Cinzel' : '700 62px "Cormorant Garamond"'; ctx.fillText(m.title, 0, cy + 118);
+  ctx.fillStyle = '#3a2a14'; ctx.font = '600 31px Inter'; ctx.fillText(m.sub, 0, cy + 170);
+  if (m.note) { ctx.fillStyle = 'rgba(58,42,20,.75)'; ctx.font = '500 24px Inter'; ctx.fillText(m.note, 0, cy + 216); }
   ctx.restore();
 }
 
@@ -115,13 +115,13 @@ WY.scene({
     buildRoad();
     mc = WY.canvas(stage, 1920, 1080).getContext('2d');
     const cC = WY.canvas(stage, 1920, 1080); cC.style.zIndex = 6; cc = cC.getContext('2d');
-    title.push(K.text(stage, '開発の歩み', { left: 0, width: '1920px', top: '370px', textAlign: 'center', font: '900 132px/1.2 var(--serif-jp)', color: '#fffaf0', textShadow: '0 8px 50px rgba(0,0,0,.85)' }, { a: 0.3, b: 3.2, stagger: 0.08, dur: 0.9, z: 12 }));
-    title.push(K.text(stage, 'ひとつの地図ができるまで', { left: 0, width: '1920px', top: '560px', textAlign: 'center', font: '700 44px var(--sans-jp)', color: 'rgba(255,250,240,.9)', textShadow: '0 2px 20px rgba(0,0,0,.95)' }, { a: 1.0, b: 3.2, z: 12 }));
+    title.push(K.text(stage, 'The road so far', { left: 0, width: '1920px', top: '360px', textAlign: 'center', font: '700 150px/1.1 \'Cormorant Garamond\'', color: '#fffaf0', textShadow: '0 8px 50px rgba(0,0,0,.85)' }, { a: 0.3, b: 3.4, mode: 'words', stagger: 0.14, dur: 0.9, z: 12 }));
+    title.push(K.text(stage, 'How one shared map came to be', { left: 0, width: '1920px', top: '560px', textAlign: 'center', font: '600 46px Inter', color: 'rgba(255,250,240,.9)', textShadow: '0 2px 20px rgba(0,0,0,.95)' }, { mode: 'words', stagger: 0.06, a: 0.9, b: 3.4, z: 12 }));
     const shade = WY.el('div', { class: 'wy-abs' }, stage); WY.css(shade, { left: 0, top: 0, width: '1920px', height: '360px', background: 'linear-gradient(rgba(5,9,7,.85), rgba(5,9,7,0))', zIndex: 11, opacity: 0 }); window.__shade = shade;
-    title.push(K.text(stage, '道のりは、まだ続く。', { left: 0, width: '1920px', top: '78px', textAlign: 'center', font: '900 84px/1.2 var(--serif-jp)', color: '#fffaf0', textShadow: '0 6px 40px rgba(0,0,0,.9)' }, { a: WIDE + 0.4, b: END - 0.25, stagger: 0.07, z: 12 }));
-    MS.forEach((m, i) => { if (!m.badge) return badges.push(null); const b = WYKit.status(stage, m.badge[0], 'ja', { x: 80, y: 64, size: 24, text: m.badge[1] || undefined }); b.node.style.zIndex = 30; badges.push(b); });
+    title.push(K.text(stage, 'The road goes on.', { left: 0, width: '1920px', top: '70px', textAlign: 'center', font: '700 104px/1.1 \'Cormorant Garamond\'', color: '#fffaf0', textShadow: '0 6px 40px rgba(0,0,0,.9)' }, { a: WIDE + 0.4, b: END - 0.25, mode: 'words', stagger: 0.12, z: 12 }));
+    MS.forEach((m, i) => { if (!m.badge) return badges.push(null); const b = WYKit.status(stage, m.badge[0], 'en', { x: 80, y: 64, size: 24, text: m.badge[1] || undefined }); b.node.style.zIndex = 30; badges.push(b); });
     ov = K.overlay(stage, { vignette: 0.62 });
-    endc = WYKit.endCard(stage, { lang: 'ja', line: '意志を持つAIと、ひとつの地図を。' });
+    endc = WYKit.endCard(stage, { lang: 'en', line: 'Play the agent economy.' });
   },
   render(t) {
     const cam = camAt(t); const s = sAt(t);

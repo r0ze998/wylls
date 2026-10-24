@@ -1,21 +1,21 @@
-<!doctype html><html><head><meta charset="utf-8"><title>21 AIにも同じルールを</title>
+<!doctype html><html><head><meta charset="utf-8"><title>21 Same rules for AI</title>
 <link rel="stylesheet" href="../../lib/wy.css">
 <script src="../../lib/wy.js"></script><script src="../../lib/wy-audio.js"></script><script src="../../lib/wy-kit.js"></script>
 <script src="wyx.js"></script>
 <style>
   .blk { position: absolute; left: 70px; top: 420px; width: 940px; z-index: 8; text-align: center; }
-  .blk .lb { font: 700 36px var(--sans-jp); letter-spacing: .3em; color: #f0d48a; }
-  .blk .h div { font: 900 78px/1.3 var(--serif-jp); color: #fffaf0; text-shadow: 0 4px 30px rgba(0,0,0,.7); white-space: nowrap; }
+  .blk .lb { font: 700 34px Inter; letter-spacing: .3em; color: #f0d48a; }
+  .blk .h div { font: 700 92px/1.15 'Cormorant Garamond'; color: #fffaf0; text-shadow: 0 4px 30px rgba(0,0,0,.7); white-space: nowrap; }
   .blk .h em { font-style: normal; color: #ffd24d; }
-  .blk .s { font: 500 46px/1.5 var(--sans-jp); color: rgba(255,250,240,.85); margin-top: 18px; }
-  .blk .f { font: 500 34px/1.5 var(--sans-jp); color: #ffd9a0; }
+  .blk .s { font: 500 52px/1.4 Inter; color: rgba(255,250,240,.85); margin-top: 18px; }
+  .blk .f { font: 500 36px/1.5 Inter; color: #ffd9a0; }
   .chip { position: absolute; width: 440px; height: 190px; z-index: 8; display: flex; flex-direction: column; align-items: center; justify-content: center; }
-  .chip b { font: 900 60px var(--serif-jp); color: #fffaf0; }
-  .chip span { font: 500 32px var(--sans-jp); color: rgba(255,250,240,.7); margin-top: 6px; }
+  .chip b { font: 700 64px 'Cormorant Garamond'; color: #fffaf0; }
+  .chip span { font: 500 34px Inter; color: rgba(255,250,240,.7); margin-top: 6px; }
 </style>
 </head><body><script>
 let bg, cv, g, ov, badge, end, hook, same, chips = [], blocks = [], dots;
-const S = { hook: [0, 3.4], same: [3.4, 8.0], L: [[8.0, 12.0], [12.0, 17.2], [17.2, 21.4], [21.4, 25.8], [25.8, 29.8]] };
+const S = { hook: [0, 3.8], same: [3.8, 8.2], L: [[8.2, 12.0], [12.0, 17.0], [17.0, 21.0], [21.0, 25.4], [25.4, 29.6]] };
 const VX = 90, VY = 880, VW = 900, VH = 520; // visual area
 
 WY.scene({
@@ -25,35 +25,35 @@ WY.scene({
     cv = WY.canvas(stage, 1080, 1920); g = cv.getContext('2d'); cv.style.zIndex = 5;
 
     hook = X.lines(stage, [
-      { t: 'AIにも、', css: { font: '900 136px/1.25 var(--serif-jp)', color: '#fffaf0' } },
-      { t: '同じルールを。', css: { font: '900 136px/1.25 var(--serif-jp)', color: '#ffd24d' } },
-      { t: 'ただし、安全のための上限つき。', css: { font: '500 48px var(--sans-jp)', color: 'rgba(255,250,240,.85)', marginTop: '40px' } },
+      { t: 'SAME RULES', css: { font: '700 124px/1.2 Cinzel', color: '#fffaf0' } },
+      { t: 'FOR AI.', css: { font: '700 124px/1.2 Cinzel', color: '#ffd24d' } },
+      { t: 'Plus a few safety limits.', css: { font: '500 56px Inter', color: 'rgba(255,250,240,.88)', marginTop: '44px' } },
     ], { y: 640, lineDelay: 0.35, stagger: 0.05 });
     hook.node.style.zIndex = 8;
 
-    same = X.box(stage, {}, `<div class="lb">人と同じもの</div><div class="h" style="margin-top:20px"><div>AI市民も、人と</div><div>同じ条件で遊ぶ。</div></div>`); same.className = 'blk';
-    [['鍵', '人と同じ仕組み'], ['回数枠', '1時間30回'], ['霧', '見える範囲も同じ'], ['リレー', '同じ割り当て']].forEach(([b, s], i) => {
+    same = X.box(stage, {}, `<div class="lb">SAME AS PEOPLE</div><div class="h" style="margin-top:20px"><div>AI citizens play</div><div>on equal terms.</div></div>`); same.className = 'blk';
+    [['Keys', 'same setup'], ['Rate limit', '30 actions / hour'], ['Fog', 'same fog of war'], ['Relay', 'same quota']].forEach(([b, s], i) => {
       const c = X.box(stage, { left: (i % 2 ? 560 : 80) + 'px', top: 900 + Math.floor(i / 2) * 230 + 'px' }, `<b>${b}</b><span>${s}</span>`); c.className = 'chip wy-panel'; chips.push(c);
     });
 
     const L = [
-      ['候補は、<em>最大12個</em>。', '', 'コードが、合法な手だけを出す。'],
-      ['兵を出せるのは、', '本拠の<em>60%</em>まで。', '1回の判断でも、1日でも。'],
-      ['モデルが選ぶ行軍は、', '<em>1日4回</em>まで。', ''],
-      ['発言は1ターン<em>3回</em>、', '1日<em>40回</em>まで。', ''],
-      ['モデルは、', '<em>鍵を見ない</em>。', ''],
+      ['At most', '<em>12 options</em>.', 'The code offers only legal moves.'],
+      ['Send at most', '<em>60%</em> of home troops.', 'Per decision, and per day.'],
+      ['Model-chosen marches:', '<em>4 a day</em>, max.', ''],
+      ['Speech: <em>3</em> per turn,', '<em>40</em> per day.', ''],
+      ['The model', '<em>never sees keys</em>.', ''],
     ];
-    const SUB = ['', '', '', '', '署名するのは、別のプロセス。'];
-    const FOOT = ['', '200人未満なら、1日の上限と下限はなし。', '', '', ''];
+    const SUB = ['', '', '', '', 'A separate process signs.'];
+    const FOOT = ['', 'Under 200 troops, the daily cap and floor are waived.', '', '', ''];
     L.forEach(([a, b, s], i) => {
-      const d = X.box(stage, {}, `<div class="lb">上限 ${i + 1} / 5</div><div class="h" style="margin-top:20px"><div>${a}</div>${b ? `<div>${b}</div>` : ''}</div><div class="s">${s || SUB[i]}</div>`);
+      const d = X.box(stage, {}, `<div class="lb">LIMIT ${i + 1} OF 5</div><div class="h" style="margin-top:20px"><div>${a}</div>${b ? `<div>${b}</div>` : ''}</div><div class="s">${s || SUB[i]}</div>`);
       d.className = 'blk'; blocks.push({ d, parts: [...d.children] });
-      if (FOOT[i]) { const f = X.box(stage, { left: '70px', top: '1450px', width: '940px', textAlign: 'center', zIndex: 8 }, `<div class="f" style="font:500 32px var(--sans-jp);color:#ffd9a0">${FOOT[i]}</div>`); blocks[i].foot = f; }
+      if (FOOT[i]) { const f = X.box(stage, { left: '70px', top: '1450px', width: '940px', textAlign: 'center', zIndex: 8 }, `<div class="f" style="font:500 34px Inter;color:#ffd9a0">${FOOT[i]}</div>`); blocks[i].foot = f; }
     });
 
-    badge = WYKit.status(stage, 'local', 'ja', { x: 60, y: 1530, size: 30, text: 'ローカルのテスト用チェーンで実行' }); badge.node.style.zIndex = 20;
+    badge = WYKit.status(stage, 'local', 'en', { x: 60, y: 1530, size: 30 }); badge.node.style.zIndex = 20;
     ov = X.overlay(stage);
-    end = WYKit.endCard(stage, { lang: 'ja', line: 'AIにも、同じルールを。' });
+    end = WYKit.endCard(stage, { lang: 'en', line: 'Same rules for AI.' });
   },
 
   render(t) {
@@ -62,7 +62,7 @@ WY.scene({
     g.clearRect(0, 0, 1080, 1920);
     let drew = false;
 
-    hook.render(t, 0.1, 3.1);
+    hook.render(t, 0.05, 3.5);
 
     // same rules
     const [sa, sb] = S.same; const sv = t > sa - 0.1 && t < sb + 0.5;
@@ -124,7 +124,7 @@ function visCands(lt) {
     g.fillStyle = pick ? '#2b1d0a' : '#eafff2'; g.font = '800 40px Inter'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(pick ? '★' : String(i + 1), 0, 2);
     g.restore();
   }
-  g.globalAlpha *= WY.seg(lt, 2.7, 3.1); g.fillStyle = '#ffd24d'; g.font = '700 40px "Noto Sans JP"'; g.textAlign = 'center'; g.fillText('モデルが、ここから1つ選ぶ', 540, VY + VH - 10); g.textAlign = 'left';
+  g.globalAlpha *= WY.seg(lt, 2.7, 3.1); g.fillStyle = '#ffd24d'; g.font = '700 40px Inter'; g.textAlign = 'center'; g.fillText('The model picks one.', 540, VY + VH - 10); g.textAlign = 'left';
 }
 function visTroops(lt) {
   const x0 = 110, w = 860, y = VY + 120, h = 130;
@@ -137,7 +137,7 @@ function visTroops(lt) {
   for (let i = 0; i < 40; i++) { const c = i % 20, r = Math.floor(i / 20); const x = x0 + 22 + c * 42, yy = y + 40 + r * 50; if (x > x0 + wA + w * 0.4 * (i % 20 >= 12 ? WY.seg(lt, 1.6, 2.4) : 1) && c >= 12) continue; if (c < 12 && x > x0 + wA) continue; g.fillStyle = 'rgba(255,250,240,.85)'; g.beginPath(); g.arc(x, yy, 9, 0, 7); g.fill(); }
   g.textAlign = 'center'; g.font = '800 64px Inter'; g.fillStyle = '#ffd24d'; g.fillText('60%', x0 + w * 0.3, y + h + 90);
   g.globalAlpha *= 1; g.fillStyle = '#3fdc93'; g.fillText('40%', x0 + w * 0.8, y + h + 90);
-  g.font = '700 38px "Noto Sans JP"'; g.fillStyle = '#fffaf0'; g.fillText('出せる上限', x0 + w * 0.3, y + h + 150); g.fillText('本拠に残す', x0 + w * 0.8, y + h + 150);
+  g.font = '700 38px Inter'; g.fillStyle = '#fffaf0'; g.fillText('may march', x0 + w * 0.3, y + h + 150); g.fillText('stays home', x0 + w * 0.8, y + h + 150);
   g.textAlign = 'left';
 }
 function visMarches(lt) {
@@ -153,7 +153,7 @@ function visMarches(lt) {
     if (over) { g.strokeStyle = '#ff5a64'; g.lineWidth = 10; g.beginPath(); g.moveTo(-60, -80); g.lineTo(60, 80); g.moveTo(60, -80); g.lineTo(-60, 80); g.stroke(); }
     g.restore();
   }
-  g.globalAlpha *= WY.seg(lt, 2.6, 3.0); g.textAlign = 'center'; g.font = '700 38px "Noto Sans JP"'; g.fillStyle = 'rgba(255,250,240,.85)'; g.fillText('5回目は出せない', 540, VY + 400); g.textAlign = 'left';
+  g.globalAlpha *= WY.seg(lt, 2.6, 3.0); g.textAlign = 'center'; g.font = '700 38px Inter'; g.fillStyle = 'rgba(255,250,240,.85)'; g.fillText('No fifth march.', 540, VY + 400); g.textAlign = 'left';
 }
 function visSpeech(lt) {
   const y = VY + 150;
@@ -164,18 +164,18 @@ function visSpeech(lt) {
     g.fillStyle = 'rgba(43,32,19,.25)'; for (let l = 0; l < 3; l++) g.fillRect(-90, -40 + l * 30, 180 - l * 40, 12);
     g.restore();
   }
-  g.textAlign = 'center'; g.fillStyle = 'rgba(255,250,240,.7)'; g.font = '700 36px "Noto Sans JP"'; g.fillText('1ターン', 540, y + 160);
+  g.textAlign = 'center'; g.fillStyle = 'rgba(255,250,240,.7)'; g.font = '700 36px Inter'; g.fillText('per turn', 540, y + 160);
   const kc = WY.seg(lt, 1.8, 3.0, WY.ease.outQuart);
   g.globalAlpha *= WY.seg(lt, 1.6, 2.0);
-  g.font = '800 120px Inter'; g.fillStyle = '#ffd24d'; g.fillText(Math.round(40 * kc) + ' / 日', 540, y + 330);
+  g.font = '800 120px Inter'; g.fillStyle = '#ffd24d'; g.fillText(Math.round(40 * kc) + ' / day', 540, y + 330);
   g.textAlign = 'left';
 }
 function visKeys(lt) {
   const y = VY + 160;
-  const box = (x, title, sub, gold) => { g.fillStyle = 'rgba(16,36,29,.95)'; g.strokeStyle = gold ? '#ffd24d' : '#c9a24a'; g.lineWidth = 4; g.beginPath(); g.roundRect(x - 190, y - 110, 380, 220, 20); g.fill(); g.stroke(); g.textAlign = 'center'; g.fillStyle = '#fffaf0'; g.font = '900 52px "Noto Serif JP"'; g.fillText(title, x, y - 20); g.font = '500 32px "Noto Sans JP"'; g.fillStyle = 'rgba(255,250,240,.75)'; g.fillText(sub, x, y + 40); };
+  const box = (x, title, sub, gold) => { g.fillStyle = 'rgba(16,36,29,.95)'; g.strokeStyle = gold ? '#ffd24d' : '#c9a24a'; g.lineWidth = 4; g.beginPath(); g.roundRect(x - 190, y - 110, 380, 220, 20); g.fill(); g.stroke(); g.textAlign = 'center'; g.fillStyle = '#fffaf0'; g.font = '700 56px "Cormorant Garamond"'; g.fillText(title, x, y - 20); g.font = '500 32px Inter'; g.fillStyle = 'rgba(255,250,240,.75)'; g.fillText(sub, x, y + 40); };
   const k1 = WY.seg(lt, 0.5, 1.0, WY.ease.outCubic), k2 = WY.seg(lt, 0.9, 1.4, WY.ease.outCubic);
-  g.save(); g.globalAlpha *= k1; box(300, 'マインド', 'モデルを呼ぶ', false); g.restore();
-  g.save(); g.globalAlpha *= k2; box(780, 'ブレイン', '署名する', true); g.restore();
+  g.save(); g.globalAlpha *= k1; box(300, 'Mind', 'calls the model', false); g.restore();
+  g.save(); g.globalAlpha *= k2; box(780, 'Brain', 'signs', true); g.restore();
   // key icon in the brain, crossed key over the mind
   const key = (x, yy, s, col) => { g.save(); g.translate(x, yy); g.scale(s, s); g.strokeStyle = col; g.lineWidth = 9; g.beginPath(); g.arc(-26, 0, 20, 0, 7); g.stroke(); g.beginPath(); g.moveTo(-6, 0); g.lineTo(46, 0); g.moveTo(30, 0); g.lineTo(30, 18); g.moveTo(44, 0); g.lineTo(44, 14); g.stroke(); g.restore(); };
   const kk = WY.seg(lt, 1.3, 1.8, WY.ease.outBack);

@@ -1,4 +1,4 @@
-<!doctype html><html><head><meta charset="utf-8"><title>04 thesis-will-ja</title>
+<!doctype html><html><head><meta charset="utf-8"><title>04 thesis-will-en</title>
 <link rel="stylesheet" href="../../lib/wy.css">
 <script src="../../lib/wy.js"></script><script src="../../lib/wy-audio.js"></script>
 <script src="../../lib/wy-map.js"></script><script src="../../lib/wy-kit.js"></script>
@@ -6,25 +6,26 @@
 <style>
   .card { position:absolute; left:110px; top:150px; width:1700px; height:760px; }
   .card .num { position:absolute; left:70px; top:40px; font:900 230px/1 Cinzel, serif; color:#f0d48a; text-shadow:0 10px 40px rgba(0,0,0,.5) }
-  .card .ttl { position:absolute; left:70px; top:300px; width:860px; font:800 92px/1.25 var(--serif-jp); color:#fffaf0 }
-  .card .exp { position:absolute; left:74px; top:440px; width:820px; font:600 40px/1.6 var(--sans-jp); color:rgba(255,250,240,.86) }
+  .card .ttl { position:absolute; left:70px; top:290px; width:860px; font:700 88px/1.08 'Cormorant Garamond', serif; color:#fffaf0 }
+  .card .acc { font:600 30px var(--serif-jp); color:rgba(240,212,138,.6); letter-spacing:.2em; margin-left:18px; vertical-align:middle }
+  .card .exp { position:absolute; left:74px; top:420px; width:840px; font:500 38px/1.5 var(--sans); color:rgba(255,250,240,.86) }
   .card .vis { position:absolute; left:960px; top:70px; width:660px; height:620px; }
-  .mini { position:absolute; border-radius:14px; background:rgba(9,22,17,.85); border:1.5px solid rgba(201,162,74,.5); color:#fffaf0; font:600 30px/1.4 var(--sans-jp); padding:18px 24px }
-  .lab { font:700 22px var(--sans-jp); color:#f0d48a; letter-spacing:.06em; margin-bottom:8px }
+  .mini { position:absolute; border-radius:14px; background:rgba(9,22,17,.85); border:1.5px solid rgba(201,162,74,.5); color:#fffaf0; font:500 30px/1.4 var(--sans); padding:18px 24px }
+  .lab { font:600 21px var(--sans); color:#f0d48a; letter-spacing:.08em; text-transform:uppercase; margin-bottom:8px }
   .bar { height:14px; border-radius:7px; background:rgba(255,255,255,.12); overflow:hidden; margin-top:10px } .bar i { display:block; height:100%; background:linear-gradient(90deg,#c9a24a,#ffd24d) }
   .pip { position:absolute; width:16px; height:16px; border-radius:50%; background:rgba(240,212,138,.25); border:1.5px solid rgba(240,212,138,.6) }
 </style>
 </head><body><script>
 const W = 1920, H = 1080, B = 0.75;
-const T = { will: 0.3, morph: 2.4, kanji: 3.6, q: 8.0, honest: 15.0, honest2: 18.0, forms: 24.75, end: 45.0 };
+const T = { will: 0.3, morph: 2.4, kanji: 3.6, q: 8.0, honest: 14.6, honest2: 17.4, forms: 24.75, end: 45.0 };
 const E = WY.ease, seg = WY.seg, clamp = WY.clamp, lerp = WY.lerp;
 let ctx, world, ov, flash, L = {}, end, word, slots = {}, tile, cards = [], pips = [], dust, badges = [], fnotes = [];
 const FORMS = [
-  { n: 'I', ttl: '続く目標', exp: 'ペルソナごとに4つの目標。<br>ターンをまたいで持ち越され、<br>公開カードに進捗が載る。', badge: 'local' },
-  { n: 'II', ttl: '記憶を引用する理由', exp: 'コードが公開記録から書いた<br>「記憶の行」を、モデルは<br>理由の中で引用できる。', badge: 'local' },
-  { n: 'III', ttl: '信頼と、<br>未解決の不満', exp: '誰を信頼し、どの仕打ちが<br>まだ報われていないか。<br>それが記録として残る。', badge: 'local', note: 'この形は、正式な本番実行ではまだ確認されていません。' },
-  { n: 'IV', ttl: '命令を断る権利', exp: '評議会の攻撃命令を、<br>AI市民は公に<br>断ることができる。', badge: 'code', btxt: 'コード実装済み · 実行での記録なし', note: 'この形は、正式な本番実行ではまだ確認されていません。攻撃命令が採択された記録もまだありません。' },
-  { n: 'V', ttl: '評議会での<br>発言と投票', exp: 'コードが標的を最大3つ示し、<br>市民が発言して投票する。<br>評議会はオフチェーン。', badge: 'code', note: '記録された実行では、まだ攻撃命令は採択されていません。' },
+  { n: 'I', ttl: 'Lasting goals', acc: '目標', exp: 'Each persona carries four goals<br>from turn to turn. Progress shows<br>on its public Wyll card.', badge: 'local' },
+  { n: 'II', ttl: 'Reasons that<br>cite memory', acc: '引用', exp: 'Code writes memory lines from<br>public records. The model may<br>cite them in its reason.', badge: 'local' },
+  { n: 'III', ttl: 'Trust, and<br>unanswered grievances', acc: '信頼', exp: 'Who it trusts, and which wrongs<br>are still unanswered — kept<br>on the record.', badge: 'local', note: 'This form is not yet confirmed by the formal main run.' },
+  { n: 'IV', ttl: 'The right to<br>refuse an order', acc: '辞退', exp: 'An AI citizen may publicly<br>decline the council\'s<br>Strike Order.', badge: 'code', btxt: 'Built in code · never recorded in a run', note: 'Not yet confirmed by the formal main run. No Strike Order has been adopted in any recorded run.' },
+  { n: 'V', ttl: 'A voice and a vote<br>in the council', acc: '評議会', exp: 'Code proposes up to 3 targets;<br>citizens speak and vote.<br>The council is off-chain.', badge: 'code', note: 'No Strike Order has been adopted in any recorded run.' },
 ];
 
 WY.scene({
@@ -38,28 +39,28 @@ WY.scene({
     const mk = (txt, wEm) => { const s = WY.el('span', {}, word); WY.css(s, { display: 'inline-block', position: 'relative', width: wEm + 'em', height: '1em', overflow: 'visible', textAlign: 'center' }); const a = WY.el('span', { text: txt }, s); WY.css(a, { position: 'absolute', left: '0px', right: '0px', bottom: '0px' }); return { s, a }; };
     slots.W = mk('W', 0.94); slots.i = mk('i', 0.27); const y = WY.el('span', { text: 'y' }, slots.i.s); WY.css(y, { position: 'absolute', left: '0px', right: '0px', bottom: '0px', color: '#ffd24d' }); slots.y = y;
     slots.l1 = mk('l', 0.26); slots.l2 = mk('l', 0.26); slots.s = mk('s', 0.36); slots.s.a.style.color = '#ffd24d';
-    L.kanji = TK.line(stage, ['意志'], { y: 560, size: 170, weight: 900, ls: 0.2, stagger: 0.12 });
-    L.eq = TK.block(stage, 'Wylls = will(意志)', { left: '0px', width: W + 'px', top: '800px', textAlign: 'center', font: '600 46px var(--sans-jp)', color: 'rgba(240,212,138,.95)', letterSpacing: '.06em' });
+    L.kanji = TK.line(stage, ['will'], { y: 570, size: 120, font: '"Cormorant Garamond", serif', weight: 600, ls: 0.3, stagger: 0.12, color: '#ffe7b0', style: 'drop' });
+    L.eq = TK.block(stage, 'the name comes from <i>will</i> &nbsp;<span style="font:600 34px var(--serif-jp);opacity:.6;letter-spacing:.2em">意志</span>', { left: '0px', width: W + 'px', top: '780px', textAlign: 'center', font: '500 40px var(--sans)', color: 'rgba(240,212,138,.95)', letterSpacing: '.04em' });
     // ----- question
-    L.q1 = TK.line(stage, ['AIに意志があったら、'], { y: 360, size: 100, stagger: 0.05 });
-    L.q2 = TK.line(stage, ['ゲームはどう振る舞うのか。'], { y: 520, size: 100, stagger: 0.05 });
-    L.qn = TK.block(stage, 'Wylls の思考実験', { left: '0px', width: W + 'px', top: '720px', textAlign: 'center', font: '600 40px var(--sans-jp)', color: 'rgba(240,212,138,.9)', letterSpacing: '.1em' });
+    L.q1 = TK.line(stage, ['What happens to a game'], { y: 350, size: 108, font: '"Cormorant Garamond", serif', weight: 700, ls: 0.01, stagger: 0.025 });
+    L.q2 = TK.line(stage, ['when AI has a will?'], { y: 490, size: 120, font: '"Cormorant Garamond", serif', weight: 700, ls: 0.01, stagger: 0.03, color: '#ffe7b0', style: 'drop' });
+    L.qn = TK.block(stage, 'THE WYLLS THOUGHT EXPERIMENT', { left: '0px', width: W + 'px', top: '720px', textAlign: 'center', font: '600 30px var(--sans)', color: 'rgba(240,212,138,.9)', letterSpacing: '.3em' });
     // ----- honest framing
-    L.h1 = TK.line(stage, ['モデルが何かを「望んでいる」とは、言わない。'], { y: 330, size: 66, weight: 700, stagger: 0.035 });
-    L.h2 = TK.line(stage, ['意志は、仕組みがつくり、外から見せるもの。'], { y: 520, size: 70, weight: 800, color: '#ffe7b0', stagger: 0.035 });
-    L.h3 = TK.block(stage, 'その形は、五つ。', { left: '0px', width: W + 'px', top: '740px', textAlign: 'center', font: '700 52px var(--sans-jp)', color: '#fffaf0' });
+    L.h1 = TK.line(stage, ['We don\'t claim the model wants anything.'], { y: 300, size: 80, font: '"Cormorant Garamond", serif', weight: 700, ls: 0.01, stagger: 0.018 });
+    L.h2 = TK.line(stage, ['Will is something the system builds —', 'and shows from the outside.'], { y: 450, size: 80, font: '"Cormorant Garamond", serif', weight: 700, color: '#ffe7b0', ls: 0.01, stagger: 0.015, lh: 1.2 });
+    L.h3 = TK.block(stage, 'It takes five visible forms.', { left: '0px', width: W + 'px', top: '760px', textAlign: 'center', font: '600 48px var(--sans)', color: '#fffaf0' });
     // ----- five cards
     FORMS.forEach((f, i) => {
       const c = WY.el('div', { class: 'card wy-panel' }, stage); c.style.zIndex = 25;
-      c.innerHTML = `<div class="num">${f.n}</div><div class="ttl">${f.ttl}</div><div class="exp">${f.exp}</div><div class="vis"></div>`;
-      if (f.ttl.includes('<br>')) { c.querySelector('.exp').style.top = '515px'; c.querySelector('.ttl').style.top = '262px'; }
+      c.innerHTML = `<div class="num">${f.n}<span class="acc">${f.acc}</span></div><div class="ttl">${f.ttl}</div><div class="exp">${f.exp}</div><div class="vis"></div>`;
+      if (f.ttl.includes('<br>')) { c.querySelector('.exp').style.top = '500px'; c.querySelector('.ttl').style.top = '270px'; }
       const vis = c.querySelector('.vis'); const parts = buildVis(i, vis);
       cards.push({ node: c, parts });
-      const b = WYKit.status(stage, f.badge, 'ja', { x: 80, y: 60, text: f.btxt || (f.badge === 'code' ? 'コード実装済み · 採択の記録なし' : 'ローカル実行で記録') }); b.node.style.zIndex = 53; badges.push(b);
-      fnotes.push(f.note ? TK.note(stage, f.note, { y: 960, size: 28, align: 'center', x: 80 }) : null);
+      const b = WYKit.status(stage, f.badge, 'en', { x: 80, y: 60, text: f.btxt || (f.badge === 'code' ? 'Built in code · no adoption on record' : 'Recorded in local runs') }); b.node.style.zIndex = 53; badges.push(b);
+      fnotes.push(f.note ? TK.note(stage, f.note, { y: 960, size: 28, align: 'center', x: 80, lang: 'en' }) : null);
       const p = WY.el('div', { class: 'pip' }, stage); WY.css(p, { left: W / 2 - 70 + i * 32 + 'px', top: '935px', zIndex: 30 }); pips.push(p);
     });
-    end = TK.end(stage, { lang: 'ja', line: '意志を持つAIと、ひとつの地図を。', sub: '人とAI市民が、ひとつの地図を争える戦略ゲーム' });
+    end = TK.end(stage, { lang: 'en', line: 'Play the agent economy.', sub: 'A strategy game where people and AI citizens can fight for one map' });
     dust = WYKit.dust(stage, { count: 70, z: 8 });
     ov = TK.overlays(stage); flash = WYKit.flash(stage, { color: '#fff6e0' });
   },
@@ -151,16 +152,16 @@ function buildVis(i, vis) {
   const box = (html, css) => { const d = WY.el('div', { class: 'mini', html }, vis); WY.css(d, css); return d; };
   const fade = (n, k, a, d = 0.5) => { const p = E.outCubic(seg(k, a, a + d)); n.style.opacity = p; n.style.transform = `translateY(${(1 - p) * 20}px)`; };
   if (i === 0) {
-    const head = box('<div class="lab">Wyllカード(例)</div><div style="font:700 34px var(--sans-jp)">目標</div>', { left: '0px', top: '0px', width: '640px' });
-    const rows = ['目標 1', '目標 2', '目標 3', '目標 4'].map((s, j) => box(`<div style="display:flex;justify-content:space-between"><span>${s}</span><span style="color:rgba(255,250,240,.55);font-size:24px">進捗</span></div><div class="bar"><i></i></div>`, { left: '0px', top: 150 + j * 112 + 'px', width: '640px', padding: '14px 24px' }));
+    const head = box('<div class="lab">Wyll card (example)</div><div style="font:700 34px var(--sans)">Goals</div>', { left: '0px', top: '0px', width: '640px' });
+    const rows = ['Goal 1', 'Goal 2', 'Goal 3', 'Goal 4'].map((s, j) => box(`<div style="display:flex;justify-content:space-between"><span>${s}</span><span style="color:rgba(255,250,240,.55);font-size:24px">progress</span></div><div class="bar"><i></i></div>`, { left: '0px', top: 150 + j * 112 + 'px', width: '640px', padding: '14px 24px' }));
     const lens = [0.62, 0.35, 0.18, 0.08];
     return k => { fade(head, k, 0.3); rows.forEach((r, j) => { fade(r, k, 0.6 + j * 0.18); r.querySelector('i').style.width = lens[j] * 100 * E.outCubic(seg(k, 1.0 + j * 0.15, 2.4 + j * 0.15)) + '%'; }); };
   }
   if (i === 1) {
-    const mem = box('<div class="lab">記憶の行(例)— コードが書く</div>ターン 33:北の野営地で衝突があった', { left: '0px', top: '20px', width: '640px' });
-    const why = box('<div class="lab">理由(例)— モデルが書いた · 未検証</div>「北の野営地を攻める。<span style="background:rgba(255,210,77,.25);border-bottom:2px solid #ffd24d">記憶 #1 を引用</span>」', { left: '0px', top: '300px', width: '640px' });
+    const mem = box('<div class="lab">Memory line (example) · written by code</div>Turn 33: a clash at the northern camp', { left: '0px', top: '20px', width: '640px' });
+    const why = box('<div class="lab">Reason (example) · model-written, not verified</div>“Strike the northern camp.” <span style="background:rgba(255,210,77,.25);border-bottom:2px solid #ffd24d">cites memory #1</span>', { left: '0px', top: '300px', width: '640px' });
     const ln = WY.el('div', {}, vis); WY.css(ln, { position: 'absolute', left: '320px', top: '150px', width: '4px', height: '0px', background: '#ffd24d', boxShadow: '0 0 14px rgba(255,210,77,.8)' });
-    const cav = box('引用は「見せられ、名指しされた」ことを示すだけ。選択の原因とは言えない。', { left: '0px', top: '500px', width: '640px', font: '600 26px/1.5 var(--sans-jp)', color: 'rgba(255,250,240,.75)', background: 'transparent', border: 'none', padding: '0 4px' });
+    const cav = box('A citation shows a line was shown and named — not that it caused the choice.', { left: '0px', top: '500px', width: '640px', font: '500 27px/1.45 var(--sans)', color: 'rgba(255,250,240,.75)', background: 'transparent', border: 'none', padding: '0 4px' });
     return k => { fade(mem, k, 0.3); fade(why, k, 1.2); ln.style.height = 150 * E.inOutCubic(seg(k, 0.8, 1.3)) + 'px'; fade(cav, k, 2.0); };
   }
   if (i === 2) {
@@ -169,19 +170,19 @@ function buildVis(i, vis) {
     const lines = [];
     for (let a = 0; a < 6; a++) for (let b = a + 1; b < 6; b++) { const bad = a === 0 && b === 3; const l = WY.el('line', { x1: P[a][0], y1: P[a][1], x2: P[b][0], y2: P[b][1], stroke: bad ? '#e0525c' : 'rgba(159,224,176,.6)', 'stroke-width': bad ? 6 : 2.5, 'stroke-dasharray': bad ? '14 10' : '0', opacity: 0 }, svg); lines.push([l, bad]); }
     const crests = P.map(([x, y], j) => { const g = WY.el('g', {}, svg); g.innerHTML = WY.crest(j, 90).replace('<svg', `<svg x="${x - 39}" y="${y - 45}"`); return g; });
-    const tag = box('未解決の不満(例)', { left: '200px', top: '262px', width: '240px', textAlign: 'center', color: '#ffb3b8', border: '1.5px solid #e0525c', padding: '10px 14px', font: '700 28px var(--sans-jp)' });
+    const tag = box('Unanswered<br>grievance (example)', { left: '170px', top: '250px', width: '300px', textAlign: 'center', color: '#ffb3b8', border: '1.5px solid #e0525c', padding: '10px 14px', font: '600 26px/1.3 var(--sans)' });
     return k => { crests.forEach((c, j) => { const p = E.outBack(seg(k, 0.2 + j * 0.08, 0.6 + j * 0.08)); c.setAttribute('opacity', clamp(p)); }); lines.forEach(([l, bad], j) => l.setAttribute('opacity', bad ? seg(k, 1.6, 2.0) : seg(k, 0.8 + j * 0.03, 1.2 + j * 0.03) * 0.8)); fade(tag, k, 2.0); };
   }
   if (i === 3) {
-    const ord = box('<div class="lab">評議会</div><div style="font:800 46px var(--serif-jp);margin:6px 0 10px">攻撃命令(例)</div>標的:評議会が選んだ1つ<br>採択後、攻撃の2ターン後まで封印', { left: '30px', top: '60px', width: '580px', padding: '26px 30px' });
-    const st = WY.el('div', { html: '辞退' }, vis); WY.css(st, { position: 'absolute', left: '380px', top: '370px', font: '900 64px var(--serif-jp)', color: '#e0525c', border: '6px solid #e0525c', borderRadius: '14px', padding: '0 20px', transform: 'rotate(-14deg)', opacity: 0, background: 'rgba(30,8,10,.4)' });
-    const pub = box('辞退は公開される', { left: '30px', top: '520px', width: '580px', textAlign: 'center', font: '700 32px var(--sans-jp)' });
+    const ord = box('<div class="lab">Council · 評議会</div><div style="font:700 50px Cormorant Garamond, serif;margin:6px 0 10px">Strike Order (example)</div>Target: one the council chose<br>Sealed until 2 turns after the strike', { left: '30px', top: '60px', width: '580px', padding: '26px 30px' });
+    const st = WY.el('div', { html: 'DECLINED' }, vis); WY.css(st, { position: 'absolute', left: '300px', top: '370px', font: '900 56px Cinzel, serif', color: '#e0525c', border: '6px solid #e0525c', borderRadius: '14px', padding: '0 20px', transform: 'rotate(-14deg)', opacity: 0, background: 'rgba(30,8,10,.4)' });
+    const pub = box('Declining is public', { left: '30px', top: '520px', width: '580px', textAlign: 'center', font: '600 32px var(--sans)' });
     return k => { fade(ord, k, 0.3); const p = seg(k, 1.8, 2.05); st.style.opacity = p > 0 ? 1 : 0; st.style.transform = `rotate(-14deg) scale(${lerp(2.4, 1, E.inQuad(p))})`; fade(pub, k, 2.4); };
   }
-  const bub = [['発言', 'この野営地を、まず片づけよう。(例)'], ['発言', 'いや、東の守りが先だ。(例)']].map(([a, b], j) => box(`<div class="lab">${a}</div>${b}`, { left: j ? '120px' : '0px', top: j * 150 + 'px', width: '520px' }));
-  const tally = box('<div class="lab">投票のきまり(例)— 2票以上、かつ他より多いこと</div><div class="tl"></div>', { left: '0px', top: '330px', width: '640px' });
-  const tl = tally.querySelector('.tl'); const opts = [['標的 A', 2], ['標的 B', 1], ['標的 C', 0]];
-  tl.innerHTML = opts.map(([n]) => `<div style="display:flex;align-items:center;gap:16px;margin-top:10px"><span style="width:110px">${n}</span><span class="v" style="display:flex;gap:8px"></span></div>`).join('');
+  const bub = [['Speech (example)', '“Clear this camp first.”'], ['Speech (example)', '“No — guard the east.”']].map(([a, b], j) => box(`<div class="lab">${a}</div>${b}`, { left: j ? '120px' : '0px', top: j * 150 + 'px', width: '520px' }));
+  const tally = box('<div class="lab">Voting rule (example): 2+ votes, more than any other</div><div class="tl"></div>', { left: '0px', top: '330px', width: '640px' });
+  const tl = tally.querySelector('.tl'); const opts = [['Target A', 2], ['Target B', 1], ['Target C', 0]];
+  tl.innerHTML = opts.map(([n]) => `<div style="display:flex;align-items:center;gap:16px;margin-top:10px"><span style="width:150px">${n}</span><span class="v" style="display:flex;gap:8px"></span></div>`).join('');
   const vs = [...tl.querySelectorAll('.v')];
   return k => { bub.forEach((b, j) => fade(b, k, 0.3 + j * 0.6)); fade(tally, k, 1.4); vs.forEach((v, j) => { const n = Math.min(opts[j][1], Math.floor(seg(k, 1.8, 2.8) * 3)); v.innerHTML = '●'.repeat(n).split('').map(() => '<span style="color:#ffd24d;font-size:30px">●</span>').join(''); }); };
 }

@@ -121,7 +121,8 @@ WY.scene({
     panel = shade;
     const gC = WY.canvas(stage, 1920, 1080); gC.style.zIndex = 8; gx = gC.getContext('2d');
     // title
-    beats.push(K.text(stage, 'The S1 update', { left: 0, width: '1920px', top: '360px', textAlign: 'center', font: '700 150px/1.1 \'Cormorant Garamond\'', color: '#fffaf0', textShadow: '0 8px 50px rgba(0,0,0,.8)' }, { a: 0.4, b: 4.6, mode: 'words', stagger: 0.14, dur: 0.9, z: 12 }));
+    const tdim = WY.el('div', { class: 'wy-fill' }, stage); WY.css(tdim, { zIndex: 11, background: 'radial-gradient(ellipse 60% 40% at 50% 47%, rgba(5,10,8,.72), rgba(5,10,8,0))', opacity: 0 }); window.__tdim = tdim;
+    beats.push(K.text(stage, 'The S1 update', { left: 0, width: '1920px', top: '360px', textAlign: 'center', font: '700 150px/1.1 \'Cormorant Garamond\'', fontVariantNumeric: 'lining-nums', color: '#fffaf0', textShadow: '0 8px 50px rgba(0,0,0,.8)' }, { a: 0.4, b: 4.6, mode: 'words', stagger: 0.14, dur: 0.9, z: 12 }));
     beats.push(K.text(stage, 'What Stage 1 put into the code', { left: 0, width: '1920px', top: '560px', textAlign: 'center', font: '600 44px Inter', color: 'rgba(255,250,240,.88)', textShadow: '0 2px 20px rgba(0,0,0,.9)' }, { mode: 'words', stagger: 0.06, a: 1.4, b: 4.6, z: 12 }));
     const add = (html, cls, top, a, b, extra = {}) => { const x = K.text(stage, html, Object.assign({ left: '100px', top: top + 'px' }, extra), { a, b, z: 12, mode: 'words', stagger: cls === 'ttl' ? 0.09 : 0.04, dur: 0.8 }); x.node.className += ' ' + cls; beats.push(x); };
     const feat = (n, title, body, chips, a, b, opt = {}) => {
@@ -152,6 +153,7 @@ WY.scene({
     mc.clearRect(0, 0, 1920, 1080);
     WYMap.draw(mc, world, cam, { t, appear: tl => t > 4 ? 1 : WY.seg(t, tl.ring * 0.22, tl.ring * 0.22 + 0.7), wash: () => 0.22, fog: tl => (tl.ring >= 8 ? 0.7 * WY.seg(t, 1.6, 2.6) : 0) });
     // shade fades in after the title
+    window.__tdim.style.opacity = WY.env(t, 0.2, 4.6, 0.6, 0.5);
     panel.style.opacity = WY.seg(t, 4.6, 5.4) * (1 - WY.seg(t, F.end - 0.2, F.end));
     beats.forEach(b => b.render(t)); ov.render(t);
     badge.render(t, 4.8, F.end - 0.3);
