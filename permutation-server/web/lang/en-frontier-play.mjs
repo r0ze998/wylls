@@ -350,6 +350,7 @@ export default {
   '地形': 'Terrain',
   '村を持つ国': 'Nations with villages here',
   'あなたの村': 'Your village',
+  'あなたのもの': 'Yours',
   '守備隊': 'Garrison',
   '保護': 'Shield',
   '保護中（攻撃されません）': 'Shielded (cannot be attacked)',
