@@ -24,6 +24,16 @@
 </header>
 <section id="pairs"></section>
 <section>
+  <h2>S1 の世界（本物のローカルチェーン、季 303）</h2>
+  <p class="note">見本ではなく、ローカルの S1 の世界で参加し、倉と柵を実際に建てた（04-VERIFY 3 回目）。1 は直す前：規則モジュールが季節と合わず、地形も村も描かれない。2〜5 は直した後。アプリの中のブラウザで撮った。</p>
+  <div id="s1live" class="pair"></div>
+</section>
+<section>
+  <h2>命令の札と報告を、状態ごとに</h2>
+  <p class="note">見本の世界で、同じ進軍を 8 つの状態で撮り、それぞれ確かめた（permutation-gateway/screens/uplift-states.mjs）。</p>
+  <div id="states" class="pair"></div>
+</section>
+<section>
   <h2>美術方針の比較（プレビュー）</h2>
   <p class="note">同じ場面を 3 案で描いた。A を推奨（01-ART-DIRECTION）。未実装の機能は A の上のプレビュー。</p>
   <div id="dirs" class="pair"></div>
@@ -42,12 +52,19 @@
   const PH = [['s01-rest-phone', '普段（スマホ）'], ['s02-village-phone', '村を選ぶ（スマホ）'], ['s04-compose-phone', '進軍の命令（スマホ）'], ['s10-compare-phone', '構えを比べる（スマホ）']];
   const pairs = document.getElementById('pairs');
   // (only after: the lens on an S1 season, a sample)
-  const ONLY_AFTER = [['s11-orelens-desk', 'S1 の季の村のレンズ（見本）：鉱石の出どころを言う']];
+  const ONLY_AFTER = [['s11-orelens-desk', 'S1 の季の村のレンズ（見本）：鉱石の出どころを言う'], ['s12-mid-desk', '中くらいの縮尺：村の格の札と国旗はここでも読める'], ['s13-mid2-desk', 'もう一段引いた縮尺']];
   for (const [s, t] of [...P, ...PH]) {
     const phone = s.endsWith('phone');
     pairs.insertAdjacentHTML('beforeend', `<h2>${t}</h2><div class="pair${phone ? ' phone' : ''}"><figure><img src="before/${s}.jpg" alt="変更前：${t}" loading="lazy"><figcaption>変更前</figcaption></figure><figure><img src="after/${s}.jpg" alt="変更後：${t}" loading="lazy"><figcaption>変更後</figcaption></figure></div>`);
   }
   for (const [s, t] of ONLY_AFTER) pairs.insertAdjacentHTML('beforeend', `<h2>${t}</h2><div class="pair"><figure><img src="after/${s}.jpg" alt="${t}" loading="lazy"><figcaption>変更後のみ</figcaption></figure></div>`);
+  const fig = (src, t) => `<figure><img src="${src}" alt="${t}" loading="lazy"><figcaption>${t}</figcaption></figure>`;
+  const s1 = document.getElementById('s1live');
+  for (const [f, t] of [['1-before-ruleset', '1 直す前：規則モジュールの不一致で、州は平らな色だけ'], ['2-after-kernel', '2 S1 の規則モジュールで、地形・村・まわりの砦'], ['3-vault', '3 建てた倉（スレートの屋根、金の輪はあなたの物）'], ['4-vault-card', '4 倉のマスを押す：「倉庫 · あなたのもの」'], ['5-palisade', '5 建てた柵（測量の浅い土地の上）']])
+    s1.insertAdjacentHTML('beforeend', fig(`s1live/${f}.jpg`, t));
+  const st = document.getElementById('states');
+  for (const [f, t] of [['kbd', 'キーボード：矢印で構えを選ぶ'], ['motion', '動きを減らす'], ['nokernel', '規則モジュールなし：予測を作らない'], ['relaydown', '中継が落ちている：送れなかったと言う'], ['en360', '英語・幅 360'], ['grey', '色なし：言葉と形で区別'], ['report', '報告：予測と確定、幅の外'], ['report-none', '報告：予測を持たない端末']])
+    st.insertAdjacentHTML('beforeend', fig(`states/${f}.jpg`, t));
   const dirs = document.getElementById('dirs');
   for (const [f, t] of [['all-rest', '3 案：普段'], ['all-select', '3 案：選ぶ・比べる'], ['A-select', 'A：選ぶ・比べる'], ['A-result', 'A：結果（予測と確定）'], ['B-select', 'B：選ぶ・比べる'], ['C-select', 'C：選ぶ・比べる'], ['A-caravan', 'プレビュー：隊商を送る'], ['A-raid', 'プレビュー：奪うか焼くか'], ['A-ai', 'プレビュー：AI の代理の状態'], ['A-season', 'プレビュー：戦期']])
     dirs.insertAdjacentHTML('beforeend', `<figure><img src="directions/${f}.jpg" alt="${t}" loading="lazy"><figcaption>${t}</figcaption></figure>`);
