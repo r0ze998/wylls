@@ -70,15 +70,15 @@ export function paintBlend(g, tiles, { nameAt, colourAt, paints = () => true } =
   g.save();
   for (const t of tiles) {
     if (!LAND.has(t.name) || !paints(t.q, t.r)) continue;
+    // (each wedge is the middle and four corners of the tile's own hexagon: inside it, with no clip; a clip a tile made
+    // the blend the dearest part of a bitmap after the swell)
     const pts = hexPoints(t.x, t.y, 0);
-    let clipped = false;
     for (let k = 0; k < 6; k++) {
       const [dq, dr] = EDGE_DIRS[k], nq = t.q + dq, nr = t.r + dr, nb = nameAt(nq, nr);
       if (!nb || nb === t.name || !LAND.has(nb) || !paints(nq, nr)) continue;
       // (forest and grassland lie on the same baked ground, and hills under a mountain: the same colour meets itself)
       const col = colourAt(nq, nr);
       if (!col) continue;
-      if (!clipped) { g.save(); g.beginPath(); hexPath(g, t.x, t.y, -0.3); g.clip(); clipped = true; }
       const [ia, ib] = ends(k), a = pts[ia], b = pts[ib], mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2;
       const ex = mx + (t.x - mx) * BLEND.depth, ey = my + (t.y - my) * BLEND.depth;
       const gr = g.createLinearGradient(mx, my, ex, ey);
@@ -88,7 +88,6 @@ export function paintBlend(g, tiles, { nameAt, colourAt, paints = () => true } =
       const [i0, i3] = beyond(k), p0 = pts[i0], p3 = pts[i3];
       g.beginPath(); g.moveTo(t.x, t.y); g.lineTo(p0[0], p0[1]); g.lineTo(a[0], a[1]); g.lineTo(b[0], b[1]); g.lineTo(p3[0], p3[1]); g.closePath(); g.fill();
     }
-    if (clipped) g.restore();
   }
   g.restore();
 }
@@ -120,7 +119,12 @@ export function paintSwell(g, tiles, { nameAt, paints = () => true } = {}) {
   g.beginPath(); for (const t of here) hexPath(g, t.x, t.y, -0.3); g.clip();
   g.globalCompositeOperation = 'soft-light';
   const rad = RADIUS * MACRO.reach;
-  for (const c of seeds.values()) {
+  // (the swell is a wash of waves some 500 world px long: it is laid on a sheet at SWELL_RES of a world px and put
+  // over the land once, soft-light, instead of some hundred gradients each blended at the bitmap's full size, which
+  // made a province's bitmap a third slower to make on a 61-province world)
+  const sheet = swellSheet(seeds, rad);
+  if (sheet) g.drawImage(sheet.cv, sheet.x, sheet.y, sheet.w, sheet.h);
+  else for (const c of seeds.values()) {
     const v = swell(c.x, c.y), a = Math.min(1, Math.abs(v)) * MACRO.alpha;
     if (a < 0.02) continue;
     const col = v > 0 ? [255, 236, 186] : [22, 40, 34];
@@ -129,6 +133,27 @@ export function paintSwell(g, tiles, { nameAt, paints = () => true } = {}) {
     g.fillStyle = gr; g.fillRect(c.x - rad, c.y - rad, rad * 2, rad * 2);
   }
   g.restore();
+}
+/** The swell's sheet: canvas px per world px (the wash has no detail finer than a few tiles). */
+export const SWELL_RES = 0.125;
+/** The swell's washes laid on a small sheet covering the seeds: `{cv, x, y, w, h}` in world px, or null where no canvas. */
+function swellSheet(seeds, rad) {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const c of seeds.values()) { x0 = Math.min(x0, c.x - rad); y0 = Math.min(y0, c.y - rad); x1 = Math.max(x1, c.x + rad); y1 = Math.max(y1, c.y + rad); }
+  const w = Math.max(1, Math.ceil((x1 - x0) * SWELL_RES)), h = Math.max(1, Math.ceil((y1 - y0) * SWELL_RES));
+  const cv = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(w, h) : typeof document !== 'undefined' ? Object.assign(document.createElement('canvas'), { width: w, height: h }) : null;
+  const s = cv?.getContext?.('2d');
+  if (!s?.createRadialGradient) return null;
+  s.setTransform(SWELL_RES, 0, 0, SWELL_RES, -x0 * SWELL_RES, -y0 * SWELL_RES);
+  for (const c of seeds.values()) {
+    const v = swell(c.x, c.y), a = Math.min(1, Math.abs(v)) * MACRO.alpha;
+    if (a < 0.02) continue;
+    const col = v > 0 ? [255, 236, 186] : [22, 40, 34];
+    const gr = s.createRadialGradient(c.x, c.y, 0, c.x, c.y, rad);
+    gr.addColorStop(0, rgba(col, a)); gr.addColorStop(1, rgba(col, 0));
+    s.fillStyle = gr; s.fillRect(c.x - rad, c.y - rad, rad * 2, rad * 2);
+  }
+  return { cv, x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
 }
 
 // ------------------------------------------------------------------ shores
@@ -206,13 +231,17 @@ export function paintShores(g, tiles, { nameAt, colourAt, paints = () => true } 
   if (!canPaint(g)) return false;
   const here = tiles.filter(t => paints(t.q, t.r) && (t.name === 'water' || EDGE_DIRS.some(([dq, dr]) => nameAt(t.q + dq, t.r + dr) === 'water')));
   if (!here.length) return false;
-  const seen = new Map();
+  const seen = new Map(), bodyOf = new Map();
   for (const t of here) {
     const w = t.name === 'water' ? t : EDGE_DIRS.map(([dq, dr]) => ({ q: t.q + dq, r: t.r + dr })).find(h => nameAt(h.q, h.r) === 'water');
     const b = waterBody(w.q, w.r, nameAt);
     if (!seen.has(b.key)) seen.set(b.key, b);
+    bodyOf.set(keyOf(t.q, t.r), b);
   }
   const all = [...seen.values()].flatMap(b => b.loops);
+  // (a tile's corners are cut by its own body's coast: clipping each tile against every coast of the picture made the
+  // shores the dearest part of a bitmap on a world of many lakes. A land tile between two bodies takes the one beside it)
+  const own = t => bodyOf.get(keyOf(t.q, t.r))?.loops ?? all;
   const inWater = (t) => { const c = project(t.q, t.r); return { ...t, x: c.x, y: c.y }; };
   g.save();
   // only inside this picture's own hexes
@@ -227,7 +256,7 @@ export function paintShores(g, tiles, { nameAt, colourAt, paints = () => true } 
     g.save();
     // outside the coast, inside this hexagon
     g.beginPath(); hexPath(g, t.x, t.y, -0.3); g.clip();
-    g.beginPath(); g.rect(t.x - RADIUS * 2, t.y - RADIUS * 2, RADIUS * 4, RADIUS * 4); loopPath(g, all); g.clip('evenodd');
+    g.beginPath(); g.rect(t.x - RADIUS * 2, t.y - RADIUS * 2, RADIUS * 4, RADIUS * 4); loopPath(g, own(t)); g.clip('evenodd');
     g.fillStyle = rgba(avg, 1); g.fillRect(t.x - RADIUS * 2, t.y - RADIUS * 2, RADIUS * 4, RADIUS * 4);
     for (let k = 0; k < 6; k++) {
       const [dq, dr] = EDGE_DIRS[k], col = LAND.has(nameAt(t.q + dq, t.r + dr)) ? colourAt(t.q + dq, t.r + dr) : null;
@@ -243,7 +272,7 @@ export function paintShores(g, tiles, { nameAt, colourAt, paints = () => true } 
     const col = wet ? colourAt(wet.q, wet.r) : null;
     if (!col) continue;
     g.save(); g.beginPath(); hexPath(g, t.x, t.y, -0.3); g.clip();
-    g.beginPath(); loopPath(g, all); g.clip('evenodd');
+    g.beginPath(); loopPath(g, own(t)); g.clip('evenodd');
     g.fillStyle = rgba(col, 1); g.fillRect(t.x - RADIUS * 2, t.y - RADIUS * 2, RADIUS * 4, RADIUS * 4);
     g.restore();
   }

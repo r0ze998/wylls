@@ -1306,7 +1306,11 @@ export class SpriteArt {
       }
       const rest = baked.size ? tiles.filter(t => !baked.has(t.pk)) : tiles;
       for (const t of rest) if (!t.cloud && painted(t)) groundOf(t);
-      if (rest.length) country(rest.filter(t => !t.cloud));
+      // (the country's passes are a bitmap's: on tiles drawn one by one only when no province waits for its bitmap. Frames
+      // with provinces waiting are stand-ins, drawn again once the bitmaps are made; running the blend, swell, shores and
+      // land use over every waiting tile on each of them made a 61-province world's first second and its pans a half
+      // slower, measured on a live 12-bot world. A province the cache cannot hold is not waiting, and keeps its country)
+      if (rest.length && !this.waiting) country(rest.filter(t => !t.cloud));
       for (const t of rest) washOf(t);
       // the hex grid, exactly on the game's hexes, under the props (not in the far view: land, not a board)
       if (!far) gridOf(rest.filter(painted));
