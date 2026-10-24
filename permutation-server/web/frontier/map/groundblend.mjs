@@ -154,7 +154,9 @@ function swellSheet(seeds, rad) {
     gr.addColorStop(0, rgba(col, a)); gr.addColorStop(1, rgba(col, 0));
     s.fillStyle = gr; s.fillRect(c.x - rad, c.y - rad, rad * 2, rad * 2);
   }
-  return { cv, x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+  // (the sheet's own size in world px: its pixels are whole, so it reaches a little past x1, y1; laid at x1 − x0 it was
+  // stretched by up to a pixel of the sheet, a different amount in each province's bitmap)
+  return { cv, x: x0, y: y0, w: w / SWELL_RES, h: h / SWELL_RES };
 }
 
 // ------------------------------------------------------------------ shores
@@ -234,15 +236,16 @@ export function paintShores(g, tiles, { nameAt, colourAt, paints = () => true } 
   if (!here.length) return false;
   const seen = new Map(), bodyOf = new Map();
   for (const t of here) {
-    const w = t.name === 'water' ? t : EDGE_DIRS.map(([dq, dr]) => ({ q: t.q + dq, r: t.r + dr })).find(h => nameAt(h.q, h.r) === 'water');
-    const b = waterBody(w.q, w.r, nameAt);
-    if (!seen.has(b.key)) seen.set(b.key, b);
-    bodyOf.set(keyOf(t.q, t.r), b);
+    const wet = t.name === 'water' ? [t] : EDGE_DIRS.map(([dq, dr]) => ({ q: t.q + dq, r: t.r + dr })).filter(h => nameAt(h.q, h.r) === 'water');
+    const mine = new Map();
+    for (const w of wet) { const b = waterBody(w.q, w.r, nameAt); mine.set(b.key, b); if (!seen.has(b.key)) seen.set(b.key, b); }
+    bodyOf.set(keyOf(t.q, t.r), [...mine.values()]);
   }
   const all = [...seen.values()].flatMap(b => b.loops);
-  // (a tile's corners are cut by its own body's coast: clipping each tile against every coast of the picture made the
-  // shores the dearest part of a bitmap on a world of many lakes. A land tile between two bodies takes the one beside it)
-  const own = t => bodyOf.get(keyOf(t.q, t.r))?.loops ?? all;
+  // (a tile's corners are cut by the coasts of the bodies it is or touches: clipping each tile against every coast of
+  // the picture made the shores the dearest part of a bitmap on a world of many lakes. A body cut short at SHORE.cap (a
+  // sea) has a false edge where it stops: a tile of one is cut by every coast, as before)
+  const own = t => { const bs = bodyOf.get(keyOf(t.q, t.r)) ?? []; return !bs.length || bs.some(b => b.set.size >= SHORE.cap) ? all : bs.flatMap(b => b.loops); };
   const inWater = (t) => { const c = project(t.q, t.r); return { ...t, x: c.x, y: c.y }; };
   g.save();
   // only inside this picture's own hexes

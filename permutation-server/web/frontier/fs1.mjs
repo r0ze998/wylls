@@ -31,6 +31,24 @@ export const ORE_BASE_PER_HOUR = 4;
  * mountains and iron within 2 tiles add (map/sprites.mjs oreAround). BigInt thousandths.
  */
 export const s1OreBase = (extra, bonusPct) => (BigInt(ORE_BASE_PER_HOUR + Math.min(30, Math.max(0, extra | 0))) * 1000n * BigInt(100 + (bonusPct | 0))) / 100n;
+/**
+ * What a village's terrain adds to its ore (`extra` of s1OreBase), as the map knows it: the page registers the map's
+ * reading once (map/sprites.mjs oreAround), and every reader of a village's buildings (map/board.mjs buildingsOf,
+ * hud/rulebook.mjs copyNumber, onboarding.mjs hasBuilt) takes it from here. `null` while not known.
+ */
+let oreExtraOf = () => null;
+export function setOreExtraProvider(fn) { oreExtraOf = typeof fn === 'function' ? fn : () => null; }
+export const oreExtraFor = h => { try { const v = h && Number.isInteger(h.tile) ? oreExtraOf(h.p, h.q, h.tile) : null; return Number.isInteger(v) ? v : null; } catch { return null; } };
+/**
+ * A village's base production as the season's rules give it (thousandths, by resource): the tier's, and on S1 the ore
+ * from its terrain when that is known (`base[3]` null when not: its mines cannot be told from its terrain then).
+ */
+export function seasonBase(baseOfTier, h, { oreExtra = oreExtraFor(h), bonusPct = 0 } = {}) {
+  if (!on) return baseOfTier;
+  const b = baseOfTier.slice();
+  b[3] = Number.isInteger(oreExtra) ? s1OreBase(oreExtra, bonusPct) : null;
+  return b;
+}
 /** The workshop: build item 8, arms production per copy and per hour, ore and wood used per arm, its first copy's cost. */
 export const WORKSHOP = Object.freeze({
   item: 8, resource: 'Horses', perHour: 4, orePerArm: 2, woodPerArm: 1,

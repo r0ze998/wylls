@@ -21,7 +21,7 @@
 //   COUNTER_BPS                             permutation-rules/src/combat.rs  COUNTER
 //   settled                                 holding.rs  Holding::settle / apply; proc/holding.rs settle_tiered
 import { BUILD_ITEMS, QUEUE_KIND, BASE_PROD, TIER_BONUS_PCT, baseProduction, queueItem, projectedHolding, buildItemOf, WORKSHOP } from '../fland.mjs';
-import { TRAIN_ARMS_PER_100 } from '../fs1.mjs';
+import { TRAIN_ARMS_PER_100, seasonBase } from '../fs1.mjs';
 
 const HOUR = 3600;
 export const TIER_MAX = 3;
@@ -122,7 +122,9 @@ export function copyNumber(h, item) {
   const b = buildItemOf(item);
   if (!b || !(b.perHour > 0)) return 1;
   const r = ['Food', 'Wood', 'Stone', 'Ore', 'Horses', 'Gold', 'Science', 'Influence'].indexOf(b.resource);
-  const base = baseProduction(Number(h.tier ?? 0))[r] ?? 0n;
+  // (on S1 the ore base is the village's terrain ore, fs1.mjs seasonBase: its mines over it, not the terrain's own ore;
+  // while the terrain is not known the tier's base is used, as before)
+  const tier = Number(h.tier ?? 0), base = seasonBase(baseProduction(tier), h, { bonusPct: TIER_BONUS_PCT[tier] ?? 0 })[r] ?? baseProduction(tier)[r] ?? 0n;
   const have = h.production?.[r] !== undefined ? big(h.production[r]) : base;
   const above = have > base ? have - base : 0n;
   const built = Number(above / BigInt(b.perHour * 1000));

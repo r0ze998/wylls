@@ -57,6 +57,8 @@ import { landUse, paintLandUse } from './landuse.mjs';
 
 /** The tile view's land is painted as one country (map/groundblend.mjs: blended kinds of land, whole coasts); `?country=0` shows the hexagons as they were. */
 const SHORES_DRAWN = !/[?&]country=0(?:&|$)/.test(globalThis.location?.search ?? '');
+/** Frames a stand-in picture goes without the country's passes while provinces wait for their bitmaps (paint). */
+const WAIT_COUNTRY = 90;
 /** S1 terrain ore (permutation-rules arms.rs ORE_RADIUS, ORE_TERRAIN_MAX): pinned by web-frontier-uplift.test.mjs. */
 export const ORE_RADIUS = 2;
 export const ORE_TERRAIN_MAX = 30;
@@ -1310,7 +1312,10 @@ export class SpriteArt {
       // with provinces waiting are stand-ins, drawn again once the bitmaps are made; running the blend, swell, shores and
       // land use over every waiting tile on each of them made a 61-province world's first second and its pans a half
       // slower, measured on a live 12-bot world. A province the cache cannot hold is not waiting, and keeps its country)
-      if (rest.length && !this.waiting) country(rest.filter(t => !t.cloud));
+      // (a wait that does not end, a bitmap that can never be made, does not keep the land without its country: after
+      // WAIT_COUNTRY frames of waiting the pass runs on the tiles as before)
+      this.waitFrames = this.waiting ? (this.waitFrames ?? 0) + 1 : 0;
+      if (rest.length && (!this.waiting || this.waitFrames > WAIT_COUNTRY)) country(rest.filter(t => !t.cloud));
       for (const t of rest) washOf(t);
       // the hex grid, exactly on the game's hexes, under the props (not in the far view: land, not a board)
       if (!far) gridOf(rest.filter(painted));
@@ -1440,7 +1445,7 @@ export class SpriteArt {
     // the viewer's active village at work (map/board.mjs through the survey; map/villagework.mjs): what it has built, its queue, its fields
     const workRec = survey && !survey.showAll ? survey.board?.work ?? null : null;
     let workNow = null;
-    if (workRec) { try { workNow = { ...workRec, ...villageWork(workRec, survey.chainNow?.() ?? 0) }; } catch { workNow = null; } }
+    if (workRec) { try { workNow = { ...workRec, ...villageWork(workRec, survey.chainNow?.() ?? 0, { oreExtra: this.oreAround(workRec.p, workRec.q, workRec.tile)?.total ?? null }) }; } catch { workNow = null; } }
     // province borders: ink with its halo over painted land, a quiet sepia line on the chart. A line on the ground: laid
     // before what stands on it (it ran across the crowns of a wood and the face of a mountain once those stood upright),
     // and so under the hosts, the people and their labels too
@@ -1623,7 +1628,7 @@ export class SpriteArt {
     const explores = !limited ? people?.explores ?? [] : (people?.explores ?? []).filter(x => (x.host && ownHosts.has(String(x.host))) || (x.tiles ?? []).some(idx => lvAt(x.p, x.q, idx) === L3));
     // (a building's ring is a label: drawn upright with the plates, on the scaffold that stands here)
     // the viewer's own village: a scaffold for every item of its queue (the page's list names one a village)
-    const builds = workRec ? [...(people?.constructions ?? []).filter(c => !(c.p === workRec.p && c.q === workRec.q && c.site === workRec.site)), ...scaffoldsOf(workRec, survey.chainNow?.() ?? 0)] : people?.constructions ?? [];
+    const builds = workRec ? [...(people?.constructions ?? []).filter(c => !(c.p === workRec.p && c.q === workRec.q && c.site === workRec.site)), ...scaffoldsOf(workRec, survey.chainNow?.() ?? 0, { oreExtra: this.oreAround(workRec.p, workRec.q, workRec.tile)?.total ?? null })] : people?.constructions ?? [];
     // sheaves on its fields, as much as has grown since the last settling
     this.fields = null;
     if (workNow && RADIUS * zoom >= HOST_FIGURE_MIN_R) {

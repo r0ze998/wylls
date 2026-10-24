@@ -1,5 +1,5 @@
 import { territoryEnabled, territoryOf } from './territory.mjs';
-import { setS1 } from './fs1.mjs';
+import { setS1, setOreExtraProvider } from './fs1.mjs';
 import { s1Marks } from './map/s1marks.mjs';
 import * as territoryScreen from './screens/territory.mjs';
 import * as conquestScreen from './screens/conquest.mjs';
@@ -3509,6 +3509,8 @@ export async function boot() {
     terrainRef = terrainOf;
     // places are named by what stands on them (hud/place.mjs reads the terrain through the store)
     FS.terrainOf = terrainOf;
+    // S1: a village's terrain ore, as the map reads it (fs1.mjs): its buildings, the next copy's cost and the guide count over it
+    setOreExtraProvider((p, q, tile) => map?.art?.oreAround?.(p, q, tile)?.total ?? null);
     map = new FrontierMap(canvas, {
       source: () => {
         if (rosterRef) for (let d = 0; d < (FS.record?.rings?.length ?? 1); d++) rosterRef.ensure(d);

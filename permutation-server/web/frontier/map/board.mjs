@@ -20,7 +20,7 @@
 import { hostParts } from '../faddr.mjs';
 import { DIRECTIONS, hexDistance, locate, tileHex } from '../fgeo.mjs';
 import { BUILD_ITEMS, QUEUE_KIND, accrualAt, baseProduction, hostsIn, queueItem, WORKSHOP, TIER_BONUS_PCT } from '../fland.mjs';
-import { s1On, s1OreBase } from '../fs1.mjs';
+import { s1On, seasonBase, oreExtraFor } from '../fs1.mjs';
 import { DEPART_STAMINA, RULES } from '../fmarch.mjs';
 import { conquestEnabled, keepFromProvince } from '../fconquest.mjs';
 
@@ -307,9 +307,9 @@ export const canAct = (row, nowBell = 0) => !!row && row.state === 1 && nowBell 
 export function buildingsOf(holding, { oreExtra = null } = {}) {
   const out = [0, 0, 0, 0, 0, 0];
   if (!holding?.production) return out;
-  const base = baseProduction(holding.tier ?? 0);
-  const s1 = s1On();
-  if (s1) base[3] = Number.isInteger(oreExtra) ? s1OreBase(oreExtra, TIER_BONUS_PCT[holding.tier ?? 0] ?? 0) : null;
+  const s1 = s1On(), tier = holding.tier ?? 0;
+  // (`oreExtra` given, or the map's reading registered with fs1.mjs)
+  const base = seasonBase(baseProduction(tier), holding, { oreExtra: oreExtra ?? oreExtraFor(holding), bonusPct: TIER_BONUS_PCT[tier] ?? 0 });
   // the store's index of each building's resource (Food, Wood, Stone, Ore, Horses, Gold, Science, Influence)
   const INDEX = { Food: 0, Wood: 1, Stone: 2, Ore: 3, Gold: 5, Science: 6 };
   for (const b of BUILD_ITEMS) {
@@ -341,9 +341,10 @@ export function buildingsOf(holding, { oreExtra = null } = {}) {
  *             gold, science, influence]`), and `sheaves`: how full the fields are shown (0..1: an hour's growth of
  *             food fills them), `full`: a store stands at its cap
  */
-export function villageWork(holding, now = 0, { starts = null } = {}) {
+export function villageWork(holding, now = 0, { starts = null, oreExtra = null } = {}) {
   if (!holding) return null;
-  const queue = [], built = buildingsOf(holding), ahead = [0, 0, 0, 0, 0, 0];
+  // (`oreExtra`: the village's terrain ore on S1, as buildingsOf takes it; without it a S1 village's mines read 0)
+  const queue = [], built = buildingsOf(holding, { oreExtra }), ahead = [0, 0, 0, 0, 0, 0];
   let prev = null;
   (holding.queue ?? []).forEach((q, slot) => {
     const doneAt = Number(q?.doneAt ?? 0);

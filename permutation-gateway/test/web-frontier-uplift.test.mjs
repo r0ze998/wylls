@@ -220,6 +220,27 @@ test('S1: a village\'s terrain ore is its base, never mines it did not build', a
   } finally { setS1({ layoutVersion: 1, programVersion: 1 }); }
 });
 
+test('S1: the terrain ore the map reads reaches the village picture, the next mine\'s copy and the guide', async () => {
+  const { setOreExtraProvider } = await import('../../permutation-server/web/frontier/fs1.mjs');
+  const { villageWork } = await import('../../permutation-server/web/frontier/map/board.mjs');
+  const { copyNumber } = await import('../../permutation-server/web/frontier/hud/rulebook.mjs');
+  const { hasBuilt } = await import('../../permutation-server/web/frontier/onboarding.mjs');
+  // a village on hills: its terrain gives 6 extra ore an hour (10 with the base), one mine gives 6 more
+  const h = (ore, extra = {}) => ({ p: 2, q: -2, tile: 41, tier: 0, production: [0, 0, 0, ore, 0, 0, 0, 0].map(BigInt), queue: [], ...extra });
+  setS1({ layoutVersion: 2, programVersion: 4 });
+  setOreExtraProvider((p, q, tile) => (p === 2 && q === -2 && tile === 41 ? 6 : null));
+  try {
+    assert.equal(buildingsOf(h(16_000))[3], 1, 'the map\'s reading is used without being passed');
+    assert.equal(villageWork(h(16_000), 0).built[3], 1, 'the village picture counts the mine it has');
+    assert.equal(copyNumber(h(16_000), 3), 2, 'the next mine is the second');
+    assert.equal(copyNumber(h(10_000), 3), 1, 'terrain ore alone: the next mine is the first');
+    assert.equal(hasBuilt(h(10_000)), false, 'terrain ore alone is not a building');
+    assert.equal(hasBuilt(h(16_000)), true);
+    setOreExtraProvider(() => null);
+    assert.equal(hasBuilt(h(16_000)), false, 'the terrain not known: the ore says nothing either way');
+  } finally { setOreExtraProvider(null); setS1({ layoutVersion: 1, programVersion: 1 }); }
+});
+
 test('S1 orders: a vault and a structure are built from the ABI v2 shapes, their addresses from the v2 seed tags', async () => {
   const { accountsFor, buildShape, SIGNED_BY } = await import('../../permutation-server/web/frontier/fplay.mjs');
   const { seasonAddresses, seedOf } = await import('../../permutation-server/web/frontier/faddr.mjs');

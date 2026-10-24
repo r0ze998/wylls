@@ -257,7 +257,7 @@ export function render(FS) {
   }
   const custom = m.retreat.choice === 'custom';
   // the prototype rule "banners" (only in a sample world that serves it): what arriving there would let this host do, said before the seal
-  const protoLine = FS.proto && w && c.route && protoFights(c.host) && !c.home ? protoMarchLine(FS, { arrive: w.value, dest: c.dest, forecast: c.forecast ?? null, crowd: protoOwnArrivalAt(FS, c.dest, w.value, c.host.id), shift: c.protoShift && c.protoShift.to === w.value ? c.protoShift : null, answer: protoPreviewOf(FS, { host: String(c.host.id), p: c.dest.p, q: c.dest.q, tile: c.dest.tile }) }) : '';
+  const protoLine = FS.proto && w && c.route && protoFights(c.host) && !c.home ? protoMarchLine(FS, { arrive: w.value, dest: c.dest, forecast: forecastNow(c), crowd: protoOwnArrivalAt(FS, c.dest, w.value, c.host.id), shift: c.protoShift && c.protoShift.to === w.value ? c.protoShift : null, answer: protoPreviewOf(FS, { host: String(c.host.id), p: c.dest.p, q: c.dest.q, tile: c.dest.tile }) }) : '';
   const sides = def ? Math.max(c.host.troops, def.total, 1) : 1;
   const destName = destKeep ? (destKeep.holder === FS.citizen?.faction ? L`あなたの国の砦` : L`${factionName(destKeep.holder)}の砦`) : tileName(FS, c.dest.p, c.dest.q, c.dest.tile);
   const stanceText = STANCE_TEXT[stance];
