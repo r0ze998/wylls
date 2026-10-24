@@ -227,6 +227,9 @@ pub fn dispatch(
         Ix::OpenShares => ticket::open_shares(p, a, data),
         Ix::WithdrawShares => ticket::withdraw_shares(p, a, data),
         Ix::SettleDeposit => caravan::settle_deposit(p, a, data),
+        // S2 (stage 2c): receipts.
+        Ix::ClaimReceipt => ticket::claim_receipt(p, a, data),
+        Ix::WithdrawReceipt => ticket::withdraw_receipt(p, a, data),
     };
     heap::trace_checkpoint(0xffff);
     r

@@ -168,6 +168,22 @@ ix_data_v2! {
     }
     /// 0xC5 (D, S2, 2b): SettleCaravan for a caravan into a shared vault.
     SettleDeposit { beneficiary: [u8; 32] }
+    /// 0xC6 (P, S2, 2c): the citizen claims its receipt lot's entitlement
+    /// for today.
+    ClaimReceipt {}
+    /// 0xC7 (P, S2, 2c): the citizen sends yesterday's grant out of the
+    /// vault as caravan `seq` (otherwise as SendCaravan).
+    WithdrawReceipt {
+        seq: u32,
+        dst_kind: u8,
+        dst_p: i16,
+        dst_q: i16,
+        dst_at: u8,
+        dst_gen: u8,
+        steps: u8,
+        path: [u8; 12],
+        fee: u64,
+    }
 }
 
 ix_data_v2! {
@@ -351,6 +367,8 @@ pub fn fixed_len(ix: Ix) -> Option<usize> {
         Ix::OpenShares => OpenShares::LEN,
         Ix::WithdrawShares => WithdrawShares::LEN,
         Ix::SettleDeposit => SettleDeposit::LEN,
+        Ix::ClaimReceipt => ClaimReceipt::LEN,
+        Ix::WithdrawReceipt => WithdrawReceipt::LEN,
         Ix::Propose => Propose::LEN,
         Ix::Vote => Vote::LEN,
         Ix::SettleProposal => SettleProposal::LEN,
@@ -386,6 +404,8 @@ pub fn wire_of(ix: Ix) -> Option<&'static [(&'static str, usize)]> {
         Ix::OpenShares => OpenShares::WIRE,
         Ix::WithdrawShares => WithdrawShares::WIRE,
         Ix::SettleDeposit => SettleDeposit::WIRE,
+        Ix::ClaimReceipt => ClaimReceipt::WIRE,
+        Ix::WithdrawReceipt => WithdrawReceipt::WIRE,
         Ix::Propose => Propose::WIRE,
         Ix::Vote => Vote::WIRE,
         Ix::SettleProposal => SettleProposal::WIRE,

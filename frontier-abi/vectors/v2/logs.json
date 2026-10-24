@@ -1857,6 +1857,123 @@
           }
         ]
       }
+    },
+    {
+      "kind": 109,
+      "name": "RECEIPT_CLAIMED",
+      "key": [
+        {
+          "name": "issuer_tag",
+          "len": 8
+        },
+        {
+          "name": "seq",
+          "len": 4
+        }
+      ],
+      "payload": [
+        {
+          "name": "holder_tag",
+          "len": 8
+        },
+        {
+          "name": "lot_tag",
+          "len": 8
+        },
+        {
+          "name": "lot_seq",
+          "len": 4
+        },
+        {
+          "name": "day",
+          "len": 4
+        },
+        {
+          "name": "claim",
+          "len": 8
+        },
+        {
+          "name": "claims",
+          "len": 8
+        },
+        {
+          "name": "src",
+          "len": 8
+        }
+      ],
+      "body_without_tail_len": 66,
+      "vector": {
+        "bell": 2109,
+        "body_without_tail": "016d3d080000213e5b7895b2cfec213e5b786b88a5c2dffc19366b88a5c2dffc19366b88a5c26b88a5c26b88a5c2dffc19366b88a5c2dffc19366b88a5c2dffc1936",
+        "body": "016d3d080000213e5b7895b2cfec213e5b786b88a5c2dffc19366b88a5c2dffc19366b88a5c26b88a5c26b88a5c2dffc19366b88a5c2dffc19366b88a5c2dffc193600",
+        "decodes": true,
+        "chains": []
+      }
+    },
+    {
+      "kind": 110,
+      "name": "RECEIPT_WITHDRAWN",
+      "key": [
+        {
+          "name": "issuer_tag",
+          "len": 8
+        },
+        {
+          "name": "seq",
+          "len": 4
+        }
+      ],
+      "payload": [
+        {
+          "name": "holder_tag",
+          "len": 8
+        },
+        {
+          "name": "lot_tag",
+          "len": 8
+        },
+        {
+          "name": "lot_seq",
+          "len": 4
+        },
+        {
+          "name": "day",
+          "len": 4
+        },
+        {
+          "name": "claim",
+          "len": 8
+        },
+        {
+          "name": "ratio_ppm",
+          "len": 4
+        },
+        {
+          "name": "grant",
+          "len": 8
+        },
+        {
+          "name": "caravan_seq",
+          "len": 4
+        }
+      ],
+      "body_without_tail_len": 66,
+      "vector": {
+        "bell": 2110,
+        "body_without_tail": "016e3e080000213e5b7895b2cfec213e5b786b88a5c2dffc19366b88a5c2dffc19366b88a5c26b88a5c26b88a5c2dffc19366b88a5c26b88a5c2dffc19366b88a5c2",
+        "body": "016e3e080000213e5b7895b2cfec213e5b786b88a5c2dffc19366b88a5c2dffc19366b88a5c26b88a5c26b88a5c2dffc19366b88a5c26b88a5c2dffc19366b88a5c2010e0400000000000000a668974356adb61ce5eafeef64c57590f67e2e84d4832e347bf9dbae0089507d",
+        "decodes": true,
+        "chains": [
+          {
+            "entity": 14,
+            "who": "Lot { tag: 3898424990439409771, seq: 3265628267 }",
+            "prev_seq": 3,
+            "prev_head": "f8e03545751fa390de8f79c2c1f3f7d3051cdfb38b89d070c90f4642ff9df81c",
+            "seq": 4,
+            "head": "a668974356adb61ce5eafeef64c57590f67e2e84d4832e347bf9dbae0089507d"
+          }
+        ]
+      }
     }
   ],
   "reserved_kind": 89,

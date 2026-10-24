@@ -277,7 +277,9 @@ const S2_FILE: &str = concat!(
 #[test]
 fn s2_ticket_vectors() {
     use fclient::addr::Addresses;
-    use fclient::ix::v2::{self as v2, IssueArgs, PlaceRef, TicketSource, WithdrawSharesArgs};
+    use fclient::ix::v2::{
+        self as v2, IssueArgs, PlaceRef, TicketSource, WithdrawReceiptArgs, WithdrawSharesArgs,
+    };
     use fclient::ix::{HoldingRef, Player};
     let program = fclient::Address::new_from_array([7u8; 32]);
     let a = Addresses::new(program, 42);
@@ -349,6 +351,18 @@ fn s2_ticket_vectors() {
             ix_json("CloseLot", &v2::close_lot(&a, &p, (me, 0), vault, rent_to, None, true)),
             ix_json("OpenShares", &v2::open_shares(&a, &p, h, (4, -2, 17), me, 2)),
             ix_json("WithdrawShares", &v2::withdraw_shares(&a, &p, &withdraw)),
+            ix_json("ClaimReceipt", &v2::claim_receipt(&a, &p, a.lot(me, 1), (me, 0), (4, -2, 17))),
+            ix_json("WithdrawReceipt", &v2::withdraw_receipt(&a, &p, &WithdrawReceiptArgs {
+                lot: a.lot(me, 1),
+                issue: (me, 0),
+                vault: (4, -2, 17),
+                seq: 6,
+                dst: PlaceRef::Holding { h, gen: 1 },
+                steps: 2,
+                path: pack(&[3, 4]).unwrap(),
+                fee: 50_000,
+                provinces: vec![(4, -2), (3, -1)],
+            })),
         ],
         "depositLot": a.deposit_lot(me, me, 2).to_string(),
     });

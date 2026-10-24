@@ -129,6 +129,9 @@ tags_v2! {
     OpenShares = 0xC3, P, false;
     WithdrawShares = 0xC4, P, false;
     SettleDeposit = 0xC5, D, false;
+    // S2 (2c: receipts)
+    ClaimReceipt = 0xC6, P, false;
+    WithdrawReceipt = 0xC7, P, false;
 }
 
 impl Ix {
@@ -163,13 +166,15 @@ impl Ix {
     ];
 
     /// The S2 instructions (2a, 2b).
-    pub const S2: [Ix; 6] = [
+    pub const S2: [Ix; 8] = [
         Ix::IssueTickets,
         Ix::GiveLot,
         Ix::CloseLot,
         Ix::OpenShares,
         Ix::WithdrawShares,
         Ix::SettleDeposit,
+        Ix::ClaimReceipt,
+        Ix::WithdrawReceipt,
     ];
 
     /// Whether the instruction is S1's (S2's included: an S2 season plays
@@ -239,9 +244,9 @@ impl crate::tags::Ix {
 }
 
 /// Reserved v2 tags: M1's reserved set, 0xA4, 0xA8–0xAF, S1's 0xBF and
-/// S2's 0xC6–0xCF (2c–2e).
+/// S2's 0xC8–0xCF (2d–2e).
 pub const fn is_reserved(t: u8) -> bool {
-    crate::tags::is_reserved(t) || matches!(t, 0xA4 | 0xA8..=0xAF | 0xBF | 0xC6..=0xCF)
+    crate::tags::is_reserved(t) || matches!(t, 0xA4 | 0xA8..=0xAF | 0xBF | 0xC8..=0xCF)
 }
 
 /// Player instructions the relay may sponsor (§8.3): M1's, DeclareSiege,
@@ -271,6 +276,8 @@ pub const fn relay_player_shape(ix: Ix) -> bool {
                 | Ix::CloseLot
                 | Ix::OpenShares
                 | Ix::WithdrawShares
+                | Ix::ClaimReceipt
+                | Ix::WithdrawReceipt
         ),
     }
 }
@@ -302,8 +309,8 @@ mod tests {
 
     #[test]
     fn v2_extends_m1() {
-        assert_eq!(Ix::ALL.len(), 79);
-        assert_eq!(crate::tags::Ix::ALL_V2.len(), 79);
+        assert_eq!(Ix::ALL.len(), 81);
+        assert_eq!(crate::tags::Ix::ALL_V2.len(), 81);
         for v1 in crate::tags::Ix::ALL {
             let v = Ix::of_v1(*v1);
             assert_eq!(v.tag(), v1.tag());

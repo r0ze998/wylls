@@ -1278,6 +1278,38 @@
       "loaded_limit": 1507328,
       "loaded_limit_s1": 1998848,
       "cu_limit_s1": 50000
+    },
+    {
+      "name": "ClaimReceipt",
+      "tag": 198,
+      "cu_budget": 20000,
+      "cu_per_unit": 0,
+      "cu_limit": 20000,
+      "measured": 0,
+      "tx_contract": 600,
+      "tx_ceiling": 600,
+      "tx_worst_estimate": 493,
+      "accounts": [7, 7],
+      "loaded_need_placeholder": 1478737,
+      "loaded_limit": 1507328,
+      "loaded_limit_s1": 1998848,
+      "cu_limit_s1": 20000
+    },
+    {
+      "name": "WithdrawReceipt",
+      "tag": 199,
+      "cu_budget": 120000,
+      "cu_per_unit": 0,
+      "cu_limit": 120000,
+      "measured": 0,
+      "tx_contract": 1100,
+      "tx_ceiling": 1100,
+      "tx_worst_estimate": 756,
+      "accounts": [11, 14],
+      "loaded_need_placeholder": 1499793,
+      "loaded_limit": 1507328,
+      "loaded_limit_s1": 1998848,
+      "cu_limit_s1": 120000
     }
   ]
 }

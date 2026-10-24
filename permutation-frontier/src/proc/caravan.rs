@@ -49,6 +49,7 @@ use permutation_rules::frontier::geometry::ProvinceCoord;
 use permutation_rules::frontier::holding::{Resource, RESOURCES};
 use permutation_rules::frontier::structure::{self as ks, Watch};
 use permutation_rules::frontier::ticket as kt;
+use permutation_rules::frontier::travel::BELLS_PER_DAY;
 
 use super::conquest::{
     absent, check_accounts_v2, cq, cqlog, presence_v2, present_v2, season_v2, Chained2,
@@ -693,7 +694,7 @@ pub fn send_caravan(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         caravan,
         provinces,
     };
-    send(p, &pl, &accounts, &order, &cargo, false)
+    send(p, &pl, &accounts, &order, &cargo, SendBy::Owner)
 }
 
 /// What a send names besides its cargo (SendCaravan, WithdrawShares).
@@ -714,6 +715,68 @@ pub(crate) struct SendAccounts<'b, 'a> {
     pub(crate) dst: &'b AccountInfo<'a>,
     pub(crate) caravan: &'b AccountInfo<'a>,
     pub(crate) provinces: &'b [AccountInfo<'a>],
+}
+
+/// Who sends a caravan out of a place (S2: through tickets).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum SendBy {
+    /// The place's owner (SendCaravan): never out of a shared vault, never
+    /// the day's receipt reservation (2c).
+    Owner,
+    /// A share holder out of a shared vault (2b WithdrawShares).
+    Shares,
+    /// A receipt holder out of a vault, its grant already taken from the
+    /// reservation (2c WithdrawReceipt).
+    Receipt,
+}
+
+/// A vault's receipts period (2c).
+pub(crate) fn period_of(vd: &[u8]) -> R<kt::Period> {
+    let r = Ro(vd);
+    let mut p = kt::Period {
+        claim_day: r.u32(VA::CLAIM_DAY)?,
+        res_day: r.u32(VA::RES_DAY)?,
+        ..Default::default()
+    };
+    for i in 0..RESOURCES {
+        p.claims[i] = r.u64(VA::claim(i))?;
+        p.res[i] = r.u64(VA::res(i))?;
+        p.ratio[i] = r.u32(VA::ratio(i))?;
+    }
+    Ok(p)
+}
+
+/// Writes a vault's receipts period.
+pub(crate) fn put_period(vd: &mut [u8], p: &kt::Period) -> R<()> {
+    let mut w = Rw(vd);
+    w.set_u32(VA::CLAIM_DAY, p.claim_day)?;
+    w.set_u32(VA::RES_DAY, p.res_day)?;
+    for i in 0..RESOURCES {
+        w.set_u64(VA::claim(i), p.claims[i])?;
+        w.set_u64(VA::res(i), p.res[i])?;
+        w.set_u32(VA::ratio(i), p.ratio[i])?;
+    }
+    Ok(())
+}
+
+/// A vault's stores (milli).
+pub(crate) fn vault_stock(vd: &[u8]) -> R<[i64; RESOURCES]> {
+    let mut out = [0i64; RESOURCES];
+    for (r, v) in out.iter_mut().enumerate() {
+        *v = Ro(vd).i64(VA::store(r))?;
+    }
+    Ok(out)
+}
+
+/// Rolls a vault's receipts period at the bell's day when it ever had a
+/// claim (2c, `ticket::Period::roll`), before its stock changes.
+pub(crate) fn roll_vault(vd: &mut [u8], bell: u32) -> R<kt::Period> {
+    let mut p = period_of(vd)?;
+    if p.active() && bell != NO_BELL {
+        p.roll(bell / BELLS_PER_DAY, &vault_stock(vd)?);
+        put_period(vd, &p)?;
+    }
+    Ok(p)
 }
 
 /// Whether a vault's bytes are shared (S2 2b): its share issue
@@ -739,7 +802,7 @@ pub(crate) fn send(
     a: &SendAccounts,
     x: &SendOrder,
     cargo: &[i64; RESOURCES],
-    withdraw: bool,
+    by: SendBy,
 ) -> R<()> {
     let SendAccounts {
         payer,
@@ -767,7 +830,7 @@ pub(crate) fn send(
     // shares); a holding is capture-locked in its own Province, the path's
     // first.
     let s = place_of(p, &pl.ctx, sid, src)?.ok_or(FrontierError::NotFinal)?;
-    if withdraw {
+    if by != SendBy::Owner {
         if s.kind != PL::KIND_VAULT {
             return Err(BAD_ACCOUNT);
         }
@@ -803,9 +866,18 @@ pub(crate) fn send(
         hold::write_holding(&mut hd, &h, now)?;
     } else {
         let mut vd = src.try_borrow_mut_data()?;
+        // 2c: the day boundary first; the owner may not send what today's
+        // receipt grants hold.
+        let period = roll_vault(&mut vd, pl.pc.now_bell)?;
+        let today = pl.pc.now_bell / BELLS_PER_DAY;
         for (r, c) in cargo.iter().enumerate() {
             let have = Ro(&vd).i64(VA::store(r))?;
-            if have < *c {
+            let may = if by == SendBy::Owner {
+                period.available(today, r, have)
+            } else {
+                have
+            };
+            if may < *c {
                 return Err(FrontierError::Insufficient.into());
             }
             Rw(&mut vd).set_i64(VA::store(r), have - c)?;
@@ -1113,6 +1185,8 @@ fn settle<'a>(
             hold::write_holding(&mut hd, &h, now.ts)?;
         } else {
             let mut vd = dst.try_borrow_mut_data()?;
+            // 2c: the day boundary before the stock changes.
+            roll_vault(&mut vd, bell)?;
             let shares = vault_shares(&vd)?;
             match (shares, deposit) {
                 (Some(_), None) => return Err(cq(CqError::VaultShared)),
@@ -1954,6 +2028,8 @@ pub fn seize_vault(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         w.set_u8(VA::SHARES_ON, 0)?;
         w.set_u32(VA::SHARES_SEQ, 0)?;
         w.set_u64(VA::SHARES_ISSUER_TAG, 0)?;
+        // 2c: and its receipts' claims and grants.
+        put_period(&mut vd, &kt::Period::default())?;
     }
     {
         let mut cd = citizen.try_borrow_mut_data()?;

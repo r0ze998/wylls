@@ -19,7 +19,8 @@
 //   rent(Lot) (a whole-lot gift or an add-to moves none; the drain guard
 //   sees the real amount); 2b's OpenShares: rent(Issue) + rent(Lot);
 //   WithdrawShares: a caravan's cost (as SendCaravan); SettleDeposit: rent(Lot)
-//   (the depositor's first deposit creates its lot);
+//   (the depositor's first deposit creates its lot); 2c's WithdrawReceipt: a
+//   caravan's cost; ClaimReceipt: 0;
 // * who is charged: a player shape its citizen, a settle shape its
 //   requester's citizen (the requester signed the request and is, on chain,
 //   that citizen's wallet or unexpired session key), else the client-address
@@ -27,7 +28,7 @@
 import { addressBucket } from '../guards.mjs';
 import { baseFee, departEscrow, rent, seasonTipMin, tipPresets } from '../../client/src/frontier/fees.mjs';
 import { layoutOf } from '../../client/src/frontier/codec.mjs';
-import { DEPART_TAG, FILE_TICKET_TAG, JOIN_TAG, PLACE_HOME_TAG, FILE_OUTPOST_TAG, DECLARE_SIEGE_TAG, BUILD_VAULT_TAG, SEND_CARAVAN_TAG, BUILD_STRUCTURE_TAG, PROPOSE_TAG, ISSUE_TICKETS_TAG, GIVE_LOT_TAG, OPEN_SHARES_TAG, WITHDRAW_SHARES_TAG, SETTLE_DEPOSIT_TAG } from '../../client/src/frontier/shapes.mjs';
+import { DEPART_TAG, FILE_TICKET_TAG, JOIN_TAG, PLACE_HOME_TAG, FILE_OUTPOST_TAG, DECLARE_SIEGE_TAG, BUILD_VAULT_TAG, SEND_CARAVAN_TAG, BUILD_STRUCTURE_TAG, PROPOSE_TAG, ISSUE_TICKETS_TAG, GIVE_LOT_TAG, OPEN_SHARES_TAG, WITHDRAW_SHARES_TAG, SETTLE_DEPOSIT_TAG, WITHDRAW_RECEIPT_TAG } from '../../client/src/frontier/shapes.mjs';
 import { CARAVAN_FEE } from '../../client/src/frontier/budgets.mjs';
 import { isS1, profileForSeason } from '../../client/src/frontier/profile.mjs';
 import { RouteError } from '../routes/errors.mjs';
@@ -104,6 +105,7 @@ export function allowanceFor(shape, { season, citizen = null }) {
     case OPEN_SHARES_TAG: return ISSUE_RENT + LOT_RENT;
     case WITHDRAW_SHARES_TAG: return CARAVAN_COST;
     case SETTLE_DEPOSIT_TAG: return LOT_RENT;
+    case WITHDRAW_RECEIPT_TAG: return CARAVAN_COST;
     default: return 0n;
   }
 }

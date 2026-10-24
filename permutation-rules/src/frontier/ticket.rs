@@ -18,8 +18,12 @@ use crate::fixed::Milli;
 use crate::frontier::holding::RESOURCES;
 
 /// Version of this module's rules (bound into `RULESET_HASH_V4`): 2 adds
-/// the share rules of 2b ([`minted`], [`basket`]).
-pub const TICKET_VERSION: u16 = 2;
+/// the share rules of 2b ([`minted`], [`basket`]), 3 the receipts' period of
+/// 2c ([`Period`], [`grant`]).
+pub const TICKET_VERSION: u16 = 3;
+
+/// A receipt grant's ratio of one (parts per million, 2c).
+pub const RATIO_ONE: u32 = 1_000_000;
 
 /// Issue kinds.
 pub const KIND_SHARE: u8 = 1;
@@ -153,12 +157,80 @@ pub fn basket(stores: &[Milli; RESOURCES], amount: u64, supply: u64) -> [Milli; 
     out
 }
 
+/// A vault's receipts period (2c, `S2-2C-CONTRACT.md` §2–§3). Days are
+/// stored **plus one** (0: never), as in the Vault and the Lot.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Period {
+    /// The day (+1) whose claims `claims` holds.
+    pub claim_day: u32,
+    /// The day (+1) the vault last rolled; `ratio` and `res` hold for it.
+    pub res_day: u32,
+    /// Milli claimed on `claim_day`, per resource.
+    pub claims: [u64; RESOURCES],
+    /// Milli still reserved on `res_day`, per resource.
+    pub res: [u64; RESOURCES],
+    /// Parts per million granted on `res_day` to the claims of the day
+    /// before.
+    pub ratio: [u32; RESOURCES],
+}
+
+impl Period {
+    /// Whether the vault ever had a claim (a vault without never rolls).
+    pub const fn active(&self) -> bool {
+        self.claim_day != 0 || self.res_day != 0
+    }
+
+    /// The roll at the first touch of day `today` (a real day): yesterday's
+    /// claims become today's ratio and reservation against `stock`; claims
+    /// start over. Idempotent within a day.
+    pub fn roll(&mut self, today: u32, stock: &[Milli; RESOURCES]) {
+        let t = today.saturating_add(1);
+        if self.res_day != t {
+            let yesterday = self.claim_day != 0 && self.claim_day.saturating_add(1) == t;
+            for (r, &st) in stock.iter().enumerate() {
+                let (c, s) = (self.claims[r], st.max(0) as u64);
+                if yesterday && c > 0 {
+                    let q = s as u128 * RATIO_ONE as u128 / c as u128;
+                    self.ratio[r] = q.min(RATIO_ONE as u128) as u32;
+                    self.res[r] = s.min(c);
+                } else {
+                    self.ratio[r] = 0;
+                    self.res[r] = 0;
+                }
+            }
+            self.res_day = t;
+        }
+        if self.claim_day != t {
+            self.claims = [0; RESOURCES];
+            self.claim_day = t;
+        }
+    }
+
+    /// What the owner may send of resource `r` on day `today` (the stock
+    /// less today's reservation).
+    pub fn available(&self, today: u32, r: usize, stock: Milli) -> Milli {
+        let res = if self.res_day == today.saturating_add(1) {
+            self.res[r] as Milli
+        } else {
+            0
+        };
+        stock.saturating_sub(res).max(0)
+    }
+}
+
+/// A claim's grant at `ratio` (parts per million), in whole units (milli).
+pub fn grant(claim: u64, ratio: u32) -> u64 {
+    let g = claim as u128 * ratio.min(RATIO_ONE) as u128 / RATIO_ONE as u128;
+    (g / 1_000 * 1_000) as u64
+}
+
 /// Appends this module's tables to the S2 ruleset hash input.
 pub fn write_tables(out: &mut alloc::vec::Vec<u8>) {
     out.extend_from_slice(&TICKET_VERSION.to_le_bytes());
     out.extend_from_slice(&KINDS);
     out.push(MAX_OPEN_ISSUES);
     out.extend_from_slice(&MAX_SUPPLY.to_le_bytes());
+    out.extend_from_slice(&RATIO_ONE.to_le_bytes());
     for f in ISSUE_FEE {
         out.extend_from_slice(&f.to_le_bytes());
     }
@@ -246,6 +318,42 @@ mod tests {
         assert_eq!(basket(&s, 3, 3)[3], 7_000, "the fraction stays");
         assert_eq!(basket(&s, 4, 3), [0; RESOURCES]);
         assert_eq!(basket(&s, 1, 0), [0; RESOURCES]);
+    }
+
+    #[test]
+    fn the_period_rolls_at_the_day_boundary() {
+        let mut p = Period::default();
+        assert!(!p.active());
+        let mut stock = [0i64; RESOURCES];
+        stock[3] = 30_000;
+        // Day 0: two claims of 20 ore.
+        p.roll(0, &stock);
+        assert_eq!((p.claim_day, p.res_day), (1, 1));
+        p.claims[3] += 40_000;
+        p.roll(0, &stock);
+        assert_eq!(p.claims[3], 40_000, "idempotent within the day");
+        // Day 1: 30 of 40 claimed: 3/4.
+        p.roll(1, &stock);
+        assert_eq!((p.ratio[3], p.res[3], p.claims[3]), (750_000, 30_000, 0));
+        assert_eq!(grant(20_000, p.ratio[3]), 15_000);
+        assert_eq!(p.available(1, 3, 30_000), 0);
+        assert_eq!(p.available(2, 3, 30_000), 30_000, "the reservation lapses");
+        // Enough stock: a ratio of one.
+        p.claims[3] = 10_000;
+        p.roll(2, &stock);
+        assert_eq!((p.ratio[3], p.res[3]), (RATIO_ONE, 10_000));
+        // A day skipped: yesterday's claims lapse.
+        p.claims[3] = 10_000;
+        p.roll(4, &stock);
+        assert_eq!((p.ratio[3], p.res[3]), (0, 0));
+    }
+
+    #[test]
+    fn grants_are_whole_units() {
+        assert_eq!(grant(20_000, RATIO_ONE), 20_000);
+        assert_eq!(grant(1_999, RATIO_ONE), 1_000);
+        assert_eq!(grant(10_000, 333_333), 3_000);
+        assert_eq!(grant(10_000, 0), 0);
     }
 
     #[test]

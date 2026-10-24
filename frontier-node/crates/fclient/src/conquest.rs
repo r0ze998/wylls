@@ -303,6 +303,31 @@ pub enum CqEvent {
         caravan: (u64, u32),
         new_lot: bool,
     },
+    /// S2 (2c): a receipt lot claimed day `day`'s entitlement; `claims` the
+    /// vault's claims of the resource after it.
+    ReceiptClaimed {
+        issuer_tag: u64,
+        seq: u32,
+        holder_tag: u64,
+        lot: (u64, u32),
+        day: u32,
+        claim: u64,
+        claims: u64,
+        src: LogPlace,
+    },
+    /// S2 (2c): day `day`'s claim withdrawn at `ratio_ppm`: `grant` milli
+    /// left by the holder's caravan `caravan_seq`.
+    ReceiptWithdrawn {
+        issuer_tag: u64,
+        seq: u32,
+        holder_tag: u64,
+        lot: (u64, u32),
+        day: u32,
+        claim: u64,
+        ratio_ppm: u32,
+        grant: u64,
+        caravan_seq: u32,
+    },
     /// S2 (2b): units burned from `lot` for the basket of the holder's
     /// caravan `caravan_seq`.
     SharesWithdrawn {
@@ -452,7 +477,9 @@ impl CqEvent {
             | LotMoved { .. }
             | LotClosed { .. }
             | SharesDeposited { .. }
-            | SharesWithdrawn { .. } => None,
+            | SharesWithdrawn { .. }
+            | ReceiptWithdrawn { .. } => None,
+            ReceiptClaimed { src, .. } => Some((src.p as i32, src.q as i32)),
             SharesOpened { src, .. } => Some((src.p as i32, src.q as i32)),
             TicketsIssued { src, .. } => Some((src.p as i32, src.q as i32)),
             CaravanSent { src, .. } => Some((src.p as i32, src.q as i32)),
@@ -711,6 +738,27 @@ pub fn parse(body: &[u8]) -> Option<CqLog> {
             supply: u("supply")?,
             caravan: (u("caravan_tag")?, u("caravan_seq")? as u32),
             new_lot: b8("new_lot")? != 0,
+        },
+        CqKind::RECEIPT_CLAIMED => CqEvent::ReceiptClaimed {
+            issuer_tag: u("issuer_tag")?,
+            seq: u("seq")? as u32,
+            holder_tag: u("holder_tag")?,
+            lot: (u("lot_tag")?, u("lot_seq")? as u32),
+            day: u("day")? as u32,
+            claim: u("claim")?,
+            claims: u("claims")?,
+            src: LogPlace::parse(f("src")?)?,
+        },
+        CqKind::RECEIPT_WITHDRAWN => CqEvent::ReceiptWithdrawn {
+            issuer_tag: u("issuer_tag")?,
+            seq: u("seq")? as u32,
+            holder_tag: u("holder_tag")?,
+            lot: (u("lot_tag")?, u("lot_seq")? as u32),
+            day: u("day")? as u32,
+            claim: u("claim")?,
+            ratio_ppm: u("ratio_ppm")? as u32,
+            grant: u("grant")?,
+            caravan_seq: u("caravan_seq")? as u32,
         },
         CqKind::SHARES_WITHDRAWN => CqEvent::SharesWithdrawn {
             issuer_tag: u("issuer_tag")?,

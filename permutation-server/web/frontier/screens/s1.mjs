@@ -197,6 +197,29 @@ export function s2SharesModel(FS) {
   return { lots };
 }
 const SHARE = 1;
+const RECEIPT = 2;
+
+/**
+ * S2 (2c): the viewer's live receipt lots with what each may do today:
+ * `{today, lots: [{key, issuerTag, issueSeq, amount, perUnit, resource,
+ * vault, claimDay, claim, canClaim, canWithdraw}]}` (`claimDay` a real day,
+ * `claim` the milli still to withdraw).
+ */
+export function s2ReceiptsModel(FS) {
+  const t = FS.s1?.tickets ?? { issues: [], lots: [] };
+  const mine = viewerTag(FS);
+  const today = Math.floor(Number(FS.nowBell ?? 0) / BELLS_PER_DAY);
+  const lots = t.lots.filter(l => !l.void && isMine(l.holderTag, mine)).map(l => {
+    const i = t.issues.find(x => x.issuerTag === l.issuerTag && x.seq === l.issueSeq);
+    if (!i || i.kind !== RECEIPT || i.void || i.src.kind !== 2) return null;
+    const ended = i.untilDay !== 0xffffffff && today > i.untilDay;
+    const yesterday = l.claimDay === today - 1 && (l.claim ?? 0) > 0;
+    return { ...l, perUnit: i.perUnit, resource: i.resource, vault: { p: i.src.p, q: i.src.q, tile: i.src.at },
+      canClaim: !ended && l.claimDay !== today && !yesterday && l.amount > 0, canWithdraw: yesterday };
+  }).filter(Boolean);
+  return { today, lots };
+}
+const BELLS_PER_DAY = 144;
 /** The live share issue of a feed vault (`shares` names it), or null. */
 export function vaultIssue(FS, vault) {
   const s = vault?.shares;
@@ -234,7 +257,15 @@ export function renderS1Tile(FS, sel) {
     ${offer('s1-vault', { p: m.p, q: m.q, tile: m.idx }, L`${S1_WORDS.vault()}を建てる`, m.build.vault)}
     ${m.build.structures.map(o => offer('s1-structure', { p: m.p, q: m.q, tile: m.idx, kind: o.kind }, L`${kindWord(o.kind)}を建てる`, o))}</ul>
     <p class="muted">${L`費用は選んでいる村の蔵から払います。物見櫓はまわりの動きを知らせ、柵と要塞は通る敵を止めます。`}</p>`)}`;
-  return html`<div class="s1-tile">${here.length ? html`<ul class="list s1-here">${here}</ul>` : ''}${raids}${build}</div>`;
+  // S2 (2c): the owner of an unshared vault may issue receipts on it.
+  const receipt = s2On() && m.vault?.mine && !m.vault.shares ? fold('s2-receipt', html`${icon('scroll')}${L`受け取りの札を出す`}`, html`<form class="vform" data-form="s2-issue-receipt">
+    <input type="hidden" name="p" value="${m.p}"><input type="hidden" name="q" value="${m.q}"><input type="hidden" name="tile" value="${m.idx}">
+    <label class="field">${L`資源`}<select name="resource">${RESOURCE_ORDER.slice(0, 6).map((r, i) => html`<option value="${i}">${RESOURCES[r]}</option>`)}</select></label>
+    <div class="count-row"><label class="count-label" for="s2-ra">${L`札の枚数`}</label><input id="s2-ra" name="amount" type="number" min="1" step="1" value="10" inputmode="numeric"></div>
+    <div class="count-row"><label class="count-label" for="s2-rp">${L`1枚が1日に受け取れる量`}</label><input id="s2-rp" name="perUnit" type="number" min="1" step="1" value="1" inputmode="numeric"></div>
+    <div class="actions"><button type="submit" class="btn">${L`札を出す`}</button></div>
+    <p class="muted">${L`札を出すと金 20 を払い、その金は消えます。札を持つ人は毎日請求でき、翌日に倉から荷車で受け取ります。倉の中身が足りない日は、請求の割合で均等に減ります。`}</p></form>`) : '';
+  return html`<div class="s1-tile">${here.length ? html`<ul class="list s1-here">${here}</ul>` : ''}${raids}${build}${receipt}</div>`;
 }
 
 /** The village's S1 card (screens/holding.mjs). */
@@ -275,7 +306,8 @@ export function renderS1Village(FS) {
     ${fold('s1-send', html`${icon('flag')}${L`隊商を送る`}`, send)}
     ${fort ? fold('s1-fort', html`${icon('shield')}${L`要塞に兵を入れる`}`, fort) : ''}
     ${nation ? fold('s1-nation', html`${icon('banner')}${L`国の議会`}`, nation) : ''}
-    ${s2On() ? fold('s2-shares', html`${icon('scroll')}${L`持ち分の札`}`, renderShares(FS)) : ''}</section>`;
+    ${s2On() ? fold('s2-shares', html`${icon('scroll')}${L`持ち分の札`}`, renderShares(FS)) : ''}
+    ${s2On() ? fold('s2-receipts', html`${icon('scroll')}${L`受け取りの札`}`, renderReceipts(FS)) : ''}</section>`;
 }
 
 /** S2 (2b): the viewer's share lots and the withdrawal form. */
@@ -290,6 +322,16 @@ function renderShares(FS) {
       <div class="count-row"><label class="count-label" for="s2-amt">${L`引き出す単位`}</label><input id="s2-amt" name="amount" type="number" min="1" step="1" value="1" inputmode="numeric"></div>
       <div class="actions"><button type="submit" class="btn">${L`選んだ村へ引き出す`}</button></div>
       <p class="muted">${L`荷は隊商で選んでいる村へ運ばれます。道中で略奪されることがあります。`}</p></form>${note}`;
+}
+
+/** S2 (2c): the viewer's receipt lots: claim today's, withdraw yesterday's. */
+function renderReceipts(FS) {
+  const m = s2ReceiptsModel(FS);
+  if (!m.lots.length) return html`<p class="muted">${L`受け取りの札はまだありません。`}</p>`;
+  return html`<ul class="list">${m.lots.map((l, i) => html`<li>${icon('scroll')}${L`貯蔵庫（${l.vault.p}, ${l.vault.q}）の${RESOURCES[RESOURCE_ORDER[l.resource]]}`}
+    <span class="muted">${L`${fmtNum(l.amount)} 枚 · 1日 ${fmtNum(Math.floor((l.amount * l.perUnit) / 1000))}`}</span>
+    <span class="actions">${btn('s2-claim', { i }, L`今日の分を請求`, { disabled: !l.canClaim })}${btn('s2-withdraw-receipt', { i }, L`昨日の分を受け取る`, { primary: true, disabled: !l.canWithdraw })}</span></li>`)}</ul>
+    <p class="muted">${L`請求は1日1回です。受け取りは翌日のうちに、選んでいる村へ荷車で運ばれます。翌日に受け取らない請求は消えます。`}</p>`;
 }
 
 /** A proposal in words. */

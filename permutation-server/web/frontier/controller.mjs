@@ -38,7 +38,7 @@ import { emit as fxEmit } from './fx/bus.mjs';
 import { reachOrigins } from './screens/conquest.mjs';
 import { s1On, s2On } from './fs1.mjs';
 import { fastestPath, pack, landsWanted, landOfProvince, CARAVAN_FEE } from './fcaravan.mjs';
-import { raidOffers, s1VillageModel, s2SharesModel, KIND, PROPOSE_STANCE } from './screens/s1.mjs';
+import { raidOffers, s1VillageModel, s2SharesModel, s2ReceiptsModel, KIND, PROPOSE_STANCE } from './screens/s1.mjs';
 import { placeData, raidProvinces, cargoBytes, RAID_CHOICE } from './fplay.mjs';
 import { cachedReach, reachKey, reachableKeeps } from './fkeepreach.mjs';
 import * as fprize from './fprize.mjs';
@@ -1480,8 +1480,44 @@ async function s2Withdraw(i, amount) {
     order: orderOf('s2-withdraw', 'WithdrawShares', { say: () => L`持ち分の荷が村へ向かいました` }) });
 }
 
+/** S2 (2c) IssueTickets: a receipt on the viewer's vault at `at`; the fee from the village in hand. */
+function s2IssueReceipt(at, resource, amount, perUnit) {
+  const h = activeHolding(FS);
+  if (!h) return s1Refused(L`費用を払う村を選んでください`);
+  if (!(amount > 0) || !(perUnit > 0)) return failed({ code: 'TicketTerms' });
+  const issuerTag = citizenTag(io.pinned().addresses.of('Citizen', { wallet: FS.wallet.address }));
+  const seq = Number(FS.citizen?.issues ?? 0), lotSeq = Number(FS.citizen?.lots ?? 0);
+  return act('IssueTickets', { v: { holding: h, source: { kind: 'vault', ...at }, issuerTag, seq, lotSeq },
+    fields: { kind: 2, resource, amount: BigInt(amount), per_unit: BigInt(perUnit) * 1000n, until_day: 0xffffffff },
+    order: orderOf('s2-receipt', 'IssueTickets', { tile: at, say: () => L`受け取りの札を出しました` }) });
+}
+const receiptRefs = l => ({ lot: { tag: BigInt(l.key[0]), seq: l.key[1] }, issue: { tag: BigInt(l.issuerTag), seq: l.issueSeq }, vault: l.vault });
+/** S2 (2c) ClaimReceipt: today's entitlement of the viewer's receipt lot `i`. */
+function s2Claim(i) {
+  const l = s2ReceiptsModel(FS).lots[i];
+  if (!l || !l.canClaim) return s1Refused(L`この札は今日はもう請求できません`);
+  return act('ClaimReceipt', { v: receiptRefs(l), fields: {}, say: () => L`今日の分を請求しました` });
+}
+/** S2 (2c) WithdrawReceipt: yesterday's grant of lot `i` to the village in hand. */
+async function s2WithdrawReceipt(i) {
+  const l = s2ReceiptsModel(FS).lots[i], h = activeHolding(FS);
+  if (!l || !l.canWithdraw) return s1Refused(L`受け取れる昨日の請求がありません`);
+  if (!h || !Number.isInteger(h.tile)) return s1Refused(L`届け先の村を選んでください`);
+  const v = l.vault;
+  busy(() => L`道を探しています…`);
+  const plan = fastestPath({ p: v.p, q: v.q, tile: v.tile }, { p: h.p, q: h.q, tile: h.tile }, await landsFor(v, h));
+  if (!plan || !plan.dirs.length) return failed({ code: 'Path' });
+  const seq = Number(FS.citizen?.caravans ?? 0);
+  const dst = { kind: 'holding', p: h.p, q: h.q, site: h.site, gen: h.gen ?? 0 };
+  return act('WithdrawReceipt', { v: { ...receiptRefs(l), dst, seq, provinces: plan.provinces },
+    fields: { seq, ...placeData(dst), steps: plan.dirs.length, path: pack(plan.dirs), fee: CARAVAN_FEE },
+    order: orderOf('s2-withdraw', 'WithdrawReceipt', { say: () => L`受け取りの荷が村へ向かいました` }) });
+}
+
 export const ACTIONS = {
   'cq-refresh': () => refreshConquest(),
+  's2-claim': d => s2Claim(num(d.i)),
+  's2-withdraw-receipt': d => s2WithdrawReceipt(num(d.i)),
   // S2 (screens/s1.mjs)
   's2-open-shares': d => s2OpenShares(s1Tile(d)),
   // S1 (screens/s1.mjs)
@@ -1710,6 +1746,8 @@ function garrisonOrder(n) {
 /** Form submissions (data-form). */
 export const FORMS = {
   // S1 (screens/s1.mjs)
+  's2-issue-receipt': f => s2IssueReceipt({ p: Math.trunc(formNum(f, 'p')), q: Math.trunc(formNum(f, 'q')), tile: Math.trunc(formNum(f, 'tile')) },
+    Math.trunc(formNum(f, 'resource')), Math.trunc(formNum(f, 'amount')), Math.trunc(formNum(f, 'perUnit'))),
   's2-withdraw': f => s2Withdraw(Math.trunc(formNum(f, 'lot')), Math.trunc(formNum(f, 'amount'))),
   's1-caravan': f => s1Caravan(Math.trunc(formNum(f, 'dst')), Array.from({ length: 8 }, (_, i) => Math.max(0, Math.trunc(formNum(f, `c${i}`) || 0)))),
   's1-fort': f => {

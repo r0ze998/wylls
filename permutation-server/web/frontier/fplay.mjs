@@ -57,6 +57,8 @@ export const SIGNED_BY = Object.freeze({
   // S2 (2b): shares. A withdrawal home needs no wallet (to another's place
   // it would; this page sends it home).
   OpenShares: 'session', WithdrawShares: 'session',
+  // S2 (2c): receipts.
+  ClaimReceipt: 'session', WithdrawReceipt: 'session',
 });
 /** S1 `layout::s1::place` kinds (a caravan's origin or destination). */
 export const PLACE_KIND = Object.freeze({ holding: 1, vault: 2 });
@@ -155,6 +157,13 @@ export function accountsFor(name, v) {
     // `lot` {tag, seq} the holder's, `issue` {tag, seq}, `vault` {p, q, tile},
     // `dst` a place, `seq` the holder's caravan, `provinces` the walk's.
     case 'WithdrawShares':
+      return { ...base, lot: A.of('Lot', v.lot), issue: A.of('Issue', v.issue), src: A.of('Vault', v.vault), dst: placeAddress(A, v.dst),
+        caravan: A.of('Caravan', { ownerTag: citizenTag(citizen), seq: v.seq }), path_province: v.provinces.map(p => A.of('Province', p)) };
+    // S2 (2c): `lot` and `issue` {tag, seq}, `vault` {p, q, tile}; a
+    // withdrawal is WithdrawShares' shape.
+    case 'ClaimReceipt':
+      return { ...base, lot: A.of('Lot', v.lot), issue: A.of('Issue', v.issue), vault: A.of('Vault', v.vault) };
+    case 'WithdrawReceipt':
       return { ...base, lot: A.of('Lot', v.lot), issue: A.of('Issue', v.issue), src: A.of('Vault', v.vault), dst: placeAddress(A, v.dst),
         caravan: A.of('Caravan', { ownerTag: citizenTag(citizen), seq: v.seq }), path_province: v.provinces.map(p => A.of('Province', p)) };
     case 'CloseLot':

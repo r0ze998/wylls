@@ -128,6 +128,9 @@ struct Lot {
     seq: u32,
     amount: u64,
     escrow: u64,
+    /// 2c: the day (+1) of its last claim and the milli claimed.
+    day: u32,
+    day_amount: u64,
 }
 
 impl Lot {
@@ -148,6 +151,8 @@ impl Lot {
             seq: u32_of(d, LT::SEQ).ok_or_else(e)?,
             amount: u64_of(d, LT::AMOUNT).ok_or_else(e)?,
             escrow: u64_of(d, LT::ESCROW).ok_or_else(e)?,
+            day: u32_of(d, LT::DAY).ok_or_else(e)?,
+            day_amount: u64_of(d, LT::DAY_AMOUNT).ok_or_else(e)?,
         })
     }
     fn of(&self, i: &Issue) -> bool {
@@ -293,6 +298,8 @@ pub fn judge_issue(ix: &crate::world::Ix, s: &dyn States, bell: u32) -> Result<(
         seq: lots,
         amount: x.amount,
         escrow: 0,
+        day: 0,
+        day_amount: 0,
     };
     if s.before(&lot).is_some() {
         return Err(wrong("a Lot written over one"));
@@ -307,7 +314,8 @@ pub fn judge_issue(ix: &crate::world::Ix, s: &dyn States, bell: u32) -> Result<(
 
 /// GiveLot (accounts: 0 actor, 3 citizen, 4 lot, 5 issue, 6 source, 7
 /// recipient, 8 to_lot).
-pub fn judge_give(ix: &crate::world::Ix, s: &dyn States) -> Result<(), Wrong> {
+pub fn judge_give(ix: &crate::world::Ix, s: &dyn States, bell: u32) -> Result<(), Wrong> {
+    let today1 = bell / BELLS_PER_DAY + 1;
     let x = ix2::GiveLot::decode(&ix.data).map_err(|_| wrong("does not decode"))?;
     let keys: Vec<Option<Key>> = (0..9).map(|i| ix.key(i)).collect();
     let [Some(actor), _, _, Some(citizen), Some(lot), Some(issue), Some(source), Some(recipient), Some(to_lot)] =
@@ -368,12 +376,16 @@ pub fn judge_give(ix: &crate::world::Ix, s: &dyn States) -> Result<(), Wrong> {
     let ta = Lot::decode(&v.after(&to_lot, "recipient's Lot")?)?;
     match s.before(&to_lot) {
         None => {
+            // 2c: units claimed today arrive "claimed today".
+            let claimed = ib.kind == KIND_RECEIPT && from.day == today1;
             let want = Lot {
                 holder: recipient,
                 holder_tag: rtag,
                 seed_tag: gtag,
                 seq: lots,
                 amount: x.amount,
+                day: if claimed { today1 } else { 0 },
+                day_amount: 0,
                 ..from
             };
             if ta != want {
@@ -390,6 +402,11 @@ pub fn judge_give(ix: &crate::world::Ix, s: &dyn States) -> Result<(), Wrong> {
                 || tb.src_gen != ib.src_gen
             {
                 return Err(wrong("units added to a lot that cannot take them"));
+            }
+            if ib.kind == KIND_RECEIPT && from.day == today1 && tb.day != today1 {
+                return Err(wrong(
+                    "units claimed today added to a lot that did not claim",
+                ));
             }
             let mut want = tb;
             want.amount = tb
@@ -558,6 +575,8 @@ pub fn judge_open(ix: &crate::world::Ix, s: &dyn States, bell: u32) -> Result<()
         seq: frontier_abi::v2::addr::deposit_seq(tag, seq),
         amount: supply,
         escrow: 0,
+        day: 0,
+        day_amount: 0,
     };
     if s.before(&lot).is_some() || Lot::decode(&v.after(&lot, "Lot")?)? != want_lot {
         return Err(wrong("the opener's deposit lot is not the whole supply"));
@@ -652,6 +671,8 @@ pub fn judge_deposit(ix: &crate::world::Ix, s: &dyn States) -> Result<(), Wrong>
             seq,
             amount: minted,
             escrow: 0,
+            day: 0,
+            day_amount: 0,
         },
         Some(d) => {
             let lb = Lot::decode(&d)?;
@@ -679,6 +700,107 @@ pub fn judge_deposit(ix: &crate::world::Ix, s: &dyn States) -> Result<(), Wrong>
     wi.supply = ib.supply.saturating_add(minted);
     if Issue::decode(&v.after(&issue, "Issue")?)? != wi {
         return Err(wrong("the supply is not the minted units'"));
+    }
+    Ok(())
+}
+
+// ------------------------------------------------------------ receipts (2c)
+
+/// The receipt lot of a claim or a withdrawal (accounts: 3 citizen, 4 lot,
+/// 5 issue, `vault_at` the vault): checked as the program does.
+fn receipt_lot(
+    ix: &crate::world::Ix,
+    s: &dyn States,
+    vault_at: usize,
+) -> Result<(Key, Key, Lot, Issue, Vec<u8>), Wrong> {
+    let (Some(citizen), Some(lot), Some(issue), Some(vault)) =
+        (ix.key(3), ix.key(4), ix.key(5), ix.key(vault_at))
+    else {
+        return Err(wrong("the accounts are missing"));
+    };
+    let v = Seen { s };
+    let lb = Lot::decode(&v.before(&lot, "Lot")?)?;
+    let ib = Issue::decode(&v.before(&issue, "Issue")?)?;
+    let vb = v.before(&vault, "Vault")?;
+    if lb.holder != citizen || lb.state != STATE_LIVE || lb.escrow != 0 || !lb.of(&ib) {
+        return Err(wrong("a receipt lot not the citizen's"));
+    }
+    if ib.kind != KIND_RECEIPT || !valid_now(&ib, Some(&vb)) || lb.src_gen != ib.src_gen {
+        return Err(wrong("a void receipt used"));
+    }
+    if Issue::decode(&v.after(&issue, "Issue")?)? != ib {
+        return Err(wrong("the receipt Issue changed"));
+    }
+    Ok((lot, vault, lb, ib, vb))
+}
+
+/// ClaimReceipt (accounts: 3 citizen, 4 lot, 5 issue, 6 vault): once a
+/// day, the whole entitlement, added to the rolled vault's claims.
+pub fn judge_claim(ix: &crate::world::Ix, s: &dyn States, bell: u32) -> Result<(), Wrong> {
+    let (lot, vault, lb, ib, vb) = receipt_lot(ix, s, 6)?;
+    let v = Seen { s };
+    let today = bell / BELLS_PER_DAY;
+    if ib.until_day != kt::NO_END && today > ib.until_day {
+        return Err(wrong("a claim after the receipt's end"));
+    }
+    let r = ib.resource as usize;
+    let mut p = super::v23_caravans::period_of(&vb).map_err(wrong)?;
+    p.roll(today, &stores_of(&vb)?);
+    let claim = lb.amount.saturating_mul(ib.per_unit);
+    let pending = lb.day + 1 == today + 1 && kt::grant(lb.day_amount, p.ratio[r]) > 0;
+    if lb.day == today + 1 || pending || claim == 0 {
+        return Err(wrong(
+            "a claim the rules refuse (twice a day, or yesterday's pending)",
+        ));
+    }
+    p.claims[r] = p.claims[r].saturating_add(claim);
+    let va = v.after(&vault, "Vault")?;
+    if super::v23_caravans::period_of(&va).map_err(wrong)? != p
+        || stores_of(&va)? != stores_of(&vb)?
+    {
+        return Err(wrong("the vault's claims are not the claim's"));
+    }
+    let mut want = lb;
+    want.day = today + 1;
+    want.day_amount = claim;
+    if Lot::decode(&v.after(&lot, "Lot")?)? != want {
+        return Err(wrong("the lot's claim is not its entitlement"));
+    }
+    Ok(())
+}
+
+/// WithdrawReceipt (accounts: 3 citizen, 4 lot, 5 issue, 6 src): yesterday's
+/// claim at the rolled ratio; the vault pays the grant and its reservation
+/// shrinks by as much (V23 judges the caravan).
+pub fn judge_withdraw_receipt(
+    ix: &crate::world::Ix,
+    s: &dyn States,
+    bell: u32,
+) -> Result<(), Wrong> {
+    let (lot, vault, lb, ib, vb) = receipt_lot(ix, s, 6)?;
+    let v = Seen { s };
+    let r = ib.resource as usize;
+    let mut p = super::v23_caravans::rolled(&vb, bell).map_err(wrong)?;
+    if lb.day == 0 || lb.day + 1 != p.res_day || lb.day_amount == 0 {
+        return Err(wrong("a withdrawal without yesterday's claim"));
+    }
+    let grant = kt::grant(lb.day_amount, p.ratio[r]);
+    if grant == 0 || grant > p.res[r] {
+        return Err(wrong("a grant the rules refuse"));
+    }
+    p.res[r] -= grant;
+    let va = v.after(&vault, "Vault")?;
+    if super::v23_caravans::period_of(&va).map_err(wrong)? != p {
+        return Err(wrong("the reservation did not shrink by the grant"));
+    }
+    let (b, a) = (stores_of(&vb)?, stores_of(&va)?);
+    if (0..8).any(|i| b[i] - a[i] != if i == r { grant as i64 } else { 0 }) {
+        return Err(wrong("the vault paid other than the grant"));
+    }
+    let mut want = lb;
+    want.day_amount = 0;
+    if Lot::decode(&v.after(&lot, "Lot")?)? != want {
+        return Err(wrong("the lot's claim is not spent"));
     }
     Ok(())
 }
@@ -727,6 +849,8 @@ pub fn run(cx: &mut Ctx) {
         V2Ix::OpenShares,
         V2Ix::WithdrawShares,
         V2Ix::SettleDeposit,
+        V2Ix::ClaimReceipt,
+        V2Ix::WithdrawReceipt,
     ];
     if !w.has_post {
         let any = w.txs.iter().any(|tx| {
@@ -756,7 +880,9 @@ pub fn run(cx: &mut Ctx) {
             let Some(tag) = ix.tag() else { continue };
             let r = match V2Ix::from_tag(tag) {
                 Some(V2Ix::IssueTickets) => judge_issue(ix, &st, bell),
-                Some(V2Ix::GiveLot) => judge_give(ix, &st),
+                Some(V2Ix::GiveLot) => judge_give(ix, &st, bell),
+                Some(V2Ix::ClaimReceipt) => judge_claim(ix, &st, bell),
+                Some(V2Ix::WithdrawReceipt) => judge_withdraw_receipt(ix, &st, bell),
                 Some(V2Ix::CloseLot) => judge_close(ix, &st),
                 Some(V2Ix::OpenShares) => judge_open(ix, &st, bell),
                 Some(V2Ix::WithdrawShares) => judge_withdraw(ix, &st),
@@ -881,6 +1007,8 @@ mod tests {
         d[LT::SEQ..LT::SEQ + 4].copy_from_slice(&l.seq.to_le_bytes());
         d[LT::AMOUNT..LT::AMOUNT + 8].copy_from_slice(&l.amount.to_le_bytes());
         d[LT::ESCROW..LT::ESCROW + 8].copy_from_slice(&l.escrow.to_le_bytes());
+        d[LT::DAY..LT::DAY + 4].copy_from_slice(&l.day.to_le_bytes());
+        d[LT::DAY_AMOUNT..LT::DAY_AMOUNT + 8].copy_from_slice(&l.day_amount.to_le_bytes());
         d
     }
 
@@ -917,6 +1045,8 @@ mod tests {
             seq: 0,
             amount: 10,
             escrow: 0,
+            day: 0,
+            day_amount: 0,
         }
     }
 
@@ -993,10 +1123,10 @@ mod tests {
                 (NEW_LOT, Some(lot_bytes(&new))),
             ]),
         };
-        assert_eq!(judge_give(&ix(data.clone(), &keys(WALLET)), &m), Ok(()));
-        assert!(judge_give(&ix(data.clone(), &keys(SESSION)), &m).is_err());
+        assert_eq!(judge_give(&ix(data.clone(), &keys(WALLET)), &m, 0), Ok(()));
+        assert!(judge_give(&ix(data.clone(), &keys(SESSION)), &m, 0).is_err());
         m.before.insert(VAULT, vault(YOU, 2));
-        assert!(judge_give(&ix(data, &keys(WALLET)), &m).is_err());
+        assert!(judge_give(&ix(data, &keys(WALLET)), &m, 0).is_err());
     }
 
     /// A void lot may be closed with its units; a valid one only empty.
@@ -1142,5 +1272,98 @@ mod tests {
         assert_eq!(judge_withdraw(&i, &m), Ok(()));
         m.after.insert(VAULT, Some(shared(vault(ME, 1), 59)));
         assert!(judge_withdraw(&i, &m).is_err());
+    }
+
+    fn with_period(mut d: Vec<u8>, ore: i64, p: &kt::Period) -> Vec<u8> {
+        d[VA::store(3)..VA::store(3) + 8].copy_from_slice(&(ore * 1_000).to_le_bytes());
+        d[VA::CLAIM_DAY..VA::CLAIM_DAY + 4].copy_from_slice(&p.claim_day.to_le_bytes());
+        d[VA::RES_DAY..VA::RES_DAY + 4].copy_from_slice(&p.res_day.to_le_bytes());
+        for r in 0..8 {
+            d[VA::claim(r)..VA::claim(r) + 8].copy_from_slice(&p.claims[r].to_le_bytes());
+            d[VA::res(r)..VA::res(r) + 8].copy_from_slice(&p.res[r].to_le_bytes());
+            d[VA::ratio(r)..VA::ratio(r) + 4].copy_from_slice(&p.ratio[r].to_le_bytes());
+        }
+        d
+    }
+
+    /// Day 1's withdrawal of a 20-ore claim of day 0 against 30 ore of 40
+    /// claimed: 15; a grant of 16 (T64's shape) fails, as does a second
+    /// claim of the same day (T65's shape).
+    #[test]
+    fn receipts_prorate() {
+        let receipt = Issue {
+            per_unit: 10_000,
+            ..the_issue()
+        };
+        let claimed = Lot {
+            amount: 2,
+            day: 1,
+            day_amount: 20_000,
+            ..the_lot()
+        };
+        let mut before = kt::Period {
+            claim_day: 1,
+            res_day: 1,
+            ..Default::default()
+        };
+        before.claims[3] = 40_000;
+        let mut after = before;
+        after.roll(1, &[0, 0, 0, 30_000, 0, 0, 0, 0]);
+        after.res[3] -= 15_000;
+        let data = ix2::WithdrawReceipt {
+            seq: 0,
+            dst_kind: 1,
+            dst_p: 0,
+            dst_q: 0,
+            dst_at: 0,
+            dst_gen: 1,
+            steps: 0,
+            path: [0; 12],
+            fee: 0,
+        }
+        .to_bytes()
+        .to_vec();
+        let i = ix(data, &[SESSION, [0; 32], [0; 32], ME, LOT, ISSUE, VAULT]);
+        let bell = BELLS_PER_DAY + 3;
+        let mut m = Mock {
+            before: HashMap::from([
+                (VAULT, with_period(vault(YOU, 1), 30, &before)),
+                (ISSUE, issue_bytes(&receipt)),
+                (LOT, lot_bytes(&claimed)),
+            ]),
+            after: HashMap::from([
+                (VAULT, Some(with_period(vault(YOU, 1), 15, &after))),
+                (
+                    LOT,
+                    Some(lot_bytes(&Lot {
+                        day_amount: 0,
+                        ..claimed
+                    })),
+                ),
+            ]),
+        };
+        assert_eq!(judge_withdraw_receipt(&i, &m, bell), Ok(()));
+        let mut greedy = after;
+        greedy.res[3] -= 1_000;
+        m.after
+            .insert(VAULT, Some(with_period(vault(YOU, 1), 14, &greedy)));
+        assert!(judge_withdraw_receipt(&i, &m, bell).is_err());
+        // A second claim on day 0.
+        let data = ix2::ClaimReceipt {}.to_bytes().to_vec();
+        let c = ix(data, &[SESSION, [0; 32], [0; 32], ME, LOT, ISSUE, VAULT]);
+        let mut twice = before;
+        twice.claims[3] += 20_000;
+        let m = Mock {
+            before: HashMap::from([
+                (VAULT, with_period(vault(YOU, 1), 30, &before)),
+                (ISSUE, issue_bytes(&receipt)),
+                (LOT, lot_bytes(&claimed)),
+            ]),
+            after: HashMap::from([
+                (VAULT, Some(with_period(vault(YOU, 1), 30, &twice))),
+                (LOT, Some(lot_bytes(&claimed))),
+            ]),
+        };
+        assert!(judge_claim(&c, &m, 3).is_err());
     }
 }

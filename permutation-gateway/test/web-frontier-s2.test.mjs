@@ -55,6 +55,10 @@ test('the ticket shapes are fclient\'s instructions, and the relay\'s profile 4 
     ['WithdrawShares', { lot: { tag: ME, seq: depositSeq(ME, 2) }, issue: { tag: ME, seq: 2 }, vault: { p: 4, q: -2, tile: 17 },
       dst: { kind: 'holding', ...h, gen: 1 }, seq: 5, provinces: [{ p: 4, q: -2 }, { p: 3, q: -1 }] },
     { seq: 5, amount: 40n, ...placeData({ kind: 'holding', ...h, gen: 1 }), steps: 2, path: CAR.pack([3, 4]), fee: 50000n }],
+    ['ClaimReceipt', { lot: { tag: ME, seq: 1 }, issue: { tag: ME, seq: 0 }, vault: { p: 4, q: -2, tile: 17 } }, {}],
+    ['WithdrawReceipt', { lot: { tag: ME, seq: 1 }, issue: { tag: ME, seq: 0 }, vault: { p: 4, q: -2, tile: 17 },
+      dst: { kind: 'holding', ...h, gen: 1 }, seq: 6, provinces: [{ p: 4, q: -2 }, { p: 3, q: -1 }] },
+    { seq: 6, ...placeData({ kind: 'holding', ...h, gen: 1 }), steps: 2, path: CAR.pack([3, 4]), fee: 50000n }],
   ];
   assert.equal(shapes.length, V.cases.length);
   const hex = b => Array.from(b, x => x.toString(16).padStart(2, '0')).join('');
@@ -91,6 +95,14 @@ test('h/tickets.json is read strictly', () => {
   assert.deepEqual(t.lots[1].key, ['11', 1]);
   assert.equal(t.lots[1].holderTag, '18446744073709551615');
   assert.equal(t.lots[1].void, true);
+  assert.equal(t.lots[0].claim, null, 'a feed from before 2c');
+  const withClaim = clone(TICKETS);
+  withClaim.lots[0].claimDay = 4; withClaim.lots[0].claim = 20000;
+  withClaim.issues[0].ratioPpm = 750000; withClaim.issues[0].ratioDay = 5;
+  const tc = parseTickets(withClaim);
+  assert.deepEqual([tc.lots[0].claimDay, tc.lots[0].claim, tc.issues[0].ratioPpm], [4, 20000, 750000]);
+  withClaim.issues[0].ratioPpm = 1000001;
+  assert.ok(code(() => parseTickets(withClaim)));
   const bad = [
     o => { o.v = 2; },
     o => { o.issues[0].kind = 5; },
@@ -157,4 +169,16 @@ test('the shares model lists the viewer\'s live share lots with their vault; the
     const own = { ...base, s1: { ...base.s1, caravans: { moving: [], vaults: [{ ...vault, shares: null }] } } };
     assert.match(String(SCR.renderS1Tile(own, { p: 3, q: 0, idx: 40 })), /s2-open-shares/);
   } finally { S1.setS1(null); }
+});
+
+test('the receipts model: claim once a day, collect the next day (2c)', () => {
+  const me = new Uint8Array(32); me[0] = 9;
+  const issue = { issuerTag: '9', seq: 0, kind: 2, src: { kind: 2, p: 3, q: 0, at: 40, gen: 1, tile: 40 }, resource: 3, perUnit: 10000, untilDay: 4294967295, supply: 4, state: 1, void: false, ratioPpm: null, ratioDay: null };
+  const lot = (claimDay, claim) => ({ key: ['9', 0], issuerTag: '9', issueSeq: 0, holderTag: '9', amount: 2, state: 1, void: false, claimDay, claim });
+  const at = (l, bell) => SCR.s2ReceiptsModel({ nowBell: bell, holdings: [{ ownerCitizen: me }], s1: { tickets: { v: 1, issues: [issue], lots: [l] } } }).lots[0];
+  assert.deepEqual([at(lot(null, null), 10).canClaim, at(lot(null, null), 10).canWithdraw], [true, false]);
+  assert.deepEqual([at(lot(0, 20000), 10).canClaim, at(lot(0, 20000), 10).canWithdraw], [false, false], 'claimed today');
+  assert.deepEqual([at(lot(0, 20000), 150).canClaim, at(lot(0, 20000), 150).canWithdraw], [false, true], 'collect first');
+  assert.deepEqual([at(lot(0, 0), 150).canClaim, at(lot(0, 20000), 300).canClaim], [true, true], 'collected, or lapsed');
+  assert.equal(at(lot(null, null), 10).vault.tile, 40);
 });

@@ -428,6 +428,37 @@ pub fn accounts_of(ix: Ix) -> &'static [Group] {
                 ]
             }
         }
+        // S2 (2c; S2-2C-CONTRACT §4): a claim writes the lot and the
+        // vault's claims; a withdrawal is WithdrawShares' list, the issue
+        // read-only.
+        Ix::ClaimReceipt => {
+            const {
+                &[
+                    one!(PLAYER_PROLOGUE),
+                    one!(&[
+                        s!("lot", KindV2(K2::Lot), false, W),
+                        s!("issue", KindV2(K2::Issue), false, R),
+                        s!("vault", KindV2(K2::Vault), false, W),
+                    ]),
+                ]
+            }
+        }
+        Ix::WithdrawReceipt => {
+            const {
+                &[
+                    one!(PLAYER_PROLOGUE),
+                    one!(&[
+                        s!("lot", KindV2(K2::Lot), false, W),
+                        s!("issue", KindV2(K2::Issue), false, R),
+                        s!("src", KindV2(K2::Vault), false, W),
+                        s!("dst", EitherV2(K2::Holding, K2::Vault), false, R),
+                        s!("caravan", KindV2(K2::Caravan), false, W),
+                        SYSTEM,
+                    ]),
+                    rep!(&[s!("path_province", KindV2(K2::Province), false, W)], 1, 4),
+                ]
+            }
+        }
         // S1 (1e; S1-1E-CONTRACT §2.6): the holding pays from its reserve;
         // the fort's Province holds its record (the holding's own).
         Ix::FortGarrison => {
@@ -727,6 +758,8 @@ mod tests {
         assert_eq!(count_bounds(Ix::OpenShares), (10, 10));
         assert_eq!(count_bounds(Ix::WithdrawShares), (11, 14));
         assert_eq!(count_bounds(Ix::SettleDeposit), (10, 13));
+        assert_eq!(count_bounds(Ix::ClaimReceipt), (7, 7));
+        assert_eq!(count_bounds(Ix::WithdrawReceipt), (11, 14));
         assert_eq!(count_bounds(Ix::DefaultRaid), (7, 13));
         // §5.6: the three resident actions gain the Province
         for ix in [Ix::Harvest, Ix::Build, Ix::Train] {

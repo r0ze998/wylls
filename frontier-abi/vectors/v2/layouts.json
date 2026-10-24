@@ -2872,9 +2872,39 @@
           "ty": "u64"
         },
         {
-          "name": "RSV",
+          "name": "CLAIM_DAY",
           "off": 248,
-          "len": 264,
+          "len": 4,
+          "ty": "u32"
+        },
+        {
+          "name": "RES_DAY",
+          "off": 252,
+          "len": 4,
+          "ty": "u32"
+        },
+        {
+          "name": "CLAIMS",
+          "off": 256,
+          "len": 64,
+          "ty": "[u64;8]"
+        },
+        {
+          "name": "RES",
+          "off": 320,
+          "len": 64,
+          "ty": "[u64;8]"
+        },
+        {
+          "name": "RATIO",
+          "off": 384,
+          "len": 32,
+          "ty": "[u32;8]"
+        },
+        {
+          "name": "RSV",
+          "off": 416,
+          "len": 96,
           "ty": "rsv"
         }
       ]

@@ -6027,6 +6027,209 @@
           ]
         }
       ]
+    },
+    {
+      "name": "ClaimReceipt",
+      "tag": 198,
+      "class": "P",
+      "new_in_v2": true,
+      "changed_in_v2": false,
+      "top_level_only": false,
+      "relay_player_shape": true,
+      "relay_settle_shape": false,
+      "data_len": [1, 1],
+      "data": [],
+      "account_groups": [
+        {
+          "min": 1,
+          "max": 1,
+          "accounts": [
+            {
+              "name": "actor",
+              "kind": "wallet",
+              "signer": true,
+              "writable": "r"
+            },
+            {
+              "name": "payer",
+              "kind": "wallet",
+              "signer": true,
+              "writable": "w"
+            },
+            {
+              "name": "season",
+              "kind": "Season",
+              "signer": false,
+              "writable": "r"
+            },
+            {
+              "name": "citizen",
+              "kind": "Citizen",
+              "signer": false,
+              "writable": "w"
+            }
+          ]
+        },
+        {
+          "min": 1,
+          "max": 1,
+          "accounts": [
+            {
+              "name": "lot",
+              "kind": "Lot",
+              "signer": false,
+              "writable": "w"
+            },
+            {
+              "name": "issue",
+              "kind": "Issue",
+              "signer": false,
+              "writable": "r"
+            },
+            {
+              "name": "vault",
+              "kind": "Vault",
+              "signer": false,
+              "writable": "w"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "WithdrawReceipt",
+      "tag": 199,
+      "class": "P",
+      "new_in_v2": true,
+      "changed_in_v2": false,
+      "top_level_only": false,
+      "relay_player_shape": true,
+      "relay_settle_shape": false,
+      "data_len": [33, 33],
+      "data": [
+        {
+          "name": "seq",
+          "len": 4
+        },
+        {
+          "name": "dst_kind",
+          "len": 1
+        },
+        {
+          "name": "dst_p",
+          "len": 2
+        },
+        {
+          "name": "dst_q",
+          "len": 2
+        },
+        {
+          "name": "dst_at",
+          "len": 1
+        },
+        {
+          "name": "dst_gen",
+          "len": 1
+        },
+        {
+          "name": "steps",
+          "len": 1
+        },
+        {
+          "name": "path",
+          "len": 12
+        },
+        {
+          "name": "fee",
+          "len": 8
+        }
+      ],
+      "account_groups": [
+        {
+          "min": 1,
+          "max": 1,
+          "accounts": [
+            {
+              "name": "actor",
+              "kind": "wallet",
+              "signer": true,
+              "writable": "r"
+            },
+            {
+              "name": "payer",
+              "kind": "wallet",
+              "signer": true,
+              "writable": "w"
+            },
+            {
+              "name": "season",
+              "kind": "Season",
+              "signer": false,
+              "writable": "r"
+            },
+            {
+              "name": "citizen",
+              "kind": "Citizen",
+              "signer": false,
+              "writable": "w"
+            }
+          ]
+        },
+        {
+          "min": 1,
+          "max": 1,
+          "accounts": [
+            {
+              "name": "lot",
+              "kind": "Lot",
+              "signer": false,
+              "writable": "w"
+            },
+            {
+              "name": "issue",
+              "kind": "Issue",
+              "signer": false,
+              "writable": "r"
+            },
+            {
+              "name": "src",
+              "kind": "Vault",
+              "signer": false,
+              "writable": "w"
+            },
+            {
+              "name": "dst",
+              "kind": "Holding|Vault",
+              "signer": false,
+              "writable": "r"
+            },
+            {
+              "name": "caravan",
+              "kind": "Caravan",
+              "signer": false,
+              "writable": "w"
+            },
+            {
+              "name": "system",
+              "kind": "system",
+              "signer": false,
+              "writable": "r"
+            }
+          ]
+        },
+        {
+          "min": 1,
+          "max": 4,
+          "accounts": [
+            {
+              "name": "path_province",
+              "kind": "Province",
+              "signer": false,
+              "writable": "w"
+            }
+          ]
+        }
+      ]
     }
   ],
   "reserved_tags": [
@@ -6059,8 +6262,6 @@
     174,
     175,
     191,
-    198,
-    199,
     200,
     201,
     202,

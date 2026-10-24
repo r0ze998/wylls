@@ -684,6 +684,13 @@
       "keeper": "refused"
     },
     {
+      "code": 98,
+      "name": "ReceiptState",
+      "program": true,
+      "mc": true,
+      "keeper": "refused"
+    },
+    {
       "code": 99,
       "name": "NotImplemented",
       "program": false,

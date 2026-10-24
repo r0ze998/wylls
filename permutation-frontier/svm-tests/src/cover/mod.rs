@@ -50,6 +50,7 @@ pub mod holding;
 pub mod host;
 pub mod map;
 pub mod nation;
+pub mod receipts;
 pub mod reveal;
 pub mod season;
 pub mod shares;
@@ -172,6 +173,9 @@ pub fn covered_by(ix: I) -> &'static [Cover] {
         I::OpenShares => shares::OPEN_SHARES,
         I::WithdrawShares => shares::WITHDRAW_SHARES,
         I::SettleDeposit => shares::SETTLE_DEPOSIT,
+        // S2 (2c): receipts
+        I::ClaimReceipt => receipts::CLAIM_RECEIPT,
+        I::WithdrawReceipt => receipts::WITHDRAW_RECEIPT,
     }
 }
 

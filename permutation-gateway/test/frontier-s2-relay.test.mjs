@@ -12,10 +12,10 @@ import { profileForHash, profileForSeason, rulesetFor, isS1, isV2 } from '../cli
 import { rent } from '../client/src/frontier/fees.mjs';
 import { allowanceFor, CARAVAN_COST, drainGuard, ISSUE_RENT, LOT_RENT, lamportsPerDay } from '../src/frontier/shapes.mjs';
 
-const S2_TAGS = { IssueTickets: 0xC0, GiveLot: 0xC1, CloseLot: 0xC2, OpenShares: 0xC3, WithdrawShares: 0xC4 };
+const S2_TAGS = { IssueTickets: 0xC0, GiveLot: 0xC1, CloseLot: 0xC2, OpenShares: 0xC3, WithdrawShares: 0xC4, ClaimReceipt: 0xC6, WithdrawReceipt: 0xC7 };
 
 test('profile 4 is the S2 program: its hash, the v2 tables, S1\'s limits', () => {
-  assert.equal(PRESETS.ruleset_hash_v4, 'f142e56c9f5c8ddf9e64c9893f1a2ae06d69985ae954671f7c93d152ec21abe4');
+  assert.equal(PRESETS.ruleset_hash_v4, '1789ca3f09d57e8fdc6a81857ce782b0fcc6863296878b0c385dcdd0a4533c33');
   assert.equal(profileForHash(PRESETS.ruleset_hash_v4), 4);
   assert.equal(rulesetFor(4), PRESETS.ruleset_hash_v4);
   assert.equal(profileForSeason({ RULESET_HASH: PRESETS.ruleset_hash_v4 }), 4);
@@ -46,6 +46,9 @@ test('the S2 allowances: an issue and its first lot, one lot a gift, nothing a c
   assert.equal(allowanceFor({ tag: 0xC3 }, { season: {} }), ISSUE_RENT + LOT_RENT);
   assert.equal(allowanceFor({ tag: 0xC4 }, { season: {} }), CARAVAN_COST);
   assert.equal(allowanceFor({ tag: 0xC5 }, { season: {} }), LOT_RENT);
+  // 2c: receipts.
+  assert.equal(allowanceFor({ tag: 0xC6 }, { season: {} }), 0n);
+  assert.equal(allowanceFor({ tag: 0xC7 }, { season: {} }), CARAVAN_COST);
   const pre = 10n * LOT_RENT;
   assert.throws(() => drainGuard({ pre, post: pre - LOT_RENT - 1n, fee: 0n, allowance: LOT_RENT }), /relay refused/);
 });

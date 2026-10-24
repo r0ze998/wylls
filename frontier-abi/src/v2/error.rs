@@ -93,10 +93,13 @@ pub enum CqError {
     /// S2 (2b): the vault is shared: its goods belong to its share holders
     /// (no plain send, settle, close or receipt; withdraw with shares).
     VaultShared = 97,
+    /// S2 (2c): a receipt claim already made today, nothing to withdraw, or
+    /// yesterday's claim not yet withdrawn.
+    ReceiptState = 98,
 }
 
 impl CqError {
-    pub const ALL: [CqError; 36] = {
+    pub const ALL: [CqError; 37] = {
         use CqError::*;
         [
             CapturePending,
@@ -135,6 +138,7 @@ impl CqError {
             TicketVoid,
             TicketTerms,
             VaultShared,
+            ReceiptState,
         ]
     };
 
@@ -185,6 +189,7 @@ impl CqError {
             TicketVoid => "TicketVoid",
             TicketTerms => "TicketTerms",
             VaultShared => "VaultShared",
+            ReceiptState => "ReceiptState",
         }
     }
 
@@ -279,7 +284,8 @@ mod tests {
         }
         assert_eq!(CqError::NotLead.code(), 78);
         let all: std::vec::Vec<u32> = all_codes().map(|c| c.code()).collect();
-        assert_eq!(all.len(), 62 + 36);
+        assert_eq!(all.len(), 62 + 37);
+        assert_eq!(CqError::ReceiptState.code(), 98);
         assert_eq!(CqError::VaultShared.code(), 97);
         assert_eq!(CqError::TicketTerms.code(), 96);
         assert_eq!(CqError::ProposalState.code(), 93);
@@ -298,7 +304,7 @@ mod tests {
         assert_eq!(Code::from_code(87), Some(Code::Cq(CqError::StructureSite)));
         assert_eq!(Code::from_code(91), Some(Code::Cq(CqError::ProposalsFull)));
         assert_eq!(Code::from_code(94), Some(Code::Cq(CqError::TicketLimit)));
-        assert_eq!(Code::from_code(98), None);
+        assert_eq!(Code::from_code(98), Some(Code::Cq(CqError::ReceiptState)));
         assert_eq!(
             Code::Cq(CqError::FoldTooEarly).keeper_action(),
             KeeperAction::Wait

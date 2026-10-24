@@ -110,6 +110,11 @@ pub const MC_ROWS: &[(Ix, u32, u32, u32)] = &[
     (Ix::OpenShares, 40_000, 0, 700),
     (Ix::WithdrawShares, 120_000, 0, 1_100),
     (Ix::SettleDeposit, 50_000, 0, 900),
+    // S2 (2c; S2-2C-CONTRACT §4): measured in LiteSVM (`tests/receipts.rs`)
+    // ClaimReceipt 11,693 (a roll included), WithdrawReceipt 30,353 (one
+    // Province; the path and towers as SendCaravan's budget), with room.
+    (Ix::ClaimReceipt, 20_000, 0, 600),
+    (Ix::WithdrawReceipt, 120_000, 0, 1_100),
     // S1 (1e; S1-1E-CONTRACT §8): measured in LiteSVM (`tests/nation.rs`)
     // Propose 11,957 (the Nation's creation included), Vote 6,631,
     // SettleProposal 8,074 (an expulsion with one holding), with room.

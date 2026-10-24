@@ -43,6 +43,8 @@ export const GIVE_LOT_TAG = 0xC1;
 export const OPEN_SHARES_TAG = 0xC3;
 export const WITHDRAW_SHARES_TAG = 0xC4;
 export const SETTLE_DEPOSIT_TAG = 0xC5;
+// S2 stage 2c: WithdrawReceipt sends a caravan (ClaimReceipt moves nothing).
+export const WITHDRAW_RECEIPT_TAG = 0xC7;
 /** Tags of the player shapes (from the ABI's `relay_player_shape`). */
 export const PLAYER_TAGS = Object.freeze(TAGS.instructions.filter(i => i.relay_player_shape).map(i => i.tag));
 /** Tags of the settle shapes (`relay_settle_shape`). */

@@ -2491,6 +2491,71 @@ pub fn s2_t63(run: &Input) -> Made {
     })
 }
 
+/// T64: a receipt grant above the ratio (V26): the first WithdrawReceipt's
+/// vault left with one unit less of the resource it paid.
+pub fn s2_t64(run: &Input) -> Made {
+    use frontier_abi::v2::layout::s1::vault as VA;
+    let mut inp = run.clone();
+    let tag = frontier_abi::v2::tags::Ix::WithdrawReceipt.tag();
+    let t = first_with(&inp, tag).need("a WithdrawReceipt")?;
+    let keys = ix_keys(&inp, t, tag).need("its accounts")?;
+    let vault = *keys.get(6).need("its vault")?;
+    let u = last_post_before(&inp, &vault, t).need("the vault before")?;
+    let before = inp.txs[u]
+        .post
+        .iter()
+        .find(|(x, _)| x.to_bytes() == vault)
+        .and_then(|(_, a)| a.as_ref().map(|a| a.data.clone()))
+        .need("its state")?;
+    edit_account_at(&mut inp, &vault, t, |d| {
+        let r = (0..8)
+            .find(|&r| {
+                d.get(VA::store(r)..VA::store(r) + 8) != before.get(VA::store(r)..VA::store(r) + 8)
+            })
+            .unwrap_or(0);
+        let v = i64::from_le_bytes(d[VA::store(r)..VA::store(r) + 8].try_into().unwrap());
+        d[VA::store(r)..VA::store(r) + 8].copy_from_slice(&(v - 1_000).to_le_bytes());
+    })
+    .then_some(())
+    .need("the vault's post-state")?;
+    Ok(Case {
+        class: "T64",
+        what: "a receipt grant above the ratio",
+        feature: None,
+        codes: &[TICKET_MISMATCH],
+        input: inp,
+    })
+}
+
+/// T65: a claim counted twice in a day (V26): the first ClaimReceipt's
+/// vault left with its claims raised by the claim once more.
+pub fn s2_t65(run: &Input) -> Made {
+    use frontier_abi::v2::layout::s1::vault as VA;
+    let mut inp = run.clone();
+    let tag = frontier_abi::v2::tags::Ix::ClaimReceipt.tag();
+    let t = first_with(&inp, tag).need("a ClaimReceipt")?;
+    let keys = ix_keys(&inp, t, tag).need("its accounts")?;
+    let vault = *keys.get(6).need("its vault")?;
+    edit_account_at(&mut inp, &vault, t, |d| {
+        for r in 0..8 {
+            let o = VA::claim(r);
+            let v = u64::from_le_bytes(d[o..o + 8].try_into().unwrap());
+            if v > 0 {
+                d[o..o + 8].copy_from_slice(&(v * 2).to_le_bytes());
+            }
+        }
+    })
+    .then_some(())
+    .need("the vault's post-state")?;
+    Ok(Case {
+        class: "T65",
+        what: "a claim counted twice in a day",
+        feature: None,
+        codes: &[TICKET_MISMATCH],
+        input: inp,
+    })
+}
+
 /// The S2 classes (stage 2a, S2-2A-CONTRACT §4.2) an S2 season runs:
 /// extras until an S2 fixture with tickets is committed.
 pub fn s2_classes() -> Vec<Class> {
@@ -2509,6 +2574,9 @@ pub fn s2_classes() -> Vec<Class> {
         // 2b (S2-2B-CONTRACT §5).
         c("T62", vec![("shares minted beyond the rule", s2_t62)]),
         c("T63", vec![("basket larger than the share", s2_t63)]),
+        // 2c (S2-2C-CONTRACT §6).
+        c("T64", vec![("receipt grant above the ratio", s2_t64)]),
+        c("T65", vec![("claim counted twice", s2_t65)]),
     ]
 }
 

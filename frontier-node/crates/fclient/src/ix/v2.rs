@@ -1631,3 +1631,67 @@ pub fn settle_deposit(
     };
     build(a, m, data.to_bytes().to_vec())
 }
+
+/// 0xC6 ClaimReceipt (P, S2 2c): P + `[lot w] [issue r] [vault w]`.
+pub fn claim_receipt(
+    a: &Addresses,
+    p: &Player,
+    lot: Address,
+    issue: (u64, u32),
+    vault: (i16, i16, u8),
+) -> Instruction {
+    let mut m = prologue(a, p);
+    m.extend([
+        w(lot),
+        r(a.issue(issue.0, issue.1)),
+        w(a.vault(vault.0 as i32, vault.1 as i32, vault.2)),
+    ]);
+    build(a, m, d2::ClaimReceipt {}.to_bytes().to_vec())
+}
+
+/// WithdrawReceipt's arguments (2c): the lot that claimed yesterday and the
+/// caravan's order (its cargo is the grant).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WithdrawReceiptArgs {
+    pub lot: Address,
+    /// The receipt issue `(issuer_tag, seq)`.
+    pub issue: (u64, u32),
+    /// The issue's vault `(p, q, tile)`.
+    pub vault: (i16, i16, u8),
+    /// `Citizen.CARAVANS` of the holder.
+    pub seq: u32,
+    pub dst: PlaceRef,
+    pub steps: u8,
+    pub path: [u8; 12],
+    pub fee: u64,
+    /// The provinces the walk enters, the vault's first (1–4).
+    pub provinces: Vec<(i16, i16)>,
+}
+
+/// 0xC7 WithdrawReceipt (P, S2 2c): P + `[lot w] [issue r] [src w] [dst r]
+/// [caravan w] [system] [path_province w ×1..4]`.
+pub fn withdraw_receipt(a: &Addresses, p: &Player, x: &WithdrawReceiptArgs) -> Instruction {
+    let (dst_kind, dst_p, dst_q, dst_at, dst_gen) = x.dst.data();
+    let mut m = prologue(a, p);
+    m.extend([
+        w(x.lot),
+        r(a.issue(x.issue.0, x.issue.1)),
+        w(a.vault(x.vault.0 as i32, x.vault.1 as i32, x.vault.2)),
+        r(x.dst.address(a)),
+        w(caravan_of_wallet(a, &p.wallet, x.seq)),
+        r(addr::system_program()),
+    ]);
+    m.extend(provinces(a, &x.provinces, true));
+    let data = d2::WithdrawReceipt {
+        seq: x.seq,
+        dst_kind,
+        dst_p,
+        dst_q,
+        dst_at,
+        dst_gen,
+        steps: x.steps,
+        path: x.path,
+        fee: x.fee,
+    };
+    build(a, m, data.to_bytes().to_vec())
+}

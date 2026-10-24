@@ -987,6 +987,9 @@ function boolOf(o, k, at) {
   return v;
 }
 
+/** An optional integer that may also be absent (a feed from before it): null. */
+const absentOr = (o, k, lo, hi, at) => (Object.hasOwn(o, k) ? optIntOf(o, k, lo, hi, at) : null);
+
 function issueOf(v, at) {
   const o = objOf(v, at);
   const kind = intOf(o, 'kind', 1, 4, at);
@@ -997,6 +1000,8 @@ function issueOf(v, at) {
     resource: intOf(o, 'resource', 0, 7, at), perUnit: intOf(o, 'perUnit', 0, Number.MAX_SAFE_INTEGER, at),
     untilDay: intOf(o, 'untilDay', 0, U32, at), supply: intOf(o, 'supply', 0, Number.MAX_SAFE_INTEGER, at),
     state: intOf(o, 'state', 1, 2, at), void: boolOf(o, 'void', at),
+    // 2c: the last withdrawal's ratio (null before one; absent before 2c).
+    ratioPpm: absentOr(o, 'ratioPpm', 0, 1_000_000, at), ratioDay: absentOr(o, 'ratioDay', 0, U32, at),
   };
 }
 
@@ -1008,6 +1013,8 @@ function lotOf(v, at) {
     key: [decOf(key, 0, `${at}.key`), intOf(key, 1, 0, U32, `${at}.key`)],
     issuerTag: decOf(o, 'issuerTag', at), issueSeq: intOf(o, 'issueSeq', 0, U32, at), holderTag: decOf(o, 'holderTag', at),
     amount: intOf(o, 'amount', 0, Number.MAX_SAFE_INTEGER, at), state: intOf(o, 'state', 1, 2, at), void: boolOf(o, 'void', at),
+    // 2c: the last claim's day and the milli still to withdraw (null before one).
+    claimDay: absentOr(o, 'claimDay', 0, U32, at), claim: absentOr(o, 'claim', 0, Number.MAX_SAFE_INTEGER, at),
   };
 }
 

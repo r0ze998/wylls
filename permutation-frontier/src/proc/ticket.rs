@@ -41,7 +41,10 @@ use permutation_rules::frontier::ticket::{
 };
 use permutation_rules::frontier::travel::BELLS_PER_DAY;
 
-use super::caravan::{place_of, send, vault_shares, Place, SendAccounts, SendOrder};
+use super::caravan::{
+    period_of, place_of, put_period, roll_vault, send, vault_shares, Place, SendAccounts, SendBy,
+    SendOrder,
+};
 use super::conquest::{check_accounts_v2, cq, cqlog, present_v2, Chained2};
 use super::holding::{self as hold, Player};
 use crate::addr::AddrCtx;
@@ -74,6 +77,9 @@ struct IssueView {
     issuer: [u8; 32],
     supply: u64,
     rent_to: [u8; 32],
+    resource: u8,
+    per_unit: u64,
+    until_day: u32,
 }
 
 fn read_issue(p: &Pubkey, pl: &Player, ai: &AccountInfo) -> R<IssueView> {
@@ -97,6 +103,9 @@ fn read_issue_at(p: &Pubkey, ctx: &AddrCtx, sid: u64, ai: &AccountInfo) -> R<Iss
         issuer: r.arr(IS::ISSUER_CITIZEN)?,
         supply: r.u64(IS::SUPPLY)?,
         rent_to: r.arr(IS::RENT_TO)?,
+        resource: r.u8(IS::RESOURCE)?,
+        per_unit: r.u64(IS::PER_UNIT)?,
+        until_day: r.u32(IS::UNTIL_DAY)?,
     };
     expect_key(ai, &frontier_abi::v2::addr::issue(ctx, v.issuer_tag, v.seq))?;
     Ok(v)
@@ -136,6 +145,9 @@ struct LotView {
     amount: u64,
     escrow: u64,
     rent_to: [u8; 32],
+    /// 2c: the day (+1) the lot last claimed, and the milli it claimed.
+    day: u32,
+    day_amount: u64,
 }
 
 fn read_lot(p: &Pubkey, pl: &Player, ai: &AccountInfo) -> R<LotView> {
@@ -157,6 +169,8 @@ fn read_lot_at(p: &Pubkey, ctx: &AddrCtx, sid: u64, ai: &AccountInfo) -> R<LotVi
         amount: r.u64(LT::AMOUNT)?,
         escrow: r.u64(LT::ESCROW)?,
         rent_to: r.arr(LT::RENT_TO)?,
+        day: r.u32(LT::DAY)?,
+        day_amount: r.u64(LT::DAY_AMOUNT)?,
     };
     expect_key(ai, &frontier_abi::v2::addr::lot(ctx, v.seed_tag, v.seq))?;
     Ok(v)
@@ -507,6 +521,7 @@ pub fn give_lot(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     let rkey = recipient.key.to_bytes();
     let giver_tag = pl.pc.citizen_tag;
     let whole = x.amount == from.amount;
+    let today1 = bell / BELLS_PER_DAY + 1;
     let (to_key, new_lot) = if to_lot.key == lot.key {
         // A whole-lot gift, in place (never a deposit lot: its address is
         // its holder's, 2b).
@@ -519,11 +534,15 @@ pub fn give_lot(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         w.set_u64(LT::HOLDER_TAG, rtag)?;
         ((from.seed_tag, from.seq), false)
     } else if init::is_absent(to_lot) {
-        // A new lot, seeded by the giver's counter.
+        // A new lot, seeded by the giver's counter (2c: "claimed today"
+        // when the units were).
         let seq = Ro(&citizen.try_borrow_data()?).u32(C::LOTS)?;
         init_lot(
             p, &pl, payer, season_ai, to_lot, &iv, &rkey, rtag, giver_tag, seq, x.amount,
         )?;
+        if iv.kind == KIND_RECEIPT && from.day == today1 {
+            Rw(&mut to_lot.try_borrow_mut_data()?).set_u32(LT::DAY, today1)?;
+        }
         {
             let mut cd = citizen.try_borrow_mut_data()?;
             Rw(&mut cd).set_u32(C::LOTS, seq.checked_add(1).ok_or(OVERFLOW)?)?;
@@ -540,6 +559,10 @@ pub fn give_lot(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
             || to.src_gen != iv.src_gen
         {
             return Err(cq(CqError::TicketVoid));
+        }
+        // 2c: units claimed today go only to a lot that claimed today.
+        if iv.kind == KIND_RECEIPT && from.day == today1 && to.day != today1 {
+            return Err(cq(CqError::ReceiptState));
         }
         let sum = to.amount.checked_add(x.amount).ok_or(OVERFLOW)?;
         Rw(&mut to_lot.try_borrow_mut_data()?).set_u64(LT::AMOUNT, sum)?;
@@ -997,7 +1020,7 @@ pub fn withdraw_shares(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
             fee: x.fee,
         },
         &basket,
-        true,
+        SendBy::Shares,
     )?;
     let supply = iv.supply.checked_sub(x.amount).ok_or(OVERFLOW)?;
     Rw(&mut lot.try_borrow_mut_data()?).set_u64(LT::AMOUNT, from.amount - x.amount)?;
@@ -1161,5 +1184,186 @@ pub(crate) fn deposit(
                 data: &mut ld,
             },
         ],
+    )
+}
+
+// ------------------------------------------------------------ 0xC6 ClaimReceipt, 0xC7 WithdrawReceipt
+
+/// The receipt lot the citizen claims or withdraws from: its lot and issue,
+/// checked (the citizen's, live, not in escrow, of a live receipt issue
+/// valid now with `vault`).
+fn receipt_lot(
+    p: &Pubkey,
+    pl: &Player,
+    citizen: &AccountInfo,
+    lot: &AccountInfo,
+    issue: &AccountInfo,
+    vault: &AccountInfo,
+) -> R<(LotView, IssueView)> {
+    let lv = read_lot(p, pl, lot)?;
+    if lv.holder != citizen.key.to_bytes() {
+        return Err(FrontierError::NotOwner.into());
+    }
+    if lv.state != STATE_LIVE || lv.escrow != 0 {
+        return Err(cq(CqError::TicketVoid));
+    }
+    let iv = read_issue(p, pl, issue)?;
+    if (iv.issuer_tag, iv.seq) != (lv.issuer_tag, lv.issue_seq) {
+        return Err(BAD_ACCOUNT);
+    }
+    if iv.kind != KIND_RECEIPT {
+        return Err(cq(CqError::TicketTerms));
+    }
+    if !issue_valid(p, pl, &iv, vault)? || lv.src_gen != iv.src_gen {
+        return Err(cq(CqError::TicketVoid));
+    }
+    Ok((lv, iv))
+}
+
+/// 0xC6 ClaimReceipt (2c): P + `[lot w] [issue r] [vault w]`
+/// (`S2-2C-CONTRACT.md` §4.1): the lot's whole entitlement for today.
+pub fn claim_receipt(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+    check_accounts_v2(Ix2::ClaimReceipt, a, None)?;
+    ix2::ClaimReceipt::decode(d)?;
+    let pl: Player = hold::player(p, a)?;
+    let [_, _, _, citizen, lot, issue, vault] = a else {
+        return Err(FrontierError::TooManyAccounts.into());
+    };
+    let bell = pl.pc.now_bell;
+    let today = bell / BELLS_PER_DAY;
+    let (lv, iv) = receipt_lot(p, &pl, citizen, lot, issue, vault)?;
+    if iv.until_day != kt::NO_END && today > iv.until_day {
+        return Err(cq(CqError::TicketTerms));
+    }
+    let today1 = today + 1;
+    let claim = lv.amount.checked_mul(iv.per_unit).ok_or(OVERFLOW)?;
+    let r = iv.resource as usize;
+    let claims = {
+        let mut vd = vault.try_borrow_mut_data()?;
+        let mut period = period_of(&vd)?;
+        period.roll(today, &super::caravan::vault_stock(&vd)?);
+        // Once a day; yesterday's claim withdrawn first, unless it grants
+        // nothing (then it lapses).
+        let pending = lv.day + 1 == today1 && kt::grant(lv.day_amount, period.ratio[r]) > 0;
+        if lv.day == today1 || pending || claim == 0 {
+            return Err(cq(CqError::ReceiptState));
+        }
+        period.claims[r] = period.claims[r].saturating_add(claim);
+        put_period(&mut vd, &period)?;
+        period.claims[r]
+    };
+    {
+        let mut ld = lot.try_borrow_mut_data()?;
+        let mut w = Rw(&mut ld);
+        w.set_u32(LT::DAY, today1)?;
+        w.set_u64(LT::DAY_AMOUNT, claim)?;
+    }
+    let src = place_of(p, &pl.ctx, pl.pc.season.id, vault)?.ok_or(BAD_ACCOUNT)?;
+    let payload = crate::events::Buf::<52>::new()
+        .u64(pl.pc.citizen_tag)
+        .u64(lv.seed_tag)
+        .u32(lv.seq)
+        .u32(today)
+        .u64(claim)
+        .u64(claims)
+        .bytes(&src.log());
+    let mut ld = lot.try_borrow_mut_data()?;
+    let mut vd = vault.try_borrow_mut_data()?;
+    cqlog::emit(
+        CqKind::RECEIPT_CLAIMED as u8,
+        bell,
+        &key12(iv.issuer_tag, iv.seq),
+        payload.get()?,
+        &mut [
+            Chained2 {
+                entity: E2::Lot,
+                data: &mut ld,
+            },
+            Chained2 {
+                entity: E2::Vault,
+                data: &mut vd,
+            },
+        ],
+    )
+}
+
+/// 0xC7 WithdrawReceipt (2c): P + `[lot w] [issue r] [src w] [dst r]
+/// [caravan w] [system] [path_province w ×1..4]` (§4.2): yesterday's
+/// claim at the day's ratio, out of the vault by caravan.
+pub fn withdraw_receipt(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+    let n_prov = a
+        .len()
+        .checked_sub(10)
+        .ok_or(FrontierError::TooManyAccounts)?;
+    check_accounts_v2(Ix2::WithdrawReceipt, a, Some(&[1, 1, n_prov as u8]))?;
+    let x = ix2::WithdrawReceipt::decode(d)?;
+    let pl: Player = hold::player(p, a)?;
+    let [_, payer, season_ai, citizen, lot, issue, src, dst, caravan, _system, provinces @ ..] = a
+    else {
+        return Err(FrontierError::TooManyAccounts.into());
+    };
+    let bell = pl.pc.now_bell;
+    let today = bell / BELLS_PER_DAY;
+    let (lv, iv) = receipt_lot(p, &pl, citizen, lot, issue, src)?;
+    let r = iv.resource as usize;
+    let (ratio, grant) = {
+        let mut vd = src.try_borrow_mut_data()?;
+        let mut period = roll_vault(&mut vd, bell)?;
+        if lv.day == 0 || lv.day + 1 != period.res_day || lv.day_amount == 0 {
+            return Err(cq(CqError::ReceiptState));
+        }
+        let ratio = period.ratio[r];
+        let grant = kt::grant(lv.day_amount, ratio);
+        if grant == 0 {
+            return Err(cq(CqError::ReceiptState));
+        }
+        period.res[r] = period.res[r].checked_sub(grant).ok_or(OVERFLOW)?;
+        put_period(&mut vd, &period)?;
+        (ratio, grant)
+    };
+    Rw(&mut lot.try_borrow_mut_data()?).set_u64(LT::DAY_AMOUNT, 0)?;
+    let mut cargo = [0i64; RESOURCES];
+    cargo[r] = grant as i64;
+    send(
+        p,
+        &pl,
+        &SendAccounts {
+            payer,
+            season_ai,
+            citizen,
+            src,
+            dst,
+            caravan,
+            provinces,
+        },
+        &SendOrder {
+            seq: x.seq,
+            dst: (x.dst_kind, x.dst_p, x.dst_q, x.dst_at, x.dst_gen),
+            steps: x.steps,
+            path: x.path,
+            fee: x.fee,
+        },
+        &cargo,
+        SendBy::Receipt,
+    )?;
+    let payload = crate::events::Buf::<56>::new()
+        .u64(pl.pc.citizen_tag)
+        .u64(lv.seed_tag)
+        .u32(lv.seq)
+        .u32(today - 1)
+        .u64(lv.day_amount)
+        .u32(ratio)
+        .u64(grant)
+        .u32(x.seq);
+    let mut ld = lot.try_borrow_mut_data()?;
+    cqlog::emit(
+        CqKind::RECEIPT_WITHDRAWN as u8,
+        bell,
+        &key12(iv.issuer_tag, iv.seq),
+        payload.get()?,
+        &mut [Chained2 {
+            entity: E2::Lot,
+            data: &mut ld,
+        }],
     )
 }

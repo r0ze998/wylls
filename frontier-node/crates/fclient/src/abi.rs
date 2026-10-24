@@ -100,6 +100,9 @@ pub mod tag {
     pub const OPEN_SHARES: u8 = 0xC3;
     pub const WITHDRAW_SHARES: u8 = 0xC4;
     pub const SETTLE_DEPOSIT: u8 = 0xC5;
+    // S2 (stage 2c): receipts.
+    pub const CLAIM_RECEIPT: u8 = 0xC6;
+    pub const WITHDRAW_RECEIPT: u8 = 0xC7;
 }
 
 /// Keeper class of an instruction (§5.5, I-21).
@@ -241,7 +244,7 @@ pub const LAYOUT_VERSION_V2: u16 = 2;
 /// lower ones, and lowering a gate is not MC's). The `tx_max` column is
 /// the contract's (§5.4 "Tx B max"); `twin_tests` pins every row to
 /// `frontier_abi::v2::budgets`.
-pub const INSTRUCTIONS_V2: [IxInfo; 79] = [
+pub const INSTRUCTIONS_V2: [IxInfo; 81] = [
     ix(0x01, "CreateSeason", Class::O, 70_000, 1_100, false),
     ix(0x02, "InitShards", Class::O, 45_000, 600, false),
     ix(0x03, "ConsumeGenesisSeed", Class::D, 345_000, 760, true),
@@ -327,6 +330,9 @@ pub const INSTRUCTIONS_V2: [IxInfo; 79] = [
     ix(0xC3, "OpenShares", Class::P, 40_000, 700, false),
     ix(0xC4, "WithdrawShares", Class::P, 120_000, 1_100, false),
     ix(0xC5, "SettleDeposit", Class::D, 50_000, 900, false),
+    // S2 (stage 2c): receipts (measured).
+    ix(0xC6, "ClaimReceipt", Class::P, 20_000, 600, false),
+    ix(0xC7, "WithdrawReceipt", Class::P, 120_000, 1_100, false),
 ];
 
 /// The ABI v2 row of `tag`.
@@ -523,7 +529,7 @@ pub const ERRORS: [(u32, &str); 62] = [
 
 /// ABI v2 error codes (MC contract §5.3), stable forever; disjoint from
 /// [`ERRORS`].
-pub const ERRORS_V2: [(u32, &str); 36] = [
+pub const ERRORS_V2: [(u32, &str); 37] = [
     (62, "CapturePending"),
     (63, "Immune"),
     (64, "SiegeBusy"),
@@ -565,6 +571,8 @@ pub const ERRORS_V2: [(u32, &str); 36] = [
     (96, "TicketTerms"),
     // S2 (stage 2b)
     (97, "VaultShared"),
+    // S2 (stage 2c)
+    (98, "ReceiptState"),
 ];
 
 /// The name of a program error code of either ABI (the code spaces are
@@ -793,9 +801,12 @@ pub mod kind {
     pub const SHARES_OPENED: u8 = 106;
     pub const SHARES_DEPOSITED: u8 = 107;
     pub const SHARES_WITHDRAWN: u8 = 108;
+    // S2 (stage 2c): kinds 109–110.
+    pub const RECEIPT_CLAIMED: u8 = 109;
+    pub const RECEIPT_WITHDRAWN: u8 = 110;
 
     /// (kind, name) of every MC and S1 record kind.
-    pub const ALL_V2: [(u8, &str); 28] = [
+    pub const ALL_V2: [(u8, &str); 30] = [
         (SIEGE_DECLARED, "SIEGE_DECLARED"),
         (SIEGE_SETTLED, "SIEGE_SETTLED"),
         (CONQUEST, "CONQUEST"),
@@ -824,6 +835,8 @@ pub mod kind {
         (SHARES_OPENED, "SHARES_OPENED"),
         (SHARES_DEPOSITED, "SHARES_DEPOSITED"),
         (SHARES_WITHDRAWN, "SHARES_WITHDRAWN"),
+        (RECEIPT_CLAIMED, "RECEIPT_CLAIMED"),
+        (RECEIPT_WITHDRAWN, "RECEIPT_WITHDRAWN"),
     ];
 }
 

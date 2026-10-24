@@ -18,7 +18,10 @@
 //! Tags are decimal strings (u64). `void` follows the source's generation:
 //! a VAULT_SEIZED or CAPTURE_SETTLED that moves the source to another
 //! generation voids its issues and their lots (the rule "a seized vault's
-//! tickets are void"). Closed lots and issues leave the feed. Share issues
+//! tickets are void"). Closed lots and issues leave the feed. Receipts (2c):
+//! a lot's `claimDay` and `claim` (milli still to withdraw; null before its
+//! first claim) follow RECEIPT_CLAIMED and RECEIPT_WITHDRAWN, an issue's
+//! `ratioPpm` and `ratioDay` its last withdrawal. Share issues
 //! (2b, kind 1) follow SHARES_OPENED, SHARES_DEPOSITED (a holder's deposit
 //! lot, created at its first deposit) and SHARES_WITHDRAWN.
 
@@ -30,6 +33,8 @@ use serde_json::{json, Value};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct IssueRow {
+    /// 2c: the last withdrawal's ratio (parts per million) and its day.
+    pub ratio: Option<(u32, u32)>,
     pub kind: u8,
     pub src: LogPlace,
     pub resource: u8,
@@ -41,6 +46,8 @@ pub struct IssueRow {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LotRow {
+    /// 2c: the day of the lot's last claim and its milli still to withdraw.
+    pub claim: Option<(u32, u64)>,
     pub issuer_tag: u64,
     pub issue_seq: u32,
     pub holder_tag: u64,
@@ -95,6 +102,7 @@ impl Tickets {
                 self.issues.insert(
                     (issuer_tag, seq),
                     IssueRow {
+                        ratio: None,
                         kind,
                         src,
                         resource,
@@ -107,6 +115,7 @@ impl Tickets {
                 self.lots.insert(
                     (issuer_tag, lot_seq),
                     LotRow {
+                        claim: None,
                         issuer_tag,
                         issue_seq: seq,
                         holder_tag: issuer_tag,
@@ -135,6 +144,7 @@ impl Tickets {
                     self.lots
                         .entry(to)
                         .or_insert(LotRow {
+                            claim: None,
                             issuer_tag,
                             issue_seq: seq,
                             holder_tag: recipient_tag,
@@ -174,6 +184,7 @@ impl Tickets {
                 self.issues.insert(
                     (issuer_tag, seq),
                     IssueRow {
+                        ratio: None,
                         kind: KIND_SHARE,
                         src,
                         resource: 0,
@@ -186,6 +197,7 @@ impl Tickets {
                 self.lots.insert(
                     (issuer_tag, lot_seq),
                     LotRow {
+                        claim: None,
                         issuer_tag,
                         issue_seq: seq,
                         holder_tag: issuer_tag,
@@ -203,6 +215,7 @@ impl Tickets {
                 ..
             } => {
                 let l = self.lots.entry((holder_tag, lot_seq)).or_insert(LotRow {
+                    claim: None,
                     issuer_tag,
                     issue_seq: seq,
                     holder_tag,
@@ -228,6 +241,29 @@ impl Tickets {
                 }
                 if let Some(i) = self.issues.get_mut(&(issuer_tag, seq)) {
                     i.supply = supply;
+                }
+            }
+            // 2c: a day's claim, and its withdrawal at the day's ratio.
+            CqEvent::ReceiptClaimed {
+                lot, day, claim, ..
+            } => {
+                if let Some(l) = self.lots.get_mut(&lot) {
+                    l.claim = Some((day, claim));
+                }
+            }
+            CqEvent::ReceiptWithdrawn {
+                issuer_tag,
+                seq,
+                lot,
+                day,
+                ratio_ppm,
+                ..
+            } => {
+                if let Some(l) = self.lots.get_mut(&lot) {
+                    l.claim = Some((day, 0));
+                }
+                if let Some(i) = self.issues.get_mut(&(issuer_tag, seq)) {
+                    i.ratio = Some((ratio_ppm, day + 1));
                 }
             }
             CqEvent::VaultSeized {
@@ -280,7 +316,7 @@ impl Tickets {
                 json!({"issuerTag": tag.to_string(), "seq": seq, "kind": i.kind,
                     "src": place(&i.src), "resource": i.resource, "perUnit": i.per_unit,
                     "untilDay": i.until_day, "supply": i.supply, "state": STATE_LIVE,
-                    "void": i.void})
+                    "void": i.void, "ratioPpm": i.ratio.map(|r| r.0), "ratioDay": i.ratio.map(|r| r.1)})
             })
             .collect();
         let lots: Vec<Value> = self
@@ -289,7 +325,8 @@ impl Tickets {
             .map(|((tag, seq), l)| {
                 json!({"key": [tag.to_string(), seq], "issuerTag": l.issuer_tag.to_string(),
                     "issueSeq": l.issue_seq, "holderTag": l.holder_tag.to_string(),
-                    "amount": l.amount, "state": STATE_LIVE, "void": self.lot_void(l)})
+                    "amount": l.amount, "state": STATE_LIVE, "void": self.lot_void(l),
+                    "claimDay": l.claim.map(|c| c.0), "claim": l.claim.map(|c| c.1)})
             })
             .collect();
         json!({"v": 1, "issues": issues, "lots": lots})
@@ -307,6 +344,10 @@ impl Tickets {
             t.issues.insert(
                 (tag_of(&x["issuerTag"])?, x["seq"].as_u64()? as u32),
                 IssueRow {
+                    ratio: match (x["ratioPpm"].as_u64(), x["ratioDay"].as_u64()) {
+                        (Some(r), Some(d)) => Some((r as u32, d as u32)),
+                        _ => None,
+                    },
                     kind: x["kind"].as_u64()? as u8,
                     src: place_of(&x["src"])?,
                     resource: x["resource"].as_u64()? as u8,
@@ -322,6 +363,10 @@ impl Tickets {
             t.lots.insert(
                 (tag_of(k.first()?)?, k.get(1)?.as_u64()? as u32),
                 LotRow {
+                    claim: match (x["claimDay"].as_u64(), x["claim"].as_u64()) {
+                        (Some(d), Some(c)) => Some((d as u32, c)),
+                        _ => None,
+                    },
                     issuer_tag: tag_of(&x["issuerTag"])?,
                     issue_seq: x["issueSeq"].as_u64()? as u32,
                     holder_tag: tag_of(&x["holderTag"])?,
@@ -474,5 +519,40 @@ mod tests {
         assert_eq!(t.lots[&(22, 0x8000_0001)].amount, 60);
         assert_eq!(t.issues[&(11, 0)].supply, 160);
         assert_eq!(t.file()["issues"][0]["kind"], json!(1));
+    }
+
+    /// 2c: a claim and its withdrawal.
+    #[test]
+    fn receipts_fold() {
+        let mut t = Tickets::default();
+        t.fold(&issued());
+        assert!(t.fold(&CqEvent::ReceiptClaimed {
+            issuer_tag: 11,
+            seq: 0,
+            holder_tag: 11,
+            lot: (11, 0),
+            day: 4,
+            claim: 20_000,
+            claims: 20_000,
+            src: vault_src(1),
+        }));
+        assert_eq!(t.lots[&(11, 0)].claim, Some((4, 20_000)));
+        assert!(t.fold(&CqEvent::ReceiptWithdrawn {
+            issuer_tag: 11,
+            seq: 0,
+            holder_tag: 11,
+            lot: (11, 0),
+            day: 4,
+            claim: 20_000,
+            ratio_ppm: 750_000,
+            grant: 15_000,
+            caravan_seq: 0,
+        }));
+        let f = t.file();
+        assert_eq!(f["lots"][0]["claim"], json!(0));
+        assert_eq!(f["issues"][0]["ratioPpm"], json!(750_000));
+        let mut back = Tickets::from_json(&t.to_json()).unwrap();
+        back.dirty = t.dirty;
+        assert_eq!(back, t);
     }
 }

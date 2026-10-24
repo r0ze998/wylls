@@ -24,13 +24,29 @@ pub mod vault {
         RSV_233 @ 233 : "rsv" = 3;
         SHARES_SEQ @ 236 : "u32" = 4;
         SHARES_ISSUER_TAG @ 240 : "u64" = 8;
-        RSV @ 248 : "rsv" = 264;
+        // S2 (2c, S2-2C-CONTRACT §2.1): the receipts' period (days + 1).
+        CLAIM_DAY @ 248 : "u32" = 4;
+        RES_DAY @ 252 : "u32" = 4;
+        CLAIMS @ 256 : "[u64;8]" = 64;
+        RES @ 320 : "[u64;8]" = 64;
+        RATIO @ 384 : "[u32;8]" = 32;
+        RSV @ 416 : "rsv" = 96;
     );
     pub const STATE_NONE: u8 = 0;
     pub const STATE_LIVE: u8 = 1;
     /// Offset of `stores[r]`.
     pub const fn store(r: usize) -> usize {
         STORES + 8 * r
+    }
+    /// Offsets of `claims[r]`, `res[r]` and `ratio[r]` (2c).
+    pub const fn claim(r: usize) -> usize {
+        CLAIMS + 8 * r
+    }
+    pub const fn res(r: usize) -> usize {
+        RES + 8 * r
+    }
+    pub const fn ratio(r: usize) -> usize {
+        RATIO + 4 * r
     }
 }
 

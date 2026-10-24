@@ -492,7 +492,7 @@ pub fn judge_send_caravan(ix: &crate::world::Ix, s: &dyn States, at: At) -> Resu
         fee: x.fee,
     };
     let cargo = ix2::cargo_milli(&x.cargo).ok_or_else(|| caravan_wrong("cargo"))?;
-    judge_send(s, at, &send, &cargo, false)
+    judge_send(s, at, &send, &cargo, SendBy::Owner)
 }
 
 /// A send's accounts and order (SendCaravan, or S2's WithdrawShares).
@@ -516,15 +516,53 @@ pub fn vault_shared(d: &[u8]) -> bool {
     d.len() == VA::SIZE && d[..8] == VA::MAGIC && d[VA::SHARES_ON] != 0
 }
 
-/// A caravan of `cargo` out of `x.src`. With `withdraw` (S2 2b) the source
-/// is a shared vault (V26 judges the shares); otherwise the sender's own
-/// place, never a shared vault.
+/// Who sends (the program's `SendBy`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SendBy {
+    /// The owner: never out of a shared vault, never today's receipt
+    /// reservation (2c).
+    Owner,
+    /// A share holder out of a shared vault (2b; V26 judges the shares).
+    Shares,
+    /// A receipt holder (2c; V26 judges the grant and the period).
+    Receipt,
+}
+
+/// A vault's receipts period (2c).
+pub fn period_of(d: &[u8]) -> Result<permutation_rules::frontier::ticket::Period, String> {
+    let mut p = permutation_rules::frontier::ticket::Period {
+        claim_day: u32_at(d, VA::CLAIM_DAY)?,
+        res_day: u32_at(d, VA::RES_DAY)?,
+        ..Default::default()
+    };
+    for r in 0..RES {
+        p.claims[r] = u64_at(d, VA::claim(r))?;
+        p.res[r] = u64_at(d, VA::res(r))?;
+        p.ratio[r] = u32_at(d, VA::ratio(r))?;
+    }
+    Ok(p)
+}
+
+/// A vault's period rolled at `bell`'s day as the program does before the
+/// stock changes (2c, `ticket::Period::roll`).
+pub fn rolled(d: &[u8], bell: u32) -> Result<permutation_rules::frontier::ticket::Period, String> {
+    let mut p = period_of(d)?;
+    if p.active() {
+        p.roll(
+            bell / permutation_rules::frontier::travel::BELLS_PER_DAY,
+            &vault_stores(d)?,
+        );
+    }
+    Ok(p)
+}
+
+/// A caravan of `cargo` out of `x.src` (see [`SendBy`]).
 pub fn judge_send(
     s: &dyn States,
     at: At,
     x: &SendIx,
     cargo: &[i64; RES],
-    withdraw: bool,
+    by: SendBy,
 ) -> Result<(), Wrong> {
     let (actor, citizen, src, dst, caravan) = (x.actor, x.citizen, x.src, x.dst, x.caravan);
     let provinces = &x.provinces[..];
@@ -542,11 +580,15 @@ pub fn judge_send(
         .before(&src)
         .ok_or_else(|| caravan_wrong("no source before"))?;
     let (sp, sown) = live_place(&sb).ok_or_else(|| caravan_wrong("the source is not live"))?;
-    if withdraw {
-        if !vault_shared(&sb) {
-            return Err(caravan_wrong("a withdrawal from an unshared vault"));
-        }
-    } else {
+    if by == SendBy::Shares && !vault_shared(&sb) {
+        return Err(caravan_wrong("a withdrawal from an unshared vault"));
+    }
+    if by == SendBy::Receipt && (sp.kind != PL::KIND_VAULT || vault_shared(&sb)) {
+        return Err(caravan_wrong(
+            "a receipt withdrawal not from an unshared vault",
+        ));
+    }
+    if by == SendBy::Owner {
         if sown != citizen {
             return Err(caravan_wrong("the source is not the sender's"));
         }
@@ -595,6 +637,20 @@ pub fn judge_send(
         if (0..RES).any(|i| a[i] != b[i] - cargo[i]) {
             return Err(vault_wrong("the source vault is not debited by the cargo"));
         }
+        // 2c: the owner's send rolls the period first and leaves today's
+        // reservation (a receipt withdrawal's period is V26's).
+        if by == SendBy::Owner {
+            let p = rolled(&sb, at.bell).map_err(caravan_wrong)?;
+            let today = at.bell / permutation_rules::frontier::travel::BELLS_PER_DAY;
+            if (0..RES).any(|r| cargo[r] > p.available(today, r, b[r])) {
+                return Err(vault_wrong(
+                    "a send took goods reserved for today's receipts",
+                ));
+            }
+            if period_of(&va).map_err(caravan_wrong)? != p {
+                return Err(vault_wrong("the vault's receipts period is not the roll's"));
+            }
+        }
     }
     Ok(())
 }
@@ -630,7 +686,40 @@ pub fn judge_withdraw_caravan(ix: &crate::world::Ix, s: &dyn States, at: At) -> 
     for r in 0..RES {
         paid[r] = b[r] - a[r];
     }
-    judge_send(s, at, &send, &paid, true)
+    judge_send(s, at, &send, &paid, SendBy::Shares)
+}
+
+/// WithdrawReceipt's caravan (S2 2c; WithdrawShares' accounts): a send of
+/// what the vault paid (V26 judges that it is the grant).
+pub fn judge_receipt_caravan(ix: &crate::world::Ix, s: &dyn States, at: At) -> Result<(), Wrong> {
+    let x = ix2::WithdrawReceipt::decode(&ix.data).map_err(|_| caravan_wrong("does not decode"))?;
+    let keys: Vec<Key> = (0..ix.accounts.len()).filter_map(|i| ix.key(i)).collect();
+    if keys.len() < 11 {
+        return Err(caravan_wrong("the accounts are missing"));
+    }
+    let send = SendIx {
+        actor: keys[0],
+        season: keys[2],
+        citizen: keys[3],
+        src: keys[6],
+        dst: keys[7],
+        caravan: keys[8],
+        provinces: keys[10..].to_vec(),
+        seq: x.seq,
+        dst_named: (x.dst_kind, x.dst_p, x.dst_q, x.dst_at, x.dst_gen),
+        steps: x.steps,
+        path: x.path,
+        fee: x.fee,
+    };
+    let (b, a) = (
+        vault_stores(&s.before(&send.src).unwrap_or_default()).map_err(caravan_wrong)?,
+        vault_stores(&s.after(&send.src).unwrap_or_default()).map_err(caravan_wrong)?,
+    );
+    let mut paid = [0i64; RES];
+    for r in 0..RES {
+        paid[r] = b[r] - a[r];
+    }
+    judge_send(s, at, &send, &paid, SendBy::Receipt)
 }
 
 // ------------------------------------------------------------ SettleCaravan
@@ -689,7 +778,13 @@ pub fn judge_settle_caravan(
             vault_stores(&s.before(&dst).unwrap_or_default()).map_err(caravan_wrong)?,
             vault_stores(&s.after(&dst).unwrap_or_default()).map_err(caravan_wrong)?,
         );
-        let cap = i64_at(&s.before(&dst).unwrap_or_default(), VA::CAP).map_err(caravan_wrong)?;
+        let vb = s.before(&dst).unwrap_or_default();
+        let cap = i64_at(&vb, VA::CAP).map_err(caravan_wrong)?;
+        // 2c: the delivery rolls the period first.
+        let want = rolled(&vb, at.bell).map_err(caravan_wrong)?;
+        if period_of(&s.after(&dst).unwrap_or_default()).map_err(caravan_wrong)? != want {
+            return Err(vault_wrong("the vault's receipts period is not the roll's"));
+        }
         for r in 0..RES {
             let want = b[r].saturating_add(cargo[r]).min(cap.max(b[r]));
             if a[r] != want {
@@ -1078,6 +1173,11 @@ pub fn judge_seize_vault(ix: &crate::world::Ix, s: &dyn States) -> Result<(), Wr
     if vault_stores(&va).ok() != vault_stores(&vb).ok() {
         return Err(vault_wrong("a seizure moved the goods"));
     }
+    // S2: the shares (2b) and the receipts' period (2c) of the old
+    // generation are gone.
+    if vault_shared(&va) || period_of(&va).map_err(vault_wrong)? != Default::default() {
+        return Err(vault_wrong("a seizure kept the old generation's tickets"));
+    }
     let (cb, ca) = (s.before(&captor), s.after(&captor));
     let (ob, oa) = (Some(od), s.after(&owner));
     let moved = |b: Option<Vec<u8>>, a: Option<Vec<u8>>, d: i16| matches!((b, a), (Some(b), Some(a)) if a[C2::VAULTS] as i16 == b[C2::VAULTS] as i16 + d);
@@ -1170,6 +1270,7 @@ pub fn run(cx: &mut Ctx) {
         V2Ix::RaidDomestic,
         V2Ix::WithdrawShares,
         V2Ix::SettleDeposit,
+        V2Ix::WithdrawReceipt,
     ];
     let any = w.txs.iter().any(|tx| {
         tx.ok
@@ -1216,6 +1317,8 @@ pub fn run(cx: &mut Ctx) {
                     judge_settle_caravan(ix, &st, at, settled_outcome(cx, t), true)
                 }
                 Some(V2Ix::WithdrawShares) => judge_withdraw_caravan(ix, &st, at),
+                // 2c: a receipt withdrawal's caravan (V26 judges the grant).
+                Some(V2Ix::WithdrawReceipt) => judge_receipt_caravan(ix, &st, at),
                 Some(V2Ix::RaidCaravan) => match ix2::RaidCaravan::decode(&ix.data) {
                     Ok(x) => {
                         let keys: Vec<Key> =

@@ -156,6 +156,8 @@ cq_kinds! {
     SHARES_OPENED = 106; key ["issuer_tag": 8, "seq": 4]; payload ["src": 8, "supply": 8, "lot_seq": 4, "holding_key": 8, "fee_digest": 32];
     SHARES_DEPOSITED = 107; key ["issuer_tag": 8, "seq": 4]; payload ["holder_tag": 8, "lot_seq": 4, "value": 8, "minted": 8, "supply": 8, "caravan_tag": 8, "caravan_seq": 4, "new_lot": 1];
     SHARES_WITHDRAWN = 108; key ["issuer_tag": 8, "seq": 4]; payload ["holder_tag": 8, "lot_tag": 8, "lot_seq": 4, "amount": 8, "supply": 8, "caravan_seq": 4];
+    RECEIPT_CLAIMED = 109; key ["issuer_tag": 8, "seq": 4]; payload ["holder_tag": 8, "lot_tag": 8, "lot_seq": 4, "day": 4, "claim": 8, "claims": 8, "src": 8];
+    RECEIPT_WITHDRAWN = 110; key ["issuer_tag": 8, "seq": 4]; payload ["holder_tag": 8, "lot_tag": 8, "lot_seq": 4, "day": 4, "claim": 8, "ratio_ppm": 4, "grant": 8, "caravan_seq": 4];
 }
 
 /// S1 caravan places as logged (8 B): `kind u8 ‖ p i16 ‖ q i16 ‖
@@ -903,6 +905,30 @@ pub fn chains_of(kind: AnyKind, key: &[u8], payload: &[u8]) -> Option<Chains> {
                 false,
             );
         }
+        // S2 (2c): the claiming lot and the vault (its claims).
+        CqKind::RECEIPT_CLAIMED => {
+            c.push(
+                E::Lot,
+                Lot {
+                    tag: rd_u64(pay("lot_tag")?, 0)?,
+                    seq: rd_u32(pay("lot_seq")?, 0)?,
+                },
+                false,
+            );
+            place_link(&mut c, pay("src")?)?;
+        }
+        // The lot (its claim spent; the vault is the same transaction's
+        // CARAVAN_SENT).
+        CqKind::RECEIPT_WITHDRAWN => {
+            c.push(
+                E::Lot,
+                Lot {
+                    tag: rd_u64(pay("lot_tag")?, 0)?,
+                    seq: rd_u32(pay("lot_seq")?, 0)?,
+                },
+                false,
+            );
+        }
         // The lot burned from and the Issue (the caravan is the same
         // transaction's CARAVAN_SENT).
         CqKind::SHARES_WITHDRAWN => {
@@ -1266,7 +1292,7 @@ mod tests {
                 k.body_len()
             );
         }
-        assert_eq!(CQ_SPECS.len(), 28, "MC's 9, S1's 13 and S2's 6");
+        assert_eq!(CQ_SPECS.len(), 30, "MC's 9, S1's 13 and S2's 8");
         assert_eq!(AnyKind::Cq(CqKind::CONQUEST).body_len(), 137);
         assert_eq!(
             AnyKind::Cq(CqKind::CONQUEST).payload_len(),
