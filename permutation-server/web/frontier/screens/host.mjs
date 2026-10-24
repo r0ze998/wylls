@@ -73,13 +73,13 @@ export function render(FS) {
         <div class="host-stamina"><span class="host-k">${L`体力`}</span>${bar(r.stamina, RULES.STAMINA_CAP, r.stamina < DEPART_STAMINA ? 'bar-warn' : '')}<span class="host-v">${r.stamina}/${RULES.STAMINA_CAP}</span></div>
         <p class="host-where">${r.inTransit || r.state === 3 ? L`進軍に出ています` : home ? L`${holdingName(h)}にいます` : L`${provinceName(FS, r.p, r.q)}にいます`}${r.pending ? html` · ${PENDING_TEXT[r.pending]?.() ?? ''}` : ''}</p>
       </div>
-      ${r.state === 2 ? html`<p class="muted">${formWait > 0 ? L`編成の反映の目安まで ${countdown(formWait)}（ゲーム内）` : L`世界の処理で編成が反映されるのを待っています。`}</p>` : ''}
+      ${r.state === 2 ? html`<p class="muted host-wait">${formWait > 0 ? L`編成の反映の目安まで ${countdown(formWait)}（ゲーム内）` : L`世界の処理で編成が反映されるのを待っています。`} ${L`反映されると進軍させられます。`}</p>` : ''}
       <div class="actions host-acts">
         <button type="button" class="btn primary small" data-act="compose" data-host="${String(r.id)}" ${raw(locked || bell < r.readyBell || blocks.length || r.stamina < DEPART_STAMINA ? 'disabled' : '')} data-stay="map">${icon('banner')}${L`進軍させる`}</button>
         ${r.unit === SCOUT ? html`<button type="button" class="btn small" data-act="explore-open" data-host="${String(r.id)}" ${raw(locked || actionBlocks('Explore', ctx(r)).length ? 'disabled' : '')}>${icon('scout')}${L`探索`}</button>` : ''}
         <button type="button" class="btn small quiet" data-act="dissolve" data-host="${String(r.id)}" aria-label="${L`${name}を解散する`}" ${raw(locked || actionBlocks('Dissolve', ctx(r)).length ? 'disabled' : '')}>${L`解散`}</button>
       </div>
-      ${r.inTransit ? html`<p class="locked-note" role="note">${lockedText()}</p>` : blocks.length ? html`<p class="blocked">${blocks.map(errorText).join(' / ')}${blocks.includes('NotResident') ? html` <button type="button" class="btn small" data-act="nudge" data-p="${r.p}" data-q="${r.q}" ${raw(locked ? 'disabled' : '')}>${L`追いつかせる`}</button>` : ''}</p>` : ''}
+      ${r.inTransit ? html`<p class="locked-note" role="note">${lockedText()}</p>` : blocks.length && !(r.state === 2 && blocks.every(b => b === 'HostBusy')) ? html`<p class="blocked">${blocks.map(errorText).join(' / ')}${blocks.includes('NotResident') ? html` <button type="button" class="btn small" data-act="nudge" data-p="${r.p}" data-q="${r.q}" ${raw(locked ? 'disabled' : '')}>${L`追いつかせる`}</button>` : ''}</p>` : ''}
     </li>`;
   })}</ul>
   <p class="foot-note">${L`出発には行き先にかかわらず体力 ${DEPART_STAMINA} を使います（道のりは封の中にあるため）。`}</p></section>`;

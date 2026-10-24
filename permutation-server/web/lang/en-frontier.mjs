@@ -151,6 +151,8 @@ export default {
   '鉄 {0}': 'iron {0}',
   '上限 {0}': 'capped at {0}',
   '{0} — 地図の琥珀色のマス': '{0}: the amber tiles on the map',
+  // the host card while a muster waits for the world (screens/host.mjs): what then becomes possible
+  '反映されると進軍させられます。': 'Once it is, the host can march.',
   '学術': 'Science',
   '槍兵': 'Spearman',
   '弓兵': 'Archer',

@@ -943,6 +943,8 @@ function updateHomeGrant() {
   if (!h) { FS.homeGrant = null; return; }
   const rec = readHome();
   if (rec.pending || rec.selected) saveHomePatch({ pending: null, selected: null });
+  // (the card asks for the first building: once one is ordered, from the village's own bar, it has been answered)
+  if (rec.seen !== grantId(h) && (h.queue ?? []).some(q => q && Number(q.doneAt ?? 0) > 0)) { saveHomePatch({ seen: grantId(h) }); FS.homeGrant = null; return; }
   if (rec.seen !== grantId(h)) {
     if (!sameHome(FS.homeGrant, h)) FS.homeFocus = h;
     FS.homeGrant = h; FS.tab = 'map';

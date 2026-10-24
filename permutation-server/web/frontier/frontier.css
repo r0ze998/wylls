@@ -1450,7 +1450,7 @@ p.insp-ore svg { flex: none; margin-top: 2px; }
 .host-where { margin: 0 !important; font-size: var(--t1); color: var(--ink-2); }
 .host-acts { grid-column: 1 / -1; margin: 0; align-items: center; }
 .host-acts .quiet { margin-left: auto; }
-.host-card > .locked-note, .host-card > .blocked { grid-column: 1 / -1; margin: 0; font-size: var(--t1); }
+.host-card > .locked-note, .host-card > .blocked, .host-card > .host-wait { grid-column: 1 / -1; margin: 0; font-size: var(--t1); }
 .host-card.locked .unit-card { filter: saturate(.6); }
 /* the six tiles around a scout, as they lie on the map */
 .rose { position: relative; width: 204px; height: 186px; margin: var(--s2) auto; }
