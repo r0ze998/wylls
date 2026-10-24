@@ -28,6 +28,19 @@ cd .claude/worktrees/season-complete
 
 `.local/uplift-cq.toml` は `[paths] web` をこのブランチの `permutation-server/web` に、`runs` をこのブランチの `.local/runs` にする（記録はこのブランチの中にだけ書かれる）。
 
+### 2b. ローカルの S1 の世界（プログラム v4、このブランチのビルド）
+
+このブランチで直した 2 点で起動できるようになった：スタックの `--s1`（季節を S1 の設定で作る）と、キーパーが S1 の季節で S1 の予算表を使うこと（以前は MC の表のままで、最初の種の取引が `MaxLoadedAccountsDataSizeExceeded` で失敗し、土地が開かなかった）。
+
+```sh
+cargo build --locked --release -p stack -p keeper      # frontier-node で
+./frontier-node/target/release/frontier-stack up --s1 --mode accel --beacon test-key --preseason-scale 2000 \
+  --scale 10 --game-hours 72 --bots 10 --personas off --run-id uplift-s1d --base-port 41500 --season 303 --keep-running
+# http://127.0.0.1:41540/frontier/frontier/   止める: frontier-stack down --run-id uplift-s1d
+```
+
+S1 の施設（金庫・物見櫓など）は、ボットも誰も建てないので、地図に出すには自分で建てる。クライアントは命令の形（`fplay.mjs` の BuildVault / BuildStructure）を作れるが、**それを送るボタンはまだない**（遊ぶ人向けの建て方の画面は、この変更に含めていない）。
+
 ### 3. 美術方針の比較ページ
 
 ```sh
@@ -61,8 +74,9 @@ node uplift-perf.mjs --tree ../..
 
 ## 残り（優先順）
 
-1. **S1 の世界を手元で起動できるようにする**（スタックの道具。ゲーム処理側の作業）。それまで、S1 の施設の絵は見本の情報でしか確かめられない。
-2. 隊商を送る・護衛を先に出す・奪うか焼くかの **操作の画面**（規則は S1 にある。プレビューは `preview/?frame=caravan|raid`）。
-3. 地図の見た目の次の段：村の段階と建物の種類を遠目にも読めるようにする、国の印を名札以外にも（地図の旗）。
+1. **キーパーの直し（`keeper/src/lib.rs follow_abi`）を、ゲーム処理の担当が確かめる**。デザインの作業の中で見つけた不具合で、本番の S1 の季節にも効く。別の変更として取り出してもよい。
+2. S1 の施設を建てる・隊商を送る・護衛を先に出す・奪うか焼くかの **操作の画面**（規則は S1 にあり、命令の形のうち建てる 2 つはクライアントにある。プレビューは `preview/?frame=caravan|raid`）。**建てるボタンだけを先に出さなかった理由**：倉は隊商とつながって初めて役に立ち、物見櫓の役目（見えた知らせ）もまだ画面に届かない。塔の数値は契約で仮の値（S1-1D §9 は持ち主の選択待ち）。いま出すと、払っても得が見えない操作になる。隊商の送り・知らせの表示と一緒に作るのがよい。
+2b. **S1 の規則モジュール `frontier-v3.wasm` を、持ち主の再現ビルドで作って入れる**（`scripts/build-wasm.sh --s1`）。クライアントはもう S1 の季節でこれを読みにいく。無いあいだ、S1 の季節では地形と予測が出ない（起点でも同じ。起点はルールの不一致で出なかった）。
+3. 地図の見た目の次の段：建物の種類を遠目にも読めるようにする。中くらいの縮尺（`uplift-shots.mjs s12-mid / s13-mid2`）では、村の格の札と国旗はすでに出ている。
 4. HUD の重なり：軍を選んだときの操作の帯とドックが二段になる（今の作りのまま）。
 5. AI の委任・停止の画面は `agent-wallet/*` が main に入ってから（状態を混ぜない案は `preview/?frame=ai`）。
