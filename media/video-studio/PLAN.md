@@ -2,6 +2,8 @@
 
 Each video is one scene folder `scenes/NN-slug/` rendered to `out/NN-slug.mp4`. Facts come only from [FACTS.md](FACTS.md); every claim keeps its status. Formats: **16:9** = 1920×1080, **9:16** = 1080×1920. Default 60 fps (30 fps allowed for heavy Three.js scenes).
 
+> **Language change (owner request): every video is in English.** All on-screen text, subtitles, badges and end cards are English (`lang: 'en'`). Japanese terms (国, 村, 軍, 攻撃命令…) may appear only as small decorative accents next to their English meaning. Scene folders and outputs use `-en` instead of `-ja` (e.g. `scenes/01-trailer-en/`, `out/01-trailer-en.mp4`). Renames: 02 → `02-trailer-cut-en` (a second, shorter cut), 16 → `16-ai-citizens-vertical-en` (9:16, 30 s, the AI-citizens idea for social feeds). Titles below in the Japanese column are only working titles.
+
 | # | Slug | Title (JA / EN) | Lang | Format | Length | Music |
 |---|---|---|---|---|---|---|
 | 01 | trailer-ja | メイントレーラー | JA | 16:9 | 60 s | epic |
