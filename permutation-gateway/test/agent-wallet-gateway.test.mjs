@@ -238,3 +238,17 @@ test('action: the one path refuses a stopped agent, a stale policy or epoch, a f
   await assert.rejects(r.gateway.submit({ agentId }, { capability }), e => e.code === ERR.BAD_REQUEST);
   sound(r);
 });
+
+test('the agent\'s accounts follow the season\'s profile: MC (2) and S1 (3) name the Province where M1 (1) does not', async () => {
+  const { accountsFor } = await import('../src/frontier/agent/gateway.mjs');
+  const { FrontierAddresses } = await import('../client/src/frontier/addresses.mjs');
+  const { Keypair } = await import('@solana/web3.js');
+  const addresses = new FrontierAddresses({ programId: Keypair.generate().publicKey.toBase58(), seasonId: 5n });
+  const v = { addresses, actor: Keypair.generate().publicKey.toBase58(), owner: Keypair.generate().publicKey.toBase58(), holding: [3, -1, 2] };
+  for (const [profile, cq] of [[1, false], [2, true], [3, true]]) {
+    const harvest = accountsFor('Harvest', { ...v, profile });
+    assert.equal('province' in harvest, cq, `Harvest, profile ${profile}`);
+    const depart = accountsFor('Depart', { ...v, profile });
+    assert.equal('holding_province' in depart, cq, `Depart, profile ${profile}`);
+  }
+});

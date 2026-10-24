@@ -28,7 +28,7 @@ import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypt
 import { encode as base58 } from '../../../client/src/base58.mjs';
 import { fromBase64 } from '../../../client/src/bytes.mjs';
 import { ixOf } from '../../../client/src/frontier/codec.mjs';
-import { profileForSeason } from '../../../client/src/frontier/profile.mjs';
+import { isV2, profileForSeason } from '../../../client/src/frontier/profile.mjs';
 import { classify, shapeMessage } from '../../../client/src/frontier/shapes.mjs';
 import { parseTransaction, wireTransaction } from '../../../client/src/solana-tx.mjs';
 import { signatureOf, signedBy } from '../../cosign.mjs';
@@ -65,7 +65,8 @@ const big = v => BigInt(v ?? 0);
  * the delegable actions; the fee payer is added by shapeMessage).
  */
 export function accountsFor(name, { addresses: A, actor, owner, holding: [p, q, site], fields = {}, profile = 1 }) {
-  const cq = profile === 2;
+  // The conquest layouts (profile 2, MC) and S1 (profile 3, every MC rule kept) name the same accounts.
+  const cq = isV2(profile);
   const base = { actor, season: A.season, citizen: A.citizen(owner) };
   const holding = A.holding(p, q, site);
   const province = A.province(p, q);
