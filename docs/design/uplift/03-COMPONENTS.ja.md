@@ -40,6 +40,11 @@
 | 満杯まで | `.ledger-fullin` | 1 時間以内に満杯になる蔵に、その時間 |
 | 施設の絵 | `map/structures.mjs` paintVaultArt / paintTowerArt / paintPalisadeArt / paintFortArt / paintCartArt / paintYoursRing | 村の道具（`village.mjs villageKit`）で描く。描けない文脈（試験の記録器）では何もしない |
 | 予測の帳面 | `hud/forecastbook.mjs` keepForecast / forecastFor | 送ったときの予測をこの端末に残す |
+| いまの命令の予測 | `marchcard.mjs forecastNow(c)` / `compareNow(c)` | 札が見せてよい予測と比較だけを返す（鍵が合うもの。合わなければ「計算中」か、無し）。予測を出すところは必ずこれを通す |
+| ラジオの矢印 | `hud/radiokeys.mjs` mountRadioKeys / radioStep | role=radiogroup のボタンを矢印・Home・End で選ぶ。描き直してもフォーカスがついていく |
+| 季節の基礎の産出 | `fs1.mjs` seasonBase / oreExtraFor / setOreExtraProvider | S1 では村の鉱石の基礎が地形から来る。建物の数・次の何軒目・ガイドは必ずこれを通す（地図の読みを一か所に登録） |
+| マスの札の S1 の物 | `hud/inspect.mjs`（tile.s1）・`map/names.mjs placeName` | 倉・物見櫓・柵・要塞を、地図と同じ情報と決まりで名指す |
+| 背の低い画面 | `uplift.css` `@media (min-width: 760px) and (max-height: 480px)` | スマホを横に：引き出しは帯のすぐ下から、命令の足もとは「取り消せない」と送るだけ、小地図は小さく |
 
 ## 守ること
 
