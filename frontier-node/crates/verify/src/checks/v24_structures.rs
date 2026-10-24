@@ -162,7 +162,11 @@ fn fort_index(pd: &[u8], tile: u8) -> Option<usize> {
 /// BuildStructure (accounts: 3 citizen, 6 province, 7 structure).
 pub fn judge_build_structure(ix: &crate::world::Ix, s: &dyn States, now: i64) -> Result<(), Wrong> {
     let x = ix2::BuildStructure::decode(&ix.data).map_err(|_| tower_wrong("does not decode"))?;
-    let (Some(citizen), Some(province), Some(tower)) = (ix.key(3), ix.key(6), ix.key(7)) else {
+    let (Some(citizen), Some(province), Some(tower)) = (
+        ix.account("citizen"),
+        ix.account("province"),
+        ix.account("structure"),
+    ) else {
         return Err(tower_wrong("the accounts are missing"));
     };
     let pd = s
@@ -415,7 +419,11 @@ pub fn judge_seize_structure(ix: &crate::world::Ix, s: &dyn States) -> Result<()
 
 /// CloseStructure (accounts: 3 citizen, 4 structure, 5 province).
 pub fn judge_close_structure(ix: &crate::world::Ix, s: &dyn States) -> Result<(), Wrong> {
-    let (Some(citizen), Some(tower), Some(province)) = (ix.key(3), ix.key(4), ix.key(5)) else {
+    let (Some(citizen), Some(tower), Some(province)) = (
+        ix.account("citizen"),
+        ix.account("structure"),
+        ix.account("province"),
+    ) else {
         return Err(tower_wrong("the accounts are missing"));
     };
     let tb = s
@@ -611,9 +619,12 @@ pub fn judge_gather_wear(ix: &crate::world::Ix, s: &dyn States) -> Result<(), Wr
 /// FortGarrison (accounts: 3 citizen, 4 holding, 5 province, 6 structure).
 pub fn judge_fort_garrison(ix: &crate::world::Ix, s: &dyn States, bell: u32) -> Result<(), Wrong> {
     let x = ix2::FortGarrison::decode(&ix.data).map_err(|_| tower_wrong("does not decode"))?;
-    let (Some(citizen), Some(holding), Some(province), Some(structure)) =
-        (ix.key(3), ix.key(4), ix.key(5), ix.key(6))
-    else {
+    let (Some(citizen), Some(holding), Some(province), Some(structure)) = (
+        ix.account("citizen"),
+        ix.account("holding"),
+        ix.account("province"),
+        ix.account("structure"),
+    ) else {
         return Err(tower_wrong("the accounts are missing"));
     };
     let get = |k: &Key, after: bool, what: &str| {

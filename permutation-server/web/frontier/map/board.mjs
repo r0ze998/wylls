@@ -22,6 +22,7 @@ import { DIRECTIONS, hexDistance, locate, tileHex } from '../fgeo.mjs';
 import { BUILD_ITEMS, QUEUE_KIND, accrualAt, baseProduction, hostsIn, queueItem } from '../fland.mjs';
 import { DEPART_STAMINA, RULES } from '../fmarch.mjs';
 import { conquestEnabled, keepFromProvince } from '../fconquest.mjs';
+import { RESOURCE_ORDER } from '../resources.mjs';
 
 const int = Number.isInteger;
 const big = v => { try { return BigInt(v); } catch { return null; } };
@@ -304,11 +305,10 @@ export function buildingsOf(holding) {
   const out = [0, 0, 0, 0, 0, 0];
   if (!holding?.production) return out;
   const base = baseProduction(holding.tier ?? 0);
-  // the store's index of each building's resource (Food, Wood, Stone, Ore, Horses, Gold, Science, Influence)
-  const INDEX = { Food: 0, Wood: 1, Stone: 2, Ore: 3, Gold: 5, Science: 6 };
   for (const b of BUILD_ITEMS) {
-    const i = INDEX[b.resource];
-    if (i === undefined || !(b.perHour > 0)) continue;
+    // the store's index of the building's resource (none for the walls)
+    const i = RESOURCE_ORDER.indexOf(b.resource);
+    if (i < 0 || !(b.perHour > 0)) continue;
     const p = big(holding.production[i]) ?? 0n;
     // (a fixture or an older record may keep the building's production alone, without the base)
     const over = p >= base[i] ? p - base[i] : p;

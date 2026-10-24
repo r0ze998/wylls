@@ -9,6 +9,7 @@
 import { L, lazyTable, fmtNum } from '../lang.mjs';
 import { CIV_NAMES } from '../i18n.mjs';
 import { NATION_FILL } from './palette.mjs';
+import { RESOURCE_ORDER } from './resources.mjs';
 import { ERRORS } from './abi.mjs';
 import { ERRORS as CQ_ERRORS } from '../sdk/frontier/abi-v2-errors.mjs';
 
@@ -22,7 +23,7 @@ export const RESOURCES = lazyTable({
   Food: () => L`食料`, Wood: () => L`木材`, Stone: () => L`石材`, Ore: () => L`鉱石`,
   Horses: () => L`馬`, Gold: () => L`金`, Science: () => L`学術`, Influence: () => L`影響力`,
 });
-export const RESOURCE_ORDER = Object.freeze(['Food', 'Wood', 'Stone', 'Ore', 'Horses', 'Gold', 'Science', 'Influence']);
+export { RESOURCE_ORDER };
 
 /** Units, in kernel order. */
 export const UNITS = lazyTable({

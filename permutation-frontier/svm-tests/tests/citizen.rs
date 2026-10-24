@@ -2730,7 +2730,7 @@ mod cq {
 
     /// G1 (§13.1, §5.4): FileOutpost with 3 sites in 3 Provinces whose
     /// cohort tables hold seven open cohorts each, paying from the anchor's
-    /// stores (28,000 CU since A-31); its `L(kind)`; then the outpost's SettleTicket
+    /// stores (its v2 budget, 40,000 CU); its `L(kind)`; then the outpost's SettleTicket
     /// (40,000 CU).
     #[test]
     fn g01_cq_file_outpost_three_provinces_full_cohorts() {
@@ -2779,8 +2779,8 @@ mod cq {
         let file_need = need;
         println!("FileOutpost ({build:?}): {file_need}");
         common::loaded_check(&c, V2::FileOutpost, std::slice::from_ref(&ix), &[&e.wallet]);
-        // At the ladder profile (A-31: the budget is 28,000 CU).
-        expect_lands(c.send(&[ix], &[&e.wallet]), "FileOutpost at the 28k limit");
+        // At the ladder profile (the v2 budget, 40,000 CU).
+        expect_lands(c.send(&[ix], &[&e.wallet]), "FileOutpost at its CU budget");
         // The outpost's SettleTicket (fresh, three Provinces).
         let who = Citizen {
             wallet: e.wallet.insecure_clone(),
@@ -2804,7 +2804,7 @@ mod cq {
             &need,
             &ceilings(V2::SettleTicket, 0, c.programdata_len()),
         );
-        // Last: FileOutpost against §5.4's 28,000 CU (A-31; measured above; the
+        // Last: FileOutpost against its v2 budget, 40,000 CU (measured above; the
         // tx bytes, locks and loaded data are within their ceilings).
         assert_within(
             "FileOutpost (3 provinces, 7 open cohorts each)",

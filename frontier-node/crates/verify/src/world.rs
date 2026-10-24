@@ -34,6 +34,18 @@ impl Ix {
     pub fn key(&self, i: usize) -> Option<Key> {
         self.accounts.get(i).map(|a| a.0)
     }
+    /// The key of the account named `name` in this instruction's ABI v2
+    /// account list (`frontier_abi::v2::prologue::accounts_of`); `None`
+    /// when the tag is not a v2 one or the list does not fit the table.
+    pub fn account(&self, name: &str) -> Option<Key> {
+        self.account_nth(name, 0)
+    }
+    /// The `nth` account named `name` (a repeated group's members).
+    pub fn account_nth(&self, name: &str, nth: usize) -> Option<Key> {
+        let ix = frontier_abi::v2::Ix::from_tag(self.tag()?)?;
+        let i = frontier_abi::v2::prologue::position(ix, self.accounts.len(), name, nth)?;
+        self.key(i)
+    }
     /// Whether this instruction may write `k`: a position holding `k` that
     /// the instruction declares writable (`frontier_abi::prologue`, `W` or
     /// `Either`) and the message marks writable. Falls back to the message

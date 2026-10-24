@@ -146,7 +146,8 @@ pub fn run(cx: &mut Ctx) {
             "from ({}, {}, {}) at bell {bell}",
             ak.province.p, ak.province.q, ak.site
         ));
-        let (Some(citizen_k), Some(frontier_k)) = (ix.key(3), ix.key(4)) else {
+        let (Some(citizen_k), Some(frontier_k)) = (ix.account("citizen"), ix.account("frontier"))
+        else {
             bad.push((
                 t,
                 what,

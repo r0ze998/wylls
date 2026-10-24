@@ -35,7 +35,7 @@ impl Class {
 
 macro_rules! tags {
     ($( $name:ident = $tag:literal, $class:ident, $top:literal; )*) => {
-        /// Every M1 instruction (50: 49 plus the test-only ResolveClash).
+        /// Every M1 instruction (51, the test-only ResolveClash included).
         #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
         #[repr(u8)]
         pub enum Ix { $( $name = $tag, )* }

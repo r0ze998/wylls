@@ -1,0 +1,1132 @@
+{
+  "generator": "frontier-abi abi-vectors",
+  "abi_version": 2,
+  "contract": "docs/frontier/conquest/CONQUEST-CONTRACT.md v1.1",
+  "content": "rule figures the web client recomputes (training, settler cost, strength weight)",
+  "train_milli": [
+    {
+      "unit": 0,
+      "n": 1,
+      "m1": [60000, 0, 0, 20000, 0, 10000, 0, 0],
+      "cq": [60000, 0, 0, 20000, 0, 10000, 0, 0]
+    },
+    {
+      "unit": 0,
+      "n": 99,
+      "m1": [60000, 0, 0, 20000, 0, 10000, 0, 0],
+      "cq": [60000, 0, 0, 20000, 0, 10000, 0, 0]
+    },
+    {
+      "unit": 0,
+      "n": 100,
+      "m1": [60000, 0, 0, 20000, 0, 10000, 0, 0],
+      "cq": [60000, 0, 0, 20000, 0, 10000, 0, 0]
+    },
+    {
+      "unit": 0,
+      "n": 101,
+      "m1": [120000, 0, 0, 40000, 0, 20000, 0, 0],
+      "cq": [120000, 0, 0, 40000, 0, 20000, 0, 0]
+    },
+    {
+      "unit": 0,
+      "n": 250,
+      "m1": [180000, 0, 0, 60000, 0, 30000, 0, 0],
+      "cq": [180000, 0, 0, 60000, 0, 30000, 0, 0]
+    },
+    {
+      "unit": 0,
+      "n": 1000,
+      "m1": [600000, 0, 0, 200000, 0, 100000, 0, 0],
+      "cq": [600000, 0, 0, 200000, 0, 100000, 0, 0]
+    },
+    {
+      "unit": 0,
+      "n": 10000,
+      "m1": [6000000, 0, 0, 2000000, 0, 1000000, 0, 0],
+      "cq": [6000000, 0, 0, 2000000, 0, 1000000, 0, 0]
+    },
+    {
+      "unit": 1,
+      "n": 1,
+      "m1": [60000, 0, 0, 23000, 0, 11000, 0, 0],
+      "cq": [60000, 0, 0, 23000, 0, 11000, 0, 0]
+    },
+    {
+      "unit": 1,
+      "n": 99,
+      "m1": [60000, 0, 0, 23000, 0, 11000, 0, 0],
+      "cq": [60000, 0, 0, 23000, 0, 11000, 0, 0]
+    },
+    {
+      "unit": 1,
+      "n": 100,
+      "m1": [60000, 0, 0, 23000, 0, 11000, 0, 0],
+      "cq": [60000, 0, 0, 23000, 0, 11000, 0, 0]
+    },
+    {
+      "unit": 1,
+      "n": 101,
+      "m1": [120000, 0, 0, 46000, 0, 23000, 0, 0],
+      "cq": [120000, 0, 0, 46000, 0, 23000, 0, 0]
+    },
+    {
+      "unit": 1,
+      "n": 250,
+      "m1": [180000, 0, 0, 70000, 0, 35000, 0, 0],
+      "cq": [180000, 0, 0, 70000, 0, 35000, 0, 0]
+    },
+    {
+      "unit": 1,
+      "n": 1000,
+      "m1": [600000, 0, 0, 233000, 0, 116000, 0, 0],
+      "cq": [600000, 0, 0, 233000, 0, 116000, 0, 0]
+    },
+    {
+      "unit": 1,
+      "n": 10000,
+      "m1": [6000000, 0, 0, 2333000, 0, 1166000, 0, 0],
+      "cq": [6000000, 0, 0, 2333000, 0, 1166000, 0, 0]
+    },
+    {
+      "unit": 2,
+      "n": 1,
+      "m1": [60000, 0, 0, 30000, 0, 15000, 0, 0],
+      "cq": [60000, 0, 0, 20000, 0, 10000, 0, 0]
+    },
+    {
+      "unit": 2,
+      "n": 99,
+      "m1": [60000, 0, 0, 30000, 0, 15000, 0, 0],
+      "cq": [60000, 0, 0, 20000, 0, 10000, 0, 0]
+    },
+    {
+      "unit": 2,
+      "n": 100,
+      "m1": [60000, 0, 0, 30000, 0, 15000, 0, 0],
+      "cq": [60000, 0, 0, 20000, 0, 10000, 0, 0]
+    },
+    {
+      "unit": 2,
+      "n": 101,
+      "m1": [120000, 0, 0, 60000, 0, 30000, 0, 0],
+      "cq": [120000, 0, 0, 40000, 0, 20000, 0, 0]
+    },
+    {
+      "unit": 2,
+      "n": 250,
+      "m1": [180000, 0, 0, 90000, 0, 45000, 0, 0],
+      "cq": [180000, 0, 0, 60000, 0, 30000, 0, 0]
+    },
+    {
+      "unit": 2,
+      "n": 1000,
+      "m1": [600000, 0, 0, 300000, 0, 150000, 0, 0],
+      "cq": [600000, 0, 0, 200000, 0, 100000, 0, 0]
+    },
+    {
+      "unit": 2,
+      "n": 10000,
+      "m1": [6000000, 0, 0, 3000000, 0, 1500000, 0, 0],
+      "cq": [6000000, 0, 0, 2000000, 0, 1000000, 0, 0]
+    },
+    {
+      "unit": 3,
+      "n": 1,
+      "m1": [60000, 0, 0, 40000, 0, 20000, 0, 0],
+      "cq": [60000, 0, 0, 40000, 0, 20000, 0, 0]
+    },
+    {
+      "unit": 3,
+      "n": 99,
+      "m1": [60000, 0, 0, 40000, 0, 20000, 0, 0],
+      "cq": [60000, 0, 0, 40000, 0, 20000, 0, 0]
+    },
+    {
+      "unit": 3,
+      "n": 100,
+      "m1": [60000, 0, 0, 40000, 0, 20000, 0, 0],
+      "cq": [60000, 0, 0, 40000, 0, 20000, 0, 0]
+    },
+    {
+      "unit": 3,
+      "n": 101,
+      "m1": [120000, 0, 0, 80000, 0, 40000, 0, 0],
+      "cq": [120000, 0, 0, 80000, 0, 40000, 0, 0]
+    },
+    {
+      "unit": 3,
+      "n": 250,
+      "m1": [180000, 0, 0, 120000, 0, 60000, 0, 0],
+      "cq": [180000, 0, 0, 120000, 0, 60000, 0, 0]
+    },
+    {
+      "unit": 3,
+      "n": 1000,
+      "m1": [600000, 0, 0, 400000, 0, 200000, 0, 0],
+      "cq": [600000, 0, 0, 400000, 0, 200000, 0, 0]
+    },
+    {
+      "unit": 3,
+      "n": 10000,
+      "m1": [6000000, 0, 0, 4000000, 0, 2000000, 0, 0],
+      "cq": [6000000, 0, 0, 4000000, 0, 2000000, 0, 0]
+    },
+    {
+      "unit": 4,
+      "n": 1,
+      "m1": [60000, 0, 0, 46000, 0, 23000, 0, 0],
+      "cq": [60000, 0, 0, 46000, 0, 23000, 0, 0]
+    },
+    {
+      "unit": 4,
+      "n": 99,
+      "m1": [60000, 0, 0, 46000, 0, 23000, 0, 0],
+      "cq": [60000, 0, 0, 46000, 0, 23000, 0, 0]
+    },
+    {
+      "unit": 4,
+      "n": 100,
+      "m1": [60000, 0, 0, 46000, 0, 23000, 0, 0],
+      "cq": [60000, 0, 0, 46000, 0, 23000, 0, 0]
+    },
+    {
+      "unit": 4,
+      "n": 101,
+      "m1": [120000, 0, 0, 93000, 0, 46000, 0, 0],
+      "cq": [120000, 0, 0, 93000, 0, 46000, 0, 0]
+    },
+    {
+      "unit": 4,
+      "n": 250,
+      "m1": [180000, 0, 0, 140000, 0, 70000, 0, 0],
+      "cq": [180000, 0, 0, 140000, 0, 70000, 0, 0]
+    },
+    {
+      "unit": 4,
+      "n": 1000,
+      "m1": [600000, 0, 0, 466000, 0, 233000, 0, 0],
+      "cq": [600000, 0, 0, 466000, 0, 233000, 0, 0]
+    },
+    {
+      "unit": 4,
+      "n": 10000,
+      "m1": [6000000, 0, 0, 4666000, 0, 2333000, 0, 0],
+      "cq": [6000000, 0, 0, 4666000, 0, 2333000, 0, 0]
+    },
+    {
+      "unit": 5,
+      "n": 1,
+      "m1": [60000, 0, 0, 53000, 0, 26000, 0, 0],
+      "cq": [60000, 0, 0, 53000, 0, 26000, 0, 0]
+    },
+    {
+      "unit": 5,
+      "n": 99,
+      "m1": [60000, 0, 0, 53000, 0, 26000, 0, 0],
+      "cq": [60000, 0, 0, 53000, 0, 26000, 0, 0]
+    },
+    {
+      "unit": 5,
+      "n": 100,
+      "m1": [60000, 0, 0, 53000, 0, 26000, 0, 0],
+      "cq": [60000, 0, 0, 53000, 0, 26000, 0, 0]
+    },
+    {
+      "unit": 5,
+      "n": 101,
+      "m1": [120000, 0, 0, 106000, 0, 53000, 0, 0],
+      "cq": [120000, 0, 0, 106000, 0, 53000, 0, 0]
+    },
+    {
+      "unit": 5,
+      "n": 250,
+      "m1": [180000, 0, 0, 160000, 0, 80000, 0, 0],
+      "cq": [180000, 0, 0, 160000, 0, 80000, 0, 0]
+    },
+    {
+      "unit": 5,
+      "n": 1000,
+      "m1": [600000, 0, 0, 533000, 0, 266000, 0, 0],
+      "cq": [600000, 0, 0, 533000, 0, 266000, 0, 0]
+    },
+    {
+      "unit": 5,
+      "n": 10000,
+      "m1": [6000000, 0, 0, 5333000, 0, 2666000, 0, 0],
+      "cq": [6000000, 0, 0, 5333000, 0, 2666000, 0, 0]
+    },
+    {
+      "unit": 6,
+      "n": 1,
+      "m1": [60000, 0, 0, 33000, 0, 16000, 0, 0],
+      "cq": [60000, 0, 0, 33000, 0, 16000, 0, 0]
+    },
+    {
+      "unit": 6,
+      "n": 99,
+      "m1": [60000, 0, 0, 33000, 0, 16000, 0, 0],
+      "cq": [60000, 0, 0, 33000, 0, 16000, 0, 0]
+    },
+    {
+      "unit": 6,
+      "n": 100,
+      "m1": [60000, 0, 0, 33000, 0, 16000, 0, 0],
+      "cq": [60000, 0, 0, 33000, 0, 16000, 0, 0]
+    },
+    {
+      "unit": 6,
+      "n": 101,
+      "m1": [120000, 0, 0, 66000, 0, 33000, 0, 0],
+      "cq": [120000, 0, 0, 66000, 0, 33000, 0, 0]
+    },
+    {
+      "unit": 6,
+      "n": 250,
+      "m1": [180000, 0, 0, 100000, 0, 50000, 0, 0],
+      "cq": [180000, 0, 0, 100000, 0, 50000, 0, 0]
+    },
+    {
+      "unit": 6,
+      "n": 1000,
+      "m1": [600000, 0, 0, 333000, 0, 166000, 0, 0],
+      "cq": [600000, 0, 0, 333000, 0, 166000, 0, 0]
+    },
+    {
+      "unit": 6,
+      "n": 10000,
+      "m1": [6000000, 0, 0, 3333000, 0, 1666000, 0, 0],
+      "cq": [6000000, 0, 0, 3333000, 0, 1666000, 0, 0]
+    },
+    {
+      "unit": 7,
+      "n": 1,
+      "m1": null,
+      "cq": null
+    },
+    {
+      "unit": 7,
+      "n": 99,
+      "m1": null,
+      "cq": null
+    },
+    {
+      "unit": 7,
+      "n": 100,
+      "m1": null,
+      "cq": null
+    },
+    {
+      "unit": 7,
+      "n": 101,
+      "m1": null,
+      "cq": null
+    },
+    {
+      "unit": 7,
+      "n": 250,
+      "m1": null,
+      "cq": null
+    },
+    {
+      "unit": 7,
+      "n": 1000,
+      "m1": null,
+      "cq": null
+    },
+    {
+      "unit": 7,
+      "n": 10000,
+      "m1": null,
+      "cq": null
+    }
+  ],
+  "settler_cost": [
+    {
+      "holdings": 0,
+      "units": [800, 800, 400, 0, 0, 200, 0, 0]
+    },
+    {
+      "holdings": 1,
+      "units": [800, 800, 400, 0, 0, 200, 0, 0]
+    },
+    {
+      "holdings": 2,
+      "units": [1200, 1200, 600, 0, 0, 300, 0, 0]
+    },
+    {
+      "holdings": 3,
+      "units": [2400, 2400, 1200, 0, 0, 600, 0, 0]
+    }
+  ],
+  "strength_weight": [
+    {
+      "tier": 0,
+      "garrison_milli": 0,
+      "order0": 0,
+      "weight": 1000000
+    },
+    {
+      "tier": 0,
+      "garrison_milli": 0,
+      "order0": 1,
+      "weight": 500000
+    },
+    {
+      "tier": 0,
+      "garrison_milli": 0,
+      "order0": 2,
+      "weight": 250000
+    },
+    {
+      "tier": 0,
+      "garrison_milli": 0,
+      "order0": 3,
+      "weight": 250000
+    },
+    {
+      "tier": 0,
+      "garrison_milli": 199,
+      "order0": 0,
+      "weight": 1000000
+    },
+    {
+      "tier": 0,
+      "garrison_milli": 199,
+      "order0": 1,
+      "weight": 500000
+    },
+    {
+      "tier": 0,
+      "garrison_milli": 199,
+      "order0": 2,
+      "weight": 250000
+    },
+    {
+      "tier": 0,
+      "garrison_milli": 199,
+      "order0": 3,
+      "weight": 250000
+    },
+    {
+      "tier": 0,
+      "garrison_milli": 200,
+      "order0": 0,
+      "weight": 1000100
+    },
+    {
+      "tier": 0,
+      "garrison_milli": 200,
+      "order0": 1,
+      "weight": 500050
+    },
+    {
+      "tier": 0,
+      "garrison_milli": 200,
+      "order0": 2,
+      "weight": 250025
+    },
+    {
+      "tier": 0,
+      "garrison_milli": 200,
+      "order0": 3,
+      "weight": 250025
+    },
+    {
+      "tier": 0,
+      "garrison_milli": 1000,
+      "order0": 0,
+      "weight": 1000500
+    },
+    {
+      "tier": 0,
+      "garrison_milli": 1000,
+      "order0": 1,
+      "weight": 500250
+    },
+    {
+      "tier": 0,
+      "garrison_milli": 1000,
+      "order0": 2,
+      "weight": 250125
+    },
+    {
+      "tier": 0,
+      "garrison_milli": 1000,
+      "order0": 3,
+      "weight": 250125
+    },
+    {
+      "tier": 0,
+      "garrison_milli": 100000,
+      "order0": 0,
+      "weight": 1050000
+    },
+    {
+      "tier": 0,
+      "garrison_milli": 100000,
+      "order0": 1,
+      "weight": 525000
+    },
+    {
+      "tier": 0,
+      "garrison_milli": 100000,
+      "order0": 2,
+      "weight": 262500
+    },
+    {
+      "tier": 0,
+      "garrison_milli": 100000,
+      "order0": 3,
+      "weight": 262500
+    },
+    {
+      "tier": 0,
+      "garrison_milli": 999999,
+      "order0": 0,
+      "weight": 1499900
+    },
+    {
+      "tier": 0,
+      "garrison_milli": 999999,
+      "order0": 1,
+      "weight": 749950
+    },
+    {
+      "tier": 0,
+      "garrison_milli": 999999,
+      "order0": 2,
+      "weight": 374975
+    },
+    {
+      "tier": 0,
+      "garrison_milli": 999999,
+      "order0": 3,
+      "weight": 374975
+    },
+    {
+      "tier": 0,
+      "garrison_milli": 1000000,
+      "order0": 0,
+      "weight": 1500000
+    },
+    {
+      "tier": 0,
+      "garrison_milli": 1000000,
+      "order0": 1,
+      "weight": 750000
+    },
+    {
+      "tier": 0,
+      "garrison_milli": 1000000,
+      "order0": 2,
+      "weight": 375000
+    },
+    {
+      "tier": 0,
+      "garrison_milli": 1000000,
+      "order0": 3,
+      "weight": 375000
+    },
+    {
+      "tier": 0,
+      "garrison_milli": 5000000,
+      "order0": 0,
+      "weight": 1500000
+    },
+    {
+      "tier": 0,
+      "garrison_milli": 5000000,
+      "order0": 1,
+      "weight": 750000
+    },
+    {
+      "tier": 0,
+      "garrison_milli": 5000000,
+      "order0": 2,
+      "weight": 375000
+    },
+    {
+      "tier": 0,
+      "garrison_milli": 5000000,
+      "order0": 3,
+      "weight": 375000
+    },
+    {
+      "tier": 1,
+      "garrison_milli": 0,
+      "order0": 0,
+      "weight": 1300000
+    },
+    {
+      "tier": 1,
+      "garrison_milli": 0,
+      "order0": 1,
+      "weight": 650000
+    },
+    {
+      "tier": 1,
+      "garrison_milli": 0,
+      "order0": 2,
+      "weight": 325000
+    },
+    {
+      "tier": 1,
+      "garrison_milli": 0,
+      "order0": 3,
+      "weight": 325000
+    },
+    {
+      "tier": 1,
+      "garrison_milli": 199,
+      "order0": 0,
+      "weight": 1300000
+    },
+    {
+      "tier": 1,
+      "garrison_milli": 199,
+      "order0": 1,
+      "weight": 650000
+    },
+    {
+      "tier": 1,
+      "garrison_milli": 199,
+      "order0": 2,
+      "weight": 325000
+    },
+    {
+      "tier": 1,
+      "garrison_milli": 199,
+      "order0": 3,
+      "weight": 325000
+    },
+    {
+      "tier": 1,
+      "garrison_milli": 200,
+      "order0": 0,
+      "weight": 1300130
+    },
+    {
+      "tier": 1,
+      "garrison_milli": 200,
+      "order0": 1,
+      "weight": 650065
+    },
+    {
+      "tier": 1,
+      "garrison_milli": 200,
+      "order0": 2,
+      "weight": 325032
+    },
+    {
+      "tier": 1,
+      "garrison_milli": 200,
+      "order0": 3,
+      "weight": 325032
+    },
+    {
+      "tier": 1,
+      "garrison_milli": 1000,
+      "order0": 0,
+      "weight": 1300650
+    },
+    {
+      "tier": 1,
+      "garrison_milli": 1000,
+      "order0": 1,
+      "weight": 650325
+    },
+    {
+      "tier": 1,
+      "garrison_milli": 1000,
+      "order0": 2,
+      "weight": 325162
+    },
+    {
+      "tier": 1,
+      "garrison_milli": 1000,
+      "order0": 3,
+      "weight": 325162
+    },
+    {
+      "tier": 1,
+      "garrison_milli": 100000,
+      "order0": 0,
+      "weight": 1365000
+    },
+    {
+      "tier": 1,
+      "garrison_milli": 100000,
+      "order0": 1,
+      "weight": 682500
+    },
+    {
+      "tier": 1,
+      "garrison_milli": 100000,
+      "order0": 2,
+      "weight": 341250
+    },
+    {
+      "tier": 1,
+      "garrison_milli": 100000,
+      "order0": 3,
+      "weight": 341250
+    },
+    {
+      "tier": 1,
+      "garrison_milli": 999999,
+      "order0": 0,
+      "weight": 1949870
+    },
+    {
+      "tier": 1,
+      "garrison_milli": 999999,
+      "order0": 1,
+      "weight": 974935
+    },
+    {
+      "tier": 1,
+      "garrison_milli": 999999,
+      "order0": 2,
+      "weight": 487467
+    },
+    {
+      "tier": 1,
+      "garrison_milli": 999999,
+      "order0": 3,
+      "weight": 487467
+    },
+    {
+      "tier": 1,
+      "garrison_milli": 1000000,
+      "order0": 0,
+      "weight": 1950000
+    },
+    {
+      "tier": 1,
+      "garrison_milli": 1000000,
+      "order0": 1,
+      "weight": 975000
+    },
+    {
+      "tier": 1,
+      "garrison_milli": 1000000,
+      "order0": 2,
+      "weight": 487500
+    },
+    {
+      "tier": 1,
+      "garrison_milli": 1000000,
+      "order0": 3,
+      "weight": 487500
+    },
+    {
+      "tier": 1,
+      "garrison_milli": 5000000,
+      "order0": 0,
+      "weight": 1950000
+    },
+    {
+      "tier": 1,
+      "garrison_milli": 5000000,
+      "order0": 1,
+      "weight": 975000
+    },
+    {
+      "tier": 1,
+      "garrison_milli": 5000000,
+      "order0": 2,
+      "weight": 487500
+    },
+    {
+      "tier": 1,
+      "garrison_milli": 5000000,
+      "order0": 3,
+      "weight": 487500
+    },
+    {
+      "tier": 2,
+      "garrison_milli": 0,
+      "order0": 0,
+      "weight": 1600000
+    },
+    {
+      "tier": 2,
+      "garrison_milli": 0,
+      "order0": 1,
+      "weight": 800000
+    },
+    {
+      "tier": 2,
+      "garrison_milli": 0,
+      "order0": 2,
+      "weight": 400000
+    },
+    {
+      "tier": 2,
+      "garrison_milli": 0,
+      "order0": 3,
+      "weight": 400000
+    },
+    {
+      "tier": 2,
+      "garrison_milli": 199,
+      "order0": 0,
+      "weight": 1600000
+    },
+    {
+      "tier": 2,
+      "garrison_milli": 199,
+      "order0": 1,
+      "weight": 800000
+    },
+    {
+      "tier": 2,
+      "garrison_milli": 199,
+      "order0": 2,
+      "weight": 400000
+    },
+    {
+      "tier": 2,
+      "garrison_milli": 199,
+      "order0": 3,
+      "weight": 400000
+    },
+    {
+      "tier": 2,
+      "garrison_milli": 200,
+      "order0": 0,
+      "weight": 1600160
+    },
+    {
+      "tier": 2,
+      "garrison_milli": 200,
+      "order0": 1,
+      "weight": 800080
+    },
+    {
+      "tier": 2,
+      "garrison_milli": 200,
+      "order0": 2,
+      "weight": 400040
+    },
+    {
+      "tier": 2,
+      "garrison_milli": 200,
+      "order0": 3,
+      "weight": 400040
+    },
+    {
+      "tier": 2,
+      "garrison_milli": 1000,
+      "order0": 0,
+      "weight": 1600800
+    },
+    {
+      "tier": 2,
+      "garrison_milli": 1000,
+      "order0": 1,
+      "weight": 800400
+    },
+    {
+      "tier": 2,
+      "garrison_milli": 1000,
+      "order0": 2,
+      "weight": 400200
+    },
+    {
+      "tier": 2,
+      "garrison_milli": 1000,
+      "order0": 3,
+      "weight": 400200
+    },
+    {
+      "tier": 2,
+      "garrison_milli": 100000,
+      "order0": 0,
+      "weight": 1680000
+    },
+    {
+      "tier": 2,
+      "garrison_milli": 100000,
+      "order0": 1,
+      "weight": 840000
+    },
+    {
+      "tier": 2,
+      "garrison_milli": 100000,
+      "order0": 2,
+      "weight": 420000
+    },
+    {
+      "tier": 2,
+      "garrison_milli": 100000,
+      "order0": 3,
+      "weight": 420000
+    },
+    {
+      "tier": 2,
+      "garrison_milli": 999999,
+      "order0": 0,
+      "weight": 2399840
+    },
+    {
+      "tier": 2,
+      "garrison_milli": 999999,
+      "order0": 1,
+      "weight": 1199920
+    },
+    {
+      "tier": 2,
+      "garrison_milli": 999999,
+      "order0": 2,
+      "weight": 599960
+    },
+    {
+      "tier": 2,
+      "garrison_milli": 999999,
+      "order0": 3,
+      "weight": 599960
+    },
+    {
+      "tier": 2,
+      "garrison_milli": 1000000,
+      "order0": 0,
+      "weight": 2400000
+    },
+    {
+      "tier": 2,
+      "garrison_milli": 1000000,
+      "order0": 1,
+      "weight": 1200000
+    },
+    {
+      "tier": 2,
+      "garrison_milli": 1000000,
+      "order0": 2,
+      "weight": 600000
+    },
+    {
+      "tier": 2,
+      "garrison_milli": 1000000,
+      "order0": 3,
+      "weight": 600000
+    },
+    {
+      "tier": 2,
+      "garrison_milli": 5000000,
+      "order0": 0,
+      "weight": 2400000
+    },
+    {
+      "tier": 2,
+      "garrison_milli": 5000000,
+      "order0": 1,
+      "weight": 1200000
+    },
+    {
+      "tier": 2,
+      "garrison_milli": 5000000,
+      "order0": 2,
+      "weight": 600000
+    },
+    {
+      "tier": 2,
+      "garrison_milli": 5000000,
+      "order0": 3,
+      "weight": 600000
+    },
+    {
+      "tier": 3,
+      "garrison_milli": 0,
+      "order0": 0,
+      "weight": 2000000
+    },
+    {
+      "tier": 3,
+      "garrison_milli": 0,
+      "order0": 1,
+      "weight": 1000000
+    },
+    {
+      "tier": 3,
+      "garrison_milli": 0,
+      "order0": 2,
+      "weight": 500000
+    },
+    {
+      "tier": 3,
+      "garrison_milli": 0,
+      "order0": 3,
+      "weight": 500000
+    },
+    {
+      "tier": 3,
+      "garrison_milli": 199,
+      "order0": 0,
+      "weight": 2000000
+    },
+    {
+      "tier": 3,
+      "garrison_milli": 199,
+      "order0": 1,
+      "weight": 1000000
+    },
+    {
+      "tier": 3,
+      "garrison_milli": 199,
+      "order0": 2,
+      "weight": 500000
+    },
+    {
+      "tier": 3,
+      "garrison_milli": 199,
+      "order0": 3,
+      "weight": 500000
+    },
+    {
+      "tier": 3,
+      "garrison_milli": 200,
+      "order0": 0,
+      "weight": 2000200
+    },
+    {
+      "tier": 3,
+      "garrison_milli": 200,
+      "order0": 1,
+      "weight": 1000100
+    },
+    {
+      "tier": 3,
+      "garrison_milli": 200,
+      "order0": 2,
+      "weight": 500050
+    },
+    {
+      "tier": 3,
+      "garrison_milli": 200,
+      "order0": 3,
+      "weight": 500050
+    },
+    {
+      "tier": 3,
+      "garrison_milli": 1000,
+      "order0": 0,
+      "weight": 2001000
+    },
+    {
+      "tier": 3,
+      "garrison_milli": 1000,
+      "order0": 1,
+      "weight": 1000500
+    },
+    {
+      "tier": 3,
+      "garrison_milli": 1000,
+      "order0": 2,
+      "weight": 500250
+    },
+    {
+      "tier": 3,
+      "garrison_milli": 1000,
+      "order0": 3,
+      "weight": 500250
+    },
+    {
+      "tier": 3,
+      "garrison_milli": 100000,
+      "order0": 0,
+      "weight": 2100000
+    },
+    {
+      "tier": 3,
+      "garrison_milli": 100000,
+      "order0": 1,
+      "weight": 1050000
+    },
+    {
+      "tier": 3,
+      "garrison_milli": 100000,
+      "order0": 2,
+      "weight": 525000
+    },
+    {
+      "tier": 3,
+      "garrison_milli": 100000,
+      "order0": 3,
+      "weight": 525000
+    },
+    {
+      "tier": 3,
+      "garrison_milli": 999999,
+      "order0": 0,
+      "weight": 2999800
+    },
+    {
+      "tier": 3,
+      "garrison_milli": 999999,
+      "order0": 1,
+      "weight": 1499900
+    },
+    {
+      "tier": 3,
+      "garrison_milli": 999999,
+      "order0": 2,
+      "weight": 749950
+    },
+    {
+      "tier": 3,
+      "garrison_milli": 999999,
+      "order0": 3,
+      "weight": 749950
+    },
+    {
+      "tier": 3,
+      "garrison_milli": 1000000,
+      "order0": 0,
+      "weight": 3000000
+    },
+    {
+      "tier": 3,
+      "garrison_milli": 1000000,
+      "order0": 1,
+      "weight": 1500000
+    },
+    {
+      "tier": 3,
+      "garrison_milli": 1000000,
+      "order0": 2,
+      "weight": 750000
+    },
+    {
+      "tier": 3,
+      "garrison_milli": 1000000,
+      "order0": 3,
+      "weight": 750000
+    },
+    {
+      "tier": 3,
+      "garrison_milli": 5000000,
+      "order0": 0,
+      "weight": 3000000
+    },
+    {
+      "tier": 3,
+      "garrison_milli": 5000000,
+      "order0": 1,
+      "weight": 1500000
+    },
+    {
+      "tier": 3,
+      "garrison_milli": 5000000,
+      "order0": 2,
+      "weight": 750000
+    },
+    {
+      "tier": 3,
+      "garrison_milli": 5000000,
+      "order0": 3,
+      "weight": 750000
+    }
+  ]
+}
