@@ -2144,7 +2144,8 @@ function renderHudTick(now) {
     attn.hidden = !nx;
     const steps = $('next-steps');
     if (steps) { steps.hidden = nx?.kind !== 'guide'; const t = L`ガイドの手順を見る`; if (steps.getAttribute('aria-label') !== t) { steps.setAttribute('aria-label', t); steps.title = t; } }
-    const key = nx ? `${nx.kind}|${nx.act}|${JSON.stringify(nx.data)}|${nx.text}` : '';
+    // (the count of other things is part of what the prompt says: it stood at 「ほか 2」 beside a to-do tab of 3)
+    const key = nx ? `${nx.kind}|${nx.act}|${JSON.stringify(nx.data)}|${nx.text}|${nx.more}` : '';
     if (nx && attn.dataset.key !== key) {
       for (const k of Object.keys(attn.dataset)) delete attn.dataset[k];
       Object.assign(attn.dataset, Object.fromEntries(Object.entries(nx.data).map(([k, v]) => [k, String(v)])), { key, act: nx.act, next: nx.kind });
