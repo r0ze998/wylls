@@ -99,7 +99,17 @@
     const tmp = document.createElement('canvas'); tmp.width = tmp.height = 8;
     WYMap.draw(tmp.getContext('2d'), world, { x: 0, y: 0, zoom: 0.05, W: 8, H: 8 }, { ...opts, background: false });
     WY.img = orig;
-    await Promise.all(got.map(im => (im.complete && im.naturalWidth ? Promise.resolve() : new Promise(r => { im.addEventListener('load', r, { once: true }); im.addEventListener('error', r, { once: true }); })).then(() => im.decode?.().catch(() => {}))));
+    const settle = ims => Promise.all(ims.map(im => (im.complete && im.naturalWidth ? Promise.resolve() : new Promise(r => { im.addEventListener('load', r, { once: true }); im.addEventListener('error', r, { once: true }); setTimeout(r, 8000); })).then(() => im.decode?.().catch(() => {}))));
+    await settle(got);
+    // renders run on a heavily loaded machine: retry any sprite that did not arrive, so the cache never freezes a gap
+    for (let attempt = 1; attempt <= 6; attempt++) {
+      const bad = got.filter(im => !(im.complete && im.naturalWidth));
+      if (!bad.length) break;
+      console.warn('FX.mapCache: retrying', bad.length, 'images, attempt', attempt);
+      for (const im of bad) im.src = im.src.split('?')[0] + '?retry=' + attempt;
+      await new Promise(r => setTimeout(r, 400 * attempt));
+      await settle(bad);
+    }
     let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;
     for (const t of world.tiles) { x0 = Math.min(x0, t.x - 88); x1 = Math.max(x1, t.x + 88); y0 = Math.min(y0, t.y - 160); y1 = Math.max(y1, t.y + 90); }
     x0 -= pad; x1 += pad; y0 -= pad; y1 += pad;
@@ -109,11 +119,23 @@
       WYMap.draw(cv.getContext('2d'), world, { x: (x0 + x1) / 2, y: (y0 + y1) / 2, zoom, W: cw, H: ch }, { ...opts, ...o2, background: false });
       return cv;
     };
-    const base = make({});
+    let base = make({});
+    // sanity check: the cache must contain terrain pixels; rebuild if the sprites were not drawable yet
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const x = base.getContext('2d'), probe = world.tiles.filter(t => t.terrain !== 'water').slice(0, 40);
+      const filled = probe.filter(t => x.getImageData(Math.round((t.x - x0) * zoom), Math.round((t.y + 20 - y0) * zoom), 1, 1).data[3] > 200).length;
+      if (filled >= probe.length * 0.8) break;
+      console.warn('FX.mapCache: cache looks empty (' + filled + '/' + probe.length + '), rebuilding');
+      await new Promise(r => setTimeout(r, 600));
+      for (const im of got) if (!(im.complete && im.naturalWidth)) im.src = im.src.split('?')[0] + '?rb=' + attempt;
+      await settle(got);
+      base = make({});
+    }
     return {
-      cv: base, make,
+      get cv() { return base; }, make,
       /** draw a cache canvas (default the base) for camera cam {x,y,zoom,W,H} */
-      draw(ctx, cam, cv = base, alpha = 1) {
+      draw(ctx, cam, cv = null, alpha = 1) {
+        cv = cv || base;
         const s = cam.zoom / zoom;
         ctx.globalAlpha = alpha;
         ctx.drawImage(cv, cam.W / 2 + (x0 - cam.x) * cam.zoom, cam.H / 2 + (y0 - cam.y) * cam.zoom, cw * s, ch * s);
