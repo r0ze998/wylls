@@ -351,7 +351,11 @@ fn g13_s2_open_deposit_and_withdraw_shares() {
     );
     let cd = k.c.data(&a.citizen);
     assert_eq!(
-        (u32_at(&cd, C::ISSUES), u32_at(&cd, C::LOTS), cd[C::OPEN_ISSUES]),
+        (
+            u32_at(&cd, C::ISSUES),
+            u32_at(&cd, C::LOTS),
+            cd[C::OPEN_ISSUES]
+        ),
         (1, 0, 1)
     );
     match event(&l, CqKind::SHARES_OPENED) {
@@ -383,7 +387,10 @@ fn g13_s2_open_deposit_and_withdraw_shares() {
         (u64_at(&ld, LT::HOLDER_TAG), u64_at(&ld, LT::SEED_TAG)),
         (r.citizen_tag(), r.citizen_tag())
     );
-    assert_eq!(&ld[LT::HOLDER_CITIZEN..LT::HOLDER_CITIZEN + 32], r.citizen.as_ref());
+    assert_eq!(
+        &ld[LT::HOLDER_CITIZEN..LT::HOLDER_CITIZEN + 32],
+        r.citizen.as_ref()
+    );
     match event(&l, CqKind::SHARES_DEPOSITED) {
         fclient::conquest::CqEvent::SharesDeposited {
             holder_tag,
@@ -403,7 +410,9 @@ fn g13_s2_open_deposit_and_withdraw_shares() {
     let l = k.deposit(&a, wood(50));
     assert_eq!((k.supply(), k.units(&a)), (250, 150));
     match event(&l, CqKind::SHARES_DEPOSITED) {
-        fclient::conquest::CqEvent::SharesDeposited { minted, new_lot, .. } => {
+        fclient::conquest::CqEvent::SharesDeposited {
+            minted, new_lot, ..
+        } => {
             assert_eq!((minted, new_lot), (50, false))
         }
         e => panic!("{e:?}"),
@@ -421,7 +430,10 @@ fn g13_s2_open_deposit_and_withdraw_shares() {
         (i64_at(&cd, CV::cargo(WOOD)), i64_at(&cd, CV::cargo(ORE))),
         (60 * MILLI, 20 * MILLI)
     );
-    assert_eq!(&cd[CV::OWNER_CITIZEN..CV::OWNER_CITIZEN + 32], r.citizen.as_ref());
+    assert_eq!(
+        &cd[CV::OWNER_CITIZEN..CV::OWNER_CITIZEN + 32],
+        r.citizen.as_ref()
+    );
     match event(&l, CqKind::SHARES_WITHDRAWN) {
         fclient::conquest::CqEvent::SharesWithdrawn {
             holder_tag,
@@ -451,7 +463,10 @@ fn g13_s2_a_shared_vault_is_the_holders() {
     let x = SendCaravanArgs {
         seq: 0,
         src: k.vault_place(1),
-        dst: PlaceRef::Holding { h: a.href(), gen: a.gen },
+        dst: PlaceRef::Holding {
+            h: a.href(),
+            gen: a.gen,
+        },
         steps,
         path,
         cargo: wood(10),
@@ -459,16 +474,26 @@ fn g13_s2_a_shared_vault_is_the_holders() {
         provinces: vec![(a.p, a.q)],
     };
     let ix = fx::send_caravan(&k.w.a, &a.player(), &x);
-    assert_cq(s2_send(&mut k.c, I2::SendCaravan, ix, &[&a.wallet]), Cq::VaultShared);
+    assert_cq(
+        s2_send(&mut k.c, I2::SendCaravan, ix, &[&a.wallet]),
+        Cq::VaultShared,
+    );
     // Its close.
     let ix = fx::close_vault(&k.w.a, &a.player(), (a.p, a.q, k.vt), a.wallet.pubkey());
-    assert_cq(s2_send(&mut k.c, I2::CloseVault, ix, &[&a.wallet]), Cq::VaultShared);
+    assert_cq(
+        s2_send(&mut k.c, I2::CloseVault, ix, &[&a.wallet]),
+        Cq::VaultShared,
+    );
     // A receipt on it.
     let ix = fx::issue_tickets(
         &k.w.a,
         &a.player(),
         a.href(),
-        TicketSource::Vault { p: a.p, q: a.q, tile: k.vt },
+        TicketSource::Vault {
+            p: a.p,
+            q: a.q,
+            tile: k.vt,
+        },
         a.citizen_tag(),
         1,
         0,
@@ -480,7 +505,10 @@ fn g13_s2_a_shared_vault_is_the_holders() {
             until_day: NO_END,
         },
     );
-    assert_cq(s2_send(&mut k.c, I2::IssueTickets, ix, &[&a.wallet]), Cq::VaultShared);
+    assert_cq(
+        s2_send(&mut k.c, I2::IssueTickets, ix, &[&a.wallet]),
+        Cq::VaultShared,
+    );
     // The deposit lot is not given whole in place.
     let lot = k.lot_of(&a);
     let ix = fx::give_lot(
@@ -488,7 +516,11 @@ fn g13_s2_a_shared_vault_is_the_holders() {
         &a.player(),
         lot,
         (k.tag(), 0),
-        TicketSource::Vault { p: a.p, q: a.q, tile: k.vt },
+        TicketSource::Vault {
+            p: a.p,
+            q: a.q,
+            tile: k.vt,
+        },
         k.r.citizen,
         lot,
         100,
@@ -531,8 +563,18 @@ fn g13_s2_a_seizure_voids_the_shares() {
     // R stands on the vault and seizes it.
     let province = a.province;
     k.w.craft_host(&mut k.c, &r, &province, 0, 0, 0, 500, k.vt);
-    let ix = fx::seize_vault(&k.w.a, &r.player(), (a.p, a.q, k.vt), r.href(), a.citizen, 0);
-    expect_lands(s2_send(&mut k.c, I2::SeizeVault, ix, &[&r.wallet]), "SeizeVault");
+    let ix = fx::seize_vault(
+        &k.w.a,
+        &r.player(),
+        (a.p, a.q, k.vt),
+        r.href(),
+        a.citizen,
+        0,
+    );
+    expect_lands(
+        s2_send(&mut k.c, I2::SeizeVault, ix, &[&r.wallet]),
+        "SeizeVault",
+    );
     let v = k.c.data(&k.vault());
     assert_eq!((v[VA::SHARES_ON], v[VA::GEN]), (0, 2));
     // A's units are void: no withdrawal.
@@ -543,7 +585,11 @@ fn g13_s2_a_seizure_voids_the_shares() {
         Address::new_from_array(c.data(key)[at..at + 32].try_into().unwrap())
     };
     let lot = k.lot_of(&a);
-    let src = TicketSource::Vault { p: a.p, q: a.q, tile: k.vt };
+    let src = TicketSource::Vault {
+        p: a.p,
+        q: a.q,
+        tile: k.vt,
+    };
     let issue_rent = rent(&k.c, &k.issue(), IS::RENT_TO);
     let ix = fx::close_lot(
         &k.w.a,
@@ -554,7 +600,10 @@ fn g13_s2_a_seizure_voids_the_shares() {
         Some((lot, rent(&k.c, &lot, LT::RENT_TO))),
         true,
     );
-    let l = expect_lands(s2_send(&mut k.c, I2::CloseLot, ix, &[&a.wallet]), "CloseLot");
+    let l = expect_lands(
+        s2_send(&mut k.c, I2::CloseLot, ix, &[&a.wallet]),
+        "CloseLot",
+    );
     match event(&l, CqKind::LOT_CLOSED) {
         fclient::conquest::CqEvent::LotClosed {
             void,
@@ -585,7 +634,11 @@ fn g13_s2_closing_the_shares_frees_the_vault() {
         Address::new_from_array(c.data(key)[at..at + 32].try_into().unwrap())
     };
     let lot = k.lot_of(&a);
-    let src = TicketSource::Vault { p: a.p, q: a.q, tile: k.vt };
+    let src = TicketSource::Vault {
+        p: a.p,
+        q: a.q,
+        tile: k.vt,
+    };
     let issue_rent = rent(&k.c, &k.issue(), IS::RENT_TO);
     let ix = fx::close_lot(
         &k.w.a,
@@ -596,7 +649,10 @@ fn g13_s2_closing_the_shares_frees_the_vault() {
         Some((lot, rent(&k.c, &lot, LT::RENT_TO))),
         true,
     );
-    let l = expect_lands(s2_send(&mut k.c, I2::CloseLot, ix, &[&a.wallet]), "CloseLot");
+    let l = expect_lands(
+        s2_send(&mut k.c, I2::CloseLot, ix, &[&a.wallet]),
+        "CloseLot",
+    );
     match event(&l, CqKind::LOT_CLOSED) {
         fclient::conquest::CqEvent::LotClosed { shares_cleared, .. } => assert!(shares_cleared),
         e => panic!("{e:?}"),
@@ -609,7 +665,10 @@ fn g13_s2_closing_the_shares_frees_the_vault() {
             .unwrap(),
     );
     let ix = fx::close_vault(&k.w.a, &a.player(), (a.p, a.q, k.vt), vr);
-    expect_lands(s2_send(&mut k.c, I2::CloseVault, ix, &[&a.wallet]), "CloseVault");
+    expect_lands(
+        s2_send(&mut k.c, I2::CloseVault, ix, &[&a.wallet]),
+        "CloseVault",
+    );
 }
 
 fn clone_estate(e: &Estate) -> Estate {

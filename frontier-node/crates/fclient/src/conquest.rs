@@ -274,7 +274,9 @@ pub enum CqEvent {
         void: bool,
         lot_closed: bool,
         issue_closed: bool,
-        /// 2b: a share issue's close cleared its vault's shares.
+        /// 2b: the issue's source (zero when it is gone) and whether a share
+        /// issue's close cleared that vault's shares.
+        src: LogPlace,
         shares_cleared: bool,
     },
     /// S2 (2b): a vault's shares opened; the opener's deposit lot
@@ -688,6 +690,7 @@ pub fn parse(body: &[u8]) -> Option<CqLog> {
             void: b8("void")? != 0,
             lot_closed: b8("lot_closed")? != 0,
             issue_closed: b8("issue_closed")? != 0,
+            src: LogPlace::parse(f("src")?)?,
             shares_cleared: b8("shares_cleared")? != 0,
         },
         CqKind::SHARES_OPENED => CqEvent::SharesOpened {

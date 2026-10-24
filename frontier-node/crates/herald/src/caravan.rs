@@ -11,7 +11,7 @@
 //!   "runs": [{"p": 3, "q": 0, "firstBell": 290, "n": 2}], "raided": false,
 //!   "path": [12 bytes], "provinces": [[3, 0], [4, 0]]}],
 //!  "vaults": [{"p": 3, "q": 0, "tile": 40, "ownerTag": "…", "faction": 1,
-//!   "gen": 1}]}
+//!   "gen": 1, "shares": {"issuerTag": "…", "seq": 0} | null}]}
 //! ```
 //!
 //! Tags are decimal strings (u64). `path` is the packed walk (`steps` of it
@@ -113,7 +113,7 @@ impl Caravans {
                 self.vaults.insert(
                     (*p, *q, *tile),
                     json!({"p": p, "q": q, "tile": tile, "ownerTag": owner_tag.to_string(),
-                        "faction": faction, "gen": gen}),
+                        "faction": faction, "gen": gen, "shares": null}),
                 );
             }
             CqEvent::VaultSeized {
@@ -127,6 +127,27 @@ impl Caravans {
                 if let Some(v) = self.vaults.get_mut(&(*p, *q, *tile)) {
                     v["ownerTag"] = json!(captor_tag.to_string());
                     v["gen"] = json!(new_gen);
+                    v["shares"] = Value::Null;
+                }
+            }
+            // S2 2b: a vault's shares open and close.
+            CqEvent::SharesOpened {
+                issuer_tag,
+                seq,
+                src,
+                ..
+            } => {
+                if let Some(v) = self.vaults.get_mut(&(src.p as i32, src.q as i32, src.at)) {
+                    v["shares"] = json!({"issuerTag": issuer_tag.to_string(), "seq": seq});
+                }
+            }
+            CqEvent::LotClosed {
+                shares_cleared: true,
+                src,
+                ..
+            } => {
+                if let Some(v) = self.vaults.get_mut(&(src.p as i32, src.q as i32, src.at)) {
+                    v["shares"] = Value::Null;
                 }
             }
             _ => return false,

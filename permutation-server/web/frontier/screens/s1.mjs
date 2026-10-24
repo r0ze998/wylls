@@ -26,6 +26,7 @@ import { ownTag } from '../people/ui.mjs';
 import { MAX_VAULTS, VAULT_COST } from '../fcaravan.mjs';
 import { S1_WORDS, caravanArriveBell } from '../map/s1marks.mjs';
 import { cardHead, chip, fold, label } from './parts.mjs';
+import { s2On } from '../fs1.mjs';
 import { swatch } from './shell.mjs';
 
 // ------------------------------------------------------------------ the rules the page offers by (structure.rs, caravan.rs, nation.rs)
@@ -179,6 +180,30 @@ export function s1VillageModel(FS) {
   return { vaults, caravans, structures, destinations, forts, spearmen, nation, have: haveOf(FS, h), holding: h };
 }
 
+/**
+ * S2 (2b): the viewer's live share lots (h/tickets.json), each with its
+ * issue's supply and its vault: `{lots: [{key, issuerTag, issueSeq, amount,
+ * supply, vault: {p, q, tile} | null}]}`; and the share issue of a vault.
+ */
+export function s2SharesModel(FS) {
+  const t = FS.s1?.tickets ?? { issues: [], lots: [] };
+  const mine = viewerTag(FS);
+  const issueOf = l => t.issues.find(i => i.issuerTag === l.issuerTag && i.seq === l.issueSeq);
+  const lots = t.lots.filter(l => !l.void && isMine(l.holderTag, mine)).map(l => {
+    const i = issueOf(l);
+    const share = i && i.kind === SHARE && i.src.kind === 2 && !i.void;
+    return { ...l, supply: i?.supply ?? 0, vault: share ? { p: i.src.p, q: i.src.q, tile: i.src.at } : null };
+  }).filter(l => l.vault);
+  return { lots };
+}
+const SHARE = 1;
+/** The live share issue of a feed vault (`shares` names it), or null. */
+export function vaultIssue(FS, vault) {
+  const s = vault?.shares;
+  if (!s) return null;
+  return (FS.s1?.tickets?.issues ?? []).find(i => i.issuerTag === s.issuerTag && i.seq === s.seq) ?? null;
+}
+
 // ------------------------------------------------------------------ words
 const S1_BLOCK = { NoHolding: () => L`村を選んでください（費用は選んだ村から払います）`, Taken: () => L`このマスにはもう建っています`, Unknown: () => L`この州のようすをまだ読み込んでいません`,
   Site: () => errorText('StructureSite') };
@@ -194,6 +219,12 @@ export function renderS1Tile(FS, sel) {
   if (!m) return '';
   const here = [];
   if (m.vault) here.push(html`<li>${icon('crate')}${S1_WORDS.vault()} ${swatch(m.vault.faction)}${m.vault.mine ? chip(L`あなたの`, 'you') : factionName(m.vault.faction)}</li>`);
+  // S2 (2b): a shared vault, or the owner's offer to share it.
+  if (s2On() && m.vault) {
+    const issue = vaultIssue(FS, m.vault);
+    if (m.vault.shares) here.push(html`<li>${icon('scroll')}${L`持ち分で共有`} <span class="muted">${issue ? L`発行 ${fmtNum(issue.supply)} 単位` : ''}</span></li>`);
+    else if (m.vault.mine) here.push(html`<li class="s1-offer">${btn('s2-open-shares', { p: m.p, q: m.q, tile: m.idx }, L`持ち分で共有にする`)}<span class="muted">${L`中身の値ぶんの持ち分の札があなたに出ます。以後、届いた荷は送り主の持ち分になり、中身は札で引き出します。`}</span></li>`);
+  }
   if (m.structure) here.push(html`<li>${icon('shield')}${kindWord(m.structure.kind)} ${swatch(m.structure.faction)}${m.structure.mine ? chip(L`あなたの`, 'you') : factionName(m.structure.faction)}${m.structure.kind === KIND.fort && m.structure.sent ? html` <span class="muted">${L`送った兵 ${fmtNum(m.structure.sent)}`}</span>` : ''}</li>`);
   const raids = m.raids.map(r => html`<div class="s1-raid">${label(L`略奪の決定（ターン ${fmtNum(r.decideBy)} まで）`)}
     <p>${L`あなたの軍勢がこの隊商に勝ちました。荷を奪って自分の村へ運ぶか、焼き払うかを決めてください。`}</p>
@@ -243,7 +274,22 @@ export function renderS1Village(FS) {
     ${caravans}${owned}
     ${fold('s1-send', html`${icon('flag')}${L`隊商を送る`}`, send)}
     ${fort ? fold('s1-fort', html`${icon('shield')}${L`要塞に兵を入れる`}`, fort) : ''}
-    ${nation ? fold('s1-nation', html`${icon('banner')}${L`国の議会`}`, nation) : ''}</section>`;
+    ${nation ? fold('s1-nation', html`${icon('banner')}${L`国の議会`}`, nation) : ''}
+    ${s2On() ? fold('s2-shares', html`${icon('scroll')}${L`持ち分の札`}`, renderShares(FS)) : ''}</section>`;
+}
+
+/** S2 (2b): the viewer's share lots and the withdrawal form. */
+function renderShares(FS) {
+  const m = s2SharesModel(FS);
+  const note = html`<p class="muted">${L`共有の貯蔵庫へ隊商を送ると、届いた荷の値ぶんの持ち分が増えます。引き出すと、倉の中身を持ち分の割合でまとめて受け取ります。`}</p>`;
+  if (!m.lots.length) return html`<p class="muted">${L`持ち分の札はまだありません。`}</p>${note}`;
+  const pct = l => (l.supply ? Math.floor((l.amount * 1000) / l.supply) / 10 : 0);
+  return html`<ul class="list">${m.lots.map(l => html`<li>${icon('scroll')}${L`貯蔵庫（${l.vault.p}, ${l.vault.q}）`} <span class="muted">${L`${fmtNum(l.amount)} / ${fmtNum(l.supply)} 単位（${pct(l)}%）`}</span></li>`)}</ul>
+    <form class="vform" data-form="s2-withdraw">
+      <label class="field">${L`持ち分`}<select name="lot">${m.lots.map((l, i) => html`<option value="${i}">${L`貯蔵庫（${l.vault.p}, ${l.vault.q}）`}</option>`)}</select></label>
+      <div class="count-row"><label class="count-label" for="s2-amt">${L`引き出す単位`}</label><input id="s2-amt" name="amount" type="number" min="1" step="1" value="1" inputmode="numeric"></div>
+      <div class="actions"><button type="submit" class="btn">${L`選んだ村へ引き出す`}</button></div>
+      <p class="muted">${L`荷は隊商で選んでいる村へ運ばれます。道中で略奪されることがあります。`}</p></form>${note}`;
 }
 
 /** A proposal in words. */

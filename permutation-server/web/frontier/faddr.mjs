@@ -62,6 +62,17 @@ export const RAW = Object.freeze({
   Lot: ({ tag, seq }) => concat(u64(tag), u32(seq)),
 });
 
+/**
+ * S2 (2b): the seq of a holder's deposit lot of the share issue `(issuerTag,
+ * seq)`: `0x8000_0000 | (le32(sha256("PSF-DLOT" ‖ le64 issuerTag ‖ le32
+ * seq)[0..4]) & 0x7fff_ffff)` (frontier-abi v2 addr.rs `deposit_seq`). The
+ * lot's seed tag is the holder's citizen tag.
+ */
+export function depositSeq(issuerTag, seq) {
+  const h = sha256(utf8('PSF-DLOT'), u64(issuerTag), u32(seq));
+  return (0x80000000 | (new DataView(h.buffer, h.byteOffset, 4).getUint32(0, true) & 0x7fffffff)) >>> 0;
+}
+
 /** The seed string of an account kind's key: tag ‖ lowercase hex (≤ 32 characters). */
 export function seedOf(kind, key = {}) {
   const tag = TAG[kind], raw = RAW[kind];

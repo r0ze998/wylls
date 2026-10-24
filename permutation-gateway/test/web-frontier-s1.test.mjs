@@ -103,7 +103,7 @@ const CARAVANS = {
   moving: [{ ownerTag: '18446744073709551615', seq: 0, faction: 1, src: place(1, 20), dst: place(2, 40), steps: 7,
     cargo: [0, 100, 0, 0, 0, 0, 0, 0], arriveTs: 1790000000, runs: [{ p: 3, q: 0, firstBell: 290, n: 2 }], raided: false,
     path: [0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], provinces: [[3, 0], [4, 0]] }],
-  vaults: [{ p: 3, q: 0, tile: 40, ownerTag: '9', faction: 1, gen: 1 }],
+  vaults: [{ p: 3, q: 0, tile: 40, ownerTag: '9', faction: 1, gen: 1, shares: null }],
 };
 const STRUCTURES = {
   v: 1,

@@ -844,9 +844,17 @@ function caravanOf(v, at) {
 }
 function vaultOf(v, at) {
   const o = objOf(v, at);
+  // S2 (2b): `shares` names the vault's live share issue (absent before S2).
+  const sh = Object.hasOwn(o, 'shares') ? o.shares : null;
+  let shares = null;
+  if (sh !== null) {
+    const so = objOf(sh, `${at}.shares`);
+    shares = { issuerTag: decOf(so, 'issuerTag', `${at}.shares`), seq: intOf(so, 'seq', 0, U32, `${at}.shares`) };
+  }
   return {
     p: intOf(o, 'p', -COORD, COORD, at), q: intOf(o, 'q', -COORD, COORD, at), tile: intOf(o, 'tile', 0, TILE_MAX, at),
     ownerTag: decOf(o, 'ownerTag', at), faction: intOf(o, 'faction', 0, FACTION_MAX, at), gen: intOf(o, 'gen', 0, U32, at),
+    shares,
   };
 }
 
@@ -854,7 +862,8 @@ function vaultOf(v, at) {
  * `/h/caravans.json` → `{v: 1, moving: [{ownerTag, seq, faction, src, dst,
  * steps, cargo[8], arriveTs, runs: [{p, q, firstBell, n}], raided, path (12 bytes | null),
  * provinces ([{p, q}] | null)}], vaults:
- * [{p, q, tile, ownerTag, faction, gen}]}`, checked. Tags stay decimal strings.
+ * [{p, q, tile, ownerTag, faction, gen, shares: {issuerTag, seq} | null}]}`,
+ * checked. Tags stay decimal strings.
  */
 export function parseCaravans(input) {
   const o = objOf(jsonOf(input), 'file');

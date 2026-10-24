@@ -38,6 +38,11 @@ export const PROPOSE_TAG = 0xBB;
 // S2 stage 2a: IssueTickets creates an Issue and a Lot; GiveLot may create a Lot.
 export const ISSUE_TICKETS_TAG = 0xC0;
 export const GIVE_LOT_TAG = 0xC1;
+// S2 stage 2b: OpenShares creates an Issue and a Lot, WithdrawShares a caravan,
+// SettleDeposit (a settle shape) may create the depositor's Lot.
+export const OPEN_SHARES_TAG = 0xC3;
+export const WITHDRAW_SHARES_TAG = 0xC4;
+export const SETTLE_DEPOSIT_TAG = 0xC5;
 /** Tags of the player shapes (from the ABI's `relay_player_shape`). */
 export const PLAYER_TAGS = Object.freeze(TAGS.instructions.filter(i => i.relay_player_shape).map(i => i.tag));
 /** Tags of the settle shapes (`relay_settle_shape`). */

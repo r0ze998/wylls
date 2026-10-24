@@ -2433,6 +2433,64 @@ pub fn s2_t61(run: &Input) -> Made {
     })
 }
 
+/// T62: shares minted beyond the rule (V26): the first SettleDeposit's
+/// deposit lot left with one unit more.
+pub fn s2_t62(run: &Input) -> Made {
+    use frontier_abi::v2::layout::s2::lot as LT;
+    let mut inp = run.clone();
+    let tag = frontier_abi::v2::tags::Ix::SettleDeposit.tag();
+    let t = first_with(&inp, tag).need("a SettleDeposit")?;
+    let keys = ix_keys(&inp, t, tag).need("its accounts")?;
+    let lot = *keys.get(7).need("its Lot")?;
+    edit_account_at(&mut inp, &lot, t, |d| {
+        if let Some(b) = d.get_mut(LT::AMOUNT..LT::AMOUNT + 8) {
+            let v = u64::from_le_bytes(b.try_into().unwrap());
+            b.copy_from_slice(&v.wrapping_add(1).to_le_bytes());
+        }
+    })
+    .then_some(())
+    .need("the Lot's post-state")?;
+    Ok(Case {
+        class: "T62",
+        what: "shares minted beyond the rule",
+        feature: None,
+        codes: &[TICKET_MISMATCH],
+        input: inp,
+    })
+}
+
+/// T63: a basket larger than the burned share (V26): the first
+/// WithdrawShares' vault left with one unit less of its first store.
+pub fn s2_t63(run: &Input) -> Made {
+    use frontier_abi::v2::layout::s1::vault as VA;
+    let mut inp = run.clone();
+    let tag = frontier_abi::v2::tags::Ix::WithdrawShares.tag();
+    let t = first_with(&inp, tag).need("a WithdrawShares")?;
+    let keys = ix_keys(&inp, t, tag).need("its accounts")?;
+    let vault = *keys.get(6).need("its vault")?;
+    edit_account_at(&mut inp, &vault, t, |d| {
+        let r = (0..8)
+            .find(|&r| {
+                d.get(VA::store(r)..VA::store(r) + 8)
+                    .is_some_and(|b| b != [0; 8])
+            })
+            .unwrap_or(0);
+        if let Some(b) = d.get_mut(VA::store(r)..VA::store(r) + 8) {
+            let v = i64::from_le_bytes(b.try_into().unwrap());
+            b.copy_from_slice(&(v - 1_000).to_le_bytes());
+        }
+    })
+    .then_some(())
+    .need("the vault's post-state")?;
+    Ok(Case {
+        class: "T63",
+        what: "a basket larger than the burned share",
+        feature: None,
+        codes: &[TICKET_MISMATCH],
+        input: inp,
+    })
+}
+
 /// The S2 classes (stage 2a, S2-2A-CONTRACT §4.2) an S2 season runs:
 /// extras until an S2 fixture with tickets is committed.
 pub fn s2_classes() -> Vec<Class> {
@@ -2448,6 +2506,9 @@ pub fn s2_classes() -> Vec<Class> {
         c("T59", vec![("lot moved without its holder", s2_t59)]),
         c("T60", vec![("void lot moved", s2_t60)]),
         c("T61", vec![("issue fee credited", s2_t61)]),
+        // 2b (S2-2B-CONTRACT §5).
+        c("T62", vec![("shares minted beyond the rule", s2_t62)]),
+        c("T63", vec![("basket larger than the share", s2_t63)]),
     ]
 }
 

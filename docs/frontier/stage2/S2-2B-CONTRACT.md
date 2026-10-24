@@ -7,6 +7,14 @@ records, V26, the relay's profile 4. Every number marked [phase 6] is a
 placeholder. [proposal] marks a choice this contract makes where the design
 left it open; they are listed for the owner in §9.
 
+**Status (2026-10-24):** built — program, ABI, LiteSVM (`tests/shares.rs`),
+fclient, keeper (SettleDeposit), verifier (V23, V26, V7; tampers T62–T63),
+herald (`h/tickets.json`, the vaults' `shares`), relay (profile 4) and the
+web (open, the shares list, withdrawals home). Not yet: the web cannot
+deposit into **another player's** shared vault, because that send needs
+the wallet's signature and the page signs sends with the session key
+(2f); the AI and the simulator do not use shares yet (2f).
+
 ## 0. Scope
 
 | 2b (this contract) | Later |

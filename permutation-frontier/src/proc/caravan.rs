@@ -723,7 +723,10 @@ pub(crate) fn vault_shares(vd: &[u8]) -> R<Option<(u64, u32)>> {
     if r.u8(VA::SHARES_ON)? == 0 {
         return Ok(None);
     }
-    Ok(Some((r.u64(VA::SHARES_ISSUER_TAG)?, r.u32(VA::SHARES_SEQ)?)))
+    Ok(Some((
+        r.u64(VA::SHARES_ISSUER_TAG)?,
+        r.u32(VA::SHARES_SEQ)?,
+    )))
 }
 
 /// A caravan of `cargo` (milli) out of `a.src` (SendCaravan's body). With
@@ -779,9 +782,9 @@ pub(crate) fn send(
     let first = provinces.first().ok_or(FrontierError::TooManyAccounts)?;
     expect_key(first, &pl.ctx.province(s.p as i32, s.q as i32))?;
     if s.kind == PL::KIND_HOLDING {
-        let hh = hold::owned_holding(p, &pl, src, citizen)?;
-        hold::own_province_unlocked(p, &pl, &hh, first)?;
-        hold::finality(&pl, &hh, src, citizen, first)?;
+        let hh = hold::owned_holding(p, pl, src, citizen)?;
+        hold::own_province_unlocked(p, pl, &hh, first)?;
+        hold::finality(pl, &hh, src, citizen, first)?;
     }
     // The destination.
     let t = named_place(p, &pl.ctx, sid, dst, x.dst)?;
@@ -795,7 +798,7 @@ pub(crate) fn send(
     // Debit the source.
     if s.kind == PL::KIND_HOLDING {
         let mut h = hold::load_touched(src, now)?;
-        h.pay(now, &cargo).map_err(hold::holding_err)?;
+        h.pay(now, cargo).map_err(hold::holding_err)?;
         let mut hd = src.try_borrow_mut_data()?;
         hold::write_holding(&mut hd, &h, now)?;
     } else {
@@ -835,7 +838,7 @@ pub(crate) fn send(
     )?;
     // 1d: the towers on the route wear the cargo now; the source paid the
     // whole.
-    let cargo = worn_cargo(&cargo, worn);
+    let cargo = worn_cargo(cargo, worn);
     let signer = SeasonSigner::new(sid, pl.pc.season.bump);
     create_caravan(
         p,
@@ -1141,9 +1144,9 @@ fn settle<'a>(
         caravan: (tag, seq),
     });
     let new_lot = match (&at, shared, deposit) {
-        (Some(at), Some((issue_key, ..)), Some((issue, lot))) => super::ticket::deposit_lot(
-            p, at, fee_payer, season_ai, issue, lot, issue_key, &holder,
-        )?,
+        (Some(at), Some((issue_key, ..)), Some((issue, lot))) => {
+            super::ticket::deposit_lot(p, at, fee_payer, season_ai, issue, lot, issue_key, &holder)?
+        }
         _ => false,
     };
     {

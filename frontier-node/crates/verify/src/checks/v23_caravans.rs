@@ -477,8 +477,57 @@ pub fn judge_send_caravan(ix: &crate::world::Ix, s: &dyn States, at: At) -> Resu
     if keys.len() < 9 {
         return Err(caravan_wrong("the accounts are missing"));
     }
-    let (actor, citizen, src, dst, caravan) = (keys[0], keys[3], keys[4], keys[5], keys[6]);
-    let provinces = &keys[8..];
+    let send = SendIx {
+        actor: keys[0],
+        season: keys[2],
+        citizen: keys[3],
+        src: keys[4],
+        dst: keys[5],
+        caravan: keys[6],
+        provinces: keys[8..].to_vec(),
+        seq: x.seq,
+        dst_named: (x.dst_kind, x.dst_p, x.dst_q, x.dst_at, x.dst_gen),
+        steps: x.steps,
+        path: x.path,
+        fee: x.fee,
+    };
+    let cargo = ix2::cargo_milli(&x.cargo).ok_or_else(|| caravan_wrong("cargo"))?;
+    judge_send(s, at, &send, &cargo, false)
+}
+
+/// A send's accounts and order (SendCaravan, or S2's WithdrawShares).
+pub struct SendIx {
+    pub actor: Key,
+    pub season: Key,
+    pub citizen: Key,
+    pub src: Key,
+    pub dst: Key,
+    pub caravan: Key,
+    pub provinces: Vec<Key>,
+    pub seq: u32,
+    pub dst_named: (u8, i16, i16, u8, u8),
+    pub steps: u8,
+    pub path: [u8; 12],
+    pub fee: u64,
+}
+
+/// Whether a vault's bytes are shared (S2 2b, `VA::SHARES_ON`).
+pub fn vault_shared(d: &[u8]) -> bool {
+    d.len() == VA::SIZE && d[..8] == VA::MAGIC && d[VA::SHARES_ON] != 0
+}
+
+/// A caravan of `cargo` out of `x.src`. With `withdraw` (S2 2b) the source
+/// is a shared vault (V26 judges the shares); otherwise the sender's own
+/// place, never a shared vault.
+pub fn judge_send(
+    s: &dyn States,
+    at: At,
+    x: &SendIx,
+    cargo: &[i64; RES],
+    withdraw: bool,
+) -> Result<(), Wrong> {
+    let (actor, citizen, src, dst, caravan) = (x.actor, x.citizen, x.src, x.dst, x.caravan);
+    let provinces = &x.provinces[..];
     let cb = s
         .before(&citizen)
         .ok_or_else(|| caravan_wrong("no Citizen before"))?;
@@ -493,21 +542,29 @@ pub fn judge_send_caravan(ix: &crate::world::Ix, s: &dyn States, at: At) -> Resu
         .before(&src)
         .ok_or_else(|| caravan_wrong("no source before"))?;
     let (sp, sown) = live_place(&sb).ok_or_else(|| caravan_wrong("the source is not live"))?;
-    if sown != citizen {
-        return Err(caravan_wrong("the source is not the sender's"));
+    if withdraw {
+        if !vault_shared(&sb) {
+            return Err(caravan_wrong("a withdrawal from an unshared vault"));
+        }
+    } else {
+        if sown != citizen {
+            return Err(caravan_wrong("the source is not the sender's"));
+        }
+        if vault_shared(&sb) {
+            return Err(vault_wrong("a plain send out of a shared vault"));
+        }
     }
     let db = s
         .before(&dst)
         .ok_or_else(|| caravan_wrong("no destination before"))?;
     let (dp, down) = live_place(&db).ok_or_else(|| caravan_wrong("the destination is not live"))?;
-    if (dp.kind, dp.p, dp.q, dp.at, dp.gen) != (x.dst_kind, x.dst_p, x.dst_q, x.dst_at, x.dst_gen) {
+    if (dp.kind, dp.p, dp.q, dp.at, dp.gen) != x.dst_named {
         return Err(caravan_wrong("the destination is not the one named"));
     }
     // Plan §1-11: a send to another player is signed by the wallet.
     if down != citizen && key_at(&cb, C2::WALLET).ok() != Some(actor) {
         return Err(caravan_wrong("a send to another player without the wallet"));
     }
-    let cargo = ix2::cargo_milli(&x.cargo).ok_or_else(|| caravan_wrong("cargo"))?;
     let faction = cb[C2::FACTION];
     let tag = u64_at(&cb, C2::CITIZEN_TAG).map_err(caravan_wrong)?;
     let r = route(
@@ -518,7 +575,7 @@ pub fn judge_send_caravan(ix: &crate::world::Ix, s: &dyn States, at: At) -> Resu
         x.steps,
         &x.path,
         faction,
-        &super::v24_structures::Walker::of(s, &keys[2], &citizen, faction),
+        &super::v24_structures::Walker::of(s, &x.season, &citizen, faction),
         caravan_id(tag, seq),
         at,
     )?;
@@ -526,7 +583,7 @@ pub fn judge_send_caravan(ix: &crate::world::Ix, s: &dyn States, at: At) -> Resu
     let cd = s
         .after(&caravan)
         .ok_or_else(|| caravan_wrong("no Caravan after"))?;
-    check_caravan(&cd, &citizen, seq, faction, &sp, &dp, &cargo, x.fee, &r, at)?;
+    check_caravan(&cd, &citizen, seq, faction, &sp, &dp, cargo, x.fee, &r, at)?;
     if sp.kind == PL::KIND_VAULT {
         let va = s
             .after(&src)
@@ -542,15 +599,51 @@ pub fn judge_send_caravan(ix: &crate::world::Ix, s: &dyn States, at: At) -> Resu
     Ok(())
 }
 
+/// WithdrawShares' caravan (S2 2b; accounts: 0 actor, 2 season, 3 citizen,
+/// 4 lot, 5 issue, 6 src, 7 dst, 8 caravan, 10.. path Provinces): a send of
+/// the basket the vault paid (V26 judges that it is the basket).
+pub fn judge_withdraw_caravan(ix: &crate::world::Ix, s: &dyn States, at: At) -> Result<(), Wrong> {
+    let x = ix2::WithdrawShares::decode(&ix.data).map_err(|_| caravan_wrong("does not decode"))?;
+    let keys: Vec<Key> = (0..ix.accounts.len()).filter_map(|i| ix.key(i)).collect();
+    if keys.len() < 11 {
+        return Err(caravan_wrong("the accounts are missing"));
+    }
+    let send = SendIx {
+        actor: keys[0],
+        season: keys[2],
+        citizen: keys[3],
+        src: keys[6],
+        dst: keys[7],
+        caravan: keys[8],
+        provinces: keys[10..].to_vec(),
+        seq: x.seq,
+        dst_named: (x.dst_kind, x.dst_p, x.dst_q, x.dst_at, x.dst_gen),
+        steps: x.steps,
+        path: x.path,
+        fee: x.fee,
+    };
+    let (b, a) = (
+        vault_stores(&s.before(&send.src).unwrap_or_default()).map_err(caravan_wrong)?,
+        vault_stores(&s.after(&send.src).unwrap_or_default()).map_err(caravan_wrong)?,
+    );
+    let mut paid = [0i64; RES];
+    for r in 0..RES {
+        paid[r] = b[r] - a[r];
+    }
+    judge_send(s, at, &send, &paid, true)
+}
+
 // ------------------------------------------------------------ SettleCaravan
 
 /// SettleCaravan (accounts: 2 caravan, 3 dst). `delivered`: the record's
-/// outcome.
+/// outcome. `deposit` (S2 2b, SettleDeposit): the destination must be a
+/// live shared vault; without it, it must not be one.
 pub fn judge_settle_caravan(
     ix: &crate::world::Ix,
     s: &dyn States,
     at: At,
     delivered: Option<bool>,
+    deposit: bool,
 ) -> Result<(), Wrong> {
     let (Some(caravan), Some(dst)) = (ix.key(2), ix.key(3)) else {
         return Err(caravan_wrong("the accounts are missing"));
@@ -580,6 +673,15 @@ pub fn judge_settle_caravan(
                 "a delivery to a lost destination"
             }));
         }
+    }
+    let shared = live && s.before(&dst).is_some_and(|d| vault_shared(&d));
+    if deposit && !shared {
+        return Err(vault_wrong(
+            "a deposit settled into an unshared or lost vault",
+        ));
+    }
+    if !deposit && shared {
+        return Err(vault_wrong("a plain settle into a shared vault"));
     }
     let cargo = cargo_of(&cb).map_err(caravan_wrong)?;
     if live && named.kind == PL::KIND_VAULT {
@@ -1066,6 +1168,8 @@ pub fn run(cx: &mut Ctx) {
         V2Ix::CloseVault,
         V2Ix::DefaultRaid,
         V2Ix::RaidDomestic,
+        V2Ix::WithdrawShares,
+        V2Ix::SettleDeposit,
     ];
     let any = w.txs.iter().any(|tx| {
         tx.ok
@@ -1103,8 +1207,15 @@ pub fn run(cx: &mut Ctx) {
                 Some(V2Ix::BuildVault) => judge_build_vault(ix, &st, at),
                 Some(V2Ix::SendCaravan) => judge_send_caravan(ix, &st, at),
                 Some(V2Ix::SettleCaravan) => {
-                    judge_settle_caravan(ix, &st, at, settled_outcome(cx, t))
+                    judge_settle_caravan(ix, &st, at, settled_outcome(cx, t), false)
                 }
+                // S2 2b: the delivery of a SettleDeposit (V26 judges the
+                // minting) and the caravan of a WithdrawShares (V26 judges
+                // the shares and the basket).
+                Some(V2Ix::SettleDeposit) => {
+                    judge_settle_caravan(ix, &st, at, settled_outcome(cx, t), true)
+                }
+                Some(V2Ix::WithdrawShares) => judge_withdraw_caravan(ix, &st, at),
                 Some(V2Ix::RaidCaravan) => match ix2::RaidCaravan::decode(&ix.data) {
                     Ok(x) => {
                         let keys: Vec<Key> =
@@ -1279,11 +1390,14 @@ mod tests {
             before: HashMap::from([(caravan, cb.clone()), (vault, vb.clone())]),
             after: HashMap::from([(caravan, None), (vault, Some(va.clone()))]),
         };
-        assert_eq!(judge_settle_caravan(&settle, &m, at, Some(true)), Ok(()));
+        assert_eq!(
+            judge_settle_caravan(&settle, &m, at, Some(true), false),
+            Ok(())
+        );
         // early
         let early = At { now: 99, ..at };
         assert_eq!(
-            judge_settle_caravan(&settle, &m, early, Some(true))
+            judge_settle_caravan(&settle, &m, early, Some(true), false)
                 .unwrap_err()
                 .0,
             CARAVAN_MISMATCH
@@ -1292,7 +1406,7 @@ mod tests {
         va[VA::store(1)..VA::store(1) + 8].copy_from_slice(&14_000i64.to_le_bytes());
         m.after.insert(vault, Some(va));
         assert_eq!(
-            judge_settle_caravan(&settle, &m, at, Some(true))
+            judge_settle_caravan(&settle, &m, at, Some(true), false)
                 .unwrap_err()
                 .0,
             VAULT_MISMATCH
@@ -1302,7 +1416,7 @@ mod tests {
         gone[VA::GEN] = 2;
         m.before.insert(vault, gone);
         assert_eq!(
-            judge_settle_caravan(&settle, &m, at, Some(true))
+            judge_settle_caravan(&settle, &m, at, Some(true), false)
                 .unwrap_err()
                 .0,
             CARAVAN_MISMATCH

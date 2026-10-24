@@ -18,12 +18,14 @@
 //! Tags are decimal strings (u64). `void` follows the source's generation:
 //! a VAULT_SEIZED or CAPTURE_SETTLED that moves the source to another
 //! generation voids its issues and their lots (the rule "a seized vault's
-//! tickets are void"). Closed lots and issues leave the feed.
+//! tickets are void"). Closed lots and issues leave the feed. Share issues
+//! (2b, kind 1) follow SHARES_OPENED, SHARES_DEPOSITED (a holder's deposit
+//! lot, created at its first deposit) and SHARES_WITHDRAWN.
 
 use std::collections::BTreeMap;
 
 use fclient::conquest::{CqEvent, LogPlace};
-use permutation_rules::frontier::ticket::{SRC_HOLDING, SRC_VAULT, STATE_LIVE};
+use permutation_rules::frontier::ticket::{KIND_SHARE, NO_END, SRC_HOLDING, SRC_VAULT, STATE_LIVE};
 use serde_json::{json, Value};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -158,6 +160,74 @@ impl Tickets {
                 }
                 if issue_closed {
                     self.issues.remove(&(issuer_tag, seq));
+                }
+            }
+            // 2b: a share issue and the opener's deposit lot.
+            CqEvent::SharesOpened {
+                issuer_tag,
+                seq,
+                src,
+                supply,
+                lot_seq,
+                ..
+            } => {
+                self.issues.insert(
+                    (issuer_tag, seq),
+                    IssueRow {
+                        kind: KIND_SHARE,
+                        src,
+                        resource: 0,
+                        per_unit: 0,
+                        until_day: NO_END,
+                        supply,
+                        void: false,
+                    },
+                );
+                self.lots.insert(
+                    (issuer_tag, lot_seq),
+                    LotRow {
+                        issuer_tag,
+                        issue_seq: seq,
+                        holder_tag: issuer_tag,
+                        amount: supply,
+                    },
+                );
+            }
+            CqEvent::SharesDeposited {
+                issuer_tag,
+                seq,
+                holder_tag,
+                lot_seq,
+                minted,
+                supply,
+                ..
+            } => {
+                let l = self.lots.entry((holder_tag, lot_seq)).or_insert(LotRow {
+                    issuer_tag,
+                    issue_seq: seq,
+                    holder_tag,
+                    amount: 0,
+                });
+                if (l.issuer_tag, l.issue_seq) == (issuer_tag, seq) {
+                    l.amount = l.amount.saturating_add(minted);
+                }
+                if let Some(i) = self.issues.get_mut(&(issuer_tag, seq)) {
+                    i.supply = supply;
+                }
+            }
+            CqEvent::SharesWithdrawn {
+                issuer_tag,
+                seq,
+                lot,
+                amount,
+                supply,
+                ..
+            } => {
+                if let Some(l) = self.lots.get_mut(&lot) {
+                    l.amount = l.amount.saturating_sub(amount);
+                }
+                if let Some(i) = self.issues.get_mut(&(issuer_tag, seq)) {
+                    i.supply = supply;
                 }
             }
             CqEvent::VaultSeized {
@@ -348,6 +418,7 @@ mod tests {
             void: true,
             lot_closed: true,
             issue_closed: false,
+            src: vault_src(1),
             shares_cleared: false,
         }));
         assert_eq!(t.issues[&(11, 0)].supply, 6);
@@ -365,5 +436,43 @@ mod tests {
         assert_eq!(t.lots.len(), 1);
         assert_eq!(t.lots[&(11, 0)].holder_tag, 22);
         assert_eq!(t.lots[&(11, 0)].amount, 10);
+    }
+
+    /// 2b: opened, a deposit by another (a new deposit lot), a withdrawal.
+    #[test]
+    fn shares_fold() {
+        let mut t = Tickets::default();
+        assert!(t.fold(&CqEvent::SharesOpened {
+            issuer_tag: 11,
+            seq: 0,
+            src: vault_src(1),
+            supply: 100,
+            lot_seq: 0x8000_0001,
+            holding_key: 0,
+        }));
+        assert!(t.fold(&CqEvent::SharesDeposited {
+            issuer_tag: 11,
+            seq: 0,
+            holder_tag: 22,
+            lot_seq: 0x8000_0001,
+            value: 100,
+            minted: 100,
+            supply: 200,
+            caravan: (22, 0),
+            new_lot: true,
+        }));
+        assert_eq!(t.lots[&(22, 0x8000_0001)].amount, 100);
+        assert!(t.fold(&CqEvent::SharesWithdrawn {
+            issuer_tag: 11,
+            seq: 0,
+            holder_tag: 22,
+            lot: (22, 0x8000_0001),
+            amount: 40,
+            supply: 160,
+            caravan_seq: 1,
+        }));
+        assert_eq!(t.lots[&(22, 0x8000_0001)].amount, 60);
+        assert_eq!(t.issues[&(11, 0)].supply, 160);
+        assert_eq!(t.file()["issues"][0]["kind"], json!(1));
     }
 }

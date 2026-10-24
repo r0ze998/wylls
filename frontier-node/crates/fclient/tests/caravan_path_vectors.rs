@@ -277,7 +277,7 @@ const S2_FILE: &str = concat!(
 #[test]
 fn s2_ticket_vectors() {
     use fclient::addr::Addresses;
-    use fclient::ix::v2::{self as v2, IssueArgs, TicketSource};
+    use fclient::ix::v2::{self as v2, IssueArgs, PlaceRef, TicketSource, WithdrawSharesArgs};
     use fclient::ix::{HoldingRef, Player};
     let program = fclient::Address::new_from_array([7u8; 32]);
     let a = Addresses::new(program, 42);
@@ -324,6 +324,18 @@ fn s2_ticket_vectors() {
     let recipient = a.citizen(&fclient::Address::new_from_array([9u8; 32]));
     let rent_to = fclient::Address::new_from_array([5u8; 32]);
     let me = 0x77;
+    let withdraw = WithdrawSharesArgs {
+        lot: a.deposit_lot(me, me, 2),
+        issue: (me, 2),
+        vault: (4, -2, 17),
+        amount: 40,
+        seq: 5,
+        dst: PlaceRef::Holding { h, gen: 1 },
+        steps: 2,
+        path: pack(&[3, 4]).unwrap(),
+        fee: 50_000,
+        provinces: vec![(4, -2), (3, -1)],
+    };
     let want = json!({"v": 1, "program": program.to_string(), "seasonId": "42",
         "actor": p.actor.to_string(), "payer": p.payer.to_string(), "wallet": p.wallet.to_string(),
         "recipient": recipient.to_string(), "rentTo": rent_to.to_string(),
@@ -335,7 +347,10 @@ fn s2_ticket_vectors() {
             ix_json("GiveLot", &v2::give_lot(&a, &p, a.lot(me, 0), (me, 0), vault, recipient, a.lot(me, 0), 10)),
             ix_json("CloseLot", &v2::close_lot(&a, &p, (me, 0), vault, rent_to, Some((a.lot(me, 0), rent_to)), false)),
             ix_json("CloseLot", &v2::close_lot(&a, &p, (me, 0), vault, rent_to, None, true)),
+            ix_json("OpenShares", &v2::open_shares(&a, &p, h, (4, -2, 17), me, 2)),
+            ix_json("WithdrawShares", &v2::withdraw_shares(&a, &p, &withdraw)),
         ],
+        "depositLot": a.deposit_lot(me, me, 2).to_string(),
     });
     if std::env::var("CARAVAN_WRITE_VECTORS").is_ok() {
         std::fs::write(S2_FILE, serde_json::to_string_pretty(&want).unwrap() + "\n").unwrap();

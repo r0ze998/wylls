@@ -9,9 +9,11 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import * as S1 from '../../permutation-server/web/frontier/fs1.mjs';
-import { seasonAddresses } from '../../permutation-server/web/frontier/faddr.mjs';
+import { seasonAddresses, depositSeq } from '../../permutation-server/web/frontier/faddr.mjs';
 import { accountsFor, SIGNED_BY } from '../../permutation-server/web/frontier/fplay.mjs';
-import { parseTickets, createHerald } from '../../permutation-server/web/frontier/herald.mjs';
+import { parseTickets, parseCaravans, createHerald } from '../../permutation-server/web/frontier/herald.mjs';
+import { placeData } from '../../permutation-server/web/frontier/fplay.mjs';
+import * as CAR from '../../permutation-server/web/frontier/fcaravan.mjs';
 import { frontierIx, shapeMessage, classify } from '../../permutation-server/web/sdk/frontier/shapes.mjs';
 import { parseTransaction, wireTransaction } from '../../permutation-server/web/sdk/solana-tx.mjs';
 import { profileForHash, rulesetFor } from '../../permutation-server/web/sdk/frontier/profile.mjs';
@@ -31,6 +33,9 @@ test('an S2 season is S1 with program_version 5 or later', () => {
 
 test('the Issue and Lot addresses are fclient\'s', () => {
   const A = seasonAddresses(V.program, V.seasonId);
+  // 2b: a holder's deposit lot.
+  assert.equal(A.of('Lot', { tag: ME, seq: depositSeq(ME, 2) }), V.depositLot);
+  assert.ok(depositSeq(ME, 2) >= 0x80000000);
   for (const x of V.issue) assert.equal(A.of('Issue', { tag: BigInt(x.tag), seq: x.seq }), x.address);
   for (const x of V.lot) assert.equal(A.of('Lot', { tag: BigInt(x.tag), seq: x.seq }), x.address);
 });
@@ -46,6 +51,10 @@ test('the ticket shapes are fclient\'s instructions, and the relay\'s profile 4 
     ['GiveLot', { lot: { tag: ME, seq: 0 }, issue: { tag: ME, seq: 0 }, source: vault, recipient: V.recipient, toLot: { tag: ME, seq: 0 } }, { amount: 10n }],
     ['CloseLot', { issue: { tag: ME, seq: 0 }, source: vault, issueRentTo: V.rentTo, lot: { tag: ME, seq: 0 }, rentTo: V.rentTo }, { close_issue: 0 }],
     ['CloseLot', { issue: { tag: ME, seq: 0 }, source: vault, issueRentTo: V.rentTo }, { close_issue: 1 }],
+    ['OpenShares', { holding: h, at: { p: 4, q: -2, tile: 17 }, issuerTag: ME, seq: 2 }, {}],
+    ['WithdrawShares', { lot: { tag: ME, seq: depositSeq(ME, 2) }, issue: { tag: ME, seq: 2 }, vault: { p: 4, q: -2, tile: 17 },
+      dst: { kind: 'holding', ...h, gen: 1 }, seq: 5, provinces: [{ p: 4, q: -2 }, { p: 3, q: -1 }] },
+    { seq: 5, amount: 40n, ...placeData({ kind: 'holding', ...h, gen: 1 }), steps: 2, path: CAR.pack([3, 4]), fee: 50000n }],
   ];
   assert.equal(shapes.length, V.cases.length);
   const hex = b => Array.from(b, x => x.toString(16).padStart(2, '0')).join('');
@@ -96,6 +105,19 @@ test('h/tickets.json is read strictly', () => {
   assert.deepEqual(parseTickets({ v: 1, issues: [], lots: [] }), { v: 1, issues: [], lots: [] });
 });
 
+test('a vault\'s shares in h/caravans.json (2b)', () => {
+  const file = { v: 1, moving: [], vaults: [
+    { p: 3, q: 0, tile: 41, ownerTag: '9', faction: 1, gen: 2, shares: { issuerTag: '9', seq: 3 } },
+    { p: 3, q: 0, tile: 40, ownerTag: '9', faction: 1, gen: 1 },
+  ] };
+  const c = parseCaravans(file);
+  assert.deepEqual(c.vaults[0].shares, { issuerTag: '9', seq: 3 });
+  assert.equal(c.vaults[1].shares, null, 'a feed from before S2');
+  const bad = clone(file);
+  bad.vaults[0].shares.issuerTag = 'x';
+  assert.ok(code(() => parseCaravans(bad)));
+});
+
 test('the herald client reads h/tickets.json', async () => {
   const seen = [];
   const h = createHerald({ base: 'http://h', seasonId: 7, fetch: async url => { seen.push(url); return new Response(JSON.stringify(TICKETS), { status: 200, headers: { 'content-type': 'application/json' } }); } });
@@ -103,4 +125,36 @@ test('the herald client reads h/tickets.json', async () => {
   assert.equal(r.ok, true);
   assert.equal(r.tickets.lots.length, 2);
   assert.match(seen[0], /\/h\/tickets\.json$/);
+});
+
+// ---------------------------------------------------------------- the shares on the play screens (screens/s1.mjs)
+
+import * as SCR from '../../permutation-server/web/frontier/screens/s1.mjs';
+
+test('the shares model lists the viewer\'s live share lots with their vault; the tile offers to share the viewer\'s vault', () => {
+  const me = new Uint8Array(32); me[0] = 9;
+  const vault = { p: 3, q: 0, tile: 40, ownerTag: '9', faction: 1, gen: 1, shares: { issuerTag: '9', seq: 0 } };
+  const issue = { issuerTag: '9', seq: 0, kind: 1, src: { kind: 2, p: 3, q: 0, at: 40, gen: 1, tile: 40 }, resource: 0, perUnit: 0, untilDay: 4294967295, supply: 250, state: 1, void: false };
+  const lots = [
+    { key: ['9', 2147483700], issuerTag: '9', issueSeq: 0, holderTag: '9', amount: 150, state: 1, void: false },
+    { key: ['22', 2147483700], issuerTag: '9', issueSeq: 0, holderTag: '22', amount: 100, state: 1, void: false },
+    { key: ['9', 0], issuerTag: '9', issueSeq: 1, holderTag: '9', amount: 5, state: 1, void: true },
+  ];
+  const store = { value: 1000000n, rate: 0n, cap: 10n ** 12n, t0: 10n ** 12n, frac: 0n };
+  const h = { p: 3, q: 0, site: 0, tile: 30, gen: 1, state: 2, tier: 1, faction: 1, ownerCitizen: me, stores: Array.from({ length: 8 }, () => store), reserve: [0, 0, 0, 0, 0, 0, 0, 0], queue: [] };
+  const FS = { mode: 'play', nowBell: 100, chain: { now: () => 1000 }, holdings: [h], activeHolding: 0, s1: { caravans: { moving: [], vaults: [vault] }, tickets: { v: 1, issues: [issue], lots } } };
+  const m = SCR.s2SharesModel(FS);
+  assert.equal(m.lots.length, 1, 'the viewer\'s live share lots only');
+  assert.deepEqual([m.lots[0].amount, m.lots[0].supply, m.lots[0].vault], [150, 250, { p: 3, q: 0, tile: 40 }]);
+  assert.equal(SCR.vaultIssue(FS, vault).supply, 250);
+  assert.equal(SCR.vaultIssue(FS, { ...vault, shares: null }), null);
+  // the tile: a shared vault says so; the viewer's unshared vault is offered (S2 only)
+  S1.setS1({ layoutVersion: 2, programVersion: 5 });
+  try {
+    const P = { p: 3, q: 0, layoutVersion: 2, passableMask: (1n << 61n) - 1n, roughMask: 0n, roadMask: 0n, siteCount: 0, sites: [], structures: [], forts: [], caravans: [] };
+    const base = { ...FS, citizen: { faction: 1 }, provinces: new Map([['3,0', { province: P }]]) };
+    assert.match(String(SCR.renderS1Tile(base, { p: 3, q: 0, idx: 40 })), /250/);
+    const own = { ...base, s1: { ...base.s1, caravans: { moving: [], vaults: [{ ...vault, shares: null }] } } };
+    assert.match(String(SCR.renderS1Tile(own, { p: 3, q: 0, idx: 40 })), /s2-open-shares/);
+  } finally { S1.setS1(null); }
 });

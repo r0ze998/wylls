@@ -1474,6 +1474,94 @@ mod tests {
         assert!(e.keys("csettle").is_empty() || c.caravans.stats.settles_planned == 1);
     }
 
+    /// S2 stage 2b: a caravan into a shared vault (in the generation it
+    /// names) settles by SettleDeposit, naming the vault's share issue and
+    /// the owner's deposit lot.
+    #[tokio::test]
+    async fn s2_a_delivery_into_a_shared_vault_is_a_deposit() {
+        use frontier_abi::v2::layout::s1::{caravan as CVL, place as PLL, vault as VAL};
+        let mut e = env(&["settle"], 1_008);
+        e.season.program_version = fclient::abi::PROGRAM_VERSION_S1;
+        let mut c = ConquestDuty::default();
+        let (owner_tag, seq) = (0x1234_5678u64, 3u32);
+        let rent_to = Address::new_from_array([0xAB; 32]);
+        let owner = Address::new_from_array([0xC3; 32]);
+        let dst = fclient::conquest::LogPlace {
+            kind: PLL::KIND_VAULT,
+            p: 3,
+            q: 0,
+            at: 40,
+            gen: 1,
+            tile: 40,
+        };
+        c.on_log(
+            &fclient::conquest::CqLog {
+                bell: 289,
+                event: fclient::conquest::CqEvent::CaravanSent {
+                    owner_tag,
+                    seq,
+                    faction: 0,
+                    src: dst,
+                    dst,
+                    steps: 4,
+                    cargo: [0; 8],
+                    arrive_ts: G,
+                    runs: vec![fclient::conquest::LogRun {
+                        p: 3,
+                        q: 0,
+                        first_bell: 290,
+                        n: 2,
+                    }],
+                    worn_bps: 0,
+                    path: [0; 12],
+                },
+            },
+            1,
+            None,
+        );
+        let mut cd = vec![0u8; CVL::SIZE];
+        assert!(frontier_abi::v2::layout::write_header(
+            &mut cd,
+            frontier_abi::v2::layout::AccountKind::Caravan,
+            7
+        ));
+        cd[CVL::STATE] = CVL::STATE_MOVING;
+        cd[CVL::N_PROV] = 1;
+        cd[CVL::province(0)..CVL::province(0) + 2].copy_from_slice(&3i16.to_le_bytes());
+        cd[CVL::RENT_TO..CVL::RENT_TO + 32].copy_from_slice(rent_to.as_ref());
+        cd[CVL::OWNER_CITIZEN..CVL::OWNER_CITIZEN + 32].copy_from_slice(owner.as_ref());
+        e.put(e.addrs.caravan(owner_tag, seq), cd);
+        let mut vd = vec![0u8; VAL::SIZE];
+        assert!(frontier_abi::v2::layout::write_header(
+            &mut vd,
+            frontier_abi::v2::layout::AccountKind::Vault,
+            7
+        ));
+        vd[VAL::STATE] = VAL::STATE_LIVE;
+        vd[VAL::GEN] = 1;
+        vd[VAL::SHARES_ON] = 1;
+        vd[VAL::SHARES_SEQ..VAL::SHARES_SEQ + 4].copy_from_slice(&2u32.to_le_bytes());
+        vd[VAL::SHARES_ISSUER_TAG..VAL::SHARES_ISSUER_TAG + 8]
+            .copy_from_slice(&77u64.to_le_bytes());
+        e.put(e.addrs.vault(3, 0, 40), vd);
+        let pd = testkit::province_v2(3, 0, 300);
+        c.observe((3, 0), &pd, 300, 0, 1);
+        let cits = citizens_of(&e, &[]);
+        e.conquest(&mut c, 20, after_close(300), &cits, &BTreeSet::new())
+            .await;
+        let (class, tg, ixs) = e.preview(&format!("csettle:{owner_tag:x}:{seq}"));
+        assert_eq!((class, tg), (Class::D, tag::SETTLE_DEPOSIT));
+        let acc: Vec<Address> = ixs[0].accounts.iter().map(|m| m.pubkey).collect();
+        assert_eq!(acc[3], e.addrs.vault(3, 0, 40));
+        assert_eq!(acc[6], e.addrs.issue(77, 2));
+        assert_eq!(
+            acc[7],
+            e.addrs
+                .deposit_lot(fclient::addr::citizen_tag_u64(&owner), 77, 2)
+        );
+        assert_eq!(acc[9], e.addrs.province(3, 0));
+    }
+
     #[tokio::test]
     async fn cq_settle_capture_names_captor_and_victim() {
         let mut e = env(&["settle"], 1_008);

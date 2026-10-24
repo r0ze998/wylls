@@ -19,8 +19,17 @@
 //!   units taken from the supply; an issue closed by its issuer only when
 //!   nothing valid is outstanding, `OPEN_ISSUES` lowered.
 //!
+//! - **Shares (2b, `S2-2B-CONTRACT.md`):** OpenShares writes the share
+//!   Issue at the vault's value, the opener's deposit lot with all of it and
+//!   the vault's shares; WithdrawShares burns from the holder's valid lot
+//!   and the vault pays exactly `ticket::basket` (V23 judges the caravan);
+//!   SettleDeposit mints `ticket::minted` into the caravan owner's deposit
+//!   lot (V23 judges the delivery); a receipt on a shared vault, a deposit
+//!   lot given in place and a share issue closed without clearing its vault
+//!   fail.
+//!
 //! At the end, every Issue's `SUPPLY` is the sum of its lots' `AMOUNT`.
-//! Code: `TicketMismatch`. Tamper classes T58–T61 (`crate::tamper`).
+//! Code: `TicketMismatch`. Tamper classes T58–T63 (`crate::tamper`).
 
 use frontier_abi::v2::ix as ix2;
 use frontier_abi::v2::layout::player::{citizen as C2, holding as H2};
@@ -29,12 +38,12 @@ use frontier_abi::v2::layout::s2::{issue as IS, lot as LT};
 use frontier_abi::v2::tags::Ix as V2Ix;
 use permutation_rules::frontier::arms;
 use permutation_rules::frontier::ticket::{
-    self as kt, KIND_RECEIPT, KIND_USE, MAX_OPEN_ISSUES, SRC_HOLDING, SRC_VAULT, STATE_CLOSED,
-    STATE_LIVE,
+    self as kt, KIND_RECEIPT, KIND_SHARE, KIND_USE, MAX_OPEN_ISSUES, SRC_HOLDING, SRC_VAULT,
+    STATE_CLOSED, STATE_LIVE,
 };
 use permutation_rules::frontier::travel::BELLS_PER_DAY;
 
-use super::v23_caravans::{live_place, States, TxStates, Wrong};
+use super::v23_caravans::{live_place, vault_shared, States, TxStates, Wrong};
 use super::Ctx;
 use crate::codes::TICKET_MISMATCH;
 use crate::world::{le, Key};
@@ -213,6 +222,9 @@ pub fn judge_issue(ix: &crate::world::Ix, s: &dyn States, bell: u32) -> Result<(
     if owner != citizen {
         return Err(wrong("the source is not the issuer's"));
     }
+    if x.kind == KIND_RECEIPT && vault_shared(&sd) {
+        return Err(wrong("a receipt on a shared vault"));
+    }
     let (src_kind, cap) = match x.kind {
         KIND_RECEIPT if pl.kind == PL::KIND_VAULT => (
             SRC_VAULT,
@@ -337,7 +349,7 @@ pub fn judge_give(ix: &crate::world::Ix, s: &dyn States) -> Result<(), Wrong> {
     let whole = x.amount == from.amount;
     let fa = Lot::decode(&v.after(&lot, "Lot")?)?;
     if to_lot == lot {
-        if !whole || to_self {
+        if !whole || to_self || frontier_abi::v2::addr::is_deposit_seq(from.seq) {
             return Err(wrong("an in-place gift of part of a lot"));
         }
         let mut want = from;
@@ -440,6 +452,15 @@ pub fn judge_close(ix: &crate::world::Ix, s: &dyn States) -> Result<(), Wrong> {
         if s.after(&issue).is_some() {
             return Err(wrong("the Issue is not closed"));
         }
+        // 2b: closing a share issue clears its vault's shares.
+        if ib.kind == KIND_SHARE {
+            let sb = s.before(&source).unwrap_or_default();
+            if shares_of(&sb) == Some((ib.issuer_tag, ib.seq))
+                && s.after(&source).is_some_and(|a| vault_shared(&a))
+            {
+                return Err(wrong("a share issue closed without clearing its vault"));
+            }
+        }
         return citizen_counters(&cb, &ca, issues, lots, open.saturating_sub(1));
     }
     if !closed_lot {
@@ -451,6 +472,215 @@ pub fn judge_close(ix: &crate::world::Ix, s: &dyn States) -> Result<(), Wrong> {
         return Err(wrong("the supply is not the closed lot's"));
     }
     citizen_counters(&cb, &ca, issues, lots, open)
+}
+
+// ------------------------------------------------------------ shares (2b)
+
+/// A vault's live share issue `(issuer_tag, seq)`.
+fn shares_of(d: &[u8]) -> Option<(u64, u32)> {
+    vault_shared(d).then(|| {
+        (
+            u64_of(d, VA::SHARES_ISSUER_TAG).unwrap_or(0),
+            u32_of(d, VA::SHARES_SEQ).unwrap_or(0),
+        )
+    })
+}
+
+fn stores_of(d: &[u8]) -> Result<[i64; 8], Wrong> {
+    let mut out = [0i64; 8];
+    for (r, v) in out.iter_mut().enumerate() {
+        *v = u64_of(d, VA::store(r)).ok_or_else(|| short("Vault"))? as i64;
+    }
+    Ok(out)
+}
+
+/// OpenShares (accounts: 3 citizen, 6 vault, 7 issue, 8 lot).
+pub fn judge_open(ix: &crate::world::Ix, s: &dyn States, bell: u32) -> Result<(), Wrong> {
+    let (Some(citizen), Some(vault), Some(issue), Some(lot)) =
+        (ix.key(3), ix.key(6), ix.key(7), ix.key(8))
+    else {
+        return Err(wrong("the accounts are missing"));
+    };
+    let v = Seen { s };
+    let cb = v.before(&citizen, "Citizen")?;
+    let ca = v.after(&citizen, "Citizen")?;
+    let vb = v.before(&vault, "Vault")?;
+    let va = v.after(&vault, "Vault")?;
+    let (pl, owner) = live_place(&vb).ok_or_else(|| wrong("the vault is not live"))?;
+    if pl.kind != PL::KIND_VAULT || owner != citizen {
+        return Err(wrong("shares opened on a vault not the citizen's"));
+    }
+    if vault_shared(&vb) {
+        return Err(wrong("shares opened twice"));
+    }
+    let stores = stores_of(&vb)?;
+    if stores_of(&va)? != stores {
+        return Err(wrong("the vault's stores changed at the opening"));
+    }
+    let supply = kt::value_of(&stores).min(u64::MAX as u128) as u64;
+    let e = || short("Citizen");
+    let seq = u32_of(&cb, C2::ISSUES).ok_or_else(e)?;
+    let lots = u32_of(&cb, C2::LOTS).ok_or_else(e)?;
+    let open = *cb.get(C2::OPEN_ISSUES).ok_or_else(e)?;
+    if open >= MAX_OPEN_ISSUES {
+        return Err(wrong("shares beyond MAX_OPEN_ISSUES"));
+    }
+    let tag = u64_of(&cb, C2::CITIZEN_TAG).ok_or_else(e)?;
+    let want = Issue {
+        kind: KIND_SHARE,
+        state: STATE_LIVE,
+        src_kind: SRC_VAULT,
+        src_gen: pl.gen,
+        p: pl.p,
+        q: pl.q,
+        at: pl.at,
+        resource: 0,
+        seq,
+        issuer: citizen,
+        issuer_tag: tag,
+        supply,
+        per_unit: 0,
+        until_day: kt::NO_END,
+        created_bell: bell,
+    };
+    if s.before(&issue).is_some() || Issue::decode(&v.after(&issue, "Issue")?)? != want {
+        return Err(wrong("the share Issue is not the vault's value"));
+    }
+    let want_lot = Lot {
+        issuer_tag: tag,
+        issue_seq: seq,
+        kind: KIND_SHARE,
+        src_gen: pl.gen,
+        state: STATE_LIVE,
+        holder: citizen,
+        holder_tag: tag,
+        seed_tag: tag,
+        seq: frontier_abi::v2::addr::deposit_seq(tag, seq),
+        amount: supply,
+        escrow: 0,
+    };
+    if s.before(&lot).is_some() || Lot::decode(&v.after(&lot, "Lot")?)? != want_lot {
+        return Err(wrong("the opener's deposit lot is not the whole supply"));
+    }
+    if shares_of(&va) != Some((tag, seq)) {
+        return Err(wrong("the vault does not name its share issue"));
+    }
+    citizen_counters(&cb, &ca, seq + 1, lots, open + 1)
+}
+
+/// WithdrawShares (accounts: 3 citizen, 4 lot, 5 issue, 6 src): the burn
+/// and the basket (V23 judges the caravan of what the vault paid).
+pub fn judge_withdraw(ix: &crate::world::Ix, s: &dyn States) -> Result<(), Wrong> {
+    let x = ix2::WithdrawShares::decode(&ix.data).map_err(|_| wrong("does not decode"))?;
+    let (Some(citizen), Some(lot), Some(issue), Some(src)) =
+        (ix.key(3), ix.key(4), ix.key(5), ix.key(6))
+    else {
+        return Err(wrong("the accounts are missing"));
+    };
+    let v = Seen { s };
+    let lb = Lot::decode(&v.before(&lot, "Lot")?)?;
+    let ib = Issue::decode(&v.before(&issue, "Issue")?)?;
+    let vb = v.before(&src, "Vault")?;
+    let va = v.after(&src, "Vault")?;
+    if lb.holder != citizen || lb.state != STATE_LIVE || lb.escrow != 0 || !lb.of(&ib) {
+        return Err(wrong("a withdrawal from a lot not the citizen's"));
+    }
+    if ib.kind != KIND_SHARE
+        || !valid_now(&ib, Some(&vb))
+        || lb.src_gen != ib.src_gen
+        || shares_of(&vb) != Some((ib.issuer_tag, ib.seq))
+    {
+        return Err(wrong("a withdrawal of void shares"));
+    }
+    if x.amount == 0 || x.amount > lb.amount {
+        return Err(wrong("an amount the lot does not hold"));
+    }
+    let basket = kt::basket(&stores_of(&vb)?, x.amount, ib.supply);
+    let (b, a) = (stores_of(&vb)?, stores_of(&va)?);
+    if (0..8).any(|r| b[r] - a[r] != basket[r]) {
+        return Err(wrong("the vault paid other than the basket"));
+    }
+    let mut want = lb;
+    want.amount -= x.amount;
+    if Lot::decode(&v.after(&lot, "Lot")?)? != want {
+        return Err(wrong("the lot did not burn the amount"));
+    }
+    let mut wi = ib;
+    wi.supply -= x.amount;
+    if Issue::decode(&v.after(&issue, "Issue")?)? != wi {
+        return Err(wrong("the supply did not lose the amount"));
+    }
+    Ok(())
+}
+
+/// SettleDeposit (accounts: 2 caravan, 3 dst, 6 issue, 7 lot): the units
+/// the delivery minted (V23 judges the delivery).
+pub fn judge_deposit(ix: &crate::world::Ix, s: &dyn States) -> Result<(), Wrong> {
+    use frontier_abi::v2::layout::s1::caravan as CV;
+    let (Some(caravan), Some(dst), Some(issue), Some(lot)) =
+        (ix.key(2), ix.key(3), ix.key(6), ix.key(7))
+    else {
+        return Err(wrong("the accounts are missing"));
+    };
+    let v = Seen { s };
+    let cb = v.before(&caravan, "Caravan")?;
+    let holder = key_of(&cb, CV::OWNER_CITIZEN).ok_or_else(|| short("Caravan"))?;
+    let vb = v.before(&dst, "Vault")?;
+    let va = v.after(&dst, "Vault")?;
+    let ib = Issue::decode(&v.before(&issue, "Issue")?)?;
+    if shares_of(&vb) != Some((ib.issuer_tag, ib.seq)) || ib.kind != KIND_SHARE {
+        return Err(wrong("a deposit into another issue than the vault's"));
+    }
+    let (v0, v1) = (
+        kt::value_of(&stores_of(&vb)?),
+        kt::value_of(&stores_of(&va)?),
+    );
+    let tag = frontier_abi::addr::citizen_tag(&holder);
+    let seq = frontier_abi::v2::addr::deposit_seq(ib.issuer_tag, ib.seq);
+    let la = Lot::decode(&v.after(&lot, "Lot")?)?;
+    let mut minted = kt::minted(v1.saturating_sub(v0), ib.supply, v0);
+    let want = match s.before(&lot) {
+        None => Lot {
+            issuer_tag: ib.issuer_tag,
+            issue_seq: ib.seq,
+            kind: KIND_SHARE,
+            src_gen: ib.src_gen,
+            state: STATE_LIVE,
+            holder,
+            holder_tag: tag,
+            seed_tag: tag,
+            seq,
+            amount: minted,
+            escrow: 0,
+        },
+        Some(d) => {
+            let lb = Lot::decode(&d)?;
+            if (lb.seed_tag, lb.seq) != (tag, seq) {
+                return Err(wrong("a deposit into a lot not the holder's deposit lot"));
+            }
+            let mut w = lb;
+            if lb.of(&ib)
+                && lb.holder == holder
+                && lb.state == STATE_LIVE
+                && lb.src_gen == ib.src_gen
+            {
+                w.amount = lb.amount.saturating_add(minted);
+                minted = w.amount - lb.amount;
+            } else {
+                minted = 0;
+            }
+            w
+        }
+    };
+    if la != want {
+        return Err(wrong("the deposit lot is not the units the rule mints"));
+    }
+    let mut wi = ib;
+    wi.supply = ib.supply.saturating_add(minted);
+    if Issue::decode(&v.after(&issue, "Issue")?)? != wi {
+        return Err(wrong("the supply is not the minted units'"));
+    }
+    Ok(())
 }
 
 // ------------------------------------------------------------ the check
@@ -490,7 +720,14 @@ pub fn run(cx: &mut Ctx) {
         return;
     }
     let w = cx.w;
-    let tags = [V2Ix::IssueTickets, V2Ix::GiveLot, V2Ix::CloseLot];
+    let tags = [
+        V2Ix::IssueTickets,
+        V2Ix::GiveLot,
+        V2Ix::CloseLot,
+        V2Ix::OpenShares,
+        V2Ix::WithdrawShares,
+        V2Ix::SettleDeposit,
+    ];
     if !w.has_post {
         let any = w.txs.iter().any(|tx| {
             tx.ok
@@ -521,6 +758,9 @@ pub fn run(cx: &mut Ctx) {
                 Some(V2Ix::IssueTickets) => judge_issue(ix, &st, bell),
                 Some(V2Ix::GiveLot) => judge_give(ix, &st),
                 Some(V2Ix::CloseLot) => judge_close(ix, &st),
+                Some(V2Ix::OpenShares) => judge_open(ix, &st, bell),
+                Some(V2Ix::WithdrawShares) => judge_withdraw(ix, &st),
+                Some(V2Ix::SettleDeposit) => judge_deposit(ix, &st),
                 _ => continue,
             };
             if let Err((code, detail)) = r {
@@ -796,5 +1036,111 @@ mod tests {
         ];
         assert!(supplies(&finals).is_empty());
         assert_eq!(supplies(&finals[..2]).len(), 1);
+    }
+
+    fn shared(mut d: Vec<u8>, wood: i64) -> Vec<u8> {
+        d[VA::SHARES_ON] = 1;
+        d[VA::SHARES_SEQ..VA::SHARES_SEQ + 4].copy_from_slice(&0u32.to_le_bytes());
+        d[VA::SHARES_ISSUER_TAG..VA::SHARES_ISSUER_TAG + 8].copy_from_slice(&11u64.to_le_bytes());
+        d[VA::store(1)..VA::store(1) + 8].copy_from_slice(&(wood * 1_000).to_le_bytes());
+        d
+    }
+
+    fn share_issue(supply: u64) -> Issue {
+        Issue {
+            kind: KIND_SHARE,
+            resource: 0,
+            per_unit: 0,
+            supply,
+            ..the_issue()
+        }
+    }
+
+    fn deposit_lot(holder: Key, amount: u64) -> Lot {
+        let tag = frontier_abi::addr::citizen_tag(&holder);
+        Lot {
+            kind: KIND_SHARE,
+            holder,
+            holder_tag: tag,
+            seed_tag: tag,
+            seq: frontier_abi::v2::addr::deposit_seq(11, 0),
+            amount,
+            ..the_lot()
+        }
+    }
+
+    /// A delivery of 50 wood into a 100-wood vault of 100 units mints 50
+    /// into the holder's new deposit lot; one unit more (T62's shape) fails.
+    #[test]
+    fn a_deposit_mints_by_the_rule() {
+        use frontier_abi::v2::layout::s1::caravan as CV;
+        const CARAVAN: Key = [10; 32];
+        let mut cb = vec![0u8; CV::SIZE];
+        cb[CV::OWNER_CITIZEN..CV::OWNER_CITIZEN + 32].copy_from_slice(&YOU);
+        let data = ix2::SettleDeposit {
+            beneficiary: [0; 32],
+        }
+        .to_bytes()
+        .to_vec();
+        let i = ix(
+            data,
+            &[
+                SESSION, [0; 32], CARAVAN, VAULT, [0; 32], [0; 32], ISSUE, NEW_LOT,
+            ],
+        );
+        let mut m = Mock {
+            before: HashMap::from([
+                (CARAVAN, cb),
+                (VAULT, shared(vault(ME, 1), 100)),
+                (ISSUE, issue_bytes(&share_issue(100))),
+            ]),
+            after: HashMap::from([
+                (CARAVAN, None),
+                (VAULT, Some(shared(vault(ME, 1), 150))),
+                (ISSUE, Some(issue_bytes(&share_issue(150)))),
+                (NEW_LOT, Some(lot_bytes(&deposit_lot(YOU, 50)))),
+            ]),
+        };
+        assert_eq!(judge_deposit(&i, &m), Ok(()));
+        m.after
+            .insert(NEW_LOT, Some(lot_bytes(&deposit_lot(YOU, 51))));
+        assert!(judge_deposit(&i, &m).is_err());
+    }
+
+    /// 40 of 100 units take 40 of 100 wood; a vault that pays more (T63's
+    /// shape) fails.
+    #[test]
+    fn a_withdrawal_pays_the_basket() {
+        let data = ix2::WithdrawShares {
+            seq: 0,
+            amount: 40,
+            dst_kind: 1,
+            dst_p: 0,
+            dst_q: 0,
+            dst_at: 0,
+            dst_gen: 1,
+            steps: 0,
+            path: [0; 12],
+            fee: 0,
+        }
+        .to_bytes()
+        .to_vec();
+        let i = ix(data, &[SESSION, [0; 32], [0; 32], ME, LOT, ISSUE, VAULT]);
+        let mine = deposit_lot(ME, 100);
+        let mut m = Mock {
+            before: HashMap::from([
+                (VAULT, shared(vault(ME, 1), 100)),
+                (ISSUE, issue_bytes(&share_issue(100))),
+                (LOT, lot_bytes(&mine)),
+            ]),
+            after: HashMap::from([
+                (VAULT, Some(shared(vault(ME, 1), 60))),
+                (ISSUE, Some(issue_bytes(&share_issue(60)))),
+                (LOT, Some(lot_bytes(&Lot { amount: 60, ..mine }))),
+            ]),
+        };
+        assert_eq!(judge_withdraw(&i, &m), Ok(()));
+        m.after.insert(VAULT, Some(shared(vault(ME, 1), 59)));
+        assert!(judge_withdraw(&i, &m).is_err());
     }
 }

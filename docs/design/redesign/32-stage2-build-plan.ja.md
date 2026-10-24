@@ -4,6 +4,8 @@
 
 **対象：** ブランチ `ccr-184d6862-fqutoz`（段階1の1a〜1f まで入ったもの）。
 
+**進み具合（2026-10-24）：** 2a（札の土台）と 2b（持ち分の札）を実装しました。契約は [S2-2A-CONTRACT](../../frontier/stage2/S2-2A-CONTRACT.md) と [S2-2B-CONTRACT](../../frontier/stage2/S2-2B-CONTRACT.md) です。2b で決めたことのうち、あなたに見てほしいものは S2-2B-CONTRACT の9章にあります。
+
 **段階2で作るもの（決定済み。[20](20-stage2-play.ja.md)、[29](29-remaining-decisions.ja.md) の A1〜A3）：**
 - 札3種：持ち分の札、受け取りの札、使用権の札。
 - 引き換えの預かり。両方そろったら同時に交換し、期限までにそろわなければ両方に返す。

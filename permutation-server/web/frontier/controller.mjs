@@ -25,7 +25,7 @@ import { composerArrival, composerMarch } from './screens/march.mjs';
 import { sealMarch, unpack, ctHash as ctHashOf, sealRoot as sealRootOf } from './seal.mjs';
 import { bellAt, bellStart, pipeline, archivePartOf, pollCap } from './clock.mjs';
 import { regionOf, ringOf, ringProvinces, wedgeOf } from './fgeo.mjs';
-import { hostParts, hostId } from './faddr.mjs';
+import { hostParts, hostId, citizenTag } from './faddr.mjs';
 import { decodePage } from './flog.mjs';
 import { nextPoll, BELLS_PER_DAY } from './herald.mjs';
 import { kernel as loadKernel, UNITS } from './wasm.mjs';
@@ -36,9 +36,9 @@ import { fromBase64 } from '../sdk/bytes.mjs';
 import { L, fmtNum } from '../lang.mjs';
 import { emit as fxEmit } from './fx/bus.mjs';
 import { reachOrigins } from './screens/conquest.mjs';
-import { s1On } from './fs1.mjs';
+import { s1On, s2On } from './fs1.mjs';
 import { fastestPath, pack, landsWanted, landOfProvince, CARAVAN_FEE } from './fcaravan.mjs';
-import { raidOffers, s1VillageModel, KIND, PROPOSE_STANCE } from './screens/s1.mjs';
+import { raidOffers, s1VillageModel, s2SharesModel, KIND, PROPOSE_STANCE } from './screens/s1.mjs';
 import { placeData, raidProvinces, cargoBytes, RAID_CHOICE } from './fplay.mjs';
 import { cachedReach, reachKey, reachableKeeps } from './fkeepreach.mjs';
 import * as fprize from './fprize.mjs';
@@ -885,8 +885,9 @@ export function wantHostReach(hostId) {
  * any other failure keeps what was read before.
  */
 async function refreshS1(request) {
-  const s1 = FS.s1 ??= { caravans: null, structures: null, nations: null, error: null };
-  const names = ['caravans', 'structures', 'nations'];
+  const s1 = FS.s1 ??= { caravans: null, structures: null, nations: null, tickets: null, error: null };
+  // S2 (2a, 2b): the tickets feed too.
+  const names = ['caravans', 'structures', 'nations', ...(s2On() ? ['tickets'] : [])];
   const results = await Promise.allSettled(names.map(n => herald[n]()));
   if (request !== conquestRefresh) return;
   s1.error = null;
@@ -1451,8 +1452,38 @@ async function s1Caravan(dstIndex, cargo) {
     order: orderOf('s1-caravan', 'SendCaravan', { say: () => L`隊商が出発しました` }) });
 }
 
+/** S2 (2b) OpenShares: the viewer's vault becomes shared; the fee from the village in hand. */
+function s2OpenShares(at) {
+  const h = activeHolding(FS);
+  if (!h) return s1Refused(L`費用を払う村を選んでください`);
+  const issuerTag = citizenTag(io.pinned().addresses.of('Citizen', { wallet: FS.wallet.address }));
+  const seq = Number(FS.citizen?.issues ?? 0);
+  return act('OpenShares', { v: { holding: h, at, issuerTag, seq }, fields: {},
+    order: orderOf('s2-shares', 'OpenShares', { tile: at, say: () => L`貯蔵庫を持ち分で共有にしました` }) });
+}
+/** S2 (2b) WithdrawShares: burn `amount` units of the viewer's lot `i` and send the basket to the village in hand. */
+async function s2Withdraw(i, amount) {
+  const m = s2SharesModel(FS), lot = m.lots[i], h = activeHolding(FS);
+  if (!lot || !lot.vault) return s1Refused(L`引き出す持ち分を選んでください`);
+  if (!h || !Number.isInteger(h.tile)) return s1Refused(L`届け先の村を選んでください`);
+  if (!(amount > 0) || amount > lot.amount) return failed({ code: 'BadData' });
+  const v = lot.vault;
+  busy(() => L`道を探しています…`);
+  const plan = fastestPath({ p: v.p, q: v.q, tile: v.tile }, { p: h.p, q: h.q, tile: h.tile }, await landsFor(v, h));
+  if (!plan || !plan.dirs.length) return failed({ code: 'Path' });
+  const seq = Number(FS.citizen?.caravans ?? 0);
+  const dst = { kind: 'holding', p: h.p, q: h.q, site: h.site, gen: h.gen ?? 0 };
+  return act('WithdrawShares', {
+    v: { lot: { tag: BigInt(lot.key[0]), seq: lot.key[1] }, issue: { tag: BigInt(lot.issuerTag), seq: lot.issueSeq },
+      vault: { p: v.p, q: v.q, tile: v.tile }, dst, seq, provinces: plan.provinces },
+    fields: { seq, amount: BigInt(amount), ...placeData(dst), steps: plan.dirs.length, path: pack(plan.dirs), fee: CARAVAN_FEE },
+    order: orderOf('s2-withdraw', 'WithdrawShares', { say: () => L`持ち分の荷が村へ向かいました` }) });
+}
+
 export const ACTIONS = {
   'cq-refresh': () => refreshConquest(),
+  // S2 (screens/s1.mjs)
+  's2-open-shares': d => s2OpenShares(s1Tile(d)),
   // S1 (screens/s1.mjs)
   's1-vault': d => s1Build('BuildVault', 0, s1Tile(d)),
   's1-structure': d => s1Build('BuildStructure', num(d.kind), s1Tile(d)),
@@ -1679,6 +1710,7 @@ function garrisonOrder(n) {
 /** Form submissions (data-form). */
 export const FORMS = {
   // S1 (screens/s1.mjs)
+  's2-withdraw': f => s2Withdraw(Math.trunc(formNum(f, 'lot')), Math.trunc(formNum(f, 'amount'))),
   's1-caravan': f => s1Caravan(Math.trunc(formNum(f, 'dst')), Array.from({ length: 8 }, (_, i) => Math.max(0, Math.trunc(formNum(f, `c${i}`) || 0)))),
   's1-fort': f => {
     const h = activeHolding(FS), troops = Math.trunc(formNum(f, 'troops')), tile = Math.trunc(formNum(f, 'tile'));

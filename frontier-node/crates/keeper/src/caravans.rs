@@ -26,7 +26,7 @@ use fclient::ix::HoldingRef;
 use fclient::ports::{ChainPort, PortResult};
 use frontier_abi::v2::layout::player::holding as H2;
 use frontier_abi::v2::layout::province::caravan_slot as CS;
-use frontier_abi::v2::layout::s1::{caravan as CV, place as PL};
+use frontier_abi::v2::layout::s1::{caravan as CV, place as PL, vault as VA};
 use permutation_rules::frontier::caravan::{
     self as kc, caravan_id, CaravanSlot, Land, MAX_CARAVAN_SLOTS, RAID_BURN_AFTER_BELLS,
     RAID_DECIDE_BELLS,
@@ -74,6 +74,9 @@ pub struct CaravanDuty {
 
 fn ru64(d: &[u8], o: usize) -> Option<u64> {
     Some(u64::from_le_bytes(d.get(o..o + 8)?.try_into().ok()?))
+}
+fn ru32(d: &[u8], o: usize) -> Option<u32> {
+    Some(u32::from_le_bytes(d.get(o..o + 4)?.try_into().ok()?))
 }
 fn ri16(d: &[u8], o: usize) -> Option<i16> {
     Some(i16::from_le_bytes(d.get(o..o + 2)?.try_into().ok()?))
@@ -235,11 +238,13 @@ impl CaravanDuty {
                 continue;
             }
             let caravan = t.addrs.caravan(tag_, seq);
-            let got = port.accounts(&[caravan], 0).await?;
-            let Some(cd) = got
-                .into_iter()
-                .next()
-                .flatten()
+            let dst_key = place_address(t, &m.dst);
+            let mut want = vec![caravan];
+            want.extend(dst_key);
+            let mut got = port.accounts(&want, 0).await?.into_iter();
+            let cd = got.next().flatten();
+            let dd = got.next().flatten();
+            let Some(cd) = cd
                 .filter(|a| a.owner == t.addrs.program && a.data.len() == CV::SIZE)
                 .map(|a| a.data)
             else {
@@ -256,18 +261,44 @@ impl CaravanDuty {
             };
             let path = route_of(&cd);
             let (a, ben) = (t.addrs.clone(), t.cfg.beneficiary);
+            // S2 2b: a delivery into a shared vault (in the generation the
+            // caravan names) settles by SettleDeposit, minting the owner's
+            // shares; anything else (a lost one included) by SettleCaravan.
+            let deposit = dd
+                .filter(|v| v.owner == t.addrs.program)
+                .map(|v| v.data)
+                .filter(|v| {
+                    m.dst.kind == PL::KIND_VAULT
+                        && v.len() == VA::SIZE
+                        && v[VA::STATE] == VA::STATE_LIVE
+                        && v[VA::GEN] == m.dst.gen
+                        && v[VA::SHARES_ON] != 0
+                })
+                .and_then(|v| {
+                    let issue = (ru64(&v, VA::SHARES_ISSUER_TAG)?, ru32(&v, VA::SHARES_SEQ)?);
+                    let holder = rkey(&cd, CV::OWNER_CITIZEN)?;
+                    Some((issue, fclient::addr::citizen_tag_u64(&holder)))
+                });
+            let wtag = if deposit.is_some() {
+                tag::SETTLE_DEPOSIT
+            } else {
+                tag::SETTLE_CARAVAN
+            };
             if engine.ensure(
                 WriteSpec {
                     key,
                     kind: "csettle",
-                    tag: tag::SETTLE_CARAVAN,
+                    tag: wtag,
                     class: Class::D,
                     bell: None,
                     region: None,
-                    build: Arc::new(move |c: &BuildCtx| {
-                        vec![ix2::settle_caravan(
+                    build: Arc::new(move |c: &BuildCtx| match deposit {
+                        Some((issue, holder_tag)) => vec![ix2::settle_deposit(
+                            &a, c.payer, caravan, dst, ben, rent_to, issue, holder_tag, &path,
+                        )],
+                        None => vec![ix2::settle_caravan(
                             &a, c.payer, caravan, dst, ben, rent_to, &path,
-                        )]
+                        )],
                     }),
                     deadline_slot: None,
                     not_before_slot: t.slot,

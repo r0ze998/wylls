@@ -10,9 +10,9 @@ import { budgetOf } from '../client/src/frontier/budgets.mjs';
 import { ixOf, layoutOf } from '../client/src/frontier/codec.mjs';
 import { profileForHash, profileForSeason, rulesetFor, isS1, isV2 } from '../client/src/frontier/profile.mjs';
 import { rent } from '../client/src/frontier/fees.mjs';
-import { allowanceFor, drainGuard, ISSUE_RENT, LOT_RENT, lamportsPerDay } from '../src/frontier/shapes.mjs';
+import { allowanceFor, CARAVAN_COST, drainGuard, ISSUE_RENT, LOT_RENT, lamportsPerDay } from '../src/frontier/shapes.mjs';
 
-const S2_TAGS = { IssueTickets: 0xC0, GiveLot: 0xC1, CloseLot: 0xC2 };
+const S2_TAGS = { IssueTickets: 0xC0, GiveLot: 0xC1, CloseLot: 0xC2, OpenShares: 0xC3, WithdrawShares: 0xC4 };
 
 test('profile 4 is the S2 program: its hash, the v2 tables, S1\'s limits', () => {
   assert.equal(PRESETS.ruleset_hash_v4, 'f142e56c9f5c8ddf9e64c9893f1a2ae06d69985ae954671f7c93d152ec21abe4');
@@ -31,6 +31,8 @@ test('profile 4 is the S2 program: its hash, the v2 tables, S1\'s limits', () =>
   for (const tag of [0xB0, 0xB1, 0xBB, 0xC0]) {
     assert.deepEqual(budgetOf(tag, 4), budgetOf(tag, 3));
   }
+  assert.equal(ixOf(0xC5, 4).name, 'SettleDeposit');
+  assert.equal(ixOf(0xC5, 4).relay_settle_shape, true);
   assert.equal(ixOf(0xC0, 1), null);
 });
 
@@ -40,6 +42,10 @@ test('the S2 allowances: an issue and its first lot, one lot a gift, nothing a c
   assert.equal(allowanceFor({ tag: 0xC0 }, { season: {} }), ISSUE_RENT + LOT_RENT);
   assert.equal(allowanceFor({ tag: 0xC1 }, { season: {} }), LOT_RENT);
   assert.equal(allowanceFor({ tag: 0xC2 }, { season: {} }), 0n);
+  // 2b: shares.
+  assert.equal(allowanceFor({ tag: 0xC3 }, { season: {} }), ISSUE_RENT + LOT_RENT);
+  assert.equal(allowanceFor({ tag: 0xC4 }, { season: {} }), CARAVAN_COST);
+  assert.equal(allowanceFor({ tag: 0xC5 }, { season: {} }), LOT_RENT);
   const pre = 10n * LOT_RENT;
   assert.throws(() => drainGuard({ pre, post: pre - LOT_RENT - 1n, fee: 0n, allowance: LOT_RENT }), /relay refused/);
 });

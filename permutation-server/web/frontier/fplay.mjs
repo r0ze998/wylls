@@ -21,7 +21,7 @@ import { decode as fromBase58 } from '../sdk/base58.mjs';
 import { toBase64 } from '../sdk/bytes.mjs';
 import { verify } from '../session.mjs';
 import * as io from './fchainio.mjs';
-import { joinShardOf, citizenTag } from './faddr.mjs';
+import { joinShardOf, citizenTag, depositSeq } from './faddr.mjs';
 
 /**
  * ClashInputs' `camp_mask` (v1.7, I-56): u32 LE at offset 76 of the raw
@@ -54,6 +54,9 @@ export const SIGNED_BY = Object.freeze({
   // S2 (program_version 5): tickets. A gift to another citizen needs the
   // wallet (L7); this page signs every GiveLot with it.
   IssueTickets: 'session', GiveLot: 'wallet', CloseLot: 'session',
+  // S2 (2b): shares. A withdrawal home needs no wallet (to another's place
+  // it would; this page sends it home).
+  OpenShares: 'session', WithdrawShares: 'session',
 });
 /** S1 `layout::s1::place` kinds (a caravan's origin or destination). */
 export const PLACE_KIND = Object.freeze({ holding: 1, vault: 2 });
@@ -144,6 +147,16 @@ export function accountsFor(name, v) {
     case 'GiveLot':
       return { ...base, lot: A.of('Lot', v.lot), issue: A.of('Issue', v.issue), source: placeAddress(A, v.source),
         recipient: v.recipient, to_lot: A.of('Lot', v.toLot) };
+    // S2 (2b): `at` the vault {p, q, tile}; the opener's deposit lot is
+    // seeded by its tag (`issuerTag`) and its issue `seq`.
+    case 'OpenShares':
+      return { ...base, holding: holding(), holding_province: A.of('Province', v.holding), vault: A.of('Vault', v.at),
+        issue: A.of('Issue', { tag: v.issuerTag, seq: v.seq }), lot: A.of('Lot', { tag: v.issuerTag, seq: depositSeq(v.issuerTag, v.seq) }) };
+    // `lot` {tag, seq} the holder's, `issue` {tag, seq}, `vault` {p, q, tile},
+    // `dst` a place, `seq` the holder's caravan, `provinces` the walk's.
+    case 'WithdrawShares':
+      return { ...base, lot: A.of('Lot', v.lot), issue: A.of('Issue', v.issue), src: A.of('Vault', v.vault), dst: placeAddress(A, v.dst),
+        caravan: A.of('Caravan', { ownerTag: citizenTag(citizen), seq: v.seq }), path_province: v.provinces.map(p => A.of('Province', p)) };
     case 'CloseLot':
       return { ...base, issue: A.of('Issue', v.issue), source: placeAddress(A, v.source), issue_rent_to: v.issueRentTo,
         ...(v.lot ? { lot: A.of('Lot', v.lot), rent_to: v.rentTo } : {}) };

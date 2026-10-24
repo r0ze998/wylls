@@ -316,8 +316,131 @@
         ]
       ],
       "name": "CloseLot"
+    },
+    {
+      "data": "c3",
+      "keys": [
+        [
+          "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi",
+          true,
+          false
+        ],
+        [
+          "8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR",
+          true,
+          true
+        ],
+        [
+          "9PsD7ZwGutCeJicFsxuRsKagZFj6a95VjMVhVW1SUdvJ",
+          false,
+          false
+        ],
+        [
+          "Df737Y57KJoe18NL1j84RUFAxHp3p6HMvN3kAZcTXpkT",
+          false,
+          true
+        ],
+        [
+          "4u3dgGQuKWtQ7FbfcpyHhNxbwKU5sGXSybXiWQozAETa",
+          false,
+          true
+        ],
+        [
+          "BhkVoiK375RyUuiiRCYunuSGKk2ZzAEbo6Rishs2tNF6",
+          false,
+          false
+        ],
+        [
+          "8toeJEjckGsGnfyHPpD94Xm295u2Mvwah4N2TqKeZPVt",
+          false,
+          true
+        ],
+        [
+          "ExDL69rp6JGh2KasZasbL6HjpScw8M4ih3JaHYH1xPmx",
+          false,
+          true
+        ],
+        [
+          "DyCPv4oPMwqDbpi1SftiaefpmyFAeJmsrzHGLcQ1F2Zz",
+          false,
+          true
+        ],
+        [
+          "11111111111111111111111111111111",
+          false,
+          false
+        ]
+      ],
+      "name": "OpenShares"
+    },
+    {
+      "data": "c4050000002800000000000000010300ffff04010223000000000000000000000050c3000000000000",
+      "keys": [
+        [
+          "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi",
+          true,
+          false
+        ],
+        [
+          "8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR",
+          true,
+          true
+        ],
+        [
+          "9PsD7ZwGutCeJicFsxuRsKagZFj6a95VjMVhVW1SUdvJ",
+          false,
+          false
+        ],
+        [
+          "Df737Y57KJoe18NL1j84RUFAxHp3p6HMvN3kAZcTXpkT",
+          false,
+          true
+        ],
+        [
+          "DyCPv4oPMwqDbpi1SftiaefpmyFAeJmsrzHGLcQ1F2Zz",
+          false,
+          true
+        ],
+        [
+          "ExDL69rp6JGh2KasZasbL6HjpScw8M4ih3JaHYH1xPmx",
+          false,
+          true
+        ],
+        [
+          "8toeJEjckGsGnfyHPpD94Xm295u2Mvwah4N2TqKeZPVt",
+          false,
+          true
+        ],
+        [
+          "4u3dgGQuKWtQ7FbfcpyHhNxbwKU5sGXSybXiWQozAETa",
+          false,
+          false
+        ],
+        [
+          "Fk53Xy1UXUWn1VAcQtnh8hqYHHFjgaJD1uHB9WMUq4FE",
+          false,
+          true
+        ],
+        [
+          "11111111111111111111111111111111",
+          false,
+          false
+        ],
+        [
+          "63aYVFj4R5738AMZ5dPbQq5Eouw6YD1MYJVXEeDAyJnu",
+          false,
+          true
+        ],
+        [
+          "BhkVoiK375RyUuiiRCYunuSGKk2ZzAEbo6Rishs2tNF6",
+          false,
+          true
+        ]
+      ],
+      "name": "WithdrawShares"
     }
   ],
+  "depositLot": "DyCPv4oPMwqDbpi1SftiaefpmyFAeJmsrzHGLcQ1F2Zz",
   "issue": [
     {
       "address": "5Ateow2oYo4jQM5PpW5rDhmYW6vcZHyY3wn9tNJ5CgH7",

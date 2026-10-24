@@ -36,21 +36,21 @@ use frontier_abi::v2::tags::Ix as Ix2;
 use frontier_abi::v2::CqError;
 use permutation_rules::frontier::arms;
 use permutation_rules::frontier::ticket::{
-    self as kt, KIND_RECEIPT, KIND_SHARE, KIND_USE, MAX_OPEN_ISSUES, SRC_HOLDING, SRC_VAULT, STATE_CLOSED,
-    STATE_LIVE,
+    self as kt, KIND_RECEIPT, KIND_SHARE, KIND_USE, MAX_OPEN_ISSUES, SRC_HOLDING, SRC_VAULT,
+    STATE_CLOSED, STATE_LIVE,
 };
 use permutation_rules::frontier::travel::BELLS_PER_DAY;
 
 use super::caravan::{place_of, send, vault_shares, Place, SendAccounts, SendOrder};
 use super::conquest::{check_accounts_v2, cq, cqlog, present_v2, Chained2};
 use super::holding::{self as hold, Player};
-use crate::error::{BAD_ACCOUNT, OVERFLOW};
 use crate::addr::AddrCtx;
+use crate::error::{BAD_ACCOUNT, OVERFLOW};
 use crate::init::{self, SeasonSigner, Sink};
-use permutation_rules::frontier::holding::RESOURCES;
 use crate::layout::{citizen2 as C, holding2 as H, Ro, Rw};
 use crate::prologue::expect_key;
 use crate::{FrontierError, R};
+use permutation_rules::frontier::holding::RESOURCES;
 
 /// The record key of an issue: `issuer_tag ‖ seq`.
 fn key12(tag: u64, seq: u32) -> [u8; 12] {
@@ -999,7 +999,7 @@ pub fn withdraw_shares(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         &basket,
         true,
     )?;
-    let supply = iv.supply - x.amount;
+    let supply = iv.supply.checked_sub(x.amount).ok_or(OVERFLOW)?;
     Rw(&mut lot.try_borrow_mut_data()?).set_u64(LT::AMOUNT, from.amount - x.amount)?;
     Rw(&mut issue.try_borrow_mut_data()?).set_u64(IS::SUPPLY, supply)?;
     let payload = crate::events::Buf::<40>::new()
