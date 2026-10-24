@@ -2035,6 +2035,10 @@ body[data-kind="wait"] .plate .plate-go[data-act="join-open"] { display: none; }
 .hand-ring .ring { display: block; width: 13px; height: 13px; }
 .hand-ring .ring-bg { stroke: rgba(255,255,255,.22); stroke-width: 5; } .hand-ring .ring-fg { stroke: var(--brass-hi); stroke-width: 5; }
 .hand-ring.on .ring-bg { stroke: rgba(240,212,138,.3); }
+/* (a slot in use reads as taken at a glance, however little of the work is done: a brass dot at its heart. Just after
+   a start the ring's arc was a sliver and the three slots read 「○○○」, all free, 07-HUD-TEXT-FX) */
+.hand-ring { position: relative; display: block; }
+.hand-ring.on::after { content: ''; position: absolute; inset: 4px; border-radius: 50%; background: var(--brass-hi); }
 
 /* the card above the bar */
 .hand-pop { position: fixed; z-index: 27; color: var(--hud-ink); font: var(--t2)/1.45 var(--ui); }
@@ -2158,6 +2162,10 @@ body[data-kind="wait"] .plate .plate-go[data-act="join-open"] { display: none; }
   body[data-drawer="open"][data-doc=""] .hand, body[data-drawer="open"][data-doc=""] .hand-pop[data-mode="card"] { left: calc(50% - (var(--drawer-w) + 38px + var(--edge) - var(--plate-w)) / 2); max-width: calc(100vw - var(--drawer-w) - var(--plate-w) - 5 * var(--edge)); }
   body[data-drawer="open"][data-doc=""] .hand { min-width: 0; }
   body[data-drawer="open"][data-doc=""] .hand .hand-btn { min-width: 84px; padding: 4px 8px; }
+  /* a village in hand: the bar is that village, by name and with its acts; the resting plate in the corner said the
+     same name a second time at the same height (07-HUD-TEXT-FX, 一つの事実は一か所). It steps aside as on a phone, and
+     comes back when the hand is put down; what waits this turn stays one press away on the prompt at the top */
+  body[data-hand="village"] .rail { visibility: hidden; }
 }
 @media (min-width: 760px) and (max-width: 1399px) {
   /* the corners stand above the bar's rows (it is taller than the dock) */
