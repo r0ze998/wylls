@@ -215,10 +215,9 @@ export function render(FS) {
   const stores = html`<section class="vcard" id="hp-harvest" aria-labelledby="hp-harvest-h">
     ${cardHead({ id: 'hp-harvest-h', ic: 'crate', title: L`資源`, side: full.length ? html`<span class="c-count c-count-bad">${L`満杯 ${fmtNum(full.length)}`}</span>` : '' })}
     ${renderLedger(m.stores)}
-    <p class="muted">${L`毎時の収支は、生産から現在の維持費を引いた量です。資源は画面を閉じても増減します。`}</p>
     ${upkeep.length ? html`<p>${L`現在の維持費（毎時）`}: ${upkeep.map(x => `${RESOURCES[x.resource]} ${fmtNum(x.perHour)}`).join(' · ')}</p>` : ''}
     <div class="actions"><button type="button" class="btn primary" data-act="harvest" ${raw(actionBusy || m.blocks.Harvest.length ? 'disabled' : '')}>${icon('grain')}${L`収穫する`}</button>
-      <span class="muted">${full.length ? L`${full.map(s => RESOURCES[s.resource]).join(' / ')}が満杯：これ以上は増えません。使いましょう` : L`蔵は時間で増えます。収穫は、いまの量を蔵の記録に納めるだけです。`}</span></div>
+      <span class="muted">${full.length ? L`${full.map(s => RESOURCES[s.resource]).join(' / ')}が満杯：これ以上は増えません。使いましょう` : L`資源は画面を閉じても毎時増減します（生産から維持費を引いた量）。収穫は、いまの量を蔵の記録に納めるだけです。`}</span></div>
     ${blockedLine(m.blocks.Harvest)}</section>`;
 
   const queueName = q => queueItemLabel(q.q);

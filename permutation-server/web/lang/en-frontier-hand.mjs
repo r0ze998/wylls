@@ -32,7 +32,6 @@ export default {
   '{0}が満杯：これ以上は増えません。使いましょう': '{0} full: nothing more is stored. Spend it',
   '前の収穫から {0}（上の数字にもう入っています）。押すと蔵の記録に納めます': 'Since the last harvest: {0} (already counted in the numbers above). Press to write it into the stores\' record',
   '蔵は時間で増えます。押すと蔵の記録に納めます': 'The stores grow with time. Press to write them into the stores\' record',
-  '蔵は時間で増えます。収穫は、いまの量を蔵の記録に納めるだけです。': 'The stores grow with time. A harvest only writes what is there now into the stores\' record.',
   '{0}へ昇格中': 'Being promoted to {0}',
   '{0}へ：{1}': 'To {0}: {1}',
   '{0}（{1}）にいます': 'At {0} ({1})',

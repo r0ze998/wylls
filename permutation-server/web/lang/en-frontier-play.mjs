@@ -144,7 +144,7 @@ export default {
   "確定した得点を読み込んでいます。": "Loading confirmed scores.",
   "世界の状況を更新する": "Refresh the world",
   "地図の州を選ぶと、砦と争奪の状況を確認できます。": "Select a province on the map to inspect its keep and any contest.",
-  "毎時の収支は、生産から現在の維持費を引いた量です。資源は画面を閉じても増減します。": "Hourly income is production minus current upkeep. Resources continue to change while the game is closed.",
+  "資源は画面を閉じても毎時増減します（生産から維持費を引いた量）。収穫は、いまの量を蔵の記録に納めるだけです。": "Resources change every hour, even while the game is closed (production minus upkeep). A harvest only writes what is there now into the stores' record.",
   "現在の維持費（毎時）": "Current upkeep per hour",
   "訓練の費用": "Training cost",
   "1〜30,000人で人数を決めてください。": "Choose between 1 and 30,000 troops.",

@@ -1637,6 +1637,9 @@ body[data-title="up"] :is(#attn-pill, #next-steps, #quota-chip) { display: none 
 .btn.primary { border-width: 1px; }
 .btn.quiet { border-color: transparent; background: none; }
 .btn[disabled] { background: rgba(64,48,18,.03); border-style: dashed; box-shadow: none; }
+/* (a quiet button that cannot be pressed loses its underline: 「解散」 under a marching host read as a live link
+   beside the note that said it could not be disbanded, 07-HUD-TEXT-FX) */
+.btn.quiet[disabled] { border-color: transparent; background: none; text-decoration: none; color: rgba(64,48,18,.45); }
 .btn.primary[disabled] { border-style: solid; }
 /* (a key on a dark card inside the drawer keeps the metal's own) */
 .plate .btn, .toast .btn, .ob-chip .btn, .nation-confirm .btn:not(.nc-btn), .dial-pop .btn {
