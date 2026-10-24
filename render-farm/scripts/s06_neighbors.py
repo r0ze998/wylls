@@ -40,6 +40,6 @@ mid = HA.lerp(HB, 0.5)
 cam = Vector((mid.x + E('CX', 0), mid.y + E('CY', -125), W.ground(mid.x, mid.y) + E('CH', 78)))
 tgt = Vector((mid.x + E('TX', 4), mid.y + E('TY', 0), W.ground(mid.x, mid.y)))
 P.clear_view(cam, tgt, 6, 0.05, 0.6)
-P.clear_rocks((mid.x, mid.y - 60), 75)                          # pale boulder slabs in the near ground read as tents
+bpy.data.objects['camp'].hide_render = True                     # the southern camp's pale tents sit in the near ground
 camera(cam, tgt, lens=E('LENS', 24), w=Wd, h=Hd)
 render(OUT)
