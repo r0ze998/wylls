@@ -399,7 +399,7 @@ export default {
   'ここへは届きません': 'Out of reach from here',
   'まだひらいていない土地です': 'This land is not open yet',
   'ルールを読み込んでいます': 'Loading the rules',
-  '到着：ターン {0}': 'Arrives on turn {0}',
+  '到着予定：ターン {0}': 'Would arrive on turn {0}',
   '第{0}輪の州': 'A province of ring {0}',
   '位置': 'Position',
   '軍勢を選ぶと光るマス': 'Tiles that light up when you select a host',

@@ -704,5 +704,9 @@ export const NOTE_TEXT = Object.freeze({
 export const reachText = n => L`近く ${fmtNum(n)} マス · その先も選べます`;
 /** Where the reach's own words stand: the top of its contour (world px), or null. */
 export const reachTop = A => (typeof Path2D === 'undefined' ? null : shapeOf(A)?.top ?? null);
-/** The route's arrival, as the ribbon's tag says it. */
-export const arrivalText = bell => L`到着：ターン ${fmtNum(bell)}`;
+/**
+ * The route's arrival, as the ribbon's tag says it. The ribbon is always a plan (the order being written, or the route
+ * under the pointer; a sent march has its own seal line): the tag says 予定, so a plan left on the map after a refused
+ * send never reads as a march on its way.
+ */
+export const arrivalText = bell => L`到着予定：ターン ${fmtNum(bell)}`;

@@ -148,6 +148,7 @@ import * as milestones from './hud/milestones.mjs';
 import * as guide from './hud/guide.mjs';
 import { forecast, forecastKey, compareStances, compareKey } from './hud/forecast.mjs';
 import { keepForecast, forecastFor } from './hud/forecastbook.mjs';
+import { mountRadioKeys } from './hud/radiokeys.mjs';
 import { BUILD_ITEMS, UNIT_ORDER, SCOUT, SETTLER, ticketTimes, queueItem, queueBuildingItem } from './fland.mjs';
 import { UNIT_KINDS } from './people/units.mjs';
 import { momentSnapshot, detectMoments, liveMoments } from './people/moments.mjs';
@@ -3500,6 +3501,7 @@ export async function boot() {
   mountHand();
   mountTurnStrip();
   mountResGain();
+  mountRadioKeys();
   mountSound();
   if (canvas) {
     // Tile-LOD terrain from the season record's ring seeds through the rules module (W5-E R3: passed by the app).

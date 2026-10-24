@@ -172,6 +172,19 @@ test('the tile card names an S1 thing on the tile and whose it is, as the map dr
   assert.equal(inspectModel({ ...FS(41), s1: null }, null).tile.s1, undefined, 'no S1 season, nothing said');
 });
 
+test('a radio group of buttons: the arrows step and wrap, Home and End go to the ends, a disabled choice is passed over', async () => {
+  const { radioStep } = await import('../../permutation-server/web/frontier/hud/radiokeys.mjs');
+  const b = [0, 1, 2, 3].map(i => ({ i, disabled: i === 2 }));
+  assert.equal(radioStep(b, b[0], 'ArrowDown').i, 1);
+  assert.equal(radioStep(b, b[1], 'ArrowRight').i, 3, 'the disabled one is passed over');
+  assert.equal(radioStep(b, b[3], 'ArrowDown').i, 0, 'wraps');
+  assert.equal(radioStep(b, b[0], 'ArrowUp').i, 3);
+  assert.equal(radioStep(b, b[3], 'Home').i, 0);
+  assert.equal(radioStep(b, b[0], 'End').i, 3);
+  assert.equal(radioStep(b, b[0], 'Enter'), null);
+  assert.equal(radioStep(b, { i: 9 }, 'ArrowDown'), null, 'not one of the group');
+});
+
 test('S1 orders: a vault and a structure are built from the ABI v2 shapes, their addresses from the v2 seed tags', async () => {
   const { accountsFor, buildShape, SIGNED_BY } = await import('../../permutation-server/web/frontier/fplay.mjs');
   const { seasonAddresses, seedOf } = await import('../../permutation-server/web/frontier/faddr.mjs');

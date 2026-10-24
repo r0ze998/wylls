@@ -1,0 +1,127 @@
+// The visual uplift's order card under the states the brief names (docs/design/uplift/04-VERIFY): the keyboard,
+// reduced motion, no rules kernel, the relay down, English on a 360-px phone, and the card without colour. Each state
+// is one fresh page on the frozen fixture world, the same march (the hosts drawer → a defended village), a check that
+// fails loudly and a picture. Not part of the gate; a camera with assertions.
+//
+//   node uplift-states.mjs [--out <dir>] [--only kbd,motion]
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+import { chromium } from 'playwright-core';
+import { startServer } from './server.mjs';
+import * as W from './world.mjs';
+
+const arg = (k, d) => { const i = process.argv.indexOf(`--${k}`); return i > 0 ? process.argv[i + 1] : d; };
+const out = resolve(arg('out', '../../.local/shots/states'));
+const only = (arg('only', '') || '').split(',').filter(Boolean);
+
+function initScript({ storage }) {
+  let s = 0x2545f491;
+  Math.random = () => { s ^= s << 13; s >>>= 0; s ^= s >>> 17; s ^= s << 5; s >>>= 0; return s / 2 ** 32; };
+  try { for (const [k, v] of Object.entries(storage)) localStorage.setItem(k, v); } catch { /* no storage */ }
+}
+
+/** The march to the defended village (2, 0, tile 26), through the card's own coordinates form. */
+async function compose(page) {
+  await page.locator('#tabs [data-tab="hosts"]').click();
+  await page.locator('#panel-body button[data-act="compose"]:not([disabled])').first().click({ timeout: 8000 });
+  await page.evaluate(() => { const f = document.querySelector('form[data-form="dest"]'); f.querySelector('[name=p]').value = 2; f.querySelector('[name=q]').value = 0; f.querySelector('[name=tile]').value = 26; f.requestSubmit(); });
+  await page.locator('.mc-outlook').first().waitFor({ timeout: 12000 });
+}
+const waitCompare = page => page.locator('.mc-compare .mcc-row').first().waitFor({ timeout: 15000 });
+
+const STATES = [
+  ['kbd', 'the stances compared, by keyboard: the arrows move the choice', {}, async (page, ok) => {
+    await compose(page); await waitCompare(page);
+    const rows = page.locator('.mc-compare .mcc-row');
+    const before = await rows.evaluateAll(r => r.findIndex(x => x.getAttribute('aria-checked') === 'true'));
+    await rows.nth(before).focus();
+    await page.keyboard.press('ArrowDown');
+    await page.waitForTimeout(400);
+    const after = await page.locator('.mc-compare .mcc-row').evaluateAll(r => r.findIndex(x => x.getAttribute('aria-checked') === 'true'));
+    const focused = await page.evaluate(() => document.activeElement?.closest?.('.mcc-row')?.dataset.v ?? null);
+    ok(after === (before + 1) % 4, `ArrowDown moved the choice ${before} → ${after}`);
+    ok(focused !== null && Number(focused) === after, `the focus followed the choice (on ${focused})`);
+    await page.keyboard.press('Home'); await page.waitForTimeout(300);
+    ok(await page.locator('.mc-compare .mcc-row').first().getAttribute('aria-checked') === 'true', 'Home chose the first stance');
+  }],
+  ['motion', 'reduced motion: nothing in the card moves', { reducedMotion: 'reduce' }, async (page, ok) => {
+    await compose(page); await waitCompare(page);
+    const moving = await page.evaluate(() => [...document.querySelectorAll('.mc-compare *, .mc-outlook *, .state-tag')].filter(e => {
+      const s = getComputedStyle(e);
+      const dur = x => x.split(',').some(t => parseFloat(t) > 0.01);
+      return (s.animationName !== 'none' && dur(s.animationDuration)) || dur(s.transitionDuration);
+    }).map(e => e.className).slice(0, 5));
+    ok(moving.length === 0, `no animation or transition under reduced motion (${moving.join(' | ') || 'none'})`);
+  }],
+  ['nokernel', 'no rules kernel: the outlook stands, no forecast is made up', { block: '**/*.wasm' }, async (page, ok) => {
+    await compose(page);
+    await page.waitForTimeout(3000);
+    const t = await page.locator('.mc-outlook').first().innerText();
+    ok(!(await page.locator('.mc-compare .mcc-row').count()), 'no stance comparison without the kernel');
+    ok(!/残る兵\s*\d/.test(t), 'no troops left forecast without the kernel');
+    ok(/ターン/.test(t), `the arrival is still said (${t.replace(/\s+/g, ' ').slice(0, 80)})`);
+  }],
+  ['relaydown', 'the relay down at send: an error that says so; nothing kept as sent', { failRelay: true }, async (page, ok) => {
+    await compose(page); await waitCompare(page);
+    await page.locator('[data-act="march-send"]:not([disabled])').click({ timeout: 10000 });
+    await page.waitForTimeout(3000);
+    const body = await page.locator('body').innerText();
+    ok(/できません|失敗|つながりません|もう一度|送れません/.test(body), 'the failure is said in words');
+    const kept = await page.evaluate(() => Object.keys(localStorage).filter(k => k.startsWith('ps-ffc:')).map(k => localStorage.getItem(k)).join(''));
+    ok(!kept || kept === '{}' || kept === '[]', `no forecast kept for a march that was not sent (${(kept || '').slice(0, 60)})`);
+  }],
+  ['en360', 'English on a 360-px phone: the card fits, the rows are big enough to touch', { vp: { width: 360, height: 780 }, phone: true, lang: 'en' }, async (page, ok) => {
+    await compose(page); await waitCompare(page);
+    await page.locator('.mc-compare').scrollIntoViewIfNeeded();
+    const m = await page.evaluate(() => ({ doc: document.documentElement.scrollWidth - innerWidth,
+      cut: [...document.querySelectorAll('.mc-compare *, .mc-outlook *')].filter(e => e.scrollWidth > e.clientWidth + 1 && getComputedStyle(e).overflow !== 'visible').map(e => e.className).slice(0, 5),
+      rows: [...document.querySelectorAll('.mcc-row')].map(r => Math.round(r.getBoundingClientRect().height)) }));
+    ok(m.doc <= 0, `no sideways scroll (${m.doc} px over)`);
+    ok(!m.cut.length, `nothing clipped in the outlook or the comparison (${m.cut.join(' | ') || 'none'})`);
+    ok(m.rows.every(h => h >= 44), `rows at least 44 px high (${m.rows.join(', ')})`);
+  }],
+  ['grey', 'the card without colour: states still differ by shape and word', { grey: true }, async (page, ok) => {
+    await compose(page); await waitCompare(page);
+    // (the page's CSP refuses an injected style sheet; a CSSOM change is the browser's own)
+    await page.evaluate(() => { document.documentElement.style.filter = 'grayscale(1)'; });
+    const tags = await page.locator('.mc-card .state-tag, .mc .state-tag, #panel .state-tag').allInnerTexts();
+    ok(tags.length > 0 && tags.every(t => t.trim().length > 0), `every state tag has a word (${tags.join(', ')})`);
+  }],
+];
+
+const srv = await startServer();
+const browser = await chromium.launch();
+const results = [];
+mkdirSync(out, { recursive: true });
+let failed = 0;
+try {
+  for (const [id, title, o, run] of STATES) {
+    if (only.length && !only.includes(id)) continue;
+    srv.stage('holding');
+    const vp = o.vp ?? { width: 1440, height: 900 }, lang = o.lang ?? 'ja';
+    const context = await browser.newContext({ viewport: vp, isMobile: !!o.phone, hasTouch: !!o.phone, locale: lang === 'ja' ? 'ja-JP' : 'en-GB', timezoneId: 'UTC', deviceScaleFactor: 1, reducedMotion: o.reducedMotion ?? 'no-preference' });
+    await context.addInitScript(initScript, { storage: W.storageFor(srv.viewer, { stage: 'holding', lang, intro: false, live: false }) });
+    if (o.block) await context.route(o.block, r => r.abort());
+    if (o.failRelay) await context.route(/\/f\/(relay|tx)/, r => r.fulfill({ status: 503, contentType: 'application/json', body: '{"ok":false,"code":"Unavailable"}' }));
+    const page = await context.newPage();
+    const errors = [];
+    page.on('pageerror', e => errors.push(e.message));
+    await page.clock.setFixedTime(new Date(W.LATEST_UNIX * 1000 + 500));
+    await page.goto(`${srv.url}/frontier/index.html`);
+    await page.waitForFunction(() => /\d/.test(document.getElementById('bell-chip')?.textContent ?? '') && document.body.dataset.stage !== 'loading', null, { timeout: 30000 });
+    await page.waitForTimeout(1500);
+    const checks = [];
+    const ok = (c, what) => { checks.push({ ok: !!c, what }); if (!c) failed++; };
+    try { await run(page, ok); } catch (e) { ok(false, `scene: ${e.message.split('\n')[0]}`); }
+    ok(!errors.length, `no page errors (${errors.join(' | ') || 'none'})`);
+    await page.screenshot({ path: join(out, `${id}.png`) });
+    results.push({ id, title, checks });
+    for (const c of checks) console.log(`${c.ok ? 'ok    ' : 'FAIL  '} ${id}: ${c.what}`);
+    await context.close();
+  }
+} finally {
+  await browser.close();
+  await srv.close();
+  writeFileSync(join(out, 'states.json'), `${JSON.stringify(results, null, 1)}\n`);
+}
+process.exit(failed ? 1 : 0);
