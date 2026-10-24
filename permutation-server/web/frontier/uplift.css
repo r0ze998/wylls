@@ -100,7 +100,11 @@
   /* (the drawer starts right under the strip, narrow enough to clear the turn dial: frontier.css put it under the
      dial's whole height between 760 and 899 px, a third of a 390-px screen) */
   .panel { top: calc(var(--strip) + var(--edge)); width: min(var(--drawer-w), calc(50vw - var(--dial) / 2 - 2 * var(--edge))); max-height: calc(100dvh - var(--strip) - 2 * var(--edge)); }
-  .order-head .seal-pic, .order-head svg:first-child { width: 30px; height: 30px; }
+  /* (the order's head on one short block: the unit's picture is decoration, and 「封をした命令」 is what the seal and the
+     cannot-be-taken-back line in the foot already say) */
+  .order-head { padding-bottom: 4px; margin-bottom: 4px; }
+  .order-head .pic-seal { width: 30px; height: 30px; }
+  .order-head .order-kicker, .order-head .order-unit { display: none; }
   .order-foot { gap: 4px; padding-top: 4px; }
   .order-foot .order-sum { display: none; }
   .order-irrev { font-size: 12px; line-height: 1.35; }
