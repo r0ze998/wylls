@@ -39,7 +39,9 @@ cargo build --locked --release -p stack -p keeper      # frontier-node で
 # http://127.0.0.1:41540/frontier/frontier/   止める: frontier-stack down --run-id uplift-s1d
 ```
 
-S1 の施設（金庫・物見櫓など）は、ボットも誰も建てないので、地図に出すには自分で建てる。クライアントは命令の形（`fplay.mjs` の BuildVault / BuildStructure）を作れるが、**それを送るボタンはまだない**（遊ぶ人向けの建て方の画面は、この変更に含めていない）。
+ボットを村として参加させるには `--bots-args --conquest` も付ける（付けないとボットは動くが参加しない。今回の `uplift-s1d` は付けておらず、村は自分の 1 つだけだった）。S1 の世界の規則モジュールは、上の 2b の残り（`frontier-v3.wasm`）を参照。
+
+S1 の施設（倉・物見櫓など）は、ボットも誰も建てないので、地図に出すには自分で建てる。クライアントは命令の形（`fplay.mjs` の BuildVault / BuildStructure）を作れるが、**それを送るボタンはまだない**（遊ぶ人向けの建て方の画面は、この変更に含めていない）。
 
 ### 3. 美術方針の比較ページ
 
