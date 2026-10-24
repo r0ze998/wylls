@@ -449,9 +449,13 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
 
     /// R-22: an MC season's writes take the v2 budgets table (`L(kind)`
     /// for the new kinds; the changed rows' CU), an M1 season keeps v1's.
-    /// A `budgets_file` in `keeper.toml` is the operator's and stays.
+    /// A `budgets_file` in `keeper.toml` is the operator's and stays. An S1
+    /// season (program_version 4) takes the S1 table: its `.so` is larger,
+    /// and the v2 table's `L(kind)` is too small to load it.
     fn follow_abi(&mut self, s: &Season) {
-        let v = if s.is_v2() {
+        let v = if s.program_version >= abi::PROGRAM_VERSION_S1 {
+            abi::PROGRAM_VERSION_S1
+        } else if s.is_v2() {
             abi::PROGRAM_VERSION_V2
         } else {
             abi::PROGRAM_VERSION_V1
@@ -1440,12 +1444,24 @@ mod tests {
         }
         let m = k.shared.lock().unwrap().metrics.clone();
         assert!(m.contains("fk_capture_settle_pending 0"), "{m}");
+        // An S1 season takes the S1 table (its larger `.so`'s L(kind)).
+        k.port.put(
+            k.addrs.season,
+            crate::testkit::acct(program, season_bytes(abi::PROGRAM_VERSION_S1)),
+        );
+        k.port.set_clock(25, 1_500);
+        k.tick().await.unwrap();
+        assert_eq!(k.engine.budgets, {
+            let mut b = Budgets::canonical_s1();
+            b.set(0, k.engine.budgets.get(0));
+            b
+        });
         // An M1 season (another run of the same keeper) goes back to v1's.
         k.port.put(
             k.addrs.season,
             crate::testkit::acct(program, season_bytes(1)),
         );
-        k.port.set_clock(30, 2_000);
+        k.port.set_clock(45, 2_000);
         k.tick().await.unwrap();
         assert!(!k.season.as_ref().unwrap().is_v2());
         assert_eq!(k.engine.budgets, {
