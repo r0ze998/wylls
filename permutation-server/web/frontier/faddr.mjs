@@ -15,8 +15,8 @@ import { ACCOUNTS } from './abi.mjs';
 import { LAYOUTS as LAYOUTS_V2 } from '../sdk/frontier/abi-v2-layouts.mjs';
 import { provinceFromIndex, provinceIndex, SITES_PER_PROVINCE } from './fgeo.mjs';
 
-// S1 (ABI v2): the vault, caravan, structure and nation tags come from the v2 layout table.
-const S1_KINDS = ['Vault', 'Caravan', 'Structure', 'Nation'];
+// S1 and S2 (ABI v2): the vault, caravan, structure, nation, issue and lot tags come from the v2 layout table.
+const S1_KINDS = ['Vault', 'Caravan', 'Structure', 'Nation', 'Issue', 'Lot'];
 const TAG = Object.fromEntries([
   ...Object.entries(ACCOUNTS).filter(([, a]) => a.tag).map(([k, a]) => [k, a.tag]),
   ...LAYOUTS_V2.accounts.filter(a => S1_KINDS.includes(a.kind) && a.seed_tag).map(a => [a.kind, a.seed_tag]),
@@ -57,6 +57,9 @@ export const RAW = Object.freeze({
   Structure: ({ p, q, tile }) => concat(i32(p), i32(q), u8(tile)),
   Caravan: ({ ownerTag, seq }) => concat(u64(ownerTag), u32(seq)),
   Nation: ({ faction }) => u8(faction),
+  // S2 (2a): issue_seed (issuer tag, seq) and lot_seed (the first holder's tag, seq).
+  Issue: ({ tag, seq }) => concat(u64(tag), u32(seq)),
+  Lot: ({ tag, seq }) => concat(u64(tag), u32(seq)),
 });
 
 /** The seed string of an account kind's key: tag ‖ lowercase hex (≤ 32 characters). */

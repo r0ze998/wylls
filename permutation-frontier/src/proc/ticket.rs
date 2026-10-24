@@ -206,8 +206,7 @@ pub fn issue_tickets(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     check_accounts_v2(Ix2::IssueTickets, a, None)?;
     let x = ix2::IssueTickets::decode(d)?;
     let pl: Player = hold::player(p, a)?;
-    let [_, payer, season_ai, citizen, holding, holding_province, source, issue, lot, _system] =
-        a
+    let [_, payer, season_ai, citizen, holding, holding_province, source, issue, lot, _system] = a
     else {
         return Err(FrontierError::TooManyAccounts.into());
     };
@@ -366,8 +365,7 @@ pub fn give_lot(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     check_accounts_v2(Ix2::GiveLot, a, None)?;
     let x = ix2::GiveLot::decode(d)?;
     let pl: Player = hold::player(p, a)?;
-    let [_, payer, season_ai, citizen, lot, issue, source, recipient, to_lot, _system] = a
-    else {
+    let [_, payer, season_ai, citizen, lot, issue, source, recipient, to_lot, _system] = a else {
         return Err(FrontierError::TooManyAccounts.into());
     };
     let sid = pl.pc.season.id;
@@ -638,7 +636,14 @@ pub fn close_lot(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     }
     if let (Some((lot, rent_to)), Some((lv, _))) = (lot, closed_lot.as_ref()) {
         Rw(&mut lot.try_borrow_mut_data()?).set_u8(LT::STATE, STATE_CLOSED)?;
-        close_account(p, lot, rent_to, E2::Lot, &close_key_lot(lv.seed_tag, lv.seq), bell)?;
+        close_account(
+            p,
+            lot,
+            rent_to,
+            E2::Lot,
+            &close_key_lot(lv.seed_tag, lv.seq),
+            bell,
+        )?;
     }
     if close_issue {
         close_account(

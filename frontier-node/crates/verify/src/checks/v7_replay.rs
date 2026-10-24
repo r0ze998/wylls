@@ -1120,6 +1120,17 @@ fn caravan_holding_write(
                     }),
             ));
         }
+        if tag == Some(V2::IssueTickets.tag()) && ix.key(4).as_ref() == Some(k) {
+            // S2 2a: the issue fee, burned (L8).
+            return Some((
+                "an IssueTickets' holding (the touch and the fee)",
+                crate::holding::touched_paid(
+                    before,
+                    tx.time,
+                    &permutation_rules::frontier::ticket::issue_fee(),
+                ),
+            ));
+        }
         if tag == Some(V2::SendCaravan.tag()) && ix.key(4).as_ref() == Some(k) {
             let cargo = ix2::SendCaravan::decode(&ix.data)
                 .ok()

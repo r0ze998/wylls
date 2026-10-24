@@ -8,11 +8,17 @@
 /** Whether a decoded Season account plays the S1 rules. */
 export const s1Season = season => Number(season?.layoutVersion) === 2 && Number(season?.programVersion) >= 4;
 
+/** Whether a decoded Season account plays the S2 rules (tickets; program_version 5; S1's too). */
+export const s2Season = season => s1Season(season) && Number(season?.programVersion) >= 5;
+
 let on = false;
+let on2 = false;
 /** Set from the pinned season (app.mjs loadSeason). */
-export function setS1(season) { on = s1Season(season); }
+export function setS1(season) { on = s1Season(season); on2 = s2Season(season); }
 /** Whether the pinned season plays the S1 rules. */
 export const s1On = () => on;
+/** Whether the pinned season plays the S2 rules (tickets). */
+export const s2On = () => on2;
 
 /**
  * The S1 numbers this page shows (permutation-rules arms.rs, [phase 6]),

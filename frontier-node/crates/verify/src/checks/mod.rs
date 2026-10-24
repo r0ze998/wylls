@@ -16,6 +16,7 @@ pub mod v22_outposts;
 pub mod v23_caravans;
 pub mod v24_structures;
 pub mod v25_nations;
+pub mod v26_tickets;
 pub mod v2_program;
 pub mod v3_random;
 pub mod v4_windows;
@@ -46,6 +47,9 @@ pub struct Ctx<'a> {
     /// An S1-program season (program version 4; `conquest::s1_applies`):
     /// the arms economy's rules where they differ (`holding::Rules::S1`).
     pub s1: bool,
+    /// An S2-program season (program version 5; `conquest::s2_applies`):
+    /// the ticket instructions (V26).
+    pub s2: bool,
     /// The conquest records V7's v2 replays leave, per transaction in
     /// order (`crate::cqrec`), for V15's record check.
     pub cq_expected: std::collections::BTreeMap<usize, Vec<crate::cqrec::Expected>>,
@@ -168,6 +172,7 @@ pub fn run(input: &Input) -> Report {
         sigs: SigCache::default(),
         v3: crate::conquest::applies(input),
         s1: crate::conquest::s1_applies(input),
+        s2: crate::conquest::s2_applies(input),
         cq_expected: Default::default(),
         cq_replayed: Default::default(),
     };
@@ -240,6 +245,11 @@ pub fn run(input: &Input) -> Report {
         ran.push("V24:structures");
         v25_nations::run(&mut cx);
         ran.push("V25:nations");
+    }
+    // S2 stage 2a: tickets, on an S2 season only.
+    if cx.s2 {
+        v26_tickets::run(&mut cx);
+        ran.push("V26:tickets");
     }
     ran.push("V10");
     counts(&mut cx);

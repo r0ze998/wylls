@@ -7,6 +7,11 @@ instructions, records and checks of 2a before the code. It also sketches
 how 2b–2e build on them, so that 2a's accounts do not have to change later.
 Every number marked [phase 6] is a placeholder.
 
+**Status (2026-10-24):** built. The program, the ABI, the LiteSVM tests,
+fclient, verifier V26 (tampers T58–T61), the herald's `h/tickets.json`, the
+relay's profile 4 and the web's shapes and feed parser are in. The panels
+come with 2b (§7, item 6).
+
 **Tags.** [proposal] marks a choice this contract makes where the design
 left it open. These are listed for the owner in §9.
 
@@ -191,13 +196,17 @@ Accounts: P + `[lot w] [issue w] [source r] [rent_to w]`.
 
 ### 4.1 Records (S2, `log.rs`)
 
+Every record's key is the issue's `issuer_tag u64 ‖ seq u32`.
+
 | Kind | Payload |
 |---|---|
-| `TICKETS_ISSUED` | issuer_tag u64, seq u32, kind u8, src Place (16), amount u64, per_unit u64, until_day u32, resource u8, lot_seq u32, fee digest [u8;8] |
-| `LOT_MOVED` | issuer_tag u64, issue_seq u32, from (holder_tag u64, lot key), to (holder_tag u64, lot key), amount u64, whole u8 |
-| `LOT_CLOSED` | issuer_tag u64, issue_seq u32, holder_tag u64, lot key, amount u64, void u8, issue_closed u8 |
+| `TICKETS_ISSUED` (103) | kind u8, src Place (8), resource u8, amount u64, per_unit u64, until_day u32, lot_seq u32, holding_key u64 (the paying holding's host id), fee digest [u8;32] |
+| `LOT_MOVED` (104) | giver_tag u64, from lot key, recipient_tag u64, to lot key, amount u64, whole u8, new_lot u8 |
+| `LOT_CLOSED` (105) | closer_tag u64, lot key (`(0, 0)` when none), amount u64, void u8, lot_closed u8, issue_closed u8 |
 
-A lot key is `(first_holder_tag u64, seq u32)`, the seed's.
+A lot key is `(seed_tag u64, seq u32)`, the seed's (the first holder's tag).
+A whole-lot gift names the lot itself as `to`. Closed accounts also log the
+v1 `CLOSE` with `close_key_issue` / `close_key_lot`.
 
 ### 4.2 Verifier (`verify`, check V26 tickets)
 
@@ -211,9 +220,15 @@ The verifier replays the records over the accounts it reads. It checks:
   credited anywhere).
 - Gifts: every gift to another citizen was wallet-signed.
 
-Tamper detections: a supply change without a record, a lot moved without
-its holder's signature, a void lot moved, a fee credited instead of
-burned.
+Built as `V26:tickets`: each IssueTickets, GiveLot and CloseLot is
+re-judged from the states before and after it, and at the end every live
+Issue's `SUPPLY` is checked against its lots. The fee is V7's: the paying
+holding is an owner touch that pays `ticket::issue_fee`. Code
+`TicketMismatch`.
+
+Tamper detections (classes T58–T61): a supply change without a record
+(T58), a lot moved without its holder's signature (T59), a void lot moved
+(T60), a fee credited instead of burned (T61, `HoldingReplayMismatch`).
 
 ### 4.3 Digests
 

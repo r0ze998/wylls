@@ -1868,6 +1868,29 @@ fn v2_presets() -> J {
         ]));
     }
     v.push(("presets_s1", J::A(ps)));
+    // S2 (redesign stage 2): program_version 5, checked against
+    // RULESET_HASH_V4.
+    v.push(("ruleset_hash_v4", J::S(hex(&p2::RULESET_HASH_V4))));
+    v.push((
+        "ruleset_hash_v4_status",
+        st("pinned: permutation_rules::frontier::ruleset_hash_v4() (S2 2a: the v3 inputs and ticket 1)"),
+    ));
+    v.push(("program_version_s2", n(p2::PROGRAM_VERSION_S2)));
+    let mut ps = Vec::new();
+    for (name, p) in p2::PRESETS_S2 {
+        let b = p.to_bytes();
+        ps.push(o(vec![
+            ("name", st(name)),
+            ("valid", J::B(p.validate().is_ok())),
+            ("fields", v2_params_json(&p)),
+            ("bytes", J::S(hex(&b))),
+            (
+                "params_hash_with_rev3_payout",
+                J::S(hex(&p2::params_hash_v2(&b, &payout))),
+            ),
+        ]));
+    }
+    v.push(("presets_s2", J::A(ps)));
     done(v)
 }
 

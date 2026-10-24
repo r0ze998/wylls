@@ -266,3 +266,82 @@ fn s1_instruction_vectors() {
         serde_json::from_str(&std::fs::read_to_string(IX_FILE).expect("the vectors file")).unwrap();
     assert_eq!(have, want, "rewrite with CARAVAN_WRITE_VECTORS=1");
 }
+
+const S2_FILE: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../../permutation-gateway/test/fixtures/s2-tickets-v1.json"
+);
+
+/// S2 (2a): the Issue and Lot addresses and the ticket instructions the
+/// web page builds (`faddr.mjs`, `fplay.mjs`), as fclient makes them.
+#[test]
+fn s2_ticket_vectors() {
+    use fclient::addr::Addresses;
+    use fclient::ix::v2::{self as v2, IssueArgs, TicketSource};
+    use fclient::ix::{HoldingRef, Player};
+    let program = fclient::Address::new_from_array([7u8; 32]);
+    let a = Addresses::new(program, 42);
+    let p = Player {
+        actor: fclient::Address::new_from_array([1u8; 32]),
+        payer: fclient::Address::new_from_array([2u8; 32]),
+        wallet: fclient::Address::new_from_array([3u8; 32]),
+    };
+    let keys: [(u64, u32); 3] = [(9, 0), (u64::MAX, 7), (0x0123_4567_89ab_cdef, 1)];
+    let issue: Vec<Value> = keys
+        .iter()
+        .map(
+            |&(t, s)| json!({"tag": t.to_string(), "seq": s, "address": a.issue(t, s).to_string()}),
+        )
+        .collect();
+    let lot: Vec<Value> = keys
+        .iter()
+        .map(|&(t, s)| json!({"tag": t.to_string(), "seq": s, "address": a.lot(t, s).to_string()}))
+        .collect();
+    let h = HoldingRef {
+        p: 3,
+        q: -1,
+        site: 4,
+    };
+    let vault = TicketSource::Vault {
+        p: 4,
+        q: -2,
+        tile: 17,
+    };
+    let receipt = IssueArgs {
+        kind: 2,
+        resource: 3,
+        amount: 10,
+        per_unit: 2_000,
+        until_day: u32::MAX,
+    };
+    let use_right = IssueArgs {
+        kind: 3,
+        resource: 0,
+        amount: 4,
+        per_unit: 3,
+        until_day: 9,
+    };
+    let recipient = a.citizen(&fclient::Address::new_from_array([9u8; 32]));
+    let rent_to = fclient::Address::new_from_array([5u8; 32]);
+    let me = 0x77;
+    let want = json!({"v": 1, "program": program.to_string(), "seasonId": "42",
+        "actor": p.actor.to_string(), "payer": p.payer.to_string(), "wallet": p.wallet.to_string(),
+        "recipient": recipient.to_string(), "rentTo": rent_to.to_string(),
+        "issue": issue, "lot": lot,
+        "cases": [
+            ix_json("IssueTickets", &v2::issue_tickets(&a, &p, h, vault, me, 0, 0, &receipt)),
+            ix_json("IssueTickets", &v2::issue_tickets(&a, &p, h, TicketSource::Holding(h), me, 1, 3, &use_right)),
+            ix_json("GiveLot", &v2::give_lot(&a, &p, a.lot(me, 0), (me, 0), vault, recipient, a.lot(me, 4), 4)),
+            ix_json("GiveLot", &v2::give_lot(&a, &p, a.lot(me, 0), (me, 0), vault, recipient, a.lot(me, 0), 10)),
+            ix_json("CloseLot", &v2::close_lot(&a, &p, (me, 0), vault, rent_to, Some((a.lot(me, 0), rent_to)), false)),
+            ix_json("CloseLot", &v2::close_lot(&a, &p, (me, 0), vault, rent_to, None, true)),
+        ],
+    });
+    if std::env::var("CARAVAN_WRITE_VECTORS").is_ok() {
+        std::fs::write(S2_FILE, serde_json::to_string_pretty(&want).unwrap() + "\n").unwrap();
+        return;
+    }
+    let have: Value =
+        serde_json::from_str(&std::fs::read_to_string(S2_FILE).expect("the vectors file")).unwrap();
+    assert_eq!(have, want, "rewrite with CARAVAN_WRITE_VECTORS=1");
+}

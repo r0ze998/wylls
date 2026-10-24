@@ -51,6 +51,9 @@ export const SIGNED_BY = Object.freeze({
   // S1 (program_version 4): vaults, caravans, structures, forts and nations
   BuildVault: 'session', SendCaravan: 'session', RaidCaravan: 'session', BuildStructure: 'session', FortGarrison: 'session',
   Propose: 'session', Vote: 'session',
+  // S2 (program_version 5): tickets. A gift to another citizen needs the
+  // wallet (L7); this page signs every GiveLot with it.
+  IssueTickets: 'session', GiveLot: 'wallet', CloseLot: 'session',
 });
 /** S1 `layout::s1::place` kinds (a caravan's origin or destination). */
 export const PLACE_KIND = Object.freeze({ holding: 1, vault: 2 });
@@ -132,6 +135,18 @@ export function accountsFor(name, v) {
     }
     case 'Vote':
       return { ...base, nation: A.of('Nation', { faction: v.faction }) };
+    // S2 (fclient ix::v2): `source` is a place ({kind: 'vault', p, q, tile} or
+    // {kind: 'holding', p, q, site}); an issue is {tag, seq}, a lot {tag, seq}
+    // (its seed: the first holder's tag).
+    case 'IssueTickets':
+      return { ...base, holding: holding(), holding_province: A.of('Province', v.holding), source: placeAddress(A, v.source),
+        issue: A.of('Issue', { tag: v.issuerTag, seq: v.seq }), lot: A.of('Lot', { tag: v.issuerTag, seq: v.lotSeq }) };
+    case 'GiveLot':
+      return { ...base, lot: A.of('Lot', v.lot), issue: A.of('Issue', v.issue), source: placeAddress(A, v.source),
+        recipient: v.recipient, to_lot: A.of('Lot', v.toLot) };
+    case 'CloseLot':
+      return { ...base, issue: A.of('Issue', v.issue), source: placeAddress(A, v.source), issue_rent_to: v.issueRentTo,
+        ...(v.lot ? { lot: A.of('Lot', v.lot), rent_to: v.rentTo } : {}) };
     case 'SettleExplore':
       return { season: A.season, holding: holding(), citizen, seedcache_or_archive: v.settle.seed, anchor_or_archive: v.settle.anchor };
     case 'SettleTransit': {

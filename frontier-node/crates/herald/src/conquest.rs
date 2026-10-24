@@ -139,6 +139,9 @@ pub struct Cq {
     /// S1 stage 1e: the nations' stances, proposals and the expelled
     /// (`h/nations.json`, [`crate::nation`]).
     pub nations: crate::nation::Nations,
+    /// S2 stage 2a: the ticket issues and lots (`h/tickets.json`,
+    /// [`crate::ticket`]).
+    pub tickets: crate::ticket::Tickets,
     pub alarms: CqAlarms,
     /// Province-bell views awaiting their control and overview v2 files.
     pub views: BTreeMap<(i16, i16, u32), View>,
@@ -438,6 +441,8 @@ pub fn on_record(f: &mut Fold, tx: &TxRecord, body: &[u8]) -> bool {
     });
     if let Some(e) = &s1 {
         cq.structures.sight(r.bell, e);
+        // S2: tickets follow their sources' seizures and captures too.
+        cq.tickets.fold(e);
     }
     match &s1 {
         Some(e) if cq.caravans.fold(e) || cq.structures.fold(e) || cq.nations.fold(r.bell, e) => {}
@@ -1628,6 +1633,7 @@ pub fn complete(f: &mut Fold, tx: &TxRecord) {
     caravans_out(&mut cq, f);
     structures_out(&mut cq, f);
     nations_out(&mut cq, f);
+    tickets_out(&mut cq, f);
     final_file(&mut cq, f, si.as_ref());
     f.cq = cq;
 }
@@ -2073,6 +2079,14 @@ fn structures_out(cq: &mut Cq, f: &mut Fold) {
     }
 }
 
+/// `h/tickets.json` when a record changed it.
+fn tickets_out(cq: &mut Cq, f: &mut Fold) {
+    if std::mem::take(&mut cq.tickets.dirty) {
+        let j = cq.tickets.file().to_string();
+        write(f, "h/tickets.json", j.as_bytes(), false);
+    }
+}
+
 /// `h/nations.json` when a record changed it.
 fn nations_out(cq: &mut Cq, f: &mut Fold) {
     if std::mem::take(&mut cq.nations.dirty) {
@@ -2446,6 +2460,7 @@ impl Cq {
             "caravans": self.caravans.to_json(),
             "structures": self.structures.to_json(),
             "nations": self.nations.to_json(),
+            "tickets": self.tickets.to_json(),
         });
         if self.on {
             out["scoreVersion"] = json!(3);
@@ -2476,6 +2491,9 @@ impl Cq {
         // S1: absent in a checkpoint written before stage 1e.
         if let Some(nv) = v.get("nations").filter(|x| !x.is_null()) {
             c.nations = crate::nation::Nations::from_json(nv)?;
+        }
+        if let Some(tv) = v.get("tickets").filter(|x| !x.is_null()) {
+            c.tickets = crate::ticket::Tickets::from_json(tv)?;
         }
         let a: Vec<u64> = v["alarms"]
             .as_array()?

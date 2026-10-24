@@ -40,6 +40,7 @@ pub mod roster;
 pub mod runner;
 pub mod server;
 pub mod structure;
+pub mod ticket;
 pub mod viewers;
 pub mod views;
 pub mod ws;

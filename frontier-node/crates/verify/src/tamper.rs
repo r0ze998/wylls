@@ -2316,6 +2316,141 @@ pub fn s1_t57(run: &Input) -> Made {
     })
 }
 
+// ------------------------------------------------------------ S2 classes (stage 2a, T58–T61)
+
+/// T58: a supply change without a record (V26): the first IssueTickets'
+/// Issue left with one more unit than its lot holds.
+pub fn s2_t58(run: &Input) -> Made {
+    use frontier_abi::v2::layout::s2::issue as IS;
+    let mut inp = run.clone();
+    let tag = frontier_abi::v2::tags::Ix::IssueTickets.tag();
+    let t = first_with(&inp, tag).need("an IssueTickets")?;
+    let keys = ix_keys(&inp, t, tag).need("its accounts")?;
+    let issue = *keys.get(7).need("its Issue")?;
+    edit_account_at(&mut inp, &issue, t, |d| {
+        if let Some(b) = d.get_mut(IS::SUPPLY..IS::SUPPLY + 8) {
+            let v = u64::from_le_bytes(b.try_into().unwrap());
+            b.copy_from_slice(&v.wrapping_add(1).to_le_bytes());
+        }
+    })
+    .then_some(())
+    .need("the Issue's post-state")?;
+    Ok(Case {
+        class: "T58",
+        what: "a supply change without a record",
+        feature: None,
+        codes: &[TICKET_MISMATCH],
+        input: inp,
+    })
+}
+
+/// T59: a lot moved without its holder's signature (V26): the first
+/// GiveLot's lot shown held by another citizen before it.
+pub fn s2_t59(run: &Input) -> Made {
+    use frontier_abi::v2::layout::s2::lot as LT;
+    let mut inp = run.clone();
+    let tag = frontier_abi::v2::tags::Ix::GiveLot.tag();
+    let t = first_with(&inp, tag).need("a GiveLot")?;
+    let keys = ix_keys(&inp, t, tag).need("its accounts")?;
+    let lot = *keys.get(4).need("its Lot")?;
+    let u = last_post_before(&inp, &lot, t).need("the Lot before")?;
+    edit_account_at(&mut inp, &lot, u, |d| {
+        if let Some(b) = d.get_mut(LT::HOLDER_CITIZEN) {
+            *b ^= 0xff;
+        }
+    })
+    .then_some(())
+    .need("the Lot's post-state")?;
+    Ok(Case {
+        class: "T59",
+        what: "a lot moved without its holder's signature",
+        feature: None,
+        codes: &[TICKET_MISMATCH],
+        input: inp,
+    })
+}
+
+/// T60: a void lot moved (V26): the first GiveLot's source shown in a new
+/// generation before it (as after a seizure).
+pub fn s2_t60(run: &Input) -> Made {
+    use frontier_abi::v2::layout::player::holding as H2;
+    use frontier_abi::v2::layout::s1::vault as VA;
+    let mut inp = run.clone();
+    let tag = frontier_abi::v2::tags::Ix::GiveLot.tag();
+    let t = first_with(&inp, tag).need("a GiveLot")?;
+    let keys = ix_keys(&inp, t, tag).need("its accounts")?;
+    let source = *keys.get(6).need("its source")?;
+    let u = last_post_before(&inp, &source, t).need("the source before")?;
+    edit_account_at(&mut inp, &source, u, |d| {
+        let o = if d.len() == VA::SIZE {
+            VA::GEN
+        } else {
+            H2::GEN
+        };
+        if let Some(b) = d.get_mut(o) {
+            *b = b.wrapping_add(1);
+        }
+    })
+    .then_some(())
+    .need("the source's post-state")?;
+    Ok(Case {
+        class: "T60",
+        what: "a void lot moved",
+        feature: None,
+        codes: &[TICKET_MISMATCH],
+        input: inp,
+    })
+}
+
+/// T61: an issue fee credited instead of burned (V7): the first
+/// IssueTickets' paying holding left with the fee's gold back.
+pub fn s2_t61(run: &Input) -> Made {
+    let mut inp = run.clone();
+    let tag = frontier_abi::v2::tags::Ix::IssueTickets.tag();
+    let t = first_with(&inp, tag).need("an IssueTickets")?;
+    let keys = ix_keys(&inp, t, tag).need("its accounts")?;
+    let holding = *keys.get(4).need("its holding")?;
+    let gold = permutation_rules::frontier::ticket::issue_fee()
+        .iter()
+        .position(|&f| f > 0)
+        .need("a fee")?;
+    let fee = permutation_rules::frontier::ticket::issue_fee()[gold];
+    edit_account_at(&mut inp, &holding, t, |d| {
+        let o = H::store(gold) + frontier_abi::layout::player::accrual::VALUE;
+        if let Some(b) = d.get_mut(o..o + 8) {
+            let v = i64::from_le_bytes(b.try_into().unwrap());
+            b.copy_from_slice(&(v + fee).to_le_bytes());
+        }
+    })
+    .then_some(())
+    .need("the holding's post-state")?;
+    Ok(Case {
+        class: "T61",
+        what: "an issue fee credited instead of burned",
+        feature: None,
+        codes: &[HOLDING_REPLAY_MISMATCH],
+        input: inp,
+    })
+}
+
+/// The S2 classes (stage 2a, S2-2A-CONTRACT §4.2) an S2 season runs:
+/// extras until an S2 fixture with tickets is committed.
+pub fn s2_classes() -> Vec<Class> {
+    fn c(class: &'static str, tries: Vec<(&'static str, Builder)>) -> Class {
+        Class {
+            class,
+            required: false,
+            tries,
+        }
+    }
+    vec![
+        c("T58", vec![("supply without a record", s2_t58)]),
+        c("T59", vec![("lot moved without its holder", s2_t59)]),
+        c("T60", vec![("void lot moved", s2_t60)]),
+        c("T61", vec![("issue fee credited", s2_t61)]),
+    ]
+}
+
 /// The S1 classes (stages 1b, 1d and 1e, S1-1B-CONTRACT §4.1 and S1-1D-CONTRACT
 /// §5.1, as numbered after the
 /// conquest's T25–T48) an S1 season runs: extras until an S1 fixture with
@@ -2372,6 +2507,9 @@ pub fn classes_for(run: &Input) -> Vec<Class> {
     }
     if crate::conquest::s1_applies(run) {
         v.extend(s1_classes());
+    }
+    if crate::conquest::s2_applies(run) {
+        v.extend(s2_classes());
     }
     v
 }

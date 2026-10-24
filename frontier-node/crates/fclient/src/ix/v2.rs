@@ -1441,6 +1441,7 @@ pub struct IssueArgs {
 /// [source r] [issue w] [lot w] [system]`: the citizen's `seq`-th issue
 /// (its `Citizen.ISSUES`) and first lot (its `Citizen.LOTS`, `lot_seq`),
 /// the fee paid from `pay`.
+#[allow(clippy::too_many_arguments)]
 pub fn issue_tickets(
     a: &Addresses,
     p: &Player,

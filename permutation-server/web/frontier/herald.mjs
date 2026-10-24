@@ -304,6 +304,10 @@ export function createHerald({ base = '', fetch: f = (...a) => globalThis.fetch(
       const r = await get(f, `${root}/h/nations.json`);
       return r.ok ? guard(() => ({ nations: parseNations(r.json) })) : r;
     },
+    async tickets() {
+      const r = await get(f, `${root}/h/tickets.json`);
+      return r.ok ? guard(() => ({ tickets: parseTickets(r.json) })) : r;
+    },
     async keep(p, q) {
       const r = await get(f, `${root}/h/keep/${p},${q}.json`);
       return r.ok ? { ok: true, keep: r.json } : r;
@@ -962,6 +966,55 @@ export function parseNations(input) {
         bell: intOf(ro, 'bell', 0, U32, a), raiderHost: decOf(ro, 'raiderHost', a), raiderTag: decOf(ro, 'raiderTag', a),
       };
     }),
+  };
+}
+
+/** `ticket::KIND_*` (S2): 1 share, 2 receipt, 3 use, 4 delivery. */
+export const TICKET_KIND = Object.freeze({ 1: 'share', 2: 'receipt', 3: 'use', 4: 'delivery' });
+
+function boolOf(o, k, at) {
+  const v = fieldOf(o, k, at);
+  check(typeof v === 'boolean', 'BadSchema', `${at}: ${k} is not a boolean`);
+  return v;
+}
+
+function issueOf(v, at) {
+  const o = objOf(v, at);
+  const kind = intOf(o, 'kind', 1, 4, at);
+  const src = placeOf(fieldOf(o, 'src', at), `${at}.src`);
+  check(src.kind === 1 || src.kind === 2, 'BadValue', `${at}: a source is a holding or a vault`);
+  return {
+    issuerTag: decOf(o, 'issuerTag', at), seq: intOf(o, 'seq', 0, U32, at), kind, src,
+    resource: intOf(o, 'resource', 0, 7, at), perUnit: intOf(o, 'perUnit', 0, Number.MAX_SAFE_INTEGER, at),
+    untilDay: intOf(o, 'untilDay', 0, U32, at), supply: intOf(o, 'supply', 0, Number.MAX_SAFE_INTEGER, at),
+    state: intOf(o, 'state', 1, 2, at), void: boolOf(o, 'void', at),
+  };
+}
+
+function lotOf(v, at) {
+  const o = objOf(v, at);
+  const key = arrOf(o, 'key', at);
+  check(key.length === 2, 'BadSchema', `${at}: key is not [tag, seq]`);
+  return {
+    key: [decOf(key, 0, `${at}.key`), intOf(key, 1, 0, U32, `${at}.key`)],
+    issuerTag: decOf(o, 'issuerTag', at), issueSeq: intOf(o, 'issueSeq', 0, U32, at), holderTag: decOf(o, 'holderTag', at),
+    amount: intOf(o, 'amount', 0, Number.MAX_SAFE_INTEGER, at), state: intOf(o, 'state', 1, 2, at), void: boolOf(o, 'void', at),
+  };
+}
+
+/**
+ * `/h/tickets.json` (S2) → `{v: 1, issues: [{issuerTag, seq, kind, src,
+ * resource, perUnit, untilDay, supply, state, void}], lots: [{key: [tag,
+ * seq], issuerTag, issueSeq, holderTag, amount, state, void}]}`, checked, as
+ * herald/src/ticket.rs writes it. Tags stay decimal strings.
+ */
+export function parseTickets(input) {
+  const o = objOf(jsonOf(input), 'file');
+  versionOf(o);
+  return {
+    v: 1,
+    issues: arrOf(o, 'issues', 'file').map((x, i) => issueOf(x, `issues[${i}]`)),
+    lots: arrOf(o, 'lots', 'file').map((x, i) => lotOf(x, `lots[${i}]`)),
   };
 }
 

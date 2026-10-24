@@ -85,6 +85,10 @@ pub const TOWER_WEAR_MISMATCH: &str = "TowerWearMismatch";
 /// A proposal, vote or settlement against the nation rules (a stance or
 /// an expulsion the votes did not pass, a vote counted twice).
 pub const NATION_MISMATCH: &str = "NationMismatch";
+// V26 tickets (S2 stage 2a)
+/// An issue, gift or close against the ticket rules (a supply its lots do
+/// not hold, a void lot moved, a gift without the wallet).
+pub const TICKET_MISMATCH: &str = "TicketMismatch";
 // V17 capture bookkeeping (conquest contract §8.5; partial)
 pub const CAPTURE_RULE: &str = "CaptureRule";
 pub const CAPTURE_BOOKKEEPING: &str = "CaptureBookkeeping";
