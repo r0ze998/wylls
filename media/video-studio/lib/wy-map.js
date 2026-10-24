@@ -66,6 +66,10 @@
       if (seam && !t.village && h < 0.22) t.camp = true;
       if (seam && !t.village && !t.camp && t.ring === rings - 2 && h > 0.85) { t.freecity = true; t.owner = -1; }
     }
+    // preload every sprite this world can draw, so a tile hidden at t = 0 is ready later
+    for (const tr of ['grassland', 'plains', 'forest', 'hills', 'mountain', 'water']) for (const v of [1, 2, 3]) img(`terrain/@2x/${tr}_${v}.webp`);
+    for (const k of ART_FACTIONS) for (const h of ['stronghold_w', 'town_o', 'hamlet_o']) img(`holdings/@2x/${h}_${k}.webp`);
+    for (const p of ['specials/@2x/freecity_town.webp', 'specials/@2x/barbarian_1.webp', 'specials/@2x/concord_plaza_1.webp', 'specials/@2x/concord_paving.webp', 'fog/@2x/cloud_1.webp', 'fog/@2x/cloud_2.webp', 'fog/@2x/cloud_3.webp']) img(p);
     const world = { tiles, byKey, rings, seed, get: (q, r) => byKey.get(q + ',' + r), px, keeps: tiles.filter(t => t.keep) };
     world.sorted = [...tiles].sort((a, b) => a.y - b.y || a.x - b.x);
     return world;

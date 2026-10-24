@@ -37,6 +37,17 @@
   }
   WY.now = () => vnow / 1000;
 
+  // Chrome can keep presenting a 2D canvas's previous frame when a frame only clears it;
+  // every 2D context is tracked and touched after each render so the capture is current.
+  const ctx2d = [];
+  const getCtx = HTMLCanvasElement.prototype.getContext;
+  HTMLCanvasElement.prototype.getContext = function (type, ...rest) {
+    const c = getCtx.call(this, type, ...rest);
+    if (c && type === '2d' && !ctx2d.includes(c)) ctx2d.push(c);
+    return c;
+  };
+  const touchAll = () => { for (const c of ctx2d) { c.save(); c.setTransform(1, 0, 0, 1, 0, 0); c.globalAlpha = 1; c.globalCompositeOperation = 'source-over'; c.fillStyle = 'rgba(0,0,0,0.004)'; c.fillRect(0, 0, 1, 1); c.restore(); } };
+
   // ------------------------------------------------------------- seeded random
   function mulberry32(a) {
     return function () {
@@ -250,6 +261,7 @@
     for (const a of document.getAnimations?.() || []) { try { a.pause(); a.currentTime = t * 1000; } catch (e) {} }
     if (WY.tl) WY.tl.seek(t, false);
     scene.render?.(t);
+    if (RENDER) touchAll();
     if (RENDER && rafQ.size) { const q = [...rafQ.values()]; rafQ.clear(); for (const cb of q) cb(vnow); }
   }
   WY.seek = async t => { seekInternal(t); };
