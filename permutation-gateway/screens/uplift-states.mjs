@@ -68,6 +68,33 @@ const STATES = [
     ok(!!oldNums && moved.length > 0, `the card moved to the new destination in ${moved.length} of ${seen.length} frames (old forecast ${oldNums})`);
     ok(!stale.length, `the old destination's forecast never stood beside the new one (${stale.length} frames)`);
   }],
+  ['unseen', 'a destination out of sight: no forecast, no comparison, no defenders claimed', {}, async (page, ok) => {
+    // (a tile the page's own survey has below sight, in an open province near home)
+    const at = await page.evaluate(async () => {
+      const { FS } = await import('/frontier/fstate.mjs');
+      const sv = FS.survey;
+      if (!sv) return null;
+      for (const [p, q] of [[3, -1], [3, 0], [2, 1], [1, 1], [1, 0], [2, -1], [4, -1], [3, 1], [4, -2]]) {
+        const tr = FS.terrainOf?.(p, q);
+        for (let tile = 0; tile < 61; tile++) {
+          const lv = sv.levelOf(p, q, tile), name = tr?.names?.[tr.terrain?.[tile]] ?? '';
+          if (lv >= 1 && lv < 3 && name && !/water|mountain/i.test(name)) return { p, q, tile, lv, name };
+        }
+      }
+      return null;
+    });
+    ok(!!at, `found a tile out of sight (${JSON.stringify(at)})`);
+    if (!at) return;
+    await page.locator('#tabs [data-tab="hosts"]').click();
+    await page.locator('#panel-body button[data-act="compose"]:not([disabled])').first().click({ timeout: 8000 });
+    await page.evaluate(({ p, q, tile }) => { const f = document.querySelector('form[data-form="dest"]'); f.querySelector('[name=p]').value = p; f.querySelector('[name=q]').value = q; f.querySelector('[name=tile]').value = tile; f.requestSubmit(); }, at);
+    await page.locator('.mc-outlook').first().waitFor({ timeout: 12000 });
+    await page.waitForTimeout(2500);
+    const card = (await page.locator('#panel').innerText()).replace(/\s+/g, ' ');
+    ok(!/残る兵\s*\d/.test(card), 'no troops-left figure');
+    ok(!(await page.locator('.mc-compare .mcc-row').count()), 'no stance comparison');
+    ok(/わからない|見えていない/.test(card), `the card says the land is out of sight (${card.slice(0, 120)})`);
+  }],
   ['motion', 'reduced motion: nothing in the card moves', { reducedMotion: 'reduce' }, async (page, ok) => {
     await compose(page); await waitCompare(page);
     const moving = await page.evaluate(() => [...document.querySelectorAll('.mc-compare *, .mc-outlook *, .state-tag')].filter(e => {
