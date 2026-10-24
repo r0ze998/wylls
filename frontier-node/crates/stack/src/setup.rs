@@ -53,11 +53,13 @@ pub fn season_params(beacon: Beacon, end_bell: Option<u32>) -> SeasonParams {
 
 /// Human-world parameters. Acceleration changes wall time only; the rules
 /// remain fourteen days and ten-minute bells unless an explicit test end is set.
+/// The program runs S1 seasons only (an MC season is `BadData`), so this is
+/// the S1 preset: MC's parameters with `program_version` 4.
 pub fn conquest_params(
     beacon: Beacon,
     end_bell: Option<u32>,
 ) -> frontier_abi::v2::presets::SeasonParamsV2 {
-    let mut p = frontier_abi::v2::presets::MC_LOCAL_14D;
+    let mut p = frontier_abi::v2::presets::S1_LOCAL_14D;
     if beacon == Beacon::TestKey {
         p.base.quicknet_pk_hash = fclient::beacon::pk_hash(&fclient::beacon::TestKey::new().pk96);
     }
@@ -255,6 +257,11 @@ mod tests {
     fn conquest_standard_and_short_integration_seasons_validate() {
         for beacon in [Beacon::TestKey, Beacon::Archive] {
             let standard = conquest_params(beacon, None);
+            assert_eq!(
+                standard.base.program_version,
+                frontier_abi::v2::presets::PROGRAM_VERSION_S1,
+                "the program refuses any other version"
+            );
             assert_eq!(standard.base.end_bell, 14 * 144);
             assert_eq!(standard.base.bell_secs, 600);
             assert_eq!(standard.base.genesis_ring, 4);

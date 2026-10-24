@@ -51,6 +51,19 @@ pub fn pins(st: &Value) -> Result<([u8; 96], Option<[u8; 32]>), String> {
     Ok((pk, so))
 }
 
+/// The ruleset hash the run's season embeds: M1's, MC's, or S1's when the
+/// setup recorded `program_version` 4 (a state without it is MC).
+fn ruleset_hash(st: &Value) -> [u8; 32] {
+    use frontier_abi::v2::presets::{PROGRAM_VERSION_S1, RULESET_HASH_V2, RULESET_HASH_V3};
+    if st["config"]["conquest"].as_bool() != Some(true) {
+        return frontier_abi::presets::RULESET_HASH;
+    }
+    match st["season"]["program_version"].as_u64() {
+        Some(v) if v >= PROGRAM_VERSION_S1 as u64 => RULESET_HASH_V3,
+        _ => RULESET_HASH_V2,
+    }
+}
+
 /// Reads the run's chain into a verifier input.
 pub async fn read_input(st: &Value) -> Result<Input, String> {
     let rpc = format!(
@@ -84,11 +97,7 @@ pub async fn read_input(st: &Value) -> Result<Input, String> {
             program,
             season_id,
             quicknet_pk: pk,
-            ruleset_hash: if st["config"]["conquest"].as_bool() == Some(true) {
-                frontier_abi::v2::presets::RULESET_HASH_V2
-            } else {
-                frontier_abi::presets::RULESET_HASH
-            },
+            ruleset_hash: ruleset_hash(st),
             program_hash: so,
         },
         txs,
@@ -268,6 +277,25 @@ pub fn tamper(rd: &RunDir, strict: bool) -> i32 {
 mod tests {
     use super::*;
     use verify_core::Verdict;
+
+    #[test]
+    fn the_ruleset_hash_follows_the_seasons_program_version() {
+        use frontier_abi::v2::presets::{RULESET_HASH_V2, RULESET_HASH_V3};
+        let m1 = serde_json::json!({"config": {"conquest": false}});
+        assert_eq!(ruleset_hash(&m1), frontier_abi::presets::RULESET_HASH);
+        let s1 =
+            serde_json::json!({"config": {"conquest": true}, "season": {"program_version": 4}});
+        assert_eq!(ruleset_hash(&s1), RULESET_HASH_V3);
+        let mc =
+            serde_json::json!({"config": {"conquest": true}, "season": {"program_version": 3}});
+        assert_eq!(ruleset_hash(&mc), RULESET_HASH_V2);
+        let old = serde_json::json!({"config": {"conquest": true}});
+        assert_eq!(
+            ruleset_hash(&old),
+            RULESET_HASH_V2,
+            "a state from before S1"
+        );
+    }
 
     fn repo() -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..")

@@ -143,7 +143,9 @@ async fn run(
         .season(&addrs)
         .await?
         .ok_or("persisted season is missing")?;
-    if s.program_version != 3 || s.h.season_id != season {
+    // A conquest season: MC (3) or S1 (4).
+    if s.program_version < frontier_abi::v2::presets::PROGRAM_VERSION_V2 || s.h.season_id != season
+    {
         return Err("persisted season identity mismatch".into());
     }
     if !start_paused {

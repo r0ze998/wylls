@@ -196,11 +196,12 @@ pub(crate) fn kind_v1(d: &[u8]) -> Option<frontier_abi::layout::AccountKind> {
     frontier_abi::layout::AccountKind::from_magic(d.get(..8)?.try_into().ok()?)
 }
 
-/// The season figures of an MC Season (`None` for M1 or before capture).
+/// The season figures of an MC or S1 Season (`None` for M1 or before
+/// capture). S1 keeps every MC rule and the same Season layout.
 pub fn season_info(f: &Fold) -> Option<SeasonInfo> {
     let s = f.account(&f.ctx.season)?;
     let d = &s.data;
-    if rd_u16(d, SE::PROGRAM_VERSION)? != SE::PROGRAM_VERSION_V2 {
+    if rd_u16(d, SE::PROGRAM_VERSION)? < SE::PROGRAM_VERSION_V2 {
         return None;
     }
     let prm = StepParams::of_season(d)?;

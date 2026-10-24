@@ -174,7 +174,7 @@ impl Facts {
                         use frontier_abi::v2::{ix::CreateSeasonV2, presets::PROGRAM_VERSION_V2};
                         if let Some(c) = CreateSeasonV2::decode(&ix.data)
                             .ok()
-                            .filter(|c| c.params.base.program_version == PROGRAM_VERSION_V2)
+                            .filter(|c| c.params.base.program_version >= PROGRAM_VERSION_V2)
                         {
                             f.params = Some(c.params.base);
                             f.cq = Some(c.params.cq);

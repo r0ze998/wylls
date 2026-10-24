@@ -202,7 +202,7 @@ pub fn verify(input: &Input) -> Report {
         {
             end = s.end_bell;
             if s.status >= 1
-                && (s.program_version != 3
+                && (s.program_version < frontier_abi::v2::presets::PROGRAM_VERSION_V2
                     || s.ruleset_hash != input.cfg.ruleset_hash
                     || s.h.season_id != input.cfg.season_id)
             {
