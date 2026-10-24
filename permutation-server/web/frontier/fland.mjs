@@ -97,8 +97,15 @@ export function queueBuildingItem(q) {
  */
 export const BASE_PROD = Object.freeze([40, 30, 20, 15, 0, 15, 5, 0]);
 export const TIER_BONUS_PCT = Object.freeze([0, 50, 100, 175]);
-/** `catalog::base_production(tier)`, milli-units per hour (BigInt). */
-export const baseProduction = tier => BASE_PROD.map(b => (BigInt(b) * BigInt(100 + (TIER_BONUS_PCT[tier] ?? 0)) / 100n) * 1000n);
+/**
+ * `arms::holding_base_production(tier, terrain_ore)`, milli-units per hour (BigInt): `catalog::base_production(tier)`,
+ * and for an S1 holding (its stored terrain ore, milli per hour, is above zero) the ore entry is that terrain ore under
+ * the same tier bonus. Without the terrain ore an S1 village's ore from the hills around it read as mines it had built.
+ */
+export const baseProduction = (tier, terrainOre = 0) => {
+  const pct = BigInt(100 + (TIER_BONUS_PCT[tier] ?? 0)), ore = BigInt(terrainOre ?? 0);
+  return BASE_PROD.map((b, i) => (i === 3 && ore > 0n ? (ore * pct) / 100n : (BigInt(b) * pct / 100n) * 1000n));
+};
 
 // ------------------------------------------------------------------ factions and free land
 /** A faction's home wedge (the simulator's and the program's rule: wedge = faction id). */
@@ -260,7 +267,7 @@ export function projectedHolding(holding, now) {
       h.queue[i]=null;
     }
     if(Number(h.tier)!==oldTier) {
-      const before=baseProduction(oldTier),after=baseProduction(Number(h.tier));
+      const before=baseProduction(oldTier,h.terrainOre),after=baseProduction(Number(h.tier),h.terrainOre);
       h.production=h.production.map((p,i)=>p+after[i]-before[i]);
     }
     rates(next);

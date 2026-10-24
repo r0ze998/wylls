@@ -84,7 +84,7 @@ export function upgradeModel(h, stores, now) {
   h = settled(h, now);
   const offer = promotionOffer(h, { now, have: stores.map(s => s.value) });
   if (!offer) return null;
-  const before = baseProduction(h.tier), after = baseProduction(h.tier + 1);
+  const before = baseProduction(h.tier, h.terrainOre), after = baseProduction(h.tier + 1, h.terrainOre);
   return { ...offer, next: offer.to, pending: offer.running, wait: Math.max(0, offer.doneIn - offer.secs), slots: offer.gives.slots[1], cap: offer.gives.cap[1],
     short: offer.short.map(x => ({ resource: RESOURCE_ORDER[x.r], need: x.need })),
     gains: after.map((v, i) => ({ resource: RESOURCE_ORDER[i], perHour: Number(v - before[i]) / 1000 })).filter(x => x.perHour > 0) };

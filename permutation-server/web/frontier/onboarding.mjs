@@ -67,7 +67,7 @@ export function hasBuilt(h, now = 0) {
   if (!h) return false;
   // Lazy settlement may still leave the completed effect in the decoded queue.
   if ((h.queue ?? []).some(x => x && x.kind === 1 && Number(x.doneAt) > 0 && Number(x.doneAt) <= now)) return true;
-  const base = baseProduction(Number(h.tier ?? 0));
+  const base = baseProduction(Number(h.tier ?? 0), h.terrainOre);
   return (h.production ?? []).some((x, r) => BigInt(x) > (base[r] ?? 0n));
 }
 /** A Holding has Scouts trained or mustered. */

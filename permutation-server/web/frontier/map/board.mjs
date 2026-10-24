@@ -304,7 +304,7 @@ export const canAct = (row, nowBell = 0) => !!row && row.state === 1 && nowBell 
 export function buildingsOf(holding) {
   const out = [0, 0, 0, 0, 0, 0];
   if (!holding?.production) return out;
-  const base = baseProduction(holding.tier ?? 0);
+  const base = baseProduction(holding.tier ?? 0, holding.terrainOre);
   for (const b of BUILD_ITEMS) {
     // the store's index of the building's resource (none for the walls)
     const i = RESOURCE_ORDER.indexOf(b.resource);
@@ -395,7 +395,7 @@ export function boardRecords(fs) {
     if (m.open && row && row.sealed) arrivals.push({ id: m.host, p: m.dest.p, q: m.dest.q, tile: m.dest.tile, unit: row.unit, troops: row.troops, stamina: row.stamina });
   }
   // the active village at work: what `villageWork` reads, as plain data (the painters ask it for the time on screen)
-  const work = active ? { p: active.p, q: active.q, site: active.site, tile: active.tile, tier: active.tier ?? 0, walls: Number(active.walls ?? 0), production: Array.from(active.production ?? [], String),
+  const work = active ? { p: active.p, q: active.q, site: active.site, tile: active.tile, tier: active.tier ?? 0, walls: Number(active.walls ?? 0), terrainOre: String(active.terrainOre ?? 0), production: Array.from(active.production ?? [], String),
     queue: Array.from(active.queue ?? [], q => ({ doneAt: String(q?.doneAt ?? 0), kind: q?.kind ?? 0, arg: q?.arg ?? 0 })),
     stores: Array.from(active.stores ?? [], a => ({ value: String(a.value ?? 0), rate: String(a.rate ?? 0), cap: String(a.cap ?? 0), t0: String(a.t0 ?? 0), frac: String(a.frac ?? 0) })) } : null;
   return { nowBell, hosts, marches, lead: place?.host ?? null, place, village, explores, routes, arrivals, work };

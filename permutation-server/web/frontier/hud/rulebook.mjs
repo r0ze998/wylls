@@ -120,7 +120,7 @@ export function copyNumber(h, item) {
   const b = BUILD_ITEMS[item];
   if (!b || !(b.perHour > 0)) return 1;
   const r = RESOURCE_ORDER.indexOf(b.resource);
-  const base = baseProduction(Number(h.tier ?? 0))[r] ?? 0n;
+  const base = baseProduction(Number(h.tier ?? 0), h.terrainOre)[r] ?? 0n;
   const have = h.production?.[r] !== undefined ? big(h.production[r]) : base;
   const above = have > base ? have - base : 0n;
   const built = Number(above / BigInt(b.perHour * 1000));
