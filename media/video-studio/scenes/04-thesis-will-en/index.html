@@ -25,8 +25,8 @@ const FORMS = [
   { n: 'I', ttl: 'Lasting goals', acc: '目標', exp: 'Four goals per persona,<br>carried from turn to turn.', badge: 'local' },
   { n: 'II', ttl: 'Reasons that<br>cite memory', acc: '引用', exp: 'Code writes memory lines.<br>The model may cite them.', badge: 'local' },
   { n: 'III', ttl: 'Trust, and<br>unanswered grievances', acc: '信頼', exp: 'Who it trusts — and which<br>wrongs are unanswered.', badge: 'local', note: 'This form is not yet confirmed by the formal main run.' },
-  { n: 'IV', ttl: 'The right to<br>refuse an order', acc: '辞退', exp: 'An AI citizen may publicly<br>decline a Strike Order.', badge: 'code', btxt: 'Built in code · never recorded in a run', note: 'Not yet confirmed by the formal main run. No Strike Order has been adopted in any recorded run.' },
-  { n: 'V', ttl: 'A voice and a vote<br>in the council', acc: '評議会', exp: 'Code proposes targets;<br>citizens speak and vote.', badge: 'code', note: 'The council is off-chain. No Strike Order has been adopted in any recorded run.' },
+  { n: 'IV', ttl: 'The right to<br>refuse an order', acc: '辞退', exp: 'An AI citizen may publicly<br>decline a Strike Order.', badge: 'code', btxt: 'Built in code · no refusal on record yet', note: 'A refusal has not yet been confirmed in any run, formal or local.' },
+  { n: 'V', ttl: 'A voice and a vote<br>in the council', acc: '評議会', exp: 'Code proposes targets;<br>citizens speak and vote.', badge: 'local', btxt: 'Recorded in local runs · AI votes only, no human ballot yet', note: 'In local test runs, AI councils adopted 39 Strike Orders, mostly by AI votes alone. Off-chain; formal A/B not run.' },
 ];
 
 WY.scene({
@@ -57,7 +57,7 @@ WY.scene({
       if (f.ttl.includes('<br>')) { c.querySelector('.exp').style.top = '530px'; c.querySelector('.ttl').style.top = '262px'; }
       const vis = c.querySelector('.vis'); const parts = buildVis(i, vis);
       cards.push({ node: c, parts });
-      const b = WYKit.status(stage, f.badge, 'en', { x: 80, y: 60, text: f.btxt || (f.badge === 'code' ? 'Built in code · no adoption on record' : 'Recorded in local runs') }); b.node.style.zIndex = 53; badges.push(b);
+      const b = WYKit.status(stage, f.badge, 'en', { x: 80, y: 60, text: f.btxt || (f.badge === 'code' ? 'Built in code' : 'Recorded in local runs') }); b.node.style.zIndex = 53; badges.push(b);
       fnotes.push(f.note ? TK.note(stage, f.note, { y: 960, size: 28, align: 'center', x: 80, lang: 'en' }) : null);
       const p = WY.el('div', { class: 'pip' }, stage); WY.css(p, { left: W / 2 - 70 + i * 32 + 'px', top: '935px', zIndex: 30 }); pips.push(p);
     });

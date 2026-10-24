@@ -39,10 +39,11 @@ let bg, cv, ctx, world, ov, badge, end, flash, ill, dim;
 let title, steps = [], cands = [], bubs = [], seatsT, bars = [], rule, ruleChecks, stA, stB, order, orderSeal, tl, tlDot, hTitle, hcards = [], last;
 let PINS = [], KEEP, FR, SH1, SH2, ill2;
 // beats
-const T = { b0: [0, 5.6], b1: [5.6, 12.2], b2: [12.2, 20.0], b3: [20.0, 28.0], b4: [28.0, 35.6], b5: [35.6, 44.0], b6: [44.0, 52.0] };
+const T = { b0: [0, 5.6], b1: [5.6, 12.2], b2: [12.2, 20.0], b3: [20.0, 28.0], b4: [28.0, 35.6], b5: [35.6, 44.0], b6: [44.0, 56.0] };
+let RES;
 
 WY.scene({
-  width: 1920, height: 1080, duration: 56.5, fps: 30,
+  width: 1920, height: 1080, duration: 60.5, fps: 30,
   setup(stage) {
     bg = X.bg(stage, { tint: '#1a1a2a', edge: '#06060a', hex: 0.04, glow: 'rgba(163,76,216,.12)' });
     cv = WY.canvas(stage, 1920, 1080); ctx = cv.getContext('2d'); cv.style.zIndex = 1;
@@ -116,16 +117,27 @@ WY.scene({
     hcards.forEach(h => (h.className += ' hcard wy-panel'));
 
     last = X.lines(stage, [
-      { t: 'An adopted Strike Order', css: { font: "700 84px/1.15 'Cormorant Garamond'", color: '#fffaf0' } },
-      { t: 'is not yet a confirmed result.', css: { font: "700 84px/1.15 'Cormorant Garamond'", color: '#ffd24d' } },
-      { t: 'In smoke-b3, all 9 councils closed without a quorum.', css: { font: '500 38px Inter', color: 'rgba(255,250,240,.8)', marginTop: '44px' } },
-      { t: 'The formal A/B test is still to come.', css: { font: '500 38px/1.6 Inter', color: 'rgba(255,250,240,.8)' } },
-    ], { y: 330, stagger: 0.03, lineDelay: 0.6 });
+      { t: 'In local test runs, AI councils', css: { font: "700 74px/1.12 'Cormorant Garamond'", color: '#fffaf0' } },
+      { t: 'adopted Strike Orders.', css: { font: "700 74px/1.12 'Cormorant Garamond'", color: '#ffd24d' } },
+    ], { x: 110, y: 120, w: 1700, align: 'left', lineDelay: 0.4, stagger: 0.02 });
     last.node.style.zIndex = 9;
+    RES = X.box(stage, { left: '110px', top: '370px', width: '1700px', height: '560px', zIndex: 9 }, `
+      <div style="position:absolute;left:0;top:0;width:560px">
+        <div id="r39" style="font:800 220px/1 Inter;color:#fffaf0;font-variant-numeric:tabular-nums">0</div>
+        <div style="font:700 44px Inter;color:#fffaf0;margin-top:6px">Strike Orders adopted</div>
+        <div style="font:500 30px/1.45 Inter;color:rgba(255,250,240,.78);margin-top:10px">across four runs, mostly by AI<br>votes alone (3 used scripted seat ballots)</div>
+      </div>
+      <div style="position:absolute;left:700px;top:6px;width:1000px">
+        <div style="font:700 22px Inter;letter-spacing:.24em;color:#f0d48a">ADOPTED PER RUN</div>
+        ${[['smoke-r4', 2], ['ai-pilot-A1', 18], ['ai-record-2', 11], ['ai-record-3', 8]].map(([n, v]) => `<div class="rrow" data-v="${v}" style="position:relative;height:62px;margin-top:14px"><div style="position:absolute;left:0;top:12px;width:230px;font:600 28px 'JetBrains Mono';color:#fffaf0">${n}</div><div style="position:absolute;left:250px;top:8px;width:600px;height:46px;border-radius:8px;background:rgba(255,255,255,.05);border:1px solid rgba(240,212,138,.2);overflow:hidden"><div class="rf" style="position:absolute;left:0;top:0;bottom:0;width:0;background:linear-gradient(90deg,#8d6a22,#e6b84a)"></div></div><div class="rv" style="position:absolute;left:870px;top:4px;font:800 40px Inter;color:#fffaf0">0</div></div>`).join('')}
+        <div id="rclash" style="font:600 32px Inter;color:#3fdc93;margin-top:26px">18 of the 39 targets saw a clash.</div>
+      </div>
+      <div id="rfoot" style="position:absolute;left:0;top:500px;width:1700px;font:600 40px Inter;color:#ffd9a0">No person has voted yet. The formal A/B test is still to come.</div>`);
+    RES.rows = [...RES.querySelectorAll('.rrow')];
 
     ill = X.box(stage, {}, 'Illustration of the rules, not a recorded run'); ill.className = 'ill';
     ill2 = X.box(stage, {}, 'Map and pins are illustrations'); ill2.className = 'ill';
-    badge = WYKit.status(stage, 'code', 'en', { x: 80, y: 966, text: 'Built in code · formal evaluation pending' }); badge.node.style.zIndex = 20;
+    badge = WYKit.status(stage, 'local', 'en', { x: 80, y: 966, text: 'Ran on a local test chain · AI votes only' }); badge.node.style.zIndex = 20;
     flash = WYKit.flash(stage, { color: '#ffe0b0', z: 65 });
     ov = X.overlay(stage);
     end = WYKit.endCard(stage, { lang: 'en', line: 'Debate. Decide. Seal.' });
@@ -260,24 +272,31 @@ WY.scene({
     hcards.forEach((h, i) => X.show(h, t, T.b5[0] + 0.9 + i * 0.8, T.b5[1] - 0.1, { dy: 40 }));
     // b6
     last.render(t, T.b6[0] + 0.2, T.b6[1] - 1.0);
+    const kr = X.show(RES, t, T.b6[0] + 1.2, T.b6[1] - 0.6, { dy: 30 });
+    if (kr > 0) {
+      const k = WY.seg(t, T.b6[0] + 1.4, T.b6[0] + 3.6, E.outQuart); WY.$('#r39').textContent = Math.round(39 * k);
+      RES.rows.forEach((r, i) => { const v = +r.dataset.v; const kk = WY.seg(t, T.b6[0] + 1.8 + i * 0.35, T.b6[0] + 3.2 + i * 0.35, E.outCubic); r.querySelector('.rf').style.width = (v / 18) * 600 * kk + 'px'; r.querySelector('.rv').textContent = Math.round(v * kk); });
+      WY.$('#rclash').style.opacity = WY.seg(t, T.b6[0] + 4.4, T.b6[0] + 5.0);
+      WY.$('#rfoot').style.opacity = WY.seg(t, T.b6[0] + 5.6, T.b6[0] + 6.2);
+    }
 
     // illustration tag during the illustrated steps
     X.show(ill, t, T.b3[0] + 0.3, T.b4[1] - 0.1, { dy: -10 }); X.show(ill2, t, T.b1[0] + 0.5, T.b2[1] - 0.1, { dy: -10 });
-    badge.render(t, 5.8, 52.0);
+    badge.render(t, 5.8, 56.0);
     ov.render(t);
-    end.render(t - 52.2);
+    end.render(t - 56.2);
   },
 
   audio(A) {
-    A.music({ style: 'tension', bpm: 84, key: 'C', minor: true, sections: [[0, 0.25], [5.6, 0.45], [12.2, 0.55], [20, 0.65], [28, 0.8], [35.6, 0.45], [44, 0.3]], end: 52.2, outro: 'ring' });
+    A.music({ style: 'tension', bpm: 84, key: 'C', minor: true, sections: [[0, 0.25], [5.6, 0.45], [12.2, 0.55], [20, 0.65], [28, 0.8], [35.6, 0.45], [44, 0.55], [50, 0.35]], end: 56.2, outro: 'ring' });
     A.drone(0, 6, { note: 'C2', gain: 0.9 }); A.whoosh(0.3, { dur: 1.4 }); A.hit(0.6, { gain: 0.5 });
     A.whoosh(5.3); [0, 1, 2].forEach(i => A.pop(6.7 + i * 0.35));
     A.whoosh(11.9); [0, 1, 2].forEach(i => A.click(13.5 + i * 0.9, { gain: 0.8 })); for (let i = 0; i < 5; i++) A.tick(17.2 + i * 0.25, { gain: 0.6, pitch: 0.8 });
     A.whoosh(19.7); A.ticks(20.9, 22.0, 0.1, { gain: 0.35 }); A.ok(22.4, { gain: 0.6 }); A.hit(23.4, { gain: 0.7 }); A.tick(24.6, { gain: 0.6 }); A.bad(25.4, { gain: 0.5 }); A.hit(25.9, { gain: 0.4, bright: 0.2 });
     A.whoosh(27.7); A.seal(29.6, { gain: 1 }); A.boom(29.6, { gain: 0.4 }); A.ticks(30.4, 33.5, 0.5, { gain: 0.5, pitch: 0.9 }); A.glitch(33.4, { dur: 0.2, gain: 0.4 }); A.chime(33.7, { note: 'G5', gain: 0.5 });
     A.whoosh(35.3); A.hit(36.5, { gain: 0.4 }); A.hit(37.3, { gain: 0.4 });
-    A.whoosh(43.7); A.swell(44.2, 50.5, { note: 'C3', gain: 0.6 });
-    A.chime(52.6, { note: 'C6', gain: 0.4 });
+    A.whoosh(43.7); A.ticks(45.4, 47.4, 0.06, { gain: 0.35, pitch: 1.3 }); A.hit(47.6, { gain: 0.5 }); A.ok(48.6, { gain: 0.5 }); A.swell(49.5, 55, { note: 'C3', gain: 0.5 });
+    A.chime(56.6, { note: 'C6', gain: 0.4 });
   },
 });
 </script></body></html>
