@@ -225,7 +225,7 @@ function recorder2() {
 import { readFileSync } from 'node:fs';
 import * as dialcard from '../../permutation-server/web/frontier/hud/dialcard.mjs';
 import * as hud from '../../permutation-server/web/frontier/hud/hud.mjs';
-import { rowGap, ROW_GAP_MAX } from '../../permutation-server/web/frontier/hud/drawer.mjs';
+import { rowGap, ROW_GAP_MAX, releaseRows } from '../../permutation-server/web/frontier/hud/drawer.mjs';
 import * as WAIT from '../../permutation-server/web/frontier/map/waitview.mjs';
 
 const WEB = new URL('../../permutation-server/web/frontier/', import.meta.url);
@@ -281,6 +281,14 @@ test('a part of the drawer that scrolls above a foot rests on a whole row: the r
   const css = text('frontier.css');
   assert.doesNotMatch(css, /\.order-body \{[^}]*mask-image/, 'no row fades to half its contrast under the foot');
   assert.match(css, /\.order-body \{[^}]*margin-bottom: var\(--row-gap, 0px\)/);
+  // once scrolled, the bare paper goes: it stayed as a hole above the seal, with a row cut under it all the same
+  const part = (scrollTop, gap) => { const props = new Map([['--row-gap', gap]]); return { scrollTop, dataset: { scroll: 'order', gap: 'more' }, style: { getPropertyValue: k => props.get(k) ?? '', setProperty: (k, v) => props.set(k, v) }, props }; };
+  const scrolled = part(40, '95px');
+  assert.equal(releaseRows(scrolled), true);
+  assert.deepEqual([scrolled.props.get('--row-gap'), scrolled.dataset.gap], ['0px', '']);
+  assert.equal(releaseRows(part(0, '95px')), false, 'at rest the gap stays');
+  assert.equal(releaseRows(part(40, '0px')), false, 'nothing to take away');
+  assert.equal(releaseRows({ scrollTop: 40, dataset: {}, style: {} }), false, 'not a part that scrolls by itself');
 });
 
 test('one button language per material: nothing on bell metal is filled white or cream; on paper a key is ink', () => {
