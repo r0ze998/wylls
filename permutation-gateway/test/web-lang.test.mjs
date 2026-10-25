@@ -685,6 +685,7 @@ test('the word for the time step is ターン / "turn": no 鐘 and no "bell" in 
   setLang('en');
   assert.equal(L`ターン ${'1,034'} · 残り ${'6:12'}`, 'Turn 1,034 · 6:12 left');
   assert.equal(L`次のターンまで`, 'Next turn in');
-  assert.equal(L`新しいターン — ターン ${'43'}`, 'A new turn — Turn 43');
+  assert.equal(L`新しいターン`, 'A new turn');
+  assert.equal(L`ターン ${'43'}`, 'Turn 43');
   assert.equal(t('ターン'), 'Turn');
 });

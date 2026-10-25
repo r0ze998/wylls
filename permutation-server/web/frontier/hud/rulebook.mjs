@@ -20,7 +20,8 @@
 //   UNIT_STATS                              permutation-rules/src/units.rs  UNIT_STATS (class, strength, move, prod), counters()
 //   COUNTER_BPS                             permutation-rules/src/combat.rs  COUNTER
 //   settled                                 holding.rs  Holding::settle / apply; proc/holding.rs settle_tiered
-import { BUILD_ITEMS, QUEUE_KIND, BASE_PROD, TIER_BONUS_PCT, baseProduction, queueItem, projectedHolding } from '../fland.mjs';
+import { BUILD_ITEMS, QUEUE_KIND, BASE_PROD, TIER_BONUS_PCT, baseProduction, queueItem, projectedHolding, buildItemOf, WORKSHOP } from '../fland.mjs';
+import { TRAIN_ARMS_PER_100, seasonBase } from '../fs1.mjs';
 import { RESOURCE_ORDER } from '../resources.mjs';
 
 const HOUR = 3600;
@@ -86,6 +87,8 @@ export function trainCost(unit, n, programVersion = 1) {
   c[0] = TRAIN_PER_100.food * k;
   c[3] = Math.floor((TRAIN_PER_100.ore * k * prod) / TRAIN_PER_100.baseProd);
   c[5] = Math.floor((TRAIN_PER_100.gold * k * prod) / TRAIN_PER_100.baseProd);
+  // S1 (program_version 4): the strong units also cost arms (arms.rs train_v3).
+  if (Number(programVersion) >= 4) c[4] = (TRAIN_ARMS_PER_100[unit] ?? 0) * k;
   return c;
 }
 /** The most troops of `unit` the stores `have` (by resource index, whole units) pay for, in hundreds. */
@@ -117,10 +120,12 @@ export function settled(holding, now) {
 // ------------------------------------------------------------------ building
 /** The number of the copy the next Build of `item` (0–5) makes: built (production above the tier's base) + queued + 1. */
 export function copyNumber(h, item) {
-  const b = BUILD_ITEMS[item];
+  const b = buildItemOf(item);
   if (!b || !(b.perHour > 0)) return 1;
   const r = RESOURCE_ORDER.indexOf(b.resource);
-  const base = baseProduction(Number(h.tier ?? 0))[r] ?? 0n;
+  // (on S1 the ore base is the village's terrain ore, fs1.mjs seasonBase: its mines over it, not the terrain's own ore;
+  // while the terrain is not known the tier's base is used, as before)
+  const tier = Number(h.tier ?? 0), base = seasonBase(baseProduction(tier), h, { bonusPct: TIER_BONUS_PCT[tier] ?? 0 })[r] ?? baseProduction(tier)[r] ?? 0n;
   const have = h.production?.[r] !== undefined ? big(h.production[r]) : base;
   const above = have > base ? have - base : 0n;
   const built = Number(above / BigInt(b.perHour * 1000));
@@ -158,7 +163,7 @@ export const doneAfterQueue = (h, now, secs) => Math.max(now, ...(h?.queue ?? []
  * holding; `have` its stores in whole units by resource index. Codes: QueueFull (the tier's slots are taken; one
  * promotion at a time), Insufficient, AboveCap (walls at their most), TopTier.
  */
-export function buildOffers(h, { now = 0, have = [], faction = 0, walls = null } = {}) {
+export function buildOffers(h, { now = 0, have = [], faction = 0, walls = null, s1 = false } = {}) {
   const slots = queueSlots(h.tier);
   const under = (h.queue ?? []).filter(q => isQueuedAt(q, now));
   const full = under.length >= slots;
@@ -166,7 +171,9 @@ export function buildOffers(h, { now = 0, have = [], faction = 0, walls = null }
     const short = shortOf(o.cost, have);
     return { ...o, short, doneIn: doneAfterQueue(h, now, o.secs) - now, blocks: [...(full ? ['QueueFull'] : []), ...extra, ...(short.length ? ['Insufficient'] : [])] };
   };
-  const out = BUILD_ITEMS.filter(b => b.cost).map(b => {
+  // S1: the workshop (item 8) after the six buildings.
+  const items = s1 ? [...BUILD_ITEMS, WORKSHOP] : BUILD_ITEMS;
+  const out = items.filter(b => b.cost).map(b => {
     const n = copyNumber(h, b.item);
     return offer({ item: b.item, kind: 'building', resource: b.resource, perHour: b.perHour, n, cost: b.cost.map(c => duplicateCost(c, n)), intro: !!(Number(h.flags ?? 0) & 2), secs: Number(h.flags ?? 0) & 2 ? 60 : buildSecs(n) }, n > MAX_COPIES ? ['AboveCap'] : []);
   });

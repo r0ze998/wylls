@@ -98,6 +98,7 @@ pub async fn run(
     authority: &Keypair,
     beacon: Beacon,
     conquest: bool,
+    s1: bool,
     keep_bells: Option<u16>,
     join_gate: Option<[u8; 32]>,
     end_bell: Option<u32>,
@@ -109,6 +110,10 @@ pub async fn run(
     let payout = permutation_rules::frontier::payout::PayoutParams::REV3.to_borsh();
     let (sp, ph) = if conquest {
         let mut p = conquest_params(beacon, end_bell);
+        // (an S1 season: the same parameters with program_version 4 and the S1 Reveal limits)
+        if s1 {
+            p = frontier_abi::v2::presets::s1(p);
+        }
         if let Some(k) = keep_bells {
             p.cq.keep_bells = k;
         }

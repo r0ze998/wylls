@@ -368,6 +368,13 @@ test('an open march follows the current reachable turn in its card, checks, resu
   const html = String(order.render(FS));
   assert.match(html, /ターン 63 に到着/);
   assert.doesNotMatch(html, /そのターンには着けません|結果の目安まで 0:00/);
+  // when the result is known: the turn it is drawn in and the wait in whole minutes, from the same time as before
+  // (07-HUD-TEXT-FX: no ticking clock, no 「ゲーム内」 note)
+  const t = composer.marchTiming(FS, m.arriveBell);
+  const turn = Math.floor((t.resultAbout - CLOCK.genesisTs) / 600);
+  assert.ok(turn > m.arriveBell, 'the result comes after the arrival turn');
+  assert.match(html, new RegExp(`結果はターン ${turn} ごろ（約 ${Math.max(1, Math.round(t.resultIn / 60))} 分後）`));
+  assert.doesNotMatch(html, /結果の目安|ゲーム内/);
   assert.match(html, /data-act="march-send"\s*>/, 'the displayed order can depart');
   assert.ok(composer.marchTiming(FS, m.arriveBell).resultIn > 0);
   let submitted;
@@ -620,6 +627,21 @@ test('the Depart transaction the page builds is at most 800 bytes (§9.4) and wi
   assert.ok(wire.length <= budget.txCeiling);
   assert.deepEqual(io.messageProblems(message, { feePayer, blockhash, tag: 0x50, signers, cuLimit: budget.cuLimit, loadedLimit: budget.loadedLimit, expected: buildShape({ programId: A.programId, name: 'Depart', accounts, fields, feePayer, blockhash }).expected }), []);
   assert.throws(() => accountsFor('Reveal', { addresses: A }), /not a shape this page sends/, 'a Reveal is never a client transaction (I-24)');
+});
+
+test('S1 seasons (profile 3) name the ABI v2 accounts, as MC seasons (profile 2) do', () => {
+  io.setPin({ programId: ADDR.program, cluster: 'localnet', seasonId: 1 });
+  const A = io.pinned().addresses;
+  const v = profile => ({ addresses: A, wallet: ADDR.citizen.wallet, actor: ADDR.citizen.wallet, holding: { p: 2, q: 0, site: 3 }, profile });
+  for (const name of ['Harvest', 'Train', 'Build']) {
+    assert.equal(accountsFor(name, v(1)).province, undefined, `${name}: M1 names no Province`);
+    assert.equal(accountsFor(name, v(2)).province, A.of('Province', { p: 2, q: 0 }), `${name}: MC`);
+    assert.equal(accountsFor(name, v(3)).province, A.of('Province', { p: 2, q: 0 }), `${name}: S1`);
+  }
+  for (const name of ['Dissolve', 'Explore', 'Depart']) {
+    assert.equal(accountsFor(name, v(1)).holding_province, undefined);
+    assert.equal(accountsFor(name, v(3)).holding_province, A.of('Province', { p: 2, q: 0 }), `${name}: S1`);
+  }
 });
 
 // ------------------------------------------------------------------ the tracker and the lock

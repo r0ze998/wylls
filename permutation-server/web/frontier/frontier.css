@@ -47,6 +47,14 @@
   --seal: #a4382a; --seal-hi: #c9523f; --good: #2e6b4c; --bad: #9b2f24; --hold: #7a5a12;
   /* the drawer's sheet: one paper colour (hud/textures.mjs PAPER: the uneven edge is painted in the same), ink for rules and stamps */
   --paper-sheet: #f3ead3; --ink-rule: rgba(64,48,18,.34); --ink-soft: rgba(64,48,18,.16); --ink-stamp: #5c4a1e;
+  /* the states of a decision (docs/design/uplift/03-COMPONENTS): each has a colour AND a shape, never the colour alone.
+     forecast = a dashed outline (a guess the rules made), done = a solid stamp (the record says so), wait = an hourglass
+     ring (sent, not resolved), fail = a cut corner (refused, nothing changed), sealed = a lock (cannot be taken back) */
+  --st-forecast: #5c4a1e; --st-forecast-bg: rgba(92,74,30,.06);
+  --st-done: #2e6b4c; --st-done-bg: rgba(46,107,76,.1);
+  --st-wait: #7a5a12; --st-wait-bg: rgba(201,162,74,.14);
+  --st-fail: #9b2f24; --st-fail-bg: rgba(155,47,36,.09);
+  --st-sealed: #6b2a1f;
   color-scheme: light;
   font: var(--t2)/1.5 var(--ui);
   line-break: strict; word-break: normal; overflow-wrap: break-word;
@@ -165,7 +173,12 @@ body[data-urgency="crit"] main::after { box-shadow: inset 0 0 0 4px #c8412f; }
 .dial-track, .dial-arc { fill: none; stroke-width: 5; }
 .dial-track { stroke: rgba(255,255,255,.1); }
 .dial-arc { stroke: var(--brass-hi); stroke-linecap: round; stroke-dasharray: 100; stroke-dashoffset: calc(var(--f, 0) * 100px); transition: stroke-dashoffset 1s linear, stroke .3s; filter: drop-shadow(0 0 3px rgba(240,212,138,.55)); }
-.dial-text { display: grid; justify-items: center; line-height: 1; white-space: nowrap; }
+.dial-text { display: flex; flex-wrap: wrap; justify-content: center; align-items: baseline; column-gap: 3px; line-height: 1; white-space: nowrap; }
+.dial-label, .dial-num { flex-basis: 100%; text-align: center; }
+/* 「残り」 / "left" beside the time, small: the time is what is left of the turn */
+.dial-word { margin-top: 3px; font: 600 8.5px/1 var(--ui); letter-spacing: 0; color: var(--brass-hi); }
+.dial-text:has(.dial-word) .dial-left { font-size: 12.5px; letter-spacing: -.01em; }
+.dial[data-urgency="warn"] .dial-word { color: var(--amber); } .dial[data-urgency="crit"] .dial-word { color: #ffb4a4; }
 .dial-label { font: 600 var(--t1)/1 var(--ui); letter-spacing: .1em; color: var(--brass-hi); }
 .dial-num { margin-top: 3px; font: 700 var(--t4)/1 var(--display); font-variant-numeric: tabular-nums lining-nums; color: #fffaf0; text-shadow: 0 1px 2px rgba(0,0,0,.6); }
 .dial-left { margin-top: 3px; font: 600 var(--t2)/1 var(--ui); font-variant-numeric: tabular-nums; color: var(--hud-ink); }
@@ -615,6 +628,8 @@ body[data-stage="none"] :is(.lenses, .map-btn[data-map="home"]) { display: none;
 .next-row .todo-medal { background: radial-gradient(circle at 50% 30%, #f6e2a0, #c9a24a 70%, #8d7028); color: #2a1e06; box-shadow: 0 0 0 1px rgba(0,0,0,.45); }
 .next-row-t { min-width: 0; display: grid; gap: 2px; }
 .next-row-t .next-kicker { padding: 0; border: 0; }
+.next-row-k { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.next-row-k .todo-n { padding: 0 6px; font-size: var(--t1); line-height: 1.5; }
 .next-row-t strong { font: 700 var(--t3)/1.2 var(--display); letter-spacing: .02em; color: var(--ivory); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .next-todo .next-row-t strong { font: 650 var(--t2)/1.3 var(--ui); white-space: normal; }
 .next-row-do { max-width: 9.5em; font-weight: 650; text-align: right; color: var(--brass-hi); }
@@ -1028,6 +1043,12 @@ p.fact-chips { display: flex; flex-wrap: wrap; gap: var(--s1); margin: var(--s2)
 .doc-head { display: flex; align-items: flex-start; gap: var(--s3); margin: 0 0 var(--s3); padding-bottom: var(--s2); border-bottom: 3px double rgba(60,48,20,.4); }
 .doc-titles { flex: 1 1 auto; min-width: 0; display: grid; gap: 2px; }
 .doc-head h3 { margin: 0; font: 700 var(--t4)/1.25 var(--display); letter-spacing: .03em; }
+/* the kind of paper small above the place it is about */
+.doc-head h3 .doc-kicker { display: block; margin-bottom: 2px; font: 700 var(--t1)/1.3 var(--ui); letter-spacing: .14em; color: var(--ink-stamp); }
+.doc-head h3 .doc-place { display: block; text-wrap: balance; }
+/* (in the phone's sheet the drawer's head already says 衝突の報告: the kicker stays for a reader, not for the eye) */
+@media (max-width: 759px) { .panel .doc-head h3 .doc-kicker { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; } }
+.report-x { display: inline-flex; align-items: center; gap: 4px; }
 .doc-head .chip { margin-top: 5px; }
 .doc-cols { display: grid; gap: var(--s4); }
 .doc-col { min-width: 0; }
@@ -1616,6 +1637,9 @@ body[data-title="up"] :is(#attn-pill, #next-steps, #quota-chip) { display: none 
 .btn.primary { border-width: 1px; }
 .btn.quiet { border-color: transparent; background: none; }
 .btn[disabled] { background: rgba(64,48,18,.03); border-style: dashed; box-shadow: none; }
+/* (a quiet button that cannot be pressed loses its underline: 「解散」 under a marching host read as a live link
+   beside the note that said it could not be disbanded, 07-HUD-TEXT-FX) */
+.btn.quiet[disabled] { border-color: transparent; background: none; text-decoration: none; color: rgba(64,48,18,.45); }
 .btn.primary[disabled] { border-style: solid; }
 /* (a key on a dark card inside the drawer keeps the metal's own) */
 .plate .btn, .toast .btn, .ob-chip .btn, .nation-confirm .btn:not(.nc-btn), .dial-pop .btn {
@@ -1719,6 +1743,9 @@ body[data-title="up"] .dial-pop { display: none; }
 
 /* ---- the fix pass on the second review: the phone's strip and the map's own keys ---- */
 .res-more-n { display: inline-block; margin-left: 4px; padding: 1px 5px; border: 1px solid rgba(201,162,74,.6); border-radius: 9px; font-size: var(--t1); font-weight: 700; color: var(--brass-hi); line-height: 1.2; }
+/* (「ほか 3」 where there is room; a list mark and the count where there is not: never a bare 「+3」, which beside a stock read as income) */
+.res-more-s { display: none; align-items: center; gap: 1px; }
+.res-more-ic { width: 10px; height: 10px; }
 .map-tools { align-items: flex-end; }
 .map-btn[data-worded] { display: inline-flex; align-items: center; gap: 5px; width: auto; padding: 0 12px 0 9px; border-radius: 19px; }
 .map-btn-text { font-size: var(--t1); font-weight: 700; letter-spacing: .04em; white-space: nowrap; }
@@ -1727,7 +1754,9 @@ body[data-title="up"] .dial-pop { display: none; }
   .res-strip { overflow: hidden; -webkit-mask-image: none; mask-image: none; }
   .res { padding: 0 3px; gap: 2px; }
   .res:last-child { margin-right: 0; }
-  .res-more-n { margin-left: 1px; padding: 1px 2px; }
+  .res-more-n { margin-left: 1px; padding: 1px 3px; }
+  .res-more-w { display: none; }
+  .res-more-s { display: inline-flex; }
   /* the plate in the sheet has the way home: the map does not carry a second one */
   body:has(.plate-main[data-act="home"]) .map-btn[data-map="home"] { display: none; }
   .map-btn[data-worded] { border-radius: 9px; padding: 0 10px 0 8px; }
@@ -2009,6 +2038,10 @@ body[data-kind="wait"] .plate .plate-go[data-act="join-open"] { display: none; }
 .hand-ring .ring { display: block; width: 13px; height: 13px; }
 .hand-ring .ring-bg { stroke: rgba(255,255,255,.22); stroke-width: 5; } .hand-ring .ring-fg { stroke: var(--brass-hi); stroke-width: 5; }
 .hand-ring.on .ring-bg { stroke: rgba(240,212,138,.3); }
+/* (a slot in use reads as taken at a glance, however little of the work is done: a brass dot at its heart. Just after
+   a start the ring's arc was a sliver and the three slots read 「○○○」, all free, 07-HUD-TEXT-FX) */
+.hand-ring { position: relative; display: block; }
+.hand-ring.on::after { content: ''; position: absolute; inset: 4px; border-radius: 50%; background: var(--brass-hi); }
 
 /* the card above the bar */
 .hand-pop { position: fixed; z-index: 27; color: var(--hud-ink); font: var(--t2)/1.45 var(--ui); }
@@ -2132,6 +2165,10 @@ body[data-kind="wait"] .plate .plate-go[data-act="join-open"] { display: none; }
   body[data-drawer="open"][data-doc=""] .hand, body[data-drawer="open"][data-doc=""] .hand-pop[data-mode="card"] { left: calc(50% - (var(--drawer-w) + 38px + var(--edge) - var(--plate-w)) / 2); max-width: calc(100vw - var(--drawer-w) - var(--plate-w) - 5 * var(--edge)); }
   body[data-drawer="open"][data-doc=""] .hand { min-width: 0; }
   body[data-drawer="open"][data-doc=""] .hand .hand-btn { min-width: 84px; padding: 4px 8px; }
+  /* a village in hand: the bar is that village, by name and with its acts; the resting plate in the corner said the
+     same name a second time at the same height (07-HUD-TEXT-FX, 一つの事実は一か所). It steps aside as on a phone, and
+     comes back when the hand is put down; what waits this turn stays one press away on the prompt at the top */
+  body[data-hand="village"] .rail { visibility: hidden; }
 }
 @media (min-width: 760px) and (max-width: 1399px) {
   /* the corners stand above the bar's rows (it is taller than the dock) */

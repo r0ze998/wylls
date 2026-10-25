@@ -180,7 +180,9 @@ test('the village\'s bar: five orders, each an icon, a word and one live figure;
   FS.selected = { kind: 'tile', p: 2, q: 0, idx: 30 };
   const m = hand.handModel(FS);
   assert.deepEqual(m.buttons.map(b => [b.id, b.word]), [['build', '建てる'], ['train', '訓練'], ['muster', '編成'], ['harvest', '収穫'], ['promote', '昇格']]);
-  assert.deepEqual(m.buttons.map(b => b.figure), ['空き 3', '控え 500', '500', '+49', '都市へ']);
+  // (the uplift: each figure says what it counts: people in reserve, up to how many a host takes; a promotion the stores
+  // cannot pay says how many goods are short, where it said only where it leads)
+  assert.deepEqual(m.buttons.map(b => b.figure), ['空き 3', '控え 500人', '最大 500人', '+49', '足りない 3']);
   assert.ok(m.buttons.every(b => ICONS.includes(b.icon)), 'every icon is a symbol of the sprite');
   assert.ok(m.buttons.every(b => !b.why), 'a final town with a reserve may give them all');
   const bar = flat(hand.renderHand(m));
@@ -205,7 +207,7 @@ test('the village\'s bar: five orders, each an icon, a word and one live figure;
   const busy = world({ queue: [{ DONE_AT: 4_600n, KIND: 1, ARG: 0, DELTA: 12_000n }] }).FS;
   busy.selected = { kind: 'tile', p: 2, q: 0, idx: 30 };
   const b = hand.handModel(busy).buttons[0];
-  assert.deepEqual([b.figure, b.rings.map(r => r.on)], ['1時間', [true, false, false]]);
+  assert.deepEqual([b.figure, b.rings.map(r => r.on)], ['あと 1時間', [true, false, false]]);
 });
 
 test('a host\'s bar: march armed at once, explore for Scouts, home, dissolve, the next host; a tired host says its stamina and the turn it is back', () => {

@@ -1,7 +1,9 @@
 import { territoryEnabled, territoryOf } from './territory.mjs';
+import { setS1, setOreExtraProvider } from './fs1.mjs';
+import { s1Marks } from './map/s1marks.mjs';
 import * as territoryScreen from './screens/territory.mjs';
 import * as conquestScreen from './screens/conquest.mjs';
-import { conquestEnabled, outpostOffer } from './fconquest.mjs';
+import { conquestEnabled, kernelFile, outpostOffer } from './fconquest.mjs';
 // Boot of the Frontier pages (index, practice, spectate): config → the
 // herald's season record → pins (program, cluster, season, ruleset,
 // beacon) → the chain clock → the shell (bell chip, staleness banner,
@@ -52,7 +54,7 @@ import * as protoHud from './hud/proto.mjs';
 import * as pm from './proto/hand-model.mjs';
 import { renderTabs, factionChip, quotaChip, mountSheet, PHONE_MAX, row, lamports, setClockPace } from './screens/shell.mjs';
 import { cardHead, fold, label } from './screens/parts.mjs';
-import { drawerOf, closeDrawer, drawerTitle, holdsLand, viewerState, LIFTS, DRAWER_ICON, WIDE, STAGE, settleRows } from './hud/drawer.mjs';
+import { drawerOf, closeDrawer, drawerTitle, holdsLand, viewerState, LIFTS, DRAWER_ICON, WIDE, STAGE, settleRows, releaseRows } from './hud/drawer.mjs';
 import { icon, iconizeMapTools } from './hud/icons.mjs';
 import { hudInsets, noGoRects, CARDS_OVER_BOARD } from './hud/insets.mjs';
 import { mountTextures } from './hud/textures.mjs';
@@ -144,7 +146,9 @@ import * as profile from './people/profile.mjs';
 import * as glossary from './hud/glossary.mjs';
 import * as milestones from './hud/milestones.mjs';
 import * as guide from './hud/guide.mjs';
-import { forecast, forecastKey } from './hud/forecast.mjs';
+import { forecast, forecastKey, compareStances, compareKey } from './hud/forecast.mjs';
+import { keepForecast, forecastFor } from './hud/forecastbook.mjs';
+import { mountRadioKeys } from './hud/radiokeys.mjs';
 import { BUILD_ITEMS, UNIT_ORDER, SCOUT, SETTLER, ticketTimes, queueItem, queueBuildingItem } from './fland.mjs';
 import { UNIT_KINDS } from './people/units.mjs';
 import { momentSnapshot, detectMoments, liveMoments } from './people/moments.mjs';
@@ -189,14 +193,24 @@ export function dialMarkup(chip) {
   const parts = dialParts(chip);
   let rest = chipText(chip);
   const out = [];
+  // (the word that says the time is what is LEFT, 「残り」 / "left", stands beside the time, small: 「9:26」 alone read as
+  // time gone as well as time left: the design review of 2026-10-24. The rest of the glue stays for a screen reader)
+  const glue = (seg, nextToLeft) => {
+    const word = nextToLeft ? seg.replace(/[·\s]+/g, ' ').trim() : '';
+    if (!word) { out.push(html`<span class="visually-hidden">${seg}</span>`); return; }
+    const at = seg.indexOf(word);
+    if (at > 0) out.push(html`<span class="visually-hidden">${seg.slice(0, at)}</span>`);
+    out.push(html`<span class="dial-word">${word}</span>`);
+    if (at + word.length < seg.length) out.push(html`<span class="visually-hidden">${seg.slice(at + word.length)}</span>`);
+  };
   for (const [cls, text] of [['dial-label', parts.label], ['dial-num', parts.num], ['dial-left', parts.left]]) {
     const i = text ? rest.indexOf(text) : -1;
     if (i < 0) continue;
-    if (i > 0) out.push(html`<span class="visually-hidden">${rest.slice(0, i)}</span>`);
+    if (i > 0) glue(rest.slice(0, i), cls === 'dial-left');
     out.push(html`<span class="${cls}">${text}</span>`);
     rest = rest.slice(i + text.length);
   }
-  if (rest) out.push(html`<span class="visually-hidden">${rest}</span>`);
+  if (rest) glue(rest, !!parts.left && out.length > 0 && String(out[out.length - 1]).includes('dial-left'));
   return out;
 }
 
@@ -347,7 +361,7 @@ export function panelMarkup(FS, d = drawerOf(FS)) {
   const parts = [];
   if (!d) return [...parts, ...restMarkup(FS)];
   if (d.kind === 'practice') return [...parts, practiceScreen.render(FS.practice, { kernelError: FS.practiceError ?? null, closable: true })];
-  if (d.kind === 'report') return [...parts, reportScreen.render(FS, mineOf(FS.holdings), { ownerOf: reportOwner })];
+  if (d.kind === 'report') return [...parts, reportScreen.render(FS, mineOf(FS.holdings), { ownerOf: reportOwner, forecastOf: (id, bell) => forecastFor(uiStorage, scope()?.seasonId, id, bell) })];
   if (d.kind === 'march' || d.kind === 'inspect') {
     // an order being written on the map is the one document in the drawer (hud/marchcard.mjs); else what is selected
     if (FS.compose) return [...parts, marchCard.render(FS)];
@@ -1867,6 +1881,18 @@ function waitNow() {
 }
 /** The village that lands now, the first time this device sees it (map/landing.mjs). */
 const landingBook = createLandingBook();
+// the S1 marks, rebuilt when a feed or the bell changes (the map asks for its source every frame)
+let s1Memo = null;
+function s1MarksNow() {
+  const s1 = FS.s1;
+  if (!s1) return null;
+  const bell = FS.nowBell ?? null;
+  if (s1Memo?.c !== s1.caravans || s1Memo.s !== s1.structures || s1Memo.bell !== bell || s1Memo.n !== FS.holdings?.length) {
+    s1Memo = { c: s1.caravans, s: s1.structures, bell, n: FS.holdings?.length, marks: s1Marks(s1, { own: ownTag(FS), bell }) };
+  }
+  return s1Memo.marks;
+}
+
 function landingNow() {
   if (FS.mode !== 'play' || !viewerKnown || !FS.wallet?.address) return null;
   const sc = scope();
@@ -1989,6 +2015,13 @@ function updateForecast() {
   const key = forecastKey(c);
   if (!key || !c.route || c.sending) return;
   if (c.forecast?.key === key || fcBusy === key) return;
+  // (a destination out of sight: no forecast. It would be worked out from the province's whole record, the hosts the
+  // viewer cannot see among them, and its numbers would tell of them: a fort's tile out of sight said only "守り N"
+  // while the forecast counted N and every host on it. The independent audit of 2026-10-24, older than the uplift,
+  // which had made it easier to see. Same reading of sight as the card's: hud/marchcard.mjs)
+  if (FS.survey && !FS.survey.showAll && FS.survey.levelOf(c.dest.p, c.dest.q, c.dest.tile) < 3) {
+    c.forecast = { key, ok: false, why: 'OutOfSight' }; c.compare = null; invalidate('panel'); return;
+  }
   fcBusy = key;
   c.forecast = { key, pending: true };
   invalidate('panel');
@@ -1998,6 +2031,9 @@ function updateForecast() {
     let fc;
     try { fc = forecast(k, c, prov, FS.citizen?.faction ?? 0); } catch (e) { fc = { ok: false, why: e?.code ?? 'Error' }; }
     c.forecast = { key, ...fc };
+    // the stances side by side (the card's comparison): once per destination, turn and retreat, not per stance chosen
+    const ck = compareKey(c);
+    if (fc.ok && c.compare?.key !== ck) c.compare = { key: ck, rows: compareStances(k, c, prov, FS.citizen?.faction ?? 0) };
   }).catch(() => { if (FS.compose === c) c.forecast = { key, ok: false, why: 'NoWasm' }; })
     .finally(() => { fcBusy = null; invalidate('panel'); });
 }
@@ -2007,6 +2043,8 @@ const settledHolding = (h, now) => { try { return h ? settled(h, now) : h; } cat
 
 /** Once a second: compare the page's state with the last look and start the moments it shows (people/moments.mjs). */
 let momentPrev = null;
+/** The viewer's villages ("P,Q,site") at the last look of checkMoments. */
+let ownSitesSeen = new Set();
 function checkMoments() {
   if (!FS.provinces) return;
   const next = momentSnapshot({ life: FS.life ?? new Map(), constructions: constructionsNow(), provinces: FS.provinces, bell: FS.nowBell ?? null, logged: FS.chronicle !== undefined && FS.isMine !== undefined });
@@ -2014,7 +2052,17 @@ function checkMoments() {
   const fresh = detectMoments(momentPrev, next, t);
   momentPrev = next;
   // each is reported on the effects bus and played by fx/stage.mjs (`own`: the viewer's own village or host)
-  for (const m of fresh) fxEmit('moment', { ...m, own: (FS.holdings ?? []).some(h => h.p === m.p && h.q === m.q && (h.site === m.site || h.tile === m.tile)) || (m.faction !== undefined && m.faction === FS.citizen?.faction && ['muster', 'depart'].includes(m.kind) && (FS.holdings ?? []).some(h => h.p === m.p && h.q === m.q)) });
+  // (`lost` / `taken`: a site that was a village of the viewer's at the last look and is someone else's now, or none; a
+  // site the viewer holds now that another nation held: the two largest things that happen to a player, which played
+  // as small as a finished sawmill. The holdings no longer list a village just taken, so the last look's are kept)
+  const mineNow = new Set((FS.holdings ?? []).map(h => `${h.p},${h.q},${h.site}`));
+  for (const m of fresh) {
+    const key = `${m.p},${m.q},${m.site}`, village = m.kind === 'village';
+    const lost = village && ownSitesSeen.has(key) && !mineNow.has(key);
+    const taken = village && mineNow.has(key) && !ownSitesSeen.has(key) && Number.isInteger(m.from) && m.from < 6 && m.from !== FS.citizen?.faction;
+    fxEmit('moment', { ...m, lost, taken, own: lost || (FS.holdings ?? []).some(h => h.p === m.p && h.q === m.q && (h.site === m.site || h.tile === m.tile)) || (m.faction !== undefined && m.faction === FS.citizen?.faction && ['muster', 'depart'].includes(m.kind) && (FS.holdings ?? []).some(h => h.p === m.p && h.q === m.q)) });
+  }
+  if (FS.holdings) ownSitesSeen = mineNow;
 }
 
 /** The waiting view's one clock (screens/join.mjs waitClock marks the nodes): its text and its ring, every second. */
@@ -2096,13 +2144,14 @@ function renderHudTick(now) {
     attn.hidden = !nx;
     const steps = $('next-steps');
     if (steps) { steps.hidden = nx?.kind !== 'guide'; const t = L`ガイドの手順を見る`; if (steps.getAttribute('aria-label') !== t) { steps.setAttribute('aria-label', t); steps.title = t; } }
-    const key = nx ? `${nx.kind}|${nx.act}|${JSON.stringify(nx.data)}|${nx.text}` : '';
+    // (the count of other things is part of what the prompt says: it stood at 「ほか 2」 beside a to-do tab of 3)
+    const key = nx ? `${nx.kind}|${nx.act}|${JSON.stringify(nx.data)}|${nx.text}|${nx.more}` : '';
     if (nx && attn.dataset.key !== key) {
       for (const k of Object.keys(attn.dataset)) delete attn.dataset[k];
       Object.assign(attn.dataset, Object.fromEntries(Object.entries(nx.data).map(([k, v]) => [k, String(v)])), { key, act: nx.act, next: nx.kind });
       attn.setAttribute('aria-label', L`次にやること：${nx.text}`);
       attn.title = nx.hint || nx.text;
-      setHtml(attn, html`${icon(nx.icon, 'next-ic')}${nx.kicker ? html`<span class="next-kicker" aria-hidden="true">${nx.kicker}</span>` : ''}<span class="attn-long" aria-hidden="true"><strong>${nx.title}</strong>${nx.label ? html`<span class="next-do">${nx.label}</span>` : nx.more > 0 ? html`<span class="next-more">${L`ほか ${fmtNum(nx.more)}`}</span>` : ''}</span>${icon('next', 'next-go')}`);
+      setHtml(attn, html`${icon(nx.icon, 'next-ic')}${nx.kicker ? html`<span class="next-kicker" aria-hidden="true">${nx.kicker}</span>` : ''}<span class="attn-long" aria-hidden="true"><strong>${nx.short ?? nx.title}</strong>${nx.label && nx.label !== (nx.short ?? nx.title) ? html`<span class="next-do">${nx.label}</span>` : nx.more > 0 ? html`<span class="next-more">${L`ほか ${fmtNum(nx.more)}`}</span>` : ''}</span>${icon('next', 'next-go')}`);
     }
   }
 }
@@ -2505,6 +2554,9 @@ if (globalThis.document) globalThis.__wyllsHud = { noGo: () => noGoRects() };
 function showTip(hit, at) {
   const tip = $('map-tip');
   if (!tip) return;
+  // (mouse only, as said: a touch screen's tap also "hovers", and the tip then stood over the village and the lens's
+  // words beside the open card that says the same: the design review of 2026-10-24)
+  if (globalThis.matchMedia?.('(hover: none)')?.matches) { tip.hidden = true; return; }
   const acts = hit && Number.isInteger(hit.idx) ? mapRef?.art?.activities?.get(`${hit.p},${hit.q},${hit.idx}`) : null;
   const t = acts || hit ? mapRef?.art?.tiles?.find(u => u.p === hit?.p && u.pq === hit?.q && u.idx === hit?.idx) : null;
   const owner = t && t.state === 1 && t.site !== undefined ? rosterRef?.ownerOf(hit.p, hit.q, t.site) : null;
@@ -2730,7 +2782,7 @@ export function closeIntro() {
 let tollBell = null, urgentBell = null;
 /**
  * The bell toll: reported on the effects bus; fx/stage.mjs sends the brass ripple across the map, writes
- * 「新しいターン — ターン N」 into #bell-toll and sounds the bell; the dial swings (a class, visual only).
+ * 「ターン N」 (and 「新しいターン」 under it) into #bell-toll and sounds the bell; the dial swings (a class, visual only).
  * In the last 30 s of a turn `turn:urgent` goes out once.
  */
 function ringToll(bell, left = null) {
@@ -2902,7 +2954,11 @@ export const HUD_ACTIONS = {
   'march-send': async () => {
     const c = FS.compose;
     if (c?.host && c.dest && pm.fights(c.host)) protoPromise({ host: String(c.host.id), p: c.dest.p, q: c.dest.q, tile: c.dest.tile });
+    // (only a forecast of the march as sent: a stance changed a moment ago has not been forecast yet)
+    const fc = c?.forecast?.ok && c.forecast.key === forecastKey(c) ? { hostId: c.host.id, bell: c.arriveBell, stance: c.stance ?? 0, fc: c.forecast } : null;
     const r = await ACTIONS['march-send']();
+    // (sent: what the card forecast is kept on this device, for the report's 予測 beside its 確定: hud/forecastbook.mjs)
+    if (c && !FS.compose && fc) keepForecast(uiStorage, scope()?.seasonId, fc);
     if (c && !FS.compose) { FS.selected = null; FS.hand = null; FS.inspectOpen = false; FS.actor = null; FS.mapNote = null; invalidate('map', 'panel', 'tabs', 'rail'); }
     return r;
   },
@@ -3115,7 +3171,7 @@ const setFlag = (flag, add = true) => setFlags(withFlag(FS.ui?.dismissed ?? [], 
 
 /** The page's kernel, with the season's ruleset required (practice and verify refuse another). */
 async function seasonKernel() {
-  const k = await loadKernel(FS.season ? { ruleset: toHex(FS.season.rulesetHash), url: new URL(conquestEnabled(FS.season) ? './wasm/frontier-v2.wasm' : './wasm/frontier.wasm', import.meta.url) } : undefined);
+  const k = await loadKernel(FS.season ? { ruleset: toHex(FS.season.rulesetHash), url: new URL(`./wasm/${kernelFile(FS.season)}`, import.meta.url) } : undefined);
   if (FS.season && k.rulesetHash() !== toHex(FS.season.rulesetHash)) { const e = new Error('ruleset'); e.code = 'RulesetMismatch'; throw e; }
   return k;
 }
@@ -3416,6 +3472,7 @@ async function loadSeason(herald) {
   if (!FS.beacon.ok) FS.error = { code: FS.beacon.code, text: clientText(FS.beacon.code) };
   FS.record = record;
   FS.season = season;
+  setS1(season);
   FS.clock = seasonClock(season);
   // Only a localnet Clock runs accelerated (§8.7); every other cluster's rate is 1.
   FS.chain.setAccelerated(record.cluster === 'localnet');
@@ -3454,6 +3511,8 @@ export async function boot() {
   sheetRef = mountSheet();
   // a sheet that changes its height shows another part of an order: the row its foot would cut is settled again (hud/drawer.mjs settleRows), now and once the sheet has moved
   { const sheetEl = $('panel'); if (sheetEl && globalThis.MutationObserver) new MutationObserver(() => { settleSoon(); setTimeout(settleSoon, 280); mapRef?.invalidate?.(); }).observe(sheetEl, { attributes: true, attributeFilter: ['data-sheet'] }); }
+  // (and once the reader scrolls such a part, the gap left at rest goes: hud/drawer.mjs releaseRows)
+  $('panel')?.addEventListener('scroll', e => { releaseRows(e.target); }, { capture: true, passive: true });
   // the plate, the to-do lines and the objective stand in the sheet on phones and over the map on desktop
   globalThis.matchMedia?.(`(max-width: ${PHONE_MAX}px)`)?.addEventListener?.('change', () => { drawerKind = undefined; invalidate('panel', 'tabs', 'rail'); });
   const herald = createHerald({ base: cfg.herald });
@@ -3477,6 +3536,7 @@ export async function boot() {
   mountHand();
   mountTurnStrip();
   mountResGain();
+  mountRadioKeys();
   mountSound();
   if (canvas) {
     // Tile-LOD terrain from the season record's ring seeds through the rules module (W5-E R3: passed by the app).
@@ -3484,6 +3544,8 @@ export async function boot() {
     terrainRef = terrainOf;
     // places are named by what stands on them (hud/place.mjs reads the terrain through the store)
     FS.terrainOf = terrainOf;
+    // S1: a village's terrain ore, as the map reads it (fs1.mjs): its buildings, the next copy's cost and the guide count over it
+    setOreExtraProvider((p, q, tile) => map?.art?.oreAround?.(p, q, tile)?.total ?? null);
     map = new FrontierMap(canvas, {
       source: () => {
         if (rosterRef) for (let d = 0; d < (FS.record?.rings?.length ?? 1); d++) rosterRef.ensure(d);
@@ -3520,6 +3582,8 @@ export async function boot() {
           note: FS.mapNote ?? null,
           // a village this device sees land for the first time (map/landing.mjs)
           landing: landingNow(), landingSoon: landingSoon(),
+          // S1: vaults, structures and caravans from the herald's feeds (map/s1marks.mjs)
+          s1: s1MarksNow(),
           // the wait for the village on the map (map/waitview.mjs): when the next turn begins and, with a request out, when its result is due
           wait: waitNow(),
           // the viewer's pins (hud/pins.mjs)

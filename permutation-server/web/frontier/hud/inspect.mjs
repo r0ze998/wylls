@@ -15,7 +15,8 @@ import { miniCardUrl } from '../people/minis.mjs';
 import { ringOf } from '../fgeo.mjs';
 import { troopsOf } from '../fmarch.mjs';
 import { swatch } from '../screens/shell.mjs';
-import { personChip, hostOwner, holdingName, isOwnIdentity } from '../people/ui.mjs';
+import { personChip, hostOwner, holdingName, isOwnIdentity, ownTag } from '../people/ui.mjs';
+import { s1Marks, S1_WORDS } from '../map/s1marks.mjs';
 import { leaderHex } from '../people/leaders.mjs';
 import { identityOf, displayName } from '../people/identity.mjs';
 import { hostParts } from '../faddr.mjs';
@@ -87,6 +88,13 @@ export function inspectModel(FS, terrainOf) {
   }
   // (a camp's troops are whole troops in the account, Camp.TROOPS: not the thousandths a host's are)
   if (here === 3 && prov?.camp?.state === 1 && prov.camp.tile === s.idx) tile.camp = { troops: Number(prov.camp.troops) };
+  // S1: a vault or a structure on this tile, from the herald's public feeds and by the map's own rules (map/s1marks.mjs:
+  // drawn whatever the survey, the viewer's by the owner tag)
+  if (FS.s1) {
+    const mk = s1Marks(FS.s1, { own: ownTag(FS) });
+    const at = [...mk.vaults, ...mk.structures].filter(x => x.p === s.p && x.q === s.q && x.tile === s.idx);
+    if (at.length) tile.s1 = at.map(x => ({ kind: x.kind, faction: x.faction, own: x.own }));
+  }
   // Ownership is current server state, so it is only shown while this tile is in sight.
   const territory = here === 3 ? territoryOf(FS, s.p, s.q) : null;
   if (territory) tile.territory = { owner: territoryOwner(FS, s.p, s.q, s.idx), since: territory.since[s.idx] };
@@ -179,13 +187,15 @@ export function render(FS, terrainOf, activities = null) {
   // a name before coordinates (UX design 5.3): the village, the camp or the land, then where it is
   const terrain = t?.terrain ? (TERRAIN_TEXT[t.terrain]?.() ?? t.terrain) : null;
   const held = site?.state === 'holding';
-  const name = held ? holdingName({ p: m.p, q: m.q, site: site.index }, site.tier ?? 0) : t?.camp ? SITE_TEXT.camp() : site && site.state !== 'free' ? SITE_TEXT[site.state]() : terrain;
+  const s1 = t?.s1?.[0] ?? null;
+  const name = held ? holdingName({ p: m.p, q: m.q, site: site.index }, site.tier ?? 0) : t?.camp ? SITE_TEXT.camp() : site && site.state !== 'free' ? SITE_TEXT[site.state]() : s1 ? S1_WORDS[s1.kind]?.() ?? terrain : terrain;
   // under the name: what the land is, then where it is in words (the province by a village of the viewer's or by the
   // nation on whose side it lies; a village is itself the place: nothing more is said); the coordinates wait under
   // "details" (UX design 11.13)
   const where = [name && terrain && name !== terrain ? terrain : null, site && site.state === 'free' ? SITE_TEXT.free() : null, t && !held ? provinceName(FS, m.p, m.q) : null].filter(Boolean).join(' · ');
-  const mark = held ? 'home' : t?.camp ? 'tent' : t?.hosts?.length ? 'sword' : t ? 'mountain' : 'chart';
-  const side = site?.mine ? chip(L`あなたの村`, 'you') : held ? chip(html`${raw(leaderHex(site.faction, { size: 30 }))}${swatch(site.faction)}${factionName(site.faction)}`) : t?.camp ? chip(L`${fmtNum(t.camp.troops)} 兵`, 'bad') : '';
+  const mark = held ? 'home' : t?.camp ? 'tent' : t?.hosts?.length ? 'sword' : s1 ? 'shield' : t ? 'mountain' : 'chart';
+  const side = site?.mine ? chip(L`あなたの村`, 'you') : held ? chip(html`${raw(leaderHex(site.faction, { size: 30 }))}${swatch(site.faction)}${factionName(site.faction)}`) : t?.camp ? chip(L`${fmtNum(t.camp.troops)} 兵`, 'bad')
+    : s1 ? (s1.own ? chip(L`あなたのもの`, 'you') : chip(html`${swatch(s1.faction)}${factionName(s1.faction)}`)) : '';
   const chips = [];
   if (held && site.garrison !== null) chips.push(chip(L`守備隊 ${fmtNum(site.garrison)}`, '', 'shield'));
   if (site?.shield) chips.push(html`${chip(L`保護中（攻撃されません）`, 'info', 'shield')}`);

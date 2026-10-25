@@ -55,7 +55,6 @@ export default {
   '演出の見本': 'Effects demo',
   '演出の見本です。実際の記録ではありません。': 'This is an effects demo, not a real record.',
   '勝利': 'Victory',
-  '新しいターン — ターン {0}': 'A new turn — Turn {0}',
   '進軍が開封されました': 'The seal of a march was opened',
   '衝突が決着しました': 'A clash was resolved',
 
@@ -128,6 +127,11 @@ export default {
   '{0}の新しい村': 'New village of {0}',
   '{0}の村になった': 'Now a village of {0}',
   '村がなくなった': 'The village is gone',
+  '村を失いました': 'Village lost',
+  '{0}の村になりました': 'Now a village of {0}',
+  '村は残っていません': 'Nothing of it remains',
+  '村を奪いました': 'Village taken',
+  '{0}から': 'From {0}',
 
   // ---- season status
   '予告済み': 'Announced',
@@ -144,6 +148,9 @@ export default {
   '石材': 'Stone',
   '鉱石': 'Ore',
   '学術': 'Science',
+  '兵器': 'Arms',
+  '工房': 'Workshop',
+  '隊商・構造物・国家の最新情報を取得できませんでした。': 'Could not load the latest caravans, structures and nations.',
   '槍兵': 'Spearman',
   '弓兵': 'Archer',
   '騎兵': 'Horseman',
@@ -396,7 +403,7 @@ export default {
   'ここへは届きません': 'Out of reach from here',
   'まだひらいていない土地です': 'This land is not open yet',
   'ルールを読み込んでいます': 'Loading the rules',
-  '到着：ターン {0}': 'Arrives on turn {0}',
+  '到着予定：ターン {0}': 'Would arrive on turn {0}',
   '第{0}輪の州': 'A province of ring {0}',
   '位置': 'Position',
   '軍勢を選ぶと光るマス': 'Tiles that light up when you select a host',

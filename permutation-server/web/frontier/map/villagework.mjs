@@ -42,10 +42,11 @@ export const QUEUED = Object.freeze({ scale: 0.74, alpha: 0.78 });
  * The scaffolds of a village at chain time `now`: `[{p, q, site, slot, item, kind, share, queued, doneAt}]` (the
  * shape the people's painter and the plates take for a construction, one for each queue item).
  */
-export function scaffoldsOf(work, now = 0) {
+export function scaffoldsOf(work, now = 0, { oreExtra = null } = {}) {
   if (!work) return [];
   let w = null;
-  try { w = villageWork(work, now); } catch { w = null; }
+  // (`oreExtra`: on S1, the village's terrain ore, so a queued mine's start counts the mines it has: board.mjs villageWork)
+  try { w = villageWork(work, now, { oreExtra }); } catch { w = null; }
   return (w?.queue ?? []).map((q, i) => ({ p: work.p, q: work.q, site: work.site, slot: i, item: q.item, kind: q.kind, queued: i > 0, share: i > 0 ? 0 : q.share, doneAt: q.doneAt }));
 }
 

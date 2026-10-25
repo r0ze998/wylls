@@ -25,7 +25,7 @@ import { L, fmtNum, onLangChange } from '../../lang.mjs';
 import { project, RADIUS as R } from '../../map.mjs';
 import { tileHex, hexDistance, locate } from '../fgeo.mjs';
 import { keyHex } from '../map/survey.mjs';
-import { factionName } from '../fi18n.mjs';
+import { factionName, TIERS } from '../fi18n.mjs';
 import { FACTION_FILL, FACTION_DARK, FACTION_LIGHT } from '../people/avatar.mjs';
 import { UNIT_KINDS, routePoints } from '../people/units.mjs';
 import { bus as defaultBus } from './bus.mjs';
@@ -45,7 +45,9 @@ const worldOf = at => { if (!at) return null; const h = Number.isInteger(at.tile
 
 /** When the toll's banner comes after the stroke and how long it stays (s), and the gap between two results played one after another. */
 export const TOLL_BANNER_AT = 0.3;
-export const TOLL_BANNER_SECS = 2.6;
+// (1.6 s: the dial carries the turn; the banner only names it, and this turn's results, which wait for it, come a
+// second sooner. It was 2.6 s with 「新しいターン — ターン N」, which said ターン twice: the design review of 2026-10-24)
+export const TOLL_BANNER_SECS = 1.6;
 export const RESULT_GAP = 0.7;
 /** How long one result's mark plays (the card's row is lit as long), and the pause after a battle that played as its own result. */
 export const RESULT_SECS = 1.5;
@@ -93,7 +95,7 @@ export function playToll(fx, { turn, home = null, wait = 0 } = {}) {
   // under the dial, at the top of the stage the HUD leaves free (a phone: between its two columns of buttons, on two lines)
   // (`wait`: a battle is on stage and its verdict stands where this banner would: the stroke and the bell are now, the
   // banner's words come when the scene has ended)
-  fx.play('banner', { title: L`新しいターン — ターン ${fmtNum(turn)}`, into: fx.doc?.getElementById?.('bell-toll') ?? '#bell-toll', y: 0, dur: TOLL_BANNER_SECS, delay: TOLL_BANNER_AT + Math.max(0, wait), seed });
+  fx.play('banner', { title: L`ターン ${fmtNum(turn)}`, sub: L`新しいターン`, into: fx.doc?.getElementById?.('bell-toll') ?? '#bell-toll', y: 0, dur: TOLL_BANNER_SECS, delay: TOLL_BANNER_AT + Math.max(0, wait), seed });
   fx.sound('bell', { delay: 0.2, seed });
 }
 
@@ -341,9 +343,24 @@ export function playMoment(fx, m, { bus = defaultBus } = {}) {
         fx.play('burst', { ...at, kind: 'smoke', n: 14, height: 0.3, radius: 0.35, stagger: 0.6, seed });
       }
       fx.play('dust', { ...at, power: 1.2, delay: 0.1, seed });
-      caption(MOMENT_LABEL.village(m), { ...(to !== null ? { color: fill(to), icon: 'banner' } : { tone: 'ivory' }), delay: 0.45, dur: 2.3, lift: to !== null ? 2.95 : 1.5 });
+      // (lost or taken: the band below says it; the tile's own labels still make way while the flag changes)
+      if (m.lost || m.taken) fx.hush(at, 3.6);
+      else caption(MOMENT_LABEL.village(m), { ...(to !== null ? { color: fill(to), icon: 'banner' } : { tone: 'ivory' }), delay: 0.45, dur: 2.3, lift: to !== null ? 2.95 : 1.5 });
       fx.play('pip', { ...at, color: to !== null ? fill(to) : '#d8cfb8', seed });
-      if (m.own) fx.sound('drum', { delay: 0.1, seed, level: 0.7 });
+      // the two largest things that happen to a player get the weight of a battle's verdict: a band over the map, a held
+      // beat, the drum (the design review of 2026-10-24: losing a village played as small as a finished sawmill).
+      // From the record only: `lost` / `taken` are the page's own reading of its holdings (app.mjs checkMoments)
+      if (m.lost) {
+        fx.play('banner', { title: L`村を失いました`, sub: to !== null ? L`${factionName(to)}の村になりました` : L`村は残っていません`, tone: 'loss', y: 0.05, dur: 3.2, delay: 0.5, seed: `${seed}|lost` });
+        fx.shake(3, 180, { seed });
+        fx.sound('drum', { delay: 0.1, seed, level: 1 });
+        fx.sound('drum', { delay: 0.55, seed: `${seed}|2`, level: 0.8 });
+      } else if (m.taken) {
+        fx.play('banner', { title: L`村を奪いました`, sub: L`${factionName(m.from)}から`, tone: 'win', color: fill(to), y: 0.05, dur: 3.0, delay: 0.5, seed: `${seed}|taken` });
+        fx.play('burst', { ...at, kind: 'spark', n: 26, height: 0.6, power: 1.1, delay: 0.15, seed: `${seed}|s`, colors: ['#fff6dc', TONE.you, fill(to)] });
+        fx.sound('shimmer', { delay: 0.5, seed });
+        fx.sound('drum', { delay: 0.1, seed, level: 0.9 });
+      } else if (m.own) fx.sound('drum', { delay: 0.1, seed, level: 0.7 });
       break;
     }
     case 'depart':
@@ -434,7 +451,11 @@ export function playPromotion(fx, a) {
   fx.play('ripple', { ...at, color: light(a.faction), radius: (a.to ?? 2) + 0.8, delay: 0.12, seed });
   fx.play('ripple', { ...at, color: TONE.you, radius: (a.to ?? 2) + 0.3, delay: 0.5, seed: `${seed}|rim` });
   fx.play('burst', { ...at, kind: 'spark', n: 22, height: 0.5, power: 1.0, delay: 0.12, seed, colors: ['#fff6dc', TONE.you, fill(a.faction)] });
-  fx.play('tag', { ...at, text: a.grew ? L`村のまわりが広がりました` : L`村が大きくなりました`, icon: 'home', tone: 'gold', lift: 3.05, delay: 0.6, dur: 3.0, seed });
+  // (a rank is one of the few things a player works hours for: it is named on a band, as a battle's verdict is, and
+  // what it changed is its small line: the design review of 2026-10-24. It was a caption 「村のまわりが広がりました」)
+  const rank = Number.isInteger(a.tier) && TIERS[a.tier] ? TIERS[a.tier] : null;
+  if (rank) fx.play('banner', { title: L`${rank}になりました`, sub: a.grew ? L`村のまわりが広がりました` : L`村が大きくなりました`, tone: 'win', color: light(a.faction), y: 0.05, dur: 3.0, delay: 0.45, seed: `${seed}|band` });
+  else fx.play('tag', { ...at, text: a.grew ? L`村のまわりが広がりました` : L`村が大きくなりました`, icon: 'home', tone: 'gold', lift: 3.05, delay: 0.6, dur: 3.0, seed });
   fx.hush(at, 3.7);
   fx.play('pip', { ...at, color: TONE.you, seed });
 }

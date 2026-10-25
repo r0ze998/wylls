@@ -266,6 +266,14 @@ function kit(g, x, y, u, lw) {
 }
 
 /**
+ * The same kit for the other things that stand on the board in the villages' hand (map/structures.mjs: the vault,
+ * the watchtower, the palisade, the fort, the cart): `u` as paintVillage's, the line width its own. With the
+ * palettes, so a storehouse's timber is the villages' timber.
+ */
+export const villageKit = (g, x, y, u) => kit(g, x, y, u, Math.max(0.011 * u, 0.5));
+export const VILLAGE_PALETTE = Object.freeze({ WALL, WOOD, STONE, BRASS, F, roofOf });
+
+/**
  * What a village has built, added to its picture (UX design 14.2: "when it completes the annex is added to the
  * village's picture"): one small addition for each kind of building it has at least one of (fland.mjs BUILD_ITEMS:
  * 0 farm, 1 woodcutter, 2 quarry, 3 mine, 4 market, 5 school), so a village with farms and a mine looks different
@@ -274,7 +282,7 @@ function kit(g, x, y, u, lw) {
  * left). Buildings have no tile in the rules (Build names an item, not a place): they are part of the village's own
  * picture, never on a hex of their own. `k` = r / 0.78: the ring's size against a town's.
  */
-export const ANNEX_AT = Object.freeze([[-1.3, -0.16], [-1.02, -0.6], [-0.6, -1.0], [0.84, -0.86], [0.34, -1.1], [-0.2, -1.16]]);
+export const ANNEX_AT = Object.freeze([[-1.3, -0.16], [-1.02, -0.6], [-0.6, -1.0], [0.84, -0.86], [0.34, -1.1], [-0.2, -1.16], [1.24, -0.74]]);
 function annexes(g, K, u, lw, k, annex, roof, add) {
   const has = i => (annex?.[i] ?? 0) > 0;
   const at = i => [ANNEX_AT[i][0] * k, ANNEX_AT[i][1] * k];
@@ -337,6 +345,22 @@ function annexes(g, K, u, lw, k, annex, roof, add) {
     // a market hall: a brass roof and a striped awning
     const [gx, gy] = at(4);
     add(gy, () => { K.house({ gx, gy, ha: 0.12, hb: 0.085, h: 0.11, rh: 0.1, along: 'a', roof: brass, chimney: false }); K.stall(gx + 0.2, gy + 0.08, BRASS.mid); });
+  }
+  if (has(6)) {
+    // S1, a workshop (map/board.mjs buildingsOf's seventh entry): a low stone forge, a tall chimney, the glow of its
+    // hearth in the door, an anvil and a rack of finished arms beside it
+    const [gx, gy] = at(6);
+    add(gy, () => {
+      K.house({ gx, gy, ha: 0.13, hb: 0.09, h: 0.09, rh: 0.07, along: 'b', roof: slate, wall: { ...WALL, lit: STONE.lit, mid: STONE.mid, shade: STONE.shade, dark: STONE.dark, line: STONE.line }, door: false });
+      const [cx, cy] = K.Q(gx, gy, -0.06, -0.04, 0.16), w = 0.026 * u, hh = 0.16 * u;
+      poly(g, [[cx - w, cy], [cx + w, cy], [cx + w * 0.8, cy - hh], [cx - w * 0.8, cy - hh]], STONE.mid, STONE.line, lw);
+      poly(g, [[cx, cy], [cx + w, cy], [cx + w * 0.8, cy - hh], [cx, cy - hh]], STONE.shade);
+      const d = [K.Q(gx, gy, -0.03, 0.09, 0), K.Q(gx, gy, 0.05, 0.09, 0), K.Q(gx, gy, 0.05, 0.09, 0.06), K.Q(gx, gy, -0.03, 0.09, 0.06)];
+      poly(g, d, '#e8792e', 'rgba(60,24,8,.8)', lw * 0.8);
+      const [ax, ay] = K.P(gx + 0.22, gy + 0.16), s = 0.03 * u;
+      poly(g, [[ax - s * 1.4, ay - s], [ax + s * 1.4, ay - s], [ax + s * 0.6, ay - s * 0.4], [ax + s * 0.4, ay], [ax - s * 0.4, ay], [ax - s * 0.6, ay - s * 0.4]], '#3d4246', 'rgba(20,20,20,.9)', lw * 0.8);
+      for (const k of [-0.5, 0, 0.5]) line(g, [K.P(gx + 0.3 + k * 0.05, gy + 0.04, 0), K.P(gx + 0.32 + k * 0.05, gy + 0.04, 0.12)], '#8e959a', lw * 1.4);
+    });
   }
   if (has(5)) {
     // a school: a slender round tower with a slate cap, a brass ball on it

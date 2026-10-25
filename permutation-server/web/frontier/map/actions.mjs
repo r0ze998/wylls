@@ -377,6 +377,9 @@ export function paintActionGround(g, A, { zoom = 1, now = fxNow(), still = false
   g.strokeStyle = rgba(M.fill, 1);
   for (const { width, alpha } of INNER) { g.globalAlpha = alpha * a; g.lineWidth = width; g.stroke(S.edge); }
   g.restore();
+  // the lattice of where the order can go (docs/design/uplift 01: the board's grid is a breath at rest, and a crisp
+  // line only here): every tile of the reach outlined in the pale rim's colour
+  g.globalAlpha = 0.46 * a; g.strokeStyle = 'rgba(250,246,230,1)'; g.lineWidth = 0.9 * k; g.stroke(S.fill);
   if (S.chart) { g.globalAlpha = 0.09 * a; g.fillStyle = rgba(CHART_INK, 1); g.fill(S.chart); }
   // a tile inside the reach that the host cannot enter: a light hatch, no frame
   if (S.holes) paintHatch(g, S.holes, S.shape, k, 0.2 * a);
@@ -456,6 +459,25 @@ export function paintReachDim(g, A, { box, now = fxNow(), still = false, dim = 1
   g.save();
   g.globalAlpha = REACH.dim * show * dim; g.fillStyle = 'rgba(8,16,15,1)';
   g.fill(path, 'evenodd');
+  g.restore();
+}
+
+/** How far the world outside a selected village's land steps back: a grey veil (colour out), then a little dark. */
+// (softer than a blackout: the page selects the viewer's village by itself after the landing and on the guide's steps,
+// and the world must stay readable round it; seen on the local chain, 2026-10-24)
+export const LENS = Object.freeze({ grey: 'rgba(122,122,114,.36)', dark: 'rgba(8,16,15,.14)' });
+/**
+ * The village's lens (docs/design/uplift 06): everything in the box outside the loops (a village's land, world px)
+ * greyed and darkened, so the land the village works is the one thing in colour. Drawn over what stands.
+ */
+export function paintLandLens(g, loops, box) {
+  if (!g?.save || !box || typeof Path2D === 'undefined') return;
+  const path = new Path2D();
+  path.rect(box.x0, box.y0, box.x1 - box.x0, box.y1 - box.y0);
+  for (const l of loops) { l.forEach(([x, y], i) => (i ? path.lineTo(x, y) : path.moveTo(x, y))); path.closePath(); }
+  g.save();
+  g.fillStyle = LENS.grey; g.fill(path, 'evenodd');
+  g.fillStyle = LENS.dark; g.fill(path, 'evenodd');
   g.restore();
 }
 
@@ -682,5 +704,9 @@ export const NOTE_TEXT = Object.freeze({
 export const reachText = n => L`近く ${fmtNum(n)} マス · その先も選べます`;
 /** Where the reach's own words stand: the top of its contour (world px), or null. */
 export const reachTop = A => (typeof Path2D === 'undefined' ? null : shapeOf(A)?.top ?? null);
-/** The route's arrival, as the ribbon's tag says it. */
-export const arrivalText = bell => L`到着：ターン ${fmtNum(bell)}`;
+/**
+ * The route's arrival, as the ribbon's tag says it. The ribbon is always a plan (the order being written, or the route
+ * under the pointer; a sent march has its own seal line): the tag says 予定, so a plan left on the map after a refused
+ * send never reads as a march on its way.
+ */
+export const arrivalText = bell => L`到着予定：ターン ${fmtNum(bell)}`;

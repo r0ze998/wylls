@@ -225,7 +225,7 @@ function recorder2() {
 import { readFileSync } from 'node:fs';
 import * as dialcard from '../../permutation-server/web/frontier/hud/dialcard.mjs';
 import * as hud from '../../permutation-server/web/frontier/hud/hud.mjs';
-import { rowGap, ROW_GAP_MAX } from '../../permutation-server/web/frontier/hud/drawer.mjs';
+import { rowGap, ROW_GAP_MAX, releaseRows } from '../../permutation-server/web/frontier/hud/drawer.mjs';
 import * as WAIT from '../../permutation-server/web/frontier/map/waitview.mjs';
 
 const WEB = new URL('../../permutation-server/web/frontier/', import.meta.url);
@@ -281,6 +281,14 @@ test('a part of the drawer that scrolls above a foot rests on a whole row: the r
   const css = text('frontier.css');
   assert.doesNotMatch(css, /\.order-body \{[^}]*mask-image/, 'no row fades to half its contrast under the foot');
   assert.match(css, /\.order-body \{[^}]*margin-bottom: var\(--row-gap, 0px\)/);
+  // once scrolled, the bare paper goes: it stayed as a hole above the seal, with a row cut under it all the same
+  const part = (scrollTop, gap) => { const props = new Map([['--row-gap', gap]]); return { scrollTop, dataset: { scroll: 'order', gap: 'more' }, style: { getPropertyValue: k => props.get(k) ?? '', setProperty: (k, v) => props.set(k, v) }, props }; };
+  const scrolled = part(40, '95px');
+  assert.equal(releaseRows(scrolled), true);
+  assert.deepEqual([scrolled.props.get('--row-gap'), scrolled.dataset.gap], ['0px', '']);
+  assert.equal(releaseRows(part(0, '95px')), false, 'at rest the gap stays');
+  assert.equal(releaseRows(part(40, '0px')), false, 'nothing to take away');
+  assert.equal(releaseRows({ scrollTop: 40, dataset: {}, style: {} }), false, 'not a part that scrolls by itself');
 });
 
 test('one button language per material: nothing on bell metal is filled white or cream; on paper a key is ink', () => {
@@ -465,7 +473,8 @@ test('a strip that cannot show every resource says how many more there are on it
   const two = hud.renderStrip(tokens, null, 2).map(String);
   assert.equal(two.length, 2, 'two tokens, no third piece that could be cut at the plaque\'s point');
   assert.doesNotMatch(two[0], /res-more-n/);
-  assert.match(two[1], /class="res-more-n" aria-hidden="true">\+3</);
+  assert.match(two[1], /class="res-more-n" aria-hidden="true"><span class="res-more-w">ほか 3<\/span><span class="res-more-s"><svg[^]*?<\/svg>3<\/span>/);
+  assert.doesNotMatch(two[1], />\+3</, 'never a bare plus beside a stock');
   assert.ok(two.every(x => /data-r="\*"/.test(x)), 'each opens every resource');
   const allOf = hud.renderStrip(tokens, null, 8).map(String);
   assert.equal(allOf.length, 5); assert.ok(allOf.every(x => !/res-more-n/.test(x)));

@@ -138,6 +138,20 @@ export function settleRows(doc = globalThis.document, rowsOf = part => part.quer
   return n;
 }
 /**
+ * Once the reader scrolls such a part, the bare paper left at rest has done its work: it goes, so the part reaches
+ * its foot again. It stayed while scrolled — a 95 px hole above the seal, with the row under it cut all the same (the
+ * stances compared, the design review of 2026-10-24). True when a gap was taken away.
+ */
+export function releaseRows(part) {
+  if (!part?.dataset || part.dataset.scroll === undefined || !(part.scrollTop > 0)) return false;
+  const had = part.style?.getPropertyValue?.('--row-gap');
+  if (!had || had === '0px') return false;
+  part.style.setProperty('--row-gap', '0px');
+  part.dataset.gap = '';
+  return true;
+}
+
+/**
  * The gap for a part `height` px tall whose rows are `[{top, bottom, leaf, head?}]` (px from its top): from the last
  * whole row to its foot when a leaf row is cut there, else 0. A heading (`head`: a label of what follows) is never
  * left as the last whole row above rows that are not whole: it goes below the fold with them.

@@ -50,5 +50,24 @@ export function forecast(kernel, c, province, faction, runs = FORECAST_RUNS) {
   return { ok: true, runs, troops: { min, max, start: c.host.troops }, fates, certain };
 }
 
+/** How many seeds each stance of the comparison is tried with (fewer than the chosen stance's own forecast). */
+export const COMPARE_RUNS = 8;
+/**
+ * The four stances side by side (docs/design/uplift: "compare the actions"): the same forecast for every stance the
+ * march could take, everything else as composed. `[{stance, ...forecast}]` in STANCES order; a stance whose forecast
+ * fails carries its `{ok: false, why}`. A guide, as the forecast is: other arrivals are sealed until their turn.
+ */
+export function compareStances(kernel, c, province, faction, runs = COMPARE_RUNS, stances = 4) {
+  const out = [];
+  for (let s = 0; s < stances; s++) {
+    let fc;
+    try { fc = forecast(kernel, { ...c, stance: s }, province, faction, runs); } catch (e) { fc = { ok: false, why: e?.code ?? 'Error' }; }
+    out.push({ stance: s, ...fc });
+  }
+  return out;
+}
+/** The key a comparison is for: the forecast's without the stance (choosing a stance does not recompute it). */
+export const compareKey = c => (c?.host && c.dest ? `${c.host.id}|${c.dest.p},${c.dest.q},${c.dest.tile}|${c.arriveBell}|${c.retreat}|${c.ratio}` : null);
+
 /** The key a forecast is for (recompute when any input changes). */
 export const forecastKey = c => (c?.host && c.dest ? `${c.host.id}|${c.dest.p},${c.dest.q},${c.dest.tile}|${c.arriveBell}|${c.stance}|${c.retreat}|${c.ratio}` : null);

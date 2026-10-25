@@ -70,7 +70,7 @@ The page says what happened on the bus; `stage.mjs` decides what it looks and so
 
 | Event | Who emits it | Payload | What plays |
 |---|---|---|---|
-| `bell` | `app.mjs` `ringToll` (the turn number grew) | `{turn, home: {p, q, tile} \| null}` | brass ripple from the Engine (from home when the Engine is off screen), the banner 「新しいターン — ターン N」 carried by `#bell-toll`, a burst on `#bell-chip`, the bell |
+| `bell` | `app.mjs` `ringToll` (the turn number grew) | `{turn, home: {p, q, tile} \| null}` | brass ripple from the Engine (from home when the Engine is off screen), the banner 「ターン N」 with 「新しいターン」 under it (1.6 s) carried by `#bell-toll`, a burst on `#bell-chip`, the bell |
 | `feed` | `app.mjs` `tickFeed` (fresh notifications) | `{turn, fresh: [hud/feed items + tile, faction]}` | this turn's own results after the toll, 0.7 s apart: own arrivals unseal, own battles strike, warnings close in |
 | `turn:urgent` | `app.mjs` `ringToll`, once a turn at 30 s left | `{turn, secondsLeft}` | one ember beat on `#bell-chip`, a tick |
 | `battle` | `app.mjs` `playBattle` | `{play, focus, zoom, viewerFaction, lossText, numText}` | `stageBattle` |

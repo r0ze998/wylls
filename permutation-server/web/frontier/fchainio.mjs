@@ -103,7 +103,10 @@ export const txStatus = (sig, opts) => request('GET', `/f/tx/${encodeURIComponen
 export const quota = (citizen, opts) => request('GET', `/f/quota?citizen=${encodeURIComponent(citizen)}`, opts);
 
 // ------------------------------------------------------------------ message checks (§9.4)
-/** Player shapes (session or wallet signer) the relay accepts (§8.3): ABI v2's, which extend M1's. */
+/**
+ * Player shapes (session or wallet signer) the relay accepts (§8.3): ABI v2's, which extend M1's (S1 included:
+ * 0xB0 BuildVault and 0xB7 BuildStructure, which this page builds, are among them).
+ */
 export const PLAYER_TAGS = Object.freeze(TAGS_V2.instructions.filter(i => i.relay_player_shape).map(i => i.tag));
 /**
  * Settle shapes (no authority signer) this page sends: SettleExplore and

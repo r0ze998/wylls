@@ -16,7 +16,7 @@
 import { html, raw } from '../../util.mjs';
 import { L, fmtNum, lang } from '../../lang.mjs';
 import { BUILDINGS, TIERS, factionName } from '../fi18n.mjs';
-import { BUILD_ITEMS, queueItem } from '../fland.mjs';
+import { queueItem, buildItemOf } from '../fland.mjs';
 import { keepEventSide } from '../fconquest.mjs';
 import { holdingName } from '../people/ui.mjs';
 import { playerFace } from '../people/faces.mjs';
@@ -194,7 +194,7 @@ export function diffFeed(prev, next) {
   for (const b of completed) {
     if (prev.builds.has(b)) continue;
     const [p, q, site, kind] = b.split(',').map(Number);
-    out.push({ id: `bd:${b}`, kind: 'build', bell, p, q, text: L`${BUILDINGS[BUILD_ITEMS[kind]?.resource] ?? L`建物`}が完成しました（${village(next.holdings.get(`${p},${q},${site}`) ?? { p, q, site })}）` });
+    out.push({ id: `bd:${b}`, kind: 'build', bell, p, q, text: L`${BUILDINGS[buildItemOf(kind)?.resource] ?? L`建物`}が完成しました（${village(next.holdings.get(`${p},${q},${site}`) ?? { p, q, site })}）` });
   }
   for (const [k, h] of next.holdings) {
     const was = prev.holdings.get(k);

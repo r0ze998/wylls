@@ -14,7 +14,7 @@ import { html } from '../../util.mjs';
 import { L, fmtNum } from '../../lang.mjs';
 import { countdown, bellStart } from '../clock.mjs';
 import { unitCount, BUILDINGS, TIERS } from '../fi18n.mjs';
-import { BUILD_ITEMS, UNIT_ORDER, QUEUE_KIND, hostsIn, queueItem } from '../fland.mjs';
+import { UNIT_ORDER, QUEUE_KIND, hostsIn, queueItem, buildItemOf } from '../fland.mjs';
 import { DEPART_STAMINA } from '../fmarch.mjs';
 import { holdingName } from '../people/ui.mjs';
 import { icon } from './icons.mjs';
@@ -73,7 +73,7 @@ export function nextBellItems(FS, { hostInfo = null, decides = null } = {}) {
     if (toll !== null) for (const q of h.queue ?? []) {
       const done = Number(q.doneAt ?? 0);
       if (!(done > now) || done > toll) continue;
-      const name = q.kind === QUEUE_KIND.TIER_UP ? L`${TIERS[Number(h.tier ?? 0) + 1] ?? ''}への昇格` : BUILDINGS[BUILD_ITEMS[queueItem(q)]?.resource] ?? L`建物`;
+      const name = q.kind === QUEUE_KIND.TIER_UP ? L`${TIERS[Number(h.tier ?? 0) + 1] ?? ''}への昇格` : BUILDINGS[buildItemOf(queueItem(q))?.resource] ?? L`建物`;
       out.push({ icon: 'hammer', text: L`${name}が終わります（あと ${took(done - now)}）`, go: { p: h.p, q: h.q, tile: h.tile } });
     }
   }

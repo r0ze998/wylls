@@ -70,6 +70,9 @@ export function renderNations(FS) {
   const pick = cards.find(c => c.chosen) ?? null;
   const instant = Number(FS.season?.programVersion ?? 1) >= 2;
   const busy = !!FS.homeChoice?.busy || !!FS.homeChoice?.pending || FS.inFlight > 0;
+  // Before the first turn the program has no turn to place a village in (PlaceHome: WrongStatus): say so, no button to fail.
+  const now = FS.chain?.now?.() ?? null, g = FS.clock?.genesisTs;
+  const early = instant && now !== null && Number.isFinite(g) && now < g ? Math.max(1, Math.ceil((g - now) / 60)) : 0;
   // The season's join gate (I-51), or a relay that answered InviteRequired.
   // A season with a prize pool is joined by paying its fee (x402), not with an invite.
   const gated = !FS.prize && (FS.inviteRequired || !!FS.season?.joinGate?.some?.(x => x !== 0));
@@ -86,7 +89,7 @@ export function renderNations(FS) {
     <div class="nc-what">${says}${pick ? '' : html`<div class="nc-item nc-def"><span class="nc-hint">${icon('banner')}</span><div class="nc-text"><strong class="nc-name">${L`旗を一つ選んでください`}</strong><span class="nc-pitch">${L`選ぶのは国だけです。最初の村の場所は自動で決まります。`}</span></div></div>`}</div>
     <div class="nc-go">
       ${gated ? html`<label class="field nc-invite">${L`招待コード`}<input name="invite" autocomplete="off" data-bind="invite" value="${FS.joinDraft?.invite ?? ''}"></label>` : ''}
-      ${FS.wallet ? html`<button type="button" class="btn primary nc-btn" data-act="${instant ? 'home-confirm' : 'join'}" ${raw(pick && !busy ? '' : 'disabled')}>${icon('banner')}${busy ? L`村を準備しています…` : pick ? L`${pick.name}で始める` : L`国を選んで始める`}</button>`
+      ${FS.wallet ? html`<button type="button" class="btn primary nc-btn" data-act="${instant ? 'home-confirm' : 'join'}" ${raw(pick && !busy && !early ? '' : 'disabled')}>${icon('banner')}${busy ? L`村を準備しています…` : early ? L`季節の始まりを待っています` : pick ? L`${pick.name}で始める` : L`国を選んで始める`}</button>${early ? html`<p class="nc-early" role="status">${L`最初のターンが始まると参加できます（あと約 ${early} 分）。国はいま選んでおけます。`}</p>` : ''}`
         : html`<div class="nc-wallet"><span class="nc-wallet-k">${L`始めるには、先にウォレットをつなぎます。`}</span>${walletButtons(FS)}</div>`}
     </div>
     ${instant && FS.homeChoice?.error ? html`<p class="notice error" role="alert">${FS.homeChoice.error.text ?? failureText(FS.homeChoice.error)}</p>` : ''}
@@ -280,7 +283,7 @@ export function renderGrant(FS) {
     ${waitHead(FS, L`ここが、あなたの村です。`, 'granted')}
     <p class="home-village-name">${holdingName(h)}</p>
     <p>${L`村の旗が立ちました。最初の建物を選び、この土地での暮らしを始めましょう。`}</p>
-    ${stores.length ? html`<dl class="home-supplies">${kit.map(([i, name]) => html`<div><dt>${name}</dt><dd>${fmtNum(Number(stores[i]?.value ?? 0) / 1000)}</dd></div>`)}</dl>` : ''}
+    ${stores.length ? html`<dl class="home-supplies">${kit.map(([i, name]) => html`<div><dt>${name}</dt><dd>${fmtNum(Math.floor(Number(stores[i]?.value ?? 0) / 1000))}</dd></div>`)}</dl>` : ''}
     ${FS.prizePayment ? html`<p class="prize-receipt">${L`参加費 ${tokenUnits(FS.prizePayment.fee)} テストUSDC を支払いました（支払い前 ${tokenUnits(FS.prizePayment.before)} → 支払い後 ${tokenUnits(FS.prizePayment.after ?? 0)}）。`}</p>` : ''}
     <div class="actions"><button type="button" class="btn primary" data-act="home-begin">${icon('hammer')}${L`最初の建設を選ぶ`}</button></div>
   </section>`;

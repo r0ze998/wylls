@@ -732,13 +732,33 @@ function renderStake(r, stake) {
  * keep?, verify?, verifying?}`; `mine(id)` marks the viewer's own; `whatIf` offers
  * the practice "what if" (not on the spectator page: it has no own hosts).
  */
-export function render(FS, mine = () => false, { whatIf = true, ownerOf = null } = {}) {
+/**
+ * What was forecast beside what happened (docs/design/uplift/02-CORE-FLOW): for each arrival of the viewer's in this
+ * clash whose seal this device kept a forecast for (hud/forecastbook.mjs), the range the card showed (予測, dashed)
+ * and what the record says now (確定, a solid stamp). A row without a kept forecast is not shown: nothing is made up
+ * after the fact. Before the outcome is known the result column says so.
+ */
+export function renderPrediction(rows, bell, forecastOf) {
+  if (typeof forecastOf !== 'function') return '';
+  const items = rows.filter(x => x.mine && x.kind === 'arrival').map(x => ({ x, f: forecastOf(x.id, bell) })).filter(o => o.f);
+  if (!items.length) return '';
+  const range = f => (f.min === f.max ? fmtNum(f.min) : L`${fmtNum(f.min)}〜${fmtNum(f.max)}`);
+  return html`<section class="rep-predict" aria-label="${L`予測と確定`}">
+    <table class="rp-table"><thead><tr><th></th><th><span class="state-tag state-forecast">${L`予測`}</span> ${L`出発時`}</th><th><span class="state-tag state-done">${L`確定`}</span> ${L`ターン ${fmtNum(bell)}`}</th></tr></thead>
+    <tbody>${items.map(({ x, f }) => html`<tr><th>${L`残る兵`}</th><td>${range(f)}</td><td><strong>${x.after === null ? L`確かめると出ます` : fmtNum(x.after)}</strong>${x.after !== null && (x.after < f.min || x.after > f.max) ? html` <span class="rp-out">${L`予測の幅の外`}</span>` : ''}</td></tr>`)}</tbody></table>
+    <p class="muted rp-note">${L`予測は、出発したときにこの端末がルールで試した幅です。確定は、チェーンの記録の数です。`}</p></section>`;
+}
+
+export function render(FS, mine = () => false, { whatIf = true, ownerOf = null, forecastOf = null } = {}) {
   const r = FS.report;
   if (!r) return '';
   // the place by a name, the turn once (the chip beside the title): no coordinates and no second number in the title
   const title = L`衝突の報告：${provinceName(FS, r.p, r.q)}`;
-  const close = html`<button type="button" class="btn small quiet report-x" data-act="report-close">${L`閉じる`}</button>`;
-  const head = html`<header class="doc-head"><span class="doc-titles"><h3 id="report-title">${title}</h3></span>${chip(html`${icon('bell')}${L`ターン ${fmtNum(r.bell)}`}`)}${close}</header>`;
+  // (the kind of paper small above, the place large: 「衝突の報告：ラマールの町のある州」 broke in the middle of the place on a
+  // phone. The way out of the paper goes back to what was under it — the drawer's own × closes the drawer — so it says
+  // 戻る: two buttons both called 閉じる did different things, 07-HUD-TEXT-FX)
+  const close = html`<button type="button" class="btn small quiet report-x" data-act="report-close">${icon('return')}${L`戻る`}</button>`;
+  const head = html`<header class="doc-head"><span class="doc-titles"><h3 id="report-title"><span class="doc-kicker">${L`衝突の報告`}</span><span class="doc-place">${provinceName(FS, r.p, r.q)}</span></h3></span>${chip(html`${icon('bell')}${L`ターン ${fmtNum(r.bell)}`}`)}${close}</header>`;
   if (r.loading) return html`<section aria-labelledby="report-title" class="report doc">${head}<div class="wait-row">${ring(null)}<p class="muted">${L`読み込み中…`}</p></div></section>`;
   if (r.error) return html`<section aria-labelledby="report-title" class="report doc">${head}<p class="notice error" role="alert">${L`報告を読めませんでした（${r.error}）`}</p></section>`;
   const rep = r.clash?.report ?? {};
@@ -772,6 +792,7 @@ export function render(FS, mine = () => false, { whatIf = true, ownerOf = null }
   return html`<section aria-labelledby="report-title" class="report doc">${head}
     <h4 class="visually-hidden">${L`兵の前と後`}</h4>
     ${renderVersus(rows)}
+    ${renderPrediction(rows, r.bell, forecastOf)}
     ${renderStake(r, keepStake(r, rows, FS.conquest?.keeps?.get?.(`${r.p},${r.q}`) ?? null))}
     <div class="doc-cols">
       <div class="doc-col">${renderHeadline(summaryOf(rows), r)}</div>
@@ -819,8 +840,12 @@ const NATION_LINE = {
   turned: () => L`退くのも兵法のうちだ。兵は残った。`,
   fell: () => L`痛い負けだ。だが辺境は広い。立て直そう。`,
   none: () => L`結末はまだ分からぬ。確かめてから語ろう。`,
+  // (arrived: only the arrival is known, no other side is named; the line claims no more than the stamp)
+  arrived: () => L`たどり着いた。この地を守り抜こう。`,
   watch: () => L`この地はわれらのものだ。`,
 };
+/** The line under a verdict: one per stamp word, so the nation never says more (or less) than the stamp. */
+const LINE_OF = { won: 'won', repelled: 'won', held: 'held', arrived: 'arrived', turned: 'turned', fell: 'fell', none: 'none' };
 function leaderLine(f, key) {
   if (!Number.isInteger(f) || f < 0 || f > 5) return '';
   return html`<p class="report-leader"><span class="report-fig">${raw(leaderFigure(f))}</span><span><q>${NATION_LINE[key]()}</q> <span class="muted">— ${factionName(f)}</span></span></p>`;
@@ -838,10 +863,14 @@ function renderHeadline(sum, r) {
       <p class="muted">${L`全体の損害 ${fmtNum(sum.lost)}`}</p>${sum.leader !== null ? leaderLine(sum.leader, 'watch') : ''}${buttons}</div>`;
   }
   const vd = verdictOf(sum);
-  // (whether the march got there is said beside the losses, unless the headline already says it)
+  // (whether the march got there is said beside the losses, unless the headline already says it; the hosts' results
+  // under it, unless they are all 戦場に残った and the headline said that too. The nation's line follows the stamp's word:
+  // a report stamped 着いた, with no other side named yet, had the nation cry 「見事な勝利だ」, 07-HUD-TEXT-FX)
+  const fates = [...new Set(sum.fates)];
+  const saidFates = fates.length === 1 && fates[0] === 'Stays' && (vd.key === 'arrived' || vd.key === 'held');
   return html`<div class="report-head report-${sum.result}">${stamp(vd.key, vd.tone)}<p class="report-result"><strong>${vd.text}</strong></p>
     <p>${L`あなたの損害 ${sum.lostKnown === false ? '—' : fmtNum(sum.lost)} / ${fmtNum(sum.before)}`}${sum.reached === null || vd.key === 'arrived' ? '' : sum.reached ? html` · ${L`行き先に着いた`}` : html` · ${L`行き先に残れなかった`}`}</p>
-    ${sum.fates.length ? html`<p class="muted">${[...new Set(sum.fates)].map(f => FATE_TEXT[f] ?? f).join(' · ')}</p>` : ''}${leaderLine(sum.faction, sum.result)}${buttons}</div>`;
+    ${fates.length && !saidFates ? html`<p class="muted">${fates.map(f => FATE_TEXT[f] ?? f).join(' · ')}</p>` : ''}${leaderLine(sum.faction, LINE_OF[vd.key] ?? 'none')}${buttons}</div>`;
 }
 
 /** Per-tile detail: who fought where, losses taken and dealt, the stance edge, the defenders' retaliation. */
