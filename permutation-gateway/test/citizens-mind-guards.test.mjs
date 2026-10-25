@@ -2,6 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import { createServer } from 'node:net';
 import { assertLoopbackUrl, assertAiPort, assertNoApiKeys, assertLlamaUrl, assertServiceConfig, configHash, canonicalJson, GuardError } from '../citizens/mind/guards.mjs';
 import { createLlm, mindSeed, buildRequestBody } from '../citizens/mind/llm.mjs';
 import { createCitizensService } from '../citizens/server.mjs';
@@ -131,12 +132,27 @@ test('start-pinned.sh pins the contract flags (port 41901, one slot, thinking of
   assert.ok(code.includes('gemma-4-26B-A4B-it-Q4_0.gguf'));
 });
 
-test('probe.mjs refuses any port outside 41901-41999 (never 41900)', () => {
+/** A port of the AI window nothing listens on now, from 41999 down (a running stack may hold some). */
+async function freeAiPort() {
+  for (let p = 41999; p >= 41901; p--) {
+    const free = await new Promise((done) => {
+      const s = createServer();
+      s.once('error', () => done(false));
+      s.listen(p, '127.0.0.1', () => s.close(() => done(true)));
+    });
+    if (free) return p;
+  }
+  throw new Error('every port of 41901-41999 is in use');
+}
+
+test('probe.mjs refuses any port outside 41901-41999 (never 41900)', async () => {
   for (const port of ['41900', '8080', '41100']) {
     const r = spawnSync(process.execPath, [new URL('../citizens/llama/probe.mjs', import.meta.url).pathname, '--port', port], { encoding: 'utf8' });
     assert.equal(r.status, 2, port);
     assert.match(r.stderr, /refuses port/);
   }
-  const r = spawnSync(process.execPath, [new URL('../citizens/llama/probe.mjs', import.meta.url).pathname, '--port', '41999'], { encoding: 'utf8' });
-  assert.equal(r.status, 3, 'nothing listens there: exits 3 without sending anything');
+  // 41999 was fixed here; on 2026-10-26 another stack's process listened on it, and the probe measured that process.
+  const free = String(await freeAiPort());
+  const r = spawnSync(process.execPath, [new URL('../citizens/llama/probe.mjs', import.meta.url).pathname, '--port', free], { encoding: 'utf8' });
+  assert.equal(r.status, 3, `nothing listens on ${free}: exits 3 without sending anything`);
 });
