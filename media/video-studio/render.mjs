@@ -78,9 +78,27 @@ await page.evaluate(() => WY.seek(0));
 const fps = +flag('fps', draft ? 15 : meta.fps);
 const scale = draft ? 0.5 : 1;
 const cdp = await page.context().newCDPSession(page);
+// --hide-leaf RE: hide the innermost elements whose text matches RE (a word inside a panel).
+// --hide-block RE: hide the whole overlay holding matching text (its nearest positioned ancestor).
+// RE "*" with --hide-block hides every text overlay, leaving the canvases (clean art stills).
+const hideLeaf = flag('hide-leaf', null), hideBlock = flag('hide-block', null);
 async function shot(t, fmt = 'png') {
   await page.evaluate(tt => WY.seek(tt), t);
-  const r = await cdp.send('Page.captureScreenshot', { format: fmt, quality: fmt === 'jpeg' ? 95 : undefined, optimizeForSpeed: true, captureBeyondViewport: false, clip: { x: 0, y: 0, width: meta.width, height: meta.height, scale } });
+  if (hideLeaf || hideBlock) await page.evaluate(([leaf, block]) => {
+    const test = (re, s) => re === '*' ? /\S/.test(s) : new RegExp(re, 'i').test(s);
+    const leaves = [...document.querySelectorAll('#stage *')].filter(e => !['CANVAS', 'IMG', 'SVG', 'svg'].includes(e.tagName) && [...e.childNodes].some(n => n.nodeType === 3 && /\S/.test(n.textContent)));
+    for (const e of leaves) {
+      if (leaf && test(leaf, e.textContent)) e.style.visibility = 'hidden';
+      if (block && test(block, e.textContent)) {
+        let a = e;
+        while (a.parentElement && a.parentElement.id !== 'stage' && !['absolute', 'fixed'].includes(getComputedStyle(a).position)) a = a.parentElement;
+        a.style.visibility = 'hidden';
+      }
+    }
+  }, [hideLeaf, hideBlock]);
+  // --clip x,y,w,h --zoom z: capture only that region, z times sharper (stills, e.g. a 16:9 detail at full size)
+  const cl = flag('clip', null) ? String(flag('clip')).split(',').map(Number) : [0, 0, meta.width, meta.height];
+  const r = await cdp.send('Page.captureScreenshot', { format: fmt, quality: fmt === 'jpeg' ? 95 : undefined, optimizeForSpeed: true, captureBeyondViewport: false, clip: { x: cl[0], y: cl[1], width: cl[2], height: cl[3], scale: scale * +flag('zoom', 1) } });
   return Buffer.from(r.data, 'base64');
 }
 
