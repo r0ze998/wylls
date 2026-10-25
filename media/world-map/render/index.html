@@ -1,0 +1,16 @@
+<!doctype html><meta charset="utf-8"><title>Wylls world map</title>
+<link rel="stylesheet" href="../.cache/fonts/fonts.css">
+<style>html,body{margin:0;background:#2a2622}#preview{display:block;max-width:100vw}</style>
+<canvas id="preview"></canvas>
+<script type="module">
+import './world.mjs';
+const { ready, layers } = window.WORLD;
+const info = await ready;
+// a small preview of the stacked layers named in ?show= (default base) for a person who opens the page
+const show = (new URLSearchParams(location.search).get('show') ?? 'base').split(',');
+const pv = document.getElementById('preview'), k = Math.min(1, 1600 / info.width);
+pv.width = Math.round(info.width * k); pv.height = Math.round(info.height * k);
+const g = pv.getContext('2d');
+for (const n of show) if (layers[n]) g.drawImage(layers[n], 0, 0, pv.width, pv.height);
+document.title = 'ready';
+</script>

@@ -1,0 +1,2054 @@
+{
+ "note": "DEMO population (制作上の補完): villages, hosts and contests composed on a recorded season's real sites; not a record of play",
+ "season": "season-92",
+ "seed": 7,
+ "nations": [
+  {
+   "share": 0.32009694328997285,
+   "growth": 0.3102365681552328
+  },
+  {
+   "share": 0.5188572095381097,
+   "growth": 0.6431331901694648
+  },
+  {
+   "share": 0.4662328528845683,
+   "growth": 0.5186831485014409
+  },
+  {
+   "share": 0.3332568943407387,
+   "growth": 0.35174640637123955
+  },
+  {
+   "share": 0.40088739576283844,
+   "growth": 0.2941699368646368
+  },
+  {
+   "share": 0.5171634493721649,
+   "growth": 0.33033876060508194
+  }
+ ],
+ "villages": [
+  {
+   "p": -1,
+   "q": -1,
+   "site": 7,
+   "faction": 3,
+   "tier": 2,
+   "walls": false,
+   "garrison": 164
+  },
+  {
+   "p": -1,
+   "q": -1,
+   "site": 1,
+   "faction": 3,
+   "tier": 1,
+   "walls": false,
+   "garrison": 261
+  },
+  {
+   "p": -1,
+   "q": -1,
+   "site": 3,
+   "faction": 3,
+   "tier": 2,
+   "walls": true,
+   "garrison": 153
+  },
+  {
+   "p": -1,
+   "q": -1,
+   "site": 8,
+   "faction": 3,
+   "tier": 1,
+   "walls": true,
+   "garrison": 278
+  },
+  {
+   "p": -1,
+   "q": -2,
+   "site": 2,
+   "faction": 3,
+   "tier": 0,
+   "walls": false,
+   "garrison": 118
+  },
+  {
+   "p": -1,
+   "q": -2,
+   "site": 4,
+   "faction": 3,
+   "tier": 1,
+   "walls": false,
+   "garrison": 177
+  },
+  {
+   "p": -1,
+   "q": -3,
+   "site": 2,
+   "faction": 3,
+   "tier": 0,
+   "walls": false,
+   "garrison": 92
+  },
+  {
+   "p": -1,
+   "q": -3,
+   "site": 11,
+   "faction": 3,
+   "tier": 0,
+   "walls": false,
+   "garrison": 122
+  },
+  {
+   "p": -1,
+   "q": 2,
+   "site": 9,
+   "faction": 1,
+   "tier": 0,
+   "walls": false,
+   "garrison": 61
+  },
+  {
+   "p": -1,
+   "q": 2,
+   "site": 1,
+   "faction": 1,
+   "tier": 0,
+   "walls": false,
+   "garrison": 77
+  },
+  {
+   "p": -1,
+   "q": 2,
+   "site": 3,
+   "faction": 1,
+   "tier": 1,
+   "walls": false,
+   "garrison": 223
+  },
+  {
+   "p": -1,
+   "q": 2,
+   "site": 8,
+   "faction": 1,
+   "tier": 1,
+   "walls": false,
+   "garrison": 213
+  },
+  {
+   "p": -1,
+   "q": 2,
+   "site": 6,
+   "faction": 1,
+   "tier": 0,
+   "walls": false,
+   "garrison": 95
+  },
+  {
+   "p": -1,
+   "q": 2,
+   "site": 4,
+   "faction": 1,
+   "tier": 3,
+   "walls": false,
+   "garrison": 513
+  },
+  {
+   "p": -1,
+   "q": 2,
+   "site": 11,
+   "faction": 1,
+   "tier": 0,
+   "walls": false,
+   "garrison": 114
+  },
+  {
+   "p": -1,
+   "q": 3,
+   "site": 2,
+   "faction": 1,
+   "tier": 3,
+   "walls": false,
+   "garrison": 581
+  },
+  {
+   "p": -1,
+   "q": 3,
+   "site": 7,
+   "faction": 1,
+   "tier": 0,
+   "walls": false,
+   "garrison": 126
+  },
+  {
+   "p": -1,
+   "q": 3,
+   "site": 3,
+   "faction": 1,
+   "tier": 3,
+   "walls": true,
+   "garrison": 535
+  },
+  {
+   "p": -1,
+   "q": 3,
+   "site": 10,
+   "faction": 1,
+   "tier": 0,
+   "walls": false,
+   "garrison": 110
+  },
+  {
+   "p": -1,
+   "q": 3,
+   "site": 1,
+   "faction": 1,
+   "tier": 0,
+   "walls": false,
+   "garrison": 143
+  },
+  {
+   "p": -1,
+   "q": 4,
+   "site": 3,
+   "faction": 1,
+   "tier": 0,
+   "walls": false,
+   "garrison": 138
+  },
+  {
+   "p": -1,
+   "q": 4,
+   "site": 10,
+   "faction": 1,
+   "tier": 0,
+   "walls": false,
+   "garrison": 75
+  },
+  {
+   "p": -1,
+   "q": 4,
+   "site": 11,
+   "faction": 1,
+   "tier": 0,
+   "walls": false,
+   "garrison": 64
+  },
+  {
+   "p": -2,
+   "q": -1,
+   "site": 7,
+   "faction": 3,
+   "tier": 1,
+   "walls": true,
+   "garrison": 298
+  },
+  {
+   "p": -2,
+   "q": -1,
+   "site": 2,
+   "faction": 3,
+   "tier": 1,
+   "walls": true,
+   "garrison": 252
+  },
+  {
+   "p": -2,
+   "q": -1,
+   "site": 3,
+   "faction": 3,
+   "tier": 0,
+   "walls": false,
+   "garrison": 109
+  },
+  {
+   "p": -2,
+   "q": -2,
+   "site": 6,
+   "faction": 3,
+   "tier": 0,
+   "walls": false,
+   "garrison": 124
+  },
+  {
+   "p": -2,
+   "q": -2,
+   "site": 7,
+   "faction": 3,
+   "tier": 0,
+   "walls": false,
+   "garrison": 81
+  },
+  {
+   "p": -2,
+   "q": 0,
+   "site": 1,
+   "faction": 3,
+   "tier": 0,
+   "walls": false,
+   "garrison": 99
+  },
+  {
+   "p": -2,
+   "q": 0,
+   "site": 7,
+   "faction": 3,
+   "tier": 1,
+   "walls": false,
+   "garrison": 141
+  },
+  {
+   "p": -2,
+   "q": 1,
+   "site": 11,
+   "faction": 2,
+   "tier": 0,
+   "walls": false,
+   "garrison": 62
+  },
+  {
+   "p": -2,
+   "q": 1,
+   "site": 1,
+   "faction": 2,
+   "tier": 0,
+   "walls": false,
+   "garrison": 149
+  },
+  {
+   "p": -2,
+   "q": 1,
+   "site": 7,
+   "faction": 2,
+   "tier": 0,
+   "walls": false,
+   "garrison": 80
+  },
+  {
+   "p": -2,
+   "q": 1,
+   "site": 3,
+   "faction": 2,
+   "tier": 0,
+   "walls": false,
+   "garrison": 68
+  },
+  {
+   "p": -2,
+   "q": 1,
+   "site": 4,
+   "faction": 2,
+   "tier": 0,
+   "walls": false,
+   "garrison": 107
+  },
+  {
+   "p": -2,
+   "q": 1,
+   "site": 6,
+   "faction": 2,
+   "tier": 0,
+   "walls": false,
+   "garrison": 84
+  },
+  {
+   "p": -2,
+   "q": 2,
+   "site": 7,
+   "faction": 2,
+   "tier": 2,
+   "walls": false,
+   "garrison": 307
+  },
+  {
+   "p": -2,
+   "q": 2,
+   "site": 11,
+   "faction": 2,
+   "tier": 2,
+   "walls": false,
+   "garrison": 237
+  },
+  {
+   "p": -2,
+   "q": 2,
+   "site": 2,
+   "faction": 2,
+   "tier": 0,
+   "walls": false,
+   "garrison": 141
+  },
+  {
+   "p": -2,
+   "q": 3,
+   "site": 1,
+   "faction": 1,
+   "tier": 2,
+   "walls": true,
+   "garrison": 146
+  },
+  {
+   "p": -2,
+   "q": 3,
+   "site": 6,
+   "faction": 1,
+   "tier": 0,
+   "walls": false,
+   "garrison": 85
+  },
+  {
+   "p": -2,
+   "q": 3,
+   "site": 2,
+   "faction": 1,
+   "tier": 1,
+   "walls": false,
+   "garrison": 196
+  },
+  {
+   "p": -2,
+   "q": 4,
+   "site": 0,
+   "faction": 1,
+   "tier": 0,
+   "walls": false,
+   "garrison": 51
+  },
+  {
+   "p": -2,
+   "q": 4,
+   "site": 2,
+   "faction": 1,
+   "tier": 0,
+   "walls": false,
+   "garrison": 126
+  },
+  {
+   "p": -2,
+   "q": 4,
+   "site": 9,
+   "faction": 1,
+   "tier": 0,
+   "walls": false,
+   "garrison": 137
+  },
+  {
+   "p": -3,
+   "q": -1,
+   "site": 3,
+   "faction": 3,
+   "tier": 0,
+   "walls": false,
+   "garrison": 44
+  },
+  {
+   "p": -3,
+   "q": -1,
+   "site": 10,
+   "faction": 3,
+   "tier": 0,
+   "walls": false,
+   "garrison": 118
+  },
+  {
+   "p": -3,
+   "q": 0,
+   "site": 1,
+   "faction": 3,
+   "tier": 0,
+   "walls": false,
+   "garrison": 52
+  },
+  {
+   "p": -3,
+   "q": 0,
+   "site": 9,
+   "faction": 3,
+   "tier": 0,
+   "walls": false,
+   "garrison": 130
+  },
+  {
+   "p": -3,
+   "q": 1,
+   "site": 1,
+   "faction": 2,
+   "tier": 0,
+   "walls": false,
+   "garrison": 159
+  },
+  {
+   "p": -3,
+   "q": 1,
+   "site": 6,
+   "faction": 2,
+   "tier": 1,
+   "walls": false,
+   "garrison": 277
+  },
+  {
+   "p": -3,
+   "q": 1,
+   "site": 2,
+   "faction": 2,
+   "tier": 0,
+   "walls": false,
+   "garrison": 64
+  },
+  {
+   "p": -3,
+   "q": 2,
+   "site": 6,
+   "faction": 2,
+   "tier": 1,
+   "walls": false,
+   "garrison": 186
+  },
+  {
+   "p": -3,
+   "q": 2,
+   "site": 2,
+   "faction": 2,
+   "tier": 0,
+   "walls": false,
+   "garrison": 67
+  },
+  {
+   "p": -3,
+   "q": 2,
+   "site": 3,
+   "faction": 2,
+   "tier": 1,
+   "walls": true,
+   "garrison": 173
+  },
+  {
+   "p": -3,
+   "q": 2,
+   "site": 10,
+   "faction": 2,
+   "tier": 1,
+   "walls": false,
+   "garrison": 173
+  },
+  {
+   "p": -3,
+   "q": 3,
+   "site": 1,
+   "faction": 2,
+   "tier": 2,
+   "walls": false,
+   "garrison": 459
+  },
+  {
+   "p": -3,
+   "q": 3,
+   "site": 9,
+   "faction": 2,
+   "tier": 0,
+   "walls": false,
+   "garrison": 85
+  },
+  {
+   "p": -3,
+   "q": 3,
+   "site": 10,
+   "faction": 2,
+   "tier": 2,
+   "walls": true,
+   "garrison": 148
+  },
+  {
+   "p": -3,
+   "q": 4,
+   "site": 9,
+   "faction": 1,
+   "tier": 2,
+   "walls": false,
+   "garrison": 346
+  },
+  {
+   "p": -3,
+   "q": 4,
+   "site": 2,
+   "faction": 1,
+   "tier": 0,
+   "walls": false,
+   "garrison": 137
+  },
+  {
+   "p": -4,
+   "q": 0,
+   "site": 8,
+   "faction": 3,
+   "tier": 0,
+   "walls": false,
+   "garrison": 135
+  },
+  {
+   "p": -4,
+   "q": 0,
+   "site": 10,
+   "faction": 3,
+   "tier": 0,
+   "walls": false,
+   "garrison": 155
+  },
+  {
+   "p": -4,
+   "q": 1,
+   "site": 4,
+   "faction": 2,
+   "tier": 0,
+   "walls": false,
+   "garrison": 119
+  },
+  {
+   "p": -4,
+   "q": 1,
+   "site": 7,
+   "faction": 2,
+   "tier": 0,
+   "walls": false,
+   "garrison": 144
+  },
+  {
+   "p": -4,
+   "q": 2,
+   "site": 7,
+   "faction": 2,
+   "tier": 0,
+   "walls": false,
+   "garrison": 81
+  },
+  {
+   "p": -4,
+   "q": 2,
+   "site": 2,
+   "faction": 2,
+   "tier": 0,
+   "walls": false,
+   "garrison": 53
+  },
+  {
+   "p": -4,
+   "q": 3,
+   "site": 11,
+   "faction": 2,
+   "tier": 0,
+   "walls": false,
+   "garrison": 58
+  },
+  {
+   "p": -4,
+   "q": 3,
+   "site": 10,
+   "faction": 2,
+   "tier": 1,
+   "walls": false,
+   "garrison": 251
+  },
+  {
+   "p": -4,
+   "q": 4,
+   "site": 0,
+   "faction": 2,
+   "tier": 1,
+   "walls": true,
+   "garrison": 254
+  },
+  {
+   "p": -4,
+   "q": 4,
+   "site": 5,
+   "faction": 2,
+   "tier": 0,
+   "walls": false,
+   "garrison": 61
+  },
+  {
+   "p": -4,
+   "q": 4,
+   "site": 11,
+   "faction": 2,
+   "tier": 0,
+   "walls": false,
+   "garrison": 154
+  },
+  {
+   "p": 0,
+   "q": -2,
+   "site": 8,
+   "faction": 4,
+   "tier": 0,
+   "walls": false,
+   "garrison": 78
+  },
+  {
+   "p": 0,
+   "q": -2,
+   "site": 2,
+   "faction": 4,
+   "tier": 1,
+   "walls": true,
+   "garrison": 213
+  },
+  {
+   "p": 0,
+   "q": -2,
+   "site": 7,
+   "faction": 4,
+   "tier": 0,
+   "walls": false,
+   "garrison": 82
+  },
+  {
+   "p": 0,
+   "q": -3,
+   "site": 4,
+   "faction": 4,
+   "tier": 0,
+   "walls": false,
+   "garrison": 43
+  },
+  {
+   "p": 0,
+   "q": -3,
+   "site": 9,
+   "faction": 4,
+   "tier": 0,
+   "walls": false,
+   "garrison": 112
+  },
+  {
+   "p": 0,
+   "q": -3,
+   "site": 10,
+   "faction": 4,
+   "tier": 0,
+   "walls": false,
+   "garrison": 50
+  },
+  {
+   "p": 0,
+   "q": -4,
+   "site": 10,
+   "faction": 4,
+   "tier": 0,
+   "walls": false,
+   "garrison": 135
+  },
+  {
+   "p": 0,
+   "q": -4,
+   "site": 6,
+   "faction": 4,
+   "tier": 0,
+   "walls": false,
+   "garrison": 122
+  },
+  {
+   "p": 0,
+   "q": -4,
+   "site": 0,
+   "faction": 4,
+   "tier": 0,
+   "walls": false,
+   "garrison": 108
+  },
+  {
+   "p": 0,
+   "q": 2,
+   "site": 8,
+   "faction": 1,
+   "tier": 0,
+   "walls": false,
+   "garrison": 51
+  },
+  {
+   "p": 0,
+   "q": 2,
+   "site": 2,
+   "faction": 1,
+   "tier": 0,
+   "walls": false,
+   "garrison": 121
+  },
+  {
+   "p": 0,
+   "q": 2,
+   "site": 7,
+   "faction": 1,
+   "tier": 3,
+   "walls": false,
+   "garrison": 623
+  },
+  {
+   "p": 0,
+   "q": 2,
+   "site": 11,
+   "faction": 1,
+   "tier": 3,
+   "walls": false,
+   "garrison": 224
+  },
+  {
+   "p": 0,
+   "q": 3,
+   "site": 9,
+   "faction": 1,
+   "tier": 0,
+   "walls": false,
+   "garrison": 85
+  },
+  {
+   "p": 0,
+   "q": 3,
+   "site": 10,
+   "faction": 1,
+   "tier": 0,
+   "walls": false,
+   "garrison": 105
+  },
+  {
+   "p": 0,
+   "q": 3,
+   "site": 4,
+   "faction": 1,
+   "tier": 2,
+   "walls": true,
+   "garrison": 274
+  },
+  {
+   "p": 0,
+   "q": 3,
+   "site": 2,
+   "faction": 1,
+   "tier": 1,
+   "walls": false,
+   "garrison": 149
+  },
+  {
+   "p": 0,
+   "q": 4,
+   "site": 10,
+   "faction": 1,
+   "tier": 0,
+   "walls": false,
+   "garrison": 154
+  },
+  {
+   "p": 0,
+   "q": 4,
+   "site": 5,
+   "faction": 1,
+   "tier": 0,
+   "walls": false,
+   "garrison": 160
+  },
+  {
+   "p": 0,
+   "q": 4,
+   "site": 2,
+   "faction": 1,
+   "tier": 1,
+   "walls": true,
+   "garrison": 151
+  },
+  {
+   "p": 1,
+   "q": -2,
+   "site": 6,
+   "faction": 4,
+   "tier": 1,
+   "walls": false,
+   "garrison": 82
+  },
+  {
+   "p": 1,
+   "q": -2,
+   "site": 10,
+   "faction": 4,
+   "tier": 0,
+   "walls": false,
+   "garrison": 158
+  },
+  {
+   "p": 1,
+   "q": -2,
+   "site": 11,
+   "faction": 4,
+   "tier": 0,
+   "walls": false,
+   "garrison": 50
+  },
+  {
+   "p": 1,
+   "q": -2,
+   "site": 8,
+   "faction": 4,
+   "tier": 1,
+   "walls": false,
+   "garrison": 268
+  },
+  {
+   "p": 1,
+   "q": -2,
+   "site": 3,
+   "faction": 4,
+   "tier": 0,
+   "walls": false,
+   "garrison": 149
+  },
+  {
+   "p": 1,
+   "q": -3,
+   "site": 4,
+   "faction": 4,
+   "tier": 1,
+   "walls": true,
+   "garrison": 228
+  },
+  {
+   "p": 1,
+   "q": -3,
+   "site": 10,
+   "faction": 4,
+   "tier": 1,
+   "walls": false,
+   "garrison": 277
+  },
+  {
+   "p": 1,
+   "q": -3,
+   "site": 7,
+   "faction": 4,
+   "tier": 0,
+   "walls": false,
+   "garrison": 144
+  },
+  {
+   "p": 1,
+   "q": -3,
+   "site": 2,
+   "faction": 4,
+   "tier": 0,
+   "walls": false,
+   "garrison": 96
+  },
+  {
+   "p": 1,
+   "q": -4,
+   "site": 11,
+   "faction": 4,
+   "tier": 0,
+   "walls": false,
+   "garrison": 141
+  },
+  {
+   "p": 1,
+   "q": -4,
+   "site": 10,
+   "faction": 4,
+   "tier": 0,
+   "walls": false,
+   "garrison": 115
+  },
+  {
+   "p": 1,
+   "q": 1,
+   "site": 10,
+   "faction": 0,
+   "tier": 0,
+   "walls": false,
+   "garrison": 66
+  },
+  {
+   "p": 1,
+   "q": 1,
+   "site": 1,
+   "faction": 0,
+   "tier": 2,
+   "walls": true,
+   "garrison": 284
+  },
+  {
+   "p": 1,
+   "q": 1,
+   "site": 3,
+   "faction": 0,
+   "tier": 3,
+   "walls": false,
+   "garrison": 292
+  },
+  {
+   "p": 1,
+   "q": 1,
+   "site": 11,
+   "faction": 0,
+   "tier": 1,
+   "walls": false,
+   "garrison": 275
+  },
+  {
+   "p": 1,
+   "q": 2,
+   "site": 1,
+   "faction": 0,
+   "tier": 0,
+   "walls": false,
+   "garrison": 121
+  },
+  {
+   "p": 1,
+   "q": 2,
+   "site": 6,
+   "faction": 0,
+   "tier": 0,
+   "walls": false,
+   "garrison": 146
+  },
+  {
+   "p": 1,
+   "q": 3,
+   "site": 9,
+   "faction": 0,
+   "tier": 0,
+   "walls": false,
+   "garrison": 98
+  },
+  {
+   "p": 2,
+   "q": -1,
+   "site": 1,
+   "faction": 5,
+   "tier": 2,
+   "walls": true,
+   "garrison": 386
+  },
+  {
+   "p": 2,
+   "q": -1,
+   "site": 10,
+   "faction": 5,
+   "tier": 0,
+   "walls": false,
+   "garrison": 124
+  },
+  {
+   "p": 2,
+   "q": -1,
+   "site": 3,
+   "faction": 5,
+   "tier": 0,
+   "walls": false,
+   "garrison": 62
+  },
+  {
+   "p": 2,
+   "q": -1,
+   "site": 7,
+   "faction": 5,
+   "tier": 1,
+   "walls": false,
+   "garrison": 137
+  },
+  {
+   "p": 2,
+   "q": -1,
+   "site": 11,
+   "faction": 5,
+   "tier": 2,
+   "walls": false,
+   "garrison": 159
+  },
+  {
+   "p": 2,
+   "q": -1,
+   "site": 8,
+   "faction": 5,
+   "tier": 2,
+   "walls": false,
+   "garrison": 360
+  },
+  {
+   "p": 2,
+   "q": -2,
+   "site": 1,
+   "faction": 5,
+   "tier": 1,
+   "walls": true,
+   "garrison": 186
+  },
+  {
+   "p": 2,
+   "q": -2,
+   "site": 7,
+   "faction": 5,
+   "tier": 0,
+   "walls": false,
+   "garrison": 70
+  },
+  {
+   "p": 2,
+   "q": -2,
+   "site": 8,
+   "faction": 5,
+   "tier": 1,
+   "walls": false,
+   "garrison": 96
+  },
+  {
+   "p": 2,
+   "q": -2,
+   "site": 11,
+   "faction": 5,
+   "tier": 0,
+   "walls": false,
+   "garrison": 158
+  },
+  {
+   "p": 2,
+   "q": -3,
+   "site": 3,
+   "faction": 4,
+   "tier": 0,
+   "walls": false,
+   "garrison": 140
+  },
+  {
+   "p": 2,
+   "q": -3,
+   "site": 1,
+   "faction": 4,
+   "tier": 0,
+   "walls": false,
+   "garrison": 59
+  },
+  {
+   "p": 2,
+   "q": -3,
+   "site": 4,
+   "faction": 4,
+   "tier": 0,
+   "walls": false,
+   "garrison": 75
+  },
+  {
+   "p": 2,
+   "q": -4,
+   "site": 7,
+   "faction": 4,
+   "tier": 0,
+   "walls": false,
+   "garrison": 61
+  },
+  {
+   "p": 2,
+   "q": -4,
+   "site": 9,
+   "faction": 4,
+   "tier": 0,
+   "walls": false,
+   "garrison": 64
+  },
+  {
+   "p": 2,
+   "q": 0,
+   "site": 2,
+   "faction": 0,
+   "tier": 2,
+   "walls": false,
+   "garrison": 263
+  },
+  {
+   "p": 2,
+   "q": 0,
+   "site": 8,
+   "faction": 0,
+   "tier": 0,
+   "walls": false,
+   "garrison": 158
+  },
+  {
+   "p": 2,
+   "q": 1,
+   "site": 1,
+   "faction": 0,
+   "tier": 0,
+   "walls": false,
+   "garrison": 61
+  },
+  {
+   "p": 2,
+   "q": 1,
+   "site": 10,
+   "faction": 0,
+   "tier": 0,
+   "walls": false,
+   "garrison": 125
+  },
+  {
+   "p": 2,
+   "q": 1,
+   "site": 5,
+   "faction": 0,
+   "tier": 1,
+   "walls": false,
+   "garrison": 199
+  },
+  {
+   "p": 2,
+   "q": 2,
+   "site": 7,
+   "faction": 0,
+   "tier": 0,
+   "walls": false,
+   "garrison": 78
+  },
+  {
+   "p": 2,
+   "q": 2,
+   "site": 9,
+   "faction": 0,
+   "tier": 0,
+   "walls": false,
+   "garrison": 137
+  },
+  {
+   "p": 3,
+   "q": -1,
+   "site": 3,
+   "faction": 5,
+   "tier": 1,
+   "walls": false,
+   "garrison": 208
+  },
+  {
+   "p": 3,
+   "q": -1,
+   "site": 1,
+   "faction": 5,
+   "tier": 0,
+   "walls": false,
+   "garrison": 155
+  },
+  {
+   "p": 3,
+   "q": -1,
+   "site": 5,
+   "faction": 5,
+   "tier": 0,
+   "walls": false,
+   "garrison": 69
+  },
+  {
+   "p": 3,
+   "q": -2,
+   "site": 4,
+   "faction": 5,
+   "tier": 0,
+   "walls": false,
+   "garrison": 92
+  },
+  {
+   "p": 3,
+   "q": -2,
+   "site": 10,
+   "faction": 5,
+   "tier": 1,
+   "walls": false,
+   "garrison": 215
+  },
+  {
+   "p": 3,
+   "q": -2,
+   "site": 7,
+   "faction": 5,
+   "tier": 0,
+   "walls": false,
+   "garrison": 98
+  },
+  {
+   "p": 3,
+   "q": -2,
+   "site": 11,
+   "faction": 5,
+   "tier": 1,
+   "walls": false,
+   "garrison": 106
+  },
+  {
+   "p": 3,
+   "q": -2,
+   "site": 6,
+   "faction": 5,
+   "tier": 0,
+   "walls": false,
+   "garrison": 90
+  },
+  {
+   "p": 3,
+   "q": -3,
+   "site": 1,
+   "faction": 5,
+   "tier": 0,
+   "walls": false,
+   "garrison": 156
+  },
+  {
+   "p": 3,
+   "q": -3,
+   "site": 9,
+   "faction": 5,
+   "tier": 0,
+   "walls": false,
+   "garrison": 148
+  },
+  {
+   "p": 3,
+   "q": -3,
+   "site": 10,
+   "faction": 5,
+   "tier": 1,
+   "walls": false,
+   "garrison": 207
+  },
+  {
+   "p": 3,
+   "q": -3,
+   "site": 6,
+   "faction": 5,
+   "tier": 0,
+   "walls": false,
+   "garrison": 152
+  },
+  {
+   "p": 3,
+   "q": -4,
+   "site": 3,
+   "faction": 4,
+   "tier": 1,
+   "walls": false,
+   "garrison": 251
+  },
+  {
+   "p": 3,
+   "q": -4,
+   "site": 11,
+   "faction": 4,
+   "tier": 0,
+   "walls": false,
+   "garrison": 73
+  },
+  {
+   "p": 3,
+   "q": 0,
+   "site": 3,
+   "faction": 0,
+   "tier": 2,
+   "walls": false,
+   "garrison": 382
+  },
+  {
+   "p": 3,
+   "q": 0,
+   "site": 4,
+   "faction": 0,
+   "tier": 1,
+   "walls": false,
+   "garrison": 267
+  },
+  {
+   "p": 3,
+   "q": 1,
+   "site": 0,
+   "faction": 0,
+   "tier": 1,
+   "walls": false,
+   "garrison": 170
+  },
+  {
+   "p": 3,
+   "q": 1,
+   "site": 11,
+   "faction": 0,
+   "tier": 0,
+   "walls": false,
+   "garrison": 101
+  },
+  {
+   "p": 4,
+   "q": -1,
+   "site": 9,
+   "faction": 5,
+   "tier": 0,
+   "walls": false,
+   "garrison": 106
+  },
+  {
+   "p": 4,
+   "q": -1,
+   "site": 4,
+   "faction": 5,
+   "tier": 0,
+   "walls": false,
+   "garrison": 106
+  },
+  {
+   "p": 4,
+   "q": -2,
+   "site": 6,
+   "faction": 5,
+   "tier": 0,
+   "walls": false,
+   "garrison": 113
+  },
+  {
+   "p": 4,
+   "q": -2,
+   "site": 2,
+   "faction": 5,
+   "tier": 0,
+   "walls": false,
+   "garrison": 132
+  },
+  {
+   "p": 4,
+   "q": -2,
+   "site": 7,
+   "faction": 5,
+   "tier": 0,
+   "walls": false,
+   "garrison": 63
+  },
+  {
+   "p": 4,
+   "q": -3,
+   "site": 10,
+   "faction": 5,
+   "tier": 0,
+   "walls": false,
+   "garrison": 88
+  },
+  {
+   "p": 4,
+   "q": -3,
+   "site": 6,
+   "faction": 5,
+   "tier": 0,
+   "walls": false,
+   "garrison": 49
+  },
+  {
+   "p": 4,
+   "q": -3,
+   "site": 9,
+   "faction": 5,
+   "tier": 0,
+   "walls": false,
+   "garrison": 147
+  },
+  {
+   "p": 4,
+   "q": -4,
+   "site": 0,
+   "faction": 5,
+   "tier": 0,
+   "walls": false,
+   "garrison": 134
+  },
+  {
+   "p": 4,
+   "q": -4,
+   "site": 5,
+   "faction": 5,
+   "tier": 0,
+   "walls": false,
+   "garrison": 130
+  },
+  {
+   "p": 4,
+   "q": -4,
+   "site": 10,
+   "faction": 5,
+   "tier": 0,
+   "walls": false,
+   "garrison": 154
+  },
+  {
+   "p": 4,
+   "q": 0,
+   "site": 3,
+   "faction": 0,
+   "tier": 0,
+   "walls": false,
+   "garrison": 139
+  },
+  {
+   "p": 4,
+   "q": 0,
+   "site": 10,
+   "faction": 0,
+   "tier": 0,
+   "walls": false,
+   "garrison": 122
+  }
+ ],
+ "hosts": [
+  {
+   "id": 1,
+   "p": -1,
+   "q": -1,
+   "tile": 56,
+   "faction": 3,
+   "unit": 3,
+   "troops": 300
+  },
+  {
+   "id": 2,
+   "p": -1,
+   "q": -1,
+   "tile": 38,
+   "faction": 3,
+   "unit": 3,
+   "troops": 500
+  },
+  {
+   "id": 3,
+   "p": -1,
+   "q": -2,
+   "tile": 25,
+   "faction": 3,
+   "unit": 2,
+   "troops": 700
+  },
+  {
+   "id": 4,
+   "p": -1,
+   "q": -3,
+   "tile": 35,
+   "faction": 3,
+   "unit": 0,
+   "troops": 500
+  },
+  {
+   "id": 5,
+   "p": -1,
+   "q": -3,
+   "tile": 17,
+   "faction": 3,
+   "unit": 5,
+   "troops": 400
+  },
+  {
+   "id": 6,
+   "p": -1,
+   "q": 2,
+   "tile": 0,
+   "faction": 1,
+   "unit": 5,
+   "troops": 600
+  },
+  {
+   "id": 7,
+   "p": -1,
+   "q": 2,
+   "tile": 21,
+   "faction": 1,
+   "unit": 5,
+   "troops": 600
+  },
+  {
+   "id": 8,
+   "p": -1,
+   "q": 2,
+   "tile": 12,
+   "faction": 1,
+   "unit": 0,
+   "troops": 800
+  },
+  {
+   "id": 9,
+   "p": -1,
+   "q": 2,
+   "tile": 39,
+   "faction": 1,
+   "unit": 3,
+   "troops": 400
+  },
+  {
+   "id": 10,
+   "p": -1,
+   "q": 3,
+   "tile": 0,
+   "faction": 1,
+   "unit": 1,
+   "troops": 800
+  },
+  {
+   "id": 11,
+   "p": -1,
+   "q": 4,
+   "tile": 4,
+   "faction": 1,
+   "unit": 4,
+   "troops": 800
+  },
+  {
+   "id": 12,
+   "p": -2,
+   "q": -1,
+   "tile": 56,
+   "faction": 3,
+   "unit": 5,
+   "troops": 500
+  },
+  {
+   "id": 13,
+   "p": -2,
+   "q": -2,
+   "tile": 17,
+   "faction": 3,
+   "unit": 5,
+   "troops": 200
+  },
+  {
+   "id": 14,
+   "p": -2,
+   "q": 1,
+   "tile": 31,
+   "faction": 2,
+   "unit": 0,
+   "troops": 800
+  },
+  {
+   "id": 15,
+   "p": -2,
+   "q": 1,
+   "tile": 6,
+   "faction": 2,
+   "unit": 5,
+   "troops": 800
+  },
+  {
+   "id": 16,
+   "p": -2,
+   "q": 3,
+   "tile": 17,
+   "faction": 1,
+   "unit": 0,
+   "troops": 900
+  },
+  {
+   "id": 17,
+   "p": -2,
+   "q": 4,
+   "tile": 54,
+   "faction": 1,
+   "unit": 0,
+   "troops": 300
+  },
+  {
+   "id": 18,
+   "p": -3,
+   "q": 2,
+   "tile": 26,
+   "faction": 2,
+   "unit": 1,
+   "troops": 800
+  },
+  {
+   "id": 19,
+   "p": -4,
+   "q": 2,
+   "tile": 49,
+   "faction": 2,
+   "unit": 0,
+   "troops": 800
+  },
+  {
+   "id": 20,
+   "p": -4,
+   "q": 4,
+   "tile": 55,
+   "faction": 2,
+   "unit": 5,
+   "troops": 700
+  },
+  {
+   "id": 21,
+   "p": -4,
+   "q": 4,
+   "tile": 16,
+   "faction": 2,
+   "unit": 0,
+   "troops": 500
+  },
+  {
+   "id": 22,
+   "p": 0,
+   "q": 4,
+   "tile": 17,
+   "faction": 1,
+   "unit": 3,
+   "troops": 600
+  },
+  {
+   "id": 23,
+   "p": 0,
+   "q": 4,
+   "tile": 57,
+   "faction": 1,
+   "unit": 0,
+   "troops": 200
+  },
+  {
+   "id": 24,
+   "p": 1,
+   "q": -2,
+   "tile": 21,
+   "faction": 4,
+   "unit": 1,
+   "troops": 200
+  },
+  {
+   "id": 25,
+   "p": 1,
+   "q": -4,
+   "tile": 3,
+   "faction": 4,
+   "unit": 0,
+   "troops": 500
+  },
+  {
+   "id": 26,
+   "p": 1,
+   "q": -4,
+   "tile": 56,
+   "faction": 4,
+   "unit": 4,
+   "troops": 300
+  },
+  {
+   "id": 27,
+   "p": 1,
+   "q": 1,
+   "tile": 4,
+   "faction": 0,
+   "unit": 2,
+   "troops": 1000
+  },
+  {
+   "id": 28,
+   "p": 1,
+   "q": 1,
+   "tile": 33,
+   "faction": 0,
+   "unit": 0,
+   "troops": 1000
+  },
+  {
+   "id": 29,
+   "p": 1,
+   "q": 1,
+   "tile": 38,
+   "faction": 0,
+   "unit": 4,
+   "troops": 800
+  },
+  {
+   "id": 30,
+   "p": 2,
+   "q": -1,
+   "tile": 5,
+   "faction": 5,
+   "unit": 2,
+   "troops": 600
+  },
+  {
+   "id": 31,
+   "p": 2,
+   "q": -1,
+   "tile": 29,
+   "faction": 5,
+   "unit": 5,
+   "troops": 900
+  },
+  {
+   "id": 32,
+   "p": 3,
+   "q": -2,
+   "tile": 13,
+   "faction": 5,
+   "unit": 1,
+   "troops": 800
+  },
+  {
+   "id": 33,
+   "p": 3,
+   "q": -2,
+   "tile": 54,
+   "faction": 5,
+   "unit": 3,
+   "troops": 400
+  },
+  {
+   "id": 34,
+   "p": 3,
+   "q": -3,
+   "tile": 56,
+   "faction": 5,
+   "unit": 2,
+   "troops": 700
+  },
+  {
+   "id": 35,
+   "p": 3,
+   "q": -3,
+   "tile": 25,
+   "faction": 5,
+   "unit": 0,
+   "troops": 700
+  },
+  {
+   "id": 36,
+   "p": 3,
+   "q": -4,
+   "tile": 45,
+   "faction": 4,
+   "unit": 1,
+   "troops": 900
+  },
+  {
+   "id": 37,
+   "p": 4,
+   "q": -3,
+   "tile": 60,
+   "faction": 5,
+   "unit": 5,
+   "troops": 1000
+  },
+  {
+   "id": 38,
+   "p": 4,
+   "q": -4,
+   "tile": 33,
+   "faction": 5,
+   "unit": 5,
+   "troops": 600
+  },
+  {
+   "id": 39,
+   "p": 1,
+   "q": 3,
+   "tile": 1,
+   "faction": 0,
+   "unit": 3,
+   "troops": 600
+  },
+  {
+   "id": 40,
+   "p": 1,
+   "q": 3,
+   "tile": 0,
+   "faction": 0,
+   "unit": 1,
+   "troops": 400
+  },
+  {
+   "id": 41,
+   "p": 1,
+   "q": 3,
+   "tile": 6,
+   "faction": 1,
+   "unit": 0,
+   "troops": 900
+  },
+  {
+   "id": 42,
+   "p": 1,
+   "q": 3,
+   "tile": 7,
+   "faction": 1,
+   "unit": 2,
+   "troops": 500
+  },
+  {
+   "id": 43,
+   "p": -1,
+   "q": -3,
+   "tile": 59,
+   "faction": 3,
+   "unit": 3,
+   "troops": 600
+  },
+  {
+   "id": 44,
+   "p": -1,
+   "q": -3,
+   "tile": 53,
+   "faction": 3,
+   "unit": 1,
+   "troops": 400
+  },
+  {
+   "id": 45,
+   "p": -1,
+   "q": -3,
+   "tile": 58,
+   "faction": 4,
+   "unit": 0,
+   "troops": 900
+  },
+  {
+   "id": 46,
+   "p": -1,
+   "q": -3,
+   "tile": 60,
+   "faction": 4,
+   "unit": 2,
+   "troops": 500
+  },
+  {
+   "id": 47,
+   "p": -3,
+   "q": 1,
+   "tile": 23,
+   "faction": 2,
+   "unit": 2,
+   "troops": 500
+  },
+  {
+   "id": 48,
+   "p": 3,
+   "q": -1,
+   "tile": 11,
+   "faction": 5,
+   "unit": 2,
+   "troops": 500
+  }
+ ],
+ "contests": [
+  {
+   "p": 1,
+   "q": 3,
+   "contender": 1,
+   "progress": 24
+  },
+  {
+   "p": -1,
+   "q": -3,
+   "contender": 4,
+   "progress": 46
+  }
+ ],
+ "clashes": [
+  {
+   "p": 1,
+   "q": 3,
+   "arrivals": [
+    {
+     "hostId": "39",
+     "present": true,
+     "tile": 1,
+     "faction": 0,
+     "stance": 3,
+     "fate": 0
+    },
+    {
+     "hostId": "40",
+     "present": true,
+     "tile": 0,
+     "faction": 0,
+     "stance": 3,
+     "fate": 0
+    },
+    {
+     "hostId": "41",
+     "present": true,
+     "tile": 6,
+     "faction": 1,
+     "stance": 1,
+     "fate": 0
+    },
+    {
+     "hostId": "42",
+     "present": true,
+     "tile": 7,
+     "faction": 1,
+     "stance": 2,
+     "fate": 0
+    }
+   ]
+  },
+  {
+   "p": -1,
+   "q": -3,
+   "arrivals": [
+    {
+     "hostId": "43",
+     "present": true,
+     "tile": 59,
+     "faction": 3,
+     "stance": 3,
+     "fate": 0
+    },
+    {
+     "hostId": "44",
+     "present": true,
+     "tile": 53,
+     "faction": 3,
+     "stance": 3,
+     "fate": 0
+    },
+    {
+     "hostId": "45",
+     "present": true,
+     "tile": 58,
+     "faction": 4,
+     "stance": 1,
+     "fate": 0
+    },
+    {
+     "hostId": "46",
+     "present": true,
+     "tile": 60,
+     "faction": 4,
+     "stance": 2,
+     "fate": 0
+    }
+   ]
+  },
+  {
+   "p": -3,
+   "q": 1,
+   "arrivals": [
+    {
+     "hostId": "47",
+     "present": true,
+     "tile": 23,
+     "faction": 2,
+     "stance": 2,
+     "fate": 0
+    }
+   ]
+  },
+  {
+   "p": 3,
+   "q": -1,
+   "arrivals": [
+    {
+     "hostId": "48",
+     "present": true,
+     "tile": 11,
+     "faction": 5,
+     "stance": 2,
+     "fate": 0
+    }
+   ]
+  }
+ ]
+}

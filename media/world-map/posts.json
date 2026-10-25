@@ -1,0 +1,127 @@
+{
+ "note": "The post images (scripts/posts.mjs). at: an anchor the render page reports (world, concord, front:i, camp:i, town:faction, nation:faction) or {x, y} in world px; span: world px across; words: the word layers of the text version.",
+ "posts": [
+  {
+   "name": "01-world-16x9",
+   "title": "全景（横長）",
+   "aspect": "16:9",
+   "width": 3840,
+   "at": "world",
+   "span": 7800,
+   "words": [
+    "labels"
+   ]
+  },
+  {
+   "name": "02-world-4x5",
+   "title": "全景（縦長）",
+   "aspect": "4:5",
+   "width": 2160,
+   "at": "world",
+   "span": 5400,
+   "words": [
+    "labels"
+   ]
+  },
+  {
+   "name": "03-world-1x1",
+   "title": "全景（正方形）",
+   "aspect": "1:1",
+   "width": 2160,
+   "at": "world",
+   "span": 5400,
+   "words": [
+    "labels"
+   ]
+  },
+  {
+   "name": "04-concord-1x1",
+   "title": "大協約と鐘の塔",
+   "aspect": "1:1",
+   "width": 2160,
+   "at": "concord",
+   "span": 1300,
+   "words": [
+    "labels"
+   ]
+  },
+  {
+   "name": "05-front-aster-16x9",
+   "title": "前線：アステルの砦とボレアリスの攻め手",
+   "aspect": "16:9",
+   "width": 3840,
+   "at": "front:0",
+   "span": 1920,
+   "dy": -60,
+   "words": [
+    "names"
+   ],
+   "dx": -250
+  },
+  {
+   "name": "06-front-dunmar-4x5",
+   "title": "前線：ダンマールの砦とエンバーの攻め手",
+   "aspect": "4:5",
+   "width": 2160,
+   "at": "front:1",
+   "span": 1080,
+   "dy": 60,
+   "words": [
+    "names"
+   ],
+   "dx": 260
+  },
+  {
+   "name": "07-town-life-4x5",
+   "title": "町の暮らし：シンダーの城塞",
+   "aspect": "4:5",
+   "width": 2160,
+   "at": "town:2",
+   "span": 1080,
+   "dy": 40,
+   "words": [
+    "names"
+   ],
+   "nameTier": 0
+  },
+  {
+   "name": "08-nation-aster-16x9",
+   "title": "国：アステル",
+   "aspect": "16:9",
+   "width": 3840,
+   "at": "nation:0",
+   "span": 2700,
+   "words": [
+    "labels",
+    "names"
+   ]
+  },
+  {
+   "name": "09-camp-raid-1x1",
+   "title": "蛮族の野営地を攻める",
+   "aspect": "1:1",
+   "width": 2160,
+   "at": "camp:0",
+   "span": 1080,
+   "words": [
+    "names"
+   ],
+   "nameTier": 0
+  },
+  {
+   "name": "10-edge-of-the-clouds-16x9",
+   "title": "ひらいた土地の際と雲の海",
+   "aspect": "16:9",
+   "width": 3840,
+   "at": {
+    "x": 1750,
+    "y": -1150
+   },
+   "span": 2400,
+   "words": [
+    "labels",
+    "names"
+   ]
+  }
+ ]
+}
