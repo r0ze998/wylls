@@ -2,7 +2,7 @@
 
 **状態：** 計画の第2版（2026-10-23）。別の目によるコードとの突き合わせを1回反映済みです。この計画を書いた時点では、コードはまだ書いていませんでした。
 
-**その後（2026-10-26 確認）：** 1a〜1e は実装され、`main` に入りました（PR #9・#11、2026-10-24）。作った結果と、計画から変えた点は各段階の記録にあります：[1a](../../frontier/stage1a/S1-1A-NOTES.md)、[1b](../../frontier/stage1b/S1-1B-NOTES.md)、[1c](../../frontier/stage1b/S1-1C-NOTES.md)、[1d](../../frontier/stage1d/S1-1D-NOTES.md)、[1e](../../frontier/stage1e/S1-1E-NOTES.md)。1f（画面とAI）は `main` になく、マージされていないブランチ（`design/visual-uplift`、`ccr-184d6862-fqutoz`）にあります。以下の本文は計画時のままです。
+**その後（2026-10-26 確認）：** 1a〜1e は実装され、`main` に入りました（PR #11、2026-10-24。PR #9 は先に `frontier/season-complete` へ）。作った結果と、計画から変えた点は各段階の記録にあります：[1a](../../frontier/stage1a/S1-1A-NOTES.md)、[1b](../../frontier/stage1b/S1-1B-NOTES.md)、[1c](../../frontier/stage1b/S1-1C-NOTES.md)、[1d](../../frontier/stage1d/S1-1D-NOTES.md)、[1e](../../frontier/stage1e/S1-1E-NOTES.md)。1f（画面とAI）は `main` になく、マージされていないブランチ（`design/visual-uplift`、`ccr-184d6862-fqutoz`）にあります。以下の本文は計画時のままです。
 
 **対象：** 今のゲーム `frontier/season-complete`（`adb4ac98`）。作業フォルダから `git show` / `git grep` で読んだだけで、何も変更していません。
 

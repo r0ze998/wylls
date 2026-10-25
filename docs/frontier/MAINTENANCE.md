@@ -58,7 +58,7 @@ Re-checked on 2026-10-26 against `main` at `79c80684` (branch `maint/night-2026-
 - **The stack report** (`stack/src/report.rs`) names and budgets transactions with the M1 table. A conquest instruction shows as `?` with budget 0.
   - *Fixed 2026-10-26* (`report::Table`): a conquest run is named and budgeted from the v2 table, an S1 run with Reveal's S1 limit.
 - **The agents' outpost check** (`agents/src/cqbehave.rs` `outpost_check`) maps every refusal but `HoldingsFull` to `OutpostRule`. The program maps the land gate to `Capacity`.
-  - *2026-10-26:* `outpost_base` passes `free_sites = open_sites = 1`, so the local check never reaches the land gate and the mapping cannot differ from the program's in practice.
+  - *2026-10-26:* `outpost_base` passes `free_sites = open_sites = 1`, so the local land gate is evaluated but never fires and the mapping cannot differ from the program's in practice.
 - **The bots' training cost** (`bots/src/ai/brain.rs`, `max_train` and its caller) prices with M1's `catalog::train` in every season. A conquest season charges `train_v2`, where the Horseman line is cheaper. The redesign's stage-1 plan already lists this.
   - *Fixed in stage 1a:* `max_train` takes `agents::rules::Rules` (`train`, `train_v2` or `train_v3` by the season's program version).
 - **The web's settle list** (`fchainio.mjs` `SETTLE_TAGS`) is narrower than the relay's v2 settle shapes on purpose: the page sends only SettleExplore and SettleTransit.
