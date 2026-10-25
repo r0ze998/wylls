@@ -267,6 +267,10 @@ jobs:
       - name: WASM build matches the committed module
         if: hashFiles('scripts/build-wasm.sh') != ''
         run: scripts/build-wasm.sh --check
+      # The S1 module the web client loads for an S1 season (program version 4).
+      - name: S1 WASM build matches the committed module
+        if: hashFiles('scripts/build-wasm.sh') != ''
+        run: scripts/build-wasm.sh --s1 --check
 
   prize-program:
     name: Prize pool program (host + SBF v2 + LiteSVM)
