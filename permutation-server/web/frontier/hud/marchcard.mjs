@@ -23,12 +23,11 @@ import { STANCES as STANCE_TEXT, unitCount, clientText, failureText, factionName
 import { STANCES } from '../seal.mjs';
 import { RETREAT_CHOICES, arrivalWindow, checkMarch, troopsOf, SEND_STEPS, DEPART_STAMINA, staminaAt } from '../fmarch.mjs';
 import { UNIT_ORDER } from '../fland.mjs';
-import { bellStart } from '../clock.mjs';
+import { bellStart, bellAt } from '../clock.mjs';
 import { composerMarch, composerArrival, composerChoices, routeLine, marchTiming, NO_ROUTE } from '../screens/march.mjs';
 import { swatch } from '../screens/shell.mjs';
 import { keepFor, reachLink } from '../screens/conquest.mjs';
 import { territoryEnabled } from '../territory.mjs';
-import { span } from './hud.mjs';
 import { fold, label, stepper, bar } from '../screens/parts.mjs';
 import { DIRECTIONS, tileHex } from '../fgeo.mjs';
 import { termButton, sealLine } from './glossary.mjs';
@@ -234,6 +233,15 @@ export function render(FS) {
   const problems = c.dest ? checkMarch(m).filter(p => p !== 'NoDestination') : [];
   const busy = !!c.sending;
   const timing = marchTiming(FS, m.arriveBell);
+  // when the result is known, in turns like the dial and the arrival, and the wait in the arrival line's own clock:
+  // 「結果はターン 46 ごろ（約 40 分後）」. It said 「結果の目安まで 40:26（ゲーム内）」: a second kind of time on the card,
+  // ticking every second, with a note that only a faster test clock needs (07-HUD-TEXT-FX). ごろ: the result is drawn at
+  // the arrival turn's end plus the reveal window, rounded to a beacon round (fland.mjs ticketTimes)
+  const resultTurn = timing && FS.clock ? bellAt(FS.clock.genesisTs, timing.resultAbout) : null;
+  const resultWait = !timing ? ''
+    : !FS.proto ? L`約 ${fmtNum(Math.max(1, Math.round(timing.resultIn / 60)))} 分後`
+    : wallTurn !== null && Number.isInteger(resultTurn) && Number.isInteger(FS.nowBell) ? L`${protoAbout(Math.max(1, resultTurn - FS.nowBell) * wallTurn)}後` : '';
+  const resultLine = !Number.isInteger(resultTurn) ? '' : resultWait ? L`結果はターン ${fmtNum(resultTurn)} ごろ（${resultWait}）` : L`結果はターン ${fmtNum(resultTurn)} ごろ`;
   const stance = STANCES[m.stance] ?? 'Hold';
   const ch = composerChoices(FS);
   const from = tileName(FS, c.origin.p, c.origin.q, c.host.tile);
@@ -300,7 +308,7 @@ export function render(FS) {
       value: html`<strong class="mc-bell-v">${icon('bell')}${L`ターン ${fmtNum(w.value)} に到着`}</strong>${awayLine ? html`<span class="muted">${awayLine}</span>` : ''}` })}
       ${movedLine}
       <p class="muted mc-when">${c.route ? L`進軍は、ターンの始まりにそろって到着します。いちばん早くてターン ${fmtNum(w.min)} です。` : L`進軍は、ターンの始まりにそろって到着します。`}</p>` : ''}
-    ${timing ? html`<p class="muted mc-result-time">${L`結果の目安まで ${span(timing.resultIn)}（ゲーム内）`}</p>` : ''}
+    ${resultLine ? html`<p class="muted mc-result-time">${resultLine}</p>` : ''}
     ${label(def?.total ? L`構えを比べる` : L`構え`, termButton('stance'))}
     ${def?.total ? stanceCompare(m.stance, compareNow(c)) : stancePicks(m.stance)}
     ${label(L`撤退`, termButton('retreat'))}

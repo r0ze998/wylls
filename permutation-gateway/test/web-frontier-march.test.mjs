@@ -368,6 +368,13 @@ test('an open march follows the current reachable turn in its card, checks, resu
   const html = String(order.render(FS));
   assert.match(html, /ターン 63 に到着/);
   assert.doesNotMatch(html, /そのターンには着けません|結果の目安まで 0:00/);
+  // when the result is known: the turn it is drawn in and the wait in whole minutes, from the same time as before
+  // (07-HUD-TEXT-FX: no ticking clock, no 「ゲーム内」 note)
+  const t = composer.marchTiming(FS, m.arriveBell);
+  const turn = Math.floor((t.resultAbout - CLOCK.genesisTs) / 600);
+  assert.ok(turn > m.arriveBell, 'the result comes after the arrival turn');
+  assert.match(html, new RegExp(`結果はターン ${turn} ごろ（約 ${Math.max(1, Math.round(t.resultIn / 60))} 分後）`));
+  assert.doesNotMatch(html, /結果の目安|ゲーム内/);
   assert.match(html, /data-act="march-send"\s*>/, 'the displayed order can depart');
   assert.ok(composer.marchTiming(FS, m.arriveBell).resultIn > 0);
   let submitted;
