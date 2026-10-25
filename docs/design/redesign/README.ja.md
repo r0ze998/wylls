@@ -17,12 +17,20 @@
 |---|---|---|
 | 0 診断 | [00-diagnosis.ja.md](00-diagnosis.ja.md) | 合意済み（2026-10-22）。フェーズ1の批評で2か所を仮説に修正 |
 | 1 素材の理解 | [01-references.ja.md](01-references.ja.md)／[01-references-founder.ja.md](01-references-founder.ja.md)／[01-affordances.ja.md](01-affordances.ja.md)／[01-ai-roles.ja.md](01-ai-roles.ja.md)／[01-token-primer.ja.md](01-token-primer.ja.md) | 読了（2026-10-22） |
-| 2 ビジョン | [02-vision.ja.md](02-vision.ja.md) | 下書き第2版・署名待ち |
-| 3 統合の発想 | 03-seeds.ja.md（付録：[03-appendix-from-phase1.ja.md](03-appendix-from-phase1.ja.md)） | 未着手 |
-| 4 収束 | 04-concepts.ja.md | 未着手 |
-| 5 試作 | 05-prototype-log.ja.md | 未着手 |
-| 6 経済とトークン | 06-economy.ja.md | 未着手 |
-| 7 設計書と実装計画 | 07-gdd.ja.md／07-build-plan.ja.md | 未着手 |
+| 2 ビジョン | [02-vision.ja.md](02-vision.ja.md) | 下書き第2版・署名待ち（2026-10-22）。その後の方針と具体案は 10〜31 に続く（下の「2026-10-23 以降」） |
+| 3 統合の発想 | [03-seeds.ja.md](03-seeds.ja.md)（付録：[03-appendix-from-phase1.ja.md](03-appendix-from-phase1.ja.md)） | ファイルはある。表の状態は 2026-10-22 から更新されていない |
+| 4 収束 | 04-concepts.ja.md | ファイルなし |
+| 5 試作 | 05-prototype-log.ja.md | ファイルなし |
+| 6 経済とトークン | 06-economy.ja.md | ファイルなし（数字は「フェーズ6」として保留のまま） |
+| 7 設計書と実装計画 | 07-gdd.ja.md／07-build-plan.ja.md | ファイルなし。設計書は [27](27-design-v1.ja.md)、実装計画は [30](30-stage1-build-plan.ja.md) が代わりに書かれた |
+
+### 2026-10-23 以降（2026-10-26 に追記）
+
+- 方針と具体案：[10](10-rethink-from-evidence.ja.md)〜[17](17-summary-uniqueness-integration.ja.md)（方針は [15](15-direction-2026-10-23.ja.md)）、段階ごとの遊び [18](18-stage1-play.ja.md)〜[22](22-stage4-play.ja.md)、世界と戦期 [23](23-world-and-periods.ja.md)、AIの役割 [24](24-ai-roles.ja.md)、お金の流れ [25](25-money-structure.ja.md)、最初の30分 [26](26-first-session.ja.md)、取り分 [28](28-prize-shares.ja.md)、残りの決定 [29](29-remaining-decisions.ja.md)。
+- まとめ：[27-design-v1.ja.md](27-design-v1.ja.md)（設計書 v1）。決定は [99](99-decisions.ja.md) に記録。
+- 段階1の実装計画：[30](30-stage1-build-plan.ja.md)、段階1e の判断：[31](31-stage1e-plan.ja.md)。
+- **実装の状態［事実、2026-10-26 確認］：** 段階1の 1a〜1e（兵器と工房、地形の鉱石、倉と荷車、荷車の襲撃、見張り塔、柵と砦、国の投票と追放、国内の襲撃、包囲の兵器）は `main` に入っています（PR #9・#11、2026-10-24）。`main` のプログラムは S1 のシーズンだけを作ります。1f（画面とAIの候補）は `main` になく、ブランチ `design/visual-uplift` と `ccr-184d6862-fqutoz` にあります。`ccr-184d6862-fqutoz` には段階2（札）の実装も続いています。どれもマージされていません。
+- **決まりごととの食い違い［事実。判断はあなた］：** 上の「フェーズ7より前にコードを書かない」「フェーズ6より前に数値を決めない」に対し、段階1はあなたの依頼（99 の 2026-10-23 の行）で実装に進み、数値は「［フェーズ6］」の仮の値として入っています。フェーズ3〜7の表をこのまま残すか、実際の進め方に合わせて書き直すかは決まっていません。
 
 ## 決まりごと
 
