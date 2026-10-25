@@ -16,7 +16,7 @@ node -e "import('./server.mjs').then(async ({startServer}) => { const s = await 
 
 ### 2. ローカルの征服の世界（本物のローカルチェーン、プログラム v3）
 
-S1 のビルドでは世界を作れない（00-SCOPE 2 章）。S1 の前の版のビルド（`frontier/season-complete` の worktree）で世界を作り、このブランチのクライアントを配る：
+（2026-10-26 の注記：`main` との統合後は、このビルドの `--conquest` が S1 の世界を作る。征服（v3）の世界は以前の版でしか作れない。）S1 のビルドでは世界を作れない（00-SCOPE 2 章）。S1 の前の版のビルド（`frontier/season-complete` の worktree）で世界を作り、このブランチのクライアントを配る：
 
 ```sh
 cd .claude/worktrees/season-complete
@@ -30,7 +30,7 @@ cd .claude/worktrees/season-complete
 
 ### 2b. ローカルの S1 の世界（プログラム v4、このブランチのビルド）
 
-このブランチで直した 2 点で起動できるようになった：スタックの `--s1`（季節を S1 の設定で作る）と、キーパーが S1 の季節で S1 の予算表を使うこと（以前は MC の表のままで、最初の種の取引が `MaxLoadedAccountsDataSizeExceeded` で失敗し、土地が開かなかった）。
+（2026-10-26 の注記：`main` との統合で、この2点は `main` の PR #12 の直し方にそろえた。`--conquest` だけで S1 の季節になり、`--s1` は `--conquest` の別名として残る。キーパーは季節の program_version で予算表を選ぶ。）このブランチで直した 2 点で起動できるようになった：スタックの `--s1`（季節を S1 の設定で作る）と、キーパーが S1 の季節で S1 の予算表を使うこと（以前は MC の表のままで、最初の種の取引が `MaxLoadedAccountsDataSizeExceeded` で失敗し、土地が開かなかった）。
 
 ```sh
 cargo build --locked --release -p stack -p keeper      # frontier-node で

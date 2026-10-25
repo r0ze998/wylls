@@ -129,10 +129,11 @@ pub struct StackConfig {
     pub run_id: String,
     pub mode: Mode,
     pub beacon: Beacon,
-    /// Human conquest world: the version-3, fourteen-day territory season.
+    /// Human conquest world: the fourteen-day territory season, as an S1 season (`setup::conquest_params`: the
+    /// program built from this tree runs S1 seasons only and refuses a version-3 CreateSeason).
     pub conquest: bool,
-    /// The conquest world as an S1 season (`program_version` 4, frontier_abi v2 `presets::s1`): the program built
-    /// from this tree runs S1 seasons only and refuses a version-3 CreateSeason. `--s1` implies `--conquest`.
+    /// `--s1` was asked for. Every conquest world is S1, so it only implies `--conquest` (kept for the scripts and
+    /// notes that pass it).
     pub s1: bool,
     /// Demo worlds only: the bells a keep must be held before it falls
     /// (the conquest preset's 72 when unset). Sent in the season

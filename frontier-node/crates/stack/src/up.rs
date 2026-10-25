@@ -1063,7 +1063,6 @@ async fn run_all(st: &mut Stack) -> Result<(), String> {
         &st.keys.authority,
         st.cfg.beacon,
         st.cfg.conquest,
-        st.cfg.s1,
         st.cfg.keep_bells,
         st.prize.as_ref().map(|p| p.gate.pubkey().to_bytes()),
         st.cfg.season_end_bell(),
