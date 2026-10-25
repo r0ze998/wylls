@@ -200,6 +200,69 @@ export function promotionOffer(h, { now = 0, have = [] } = {}) {
       base: BASE_PROD.map(b => Math.floor((b * (100 + TIER_BONUS_PCT[tier + 1])) / 100) - Math.floor((b * (100 + TIER_BONUS_PCT[tier])) / 100)) } };
 }
 
+// ------------------------------------------------------------------ a march on a keep: the turn it arrives
+// The first clash decides whether a march stays on a keep's tile: the arrival attacks, the keep's garrison defends
+// (walls on) and strikes back, both from the counts before the turn, and the side with more strength left holds the
+// tile (a tie goes to the side that was already there: the keep). The numbers are combat.rs's: damage to B =
+// n_A · str_A · k / str_B · 1,000 / F[n] · mods · roll, n = (n_A + n_B) whole troops clamped to 1–64, k 0.55, each
+// side's roll 0.90–1.10; the attack × WALLS (and × TERRAIN on a forest or hills tile), the garrison's blow ×
+// CITY_RETALIATION; a keep fights as a city: strength 10, no class (clash.rs `keep::garrison`, `resolve_engagement`).
+// Left out: other hosts on the tile, a stance edge (a keep stands in Hold, which no stance beats) and the attacking
+// nation's doctrine drill (×1.05–1.10 in its own stance) — so the estimate errs on the keep's side.
+/** combat.rs F[n] = round(n^0.2 × 1,000), n = 0…64. */
+const CLASH_F = Object.freeze([
+  0, 1000, 1149, 1246, 1320, 1380, 1431, 1476, 1516, 1552, 1585, 1615, 1644, 1670, 1695, 1719,
+  1741, 1762, 1783, 1802, 1821, 1838, 1856, 1872, 1888, 1904, 1919, 1933, 1947, 1961, 1974, 1987,
+  2000, 2012, 2024, 2036, 2048, 2059, 2070, 2081, 2091, 2102, 2112, 2122, 2132, 2141, 2151, 2160,
+  2169, 2178, 2187, 2195, 2204, 2212, 2221, 2229, 2237, 2245, 2253, 2260, 2268, 2275, 2283, 2290,
+  2297,
+]);
+/** combat.rs / params.rs: k, and the modifiers the arrival on a keep meets (bps). */
+export const CLASH_BPS = Object.freeze({ k: 5_500, walls: 6_667, cityRetaliation: 5_000, terrain: 8_000, rollLow: 9_000, rollHigh: 11_000 });
+const CITY_STRENGTH = 10;
+
+/** combat.rs `damage` in milli-troops (`nA`, `nB` milli-troops; `mods` bps, applied in order). */
+function clashDamage(nA, strA, nB, strB, mods, roll) {
+  if (!nA || !strA || !strB) return 0;
+  const n = Math.min(64, Math.max(1, Math.floor((nA + nB) / 1000)));
+  let x = Math.floor(Math.floor((nA * strA * CLASH_BPS.k) / 10_000) / strB);
+  x = Math.floor((x * 1000) / CLASH_F[n]);
+  for (const m of mods) x = Math.floor((x * m) / 10_000);
+  return Math.floor((x * roll) / 10_000);
+}
+
+/** One arrival turn of `troops` (whole) of `unit` on a keep of `keepTroops` (whole): what is left of each side and whether the host holds the tile, at the given rolls. */
+function arrivalTurn(unit, troops, keepTroops, rough, rollHost, rollKeep) {
+  const str = UNIT_STATS[unit]?.strength ?? 0;
+  const a = troops * 1000, g = keepTroops * 1000;
+  const toKeep = clashDamage(a, str, g, CITY_STRENGTH, rough ? [CLASH_BPS.terrain, CLASH_BPS.walls] : [CLASH_BPS.walls], rollHost);
+  const toHost = clashDamage(g, CITY_STRENGTH, a, str, [CLASH_BPS.cityRetaliation], rollKeep);
+  const hostLeft = Math.max(0, a - toHost), keepLeft = Math.max(0, g - toKeep);
+  return { hostLeft: Math.floor(hostLeft / 1000), keepLeft: Math.floor(keepLeft / 1000), holds: hostLeft >= 500 && hostLeft * str > keepLeft * CITY_STRENGTH };
+}
+
+/**
+ * The arrival of a march on a keep, as the rules resolve its first turn (above): `{odds, worst, best, need}` —
+ * `worst` / `best` the turn at the luck that favours the keep / the host (`{hostLeft, keepLeft, holds}`, whole
+ * troops); `odds` 'good' (it holds the tile even at the worst luck), 'even' (only with luck), 'poor' (not even at
+ * the best); `need` the fewest troops of the unit, in hundreds, that hold the tile at the worst luck (null for a
+ * unit that does not fight, or above a host's 30,000). `rough`: the keep's tile is forest or hills.
+ */
+export function keepArrival({ unit, troops, keepTroops, rough = true }) {
+  const str = UNIT_STATS[unit]?.strength ?? 0;
+  if (!(str > 0) || !(troops > 0) || !(keepTroops >= 0)) return { odds: 'poor', worst: null, best: null, need: null };
+  const worst = arrivalTurn(unit, troops, keepTroops, rough, CLASH_BPS.rollLow, CLASH_BPS.rollHigh);
+  const best = arrivalTurn(unit, troops, keepTroops, rough, CLASH_BPS.rollHigh, CLASH_BPS.rollLow);
+  let need = null;
+  for (let n = HOST_TROOPS.min; n <= HOST_TROOPS.max; n += 100) {
+    if (arrivalTurn(unit, n, keepTroops, rough, CLASH_BPS.rollLow, CLASH_BPS.rollHigh).holds) { need = n; break; }
+  }
+  return { odds: worst.holds ? 'good' : best.holds ? 'even' : 'poor', worst, best, need };
+}
+
+/** A tile counts as rough for the defender (forest, hills: map.rs defense_bps below 10,000). */
+export const ROUGH_TERRAIN = Object.freeze(new Set(['Forest', 'Hills']));
+
 /** What has grown in each store since the holding was last settled on chain (whole units by resource index): what a Harvest writes down. */
 export function grownSince(holding, now) {
   const s = settled(holding, now);

@@ -34,7 +34,7 @@
 .hand-btn.hand-keeps .hand-ic { color: var(--brass-hi); }
 .hand-pop[data-pop="keeps"][data-mode="card"] { width: min(760px, calc(100vw - 2 * var(--edge))); }
 .kh-rows { margin: 2px 0 0; padding: 0; list-style: none; display: grid; gap: 6px; max-height: min(46vh, 372px); overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: rgba(240,212,138,.5) transparent; }
-.kh-row { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) 92px 132px 132px 22px; align-items: center; gap: 10px; width: 100%; min-height: 56px; padding: 6px 10px 6px 16px; border: 1px solid rgba(201,162,74,.45); border-radius: 10px;
+.kh-row { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) 62px 104px 108px 116px 16px; align-items: center; gap: 10px; width: 100%; min-height: 56px; padding: 6px 10px 6px 16px; border: 1px solid rgba(201,162,74,.45); border-radius: 10px;
   background: linear-gradient(90deg, color-mix(in srgb, var(--kn) 26%, #14251f) 0, #16302a 46%, #122723 100%); color: var(--ivory); font: inherit; text-align: left; cursor: pointer; box-shadow: inset 0 1px 0 rgba(240,212,138,.16), 0 2px 0 #06100e; transition: border-color var(--press), translate var(--press), box-shadow var(--press); }
 .kh-row-band { position: absolute; left: 0; top: 0; bottom: 0; width: 6px; border-radius: 10px 0 0 10px; background: var(--kn); box-shadow: inset -1px 0 0 rgba(0,0,0,.35); }
 .kh-row:hover, .kh-row:focus-visible { border-color: var(--brass-hi); box-shadow: inset 0 0 0 1px var(--brass-hi), 0 0 18px color-mix(in srgb, var(--kn) 55%, transparent), 0 2px 0 #06100e; translate: 0 -1px; outline: none; }
@@ -54,7 +54,12 @@
 .kh-wait-line .ic { width: 16px; height: 16px; flex: none; }
 .kh-rule { padding-top: 8px; }
 [data-calm="1"] .kh-row { transition: none; }
-@media (max-width: 759px) { .kh-row { grid-template-columns: minmax(0, 1fr) auto auto; } .kh-fig-hold, .kh-row-go { display: none; } }
+/* the arrival's odds (rulebook.mjs keepArrival): good / even / poor */
+.kh-fig-odds .kh-fig-k { white-space: normal; }
+.kh-fig-odds.kh-odds-good .kh-fig-v { color: #8fd18a; }
+.kh-fig-odds.kh-odds-even .kh-fig-v { color: #f3c567; }
+.kh-fig-odds.kh-odds-poor .kh-fig-v { color: #f08a6c; }
+@media (max-width: 759px) { .kh-row { grid-template-columns: minmax(0, 1fr) auto auto auto; } .kh-fig-hold, .kh-row-go { display: none; } }
 
 /* ---- the keep's panel (the province's inspector; the nation tab) */
 #panel-body .kp, .kp { margin: 12px 0 0; padding: 0 0 10px; border: 0; border-radius: 10px; overflow: hidden; background: var(--plate-bg); color: var(--hud-ink); box-shadow: 0 0 0 1px var(--brass-lo), 0 0 0 2px rgba(0,0,0,.35), 0 6px 16px rgba(0,0,0,.28), var(--plate-edge); }
@@ -206,6 +211,10 @@
 .nation-confirm .prize-figures dt { white-space: normal; overflow: visible; text-overflow: clip; line-height: 1.25; }
 
 /* ---- the battle report: what is recomputed here, and the record's own reference */
+/* why a march was turned back (screens/report.mjs renderWhy) */
+.report-why { margin: var(--s2) 0 0; padding: 8px 10px; border-radius: 6px; background: rgba(176,120,40,.10); box-shadow: inset 3px 0 0 #b07828, inset 0 0 0 1px rgba(176,120,40,.35); font-size: var(--t2); line-height: 1.5; }
+.report-why p { margin: 0 0 4px; }
+.report-why p:last-child { margin-bottom: 0; }
 .rep-recheck { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 8px; margin: 0 0 var(--s2); padding: 8px 10px; border-radius: 6px; background: rgba(46,107,76,.12); box-shadow: inset 0 0 0 1px rgba(46,107,76,.5); font-size: var(--t2); line-height: 1.45; }
 .rep-recheck .ic { width: 16px; height: 16px; margin-top: 2px; color: var(--good); }
 .rep-recheck strong { font-weight: 700; }

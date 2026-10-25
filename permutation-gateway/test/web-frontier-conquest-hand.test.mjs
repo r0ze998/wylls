@@ -137,7 +137,8 @@ test('"March on a keep" on the host\'s bar: only on a conquest season; the list 
   setLang('en');
   const en = plain(renderPop(s, m));
   assert.match(en, /March on a keep 2 keeps in reach/);
-  assert.match(en, /Held by Fjordal · Province 4,-1 100 defenders Turn 12 arrival \(13 tiles\) 72 turns to hold/);
+  // (the arrival's odds sit between the defenders and the arrival: 500 Spearmen on a keep of 100 hold its tile)
+  assert.match(en, /Held by Fjordal · Province 4,-1 100 defenders Good should hold on arrival Turn 12 arrival \(13 tiles\) 72 turns to hold/);
   assert.match(en, /33\/72 Aster holds the tile/);
   assert.doesNotMatch(en, CJK);
   // a host that cannot depart yet: the list stands, its rows wait, and the card says from which turn
@@ -263,9 +264,16 @@ test('the guide on a conquest season: seven steps to a province, each from the r
   // a host that is forming: the step says the truth of the moment, and leads to the hosts
   const forming = fs({ bell: 9, entries: [entry({ state: 2, fromBell: 11 })] });
   assert.match(conquestObjective(forming).text, /編成中です。ターン 11 から出発できます。/);
-  // the nation's host holds the keep's tile: the count is the keep's record
+  // the viewer's own host holds the keep's tile: the count is the keep's record
   const holding = fs({ bell: 52 });
+  const kt = holding.conquest.keeps.get('4,-1').tile;
+  holding.provinces.set('4,-1', { province: { p: 4, q: -1, resolvedNext: 52, entries: [entry({ tile: kt })], ticketCohorts: [] } });
+  holding.provinces.get('2,0').province.entries = [];
   assert.equal(conquestGuide(holding).current, 'hold');
+  // the nation contends the same keep, but no host of the viewer's is there and no march of its is bound for it (a
+  // newcomer, or one whose march was turned back): the step is the march, not "hold" (the live check of 2026-10-26)
+  const others = fs({ bell: 52 });
+  assert.equal(conquestGuide(others).current, 'march');
   assert.match(conquestObjective(holding).text, /41 \/ 72 ターン保っています/);
   assert.deepEqual(conquestObjective(holding).go.data, { p: 4, q: -1 });
   // the capture record: every step is done

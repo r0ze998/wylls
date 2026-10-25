@@ -31,6 +31,7 @@ import { sigilPath, FACTION_FILL, FACTION_DARK, FACTION_ON } from '../people/ava
 import { icon } from './icons.mjs';
 import { provinceName, provinceCoords } from './place.mjs';
 import { whyText } from './orderparts.mjs';
+import { keepArrival, ROUGH_TERRAIN } from './rulebook.mjs';
 
 const int = Number.isInteger;
 const nation = f => int(f) && f >= 0 && f <= 5;
@@ -147,9 +148,35 @@ export function arrivalTurn(FS, secs) {
   return Number.isFinite(min) ? min : null;
 }
 
+/** Whether a tile is forest or hills (the defender's terrain modifier); true when the terrain is not known yet, so the estimate errs on the keep's side. */
+export function roughAt(FS, p, q, tile) {
+  try {
+    const t = FS?.terrainOf?.(p, q) ?? null;
+    const name = t && Number.isInteger(tile) ? t.names?.[t.terrain?.[tile]] : null;
+    return name ? ROUGH_TERRAIN.has(name) : true;
+  } catch { return true; }
+}
+
+/**
+ * How the arrival of host `r` on a keep of `troops` defenders on tile (p, q, tile) would go (rulebook.mjs
+ * keepArrival), or null when the keep's defenders or the host are not known.
+ */
+export function arrivalOdds(FS, r, { p, q, tile, troops }) {
+  if (!r || !Number.isFinite(troops) || !Number.isFinite(Number(r.troops))) return null;
+  return keepArrival({ unit: r.unit, troops: Math.floor(Number(r.troops)), keepTroops: troops, rough: roughAt(FS, p, q, tile) });
+}
+
+/** The odds in a word and the line under it: 「十分」 / 「五分」 / 「足りない」, and the troops it takes. */
+export function oddsText(o, unit) {
+  if (!o) return null;
+  const word = o.odds === 'good' ? L`十分` : o.odds === 'even' ? L`五分` : L`足りない`;
+  const line = o.odds === 'good' ? L`着いたターンに残れる見込み` : o.need ? L`${unitCount(UNIT_ORDER[unit], o.need)} 以上で十分` : L`この兵種では届かない`;
+  return { word, line };
+}
+
 /**
  * The list of the host's bar: `{state: 'loading' | 'error' | 'ready', code?, wait (the host's own wait, or null),
- * rows: [{p, q, tile, holder, troops, name, coords, hexes, provinces, arrive, hold, contender, progress, key}],
+ * rows: [{p, q, tile, holder, troops, name, coords, hexes, provinces, arrive, hold, contender, progress, key, odds}],
  * unreachable (a count)}` for the host `r` (a hand subject's host). `FS.conquest.hostReach` is the controller's
  * answer for this host (`wantHostReach`): the kernel's routes from the tile it stands on.
  */
@@ -163,7 +190,8 @@ export function keepsModel(FS, r) {
     const k = keeps?.get?.(`${x.p},${x.q}`) ?? x;
     const contender = nation(k.contender) ? k.contender : null;
     return { p: x.p, q: x.q, tile: x.tile, holder: x.holder, troops: Number.isFinite(x.troops) ? x.troops : null, name: provinceName(FS, x.p, x.q, { own: false }), coords: provinceCoords(x.p, x.q),
-      hexes: x.route.hexes, provinces: x.route.provinces.length, secs: x.route.secs, arrive: arrivalTurn(FS, x.route.secs), hold: holdTurns(FS, k), contender, progress: contender === null ? null : Math.max(0, Number(k.progress ?? 0)), key: `${x.p},${x.q}` };
+      hexes: x.route.hexes, provinces: x.route.provinces.length, secs: x.route.secs, arrive: arrivalTurn(FS, x.route.secs), hold: holdTurns(FS, k), contender, progress: contender === null ? null : Math.max(0, Number(k.progress ?? 0)), key: `${x.p},${x.q}`,
+      odds: Number.isFinite(x.troops) ? arrivalOdds(FS, r, { p: x.p, q: x.q, tile: x.tile, troops: x.troops }) : null };
   });
   return { state: 'ready', wait, rows, unreachable: hr.unreachable.length };
 }
@@ -182,11 +210,13 @@ export function renderKeepsPop(FS, model, { head }) {
   const sub = km.state === 'ready' ? L`届く砦 ${fmtNum(km.rows.length)}` : '';
   // (a host that cannot depart yet: its rows wait, and the arrival is said as the turns the way takes, not as a turn it cannot make)
   const off = !!km.wait;
+  const odds = x => oddsText(x.odds, r.unit);
   const row = x => html`<li><button type="button" class="kh-row kh-n${x.holder}${off ? ' off' : ''}" data-act="cq-march" data-host="${r.id}" data-p="${x.p}" data-q="${x.q}" data-tile="${x.tile}" data-keep-row="${x.key}" ${raw(off ? 'aria-disabled="true"' : '')}
-      aria-label="${L`${x.name}の砦へ進軍：${factionName(x.holder)}が保持、守備兵 ${x.troops === null ? '—' : fmtNum(x.troops)}、到着はターン ${x.arrive === null || off ? '—' : fmtNum(x.arrive)}`}">
+      aria-label="${L`${x.name}の砦へ進軍：${factionName(x.holder)}が保持、守備兵 ${x.troops === null ? '—' : fmtNum(x.troops)}、到着はターン ${x.arrive === null || off ? '—' : fmtNum(x.arrive)}`}${odds(x) ? L`、勝ち目 ${odds(x).word}（${odds(x).line}）` : ''}">
     <span class="kh-row-band" aria-hidden="true"></span>
     <span class="kh-row-where">${crest(x.holder, 26)}<span class="kh-row-names"><strong class="kh-row-name">${x.name}</strong><span class="kh-row-holder">${L`${factionName(x.holder)}が保持`} · <span class="kh-coords">${x.coords}</span></span></span></span>
     <span class="kh-fig kh-fig-def">${icon('shield')}<span class="kh-fig-v num">${x.troops === null ? '—' : fmtNum(x.troops)}</span><span class="kh-fig-k">${L`守備兵`}</span></span>
+    <span class="kh-fig kh-fig-odds kh-odds-${x.odds?.odds ?? 'none'}">${icon('swords')}<span class="kh-fig-v">${odds(x)?.word ?? '—'}</span><span class="kh-fig-k">${odds(x)?.line ?? L`勝ち目`}</span></span>
     <span class="kh-fig kh-fig-arr">${icon('bell')}<span class="kh-fig-v num">${x.arrive === null ? '—' : off ? L`+${fmtNum(Math.max(1, x.arrive - (FS.nowBell ?? 0)))} ターン` : L`ターン ${fmtNum(x.arrive)}`}</span><span class="kh-fig-k">${L`到着（${fmtNum(x.hexes)} マス）`}</span></span>
     <span class="kh-fig kh-fig-hold">${icon('flag')}<span class="kh-fig-v num">${x.contender !== null ? `${fmtNum(x.progress)}/${fmtNum(x.hold)}` : fmtNum(x.hold)}</span><span class="kh-fig-k">${x.contender !== null ? L`${factionName(x.contender)}が占拠中` : L`ターン保てば奪取`}</span></span>
     <span class="kh-row-go" aria-hidden="true">${icon('next')}</span></button></li>`;
@@ -197,5 +227,6 @@ export function renderKeepsPop(FS, model, { head }) {
   return html`${head(L`砦へ進軍`, sub)}
     ${km.wait ? html`<p class="pop-line pop-why kh-wait-line">${icon('hourglass')}<span>${waitText({ ...km.wait, unit: r.unit, troops: r.troops })}</span>${km.wait.nudge ? html` <button type="button" class="btn small" data-act="nudge" data-p="${r.p}" data-q="${r.q}">${L`この州の処理を進める`}</button>` : ''}</p>` : ''}
     ${body}
-    <p class="pop-line pop-rule kh-rule">${L`砦のマスを ${fmtNum(holdTurns(FS))} ターン続けて保つと、その州はあなたの国のものになります。行を選ぶと命令の紙が開きます（封をするまで何も送られません）。`}</p>`;
+    <p class="pop-line pop-rule kh-rule">${L`砦のマスを ${fmtNum(holdTurns(FS))} ターン続けて保つと、その州はあなたの国のものになります。行を選ぶと命令の紙が開きます（封をするまで何も送られません）。`}</p>
+    <p class="pop-line pop-rule">${L`勝ち目は、着いたターンの戦いを記録の守備兵と城壁と地形で計算した目安です。戦いの後に強さ（兵 × 1 人の強さ）が多く残った側がマスに残り、同じなら砦の側が残ります。運の揺れ（±10%）を含め、ほかの軍勢と教義の効果は含みません。`}</p>`;
 }
