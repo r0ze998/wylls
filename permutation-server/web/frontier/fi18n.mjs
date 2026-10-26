@@ -224,6 +224,7 @@ const CLIENT_TEXT = {
   BadSignature: () => L`署名を確認できませんでした`,
   Duplicate: () => L`同じ取引はすでに送られています`,
   AlreadyProcessed: () => L`同じ取引はすでに送られています`,
+  AgentKeyDirect: () => L`この鍵は運営が動かす代理人のものです。代理人の操作は代理人の窓口から送ります。`,
   BlockhashExpired: () => L`取引の期限が切れました。もう一度送ってください。`,
   RateLimited: () => L`送信が速すぎます。少し待ってください。`,
   ProgramError: () => L`別のプログラムがこの取引を拒みました`,

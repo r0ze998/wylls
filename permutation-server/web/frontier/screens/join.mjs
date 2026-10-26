@@ -28,6 +28,7 @@ import { bellStart, BELL_SECS } from '../clock.mjs';
 import { leaderWords } from '../map/waitview.mjs';
 import { renderJoinTerms } from './prize.mjs';
 import { tokenUnits } from '../fprize.mjs';
+import { renderDelegated } from '../fdelegation.mjs';
 
 const FACTIONS = [0, 1, 2, 3, 4, 5];
 /** A candidate place by the name a village there would carry, never by its number or its coordinates (the row flies there). */
@@ -313,6 +314,8 @@ export function render(FS) {
   if (instant && FS.homeGrant?.state === 2) return renderGrant(FS);
   if (stage === 'none') return renderNations(FS);
   if (!FS.wallet) return renderWallets(FS);
+  // The key is the owner's agent's (handed over on the agent page): say so, rather than "this device has no game key".
+  if (FS.sessionProblem === 'SessionMismatch' && FS.delegation) return renderDelegated(FS.delegation);
   if (!FS.session || FS.sessionProblem) return renderSessionFix(FS);
   if (stage === 'ticket') return renderTicket(FS);
   if (stage === 'provisional') return renderProvisional(FS);
