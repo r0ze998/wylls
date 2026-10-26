@@ -25,7 +25,7 @@ import { Keypair } from '@solana/web3.js';
 import { toHex } from '../client/src/bytes.mjs';
 import { FrontierAddresses, ringOf } from '../client/src/frontier/addresses.mjs';
 import { decodeAccount } from '../client/src/frontier/codec.mjs';
-import { claimAmount, decodeEntry, decodePool, entryAddress, finalizeIx, leafHash, merkleTree, POOL_STATE, PRIZE_ERRORS, setSharesIx, SHARE_MODE, tallyIx } from '../client/src/frontier/prize.mjs';
+import { claimAmount, decodeEntry, decodePool, ENTRY_SIZE, entryAddress, finalizeIx, leafHash, merkleTree, POOL_STATE, PRIZE_ERRORS, setSharesIx, SHARE_MODE, tallyIx } from '../client/src/frontier/prize.mjs';
 import { compileMessage, wireTransaction } from '../client/src/solana-tx.mjs';
 import { signTalk } from '../client/src/talk-node.mjs';
 import { createHerald } from '../../permutation-server/web/frontier/herald.mjs';
@@ -211,7 +211,14 @@ for (const w of wallets) {
   members.push({ wallet: w, nation: lines.find(l => l.wallet === w && l.kind === 'capture')?.detail.ownerNation ?? lines.find(l => l.wallet === w)?.detail.supplierNation, paid: !!e });
 }
 const extra = opt('members-file') ? JSON.parse(readFileSync(opt('members-file'), 'utf8')) : [];
-for (const w of extra) {
+// Every paid entry of this pool is a member too, whether or not a line names it: with no capture and no
+// reinforcement in the season (s1-season-2) the lines name nobody, and the equal-split fallback found no paid
+// member and refunded.
+const entryWallets = (await rpc('getProgramAccounts', [prize.program, { encoding: 'base64', filters: [{ dataSize: ENTRY_SIZE }] }]) ?? [])
+  .map(a => decodeEntry(Uint8Array.from(Buffer.from(a.account.data[0], 'base64'))))
+  .filter(e => e && e.pool === prize.pool)
+  .map(e => e.wallet);
+for (const w of [...extra, ...entryWallets]) {
   if (members.some(m => m.wallet === w)) continue;
   const c = await account(addresses.citizen(w));
   const e = decodeEntry(await account(entryAddress(prize.program, prize.pool, w)));
