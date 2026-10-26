@@ -2832,6 +2832,8 @@ function goToItem(x) {
   if (Number.isInteger(x.tile)) {
     mapRef?.flyTo({ p: x.p, q: x.q, tile: x.tile, zoom: 1.0 });
     FS.selected = { kind: 'tile', p: x.p, q: x.q, idx: x.tile };
+    // (a raid's choice is on the tile's card, which the viewer's host standing there would otherwise keep behind its bar)
+    if (x.kind === 'raid') FS.inspectOpen = true;
     // (an item about a host puts that host in the hand: the to-do's "hosts ready" led to a list)
     if (x.host !== undefined && x.host !== null) { FS.hand = { host: String(x.host), pop: null }; FS.tab = 'map'; invalidate('map', 'panel', 'tabs', 'rail'); return; }
   } else {

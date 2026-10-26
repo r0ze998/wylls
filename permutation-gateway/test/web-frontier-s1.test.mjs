@@ -366,6 +366,7 @@ test('the S1 shapes are fclient\'s instructions, key for key and byte for byte, 
 // ---------------------------------------------------------------- the play screens (screens/s1.mjs) and their orders
 
 import * as SCR from '../../permutation-server/web/frontier/screens/s1.mjs';
+import * as HUD from '../../permutation-server/web/frontier/hud/hud.mjs';
 import * as C from '../../permutation-server/web/frontier/controller.mjs';
 import { FS } from '../../permutation-server/web/frontier/fstate.mjs';
 
@@ -416,6 +417,12 @@ test('a raid the viewer\'s host has won is offered on its tile until its window 
   assert.equal(SCR.raidOffers({ ...fs, holdings: [holding(0, 0, 0, 30)] }).length, 0, 'another\'s host');
   assert.equal(SCR.raidOffers({ ...fs, provinces: new Map([['1,0', { province: prov(1, 0, { caravans: [{ ...slot, raidOff: SCR.RAID_SETTLED }] }) }]]) }).length, 0, 'settled');
   assert.match(String(SCR.renderS1Tile(fs, { p: 1, q: 0, idx: 11 })), /data-act="s1-raid"[^>]*data-choice="take"/);
+  // the to-do list says so with its deadline and leads to the tile (s1-season-2: the window passed unseen)
+  const play = { ...fs, mode: 'play', provinces: new Map([...fs.provinces].map(([k, e]) => [k, { ...e, province: { ...e.province, entries: [] } }])) };
+  const todo = HUD.attentionItems(play).filter(x => x.kind === 'raid');
+  assert.deepEqual(todo.map(x => [x.p, x.q, x.tile]), [[1, 0, 11]]);
+  assert.match(todo[0].short, /105/);
+  assert.equal(HUD.attentionItems({ ...play, nowBell: 106 }).filter(x => x.kind === 'raid').length, 0, 'past its window');
   assert.equal(SCR.caravanId(77n, 1), (1n << 63n) | (77n << 16n) | 1n);
 });
 

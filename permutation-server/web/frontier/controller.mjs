@@ -38,7 +38,7 @@ import { L, fmtNum } from '../lang.mjs';
 import { emit as fxEmit } from './fx/bus.mjs';
 import { reachOrigins } from './screens/conquest.mjs';
 import { s1On } from './fs1.mjs';
-import { fastestPath, pack, landsWanted, landOfProvince, CARAVAN_FEE } from './fcaravan.mjs';
+import { fastestPath, pack, landsWanted, landOfProvince, CARAVAN_FEE, MAX_PATH_STEPS, MAX_PATH_PROVINCES } from './fcaravan.mjs';
 import { raidOffers, s1VillageModel, s1TileModel, siegeOffer, expelOffer, caravanProblem, KIND, PROPOSE_STANCE, PROPOSE_EXPEL, PROPOSE_READMIT } from './screens/s1.mjs';
 import { placeData, raidProvinces, cargoBytes, RAID_CHOICE } from './fplay.mjs';
 import { cachedReach, reachKey, reachableKeeps } from './fkeepreach.mjs';
@@ -1523,7 +1523,7 @@ async function s1Raid(d) {
   if (!home || !Number.isInteger(home.tile)) return s1Refused(L`荷を運ぶ村が見つかりません`);
   busy(() => L`道を探しています…`);
   const plan = fastestPath({ p: r.p, q: r.q, tile: r.tile }, { p: home.p, q: home.q, tile: home.tile }, await landsFor(raid, home));
-  if (!plan || !plan.dirs.length) return failed({ code: 'Path' });
+  if (!plan || !plan.dirs.length) return s1Refused(L`村まで隊商の道が届きません（${fmtNum(MAX_PATH_STEPS)} マス・${fmtNum(MAX_PATH_PROVINCES)} 州まで）。焼き払うことはできます`);
   const dst = { kind: 'holding', p: home.p, q: home.q, site: home.site, gen: home.gen ?? 0 };
   const route = { raid, dst, pathProvinces: plan.provinces, oldRoute: r.caravan.provinces };
   return act('RaidCaravan', { v: { caravan, raider: r.raider, ...route },
@@ -1541,7 +1541,7 @@ async function s1Caravan(srcIndex, dstIndex, cargo) {
   if (!Number.isInteger(from.tile) || !Number.isInteger(dst.tile)) return s1Refused(L`出発地か行き先のマスがわかりません`);
   busy(() => L`道を探しています…`);
   const plan = fastestPath({ p: from.p, q: from.q, tile: from.tile }, { p: dst.p, q: dst.q, tile: dst.tile }, await landsFor(from, dst));
-  if (!plan || !plan.dirs.length) return failed({ code: 'Path' });
+  if (!plan || !plan.dirs.length) return s1Refused(L`そこまで隊商の道が届きません（${fmtNum(MAX_PATH_STEPS)} マス・${fmtNum(MAX_PATH_PROVINCES)} 州まで）`);
   const seq = Number(FS.citizen?.caravans ?? 0);
   const src = from.kind === 'vault' ? { kind: 'vault', p: from.p, q: from.q, tile: from.tile, gen: from.gen } : { kind: 'holding', p: from.p, q: from.q, site: from.site, gen: from.gen ?? 0 };
   return act('SendCaravan', { v: { seq, src, dst, provinces: plan.provinces },

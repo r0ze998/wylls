@@ -45,6 +45,8 @@ export const FORT_MAX_TROOPS = 2000;
 export const RAID_NONE = 0xff;
 export const RAID_SETTLED = 0xfe;
 export const RAID_DECIDE_BELLS = 6;
+/** caravan.rs: bells after the window from which an undecided raid with no road home is burned. */
+export const RAID_BURN_AFTER_BELLS = 144;
 /** structure::STANCE_*: how a nation stands toward another faction. */
 export const STANCES = Object.freeze(['war', 'pass', 'ally']);
 const STANCE_TEXT = { war: () => L`戦争`, pass: () => L`通行を許す`, ally: () => L`同盟` };
@@ -350,6 +352,7 @@ export function renderS1Tile(FS, sel) {
   if (m.structure) here.push(html`<li>${icon('shield')}${kindWord(m.structure.kind)} ${swatch(m.structure.faction)}${m.structure.mine ? chip(L`あなたの`, 'you') : factionName(m.structure.faction)}${m.structure.kind === KIND.fort && m.structure.sent ? html` <span class="muted">${L`送った兵 ${fmtNum(m.structure.sent)}`}</span>` : ''}</li>`);
   const raids = m.raids.map(r => html`<div class="s1-raid">${label(L`略奪の決定（ターン ${fmtNum(r.decideBy)} まで）`)}
     <p>${L`あなたの軍勢がこの隊商に勝ちました。荷を奪って自分の村へ運ぶか、焼き払うかを決めてください。`}</p>
+    <p class="muted">${r.open ? '' : L`決める期限を過ぎました。`}${L`決めずに期限を過ぎると、村まで隊商の道があれば荷は村へ運ばれ、道がなければターン ${fmtNum(r.decideBy + RAID_BURN_AFTER_BELLS)} 以降に焼かれます。`}</p>
     <div class="actions">${btn('s1-raid', { p: r.p, q: r.q, slot: r.slot, choice: 'take' }, L`奪って運ぶ`, { primary: true, disabled: !r.open })}${btn('s1-raid', { p: r.p, q: r.q, slot: r.slot, choice: 'burn' }, L`焼き払う`, { disabled: !r.open })}</div></div>`);
   const offer = (act, data, text, o) => html`<li class="s1-offer">${btn(act, data, text, { disabled: o.blocks.length > 0 })}<span class="muted">${costLine(o.cost)}</span>${o.blocks.length ? html`<span class="blocked">${o.blocks.map(b => (b === 'Insufficient' ? shortText(o.cost, m.have) : blockText(b))).join(' / ')}</span>` : ''}</li>`;
   const target = m.vault && !m.vault.mine ? { word: S1_WORDS.vault(), kind: 'vault' } : m.structure && !m.structure.mine ? { word: kindWord(m.structure.kind), kind: 'structure' } : null;
