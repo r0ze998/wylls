@@ -3423,7 +3423,10 @@ mod tests {
             classify_failure("SettleProposal", "ProposalState"),
             ("redundancy", "a/b race")
         );
-        assert_eq!(classify_failure("Propose", "ProposalState").0, "unclassified");
+        assert_eq!(
+            classify_failure("Propose", "ProposalState").0,
+            "unclassified"
+        );
         // Seen in the U4 R3 run.
         assert_eq!(classify_failure("SkipQuiet", "OutOfOrder").0, "expected");
         assert_eq!(
