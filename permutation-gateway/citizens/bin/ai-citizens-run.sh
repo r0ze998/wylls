@@ -43,7 +43,7 @@
 # the season: people pay the entry fee over x402, the stack's script bots and this script's AI fleet join by operator invites
 # the stack mints (never by paying; never prize-eligible).
 # Conquest worlds: a stack config with `conquest = true` (a version-3 season: first homes by PlaceHome, v2 instruction shapes;
-# stack/ai-cq-demo.toml) makes this script pass `--conquest` to the AI fleet. The stack's own script bots get it from the
+# stack/ai-cq-demo.toml) makes this script pass `--s1` (the conquest layer with the S1 budgets) to the AI fleet. The stack's own script bots get it from the
 # config's `bots_args`. AI_RUNS_MD=FILE writes the run entries to FILE instead of the repository's RUNS.md and makes no commit.
 #
 # Environment: AI_REPO (repository root), AI_UNIT (name in the lock), AI_STACK_LOCK, FRONTIER_BIN
@@ -144,8 +144,10 @@ DAYS=$(tomlval days)
 CONQUEST=$(tomlval conquest)
 FLEET_CQ=()
 # --conquest-personas 0: the conquest layer's adversarial test personas (sieges the program must refuse) are not dealt to the
-# AI fleet; the presenter seat is a plain citizen.
-[ "$CONQUEST" != true ] || FLEET_CQ=(--conquest --conquest-personas 0)
+# AI fleet; the presenter seat is a plain citizen. --s1: the conquest layer with the S1 budgets and the brain's S1 candidates
+# (caravan, ambush, escort); the program on main creates S1 seasons only, and with --conquest alone the fleet's settling
+# sends ran over their CU limit there.
+[ "$CONQUEST" != true ] || FLEET_CQ=(--s1 --conquest-personas 0)
 # A stack config with `prize_so` (stack/ai-cq-prize.toml): a gated season with a test-asset prize pool. People join by
 # paying over x402; the AI fleet joins without paying, by the invites the stack mints for it in its run directory
 # (relay/fleet-invites.txt, mode 0600, never printed). AI citizens have no Entry in the pool and are never prize-eligible.
@@ -299,7 +301,7 @@ hold_run() {
 }
 
 # ------------------------------------------------------------------ the plan (dry run) or the run
-[ "$CONQUEST" != true ] || echo "conquest world: the stack config says conquest = true; the AI fleet runs with --conquest (PlaceHome first homes, v2 instruction shapes)"
+[ "$CONQUEST" != true ] || echo "conquest world: the stack config says conquest = true; the AI fleet runs with --s1 (the conquest layer: PlaceHome first homes, v2 instruction shapes; the S1 budgets and candidates)"
 echo "run $RUN_ID: stack $STACK_NAME base $BASE (herald $P_HERALD, rpc $P_RPC), $N AI citizens + the presenter seat ($DECK), bot seed $BOT_SEED, season $SEASON_ID${AB:+, arm $AB rep $REP}"
 if [ "$DRY" = 0 ]; then
   [ ! -e "$AI_DIR" ] || die "$AI_DIR exists: a run id is used once (pass --run-id, for example $RUN_ID-2)"
