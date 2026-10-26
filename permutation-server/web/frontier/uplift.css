@@ -1,0 +1,128 @@
+/* The decision parts of the visual uplift (docs/design/uplift/03-COMPONENTS.ja.md). They sit on the drawer's
+   parchment and use the state tokens of frontier.css :root (--st-*). Every state has a shape as well as a colour:
+   forecast = dashed outline, done = solid stamp, wait = ring, fail = cut corner, sealed = lock. */
+
+/* ---- the light over the land (docs/design/uplift/06-MAP-REST): one warm key light from the upper left, a cool fall-off
+   to the lower right, laid soft-light over the board in screen space (no cost per frame). Strongest at the near view,
+   gone at the far view where the chart lies flat; never over the HUD. */
+/* the join line before the first turn: why the button waits */
+.nc-early { grid-column: 1 / -1; margin: 6px 0 0; font-size: var(--t1); line-height: 1.5; color: var(--hud-ink-2); }
+
+.map-light { position: absolute; inset: 0; pointer-events: none; mix-blend-mode: soft-light; opacity: calc(.25 + .75 * var(--map-near, 0));
+  background:
+    radial-gradient(ellipse 62% 58% at 28% 26%, rgba(255,232,178,.55), rgba(255,232,178,0) 70%),
+    radial-gradient(ellipse 70% 70% at 82% 88%, rgba(28,44,64,.42), rgba(28,44,64,0) 72%); }
+
+/* ---- the state tag: a small word that says what kind of figure follows */
+.state-tag { display: inline-flex; align-items: center; gap: 3px; padding: 0 6px; min-height: 18px; border-radius: 3px; font: 800 11px/1.5 var(--ui); letter-spacing: .06em; white-space: nowrap; vertical-align: middle; }
+.state-forecast { color: var(--st-forecast); background: var(--st-forecast-bg); border: 1.5px dashed currentColor; }
+.state-done { color: #fff; background: var(--st-done); border: 1.5px solid var(--st-done); }
+.state-wait { color: var(--st-wait); background: var(--st-wait-bg); border: 1.5px solid currentColor; border-radius: 9px; }
+.state-fail { color: var(--st-fail); background: var(--st-fail-bg); border: 1.5px solid currentColor; clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 0 100%); }
+.state-sealed { color: var(--st-sealed); background: rgba(107,42,31,.08); border: 1.5px solid currentColor; }
+
+/* ---- the order's outlook: four facts in one look */
+.mc-outlook { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; margin: var(--s2) 0 var(--s3); border: 1px solid var(--ink-rule); border-radius: 6px; background: var(--ink-rule); overflow: hidden; }
+.mo-cell { display: grid; align-content: start; gap: 1px; min-width: 0; padding: 7px 10px 8px; background: #fbf6e8; }
+.mo-k { font-size: var(--t1); font-weight: 600; color: var(--ink-2); line-height: 1.4; }
+.mo-v { font: 700 var(--t3)/1.25 var(--display); color: var(--ink); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.mo-n { font-size: var(--t1); line-height: 1.4; color: var(--ink-2); }
+.mo-fc { background: repeating-linear-gradient(135deg, #fbf6e8 0 8px, #f6efdc 8px 9px); outline: 1.5px dashed color-mix(in srgb, var(--st-forecast) 55%, transparent); outline-offset: -4px; }
+/* (a forecast never in the facts' voice: the facts are the serif at full ink, the forecast the gothic, lighter and a
+   step smaller, so 「残る兵 567〜572」 is not remembered as a promise: the design review of 2026-10-24) */
+.mo-fc .mo-v { font: 600 var(--t2)/1.35 var(--ui); color: var(--st-forecast); letter-spacing: .01em; }
+
+/* ---- the stances compared: each row is the stance's button */
+.mc-compare { display: grid; gap: 4px; }
+.mcc-head, .mcc-row { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 1.1fr); align-items: center; gap: 8px; }
+.mcc-head { padding: 0 10px; font-size: var(--t1); color: var(--ink-2); }
+.mcc-head .state-tag { margin-left: 4px; }
+.mcc-cap { display: flex; align-items: center; gap: 6px; margin: 0 0 4px; font-size: var(--t1); color: var(--ink-2); }
+.mcc-row { min-height: 52px; padding: 6px 10px; border: 1px solid rgba(60,48,20,.3); border-radius: 8px; background: rgba(255,255,255,.5); color: var(--ink); font: inherit; text-align: left; cursor: pointer; transition: background var(--out), border-color var(--out); }
+.mcc-row:hover { background: rgba(255,255,255,.85); border-color: #6f6548; }
+.mcc-row:active { transform: translateY(1px); transition-duration: 70ms; }
+.mcc-row[aria-checked="true"] { border-color: #0d2f2a; background: #fffdf6; box-shadow: inset 0 0 0 2px var(--accent), 0 2px 5px rgba(10,30,26,.22); }
+.mcc-row:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+.mcc-stance { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.mcc-stance svg { flex: none; width: 34px; height: 26px; }
+.mcc-stance b { display: block; font-size: var(--t2); }
+.mcc-stance small, .mcc-fate small { display: block; font-size: var(--t1); color: var(--ink-2); font-weight: 400; }
+.mcc-left { font: 700 var(--t2)/1.3 var(--ui); font-variant-numeric: tabular-nums; color: var(--st-forecast); }
+.mcc-fate { font-size: var(--t2); line-height: 1.3; }
+.mcc-same { margin: 2px 0 0; padding: 4px 8px; border-left: 3px solid var(--st-forecast); font-size: var(--t1); font-weight: 600; color: var(--ink); }
+.mcc-note { margin: 2px 0 0 !important; font-size: var(--t1); line-height: 1.5; }
+
+/* ---- the line over the seal: what cannot be taken back */
+.order-irrev { display: flex; align-items: flex-start; gap: 6px; margin: 0; padding: 0 2px; font-size: var(--t1); line-height: 1.45; color: var(--st-sealed); }
+.order-irrev .ic { flex: none; width: 14px; height: 14px; margin-top: 2px; }
+
+/* ---- the report: what was forecast beside what the record says */
+.rep-predict { margin: var(--s2) 0 var(--s3); padding: var(--s2) var(--s3); border: 1px solid var(--ink-rule); border-radius: 6px; background: #fbf6e8; }
+.rp-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.rp-table th, .rp-table td { padding: 4px 6px; text-align: left; font-size: var(--t2); }
+.rp-table thead th { font-size: var(--t1); font-weight: 600; color: var(--ink-2); border-bottom: 1px solid var(--ink-rule); }
+.rp-table td:nth-child(2) { color: var(--st-forecast); }
+.rp-table td strong { font: 700 var(--t3)/1.2 var(--display); }
+.rp-out { font-size: var(--t1); color: var(--st-fail); font-weight: 700; }
+.rp-note { margin: 4px 0 0 !important; font-size: var(--t1); }
+
+/* ---- the drawers' stamps speak the same states, by shape too (frontier.css .stamp-word keeps its look otherwise):
+   a waiting word (進軍中, 建設中…) is round, a refusal or a lack (満杯, 体力が足りません) has a cut corner */
+.stamp-word.stamp-warn, .stamp-warn .stamp-ink { border-radius: 9px; }
+.stamp-word.stamp-warn { color: var(--st-wait); }
+.stamp-word.stamp-bad { color: var(--st-fail); clip-path: polygon(0 0, calc(100% - 7px) 0, 100% 7px, 100% 100%, 0 100%); }
+.stamp-word.stamp-ok { color: var(--st-done); }
+
+/* ---- the ledger: a store about to be full says when (the prompt is to spend it) */
+.ledger-fullin { display: block; font-size: var(--t1); font-weight: 700; color: var(--st-wait); white-space: nowrap; }
+
+/* ---- the send track: each step a state (wait while under way, done once past) */
+.send-track li.now { color: var(--st-wait); font-weight: 700; }
+.send-track li.done { color: var(--st-done); }
+
+/* ---- the notices never lie under a milestone's banner (found on the local chain at 1024 px with the first village's
+   drawer open: frontier.css moved them only between 1100 and 1399 px, and the banner covered the first notice) */
+@media (min-width: 760px) { body:has(#mile-banner:not([hidden])) .feed { top: calc(var(--strip) + var(--dial) + 104px); } }
+
+@media (max-width: 759px) {
+  /* (the phone's sheet: the order's head on one short block, so the outlook comes into the open sheet; the unit's
+     picture is decoration and 「封をした命令」 is what the seal and the foot's line say: the design review of 2026-10-24) */
+  .order-head { padding-bottom: 4px; margin-bottom: 4px; }
+  .order-head .pic-seal { width: 30px; height: 30px; }
+  .order-head .order-kicker, .order-head .order-unit { display: none; }
+  .mc-dest .mc-sealed { display: none; }
+  /* (an open sheet shows the order whole: the foot's summary row, the folded sheet's own content, repeats it there) */
+  .panel:not([data-sheet="peek"]) .order-foot .order-sum:not(.order-sum-empty) { display: none; }
+  .mc-outlook { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .mcc-row { min-height: 56px; }
+  .panel[data-sheet="peek"] .order-irrev { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { .mcc-row, .mcc-row:active { transition: none; transform: none; } }
+
+/* ---- a phone held sideways (844 × 390, uplift-states.mjs `landscape`): the order card's foot took most of the drawer
+   and left a sliver for the outlook and the stances compared. On a short screen the foot keeps what the decision needs
+   (that it cannot be taken back, and the send) and drops its summary row, which repeats the body's destination, turn
+   and stance; the outlook goes to four in a row */
+@media (min-width: 760px) and (max-height: 480px) {
+  /* (at rest the minimap took nearly half the height and the village plate a third of the map: both smaller) */
+  :root { --mini: 112px; --plate-w: 240px; }
+  /* (the lens row stands over the minimap; over the smaller one it met the zoom column: it clears the column's height) */
+  .lenses { bottom: calc(100% + 96px); }
+  /* (with a village's or a host's hand up, the screen's height is the hand's: the left rail (the village plate and the
+     turn's to-do), which names the same village, steps aside, and the lens row, pushed under the top bar by the hand,
+     waits: the design review of 2026-10-24) */
+  body[data-hand="village"] .rail, body[data-hand="host"] .rail { visibility: hidden; }
+  body[data-hand="village"] .lenses, body[data-hand="host"] .lenses { visibility: hidden; }
+  /* (the drawer starts right under the strip, narrow enough to clear the turn dial: frontier.css put it under the
+     dial's whole height between 760 and 899 px, a third of a 390-px screen) */
+  .panel { top: calc(var(--strip) + var(--edge)); width: min(var(--drawer-w), calc(50vw - var(--dial) / 2 - 2 * var(--edge))); max-height: calc(100dvh - var(--strip) - 2 * var(--edge)); }
+  /* (the order's head on one short block: the unit's picture is decoration, and 「封をした命令」 is what the seal and the
+     cannot-be-taken-back line in the foot already say) */
+  .order-head { padding-bottom: 4px; margin-bottom: 4px; }
+  .order-head .pic-seal { width: 30px; height: 30px; }
+  .order-head .order-kicker, .order-head .order-unit { display: none; }
+  .order-foot { gap: 4px; padding-top: 4px; }
+  .order-foot .order-sum { display: none; }
+  .order-irrev { font-size: 12px; line-height: 1.35; }
+  .mc-outlook { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}

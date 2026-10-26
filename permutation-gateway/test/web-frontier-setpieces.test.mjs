@@ -313,9 +313,10 @@ test('the bell: the banner is carried by #bell-toll and is visible in every moti
       assert.ok(s.sounds.some(x => x[0] === 'bell'), 'the bell');
       s.run(900);
       assert.ok(s.toll.classList.contains('fx-banner-host') && s.toll.classList.contains('fx-banner'), level);
-      // (wave 2: the title is two parts and the dash between them, so a narrow map breaks it between the parts, never inside a word)
+      // (the uplift: the title names the turn alone, 「新しいターン」 is its small line: it said ターン twice)
       const title = s.toll.children.find(k => k.classes.has('fx-banner-title'));
-      assert.deepEqual(title.children.map(k => k.textContent), ['新しいターン', ' — ', 'ターン 43']);
+      assert.equal(title.textContent, 'ターン 43');
+      assert.equal(s.toll.children.find(k => k.classes.has('fx-banner-sub'))?.textContent, '新しいターン');
       assert.equal(s.toll.hidden, false);
       assert.ok(Number(s.toll.vars.get('--fx-o')) > 0.9, `${level}: fully visible`);
       assert.ok(Number(s.toll.vars.get('--fx-to')) > 0.9);
@@ -330,7 +331,7 @@ test('the bell: the banner is carried by #bell-toll and is visible in every moti
       assert.equal(s.toll.classList.contains('fx-banner-host'), false, 'handed back');
       assert.equal(s.toll.hidden, true, 'and hidden: no frame of its resting style shows');
       assert.equal(s.toll.children.length, 0);
-      assert.equal(s.toll.textContent, '新しいターン — ターン 43');
+      assert.equal(s.toll.textContent, 'ターン 43');
       assert.equal(s.toll.vars.size, 0);
     } finally { s.done(); }
   }
@@ -339,7 +340,8 @@ test('the bell: the banner is carried by #bell-toll and is visible in every moti
   try {
     s.bus.emit('bell', { turn: 1234 });
     s.run(600);
-    assert.equal(s.toll.children.find(k => k.classes.has('fx-banner-title')).children.map(k => k.textContent).join(''), 'A new turn — Turn 1,234');
+    assert.equal(s.toll.children.find(k => k.classes.has('fx-banner-title')).textContent, 'Turn 1,234');
+    assert.equal(s.toll.children.find(k => k.classes.has('fx-banner-sub')).textContent, 'A new turn');
   } finally { s.done(); setLang('ja'); }
   // the stylesheet gives the carried banner a visible state of its own (no animation needed)
   const css = readFileSync(`${WEB}fx/fx.css`, 'utf8');
@@ -656,6 +658,26 @@ test('moments on the page: each has its parts and a pip for the far view; an own
   } finally { e.done(); setLang('ja'); }
 });
 
+test('a village of the viewer\'s lost, or one taken: a band with the drum, not a caption; read as the record says (the uplift)', () => {
+  setLang('ja');
+  for (const level of ['full', 'off']) {
+    const s = staged(level);
+    try {
+      playMoment(s.fx, { kind: 'village', p: 2, q: 0, tile: 7, site: 3, from: 0, to: 2, own: true, lost: true });
+      assert.ok(s.fx.playing().includes('banner'), `${level}: the loss has its band`);
+      assert.ok(!s.fx.playing().includes('tag'), `${level}: and no caption that says it again`);
+      if (level === 'full') assert.ok(s.sounds.filter(x => x[0] === 'drum').length >= 2, 'the drum, twice');
+      s.fx.clear();
+      playMoment(s.fx, { kind: 'village', p: 2, q: 0, tile: 7, site: 3, from: 2, to: 0, own: true, taken: true });
+      assert.ok(s.fx.playing().includes('banner'), `${level}: the taking has its band`);
+      s.fx.clear();
+      // another nation's village changing hands stays a caption
+      playMoment(s.fx, { kind: 'village', p: 2, q: 0, tile: 7, site: 3, from: 2, to: 4 });
+      assert.ok(!s.fx.playing().includes('banner') && s.fx.playing().includes('tag'), `${level}: someone else's is a caption`);
+    } finally { s.done(); }
+  }
+});
+
 // ================================================================== idle life
 test('idle life: glints on water, shadows that drift, smoke over villages that are drawn; nothing in reduced motion, far out, or under what the viewer has not surveyed', () => {
   const tiles = [
@@ -741,6 +763,8 @@ test('the page reports real events on the bus; every set piece has a demo sample
       playPromotion(s.fx, { p: 2, q: 0, tile: 7, faction: 0, tier: 1, from: 1, to: 2, grew: true });
       assert.ok(s.fx.playing().length - counted >= 6, `${lang}: a host formed, recruits, a promotion`);
       assert.ok(s.fx.playing().includes('walker'), `${lang}: the recruits walk`);
+      // (the uplift: a promotion names the new rank on a band, as a verdict is named)
+      assert.ok(s.fx.playing().includes('banner'), `${lang}: the promotion's band`);
     } finally { s.done(); }
   }
   setLang('ja');

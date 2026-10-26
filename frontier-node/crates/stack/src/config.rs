@@ -129,8 +129,12 @@ pub struct StackConfig {
     pub run_id: String,
     pub mode: Mode,
     pub beacon: Beacon,
-    /// Human conquest world: the version-3, fourteen-day territory season.
+    /// Human conquest world: the fourteen-day territory season, as an S1 season (`setup::conquest_params`: the
+    /// program built from this tree runs S1 seasons only and refuses a version-3 CreateSeason).
     pub conquest: bool,
+    /// `--s1` was asked for. Every conquest world is S1, so it only implies `--conquest` (kept for the scripts and
+    /// notes that pass it).
+    pub s1: bool,
     /// Demo worlds only: the bells a keep must be held before it falls
     /// (the conquest preset's 72 when unset). Sent in the season
     /// parameters, so the program, herald and client all read it.
@@ -269,6 +273,7 @@ impl Default for StackConfig {
             mode: Mode::Accel,
             beacon: Beacon::TestKey,
             conquest: false,
+            s1: false,
             keep_bells: None,
             prize_so: None,
             entry_fee: 25_000_000,
@@ -766,6 +771,7 @@ impl StackConfig {
             "mode": match self.mode { Mode::Accel => "accel", Mode::Realtime => "realtime" },
             "beacon": self.beacon.name(),
             "conquest": self.conquest,
+            "s1": self.s1,
             "keep_bells": self.keep_bells,
             "prize": self.prize_json(),
             "scale": self.scale,
@@ -926,6 +932,10 @@ pub fn apply_flags(c: &mut StackConfig, flags: &[(String, Option<String>)]) -> R
             "viewer-start-hours" => c.viewer_start_hours = num(k, v)?.max(0.0),
             "keep-running" => c.pause_at_end = false,
             "conquest" => c.conquest = true,
+            "s1" => {
+                c.conquest = true;
+                c.s1 = true;
+            }
             "eager-bots" => c.eager_bots = Some(true),
             "no-eager-bots" => c.eager_bots = Some(false),
             "no-keeper-b" => c.keeper_b = false,
@@ -956,6 +966,7 @@ pub const SWITCHES: &[&str] = &[
     "keep-running",
     "start-paused",
     "conquest",
+    "s1",
     "no-keeper-b",
     "eager-bots",
     "no-eager-bots",

@@ -6,7 +6,7 @@
 // answer is cached (LRU, 256 provinces, §11). A missing module or seed
 // gives null, and the map stays at province detail for that province.
 import { kernel as loadKernel, TERRAIN } from '../wasm.mjs';
-import { conquestEnabled } from '../fconquest.mjs';
+import { kernelFile } from '../fconquest.mjs';
 import { toHex } from '../../sdk/bytes.mjs';
 import { FS } from '../fstate.mjs';
 import { ringOf } from '../fgeo.mjs';
@@ -23,7 +23,7 @@ export const seasonSeed = ring => FS.record?.rings?.find?.(r => r.d === ring)?.s
  * or null while the module loads (then `onReady()` runs once) or when it
  * cannot answer. `load` returns the kernel; `seedOf(ring)` the ring seed.
  */
-export function createTerrain({ load = () => FS.kernel ?? loadKernel(FS.season ? {ruleset:toHex(FS.season.rulesetHash),url:new URL(conquestEnabled(FS.season) ? '../wasm/frontier-v2.wasm' : '../wasm/frontier.wasm',import.meta.url)} : undefined), seedOf = seasonSeed, onReady = () => {}, limit = TERRAIN_CACHE } = {}) {
+export function createTerrain({ load = () => FS.kernel ?? loadKernel(FS.season ? {ruleset:toHex(FS.season.rulesetHash),url:new URL(`../wasm/${kernelFile(FS.season)}`,import.meta.url)} : undefined), seedOf = seasonSeed, onReady = () => {}, limit = TERRAIN_CACHE } = {}) {
   const cache = new Map();
   let k = null, failed = false, loading = false;
   const ensure = () => {

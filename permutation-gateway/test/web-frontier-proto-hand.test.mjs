@@ -596,9 +596,10 @@ test('the lines of a place: forming a host where a banner can rise, and the marc
   // the order card itself (hud/marchcard.mjs) reads the same cache: its module says so
   // (rewritten 2026-10-11, the phone and the new village: the call gained the card's own forecast — what the rules say
   // of an attack is now part of the line — and whether another march of the viewer's arrives in that province in the
-  // same turn; the cache it reads the world's answer from is the same)
+  // same turn; the cache it reads the world's answer from is the same; its forecast is the order's own, forecastNow:
+  // never the last destination's, the uplift's review of 2026-10-24)
   { const src = read('frontier/hud/marchcard.mjs');
-    assert.match(src, /FS\.proto && w && c\.route && protoFights\(c\.host\) && !c\.home \? protoMarchLine\(FS, \{ arrive: w\.value, dest: c\.dest, forecast: c\.forecast \?\? null, crowd: protoOwnArrivalAt\(FS, c\.dest, w\.value, c\.host\.id\), shift: [^}]+, answer: protoPreviewOf\(FS, \{ host: String\(c\.host\.id\), p: c\.dest\.p, q: c\.dest\.q, tile: c\.dest\.tile \}\) \}\) : ''/); }
+    assert.match(src, /FS\.proto && w && c\.route && protoFights\(c\.host\) && !c\.home \? protoMarchLine\(FS, \{ arrive: w\.value, dest: c\.dest, forecast: forecastNow\(c\), crowd: protoOwnArrivalAt\(FS, c\.dest, w\.value, c\.host\.id\), shift: [^}]+, answer: protoPreviewOf\(FS, \{ host: String\(c\.host\.id\), p: c\.dest\.p, q: c\.dest\.q, tile: c\.dest\.tile \}\) \}\) : ''/); }
   // a march onto the viewer's own banner land (to walk it, to win its pole back) is said as that, not as a refusal
   setLang('ja');
   assert.equal(text(protoHud.marchLine(FS, { arrive: 47, dest: { p: 2, q: 0, tile: POLE }, answer: { ok: false, code: 'NotOpen', need: { why: 'banner', slot: 0 } } })), '試作 到着：ターン 47・あなたの旗の土地です');

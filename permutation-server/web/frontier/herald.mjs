@@ -291,6 +291,19 @@ export function createHerald({ base = '', fetch: f = (...a) => globalThis.fetch(
       const r = await get(f, `${root}/h/sieges/latest.json`);
       return r.ok ? guard(() => ({ sieges: parseSieges(r.json) })) : r;
     },
+    // S1 (redesign stage 1): the caravan, structure and nation feeds.
+    async caravans() {
+      const r = await get(f, `${root}/h/caravans.json`);
+      return r.ok ? guard(() => ({ caravans: parseCaravans(r.json) })) : r;
+    },
+    async structures() {
+      const r = await get(f, `${root}/h/structures.json`);
+      return r.ok ? guard(() => ({ structures: parseStructures(r.json) })) : r;
+    },
+    async nations() {
+      const r = await get(f, `${root}/h/nations.json`);
+      return r.ok ? guard(() => ({ nations: parseNations(r.json) })) : r;
+    },
     async keep(p, q) {
       const r = await get(f, `${root}/h/keep/${p},${q}.json`);
       return r.ok ? { ok: true, keep: r.json } : r;
@@ -780,6 +793,169 @@ export function parseSieges(input) {
     check(lexLess([a.p, a.q], [c.p, c.q]), 'BadOrder', `keeps[${i}] not after keeps[${i - 1}] in (p, q)`);
   }
   return { v: 1, bell, sieges, keeps };
+}
+
+// ---- S1 feeds (herald/src/caravan.rs, structure.rs, nation.rs) ----
+
+const DEC_RE = /^(0|[1-9][0-9]*)$/;
+/** A decimal u64 tag (the S1 feeds write tags as decimal strings). */
+function decOf(o, k, at) {
+  const s = strOf(o, k, at);
+  check(DEC_RE.test(s) && BigInt(s) <= 0xffffffffffffffffn, 'BadValue', `${at}: ${k} ${s} is not a decimal u64`);
+  return s;
+}
+const TILE_MAX = 60;
+const FACTION_MAX = 5;
+function placeOf(v, at) {
+  const o = objOf(v, at);
+  return {
+    kind: intOf(o, 'kind', 0, 255, at), p: intOf(o, 'p', -COORD, COORD, at), q: intOf(o, 'q', -COORD, COORD, at),
+    at: intOf(o, 'at', 0, 255, at), gen: intOf(o, 'gen', 0, U32, at), tile: intOf(o, 'tile', 0, 255, at),
+  };
+}
+function caravanOf(v, at) {
+  const o = objOf(v, at);
+  const cargo = arrOf(o, 'cargo', at);
+  check(cargo.length === 8, 'BadSchema', `${at}: cargo has ${cargo.length} entries, not 8`);
+  const raided = fieldOf(o, 'raided', at);
+  check(typeof raided === 'boolean', 'BadSchema', `${at}: raided is not a boolean`);
+  return {
+    ownerTag: decOf(o, 'ownerTag', at), seq: intOf(o, 'seq', 0, U32, at), faction: intOf(o, 'faction', 0, FACTION_MAX, at),
+    src: placeOf(fieldOf(o, 'src', at), `${at}.src`), dst: placeOf(fieldOf(o, 'dst', at), `${at}.dst`),
+    steps: intOf(o, 'steps', 0, U32, at), cargo: cargo.map((_, i) => intOf(cargo, i, 0, U32, `${at}.cargo`)),
+    arriveTs: intOf(o, 'arriveTs', 0, Number.MAX_SAFE_INTEGER, at),
+    runs: arrOf(o, 'runs', at).map((r, i) => {
+      const ro = objOf(r, `${at}.runs[${i}]`);
+      const a = `${at}.runs[${i}]`;
+      return { p: intOf(ro, 'p', -COORD, COORD, a), q: intOf(ro, 'q', -COORD, COORD, a), firstBell: intOf(ro, 'firstBell', 0, U32, a), n: intOf(ro, 'n', 0, 255, a) };
+    }),
+    raided,
+  };
+}
+function vaultOf(v, at) {
+  const o = objOf(v, at);
+  return {
+    p: intOf(o, 'p', -COORD, COORD, at), q: intOf(o, 'q', -COORD, COORD, at), tile: intOf(o, 'tile', 0, TILE_MAX, at),
+    ownerTag: decOf(o, 'ownerTag', at), faction: intOf(o, 'faction', 0, FACTION_MAX, at), gen: intOf(o, 'gen', 0, U32, at),
+  };
+}
+
+/**
+ * `/h/caravans.json` → `{v: 1, moving: [{ownerTag, seq, faction, src, dst,
+ * steps, cargo[8], arriveTs, runs: [{p, q, firstBell, n}], raided}], vaults:
+ * [{p, q, tile, ownerTag, faction, gen}]}`, checked. Tags stay decimal strings.
+ */
+export function parseCaravans(input) {
+  const o = objOf(jsonOf(input), 'file');
+  versionOf(o);
+  return {
+    v: 1,
+    moving: arrOf(o, 'moving', 'file').map((c, i) => caravanOf(c, `moving[${i}]`)),
+    vaults: arrOf(o, 'vaults', 'file').map((c, i) => vaultOf(c, `vaults[${i}]`)),
+  };
+}
+
+/** `structure::KIND_*`. */
+export const STRUCTURE_KIND = Object.freeze({ 1: 'tower', 2: 'palisade', 3: 'fort' });
+export const SIGHTING_WHAT = Object.freeze(['depart', 'caravan', 'arrival', 'raid']);
+
+function structureOf(v, at) {
+  const o = objOf(v, at);
+  const kind = intOf(o, 'kind', 1, 3, at);
+  const cover = arrOf(o, 'cover', at).map((_, i, a) => intOf(a, i, 0, TILE_MAX, `${at}.cover`));
+  check(kind === 1 || cover.length === 0, 'BadValue', `${at}: only a tower has a cover`);
+  return {
+    p: intOf(o, 'p', -COORD, COORD, at), q: intOf(o, 'q', -COORD, COORD, at), tile: intOf(o, 'tile', 0, TILE_MAX, at),
+    kind, faction: intOf(o, 'faction', 0, FACTION_MAX, at), ownerTag: decOf(o, 'ownerTag', at),
+    gen: intOf(o, 'gen', 0, U32, at), notify: intOf(o, 'notify', 0, 1, at), cover, sent: intOf(o, 'sent', 0, U32, at),
+  };
+}
+function sightingOf(v, at) {
+  const o = objOf(v, at);
+  const what = strOf(o, 'what', at);
+  check(SIGHTING_WHAT.includes(what), 'BadValue', `${at}: what ${what}`);
+  const t = objOf(fieldOf(o, 'tower', at), `${at}.tower`);
+  return {
+    seq: intOf(o, 'seq', 0, Number.MAX_SAFE_INTEGER, at), bell: intOf(o, 'bell', 0, U32, at),
+    tower: { p: intOf(t, 'p', -COORD, COORD, at), q: intOf(t, 'q', -COORD, COORD, at), tile: intOf(t, 'tile', 0, TILE_MAX, at) },
+    towerFaction: intOf(o, 'towerFaction', 0, FACTION_MAX, at), notify: intOf(o, 'notify', 0, 1, at),
+    ownerTag: decOf(o, 'ownerTag', at), what, faction: optIntOf(o, 'faction', 0, FACTION_MAX, at),
+    p: intOf(o, 'p', -COORD, COORD, at), q: intOf(o, 'q', -COORD, COORD, at), tile: intOf(o, 'tile', 0, TILE_MAX, at),
+    subject: strOf(o, 'subject', at),
+  };
+}
+
+/**
+ * `/h/structures.json` → `{v: 1, structures: [{p, q, tile, kind, faction,
+ * ownerTag, gen, notify, cover, sent}], sightings: [{seq, bell, tower,
+ * towerFaction, notify, ownerTag, what, faction (null when unseen), p, q,
+ * tile, subject}]}`, checked; sightings oldest first.
+ */
+export function parseStructures(input) {
+  const o = objOf(jsonOf(input), 'file');
+  versionOf(o);
+  const structures = arrOf(o, 'structures', 'file').map((s, i) => structureOf(s, `structures[${i}]`));
+  const sightings = arrOf(o, 'sightings', 'file').map((s, i) => sightingOf(s, `sightings[${i}]`));
+  for (let i = 1; i < sightings.length; i++) {
+    check(sightings[i - 1].seq < sightings[i].seq, 'BadOrder', `sightings[${i}] not after sightings[${i - 1}] in seq`);
+  }
+  return { v: 1, structures, sightings };
+}
+
+export const NATIONS = 6;
+export const STANCE = Object.freeze(['war', 'pass', 'ally']);
+const PROPOSAL_KINDS = ['stance', 'expel', 'readmit'];
+const PROPOSAL_STATES = ['open', 'passed', 'failed'];
+
+function proposalOf(v, at) {
+  const o = objOf(v, at);
+  const kind = strOf(o, 'kind', at);
+  check(PROPOSAL_KINDS.includes(kind), 'BadValue', `${at}: kind ${kind}`);
+  const state = strOf(o, 'state', at);
+  check(PROPOSAL_STATES.includes(state), 'BadValue', `${at}: state ${state}`);
+  return {
+    faction: intOf(o, 'faction', 0, FACTION_MAX, at), id: intOf(o, 'id', 0, U32, at), slot: intOf(o, 'slot', 0, 255, at),
+    kind, targetFaction: intOf(o, 'targetFaction', 0, 255, at), value: intOf(o, 'value', 0, 255, at),
+    proposerTag: decOf(o, 'proposerTag', at), targetTag: decOf(o, 'targetTag', at),
+    openBell: intOf(o, 'openBell', 0, U32, at), closeBell: intOf(o, 'closeBell', 0, U32, at),
+    yes: intOf(o, 'yes', 0, 0xffff, at), no: intOf(o, 'no', 0, 0xffff, at), state,
+  };
+}
+
+/**
+ * `/h/nations.json` → `{v: 1, stances[6][6] (0 war, 1 pass, 2 ally),
+ * proposals: [{faction, id, slot, kind, targetFaction, value, proposerTag,
+ * targetTag, openBell, closeBell, yes, no, state}], expelled: [{tag, faction,
+ * since}], domesticRaids: [{ownerTag, seq, p, q, bell, raiderHost,
+ * raiderTag}]}`, checked.
+ */
+export function parseNations(input) {
+  const o = objOf(jsonOf(input), 'file');
+  versionOf(o);
+  const st = arrOf(o, 'stances', 'file');
+  check(st.length === NATIONS, 'BadSchema', `stances has ${st.length} rows, not ${NATIONS}`);
+  const stances = st.map((row, n) => {
+    check(Array.isArray(row) && row.length === NATIONS, 'BadSchema', `stances[${n}] is not ${NATIONS} entries`);
+    return row.map((_, f) => intOf(row, f, 0, STANCE.length - 1, `stances[${n}]`));
+  });
+  return {
+    v: 1,
+    stances,
+    proposals: arrOf(o, 'proposals', 'file').map((p, i) => proposalOf(p, `proposals[${i}]`)),
+    expelled: arrOf(o, 'expelled', 'file').map((e, i) => {
+      const a = `expelled[${i}]`;
+      const eo = objOf(e, a);
+      return { tag: decOf(eo, 'tag', a), faction: intOf(eo, 'faction', 0, FACTION_MAX, a), since: intOf(eo, 'since', 0, U32, a) };
+    }),
+    domesticRaids: arrOf(o, 'domesticRaids', 'file').map((r, i) => {
+      const a = `domesticRaids[${i}]`;
+      const ro = objOf(r, a);
+      return {
+        ownerTag: decOf(ro, 'ownerTag', a), seq: intOf(ro, 'seq', 0, U32, a), p: intOf(ro, 'p', -COORD, COORD, a), q: intOf(ro, 'q', -COORD, COORD, a),
+        bell: intOf(ro, 'bell', 0, U32, a), raiderHost: decOf(ro, 'raiderHost', a), raiderTag: decOf(ro, 'raiderTag', a),
+      };
+    }),
+  };
 }
 
 /** The conquest event kinds of §8.4, and which location fields each carries (CF-8). */

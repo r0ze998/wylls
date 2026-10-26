@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wylls 変更前後</title>
+<style>
+  :root { color-scheme: light; font: 14px/1.6 system-ui, -apple-system, "Hiragino Sans", sans-serif; }
+  body { margin: 0; background: #ece5d2; color: #1d2622; }
+  header, section { max-width: 1500px; margin: 0 auto; padding: 16px 20px; }
+  h1, h2 { font-family: "Hiragino Mincho ProN", "Yu Mincho", serif; margin: 0 0 6px; }
+  .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 10px 0 28px; }
+  .pair.phone { grid-template-columns: repeat(2, minmax(0, 300px)); }
+  figure { margin: 0; } img { width: 100%; height: auto; display: block; border-radius: 6px; box-shadow: 0 4px 14px rgba(0,0,0,.2); }
+  figcaption { font-size: 12px; color: #4c5852; margin-top: 4px; }
+  .note { font-size: 13px; color: #3b4440; max-width: 900px; }
+  @media (max-width: 700px) { .pair { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>変更前後（同じ固定の場面）</h1>
+  <p class="note">左が変更前（起点 e4019d7a）、右が変更後（design/visual-uplift）。どちらも見本の世界（固定の時計、同じ乱数）を、同じ大きさで撮った。撮り方は permutation-gateway/screens/uplift-shots.mjs。s09 は S1 の情報の見本を差し込んだ場面で、どの季の記録でもない。</p>
+</header>
+<section id="pairs"></section>
+<section>
+  <h2>S1 の世界（本物のローカルチェーン、季 303）</h2>
+  <p class="note">見本ではなく、ローカルの S1 の世界で参加し、倉と柵を実際に建てた（04-VERIFY 3 回目）。1 は直す前：規則モジュールが季節と合わず、地形も村も描かれない。2〜5 は直した後。アプリの中のブラウザで撮った。</p>
+  <div id="s1live" class="pair"></div>
+</section>
+<section>
+  <h2>12 のボットが遊ぶ征服の世界（観戦、このブランチのクライアント）</h2>
+  <p class="note">手元で動いている別の征服の世界（ボット 12、ターン 386〜390）を、このブランチのクライアントで観戦の画面から見た（読むだけ）。国の順位の名前が切れていたのを直した（右下）。</p>
+  <div id="popworld" class="pair"></div>
+</section>
+<section>
+  <h2>命令の札と報告を、状態ごとに</h2>
+  <p class="note">見本の世界で、同じ進軍を 8 つの状態で撮り、それぞれ確かめた（permutation-gateway/screens/uplift-states.mjs）。</p>
+  <div id="states" class="pair"></div>
+</section>
+<section>
+  <h2>美術方針の比較（プレビュー）</h2>
+  <p class="note">同じ場面を 3 案で描いた。A を推奨（01-ART-DIRECTION）。未実装の機能は A の上のプレビュー。</p>
+  <div id="dirs" class="pair"></div>
+</section>
+<script>
+  const P = [
+    ['s01-rest-desk', '普段の地図：ひとつの国土、自然な岸、耕された土地、マス目は息に'],
+    ['s02-village-desk', '村を選ぶ：その土地だけが色を持つ（村のレンズ）'],
+    ['s03-host-desk', '軍を選ぶ：届く範囲だけ格子'],
+    ['s04-compose-desk', '進軍の命令：見通し（到着・費用・相手・予測）と取り消せない一行'],
+    ['s10-compare-desk', '守り手のいる村へ：構えを比べる（ルールの予測）'],
+    ['s09-s1sample-desk', 'S1 の施設と荷車（見本の情報）：村と同じ筆致'],
+    ['s06-holding-desk', '村の引き出し'],
+    ['s07-hosts-desk', '軍勢の引き出し：状態の判を形でも区別'],
+  ];
+  const PH = [['s01-rest-phone', '普段（スマホ）'], ['s02-village-phone', '村を選ぶ（スマホ）'], ['s04-compose-phone', '進軍の命令（スマホ）'], ['s10-compare-phone', '構えを比べる（スマホ）']];
+  const pairs = document.getElementById('pairs');
+  // (only after: the lens on an S1 season, a sample)
+  const ONLY_AFTER = [['s11-orelens-desk', 'S1 の季の村のレンズ（見本）：鉱石の出どころを言う'], ['s12-mid-desk', '中くらいの縮尺：村の格の札と国旗はここでも読める'], ['s13-mid2-desk', 'もう一段引いた縮尺'], ['s01-rest-land', 'スマホを横に：普段'], ['s02-village-land', 'スマホを横に：村を選ぶ'], ['s03-host-land', 'スマホを横に：軍を選ぶ']];
+  for (const [s, t] of [...P, ...PH]) {
+    const phone = s.endsWith('phone');
+    pairs.insertAdjacentHTML('beforeend', `<h2>${t}</h2><div class="pair${phone ? ' phone' : ''}"><figure><img src="before/${s}.jpg" alt="変更前：${t}" loading="lazy"><figcaption>変更前</figcaption></figure><figure><img src="after/${s}.jpg" alt="変更後：${t}" loading="lazy"><figcaption>変更後</figcaption></figure></div>`);
+  }
+  for (const [s, t] of ONLY_AFTER) pairs.insertAdjacentHTML('beforeend', `<h2>${t}</h2><div class="pair"><figure><img src="after/${s}.jpg" alt="${t}" loading="lazy"><figcaption>変更後のみ</figcaption></figure></div>`);
+  const fig = (src, t) => `<figure><img src="${src}" alt="${t}" loading="lazy"><figcaption>${t}</figcaption></figure>`;
+  const s1 = document.getElementById('s1live');
+  for (const [f, t] of [['1-before-ruleset', '1 直す前：規則モジュールの不一致で、州は平らな色だけ'], ['2-after-kernel', '2 S1 の規則モジュールで、地形・村・まわりの砦'], ['3-vault', '3 建てた倉（スレートの屋根、金の輪はあなたの物）'], ['4-vault-card', '4 倉のマスを押す：「倉庫 · あなたのもの」'], ['5-palisade', '5 建てた柵（測量の浅い土地の上）']])
+    s1.insertAdjacentHTML('beforeend', fig(`s1live/${f}.jpg`, t));
+  const pw = document.getElementById('popworld');
+  for (const [f, t] of [['pop-spectate-desk2', '全体：六つの国の土地と砦'], ['pop-1_0_30_0_9', '近景：州をまたいで続く地面、砦、国の印'], ['pop-0_1_30_0_9', '近景：別の場所'], ['pop-rank', '国の順位：名前が切れない、州・時間は小数 1 桁']])
+    pw.insertAdjacentHTML('beforeend', fig(`popworld/${f}.jpg`, t));
+  const st = document.getElementById('states');
+  for (const [f, t] of [['landscape', 'スマホを横に：送るボタンと、比べるための場所'], ['kbd', 'キーボード：矢印で構えを選ぶ'], ['motion', '動きを減らす'], ['nokernel', '規則モジュールなし：予測を作らない'], ['relaydown', '中継が落ちている：送れなかったと言う'], ['en360', '英語・幅 360'], ['grey', '色なし：言葉と形で区別'], ['report', '報告：予測と確定、幅の外'], ['report-none', '報告：予測を持たない端末']])
+    st.insertAdjacentHTML('beforeend', fig(`states/${f}.jpg`, t));
+  const dirs = document.getElementById('dirs');
+  for (const [f, t] of [['all-rest', '3 案：普段'], ['all-select', '3 案：選ぶ・比べる'], ['A-select', 'A：選ぶ・比べる'], ['A-result', 'A：結果（予測と確定）'], ['B-select', 'B：選ぶ・比べる'], ['C-select', 'C：選ぶ・比べる'], ['A-caravan', 'プレビュー：隊商を送る'], ['A-raid', 'プレビュー：奪うか焼くか'], ['A-ai', 'プレビュー：AI の代理の状態'], ['A-season', 'プレビュー：戦期']])
+    dirs.insertAdjacentHTML('beforeend', `<figure><img src="directions/${f}.jpg" alt="${t}" loading="lazy"><figcaption>${t}</figcaption></figure>`);
+</script>
+</body>
+</html>

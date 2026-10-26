@@ -14,7 +14,8 @@
 // the own wedge has no open site left, the program accepts sites in the
 // adjacent wedges' outermost open ring; integ-W3 deferred item K11).
 import { activeHolding } from './fstate.mjs';
-import { SCOUT, CITIZEN, freeByWedge, homeWedge, ticketTimes, baseProduction, hostOfHolding } from './fland.mjs';
+import { SCOUT, CITIZEN, freeByWedge, homeWedge, ticketTimes, baseProduction, hostOfHolding, TIER_BONUS_PCT } from './fland.mjs';
+import { seasonBase } from './fs1.mjs';
 import { territoryEnabled } from './territory.mjs';
 import { ringOf, wedgeOf, provinceIndex } from './fgeo.mjs';
 
@@ -67,8 +68,10 @@ export function hasBuilt(h, now = 0) {
   if (!h) return false;
   // Lazy settlement may still leave the completed effect in the decoded queue.
   if ((h.queue ?? []).some(x => x && x.kind === 1 && Number(x.doneAt) > 0 && Number(x.doneAt) <= now)) return true;
-  const base = baseProduction(Number(h.tier ?? 0));
-  return (h.production ?? []).some((x, r) => BigInt(x) > (base[r] ?? 0n));
+  // (on S1 the ore base is the village's terrain ore, fs1.mjs seasonBase: a village on hills makes more ore than the
+  // tier's base before it builds anything; while the terrain is not known its ore says nothing either way)
+  const tier = Number(h.tier ?? 0), base = seasonBase(baseProduction(tier), h, { bonusPct: TIER_BONUS_PCT[tier] ?? 0 });
+  return (h.production ?? []).some((x, r) => base[r] !== null && BigInt(x) > (base[r] ?? 0n));
 }
 /** A Holding has Scouts trained or mustered. */
 export const hasScouts = (h, scoutHost = false) => scoutHost || (!!h && Number(h.reserve?.[SCOUT] ?? 0) > 0);

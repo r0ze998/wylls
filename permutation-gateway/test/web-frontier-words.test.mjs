@@ -32,7 +32,8 @@ test('every number is a turn\'s: no numbered bell in the client\'s strings or in
   // 第N鐘 / 第${n}鐘 / 鐘 N in a template, in any module or page of the play client
   assert.deepEqual(hits(/第(\$\{[^}]*\}|[\d,]+|\{\d\})鐘|鐘 ?\$\{|鐘 \d/), [], 'a numbered bell');
   // the unnumbered event stays: the toll, "the next bell"
-  assert.ok(hits(/新しいターン — /).length >= 1 && hits(/次のターン/).length >= 1);
+  // (the toll's banner is 「ターン N」 over 「新しいターン」 since the uplift: it said 「新しいターン — ターン N」)
+  assert.ok(hits(/新しいターン/).length >= 1 && hits(/次のターン/).length >= 1);
   assert.deepEqual(hits(/鐘/), [], 'the step and its change are said with the one word (web-lang.test.mjs guards the dictionaries too)');
   // the period is a turn: 到着のターン, このターン, ターンの始まり — never 到着の鐘, この鐘, 鐘の始まり, 鐘ごと
   assert.deepEqual(hits(/到着の鐘|この鐘|鐘の始まり|鐘の終わり|鐘ごと|前の鐘|いまの鐘|最初の鐘/), [], 'a bell as a period');

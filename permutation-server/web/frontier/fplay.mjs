@@ -47,6 +47,7 @@ export const SIGNED_BY = Object.freeze({
   Join: 'wallet', SetSession: 'wallet',
   SetVigil: 'session', FileTicket: 'session', PlaceHome: 'session', Harvest: 'session', Build: 'session', Train: 'session', Muster: 'session',
   DeclareSiege: 'session', FileOutpost: 'session', RetireHost: 'session', Dissolve: 'session', Garrison: 'session', Explore: 'session', Depart: 'session',
+  BuildVault: 'session', BuildStructure: 'session',
   SettleExplore: 'none', SettleTransit: 'none',
 });
 /** Build item of the walls (catalog `ITEM_WALLS`; the only Build that names the Province). */
@@ -106,6 +107,11 @@ export function accountsFor(name, v) {
       return { ...base, holding: holding(), ...(cq || v.item === ITEM_WALLS ? { province: province() } : {}) };
     case 'Muster': case 'Dissolve': case 'Garrison': case 'Explore': case 'Depart':
       return { ...base, holding: holding(), province: province(), ...(cq && ['Dissolve','Explore','Depart'].includes(name) ? { holding_province: A.of('Province', v.holding) } : {}) };
+    // S1: a vault or structure on `v.at` = {p, q, tile}, paid by the holding (the program checks the tile, the counts and the stores)
+    case 'BuildVault':
+      return { ...base, holding: holding(), holding_province: A.of('Province', v.holding), province: A.of('Province', v.at), vault: A.of('Vault', v.at) };
+    case 'BuildStructure':
+      return { ...base, holding: holding(), holding_province: A.of('Province', v.holding), province: A.of('Province', v.at), structure: A.of('Structure', v.at) };
     case 'SettleExplore':
       return { season: A.season, holding: holding(), citizen, seedcache_or_archive: v.settle.seed, anchor_or_archive: v.settle.anchor };
     case 'SettleTransit': {

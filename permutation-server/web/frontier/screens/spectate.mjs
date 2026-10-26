@@ -99,6 +99,8 @@ export function render(FS, { ownerOf = null, standings = '' } = {}) {
     FS.chain && FS.clock ? bellScreen.render(FS) : '',
     reportScreen.renderLinks(clashes, L`最近の衝突`, { FS }) || html`<p class="muted">${L`まだ衝突はありません`}</p>`,
     chronicleScreen.render(FS),
-    FS.record ? html`<p class="as-of">${L`スロット ${fmtNum(FS.record.latestSlot ?? 0)} 時点`}</p>` : '',
+    // (when the page's view of the world dates from, in the game's own unit: a chain slot is a word for the builders.
+    // The design review of 2026-10-24; the slot stays in the element's title for whoever checks the record)
+    FS.record ? html`<p class="as-of" title="${`slot ${FS.record.latestSlot ?? 0}`}">${Number.isInteger(FS.nowBell) ? L`ターン ${fmtNum(FS.nowBell)} の時点の世界です` : L`スロット ${fmtNum(FS.record.latestSlot ?? 0)} 時点`}</p>` : '',
   ];
 }

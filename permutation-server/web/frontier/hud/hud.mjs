@@ -159,14 +159,14 @@ export function renderStrip(tokens, open = null, max = tokens.length) {
   const all = tokens.length > max;
   const shown = all ? [...tokens].sort((a, b) => STATE_RANK[a.state] - STATE_RANK[b.state] || tokens.indexOf(a) - tokens.indexOf(b)).slice(0, max) : tokens;
   // (some are left out: the last one shown carries how many more there are, and every one opens them all; a strip
-  // never ends in half a token)
+  // never ends in half a token. 「ほか 3」, not 「+3」: beside a stock, a plus read as three more of it, 07-HUD-TEXT-FX)
   const more = all ? tokens.length - shown.length : 0;
   return shown.map((r, i) => html`<button type="button" class="res res-${r.state}" data-act="res-open" data-r="${all ? '*' : r.resource}" data-res="${r.resource}" aria-expanded="${open === (all ? '*' : r.resource) ? 'true' : 'false'}" aria-haspopup="dialog" title="${resourceTitle(r)}" aria-label="${all ? L`${resourceTitle(r)} · ほか ${fmtNum(tokens.length - max)} 種` : resourceTitle(r)}">
     ${icon(RESOURCE_ICON[r.resource] ?? 'crate', `res-ic res-c-${r.resource}`)}
     <span class="res-val">${fmtNum(r.value)}</span><span class="res-short" aria-hidden="true">${shortNum(r.value)}</span>
     ${r.perHour !== 0 ? html`<span class="res-rate">${L`${signedResourceRate(r.perHour)}/時`}</span>` : ''}
     ${r.state === 'full' ? html`<span class="res-flag">${L`満杯`}</span>` : r.state === 'near' ? html`<span class="res-flag">${span(r.fullIn)}</span>` : ''}
-    ${more > 0 && i === shown.length - 1 ? html`<span class="res-more-n" aria-hidden="true">+${fmtNum(more)}</span>` : ''}
+    ${more > 0 && i === shown.length - 1 ? html`<span class="res-more-n" aria-hidden="true"><span class="res-more-w">${L`ほか ${fmtNum(more)}`}</span><span class="res-more-s">${icon('list', 'res-more-ic')}${fmtNum(more)}</span></span>` : ''}
   </button>`);
 }
 
@@ -303,7 +303,11 @@ export function nextThing(FS, { guide = null, items = null } = {}) {
   if (guide && !urgent) {
     const kicker = L`ガイド ${fmtNum(guide.n)}/${fmtNum(guide.total)}`;
     const go = guide.go ?? { act: 'guide-open', data: {}, label: L`手順を見る` };
-    return { kind: 'guide', icon: 'compass', kicker, title: guide.title, label: go.label, text: L`${kicker}：${guide.title}（${go.label}）`, hint: guide.text, act: go.act, data: go.data ?? {}, more: list.length };
+    // (a step with its own press says the press: 「探索する土地を選ぶ」 is what the player does; the step's theme, 「建設を待つ
+    // 間に、周りを知ろう」, is the tooltip and the steps list. The pill carried both and was cut off on a phone: the design
+    // review of 2026-10-24. `short`: the line the prompt shows)
+    const short = guide.go ? go.label : guide.title;
+    return { kind: 'guide', icon: 'compass', kicker, title: guide.title, label: go.label, short, text: L`${kicker}：${guide.title}（${go.label}）`, hint: guide.go && guide.text ? `${guide.title} — ${guide.text}` : guide.go ? guide.title : guide.text, act: go.act, data: go.data ?? {}, more: list.length };
   }
   if (!list.length) return null;
   const x = list[0];
@@ -318,8 +322,13 @@ const dataAttrs = d => raw(Object.entries(d ?? {}).map(([k, v]) => `data-${Strin
  */
 export function renderNextRow(next) {
   if (!next) return '';
+  const lead = next.short ?? next.title;
+  const press = next.label && next.label !== lead ? next.label : '';
+  const more = !press && next.more > 0 ? html`<span class="todo-n">${L`ほか ${fmtNum(next.more)}`}</span>` : '';
+  // (with a kicker, the count of other things rides its line: the press keeps the row's whole width, which on a phone in
+  // English was cut to 「Choose where to …」)
   return html`<div class="next-row next-${next.kind}">
-    <button type="button" class="next-row-go" data-act="${next.act}" ${dataAttrs(next.data)} aria-label="${L`次にやること：${next.text}`}"><span class="todo-medal">${icon(next.icon, 'todo-ic')}</span><span class="next-row-t">${next.kicker ? html`<span class="next-kicker">${next.kicker}</span>` : ''}<strong>${next.title}</strong></span>${next.label ? html`<span class="next-row-do">${next.label}</span>` : next.more > 0 ? html`<span class="todo-n">${L`ほか ${fmtNum(next.more)}`}</span>` : ''}${icon('next', 'todo-go')}</button>
+    <button type="button" class="next-row-go" data-act="${next.act}" ${dataAttrs(next.data)} aria-label="${L`次にやること：${next.text}`}"><span class="todo-medal">${icon(next.icon, 'todo-ic')}</span><span class="next-row-t">${next.kicker ? html`<span class="next-row-k"><span class="next-kicker">${next.kicker}</span>${more}</span>` : ''}<strong>${lead}</strong></span>${press ? html`<span class="next-row-do">${press}</span>` : next.kicker ? '' : more}${icon('next', 'todo-go')}</button>
     ${next.kind === 'guide' ? html`<button type="button" class="next-row-steps" data-act="guide-open" aria-label="${L`ガイドの手順を見る`}">${icon('list')}</button>` : ''}</div>`;
 }
 

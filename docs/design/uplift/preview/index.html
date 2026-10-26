@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wylls 美術方針の比較</title>
+<link rel="stylesheet" href="preview.css">
+</head>
+<body>
+<header class="pv-head">
+  <div>
+    <p class="pv-kicker">プレビュー：本番の画面ではありません · 同じ地図・同じ場面</p>
+    <h1>美術方針の比較</h1>
+  </div>
+  <nav class="pv-tabs" aria-label="方針">
+    <button type="button" data-dir="A" aria-pressed="true">A 卓上の箱庭</button>
+    <button type="button" data-dir="B" aria-pressed="false">B 彩色地誌</button>
+    <button type="button" data-dir="C" aria-pressed="false">C 夜の軍議卓</button>
+    <button type="button" data-dir="all" aria-pressed="false">3 案を並べる</button>
+  </nav>
+  <nav class="pv-tabs" aria-label="場面">
+    <button type="button" data-frame="rest" aria-pressed="true">普段</button>
+    <button type="button" data-frame="select" aria-pressed="false">選ぶ・比べる</button>
+    <button type="button" data-frame="result" aria-pressed="false">結果</button>
+  </nav>
+  <nav class="pv-tabs pv-tabs-future" aria-label="未実装の機能のプレビュー">
+    <button type="button" data-frame="caravan" aria-pressed="false">隊商を送る</button>
+    <button type="button" data-frame="raid" aria-pressed="false">奪うか焼くか</button>
+    <button type="button" data-frame="ai" aria-pressed="false">AI の代理</button>
+    <button type="button" data-frame="season" aria-pressed="false">戦期</button>
+  </nav>
+</header>
+<main id="stages" class="pv-stages"></main>
+<section id="notes" class="pv-notes"></section>
+<script type="module" src="preview.mjs"></script>
+</body>
+</html>

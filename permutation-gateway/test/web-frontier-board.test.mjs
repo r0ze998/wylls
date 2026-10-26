@@ -271,7 +271,8 @@ test('a promotion floods the new ring alone, in the landing\'s rhythm; the villa
   assert.equal(V.promotionAt(V.promotionMs(1, 2), 1, 2).border, 1);
   assert.equal(V.promotionAt(LANDING.floodAt + LANDING.ringFade, 1, 2).ring(2).fill, landingAt(LANDING.floodAt + LANDING.ringFade, 0).ring(0).fill, 'the new ring floods as a landing\'s first ring does');
   // the annexes: six places, all outside the palisade and none on the right-hand side in front (the standard, the character, the hosts)
-  assert.equal(ANNEX_AT.length, 6);
+  // (the uplift: a seventh place, the S1 workshop's forge, behind the village on the right like the market's)
+  assert.equal(ANNEX_AT.length, 7);
   for (const [gx, gy] of ANNEX_AT) assert.ok(Math.hypot(gx, gy) > VILLAGE.ring[1] + 0.1 && (gx < 0 || gy < -0.7), `${gx},${gy}`);
   for (const tier of [0, 1, 2, 3]) assert.doesNotThrow(() => paintVillage(inert(), 200, 200, 80, { tier, faction: 0, annex: [1, 1, 1, 1, 1, 1] }));
   const src = readFileSync(new URL('map/village.mjs', WEB), 'utf8');

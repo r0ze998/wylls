@@ -34,7 +34,7 @@ import { lifeAt } from '../people/life.mjs';
 import { paintBattle, battleTiles } from '../people/battle.mjs';
 import { provinceTokens, paintToken } from '../people/units.mjs';
 import { boardCharacters, characterPlaces } from '../people/onboard.mjs';
-import { canAct, staminaRing, villageWork } from './board.mjs';
+import { buildingsOf, canAct, staminaRing, villageWork } from './board.mjs';
 import { paintSheaves, scaffoldsOf } from './villagework.mjs';
 import { characterCell } from '../people/onboard.mjs';
 import { onMiniLoad, MINI_ANCHOR, MINI_CELL_U } from '../people/minis.mjs';
@@ -52,6 +52,16 @@ import { villageSprite } from './village.mjs';
 import { OPEN_PASS } from './labelpass.mjs';
 import { paintBellTower, towerSprite } from './belltower.mjs';
 import { RELIEF, paintMountainShadow, paintWoodFloor, reliefSprite, woodOf } from './relief.mjs';
+import { paintBlend, paintSwell, paintShores, forgetShores, spriteColour, waterLoops, clipOutside } from './groundblend.mjs';
+import { landUse, paintLandUse } from './landuse.mjs';
+
+/** The tile view's land is painted as one country (map/groundblend.mjs: blended kinds of land, whole coasts); `?country=0` shows the hexagons as they were. */
+const SHORES_DRAWN = !/[?&]country=0(?:&|$)/.test(globalThis.location?.search ?? '');
+/** Frames a stand-in picture goes without the country's passes while provinces wait for their bitmaps (paint). */
+const WAIT_COUNTRY = 90;
+/** S1 terrain ore (permutation-rules arms.rs ORE_RADIUS, ORE_TERRAIN_MAX): pinned by web-frontier-uplift.test.mjs. */
+export const ORE_RADIUS = 2;
+export const ORE_TERRAIN_MAX = 30;
 
 const BASE = new URL('../art/', import.meta.url);
 /** The far bitmaps' resolutions (device px per world px) and their cache budget in pixels. */
@@ -280,7 +290,10 @@ export const FLAT = Object.freeze({
   grassland: ['#7d9651', '#6d8546'], plains: ['#bfae6c', '#a8985c'], forest: ['#4d6a3b', '#3c5530'],
   hills: ['#8e9a5c', '#737d49'], mountain: ['#8a847a', '#6c675f'], water: ['#467f8c', '#3a6c78'],
 });
-const GRID_INK = 'rgba(24,34,26,0.32)';
+// (docs/design/uplift 01: at rest the land is the subject and the grid a breath; the lattice where an order can go
+// is drawn crisp by map/actions.mjs paintActionGround. It was 0.32; 0.13 made the hexes hard to count at rest, and
+// distance is a rule: the design review of 2026-10-24. 0.2 keeps every hex countable and the land still one country.)
+const GRID_INK = 'rgba(24,34,26,0.2)';
 /** A ground bitmap's box around its province's centre (world px): the tiles and their sprites' cells. */
 const GROUND_BOX = Object.freeze({ left: 352, right: 352, top: 258, bottom: 252 });
 /** A nation's land from afar: how strong its wash is on the world chart and nearer, and its one rim (screen px). */
@@ -816,6 +829,35 @@ export class SpriteArt {
    * (`[{key "P,Q,tile", village, tiles, shape, provisional}]`, map/ownland.mjs paints them). Built once
    * and kept while the same entries, options and map stamp come again (an animation frame builds nothing).
    */
+  /**
+   * S1: the tiles that give a village on tile `idx` of province (p, q) its terrain ore (permutation-rules arms.rs
+   * `terrain_ore_per_hour`: every other tile of the same province within ORE_RADIUS 2 adds ORE_PER_HILLS 2,
+   * ORE_PER_MOUNTAIN 3, ORE_PER_IRON 4 for an iron resource; the terrain part capped at ORE_TERRAIN_MAX 30), from the
+   * last picture's tiles: `{tiles: [{x, y, ore}], total, capped}` (units an hour, before the tier's bonus), or null.
+   */
+  oreAround(p, q, idx) {
+    const m = this.lastModel, home = m?.byId.get(`${p},${q},${idx}`);
+    if (!home) return null;
+    const out = [];
+    let total = 0;
+    for (const t of m.byProv.get(`${p},${q}`) ?? []) {
+      if (t === home || Math.max(Math.abs(t.q - home.q), Math.abs(t.r - home.r), Math.abs(t.q + t.r - home.q - home.r)) > ORE_RADIUS) continue;
+      if (t.res === null) return null;   // (the record not read yet: an amount without its iron would be too low)
+      // (the resource byte: 0 none, else 1 + the rules' TileResource, Iron being 1)
+      const ore = (t.name === 'hills' ? 2 : t.name === 'mountain' ? 3 : 0) + (t.res === 2 ? 4 : 0);
+      if (ore) { out.push({ x: t.x, y: t.y, ore }); total += ore; }
+    }
+    // (hills and mountains as near but in the next province, which the rule does not count: said by the lens, so the
+    // land in sight does not seem to contradict it: the design review of 2026-10-24)
+    let across = 0;
+    for (let dq = -ORE_RADIUS; dq <= ORE_RADIUS; dq++) for (let dr = -ORE_RADIUS; dr <= ORE_RADIUS; dr++) {
+      if (Math.abs(dq + dr) > ORE_RADIUS || (!dq && !dr)) continue;
+      const t = m.byHex?.get(keyOf(home.q + dq, home.r + dr));
+      if (t && (t.p !== p || t.pq !== q) && (t.name === 'hills' || t.name === 'mountain')) across++;
+    }
+    return { tiles: out, total: Math.min(ORE_TERRAIN_MAX, total), capped: total > ORE_TERRAIN_MAX, across };
+  }
+
   model(entries, { demoRoads = false, relics = [], waystones = [], demoSpecials = false, rivers = [], demoRivers = false, ringsOpen = null, alliedPairs = [], stamp = undefined, survey = null }) {
     const sig = [stamp, survey, survey?.board?.work?.tier ?? -1, demoRoads, demoSpecials, demoRivers, ringsOpen, alliedPairs.join('|'), relics.length ? relics : 0, waystones.length ? waystones : 0, rivers.length ? rivers : 0];
     for (const e of entries) sig.push(e.p, e.q, e.fog, e.terrain, e.sites, e.names, e.rec, e.prov, e.clash, e.tiers, e.territoryMode, e.territory);
@@ -852,7 +894,8 @@ export class SpriteArt {
           camp: !!(lv === L3 && e.prov?.camp?.state === 1 && e.prov.camp.tile === i && j === undefined),
           shield: !!(lv === L3 && m && m.shieldUntilBell > 0 && m.shieldUntilBell !== 0xffffffff && m.shieldUntilBell >= (e.prov?.resolvedNext ?? 0)) };
         t.road = lv >= L2 && SITE_LAND.has(name) && roadBit(e.prov?.roadMask, i);
-        t.res = e.prov?.resource?.[i] ?? 0;
+        // (null while the province's record is not read: its iron is not known, and oreAround then says nothing)
+        t.res = e.prov?.resource ? e.prov.resource[i] ?? 0 : null;
         t.ring = ringOf(e.p, e.q);
         t.rel = e.prov?.relations ?? 0;
         const pc = provinceCentre(e.p, e.q);
@@ -1028,6 +1071,7 @@ export class SpriteArt {
     const opening = this.opening && openFrame < OPEN_GLOW.length ? this.opening.ring : null;
     const k = RADIUS / s.r;
     const { tiles, byHex, byId, byProv, washSig } = this.model(entries, { demoRoads, relics, waystones, demoSpecials, rivers, demoRivers, ringsOpen, alliedPairs, stamp, survey });
+    this.lastModel = { byId, byProv, byHex };
     const nameAt = (q, r) => byHex.get(keyOf(q, r))?.name ?? terrainAt(q, r);
     // the survey of this frame: a province's kind and signature, and what of a tile is painted
     const svOf = (e) => (survey && e.fog !== 'unopened' ? survey.province(e.p, e.q) : null);
@@ -1065,11 +1109,12 @@ export class SpriteArt {
         const nb = nameAt(t.q + dq, t.r + dr);
         if (!nb || nb === 'cloud') return;
         if (t.name === 'water' && nb !== 'water') {
-          const o = this.image('overlays', s.key, `shore_${e}`); if (o) draw(o, t);
+          // (the tile view's coasts are drawn whole by map/groundblend.mjs: the edge-by-edge shore and beach followed the hexagons)
+          if (!SHORES_DRAWN || far) { const o = this.image('overlays', s.key, `shore_${e}`); if (o) draw(o, t); }
           const rt = byHex.get(keyOf(t.q + dq, t.r + dr));
           if (rt?.river && (rt.river >> ((e + 3) % 6) & 1)) { const m = this.image('overlays', s.key, `mouth_${e}`); if (m) draw(m, t); }
         }
-        else if (t.name !== 'water' && nb === 'water') { const o = this.image('overlays', s.key, `beach_${e}`); if (o) draw(o, t); }
+        else if (t.name !== 'water' && nb === 'water' && (!SHORES_DRAWN || far)) { const o = this.image('overlays', s.key, `beach_${e}`); if (o) draw(o, t); }
       });
       if (t.road && !t.river) {
         const pre = `${t.name}_${t.v}`;
@@ -1079,6 +1124,42 @@ export class SpriteArt {
         });
         const c = this.image('roads', s.key, `${pre}_c`); if (c) draw(c, t);
       }
+    };
+    // the land as one country (map/groundblend.mjs): the art's colour of a hex, whether it is painted land here, and the
+    // two passes over a set of tiles' ground (where kinds of land meet; the coasts), at the tile view only
+    if (this.shoreTiles !== tiles) { forgetShores(); this.shoreTiles = tiles; }
+    const colourAt = (q, r) => {
+      const t = byHex.get(keyOf(q, r)), name = t?.name ?? terrainAt(q, r);
+      if (!name || name === 'cloud' || !FLAT[name]) return null;
+      const img = t?.river ? null : this.image(t && siteGround(t) ? 'sites' : 'terrain', s.key, `${t ? (coded(t) ? RELIEF_GROUND[name] : name) : CODE_RELIEF[name] && !RELIEF_OFF ? RELIEF_GROUND[name] : name}_${t?.v ?? artVariant(q, r)}`);
+      return img ? spriteColour(img) : null;
+    };
+    const paintsAt = (q, r) => { const t = byHex.get(keyOf(q, r)); return !!t && !t.cloud && painted(t); };
+    // the land the villages work, worked (map/landuse.mjs): lies flat on the ground, so it is baked with it, province by
+    // province; made again when the tiles or the viewer's own buildings change (its signature is in the bitmap's key)
+    const work0 = survey && !survey.showAll ? survey.board?.work ?? null : null;
+    // (on S1 the village's ore base is its terrain's: board.mjs buildingsOf counts mines over it, or none without it)
+    const built0 = work0 ? buildingsOf(work0, { oreExtra: this.oreAround(work0.p, work0.q, work0.tile)?.total ?? null }) : null;
+    const luKey = built0 ? built0.join(',') : '';
+    if (!far && SHORES_DRAWN && (this.luTiles !== tiles || this.luKey !== luKey)) {
+      this.luTiles = tiles; this.luKey = luKey;
+      const villages = tiles.filter(t => !t.cloud && t.site !== undefined && t.state === 1 && t.owner < 6 && painted(t))
+        .map(t => ({ q: t.q, r: t.r, tier: t.tier ?? 0, own: !!t.hero, built: t.hero && work0 && work0.p === t.p && work0.q === t.pq && work0.tile === t.idx ? built0 : null }));
+      const by = new Map();
+      for (const u of landUse(villages, (q, r) => { const t = byHex.get(keyOf(q, r)); return t && !t.cloud && painted(t) ? t : null; })) {
+        const e = by.get(u.t.pk) ?? by.set(u.t.pk, { list: [], sig: '' }).get(u.t.pk);
+        e.list.push(u); e.sig += `${u.kind[0]}${u.t.idx}`;
+      }
+      this.luBy = by;
+    }
+    const country = (list) => {
+      if (far || !SHORES_DRAWN) return;
+      const opts = { nameAt: chartName, colourAt, paints: paintsAt };
+      paintBlend(g, list, opts);
+      paintSwell(g, list, opts);
+      paintShores(g, list, opts);
+      const mine = new Set(list.map(t => t.pk));
+      for (const pk of mine) { const e = this.luBy?.get(pk); if (e) paintLandUse(g, e.list.filter(u => list.includes(u.t)), { muted: t => t.lv === L2 }); }
     };
     // territory over the ground of one tile: the nation's wash, and its border where the realm ends
     const washOf = (t) => {
@@ -1093,9 +1174,14 @@ export class SpriteArt {
       if (w.quiet) g.globalAlpha = 1;
     };
     const gridOf = (list) => {
+      // (the grid stays off the water: a lake is one body, not hexagons; map/groundblend.mjs)
+      const loops = SHORES_DRAWN && !far ? waterLoops(list.filter(t => !t.cloud), chartName) : [];
+      g.save();
+      clipOutside(g, loops);
       g.beginPath();
       for (const t of list) if (!t.cloud) hexPoints(t.x, t.y, 0).forEach(([px, py], j) => (j ? g.lineTo(px, py) : g.moveTo(px, py)));
       g.strokeStyle = GRID_INK; g.lineWidth = GRID_WORLD; g.stroke();
+      g.restore();
     };
     const has = (name) => part === null || part === name || part === 'world';
     if (has('ground') && far !== 'props') {
@@ -1119,7 +1205,7 @@ export class SpriteArt {
         this.waiting = 0;
         const bake = (e, list) => {
           const sv = svOf(e), chartOnly = sv?.kind === 'chart';
-          const key = `${e.p},${e.q}@${s.key}${lo ? `~${lo}` : ''}|${e.prov?.roadMask ?? ''}|${ringsOpen ?? ''}|${washSig.get(`${e.p},${e.q}`) ?? ''}|${sv?.sig ?? ''}`;
+          const key = `${e.p},${e.q}@${s.key}${lo ? `~${lo}` : ''}|${e.prov?.roadMask ?? ''}|${ringsOpen ?? ''}|${washSig.get(`${e.p},${e.q}`) ?? ''}|${sv?.sig ?? ''}|${this.luBy?.get(`${e.p},${e.q}`)?.sig ?? ''}`;
           const hit = this.groundCache.get(key);
           if (hit) { hit.pass = pass; this.groundCache.delete(key); this.groundCache.set(key, hit); return hit; }
           // (`rush`: the opening prepares its first picture. A bitmap made while a sprite of it is still on its way is
@@ -1166,6 +1252,7 @@ export class SpriteArt {
           this.misses = 0;
           g = gg;
           for (const t of list) if (painted(t)) groundOf(t);
+          country(list);
           // a skirt that hangs over a tile of the next province belongs under that tile: cut it away (the
           // neighbour's own bitmap has the tile), a hair inside the hex so no seam opens between the two;
           // then the territory and the grid, which stay inside this province's own hexes
@@ -1230,6 +1317,14 @@ export class SpriteArt {
       }
       const rest = baked.size ? tiles.filter(t => !baked.has(t.pk)) : tiles;
       for (const t of rest) if (!t.cloud && painted(t)) groundOf(t);
+      // (the country's passes are a bitmap's: on tiles drawn one by one only when no province waits for its bitmap. Frames
+      // with provinces waiting are stand-ins, drawn again once the bitmaps are made; running the blend, swell, shores and
+      // land use over every waiting tile on each of them made a 61-province world's first second and its pans a half
+      // slower, measured on a live 12-bot world. A province the cache cannot hold is not waiting, and keeps its country)
+      // (a wait that does not end, a bitmap that can never be made, does not keep the land without its country: after
+      // WAIT_COUNTRY frames of waiting the pass runs on the tiles as before)
+      this.waitFrames = this.waiting ? (this.waitFrames ?? 0) + 1 : 0;
+      if (rest.length && (!this.waiting || this.waitFrames > WAIT_COUNTRY)) country(rest.filter(t => !t.cloud));
       for (const t of rest) washOf(t);
       // the hex grid, exactly on the game's hexes, under the props (not in the far view: land, not a board)
       if (!far) gridOf(rest.filter(painted));
@@ -1359,7 +1454,7 @@ export class SpriteArt {
     // the viewer's active village at work (map/board.mjs through the survey; map/villagework.mjs): what it has built, its queue, its fields
     const workRec = survey && !survey.showAll ? survey.board?.work ?? null : null;
     let workNow = null;
-    if (workRec) { try { workNow = { ...workRec, ...villageWork(workRec, survey.chainNow?.() ?? 0) }; } catch { workNow = null; } }
+    if (workRec) { try { workNow = { ...workRec, ...villageWork(workRec, survey.chainNow?.() ?? 0, { oreExtra: this.oreAround(workRec.p, workRec.q, workRec.tile)?.total ?? null }) }; } catch { workNow = null; } }
     // province borders: ink with its halo over painted land, a quiet sepia line on the chart. A line on the ground: laid
     // before what stands on it (it ran across the crowns of a wood and the face of a mountain once those stood upright),
     // and so under the hosts, the people and their labels too
@@ -1542,7 +1637,7 @@ export class SpriteArt {
     const explores = !limited ? people?.explores ?? [] : (people?.explores ?? []).filter(x => (x.host && ownHosts.has(String(x.host))) || (x.tiles ?? []).some(idx => lvAt(x.p, x.q, idx) === L3));
     // (a building's ring is a label: drawn upright with the plates, on the scaffold that stands here)
     // the viewer's own village: a scaffold for every item of its queue (the page's list names one a village)
-    const builds = workRec ? [...(people?.constructions ?? []).filter(c => !(c.p === workRec.p && c.q === workRec.q && c.site === workRec.site)), ...scaffoldsOf(workRec, survey.chainNow?.() ?? 0)] : people?.constructions ?? [];
+    const builds = workRec ? [...(people?.constructions ?? []).filter(c => !(c.p === workRec.p && c.q === workRec.q && c.site === workRec.site)), ...scaffoldsOf(workRec, survey.chainNow?.() ?? 0, { oreExtra: this.oreAround(workRec.p, workRec.q, workRec.tile)?.total ?? null })] : people?.constructions ?? [];
     // sheaves on its fields, as much as has grown since the last settling
     this.fields = null;
     if (workNow && RADIUS * zoom >= HOST_FIGURE_MIN_R) {

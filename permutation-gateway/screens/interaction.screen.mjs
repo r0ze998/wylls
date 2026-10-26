@@ -114,9 +114,11 @@ test('the phone sheet: it rests at the peek with the drawer closed; a dock press
   assert.equal(await page.locator('.lens[data-lens="war"]').getAttribute('aria-pressed'), 'true');
   // (fix pass 2: the strip no longer scrolls sideways, it ended in half an icon at the plaque's point) the most
   // pressing resources stand whole, the last carries how many more there are, and a press opens them all
-  const strip = await page.locator('#res-strip').evaluate(el => ({ n: el.querySelectorAll('[data-res]').length, cut: el.scrollWidth > el.clientWidth + 1, more: el.querySelector('.res:last-child .res-more-n')?.textContent ?? '', all: [...el.querySelectorAll('[data-res]')].every(b => b.dataset.r === '*') }));
+  // (on a phone: a list mark and the count, never a bare 「+N」 beside a stock, 07-HUD-TEXT-FX)
+  const strip = await page.locator('#res-strip').evaluate(el => ({ n: el.querySelectorAll('[data-res]').length, cut: el.scrollWidth > el.clientWidth + 1, more: el.querySelector('.res:last-child .res-more-n')?.innerText.trim() ?? '', mark: !!el.querySelector('.res:last-child .res-more-s .res-more-ic'), all: [...el.querySelectorAll('[data-res]')].every(b => b.dataset.r === '*') }));
   assert.ok(strip.n >= 1 && strip.n <= 2 && !strip.cut, `the strip holds ${strip.n} resources, none cut: ${!strip.cut}`);
-  assert.match(strip.more, /^\+\d+$/, 'the last token says how many more there are');
+  assert.match(strip.more, /^\d+$/, 'the last token says how many more there are');
+  assert.ok(strip.mark, 'beside a list mark');
   assert.equal(strip.all, true, 'each opens every resource');
   await handle.click();
   assert.equal(await sheet(page), 'half');
@@ -875,7 +877,7 @@ for (const vp of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
     // ---- the toll: the page's own clock turns; the banner element carries the words, the dial says the new turn
     const toll = page.locator('#bell-toll.fx-banner-host');
     await toll.waitFor({ state: 'visible', timeout: 20_000 });
-    assert.match((await toll.textContent()).replace(/\s+/g, ''), /新しいターン—ターン43/);
+    assert.match((await toll.textContent()).replace(/\s+/g, ''), /ターン43新しいターン/);
     assert.match(await page.locator('#bell-chip').textContent(), /ターン\s*43/);
     assert.equal(await page.locator('#bell-pill.toll').count(), 1, 'the dial swings');
     assert.equal(world.turn(), 43, 'the world turned with the page');

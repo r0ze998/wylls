@@ -31,7 +31,8 @@
 // ground and props wait in two bitmaps (map/sprites.mjs paints the parts).
 import { paintPins } from '../hud/pins.mjs';
 import { inverseHex } from '../../map.mjs';
-import { L, onLangChange } from '../../lang.mjs';
+import { L, onLangChange, fmtNum } from '../../lang.mjs';
+import { s1On } from '../fs1.mjs';
 import { locate, ringOf, ringProvinces, hexDistance, tileHex } from '../fgeo.mjs';
 import { fogLevel, paintProvince, paintSigil, paintTiles, paintVeil, provincePixel, PROVINCE_CIRCUMRADIUS } from './layers.mjs';
 import { FACTION_COLORS } from '../fi18n.mjs';
@@ -50,7 +51,7 @@ import { CHART, YOURS, fxNow, paintCandidates, paintWedge } from './chart.mjs';
 import { wedgeBox } from './opening.mjs';
 import { STANDARD_AT, STANDARD_UNIT, landShape, landTiles, landingAt, paintBeacon, paintOwnBreath, paintOwnLand, paintOwnOutline, paintProvisionalTag, paintStandard, standardUnit, villageKey } from './ownland.mjs';
 import { reachSteps } from '../hud/reach.mjs';
-import { NOTE_MS, reachText, reachTop, actionPalette, actorText, arrivalText, blockText, paintActionGround, paintActionPulse, paintActionTop, paintReachDim, reachBox, rolledOut, paintHoverGround, paintHoverTop, paintRefusal, paintRibbon, paintSelectionGround, paintSelectionTop, paintTag } from './actions.mjs';
+import { NOTE_MS, reachText, reachTop, actionPalette, actorText, arrivalText, blockText, paintActionGround, paintActionPulse, paintActionTop, paintReachDim, paintLandLens, reachBox, rolledOut, paintHoverGround, paintHoverTop, paintRefusal, paintRibbon, paintSelectionGround, paintSelectionTop, paintTag } from './actions.mjs';
 import { edgePointer, mountHomePointer } from './homepointer.mjs';
 import { layoutLabels } from './labels.mjs';
 import { plateRise } from './plates.mjs';
@@ -78,6 +79,7 @@ import { syncProtoChip } from './protochip.mjs';
 import { setProtoLegend } from './legend.mjs';
 // the keeps of a conquest season (the program's version 3): map/keeps.mjs
 import { KeepBoard } from './keeps.mjs';
+import { paintS1Marks, caravanTagText } from './s1marks.mjs';
 
 /** The zoom below which a lit set is not framed on a narrow screen: neighbouring tiles stand about 44 px apart there (a tile's width is RADIUS × √3 world px, flattened by the tilt). */
 export const TOUCH_TILE_ZOOM = 0.87;
@@ -2910,7 +2912,7 @@ export class FrontierMap {
       if (h) {
         const c = project(h.q, h.r), at = { x: c.x + AWAY_AT.x, y: c.y + AWAY_AT.y };
         const m = (F.board.marches ?? []).find(x => x.host === pl.host);
-        B.away = { at, arriveBell: m?.arriveBell ?? null };
+        B.away = { at, arriveBell: m?.arriveBell ?? null, hex: h };
       }
     } else B.away = null;
     for (const e of B.explores) {
@@ -2938,7 +2940,11 @@ export class FrontierMap {
       // (the marker stands `top` world px over the ribbon on a flat board; the tag hangs under it, clear of the face)
       paintBellTag(ctx, k.at.x, k.at.y - k.top * (F.up ? 1.1 : 1), k.m.arrived ? awaitKeyText() : marchTagText(k.m.arriveBell), { zoom: z, place: 'above', gap: 5, accent: col, anchor: k.at, pass, size: 12, hud: true });
     }
-    if (B.away && !(F.selHex && F.A)) paintBellTag(ctx, B.away.at.x, B.away.at.y + RADIUS * 0.34, awayText(B.away.arriveBell), { zoom: z, place: 'below', gap: 4, accent: col, anchor: B.away.at, pass, size: 12 });
+    // (under the leader's feet and clear of the village's bottom row: centred on the leader, its left half lay over the houses;
+    // not while the village itself is selected: its card says it, and the lens's own words stand there)
+    const villageSel = !!(B.away && F.selHex && B.away.hex && F.selHex.q === B.away.hex.q && F.selHex.r === B.away.hex.r);
+    // (and not while an effect plays there or a set piece has the stage: it stood over a battle's loss numbers)
+    if (B.away && !(F.selHex && F.A) && !villageSel && !this.piece && !(B.away.hex && hid(B.away.hex))) paintBellTag(ctx, B.away.at.x, B.away.at.y + RADIUS * 0.6, awayText(B.away.arriveBell), { zoom: z, place: 'below', gap: 4, accent: col, anchor: B.away.at, pass, size: 12 });
     if (B.explores.length) {
       const e = B.explores[0], hex = tileHex(e.p, e.q, e.tile);
       // (over the flag's top: the flag itself stays in sight)
@@ -3000,6 +3006,24 @@ export class FrontierMap {
     if (F.lod === 'tile') {
       // a reach is lit by contrast: everything outside it is a little darker (the land, what stands on it, who walks there)
       if (F.A && F.seen) paintReachDim(ctx, F.A, { box: F.seen, now: fx, still, dim: F.A.dest ? 0.5 : 1 });
+      // the village's lens (docs/design/uplift/06-MAP-REST): the viewer's village selected, its own land stays in colour
+      // and everything else steps back, greyed, so what the village works is read at a glance
+      else if (F.seen && src.selected && Number.isInteger(src.selected.idx)) {
+        const s = src.selected, land = F.lands().find(l => l.village?.p === s.p && l.village?.q === s.q && l.village?.tile === s.idx);
+        if (land?.shape?.loops?.length) paintLandLens(ctx, land.shape.loops, F.seen);
+        // S1: the hills and mountains that give the village its ore, each with what it adds (the rules' own numbers)
+        const ore = land && s1On() ? this.art?.oreAround?.(s.p, s.q, s.idx) : null;
+        if (ore) {
+          for (const o of ore.tiles) paintTag(ctx, o.x, o.y, L`鉱石 +${fmtNum(o.ore)}`, { zoom: z, place: 'above', gap: 2, size: 11, anchor: o });
+          const h = tileHex(s.p, s.q, s.idx), v = project(h.q, h.r);
+          // (a village with no hill or mountain near it makes only the base ore: said, since that is why it trades for ore)
+          // (hills and mountains in sight but across the province's edge do not count: then it says so, in place of the
+          // longer sentence, so the land in sight does not seem to contradict it)
+          const say = !ore.tiles.length ? (ore.across ? L`地形の鉱石なし（となりの州の丘と山は数えません）` : L`同じ州の 2 マス以内に丘も山もありません（地形の鉱石なし）`)
+            : ore.capped ? L`まわりの丘と山から 鉱石 +${fmtNum(ore.total)}/時（上限）` : L`まわりの丘と山から 鉱石 +${fmtNum(ore.total)}/時`;
+          paintTag(ctx, v.x, v.y + RADIUS * 0.9, say, { zoom: z, place: 'below', size: 11.5, anchor: v });
+        }
+      }
       // (the gold line of the viewer's land stays in sight through the reach and its dim: drawn again, and stronger then)
       for (const land of F.lands()) { const flood = this.floodOf(land, fx); paintOwnOutline(ctx, land, { zoom: z, shown: flood ? flood.border : 1, strong: !!F.A }); }
       if (F.A) paintActionTop(ctx, F.A, { zoom: z, now: fx, still, dim: F.A.dest ? 0.5 : 1, palette: F.palette });
@@ -3008,6 +3032,8 @@ export class FrontierMap {
       // (the keeps a host in hand can reach stay lit through that dim: map/keeps.mjs)
       if (F.A && F.KB) F.KB.lightTop(ctx, F);
       this.boardTop(ctx, F);
+      // S1: vaults, structures and caravans on the road (map/s1marks.mjs)
+      F.s1Tags = src.s1 ? paintS1Marks(ctx, src.s1, { zoom: z, faction: F.faction, stand: (x, y, fn) => standing(ctx, F.up?.(x, y) ?? null, x, y, fn) }) : null;
       // the banners on their poles (the prototype)
       if (this.proto.on) this.proto.top(ctx, F);
     }
@@ -3073,6 +3099,12 @@ export class FrontierMap {
     const A = F.A;
     const hid = hex => { const at = hex ? locate(hex.q, hex.r) : null; return !!at && !!pass?.hiddenAt(`${at.p},${at.q},${at.idx}`); };
     this.boardOver(ctx, F, hid);
+    // S1: when each caravan on the road arrives
+    for (const t of F.s1Tags ?? []) {
+      const [q, r] = inverseHex(t.x, t.y).split(',').map(Number);
+      if (hid({ q, r })) continue;
+      paintBellTag(ctx, t.x, t.y - RADIUS * 0.5, caravanTagText(t.c.arriveBell, t.c.raided), { zoom: z, place: 'above', gap: 3, accent: FACTION_COLORS[t.c.faction] ?? undefined, anchor: t, pass, size: 11 });
+    }
     // (`piece`: a set piece — a battle — has the stage: the prototype's line of what a tile's land is steps back with every other word)
     F.piece = !!this.piece;
     if (this.proto.on) this.proto.over(ctx, F, hid);
@@ -3098,7 +3130,8 @@ export class FrontierMap {
     }
     // when the march would arrive: on the composed route, or on the route under the pointer
     const hr = this.hoverRoute(F);
-    const tagAt = (hex, bell, tone) => { const d = project(hex.q, hex.r); paintTag(ctx, d.x, d.y - RADIUS * FLATTEN * 0.82, arrivalText(bell), { zoom: z, tone, place: 'above', gap: 4, anchor: d, pass }); };
+    // (under the destination: over it stands a village's own name, and the tag lay on it: the design review of 2026-10-24)
+    const tagAt = (hex, bell, tone) => { const d = project(hex.q, hex.r); paintTag(ctx, d.x, d.y + RADIUS * FLATTEN * 0.86, arrivalText(bell), { zoom: z, tone, place: 'below', gap: 4, anchor: d, pass }); };
     if (hr && Number.isInteger(hr.arriveBell)) tagAt(hr.hexes[hr.hexes.length - 1], hr.arriveBell, 'plain');
     else if (src.route?.dest && Number.isInteger(src.route.arriveBell)) tagAt(src.route.dest, src.route.arriveBell, 'you');
     const note = this.noteOf(F);

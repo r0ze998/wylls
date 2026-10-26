@@ -19,7 +19,8 @@
 // Pure functions; no DOM, no clock of its own.
 import { hostParts } from '../faddr.mjs';
 import { DIRECTIONS, hexDistance, locate, tileHex } from '../fgeo.mjs';
-import { BUILD_ITEMS, QUEUE_KIND, accrualAt, baseProduction, hostsIn, queueItem } from '../fland.mjs';
+import { BUILD_ITEMS, QUEUE_KIND, accrualAt, baseProduction, hostsIn, queueItem, WORKSHOP, TIER_BONUS_PCT } from '../fland.mjs';
+import { s1On, seasonBase, oreExtraFor } from '../fs1.mjs';
 import { DEPART_STAMINA, RULES } from '../fmarch.mjs';
 import { conquestEnabled, keepFromProvince } from '../fconquest.mjs';
 import { RESOURCE_ORDER } from '../resources.mjs';
@@ -300,19 +301,32 @@ export const canAct = (row, nowBell = 0) => !!row && row.state === 1 && nowBell 
 /**
  * How many of each building a village has (item 0 to 5: fland.mjs BUILD_ITEMS), read from what it produces above
  * its tier's base (a Holding keeps its production, not a list of buildings): `[n0, …, n5]`.
+ * On an S1 season the ore base is the village's terrain ore (fs1.mjs s1OreBase): `oreExtra` is what its terrain adds
+ * (map/sprites.mjs oreAround); without it the mines are not counted (0): the terrain's own ore read as mines drew
+ * mines a village never built (the independent review of 2026-10-24).
  */
-export function buildingsOf(holding) {
+export function buildingsOf(holding, { oreExtra = null } = {}) {
   const out = [0, 0, 0, 0, 0, 0];
   if (!holding?.production) return out;
-  const base = baseProduction(holding.tier ?? 0);
+  const s1 = s1On(), tier = holding.tier ?? 0;
+  // (`oreExtra` given, or the map's reading registered with fs1.mjs)
+  const base = seasonBase(baseProduction(tier), holding, { oreExtra: oreExtra ?? oreExtraFor(holding), bonusPct: TIER_BONUS_PCT[tier] ?? 0 });
   for (const b of BUILD_ITEMS) {
     // the store's index of the building's resource (none for the walls)
     const i = RESOURCE_ORDER.indexOf(b.resource);
     if (i < 0 || !(b.perHour > 0)) continue;
     const p = big(holding.production[i]) ?? 0n;
-    // (a fixture or an older record may keep the building's production alone, without the base)
-    const over = p >= base[i] ? p - base[i] : p;
+    if (base[i] === null) continue;   // (S1 ore without the terrain: not known, not drawn)
+    // (a fixture or an older record may keep the building's production alone, without the base; not on S1, whose
+    // record always carries its base)
+    const over = p >= base[i] ? p - base[i] : s1 ? 0n : p;
     out[b.item] = Math.max(0, Math.min(12, Number(over / BigInt(b.perHour * 1000))));
+  }
+  // S1: the workshops, as the rules count them (permutation-rules arms.rs `workshops_built`: the arms production over
+  // one workshop's; no base production makes arms). The seventh entry: map/village.mjs draws a forge for it.
+  if (s1) {
+    const arms = big(holding.production[4]) ?? 0n;
+    out.push(arms > 0n ? Math.min(12, Number(arms / BigInt(WORKSHOP.perHour * 1000))) : 0);
   }
   return out;
 }
@@ -327,9 +341,10 @@ export function buildingsOf(holding) {
  *             gold, science, influence]`), and `sheaves`: how full the fields are shown (0..1: an hour's growth of
  *             food fills them), `full`: a store stands at its cap
  */
-export function villageWork(holding, now = 0, { starts = null } = {}) {
+export function villageWork(holding, now = 0, { starts = null, oreExtra = null } = {}) {
   if (!holding) return null;
-  const queue = [], built = buildingsOf(holding), ahead = [0, 0, 0, 0, 0, 0];
+  // (`oreExtra`: the village's terrain ore on S1, as buildingsOf takes it; without it a S1 village's mines read 0)
+  const queue = [], built = buildingsOf(holding, { oreExtra }), ahead = [0, 0, 0, 0, 0, 0];
   let prev = null;
   (holding.queue ?? []).forEach((q, slot) => {
     const doneAt = Number(q?.doneAt ?? 0);

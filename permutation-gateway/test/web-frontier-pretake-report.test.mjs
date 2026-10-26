@@ -106,12 +106,16 @@ test('the report of that record as the page prints it (English): both sides, the
   assert.match(out, /8\s*→\s*0/);
   assert.match(out, /Victory: the enemy was destroyed/);
   assert.match(out, /Your losses: 1 of 488/);
+  // the nation's line follows the stamp, and the title names the place under the kind of paper (07-HUD-TEXT-FX)
+  assert.match(out, /Well fought\. Today this land carries our name\./);
+  assert.match(out, /^ Clash report Dunmar side, ring 4 Turn 620 Back /);
   // opened after later turns (the province after that turn is not held): the stamp says it is not verified, and the
   // viewer's losses are not said as 0 (seen on the local test chain: "Your losses: 0 of 436" under "Unverified")
   FS.report = { ...FS.report, after: null };
   setLang('en');
   try { out = String(render(FS, mine)).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' '); } finally { setLang('ja'); }
   assert.match(out, /The result is not verified yet/);
+  assert.doesNotMatch(out, /Well fought/, 'no victory cry under an unverified stamp');
   assert.match(out, /Your losses: — of 488/);
   assert.doesNotMatch(out, /Your losses: 0 of/);
   assert.match(out, /488\s*→\s*—/);

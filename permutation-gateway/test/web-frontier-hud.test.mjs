@@ -113,7 +113,11 @@ test('the village plate, the to-do lines behind their count, and the one next th
   // on a phone the same stands as a line under the plate: its one press, and for the guide a second button to the steps
   const row = String(hud.renderNextRow(step));
   assert.match(row, /^<div class="next-row next-guide">\s*<button type="button" class="next-row-go" data-act="ob-go"/);
-  assert.match(row, /<span class="next-kicker">ガイド 4\/7<\/span><strong>最初の斥候<\/strong>/);
+  // (the line says the press, not the step's theme: the theme rides the tooltip and the steps list, 07-HUD-TEXT-FX)
+  assert.match(row, /<span class="next-row-k"><span class="next-kicker">ガイド 4\/7<\/span><span class="todo-n">ほか 2<\/span><\/span><strong>村と軍勢を見る<\/strong><\/span>(?!<span class="next-row-do">)/);
+  assert.equal(step.short, '村と軍勢を見る');
+  assert.match(step.hint, /^最初の斥候 — 斥候を訓練して/);
+  assert.match(step.text, /最初の斥候/, 'the control\'s name still carries the whole of it');
   assert.match(row, /class="next-row-steps" data-act="guide-open"/);
   assert.doesNotMatch(String(hud.renderNextRow(after)), /guide-open/);
   assert.equal(hud.renderNextRow(null), '');

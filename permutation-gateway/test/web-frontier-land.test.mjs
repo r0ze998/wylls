@@ -316,9 +316,10 @@ test('reach is one shape: 30 ms a ring; a 2.5-px rim, an inward light of at most
   assert.deepEqual(ACT.SELECT_COLOUR, { own: '#f3d58a', other: '#f4efe0' }, 'the selection ring: gold for the viewer\'s own, ivory otherwise');
   setLang('ja');
   assert.equal(ACT.NOTE_TEXT.unreachable(), 'ここへは届きません');
-  assert.equal(ACT.arrivalText(44), '到着：ターン 44');
+  // (the ribbon is a plan: it says 予定, so a plan left after a refused send never reads as a march on its way)
+  assert.equal(ACT.arrivalText(44), '到着予定：ターン 44');
   setLang('en');
-  assert.equal(ACT.arrivalText(44), 'Arrives on turn 44');
+  assert.equal(ACT.arrivalText(44), 'Would arrive on turn 44');
   // (hud-4: a distance is counted in tiles everywhere, 「マス」 / "tiles"; it said 「歩」 / "steps" here alone)
   assert.equal(ACT.NOTE_TEXT.tooFar(32), 'Too far (at most 32 tiles)');
   setLang('ja');
@@ -366,7 +367,7 @@ test('the painters draw into any context and write their words through the langu
   setLang('ja');
   const g = recorder();
   ACT.paintTag(g, 0, 0, ACT.arrivalText(44), { zoom: 1.3 });
-  assert.ok(g.calls.some(c => c[0] === 'fillText' && c[1] === '到着：ターン 44'));
+  assert.ok(g.calls.some(c => c[0] === 'fillText' && c[1] === '到着予定：ターン 44'));
   const A = ACT.createActions({ passableOf: () => (1n << 61n) - 1n })({ ...page([entryOf(1)]), selected: { p: 2, q: 0, idx: 7 } });
   // (no Path2D here: the lit tiles are simply not drawn, and nothing throws)
   assert.equal(ACT.paintActionGround(g, A, { zoom: 1.3, now: 0 }), typeof Path2D === 'undefined' ? false : true);

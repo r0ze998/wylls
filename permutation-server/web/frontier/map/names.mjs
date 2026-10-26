@@ -9,6 +9,7 @@
 import { L } from '../../lang.mjs';
 import { factionName } from '../fi18n.mjs';
 import { holdingName } from '../people/ui.mjs';
+import { S1_WORDS } from './s1marks.mjs';
 
 const TERRAIN_NAME = { Grassland: () => L`草原`, Plains: () => L`平原`, Forest: () => L`森`, Hills: () => L`丘`, Mountain: () => L`山`, Water: () => L`水` };
 
@@ -26,6 +27,8 @@ export function placeName(m) {
   if (site?.state === 'holding') return villageLine({ p: m.p, q: m.q, site: site.index }, site.tier, site.faction);
   if (t?.camp || site?.state === 'camp') return L`蛮族の野営地`;
   if (site?.state === 'freeCity') return L`自由都市`;
+  // (an S1 vault or structure on the tile, as hud/inspect.mjs reads it: the thing, not the land under it)
+  if (t?.s1?.length && S1_WORDS[t.s1[0].kind]) return S1_WORDS[t.s1[0].kind]();
   if (t?.terrain && TERRAIN_NAME[t.terrain]) return TERRAIN_NAME[t.terrain]();
   if (!t && m.p === 0 && m.q === 0) return L`大協約`;
   return t ? L`州 ${m.p},${m.q}` : m.opened === false ? L`第${m.ring}輪（まだひらいていません）` : L`第${m.ring}輪の州`;
