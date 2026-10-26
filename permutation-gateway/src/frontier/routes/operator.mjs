@@ -13,6 +13,17 @@ export function requireFrontierOperator(ctx, req) {
   if (!ok) throw new RouteError(403, 'operator only', 'OperatorOnly');
 }
 
+/**
+ * Who the operator credential identifies, for an audit line: the listener,
+ * the token (its fingerprint: the first 8 hex of its SHA-256, never the token)
+ * and the caller's address. The relay has one operator token, so this names
+ * the token, not a person; a caller's own label is a claim, kept apart.
+ */
+export function operatorPrincipal(ctx, req) {
+  requireFrontierOperator(ctx, req);
+  return { via: 'operator-token', token: digest(ctx.cfg.operatorToken).toString('hex').slice(0, 8), ip: req.ip ?? null };
+}
+
 export const operatorRoutes = {
   'POST /f/operator/invites': async (ctx, req) => {
     requireFrontierOperator(ctx, req);

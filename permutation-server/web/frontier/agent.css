@@ -1,0 +1,34 @@
+/* The owner's agent page: one column of cards. */
+body { margin: 0; font: 15px/1.5 system-ui, sans-serif; background: #0f1512; color: #e8efe9; }
+.agent-top { display: flex; gap: 12px; align-items: center; padding: 10px 16px; border-bottom: 1px solid #2a3a32; }
+.brand { color: #e8efe9; text-decoration: none; font-weight: 600; }
+.chip { font-size: 12px; padding: 2px 8px; border: 1px solid #3a4f45; border-radius: 10px; color: #9fb3a8; }
+.agent-main { max-width: 760px; margin: 0 auto; padding: 16px; }
+.agent-card { border: 1px solid #2a3a32; border-radius: 10px; padding: 12px 14px; margin: 12px 0; background: #141c18; }
+.agent-card.tone-warn { border-color: #8a6d1f; }
+.agent-card h3 { margin: 0 0 8px; font-size: 16px; }
+.agent-chips { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.agent-chip { border: 1px solid #2a3a32; border-radius: 8px; padding: 6px 8px; }
+.agent-chip .k { display: block; font-size: 12px; color: #9fb3a8; }
+.agent-chip .v { font-size: 18px; font-variant-numeric: tabular-nums; }
+.agent-chip.tone-good .v { color: #8fe3a5; }
+.agent-chip.tone-warn .v { color: #f0c96a; }
+.agent-form { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.agent-form label { display: flex; flex-direction: column; font-size: 13px; color: #9fb3a8; }
+.agent-form input[type="text"], .agent-form input:not([type]) { padding: 6px 8px; border-radius: 6px; border: 1px solid #3a4f45; background: #0f1512; color: #e8efe9; min-width: 120px; }
+.agent-check { flex-direction: row !important; gap: 6px; align-items: center; }
+.btn { padding: 7px 12px; border-radius: 8px; border: 1px solid #3a7a5a; background: #1d3a2c; color: #e8efe9; cursor: pointer; }
+.btn.quiet { background: transparent; border-color: #3a4f45; }
+/* a wallet the page cannot use (the reason stands beside it) and any button that cannot be pressed: greyed, not clickable-looking */
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.agent-wallets { list-style: none; padding-left: 0; }
+.agent-wallets li { margin: 6px 0; }
+.muted { color: #9fb3a8; font-size: 13px; }
+.agent-note { padding: 8px 12px; border-radius: 8px; background: #1d2a24; }
+.agent-note.tone-bad { background: #3a2222; }
+.agent-history { width: 100%; border-collapse: collapse; font-size: 13px; }
+.agent-history th, .agent-history td { text-align: left; padding: 4px 6px; border-bottom: 1px solid #22302a; vertical-align: top; }
+.agent-token { word-break: break-all; }
+.agent-driver { margin: 4px 0; padding: 6px 8px; border-left: 3px solid #2a3a32; }
+.agent-driver.tone-warn { border-left-color: #8a6d1f; }
+.agent-reason { font-size: 12px; color: #9fb3a8; }

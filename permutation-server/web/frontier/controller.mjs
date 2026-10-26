@@ -12,11 +12,12 @@ import { FS, invalidate, activeHolding } from './fstate.mjs';
 import { updateLife } from './people/life.mjs';
 import * as io from './fchainio.mjs';
 import * as fsession from './fsession.mjs';
+import { AGENTS_REFRESH_MS, delegatedTo, loadAgents, refusalNote, takenBackNote } from './fdelegation.mjs';
 import * as book from './marchbook.mjs';
 import { submit, track, accountsFor, campMaskOf, campWinner } from './fplay.mjs';
 import { sendMarchRetrying, planRoute, earliestBell, arrivalWindow, tipOptions, incomingWarnings, departMargin, RETREAT_CHOICES } from './fmarch.mjs';
 import { landState, hostsIn, TICKET_SEEN_BELLS, FIRST_TICKET_RING, BUILD_ITEMS, UNIT_ORDER } from './fland.mjs';
-import { BUILDINGS, TIERS, unitCount } from './fi18n.mjs';
+import { BUILDINGS, TIERS, unitCount, failureText } from './fi18n.mjs';
 import { settled, copyNumber, buildSecs, doneAfterQueue, grownSince, ITEM_TIER_UP, ITEM_WALLS, TIER_UP, WALLS } from './hud/rulebook.mjs';
 import { exploreResultTurn, exploreResultWords } from './hud/orderparts.mjs';
 import { planTicket } from './fjoin.mjs';
@@ -69,11 +70,34 @@ const busy = text => setNotice({ busy: true, text });
 const done = text => setNotice({ ok: true, text });
 const failed = r => {
   if (r?.code === 'InviteRequired') FS.inviteRequired = true;
+  // The village is handed to the owner's agent (its key is the session): say so, not only "a signature is missing".
+  const note = refusalNote(FS.delegation, r?.code);
+  if (note && !r?.text) return setNotice({ ok: false, ...r, agentLink: true, text: () => `${failureText(r)} ${note}` });
   // (a refusal of the prototype rule "banners" on one of the basic game's own routes — the day's limit of explorations,
   // which the sample world answers to an Explore — is said in the rule's sentence, only while the prototype is on)
   if (FS.proto && r && !r.text && pm.REFUSALS.includes(r.code)) return setNotice({ ok: false, ...r, text: () => pm.refusalText(r.code, { need: r.need }) });
   return setNotice({ ok: false, ...r, text: r?.text ?? null });
 };
+
+/**
+ * Whether the village's key is held by the owner's agent (fdelegation.mjs), and whether this relay has an agent
+ * wallet at all (the link in "More"). Read once, then again at most every AGENTS_REFRESH_MS while the key does not
+ * match; public reads only.
+ */
+let agentsReadAt = -Infinity;
+async function refreshDelegation() {
+  if (!FS.wallet?.address) { FS.delegation = null; return; }
+  const mismatch = FS.sessionProblem === 'SessionMismatch';
+  if (!mismatch) { if (FS.delegation) { FS.delegation = null; invalidate('panel'); } if (FS.agentWallet !== undefined) return; }
+  const t = Date.now();
+  if (FS.agentWallet !== undefined && t - agentsReadAt < AGENTS_REFRESH_MS) return;
+  agentsReadAt = t;
+  const { enabled, agents } = await loadAgents(FS.wallet.address);
+  const was = FS.delegation?.mode ?? null;
+  FS.agentWallet = enabled;
+  FS.delegation = delegatedTo({ sessionProblem: FS.sessionProblem, citizen: FS.citizen, agents });
+  if ((FS.delegation?.mode ?? null) !== was) invalidate('panel');
+}
 
 /** The addresses and signer context of a player action. */
 function ctx(extra = {}) {
@@ -725,6 +749,7 @@ export function applyMeResult(me) {
       const m = fsession.matchesCitizen(FS.session, FS.citizen, now());
       FS.sessionProblem = m.ok ? null : m.code;
     }
+    refreshDelegation().catch(e => console.error('frontier delegation:', e));
     return 'found';
   }
   if (me.code === 'NotFound') {
@@ -1554,7 +1579,10 @@ export const ACTIONS = {
     FS.session = s;
     const m = fsession.matchesCitizen(s, FS.citizen, now());
     if (m.ok) { FS.sessionProblem = null; return invalidate('panel'); }
-    return act('SetSession', { fields: { session: s.publicKeyBytes, expiry: BigInt(Math.floor(now()) + SESSION_DAYS - 600) } });
+    // Taking the key back from the owner's agent: say what this does (the key) and what it does not (the server's auto).
+    const handed = FS.delegation;
+    return act('SetSession', { fields: { session: s.publicKeyBytes, expiry: BigInt(Math.floor(now()) + SESSION_DAYS - 600) },
+      ...(handed ? { say: () => takenBackNote(handed), after: () => { FS.delegation = null; } } : {}) });
   },
   // the site picker is gone (owner decision V2): the client files the ticket itself; a retry now
   'auto-ticket': () => autoTicket({ force: true }),

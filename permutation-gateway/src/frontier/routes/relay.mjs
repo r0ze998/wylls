@@ -23,7 +23,7 @@ import { fromBase64 } from '../../../client/src/bytes.mjs';
 import { classify, JOIN_TAG } from '../../../client/src/frontier/shapes.mjs';
 import { pubkeyBytes, wireTransaction } from '../../../client/src/solana-tx.mjs';
 import { signTalk as signEd25519, verifyTalk as verifyEd25519 } from '../../../client/src/talk-node.mjs';
-import { parseWire, signedBy } from '../../cosign.mjs';
+import { parseWire, signatureOf, signedBy } from '../../cosign.mjs';
 import { RouteError } from '../../routes/errors.mjs';
 import { simulateWatching } from '../chain.mjs';
 import { dailyTxs, dayEnd, gameDay } from '../quota.mjs';
@@ -75,6 +75,13 @@ async function requesterCitizen(ctx, requester, citizenAddr) {
   return sessionLive ? citizenAddr : null;
 }
 
+/** A Citizen's sponsored transactions left today (`{left, resetsAt}`): the agent wallet reads it before a paid model call. */
+export async function citizenQuota(ctx, citizen) {
+  const frame = await quotaFrame(ctx);
+  const { left, resetsAt } = ctx.quota.status(`citizen:${citizen}`, frame);
+  return { left, resetsAt };
+}
+
 /** The game day and the lamport cap for quotas, from the chain. */
 async function quotaFrame(ctx) {
   const season = await ctx.chain.season();
@@ -85,13 +92,21 @@ async function quotaFrame(ctx) {
 /**
  * The common sponsoring path of POST /f/relay and POST /f/join, from the
  * classified `shape` on: returns the answer body. `extraSigners`: relay
- * keys that sign besides the fee payer (the join gate); `onSent`: after the
- * send (consumes an invite); `extraAllowance`: lamports the fee payer may
- * move beyond the kind's own (a paid Join: the prize Entry's rent).
+ * keys that sign besides the fee payer (the join gate); `onSent({signature, moved})`:
+ * after the send (consumes an invite); `extraAllowance`: lamports the fee payer
+ * may move beyond the kind's own (a paid Join: the prize Entry's rent);
+ * `beforeSend({signature, lastValidBlockHeight})`: a synchronous last check
+ * right before the bytes leave (the agent wallet re-checks its mode and
+ * records the signature) whose throw refuses the transaction, charging
+ * nothing; `viaAgent`: the agent gateway's own path (see AgentKeyDirect).
  */
-export async function sponsor(ctx, req, { tx, wire, shape, requester = null, requesterCitizenAddr = null, extraSigners = [], limitKind = 'relay', lastValidBlockHeight, onSent, extraAllowance = 0n }) {
+export async function sponsor(ctx, req, { tx, wire, shape, requester = null, requesterCitizenAddr = null, extraSigners = [], limitKind = 'relay', lastValidBlockHeight, onSent, beforeSend, extraAllowance = 0n, viaAgent = false }) {
   const { pool, connection, chain, quota, relayed, limiter, blockhashes } = ctx;
   checkRelayShape(shape, { pool, addresses: ctx.addresses });
+  // An operator-run agent's key acts only through the agent wallet (its policy and budget), never around it.
+  if (!viaAgent && shape.authority && ctx.agents?.isAgentKey(shape.authority)) {
+    throw new RouteError(403, 'relay refused: this key is an operator-run agent\'s; its actions go through the agent wallet (POST /f/agent/action)', 'AgentKeyDirect');
+  }
   // Signature first: a forged transaction naming someone's key costs that key nothing.
   if (shape.authority && !signedBy(tx, shape.authority)) throw new RouteError(400, 'the authority\'s signature is missing or invalid', 'BadSignature');
   const replayKey = shape.authority ? `sig:${base58(tx.signatures[tx.signers.indexOf(shape.authority)])}` : `msg:${createHash('sha256').update(tx.message).digest('hex')}`;
@@ -146,6 +161,7 @@ export async function sponsor(ctx, req, { tx, wire, shape, requester = null, req
   let signature;
   try {
     expiry = await blockhashes.expiryOf(tx.recentBlockhash, lastValidBlockHeight);
+    beforeSend?.({ signature: signatureOf(signed), lastValidBlockHeight: expiry });
     signature = await connection.sendRawTransaction(signed, { skipPreflight: true, maxRetries: 5 });
   } catch (e) {
     // Nothing was sent: nothing is charged, the bytes may be sent again
@@ -155,7 +171,7 @@ export async function sponsor(ctx, req, { tx, wire, shape, requester = null, req
     throw e;
   }
   ctx.sent.set(signature, { lastValidBlockHeight: expiry, kind: shape.name });
-  onSent?.();
+  onSent?.({ signature, moved });
   ctx.log?.(`f/relay ${shape.name} ${signature} (fee payer ${shape.feePayer}, quota ${key}, moved ${moved})`);
   return { ok: true, signature };
 }
