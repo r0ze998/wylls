@@ -68,11 +68,11 @@ export function paramsOf(c) {
 }
 
 /** The /v1/decide answer (wire v1, as bots/src/ai/mindport.rs reads it). */
-export function answerOf(req, pick, n) {
+export function answerOf(req, pick, n, run = null) {
   const c = (req.candidates ?? []).find(x => x.id === pick.id);
   const auto = !c || c.kind === 'autopilot';
   return {
-    v: 1, decision_id: `mock-${n}`, mode: auto ? 'autopilot' : 'model', reason: `mock:${pick.why}`,
+    v: 1, decision_id: run ? `mock-${run}-${n}` : `mock-${n}`, mode: auto ? 'autopilot' : 'model', reason: `mock:${pick.why}`,
     choice: { ids: [pick.id], mem: [], params: auto ? {} : { [pick.id]: paramsOf(c) } },
     caps: { home_floor: null, march_troops_left: null }, standing: { declined_calls: [], reserved: [] },
     social: { ballot: null, motion: null, say: [] },
@@ -101,6 +101,7 @@ function main() {
     }
   } catch { /* no log yet */ }
   let n = 0;
+  const run = Date.now().toString(36);
   const server = createServer((rq, rs) => {
     const send = (code, body) => { rs.writeHead(code, { 'content-type': 'application/json' }); rs.end(JSON.stringify(body)); };
     if (rq.method !== 'POST' || rq.headers.authorization !== `Bearer ${token}`) return send(rq.method !== 'POST' ? 405 : 401, { ok: false });
@@ -112,7 +113,8 @@ function main() {
       try { req = JSON.parse(Buffer.concat(parts).toString('utf8')); } catch { return send(400, { ok: false }); }
       if (rq.url === '/v1/decide') {
         const pick = choose(req, last, workshops);
-        const a = answerOf(req, pick, ++n);
+        // (the run's start time in the id: a restart's numbers do not repeat the log's earlier ones)
+        const a = answerOf(req, pick, ++n, run);
         const c = (req.candidates ?? []).find(x => x.id === pick.id);
         if (pick.why === 's1-caravan') last.set(String(req.ai?.tag ?? ''), Number(req.bell ?? 0));
         if (pick.why === 'workshop') workshops.add(String(req.ai?.tag ?? ''));
