@@ -41,13 +41,22 @@ fn dry_workshops(c: &mut Chain, w: &World, e: &Estate, short: &[(Resource, i64)]
         }
         // two workshops running, two more and two producers queued to finish inside the gap
         h.production[ARMS as usize] = 2 * WORKSHOP_ARMS_PER_HOUR * MILLI;
-        for (k, dt) in [(ARMS, 900i64), (ARMS, 5 * HOUR), (Resource::Wood, 3 * HOUR), (Resource::Food, 9 * HOUR)] {
+        for (k, dt) in [
+            (ARMS, 900i64),
+            (ARMS, 5 * HOUR),
+            (Resource::Wood, 3 * HOUR),
+            (Resource::Food, 9 * HOUR),
+        ] {
             h.enqueue(
                 now,
                 dt,
                 Effect::Production {
                     resource: k,
-                    delta: if k == ARMS { WORKSHOP_ARMS_PER_HOUR * MILLI } else { 10 * MILLI },
+                    delta: if k == ARMS {
+                        WORKSHOP_ARMS_PER_HOUR * MILLI
+                    } else {
+                        10 * MILLI
+                    },
                 },
             )
             .unwrap();
@@ -75,7 +84,10 @@ fn need(c: &Chain, label: &str, ix: Ix, ixs: &[Instruction], e: &Estate) -> (Str
 
 fn assert_all(rows: &[(String, u64, u32)]) {
     for (label, cu, limit) in rows {
-        assert!(cu <= &(*limit as u64), "{label}: {cu} CU > the S1 limit {limit}");
+        assert!(
+            cu <= &(*limit as u64),
+            "{label}: {cu} CU > the S1 limit {limit}"
+        );
     }
 }
 
@@ -87,10 +99,7 @@ fn g01_budget_s1_holding_with_dry_workshops() {
     let e = w.craft_estate(&mut c, "dry", 0, (2, 0), 0);
     dry_workshops(&mut c, &w, &e, &[(Resource::Ore, 12)], 30 * HOUR);
     let h = read_kholding(&c.data(&e.holding));
-    assert!(
-        h.production[ARMS as usize] > 0,
-        "the workshops are running"
-    );
+    assert!(h.production[ARMS as usize] > 0, "the workshops are running");
     let p = e.player();
     let rows = vec![
         need(
@@ -130,7 +139,13 @@ fn g01_budget_s1_holding_with_dry_workshops() {
     // the longest walk: both inputs run dry at different moments, the queue finishes through the gap, and the holding
     // falls dormant before it is touched again (3 days without its owner)
     let x = w.craft_estate(&mut c, "dryx", 3, (2, 0), 3);
-    dry_workshops(&mut c, &w, &x, &[(Resource::Ore, 12), (Resource::Wood, 40)], 80 * HOUR);
+    dry_workshops(
+        &mut c,
+        &w,
+        &x,
+        &[(Resource::Ore, 12), (Resource::Wood, 40)],
+        80 * HOUR,
+    );
     rows.push(need(
         &c,
         "Harvest (both inputs dry, dormant, 80 h)",
