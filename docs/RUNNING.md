@@ -1,6 +1,6 @@
 # Running Wylls locally
 
-This integrated tree contains conquest, a test-asset prize pool and AI-citizen code. The recipes below start a **local test chain** with test tokens ("test USDC", no value). The rebuild has not run on devnet or mainnet; the earlier prototype's devnet season used test USDC. A future mainnet season with live USDC is planned, not launched. No production wallet or paid model API is needed. Commands were developed on macOS; CI tests components on Linux, but a full Linux stack run is not recorded. See the [README](../README.md) for status and the [demo guide](pitch/DEMO_SCRIPT.md) for what the current recorded preview actually shows.
+This integrated tree contains conquest, a test-asset prize pool and AI-citizen code. Since 2026-10-24 its program runs the **S1 rules** only (stage 1 of the redesign: arms, caravans, raids, towers, palisades, forts, nation votes; program version 4): every season the recipes below create is an S1 season, and the earlier M1 and conquest (MC) seasons need an earlier commit (section 6). The recipes below start a **local test chain** with test tokens ("test USDC", no value). The rebuild has not run on devnet or mainnet; the earlier prototype's devnet season used test USDC. A future mainnet season with live USDC is planned, not launched. No production wallet or paid model API is needed. Commands were developed on macOS; CI tests components on Linux, but a full Linux stack run is not recorded. See the [README](../README.md) for status and the [demo guide](pitch/DEMO_SCRIPT.md) for what the current recorded preview actually shows.
 
 Ports are in 41000 to 41999 only. With base port `B`: the chain's RPC is `B+10`, the relay `B+33`, the herald (which serves the web client) `B+40`. The AI runs use base 41900, with the model server on 41901 and the council audit page on 41902. Use a clean checkout for an AI run: its guard refuses uncommitted changes to the code it measures.
 
@@ -49,6 +49,7 @@ $S up --conquest --mode accel --beacon test-key --preseason-scale 2000 --scale 1
 $S down --run-id try-cq
 ```
 
+- **The world is an S1 season** (`S1_LOCAL_14D` cut to the flags above). On `main` its web page is not ready for S1 (checked in the code on 2026-10-26, not in a live run): it loads the earlier conquest rules module (`wasm/frontier-v2.wasm`), which does not match the season's rules hash, so the page runs without its rules module (forecasts, the browser's check of a clash report and, as a branch run saw, the map's terrain need it); it has no S1 orders or map layers; and the herald writes `h/caravans.json`, `h/structures.json` and `h/nations.json` without serving them. The fixes are on the unmerged branch `design/visual-uplift`, which also builds the S1 module with `scripts/build-wasm.sh --s1` (that module is not committed).
 - Open **`/frontier/frontier/`**, not `/`: the bare address lands on an older page.
 - A conquest run ID is used once: `up` refuses an existing conquest world. Use a new `--run-id` and `--season` for another world. Do not start it on occupied ports.
 - `--entry-fee` is in base units of the 6-decimal test mint: `25000000` is 25 test USDC. `--prize-so` needs `--conquest`.
@@ -61,7 +62,7 @@ The recorded Chrome human-operation world was `own1`, season 100, served from co
 
 ## 4. A combined AI season
 
-The example below runs conquest, the test-asset prize pool, 6 AI citizens and 6 script bots in one world for 96 play turns: about 1 h 40 min of play at 10x, plus the drain. It is a new run, **not** the saved `take-1` footage. One AI stack runs at a time (a lock shared by every worktree). The guards refuse dirty measured code, busy ports and paid-API key variables; `--check` runs the guards only and `--dry-run` prints the plan without starting a stack. Use fresh run IDs. The shorter [`ai-cq-demo.toml`](../permutation-gateway/citizens/stack/ai-cq-demo.toml) has 60 play turns and no prize pool.
+The example below runs conquest, the test-asset prize pool, 6 AI citizens and 6 script bots in one world for 96 play turns: about 1 h 40 min of play at 10x, plus the drain. It is a new run, **not** the saved `take-1` footage. On `main` the world is an S1 season; no AI-citizen run under the S1 rules is recorded, and the AI citizens are offered no S1 actions (caravans, raids, structures, votes) on `main`. One AI stack runs at a time (a lock shared by every worktree). The guards refuse dirty measured code, busy ports and paid-API key variables; `--check` runs the guards only and `--dry-run` prints the plan without starting a stack. Use fresh run IDs. The shorter [`ai-cq-demo.toml`](../permutation-gateway/citizens/stack/ai-cq-demo.toml) has 60 play turns and no prize pool.
 
 ```sh
 export AI_MODEL=/absolute/path/to/gemma-4-26B-A4B-it-Q4_0.gguf
@@ -128,9 +129,16 @@ Exit code 0 is PASS, 1 FAIL, 3 INCOMPLETE. The model and llama.cpp options compa
 
 **End-to-end checks of the prize path** on a disposable stack: `permutation-gateway/scripts/prize-e2e.mjs` (three paid joins, an unpaid Join refused by the relay and on chain, a capture, the season's end, tally, ledger, `--verify`) and `prize-mixed-check.mjs` (a paying person, invited script bots and an invited AI fleet in one gated world). Each file's header gives its environment variables.
 
-## 6. The earlier M1 stack and the exit season
+## 6. Earlier rule sets (M1 and MC)
 
-The first playable part (M1: no conquest, no prize pool) still runs:
+The program built from this tree creates S1 seasons only: CreateSeason refuses any other `program_version` (`permutation-frontier/src/proc/season.rs`), and `frontier-stack up` without `--conquest` still asks for an M1 season, so it stops at CreateSeason. The commands below therefore need a checkout of an earlier commit, built there with its own scripts:
+
+| Rule set | Last program of that rule set on `main` | Evidence made with it |
+|---|---|---|
+| M1 (no conquest, no prize pool) | `bff5087e` (before [PR #4](https://github.com/r0ze998/wylls/pull/4), 2026-10-11) | the M1 exit season |
+| MC (conquest, prize pool) | `2321d557` (before [PR #11](https://github.com/r0ze998/wylls/pull/11)); the season-complete work at `adb4ac98` | `own1`, `take-1`, the 14-day season of 2026-10-17/18 |
+
+These checkouts were not re-run on 2026-10-26. On an M1 checkout:
 
 ```sh
 S=frontier-node/target/release/frontier-stack

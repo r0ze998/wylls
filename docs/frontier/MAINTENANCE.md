@@ -51,10 +51,16 @@ A cost, production or weight lives in `permutation-rules` and is part of the rul
 
 ## Found and left as it is (each changes behaviour, so it is not in the refactor)
 
+Re-checked on 2026-10-26 against `main` at `79c80684` (branch `maint/night-2026-10-26`); the notes after each item say what that check found.
+
 - **The verifier's `Ix::writes`** (`verify/src/world.rs`) resolves positions with the M1 tables for every tag. A v2-only tag (0xA0+) falls back to the message's writable flag. An instruction whose list v2 changed is resolved against its M1 list.
+  - *2026-10-26:* where both tables fit an account count they declare the same writable positions (every v2 tag, 0–64 accounts). Where only v2's fits (the v2-only tags, and Harvest, Train, Dissolve, Explore, Depart and SettleDeparture with v2's extra account), the message flag is used. For the accounts these checks ask about (Holdings), that gives the same answer in a successful transaction: `frontier_abi::prologue::check_flags` refuses a program account listed read-only that the message marks writable. So the fallback is not known to change a verdict; it stays as it is.
 - **The stack report** (`stack/src/report.rs`) names and budgets transactions with the M1 table. A conquest instruction shows as `?` with budget 0.
+  - *Fixed 2026-10-26* (`report::Table`): a conquest run is named and budgeted from the v2 table, an S1 run with Reveal's S1 limit.
 - **The agents' outpost check** (`agents/src/cqbehave.rs` `outpost_check`) maps every refusal but `HoldingsFull` to `OutpostRule`. The program maps the land gate to `Capacity`.
+  - *2026-10-26:* `outpost_base` passes `free_sites = open_sites = 1`, so the local land gate is evaluated but never fires and the mapping cannot differ from the program's in practice.
 - **The bots' training cost** (`bots/src/ai/brain.rs`, `max_train` and its caller) prices with M1's `catalog::train` in every season. A conquest season charges `train_v2`, where the Horseman line is cheaper. The redesign's stage-1 plan already lists this.
+  - *Fixed in stage 1a:* `max_train` takes `agents::rules::Rules` (`train`, `train_v2` or `train_v3` by the season's program version).
 - **The web's settle list** (`fchainio.mjs` `SETTLE_TAGS`) is narrower than the relay's v2 settle shapes on purpose: the page sends only SettleExplore and SettleTransit.
 - **The conquest contract's §5.4 row for FileOutpost** says 28,000 CU and 640 B; the code has 40,000 and 900. Its §5.5 account list for FileOutpost lists fewer accounts than the code has (11–13). The contract changes only by amendment, so it is left to its owner.
 - **`docs/frontier/conquest/design/program.md`** still names 0xA3 SettleFounding (now FileOutpost).

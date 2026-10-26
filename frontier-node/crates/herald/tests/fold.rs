@@ -180,7 +180,11 @@ async fn checkpoints_save_in_the_background() {
     let mut c = IngestCfg::new(&data, fixture::program(), fixture::SEASON_ID);
     c.segment_bytes = 64 * 1024;
     c.checkpoint_slots = 1;
-    c.checkpoint_pause = std::time::Duration::from_millis(1_500);
+    // A save takes 3 s, so one awaited save already breaks the bound below
+    // while the ingest's own work has room on a loaded host (at 1.5 s it
+    // took 1.49 s for 24 steps beside other test binaries on 2026-10-26).
+    let pause_ms = 3_000;
+    c.checkpoint_pause = std::time::Duration::from_millis(pause_ms);
     {
         // `open` checkpoints once (awaited, at start-up): no pause yet.
         let mut c0 = c.clone();
@@ -196,9 +200,9 @@ async fn checkpoints_save_in_the_background() {
         }
         let took = t0.elapsed();
         assert!(steps > 3, "{steps}");
-        // Awaited, every step past the first would have paused 1.5 s.
+        // Awaited, every step past the first would have paused a whole save.
         assert!(
-            took < std::time::Duration::from_millis(1_400),
+            took < std::time::Duration::from_millis(pause_ms - 100),
             "the ingest waited for a checkpoint: {steps} steps in {took:?}"
         );
         assert!(ing.checkpoint_in_flight(), "the save is still running");

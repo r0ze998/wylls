@@ -109,8 +109,70 @@ fn stats(v: &[f64]) -> Value {
            "max": v.iter().cloned().fold(None, |m: Option<f64>, x| Some(m.map_or(x, |m| m.max(x))))})
 }
 
+/// The instruction table a run's program follows: M1's, or ABI v2's for a
+/// conquest season (MC, program version 3; S1, program version 4, which
+/// gates Reveal at its own limit, `REVEAL_CU_LIMIT_S1`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Table {
+    M1,
+    Mc,
+    S1,
+}
+
+/// One instruction kind as the report names and budgets it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct IxRow {
+    pub name: &'static str,
+    pub cu_budget: u32,
+    pub cu_per_unit: u32,
+    pub tx_ceiling: u32,
+}
+
+impl Table {
+    /// The run's table from its state, as `verifyrun` picks the ruleset
+    /// hash: M1 unless the run is a conquest one; S1 when the setup
+    /// recorded `program_version` 4 or later (a state without it is MC).
+    pub fn of(st: &Value) -> Table {
+        if st["config"]["conquest"].as_bool() != Some(true) {
+            return Table::M1;
+        }
+        match st["season"]["program_version"].as_u64() {
+            Some(v) if v >= frontier_abi::v2::presets::PROGRAM_VERSION_S1 as u64 => Table::S1,
+            _ => Table::Mc,
+        }
+    }
+
+    /// The kind of `tag` in this table; `None` for a tag it does not have.
+    pub fn row(self, tag: u8) -> Option<IxRow> {
+        use frontier_abi::v2::{budgets as b2, Ix as V2};
+        if self == Table::M1 {
+            let ix = Ix::from_tag(tag)?;
+            let b = frontier_abi::budgets::budget(ix);
+            return Some(IxRow {
+                name: ix.name(),
+                cu_budget: b.cu_budget,
+                cu_per_unit: b.cu_per_unit,
+                tx_ceiling: frontier_abi::budgets::tx_ceiling(ix),
+            });
+        }
+        let ix = V2::from_tag(tag)?;
+        let b = b2::budget(ix);
+        let cu_budget = if self == Table::S1 && ix == V2::Reveal {
+            b2::REVEAL_CU_LIMIT_S1
+        } else {
+            b.cu_budget
+        };
+        Some(IxRow {
+            name: ix.name(),
+            cu_budget,
+            cu_per_unit: b.cu_per_unit,
+            tx_ceiling: b2::tx_ceiling(ix),
+        })
+    }
+}
+
 /// Per instruction kind: count, failures, CU (successful), bytes, budget.
-pub fn cu_table(txs: &[TxRecord], program: &Address) -> (Value, Vec<f64>) {
+pub fn cu_table(txs: &[TxRecord], program: &Address, table: Table) -> (Value, Vec<f64>) {
     let mut by: BTreeMap<u8, (Vec<f64>, u64, usize)> = BTreeMap::new();
     let mut reveal = vec![];
     for t in txs {
@@ -131,30 +193,29 @@ pub fn cu_table(txs: &[TxRecord], program: &Address) -> (Value, Vec<f64>) {
     let rows: Vec<Value> = by
         .iter()
         .map(|(tag, (u, failed, bytes))| {
-            let ix = Ix::from_tag(*tag);
-            let b = ix.map(frontier_abi::budgets::budget);
+            let b = table.row(*tag);
             let max = u.iter().cloned().fold(0.0, f64::max);
             let budget = b.map(|b| b.cu_budget).unwrap_or(0);
             let per_unit = b.map(|b| b.cu_per_unit).unwrap_or(0);
             // A per-unit budget (SkipQuiet) is gated per transaction by its
             // unit count; the table flags only a max above the 24-unit bound.
             let ceiling = budget as f64 + per_unit as f64 * if per_unit > 0 { 24.0 } else { 0.0 };
-            json!({"tag": tag, "kind": ix.map(|i| i.name()).unwrap_or("?"), "landed": u.len(), "failed": failed,
+            json!({"tag": tag, "kind": b.map(|b| b.name).unwrap_or("?"), "landed": u.len(), "failed": failed,
                 "cu": stats(u), "budget": budget, "budget_per_unit": per_unit,
                 "over_budget": budget > 0 && max > ceiling, "max_tx_bytes": bytes,
-                "tx_ceiling": ix.map(frontier_abi::budgets::tx_ceiling)})
+                "tx_ceiling": b.map(|b| b.tx_ceiling)})
         })
         .collect();
     (json!(rows), reveal)
 }
 
 /// Failed transactions by (kind, error).
-pub fn failures(txs: &[TxRecord], program: &Address) -> Value {
+pub fn failures(txs: &[TxRecord], program: &Address, table: Table) -> Value {
     let mut m: BTreeMap<String, u64> = BTreeMap::new();
     for t in txs.iter().filter(|t| t.err.is_some()) {
         let kind = tag_of(t, program)
-            .and_then(Ix::from_tag)
-            .map(|i| i.name())
+            .and_then(|tag| table.row(tag))
+            .map(|r| r.name)
             .unwrap_or("?");
         let err = t
             .code
@@ -1970,7 +2031,8 @@ pub async fn report(rd: &RunDir) -> i32 {
         period: frontier_abi::presets::M1_LOCAL_7D.drand_period,
     };
     let recs = records(&inp.txs, &program);
-    let (cu, reveal) = cu_table(&inp.txs, &program);
+    let table = Table::of(&st);
+    let (cu, reveal) = cu_table(&inp.txs, &program, table);
     // A drain at another scale (W6-A) is left out of the latencies: they
     // are judged over play, at the run's scale.
     let cut = st["play"]["drain_scale"]["from_game"]
@@ -2063,7 +2125,7 @@ pub async fn report(rd: &RunDir) -> i32 {
     let verify_report = read_json(&rd.path("verify/report.json"));
     let events = rd.events();
     let eg = exit_grade(&events, &st["config"]);
-    let fails = failures(&inp.txs, &program);
+    let fails = failures(&inp.txs, &program, table);
     let fclasses = failure_classes(&fails);
     let load_avg = loadavg_summary(&read_jsonl(&rd.path("metrics/loadavg.jsonl")));
     let no_landing = no_landing_windows(
@@ -2520,7 +2582,7 @@ mod tests {
     fn the_report_pieces_on_the_program_recording() {
         let inp = program_fixture();
         let program = inp.cfg.program;
-        let (cu, reveal) = cu_table(&inp.txs, &program);
+        let (cu, reveal) = cu_table(&inp.txs, &program, Table::M1);
         let rows = cu.as_array().unwrap();
         assert!(rows.iter().any(|r| r["kind"] == "Reveal"), "{cu}");
         assert!(!reveal.is_empty());
@@ -2563,8 +2625,56 @@ mod tests {
         assert!(!ps.is_empty());
         let pc = province_checks(&ps, 144, 170);
         assert!(pc["provinces"].as_u64().unwrap() > 0);
-        let fl = failures(&inp.txs, &program);
+        let fl = failures(&inp.txs, &program, Table::M1);
         assert!(fl.is_object());
+    }
+
+    /// A conquest run's kinds are named and budgeted from the ABI v2
+    /// table (they were `?` with budget 0, and shared kinds were gated at
+    /// M1's rows); an S1 run gates Reveal at the S1 limit; an M1 run keeps
+    /// M1's rows.
+    #[test]
+    fn the_table_follows_the_season_program() {
+        use frontier_abi::v2::{budgets as b2, Ix as V2};
+        let m1 = json!({"config": {"conquest": false}, "season": {"program_version": 1}});
+        let mc = json!({"config": {"conquest": true}, "season": {"program_version": 3}});
+        let mc_old = json!({"config": {"conquest": true}, "season": {}});
+        let s1 = json!({"config": {"conquest": true}, "season": {"program_version": 4}});
+        assert_eq!(Table::of(&m1), Table::M1);
+        assert_eq!(Table::of(&json!({})), Table::M1);
+        assert_eq!(Table::of(&mc), Table::Mc);
+        assert_eq!(Table::of(&mc_old), Table::Mc);
+        assert_eq!(Table::of(&s1), Table::S1);
+
+        // M1: unchanged rows.
+        let r = Table::M1.row(Ix::Reveal.tag()).unwrap();
+        assert_eq!((r.name, r.cu_budget), ("Reveal", 26_000));
+        assert_eq!(r.tx_ceiling, frontier_abi::budgets::tx_ceiling(Ix::Reveal));
+        assert_eq!(Table::M1.row(V2::SendCaravan.tag()), None);
+
+        // MC and S1: v2-only kinds have their names and §5.4 rows.
+        for t in [Table::Mc, Table::S1] {
+            let r = t.row(V2::DeclareSiege.tag()).unwrap();
+            assert_eq!(r.name, "DeclareSiege");
+            assert_eq!(r.cu_budget, b2::budget(V2::DeclareSiege).cu_budget);
+            assert!(r.cu_budget > 0);
+            assert_eq!(r.tx_ceiling, b2::tx_ceiling(V2::DeclareSiege));
+            let d = t.row(V2::Depart.tag()).unwrap();
+            assert_eq!(d.cu_budget, b2::budget(V2::Depart).cu_budget);
+            assert_ne!(
+                d.cu_budget,
+                frontier_abi::budgets::budget(Ix::Depart).cu_budget
+            );
+        }
+        assert_eq!(
+            Table::S1.row(V2::SendCaravan.tag()).unwrap().name,
+            "SendCaravan"
+        );
+        assert_eq!(Table::Mc.row(V2::Reveal.tag()).unwrap().cu_budget, 26_000);
+        assert_eq!(
+            Table::S1.row(V2::Reveal.tag()).unwrap().cu_budget,
+            b2::REVEAL_CU_LIMIT_S1
+        );
     }
 
     fn good_facts() -> Value {
