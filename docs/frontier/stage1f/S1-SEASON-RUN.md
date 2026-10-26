@@ -63,6 +63,22 @@ brain offers under S1: build (with the workshop and an ore mine), walls, train, 
 recall, ambush, escort), caravan. Not offered: storehouses, towers, palisades, forts, fort garrisons, raid decisions,
 seizures, sieges, votes and proposals.
 
+**The AI fleet with the model (`s1-model-1`, then `s1-model-2`).** `ai-citizens-run.sh` with
+`stack/ai-cq-season.toml` (96 turns at 10x, the test-USDC prize path) and `config/smoke.json`: six AI citizens, one
+per nation, on Gemma 4 26B A4B Q4_0 (ggml-org revision `bb4531cd`, sha256 `d208665a…`) and llama.cpp b11146
+(`7fe450e19`, Homebrew), loopback only, measured into the run's commitments; the llama check passed against them.
+In `s1-model-1`: 46 decisions by the model and 505 by the autopilot (the gate decides when the model is asked); the
+fleet landed 6 joins and first homes, 48 builds, 27 trains, 21 musters, 10 explorations and 18 marches (all
+model-chosen, all revealed), with no refusal; 3 ballots and 8 nation-hall posts. `verify-minds` PASS, `frontier-stack
+verify` PASS (10,556 transactions), `tamper` PASS, the run report's failed transactions one keeper race. No person
+joined, so the prize pool was empty and the estimate was a refund. The brain's sends were held back on 211 turns by
+the relay's sponsored-transaction quota. The run showed the mind's prompt calling the S1 arms "horses"; fixed (the
+brain now names the stores), and `s1-model-2` ran on the fix: the prompts read "arms 0", not "horses"; 45 model decisions, 6 joins and first homes, 49
+builds, 26 trains, 20 musters, 10 explorations, 16 model-chosen marches (all revealed), 3 ballots, 16 hall posts, no
+refusal and no failed transaction; `verify-minds`, `verify` (10,542 transactions) and `tamper` PASS. In neither run
+did the brain offer the S1 caravan, ambush or escort (their conditions did not hold in 96 turns); the model was not
+asked about storehouses, structures, raids or votes, which the brain does not offer.
+
 ## Faults found by playing, and fixed
 
 1. **Program: a caravan standing in two provinces.** `province_links` read every listed province while an earlier
@@ -89,6 +105,10 @@ seizures, sieges, votes and proposals.
 7. **Run report.** A keeper's late SettleProposal (the other keeper settled it first) is now the a/b race, not
    "unclassified". The 82 DefaultRaid AccountBorrowFailed in this run are fault 1 (the run's program predates the fix).
 
+8. **The AI run's set-up.** `ai-citizens-run.sh` gave a conquest world's AI fleet `--conquest`, and the conquest stack
+   configs gave the script bots the same: the MC budgets and no S1 candidates on a program that makes S1 seasons only.
+   Both now use `--s1`. The mind's prompt named the S1 arms "horses"; the brain now sends the names.
+
 ## Balance found, not changed
 
 A workshop uses 8 ore an hour against a village's base of 4, and every unit costs ore. A village that builds a workshop
@@ -106,7 +126,7 @@ ore, or let units cost no ore below the strong tier.
   two-province send in `s1-fix-1`, not by a take in a live world.
 - **A readmission**: `READMIT_BELLS` (432) is longer than this season after an expulsion; nobody was expelled.
 - **Seizing a structure** (no structure stood where an enemy host did).
-- **The AI with a model.** No model weights or llama.cpp are on this machine (a new download of about 15 GB); the
-  AI ran only through the stand-in. The S1 candidates (caravan, ambush, escort) were not offered in the run.
+- **The AI's S1 candidates with the model.** The model played two 96-turn S1 seasons, but the caravan, ambush and
+  escort candidates were never offered in them; covered by the brain's unit tests only.
 - **The page's caravans to another player.** The rules allow them; the page offers only the viewer's own places.
 - **Public networks.** Nothing ran on devnet or mainnet; no real funds.
