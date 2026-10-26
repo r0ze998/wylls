@@ -1055,7 +1055,7 @@ export default {
   '着いたターンに残れる見込み': 'should hold on arrival',
   '{0} 以上で十分': '{0} or more', 'この兵種では届かない': 'not with this unit',
   '、勝ち目 {0}（{1}）': ', odds {0} ({1})',
-  '勝ち目は、着いたターンの戦いを記録の守備兵と城壁と地形で計算した目安です。戦いの後に強さ（兵 × 1 人の強さ）が多く残った側がマスに残り、同じなら砦の側が残ります。運の揺れ（±10%）を含め、ほかの軍勢と教義の効果は含みません。': 'The odds estimate the arrival turn\'s clash from the recorded defenders, the walls and the terrain. The side with more strength left after it (troops × strength per troop) stays on the tile; on a tie the keep does. They include the luck of the roll (±10%), not other hosts or doctrines.',
+  '勝ち目は、着いたターンの戦いを記録の守備兵と城壁と地形で計算した目安です。戦いの後に強さ（兵 × 1 人の強さ）が多く残った側がマスに残り、同じなら砦の側が残ります。運の揺れ（±10%）を含め、ほかの軍勢、教義の効果、道中の見張り塔で減る兵（最大 30%）は含みません。': 'The odds estimate the arrival turn\'s clash from the recorded defenders, the walls and the terrain. The side with more strength left after it (troops × strength per troop) stays on the tile; on a tie the keep does. They include the luck of the roll (±10%), not other hosts, doctrines, or the troops watchtowers wear away on the road (up to 30%).',
   '{0}が届く砦': 'Keeps {0} can reach',
   'この軍勢がいま届く他国の砦はありません。進軍が越えられるのは4州までです。': 'No keep of another nation is within this host\'s reach now. A march can cross at most 4 provinces.',
   '砦へ進軍': 'March on a keep', '{0} ターンで奪取': '{0} turns to hold',

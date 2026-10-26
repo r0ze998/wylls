@@ -207,8 +207,10 @@ export function promotionOffer(h, { now = 0, have = [] } = {}) {
 // n_A · str_A · k / str_B · 1,000 / F[n] · mods · roll, n = (n_A + n_B) whole troops clamped to 1–64, k 0.55, each
 // side's roll 0.90–1.10; the attack × WALLS (and × TERRAIN on a forest or hills tile), the garrison's blow ×
 // CITY_RETALIATION; a keep fights as a city: strength 10, no class (clash.rs `keep::garrison`, `resolve_engagement`).
-// Left out: other hosts on the tile, a stance edge (a keep stands in Hold, which no stance beats) and the attacking
-// nation's doctrine drill (×1.05–1.10 in its own stance) — so the estimate errs on the keep's side.
+// Left out: other hosts on the tile, a stance edge (a keep stands in Hold, which no stance beats), the attacking
+// nation's doctrine drill (×1.05–1.10 in its own stance; this errs on the keep's side) and, on an S1 season, the wear
+// of enemy watchtowers on the road (1% a minute in range, at most 30%: structure.rs; this errs on the host's side,
+// and the keep list says so).
 /** combat.rs F[n] = round(n^0.2 × 1,000), n = 0…64. */
 const CLASH_F = Object.freeze([
   0, 1000, 1149, 1246, 1320, 1380, 1431, 1476, 1516, 1552, 1585, 1615, 1644, 1670, 1695, 1719,
