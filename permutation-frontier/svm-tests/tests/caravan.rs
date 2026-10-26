@@ -33,9 +33,11 @@ use permutation_frontier_svm_tests::world::land::provinces_of;
 use permutation_frontier_svm_tests::world::World;
 use permutation_frontier_svm_tests::{Address, FrontierError as E, Instruction, Keypair, Signer};
 use permutation_rules::frontier::caravan::{
-    self as kc, caravan_id, CaravanSlot, CARAVAN_FEE, MAX_CARAVAN_SLOTS, MAX_VAULTS,
+    self as kc, caravan_id, CaravanSlot, Land, CARAVAN_FEE, MAX_CARAVAN_SLOTS, MAX_VAULTS,
     RAID_DECIDE_BELLS,
 };
+use permutation_rules::frontier::doctrine::of_faction_v3;
+use permutation_rules::frontier::geometry::ProvinceCoord;
 
 /// The bell the tests start in.
 const B0: u32 = 20;
@@ -462,6 +464,92 @@ fn g13_s1_send_and_settle_to_own_vault() {
         s1_send(&mut k.c, I2::SettleCaravan, ix, &[&keeper]),
         E::BadAccount,
     );
+}
+
+/// A caravan standing at bell starts in two Provinces (A's village in T,
+/// its outpost next door) chains both Provinces' slots in CARAVAN_SENT.
+/// s1-season-2: every such send, and every raid take home across a
+/// border, failed AccountBorrowFailed (the second run's search read the
+/// first run's Province while it was already borrowed for writing).
+#[test]
+fn g13_s1_send_across_two_provinces_chains_both() {
+    let (mut c, w) = s1_world();
+    let t = ring4(0, 0);
+    let a = w.cq_estate(&mut c, "a", 0, t, 0);
+    w.open_tiles(&mut c, t.0, t.1, &(0..61).collect::<Vec<u8>>());
+    w.enrich(&mut c, &a, 5_000);
+    let tc = ProvinceCoord::new(t.0 as i32, t.1 as i32);
+    let land = |c: &Chain, pc: ProvinceCoord| {
+        let pd = c.data(&w.a.province(pc.p, pc.q));
+        Land {
+            at: pc,
+            passable: u64_at(&pd, P::PASSABLE_MASK),
+            rough: u64_at(&pd, P::ROUGH_MASK),
+            road: u64_at(&pd, P::ROAD_MASK),
+        }
+    };
+    let bps = of_faction_v3(0).unwrap().caravan_time_bps;
+    // The first neighbour, outpost site and departure that stand in both.
+    let mut found = None;
+    'search: for nc in tc.neighbors() {
+        let n = (nc.p as i16, nc.q as i16);
+        let mut f = c.fork();
+        let province = w.cq_province(&mut f, n.0, n.1);
+        w.open_tiles(&mut f, n.0, n.1, &(0..61).collect::<Vec<u8>>());
+        let sites = f.data(&province)[P::SITE_COUNT];
+        for site in 0..sites {
+            let tile = f.data(&province)[P::SITES + site as usize];
+            let lands = [land(&f, tc), land(&f, nc)];
+            let Some((dirs, order)) = kc::fastest_path((tc, a.tile), (nc, tile), &lands) else {
+                continue;
+            };
+            if order != [tc, nc] || dirs.len() < 6 {
+                continue;
+            }
+            let path = kc::pack(&dirs).unwrap();
+            let walked = kc::walk((tc, a.tile), &path, dirs.len() as u8, &lands, bps).unwrap();
+            for off in (1..600).step_by(20) {
+                let depart = w.bell_start(B0 + 1) + off;
+                let runs = kc::schedule(w.genesis_ts(), depart, (tc, a.tile), &walked);
+                if runs.is_ok_and(|r| r.len() == 2) {
+                    found = Some((n, site, dirs, path, depart));
+                    break 'search;
+                }
+            }
+        }
+    }
+    let (n, site, dirs, path, depart) = found.expect("a road standing in two Provinces");
+    let o = w.cq_outpost(&mut c, &a, n, site, 2);
+    w.open_tiles(&mut c, n.0, n.1, &(0..61).collect::<Vec<u8>>());
+    c.set_time(depart);
+    let x = SendCaravanArgs {
+        seq: 0,
+        src: PlaceRef::Holding {
+            h: a.href(),
+            gen: a.gen,
+        },
+        dst: PlaceRef::Holding {
+            h: o.href(),
+            gen: o.gen,
+        },
+        steps: dirs.len() as u8,
+        path,
+        cargo: [0, 100, 0, 0, 0, 0, 0, 0],
+        fee: CARAVAN_FEE,
+        provinces: vec![t, n],
+    };
+    let ix = fx::send_caravan(&w.a, &a.player(), &x);
+    let l = expect_lands(
+        s1_send(&mut c, I2::SendCaravan, ix, &[&a.wallet]),
+        "SendCaravan across two Provinces",
+    );
+    let id = caravan_id(a.citizen_tag(), 0);
+    assert!(slot_of(&c, &a.province, id).is_some(), "a slot in T");
+    assert!(slot_of(&c, &o.province, id).is_some(), "a slot next door");
+    match event(&l, CqKind::CARAVAN_SENT) {
+        fclient::conquest::CqEvent::CaravanSent { runs, .. } => assert_eq!(runs.len(), 2),
+        e => panic!("{e:?}"),
+    }
 }
 
 #[test]

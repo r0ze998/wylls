@@ -506,7 +506,11 @@ fn province_links<'b, 'a>(
     provinces: &'b [AccountInfo<'a>],
     runs: &[u8; log_run::LEN * log_run::N],
 ) -> R<alloc::vec::Vec<core::cell::RefMut<'b, &'a mut [u8]>>> {
-    let mut out = alloc::vec::Vec::new();
+    // Every run's Province is found first and only then borrowed for
+    // writing: reading a Province an earlier run already holds mutably
+    // would fail (AccountBorrowFailed), so a caravan standing in two
+    // Provinces could never be sent or taken.
+    let mut hits: alloc::vec::Vec<usize> = alloc::vec::Vec::new();
     for i in 0..log_run::N {
         let e = &runs[i * log_run::LEN..(i + 1) * log_run::LEN];
         if e[8] == 0 {
@@ -516,17 +520,23 @@ fn province_links<'b, 'a>(
             i16::from_le_bytes([e[0], e[1]]),
             i16::from_le_bytes([e[2], e[3]]),
         );
-        for ai in provinces {
+        for (j, ai) in provinces.iter().enumerate() {
             let hit = {
                 let pd = ai.try_borrow_data()?;
                 let r = Ro(&pd);
                 (r.i16(P::P)?, r.i16(P::Q)?) == (rp, rq)
             };
             if hit {
-                out.push(ai.try_borrow_mut_data()?);
+                if !hits.contains(&j) {
+                    hits.push(j);
+                }
                 break;
             }
         }
+    }
+    let mut out = alloc::vec::Vec::with_capacity(hits.len());
+    for j in hits {
+        out.push(provinces[j].try_borrow_mut_data()?);
     }
     Ok(out)
 }
