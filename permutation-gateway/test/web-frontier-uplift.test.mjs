@@ -192,10 +192,10 @@ test('the tile card names an S1 thing on the tile and whose it is, as the map dr
   const s1 = { caravans: { v: 1, moving: [], vaults: [{ p: 2, q: -2, tile: 41, faction: 5, ownerTag: '7', gen: 1 }] }, structures: { v: 1, structures: [{ p: 2, q: -2, tile: 12, kind: 1, faction: 2, ownerTag: '9', gen: 1, notify: 1, cover: [] }], sightings: [] } };
   const FS = idx => ({ mode: 'play', s1, selected: { p: 2, q: -2, idx }, ownProfile: null, holdings: [] });
   assert.deepEqual(inspectModel(FS(41), null).tile.s1, [{ kind: 'vault', faction: 5, own: false }]);
-  assert.match(text(render(FS(41), null)), /倉庫/);
+  assert.match(text(render(FS(41), null)), /貯蔵庫/);
   assert.match(text(render(FS(12), null)), /物見櫓/);
   const { renderBrief } = await import('../../permutation-server/web/frontier/hud/inspect.mjs');
-  assert.match(text(renderBrief(FS(41), null)), /選択中: 倉庫/, 'the brief line names it as the card does');
+  assert.match(text(renderBrief(FS(41), null)), /選択中: 貯蔵庫/, 'the brief line names it as the card does');
   assert.equal(inspectModel(FS(13), null).tile.s1, undefined, 'nothing on another tile');
   assert.equal(inspectModel({ ...FS(41), s1: null }, null).tile.s1, undefined, 'no S1 season, nothing said');
 });
