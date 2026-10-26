@@ -19,6 +19,11 @@ test('the rule prefers an S1 caravan, then an escort or ambush, then a favourabl
   assert.equal(choose(req([...base, c('c7', 'march', { target_kind: 'ambush' }), c('c8', 'march', { target_kind: 'escort' })])).id, 'c8', 'an escort before an ambush');
   assert.equal(choose(req(base)).id, 'c3');
   assert.equal(choose(req(base, { own_marches: [{ opened: null }] })).id, 'c5', 'no second camp march while one is on the road: troops first');
+  // s1-season-2: camps held 214 or more against the AI's 100, so a camp alone never moved a host
+  const tough = [c('c1', 'autopilot'), c('c3', 'march', { target_kind: 'camp', ratio: 'unfavourable' }), c('c5', 'train:spearman')];
+  assert.deepEqual(choose(req([...tough, c('c9', 'march', { target_kind: 'raid', ratio: 'favourable' })])), { id: 'c9', why: 'raid' });
+  assert.deepEqual(choose(req([...tough, c('c9', 'march', { target_kind: 'field', ratio: 'favourable' })])), { id: 'c9', why: 'field' });
+  assert.equal(choose(req([...tough, c('c9', 'march', { target_kind: 'raid', ratio: 'even' })])).id, 'c5', 'only a favourable estimate');
   assert.equal(choose(req([...base.slice(0, 2), c('c4', 'build:workshop'), c('c5', 'train:spearman'), c('c6', 'muster:spearman')])).id, 'c6', 'a muster before a train');
   assert.equal(choose(req([c('c1', 'autopilot'), c('c4', 'build:workshop')])).id, 'c4');
   assert.equal(choose(req([c('c1', 'autopilot'), c('c4', 'build:workshop')]), new Map(), new Set(['aa'])).id, 'c1', 'one workshop per citizen');

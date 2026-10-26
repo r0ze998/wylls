@@ -12,7 +12,9 @@
 // The rule, in order (the brain checks every choice again and may drop it):
 //   1. an S1 caravan the brain offers (a store over 80 % of its cap), at most once every CARAVAN_EVERY turns per citizen;
 //   2. an S1 march: an escort of the citizen's own caravan, else an ambush of another nation's caravan;
-//   3. a march to a barbarian camp the brain calls favourable, when the citizen has no march on the road;
+//   3. a march the brain calls favourable (its estimate: own troops at least twice the enemy's), to a barbarian camp,
+//      else another nation's village, else an army in the field, when the citizen has no march on the road
+//      (s1-season-2: with camps alone the AI hosts never marched; camps there held 214 or more against 100);
 //   4. a muster the brain offers (troops in reserve become a host), then a train (troops for the next host);
 //   5. an ore mine, then one workshop per citizen, then any other build (a workshop uses 8 ore an hour against a
 //      village's base 4, and every unit costs ore: in s1-season-2 the stand-in built a workshop at once and the
@@ -41,8 +43,9 @@ export function choose(req, last = new Map(), workshops = new Set()) {
   const s1march = march('escort') ?? march('ambush');
   if (s1march) return { id: s1march.id, why: `s1-${s1march.facts.target_kind}` };
   const onRoad = Array.isArray(req?.own_marches) && req.own_marches.some(m => m && m.opened === null);
-  const camp = cs.find(c => kind(c) === 'march' && c?.facts?.target_kind === 'camp' && c?.facts?.ratio === 'favourable');
-  if (camp && !onRoad) return { id: camp.id, why: 'camp' };
+  const favourable = t => cs.find(c => kind(c) === 'march' && c?.facts?.target_kind === t && c?.facts?.ratio === 'favourable');
+  const fight = favourable('camp') ?? favourable('raid') ?? favourable('field');
+  if (fight && !onRoad) return { id: fight.id, why: fight.facts.target_kind };
   const muster = byKind('muster');
   if (muster) return { id: muster.id, why: 'muster' };
   const train = byKind('train');
@@ -114,7 +117,7 @@ function main() {
         if (pick.why === 's1-caravan') last.set(String(req.ai?.tag ?? ''), Number(req.bell ?? 0));
         if (pick.why === 'workshop') workshops.add(String(req.ai?.tag ?? ''));
         write({ kind: 'decide', mock: true, decision_id: a.decision_id, ai: req.ai?.tag, index: req.ai?.index, bell: req.bell, obs_digest: req.obs_digest,
-          offered: (req.candidates ?? []).map(x => `${x.id}:${x.kind}${x.facts?.target_kind ? `/${x.facts.target_kind}` : ''}`),
+          offered: (req.candidates ?? []).map(x => `${x.id}:${x.kind}${x.facts?.target_kind ? `/${x.facts.target_kind}/${x.facts.ratio ?? '?'}` : ''}`),
           chose: { id: pick.id, kind: c?.kind ?? null, label: c?.label ?? null, why: pick.why, params: a.choice.params[pick.id] ?? {} } });
         return send(200, a);
       }
