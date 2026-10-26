@@ -304,6 +304,21 @@ export function createHerald({ base = '', fetch: f = (...a) => globalThis.fetch(
       const r = await get(f, `${root}/h/nations.json`);
       return r.ok ? guard(() => ({ nations: parseNations(r.json) })) : r;
     },
+    /**
+     * GET /h/holding/{P},{Q},{site}.json: another's Holding (public chain data) for a siege or an expulsion:
+     * `{ownerCitizen (base58), order, gen, p, q, site}`, decoded from its bytes and checked against the site asked
+     * (and against the season's address of that Holding when the page has the season's addresses).
+     */
+    async holding(p, q, site) {
+      const r = await get(f, `${root}/h/holding/${p},${q},${site}.json`);
+      if (!r.ok) return r;
+      return guard(() => {
+        const h = decode('Holding', bytesOf(r.json?.bytes_b64), { seasonId: pinned ?? undefined });
+        check(h.p === p && h.q === q && h.site === site, 'WrongKey', 'the holding bytes are another site');
+        if (addrs) check(r.json?.address === addrs.of('Holding', { p, q, site }), 'WrongKey', 'the holding is not at its address');
+        return { holding: { ownerCitizen: toB58(h.ownerCitizen), order: h.order, gen: h.gen, p, q, site } };
+      });
+    },
     async keep(p, q) {
       const r = await get(f, `${root}/h/keep/${p},${q}.json`);
       return r.ok ? { ok: true, keep: r.json } : r;
@@ -830,19 +845,37 @@ function caravanOf(v, at) {
       return { p: intOf(ro, 'p', -COORD, COORD, a), q: intOf(ro, 'q', -COORD, COORD, a), firstBell: intOf(ro, 'firstBell', 0, U32, a), n: intOf(ro, 'n', 0, 255, a) };
     }),
     raided,
+    // the packed walk and the Provinces it enters, the origin's first (a checkpoint older than them has neither)
+    path: Object.hasOwn(o, 'path') ? (() => { const a = arrOf(o, 'path', at); check(a.length === 12, 'BadSchema', `${at}: path is not 12 bytes`); return a.map((_, i) => intOf(a, i, 0, 255, `${at}.path`)); })() : null,
+    provinces: Object.hasOwn(o, 'provinces') ? arrOf(o, 'provinces', at).map((x, i) => {
+      check(Array.isArray(x) && x.length === 2, 'BadSchema', `${at}.provinces[${i}] is not [p, q]`);
+      return { p: intOf(x, 0, -COORD, COORD, `${at}.provinces[${i}]`), q: intOf(x, 1, -COORD, COORD, `${at}.provinces[${i}]`) };
+    }) : null,
   };
+}
+/** An optional owner's Citizen address (base58), or null (the herald read no account bytes yet). */
+function ownerCitizenOf(o, at) {
+  if (o.ownerCitizen === undefined || o.ownerCitizen === null) return null;
+  const s = strOf(o, 'ownerCitizen', at);
+  check(B58_RE.test(s), 'BadValue', `${at}: ownerCitizen is not base58`);
+  return s;
 }
 function vaultOf(v, at) {
   const o = objOf(v, at);
+  // the stores and cap (whole units) and the owner's address come once the herald read the vault's bytes
+  const stores = o.stores === undefined || o.stores === null ? null : arrOf(o, 'stores', at).map((_, i, a) => intOf(a, i, 0, U32, `${at}.stores`));
+  check(stores === null || stores.length === 8, 'BadSchema', `${at}: stores has not 8 entries`);
   return {
     p: intOf(o, 'p', -COORD, COORD, at), q: intOf(o, 'q', -COORD, COORD, at), tile: intOf(o, 'tile', 0, TILE_MAX, at),
     ownerTag: decOf(o, 'ownerTag', at), faction: intOf(o, 'faction', 0, FACTION_MAX, at), gen: intOf(o, 'gen', 0, U32, at),
+    ...(stores ? { stores, cap: optIntOf(o, 'cap', 0, U32, at) ?? 0 } : {}), ownerCitizen: ownerCitizenOf(o, at),
   };
 }
 
 /**
  * `/h/caravans.json` → `{v: 1, moving: [{ownerTag, seq, faction, src, dst,
- * steps, cargo[8], arriveTs, runs: [{p, q, firstBell, n}], raided}], vaults:
+ * steps, cargo[8], arriveTs, runs: [{p, q, firstBell, n}], raided, path (12 bytes | null),
+ * provinces ([{p, q}] | null)}], vaults:
  * [{p, q, tile, ownerTag, faction, gen}]}`, checked. Tags stay decimal strings.
  */
 export function parseCaravans(input) {
@@ -868,6 +901,7 @@ function structureOf(v, at) {
     p: intOf(o, 'p', -COORD, COORD, at), q: intOf(o, 'q', -COORD, COORD, at), tile: intOf(o, 'tile', 0, TILE_MAX, at),
     kind, faction: intOf(o, 'faction', 0, FACTION_MAX, at), ownerTag: decOf(o, 'ownerTag', at),
     gen: intOf(o, 'gen', 0, U32, at), notify: intOf(o, 'notify', 0, 1, at), cover, sent: intOf(o, 'sent', 0, U32, at),
+    ownerCitizen: ownerCitizenOf(o, at),
   };
 }
 function sightingOf(v, at) {
@@ -926,7 +960,7 @@ function proposalOf(v, at) {
  * `/h/nations.json` → `{v: 1, stances[6][6] (0 war, 1 pass, 2 ally),
  * proposals: [{faction, id, slot, kind, targetFaction, value, proposerTag,
  * targetTag, openBell, closeBell, yes, no, state}], expelled: [{tag, faction,
- * since}], domesticRaids: [{ownerTag, seq, p, q, bell, raiderHost,
+ * since, holdings: [{p, q, site}]}], domesticRaids: [{ownerTag, seq, p, q, bell, raiderHost,
  * raiderTag}]}`, checked.
  */
 export function parseNations(input) {
@@ -945,7 +979,13 @@ export function parseNations(input) {
     expelled: arrOf(o, 'expelled', 'file').map((e, i) => {
       const a = `expelled[${i}]`;
       const eo = objOf(e, a);
-      return { tag: decOf(eo, 'tag', a), faction: intOf(eo, 'faction', 0, FACTION_MAX, a), since: intOf(eo, 'since', 0, U32, a) };
+      // the village's holdings as the expulsion named them ([p, q, site]; absent from an older herald): a
+      // readmission names the village's Citizen, read from one of them
+      const holdings = eo.holdings === undefined ? [] : arrOf(eo, 'holdings', a).map((h, j) => {
+        check(Array.isArray(h) && h.length === 3, 'BadSchema', `${a}.holdings[${j}] is not [p, q, site]`);
+        return { p: intOf(h, 0, -COORD, COORD, a), q: intOf(h, 1, -COORD, COORD, a), site: intOf(h, 2, 0, 11, a) };
+      });
+      return { tag: decOf(eo, 'tag', a), faction: intOf(eo, 'faction', 0, FACTION_MAX, a), since: intOf(eo, 'since', 0, U32, a), holdings };
     }),
     domesticRaids: arrOf(o, 'domesticRaids', 'file').map((r, i) => {
       const a = `domesticRaids[${i}]`;

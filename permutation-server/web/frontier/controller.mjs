@@ -9,6 +9,7 @@
 import { conquestEnabled, kernelFile, territoryStandings, keepFromProvince, applyControl, outpostOffer, mergeKeepEvents } from './fconquest.mjs';
 import { holdingByRef } from './fland.mjs';
 import { FS, invalidate, activeHolding } from './fstate.mjs';
+import { ownTag } from './people/ui.mjs';
 import { updateLife } from './people/life.mjs';
 import * as io from './fchainio.mjs';
 import * as fsession from './fsession.mjs';
@@ -25,7 +26,7 @@ import { toggleTile } from './screens/explore.mjs';
 import { composerArrival, composerMarch } from './screens/march.mjs';
 import { sealMarch, unpack, ctHash as ctHashOf, sealRoot as sealRootOf } from './seal.mjs';
 import { bellAt, bellStart, pipeline, archivePartOf, pollCap } from './clock.mjs';
-import { regionOf, ringOf, ringProvinces, wedgeOf } from './fgeo.mjs';
+import { regionOf, ringOf, ringProvinces, wedgeOf, hexDistance } from './fgeo.mjs';
 import { hostParts, hostId } from './faddr.mjs';
 import { decodePage } from './flog.mjs';
 import { nextPoll, BELLS_PER_DAY } from './herald.mjs';
@@ -38,6 +39,9 @@ import { L, fmtNum } from '../lang.mjs';
 import { emit as fxEmit } from './fx/bus.mjs';
 import { reachOrigins } from './screens/conquest.mjs';
 import { s1On } from './fs1.mjs';
+import { fastestPath, pack, landsWanted, landOfProvince, CARAVAN_FEE, MAX_PATH_STEPS, MAX_PATH_PROVINCES } from './fcaravan.mjs';
+import { raidOffers, s1VillageModel, s1TileModel, siegeOffer, expelOffer, caravanProblem, KIND, PROPOSE_STANCE, PROPOSE_EXPEL, PROPOSE_READMIT } from './screens/s1.mjs';
+import { placeData, raidProvinces, cargoBytes, RAID_CHOICE } from './fplay.mjs';
 import { cachedReach, reachKey, reachableKeeps } from './fkeepreach.mjs';
 import * as fprize from './fprize.mjs';
 import { instantHomeEnabled, HOME_GRANTED, planHomes, homeSites, sameHome, homeKey, loadHome, saveHome, grantId } from './home.mjs';
@@ -213,11 +217,28 @@ function orderAnswered(o, ok, extra = {}) {
   fxEmit(ok ? 'order:accepted' : 'order:refused', payload);
 }
 
+/**
+ * The key of an order for the double-send guard: its shape and its fields
+ * (a second tap on the same button, or a form sent twice, while the first is
+ * still on its way, is the same order).
+ */
+export const sendKey = (name, fields) => `${name}|${JSON.stringify(fields ?? {}, (_, x) => (typeof x === 'bigint' ? `${x}n` : x instanceof Uint8Array ? Array.from(x) : x))}`;
+const sending = new Set();
+
 /** One sponsored action, tracked to its landing; the notice says how it went. */
 async function act(name, { v = {}, fields = {}, signer, requester = null, label, after, onSent, onLost, order = null, say = null } = {}) {
   // `signer: null` = a settle shape (no authority signs; the session key signs the request only).
   // (a refusal before anything is sent is an answer to the order too)
   const early = r => { orderAnswered(order, false, { code: r.code, sent: false }); return failed(r); };
+  // the same order already on its way: say so, and send nothing (the chain would refuse the copy, and the player saw an error)
+  const key = sendKey(name, fields);
+  if (sending.has(key)) { busy(() => L`同じ命令を送っています。結果を待ってください…`); return { ok: false, code: 'InFlight' }; }
+  sending.add(key);
+  try { return await actOnce(name, { v, fields, signer, requester, label, after, onSent, onLost, order, say }, early); }
+  finally { sending.delete(key); }
+}
+
+async function actOnce(name, { v, fields, signer, requester, label, after, onSent, onLost, order, say }, early) {
   if (!io.pinned()) return early({ code: 'NoPin' });
   if (!FS.wallet) return early({ code: 'NoWallet' });
   let sign = null;
@@ -903,9 +924,17 @@ export function wantHostReach(hostId) {
 /** Refresh conquest together; retain known state on transport failures. */
 /**
  * S1 (redesign stage 1): the caravans, structures and nations feeds into
- * `FS.s1`. A feed the herald has not written yet (NotFound) reads as empty;
- * any other failure keeps what was read before.
+ * `FS.s1`. A feed the herald has not written yet (NotFound) reads as a
+ * fresh season's ([`s1Fresh`]): nothing built, every stance war. (It read
+ * as nothing, which hid the nation's council until a proposal existed, so
+ * nobody could make the first one.) Any other failure keeps what was read
+ * before.
  */
+export const s1Fresh = name => ({
+  caravans: () => ({ v: 1, moving: [], vaults: [] }),
+  structures: () => ({ v: 1, structures: [], sightings: [] }),
+  nations: () => ({ v: 1, stances: Array.from({ length: 6 }, () => Array(6).fill(0)), proposals: [], expelled: [], domesticRaids: [] }),
+})[name]?.() ?? null;
 async function refreshS1(request) {
   const s1 = FS.s1 ??= { caravans: null, structures: null, nations: null, error: null };
   const names = ['caravans', 'structures', 'nations'];
@@ -915,9 +944,15 @@ async function refreshS1(request) {
   names.forEach((n, i) => {
     const r = results[i].status === 'fulfilled' ? results[i].value : null;
     if (r?.ok) s1[n] = r[n];
-    else if (r?.code === 'NotFound') s1[n] ??= null;
+    else if (r?.code === 'NotFound') s1[n] ??= s1Fresh(n);
     else s1.error = L`隊商・構造物・国家の最新情報を取得できませんでした。`;
   });
+  // the Provinces the viewer's own caravans stand in: their slots say whether a raid holds one (map/s1marks heldByRaids)
+  const me = ownTag(FS);
+  for (const c of s1.caravans?.moving ?? []) {
+    if (me === null || me === undefined || BigInt(c.ownerTag) !== BigInt(me)) continue;
+    for (const r of c.runs ?? []) wantProvince(r.p, r.q, () => invalidate('map'));
+  }
 }
 
 export async function refreshConquest() {
@@ -1409,8 +1444,139 @@ async function homeAction(run) {
   finally { FS.homeActionBusy = false; invalidate('panel'); }
 }
 
+// ------------------------------------------------------------------ S1 orders (screens/s1.mjs offers them)
+const s1Refused = text => failed({ code: 'S1Refused', text });
+/** Decoded Provinces as lands for a road from `a` to `b` (loaded as needed; a Province not open yet is left out). */
+async function landsFor(a, b) {
+  const out = [];
+  for (const c of landsWanted(a, b)) {
+    const key = `${c.p},${c.q}`;
+    if (!FS.provinces.get(key)) await loadEnvelope(c.p, c.q).catch(() => null);
+    const prov = FS.provinces.get(key)?.province;
+    if (prov) out.push(landOfProvince(prov));
+  }
+  return out;
+}
+const s1Tile = d => ({ p: num(d.p), q: num(d.q), tile: num(d.tile) });
+function s1Build(name, kind, at) {
+  const h = activeHolding(FS);
+  if (!h) return s1Refused(L`費用を払う村を選んでください`);
+  const what = kind ? ({ [KIND.tower]: L`物見櫓`, [KIND.palisade]: L`柵`, [KIND.fort]: L`要塞` })[kind] : L`貯蔵庫`;
+  const fields = name === 'BuildVault' ? { tile: at.tile } : { kind, tile: at.tile, notify: kind === KIND.tower ? 1 : 0 };
+  return act(name, { v: { holding: h, at }, fields, order: orderOf('s1-build', name, { tile: at, say: () => L`${what}を建てました` }) });
+}
+/** SeizeVault / SeizeStructure: the viewer's host on the tile takes another's storehouse or structure. */
+async function s1Seize(d) {
+  const at = s1Tile(d);
+  const m = s1TileModel(FS, { p: at.p, q: at.q, idx: at.tile });
+  const o = m?.seize;
+  if (!o) return s1Refused(L`このマスには奪えるものがありません`);
+  if (o.blocks.length) return failed({ code: o.blocks[0] === 'NoHostHere' ? 'NotOnTile' : o.blocks[0] });
+  const name = d.what === 'vault' ? 'SeizeVault' : 'SeizeStructure';
+  const what = d.what === 'vault' ? L`貯蔵庫` : ({ [KIND.tower]: L`物見櫓`, [KIND.palisade]: L`柵`, [KIND.fort]: L`要塞` })[m.structure?.kind] ?? L`建物`;
+  return act(name, { v: { at, hostHolding: o.hostHolding, ownerCitizen: o.ownerCitizen, province: at }, fields: { entry: o.entry },
+    order: orderOf('s1-seize', name, { tile: at, say: () => L`${what}を奪いました` }) });
+}
+/**
+ * DeclareSiege on another nation's village or a Free City (conquest contract
+ * §3.4): the host standing there, its village paying; the target's owner
+ * Citizen read from its Holding (the herald's /h/holding); the viewer's first
+ * village within two provinces named for the Frontier-protection rule.
+ */
+async function s1Siege(d) {
+  const sel = { p: num(d.p), q: num(d.q), idx: num(d.tile) };
+  const o = siegeOffer(FS, sel);
+  if (!o) return s1Refused(L`このマスには包囲できる村がありません`);
+  if (o.blocks.length) return failed({ code: o.blocks[0] === 'NoFighterHere' ? 'NotOnHex' : o.blocks[0] });
+  const A = io.pinned().addresses;
+  let ownerCitizen = A.absent(0), order = 0;
+  if (!o.freeCity) {
+    busy(() => L`村の持ち主を確かめています…`);
+    const r = await herald.holding(o.target.p, o.target.q, o.target.site);
+    if (!r.ok) return failed(r);
+    ownerCitizen = r.holding.ownerCitizen; order = r.holding.order;
+  }
+  const first = (FS.holdings ?? []).find(h => h.order === 1 || h.order === undefined);
+  const near = first && hexDistance(first.p, first.q, o.target.p, o.target.q) <= 2 ? first : null;
+  const word = o.freeCity ? L`自由都市` : order === 1 ? L`村（占領）` : L`村（奪取）`;
+  return act('DeclareSiege', { v: { holding: o.src, province: o.target, target: o.target, ownerCitizen, nearby: near ? { p: near.p, q: near.q } : null },
+    fields: { site: o.site, entry: o.entry, nearby_site: near ? near.site : 0 },
+    order: orderOf('s1-siege', 'DeclareSiege', { tile: { p: sel.p, q: sel.q, tile: sel.idx }, say: () => L`${word}の包囲を宣言しました` }) });
+}
+/** Propose the expulsion (KIND_EXPEL) or the readmission (KIND_READMIT) of a village of the viewer's nation, named by one of its holdings. */
+async function s1ProposeVillage(kind, at) {
+  if (!at) return s1Refused(L`この村の情報をまだ読み込んでいません`);
+  busy(() => L`村の持ち主を確かめています…`);
+  const r = await herald.holding(at.p, at.q, at.site);
+  if (!r.ok) return failed(r);
+  const faction = FS.citizen?.faction;
+  return act('Propose', { v: { faction, target: r.holding.ownerCitizen }, fields: { kind, target_faction: faction, value: 0 },
+    say: () => (kind === PROPOSE_EXPEL ? L`村の追放を提案しました` : L`村を国に戻す提案をしました`) });
+}
+/** RaidCaravan: the viewer's host won a raid; take the caravan home or burn its load. */
+async function s1Raid(d) {
+  const r = raidOffers(FS).find(x => x.p === num(d.p) && x.q === num(d.q) && x.slot === num(d.slot));
+  if (!r) return s1Refused(L`この略奪はもう決められません`);
+  const A = io.pinned().addresses;
+  const caravan = A.of('Caravan', { ownerTag: BigInt(r.caravan.ownerTag), seq: r.caravan.seq });
+  const raid = { p: r.p, q: r.q };
+  if (d.choice !== 'take') {
+    return act('RaidCaravan', { v: { caravan, raider: r.raider, raid, dst: null },
+      fields: { p: r.p, q: r.q, choice: RAID_CHOICE.burn, n_path: 1, dst_kind: 0, dst_p: 0, dst_q: 0, dst_at: 0, dst_gen: 0, steps: 0, path: new Uint8Array(12) },
+      order: orderOf('s1-raid', 'RaidCaravan', { tile: { p: r.p, q: r.q, tile: r.tile }, say: () => L`隊商の荷を焼き払いました` }) });
+  }
+  if (!r.caravan.provinces) return s1Refused(L`この隊商の道筋がまだ読めません。焼き払うことはできます`);
+  const home = (FS.holdings ?? []).find(h => h.p === r.raider.p && h.q === r.raider.q && h.site === r.raider.site);
+  if (!home || !Number.isInteger(home.tile)) return s1Refused(L`荷を運ぶ村が見つかりません`);
+  busy(() => L`道を探しています…`);
+  const plan = fastestPath({ p: r.p, q: r.q, tile: r.tile }, { p: home.p, q: home.q, tile: home.tile }, await landsFor(raid, home));
+  if (!plan || !plan.dirs.length) return s1Refused(L`村まで隊商の道が届きません（${fmtNum(MAX_PATH_STEPS)} マス・${fmtNum(MAX_PATH_PROVINCES)} 州まで）。焼き払うことはできます`);
+  const dst = { kind: 'holding', p: home.p, q: home.q, site: home.site, gen: home.gen ?? 0 };
+  const route = { raid, dst, pathProvinces: plan.provinces, oldRoute: r.caravan.provinces };
+  return act('RaidCaravan', { v: { caravan, raider: r.raider, ...route },
+    fields: { p: r.p, q: r.q, choice: RAID_CHOICE.take, n_path: raidProvinces(route).nPath, ...placeData(dst), steps: plan.dirs.length, path: pack(plan.dirs) },
+    order: orderOf('s1-raid', 'RaidCaravan', { tile: { p: r.p, q: r.q, tile: r.tile }, say: () => L`隊商を奪い、村へ向かわせました` }) });
+}
+/** SendCaravan from the village in hand or one of the viewer's storehouses to another of the viewer's places. */
+async function s1Caravan(srcIndex, dstIndex, cargo) {
+  const m = s1VillageModel(FS), from = m.sources[srcIndex], dst = m.destinations[dstIndex];
+  const problem = caravanProblem(from, dst, cargo);
+  if (problem === 'NoPlace') return s1Refused(L`出発地と行き先を選んでください`);
+  if (problem === 'SamePlace') return s1Refused(L`出発地と行き先が同じです`);
+  if (problem === 'NoCargo') return s1Refused(L`運ぶものを入れてください`);
+  if (problem === 'Insufficient') return failed({ code: 'Insufficient' });
+  if (!Number.isInteger(from.tile) || !Number.isInteger(dst.tile)) return s1Refused(L`出発地か行き先のマスがわかりません`);
+  busy(() => L`道を探しています…`);
+  const plan = fastestPath({ p: from.p, q: from.q, tile: from.tile }, { p: dst.p, q: dst.q, tile: dst.tile }, await landsFor(from, dst));
+  if (!plan || !plan.dirs.length) return s1Refused(L`そこまで隊商の道が届きません（${fmtNum(MAX_PATH_STEPS)} マス・${fmtNum(MAX_PATH_PROVINCES)} 州まで）`);
+  const seq = Number(FS.citizen?.caravans ?? 0);
+  const src = from.kind === 'vault' ? { kind: 'vault', p: from.p, q: from.q, tile: from.tile, gen: from.gen } : { kind: 'holding', p: from.p, q: from.q, site: from.site, gen: from.gen ?? 0 };
+  return act('SendCaravan', { v: { seq, src, dst, provinces: plan.provinces },
+    fields: { seq, ...placeData(dst), steps: plan.dirs.length, path: pack(plan.dirs), cargo: cargoBytes(cargo), fee: CARAVAN_FEE },
+    order: orderOf('s1-caravan', 'SendCaravan', { say: () => L`隊商が出発しました` }) });
+}
+
 export const ACTIONS = {
   'cq-refresh': () => refreshConquest(),
+  // S1 (screens/s1.mjs)
+  's1-vault': d => s1Build('BuildVault', 0, s1Tile(d)),
+  's1-structure': d => s1Build('BuildStructure', num(d.kind), s1Tile(d)),
+  's1-raid': d => s1Raid(d),
+  's1-seize': d => s1Seize(d),
+  's1-siege': d => s1Siege(d),
+  's1-expel': d => {
+    const o = expelOffer(FS, { p: num(d.p), q: num(d.q), idx: FS.provinces.get(`${num(d.p)},${num(d.q)}`)?.province?.sites?.[num(d.site)] });
+    if (!o) return s1Refused(L`この村は追放を提案できません`);
+    if (o.blocks.length) return failed({ code: o.blocks[0] === 'Expelled' ? 'NotVoter' : o.blocks[0] });
+    return s1ProposeVillage(PROPOSE_EXPEL, { p: o.p, q: o.q, site: o.site });
+  },
+  's1-readmit': d => {
+    const x = s1VillageModel(FS).nation?.out.find(e => String(e.tag) === String(d.tag));
+    if (!x?.readmittable) return s1Refused(L`この村はまだ国に戻す提案ができません`);
+    return s1ProposeVillage(PROPOSE_READMIT, x.holdings[0]);
+  },
+  's1-vote': d => act('Vote', { v: { faction: FS.citizen?.faction }, fields: { slot: num(d.slot), id: num(d.id), yes: num(d.yes) ? 1 : 0 },
+    say: () => (num(d.yes) ? L`賛成に投票しました` : L`反対に投票しました`) }),
   'cq-march': async d => {
     if (FS.inFlight || !conquestEnabled(FS.season)) return;
     if (!ACTIONS.compose({host:d.host,stay:'map'})) return;
@@ -1633,6 +1799,15 @@ function garrisonOrder(n) {
 
 /** Form submissions (data-form). */
 export const FORMS = {
+  // S1 (screens/s1.mjs)
+  's1-caravan': f => s1Caravan(Math.trunc(formNum(f, 'src') || 0), Math.trunc(formNum(f, 'dst')),Array.from({ length: 8 }, (_, i) => Math.max(0, Math.trunc(formNum(f, `c${i}`) || 0)))),
+  's1-fort': f => {
+    const h = activeHolding(FS), troops = Math.trunc(formNum(f, 'troops')), tile = Math.trunc(formNum(f, 'tile'));
+    if (!h) return s1Refused(L`村を選んでください`);
+    return act('FortGarrison', { v: { holding: h, tile }, fields: { troops }, order: orderOf('s1-fort', 'FortGarrison', { tile: { p: h.p, q: h.q, tile }, say: () => L`要塞に槍兵 ${fmtNum(troops)} を入れました` }) });
+  },
+  's1-propose': f => act('Propose', { v: { faction: FS.citizen?.faction }, fields: { kind: PROPOSE_STANCE, target_faction: Math.trunc(formNum(f, 'target')), value: Math.trunc(formNum(f, 'value')) },
+    say: () => L`方針の変更を提案しました` }),
   train: f => trainOrder(formNum(f, 'unit'), formNum(f, 'n')),
   muster: f => musterOrder(formNum(f, 'unit'), formNum(f, 'troops'), null),
   garrison: f => garrisonOrder(formNum(f, 'delta')),

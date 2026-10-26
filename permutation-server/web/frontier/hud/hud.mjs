@@ -32,6 +32,7 @@ import { plateLines as protoPlateLines } from './proto.mjs';
 import { tileWhat, provinceName } from './place.mjs';
 import { viewerState } from './drawer.mjs';
 import { conquestEnabled, renderStandings as renderConquestStandings } from '../screens/conquest.mjs';
+import { raidOffers } from '../screens/s1.mjs';
 
 /** Seconds before the bell at which the pill turns amber, then red. */
 export const URGENCY = Object.freeze({ warn: 120, crit: 30 });
@@ -101,6 +102,10 @@ export function attentionItems(FS) {
   for (const w of FS.incoming ?? []) {
     out.push({ kind: 'incoming', p: w.holding.p, q: w.holding.q, tab: 'marches', bell: w.bell, short: L`来襲 ターン ${fmtNum(w.bell)}`, text: L`ターン ${fmtNum(w.bell)} に、${villageOf(w.holding)}へ敵が来るかもしれません` });
   }
+  // S1: a raid the viewer's host won waits for take or burn (its tile's card holds the choice); past the deadline it is taken by default
+  for (const r of raidOffers(FS).filter(x => x.open)) {
+    out.push({ kind: 'raid', p: r.p, q: r.q, tile: r.tile, tab: 'map', short: L`略奪の決定 ターン ${fmtNum(r.decideBy)} まで`, text: L`隊商に勝ちました。ターン ${fmtNum(r.decideBy)} までに、荷を奪うか焼き払うかを決めてください` });
+  }
   for (const m of FS.marches ?? []) {
     if (!m.facts?.settleReady || !m.dest) continue;
     const to = (Number.isInteger(m.dest.tile) ? tileWhat(FS, m.dest.p, m.dest.q, m.dest.tile).name : null) ?? provinceName(FS, m.dest.p, m.dest.q);
@@ -132,7 +137,7 @@ export function attentionItems(FS) {
 }
 
 /** A mark per kind of item (not colour alone, UI plan E6): a sprite icon (hud/icons.mjs). */
-export const TODO_ICON = Object.freeze({ incoming: 'alert', settle: 'check', draft: 'quill', explore: 'scout', idle: 'banner', build: 'hammer', muster: 'swords', dormant: 'moon', full: 'crate' });
+export const TODO_ICON = Object.freeze({ incoming: 'alert', raid: 'crate', settle: 'check', draft: 'quill', explore: 'scout', idle: 'banner', build: 'hammer', muster: 'swords', dormant: 'moon', full: 'crate' });
 
 /** A holding this close to dormancy (seconds) is an attention item. */
 export const DORMANT_WARN_SECS = 6 * 3600;

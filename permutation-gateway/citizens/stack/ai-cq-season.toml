@@ -17,7 +17,7 @@ bots = 6
 bot_seed = 48
 season_id = 48
 base_port = 41900
-bots_args = "--conquest --conquest-personas 0 --follow-council --join-by-bell 6"
+bots_args = "--s1 --conquest-personas 0 --follow-council --join-by-bell 6"
 
 [pools]
 beneficiary_lamports = 1000000000

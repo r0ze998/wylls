@@ -53,6 +53,10 @@ pub struct Item {
     /// the clash's losses are not logged, so this is what went in, not
     /// what stands).
     pub sent: u32,
+    /// The owner's Citizen address (base58), from the Structure's bytes: a
+    /// seizure names it (SeizeStructure's `owner_citizen`). `None` until a
+    /// transaction wrote the Structure in the local node's feed.
+    pub owner_citizen: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -128,6 +132,7 @@ impl Structures {
                         gen: *gen,
                         notify: *notify,
                         sent: 0,
+                        owner_citizen: None,
                     },
                 );
             }
@@ -144,6 +149,8 @@ impl Structures {
                     t.owner_tag = *captor_tag;
                     t.gen = *new_gen;
                     t.faction = *faction;
+                    // the captor's address comes with the same transaction's bytes
+                    t.owner_citizen = None;
                 }
             }
             CqEvent::StructureClosed { p, q, tile, .. } => {
@@ -262,12 +269,51 @@ impl Structures {
                 } else {
                     vec![]
                 };
-                json!({"p": p, "q": q, "tile": tile, "kind": t.kind, "faction": t.faction,
+                let mut v = json!({"p": p, "q": q, "tile": tile, "kind": t.kind, "faction": t.faction,
                     "ownerTag": t.owner_tag.to_string(), "gen": t.gen, "notify": t.notify,
-                    "cover": cover, "sent": t.sent})
+                    "cover": cover, "sent": t.sent});
+                if let Some(o) = &t.owner_citizen {
+                    v["ownerCitizen"] = json!(o);
+                }
+                v
             })
             .collect();
         json!({"v": 1, "structures": items, "sightings": self.sightings})
+    }
+
+    /// A Structure's post-transaction bytes (the local node's feed): its
+    /// owner's Citizen address on its entry (`ownerCitizen`). `false` when
+    /// nothing changed.
+    pub fn structure_bytes(&mut self, data: &[u8]) -> bool {
+        use frontier_abi::v2::layout::s1::structure as ST;
+        if data.get(..8) != Some(&ST::MAGIC[..]) {
+            return false;
+        }
+        let at = |o: usize| {
+            data.get(o..o + 2)
+                .map(|b| i16::from_le_bytes([b[0], b[1]]) as i32)
+        };
+        let (Some(p), Some(q), Some(&tile), Some(owner)) = (
+            at(ST::P),
+            at(ST::Q),
+            data.get(ST::TILE),
+            data.get(ST::OWNER_CITIZEN..ST::OWNER_CITIZEN + 32),
+        ) else {
+            return false;
+        };
+        let Some(t) = self.items.get_mut(&(p, q, tile)) else {
+            return false;
+        };
+        let Ok(owner): Result<[u8; 32], _> = owner.try_into() else {
+            return false;
+        };
+        let o = fclient::Address::new_from_array(owner).to_string();
+        if t.owner_citizen.as_deref() == Some(o.as_str()) {
+            return false;
+        }
+        t.owner_citizen = Some(o);
+        self.dirty = true;
+        true
     }
 
     /// The checkpoint form (the file's plus the next sighting number).
@@ -298,6 +344,10 @@ impl Structures {
                     notify: x["notify"].as_u64()? as u8,
                     // Absent in a checkpoint written before stage 1e.
                     sent: x.get("sent").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+                    owner_citizen: x
+                        .get("ownerCitizen")
+                        .and_then(|v| v.as_str())
+                        .map(String::from),
                 },
             );
         }
@@ -442,6 +492,28 @@ mod tests {
         }
         assert_eq!(t.sightings.len(), SIGHTINGS_MAX);
         assert_eq!(t.sightings.back().unwrap()["seq"], json!(t.seq - 1));
+    }
+
+    #[test]
+    fn a_structure_names_its_owner_from_its_bytes() {
+        use frontier_abi::v2::layout::s1::structure as ST;
+        let mut t = Structures::default();
+        t.fold(&built(20, 1));
+        let mut d = vec![0u8; ST::SIZE];
+        d[..8].copy_from_slice(&ST::MAGIC);
+        d[ST::P..ST::P + 2].copy_from_slice(&3i16.to_le_bytes());
+        d[ST::Q..ST::Q + 2].copy_from_slice(&0i16.to_le_bytes());
+        d[ST::TILE] = 20;
+        d[ST::OWNER_CITIZEN..ST::OWNER_CITIZEN + 32].copy_from_slice(&[6; 32]);
+        t.dirty = false;
+        assert!(t.structure_bytes(&d));
+        assert!(t.dirty);
+        let owner = fclient::Address::new_from_array([6; 32]).to_string();
+        assert_eq!(t.file()["structures"][0]["ownerCitizen"], json!(owner));
+        assert!(!t.structure_bytes(&d), "unchanged");
+        assert!(!t.structure_bytes(&d[..64]), "short bytes");
+        let back = Structures::from_json(&t.to_json()).unwrap();
+        assert_eq!(back.items, t.items, "a checkpoint keeps the owner");
     }
 
     trait Dst {

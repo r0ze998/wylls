@@ -80,6 +80,27 @@ pub fn tag_of(t: &TxRecord, program: &Address) -> Option<u8> {
         .and_then(|ci| ci.data.first().copied())
 }
 
+/// CU the relay adds to a paid Join's limit for its prize-pool Pay
+/// (`permutation-gateway/client/src/frontier/prize.mjs` `PAID_JOIN_EXTRA_CU`).
+pub const PAID_JOIN_EXTRA_CU: u64 = 80_000;
+
+/// Whether `t` carries an instruction of a program other than the game's,
+/// the ComputeBudget program and the System program: a paid Join's
+/// prize-pool Pay (`[budget, Pay, Join]`, one transaction).
+pub fn with_other_program(t: &TxRecord, program: &Address) -> bool {
+    let Ok(tx) = fclient::tx::from_wire(&t.tx) else {
+        return false;
+    };
+    let m = &tx.message;
+    let budget = fclient::addr::compute_budget_program();
+    let system = Address::default();
+    m.instructions.iter().any(|ci| {
+        m.account_keys
+            .get(ci.program_id_index as usize)
+            .is_some_and(|k| k != program && *k != budget && *k != system)
+    })
+}
+
 /// A decoded record with the landing time and slot of its transaction.
 #[derive(Clone)]
 pub struct Rec {
@@ -159,6 +180,9 @@ impl Table {
         let b = b2::budget(ix);
         let cu_budget = if self == Table::S1 && ix == V2::Reveal {
             b2::REVEAL_CU_LIMIT_S1
+        } else if self == Table::S1 && b2::S1_SETTLES.contains(&ix) {
+            // an S1 holding's settle (the workshops) on top of the row
+            b.cu_budget.saturating_add(b2::S1_SETTLE_EXTRA_CU)
         } else {
             b.cu_budget
         };
@@ -173,13 +197,17 @@ impl Table {
 
 /// Per instruction kind: count, failures, CU (successful), bytes, budget.
 pub fn cu_table(txs: &[TxRecord], program: &Address, table: Table) -> (Value, Vec<f64>) {
-    let mut by: BTreeMap<u8, (Vec<f64>, u64, usize)> = BTreeMap::new();
+    // (tag, paid): a paid Join (with the prize pool's Pay) is its own row,
+    // within the Join budget plus the relay's PAID_JOIN_EXTRA_CU.
+    let mut by: BTreeMap<(u8, bool), (Vec<f64>, u64, usize)> = BTreeMap::new();
     let mut reveal = vec![];
+    let join = frontier_abi::tags::Ix::Join.tag();
     for t in txs {
         let Some(tag) = tag_of(t, program) else {
             continue;
         };
-        let e = by.entry(tag).or_default();
+        let paid = tag == join && with_other_program(t, program);
+        let e = by.entry((tag, paid)).or_default();
         if t.err.is_some() {
             e.1 += 1;
         } else {
@@ -192,15 +220,21 @@ pub fn cu_table(txs: &[TxRecord], program: &Address, table: Table) -> (Value, Ve
     }
     let rows: Vec<Value> = by
         .iter()
-        .map(|(tag, (u, failed, bytes))| {
+        .map(|((tag, paid), (u, failed, bytes))| {
             let b = table.row(*tag);
             let max = u.iter().cloned().fold(0.0, f64::max);
-            let budget = b.map(|b| b.cu_budget).unwrap_or(0);
+            let budget = b.map(|b| b.cu_budget).unwrap_or(0)
+                + if *paid { PAID_JOIN_EXTRA_CU as u32 } else { 0 };
             let per_unit = b.map(|b| b.cu_per_unit).unwrap_or(0);
             // A per-unit budget (SkipQuiet) is gated per transaction by its
             // unit count; the table flags only a max above the 24-unit bound.
             let ceiling = budget as f64 + per_unit as f64 * if per_unit > 0 { 24.0 } else { 0.0 };
-            json!({"tag": tag, "kind": b.map(|b| b.name).unwrap_or("?"), "landed": u.len(), "failed": failed,
+            let kind = match (b.map(|b| b.name), paid) {
+                (Some(n), true) => format!("{n} (paid)"),
+                (Some(n), false) => n.to_string(),
+                (None, _) => "?".to_string(),
+            };
+            json!({"tag": tag, "kind": kind, "landed": u.len(), "failed": failed,
                 "cu": stats(u), "budget": budget, "budget_per_unit": per_unit,
                 "over_budget": budget > 0 && max > ceiling, "max_tx_bytes": bytes,
                 "tx_ceiling": b.map(|b| b.tx_ceiling)})
@@ -249,6 +283,11 @@ pub fn classify_failure(kind: &str, err: &str) -> (&'static str, &'static str) {
             ("redundancy", "a/b race")
         }
         ("SettleTransit" | "SettleDeparture", "TransitState") => ("redundancy", "a/b race"),
+        // S1: both keepers settle a caravan (or a raid's default) in the same
+        // slot; the first closes the Caravan, the second finds it gone.
+        ("SettleCaravan" | "DefaultRaid", "BadAccount") => ("redundancy", "a/b race"),
+        // the other keeper settled the proposal first: it is no longer open
+        ("SettleProposal", "ProposalState") => ("redundancy", "a/b race"),
         (_, "AlreadyDone") => ("redundancy", "duplicate"),
         // M1 exit U4: a claim's versions pile up while `defence-pool` holds
         // the pool and land together when it ends; the first sets
@@ -2652,15 +2691,21 @@ mod tests {
         assert_eq!(r.tx_ceiling, frontier_abi::budgets::tx_ceiling(Ix::Reveal));
         assert_eq!(Table::M1.row(V2::SendCaravan.tag()), None);
 
-        // MC and S1: v2-only kinds have their names and §5.4 rows.
+        // MC and S1: v2-only kinds have their names and §5.4 rows; under S1 an
+        // instruction that settles a holding has the workshops' room on top.
         for t in [Table::Mc, Table::S1] {
+            let extra = if t == Table::S1 {
+                b2::S1_SETTLE_EXTRA_CU
+            } else {
+                0
+            };
             let r = t.row(V2::DeclareSiege.tag()).unwrap();
             assert_eq!(r.name, "DeclareSiege");
-            assert_eq!(r.cu_budget, b2::budget(V2::DeclareSiege).cu_budget);
+            assert_eq!(r.cu_budget, b2::budget(V2::DeclareSiege).cu_budget + extra);
             assert!(r.cu_budget > 0);
             assert_eq!(r.tx_ceiling, b2::tx_ceiling(V2::DeclareSiege));
             let d = t.row(V2::Depart.tag()).unwrap();
-            assert_eq!(d.cu_budget, b2::budget(V2::Depart).cu_budget);
+            assert_eq!(d.cu_budget, b2::budget(V2::Depart).cu_budget + extra);
             assert_ne!(
                 d.cu_budget,
                 frontier_abi::budgets::budget(Ix::Depart).cu_budget
@@ -2674,6 +2719,11 @@ mod tests {
         assert_eq!(
             Table::S1.row(V2::Reveal.tag()).unwrap().cu_budget,
             b2::REVEAL_CU_LIMIT_S1
+        );
+        // a row that settles no holding is the same under both
+        assert_eq!(
+            Table::S1.row(V2::Vote.tag()).unwrap().cu_budget,
+            Table::Mc.row(V2::Vote.tag()).unwrap().cu_budget
         );
     }
 
@@ -3362,6 +3412,21 @@ mod tests {
             "expected"
         );
         assert_eq!(classify_failure("Nope", "Whatever").0, "unclassified");
+        // S1: the keepers' race on a caravan's settle (seen in the s1-base-1 run).
+        assert_eq!(
+            classify_failure("SettleCaravan", "BadAccount"),
+            ("redundancy", "a/b race")
+        );
+        assert_eq!(classify_failure("Build", "BadAccount").0, "unclassified");
+        // ... and on a proposal's (s1-season-2: two keepers, two proposals, two refusals).
+        assert_eq!(
+            classify_failure("SettleProposal", "ProposalState"),
+            ("redundancy", "a/b race")
+        );
+        assert_eq!(
+            classify_failure("Propose", "ProposalState").0,
+            "unclassified"
+        );
         // Seen in the U4 R3 run.
         assert_eq!(classify_failure("SkipQuiet", "OutOfOrder").0, "expected");
         assert_eq!(

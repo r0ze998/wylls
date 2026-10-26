@@ -3103,7 +3103,7 @@ export class FrontierMap {
     for (const t of F.s1Tags ?? []) {
       const [q, r] = inverseHex(t.x, t.y).split(',').map(Number);
       if (hid({ q, r })) continue;
-      paintBellTag(ctx, t.x, t.y - RADIUS * 0.5, caravanTagText(t.c.arriveBell, t.c.raided), { zoom: z, place: 'above', gap: 3, accent: FACTION_COLORS[t.c.faction] ?? undefined, anchor: t, pass, size: 11 });
+      paintBellTag(ctx, t.x, t.y - RADIUS * 0.5, caravanTagText(t.c.arriveBell, t.c.raided, t.c.held), { zoom: z, place: 'above', gap: 3, accent: FACTION_COLORS[t.c.faction] ?? undefined, anchor: t, pass, size: 11 });
     }
     // (`piece`: a set piece — a battle — has the stage: the prototype's line of what a tile's land is steps back with every other word)
     F.piece = !!this.piece;

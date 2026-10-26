@@ -44,6 +44,13 @@ pub fn budgets_v2() -> Budgets {
     b
 }
 
+/// The S1 table (`--s1`): fclient's canonical S1 rows (the v2 rows at the
+/// S1 release's loaded and CU limits), which the relay asks of a profile-3
+/// season's shapes.
+pub fn budgets_s1() -> Budgets {
+    Budgets::canonical_for(fclient::abi::PROGRAM_VERSION_S1)
+}
+
 /// `GET /f/relay`: the drawn fee payer and a blockhash.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RelayInfo {

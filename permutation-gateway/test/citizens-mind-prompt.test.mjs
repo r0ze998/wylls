@@ -71,6 +71,21 @@ test('the prompt calls the ten-minute step "turn" everywhere: state, threats, co
   assert.doesNotMatch(reflection.messages.map((m) => m.content).join('\n'), /\bbells?\b/i);
 });
 
+test('the stores are named as the brain names them: an S1 season\'s slot 4 is arms, not horses', () => {
+  const { renderer } = setup();
+  const me = { faction: 0, stores: [1, 2, 3, 4, 5, 6, 7, 8], rates_per_hour: [] };
+  const S1 = ['food', 'wood', 'stone', 'ore', 'arms', 'gold', 'science', 'influence'];
+  const store = (sit) => renderer.stateLines({ bell: 1, day: 0, bell_in_day: 1, end_bell: 96, me, ...sit }).find((l) => l.startsWith('STORES:'));
+  // s1-model-1: every prompt said "horses 47" for the workshops' arms
+  assert.match(store({ resources: S1 }), /ore 4, arms 5, gold 6/);
+  assert.match(store({}), /ore 4, horses 5, gold 6/, 'no names from the brain: the default');
+  assert.match(store({ resources: ['food', 'wood', 'stone', 'ore', '<x>', 'gold', 'science', 'influence'] }), /horses 5/, 'a malformed list is ignored, never printed');
+  assert.match(store({ resources: S1.slice(0, 7) }), /horses 5/);
+  const cand = { id: 'c1', kind: 'train:spearman', label: 'Train spearman troops', facts: { cost: [60, 20, 0, 10, 5, 0, 0, 0] }, params: {} };
+  assert.match(renderer.candidateLines([cand], { resources: S1 })[0], /cost food 60 wood 20 ore 10 arms 5/);
+  assert.match(renderer.candidateLines([cand])[0], /horses 5/);
+});
+
 test('every candidate line carries its id, kind, facts, params, see Mn and serves Gn; ids match the schema enum', async () => {
   const { run } = setup();
   const r = await run();

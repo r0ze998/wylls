@@ -63,6 +63,11 @@ pub const QUOTA_FLOOR: u32 = 16;
 pub const STALE_SECS: i64 = 30;
 /// Model-chosen marches per game day (§4.5 V3 (d)).
 pub const MODEL_MARCHES_PER_DAY: usize = 4;
+/// Bells an intent the chain or the relay refused is not sent again (one
+/// game hour): a refusal that would repeat every bell (a cost the holding
+/// cannot meet, a queue that stays full) costs one try an hour, not one a
+/// bell.
+pub const REFUSED_BACKOFF_BELLS: u32 = 6;
 /// Candidates a march kind may offer at most: 2 camps, 1 field stack, 1 raid.
 pub const MAX_CAMPS: usize = 2;
 pub const CAMP_REWARD: &str = "10 Works (points, no use yet)";
@@ -86,7 +91,7 @@ pub const KEPT_DUTIES: [&str; 8] = [
 ];
 /// The autopilot's economy: kept, but skipped while the quota is at or below
 /// [`QUOTA_FLOOR`].
-pub const KEPT_ECONOMY: [&str; 4] = ["build", "train", "muster", "explore"];
+pub const KEPT_ECONOMY: [&str; 5] = ["build", "train", "muster", "explore", "send_caravan"];
 /// Dropped: the voluntary march of the rule policy and the adversarial
 /// personas' intents (an AI has no persona, so the latter never arise).
 pub const DROPPED: [&str; 5] = ["depart", "redepart", "prefund", "hold", "spam"];
@@ -104,6 +109,10 @@ pub enum MarchKind {
     Call,
     /// AC3b: an arrived host back to the own holding tile.
     Recall,
+    /// S1 (1f): another nation's caravan road, reached before the caravan.
+    Ambush,
+    /// S1 (1f): the bot's own caravan road, reached before the caravan.
+    Escort,
 }
 
 impl MarchKind {
@@ -114,6 +123,8 @@ impl MarchKind {
             MarchKind::Raid => "raid",
             MarchKind::Call => "call",
             MarchKind::Recall => "recall",
+            MarchKind::Ambush => "ambush",
+            MarchKind::Escort => "escort",
         }
     }
 }
@@ -145,6 +156,11 @@ pub enum Action {
     Explore {
         host_id: u64,
     },
+    /// S1 (1f): a caravan from the home holding to `to` (whole units).
+    Caravan {
+        to: HoldingRef,
+        cargo: [u32; RESOURCES],
+    },
 }
 
 /// A candidate and what it does.
@@ -169,6 +185,7 @@ impl Offer {
             Action::Train { unit } => format!("train:{unit}"),
             Action::Muster { unit } => format!("muster:{unit}"),
             Action::Explore { host_id } => format!("explore:{host_id}"),
+            Action::Caravan { to, .. } => format!("caravan:{},{},{}", to.p, to.q, to.site),
         }
     }
 }
@@ -526,6 +543,8 @@ pub(crate) fn march_candidate(
         MarchKind::Raid => "another nation's village",
         MarchKind::Call => "the Strike Order's target",
         MarchKind::Recall => "home",
+        MarchKind::Ambush => "another nation's caravan road (to wait for the caravan)",
+        MarchKind::Escort => "your own caravan's road (to escort it)",
     };
     let facts = json!({
         "host": row.handle,
@@ -710,7 +729,13 @@ fn economy_offers(inp: &Inputs) -> Vec<Offer> {
     if policy::queue_free(h, now) {
         // The 2 cheapest affordable buildings, distinct; S1: the workshop
         // is always among the offers while affordable (its arms are what
-        // the doctrine's strong unit needs; `Rules::needs_arms`).
+        // the doctrine's strong unit needs; `Rules::needs_arms`), and so is
+        // an ore producer while the workshops eat all the ore (a workshop
+        // uses 8 ore an hour against a village's base 4, and every unit
+        // costs ore: in s1-season-2 every AI village's ore stopped at 0
+        // after its first workshop, and it never trained again).
+        let ore = Resource::Ore as usize;
+        let starved = h.production[arms::ARMS as usize] > 0 && h.stores[ore].rate <= 0;
         let mut b: Vec<(i64, u8, [i64; RESOURCES])> = vec![];
         for &item in rules.building_items() {
             let n = policy::copies(h, item, now) + 1;
@@ -721,6 +746,9 @@ fn economy_offers(inp: &Inputs) -> Vec<Offer> {
                 let total: i64 = cost.iter().sum();
                 let total = if item == arms::ITEM_WORKSHOP {
                     i64::MIN
+                } else if starved && item as usize == ore {
+                    // (the ore producer: building item = its resource's index)
+                    i64::MIN + 1
                 } else {
                     total
                 };
@@ -946,6 +974,8 @@ pub fn candidates_with(inp: &Inputs, side: &Side) -> Vec<Offer> {
     out.extend(super::recall::offer(inp, side));
     out.extend(marches);
     out.extend(super::raid::offer(inp));
+    // S1: a caravan road to wait on, a caravan to send (ai/s1.rs)
+    out.extend(super::s1::offer(inp));
     out.extend(economy_offers(inp));
     out.truncate(MAX_CANDIDATES);
     for (i, o) in out.iter_mut().enumerate() {
@@ -1003,6 +1033,29 @@ fn host_json(r: &HostRow, h: &Holding, bell: u32) -> Value {
     }
     Value::Object(o)
 }
+
+/// The stores' names in slot order (`situation.resources`; the mind prints them).
+pub const RESOURCE_NAMES: [&str; RESOURCES] = [
+    "food",
+    "wood",
+    "stone",
+    "ore",
+    "horses",
+    "gold",
+    "science",
+    "influence",
+];
+/// ... in an S1 season, whose slot 4 holds arms.
+pub const RESOURCE_NAMES_S1: [&str; RESOURCES] = [
+    "food",
+    "wood",
+    "stone",
+    "ore",
+    "arms",
+    "gold",
+    "science",
+    "influence",
+];
 
 /// The situation of §4.2 (numbers with units, filled by code). `my_clashes`
 /// is `[]`: the files `observe` reads carry no loss figures; the mind adds
@@ -1063,7 +1116,14 @@ pub fn situation(inp: &Inputs, quota: (u32, u32)) -> Value {
         .citizen
         .as_ref()
         .map_or(0, |(_, c)| c.bucket_milli / 1_000);
+    // The stores' names in slot order: an S1 season's slot 4 is arms (the workshops' output), not horses.
+    let resources = if super::s1::s1(obs) {
+        RESOURCE_NAMES_S1
+    } else {
+        RESOURCE_NAMES
+    };
     json!({
+        "resources": resources,
         "bell": bell,
         "day": bell / BELLS_PER_DAY,
         "bell_in_day": bell % BELLS_PER_DAY,
@@ -1221,6 +1281,8 @@ pub struct Taken {
     pub builds: usize,
     /// What the chosen builds and trains cost together (milli-units).
     pub spent: [i64; RESOURCES],
+    /// S1: a caravan was chosen (one a decision).
+    pub caravan: bool,
 }
 
 /// Free build-queue slots at `now` (`policy::queue_free` counts running items).
@@ -1352,6 +1414,11 @@ pub fn replan_with(
                         return Err("host already home");
                     }
                 }
+                MarchKind::Ambush | MarchKind::Escort => {
+                    if super::s1::caravan_on(obs, target, h.faction, *kind).is_none() {
+                        return Err("caravan gone");
+                    }
+                }
             }
             let troops = row.troops();
             let counted = *kind != MarchKind::Recall;
@@ -1397,6 +1464,14 @@ pub fn replan_with(
                 .ok_or("no plan or shield")?
                 .0
             };
+            // S1: a road march must stand on the tile before the caravan does.
+            if matches!(kind, MarchKind::Ambush | MarchKind::Escort) {
+                let (by, _) =
+                    super::s1::caravan_on(obs, target, h.faction, *kind).ok_or("caravan gone")?;
+                if plan.plain.arrive_bell > by {
+                    return Err("too late for the caravan");
+                }
+            }
             taken.hosts.insert(*host_id);
             if counted {
                 taken.march_troops += troops;
@@ -1519,6 +1594,31 @@ pub fn replan_with(
                 None,
             ))
         }
+        Action::Caravan { to, cargo } => {
+            if taken.caravan {
+                return Err("caravan already sent");
+            }
+            let dest = super::s1::holding_of(obs, to).ok_or("destination gone")?;
+            if cargo
+                .iter()
+                .zip(stores.iter())
+                .any(|(&c, &s)| c as i64 * MILLI as i64 > s)
+            {
+                return Err("not affordable");
+            }
+            let args = super::s1::caravan_args(obs, h, dest, *cargo)?;
+            taken.caravan = true;
+            for (s, &c) in taken.spent.iter_mut().zip(cargo.iter()) {
+                *s += c as i64 * MILLI as i64;
+            }
+            Ok((
+                Intent::SendCaravan {
+                    h: href(h),
+                    args: Box::new(args),
+                },
+                None,
+            ))
+        }
     }
 }
 
@@ -1603,9 +1703,17 @@ async fn send_intents<H: HeraldPort, R: RelayPort, D: DirectPort>(
 ) -> Sent {
     let mut sent = Sent::default();
     let bell = obs.bell();
+    bot.ai
+        .refused
+        .retain(|_, b| bell < b.saturating_add(REFUSED_BACKOFF_BELLS));
     for it in intents {
         let key = intent_key(&it);
         if key.as_ref().is_some_and(|k| done.contains(k)) {
+            continue;
+        }
+        // refused within the back-off: not again yet
+        if key.as_ref().is_some_and(|k| bot.ai.refused.contains_key(k)) {
+            hook.bot_stat(bot.spec.index, "refused_backoff");
             continue;
         }
         let q = bot.ai_quota_left(obs);
@@ -1645,12 +1753,17 @@ async fn send_intents<H: HeraldPort, R: RelayPort, D: DirectPort>(
         };
         let from = hook.outcomes_len(bot.spec.index);
         sent.n += bot.act(sh, obs, it).await;
-        let ok = hook
-            .outcomes_since(bot.spec.index, from)
-            .iter()
-            .all(|o| o.ok);
-        if let (true, Some(k)) = (ok, key) {
-            done.insert(k);
+        let outs = hook.outcomes_since(bot.spec.index, from);
+        let ok = outs.iter().all(|o| o.ok);
+        match (ok, key) {
+            (true, Some(k)) => {
+                done.insert(k);
+            }
+            // a refusal (not a send that never happened): back off
+            (false, Some(k)) if !outs.is_empty() => {
+                bot.ai.refused.insert(k, bell);
+            }
+            _ => {}
         }
         if let Some((host, p, q, tile, arrive, why)) = depart {
             if bot.mem.march((host, bell)).is_some_and(|m| m.sent) {

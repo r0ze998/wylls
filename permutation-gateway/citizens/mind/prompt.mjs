@@ -68,10 +68,15 @@ export function createPromptRenderer({ templatesDir, countTokens = null, speech,
   // AC1b hook: `<untrusted from ch bell>` is built by code around sanitised text; a name cannot forge an attribute
   const wrap = (text, { from, ch, bell }) => wrapUntrusted(text, { from, ch, bell });
 
+  // The resources' names: the brain's (`situation.resources`, eight lower-case words; an S1 season names slot 4 `arms`, not
+  // `horses`), else the renderer's default. A malformed list is ignored, never printed.
+  const namesOf = (sit) => (Array.isArray(sit?.resources) && sit.resources.length === 8 && sit.resources.every((x) => typeof x === 'string' && /^[a-z]{2,12}$/.test(x)) ? sit.resources : resources);
+
   // ---- section 1: NOW and STATE ---------------------------------------------------------------
   function stateLines(sit, { trimNeighbours = 0 } = {}) {
     const out = [];
     const me = sit.me ?? {};
+    const names = namesOf(sit);
     // `secs_left` on the wire is game seconds to the season end (AC3a fixture), not seconds left in the bell: not shown
     out.push(`NOW: turn ${sit.bell} (day ${sit.day}, turn ${sit.bell_in_day}/144). Season ends at turn ${sit.end_bell}.`);
     out.push(`YOU: nation ${me.faction}${me.doctrine ? ` (${me.doctrine})` : ''}.`);
@@ -84,7 +89,7 @@ export function createPromptRenderer({ templatesDir, countTokens = null, speech,
     }
     if (Array.isArray(me.stores)) {
       const rates = me.rates_per_hour ?? [];
-      out.push(`STORES: ${me.stores.map((v, i) => `${resources[i] ?? `r${i}`} ${v}${rates[i] ? ` (${rates[i] >= 0 ? '+' : ''}${rates[i]}/h)` : ''}`).join(', ')}`);
+      out.push(`STORES: ${me.stores.map((v, i) => `${names[i] ?? `r${i}`} ${v}${rates[i] ? ` (${rates[i] >= 0 ? '+' : ''}${rates[i]}/h)` : ''}`).join(', ')}`);
     }
     if (me.queue) {
       const items = (me.queue.items ?? []).map((q) => `${q.what} done in ${q.done_in_min} min`).join('; ');
@@ -236,7 +241,7 @@ export function createPromptRenderer({ templatesDir, countTokens = null, speech,
       const inboxText = inboxRows.length ? inboxRows.map((r) => itemLine(r, people, ownState.tag, 'direct', lang)).join('\n') : 'none';
       const hallText = hallRows.length ? hallRows.map((r) => itemLine(r, people, ownState.tag, 'nation', lang)).join('\n') : 'none';
       const inboxSec = kind === 'ballot' ? '' : `INBOX (direct messages to you):\n${inboxText}\nNATION HALL (recent messages in your nation channel):\n${hallText}`;
-      const cands = kind === 'session' ? candidateLines(attached.candidates).join('\n') : '';
+      const cands = kind === 'session' ? candidateLines(attached.candidates, sit).join('\n') : '';
       const candSec = kind === 'session' ? `CANDIDATES:\n${cands}` : '';
       return { state, sc, memory, inboxSec, candSec };
     };
@@ -320,28 +325,29 @@ export function createPromptRenderer({ templatesDir, countTokens = null, speech,
   const HIDDEN_FACTS = new Set(['host_id', 'ratio_is', 'tile']);
   const escapeRe = (v) => String(v).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const inLabel = (label, v) => typeof v !== 'object' && new RegExp(`(?<![\\w])${escapeRe(v)}(?![\\w])`).test(label);
-  const named = (arr, keep = () => true) => arr.map((n, i) => (n && keep(i) ? `${resources[i] ?? `r${i}`} ${n}` : null)).filter(Boolean).join(' ');
+  const named = (arr, keep = () => true, names = resources) => arr.map((n, i) => (n && keep(i) ? `${names[i] ?? `r${i}`} ${n}` : null)).filter(Boolean).join(' ');
   // FB5 / AC9 F3: a candidate line is built by the Rust brain from templates over public ids, but it is not typed by the mind, so
   // every free string in it (label, string facts, params) passes the pinned sanitiser (untrusted form: no special token, no < >,
   // no backtick, no { } [ ], no forged Remembered handle M<n>). It cannot forge a `]`, a `|` field or a handle. Not a wrapper:
   // candidates stay plain lines, and a label's WORDS are the brain's (the injection oracle's rule for carrier brain_label).
   const safeLine = (v, limit = 0) => sanitize(String(v ?? ''), { limit, untrusted: true }).replace(/\|/g, '/');
   const safeFact = (v) => (typeof v === 'string' ? safeLine(v) : Array.isArray(v) ? v.map((x) => (typeof x === 'string' ? safeLine(x) : fmt(x))).join(', ') : sanitize(fmt(v), { limit: 0 }));
-  const factText = (k, v, label, all = {}) => {
+  const factText = (k, v, label, all = {}, names = resources) => {
     if (HIDDEN_FACTS.has(k) || v == null || v === '' || v === 'not applicable') return null;
     if (Array.isArray(v) && v.length === 8 && v.every((x) => typeof x === 'number')) {
-      if (k === 'cost') return `cost ${named(v) || 'none'}`;
-      if (k === 'stores_after') return `stores after ${named(v, (i) => (all.cost?.[i] ?? 0) > 0) || 'unchanged'}`;
+      if (k === 'cost') return `cost ${named(v, undefined, names) || 'none'}`;
+      if (k === 'stores_after') return `stores after ${named(v, (i) => (all.cost?.[i] ?? 0) > 0, names) || 'unchanged'}`;
     }
     if (v && typeof v === 'object' && !Array.isArray(v) && 'p' in v && 'q' in v) return `${words(k)} (${v.p},${v.q})`;
     if (k === 'troops' || inLabel(label, v)) return null;
     return `${safeLine(words(k))} ${safeFact(v)}`;
   };
 
-  function candidateLines(cands) {
+  function candidateLines(cands, sit = null) {
+    const names = namesOf(sit);
     return cands.map((c) => {
       const label = safeLine(c.label ?? '');
-      const facts = Object.entries(c.facts ?? {}).map(([k, v]) => factText(k, v, label, c.facts)).filter(Boolean).join('; ');
+      const facts = Object.entries(c.facts ?? {}).map(([k, v]) => factText(k, v, label, c.facts, names)).filter(Boolean).join('; ');
       const params = Object.entries(c.params ?? {}).map(([k, v]) => `${safeLine(k)} ${[].concat(v).map((x) => safeLine(x)).join('|')}`).join('; ');
       const parts = [`${safeLine(c.id)} [${safeLine(kindBaseOf(c.kind))}${c.flags?.council ? ', Strike Order' : ''}] ${label}`.trim()];
       if (c.troops != null) parts.push(`troops ${c.troops}`);

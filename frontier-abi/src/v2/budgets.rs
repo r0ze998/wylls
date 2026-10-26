@@ -251,11 +251,44 @@ pub fn loaded_limit_s1(ix: Ix) -> u32 {
 /// rounded up with room for stage 1e.
 pub const REVEAL_CU_LIMIT_S1: u32 = 28_000;
 
+/// CU an S1 holding's settle may add to an instruction that touches it
+/// (stage 1a's workshops: the conversion is split where an input runs dry,
+/// at every queued building done in the gap and at dormancy). Measured
+/// worst 18,115 over a quiet holding's Harvest (both inputs dry, four
+/// items done, dormant after 80 h; `g01_budget_s1_holding`); found in a
+/// local S1 season (`s1-season-1`, 2026-10-26), where an AI citizen's
+/// holding whose ore ran dry was refused every Harvest and Build at the
+/// MC rows' limits.
+pub const S1_SETTLE_EXTRA_CU: u32 = 20_000;
+
+/// The owner instructions that settle a holding first (`load_touched` in
+/// `proc/holding.rs`, `host.rs`, `caravan.rs`, `structure.rs`,
+/// `conquest.rs`, `citizen.rs`).
+pub const S1_SETTLES: [Ix; 14] = [
+    Ix::Harvest,
+    Ix::Build,
+    Ix::Train,
+    Ix::Explore,
+    Ix::Muster,
+    Ix::Dissolve,
+    Ix::Garrison,
+    Ix::Depart,
+    Ix::BuildVault,
+    Ix::SendCaravan,
+    Ix::BuildStructure,
+    Ix::FortGarrison,
+    Ix::DeclareSiege,
+    Ix::FileOutpost,
+];
+
 /// The CU limit of `ix` under the S1 program: the v2 row's, Reveal's
-/// [`REVEAL_CU_LIMIT_S1`].
+/// [`REVEAL_CU_LIMIT_S1`], and [`S1_SETTLE_EXTRA_CU`] more for an
+/// instruction that settles a holding ([`S1_SETTLES`]).
 pub fn cu_limit_s1(ix: Ix) -> u32 {
     if ix == Ix::Reveal {
         REVEAL_CU_LIMIT_S1
+    } else if S1_SETTLES.contains(&ix) {
+        budget(ix).cu_limit.saturating_add(S1_SETTLE_EXTRA_CU)
     } else {
         budget(ix).cu_limit
     }
@@ -361,6 +394,14 @@ mod tests {
                 s1
             );
             assert!(cu_limit_s1(*ix) >= budget(*ix).cu_limit, "{}", ix.name());
+            if S1_SETTLES.contains(ix) {
+                assert_eq!(
+                    cu_limit_s1(*ix),
+                    budget(*ix).cu_limit + S1_SETTLE_EXTRA_CU,
+                    "{}: an S1 holding's settle",
+                    ix.name()
+                );
+            }
             assert!(cu_limit_s1(*ix) <= CU_LADDER_MAX);
         }
         // an MC Province loads 640 B more than an M1 one

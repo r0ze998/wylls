@@ -96,6 +96,11 @@ pub fn province_latest(f: &Fold, p: i16, q: i16) -> Option<Value> {
     f.envelope((p, q), pv.resolved_next)
 }
 
+/// One captured account as `/h/me` answers it (`Null` when absent).
+pub fn account_json(f: &Fold, a: &[u8; 32]) -> Value {
+    acct(f, a)
+}
+
 fn acct(f: &Fold, a: &[u8; 32]) -> Value {
     match f.account(a) {
         Some(c) => {

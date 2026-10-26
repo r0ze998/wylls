@@ -262,6 +262,8 @@ async fn chosen_ids_map_to_the_intents_they_name() {
             let got = brain::replan(&o.action, &p, inp, &mut taken, &st);
             match &o.action {
                 Action::Autopilot | Action::Hold { .. } => assert!(got.is_err()),
+                // (an M1 world: ai_s1.rs has the caravans)
+                Action::Caravan { .. } => unreachable!("no caravan outside S1"),
                 Action::March {
                     host_id, target, ..
                 } => {
@@ -1004,4 +1006,29 @@ async fn harvest_is_held_at_the_floor_too() {
         "the rule policy harvests at 20 % a bell"
     );
     assert_eq!(harvests(16).await, 0, "none at the floor");
+}
+
+/// A Build the relay refuses is not sent again for REFUSED_BACKOFF_BELLS
+/// (seen in `s1-season-1`: one AI's every Build was refused, and the same
+/// Build went out at every bell after).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_refused_intent_is_held_back_for_the_backoff() {
+    let fm =
+        FakeMind::start(|req| model_answer(&[&cand_id(req, "build").unwrap()], json!({}))).await;
+    let r = rig(Some(&fm), &[(FINAL, "ai")]);
+    r.relay.refuse_tags.lock().unwrap().push(tag::BUILD);
+    let mut bot = ai_bot();
+    bot.step(&r.sh, true).await;
+    let first = r.relay.count_tag(tag::BUILD);
+    assert!(first >= 1, "the model's build was tried");
+    // the next bell: every build refused a bell ago is held back
+    r.sh.clock.set(NOW + 600);
+    bot.step(&r.sh, true).await;
+    assert_eq!(r.relay.count_tag(tag::BUILD), first, "not sent again");
+    assert!(r.hook.stat_of("refused_backoff") >= 1);
+    // after the back-off the same build is tried again
+    r.sh.clock
+        .set(NOW + 600 * (brain::REFUSED_BACKOFF_BELLS as i64 + 1));
+    bot.step(&r.sh, true).await;
+    assert!(r.relay.count_tag(tag::BUILD) > first, "tried again");
 }

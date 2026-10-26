@@ -525,6 +525,10 @@ pub struct CitizenCq {
     /// Bits 0–1 the open ticket's slot; bit 2 / 3 slot 2 / 3 reserved by
     /// a capture siege (K-25).
     pub slots: u8,
+    /// S1: the citizen's storehouses (1b).
+    pub vaults: u8,
+    /// S1: caravans sent so far (the next SendCaravan's `seq`, 1b).
+    pub caravans: u32,
 }
 
 impl CitizenCq {
@@ -592,6 +596,8 @@ impl Citizen {
                     sieges_today: b.u8(c2::SIEGES_TODAY),
                     siege_day: b.u16(c2::SIEGE_DAY),
                     slots: b.u8(c2::SLOTS),
+                    vaults: b.u8(c2::VAULTS),
+                    caravans: b.u32(c2::CARAVANS),
                 }
             }),
         })
@@ -1002,6 +1008,27 @@ pub struct ProvinceCq {
     pub territory_bells: [u64; 6],
     pub score_next_bell: u32,
     pub sites: [SiteCq; 12],
+    /// S1 (1b): the caravans that stand here (`caravan::CaravanSlot`; free
+    /// slots have id 0; all free in an MC Province).
+    pub caravans: [permutation_rules::frontier::caravan::CaravanSlot; 5],
+    /// S1 (1d/1e): the structure list (`kind` 0 is an empty entry).
+    pub structures: [permutation_rules::frontier::structure::StructureEntry; 12],
+    /// S1 (1e): the fort records.
+    pub forts: [FortRecord; 2],
+}
+
+/// A fort's record in a Province (S1 1e; `fort_record`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct FortRecord {
+    pub tile: u8,
+    pub faction: u8,
+    pub gen: u8,
+    pub state: u8,
+    /// Milli-troops.
+    pub troops: u32,
+    pub pend_bell: u32,
+    /// Whole troops counting from `pend_bell`.
+    pub pend: u16,
 }
 
 impl ProvinceCq {
@@ -1042,7 +1069,10 @@ impl ProvinceCq {
 impl ProvinceCq {
     fn decode(d: &[u8]) -> Option<ProvinceCq> {
         use frontier_abi::conquest_model as cm;
-        use frontier_abi::v2::layout::province::{province as p2, site as s2};
+        use frontier_abi::v2::layout::province::{
+            caravan_slot as cs, fort_record as fr, province as p2, site as s2,
+            structure_entry as se,
+        };
         if d.len() < p2::SIZE {
             return None;
         }
@@ -1061,6 +1091,28 @@ impl ProvinceCq {
                     tier_next: b.u8(o + s2::TIER_NEXT),
                     held_since_hour: b.u16(o + s2::HELD_SINCE_HOUR),
                     tier_next_bell: b.u32(o + s2::TIER_NEXT_BELL),
+                }
+            }),
+            caravans: core::array::from_fn(|i| {
+                let o = cs::at(i);
+                permutation_rules::frontier::caravan::CaravanSlot::decode(&d[o..o + cs::SIZE])
+                    .unwrap_or_default()
+            }),
+            structures: core::array::from_fn(|i| {
+                let o = se::at(i);
+                permutation_rules::frontier::structure::StructureEntry::decode(&d[o..o + se::SIZE])
+                    .unwrap_or(permutation_rules::frontier::structure::StructureEntry::EMPTY)
+            }),
+            forts: core::array::from_fn(|i| {
+                let o = fr::at(i);
+                FortRecord {
+                    tile: b.u8(o + fr::TILE),
+                    faction: b.u8(o + fr::FACTION),
+                    gen: b.u8(o + fr::GEN),
+                    state: b.u8(o + fr::STATE),
+                    troops: b.u32(o + fr::TROOPS),
+                    pend_bell: b.u32(o + fr::PEND_BELL),
+                    pend: b.u16(o + fr::PEND),
                 }
             }),
         })

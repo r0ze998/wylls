@@ -104,8 +104,9 @@ export const quota = (citizen, opts) => request('GET', `/f/quota?citizen=${encod
 
 // ------------------------------------------------------------------ message checks (§9.4)
 /**
- * Player shapes (session or wallet signer) the relay accepts (§8.3): ABI v2's, which extend M1's (S1 included:
- * 0xB0 BuildVault and 0xB7 BuildStructure, which this page builds, are among them).
+ * Player shapes (session or wallet signer) the relay accepts (§8.3): ABI v2's, which extend M1's. The S1 orders this
+ * page builds are among them (BuildVault 0xB0, SendCaravan 0xB1, RaidCaravan 0xB3, BuildStructure 0xB7,
+ * FortGarrison 0xBA, Propose 0xBB, Vote 0xBC).
  */
 export const PLAYER_TAGS = Object.freeze(TAGS_V2.instructions.filter(i => i.relay_player_shape).map(i => i.tag));
 /**

@@ -139,6 +139,9 @@ pub struct Cq {
     /// S1 stage 1e: the nations' stances, proposals and the expelled
     /// (`h/nations.json`, [`crate::nation`]).
     pub nations: crate::nation::Nations,
+    /// The S1 feeds were written once for an S1 season, records or not
+    /// (not checkpointed: a restart writes the same files again).
+    pub s1_seeded: bool,
     pub alarms: CqAlarms,
     /// Province-bell views awaiting their control and overview v2 files.
     pub views: BTreeMap<(i16, i16, u32), View>,
@@ -400,6 +403,29 @@ pub fn on_record(f: &mut Fold, tx: &TxRecord, body: &[u8]) -> bool {
         return false;
     };
     let AnyKind::Cq(kind) = r.kind else {
+        // S1: an M1 kind whose links name an entity M1's decoder does not
+        // know (the CLOSE of a settled Caravan, a Vault or a Structure) is
+        // an event like M1's, not a bad record.
+        if let AnyKind::V1(k) = r.kind {
+            if frontier_abi::log::decode(body).is_err() {
+                f.st.events += 1;
+                let scope = match crate::records::province_of_record(k, r.key) {
+                    Some((p, q)) => Scope::Province(p, q),
+                    None => Scope::None,
+                };
+                f.diffs.push(Diff {
+                    kind: "event",
+                    key: crate::records::record_key(k, r.key),
+                    slot: tx.slot,
+                    head: None,
+                    bytes: body.to_vec(),
+                    scope,
+                    t_ms: 0,
+                    wire: Default::default(),
+                });
+                return true;
+            }
+        }
         return false;
     };
     let mut cq = Cq::take(f);
@@ -1623,6 +1649,8 @@ pub fn complete(f: &mut Fold, tx: &TxRecord) {
     days(&mut cq, f, si.as_ref());
     crate::standings::write_rows(&mut cq, f, si.as_ref(), slot);
     keeps_out(&mut cq, f);
+    vaults_of_tx(&mut cq, f, tx);
+    seed_s1(&mut cq, f);
     caravans_out(&mut cq, f);
     structures_out(&mut cq, f);
     nations_out(&mut cq, f);
@@ -2053,6 +2081,64 @@ pub fn day_live(f: &Fold, d: u32) -> Option<String> {
     let mut events = f.cq.days.get(&d).cloned().unwrap_or_default();
     events.sort_by_key(|e| e.seq);
     ConquestDay { day: d, events }.to_json().ok()
+}
+
+/// The Vaults a transaction wrote or closed ([`crate::caravan::Caravans::vault_bytes`])
+/// and the Structures it wrote ([`crate::structure::Structures::structure_bytes`]).
+fn vaults_of_tx(cq: &mut Cq, f: &Fold, tx: &TxRecord) {
+    let ours = |a: &fclient::ports::Account| {
+        a.owner == f.cfg.program && a.data.get(8..16) == Some(&f.cfg.season_id.to_le_bytes()[..])
+    };
+    if !cq.structures.items.is_empty() {
+        for (_, a) in &tx.post {
+            if let Some(a) = a.as_ref().filter(|a| ours(a)) {
+                cq.structures.structure_bytes(&a.data);
+            }
+        }
+    }
+    if cq.caravans.vaults.is_empty() {
+        return;
+    }
+    let listed: Vec<((i32, i32, u8), [u8; 32])> = cq
+        .caravans
+        .vaults
+        .keys()
+        .map(|&(p, q, t)| ((p, q, t), frontier_abi::v2::addr::vault(&f.ctx, p, q, t)))
+        .collect();
+    for (k, a) in &tx.post {
+        let key = k.to_bytes();
+        let Some(&(vk, _)) = listed.iter().find(|(_, va)| *va == key) else {
+            continue;
+        };
+        let data = a.as_ref().filter(|a| {
+            a.owner == f.cfg.program
+                && a.data.get(8..16) == Some(&f.cfg.season_id.to_le_bytes()[..])
+        });
+        cq.caravans
+            .vault_bytes(Some(vk), data.map(|a| a.data.as_slice()));
+    }
+}
+
+/// Whether the season is an S1 season (`program_version` ≥ 4).
+pub fn is_s1(f: &Fold) -> bool {
+    f.account(&f.ctx.season)
+        .and_then(|s| rd_u16(&s.data, SE::PROGRAM_VERSION))
+        .is_some_and(|v| v >= frontier_abi::v2::presets::PROGRAM_VERSION_S1)
+}
+
+/// An S1 season serves its three feeds from the start: no caravan, no
+/// structure, every stance war (a fresh season, `structure::STANCE_WAR`).
+/// Without them the page cannot tell an S1 season with nothing built yet
+/// from a herald that has not caught up, and it hid the nation's council,
+/// so the first proposal could never be made.
+fn seed_s1(cq: &mut Cq, f: &Fold) {
+    if cq.s1_seeded || !is_s1(f) {
+        return;
+    }
+    cq.s1_seeded = true;
+    cq.caravans.dirty = true;
+    cq.structures.dirty = true;
+    cq.nations.dirty = true;
 }
 
 /// `h/caravans.json` when a record changed it.

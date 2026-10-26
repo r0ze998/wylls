@@ -2318,6 +2318,13 @@ body[data-kind="wait"] .plate .plate-go[data-act="join-open"] { display: none; }
 @media (max-height: 819px) { .nation-confirm .prize-terms > p:last-child { display: none; } .nation-confirm .prize-figures dt { font-size: 10px; } }
 @media (max-width: 759px) { .nation-confirm .prize-terms { grid-template-columns: 1fr; } .nation-confirm .prize-figures { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-row: auto; } .nation-confirm .prize-terms > p:last-child { display: none; } }
 
+/* S1 (screens/s1.mjs): trade and defences */
+.s1-card .list li, .s1-tile .s1-here li { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
+.s1-card .list li .ic, .s1-tile .s1-here li .ic { flex: none; }
+.s1-offers .s1-offer { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin: 0 0 6px; }
+.s1-offers .s1-offer .blocked { flex-basis: 100%; margin: 0; }
+.s1-raid { margin: var(--s2, 8px) 0; }
+
 /* ================================================================== the film's frame: a laptop's width (1280 × 720)
    The demo is filmed with the page laid out at 1280 × 720 CSS px (device scale 1.5: a 1920 × 1080 picture). What stood
    cut, covered or colliding at that size is set right here, under three conditions and no other: between 1100 and

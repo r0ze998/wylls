@@ -106,8 +106,8 @@ A palisade's tile is impassable to every walker it stops:
   "joins only for a faction it stops" would need the Season's stances in
   every clash build and digest (program, verifier, keeper, herald, WASM).
   A fort that fights like a site's garrison keeps the clash a function of
-  the Province alone; owner's choice 3 (§10) is reopened for review. The
-  stances still govern walking (towers and palisades).
+  the Province alone. **Decided by the owner (2026-10-24): kept as built**
+  (§10, item 3). The stances still govern walking (towers and palisades).
 - **Write-back:** the fort's troops after the clash (the pending part
   folded); a fort at 0 is **fallen**.
 - **Shelter:** a caravan on a joined fort's tile is sheltered (1c's rule:
@@ -255,7 +255,7 @@ keeper, herald and gateway, committed on its own.
 3. A fort fights every other faction on its tile (the clash has no
    alliances). As built, a manned fort is always in the clash, like a
    site's garrison; the draft let it join only for a faction it stops
-   (see §2.6). **Reopened for the owner.**
+   (see §2.6). **Decided 2026-10-24: kept as built.**
 4. One vote a Citizen; a quorum of 3 yes votes.
 5. Fort troops come from a holding in the same Province.
 6. Expelled villages lose the prize share in principle; stage 1 has no

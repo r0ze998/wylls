@@ -69,6 +69,9 @@ pub struct Nations {
     pub proposals: BTreeMap<(u8, u32), Prop>,
     /// The expelled villages' tags → `(faction, since bell)`.
     pub expelled: BTreeMap<u64, (u8, u32)>,
+    /// The expelled villages' tags → their holdings `(p, q, site)` as the
+    /// expulsion's NATION_DECIDED named them.
+    pub expelled_holdings: BTreeMap<u64, Vec<(i32, i32, u8)>>,
     /// The newest domestic raids, oldest first.
     pub raids: std::collections::VecDeque<DomesticRaid>,
     /// Changed since the file was last written.
@@ -163,7 +166,7 @@ impl Nations {
                 target_tag,
                 yes,
                 no,
-                ..
+                holdings,
             } => {
                 if let Some(p) = self.proposals.get_mut(&(faction, id)) {
                     p.state = if passed { 2 } else { 3 };
@@ -181,9 +184,19 @@ impl Nations {
                         }
                         KIND_EXPEL => {
                             self.expelled.insert(target_tag, (faction, bell));
+                            // the expelled village's holdings (host-id keys): a readmission
+                            // proposal names the village's Citizen, read from one of them
+                            let hs: Vec<(i32, i32, u8)> = holdings
+                                .iter()
+                                .filter(|&&k| k != 0)
+                                .filter_map(|&k| frontier_abi::addr::split_host_id(k))
+                                .map(|x| (x.province.p, x.province.q, x.site))
+                                .collect();
+                            self.expelled_holdings.insert(target_tag, hs);
                         }
                         KIND_READMIT => {
                             self.expelled.remove(&target_tag);
+                            self.expelled_holdings.remove(&target_tag);
                         }
                         _ => {}
                     }
@@ -252,7 +265,16 @@ impl Nations {
         let expelled: Vec<Value> = self
             .expelled
             .iter()
-            .map(|(t, (f, since))| json!({"tag": t.to_string(), "faction": f, "since": since}))
+            .map(|(t, (f, since))| {
+                let hs: Vec<Value> = self
+                    .expelled_holdings
+                    .get(t)
+                    .into_iter()
+                    .flatten()
+                    .map(|(p, q, s)| json!([p, q, s]))
+                    .collect();
+                json!({"tag": t.to_string(), "faction": f, "since": since, "holdings": hs})
+            })
             .collect();
         let raids: Vec<Value> = self
             .raids
@@ -298,10 +320,24 @@ impl Nations {
             );
         }
         for x in v.get("expelled")?.as_array()? {
+            let tag: u64 = x["tag"].as_str()?.parse().ok()?;
             n.expelled.insert(
-                x["tag"].as_str()?.parse().ok()?,
+                tag,
                 (x["faction"].as_u64()? as u8, x["since"].as_u64()? as u32),
             );
+            // Absent in a checkpoint written before the readmission panel.
+            if let Some(hs) = x.get("holdings").and_then(|h| h.as_array()) {
+                let mut out = vec![];
+                for h in hs {
+                    let h = h.as_array()?;
+                    out.push((
+                        h.first()?.as_i64()? as i32,
+                        h.get(1)?.as_i64()? as i32,
+                        h.get(2)?.as_u64()? as u8,
+                    ));
+                }
+                n.expelled_holdings.insert(tag, out);
+            }
         }
         // Absent in a checkpoint written before the domestic raids.
         for x in v
@@ -371,12 +407,21 @@ mod tests {
         assert_eq!(n.stances[0][3], 1);
         assert_eq!(n.proposals[&(0, 1)].state, 2);
         n.fold(446, &proposed(2, KIND_EXPEL, 0, 0, 99));
-        n.fold(600, &decided(2, KIND_EXPEL, 0, 0, 99));
+        // the expelled village's holdings come with the expulsion (a readmission names its Citizen from one)
+        let key = frontier_abi::addr::host_id(3, -1, 4, 1, 0).unwrap();
+        let mut expel = decided(2, KIND_EXPEL, 0, 0, 99);
+        if let CqEvent::NationDecided { holdings, .. } = &mut expel {
+            *holdings = [key, 0, 0];
+        }
+        n.fold(600, &expel);
         assert_eq!(n.expelled[&99], (0, 600));
+        assert_eq!(n.expelled_holdings[&99], vec![(3, -1, 4)]);
+        assert_eq!(n.file()["expelled"][0]["holdings"], json!([[3, -1, 4]]));
         let back = Nations::from_json(&n.to_json()).expect("round trip");
         assert_eq!(back.stances, n.stances);
         assert_eq!(back.proposals, n.proposals);
         assert_eq!(back.expelled, n.expelled);
+        assert_eq!(back.expelled_holdings, n.expelled_holdings);
         // A domestic raid is listed (and survives the round trip).
         assert!(n.fold(
             700,

@@ -239,9 +239,14 @@ mod tests {
                 "{}",
                 row.name
             );
+            // Reveal has its own S1 limit; the instructions that settle a
+            // holding first (S1_SETTLES) carry S1_SETTLE_EXTRA_CU more;
+            // every other row is v2's.
+            let s1_own =
+                row.tag == abi::tag::REVEAL || frontier_abi::v2::budgets::S1_SETTLES.contains(&ix);
             assert_eq!(
                 x.cu_limit == b.get(row.tag).cu_limit,
-                row.tag != abi::tag::REVEAL,
+                !s1_own,
                 "{}",
                 row.name
             );
