@@ -9,6 +9,7 @@
 import { conquestEnabled, kernelFile, territoryStandings, keepFromProvince, applyControl, outpostOffer, mergeKeepEvents } from './fconquest.mjs';
 import { holdingByRef } from './fland.mjs';
 import { FS, invalidate, activeHolding } from './fstate.mjs';
+import { ownTag } from './people/ui.mjs';
 import { updateLife } from './people/life.mjs';
 import * as io from './fchainio.mjs';
 import * as fsession from './fsession.mjs';
@@ -946,6 +947,12 @@ async function refreshS1(request) {
     else if (r?.code === 'NotFound') s1[n] ??= s1Fresh(n);
     else s1.error = L`隊商・構造物・国家の最新情報を取得できませんでした。`;
   });
+  // the Provinces the viewer's own caravans stand in: their slots say whether a raid holds one (map/s1marks heldByRaids)
+  const me = ownTag(FS);
+  for (const c of s1.caravans?.moving ?? []) {
+    if (me === null || me === undefined || BigInt(c.ownerTag) !== BigInt(me)) continue;
+    for (const r of c.runs ?? []) wantProvince(r.p, r.q, () => invalidate('map'));
+  }
 }
 
 export async function refreshConquest() {
