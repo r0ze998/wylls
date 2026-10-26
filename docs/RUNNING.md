@@ -60,11 +60,13 @@ $S down --run-id try-cq
 
 **In the browser.** The page joins with its built-in **Dev Wallet (localnet)**, a random key kept in the browser and usable on the local chain only. On a prize world, press "Get test USDC" on the join screen, then join: the entry fee and Join are one transaction. A private browser window on the same address gets a separate test wallet. In the Nation & territory tab (国と領土), "See the keeps you can reach" lists keeps your army can reach; a march can cross at most 4 provinces.
 
+**Several players in one world.** The Dev Wallet is kept per browser origin, so each of `http://p1.localhost:41940/frontier/frontier/`, `http://p2.localhost:41940/…`, … is a separate player with its own test wallet (browsers resolve `*.localhost` to 127.0.0.1; nothing to configure). Each one gets test USDC and joins on its own. A player's own village, storehouses and hosts are only theirs; a raid, a seizure or a siege needs a player of another nation. A vote needs three villages of one nation that joined at least 288 turns earlier (`ELIGIBLE_BELLS`), so put three players in one nation and run the world at least 300 turns.
+
 The recorded Chrome human-operation world was `own1`, season 100, served from commit `fa13d486` on a **separate local test chain**, with no bots or AI personas. A 72-turn clock advance separates the clash and later occupation footage. The command above does not replay that ledger or film. The current preview shows an ongoing test-USDC season, not its final winner or payout.
 
 ## 4. A combined AI season
 
-The example below runs conquest, the test-asset prize pool, 6 AI citizens and 6 script bots in one world for 96 play turns: about 1 h 40 min of play at 10x, plus the drain. It is a new run, **not** the saved `take-1` footage. On `main` the world is an S1 season; no AI-citizen run under the S1 rules is recorded, and the AI citizens are offered no S1 actions (caravans, raids, structures, votes) on `main`. One AI stack runs at a time (a lock shared by every worktree). The guards refuse dirty measured code, busy ports and paid-API key variables; `--check` runs the guards only and `--dry-run` prints the plan without starting a stack. Use fresh run IDs. The shorter [`ai-cq-demo.toml`](../permutation-gateway/citizens/stack/ai-cq-demo.toml) has 60 play turns and no prize pool.
+The example below runs conquest, the test-asset prize pool, 6 AI citizens and 6 script bots in one world for 96 play turns: about 1 h 40 min of play at 10x, plus the drain. It is a new run, **not** the saved `take-1` footage. The world is an S1 season. The brain offers the AI citizens three S1 actions (a caravan from a near-full store, an ambush on another nation's caravan road, an escort of their own), not storehouses, structures, raid decisions or votes; no AI-citizen run under the S1 rules with the model is recorded (one with the stand-in mind below is: [S1-SEASON-RUN](frontier/stage1f/S1-SEASON-RUN.md)). One AI stack runs at a time (a lock shared by every worktree). The guards refuse dirty measured code, busy ports and paid-API key variables; `--check` runs the guards only and `--dry-run` prints the plan without starting a stack. Use fresh run IDs. The shorter [`ai-cq-demo.toml`](../permutation-gateway/citizens/stack/ai-cq-demo.toml) has 60 play turns and no prize pool.
 
 ```sh
 export AI_MODEL=/absolute/path/to/gemma-4-26B-A4B-it-Q4_0.gguf
@@ -86,6 +88,16 @@ $RUN --stack "$STACK" --citizens-config "$CONFIG" --deck deck-1 --run-id my-seas
 - `start-pinned.sh` reads `AI_MODEL` and `LLAMA_SERVER`; the runner checks the live binary is inside the measured `AI_LLAMA_DIR` tree. The runner does not start or stop `llama-server`; stop only the process you started when done.
 - `--hold SECS` keeps the completed chain, herald, relay and council page up for inspection and tallying. `touch .local/frontier/ai/<run id>/state/hold.stop` ends the hold. The runner then stops the stack it started.
 - Output goes to `.local/frontier/ai/<run id>/`: `pub/` (the published files the council page and `verify-minds` read), `report.md`, `logs/`. `.local/` is not committed.
+- **Without the model: a stand-in mind.** `permutation-gateway/citizens/probe/mock-mind.mjs` answers the brain's `/v1/decide` and `/v1/outcome` with a fixed rule (an S1 caravan when a store is near full, an ambush or escort the brain offers, a favourable camp, muster, train, an ore mine, one workshop, other builds, else the routine) and logs every observation digest, offer and choice to a JSONL file with `"mock": true`. It runs the same brain, the same candidates and the same sends as a model would, on a port in 41901–41999, and it is **not** AI behaviour: use it to check the pipeline and the S1 candidates, never as evidence of what a model does. Example against a world on base 41700 (the fleet's AI slots and invites are the stack's):
+
+  ```sh
+  node permutation-gateway/citizens/probe/mock-mind.mjs --port 41981 --token-file .local/ai/mind.token --log .local/ai/mock-mind.jsonl &
+  frontier-node/target/release/frontier-bots --herald http://127.0.0.1:41740 --relay http://127.0.0.1:41733 --rpc http://127.0.0.1:41710 \
+    --seed 72 --first-index 1000 --bots 7 --game-hours 80 --scale 40 --personas off --s1 --conquest-personas 0 \
+    --ai-slots .local/ai/ai-slots.json --brain http://127.0.0.1:41981 --brain-token-file .local/ai/mind.token \
+    --journal .local/ai/fleet --report .local/ai/fleet/report.json --control 127.0.0.1:41771 \
+    --invites frontier-node/.local/frontier/<run id>/relay/fleet-invites.txt
+  ```
 - The current preview's AI scene is from saved run `take-1` at commit `aae47bdb`: real Gemma 4, a model-chosen march and build, and `verify-minds` PASS. It is **not** an AI response to `own1`. A later `take-2` failed one `verify-minds` item after early speech release and is not used for that scene. A new run must be judged by **its own** `pub/verify-minds.json`.
 
 ## 5. Verify
@@ -93,6 +105,18 @@ $RUN --stack "$STACK" --citizens-config "$CONFIG" --deck deck-1 --run-id my-seas
 All three verifiers are the project's own; none is an independent audit.
 
 **A clash, in the browser.** Open a clash report in the client and press "Verify in this browser".
+
+**A whole season's log.** `frontier-stack verify --run-id <id>` and `frontier-stack tamper --run-id <id>` pick the ruleset hash from the run's season. The standalone `frontier-verify` defaults to M1's hash, so on an S1 world pass the S1 one (`RULESET_HASH_V3` in `frontier-abi/src/v2/presets.rs`):
+
+```sh
+V=frontier-node/target/release/frontier-verify
+R=234c0dc225e5ce323687756b913f78e330757abb969df290745eae1e9aae422d
+$V --program <program id from state.json> --season <N> --rpc http://127.0.0.1:41910 --localnet --test-key --ruleset $R \
+  --out .local/verify --save .local/verify/fixture.json.gz
+$V tamper --fixture .local/verify/fixture.json.gz --test-key --ruleset $R --out .local/tamper
+```
+
+A tamper class whose record the run never made (no vote, no siege, no revealed bad seal) is reported "not applicable", and then the suite exits 2 ("Required classes detected: no") even though every class it could judge was detected; read the table, not only the exit code.
 
 **The province tally, the recount and the achievements ledger** (after the season has ended; ports of base 41900):
 

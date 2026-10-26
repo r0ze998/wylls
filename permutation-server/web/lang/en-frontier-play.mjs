@@ -909,6 +909,8 @@ export default {
   '焼き払う': 'Burn it',
   '略奪の決定（ターン {0} まで）': 'Decide the raid (until turn {0})',
   '略奪の決定 ターン {0} まで': 'Raid: decide by turn {0}',
+  'あなたの提案がまだ投票中です。締め切りのあとで次の提案を出せます': 'Your proposal is still being voted on. You can make the next one after it closes',
+  'あなたの提案がまだ投票中です。ターン {0} の締め切りのあとで次の提案を出せます（提案は一人ひとつずつ）。': 'Your proposal is still being voted on. You can make the next one after it closes at turn {0} (one open proposal each).',
   'この村は持ち主の国の本国の中にあるため、包囲できません。本国の外の村か自由都市をねらってください': 'This village lies in its owner\'s heartland and cannot be besieged. Aim for a village outside a heartland, or a Free City',
   '決める期限を過ぎました。': 'The time to decide has passed. ',
   '決めずに期限を過ぎると、村まで隊商の道があれば荷は村へ運ばれ、道がなければターン {0} 以降に焼かれます。': 'Left undecided, the goods go to your village if a caravan road reaches it; if none does, they are burned from turn {0}.',

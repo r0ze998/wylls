@@ -630,6 +630,14 @@ test('a village of one\'s own nation offers an expulsion, an expelled one a read
     assert.equal(SCR.expelOffer(base, { p: 0, q: 0, idx: 6 }), null, 'another nation\'s village');
     assert.deepEqual(SCR.expelOffer({ ...base, nowBell: 100 }, { p: 0, q: 0, idx: 5 }).blocks, ['NotVoter']);
     assert.match(String(SCR.renderS1Tile(base, { p: 0, q: 0, idx: 5 })), /data-act="s1-expel"[^>]*data-site="0"/);
+    // one open proposal a proposer (s1-season-2: an expulsion sent while the viewer's stance proposal was open was refused ProposalState)
+    const pending = [{ faction: 1, id: 3, slot: 1, kind: 'stance', targetFaction: 4, value: 1, yes: 1, no: 0, openBell: 440, closeBell: 584, state: 'open', proposerTag: '5', targetTag: '0' }];
+    const mine = { ...base, holdings: base.holdings.map(h => ({ ...h, ownerCitizen: new Uint8Array([5, ...Array(31).fill(0)]) })), s1: { ...base.s1, nations: { ...nations, proposals: pending } } };
+    assert.deepEqual(SCR.expelOffer(mine, { p: 0, q: 0, idx: 5 }).blocks, ['ProposalOpen']);
+    assert.match(String(SCR.renderS1Village(mine)), /ターン 584 の締め切りのあとで次の提案/);
+    assert.doesNotMatch(String(SCR.renderS1Village(mine)), /data-form="s1-propose"/);
+    const theirs = { ...mine, s1: { ...mine.s1, nations: { ...nations, proposals: pending.map(x => ({ ...x, proposerTag: '6' })) } } };
+    assert.deepEqual(SCR.expelOffer(theirs, { p: 0, q: 0, idx: 5 }).blocks, [], 'another member\'s open proposal does not hold the viewer back');
     const out = SCR.s1VillageModel(base).nation.out;
     assert.deepEqual(out.map(x => [x.tag, x.readmittable, x.readmitAt, x.named]), [['44', true, 442, true], ['45', false, 722, false]]);
     assert.match(String(SCR.renderS1Village(base)), /data-act="s1-readmit"[^>]*data-tag="44"/);

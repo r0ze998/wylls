@@ -79,7 +79,7 @@ export function expelOffer(FS, sel) {
   if ((FS.holdings ?? []).some(h => h.p === sel.p && h.q === sel.q && h.site === j)) return null;
   const nation = s1VillageModel(FS).nation;
   if (!nation) return null;
-  const blocks = [...(nation.expelled ? ['Expelled'] : []), ...(!nation.eligible ? ['NotVoter'] : []), ...(nation.full ? ['ProposalsFull'] : [])];
+  const blocks = [...(nation.expelled ? ['Expelled'] : []), ...(!nation.eligible ? ['NotVoter'] : []), ...(nation.full ? ['ProposalsFull'] : []), ...(nation.ownOpen ? ['ProposalOpen'] : [])];
   return { p: sel.p, q: sel.q, site: j, blocks };
 }
 const NATIONS = 6;
@@ -298,8 +298,12 @@ export function s1VillageModel(FS) {
   const joinBell = Number(FS.citizen?.joinBell ?? NaN);
   const eligibleAt = Number.isFinite(joinBell) ? joinBell + ELIGIBLE_BELLS : null;
   const open = (n?.proposals ?? []).filter(x => x.faction === faction && x.state === 'open');
+  // nation.rs: one open proposal a proposer (Propose refuses ProposalState while the viewer's last one is open)
+  const me = viewerTag(FS);
+  const ownOpen = open.find(x => me !== null && me !== undefined && x.proposerTag !== undefined && BigInt(x.proposerTag) === BigInt(me)) ?? null;
   const nation = Number.isInteger(faction) && n ? {
     faction, eligibleAt, eligible: eligibleAt !== null && eligibleAt <= Number(FS.nowBell ?? 0), full: open.length >= NATION_PROPOSALS,
+    ownOpen: ownOpen && { slot: ownOpen.slot, id: ownOpen.id, closeBell: ownOpen.closeBell },
     stances: Array.from({ length: NATIONS }, (_, f) => (f === faction ? null : { faction: f, stance: STANCES[n.stances?.[faction]?.[f] ?? 0] })).filter(Boolean),
     toward: Array.from({ length: NATIONS }, (_, f) => (f === faction ? null : { faction: f, stance: STANCES[n.stances?.[f]?.[faction] ?? 0] })).filter(Boolean),
     proposals: open.map(x => ({ ...x, voted: voted[x.slot] === x.id, closesIn: x.closeBell - Number(FS.nowBell ?? 0) })),
@@ -421,11 +425,12 @@ export function renderS1Village(FS) {
     ${n.proposals.length ? html`${label(L`投票中の議題`)}<ul class="list">${n.proposals.map(x => html`<li>${proposalText(x)} <span class="muted">${x.closesIn > 0 ? L`賛成 ${fmtNum(x.yes)} · 反対 ${fmtNum(x.no)} · あと ${fmtNum(x.closesIn)} ターン` : L`賛成 ${fmtNum(x.yes)} · 反対 ${fmtNum(x.no)} · 締め切り（集計を待っています）`}</span>
       ${x.voted ? chip(L`投票済み`, 'ok', 'check') : x.closesIn > 0 ? html`<span class="actions">${btn('s1-vote', { slot: x.slot, id: x.id, yes: 1 }, L`賛成`, { disabled: n.expelled || !n.eligible })}${btn('s1-vote', { slot: x.slot, id: x.id, yes: 0 }, L`反対`, { disabled: n.expelled || !n.eligible })}</span>` : ''}</li>`)}</ul>` : ''}
     ${n.out.length ? html`${label(L`追放された村`)}<ul class="list">${n.out.map(x => html`<li>${L`ターン ${fmtNum(x.since)} に追放`}
-      ${x.readmittable && x.named ? btn('s1-readmit', { tag: x.tag }, L`国に戻す提案をする`, { disabled: n.expelled || !n.eligible || n.full }) : html`<span class="muted">${x.named ? L`ターン ${fmtNum(x.readmitAt)} から戻す提案ができます` : L`この村の情報をまだ読み込んでいません`}</span>`}</li>`)}</ul>` : ''}
+      ${x.readmittable && x.named ? btn('s1-readmit', { tag: x.tag }, L`国に戻す提案をする`, { disabled: n.expelled || !n.eligible || n.full || !!n.ownOpen }) : html`<span class="muted">${x.named ? L`ターン ${fmtNum(x.readmitAt)} から戻す提案ができます` : L`この村の情報をまだ読み込んでいません`}</span>`}</li>`)}</ul>` : ''}
     ${n.decided.length ? html`${label(L`決まった議題`)}<ul class="list">${n.decided.map(x => html`<li>${proposalText(x)} ${x.state === 'passed' ? chip(L`可決`, 'ok', 'check') : chip(L`否決`, 'warn')} <span class="muted">${L`賛成 ${fmtNum(x.yes)} · 反対 ${fmtNum(x.no)}`}</span></li>`)}</ul>` : ''}
     ${n.expelled ? html`<p class="blocked">${L`あなたの村は国を追放されているため、投票も提案もできません。`}</p>`
       : !n.eligible ? html`<p class="blocked">${n.eligibleAt === null ? L`投票と提案は、国に加わってから ${fmtNum(ELIGIBLE_BELLS)} ターン後にできるようになります。` : L`投票と提案は、ターン ${fmtNum(n.eligibleAt)} からできます（国に加わってから ${fmtNum(ELIGIBLE_BELLS)} ターン）。`}</p>`
-      : n.full ? html`<p class="blocked">${L`投票中の議題が ${fmtNum(NATION_PROPOSALS)} 件あるため、新しい提案は締め切りを待ってから出せます。`}</p>` : html`<form class="vform" data-form="s1-propose">
+      : n.full ? html`<p class="blocked">${L`投票中の議題が ${fmtNum(NATION_PROPOSALS)} 件あるため、新しい提案は締め切りを待ってから出せます。`}</p>`
+      : n.ownOpen ? html`<p class="blocked">${L`あなたの提案がまだ投票中です。ターン ${fmtNum(n.ownOpen.closeBell)} の締め切りのあとで次の提案を出せます（提案は一人ひとつずつ）。`}</p>` : html`<form class="vform" data-form="s1-propose">
       <label class="field">${L`相手の国`}<select name="target">${n.stances.map(x => html`<option value="${x.faction}">${factionName(x.faction)}</option>`)}</select></label>
       <label class="field">${L`方針`}<select name="value">${STANCES.map((s, i) => html`<option value="${i}">${stanceText(s)}</option>`)}</select></label>
       <div class="actions"><button type="submit" class="btn">${L`方針の変更を提案する`}</button></div>
