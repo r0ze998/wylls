@@ -287,6 +287,8 @@ const CLIENT_TEXT = {
   NoDestination: () => L`行き先を選んでください`,
   // S1 (controller.mjs s1Refused): an order the page refuses before building it; the notice carries its own sentence
   S1Refused: () => L`この命令は今は出せません`,
+  // (controller.mjs act: the same order sent again while the first is on its way; nothing more is sent)
+  InFlight: () => L`同じ命令を送っています。結果を待ってください`,
   BadTile: () => L`そのマスはありません`,
   Stance: () => L`構えを選んでください`,
   Retreat: () => L`撤退の倍率が正しくありません（0.0001〜6 倍）`,

@@ -2060,8 +2060,19 @@ pub fn day_live(f: &Fold, d: u32) -> Option<String> {
     ConquestDay { day: d, events }.to_json().ok()
 }
 
-/// The Vaults a transaction wrote or closed ([`crate::caravan::Caravans::vault_bytes`]).
+/// The Vaults a transaction wrote or closed ([`crate::caravan::Caravans::vault_bytes`])
+/// and the Structures it wrote ([`crate::structure::Structures::structure_bytes`]).
 fn vaults_of_tx(cq: &mut Cq, f: &Fold, tx: &TxRecord) {
+    let ours = |a: &fclient::ports::Account| {
+        a.owner == f.cfg.program && a.data.get(8..16) == Some(&f.cfg.season_id.to_le_bytes()[..])
+    };
+    if !cq.structures.items.is_empty() {
+        for (_, a) in &tx.post {
+            if let Some(a) = a.as_ref().filter(|a| ours(a)) {
+                cq.structures.structure_bytes(&a.data);
+            }
+        }
+    }
     if cq.caravans.vaults.is_empty() {
         return;
     }
@@ -2077,9 +2088,11 @@ fn vaults_of_tx(cq: &mut Cq, f: &Fold, tx: &TxRecord) {
             continue;
         };
         let data = a.as_ref().filter(|a| {
-            a.owner == f.cfg.program && a.data.get(8..16) == Some(&f.cfg.season_id.to_le_bytes()[..])
+            a.owner == f.cfg.program
+                && a.data.get(8..16) == Some(&f.cfg.season_id.to_le_bytes()[..])
         });
-        cq.caravans.vault_bytes(Some(vk), data.map(|a| a.data.as_slice()));
+        cq.caravans
+            .vault_bytes(Some(vk), data.map(|a| a.data.as_slice()));
     }
 }
 

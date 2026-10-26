@@ -25,7 +25,7 @@ import { toggleTile } from './screens/explore.mjs';
 import { composerArrival, composerMarch } from './screens/march.mjs';
 import { sealMarch, unpack, ctHash as ctHashOf, sealRoot as sealRootOf } from './seal.mjs';
 import { bellAt, bellStart, pipeline, archivePartOf, pollCap } from './clock.mjs';
-import { regionOf, ringOf, ringProvinces, wedgeOf } from './fgeo.mjs';
+import { regionOf, ringOf, ringProvinces, wedgeOf, hexDistance } from './fgeo.mjs';
 import { hostParts, hostId } from './faddr.mjs';
 import { decodePage } from './flog.mjs';
 import { nextPoll, BELLS_PER_DAY } from './herald.mjs';
@@ -39,7 +39,7 @@ import { emit as fxEmit } from './fx/bus.mjs';
 import { reachOrigins } from './screens/conquest.mjs';
 import { s1On } from './fs1.mjs';
 import { fastestPath, pack, landsWanted, landOfProvince, CARAVAN_FEE } from './fcaravan.mjs';
-import { raidOffers, s1VillageModel, caravanProblem, KIND, PROPOSE_STANCE } from './screens/s1.mjs';
+import { raidOffers, s1VillageModel, s1TileModel, siegeOffer, caravanProblem, KIND, PROPOSE_STANCE } from './screens/s1.mjs';
 import { placeData, raidProvinces, cargoBytes, RAID_CHOICE } from './fplay.mjs';
 import { cachedReach, reachKey, reachableKeeps } from './fkeepreach.mjs';
 import * as fprize from './fprize.mjs';
@@ -1458,6 +1458,44 @@ function s1Build(name, kind, at) {
   const fields = name === 'BuildVault' ? { tile: at.tile } : { kind, tile: at.tile, notify: kind === KIND.tower ? 1 : 0 };
   return act(name, { v: { holding: h, at }, fields, order: orderOf('s1-build', name, { tile: at, say: () => L`${what}を建てました` }) });
 }
+/** SeizeVault / SeizeStructure: the viewer's host on the tile takes another's storehouse or structure. */
+async function s1Seize(d) {
+  const at = s1Tile(d);
+  const m = s1TileModel(FS, { p: at.p, q: at.q, idx: at.tile });
+  const o = m?.seize;
+  if (!o) return s1Refused(L`このマスには奪えるものがありません`);
+  if (o.blocks.length) return failed({ code: o.blocks[0] === 'NoHostHere' ? 'NotOnTile' : o.blocks[0] });
+  const name = d.what === 'vault' ? 'SeizeVault' : 'SeizeStructure';
+  const what = d.what === 'vault' ? L`貯蔵庫` : ({ [KIND.tower]: L`物見櫓`, [KIND.palisade]: L`柵`, [KIND.fort]: L`要塞` })[m.structure?.kind] ?? L`建物`;
+  return act(name, { v: { at, hostHolding: o.hostHolding, ownerCitizen: o.ownerCitizen, province: at }, fields: { entry: o.entry },
+    order: orderOf('s1-seize', name, { tile: at, say: () => L`${what}を奪いました` }) });
+}
+/**
+ * DeclareSiege on another nation's village or a Free City (conquest contract
+ * §3.4): the host standing there, its village paying; the target's owner
+ * Citizen read from its Holding (the herald's /h/holding); the viewer's first
+ * village within two provinces named for the Frontier-protection rule.
+ */
+async function s1Siege(d) {
+  const sel = { p: num(d.p), q: num(d.q), idx: num(d.tile) };
+  const o = siegeOffer(FS, sel);
+  if (!o) return s1Refused(L`このマスには包囲できる村がありません`);
+  if (o.blocks.length) return failed({ code: o.blocks[0] === 'NoFighterHere' ? 'NotOnHex' : o.blocks[0] });
+  const A = io.pinned().addresses;
+  let ownerCitizen = A.absent(0), order = 0;
+  if (!o.freeCity) {
+    busy(() => L`村の持ち主を確かめています…`);
+    const r = await herald.holding(o.target.p, o.target.q, o.target.site);
+    if (!r.ok) return failed(r);
+    ownerCitizen = r.holding.ownerCitizen; order = r.holding.order;
+  }
+  const first = (FS.holdings ?? []).find(h => h.order === 1 || h.order === undefined);
+  const near = first && hexDistance(first.p, first.q, o.target.p, o.target.q) <= 2 ? first : null;
+  const word = o.freeCity ? L`自由都市` : order === 1 ? L`村（占領）` : L`村（奪取）`;
+  return act('DeclareSiege', { v: { holding: o.src, province: o.target, target: o.target, ownerCitizen, nearby: near ? { p: near.p, q: near.q } : null },
+    fields: { site: o.site, entry: o.entry, nearby_site: near ? near.site : 0 },
+    order: orderOf('s1-siege', 'DeclareSiege', { tile: { p: sel.p, q: sel.q, tile: sel.idx }, say: () => L`${word}の包囲を宣言しました` }) });
+}
 /** RaidCaravan: the viewer's host won a raid; take the caravan home or burn its load. */
 async function s1Raid(d) {
   const r = raidOffers(FS).find(x => x.p === num(d.p) && x.q === num(d.q) && x.slot === num(d.slot));
@@ -1507,6 +1545,8 @@ export const ACTIONS = {
   's1-vault': d => s1Build('BuildVault', 0, s1Tile(d)),
   's1-structure': d => s1Build('BuildStructure', num(d.kind), s1Tile(d)),
   's1-raid': d => s1Raid(d),
+  's1-seize': d => s1Seize(d),
+  's1-siege': d => s1Siege(d),
   's1-vote': d => act('Vote', { v: { faction: FS.citizen?.faction }, fields: { slot: num(d.slot), id: num(d.id), yes: num(d.yes) ? 1 : 0 },
     say: () => (num(d.yes) ? L`賛成に投票しました` : L`反対に投票しました`) }),
   'cq-march': async d => {

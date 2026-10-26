@@ -17,7 +17,8 @@ import { html, raw } from '../../util.mjs';
 import { L, fmtNum } from '../../lang.mjs';
 import { icon } from '../hud/icons.mjs';
 import { RESOURCES, RESOURCE_ORDER, errorText, factionName } from '../fi18n.mjs';
-import { storesAt } from '../fland.mjs';
+import { storesAt, hostOfHolding, SCOUT } from '../fland.mjs';
+import { SIEGE_ARMS } from '../fs1.mjs';
 import { settled, shortOf } from '../hud/rulebook.mjs';
 import { activeHolding } from '../fstate.mjs';
 import { keepFromProvince } from '../fconquest.mjs';
@@ -111,13 +112,91 @@ export function s1TileModel(FS, sel) {
       ...(live.length >= PROVINCE_STRUCTURES || (kind === 3 && forts.length >= PROVINCE_FORTS) ? ['StructureFull'] : []),
       ...(shortOf(STRUCTURE_COST[kind], have).length ? ['Insufficient'] : [])],
   }));
+  const v = vault && { ...vault, mine: isMine(vault.ownerTag, mine) };
+  const st = structure && { ...structure, name: KIND_NAME[structure.kind], mine: isMine(structure.ownerTag, mine) };
   return {
-    p, q, idx, site,
-    vault: vault && { ...vault, mine: isMine(vault.ownerTag, mine) },
-    structure: structure && { ...structure, name: KIND_NAME[structure.kind], mine: isMine(structure.ownerTag, mine) },
+    p, q, idx, site, have,
+    vault: v, structure: st,
+    seize: seizeOffer(FS, prov, idx, v, 'vault') ?? seizeOffer(FS, prov, idx, st, 'structure'),
     build: { vault: { cost: VAULT_COST, blocks: vaultBlocks }, structures },
     raids: raidOffers(FS).filter(r => r.p === p && r.q === q && r.tile === idx),
   };
+}
+
+/**
+ * Seizing another citizen's storehouse or structure on a tile (caravan.rs
+ * SeizeVault, structure.rs SeizeStructure): one of the viewer's hosts stands
+ * in the roster on the tile, resolved in (`from_bell ≤ resolved_next`); no host
+ * of the owner stands there (the program checks: NotOnTile); a fort only once
+ * it has fallen (FortManned). `{entry, hostHolding: {p, q, site, gen},
+ * ownerCitizen, blocks}` or null when there is nothing of another's here.
+ */
+export function seizeOffer(FS, prov, idx, target, kind) {
+  if (!target || target.mine) return null;
+  const rn = Number(prov?.resolvedNext ?? 0);
+  const entries = Array.from(prov?.entries ?? []);
+  let entry = -1, hostHolding = null;
+  entries.forEach((e, i) => {
+    if (entry >= 0 || Number(e.state) !== 1 || Number(e.tile) !== idx || Number(e.fromBell) > rn) return;
+    const h = (FS.holdings ?? []).find(x => hostOfHolding(e.id, x));
+    if (h) { entry = i; hostHolding = { p: h.p, q: h.q, site: h.site, gen: h.gen ?? 0 }; }
+  });
+  const c = FS.citizen ?? {};
+  const blocks = [
+    ...(entry < 0 ? ['NoHostHere'] : []),
+    ...(target.ownerCitizen ? [] : ['OwnerUnknown']),
+    ...(kind === 'vault' && Number(c.vaults ?? 0) >= MAX_VAULTS ? ['VaultLimit'] : []),
+    ...(kind !== 'vault' && Number(c[{ 1: 'towers', 2: 'palisades', 3: 'forts' }[target.kind]] ?? 0) >= (STRUCTURE_MAX[target.kind] ?? 0) ? ['StructureLimit'] : []),
+    ...(kind !== 'vault' && Number(target.kind) === KIND.fort && (prov?.forts ?? []).some(f => Number(f.tile) === idx && Number(f.state) !== 0 && Number(f.troops) > 0) ? ['FortManned'] : []),
+  ];
+  return { entry, hostHolding, ownerCitizen: target.ownerCitizen ?? null, blocks };
+}
+
+/** SeasonParams v2 `siege_stake_gold` of every preset (presets.rs: 500), paid by the declaring host's village. */
+export const SIEGE_STAKE_GOLD = 500;
+/** SeasonParams v2 `sieges_per_day` of every preset (presets.rs: 2). */
+export const SIEGES_PER_DAY = 2;
+/** Province v2 site mirror states (layout `site::STATE_*`). */
+const SITE_HOLDING = 1, SITE_FREE_CITY = 5;
+
+/**
+ * Declaring a siege on another nation's village or a Free City (conquest
+ * contract §3.4, DeclareSiege; S1 burns SIEGE_ARMS more): one of the
+ * viewer's fighting hosts stands in the roster on the site's tile, resolved
+ * in; its village pays 500 gold (the stake, returned or burned as the siege
+ * ends) and 50 arms. The program decides the rest (the lead host, shields,
+ * protection, immunity, a free slot for a capture): its refusal is said in
+ * words. `{site, entry, src: {p, q, site, gen}, target: {p, q, site}, freeCity,
+ * blocks}` or null when the tile is no besiegeable site of another nation.
+ */
+export function siegeOffer(FS, sel) {
+  if (!sel || !Number.isInteger(sel.idx)) return null;
+  const prov = FS.provinces?.get?.(`${sel.p},${sel.q}`)?.province ?? null;
+  if (!prov) return null;
+  const n = Math.min(Number(prov.siteCount ?? 0), 12);
+  const j = Array.from(prov.sites ?? []).slice(0, n).indexOf(sel.idx);
+  const mirror = j >= 0 ? prov.siteMirror?.[j] : null;
+  if (!mirror) return null;
+  const state = Number(mirror.state), faction = FS.citizen?.faction;
+  if (state !== SITE_HOLDING && state !== SITE_FREE_CITY) return null;
+  if (state === SITE_HOLDING && Number(mirror.faction) === faction) return null;
+  const rn = Number(prov.resolvedNext ?? 0);
+  let entry = -1, src = null;
+  Array.from(prov.entries ?? []).forEach((e, i) => {
+    if (entry >= 0 || Number(e.state) !== 1 || Number(e.tile) !== sel.idx || Number(e.fromBell) > rn || Number(e.unit) >= SCOUT) return;
+    const h = (FS.holdings ?? []).find(x => hostOfHolding(e.id, x));
+    if (h) { entry = i; src = h; }
+  });
+  const have = src ? haveOf(FS, src) : Array(8).fill(0);
+  const cost = [0, 0, 0, 0, SIEGE_ARMS, SIEGE_STAKE_GOLD, 0, 0];
+  const c = FS.citizen ?? {};
+  const today = Math.floor(Number(FS.chain?.now?.() ?? 0) / 86400);
+  const blocks = [
+    ...(entry < 0 ? ['NoFighterHere'] : []),
+    ...(src && shortOf(cost, have).length ? ['Insufficient'] : []),
+    ...(Number(c.siegeDay ?? -1) === today && Number(c.siegesToday ?? 0) >= SIEGES_PER_DAY ? ['SiegeCap'] : []),
+  ];
+  return { site: j, entry, src: src && { p: src.p, q: src.q, site: src.site, gen: src.gen ?? 0 }, target: { p: sel.p, q: sel.q, site: j }, freeCity: state === SITE_FREE_CITY, cost, have, blocks };
 }
 
 /**
@@ -212,8 +291,12 @@ export function caravanProblem(src, dst, cargo) {
 
 // ------------------------------------------------------------------ words
 const S1_BLOCK = { NoHolding: () => L`村を選んでください（費用は選んだ村から払います）`, Taken: () => L`このマスにはもう建っています`, Unknown: () => L`この州のようすをまだ読み込んでいません`,
-  Site: () => errorText('StructureSite') };
+  Site: () => errorText('StructureSite'), NoFighterHere: () => L`この村のマスに、着いて落ち着いたあなたの戦う軍勢（斥候以外）がいません。進軍で送り、守りに勝ってから包囲を宣言します`,
+  NoHostHere: () => L`このマスに、着いて落ち着いたあなたの軍勢がいません（進軍で送り、次のターンを待ってください）`,
+  OwnerUnknown: () => L`持ち主の情報をまだ読み込んでいません。少し待ってください` };
 const blockText = b => (S1_BLOCK[b] ?? (() => errorText(b)))();
+/** What the village in hand lacks for `cost`, in words ("足りない：石材 173 · 兵器 20"). */
+export const shortText = (cost, have) => L`足りない：${shortOf(cost, have ?? []).map(x => `${RESOURCES[RESOURCE_ORDER[x.r]]} ${fmtNum(Math.ceil(x.need))}`).join(' · ')}`;
 const costLine = cost => cost.map((v, r) => (v ? html`<span class="nowrap">${RESOURCES[RESOURCE_ORDER[r]]} ${fmtNum(v)}</span>` : '')).filter(Boolean).reduce((a, x) => html`${a}${a ? ' · ' : ''}${x}`, '');
 const btn = (act, data, text, { primary = false, disabled = false } = {}) => html`<button type="button" class="btn small${primary ? ' primary' : ''}" data-act="${act}" ${raw(Object.entries(data).map(([k, v]) => `data-${k}="${String(v).replace(/[^\w.-]/g, '')}"`).join(' '))} ${raw(disabled ? 'disabled' : '')}>${text}</button>`;
 const kindWord = kind => S1_WORDS[KIND_NAME[kind] ?? kind]?.() ?? '';
@@ -229,12 +312,23 @@ export function renderS1Tile(FS, sel) {
   const raids = m.raids.map(r => html`<div class="s1-raid">${label(L`略奪の決定（ターン ${fmtNum(r.decideBy)} まで）`)}
     <p>${L`あなたの軍勢がこの隊商に勝ちました。荷を奪って自分の村へ運ぶか、焼き払うかを決めてください。`}</p>
     <div class="actions">${btn('s1-raid', { p: r.p, q: r.q, slot: r.slot, choice: 'take' }, L`奪って運ぶ`, { primary: true, disabled: !r.open })}${btn('s1-raid', { p: r.p, q: r.q, slot: r.slot, choice: 'burn' }, L`焼き払う`, { disabled: !r.open })}</div></div>`);
-  const offer = (act, data, text, o) => html`<li class="s1-offer">${btn(act, data, text, { disabled: o.blocks.length > 0 })}<span class="muted">${costLine(o.cost)}</span>${o.blocks.length ? html`<span class="blocked">${o.blocks.map(blockText).join(' / ')}</span>` : ''}</li>`;
-  const build = m.site === 'Unknown' ? '' : html`${fold('s1-build', html`${icon('hammer')}${L`ここに建てる`}`, html`<ul class="list s1-offers">
+  const offer = (act, data, text, o) => html`<li class="s1-offer">${btn(act, data, text, { disabled: o.blocks.length > 0 })}<span class="muted">${costLine(o.cost)}</span>${o.blocks.length ? html`<span class="blocked">${o.blocks.map(b => (b === 'Insufficient' ? shortText(o.cost, m.have) : blockText(b))).join(' / ')}</span>` : ''}</li>`;
+  const target = m.vault && !m.vault.mine ? { word: S1_WORDS.vault(), kind: 'vault' } : m.structure && !m.structure.mine ? { word: kindWord(m.structure.kind), kind: 'structure' } : null;
+  const seize = m.seize && target ? html`<div class="s1-seize">${label(L`${target.word}を奪う`)}
+    <p>${L`このマスに立つあなたの軍勢が、持ち主に代わってこの${target.word}を自分のものにします。持ち主の軍勢がいると奪えません。`}</p>
+    <div class="actions">${btn('s1-seize', { p: m.p, q: m.q, tile: m.idx, what: target.kind }, L`${target.word}を奪う`, { primary: true, disabled: m.seize.blocks.length > 0 })}</div>
+    ${m.seize.blocks.length ? html`<p class="blocked">${m.seize.blocks.map(blockText).join(' / ')}</p>` : ''}</div>` : '';
+  const so = siegeOffer(FS, sel);
+  const siege = so ? html`<div class="s1-siege">${label(so.freeCity ? L`自由都市を包囲する` : L`この村を包囲する`)}
+    <p>${so.freeCity ? L`包囲が続けば自由都市を取り、あなたの村になります。` : L`包囲が続けば、最初の村なら占領、ほかの村なら奪取になります。`} ${L`宣言には軍勢の村から金 ${fmtNum(SIEGE_STAKE_GOLD)}（包囲の結果で返るか失われます）と兵器 ${fmtNum(SIEGE_ARMS)} を使います。宣言は公開され、守り手に知らされます。`}</p>
+    <div class="actions">${btn('s1-siege', { p: sel.p, q: sel.q, tile: sel.idx }, L`包囲を宣言する`, { primary: true, disabled: so.blocks.length > 0 })}</div>
+    ${so.blocks.length ? html`<p class="blocked">${so.blocks.map(b => (b === 'Insufficient' ? shortText(so.cost, so.have) : blockText(b))).join(' / ')}</p>` : ''}</div>` : '';
+  // a tile already taken offers nothing to build: what stands there (and what can be done to it) is said above
+  const build = m.site === 'Unknown' || m.vault || m.structure ? '' : html`${fold('s1-build', html`${icon('hammer')}${L`ここに建てる`}`, html`<ul class="list s1-offers">
     ${offer('s1-vault', { p: m.p, q: m.q, tile: m.idx }, L`${S1_WORDS.vault()}を建てる`, m.build.vault)}
     ${m.build.structures.map(o => offer('s1-structure', { p: m.p, q: m.q, tile: m.idx, kind: o.kind }, L`${kindWord(o.kind)}を建てる`, o))}</ul>
     <p class="muted">${L`費用は選んでいる村の蔵から払います。物見櫓はまわりの動きを知らせ、柵と要塞は通る敵を止めます。`}</p>`)}`;
-  return html`<div class="s1-tile">${here.length ? html`<ul class="list s1-here">${here}</ul>` : ''}${raids}${build}</div>`;
+  return html`<div class="s1-tile">${here.length ? html`<ul class="list s1-here">${here}</ul>` : ''}${raids}${seize}${siege}${build}</div>`;
 }
 
 /** The village's S1 card (screens/holding.mjs). */

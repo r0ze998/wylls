@@ -34,7 +34,7 @@ import { territoryEnabled, territoryOf, territoryOwner } from '../territory.mjs'
 import { s1On } from '../fs1.mjs';
 import { renderS1Tile } from '../screens/s1.mjs';
 
-/** Site states as the overview carries them (herald SITE_STATE) and the mirror (3 = released: a Free City). */
+/** Site states as the overview carries them (herald SITE_STATE) and the v2 mirror (3 = released, free again; 5 = a Free City). */
 const SITE_TEXT = { free: () => L`村を置ける場所`, holding: () => L`村`, camp: () => L`蛮族の野営地`, reserved: () => L`予約済みの場所`, freeCity: () => L`自由都市` };
 
 const overviewRec = (FS, p, q) => {
@@ -76,7 +76,8 @@ export function inspectModel(FS, terrainOf) {
   const tile = { idx: s.idx, terrain: t ? t.names[t.terrain[s.idx]] : null, site: null, hosts: [], camp: null };
   if (j >= 0 && here >= 2) {
     const m = here === 3 ? prov?.siteMirror?.[j] : null;
-    const state = m ? (m.state === 3 ? 'freeCity' : ['free', 'holding', 'camp', 'free', 'reserved'][m.state] ?? 'free') : ['free', 'holding', 'camp', 'reserved'][rec?.sites?.[j] ?? 0];
+    // (the v2 mirror: 3 is a released site, free again; 5 a genesis Free City, `site::STATE_FREE_CITY`)
+    const state = m ? (m.state === 5 ? 'freeCity' : ['free', 'holding', 'camp', 'free', 'reserved'][m.state] ?? 'free') : ['free', 'holding', 'camp', 'reserved'][rec?.sites?.[j] ?? 0];
     const faction = m ? m.faction : rec?.owners?.[j];
     const mine = (FS.holdings ?? []).find(h => h.p === s.p && h.q === s.q && h.site === j) ?? null;
     const holder = state === 'holding' ? FS.roster?.ownerOf(s.p, s.q, j) ?? null : null;

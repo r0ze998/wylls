@@ -1,4 +1,18 @@
 {
+  "absent": [
+    {
+      "address": "7G6Aae2Vr2HcnDDakn5Jzvn6qLUZc76iVpTSHSKfxRA6",
+      "n": 0
+    },
+    {
+      "address": "Co5MkSFewFu67dMuYNQnxQExindTDc5BiFYa2gTNxGNA",
+      "n": 1
+    },
+    {
+      "address": "Hssphpd9PKyKWjbUpUTqCxLzwEhWGdJTu72FQespCDrb",
+      "n": 2
+    }
+  ],
   "caravan": [
     {
       "address": "DHpmAgtSxwhnYwVZvTFBoqiJN7NY88BxpF8oWs3p55fQ",

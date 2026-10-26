@@ -146,8 +146,13 @@ fn s1_address_vectors() {
     let nation: Vec<Value> = (0u8..6)
         .map(|f| json!({"faction": f, "address": a.nation(f).to_string()}))
         .collect();
+    // the placeholders of a position left empty (DeclareSiege's Free City owner, 0; no nearby Province, 1)
+    let absent: Vec<Value> = [0u8, 1, 2]
+        .iter()
+        .map(|&n| json!({"n": n, "address": a.absent(n).to_string()}))
+        .collect();
     let want = json!({"v": 1, "program": program.to_string(), "seasonId": "42",
-        "vault": vault, "structure": structure, "caravan": caravan, "nation": nation});
+        "vault": vault, "structure": structure, "caravan": caravan, "nation": nation, "absent": absent});
     if std::env::var("CARAVAN_WRITE_VECTORS").is_ok() {
         std::fs::write(
             ADDR_FILE,

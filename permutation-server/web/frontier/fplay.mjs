@@ -50,7 +50,7 @@ export const SIGNED_BY = Object.freeze({
   SettleExplore: 'none', SettleTransit: 'none',
   // S1 (program_version 4): vaults, caravans, structures, forts and nations
   BuildVault: 'session', SendCaravan: 'session', RaidCaravan: 'session', BuildStructure: 'session', FortGarrison: 'session',
-  Propose: 'session', Vote: 'session',
+  Propose: 'session', Vote: 'session', SeizeVault: 'session', SeizeStructure: 'session',
 });
 /** S1 `layout::s1::place` kinds (a caravan's origin or destination). */
 export const PLACE_KIND = Object.freeze({ holding: 1, vault: 2 });
@@ -100,7 +100,7 @@ export function accountsFor(name, v) {
         anchor_holding: A.of('Holding', v.anchor), anchor_province: A.of('Province', v.anchor), slot2_holding: A.of('Holding', v.slot2 ?? v.anchor), slot2_province: A.of('Province', v.slot2 ?? v.anchor) };
     case 'DeclareSiege':
       return { ...base, src_holding: holding(), province: province(), target_holding: A.of('Holding', v.target),
-        owner_citizen: v.ownerCitizen, nearby_province: A.of('Province', v.nearby ?? v.holding), holding_province: A.of('Province', v.holding) };
+        owner_citizen: v.ownerCitizen, nearby_province: v.nearby ? A.of('Province', v.nearby) : A.absent(1), holding_province: A.of('Province', v.holding) };
     case 'RetireHost':
       return { actor: v.actor, season: A.season, victim_citizen: citizen, province: province(),
         captured_holding: A.of('Holding', v.captured), home_holding: A.of('Holding', v.home) };
@@ -118,6 +118,11 @@ export function accountsFor(name, v) {
       return { ...base, holding: holding(), holding_province: A.of('Province', v.holding), province: A.of('Province', v.at), vault: A.of('Vault', v.at) };
     case 'BuildStructure':
       return { ...base, holding: holding(), holding_province: A.of('Province', v.holding), province: A.of('Province', v.at), structure: A.of('Structure', v.at) };
+    // `hostHolding` the holding of the captor's host on the tile; `ownerCitizen` the owner's Citizen address (the feed's)
+    case 'SeizeVault':
+      return { ...base, vault: A.of('Vault', v.at), province: A.of('Province', v.at), host_holding: A.of('Holding', v.hostHolding), owner_citizen: v.ownerCitizen };
+    case 'SeizeStructure':
+      return { ...base, structure: A.of('Structure', v.at), province: A.of('Province', v.at), host_holding: A.of('Holding', v.hostHolding), owner_citizen: v.ownerCitizen };
     case 'FortGarrison':
       return { ...base, holding: holding(), province: A.of('Province', v.holding), structure: A.of('Structure', { p: v.holding.p, q: v.holding.q, tile: v.tile }) };
     case 'SendCaravan':

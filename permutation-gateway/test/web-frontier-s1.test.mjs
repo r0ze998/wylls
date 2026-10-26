@@ -130,7 +130,14 @@ const code = fn => { try { fn(); return null; } catch (e) { return e.code; } };
 
 test('the caravans feed is read as herald/src/caravan.rs writes it', () => {
   const c = parseCaravans(JSON.stringify(CARAVANS));
-  assert.deepEqual(c, { ...CARAVANS, moving: [{ ...CARAVANS.moving[0], provinces: [{ p: 3, q: 0 }, { p: 4, q: 0 }] }] });
+  assert.deepEqual(c, { ...CARAVANS, moving: [{ ...CARAVANS.moving[0], provinces: [{ p: 3, q: 0 }, { p: 4, q: 0 }] }], vaults: CARAVANS.vaults.map(v => ({ ...v, ownerCitizen: null })) });
+  // once the herald read the vault's bytes: its stores and cap (whole units) and its owner's address
+  const read = clone(CARAVANS);
+  Object.assign(read.vaults[0], { stores: [0, 100, 0, 0, 0, 5, 0, 0], cap: 5000, ownerCitizen: '11111111111111111111111111111112' });
+  assert.deepEqual(parseCaravans(read).vaults[0], { ...CARAVANS.vaults[0], stores: [0, 100, 0, 0, 0, 5, 0, 0], cap: 5000, ownerCitizen: '11111111111111111111111111111112' });
+  for (const f of [o => { o.vaults[0].stores.pop(); }, o => { o.vaults[0].stores[1] = -1; }, o => { o.vaults[0].ownerCitizen = 'not base58!'; }]) {
+    const o = clone(read); f(o); assert.ok(code(() => parseCaravans(o)), String(f));
+  }
   const older = clone(CARAVANS); delete older.moving[0].path; delete older.moving[0].provinces;
   assert.equal(parseCaravans(older).moving[0].provinces, null, 'a checkpoint from before the route was published');
   assert.equal(c.moving[0].ownerTag, '18446744073709551615', 'tags stay exact decimal strings');
@@ -154,6 +161,9 @@ test('the structures feed is read as herald/src/structure.rs writes it', () => {
   const s = parseStructures(STRUCTURES);
   assert.equal(s.structures.length, 2);
   assert.equal(s.structures[1].sent, 300);
+  assert.equal(s.structures[0].ownerCitizen, null, 'no account bytes read yet');
+  const read = clone(STRUCTURES); read.structures[0].ownerCitizen = '11111111111111111111111111111112';
+  assert.equal(parseStructures(read).structures[0].ownerCitizen, '11111111111111111111111111111112');
   assert.equal(s.sightings[0].faction, null, 'a departing host the herald has not seen');
   assert.equal(s.sightings[1].what, 'caravan');
   const bad = [
@@ -528,4 +538,97 @@ test('the structure and raid numbers the panels offer by are structure.rs\'s and
   assert.equal(SCR.RAID_NONE, Number(c(cv, 'RAID_NONE')));
   assert.equal(SCR.RAID_SETTLED, Number(c(cv, 'RAID_SETTLED')));
   assert.equal(SCR.RAID_DECIDE_BELLS, Number(c(cv, 'RAID_DECIDE_BELLS')));
+  const nr = readFileSync(new URL('../../permutation-rules/src/frontier/nation.rs', import.meta.url), 'utf8');
+  assert.equal(SCR.ELIGIBLE_BELLS, Number(c(nr, 'ELIGIBLE_BELLS')));
+  assert.equal(SCR.NATION_PROPOSALS, Number(c(nr, 'PROPOSALS')));
+  const pr = readFileSync(new URL('../../frontier-abi/src/v2/presets.rs', import.meta.url), 'utf8');
+  for (const m of pr.matchAll(/siege_stake_gold: (\d+),/g)) assert.equal(SCR.SIEGE_STAKE_GOLD, Number(m[1]), 'every preset\'s stake');
+  for (const m of pr.matchAll(/sieges_per_day: (\d+),/g)) assert.equal(SCR.SIEGES_PER_DAY, Number(m[1]), 'every preset\'s daily sieges');
+});
+
+test('the empty-position addresses are fclient\'s (Addresses::absent)', () => {
+  const V = JSON.parse(readFileSync(new URL('./fixtures/s1-addresses-v1.json', import.meta.url), 'utf8'));
+  const A = seasonAddresses(V.program, V.seasonId);
+  assert.ok(V.absent.length >= 2);
+  for (const x of V.absent) assert.equal(A.absent(x.n), x.address, `absent(${x.n})`);
+});
+
+test('a host on another\'s storehouse or structure offers to seize it; a fighting host on another nation\'s village offers a siege', () => {
+  const host = (site, seq) => hostId({ p: 0, q: 0, site, gen: 1, seq });
+  const mine = { state: 1, tile: 31, id: host(0, 3), fromBell: 5, unit: 0 };
+  const P = prov(0, 0, { entries: [{ state: 1, tile: 31, id: hostId({ p: 2, q: 0, site: 0, gen: 1, seq: 1 }), fromBell: 5, unit: 0 }, mine] });
+  const vault = { p: 0, q: 0, tile: 31, ownerTag: '9', faction: 2, gen: 1, ownerCitizen: '11111111111111111111111111111112' };
+  const fs = world({ provinces: new Map([['0,0', { province: P }]]), s1: { caravans: { moving: [], vaults: [vault] }, structures: { structures: [], sightings: [] }, nations: null } });
+  const m = SCR.s1TileModel(fs, { p: 0, q: 0, idx: 31 });
+  assert.deepEqual([m.seize.entry, m.seize.hostHolding, m.seize.blocks], [1, { p: 0, q: 0, site: 0, gen: 1 }, []], 'the viewer\'s own host, not the other one first in the roster');
+  assert.match(String(SCR.renderS1Tile(fs, { p: 0, q: 0, idx: 31 })), /data-act="s1-seize"[^>]*data-what="vault"/);
+  assert.doesNotMatch(String(SCR.renderS1Tile(fs, { p: 0, q: 0, idx: 31 })), /data-act="s1-vault"/, 'a taken tile offers nothing to build');
+  const away = SCR.s1TileModel({ ...fs, provinces: new Map([['0,0', { province: { ...P, entries: [{ ...mine, fromBell: 11 }] } }]]) }, { p: 0, q: 0, idx: 31 });
+  assert.deepEqual(away.seize.blocks, ['NoHostHere'], 'a host not resolved in yet does not count');
+  const blind = SCR.s1TileModel({ ...fs, s1: { ...fs.s1, caravans: { moving: [], vaults: [{ ...vault, ownerCitizen: null }] } } }, { p: 0, q: 0, idx: 31 });
+  assert.deepEqual(blind.seize.blocks, ['OwnerUnknown']);
+  const fort = { p: 0, q: 0, tile: 31, kind: 3, faction: 2, ownerTag: '9', gen: 1, notify: 0, cover: [], sent: 0, ownerCitizen: vault.ownerCitizen };
+  const manned = SCR.s1TileModel({ ...fs, provinces: new Map([['0,0', { province: { ...P, forts: [{ tile: 31, state: 1, troops: 5000 }] } }]]), s1: { ...fs.s1, caravans: { moving: [], vaults: [] }, structures: { structures: [fort], sightings: [] } } }, { p: 0, q: 0, idx: 31 });
+  assert.deepEqual(manned.seize.blocks, ['FortManned'], 'a fort is seized only once it fell');
+  assert.equal(SCR.s1TileModel({ ...fs, s1: { ...fs.s1, caravans: { moving: [], vaults: [{ ...vault, ownerTag: '5' }] } }, holdings: fs.holdings.map(h => ({ ...h, ownerCitizen: new Uint8Array([5, ...Array(31).fill(0)]) })) }, { p: 0, q: 0, idx: 31 }).seize, null, 'nothing to seize of one\'s own');
+  // a siege: another nation's village on site 0 (tile 5), a Free City on site 1 (tile 6)
+  const S = prov(0, 0, { siteMirror: [{ state: 1, faction: 2 }, { state: 5, faction: 6 }], entries: [{ ...mine, tile: 5 }, { ...mine, tile: 6, unit: 6 }] });
+  const sfs = world({ provinces: new Map([['0,0', { province: S }]]) });
+  const village = SCR.siegeOffer(sfs, { p: 0, q: 0, idx: 5 });
+  assert.deepEqual([village.site, village.entry, village.freeCity, village.blocks], [0, 0, false, []]);
+  assert.deepEqual(SCR.siegeOffer(sfs, { p: 0, q: 0, idx: 6 }).blocks, ['NoFighterHere'], 'a scout cannot sound the horn');
+  assert.equal(SCR.siegeOffer({ ...sfs, citizen: { ...sfs.citizen, faction: 2 } }, { p: 0, q: 0, idx: 5 }), null, 'one\'s own nation is no siege');
+  assert.equal(SCR.siegeOffer(sfs, { p: 0, q: 0, idx: 31 }), null, 'not a site');
+  const poor = SCR.siegeOffer({ ...sfs, holdings: [holding(0, 0, 0, 30, 100), holding(1, 0, 2, 20)] }, { p: 0, q: 0, idx: 5 });
+  assert.deepEqual(poor.blocks, ['Insufficient'], 'the stake and the siege arms from the host\'s village');
+  assert.match(String(SCR.shortText(poor.cost, poor.have)), /金 400/);
+  const capped = SCR.siegeOffer({ ...sfs, citizen: { ...sfs.citizen, siegeDay: 0, siegesToday: 2 } }, { p: 0, q: 0, idx: 5 });
+  assert.deepEqual(capped.blocks, ['SiegeCap']);
+  assert.match(String(SCR.renderS1Tile(sfs, { p: 0, q: 0, idx: 5 })), /data-act="s1-siege"[^>]*data-tile="5"/);
+});
+
+test('a seizure and a siege are sent as SeizeVault and DeclareSiege, the owner read from the herald; one send per order', async () => {
+  const saved = { ...FS };
+  const sent = [];
+  const V = JSON.parse(readFileSync(new URL('./fixtures/s1-addresses-v1.json', import.meta.url), 'utf8'));
+  io.setPin({ programId: V.program, cluster: 'localnet', seasonId: V.seasonId, rulesetHash: rulesetFor(3) });
+  const wallet = 'Gh9ZwEmdLJ8DscKNTkTqPbNwLNNBjuSzaG9Vp2KGtKJr';
+  const owner = '11111111111111111111111111111112';
+  let release;
+  try {
+    const mine = { state: 1, tile: 31, id: hostId({ p: 0, q: 0, site: 0, gen: 1, seq: 3 }), fromBell: 5, unit: 0 };
+    const P = prov(0, 0, { siteMirror: [{ state: 1, faction: 2 }, { state: 5, faction: 6 }], entries: [mine, { ...mine, tile: 5 }, { ...mine, tile: 6 }] });
+    const vault = { p: 0, q: 0, tile: 31, ownerTag: '9', faction: 2, gen: 1, ownerCitizen: owner };
+    Object.assign(FS, world({ provinces: new Map([['0,0', { province: P }]]), s1: { caravans: { moving: [], vaults: [vault] }, structures: { structures: [], sightings: [] }, nations: null } }),
+      { wallet: { address: wallet }, session: { publicKey: V.program, sign: async () => new Uint8Array(64) }, notice: null, inFlight: 0 });
+    C.useTransport({ submit: async req => { sent.push(req); return { ok: false, code: 'Stop' }; } });
+    const A = io.pinned().addresses;
+    await C.ACTIONS['s1-seize']({ p: '0', q: '0', tile: '31', what: 'vault' });
+    assert.equal(sent[0].name, 'SeizeVault');
+    assert.equal(sent[0].fields.entry, 0);
+    assert.deepEqual([sent[0].accounts.vault, sent[0].accounts.owner_citizen, sent[0].accounts.host_holding], [A.of('Vault', { p: 0, q: 0, tile: 31 }), owner, A.of('Holding', { p: 0, q: 0, site: 0 })]);
+    // a Free City: no owner (absent 0); the viewer's first village is within two provinces, so it is named
+    C.useHerald({ holding: async () => ({ ok: true, holding: { ownerCitizen: owner, order: 1, gen: 1 } }) });
+    await C.ACTIONS['s1-siege']({ p: '0', q: '0', tile: '6' });
+    const fc = sent[1];
+    assert.equal(fc.name, 'DeclareSiege');
+    assert.deepEqual([fc.fields.site, fc.fields.entry, fc.fields.nearby_site], [1, 2, 0]);
+    assert.deepEqual([fc.accounts.owner_citizen, fc.accounts.target_holding, fc.accounts.nearby_province], [A.absent(0), A.of('Holding', { p: 0, q: 0, site: 1 }), A.of('Province', { p: 0, q: 0 })]);
+    await C.ACTIONS['s1-siege']({ p: '0', q: '0', tile: '5' });
+    assert.equal(sent[2].accounts.owner_citizen, owner, 'a village\'s owner, from its Holding');
+    // the same order twice while the first is on its way: sent once
+    C.useTransport({ submit: req => new Promise(res => { sent.push(req); release = () => res({ ok: false, code: 'Stop' }); }) });
+    const first = C.ACTIONS['s1-seize']({ p: '0', q: '0', tile: '31', what: 'vault' });
+    await new Promise(r => setTimeout(r, 0));
+    const again = await C.ACTIONS['s1-seize']({ p: '0', q: '0', tile: '31', what: 'vault' });
+    assert.equal(again.code, 'InFlight');
+    release(); await first;
+    assert.equal(sent.length, 4);
+    assert.equal(C.sendKey('Vote', { slot: 1, id: 2n }), C.sendKey('Vote', { slot: 1, id: 2n }));
+    assert.notEqual(C.sendKey('Vote', { slot: 1, id: 2n, yes: 1 }), C.sendKey('Vote', { slot: 1, id: 2n, yes: 0 }));
+  } finally {
+    C.useTransport(null);
+    C.useHerald(null);
+    Object.assign(FS, saved);
+  }
 });

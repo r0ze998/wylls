@@ -304,6 +304,21 @@ export function createHerald({ base = '', fetch: f = (...a) => globalThis.fetch(
       const r = await get(f, `${root}/h/nations.json`);
       return r.ok ? guard(() => ({ nations: parseNations(r.json) })) : r;
     },
+    /**
+     * GET /h/holding/{P},{Q},{site}.json: another's Holding (public chain data) for a siege or an expulsion:
+     * `{ownerCitizen (base58), order, gen, p, q, site}`, decoded from its bytes and checked against the site asked
+     * (and against the season's address of that Holding when the page has the season's addresses).
+     */
+    async holding(p, q, site) {
+      const r = await get(f, `${root}/h/holding/${p},${q},${site}.json`);
+      if (!r.ok) return r;
+      return guard(() => {
+        const h = decode('Holding', bytesOf(r.json?.bytes_b64), { seasonId: pinned ?? undefined });
+        check(h.p === p && h.q === q && h.site === site, 'WrongKey', 'the holding bytes are another site');
+        if (addrs) check(r.json?.address === addrs.of('Holding', { p, q, site }), 'WrongKey', 'the holding is not at its address');
+        return { holding: { ownerCitizen: toB58(h.ownerCitizen), order: h.order, gen: h.gen, p, q, site } };
+      });
+    },
     async keep(p, q) {
       const r = await get(f, `${root}/h/keep/${p},${q}.json`);
       return r.ok ? { ok: true, keep: r.json } : r;
@@ -838,11 +853,22 @@ function caravanOf(v, at) {
     }) : null,
   };
 }
+/** An optional owner's Citizen address (base58), or null (the herald read no account bytes yet). */
+function ownerCitizenOf(o, at) {
+  if (o.ownerCitizen === undefined || o.ownerCitizen === null) return null;
+  const s = strOf(o, 'ownerCitizen', at);
+  check(B58_RE.test(s), 'BadValue', `${at}: ownerCitizen is not base58`);
+  return s;
+}
 function vaultOf(v, at) {
   const o = objOf(v, at);
+  // the stores and cap (whole units) and the owner's address come once the herald read the vault's bytes
+  const stores = o.stores === undefined || o.stores === null ? null : arrOf(o, 'stores', at).map((_, i, a) => intOf(a, i, 0, U32, `${at}.stores`));
+  check(stores === null || stores.length === 8, 'BadSchema', `${at}: stores has not 8 entries`);
   return {
     p: intOf(o, 'p', -COORD, COORD, at), q: intOf(o, 'q', -COORD, COORD, at), tile: intOf(o, 'tile', 0, TILE_MAX, at),
     ownerTag: decOf(o, 'ownerTag', at), faction: intOf(o, 'faction', 0, FACTION_MAX, at), gen: intOf(o, 'gen', 0, U32, at),
+    ...(stores ? { stores, cap: optIntOf(o, 'cap', 0, U32, at) ?? 0 } : {}), ownerCitizen: ownerCitizenOf(o, at),
   };
 }
 
@@ -875,6 +901,7 @@ function structureOf(v, at) {
     p: intOf(o, 'p', -COORD, COORD, at), q: intOf(o, 'q', -COORD, COORD, at), tile: intOf(o, 'tile', 0, TILE_MAX, at),
     kind, faction: intOf(o, 'faction', 0, FACTION_MAX, at), ownerTag: decOf(o, 'ownerTag', at),
     gen: intOf(o, 'gen', 0, U32, at), notify: intOf(o, 'notify', 0, 1, at), cover, sent: intOf(o, 'sent', 0, U32, at),
+    ownerCitizen: ownerCitizenOf(o, at),
   };
 }
 function sightingOf(v, at) {

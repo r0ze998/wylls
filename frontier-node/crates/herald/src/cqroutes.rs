@@ -9,6 +9,7 @@
 //! | `/h/sieges/{bell}.json`, `latest.json` | sieges and keep contests | immutable; latest `max-age=2` |
 //! | `/h/siege/{P},{Q},{site}/{declared}.json` | one siege | immutable once written at the season end; live `max-age=5` |
 //! | `/h/keep/{P},{Q}.json` | a keep's history | `max-age=5` |
+//! | `/h/holding/{P},{Q},{site}.json` | one Holding's account bytes (a siege's and an expulsion's target owner) | `no-store` |
 //! | `/h/conquest/{day}.json` | the day's events | immutable once written; live `max-age=5` |
 //! | `/h/standings/series.bin`, `latest.json`, `players.json` | standings | `max-age=30` / 5 / 30 |
 //! | `/h/call/{day}.json` | Herald's Call | immutable |
@@ -38,6 +39,7 @@ pub fn mount() -> Router<Shared> {
         .route("/h/sieges/{file}", get(sieges))
         .route("/h/siege/{pqs}/{file}", get(siege))
         .route("/h/keep/{file}", get(keep))
+        .route("/h/holding/{file}", get(holding))
         .route("/h/conquest/{file}", get(conquest_day))
         .route("/h/standings/{file}", get(standings))
         .route("/h/call/{file}", get(call))
@@ -247,6 +249,30 @@ async fn keep(State(app): State<Shared>, Path(file): Path<String>) -> Response {
     match f.cq.keeps.get(&pq).and_then(|k| k.to_json().ok()) {
         Some(j) => body(j.into_bytes(), JSON, "public, max-age=5"),
         None => err(StatusCode::NOT_FOUND, "NoSuchKeep"),
+    }
+}
+
+/// `/h/holding/{P},{Q},{site}.json`: one Holding's account, as `/h/me`
+/// gives the viewer's own (`{address, slot, seq, head, bytes_b64}`; public
+/// chain data). A siege names the target's owner Citizen and an expulsion
+/// names the village's (the page decodes `OWNER_CITIZEN` from the bytes and
+/// checks the address against the site).
+async fn holding(State(app): State<Shared>, Path(file): Path<String>) -> Response {
+    let key = file.strip_suffix(".json").and_then(|s| {
+        let mut it = s.split(',');
+        let p = it.next()?.parse::<i32>().ok()?;
+        let q = it.next()?.parse::<i32>().ok()?;
+        let site = it.next()?.parse::<u8>().ok()?;
+        it.next().is_none().then_some((p, q, site))
+    });
+    let Some((p, q, site)) = key else {
+        return err(StatusCode::BAD_REQUEST, "BadHolding");
+    };
+    let f = read_fold(&app);
+    let a = f.ctx.holding(p, q, site);
+    match crate::views::account_json(&f, &a) {
+        serde_json::Value::Null => err(StatusCode::NOT_FOUND, "NoSuchHolding"),
+        v => body(v.to_string().into_bytes(), JSON, "no-store"),
     }
 }
 

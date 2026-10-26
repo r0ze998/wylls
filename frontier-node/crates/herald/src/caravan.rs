@@ -143,31 +143,50 @@ impl Caravans {
     /// `false` when nothing changed.
     pub fn vault_bytes(&mut self, key: Option<(i32, i32, u8)>, data: Option<&[u8]>) -> bool {
         use frontier_abi::v2::layout::s1::vault as VA;
-        let rd = |d: &[u8], o: usize| -> Option<i64> { Some(i64::from_le_bytes(d.get(o..o + 8)?.try_into().ok()?)) };
+        let rd = |d: &[u8], o: usize| -> Option<i64> {
+            Some(i64::from_le_bytes(d.get(o..o + 8)?.try_into().ok()?))
+        };
         let Some(d) = data else {
             return key.is_some_and(|k| self.vaults.remove(&k).is_some());
         };
         if d.get(..8) != Some(&VA::MAGIC[..]) {
             return false;
         }
-        let at = |o: usize| d.get(o..o + 2).map(|b| i16::from_le_bytes([b[0], b[1]]) as i32);
-        let (Some(p), Some(q), Some(&tile), Some(&state)) = (at(VA::P), at(VA::Q), d.get(VA::TILE), d.get(VA::STATE)) else {
+        let at = |o: usize| {
+            d.get(o..o + 2)
+                .map(|b| i16::from_le_bytes([b[0], b[1]]) as i32)
+        };
+        let (Some(p), Some(q), Some(&tile), Some(&state)) =
+            (at(VA::P), at(VA::Q), d.get(VA::TILE), d.get(VA::STATE))
+        else {
             return false;
         };
         if state != VA::STATE_LIVE {
             return self.vaults.remove(&(p, q, tile)).is_some();
         }
         let units = |m: i64| (m.max(0) / 1_000).min(u32::MAX as i64);
-        let stores: Vec<i64> = (0..8).map(|r| rd(d, VA::store(r)).map_or(0, units)).collect();
+        let stores: Vec<i64> = (0..8)
+            .map(|r| rd(d, VA::store(r)).map_or(0, units))
+            .collect();
         let cap = rd(d, VA::CAP).map_or(0, units);
+        // the owner's Citizen address: a seizure names it (SeizeVault's `owner_citizen`)
+        let owner = d
+            .get(VA::OWNER_CITIZEN..VA::OWNER_CITIZEN + 32)
+            .and_then(|b| <[u8; 32]>::try_from(b).ok())
+            .map(|b| fclient::Address::new_from_array(b).to_string());
         let Some(v) = self.vaults.get_mut(&(p, q, tile)) else {
             return false;
         };
-        if v.get("stores") == Some(&json!(stores)) && v.get("cap") == Some(&json!(cap)) {
+        let new = json!({"stores": stores, "cap": cap, "ownerCitizen": owner});
+        if ["stores", "cap", "ownerCitizen"]
+            .iter()
+            .all(|k| v.get(*k) == new.get(*k))
+        {
             return false;
         }
         v["stores"] = json!(stores);
         v["cap"] = json!(cap);
+        v["ownerCitizen"] = json!(owner);
         self.dirty = true;
         true
     }
@@ -334,5 +353,94 @@ mod tests {
             fee: 0,
         });
         assert!(c.moving.is_empty());
+    }
+
+    /// A Vault's bytes as the program writes them (`layout::s1::vault`).
+    fn vault_account(
+        p: i16,
+        q: i16,
+        tile: u8,
+        state: u8,
+        stores: [i64; 8],
+        owner: [u8; 32],
+    ) -> Vec<u8> {
+        use frontier_abi::v2::layout::s1::vault as VA;
+        let mut d = vec![0u8; VA::SIZE];
+        d[..8].copy_from_slice(&VA::MAGIC);
+        d[VA::P..VA::P + 2].copy_from_slice(&p.to_le_bytes());
+        d[VA::Q..VA::Q + 2].copy_from_slice(&q.to_le_bytes());
+        d[VA::TILE] = tile;
+        d[VA::STATE] = state;
+        d[VA::OWNER_CITIZEN..VA::OWNER_CITIZEN + 32].copy_from_slice(&owner);
+        for (r, v) in stores.iter().enumerate() {
+            d[VA::store(r)..VA::store(r) + 8].copy_from_slice(&v.to_le_bytes());
+        }
+        d[VA::CAP..VA::CAP + 8].copy_from_slice(&5_000_000i64.to_le_bytes());
+        d
+    }
+
+    #[test]
+    fn a_vault_shows_its_stores_cap_and_owner_from_its_bytes() {
+        use frontier_abi::v2::layout::s1::vault as VA;
+        let mut c = Caravans::default();
+        c.fold(&CqEvent::VaultBuilt {
+            p: 3,
+            q: 0,
+            tile: 40,
+            owner_tag: 77,
+            faction: 1,
+            gen: 1,
+            holding_key: 0,
+        });
+        c.dirty = false;
+        // a vault the feed does not list is left alone
+        assert!(!c.vault_bytes(
+            None,
+            Some(&vault_account(3, 0, 41, VA::STATE_LIVE, [0; 8], [5; 32]))
+        ));
+        let d = vault_account(
+            3,
+            0,
+            40,
+            VA::STATE_LIVE,
+            [0, 100_500, 0, 0, 0, 7_000, 0, -3],
+            [5; 32],
+        );
+        assert!(c.vault_bytes(None, Some(&d)));
+        assert!(c.dirty);
+        let v = &c.file()["vaults"][0];
+        assert_eq!(
+            v["stores"],
+            json!([0, 100, 0, 0, 0, 7, 0, 0]),
+            "whole units, a negative store read as 0"
+        );
+        assert_eq!(v["cap"], json!(5000));
+        assert_eq!(
+            v["ownerCitizen"],
+            json!(fclient::Address::new_from_array([5; 32]).to_string())
+        );
+        // the same bytes again change nothing; a closed vault (no bytes, or not live) leaves the list
+        c.dirty = false;
+        assert!(!c.vault_bytes(None, Some(&d)));
+        assert!(!c.dirty);
+        assert!(c.vault_bytes(Some((3, 0, 40)), None));
+        assert!(c.vaults.is_empty());
+        // a checkpoint keeps the stores
+        c.fold(&CqEvent::VaultBuilt {
+            p: 3,
+            q: 0,
+            tile: 40,
+            owner_tag: 77,
+            faction: 1,
+            gen: 1,
+            holding_key: 0,
+        });
+        c.vault_bytes(None, Some(&d));
+        assert_eq!(Caravans::from_json(&c.to_json()).unwrap().vaults, c.vaults);
+        assert!(c.vault_bytes(
+            None,
+            Some(&vault_account(3, 0, 40, VA::STATE_NONE, [0; 8], [5; 32]))
+        ));
+        assert!(c.vaults.is_empty());
     }
 }

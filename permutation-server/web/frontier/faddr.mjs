@@ -127,5 +127,8 @@ export function seasonAddresses(programId, seasonId) {
     bump,
     of,
     holdingOfHost: id => { const h = hostParts(id); return h && of('Holding', h); },
+    // fclient `Addresses::absent(n)`: a read-only position the instruction leaves empty (seed `zz‖hex(n)`), e.g.
+    // DeclareSiege's owner Citizen of a Free City (0) and its nearby Province when none is named (1)
+    absent: n => withSeed(season, `zz${(n & 0xff).toString(16).padStart(2, '0')}`, program),
   });
 }
