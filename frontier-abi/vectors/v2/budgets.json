@@ -493,7 +493,7 @@
       "loaded_need_placeholder": 1483729,
       "loaded_limit": 1507328,
       "loaded_limit_s1": 1835008,
-      "cu_limit_s1": 19000
+      "cu_limit_s1": 39000
     },
     {
       "name": "Build",
@@ -509,7 +509,7 @@
       "loaded_need_placeholder": 1483729,
       "loaded_limit": 1507328,
       "loaded_limit_s1": 1835008,
-      "cu_limit_s1": 23500
+      "cu_limit_s1": 43500
     },
     {
       "name": "Train",
@@ -525,7 +525,7 @@
       "loaded_need_placeholder": 1483729,
       "loaded_limit": 1507328,
       "loaded_limit_s1": 1835008,
-      "cu_limit_s1": 19000
+      "cu_limit_s1": 39000
     },
     {
       "name": "Muster",
@@ -541,7 +541,7 @@
       "loaded_need_placeholder": 1483729,
       "loaded_limit": 1507328,
       "loaded_limit_s1": 1835008,
-      "cu_limit_s1": 22000
+      "cu_limit_s1": 42000
     },
     {
       "name": "Dissolve",
@@ -557,7 +557,7 @@
       "loaded_need_placeholder": 1488529,
       "loaded_limit": 1507328,
       "loaded_limit_s1": 1835008,
-      "cu_limit_s1": 30000
+      "cu_limit_s1": 50000
     },
     {
       "name": "Garrison",
@@ -573,7 +573,7 @@
       "loaded_need_placeholder": 1483729,
       "loaded_limit": 1507328,
       "loaded_limit_s1": 1835008,
-      "cu_limit_s1": 19000
+      "cu_limit_s1": 39000
     },
     {
       "name": "Explore",
@@ -589,7 +589,7 @@
       "loaded_need_placeholder": 1488529,
       "loaded_limit": 1507328,
       "loaded_limit_s1": 1835008,
-      "cu_limit_s1": 27000
+      "cu_limit_s1": 47000
     },
     {
       "name": "SettleExplore",
@@ -637,7 +637,7 @@
       "loaded_need_placeholder": 1488657,
       "loaded_limit": 1507328,
       "loaded_limit_s1": 1835008,
-      "cu_limit_s1": 32000
+      "cu_limit_s1": 52000
     },
     {
       "name": "Reveal",
@@ -845,7 +845,7 @@
       "loaded_need_placeholder": 1495249,
       "loaded_limit": 1507328,
       "loaded_limit_s1": 1835008,
-      "cu_limit_s1": 30000
+      "cu_limit_s1": 50000
     },
     {
       "name": "SettleSiege",
@@ -893,7 +893,7 @@
       "loaded_need_placeholder": 1504977,
       "loaded_limit": 1507328,
       "loaded_limit_s1": 1835008,
-      "cu_limit_s1": 40000
+      "cu_limit_s1": 60000
     },
     {
       "name": "FoldMarch",
@@ -957,7 +957,7 @@
       "loaded_need_placeholder": 1489233,
       "loaded_limit": 1507328,
       "loaded_limit_s1": 1835008,
-      "cu_limit_s1": 40000
+      "cu_limit_s1": 60000
     },
     {
       "name": "SendCaravan",
@@ -973,7 +973,7 @@
       "loaded_need_placeholder": 1499985,
       "loaded_limit": 1507328,
       "loaded_limit_s1": 1835008,
-      "cu_limit_s1": 120000
+      "cu_limit_s1": 140000
     },
     {
       "name": "SettleCaravan",
@@ -1069,7 +1069,7 @@
       "loaded_need_placeholder": 1488977,
       "loaded_limit": 1507328,
       "loaded_limit_s1": 1835008,
-      "cu_limit_s1": 40000
+      "cu_limit_s1": 60000
     },
     {
       "name": "SeizeStructure",
@@ -1117,7 +1117,7 @@
       "loaded_need_placeholder": 1484049,
       "loaded_limit": 1507328,
       "loaded_limit_s1": 1835008,
-      "cu_limit_s1": 20000
+      "cu_limit_s1": 40000
     },
     {
       "name": "Propose",

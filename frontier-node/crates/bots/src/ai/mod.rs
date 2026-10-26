@@ -137,6 +137,11 @@ pub struct BotAi {
     pub follow: follow::BotFollow,
     /// The bell of the last `POST /v1/brain-stats` of this bot (about one per bell, R5/R6).
     pub stats_posted_bell: Option<u32>,
+    /// The intents the chain or the relay refused (their `intent_key`) and
+    /// the bell of the refusal: the same intent is not sent again for
+    /// [`brain::REFUSED_BACKOFF_BELLS`] (a holding whose every Build was
+    /// refused at one bell was sent the same Build at every bell after).
+    pub refused: BTreeMap<String, u32>,
 }
 
 /// Per-AI milestones for the run report (AC3a step 0 (d), contract §9.5 (c)):

@@ -180,6 +180,9 @@ impl Table {
         let b = b2::budget(ix);
         let cu_budget = if self == Table::S1 && ix == V2::Reveal {
             b2::REVEAL_CU_LIMIT_S1
+        } else if self == Table::S1 && b2::S1_SETTLES.contains(&ix) {
+            // an S1 holding's settle (the workshops) on top of the row
+            b.cu_budget.saturating_add(b2::S1_SETTLE_EXTRA_CU)
         } else {
             b.cu_budget
         };
@@ -2686,15 +2689,21 @@ mod tests {
         assert_eq!(r.tx_ceiling, frontier_abi::budgets::tx_ceiling(Ix::Reveal));
         assert_eq!(Table::M1.row(V2::SendCaravan.tag()), None);
 
-        // MC and S1: v2-only kinds have their names and §5.4 rows.
+        // MC and S1: v2-only kinds have their names and §5.4 rows; under S1 an
+        // instruction that settles a holding has the workshops' room on top.
         for t in [Table::Mc, Table::S1] {
+            let extra = if t == Table::S1 {
+                b2::S1_SETTLE_EXTRA_CU
+            } else {
+                0
+            };
             let r = t.row(V2::DeclareSiege.tag()).unwrap();
             assert_eq!(r.name, "DeclareSiege");
-            assert_eq!(r.cu_budget, b2::budget(V2::DeclareSiege).cu_budget);
+            assert_eq!(r.cu_budget, b2::budget(V2::DeclareSiege).cu_budget + extra);
             assert!(r.cu_budget > 0);
             assert_eq!(r.tx_ceiling, b2::tx_ceiling(V2::DeclareSiege));
             let d = t.row(V2::Depart.tag()).unwrap();
-            assert_eq!(d.cu_budget, b2::budget(V2::Depart).cu_budget);
+            assert_eq!(d.cu_budget, b2::budget(V2::Depart).cu_budget + extra);
             assert_ne!(
                 d.cu_budget,
                 frontier_abi::budgets::budget(Ix::Depart).cu_budget
@@ -2708,6 +2717,11 @@ mod tests {
         assert_eq!(
             Table::S1.row(V2::Reveal.tag()).unwrap().cu_budget,
             b2::REVEAL_CU_LIMIT_S1
+        );
+        // a row that settles no holding is the same under both
+        assert_eq!(
+            Table::S1.row(V2::Vote.tag()).unwrap().cu_budget,
+            Table::Mc.row(V2::Vote.tag()).unwrap().cu_budget
         );
     }
 

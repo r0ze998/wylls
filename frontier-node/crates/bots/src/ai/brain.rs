@@ -63,6 +63,11 @@ pub const QUOTA_FLOOR: u32 = 16;
 pub const STALE_SECS: i64 = 30;
 /// Model-chosen marches per game day (§4.5 V3 (d)).
 pub const MODEL_MARCHES_PER_DAY: usize = 4;
+/// Bells an intent the chain or the relay refused is not sent again (one
+/// game hour): a refusal that would repeat every bell (a cost the holding
+/// cannot meet, a queue that stays full) costs one try an hour, not one a
+/// bell.
+pub const REFUSED_BACKOFF_BELLS: u32 = 6;
 /// Candidates a march kind may offer at most: 2 camps, 1 field stack, 1 raid.
 pub const MAX_CAMPS: usize = 2;
 pub const CAMP_REWARD: &str = "10 Works (points, no use yet)";
@@ -1659,9 +1664,17 @@ async fn send_intents<H: HeraldPort, R: RelayPort, D: DirectPort>(
 ) -> Sent {
     let mut sent = Sent::default();
     let bell = obs.bell();
+    bot.ai
+        .refused
+        .retain(|_, b| bell < b.saturating_add(REFUSED_BACKOFF_BELLS));
     for it in intents {
         let key = intent_key(&it);
         if key.as_ref().is_some_and(|k| done.contains(k)) {
+            continue;
+        }
+        // refused within the back-off: not again yet
+        if key.as_ref().is_some_and(|k| bot.ai.refused.contains_key(k)) {
+            hook.bot_stat(bot.spec.index, "refused_backoff");
             continue;
         }
         let q = bot.ai_quota_left(obs);
@@ -1701,12 +1714,17 @@ async fn send_intents<H: HeraldPort, R: RelayPort, D: DirectPort>(
         };
         let from = hook.outcomes_len(bot.spec.index);
         sent.n += bot.act(sh, obs, it).await;
-        let ok = hook
-            .outcomes_since(bot.spec.index, from)
-            .iter()
-            .all(|o| o.ok);
-        if let (true, Some(k)) = (ok, key) {
-            done.insert(k);
+        let outs = hook.outcomes_since(bot.spec.index, from);
+        let ok = outs.iter().all(|o| o.ok);
+        match (ok, key) {
+            (true, Some(k)) => {
+                done.insert(k);
+            }
+            // a refusal (not a send that never happened): back off
+            (false, Some(k)) if !outs.is_empty() => {
+                bot.ai.refused.insert(k, bell);
+            }
+            _ => {}
         }
         if let Some((host, p, q, tile, arrive, why)) = depart {
             if bot.mem.march((host, bell)).is_some_and(|m| m.sent) {
