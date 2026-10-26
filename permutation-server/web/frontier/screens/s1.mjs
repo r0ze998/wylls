@@ -23,6 +23,7 @@ import { settled, shortOf } from '../hud/rulebook.mjs';
 import { activeHolding } from '../fstate.mjs';
 import { keepFromProvince } from '../fconquest.mjs';
 import { hostParts } from '../faddr.mjs';
+import { ringOf, wedgeOf } from '../fgeo.mjs';
 import { ownTag } from '../people/ui.mjs';
 import { MAX_VAULTS, VAULT_COST } from '../fcaravan.mjs';
 import { S1_WORDS, caravanArriveBell } from '../map/s1marks.mjs';
@@ -220,7 +221,12 @@ export function siegeOffer(FS, sel) {
   const today = Math.floor(Number(FS.chain?.now?.() ?? 0) / 86400);
   // a village under its shield (the mirror's SHIELD_UNTIL_BELL; a new village's protection) is refused `Shielded`
   const shielded = state === SITE_HOLDING && Number(mirror.shieldUntilBell ?? 0) > Number(FS.nowBell ?? 0);
+  // siege.rs may_besiege_v3: a village in its owner's heartland (rings 2 to heartland_max_ring of its wedge) is refused
+  // `Heartland` (the S1 program's relation is always Rivalry, never War; a nation's stance does not change it)
+  const ring = ringOf(sel.p, sel.q), maxRing = Number(FS.season?.conquestParams?.heartlandMaxRing ?? 3);
+  const heartland = state === SITE_HOLDING && ring >= 2 && ring <= maxRing && wedgeOf(sel.p, sel.q) === Number(mirror.faction);
   const blocks = [
+    ...(heartland ? ['Heartland'] : []),
     ...(shielded ? ['Shielded'] : []),
     ...(entry < 0 ? ['NoFighterHere'] : []),
     ...(src && shortOf(cost, have).length ? ['Insufficient'] : []),
@@ -334,7 +340,8 @@ export function caravanProblem(src, dst, cargo) {
 const S1_BLOCK = { NoHolding: () => L`村を選んでください（費用は選んだ村から払います）`, Taken: () => L`このマスにはもう建っています`, Unknown: () => L`この州のようすをまだ読み込んでいません`,
   Site: () => errorText('StructureSite'), NoFighterHere: () => L`この村のマスに、着いて落ち着いたあなたの戦う軍勢（斥候以外）がいません。進軍で送り、守りに勝ってから包囲を宣言します`,
   NoHostHere: () => L`このマスに、着いて落ち着いたあなたの軍勢がいません（進軍で送り、次のターンを待ってください）`,
-  OwnerUnknown: () => L`持ち主の情報をまだ読み込んでいません。少し待ってください` };
+  OwnerUnknown: () => L`持ち主の情報をまだ読み込んでいません。少し待ってください`,
+  Heartland: () => L`この村は持ち主の国の本国の中にあるため、包囲できません。本国の外の村か自由都市をねらってください` };
 const blockText = b => (S1_BLOCK[b] ?? (() => errorText(b)))();
 /** What the village in hand lacks for `cost`, in words ("足りない：石材 173 · 兵器 20"). */
 export const shortText = (cost, have) => L`足りない：${shortOf(cost, have ?? []).map(x => `${RESOURCES[RESOURCE_ORDER[x.r]]} ${fmtNum(Math.ceil(x.need))}`).join(' · ')}`;

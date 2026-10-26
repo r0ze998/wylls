@@ -367,6 +367,7 @@ test('the S1 shapes are fclient\'s instructions, key for key and byte for byte, 
 
 import * as SCR from '../../permutation-server/web/frontier/screens/s1.mjs';
 import * as HUD from '../../permutation-server/web/frontier/hud/hud.mjs';
+import { wedgeOf } from '../../permutation-server/web/frontier/fgeo.mjs';
 import * as C from '../../permutation-server/web/frontier/controller.mjs';
 import { FS } from '../../permutation-server/web/frontier/fstate.mjs';
 
@@ -601,6 +602,13 @@ test('a host on another\'s storehouse or structure offers to seize it; a fightin
   const shield = prov(0, 0, { siteMirror: [{ state: 1, faction: 2, shieldUntilBell: 147 }], entries: [{ ...mine, tile: 5 }] });
   assert.deepEqual(SCR.siegeOffer(world({ provinces: new Map([['0,0', { province: shield }]]) }), { p: 0, q: 0, idx: 5 }).blocks, ['Shielded']);
   assert.deepEqual(SCR.siegeOffer(world({ nowBell: 147, provinces: new Map([['0,0', { province: shield }]]) }), { p: 0, q: 0, idx: 5 }).blocks, []);
+  // a village in its owner's heartland (s1-season-2: an Astel host on a Borealis village in ring 2 was refused Heartland)
+  const w02 = wedgeOf(0, 2);
+  const home = f => prov(0, 2, { siteMirror: [{ state: 1, faction: f }], entries: [{ ...mine, tile: 5 }] });
+  assert.equal(w02, 1, 'Borealis\' wedge');
+  const astel = { ...world().citizen, faction: 0 };
+  assert.deepEqual(SCR.siegeOffer(world({ citizen: astel, provinces: new Map([['0,2', { province: home(w02) }]]) }), { p: 0, q: 2, idx: 5 }).blocks, ['Heartland']);
+  assert.deepEqual(SCR.siegeOffer(world({ citizen: astel, provinces: new Map([['0,2', { province: home(3) }]]) }), { p: 0, q: 2, idx: 5 }).blocks, [], 'another nation\'s village there is not in its heartland');
   assert.match(String(SCR.renderS1Tile(sfs, { p: 0, q: 0, idx: 5 })), /data-act="s1-siege"[^>]*data-tile="5"/);
 });
 
