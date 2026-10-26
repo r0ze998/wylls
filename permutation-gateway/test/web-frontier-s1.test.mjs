@@ -420,15 +420,42 @@ test('the village offers caravans to its other places, its fort, and its nation\
   fs.holdings.forEach(h => { h.ownerCitizen = new Uint8Array([5, 0, 0, 0, 0, 0, 0, 0, ...Array(24).fill(0)]); });
   const m = SCR.s1VillageModel(fs);
   assert.equal(SCR.viewerTag(fs), tag);
-  assert.deepEqual(m.destinations, [{ kind: 'holding', p: 1, q: 0, site: 2, gen: 1 }, { kind: 'vault', p: 0, q: 1, tile: 9, gen: 2 }]);
+  // every place of the viewer's is a destination (the one a caravan starts from is refused at sending: SamePlace);
+  // a caravan starts from the village in hand or from a storehouse
+  assert.deepEqual(m.destinations, [{ kind: 'holding', p: 0, q: 0, site: 0, gen: 1, tile: 30 }, { kind: 'holding', p: 1, q: 0, site: 2, gen: 1, tile: 20 }, { kind: 'vault', p: 0, q: 1, tile: 9, gen: 2 }]);
+  assert.deepEqual(m.sources.map(s => [s.kind, s.p, s.q]), [['holding', 0, 0], ['vault', 0, 1]]);
+  assert.deepEqual(m.sources[1].have, Array(8).fill(0), 'a storehouse whose stores the feed has not read offers nothing');
+  assert.equal(SCR.caravanProblem(m.sources[0], m.destinations[0], [0, 5, 0, 0, 0, 0, 0, 0]), 'SamePlace');
+  assert.equal(SCR.caravanProblem(m.sources[0], m.destinations[1], Array(8).fill(0)), 'NoCargo');
+  assert.equal(SCR.caravanProblem(m.sources[1], m.destinations[1], [0, 5, 0, 0, 0, 0, 0, 0]), 'Insufficient');
+  assert.equal(SCR.caravanProblem(m.sources[0], m.destinations[2], [0, 5, 0, 0, 0, 0, 0, 0]), null);
+  // nation.rs `eligible`: a village votes and proposes once it has been in the season ELIGIBLE_BELLS (288)
+  assert.equal(SCR.ELIGIBLE_BELLS, 288);
+  assert.deepEqual([m.nation.eligible, m.nation.eligibleAt], [false, null], 'no join bell read: not offered');
+  const early = SCR.s1VillageModel({ ...fs, citizen: { ...fs.citizen, joinBell: 10 } });
+  assert.deepEqual([early.nation.eligible, early.nation.eligibleAt], [false, 298]);
+  const earlyHtml = String(SCR.renderS1Village({ ...fs, citizen: { ...fs.citizen, joinBell: 10 } }));
+  assert.match(earlyHtml, /ターン 298 から/);
+  assert.doesNotMatch(earlyHtml, /data-form="s1-propose"/);
+  assert.match(earlyHtml, /data-act="s1-vote"[^>]*data-yes="1"[^>]*disabled/, 'a vote waits for eligibility too');
   assert.equal(m.caravans[0].arriveBell, 103);
   assert.deepEqual(m.forts.map(f => [f.tile, f.troops, f.room]), [[33, 170, 1830]]);
   assert.equal(m.spearmen, 300);
   assert.deepEqual(m.nation.stances.map(s => s.stance), ['war', 'ally', 'pass', 'war', 'war']);
   assert.deepEqual(m.nation.proposals.map(x => [x.id, x.voted, x.closesIn]), [[7, false, 20]], 'its own nation\'s open proposals');
-  const html = String(SCR.renderS1Village(fs));
+  const old = { ...fs, citizen: { ...fs.citizen, joinBell: 0 }, nowBell: 300, s1: { ...fs.s1, nations: { ...fs.s1.nations, proposals: fs.s1.nations.proposals.map(x => ({ ...x, closeBell: 400 })) } } };
+  assert.equal(SCR.s1VillageModel(old).nation.eligible, true);
+  const html = String(SCR.renderS1Village(old));
   for (const f of ['s1-caravan', 's1-fort', 's1-propose']) assert.match(html, new RegExp(`data-form="${f}"`));
   assert.match(html, /data-act="s1-vote"[^>]*data-id="7"[^>]*data-yes="1"/);
+  assert.doesNotMatch(html, /data-act="s1-vote"[^>]*data-id="7"[^>]*data-yes="1"[^>]*disabled/);
+  // past its close bell an open proposal waits for its tally: no vote offered
+  const closed = String(SCR.renderS1Village({ ...old, nowBell: 401 }));
+  assert.match(closed, /集計を待っています/);
+  assert.doesNotMatch(closed, /data-act="s1-vote"/);
+  // the herald's feed not written yet reads as a fresh season (controller s1Fresh): the council is offered
+  assert.deepEqual(C.s1Fresh('nations').stances.flat(), Array(36).fill(0));
+  assert.match(String(SCR.renderS1Village({ ...old, s1: { ...old.s1, nations: C.s1Fresh('nations') } })), /data-form="s1-propose"/);
   const voted = SCR.s1VillageModel({ ...fs, citizen: { ...fs.citizen, voted: [0, 0, 7, 0] } });
   assert.equal(voted.nation.proposals[0].voted, true);
   assert.match(String(SCR.proposalText(m.nation.proposals[0])), /通行を許す/);
@@ -445,7 +472,10 @@ test('a caravan is sent along the fastest road, and a raid taken home, as SendCa
     for (const c of CAR.landsWanted({ p: 0, q: 0 }, { p: 1, q: 0 })) provinces.set(`${c.p},${c.q}`, { province: prov(c.p, c.q) });
     Object.assign(FS, world({ provinces }), { wallet: { address: wallet }, session: { publicKey: V.program, sign: async () => new Uint8Array(64) }, notice: null, inFlight: 0 });
     C.useTransport({ submit: async req => { sent.push(req); return { ok: false, code: 'Stop' }; } });
-    await C.FORMS['s1-caravan']({ elements: { dst: { value: '0' }, c1: { value: '120' }, c2: { value: '0' } } });
+    // from the village in hand (source 0) to the other village (destination 1; destination 0 is the village itself)
+    await C.FORMS['s1-caravan']({ elements: { src: { value: '0' }, dst: { value: '0' }, c1: { value: '120' } } });
+    assert.equal(sent.length, 0, 'a caravan cannot go where it starts');
+    await C.FORMS['s1-caravan']({ elements: { src: { value: '0' }, dst: { value: '1' }, c1: { value: '120' }, c2: { value: '0' } } });
     assert.equal(sent.length, 1);
     const q = sent[0];
     assert.equal(q.name, 'SendCaravan');
@@ -459,8 +489,8 @@ test('a caravan is sent along the fastest road, and a raid taken home, as SendCa
     const A = io.pinned().addresses;
     assert.deepEqual(q.accounts.path_province, plan.provinces.map(p => A.of('Province', p)));
     // nothing to carry, or more than the village has: refused before anything is built
-    await C.FORMS['s1-caravan']({ elements: { dst: { value: '0' } } });
-    await C.FORMS['s1-caravan']({ elements: { dst: { value: '0' }, c1: { value: '5000' } } });
+    await C.FORMS['s1-caravan']({ elements: { src: { value: '0' }, dst: { value: '1' } } });
+    await C.FORMS['s1-caravan']({ elements: { src: { value: '0' }, dst: { value: '1' }, c1: { value: '5000' } } });
     assert.equal(sent.length, 1);
     // a raid won by the host of the village at (1, 0): taken home
     const raider = hostId({ p: 1, q: 0, site: 2, gen: 1, seq: 3 });

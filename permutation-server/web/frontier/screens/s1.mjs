@@ -49,6 +49,10 @@ export const STANCES = Object.freeze(['war', 'pass', 'ally']);
 const STANCE_TEXT = { war: () => L`戦争`, pass: () => L`通行を許す`, ally: () => L`同盟` };
 /** nation.rs KIND_STANCE. */
 export const PROPOSE_STANCE = 1;
+/** nation.rs ELIGIBLE_BELLS: a village proposes and votes once it has been in the season this long. */
+export const ELIGIBLE_BELLS = 288;
+/** nation.rs PROPOSALS: open proposals a nation holds at once. */
+export const NATION_PROPOSALS = 4;
 const NATIONS = 6;
 
 /** caravan.rs `caravan_id`: a caravan's id in a Province's slot. */
@@ -155,8 +159,14 @@ export function s1VillageModel(FS) {
   const vaults = (s1.caravans?.vaults ?? []).filter(v => isMine(v.ownerTag, mine));
   const caravans = (s1.caravans?.moving ?? []).filter(c => isMine(c.ownerTag, mine)).map(c => ({ ...c, arriveBell: caravanArriveBell(c) }));
   const structures = (s1.structures?.structures ?? []).filter(s => isMine(s.ownerTag, mine)).map(s => ({ ...s, name: KIND_NAME[s.kind] }));
+  // where a caravan may leave from: the village in hand (its stores now) or one of the viewer's storehouses (the stores
+  // the herald read from its account; a storehouse whose stores are not known yet offers nothing to send)
+  const sources = [
+    ...(h ? [{ kind: 'holding', p: h.p, q: h.q, site: h.site, gen: h.gen ?? 0, tile: h.tile, have: haveOf(FS, h) }] : []),
+    ...vaults.map(v => ({ kind: 'vault', p: v.p, q: v.q, tile: v.tile, gen: v.gen, known: Array.isArray(v.stores), have: Array.isArray(v.stores) ? v.stores.map(Number) : Array(8).fill(0), cap: Number(v.cap ?? 0) })),
+  ];
   const destinations = [
-    ...(FS.holdings ?? []).filter(o => h && !(o.p === h.p && o.q === h.q && o.site === h.site)).map(o => ({ kind: 'holding', p: o.p, q: o.q, site: o.site, gen: o.gen ?? 0 })),
+    ...(FS.holdings ?? []).map(o => ({ kind: 'holding', p: o.p, q: o.q, site: o.site, gen: o.gen ?? 0, tile: o.tile })),
     ...vaults.map(v => ({ kind: 'vault', p: v.p, q: v.q, tile: v.tile, gen: v.gen })),
   ];
   const prov = h ? FS.provinces?.get?.(`${h.p},${h.q}`)?.province ?? null : null;
@@ -169,14 +179,35 @@ export function s1VillageModel(FS) {
   const faction = FS.citizen?.faction;
   const n = s1.nations;
   const voted = Array.from(FS.citizen?.voted ?? [], Number);
+  // nation.rs `eligible`: in the season ELIGIBLE_BELLS, not expelled
+  const joinBell = Number(FS.citizen?.joinBell ?? NaN);
+  const eligibleAt = Number.isFinite(joinBell) ? joinBell + ELIGIBLE_BELLS : null;
+  const open = (n?.proposals ?? []).filter(x => x.faction === faction && x.state === 'open');
   const nation = Number.isInteger(faction) && n ? {
-    faction,
+    faction, eligibleAt, eligible: eligibleAt !== null && eligibleAt <= Number(FS.nowBell ?? 0), full: open.length >= NATION_PROPOSALS,
     stances: Array.from({ length: NATIONS }, (_, f) => (f === faction ? null : { faction: f, stance: STANCES[n.stances?.[faction]?.[f] ?? 0] })).filter(Boolean),
     toward: Array.from({ length: NATIONS }, (_, f) => (f === faction ? null : { faction: f, stance: STANCES[n.stances?.[f]?.[faction] ?? 0] })).filter(Boolean),
-    proposals: (n.proposals ?? []).filter(x => x.faction === faction && x.state === 'open').map(x => ({ ...x, voted: voted[x.slot] === x.id, closesIn: x.closeBell - Number(FS.nowBell ?? 0) })),
+    proposals: open.map(x => ({ ...x, voted: voted[x.slot] === x.id, closesIn: x.closeBell - Number(FS.nowBell ?? 0) })),
+    decided: (n.proposals ?? []).filter(x => x.faction === faction && (x.state === 'passed' || x.state === 'failed')).slice(-4).reverse(),
     expelled: !!(FS.citizen?.expelledSince && BigInt(FS.citizen.expelledSince) !== 0n),
   } : null;
-  return { vaults, caravans, structures, destinations, forts, spearmen, nation, have: haveOf(FS, h), holding: h };
+  return { vaults, caravans, structures, sources, destinations, forts, spearmen, nation, have: haveOf(FS, h), holding: h };
+}
+
+/** Two places are the same (a caravan cannot go where it starts). */
+export const samePlace = (a, b) => !!a && !!b && a.kind === b.kind && a.p === b.p && a.q === b.q && (a.kind === 'vault' ? a.tile === b.tile : a.site === b.site);
+
+/**
+ * What stops a caravan from `src` to `dst` with `cargo` (whole units by
+ * resource), as the page's own codes: `NoPlace`, `SamePlace`, `NoCargo`,
+ * `Insufficient`; or null. The program checks again (caravan.rs).
+ */
+export function caravanProblem(src, dst, cargo) {
+  if (!src || !dst) return 'NoPlace';
+  if (samePlace(src, dst)) return 'SamePlace';
+  if (!cargo.some(v => v > 0)) return 'NoCargo';
+  if (cargo.some((v, i) => v > Math.floor(src.have?.[i] ?? 0))) return 'Insufficient';
+  return null;
 }
 
 // ------------------------------------------------------------------ words
@@ -211,15 +242,23 @@ export function renderS1Village(FS) {
   const m = s1VillageModel(FS);
   if (!m.holding) return '';
   const bell = Number(FS.nowBell ?? 0);
-  const placeWord = d => (d.kind === 'vault' ? L`${S1_WORDS.vault()}（${d.p}, ${d.q}）` : L`村（${d.p}, ${d.q}）`);
+  const placeWord = d => (d.kind === 'vault' ? L`${S1_WORDS.vault()}（${d.p}, ${d.q} · マス ${d.tile}）` : L`村（${d.p}, ${d.q}）`);
   const caravans = m.caravans.length ? html`${label(L`道中の隊商`)}<ul class="list">${m.caravans.map(c => html`<li>${icon('flag')}${c.raided ? S1_WORDS.raided() : S1_WORDS.caravan()} <span class="muted">${c.arriveBell !== null ? (c.arriveBell <= bell ? L`到着済み（決着待ち）` : L`ターン ${fmtNum(c.arriveBell)} に到着`) : ''}</span></li>`)}</ul>` : '';
   const owned = m.vaults.length || m.structures.length ? html`${label(L`あなたの貯蔵庫と建物`)}<ul class="list">${[
-    ...m.vaults.map(v => html`<li>${icon('crate')}${S1_WORDS.vault()} <span class="muted">${v.p}, ${v.q} · ${v.tile}</span></li>`),
+    ...m.vaults.map(v => html`<li>${icon('crate')}${S1_WORDS.vault()} <span class="muted">${v.p}, ${v.q} · ${v.tile}</span>${Array.isArray(v.stores)
+      ? html` <span class="muted">${v.stores.some(x => Number(x) > 0) ? costLine(v.stores.map(Number)) : L`空`}${v.cap ? L`（上限 ${fmtNum(v.cap)}）` : ''}</span>` : ''}</li>`),
     ...m.structures.map(s => html`<li>${icon('shield')}${kindWord(s.kind)} <span class="muted">${s.p}, ${s.q} · ${s.tile}</span></li>`)]}</ul>` : html`<p class="muted">${L`貯蔵庫や物見櫓・柵・要塞は、地図でマスを選ぶと建てられます。`}</p>`;
-  const sendable = RESOURCE_ORDER.map((r, i) => ({ r, i, have: Math.floor(m.have[i] ?? 0) })).filter(x => x.have > 0 && x.i < 6);
-  const send = m.destinations.length ? html`<form class="vform" data-form="s1-caravan">
-    <label class="field">${L`行き先`}<select name="dst">${m.destinations.map((d, i) => html`<option value="${i}">${placeWord(d)}</option>`)}</select></label>
-    ${sendable.map(x => html`<div class="count-row"><label class="count-label" for="s1-c${x.i}">${RESOURCES[x.r]}<span class="muted"> / ${fmtNum(x.have)}</span></label><input id="s1-c${x.i}" name="c${x.i}" type="number" min="0" max="${x.have}" step="1" value="0" inputmode="numeric"></div>`)}
+  // the goods a caravan carries (caravan.rs: the first six; arms and influence stay), the most any source holds
+  const most = i => Math.max(0, ...m.sources.map(s => Math.floor(s.have?.[i] ?? 0)));
+  const sendable = RESOURCE_ORDER.map((r, i) => ({ r, i, have: most(i) })).filter(x => x.have > 0 && x.i < 6);
+  const firstDst = m.destinations.findIndex(x => !samePlace(m.sources[0], x));
+  const haveText = s => (s.kind === 'vault' && !s.known ? L`在庫はまだ読み込んでいません`
+    : s.have.slice(0, 6).map((v, i) => (v > 0 ? `${RESOURCES[RESOURCE_ORDER[i]]} ${fmtNum(Math.floor(v))}` : '')).filter(Boolean).join(' · ') || L`空`);
+  const send = m.vaults.length + (FS.holdings ?? []).length >= 2 ? html`<form class="vform" data-form="s1-caravan">
+    <label class="field">${L`出発地`}<select name="src">${m.sources.map((s, i) => html`<option value="${i}">${placeWord(s)} — ${haveText(s)}</option>`)}</select></label>
+    <label class="field">${L`行き先`}<select name="dst">${m.destinations.map((d, i) => html`<option value="${i}" ${raw(i === firstDst ? 'selected' : '')}>${placeWord(d)}</option>`)}</select></label>
+    ${sendable.map(x => html`<div class="count-row"><label class="count-label" for="s1-c${x.i}">${RESOURCES[x.r]}</label><input id="s1-c${x.i}" name="c${x.i}" type="number" min="0" max="${x.have}" step="1" value="0" inputmode="numeric"></div>`)}
+    <p class="muted">${L`運べる量は出発地の蔵にある分までです（出発地ごとの在庫は上の一覧のとおり）。`}</p>
     <div class="actions"><button type="submit" class="btn primary">${L`隊商を送る`}</button></div>
     <p class="muted">${L`隊商は軍勢より遅く、道の上で略奪されることがあります。物見櫓の見張る土地や味方の柵の近くを通ると安全です。`}</p></form>`
     : html`<p class="muted">${L`隊商を送れる行き先（ほかの村か貯蔵庫）がまだありません。`}</p>`;
@@ -231,9 +270,12 @@ export function renderS1Village(FS) {
   const n = m.nation;
   const nation = n ? html`${label(L`国の方針`)}
     <ul class="list s1-stances">${n.stances.map(x => html`<li>${swatch(x.faction)}${factionName(x.faction)}: ${stanceText(x.stance)}</li>`)}</ul>
-    ${n.proposals.length ? html`${label(L`投票中の議題`)}<ul class="list">${n.proposals.map(x => html`<li>${proposalText(x)} <span class="muted">${L`賛成 ${fmtNum(x.yes)} · 反対 ${fmtNum(x.no)} · あと ${fmtNum(Math.max(0, x.closesIn))} ターン`}</span>
-      ${x.voted ? chip(L`投票済み`, 'ok', 'check') : html`<span class="actions">${btn('s1-vote', { slot: x.slot, id: x.id, yes: 1 }, L`賛成`, { disabled: n.expelled })}${btn('s1-vote', { slot: x.slot, id: x.id, yes: 0 }, L`反対`, { disabled: n.expelled })}</span>`}</li>`)}</ul>` : ''}
-    ${n.expelled ? html`<p class="blocked">${L`あなたの村は国を追放されているため、投票も提案もできません。`}</p>` : html`<form class="vform" data-form="s1-propose">
+    ${n.proposals.length ? html`${label(L`投票中の議題`)}<ul class="list">${n.proposals.map(x => html`<li>${proposalText(x)} <span class="muted">${x.closesIn > 0 ? L`賛成 ${fmtNum(x.yes)} · 反対 ${fmtNum(x.no)} · あと ${fmtNum(x.closesIn)} ターン` : L`賛成 ${fmtNum(x.yes)} · 反対 ${fmtNum(x.no)} · 締め切り（集計を待っています）`}</span>
+      ${x.voted ? chip(L`投票済み`, 'ok', 'check') : x.closesIn > 0 ? html`<span class="actions">${btn('s1-vote', { slot: x.slot, id: x.id, yes: 1 }, L`賛成`, { disabled: n.expelled || !n.eligible })}${btn('s1-vote', { slot: x.slot, id: x.id, yes: 0 }, L`反対`, { disabled: n.expelled || !n.eligible })}</span>` : ''}</li>`)}</ul>` : ''}
+    ${n.decided.length ? html`${label(L`決まった議題`)}<ul class="list">${n.decided.map(x => html`<li>${proposalText(x)} ${x.state === 'passed' ? chip(L`可決`, 'ok', 'check') : chip(L`否決`, 'warn')} <span class="muted">${L`賛成 ${fmtNum(x.yes)} · 反対 ${fmtNum(x.no)}`}</span></li>`)}</ul>` : ''}
+    ${n.expelled ? html`<p class="blocked">${L`あなたの村は国を追放されているため、投票も提案もできません。`}</p>`
+      : !n.eligible ? html`<p class="blocked">${n.eligibleAt === null ? L`投票と提案は、国に加わってから ${fmtNum(ELIGIBLE_BELLS)} ターン後にできるようになります。` : L`投票と提案は、ターン ${fmtNum(n.eligibleAt)} からできます（国に加わってから ${fmtNum(ELIGIBLE_BELLS)} ターン）。`}</p>`
+      : n.full ? html`<p class="blocked">${L`投票中の議題が ${fmtNum(NATION_PROPOSALS)} 件あるため、新しい提案は締め切りを待ってから出せます。`}</p>` : html`<form class="vform" data-form="s1-propose">
       <label class="field">${L`相手の国`}<select name="target">${n.stances.map(x => html`<option value="${x.faction}">${factionName(x.faction)}</option>`)}</select></label>
       <label class="field">${L`方針`}<select name="value">${STANCES.map((s, i) => html`<option value="${i}">${stanceText(s)}</option>`)}</select></label>
       <div class="actions"><button type="submit" class="btn">${L`方針の変更を提案する`}</button></div>

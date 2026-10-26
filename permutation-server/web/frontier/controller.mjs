@@ -39,7 +39,7 @@ import { emit as fxEmit } from './fx/bus.mjs';
 import { reachOrigins } from './screens/conquest.mjs';
 import { s1On } from './fs1.mjs';
 import { fastestPath, pack, landsWanted, landOfProvince, CARAVAN_FEE } from './fcaravan.mjs';
-import { raidOffers, s1VillageModel, KIND, PROPOSE_STANCE } from './screens/s1.mjs';
+import { raidOffers, s1VillageModel, caravanProblem, KIND, PROPOSE_STANCE } from './screens/s1.mjs';
 import { placeData, raidProvinces, cargoBytes, RAID_CHOICE } from './fplay.mjs';
 import { cachedReach, reachKey, reachableKeeps } from './fkeepreach.mjs';
 import * as fprize from './fprize.mjs';
@@ -216,11 +216,28 @@ function orderAnswered(o, ok, extra = {}) {
   fxEmit(ok ? 'order:accepted' : 'order:refused', payload);
 }
 
+/**
+ * The key of an order for the double-send guard: its shape and its fields
+ * (a second tap on the same button, or a form sent twice, while the first is
+ * still on its way, is the same order).
+ */
+export const sendKey = (name, fields) => `${name}|${JSON.stringify(fields ?? {}, (_, x) => (typeof x === 'bigint' ? `${x}n` : x instanceof Uint8Array ? Array.from(x) : x))}`;
+const sending = new Set();
+
 /** One sponsored action, tracked to its landing; the notice says how it went. */
 async function act(name, { v = {}, fields = {}, signer, requester = null, label, after, onSent, onLost, order = null, say = null } = {}) {
   // `signer: null` = a settle shape (no authority signs; the session key signs the request only).
   // (a refusal before anything is sent is an answer to the order too)
   const early = r => { orderAnswered(order, false, { code: r.code, sent: false }); return failed(r); };
+  // the same order already on its way: say so, and send nothing (the chain would refuse the copy, and the player saw an error)
+  const key = sendKey(name, fields);
+  if (sending.has(key)) { busy(() => L`同じ命令を送っています。結果を待ってください…`); return { ok: false, code: 'InFlight' }; }
+  sending.add(key);
+  try { return await actOnce(name, { v, fields, signer, requester, label, after, onSent, onLost, order, say }, early); }
+  finally { sending.delete(key); }
+}
+
+async function actOnce(name, { v, fields, signer, requester, label, after, onSent, onLost, order, say }, early) {
   if (!io.pinned()) return early({ code: 'NoPin' });
   if (!FS.wallet) return early({ code: 'NoWallet' });
   let sign = null;
@@ -906,9 +923,17 @@ export function wantHostReach(hostId) {
 /** Refresh conquest together; retain known state on transport failures. */
 /**
  * S1 (redesign stage 1): the caravans, structures and nations feeds into
- * `FS.s1`. A feed the herald has not written yet (NotFound) reads as empty;
- * any other failure keeps what was read before.
+ * `FS.s1`. A feed the herald has not written yet (NotFound) reads as a
+ * fresh season's ([`s1Fresh`]): nothing built, every stance war. (It read
+ * as nothing, which hid the nation's council until a proposal existed, so
+ * nobody could make the first one.) Any other failure keeps what was read
+ * before.
  */
+export const s1Fresh = name => ({
+  caravans: () => ({ v: 1, moving: [], vaults: [] }),
+  structures: () => ({ v: 1, structures: [], sightings: [] }),
+  nations: () => ({ v: 1, stances: Array.from({ length: 6 }, () => Array(6).fill(0)), proposals: [], expelled: [], domesticRaids: [] }),
+})[name]?.() ?? null;
 async function refreshS1(request) {
   const s1 = FS.s1 ??= { caravans: null, structures: null, nations: null, error: null };
   const names = ['caravans', 'structures', 'nations'];
@@ -918,7 +943,7 @@ async function refreshS1(request) {
   names.forEach((n, i) => {
     const r = results[i].status === 'fulfilled' ? results[i].value : null;
     if (r?.ok) s1[n] = r[n];
-    else if (r?.code === 'NotFound') s1[n] ??= null;
+    else if (r?.code === 'NotFound') s1[n] ??= s1Fresh(n);
     else s1.error = L`隊商・構造物・国家の最新情報を取得できませんでした。`;
   });
 }
@@ -1457,20 +1482,20 @@ async function s1Raid(d) {
     fields: { p: r.p, q: r.q, choice: RAID_CHOICE.take, n_path: raidProvinces(route).nPath, ...placeData(dst), steps: plan.dirs.length, path: pack(plan.dirs) },
     order: orderOf('s1-raid', 'RaidCaravan', { tile: { p: r.p, q: r.q, tile: r.tile }, say: () => L`隊商を奪い、村へ向かわせました` }) });
 }
-/** SendCaravan from the village in hand to another of the viewer's places. */
-async function s1Caravan(dstIndex, cargo) {
-  const m = s1VillageModel(FS), h = m.holding, dst = m.destinations[dstIndex];
-  if (!h || !dst) return s1Refused(L`行き先を選んでください`);
-  if (!cargo.some(v => v > 0)) return s1Refused(L`運ぶものを入れてください`);
-  const short = cargo.findIndex((v, i) => v > Math.floor(m.have[i] ?? 0));
-  if (short >= 0) return failed({ code: 'Insufficient' });
-  const dstTile = dst.kind === 'vault' ? dst.tile : FS.holdings.find(o => o.p === dst.p && o.q === dst.q && o.site === dst.site)?.tile;
-  if (!Number.isInteger(h.tile) || !Number.isInteger(dstTile)) return s1Refused(L`行き先のマスがわかりません`);
+/** SendCaravan from the village in hand or one of the viewer's storehouses to another of the viewer's places. */
+async function s1Caravan(srcIndex, dstIndex, cargo) {
+  const m = s1VillageModel(FS), from = m.sources[srcIndex], dst = m.destinations[dstIndex];
+  const problem = caravanProblem(from, dst, cargo);
+  if (problem === 'NoPlace') return s1Refused(L`出発地と行き先を選んでください`);
+  if (problem === 'SamePlace') return s1Refused(L`出発地と行き先が同じです`);
+  if (problem === 'NoCargo') return s1Refused(L`運ぶものを入れてください`);
+  if (problem === 'Insufficient') return failed({ code: 'Insufficient' });
+  if (!Number.isInteger(from.tile) || !Number.isInteger(dst.tile)) return s1Refused(L`出発地か行き先のマスがわかりません`);
   busy(() => L`道を探しています…`);
-  const plan = fastestPath({ p: h.p, q: h.q, tile: h.tile }, { p: dst.p, q: dst.q, tile: dstTile }, await landsFor(h, dst));
+  const plan = fastestPath({ p: from.p, q: from.q, tile: from.tile }, { p: dst.p, q: dst.q, tile: dst.tile }, await landsFor(from, dst));
   if (!plan || !plan.dirs.length) return failed({ code: 'Path' });
   const seq = Number(FS.citizen?.caravans ?? 0);
-  const src = { kind: 'holding', p: h.p, q: h.q, site: h.site, gen: h.gen ?? 0 };
+  const src = from.kind === 'vault' ? { kind: 'vault', p: from.p, q: from.q, tile: from.tile, gen: from.gen } : { kind: 'holding', p: from.p, q: from.q, site: from.site, gen: from.gen ?? 0 };
   return act('SendCaravan', { v: { seq, src, dst, provinces: plan.provinces },
     fields: { seq, ...placeData(dst), steps: plan.dirs.length, path: pack(plan.dirs), cargo: cargoBytes(cargo), fee: CARAVAN_FEE },
     order: orderOf('s1-caravan', 'SendCaravan', { say: () => L`隊商が出発しました` }) });
@@ -1707,7 +1732,7 @@ function garrisonOrder(n) {
 /** Form submissions (data-form). */
 export const FORMS = {
   // S1 (screens/s1.mjs)
-  's1-caravan': f => s1Caravan(Math.trunc(formNum(f, 'dst')), Array.from({ length: 8 }, (_, i) => Math.max(0, Math.trunc(formNum(f, `c${i}`) || 0)))),
+  's1-caravan': f => s1Caravan(Math.trunc(formNum(f, 'src') || 0), Math.trunc(formNum(f, 'dst')),Array.from({ length: 8 }, (_, i) => Math.max(0, Math.trunc(formNum(f, `c${i}`) || 0)))),
   's1-fort': f => {
     const h = activeHolding(FS), troops = Math.trunc(formNum(f, 'troops')), tile = Math.trunc(formNum(f, 'tile'));
     if (!h) return s1Refused(L`村を選んでください`);

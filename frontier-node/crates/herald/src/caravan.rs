@@ -135,6 +135,43 @@ impl Caravans {
         true
     }
 
+    /// A Vault's post-transaction bytes (the local node's feed): its stores
+    /// and cap, in whole units, on its entry (`stores`, `cap`), so its owner
+    /// can send a caravan from it and anyone can see what a seizure would
+    /// take (a vault is public, like a caravan). A Vault the transaction
+    /// closed (`None` bytes at a listed vault's address) leaves the list.
+    /// `false` when nothing changed.
+    pub fn vault_bytes(&mut self, key: Option<(i32, i32, u8)>, data: Option<&[u8]>) -> bool {
+        use frontier_abi::v2::layout::s1::vault as VA;
+        let rd = |d: &[u8], o: usize| -> Option<i64> { Some(i64::from_le_bytes(d.get(o..o + 8)?.try_into().ok()?)) };
+        let Some(d) = data else {
+            return key.is_some_and(|k| self.vaults.remove(&k).is_some());
+        };
+        if d.get(..8) != Some(&VA::MAGIC[..]) {
+            return false;
+        }
+        let at = |o: usize| d.get(o..o + 2).map(|b| i16::from_le_bytes([b[0], b[1]]) as i32);
+        let (Some(p), Some(q), Some(&tile), Some(&state)) = (at(VA::P), at(VA::Q), d.get(VA::TILE), d.get(VA::STATE)) else {
+            return false;
+        };
+        if state != VA::STATE_LIVE {
+            return self.vaults.remove(&(p, q, tile)).is_some();
+        }
+        let units = |m: i64| (m.max(0) / 1_000).min(u32::MAX as i64);
+        let stores: Vec<i64> = (0..8).map(|r| rd(d, VA::store(r)).map_or(0, units)).collect();
+        let cap = rd(d, VA::CAP).map_or(0, units);
+        let Some(v) = self.vaults.get_mut(&(p, q, tile)) else {
+            return false;
+        };
+        if v.get("stores") == Some(&json!(stores)) && v.get("cap") == Some(&json!(cap)) {
+            return false;
+        }
+        v["stores"] = json!(stores);
+        v["cap"] = json!(cap);
+        self.dirty = true;
+        true
+    }
+
     /// `h/caravans.json`.
     pub fn file(&self) -> Value {
         json!({
