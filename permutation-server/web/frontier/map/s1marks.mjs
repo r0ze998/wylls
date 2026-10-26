@@ -36,7 +36,32 @@ export const S1_WORDS = Object.freeze({
 });
 /** A caravan's tag: when it arrives. */
 // (the cart's place is an estimate between its two ends; the tag says so, so nobody plans an ambush on a guess)
-export const caravanTagText = (bell, raided = false) => (raided ? L`略奪された隊商 ターン ${fmtNum(bell)} 着` : L`隊商 ターン ${fmtNum(bell)} 着 · 位置は推定`);
+export const caravanTagText = (bell, raided = false, held = false) => (held ? L`略奪で止まった隊商（荷の行き先が決まるまで）`
+  : raided ? L`略奪された隊商 ターン ${fmtNum(bell)} 着` : L`隊商 ターン ${fmtNum(bell)} 着 · 位置は推定`);
+
+/** caravan.rs `caravan_id`: a caravan's id in a Province's slot. */
+export const caravanId = (ownerTag, seq) => (1n << 63n) | ((BigInt(ownerTag) & 0x7fffffffffffn) << 16n) | (BigInt(seq) & 0xffffn);
+/** caravan.rs RAID_NONE, RAID_SETTLED: a slot's raid offset with no raid open. */
+const RAID_NONE = 0xff, RAID_SETTLED = 0xfe;
+
+/**
+ * The caravans an open raid holds, from the decoded Provinces' slots (`provinces`: FS.provinces, envelope → province):
+ * id → the raid's tile `{p, q, tile}`. The feed says `raided` only once the raid is settled; until then the cart stands
+ * at the raid's tile, not on its way.
+ */
+export function heldByRaids(provinces) {
+  const out = new Map();
+  for (const env of provinces?.values?.() ?? []) {
+    const prov = env?.province;
+    for (const s of prov?.caravans ?? []) {
+      const id = BigInt(s.id ?? 0), off = Number(s.raidOff);
+      if (id === 0n || off === RAID_NONE || off === RAID_SETTLED) continue;
+      const tile = Number(s.tiles?.[off] ?? s.tiles?.[String(off)]);
+      if (Number.isInteger(tile)) out.set(id, { p: prov.p, q: prov.q, tile });
+    }
+  }
+  return out;
+}
 
 /** The bell a caravan arrives at: after its last run (the bells it spends in each province on its way). */
 export function caravanArriveBell(c) {
@@ -65,7 +90,8 @@ const isOwn = (tag, own) => own !== null && own !== undefined && BigInt(tag) ===
  * `cover` (tile indices of its province). `own` is the viewer's citizen tag
  * (bigint) or null; `bell` the bell now.
  */
-export function s1Marks(s1, { own = null, bell = null } = {}) {
+export function s1Marks(s1, { own = null, bell = null, provinces = null } = {}) {
+  const held = heldByRaids(provinces);
   const out = { vaults: [], structures: [], caravans: [] };
   if (!s1) return out;
   for (const v of s1.caravans?.vaults ?? []) out.vaults.push({ kind: 'vault', p: v.p, q: v.q, tile: v.tile, faction: v.faction, own: isOwn(v.ownerTag, own), ownerTag: v.ownerTag });
@@ -76,9 +102,10 @@ export function s1Marks(s1, { own = null, bell = null } = {}) {
   }
   for (const c of s1.caravans?.moving ?? []) {
     const end = x => ({ p: x.p, q: x.q, tile: x.tile });
+    const at = held.get(caravanId(c.ownerTag, c.seq)) ?? null;
     out.caravans.push({
-      kind: 'caravan', ownerTag: c.ownerTag, seq: c.seq, faction: c.faction, own: isOwn(c.ownerTag, own), raided: c.raided,
-      from: end(c.src), to: end(c.dst), cargo: c.cargo, share: caravanShare(c, bell), arriveBell: caravanArriveBell(c),
+      kind: 'caravan', ownerTag: c.ownerTag, seq: c.seq, faction: c.faction, own: isOwn(c.ownerTag, own), raided: c.raided || !!at, held: !!at,
+      from: at ?? end(c.src), to: at ?? end(c.dst), cargo: c.cargo, share: at ? 0 : caravanShare(c, bell), arriveBell: caravanArriveBell(c),
     });
   }
   return out;

@@ -238,6 +238,14 @@ test('the marks: the feeds\' vaults, structures and caravans, the viewer\'s own 
   assert.equal(MARKS.s1Marks(s1, { own: 18446744073709551615n }).caravans[0].own, true, 'tags compare exactly beyond 2^53');
   assert.equal(MARKS.s1Marks(s1).caravans[0].share, null, 'no bell, no place');
   assert.deepEqual(MARKS.s1Marks(null), { vaults: [], structures: [], caravans: [] });
+  // a raid open on it holds the cart at the raid's tile until it is settled (s1-season-2: a held caravan read "arrives turn 151" at turn 347)
+  const slot = { id: MARKS.caravanId(BigInt(c.ownerTag), c.seq), raidOff: 1, tiles: [10, 11, 12, 0, 0, 0, 0, 0] };
+  const provinces = new Map([['3,4', { province: { p: 3, q: 4, caravans: [{ id: 0n }, slot] } }]]);
+  const held = MARKS.s1Marks(s1, { bell: 400, provinces }).caravans[0];
+  assert.deepEqual([held.held, held.raided, held.from, held.to, held.share], [true, true, { p: 3, q: 4, tile: 11 }, { p: 3, q: 4, tile: 11 }, 0]);
+  assert.match(String(MARKS.caravanTagText(held.arriveBell, held.raided, held.held)), /略奪で止まった/);
+  const settledSlot = new Map([['3,4', { province: { p: 3, q: 4, caravans: [{ ...slot, raidOff: 0xfe }] } }]]);
+  assert.equal(MARKS.s1Marks(s1, { bell: 400, provinces: settledSlot }).caravans[0].held, false, 'a settled raid holds nothing');
   const p = MARKS.caravanPoint({ ...c, share: 0.5 });
   assert.ok(Math.abs(p.x - (p.a.x + p.b.x) / 2) < 1e-9 && Math.abs(p.y - (p.a.y + p.b.y) / 2) < 1e-9);
 });

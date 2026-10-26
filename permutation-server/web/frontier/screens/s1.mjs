@@ -26,7 +26,7 @@ import { hostParts } from '../faddr.mjs';
 import { ringOf, wedgeOf } from '../fgeo.mjs';
 import { ownTag } from '../people/ui.mjs';
 import { MAX_VAULTS, VAULT_COST } from '../fcaravan.mjs';
-import { S1_WORDS, caravanArriveBell } from '../map/s1marks.mjs';
+import { S1_WORDS, caravanArriveBell, caravanId } from '../map/s1marks.mjs';
 import { cardHead, chip, fold, label } from './parts.mjs';
 import { swatch } from './shell.mjs';
 
@@ -84,8 +84,7 @@ export function expelOffer(FS, sel) {
 }
 const NATIONS = 6;
 
-/** caravan.rs `caravan_id`: a caravan's id in a Province's slot. */
-export const caravanId = (ownerTag, seq) => (1n << 63n) | ((BigInt(ownerTag) & 0x7fffffffffffn) << 16n) | (BigInt(seq) & 0xffffn);
+export { caravanId };
 
 /** The viewer's citizen tag (bigint) or null (people/ui.mjs ownTag). */
 export const viewerTag = FS => ownTag(FS);

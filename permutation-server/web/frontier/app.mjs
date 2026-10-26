@@ -1888,7 +1888,8 @@ function s1MarksNow() {
   if (!s1) return null;
   const bell = FS.nowBell ?? null;
   if (s1Memo?.c !== s1.caravans || s1Memo.s !== s1.structures || s1Memo.bell !== bell || s1Memo.n !== FS.holdings?.length) {
-    s1Memo = { c: s1.caravans, s: s1.structures, bell, n: FS.holdings?.length, marks: s1Marks(s1, { own: ownTag(FS), bell }) };
+    // (the provinces' caravan slots say which caravans an open raid holds; they are read again at the next bell)
+    s1Memo = { c: s1.caravans, s: s1.structures, bell, n: FS.holdings?.length, marks: s1Marks(s1, { own: ownTag(FS), bell, provinces: FS.provinces }) };
   }
   return s1Memo.marks;
 }
