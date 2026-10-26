@@ -403,6 +403,29 @@ pub fn on_record(f: &mut Fold, tx: &TxRecord, body: &[u8]) -> bool {
         return false;
     };
     let AnyKind::Cq(kind) = r.kind else {
+        // S1: an M1 kind whose links name an entity M1's decoder does not
+        // know (the CLOSE of a settled Caravan, a Vault or a Structure) is
+        // an event like M1's, not a bad record.
+        if let AnyKind::V1(k) = r.kind {
+            if frontier_abi::log::decode(body).is_err() {
+                f.st.events += 1;
+                let scope = match crate::records::province_of_record(k, r.key) {
+                    Some((p, q)) => Scope::Province(p, q),
+                    None => Scope::None,
+                };
+                f.diffs.push(Diff {
+                    kind: "event",
+                    key: crate::records::record_key(k, r.key),
+                    slot: tx.slot,
+                    head: None,
+                    bytes: body.to_vec(),
+                    scope,
+                    t_ms: 0,
+                    wire: Default::default(),
+                });
+                return true;
+            }
+        }
         return false;
     };
     let mut cq = Cq::take(f);

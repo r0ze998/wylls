@@ -771,3 +771,42 @@ fn cq_resolve_replay_checks_the_post_state() {
     assert!(f.cq.alarms.conquest_mismatch >= 1, "{:?}", f.cq.alarms);
     let _ = std::fs::remove_dir_all(&d);
 }
+
+/// S1: a settled Caravan's CLOSE (an M1 kind) links the Caravan entity,
+/// which M1's decoder does not know. It is an event, not a bad record
+/// (s1-season-2 counted every settled caravan's close as one).
+#[test]
+fn cq_a_close_linking_an_s1_entity_is_an_event_not_a_bad_record() {
+    use frontier_abi::v2::layout::AccountKind;
+    let mut body = vec![1u8, frontier_abi::log::Kind::CLOSE as u8];
+    body.extend(5u32.to_le_bytes());
+    body.push(AccountKind::Caravan as u8);
+    body.extend([7u8; 15]);
+    body.extend([0u8; 80]);
+    body.push(1);
+    body.push(v2log::EntityKind::Caravan as u8);
+    body.extend(3u64.to_le_bytes());
+    body.extend([9u8; 32]);
+    assert!(
+        frontier_abi::log::decode(&body).is_err(),
+        "beyond M1's decoder"
+    );
+    assert!(v2log::decode(&body).is_ok());
+    let mut txs = cqfixture::mini_season();
+    let mut tx = txs.last().unwrap().clone();
+    tx.seq += 1;
+    tx.slot += 1;
+    tx.signature = fclient::ports::Signature::from([0xC1; 64]);
+    tx.logs = fclient::log::in_frame(&cqfixture::program(), [log_line(&body)]);
+    tx.post.clear();
+    let d0 = tmp("cqclose0");
+    let events = fold_all(&d0, &txs).st.events;
+    txs.push(tx);
+    let d1 = tmp("cqclose1");
+    let f = fold_all(&d1, &txs);
+    assert_eq!(f.st.alarms.bad_records, 0, "{:?}", f.st.alarms);
+    assert_eq!(f.cq.alarms.bad_records, 0);
+    assert_eq!(f.st.events, events + 1, "the close is one more event");
+    let _ = std::fs::remove_dir_all(&d0);
+    let _ = std::fs::remove_dir_all(&d1);
+}
