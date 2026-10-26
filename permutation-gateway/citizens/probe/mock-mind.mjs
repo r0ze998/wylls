@@ -13,8 +13,9 @@
 //   1. an S1 caravan the brain offers (a store over 80 % of its cap), at most once every CARAVAN_EVERY turns per citizen;
 //   2. an S1 march: an escort of the citizen's own caravan, else an ambush of another nation's caravan;
 //   3. a march to a barbarian camp the brain calls favourable, when the citizen has no march on the road;
-//   4. the workshop, then any other build, train or muster the brain offers;
-//   5. otherwise the routine (autopilot, the brain's own economy and duties).
+//   4. a muster the brain offers (troops in reserve become a host), then a train (troops for the next host);
+//   5. the workshop, then any other build;
+//   6. otherwise the routine (autopilot, the brain's own economy and duties).
 // A parameter takes the first value the brain allows. Loopback only; one bearer token; bodies at most 1 MiB.
 import { createServer } from 'node:http';
 import { appendFileSync, readFileSync } from 'node:fs';
@@ -37,9 +38,13 @@ export function choose(req, last = new Map()) {
   const onRoad = Array.isArray(req?.own_marches) && req.own_marches.some(m => m && m.opened === null);
   const camp = cs.find(c => kind(c) === 'march' && c?.facts?.target_kind === 'camp' && c?.facts?.ratio === 'favourable');
   if (camp && !onRoad) return { id: camp.id, why: 'camp' };
+  const muster = byKind('muster');
+  if (muster) return { id: muster.id, why: 'muster' };
+  const train = byKind('train');
+  if (train) return { id: train.id, why: 'train' };
   const workshop = byKind('build:workshop');
   if (workshop) return { id: workshop.id, why: 'workshop' };
-  const econ = cs.find(c => /^(build|walls|train|muster)/.test(kind(c)));
+  const econ = cs.find(c => /^(build|walls)/.test(kind(c)));
   if (econ) return { id: econ.id, why: 'economy' };
   const auto = cs.find(c => kind(c) === 'autopilot');
   return { id: auto?.id ?? cs[0]?.id ?? 'c1', why: 'routine' };

@@ -174,19 +174,26 @@ impl Caravans {
             .get(VA::OWNER_CITIZEN..VA::OWNER_CITIZEN + 32)
             .and_then(|b| <[u8; 32]>::try_from(b).ok())
             .map(|b| fclient::Address::new_from_array(b).to_string());
+        // and its faction: VAULT_SEIZED names the captor's tag but not its faction
+        let faction = d.get(VA::FACTION).copied();
         let Some(v) = self.vaults.get_mut(&(p, q, tile)) else {
             return false;
         };
-        let new = json!({"stores": stores, "cap": cap, "ownerCitizen": owner});
-        if ["stores", "cap", "ownerCitizen"]
+        let mut new = json!({"stores": stores, "cap": cap, "ownerCitizen": owner});
+        if let Some(f) = faction {
+            new["faction"] = json!(f);
+        }
+        if ["stores", "cap", "ownerCitizen", "faction"]
             .iter()
-            .all(|k| v.get(*k) == new.get(*k))
+            .all(|k| new.get(*k).is_none() || v.get(*k) == new.get(*k))
         {
             return false;
         }
-        v["stores"] = json!(stores);
-        v["cap"] = json!(cap);
-        v["ownerCitizen"] = json!(owner);
+        for k in ["stores", "cap", "ownerCitizen", "faction"] {
+            if let Some(x) = new.get(k) {
+                v[k] = x.clone();
+            }
+        }
         self.dirty = true;
         true
     }
@@ -371,6 +378,7 @@ mod tests {
         d[VA::Q..VA::Q + 2].copy_from_slice(&q.to_le_bytes());
         d[VA::TILE] = tile;
         d[VA::STATE] = state;
+        d[VA::FACTION] = owner[0] % 6;
         d[VA::OWNER_CITIZEN..VA::OWNER_CITIZEN + 32].copy_from_slice(&owner);
         for (r, v) in stores.iter().enumerate() {
             d[VA::store(r)..VA::store(r) + 8].copy_from_slice(&v.to_le_bytes());
@@ -404,7 +412,7 @@ mod tests {
             40,
             VA::STATE_LIVE,
             [0, 100_500, 0, 0, 0, 7_000, 0, -3],
-            [5; 32],
+            [7; 32],
         );
         assert!(c.vault_bytes(None, Some(&d)));
         assert!(c.dirty);
@@ -417,8 +425,47 @@ mod tests {
         assert_eq!(v["cap"], json!(5000));
         assert_eq!(
             v["ownerCitizen"],
-            json!(fclient::Address::new_from_array([5; 32]).to_string())
+            json!(fclient::Address::new_from_array([7; 32]).to_string())
         );
+        assert_eq!(v["faction"], json!(1));
+        // seized (s1-season-2): VAULT_SEIZED names the captor's tag; its faction comes with the bytes
+        c.fold(&CqEvent::VaultSeized {
+            p: 3,
+            q: 0,
+            tile: 40,
+            captor_tag: 99,
+            prev_tag: 77,
+            new_gen: 2,
+            domestic: false,
+            host_id: 0,
+        });
+        let seized = vault_account(
+            3,
+            0,
+            40,
+            VA::STATE_LIVE,
+            [0, 100_500, 0, 0, 0, 7_000, 0, 0],
+            [8; 32],
+        );
+        assert!(c.vault_bytes(None, Some(&seized)));
+        let v = &c.file()["vaults"][0];
+        assert_eq!(
+            (
+                v["ownerTag"].clone(),
+                v["gen"].clone(),
+                v["faction"].clone()
+            ),
+            (json!("99"), json!(2), json!(2))
+        );
+        let d = vault_account(
+            3,
+            0,
+            40,
+            VA::STATE_LIVE,
+            [0, 100_500, 0, 0, 0, 7_000, 0, -3],
+            [7; 32],
+        );
+        assert!(c.vault_bytes(None, Some(&d)));
         // the same bytes again change nothing; a closed vault (no bytes, or not live) leaves the list
         c.dirty = false;
         assert!(!c.vault_bytes(None, Some(&d)));

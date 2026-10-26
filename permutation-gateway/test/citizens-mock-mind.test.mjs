@@ -18,8 +18,9 @@ test('the rule prefers an S1 caravan, then an escort or ambush, then a favourabl
   assert.deepEqual(choose(req([...base, c('c7', 'march', { target_kind: 'ambush' })])), { id: 'c7', why: 's1-ambush' });
   assert.equal(choose(req([...base, c('c7', 'march', { target_kind: 'ambush' }), c('c8', 'march', { target_kind: 'escort' })])).id, 'c8', 'an escort before an ambush');
   assert.equal(choose(req(base)).id, 'c3');
-  assert.equal(choose(req(base, { own_marches: [{ opened: null }] })).id, 'c4', 'no second camp march while one is on the road');
-  assert.equal(choose(req([c('c1', 'autopilot'), c('c5', 'train:spearman')])).id, 'c5');
+  assert.equal(choose(req(base, { own_marches: [{ opened: null }] })).id, 'c5', 'no second camp march while one is on the road: troops first');
+  assert.equal(choose(req([...base.slice(0, 2), c('c4', 'build:workshop'), c('c5', 'train:spearman'), c('c6', 'muster:spearman')])).id, 'c6', 'a muster before a train');
+  assert.equal(choose(req([c('c1', 'autopilot'), c('c4', 'build:workshop')])).id, 'c4');
   assert.deepEqual(choose(req([c('c1', 'autopilot'), c('c2', 'hold')])), { id: 'c1', why: 'routine' });
   assert.deepEqual(paramsOf(base[2]), { stance: 'hold', retreat: 0 });
 });

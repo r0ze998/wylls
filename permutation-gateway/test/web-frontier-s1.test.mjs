@@ -584,6 +584,10 @@ test('a host on another\'s storehouse or structure offers to seize it; a fightin
   assert.match(String(SCR.shortText(poor.cost, poor.have)), /金 400/);
   const capped = SCR.siegeOffer({ ...sfs, citizen: { ...sfs.citizen, siegeDay: 0, siegesToday: 2 } }, { p: 0, q: 0, idx: 5 });
   assert.deepEqual(capped.blocks, ['SiegeCap']);
+  // a village still under its shield (s1-season-2: a new Borealis village, shielded to turn 147, was offered a siege)
+  const shield = prov(0, 0, { siteMirror: [{ state: 1, faction: 2, shieldUntilBell: 147 }], entries: [{ ...mine, tile: 5 }] });
+  assert.deepEqual(SCR.siegeOffer(world({ provinces: new Map([['0,0', { province: shield }]]) }), { p: 0, q: 0, idx: 5 }).blocks, ['Shielded']);
+  assert.deepEqual(SCR.siegeOffer(world({ nowBell: 147, provinces: new Map([['0,0', { province: shield }]]) }), { p: 0, q: 0, idx: 5 }).blocks, []);
   assert.match(String(SCR.renderS1Tile(sfs, { p: 0, q: 0, idx: 5 })), /data-act="s1-siege"[^>]*data-tile="5"/);
 });
 

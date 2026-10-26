@@ -216,7 +216,10 @@ export function siegeOffer(FS, sel) {
   const cost = [0, 0, 0, 0, SIEGE_ARMS, SIEGE_STAKE_GOLD, 0, 0];
   const c = FS.citizen ?? {};
   const today = Math.floor(Number(FS.chain?.now?.() ?? 0) / 86400);
+  // a village under its shield (the mirror's SHIELD_UNTIL_BELL; a new village's protection) is refused `Shielded`
+  const shielded = state === SITE_HOLDING && Number(mirror.shieldUntilBell ?? 0) > Number(FS.nowBell ?? 0);
   const blocks = [
+    ...(shielded ? ['Shielded'] : []),
     ...(entry < 0 ? ['NoFighterHere'] : []),
     ...(src && shortOf(cost, have).length ? ['Insufficient'] : []),
     ...(Number(c.siegeDay ?? -1) === today && Number(c.siegesToday ?? 0) >= SIEGES_PER_DAY ? ['SiegeCap'] : []),
