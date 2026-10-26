@@ -286,6 +286,8 @@ pub fn classify_failure(kind: &str, err: &str) -> (&'static str, &'static str) {
         // S1: both keepers settle a caravan (or a raid's default) in the same
         // slot; the first closes the Caravan, the second finds it gone.
         ("SettleCaravan" | "DefaultRaid", "BadAccount") => ("redundancy", "a/b race"),
+        // the other keeper settled the proposal first: it is no longer open
+        ("SettleProposal", "ProposalState") => ("redundancy", "a/b race"),
         (_, "AlreadyDone") => ("redundancy", "duplicate"),
         // M1 exit U4: a claim's versions pile up while `defence-pool` holds
         // the pool and land together when it ends; the first sets
@@ -3416,6 +3418,12 @@ mod tests {
             ("redundancy", "a/b race")
         );
         assert_eq!(classify_failure("Build", "BadAccount").0, "unclassified");
+        // ... and on a proposal's (s1-season-2: two keepers, two proposals, two refusals).
+        assert_eq!(
+            classify_failure("SettleProposal", "ProposalState"),
+            ("redundancy", "a/b race")
+        );
+        assert_eq!(classify_failure("Propose", "ProposalState").0, "unclassified");
         // Seen in the U4 R3 run.
         assert_eq!(classify_failure("SkipQuiet", "OutOfOrder").0, "expected");
         assert_eq!(
