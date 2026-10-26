@@ -960,7 +960,7 @@ function proposalOf(v, at) {
  * `/h/nations.json` → `{v: 1, stances[6][6] (0 war, 1 pass, 2 ally),
  * proposals: [{faction, id, slot, kind, targetFaction, value, proposerTag,
  * targetTag, openBell, closeBell, yes, no, state}], expelled: [{tag, faction,
- * since}], domesticRaids: [{ownerTag, seq, p, q, bell, raiderHost,
+ * since, holdings: [{p, q, site}]}], domesticRaids: [{ownerTag, seq, p, q, bell, raiderHost,
  * raiderTag}]}`, checked.
  */
 export function parseNations(input) {
@@ -979,7 +979,13 @@ export function parseNations(input) {
     expelled: arrOf(o, 'expelled', 'file').map((e, i) => {
       const a = `expelled[${i}]`;
       const eo = objOf(e, a);
-      return { tag: decOf(eo, 'tag', a), faction: intOf(eo, 'faction', 0, FACTION_MAX, a), since: intOf(eo, 'since', 0, U32, a) };
+      // the village's holdings as the expulsion named them ([p, q, site]; absent from an older herald): a
+      // readmission names the village's Citizen, read from one of them
+      const holdings = eo.holdings === undefined ? [] : arrOf(eo, 'holdings', a).map((h, j) => {
+        check(Array.isArray(h) && h.length === 3, 'BadSchema', `${a}.holdings[${j}] is not [p, q, site]`);
+        return { p: intOf(h, 0, -COORD, COORD, a), q: intOf(h, 1, -COORD, COORD, a), site: intOf(h, 2, 0, 11, a) };
+      });
+      return { tag: decOf(eo, 'tag', a), faction: intOf(eo, 'faction', 0, FACTION_MAX, a), since: intOf(eo, 'since', 0, U32, a), holdings };
     }),
     domesticRaids: arrOf(o, 'domesticRaids', 'file').map((r, i) => {
       const a = `domesticRaids[${i}]`;

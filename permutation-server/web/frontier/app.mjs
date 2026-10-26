@@ -3284,7 +3284,7 @@ export function w4Bind(name, value) {
 /** The play actions that send something to the chain: a refusal of one offers "try again" (hud/status.mjs). */
 export const SENDS = Object.freeze(new Set(['harvest', 'build', 'train', 'muster', 'garrison', 'dissolve', 'join', 'session', 'auto-ticket', 'nudge', 'explore-send', 'settle-explore', 'settle-transit', 'march-send',
   // S1 (screens/s1.mjs)
-  's1-vault', 's1-structure', 's1-raid', 's1-vote', 's1-seize', 's1-siege',
+  's1-vault', 's1-structure', 's1-raid', 's1-vote', 's1-seize', 's1-siege', 's1-expel', 's1-readmit',
   // (orders of the prototype rule "banners": to the sample world only)
   'proto-raise', 'proto-dress', 'proto-tend', 'proto-take', 'proto-pull', 'proto-strike']));
 /** Send the refused action once more, as it was (`FS.lastAct`: its name and data, or a form's name and values). */

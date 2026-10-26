@@ -39,7 +39,7 @@ import { emit as fxEmit } from './fx/bus.mjs';
 import { reachOrigins } from './screens/conquest.mjs';
 import { s1On } from './fs1.mjs';
 import { fastestPath, pack, landsWanted, landOfProvince, CARAVAN_FEE } from './fcaravan.mjs';
-import { raidOffers, s1VillageModel, s1TileModel, siegeOffer, caravanProblem, KIND, PROPOSE_STANCE } from './screens/s1.mjs';
+import { raidOffers, s1VillageModel, s1TileModel, siegeOffer, expelOffer, caravanProblem, KIND, PROPOSE_STANCE, PROPOSE_EXPEL, PROPOSE_READMIT } from './screens/s1.mjs';
 import { placeData, raidProvinces, cargoBytes, RAID_CHOICE } from './fplay.mjs';
 import { cachedReach, reachKey, reachableKeeps } from './fkeepreach.mjs';
 import * as fprize from './fprize.mjs';
@@ -1496,6 +1496,16 @@ async function s1Siege(d) {
     fields: { site: o.site, entry: o.entry, nearby_site: near ? near.site : 0 },
     order: orderOf('s1-siege', 'DeclareSiege', { tile: { p: sel.p, q: sel.q, tile: sel.idx }, say: () => L`${word}の包囲を宣言しました` }) });
 }
+/** Propose the expulsion (KIND_EXPEL) or the readmission (KIND_READMIT) of a village of the viewer's nation, named by one of its holdings. */
+async function s1ProposeVillage(kind, at) {
+  if (!at) return s1Refused(L`この村の情報をまだ読み込んでいません`);
+  busy(() => L`村の持ち主を確かめています…`);
+  const r = await herald.holding(at.p, at.q, at.site);
+  if (!r.ok) return failed(r);
+  const faction = FS.citizen?.faction;
+  return act('Propose', { v: { faction, target: r.holding.ownerCitizen }, fields: { kind, target_faction: faction, value: 0 },
+    say: () => (kind === PROPOSE_EXPEL ? L`村の追放を提案しました` : L`村を国に戻す提案をしました`) });
+}
 /** RaidCaravan: the viewer's host won a raid; take the caravan home or burn its load. */
 async function s1Raid(d) {
   const r = raidOffers(FS).find(x => x.p === num(d.p) && x.q === num(d.q) && x.slot === num(d.slot));
@@ -1547,6 +1557,17 @@ export const ACTIONS = {
   's1-raid': d => s1Raid(d),
   's1-seize': d => s1Seize(d),
   's1-siege': d => s1Siege(d),
+  's1-expel': d => {
+    const o = expelOffer(FS, { p: num(d.p), q: num(d.q), idx: FS.provinces.get(`${num(d.p)},${num(d.q)}`)?.province?.sites?.[num(d.site)] });
+    if (!o) return s1Refused(L`この村は追放を提案できません`);
+    if (o.blocks.length) return failed({ code: o.blocks[0] === 'Expelled' ? 'NotVoter' : o.blocks[0] });
+    return s1ProposeVillage(PROPOSE_EXPEL, { p: o.p, q: o.q, site: o.site });
+  },
+  's1-readmit': d => {
+    const x = s1VillageModel(FS).nation?.out.find(e => String(e.tag) === String(d.tag));
+    if (!x?.readmittable) return s1Refused(L`この村はまだ国に戻す提案ができません`);
+    return s1ProposeVillage(PROPOSE_READMIT, x.holdings[0]);
+  },
   's1-vote': d => act('Vote', { v: { faction: FS.citizen?.faction }, fields: { slot: num(d.slot), id: num(d.id), yes: num(d.yes) ? 1 : 0 },
     say: () => (num(d.yes) ? L`賛成に投票しました` : L`反対に投票しました`) }),
   'cq-march': async d => {

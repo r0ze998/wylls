@@ -18,7 +18,7 @@ import { L, fmtNum } from '../../lang.mjs';
 import { icon } from '../hud/icons.mjs';
 import { RESOURCES, RESOURCE_ORDER, errorText, factionName } from '../fi18n.mjs';
 import { storesAt, hostOfHolding, SCOUT } from '../fland.mjs';
-import { SIEGE_ARMS } from '../fs1.mjs';
+import { SIEGE_ARMS, s1On } from '../fs1.mjs';
 import { settled, shortOf } from '../hud/rulebook.mjs';
 import { activeHolding } from '../fstate.mjs';
 import { keepFromProvince } from '../fconquest.mjs';
@@ -54,6 +54,31 @@ export const PROPOSE_STANCE = 1;
 export const ELIGIBLE_BELLS = 288;
 /** nation.rs PROPOSALS: open proposals a nation holds at once. */
 export const NATION_PROPOSALS = 4;
+/** nation.rs READMIT_BELLS: an expelled village may be proposed back once it has been out this long. */
+export const READMIT_BELLS = 432;
+/** nation.rs KIND_EXPEL, KIND_READMIT. */
+export const PROPOSE_EXPEL = 2, PROPOSE_READMIT = 3;
+
+/**
+ * Proposing to expel the village on a chosen site (nation.rs KIND_EXPEL): a
+ * village of the viewer's own nation, not the viewer's, not expelled already.
+ * `{p, q, site, blocks}` or null. The village's Citizen is read from its
+ * Holding when the order is sent; the program checks the rest.
+ */
+export function expelOffer(FS, sel) {
+  if (!sel || !Number.isInteger(sel.idx) || !s1On()) return null;
+  const prov = FS.provinces?.get?.(`${sel.p},${sel.q}`)?.province ?? null;
+  const n = Math.min(Number(prov?.siteCount ?? 0), 12);
+  const j = Array.from(prov?.sites ?? []).slice(0, n).indexOf(sel.idx);
+  const mirror = j >= 0 ? prov.siteMirror?.[j] : null;
+  const faction = FS.citizen?.faction;
+  if (!mirror || Number(mirror.state) !== SITE_HOLDING || Number(mirror.faction) !== faction) return null;
+  if ((FS.holdings ?? []).some(h => h.p === sel.p && h.q === sel.q && h.site === j)) return null;
+  const nation = s1VillageModel(FS).nation;
+  if (!nation) return null;
+  const blocks = [...(nation.expelled ? ['Expelled'] : []), ...(!nation.eligible ? ['NotVoter'] : []), ...(nation.full ? ['ProposalsFull'] : [])];
+  return { p: sel.p, q: sel.q, site: j, blocks };
+}
 const NATIONS = 6;
 
 /** caravan.rs `caravan_id`: a caravan's id in a Province's slot. */
@@ -268,6 +293,8 @@ export function s1VillageModel(FS) {
     toward: Array.from({ length: NATIONS }, (_, f) => (f === faction ? null : { faction: f, stance: STANCES[n.stances?.[f]?.[faction] ?? 0] })).filter(Boolean),
     proposals: open.map(x => ({ ...x, voted: voted[x.slot] === x.id, closesIn: x.closeBell - Number(FS.nowBell ?? 0) })),
     decided: (n.proposals ?? []).filter(x => x.faction === faction && (x.state === 'passed' || x.state === 'failed')).slice(-4).reverse(),
+    // the nation's expelled villages; one may be proposed back after READMIT_BELLS (nation.rs readmittable)
+    out: (n.expelled ?? []).filter(x => x.faction === faction).map(x => ({ ...x, readmitAt: Number(x.since) + READMIT_BELLS, readmittable: Number(x.since) + READMIT_BELLS <= Number(FS.nowBell ?? 0), named: (x.holdings ?? []).length > 0 })),
     expelled: !!(FS.citizen?.expelledSince && BigInt(FS.citizen.expelledSince) !== 0n),
   } : null;
   return { vaults, caravans, structures, sources, destinations, forts, spearmen, nation, have: haveOf(FS, h), holding: h };
@@ -318,6 +345,11 @@ export function renderS1Tile(FS, sel) {
     <p>${L`このマスに立つあなたの軍勢が、持ち主に代わってこの${target.word}を自分のものにします。持ち主の軍勢がいると奪えません。`}</p>
     <div class="actions">${btn('s1-seize', { p: m.p, q: m.q, tile: m.idx, what: target.kind }, L`${target.word}を奪う`, { primary: true, disabled: m.seize.blocks.length > 0 })}</div>
     ${m.seize.blocks.length ? html`<p class="blocked">${m.seize.blocks.map(blockText).join(' / ')}</p>` : ''}</div>` : '';
+  const eo = expelOffer(FS, sel);
+  const expel = eo ? html`<div class="s1-expel">${label(L`国の議会に提案する`)}
+    <p>${L`この村は同じ国の村です。国から追放する提案を出すと、国の村が1日のあいだ投票します。追放された村は、国の村の柵に止められるようになり、投票も提案もできなくなります。`}</p>
+    <div class="actions">${btn('s1-expel', { p: eo.p, q: eo.q, site: eo.site }, L`この村の追放を提案する`, { disabled: eo.blocks.length > 0 })}</div>
+    ${eo.blocks.length ? html`<p class="blocked">${eo.blocks.map(b => (b === 'Expelled' ? L`あなたの村は国を追放されているため、投票も提案もできません。` : errorText(b))).join(' / ')}</p>` : ''}</div>` : '';
   const so = siegeOffer(FS, sel);
   const siege = so ? html`<div class="s1-siege">${label(so.freeCity ? L`自由都市を包囲する` : L`この村を包囲する`)}
     <p>${so.freeCity ? L`包囲が続けば自由都市を取り、あなたの村になります。` : L`包囲が続けば、最初の村なら占領、ほかの村なら奪取になります。`} ${L`宣言には軍勢の村から金 ${fmtNum(SIEGE_STAKE_GOLD)}（包囲の結果で返るか失われます）と兵器 ${fmtNum(SIEGE_ARMS)} を使います。宣言は公開され、守り手に知らされます。`}</p>
@@ -328,7 +360,7 @@ export function renderS1Tile(FS, sel) {
     ${offer('s1-vault', { p: m.p, q: m.q, tile: m.idx }, L`${S1_WORDS.vault()}を建てる`, m.build.vault)}
     ${m.build.structures.map(o => offer('s1-structure', { p: m.p, q: m.q, tile: m.idx, kind: o.kind }, L`${kindWord(o.kind)}を建てる`, o))}</ul>
     <p class="muted">${L`費用は選んでいる村の蔵から払います。物見櫓はまわりの動きを知らせ、柵と要塞は通る敵を止めます。`}</p>`)}`;
-  return html`<div class="s1-tile">${here.length ? html`<ul class="list s1-here">${here}</ul>` : ''}${raids}${seize}${siege}${build}</div>`;
+  return html`<div class="s1-tile">${here.length ? html`<ul class="list s1-here">${here}</ul>` : ''}${raids}${seize}${siege}${expel}${build}</div>`;
 }
 
 /** The village's S1 card (screens/holding.mjs). */
@@ -366,6 +398,8 @@ export function renderS1Village(FS) {
     <ul class="list s1-stances">${n.stances.map(x => html`<li>${swatch(x.faction)}${factionName(x.faction)}: ${stanceText(x.stance)}</li>`)}</ul>
     ${n.proposals.length ? html`${label(L`投票中の議題`)}<ul class="list">${n.proposals.map(x => html`<li>${proposalText(x)} <span class="muted">${x.closesIn > 0 ? L`賛成 ${fmtNum(x.yes)} · 反対 ${fmtNum(x.no)} · あと ${fmtNum(x.closesIn)} ターン` : L`賛成 ${fmtNum(x.yes)} · 反対 ${fmtNum(x.no)} · 締め切り（集計を待っています）`}</span>
       ${x.voted ? chip(L`投票済み`, 'ok', 'check') : x.closesIn > 0 ? html`<span class="actions">${btn('s1-vote', { slot: x.slot, id: x.id, yes: 1 }, L`賛成`, { disabled: n.expelled || !n.eligible })}${btn('s1-vote', { slot: x.slot, id: x.id, yes: 0 }, L`反対`, { disabled: n.expelled || !n.eligible })}</span>` : ''}</li>`)}</ul>` : ''}
+    ${n.out.length ? html`${label(L`追放された村`)}<ul class="list">${n.out.map(x => html`<li>${L`ターン ${fmtNum(x.since)} に追放`}
+      ${x.readmittable && x.named ? btn('s1-readmit', { tag: x.tag }, L`国に戻す提案をする`, { disabled: n.expelled || !n.eligible || n.full }) : html`<span class="muted">${x.named ? L`ターン ${fmtNum(x.readmitAt)} から戻す提案ができます` : L`この村の情報をまだ読み込んでいません`}</span>`}</li>`)}</ul>` : ''}
     ${n.decided.length ? html`${label(L`決まった議題`)}<ul class="list">${n.decided.map(x => html`<li>${proposalText(x)} ${x.state === 'passed' ? chip(L`可決`, 'ok', 'check') : chip(L`否決`, 'warn')} <span class="muted">${L`賛成 ${fmtNum(x.yes)} · 反対 ${fmtNum(x.no)}`}</span></li>`)}</ul>` : ''}
     ${n.expelled ? html`<p class="blocked">${L`あなたの村は国を追放されているため、投票も提案もできません。`}</p>`
       : !n.eligible ? html`<p class="blocked">${n.eligibleAt === null ? L`投票と提案は、国に加わってから ${fmtNum(ELIGIBLE_BELLS)} ターン後にできるようになります。` : L`投票と提案は、ターン ${fmtNum(n.eligibleAt)} からできます（国に加わってから ${fmtNum(ELIGIBLE_BELLS)} ターン）。`}</p>`

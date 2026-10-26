@@ -587,6 +587,44 @@ test('a host on another\'s storehouse or structure offers to seize it; a fightin
   assert.match(String(SCR.renderS1Tile(sfs, { p: 0, q: 0, idx: 5 })), /data-act="s1-siege"[^>]*data-tile="5"/);
 });
 
+test('a village of one\'s own nation offers an expulsion, an expelled one a readmission once it has been out long enough', async () => {
+  const saved = { ...FS };
+  const sent = [];
+  const V = JSON.parse(readFileSync(new URL('./fixtures/s1-addresses-v1.json', import.meta.url), 'utf8'));
+  io.setPin({ programId: V.program, cluster: 'localnet', seasonId: V.seasonId, rulesetHash: rulesetFor(3) });
+  S1.setS1({ layoutVersion: 2, programVersion: 4 });
+  const owner = '11111111111111111111111111111112';
+  try {
+    // site 0 (tile 5): another village of the viewer's nation (faction 1); site 1 (tile 6): another nation's
+    const P = prov(0, 0, { siteMirror: [{ state: 1, faction: 1 }, { state: 1, faction: 2 }] });
+    const nations = { ...C.s1Fresh('nations'), expelled: [{ tag: '44', faction: 1, since: 10, holdings: [{ p: 2, q: 0, site: 3 }] }, { tag: '45', faction: 1, since: 290, holdings: [] }] };
+    const base = world({ provinces: new Map([['0,0', { province: P }]]), nowBell: 450, citizen: { ...world().citizen, joinBell: 0 }, holdings: [holding(0, 0, 11, 30), holding(1, 0, 2, 20)] });
+    base.s1 = { ...base.s1, nations };
+    const o = SCR.expelOffer(base, { p: 0, q: 0, idx: 5 });
+    assert.deepEqual([o.site, o.blocks], [0, []]);
+    assert.equal(SCR.expelOffer(base, { p: 0, q: 0, idx: 6 }), null, 'another nation\'s village');
+    assert.deepEqual(SCR.expelOffer({ ...base, nowBell: 100 }, { p: 0, q: 0, idx: 5 }).blocks, ['NotVoter']);
+    assert.match(String(SCR.renderS1Tile(base, { p: 0, q: 0, idx: 5 })), /data-act="s1-expel"[^>]*data-site="0"/);
+    const out = SCR.s1VillageModel(base).nation.out;
+    assert.deepEqual(out.map(x => [x.tag, x.readmittable, x.readmitAt, x.named]), [['44', true, 442, true], ['45', false, 722, false]]);
+    assert.match(String(SCR.renderS1Village(base)), /data-act="s1-readmit"[^>]*data-tag="44"/);
+    Object.assign(FS, base, { wallet: { address: 'Gh9ZwEmdLJ8DscKNTkTqPbNwLNNBjuSzaG9Vp2KGtKJr' }, session: { publicKey: V.program, sign: async () => new Uint8Array(64) }, notice: null, inFlight: 0 });
+    C.useTransport({ submit: async req => { sent.push(req); return { ok: false, code: 'Stop' }; } });
+    const asked = [];
+    C.useHerald({ holding: async (p, q, site) => { asked.push([p, q, site]); return { ok: true, holding: { ownerCitizen: owner, order: 1, gen: 1 } }; } });
+    await C.ACTIONS['s1-expel']({ p: '0', q: '0', site: '0' });
+    await C.ACTIONS['s1-readmit']({ tag: '44' });
+    await C.ACTIONS['s1-readmit']({ tag: '45' });
+    assert.deepEqual(asked, [[0, 0, 0], [2, 0, 3]]);
+    assert.deepEqual(sent.map(s => [s.name, s.fields.kind, s.fields.target_faction, s.accounts.target]), [['Propose', SCR.PROPOSE_EXPEL, 1, owner], ['Propose', SCR.PROPOSE_READMIT, 1, owner]]);
+  } finally {
+    C.useTransport(null);
+    C.useHerald(null);
+    S1.setS1(null);
+    Object.assign(FS, saved);
+  }
+});
+
 test('a seizure and a siege are sent as SeizeVault and DeclareSiege, the owner read from the herald; one send per order', async () => {
   const saved = { ...FS };
   const sent = [];
