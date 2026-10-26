@@ -21,6 +21,8 @@ test('the rule prefers an S1 caravan, then an escort or ambush, then a favourabl
   assert.equal(choose(req(base, { own_marches: [{ opened: null }] })).id, 'c5', 'no second camp march while one is on the road: troops first');
   assert.equal(choose(req([...base.slice(0, 2), c('c4', 'build:workshop'), c('c5', 'train:spearman'), c('c6', 'muster:spearman')])).id, 'c6', 'a muster before a train');
   assert.equal(choose(req([c('c1', 'autopilot'), c('c4', 'build:workshop')])).id, 'c4');
+  assert.equal(choose(req([c('c1', 'autopilot'), c('c4', 'build:workshop')]), new Map(), new Set(['aa'])).id, 'c1', 'one workshop per citizen');
+  assert.equal(choose(req([c('c1', 'autopilot'), c('c4', 'build:workshop'), c('c7', 'build:ore')])).id, 'c7', 'an ore mine first');
   assert.deepEqual(choose(req([c('c1', 'autopilot'), c('c2', 'hold')])), { id: 'c1', why: 'routine' });
   assert.deepEqual(paramsOf(base[2]), { stance: 'hold', retreat: 0 });
 });

@@ -439,6 +439,12 @@ test('the village offers caravans to its other places, its fort, and its nation\
   assert.equal(SCR.caravanProblem(m.sources[0], m.destinations[1], Array(8).fill(0)), 'NoCargo');
   assert.equal(SCR.caravanProblem(m.sources[1], m.destinations[1], [0, 5, 0, 0, 0, 0, 0, 0]), 'Insufficient');
   assert.equal(SCR.caravanProblem(m.sources[0], m.destinations[2], [0, 5, 0, 0, 0, 0, 0, 0]), null);
+  // a village whose workshops eat all its ore says so (it can no longer train)
+  assert.equal(m.oreStarved, false);
+  const starving = { ...fs, holdings: fs.holdings.map((h, i) => (i ? h : { ...h, production: [0, 0, 0, 0, 4000, 0, 0, 0],
+    stores: h.stores.map((s, r) => (r === 3 ? { ...s, value: 0n, rate: -4000n } : s)) })) };
+  assert.equal(SCR.s1VillageModel(starving).oreStarved, true);
+  assert.match(String(SCR.renderS1Village(starving)), /鉱山を建てるまで訓練できなくなります/);
   // nation.rs `eligible`: a village votes and proposes once it has been in the season ELIGIBLE_BELLS (288)
   assert.equal(SCR.ELIGIBLE_BELLS, 288);
   assert.deepEqual([m.nation.eligible, m.nation.eligibleAt], [false, null], 'no join bell read: not offered');

@@ -863,6 +863,7 @@ export default {
   '村（占領）': 'village (occupation)',
   '村（奪取）': 'village (capture)',
   '{0}の包囲を宣言しました': 'Declared the siege of the {0}',
+  '工房が鉱石をすべて使っていて、鉱石が増えていません。兵の訓練にも鉱石が要るので、鉱山を建てるまで訓練できなくなります。': 'The workshops use all the ore and the ore does not grow. Training needs ore too, so troops cannot be trained until a mine is built.',
   '国の議会に提案する': 'Propose to the nation\'s council',
   'この村は同じ国の村です。国から追放する提案を出すと、国の村が1日のあいだ投票します。追放された村は、国の村の柵に止められるようになり、投票も提案もできなくなります。': 'This village is of your own nation. A proposal to expel it is voted on by the nation\'s villages for one day. An expelled village is stopped by the nation\'s palisades and can neither vote nor propose.',
   'この村の追放を提案する': 'Propose to expel this village',

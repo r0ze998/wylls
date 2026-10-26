@@ -300,7 +300,16 @@ export function s1VillageModel(FS) {
     out: (n.expelled ?? []).filter(x => x.faction === faction).map(x => ({ ...x, readmitAt: Number(x.since) + READMIT_BELLS, readmittable: Number(x.since) + READMIT_BELLS <= Number(FS.nowBell ?? 0), named: (x.holdings ?? []).length > 0 })),
     expelled: !!(FS.citizen?.expelledSince && BigInt(FS.citizen.expelledSince) !== 0n),
   } : null;
-  return { vaults, caravans, structures, sources, destinations, forts, spearmen, nation, have: haveOf(FS, h), holding: h };
+  // the workshops eat the ore (arms.rs: 8 ore an hour each against a village's base 4) and every unit costs ore: a
+  // village whose ore no longer grows can make arms but cannot train (s1-season-2: every player's village did this)
+  let oreStarved = false;
+  if (h) {
+    const now = FS.chain?.now?.() ?? 0;
+    const ore = storesAt(settled(h, now), now, RESOURCE_ORDER)[RESOURCE_ORDER.indexOf('Ore')];
+    // (production[4]: the Horses slot, the workshops' arms under S1)
+    oreStarved = Number(h.production?.[4] ?? 0) > 0 && !!ore && ore.perHour <= 0 && ore.value < 100;
+  }
+  return { vaults, caravans, structures, sources, destinations, forts, spearmen, nation, have: haveOf(FS, h), holding: h, oreStarved };
 }
 
 /** Two places are the same (a caravan cannot go where it starts). */
@@ -413,6 +422,7 @@ export function renderS1Village(FS) {
       <p class="muted">${L`提案は1日のあいだ投票を受け、賛成が3票以上かつ反対より多ければ決まります。`}</p></form>`}` : '';
   return html`<section class="vcard vcard-folds s1-card" aria-labelledby="s1-title">
     ${cardHead({ id: 's1-title', ic: 'flag', title: L`交易と防備` })}
+    ${m.oreStarved ? html`<p class="blocked">${L`工房が鉱石をすべて使っていて、鉱石が増えていません。兵の訓練にも鉱石が要るので、鉱山を建てるまで訓練できなくなります。`}</p>` : ''}
     ${caravans}${owned}
     ${fold('s1-send', html`${icon('flag')}${L`隊商を送る`}`, send)}
     ${fort ? fold('s1-fort', html`${icon('shield')}${L`要塞に兵を入れる`}`, fort) : ''}

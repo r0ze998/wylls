@@ -14,7 +14,9 @@
 //   2. an S1 march: an escort of the citizen's own caravan, else an ambush of another nation's caravan;
 //   3. a march to a barbarian camp the brain calls favourable, when the citizen has no march on the road;
 //   4. a muster the brain offers (troops in reserve become a host), then a train (troops for the next host);
-//   5. the workshop, then any other build;
+//   5. an ore mine, then one workshop per citizen, then any other build (a workshop uses 8 ore an hour against a
+//      village's base 4, and every unit costs ore: in s1-season-2 the stand-in built a workshop at once and the
+//      AI villages could never train again);
 //   6. otherwise the routine (autopilot, the brain's own economy and duties).
 // A parameter takes the first value the brain allows. Loopback only; one bearer token; bodies at most 1 MiB.
 import { createServer } from 'node:http';
@@ -23,8 +25,11 @@ import { appendFileSync, readFileSync } from 'node:fs';
 const CARAVAN_EVERY = 12;
 const BODY_MAX = 1 << 20;
 
-/** The choice for one /v1/decide request: `{id, why}` (pure; tested). `last` maps a citizen's tag to its last caravan bell. */
-export function choose(req, last = new Map()) {
+/**
+ * The choice for one /v1/decide request: `{id, why}` (pure; tested). `last` maps a citizen's tag to its last caravan
+ * bell; `workshops` the citizens that chose a workshop already.
+ */
+export function choose(req, last = new Map(), workshops = new Set()) {
   const cs = Array.isArray(req?.candidates) ? req.candidates : [];
   const kind = c => String(c?.kind ?? '');
   const tag = String(req?.ai?.tag ?? '');
@@ -42,9 +47,11 @@ export function choose(req, last = new Map()) {
   if (muster) return { id: muster.id, why: 'muster' };
   const train = byKind('train');
   if (train) return { id: train.id, why: 'train' };
+  const ore = byKind('build:ore');
+  if (ore) return { id: ore.id, why: 'ore' };
   const workshop = byKind('build:workshop');
-  if (workshop) return { id: workshop.id, why: 'workshop' };
-  const econ = cs.find(c => /^(build|walls)/.test(kind(c)));
+  if (workshop && !workshops.has(tag)) return { id: workshop.id, why: 'workshop' };
+  const econ = cs.find(c => /^(build|walls)/.test(kind(c)) && kind(c) !== 'build:workshop');
   if (econ) return { id: econ.id, why: 'economy' };
   const auto = cs.find(c => kind(c) === 'autopilot');
   return { id: auto?.id ?? cs[0]?.id ?? 'c1', why: 'routine' };
@@ -80,6 +87,16 @@ function main() {
   const log = arg('--log');
   const write = o => appendFileSync(log, `${JSON.stringify({ t: new Date().toISOString(), ...o })}\n`);
   const last = new Map();
+  const workshops = new Set();
+  // a restart keeps what the log says was chosen (a workshop per citizen, the last caravan)
+  try {
+    for (const line of readFileSync(log, 'utf8').split('\n')) {
+      if (!line) continue;
+      const d = JSON.parse(line);
+      if (d.kind === 'decide' && d.chose?.why === 'workshop') workshops.add(String(d.ai ?? ''));
+      if (d.kind === 'decide' && d.chose?.why === 's1-caravan') last.set(String(d.ai ?? ''), Number(d.bell ?? 0));
+    }
+  } catch { /* no log yet */ }
   let n = 0;
   const server = createServer((rq, rs) => {
     const send = (code, body) => { rs.writeHead(code, { 'content-type': 'application/json' }); rs.end(JSON.stringify(body)); };
@@ -91,10 +108,11 @@ function main() {
       let req;
       try { req = JSON.parse(Buffer.concat(parts).toString('utf8')); } catch { return send(400, { ok: false }); }
       if (rq.url === '/v1/decide') {
-        const pick = choose(req, last);
+        const pick = choose(req, last, workshops);
         const a = answerOf(req, pick, ++n);
         const c = (req.candidates ?? []).find(x => x.id === pick.id);
         if (pick.why === 's1-caravan') last.set(String(req.ai?.tag ?? ''), Number(req.bell ?? 0));
+        if (pick.why === 'workshop') workshops.add(String(req.ai?.tag ?? ''));
         write({ kind: 'decide', mock: true, decision_id: a.decision_id, ai: req.ai?.tag, index: req.ai?.index, bell: req.bell, obs_digest: req.obs_digest,
           offered: (req.candidates ?? []).map(x => `${x.id}:${x.kind}${x.facts?.target_kind ? `/${x.facts.target_kind}` : ''}`),
           chose: { id: pick.id, kind: c?.kind ?? null, label: c?.label ?? null, why: pick.why, params: a.choice.params[pick.id] ?? {} } });
