@@ -729,7 +729,13 @@ fn economy_offers(inp: &Inputs) -> Vec<Offer> {
     if policy::queue_free(h, now) {
         // The 2 cheapest affordable buildings, distinct; S1: the workshop
         // is always among the offers while affordable (its arms are what
-        // the doctrine's strong unit needs; `Rules::needs_arms`).
+        // the doctrine's strong unit needs; `Rules::needs_arms`), and so is
+        // an ore producer while the workshops eat all the ore (a workshop
+        // uses 8 ore an hour against a village's base 4, and every unit
+        // costs ore: in s1-season-2 every AI village's ore stopped at 0
+        // after its first workshop, and it never trained again).
+        let ore = Resource::Ore as usize;
+        let starved = h.production[arms::ARMS as usize] > 0 && h.stores[ore].rate <= 0;
         let mut b: Vec<(i64, u8, [i64; RESOURCES])> = vec![];
         for &item in rules.building_items() {
             let n = policy::copies(h, item, now) + 1;
@@ -740,6 +746,9 @@ fn economy_offers(inp: &Inputs) -> Vec<Offer> {
                 let total: i64 = cost.iter().sum();
                 let total = if item == arms::ITEM_WORKSHOP {
                     i64::MIN
+                } else if starved && item as usize == ore {
+                    // (the ore producer: building item = its resource's index)
+                    i64::MIN + 1
                 } else {
                     total
                 };

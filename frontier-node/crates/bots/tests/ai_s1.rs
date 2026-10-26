@@ -482,3 +482,38 @@ fn no_caravan_without_a_full_store_or_a_second_village() {
             .any(|o| o.cand.kind == "caravan")
     );
 }
+
+/// A village whose workshops eat all its ore (s1-season-2: every AI village
+/// after its first workshop) is offered an ore producer among its builds,
+/// and only then.
+#[test]
+fn an_ore_producer_is_offered_while_the_workshops_starve_the_ore() {
+    let ds = day();
+    let offers = |starve: bool| -> Vec<String> {
+        let mut obs = observe(S1, AGENT, |_| {});
+        let now = obs.now;
+        let h = &mut obs.me.holdings[0].1;
+        for a in h.stores.iter_mut() {
+            a.value = 5_000_000;
+            a.t0 = now;
+            a.frac = 0;
+        }
+        if starve {
+            h.production[permutation_rules::frontier::arms::ARMS as usize] = 4_000;
+            h.stores[3].value = 0;
+            h.stores[3].rate = -4_000;
+        }
+        brain::candidates_with(&inputs(&obs, &ds), &Side::default())
+            .into_iter()
+            .map(|o| o.cand.kind)
+            .filter(|k| k.starts_with("build:"))
+            .collect()
+    };
+    let starved = offers(true);
+    assert!(starved.iter().any(|k| k == "build:ore"), "{starved:?}");
+    let fed = offers(false);
+    assert!(
+        !fed.iter().any(|k| k == "build:ore") || fed.len() <= 2,
+        "{fed:?}"
+    );
+}
