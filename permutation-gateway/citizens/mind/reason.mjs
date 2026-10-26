@@ -33,6 +33,7 @@ const UNIT_WORDS = [
   ['stone', /^stone$/i],
   ['ore', /^ore$/i],
   ['horses', /^horses$/i],
+  ['arms', /^arms$/i],
   ['gold', /^gold$/i],
   ['science', /^science$/i],
   ['influence', /^influence$/i],

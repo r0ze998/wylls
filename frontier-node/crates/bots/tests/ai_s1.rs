@@ -517,3 +517,19 @@ fn an_ore_producer_is_offered_while_the_workshops_starve_the_ore() {
         "{fed:?}"
     );
 }
+
+/// The situation names the stores for the mind: slot 4 is arms in an S1
+/// season (the s1-model-1 prompts said "horses 47" for the workshops' arms).
+#[test]
+fn the_situation_names_slot_four_arms_in_an_s1_season() {
+    let ds = day();
+    let s1 = observe(S1, AGENT, |_| {});
+    let sit = brain::situation(&inputs(&s1, &ds), (0, 0));
+    assert_eq!(sit["resources"][4], "arms");
+    assert_eq!(sit["resources"][3], "ore");
+    let mc = observe(MC, AGENT, |_| {});
+    assert_eq!(
+        brain::situation(&inputs(&mc, &ds), (0, 0))["resources"][4],
+        "horses"
+    );
+}

@@ -645,6 +645,16 @@
           "q": 0
         }
       ],
+      "resources": [
+        "food",
+        "wood",
+        "stone",
+        "ore",
+        "horses",
+        "gold",
+        "science",
+        "influence"
+      ],
       "secs_left": 580700
     },
     "v": 1,

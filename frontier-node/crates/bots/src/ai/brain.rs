@@ -1034,6 +1034,29 @@ fn host_json(r: &HostRow, h: &Holding, bell: u32) -> Value {
     Value::Object(o)
 }
 
+/// The stores' names in slot order (`situation.resources`; the mind prints them).
+pub const RESOURCE_NAMES: [&str; RESOURCES] = [
+    "food",
+    "wood",
+    "stone",
+    "ore",
+    "horses",
+    "gold",
+    "science",
+    "influence",
+];
+/// ... in an S1 season, whose slot 4 holds arms.
+pub const RESOURCE_NAMES_S1: [&str; RESOURCES] = [
+    "food",
+    "wood",
+    "stone",
+    "ore",
+    "arms",
+    "gold",
+    "science",
+    "influence",
+];
+
 /// The situation of §4.2 (numbers with units, filled by code). `my_clashes`
 /// is `[]`: the files `observe` reads carry no loss figures; the mind adds
 /// the clash facts from its feed (AC3a-NOTES.md, deviations).
@@ -1093,7 +1116,14 @@ pub fn situation(inp: &Inputs, quota: (u32, u32)) -> Value {
         .citizen
         .as_ref()
         .map_or(0, |(_, c)| c.bucket_milli / 1_000);
+    // The stores' names in slot order: an S1 season's slot 4 is arms (the workshops' output), not horses.
+    let resources = if super::s1::s1(obs) {
+        RESOURCE_NAMES_S1
+    } else {
+        RESOURCE_NAMES
+    };
     json!({
+        "resources": resources,
         "bell": bell,
         "day": bell / BELLS_PER_DAY,
         "bell_in_day": bell % BELLS_PER_DAY,
