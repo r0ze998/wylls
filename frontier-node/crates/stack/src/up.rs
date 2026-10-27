@@ -371,6 +371,11 @@ pub fn keeper_toml(
     ) + &backup_delay
         .map(|d| format!("backup_delay_slots = {d}\n"))
         .unwrap_or_default()
+        + if which == 'a' && cfg.keeper_rest {
+            "rest = true\n"
+        } else {
+            ""
+        }
 }
 
 pub struct Stack {

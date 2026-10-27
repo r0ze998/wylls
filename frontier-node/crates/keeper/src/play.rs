@@ -139,6 +139,10 @@ pub struct ProvState {
     /// proof), so it is gathered (no-arrival fast path) and resolved at
     /// once instead of skipped.
     pub contested: bool,
+    /// Map growth (`KeeperConfig::rest`): how far the Province's own bytes
+    /// let it rest (`frontier_abi::rest_model::rest_limit`); `rn` (or 0)
+    /// when it does not rest.
+    pub rest_to: u32,
 }
 
 /// An anchor as the play duties need it.
@@ -168,6 +172,9 @@ pub struct PlayStats {
     pub resolves: u64,
     pub skips: u64,
     pub skipped_bells: u64,
+    /// Map growth: FastForwards landed and the bells they planned.
+    pub fast_forwards: u64,
+    pub rested_bells: u64,
     pub not_quiet: u64,
     pub settles: u64,
     pub closes: u64,
@@ -233,6 +240,9 @@ pub struct PlayDuty {
     pub conquest: crate::conquest::ConquestDuty,
     /// Provinces a horn named, read at once and planned this tick (§8.2 horn watcher).
     cq_front: BTreeSet<(i16, i16)>,
+    /// Map growth (`KeeperConfig::rest`): per resting Province, the first
+    /// bell from `resolved_next` not yet seen closed and clear.
+    rest_seen: BTreeMap<(i16, i16), u32>,
 }
 
 fn rkey((host, b): (u64, u32)) -> String {
@@ -392,6 +402,19 @@ impl PlayDuty {
                 }
             }
             ("skip", Outcome::Landed { .. }) => self.stats.skips += 1,
+            // key ff:P,Q:b0:to — the Province is at `to` (or nearer, if the
+            // proof stopped earlier): read it again before planning more.
+            ("ff", Outcome::Landed { .. }) => {
+                self.stats.fast_forwards += 1;
+                if let Some(s) = key
+                    .split(':')
+                    .nth(1)
+                    .and_then(parse_pq)
+                    .and_then(|pq| self.provinces.get_mut(&pq))
+                {
+                    s.read_slot = 0;
+                }
+            }
             ("skip", Outcome::Failed { code, .. }) if *code == Some(abi::err::NOT_QUIET) => {
                 // key skip:P,Q:b0:n
                 self.stats.not_quiet += 1;
@@ -635,6 +658,7 @@ impl PlayDuty {
                     leave_ops: vec![],
                     last_digest: [0; 32],
                     contested: false,
+                    rest_to: 0,
                 });
         }
         // The horn watcher (MC §8.2): a province a horn named is read at
@@ -657,6 +681,7 @@ impl PlayDuty {
                 leave_ops: vec![],
                 last_digest: [0; 32],
                 contested: false,
+                rest_to: 0,
             });
             e.read_slot = 0;
         }
@@ -729,6 +754,19 @@ impl PlayDuty {
                 fs.sort_unstable();
                 fs.dedup();
                 s.contested = fs.len() >= 2 || cq_hot;
+                // Map growth: how far the bytes let it rest (never when hot).
+                s.rest_to = match (t.cfg.rest, &t.season.conquest, pv.cq.is_some()) {
+                    (true, Some(cq), true) if !s.contested => {
+                        let prm = frontier_abi::conquest_model::StepParams {
+                            genesis_ts: t.season.genesis_ts,
+                            end_bell: t.season.end_bell,
+                            cq: *cq,
+                        };
+                        frontier_abi::rest_model::rest_limit(&raw, u32::MAX, &prm)
+                            .unwrap_or(pv.resolved_next)
+                    }
+                    _ => pv.resolved_next,
+                };
                 // A nudge holds until the province is resolved through
                 // b − 2 (resident actions allowed).
                 let target = self
@@ -1618,7 +1656,8 @@ impl PlayDuty {
                 k.contains(&format!(":{pk}:"))
                     && (k.starts_with("gather")
                         || k.starts_with("resolve")
-                        || k.starts_with("skip"))
+                        || k.starts_with("skip")
+                        || k.starts_with("ff"))
             }) {
                 continue;
             }
@@ -1637,6 +1676,12 @@ impl PlayDuty {
                 continue;
             }
             if !t.cfg.has_role("skip") {
+                continue;
+            }
+            // Map growth: a resting Province waits until something wakes it.
+            if t.cfg.rest && s.rest_to > b {
+                self.rest(t, port, engine, beacon, pq, &s, b, now_bell)
+                    .await?;
                 continue;
             }
             // A run of closed, clear bells from b.
@@ -1702,6 +1747,112 @@ impl PlayDuty {
                     self.conquest.stats.fold_skips += 1;
                 }
             }
+        }
+        Ok(())
+    }
+
+    /// Map growth (`KeeperConfig::rest`, `docs/frontier/map-growth/
+    /// keeper-load-rules.ja.md` §2): a resting Province is not written every
+    /// turn. Its closed, clear bells are noted as they come (`rest_seen`);
+    /// it is fast-forwarded (FastForward) only when something wakes it: the
+    /// end of its rest (a settle or change due, the season's end), an
+    /// arrival bit, its target bell (a nudge, a departure, an arrival
+    /// ahead), an urgent fold or a horn. The caller checked bell `b`
+    /// (closed, clear, not contested).
+    #[allow(clippy::too_many_arguments)]
+    async fn rest<P: ChainPort>(
+        &mut self,
+        t: &Tick<'_>,
+        port: &P,
+        engine: &mut Engine,
+        beacon: &BTreeMap<(u32, u8), AnchorInfo>,
+        pq: (i16, i16),
+        s: &ProvState,
+        b: u32,
+        now_bell: u32,
+    ) -> PortResult<()> {
+        use frontier_abi::v2::prologue::FAST_FORWARD_EVIDENCE_MAX as EV_MAX;
+        let end = s.rest_to.min(t.season.end_bell);
+        let limit = end.min(now_bell);
+        let mut seen = self.rest_seen.get(&pq).copied().unwrap_or(0).max(b + 1);
+        let mut arrival = false;
+        while seen < limit {
+            let Some(a) = self.anchor(t, port, beacon, seen, s.region).await? else {
+                break;
+            };
+            let close = t.clock.reveal_close(seen, a.a);
+            if t.now < close {
+                break;
+            }
+            if self.day_bit(t, port, pq, seen, Some(close)).await? {
+                arrival = true;
+                break;
+            }
+            seen += 1;
+        }
+        self.rest_seen.insert(pq, seen);
+        let wake = arrival
+            || seen >= end
+            || self.skip_target(pq, s).is_some_and(|tb| tb < seen)
+            || self.conquest.fold_urgent.contains(&pq)
+            || self.cq_front.contains(&pq);
+        if !wake {
+            return Ok(());
+        }
+        // The evidence for b..to as `fast_forward` lays it out: the days'
+        // ArrivalDays, an anchor per bell or one archive per half day.
+        let mut srcs: Vec<AnchorSource> = vec![];
+        let (mut n, mut last_day, mut last_part) = (0usize, None, None);
+        for bb in b..seen {
+            let Some(a) = self.anchor(t, port, beacon, bb, s.region).await? else {
+                break;
+            };
+            let src = Self::src(&a);
+            let day = bb / abi::BELLS_PER_DAY;
+            let part = fclient::addr::archive_part(bb);
+            let more = usize::from(last_day != Some(day))
+                + match src {
+                    AnchorSource::Anchor => 1,
+                    AnchorSource::Archive => usize::from(last_part != Some(part)),
+                };
+            if n + more > EV_MAX as usize {
+                break;
+            }
+            n += more;
+            last_day = Some(day);
+            last_part = matches!(src, AnchorSource::Archive).then_some(part);
+            srcs.push(src);
+        }
+        let to = b + srcs.len() as u32;
+        if to <= b {
+            return Ok(());
+        }
+        let pk = format!("{},{}", pq.0, pq.1);
+        let key = format!("ff:{pk}:{b}:{to}");
+        let a = t.addrs.clone();
+        let dest = (pq.0 as i32, pq.1 as i32);
+        if engine.ensure(
+            WriteSpec {
+                key: key.clone(),
+                kind: "ff",
+                tag: tag::FAST_FORWARD,
+                class: Class::D,
+                bell: Some(b),
+                region: Some(s.region),
+                build: Arc::new(move |c: &BuildCtx| {
+                    vec![ix2::fast_forward(&a, c.payer, dest, b, to, &srcs)]
+                }),
+                deadline_slot: None,
+                not_before_slot: t.slot + self.jitter(t),
+                fixed_payer: None,
+            },
+            t.slot,
+        ) {
+            engine.set_cu_limit(
+                &key,
+                frontier_abi::v2::budgets::budget(frontier_abi::v2::Ix::FastForward).cu_limit,
+            );
+            self.stats.rested_bells += (to - b) as u64;
         }
         Ok(())
     }
@@ -2511,6 +2662,8 @@ impl PlayDuty {
             "reveals_missed": s.reveals_missed,
             "departures_settled": s.departures_settled, "gathers": s.gathers,
             "resolves": s.resolves, "skips": s.skips, "skipped_bells": s.skipped_bells,
+            "fast_forwards": s.fast_forwards, "rested_bells": s.rested_bells,
+            "resting": self.provinces.values().filter(|p| p.rest_to > p.rn).count(),
             "not_quiet": s.not_quiet, "settles": s.settles, "closes": s.closes,
             "claims": s.claims, "returns": s.returns,
             "provinces_tracked": self.provinces.len(),
@@ -2591,6 +2744,7 @@ mod review_tests {
             leave_ops: vec![],
             last_digest: [0; 32],
             contested: false,
+            rest_to: 0,
         }
     }
 
@@ -3204,6 +3358,7 @@ mod w6t_tests {
             leave_ops: vec![],
             last_digest: [0; 32],
             contested: false,
+            rest_to: 0,
         };
         let mut batches = vec![];
         // Bells close one by one; a skip goes out when the scheduler says

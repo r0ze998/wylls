@@ -1337,6 +1337,107 @@ mod tests {
         assert!(e.keys("gather:").is_empty());
     }
 
+    /// The anchors of `from..to` and a play tick after the last one closed.
+    async fn play_through(e: &mut Env, d: &mut PlayDuty, slot: &mut u64, from: u32, to: u32) {
+        for b in from..to {
+            e.anchor(b, fclient::ix::region_of(3, 0));
+        }
+        *slot += 4;
+        e.play(d, *slot, after_close(to - 1), &[(3, 0)]).await;
+    }
+
+    /// A FastForward planned under `key`: its data and account count.
+    fn ff_of(e: &Env, key: &str) -> (frontier_abi::v2::ix::FastForward, usize) {
+        let (class, tg, ix) = e.preview(key);
+        assert_eq!((class, tg), (Class::D, fclient::abi::tag::FAST_FORWARD));
+        let x = frontier_abi::v2::ix::FastForward::decode(&ix[0].data).unwrap();
+        (x, ix[0].accounts.len())
+    }
+
+    /// Map growth (stage 3, `KeeperConfig::rest`): with `rest` off a
+    /// peaceful S1 Province scores every turn (one SkipQuiet per closed
+    /// turn, as before); with it on, the same Province writes nothing while
+    /// bells close. An arrival bit wakes it: one FastForward from
+    /// `resolved_next`, its evidence capped at 28 accounts (one ArrivalDay
+    /// and 27 anchors), then — once that landed — a second one to the
+    /// arrival's bell. Near the season's end it is fast-forwarded to the end.
+    #[tokio::test]
+    async fn rest_writes_nothing_until_something_wakes_it() {
+        let (p, q) = (3i16, 0i16);
+        let b0 = 200u32;
+        let mut pd = testkit::province_v2(p, q, b0);
+        testkit::set_keep(&mut pd, 30, 2, 24);
+        // off: the turn is scored at once
+        let mut e = env(&["gather", "resolve", "skip"], 1_008);
+        e.put(e.addrs.province(3, 0), pd.clone());
+        let mut d = PlayDuty::default();
+        let mut slot = 10u64;
+        play_through(&mut e, &mut d, &mut slot, b0, b0 + 1).await;
+        assert_eq!(e.keys("skip:"), vec![format!("skip:{p},{q}:{b0}:1")]);
+        // on: nothing while it rests
+        let mut e = env(&["gather", "resolve", "skip"], 1_008);
+        e.cfg.rest = true;
+        e.put(e.addrs.province(3, 0), pd.clone());
+        let mut d = PlayDuty::default();
+        for b in b0..b0 + 30 {
+            play_through(&mut e, &mut d, &mut slot, b, b + 1).await;
+            assert!(
+                e.keys("skip:").is_empty() && e.keys("ff:").is_empty(),
+                "bell {b}: a resting Province writes nothing"
+            );
+        }
+        assert!(d.provinces[&(p, q)].rest_to > b0 + 30);
+        // an arrival at b0 + 33 (day 1) wakes it
+        let arr = b0 + 33;
+        let mut day = testkit::arrival_day();
+        let (at, m) = frontier_abi::layout::clash::arrival_day::bit(arr);
+        day[at] |= m;
+        e.put(e.addrs.arrival_day(3, 0, arr / 144), day);
+        play_through(&mut e, &mut d, &mut slot, b0 + 30, arr + 1).await;
+        let first = format!("ff:{p},{q}:{b0}:{}", b0 + 27);
+        assert_eq!(e.keys("ff:"), vec![first.clone()]);
+        let (x, n) = ff_of(&e, &first);
+        assert_eq!((x.to, x.days, n), (b0 + 27, 1, 3 + 1 + 27));
+        assert!(e.keys("skip:").is_empty());
+        // it landed: the Province is at b0 + 27; the next one reaches the arrival
+        e.engine.cancel(&first);
+        testkit::set_resolved_next(&mut pd, b0 + 27);
+        e.put(e.addrs.province(3, 0), pd.clone());
+        d.on_outcome(
+            &first,
+            &Outcome::Landed {
+                slot,
+                sig: Default::default(),
+                payer: Address::default(),
+                versions: 1,
+                first_slot: slot,
+                already_done: false,
+            },
+        );
+        assert_eq!(d.stats.fast_forwards, 1);
+        slot += 4;
+        e.play(&mut d, slot, after_close(arr), &[(3, 0)]).await;
+        let second = format!("ff:{p},{q}:{}:{arr}", b0 + 27);
+        assert_eq!(e.keys("ff:"), vec![second.clone()]);
+        assert_eq!(ff_of(&e, &second).0.to, arr);
+        // the season's end wakes a Province that rested to it
+        let mut e = env(&["gather", "resolve", "skip"], b0 + 20);
+        e.cfg.rest = true;
+        let pd = {
+            let mut pd = testkit::province_v2(p, q, b0);
+            testkit::set_keep(&mut pd, 30, 2, 24);
+            pd
+        };
+        e.put(e.addrs.province(3, 0), pd);
+        let mut d = PlayDuty::default();
+        play_through(&mut e, &mut d, &mut slot, b0, b0 + 19).await;
+        assert!(e.keys("ff:").is_empty(), "the end not reached yet");
+        play_through(&mut e, &mut d, &mut slot, b0 + 19, b0 + 20).await;
+        let end = format!("ff:{p},{q}:{b0}:{}", b0 + 20);
+        assert_eq!(e.keys("ff:"), vec![end.clone()]);
+        assert_eq!(ff_of(&e, &end).0.to, b0 + 20);
+    }
+
     fn citizens_of(e: &Env, wallets: &[(Address, u8)]) -> BTreeMap<Address, (Address, u8)> {
         wallets
             .iter()

@@ -251,6 +251,11 @@ pub struct KeeperConfig {
     /// only for what the primary left undone. 0 (the default) for the
     /// operator's keeper.
     pub backup_delay_slots: u32,
+    /// Map growth (`docs/frontier/map-growth/keeper-load-rules.ja.md` §2,
+    /// stage 3): a resting S1 Province is not written every turn but
+    /// fast-forwarded (FastForward) when something wakes it and at the
+    /// season's end. Off (every Province every turn, as before) by default.
+    pub rest: bool,
 }
 
 impl KeeperConfig {
@@ -296,6 +301,7 @@ impl KeeperConfig {
             claim_key: None,
             race_jitter_slots: 0,
             backup_delay_slots: 0,
+            rest: false,
         }
     }
 
@@ -406,6 +412,9 @@ impl KeeperConfig {
         if let Some(v) = take("dev") {
             c.dev = matches!(v, Value::Bool(true));
         }
+        if let Some(v) = take("rest") {
+            c.rest = matches!(v, Value::Bool(true));
+        }
         if let Some(v) = take("api") {
             let a: SocketAddr = s(v, "api")?
                 .parse()
@@ -487,5 +496,9 @@ mod tests {
         );
         assert!(KeeperConfig::from_toml(&text.replace("\"rings\"]", "\"ringz\"]")).is_err());
         assert!(parse_regions("15-16").is_err());
+        // map growth: resting Provinces only when asked
+        assert!(!c.rest && !KeeperConfig::new(p, 1, b).rest);
+        let rest = KeeperConfig::from_toml(&format!("{text}\nrest = true\n")).unwrap();
+        assert!(rest.rest);
     }
 }

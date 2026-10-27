@@ -147,6 +147,10 @@ pub struct StackConfig {
     /// (the preset's 16 when unset). The program validates it at
     /// CreateSeason (`genesis_ring < r_max ≤ 128`).
     pub r_max: Option<u16>,
+    /// Map growth: keeper A writes `rest = true` (resting S1 Provinces are
+    /// fast-forwarded when woken instead of written every turn;
+    /// `docs/frontier/map-growth/keeper-load-rules.ja.md`). Off by default.
+    pub keeper_rest: bool,
     /// Test-asset prize pool: the permutation-prize build to deploy next to
     /// the game (scripts/build-prize.sh). With it the season's join gate is
     /// a key the relay holds, a test mint and the season's pool are created,
@@ -285,6 +289,7 @@ impl Default for StackConfig {
             keep_bells: None,
             ring_theta_bps: None,
             r_max: None,
+            keeper_rest: false,
             prize_so: None,
             entry_fee: 25_000_000,
             prize_ops_bps: 2_000,
@@ -440,6 +445,9 @@ impl StackConfig {
         }
         if let Some(v) = i!("r_max") {
             c.r_max = Some(r_max(v as u64)?);
+        }
+        if let Some(v) = b!("keeper_rest") {
+            c.keeper_rest = v;
         }
         if let Some(v) = s!("prize_so") {
             c.prize_so = Some(v.into());
@@ -804,6 +812,7 @@ impl StackConfig {
         // (outside the one `json!` above: its expansion is at the macro's recursion limit)
         v["ring_theta_bps"] = json!(self.ring_theta_bps);
         v["r_max"] = json!(self.r_max);
+        v["keeper_rest"] = json!(self.keeper_rest);
         v
     }
 
@@ -986,6 +995,7 @@ pub fn apply_flags(c: &mut StackConfig, flags: &[(String, Option<String>)]) -> R
             "no-keeper-b" => c.keeper_b = false,
             "runs-dir" => c.runs_dir = Some(need(k, v)?.into()),
             "season-end-at-play-end" => c.season_end_at_play_end = true,
+            "keeper-rest" => c.keeper_rest = true,
             "no-season-end-at-play-end" => c.season_end_at_play_end = false,
             "chaos-force" => c.chaos_force.push(parse_force(&need(k, v)?)?),
             "viewer-think-ms" => c.viewer_think_ms = count(k, v)?,
@@ -1017,6 +1027,7 @@ pub const SWITCHES: &[&str] = &[
     "no-eager-bots",
     "season-end-at-play-end",
     "no-season-end-at-play-end",
+    "keeper-rest",
     "no-viewer-follow-status",
     "json",
     "strict",
@@ -1313,5 +1324,10 @@ mod tests {
         assert_eq!((c.r_max, c.to_json()["r_max"].as_u64()), (Some(6), Some(6)));
         let f = split_flags(&["--r-max", "129"].map(String::from)).unwrap();
         assert!(apply_flags(&mut StackConfig::default(), &f).is_err());
+        // --keeper-rest: off by default
+        assert!(!c.keeper_rest);
+        let f = split_flags(&["--keeper-rest"].map(String::from)).unwrap();
+        apply_flags(&mut c, &f).unwrap();
+        assert_eq!(c.to_json()["keeper_rest"], json!(true));
     }
 }
