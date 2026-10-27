@@ -15,11 +15,13 @@
 //! | [`verifyrun`] | `verify` and `tamper` on a run |
 //! | [`load`] | the herald viewer load and its targets |
 //! | [`report`] | the run report |
+//! | [`land`] | a local world's land: status, OpenRing, OpenProvince by hand |
 
 pub mod adversary;
 pub mod chain;
 pub mod chaos;
 pub mod config;
+pub mod land;
 pub mod load;
 pub mod ports;
 pub mod prize;

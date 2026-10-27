@@ -42,6 +42,7 @@ pub mod server;
 pub mod structure;
 pub mod viewers;
 pub mod views;
+pub mod world;
 pub mod ws;
 
 /// `magic "PSFOV1\0\0"`.

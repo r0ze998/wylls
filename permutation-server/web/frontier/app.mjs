@@ -31,6 +31,7 @@ import { fxNow } from './map/chart.mjs';   // (milliseconds on the effects clock
 import { reducedMotion } from './map/camera.mjs';
 import { renderSurveyHelp } from './map/legend.mjs';
 import { NOTE_TEXT, createActions, actorsAt } from './map/actions.mjs';
+import { PLACE, PLACE_NOTE, partialRings, placeNow, worldOf } from './map/world.mjs';
 import * as hand from './hud/hand.mjs';
 import * as turnlist from './hud/turnlist.mjs';
 import { createCamKeep } from './hud/camkeep.mjs';
@@ -1011,6 +1012,10 @@ function mapTap(hit) {
   // unlit: a second tap on the tile just refused selects it
   const n = FS.mapNote;
   if (n && n.p === hit.p && n.q === hit.q && n.tile === hit.idx && fxNow() - n.at < 6000) { FS.mapNote = null; return false; }
+  // (a place that is not open land says which it is: beyond the season's map, not open yet, or being made; fog over open
+  // land is the survey's and is answered by the route below)
+  const where = placeNow(FS, hit.p, hit.q);
+  if (where && where !== PLACE.open) { mapNote(hit, PLACE_NOTE[where]); return true; }
   if (FS.survey && !FS.survey.showAll && FS.survey.levelOf(hit.p, hit.q, hit.idx) === 0) { mapNote(hit, NOTE_TEXT.unopened); return true; }
   const r = routeTo(A, { p: hit.p, q: hit.q, tile: hit.idx });
   if (r?.ok) { orderMarch(A, hit).catch(() => {}); return true; }
@@ -3477,6 +3482,12 @@ async function loadSeason(herald) {
   if (!FS.beacon.ok) FS.error = { code: FS.beacon.code, text: clientText(FS.beacon.code) };
   FS.record = record;
   FS.season = season;
+  // the world's extent (map/world.mjs): which rings are open, pending or beyond the season's map; a ring only partly on
+  // chain is asked for its list (again with each season record, until it is whole)
+  FS.world = worldOf(record);
+  const partial = partialRings(FS.world);
+  for (const d of [...(FS.worldRings?.keys() ?? [])]) if (!partial.includes(d)) FS.worldRings.delete(d);
+  for (const d of partial) herald.worldRing(d).then(a => { if (a.ok) { (FS.worldRings ??= new Map()).set(d, a.present); invalidate('map', 'panel'); } }).catch(() => {});
   setS1(season);
   FS.clock = seasonClock(season);
   // Only a localnet Clock runs accelerated (§8.7); every other cluster's rate is 1.
@@ -3556,6 +3567,8 @@ export async function boot() {
         if (rosterRef) for (let d = 0; d < (FS.record?.rings?.length ?? 1); d++) rosterRef.ensure(d);
         const own = ownNow();
         return { overviews: FS.overviews, ringsOpen: FS.record?.rings?.length ?? 1, own, selected: FS.selected, terrainOf,
+          // where the season's map ends (map/world.mjs: its border is drawn once it is near the open land)
+          rMax: FS.world?.rMax ?? null,
           // what this viewer has surveyed (map/survey.mjs): the one rule for the map, the minimap, tips, the inspector and search
           survey: surveyNow(),
           // art mode: the decoded Province (holdings' tiers, hosts on tiles, camp), loaded on demand

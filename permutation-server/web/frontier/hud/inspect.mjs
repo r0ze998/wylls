@@ -25,6 +25,7 @@ import { hostRows } from '../screens/host.mjs';
 import { hasPin } from './pins.mjs';
 import { termButton } from './glossary.mjs';
 import { placeName, placeWhere } from '../map/names.mjs';
+import { PLACE, placeNow, ringText } from '../map/world.mjs';
 import { TERRAIN_TEXT, villageDrawn, provinceName, provinceCoords, tileName } from './place.mjs';
 import { unpack } from '../seal.mjs';
 import { materialBytes } from '../marchbook.mjs';
@@ -67,7 +68,9 @@ export function inspectModel(FS, terrainOf) {
   const lv = idx => (!sv ? 3 : Number.isInteger(idx) ? sv.levelOf(s.p, s.q, idx) : 1);
   const top = sv ? sv.province(s.p, s.q).max : 3;
   const owners = rec ? [...new Set(rec.owners.filter((f, j) => rec.sites[j] === 1 && f < 6 && (!sv || lv(t?.sites?.[j]) >= 2)))] : [];
-  const out = { p: s.p, q: s.q, ring: ringOf(s.p, s.q), opened: !!rec, owners, clash: !!rec?.clash && top === 3, loaded: !!prov, level: Number.isInteger(s.idx) ? lv(s.idx) : top,
+  // what the place is before any survey (map/world.mjs): open land, being made, not open yet, or beyond the season's map
+  const place = placeNow(FS, s.p, s.q) ?? (rec ? PLACE.open : PLACE.unopened);
+  const out = { p: s.p, q: s.q, ring: ringOf(s.p, s.q), place, opened: place === PLACE.open, owners, clash: !!rec?.clash && top === 3, loaded: !!prov, level: Number.isInteger(s.idx) ? lv(s.idx) : top,
     relation: Number.isInteger(viewer) && prov ? owners.filter(f => f !== viewer).map(f => ({ faction: f, friendly: friendly(prov.relations, viewer, f) })) : [],
     reportBell: top === 3 ? prov?.resolveSummary?.bell || null : null, tile: null };
   if (!Number.isInteger(s.idx)) return out;
@@ -224,12 +227,12 @@ export function render(FS, terrainOf, activities = null) {
   const doing = now.length ? html`${label(L`いまの様子`)}<ul class="list doing">${now.map(a => html`<li class="doing-${a.kind}">${activityText(a, who)}</li>`)}</ul>` : '';
   const facts = [];
   // (the label is "position": in English "Ring" beside "Ring 2" read as a doubled word); the coordinates stand here and nowhere above
-  facts.push(html`<div class="row"><dt>${L`位置`}</dt><dd>${provinceCoords(m.p, m.q)} · ${m.opened ? L`第${m.ring}輪` : L`第${m.ring}輪（まだひらいていません）`}${termButton('ring')}</dd></div>`);
+  facts.push(html`<div class="row"><dt>${L`位置`}</dt><dd>${provinceCoords(m.p, m.q)} · ${ringText(m.place, m.ring)}${termButton('ring')}</dd></div>`);
   if (terrain) facts.push(html`<div class="row"><dt>${L`地形`}</dt><dd>${terrain}</dd></div>`);
   if (m.relation.length) facts.push(html`<div class="row"><dt>${L`この州に村を持つほかの国`}</dt><dd>${m.relation.map(r => html`<span class="nowrap">${swatch(r.faction)}${r.friendly ? L`${factionName(r.faction)}（あなたの国と友好）` : L`${factionName(r.faction)}（あなたの国と敵対）`}</span> `)}</dd></div>`);
   if (!t && m.owners.length) facts.push(html`<div class="row"><dt>${L`村を持つ国`}</dt><dd>${m.owners.map(f => html`<span class="nowrap">${swatch(f)}${factionName(f)}</span> `)}</dd></div>`);
   return html`<section class="inspect" aria-labelledby="inspect-title">
-    ${cardHead({ id: 'inspect-title', ic: mark, pic: held ? villageDrawn(site.faction, site.tier ?? 0) : null, title: name ?? provinceName(FS, m.p, m.q), sub: name ? where : (m.opened ? L`第${m.ring}輪` : L`第${m.ring}輪（まだひらいていません）`), side })}
+    ${cardHead({ id: 'inspect-title', ic: mark, pic: held ? villageDrawn(site.faction, site.tier ?? 0) : null, title: name ?? provinceName(FS, m.p, m.q), sub: name ? where : ringText(m.place, m.ring), side })}
     ${site?.owner ? html`<p class="inspect-owner">${personChip(site.owner, site.faction, { size: 44, full: true, own: !!site.mine, note: L`この村の領主` })}</p>` : ''}
     ${chips.length ? html`<p class="fact-chips">${chips}</p>` : ''}
     ${m.opened && m.level < 3 ? html`<p class="insp-survey">${chip(m.level === 2 ? L`測量済み` : L`未測量`, '', 'chart')}<span class="muted">${m.level === 2 ? L`前に見た範囲です。土地と村を、色を落として描きます。` : L`まだ見ていない範囲です。地形だけを図にしています。`}</span></p>` : ''}

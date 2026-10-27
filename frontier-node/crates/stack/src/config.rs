@@ -139,6 +139,14 @@ pub struct StackConfig {
     /// (the conquest preset's 72 when unset). Sent in the season
     /// parameters, so the program, herald and client all read it.
     pub keep_bells: Option<u16>,
+    /// Local verification worlds only: OpenRing's crowding threshold θ in
+    /// basis points, early and late (`setup::with_ring_theta`). Sent in the
+    /// season parameters; unset keeps the preset's 55 % / 65 %.
+    pub ring_theta_bps: Option<u16>,
+    /// Local verification worlds only: the season's outermost ring `r_max`
+    /// (the preset's 16 when unset). The program validates it at
+    /// CreateSeason (`genesis_ring < r_max ≤ 128`).
+    pub r_max: Option<u16>,
     /// Test-asset prize pool: the permutation-prize build to deploy next to
     /// the game (scripts/build-prize.sh). With it the season's join gate is
     /// a key the relay holds, a test mint and the season's pool are created,
@@ -275,6 +283,8 @@ impl Default for StackConfig {
             conquest: false,
             s1: false,
             keep_bells: None,
+            ring_theta_bps: None,
+            r_max: None,
             prize_so: None,
             entry_fee: 25_000_000,
             prize_ops_bps: 2_000,
@@ -329,6 +339,25 @@ impl Default for StackConfig {
             viewer_retry_budget_ms: None,
             chaos_force: vec![],
         }
+    }
+}
+
+/// `--ring-theta-bps` / `ring_theta_bps`: basis points, the program's range.
+fn theta_bps(v: u64) -> Result<u16, String> {
+    if v <= 10_000 {
+        Ok(v as u16)
+    } else {
+        Err("ring theta must be 0..=10000 basis points".into())
+    }
+}
+
+/// `--r-max` / `r_max`: the program's hard maximum (the season's own
+/// validation also wants it above the genesis ring).
+fn r_max(v: u64) -> Result<u16, String> {
+    if (1..=128).contains(&v) {
+        Ok(v as u16)
+    } else {
+        Err("r_max must be 1..=128".into())
     }
 }
 
@@ -405,6 +434,12 @@ impl StackConfig {
         }
         if let Some(v) = i!("keep_bells") {
             c.keep_bells = Some(v as u16);
+        }
+        if let Some(v) = i!("ring_theta_bps") {
+            c.ring_theta_bps = Some(theta_bps(v as u64)?);
+        }
+        if let Some(v) = i!("r_max") {
+            c.r_max = Some(r_max(v as u64)?);
         }
         if let Some(v) = s!("prize_so") {
             c.prize_so = Some(v.into());
@@ -765,6 +800,14 @@ impl StackConfig {
     }
 
     pub fn to_json(&self) -> Value {
+        let mut v = self.to_json_base();
+        // (outside the one `json!` above: its expansion is at the macro's recursion limit)
+        v["ring_theta_bps"] = json!(self.ring_theta_bps);
+        v["r_max"] = json!(self.r_max);
+        v
+    }
+
+    fn to_json_base(&self) -> Value {
         json!({
             "source": self.source.as_ref().map(|p| p.display().to_string()),
             "run_id": self.run_id,
@@ -890,6 +933,8 @@ pub fn apply_flags(c: &mut StackConfig, flags: &[(String, Option<String>)]) -> R
             "bots-args" => c.bots_args = need(k, v)?.split_whitespace().map(String::from).collect(),
             "season" => c.season_id = count(k, v)?,
             "keep-bells" => c.keep_bells = Some(count(k, v)? as u16),
+            "ring-theta-bps" => c.ring_theta_bps = Some(theta_bps(count(k, v)?)?),
+            "r-max" => c.r_max = Some(r_max(count(k, v)?)?),
             "prize-so" => c.prize_so = Some(need(k, v)?.into()),
             "entry-fee" => c.entry_fee = count(k, v)?,
             "prize-ops-bps" => c.prize_ops_bps = count(k, v)? as u16,
@@ -1246,5 +1291,27 @@ mod tests {
             41_510,
             "nightly = base + 500"
         );
+    }
+
+    /// `--ring-theta-bps`: unset by default (the preset's θ stands), the
+    /// program's range only, and recorded in the run's config.
+    #[test]
+    fn ring_theta_flag() {
+        let mut c = StackConfig::default();
+        assert_eq!(c.ring_theta_bps, None);
+        assert!(c.to_json()["ring_theta_bps"].is_null());
+        let f = split_flags(&["--ring-theta-bps", "100", "--conquest"].map(String::from)).unwrap();
+        apply_flags(&mut c, &f).unwrap();
+        assert_eq!(c.ring_theta_bps, Some(100));
+        assert_eq!(c.to_json()["ring_theta_bps"], 100);
+        let f = split_flags(&["--ring-theta-bps", "10001"].map(String::from)).unwrap();
+        assert!(apply_flags(&mut StackConfig::default(), &f).is_err());
+        // --r-max likewise: unset by default, 1..=128
+        assert_eq!(c.r_max, None);
+        let f = split_flags(&["--r-max", "6"].map(String::from)).unwrap();
+        apply_flags(&mut c, &f).unwrap();
+        assert_eq!((c.r_max, c.to_json()["r_max"].as_u64()), (Some(6), Some(6)));
+        let f = split_flags(&["--r-max", "129"].map(String::from)).unwrap();
+        assert!(apply_flags(&mut StackConfig::default(), &f).is_err());
     }
 }
