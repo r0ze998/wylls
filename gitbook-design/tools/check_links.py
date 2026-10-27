@@ -58,7 +58,7 @@ for f in md_files:
     if c != 1:
         errors.append(f'SUMMARY: {f} listed {c} times')
 
-allowed = {'検証する候補','決定済み', '提案', '未決定', 'main で確認', '別ブランチ', '照合待ち', '仮', '実装あり'}
+allowed = {'検証する候補','決定済み', '提案', '未決定', 'main で確認', '別ブランチ', '照合待ち', '仮', '実装あり', '実地で確認'}
 for f in md_files:
     text = open(os.path.join(root, f), encoding='utf-8').read()
     for m in re.finditer(r'【([^】]+)】', text):
