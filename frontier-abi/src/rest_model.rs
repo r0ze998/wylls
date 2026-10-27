@@ -174,6 +174,24 @@ pub fn quiet_through(
     Ok(lim)
 }
 
+/// The REST record's digest of the Province after a rest from `from` to
+/// `to`: `sha256("PSF-REST-v1" ‖ from ‖ to ‖ state block ‖ conquest
+/// block)`, SKIP's quiet digest shape with the run's end.
+pub fn rest_digest(pd: &[u8], from: u32, to: u32) -> R<[u8; 32]> {
+    let st = pd.get(cm::STATE_BLOCK).ok_or(BAD)?;
+    let cqb = pd.get(P::CQ_BLOCK).ok_or(BAD)?;
+    Ok(permutation_rules::hash::sha256(&[
+        REST_DOMAIN,
+        &from.to_le_bytes(),
+        &to.to_le_bytes(),
+        st,
+        cqb,
+    ]))
+}
+
+/// Domain of [`rest_digest`].
+pub const REST_DOMAIN: &[u8] = b"PSF-REST-v1";
+
 /// What [`project`] wrote.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Rest {

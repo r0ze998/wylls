@@ -1470,6 +1470,63 @@
         "decodes": true,
         "chains": []
       }
+    },
+    {
+      "kind": 103,
+      "name": "REST",
+      "key": [
+        {
+          "name": "p",
+          "len": 4
+        },
+        {
+          "name": "q",
+          "len": 4
+        },
+        {
+          "name": "from",
+          "len": 4
+        }
+      ],
+      "payload": [
+        {
+          "name": "to",
+          "len": 4
+        },
+        {
+          "name": "holder",
+          "len": 1
+        },
+        {
+          "name": "territory",
+          "len": 4
+        },
+        {
+          "name": "spawns",
+          "len": 1
+        },
+        {
+          "name": "digest",
+          "len": 32
+        }
+      ],
+      "body_without_tail_len": 60,
+      "vector": {
+        "bell": 2103,
+        "body_without_tail": "01673708000005000000ffffffff213e5b786b88a5c26b6b88a5c26b6b88a5c2dffc193653708daac7e4011e3b587592afcce90623405d7a97b4d1ee",
+        "body": "01673708000005000000ffffffff213e5b786b88a5c26b6b88a5c26b6b88a5c2dffc193653708daac7e4011e3b587592afcce90623405d7a97b4d1ee010604000000000000002bcc26adf832f588bb8d517dc85c53d9bbb9e105f2e7d1a0625d48473021cace",
+        "decodes": true,
+        "chains": [
+          {
+            "entity": 6,
+            "who": "Base(Province { p: 5, q: -1 })",
+            "prev_seq": 3,
+            "prev_head": "8aa5832421b4da8cbcea07ac0b29cd5db78e66958b7b5f041e2ebeff6709aa88",
+            "seq": 4,
+            "head": "2bcc26adf832f588bb8d517dc85c53d9bbb9e105f2e7d1a0625d48473021cace"
+          }
+        ]
+      }
     }
   ],
   "reserved_kind": 89,

@@ -61,6 +61,10 @@ const SYSTEM: Spec = s!("system", System, false, R);
 /// v2 player prologue `[actor s] [payer s,w] [season r] [citizen w]`.
 pub const PLAYER_PROLOGUE: &[Spec] = &[ACTOR, PAYER_SW, SEASON_R, CITIZEN_W];
 
+/// Most evidence accounts of a FastForward (a legacy transaction of 31
+/// accounts fits 1,232 B).
+pub const FAST_FORWARD_EVIDENCE_MAX: u8 = 28;
+
 /// The account list of every v2 instruction: M1's for the instructions
 /// MC does not reshape, the §5.5/§5.6 lists for the others.
 pub fn accounts_of(ix: Ix) -> &'static [Group] {
@@ -387,6 +391,28 @@ pub fn accounts_of(ix: Ix) -> &'static [Group] {
                 ]
             }
         }
+        // S1 (map growth, keeper-load-rules.ja.md §2.4): the Province, then
+        // the evidence: `days` ArrivalDays (absent ones included) and the
+        // region's anchors or archives, each checked by its canonical
+        // address in the program. Typed as the larger kinds so the loaded
+        // size counts an archive (6,144 B) at every position.
+        Ix::FastForward => {
+            const {
+                &[
+                    one!(&[s!("payer", Wallet, true, R), SEASON_R, PROVINCE_W]),
+                    rep!(
+                        &[s!(
+                            "evidence",
+                            Acc::Either(K::ArrivalDay, K::AnchorArchive),
+                            false,
+                            R
+                        )],
+                        1,
+                        FAST_FORWARD_EVIDENCE_MAX
+                    ),
+                ]
+            }
+        }
         Ix::DefaultRaid => {
             const {
                 &[
@@ -619,6 +645,8 @@ mod tests {
         assert_eq!(count_bounds(Ix::RaidDomestic), (8, 8));
         assert_eq!(count_bounds(Ix::FortGarrison), (7, 7));
         assert_eq!(count_bounds(Ix::DefaultRaid), (7, 13));
+        // S1 (map growth)
+        assert_eq!(count_bounds(Ix::FastForward), (4, 31));
         // Named positions, as off-chain readers look them up.
         let at = |ix, n, name| position(ix, n, name, 0);
         assert_eq!(at(Ix::FileOutpost, 11, "citizen"), Some(3));

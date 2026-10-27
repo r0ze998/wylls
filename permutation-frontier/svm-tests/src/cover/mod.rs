@@ -49,6 +49,7 @@ pub mod holding;
 pub mod host;
 pub mod map;
 pub mod nation;
+pub mod rest;
 pub mod reveal;
 pub mod season;
 pub mod structure;
@@ -161,6 +162,8 @@ pub fn covered_by(ix: I) -> &'static [Cover] {
         I::Vote => nation::VOTE,
         I::SettleProposal => nation::SETTLE_PROPOSAL,
         I::RaidDomestic => caravan::RAID_DOMESTIC,
+        // S1 (map growth)
+        I::FastForward => rest::FAST_FORWARD,
     }
 }
 
@@ -211,6 +214,7 @@ pub fn pending() -> Vec<(&'static str, &'static str)> {
         caravan::PENDING,
         structure::PENDING,
         nation::PENDING,
+        rest::PENDING,
     ]
     .concat()
 }

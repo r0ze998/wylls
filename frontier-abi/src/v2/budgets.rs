@@ -108,6 +108,9 @@ pub const MC_ROWS: &[(Ix, u32, u32, u32)] = &[
     // S1 (1e; S1-1E-CONTRACT §8): measured 12,059 (`tests/caravan.rs`);
     // a full roster on the tile adds its entries' reads.
     (Ix::RaidDomestic, 20_000, 0, 600),
+    // S1 (map growth): a placeholder until measured (`tests/rest.rs`); the
+    // camp's daily checks dominate (two per evidenced day).
+    (Ix::FastForward, 600_000, 0, 1_232),
 ];
 
 /// The v2 row of `ix`.

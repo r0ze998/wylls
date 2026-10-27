@@ -224,6 +224,19 @@ pub enum CqEvent {
         pend: u16,
         holding_key: u64,
     },
+    /// FastForward (map growth, kind 103): a resting Province advanced in
+    /// closed form over bells `from..to`.
+    Rest {
+        p: i32,
+        q: i32,
+        from: u32,
+        to: u32,
+        /// The keep's holder (0xFF: none) and the territory bells it got.
+        holder: u8,
+        territory: u32,
+        spawns: u8,
+        digest: [u8; 32],
+    },
     /// A raid RaidDomestic opened (RaidCaravan or DefaultRaid settles it).
     RaidOpened {
         owner_tag: u64,
@@ -362,6 +375,7 @@ impl CqEvent {
             | CaravanRaided { p, q, .. }
             | RaidOpened { p, q, .. }
             | FortGarrisoned { p, q, .. }
+            | Rest { p, q, .. }
             | VaultSeized { p, q, .. }
             | StructureBuilt { p, q, .. }
             | StructureSeized { p, q, .. }
@@ -583,6 +597,16 @@ pub fn parse(body: &[u8]) -> Option<CqLog> {
             pend_bell: u("pend_bell")? as u32,
             pend: u("pend")? as u16,
             holding_key: u("holding_key")?,
+        },
+        CqKind::REST => CqEvent::Rest {
+            p: i("p")?,
+            q: i("q")?,
+            from: u("from")? as u32,
+            to: u("to")? as u32,
+            holder: b8("holder")?,
+            territory: u("territory")? as u32,
+            spawns: b8("spawns")?,
+            digest: f("digest")?.try_into().ok()?,
         },
         CqKind::RAID_OPENED => CqEvent::RaidOpened {
             owner_tag: u("owner_tag")?,

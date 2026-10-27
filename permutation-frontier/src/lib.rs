@@ -209,6 +209,8 @@ pub fn dispatch(
         Ix::SettleProposal => nation::settle_proposal(p, a, data),
         // S1 (stage 1e): domestic raids.
         Ix::RaidDomestic => caravan::raid_domestic(p, a, data),
+        // S1 (map growth): a resting Province in closed form.
+        Ix::FastForward => clash::fast_forward(p, a, data),
     };
     heap::trace_checkpoint(0xffff);
     r

@@ -101,6 +101,7 @@ pub mod tag {
     pub const VOTE: u8 = V2::Vote.tag();
     pub const SETTLE_PROPOSAL: u8 = V2::SettleProposal.tag();
     pub const RAID_DOMESTIC: u8 = V2::RaidDomestic.tag();
+    pub const FAST_FORWARD: u8 = V2::FastForward.tag();
 
     const _: () = {
         assert!(frontier_abi::tags::is_reserved(RESERVED_PROVE_BAD_SEAL));
@@ -586,6 +587,7 @@ pub mod kind {
     pub const NATION_DECIDED: u8 = Cq::NATION_DECIDED as u8;
     pub const RAID_OPENED: u8 = Cq::RAID_OPENED as u8;
     pub const FORT_GARRISONED: u8 = Cq::FORT_GARRISONED as u8;
+    pub const REST: u8 = Cq::REST as u8;
 
     /// (kind, name) of every MC and S1 record kind, in kind order.
     pub const ALL_V2: [(u8, &str); CQ_SPECS.len()] = {

@@ -811,6 +811,10 @@ fn fold_record(
         | CqKind::NATION_DECIDED
         | CqKind::RAID_OPENED
         | CqKind::FORT_GARRISONED => {}
+        // Map growth: a FastForward's rest. Its counters reach the herald
+        // through the Province's bytes; reading the record itself is stage 4
+        // (keeper-load-rules.ja.md §12).
+        CqKind::REST => {}
     }
 }
 
