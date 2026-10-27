@@ -572,22 +572,29 @@ pub fn step(pd: &mut [u8], b: u32, rep: &BellReport, prm: &StepParams) -> R<Step
     }
     // 4. the hour snapshot
     if b % HOUR_BELLS == 0 {
-        let w = control_weights(pd, b)?;
-        let mut w16 = [0u16; P::SIDES];
-        for (d, x) in w16.iter_mut().zip(w) {
-            *d = x.min(u16::MAX as u32) as u16;
-        }
-        let h = b / HOUR_BELLS;
-        let o = P::snap((h as usize) % P::SNAP_N);
-        put(wr_u32(pd, o + SN::HOUR, h))?;
-        for (i, x) in w16.iter().enumerate() {
-            put(wr_u16(pd, o + SN::WEIGHT + 2 * i, *x))?;
-        }
-        out.snapshot = Some(w16);
+        out.snapshot = Some(write_snapshot(pd, b)?);
         out.changed = true;
     }
     out.active = active_count(pd)? > 0;
     Ok(out)
+}
+
+/// Writes the snapshot of hour `b / 6` (`b` an hour's first bell): the
+/// control weights of `b`, each capped at `u16::MAX`, in ring slot
+/// `hour % SNAP_N`. Shared by [`step`] and `rest_model::project`.
+pub fn write_snapshot(pd: &mut [u8], b: u32) -> R<[u16; P::SIDES]> {
+    let w = control_weights(pd, b)?;
+    let mut w16 = [0u16; P::SIDES];
+    for (d, x) in w16.iter_mut().zip(w) {
+        *d = x.min(u16::MAX as u32) as u16;
+    }
+    let h = b / HOUR_BELLS;
+    let o = P::snap((h as usize) % P::SNAP_N);
+    put(wr_u32(pd, o + SN::HOUR, h))?;
+    for (i, x) in w16.iter().enumerate() {
+        put(wr_u16(pd, o + SN::WEIGHT + 2 * i, *x))?;
+    }
+    Ok(w16)
 }
 
 /// The Province's active work: sieges and occupations (D-15: a
