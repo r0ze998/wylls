@@ -26,11 +26,6 @@ const END_BELL: u32 = 432;
 /// 25 units of a 6-decimal test token (the owner's fee; a pool parameter).
 const FEE: u64 = 25_000_000;
 const SOL: u64 = 1_000_000_000;
-/// permutation-rules `travel::BELL_SECS`.
-const BELL_SECS: i64 = 600;
-/// Provinces may close from `end + 72 h`.
-const GRACE: i64 = 72 * 3_600;
-const CLOCK: Address = Address::from_str_const("SysvarC1ock11111111111111111111111111111111");
 
 struct World {
     svm: LiteSVM,
@@ -154,14 +149,11 @@ fn put(d: &mut [u8], off: usize, v: &[u8]) {
     d[off..off + v.len()].copy_from_slice(v);
 }
 
-/// The cluster clock's unix time.
-fn now(w: &World) -> i64 {
-    let c = w.svm.get_account(&CLOCK).expect("clock sysvar");
-    i64::from_le_bytes(c.data[32..40].try_into().unwrap())
+fn set_season(w: &mut World, status: u8) {
+    set_season_with(w, status, 16);
 }
 
-/// The game's Season: its end bell started `ended_ago` seconds before now.
-fn season_data(w: &World, status: u8, r_max: u16, ended_ago: i64) -> Vec<u8> {
+fn set_season_with(w: &mut World, status: u8, r_max: u16) {
     let mut d = vec![0u8; S::SIZE];
     put(&mut d, 0, &S::MAGIC);
     put(&mut d, S::SEASON_ID, &SEASON_ID.to_le_bytes());
@@ -169,17 +161,6 @@ fn season_data(w: &World, status: u8, r_max: u16, ended_ago: i64) -> Vec<u8> {
     put(&mut d, S::R_MAX, &r_max.to_le_bytes());
     put(&mut d, S::AUTHORITY, w.operator.pubkey().as_ref());
     put(&mut d, S::END_BELL, &END_BELL.to_le_bytes());
-    let genesis = now(w) - ended_ago - END_BELL as i64 * BELL_SECS;
-    put(&mut d, S::GENESIS_TS, &genesis.to_le_bytes());
-    d
-}
-
-fn set_season(w: &mut World, status: u8) {
-    set_season_with(w, status, 16, 0);
-}
-
-fn set_season_with(w: &mut World, status: u8, r_max: u16, ended_ago: i64) {
-    let d = season_data(w, status, r_max, ended_ago);
     let k = w.season.to_bytes();
     game_account(w, k, d);
 }
@@ -1156,10 +1137,9 @@ fn a_province_opened_after_the_end_counts_without_area() {
     );
 }
 
-/// Finalize needs the Season Ended, and must come before `end + 72 h`, when
-/// anyone may close a Province and its fund's count drops.
+/// Finalize needs the Season Ended (Tally checked it, Finalize checks again).
 #[test]
-fn finalize_needs_the_end_and_comes_before_the_closes() {
+fn finalize_needs_the_end() {
     let mut w = world();
     init(&mut w);
     let holders: Vec<u8> = (0..54).map(|i| (i / 9) as u8).collect();
@@ -1170,9 +1150,7 @@ fn finalize_needs_the_end_and_comes_before_the_closes() {
     }
     set_season(&mut w, S::STATUS_RUNNING);
     fails(finalize(&mut w), E::SeasonNotEnded);
-    set_season_with(&mut w, S::STATUS_ENDED, 16, GRACE);
-    fails(finalize(&mut w), E::TooLate);
-    set_season_with(&mut w, S::STATUS_ENDED, 16, GRACE - 60);
+    set_season(&mut w, S::STATUS_ENDED);
     finalize(&mut w).unwrap();
 }
 
@@ -1183,11 +1161,11 @@ fn no_pool_for_a_season_beyond_ring_17() {
     let mut w = world();
     let op = w.operator.insecure_clone();
     for r_max in [18u16, 128] {
-        set_season_with(&mut w, S::STATUS_RUNNING, r_max, 0);
+        set_season_with(&mut w, S::STATUS_RUNNING, r_max);
         let ix = init_ix(&w, &op.pubkey(), FEE, 2_000, 0);
         fails(send(&mut w.svm, &[ix], &[&op]), E::BadParams);
     }
-    set_season_with(&mut w, S::STATUS_RUNNING, 17, 0);
+    set_season_with(&mut w, S::STATUS_RUNNING, 17);
     init_with(&mut w, 0);
     // The outermost ring the bitmap takes: 17.
     let edge = ring(17);

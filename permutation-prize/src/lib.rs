@@ -61,11 +61,9 @@ use solana_program::{
 
 use frontier_abi::addr::{province_index, AddrCtx};
 use frontier_abi::layout::world::province_fund as PF;
-use frontier_abi::presets::END_GRACE_SECS;
 use frontier_abi::v2::layout::player::citizen as C;
 use frontier_abi::v2::layout::province::{keep as K, province as P};
 use frontier_abi::v2::layout::world::season as S;
-use permutation_rules::frontier::beacon::bell_start;
 use permutation_rules::hash::sha256;
 
 pub const TOKEN_PROGRAM: Pubkey =
@@ -184,8 +182,6 @@ pub enum PrizeError {
     NothingToPay = 0x10E,
     Overflow = 0x10F,
     WrongExpectedCount = 0x110,
-    /// Finalize at or after `end + 72 h`, when Provinces may close.
-    TooLate = 0x111,
 }
 
 impl From<PrizeError> for ProgramError {
@@ -694,22 +690,8 @@ fn finalize(program: &Pubkey, a: &[AccountInfo]) -> R<()> {
         return Err(E::BadAccount.into());
     }
     game_account(season, &game, &S::MAGIC, S::SIZE, sid)?;
-    {
-        let sd = season.try_borrow_data()?;
-        if sd[S::STATUS] != S::STATUS_ENDED {
-            return Err(E::SeasonNotEnded.into());
-        }
-        // From end + 72 h anyone may close a Province (its fund's count
-        // drops): an uncounted one closed would leave the sum short of the
-        // map at the end. The tally and Finalize belong to those 72 hours.
-        let closes_at = bell_start(
-            i64::from_le_bytes(rd(&sd, S::GENESIS_TS)?),
-            u32_at(&sd, S::END_BELL)?,
-        )
-        .saturating_add(END_GRACE_SECS);
-        if solana_program::clock::Clock::get()?.unix_timestamp >= closes_at {
-            return Err(E::TooLate.into());
-        }
+    if season.try_borrow_data()?[S::STATUS] != S::STATUS_ENDED {
+        return Err(E::SeasonNotEnded.into());
     }
     // The game's own count of keeps at the end: its six ProvinceFunds'
     // opened provinces (OpenProvince counts there, live) less rings 0–1.

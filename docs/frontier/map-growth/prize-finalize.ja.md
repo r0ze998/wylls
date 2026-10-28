@@ -112,9 +112,10 @@ Tally と Finalize は `permutation-prize/src/lib.rs` にあります。
   - 6つの ProvinceFund は、アドレスをゲームのものとして計算し直し、持ち主・印（magic）・大きさ・シーズン番号を確かめます。
   - `Σ provinces_opened − 7` より `counted` が少なければ `TallyIncomplete`、多ければ `WrongExpectedCount` です。
   - プールの `expected_keeps` は確定の条件に使いません（表示用。0 でもよくなりました）。
-- **Finalize の期限（実装で追加）**：`end + 72 時間` からは `TooLate`（0x111、新しいエラー）で断ります。
-  - 理由：その時刻から CloseProvince を誰でも送れて、閉じた州の分だけ ProvinceFund の数が減ります。まだ数えていない州を閉じられると、数え漏れのまま `counted == 合計` になり、確定できてしまいます。
-  - §1 の終わりに書いたとおり、Tally と Finalize はもともとこの72時間のうちに行う前提です。期限はその前提をプログラムで守るものです。72時間を過ぎたプールは確定できません（今も、閉じた州は Tally できないので同じです）。
+- **Finalize の期限は付けません**（オーナー判断、2026-10-29）。
+  - 一度は `end + 72 時間` からの Finalize を断る期限を入れましたが、オーナーの判断で外しました。
+  - 残る注意：`end + 72 時間` からは CloseProvince を誰でも送れ、閉じた州の分だけ ProvinceFund の数が減ります。まだ数えていない州が閉じられると、数え漏れのまま `counted == 合計` になりえます。
+  - なので運用では、§1 の終わりに書いたとおり、Tally と Finalize をこの72時間のうちに済ませます。
 - **Tally（P1'）**：州の `opened_bell ≥ end_bell` なら、ビットマップに印を付けて `counted` を+1し、面積と同点用の値には何も足しません。このとき `resolved_next` と砦の `since_bell` は見ません。
   - `opened_bell < end_bell` の州は今までどおりです（`since_bell ≥ end_bell` なら `ProvinceNotFinal`）。
 - **InitPool（B）**：Season の `r_max` が17を超えると `BadParams` で断ります（定数 `MAX_RING` = 17）。
@@ -123,7 +124,7 @@ Tally と Finalize は `permutation-prize/src/lib.rs` にあります。
 
 | 部品 | 変更 |
 |---|---|
-| `permutation-gateway/client/src/frontier/prize.mjs` | `finalizeIx({ prize, season, provinceFunds })`（6つでなければ例外）。エラー表に `TooLate`。web の SDK の写しも生成し直しました |
+| `permutation-gateway/client/src/frontier/prize.mjs` | `finalizeIx({ prize, season, provinceFunds })`（6つでなければ例外）。web の SDK の写しも生成し直しました |
 | `permutation-gateway/scripts/prize-settle.mjs` | Finalize に season と ProvinceFund×6 を渡します。`--check` のゲームの数は ProvinceFund の合計にしました。`end_bell` 以降に開いた州は面積から外します |
 | `permutation-gateway/src/frontier/routes/prize.mjs` | `GET /f/prize` に `keepsToCount`（ProvinceFund の合計 − 7）を足しました |
 | web の賞金画面 | 「集計中です（x / y 州）」の y を `keepsToCount` にしました（無ければ従来の値） |
@@ -137,7 +138,7 @@ Tally と Finalize は `permutation-prize/src/lib.rs` にあります。
   - 地図が広がったシーズン（プールは54のまま、Frontier の数は61のまま遅れている）で、ProvinceFund の数で確定する。
   - 広がった地図で1州でも数え漏れがあると確定しない。
   - `end_bell` 以降に開いた州は、持ち主や `resolved_next` に関係なく、数に入り面積に入らない。
-  - Ended でなければ確定しない。`end + 72 時間` からは `TooLate`。
+  - Ended でなければ確定しない。
   - `r_max` 18 と 128 では InitPool が断られ、17 なら作れる。
 - 今までのテストは、Frontier の代わりに ProvinceFund の偽物（別のアドレス、ウェッジの入れ替え、別のシーズン、5つしかない）を断る形に直しました。
 - プログラムの単体テスト4、frontier-node 706、gateway 2,522 が通りました。
