@@ -217,15 +217,16 @@ fn fast_forward_proves_with_archives_and_anchors() {
 /// The proof ends where the chain says something may happen, and the
 /// refusals: an arrival bit (the rest stops before it; at the first bell,
 /// `NotQuiet`), a window still open, evidence that ends early, a
-/// Province that does not rest (a siege), `to ≤ resolved_next` or no
-/// ArrivalDay (`BadData`), an absent or another region's anchor
-/// (`BadAccount`), an ArrivalDay of another day (`BadAddress`).
+/// Province that does not rest (a siege), `to ≤ resolved_next`
+/// (`AlreadyDone`), no ArrivalDay (`BadData`), an absent or another
+/// region's anchor (`BadAccount`), an ArrivalDay of another day
+/// (`BadAddress`).
 #[test]
 fn fast_forward_stops_at_the_evidence_and_refuses() {
     let (mut c, w, k) = world();
     let to = B0 + RUN;
     anchors(&mut c, &w, B0, to);
-    let send =|c: &mut Chain, ix: Instruction| c.send(&[ix], &[&w.keeper]);
+    let send = |c: &mut Chain, ix: Instruction| c.send(&[ix], &[&w.keeper]);
 
     // an arrival at B0 + 20 (day 1): bells B0..B0 + 20 rest
     let mut x = c.fork();
@@ -267,12 +268,22 @@ fn fast_forward_stops_at_the_evidence_and_refuses() {
     });
     assert_code(send(&mut x, ff(&w, B0, to, &all_anchors(RUN))), E::NotQuiet);
 
-    // `to` not past resolved_next; no ArrivalDay
+    // `to` not past resolved_next: done already (a second copy of a
+    // FastForward that landed, as a keeper's re-send finds it)
     let mut bad = ff(&w, B0, to, &all_anchors(RUN));
     bad.data = frontier_abi::v2::ix::FastForward { to: B0, days: 2 }
         .to_bytes()
         .to_vec();
-    assert_code(send(&mut c.fork(), bad), E::BadData);
+    assert_code(send(&mut c.fork(), bad), E::AlreadyDone);
+    let mut x = c.fork();
+    expect_lands(
+        send(&mut x, ff(&w, B0, to, &all_anchors(RUN))),
+        "FastForward",
+    );
+    let again = ff(&w, B0, to, &all_anchors(RUN - 1));
+    assert_code(send(&mut x, again), E::AlreadyDone);
+    assert_eq!(resolved_next(&x, &k), to);
+    // no ArrivalDay
     let mut bad = ff(&w, B0, to, &all_anchors(RUN));
     bad.data = frontier_abi::v2::ix::FastForward { to, days: 0 }
         .to_bytes()

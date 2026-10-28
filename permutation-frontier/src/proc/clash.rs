@@ -1542,7 +1542,8 @@ pub fn skip_quiet(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
 /// Province (`frontier_abi::rest_model`) from `resolved_next` toward `to`
 /// as far as the evidence and its own bytes prove, in closed form: the
 /// bytes SkipQuiet's bell-by-bell loop leaves. Logs a CAMP per camp that
-/// spawned and one REST. Nothing proven is `NotQuiet`.
+/// spawned and one REST. Nothing proven is `NotQuiet`; a Province already
+/// at or past `to` is `AlreadyDone`.
 pub fn fast_forward(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     use super::conquest::{check_accounts_v2, cqlog as cq2, Chained2};
     use frontier_abi::clash_model::{ModelError, DAY_BELLS};
@@ -1571,8 +1572,13 @@ pub fn fast_forward(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     let sid = hdr.id;
     let ctx = crate::addr::ctx(&key(season_ai), &p.to_bytes());
     let (pp, pq, rn, v2) = province_of(p, &ctx, sid, province)?;
-    if !v2 || x.to <= rn {
+    if !v2 {
         return Err(FrontierError::BadData.into());
+    }
+    // A copy of a FastForward that landed (or any write past `to`) finds
+    // the Province there already.
+    if x.to <= rn {
+        return Err(FrontierError::AlreadyDone.into());
     }
     let prm = conquest_params(season_ai, true)?.ok_or(BAD_ACCOUNT)?;
     let clock = {
