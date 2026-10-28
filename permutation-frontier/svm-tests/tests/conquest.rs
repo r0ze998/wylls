@@ -2010,6 +2010,62 @@ fn cq_ceilings(ix: I2, programdata_len: u32) -> permutation_frontier_svm_tests::
     }
 }
 
+/// The S1 holding settle at its heaviest (`g01_budget_s1_holding`'s
+/// `dry_workshops` without moving the clock, which these fixtures pin):
+/// a City with two workshops converting and ore short, four queued items
+/// done in the last 30 hours, the stores last settled then, and the owner
+/// away 80 hours (dormant). The stored shield is kept.
+fn s1_dry_fill(c: &mut Chain, w: &World, e: &Estate) {
+    use permutation_rules::fixed::MILLI;
+    use permutation_rules::frontier::arms::{ARMS, WORKSHOP_ARMS_PER_HOUR};
+    use permutation_rules::frontier::holding::{Effect, QueueItem, Tier, HOUR};
+    let shield = c.data(&e.holding)[H::SHIELD_UNTIL..H::SHIELD_UNTIL + 8].to_vec();
+    let now = c.now;
+    let t0 = now - 30 * HOUR;
+    w.enrich(c, e, 1_000_000);
+    w.edit_kholding(c, e, |h| {
+        h.tier = Tier::City;
+        for (r, s) in h.stores.iter_mut().enumerate() {
+            s.cap = Tier::City.storage_cap() * 1_000;
+            s.t0 = t0;
+            s.frac = 0;
+            if r == Resource::Ore as usize {
+                s.value = 12 * MILLI;
+            }
+        }
+        h.production[ARMS as usize] = 2 * WORKSHOP_ARMS_PER_HOUR * MILLI;
+        let items = [
+            (ARMS, 900i64),
+            (ARMS, 5 * HOUR),
+            (Resource::Wood, 3 * HOUR),
+            (Resource::Food, 9 * HOUR),
+        ];
+        let mut at = t0;
+        for (q, (r, dt)) in h.queue.iter_mut().zip(items) {
+            at += dt;
+            let delta = if r == ARMS { WORKSHOP_ARMS_PER_HOUR * MILLI } else { 10 * MILLI };
+            *q = Some(QueueItem {
+                done_at: at,
+                effect: Effect::Production { resource: r, delta },
+            });
+        }
+        h.last_owner_action = now - 80 * HOUR;
+    });
+    c.edit(&e.holding, |d| d[H::SHIELD_UNTIL..H::SHIELD_UNTIL + 8].copy_from_slice(&shield));
+}
+
+/// Measures `ix` against its S1 limit (`cu_limit_s1`); prints first.
+fn s1_measured(c: &Chain, kind: I2, label: &str, ix: Instruction, signers: &[&Keypair]) -> u64 {
+    let p = cq_ladder(kind, c.programdata_len());
+    let need = c.measure_with(&p, &[ix], signers).unwrap_or_else(|f| {
+        panic!("{label}: refused while measuring: {:?}\n{}", f.code, f.logs.join("\n"))
+    });
+    let limit = frontier_abi::v2::budgets::cu_limit_s1(kind);
+    println!("{label}: {} CU (S1 limit {limit})", need.cu);
+    assert!(need.cu <= limit as u64, "{label}: {} CU > the S1 limit {limit}", need.cu);
+    need.cu
+}
+
 /// Measures `ix` on `c` (ladder CU, v2 `L(kind)`) and asserts §5.4's
 /// ceilings: CU on the plain builds, the heap on the trace build.
 fn cq_measured(c: &Chain, kind: I2, label: &str, ix: Instruction, signers: &[&Keypair]) -> u64 {
@@ -2165,6 +2221,18 @@ fn g01_cq_settle_capture_worst() {
             &[&anyone],
         );
         println!("g01_cq SettleCapture holding {build:?}: {cu} CU (budget 30,000)");
+        // S1: the settled holdings at the S1 settle's heaviest
+        let mut f = k.c.fork();
+        for e in [&k.o, &k.x, &k.v] {
+            s1_dry_fill(&mut f, &k.w, e);
+        }
+        s1_measured(
+            &f,
+            I2::SettleCapture,
+            &format!("SettleCapture 4 bonds, S1 dry workshops ({build:?})"),
+            capture_ix(&k, &anyone),
+            &[&anyone],
+        );
         // Free City.
         let mut k = Cast::with(mc_world_with(build, &MC_LOCAL_7D.cq));
         let fc = ring4(2, 0);
@@ -2220,6 +2288,18 @@ fn g01_cq_settle_siege_retire_close() {
             &[&anyone],
         );
         println!("g01_cq SettleSiege {build:?}: {cu} CU (budget 25,000)");
+        // S1: the settled holdings at the S1 settle's heaviest
+        let mut f = k.c.fork();
+        for e in [&k.o, &k.x, &k.v] {
+            s1_dry_fill(&mut f, &k.w, e);
+        }
+        s1_measured(
+            &f,
+            I2::SettleSiege,
+            &format!("SettleSiege stake + slot, S1 dry workshops ({build:?})"),
+            settle_siege_ix(&k, &anyone, k.o.holding, true),
+            &[&anyone],
+        );
         let mut k = Cast::with(mc_world_with(build, &MC_LOCAL_7D.cq));
         captured_with_victim_host(&mut k);
         let b = k.w.bell(&k.c);

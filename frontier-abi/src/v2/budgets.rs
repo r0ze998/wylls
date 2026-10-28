@@ -284,12 +284,24 @@ pub const S1_SETTLES: [Ix; 14] = [
     Ix::FileOutpost,
 ];
 
+/// The keeper's instructions that settle a holding (`settle_tiered` in
+/// `proc/conquest.rs`), by how many holdings they settle: SettleSiege one
+/// (the stake's), SettleCapture two (the captured holding and the
+/// captor's stake). Measured at `g01_budget_s1_holding`'s heaviest settle
+/// (dry workshops, dormant) on every holding: SettleSiege 30,327 CU against
+/// its 25,000 row, SettleCapture 62,489 against 30,000
+/// (`g01_cq_settle_siege_retire_close`, `g01_cq_settle_capture_worst`).
+pub const S1_SETTLES_BY_KEEPER: [(Ix, u32); 2] = [(Ix::SettleSiege, 1), (Ix::SettleCapture, 2)];
+
 /// The CU limit of `ix` under the S1 program: the v2 row's, Reveal's
-/// [`REVEAL_CU_LIMIT_S1`], and [`S1_SETTLE_EXTRA_CU`] more for an
-/// instruction that settles a holding ([`S1_SETTLES`]).
+/// [`REVEAL_CU_LIMIT_S1`], and [`S1_SETTLE_EXTRA_CU`] more for each
+/// holding the instruction settles ([`S1_SETTLES`],
+/// [`S1_SETTLES_BY_KEEPER`]).
 pub fn cu_limit_s1(ix: Ix) -> u32 {
     if ix == Ix::Reveal {
         REVEAL_CU_LIMIT_S1
+    } else if let Some((_, n)) = S1_SETTLES_BY_KEEPER.iter().find(|(k, _)| *k == ix) {
+        budget(ix).cu_limit.saturating_add(n * S1_SETTLE_EXTRA_CU)
     } else if S1_SETTLES.contains(&ix) {
         budget(ix).cu_limit.saturating_add(S1_SETTLE_EXTRA_CU)
     } else {
@@ -407,6 +419,15 @@ mod tests {
             }
             assert!(cu_limit_s1(*ix) <= CU_LADDER_MAX);
         }
+        // the keeper's settles: one holding's extra per holding settled
+        assert_eq!(
+            cu_limit_s1(Ix::SettleSiege),
+            budget(Ix::SettleSiege).cu_limit + S1_SETTLE_EXTRA_CU
+        );
+        assert_eq!(
+            cu_limit_s1(Ix::SettleCapture),
+            budget(Ix::SettleCapture).cu_limit + 2 * S1_SETTLE_EXTRA_CU
+        );
         // an MC Province loads 640 B more than an M1 one
         let v1 = crate::budgets::loaded_accounts(crate::tags::Ix::ResolveFromInputs).0;
         assert_eq!(loaded_accounts(Ix::ResolveFromInputs).0, v1 + 640);
