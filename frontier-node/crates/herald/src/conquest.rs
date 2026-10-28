@@ -188,6 +188,9 @@ pub struct Cq {
     // ---- per transaction / rebuilt from accounts (not checkpointed)
     tx_seq: u64,
     tx_conquest: BTreeMap<(i16, i16, u32), (ConquestPayload, u64, String)>,
+    /// The transaction's REST records: `(P, Q) → (from, to)`. A rest logs
+    /// one record for its bells instead of CONQUEST's hourly ones.
+    tx_rests: BTreeMap<(i16, i16), (u32, u32)>,
     /// Citizen tag → (wallet, faction).
     tags: BTreeMap<u64, ([u8; 32], u8)>,
     tags_built: bool,
@@ -433,6 +436,7 @@ pub fn on_record(f: &mut Fold, tx: &TxRecord, body: &[u8]) -> bool {
     if cq.tx_seq != tx.seq {
         cq.tx_seq = tx.seq;
         cq.tx_conquest.clear();
+        cq.tx_rests.clear();
         cq.index_tags(f, Some(tx));
     }
     f.st.events += 1;
@@ -811,10 +815,27 @@ fn fold_record(
         | CqKind::NATION_DECIDED
         | CqKind::RAID_OPENED
         | CqKind::FORT_GARRISONED => {}
-        // Map growth: a FastForward's rest. Its counters reach the herald
-        // through the Province's bytes; reading the record itself is stage 4
-        // (keeper-load-rules.ja.md §12).
-        CqKind::REST => {}
+        // Map growth: a FastForward's rest. Its bells reach the files
+        // through the Province's bytes (`after_records`) or, earlier, the
+        // herald's own projection (`crate::rest`); the record's digest is
+        // checked against the bytes the transaction left.
+        CqKind::REST => {
+            let from = rd_u32(r.key, 8).unwrap_or(0);
+            let to = p32(r, "to");
+            let post = f
+                .account(&f.ctx.province(p, q))
+                .and_then(|c| frontier_abi::rest_model::rest_digest(&c.data, from, to).ok());
+            let logged = pay(r, "digest");
+            cq.tx_rests.insert((p16, q16), (from, to));
+            if post.as_ref().map(|d| &d[..]) != logged {
+                if f.cfg.exact_post {
+                    cq.alarms.conquest_mismatch += 1;
+                    eprintln!("herald: ALARM rest {p},{q} bells {from}..{to}: the REST digest differs from the Province's bytes");
+                } else {
+                    cq.alarms.conquest_unchecked += 1;
+                }
+            }
+        }
     }
 }
 
@@ -1198,6 +1219,7 @@ pub fn after_records(
     if cq.tx_seq != tx.seq {
         cq.tx_seq = tx.seq;
         cq.tx_conquest.clear();
+        cq.tx_rests.clear();
         cq.index_tags(f, Some(tx));
     }
     let si = season_info(f);
@@ -1312,7 +1334,11 @@ pub fn after_records(
                 }
                 None => {
                     let n = so.as_ref().map_or(0, |(o, _)| o.n as usize);
-                    if must_emit(&pd_b, b, n) && f.cfg.exact_post {
+                    let rested = cq
+                        .tx_rests
+                        .get(&pq)
+                        .is_some_and(|(from, to)| (*from..*to).contains(&b));
+                    if !rested && must_emit(&pd_b, b, n) && f.cfg.exact_post {
                         cq.alarms.conquest_missing += 1;
                     }
                 }
@@ -1609,18 +1635,58 @@ pub(crate) fn push_diff(
 }
 
 /// The provinces' current `resolved_next` minimum (the control files'
-/// completeness, M1's overview rule over every opened province).
+/// completeness, M1's overview rule over every opened province). A resting
+/// Province counts through its proven rest (`crate::rest`).
 fn complete_through(f: &Fold) -> Option<u32> {
     let mut t = u32::MAX;
-    for m in f.provinces.values() {
+    for (pq, m) in &f.provinces {
         if let Some(rn) = f
             .account(&m.addr)
             .and_then(|c| rd_u32(&c.data, P::RESOLVED_NEXT))
         {
-            t = t.min(rn);
+            t = t.min(f.rest.next(*pq, rn));
         }
     }
     (t != u32::MAX).then_some(t)
+}
+
+/// Views of the bells a rest's projection proved (`crate::rest`): the
+/// projected bytes after each bell, nothing logged, no clash, and the
+/// territory the projection added to the stored counters (R1's official
+/// value). Bells whose control file is written already are skipped.
+pub fn rest_views(f: &mut Fold, bells: &[crate::rest::Bell]) {
+    if bells.is_empty() || !f.cq.on {
+        return;
+    }
+    let mut cq = Cq::take(f);
+    let genesis = season_info(f).map_or(0, |s| s.prm.genesis_ts);
+    for r in bells {
+        if cq.ct_next.is_some_and(|c| r.bell < c) && cq.prev_ct.is_some() {
+            continue;
+        }
+        let fr: &Fold = f;
+        let owner = |s: usize| holding_owner_tag(fr, r.pq.0 as i32, r.pq.1 as i32, s as u8);
+        let Ok(mut view) = ctl::view_of(
+            &r.after,
+            Some(&r.before),
+            r.bell,
+            genesis,
+            false,
+            &[],
+            &owner,
+        ) else {
+            cq.alarms.replay_errors += 1;
+            continue;
+        };
+        view.territory_bells =
+            core::array::from_fn(|i| rd_u64(&r.after, P::TERRITORY_BELLS + i * 8).unwrap_or(0));
+        cq.views.insert((r.pq.0, r.pq.1, r.bell), view);
+        if cq.ct_next.is_none() || (cq.prev_ct.is_none() && cq.ct_next.is_some_and(|c| r.bell < c))
+        {
+            cq.ct_next = Some(r.bell);
+        }
+    }
+    f.cq = cq;
 }
 
 /// The completeness hook (module note).
