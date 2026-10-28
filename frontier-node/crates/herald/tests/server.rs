@@ -342,7 +342,7 @@ async fn h_routes_caching_and_headers() {
         .collect();
     got.sort();
     assert_eq!(got, vec![(0, 2), (1, 1), (2, 0)]);
-    assert_eq!(r2["provinces"][0]["wedge"].as_u64().is_some(), true);
+    assert!(r2["provinces"][0]["wedge"].as_u64().is_some());
     assert_eq!(get(a, "/h/world/ring/4").await.status, 404);
     assert_eq!(get(a, "/h/world/ring/x").await.status, 400);
     // The season record says the same about the rings.
