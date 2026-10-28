@@ -861,7 +861,7 @@
       "loaded_need_placeholder": 1483729,
       "loaded_limit": 1507328,
       "loaded_limit_s1": 1835008,
-      "cu_limit_s1": 25000
+      "cu_limit_s1": 45000
     },
     {
       "name": "SettleCapture",
@@ -877,7 +877,7 @@
       "loaded_need_placeholder": 1486289,
       "loaded_limit": 1507328,
       "loaded_limit_s1": 1835008,
-      "cu_limit_s1": 30000
+      "cu_limit_s1": 70000
     },
     {
       "name": "FileOutpost",
