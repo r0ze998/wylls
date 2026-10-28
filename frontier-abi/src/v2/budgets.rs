@@ -417,7 +417,10 @@ mod tests {
             assert!(cu_limit_s1(*ix) <= CU_LADDER_MAX);
         }
         // the keeper's settles: one holding's extra per holding settled
-        assert_eq!(cu_limit_s1(Ix::SettleSiege), budget(Ix::SettleSiege).cu_limit + S1_SETTLE_EXTRA_CU);
+        assert_eq!(
+            cu_limit_s1(Ix::SettleSiege),
+            budget(Ix::SettleSiege).cu_limit + S1_SETTLE_EXTRA_CU
+        );
         assert_eq!(
             cu_limit_s1(Ix::SettleCapture),
             budget(Ix::SettleCapture).cu_limit + 2 * S1_SETTLE_EXTRA_CU

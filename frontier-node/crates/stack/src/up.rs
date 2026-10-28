@@ -2018,8 +2018,15 @@ mod tests {
         assert_eq!(s1_bot_flags(true, &none), vec!["--s1".to_string()]);
         assert!(s1_bot_flags(false, &none).is_empty());
         for given in ["--s1", "--conquest"] {
-            let args = vec![given.to_string(), "--join-by-bell".to_string(), "6".to_string()];
-            assert!(s1_bot_flags(true, &args).is_empty(), "bots_args already pass {given}");
+            let args = vec![
+                given.to_string(),
+                "--join-by-bell".to_string(),
+                "6".to_string(),
+            ];
+            assert!(
+                s1_bot_flags(true, &args).is_empty(),
+                "bots_args already pass {given}"
+            );
         }
     }
 
