@@ -29,7 +29,8 @@
 // against the recorded native call in frontier-wasm/vectors/wasm-vectors.json
 // by web-frontier-practice.test.mjs.
 import { html, raw } from '../../util.mjs';
-import { sigChip } from '../hud/keephand.mjs';
+import { sigChip, roughAt } from '../hud/keephand.mjs';
+import { UNIT_STATS, keepArrival } from '../hud/rulebook.mjs';
 import { icon } from '../hud/icons.mjs';
 import { L, fmtNum } from '../../lang.mjs';
 import { sha256 } from '../../sdk/sha256.mjs';
@@ -39,12 +40,12 @@ import { decode as decodeAccount } from '../fcodec.mjs';
 import { hostId } from '../faddr.mjs';
 import { regionOf } from '../fgeo.mjs';
 import { seedRound, bellEnd, dayOf } from '../clock.mjs';
-import { factionName, UNITS as UNIT_TEXT, STANCES as STANCE_TEXT, FATES as FATE_TEXT, VERDICTS } from '../fi18n.mjs';
+import { factionName, unitCount, UNITS as UNIT_TEXT, STANCES as STANCE_TEXT, FATES as FATE_TEXT, VERDICTS } from '../fi18n.mjs';
 import { UNIT_ORDER } from '../fland.mjs';
 import { swatch } from './shell.mjs';
 import { personChip } from '../people/ui.mjs';
 import { cardHead, fold, chip, lossBar, label, ring } from './parts.mjs';
-import { tileName, provinceName } from '../hud/place.mjs';
+import { tileName, tileWhat, provinceName } from '../hud/place.mjs';
 import { leaderFigure } from '../people/leaders.mjs';
 import { playerFace } from '../people/faces.mjs';
 import { sideOutcome, verdictKey } from '../people/outcome.mjs';
@@ -568,9 +569,46 @@ export function tileDetail(rows) {
     for (const a of sides) for (const b of sides) if (a !== b && BEATS[a.stance] === b.stance) edges.push({ winner: a.faction, loser: b.faction, stance: a.stance, against: b.stance });
     const held = t.rows.filter(r => r.kind === 'garrison' || r.kind === 'camp');
     const retaliation = held.length ? t.rows.filter(r => r.kind === 'arrival' && !held.some(h => h.faction === r.faction)).reduce((a, r) => a + lossOf(r), 0) : 0;
-    out.push({ tile: t.tile, sides, edges, retaliation, walls: held.some(h => h.walls) });
+    // (a keep always fights behind walls: clash.rs `keep::garrison`; its row carries `keep`, not `walls`)
+    out.push({ tile: t.tile, sides, edges, retaliation, walls: held.some(h => h.walls || h.keep) });
   }
   return out.sort((a, b) => a.tile - b.tile);
+}
+
+/**
+ * Why the viewer's march did not stay on the tile it reached (the UI check of 2026-10-26: a report read 「撤退」 over
+ * 87 left against 88, with no word of why): `{tile, own: {troops, strength, unit}, foe: {faction, camp, troops,
+ * strength}, close, walls, retreated, keepLeft}` or null. The tile goes to the side with the most strength left after
+ * the clash (troops × strength per troop; a garrison, a keep or a camp fights at 10), a tie to the side that was
+ * already there (clash.rs, "one side holds the field"). `close`: the two within a tenth of each other, a gap the
+ * roll (±10%) can turn. `keepLeft`: the keep's defenders after the clash when the tile was a keep's (they do not
+ * regrow), else null. For a host of the viewer's that left the tile with troops (`summaryOf` result 'turned'): one
+ * that arrived, or one that already stood there and lost the tile to the keep's defenders in a later turn of the
+ * contest (the live check of 2026-10-26: 60 → 52 against the keep's 60 → 53 on the contest's fifth turn).
+ */
+export function fieldWhy(rows, sum) {
+  if (!sum?.mine || sum.result !== 'turned') return null;
+  const own = rows.filter(r => r.mine && (r.kind === 'arrival' || r.kind === 'resident') && r.after !== null);
+  if (!own.length) return null;
+  const retreated = own.every(r => r.fate === 'Retreated');
+  const tile = own[0].tile;
+  const strength = r => (r.kind === 'garrison' || r.kind === 'camp' ? 10 : UNIT_STATS[r.unit]?.strength ?? 0);
+  const mineHere = own.filter(r => r.tile === tile);
+  const foes = rows.filter(r => !r.mine && r.faction !== own[0].faction && r.tile === tile && r.after !== null && r.after > 0 && (r.fate === null || r.fate === 'Stays'));
+  if (!foes.length && !retreated) return null;
+  const sumOf = xs => xs.reduce((a, r) => a + r.after, 0);
+  const strOf = xs => xs.reduce((a, r) => a + r.after * strength(r), 0);
+  const ownStr = strOf(mineHere), foeStr = strOf(foes);
+  const lead = foes.reduce((a, r) => (r.after * strength(r) > a.after * strength(a) ? r : a), foes[0] ?? { faction: null, kind: null, after: 0 });
+  const keep = foes.find(r => r.keep) ?? null;
+  return {
+    tile, retreated,
+    own: { troops: sumOf(mineHere), strength: ownStr, unit: mineHere[0].unit },
+    foe: { faction: lead.faction, camp: lead.kind === 'camp', troops: sumOf(foes), strength: foeStr },
+    close: Math.abs(ownStr - foeStr) <= 0.1 * Math.max(ownStr, foeStr, 1),
+    walls: foes.some(r => r.walls || r.keep),
+    keepLeft: keep ? keep.after : null,
+  };
 }
 
 // ------------------------------------------------------------------ rendering
@@ -795,7 +833,7 @@ export function render(FS, mine = () => false, { whatIf = true, ownerOf = null, 
     ${renderPrediction(rows, r.bell, forecastOf)}
     ${renderStake(r, keepStake(r, rows, FS.conquest?.keeps?.get?.(`${r.p},${r.q}`) ?? null))}
     <div class="doc-cols">
-      <div class="doc-col">${renderHeadline(summaryOf(rows), r)}</div>
+      <div class="doc-col">${renderHeadline(summaryOf(rows), r)}${renderWhy(fieldWhy(rows, summaryOf(rows)), FS, r)}</div>
       <div class="doc-col">
         ${FS.sample ? html`<p class="muted report-sample">${L`見本の世界の報告です。数はこの見本の世界が計算したもので、チェーンの記録ではありません。`}</p>` : ''}
         ${v?.outcome ? '' : r.before ? html`<p class="muted">${L`確かめる前は、記録にある数を表示しています（到着の結果と、ターンの前後の州の記録）。`}</p>` : FS.sample ? '' : html`<p class="muted">${L`確かめる前は、チェーンに記録された到着の結果だけを表示しています。`}</p>`}
@@ -871,6 +909,28 @@ function renderHeadline(sum, r) {
   return html`<div class="report-head report-${sum.result}">${stamp(vd.key, vd.tone)}<p class="report-result"><strong>${vd.text}</strong></p>
     <p>${L`あなたの損害 ${sum.lostKnown === false ? '—' : fmtNum(sum.lost)} / ${fmtNum(sum.before)}`}${sum.reached === null || vd.key === 'arrived' ? '' : sum.reached ? html` · ${L`行き先に着いた`}` : html` · ${L`行き先に残れなかった`}`}</p>
     ${fates.length && !saidFates ? html`<p class="muted">${fates.map(f => FATE_TEXT[f] ?? f).join(' · ')}</p>` : ''}${leaderLine(sum.faction, LINE_OF[vd.key] ?? 'none')}${buttons}</div>`;
+}
+
+/**
+ * Why the march was turned back, in the report's own numbers (`fieldWhy`): the rule that decides who stays, the two
+ * sides' strength left, whether the gap was one the roll can turn, what the walls and the terrain did, and — on a
+ * keep, whose defenders do not regrow — how many it would take next time (rulebook.mjs keepArrival).
+ */
+function renderWhy(w, FS, r) {
+  if (!w) return '';
+  if (w.retreated) return html`<div class="report-why"><p>${L`退く条件（相手が自分の決めた倍率より強い）に当たったため、戦わずに村へ戻りました。兵は失っていません。`}</p></div>`;
+  const foe = w.foe.camp ? L`蛮族の野営地` : factionName(w.foe.faction);
+  const what = tileWhat(FS, r.p, r.q, w.tile);
+  const rough = roughAt(FS, r.p, r.q, w.tile) && !!what.terrain;
+  const next = w.keepLeft !== null ? keepArrival({ unit: w.own.unit, troops: 100, keepTroops: w.keepLeft, rough: roughAt(FS, r.p, r.q, w.tile) }).need : null;
+  return html`<div class="report-why">
+    <p><strong>${L`なぜ残れなかったか`}</strong></p>
+    <p>${L`マスに残るのは、戦いの後に強さ（兵 × 1 人の強さ）が多く残った側です。同じなら、そこにいた側が残ります。`}</p>
+    <p>${L`残った強さは、あなた ${fmtNum(w.own.strength)}（兵 ${fmtNum(w.own.troops)}）、${foe} ${fmtNum(w.foe.strength)}（兵 ${fmtNum(w.foe.troops)}）で、${foe}が上でした。`}${w.close ? L`差はわずかで、運の揺れ（±10%）で入れ替わりうる差でした。` : ''}</p>
+    ${w.walls ? html`<p>${L`城壁のある守備兵への攻めは、2/3 に減ります。`}</p>` : ''}
+    ${rough ? html`<p>${L`${what.terrain}のマスでは、そこにいた側への攻めがさらに 0.8 倍になります。`}</p>` : ''}
+    ${next ? html`<p>${L`砦の守備兵は増えません（いま ${fmtNum(w.keepLeft)}）。次は ${unitCount(UNIT_ORDER[w.own.unit], next)} 以上で向かえば、運が悪くても砦のマスに残れる見込みです。`}</p>` : ''}
+  </div>`;
 }
 
 /** Per-tile detail: who fought where, losses taken and dealt, the stance edge, the defenders' retaliation. */
