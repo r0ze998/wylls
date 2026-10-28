@@ -423,7 +423,10 @@ impl ConquestDuty {
             // S1 stage 1e: closed proposals.
             self.nations.plan(t, port, engine, now_bell).await?;
         }
-        if t.cfg.has_role("fold") && !self.unsupported.contains("fmarch") {
+        // S1 has no March folds (map growth R3-A): the program refuses
+        // FoldMarch, and nothing wakes a resting Province for one.
+        let s1 = t.season.program_version >= fclient::abi::PROGRAM_VERSION_S1;
+        if !s1 && t.cfg.has_role("fold") && !self.unsupported.contains("fmarch") {
             self.folds(t, port, engine, opened, now_bell).await?;
         } else {
             self.fold_urgent.clear();
@@ -1943,6 +1946,50 @@ mod tests {
             vec![format!("skip:{},{}:25:5", pb.0, pb.1)]
         );
         assert_eq!(d.conquest.stats.fold_skips, 1);
+    }
+
+    /// Map growth R3-A: an S1 season has no March folds. With the fold
+    /// role and hours ready (and one 3 hours old), no FoldMarch is sent and
+    /// no Province is marked for a fold-driven skip.
+    #[tokio::test]
+    async fn s1_sends_no_fold_and_wakes_nothing_for_one() {
+        let mut e = env(&["fold", "skip", "gather", "resolve"], 1_008);
+        e.season.program_version = fclient::abi::PROGRAM_VERSION_S1;
+        let (m, n) = frontier_abi::v2::addr::march_of(3, 0);
+        let members = frontier_abi::v2::addr::march_members(m, n);
+        let (a, b) = (members[0], members[1]);
+        let (pa, pb) = ((a.0 as i16, a.1 as i16), (b.0 as i16, b.1 as i16));
+        let mut da = testkit::province_v2(pa.0, pa.1, 61);
+        let mut db = testkit::province_v2(pb.0, pb.1, 25);
+        let prm = cm::StepParams {
+            genesis_ts: G,
+            end_bell: 1_008,
+            cq: e.season.conquest.unwrap(),
+        };
+        for pd in [&mut da, &mut db] {
+            testkit::put(
+                pd,
+                frontier_abi::v2::layout::province::province::SCORE_NEXT_BELL,
+                &0u32.to_le_bytes(),
+            );
+        }
+        for bb in 0..61 {
+            cm::step(&mut da, bb, &Default::default(), &prm).unwrap();
+        }
+        for bb in 0..25 {
+            cm::step(&mut db, bb, &Default::default(), &prm).unwrap();
+        }
+        let mut c = ConquestDuty::default();
+        c.observe(pa, &da, 61, 0, 1);
+        c.observe(pb, &db, 25, 0, 1);
+        let opened: BTreeSet<(i16, i16)> = [pa, pb].into_iter().collect();
+        for (slot, bell) in [(10, 62), (16, 54), (20, 120)] {
+            e.conquest(&mut c, slot, after_close(bell), &BTreeMap::new(), &opened)
+                .await;
+            assert!(e.keys("fmarch:").is_empty(), "no fold at bell {bell}");
+            assert!(c.fold_urgent.is_empty(), "nothing woken at bell {bell}");
+        }
+        assert_eq!(c.stats.folds_landed, 0);
     }
 
     /// MC §8.2 horn watcher: an MC record from the feed puts its Province

@@ -1,7 +1,8 @@
 //! The conquest instructions (MC contract §5.5): DeclareSiege (0xA0),
-//! SettleSiege (0xA1), SettleCapture (0xA2), FoldMarch (0xA5), RetireHost
-//! (0xA6), CloseMarch (0xA7). Implemented by CQ2-C. FileOutpost (0xA3) is
-//! CQ2-A's (`proc/citizen.rs`).
+//! SettleSiege (0xA1), SettleCapture (0xA2), RetireHost (0xA6),
+//! CloseMarch (0xA7). Implemented by CQ2-C. FileOutpost (0xA3) is CQ2-A's
+//! (`proc/citizen.rs`). FoldMarch (0xA5) is refused in S1 (map growth
+//! R3-A, `crate::dispatch`).
 //!
 //! Every new instruction is an ABI v2 instruction: its account list is
 //! `frontier_abi::v2::prologue::accounts_of`, its Season carries the
@@ -41,12 +42,10 @@
 //!   credits; it also binds a departed Leave of the previous generation
 //!   that is still waiting for its return settle (D-6).
 
-use alloc::vec::Vec;
-
 use solana_program::{account_info::AccountInfo, pubkey::Pubkey};
 
 use frontier_abi::addr::{citizen_tag, citizen_tag15, day_of, host_id, split_host_id, AddrCtx};
-use frontier_abi::conquest_model::{self as cm, Record};
+use frontier_abi::conquest_model::Record;
 use frontier_abi::entry::read_entry;
 use frontier_abi::log::{divert_reason, NO_BELL};
 use frontier_abi::prologue::{self as ap, PlayerCtx, SeasonHdr};
@@ -1582,177 +1581,9 @@ pub fn settle_capture(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
 
 // ------------------------------------------------------------ FoldMarch
 
-/// 0xA5 FoldMarch(m, n, hour, count, beneficiary): D (§3.10, §5.5).
-pub fn fold_march(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
-    check_accounts_v2(Ix2::FoldMarch, a, None)?;
-    let x = ix2::FoldMarch::decode(d)?;
-    let now = prologue::now()?;
-    let [fee_payer, season_ai, march, members @ .., _system] = a else {
-        return Err(FrontierError::TooManyAccounts.into());
-    };
-    if members.len() != 7 {
-        return Err(FrontierError::TooManyAccounts.into());
-    }
-    let hdr = season_v2(season_ai, p, &[S::STATUS_RUNNING, S::STATUS_ENDED], now.ts)?;
-    let ctx = addr::ctx(&key(season_ai), &p.to_bytes());
-    let sid = hdr.id;
-    if x.count == 0 || x.count > ix2::FOLD_MAX_HOURS {
-        return Err(FrontierError::BadData.into());
-    }
-    // The last hour folded must start before `end_bell` (§3.11).
-    let last = x
-        .hour
-        .checked_add(x.count as u32 - 1)
-        .and_then(|h| h.checked_mul(cm::HOUR_BELLS))
-        .ok_or(OVERFLOW)?;
-    let ended = hdr.status == S::STATUS_ENDED;
-    // §5.5: the end-hour rule is the Ended season's (a Running one refuses a
-    // later hour by its order or its lag below).
-    if ended && last >= hdr.end_bell {
-        return Err(FrontierError::WrongStatus.into());
-    }
-    // Past the grace CloseMarch may close the March: a fold must never
-    // re-create it (§13.2 "re-creation after close"; W2R2-C2).
-    if ended && now.ts >= super::map::season_end_ts(&hdr).saturating_add(super::map::END_GRACE_SECS)
-    {
-        return Err(FrontierError::WrongStatus.into());
-    }
-    let dom = {
-        let sd = season_ai.try_borrow_data()?;
-        cq_u16(&sd, CQ::DOMINION_PER_HOUR)?
-    };
-    // The March and its seven members (canonical; absent allowed).
-    expect_key(march, &frontier_abi::v2::addr::march_state(&ctx, x.m, x.n))?;
-    let coords = frontier_abi::v2::addr::march_members(x.m, x.n);
-    let mut present = [false; 7];
-    for (i, ((mp, mq), ai)) in coords.iter().zip(members).enumerate() {
-        expect_key(ai, &ctx.province(*mp, *mq))?;
-        present[i] = presence_v2(ai, p, K2::Province, sid)?;
-    }
-    let datas: Vec<_> = members
-        .iter()
-        .map(|m| m.try_borrow_data())
-        .collect::<Result<Vec<_>, _>>()?;
-    let mut views: [Option<&[u8]>; 7] = [None; 7];
-    for (i, v) in views.iter_mut().enumerate() {
-        if present[i] {
-            *v = Some(&datas[i][..]);
-        }
-    }
-    let bell = hdr.bell(now.ts).unwrap_or(NO_BELL);
-    // First fold: create the MarchState (pre-funding safe).
-    if !presence_v2(march, p, K2::MarchState, sid)? {
-        let first = cm::first_hour(&views)?.ok_or(cq(CqError::FoldTooEarly))?;
-        let signer = SeasonSigner::new(hdr.id, hdr.bump);
-        let seed = frontier_abi::v2::addr::march_seed(x.m, x.n);
-        let rent = init::rent(MS::SIZE)?;
-        init::init_with_seed(
-            fee_payer,
-            march,
-            season_ai,
-            &signer,
-            &seed,
-            MS::SIZE,
-            rent,
-            p,
-        )?;
-        let mut md = march.try_borrow_mut_data()?;
-        if !frontier_abi::v2::layout::write_header(&mut md, K2::MarchState, sid) {
-            return Err(BAD_ACCOUNT);
-        }
-        let mut w = Rw(&mut md);
-        w.set_i32(MS::M, x.m)?;
-        w.set_i32(MS::N, x.n)?;
-        w.set_u32(MS::NEXT_HOUR, first)?;
-        w.set_u8(MS::CONTROLLER, MS::CONTROLLER_NONE)?;
-        w.set_arr(MS::RENT_TO, fee_payer.key.as_ref())?;
-    } else {
-        let md = march.try_borrow_data()?;
-        let r = Ro(&md);
-        if (r.i32(MS::M)?, r.i32(MS::N)?) != (x.m, x.n) {
-            return Err(BAD_ACCOUNT);
-        }
-    }
-    {
-        let md = march.try_borrow_data()?;
-        if Ro(&md).u32(MS::NEXT_HOUR)? != x.hour {
-            return Err(cq(CqError::FoldOutOfOrder));
-        }
-    }
-    // The captures sum is the same for every hour of the call (each
-    // member's cumulative `captures_by` as stored now): read once.
-    let captures = fold_captures(&views)?;
-    let mut md = march.try_borrow_mut_data()?;
-    let mut key = [0u8; 12];
-    key[..4].copy_from_slice(&x.m.to_le_bytes());
-    key[4..8].copy_from_slice(&x.n.to_le_bytes());
-    for k in 0..x.count as u32 {
-        let h = x.hour + k;
-        let hf = fold_hour(&views, h, captures)?;
-        let log = cm::apply_fold(&mut md, &hf, dom).map_err(fold_err)?;
-        key[8..].copy_from_slice(&h.to_le_bytes());
-        cqlog::emit(
-            kind(CqKind::MARCH_FOLD),
-            bell,
-            &key,
-            &log.to_bytes(),
-            &mut [Chained2 {
-                entity: E2::MarchState,
-                data: &mut md,
-            }],
-        )?;
-    }
-    Ok(())
-}
-
-/// Σ of the present members' `captures_by[f]` (`conquest_model::fold`'s
-/// `captures`, which does not depend on the hour).
-fn fold_captures(members: &[Option<&[u8]>; 7]) -> R<[u16; P::FACTIONS]> {
-    let mut captures = [0u16; P::FACTIONS];
-    for pd in members.iter().flatten() {
-        for (f, c) in captures.iter_mut().enumerate() {
-            *c = c.saturating_add(Ro(pd).u16(P::captures_by(f))?);
-        }
-    }
-    Ok(captures)
-}
-
-/// `conquest_model::fold(members, h)` with the call's `captures` (equal,
-/// field for field: pinned by `fold_hour_is_the_models`).
-fn fold_hour(
-    members: &[Option<&[u8]>; 7],
-    h: u32,
-    captures: [u16; P::FACTIONS],
-) -> R<cm::HourFold> {
-    let mut weight = [0u32; P::SIDES];
-    let mut lost = false;
-    for m in members {
-        match cm::member_sample(*m, h).map_err(fold_err)? {
-            cm::Sample::Zero => {}
-            cm::Sample::Lost => lost = true,
-            cm::Sample::Weight(w) => {
-                for (d, x) in weight.iter_mut().zip(w) {
-                    *d = d.saturating_add(x as u32);
-                }
-            }
-        }
-    }
-    Ok(cm::HourFold {
-        hour: h,
-        weight,
-        controller: frontier_abi::v2::kernel::control::controller(&weight),
-        lost,
-        captures,
-    })
-}
-
-fn fold_err(e: cm::FoldError) -> crate::Error {
-    match e {
-        cm::FoldError::TooEarly => cq(CqError::FoldTooEarly),
-        cm::FoldError::OutOfOrder => cq(CqError::FoldOutOfOrder),
-        cm::FoldError::Model(m) => m.into(),
-    }
-}
+// 0xA5 FoldMarch is refused (`BadData`, `crate::dispatch`): S1 has no
+// March folds (map growth R3-A). The model (`conquest_model::fold`,
+// `apply_fold`) stays for the verifier's replay of an MC archive.
 
 // ------------------------------------------------------------ RetireHost
 
@@ -2065,53 +1896,6 @@ mod tests {
         assert_eq!(s.unwrap().key, 11);
         assert_eq!(after.kind, CR::KIND_OCCUPATION);
         assert_eq!(after.flags, 0);
-    }
-
-    /// The program's per-call fold equals `conquest_model::fold` for
-    /// every member state (absent, unopened, too early, held, lost) and
-    /// random weights and captures.
-    #[test]
-    fn fold_hour_is_the_models() {
-        let mut seed = 0x5eed_u64;
-        let mut next = || {
-            seed ^= seed << 13;
-            seed ^= seed >> 7;
-            seed ^= seed << 17;
-            seed
-        };
-        for _ in 0..500 {
-            let h = 2 + (next() % 20) as u32;
-            let mut datas = alloc::vec::Vec::new();
-            for _ in 0..7 {
-                let mut pd = alloc::vec![0u8; P::SIZE];
-                let ob = (next() % (6 * h as u64 + 12)) as u32;
-                pd[P::OPENED_BELL..P::OPENED_BELL + 4].copy_from_slice(&ob.to_le_bytes());
-                let rn = 6 * h + 1 + (next() % 3) as u32;
-                pd[P::RESOLVED_NEXT..P::RESOLVED_NEXT + 4].copy_from_slice(&rn.to_le_bytes());
-                for back in 0..6u32 {
-                    let hh = if next() % 7 == 0 {
-                        h + 6
-                    } else {
-                        h.saturating_sub(back)
-                    };
-                    let o = P::snap((hh % 6) as usize);
-                    pd[o..o + 4].copy_from_slice(&hh.to_le_bytes());
-                    for i in 0..P::SIDES {
-                        let v = (next() % 3000) as u16;
-                        pd[o + 4 + 2 * i..o + 6 + 2 * i].copy_from_slice(&v.to_le_bytes());
-                    }
-                }
-                for f in 0..P::FACTIONS {
-                    let v = (next() % 50) as u16;
-                    pd[P::captures_by(f)..P::captures_by(f) + 2].copy_from_slice(&v.to_le_bytes());
-                }
-                datas.push((next() % 5 != 0).then_some(pd));
-            }
-            let views: [Option<&[u8]>; 7] = core::array::from_fn(|i| datas[i].as_deref());
-            let want = cm::fold(&views, h).unwrap();
-            let got = fold_hour(&views, h, fold_captures(&views).unwrap()).unwrap();
-            assert_eq!(got, want);
-        }
     }
 
     #[test]

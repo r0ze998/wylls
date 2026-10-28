@@ -121,27 +121,12 @@ pub const SETTLE_CAPTURE: &[Cover] = &[
     ),
 ];
 
-pub const FOLD_MARCH: &[Cover] = &[
-    Cover::Test(
-        "conquest::g13_cq_fold_march_folds_hours_in_order",
-        &[
-            Lands("fold_ix("),
-            Err(E::BadData),
-            CqErr(Cq::FoldOutOfOrder),
-            CqErr(Cq::FoldTooEarly),
-        ],
-    ),
-    // v1.5 (A-49): an Ended season refuses an hour at or after `end_bell`,
-    // and any fold from `end + 72 h` (a closed March is never re-created).
-    Cover::Test(
-        "conquest::g13_cq_fold_march_in_the_grace_but_not_after_it",
-        &[Lands("fold in the grace"), Err(E::WrongStatus)],
-    ),
-    Cover::Test(
-        "conquest::g03_cq_fold_march_forged_members_and_march",
-        &[Err(E::BadAddress)],
-    ),
-];
+/// S1 has no March folds (map growth R3-A): FoldMarch is refused as a
+/// reserved tag is.
+pub const FOLD_MARCH: &[Cover] = &[Cover::Test(
+    "conquest::g13_s1_refuses_fold_march",
+    &[Err(E::BadData)],
+)];
 
 pub const RETIRE_HOST: &[Cover] = &[
     Cover::Test(
