@@ -567,6 +567,10 @@ test('the caravan form offers other players\' villages and storehouses after the
   assert.match(html, /<optgroup label="ほかの人の場所">/);
   assert.match(html, /ウォレットで署名して送ります/);
   assert.match(html, /<option value="1" selected>/, 'the default is one of the viewer\'s own places');
+  // the viewer's village and another's in the same province (1, 0) are told apart by their tiles
+  assert.match(html, /村（1, 0 · マス 20）<\/option>/);
+  assert.match(html, /村（1, 0 · マス 5） · /);
+  assert.match(html, /村（0, 0）<\/option>/, 'alone in its province, a village keeps its short name');
   // a single village with another's place near: the form is offered (it said "nowhere to send" before)
   const lone = { ...fs, holdings: [fs.holdings[0]], s1: { ...fs.s1, caravans: { moving: [], vaults: [fs.s1.caravans.vaults[0]] } } };
   assert.match(String(SCR.renderS1Village(lone)), /data-form="s1-caravan"/);
