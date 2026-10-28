@@ -7,7 +7,7 @@
 //!                   [--base-port P] [--chaos] [--adversary] [--viewers N]
 //!                   [--viewer-window-hours H] [--archive DIR] [--g0 UNIX] [--so PATH]
 //!                   [--seed N] [--drain-scale S] [--expect-so-sha256 HEX] [--[no-]eager-bots] [--keep-running]
-//!                   [--prize-so PATH [--entry-fee N] [--prize-ops-bps N] [--prize-keeps N]]  (test-asset prize pool; --conquest, --bots 0)
+//!                   [--prize-so PATH [--entry-fee N] [--prize-ops-bps N] [--prize-keeps N (display only)]]  (test-asset prize pool; --conquest, --bots 0, --r-max ≤ 17)
 //!                   [--conquest] [--s1] [--season-end-at-play-end] [--chaos-force herald:H ...] [--viewer-think-ms MS] ...
 //! frontier-stack verify --run-id ID
 //! frontier-stack tamper --run-id ID [--strict]

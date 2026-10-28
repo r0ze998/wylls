@@ -161,8 +161,9 @@ pub struct StackConfig {
     pub entry_fee: u64,
     /// The operator's part of each fee in basis points (owner: 20%).
     pub prize_ops_bps: u16,
-    /// Keeps the prize tally must count before it can be finalised (the
-    /// conquest world's rings 2..4: 54).
+    /// The pool's `expected_keeps`, display only (0: not given). Finalize
+    /// counts against the game's ProvinceFunds at the end, so a growing map
+    /// needs no figure here.
     pub prize_keeps: u16,
     /// Game seconds per real second after the pre-season (20× exit, 100×
     /// nightly, 2× latency run).
@@ -293,7 +294,7 @@ impl Default for StackConfig {
             prize_so: None,
             entry_fee: 25_000_000,
             prize_ops_bps: 2_000,
-            prize_keeps: 54,
+            prize_keeps: 0,
             scale: 100.0,
             preseason_scale: 2_000.0,
             drain_scale: None,
@@ -684,8 +685,12 @@ impl StackConfig {
             if !self.conquest {
                 return Err("--prize-so: the prize pool tallies keeps (needs --conquest)".into());
             }
-            if self.entry_fee == 0 || self.prize_ops_bps > 10_000 || self.prize_keeps == 0 {
-                return Err("--entry-fee > 0, --prize-ops-bps ≤ 10000, --prize-keeps > 0".into());
+            if self.entry_fee == 0 || self.prize_ops_bps > 10_000 {
+                return Err("--entry-fee > 0, --prize-ops-bps ≤ 10000".into());
+            }
+            // The pool's tally bitmap covers rings 0–17 (InitPool refuses more).
+            if self.r_max.is_some_and(|r| r > 17) {
+                return Err("--prize-so: the prize pool takes --r-max ≤ 17".into());
             }
         }
         if !(self.preseason_scale > 0.0 && self.preseason_scale <= 100_000.0) {
@@ -1081,11 +1086,17 @@ mod tests {
         apply_flags(&mut c, &f).unwrap();
         assert_eq!(
             (c.entry_fee, c.prize_ops_bps, c.prize_keeps),
-            (25_000_000, 2_000, 54)
+            (25_000_000, 2_000, 0)
         );
         // Script bots share the world: they join by operator invite, never by paying.
         assert_eq!(c.bots, 6);
         assert_eq!(c.check(), Ok(()));
+        // The pool's tally covers rings 0–17.
+        c.r_max = Some(18);
+        assert!(c.check().is_err());
+        c.r_max = Some(17);
+        assert_eq!(c.check(), Ok(()));
+        c.r_max = None;
         assert_eq!(c.to_json()["prize"]["entry_fee"], 25_000_000);
         let f = split_flags(&["--entry-fee", "10000000"].map(String::from)).unwrap();
         apply_flags(&mut c, &f).unwrap();

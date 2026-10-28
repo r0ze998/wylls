@@ -1,10 +1,11 @@
 //! The prize pool end to end in LiteSVM: the SBPF build of
 //! permutation-prize, LiteSVM's own SPL Token program, and game accounts
-//! (Season, Province, Citizen) laid out with the game's ABI under a
-//! stand-in game program id.
+//! (Season, Province, ProvinceFund, Citizen) laid out with the game's ABI
+//! under a stand-in game program id.
 
 use frontier_abi::addr::{ring_of, AddrCtx};
 use frontier_abi::layout::world::frontier as F;
+use frontier_abi::layout::world::province_fund as PF;
 use frontier_abi::v2::layout::player::citizen as C;
 use frontier_abi::v2::layout::province::{keep as K, province as P};
 use frontier_abi::v2::layout::world::season as S;
@@ -25,6 +26,11 @@ const END_BELL: u32 = 432;
 /// 25 units of a 6-decimal test token (the owner's fee; a pool parameter).
 const FEE: u64 = 25_000_000;
 const SOL: u64 = 1_000_000_000;
+/// permutation-rules `travel::BELL_SECS`.
+const BELL_SECS: i64 = 600;
+/// Provinces may close from `end + 72 h`.
+const GRACE: i64 = 72 * 3_600;
+const CLOCK: Address = Address::from_str_const("SysvarC1ock11111111111111111111111111111111");
 
 struct World {
     svm: LiteSVM,
@@ -148,18 +154,39 @@ fn put(d: &mut [u8], off: usize, v: &[u8]) {
     d[off..off + v.len()].copy_from_slice(v);
 }
 
-fn set_season(w: &mut World, status: u8) {
+/// The cluster clock's unix time.
+fn now(w: &World) -> i64 {
+    let c = w.svm.get_account(&CLOCK).expect("clock sysvar");
+    i64::from_le_bytes(c.data[32..40].try_into().unwrap())
+}
+
+/// The game's Season: its end bell started `ended_ago` seconds before now.
+fn season_data(w: &World, status: u8, r_max: u16, ended_ago: i64) -> Vec<u8> {
     let mut d = vec![0u8; S::SIZE];
     put(&mut d, 0, &S::MAGIC);
     put(&mut d, S::SEASON_ID, &SEASON_ID.to_le_bytes());
     d[S::STATUS] = status;
+    put(&mut d, S::R_MAX, &r_max.to_le_bytes());
     put(&mut d, S::AUTHORITY, w.operator.pubkey().as_ref());
     put(&mut d, S::END_BELL, &END_BELL.to_le_bytes());
+    let genesis = now(w) - ended_ago - END_BELL as i64 * BELL_SECS;
+    put(&mut d, S::GENESIS_TS, &genesis.to_le_bytes());
+    d
+}
+
+fn set_season(w: &mut World, status: u8) {
+    set_season_with(w, status, 16, 0);
+}
+
+fn set_season_with(w: &mut World, status: u8, r_max: u16, ended_ago: i64) {
+    let d = season_data(w, status, r_max, ended_ago);
     let k = w.season.to_bytes();
     game_account(w, k, d);
 }
 
 /// The game's Frontier account: `opened` provinces (61 = rings 0..4).
+/// Only FoldOccupancy writes it, so it may lag the funds; the pool never
+/// reads it.
 fn set_frontier(w: &mut World, opened: u32) {
     let mut d = vec![0u8; F::SIZE];
     put(&mut d, 0, &F::MAGIC);
@@ -167,6 +194,31 @@ fn set_frontier(w: &mut World, opened: u32) {
     put(&mut d, F::PROVINCES_OPENED, &opened.to_le_bytes());
     let k = w.ctx.frontier();
     game_account(w, k, d);
+}
+
+fn fund_data(wedge: u8, opened: u32) -> Vec<u8> {
+    let mut d = vec![0u8; PF::SIZE];
+    put(&mut d, 0, &PF::MAGIC);
+    put(&mut d, PF::SEASON_ID, &SEASON_ID.to_le_bytes());
+    d[PF::WEDGE] = wedge;
+    put(&mut d, PF::PROVINCES_OPENED, &opened.to_le_bytes());
+    d
+}
+
+/// The six ProvinceFunds: `opened` provinces in all (wedge 0 takes the
+/// remainder of an even split).
+fn set_funds(w: &mut World, opened: u32) {
+    for wedge in 0..6u8 {
+        let n = opened / 6 + if wedge == 0 { opened % 6 } else { 0 };
+        let k = w.ctx.province_fund(wedge);
+        game_account(w, k, fund_data(wedge, n));
+    }
+}
+
+fn funds(w: &World) -> Vec<Address> {
+    (0..6u8)
+        .map(|f| Address::new_from_array(w.ctx.province_fund(f)))
+        .collect()
 }
 
 fn province_data(p: i16, q: i16, holder: u8, resolved_next: u32, bells: [u64; 6]) -> Vec<u8> {
@@ -272,6 +324,7 @@ fn world() -> World {
     };
     set_season(&mut w, S::STATUS_RUNNING);
     set_frontier(&mut w, 61);
+    set_funds(&mut w, 61);
     w
 }
 
@@ -366,17 +419,19 @@ fn tally(w: &mut World, provinces: &[Address]) -> Result<(), String> {
 }
 
 fn finalize(w: &mut World) -> Result<(), String> {
-    let frontier = Address::new_from_array(w.ctx.frontier());
-    finalize_with(w, frontier)
+    let (season, funds) = (w.season, funds(w));
+    finalize_with(w, season, &funds)
 }
 
-fn finalize_with(w: &mut World, frontier: Address) -> Result<(), String> {
+fn finalize_with(w: &mut World, season: Address, funds: &[Address]) -> Result<(), String> {
+    let mut accounts = vec![
+        AccountMeta::new(w.pool, false),
+        AccountMeta::new_readonly(season, false),
+    ];
+    accounts.extend(funds.iter().map(|a| AccountMeta::new_readonly(*a, false)));
     let ix = Instruction {
         program_id: w.prize,
-        accounts: vec![
-            AccountMeta::new(w.pool, false),
-            AccountMeta::new_readonly(frontier, false),
-        ],
+        accounts,
         data: vec![tag::FINALIZE],
     };
     let op = w.operator.insecure_clone();
@@ -934,31 +989,212 @@ fn tally_and_finalize_guards() {
     tally(&mut w, &provinces[31..]).unwrap();
     assert_eq!(u16_at(&pool_data(&w), pool::COUNTED), 53);
     fails(finalize(&mut w), E::TallyIncomplete);
-    // A Frontier account that is not the game's at its address is refused.
+    // A ProvinceFund that is not the game's at its wedge's address, in
+    // another wedge's place, of another season or short of six: refused.
+    let (season, real) = (w.season, funds(&w));
     let fake = Keypair::new().pubkey();
-    let real = w
-        .svm
-        .get_account(&Address::new_from_array(w.ctx.frontier()))
-        .unwrap();
-    let mut short = real.clone();
-    put(&mut short.data, F::PROVINCES_OPENED, &60u32.to_le_bytes());
+    let mut short = w.svm.get_account(&real[1]).unwrap();
+    put(&mut short.data, PF::PROVINCES_OPENED, &0u32.to_le_bytes());
     w.svm.set_account(fake, short).unwrap();
-    fails(finalize_with(&mut w, fake), E::BadAccount);
+    let mut forged = real.clone();
+    forged[1] = fake;
+    fails(finalize_with(&mut w, season, &forged), E::BadAccount);
+    let mut swapped = real.clone();
+    swapped.swap(1, 2);
+    fails(finalize_with(&mut w, season, &swapped), E::BadAccount);
+    assert!(finalize_with(&mut w, season, &real[..5]).is_err());
+    let a1 = w.ctx.province_fund(1);
+    let mut other = fund_data(1, 0);
+    put(&mut other, PF::SEASON_ID, &8u64.to_le_bytes());
+    game_account(&mut w, a1, other);
+    fails(finalize(&mut w), E::BadAccount);
+    set_funds(&mut w, 61);
+    // The Season must be the pool's.
+    fails(finalize_with(&mut w, provinces[0], &real), E::BadAccount);
     tally(&mut w, &provinces[30..31]).unwrap();
     finalize(&mut w).unwrap();
     assert_eq!(area(&w), [8, 9, 10, 9, 9, 9]);
     assert_eq!(pool_data(&w)[pool::WINNERS], 1 << 2);
 
-    // (e) a pool opened with the wrong count can never be finalised: 53
-    // counted of an expected 53 is not the game's 54, and 54 is not 53.
+    // (e) `expected_keeps` is display only: a pool opened with 0 or with a
+    // wrong 53 finalises on the game's count, and only on it.
+    for keeps in [0u16, 53] {
+        let mut w = world();
+        init_with(&mut w, keeps);
+        let provinces = set_provinces(&mut w, &holders, [0; 6]);
+        set_season(&mut w, S::STATUS_ENDED);
+        tally(&mut w, &provinces[..53]).unwrap();
+        fails(finalize(&mut w), E::TallyIncomplete);
+        tally(&mut w, &provinces[53..]).unwrap();
+        finalize(&mut w).unwrap();
+        assert_eq!(u16_at(&pool_data(&w), pool::EXPECTED_KEEPS), keeps);
+    }
+}
+
+/// Keep provinces of ring `d` (all of it).
+fn ring(d: u64) -> Vec<(i16, i16)> {
+    let r = d as i16;
+    let mut v = vec![];
+    for p in -r..=r {
+        for q in -r..=r {
+            if ring_of(p as i32, q as i32) == d {
+                v.push((p, q));
+            }
+        }
+    }
+    v
+}
+
+/// Writes keep provinces opened at `opened_bell`, every one held by `holder`.
+fn open(w: &mut World, at: &[(i16, i16)], holder: u8, opened_bell: u32) -> Vec<Address> {
+    at.iter()
+        .map(|(p, q)| {
+            let mut d = province_data(*p, *q, holder, END_BELL, [0; 6]);
+            put(&mut d, P::OPENED_BELL, &opened_bell.to_le_bytes());
+            put(&mut d, P::KEEP + K::SINCE_BELL, &opened_bell.to_le_bytes());
+            let a = w.ctx.province(*p as i32, *q as i32);
+            game_account(w, a, d);
+            Address::new_from_array(a)
+        })
+        .collect()
+}
+
+/// The map grew during the season (ring 5 and half of ring 6 opened after
+/// the pool, which still says 54): Finalize counts against the game's
+/// funds at the end, even with the Frontier's own figure behind (61).
+#[test]
+fn a_grown_map_finalises_on_the_funds_count() {
     let mut w = world();
-    init_with(&mut w, 53);
+    init(&mut w);
+    let holders: Vec<u8> = (0..54).map(|i| (i / 9) as u8).collect();
+    let mut provinces = set_provinces(&mut w, &holders, [0; 6]);
+    let r5 = ring(5);
+    let r6 = ring(6);
+    assert_eq!((r5.len(), r6.len()), (30, 36));
+    provinces.extend(open(&mut w, &r5, 4, 100));
+    provinces.extend(open(&mut w, &r6[..18], 1, 200));
+    set_funds(&mut w, 61 + 30 + 18);
+    set_season(&mut w, S::STATUS_ENDED);
+    for c in provinces.chunks(20) {
+        tally(&mut w, c).unwrap();
+    }
+    let d = pool_data(&w);
+    assert_eq!(u16_at(&d, pool::COUNTED), 102);
+    finalize(&mut w).unwrap();
+    assert_eq!(area(&w), [9, 27, 9, 9, 39, 9]);
+    assert_eq!(pool_data(&w)[pool::WINNERS], 1 << 4);
+}
+
+/// One province uncounted on the grown map: no Finalize.
+#[test]
+fn a_grown_map_with_one_province_missing_does_not_finalise() {
+    let mut w = world();
+    init(&mut w);
+    let holders: Vec<u8> = (0..54).map(|i| (i / 9) as u8).collect();
+    let mut provinces = set_provinces(&mut w, &holders, [0; 6]);
+    provinces.extend(open(&mut w, &ring(5), 4, 100));
+    set_funds(&mut w, 61 + 30);
+    set_season(&mut w, S::STATUS_ENDED);
+    for c in provinces[..83].chunks(20) {
+        tally(&mut w, c).unwrap();
+    }
+    fails(finalize(&mut w), E::TallyIncomplete);
+    tally(&mut w, &provinces[83..]).unwrap();
+    finalize(&mut w).unwrap();
+}
+
+/// A province opened at or after the end bell (before EndSeason) was not
+/// on the map at the end: counted, so Finalize is not blocked, but with no
+/// area and no territory, whoever holds it and whatever it resolved.
+#[test]
+fn a_province_opened_after_the_end_counts_without_area() {
+    let mut w = world();
+    init(&mut w);
+    let holders: Vec<u8> = (0..54).map(|i| (i / 9) as u8).collect();
+    let mut provinces = set_provinces(&mut w, &holders, [0; 6]);
+    let late = ring(5)[..2].to_vec();
+    let opened = open(&mut w, &late, 3, END_BELL);
+    // One of them with an unresolved end bell and territory written.
+    let (p, q) = late[1];
+    let mut d = province_data(p, q, 3, END_BELL - 1, [9; 6]);
+    put(&mut d, P::OPENED_BELL, &(END_BELL + 1).to_le_bytes());
+    put(
+        &mut d,
+        P::KEEP + K::SINCE_BELL,
+        &(END_BELL + 1).to_le_bytes(),
+    );
+    let a = w.ctx.province(p as i32, q as i32);
+    game_account(&mut w, a, d);
+    provinces.extend(opened);
+    set_funds(&mut w, 61 + 2);
+    set_season(&mut w, S::STATUS_ENDED);
+    // Before they are counted: two short.
+    tally(&mut w, &provinces[..54]).unwrap();
+    fails(finalize(&mut w), E::TallyIncomplete);
+    tally(&mut w, &provinces[54..]).unwrap();
+    let d = pool_data(&w);
+    assert_eq!(u16_at(&d, pool::COUNTED), 56);
+    assert_eq!(area(&w), [9; 6]);
+    assert_eq!(
+        (0..6).map(|f| u64_at(&d, pool::BELLS + 8 * f)).sum::<u64>(),
+        0
+    );
+    finalize(&mut w).unwrap();
+    // A province opened before the end still needs a holder from before it.
+    let mut w = world();
+    init(&mut w);
+    let (p, q) = keeps()[0];
+    let mut d = province_data(p, q, 3, END_BELL, [0; 6]);
+    put(&mut d, P::OPENED_BELL, &(END_BELL - 1).to_le_bytes());
+    put(&mut d, P::KEEP + K::SINCE_BELL, &END_BELL.to_le_bytes());
+    let a = w.ctx.province(p as i32, q as i32);
+    game_account(&mut w, a, d);
+    set_season(&mut w, S::STATUS_ENDED);
+    fails(
+        tally(&mut w, &[Address::new_from_array(a)]),
+        E::ProvinceNotFinal,
+    );
+}
+
+/// Finalize needs the Season Ended, and must come before `end + 72 h`, when
+/// anyone may close a Province and its fund's count drops.
+#[test]
+fn finalize_needs_the_end_and_comes_before_the_closes() {
+    let mut w = world();
+    init(&mut w);
+    let holders: Vec<u8> = (0..54).map(|i| (i / 9) as u8).collect();
     let provinces = set_provinces(&mut w, &holders, [0; 6]);
     set_season(&mut w, S::STATUS_ENDED);
-    tally(&mut w, &provinces[..30]).unwrap();
-    tally(&mut w, &provinces[31..]).unwrap();
-    fails(finalize(&mut w), E::WrongExpectedCount);
-    tally(&mut w, &provinces[30..31]).unwrap();
-    fails(finalize(&mut w), E::WrongExpectedCount);
-    assert_eq!(pool_data(&w)[pool::STATE], pool::STATE_OPEN);
+    for c in provinces.chunks(27) {
+        tally(&mut w, c).unwrap();
+    }
+    set_season(&mut w, S::STATUS_RUNNING);
+    fails(finalize(&mut w), E::SeasonNotEnded);
+    set_season_with(&mut w, S::STATUS_ENDED, 16, GRACE);
+    fails(finalize(&mut w), E::TooLate);
+    set_season_with(&mut w, S::STATUS_ENDED, 16, GRACE - 60);
+    finalize(&mut w).unwrap();
+}
+
+/// The tally bitmap covers rings 0–17: a season whose map may grow past it
+/// gets no pool.
+#[test]
+fn no_pool_for_a_season_beyond_ring_17() {
+    let mut w = world();
+    let op = w.operator.insecure_clone();
+    for r_max in [18u16, 128] {
+        set_season_with(&mut w, S::STATUS_RUNNING, r_max, 0);
+        let ix = init_ix(&w, &op.pubkey(), FEE, 2_000, 0);
+        fails(send(&mut w.svm, &[ix], &[&op]), E::BadParams);
+    }
+    set_season_with(&mut w, S::STATUS_RUNNING, 17, 0);
+    init_with(&mut w, 0);
+    // The outermost ring the bitmap takes: 17.
+    let edge = ring(17);
+    assert_eq!(
+        edge.iter()
+            .map(|(p, q)| frontier_abi::addr::province_index(*p as i32, *q as i32).unwrap())
+            .max(),
+        Some(918)
+    );
 }

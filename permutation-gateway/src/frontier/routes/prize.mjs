@@ -98,10 +98,17 @@ export function poolView(prize, pool) {
   };
 }
 
+/** The keeps Finalize counts against: the game's six ProvinceFunds' opened provinces less the 7 keepless ones (null if one is missing). */
+async function keepsToCount(ctx) {
+  const funds = await Promise.all([0, 1, 2, 3, 4, 5].map(w => account(ctx, ctx.addresses.provinceFund(w))));
+  if (funds.some(d => !d || d.length < 24)) return null;
+  return Math.max(0, funds.reduce((n, d) => n + Buffer.from(d).readUInt32LE(20), 0) - 7);
+}
+
 export const prizeRoutes = {
   'GET /f/prize': async (ctx, req) => {
     const prize = requirePrize(ctx);
-    const body = poolView(prize, await readPool(ctx));
+    const body = { ...poolView(prize, await readPool(ctx)), keepsToCount: await keepsToCount(ctx) };
     const wallet = req.url.searchParams.get('wallet');
     if (wallet) {
       if (!isKey(wallet)) throw new RouteError(400, 'wallet must be a base58 address', 'BadRequest');

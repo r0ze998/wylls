@@ -32,7 +32,7 @@ export const FACTIONS = 6;
 /** permutation-prize's errors (`Custom(code)`). */
 export const PRIZE_ERRORS = Object.freeze({ 0x100: 'BadData', 0x101: 'BadAccount', 0x102: 'BadParams', 0x103: 'NotOperator', 0x104: 'WrongState', 0x105: 'AlreadyPaid',
   0x106: 'SeasonNotEnded', 0x107: 'ProvinceNotFinal', 0x108: 'NoKeep', 0x109: 'TallyIncomplete', 0x10A: 'BadShares', 0x10B: 'BadProof', 0x10C: 'NotWinner',
-  0x10D: 'AlreadyClaimed', 0x10E: 'NothingToPay', 0x10F: 'Overflow', 0x110: 'WrongExpectedCount' });
+  0x10D: 'AlreadyClaimed', 0x10E: 'NothingToPay', 0x10F: 'Overflow', 0x110: 'WrongExpectedCount', 0x111: 'TooLate' });
 /** What Pay adds to a Join's compute-unit and loaded-data limits (the prize and token programs, five more accounts). */
 export const PAID_JOIN_EXTRA_CU = 80_000;
 export const PAID_JOIN_EXTRA_LOADED = 524_288;
@@ -149,8 +149,11 @@ export function payIx({ prize, wallet, payer, walletToken = null }) {
 /** Tally: count `provinces` (Province account addresses) once each. */
 export const tallyIx = ({ prize, season, provinces }) => ({ programId: prize.program, data: Uint8Array.of(PRIZE_TAG.TALLY), keys: [W(prize.pool), R(season), ...provinces.map(p => R(p))] });
 
-/** Finalize: `frontier` is the game's Frontier account (its opened provinces give the keeps to count). */
-export const finalizeIx = ({ prize, frontier }) => ({ programId: prize.program, data: Uint8Array.of(PRIZE_TAG.FINALIZE), keys: [W(prize.pool), R(frontier)] });
+/** Finalize: `season` and the game's six ProvinceFunds, wedges 0–5 in order (their opened provinces give the keeps to count). Before `end + 72 h`. */
+export const finalizeIx = ({ prize, season, provinceFunds }) => {
+  if (provinceFunds?.length !== 6) throw new Error('finalizeIx: the six ProvinceFunds, wedges 0–5');
+  return { programId: prize.program, data: Uint8Array.of(PRIZE_TAG.FINALIZE), keys: [W(prize.pool), R(season), ...provinceFunds.map(f => R(f))] };
+};
 
 /** SetShares (the operator, once, after Finalize): `totals` per nation, the merkle root, the ledger file's sha256. */
 export function setSharesIx({ prize, operator, mode, totals, root, ledgerHash }) {

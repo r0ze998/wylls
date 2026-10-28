@@ -1,6 +1,6 @@
 # 地図が広がるシーズンの賞金の確定（設計）
 
-2026-10-28。ブランチ `map/region-append`。**設計だけで、コードはまだ変えていません。**
+2026-10-28。ブランチ `map/region-append`。オーナーが P1・P1'・B を了承しました（G1 は入れない、次のシーズンから）。実装は §7 にあります。
 
 2世界比較（[keeper-load-rules.ja.md](keeper-load-rules.ja.md) §13.5）で、地図が61州から817州に広がったシーズンでは、賞金の確定（Finalize）が `WrongExpectedCount` で断られました。休む・休まないに関係なく、2つの世界の両方で起きています。この文書は、その原因と直し方の案です。ルールの変更が要るところは分けて書きます。
 
@@ -100,3 +100,65 @@ Tally と Finalize は `permutation-prize/src/lib.rs` にあります。
 2. `end_bell` 以降に開いた州を、面積に入れずに「数えた」扱いにしてよいか（P1'）。あわせて、ゲームの側でも開けないようにするか（G1、次のシーズンから）。
 3. 当面、賞金プールを `r_max` 17 以下のシーズンに限ってよいか（B）。
 4. 入れる時期。賞金プログラムは、動いているシーズンのプールにも効いてしまいます。なので、次のシーズンからを前提にします。
+
+**答え（オーナー、2026-10-28）**：1〜3 はすべて了承。G1 は入れない。4 は次のシーズンから。
+
+## 7. 実装
+
+### 賞金プログラム（`permutation-prize/src/lib.rs`）
+
+- **Finalize（P1）**：アカウントを `[pool w] [season] [province fund ×6]`（ウェッジ0〜5の順）に変えました。
+  - Season がプールのもので、Ended であることを確かめます。
+  - 6つの ProvinceFund は、アドレスをゲームのものとして計算し直し、持ち主・印（magic）・大きさ・シーズン番号を確かめます。
+  - `Σ provinces_opened − 7` より `counted` が少なければ `TallyIncomplete`、多ければ `WrongExpectedCount` です。
+  - プールの `expected_keeps` は確定の条件に使いません（表示用。0 でもよくなりました）。
+- **Finalize の期限（実装で追加）**：`end + 72 時間` からは `TooLate`（0x111、新しいエラー）で断ります。
+  - 理由：その時刻から CloseProvince を誰でも送れて、閉じた州の分だけ ProvinceFund の数が減ります。まだ数えていない州を閉じられると、数え漏れのまま `counted == 合計` になり、確定できてしまいます。
+  - §1 の終わりに書いたとおり、Tally と Finalize はもともとこの72時間のうちに行う前提です。期限はその前提をプログラムで守るものです。72時間を過ぎたプールは確定できません（今も、閉じた州は Tally できないので同じです）。
+- **Tally（P1'）**：州の `opened_bell ≥ end_bell` なら、ビットマップに印を付けて `counted` を+1し、面積と同点用の値には何も足しません。このとき `resolved_next` と砦の `since_bell` は見ません。
+  - `opened_bell < end_bell` の州は今までどおりです（`since_bell ≥ end_bell` なら `ProvinceNotFinal`）。
+- **InitPool（B）**：Season の `r_max` が17を超えると `BadParams` で断ります（定数 `MAX_RING` = 17）。
+
+### そのほかの部品
+
+| 部品 | 変更 |
+|---|---|
+| `permutation-gateway/client/src/frontier/prize.mjs` | `finalizeIx({ prize, season, provinceFunds })`（6つでなければ例外）。エラー表に `TooLate`。web の SDK の写しも生成し直しました |
+| `permutation-gateway/scripts/prize-settle.mjs` | Finalize に season と ProvinceFund×6 を渡します。`--check` のゲームの数は ProvinceFund の合計にしました。`end_bell` 以降に開いた州は面積から外します |
+| `permutation-gateway/src/frontier/routes/prize.mjs` | `GET /f/prize` に `keepsToCount`（ProvinceFund の合計 − 7）を足しました |
+| web の賞金画面 | 「集計中です（x / y 州）」の y を `keepsToCount` にしました（無ければ従来の値） |
+| `frontier-node/crates/stack` | `--prize-keeps` の既定を0にしました（表示用）。`--prize-so` と `--r-max` 18以上の組み合わせは、起動前に断ります |
+
+ゲームのプログラムは変えていません。
+
+### 確かめたこと
+
+- 賞金プログラムの svm テスト 13/13 が通りました。新しいテストは次の5つです。
+  - 地図が広がったシーズン（プールは54のまま、Frontier の数は61のまま遅れている）で、ProvinceFund の数で確定する。
+  - 広がった地図で1州でも数え漏れがあると確定しない。
+  - `end_bell` 以降に開いた州は、持ち主や `resolved_next` に関係なく、数に入り面積に入らない。
+  - Ended でなければ確定しない。`end + 72 時間` からは `TooLate`。
+  - `r_max` 18 と 128 では InitPool が断られ、17 なら作れる。
+- 今までのテストは、Frontier の代わりに ProvinceFund の偽物（別のアドレス、ウェッジの入れ替え、別のシーズン、5つしかない）を断る形に直しました。
+- プログラムの単体テスト4、frontier-node 706、gateway 2,522 が通りました。
+
+### 2世界比較のやり直し（2026-10-29）
+
+前回と同じ設定で、新しい賞金プログラムを使いました（48ターン、プレイヤーなし、61州から817州に広がる地図）。休みなしの世界は 41700 番台、休みありの世界は 41600 番台です。
+
+| | 休みなし | 休みあり |
+|---|---|---|
+| Tally | 51回、810/810 | 51回、810/810 |
+| ゲームの数（ProvinceFund の合計 − 7） | 817 − 7 = 810 | 817 − 7 = 810 |
+| `end_bell` 以降に開いた州 | 0 | 0 |
+| Finalize | **確定** | **確定** |
+| 面積 | どの国も135 | どの国も135 |
+| 領地ターン | どの国も4,556 | どの国も4,556 |
+| 勝者 | 6か国すべて（同点） | 6か国すべて（同点） |
+| `--check`（チェーン・プール・ヘラルド） | 一致 | 一致 |
+| 検証ツール | PASS | PASS |
+
+- 2つの世界の817州は、チェーンの見出しの後ろがすべて同じバイトでした（前回と同じ）。
+- どの国も面積も領地ターンも同じなので、同点の決め方（仮）どおり6か国で分ける結果になりました。2つの世界で同じです。
+- このときの Frontier の数も817で、遅れはありませんでした。前回の失敗は、プールの54だけが原因です。
+- 運用で気づいたこと：stack はシーズンの終わりでチェーンの時計を止めます。そのため、Tally を送る前に時計を動かす必要があります（`scripts/demo-clock.sh <base> resume`）。今回は1倍で動かし、終わってから止めました。
