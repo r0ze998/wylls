@@ -244,6 +244,18 @@ impl Keys {
 
 /// Keeper roles: A runs every duty (the operator's keeper), B the public
 /// profile (§10.3 "reveal, prove, settle"; proving is settlement, I-44).
+/// `--s1` for the bots of a conquest (S1) run unless `bots_args` already
+/// passes `--s1` or `--conquest`. Without it the bots keep the M1 budgets
+/// table and the relay refuses their Join's limits (`RelayRejected`); the
+/// AI configs passed it by hand.
+pub fn s1_bot_flags(conquest: bool, bots_args: &[String]) -> Vec<String> {
+    if conquest && !bots_args.iter().any(|a| a == "--s1" || a == "--conquest") {
+        vec!["--s1".to_string()]
+    } else {
+        vec![]
+    }
+}
+
 /// The pacing flags of `eager_bots` that the given `frontier-bots` lists in
 /// its usage (`--help`); empty when it has neither (an unknown flag would
 /// crash-loop the fleet).
@@ -750,6 +762,7 @@ impl Stack {
                 }
             }
         }
+        args.extend(s1_bot_flags(self.cfg.conquest, &self.cfg.bots_args));
         // A gated (prize) season: the operator's script bots join by invite.
         if self.prize.is_some() {
             args.push(s("--invites"));
@@ -1998,6 +2011,17 @@ pub fn down(rd: &RunDir) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn s1_runs_pass_s1_to_the_bots_once() {
+        let none: Vec<String> = vec![];
+        assert_eq!(s1_bot_flags(true, &none), vec!["--s1".to_string()]);
+        assert!(s1_bot_flags(false, &none).is_empty());
+        for given in ["--s1", "--conquest"] {
+            let args = vec![given.to_string(), "--join-by-bell".to_string(), "6".to_string()];
+            assert!(s1_bot_flags(true, &args).is_empty(), "bots_args already pass {given}");
+        }
+    }
 
     #[test]
     fn so_rules() {
