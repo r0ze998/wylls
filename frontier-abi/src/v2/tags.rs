@@ -1,5 +1,6 @@
 //! ABI v2 instruction tags (MC contract §5.4): M1's 51 tags unchanged
-//! plus 0xA0–0xA3 and 0xA5–0xA7 (MC) and 0xB0–0xBE (S1). 0xA4 (CollectTribute, M3) and 0xA8–0xAF
+//! plus 0xA0–0xA3 and 0xA5–0xA7 (MC), 0xB0–0xBE (S1) and 0xC0 (S1's
+//! FastForward, map growth). 0xA4 (CollectTribute, M3) and 0xA8–0xAF
 //! (Settler march, SettleFounding, Raid, AutoReinforce) are reserved.
 //!
 //! **Staged (v1.1, R-16):** v1's [`crate::tags::Ix`] keeps its 50 variants
@@ -11,7 +12,7 @@ use crate::tags::Class;
 
 macro_rules! tags_v2 {
     ($( $name:ident = $tag:literal, $class:ident, $top:literal; )*) => {
-        /// Every ABI v2 instruction (73: M1's 51, MC's 7 and S1's 15).
+        /// Every ABI v2 instruction (74: M1's 51, MC's 7 and S1's 16).
         #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
         #[repr(u8)]
         pub enum Ix { $( $name = $tag, )* }
@@ -121,6 +122,8 @@ tags_v2! {
     SettleProposal = 0xBD, D, false;
     // S1 (1e: domestic raids)
     RaidDomestic = 0xBE, P, false;
+    // S1 (map growth: a resting Province advanced in closed form)
+    FastForward = 0xC0, D, true;
 }
 
 impl Ix {
@@ -135,8 +138,9 @@ impl Ix {
         Ix::CloseMarch,
     ];
 
-    /// The S1 instructions (1b, 1d, 1e), refused by the MC program.
-    pub const S1: [Ix; 15] = [
+    /// The S1 instructions (1b, 1d, 1e, map growth), refused by the MC
+    /// program.
+    pub const S1: [Ix; 16] = [
         Ix::BuildVault,
         Ix::SendCaravan,
         Ix::SettleCaravan,
@@ -152,6 +156,7 @@ impl Ix {
         Ix::SettleProposal,
         Ix::RaidDomestic,
         Ix::FortGarrison,
+        Ix::FastForward,
     ];
 
     /// Whether the instruction is S1's.
@@ -271,8 +276,8 @@ mod tests {
 
     #[test]
     fn v2_extends_m1() {
-        assert_eq!(Ix::ALL.len(), 73);
-        assert_eq!(crate::tags::Ix::ALL_V2.len(), 73);
+        assert_eq!(Ix::ALL.len(), 74);
+        assert_eq!(crate::tags::Ix::ALL_V2.len(), 74);
         for v1 in crate::tags::Ix::ALL {
             let v = Ix::of_v1(*v1);
             assert_eq!(v.tag(), v1.tag());

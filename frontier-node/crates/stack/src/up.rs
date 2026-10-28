@@ -383,6 +383,11 @@ pub fn keeper_toml(
     ) + &backup_delay
         .map(|d| format!("backup_delay_slots = {d}\n"))
         .unwrap_or_default()
+        + if which == 'a' && cfg.keeper_rest {
+            "rest = true\n"
+        } else {
+            ""
+        }
 }
 
 pub struct Stack {
@@ -1077,6 +1082,10 @@ async fn run_all(st: &mut Stack) -> Result<(), String> {
         st.cfg.beacon,
         st.cfg.conquest,
         st.cfg.keep_bells,
+        setup::LandOverrides {
+            ring_theta_bps: st.cfg.ring_theta_bps,
+            r_max: st.cfg.r_max,
+        },
         st.prize.as_ref().map(|p| p.gate.pubkey().to_bytes()),
         st.cfg.season_end_bell(),
         st.cfg.preseason_scale,

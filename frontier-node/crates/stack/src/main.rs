@@ -7,7 +7,7 @@
 //!                   [--base-port P] [--chaos] [--adversary] [--viewers N]
 //!                   [--viewer-window-hours H] [--archive DIR] [--g0 UNIX] [--so PATH]
 //!                   [--seed N] [--drain-scale S] [--expect-so-sha256 HEX] [--[no-]eager-bots] [--keep-running]
-//!                   [--prize-so PATH [--entry-fee N] [--prize-ops-bps N] [--prize-keeps N]]  (test-asset prize pool; --conquest, --bots 0)
+//!                   [--prize-so PATH [--entry-fee N] [--prize-ops-bps N] [--prize-keeps N (display only)]]  (test-asset prize pool; --conquest, --bots 0, --r-max ≤ 17)
 //!                   [--conquest] [--s1] [--season-end-at-play-end] [--chaos-force herald:H ...] [--viewer-think-ms MS] ...
 //! frontier-stack verify --run-id ID
 //! frontier-stack tamper --run-id ID [--strict]
@@ -15,6 +15,7 @@
 //! frontier-stack report --run-id ID
 //! frontier-stack down   --run-id ID
 //! frontier-stack resume --run-id ID (persistent human CQ world)
+//! frontier-stack land   --run-id ID [--do status|open-ring|open-province --at P,Q] (local world's land)
 //! ```
 //! Every subcommand but `check-ports` also takes `--runs-dir DIR` (default
 //! `frontier-node/.local/frontier`). Exit codes: 0 pass, 1 fail, 2 bad
@@ -32,7 +33,7 @@ fn usage() -> ! {
         include_str!("main.rs")
             .lines()
             .skip(3)
-            .take(14)
+            .take(15)
             .map(|l| l.trim_start_matches("//! "))
             .collect::<Vec<_>>()
             .join("\n")
@@ -171,6 +172,10 @@ fn main() {
             &run_dir(&flags),
             has(&flags, "start-paused"),
         )),
+        "land" => match frontier_stack::land::parse_op(get(&flags, "do"), get(&flags, "at")) {
+            Ok(op) => rt.block_on(frontier_stack::land::land(&run_dir(&flags), op)),
+            Err(e) => die(e),
+        },
         "-h" | "--help" | "help" => usage(),
         other => die(format!("unknown subcommand `{other}`")),
     };

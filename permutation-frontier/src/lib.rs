@@ -187,7 +187,12 @@ pub fn dispatch(
         Ix::SettleSiege => conquest::settle_siege(p, a, data),
         Ix::SettleCapture => conquest::settle_capture(p, a, data),
         Ix::FileOutpost => citizen::file_outpost(p, a, data),
-        Ix::FoldMarch => conquest::fold_march(p, a, data),
+        // S1 has no March folds (map growth R3-A,
+        // `docs/frontier/map-growth/keeper-load-rules.ja.md` §5): the S1
+        // score is the Provinces' territory, and a fold would wake every
+        // resting Province each game hour. The tag stays in the ABI; this
+        // program refuses it as it refuses a reserved tag.
+        Ix::FoldMarch => Err(FrontierError::BadData.into()),
         Ix::RetireHost => conquest::retire_host(p, a, data),
         Ix::CloseMarch => conquest::close_march(p, a, data),
         // S1 (stage 1b): vaults and caravans.
@@ -209,6 +214,8 @@ pub fn dispatch(
         Ix::SettleProposal => nation::settle_proposal(p, a, data),
         // S1 (stage 1e): domestic raids.
         Ix::RaidDomestic => caravan::raid_domestic(p, a, data),
+        // S1 (map growth): a resting Province in closed form.
+        Ix::FastForward => clash::fast_forward(p, a, data),
     };
     heap::trace_checkpoint(0xffff);
     r

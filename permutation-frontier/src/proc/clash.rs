@@ -1531,6 +1531,185 @@ pub fn skip_quiet(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     )
 }
 
+// ------------------------------------------------------------ resting
+
+/// 0xC0 FastForward(to, days): `[payer s] [season] [province w] [evidence
+/// r × n]`, class D, top level, v2 Provinces (S1, map growth;
+/// `docs/frontier/map-growth/keeper-load-rules.ja.md` §2.4). The first
+/// `days ≥ 1` evidence accounts are the Province's ArrivalDays from
+/// `day(resolved_next)` (absent: no arrival); the rest are THE anchors of
+/// its region or their archives, in bell order. Advances a resting
+/// Province (`frontier_abi::rest_model`) from `resolved_next` toward `to`
+/// as far as the evidence and its own bytes prove, in closed form: the
+/// bytes SkipQuiet's bell-by-bell loop leaves. Logs a CAMP per camp that
+/// spawned and one REST. Nothing proven is `NotQuiet`; a Province already
+/// at or past `to` is `AlreadyDone`.
+pub fn fast_forward(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+    use super::conquest::{check_accounts_v2, cqlog as cq2, Chained2};
+    use frontier_abi::clash_model::{ModelError, DAY_BELLS};
+    use frontier_abi::rest_model as rest;
+    use frontier_abi::v2::log::{CqKind, EntityKind as E2};
+    use frontier_abi::v2::tags::Ix as Ix2;
+
+    check_accounts_v2(Ix2::FastForward, a, None)?;
+    let x = frontier_abi::v2::ix::FastForward::decode(d)?;
+    let [_payer, season_ai, province, evidence @ ..] = a else {
+        return Err(FrontierError::TooManyAccounts.into());
+    };
+    let days = x.days as usize;
+    if days == 0 || days > evidence.len() {
+        return Err(FrontierError::BadData.into());
+    }
+    prologue::top_level(Ix2::FastForward)?;
+    let now = prologue::now()?;
+    let hdr = prologue::season(
+        season_ai,
+        p,
+        Some(&crate::RULESET_HASH),
+        &CLASH_STATUS,
+        now.ts,
+    )?;
+    let sid = hdr.id;
+    let ctx = crate::addr::ctx(&key(season_ai), &p.to_bytes());
+    let (pp, pq, rn, v2) = province_of(p, &ctx, sid, province)?;
+    if !v2 {
+        return Err(FrontierError::BadData.into());
+    }
+    // A copy of a FastForward that landed (or any write past `to`) finds
+    // the Province there already.
+    if x.to <= rn {
+        return Err(FrontierError::AlreadyDone.into());
+    }
+    let prm = conquest_params(season_ai, true)?.ok_or(BAD_ACCOUNT)?;
+    let clock = {
+        let sd = season_ai.try_borrow_data()?;
+        SeasonClock::read(&sd)?
+    };
+    let coord = permutation_rules::frontier::geometry::ProvinceCoord::new(pp as i32, pq as i32);
+    let region = region_of(coord);
+    // 1. the ArrivalDays, each at its canonical address
+    let (day_ais, anchors) = evidence.split_at(days);
+    let d0 = day_of(rn);
+    for (k, ai) in day_ais.iter().enumerate() {
+        let day = d0.checked_add(k as u32).ok_or(OVERFLOW)?;
+        expect_key(ai, &ctx.arrival_day(pp as i32, pq as i32, day))?;
+    }
+    let days_end = d0
+        .checked_add(days as u32)
+        .and_then(|e| e.checked_mul(DAY_BELLS))
+        .ok_or(OVERFLOW)?;
+    // 2. the reveal windows the anchors prove closed
+    let closed_until = closed_through(
+        p,
+        &ctx,
+        sid,
+        &clock,
+        now.ts,
+        region,
+        rn,
+        days_end.min(x.to),
+        anchors,
+    )?;
+    // 3. the proof over the Province's bytes and the arrival bits
+    let mut pd = province.try_borrow_mut_data()?;
+    let to = rest::quiet_through(&pd, x.to, &prm, closed_until, |b| {
+        let ai = day_ais
+            .get(day_of(b).saturating_sub(d0) as usize)
+            .ok_or(ModelError::BadAccount)?;
+        day_bit_at(p, sid, (pp, pq), b, ai).map_err(|_| ModelError::BadAccount)
+    })?;
+    if to <= rn {
+        return Err(FrontierError::NotQuiet.into());
+    }
+    // 4. the rest and its records
+    let r = rest::project(&mut pd, to, &prm)?;
+    let bell_log = hdr.bell(now.ts).unwrap_or(NO_BELL);
+    for (c, day) in &r.spawns {
+        emit_camp(&mut pd, pp, pq, c, bell_log, *day)?;
+    }
+    let digest = rest::rest_digest(&pd, r.from, r.to)?;
+    let rk = Buf::<12>::new().bytes(&pq_key(pp, pq)).u32(r.from);
+    let payload = Buf::<42>::new()
+        .u32(r.to)
+        .u8(r.holder.unwrap_or(0xFF))
+        .u32(u32::try_from(r.territory).map_err(|_| OVERFLOW)?)
+        .u8(u8::try_from(r.spawns.len()).map_err(|_| OVERFLOW)?)
+        .bytes(&digest);
+    cq2::emit(
+        CqKind::REST as u8,
+        bell_log,
+        rk.get()?,
+        payload.get()?,
+        &mut [Chained2 {
+            entity: E2::Province,
+            data: &mut pd,
+        }],
+    )
+}
+
+/// The first bell from `rn` (and below `limit`) whose reveal window the
+/// given anchors and archives of `region` do not prove closed. Each account
+/// is checked once, by its canonical address; they come in bell order (an
+/// archive covers the archived bells of its half day, an anchor its bell).
+/// A gap, a later bell or a window still open ends the proof there.
+#[allow(clippy::too_many_arguments)]
+fn closed_through(
+    program: &Pubkey,
+    ctx: &AddrCtx,
+    sid: u64,
+    clock: &SeasonClock,
+    now: i64,
+    region: u8,
+    rn: u32,
+    limit: u32,
+    accs: &[AccountInfo],
+) -> R<u32> {
+    use crate::layout::beacon::anchor_archive as AA;
+    let mut b = rn;
+    for ai in accs {
+        if b >= limit {
+            break;
+        }
+        if ai.data_len() == AA::SIZE {
+            prologue::present(ai, program, AccountKind::AnchorArchive, sid)?;
+            let d = ai.try_borrow_data()?;
+            let (r, part) = archive_key(&d)?;
+            if r != region {
+                return Err(BAD_ACCOUNT);
+            }
+            expect_key(ai, &ctx.anchor_archive(region, part))?;
+            if part != archive_part_of(b) {
+                return Ok(b);
+            }
+            while b < limit && archive_part_of(b) == part && archive_archived(&d, b)? {
+                let (a_off, _, _) = archive_entry_of(&d, b)?;
+                let a = permutation_rules::frontier::beacon::bell_end(clock.genesis_ts, b)
+                    .checked_add(a_off as i64)
+                    .ok_or(OVERFLOW)?;
+                if now < clock.reveal_close(b, a) {
+                    return Ok(b);
+                }
+                b += 1;
+            }
+        } else {
+            prologue::present(ai, program, AccountKind::BellAnchor, sid)?;
+            let an = {
+                let d = ai.try_borrow_data()?;
+                Anchor::read(&d)?
+            };
+            if an.region != region {
+                return Err(BAD_ACCOUNT);
+            }
+            expect_key(ai, &ctx.bell_anchor(an.bell, region))?;
+            if an.bell != b || now < clock.reveal_close(b, an.a) {
+                return Ok(b);
+            }
+            b += 1;
+        }
+    }
+    Ok(b.min(limit))
+}
+
 /// The kernel's quiet test of bell `b` (M1's input, or MC's with the Free
 /// Cities and the keep as garrisons).
 fn kernel_quiet(pd: &[u8], b: u32, v2: bool) -> R<bool> {

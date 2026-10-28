@@ -123,6 +123,8 @@ pub fn router(app: Shared) -> Router {
     Router::new()
         .route("/h/season", get(season))
         .route("/h/status", get(status))
+        .route("/h/world", get(world))
+        .route("/h/world/ring/{d}", get(world_ring))
         .route("/h/overview/{ring}/{file}", get(overview))
         .route("/h/roster/{ring}/latest.bin", get(roster))
         .route("/h/province/{pq}/{bell}", get(province))
@@ -312,6 +314,27 @@ async fn status(State(app): State<Shared>) -> Response {
         }),
         "no-store",
     )
+}
+
+/// `/h/world` (`world.rs`): the world's extent and identifiers.
+async fn world(State(app): State<Shared>) -> Response {
+    let f = read_fold(&app);
+    match crate::world::world_json(&f) {
+        Some(v) => json_answer(&v, "public, max-age=5"),
+        None => err(StatusCode::SERVICE_UNAVAILABLE, "NoSeasonYet"),
+    }
+}
+
+/// `/h/world/ring/{d}` (`world.rs`): the ring's Provinces on chain.
+async fn world_ring(State(app): State<Shared>, Path(d): Path<String>) -> Response {
+    let Ok(d) = d.parse::<u16>() else {
+        return err(StatusCode::BAD_REQUEST, "BadRing");
+    };
+    let f = read_fold(&app);
+    match crate::world::ring_json(&f, d) {
+        Some(v) => json_answer(&v, "public, max-age=5"),
+        None => err(StatusCode::NOT_FOUND, "NoSuchRing"),
+    }
 }
 
 /// `/h/roster/{ring}/latest.bin` (`roster.rs`): one answer per fold

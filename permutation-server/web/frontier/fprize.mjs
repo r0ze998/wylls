@@ -62,7 +62,8 @@ export function prizeModel(pool) {
     collected: u(pool.collected), prize: u(pool.prize), ops: u(pool.ops),
     feeToPrize: u(BigInt(pool.fee) - BigInt(pool.fee) * BigInt(pool.opsBps) / 10_000n), feeToOps: u(BigInt(pool.fee) * BigInt(pool.opsBps) / 10_000n),
     state: pool.state, counting: pool.state === 'open' && pool.counted > 0, final: pool.state !== 'open',
-    counted: pool.counted, expectedKeeps: pool.expectedKeeps,
+    // The game's keeps at the end (the map may grow; the pool's own figure is display only).
+    counted: pool.counted, keepsToCount: pool.keepsToCount ?? pool.expectedKeeps,
     area: pool.area ? pool.area.map((provinces, faction) => ({ faction, provinces, winner: !!pool.winners?.includes(faction) })) : null,
     winners: pool.winners ?? null,
     // Shares posted on chain (the deferred step): how many claims were paid, and how much.

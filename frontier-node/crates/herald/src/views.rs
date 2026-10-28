@@ -50,7 +50,7 @@ pub fn season_json(f: &Fold, s: &SeasonStatic) -> Option<Value> {
         Some(fr) => (json!(fr.wedge_open), json!(fr.wedge_occupied)),
         None => (Value::Null, Value::Null),
     };
-    Some(json!({
+    let mut v = json!({
         "v": 1,
         "programId": f.cfg.program.to_string(),
         "cluster": s.cluster,
@@ -84,7 +84,15 @@ pub fn season_json(f: &Fold, s: &SeasonStatic) -> Option<Value> {
         "latestUnix": f.live.map_or(f.st.last_time, |l| l.1),
         "slot": c.slot,
         "bytes_b64": B64.encode(&c.data),
-    }))
+    });
+    // Map growth (`world.rs`): `rings` above lists the seeded rings only;
+    // `ringsOpened` also counts a ring whose seed is on its way, and
+    // `ringProvinces[d]` how many of ring d's Provinces are on chain, so a
+    // page tells "pending" land from land that is not open at all.
+    let states = crate::world::ring_states(f);
+    v["ringsOpened"] = json!(states.len());
+    v["ringProvinces"] = json!(states.iter().map(|r| r.provinces).collect::<Vec<_>>());
+    Some(v)
 }
 
 /// `GET /h/province/{P},{Q}/latest`: the current Province bytes; `bell` is

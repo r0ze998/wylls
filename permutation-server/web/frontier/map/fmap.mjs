@@ -47,6 +47,7 @@ import { OPEN_FROM, OPEN_WAIT_MS, heroZoom, lookPoint, openingPlan, placePoint }
 import { nearness, paintDressing } from './dressing.mjs';
 import { PROBE } from './probe.mjs';
 import { L2, L3, openSurvey } from './survey.mjs';
+import { edgeNear, edgeSegments, paintEdge } from './world.mjs';
 import { CHART, YOURS, fxNow, paintCandidates, paintWedge } from './chart.mjs';
 import { wedgeBox } from './opening.mjs';
 import { STANDARD_AT, STANDARD_UNIT, landShape, landTiles, landingAt, paintBeacon, paintOwnBreath, paintOwnLand, paintOwnOutline, paintProvisionalTag, paintStandard, standardUnit, villageKey } from './ownland.mjs';
@@ -2290,6 +2291,9 @@ export class FrontierMap {
       }
       plain.push(g => paintProvince(g, { ...pr, rec, fog, selected, scale: z }));
     }
+    // the season's border (map/world.mjs): beyond ring rMax there is never land this season. Drawn once it is within
+    // reach of the open land, over the cloud's edge, so "not open yet" and "outside the map" never look alike
+    if (edgeNear(src.rMax, ringsOpen)) { const segs = edgeSegments(src.rMax); plain.push(g => paintEdge(g, segs, z)); }
     // what is the viewer's own and what the selection can do (UX brief §5): one bundle for this frame's passes
     const F = this.youFrame(src, survey, lod, z, terrainOf);
     F.seen = seen; F.up = up; F.dpr = dpr;

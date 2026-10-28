@@ -46,6 +46,7 @@ pub mod layout;
 pub mod log;
 pub mod presets;
 pub mod prologue;
+pub mod rest_model;
 pub mod tags;
 pub mod v2;
 

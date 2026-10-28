@@ -309,6 +309,46 @@ async fn h_routes_caching_and_headers() {
     // Status.
     let stj = get(a, "/h/status").await.json();
     assert_eq!(stj["alarms"]["clashMismatch"], 0);
+    // World (map growth): the fixture seeds rings 2 and 3 (no Frontier
+    // account: ringsOpened is one past the last seed), with A, B, C in
+    // ring 2 and D in ring 3 on chain; rings 0 and 1 have no seed here.
+    let w = get(a, "/h/world").await;
+    assert_eq!(w.h("cache-control"), Some("public, max-age=5"));
+    let wj = w.json();
+    assert_eq!(wj["rMax"], 16);
+    assert_eq!(wj["rMaxHard"], 128);
+    assert_eq!(wj["ringsOpened"], 4);
+    assert_eq!(wj["provinces"], 4);
+    let rings = wj["rings"].as_array().unwrap();
+    assert_eq!(rings.len(), 4);
+    assert_eq!(
+        rings[0],
+        json!({"d": 0, "seed": "absent", "provinces": 0, "size": 1})
+    );
+    assert_eq!(
+        rings[2],
+        json!({"d": 2, "seed": "seeded", "provinces": 3, "size": 12})
+    );
+    assert_eq!(
+        rings[3],
+        json!({"d": 3, "seed": "seeded", "provinces": 1, "size": 18})
+    );
+    let r2 = get(a, "/h/world/ring/2").await.json();
+    let mut got: Vec<(i64, i64)> = r2["provinces"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|x| (x["p"].as_i64().unwrap(), x["q"].as_i64().unwrap()))
+        .collect();
+    got.sort();
+    assert_eq!(got, vec![(0, 2), (1, 1), (2, 0)]);
+    assert!(r2["provinces"][0]["wedge"].as_u64().is_some());
+    assert_eq!(get(a, "/h/world/ring/4").await.status, 404);
+    assert_eq!(get(a, "/h/world/ring/x").await.status, 400);
+    // The season record says the same about the rings.
+    let sj = get(a, "/h/season").await.json();
+    assert_eq!(sj["ringsOpened"], 4);
+    assert_eq!(sj["ringProvinces"], json!([0, 0, 3, 1]));
     // Unknown paths.
     assert_eq!(get(a, "/h/nothing").await.status, 404);
     let _ = std::fs::remove_dir_all(&st.dir);

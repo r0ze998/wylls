@@ -149,8 +149,11 @@ export function payIx({ prize, wallet, payer, walletToken = null }) {
 /** Tally: count `provinces` (Province account addresses) once each. */
 export const tallyIx = ({ prize, season, provinces }) => ({ programId: prize.program, data: Uint8Array.of(PRIZE_TAG.TALLY), keys: [W(prize.pool), R(season), ...provinces.map(p => R(p))] });
 
-/** Finalize: `frontier` is the game's Frontier account (its opened provinces give the keeps to count). */
-export const finalizeIx = ({ prize, frontier }) => ({ programId: prize.program, data: Uint8Array.of(PRIZE_TAG.FINALIZE), keys: [W(prize.pool), R(frontier)] });
+/** Finalize: `season` and the game's six ProvinceFunds, wedges 0–5 in order (their opened provinces give the keeps to count). */
+export const finalizeIx = ({ prize, season, provinceFunds }) => {
+  if (provinceFunds?.length !== 6) throw new Error('finalizeIx: the six ProvinceFunds, wedges 0–5');
+  return { programId: prize.program, data: Uint8Array.of(PRIZE_TAG.FINALIZE), keys: [W(prize.pool), R(season), ...provinceFunds.map(f => R(f))] };
+};
 
 /** SetShares (the operator, once, after Finalize): `totals` per nation, the merkle root, the ledger file's sha256. */
 export function setSharesIx({ prize, operator, mode, totals, root, ledgerHash }) {

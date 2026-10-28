@@ -844,6 +844,50 @@ pub fn raid_domestic(
     build(a, m, d2::RaidDomestic { bell, entry }.to_bytes().to_vec())
 }
 
+/// 0xC0 FastForward (D, S1 map growth): `[payer s] [season r] [province
+/// w] [evidence r …]`: the Province at `dest`, resolved to `from`, toward
+/// `to`. The evidence is the ArrivalDays of `day(from)..=day(to − 1)`,
+/// then the source of THE anchor of each bell `from + k` (`src[k]`, at
+/// most `to − from` of them; consecutive archived bells of one half day
+/// share their archive). The program goes as far as they prove.
+pub fn fast_forward(
+    a: &Addresses,
+    payer: Address,
+    dest: (i32, i32),
+    from: u32,
+    to: u32,
+    src: &[super::AnchorSource],
+) -> Instruction {
+    use super::AnchorSource;
+    assert!(to > from && !src.is_empty() && src.len() as u32 <= to - from);
+    let (p, q) = dest;
+    let rg = super::region_of(p, q);
+    let (d0, d1) = (addr::day_of(from), addr::day_of(to - 1));
+    let mut m = vec![rs(payer), r(a.season), w(a.province(p, q))];
+    for day in d0..=d1 {
+        m.push(r(a.arrival_day(p, q, day)));
+    }
+    let mut last_archive = None;
+    for (k, s) in src.iter().enumerate() {
+        let b = from + k as u32;
+        match s {
+            AnchorSource::Anchor => {
+                m.push(r(a.anchor(b, rg)));
+                last_archive = None;
+            }
+            AnchorSource::Archive => {
+                let part = addr::archive_part(b);
+                if last_archive != Some(part) {
+                    m.push(r(a.archive(rg, part)));
+                    last_archive = Some(part);
+                }
+            }
+        }
+    }
+    let days = (d1 - d0 + 1) as u8;
+    build(a, m, d2::FastForward { to, days }.to_bytes().to_vec())
+}
+
 /// 0xB8 SeizeStructure (P, the captor): P + `[structure w] [province w]
 /// [host_holding r] [owner_citizen w]`.
 pub fn seize_structure(
@@ -1145,6 +1189,22 @@ mod tests {
             (
                 Ix::SettleProposal,
                 settle_proposal(&a, k, 2, 3, 17, Some(k), &[h, home, h]),
+            ),
+            // S1 (map growth)
+            (
+                Ix::FastForward,
+                fast_forward(
+                    &a,
+                    k,
+                    (3, 1),
+                    140,
+                    150,
+                    &[
+                        super::super::AnchorSource::Archive,
+                        super::super::AnchorSource::Archive,
+                        super::super::AnchorSource::Anchor,
+                    ],
+                ),
             ),
         ]
     }

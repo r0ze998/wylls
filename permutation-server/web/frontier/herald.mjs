@@ -319,6 +319,23 @@ export function createHerald({ base = '', fetch: f = (...a) => globalThis.fetch(
         return { holding: { ownerCitizen: toB58(h.ownerCitizen), order: h.order, gen: h.gen, p, q, site } };
       });
     },
+    /**
+     * GET /h/world/ring/{d} (map growth, map/world.mjs): the ring's Provinces on chain, as a Set of "p,q". Asked only
+     * for a ring the season record says is partly created; every entry is checked to lie in ring d.
+     */
+    async worldRing(d) {
+      const r = await get(f, `${root}/h/world/ring/${d}`);
+      if (!r.ok) return r;
+      return guard(() => {
+        check(r.json?.v === 1 && r.json.d === d && Array.isArray(r.json.provinces), 'BadRecord', 'not a ring list');
+        const present = new Set();
+        for (const x of r.json.provinces) {
+          check(Number.isInteger(x?.p) && Number.isInteger(x?.q) && ringOf(x.p, x.q) === d, 'BadRecord', 'a province outside the ring');
+          present.add(`${x.p},${x.q}`);
+        }
+        return { present };
+      });
+    },
     async keep(p, q) {
       const r = await get(f, `${root}/h/keep/${p},${q}.json`);
       return r.ok ? { ok: true, keep: r.json } : r;

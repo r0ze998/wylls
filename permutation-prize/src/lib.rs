@@ -7,9 +7,12 @@
 //! (owner = the game program, address re-derived, every bell before
 //! `end_bell` resolved), counts each keep once for its holder and
 //! [`finalize`] names the nation(s) with the largest area once every
-//! keep is counted: the pool's `expected_keeps` must equal both the count
-//! and the game's own figure (its Frontier account's opened provinces less
-//! the seven keepless provinces of rings 0–1).
+//! keep is counted: the count must equal the game's own figure at
+//! Finalize, the sum of its six ProvinceFunds' opened provinces less the
+//! seven keepless provinces of rings 0–1. The map may grow during the
+//! season, so no count is fixed before it (`expected_keeps` is display
+//! only); after Ended no Province opens and none closes before
+//! `end + 72 h`, so that sum is the map at the end.
 //!
 //! **The freeze.** The game resolves no bell at or after `end_bell`
 //! (permutation-frontier `proc/clash.rs`: "Bells at or after `end_bell` are
@@ -17,8 +20,11 @@
 //! a bell's resolution. Tally therefore takes a Province only when the
 //! Season is Ended and the Province's `resolved_next ≥ end_bell` (every
 //! bell that could move its keep is done), and refuses a keep whose
-//! `since_bell ≥ end_bell`. A counted Province is never read again (bitmap),
-//! and Finalize closes the tally for good.
+//! `since_bell ≥ end_bell`. A Province opened at or after `end_bell`
+//! (between the end bell and EndSeason) did not exist at the end: it is
+//! counted with no area and no territory. A counted Province is never read
+//! again (bitmap), and Finalize closes the tally for good. The bitmap
+//! covers rings 0–17, so InitPool refuses a season with `r_max` > 17.
 //!
 //! **Decided** (owner): the winner is the nation holding the most provinces
 //! at the end; 80% of each fee is prize, 20% the operator's. **Provisional**
@@ -36,7 +42,7 @@
 //! | 0 | InitPool(fee u64, ops_bps u16, expected_keeps u16, params_hash 32) | `[operator s,w] [pool w] [vault w] [mint] [season] [game program] [token] [system]` |
 //! | 1 | Pay | `[wallet s] [payer s,w] [pool w] [entry w] [wallet token w] [vault w] [mint] [token] [system]` |
 //! | 2 | Tally | `[pool w] [season] [province]…` |
-//! | 3 | Finalize | `[pool w] [frontier]` |
+//! | 3 | Finalize | `[pool w] [season] [province fund]×6` (wedges 0–5) |
 //! | 4 | SetShares(mode u8, total_points [u64;6], root 32, ledger_hash 32) | `[operator s] [pool w]` |
 //! | 5 | Claim(nation u8, points u64, n u8, proof 32×n) | `[wallet s] [pool w] [entry w] [citizen] [vault w] [wallet token w] [mint] [token]` |
 //! | 6 | WithdrawOps | `[operator s] [pool w] [vault w] [operator token w] [mint] [token]` |
@@ -54,7 +60,7 @@ use solana_program::{
 };
 
 use frontier_abi::addr::{province_index, AddrCtx};
-use frontier_abi::layout::world::frontier as F;
+use frontier_abi::layout::world::province_fund as PF;
 use frontier_abi::v2::layout::player::citizen as C;
 use frontier_abi::v2::layout::province::{keep as K, province as P};
 use frontier_abi::v2::layout::world::season as S;
@@ -72,6 +78,9 @@ pub const FACTIONS: usize = 6;
 pub const MAX_OPS_BPS: u16 = 10_000;
 /// Provinces the tally bitmap covers (`province_index < 1,024`: rings 0–17).
 pub const MAX_PROVINCES: u32 = 1_024;
+/// The outermost ring the bitmap covers whole (ring 17: 919 provinces;
+/// ring 18 would need 1,027).
+pub const MAX_RING: u16 = 17;
 /// Most merkle proof nodes of a Claim.
 pub const MAX_PROOF: usize = 24;
 
@@ -411,7 +420,8 @@ fn init_pool(program: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     let ops_bps = u16_at(d, 8)?;
     let expected = u16_at(d, 10)?;
     let params_hash: [u8; 32] = rd(d, 12)?;
-    if fee == 0 || ops_bps > MAX_OPS_BPS || expected == 0 || expected as u32 > MAX_PROVINCES {
+    // `expected` is display only (0: not given); Finalize uses the game's count.
+    if fee == 0 || ops_bps > MAX_OPS_BPS || expected as u32 > MAX_PROVINCES {
         return Err(E::BadParams.into());
     }
     if !operator.is_signer || *token.key != TOKEN_PROGRAM || *system.key != SYSTEM_PROGRAM {
@@ -426,6 +436,10 @@ fn init_pool(program: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         }
         if key_at(&sd, S::AUTHORITY)? != *operator.key {
             return Err(E::NotOperator.into());
+        }
+        // A map that may grow past the bitmap could never be tallied whole.
+        if u16_at(&sd, S::R_MAX)? > MAX_RING {
+            return Err(E::BadParams.into());
         }
         (u64_at(&sd, S::SEASON_ID)?, u32_at(&sd, S::END_BELL)?)
     };
@@ -618,10 +632,14 @@ fn tally(program: &Pubkey, a: &[AccountInfo]) -> R<()> {
         if d[P::KEEP + K::TILE] == K::NO_TILE {
             return Err(E::NoKeep.into());
         }
+        // Opened at or after end_bell (before EndSeason): not on the map at
+        // the end, so counted with nothing to add.
+        let after_end = u32_at(&d, P::OPENED_BELL)? >= end_bell;
         // Bells at or after end_bell are never resolved: a province whose
         // every earlier bell is resolved cannot change its keep any more.
-        if u32_at(&d, P::RESOLVED_NEXT)? < end_bell
-            || u32_at(&d, P::KEEP + K::SINCE_BELL)? >= end_bell
+        if !after_end
+            && (u32_at(&d, P::RESOLVED_NEXT)? < end_bell
+                || u32_at(&d, P::KEEP + K::SINCE_BELL)? >= end_bell)
         {
             return Err(E::ProvinceNotFinal.into());
         }
@@ -634,6 +652,9 @@ fn tally(program: &Pubkey, a: &[AccountInfo]) -> R<()> {
         }
         pd[byte] |= bit;
         counted = counted.checked_add(1).ok_or(E::Overflow)?;
+        if after_end {
+            continue;
+        }
         let holder = d[P::KEEP + K::HOLDER] as usize;
         if holder < FACTIONS {
             let off = pool::AREA + 2 * holder;
@@ -652,38 +673,48 @@ fn tally(program: &Pubkey, a: &[AccountInfo]) -> R<()> {
 }
 
 fn finalize(program: &Pubkey, a: &[AccountInfo]) -> R<()> {
-    let [pool_ai, frontier] = a else {
+    let [pool_ai, season, funds @ ..] = a else {
         return Err(ProgramError::NotEnoughAccountKeys);
     };
+    if funds.len() != PF::WEDGES {
+        return Err(ProgramError::NotEnoughAccountKeys);
+    }
     pool_of(program, pool_ai)?;
     let mut pd = pool_ai.try_borrow_mut_data()?;
     if pd[pool::STATE] != pool::STATE_OPEN {
         return Err(E::WrongState.into());
     }
-    // The game's own count of keeps: its opened provinces less rings 0–1.
     let game = key_at(&pd, pool::GAME_PROGRAM)?;
-    let ctx = AddrCtx {
-        season: rd(&pd, pool::SEASON)?,
-        program: game.to_bytes(),
-    };
-    game_account(
-        frontier,
-        &game,
-        &F::MAGIC,
-        F::SIZE,
-        u64_at(&pd, pool::SEASON_ID)?,
-    )?;
-    if ctx.frontier() != frontier.key.to_bytes() {
+    let sid = u64_at(&pd, pool::SEASON_ID)?;
+    if key_at(&pd, pool::SEASON)? != *season.key {
         return Err(E::BadAccount.into());
     }
-    let keeps = u32_at(&frontier.try_borrow_data()?, F::PROVINCES_OPENED)?
-        .saturating_sub(KEEPLESS_PROVINCES);
-    let expected = u16_at(&pd, pool::EXPECTED_KEEPS)?;
-    if expected as u32 != keeps {
-        return Err(E::WrongExpectedCount.into());
+    game_account(season, &game, &S::MAGIC, S::SIZE, sid)?;
+    if season.try_borrow_data()?[S::STATUS] != S::STATUS_ENDED {
+        return Err(E::SeasonNotEnded.into());
     }
-    if u16_at(&pd, pool::COUNTED)? != expected {
+    // The game's own count of keeps at the end: its six ProvinceFunds'
+    // opened provinces (OpenProvince counts there, live) less rings 0–1.
+    let ctx = AddrCtx {
+        season: season.key.to_bytes(),
+        program: game.to_bytes(),
+    };
+    let mut opened = 0u32;
+    for (w, ai) in funds.iter().enumerate() {
+        game_account(ai, &game, &PF::MAGIC, PF::SIZE, sid)?;
+        if ctx.province_fund(w as u8) != ai.key.to_bytes() {
+            return Err(E::BadAccount.into());
+        }
+        let n = u32_at(&ai.try_borrow_data()?, PF::PROVINCES_OPENED)?;
+        opened = opened.checked_add(n).ok_or(E::Overflow)?;
+    }
+    let keeps = opened.saturating_sub(KEEPLESS_PROVINCES);
+    let counted = u16_at(&pd, pool::COUNTED)? as u32;
+    if counted < keeps {
         return Err(E::TallyIncomplete.into());
+    }
+    if counted != keeps {
+        return Err(E::WrongExpectedCount.into());
     }
     let mut area = [0u16; FACTIONS];
     let mut bells = [0u64; FACTIONS];

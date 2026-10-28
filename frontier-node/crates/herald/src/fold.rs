@@ -238,6 +238,9 @@ pub struct Fold {
     // MC hook: the conquest state (CONQUEST-CONTRACT §4.5, §8.4)
     pub cq: crate::conquest::Cq,
     // MC hook end
+    /// Resting S1 Provinces projected past `resolved_next` (`crate::rest`;
+    /// not checkpointed).
+    pub rest: crate::rest::Rests,
 }
 
 fn kind_of(d: &[u8]) -> Option<AccountKind> {
@@ -277,6 +280,7 @@ impl Fold {
             // MC hook: the conquest state
             cq: Default::default(),
             // MC hook end
+            rest: Default::default(),
         };
         let all: Vec<([u8; 32], Vec<u8>)> =
             f.st.accounts
@@ -641,6 +645,32 @@ impl Fold {
             }
             rings_touched.insert(meta.ring);
         }
+        // Map growth: resting Provinces over the bells the chain proves
+        // quiet (`crate::rest`), as if those bells had resolved.
+        let written: Vec<(i16, i16)> = self
+            .provinces
+            .iter()
+            .filter(|(_, m)| before.contains_key(&m.addr))
+            .map(|(pq, _)| *pq)
+            .collect();
+        let rested = crate::rest::advance(self, &written);
+        for r in &rested {
+            let Some(meta) = self.provinces.get(&r.pq).copied() else {
+                continue;
+            };
+            if self.st.ov_next.get(&meta.ring).is_none_or(|n| r.bell >= *n) {
+                self.st.pending.insert(
+                    (r.pq.0, r.pq.1, r.bell),
+                    Capture {
+                        slot: tx.slot,
+                        tx: tx.seq,
+                        data: r.after.clone(),
+                    },
+                );
+            }
+            rings_touched.insert(meta.ring);
+        }
+        crate::conquest::rest_views(self, &rested);
         for d in rings_touched {
             self.overview_advance(d, tx.slot);
         }
@@ -731,7 +761,11 @@ impl Fold {
             t_ms: 0,
             wire: Default::default(),
         });
-        self.st.pending.insert((pq.0, pq.1, b), cap);
+        // A bell a rest's projection already put in the ring's overview
+        // (`crate::rest`) is not waited for again.
+        if self.st.ov_next.get(&meta.ring).is_none_or(|n| b >= *n) {
+            self.st.pending.insert((pq.0, pq.1, b), cap);
+        }
     }
 
     /// The Season's beacon clock.
@@ -962,7 +996,7 @@ impl Fold {
                 continue;
             };
             if let Some(rn) = self.cap(&m.addr).and_then(|c| u32_at(&c.data, 72)) {
-                target = target.min(rn);
+                target = target.min(self.rest.next(*pq, rn));
             }
         }
         if target == u32::MAX || provs.is_empty() {

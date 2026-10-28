@@ -1,6 +1,7 @@
 //! The MC conquest instructions (MC §3.4–§3.6, §3.10, §5.5; CQ2-C) on the
-//! test-beacon build: DeclareSiege, SettleSiege, SettleCapture, FoldMarch,
-//! RetireHost, CloseMarch — their effects (`g13_cq_*` with the lands
+//! test-beacon build: DeclareSiege, SettleSiege, SettleCapture, FoldMarch
+//! (refused in S1: map growth R3-A), RetireHost, CloseMarch — their
+//! effects (`g13_cq_*` with the lands
 //! paths), refusals (`g13_cq_*`, one per (instruction, code)), forgery
 //! (`g03_cq_*`), pre-funding (`g02_cq_*`), budgets (`g01_cq_*`, release
 //! `.so`) and the properties of §13.3 that need them (`p_cq_*`).
@@ -1558,259 +1559,71 @@ fn fold_ix(w: &World, payer: &Keypair, mn: (i32, i32), hour: u32, count: u8) -> 
     )
 }
 
-/// §3.10, §5.5 0xA5: the first fold creates the MarchState (`next_hour =
-/// ⌈min opened_bell / 6⌉`, rent from the fee payer, `rent_to` the fee
-/// payer) and folds `count` hours in order; the outpost's faction controls
-/// (strict majority), gets `dominion_per_hour` control-bells per hour; one
-/// MARCH_FOLD per hour chains the MarchState; out of order and too early
-/// wait; an absent member weighs 0.
+/// S1 has no March folds (map growth R3-A, keeper-load-rules.ja.md §5):
+/// FoldMarch is `BadData`, as a reserved tag is, with members ready to
+/// fold, while the season runs and after its end; no MarchState is ever
+/// created. (The MC fold itself, `conquest_model::fold` and `apply_fold`,
+/// is the host model's, `frontier-abi/tests/cq_conquest_model.rs`.)
 #[test]
-fn g13_cq_fold_march_folds_hours_in_order() {
+fn g13_s1_refuses_fold_march() {
     let mut k = Cast::new();
-    let (mn, members, _) = march_world(&mut k);
+    let (mn, _, _) = march_world(&mut k);
     let march = qix::march_address(&k.w.a, mn.0, mn.1);
     let keeper = k.w.keeper.insecure_clone();
-    let k0 = k.c.lamports(&keeper.pubkey());
-    let l = expect_lands(
+    assert_code(
         mc_send(
             &mut k.c,
             I2::FoldMarch,
             fold_ix(&k.w, &keeper, mn, 2, 3),
             &[&keeper],
         ),
-        "fold_ix(",
-    );
-    common::assert_program_account(&k.c, &march, MS::MAGIC, MS::SIZE, k.w.id);
-    assert_eq!(
-        k.c.lamports(&keeper.pubkey()) + l.fee,
-        k0 - k.c.rent(MS::SIZE)
-    );
-    let md = k.c.data(&march);
-    assert_eq!(u32_at(&md, MS::NEXT_HOUR), 5);
-    assert_eq!(md[MS::CONTROLLER], 1);
-    assert_eq!(
-        u32_at(&md, MS::dominion_bells(1)),
-        3 * MC_LOCAL_7D.cq.dominion_per_hour as u32
-    );
-    assert_eq!(u32_at(&md, MS::control_hours(1)), 3);
-    assert!(u32_at(&md, MS::weight(1)) > 0);
-    assert_eq!(
-        md[MS::RENT_TO..MS::RENT_TO + 32],
-        keeper.pubkey().to_bytes()
-    );
-    let folds: Vec<R2> = recs(&l.logs)
-        .into_iter()
-        .filter(|r| r.kind == AnyKind::Cq(CqKind::MARCH_FOLD))
-        .collect();
-    assert_eq!(folds.len(), 3);
-    for (i, r) in folds.iter().enumerate() {
-        assert_eq!(
-            u32::from_le_bytes(r.key[8..12].try_into().unwrap()),
-            2 + i as u32
-        );
-        assert_eq!(
-            (r.u8(28), r.u8(30), r.u8(31)),
-            (1, 1, 0),
-            "controller, credit, lost"
-        );
-        assert_eq!(r.link(E2::MarchState)[0].seq, 1 + i as u64);
-    }
-    assert_eq!(head(&k.c, &march).0, 3);
-    // Out of order; too early (a member resolved only through 6h).
-    assert_cq(
-        mc_send(
-            &mut k.c.fork(),
-            I2::FoldMarch,
-            fold_ix(&k.w, &keeper, mn, 2, 1),
-            &[&keeper],
-        ),
-        Cq::FoldOutOfOrder,
-    );
-    let mut f = k.c.fork();
-    let present = members.iter().find(|a| !f.is_absent(a)).copied().unwrap();
-    k.w.set_resolved_next(&mut f, &present, 36);
-    assert_cq(
-        mc_send(
-            &mut f,
-            I2::FoldMarch,
-            fold_ix(&k.w, &keeper, mn, 5, 2),
-            &[&keeper],
-        ),
-        Cq::FoldTooEarly,
-    );
-    // count 0 or above 6; the last hour at or after end_bell.
-    assert_code(
-        mc_send(
-            &mut k.c.fork(),
-            I2::FoldMarch,
-            fold_ix(&k.w, &keeper, mn, 5, 0),
-            &[&keeper],
-        ),
         E::BadData,
     );
+    assert!(k.c.is_absent(&march));
+    k.w.craft_status(&mut k.c, frontier_abi::layout::world::season::STATUS_ENDED);
+    k.c.set_time(k.w.end_ts() + 3_600);
     assert_code(
-        mc_send(
-            &mut k.c.fork(),
-            I2::FoldMarch,
-            fold_ix(&k.w, &keeper, mn, 5, 7),
-            &[&keeper],
-        ),
-        E::BadData,
-    );
-    let end =
-        k.w.season_u32(&k.c, frontier_abi::layout::world::season::END_BELL);
-    // §5.5 (v1.5): the end-hour rule is the Ended season's; a Running
-    // season refuses a later hour by its order (`next_hour`) or its lag.
-    assert_cq(
-        mc_send(
-            &mut k.c.fork(),
-            I2::FoldMarch,
-            fold_ix(&k.w, &keeper, mn, end / 6, 1),
-            &[&keeper],
-        ),
-        Cq::FoldOutOfOrder,
-    );
-    // The next hours fold on.
-    expect_lands(
-        mc_send(
-            &mut k.c,
-            I2::FoldMarch,
-            fold_ix(&k.w, &keeper, mn, 5, 2),
-            &[&keeper],
-        ),
-        "fold_ix(",
-    );
-    assert_eq!(u32_at(&k.c.data(&march), MS::NEXT_HOUR), 7);
-}
-
-/// §3.10: a member whose ring slot already moved past the hour makes it
-/// lost: no credit, `lost_hours += 1`, the controller kept; the next hour
-/// folds normally (lag only waits or loses an hour, never blocks).
-#[test]
-fn g13_cq_fold_march_loses_an_overwritten_hour() {
-    let mut k = Cast::new();
-    let (mn, members, _) = march_world(&mut k);
-    let keeper = k.w.keeper.insecure_clone();
-    expect_lands(
         mc_send(
             &mut k.c,
             I2::FoldMarch,
             fold_ix(&k.w, &keeper, mn, 2, 1),
             &[&keeper],
         ),
-        "first fold",
+        E::BadData,
     );
-    let present = members.iter().find(|a| !k.c.is_absent(a)).copied().unwrap();
-    k.c.edit(&present, |d| {
-        let o = P::snap(3);
-        d[o..o + 4].copy_from_slice(&9u32.to_le_bytes())
-    });
-    let l = expect_lands(
-        mc_send(
-            &mut k.c,
-            I2::FoldMarch,
-            fold_ix(&k.w, &keeper, mn, 3, 2),
-            &[&keeper],
-        ),
-        "fold_ix(",
-    );
-    let folds: Vec<R2> = recs(&l.logs)
-        .into_iter()
-        .filter(|r| r.kind == AnyKind::Cq(CqKind::MARCH_FOLD))
-        .collect();
-    assert_eq!(
-        (folds[0].u8(30), folds[0].u8(31)),
-        (MS::CONTROLLER_NONE, 1),
-        "hour 3 lost"
-    );
-    assert_eq!(
-        (folds[1].u8(30), folds[1].u8(31)),
-        (1, 0),
-        "hour 4 credited"
-    );
-    let md = k.c.data(&qix::march_address(&k.w.a, mn.0, mn.1));
-    assert_eq!(u32_at(&md, MS::LOST_HOURS), 1);
-    assert_eq!(u32_at(&md, MS::control_hours(1)), 2);
+    assert!(k.c.is_absent(&march));
 }
 
-/// G3 (§5.9): FoldMarch recomputes the March and its seven members: a
-/// forged member Province (another province's, or a crafted lookalike at
-/// the right position's wrong address) and a forged MarchState address
-/// are refused.
-#[test]
-fn g03_cq_fold_march_forged_members_and_march() {
-    let mut k = Cast::new();
-    let (mn, _, absent) = march_world(&mut k);
-    let keeper = k.w.keeper.insecure_clone();
-    let mut ix = fold_ix(&k.w, &keeper, mn, 2, 1);
-    // A present v2 Province of another March in place of the absent member.
-    ix.accounts[qix::at::fold::MEMBER0 + absent].pubkey = k.x.province;
-    assert_code(
-        mc_send(&mut k.c.fork(), I2::FoldMarch, ix, &[&keeper]),
-        E::BadAddress,
-    );
-    let mut ix = fold_ix(&k.w, &keeper, mn, 2, 1);
-    ix.accounts
-        .swap(qix::at::fold::MEMBER0, qix::at::fold::MEMBER0 + 1);
-    assert_code(
-        mc_send(&mut k.c.fork(), I2::FoldMarch, ix, &[&keeper]),
-        E::BadAddress,
-    );
-    let mut ix = fold_ix(&k.w, &keeper, mn, 2, 1);
-    ix.accounts[qix::at::fold::MARCH].pubkey = qix::march_address(&k.w.a, mn.0 + 1, mn.1);
-    assert_code(
-        mc_send(&mut k.c.fork(), I2::FoldMarch, ix, &[&keeper]),
-        E::BadAddress,
-    );
-}
-
-/// G2 (§13.2): the MarchState is created pre-funding-safe: pre-funded with
-/// 1 lamport, its rent or 10× its rent, the first fold still creates it
-/// and the fee payer pays only the shortfall.
-#[test]
-fn g02_cq_fold_march_prefunded_march_state() {
-    let mut k = Cast::new();
-    let (mn, _, _) = march_world(&mut k);
+/// A MarchState of `(m, n)` as an MC season's first fold left it, rent to
+/// `rent_to` (S1 never creates one; CloseMarch still closes one).
+fn crafted_march(k: &mut Cast, mn: (i32, i32), rent_to: Address) -> Address {
     let march = qix::march_address(&k.w.a, mn.0, mn.1);
-    let keeper = k.w.keeper.insecure_clone();
-    let rent = k.c.rent(MS::SIZE);
-    for pre in common::prefunds(rent) {
-        let mut f = k.c.fork();
-        f.prefund(&march, pre);
-        let k0 = f.lamports(&keeper.pubkey());
-        let l = expect_lands(
-            mc_send(
-                &mut f,
-                I2::FoldMarch,
-                fold_ix(&k.w, &keeper, mn, 2, 1),
-                &[&keeper],
-            ),
-            "prefunded fold",
-        );
-        common::assert_program_account(&f, &march, MS::MAGIC, MS::SIZE, k.w.id);
-        let paid = k0 - f.lamports(&keeper.pubkey()) - l.fee;
-        common::assert_shortfall_only("MarchState", paid, pre, rent, 0);
-    }
+    let mut d = vec![0u8; MS::SIZE];
+    assert!(frontier_abi::v2::layout::write_header(
+        &mut d,
+        frontier_abi::v2::layout::AccountKind::MarchState,
+        k.w.id
+    ));
+    d[MS::M..MS::M + 4].copy_from_slice(&mn.0.to_le_bytes());
+    d[MS::N..MS::N + 4].copy_from_slice(&mn.1.to_le_bytes());
+    d[MS::NEXT_HOUR..MS::NEXT_HOUR + 4].copy_from_slice(&3u32.to_le_bytes());
+    d[MS::CONTROLLER] = MS::CONTROLLER_NONE;
+    d[MS::RENT_TO..MS::RENT_TO + 32].copy_from_slice(&rent_to.to_bytes());
+    k.c.put_program_account(march, d);
+    common::assert_program_account(&k.c, &march, MS::MAGIC, MS::SIZE, k.w.id);
+    march
 }
 
-/// CloseMarch (N, §5.5 0xA7): refused before `end + 72 h` (`TooEarly`) and
-/// to another `rent_to` (`BadAccount`); then closes the MarchState to its
-/// `rent_to` with a CLOSE record.
+/// CloseMarch (N, §5.5 0xA7) of a MarchState an MC season left (S1 makes
+/// none): refused before `end + 72 h` (`TooEarly`) and to another
+/// `rent_to` (`BadAccount`); then closes the MarchState to its `rent_to`
+/// with a CLOSE record.
 #[test]
 fn g13_cq_close_march_after_the_grace() {
     let mut k = Cast::new();
     let (mn, _, _) = march_world(&mut k);
     let keeper = k.w.keeper.insecure_clone();
-    expect_lands(
-        mc_send(
-            &mut k.c,
-            I2::FoldMarch,
-            fold_ix(&k.w, &keeper, mn, 2, 1),
-            &[&keeper],
-        ),
-        "fold",
-    );
-    let march = qix::march_address(&k.w.a, mn.0, mn.1);
+    let march = crafted_march(&mut k, mn, keeper.pubkey());
     let anyone = k.c.funded(b"cq-anyone", 1);
     let close = |rent_to: Address| qix::close_march(&k.w.a, anyone.pubkey(), mn.0, mn.1, rent_to);
     assert_code(
@@ -1856,8 +1669,7 @@ fn g13_cq_close_march_after_the_grace() {
     let r: Vec<R2> = recs(&l.logs);
     assert_eq!(r.len(), 1);
     assert_eq!(r[0].kind, AnyKind::V1(frontier_abi::log::Kind::CLOSE));
-    // Re-creation after close (§13.2, W2R2-C2): a fold of an Ended Season
-    // past the grace never creates the MarchState again.
+    // A fold never re-creates it (S1: no folds at all).
     assert_code(
         mc_send(
             &mut k.c.fork(),
@@ -1865,56 +1677,9 @@ fn g13_cq_close_march_after_the_grace() {
             fold_ix(&k.w, &keeper, mn, 2, 1),
             &[&keeper],
         ),
-        E::WrongStatus,
+        E::BadData,
     );
     assert!(k.c.is_absent(&march), "no MarchState after the close");
-}
-
-/// §5.5 0xA5: an Ended Season still folds during the grace (the keeper
-/// catches the last hours up), and a first fold may create the March then;
-/// at `end + 72 h` the same fold is `WrongStatus` (W2R2-C2).
-#[test]
-fn g13_cq_fold_march_in_the_grace_but_not_after_it() {
-    let mut k = Cast::new();
-    let (mn, _, _) = march_world(&mut k);
-    let keeper = k.w.keeper.insecure_clone();
-    let march = qix::march_address(&k.w.a, mn.0, mn.1);
-    k.w.craft_status(&mut k.c, frontier_abi::layout::world::season::STATUS_ENDED);
-    let end_ts = k.w.end_ts();
-    k.c.set_time(end_ts + 72 * 3_600);
-    assert_code(
-        mc_send(
-            &mut k.c.fork(),
-            I2::FoldMarch,
-            fold_ix(&k.w, &keeper, mn, 2, 1),
-            &[&keeper],
-        ),
-        E::WrongStatus,
-    );
-    assert!(k.c.is_absent(&march));
-    k.c.set_time(end_ts + 72 * 3_600 - 10);
-    // an Ended season never folds an hour that starts at or after end_bell
-    let end =
-        k.w.season_u32(&k.c, frontier_abi::layout::world::season::END_BELL);
-    assert_code(
-        mc_send(
-            &mut k.c.fork(),
-            I2::FoldMarch,
-            fold_ix(&k.w, &keeper, mn, end / 6, 1),
-            &[&keeper],
-        ),
-        E::WrongStatus,
-    );
-    expect_lands(
-        mc_send(
-            &mut k.c,
-            I2::FoldMarch,
-            fold_ix(&k.w, &keeper, mn, 2, 1),
-            &[&keeper],
-        ),
-        "fold in the grace",
-    );
-    assert!(!k.c.is_absent(&march));
 }
 
 // ------------------------------------------------------------ RetireHost
@@ -2556,15 +2321,7 @@ fn g01_cq_settle_siege_retire_close() {
         let mut k = Cast::with(mc_world_with(build, &MC_LOCAL_7D.cq));
         let (mn, _, _) = march_world(&mut k);
         let keeper = k.w.keeper.insecure_clone();
-        expect_lands(
-            mc_send(
-                &mut k.c,
-                I2::FoldMarch,
-                fold_ix(&k.w, &keeper, mn, 2, 1),
-                &[&keeper],
-            ),
-            "fold",
-        );
+        crafted_march(&mut k, mn, keeper.pubkey());
         k.w.craft_status(&mut k.c, frontier_abi::layout::world::season::STATUS_ENDED);
         let end_ts = k.w.end_ts();
         k.c.set_time(end_ts + 72 * 3_600);
@@ -2578,82 +2335,6 @@ fn g01_cq_settle_siege_retire_close() {
             &[&anyone],
         );
         println!("g01_cq CloseMarch {build:?}: {cu} CU (budget 8,000)");
-    }
-}
-
-/// The §13.1 FoldMarch fill: a March of 7 present members (one opened at
-/// bell 12 and resolved to 48, the others to 48 from 37), the hour-4 ring
-/// slot of member 0 overwritten (one lost hour), nothing folded yet.
-fn fold_worst_world(build: Build) -> (Cast, (i32, i32), Keypair) {
-    let mut k = Cast::with(mc_world_with(build, &MC_LOCAL_7D.cq));
-    let (mn, members, absent) = march_world(&mut k);
-    let (p, q) = frontier_abi::v2::addr::march_members(mn.0, mn.1)[absent];
-    let pk = k.w.cq_province(&mut k.c, p as i16, q as i16);
-    assert_eq!(pk, members[absent]);
-    k.c.edit(&pk, |d| {
-        d[P::OPENED_BELL..P::OPENED_BELL + 4].copy_from_slice(&12u32.to_le_bytes())
-    });
-    k.w.set_resolved_next(&mut k.c, &pk, 12);
-    k.w.cq_resolve_quiet(&mut k.c, &pk, 12, 48);
-    for m in members.iter().filter(|m| **m != pk) {
-        k.w.cq_resolve_quiet(&mut k.c, m, 37, 48);
-    }
-    k.c.edit(&members[0], |d| {
-        let o = P::snap(4);
-        d[o..o + 4].copy_from_slice(&99u32.to_le_bytes())
-    });
-    let keeper = k.w.keeper.insecure_clone();
-    (k, mn, keeper)
-}
-
-/// G1 (§13.1): FoldMarch with 7 present members, the first fold's init,
-/// 6 hours in one call, one lost hour; the per-hour and steady-state
-/// figures for the notes. Gated at §5.4's table (36,000 CU since A-32;
-/// the first-run 20,000 was not reachable: ≈ 15,000 fixed with the first
-/// fold's init and ≈ 3,200 per hour, the per-hour MARCH_FOLD log being
-/// normative, CQ2-C-NOTES §4).
-#[test]
-fn g01_cq_fold_worst() {
-    for build in g1_builds() {
-        let (mut k, mn, keeper) = fold_worst_world(build);
-        let p = cq_ladder(I2::FoldMarch, k.c.programdata_len());
-        for count in 1..=5u8 {
-            let n =
-                k.c.measure_with(&p, &[fold_ix(&k.w, &keeper, mn, 2, count)], &[&keeper])
-                    .expect("fold");
-            println!("g01_cq FoldMarch {build:?} 7 members, init, {count} hour(s): {n}");
-        }
-        // §13.1's pinned fill: 6 hours (one lost) with the init.
-        let need =
-            k.c.measure_with(&p, &[fold_ix(&k.w, &keeper, mn, 2, 6)], &[&keeper])
-                .expect("fold");
-        let ceil = cq_ceilings(I2::FoldMarch, k.c.programdata_len());
-        permutation_frontier_svm_tests::budget::assert_within(
-            &format!("FoldMarch 7 members, init, 6 hours, 1 lost ({build:?})"),
-            &need,
-            &ceil,
-        );
-        println!(
-            "g01_cq FoldMarch {build:?}: {} CU at the pinned fill (§5.4 as amended: 36,000)",
-            need.cu
-        );
-        // Steady state: the MarchState exists (every fold after the first).
-        let l = expect_lands(
-            mc_send(
-                &mut k.c,
-                I2::FoldMarch,
-                fold_ix(&k.w, &keeper, mn, 2, 1),
-                &[&keeper],
-            ),
-            "first fold",
-        );
-        let _ = l;
-        for count in 1..=5u8 {
-            let n =
-                k.c.measure_with(&p, &[fold_ix(&k.w, &keeper, mn, 3, count)], &[&keeper])
-                    .expect("fold");
-            println!("g01_cq FoldMarch {build:?} 7 members, steady state, {count} hour(s): {n}");
-        }
     }
 }
 
@@ -3416,10 +3097,8 @@ fn p_cq_p2b_the_order_and_delay_of_two_settle_captures_change_nothing() {
 /// P4 (§13.3, lag gate): a capture settled right after its completion and
 /// one held for a day (the Province, anchors, MarchState or the victim's
 /// Holding "held" past completion) end with the same Holding owner, order,
-/// generation, immunity record and slot bookkeeping; and a FoldMarch of
-/// hours folded one call at a time, in one call, or up to 5 hours late
-/// (the ring slots still hold them) leaves the same MarchState (no lost
-/// hour within 5 hours).
+/// generation, immunity record and slot bookkeeping. (Its FoldMarch half
+/// went with S1's March folds, map growth R3-A.)
 #[test]
 fn p_cq_p4_holding_the_inputs_past_completion_changes_nothing() {
     // Capture: settle at once vs after a long delay.
@@ -3452,72 +3131,6 @@ fn p_cq_p4_holding_the_inputs_past_completion_changes_nothing() {
         views[0], views[1],
         "a delayed SettleCapture gives the same outcome"
     );
-    // FoldMarch: the same fold, in three schedules.
-    let mut states = Vec::new();
-    for sched in 0..3 {
-        let mut k = Cast::new();
-        let (mn, _, _) = march_world(&mut k);
-        let keeper = k.w.keeper.insecure_clone();
-        match sched {
-            0 => {
-                expect_lands(
-                    mc_send(
-                        &mut k.c,
-                        I2::FoldMarch,
-                        fold_ix(&k.w, &keeper, mn, 2, 4),
-                        &[&keeper],
-                    ),
-                    "one call",
-                );
-            }
-            1 => {
-                for h in 2..6 {
-                    expect_lands(
-                        mc_send(
-                            &mut k.c,
-                            I2::FoldMarch,
-                            fold_ix(&k.w, &keeper, mn, h, 1),
-                            &[&keeper],
-                        ),
-                        "one per call",
-                    );
-                }
-            }
-            _ => {
-                // 5 hours late: every member resolved on through bell 47
-                // (hour 7) before the first fold; hour 2's ring slot is
-                // overwritten only at hour 8.
-                let (m, n) = mn;
-                let members: Vec<Address> = qix::march_members(&k.w.a, m, n)
-                    .into_iter()
-                    .filter(|a| !k.c.is_absent(a))
-                    .collect();
-                for a in &members {
-                    k.w.cq_resolve_quiet(&mut k.c, a, 37, 47);
-                }
-                expect_lands(
-                    mc_send(
-                        &mut k.c,
-                        I2::FoldMarch,
-                        fold_ix(&k.w, &keeper, mn, 2, 4),
-                        &[&keeper],
-                    ),
-                    "5 hours late",
-                );
-            }
-        }
-        let md = k.c.data(&qix::march_address(&k.w.a, mn.0, mn.1));
-        states.push(md[MS::NEXT_HOUR..].to_vec());
-        assert_eq!(
-            u32_at(&md, MS::LOST_HOURS),
-            0,
-            "schedule {sched}: no lost hour"
-        );
-    }
-    // Weights at the same hours are the same hours' snapshots in every
-    // schedule except where the ring moved on (none here).
-    assert_eq!(states[0], states[1], "one call = four calls");
-    assert_eq!(states[0], states[2], "folding 5 hours late changes nothing");
 }
 
 // ------------------------------------------------------------ P6, P12

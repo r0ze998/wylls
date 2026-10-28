@@ -98,7 +98,10 @@ async function keepProvinces() {
       if (Number(province.KEEP[0].TILE) !== 0xff) out.push({ address, p, q, province, sha256: createHash('sha256').update(data).digest('hex') });
     }
   }
-  return { provinces: out, provincesOpened: Buffer.from(fr).readUInt32LE(96) };
+  // The game's count at the end, as Finalize reads it: the six ProvinceFunds (the Frontier's own figure lags).
+  let provincesOpened = 0;
+  for (let w = 0; w < 6; w++) provincesOpened += Buffer.from(await account(addresses.provinceFund(w))).readUInt32LE(20);
+  return { provinces: out, provincesOpened };
 }
 
 const areaOf = provinces => provinces.reduce((a, x) => { const h = Number(x.province.KEEP[0].HOLDER); if (h < NATIONS) a[h]++; return a; }, Array(NATIONS).fill(0));
@@ -107,14 +110,16 @@ const bellsOf = provinces => provinces.reduce((a, x) => x.province.TERRITORY_BEL
 /** The independent check: the chain's Province accounts against the pool and the herald. */
 async function check() {
   const [season, pool, { provinces, provincesOpened }] = [await seasonOf(), await poolOf(), await keepProvinces()];
-  const fromChain = areaOf(provinces);
+  // A Province opened at or after the end bell was not on the map at the end: counted, no area.
+  const atEnd = provinces.filter(x => Number(x.province.OPENED_BELL) < Number(season.END_BELL));
+  const fromChain = areaOf(atEnd);
   const top = Math.max(...fromChain);
   const largest = fromChain.flatMap((a, f) => (a === top && top > 0 ? [f] : []));
   const out = { seasonStatus: Number(season.STATUS), endBell: Number(season.END_BELL), keepProvinces: provinces.length, provincesOpened, areaFromProvinceAccounts: fromChain,
-    largestAreaNations: largest, territoryBellsFromProvinceAccounts: bellsOf(provinces).map(String),
-    notFinal: provinces.filter(x => Number(x.province.RESOLVED_NEXT) < Number(season.END_BELL)).map(x => [x.p, x.q]),
+    openedAfterEnd: provinces.length - atEnd.length, largestAreaNations: largest, territoryBellsFromProvinceAccounts: bellsOf(atEnd).map(String),
+    notFinal: atEnd.filter(x => Number(x.province.RESOLVED_NEXT) < Number(season.END_BELL)).map(x => [x.p, x.q]),
     pool: { state: ['open', 'final', 'shares'][pool.state], counted: pool.counted, expectedKeeps: pool.expectedKeeps, area: pool.area, winners: pool.state >= POOL_STATE.FINAL ? pool.winners : null } };
-  out.poolMatchesChain = pool.counted === provinces.length && pool.area.every((a, f) => a === fromChain[f]);
+  out.poolMatchesChain = pool.counted === provinces.length && provinces.length === provincesOpened - 7 && pool.area.every((a, f) => a === fromChain[f]);
   out.winnerIsLargestArea = pool.state >= POOL_STATE.FINAL ? pool.winners.every(w => largest.includes(w)) && (largest.length === 1 ? pool.winners.length === 1 : true) : null;
   // The herald's control file of the last bell (a second, off-chain reading of the same accounts).
   try {
@@ -133,7 +138,7 @@ function printArea(c) {
   console.log('\nProvinces held per nation (keeps, from the Province accounts on chain):');
   console.log(`  nation   ${[...Array(NATIONS).keys()].map(f => String(f).padStart(4)).join('')}`);
   console.log(`  chain    ${c.areaFromProvinceAccounts.map(a => String(a).padStart(4)).join('')}`);
-  console.log(`  pool     ${c.pool.area.map(a => String(a).padStart(4)).join('')}   (${c.pool.counted}/${c.pool.expectedKeeps} counted, ${c.pool.state})`);
+  console.log(`  pool     ${c.pool.area.map(a => String(a).padStart(4)).join('')}   (${c.pool.counted}/${c.provincesOpened - 7} counted, ${c.pool.state})`);
   if (c.herald?.area) console.log(`  herald   ${c.herald.area.map(a => String(a).padStart(4)).join('')}   (control file, turn ${c.herald.bell})`);
   console.log(`  pool = chain: ${c.poolMatchesChain}; herald = chain: ${c.herald?.matchesChain ?? 'n/a'}; winner(s): ${c.pool.winners === null ? 'not final' : c.pool.winners.join(', ')}`);
 }
@@ -189,7 +194,8 @@ if (pool.state === POOL_STATE.OPEN) {
     const signature = await send([tallyIx({ prize, season: addresses.season, provinces: chunk.map(x => x.address) })], [anyone]);
     step('tally', { signature, provinces: chunk.map(x => [x.p, x.q]), by: anyone.publicKey.toBase58() });
   }
-  const signature = await send([finalizeIx({ prize, frontier: addresses.frontier })], [anyone]);
+  const provinceFunds = [0, 1, 2, 3, 4, 5].map(w => addresses.provinceFund(w));
+  const signature = await send([finalizeIx({ prize, season: addresses.season, provinceFunds })], [anyone]);
   step('finalize', { signature, by: anyone.publicKey.toBase58() });
   pool = await poolOf();
 }

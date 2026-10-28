@@ -5422,6 +5422,65 @@
           ]
         }
       ]
+    },
+    {
+      "name": "FastForward",
+      "tag": 192,
+      "class": "D",
+      "new_in_v2": true,
+      "changed_in_v2": false,
+      "top_level_only": true,
+      "relay_player_shape": false,
+      "relay_settle_shape": false,
+      "data_len": [6, 6],
+      "data": [
+        {
+          "name": "to",
+          "len": 4
+        },
+        {
+          "name": "days",
+          "len": 1
+        }
+      ],
+      "account_groups": [
+        {
+          "min": 1,
+          "max": 1,
+          "accounts": [
+            {
+              "name": "payer",
+              "kind": "wallet",
+              "signer": true,
+              "writable": "r"
+            },
+            {
+              "name": "season",
+              "kind": "Season",
+              "signer": false,
+              "writable": "r"
+            },
+            {
+              "name": "province",
+              "kind": "Province",
+              "signer": false,
+              "writable": "w"
+            }
+          ]
+        },
+        {
+          "min": 1,
+          "max": 28,
+          "accounts": [
+            {
+              "name": "evidence",
+              "kind": "ArrivalDay|AnchorArchive",
+              "signer": false,
+              "writable": "r"
+            }
+          ]
+        }
+      ]
     }
   ],
   "reserved_tags": [

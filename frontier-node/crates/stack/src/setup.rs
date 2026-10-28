@@ -90,6 +90,37 @@ pub fn conquest_params(
     p
 }
 
+/// Local verification worlds only (`--ring-theta-bps`): the crowding
+/// threshold θ of OpenRing beyond the genesis rings, early and late alike.
+/// It is a CreateSeason parameter the program already reads and validates
+/// (`theta_*_bps ≤ 10,000`); the program, the presets and every other
+/// opening condition (Running, a bell since the last ring, the wedge funds,
+/// `r_max`) are unchanged. Unset, the preset's 55 % / 65 % stand.
+pub fn with_ring_theta(p: &mut frontier_abi::presets::SeasonParams, bps: u16) {
+    p.theta_early_bps = bps;
+    p.theta_late_bps = bps;
+}
+
+/// The land parameters a local verification world may set (`--ring-theta-bps`,
+/// `--r-max`); both unset for every committed config.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct LandOverrides {
+    pub ring_theta_bps: Option<u16>,
+    pub r_max: Option<u16>,
+}
+
+impl LandOverrides {
+    /// Applies the overrides to a season's M1 part (the program validates the result at CreateSeason, as here).
+    pub fn apply(&self, p: &mut frontier_abi::presets::SeasonParams) {
+        if let Some(t) = self.ring_theta_bps {
+            with_ring_theta(p, t);
+        }
+        if let Some(r) = self.r_max {
+            p.r_max = r;
+        }
+    }
+}
+
 /// Runs the operator steps; returns what the report needs.
 #[allow(clippy::too_many_arguments)]
 pub async fn run(
@@ -99,6 +130,7 @@ pub async fn run(
     beacon: Beacon,
     conquest: bool,
     keep_bells: Option<u16>,
+    land_overrides: LandOverrides,
     join_gate: Option<[u8; 32]>,
     end_bell: Option<u32>,
     preseason_scale: f64,
@@ -112,6 +144,7 @@ pub async fn run(
         if let Some(k) = keep_bells {
             p.cq.keep_bells = k;
         }
+        land_overrides.apply(&mut p.base);
         if let Some(g) = join_gate {
             p.base.join_gate = g;
         }
@@ -121,7 +154,8 @@ pub async fn run(
         let ph = frontier_abi::v2::presets::params_hash_v2(&sp, &payout);
         (sp.to_vec(), ph)
     } else {
-        let p = season_params(beacon, end_bell);
+        let mut p = season_params(beacon, end_bell);
+        land_overrides.apply(&mut p);
         p.validate().map_err(|e| format!("season params: {e}"))?;
         let sp = p.to_bytes();
         let ph = frontier_abi::presets::params_hash(&sp, &payout);
@@ -302,5 +336,40 @@ mod short_season_tests {
             assert_eq!(p.validate(), Ok(()), "end turn {end}");
             assert_eq!(p.cq.keep_bells, 72);
         }
+    }
+
+    /// `--ring-theta-bps` changes θ (both phases) and nothing else; the
+    /// preset keeps 55 % / 65 % and the season still validates.
+    #[test]
+    fn ring_theta_changes_theta_only() {
+        let p0 = conquest_params(Beacon::TestKey, Some(144));
+        assert_eq!(
+            (p0.base.theta_early_bps, p0.base.theta_late_bps),
+            (5_500, 6_500)
+        );
+        for t in [0u16, 100, 10_000] {
+            let mut p = p0;
+            with_ring_theta(&mut p.base, t);
+            assert_eq!(p.validate(), Ok(()), "θ {t}");
+            assert_eq!((p.base.theta_early_bps, p.base.theta_late_bps), (t, t));
+            let mut back = p;
+            with_ring_theta(&mut back.base, 5_500);
+            back.base.theta_late_bps = 6_500;
+            assert_eq!(back.to_bytes(), p0.to_bytes(), "only θ differs");
+        }
+        // r_max: applied, validated by the season's own rule (above the genesis ring 4, at most 128)
+        let land = |r| LandOverrides {
+            ring_theta_bps: None,
+            r_max: Some(r),
+        };
+        for (r, ok) in [(6u16, true), (128, true), (4, false), (129, false)] {
+            let mut p = p0;
+            land(r).apply(&mut p.base);
+            assert_eq!(p.base.r_max, r);
+            assert_eq!(p.validate().is_ok(), ok, "r_max {r}");
+        }
+        let mut p = p0;
+        LandOverrides::default().apply(&mut p.base);
+        assert_eq!(p.to_bytes(), p0.to_bytes(), "no overrides: the preset");
     }
 }

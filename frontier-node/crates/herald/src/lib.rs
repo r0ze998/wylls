@@ -6,6 +6,7 @@
 //! | [`clash`] | clash reports recomputed natively (`ClashBuilder`, the provisional §5.11 builder) |
 //! | [`overview`] | the §9.3 overview binary |
 //! | [`records`] | PS2 records decoded, account and record keys |
+//! | [`rest`] | resting S1 Provinces projected over the bells the chain proves quiet |
 //! | [`views`] | live answers: `/h/season`, `latest` provinces, `/h/me` |
 //! | [`files`] | atomic writes with deterministic `.gz` siblings |
 //! | [`checkpoint`] | the fold's state saved and restored |
@@ -36,12 +37,14 @@ pub mod fold;
 pub mod nation;
 pub mod overview;
 pub mod records;
+pub mod rest;
 pub mod roster;
 pub mod runner;
 pub mod server;
 pub mod structure;
 pub mod viewers;
 pub mod views;
+pub mod world;
 pub mod ws;
 
 /// `magic "PSFOV1\0\0"`.

@@ -124,11 +124,11 @@ mod tests {
     }
 
     /// The v2 dispatch set (MC §5.4): every M1 tag plus the seven MC tags
-    /// and S1's fifteen (0xB0–0xBE); 0xA4, 0xA8–0xAF and 0xBF stay reserved
-    /// (`BadData`).
+    /// and S1's sixteen (0xB0–0xBE, 0xC0); 0xA4, 0xA8–0xAF and 0xBF stay
+    /// reserved (`BadData`).
     #[test]
     fn every_v2_tag_decodes_and_reserved_ones_do_not() {
-        assert_eq!(v2::Ix::ALL.len(), 73);
+        assert_eq!(v2::Ix::ALL.len(), 74);
         for ix in v2::Ix::ALL {
             assert_eq!(v2::tag_of(&[ix.tag()]), Ok(*ix));
             assert!(!v2::is_reserved(ix.tag()));

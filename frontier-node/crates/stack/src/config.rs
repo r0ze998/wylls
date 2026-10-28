@@ -139,6 +139,18 @@ pub struct StackConfig {
     /// (the conquest preset's 72 when unset). Sent in the season
     /// parameters, so the program, herald and client all read it.
     pub keep_bells: Option<u16>,
+    /// Local verification worlds only: OpenRing's crowding threshold θ in
+    /// basis points, early and late (`setup::with_ring_theta`). Sent in the
+    /// season parameters; unset keeps the preset's 55 % / 65 %.
+    pub ring_theta_bps: Option<u16>,
+    /// Local verification worlds only: the season's outermost ring `r_max`
+    /// (the preset's 16 when unset). The program validates it at
+    /// CreateSeason (`genesis_ring < r_max ≤ 128`).
+    pub r_max: Option<u16>,
+    /// Map growth: keeper A writes `rest = true` (resting S1 Provinces are
+    /// fast-forwarded when woken instead of written every turn;
+    /// `docs/frontier/map-growth/keeper-load-rules.ja.md`). Off by default.
+    pub keeper_rest: bool,
     /// Test-asset prize pool: the permutation-prize build to deploy next to
     /// the game (scripts/build-prize.sh). With it the season's join gate is
     /// a key the relay holds, a test mint and the season's pool are created,
@@ -149,8 +161,9 @@ pub struct StackConfig {
     pub entry_fee: u64,
     /// The operator's part of each fee in basis points (owner: 20%).
     pub prize_ops_bps: u16,
-    /// Keeps the prize tally must count before it can be finalised (the
-    /// conquest world's rings 2..4: 54).
+    /// The pool's `expected_keeps`, display only (0: not given). Finalize
+    /// counts against the game's ProvinceFunds at the end, so a growing map
+    /// needs no figure here.
     pub prize_keeps: u16,
     /// Game seconds per real second after the pre-season (20× exit, 100×
     /// nightly, 2× latency run).
@@ -275,10 +288,13 @@ impl Default for StackConfig {
             conquest: false,
             s1: false,
             keep_bells: None,
+            ring_theta_bps: None,
+            r_max: None,
+            keeper_rest: false,
             prize_so: None,
             entry_fee: 25_000_000,
             prize_ops_bps: 2_000,
-            prize_keeps: 54,
+            prize_keeps: 0,
             scale: 100.0,
             preseason_scale: 2_000.0,
             drain_scale: None,
@@ -329,6 +345,25 @@ impl Default for StackConfig {
             viewer_retry_budget_ms: None,
             chaos_force: vec![],
         }
+    }
+}
+
+/// `--ring-theta-bps` / `ring_theta_bps`: basis points, the program's range.
+fn theta_bps(v: u64) -> Result<u16, String> {
+    if v <= 10_000 {
+        Ok(v as u16)
+    } else {
+        Err("ring theta must be 0..=10000 basis points".into())
+    }
+}
+
+/// `--r-max` / `r_max`: the program's hard maximum (the season's own
+/// validation also wants it above the genesis ring).
+fn r_max(v: u64) -> Result<u16, String> {
+    if (1..=128).contains(&v) {
+        Ok(v as u16)
+    } else {
+        Err("r_max must be 1..=128".into())
     }
 }
 
@@ -405,6 +440,15 @@ impl StackConfig {
         }
         if let Some(v) = i!("keep_bells") {
             c.keep_bells = Some(v as u16);
+        }
+        if let Some(v) = i!("ring_theta_bps") {
+            c.ring_theta_bps = Some(theta_bps(v as u64)?);
+        }
+        if let Some(v) = i!("r_max") {
+            c.r_max = Some(r_max(v as u64)?);
+        }
+        if let Some(v) = b!("keeper_rest") {
+            c.keeper_rest = v;
         }
         if let Some(v) = s!("prize_so") {
             c.prize_so = Some(v.into());
@@ -641,8 +685,12 @@ impl StackConfig {
             if !self.conquest {
                 return Err("--prize-so: the prize pool tallies keeps (needs --conquest)".into());
             }
-            if self.entry_fee == 0 || self.prize_ops_bps > 10_000 || self.prize_keeps == 0 {
-                return Err("--entry-fee > 0, --prize-ops-bps ≤ 10000, --prize-keeps > 0".into());
+            if self.entry_fee == 0 || self.prize_ops_bps > 10_000 {
+                return Err("--entry-fee > 0, --prize-ops-bps ≤ 10000".into());
+            }
+            // The pool's tally bitmap covers rings 0–17 (InitPool refuses more).
+            if self.r_max.is_some_and(|r| r > 17) {
+                return Err("--prize-so: the prize pool takes --r-max ≤ 17".into());
             }
         }
         if !(self.preseason_scale > 0.0 && self.preseason_scale <= 100_000.0) {
@@ -765,6 +813,15 @@ impl StackConfig {
     }
 
     pub fn to_json(&self) -> Value {
+        let mut v = self.to_json_base();
+        // (outside the one `json!` above: its expansion is at the macro's recursion limit)
+        v["ring_theta_bps"] = json!(self.ring_theta_bps);
+        v["r_max"] = json!(self.r_max);
+        v["keeper_rest"] = json!(self.keeper_rest);
+        v
+    }
+
+    fn to_json_base(&self) -> Value {
         json!({
             "source": self.source.as_ref().map(|p| p.display().to_string()),
             "run_id": self.run_id,
@@ -890,6 +947,8 @@ pub fn apply_flags(c: &mut StackConfig, flags: &[(String, Option<String>)]) -> R
             "bots-args" => c.bots_args = need(k, v)?.split_whitespace().map(String::from).collect(),
             "season" => c.season_id = count(k, v)?,
             "keep-bells" => c.keep_bells = Some(count(k, v)? as u16),
+            "ring-theta-bps" => c.ring_theta_bps = Some(theta_bps(count(k, v)?)?),
+            "r-max" => c.r_max = Some(r_max(count(k, v)?)?),
             "prize-so" => c.prize_so = Some(need(k, v)?.into()),
             "entry-fee" => c.entry_fee = count(k, v)?,
             "prize-ops-bps" => c.prize_ops_bps = count(k, v)? as u16,
@@ -941,6 +1000,7 @@ pub fn apply_flags(c: &mut StackConfig, flags: &[(String, Option<String>)]) -> R
             "no-keeper-b" => c.keeper_b = false,
             "runs-dir" => c.runs_dir = Some(need(k, v)?.into()),
             "season-end-at-play-end" => c.season_end_at_play_end = true,
+            "keeper-rest" => c.keeper_rest = true,
             "no-season-end-at-play-end" => c.season_end_at_play_end = false,
             "chaos-force" => c.chaos_force.push(parse_force(&need(k, v)?)?),
             "viewer-think-ms" => c.viewer_think_ms = count(k, v)?,
@@ -972,6 +1032,7 @@ pub const SWITCHES: &[&str] = &[
     "no-eager-bots",
     "season-end-at-play-end",
     "no-season-end-at-play-end",
+    "keeper-rest",
     "no-viewer-follow-status",
     "json",
     "strict",
@@ -1025,11 +1086,17 @@ mod tests {
         apply_flags(&mut c, &f).unwrap();
         assert_eq!(
             (c.entry_fee, c.prize_ops_bps, c.prize_keeps),
-            (25_000_000, 2_000, 54)
+            (25_000_000, 2_000, 0)
         );
         // Script bots share the world: they join by operator invite, never by paying.
         assert_eq!(c.bots, 6);
         assert_eq!(c.check(), Ok(()));
+        // The pool's tally covers rings 0–17.
+        c.r_max = Some(18);
+        assert!(c.check().is_err());
+        c.r_max = Some(17);
+        assert_eq!(c.check(), Ok(()));
+        c.r_max = None;
         assert_eq!(c.to_json()["prize"]["entry_fee"], 25_000_000);
         let f = split_flags(&["--entry-fee", "10000000"].map(String::from)).unwrap();
         apply_flags(&mut c, &f).unwrap();
@@ -1246,5 +1313,32 @@ mod tests {
             41_510,
             "nightly = base + 500"
         );
+    }
+
+    /// `--ring-theta-bps`: unset by default (the preset's θ stands), the
+    /// program's range only, and recorded in the run's config.
+    #[test]
+    fn ring_theta_flag() {
+        let mut c = StackConfig::default();
+        assert_eq!(c.ring_theta_bps, None);
+        assert!(c.to_json()["ring_theta_bps"].is_null());
+        let f = split_flags(&["--ring-theta-bps", "100", "--conquest"].map(String::from)).unwrap();
+        apply_flags(&mut c, &f).unwrap();
+        assert_eq!(c.ring_theta_bps, Some(100));
+        assert_eq!(c.to_json()["ring_theta_bps"], 100);
+        let f = split_flags(&["--ring-theta-bps", "10001"].map(String::from)).unwrap();
+        assert!(apply_flags(&mut StackConfig::default(), &f).is_err());
+        // --r-max likewise: unset by default, 1..=128
+        assert_eq!(c.r_max, None);
+        let f = split_flags(&["--r-max", "6"].map(String::from)).unwrap();
+        apply_flags(&mut c, &f).unwrap();
+        assert_eq!((c.r_max, c.to_json()["r_max"].as_u64()), (Some(6), Some(6)));
+        let f = split_flags(&["--r-max", "129"].map(String::from)).unwrap();
+        assert!(apply_flags(&mut StackConfig::default(), &f).is_err());
+        // --keeper-rest: off by default
+        assert!(!c.keeper_rest);
+        let f = split_flags(&["--keeper-rest"].map(String::from)).unwrap();
+        apply_flags(&mut c, &f).unwrap();
+        assert_eq!(c.to_json()["keeper_rest"], json!(true));
     }
 }

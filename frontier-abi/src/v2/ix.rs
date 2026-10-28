@@ -152,6 +152,12 @@ ix_data_v2! {
     /// tile the caravan (of its own faction) stood on at `bell`; opens the
     /// raid there (decision K4).
     RaidDomestic { bell: u32, entry: u8 }
+    /// 0xC0 (D, S1, map growth): advance the resting Province at account 2
+    /// toward `resolved_next = to` in closed form (`rest_model`). The
+    /// evidence is `days ≥ 1` ArrivalDays from the day of
+    /// `resolved_next`, then the region's anchors or archives in bell
+    /// order; the rest goes as far as they prove.
+    FastForward { to: u32, days: u8 }
 }
 
 /// SendCaravan's and RaidCaravan's cargo as milli-units (whole units ×
@@ -318,6 +324,7 @@ pub fn fixed_len(ix: Ix) -> Option<usize> {
         Ix::Vote => Vote::LEN,
         Ix::SettleProposal => SettleProposal::LEN,
         Ix::RaidDomestic => RaidDomestic::LEN,
+        Ix::FastForward => FastForward::LEN,
         Ix::FileOutpost | Ix::CreateSeason => return None,
         other => return crate::ix::fixed_len(other.to_v1()?),
     })
@@ -347,6 +354,7 @@ pub fn wire_of(ix: Ix) -> Option<&'static [(&'static str, usize)]> {
         Ix::Vote => Vote::WIRE,
         Ix::SettleProposal => SettleProposal::WIRE,
         Ix::RaidDomestic => RaidDomestic::WIRE,
+        Ix::FastForward => FastForward::WIRE,
         Ix::FileOutpost | Ix::CreateSeason => return None,
         other => return crate::ix::wire_of(other.to_v1()?),
     })

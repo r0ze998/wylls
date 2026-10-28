@@ -42,6 +42,9 @@ test('amounts are whole test USDC; the model carries the 80/20 split of one fee 
   assert.equal(prizeModel(null), null);
   const done = prizeModel(pool({ state: 'final', counted: 54, area: [8, 10, 9, 9, 9, 9], winners: [1] }));
   assert.deepEqual([done.final, done.winners, done.area[1], done.area[0].winner], [true, [1], { faction: 1, provinces: 10, winner: true }, false]);
+  // A grown map: the count to reach is the game's (ProvinceFunds), not the pool's display figure.
+  assert.equal(prizeModel(pool({ expectedKeeps: 0, keepsToCount: 810, counted: 400 })).keepsToCount, 810);
+  assert.equal(prizeModel(pool()).keepsToCount, 54);
 });
 
 test('the join screen states the fee, the x402 payment and the pool only for a season with a pool; an invite is asked only without one', () => {
