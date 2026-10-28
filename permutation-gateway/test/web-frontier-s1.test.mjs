@@ -545,6 +545,74 @@ test('a caravan is sent along the fastest road, and a raid taken home, as SendCa
   }
 });
 
+import { devWallet, connect as connectWallet, disconnect as disconnectWallet } from '../../permutation-server/web/wallet.mjs';
+import { keyFromSeed } from '../../permutation-server/web/session.mjs';
+
+test('the caravan form offers other players\' villages and storehouses after the viewer\'s own, nearest first', () => {
+  const others = prov(1, 0, { siteMirror: [{ state: 1, faction: 2 }, { state: 0, faction: 0 }] });
+  const far = prov(5, 0, { siteMirror: [{ state: 5, faction: 6 }, { state: 1, faction: 3 }] });
+  const fs = world({ provinces: new Map([['0,0', { province: prov(0, 0, { siteMirror: [{ state: 1, faction: 1 }, { state: 0 }] }) }], ['1,0', { province: others }], ['5,0', { province: far }]]),
+    s1: { caravans: { moving: [], vaults: [{ p: 3, q: 0, tile: 9, ownerTag: '9', faction: 4, gen: 2 }, { p: 0, q: 1, tile: 4, ownerTag: '5', faction: 1, gen: 1 }] }, structures: { structures: [], sightings: [] }, nations: null } });
+  fs.holdings.forEach(h => { h.ownerCitizen = new Uint8Array([5, 0, 0, 0, 0, 0, 0, 0, ...Array(24).fill(0)]); });
+  // the viewer's villages at (0, 0) site 0 and (1, 0) site 2 are their own; (1, 0) site 0 is another's village; a Free City is no place
+  const m = SCR.s1VillageModel(fs);
+  assert.deepEqual(m.destinations.filter(d => !d.other).map(d => [d.kind, d.p, d.q]), [['holding', 0, 0], ['holding', 1, 0], ['vault', 0, 1]]);
+  assert.deepEqual(m.destinations.filter(d => d.other).map(d => [d.kind, d.p, d.q, d.kind === 'vault' ? d.tile : d.site, d.faction, d.gen]),
+    [['holding', 1, 0, 0, 2, null], ['vault', 3, 0, 9, 4, 2], ['holding', 5, 0, 1, 3, null]], 'nearest the village in hand first; a village\'s generation is read at sending');
+  assert.deepEqual(m.destinations.slice(0, 3).map(d => !!d.other), [false, false, false], 'the viewer\'s own come first (the form\'s indexes)');
+  // the viewer's tag unknown: whose storehouse is whose is unknown, so none is offered
+  assert.equal(SCR.othersPlaces({ ...fs, holdings: fs.holdings.map(h => ({ ...h, ownerCitizen: undefined })) }, null, fs.holdings[0]).filter(d => d.kind === 'vault').length, 0);
+  const html = String(SCR.renderS1Village(fs));
+  assert.match(html, /<optgroup label="あなたの場所">/);
+  assert.match(html, /<optgroup label="ほかの人の場所">/);
+  assert.match(html, /ウォレットで署名して送ります/);
+  assert.match(html, /<option value="1" selected>/, 'the default is one of the viewer\'s own places');
+  // a single village with another's place near: the form is offered (it said "nowhere to send" before)
+  const lone = { ...fs, holdings: [fs.holdings[0]], s1: { ...fs.s1, caravans: { moving: [], vaults: [fs.s1.caravans.vaults[0]] } } };
+  assert.match(String(SCR.renderS1Village(lone)), /data-form="s1-caravan"/);
+  assert.doesNotMatch(String(SCR.renderS1Village({ ...lone, provinces: new Map(), s1: { ...lone.s1, caravans: { moving: [], vaults: [] } } })), /data-form="s1-caravan"/);
+});
+
+test('a caravan to another player is signed by the wallet, its village\'s generation read from its Holding', async () => {
+  const saved = { ...FS };
+  const sent = [];
+  const V = JSON.parse(readFileSync(new URL('./fixtures/s1-addresses-v1.json', import.meta.url), 'utf8'));
+  io.setPin({ programId: V.program, cluster: 'localnet', seasonId: V.seasonId, rulesetHash: rulesetFor(3) });
+  try {
+    const provinces = new Map();
+    for (const c of CAR.landsWanted({ p: 0, q: 0 }, { p: 1, q: 0 })) provinces.set(`${c.p},${c.q}`, { province: prov(c.p, c.q) });
+    provinces.set('1,0', { province: prov(1, 0, { siteMirror: [{ state: 1, faction: 2 }, { state: 0 }] }) });
+    Object.assign(FS, world({ provinces }), { holdings: [holding(0, 0, 0, 30)], session: { publicKey: V.program, sign: async () => new Uint8Array(64) }, notice: null, inFlight: 0 });
+    FS.holdings[0].ownerCitizen = new Uint8Array([5, ...Array(31).fill(0)]);
+    C.useTransport({ submit: async req => { sent.push(req); return { ok: false, code: 'Stop' }; } });
+    C.useHerald({ holding: async (p, q, site) => ({ ok: true, holding: { ownerCitizen: '11111111111111111111111111111112', order: 1, gen: 3, p, q, site } }) });
+    const m = SCR.s1VillageModel(FS);
+    const i = m.destinations.findIndex(d => d.other && d.kind === 'holding');
+    assert.ok(i > 0);
+    const form = { elements: { src: { value: '0' }, dst: { value: String(i) }, c1: { value: '50' } } };
+    // no wallet connected: nothing is built
+    FS.wallet = { address: V.program };
+    await C.FORMS['s1-caravan'](form);
+    assert.equal(sent.length, 0);
+    const w = await connectWallet(devWallet(await keyFromSeed(new Uint8Array(32).fill(7))), { chain: 'solana:localnet' });
+    FS.wallet = { address: w.address };
+    await C.FORMS['s1-caravan'](form);
+    assert.equal(sent.length, 1);
+    const q = sent[0];
+    assert.equal(q.name, 'SendCaravan');
+    assert.ok(q.signer?.wallet && !q.signer.session, 'the wallet signs (caravan.rs WalletRequired)');
+    assert.equal(q.accounts.actor, w.address);
+    assert.deepEqual([q.fields.dst_kind, q.fields.dst_p, q.fields.dst_q, q.fields.dst_at, q.fields.dst_gen], [1, 1, 0, 0, 3]);
+    const A = io.pinned().addresses;
+    assert.equal(q.accounts.dst, A.of('Holding', { p: 1, q: 0, site: 0 }));
+  } finally {
+    await disconnectWallet();
+    C.useTransport(null);
+    C.useHerald(null);
+    Object.assign(FS, saved);
+  }
+});
+
 test('the structure and raid numbers the panels offer by are structure.rs\'s and caravan.rs\'s', () => {
   const st = readFileSync(new URL('../../permutation-rules/src/frontier/structure.rs', import.meta.url), 'utf8');
   const cv = readFileSync(new URL('../../permutation-rules/src/frontier/caravan.rs', import.meta.url), 'utf8');
