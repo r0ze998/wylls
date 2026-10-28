@@ -4,3 +4,4 @@
 # reproduced it byte for byte). x86_64-unknown-linux-gnu is the GitHub runner, taken from the log of CI run
 # 40240862639 (job 121312134735, PR #13 at 239a4e05) for the same source.
 aarch64-apple-darwin 253b59e4ce53a942686f7bc20ce495242d683551aedbe37d217e0c9c1aa9c745 214940
+x86_64-unknown-linux-gnu c112de8097c7ad2653f4df4f6ca8f2d630349242edf81ab7be4250bf44d5588a 214894
