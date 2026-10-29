@@ -1,0 +1,34 @@
+[package]
+name = "wylls-courier"
+version = "0.1.0"
+edition = "2021"
+publish = false
+license = "MIT"
+description = "Workstream 03 sample: an external Solana program by another author that sends a Wylls caravan through a CPI into the Frontier program's SendCaravan (owner-signed), and, through a PROVISIONAL mandate adapter (not workstream 02's Grant), as the Citizen's session key. Local tests only; never deployed."
+
+# Its own workspace and lock, outside the root workspace: an external author's
+# program depends on the published ABI crate, not on the Frontier program.
+[workspace]
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[features]
+# Test-only instruction 0xEE that tries to go around the core (direct data
+# write, lamport debit, signer escalation). Never part of a real build.
+hostile = []
+# Link the crate without its entrypoint (host tools).
+no-entrypoint = []
+
+[dependencies]
+solana-program = "=4.0.0"
+frontier-abi = { path = "../../../frontier-abi" }
+
+[profile.release]
+overflow-checks = true
+lto = "fat"
+codegen-units = 1
+opt-level = 3
+
+[lints.rust]
+unexpected_cfgs = { level = "allow" }
