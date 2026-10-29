@@ -13,6 +13,8 @@ import { hostRows } from '../screens/host.mjs';
 import { SCOUT, SETTLER } from '../fland.mjs';
 import { territoryEnabled } from '../territory.mjs';
 import { ringOf } from '../fgeo.mjs';
+import { conquestOn } from './keephand.mjs';
+import { conquestObjective } from '../screens/conquestguide.mjs';
 
 export const GUIDE_LEVELS = Object.freeze(['all', 'warn', 'off']);
 export const GUIDE_TEXT = { all: () => L`すべて`, warn: () => L`警告だけ`, off: () => L`オフ` };
@@ -36,6 +38,16 @@ export function guideTarget(FS) {
   const step = st.current, h = activeHolding(FS);
   // joining is choosing a nation (owner decision V2): the guide never points at land to choose
   if (!h) return null;
+  // a conquest season (program version 3; S1 is 4): the drawer teaches the seven conquest steps, so the map points
+  // where that step is done — the village for build, train and muster — and nowhere for the march and the hold, whose
+  // keep the drawer names. It followed the instant-home steps of M1 instead, and on S1 the map said "the barbarian
+  // camp" and "scout from here" while the drawer said "train" (workstream 07, claim 5)
+  if (conquestOn(FS) && !territoryEnabled(FS)) {
+    let o = null;
+    try { o = conquestObjective(FS); } catch { return null; }
+    const kind = o?.id === 'build' ? 'build' : o?.id === 'train' || o?.id === 'muster' ? o.id : null;
+    return kind ? { step: kind, kind, p: h.p, q: h.q, tile: h.tile } : null;
+  }
   if (territoryEnabled(FS)) {
     const building = (h.queue ?? []).some(q => q && q.kind === 1 && Number(q.doneAt) > (FS.chain?.now?.() ?? 0));
     const kind = step === 'build' && building ? 'train' : step;
