@@ -39,6 +39,7 @@ import { L, fmtNum } from '../lang.mjs';
 import { emit as fxEmit } from './fx/bus.mjs';
 import { reachOrigins } from './screens/conquest.mjs';
 import { s1On } from './fs1.mjs';
+import { avoidingPalisades, watchOf, structuresIn, walkerOf, palisadeHexesOf } from './s1walk.mjs';
 import { fastestPath, pack, landsWanted, landOfProvince, CARAVAN_FEE, MAX_PATH_STEPS, MAX_PATH_PROVINCES } from './fcaravan.mjs';
 import { raidOffers, s1VillageModel, s1TileModel, siegeOffer, expelOffer, caravanProblem, KIND, PROPOSE_STANCE, PROPOSE_EXPEL, PROPOSE_READMIT } from './screens/s1.mjs';
 import { placeData, raidProvinces, cargoBytes, RAID_CHOICE } from './fplay.mjs';
@@ -880,7 +881,7 @@ export function wantKeepReach() {
   const { home, origins } = reachOrigins(FS);
   if (!origins.length) return false;
   const args = { keeps: cq.keeps, origins, home, faction: FS.citizen.faction, nowBell: FS.nowBell ?? 0, controlBell: cq.control.bell,
-    seeds: (FS.record?.rings ?? []).map(r => ({ ring: r.d, seed: r.seed })) };
+    seeds: (FS.record?.rings ?? []).map(r => ({ ring: r.d, seed: r.seed })), blocked: palisadeHexes(FS) };
   const key = reachKey(args);
   if (cq.reach?.key === key) return false;
   if (!FS.kernel) {
@@ -908,7 +909,7 @@ export function wantHostReach(hostId) {
   if (!r) return false;
   const origins = [{ p: r.p, q: r.q, tile: r.tile, unit: r.unit, host: String(r.id), troops: r.troops }];
   const args = { keeps: cq.keeps, origins, home: false, faction: FS.citizen.faction, nowBell: FS.nowBell ?? 0, controlBell: cq.control.bell,
-    seeds: (FS.record?.rings ?? []).map(x => ({ ring: x.d, seed: x.seed })) };
+    seeds: (FS.record?.rings ?? []).map(x => ({ ring: x.d, seed: x.seed })), blocked: palisadeHexes(FS) };
   const key = `h:${r.id}|${reachKey(args)}`;
   if (cq.hostReach?.key === key) return false;
   if (!FS.kernel) {
@@ -1268,7 +1269,7 @@ async function setDestination(dest) {
   const k = await kernelOrNull();
   if (!k) { c.routeError = FS.kernelError ?? 'NoKernel'; invalidate('panel'); return; }
   const seeds = (FS.record?.rings ?? []).map(r => ({ ring: r.d, seed: r.seed }));
-  const r = planRoute(k, { from: { p: c.origin.p, q: c.origin.q, tile: c.host.tile }, to: dest, unit: c.host.unit, seeds });
+  const r = planRoute(k, { from: { p: c.origin.p, q: c.origin.q, tile: c.host.tile }, to: dest, unit: c.host.unit, seeds, blocked: palisadeHexes(FS) });
   if (!r.ok) { c.routeError = r.code; invalidate('panel'); return; }
   c.route = r.route;
   c.earliest = earliestBell(k, { genesisTs: FS.clock.genesisTs, departTs: now() + margin(), secs: r.route.secs });
@@ -1456,8 +1457,12 @@ async function landsFor(a, b) {
     const prov = FS.provinces.get(key)?.province;
     if (prov) out.push(landOfProvince(prov));
   }
-  return out;
+  // (S1-1E-CONTRACT §2.5: a caravan's road through a palisade that stops it is refused `Path`; its callers plan round it)
+  const w = walkerOf(FS);
+  return w ? avoidingPalisades(out, (p, q) => watchOf(structuresIn(w.structures, p, q), w.stances, w.faction, w.expelled)) : out;
 }
+/** The hexes a march of the viewer must not plan through: the palisades that stop it (reveal.rs refuses such a walk). */
+export const palisadeHexes = (fs = FS) => palisadeHexesOf(fs);
 const s1Tile = d => ({ p: num(d.p), q: num(d.q), tile: num(d.tile) });
 function s1Build(name, kind, at) {
   const h = activeHolding(FS);

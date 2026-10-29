@@ -71,7 +71,8 @@ export function parseEnvelope(env, { seasonId, p, q, bell } = {}) {
   check(m, 'BadEnvelope', `key ${env.key}`);
   const [P, Q] = [+m[1], +m[2]];
   if (p !== undefined) check(P === p && Q === q, 'WrongKey', `asked for pv:${p},${q}, got ${env.key}`);
-  const province = decode('Province', bytesOf(env.bytes) ?? new Uint8Array(0), { seasonId });
+  const provinceBytes = bytesOf(env.bytes) ?? new Uint8Array(0);
+  const province = decode('Province', provinceBytes, { seasonId });
   check(province.p === P && province.q === Q, 'WrongKey', 'the Province bytes are another province');
   const slots = (env.slots ?? []).map(s => {
     const k = KEY.ar.exec(s.key ?? '');
@@ -101,7 +102,7 @@ export function parseEnvelope(env, { seasonId, p, q, bell } = {}) {
     check(!day || day.day === Math.floor(bell / 144), 'WrongKey', 'the day of another bell');
     check(!inputs || inputs.bell === bell, 'WrongKey', 'the inputs of another bell');
   }
-  return { bell: env.bell, slot: env.slot, seq: String(env.seq ?? ''), head: env.head ?? null, province, slots, day, inputs,
+  return { bell: env.bell, slot: env.slot, seq: String(env.seq ?? ''), head: env.head ?? null, province, provinceBytes, slots, day, inputs,
     ...(env.sampleTerritory ? { sampleTerritory: parseTerritory(env.sampleTerritory) } : {}),
     // (`proto`: what a sample world adds beside the chain-shaped bytes — the labelled prototype of a designed rule,
     // PROTOTYPE-SPEC section 6 — carried as it came and only when it came: no real herald sends it)
