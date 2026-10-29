@@ -17,12 +17,21 @@
  * Numbers marked [phase 6] are the code's placeholders, copied, not chosen here.
  */
 
-export const LEVELS = Object.freeze({
+/** A frozen lookup table with no prototype: EFFECTS["constructor"] is undefined. */
+function table(obj) {
+  const out = Object.create(null);
+  for (const [k, v] of Object.entries(obj)) {
+    out[k] = v && typeof v === "object" && !Array.isArray(v) ? table(v) : v;
+  }
+  return Object.freeze(out);
+}
+
+export const LEVELS = table({
   base: "4cd901de の main（S1）にある",
   "s2-branch": "未統合ブランチ ccr-184d6862-fqutoz（S2）にだけある",
 });
 
-export const EFFECTS = Object.freeze({
+export const EFFECTS = table({
   "caravan.send": {
     ja: "荷車で送る",
     commands: ["SendCaravan (0xB1)", "SettleCaravan (0xB2, 誰でも)"],
@@ -113,7 +122,7 @@ export const EFFECTS = Object.freeze({
  * Operations that exist but are done once, outside a manifest's steps:
  * acquiring or issuing the rights a manifest then needs.
  */
-export const SETUP = Object.freeze({
+export const SETUP = table({
   "vault.build": { commands: ["BuildVault (0xB0)"], availability: "base" },
   "tickets.issue": { commands: ["IssueTickets (0xC0)"], availability: "s2-branch" },
   "tickets.give": { commands: ["GiveLot (0xC1)"], availability: "s2-branch", note: "贈与はウォレットの署名（L7）" },
@@ -127,7 +136,7 @@ export const SETUP = Object.freeze({
  * The reasons cite the design documents; docs/04-world-effects.ja.md
  * compares how an extension could be added.
  */
-export const NOT_COMPOSABLE = Object.freeze({
+export const NOT_COMPOSABLE = table({
   "trigger.schedule": { class: "core-extension", ja: "時刻・量・到着・公開の事実の合図で自動実行（段階3で決定、未実装）", ref: "21-stage3-play.ja.md §2" },
   "owner.ticket": { class: "core-extension", ja: "仕組みの持ち主の権利を札にする（段階4、札の種類が増える）", ref: "22-stage4-play.ja.md §2" },
   "fee.collect": { class: "core-extension", ja: "仕組みの利用者から手数料を自動で受け取る", ref: "22-stage4-play.ja.md §3 場面C" },
@@ -140,7 +149,7 @@ export const NOT_COMPOSABLE = Object.freeze({
   "code.run": { class: "forbidden", ja: "任意のコードを実行する（本番には入れない。この課題の範囲外）", ref: "課題⑥の制約" },
 });
 
-export const TRIGGERS = Object.freeze({
+export const TRIGGERS = table({
   manual: { available: true, ja: "手で実行（段階2と同じ）" },
   daily: { available: false, ja: "毎日決まった時刻（段階3、未実装）" },
   below: { available: false, ja: "在庫が下回ったら（段階3、未実装）" },
@@ -152,10 +161,8 @@ export const TRIGGERS = Object.freeze({
  * workstream, to be set with the core's budgets]. A run is one execution
  * of every step once; includes are expanded before counting.
  */
-export const CAPS = Object.freeze({
+export const CAPS = table({
   steps: 8,
-  expandedSteps: 16,
-  includeDepth: 3,
   caravansPerRun: 4,
   runsPerDay: 24,
   txPerDay: 96,

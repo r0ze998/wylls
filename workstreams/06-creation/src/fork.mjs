@@ -10,7 +10,7 @@
  * `dropped` lists each of these so the paper can show it.
  */
 
-import { clone } from "./canonical.mjs";
+import { clone, own } from "./canonical.mjs";
 import { TYPES } from "./types.mjs";
 
 export function forkManifest(env, newAuthorPub, { name, title } = {}) {
@@ -23,7 +23,7 @@ export function forkManifest(env, newAuthorPub, { name, title } = {}) {
     { what: "record", ja: "実行の記録・実績は元の定義のもの。写しは記録なしから始まる" },
   ];
   for (const [pname, p] of Object.entries(m.params)) {
-    if (TYPES[p.type]?.place && p.default != null) {
+    if (own(TYPES, p.type)?.place && p.default != null) {
       dropped.push({ what: `params.${pname}.default`, value: p.default, ja: `入力「${p.ja ?? pname}」の既定の場所（元の作者の場所）` });
       delete p.default;
     }

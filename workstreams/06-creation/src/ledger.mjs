@@ -13,7 +13,7 @@
  * mark it consumed at most once.
  */
 
-import { clone, contentHash } from "./canonical.mjs";
+import { clone, contentHash, own } from "./canonical.mjs";
 import { satisfies } from "./semver.mjs";
 
 export const RECEIPT_FORMAT = "wylls.mock.receipt/0";
@@ -36,7 +36,7 @@ export class Ledger {
   }
 
   get(id) {
-    const r = this.data.receipts[id];
+    const r = own(this.data.receipts, id);
     return r ? clone(r) : null;
   }
 
@@ -60,12 +60,13 @@ export class Ledger {
     if (claim && typeof claim === "object") {
       presented = claim.receipt ?? claim;
       id = claim.id ?? null;
-      const actual = contentHash(presented);
+      let actual;
+      try { actual = contentHash(presented); } catch { return { reason: "tampered", detail: "the receipt has no canonical form" }; }
       if (id && id !== actual) return { reason: "tampered", detail: "the receipt's content does not hash to its id" };
       id = actual;
     }
     if (typeof id !== "string") return { reason: "unbound" };
-    const r = this.data.receipts[id];
+    const r = own(this.data.receipts, id);
     if (!r) return { reason: presented ? "not-in-ledger" : "unknown", id };
     if (!r.final) return { reason: "not-final", id };
     if (expect.producer) {
@@ -74,7 +75,7 @@ export class Ledger {
       if (p.range && !satisfies(r.manifest.version, p.range)) return { reason: "wrong-version", id, version: r.manifest.version, range: p.range };
       if (p.hash && r.manifest.hash !== p.hash) return { reason: "wrong-version", id, detail: "hash differs from the pinned one" };
     }
-    if (expect.output && r.output !== expect.output) return { reason: "wrong-output", id, output: r.output };
+    if (expect.output && !(r.outputs ?? []).includes(expect.output)) return { reason: "wrong-output", id, outputs: r.outputs ?? [] };
     if (expect.outcomeOk && !expect.outcomeOk.includes(r.outcome)) return { reason: "failed-run", id, outcome: r.outcome };
     if (expect.beneficiary && r.beneficiary !== expect.beneficiary) return { reason: "not-beneficiary", id, beneficiary: r.beneficiary };
     if (this.isConsumed(id)) return { reason: "already-consumed", id, by: this.data.consumed[id] };

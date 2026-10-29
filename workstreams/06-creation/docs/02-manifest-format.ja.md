@@ -38,7 +38,7 @@
 | `grant:use` / `grant:share` / `grant:receipt` | 使用権・持ち分・受け取りの札 | S2 の束。②の Grant に置き換える |
 | `result:delivery` / `result:run` | 確定した配達・確定した生産の記録 | ④の Receipt に置き換える |
 
-札と記録は **入力（params）にできない**（`TYPE_UNKNOWN`）。必ず `uses` を通して、種類と発行元を宣言する。
+入力（params）にできるのは場所と数だけ。物の組は手順の中に `{ "goods": { 資源: 式 } }` で書く。札と記録は **入力にできない**（`TYPE_UNKNOWN`）。必ず `uses` を通して、種類と発行元を宣言する。
 
 ## 3. 入力 `params`
 
@@ -49,7 +49,7 @@
 ```
 
 - `own: true`：利用者自身の場所でなければならない（実行前の確認で `NOT_OWNER`）。
-- 量に効く `int` には `max` を付ける。付けないと処理量の上限を検査できず `LIMIT_EXCEEDED`。
+- 量に効く `int`（工房の回数・荷の量・受け取りの量・札の量）には `max` を付ける。付けないと処理量の上限を検査できず `LIMIT_EXCEEDED`。
 - `default` は作者の状況の値。写すと場所の既定は消える（`src/fork.mjs`）。利用者が既定のまま他人の場所を指すと `PARAM_DEFAULT_FOREIGN`（警告）。
 
 ## 4. 依存 `uses`：B と C を分ける
@@ -65,6 +65,7 @@
 ```
 
 - `connect` の `target` は入力か固定の場所だけ。`grant` と target の型の組は決まっている：`use`→`workshop`、`share`/`receipt`→`vault`（違えば `GRANT_KIND_MISMATCH`）。
+- `consume` の依存は、どれかの手順の `after` に名前を挙げる（その手順が物を使う場所に届いていることを確かめるため。挙げなければ `REF_UNKNOWN`）。記録は、作った定義の **公開した出力の名前**（`outputs` のキー）で照合する。
 - `consume` の `range` は `1.2.3`（その版だけ）・`^1.2.3`・`~1.2.3`。`hash` を書けば、その内容の版だけ。宣言した `type` は、依存先の出力の型と一致しなければならない（公開時に `TYPE_MISMATCH`）。
 - **A（定義の写し）は依存ではない。** 写しは `derivedFrom` に元を記録するだけで、元の定義にも、元の作者の札にも、何も接続しない。
 
@@ -92,7 +93,7 @@
 ## 6. 合図・上限・出力
 
 - `trigger`：`manual` | `daily` | `below` | `arrival`。段階3は未実装なので、`manual` 以外は警告 `TRIGGER_UNAVAILABLE` を出し、機械の事実は「手で実行」になる。
-- `limits.runsPerDay`：1日の実行回数。上限（［フェーズ6］の仮の値、`CAPS`）：手順8・荷車4台/回・24回/日・取引96件/日・400万CU/日・工房24回/日。
+- `limits.runsPerDay`：1日の実行回数。上限（［フェーズ6］の仮の値、`CAPS`）：手順8・荷車4台/回・24回/日・取引96件/日・400万CU/日・工房はすべての工房の手順の合計で24回/日。
 - `outputs`：`{ 名前: { "from": { "step", "out" } } }`。C の依存先になれるのはここに出した出力だけ。
 
 ## 7. 主張 `claims`：作者の言葉のうち、機械で照合するもの
@@ -112,6 +113,6 @@
 ## 8. 公開の封筒と計画
 
 - 公開：`{ manifest, hash, signature }`。署名は作者の鍵で `"wylls.creation.publish/0" ‖ 0x00 ‖ hash`。
-- 状態の変更（停止・取り下げ・再開）：作者の鍵で `"wylls.creation.status/0"`。
+- 状態の変更（停止・取り下げ・再開）：作者の鍵で `"wylls.creation.status/0"`。署名する内容は `{ author, name, status, seq }` で、`seq` はその名前の状態の履歴の長さ。古い署名を後から出し直して、後の変更を取り消すことはできない。
 - 計画（利用者が準備するもの）：`{ format: "wylls.creation.plan/0", manifest: { author, name, version, hash }, actor: 利用者の公開鍵, bindings: { params, grants, receipts }, preparedDay }` を **利用者の鍵** で `"wylls.creation.plan/0"` に署名。作者の秘密鍵は使わない。
 - 署名の領域を分けているので、公開の署名を計画や状態変更に使い回せない（`test/roles.test.mjs`）。

@@ -14,7 +14,7 @@
  *   major  anything else: never followed; the user prepares again
  */
 
-import { canonicalize } from "./canonical.mjs";
+import { canonicalize, own } from "./canonical.mjs";
 import { BUMP_ORDER, bumpOf } from "./semver.mjs";
 
 const TEXT_FIELDS = ["version", "title", "note", "claims", "validUntilDay", "derivedFrom"];
@@ -36,18 +36,18 @@ export function requiredBump(prev, next) {
   if (eq(machinePart(prev), machinePart(next))) return { bump: reasons.length ? "major" : "patch", reasons };
 
   for (const [name, p] of Object.entries(prev.params)) {
-    if (!next.params[name]) reasons.push(`入力 ${name} がなくなった`);
-    else if (!eq(p, next.params[name])) reasons.push(`入力 ${name} の型・範囲・既定値が変わった`);
+    if (!own(next.params, name)) reasons.push(`入力 ${name} がなくなった`);
+    else if (!eq(p, own(next.params, name))) reasons.push(`入力 ${name} の型・範囲・既定値が変わった`);
   }
   for (const [name, p] of Object.entries(next.params)) {
-    if (!prev.params[name] && p.default === undefined) reasons.push(`既定値のない入力 ${name} が増えた`);
+    if (!own(prev.params, name) && p.default == null) reasons.push(`既定値のない入力 ${name} が増えた`);
   }
   if (!eq(prev.uses, next.uses)) reasons.push("依存先（接続・使う成果）が変わった");
   if (!eq(prev.steps, next.steps)) reasons.push("手順が変わった");
   if (!eq(prev.limits, next.limits)) reasons.push("上限が変わった");
   if (!eq(prev.trigger ?? "manual", next.trigger ?? "manual")) reasons.push("合図が変わった");
   for (const [name, o] of Object.entries(prev.outputs)) {
-    if (!eq(o, next.outputs[name])) reasons.push(`出力 ${name} がなくなった・変わった`);
+    if (!eq(o, own(next.outputs, name))) reasons.push(`出力 ${name} がなくなった・変わった`);
   }
   if (!eq(prev.author, next.author) || !eq(prev.format, next.format) || !eq(prev.name, next.name)) reasons.push("作者・名前・形式が変わった");
   return reasons.length ? { bump: "major", reasons } : { bump: "minor", reasons: ["追加だけ（既定値つきの入力・新しい出力）"] };

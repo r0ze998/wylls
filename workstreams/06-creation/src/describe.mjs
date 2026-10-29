@@ -5,6 +5,7 @@
  * is written automatically and the author's description is shown apart).
  */
 
+import { own } from "./canonical.mjs";
 import { EFFECTS, LEVELS, TRIGGERS } from "./catalog.mjs";
 import { TYPES } from "./types.mjs";
 import { RELATIONS } from "./manifest.mjs";
@@ -16,11 +17,11 @@ function ex(e, m) {
   if (Number.isSafeInteger(e)) return String(e);
   if (!e || typeof e !== "object") return "?";
   if ("param" in e) {
-    const label = `〈${m.params[e.param]?.ja ?? e.param}〉`;
+    const label = `〈${own(m.params, e.param)?.ja ?? e.param}〉`;
     return e.times ? `${e.times}×${label}` : label;
   }
   if ("place" in e) return `固定の場所 ${e.place}`;
-  if ("use" in e) return `接続先「${m.uses[e.use]?.ja ?? e.use}」`;
+  if ("use" in e) return `接続先「${own(m.uses, e.use)?.ja ?? e.use}」`;
   if ("step" in e) return `手順 ${e.step} の${e.out}`;
   if ("goods" in e) return Object.entries(e.goods).map(([r, x]) => `${RJA[r] ?? r} ${ex(x, m)}`).join("・");
   return "?";
@@ -37,7 +38,7 @@ export function describe(m, facts) {
   sec("名前", [`${m.title}（${m.name} 版 ${m.version}）`, `作者の鍵 ${m.author.slice(0, 16)}…`,
     ...(m.derivedFrom ? [`元にした定義：${m.derivedFrom.name} 版 ${m.derivedFrom.version}（作者の鍵 ${m.derivedFrom.author.slice(0, 16)}…）`] : [])]);
   sec("利用者が決める入力", Object.entries(m.params).map(([n, p]) => {
-    const bits = [`${p.ja ?? n}：${TYPES[p.type]?.ja ?? p.type}`];
+    const bits = [`${p.ja ?? n}：${own(TYPES, p.type)?.ja ?? p.type}`];
     if (p.own) bits.push("自分のもの");
     if (p.min !== undefined || p.max !== undefined) bits.push(`${p.min ?? 0}〜${p.max ?? "上限なし"}`);
     if (p.default !== undefined) bits.push(`既定 ${p.default}`);
@@ -46,7 +47,7 @@ export function describe(m, facts) {
   sec("つなぐ先（B：他人が動かしているもの）", facts.grants.map((g) => `${ex(g.target, m)} に、利用者自身の${GJA[g.kind]}で接続${g.amount != null ? `（1回に ${ex(g.amount, m)}）` : ""}`));
   sec("使う成果（C：確定した記録）", facts.consumes.map((c) => `${c.manifest.name}（${c.manifest.range}${c.manifest.hash ? `、ハッシュ固定` : ""}）の出力「${c.output}」の完了記録を、1回ごとに1つ使う`));
   sec("すること（順番どおり）", m.steps.map((s, i) => {
-    const spec = EFFECTS[s.effect];
+    const spec = own(EFFECTS, s.effect);
     const after = (s.after ?? []).map((a) => (typeof a === "string" ? `手順 ${a}` : `成果「${a.use}」`));
     const wait = after.length ? `（${after.join("・")}が確定してから）` : "";
     if (s.effect === "caravan.send") return `${i + 1}. 荷車で送る：${ex(s.args.from, m)} → ${ex(s.args.to, m)}、${ex(s.args.cargo, m)}${wait}`;
@@ -55,8 +56,8 @@ export function describe(m, facts) {
     if (s.effect === "shares.withdraw") return `${i + 1}. ${ex(s.args.via, m)}から持ち分の札で ${ex(s.args.to, m)} へ引き出す${wait}`;
     return `${i + 1}. ${spec?.ja ?? s.effect}`;
   }));
-  sec("1回の実行で渡すもの", [goodsText(facts.outputsPerRun) + (facts.deliversTo.length ? ` → ${facts.deliversTo.map((d) => `〈${m.params[d]?.ja ?? d}〉`).join("・")}` : "")]);
-  sec("合図", [facts.declaredTrigger === facts.trigger ? TRIGGERS[facts.trigger].ja : `${TRIGGERS[facts.declaredTrigger]?.ja}と書かれているが、未実装のため${TRIGGERS.manual.ja}`]);
+  sec("1回の実行で渡すもの", [goodsText(facts.outputsPerRun) + (facts.deliversTo.length ? ` → ${facts.deliversTo.map((d) => `〈${own(m.params, d)?.ja ?? d}〉`).join("・")}` : "")]);
+  sec("合図", [facts.declaredTrigger === facts.trigger ? own(TRIGGERS, facts.trigger).ja : `${own(TRIGGERS, facts.declaredTrigger)?.ja}と書かれているが、未実装のため${TRIGGERS.manual.ja}`]);
   sec("上限と費用", [
     `1日 ${facts.runsPerDay} 回まで`,
     `1回に 取引 ${facts.perRun.tx} 件・計算量 約 ${facts.perRun.cu.toLocaleString("ja-JP")} CU・荷車の精算預け ${facts.perRun.feeLamports.toLocaleString("ja-JP")} lamports（［フェーズ6］の仮の値）`,

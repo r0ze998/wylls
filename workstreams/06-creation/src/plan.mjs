@@ -9,7 +9,7 @@
  * which steps need the wallet rather than the game's session key.
  */
 
-import { contentHash } from "./canonical.mjs";
+import { CanonicalError, contentHash, own, plain } from "./canonical.mjs";
 import { EFFECTS } from "./catalog.mjs";
 import { finding, hasErrors } from "./codes.mjs";
 import { DOMAIN, signHash, verifyHash } from "./keys.mjs";
@@ -51,7 +51,8 @@ export async function preparePlan(env, bindings, userKey, { world, today } = {})
 }
 
 export async function verifyPlanSignature(signed) {
-  const hash = contentHash(signed.plan);
+  let hash;
+  try { hash = contentHash(signed?.plan); } catch { return false; }
   return hash === signed.hash && verifyHash(signed.plan.actor, DOMAIN.plan, hash, signed.signature);
 }
 
@@ -60,13 +61,14 @@ export function resolve(e, m, params) {
   if (Number.isSafeInteger(e)) return e;
   if (!e || typeof e !== "object") return undefined;
   if ("param" in e) {
-    const v = params[e.param] ?? m.params[e.param]?.default;
+    const v = own(params, e.param) ?? own(m.params, e.param)?.default;
     if (v === undefined || v === null) return undefined;
-    return e.times ? v * e.times : v;
+    if (e.times) return Number.isSafeInteger(v) ? v * e.times : undefined;
+    return typeof v === "string" || Number.isSafeInteger(v) ? v : undefined;
   }
   if ("place" in e) return e.place;
   if ("use" in e) {
-    const u = m.uses[e.use];
+    const u = own(m.uses, e.use);
     return u?.relation === "connect" ? resolve(u.target, m, params) : undefined;
   }
   return undefined;
@@ -86,18 +88,23 @@ export async function preflight(signed, ctx) {
   const { registry, world, ledger } = ctx;
   const F = [];
   const add = (code, path, detail) => F.push(finding(code, path, detail));
-  const plan = signed.plan;
   const today = world.today;
 
   if (!(await verifyPlanSignature(signed))) add("PLAN_SIGNATURE_INVALID", "$.plan", {});
+  let plan;
+  try { plan = plain(signed.plan); } catch (e) {
+    if (!(e instanceof CanonicalError)) throw e;
+    return done([...F, finding("SHAPE", e.path, { detail: "nested too deep" })]);
+  }
+  if (!plan?.manifest || !plan.bindings) return done([...F, finding("SHAPE", "$.plan", { detail: "{ manifest, actor, bindings }" })]);
   const env = registry.getVersion(plan.manifest);
-  if (!env) return done([finding("DEPENDENCY_UNKNOWN", "$.plan.manifest", { ref: plan.manifest })]);
+  if (!env?.manifest) return done([finding("DEPENDENCY_UNKNOWN", "$.plan.manifest", { ref: plan.manifest })]);
   if (env.hash !== plan.manifest.hash) add("HASH_MISMATCH", "$.plan.manifest.hash", { pinned: plan.manifest.hash, listed: env.hash });
   F.push(...(await verifyEnvelope(env)));
   const entry = registry.entry(plan.manifest.author, plan.manifest.name);
   if (entry.status !== "listed") add("ENTRY_NOT_LISTED", "$.plan.manifest", { status: entry.status });
 
-  const m = env.manifest;
+  const m = plain(env.manifest);
   const def = validateDefinition(m, { features: world.features, today });
   F.push(...def.findings.filter((f) => f.severity !== "info"));
   F.push(...registry.checkDependencies(m));
@@ -105,15 +112,17 @@ export async function preflight(signed, ctx) {
   if (!actor) { add("ACTOR_UNKNOWN", "$.plan.actor", {}); return done(F, def); }
   if (!def.facts) return done(F, def);
 
-  const params = plan.bindings.params ?? {};
+  const params = plan.bindings.params ?? Object.create(null);
+  const grantsBound = plan.bindings.grants ?? Object.create(null);
+  const receiptsBound = plan.bindings.receipts ?? Object.create(null);
   // inputs: bound, typed, existing, owned where asked
   for (const [name, p] of Object.entries(m.params)) {
     const path = `$.plan.bindings.params.${name}`;
-    const v = params[name] ?? p.default;
+    const v = own(params, name) ?? p.default;
     if (v === undefined || v === null) { add("PARAM_UNBOUND", path, { param: name, type: p.type, ja: p.ja }); continue; }
     if (!valueFits(p, v)) { add("PARAM_TYPE", path, { param: name, value: v, type: p.type }); continue; }
-    if (placeKindsOf(p.type).length) checkPlace(world, v, p.type, path, add, { own: p.own ? actor : null });
-    if (params[name] === undefined && placeKindsOf(p.type).length && place(world, v) && place(world, v).owner !== actor) {
+    if (placeKindsOf(p.type).length) checkPlace(world, v, p.type, path, add, { owner: p.own ? actor : null });
+    if (own(params, name) === undefined && placeKindsOf(p.type).length && place(world, v) && place(world, v).owner !== actor) {
       add("PARAM_DEFAULT_FOREIGN", path, { param: name, place: v, owner: place(world, v).owner });
     }
   }
@@ -135,13 +144,19 @@ export async function preflight(signed, ctx) {
   }
   // B: connections to someone else's running facility, through the user's own grant
   const grantsUsed = {};
+  const runsByLot = new Map(); // lot → [runs needed, path, dep]; one lot may serve several dependencies
+  const runsByShop = new Map();
   for (const [dep, u] of Object.entries(m.uses)) {
     if (u.relation !== "connect") continue;
     const path = `$.plan.bindings.grants.${dep}`;
     const sourceId = resolve(u.target, m, params);
-    const lotId = plan.bindings.grants?.[dep];
-    if (typeof sourceId !== "string" || !place(world, sourceId)) {
-      if (!lotId) add("MISSING_GRANT", path, { dep, kind: u.grant, source: null, ja: GRANT_JA[u.grant], detail: "接続先の入力が未設定か、世界にない" });
+    const lotId = own(grantsBound, dep);
+    if (typeof sourceId !== "string") {
+      add("MISSING_GRANT", path, { dep, kind: u.grant, source: null, ja: GRANT_JA[u.grant], detail: "接続先の入力が未設定" });
+      continue;
+    }
+    if (!place(world, sourceId)) {
+      add("DEPENDENCY_UNAVAILABLE", `$.uses.${dep}`, { place: sourceId, detail: "no such place in the world" });
       continue;
     }
     const src = place(world, sourceId);
@@ -149,24 +164,31 @@ export async function preflight(signed, ctx) {
       add("DEPENDENCY_UNAVAILABLE", `$.uses.${dep}`, { place: sourceId, detail: src.live ? "no workshop left" : "closed or seized" });
       continue;
     }
-    if (!lotId) { add("MISSING_GRANT", path, { dep, kind: u.grant, source: sourceId, owner: src.owner, ja: GRANT_JA[u.grant] }); continue; }
+    if (typeof lotId !== "string") { add("MISSING_GRANT", path, { dep, kind: u.grant, source: sourceId, owner: src.owner, ja: GRANT_JA[u.grant] }); continue; }
     const problem = grantProblem(world, lotId, { actor, kind: u.grant, sourceId, today });
     if (problem) { add(problem.code, path, { dep, lot: lotId, ...problem }); continue; }
     grantsUsed[dep] = lotId;
     if (u.grant === "use") {
       const needed = runsNeeded(m, dep, params);
-      const lotLeft = useRunsLeft(world, lotId, today);
-      const shopLeft = workshopRunsLeft(world, sourceId, today);
-      if (needed > lotLeft) add("GRANT_INSUFFICIENT", path, { dep, lot: lotId, needs: needed, left: lotLeft, of: "the ticket's runs today" });
-      else if (needed > shopLeft) add("GRANT_INSUFFICIENT", path, { dep, lot: lotId, needs: needed, left: shopLeft, of: "the workshop's runs today, across every ticket" });
+      runsByLot.set(lotId, { needed: (runsByLot.get(lotId)?.needed ?? 0) + needed, path, dep });
+      runsByShop.set(sourceId, { needed: (runsByShop.get(sourceId)?.needed ?? 0) + needed, path, dep, lot: lotId });
     }
+  }
+  for (const [lotId, x] of runsByLot) {
+    const left = useRunsLeft(world, lotId, today);
+    if (x.needed > left) add("GRANT_INSUFFICIENT", x.path, { dep: x.dep, lot: lotId, needs: x.needed, left, of: "the ticket's runs today" });
+  }
+  for (const [shop, x] of runsByShop) {
+    const left = workshopRunsLeft(world, shop, today);
+    if (x.needed > left) add("GRANT_INSUFFICIENT", x.path, { dep: x.dep, lot: x.lot, needs: x.needed, left, of: "the workshop's runs today, across every ticket" });
   }
   // C: finished results of other definitions' runs
   const receiptsUsed = {};
+  const receiptIds = new Map();
   for (const [dep, u] of Object.entries(m.uses)) {
     if (u.relation !== "consume") continue;
     const path = `$.plan.bindings.receipts.${dep}`;
-    const claim = plan.bindings.receipts?.[dep];
+    const claim = own(receiptsBound, dep);
     const bad = ledger.check(claim, {
       producer: u.manifest,
       output: u.output,
@@ -174,11 +196,14 @@ export async function preflight(signed, ctx) {
       beneficiary: actor,
     });
     if (bad) { add("RECEIPT_INVALID", path, { dep, ...bad }); continue; }
-    const r = ledger.get(typeof claim === "string" ? claim : contentHash(claim.receipt ?? claim));
+    const rid = typeof claim === "string" ? claim : contentHash(claim.receipt ?? claim);
+    if (receiptIds.has(rid)) { add("RECEIPT_INVALID", path, { dep, reason: "duplicate-in-plan", id: rid, alsoFor: receiptIds.get(rid) }); continue; }
+    receiptIds.set(rid, dep);
+    const r = ledger.get(rid);
     receiptsUsed[dep] = r;
     for (const s of m.steps) {
       if (!afterRefs(s).some((a) => a.use === dep)) continue;
-      const spec = EFFECTS[s.effect];
+      const spec = own(EFFECTS, s.effect);
       const takeAt = spec?.takes ? resolve(s.args[spec.takes.place], m, params) : undefined;
       if (takeAt && r.at !== takeAt) add("RECEIPT_INVALID", path, { dep, reason: "place-mismatch", deliveredTo: r.at, takesFrom: takeAt });
     }
@@ -188,7 +213,7 @@ export async function preflight(signed, ctx) {
   const costs = { feeLamports: def.facts.perRun.feeLamports, tx: def.facts.perRun.tx, cu: def.facts.perRun.cu, materials: {} };
   dryRun(m, params, world, actor, add, signers, costs);
   for (const s of signers) if (s.signer === "wallet") add("WALLET_REQUIRED", `$.steps.${s.step}`, { to: s.to, owner: s.owner });
-  return done(F, def, { signers, costs, grantsUsed, actor });
+  return done(F, def, { signers, costs, grantsUsed, receiptIds: Object.fromEntries([...receiptIds].map(([id, dep]) => [dep, id])), actor });
 
   function done(findings, d = null, extra = {}) {
     return { ready: !hasErrors(findings), findings, def: d, ...extra };
@@ -205,14 +230,14 @@ function runsNeeded(m, dep, params) {
   return runs * m.limits.runsPerDay;
 }
 
-function checkPlace(world, id, type, path, add, { own }) {
+function checkPlace(world, id, type, path, add, { owner }) {
   const pl = place(world, id);
   if (!pl) { add("PLACE_UNKNOWN", path, { place: id }); return; }
   if (!placeKindsOf(type).includes(pl.kind) || (type === "workshop" && !(pl.workshops > 0))) {
     add("PARAM_TYPE", path, { place: id, expected: type, got: pl.kind });
     return;
   }
-  if (own && pl.owner !== own) add("NOT_OWNER", path, { place: id, owner: pl.owner });
+  if (owner && pl.owner !== owner) add("NOT_OWNER", path, { place: id, owner: pl.owner });
 }
 
 function stores(world, id, cache) {
@@ -225,7 +250,7 @@ function dryRun(m, params, world, actor, add, signers, costs) {
   // A consumed delivery is already in the stores of the place it names.
   const cache = new Map();
   for (const s of stepOrder(m)) {
-    const spec = EFFECTS[s.effect];
+    const spec = own(EFFECTS, s.effect);
     const path = `$.steps.${s.id}`;
     if (s.effect === "caravan.send") {
       const from = resolve(s.args.from, m, params), to = resolve(s.args.to, m, params);

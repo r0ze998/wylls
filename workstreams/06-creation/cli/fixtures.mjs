@@ -41,7 +41,7 @@ export const CASES = [
   { file: "ng/number-not-integer.json", manifest: edit(fs, (m) => { m.params.runs.default = 2.5; }), expect: ["NUMBER_NOT_INTEGER"], note: "小数" },
   { file: "ng/flow-place-mismatch.json", manifest: edit(fs, (m) => { step(m, "haul").args.to = { param: "receiver" }; }), expect: ["FLOW_PLACE_MISMATCH"], note: "材料を工房の倉でない場所へ運んでから、工房の倉で動かす" },
   // ---- rights
-  { file: "ng/grant-kind-mismatch.json", manifest: edit(fs, (m) => { m.uses.ws.grant = "share"; }), expect: ["CLAIM_MISMATCH", "GRANT_KIND_MISMATCH"], note: "工房に持ち分の札で接続しようとしている" },
+  { file: "ng/grant-kind-mismatch.json", manifest: edit(fs, (m) => { m.uses.ws.grant = "share"; }), expect: ["GRANT_KIND_MISMATCH"], note: "工房に持ち分の札で接続しようとしている" },
   // ---- validity
   { file: "ng/manifest-expired.json", today: 12, manifest: edit(fs, (m) => { m.validUntilDay = 11; }), expect: ["MANIFEST_EXPIRED"], note: "定義の利用期限切れ" },
   // ---- dependency cycle (steps)

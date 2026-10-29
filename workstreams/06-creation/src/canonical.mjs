@@ -16,7 +16,10 @@ export class CanonicalError extends Error {
   }
 }
 
-export function canonicalize(value, path = "$") {
+export const MAX_DEPTH = 32;
+
+export function canonicalize(value, path = "$", depth = 0) {
+  if (depth > MAX_DEPTH) throw new CanonicalError("nested too deep", path);
   if (value === null) return "null";
   switch (typeof value) {
     case "boolean":
@@ -27,13 +30,34 @@ export function canonicalize(value, path = "$") {
     case "string":
       return JSON.stringify(value);
     case "object": {
-      if (Array.isArray(value)) return `[${value.map((v, i) => canonicalize(v, `${path}[${i}]`)).join(",")}]`;
+      if (Array.isArray(value)) return `[${value.map((v, i) => canonicalize(v, `${path}[${i}]`, depth + 1)).join(",")}]`;
       const keys = Object.keys(value).filter((k) => value[k] !== undefined).sort();
-      return `{${keys.map((k) => `${JSON.stringify(k)}:${canonicalize(value[k], `${path}.${k}`)}`).join(",")}}`;
+      return `{${keys.map((k) => `${JSON.stringify(k)}:${canonicalize(value[k], `${path}.${k}`, depth + 1)}`).join(",")}}`;
     }
     default:
       throw new CanonicalError(`unsupported ${typeof value}`, path);
   }
+}
+
+/** The own property `k` of `o`, never one inherited from Object.prototype. */
+export function own(o, k) {
+  return o !== null && typeof o === "object" && typeof k === "string" && Object.hasOwn(o, k) ? o[k] : undefined;
+}
+
+/**
+ * A copy of a JSON value whose objects have no prototype, so a key such as
+ * "constructor" or "toString" reads as absent. Throws CanonicalError past
+ * MAX_DEPTH.
+ */
+export function plain(value, path = "$", depth = 0) {
+  if (depth > MAX_DEPTH) throw new CanonicalError("nested too deep", path);
+  if (Array.isArray(value)) return value.map((v, i) => plain(v, `${path}[${i}]`, depth + 1));
+  if (value && typeof value === "object") {
+    const out = Object.create(null);
+    for (const k of Object.keys(value)) out[k] = plain(value[k], `${path}.${k}`, depth + 1);
+    return out;
+  }
+  return value;
 }
 
 export function clone(value) {

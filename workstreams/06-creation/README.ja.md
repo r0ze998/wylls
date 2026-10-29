@@ -74,11 +74,12 @@ node workstreams/06-creation/proto/e2e.mjs [画像の保存先]
 
 | テスト | 結果 |
 |---|---|
-| `node --test workstreams/06-creation/test/*.test.mjs`（Node 22.22.0） | **57 通過・0 失敗** |
-| 同上（Node 20.20.0、今の CI の版） | **57 通過・0 失敗** |
+| `node --test workstreams/06-creation/test/*.test.mjs`（Node 22.22.0） | **66 通過・0 失敗** |
+| 同上（Node 20.20.0、今の CI の版） | **66 通過・0 失敗** |
 | `cli/fixtures.mjs --check` | 一致 |
 | `cli/demo.mjs` | 最後まで動く（テストにも含む） |
 | `proto/e2e.mjs`（ヘッドレス Chromium） | **16 項目すべて ok**、ページのエラーなし、幅 390px で横スクロールなし |
+| 独立レビュー（別のエージェント）の指摘 11 件 | すべて直し、9 件の再現を `test/review.test.mjs` に、状態署名の出し直しを `required` 4 に残した（[docs/03](docs/03-validator.ja.md) §4） |
 | repo の既存テスト（Rust・gateway・web） | **未実行**。⑥は既存のファイルを変えていない |
 | GitHub の CI | **未実行**（push していない） |
 

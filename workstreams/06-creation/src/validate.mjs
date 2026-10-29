@@ -14,14 +14,21 @@ import { CLAIM_KEYS, PLACE_ID_RE, RELATIONS, afterRefs, shapeIssues, stepOrder }
 import { isRange } from "./semver.mjs";
 import { isPubHex } from "./keys.mjs";
 import { GRANT_SOURCE, RESOURCES, TYPES, assignable, isType } from "./types.mjs";
-import { canonicalize } from "./canonical.mjs";
+import { CanonicalError, canonicalize, plain, own } from "./canonical.mjs";
 
+const STRUCTURAL = new Set(["SHAPE", "NUMBER_NOT_INTEGER", "TYPE_UNKNOWN", "TYPE_MISMATCH", "REF_UNKNOWN", "STEP_CYCLE", "GRANT_KIND_MISMATCH"]);
 const PROMISE_RE = /保証|必ず届|確実に|絶対|guarantee/i;
 
-export function validateDefinition(m, ctx = {}) {
+export function validateDefinition(input, ctx = {}) {
   const features = ctx.features ?? ["base"];
   const F = [];
   const add = (code, path, detail) => F.push(finding(code, path, detail));
+  let m;
+  try { m = plain(input); } catch (e) {
+    if (!(e instanceof CanonicalError)) throw e;
+    add("SHAPE", e.path, { detail: "nested too deep" });
+    return { findings: F, facts: null };
+  }
   for (const [code, path, detail] of shapeIssues(m)) add(code, path, detail);
   if (F.length) return { findings: F, facts: null };
   if (!isPubHex(m.author)) add("SHAPE", "$.author", { detail: "raw Ed25519 public key in hex" });
@@ -31,6 +38,9 @@ export function validateDefinition(m, ctx = {}) {
   const steps = checkSteps(m, features, add);
   const trigger = checkTrigger(m, add);
   checkOutputs(m, steps, add);
+  // Facts, flows, limits and claims are computed only on a well-formed, well-typed definition.
+  if (F.some((f) => STRUCTURAL.has(f.code))) return { findings: F, facts: null };
+  for (const s of steps) checkFlow(m, s, add);
   const facts = computeFacts(m, steps, trigger);
   checkLimits(m, steps, facts, add);
   if (m.validUntilDay != null && ctx.today != null && ctx.today > m.validUntilDay) {
@@ -49,8 +59,8 @@ function checkParams(m, add) {
   for (const [name, p] of Object.entries(m.params)) {
     const path = `$.params.${name}`;
     if (!p || typeof p !== "object" || typeof p.type !== "string") { add("SHAPE", path, { detail: "a param is { type, ja?, default?, min?, max?, own? }" }); continue; }
-    if (!isType(p.type) || p.type.startsWith("grant:") || p.type.startsWith("result:")) {
-      add("TYPE_UNKNOWN", `${path}.type`, { type: p.type, detail: "params are places, numbers or goods; rights and results come through `uses`" });
+    if (!isType(p.type) || p.type === "goods" || p.type.startsWith("grant:") || p.type.startsWith("result:")) {
+      add("TYPE_UNKNOWN", `${path}.type`, { type: p.type, detail: "params are places or numbers (goods are written { goods: { resource: amount } }); rights and results come through `uses`" });
       continue;
     }
     for (const k of Object.keys(p)) if (!["type", "ja", "default", "min", "max", "own"].includes(k)) add("SHAPE", `${path}.${k}`, { detail: "unknown field" });
@@ -65,8 +75,10 @@ function checkParams(m, add) {
 }
 
 export function valueFits(p, v) {
-  if (p.type === "int") return Number.isSafeInteger(v) && v >= (p.min ?? 0) && (p.max === undefined || v <= p.max);
-  if (TYPES[p.type]?.place) return typeof v === "string" && PLACE_ID_RE.test(v);
+  const min = Number.isSafeInteger(p.min) ? p.min : 0;
+  const max = Number.isSafeInteger(p.max) ? p.max : Infinity;
+  if (p.type === "int") return Number.isSafeInteger(v) && v >= min && v <= max;
+  if (isType(p.type) && TYPES[p.type].place) return typeof v === "string" && PLACE_ID_RE.test(v);
   if (p.type === "goods") return goodsValue(v);
   return false;
 }
@@ -82,14 +94,14 @@ function checkUses(m, add) {
   if (ids.length > CAPS.dependencies) add("LIMIT_EXCEEDED", "$.uses", { what: "dependencies", max: CAPS.dependencies, got: ids.length });
   for (const [id, u] of Object.entries(m.uses)) {
     const path = `$.uses.${id}`;
-    if (!u || typeof u !== "object" || !Object.hasOwn(RELATIONS, u.relation)) {
+    if (!u || typeof u !== "object" || own(RELATIONS, u.relation) === undefined) {
       add("SHAPE", `${path}.relation`, { detail: `one of ${Object.keys(RELATIONS).join(", ")}` });
       continue;
     }
     if (u.relation === "connect") {
       const allowed = ["relation", "target", "grant", "amount", "ja"];
       for (const k of Object.keys(u)) if (!allowed.includes(k)) add("SHAPE", `${path}.${k}`, { detail: "unknown field" });
-      if (!Object.hasOwn(GRANT_SOURCE, u.grant)) { add("SHAPE", `${path}.grant`, { detail: `one of ${Object.keys(GRANT_SOURCE).join(", ")}` }); continue; }
+      if (own(GRANT_SOURCE, u.grant) === undefined) { add("SHAPE", `${path}.grant`, { detail: `one of ${Object.keys(GRANT_SOURCE).join(", ")}` }); continue; }
       const t = typeOfExpr(u.target, m, `${path}.target`, add);
       if (t && !assignable(t, GRANT_SOURCE[u.grant])) add("GRANT_KIND_MISMATCH", `${path}.target`, { grant: u.grant, target: t, needs: GRANT_SOURCE[u.grant] });
       if (u.amount !== undefined) expectType(u.amount, "int", m, `${path}.amount`, add);
@@ -113,7 +125,8 @@ export function typeOfExpr(e, m, path, add) {
   if (Number.isSafeInteger(e)) return e >= 0 ? "int" : (add("TYPE_MISMATCH", path, { detail: "negative" }), null);
   if (!e || typeof e !== "object" || Array.isArray(e)) { add("TYPE_MISMATCH", path, { detail: "not an expression" }); return null; }
   if ("param" in e) {
-    const p = m.params[e.param];
+    if (typeof e.param !== "string") { add("TYPE_MISMATCH", path, { detail: "param names an input by its name" }); return null; }
+    const p = own(m.params, e.param);
     if (!p) { add("REF_UNKNOWN", path, { param: e.param }); return null; }
     if (e.times !== undefined) {
       if (p.type !== "int" || !(Number.isSafeInteger(e.times) && e.times >= 1)) { add("TYPE_MISMATCH", path, { detail: "times applies to an int param, by a positive integer" }); return null; }
@@ -122,20 +135,20 @@ export function typeOfExpr(e, m, path, add) {
     return p.type;
   }
   if ("use" in e) {
-    const u = m.uses[e.use];
+    const u = own(m.uses, e.use);
     if (!u) { add("REF_UNKNOWN", path, { use: e.use }); return null; }
     if (u.relation === "connect") return typeOfExpr(u.target, m, path, () => {});
     return u.type ?? null;
   }
   if ("step" in e) {
     const s = m.steps.find((x) => x.id === e.step);
-    const spec = s && EFFECTS[s.effect];
-    const o = spec?.outputs[e.out];
+    const spec = s && own(EFFECTS, s.effect);
+    const o = own(spec?.outputs, e.out);
     if (!o) { add("REF_UNKNOWN", path, { step: e.step, out: e.out }); return null; }
     return o.type;
   }
   if ("place" in e) {
-    if (!(typeof e.place === "string" && PLACE_ID_RE.test(e.place) && TYPES[e.type]?.place)) { add("TYPE_MISMATCH", path, { detail: "{ place: 'vault:…', type }" }); return null; }
+    if (!(typeof e.place === "string" && PLACE_ID_RE.test(e.place) && own(TYPES, e.type)?.place)) { add("TYPE_MISMATCH", path, { detail: "{ place: 'vault:…', type }" }); return null; }
     return e.type;
   }
   if ("goods" in e) {
@@ -162,7 +175,7 @@ function expectType(e, want, m, path, add) {
 export function maxOf(e, m) {
   if (Number.isSafeInteger(e)) return e;
   if (e && typeof e === "object" && "param" in e) {
-    const p = m.params[e.param];
+    const p = own(m.params, e.param);
     const max = p?.max ?? Infinity;
     return max * (e.times ?? 1);
   }
@@ -173,7 +186,7 @@ export function maxOf(e, m) {
 export function evalInt(e, m, values = {}) {
   if (Number.isSafeInteger(e)) return e;
   if (e && typeof e === "object" && "param" in e) {
-    const v = values[e.param] ?? m.params[e.param]?.default;
+    const v = own(values, e.param) ?? own(m.params, e.param)?.default;
     if (Number.isSafeInteger(v)) return v * (e.times ?? 1);
     return e.times && e.times !== 1 ? `${e.times}×${e.param}` : e.param;
   }
@@ -193,24 +206,24 @@ function checkSteps(m, features, add) {
     const path = `$.steps[${i}]`;
     if (ids.has(s.id)) add("SHAPE", `${path}.id`, { detail: "duplicate step id" });
     ids.add(s.id);
-    const spec = EFFECTS[s.effect];
+    const spec = own(EFFECTS, s.effect);
     if (!spec) {
-      const nc = NOT_COMPOSABLE[s.effect];
+      const nc = own(NOT_COMPOSABLE, s.effect);
       if (nc?.class === "forbidden") add("EFFECT_FORBIDDEN", `${path}.effect`, { effect: s.effect, reason: nc.ja, ref: nc.ref });
       else if (nc) add("EFFECT_UNKNOWN", `${path}.effect`, { effect: s.effect, extension: nc.ja, ref: nc.ref });
-      else if (SETUP[s.effect]) add("EFFECT_UNKNOWN", `${path}.effect`, { effect: s.effect, detail: "setup operation: done once outside the steps" });
+      else if (own(SETUP, s.effect)) add("EFFECT_UNKNOWN", `${path}.effect`, { effect: s.effect, detail: "setup operation: done once outside the steps" });
       else add("EFFECT_UNKNOWN", `${path}.effect`, { effect: s.effect });
       return;
     }
     if (!features.includes(spec.availability)) add("EFFECT_UNAVAILABLE", `${path}.effect`, { effect: s.effect, availability: spec.availability, features });
     for (const k of Object.keys(s)) if (!["id", "effect", "args", "after", "ja"].includes(k)) add("SHAPE", `${path}.${k}`, { detail: "unknown field" });
-    for (const k of Object.keys(s.args)) if (!spec.args[k]) add("SHAPE", `${path}.args.${k}`, { detail: `${s.effect} takes ${Object.keys(spec.args).join(", ")}` });
+    for (const k of Object.keys(s.args)) if (!own(spec.args, k)) add("SHAPE", `${path}.args.${k}`, { detail: `${s.effect} takes ${Object.keys(spec.args).join(", ")}` });
     for (const [name, a] of Object.entries(spec.args)) {
       const apath = `${path}.args.${name}`;
       const e = s.args[name];
       if (e === undefined) { add("TYPE_MISMATCH", apath, { detail: "missing argument", expected: a.type }); continue; }
       if (a.connect) {
-        const u = e && typeof e === "object" && "use" in e ? m.uses[e.use] : null;
+        const u = e && typeof e === "object" && "use" in e ? own(m.uses, e.use) : null;
         if (!u || u.relation !== "connect") { add("TYPE_MISMATCH", apath, { detail: `needs { use: <connect dependency with grant ${a.connect}> }` }); continue; }
         if (u.grant !== a.connect) { add("GRANT_KIND_MISMATCH", apath, { grant: u.grant, needs: a.connect }); continue; }
       }
@@ -220,15 +233,19 @@ function checkSteps(m, features, add) {
     for (const [j, ref] of afterRefs(s).entries()) {
       const apath = `${path}.after[${j}]`;
       if (ref.step !== undefined) { if (!m.steps.some((x) => x.id === ref.step)) add("REF_UNKNOWN", apath, { step: ref.step }); }
-      else if (ref.use !== undefined) { if (m.uses[ref.use]?.relation !== "consume") add("REF_UNKNOWN", apath, { detail: "after names a step or a consume dependency", use: ref.use }); }
+      else if (ref.use !== undefined) { if (own(m.uses, ref.use)?.relation !== "consume") add("REF_UNKNOWN", apath, { detail: "after names a step or a consume dependency", use: ref.use }); }
       else add("SHAPE", apath, { detail: "a step id or { use }" });
     }
     good.push(s);
   });
   if (m.steps.length === 0) add("SHAPE", "$.steps", { detail: "at least one step" });
+  for (const [id, u] of Object.entries(m.uses)) {
+    if (u?.relation === "consume" && !m.steps.some((s) => afterRefs(s).some((a) => a.use === id))) {
+      add("REF_UNKNOWN", `$.uses.${id}`, { detail: "no step waits for this result: name it in a step's after, where its goods are used" });
+    }
+  }
   const cycle = findStepCycle(m.steps);
   if (cycle) add("STEP_CYCLE", "$.steps", { cycle });
-  for (const s of good) checkFlow(m, s, add);
   return good;
 }
 
@@ -262,15 +279,15 @@ function findStepCycle(steps) {
 
 /** A step that waits for a delivery must take its materials where that delivery lands. */
 function checkFlow(m, s, add) {
-  const spec = EFFECTS[s.effect];
+  const spec = own(EFFECTS, s.effect);
   if (!spec.takes?.perRun) return; // a caravan may wait for any delivery; only materials must land where they are used
   const takeAt = s.args[spec.takes.place];
   if (takeAt === undefined) return;
   const delivered = {};
   for (const ref of afterRefs(s)) {
     const prev = ref.step !== undefined ? m.steps.find((x) => x.id === ref.step) : null;
-    if (!prev || !EFFECTS[prev.effect]) continue;
-    const out = Object.values(EFFECTS[prev.effect].outputs)[0];
+    if (!prev || !own(EFFECTS, prev.effect)) continue;
+    const out = Object.values(own(EFFECTS, prev.effect).outputs)[0];
     if (out.type !== "result:delivery") continue;
     if (exprKey(prev.args[out.at]) !== exprKey(takeAt)) {
       add("FLOW_PLACE_MISMATCH", `$.steps[${m.steps.indexOf(s)}].after`, { step: s.id, waitsFor: prev.id, deliveredTo: prev.args[out.at], takesFrom: takeAt });
@@ -292,7 +309,7 @@ function checkFlow(m, s, add) {
 
 function checkTrigger(m, add) {
   const declared = m.trigger ?? "manual";
-  const t = TRIGGERS[declared];
+  const t = own(TRIGGERS, declared);
   if (!t) { add("SHAPE", "$.trigger", { detail: `one of ${Object.keys(TRIGGERS).join(", ")}` }); return { declared, effective: "manual" }; }
   if (!t.available) add("TRIGGER_UNAVAILABLE", "$.trigger", { trigger: declared, detail: t.ja });
   return { declared, effective: t.available ? declared : "manual" };
@@ -309,7 +326,7 @@ function checkOutputs(m, steps, add) {
 // ---------------------------------------------------------------- facts
 
 function computeFacts(m, steps, trigger) {
-  const levels = [...new Set(steps.map((s) => EFFECTS[s.effect].availability))];
+  const levels = [...new Set(steps.map((s) => own(EFFECTS, s.effect).availability))];
   const grants = Object.entries(m.uses).filter(([, u]) => u.relation === "connect").map(([dep, u]) => ({ dep, kind: u.grant, target: u.target, amount: u.amount ?? null }));
   const consumes = Object.entries(m.uses).filter(([, u]) => u.relation === "consume").map(([dep, u]) => ({ dep, manifest: u.manifest, output: u.output, type: u.type }));
   let tx = 0, cu = 0, feeLamports = 0, caravans = 0;
@@ -343,7 +360,7 @@ function computeFacts(m, steps, trigger) {
     if (Object.keys(short).length) inputs.push({ at, goods: short });
   };
   for (const s of stepOrder({ steps })) {
-    const spec = EFFECTS[s.effect];
+    const spec = own(EFFECTS, s.effect);
     tx += spec.tx; cu += spec.cu; feeLamports += spec.feeLamports;
     if (spec.feeLamports > 0) caravans += 1;
     for (const f of spec.failures) failures.push({ step: s.id, text: f });
@@ -352,8 +369,8 @@ function computeFacts(m, steps, trigger) {
     if (spec.makes?.perRun) bring(s.args[spec.makes.place], spec.makes.perRun, s.args.runs);
     if (spec.walletUnlessOwn) {
       const to = s.args[spec.walletUnlessOwn];
-      const own = to && typeof to === "object" && "param" in to && m.params[to.param]?.own === true;
-      signerSteps.push({ step: s.id, to, signer: own ? "session" : "wallet-unless-own" });
+      const isOwn = to && typeof to === "object" && "param" in to && own(m.params, to.param)?.own === true;
+      signerSteps.push({ step: s.id, to, signer: isOwn ? "session" : "wallet-unless-own" });
     }
   }
   for (const g of grants) failures.push({ dep: g.dep, text: "接続先が奪われる・閉じると、札は無効になり止まる" });
@@ -362,8 +379,8 @@ function computeFacts(m, steps, trigger) {
   const deliversTo = [];
   for (const o of Object.values(m.outputs)) {
     const s = m.steps.find((x) => x.id === o.from?.step);
-    const spec = s && EFFECTS[s.effect];
-    const out = spec?.outputs[o.from.out];
+    const spec = s && own(EFFECTS, s.effect);
+    const out = own(spec?.outputs, o.from.out);
     if (!out) continue;
     if (out.goods === "cargo") addGoods(outputsPerRun, s.args.cargo?.goods, m, 1);
     else if (out.perRun) addGoods(outputsPerRun, out.perRun, m, s.args.runs);
@@ -416,12 +433,12 @@ function addGoods(acc, goods, m, multiplier) {
 function placeRules(m, steps) {
   const rules = [];
   for (const s of steps) {
-    for (const [name, a] of Object.entries(EFFECTS[s.effect].args)) {
+    for (const [name, a] of Object.entries(own(EFFECTS, s.effect).args)) {
       const e = s.args[name];
       if (a.own) rules.push({ step: s.id, arg: name, rule: "own", expr: e });
       if (a.unshared) rules.push({ step: s.id, arg: name, rule: "unshared", expr: e });
       if (a.sameProvinceAs) rules.push({ step: s.id, arg: name, rule: "sameProvince", expr: e, as: s.args[a.sameProvinceAs] });
-      if (TYPES[a.type]?.place && !a.connect) rules.push({ step: s.id, arg: name, rule: "type", expr: e, type: a.type });
+      if (own(TYPES, a.type)?.place && !a.connect) rules.push({ step: s.id, arg: name, rule: "type", expr: e, type: a.type });
     }
   }
   for (const [name, p] of Object.entries(m.params)) if (p.own) rules.push({ param: name, rule: "own", expr: { param: name } });
@@ -440,15 +457,21 @@ function checkLimits(m, steps, facts, add) {
   if (facts.perRun.caravans > CAPS.caravansPerRun) over("caravansPerRun", facts.perRun.caravans, CAPS.caravansPerRun, "$.steps");
   if (facts.perDay.tx > CAPS.txPerDay) over("txPerDay", facts.perDay.tx, CAPS.txPerDay);
   if (facts.perDay.cu > CAPS.cuPerDay) over("cuPerDay", facts.perDay.cu, CAPS.cuPerDay);
+  // Workshop runs per day are summed over every run step (one holding allows copies × 24 at most).
+  let runs = 0;
   steps.forEach((s) => {
     const i = m.steps.indexOf(s);
     if (s.effect === "workshop.run") {
       const max = maxOf(s.args.runs, m);
       if (max === Infinity) over("workshop runs (unbounded: give the param a max)", "∞", CAPS.runsPerDay, `$.steps[${i}].args.runs`);
-      else if (max * rpd > CAPS.runsPerDay) over("workshop runs per day", max * rpd, CAPS.runsPerDay, `$.steps[${i}].args.runs`);
+      else runs += max;
     }
     if (s.effect === "receipt.withdraw" && maxOf(s.args.amount, m) === Infinity) over("receipt amount (unbounded: give the param a max)", "∞", "max", `$.steps[${i}].args.amount`);
+    for (const [r, x] of Object.entries(s.args.cargo?.goods ?? {})) {
+      if (maxOf(x, m) === Infinity) over(`cargo ${r} (unbounded: give the param a max)`, "∞", "max", `$.steps[${i}].args.cargo.goods.${r}`);
+    }
   });
+  if (runs * rpd > CAPS.runsPerDay) over("workshop runs per day", runs * rpd, CAPS.runsPerDay, "$.steps");
   for (const [id, u] of Object.entries(m.uses)) {
     if (u.relation === "connect" && u.amount !== undefined && maxOf(u.amount, m) === Infinity) over("grant amount (unbounded: give the param a max)", "∞", "max", `$.uses.${id}.amount`);
   }

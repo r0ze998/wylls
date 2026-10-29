@@ -9,7 +9,7 @@
  * grants, places and signature to run anything (plan.mjs).
  */
 
-import { clone, contentHash } from "./canonical.mjs";
+import { CanonicalError, clone, contentHash, own, plain } from "./canonical.mjs";
 import { finding, hasErrors } from "./codes.mjs";
 import { DOMAIN, signHash, verifyHash } from "./keys.mjs";
 import { keyOf } from "./manifest.mjs";
@@ -30,19 +30,24 @@ export async function verifyEnvelope(env) {
   const F = [];
   if (!env?.manifest) return [finding("SHAPE", "$", { detail: "an envelope is { manifest, hash, signature }" })];
   let hash;
-  try { hash = contentHash(env.manifest); } catch (e) { return [finding("NUMBER_NOT_INTEGER", e.path ?? "$", {})]; }
+  try { hash = contentHash(env.manifest); } catch (e) { return [finding(/deep/.test(e.message) ? "SHAPE" : "NUMBER_NOT_INTEGER", e.path ?? "$", {})]; }
   if (env.hash !== hash) F.push(finding("HASH_MISMATCH", "$.hash", { claimed: env.hash, actual: hash }));
   if (!env.signature) F.push(finding("SIGNATURE_MISSING", "$.signature", {}));
   else if (!(await verifyHash(env.manifest.author, DOMAIN.publish, hash, env.signature))) F.push(finding("SIGNATURE_INVALID", "$.signature", {}));
   return F;
 }
 
-export function statusMessage(ref, status, day) {
-  return contentHash({ author: ref.author, name: ref.name, status, day });
+/**
+ * A status change is signed over the entry's next sequence number (the
+ * length of its status log), so an old signature cannot be replayed to
+ * undo a later change.
+ */
+export function statusMessage(ref, status, seq) {
+  return contentHash({ author: ref.author, name: ref.name, status, seq });
 }
 
-export async function signStatus(ref, status, day, authorKey) {
-  return signHash(authorKey, DOMAIN.status, statusMessage(ref, status, day));
+export async function signStatus(ref, status, seq, authorKey) {
+  return signHash(authorKey, DOMAIN.status, statusMessage(ref, status, seq));
 }
 
 export class Registry {
@@ -55,11 +60,11 @@ export class Registry {
   }
 
   entry(author, name) {
-    return this.data.entries[keyOf({ author, name })] ?? null;
+    return own(this.data.entries, keyOf({ author, name })) ?? null;
   }
 
   getVersion(ref) {
-    return this.entry(ref.author, ref.name)?.versions[ref.version] ?? null;
+    return own(this.entry(ref?.author, ref?.name)?.versions, ref?.version) ?? null;
   }
 
   /** Publish a signed manifest. Refused with the findings if any error. */
@@ -97,15 +102,23 @@ export class Registry {
   }
 
   /** Suspend, withdraw or relist: only with the author's signature. */
-  async setStatus(ref, status, day, signature) {
+  /** The sequence number the next status change must be signed over. */
+  statusSeq(ref) {
+    return this.entry(ref.author, ref.name)?.statusLog.length ?? 0;
+  }
+
+  async setStatus(ref, status, seq, signature, day = null) {
     const e = this.entry(ref.author, ref.name);
     if (!e) return { ok: false, findings: [finding("DEPENDENCY_UNKNOWN", "$", { ref })] };
     if (!Object.hasOwn(STATUSES, status)) return { ok: false, findings: [finding("SHAPE", "$.status", { status })] };
-    if (!(await verifyHash(e.author, DOMAIN.status, statusMessage(ref, status, day), signature))) {
+    if (seq !== e.statusLog.length) {
+      return { ok: false, findings: [finding("NOT_AUTHOR", "$", { detail: "stale or replayed status signature", seq, expected: e.statusLog.length })] };
+    }
+    if (!(await verifyHash(e.author, DOMAIN.status, statusMessage(ref, status, seq), signature))) {
       return { ok: false, findings: [finding("NOT_AUTHOR", "$", { detail: "status changes are signed by the author" })] };
     }
     e.status = status;
-    e.statusLog.push({ status, day });
+    e.statusLog.push({ status, day, seq });
     return { ok: true, findings: [] };
   }
 
@@ -143,8 +156,14 @@ export class Registry {
   }
 
   /** Consume dependencies: present, listed, version, output type, no cycle. */
-  checkDependencies(m) {
+  checkDependencies(input) {
     const F = [];
+    let m;
+    try { m = plain(input); } catch (e) {
+      if (e instanceof CanonicalError) return [finding("SHAPE", e.path, { detail: "nested too deep" })];
+      throw e;
+    }
+    if (!m || typeof m.uses !== "object" || m.uses === null) return F;
     for (const [id, u] of Object.entries(m.uses)) {
       if (u.relation !== "consume" || !u.manifest) continue;
       const path = `$.uses.${id}`;
@@ -153,7 +172,7 @@ export class Registry {
       if (r.finding) F.push(finding(r.finding, `${path}.manifest`, { ref: u.manifest, available: r.available, detail: r.detail }));
       if (!r.env) continue;
       const dep = r.env.manifest;
-      const out = dep.outputs[u.output];
+      const out = own(dep.outputs, u.output);
       if (!out) { F.push(finding("REF_UNKNOWN", `${path}.output`, { output: u.output, has: Object.keys(dep.outputs) })); continue; }
       const t = typeOfExpr(out.from, dep, "", () => {});
       if (t !== u.type) F.push(finding("TYPE_MISMATCH", `${path}.type`, { expected: u.type, got: t, of: `${dep.name}.${u.output}` }));

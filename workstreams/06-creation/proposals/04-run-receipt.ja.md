@@ -12,13 +12,13 @@ C（確定した成果を次の機能で使う）は、記録について次の�
 | 確定したか | `final` | チェーンの確定と、検証器の判定の終わり |
 | 結果は成功か | `outcome`（`delivered`/`made`/`raided`/`failed`） | 精算の状態（届いた・失われた・襲われた） |
 | どの定義のどの版の、どの計画から出たか | `manifest {author,name,version,hash}`・`planHash` | 実行（Run）が定義のハッシュと計画のハッシュを記録に残す |
-| どの出力か | `output` | 手順と出力の名前 |
+| どの出力か | `outputs`（作った定義が公開した出力の名前）・`port`（手順の出口） | 定義の `outputs` のキー |
 | 受け取り手・場所・物 | `beneficiary`・`at`・`goods` | 荷の届け先の持ち主、届いた場所と量 |
 | 一度使ったか | `consumed[id]` | 消費の記録（同じ成果を二度使わせない） |
 
 ## 「偽の完了結果」で⑥が見分けるもの
 
-`test/required.test.mjs` 8 が確かめる理由：`unknown`（台帳にない）、`tampered`（本文が id のハッシュと合わない）、`not-in-ledger`（本文を差し出したが台帳にない）、`not-final`、`failed-run`（襲われた・失敗した）、`wrong-producer`、`wrong-version`、`wrong-output`、`not-beneficiary`、`already-consumed`、`place-mismatch`（届いた場所が、使う手順の倉と違う）、`unbound`。④の Receipt がこれらを区別できれば、⑥はこの表をそのまま使えます。
+`test/required.test.mjs` 8 が確かめる理由：`unknown`（台帳にない）、`tampered`（本文が id のハッシュと合わない）、`not-in-ledger`（本文を差し出したが台帳にない）、`not-final`、`failed-run`（襲われた・失敗した）、`wrong-producer`、`wrong-version`、`wrong-output`、`not-beneficiary`、`already-consumed`、`place-mismatch`（届いた場所が、使う手順の倉と違う）、`duplicate-in-plan`（一つの計画で同じ記録を二度使う）、`unbound`。④の Receipt がこれらを区別できれば、⑥はこの表をそのまま使えます。
 
 ## ④に決めてほしいこと
 

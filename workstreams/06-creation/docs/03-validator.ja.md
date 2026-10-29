@@ -11,7 +11,7 @@
 | **定義** | 作る人が書くたび（画面は入力ごと）／公開時 | 定義だけ＋効果の表＋世界の規則の水準 | `SHAPE` `NUMBER_NOT_INTEGER` `TYPE_*` `REF_UNKNOWN` `EFFECT_*` `STEP_CYCLE` `GRANT_KIND_MISMATCH` `LIMIT_EXCEEDED` `FLOW_*` `CLAIM_*` `NOTE_PROMISE` `MANIFEST_EXPIRED` `TRIGGER_UNAVAILABLE` |
 | **公開（一覧）** | 公開時。依存は利用者の確認でも再び見る | 署名つき封筒＋一覧 | `HASH_MISMATCH` `SIGNATURE_*` `VERSION_*` `NOT_AUTHOR` `DEPENDENCY_UNKNOWN/WITHDRAWN/SUSPENDED/VERSION/CYCLE` `DERIVED_FROM_UNKNOWN` |
 | **実行前の確認** | 利用者が計画を準備したあと、実行の直前 | 利用者の署名つき計画＋一覧＋世界のスナップショット＋台帳 | `PLAN_SIGNATURE_INVALID` `ENTRY_NOT_LISTED` `ACTOR_UNKNOWN` `PARAM_*` `PLACE_*` `NOT_OWNER` `MISSING_GRANT` `GRANT_*` `DEPENDENCY_UNAVAILABLE` `CAPACITY` `STOCK_SHORT` `WALLET_REQUIRED` |
-| **完了記録** | C の成果を使う計画の確認時 | 記録の id、または誰かが差し出した記録の本文 | `RECEIPT_INVALID`（理由：`unbound` `unknown` `tampered` `not-in-ledger` `not-final` `failed-run` `wrong-producer` `wrong-version` `wrong-output` `not-beneficiary` `already-consumed` `place-mismatch`） |
+| **完了記録** | C の成果を使う計画の確認時 | 記録の id、または誰かが差し出した記録の本文 | `RECEIPT_INVALID`（理由：`unbound` `duplicate-in-plan` `unknown` `tampered` `not-in-ledger` `not-final` `failed-run` `wrong-producer` `wrong-version` `wrong-output` `not-beneficiary` `already-consumed` `place-mismatch`） |
 
 重さ：`error` は止める。`warning` は止めないが画面に出す（在庫は実行までに変わりうる、など）。`info` は知らせるだけ（ウォレットの署名が要る、など）。
 
@@ -46,9 +46,26 @@
 | 公開者の説明と機械条件の不一致 | `required` 9（量・署名・合図の主張、保証の言葉、紙と説明の分離） | `ng/claim-*.json` `ng/note-promise.json` |
 | コピー後の権限未設定 | `required` 10（写らないもの・署名なしの公開・入力と札が未設定・Aの束は使えない・自分の束で通る） | |
 
-ほかに：作者と利用者の分離（`roles`）、A/B/C/D の区別（`abcd`）、版と既存利用者（`upgrade`）、SHA-256 と正規化・総当たり・CLI デモ（`core`）、fixture の再生成の一致（`fixtures`）。
+ほかに：独立レビューで見つかった欠陥の再発防止（`review`、9件。直す前の commit ではすべて失敗することを確認）、作者と利用者の分離（`roles`）、A/B/C/D の区別（`abcd`）、版と既存利用者（`upgrade`）、SHA-256 と正規化・総当たり・CLI デモ（`core`）、fixture の再生成の一致（`fixtures`）。
 
-## 4. 検証器が確かめないこと（限界）
+## 4. 独立レビューで直したこと
+
+最初の版（commit `4f3a6921`）を、別のエージェントにコードだけを渡して読ませ、再現つきで指摘を受けた。すべて直し、`test/review.test.mjs` に再現を残した。
+
+| 指摘 | 直し方 |
+|---|---|
+| 接続先が世界にない場所でも、何かの束を書けば確認を通った | 接続先がなければ `DEPENDENCY_UNAVAILABLE` |
+| 同じ束を二つの接続に使うと、回数を二重に使えた | 束ごと・工房ごとに必要回数を合計して比べる |
+| 同じ完了記録を二つの依存に使えた | `RECEIPT_INVALID duplicate-in-plan`。模擬実行も使用済みの印に失敗したら止まる |
+| 作者の古い状態変更の署名を出し直すと、後の停止を取り消せた | 署名に状態の履歴の長さ（`seq`）を入れる |
+| `constructor` などの名前が効果・出力・合図・版として読めて、例外になった | 表とデータを、プロトタイプを持たない形で読む |
+| 深い入れ子・小数で例外になった | 深さの上限（32）で `SHAPE`、小数は署名の確認で止まる |
+| 記録の出力の名前が、公開した出力の名前でなく手順の出口の名前だった | 記録に公開した出力の名前を入れて照合する |
+| 量の `int` に上限がなくても、荷の量なら通った／工房の回数を手順ごとにしか数えていなかった | 荷の量も検査、工房の回数は合計 |
+| 待つ手順のない C の依存は、場所の確認なしに使われた | 待つ手順を必須にした |
+| 既定値が null の入力の追加が minor 扱いだった | major |
+
+## 5. 検証器が確かめないこと（限界）
 
 - **履行。** 荷車が襲われない、工房の持ち主が工房を壊さない、といったことは保証しない。検査は「今のスナップショットで、規則上、始められるか」まで。
 - **作者の自由文。** `note` の内容は照合しない（保証の言葉に警告を出すだけ）。

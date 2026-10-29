@@ -9,10 +9,10 @@
  * the grant checks would be ②'s Grant verifier (see proposals/).
  */
 
-import { clone } from "./canonical.mjs";
+import { clone, own } from "./canonical.mjs";
 
 export function place(world, id) {
-  return world.places?.[id] ?? null;
+  return own(world.places, id) ?? null;
 }
 
 export function citizenOf(world, pub) {
@@ -28,9 +28,9 @@ export function bindIdentities(world, pubs) {
 
 /** The kind of grant a lot gives, by S2's issue kinds (1 share, 2 receipt, 3 use). */
 export function lotView(world, lotId) {
-  const lot = world.lots?.[lotId];
+  const lot = own(world.lots, lotId);
   if (!lot) return null;
-  const issue = world.issues?.[lot.issue];
+  const issue = own(world.issues, lot.issue);
   return issue ? { id: lotId, ...lot, issue: { id: lot.issue, ...issue } } : null;
 }
 

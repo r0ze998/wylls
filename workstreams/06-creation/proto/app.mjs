@@ -272,8 +272,10 @@ function renderEntry() {
   for (const b of box.querySelectorAll("[data-status]")) {
     b.addEventListener("click", async () => {
       const status = b.dataset.status;
-      const sig = await signStatus({ author: e.author, name: e.name }, status, world.today, myKey(`${e.name} を「${STATUSES[status]}」にする`));
-      const r = await registry.setStatus({ author: e.author, name: e.name }, status, world.today, sig);
+      const ref = { author: e.author, name: e.name };
+      const seq = registry.statusSeq(ref);
+      const sig = await signStatus(ref, status, seq, myKey(`${e.name} を「${STATUSES[status]}」にする`));
+      const r = await registry.setStatus(ref, status, seq, sig, world.today);
       save();
       $("entry-status").innerHTML = r.ok ? findingHtml({ severity: "ok", code: "STATUS", path: "", message: `${STATUSES[status]}にした` }) : r.findings.map(findingHtml).join("");
       if (r.ok) renderList();

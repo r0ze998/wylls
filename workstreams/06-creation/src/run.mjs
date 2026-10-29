@@ -10,7 +10,7 @@
  * stops the run and is recorded ("失敗は止まるだけ").
  */
 
-import { clone, contentHash } from "./canonical.mjs";
+import { clone, own } from "./canonical.mjs";
 import { EFFECTS } from "./catalog.mjs";
 import { place } from "./world.mjs";
 import { preflight, resolve, stepOrder } from "./plan.mjs";
@@ -27,23 +27,25 @@ export async function simulateRun(signed, ctx, { raidAt = null, seq = 1 } = {}) 
   const log = [];
   const receipts = [];
   for (const [dep, u] of Object.entries(m.uses)) {
-    if (u.relation === "consume") ctx.ledger.consume(contentHashOf(plan.bindings.receipts[dep]), signed.hash);
+    if (u.relation !== "consume") continue;
+    // preflight checked each receipt once; a race with another run is caught here
+    if (!ctx.ledger.consume(check.receiptIds[dep], signed.hash)) return { ok: false, mock: true, preflight: check, receipts: [], log: [`${dep}: 完了記録はもう使われていた`] };
   }
   // A delivery's result belongs to whoever owns the place it reached; a run's to the plan's user.
   const base = { manifest: plan.manifest, planHash: signed.hash, runSeq: seq, actor, beneficiary: actor, day: today };
   for (const s of stepOrder(m)) {
-    const spec = EFFECTS[s.effect];
+    const spec = own(EFFECTS, s.effect);
     const outName = Object.keys(spec.outputs)[0];
     if (s.effect === "caravan.send") {
       const from = resolve(s.args.from, m, params), to = resolve(s.args.to, m, params);
       const cargo = Object.fromEntries(Object.entries(s.args.cargo.goods).map(([r, x]) => [r, resolve(x, m, params)]));
       if (!debit(world, from, cargo)) return stop(s, "送り元の在庫が足りない");
       if (raidAt === s.id) {
-        receipts.push(ctx.ledger.record({ ...base, beneficiary: place(world, to)?.owner ?? null, step: s.id, output: outName, outcome: "raided", final: true, at: to, goods: cargo }));
+        receipts.push(ctx.ledger.record({ ...base, beneficiary: place(world, to)?.owner ?? null, step: s.id, port: outName, outputs: published(s.id, outName), outcome: "raided", final: true, at: to, goods: cargo }));
         return stop(s, "途中で襲われた（模擬）");
       }
       credit(world, to, cargo);
-      receipts.push(ctx.ledger.record({ ...base, beneficiary: place(world, to)?.owner ?? null, step: s.id, output: outName, outcome: "delivered", final: true, at: to, goods: cargo }));
+      receipts.push(ctx.ledger.record({ ...base, beneficiary: place(world, to)?.owner ?? null, step: s.id, port: outName, outputs: published(s.id, outName), outcome: "delivered", final: true, at: to, goods: cargo }));
       log.push(`${s.id}: 荷車 ${from} → ${to} ${fmt(cargo)}（模擬：すぐ着いた）`);
     } else if (s.effect === "workshop.run") {
       const vault = resolve(s.args.vault, m, params), runs = resolve(s.args.runs, m, params);
@@ -58,23 +60,24 @@ export async function simulateRun(signed, ctx, { raidAt = null, seq = 1 } = {}) 
       const h = place(world, shop);
       h.useRuns = (h.useDay === today ? h.useRuns ?? 0 : 0) + runs;
       h.useDay = today;
-      receipts.push(ctx.ledger.record({ ...base, step: s.id, output: outName, outcome: "made", final: true, at: vault, goods: made }));
+      receipts.push(ctx.ledger.record({ ...base, step: s.id, port: outName, outputs: published(s.id, outName), outcome: "made", final: true, at: vault, goods: made }));
       log.push(`${s.id}: ${shop} の工房を ${runs} 回（${vault} の中で ${fmt(need)} → ${fmt(made)}、模擬）`);
     }
   }
   return { ok: true, mock: true, world, receipts, log, preflight: check };
 
+  /** The manifest's output names a step's port is published under (C consumes these). */
+  function published(stepId, port) {
+    return Object.entries(m.outputs).filter(([, o]) => o.from?.step === stepId && o.from?.out === port).map(([name]) => name).sort();
+  }
+
   function stop(s, why) {
-    receipts.push(ctx.ledger.record({ ...base, step: s.id, output: Object.keys(EFFECTS[s.effect].outputs)[0], outcome: "failed", final: true, reason: why }));
+    receipts.push(ctx.ledger.record({ ...base, step: s.id, port: Object.keys(own(EFFECTS, s.effect).outputs)[0], outputs: published(s.id, Object.keys(own(EFFECTS, s.effect).outputs)[0]), outcome: "failed", final: true, reason: why }));
     log.push(`${s.id}: 止まった — ${why}`);
     return { ok: false, mock: true, world, receipts, log, stoppedAt: s.id, preflight: check };
   }
 }
 
-function contentHashOf(claim) {
-  if (typeof claim === "string") return claim;
-  return contentHash(claim.receipt ?? claim);
-}
 
 function scale(per, k) {
   return Object.fromEntries(Object.entries(per).map(([r, n]) => [r, n * k]));

@@ -68,7 +68,6 @@
   {
     "file": "ng/grant-kind-mismatch.json",
     "expect": [
-      "CLAIM_MISMATCH",
       "GRANT_KIND_MISMATCH"
     ],
     "note": "工房に持ち分の札で接続しようとしている"

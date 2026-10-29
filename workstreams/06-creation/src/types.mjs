@@ -7,9 +7,13 @@
  * run (④'s Receipt once it exists).
  */
 
+function table(obj) {
+  return Object.freeze(Object.assign(Object.create(null), obj));
+}
+
 export const RESOURCES = Object.freeze(["food", "wood", "stone", "ore", "arms", "gold", "science", "influence"]);
 
-export const TYPES = Object.freeze({
+export const TYPES = table({
   int: { ja: "数" },
   vault: { ja: "倉", place: true },
   village: { ja: "村", place: true },
@@ -23,14 +27,15 @@ export const TYPES = Object.freeze({
   "result:run": { ja: "確定した生産（工房を動かした記録）" },
 });
 
-const PARENT = Object.freeze({ workshop: "village", village: "place", vault: "place" });
+const PARENT = table({ workshop: "village", village: "place", vault: "place" });
 
 export function isType(t) {
-  return Object.hasOwn(TYPES, t);
+  return typeof t === "string" && Object.hasOwn(TYPES, t);
 }
 
 /** Whether a value of type `actual` may stand where `expected` is asked. */
 export function assignable(actual, expected) {
+  if (typeof actual !== "string") return false;
   for (let t = actual; t; t = PARENT[t]) if (t === expected) return true;
   return false;
 }
@@ -47,4 +52,4 @@ export function placeKindsOf(type) {
 }
 
 /** The grant kind a connect dependency's target type can issue. */
-export const GRANT_SOURCE = Object.freeze({ use: "workshop", share: "vault", receipt: "vault" });
+export const GRANT_SOURCE = table({ use: "workshop", share: "vault", receipt: "vault" });

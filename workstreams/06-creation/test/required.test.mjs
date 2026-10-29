@@ -112,20 +112,30 @@ test("4 削除・停止された依存先: closed or captured facility, suspende
   w.places["village:W"].workshops = 0;
   assert.ok(codes((await preflight(plan, { ...s, world: w })).findings).includes("DEPENDENCY_UNAVAILABLE"));
   // A suspends front-supply: no plan on it passes preflight
-  assert.equal((await s.registry.setStatus(s.refs.A, "suspended", 12, await signStatus(s.refs.A, "suspended", 12, s.keys.A))).ok, true);
+  assert.equal((await s.registry.setStatus(s.refs.A, "suspended", s.registry.statusSeq(s.refs.A), await signStatus(s.refs.A, "suspended", s.registry.statusSeq(s.refs.A), s.keys.A))).ok, true);
   assert.ok(codes((await preflight(plan, s)).findings).includes("ENTRY_NOT_LISTED"));
   // only the author can change the status
-  const byB = await s.registry.setStatus(s.refs.A, "listed", 12, await signStatus(s.refs.A, "listed", 12, s.keys.B));
+  const byB = await s.registry.setStatus(s.refs.A, "listed", s.registry.statusSeq(s.refs.A), await signStatus(s.refs.A, "listed", s.registry.statusSeq(s.refs.A), s.keys.B));
   assert.deepEqual(codes(byB.findings), ["NOT_AUTHOR"]);
+  // an old signature of the author cannot be replayed to undo a later change
+  const ref = s.refs.A;
+  const seq = s.registry.statusSeq(ref);
+  const relist = await signStatus(ref, "listed", seq, s.keys.A);
+  assert.equal((await s.registry.setStatus(ref, "listed", seq, relist)).ok, true);
+  const again = s.registry.statusSeq(ref);
+  assert.equal((await s.registry.setStatus(ref, "suspended", again, await signStatus(ref, "suspended", again, s.keys.A))).ok, true);
+  const replay = await s.registry.setStatus(ref, "listed", seq, relist);
+  assert.deepEqual(codes(replay.findings), ["NOT_AUTHOR"]);
+  assert.equal(s.registry.entry(ref.author, ref.name).status, "suspended");
 });
 
 test("4 削除・停止された依存先: a consume dependency suspended or withdrawn", async () => {
   const s = await riverWithDelivery();
   const plan = await planFor(s, "B", s.refs.river, s.riverBind);
   assert.equal((await preflight(plan, s)).ready, true);
-  await s.registry.setStatus(s.refs.M, "suspended", 12, await signStatus(s.refs.M, "suspended", 12, s.keys.M));
+  await s.registry.setStatus(s.refs.M, "suspended", s.registry.statusSeq(s.refs.M), await signStatus(s.refs.M, "suspended", s.registry.statusSeq(s.refs.M), s.keys.M));
   assert.ok(codes((await preflight(plan, s)).findings).includes("DEPENDENCY_SUSPENDED"));
-  await s.registry.setStatus(s.refs.M, "withdrawn", 12, await signStatus(s.refs.M, "withdrawn", 12, s.keys.M));
+  await s.registry.setStatus(s.refs.M, "withdrawn", s.registry.statusSeq(s.refs.M), await signStatus(s.refs.M, "withdrawn", s.registry.statusSeq(s.refs.M), s.keys.M));
   assert.ok(codes((await preflight(plan, s)).findings).includes("DEPENDENCY_WITHDRAWN"));
   // and a new definition cannot be published on top of it
   const again = editForkForRiver(frontSupply(s.pubs.B, { name: "river-two" }), { mineRef: { author: s.pubs.M, name: "mine-delivery", range: "^1.0.0" } });
@@ -224,7 +234,7 @@ test("8 偽の完了結果: unknown, edited, unfinished, failed, foreign, someon
   const forged = { ...s.delivery.receipt, goods: { ore: 240, wood: 120 } };
   assert.equal(await check(forged), "not-in-ledger");
   // records the ledger holds but that are no finished delivery to B
-  const base = { manifest: s.delivery.receipt.manifest, planHash: "p", runSeq: 9, actor: "M", step: "ship", output: "delivered", at: "vault:B-work", goods: { ore: 24, wood: 12 }, day: 12 };
+  const base = { manifest: s.delivery.receipt.manifest, planHash: "p", runSeq: 9, actor: "M", step: "ship", port: "delivered", outputs: ["delivered"], at: "vault:B-work", goods: { ore: 24, wood: 12 }, day: 12 };
   assert.equal(await check(s.ledger.record({ ...base, outcome: "delivered", final: false, beneficiary: "B" }).id), "not-final");
   assert.equal(await check(s.ledger.record({ ...base, outcome: "raided", final: true, beneficiary: "B" }).id), "failed-run");
   assert.equal(await check(s.ledger.record({ ...base, outcome: "delivered", final: true, beneficiary: "D" }).id), "not-beneficiary");
