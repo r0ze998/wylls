@@ -1,0 +1,334 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WYLLS 改善試作</title>
+<style>
+:root{
+  --bg:#2b2419; --wood:#3a3022; --panel:#1f2b24; --panel2:#24342b; --line:#4d5f50;
+  --parch:#efe4c8; --parch2:#e2d3ae; --ink:#2a2418; --ink2:#5b5040;
+  --text:#ecf0e6; --muted:#a9b5a6; --gold:#d9b25a; --gold2:#b98d35;
+  --ok:#5fae7c; --warn:#e0a24a; --bad:#d9644f; --sea:#7fb2c8;
+  --tag-real:#2f7d52; --tag-mock:#a8742a; --tag-open:#5d6670;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{background:var(--bg);color:var(--text);font:14px/1.6 "Hiragino Sans","Noto Sans JP",system-ui,sans-serif}
+button{font:inherit;cursor:pointer}
+.legend{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;padding:8px 16px;background:#16120c;border-bottom:1px solid #000;font-size:12px}
+.legend b{color:var(--gold)}
+.tag{display:inline-block;font-size:11px;line-height:1;padding:3px 6px;border-radius:3px;color:#fff;vertical-align:middle;white-space:nowrap}
+.t-real{background:var(--tag-real)} .t-mock{background:var(--tag-mock)} .t-open{background:var(--tag-open)}
+.scen{display:flex;gap:6px;flex-wrap:wrap;padding:8px 16px;background:#1a150e;border-bottom:1px solid #000}
+.scen button{background:#2c251a;color:var(--parch);border:1px solid #5a4a30;border-radius:4px;padding:6px 12px}
+.scen button[aria-pressed=true]{background:var(--gold2);color:#1a1208;border-color:var(--gold)}
+.app{position:relative;height:calc(100vh - 92px);min-height:560px;overflow:hidden}
+/* top bar (exists in WYLLS) */
+.top{position:absolute;left:12px;right:12px;top:10px;display:flex;justify-content:space-between;gap:10px;z-index:3;pointer-events:none}
+.top>*{pointer-events:auto}
+.res{display:flex;gap:12px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:6px 12px;font-size:13px}
+.res span b{font-weight:600}
+.dial{background:radial-gradient(#2c3b31,#1a241e);border:2px solid var(--gold2);border-radius:50%;width:64px;height:64px;display:grid;place-items:center;text-align:center;font-size:11px;line-height:1.1}
+.dial strong{font-size:20px;display:block}
+.next{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:6px 12px;font-size:13px}
+/* map (mock) */
+.map{position:absolute;inset:0;background:#cdbf98}
+.map svg{width:100%;height:100%;display:block}
+/* side drawer */
+.drawer{position:absolute;right:12px;top:86px;bottom:12px;width:min(430px,calc(100% - 24px));background:var(--parch);color:var(--ink);border:1px solid #9b8a63;border-radius:6px;box-shadow:0 8px 30px rgba(0,0,0,.45);display:flex;flex-direction:column;z-index:4}
+.drawer header{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:10px 14px;background:var(--panel);color:var(--text);border-radius:6px 6px 0 0}
+.drawer header h2{font-size:15px;margin:0}
+.drawer .body{overflow:auto;padding:12px 14px 16px}
+.x{background:none;border:none;color:var(--muted);font-size:18px}
+.card{background:#fbf5e4;border:1px solid #cdbd95;border-radius:5px;padding:10px 12px;margin:0 0 10px}
+.card h3{margin:0 0 4px;font-size:14px}
+.row{display:flex;justify-content:space-between;gap:10px;align-items:baseline}
+.muted{color:var(--ink2);font-size:12px}
+.sev{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;vertical-align:middle}
+.s-bad{background:var(--bad)} .s-warn{background:var(--warn)} .s-ok{background:var(--ok)} .s-info{background:var(--sea)}
+.btns{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.b{border:1px solid #8b7a52;background:#f4ead0;color:var(--ink);border-radius:4px;padding:5px 10px;font-size:13px}
+.b.pri{background:#2f5a43;color:#fff;border-color:#244735}
+.b.red{background:#9c3b2c;color:#fff;border-color:#7d2e22}
+.b:disabled{opacity:.45;cursor:not-allowed}
+.bar{height:8px;background:#e1d4b3;border-radius:4px;overflow:hidden;margin:6px 0}
+.bar i{display:block;height:100%;background:#4f8b63}
+table{width:100%;border-collapse:collapse;font-size:13px}
+td,th{padding:4px 4px;border-bottom:1px solid #e0d2ad;text-align:left;vertical-align:top}
+th{font-size:12px;color:var(--ink2);font-weight:600}
+.num{text-align:right;font-variant-numeric:tabular-nums}
+.short{color:#a43c2c;font-weight:600}
+.opt{border:1px solid #cdbd95;border-radius:5px;padding:8px 10px;margin:6px 0;background:#fffaf0}
+.opt.sel{outline:2px solid #2f5a43}
+.note{font-size:12px;color:var(--ink2);border-left:3px solid var(--gold2);padding:2px 8px;margin:8px 0}
+.toast{position:absolute;left:50%;bottom:20px;transform:translateX(-50%);background:#1f2b24;color:#fff;border:1px solid var(--gold2);border-radius:6px;padding:8px 14px;z-index:9;display:none;max-width:90%}
+.left{position:absolute;left:12px;bottom:12px;z-index:3;width:min(300px,calc(100% - 24px))}
+.minicard{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:8px 10px;font-size:13px}
+.hidden{display:none!important}
+.why{font-size:12px;background:#f3ead2;border:1px dashed #b8a477;border-radius:4px;padding:6px 8px;margin-top:6px}
+.chip{display:inline-block;font-size:11px;padding:1px 6px;border-radius:9px;background:#e5d8b6;color:var(--ink2);margin-left:4px}
+.ai{background:#d7e3ea;color:#2e4a5a}
+@media (max-width:700px){
+  .res{gap:6px;font-size:11px;padding:4px 8px}
+  .next{display:none}
+  .drawer{top:auto;height:62%;right:8px;left:8px;width:auto}
+  .left{display:none}
+}
+</style>
+</head>
+<body>
+<div class="legend">
+  <b>WYLLS 改善試作（ダミーデータ・本番と無関係）</b>
+  <span><span class="tag t-real">実装済み</span> WYLLS main 921429322 に同等のものがある</span>
+  <span><span class="tag t-mock">模擬</span> この試作だけの提案。データは架空</span>
+  <span><span class="tag t-open">未決定</span> 方針が決まっていない部分</span>
+</div>
+<div class="scen" role="toolbar" aria-label="場面">
+  <button data-s="away" aria-pressed="true">① 留守から戻る</button>
+  <button data-s="short" aria-pressed="false">② 材料が足りない</button>
+  <button data-s="table" aria-pressed="false">③ 国の卓（協力の入口）</button>
+  <button data-s="fight" aria-pressed="false">④ 戦う前の見通し</button>
+</div>
+
+<div class="app">
+  <div class="map" aria-hidden="true"><svg id="hexmap" viewBox="0 0 1200 700" preserveAspectRatio="xMidYMid slice"></svg></div>
+
+  <div class="top">
+    <div class="res" title="上の帯は WYLLS に実装済み">
+      <span class="tag t-real">実装済み</span>
+      <span>食料 <b id="r-food">1,290</b></span><span>木材 <b id="r-wood">862</b></span><span>石材 <b id="r-stone">687</b></span><span>鉱石 <b>327</b></span><span>金 <b id="r-gold">147</b></span>
+    </div>
+    <div class="dial"><div>ターン<strong id="turn">466</strong>残り 6:12</div></div>
+    <div class="next"><span class="tag t-real">実装済み</span> 次にやること：<span id="nextText">留守のあいだの出来事 5 件</span></div>
+  </div>
+
+  <div class="left">
+    <div class="minicard">
+      <span class="tag t-real">実装済み</span> <b>ラマールの町</b><br>
+      <span style="color:var(--muted);font-size:12px">トダオス・トメア · アステル · 測量 94 マス</span>
+    </div>
+  </div>
+
+  <!-- ① 留守から戻る -->
+  <section class="drawer" id="d-away" aria-label="留守のあいだ">
+    <header><h2>留守のあいだ <span class="tag t-mock">模擬</span></h2><button class="x" data-close>×</button></header>
+    <div class="body">
+      <p class="muted" style="margin-top:0">最後に見たのは <b>ターン 412</b>（約 9 時間前）。それから <b>54 ターン</b>。あなたに関わることだけ、大事な順に並べています。</p>
+      <div id="awayList"></div>
+      <div class="note">データ: ヘラルド <code>/h/events?after=最後に見た番号</code>（実装済みの読み口）と <code>/h/caravans.json</code>・<code>/h/me</code> の差。最後に見た番号はこの端末に保存。<span class="tag t-mock">模擬</span></div>
+      <details class="card"><summary>ほかの出来事（年代記へ） <span class="tag t-real">実装済み</span></summary><p class="muted">国の外の衝突 31 件、他国の隊商 12 件 … は「その他 → 年代記」で読めます（いまの画面にある）。</p></details>
+    </div>
+  </section>
+
+  <!-- ② 材料が足りない -->
+  <section class="drawer hidden" id="d-short" aria-label="町から都市へ">
+    <header><h2>町から都市へ</h2><button class="x" data-close>×</button></header>
+    <div class="body">
+      <div class="card">
+        <span class="tag t-real">実装済み</span> 効果の前後と費用、足りない量
+        <table style="margin-top:6px">
+          <tr><th>材料</th><th class="num">要る</th><th class="num">手持ち</th><th class="num">足りない</th></tr>
+          <tbody id="needRows"></tbody>
+        </table>
+      </div>
+      <div class="card">
+        <h3>足りない分をそろえる道 <span class="tag t-mock">模擬</span></h3>
+        <p class="muted" style="margin:0">材料を一つ選ぶと、待つ・増やす・運ぶ・頼む を所要時間つきで比べます。</p>
+        <div class="btns" id="matPick"></div>
+        <div id="ways"></div>
+      </div>
+      <div class="card hidden" id="caravanCard">
+        <h3>隊商を送る（送る前に道と到着を見せる）<span class="tag t-mock">模擬</span></h3>
+        <div class="muted">いまの WYLLS は送信後に道を計算するため、到着ターンは出発後にしか分からない（<code>controller.mjs:1563</code>）。</div>
+        <table style="margin-top:6px">
+          <tr><td>出発地</td><td id="cvFrom">北の倉（石材 900）</td></tr>
+          <tr><td>行き先</td><td>ラマールの町</td></tr>
+          <tr><td>荷</td><td><input id="cvAmt" type="number" min="50" step="50" value="900" style="width:90px"> 石材</td></tr>
+          <tr><td>道のり</td><td>9 マス・1 州 · 道あり</td></tr>
+          <tr><td>到着</td><td><b id="cvEta">ターン 472</b>（約 60 分後）</td></tr>
+          <tr><td>道中の危険</td><td><span class="sev s-warn"></span>物見櫓の外を 3 マス通る。シンダーの軍勢が 2 マス先に見えている</td></tr>
+        </table>
+        <div class="btns"><button class="b pri" id="cvSend">隊商を送る</button><button class="b" id="cvSafe">安全な道にする（+2 ターン）</button></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ③ 国の卓 -->
+  <section class="drawer hidden" id="d-table" aria-label="国の卓">
+    <header><h2>国の卓 · アステル <span class="tag t-mock">模擬</span></h2><button class="x" data-close>×</button></header>
+    <div class="body">
+      <div class="card">
+        <h3>みんなの依頼 <span class="tag t-mock">模擬</span></h3>
+        <p class="muted" style="margin:0 0 6px">同じ国の村が「何のために、何が、いくつ」要るかを公開しています。応じると、隊商が出ます（到着と道中の危険を先に表示）。</p>
+        <div id="reqList"></div>
+        <div class="btns"><button class="b" id="newReq">依頼を出す（都市への昇格に 石材 1,613）</button></div>
+        <div class="why">贈った荷は相手のものになります（いまの「ほかの人あての隊商」と同じ。<span class="tag t-real">実装済み</span>）。<b>依頼・進み具合・お礼の記録</b>が新しい部分です。依頼はウォレット署名つきの公開メッセージで、チェーンの命令は増やしません。<span class="tag t-mock">模擬</span></div>
+      </div>
+      <div class="card">
+        <h3>投票中の議題 <span class="tag t-real">実装済み</span></h3>
+        <div class="row"><span>シンダーへの方針を「通行を許す」に</span><span class="muted">賛成 2 · 反対 0 · あと 9 時間</span></div>
+        <div class="btns"><button class="b" data-vote>賛成</button><button class="b" data-vote>反対</button></div>
+        <p class="muted" style="margin:6px 0 0">（いまは「村 → 交易と防備 → 国の議会」の中。卓に並べるのは置き場所の変更だけ）</p>
+      </div>
+      <div class="card">
+        <h3>評議会の話し合い <span class="tag t-real">実装済み</span>（別ページ）→ 卓の中へ <span class="tag t-mock">模擬</span></h3>
+        <p class="muted" style="margin:0">いまは <code>council.html</code> にあり、鍵を手で貼る。ここでは最新 3 件と「書く」だけ出す。</p>
+        <div class="opt">ボレアリスの隊商が北の道を使い始めた。護衛を出せる人は？ <span class="chip">ターン 460</span></div>
+      </div>
+      <div class="card">
+        <h3>仲間の村 <span class="tag t-mock">模擬</span></h3>
+        <table id="mates"></table>
+        <div class="why"><span class="tag t-open">未決定</span> AI 市民に印を付けるかどうか（決定 Y2 は「付けない」、設計文書 26 は「一緒に暮らしていると告げる」）。この表では切り替えて見比べられます。 <label><input type="checkbox" id="aiMark"> AI に印を付ける</label></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ④ 戦う前の見通し -->
+  <section class="drawer hidden" id="d-fight" aria-label="進軍の準備">
+    <header><h2>進軍の準備</h2><button class="x" data-close>×</button></header>
+    <div class="body">
+      <div class="card">
+        <span class="tag t-real">実装済み</span>
+        <div class="row" style="margin-top:4px"><b>進軍：槍兵 600 → ボレアリスの砦（州 3,-2）</b></div>
+        <table>
+          <tr><td>到着</td><td>ターン 471（約 50 分後）</td></tr>
+          <tr><td>費用</td><td>体力 −74 · 次はターン 499 から</td></tr>
+          <tr><td>相手</td><td>守り 250（記録） · 優勢</td></tr>
+          <tr><td>予測（12 回）</td><td>残る兵 <b>520〜560</b> · 戦場に残る 12/12</td></tr>
+        </table>
+      </div>
+      <div class="card">
+        <h3>予測が数えていないもの <span class="tag t-mock">模擬</span></h3>
+        <div class="opt"><span class="sev s-warn"></span><b>物見櫓 2 基の見張りを 6 分通る</b>：兵 −6%（約 −36）。<span class="muted">S1 の規則。いまの予測には入っていない（<code>forecast.mjs</code> に tower なし）</span></div>
+        <div class="opt"><span class="sev s-bad"></span><b>本国の砦</b>：ボレアリスとは「戦争」でないため、包囲できません。<span class="muted">（送った後に断られる前に、ここで止める）</span>
+          <div class="btns"><button class="b" id="goTable">国の卓で「戦争」の議題を見る</button></div></div>
+        <div class="opt"><span class="sev s-info"></span>ほかの軍勢の到着は封印中のため数えていません。<span class="tag t-real">実装済み</span></div>
+        <p class="muted" style="margin:6px 0 0">補正後：残る兵 <b>484〜524</b>。<span class="tag t-mock">模擬</span></p>
+      </div>
+      <div class="card">
+        <h3>見えていない行き先のとき <span class="tag t-mock">模擬</span></h3>
+        <p class="muted" style="margin:0">いまは「わからない／見えていない土地」で止まる。代わりに、分かるようにする手を一つ出す。</p>
+        <div class="opt">斥候 100 で隣の 2 マスを探索 → 結果はターン 468。<button class="b" id="scout">探索に出す</button></div>
+      </div>
+      <div class="btns"><button class="b red" disabled title="本国の砦は包囲できない">封をして出発する</button><span class="muted" style="align-self:center">理由が解消するまで押せない <span class="tag t-mock">模擬</span></span></div>
+    </div>
+  </section>
+
+  <div class="toast" id="toast" role="status"></div>
+</div>
+
+<script>
+// ---- dummy data only. Nothing is sent anywhere. ----
+const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
+const fmt = n => n.toLocaleString('ja-JP');
+const state = {
+  turn: 466,
+  res: { food: 1290, wood: 862, stone: 687, gold: 147 },
+  rate: { wood: 55, stone: 30, gold: 22 },          // per hour (matches the live screen)
+  need: { wood: 4000, stone: 2300, gold: 1500 },
+  away: [
+    { id: 'raid', sev: 'bad', title: '隊商が略奪された', text: '北の倉 → ラマールの町の石材 400。シンダーの軍勢に奪われた（ターン 431）。', act: [['地図で見る'], ['次は護衛をつける', 'escort']], kind: 'S1 · いまは通知なし' },
+    { id: 'full', sev: 'warn', title: '蔵が満杯で食料 340 を失った', text: 'ターン 438〜452 のあいだ満杯だった。', act: [['蔵を広げる（昇格）', 'short'], ['倉へ運ぶ']], kind: 'いまは「満杯」の印のみ' },
+    { id: 'march', sev: 'ok', title: '進軍の結果を受け取れる', text: '蛮族の野営地（州 2,-1）。勝って戦場に残った。損害 80/600。', act: [['報告を見る'], ['受け取る']], kind: '実装済みの知らせ' },
+    { id: 'vote', sev: 'info', title: '国の議題が決まった', text: 'ボレアリスへの方針「同盟」が可決（賛成 4 · 反対 1）。', act: [['国の卓へ', 'table']], kind: 'S1 · いまは通知なし' },
+    { id: 'ask', sev: 'info', title: '仲間が石材を求めている', text: 'ヘルガの村：要塞のため 石材 800（いま 520）。', act: [['応じる', 'table']], kind: '新しい依頼（模擬）' },
+  ],
+  reqs: [
+    { who: 'ヘルガの村', ai: false, why: '要塞（石材 800）', need: 800, have: 520, res: '石材', eta: 3 },
+    { who: 'オルンの村', ai: true, why: '工房の鉱石が尽きた', need: 300, have: 0, res: '鉱石', eta: 5 },
+  ],
+  mates: [['ヘルガの村', false, '石切り場 2 · 前線'], ['オルンの村', true, '工房 · 鉱石不足'], ['カイの村', false, '倉 2 · 北の道'], ['セラの村', true, '城壁 · 本国']],
+  pick: 'stone', way: null,
+};
+function toast(t){ const el=$('#toast'); el.textContent=t; el.style.display='block'; clearTimeout(toast.h); toast.h=setTimeout(()=>el.style.display='none',2600); }
+function show(s){
+  $$('.scen button').forEach(b=>b.setAttribute('aria-pressed', String(b.dataset.s===s)));
+  ['away','short','table','fight'].forEach(k=>$('#d-'+k).classList.toggle('hidden', k!==s));
+  $('#nextText').textContent = s==='away' ? `留守のあいだの出来事 ${state.away.length} 件` : s==='short' ? '都市への昇格：あと 3 種類' : s==='table' ? `仲間の依頼 ${state.reqs.filter(r=>r.have<r.need).length} 件` : '砦への進軍を準備中';
+}
+// ① away
+function renderAway(){
+  $('#awayList').innerHTML = state.away.map(a => `
+    <div class="card" data-id="${a.id}">
+      <div class="row"><h3><span class="sev s-${a.sev}"></span>${a.title}</h3><span class="chip">${a.kind}</span></div>
+      <div>${a.text}</div>
+      <div class="btns">${a.act.map(([t,go])=>`<button class="b ${go?'pri':''}" data-go="${go||''}">${t}</button>`).join('')}<button class="b" data-done="${a.id}">確認した</button></div>
+    </div>`).join('') || '<p class="muted">すべて確認しました。地図に戻れます。</p>';
+}
+// ② shortage
+const hours = (need,have,rate) => Math.max(0, Math.ceil((need-have)/rate));
+function renderNeed(){
+  const names = {wood:'木材',stone:'石材',gold:'金'};
+  $('#needRows').innerHTML = Object.keys(state.need).map(k=>{
+    const short = Math.max(0, state.need[k]-state.res[k]);
+    return `<tr><td>${names[k]}</td><td class="num">${fmt(state.need[k])}</td><td class="num">${fmt(state.res[k])}</td><td class="num ${short?'short':''}">${short?fmt(short):'そろった'}</td></tr>`;
+  }).join('');
+  $('#matPick').innerHTML = Object.keys(state.need).filter(k=>state.need[k]>state.res[k]).map(k=>`<button class="b ${state.pick===k?'pri':''}" data-pick="${k}">${names[k]}</button>`).join('');
+  const k = state.pick, short = Math.max(0,state.need[k]-state.res[k]);
+  if (!short){ $('#ways').innerHTML = `<p class="muted">${names[k]}はそろいました。</p>`; return; }
+  const wait = hours(state.need[k], state.res[k], state.rate[k]);
+  const build = hours(state.need[k], state.res[k], state.rate[k] + ({wood:10,stone:8,gold:6})[k]) + 2;
+  const ways = [
+    ['wait', `待つ：いまの産出（+${state.rate[k]}/時）で <b>約 ${wait} 時間</b>`, '蔵の上限 6,000 には収まる', null],
+    ['build', `増やす：${({wood:'伐採場',stone:'石切り場',gold:'造幣所'})[k]}をもう 1 つ（工事 2 時間）で <b>約 ${build} 時間</b>`, '費用 食料 40 · 木材 80 · 建設の列 空き 3', '建てる'],
+    ...(k==='stone'?[['carry', `運ぶ：北の倉の石材 900 を隊商で <b>約 1 時間</b>（ターン 472）`, '道中に見張りの外 3 マス', '隊商を準備']]:[]),
+    ['ask', `頼む：国の卓に「都市への昇格に ${names[k]} ${fmt(short)}」と依頼を出す`, '応じてもらえるかは仲間しだい', '依頼を出す'],
+  ];
+  $('#ways').innerHTML = ways.map(([id,t,sub,btn])=>`<div class="opt ${state.way===id?'sel':''}"><div>${t}</div><div class="muted">${sub}</div>${btn?`<div class="btns"><button class="b pri" data-way="${id}">${btn}</button></div>`:''}</div>`).join('');
+}
+const names = {wood:'木材',stone:'石材',gold:'金'};
+// ③ table
+function renderTable(){
+  const mark = $('#aiMark').checked;
+  $('#reqList').innerHTML = state.reqs.map((r,i)=>{
+    const pct = Math.min(100, Math.round(r.have/r.need*100)), done = r.have>=r.need;
+    return `<div class="opt"><div class="row"><b>${r.who}${mark&&r.ai?'<span class="chip ai">AI市民</span>':''}</b><span class="muted">${r.why}</span></div>
+      <div class="bar"><i style="width:${pct}%"></i></div>
+      <div class="row"><span class="muted">${r.res} ${fmt(r.have)} / ${fmt(r.need)}</span>${done?'<span class="muted">そろった · お礼の記録が残る</span>':`<button class="b pri" data-give="${i}">${r.res} 200 を送る（到着 ${r.eta} ターン後）</button>`}</div></div>`;
+  }).join('');
+  $('#mates').innerHTML = '<tr><th>村</th><th>いまの様子</th></tr>' + state.mates.map(([n,ai,s])=>`<tr><td>${n}${mark&&ai?'<span class="chip ai">AI市民</span>':''}</td><td class="muted">${s}</td></tr>`).join('');
+}
+// map (mock hexes, purely decorative)
+(function drawMap(){
+  const svg = $('#hexmap'); let h=''; const R=46, w=Math.sqrt(3)*R;
+  const fills=['#9fb873','#a9c07b','#b7c98a','#c9bf8f','#8faa66','#d4c79a'];
+  for(let r=0;r<10;r++) for(let c=0;c<15;c++){
+    const x=c*w+(r%2?w/2:0)+20, y=r*R*1.5+30, f=fills[(r*7+c*3)%fills.length];
+    const pts=[...Array(6)].map((_,i)=>{const a=Math.PI/180*(60*i-30);return `${(x+R*Math.cos(a)).toFixed(1)},${(y+R*Math.sin(a)).toFixed(1)}`}).join(' ');
+    h+=`<polygon points="${pts}" fill="${f}" stroke="#7a6d4c" stroke-width="1" opacity=".9"/>`;
+  }
+  h+=`<circle cx="520" cy="330" r="34" fill="#c0563f" stroke="#fff" stroke-width="3"/><text x="520" y="336" font-size="16" text-anchor="middle" fill="#fff">町</text>`;
+  h+=`<path d="M300 170 C380 220 440 260 500 310" stroke="#8a3b2b" stroke-width="5" fill="none" stroke-dasharray="10 8"/><text x="270" y="160" font-size="15" fill="#3a2a1a">北の倉</text>`;
+  h+=`<text x="16" y="690" font-size="14" fill="#3a2a1a">地図は装飾（模擬）</text>`;
+  svg.innerHTML=h;
+})();
+// events
+document.addEventListener('click', e=>{
+  const t = e.target.closest('button'); if(!t) return;
+  if (t.dataset.s) return show(t.dataset.s);
+  if (t.hasAttribute('data-close')) { $$('.drawer').forEach(d=>d.classList.add('hidden')); return; }
+  if (t.dataset.done) { state.away = state.away.filter(a=>a.id!==t.dataset.done); renderAway(); show('away'); return; }
+  if (t.dataset.go) return show(t.dataset.go);
+  if (t.dataset.pick) { state.pick=t.dataset.pick; state.way=null; renderNeed(); $('#caravanCard').classList.add('hidden'); return; }
+  if (t.dataset.way) {
+    state.way=t.dataset.way; renderNeed();
+    if (t.dataset.way==='carry') $('#caravanCard').classList.remove('hidden');
+    if (t.dataset.way==='build') toast('石切り場の工事を始めました（模擬）。完成はターン 478 の見込み');
+    if (t.dataset.way==='ask') { state.reqs.push({who:'ラマールの町（あなた）',ai:false,why:'都市への昇格',need:state.need[state.pick]-state.res[state.pick],have:0,res:names[state.pick],eta:0}); renderTable(); toast('国の卓に依頼を出しました（模擬・署名つき公開メッセージを想定）'); }
+    return;
+  }
+  if (t.id==='cvSend') { const n=+$('#cvAmt').value||0; toast(`隊商を送りました（模擬）：石材 ${fmt(n)}、到着 ${$('#cvEta').textContent}`); state.res.stone+=0; $('#caravanCard').classList.add('hidden'); return; }
+  if (t.id==='cvSafe') { $('#cvEta').textContent='ターン 474'; toast('物見櫓の見張る道に変えました（模擬）：到着 ターン 474'); return; }
+  if (t.dataset.give!==undefined) { const r=state.reqs[+t.dataset.give]; r.have=Math.min(r.need,r.have+200); renderTable(); toast(`${r.who}へ ${r.res} 200 の隊商を出しました（模擬）`); return; }
+  if (t.id==='newReq') { state.pick='stone'; show('short'); renderNeed(); return; }
+  if (t.hasAttribute('data-vote')) { toast('投票しました（模擬。実際は国の議会の操作と同じ）'); return; }
+  if (t.id==='goTable') return show('table');
+  if (t.id==='scout') { toast('斥候を探索に出しました（模擬）：結果はターン 468'); return; }
+});
+$('#aiMark').addEventListener('change', renderTable);
+$('#cvAmt').addEventListener('input', ()=>{});
+renderAway(); renderNeed(); renderTable(); show('away');
+</script>
+</body>
+</html>
