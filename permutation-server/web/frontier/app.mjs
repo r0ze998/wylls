@@ -1,5 +1,5 @@
 import { territoryEnabled, territoryOf } from './territory.mjs';
-import { setS1, setOreExtraProvider } from './fs1.mjs';
+import { setS1, setOreExtraProvider, s1On } from './fs1.mjs';
 import { s1Marks } from './map/s1marks.mjs';
 import * as territoryScreen from './screens/territory.mjs';
 import * as conquestScreen from './screens/conquest.mjs';
@@ -47,6 +47,7 @@ import { SEASON_STATUS_TEXT, clientText, factionName, TIERS, BUILDINGS, FATES, u
 import { L, fmtNum, mountLangToggle, onLangChange, lang } from '../lang.mjs';
 import { toHex } from '../sdk/bytes.mjs';
 import { html, setHtml } from '../util.mjs';
+import { palisadeHexesOf, marchWearOf } from './s1walk.mjs';
 import { ACTIONS, FORMS, bind, startPlay, wantProvince, wantKeepHistory, wantKeepReach, wantHostReach, refreshConquest, refreshPrize, ackHomeGrant, tolled, syncProto, wantPreview, wantPlaces, composeTick } from './controller.mjs';
 import { mountProtoBoard } from './proto/board-mount.mjs';
 import { mountKeepBoard, keepReachOf } from './map/keepmount.mjs';
@@ -151,7 +152,8 @@ import * as profile from './people/profile.mjs';
 import * as glossary from './hud/glossary.mjs';
 import * as milestones from './hud/milestones.mjs';
 import * as guide from './hud/guide.mjs';
-import { forecast, forecastKey, compareStances, compareKey } from './hud/forecast.mjs';
+import { forecast, forecastKey, compareStances, compareKey, COMPARE_RUNS } from './hud/forecast.mjs';
+import { modelForecast } from './hud/forecastmodel.mjs';
 import { keepForecast, forecastFor } from './hud/forecastbook.mjs';
 import { mountRadioKeys } from './hud/radiokeys.mjs';
 import { BUILD_ITEMS, UNIT_ORDER, SCOUT, SETTLER, ticketTimes, queueItem, queueBuildingItem } from './fland.mjs';
@@ -892,9 +894,9 @@ const routeCache = new Map();
 function routeTo(A, to) {
   const k = wantKernel();
   if (!k || !A?.actor) return null;
-  const key = `${A.actor.id}|${A.origin.p},${A.origin.q},${A.origin.tile}|${to.p},${to.q},${to.tile}|${FS.nowBell ?? 0}`;
+  const key = `${A.actor.id}|${A.origin.p},${A.origin.q},${A.origin.tile}|${to.p},${to.q},${to.tile}|${FS.nowBell ?? 0}|${palisadeHexesOf(FS).length}`;
   if (routeCache.has(key)) return routeCache.get(key);
-  const r = planRoute(k, { from: A.origin, to, unit: A.actor.unit, seeds: seedsNow() });
+  const r = planRoute(k, { from: A.origin, to, unit: A.actor.unit, seeds: seedsNow(), blocked: palisadeHexesOf(FS) });
   let v;
   if (!r.ok) v = { ok: false, code: r.code };
   else {
@@ -2038,13 +2040,21 @@ function updateForecast() {
   invalidate('panel');
   seasonKernel().then(k => {
     if (FS.compose !== c || forecastKey(c) !== key) return;
-    const prov = FS.provinces.get(`${c.dest.p},${c.dest.q}`)?.province ?? null;
+    const env = FS.provinces.get(`${c.dest.p},${c.dest.q}`) ?? null, prov = env?.province ?? null, faction = FS.citizen?.faction ?? 0;
+    // S1: the program's own clash model over the destination's bytes (the keep, the forts and the caravans are in it), the
+    // arrival worn by the towers its road crosses (hud/forecastmodel.mjs, workstream 07); else the page's own builder
+    const worn = s1On() && env?.provinceBytes ? marchWearOf(FS, { p: c.origin.p, q: c.origin.q, tile: c.host.tile }, c.route, c.host.unit) : null;
+    const model = !!worn && !worn.blocked;
+    const one = cc => (model ? modelForecast(k, cc, env.provinceBytes, faction, { wornBps: worn.bps }) : forecast(k, cc, prov, faction));
     let fc;
-    try { fc = forecast(k, c, prov, FS.citizen?.faction ?? 0); } catch (e) { fc = { ok: false, why: e?.code ?? 'Error' }; }
-    c.forecast = { key, ...fc };
+    try { fc = worn?.blocked ? { ok: false, why: 'PalisadeOnRoad' } : one(c); } catch (e) { fc = { ok: false, why: e?.code ?? 'Error' }; }
+    c.forecast = { key, ...fc, ...(model ? { model: true } : {}) };
     // the stances side by side (the card's comparison): once per destination, turn and retreat, not per stance chosen
     const ck = compareKey(c);
-    if (fc.ok && c.compare?.key !== ck) c.compare = { key: ck, rows: compareStances(k, c, prov, FS.citizen?.faction ?? 0) };
+    if (fc.ok && c.compare?.key !== ck) {
+      c.compare = { key: ck, rows: model ? [0, 1, 2, 3].map(s => { try { return { stance: s, ...modelForecast(k, { ...c, stance: s }, env.provinceBytes, faction, { wornBps: worn.bps, runs: COMPARE_RUNS }) }; } catch (e) { return { stance: s, ok: false, why: e?.code ?? 'Error' }; } })
+        : compareStances(k, c, prov, faction) };
+    }
   }).catch(() => { if (FS.compose === c) c.forecast = { key, ok: false, why: 'NoWasm' }; })
     .finally(() => { fcBusy = null; invalidate('panel'); });
 }

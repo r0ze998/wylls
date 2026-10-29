@@ -29,13 +29,13 @@ export function contestableKeeps(keeps, { faction, nowBell = 0 }) {
  *            fastest origin of each keep, sorted by travel time
  *   unreachable  `['p,q', …]`: candidate keeps no origin has a route to
  */
-export function reachableKeeps({ kernel, keeps, origins = [], seeds = [], faction, nowBell = 0 }) {
+export function reachableKeeps({ kernel, keeps, origins = [], seeds = [], faction, nowBell = 0, blocked = [] }) {
   if (!kernel) return { ok: false, code: 'NoKernel' };
   const rows = [], unreachable = [];
   for (const k of contestableKeeps(keeps, { faction, nowBell })) {
     let best = null;
     for (const o of origins) {
-      const r = planRoute(kernel, { from: { p: o.p, q: o.q, tile: o.tile }, to: { p: k.p, q: k.q, tile: k.tile }, unit: o.unit, seeds });
+      const r = planRoute(kernel, { from: { p: o.p, q: o.q, tile: o.tile }, to: { p: k.p, q: k.q, tile: k.tile }, unit: o.unit, seeds, blocked });
       if (r.ok && (!best || r.route.secs < best.route.secs)) best = { route: r.route, origin: o };
     }
     if (best) rows.push({ p: k.p, q: k.q, tile: k.tile, holder: k.holder, troops: k.troops, origin: best.origin,
@@ -47,8 +47,8 @@ export function reachableKeeps({ kernel, keeps, origins = [], seeds = [], factio
 }
 
 /** The cache key: every origin's tile and unit, the turn, and the control snapshot the keeps came from. */
-export function reachKey({ origins = [], nowBell = 0, controlBell = null, faction = null }) {
-  return `${faction}|${nowBell}|${controlBell}|${origins.map(o => `${o.p},${o.q},${o.tile},${o.unit}`).join(';')}`;
+export function reachKey({ origins = [], nowBell = 0, controlBell = null, faction = null, blocked = [] }) {
+  return `${faction}|${nowBell}|${controlBell}|${origins.map(o => `${o.p},${o.q},${o.tile},${o.unit}`).join(';')}${blocked.length ? `|x${blocked.map(h => `${h.q},${h.r}`).join(';')}` : ''}`;
 }
 
 /**
@@ -57,7 +57,7 @@ export function reachKey({ origins = [], nowBell = 0, controlBell = null, factio
  * kernel again. A missing kernel is not cached (it may load later).
  */
 export function cachedReach(cache, args) {
-  const key = reachKey({ origins: args.origins, nowBell: args.nowBell, controlBell: args.controlBell, faction: args.faction });
+  const key = reachKey({ origins: args.origins, nowBell: args.nowBell, controlBell: args.controlBell, faction: args.faction, blocked: args.blocked });
   if (cache?.key === key && cache.ok) return cache;
   return { key, home: !!args.home, ...reachableKeeps(args) };
 }
