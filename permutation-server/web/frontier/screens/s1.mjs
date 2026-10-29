@@ -23,7 +23,7 @@ import { settled, shortOf } from '../hud/rulebook.mjs';
 import { activeHolding } from '../fstate.mjs';
 import { keepFromProvince } from '../fconquest.mjs';
 import { hostParts } from '../faddr.mjs';
-import { ringOf, wedgeOf } from '../fgeo.mjs';
+import { hexDistance, ringOf, wedgeOf } from '../fgeo.mjs';
 import { ownTag } from '../people/ui.mjs';
 import { MAX_VAULTS, VAULT_COST } from '../fcaravan.mjs';
 import { S1_WORDS, caravanArriveBell, caravanId } from '../map/s1marks.mjs';
@@ -282,6 +282,7 @@ export function s1VillageModel(FS) {
   const destinations = [
     ...(FS.holdings ?? []).map(o => ({ kind: 'holding', p: o.p, q: o.q, site: o.site, gen: o.gen ?? 0, tile: o.tile })),
     ...vaults.map(v => ({ kind: 'vault', p: v.p, q: v.q, tile: v.tile, gen: v.gen })),
+    ...othersPlaces(FS, mine, h),
   ];
   const prov = h ? FS.provinces?.get?.(`${h.p},${h.q}`)?.province ?? null : null;
   const forts = h ? structures.filter(s => s.kind === KIND.fort && s.p === h.p && s.q === h.q).map(s => {
@@ -321,6 +322,37 @@ export function s1VillageModel(FS) {
     oreStarved = Number(h.production?.[4] ?? 0) > 0 && !!ore && ore.perHour <= 0 && ore.value < 100;
   }
   return { vaults, caravans, structures, sources, destinations, forts, spearmen, nation, have: haveOf(FS, h), holding: h, oreStarved };
+}
+
+/** How many of other players' places the caravan form lists, the nearest first. */
+export const OTHER_PLACES = 24;
+
+/**
+ * Other players' places a caravan may go to (caravan.rs: a send to another
+ * player needs the wallet, WalletRequired): their storehouses from the
+ * caravans feed and their villages in the provinces the page has read (a
+ * village's generation is read from its Holding at sending: `gen: null`),
+ * the nearest to the village in hand first, OTHER_PLACES of them.
+ */
+export function othersPlaces(FS, mine, h) {
+  const own = FS.holdings ?? [];
+  // (the viewer's tag not read yet: whose storehouse is whose is unknown, so none is offered)
+  const out = mine === null || mine === undefined ? [] : (FS.s1?.caravans?.vaults ?? []).filter(v => !isMine(v.ownerTag, mine))
+    .map(v => ({ kind: 'vault', p: v.p, q: v.q, tile: v.tile, gen: v.gen, other: true, faction: v.faction }));
+  for (const [key, e] of FS.provinces ?? []) {
+    const prov = e?.province;
+    if (!prov) continue;
+    const [p, q] = String(key).split(',').map(Number);
+    const n = Math.min(Number(prov.siteCount ?? 0), 12);
+    for (let j = 0; j < n; j++) {
+      const mirror = prov.siteMirror?.[j];
+      if (!mirror || Number(mirror.state) !== SITE_HOLDING) continue;
+      if (own.some(o => o.p === p && o.q === q && o.site === j)) continue;
+      out.push({ kind: 'holding', p, q, site: j, gen: null, tile: Number(prov.sites?.[j]), other: true, faction: Number(mirror.faction) });
+    }
+  }
+  const far = x => (h ? hexDistance(h.p, h.q, x.p, x.q) : 0);
+  return out.map((x, i) => ({ x, i, d: far(x) })).sort((a, b) => a.d - b.d || a.i - b.i).slice(0, OTHER_PLACES).map(o => o.x);
 }
 
 /** Two places are the same (a caravan cannot go where it starts). */
@@ -393,7 +425,9 @@ export function renderS1Village(FS) {
   const m = s1VillageModel(FS);
   if (!m.holding) return '';
   const bell = Number(FS.nowBell ?? 0);
-  const placeWord = d => (d.kind === 'vault' ? L`${S1_WORDS.vault()}（${d.p}, ${d.q} · マス ${d.tile}）` : L`村（${d.p}, ${d.q}）`);
+  // (another's village may share a province with the viewer's: its tile tells them apart)
+  const placeWord = d => (d.kind === 'vault' ? L`${S1_WORDS.vault()}（${d.p}, ${d.q} · マス ${d.tile}）`
+    : d.other || m.destinations.some(x => x.other && x.kind === 'holding' && x.p === d.p && x.q === d.q) ? L`${L`村`}（${d.p}, ${d.q} · マス ${d.tile}）` : L`村（${d.p}, ${d.q}）`);
   const caravans = m.caravans.length ? html`${label(L`道中の隊商`)}<ul class="list">${m.caravans.map(c => html`<li>${icon('flag')}${c.raided ? S1_WORDS.raided() : S1_WORDS.caravan()} <span class="muted">${c.arriveBell !== null ? (c.arriveBell <= bell ? L`到着済み（決着待ち）` : L`ターン ${fmtNum(c.arriveBell)} に到着`) : ''}</span></li>`)}</ul>` : '';
   const owned = m.vaults.length || m.structures.length ? html`${label(L`あなたの貯蔵庫と建物`)}<ul class="list">${[
     ...m.vaults.map(v => html`<li>${icon('crate')}${S1_WORDS.vault()} <span class="muted">${v.p}, ${v.q} · ${v.tile}</span>${Array.isArray(v.stores)
@@ -402,15 +436,21 @@ export function renderS1Village(FS) {
   // the goods a caravan carries (caravan.rs: the first six; arms and influence stay), the most any source holds
   const most = i => Math.max(0, ...m.sources.map(s => Math.floor(s.have?.[i] ?? 0)));
   const sendable = RESOURCE_ORDER.map((r, i) => ({ r, i, have: most(i) })).filter(x => x.have > 0 && x.i < 6);
-  const firstDst = m.destinations.findIndex(x => !samePlace(m.sources[0], x));
+  // (another player's place is never chosen by default: what arrives there is theirs)
+  const firstDst = m.destinations.findIndex(x => !x.other && !samePlace(m.sources[0], x));
   const haveText = s => (s.kind === 'vault' && !s.known ? L`在庫はまだ読み込んでいません`
     : s.have.slice(0, 6).map((v, i) => (v > 0 ? `${RESOURCES[RESOURCE_ORDER[i]]} ${fmtNum(Math.floor(v))}` : '')).filter(Boolean).join(' · ') || L`空`);
-  const send = m.vaults.length + (FS.holdings ?? []).length >= 2 ? html`<form class="vform" data-form="s1-caravan">
+  const dstOption = (d, i) => html`<option value="${i}" ${raw(i === firstDst ? 'selected' : '')}>${placeWord(d)}${d.other ? ` · ${factionName(d.faction)}` : ''}</option>`;
+  const ownDst = m.destinations.map((d, i) => [d, i]).filter(([d]) => !d.other), otherDst = m.destinations.map((d, i) => [d, i]).filter(([d]) => d.other);
+  const send = ownDst.length >= 2 || (m.sources.length && otherDst.length) ? html`<form class="vform" data-form="s1-caravan">
     <label class="field">${L`出発地`}<select name="src">${m.sources.map((s, i) => html`<option value="${i}">${placeWord(s)} — ${haveText(s)}</option>`)}</select></label>
-    <label class="field">${L`行き先`}<select name="dst">${m.destinations.map((d, i) => html`<option value="${i}" ${raw(i === firstDst ? 'selected' : '')}>${placeWord(d)}</option>`)}</select></label>
+    <label class="field">${L`行き先`}<select name="dst">${otherDst.length
+      ? html`<optgroup label="${L`あなたの場所`}">${ownDst.map(([d, i]) => dstOption(d, i))}</optgroup><optgroup label="${L`ほかの人の場所`}">${otherDst.map(([d, i]) => dstOption(d, i))}</optgroup>`
+      : ownDst.map(([d, i]) => dstOption(d, i))}</select></label>
     ${sendable.map(x => html`<div class="count-row"><label class="count-label" for="s1-c${x.i}">${RESOURCES[x.r]}</label><input id="s1-c${x.i}" name="c${x.i}" type="number" min="0" max="${x.have}" step="1" value="0" inputmode="numeric"></div>`)}
     <p class="muted">${L`運べる量は出発地の蔵にある分までです（出発地ごとの在庫は上の一覧のとおり）。`}</p>
     <div class="actions"><button type="submit" class="btn primary">${L`隊商を送る`}</button></div>
+    ${otherDst.length ? html`<p class="muted">${L`ほかの人の村や貯蔵庫へ送ると、着いた荷はその人のものになります。ほかの人あての隊商は、ゲーム内の鍵ではなくウォレットで署名して送ります。`}</p>` : ''}
     <p class="muted">${L`隊商は軍勢より遅く、道の上で略奪されることがあります。物見櫓の見張る土地や味方の柵の近くを通ると安全です。`}</p></form>`
     : html`<p class="muted">${L`隊商を送れる行き先（ほかの村か貯蔵庫）がまだありません。`}</p>`;
   const fort = m.forts.length ? html`<form class="vform" data-form="s1-fort">

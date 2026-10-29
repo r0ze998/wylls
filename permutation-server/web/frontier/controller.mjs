@@ -227,7 +227,8 @@ const sending = new Set();
 
 /** One sponsored action, tracked to its landing; the notice says how it went. */
 async function act(name, { v = {}, fields = {}, signer, requester = null, label, after, onSent, onLost, order = null, say = null } = {}) {
-  // `signer: null` = a settle shape (no authority signs; the session key signs the request only).
+  // `signer: null` = a settle shape (no authority signs; the session key signs the request only);
+  // `signer: 'wallet'` = the wallet signs a shape the session key may not (a caravan to another player).
   // (a refusal before anything is sent is an answer to the order too)
   const early = r => { orderAnswered(order, false, { code: r.code, sent: false }); return failed(r); };
   // the same order already on its way: say so, and send nothing (the chain would refuse the copy, and the player saw an error)
@@ -243,7 +244,7 @@ async function actOnce(name, { v, fields, signer, requester, label, after, onSen
   if (!FS.wallet) return early({ code: 'NoWallet' });
   let sign = null;
   if (signer !== null) {
-    if (name === 'Join' || name === 'SetSession') {
+    if (name === 'Join' || name === 'SetSession' || signer === 'wallet') {
       const w = wallet.connected();
       if (!w) return early({ code: 'NoWallet' });
       sign = { wallet: w };
@@ -1537,22 +1538,37 @@ async function s1Raid(d) {
     fields: { p: r.p, q: r.q, choice: RAID_CHOICE.take, n_path: raidProvinces(route).nPath, ...placeData(dst), steps: plan.dirs.length, path: pack(plan.dirs) },
     order: orderOf('s1-raid', 'RaidCaravan', { tile: { p: r.p, q: r.q, tile: r.tile }, say: () => L`隊商を奪い、村へ向かわせました` }) });
 }
-/** SendCaravan from the village in hand or one of the viewer's storehouses to another of the viewer's places. */
+/**
+ * SendCaravan from the village in hand or one of the viewer's storehouses to another of the viewer's places, or to
+ * another player's village or storehouse: that one is signed by the wallet (caravan.rs WalletRequired), and a
+ * village's generation is read from its Holding first (the herald's /h/holding).
+ */
 async function s1Caravan(srcIndex, dstIndex, cargo) {
-  const m = s1VillageModel(FS), from = m.sources[srcIndex], dst = m.destinations[dstIndex];
+  const m = s1VillageModel(FS), from = m.sources[srcIndex];
+  let dst = m.destinations[dstIndex];
   const problem = caravanProblem(from, dst, cargo);
   if (problem === 'NoPlace') return s1Refused(L`出発地と行き先を選んでください`);
   if (problem === 'SamePlace') return s1Refused(L`出発地と行き先が同じです`);
   if (problem === 'NoCargo') return s1Refused(L`運ぶものを入れてください`);
   if (problem === 'Insufficient') return failed({ code: 'Insufficient' });
   if (!Number.isInteger(from.tile) || !Number.isInteger(dst.tile)) return s1Refused(L`出発地か行き先のマスがわかりません`);
+  if (dst.other && !wallet.connected()) return failed({ code: 'NoWallet' });
+  if (dst.other && dst.kind === 'holding') {
+    busy(() => L`行き先の村を確かめています…`);
+    const r = await herald.holding(dst.p, dst.q, dst.site);
+    if (!r.ok) return failed(r);
+    if (!Number.isInteger(Number(r.holding.gen))) return s1Refused(L`行き先の村はもうありません`);
+    dst = { ...dst, gen: Number(r.holding.gen) };
+  }
   busy(() => L`道を探しています…`);
   const plan = fastestPath({ p: from.p, q: from.q, tile: from.tile }, { p: dst.p, q: dst.q, tile: dst.tile }, await landsFor(from, dst));
   if (!plan || !plan.dirs.length) return s1Refused(L`そこまで隊商の道が届きません（${fmtNum(MAX_PATH_STEPS)} マス・${fmtNum(MAX_PATH_PROVINCES)} 州まで）`);
   const seq = Number(FS.citizen?.caravans ?? 0);
   const src = from.kind === 'vault' ? { kind: 'vault', p: from.p, q: from.q, tile: from.tile, gen: from.gen } : { kind: 'holding', p: from.p, q: from.q, site: from.site, gen: from.gen ?? 0 };
-  return act('SendCaravan', { v: { seq, src, dst, provinces: plan.provinces },
-    fields: { seq, ...placeData(dst), steps: plan.dirs.length, path: pack(plan.dirs), cargo: cargoBytes(cargo), fee: CARAVAN_FEE },
+  const target = { kind: dst.kind, p: dst.p, q: dst.q, ...(dst.kind === 'vault' ? { tile: dst.tile } : { site: dst.site }), gen: dst.gen ?? 0 };
+  return act('SendCaravan', { v: { seq, src, dst: target, provinces: plan.provinces, ...(dst.other ? { actor: FS.wallet.address } : {}) },
+    fields: { seq, ...placeData(target), steps: plan.dirs.length, path: pack(plan.dirs), cargo: cargoBytes(cargo), fee: CARAVAN_FEE },
+    ...(dst.other ? { signer: 'wallet', label: () => L`ほかの人の村か貯蔵庫へ送る隊商は、ウォレットで署名します…` } : {}),
     order: orderOf('s1-caravan', 'SendCaravan', { say: () => L`隊商が出発しました` }) });
 }
 
