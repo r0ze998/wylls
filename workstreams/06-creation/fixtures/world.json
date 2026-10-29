@@ -1,0 +1,246 @@
+{
+  "label": "模擬の世界。S1 の場所と、未統合ブランチ ccr-184d6862-fqutoz の S2 の札の規則を写したデータ",
+  "features": [
+    "base",
+    "s2-branch"
+  ],
+  "today": 12,
+  "citizens": {
+    "A": {
+      "ja": "作者A（前線補給を作った）",
+      "pub": null
+    },
+    "B": {
+      "ja": "利用者B（Aの定義を使い、写して作り変える）",
+      "pub": null
+    },
+    "W": {
+      "ja": "工房主W（工房を動かし、使用権の札を出す）",
+      "pub": null
+    },
+    "M": {
+      "ja": "鉱山主M（鉱石と木材の定期便を出す）",
+      "pub": null
+    },
+    "D": {
+      "ja": "Bの味方D（砦の倉を持つ）",
+      "pub": null
+    }
+  },
+  "places": {
+    "village:W": {
+      "kind": "village",
+      "owner": "W",
+      "province": [
+        3,
+        -1
+      ],
+      "gen": 1,
+      "stamp": 900,
+      "live": true,
+      "workshops": 2,
+      "ja": "Wの村（工房2つ、峠の州）"
+    },
+    "village:W2": {
+      "kind": "village",
+      "owner": "W",
+      "province": [
+        6,
+        1
+      ],
+      "gen": 1,
+      "stamp": 910,
+      "live": true,
+      "workshops": 1,
+      "ja": "Wの川沿いの村（工房1つ）"
+    },
+    "village:A": {
+      "kind": "village",
+      "owner": "A",
+      "province": [
+        1,
+        0
+      ],
+      "gen": 1,
+      "stamp": 100,
+      "live": true,
+      "workshops": 0,
+      "ja": "Aの村"
+    },
+    "vault:A-mine": {
+      "kind": "vault",
+      "owner": "A",
+      "province": [
+        1,
+        0
+      ],
+      "gen": 1,
+      "stamp": 101,
+      "live": true,
+      "shared": false,
+      "cap": 5000,
+      "stores": {
+        "ore": 200,
+        "wood": 100
+      },
+      "ja": "Aの鉱山の倉"
+    },
+    "vault:A-work": {
+      "kind": "vault",
+      "owner": "A",
+      "province": [
+        3,
+        -1
+      ],
+      "gen": 1,
+      "stamp": 102,
+      "live": true,
+      "shared": false,
+      "cap": 5000,
+      "stores": {},
+      "ja": "Aの峠の倉（工房と同じ州）"
+    },
+    "vault:A-fort": {
+      "kind": "vault",
+      "owner": "A",
+      "province": [
+        4,
+        -2
+      ],
+      "gen": 1,
+      "stamp": 103,
+      "live": true,
+      "shared": false,
+      "cap": 5000,
+      "stores": {},
+      "ja": "Aの前線の倉"
+    },
+    "village:B": {
+      "kind": "village",
+      "owner": "B",
+      "province": [
+        5,
+        2
+      ],
+      "gen": 1,
+      "stamp": 200,
+      "live": true,
+      "workshops": 0,
+      "ja": "Bの村"
+    },
+    "vault:B-home": {
+      "kind": "vault",
+      "owner": "B",
+      "province": [
+        5,
+        2
+      ],
+      "gen": 1,
+      "stamp": 201,
+      "live": true,
+      "shared": false,
+      "cap": 5000,
+      "stores": {
+        "ore": 30,
+        "wood": 10
+      },
+      "ja": "Bの村の倉"
+    },
+    "vault:B-work": {
+      "kind": "vault",
+      "owner": "B",
+      "province": [
+        3,
+        -1
+      ],
+      "gen": 1,
+      "stamp": 202,
+      "live": true,
+      "shared": false,
+      "cap": 5000,
+      "stores": {},
+      "ja": "Bの峠の倉（工房と同じ州）"
+    },
+    "vault:D-fort": {
+      "kind": "vault",
+      "owner": "D",
+      "province": [
+        4,
+        -2
+      ],
+      "gen": 1,
+      "stamp": 500,
+      "live": true,
+      "shared": false,
+      "cap": 5000,
+      "stores": {
+        "arms": 4
+      },
+      "ja": "Dの砦の倉"
+    },
+    "vault:M-mine": {
+      "kind": "vault",
+      "owner": "M",
+      "province": [
+        2,
+        -1
+      ],
+      "gen": 1,
+      "stamp": 400,
+      "live": true,
+      "shared": false,
+      "cap": 5000,
+      "stores": {
+        "ore": 600,
+        "wood": 300
+      },
+      "ja": "Mの鉱山の倉"
+    }
+  },
+  "issues": {
+    "issue:W-1": {
+      "kind": "use",
+      "source": "village:W",
+      "srcGen": 1,
+      "srcStamp": 900,
+      "perUnit": 1,
+      "untilDay": 30,
+      "state": "live",
+      "issuer": "W",
+      "ja": "Wの工房の使用権（1枚で1日1回、30日まで）"
+    },
+    "issue:W-old": {
+      "kind": "use",
+      "source": "village:W",
+      "srcGen": 1,
+      "srcStamp": 900,
+      "perUnit": 1,
+      "untilDay": 10,
+      "state": "live",
+      "issuer": "W",
+      "ja": "Wの工房の使用権（10日まで、期限切れ）"
+    }
+  },
+  "lots": {
+    "lot:A-1": {
+      "issue": "issue:W-1",
+      "holder": "A",
+      "amount": 3,
+      "srcGen": 1,
+      "state": "live",
+      "day": 0,
+      "dayUsed": 0,
+      "escrow": false
+    },
+    "lot:B-old": {
+      "issue": "issue:W-old",
+      "holder": "B",
+      "amount": 3,
+      "srcGen": 1,
+      "state": "live",
+      "day": 0,
+      "dayUsed": 0,
+      "escrow": false
+    }
+  }
+}

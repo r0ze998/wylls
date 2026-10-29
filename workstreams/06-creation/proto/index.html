@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>仕組みの工房（試作）</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <header class="top">
+    <h1>仕組みの工房 <small>⑥ 作る・公開する・使い直す（ローカル試作）</small></h1>
+    <p class="banner" id="banner">
+      <strong>公開</strong>はこのブラウザの中の一覧だけ（インターネットにも外部の登録先にも出しません）。
+      <strong>実行</strong>は模擬の世界と模擬の台帳の上だけ（チェーン・中継サーバー・ウォレットには何も送りません）。
+      公開された定義は説明と接続の約束で、履行の保証でも権利そのものでもありません。
+    </p>
+    <div class="actor">
+      <span>今の人：</span>
+      <span id="actors" role="radiogroup" aria-label="今の人"></span>
+      <span class="keynote" id="keynote"></span>
+      <button id="reset" class="ghost" title="一覧・台帳・世界を最初に戻す">最初に戻す</button>
+    </div>
+  </header>
+
+  <nav class="tabs" id="tabs" role="tablist">
+    <button role="tab" data-tab="make" aria-selected="true">1 作る・確かめる</button>
+    <button role="tab" data-tab="list">2 一覧から選ぶ</button>
+    <button role="tab" data-tab="use">3 使う準備（不足の確認）</button>
+    <button role="tab" data-tab="world">世界と台帳（模擬）</button>
+  </nav>
+
+  <main>
+    <section id="tab-make" class="tab">
+      <div class="cols">
+        <div class="col">
+          <h2>定義を作る</h2>
+          <div class="row">
+            <label>見本から始める
+              <select id="template">
+                <option value="front-supply">前線補給（工房を借りて兵器を送る）</option>
+                <option value="mine-delivery">鉱山の便（鉱石と木材を届ける）</option>
+              </select>
+            </label>
+            <button id="load-template">見本を読み込む</button>
+          </div>
+          <div id="draft-origin" class="origin"></div>
+          <div id="quick" class="quick"></div>
+          <details>
+            <summary>定義の全文（JSON）を直接直す</summary>
+            <textarea id="json" spellcheck="false" rows="24" aria-label="定義のJSON"></textarea>
+          </details>
+          <div class="row">
+            <button id="claims-from-facts" class="ghost">機械の事実から主張を書き直す</button>
+            <button id="publish" class="primary">今の人の鍵で署名して一覧へ公開</button>
+          </div>
+          <div id="publish-result"></div>
+        </div>
+        <div class="col">
+          <h2>条件の確認</h2>
+          <div id="findings"></div>
+          <h2>仕組みの紙 <small>（定義から機械で書いたもの）</small></h2>
+          <div id="paper" class="paper"></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="tab-list" class="tab" hidden>
+      <div class="cols">
+        <div class="col narrow">
+          <h2>ローカルの一覧</h2>
+          <input id="query" type="search" placeholder="例：兵器、鉱石" aria-label="一覧を探す">
+          <label class="inline"><input id="show-hidden" type="checkbox"> 停止・取り下げも見る</label>
+          <ul id="entries" class="entries"></ul>
+        </div>
+        <div class="col">
+          <div id="entry"></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="tab-use" class="tab" hidden>
+      <div class="cols">
+        <div class="col">
+          <h2>使う準備 <small id="use-who"></small></h2>
+          <div id="use-target"></div>
+          <form id="bind" class="bind"></form>
+          <div class="row">
+            <button id="prepare" class="primary">自分の鍵で計画を準備して確かめる</button>
+            <button id="run" disabled>模擬実行</button>
+          </div>
+          <div class="row" id="helpers"></div>
+        </div>
+        <div class="col">
+          <h2>実行前の確認</h2>
+          <div id="preflight"></div>
+          <h2>模擬実行の記録</h2>
+          <div id="runlog" class="runlog"></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="tab-world" class="tab" hidden>
+      <div class="cols">
+        <div class="col"><h2>場所（模擬の世界）</h2><div id="places"></div></div>
+        <div class="col"><h2>札（S2 の束を写した模擬）</h2><div id="lots"></div>
+          <h2>完了記録（④ の代わりの模擬台帳）</h2><div id="receipts"></div>
+          <h2>署名の記録</h2><ol id="signlog" class="signlog"></ol></div>
+      </div>
+    </section>
+  </main>
+  <script type="module" src="./app.mjs"></script>
+</body>
+</html>
