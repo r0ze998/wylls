@@ -1,0 +1,250 @@
+// One participation run of the proxy agent, through the existing MCP tools:
+//
+//   resume   finish what a previous run began and did not record (same requestId: never sent twice)
+//   verify   ask the chain (GET /f/tx) and the world what became of earlier sends; remember only what is confirmed
+//   observe  agent_view (mode, policy version, mode epoch, delegation) + the public world: the village, the nation's requests
+//   grant    the relay's policy ∩ the owner's mandate (② provisional)
+//   plan     the decider's proposals (a model call is metered by the gateway; past a cap the free rules stand in)
+//   guard    each proposal against ③, ②, the request and the stores; the owner gets a reason and a decision when it stops
+//   act      agent_act with the versions read at observe; a stale view stops the run before anything is sent
+//
+// Nothing here can widen the agent's authority: every send is agent_act,
+// which the relay checks again (AgentGateway.submit).
+import { createHash } from 'node:crypto';
+import { CommandContract, OUTCOME, grantFrom } from './adapters.mjs';
+import { checkProposal, ignoredWhy, parseAsk } from './guard.mjs';
+import { ruleDecider } from './deciders.mjs';
+import { ERR, sanitize } from './deps.mjs';
+
+export const PARTICIPATION_VERSION = 'wylls-05/0.1';
+
+/** Calls one MCP tool through the server's JSON-RPC handler; returns the tool result ({content, structuredContent, isError}). */
+export async function tool(mcp, name, args = {}) {
+  const res = await mcp.handle({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } });
+  if (res.error) return { isError: true, structuredContent: { ok: false, error: { code: 'ToolError', message: res.error.message } } };
+  return res.result;
+}
+
+/** The deterministic retry key of one contribution (the MCP requestId pattern: 8–100 of A–Z a–z 0–9 . _ : -). */
+export const requestIdOf = key => `p05.${createHash('sha256').update(key).digest('hex').slice(0, 40)}`;
+const keyOf = (agentId, requestId, name, mandateVersion) => `${agentId}|${requestId}|${name}|m${mandateVersion}`;
+/**
+ * The relay's answers that are an HTTP error rather than an ActionResult (the MCP server reports them as
+ * {ok: false, error: {code}}): the gateway's stable refusals and the rate limit. Nothing was sent for these.
+ * Any other code is not known to be a refusal, so it is treated as an unknown outcome and retried later.
+ */
+const REFUSAL_CODES = new Set([...Object.values(ERR), 'RateLimited']);
+/** An agent_act answer as {status, code, signature, replayed}; status null when the outcome is not known. */
+const resultOf = s => (s?.status ? { status: s.status, code: s.error?.code ?? null, signature: s.signature ?? null, replayed: s.replayed === true }
+  : { status: REFUSAL_CODES.has(s?.error?.code) ? OUTCOME.REFUSED : null, code: s?.error?.code ?? 'NoAnswer', signature: null, replayed: false });
+const LIVE = new Set([OUTCOME.SENT, OUTCOME.LANDED, OUTCOME.CONTRIBUTED, OUTCOME.UNKNOWN, OUTCOME.ACTING]);
+/** The last journal entry of `step` for a contribution. */
+const lastOf = (journal, key, step, pred = () => true) => journal.entries.findLast(e => e.key === key && e.step === step && pred(e)) ?? null;
+/**
+ * A contribution's attempts: a new requestId after each refusal or failure, so that a send refused for a reason
+ * that has since gone (the owner re-delegated, the stores filled) is not answered by the gateway's recorded refusal.
+ * A retry of the SAME attempt (the relay unreachable, a restart) keeps the requestId.
+ */
+const attemptOf = (journal, key) => journal.entries.filter(e => e.key === key && ((e.step === 'act-result' && e.outcome !== OUTCOME.SENT) || (e.step === 'verify' && (e.outcome === OUTCOME.FAILED || e.outcome === OUTCOME.EXPIRED)))).length;
+
+/** How many troops the journal says are on their way or done for a request (a failed or expired send counts nothing). */
+export function contributedTo(journal, requestId) {
+  const latest = new Map();
+  for (const e of journal.entries) if (e.requestId === requestId && e.key && e.outcome) latest.set(e.key, e);
+  let n = 0;
+  for (const [key, e] of latest) {
+    if (!LIVE.has(e.outcome)) continue;
+    n += lastOf(journal, key, 'act-begin')?.args?.action?.fields?.n ?? 0;
+  }
+  return n;
+}
+
+/**
+ * What became of earlier sends: the chain's word on the transaction, then
+ * the world's on its effect. Only both together make a `contributed`
+ * memory; a failed or expired one is remembered as that; anything not yet
+ * provable stays open for the next run.
+ */
+export async function verifyPending({ journal, txState, world }) {
+  const out = [];
+  const keys = new Set(journal.entries.filter(e => e.step === 'act-result' && e.outcome === OUTCOME.SENT).map(e => e.key));
+  for (const key of keys) {
+    const last = journal.stateOf(key);
+    if (!last || ![OUTCOME.SENT, OUTCOME.UNKNOWN, OUTCOME.LANDED].includes(last.outcome)) continue;
+    const begin = lastOf(journal, key, 'act-begin');
+    const sent = lastOf(journal, key, 'act-result', e => !!e.signature);
+    if (!sent) continue;
+    let tx;
+    try { tx = await txState(sent.signature); } catch (e) { tx = { state: 'unknown', why: String(e?.message ?? e) }; }
+    const base = { step: 'verify', key, requestId: begin?.requestId, signature: sent.signature, tx: tx.state, ...(tx.code ? { txCode: tx.code } : {}) };
+    if (tx.state === 'failed' || tx.state === 'expired') {
+      journal.append({ ...base, outcome: tx.state === 'failed' ? OUTCOME.FAILED : OUTCOME.EXPIRED });
+      journal.remember(key, { outcome: tx.state === 'failed' ? OUTCOME.FAILED : OUTCOME.EXPIRED, verified: true, requestId: begin?.requestId, txCode: tx.code ?? null });
+      out.push({ key, outcome: tx.state });
+      continue;
+    }
+    if (tx.state !== 'landed') { journal.append({ ...base, outcome: OUTCOME.UNKNOWN, why: 'the chain has no answer yet; not counted as done' }); out.push({ key, outcome: OUTCOME.UNKNOWN }); continue; }
+    // Landed. The effect, from the public world: the reserve of that unit grew by the troops sent since the baseline.
+    const f = begin?.args?.action?.fields ?? {};
+    const effect = begin?.args?.action?.name === 'Train' ? (() => {
+      const v = world.village();
+      const now = v?.reserve_troops?.[begin.unitName] ?? 0;
+      return { confirmed: now >= (begin.baseline ?? 0) + (f.n ?? 0), seen: now, expected: (begin.baseline ?? 0) + (f.n ?? 0) };
+    })() : { confirmed: false, seen: null, expected: null };
+    if (!effect.confirmed) {
+      journal.append({ ...base, outcome: OUTCOME.LANDED, effect, why: 'landed on chain; the public world does not show the effect yet' });
+      out.push({ key, outcome: OUTCOME.LANDED, effect });
+      continue;
+    }
+    journal.append({ ...base, outcome: OUTCOME.CONTRIBUTED, effect });
+    journal.remember(key, { outcome: OUTCOME.CONTRIBUTED, verified: true, requestId: begin?.requestId, action: begin?.args?.action, signature: sent.signature });
+    out.push({ key, outcome: OUTCOME.CONTRIBUTED, effect });
+  }
+  return out;
+}
+
+async function act(mcp, args, retries) {
+  let r;
+  for (let i = 0; i <= retries; i++) {
+    r = await tool(mcp, 'agent_act', args);
+    // The relay was not reached: retry the SAME requestId (the gateway never sends a key twice).
+    if (r.structuredContent?.error?.code !== 'RelayUnreachable') return { r, attempts: i + 1 };
+  }
+  return { r, attempts: retries + 1, unreachable: true };
+}
+
+/**
+ * @param {object} o
+ * @param {object} o.mcp        the agent's MCP server (mcp/agent-mcp.mjs createAgentMcp)
+ * @param {object} o.world      public reads: clockSec(), bell(), village(), requests()
+ * @param {Function} o.txState  signature → {state: landed|failed|expired|unknown} (GET /f/tx/{signature})
+ * @param {Function} [o.meter]  (fn, {key, free, model}) → gateway.meterInference's answer; absent: model calls are not metered (tests of the rest)
+ * @param {object} o.mandate    the owner's mandate (adapters.normaliseMandate)
+ * @param {object} o.decider    ruleDecider() or modelDecider({llm})
+ * @param {object} o.journal    RunJournal
+ * @param {string} o.runId
+ * @param {number} [o.maxObsAgeSec]  an observation older than this (world clock) is not acted on
+ * @param {Function} [o.crash]  test hook: called with a step name; throwing there is a process dying at that step
+ */
+export async function participate({ mcp, world, txState, meter = null, mandate, decider, fallback = ruleDecider(), contract = new CommandContract(), journal, runId, maxObsAgeSec = 300, retries = 2, crash = () => {} }) {
+  const report = { runId, version: PARTICIPATION_VERSION, decider: decider.name, resumed: [], verified: [], items: [], notes: [], charged: '0', status: 'done' };
+  const J = e => journal.append({ runId, ...e });
+
+  // ---- verify earlier sends.
+  report.verified = await verifyPending({ journal, txState, world });
+
+  // ---- observe.
+  const v = await tool(mcp, 'agent_view');
+  if (v.isError) { J({ step: 'observe', ok: false, code: v.structuredContent?.error?.code }); return { ...report, status: 'blocked', code: v.structuredContent?.error?.code ?? 'ViewFailed' }; }
+  const nowSec = world.clockSec();
+  const obs = { observedAtSec: nowSec, bell: world.bell?.() ?? null, view: v.structuredContent, village: world.village(), requests: world.requests() };
+  J({ step: 'observe', ok: true, worldSec: nowSec, policyVersion: obs.view.policy.version, modeEpoch: obs.view.modeEpoch, mode: obs.view.mode, delegated: obs.view.delegation?.delegated ?? null,
+    stores: obs.village?.stores, reserve: obs.village?.reserve_troops, requests: obs.requests.map(r => ({ id: r.id, nation: r.nation, ask: parseAsk(r.ask), deadlineSec: r.deadlineSec })) });
+
+  // ---- grant.
+  const grant = grantFrom(obs.view, mandate, nowSec);
+  J({ step: 'grant', ok: grant.ok, reasons: grant.reasons, allowed: grant.allowed, deniedByPolicy: grant.deniedByPolicy, limits: grant.limits, versions: grant.versions });
+  // ---- resume: an action begun and not recorded. Same requestId: replayed if it was sent, sent once if it was not.
+  // Only under a valid grant: re-asking may send (the relay has no read-only lookup by requestId yet; MCP-EXTENSIONS
+  // action_status), so a stop, a revoked or expired mandate or a lost delegation holds it as unknown instead.
+  if (!grant.ok) report.held = journal.unfinished().map(b => ({ key: b.key, requestId: b.requestId, outcome: OUTCOME.UNKNOWN, why: 'the grant is not valid now; not re-sent' }));
+  else for (const b of journal.unfinished()) {
+    const { r, unreachable } = await act(mcp, b.args, retries);
+    if (unreachable) { J({ step: 'act-error', key: b.key, requestId: b.requestId, attemptId: b.args.requestId, outcome: OUTCOME.UNKNOWN, code: 'RelayUnreachable', resumed: true }); report.resumed.push({ key: b.key, outcome: OUTCOME.UNKNOWN }); continue; }
+    const a = resultOf(r.structuredContent);
+    if (!a.status) { J({ step: 'act-error', key: b.key, requestId: b.requestId, attemptId: b.args.requestId, outcome: OUTCOME.UNKNOWN, code: a.code, resumed: true }); report.resumed.push({ key: b.key, outcome: OUTCOME.UNKNOWN, code: a.code }); continue; }
+    J({ step: 'act-result', key: b.key, requestId: b.requestId, attemptId: b.args.requestId, outcome: a.status, code: a.code, signature: a.signature, replayed: a.replayed, cost: b.cost, worldSec: b.worldSec, resumed: true });
+    report.resumed.push({ key: b.key, outcome: a.status, replayed: a.replayed });
+  }
+
+  if (!grant.ok) {
+    report.status = 'blocked';
+    report.blocked = grant.reasons;
+    return report;
+  }
+
+  // ---- plan (the model's call is the gateway's to meter and to refuse past a cap).
+  const committedToday = journal.committedToday(nowSec);
+  const planCtx = { nowSec, committedToday, contributedTo: id => contributedTo(journal, id) };
+  let plan, by = decider.name, cause = null, modelError = null;
+  if (decider.free || !meter) plan = await decider.plan(obs, grant, contract, planCtx);
+  else {
+    try {
+      const m = await meter(() => decider.plan(obs, grant, contract, planCtx), { key: `${runId}:plan`, free: false, model: decider.name });
+      report.charged = m.charged;
+      if (m.ok) plan = m.result;
+      else { modelError = m.error.message; cause = m.error.code; }
+    } catch (e) {
+      // Cannot pay for the call (balance, budget, the owner's daily call cap) or stopped: nothing was asked of the model.
+      cause = e?.code ?? 'MeterRefused';
+      modelError = String(e?.message ?? e);
+    }
+    if (!plan) { plan = await fallback.plan(obs, grant, contract, planCtx); by = `${fallback.name} (after ${cause})`; }
+  }
+  J({ step: 'plan', by, charged: report.charged, cause, modelError: modelError ? sanitize(modelError, { limit: 200 }) : null, proposals: plan.proposals.map(p => ({ requestId: p.requestId, command: p.command, reason: p.reason })), notes: plan.notes });
+  report.by = by;
+  report.notes = plan.notes ?? [];
+  // The board's requests this run does not answer, and why (another nation's, an author the owner does not follow, past its deadline).
+  report.ignored = obs.requests.map(r => ({ requestId: r.id, code: ignoredWhy(r, grant, nowSec) })).filter(x => x.code);
+
+  // ---- guard and act, one proposal at a time.
+  const committedThisRun = {};
+  /** Troops of each unit this run has sent so far: the next one's effect is counted on top of them. */
+  const sentUnits = {};
+  let stale = null;
+  for (const p of plan.proposals) {
+    const req = obs.requests.find(r => r.id === p.requestId);
+    // The request's author goes with every item, so that an owner asked to decide sees who asked.
+    const item = { requestId: p.requestId, title: req ? sanitize(req.title ?? '', { limit: 60, untrusted: true }) : null, author: req ? sanitize(req.author ?? '?', { limit: 40, untrusted: true }) : null, by: p.by, proposed: p.command };
+    report.items.push(item);
+    if (stale) { Object.assign(item, { outcome: OUTCOME.SKIPPED, code: stale, reason: 'この回の観測が古くなったので、残りの提案は次の回に観測し直してから決める' }); continue; }
+    const key = keyOf(obs.view.agentId, p.requestId, p.command?.name, grant.versions.mandateVersion);
+    const prior = journal.stateOf(key);
+    if (prior && LIVE.has(prior.outcome)) { Object.assign(item, { outcome: OUTCOME.SKIPPED, code: 'Duplicate', reason: `同じ依頼への同じ協力は記録済み（${prior.outcome}）` }); continue; }
+    const g = checkProposal(p, { grant, contract, obs, nowSec, committedToday, committedThisRun, contributedTo: id => contributedTo(journal, id) });
+    J({ step: 'guard', key, requestId: p.requestId, by: p.by, command: p.command, verdict: g.verdict, code: g.code ?? null, reason: g.reason, ownerDecision: g.ownerDecision ?? null });
+    if (g.verdict !== 'execute') { Object.assign(item, { outcome: g.verdict === 'needs_owner' ? OUTCOME.NEEDS_OWNER : OUTCOME.REFUSED, code: g.code, reason: g.reason, ownerDecision: g.ownerDecision }); continue; }
+
+    // Freshness right before acting: the owner's stop or policy change, or a world that moved on, since we observed.
+    const v2 = await tool(mcp, 'agent_view');
+    const view2 = v2.structuredContent;
+    const worldNow = world.clockSec();
+    if (v2.isError || view2.mode !== 'auto' || view2.policy?.version !== obs.view.policy.version || view2.modeEpoch !== obs.view.modeEpoch || worldNow - obs.observedAtSec > maxObsAgeSec) {
+      stale = 'StaleObservation';
+      const why = v2.isError ? 'agent_view が読めない' : view2.mode !== 'auto' ? '本人が停止した' : view2.policy?.version !== obs.view.policy.version ? `方針が版 ${obs.view.policy.version} から ${view2.policy?.version} に変わった` : view2.modeEpoch !== obs.view.modeEpoch ? '停止と再開があった' : `観測から ${worldNow - obs.observedAtSec} 秒たった（上限 ${maxObsAgeSec}）`;
+      J({ step: 'guard', key, requestId: p.requestId, verdict: 'refused', code: stale, reason: why });
+      Object.assign(item, { outcome: OUTCOME.SKIPPED, code: stale, reason: why, ownerDecision: view2?.mode !== 'auto' ? '再開するかは本人が決める' : null });
+      continue;
+    }
+
+    const unitName = g.command.name === 'Train' ? contract.catalog.train.find(u => u.unit === g.command.fields.unit)?.name : null;
+    const args = { requestId: requestIdOf(`${key}#${attemptOf(journal, key)}`), policyVersion: obs.view.policy.version, modeEpoch: obs.view.modeEpoch, action: g.command, reason: `nation request ${String(p.requestId).slice(0, 40)}: ${p.reason ?? ''}`.slice(0, 200) };
+    J({ step: 'act-begin', key, requestId: p.requestId, attemptId: args.requestId, outcome: OUTCOME.ACTING, args, cost: g.cost, worldSec: nowSec, unitName, baseline: unitName ? (obs.village?.reserve_troops?.[unitName] ?? 0) + (sentUnits[unitName] ?? 0) : null });
+    await crash('act-begin');
+    const { r, unreachable, attempts } = await act(mcp, args, retries);
+    await crash('act-sent');
+    // Not known to have been sent: its cost still counts against this run and the day (it may land), and its troops against the next baseline.
+    const commit = () => { for (const [k, n] of Object.entries(g.cost ?? {})) committedThisRun[k] = (committedThisRun[k] ?? 0) + n; if (unitName) sentUnits[unitName] = (sentUnits[unitName] ?? 0) + g.command.fields.n; };
+    if (unreachable) {
+      commit();
+      J({ step: 'act-error', key, requestId: p.requestId, attemptId: args.requestId, outcome: OUTCOME.UNKNOWN, code: 'RelayUnreachable', attempts });
+      Object.assign(item, { outcome: OUTCOME.UNKNOWN, code: 'RelayUnreachable', reason: `中継に ${attempts} 回届かなかった。送られたかは分からない。次の回に同じ requestId で確かめる（二重には送られない）` });
+      continue;
+    }
+    const a = resultOf(r.structuredContent);
+    if (!a.status) {
+      commit();
+      J({ step: 'act-error', key, requestId: p.requestId, attemptId: args.requestId, outcome: OUTCOME.UNKNOWN, code: a.code, attempts });
+      Object.assign(item, { outcome: OUTCOME.UNKNOWN, code: a.code, reason: `中継の答え（${a.code}）からは、送られたか分からない。次の回に同じ requestId で確かめる` });
+      continue;
+    }
+    J({ step: 'act-result', key, requestId: p.requestId, attemptId: args.requestId, outcome: a.status, code: a.code, signature: a.signature, replayed: a.replayed, cost: g.cost, worldSec: nowSec, attempts });
+    Object.assign(item, { outcome: a.status, code: a.code, signature: a.signature, command: g.command, attempts,
+      reason: a.status === 'sent' ? '中継が受け付けて送った。着地と効果は次の確認で見る' : `中継が断った（${a.code}）。何も送られず、何も請求されない`,
+      ...(a.status !== 'sent' ? { ownerDecision: ['AgentStopped', 'StaleMode', 'StalePolicy', 'SessionNotDelegated', 'BadCapability'].includes(a.code) ? '本人の停止・方針・委任・接続トークンの変更による。続けるかは本人が決める' : null } : {}) });
+    if (a.status === 'sent') commit();
+    // A refusal for a stale version, a stop or a revoked token means nothing else in this run can go either.
+    if (['StalePolicy', 'StaleMode', 'AgentStopped', 'BadCapability'].includes(a.code)) stale = 'StaleObservation';
+  }
+  return report;
+}

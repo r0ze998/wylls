@@ -1,0 +1,16 @@
+# demo (local fixture; scripted chain; scripted models) → workstreams/05-ai-participation/logs
+run 1: N-1=sent N-2=needs_owner(WalletRequired) N-4=needs_owner(NotImplemented) N-3=needs_owner(DecidedNotForProxy); ignored N-5(RequestExpired) N-6(NotOurNation) X-1(NotFromFollowedAuthor) X-2(NotFromFollowedAuthor)
+run 2: verified contributed; memory N-1:contributed
+mandate A: done; sent [N-1 Train n=200]; owner [N-2 WalletRequired, N-4 NotImplemented, N-3 DecidedNotForProxy]
+mandate B: done; sent [N-1 Train n=100]; owner [N-2 WalletRequired, N-4 NotImplemented, N-3 DecidedNotForProxy]
+mandate C: done; sent []; owner [N-1 ExceedsMandate, N-2 WalletRequired, N-4 NotImplemented, N-3 DecidedNotForProxy]
+mandate D: done; sent []; owner [N-1 NotInMandate, N-2 WalletRequired, N-4 NotImplemented, N-3 DecidedNotForProxy]
+mandate E: done; sent [N-1 Train n=200, X-1 Train n=200]; owner [N-2 WalletRequired, N-4 NotImplemented, N-3 DecidedNotForProxy]
+mandate F: blocked AgentStopped; sent []; owner []
+mandate G: blocked MandateExpired; sent []; owner []
+C1: rules sent [N-1 Train unit=0 n=200] owner [] | model sent [N-1 Train unit=0 n=200] owner [] refused [] charged 10000
+C2: rules sent [N-1 Train unit=0 n=200] owner [] | model sent [] owner [N-1 ExceedsMandate] refused [] charged 10000
+C3: rules sent [] owner [T-1 NeedsJudgement] | model sent [T-1 Train unit=0 n=100] owner [] refused [] charged 10000
+C4: rules sent [S-1 Train unit=1 n=100, N-1 Train unit=0 n=100] owner [] | model sent [N-1 Train unit=0 n=200] owner [] refused [] charged 10000
+C5: rules sent [N-1 Train unit=0 n=200, X-1 Train unit=0 n=200] owner [X-2 NeedsJudgement] | model sent [] owner [X-1 ExceedsMandate] refused [X-2 NotDelegable] charged 10000
+C6: rules sent [] owner [N-2 WalletRequired, N-3 DecidedNotForProxy] | model sent [] owner [N-3 DecidedNotForProxy, N-2 WalletRequired] refused [] charged 10000
