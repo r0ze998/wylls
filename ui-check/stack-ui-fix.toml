@@ -1,0 +1,31 @@
+# Checking the guide / report fix (branch fix/guide-first-battle) on a live world: as stack-ui-check.toml, with its
+# own season id (53) and the base port 41800, so it can run beside the UI-check world.
+#
+#   cd .claude/worktrees/guide-fix
+#   FRONTIER_RELAY_TXS_PER_DAY=400 FRONTIER_BIN=$PWD/../season-complete/frontier-node/target/release PSF_REPO=$PWD \
+#     ../season-complete/frontier-node/target/release/frontier-stack up --config ../fun-ab/ui-check/stack-ui-fix.toml \
+#     --run-id ui-fix-2 --so $PWD/../season-complete/permutation-frontier/target/deploy-test-beacon/permutation_frontier.so \
+#     --bots 12 --personas off --bots-args "--conquest --conquest-personas 3" --keep-running
+#
+# Game page: http://<name>.localhost:41840/frontier/frontier/
+run_id = "ui-fix-2"
+mode = "accel"
+beacon = "test-key"
+conquest = true
+scale = 10
+preseason_scale = 2000
+game_hours = 336
+drain_bells = 26
+bots = 12
+bot_seed = 53
+season_id = 53
+base_port = 41800
+
+[pools]
+beneficiary_lamports = 1000000000
+
+[chaos]
+enabled = false
+
+[adversary]
+enabled = false

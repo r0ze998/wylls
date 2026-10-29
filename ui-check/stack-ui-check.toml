@@ -1,0 +1,33 @@
+# UI check of the real game (no AI citizens, no prize, 12 conquest bots).
+# Same as permutation-gateway/citizens/stack/ai-cq-core-playtest.toml on
+# docs/core-playtest, except a 14-day season and its own season id (52), so a
+# browser that played season 51 does not reuse a stale key.
+#
+#   cd .claude/worktrees/core-playtest
+#   FRONTIER_RELAY_TXS_PER_DAY=400 FRONTIER_BIN=$PWD/../season-complete/frontier-node/target/release PSF_REPO=$PWD \
+#     ../season-complete/frontier-node/target/release/frontier-stack up \
+#     --config ../fun-ab/ui-check/stack-ui-check.toml --run-id ui-check-3 \
+#     --bots 12 --personas off --bots-args "--conquest --conquest-personas 3" --keep-running
+#
+# Game page: http://<name>.localhost:41940/frontier/frontier/
+run_id = "ui-check-3"
+mode = "accel"
+beacon = "test-key"
+conquest = true
+scale = 10
+preseason_scale = 2000
+game_hours = 336
+drain_bells = 26
+bots = 12
+bot_seed = 52
+season_id = 52
+base_port = 41900
+
+[pools]
+beneficiary_lamports = 1000000000
+
+[chaos]
+enabled = false
+
+[adversary]
+enabled = false
