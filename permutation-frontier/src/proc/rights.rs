@@ -635,3 +635,7 @@ pub fn close_grant(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     init::close_to(p, grant, rent_to, &Sink::Never, 0)?;
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "rights_tests.rs"]
+mod tests;

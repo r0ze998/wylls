@@ -30,14 +30,17 @@
 use alloc::vec;
 use alloc::vec::Vec;
 
+#[cfg(test)]
+use crate::host_test::{invoke, invoke_signed};
+#[cfg(not(test))]
+use solana_program::program::{invoke, invoke_signed};
 use solana_program::{
     account_info::AccountInfo,
     instruction::{AccountMeta, Instruction},
-    program::{invoke, invoke_signed},
     pubkey::Pubkey,
-    rent::Rent,
-    sysvar::Sysvar,
 };
+#[cfg(not(test))]
+use solana_program::{rent::Rent, sysvar::Sysvar};
 
 use frontier_abi::layout::player::holding as H;
 use frontier_abi::layout::world::defence_pool as DP;
@@ -81,7 +84,12 @@ impl SeasonSigner {
 
 /// The rent-exempt minimum of `space` bytes (Rent sysvar).
 pub fn rent(space: usize) -> R<u64> {
-    Ok(Rent::get()?.minimum_balance(space))
+    // 02-rights: the host harness's Rent in tests (`host_test`).
+    #[cfg(test)]
+    let r = crate::host_test::rent(space);
+    #[cfg(not(test))]
+    let r = Rent::get()?.minimum_balance(space);
+    Ok(r)
 }
 
 /// Absent: owned by the System program with no data (lamports ignored).

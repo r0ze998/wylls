@@ -53,6 +53,8 @@ pub mod error;
 pub mod events;
 pub mod evidence;
 pub mod heap;
+#[cfg(all(test, feature = "program"))]
+pub mod host_test;
 pub mod ix;
 pub mod layout;
 pub mod markers;

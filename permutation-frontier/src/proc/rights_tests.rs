@@ -1,0 +1,1125 @@
+//! Host harness for the WorkshopUse Grant (workstream 02-rights): the
+//! real [`crate::dispatch`] — its routing, the player prologue (signers,
+//! session, Season PDA, status, ruleset, action bucket), the holding
+//! kernel and the account writers — run natively over hand-built accounts,
+//! with the System program and the clock of [`crate::host_test`].
+//!
+//! **Fixture shortcuts (not program paths):** the Season, Citizens,
+//! Holdings and Province are written directly (no CreateSeason, Join or
+//! Build); a capture is simulated by editing the holding's generation and
+//! owner and the Province's site mirror (no siege or SettleCapture). Not
+//! covered: SBF, compute units, the 1,232-byte transaction limit, the
+//! verifier, keeper and herald. A failed instruction is rolled back by
+//! the harness ([`World::run`]), as the runtime would.
+
+extern crate std;
+
+use std::boxed::Box;
+use std::collections::BTreeMap;
+use std::vec::Vec;
+
+use solana_program::{account_info::AccountInfo, pubkey::Pubkey};
+
+use frontier_abi::addr::AddrCtx;
+use frontier_abi::v2::layout::player::{citizen as CI, holding as HO};
+use frontier_abi::v2::layout::province::{province as PV, site as SM};
+use frontier_abi::v2::layout::world::season as SE;
+use frontier_abi::v2::layout::{write_header, AccountKind as K2};
+use frontier_abi::v2::rights::{self as rt, layout as G, RightsError as E};
+use frontier_abi::v2::CqError;
+use permutation_rules::fixed::MILLI;
+use permutation_rules::frontier::arms;
+use permutation_rules::frontier::holding::{Holding as KHolding, Resource, Tier, RESOURCES};
+
+use crate::error::Error;
+use crate::host_test;
+use crate::proc::holding as hold;
+use crate::{addr, FrontierError};
+
+const T0: i64 = 1_800_000_000;
+const NOW: i64 = T0 + 3_600;
+const SID: u64 = 1;
+const ORE: usize = Resource::Ore as usize;
+const WOOD: usize = Resource::Wood as usize;
+const ARMS: usize = arms::ARMS as usize;
+const LAMPORTS: u64 = 10_000_000_000;
+
+/// A key with the four bytes `AccountInfo::resize` reads before it.
+#[repr(C)]
+struct KeyBox {
+    orig_len: u32,
+    key: Pubkey,
+}
+
+struct World {
+    program: Pubkey,
+    season: Pubkey,
+    sid: u64,
+    accts: BTreeMap<[u8; 32], AccountInfo<'static>>,
+}
+
+fn leak<T>(v: T) -> &'static mut T {
+    Box::leak(Box::new(v))
+}
+
+fn pk(k: [u8; 32]) -> Pubkey {
+    Pubkey::new_from_array(k)
+}
+
+fn wallet(n: u8) -> [u8; 32] {
+    [n; 32]
+}
+
+/// One account of an instruction: key, signer, writable.
+type Meta = ([u8; 32], bool, bool);
+
+impl World {
+    fn new(sid: u64) -> World {
+        let program = pk([0x77; 32]);
+        host_test::PROGRAM.with(|p| p.set(program));
+        host_test::set_now(NOW);
+        let bump = 254;
+        let season = addr::season_pda(sid, bump, &program.to_bytes());
+        let mut w = World {
+            program,
+            season: pk(season),
+            sid,
+            accts: BTreeMap::new(),
+        };
+        let mut d = std::vec![0u8; SE::SIZE];
+        assert!(write_header(&mut d, K2::Season, sid));
+        d[SE::STATUS] = SE::STATUS_RUNNING;
+        d[SE::BUMP] = bump;
+        d[SE::RULESET_HASH..SE::RULESET_HASH + 32].copy_from_slice(&crate::RULESET_HASH);
+        d[SE::GENESIS_TS..SE::GENESIS_TS + 8].copy_from_slice(&T0.to_le_bytes());
+        d[SE::END_BELL..SE::END_BELL + 4].copy_from_slice(&100_000u32.to_le_bytes());
+        d[SE::BUCKET_RATE_PER_H..SE::BUCKET_RATE_PER_H + 2].copy_from_slice(&600u16.to_le_bytes());
+        d[SE::BUCKET_BURST..SE::BUCKET_BURST + 2].copy_from_slice(&600u16.to_le_bytes());
+        w.put(season, program, LAMPORTS, &d);
+        w
+    }
+
+    fn ctx(&self) -> AddrCtx {
+        addr::ctx(&self.season.to_bytes(), &self.program.to_bytes())
+    }
+
+    fn put(&mut self, key: [u8; 32], owner: Pubkey, lamports: u64, data: &[u8]) {
+        let kb = leak(KeyBox {
+            orig_len: data.len() as u32,
+            key: pk(key),
+        });
+        let buf = host_test::leak_data(data.len());
+        buf.copy_from_slice(data);
+        let info = AccountInfo::new(
+            &kb.key,
+            false,
+            false,
+            leak(lamports),
+            buf,
+            leak(owner),
+            false,
+        );
+        self.accts.insert(key, info);
+    }
+
+    fn wallet_acct(&mut self, k: [u8; 32]) {
+        if !self.accts.contains_key(&k) {
+            self.put(k, crate::init::SYSTEM, LAMPORTS, &[]);
+        }
+    }
+
+    fn data(&self, k: &[u8; 32]) -> Vec<u8> {
+        self.accts[k].data.borrow().to_vec()
+    }
+
+    fn lamports(&self, k: &[u8; 32]) -> u64 {
+        self.accts[k].lamports()
+    }
+
+    fn exists(&self, k: &[u8; 32]) -> bool {
+        let a = &self.accts[k];
+        a.owner == &self.program && a.data_len() > 0
+    }
+
+    fn edit(&self, k: &[u8; 32], f: impl FnOnce(&mut [u8])) {
+        let a = &self.accts[k];
+        let mut d = a.data.borrow_mut();
+        f(&mut d);
+    }
+
+    /// Runs one instruction through the program's entry function; on an
+    /// error every account is restored (transaction atomicity).
+    fn run(&mut self, data: &[u8], metas: &[Meta]) -> Result<(), Error> {
+        for (k, _, _) in metas {
+            self.wallet_acct(*k);
+        }
+        let snap: Vec<([u8; 32], Vec<u8>, u64, Pubkey)> = self
+            .accts
+            .iter()
+            .map(|(k, a)| (*k, a.data.borrow().to_vec(), a.lamports(), *a.owner))
+            .collect();
+        let infos: Vec<AccountInfo<'static>> = metas
+            .iter()
+            .map(|(k, s, w)| {
+                let mut i = self.accts[k].clone();
+                i.is_signer = *s;
+                i.is_writable = *w;
+                i
+            })
+            .collect();
+        let r = crate::dispatch(&self.program, &infos, data);
+        if r.is_err() {
+            for (k, d, l, o) in snap {
+                let a = &self.accts[&k];
+                if a.data_len() != d.len() {
+                    *a.data.borrow_mut() = host_test::leak_data(d.len());
+                }
+                a.data.borrow_mut().copy_from_slice(&d);
+                **a.lamports.borrow_mut() = l;
+                a.assign(&o);
+            }
+        }
+        r
+    }
+
+    // -------------------------------------------------------- fixtures
+
+    fn citizen(&mut self, w: [u8; 32], faction: u8) -> [u8; 32] {
+        let k = self.ctx().citizen(&w);
+        let mut d = std::vec![0u8; CI::SIZE];
+        assert!(write_header(&mut d, K2::Citizen, self.sid));
+        d[CI::WALLET..CI::WALLET + 32].copy_from_slice(&w);
+        d[CI::FACTION] = faction;
+        d[CI::BUCKET_MILLI..CI::BUCKET_MILLI + 4].copy_from_slice(&600_000u32.to_le_bytes());
+        self.put(k, self.program, LAMPORTS / 10, &d);
+        self.wallet_acct(w);
+        k
+    }
+
+    fn province(&mut self, p: i16, q: i16) -> [u8; 32] {
+        let k = self.ctx().province(p as i32, q as i32);
+        if self.accts.contains_key(&k) {
+            return k;
+        }
+        let mut d = std::vec![0u8; PV::SIZE];
+        assert!(write_header(&mut d, K2::Province, self.sid));
+        d[PV::P..PV::P + 2].copy_from_slice(&p.to_le_bytes());
+        d[PV::Q..PV::Q + 2].copy_from_slice(&q.to_le_bytes());
+        self.put(k, self.program, LAMPORTS / 10, &d);
+        k
+    }
+
+    /// A final holding of `owner` on `site` of Province (p, q) with
+    /// `workshops` workshops and `stock` (whole units) of ore, wood, arms.
+    fn holding(
+        &mut self,
+        owner: &[u8; 32],
+        (p, q, site): (i16, i16, u8),
+        workshops: i64,
+        stock: [i64; 3],
+    ) -> [u8; 32] {
+        let k = self.ctx().holding(p as i32, q as i32, site);
+        let prov = self.province(p, q);
+        let mut h = KHolding::found(T0, 0, 1);
+        h.production = arms::base_production(Tier::Hamlet, 7_000);
+        h.production[ARMS] = workshops * arms::WORKSHOP_DELTA;
+        for (r, v) in [
+            (Resource::Ore, stock[0]),
+            (Resource::Wood, stock[1]),
+            (arms::ARMS, stock[2]),
+        ] {
+            h.credit(T0, r, v * MILLI).unwrap();
+        }
+        let mut d = std::vec![0u8; HO::SIZE];
+        assert!(write_header(&mut d, K2::Holding, self.sid));
+        d[HO::P..HO::P + 2].copy_from_slice(&p.to_le_bytes());
+        d[HO::Q..HO::Q + 2].copy_from_slice(&q.to_le_bytes());
+        d[HO::SITE] = site;
+        d[HO::GEN] = 1;
+        d[HO::TILE] = site;
+        d[HO::STATE] = HO::STATE_FINAL;
+        d[HO::OWNER_CITIZEN..HO::OWNER_CITIZEN + 32].copy_from_slice(owner);
+        d[HO::TERRAIN_ORE..HO::TERRAIN_ORE + 8].copy_from_slice(&7_000i64.to_le_bytes());
+        hold::write_holding(&mut d, &h, T0).unwrap();
+        self.put(k, self.program, LAMPORTS / 10, &d);
+        self.edit(&prov, |pd| {
+            let s = PV::site(site as usize);
+            pd[s + SM::STATE] = SM::STATE_HOLDING;
+            pd[s + SM::GEN] = 1;
+        });
+        k
+    }
+
+    /// The holding's stores at `now`, settled by the kernel (no write).
+    fn stock(&self, k: &[u8; 32], now: i64) -> [i64; RESOURCES] {
+        let d = self.data(k);
+        let mut h = hold::read_holding(&d).unwrap();
+        hold::settle_tiered(&mut h, now, hold::terrain_ore(&d).unwrap()).unwrap();
+        h.stock_at(now)
+    }
+
+    /// A capture of the holding as the program leaves it after
+    /// SettleCapture (simulated): next generation, new owner, the mirror
+    /// at that generation.
+    fn capture(&self, k: &[u8; 32], prov: &[u8; 32], site: u8, captor: &[u8; 32]) {
+        self.edit(k, |d| {
+            d[HO::GEN] += 1;
+            d[HO::OWNER_CITIZEN..HO::OWNER_CITIZEN + 32].copy_from_slice(captor);
+        });
+        self.edit(prov, |pd| pd[PV::site(site as usize) + SM::GEN] += 1);
+    }
+}
+
+// ------------------------------------------------------------ scenario
+
+/// Issuer A (faction 1) owns a workshop holding F; grantee B (faction 2:
+/// another nation) has station S in the same Province; C (faction 1,
+/// A's own nation) has holding X there, and D a holding elsewhere.
+struct Sc {
+    w: World,
+    a: [u8; 32],
+    a_c: [u8; 32],
+    b: [u8; 32],
+    b_c: [u8; 32],
+    c: [u8; 32],
+    c_c: [u8; 32],
+    f: [u8; 32],
+    f2: [u8; 32],
+    s: [u8; 32],
+    x: [u8; 32],
+    far: [u8; 32],
+    prov: [u8; 32],
+    prov2: [u8; 32],
+}
+
+const PQ: (i16, i16) = (2, -1);
+
+fn scene() -> Sc {
+    let mut w = World::new(SID);
+    let (a, b, c) = (wallet(0xA1), wallet(0xB1), wallet(0xC1));
+    let a_c = w.citizen(a, 1);
+    let b_c = w.citizen(b, 2);
+    let c_c = w.citizen(c, 1);
+    let f = w.holding(&a_c, (PQ.0, PQ.1, 0), 2, [100, 100, 100]);
+    let f2 = w.holding(&a_c, (PQ.0, PQ.1, 3), 0, [100, 100, 100]);
+    let s = w.holding(&b_c, (PQ.0, PQ.1, 1), 0, [500, 500, 0]);
+    let x = w.holding(&c_c, (PQ.0, PQ.1, 2), 0, [500, 500, 0]);
+    let far = w.holding(&b_c, (5, 5, 0), 0, [500, 500, 0]);
+    let prov = w.ctx().province(PQ.0 as i32, PQ.1 as i32);
+    let prov2 = w.ctx().province(5, 5);
+    Sc {
+        w,
+        a,
+        a_c,
+        b,
+        b_c,
+        c,
+        c_c,
+        f,
+        f2,
+        s,
+        x,
+        far,
+        prov,
+        prov2,
+    }
+}
+
+fn rerr(e: E) -> Result<(), Error> {
+    Err(Error::Rights(e))
+}
+fn ferr(e: FrontierError) -> Result<(), Error> {
+    Err(Error::Frontier(e))
+}
+fn cqerr(e: CqError) -> Result<(), Error> {
+    Err(Error::Cq(e))
+}
+
+impl Sc {
+    fn grant_key(&self, nonce: u32) -> [u8; 32] {
+        let tag = addr::citizen_tag(&self.a_c);
+        rt::grant(&self.w.ctx(), tag, nonce)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn issue_as(
+        &mut self,
+        actor: [u8; 32],
+        issuer_c: [u8; 32],
+        facility: [u8; 32],
+        grantee_c: [u8; 32],
+        station: [u8; 32],
+        grant: [u8; 32],
+        x: rt::IssueGrant,
+    ) -> Result<(), Error> {
+        let season = self.w.season.to_bytes();
+        let prov = self.prov;
+        self.w.run(
+            &x.to_bytes(),
+            &[
+                (actor, true, false),
+                (self.a, true, true),
+                (season, false, false),
+                (issuer_c, false, true),
+                (facility, false, false),
+                (prov, false, false),
+                (grantee_c, false, false),
+                (station, false, false),
+                (grant, false, true),
+                (addr::ids::SYSTEM_PROGRAM, false, false),
+            ],
+        )
+    }
+
+    fn terms(nonce: u32) -> rt::IssueGrant {
+        rt::IssueGrant {
+            nonce,
+            kind: rt::KIND_WORKSHOP_USE,
+            max_uses: 3,
+            max_units: 30,
+            expires_ts: NOW + 86_400,
+        }
+    }
+
+    /// A issues grant `nonce` to B for F, station S (default terms).
+    fn issue(&mut self, nonce: u32) -> [u8; 32] {
+        let g = self.grant_key(nonce);
+        let (a, a_c, f, b_c, s) = (self.a, self.a_c, self.f, self.b_c, self.s);
+        self.issue_as(a, a_c, f, b_c, s, g, Sc::terms(nonce))
+            .unwrap();
+        g
+    }
+
+    /// `[actor] [payer] [season] [citizen] [grant] [facility] [station]
+    /// [province]` for Reserve, Consume and Revoke.
+    fn use_metas(&self, actor: [u8; 32], citizen: [u8; 32], grant: [u8; 32]) -> Vec<Meta> {
+        self.use_metas_with(actor, citizen, grant, self.f, self.s, self.prov)
+    }
+
+    fn use_metas_with(
+        &self,
+        actor: [u8; 32],
+        citizen: [u8; 32],
+        grant: [u8; 32],
+        facility: [u8; 32],
+        station: [u8; 32],
+        prov: [u8; 32],
+    ) -> Vec<Meta> {
+        std::vec![
+            (actor, true, false),
+            (actor, true, true),
+            (self.w.season.to_bytes(), false, false),
+            (citizen, false, true),
+            (grant, false, true),
+            (facility, false, true),
+            (station, false, true),
+            (prov, false, false),
+        ]
+    }
+
+    fn reserve(
+        &mut self,
+        actor: [u8; 32],
+        citizen: [u8; 32],
+        g: [u8; 32],
+        units: u32,
+    ) -> Result<(), Error> {
+        let m = self.use_metas(actor, citizen, g);
+        self.w.run(&rt::ReserveUse { units }.to_bytes(), &m)
+    }
+
+    fn consume(&mut self, actor: [u8; 32], citizen: [u8; 32], g: [u8; 32]) -> Result<(), Error> {
+        let m = self.use_metas(actor, citizen, g);
+        self.w.run(&rt::ConsumeUse {}.to_bytes(), &m)
+    }
+
+    fn revoke(&mut self, actor: [u8; 32], citizen: [u8; 32], g: [u8; 32]) -> Result<(), Error> {
+        let m = self.use_metas(actor, citizen, g);
+        self.w.run(&rt::RevokeGrant {}.to_bytes(), &m)
+    }
+
+    fn release(&mut self, actor: [u8; 32], g: [u8; 32]) -> Result<(), Error> {
+        let m = std::vec![
+            (actor, true, false),
+            (self.w.season.to_bytes(), false, false),
+            (self.b_c, false, false),
+            (g, false, true),
+            (self.f, false, true),
+            (self.s, false, true),
+            (self.prov, false, false),
+        ];
+        self.w.run(&rt::ReleaseUse {}.to_bytes(), &m)
+    }
+
+    fn close(&mut self, actor: [u8; 32], g: [u8; 32], rent_to: [u8; 32]) -> Result<(), Error> {
+        let m = std::vec![
+            (actor, true, false),
+            (self.w.season.to_bytes(), false, false),
+            (g, false, true),
+            (rent_to, false, true),
+        ];
+        self.w.run(&rt::CloseGrant {}.to_bytes(), &m)
+    }
+
+    fn set_session(
+        &mut self,
+        w: [u8; 32],
+        c: [u8; 32],
+        session: [u8; 32],
+        expiry: i64,
+    ) -> Result<(), Error> {
+        let x = frontier_abi::ix::SetSession { session, expiry };
+        let season = self.w.season.to_bytes();
+        self.w.run(
+            &x.to_bytes(),
+            &[
+                (w, true, false),
+                (w, true, true),
+                (season, false, false),
+                (c, false, true),
+            ],
+        )
+    }
+
+    fn g_u32(&self, g: &[u8; 32], o: usize) -> u32 {
+        u32::from_le_bytes(self.w.data(g)[o..o + 4].try_into().unwrap())
+    }
+    fn g_u16(&self, g: &[u8; 32], o: usize) -> u16 {
+        u16::from_le_bytes(self.w.data(g)[o..o + 2].try_into().unwrap())
+    }
+}
+
+fn units(m: i64) -> i64 {
+    m * MILLI
+}
+
+// ------------------------------------------------------------ the harness itself
+
+#[test]
+fn harness_runs_a_real_instruction_set_session() {
+    let mut sc = scene();
+    let sess = wallet(0xB5);
+    sc.set_session(sc.b, sc.b_c, sess, NOW + 3_600).unwrap();
+    let d = sc.w.data(&sc.b_c);
+    assert_eq!(&d[CI::SESSION..CI::SESSION + 32], &sess);
+    // SetSession is wallet-only in the program: the session cannot renew
+    // itself.
+    assert_eq!(
+        sc.set_session(sess, sc.b_c, sess, NOW + 7_200),
+        ferr(FrontierError::Auth)
+    );
+}
+
+// ------------------------------------------------------------ legitimate use
+
+#[test]
+fn legitimate_use_moves_exactly_the_terms_and_no_key() {
+    let mut sc = scene();
+    let g = sc.issue(0);
+    assert!(sc.w.exists(&g));
+    let (f0, s0) = (sc.w.stock(&sc.f, NOW), sc.w.stock(&sc.s, NOW));
+    // B reserves 10 arms' worth with its own wallet: 20 ore, 10 wood from
+    // S; 10 arms from F; all held by the Grant.
+    sc.reserve(sc.b, sc.b_c, g, 10).unwrap();
+    let (f1, s1) = (sc.w.stock(&sc.f, NOW), sc.w.stock(&sc.s, NOW));
+    assert_eq!(s0[ORE] - s1[ORE], units(10 * arms::ORE_PER_ARM));
+    assert_eq!(s0[WOOD] - s1[WOOD], units(10 * arms::WOOD_PER_ARM));
+    assert_eq!(f0[ARMS] - f1[ARMS], units(10));
+    assert_eq!((f0[ORE], f0[WOOD]), (f1[ORE], f1[WOOD]));
+    assert_eq!(sc.g_u32(&g, G::OPEN_UNITS), 10);
+    // Consume: arms to S, inputs to F.
+    sc.consume(sc.b, sc.b_c, g).unwrap();
+    let (f2, s2) = (sc.w.stock(&sc.f, NOW), sc.w.stock(&sc.s, NOW));
+    assert_eq!(s2[ARMS] - s0[ARMS], units(10));
+    assert_eq!(f2[ORE] - f0[ORE], units(20));
+    assert_eq!(f2[WOOD] - f0[WOOD], units(10));
+    assert_eq!(f0[ARMS] - f2[ARMS], units(10));
+    // Conservation of every resource over F and S together.
+    for r in 0..RESOURCES {
+        assert_eq!(f0[r] + s0[r], f2[r] + s2[r], "resource {r}");
+    }
+    assert_eq!(sc.g_u16(&g, G::USES), 1);
+    assert_eq!(sc.g_u32(&g, G::UNITS_CONSUMED), 10);
+    assert_eq!(sc.g_u32(&g, G::OPEN_UNITS), 0);
+    // A's citizen and keys were never used after IssueGrant; F's owner is
+    // still A and its owner activity is untouched.
+    let fd = sc.w.data(&sc.f);
+    assert_eq!(&fd[HO::OWNER_CITIZEN..HO::OWNER_CITIZEN + 32], &sc.a_c);
+    let last = i64::from_le_bytes(
+        fd[HO::LAST_OWNER_ACTION..HO::LAST_OWNER_ACTION + 8]
+            .try_into()
+            .unwrap(),
+    );
+    assert_eq!(last, T0);
+}
+
+#[test]
+fn grantee_session_from_any_client_works_within_the_grant() {
+    let mut sc = scene();
+    let g = sc.issue(0);
+    let sess = wallet(0xB5);
+    sc.set_session(sc.b, sc.b_c, sess, NOW + 3_600).unwrap();
+    sc.reserve(sess, sc.b_c, g, 5).unwrap();
+    sc.consume(sess, sc.b_c, g).unwrap();
+    // Expired session: refused by the prologue.
+    host_test::set_now(NOW + 3_600);
+    assert_eq!(
+        sc.reserve(sess, sc.b_c, g, 5),
+        ferr(FrontierError::SessionExpired)
+    );
+}
+
+#[test]
+fn issuing_needs_the_issuers_wallet_not_its_session() {
+    let mut sc = scene();
+    let sess = wallet(0xA5);
+    sc.set_session(sc.a, sc.a_c, sess, NOW + 3_600).unwrap();
+    let g = sc.grant_key(0);
+    let (a_c, f, b_c, s) = (sc.a_c, sc.f, sc.b_c, sc.s);
+    assert_eq!(
+        sc.issue_as(sess, a_c, f, b_c, s, g, Sc::terms(0)),
+        cqerr(CqError::WalletRequired)
+    );
+    assert!(!sc.w.exists(&g));
+}
+
+// ------------------------------------------------------------ required refusals
+
+#[test]
+fn no_grant_no_use() {
+    let mut sc = scene();
+    // No Grant at the address: nothing to use.
+    let g = sc.grant_key(0);
+    assert_eq!(sc.reserve(sc.b, sc.b_c, g, 1), rerr(E::BadGrant));
+    // C (A's own nation) has no grant either: nationality grants nothing.
+    let g = sc.issue(0);
+    let m = sc.use_metas_with(sc.c, sc.c_c, g, sc.f, sc.x, sc.prov);
+    assert_eq!(
+        sc.w.run(&rt::ReserveUse { units: 1 }.to_bytes(), &m),
+        rerr(E::NotGrantee)
+    );
+    // Someone who does not own F cannot issue a Grant for it.
+    let g2 = rt::grant(&sc.w.ctx(), addr::citizen_tag(&sc.c_c), 0);
+    let (c, c_c, f, b_c, s) = (sc.c, sc.c_c, sc.f, sc.b_c, sc.s);
+    assert_eq!(
+        sc.issue_as(c, c_c, f, b_c, s, g2, Sc::terms(0)),
+        ferr(FrontierError::NotOwner)
+    );
+}
+
+#[test]
+fn another_person_cannot_use_it() {
+    let mut sc = scene();
+    let g = sc.issue(0);
+    // C signs as itself with its own Citizen: not the grantee.
+    let m = sc.use_metas_with(sc.c, sc.c_c, g, sc.f, sc.s, sc.prov);
+    assert_eq!(
+        sc.w.run(&rt::ReserveUse { units: 1 }.to_bytes(), &m),
+        rerr(E::NotGrantee)
+    );
+    // C signs a raw instruction naming B's Citizen (a direct call that
+    // skips every client): the prologue refuses C's key.
+    assert_eq!(sc.reserve(sc.c, sc.b_c, g, 1), ferr(FrontierError::Auth));
+    // The issuer cannot use it on the grantee's behalf either.
+    assert_eq!(sc.reserve(sc.a, sc.b_c, g, 1), ferr(FrontierError::Auth));
+    // Nobody but the grantee may release B's reservation while it is live.
+    sc.reserve(sc.b, sc.b_c, g, 1).unwrap();
+    assert_eq!(sc.release(sc.c, g), rerr(E::NotGrantee));
+}
+
+#[test]
+fn another_facility_or_station_is_refused() {
+    let mut sc = scene();
+    let g = sc.issue(0);
+    // A's other holding F2 (same owner, same Province): not the pinned one.
+    let m = sc.use_metas_with(sc.b, sc.b_c, g, sc.f2, sc.s, sc.prov);
+    assert_eq!(
+        sc.w.run(&rt::ReserveUse { units: 1 }.to_bytes(), &m),
+        rerr(E::BadGrant)
+    );
+    // C's holding as the facility, B's far holding as the station.
+    let m = sc.use_metas_with(sc.b, sc.b_c, g, sc.x, sc.s, sc.prov);
+    assert_eq!(
+        sc.w.run(&rt::ReserveUse { units: 1 }.to_bytes(), &m),
+        rerr(E::BadGrant)
+    );
+    let m = sc.use_metas_with(sc.b, sc.b_c, g, sc.f, sc.far, sc.prov);
+    assert_eq!(
+        sc.w.run(&rt::ReserveUse { units: 1 }.to_bytes(), &m),
+        rerr(E::BadGrant)
+    );
+    // Another Province account.
+    let m = sc.use_metas_with(sc.b, sc.b_c, g, sc.f, sc.s, sc.prov2);
+    assert_eq!(
+        sc.w.run(&rt::ReserveUse { units: 1 }.to_bytes(), &m),
+        ferr(FrontierError::BadAddress)
+    );
+}
+
+#[test]
+fn another_season_is_refused() {
+    let mut sc = scene();
+    let g = sc.issue(0);
+    let bytes = sc.w.data(&g);
+    // Season 2 of the same program, the same players and places.
+    let mut w2 = World::new(2);
+    let a_c = w2.citizen(sc.a, 1);
+    let b_c = w2.citizen(sc.b, 2);
+    let f = w2.holding(&a_c, (PQ.0, PQ.1, 0), 2, [100, 100, 100]);
+    let s = w2.holding(&b_c, (PQ.0, PQ.1, 1), 0, [500, 500, 0]);
+    let prov = w2.ctx().province(PQ.0 as i32, PQ.1 as i32);
+    let season2 = w2.season.to_bytes();
+    let metas = |grant: [u8; 32]| {
+        std::vec![
+            (sc.b, true, false),
+            (sc.b, true, true),
+            (season2, false, false),
+            (b_c, false, true),
+            (grant, false, true),
+            (f, false, true),
+            (s, false, true),
+            (prov, false, false),
+        ]
+    };
+    // (a) Season 1's Grant account itself, offered in season 2.
+    w2.put(g, w2.program, LAMPORTS, &bytes);
+    assert_eq!(
+        w2.run(&rt::ReserveUse { units: 1 }.to_bytes(), &metas(g)),
+        rerr(E::BadGrant)
+    );
+    // (b) Its bytes copied to season 2's canonical address of the same
+    // issuer tag and nonce (an account only the program could write;
+    // modelled as if it existed): the season id inside still refuses it.
+    let tag = addr::citizen_tag(&a_c);
+    let g2 = rt::grant(&w2.ctx(), tag, 0);
+    w2.put(g2, w2.program, LAMPORTS, &bytes);
+    assert_eq!(
+        w2.run(&rt::ReserveUse { units: 1 }.to_bytes(), &metas(g2)),
+        rerr(E::BadGrant)
+    );
+    // (c) The same, rewritten so every field but the season id names
+    // season 2's places: only the season id refuses it.
+    let mut b2 = bytes.clone();
+    b2[G::ISSUER_TAG..G::ISSUER_TAG + 8].copy_from_slice(&tag.to_le_bytes());
+    for (o, k) in [
+        (G::ISSUER_CITIZEN, a_c),
+        (G::GRANTEE_CITIZEN, b_c),
+        (G::FACILITY, f),
+        (G::STATION, s),
+    ] {
+        b2[o..o + 32].copy_from_slice(&k);
+    }
+    w2.put(g2, w2.program, LAMPORTS, &b2);
+    assert_eq!(
+        w2.run(&rt::ReserveUse { units: 1 }.to_bytes(), &metas(g2)),
+        rerr(E::BadGrant)
+    );
+    b2[G::SEASON_ID..G::SEASON_ID + 8].copy_from_slice(&2u64.to_le_bytes());
+    w2.put(g2, w2.program, LAMPORTS, &b2);
+    w2.run(&rt::ReserveUse { units: 1 }.to_bytes(), &metas(g2))
+        .expect("the control: with season 2's id the same bytes pass");
+}
+
+#[test]
+fn expired_grant_is_refused_and_its_reservation_can_be_released_by_anyone() {
+    let mut sc = scene();
+    let g = sc.issue(0);
+    sc.reserve(sc.b, sc.b_c, g, 4).unwrap();
+    let later = NOW + 86_400;
+    host_test::set_now(later);
+    let s_before = sc.w.stock(&sc.s, later);
+    let f_before = sc.w.stock(&sc.f, later);
+    assert_eq!(sc.consume(sc.b, sc.b_c, g), rerr(E::Expired));
+    assert_eq!(sc.reserve(sc.b, sc.b_c, g, 1), rerr(E::Expired));
+    // A third party (crank) releases it: both sides back, exactly.
+    sc.release(sc.c, g).unwrap();
+    let s_after = sc.w.stock(&sc.s, later);
+    let f_after = sc.w.stock(&sc.f, later);
+    assert_eq!(s_after[ORE] - s_before[ORE], units(8));
+    assert_eq!(s_after[WOOD] - s_before[WOOD], units(4));
+    assert_eq!(f_after[ARMS] - f_before[ARMS], units(4));
+    assert_eq!(sc.g_u32(&g, G::OPEN_UNITS), 0);
+    assert_eq!(sc.g_u16(&g, G::USES), 0);
+    assert_eq!(sc.release(sc.c, g), rerr(E::NoReservation));
+}
+
+#[test]
+fn revoked_grant_is_refused() {
+    let mut sc = scene();
+    let g = sc.issue(0);
+    sc.revoke(sc.a, sc.a_c, g).unwrap();
+    assert_eq!(sc.reserve(sc.b, sc.b_c, g, 1), rerr(E::Revoked));
+    assert_eq!(sc.revoke(sc.a, sc.a_c, g), rerr(E::Revoked));
+    // Only the issuer revokes.
+    let g1 = sc.issue(1);
+    assert_eq!(sc.revoke(sc.b, sc.b_c, g1), rerr(E::NotGrantee));
+    assert_eq!(sc.revoke(sc.c, sc.a_c, g1), ferr(FrontierError::Auth));
+}
+
+#[test]
+fn quota_is_enforced() {
+    let mut sc = scene();
+    let g = sc.issue(0); // 3 uses, 30 units
+    assert_eq!(sc.reserve(sc.b, sc.b_c, g, 31), rerr(E::QuotaExceeded));
+    assert_eq!(sc.reserve(sc.b, sc.b_c, g, 0), rerr(E::QuotaExceeded));
+    for n in [10, 10, 5] {
+        sc.reserve(sc.b, sc.b_c, g, n).unwrap();
+        sc.consume(sc.b, sc.b_c, g).unwrap();
+    }
+    // Uses spent (3 of 3) though 5 units are left.
+    assert_eq!(sc.reserve(sc.b, sc.b_c, g, 1), rerr(E::QuotaExceeded));
+    let g1 = sc.issue(1);
+    sc.reserve(sc.b, sc.b_c, g1, 25).unwrap();
+    sc.consume(sc.b, sc.b_c, g1).unwrap();
+    // Units: 25 consumed, 6 more would pass 30.
+    assert_eq!(sc.reserve(sc.b, sc.b_c, g1, 6), rerr(E::QuotaExceeded));
+    sc.reserve(sc.b, sc.b_c, g1, 5).unwrap();
+}
+
+#[test]
+fn double_use_is_refused() {
+    let mut sc = scene();
+    let g = sc.issue(0);
+    sc.reserve(sc.b, sc.b_c, g, 3).unwrap();
+    sc.consume(sc.b, sc.b_c, g).unwrap();
+    let s1 = sc.w.stock(&sc.s, NOW);
+    // The same reservation cannot be consumed twice.
+    assert_eq!(sc.consume(sc.b, sc.b_c, g), rerr(E::NoReservation));
+    assert_eq!(sc.w.stock(&sc.s, NOW), s1);
+}
+
+#[test]
+fn concurrent_requests_cannot_overcommit() {
+    // The runtime serialises transactions that write the same Grant; two
+    // requests sent "at once" therefore run one after the other, in either
+    // order. Both orders keep within the terms.
+    for first in [12u32, 20] {
+        let mut sc = scene();
+        let g = sc.issue(0); // 30 units
+        let second = 32 - first;
+        sc.reserve(sc.b, sc.b_c, g, first).unwrap();
+        assert_eq!(
+            sc.reserve(sc.b, sc.b_c, g, second),
+            rerr(E::ReservationOpen)
+        );
+        sc.consume(sc.b, sc.b_c, g).unwrap();
+        assert_eq!(sc.reserve(sc.b, sc.b_c, g, second), rerr(E::QuotaExceeded));
+        // A session and the wallet of the same grantee share the Grant.
+        let sess = wallet(0xB5);
+        sc.set_session(sc.b, sc.b_c, sess, NOW + 3_600).unwrap();
+        sc.reserve(sess, sc.b_c, g, 30 - first).unwrap();
+        assert_eq!(sc.reserve(sc.b, sc.b_c, g, 1), rerr(E::ReservationOpen));
+    }
+}
+
+#[test]
+fn stale_facility_generation_is_refused_and_its_escrow_follows_the_capture() {
+    let mut sc = scene();
+    let g = sc.issue(0);
+    sc.reserve(sc.b, sc.b_c, g, 6).unwrap();
+    // A capture completed in a resolve, not yet settled: the lock waits.
+    sc.w.edit(&sc.prov, |pd| pd[PV::site(0) + SM::GEN] = 2);
+    assert_eq!(sc.consume(sc.b, sc.b_c, g), cqerr(CqError::CapturePending));
+    assert_eq!(sc.release(sc.b, g), cqerr(CqError::CapturePending));
+    sc.w.edit(&sc.prov, |pd| pd[PV::site(0) + SM::GEN] = 1);
+    // SettleCapture (simulated): F is generation 2, C's.
+    let (f, prov, c_c) = (sc.f, sc.prov, sc.c_c);
+    sc.w.capture(&f, &prov, 0, &c_c);
+    // The Grant is void for its holder: neither use nor a new reservation.
+    assert_eq!(sc.consume(sc.b, sc.b_c, g), rerr(E::StaleHolding));
+    assert_eq!(sc.reserve(sc.b, sc.b_c, g, 1), rerr(E::StaleHolding));
+    let f_before = sc.w.stock(&sc.f, NOW);
+    let s_before = sc.w.stock(&sc.s, NOW);
+    // Anyone may release: B's inputs come back to S; the escrowed arms go
+    // back into F as it stands, now the captor's (redesign 20 §5).
+    sc.release(sc.c, g).unwrap();
+    let f_after = sc.w.stock(&sc.f, NOW);
+    let s_after = sc.w.stock(&sc.s, NOW);
+    assert_eq!(f_after[ARMS] - f_before[ARMS], units(6));
+    assert_eq!(s_after[ORE] - s_before[ORE], units(12));
+    assert_eq!(s_after[WOOD] - s_before[WOOD], units(6));
+    assert_eq!(s_after[ARMS], s_before[ARMS]);
+    assert_eq!(sc.reserve(sc.b, sc.b_c, g, 1), rerr(E::StaleHolding));
+}
+
+#[test]
+fn generation_and_owner_are_each_pinned() {
+    // Same owner, next generation (A lost F and took the site back): the
+    // Grant was for the old F.
+    let mut sc = scene();
+    let g = sc.issue(0);
+    let (f, prov, a_c) = (sc.f, sc.prov, sc.a_c);
+    sc.w.capture(&f, &prov, 0, &a_c);
+    assert_eq!(sc.reserve(sc.b, sc.b_c, g, 1), rerr(E::StaleHolding));
+    // Same generation, another owner (not a path the program has today;
+    // defence in depth): refused too.
+    let mut sc = scene();
+    let g = sc.issue(0);
+    let c_c = sc.c_c;
+    sc.w.edit(&sc.f, |d| {
+        d[HO::OWNER_CITIZEN..HO::OWNER_CITIZEN + 32].copy_from_slice(&c_c)
+    });
+    assert_eq!(sc.reserve(sc.b, sc.b_c, g, 1), rerr(E::StaleHolding));
+    // The station's pin as well.
+    let mut sc = scene();
+    let g = sc.issue(0);
+    let (s, prov, b_c) = (sc.s, sc.prov, sc.b_c);
+    sc.w.capture(&s, &prov, 1, &b_c);
+    assert_eq!(sc.reserve(sc.b, sc.b_c, g, 1), rerr(E::StaleHolding));
+}
+
+#[test]
+fn a_station_that_is_gone_loses_its_escrowed_inputs_and_nothing_else() {
+    let mut sc = scene();
+    let g = sc.issue(0);
+    sc.reserve(sc.b, sc.b_c, g, 5).unwrap();
+    // S released (simulated): no live holding at its key any more.
+    sc.w.edit(&sc.s, |d| d[HO::STATE] = HO::STATE_RELEASED);
+    let s_bytes = sc.w.data(&sc.s);
+    let f_before = sc.w.stock(&sc.f, NOW);
+    assert_eq!(sc.reserve(sc.b, sc.b_c, g, 1), rerr(E::StaleHolding));
+    // The issuer revokes: F's arms come back, S is not written.
+    sc.revoke(sc.a, sc.a_c, g).unwrap();
+    assert_eq!(sc.w.stock(&sc.f, NOW)[ARMS] - f_before[ARMS], units(5));
+    assert_eq!(sc.w.data(&sc.s), s_bytes);
+    assert_eq!(sc.g_u32(&g, G::OPEN_UNITS), 0);
+}
+
+#[test]
+fn forged_grant_accounts_are_refused() {
+    let mut sc = scene();
+    let g = sc.issue(0);
+    let bytes = sc.w.data(&g);
+    // (a) The same bytes owned by another program at the canonical
+    // address of nonce 9.
+    let g9 = sc.grant_key(9);
+    sc.w.put(g9, pk([0x66; 32]), LAMPORTS, &{
+        let mut b = bytes.clone();
+        b[G::NONCE..G::NONCE + 4].copy_from_slice(&9u32.to_le_bytes());
+        b
+    });
+    assert_eq!(sc.reserve(sc.b, sc.b_c, g9, 1), rerr(E::BadGrant));
+    // (b) Program-owned bytes at an address the fields do not recompute to
+    // (modelled; the program never writes such an account).
+    let odd = [0x42; 32];
+    sc.w.put(odd, sc.w.program, LAMPORTS, &bytes);
+    assert_eq!(sc.reserve(sc.b, sc.b_c, odd, 1), rerr(E::BadGrant));
+    // (c) The real Grant with a raised quota in a copy at another program.
+    let fake = [0x43; 32];
+    let mut b = bytes.clone();
+    b[G::MAX_UNITS..G::MAX_UNITS + 4].copy_from_slice(&u32::MAX.to_le_bytes());
+    sc.w.put(fake, pk([0x66; 32]), LAMPORTS, &b);
+    assert_eq!(sc.reserve(sc.b, sc.b_c, fake, 100), rerr(E::BadGrant));
+    // (d) Another program account kind (a Holding) as the Grant.
+    let f = sc.f;
+    assert_eq!(sc.reserve(sc.b, sc.b_c, f, 1), rerr(E::BadGrant));
+    // (e) A Grant whose grantee field names C, at another program.
+    let mut b = bytes;
+    b[G::GRANTEE_CITIZEN..G::GRANTEE_CITIZEN + 32].copy_from_slice(&sc.c_c);
+    let fake2 = [0x44; 32];
+    sc.w.put(fake2, pk([0x66; 32]), LAMPORTS, &b);
+    let m = sc.use_metas_with(sc.c, sc.c_c, fake2, sc.f, sc.x, sc.prov);
+    assert_eq!(
+        sc.w.run(&rt::ReserveUse { units: 1 }.to_bytes(), &m),
+        rerr(E::BadGrant)
+    );
+}
+
+#[test]
+fn signers_and_flags_are_checked_on_direct_calls() {
+    let mut sc = scene();
+    let g = sc.issue(0);
+    // The grantee's key present but not signing.
+    let mut m = sc.use_metas(sc.b, sc.b_c, g);
+    m[0].1 = false;
+    assert_eq!(
+        sc.w.run(&rt::ReserveUse { units: 1 }.to_bytes(), &m),
+        ferr(FrontierError::Auth)
+    );
+    // The Grant passed read-only.
+    let mut m = sc.use_metas(sc.b, sc.b_c, g);
+    m[4].2 = false;
+    assert_eq!(
+        sc.w.run(&rt::ReserveUse { units: 1 }.to_bytes(), &m),
+        ferr(FrontierError::BadAccount)
+    );
+    // A truncated account list.
+    let m = sc.use_metas(sc.b, sc.b_c, g);
+    assert_eq!(
+        sc.w.run(&rt::ReserveUse { units: 1 }.to_bytes(), &m[..7]),
+        ferr(FrontierError::TooManyAccounts)
+    );
+    // Malformed data.
+    let m = sc.use_metas(sc.b, sc.b_c, g);
+    assert_eq!(
+        sc.w.run(&[rt::tag::RESERVE_USE, 1, 0], &m),
+        ferr(FrontierError::BadData)
+    );
+    // A Release signer that is not the grantee, before expiry: refused.
+    sc.reserve(sc.b, sc.b_c, g, 1).unwrap();
+    assert_eq!(sc.release(sc.a, g), rerr(E::NotGrantee));
+}
+
+// ------------------------------------------------------------ cancellation
+
+#[test]
+fn revoking_after_a_reservation_returns_both_sides_and_keeps_what_was_consumed() {
+    let mut sc = scene();
+    let g = sc.issue(0);
+    let (f0, s0) = (sc.w.stock(&sc.f, NOW), sc.w.stock(&sc.s, NOW));
+    sc.reserve(sc.b, sc.b_c, g, 5).unwrap();
+    sc.consume(sc.b, sc.b_c, g).unwrap();
+    let (f1, s1) = (sc.w.stock(&sc.f, NOW), sc.w.stock(&sc.s, NOW));
+    sc.reserve(sc.b, sc.b_c, g, 7).unwrap();
+    sc.revoke(sc.a, sc.a_c, g).unwrap();
+    let (f2, s2) = (sc.w.stock(&sc.f, NOW), sc.w.stock(&sc.s, NOW));
+    // The open reservation came back whole on both sides …
+    assert_eq!((f2, s2), (f1, s1));
+    // … the consumed use did not: S keeps its 5 arms, F its 10 ore, 5 wood.
+    assert_eq!(s2[ARMS] - s0[ARMS], units(5));
+    assert_eq!(f2[ORE] - f0[ORE], units(10));
+    assert_eq!(sc.g_u16(&g, G::USES), 1);
+    assert_eq!(sc.w.data(&g)[G::STATE], rt::STATE_REVOKED);
+}
+
+#[test]
+fn revoking_unused_quota_moves_nothing() {
+    let mut sc = scene();
+    let g = sc.issue(0);
+    let (f0, s0) = (sc.w.data(&sc.f), sc.w.data(&sc.s));
+    sc.revoke(sc.a, sc.a_c, g).unwrap();
+    assert_eq!((sc.w.data(&sc.f), sc.w.data(&sc.s)), (f0, s0));
+    // The issuer's session may revoke (it only takes power away).
+    let g1 = sc.issue(1);
+    let sess = wallet(0xA5);
+    sc.set_session(sc.a, sc.a_c, sess, NOW + 3_600).unwrap();
+    sc.revoke(sess, sc.a_c, g1).unwrap();
+}
+
+#[test]
+fn grantee_may_release_its_own_reservation() {
+    let mut sc = scene();
+    let g = sc.issue(0);
+    let (f0, s0) = (sc.w.stock(&sc.f, NOW), sc.w.stock(&sc.s, NOW));
+    sc.reserve(sc.b, sc.b_c, g, 9).unwrap();
+    sc.release(sc.b, g).unwrap();
+    assert_eq!((sc.w.stock(&sc.f, NOW), sc.w.stock(&sc.s, NOW)), (f0, s0));
+    // A release returns the quota: nothing was consumed.
+    assert_eq!(sc.g_u16(&g, G::USES), 0);
+    sc.reserve(sc.b, sc.b_c, g, 30).unwrap();
+}
+
+// ------------------------------------------------------------ all or nothing
+
+#[test]
+fn shortfalls_move_nothing() {
+    let mut sc = scene();
+    let g = sc.issue(0);
+    // F holds 3 arms (+8 its workshops made by NOW): 20 is not there.
+    let s0 = sc.w.data(&sc.s);
+    sc.w.edit(&sc.f, |d| {
+        let o = HO::store(ARMS) + crate::layout::player::accrual::VALUE;
+        d[o..o + 8].copy_from_slice(&units(3).to_le_bytes());
+    });
+    let f0 = sc.w.data(&sc.f);
+    assert_eq!(
+        sc.reserve(sc.b, sc.b_c, g, 20),
+        ferr(FrontierError::Insufficient)
+    );
+    assert_eq!((sc.w.data(&sc.f), sc.w.data(&sc.s)), (f0, s0));
+    // S short of ore.
+    sc.w.edit(&sc.s, |d| {
+        let o = HO::store(ORE) + crate::layout::player::accrual::VALUE;
+        d[o..o + 8].copy_from_slice(&units(1).to_le_bytes());
+    });
+    let (f0, s0) = (sc.w.data(&sc.f), sc.w.data(&sc.s));
+    assert_eq!(
+        sc.reserve(sc.b, sc.b_c, g, 10),
+        ferr(FrontierError::Insufficient)
+    );
+    assert_eq!((sc.w.data(&sc.f), sc.w.data(&sc.s)), (f0, s0));
+}
+
+// ------------------------------------------------------------ issue checks
+
+#[test]
+fn issue_terms_and_places_are_checked() {
+    let mut sc = scene();
+    let (a, a_c, f, f2, b_c, s, x, far) = (sc.a, sc.a_c, sc.f, sc.f2, sc.b_c, sc.s, sc.x, sc.far);
+    let g = sc.grant_key(0);
+    // No workshop in F2.
+    assert_eq!(
+        sc.issue_as(a, a_c, f2, b_c, s, g, Sc::terms(0)),
+        rerr(E::NoWorkshop)
+    );
+    // Station not the grantee's, or in another Province.
+    assert_eq!(
+        sc.issue_as(a, a_c, f, b_c, x, g, Sc::terms(0)),
+        rerr(E::BadStation)
+    );
+    assert_eq!(
+        sc.issue_as(a, a_c, f, b_c, far, g, Sc::terms(0)),
+        rerr(E::BadStation)
+    );
+    // Self-grant, zero quota, past or too-far expiry, unknown kind.
+    assert_eq!(
+        sc.issue_as(a, a_c, f, a_c, f2, g, Sc::terms(0)),
+        rerr(E::BadTerms)
+    );
+    for t in [
+        rt::IssueGrant {
+            max_uses: 0,
+            ..Sc::terms(0)
+        },
+        rt::IssueGrant {
+            max_units: 0,
+            ..Sc::terms(0)
+        },
+        rt::IssueGrant {
+            expires_ts: NOW,
+            ..Sc::terms(0)
+        },
+        rt::IssueGrant {
+            expires_ts: NOW + rt::MAX_GRANT_SECS + 1,
+            ..Sc::terms(0)
+        },
+        rt::IssueGrant {
+            kind: 2,
+            ..Sc::terms(0)
+        },
+    ] {
+        assert_eq!(sc.issue_as(a, a_c, f, b_c, s, g, t), rerr(E::BadTerms));
+    }
+    // Wrong address for the nonce; then a nonce used twice.
+    let g1 = sc.grant_key(1);
+    assert_eq!(
+        sc.issue_as(a, a_c, f, b_c, s, g1, Sc::terms(0)),
+        ferr(FrontierError::BadAddress)
+    );
+    let f_at_issue = sc.w.stock(&f, NOW);
+    sc.issue_as(a, a_c, f, b_c, s, g, Sc::terms(0)).unwrap();
+    assert_eq!(
+        sc.issue_as(a, a_c, f, b_c, s, g, Sc::terms(0)),
+        rerr(E::BadGrant)
+    );
+    // Issuing reads F: nothing in it moves.
+    assert_eq!(sc.w.stock(&f, NOW), f_at_issue);
+}
+
+#[test]
+fn close_returns_rent_only_when_nothing_is_escrowed_or_usable() {
+    let mut sc = scene();
+    let g = sc.issue(0);
+    let rent_to = sc.a;
+    assert_eq!(sc.close(sc.c, g, rent_to), rerr(E::StillLive));
+    sc.reserve(sc.b, sc.b_c, g, 2).unwrap();
+    sc.revoke(sc.a, sc.a_c, g).unwrap();
+    // Rent goes to RENT_TO whoever signs; another recipient is refused.
+    assert_eq!(sc.close(sc.c, g, sc.c), rerr(E::BadGrant));
+    let before = sc.w.lamports(&rent_to);
+    let held = sc.w.lamports(&g);
+    sc.close(sc.c, g, rent_to).unwrap();
+    assert_eq!(sc.w.lamports(&rent_to), before + held);
+    assert!(!sc.w.exists(&g));
+    assert_eq!(sc.reserve(sc.b, sc.b_c, g, 1), rerr(E::BadGrant));
+}
