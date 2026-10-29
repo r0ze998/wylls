@@ -45,7 +45,7 @@ node workstreams/01-national-strategy/prototype/serve.mjs --port 8080
 ## テスト
 
 ```sh
-node --test workstreams/01-national-strategy/test/*.test.mjs        # ルール（20件）
+node --test workstreams/01-national-strategy/test/*.test.mjs        # ルール20・乱数40・回帰12（72件）
 node workstreams/01-national-strategy/test/browser.smoke.mjs        # ブラウザで押す（9件）。--shots で screenshots/ に保存
 ```
 

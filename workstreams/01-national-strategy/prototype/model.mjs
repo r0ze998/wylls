@@ -84,6 +84,11 @@ function findPledge(w, provider, goal, need) {
 }
 const LIVE = new Set(['申し出', '準備中', '一部発送', '再確認待ち', '供給元を失った']);
 const isLive = p => LIVE.has(p.status);
+/** 数えてよい申し出（再確認待ちは、本人が続けると決めるまで数えない）。 */
+const isCounted = p => isLive(p) && p.status !== '再確認待ち';
+/** 整数に直す。数でなければ NaN（呼ぶ側で断る）。 */
+const toInt = v => (v === '' || v == null || !Number.isFinite(Number(v)) ? NaN : Math.floor(Number(v)));
+const goalIsLive = g => g && (g.status === '提案中' || g.status === '準備中');
 
 const needOf = (w, goalId, needId) => w.goals[goalId]?.needs.find(n => n.id === needId);
 
@@ -183,7 +188,7 @@ export function needProgress(w, goalId, needId) {
     const fs = Object.values(w.facilities).filter(f => f.kind === n.building && f.at === n.at && w.members[f.owner]?.inNation);
     const live = fs.find(f => f.status === '稼働');
     const building = fs.find(f => f.status === '建設中');
-    const pledgedBy = pledges.filter(isLive).map(p => p.provider);
+    const pledgedBy = pledges.filter(isCounted).map(p => p.provider);
     return { kind: n.kind, required: 1, arrived: live ? 1 : 0, inTransit: building ? 1 : 0, pledged: pledgedBy.length ? 1 : 0,
       facility: (live ?? building)?.id ?? null, owner: (live ?? building)?.owner ?? null, eta: building?.readyAt ?? null,
       pledgedBy, satisfied: !!live };
@@ -191,8 +196,8 @@ export function needProgress(w, goalId, needId) {
   if (n.kind === 'garrison') {
     const fort = fortAt(w, g.site);
     const troops = fort?.troops ?? 0;
-    const marching = sum(Object.values(w.marches).filter(m => m.kind === 'garrison' && m.state === '移動中'), m => m.size);
-    const pledged = sum(pledges.filter(isLive), p => Math.max(0, p.qty - p.sent));
+    const marching = sum(Object.values(w.marches).filter(m => m.kind === 'garrison' && m.state === '移動中' && fort && m.to === fort.id), m => m.size);
+    const pledged = sum(pledges.filter(isCounted), p => Math.max(0, p.qty - p.sent));
     return { kind: n.kind, required: n.qty, arrived: troops, inTransit: marching, pledged, owner: fort?.owner ?? null, satisfied: troops >= n.qty };
   }
   if (n.kind === 'watch') {
@@ -201,11 +206,11 @@ export function needProgress(w, goalId, needId) {
     const scouting = w.scouts.find(s => s.at === n.at && s.state === '偵察中');
     const towerBuilding = Object.values(w.facilities).find(f => f.kind === '見張り塔' && f.at === n.at && f.status === '建設中');
     return { kind: n.kind, required: 1, arrived: tower || fresh ? 1 : 0, inTransit: scouting || towerBuilding ? 1 : 0,
-      pledged: pledges.filter(isLive).length ? 1 : 0, by: tower ? `塔（${label.who(w, tower.owner)}）` : fresh ? `偵察（${label.who(w, fresh.owner)}、ターン${fresh.returnedAt}）` : null,
+      pledged: pledges.filter(isCounted).length ? 1 : 0, by: tower ? `塔（${label.who(w, tower.owner)}）` : fresh ? `偵察（${label.who(w, fresh.owner)}、ターン${fresh.returnedAt}）` : null,
       satisfied: !!(tower || fresh) };
   }
   if (n.kind === 'escort') {
-    return { kind: n.kind, required: 0, arrived: 0, inTransit: 0, pledged: pledges.filter(isLive).length, sealed: true, satisfied: true };
+    return { kind: n.kind, required: 0, arrived: 0, inTransit: 0, pledged: pledges.filter(isCounted).length, sealed: true, satisfied: true };
   }
   return { kind: n.kind, required: 0, arrived: 0, inTransit: 0, pledged: 0, satisfied: true };
 }
@@ -317,10 +322,10 @@ function pledge(w, actor, { goal, need, qty = 0, cap, method, vault }) {
     qty: 0, cap: 0, sent: 0, status: '申し出', method: null, vault: null, at: w.turn,
   };
   if (n.kind === 'deliver') {
-    qty = Math.floor(Number(qty));
+    qty = toInt(qty);
     if (!(qty > 0)) return fail('量を1以上にする');
-    cap = cap == null ? qty : Math.floor(Number(cap));
-    if (cap < qty) return fail('提供の上限は、申し出る量以上にする');
+    cap = cap == null ? qty : toInt(cap);
+    if (!(cap >= qty)) return fail('提供の上限は、申し出る量以上の整数にする');
     p.qty = qty; p.cap = cap;
     if (n.to.kind === 'vault-at') {
       if (method === '預ける') return fail('「預ける（持ち主のまま他人が使う）」には使用権が要る。S1 にはない（②に依頼中）');
@@ -333,8 +338,9 @@ function pledge(w, actor, { goal, need, qty = 0, cap, method, vault }) {
     const have = (w.stock[actor][n.resource] ?? 0) - (pledgeTotals(w, actor)[n.resource] ?? 0);
     if (qty > have) p.status = '準備中';
   } else if (n.kind === 'garrison') {
-    qty = Math.floor(Number(qty)) || n.qty;
-    p.qty = qty; p.cap = cap ?? qty; p.method = '自分の砦に置く';
+    qty = qty == null || qty === 0 ? n.qty : toInt(qty);
+    if (!(qty > 0)) return fail('人数を1以上にする');
+    p.qty = qty; p.cap = qty; p.method = '自分の砦に置く';
   } else if (n.kind === 'build') {
     p.method = `自分の${n.building}を建てる`; p.qty = 1;
   } else if (n.kind === 'watch') {
@@ -391,9 +397,10 @@ function dispatch(w, actor, { pledge: id, qty }) {
   if (!isLive(p) || p.status === '再確認待ち') return fail(`申し出は「${p.status}」。発送の前に${p.status === '再確認待ち' ? '続けるか決める' : '申し出し直す'}`);
   const n = needOf(w, p.goal, p.need);
   if (n.kind !== 'deliver') return fail('物を送る申し出ではない');
+  if (!goalIsLive(w.goals[p.goal])) return fail(`目標は「${w.goals[p.goal].status}」。もう送る必要はない`);
   const dest = destinationOf(w, p);
   if (!dest) return fail('受け取る倉がまだない。先に誰かが拠点に倉を建てる必要がある');
-  qty = Math.floor(Number(qty ?? (p.qty - p.sent)));
+  qty = toInt(qty ?? (p.qty - p.sent));
   const room = Math.min(p.cap - p.sent, p.qty - p.sent);
   if (!(qty > 0)) return fail('量を1以上にする');
   if (qty > room) return fail(`申し出の残り（${room}）を超えている`);
@@ -424,19 +431,34 @@ function payCost(w, actor, cost) {
 function build(w, actor, { kind, at, pledge: pid }) {
   const cost = BUILD_COST[kind];
   if (!cost) return fail('その建物は建てられない');
+  if (!(at === 'site' || at === 'pass' || at === w.members[actor].home)) return fail('建てられるのは拠点・峠・自分の村だけ（試作）');
+  let linked = null;
+  if (pid != null) {
+    const p = w.pledges[pid];
+    const n = p && needOf(w, p.goal, p.need);
+    const fits = n && ((n.kind === 'build' && n.building === kind && n.at === at) || (n.kind === 'watch' && kind === '見張り塔' && n.at === at));
+    if (!p || p.provider !== actor || !isCounted(p) || !fits || !goalIsLive(w.goals[p.goal])) return fail('この申し出には、この建物で応えられない');
+    linked = p;
+  }
   if (facilitiesOf(w, actor, kind).length >= BUILD_LIMIT[kind]) return fail(`${kind}は一人${BUILD_LIMIT[kind]}つまで（S1 の上限）`);
   if (kind === '砦' && Object.values(w.facilities).some(f => f.kind === '砦' && f.at === at && f.status !== '奪われた' && f.status !== '壊れた')) return fail('ここにはもう砦がある');
   const short = payCost(w, actor, cost);
   if (short) return fail(`材料が足りない：${short.join('、')}`);
   const f = { id: nextId(w, 'f'), kind, owner: actor, at, status: '建設中', readyAt: w.turn + BUILD_TURNS[kind], contents: {}, troops: 0 };
   w.facilities[f.id] = f;
-  if (pid && w.pledges[pid]?.provider === actor) { w.pledges[pid].status = '発送済み'; w.pledges[pid].sent = 1; }
+  if (linked) { linked.status = '発送済み'; linked.sent = 1; }
   log(w, 'build', `${label.who(w, actor)}が${label.place(at)}に${kind}を建て始めた（持ち主：${label.who(w, actor)}。完成：ターン${f.readyAt}）`, { facility: f.id });
   return ok({ facility: f.id });
 }
 
+/** 行動に結びつける自分の申し出（生きている目標・数えてよい申し出・必要の種類が合うもの）。 */
+function ownCountedPledge(w, actor, kind, at) {
+  return Object.values(w.pledges).find(x => x.provider === actor && isCounted(x) && goalIsLive(w.goals[x.goal])
+    && needOf(w, x.goal, x.need)?.kind === kind && (at == null || needOf(w, x.goal, x.need)?.at === at));
+}
+
 function train(w, actor, { n }) {
-  n = Math.floor(Number(n));
+  n = toInt(n);
   if (!(n > 0)) return fail('人数を1以上にする');
   const food = n * FOOD_PER_SPEARMAN;
   if ((w.stock[actor].food ?? 0) < food) return fail(`食料が足りない（${food} 要る）`);
@@ -450,25 +472,26 @@ function train(w, actor, { n }) {
 function garrison(w, actor, { n }) {
   const fort = Object.values(w.facilities).find(f => f.kind === '砦' && f.owner === actor && f.status === '稼働');
   if (!fort) return fail('稼働している自分の砦がない。砦に兵を置けるのは砦の持ち主だけ');
-  n = Math.floor(Number(n));
+  n = toInt(n);
   if (!(n > 0)) return fail('人数を1以上にする');
   if (w.reserve[actor] < n) return fail(`予備の兵は ${w.reserve[actor]}。足りない`);
   w.reserve[actor] -= n;
   const m = { id: nextId(w, 'm'), kind: 'garrison', owner: actor, size: n, to: fort.id, state: '移動中', eta: w.turn + 1 };
   w.marches[m.id] = m;
-  const p = Object.values(w.pledges).find(x => x.provider === actor && x.need === 'garrison' && isLive(x));
+  const p = ownCountedPledge(w, actor, 'garrison');
   if (p) { p.sent = Math.min(p.qty, p.sent + n); p.status = p.sent >= p.qty ? '発送済み' : '一部発送'; }
   log(w, 'army', `${label.who(w, actor)}が自分の砦に兵 ${n} を置く命令を出した（ターン${m.eta}から数える）`);
   return ok();
 }
 
 function scout(w, actor, { at = 'pass' }) {
+  if (!PLACES[at] || at.startsWith('v:')) return fail('偵察の行き先が正しくない');
   if (w.reserve[actor] < 10) return fail('偵察に出す兵（10）がいない');
   w.reserve[actor] -= 10;
   const t = travelTurns(w.members[actor].home, at);
   const s = { id: nextId(w, 'sc'), owner: actor, at, state: '偵察中', returnAt: w.turn + 2 * t, returnedAt: null };
   w.scouts.push(s);
-  const p = Object.values(w.pledges).find(x => x.provider === actor && x.need === 'watch' && isLive(x));
+  const p = ownCountedPledge(w, actor, 'watch', at);
   if (p) { p.sent = 1; p.status = '発送済み'; }
   log(w, 'scout', `${label.who(w, actor)}が${label.place(at)}へ偵察を出した（戻り：ターン${s.returnAt}）`);
   return ok();
@@ -476,8 +499,9 @@ function scout(w, actor, { at = 'pass' }) {
 
 /** 進軍（封じた進軍の代わり）。持ち主が出したときだけ動く。どんな条件でも自動では出ない。 */
 function march(w, actor, { n, to = 'pass', purpose = '進軍' }) {
-  n = Math.floor(Number(n));
+  n = toInt(n);
   if (!(n > 0)) return fail('人数を1以上にする');
+  if (!PLACES[to]) return fail('行き先が正しくない');
   const fort = Object.values(w.facilities).find(f => f.kind === '砦' && f.owner === actor && f.status === '稼働');
   const fromFort = purpose === '砦から出る';
   const pool = fromFort ? fort?.troops ?? 0 : w.reserve[actor];
@@ -486,7 +510,7 @@ function march(w, actor, { n, to = 'pass', purpose = '進軍' }) {
   const m = { id: nextId(w, 'm'), kind: purpose === '護衛' ? 'escort' : 'march', owner: actor, size: n, to, state: '移動中(封)', eta: w.turn + travelTurns(fromFort ? 'site' : w.members[actor].home, to), sealed: true };
   w.marches[m.id] = m;
   if (purpose === '護衛') {
-    const p = Object.values(w.pledges).find(x => x.provider === actor && x.need === 'escort' && isLive(x));
+    const p = ownCountedPledge(w, actor, 'escort');
     if (p) { p.sent = 1; p.status = '発送済み'; }
     log(w, 'army', '拠点へ向かう荷車の護衛が1件出た（中身は封）');
   } else {
@@ -521,11 +545,18 @@ function amend(w, actor, { goal, deadline, qty = {}, purpose, optional = [], not
   const [g, e] = liveGoal(w, goal);
   if (e) return e;
   if (g.coordinator !== actor) return fail(`方針を変えられるのは調整役（${label.who(w, g.coordinator)}）だけ。提案者でも、他人の物は動かせない`);
+  if (deadline != null && !(toInt(deadline) > w.turn)) return fail('期限は今より後のターンにする');
+  for (const [nid, v] of Object.entries(qty)) {
+    if (!needOf(w, goal, nid)) return fail('その必要はない');
+    if (!(toInt(v) >= 1)) return fail('必要量は1以上の整数にする');
+  }
+  for (const nid of optional) if (!needOf(w, goal, nid)) return fail('その必要はない');
+  if (deadline != null) deadline = toInt(deadline);
   const changes = [];
   if (deadline != null && deadline !== g.deadline) { changes.push(`期限 ${g.deadline}→${deadline}`); g.deadline = deadline; }
   for (const [nid, v] of Object.entries(qty)) {
     const n = needOf(w, goal, nid);
-    if (n && n.qty !== v) { changes.push(`${describeNeed(w, n)}→${v}`); n.qty = v; }
+    if (n && n.qty !== toInt(v)) { changes.push(`${describeNeed(w, n)}→${toInt(v)}`); n.qty = toInt(v); }
   }
   for (const nid of optional) {
     const n = needOf(w, goal, nid);
@@ -568,6 +599,9 @@ function reconfirm(w, actor, { pledge: id, keep, qty }) {
 function request(w, actor, { to, goal, need, qty, text = '' }) {
   if (!w.members[to]) return fail('知らない人');
   if (to === actor) return fail('自分には頼めない');
+  if (!goalIsLive(w.goals[goal])) return fail('その目標は、もう申し出を受け付けていない');
+  if (!needOf(w, goal, need)) return fail('その必要はない');
+  if (qty != null && !(toInt(qty) > 0)) return fail('量を1以上にする');
   const r = { id: nextId(w, 'r'), from: actor, to, goal, need, qty: qty ?? null, text, status: '未回答', at: w.turn };
   w.requests[r.id] = r;
   const n = needOf(w, goal, need);
@@ -624,7 +658,7 @@ function closeGoal(w, actor, { goal, reason = '' }) {
   const g = w.goals[goal];
   if (!g) return fail('その目標はない');
   if (g.coordinator !== actor) return fail('閉じられるのは調整役だけ');
-  if (g.status === '中止') return fail('もう中止');
+  if (!goalIsLive(g)) return fail(`目標はもう「${g.status}」`);
   g.status = '中止';
   g.outcome = { turn: w.turn, kind: '中止', reason };
   for (const p of Object.values(w.pledges)) if (p.goal === goal && isLive(p)) p.status = '終了';
@@ -633,14 +667,17 @@ function closeGoal(w, actor, { goal, reason = '' }) {
 }
 
 /** 他の人の村へ物を贈る（S1 の「他人への隊商」）。着いたら相手の物。返すときもこれを使う。 */
-function returnGift(w, actor, { to, resource, qty, why = '返す' }) {
-  qty = Math.floor(Number(qty));
+function returnGift(w, actor, { to, resource, qty, why = '返す', returnOf = null }) {
+  qty = toInt(qty);
   if (!(qty > 0)) return fail('量を1以上にする');
+  if (!w.members[to] || to === actor) return fail('送り先が正しくない');
+  if (!RESOURCES[resource]) return fail('その資源はない');
   if ((w.stock[actor][resource] ?? 0) < qty) return fail('手元に足りない');
+  if (returnOf != null && (w.shipments[returnOf]?.arrivedOwner !== actor || w.shipments[returnOf]?.returned)) return fail('返せる荷ではない');
   w.stock[actor][resource] -= qty;
+  if (returnOf != null) w.shipments[returnOf].returned = true;
   const from = w.members[actor].home;
   const dest = { kind: 'village', member: to };
-  if (!w.members[to] || to === actor) return fail('送り先が正しくない');
   const s = { id: nextId(w, 's'), pledge: null, owner: actor, resource, qty, from, to: dest, sentAt: w.turn, state: '送信済み', eta: w.turn + 1 + travelTurns(from, w.members[to].home), delay: 0, reason: null, why, arrivedOwner: null };
   w.shipments[s.id] = s;
   log(w, 'ship', `${label.who(w, actor)}が${label.who(w, to)}へ${label.res(resource)} ${qty} を送った（${why}。送信済み。着けば${label.who(w, to)}の物）`);
@@ -734,9 +771,10 @@ function step(w) {
   for (const g of Object.values(w.goals)) {
     if (g.status !== '準備中') continue;
     const r = readiness(w, g.id);
-    if (r.ready) {
+    if (r.ready && w.turn <= g.deadline) {
       g.status = '成立'; g.readyAt = w.turn;
       g.outcome = { turn: w.turn, kind: '成立' };
+      for (const p of Object.values(w.pledges)) if (p.goal === g.id && isLive(p)) p.status = '終了';
       log(w, 'goal', `「${g.title}」が成立した：必要なものが拠点に実際にそろった。次に軍をどうするかは、それぞれの持ち主が決める（自動では出ない）`, { goal: g.id });
     } else if (w.turn > g.deadline) {
       g.status = '期限切れ';
@@ -831,7 +869,7 @@ export function inject(w, kind, args = {}) {
 function evDelay(w, { shipment, turns }) {
   const s = shipment ? w.shipments[shipment]
     : Object.values(w.shipments).filter(x => x.state === '輸送中' || x.state === '送信済み').sort((a, b) => b.sentAt - a.sentAt || b.qty - a.qty)[0];
-  if (!s) return fail('遅らせる荷車がない（先に誰かが発送する）');
+  if (!s || (s.state !== '輸送中' && s.state !== '送信済み')) return fail('遅らせる荷車がない（先に誰かが発送する）');
   const g = s.pledge ? w.goals[w.pledges[s.pledge].goal] : null;
   if (turns == null) turns = Math.max(10, (g ? g.deadline - s.eta : 0) + 4);
   s.eta += turns; s.delay += turns;
@@ -846,7 +884,10 @@ function evTxFail(w, { shipment }) {
   s.state = '送信失敗';
   w.stock[s.owner][s.resource] += s.qty;
   const p = w.pledges[s.pledge];
-  if (p) { p.sent -= s.qty; p.status = p.sent > 0 ? '一部発送' : '申し出'; }
+  if (p) {
+    p.sent -= s.qty;
+    if (p.status === '一部発送' || p.status === '発送済み') p.status = p.sent > 0 ? '一部発送' : '申し出';
+  }
   log(w, 'event', `出来事：${label.who(w, s.owner)}の送信が確定しなかった。${label.res(s.resource)} ${s.qty} は手元に残っている（送り直すかは本人が決める）`, { shipment: s.id });
   return ok();
 }
@@ -854,8 +895,8 @@ function evTxFail(w, { shipment }) {
 function evRaid(w, { shipment }) {
   const s = shipment ? w.shipments[shipment]
     : Object.values(w.shipments).find(x => x.state === '輸送中' && x.to.kind === 'facility');
-  if (!s) return fail('拠点の倉へ向かう荷車がない');
-  const escort = Object.values(w.marches).find(m => m.kind === 'escort' && (m.state === '到着(封)' || m.state === '移動中(封)'));
+  if (!s || s.state !== '輸送中') return fail('拠点の倉へ向かう荷車がない');
+  const escort = Object.values(w.marches).find(m => m.kind === 'escort' && m.to === placeOf(w, s.to) && m.state === '到着(封)' && m.size > 0);
   if (escort) {
     log(w, 'event', `出来事：峠の手前で荷車が襲われたが、待ち構えていた護衛が守った（${label.who(w, s.owner)}の${label.res(s.resource)} ${s.qty} は無事）`);
     escort.size = Math.max(0, escort.size - 10);
@@ -1164,13 +1205,13 @@ function pledgeDecisions(w, g, p, me) {
   // 自分の荷車が遅れている／送れなかった
   for (const s of Object.values(w.shipments)) {
     if (s.pledge !== p.id) continue;
-    if ((s.state === '輸送中' || s.state === '送信済み') && s.delay > 0 && !s.acknowledged) {
+    if ((s.state === '輸送中' || s.state === '送信済み') && s.delay > 0 && !s.acknowledged && goalIsLive(g)) {
       const late = s.eta > g.deadline;
       const near = vaultsAt(w, 'site').filter(f => f.owner === me);
-      const altFrom = Object.values(w.members).filter(x => x.id !== me && x.present && x.inNation && x.id !== n.consumer && (w.stock[x.id][s.resource] ?? 0) > 0)
+      const altFrom = Object.values(w.members).filter(x => x.id !== me && x.present && x.playable && x.inNation && x.id !== n.consumer && (w.stock[x.id][s.resource] ?? 0) > 0)
         .sort((a, b) => travelTurns(a.home, placeOf(w, s.to)) - travelTurns(b.home, placeOf(w, s.to)));
       out.push({ id: `delay-${s.id}`, goal: g.id, title: `あなたの荷車が遅れている（${label.res(s.resource)} ${s.qty}）`, why: `到着見込みはターン${s.eta}${late ? `。期限（ターン${g.deadline}）に間に合わない` : ''}。理由：${s.reason}`, options: [
-        { label: '手元から追加で送る', act: 'pledgeMore', enabled: (w.stock[me][s.resource] ?? 0) > 0, reason: `手元の${label.res(s.resource)}がない`, consequence: `新しい荷も同じ道なら同じく遅れうる。追加分も着くまであなたの物`, args: { goal: g.id, need: p.need, qty: Math.min(s.qty, w.stock[me][s.resource] ?? 0) } },
+        { label: '手元から追加で送る', act: 'pledgeMore', enabled: (w.stock[me][s.resource] ?? 0) > 0 && goalIsLive(g) && !['準備中', '再確認待ち', '供給元を失った'].includes(p.status), reason: !goalIsLive(g) ? `目標は「${g.status}」` : (w.stock[me][s.resource] ?? 0) > 0 ? `申し出は「${p.status}」。先にそれを決める` : `手元の${label.res(s.resource)}がない`, consequence: `新しい荷も同じ道なら同じく遅れうる。追加分も着くまであなたの物`, args: { goal: g.id, need: p.need, qty: Math.min(s.qty, w.stock[me][s.resource] ?? 0) } },
         { label: `近くの人に頼む（${altFrom.slice(0, 1).map(x => x.name).join('') || 'なし'}）`, act: 'request', args: { to: altFrom[0]?.id, goal: g.id, need: p.need, qty: s.qty, text: '私の荷車が遅れている。近い所から出してもらえないか' }, consequence: '受けるかは頼まれた人が決める。遅れた荷も後で届くので、余りが出る（余りは受け取った人の物）', enabled: altFrom.length > 0, reason: '頼める人がいない' },
         { label: '遅れを受け入れる', act: 'ack', args: { shipment: s.id }, consequence: late ? '調整役に期限の見直しを任せる' : '期限には間に合うので、そのまま待つ', enabled: true },
       ] });
@@ -1218,29 +1259,47 @@ function coordinatorDecisions(w, g, me) {
 }
 
 function afterFailure(w, g, me) {
-  const got = Object.values(w.shipments).filter(s => s.arrivedOwner === me && s.owner !== me && w.pledges[s.pledge]?.goal === g.id);
+  const got = Object.values(w.shipments).filter(s => s.arrivedOwner === me && s.owner !== me && !s.returned && !s.kept && w.pledges[s.pledge]?.goal === g.id);
   const out = [];
   if (got.length) {
     const s = got[0];
     out.push({ id: `return-${g.id}`, goal: g.id, title: `受け取った物をどうするか（${label.who(w, s.owner)}の${label.res(s.resource)} ${s.qty}）`, why: `「${g.title}」は${g.status}。届いた物はあなたの物。返すかどうかはあなたが決める（仕組みは強制しない）。記録は誰でも見られる`, options: [
-      { label: '送り主に返す', act: 'returnGift', args: { to: s.owner, resource: s.resource, qty: Math.min(s.qty, w.stock[me][s.resource] ?? 0) }, consequence: '荷車で返す。着けば送り主の物', enabled: (w.stock[me][s.resource] ?? 0) > 0, reason: 'もう使ってしまった' },
-      { label: '自分の守りに使う', wait: true, enabled: true, consequence: '手元に残す。次に頼むとき、相手は記録を見て判断する' },
+      { label: '送り主に返す', act: 'returnGift', args: { to: s.owner, resource: s.resource, qty: Math.min(s.qty, w.stock[me][s.resource] ?? 0), returnOf: s.id }, consequence: '荷車で返す。着けば送り主の物', enabled: (w.stock[me][s.resource] ?? 0) > 0, reason: 'もう使ってしまった' },
+      { label: '自分の守りに使う', act: 'keep', args: { shipment: s.id }, enabled: true, consequence: '手元に残す。次に頼むとき、相手は記録を見て判断する' },
     ] });
   }
   return out;
 }
 
 // pledgeMore と ack は、判断の選択肢から呼ばれる小さな補助
+/** 追加で送る。先にすべてを確かめ、通るときだけ世界を変える。 */
 ACTIONS.pledgeMore = (w, actor, { goal, need, qty }) => {
-  const existing = findPledge(w, actor, goal, need);
-  if (existing && existing.status !== '準備中') {
-    existing.qty += qty; existing.cap = Math.max(existing.cap, existing.qty);
-    if (existing.status === '発送済み') existing.status = '一部発送';
-    return dispatch(w, actor, { pledge: existing.id, qty });
+  qty = toInt(qty);
+  if (!(qty > 0)) return fail('量を1以上にする');
+  if (!goalIsLive(w.goals[goal])) return fail('その目標は、もう申し出を受け付けていない');
+  const n = needOf(w, goal, need);
+  if (!n || n.kind !== 'deliver') return fail('物を送る必要ではない');
+  if ((w.stock[actor][n.resource] ?? 0) < qty) return fail(`手元の${label.res(n.resource)}が足りない`);
+  const mine = Object.values(w.pledges).filter(p => p.goal === goal && p.need === need && p.provider === actor);
+  const open = mine.find(isLive);
+  if (open && !['申し出', '一部発送'].includes(open.status)) return fail(`今の申し出は「${open.status}」。先にそれを決める`);
+  const base = open ?? mine.find(p => p.status === '発送済み');
+  if (!destinationOf(w, base ?? { goal, need, provider: actor })) return fail('受け取る倉がまだない');
+  if (base) {
+    base.qty += qty; base.cap = Math.max(base.cap, base.qty);
+    base.status = '一部発送';
+    return dispatch(w, actor, { pledge: base.id, qty });
   }
   const r = pledge(w, actor, { goal, need, qty, cap: qty });
   if (!r.ok) return r;
   return dispatch(w, actor, { pledge: r.pledge, qty });
+};
+ACTIONS.keep = (w, actor, { shipment }) => {
+  const s = w.shipments[shipment];
+  if (!s || s.arrivedOwner !== actor || s.returned || s.kept) return fail('決める荷ではない');
+  s.kept = true;
+  log(w, 'ship', `${label.who(w, actor)}は、${label.who(w, s.owner)}から届いた${label.res(s.resource)} ${s.qty} を返さずに使うことにした`);
+  return ok();
 };
 ACTIONS.ack = (w, actor, { shipment }) => {
   const s = w.shipments[shipment];

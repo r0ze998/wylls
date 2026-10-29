@@ -14,7 +14,8 @@ const TYPES = { '.html': 'text/html; charset=utf-8', '.mjs': 'text/javascript; c
 
 export function start(p = port) {
   const server = createServer(async (req, res) => {
-    const path = decodeURIComponent(new URL(req.url, 'http://x').pathname);
+    let path;
+    try { path = decodeURIComponent(new URL(req.url, 'http://x').pathname); } catch { res.writeHead(400).end('bad request'); return; }
     const rel = normalize(path === '/' ? '/index.html' : path).replace(/^([/\\])+/, '');
     const file = join(root, rel);
     if (!file.startsWith(root) || !TYPES[extname(file)]) { res.writeHead(404).end('not found'); return; }

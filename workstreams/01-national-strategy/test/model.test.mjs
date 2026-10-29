@@ -309,11 +309,12 @@ test('期限切れのあと：届いた物は受け取った人の物で、返�
   assert.ok(w.goals.outpost.outcome.missing.length > 0);
   const d = decisionsFor(w, 'kei').find(x => x.id.startsWith('return-'));
   assert.ok(d, 'ケイに「受け取った物をどうするか」が出る');
-  assert.ok(d.options.some(o => o.wait), '返さないことも選べる');
+  assert.ok(d.options.some(o => o.label === '自分の守りに使う' && o.enabled !== false), '返さないことも選べる');
   const back = d.options.find(o => o.label === '送り主に返す');
   const r = perform(w, 'kei', back);
   assert.ok(r.ok);
   assert.equal(custody(w, r.shipment).ownerAfter, 'mira');
+  assert.ok(!decisionsFor(w, 'kei').some(x => x.id === d.id && x.title === d.title), '返した荷について、もう一度は聞かれない');
 });
 
 test('自給と短い参加も成り立つ：何も出さない人にも結果が書かれ、偵察一回だけで見張りを満たせる', () => {
@@ -336,7 +337,7 @@ test('護衛は封：卓の記録には件数だけが出て、襲撃から荷�
   assert.ok(w.log.at(-1).text.includes('中身は封'));
   assert.ok(!w.log.at(-1).text.includes('ケイ'), '護衛の申し出の記録に名前を出さない');
   choose(w, 'kei', 'escort-', '兵40');
-  advance(w, 1);
+  advance(w, 3);
   assert.equal(inject(w, 'raid', {}).defended, true);
   const w2 = createWorld('preparing');
   advance(w2, 3);
