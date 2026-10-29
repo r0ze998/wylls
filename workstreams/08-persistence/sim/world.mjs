@@ -1,0 +1,1004 @@
+// The world model: villages (agents), six nations, victory forts, joint
+// operations, raids, occupation, re-founding, map rings and the boundary
+// between competitive units. One tick is one hour.
+//
+// Agents follow assumed behaviour models (params.mjs BEHAVIOURS). They are
+// not predictions of real players.
+
+import { draw, drawInt, pickWeighted } from './rng.mjs';
+import { BEHAVIOURS, MIXES } from './params.mjs';
+
+const DAY = 24;
+
+// ---------------------------------------------------------------- set-up
+
+export function createWorld(params, proposal, scenario, seed) {
+  const P = { ...params, ...(scenario.params || {}) };
+  const periodLen = P.periodDays * DAY;
+  const w = {
+    P,
+    prop: proposal,
+    scenario,
+    seed,
+    t: 0,
+    periodLen,
+    horizon: periodLen * P.periods,
+    period: 0,
+    agents: [],
+    nations: [],
+    forts: [],
+    theater: 0,
+    caravans: [],
+    rings: 0,
+    ops: [],
+    ledger: { starter: 0, produced: 0, consumed: 0, upkeep: 0, burned: 0, reset: 0, voided: 0, returned: 0 },
+    periodResults: [],
+    boundaryRights: [],
+    events: { raids: 0, raidSuccess: 0, occupations: 0, intercepts: 0, captures: 0 },
+    pending: [], // agents waiting to (re)found: { id, at }
+  };
+  for (let n = 0; n < P.nations; n++) {
+    w.nations.push({ id: n, opOffset: drawInt(seed, 'opOffset', 24, n), fortHours: 0, op: null });
+  }
+  openTheater(w);
+  const specs = scenario.populate(P, seed);
+  for (const s of specs) addAgent(w, s);
+  return w;
+}
+
+function addAgent(w, s) {
+  const { P, seed } = w;
+  const id = w.agents.length;
+  let behaviour = s.behaviour;
+  if (!behaviour) {
+    const mix = MIXES[P.behaviourMix];
+    const u = draw(seed, 'behaviour', id);
+    behaviour = u < mix.coop ? 'coop' : u < mix.coop + mix.raider ? 'raider' : 'turtle';
+  }
+  const sessions = s.kind === 'ai' ? 24 : s.sessionsPerDay ?? 2;
+  const a = {
+    id,
+    kind: s.kind,
+    cohort: s.cohort,
+    behaviour,
+    flags: s.flags || {},
+    owner: s.owner ?? id, // the real person behind the account (alts share an owner)
+    starterMult: s.starterMult ?? 1,
+    sessions,
+    sessionOffset: drawInt(seed, 'sessionOffset', 24, id),
+    absence: s.absence || null,
+    forcedDefeatT: s.forcedDefeatT ?? null,
+    plannedJoinT: s.joinT,
+    homeNation: s.nation,
+    nation: s.nation,
+    active: false,
+    joinT: null, // first founding
+    foundT: null, // latest founding (join or re-found)
+    loc: null,
+    goods: 0,
+    troops: 0,
+    farms: 0,
+    tower: false,
+    workshop: false,
+    uncollected: 0,
+    protectedUntil: -1,
+    protectionHours: 0,
+    starterKits: 0,
+    refoundsThisPeriod: 0,
+    lastProtectionPeriod: -1,
+    firstContribT: null,
+    firstContribAfterFound: null,
+    contribValue: 0,
+    contribCount: 0,
+    contribKinds: new Set(),
+    contribTimes: [],
+    contribByDay: new Map(),
+    raidedLoss: 0,
+    defeats: [],
+    history: [], // persistent record, never reset
+    snapshots: {}, // keyed observations for metrics
+    standing: false,
+    lastOnline: -1,
+  };
+  w.agents.push(a);
+  w.pending.push({ id, at: s.joinT, first: true });
+  return a;
+}
+
+// ---------------------------------------------------------------- map
+
+function slotsUsed(w, nation, loc) {
+  let n = 0;
+  for (const a of w.agents) if (a.active && a.nation === nation && a.loc === loc) n++;
+  return n;
+}
+
+function place(w, a, placement) {
+  const { P } = w;
+  const interiorFree = slotsUsed(w, a.nation, 'interior') < P.interiorSlots;
+  const borderFree = slotsUsed(w, a.nation, 'border') < P.borderSlots;
+  let loc;
+  if (placement === 'interior' && interiorFree) loc = 'interior';
+  else if (placement === 'any') {
+    // current shape: no reserved interior; a newcomer takes a free slot, inner first if any
+    const u = draw(w.seed, 'placeAny', a.id, w.t);
+    loc = interiorFree && u < 0.5 ? 'interior' : borderFree ? 'border' : interiorFree ? 'interior' : 'ring';
+  } else loc = borderFree ? 'border' : interiorFree ? 'interior' : 'ring';
+  if (loc === 'ring') {
+    const ringUsed = slotsUsed(w, a.nation, 'ring');
+    if (ringUsed >= P.ringSlots * w.rings) w.rings++;
+  }
+  a.loc = loc;
+  // code shape: OpenRing needs some wedge with occupied/open >= theta (55 % in the first 3 days, then 65 %)
+  const theta = w.t - periodStart(w) < 72 ? P.ringThetaEarly : P.ringThetaLate;
+  const open = P.interiorSlots + P.borderSlots + P.ringSlots * w.rings;
+  let occupied = 0;
+  for (const b of w.agents) if (b.active && b.nation === a.nation) occupied++;
+  if (occupied >= theta * open) w.rings++;
+}
+
+// ---------------------------------------------------------------- founding
+
+function periodStart(w) {
+  return w.period * w.periodLen;
+}
+
+function chooseNation(w, a) {
+  const { P } = w;
+  if (a.kind === 'ai' || P.newcomerNation === 'assigned') return a.homeNation;
+  const u = draw(w.seed, 'nationChoice', a.id, w.t);
+  if (P.newcomerNation === 'balanced') {
+    let best = 0;
+    let bestN = Infinity;
+    for (const n of w.nations) {
+      const c = w.agents.filter((b) => b.active && b.nation === n.id && b.kind === 'human').length;
+      if (c < bestN) {
+        bestN = c;
+        best = n.id;
+      }
+    }
+    return best;
+  }
+  // bandwagon: weight by this period's fort-hours
+  const weights = w.nations.map((n) => 1 + n.fortHours);
+  return pickWeighted(weights, u);
+}
+
+function found(w, a, first) {
+  const { P, prop } = w;
+  const rule = first ? prop.newcomer : prop.rejoin;
+  if (first) {
+    a.nation = a.plannedJoinT === 0 ? a.homeNation : chooseNation(w, a);
+  } else if (prop.switching && P.switchProb > 0 && draw(w.seed, 'switch', a.id, w.t) < P.switchProb) {
+    a.nation = leadingNation(w);
+  }
+  a.active = true;
+  if (first && a.joinT === null) a.joinT = w.t;
+  a.foundT = w.t;
+  a.firstContribAfterFound = null;
+  const elapsed = (w.t - periodStart(w)) / w.periodLen;
+  const catchUp = first ? 1 + (rule.catchUp || 0) * elapsed * 3 : 1;
+  const head = first && w.period === 0 ? a.starterMult : 1;
+  let goods = Math.round(P.starterGoods * catchUp * head);
+  let farms = P.starterFarms;
+  if (!first) {
+    const ruins = a.ruins || 0;
+    farms = Math.max(farms, Math.round(ruins * (rule.keepFarmsFrac || 0)));
+    goods += Math.round((a.ruinsValue || 0) * (rule.salvageFrac || 0));
+    a.ruins = 0;
+    a.ruinsValue = 0;
+  }
+  a.goods = goods;
+  a.troops = P.starterTroops;
+  a.farms = farms;
+  a.tower = false;
+  a.workshop = false;
+  a.uncollected = 0;
+  a.starterKits++;
+  w.ledger.starter += goods;
+  place(w, a, rule.placement);
+  // protection: once per period for re-founding; newcomers always get it on their first founding
+  let prot = rule.protectionH || 0;
+  if (first && rule.lateExtraH && w.t - periodStart(w) > rule.lateAfterH) prot += rule.lateExtraH;
+  if (!first && rule.oncePerPeriod && a.lastProtectionPeriod === w.period) prot = 0;
+  if (w.scenario.protectionOncePerOwner && !first) {
+    // owner-level limit (only works while one person = one account)
+    const owner = a.owner;
+    if (w.agents.some((b) => b.owner === owner && b.id !== a.id && b.lastProtectionPeriod === w.period)) prot = 0;
+  }
+  if (prot > 0) {
+    a.protectedUntil = w.t + prot;
+    a.lastProtectionPeriod = w.period;
+  } else a.protectedUntil = -1;
+  a.history.push({ t: w.t, kind: first ? 'found' : 'refound', nation: a.nation, loc: a.loc });
+}
+
+function leadingNation(w) {
+  let best = 0;
+  for (const n of w.nations) if (n.fortHours > w.nations[best].fortHours) best = n.id;
+  return best;
+}
+
+function joinAllowed(w) {
+  const d = w.prop.joinDeadlineDay;
+  if (d === null || d === undefined) return true;
+  return w.t - periodStart(w) < d * DAY;
+}
+
+function processPending(w) {
+  const keep = [];
+  for (const p of w.pending) {
+    const a = w.agents[p.id];
+    if (p.at > w.t) {
+      keep.push(p);
+      continue;
+    }
+    if (!p.first && !w.prop.rejoin.allowedInPeriod) {
+      keep.push({ ...p, at: periodStart(w) + w.periodLen }); // waits for the next competitive unit
+      continue;
+    }
+    if (p.first && !joinAllowed(w)) {
+      keep.push({ ...p, at: periodStart(w) + w.periodLen });
+      continue;
+    }
+    found(w, a, p.first);
+  }
+  w.pending = keep;
+}
+
+// ---------------------------------------------------------------- presence
+
+export function isOnline(w, a, t = w.t) {
+  if (a.absence && t >= a.absence[0] && t < a.absence[1]) return false;
+  if (a.kind === 'ai') {
+    const every = Math.max(1, Math.round(24 / w.P.aiActsPerDay));
+    return t % every === 0;
+  }
+  const hour = t % DAY;
+  const day = Math.floor(t / DAY);
+  // planned sessions drift by up to ±sessionJitter hours from day to day
+  const J = w.P.sessionJitter;
+  for (let k = 0; k < a.sessions; k++) {
+    const jitter = J > 0 ? drawInt(w.seed, 'jitter', 2 * J + 1, a.id, day, k) - J : 0;
+    const start = (((Math.floor(a.sessionOffset + (k * DAY) / a.sessions) + jitter) % DAY) + DAY) % DAY;
+    if (hour === start) {
+      return draw(w.seed, 'skip', a.id, day, k) >= w.P.sessionSkip;
+    }
+  }
+  return false;
+}
+
+// ---------------------------------------------------------------- economy
+
+function farmCost(w, a) {
+  return Math.round(w.P.farmBaseCost * w.P.farmCostGrowth ** a.farms);
+}
+
+function hourlyEconomy(w) {
+  const { P, prop } = w;
+  for (const a of w.agents) {
+    if (!a.active) continue;
+    const dormant = w.t - Math.max(a.lastOnline, a.foundT) >= P.dormantAfterH;
+    if (dormant && a.protectedUntil > w.t) a.protectedUntil = w.t;
+    const rate = a.farms * P.farmYield * (dormant ? P.dormantProduction : 1);
+    a.uncollected = Math.min(rate * P.collectCapHours, a.uncollected + rate);
+    let cost = a.troops * P.troopUpkeep;
+    if (prop.upkeep && a.farms > prop.upkeep.freeFarms) {
+      cost += prop.upkeep.rate * (a.farms - prop.upkeep.freeFarms) ** prop.upkeep.exp;
+    }
+    // upkeep is paid from uncollected production first, then from stock
+    const fromU = Math.min(a.uncollected, cost);
+    a.uncollected -= fromU;
+    cost -= fromU;
+    w.ledger.upkeep += fromU; // counted as produced-and-consumed
+    w.ledger.produced += fromU;
+    const fromG = Math.min(a.goods, cost);
+    a.goods -= fromG;
+    w.ledger.upkeep += fromG;
+    cost -= fromG;
+    if (cost > 0 && a.troops > 0) a.troops = Math.max(0, a.troops - Math.ceil(a.troops * 0.02));
+  }
+}
+
+function collect(w, a) {
+  const got = Math.floor(a.uncollected);
+  a.uncollected -= got;
+  a.goods += got;
+  w.ledger.produced += got;
+}
+
+function develop(w, a) {
+  const { P } = w;
+  const b = BEHAVIOURS[a.behaviour];
+  const target = b.troopsPerFarm * a.farms;
+  if (a.troops < target) {
+    const n = Math.min(target - a.troops, Math.floor((a.goods * 0.5) / P.troopPrice));
+    if (n > 0) {
+      a.troops += n;
+      spend(w, a, n * P.troopPrice);
+    }
+  }
+  const fc = farmCost(w, a);
+  if (a.goods >= fc * 1.2) {
+    a.farms++;
+    spend(w, a, fc);
+  }
+  if (!a.tower && a.farms >= 3 && a.goods >= P.towerCost * 1.5) {
+    a.tower = true;
+    spend(w, a, P.towerCost);
+  }
+  if (!a.workshop && a.farms >= 4 && a.goods >= P.workshopCost * 1.5) {
+    a.workshop = true;
+    spend(w, a, P.workshopCost);
+  }
+  const g = w.prop.newcomer.endsOnFarms;
+  if (g && a.farms >= g && a.protectedUntil > w.t) a.protectedUntil = w.t;
+}
+
+function spend(w, a, x) {
+  a.goods -= x;
+  w.ledger.consumed += x;
+}
+
+// ---------------------------------------------------------------- forts and operations
+
+function openTheater(w) {
+  const { P } = w;
+  const th = w.theater;
+  // per-nation distance multiplier: a rotating theater sits closer to some nations than others
+  let dist = w.nations.map((n) => (w.prop.forts.rotateTheater ? [0.7, 1.0, 1.3][drawInt(w.seed, 'theaterDist', 3, th, n.id)] : 1.0));
+  if (w.prop.forts.rotateTheater === 'underdog' && w.periodResults.length) {
+    // the new region opens nearest to the nations that held the least in the unit just ended
+    const last = w.periodResults[w.periodResults.length - 1].fortHours;
+    const order = [...last.keys()].sort((x, y) => last[x] - last[y] || x - y);
+    dist = w.nations.map((n) => {
+      const rank = order.indexOf(n.id);
+      return rank < 2 ? 0.7 : rank < 4 ? 1.0 : 1.3;
+    });
+  }
+  for (let i = 0; i < P.forts; i++) {
+    w.forts.push({ id: w.forts.length, theater: th, holder: null, garrison: new Map(), supply: 0, supplyBy: new Map(), dist });
+  }
+}
+
+function scoringForts(w) {
+  return w.forts.filter((f) => f.theater === w.theater);
+}
+
+function garrisonSize(f) {
+  let s = 0;
+  for (const v of f.garrison.values()) s += v;
+  return s;
+}
+
+function travelTime(w, a, fort) {
+  const { P } = w;
+  const base = a.loc === 'interior' ? P.travelInterior : a.loc === 'border' ? P.travelBorder : P.travelRing;
+  return Math.max(1, Math.round(base * fort.dist[a.nation]));
+}
+
+function openOps(w) {
+  const hour = w.t % DAY;
+  for (const n of w.nations) {
+    if (n.op || hour !== n.opOffset) continue;
+    const forts = scoringForts(w);
+    const own = forts.filter((f) => f.holder === n.id);
+    const others = forts.filter((f) => f.holder !== n.id);
+    let target;
+    let mode;
+    const u = draw(w.seed, 'opMode', n.id, w.t);
+    if (others.length && (own.length === 0 || u < 0.5)) {
+      mode = 'attack';
+      target = others.reduce((m, f) => (garrisonOrNeutral(w, f) < garrisonOrNeutral(w, m) ? f : m));
+    } else {
+      mode = 'defend';
+      target = own.reduce((m, f) => (garrisonSize(f) < garrisonSize(m) ? f : m));
+    }
+    n.op = { id: w.ops.length, nation: n.id, mode, fort: target.id, opensT: w.t, closesT: w.t + w.P.opWindowHours, resolveT: w.t + w.P.opWindowHours + Math.ceil(w.P.travelInterior * 1.3), troops: new Map(), supply: new Map(), watch: 0, craft: 0, escorts: 0, contributors: new Set() };
+    w.ops.push(n.op);
+    if (w.P.standingOrders) {
+      for (const a of w.agents) {
+        if (a.active && a.nation === n.id && a.standing && a.goods >= w.P.supplyLot) {
+          sendSupply(w, a, n.op, w.P.supplyLot, true);
+        }
+      }
+    }
+  }
+}
+
+function garrisonOrNeutral(w, f) {
+  return f.holder === null ? w.P.neutralGarrison : garrisonSize(f);
+}
+
+function record(w, a, kind, value) {
+  a.contribValue += value;
+  a.contribCount++;
+  a.contribKinds.add(kind);
+  a.contribTimes.push(w.t);
+  const day = Math.floor(w.t / DAY);
+  a.contribByDay.set(day, (a.contribByDay.get(day) || 0) + value);
+  if (a.firstContribT === null) a.firstContribT = w.t;
+  if (a.firstContribAfterFound === null) {
+    a.firstContribAfterFound = w.t;
+    a.history.push({ t: w.t, kind: 'first_contribution_since_found', what: kind });
+  }
+}
+
+function sendSupply(w, a, op, amount, standing = false) {
+  const fort = w.forts[op.fort];
+  a.goods -= amount;
+  const tt = travelTime(w, a, fort);
+  w.caravans.push({ from: a.id, nation: a.nation, op: op.id, fort: fort.id, goods: amount, arriveT: w.t + tt, kind: 'supply', standing });
+}
+
+function contribute(w, a) {
+  const n = w.nations[a.nation];
+  const op = n.op;
+  if (!op || w.t >= op.closesT || op.contributors.has(a.id)) return;
+  const { P } = w;
+  const b = BEHAVIOURS[a.behaviour];
+  const fort = w.forts[op.fort];
+  let did = false;
+  const supply = Math.floor((a.goods * b.supplyFrac) / P.supplyLot) * P.supplyLot;
+  if (supply >= P.supplyLot) {
+    sendSupply(w, a, op, supply);
+    did = true;
+  }
+  const send = Math.floor(a.troops * b.sendTroops);
+  if (send >= P.minTroopsToSend) {
+    a.troops -= send;
+    const tt = travelTime(w, a, fort);
+    w.caravans.push({ from: a.id, nation: a.nation, op: op.id, fort: fort.id, troops: send, arriveT: w.t + tt, kind: 'troops' });
+    did = true;
+  } else if (a.troops >= 3 && w.caravans.some((c) => c.nation === a.nation && c.kind === 'supply')) {
+    op.escorts++;
+    record(w, a, 'escort', 10);
+    did = true;
+  }
+  if (a.tower) {
+    op.watch++;
+    record(w, a, 'watch', 10);
+    did = true;
+  }
+  if (a.workshop && a.goods >= 40) {
+    spend(w, a, 40);
+    op.craft++;
+    record(w, a, 'craft', 40);
+    did = true;
+  }
+  if (did) op.contributors.add(a.id);
+}
+
+function arrivals(w) {
+  const keep = [];
+  for (const c of w.caravans) {
+    if (c.arriveT > w.t) {
+      keep.push(c);
+      continue;
+    }
+    const a = w.agents[c.from];
+    if (c.kind === 'transfer') {
+      if (maybeIntercept(w, c)) continue;
+      const to = w.agents[c.to];
+      to.goods += c.goods;
+      if (w.P.receiptEndsProtection && to.protectedUntil > w.t && to.owner !== undefined) to.protectedUntil = w.t;
+      continue;
+    }
+    const op = w.ops[c.op];
+    const open = w.t <= op.resolveT && !op.resolved;
+    if (c.kind === 'supply') {
+      if (maybeIntercept(w, c)) continue;
+      if (open) {
+        op.supply.set(a.id, (op.supply.get(a.id) || 0) + c.goods);
+        record(w, a, 'supply', c.goods);
+      } else {
+        // late: returned to the sender (or lost if the village is gone)
+        if (a.active) a.goods += c.goods;
+        else {
+          w.ledger.voided += c.goods;
+        }
+      }
+    } else if (c.kind === 'troops') {
+      if (open) {
+        op.troops.set(a.id, (op.troops.get(a.id) || 0) + c.troops);
+        record(w, a, 'troops', c.troops * w.P.troopPrice);
+      } else if (a.active) a.troops += c.troops;
+    }
+  }
+  w.caravans = keep;
+}
+
+function maybeIntercept(w, c) {
+  const { P } = w;
+  let raiders = [];
+  for (const b of w.agents) {
+    if (b.active && b.nation !== c.nation && b.behaviour === 'raider' && b.troops >= P.raidMinTroops && isOnline(w, b)) raiders.push(b);
+  }
+  if (raiders.length === 0) return false;
+  const others = w.agents.filter((b) => b.active && b.nation !== c.nation).length || 1;
+  const pressure = Math.min(1, (3 * raiders.length) / others);
+  const op = c.op !== undefined ? w.ops[c.op] : null;
+  const shield = op ? Math.min(0.8, 0.2 * op.escorts) : 0;
+  const p = P.interceptBase * P.raidPower * pressure * (1 - shield);
+  if (draw(w.seed, 'intercept', c.from, w.t, c.goods | 0) >= p) return false;
+  const r = raiders[drawInt(w.seed, 'interceptor', raiders.length, c.from, w.t)];
+  const take = Math.floor(c.goods * 0.5);
+  r.goods += take;
+  w.ledger.burned += c.goods - take;
+  w.ledger.consumed += c.goods - take;
+  w.agents[c.from].raidedLoss += c.goods;
+  w.events.intercepts++;
+  return true;
+}
+
+function closeOps(w) {
+  for (const n of w.nations) {
+    const op = n.op;
+    if (!op || w.t < op.resolveT) continue;
+    n.op = null;
+    op.resolved = true;
+    const f = w.forts[op.fort];
+    let troops = 0;
+    for (const v of op.troops.values()) troops += v;
+    let supply = 0;
+    for (const v of op.supply.values()) supply += v;
+    if (f.theater !== w.theater) {
+      // the theater moved while the operation was open: troops go home, supply returns
+      for (const [id, v] of op.troops) if (w.agents[id].active) w.agents[id].troops += v;
+      for (const [id, v] of op.supply) returnGoods(w, id, v);
+      continue;
+    }
+    if (op.mode === 'defend') {
+      if (f.holder === n.id) {
+        for (const [id, v] of op.troops) f.garrison.set(id, (f.garrison.get(id) || 0) + v);
+        f.supply += supply;
+        for (const [id, v] of op.supply) f.supplyBy.set(id, (f.supplyBy.get(id) || 0) + v);
+      } else {
+        for (const [id, v] of op.troops) if (w.agents[id].active) w.agents[id].troops += v;
+        for (const [id, v] of op.supply) returnGoods(w, id, v);
+      }
+      continue;
+    }
+    if (troops === 0) {
+      for (const [id, v] of op.supply) returnGoods(w, id, v);
+      continue;
+    }
+    // attack
+    const supplyFactor = 0.6 + 0.4 * Math.min(1, supply / (troops * 2));
+    const S = troops * supplyFactor * (1 + 0.03 * Math.min(10, op.watch + op.craft));
+    const D = garrisonOrNeutral(w, f) * w.P.fortDefence * (f.supply > 0 ? 1.1 : 1.0);
+    w.ledger.consumed += supply; // consumed in the attack
+    const s = S * (0.8 + 0.4 * draw(w.seed, 'opS', op.id));
+    const d = D * (0.8 + 0.4 * draw(w.seed, 'opD', op.id));
+    if (s > d) {
+      w.events.captures++;
+      const keepFrac = 1 - (0.5 * d) / (s + d);
+      f.garrison = new Map();
+      for (const [id, v] of op.troops) f.garrison.set(id, Math.round(v * keepFrac));
+      f.holder = n.id;
+      // supply stored by the previous holder is captured (burned)
+      w.ledger.burned += f.supply;
+      w.ledger.consumed += f.supply;
+      f.supply = 0;
+      f.supplyBy = new Map();
+    } else {
+      for (const [id, v] of op.troops) if (w.agents[id].active) w.agents[id].troops += Math.round(v * 0.4);
+      const loss = (0.3 * s) / (s + d);
+      for (const [id, v] of f.garrison) f.garrison.set(id, Math.round(v * (1 - loss)));
+    }
+  }
+}
+
+function returnGoods(w, id, v) {
+  const a = w.agents[id];
+  if (a.active) {
+    a.goods += v;
+    w.ledger.returned += v;
+  } else w.ledger.voided += v;
+}
+
+function fortUpkeep(w) {
+  for (const f of scoringForts(w)) {
+    if (f.holder === null) continue;
+    w.nations[f.holder].fortHours++;
+    const g = garrisonSize(f);
+    const need = g * 0.02;
+    if (f.supply >= need) {
+      f.supply -= need;
+      w.ledger.consumed += need;
+    } else {
+      w.ledger.consumed += f.supply;
+      f.supply = 0;
+      for (const [id, v] of f.garrison) f.garrison.set(id, Math.max(0, v - Math.ceil(v * 0.003)));
+    }
+  }
+}
+
+// ---------------------------------------------------------------- raids and occupation
+
+const EXPOSURE = { interior: 0.3, border: 1.0, ring: 1.2 };
+const DEFENCE = { interior: 1.5, border: 1.0, ring: 0.8 };
+
+function maybeRaid(w, a) {
+  const { P } = w;
+  const b = BEHAVIOURS[a.behaviour];
+  if (a.troops < P.raidMinTroops) return;
+  if (a.protectedUntil > w.t && w.prop.newcomer.onAttack === 'blocked') return;
+  if (draw(w.seed, 'raidRoll', a.id, w.t) >= Math.min(0.95, b.raid * P.raidPower)) return;
+  const cands = [];
+  const weights = [];
+  for (const d of w.agents) {
+    if (!d.active || d.nation === a.nation || d.protectedUntil > w.t) continue;
+    if (d.owner === a.owner) continue;
+    cands.push(d);
+    weights.push(EXPOSURE[d.loc] * (d.goods + 1) / (d.troops * DEFENCE[d.loc] + 5));
+  }
+  const i = pickWeighted(weights, draw(w.seed, 'raidTarget', a.id, w.t));
+  if (i === null) return;
+  raid(w, a, cands[i]);
+}
+
+function raid(w, a, d) {
+  const { P } = w;
+  w.events.raids++;
+  if (a.protectedUntil > w.t && w.prop.newcomer.onAttack === 'ends') a.protectedUntil = w.t; // attacking ends protection
+  const att = Math.floor(a.troops * 0.6);
+  const def = d.troops * DEFENCE[d.loc];
+  const s = att * (0.7 + 0.6 * draw(w.seed, 'raidS', a.id, w.t));
+  const r = def * (0.7 + 0.6 * draw(w.seed, 'raidD', a.id, w.t));
+  const success = s > r;
+  const attLoss = Math.round((att * def) / (att + def + 1e-9) * (success ? 0.4 : 0.7));
+  const defLoss = Math.round((d.troops * att) / (att + def + 1e-9) * (success ? 0.6 : 0.2));
+  a.troops -= attLoss;
+  d.troops = Math.max(0, d.troops - defLoss);
+  if (!success) return;
+  w.events.raidSuccess++;
+  const cellar = w.prop.cellarFrac ?? w.P.cellarFrac;
+  const exposed = Math.max(0, d.goods * (1 - cellar));
+  const loot = Math.floor(Math.min(att * P.raidCarryPerTroop, exposed * P.raidLootFrac));
+  d.goods -= loot;
+  a.goods += loot;
+  d.raidedLoss += loot;
+  d.history.push({ t: w.t, kind: 'raided', by: a.id, loot });
+  if (d.troops <= 1 && att - attLoss >= P.occupyMinAttackers) {
+    const p = d.loc === 'interior' ? P.occupyProb * 0.3 : P.occupyProb;
+    if (draw(w.seed, 'occupy', d.id, w.t) < p) {
+      // the attacker takes part of what remains
+      const take = Math.floor(d.goods * 0.5);
+      a.goods += take;
+      d.goods -= take;
+      defeat(w, d, 'occupied', a.id);
+    }
+  }
+}
+
+export function capacity(a) {
+  return a.farms + a.troops / 10 + a.goods / 100;
+}
+
+export function wealth(w, a) {
+  return a.goods + a.troops * w.P.troopPrice + a.farms * 80 + (a.tower ? w.P.towerCost : 0) + (a.workshop ? w.P.workshopCost : 0);
+}
+
+function defeat(w, a, cause, by) {
+  w.events.occupations++;
+  const before = wealth(w, a);
+  a.defeats.push({ t: w.t, cause, by, capacity: capacity(a), wealth: before, recoveredT: null, contribT: null, period: w.period, foundT: w.t });
+  a.history.push({ t: w.t, kind: 'defeated', cause, by });
+  a.defeats[a.defeats.length - 1].after = 0;
+  if (w.prop.defeatMode === 'strip') {
+    // the home cannot be taken (code: PlaceHome sits in the unbesiegeable heartland);
+    // what is lost is everything beyond it: outposts, stores, garrison
+    w.ledger.voided += a.goods;
+    a.goods = 0;
+    a.troops = Math.floor(a.troops / 2);
+    a.farms = Math.min(a.farms, w.P.starterFarms);
+    a.tower = false;
+    a.workshop = false;
+    a.uncollected = 0;
+    a.firstContribAfterFound = null;
+    a.defeats[a.defeats.length - 1].after = wealth(w, a);
+    return;
+  }
+  a.ruins = a.farms;
+  a.ruinsValue = a.farms * 80;
+  w.ledger.voided += a.goods;
+  a.goods = 0;
+  a.troops = 0;
+  a.farms = 0;
+  a.tower = false;
+  a.workshop = false;
+  a.uncollected = 0;
+  a.active = false;
+  a.protectedUntil = -1;
+  a.loc = null;
+  const delay = w.prop.rejoin.delayH || 0;
+  w.pending.push({ id: a.id, at: w.t + delay, first: false });
+}
+
+// ---------------------------------------------------------------- scenario hooks (exploits)
+
+function exploitActions(w, a) {
+  const f = a.flags;
+  if (f.altMain && a.goods > 300) {
+    // move stock into this owner's protected alt accounts
+    const alts = w.agents.filter((b) => b.owner === a.owner && b.id !== a.id && b.active && b.protectedUntil > w.t);
+    if (alts.length) {
+      const amount = Math.floor((a.goods - 100) / alts.length);
+      for (const b of alts) transfer(w, a, b, amount);
+    }
+  }
+  if (f.feeder) {
+    const main = w.agents[f.feeder.to];
+    if (main.active && a.goods > 60) transfer(w, a, main, a.goods - 40);
+  }
+  if (f.kingmaker) {
+    const tLeft = periodStart(w) + w.periodLen - w.t;
+    if (tLeft <= 48) {
+      const lead = leadingNation(w);
+      if (lead !== a.nation) {
+        const target = w.agents.filter((b) => b.active && b.nation === lead).sort((x, y) => y.troops - x.troops)[0];
+        if (target && a.goods > 40) transfer(w, a, target, a.goods - 20);
+      }
+    }
+  }
+}
+
+function transfer(w, from, to, amount) {
+  if (amount <= 0) return;
+  from.goods -= amount;
+  const tt = from.nation === to.nation ? 2 : 4;
+  w.caravans.push({ from: from.id, to: to.id, nation: from.nation, goods: amount, arriveT: w.t + tt, kind: 'transfer' });
+}
+
+function churn(w, a) {
+  // abandon and re-found to collect a fresh starter kit and protection when protection has ended
+  if (!a.flags.churn || a.protectedUntil > w.t || a.goods > 150) return;
+  if (w.t - a.foundT < 72) return;
+  a.history.push({ t: w.t, kind: 'abandoned' });
+  w.ledger.voided += a.goods;
+  a.goods = 0;
+  a.troops = 0;
+  a.ruins = a.farms;
+  a.ruinsValue = 0;
+  a.farms = 0;
+  a.active = false;
+  a.loc = null;
+  w.pending.push({ id: a.id, at: w.t + (w.prop.rejoin.delayH || 0), first: false, churn: true });
+}
+
+// ---------------------------------------------------------------- boundary
+
+function snapshotPeriod(w) {
+  const forts = w.nations.map((n) => n.fortHours);
+  const active = w.agents.filter((a) => a.active);
+  w.periodResults.push({
+    period: w.period,
+    fortHours: forts,
+    winner: forts.every((x) => x === 0) ? null : forts.indexOf(Math.max(...forts)),
+    wealth: active.map((a) => wealth(w, a)),
+    wealthById: Object.fromEntries(w.agents.map((a) => [a.id, a.active ? wealth(w, a) : 0])),
+    wealthHuman: active.filter((a) => a.kind === 'human').map((a) => wealth(w, a)),
+    military: w.nations.map((n) => {
+      let s = 0;
+      for (const a of active) if (a.nation === n.id) s += a.troops;
+      for (const f of w.forts) for (const [id, v] of f.garrison) if (w.agents[id].nation === n.id) s += v;
+      return s;
+    }),
+    farmsByNation: w.nations.map((n) => active.filter((a) => a.nation === n.id).reduce((s, a) => s + a.farms, 0)),
+    activeByNation: w.nations.map((n) => active.filter((a) => a.nation === n.id).length),
+  });
+}
+
+export function boundary(w) {
+  snapshotPeriod(w);
+  const { prop } = w;
+  const r = prop.rights;
+  // what is in flight or deposited at the moment of the cut
+  let caravanValue = 0;
+  let troopsInFlight = 0;
+  for (const c of w.caravans) {
+    caravanValue += c.goods || 0;
+    troopsInFlight += c.troops || 0;
+  }
+  let fortSupply = 0;
+  let garrisons = 0;
+  for (const f of w.forts) {
+    fortSupply += f.supply;
+    garrisons += garrisonSize(f);
+  }
+  const standing = w.agents.filter((a) => a.active && a.standing).length;
+  const openOpsCount = w.nations.filter((n) => n.op).length;
+  const rec = { period: w.period, caravanValue, troopsInFlight, fortSupply, garrisons, standing, openOps: openOpsCount, voided: 0, returned: 0 };
+
+  if (prop.boundary === 'reset_world') {
+    const before = w.ledger.voided;
+    for (const c of w.caravans) w.ledger.voided += c.goods || 0;
+    w.caravans = [];
+    for (const n of w.nations) {
+      if (n.op) for (const v of n.op.supply.values()) w.ledger.voided += v;
+      n.op = null;
+    }
+    for (const f of w.forts) {
+      w.ledger.voided += f.supply;
+    }
+    w.forts = [];
+    w.theater++;
+    openTheater(w);
+    w.rings = 0;
+    const carry = [];
+    for (const a of w.agents) {
+      if (a.active) {
+        w.ledger.reset += a.goods;
+        a.history.push({ t: w.t, kind: 'unit_end', farms: a.farms, wealth: wealth(w, a) });
+        a.active = false;
+        carry.push(a.id);
+      }
+    }
+    rec.voided = w.ledger.voided - before;
+    w.period++;
+    resetScores(w);
+    // everyone who was in, or waiting, starts the next unit as a newcomer would on day one
+    const waiting = new Set(w.pending.filter((p) => p.at <= w.t + w.periodLen).map((p) => p.id));
+    w.pending = w.pending.filter((p) => !carry.includes(p.id) && !(waiting.has(p.id) && !p.first && w.agents[p.id].joinT !== null));
+    for (const id of carry) w.pending.push({ id, at: w.t, first: true });
+    for (const a of w.agents) {
+      if (!a.active && a.joinT !== null && !carry.includes(a.id) && !w.pending.some((p) => p.id === a.id)) {
+        w.pending.push({ id: a.id, at: w.t, first: true });
+      }
+      a.lastProtectionPeriod = -1;
+      a.refoundsThisPeriod = 0;
+    }
+  } else {
+    const before = w.ledger.returned;
+    const voidBefore = w.ledger.voided;
+    if (prop.boundary === 'reset_war') {
+      // garrisons go home, forts return to neutral, fort supply returns to whoever stored it
+      for (const f of w.forts) {
+        for (const [id, v] of f.garrison) if (w.agents[id].active) w.agents[id].troops += v;
+        f.garrison = new Map();
+        f.holder = null;
+        if (r.fortSupply === 'return') {
+          let left = f.supply;
+          let total = 0;
+          for (const v of f.supplyBy.values()) total += v;
+          for (const [id, v] of f.supplyBy) {
+            const share = total > 0 ? Math.floor((f.supply * v) / total) : 0;
+            returnGoods(w, id, share);
+            left -= share;
+          }
+          w.ledger.voided += left;
+        } else w.ledger.voided += f.supply;
+        f.supply = 0;
+        f.supplyBy = new Map();
+      }
+      // caravans bound for the old theater: delivered if they land before the cut else returned
+      const keep = [];
+      for (const c of w.caravans) {
+        if (c.kind === 'transfer') keep.push(c);
+        else if (c.kind === 'supply') returnGoods(w, c.from, c.goods);
+        else if (c.kind === 'troops' && w.agents[c.from].active) w.agents[c.from].troops += c.troops;
+      }
+      w.caravans = keep;
+      for (const n of w.nations) {
+        if (n.op) {
+          for (const [id, v] of n.op.troops) if (w.agents[id].active) w.agents[id].troops += v;
+          for (const [id, v] of n.op.supply) returnGoods(w, id, v);
+          n.op = null;
+        }
+      }
+      if (prop.forts.rotateTheater) {
+        w.theater++;
+        openTheater(w);
+      }
+    }
+    if (prop.demobilize) {
+      // armies stand down to a home guard; the rest is disbanded (no refund)
+      for (const a of w.agents) {
+        if (!a.active) continue;
+        const keep = Math.max(w.P.starterTroops, Math.round(prop.demobilize * a.farms));
+        if (a.troops > keep) a.troops = keep;
+      }
+    }
+    rec.returned = w.ledger.returned - before;
+    rec.voided = w.ledger.voided - voidBefore;
+    w.period++;
+    resetScores(w);
+    for (const a of w.agents) a.refoundsThisPeriod = 0;
+  }
+  w.boundaryRights.push(rec);
+}
+
+function resetScores(w) {
+  for (const n of w.nations) n.fortHours = 0;
+}
+
+// ---------------------------------------------------------------- tick
+
+export function step(w) {
+  if (w.t > 0 && w.t % w.periodLen === 0) boundary(w);
+  processPending(w);
+  for (const a of w.agents) {
+    if (a.forcedDefeatT === w.t && a.active) defeat(w, a, 'forced', null);
+  }
+  hourlyEconomy(w);
+  openOps(w);
+  for (const a of w.agents) {
+    if (!a.active) continue;
+    if (a.protectedUntil > w.t) a.protectionHours++;
+    if (!isOnline(w, a)) continue;
+    a.lastOnline = w.t;
+    collect(w, a);
+    if (w.P.standingOrders && a.behaviour !== 'turtle') a.standing = true;
+    exploitActions(w, a);
+    if (!a.flags.alt && !a.flags.feeder) contribute(w, a);
+    if (!a.flags.alt && !a.flags.feeder) maybeRaid(w, a);
+    develop(w, a);
+    churn(w, a);
+  }
+  arrivals(w);
+  closeOps(w);
+  fortUpkeep(w);
+  observe(w);
+  w.t++;
+}
+
+function observe(w) {
+  for (const a of w.agents) {
+    if (!a.absence) continue;
+    if (w.t === a.absence[0]) a.snapshots.absenceStart = { wealth: a.active ? wealth(w, a) : 0, farms: a.farms };
+    if (w.t === a.absence[1]) a.snapshots.absenceEnd = { wealth: a.active ? wealth(w, a) : 0, farms: a.farms, active: a.active, defeatsDuring: a.defeats.filter((d) => d.t >= a.absence[0]).length };
+  }
+  // per-agent observations at fixed offsets after (re)founding
+  for (const a of w.agents) {
+    if (!a.active || a.foundT === null) continue;
+    const since = w.t - a.foundT;
+    if (since === 24 || since === 72) {
+      const key = `kinds@${since}`;
+      if (!(key in a.snapshots) && a.foundT === a.joinT) a.snapshots[key] = feasibleKinds(w, a);
+    }
+  }
+  // recovery after defeat
+  for (const a of w.agents) {
+    if (!a.active) continue;
+    for (const d of a.defeats) {
+      if (d.contribT === null && a.firstContribAfterFound !== null && a.firstContribAfterFound >= d.t) d.contribT = a.firstContribAfterFound;
+      if (d.recoveredT === null && w.t > d.t && Math.max(a.foundT, d.foundT) >= d.t && capacity(a) >= 0.5 * d.capacity) d.recoveredT = w.t;
+    }
+  }
+}
+
+/** Contribution kinds this village could execute right now if its owner were online. */
+export function feasibleKinds(w, a) {
+  const { P } = w;
+  let k = 0;
+  if (a.goods >= P.supplyLot) k++;
+  if (a.troops >= P.minTroopsToSend) k++;
+  if (a.troops >= 3) k++; // escort
+  if (a.tower) k++;
+  if (a.workshop && a.goods >= 40) k++;
+  return k;
+}
+
+/** Goods that exist right now: in villages, on the road, at open operations, in forts. */
+export function goodsInWorld(w) {
+  let s = 0;
+  for (const a of w.agents) s += a.goods;
+  for (const c of w.caravans) s += c.goods || 0;
+  for (const n of w.nations) if (n.op) for (const v of n.op.supply.values()) s += v;
+  for (const f of w.forts) s += f.supply;
+  return s;
+}
+
+/** What the ledger says should exist. */
+export function goodsByLedger(w) {
+  const L = w.ledger;
+  return L.starter + L.produced - L.consumed - L.upkeep - L.voided - L.reset;
+}
+
+export function run(params, proposal, scenario, seed) {
+  const w = createWorld(params, proposal, scenario, seed);
+  while (w.t < w.horizon) step(w);
+  snapshotPeriod(w);
+  return w;
+}
