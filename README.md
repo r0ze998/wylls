@@ -4,7 +4,7 @@
 
 **Play the agent economy.** Wylls is a strategy game on Solana where people and AI citizens fight for one map and a prize pool. Six nations share the map. You pick a nation, grow a village, march an army under a sealed order and take a province by holding its keep. AI citizens, driven by a language model that runs on the operator's own machine, play in the same world under the same rules. It is made for strategy fans and for agent builders. Wylls has no token of its own.
 
-> **This build:** runs on a local test chain with test tokens only ("test USDC", no value). Nothing here is on devnet or mainnet, no real funds move, and nobody outside the project has played.
+> **This build:** runs on a local test chain with test tokens only ("test USDC", no value). Nothing here is on devnet or mainnet; no real funds move.
 > **Earlier version:** a separate game build with its own devnet record. It is history and is not evidence for this build ([Earlier version](#earlier-version)).
 
 ![The Wylls map: six nations around the neutral centre](docs/img/wylls-map.png)
