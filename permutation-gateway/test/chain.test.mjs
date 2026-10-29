@@ -35,15 +35,19 @@ test('the program identity PDA and the VRF constants match the Rust vectors', ()
 
 const vrf = queue => [R(chain.identity), W(queue), R(VRF_PROGRAM_ID), R(SystemProgram.programId), R(SYSVAR_SLOT_HASHES_PUBKEY)];
 
-test('freezeTick and retryTickRandomness: the queue of the play mode at account 3 (the ER\'s when delegated, the base\'s in base play)', () => {
+test('freezeTick and retryTickRandomness: the queue of the play mode at account 3 (the ER\'s when delegated, the base\'s in base play), the season last', () => {
   for (const delegated of [true, false]) {
     const queue = delegated ? VRF_QUEUE_ER : VRF_QUEUE_BASE;
     const [freeze] = programIx(chain.freezeTick({ payer, nations: 6, delegated }));
     assert.equal(freeze.data[0], IX_TAG.freezeTick);
-    assert.deepEqual(keysOf(freeze), [W(payer, true), W(chain.worldChunks[0]), ...vrf(queue), ...chain.nations(6).map(k => W(k))]);
+    assert.deepEqual(keysOf(freeze), [W(payer, true), W(chain.worldChunks[0]), ...vrf(queue), ...chain.nations(6).map(k => W(k)), R(chain.season)]);
     const [retry] = chain.retryTickRandomness({ payer, delegated });
     assert.equal(retry.data[0], IX_TAG.retryTickRandomness);
-    assert.deepEqual(keysOf(retry), [W(payer, true), W(chain.worldChunks[0]), ...vrf(queue)]);
+    assert.deepEqual(keysOf(retry), [W(payer, true), W(chain.worldChunks[0]), ...vrf(queue), R(chain.season)]);
+    // The program reads the play mode from the season: FreezeTick's last
+    // account (after the nations), RetryTickRandomness's account 7.
+    assert.deepEqual(keysOf(freeze).at(-1), R(chain.season));
+    assert.deepEqual(keysOf(retry)[7], R(chain.season));
   }
   // Default: a delegated season. FreezeTick makes no request; `request` adds RetryTickRandomness to the same transaction.
   assert.equal(keysOf(programIx(chain.freezeTick({ payer, nations: 2 }))[0])[3][0], VRF_QUEUE_ER);

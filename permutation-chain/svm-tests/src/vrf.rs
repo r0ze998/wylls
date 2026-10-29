@@ -5,7 +5,8 @@
 //!   the real program checks of its caller — the program identity
 //!   `PDA(["identity"], callback_program)` signs, the queue is writable —
 //!   records the request (`requests()`) and logs `VRF_REQ ‖ data`. It
-//!   answers nothing by itself.
+//!   answers nothing by itself. `refuse(true)` makes it refuse every
+//!   request the way a full queue does (`AccountDataTooSmall`).
 //! * **Fulfil** (`FULFIL`, sent by a test through `fulfil`): calls the
 //!   request's callback program back, as the oracle does, with
 //!   `discriminator ‖ E ‖ callback args` and the accounts
@@ -84,14 +85,20 @@ pub mod mock {
     use solana_instruction::{AccountMeta, Instruction};
     use solana_program_runtime::declare_process_instruction;
     use solana_program_runtime::invoke_context::InvokeContext;
-    use std::cell::RefCell;
+    use std::cell::{Cell, RefCell};
 
     thread_local! {
         /// Every request the stand-in received on this thread (a test is one thread).
         pub static REQUESTS: RefCell<Vec<Received>> = const { RefCell::new(Vec::new()) };
+        /// Refuse every request, as a full (or paused) queue does.
+        pub static REFUSING: Cell<bool> = const { Cell::new(false) };
     }
 
     fn request(ic: &mut InvokeContext, kind: u8) -> Result<(), InstructionError> {
+        if REFUSING.with(Cell::get) {
+            // What the real program returns when the queue has no free slot.
+            return Err(InstructionError::AccountDataTooSmall);
+        }
         let ctx = ic.transaction_context.get_current_instruction_context()?;
         let data = ctx.get_instruction_data().to_vec();
         let req = Request::try_from_slice(
@@ -186,6 +193,12 @@ pub mod mock {
 /// The requests the stand-in received since the last call.
 pub fn requests() -> Vec<Received> {
     mock::take()
+}
+
+/// From now on (on this thread), refuse every request as a full queue does
+/// (`true`), or accept them again (`false`).
+pub fn refuse(on: bool) {
+    mock::REFUSING.with(|r| r.set(on));
 }
 
 impl Chain {

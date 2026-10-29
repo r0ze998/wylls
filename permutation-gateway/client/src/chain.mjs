@@ -192,20 +192,22 @@ export class ChainClient {
    * randomness is then pending. The program makes no VRF request here:
    * with `request` the RetryTickRandomness that does goes in the same
    * transaction (FreezeTick alone otherwise, and `retryTickRandomness`
-   * next). `delegated`: the season's play mode, which picks the VRF queue.
-   * Permissionless.
+   * next). `delegated`: the season's play mode (`Season.delegated & 1`),
+   * which picks the VRF queue; the program checks it against the season
+   * account, read-only after the nations. Permissionless.
    */
   freezeTick({ payer, nations, delegated = true, request = false }) {
-    return [...heavy(), this.ix([W(payer, true), W(this.worldChunks[0]), ...this.vrfKeys(vrfQueue(delegated)), ...this.nations(nations).map(k => W(k))],
-      IX.freezeTick()), ...(request ? this.retryTickRandomness({ payer, delegated }) : [])];
+    return [...heavy(), this.ix([W(payer, true), W(this.worldChunks[0]), ...this.vrfKeys(vrfQueue(delegated)), ...this.nations(nations).map(k => W(k)),
+      R(this.season)], IX.freezeTick()), ...(request ? this.retryTickRandomness({ payer, delegated }) : [])];
   }
   /**
    * Request the frozen tick's randomness from the VRF: the first request,
    * and again VRF_RETRY_SECONDS after the last; VRF_GIVEUP_SECONDS after the
-   * freeze it draws the logged fallback instead. Permissionless.
+   * freeze it draws the logged fallback instead (asked or not). The season
+   * account (read-only) is account 7. Permissionless.
    */
   retryTickRandomness({ payer, delegated = true }) {
-    return [this.ix([W(payer, true), W(this.worldChunks[0]), ...this.vrfKeys(vrfQueue(delegated))], IX.retryTickRandomness())];
+    return [this.ix([W(payer, true), W(this.worldChunks[0]), ...this.vrfKeys(vrfQueue(delegated)), R(this.season)], IX.retryTickRandomness())];
   }
   /** A governance action queued for the open tick, signed by the member's session key. */
   submitGov({ signer, civ, member, action }) {

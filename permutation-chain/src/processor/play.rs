@@ -682,9 +682,13 @@ pub(super) fn consume_tick_randomness(
 /// Request the frozen tick's randomness from the VRF (A19: the first
 /// request after `FreezeTick`, and again once `VRF_RETRY_SECONDS` passed
 /// without an answer; an earlier request stays valid, the first answer
-/// wins). Once a request went unanswered until `VRF_GIVEUP_SECONDS` after
-/// the freeze: the fallback `tick_vrf(rand_pre, 0, RAND_FALLBACK)`, logged
-/// and flagged by the verifier. The queue is checked on every call, the
+/// wins). From `VRF_GIVEUP_SECONDS` after the freeze (§1.3 tag 30; the
+/// give-up clock starts at FreezeTick): the fallback `tick_vrf(rand_pre, 0,
+/// RAND_FALLBACK)`, logged and flagged by the verifier, whether or not a
+/// request was ever made. A request can fail for reasons nobody here
+/// controls (a full or paused queue refuses it and the whole transaction
+/// reverts), so the fallback must never wait for one: that would freeze
+/// the tick until Abort. The queue is checked on every call, the
 /// fallback's included, so a wrong queue can never run the clock out.
 pub(super) fn retry_tick_randomness(
     program_id: &Pubkey,
@@ -700,12 +704,11 @@ pub(super) fn retry_tick_randomness(
     let queue = play_queue(program_id, season_info, meta.season_id)?;
     let bump = a.check(program_id, &queue)?;
     let now = now()?;
-    let asked = meta.rand_requests > 0;
-    if asked && now < meta.rand_requested_at.saturating_add(VRF_RETRY_SECONDS) {
+    if meta.rand_requests > 0 && now < meta.rand_requested_at.saturating_add(VRF_RETRY_SECONDS) {
         return Err(ChainError::TooEarly.into());
     }
     let tick = meta.rand_tick;
-    if asked && now >= meta.frozen_at.saturating_add(VRF_GIVEUP_SECONDS) {
+    if now >= meta.frozen_at.saturating_add(VRF_GIVEUP_SECONDS) {
         let vrf = randomness::tick_vrf(&meta.rand_pre, &[0; 32], RAND_FALLBACK)
             .ok_or(ChainError::Rules)?;
         meta.rand_state = RAND_FALLBACK;

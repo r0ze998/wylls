@@ -400,8 +400,9 @@ fn first_callback_wins() {
     assert_eq!((m.rand_out, m.rand_requests), ([2; 32], 2));
 }
 
-/// The fallback needs an unanswered request and `VRF_GIVEUP_SECONDS` since
-/// the freeze; it is logged, a late answer changes nothing, and PS_TICK
+/// The fallback comes `VRF_GIVEUP_SECONDS` after the freeze, whether or not
+/// anyone asked (§1.3 tag 30); an unanswered request still gets its retry
+/// wait first. It is logged, a late answer changes nothing, and PS_TICK
 /// carries its state.
 #[test]
 fn fallback_only_after_giveup() {
@@ -413,15 +414,23 @@ fn fallback_only_after_giveup() {
     c.send(vec![s.freeze_ix(&cp, &q)], &[&crank])
         .expect("FreezeTick");
     let frozen_at = s.meta(&c).frozen_at;
-    // Nobody asked yet: at the give-up time the first request is made.
+    // Nobody asked: before the give-up time a Retry is the first request,
+    // at it the fallback, with no request.
     let mut unasked = c.fork();
     unasked.set_time(frozen_at + VRF_GIVEUP_SECONDS);
     unasked
         .send(vec![s.retry_ix(&cp, &q)], &[&crank])
-        .expect("first request");
+        .expect("RetryTickRandomness: the fallback, never asked");
     let m = s.meta(&unasked);
-    assert_eq!((m.rand_state, m.rand_requests), (RAND_PENDING, 1));
-    vrf::requests();
+    assert_eq!(
+        (m.rand_state, m.rand_requests, m.vrf),
+        (
+            RAND_FALLBACK,
+            0,
+            tick_vrf(&m.rand_pre, &[0; 32], RAND_FALLBACK).unwrap()
+        )
+    );
+    assert!(vrf::requests().is_empty(), "the fallback makes no request");
     // Asked at once, and again before the give-up time: still pending.
     c.send(vec![s.retry_ix(&cp, &q)], &[&crank])
         .expect("first request");
@@ -466,6 +475,65 @@ fn fallback_only_after_giveup() {
         (t[6].clone(), t[7].clone(), t[8].clone()),
         (vec![RAND_FALLBACK], m.rand_pre.to_vec(), vec![0; 32])
     );
+    assert_eq!(s.world(&mut c).tick, 1);
+}
+
+/// A queue that refuses every request (full: anyone can fill the shared ER
+/// queue for free, A21; or paused) cannot hold the tick: FreezeTick needs
+/// no request, every RetryTickRandomness reverts with the VRF's refusal
+/// until the give-up time, and then the fallback lets the tick resolve.
+#[test]
+fn refusing_queue_reaches_the_fallback() {
+    let mut c = Chain::new();
+    let (s, _) = revealed(&mut c, 4);
+    let crank = s.crank.insecure_clone();
+    let cp = crank.pubkey();
+    let q = s.vrf_queue(&c);
+    vrf::refuse(true);
+    // The crank's bundle reverts as a whole; FreezeTick alone lands.
+    let r = c.send(
+        vec![s.freeze_ix(&cp, &q), s.retry_ix(&cp, &q)],
+        &[&crank],
+    );
+    assert!(r.as_ref().is_err_and(|f| f.code.is_none()), "{r:?}");
+    assert!(!s.meta(&c).frozen);
+    c.send(vec![s.freeze_ix(&cp, &q)], &[&crank])
+        .expect("FreezeTick alone");
+    let frozen_at = s.meta(&c).frozen_at;
+    // Every request is refused, and nothing is written.
+    for t in [0, VRF_RETRY_SECONDS, VRF_GIVEUP_SECONDS - 1] {
+        c.set_time(frozen_at + t);
+        let r = c.send(vec![s.retry_ix(&cp, &q)], &[&crank]);
+        assert!(
+            r.as_ref()
+                .is_err_and(|f| f.code.is_none() && f.err.contains("AccountDataTooSmall")),
+            "{r:?}"
+        );
+        let m = s.meta(&c);
+        assert_eq!((m.rand_state, m.rand_requests), (RAND_PENDING, 0));
+    }
+    assert_err(c.send(vec![s.log_ix(0)], &[&crank]), E::RandomnessPending);
+    // The give-up time: the fallback, still without any request.
+    c.set_time(frozen_at + VRF_GIVEUP_SECONDS);
+    c.send(vec![s.retry_ix(&cp, &q)], &[&crank])
+        .expect("RetryTickRandomness: the fallback");
+    vrf::refuse(false);
+    let m = s.meta(&c);
+    assert_eq!(
+        (m.rand_state, m.rand_requests, m.vrf),
+        (
+            RAND_FALLBACK,
+            0,
+            tick_vrf(&m.rand_pre, &[0; 32], RAND_FALLBACK).unwrap()
+        )
+    );
+    assert!(vrf::requests().is_empty());
+    s.log_input(&mut c);
+    let l = c
+        .send(vec![s.resolve_ix(12)], &[&crank])
+        .expect("ResolveTick");
+    let t = record(&l.logs, b"PS_TICK");
+    assert_eq!(t[6], vec![RAND_FALLBACK]);
     assert_eq!(s.world(&mut c).tick, 1);
 }
 

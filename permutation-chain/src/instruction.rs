@@ -295,7 +295,8 @@ pub enum ChainInstruction {
     /// request after `FreezeTick`, and again when none came
     /// `state::VRF_RETRY_SECONDS` after the last one; `state::VRF_GIVEUP_SECONDS`
     /// after the freeze: the fallback (`randomness::RAND_FALLBACK`, logged;
-    /// the verifier flags it; only after a request went unanswered).
+    /// the verifier flags it), whether or not a request was ever made (a
+    /// full or paused queue refuses every request).
     /// Permissionless; not subject to the alone rule.
     /// Accounts 0–6 as `FreezeTick` · 7 the season
     RetryTickRandomness,
