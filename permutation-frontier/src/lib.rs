@@ -118,6 +118,16 @@ pub fn dispatch(
     use proc::*;
     markers::touch();
     heap::trace_checkpoint(0);
+    // Proposal (workstream 02-rights): the facility-use Grant's tags sit
+    // outside the v2 table and are routed before it.
+    if data
+        .first()
+        .is_some_and(|t| frontier_abi::v2::rights::is_rights_tag(*t))
+    {
+        let r = proc::rights::dispatch(program_id, accounts, data);
+        heap::trace_checkpoint(0xffff);
+        return r;
+    }
     let ix = frontier_abi::v2::ix::tag_of(data)?;
     let p = program_id;
     let a = accounts;

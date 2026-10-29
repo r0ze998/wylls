@@ -63,6 +63,7 @@ pub mod host;
 pub mod map;
 pub mod nation;
 pub mod reveal;
+pub mod rights;
 pub mod season;
 pub mod structure;
 pub mod transit;
