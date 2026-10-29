@@ -15,15 +15,16 @@
 | 甲の試遊キット | `docs/playtest-kou` @ `d3d0c55226de8205775aae5dc77054c274cfaa5e`、[PR #21](https://github.com/r0ze998/wylls/pull/21) | 統合候補に取り込み。実施前に手順と時間設定を確認 |
 | 旧 core playtest | `docs/core-playtest` @ `b4985b2aaa9b2bc82544825e436fc0e248f72e9e` | 旧 `frontier/season-complete` 前提のため現行手順には使わない |
 | Eternum UX 調査と試作 | `preserve/eternum-ux-research-20261029` @ `64caa5341d7609d7761480e0f6907fb11d088725` | 参考資料。提案と実測を分けて検証 |
+| A/B 試作と UI 点検 | `archive/claude-fun-ab-20261029` @ `e016b4d4ef8eed84b29ddd653bcce205b8146f4e` | 試作・点検記録として保全。現行の試遊手順には採用していない |
 | EVE・Eternum と補給の提案 | `docs/eve-eternum-supply-design` @ `5090501a2d36c020d12e4dcf93a21699c9001752` | 既存 remote 枝。現行設計文書と文言が重なるので保留 |
 | 提出文書の修正 | `archive/claude-submit-20261029` @ `2184ba3b3c1b2e1a4f9b42bb61e74db641b53beb` | 古い根拠を現行の事実と照合するまで保留 |
 | VRF 修正・テスト | `archive/claude-v9-security-20261029` @ `f005c11b2f524d75d95d78088b08f7d58193161f` | 現行コードに同等の修正があるか確認してから判断 |
 
 上のブランチは、保全時に remote SHA を確認済み。元の Claude worktree は変更していない。元の worktree に未追跡ファイルが残る場合も、保全済みのコピーを基準とする。
 
-## ローカルのみの作業
+## ローカルで確認が必要な作業
 
-- `playtest/fun-ab` の A/B 試作と画面確認は、作業機の `2026-10-29/task-3/wylls-fun-ab-preserve` で `archive/claude-fun-ab-20261029` @ `e016b4d4ef8eed84b29ddd653bcce205b8146f4e` として commit 済み。**remote には未push**。元の `fun-ab` worktree も残る。画像を含む送信について自動承認審査が拒否したため、公開先の承認が解決するまでローカル保全とする。
+- `playtest/fun-ab` の元の worktree には、保全した成果の未追跡コピーが残る。GitHub の保全ブランチを基準とし、元の worktree は無断で掃除しない。
 - 9月26日の `wf_*` worktree 群には、未統合のセキュリティ再現テストと部分的な変更がある。公開 repo で未修正の再現手順を広める可能性があるため、今回は push・統合していない。現行 `main` 上で個別に非公開でトリアージする。
 - 主 checkout の大量の未追跡ファイルは、主に `.claude/data`、動画素材、生成物。対象を選ばず `git add .` しない。
 
@@ -47,4 +48,4 @@ Eternum UX 調査の提案を採用する前に、次を確認する。
 3. 対応するテストと CI を通し、レビュー可能な PR にする。統合候補へ入れる際は採用・保留の理由を更新する。
 4. `main` への merge と devnet での作業は、それぞれ別の判断として扱う。
 
-最初に、甲の試遊を現行 S1 で実施できる条件と、国の共同作戦をどう試すかを確認する。旧 core playtest、fun-ab、EVE・Eternum 提案は参照先に留め、試遊の正本を増やさない。
+次の実装範囲は未決定。まず設計上まだ固まっていない点と、現行コードで技術的に可能なこと・不可能なことを照合し、作業を選ぶ。甲の試遊、旧 core playtest、fun-ab、EVE・Eternum 提案はそれぞれ目的と前提が異なる参照先として扱い、試遊の正本を増やさない。
