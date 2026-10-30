@@ -2,24 +2,24 @@
   "mode": "mcp-local-stack",
   "chain": "frontier-localnet (local test chain)",
   "testAssetsOnly": true,
-  "startedAt": "2026-10-30T00:42:58.823Z",
+  "startedAt": "2026-10-30T01:00:54.164Z",
   "checks": [
     {
       "name": "stack",
       "ok": true,
-      "at": "2026-10-30T00:43:22.888Z",
-      "season": "92",
-      "programId": "EGUWxzQd11CXLNbHVrA4WnGeNoZ68iPixiTfe1xMMgXu",
+      "at": "2026-10-30T01:01:46.258Z",
+      "season": "93",
+      "programId": "EQH98KkbhNfmSjrC3bFDyWneDtRtqU5w2oUCJqQzaWf7",
       "profile": 3,
       "agentWallet": true
     },
     {
       "name": "owner-joined",
       "ok": true,
-      "at": "2026-10-30T00:43:24.333Z",
-      "wallet": "9tfiCPaWGbGdFGrF8TCANWt3zA6EFieUxDkttTMeM5Kz",
+      "at": "2026-10-30T01:01:47.458Z",
+      "wallet": "4kAdHjZqqAyhe6kgvhjg2hC7q9M9JCvS669yqDa35fnV",
       "nation": 0,
-      "join": "5LBJysQJ9LpZAuV6uxHNfWVhNTGzX8QCJmHjqjuc8YGkQJ4iyJ6oc76iYz1uehDiSpf5Naarm1bhsySgq7k8huHE",
+      "join": "57fFvqzuGTVEWAbFjMomT8tbaw1prNNTC4x1b5VqESWHAbGtUKbDZZWZAuEZnTgBQpsF8FBexqZGBoBDuQjzAAkJ",
       "village": [
         3,
         0,
@@ -30,32 +30,32 @@
     {
       "name": "storehouse-built",
       "ok": true,
-      "at": "2026-10-30T00:43:25.392Z",
+      "at": "2026-10-30T01:01:48.520Z",
       "tile": 4,
-      "signature": "4f7wYiBmhbLgJveYxY1RGr7qEquTDLW6dYpMXNBiX4Us1utBt4jM8XMmXfRnDjpsNQ6a8eN6DeMiXHUoPCmtzmGQ"
+      "signature": "3Q77kcuRLsvsnE5KgUSQJRo3V5zKE8fLt5MMCNj9Jx5RsgecVGxFtAqho9rRSy5BJs3ZaWa84eNWrwrnuDxga4xf"
     },
     {
       "name": "agent-delegated",
       "ok": true,
-      "at": "2026-10-30T00:43:25.928Z",
-      "agentId": "af076843-9d60-47b8-84fe-6a55b85a5090",
-      "agentKey": "CSJGiGY6TRGVNqqChmisTKVW2Cu1ZFwjCJjmEue73uyZ",
+      "at": "2026-10-30T01:01:49.072Z",
+      "agentId": "303221b3-ed83-4d4d-90be-04af0aa70b00",
+      "agentKey": "5jhSjfpdERNYwASNx2EXdLfRg41SmoGhjrCj7ocr29Hx",
       "allowed": [
         "SendCaravan"
       ],
-      "setSession": "54vPCadR12276HQzSYbCs7njBUDvrkb9hyEPEns63k6n9nCjLNwn6ZzroXctvxH8XMWZY3dLb2mW2gSirRCfrLJa"
+      "setSession": "5rkHQTsQh31EbVDMMPrGVVr4BLj3VngwAWLumrWDHqiLgysDPGFp6kKjggfi3f1rmVHSeJEa4FyQf36SzaVYwjiq"
     },
     {
       "name": "mcp-connected",
       "ok": true,
-      "at": "2026-10-30T00:43:25.961Z",
-      "issuer": "http://127.0.0.1:33931",
+      "at": "2026-10-30T01:01:49.111Z",
+      "issuer": "http://127.0.0.1:46497",
       "scope": "wylls.read wylls.caravan"
     },
     {
       "name": "village-status",
       "ok": true,
-      "at": "2026-10-30T00:43:25.981Z",
+      "at": "2026-10-30T01:01:49.131Z",
       "village": {
         "placeId": "village:3,0,0",
         "p": 3,
@@ -157,7 +157,7 @@
         }
       ],
       "agent": {
-        "agentId": "af076843-9d60-47b8-84fe-6a55b85a5090",
+        "agentId": "303221b3-ed83-4d4d-90be-04af0aa70b00",
         "mode": "auto",
         "modeEpoch": 1,
         "policyVersion": 1,
@@ -167,9 +167,9 @@
         "delegation": {
           "citizen": true,
           "delegated": true,
-          "session": "CSJGiGY6TRGVNqqChmisTKVW2Cu1ZFwjCJjmEue73uyZ",
-          "expiry": 1786235020,
-          "now": 1785630244
+          "session": "5jhSjfpdERNYwASNx2EXdLfRg41SmoGhjrCj7ocr29Hx",
+          "expiry": 1786235028,
+          "now": 1785630256
         },
         "caravansAllowed": true
       }
@@ -177,7 +177,7 @@
     {
       "name": "shortfall",
       "ok": true,
-      "at": "2026-10-30T00:43:25.996Z",
+      "at": "2026-10-30T01:01:49.145Z",
       "goal": {
         "kind": "amounts",
         "amounts": {
@@ -200,7 +200,7 @@
     {
       "name": "caravan-1-village-to-storehouse",
       "ok": true,
-      "at": "2026-10-30T00:46:26.486Z",
+      "at": "2026-10-30T01:04:46.581Z",
       "plan": {
         "from": "village:3,0,0",
         "to": "vault:3,0,4",
@@ -217,27 +217,27 @@
         "completed"
       ],
       "receipt": {
-        "operationId": "op_b23208bb6d92b4796fdadb8c",
-        "signature": "3SuFCecXNz88o3CfnmixiHhDFhAWsqAZqAgpYME8ndZsuRiRgSSWXMZCQMNLWP8rp1ThAdAE5CkLWFCwSP7JenhD",
-        "arriveAt": "2026-08-02T00:34:46.000Z",
+        "operationId": "op_eb4aecf674655784ba1f5878",
+        "signature": "HEYF3FKnZ99kjkJfD6iXepQVmkg7rLt8PxooCZTxuxdSHKVD6MiT6fqA6pesmkHyUxX4Sfo5aVJfnB9QCZyxGaM",
+        "arriveAt": "2026-08-02T00:34:54.000Z",
         "history": [
           {
             "state": "requested",
-            "at": "2026-10-30T00:43:26.036Z"
+            "at": "2026-10-30T01:01:49.191Z"
           },
           {
             "state": "accepted",
-            "at": "2026-10-30T00:43:26.062Z",
+            "at": "2026-10-30T01:01:49.229Z",
             "detail": "the relay sent the transaction"
           },
           {
             "state": "processing",
-            "at": "2026-10-30T00:43:29.075Z",
+            "at": "2026-10-30T01:01:52.255Z",
             "detail": "the transaction landed: the caravan is on the road"
           },
           {
             "state": "completed",
-            "at": "2026-10-30T00:46:26.484Z",
+            "at": "2026-10-30T01:04:46.580Z",
             "detail": "the caravan arrived and was settled"
           }
         ]
@@ -246,20 +246,20 @@
     {
       "name": "storehouse-filled",
       "ok": true,
-      "at": "2026-10-30T00:46:26.535Z",
+      "at": "2026-10-30T01:04:46.611Z",
       "food": 100,
       "shortfall": {
         "goal": {
           "kind": "amounts",
           "amounts": {
-            "Food": 320
+            "Food": 319
           }
         },
         "rows": [
           {
             "resource": "Food",
-            "need": 320,
-            "have": 220,
+            "need": 319,
+            "have": 219,
             "short": 100,
             "perHour": 40,
             "hoursByProduction": 2.5
@@ -283,14 +283,14 @@
     {
       "name": "refusals",
       "ok": true,
-      "at": "2026-10-30T00:46:26.588Z",
+      "at": "2026-10-30T01:04:46.665Z",
       "strangersPlace": "NotYourPlace",
       "readOnlyConnection": "InsufficientScope"
     },
     {
       "name": "caravan-2-storehouse-to-village",
       "ok": true,
-      "at": "2026-10-30T00:47:23.795Z",
+      "at": "2026-10-30T01:05:43.855Z",
       "plan": {
         "from": "vault:3,0,4",
         "to": "village:3,0,0",
@@ -307,26 +307,26 @@
         "completed"
       ],
       "receipt": {
-        "operationId": "op_4464c7e9a3d5ccb02184d930",
-        "signature": "2uV8AhNxt2WECHCWVLVshhs182gJB5cZmRDtjEsrbX4NXQ5E8o54WSM6thxKpDQu5pXwwaoMp79L5W42D25oh7Um",
+        "operationId": "op_3ec3371a86bb95ee9aa65954",
+        "signature": "h7JLGP8cCtgEvmEcoGTmHDWdSBiuq9FYYs1TNL8ZgJ5rJDVt2hRCwcFdrrCmtyKU9djzodPm547ewGPf6cevePX",
         "history": [
           {
             "state": "requested",
-            "at": "2026-10-30T00:46:26.631Z"
+            "at": "2026-10-30T01:04:46.698Z"
           },
           {
             "state": "accepted",
-            "at": "2026-10-30T00:46:26.677Z",
+            "at": "2026-10-30T01:04:46.733Z",
             "detail": "the relay sent the transaction"
           },
           {
             "state": "processing",
-            "at": "2026-10-30T00:46:29.688Z",
+            "at": "2026-10-30T01:04:49.759Z",
             "detail": "the transaction landed: the caravan is on the road"
           },
           {
             "state": "completed",
-            "at": "2026-10-30T00:47:23.792Z",
+            "at": "2026-10-30T01:05:43.851Z",
             "detail": "the caravan arrived and was settled"
           }
         ]
@@ -336,16 +336,16 @@
     {
       "name": "grant-limit",
       "ok": true,
-      "at": "2026-10-30T00:47:23.834Z",
+      "at": "2026-10-30T01:05:43.900Z",
       "code": "GrantLimitReached",
       "maxSends": 2
     },
     {
       "name": "no-secret-in-transcript",
       "ok": true,
-      "at": "2026-10-30T00:47:23.835Z"
+      "at": "2026-10-30T01:05:43.901Z"
     }
   ],
-  "finishedAt": "2026-10-30T00:47:23.836Z",
+  "finishedAt": "2026-10-30T01:05:43.902Z",
   "result": "PASS"
 }

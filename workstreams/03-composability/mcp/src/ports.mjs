@@ -58,6 +58,8 @@ export class MockGrantPort {
     delete link.grantUse.reserved[opId];
     link.grantUse.used++;
   }
+  /** A consumed send that moved nothing after all (failed on chain, expired, never sent): it no longer counts. */
+  refund(link) { if (link.grantUse?.used > 0) link.grantUse.used--; }
   /** Nothing was sent: the hold comes back. */
   release(link, opId) { if (link.grantUse?.reserved) delete link.grantUse.reserved[opId]; }
 

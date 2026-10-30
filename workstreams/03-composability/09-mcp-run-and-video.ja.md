@@ -8,9 +8,9 @@
 
 | 種類 | 何で | 結果 | ログ |
 |---|---|---|---|
-| 契約の試験（模擬チェーン＋実 HTTP） | `node --test`。relay・AgentGateway・形の検査・drain guard は本物、チェーンと herald は台本 | この repo の gateway（パッチ 0005 無し）：25 件中 14 通過・11 省略（書込が要る試験）・0 失敗。パッチ 0005 を当てた gateway：24 通過・1 省略（パッチ無し専用の 1 件）・0 失敗 | [results/mcp-tests.log](results/mcp-tests.log) |
-| 公式 MCP SDK クライアント | `@modelcontextprotocol/sdk` 1.32.1 の Client と Streamable HTTP、SDK 自身の OAuth | 通過（上の 25 件に含む。両方の gateway で） | 同上 |
-| ローカルの実チェーン E2E | frontier-stack（frontier-localnet、Frontier プログラム、keeper、herald、パッチ 0005 を当てた relay）。MCP サーバーの HTTP と OAuth を通す | **PASS、13 確認**（season 92、2026-10-30T00:42–00:47 UTC） | [results/mcp-local-stack.json](results/mcp-local-stack.json) |
+| 契約の試験（模擬チェーン＋実 HTTP） | `node --test`。relay・AgentGateway・形の検査・drain guard は本物、チェーンと herald は台本 | この repo の gateway（パッチ 0005 無し）：31 件中 15 通過・16 省略（書込が要る試験）・0 失敗。パッチ 0005 を当てた gateway：30 通過・1 省略（パッチ無し専用の 1 件）・0 失敗 | [results/mcp-tests.log](results/mcp-tests.log) |
+| 公式 MCP SDK クライアント | `@modelcontextprotocol/sdk` 1.32.1 の Client と Streamable HTTP、SDK 自身の OAuth | 通過（上の 31 件に含む。両方の gateway で） | 同上 |
+| ローカルの実チェーン E2E | frontier-stack（frontier-localnet、Frontier プログラム、keeper、herald、パッチ 0005 を当てた relay）。MCP サーバーの HTTP と OAuth を通す | **PASS、13 確認**（season 93、2026-10-30T01:00–01:05 UTC。レビューの修正の後に再実行。修正前の season 92 でも同じ 13 確認が PASS） | [results/mcp-local-stack.json](results/mcp-local-stack.json) |
 | gateway のパッチ 0005 | `agent-wallet-*` と `frontier-relay*` の試験 | 適用前 97/97、適用後 102/102 | [results/gateway-patch-0005.log](results/gateway-patch-0005.log) |
 
 実チェーン E2E の中身（transcript より）:
@@ -20,10 +20,10 @@
 | 所有者 | dev wallet で x402 参加、村を置く（PlaceHome）、倉庫を建てる（BuildVault）。手動のプレイ、所有者の session 鍵 |
 | 代理人 | `transport` を許す方針で作成、SetSession（ウォレット署名）で委任、auto |
 | 接続 | DCR → 同意（link の文とrotate-capability にウォレット署名）→ PKCE でトークン |
-| 隊商 1（村 → 倉庫、食料 100、3 歩） | `requested 00:43:26 → accepted 00:43:26 → processing 00:43:29 → completed 00:46:26`、結末 `delivered`（keeper が受取）。倉庫に食料 100 |
+| 隊商 1（村 → 倉庫、食料 100、3 歩） | `requested 01:01:49 → accepted 01:01:49 → processing 01:01:52 → completed 01:04:46`、結末 `delivered`（keeper が受取）。倉庫に食料 100 |
 | 不足の確認 | 倉庫が食料の供給元として出る |
 | 拒否 | 他人の場所 `NotYourPlace`、読取だけの接続の送付 `InsufficientScope` |
-| 隊商 2（倉庫 → 村） | `requested 00:46:26 → … → completed 00:47:23`、`delivered`。同じ requestId の再送は `replayed`（取引は増えない） |
+| 隊商 2（倉庫 → 村） | `requested 01:04:46 → … → completed 01:05:43`、`delivered`。同じ requestId の再送は `replayed`（取引は増えない） |
 | 上限 | 3 本目は `GrantLimitReached`（② MOCK の上限 2） |
 | 秘密 | capability は transcript とログに無い |
 
@@ -38,12 +38,27 @@
 | 期限切れ・失効した権限 | `tokens expire; the owner's signed revocation …`、`OAuth: … refresh token used twice revokes`、`the owner's signed limits (MOCK grant) … expiry`、`the owner's controls … SetSession / capability rotated`（模擬） | 通過 |
 | 予算超過 | `⑤'s budget decides … BudgetExceeded`（模擬）、② MOCK の `GrantLimitReached`（模擬と実） | 通過 |
 | 重複送信 | `duplicates …`（並行 3 本で 1 取引）（模擬）、E2E の再送（実） | 通過 |
-| 切断後の結果確認 | `a lost connection to the relay …`、`the relay answered but the MCP reply was lost … a restarted server …`（模擬） | 通過 |
+| 切断後の結果確認 | `a lost connection to the relay …`、`the relay answered but the MCP server never recorded it (crash) …`（再起動後の再送が gateway の記録の再生になる）、`the send left but its answer says failed …`、`outcome unknown and no trace …`、`rate limited by the relay on a retry …`、`a retry while the first attempt is still at the relay …`（模擬） | 通過 |
+| 再送時の期限 | `a retry after the relay was unreachable re-checks the owner's limits …`（模擬） | 通過 |
 | 悪意あるゲーム内文章 | `words in the game are data …`（模擬） | 通過 |
 | 閲覧権限のない情報 | `reads never show another player's march`（模擬） | 通過 |
 | 秘密を出さない | `secrets: …`（模擬）、E2E（実） | 通過 |
 
-### 1.3 ChatGPT の実機（実行していない）
+### 1.3 独立したレビュー（2026-10-30）
+
+実装の後、別の担当（エージェント）が OAuth と書込の経路を読んだ。OAuth の迂回、他人の代理人・村への操作、秘密の漏れは見つからなかった。見つかった欠陥と対応:
+
+| 欠陥 | 対応 |
+|---|---|
+| 送った後に gateway が `failed`（署名なし）を返すと、「失敗・何も送っていない」として上限を返していた | 結果不明として扱い、上限を数えたまま、隊商の識別子で決める。痕跡が無く通し番号も進まなければ `NotSent` で上限を返す |
+| 結果不明の後の再試行が 429・401・capability なしで失敗になると、上限を返して失敗にしていた | 結果不明の後は失敗にしない（429 と 5xx は再送可、それ以外は結果不明として追跡） |
+| 再送が上限の期限と計画の期限を確かめ直さなかった | 再送の前に確かめる。期限後は新しい試行をしない |
+| 送信中の同じ requestId の再送が、並行に別の試行をしていた | 同じ操作の試行は一つにまとめる（合流） |
+| 未認証の登録・同意の保留が無制限に増え、そのたびにストアを書く | 速度制限と数の上限 |
+| 細部（空の本文で 500、失敗の再生が `isError: false`、誤りのリダイレクトに `iss` が無い、コード再利用で発行済みトークンを取り消さない） | すべて直した |
+| 名前どおりに確かめていない試験（「返事が失われた」が再生を通っていない、PKCE・resource・redirect の token 側の誤りが無い、未知の代理人が relay 停止と区別できない） | 試験を直し、足した |
+
+### 1.4 ChatGPT の実機（実行していない）
 
 | 確かめたいこと | 状態 |
 |---|---|
@@ -100,4 +115,4 @@ WYLLS_MCP_TEST_AS=1 WYLLS_MCP_RELAY=http://127.0.0.1:41740/gw WYLLS_MCP_HERALD=h
 
 ### 3.2 ChatGPT の実機が確かめられた後に撮るもの
 
-同じ 9 場面を ChatGPT の会話で。撮る前に §1.3 の各項目を確かめ、確かめられなかった場面は撮らない（例えば確認の表示が出なかったら、出たように編集しない）。
+同じ 9 場面を ChatGPT の会話で。撮る前に §1.4 の各項目を確かめ、確かめられなかった場面は撮らない（例えば確認の表示が出なかったら、出たように編集しない）。

@@ -8,6 +8,12 @@ import { TOOLS } from '../src/tools.mjs';
 import { revokeStatement } from '../src/auth.mjs';
 import { signTalk } from '../../../../permutation-gateway/client/src/talk-node.mjs';
 
+/** A consent and its code, not yet exchanged. */
+async function freshCode(s, w) {
+  const c = await connect(s, w, { scopes: ['wylls.read'], grant: null, exchange: false });
+  return c;
+}
+
 const get = async (s, p, headers = {}) => { const r = await fetch(`${s.issuer}${p}`, { headers }); return { status: r.status, headers: Object.fromEntries(r.headers), json: await r.json().catch(() => null) }; };
 
 test('discovery: protected resource and authorization server metadata name this resource, S256 only, DCR', async () => {
@@ -84,15 +90,28 @@ test('OAuth: PKCE, code reuse, resource, redirect URIs, and a refresh token used
     const ok = await fetch(`${s.issuer}/oauth/register`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ redirect_uris: ['https://chatgpt.com/connector_platform_oauth_redirect'] }) });
     assert.equal(ok.status, 201, 'ChatGPT\'s redirect URI is accepted');
     // a code bound to its verifier, used once
-    const c = await connect(s, w, { scopes: ['wylls.read'], grant: null });
-    const again = await c.post('/oauth/token', { grant_type: 'authorization_code', code: c.code, code_verifier: c.verifier, client_id: c.clientId, redirect_uri: c.redirect }, true);
+    const used = await connect(s, w, { scopes: ['wylls.read'], grant: null });
+    const again = await used.post('/oauth/token', { grant_type: 'authorization_code', code: used.code, code_verifier: used.verifier, client_id: used.clientId, redirect_uri: used.redirect }, true);
     assert.equal(again.json.error, 'invalid_grant', 'a code is used once');
+    assert.equal((await client(s, used.access_token).rpc('tools/list')).status, 401, 'and its reuse revokes what it gave');
+    const c = await connect(s, w, { scopes: ['wylls.read'], grant: null });
     // a wrong resource at authorize: redirected back with invalid_target
     const q = new URLSearchParams({ response_type: 'code', client_id: c.clientId, redirect_uri: c.redirect, scope: 'wylls.read', state: 's', code_challenge: 'a'.repeat(43), code_challenge_method: 'S256', resource: 'https://other.example/mcp' });
     const wrong = await fetch(`${s.issuer}/oauth/authorize?${q}`, { redirect: 'manual' });
     assert.equal(wrong.status, 302);
     assert.equal(new URL(wrong.headers.get('location')).searchParams.get('error'), 'invalid_target');
     q.set('resource', `${s.issuer}/mcp`); q.set('code_challenge_method', 'plain');
+    assert.equal(new URL((await fetch(`${s.issuer}/oauth/authorize?${q}`, { redirect: 'manual' })).headers.get('location')).searchParams.get('iss'), s.issuer, 'iss on an error redirect too');
+    q.set('code_challenge_method', 'S256'); q.set('redirect_uri', 'http://127.0.0.1:9/other');
+    assert.equal((await fetch(`${s.issuer}/oauth/authorize?${q}`, { redirect: 'manual' })).status, 400, 'an unregistered redirect_uri is not redirected to');
+    q.set('redirect_uri', c.redirect); q.set('code_challenge_method', 'plain');
+    // At the token endpoint: a wrong verifier, another redirect_uri, another resource (each burns the code).
+    for (const [what, over] of [['verifier', { code_verifier: 'x'.repeat(43) }], ['redirect_uri', { redirect_uri: 'http://127.0.0.1:9/other' }], ['resource', { resource: 'https://other.example/mcp' }]]) {
+      const fresh = await freshCode(s, w);
+      const r = await fresh.post('/oauth/token', { grant_type: 'authorization_code', code: fresh.code, code_verifier: fresh.verifier, client_id: fresh.clientId, redirect_uri: fresh.redirect, resource: `${s.issuer}/mcp`, ...over }, true);
+      assert.ok(['invalid_grant', 'invalid_target'].includes(r.json.error), `${what}: ${JSON.stringify(r.json)}`);
+      assert.equal(r.json.access_token, undefined, what);
+    }
     assert.equal(new URL((await fetch(`${s.issuer}/oauth/authorize?${q}`, { redirect: 'manual' })).headers.get('location')).searchParams.get('error'), 'invalid_request', 'plain PKCE refused');
     // refresh: rotated; the old one replayed revokes the link and its access tokens
     const r1 = await c.post('/oauth/token', { grant_type: 'refresh_token', refresh_token: c.refresh_token, client_id: c.clientId }, true);
@@ -115,7 +134,12 @@ test('consent: a statement signed by another key, an agent this relay does not k
     assert.match(forged.description, /not signed by the owner/);
     const other = await world();
     const notMine = await connect(s, w, { scopes: ['wylls.read'], grant: null, agentId: other.agent.agentId });
-    assert.equal(notMine.refused, 'temporarily_unavailable', 'an agent unknown to this relay');
+    assert.equal(notMine.refused, 'access_denied', 'an agent unknown to this relay');
+    assert.match(notMine.description, /no such agent/);
+    w.state.fail = u => u.pathname === '/f/agent';
+    const down = await connect(s, w, { scopes: ['wylls.read'], grant: null });
+    assert.equal(down.refused, 'temporarily_unavailable', 'the relay down is another answer');
+    w.state.fail = null;
     const page = await connect(s, w, { scopes: ['wylls.read'], grant: null });
     assert.ok(page.html.includes('wylls.read'));
     assert.ok(!page.html.includes(w.agent.capability), 'the consent page carries no capability');
@@ -132,6 +156,17 @@ test('consent: an agent that belongs to another owner on the same relay is refus
     const r = await connect(s, w, { scopes: ['wylls.read'], grant: null, agentId: made.agentId });
     assert.equal(r.refused, 'access_denied');
     assert.match(r.description, /another owner/);
+  } finally { await s.close(); }
+});
+
+test('the unauthenticated OAuth routes are rate limited per address', async () => {
+  const w = await world();
+  const s = await server(w, { rateLimit: { burst: 20, everySecs: 2 } });
+  try {
+    const codes = [];
+    for (let i = 0; i < 25; i++) codes.push((await fetch(`${s.issuer}/oauth/register`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ redirect_uris: ['http://127.0.0.1:9/cb'] }) })).status);
+    assert.ok(codes.slice(0, 20).every(c => c === 201));
+    assert.ok(codes.slice(20).every(c => c === 429));
   } finally { await s.close(); }
 });
 

@@ -16,6 +16,8 @@ export const PROTOCOL_VERSIONS = Object.freeze(['2025-11-25', '2025-06-18', '202
 export const SERVER_INFO = Object.freeze({ name: 'wylls-mcp', title: 'Wylls (local test stack)', version: '0.1.0' });
 export const PLAN_TTL_MS = 5 * 60_000;
 const EVENT_PAGES_PER_CHECK = 10;
+/** How long an attempt with an unknown outcome waits for a trace before it counts as not sent (a blockhash lives about 60–90 s). */
+export const UNCERTAIN_WINDOW_MS = 5 * 60_000;
 
 const text = obj => [{ type: 'text', text: JSON.stringify(obj) }];
 const ok = obj => ({ content: text(obj), structuredContent: obj, isError: false });
@@ -30,7 +32,7 @@ const cargoArray = c => RESOURCE_NAMES.map(r => (Number.isInteger(c?.[r]) ? c[r]
  * @param {Game} o.game
  * @param {JsonStore} o.store
  */
-export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => {}, grants = new MockGrantPort({ now }) }) {
+export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => {}, grants = new MockGrantPort({ now }), uncertainWindowMs = UNCERTAIN_WINDOW_MS }) {
   const db = store.state;
   const inflight = new Map();
   const buckets = new Map();
@@ -117,6 +119,19 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
   const opIdOf = (principal, requestId) => `op_${sha(`${principal.linkId}\n${requestId}`).slice(0, 24)}`;
   const step = (op, state, detail = null) => { op.state = state; op.updatedAt = new Date(now()).toISOString(); op.steps.push({ state, at: op.updatedAt, ...(detail ? { detail } : {}) }); };
 
+  const joined = r => ({ ...r, structuredContent: { ...r.structuredContent, replayed: true }, content: text({ ...r.structuredContent, replayed: true }) });
+  /** One run per operation at a time: a retry while a send is under way joins it (never a second, concurrent submit). */
+  function single(opId, fn) {
+    if (inflight.has(opId)) return inflight.get(opId).then(joined);
+    const run = fn().finally(() => inflight.delete(opId));
+    inflight.set(opId, run);
+    return run;
+  }
+  const answer = op => {
+    const r = receiptOf(op);
+    return op.state === STATES.FAILED ? fail(op.error?.code ?? 'Failed', op.error?.message ?? 'failed', { operationId: op.id, receipt: r }) : ok(r);
+  };
+
   async function send(principal, args) {
     const denied = needScope(principal, SCOPES.CARAVAN);
     if (denied) return denied;
@@ -124,19 +139,17 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
     if (!REQUEST_ID.test(requestId)) return fail('BadRequest', 'requestId: 8–100 characters of A–Z a–z 0–9 . _ : -');
     const planId = String(args?.planId ?? '');
     const opId = opIdOf(principal, requestId);
-    // A retry of a decision already taken: the same operation, never a second send.
-    const prior = db.operations[opId];
-    if (prior) {
-      if (prior.planId !== planId) return fail('IdempotencyConflict', 'this requestId was used for another plan: use a new requestId', { operationId: opId });
-      if (prior.state === STATES.REQUESTED) return resume(principal, prior, true);
-      return ok({ ...receiptOf(await track(prior)), replayed: true });
-    }
-    if (inflight.has(opId)) return inflight.get(opId).then(r => ({ ...r, structuredContent: { ...r.structuredContent, replayed: true }, content: text({ ...r.structuredContent, replayed: true }) }));
-    const run = (async () => {
+    return single(opId, async () => {
+      // A retry of a decision already taken: the same operation, never a second send.
+      const prior = db.operations[opId];
+      if (prior) {
+        if (prior.planId !== planId) return fail('IdempotencyConflict', 'this requestId was used for another plan: use a new requestId', { operationId: opId });
+        if (prior.state === STATES.REQUESTED) return joined(await resume(principal, prior));
+        return joined(answer(await track(prior, principal)));
+      }
       // Async reads first (the owner's village as it is now), then every decision synchronously.
       let v;
       try { v = await game.view(principal); } catch (e) { return gameFail(e); }
-      if (db.operations[opId]) return ok({ ...receiptOf(db.operations[opId]), replayed: true });
       const plan = db.plans[planId];
       if (!plan || plan.linkId !== principal.linkId) return fail('PlanUnknown', 'no such plan for this connection: prepare_caravan first');
       if (plan.usedBy) return fail('PlanUsed', 'this plan was already sent', { operationId: plan.usedBy });
@@ -144,7 +157,7 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
       if (Number(v.citizen?.caravans ?? -1) !== plan.seq || v.agent.village.some((x, i) => x !== plan.holding[i])) return fail('PlanStale', 'the village changed since the plan (another caravan was sent): prepare again');
       const link = auth.link(principal.linkId);
       const op = { id: opId, requestId, planId, linkId: principal.linkId, kind: 'caravan.send', state: null, createdAt: new Date(now()).toISOString(), updatedAt: null, steps: [],
-        planSummary: plan.summary, caravan: { seq: plan.seq, ownerTag: v.citizenTag, arriveAt: null, outcome: null }, eventsCursor: '0' };
+        planSummary: plan.summary, caravan: { seq: plan.seq, ownerTag: v.citizenTag, arriveAt: null, outcome: null }, eventsCursor: '0', attempts: 0, unknownSince: null, grant: 'none' };
       const g = grants.reserve(link, { name: 'SendCaravan', cargo: plan.cargo }, opId);
       if (!g.ok) {
         step(op, STATES.REQUESTED);
@@ -154,94 +167,149 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
         store.save();
         return fail(g.code, g.message, { operationId: opId, receipt: receiptOf(op) });
       }
+      op.grant = 'reserved';
       plan.usedBy = opId;
       step(op, STATES.REQUESTED);
       db.operations[opId] = op;
       store.save(); // written before anything leaves: a restart finds the request and resumes it under the same key
-      return resume(principal, op, false);
-    })();
-    inflight.set(opId, run);
-    try { return await run; } finally { inflight.delete(opId); }
+      return resume(principal, op);
+    });
+  }
+
+  // The grant's hold follows what can have happened: released only when nothing can have been sent.
+  const grantRelease = (link, op) => { if (op.grant === 'reserved') grants.release(link, op.id); else if (op.grant === 'consumed') grants.refund(link); op.grant = 'none'; };
+  const grantConsume = (link, op) => { if (op.grant === 'reserved') { grants.consume(link, op.id); op.grant = 'consumed'; } };
+
+  /** Nothing was sent and nothing will be: failed, the grant's hold given back. */
+  function definite(op, link, code, message, by) {
+    grantRelease(link, op);
+    op.error = { code, message: scrub(message), retryable: false, ...(by ? { by } : {}) };
+    step(op, STATES.FAILED, code);
+  }
+  /** Something may have been sent and no new attempt will be made: the chain and the herald decide (track). */
+  function uncertain(op, link, why) {
+    grantConsume(link, op);
+    op.unknownSince ??= now();
+    op.uncertain = true;
+    delete op.error;
+    step(op, STATES.ACCEPTED, why);
   }
 
   /** Sends (or re-sends under the same idempotency key) an operation still `requested`. */
-  async function resume(principal, op, replayed) {
+  async function resume(principal, op) {
     const plan = db.plans[op.planId];
     const link = auth.link(op.linkId);
-    const capability = auth.capabilityOf(op.linkId);
-    if (!capability) {
-      op.error = { code: 'NoCapability', message: 'the connection holds no agent capability (revoked or read-only)', retryable: false };
-      grants.release(link, op.id);
-      step(op, STATES.FAILED, 'NoCapability');
+    // The owner's limits and the plan's life hold for a retry too.
+    const g = link?.grant;
+    const late = !g || link.revokedAt ? 'GrantRevoked' : now() >= g.expiresAt ? 'GrantExpired' : plan.expiresAt <= now() ? 'PlanExpired' : null;
+    const capability = late ? null : auth.capabilityOf(op.linkId);
+    const stop = late ?? (capability ? null : 'NoCapability');
+    if (stop) {
+      if (op.attempts === 0) definite(op, link, stop, `no send: ${stop}`);
+      else uncertain(op, link, `no new attempt (${stop}); an earlier attempt may have been sent: the chain decides`);
       store.save();
-      return fail('NoCapability', op.error.message, { operationId: op.id, receipt: receiptOf(op) });
+      return answer(op);
     }
     const request = { agentId: principal.agentId, source: 'mcp', idempotencyKey: `ws03:${op.linkId}:${op.requestId}`, policyVersion: plan.policyVersion, modeEpoch: plan.modeEpoch,
       action: { name: 'SendCaravan', holding: plan.holding, fields: plan.fields, route: plan.route } };
+    op.attempts++;
+    store.save();
     const r = await game.submit(capability, request);
     if (r.transport) {
       // Unknown whether the relay got it: the operation stays requested; a retry with the same requestId is safe.
+      op.unknownSince ??= now();
       op.error = { code: 'RelayUnreachable', message: 'the relay was not reached; retry with the same requestId', retryable: true };
       op.updatedAt = new Date(now()).toISOString();
       store.save();
       return fail('RelayUnreachable', op.error.message, { operationId: op.id, retrySameRequestId: true, receipt: receiptOf(op) });
     }
     const res = r.json ?? {};
-    delete op.error;
+    const code = res.error?.code ?? res.code ?? `HTTP${r.status}`;
     op.gateway = { status: res.status ?? null, signature: res.signature ?? null, code: res.error?.code ?? res.code ?? null, replayed: res.replayed === true, charges: res.charges ?? [] };
     if (r.status === 200 && res.status === 'sent') {
-      grants.consume(link, op.id);
+      delete op.error;
+      grantConsume(link, op);
       step(op, STATES.ACCEPTED, 'the relay sent the transaction');
-    } else if (r.status === 200 && res.status === 'failed' && res.signature) {
-      grants.consume(link, op.id);
-      step(op, STATES.ACCEPTED, 'the send was attempted; the chain decides');
+    } else if (r.status === 200 && res.status === 'failed') {
+      // The gateway attempted the send and its outcome is the chain's (it gives no signature then).
+      uncertain(op, link, 'the send was attempted and its outcome is unknown: the chain decides');
+    } else if (r.status === 200 && res.status === 'refused') {
+      // The gateway's own record for this key: nothing was sent under it, ever.
+      definite(op, link, code, res.error?.message ?? 'refused', 'agent wallet gateway / relay');
+    } else if (op.unknownSince === null && [400, 401, 403, 404, 409].includes(r.status)) {
+      // Refused before anything (credential, shape, conflict) on a first, clean attempt.
+      definite(op, link, code, res.error?.message ?? res.error ?? 'refused', 'agent wallet gateway / relay');
+    } else if (op.unknownSince !== null && [400, 401, 403, 404, 409].includes(r.status)) {
+      // An earlier attempt may have been sent and this one cannot be: the chain decides.
+      uncertain(op, link, `a retry was refused (${code}) after an attempt with an unknown outcome: the chain decides`);
     } else {
-      grants.release(link, op.id);
-      const code = res.error?.code ?? res.code ?? `HTTP${r.status}`;
-      op.error = { code, message: scrub(res.error?.message ?? res.error ?? 'refused'), retryable: false, by: 'agent wallet gateway / relay' };
-      step(op, STATES.FAILED, code);
+      // Rate limited or a server error: nothing decided; retry with the same requestId.
+      op.error = { code, message: 'the relay could not take the request now; retry with the same requestId', retryable: true };
+      op.updatedAt = new Date(now()).toISOString();
+      store.save();
+      return fail(code, op.error.message, { operationId: op.id, retrySameRequestId: true, receipt: receiptOf(op) });
     }
     store.save();
     log(`mcp: ${op.id} ${op.state}${op.error ? ` (${op.error.code})` : ''}`);
-    const out = receiptOf(op);
-    return op.state === STATES.FAILED ? fail(op.error.code, op.error.message, { operationId: op.id, receipt: out }) : ok({ ...out, ...(replayed ? { replayed: true } : {}) });
+    return answer(op);
+  }
+
+  /** The caravan's own trace (by owner tag and seq): on the road, sent, raided, settled. Moves `op` on. */
+  async function evidence(op) {
+    const feed = await game.caravansFeed();
+    const c = feed?.caravans?.moving?.find(x => String(x.ownerTag) === op.caravan.ownerTag && x.seq === op.caravan.seq);
+    let seen = false;
+    if (c) { seen = true; op.caravan.arriveAt = new Date(Number(c.arriveTs) * 1000).toISOString(); op.caravan.raided = c.raided; }
+    for (let i = 0; i < EVENT_PAGES_PER_CHECK && !TERMINAL.includes(op.state); i++) {
+      const page = await game.events(op.eventsCursor);
+      if (!page) break;
+      for (const row of page.events) {
+        const e = caravanEvent(row);
+        if (!e || e.ownerTag !== op.caravan.ownerTag || e.seq !== op.caravan.seq) continue;
+        seen = true;
+        if (e.kind === KINDS.CARAVAN_SENT) op.caravan.arriveAt ??= new Date(Number(e.payload.arrive_ts) * 1000).toISOString();
+        if (op.state !== STATES.PROCESSING && !TERMINAL.includes(op.state)) step(op, STATES.PROCESSING, 'the caravan is on the road (its record)');
+        if (e.kind === KINDS.CARAVAN_RAIDED) {
+          const choice = RAID_CHOICE[Number(e.payload.choice)] ?? 'raided';
+          op.caravan.raid = { bell: Number(e.payload.bell), choice };
+          if (choice === 'taken') { op.outcome = 'taken'; step(op, STATES.COMPLETED, 'another village took the caravan in a raid'); }
+        }
+        if (e.kind === KINDS.CARAVAN_SETTLED && !TERMINAL.includes(op.state)) {
+          const o = SETTLE_OUTCOME[Number(e.payload.outcome)] ?? 'settled';
+          op.outcome = op.caravan.raid?.choice === 'burned' && o === 'delivered' ? 'burned' : o;
+          op.caravan.settledAtBell = e.bell;
+          step(op, STATES.COMPLETED, op.outcome === 'delivered' ? 'the caravan arrived and was settled' : `the caravan was settled: ${op.outcome}`);
+        }
+      }
+      if (page.next !== null && page.next !== undefined) op.eventsCursor = String(page.next);
+      if (!page.full) break;
+    }
+    if (seen && (op.state === STATES.ACCEPTED || op.state === STATES.REQUESTED)) step(op, STATES.PROCESSING, 'the caravan is on the road');
+    return seen;
   }
 
   /** Moves an operation on from what the chain and the herald now say (pull: the client asks again). */
-  async function track(op) {
-    if (TERMINAL.includes(op.state) || op.state === STATES.REQUESTED) return op;
+  async function track(op, principal = null) {
+    if (TERMINAL.includes(op.state)) return op;
+    // A request that never reached the relay has nothing to look for (unless an attempt's outcome is unknown).
+    if (op.state === STATES.REQUESTED && op.unknownSince === null) return op;
+    const link = auth.link(op.linkId);
     if (op.state === STATES.ACCEPTED && op.gateway?.signature) {
       const tx = await game.txStatus(op.gateway.signature);
       if (tx?.state === 'landed') { op.chain = { state: 'landed', slot: tx.slot ?? null }; step(op, STATES.PROCESSING, 'the transaction landed: the caravan is on the road'); }
-      else if (tx?.state === 'failed') { op.chain = { state: 'failed', code: tx.code ?? null }; op.error = { code: tx.code ?? 'TransactionFailed', message: 'the transaction failed on chain: nothing moved', retryable: false, by: 'program' }; step(op, STATES.FAILED, op.error.code); }
-      else if (tx?.state === 'expired') { op.chain = { state: 'expired' }; op.error = { code: 'Expired', message: 'the transaction expired before it landed: nothing moved', retryable: false }; step(op, STATES.FAILED, 'Expired'); }
+      else if (tx?.state === 'failed') { op.chain = { state: 'failed', code: tx.code ?? null }; definite(op, link, tx.code ?? 'TransactionFailed', 'the transaction failed on chain: nothing moved', 'program'); }
+      else if (tx?.state === 'expired') { op.chain = { state: 'expired' }; definite(op, link, 'Expired', 'the transaction expired before it landed: nothing moved'); }
       else op.chain = { state: tx?.state ?? 'unknown' };
     }
-    if (op.state === STATES.PROCESSING) {
-      const feed = await game.caravansFeed();
-      const c = feed?.caravans?.moving?.find(x => String(x.ownerTag) === op.caravan.ownerTag && x.seq === op.caravan.seq);
-      if (c) { op.caravan.arriveAt = new Date(Number(c.arriveTs) * 1000).toISOString(); op.caravan.raided = c.raided; }
-      for (let i = 0; i < EVENT_PAGES_PER_CHECK && !TERMINAL.includes(op.state); i++) {
-        const page = await game.events(op.eventsCursor);
-        if (!page) break;
-        for (const row of page.events) {
-          const e = caravanEvent(row);
-          if (!e || e.ownerTag !== op.caravan.ownerTag || e.seq !== op.caravan.seq) continue;
-          if (e.kind === KINDS.CARAVAN_SENT) op.caravan.arriveAt ??= new Date(Number(e.payload.arrive_ts) * 1000).toISOString();
-          if (e.kind === KINDS.CARAVAN_RAIDED) {
-            const choice = RAID_CHOICE[Number(e.payload.choice)] ?? 'raided';
-            op.caravan.raid = { bell: Number(e.payload.bell), choice };
-            if (choice === 'taken') { op.outcome = 'taken'; step(op, STATES.COMPLETED, 'another village took the caravan in a raid'); }
-          }
-          if (e.kind === KINDS.CARAVAN_SETTLED && !TERMINAL.includes(op.state)) {
-            const o = SETTLE_OUTCOME[Number(e.payload.outcome)] ?? 'settled';
-            op.outcome = op.caravan.raid?.choice === 'burned' && o === 'delivered' ? 'burned' : o;
-            op.caravan.settledAtBell = e.bell;
-            step(op, STATES.COMPLETED, op.outcome === 'delivered' ? 'the caravan arrived and was settled' : `the caravan was settled: ${op.outcome}`);
-          }
-        }
-        if (page.next !== null && page.next !== undefined) op.eventsCursor = String(page.next);
-        if (!page.full) break;
+    if (!TERMINAL.includes(op.state)) {
+      const seen = await evidence(op);
+      // Unknown outcome, no trace after the window, and the owner's caravan counter never reached past this seq:
+      // the transaction can no longer land (its blockhash has expired): nothing was sent.
+      if (!seen && op.unknownSince !== null && op.state !== STATES.PROCESSING && now() - op.unknownSince >= uncertainWindowMs) {
+        const owner = principal?.owner ?? link?.owner;
+        const me = owner ? await game.herald.me(owner) : null;
+        const counter = me?.ok ? Number(me.citizen?.caravans ?? -1) : -1;
+        if (counter >= 0 && counter <= op.caravan.seq) definite(op, link, 'NotSent', 'the attempt left no trace and can no longer land: nothing was sent');
       }
     }
     store.save();
@@ -256,7 +324,7 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
     else if (typeof args?.requestId === 'string' && REQUEST_ID.test(args.requestId)) op = db.operations[opIdOf(principal, args.requestId)];
     else return fail('BadRequest', 'operationId or requestId is required');
     if (!mineOp(principal, op)) return fail('UnknownOperation', 'no such operation for this connection');
-    return ok(receiptOf(await track(op)));
+    return answer(await track(op, principal));
   }
 
   async function listOps(principal) {

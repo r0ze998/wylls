@@ -71,7 +71,7 @@ document.getElementById('deny').onclick=async()=>{const j=await post('/oauth/con
  * @param {object} o.mcp            createWyllsMcp(...)
  * @param {string[]} [o.origins]    Origins allowed on /mcp and the consent posts (besides the issuer's own)
  */
-export function createHandler({ auth, mcp, origins = [], log = () => {} }) {
+export function createHandler({ auth, mcp, origins = [], log = () => {}, rateLimit = { burst: 20, everySecs: 2 } }) {
   const allowed = new Set([new URL(auth.issuer).origin, 'https://chatgpt.com', ...origins]);
   const send = (res, status, obj, headers = {}) => {
     res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store', ...headers });
@@ -82,12 +82,28 @@ export function createHandler({ auth, mcp, origins = [], log = () => {} }) {
     send(res, e.status ?? 400, e.body?.() ?? { error: 'server_error' }, e.status === 401 ? { 'www-authenticate': auth.wwwAuthenticate(`error="${e.error}"`) } : {});
   };
   const originOk = req => !req.headers.origin || allowed.has(req.headers.origin);
+  // Unauthenticated routes that make the server keep something: `rateLimit.burst`, then 1 every `everySecs`, per address.
+  const buckets = new Map();
+  const limited = req => {
+    const k = req.socket?.remoteAddress ?? 'unknown';
+    const t = auth.now() / 1000;
+    const b = buckets.get(k) ?? { tokens: rateLimit.burst, t };
+    b.tokens = Math.min(rateLimit.burst, b.tokens + (t - b.t) / rateLimit.everySecs);
+    b.t = t;
+    buckets.set(k, b);
+    if (buckets.size > 10_000) buckets.clear();
+    if (b.tokens < 1) return true;
+    b.tokens -= 1;
+    return false;
+  };
+  const KEEPING = new Set(['POST /oauth/register', 'GET /oauth/authorize', 'POST /oauth/statement', 'POST /oauth/consent']);
 
   return async function handler(req, res) {
     const url = new URL(req.url, auth.issuer);
     const route = `${req.method} ${url.pathname}`;
     try {
       if (!originOk(req)) return send(res, 403, { error: 'forbidden', error_description: 'origin not allowed' });
+      if (KEEPING.has(route) && limited(req)) return send(res, 429, { error: 'slow_down', error_description: 'too many requests from this address' }, { 'retry-after': '2' });
       switch (route) {
         case 'GET /.well-known/oauth-protected-resource':
         case 'GET /.well-known/oauth-protected-resource/mcp':
@@ -149,6 +165,7 @@ export function createHandler({ auth, mcp, origins = [], log = () => {} }) {
           const v = req.headers['mcp-protocol-version'];
           if (v && !PROTOCOL_VERSIONS.includes(v)) return send(res, 400, { jsonrpc: '2.0', id: null, error: { code: -32600, message: `unsupported MCP-Protocol-Version ${String(v).slice(0, 20)}` } });
           const msg = await body(req);
+          if (!msg || typeof msg !== 'object') return send(res, 400, { jsonrpc: '2.0', id: null, error: { code: -32600, message: 'a JSON-RPC message is required' } });
           if (Array.isArray(msg)) return send(res, 400, { jsonrpc: '2.0', id: null, error: { code: -32600, message: 'batches are not supported' } });
           const out = await mcp.handle(msg, principal);
           if (out === null) { res.writeHead(202); return res.end(); }

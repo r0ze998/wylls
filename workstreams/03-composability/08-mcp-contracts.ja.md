@@ -12,7 +12,7 @@
 | `get_village_status` | 村・倉庫・道中の隊商・代理人の状態と予算（⑤の表示） | なし | なし | `RelayUnreachable`, `HeraldUnavailable`, `NotOwner`, `NoVillage` | 不足なら `check_resource_shortfall` | read |
 | `check_resource_shortfall` | 目標（倉庫の費用、または資源量）に対する不足と、それを満たせる自分の倉庫 | `goal: {kind: "vault"}` か `{kind: "amounts", amounts: {Stone: 300}}` | なし | `BadRequest` | `prepare_caravan` | read |
 | `prepare_caravan` | 自分の 2 つの場所の間の隊商を計画（積荷の検査、道、所要時間、要約） | `from`, `to`（`placeId`）, `cargo`（資源名ごとの整数） | 計画をサーバーに 5 分保存（ゲームには何も起きない） | `NotYourPlace`, `SamePlace`, `NoCargo`, `Insufficient`, `NoRoad`, `Unknown` | 要約を人に見せ、`send_caravan` | read（`idempotentHint: false`） |
-| `send_caravan` | 計画を代理人の財布で送る | `planId`, `requestId`（再送の鍵） | **隊商が出る**（呼び戻せない、襲撃されうる） | `InsufficientScope`, `PlanUnknown/Used/Expired/Stale`, `IdempotencyConflict`, `Grant*`（②MOCK）, ⑤の `ActionNotAllowed/AgentStopped/StalePolicy/BudgetExceeded/SessionNotDelegated/BadCapability`, `RelayUnreachable`（同じ requestId で再送してよい） | `get_operation_status` | **write**, `destructiveHint: true`, `idempotentHint: true`, `wylls.caravan` |
+| `send_caravan` | 計画を代理人の財布で送る | `planId`, `requestId`（再送の鍵） | **隊商が出る**（呼び戻せない、襲撃されうる） | `InsufficientScope`, `PlanUnknown/Used/Expired/Stale`, `IdempotencyConflict`, `Grant*`（②MOCK）, ⑤の `ActionNotAllowed/AgentStopped/StalePolicy/BudgetExceeded/SessionNotDelegated/BadCapability`, `RelayUnreachable`・`RateLimited`（同じ requestId で再送してよい）, 結果不明の後の `NotSent` | `get_operation_status` | **write**, `destructiveHint: true`, `idempotentHint: true`, `wylls.caravan` |
 | `get_operation_status` | 操作の状態（④MOCK の受領証） | `operationId` か `requestId` | なし（チェーンと herald を読んで状態を進める） | `UnknownOperation` | 終端でなければ後でもう一度 | read |
 | `list_operations` | この接続の最近の操作（再接続後の確認） | なし | なし | — | `get_operation_status` | read |
 
@@ -30,7 +30,9 @@
 | ゲーム内の文章を権限にしない | 自由文は `untrusted` で包む。書込の引数は計画 ID と requestId だけ | 履歴に仕込んだ指示が何も起こさない（play） |
 | 期限・対象・範囲・上限を実行層で強制 | トークン 1 時間、link 最長 30 日、計画 5 分、上限（② MOCK）、⑤の方針と予算、オンチェーンの SetSession の期限 | トークン期限切れ、link の取消、上限の各種、⑤の予算超過（play / protocol-auth） |
 | 確認画面と認可の区別 | 認可を受け取る引数が無い。`destructiveHint` は ChatGPT に確認を出させるためだけ | 説明と試験の名前で明記 |
-| 二重操作・二重支払いの防止 | 操作 ID = SHA-256(link, requestId)。gateway の冪等キーにも使う。計画は一度だけ。ストアに先に書く | 並行 3 本で 1 取引、再起動後、relay 不達の後（play） |
+| 二重操作・二重支払いの防止 | 操作 ID = SHA-256(link, requestId)。gateway の冪等キーにも使う。計画は一度だけ。ストアに先に書く。同じ操作の再送は進行中の試行に合流する。結果不明は失敗にしない | 並行 3 本で 1 取引、送信中の再送、クラッシュ後の再送が gateway の記録の再生になる、relay 不達・429 の後、送った後の失敗（play） |
+
+認可サーバーの追加の守り: 認可コードの再利用はその link を取り消す。誤りのリダイレクトにも `iss` を付ける。登録・同意の未認証ルートはアドレスごとに速度制限（既定 20 回、その後 2 秒に 1 回）し、登録と保留中の同意の数に上限を置く。
 
 ローカルの試験用認可サーバーの限界: アカウントの仕組みが無く、ウォレット署名だけで link を作る。本番では、既存の ID 基盤か監査済みの OAuth 実装に置き換える。CIMD は未実装。
 
@@ -81,10 +83,12 @@ receipt = {
 | 状態 | 意味 | どこで分かるか |
 |---|---|---|
 | requested | 要求を受け、記録した（まだ relay に届いたか分からない場合を含む） | ③のストア |
-| accepted | relay が取引を送った（gateway の `sent`、署名あり） | gateway の ActionResult |
+| accepted | relay が取引を送った（gateway の `sent`、署名あり）。または送付を試みたが結果が分からない（gateway の `failed`、または再送できない再試行）。後者は `history` にそう書く | gateway の ActionResult |
 | processing | 取引が着地し、隊商が道にいる | relay `/f/tx/{sig}` が `landed`、herald の `moving` |
 | completed | 隊商が決着した（届いた、宛先の世代が変わり失われた、襲撃で奪われた、焼かれた） | herald `/h/events` の CARAVAN_SETTLED / CARAVAN_RAIDED |
-| failed | 何も動かなかった（拒否、チェーンでの失敗、期限切れ） | gateway のエラー、`/f/tx` の `failed`/`expired` |
+| failed | 何も動かなかった（拒否、チェーンでの失敗、期限切れ、結果不明のまま痕跡が無く通し番号も進まなかった `NotSent`） | gateway のエラー、`/f/tx` の `failed`/`expired`、herald と所有者の Citizen |
+
+上限（② MOCK）の扱い: 送ったかもしれない時点で「使った」と数え、何も動かなかったと分かった時（チェーンでの失敗、期限切れ、`NotSent`）に戻す。何も送っていないと確かな時（gateway の `refused`、最初の試行での認証・形の拒否）だけ、確保を解く。
 
 ④に必要な契約（依頼）:
 

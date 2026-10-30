@@ -106,6 +106,7 @@ export async function world({ allowed = PATCHED ? ['transport'] : ['economy'], b
     const u = new URL(url);
     calls.push(`${init.method ?? 'GET'} ${u.origin}${u.pathname}`);
     if (state.fail?.(u)) throw new Error('connect ECONNREFUSED (scripted)');
+    if (state.intercept) { const x = await state.intercept(u, init); if (x) return x; }
     if (u.origin === RELAY) {
       const res = await fx.call(r.public, init.method ?? 'GET', u.pathname + u.search, { body: init.body === undefined ? undefined : JSON.parse(init.body) });
       return { status: res.status, json: async () => res.json };
@@ -125,7 +126,7 @@ export async function world({ allowed = PATCHED ? ['transport'] : ['economy'], b
 }
 
 /** The MCP server over the world, on a loopback port; `clock` is the server's `now` (ms). */
-export async function server(w, { storeFile = null, clock = { t: Date.now() }, sealKey = null } = {}) {
+export async function server(w, { storeFile = null, clock = { t: Date.now() }, sealKey = null, uncertainWindowMs, rateLimit = { burst: 10_000, everySecs: 2 } } = {}) {
   const now = () => clock.t;
   const store = new JsonStore(storeFile);
   const game = new Game({ relay: RELAY, herald: HERALD, fetch: w.fetch });
@@ -136,8 +137,8 @@ export async function server(w, { storeFile = null, clock = { t: Date.now() }, s
   const srv = await listen(async (req, res) => handler(req, res));
   const issuer = `http://127.0.0.1:${srv.address().port}`;
   auth = new Auth({ issuer, resource: `${issuer}/mcp`, store, sealer, game, now, log });
-  const mcp = createWyllsMcp({ auth, game, store, now, log });
-  const handler = createHandler({ auth, mcp, log });
+  const mcp = createWyllsMcp({ auth, game, store, now, log, ...(uncertainWindowMs !== undefined ? { uncertainWindowMs } : {}) });
+  const handler = createHandler({ auth, mcp, log, rateLimit });
   return { srv, issuer, auth, mcp, store, game, logs, clock, close: () => new Promise(r => srv.close(r)) };
 }
 
@@ -148,7 +149,7 @@ const sha256url = s => createHash('sha256').update(s).digest('base64url');
  * signed by the owner's keypair (and the rotate command for the caravan scope), the code for tokens.
  * `signer` signs (default the owner): another key = a forged consent.
  */
-export async function connect(s, w, { scopes = ['wylls.read', 'wylls.caravan'], grant = { actions: ['SendCaravan'], maxSends: 3, maxCargo: Array(8).fill(500) }, ttlMs = 86_400_000, grantTtlMs = ttlMs, signer = w.owner, agentId = w.agent.agentId, redirect = 'http://127.0.0.1:9/callback' } = {}) {
+export async function connect(s, w, { scopes = ['wylls.read', 'wylls.caravan'], grant = { actions: ['SendCaravan'], maxSends: 3, maxCargo: Array(8).fill(500) }, ttlMs = 86_400_000, grantTtlMs = ttlMs, signer = w.owner, agentId = w.agent.agentId, redirect = 'http://127.0.0.1:9/callback', exchange = true } = {}) {
   const post = async (p, body, form = false) => {
     const res = await fetch(`${s.issuer}${p}`, { method: 'POST', headers: { 'content-type': form ? 'application/x-www-form-urlencoded' : 'application/json' }, body: form ? new URLSearchParams(body).toString() : JSON.stringify(body) });
     return { status: res.status, json: await res.json() };
@@ -171,6 +172,7 @@ export async function connect(s, w, { scopes = ['wylls.read', 'wylls.caravan'], 
   if (!back.searchParams.get('code')) return { refused: back.searchParams.get('error'), description: back.searchParams.get('error_description'), html };
   assert.equal(back.searchParams.get('state'), 'st-1');
   assert.equal(back.searchParams.get('iss'), s.issuer);
+  if (!exchange) return { clientId: reg.json.client_id, code: back.searchParams.get('code'), verifier, redirect, post };
   const tok = await post('/oauth/token', { grant_type: 'authorization_code', code: back.searchParams.get('code'), code_verifier: verifier, client_id: reg.json.client_id, redirect_uri: redirect, resource: `${s.issuer}/mcp` }, true);
   assert.equal(tok.status, 200, JSON.stringify(tok.json));
   return { ...tok.json, clientId: reg.json.client_id, html, code: back.searchParams.get('code'), verifier, redirect, post };

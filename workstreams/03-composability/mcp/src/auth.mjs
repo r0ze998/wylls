@@ -34,6 +34,9 @@ export const REVOKE_PREFIX = 'Wylls MCP revoke v1\n';
 export const CHATGPT_REDIRECTS = Object.freeze([/^https:\/\/chatgpt\.com\/connector_platform_oauth_redirect$/, /^https:\/\/chatgpt\.com\/connector\/oauth\/[A-Za-z0-9_-]{1,128}$/]);
 const LOOPBACK = /^http:\/\/(127\.0\.0\.1|localhost|\[::1\]):\d{1,5}(\/[\w./-]*)?$/;
 
+/** Bounds on what unauthenticated callers can make the server keep (registrations, pending consents). */
+export const LIMITS = Object.freeze({ clients: 1000, pending: 500, pendingPerClient: 20 });
+
 export const TTL = Object.freeze({ code: 60_000, pending: 10 * 60_000, access: 60 * 60_000, refresh: 7 * 86_400_000, link: 30 * 86_400_000 });
 
 const sha = s => createHash('sha256').update(s).digest('hex');
@@ -124,6 +127,9 @@ export class Auth {
     const client = { client_id: id, client_id_issued_at: Math.floor(this.now() / 1000), redirect_uris: [...uris], token_endpoint_auth_method: 'none',
       grant_types: ['authorization_code', 'refresh_token'], response_types: ['code'], client_name: String(body.client_name ?? 'MCP client').slice(0, 80) };
     this.db.clients[id] = client;
+    const ids = Object.keys(this.db.clients);
+    // The oldest registration without a live link goes first (a client that holds a link is kept).
+    for (const old of ids.slice(0, Math.max(0, ids.length - LIMITS.clients))) if (!Object.values(this.db.links).some(l => l.clientId === old && !l.revokedAt)) delete this.db.clients[old];
     this.store.save();
     return client;
   }
@@ -135,13 +141,17 @@ export class Auth {
     const client = this.db.clients[q.client_id];
     if (!client) throw new OAuthError(400, 'invalid_client', 'unknown client_id');
     if (!client.redirect_uris.includes(q.redirect_uri)) throw new OAuthError(400, 'invalid_request', 'redirect_uri is not registered for this client');
-    const back = (error, description) => Object.assign(new OAuthError(302, error, description), { redirect: this.#redirect(q.redirect_uri, { error, error_description: description, state: q.state }) });
+    const back = (error, description) => Object.assign(new OAuthError(302, error, description), { redirect: this.#redirect(q.redirect_uri, { error, error_description: description, state: q.state, iss: this.issuer }) });
     if (q.response_type !== 'code') throw back('unsupported_response_type', 'response_type must be code');
     if (q.code_challenge_method !== 'S256' || !/^[A-Za-z0-9_-]{43,128}$/.test(q.code_challenge ?? '')) throw back('invalid_request', 'PKCE S256 is required');
     if (q.resource !== this.resource) throw back('invalid_target', `resource must be ${this.resource}`);
     const scopes = String(q.scope ?? SCOPES.READ).split(' ').filter(Boolean);
     if (!scopes.length || scopes.some(s => !Object.values(SCOPES).includes(s))) throw back('invalid_scope', `scopes: ${Object.values(SCOPES).join(', ')}`);
     if (!scopes.includes(SCOPES.READ)) scopes.unshift(SCOPES.READ);
+    const pendingOf = Object.values(this.db.nonces).filter(n => n.clientId === client.client_id);
+    if (pendingOf.length >= LIMITS.pendingPerClient) delete this.db.nonces[pendingOf.sort((a, b) => a.expiresAt - b.expiresAt)[0].reqId];
+    const all = Object.values(this.db.nonces);
+    if (all.length >= LIMITS.pending) delete this.db.nonces[all.sort((a, b) => a.expiresAt - b.expiresAt)[0].reqId];
     const reqId = `req_${randomBytes(12).toString('base64url')}`;
     const nonce = randomBytes(16).toString('base64url');
     this.db.nonces[reqId] = { reqId, nonce, clientId: client.client_id, clientName: client.client_name, redirectUri: q.redirect_uri, state: q.state ?? null,
@@ -167,7 +177,7 @@ export class Auth {
     if (!pending || pending.expiresAt <= this.now()) throw new OAuthError(400, 'invalid_request', 'this consent request has expired: start the connection again');
     delete this.db.nonces[b.reqId]; // one use, whatever happens next
     this.store.save();
-    const back = (error, description) => Object.assign(new OAuthError(302, error, description), { redirect: this.#redirect(pending.redirectUri, { error, error_description: description, state: pending.state }) });
+    const back = (error, description) => Object.assign(new OAuthError(302, error, description), { redirect: this.#redirect(pending.redirectUri, { error, error_description: description, state: pending.state, iss: this.issuer }) });
     if (b.deny === true) throw back('access_denied', 'the owner declined');
     const scopes = Array.isArray(b.scopes) ? b.scopes.filter(s => pending.scopes.includes(s)) : pending.scopes;
     if (!scopes.includes(SCOPES.READ)) scopes.unshift(SCOPES.READ);
@@ -181,7 +191,8 @@ export class Auth {
     if (typeof b.owner !== 'string' || !verifySig(linkStatement(st), b.signature, b.owner)) throw back('access_denied', 'the statement is not signed by the owner\'s wallet');
     // The agent must be the owner's, as the relay records it.
     const view = await this.game.json('GET', `${this.game.relay}/f/agent?id=${encodeURIComponent(String(b.agentId))}`);
-    if (view.transport || view.status !== 200) throw back('temporarily_unavailable', 'the relay did not answer for this agent');
+    if (view.transport || view.status >= 500) throw back('temporarily_unavailable', 'the relay did not answer');
+    if (view.status !== 200) throw back('access_denied', `the relay knows no such agent (${view.json?.code ?? view.status})`);
     if (view.json.owner !== b.owner) throw back('access_denied', 'this agent belongs to another owner');
     let sealed = null;
     if (grant) {
@@ -219,7 +230,12 @@ export class Auth {
     const h = sha(String(b.code ?? ''));
     const c = this.db.codes[h];
     if (!c) throw new OAuthError(400, 'invalid_grant', 'unknown or used code');
-    delete this.db.codes[h];
+    if (c.usedAt) {
+      // A code used twice: someone holds a copy. The tokens it gave are revoked with its link (OAuth 2.1 §4.1.3).
+      this.revokeLink(c.linkId, 'authorization code reuse');
+      throw new OAuthError(400, 'invalid_grant', 'the code was already used: the connection was revoked');
+    }
+    c.usedAt = this.now();
     this.store.save();
     if (c.expiresAt <= this.now()) throw new OAuthError(400, 'invalid_grant', 'the code has expired');
     if (b.client_id !== c.clientId || b.redirect_uri !== c.redirectUri) throw new OAuthError(400, 'invalid_grant', 'client_id or redirect_uri does not match the code');
@@ -320,7 +336,9 @@ export class Auth {
 
   #sweep() {
     const now = this.now();
-    for (const k of ['codes', 'tokens', 'nonces']) for (const [h, v] of Object.entries(this.db[k])) if (v.expiresAt <= now) delete this.db[k][h];
+    for (const k of ['tokens', 'nonces']) for (const [h, v] of Object.entries(this.db[k])) if (v.expiresAt <= now) delete this.db[k][h];
+    // A used code is kept a while as a tombstone, so that its reuse is recognised.
+    for (const [h, v] of Object.entries(this.db.codes)) if (v.expiresAt + TTL.pending <= now) delete this.db.codes[h];
     for (const [h, v] of Object.entries(this.db.refresh)) if (v.expiresAt <= now) delete this.db.refresh[h];
   }
 }

@@ -159,10 +159,13 @@ test('a failed transaction on chain is failed (nothing moved), with the program\
     const r = (await m.tool('send_caravan', { planId: plan.planId, requestId: 'req-txfail-01' })).structuredContent;
     const sig = r.gateway.signature;
     w.r.chain.statuses.set(sig, { slot: 80, err: { InstructionError: [3, { Custom: 4 }] }, confirmationStatus: 'confirmed' });
-    const end = (await m.tool('get_operation_status', { operationId: r.operationId })).structuredContent;
+    const res = await m.tool('get_operation_status', { operationId: r.operationId });
+    assert.equal(res.isError, true);
+    const end = res.structuredContent.error.receipt;
     assert.equal(end.state, 'failed');
     assert.equal(end.chain.state, 'failed');
     assert.ok(end.error.code);
+    assert.equal((await m.tool('get_connection')).structuredContent.grant.used, 0, 'nothing moved: the send no longer counts against the grant');
   } finally { await s.close(); }
 });
 
@@ -206,7 +209,7 @@ test('a lost connection to the relay: requested and retryable; the retry with th
   } finally { await s.close(); }
 });
 
-test('the relay answered but the MCP reply was lost: the gateway replays its record; a restarted server finds the operation and follows it to the end', { skip: needsPatch }, async () => {
+test('the relay answered but the MCP server never recorded it (crash): after a restart the retry is the gateway\'s replay, not a second send', { skip: needsPatch }, async () => {
   const dir = mkdtempSync(path.join(tmpdir(), 'wylls-mcp-'));
   const storeFile = path.join(dir, 'store.json');
   const sealKey = randomBytes(32).toString('base64url');
@@ -215,22 +218,137 @@ test('the relay answered but the MCP reply was lost: the gateway replays its rec
   const c = await connect(s1, w);
   const m1 = client(s1, c.access_token);
   const { plan } = await planned(m1);
-  const r = (await m1.tool('send_caravan', { planId: plan.planId, requestId: 'req-restart-01' })).structuredContent;
+  // The relay sends; the server dies before it writes the answer: on disk the operation is still `requested`.
+  w.state.intercept = async (u, init) => {
+    if (u.pathname !== '/f/agent/action') return null;
+    w.state.intercept = null;
+    const res = await w.fetch(u.toString(), init);
+    const body = await res.json();
+    assert.equal(body.status, 'sent', 'the relay did send');
+    throw new Error('socket hang up (scripted: the answer was lost)');
+  };
+  const lost = await m1.tool('send_caravan', { planId: plan.planId, requestId: 'req-restart-01' });
+  assert.equal(lost.structuredContent.error.code, 'RelayUnreachable');
   await s1.close();
   assert.equal((statSync(storeFile).mode & 0o777).toString(8), '600');
-  // A new process on the same store and seal key: the same token, the same operation.
+  assert.equal(w.r.chain.sent.length, 1);
+  // A new process on the same store and seal key (the same public origin, as one tunnel URL).
   const s2 = await server(w, { storeFile, sealKey });
   try {
-    s2.auth.issuer = s1.issuer; s2.auth.resource = `${s1.issuer}/mcp`; // the same public origin as before (one tunnel URL)
+    s2.auth.issuer = s1.issuer; s2.auth.resource = `${s1.issuer}/mcp`;
     const m2 = client(s2, c.access_token);
-    const op = (await m2.tool('get_operation_status', { operationId: r.operationId })).structuredContent;
-    assert.equal(op.state, 'processing');
-    const again = await m2.tool('send_caravan', { planId: plan.planId, requestId: 'req-restart-01' });
-    assert.equal(again.structuredContent.replayed, true);
-    assert.equal(w.r.chain.sent.length, 1);
+    const listed = (await m2.tool('list_operations')).structuredContent.operations;
+    assert.deepEqual(listed.map(o => o.state), ['requested'], 'the operation survived the restart');
+    const again = (await m2.tool('send_caravan', { planId: plan.planId, requestId: 'req-restart-01' })).structuredContent;
+    assert.equal(again.state, 'accepted');
+    assert.equal(again.gateway.replayed, true, 'the gateway answered from its record');
+    assert.equal(w.r.chain.sent.length, 1, 'one transaction');
+    const op = (await m2.tool('get_operation_status', { operationId: again.operationId })).structuredContent;
     settle(w, op, 0);
     assert.equal((await m2.tool('get_operation_status', { requestId: 'req-restart-01' })).structuredContent.outcome, 'delivered');
+    assert.equal((await m2.tool('get_connection')).structuredContent.grant.used, 1, 'counted once');
   } finally { await s2.close(); }
+});
+
+test('the send left but its answer says failed (outcome unknown): not "nothing sent"; the caravan\'s own trace decides', { skip: needsPatch }, async () => {
+  const { w, s, m } = await setup({}, { grant: { actions: ['SendCaravan'], maxSends: 1, maxCargo: Array(8).fill(500) } }, { uncertainWindowMs: 0 });
+  try {
+    const original = w.r.chain.sendRawTransaction;
+    w.r.chain.sendRawTransaction = async raw => { await original(raw); throw new Error('RPC timeout after the bytes left (scripted)'); };
+    const { plan } = await planned(m);
+    const r = await m.tool('send_caravan', { planId: plan.planId, requestId: 'req-unknown-01' });
+    assert.equal(r.isError, false, JSON.stringify(r.structuredContent));
+    assert.equal(r.structuredContent.state, 'accepted');
+    assert.equal(r.structuredContent.gateway.status, 'failed');
+    assert.equal(w.r.chain.sent.length, 1);
+    const g = (await m.tool('get_connection')).structuredContent.grant;
+    assert.deepEqual([g.used, g.reserved], [1, 0], 'the uncertain send counts: the grant is not given back');
+    w.state.caravans = 1;
+    const second = await planned(m, { Stone: 1 });
+    assert.equal((await m.tool('send_caravan', { planId: second.plan.planId, requestId: 'req-unknown-02' })).structuredContent.error.code, 'GrantLimitReached');
+    // The caravan's trace: on the road, then settled.
+    w.state.moving.push({ ownerTag: r.structuredContent.caravan.ownerTag, seq: 0, faction: 2, src: { kind: 2, p: w.P, q: w.Q, at: 33, gen: 1, tile: 33 }, dst: { kind: 1, p: w.P, q: w.Q, at: w.SITE, gen: 1, tile: 30 }, steps: 3, cargo: [0, 0, 250, 0, 0, 0, 0, 0], arriveTs: fx.GENESIS + 4_000, runs: [], raided: false });
+    const op = (await m.tool('get_operation_status', { operationId: r.structuredContent.operationId })).structuredContent;
+    assert.equal(op.state, 'processing');
+    settle(w, op, 0);
+    assert.equal((await m.tool('get_operation_status', { operationId: op.operationId })).structuredContent.outcome, 'delivered');
+  } finally { await s.close(); }
+});
+
+test('outcome unknown and no trace: after the window, with the owner\'s caravan counter unmoved, it is NotSent and the grant is given back', { skip: needsPatch }, async () => {
+  const clock = { t: Date.now() };
+  const { w, s, m } = await setup({}, {}, { clock, uncertainWindowMs: 5 * 60_000 });
+  try {
+    w.r.chain.sendRawTransaction = async () => { throw new Error('RPC down (scripted)'); };
+    const { plan } = await planned(m);
+    const r = (await m.tool('send_caravan', { planId: plan.planId, requestId: 'req-notsent-1' })).structuredContent;
+    assert.equal(r.state, 'accepted');
+    assert.equal((await m.tool('get_operation_status', { operationId: r.operationId })).structuredContent.state, 'accepted', 'within the window: still unknown');
+    clock.t += 5 * 60_000 + 1;
+    const end = await m.tool('get_operation_status', { operationId: r.operationId });
+    assert.equal(end.structuredContent.error.code, 'NotSent');
+    assert.equal(end.structuredContent.error.receipt.state, 'failed');
+    assert.equal((await m.tool('get_connection')).structuredContent.grant.used, 0);
+  } finally { await s.close(); }
+});
+
+test('a retry after the relay was unreachable re-checks the owner\'s limits: past the grant\'s expiry nothing new is sent', { skip: needsPatch }, async () => {
+  const clock = { t: Date.now() };
+  const { w, s, m } = await setup({}, { grantTtlMs: 10 * 60_000 }, { clock, uncertainWindowMs: 5 * 60_000 });
+  try {
+    const { plan } = await planned(m);
+    w.state.fail = u => u.pathname === '/f/agent/action';
+    assert.equal((await m.tool('send_caravan', { planId: plan.planId, requestId: 'req-late-0001' })).structuredContent.error.code, 'RelayUnreachable');
+    w.state.fail = null;
+    clock.t += 11 * 60_000;
+    const r = await m.tool('send_caravan', { planId: plan.planId, requestId: 'req-late-0001' });
+    assert.equal(w.r.chain.sent.length, 0, 'no new attempt after the grant expired');
+    assert.match(r.structuredContent.history.at(-1).detail, /GrantExpired/);
+    assert.equal(r.structuredContent.state, 'accepted', 'outcome unknown (the first attempt may have reached the relay): the chain decides');
+    const end = await m.tool('get_operation_status', { operationId: r.structuredContent.operationId });
+    assert.equal(end.structuredContent.error.code, 'NotSent', 'no trace, past the window, the counter unmoved');
+  } finally { await s.close(); }
+});
+
+test('a retry while the first attempt is still at the relay joins it: one transaction, no contradictory state', { skip: needsPatch }, async () => {
+  const { w, s, m } = await setup();
+  try {
+    const { plan } = await planned(m);
+    let release;
+    const gate = new Promise(r => { release = r; });
+    w.state.intercept = async u => { if (u.pathname === '/f/agent/action') await gate; return null; };
+    const first = m.tool('send_caravan', { planId: plan.planId, requestId: 'req-inflight-1' });
+    await new Promise(r => setTimeout(r, 50));
+    assert.equal(Object.values(s.store.state.operations)[0]?.state, 'requested', 'the operation is written before it leaves');
+    const second = m.tool('send_caravan', { planId: plan.planId, requestId: 'req-inflight-1' });
+    await new Promise(r => setTimeout(r, 50));
+    release();
+    const [a, b] = await Promise.all([first, second]);
+    assert.equal(a.structuredContent.state, 'accepted');
+    assert.equal(b.structuredContent.state, 'accepted');
+    assert.equal(b.structuredContent.replayed, true);
+    assert.equal(w.r.chain.sent.length, 1);
+    assert.deepEqual(s.store.state.operations[a.structuredContent.operationId].steps.map(x => x.state), ['requested', 'accepted']);
+  } finally { await s.close(); }
+});
+
+test('rate limited by the relay on a retry: nothing is decided, the grant hold stays, the next retry sends once', { skip: needsPatch }, async () => {
+  const { w, s, m } = await setup();
+  try {
+    const { plan } = await planned(m);
+    w.state.fail = u => u.pathname === '/f/agent/action';
+    await m.tool('send_caravan', { planId: plan.planId, requestId: 'req-429-00001' });
+    w.state.fail = null;
+    w.state.intercept = async u => (u.pathname === '/f/agent/action' ? { status: 429, json: async () => ({ error: 'slow down', code: 'RateLimited' }) } : null);
+    const r = await m.tool('send_caravan', { planId: plan.planId, requestId: 'req-429-00001' });
+    assert.equal(r.structuredContent.error.code, 'RateLimited');
+    assert.equal(r.structuredContent.error.retrySameRequestId, true);
+    assert.equal(r.structuredContent.error.receipt.state, 'requested');
+    assert.equal((await m.tool('get_connection')).structuredContent.grant.reserved, 1, 'the hold stays');
+    w.state.intercept = null;
+    assert.equal((await m.tool('send_caravan', { planId: plan.planId, requestId: 'req-429-00001' })).structuredContent.state, 'accepted');
+    assert.equal(w.r.chain.sent.length, 1);
+  } finally { await s.close(); }
 });
 
 // ------------------------------------------------------------ authority, limits, budget

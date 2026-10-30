@@ -34,7 +34,7 @@
 | herald の HTTP（読取） | `/h/season`、`/h/me/{wallet}`、`/h/caravans.json`、`/h/events` | 可 | 公開すれば可 | MCP ではない | 可 | `/h/events` の CARAVAN_SETTLED・RAIDED で到着が分かる |
 | SDK（JS・Rust） | `client/src/frontier/`、`fclient` | 道具であり接続ではない | — | — | 可 | — |
 | 代理人の runner（運営の AI） | `src/frontier/agent/runner.mjs` | relay の中だけ | 不可 | 不可 | 可 | — |
-| **③の MCP サーバー（今回）** | `workstreams/03-composability/mcp/` | **可**（模擬チェーンの試験 25 件、公式 SDK クライアント、ローカルの実チェーン E2E。§4） | **実装済み・未公開**（Streamable HTTP + OAuth。トンネル・公開はしていない） | **未確認** | 可 | **可**（④の仮契約：要求・受理・処理中・完了・失敗。到着を events で判定） |
+| **③の MCP サーバー（今回）** | `workstreams/03-composability/mcp/` | **可**（模擬チェーンの試験 31 件、公式 SDK クライアント、ローカルの実チェーン E2E。§4） | **実装済み・未公開**（Streamable HTTP + OAuth。トンネル・公開はしていない） | **未確認** | 可 | **可**（④の仮契約：要求・受理・処理中・完了・失敗。到着を events で判定） |
 
 「設定やモックだけで実機対応済みとはしない」に従い、ChatGPT の欄は今回のサーバーも含めすべて未確認とする。
 
@@ -53,7 +53,8 @@ ChatGPT ──HTTPS(Streamable HTTP /mcp, Bearer)──▶ ③ wylls-mcp ──G
 - **誰の村か（サーバーで検証）：** 接続（link）は、所有者のウォレットが署名した文（このサーバーの `aud`、OAuth クライアント、スコープ、代理人、上限、期限）で作られる。代理人が所有者のものであることを relay の記録で確かめる。以後、ツールは link の所有者の村・倉庫しか読めず、場所は自分の一覧にある `placeId` でしか指定できない（他人の場所は `NotYourPlace`）。gateway もさらに `WrongVillage` で拒否する（二重の防御を試験で確認）。
 - **読取と書込の分離：** スコープ `wylls.read`（読むだけ。代理人の鍵を受け取らない）と `wylls.caravan`（隊商）。書込のスコープを許すときだけ、所有者がウォレットで `rotate-capability` の所有者コマンドに署名し、サーバーが relay から代理人の capability を直接受け取って封印する。利用者もモデルもその値を見ない。
 - **確認画面と認可の区別：** ChatGPT の確認（`destructiveHint: true` で表示される）は認可ではない。認可は、(1) 所有者の署名つきの link とそのスコープ、(2) link に署名された上限（② MOCK）、(3) ⑤の方針・予算と、所有者が SetSession で与えたオンチェーンの委任、(4) プログラムの規則、の 4 層である。チャットの「はい」を受け取る引数は無い。
-- **重複・再送・並行：** `requestId` から操作 ID を決め（link と requestId の SHA-256）、gateway の冪等キーにも使う。同じ requestId は同じ操作を返し、二度送らない（並行 3 本、再起動後、relay 不達の後の再送で確認）。計画（plan）は一度しか使えない。
+- **重複・再送・並行：** `requestId` から操作 ID を決め（link と requestId の SHA-256）、gateway の冪等キーにも使う。同じ requestId は同じ操作を返し、二度送らない（並行 3 本、送信中の再送、再起動後、relay 不達の後の再送で確認）。計画（plan）は一度しか使えない。
+- **結果が分からない送付：** 取引が出た後に失敗が返る場合（gateway の `failed`）や、relay に届いたか分からないまま再送できない場合は、「何も送っていない」とはしない。上限は使ったものとして数え、状態を `accepted`（結果不明）のまま、隊商の識別子（所有者のタグと seq）で herald の記録を探して決める。一定時間（既定 5 分）痕跡が無く、所有者の隊商の通し番号も進んでいなければ `NotSent`（失敗）とし、上限を返す。再送の前には上限の期限と計画の期限を確かめ直す。
 - **非同期の追跡：** 送信の受理（accepted）と着地（processing）と到着（completed：delivered／lost／taken／burned）を分ける。状態はストアに書いてから relay に送る（再起動で失われない）。`get_operation_status` と `list_operations` で切断後も確認できる。
 - **閲覧権限の無い情報：** herald の Province 封筒は到着する行軍の ArrivalSlot を含むが、サーバーは地形と拠点の欄しか使わない（試験で、どの回答にも出ないことを確認）。`/h/me` は所有者自身のウォレットでしか呼ばない。行軍のツールは無い。
 - **ゲーム内の文章：** 代理人の履歴の理由などの自由文は `untrusted: true` と注記をつけて返す。サーバーはそれを操作の根拠にしない（書込の引数は計画 ID と requestId だけ）。
@@ -64,7 +65,7 @@ ChatGPT ──HTTPS(Streamable HTTP /mcp, Bearer)──▶ ③ wylls-mcp ──G
 
 | 種類 | 内容 | 結果 |
 |---|---|---|
-| 模擬チェーン＋実 HTTP（`node --test`） | relay・AgentGateway・relay の形の検査は本物、チェーンと herald は台本。プロトコル・OAuth 7 件、遊びの経路と攻撃 17 件、公式 SDK クライアント 1 件 | パッチ 0005 を当てた gateway で 24 通過・1 省略（パッチ無し専用の 1 件）。この repo の gateway（パッチ無し）では 14 通過・11 省略（書込が要る試験）。§9 |
+| 模擬チェーン＋実 HTTP（`node --test`） | relay・AgentGateway・relay の形の検査は本物、チェーンと herald は台本。プロトコル・OAuth 8 件、遊びの経路と攻撃 22 件、公式 SDK クライアント 1 件 | パッチ 0005 を当てた gateway で 30 通過・1 省略（パッチ無し専用の 1 件）。この repo の gateway（パッチ無し）では 15 通過・16 省略（書込が要る試験）。[09](09-mcp-run-and-video.ja.md) |
 | 公式 MCP SDK クライアント（`@modelcontextprotocol/sdk` 1.32.1） | SDK 自身の OAuth（401 → 発見 → DCR → PKCE S256 + resource → トークン）で接続し、ツール一覧と遊びの経路 | 通過（両方の gateway で） |
 | ローカルの実チェーン（frontier-stack） | 本物のプログラム・keeper・herald・relay（パッチ 0005 を当てた一時コピー） | [09](09-mcp-run-and-video.ja.md) §2 |
 
