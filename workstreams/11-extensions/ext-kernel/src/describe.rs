@@ -90,7 +90,7 @@ pub fn describe(m: &Manifest) -> Summary {
     for (r, c) in m.pay_cap.iter().enumerate() {
         if *c > 0 {
             lines.push(format!(
-                "may take up to {c} milli {} per call",
+                "may take up to {c} milli {} per call (core resources only; enforced by the core interpreter)",
                 res(r as u8)
             ));
         }

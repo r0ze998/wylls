@@ -1,8 +1,8 @@
-# 2026-10-30T14:39:31Z 4cd901de9f8e0d6c0b2016851d30595c4a70aa46 rustc 1.89.0 (29483883e 2025-08-04)
+# 2026-10-30T15:07:07Z 87d73346c467a661f3645068a3c83767aed5b112 rustc 1.89.0 (29483883e 2025-08-04)
     Checking wylls-ext-kernel v0.1.0 (/home/user/wylls/workstreams/11-extensions/ext-kernel)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.22s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 11.87s
    Compiling wylls-ext-kernel v0.1.0 (/home/user/wylls/workstreams/11-extensions/ext-kernel)
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.70s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 12.55s
      Running unittests src/lib.rs (/home/user/wylls/permutation-chain/target/debug/deps/wylls_ext_kernel-c5b73a01f61d62c2)
 
 running 0 tests
@@ -21,7 +21,7 @@ state: 4 field(s) per user, at most 3 users
   field1: 0..=4611686018427387903 (starts 0)
   field2: 0..=1000 (starts 0)
   field3: 0..=20000 (starts 0)
-may take up to 20000 milli Wood per call
+may take up to 20000 milli Wood per call (core resources only; enforced by the core interpreter)
 entry 0 (arg0 in 1000..=20000, arg1 in 1..=144)
   require field3 == 0
   pay arg0 Wood from your holding into your escrow
@@ -44,7 +44,7 @@ ok
 test f02_the_same_inputs_give_the_same_receipts ... ok
 test f03_core_resources_are_conserved_across_calls ... ok
 
-test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 
      Running tests/refusals.rs (/home/user/wylls/permutation-chain/target/debug/deps/refusals-0c9de124e0bcd772)
 
@@ -61,7 +61,7 @@ test r09_an_extension_cannot_mint_or_write_balances ... ok
 test r10_a_failure_after_a_payment_undoes_the_payment ... ok
 test r11_the_description_warns_of_resources_that_never_return ... ok
 
-test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
 
      Running tests/verifier.rs (/home/user/wylls/permutation-chain/target/debug/deps/verifier-11707018d7ed387a)
 
@@ -71,7 +71,7 @@ test v02_a_completion_that_did_not_happen_fails ... ok
 test v03_what_the_verifier_does_not_know_is_never_a_pass ... ok
 test v04_a_fail_outranks_an_unverifiable ... ok
 
-test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 
    Doc-tests wylls_ext_kernel
 
