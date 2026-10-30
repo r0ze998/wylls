@@ -368,8 +368,8 @@ pub mod cqlog {
     use crate::error::{Error, BAD_ACCOUNT, OVERFLOW};
     use crate::layout::{chain_of, set_chain};
 
-    /// Highest kind code a v2 record carries (103: S1's REST).
-    pub const MAX_KIND: usize = 103;
+    /// Highest kind code a v2 record carries (104: S1's FRONTIER_EXTENDED).
+    pub const MAX_KIND: usize = 104;
 
     /// `(defined, key width, payload width)` per kind: M1's and MC's.
     pub const WIDTHS: [(bool, u16, u16); MAX_KIND + 1] = {

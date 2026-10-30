@@ -30,7 +30,8 @@ pub fn season_json(f: &Fold, s: &SeasonStatic) -> Option<Value> {
     let c = f.account(&addr)?;
     let se = f.season.as_ref()?;
     let mut rings: std::collections::BTreeMap<u16, [u8; 32]> = f.st.ring_seeds.clone();
-    for d in 0..=se.r_max.min(128) {
+    let r_max = crate::world::r_max(f).unwrap_or(se.r_max);
+    for d in 0..=r_max.min(128) {
         if let Some(rc) = f.account(&f.ctx.ring_seed(d)) {
             // status 2 = seeded; the seed at 40.
             if rc.data.get(18) == Some(&2) {
@@ -69,7 +70,7 @@ pub fn season_json(f: &Fold, s: &SeasonStatic) -> Option<Value> {
             "genesis": s.drand.genesis_time,
         },
         "rulesetHash": hex::encode(se.ruleset_hash),
-        "rMax": se.r_max,
+        "rMax": r_max,
         "wedgeOpen": wedge_open,
         "wedgeOccupied": wedge_occupied,
         "rings": rings.iter().map(|(d, seed)| json!({"d": d, "seed": hex::encode(seed)})).collect::<Vec<_>>(),

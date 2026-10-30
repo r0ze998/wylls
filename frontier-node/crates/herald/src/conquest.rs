@@ -836,6 +836,10 @@ fn fold_record(
                 }
             }
         }
+        // ExtendFrontier (map growth): the new outermost ring is the
+        // Frontier account's `r_max_ext`, read by `/h/world` and the
+        // season record (`world::r_max`); the record names no Province.
+        CqKind::FRONTIER_EXTENDED => {}
     }
 }
 

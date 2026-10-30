@@ -273,6 +273,10 @@ impl Season {
 pub struct Frontier {
     pub h: Header,
     pub rings_opened: u16,
+    /// Map growth: the outermost ring ExtendFrontier raised the season to
+    /// (0 = never; the effective `r_max` is the larger of this and the
+    /// Season's).
+    pub r_max_ext: u16,
     pub last_ring_open_bell: u32,
     pub last_ring_open_ts: i64,
     pub fold_bell: u32,
@@ -297,6 +301,7 @@ impl Frontier {
         Ok(Frontier {
             h: header(b),
             rings_opened: b.u16(f::RINGS_OPENED),
+            r_max_ext: b.u16(f::R_MAX_EXT),
             last_ring_open_bell: b.u32(f::LAST_RING_OPEN_BELL),
             last_ring_open_ts: b.i64(f::LAST_RING_OPEN_TS),
             fold_bell: b.u32(f::FOLD_BELL),

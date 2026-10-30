@@ -165,6 +165,8 @@ pub struct ConquestParams {
     /// groups spread round the heartland rings,
     /// `permutation_rules::frontier::geometry::home_nation`).
     pub placement: u8,
+    /// Map growth: the outermost ring ExtendFrontier may raise the season
+    /// to (0 = no extension: `r_max` is final).
     pub r_max_ceiling: u16,
 }
 
@@ -413,6 +415,15 @@ impl SeasonParamsV2 {
             || self.base.release_after_secs != self.cq.release_after_secs
         {
             return Err("dormancy timers differ");
+        }
+        // Map growth: 0, or above `r_max` and within the program's hard
+        // maximum (geometry `R_MAX_HARD`).
+        let ceiling = self.cq.r_max_ceiling;
+        if ceiling != 0
+            && (ceiling <= self.base.r_max
+                || ceiling > permutation_rules::frontier::geometry::R_MAX_HARD)
+        {
+            return Err("r_max_ceiling");
         }
         self.cq.validate(self.base.end_bell)
     }
@@ -709,6 +720,26 @@ mod tests {
         assert_eq!(bad(|p| p.cq.relations = 1), Err("relations"));
         assert_eq!(bad(|p| p.cq.flags = 1), Err("flags"));
         assert_eq!(bad(|p| p.cq.placement = 2), Err("placement"));
+        // Map growth: 0 (no extension), or above r_max (16) and ≤ 128.
+        assert_eq!(bad(|p| p.cq.r_max_ceiling = 16), Err("r_max_ceiling"));
+        assert_eq!(bad(|p| p.cq.r_max_ceiling = 129), Err("r_max_ceiling"));
+        assert_eq!(bad(|p| p.cq.r_max_ceiling = 17), Ok(()));
+        assert_eq!(bad(|p| p.cq.r_max_ceiling = 128), Ok(()));
+        {
+            // The ceiling round-trips at bytes 78..80; existing presets keep 0.
+            let mut p = base;
+            p.cq.r_max_ceiling = 24;
+            let b = p.cq.to_bytes();
+            assert_eq!(
+                &b[cq_layout::R_MAX_CEILING..cq_layout::R_MAX_CEILING + 2],
+                &24u16.to_le_bytes()
+            );
+            assert_eq!(ConquestParams::from_bytes(&b), Some(p.cq));
+            assert_eq!(
+                base.cq.to_bytes()[cq_layout::PLACEMENT..cq_layout::RSV],
+                [0u8; 3]
+            );
+        }
         assert_eq!(
             bad(|p| p.cq.heartland_max_ring = 1),
             Err("heartland_max_ring")

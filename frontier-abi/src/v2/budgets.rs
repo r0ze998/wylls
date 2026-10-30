@@ -111,6 +111,9 @@ pub const MC_ROWS: &[(Ix, u32, u32, u32)] = &[
     // S1 (map growth): a placeholder until measured (`tests/rest.rs`); the
     // camp's daily checks dominate (two per evidenced day).
     (Ix::FastForward, 600_000, 0, 1_232),
+    // S1 (map growth): reads the Season and the Frontier, writes one u16
+    // and logs; OpenRing's row (it does strictly less), unmeasured.
+    (Ix::ExtendFrontier, 30_000, 0, 600),
 ];
 
 /// The v2 row of `ix`.

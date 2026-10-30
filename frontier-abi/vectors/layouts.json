@@ -477,10 +477,10 @@
           "ty": "u16"
         },
         {
-          "name": "RSV_66",
+          "name": "R_MAX_EXT",
           "off": 66,
           "len": 2,
-          "ty": "rsv"
+          "ty": "u16"
         },
         {
           "name": "LAST_RING_OPEN_BELL",

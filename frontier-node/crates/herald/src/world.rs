@@ -51,6 +51,17 @@ pub struct RingState {
     pub size: usize,
 }
 
+/// The effective outermost ring: the Season's `r_max`, or the Frontier's
+/// `r_max_ext` once ExtendFrontier raised it (map growth).
+pub fn r_max(f: &Fold) -> Option<u16> {
+    let se = f.season.as_ref()?;
+    let ext = f
+        .account(&f.ctx.frontier())
+        .and_then(|c| Frontier::decode(&c.data).ok())
+        .map_or(0, |fr| fr.r_max_ext);
+    Some(se.r_max.max(ext))
+}
+
 /// `Frontier.rings_opened`, or (before the Frontier is captured) one past
 /// the last seeded ring.
 pub fn rings_opened(f: &Fold) -> u16 {
@@ -93,7 +104,7 @@ pub fn world_json(f: &Fold) -> Option<Value> {
     Some(json!({
         "v": 1,
         "season": f.cfg.season_id.to_string(),
-        "rMax": se.r_max,
+        "rMax": r_max(f).unwrap_or(se.r_max),
         "rMaxHard": R_MAX_HARD,
         "genesisRing": se.genesis_ring,
         "ringsOpened": rings.len(),

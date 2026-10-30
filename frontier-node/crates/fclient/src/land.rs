@@ -149,7 +149,8 @@ pub fn theta_bps(s: &Season, now: i64) -> u16 {
 pub enum RingWait {
     /// Not Running (genesis rings open while Seeded; crowding rings need Running).
     NotRunning,
-    /// `d > r_max`.
+    /// `d > r_max` (the effective one: the Season's, or the Frontier's
+    /// `r_max_ext` after ExtendFrontier).
     AtMax,
     /// Less than one bell since the last ring opened.
     TooSoon,
@@ -168,7 +169,7 @@ pub fn ring_open_check(
     now: i64,
 ) -> Result<(), RingWait> {
     let d = fr.rings_opened;
-    if d > s.r_max {
+    if d > s.r_max.max(fr.r_max_ext) {
         return Err(RingWait::AtMax);
     }
     if s.effective_status(now) != crate::abi::status::RUNNING {
@@ -372,6 +373,13 @@ mod tests {
             Err(RingWait::NotRunning)
         );
         let fr = frontier(17, 3, [100; 6], [100; 6]);
+        assert_eq!(ring_open_check(&s, &fr, &rich, now), Err(RingWait::AtMax));
+        // Map growth: past the Season's r_max (16) once ExtendFrontier
+        // raised the Frontier's `r_max_ext` to 17 (not 18).
+        let mut fr = frontier(17, 3, [100; 6], [100; 6]);
+        fr.r_max_ext = 17;
+        assert_eq!(ring_open_check(&s, &fr, &rich, now), Ok(()));
+        fr.rings_opened = 18;
         assert_eq!(ring_open_check(&s, &fr, &rich, now), Err(RingWait::AtMax));
         // A wedge with nothing open is never crowded.
         let fr = frontier(4, 3, [0; 6], [0; 6]);

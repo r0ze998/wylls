@@ -355,7 +355,11 @@ pub fn join(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         (
             r.arr::<32>(S::JOIN_GATE)?,
             r.u16(S::RESERVE_BPS)?,
-            r.u16(S::R_MAX)?,
+            // Map growth: a ring can still open up to the ceiling.
+            r.u16(S::R_MAX)?.max(
+                frontier_abi::v2::presets::ConquestParams::of_season(&sd)
+                    .map_or(0, |c| c.r_max_ceiling),
+            ),
         )
     };
     match gate {
@@ -394,6 +398,7 @@ pub fn join(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         let open = r.u32(FR::OPEN_SITES)? as u64;
         let occupied = r.u32(FR::OCCUPIED_SITES)? as u64;
         let rings = r.u16(FR::RINGS_OPENED)?;
+        let r_max = r_max.max(r.u16(FR::R_MAX_EXT)?);
         let free_ok = open.saturating_sub(occupied) * 10_000 >= reserve_bps as u64 * open;
         if !free_ok && rings > r_max {
             return Err(FrontierError::Capacity.into());
@@ -750,13 +755,15 @@ pub fn file_outpost(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     };
     crate::heap::trace_checkpoint(0xA302);
     present_at(frontier, &ctx.frontier(), p, AccountKind::Frontier, hdr.id)?;
-    let (rings_opened, open_sites, occupied) = {
+    let (rings_opened, open_sites, occupied, r_max) = {
         let fd = frontier.try_borrow_data()?;
         let r = Ro(&fd);
         (
             r.u16(FR::RINGS_OPENED)?,
             r.u32(FR::OPEN_SITES)? as u64,
             r.u32(FR::OCCUPIED_SITES)? as u64,
+            // Map growth: the effective outermost ring.
+            r_max.max(r.u16(FR::R_MAX_EXT)?),
         )
     };
     let base = OutpostCheck {
@@ -983,7 +990,8 @@ pub fn file_ticket(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     };
     let r_max = {
         let sd = season_ai.try_borrow_data()?;
-        Ro(&sd).u16(S::R_MAX)?
+        // Map growth: the effective outermost ring.
+        super::map::effective_r_max(&sd, &frontier.try_borrow_data()?)?
     };
     let n = x.n as usize;
     let mut sites = [(0i16, 0i16, 0u8); 3];
