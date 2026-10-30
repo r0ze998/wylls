@@ -73,26 +73,26 @@ fn kind(k: CqKind) -> u8 {
 
 /// A caravan's origin or destination, resolved against its account.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct Place {
-    kind: u8,
-    p: i16,
-    q: i16,
+pub(super) struct Place {
+    pub(super) kind: u8,
+    pub(super) p: i16,
+    pub(super) q: i16,
     /// Holding: the site; vault: the tile.
-    at: u8,
-    gen: u8,
+    pub(super) at: u8,
+    pub(super) gen: u8,
     /// The hex tile.
-    tile: u8,
+    pub(super) tile: u8,
     /// The owning Citizen.
-    owner: [u8; 32],
+    pub(super) owner: [u8; 32],
 }
 
 impl Place {
-    fn coord(&self) -> ProvinceCoord {
+    pub(super) fn coord(&self) -> ProvinceCoord {
         ProvinceCoord::new(self.p as i32, self.q as i32)
     }
 
     /// The logged form (8 B, `log_place`).
-    fn log(&self) -> [u8; log_place::LEN] {
+    pub(super) fn log(&self) -> [u8; log_place::LEN] {
         let mut b = [0u8; log_place::LEN];
         b[0] = self.kind;
         b[1..3].copy_from_slice(&self.p.to_le_bytes());
@@ -114,7 +114,7 @@ impl Place {
         w.set_u8(at + PL::TILE, self.tile)
     }
 
-    fn load(d: &[u8], at: usize) -> R<Place> {
+    pub(super) fn load(d: &[u8], at: usize) -> R<Place> {
         let r = Ro(d);
         Ok(Place {
             kind: r.u8(at + PL::KIND)?,
@@ -144,7 +144,7 @@ impl Place {
 
 /// The live place `ai` is (a v2 Holding in state 1–2, or a live Vault),
 /// at its canonical address; `None` when absent.
-fn place_of(p: &Pubkey, ctx: &AddrCtx, sid: u64, ai: &AccountInfo) -> R<Option<Place>> {
+pub(super) fn place_of(p: &Pubkey, ctx: &AddrCtx, sid: u64, ai: &AccountInfo) -> R<Option<Place>> {
     let magic = {
         let d = ai.try_borrow_data()?;
         d.get(..8).map(|m| {
@@ -196,7 +196,7 @@ fn place_of(p: &Pubkey, ctx: &AddrCtx, sid: u64, ai: &AccountInfo) -> R<Option<P
 
 /// The destination named by instruction data, at `ai`: canonical, live, of
 /// the named generation (`BadData` otherwise).
-fn named_place(
+pub(super) fn named_place(
     p: &Pubkey,
     ctx: &AddrCtx,
     sid: u64,
@@ -253,7 +253,7 @@ fn write_slot(pd: &mut [u8], i: usize, s: &CaravanSlot) -> R<()> {
 }
 
 /// The slot of caravan `id` in a Province (index and record).
-fn slot_of(pd: &[u8], id: u64) -> R<Option<(usize, CaravanSlot)>> {
+pub(super) fn slot_of(pd: &[u8], id: u64) -> R<Option<(usize, CaravanSlot)>> {
     for i in 0..MAX_CARAVAN_SLOTS {
         let s = read_slot(pd, i)?;
         if s.id == id {
@@ -287,7 +287,7 @@ fn claim_slot(pd: &mut [u8], id: u64, faction: u8, run: &Run) -> R<()> {
 /// bell and the tower wear (1d, `S1-1D-CONTRACT` §3.3: the seconds walked in
 /// the hostile coverage of the towers standing now).
 #[allow(clippy::too_many_arguments)]
-fn route(
+pub(super) fn route(
     p: &Pubkey,
     ctx: &AddrCtx,
     sid: u64,
@@ -378,14 +378,14 @@ fn route(
 /// Whose a caravan's walk is, for what its structures do (S1 1e): the
 /// Season's stances and whether the owner is expelled from its nation.
 #[derive(Clone, Copy)]
-struct Owner {
+pub(super) struct Owner {
     stances: ks::Stances,
     expelled: bool,
 }
 
 impl Owner {
     /// The Season's stances and the Citizen's expelled state.
-    fn of(season: &AccountInfo, citizen: &AccountInfo) -> R<Owner> {
+    pub(super) fn of(season: &AccountInfo, citizen: &AccountInfo) -> R<Owner> {
         Ok(Owner {
             stances: super::structure::stances_of(&season.try_borrow_data()?),
             expelled: Ro(&citizen.try_borrow_data()?).i64(C::EXPELLED_SINCE)? != 0,
@@ -394,12 +394,12 @@ impl Owner {
 }
 
 /// `cargo` worn by `bps` (`structure::wear` on each amount).
-fn worn_cargo(cargo: &[i64; RESOURCES], bps: u16) -> [i64; RESOURCES] {
+pub(super) fn worn_cargo(cargo: &[i64; RESOURCES], bps: u16) -> [i64; RESOURCES] {
     cargo.map(|c| permutation_rules::frontier::structure::wear_i64(c, bps))
 }
 
 /// The cargo's eight amounts as the logged `u32` whole units.
-fn cargo_log(cargo: &[i64; RESOURCES]) -> [u8; 32] {
+pub(super) fn cargo_log(cargo: &[i64; RESOURCES]) -> [u8; 32] {
     let mut b = [0u8; 32];
     for (r, v) in cargo.iter().enumerate() {
         let u = (v.max(&0) / MILLI).min(u32::MAX as i64) as u32;
@@ -410,7 +410,7 @@ fn cargo_log(cargo: &[i64; RESOURCES]) -> [u8; 32] {
 
 /// Creates the Caravan account and writes its fields.
 #[allow(clippy::too_many_arguments)]
-fn create_caravan<'a>(
+pub(super) fn create_caravan<'a>(
     p: &Pubkey,
     payer: &AccountInfo<'a>,
     season_ai: &AccountInfo<'a>,
@@ -470,7 +470,7 @@ fn create_caravan<'a>(
 
 /// The CARAVAN_SENT payload.
 #[allow(clippy::too_many_arguments)]
-fn sent_payload(
+pub(super) fn sent_payload(
     faction: u8,
     src: &[u8; 8],
     dst: &[u8; 8],
@@ -493,7 +493,7 @@ fn sent_payload(
         .bytes(path))
 }
 
-fn caravan_key(owner_tag: u64, seq: u32) -> [u8; 12] {
+pub(super) fn caravan_key(owner_tag: u64, seq: u32) -> [u8; 12] {
     let mut k = [0u8; 12];
     k[..8].copy_from_slice(&owner_tag.to_le_bytes());
     k[8..].copy_from_slice(&seq.to_le_bytes());
@@ -502,7 +502,7 @@ fn caravan_key(owner_tag: u64, seq: u32) -> [u8; 12] {
 
 /// The Provinces among `provinces` whose slot a record changed, as chain
 /// entries (the ones with a run, in the order given).
-fn province_links<'b, 'a>(
+pub(super) fn province_links<'b, 'a>(
     provinces: &'b [AccountInfo<'a>],
     runs: &[u8; log_run::LEN * log_run::N],
 ) -> R<alloc::vec::Vec<core::cell::RefMut<'b, &'a mut [u8]>>> {
@@ -865,7 +865,7 @@ pub(crate) fn send_caravan_as(
 // ------------------------------------------------------------ the caravan account
 
 /// A present Caravan at its canonical address: its owner tag and sequence.
-fn caravan_of(p: &Pubkey, ctx: &AddrCtx, sid: u64, ai: &AccountInfo) -> R<(u64, u32)> {
+pub(super) fn caravan_of(p: &Pubkey, ctx: &AddrCtx, sid: u64, ai: &AccountInfo) -> R<(u64, u32)> {
     present_v2(ai, p, K2::Caravan, sid)?;
     let cd = ai.try_borrow_data()?;
     let r = Ro(&cd);
@@ -876,7 +876,7 @@ fn caravan_of(p: &Pubkey, ctx: &AddrCtx, sid: u64, ai: &AccountInfo) -> R<(u64, 
 
 /// The Caravan's provinces as stored, checked against the listed ones in
 /// order (`BadAccount`).
-fn listed_provinces(ctx: &AddrCtx, cd: &[u8], provinces: &[AccountInfo]) -> R<()> {
+pub(super) fn listed_provinces(ctx: &AddrCtx, cd: &[u8], provinces: &[AccountInfo]) -> R<()> {
     let r = Ro(cd);
     let n = r.u8(CV::N_PROV)? as usize;
     if n != provinces.len() {
@@ -890,7 +890,7 @@ fn listed_provinces(ctx: &AddrCtx, cd: &[u8], provinces: &[AccountInfo]) -> R<()
 }
 
 /// Closes a settled Caravan to its `RENT_TO` after logging `CLOSE`.
-fn close_caravan<'a>(
+pub(super) fn close_caravan<'a>(
     p: &Pubkey,
     caravan: &AccountInfo<'a>,
     rent_to: &AccountInfo<'a>,
@@ -952,6 +952,11 @@ pub fn settle_caravan(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         let r = Ro(&cd);
         if r.u8(CV::STATE)? != CV::STATE_MOVING {
             return Err(FrontierError::AlreadyDone.into());
+        }
+        // Workstream 10: a custody caravan's cargo is not the
+        // destination's; SettleCustody puts it in its owner's lot.
+        if r.u8(CV::CUSTODY)? == CV::CUSTODY_LOT {
+            return Err(BAD_ACCOUNT);
         }
         if now.ts < r.i64(CV::ARRIVE_TS)? {
             return Err(cq(CqError::CaravanEarly));
@@ -1019,7 +1024,10 @@ pub fn settle_caravan(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
             let cap = Ro(&vd).i64(VA::CAP)?;
             for (r, c) in cargo.iter().enumerate() {
                 let have = Ro(&vd).i64(VA::store(r))?;
-                let to = have.saturating_add(*c).min(cap.max(have));
+                // Workstream 10: the room committed to lots is not the
+                // general stock's.
+                let room = cap.saturating_sub(Ro(&vd).i64(VA::custody_quota(r))?);
+                let to = have.saturating_add(*c).min(room.max(have));
                 Rw(&mut vd).set_i64(VA::store(r), to)?;
             }
         }
@@ -1298,6 +1306,12 @@ fn settle_raid(
             let mut w = Rw(&mut cd);
             w.set_arr(CV::OWNER_CITIZEN, rc.raider_citizen.key.as_ref())?;
             w.set_u8(CV::FACTION, raider_faction)?;
+            // Workstream 10: a custody caravan taken is the raider's (J2);
+            // its lot logs the loss at ReconcileLot.
+            if Ro(w.0).u8(CV::CUSTODY)? == CV::CUSTODY_LOT {
+                w.set_u8(CV::CUSTODY, CV::CUSTODY_TAKEN)?;
+                w.set_u64(CV::TAKEN_BY_TAG, raider_tag)?;
+            }
             w.set_u8(CV::STEPS, steps)?;
             w.set_u8(CV::N_PROV, n as u8)?;
             w.set_arr(CV::PATH, path)?;
@@ -1923,6 +1937,13 @@ pub(crate) fn close_vault_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &sup
             if r.i64(VA::store(i))? != 0 {
                 return Err(FrontierError::BadData.into());
             }
+            // Workstream 10: not under its depositors' goods.
+            if r.i64(VA::custody_quota(i))? != 0 {
+                return Err(cq(CqError::LotNotEmpty));
+            }
+        }
+        if r.u16(VA::CUSTODY_LOTS)? != 0 {
+            return Err(cq(CqError::LotNotEmpty));
         }
         (r.i16(VA::P)?, r.i16(VA::Q)?, r.u8(VA::TILE)?)
     };
