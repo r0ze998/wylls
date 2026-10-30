@@ -1,146 +1,166 @@
-# ② 契約案：Grant と施設利用権（WorkshopUse v0）
+# ② 契約案：Grant と工房在庫の交換権（StockSwap v1）
 
-**状態：採用待ちの契約案。** この領域（権利の検査・予約・消費・失効）の契約は②が管理する。他の担当は、別の権利アカウントや別の検査を作らず、この案への変更要求として出す。下の tag・エラーコード・seed・layout は**提案値**で、共有 ABI の表（`v2::Ix`, `CqError`, `AccountKind`）には入れていない。採用時に統合担当が割り当てる（§9）。
+**状態：採用待ちの契約案。** 権利の検査・予約・実行・失効の契約は②が管理する。他の担当は、別の権利アカウントや別の検査経路を作らず、この案への変更要求として出す。下の tag・コード・seed・layout は**提案値**で、共有の表（`v2::Ix`、`CqError`、`AccountKind`、ログの kind）には入れていない。割当案は `06-EVENTS.ja.md` §3。
 
-実装：`frontier-abi/src/v2/rights.rs`（ABI）、`permutation-frontier/src/proc/rights.rs`（プログラム）。パッチ：`patches/`。
+実装：
+- ABI：`frontier-abi/src/v2/rights.rs`
+- プログラム：`permutation-frontier/src/proc/rights.rs`
+- パッチ：`patches/v1/`（前回の版は `patches/v0/` に保全）
 
 ## 1. 範囲
 
-- 権利の種類は **WorkshopUse（`kind = 1`）だけ**。
-- 資源はゲーム内の倉の値のまま。SPL トークンに置き換えない。独自トークン・持ち分・融資・市場は含まない。
+- 種類は **StockSwap（`kind = 1`）だけ**。施設がすでに作った武具と、利用者の鉱石・木材を交換する。加工の実行でも、生産能力の予約でもない（`02-SPEC.ja.md` §1）。
+- 資源はゲーム内の倉の値のまま。SPL トークン、独自トークン、持ち分、融資、市場は含まない。
 - 国（①）の判断とは独立。国の決定は、資産所有者の許可の代わりにならない。
 
 ## 2. 役割
 
 | 役割 | 誰 | 鍵 |
 |---|---|---|
-| issuer | 施設の村の所有者の Citizen | 発行：財布だけ。取消：財布かセッション |
-| grantee | 利用者の Citizen | 財布か、自分のセッション |
-| crank | 誰でも | 期限切れ・世代切れの解放と、後始末だけ |
+| issuer | 施設の村の所有者の Citizen | 発行は財布だけ。取消は財布かセッション |
+| grantee | 利用者の Citizen | 自分の財布か、自分のセッション |
+| 誰でも（crank） | 誰でも | 期限切れ・世代切れの後の解放と、後始末 |
 
 ## 3. アカウント：Grant（272 B、chain なし）
 
-アドレス：`with_seed(season_pda, "gr" ‖ hex(le64 issuer_tag ‖ le32 nonce), program)`。`issuer_tag = citizen_tag(issuer_citizen)`。
+アドレス：`with_seed(season_pda, "gr" ‖ hex(le64 issuer_tag ‖ le32 nonce), program)`
 
 | off | 欄 | 型 | 意味 |
 |---|---|---|---|
 | 0 | MAGIC | [u8;8] | `PSF2GRNT` |
 | 8 | SEASON_ID | u64 | |
 | 16 | VERSION | u16 | 1 |
-| 18 | KIND | u8 | 1 = WorkshopUse |
-| 19 | STATE | u8 | 1 Active, 2 Revoked |
+| 18 | KIND | u8 | 1 = StockSwap |
+| 19 | STATE | u8 | 1 Active、2 Revoked |
 | 20 / 21 | FACILITY_GEN / STATION_GEN | u8 | 発行時の世代 |
 | 22 / 23 | FACILITY_SITE / STATION_SITE | u8 | |
 | 24 / 26 | P / Q | i16 | 施設と受取口の州 |
 | 28 | NONCE | u32 | |
-| 32 | ISSUER_CITIZEN | [u8;32] | |
-| 64 | GRANTEE_CITIZEN | [u8;32] | |
-| 96 | FACILITY | [u8;32] | 施設の Holding のアドレス |
-| 128 | STATION | [u8;32] | 受取口の Holding のアドレス |
+| 32 / 64 | ISSUER_CITIZEN / GRANTEE_CITIZEN | [u8;32] | |
+| 96 / 128 | FACILITY / STATION | [u8;32] | 2つの Holding のアドレス |
 | 160 | ISSUER_TAG | u64 | |
-| 168 | EXPIRES_TS | i64 | |
-| 176 | ISSUED_TS | i64 | |
-| 184 | MAX_USES | u16 | |
-| 186 | USES | u16 | 消費した予約の数 |
-| 188 | MAX_UNITS | u32 | |
-| 192 | UNITS_CONSUMED | u32 | |
-| 196 | OPEN_UNITS | u32 | 0 = 予約なし |
+| 168 / 176 | EXPIRES_TS / ISSUED_TS | i64 | |
+| 184 / 186 | MAX_SWAPS / SWAPS | u16 | SWAPS は実行済みの交換の数で、`seq` の基準 |
+| 188 / 192 | MAX_UNITS / UNITS_SWAPPED | u32 | |
+| 196 | OPEN_UNITS | u32 | 0 = 預かりなし |
 | 200 | OPEN_TS | i64 | |
-| 208 / 216 / 224 | OPEN_ORE / OPEN_WOOD / OPEN_ARMS | i64 | 預かり（milli）。比が後で変わっても、戻す量は記録した量 |
+| 208 / 216 | OPEN_ORE / OPEN_WOOD | i64 milli | 受取口側の預かり |
+| 224 | OPEN_ARMS | i64 milli | 施設側の預かり |
 | 232 | REVOKED_TS | i64 | |
 | 240 | RENT_TO | [u8;32] | 発行時の payer |
 
+`OPEN_UNITS ≠ 0` で、片側の `OPEN_*` だけが 0 でないとき：もう一方の側は戻し終えている。0 でない側は、戻し先がないため凍結している（§6）。
+
 ## 4. 命令
 
-P = プレイヤー前処理 `[actor s] [payer s,w] [season r] [citizen w]`（署名・季節 PDA・Running・ruleset・Citizen・セッション・行動バケツ）。
+P = プレイヤー前処理 `[actor s] [payer s,w] [season r] [citizen w]`（署名、季節の PDA・Running・ruleset、Citizen、セッション、行動バケツ）。
 
-| tag | 命令 | アカウント（P の後） | 署名 | 効果 |
+| tag | 命令と data | アカウント | 署名 | 効果 |
 |---|---|---|---|---|
-| 0xD0 | IssueGrant `{nonce u32, kind u8, max_uses u16, max_units u32, expires_ts i64}` | `[facility r] [province r] [grantee_citizen r] [station r] [grant w] [system]` | issuer の**財布** | Grant を作る。施設は issuer の生きた村で、工房 ≥1、占領ロックなし。受取口は grantee の生きた村で、同じ州・別の村・ロックなし。条件は `terms_ok` |
-| 0xD1 | ReserveUse `{units u32}` | `[grant w] [facility w] [station w] [province r]` | grantee | 受取口から鉱石 `2u`・木材 `u`、施設から武具 `u` を預かる。全部か、何もしないか |
-| 0xD2 | ConsumeUse `{}` | 同上 | grantee | 武具を受取口へ、鉱石・木材を施設へ。`USES += 1`、`UNITS_CONSUMED += u`。確定 |
-| 0xD3 | ReleaseUse `{}` | `[actor s] [season r] [grantee_citizen r] [grant w] [facility w] [station w] [province r]`（P なし） | grantee、または期限切れ・世代切れ後は誰でも | 予約を両側とも戻す（§6） |
-| 0xD4 | RevokeGrant `{}` | P + `[grant w] [facility w] [station w] [province r]` | issuer（財布かセッション） | 予約があれば戻す。`STATE = Revoked` |
-| 0xD5 | CloseGrant `{}` | `[actor s] [season r] [grant w] [rent_to w]` | 誰でも | 予約なし、かつ取消・期限切れ・枠切れのとき、賃料を `RENT_TO` へ |
+| 0xD0 | IssueGrant `{nonce u32, kind u8, max_swaps u16, max_units u32, expires_ts i64}` | P + `[facility r] [province r] [grantee_citizen r] [station r] [grant w] [system]` | issuer の**財布** | Grant を作る（季節 PDA の AllocateWithSeed CPI） |
+| 0xD1 | ReserveSwap `{units u32, seq u16}` | P + `[grant w] [facility w] [station w] [province r]` | grantee | 受取口から鉱石 `2u`・木材 `u`、施設から武具 `u` を預かる |
+| 0xD2 | ExecuteSwap `{seq u16}` | 同上 | grantee | 預かりを相手側へ。`SWAPS += 1`。確定 |
+| 0xD3 | ReleaseSwap `{}` | `[actor s] [season r] [grantee_citizen r] [grant w] [facility w] [station w] [province r]` | grantee、または期限切れ・世代切れの後は誰でも | 戻せる側を戻す。何も戻せなければ `ReturnBlocked` |
+| 0xD4 | RevokeGrant `{}` | P + `[grant w] [facility w] [station w] [province r]` | issuer | 預かりを戻せるだけ戻す。`STATE = Revoked` |
+| 0xD5 | CloseGrant `{}` | `[actor s] [season r] [grant w] [rent_to w]` | 誰でも | 預かりがなく、使えなくなった Grant の賃料を `RENT_TO` へ |
 
-**検査の順（Reserve/Consume）：** データ → 書込みフラグ → P → Grant（所有者・大きさ・magic・季節・版・種類・再計算アドレス）→ grantee 一致 → Active → 期限 → 施設の固定 → 受取口の固定 → 州と占領ロック → 予約の有無 → 枠 → 資源。
+**Reserve・Execute の検査の順：** data → 書込みフラグ → P → Grant（所有者・大きさ・magic・季節・版・種類・再計算アドレス）→ grantee の一致 → Active → 期限 → 施設の固定 → 受取口の固定 → 州と占領ロック → 預かりの有無 → `seq` → 枠 → 資源。
 
-Release と Close は季節の状態を問わない（季節の終了後も、戻すことと後始末ができる）。Reserve・Consume・Revoke・Issue は Running のときだけ。
+Release と Close は、季節の状態を問わない。Issue・Reserve・Execute・Revoke は Running のときだけ。
 
-## 5. エラー（提案コード 200–211）
+## 5. エラー（提案コード 200–213）
 
 | code | 名前 | いつ |
 |---|---|---|
-| 200 | BadGrant | Grant が偽物・別季節・別アドレス。または、渡した施設・受取口・賃料の送り先が Grant の記録と違う。または、同じ nonce の Grant がすでにある |
-| 201 | NotGrantee | 役割の違う Citizen（利用・解放で grantee でない、取消で issuer でない） |
+| 200 | BadGrant | Grant が偽物・別季節・別アドレス。渡したアカウントが Grant の記録と違う。同じ nonce の Grant がすでにある |
+| 201 | NotGrantee | 役割の違う Citizen |
 | 202 | Revoked | 取消済み |
 | 203 | Expired | `now ≥ expires_ts` |
-| 204 | QuotaExceeded | `units` が 0 または 10,000 を超える、回数・数量の超過 |
-| 205 | ReservationOpen | 予約がすでに開いている |
-| 206 | NoReservation | 消費・解放する予約がない |
-| 207 | StaleHolding | 施設か受取口の世代・所有者・生死が、発行時と違う |
+| 204 | QuotaExceeded | units が 0 または 10,000 超、回数・数量の超過 |
+| 205 | ReservationOpen | 預かりが残っている |
+| 206 | NoReservation | 実行・解放する預かりがない |
+| 207 | StaleHolding | 施設か受取口の世代・所有者・生死が違う |
 | 208 | NoWorkshop | 施設に工房がない |
-| 209 | BadStation | 受取口が grantee の生きた村でない、州が違う、施設と同じ |
+| 209 | BadStation | 受取口が条件を満たさない |
 | 210 | BadTerms | 種類・枠・期限が範囲外、自分宛て |
-| 211 | StillLive | まだ使える、または預かりがあるのに閉じようとした |
+| 211 | StillLive | まだ使える、または預かりが残っている |
+| 212 | **ReturnBlocked** | 解放で、どの側も戻せない（戻し先がない） |
+| 213 | **SeqMismatch** | `seq` が実行済みの交換の数と違う（作り直した再送、または別の計画の手順） |
 
-既存のコードも返る：`Auth`、`SessionExpired`、`WalletRequired`(81)、`CapturePending`(62)、`Insufficient`、`NotOwner`、`BadAddress`、`BadAccount`、`TooManyAccounts`、`BadData`、`Bucket`、`WrongStatus`。
+既存のコード：`Auth`、`SessionExpired`、`WalletRequired`(81)、`CapturePending`(62)、`Insufficient`、`NotOwner`、`BadAddress`、`BadAccount`、`TooManyAccounts`、`BadData`、`Bucket`、`WrongStatus`。
 
-## 6. 取消・解放・占領（v0 で実装した規則）
+## 6. 取消・解放・占領・閉鎖
 
-| 場面 | 開いている予約 | 未使用の枠 | 消費済み |
+**取消と解放：**
+
+| 場面 | 開いている予約 | 未使用の枠 | 実行済み |
 |---|---|---|---|
-| 利用者が ReleaseUse | 両側とも戻る | 残る（何も消費していない） | 変わらない |
-| 発行者が RevokeGrant | 両側とも戻る | 消える | **戻らない**（利用者の武具も、施設の材料も、そのまま） |
-| 期限切れ | 誰でも解放でき、両側とも戻る | 使えない | 戻らない |
-| 施設か受取口が占領された | 決着前は待つ（`CapturePending`）。決着後は誰でも解放でき、**今その場所を持つ者の倉へ**戻る（設計 20 §5〔採用済み〕：奪われた倉の中身は奪った側のもの） | 使えない（`StaleHolding`） | 戻らない |
-| 戻し先の村がもうない（解放済み・閉鎖） | その側は失われる。もう一方は戻る | — | — |
+| 利用者の ReleaseSwap | 両側とも戻る | 残る | 変わらない |
+| 発行者の RevokeGrant | 戻せる側が戻る | **消える** | **戻らない** |
+| 期限切れ | 誰でも解放できる | 使えない | 戻らない |
+| 戻し先が満杯 | 上限を超えて入る（失われない） | — | — |
+| 戻し先の村が消えた | その側は Grant に**凍結**。もう一方は戻る | — | — |
 
-**約束しないこと：** 消費済みの資源は返さない。施設の武具が予約の前に使われていれば、予約は `Insufficient` で失敗する。権利は、施設の在庫が尽きないことを保証しない。代案（占領時に焼く／発行者に戻す）は `04-PROPOSALS.ja.md` §3。
+**占領（施設か受取口の世代が変わる）：**
 
-## 7. 不変条件
+| 占領された側 | 時点 | 資源とその場所 | 「元の場所へ戻す」で誰のものになるか | 既存の規則で決まるか |
+|---|---|---|---|---|
+| 施設 | 予約中 | 武具：Grant の預かり（発行者の分） | 施設の倉、つまり**占領者**のもの | **新しい判断。** 設計 20 §5（採用済み）は「奪われた倉の中身は奪った側のもの」。しかし預かりは、占領の時点で倉の中にない。占領者に渡すのは、§5 の精神に合わせた②の選択（代案は `04-PROPOSALS.ja.md` §3） |
+| 施設 | 予約中 | 鉱石・木材：Grant の預かり（利用者の分） | 受取口（利用者のまま） | 決まる（受取口は占領されていない） |
+| 受取口 | 予約中 | 鉱石・木材：預かり（利用者の分） | 受取口の倉、つまり**占領者**のもの | **新しい判断**（上と同じ理由） |
+| 受取口 | 予約中 | 武具：預かり（発行者の分） | 施設（発行者のまま） | 決まる |
+| 両方 | 予約中 | 両側 | それぞれの占領者 | 新しい判断 |
+| どちらか | 実行後 | 倉の中の通常の資源 | 倉とともに占領者へ | **既存の規則で決まる**（倉の中身） |
+| どちらか | 決着前（ロック中） | — | 待つ（`CapturePending`） | 既存の占領ロックの規則で決まる |
+| どちらか | — | Grant そのもの | 使えなくなる（`StaleHolding`） | **新しい判断。** 20 §5 は、倉の持ち分・受け取りの札を無効にする。使用権への当てはめは類推 |
+| 誰が戻せるか | 世代切れの後 | — | 誰でも（crank）。決着前は誰も戻せない | ②の選択 |
 
-`02-SPEC.ja.md` §3 の1〜7。テストの対応は `README.ja.md` の表。
+**焼却は採用していない。** 戻し先が消えた場合は凍結で、資源保存の例外かつ未決定事項（`04-PROPOSALS.ja.md` §3）。
 
-## 8. 他の担当への契約案
+## 7. 不変条件と脅威の対応
 
-担当名と範囲は依頼文のものだけを使う（③ 公開命令と CPI 接続、④ 複数段階の実行）。⑤・⑥ は、依頼文に範囲の定義がない。下では、**チェーンを読む側**と**クライアント・代理 AI 側**に分けて書いた。⑤・⑥への割り当ては、各担当の確認が必要。
+不変条件は `02-SPEC.ja.md` §6。脅威 T1–T22 とテストの対応は、`02-SPEC.ja.md` §7 と `README.ja.md` の表。
 
-### 8.1 ③（公開命令と CPI 接続）へ
+## 8. 他の担当への接続依頼
 
-- 命令の形は §4、data は `frontier_abi::v2::rights::{IssueGrant, ReserveUse, …}::to_bytes()`。②の検査を、クライアント側でもう一度実装しないこと。チェーンの拒否コードをそのまま返す。
-- **relay の形の許可**（`checkRelayShape`）は、0xD0–0xD5 を今は通さない。通すなら、IssueGrant を「財布の署名が必要な形」に分類する。エージェント鍵の relay 直送の拒否（`AgentKeyDirect`）の対象にも入れる。
-- **CPI：** プログラムは、これらの命令が CPI で呼ばれることを拒まない（`top_level_only` ではない）。署名は外側の取引から伝わるだけなので、他のプログラムが利用者の署名を偽ることはできない。呼ぶ側のプログラムが Grant を作ったり書き換えたりすることもできない。CPI 専用の口を作るなら、この表の命令を呼び、別の検査経路を作らないこと。
-- 代理 AI の `ACTION_GROUPS` に入れるなら、ReserveUse・ConsumeUse・ReleaseUse だけを候補にする。**IssueGrant と RevokeGrant は、代理に任せない一覧（`NEVER_DELEGATED`）に入れる**ことを提案する。財布だけの IssueGrant は、セッション鍵ではもともと実行できない。
+### ③ 公開 API・外部接続・MCP
 
-### 8.2 ④（複数段階の実行）へ
+- 命令の形は §4、data は `frontier_abi::v2::rights::*::to_bytes()`。チェーンの拒否コード（§5）をそのまま返す。②の検査を、クライアント側でもう一度実装しないこと。
+- relay の `checkRelayShape` は、今は 0xD0–0xD5 を通さない。通すなら：
+  - IssueGrant は「財布の署名が必要な形」にする。
+  - エージェント鍵の直送の拒否（`AgentKeyDirect`）の対象にも入れる。
+- MCP：能力トークンの範囲で ReserveSwap・ExecuteSwap・ReleaseSwap を出すなら、必ず `seq` を Grant から読んで付ける。IssueGrant と RevokeGrant は**出さない**（`NEVER_DELEGATED` に入れることを提案）。
+- CPI：拒まない（`top_level_only` ではない）。外側の取引の署名しか伝わらないので、署名は偽造できない。呼ぶ側のプログラムが Grant を書き換えることもできない。
 
-- 段階の間で資源を押さえるには ReserveUse を使う。予約は Grant 1つにつき同時に1つ。段階が失敗したら ReleaseUse（利用者の鍵）で両側を戻す。
-- 消費（ConsumeUse）は確定で、取り消せない。④の「巻き戻し」は、消費の前でしか効かない。
-- 予約が開いたまま期限が切れると、**誰でも**解放できる。④の計画は、期限より前に消費するか、自分で解放すること。
-- 予約の量は、そのときの武具 1 あたりの比（`ORE_PER_ARM`, `WOOD_PER_ARM`）で決まり、Grant に記録される。
+### ④ 複数段階の実行
 
-### 8.3 チェーンを読む側（検証器・キーパー・herald）へ
+- 段階の間で両側を押さえるには ReserveSwap、確定は ExecuteSwap、巻き戻しは ReleaseSwap。巻き戻しは実行の前でしか効かない。
+- 各手順の `seq` は、計画の開始時に Grant の `SWAPS` を読んで決める。再送は `SeqMismatch` で安全に失敗する。
+- 在庫がなければ予約は失敗する（待機状態はない）。再試行・期限・別の施設への切替は④の側で扱う。
+- 予約を開いたまま期限が切れると、誰でも解放できる。
 
-- **前提条件（未実装）：** 現在の PS2 ログには、これらの記録の種類がない。v0 の命令は、chain の記録なしで村の倉を書き換える。今の検証器で再生すると、倉が合わず、改ざんとして検出されるはず（未確認）。**採用する前に**、次の記録の種類を割り当て、検証器に再判定（V 番号）と改ざんの型（T 番号）を足す必要がある。
-  - `GRANT_ISSUED`（Citizen issuer、施設の Holding）
-  - `GRANT_RESERVED`、`GRANT_CONSUMED`、`GRANT_RELEASED`（施設と受取口の Holding。量は milli の3値）
-  - `GRANT_REVOKED`、`GRANT_CLOSED`
-- キーパーの仕事はない。期限切れの解放と後始末は、誰が送ってもよい精算（D 級相当）として扱える。
-- herald は、Grant アカウントを §3 の layout で読めば、権利の一覧（施設ごと・利用者ごと）を出せる。
+### ⑤ AI の参加・AI staking・予算管理・手動／自動の切替
 
-### 8.4 クライアント・代理 AI 側（UI・MCP）へ
+- **Grant は、⑤の予算や操作制限の代わりにならない。** grantee のセッションは、Grant の外でも本人の全資産を動かせる（`05-DELEGATION.ja.md` §1、§2）。
+- ⑤の予算（テスト USDC）は、Grant の `MAX_UNITS`・`MAX_SWAPS` とは別物。UI で同じものとして見せないこと。
+- 代理 AI に Grant を使わせるなら：
+  - 許可リストに ReserveSwap・ExecuteSwap・ReleaseSwap を、名前を付けて足す。
+  - 手動への切替は、チェーン上の予約を止めない。予約が開いていれば、切替の時に ReleaseSwap を出すこと。
+- AI staking には関与しない。
 
-- 表示する文言：「この権利は、施設の倉にある武具を、あなたの材料と交換で受け取る権利です。施設の在庫は保証されません。予約した分は、取消のときも戻ります。消費した分は戻りません。」
-- 代理 AI の**予算**（テスト USDC）は、権利の上限ではない。上限は Grant の `MAX_UNITS` と `MAX_USES` だけ。UI で混同させないこと。
+### ⑥ 作成・公開・再利用
+
+- 「工房の貸し出し」のテンプレートは、IssueGrant の引数（量・回数・期限・受取口の条件）で表せる。ただし次のものは、v1 の範囲外：
+  - **時間帯**（夜の分）
+  - **1日あたり**の回数
+  - **譲渡・転売・又貸し**
+  - 複数の利用者への一括発行
+- 公開された仕組みが他人の Grant を束ねる場合も、使う鍵は各 grantee のもの。束ねた側が他人の Grant を使う口はない。
+
+### チェーンを読む側（検証器・キーパー・herald。担当未定）
+
+- **統合前の必須課題：** PS2 の記録がない。検証器は、Holding を書く交換を FAIL にし（V7）、Grant だけの操作は見えない。再現と、必要な情報・割当案は `06-EVENTS.ja.md`。
 
 ## 9. 採用時に割り当てるもの
 
-| 項目 | 提案値 | 衝突の確認 |
-|---|---|---|
-| tag | 0xD0–0xD5 | v2 の `Ix::from_tag` にない（テスト `tags_and_codes_do_not_collide_with_v2`） |
-| エラー | 200–211 | v2 の `Code::from_code` にない（同テスト） |
-| seed | `gr` | v1・v2 の seed tag にない |
-| AccountKind | なし（独自の magic `PSF2GRNT`） | 採用時に `AccountKind` 23 などへ |
-| PS2 記録の種類 | §8.3 | 未割り当て |
-| PROGRAM_VERSION | 配備するなら上げる | ruleset hash は変わらない（rules カーネルは無変更） |
+`06-EVENTS.ja.md` §3 にまとめた。プログラム版の二律背反（PlaceHome の版の一致）は `06-EVENTS.ja.md` §5。
