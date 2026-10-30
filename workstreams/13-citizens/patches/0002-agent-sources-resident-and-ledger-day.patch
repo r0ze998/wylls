@@ -1,0 +1,87 @@
+diff --git a/permutation-gateway/src/frontier/agent/contract.mjs b/permutation-gateway/src/frontier/agent/contract.mjs
+index 95325cdc..12095518 100644
+--- a/permutation-gateway/src/frontier/agent/contract.mjs
++++ b/permutation-gateway/src/frontier/agent/contract.mjs
+@@ -11,8 +11,8 @@
+ // Local test tokens only; nothing here has value.
+ import { RouteError } from '../../routes/errors.mjs';
+ 
+-/** Where a request came from (recorded, never trusted for authority). */
+-export const SOURCES = Object.freeze(['browser', 'ai', 'mcp']);
++/** Where a request came from (recorded, never trusted for authority). `resident`: an independent AI resident acting for its own village (workstream 13). */
++export const SOURCES = Object.freeze(['browser', 'ai', 'mcp', 'resident']);
+ 
+ /** Agent control of one owner's village. */
+ export const MODES = Object.freeze({ MANUAL: 'manual', AUTO: 'auto' });
+diff --git a/permutation-gateway/src/frontier/agent/gateway.mjs b/permutation-gateway/src/frontier/agent/gateway.mjs
+index 03e05945..2bda4231 100644
+--- a/permutation-gateway/src/frontier/agent/gateway.mjs
++++ b/permutation-gateway/src/frontier/agent/gateway.mjs
+@@ -581,7 +581,7 @@ export class AgentGateway {
+    * call again, and nothing would roll it (found by test/agent-wallet-caps.test.mjs).
+    */
+   #dayOf(rec) {
+-    const key = budgetDay(this.ledger.now());
++    const key = this.ledger.dayKey(this.ledger.now());
+     return rec.day.key === key ? { ...rec.day, calls: rec.day.calls ?? 0 } : { key, spent: '0', calls: 0 };
+   }
+ 
+diff --git a/permutation-gateway/src/frontier/agent/ledger.mjs b/permutation-gateway/src/frontier/agent/ledger.mjs
+index f1c30c12..a7f42b97 100644
+--- a/permutation-gateway/src/frontier/agent/ledger.mjs
++++ b/permutation-gateway/src/frontier/agent/ledger.mjs
+@@ -46,10 +46,14 @@ const OPERATOR_COSTS_MAX = 2_000;
+ export const budgetDay = ms => new Date(ms).toISOString().slice(0, 10);
+ 
+ export class AgentLedger {
+-  /** `store`: `{state, save()}`; the ledger lives in `state.agentWallet`. */
+-  constructor({ store = { state: {}, save() {} }, now = Date.now } = {}) {
++  /**
++   * `store`: `{state, save()}`; the ledger lives in `state.agentWallet`. `dayKey(ms)` names the budget day
++   * (default the UTC day, budgetDay); a caller that budgets by game day passes its own.
++   */
++  constructor({ store = { state: {}, save() {} }, now = Date.now, dayKey = budgetDay } = {}) {
+     this.store = store;
+     this.now = now;
++    this.dayKey = dayKey;
+     this.store.state ??= {};
+     this.store.state.agentWallet ??= { agents: {}, deposits: {}, ownerNonces: {} };
+     this.store.state.agentWallet.operatorCosts ??= [];
+@@ -69,7 +73,7 @@ export class AgentLedger {
+       policy: { ...policy, version: 1 },
+       bal: { deposited: ZERO, available: ZERO, reserved: ZERO, pendingWithdraw: ZERO, withdrawn: ZERO,
+         spent: { [CATEGORIES.INFERENCE]: ZERO, [CATEGORIES.NETWORK]: ZERO, [CATEGORIES.GAME]: ZERO } },
+-      day: { key: budgetDay(this.now()), spent: ZERO, calls: 0 },
++      day: { key: this.dayKey(this.now()), spent: ZERO, calls: 0 },
+       holds: {}, withdrawals: {}, requests: {}, history: [],
+     };
+     this.db.agents[agentId] = rec;
+@@ -138,7 +142,7 @@ export class AgentLedger {
+   // ------------------------------------------------------------ spending
+ 
+   #rollDay(rec) {
+-    const key = budgetDay(this.now());
++    const key = this.dayKey(this.now());
+     if (rec.day.key !== key) rec.day = { key, spent: ZERO, calls: 0 };
+     rec.day.calls ??= 0;
+   }
+diff --git a/permutation-gateway/test/agent-wallet-caps.test.mjs b/permutation-gateway/test/agent-wallet-caps.test.mjs
+index 81de7b15..f101b8eb 100644
+--- a/permutation-gateway/test/agent-wallet-caps.test.mjs
++++ b/permutation-gateway/test/agent-wallet-caps.test.mjs
+@@ -213,3 +213,15 @@ test('the operator token itself is never written: not in a settlement, the opera
+   assert.ok(r.gateway.ledger.db.settlements.every(s => /^[0-9a-f]{8}$/.test(s.by.token) && s.claimedBy === 'label'));
+   sound(r);
+ });
++
++test('a ledger may budget by its own day (a game day) instead of the UTC day', async () => {
++  const { AgentLedger } = await import('../src/frontier/agent/ledger.mjs');
++  let t = 0;
++  const l = new AgentLedger({ now: () => t, dayKey: ms => `g${Math.floor(ms / 86_400_000)}` });
++  l.create({ agentId: 'a', owner: 'o', agentKey: 'k', village: [0, 0, 0], policy: { allowed: [], budget: { total: '100', perDay: '100', callsPerDay: 1 } } });
++  l.hold('a', { category: 'inference', amount: '0', key: 'k1' });
++  assert.throws(() => l.hold('a', { category: 'inference', amount: '0', key: 'k2' }), /model call/);
++  t = 86_400_000;
++  assert.doesNotThrow(() => l.hold('a', { category: 'inference', amount: '0', key: 'k3' }));
++  assert.equal(l.get('a').day.key, 'g1');
++});

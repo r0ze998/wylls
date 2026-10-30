@@ -1,0 +1,27 @@
+diff --git a/permutation-gateway/src/frontier/agent/runner.mjs b/permutation-gateway/src/frontier/agent/runner.mjs
+index 5ee48b30..e105517b 100644
+--- a/permutation-gateway/src/frontier/agent/runner.mjs
++++ b/permutation-gateway/src/frontier/agent/runner.mjs
+@@ -35,7 +35,8 @@ export const DIGEST_FIELDS = Object.freeze({
+ /** Resources and units in kernel order (web fland.mjs / wasm.mjs); a store's value is in thousandths. */
+ export const RESOURCES = Object.freeze(['Food', 'Wood', 'Stone', 'Ore', 'Horses', 'Gold', 'Science', 'Influence']);
+ export const UNITS = Object.freeze(['Spearman', 'Archer', 'Horseman', 'Pikeman', 'Crossbowman', 'Knight', 'Scout', 'Settler']);
+-export const TIERS = Object.freeze(['Hamlet', 'Village', 'Town', 'Stronghold']);
++/** Holding tiers by their on-chain index (permutation-rules control.rs tier_from_u8: 0 Hamlet, 1 Town, 2 City, 3 Stronghold). */
++export const TIERS = Object.freeze(['Hamlet', 'Town', 'City', 'Stronghold']);
+ /**
+  * What the model is told an action costs (informational: the program decides; web fland.mjs BUILD_ITEMS and
+  * trainingCost, the conquest table). A building's first copy; later copies cost more. Training is paid per
+diff --git a/permutation-gateway/test/agent-wallet-caps.test.mjs b/permutation-gateway/test/agent-wallet-caps.test.mjs
+index 81de7b15..64541fef 100644
+--- a/permutation-gateway/test/agent-wallet-caps.test.mjs
++++ b/permutation-gateway/test/agent-wallet-caps.test.mjs
+@@ -165,7 +165,7 @@ test('what the model is told: the village state from the herald\'s records (stor
+   const s = villageState({ holding: hold, province: prov, citizen: cit, site: 2, now });
+   // Stores projected an hour on at the rate (300 + 40 = 340 Food), whole units; the queue's one building; troops at home and in the province.
+   assert.deepEqual([s.tier, s.stores.Food, s.stores.Wood, s.store_cap, s.walls, s.free_queue_slots, s.queue, s.reserve_troops, s.garrison, s.hosts, s.vigil_start_min],
+-    ['Village', 340, 330, 2000, 3, 3, [{ what: 'Wood building', done_in_s: 1000 }], { Spearman: 250 }, 120, [{ unit: 'Spearman', troops: 50 }], 600]);
++    ['Town', 340, 330, 2000, 3, 3, [{ what: 'Wood building', done_in_s: 1000 }], { Spearman: 250 }, 120, [{ unit: 'Spearman', troops: 50 }], 600]);
+   assert.deepEqual(s.province, { other_hosts: [{ unit: 'Horseman', troops: 300, faction: 1 }], camp: { troops: 200 } });
+   assert.deepEqual(s.threat, { hostile_troops: 500, troops_at_home: 420, outnumbered: true });
+   assert.equal(threatOf({ ...s, province: { other_hosts: [], camp: null } }), null);
