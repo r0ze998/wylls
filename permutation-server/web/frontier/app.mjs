@@ -19,6 +19,7 @@ import { conquestEnabled, kernelFile, outpostOffer } from './fconquest.mjs';
 import { config } from './config.mjs';
 import { FS, invalidate, registerRenderers } from './fstate.mjs';
 import { createHerald, nextPoll, staleness } from './herald.mjs';
+import { setTermsPace } from './seasonterms.mjs';
 import { setPin, setRelay } from './fchainio.mjs';
 import { checkBeacon } from './seal.mjs';
 import { ChainClock, bellChip, countdown, seasonClock, bellStart, pollCap } from './clock.mjs';
@@ -3494,6 +3495,7 @@ async function loadSeason(herald) {
   // (after the boot's own load: boot awaits loadOverviews itself, so the opening view has them)
   if (FS.overviewsBooted) loadOverviews(herald).catch(() => {});
   setS1(season);
+  setTermsPace(() => (FS.chain?.accelerated ? FS.chain.rate : 1));
   FS.clock = seasonClock(season);
   // Only a localnet Clock runs accelerated (§8.7); every other cluster's rate is 1.
   FS.chain.setAccelerated(record.cluster === 'localnet');

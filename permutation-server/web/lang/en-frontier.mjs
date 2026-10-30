@@ -548,7 +548,7 @@ export default {
   'ターン {0} に変わったあと、約 {1} 分で決まります。': 'After turn {0} begins, your village is decided in about {1} min.',
   '村の場所はもうすぐ決まる。待つあいだに、戦い方を確かめておこう。': 'The village will be placed soon. The wait is a good time to learn how a clash goes.',
   'まずは村の申し込みだ。通りしだい、候補地が地図に並ぶ。': 'First, the village request. Once it is in, the candidate sites appear on the map.',
-  '十分ごとにターンが変わり、封をして送り出した進軍がいっせいに着いて、同じ州の軍勢とぶつかる。': 'Every ten minutes the turn changes: the marches sent under seal arrive together and meet whoever stands in the same province.',
+  '{0}ごとにターンが変わり、封をして送り出した進軍がいっせいに着いて、同じ州の軍勢とぶつかる。': 'Every {0} the turn changes: the marches sent under seal arrive together and meet whoever stands in the same province.',
   '確定した村': 'Confirmed',
   'はじめの探索はあと {0} 回、必ず功績 4 を得ます。': n => plural(n, 'Your next exploration is sure to earn 4 Works (the season\'s score).', 'Your next {0} explorations are each sure to earn 4 Works (the season\'s score).'),
   'サーバーが応じませんでした。少し待ってから、もう一度試してください。': 'The server did not answer. Wait a moment, then try again.',

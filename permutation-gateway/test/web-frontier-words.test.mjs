@@ -45,10 +45,10 @@ test('every number is a turn\'s: no numbered bell in the client\'s strings or in
   }
   // the one line that ties the two, in the help
   setLang('ja');
-  assert.match(TERMS.bell.text(), /10分ごとの区切りがターンです。/);
+  assert.match(TERMS.bell.text(), /10 分ごとの区切りがターンです。/);
   assert.equal(TERMS.bell.name(), 'ターン');
   setLang('en');
-  assert.match(TERMS.bell.text(), /A turn is the ten-minute step of the game\./);
+  assert.match(TERMS.bell.text(), /A turn is the step of the game, every 10 minutes\./);
   setLang('ja');
 });
 

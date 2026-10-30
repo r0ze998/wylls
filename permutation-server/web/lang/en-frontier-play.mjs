@@ -758,7 +758,18 @@ export default {
   'このタブを閉じても、封は自動で開けられます。': ' If you close this tab, the seal is still opened automatically.',
   // ---- the help (hud/glossary.mjs)
   'ターン': 'Turn',
-  '10分ごとの区切りがターンです。同じターンに同じ州へ着いた軍勢の衝突は、まとめて一度に決まります。守り手に数えられるのは、ターンの始まりにそこにいた軍勢です。': 'A turn is the ten-minute step of the game. Clashes between hosts that reach the same province on the same turn are all decided at once. The defenders are the hosts that were there when the turn began.',
+  '{0}ごとの区切りがターンです。同じターンに同じ州へ着いた軍勢の衝突は、まとめて一度に決まります。守り手に数えられるのは、ターンの始まりにそこにいた軍勢です。': 'A turn is the step of the game, every {0}. Clashes between hosts that reach the same province on the same turn are all decided at once. The defenders are the hosts that were there when the turn began.',
+  // workstream 07: the turn's length and the season's deadlines, said from the season (frontier/seasonterms.mjs)
+  '{0} 秒': n => plural(Number(String(n).replace(/,/g, '')), '{0} second', '{0} seconds'),
+  '{0} 分': n => plural(Number(String(n).replace(/,/g, '')), '{0} minute', '{0} minutes'),
+  '{0} 時間': n => plural(Number(String(n).replace(/,/g, '')), '{0} hour', '{0} hours'),
+  '{0} 日': n => plural(Number(String(n).replace(/,/g, '')), '{0} day', '{0} days'),
+  'ゲーム内の {0}（この世界では実時間で約 {1}）': '{0} of game time (in this world about {1} of real time)',
+  '参加の受付は第{0}ターンで締め切られました。': 'Joining closed at turn {0}.',
+  '参加の受付は第{0}ターンまで（あと約 {1}）。': 'Joining is open until turn {0} (about {1} left). ',
+  'シーズンは終わりました。': 'The season has ended.',
+  'シーズンは第{0}ターンで終わります（あと約 {1}）。': 'The season ends at turn {0} (about {1} left).',
+  'シーズンは第{0}ターンで終わったため、この操作はできません。': 'The season ended at turn {0}; this order is no longer taken.',
   '進軍の戦い方です。突撃は側撃に、側撃は迎撃に、迎撃は突撃に強く、待機の構えには相性がありません。': 'How a march fights. Assault beats Flank, Flank beats Brace and Brace beats Assault; Hold has no edge either way.',
   '撤退の倍率': 'Retreat ratio',
   '守り手の兵が自軍のこの倍率を超えていたら、戦わずに引き返します（損失なし）。': 'If the defenders outnumber your host by more than this ratio, it turns back without a fight (no loss).',
@@ -1071,7 +1082,7 @@ export default {
   '結果か兵数が変わった軍勢：{0}': 'Hosts whose result or troops change: {0}',
   '構えと撤退の倍率を決めて「もしもを計算する」を押すと、実際の結果と並べて出ます。': 'Choose a stance and a retreat ratio, press “Work out the what-if”, and it appears beside the real result.',
   // ---- the guide, the village, the join screens, the map's controls
-  '五つの言葉だけ覚えましょう。村（あなたの拠点）、軍勢（動かす兵）、ターン（10分ごとの区切り）、進軍（封をした移動）、探索（斥候で周りを調べる）です。': 'Five words are enough: village (your base), host (troops you move), turn (the ten-minute step), march (a sealed move) and explore (scouts look around).',
+  '五つの言葉だけ覚えましょう。村（あなたの拠点）、軍勢（動かす兵）、ターン（{0}ごとの区切り）、進軍（封をした移動）、探索（斥候で周りを調べる）です。': 'Five words are enough: village (your base), host (troops you move), turn (the step of every {0}), march (a sealed move) and explore (scouts look around).',
   '「村」で農場と伐採場を建てます。': 'On the Village tab, build a Farm and a Lumber camp.',
   'はじめの案内はここまでです。ガイドは「その他」からいつでも開けます。': 'That is the end of the first steps. You can open the guide again at any time from More.',
   '場所': 'Place',
