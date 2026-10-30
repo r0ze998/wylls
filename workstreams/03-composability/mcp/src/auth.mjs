@@ -34,6 +34,14 @@ export const OWNER_QUERY_PREFIX = 'Wylls MCP owner operations v1\n';
 /** ChatGPT's redirect URIs (developers.openai.com/plugins/build/auth): the stable one and the per-connector form. */
 export const CHATGPT_REDIRECTS = Object.freeze([/^https:\/\/chatgpt\.com\/connector_platform_oauth_redirect$/, /^https:\/\/chatgpt\.com\/connector\/oauth\/[A-Za-z0-9_-]{1,128}$/]);
 const LOOPBACK = /^http:\/\/(127\.0\.0\.1|localhost|\[::1\]):\d{1,5}(\/[\w./-]*)?$/;
+/** The hosted Claude apps' one callback (claude.com/docs/connectors/building/authentication): web, Desktop, mobile, Cowork. */
+export const CLAUDE_REDIRECTS = Object.freeze([/^https:\/\/claude\.ai\/api\/mcp\/auth_callback$/]);
+/**
+ * Which clients' redirect URIs the authorization server accepts. `loopback` is native clients on this machine
+ * (Claude Code, the MCP Inspector, the SDK). The default is the local test set as it was; `claude` is opt-in.
+ */
+export const REDIRECT_PROFILES = Object.freeze({ chatgpt: CHATGPT_REDIRECTS, claude: CLAUDE_REDIRECTS, loopback: Object.freeze([LOOPBACK]) });
+export const DEFAULT_REDIRECT_PROFILES = Object.freeze(['chatgpt', 'loopback']);
 
 /** Bounds on what unauthenticated callers can make the server keep (registrations, pending consents). */
 export const LIMITS = Object.freeze({ clients: 1000, pending: 500, pendingPerClient: 20 });
@@ -71,8 +79,13 @@ export class Auth {
    * @param {Sealer} o.sealer
    * @param {Game} o.game         relay access (the agent view, the owner's rotate command)
    * @param {string[]} [o.redirects] extra allowed redirect URI prefixes (exact strings)
+   * @param {string[]} [o.redirectProfiles] names in REDIRECT_PROFILES (default: chatgpt and loopback)
    */
-  constructor({ issuer, resource, store, sealer, game, redirects = [], now = Date.now, log = () => {} }) {
+  constructor({ issuer, resource, store, sealer, game, redirects = [], redirectProfiles = DEFAULT_REDIRECT_PROFILES, now = Date.now, log = () => {} }) {
+    const unknown = redirectProfiles.filter(n => !REDIRECT_PROFILES[n]);
+    if (unknown.length || !redirectProfiles.length) throw new Error(`redirect profiles: one or more of ${Object.keys(REDIRECT_PROFILES).join(', ')} (got ${redirectProfiles.join(', ') || 'none'})`);
+    this.redirectProfiles = [...new Set(redirectProfiles)];
+    this.redirectPatterns = this.redirectProfiles.flatMap(n => REDIRECT_PROFILES[n]);
     this.issuer = issuer.replace(/\/+$/, '');
     this.resource = resource;
     this.store = store;
@@ -117,13 +130,13 @@ export class Auth {
 
   redirectAllowed(uri) {
     if (typeof uri !== 'string' || uri.length > 400) return false;
-    return CHATGPT_REDIRECTS.some(r => r.test(uri)) || LOOPBACK.test(uri) || this.redirects.includes(uri);
+    return this.redirectPatterns.some(r => r.test(uri)) || this.redirects.includes(uri);
   }
 
   register(body) {
     const uris = body?.redirect_uris;
     if (!Array.isArray(uris) || !uris.length || uris.length > 5) throw new OAuthError(400, 'invalid_redirect_uri', 'redirect_uris: 1–5 URIs');
-    for (const u of uris) if (!this.redirectAllowed(u)) throw new OAuthError(400, 'invalid_redirect_uri', `redirect URI not allowed: ${String(u).slice(0, 80)} (ChatGPT's or a loopback address)`);
+    for (const u of uris) if (!this.redirectAllowed(u)) throw new OAuthError(400, 'invalid_redirect_uri', `redirect URI not allowed: ${String(u).slice(0, 80)} (this server accepts: ${this.redirectProfiles.join(', ')})`);
     const method = body.token_endpoint_auth_method ?? 'none';
     if (method !== 'none') throw new OAuthError(400, 'invalid_client_metadata', 'only public clients (token_endpoint_auth_method none) with PKCE');
     const id = `wmc_${randomBytes(12).toString('base64url')}`;

@@ -8,6 +8,7 @@
 //   WYLLS_MCP_STORE=.local/wylls-mcp/store.json the JSON store (0600)
 //   WYLLS_MCP_SEAL_KEY=<32 bytes base64url>     seals the agent capability at rest (required with a store file)
 //   WYLLS_MCP_TEST_AS=1                         the local test authorization server (the only one implemented)
+//   WYLLS_MCP_REDIRECT_PROFILES=chatgpt,loopback which clients may be redirected to (chatgpt, claude, loopback; default chatgpt,loopback)
 import { JsonStore } from '../src/store.mjs';
 import { Sealer } from '../src/seal.mjs';
 import { Game } from '../src/game.mjs';
@@ -24,7 +25,9 @@ const issuer = env.WYLLS_MCP_ISSUER ?? `http://127.0.0.1:${port}`;
 const log = m => process.stderr.write(`[wylls-mcp] ${m}\n`);
 const store = new JsonStore(env.WYLLS_MCP_STORE ?? null);
 const game = new Game({ relay: env.WYLLS_MCP_RELAY ?? 'http://127.0.0.1:41933', herald: env.WYLLS_MCP_HERALD ?? 'http://127.0.0.1:41940' });
-const auth = new Auth({ issuer, resource: `${issuer}/mcp`, store, sealer: new Sealer(env.WYLLS_MCP_SEAL_KEY ?? null), game, log });
+const redirectProfiles = env.WYLLS_MCP_REDIRECT_PROFILES ? env.WYLLS_MCP_REDIRECT_PROFILES.split(',').map(x => x.trim()).filter(Boolean) : undefined;
+const auth = new Auth({ issuer, resource: `${issuer}/mcp`, store, sealer: new Sealer(env.WYLLS_MCP_SEAL_KEY ?? null), game, log, ...(redirectProfiles ? { redirectProfiles } : {}) });
+log(`redirect profiles: ${auth.redirectProfiles.join(', ')}`);
 const mcp = createWyllsMcp({ auth, game, store, log });
 const seal = auth.sealCheck();
 if (seal.unopenable) log(`warning: ${seal.unopenable} of ${seal.sealed} connection capabilities cannot be opened with this WYLLS_MCP_SEAL_KEY; their sends are held (CapabilityUnavailable) until the key is restored or the owner revokes the connection`);

@@ -198,3 +198,87 @@ test('the end of transport is not a verified amount: a delivery is quantity unve
     assert.deepEqual([lost.outcome, lost.arrival.quantity.state], ['lost', 'none']);
   } finally { await s2.close(); }
 });
+
+test('an outcome that is unknown, then a seal-key mismatch: the hold is never released for the mismatch; only the chain\'s answer releases it', { skip: needsPatch }, async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'wylls-mcp-'));
+  const storeFile = path.join(dir, 'store.json');
+  const sealKey = randomBytes(32).toString('base64url');
+  const clock = { t: Date.now() };
+  const w = await world();
+  const s1 = await server(w, { storeFile, sealKey, clock, uncertainWindowMs: 60_000 });
+  const c = await connect(s1, w);
+  const m1 = client(s1, c.access_token);
+  const p = await plan(m1, 'vault', 'village', { Stone: 100 });
+  w.state.fail = u => u.pathname === '/f/agent/action'; // the relay may or may not have it: unknown
+  assert.equal((await m1.tool('send_caravan', { planId: p.planId, requestId: 'req-unk-0001' })).structuredContent.error.code, 'RelayUnreachable');
+  w.state.fail = null;
+  await s1.close();
+  const s2 = await server(w, { storeFile, sealKey: randomBytes(32).toString('base64url'), clock, uncertainWindowMs: 60_000 });
+  try {
+    s2.auth.issuer = s1.issuer; s2.auth.resource = `${s1.issuer}/mcp`;
+    const m2 = client(s2, c.access_token);
+    const held = (await m2.tool('send_caravan', { planId: p.planId, requestId: 'req-unk-0001' })).structuredContent;
+    assert.equal(held.error.code, 'CapabilityUnavailable');
+    const link = () => s2.auth.link(Object.keys(s2.auth.db.links)[0]);
+    assert.equal(Object.keys(link().grantUse.reserved).length, 1, 'held, not released');
+    // The owner revokes: an attempt was recorded, so it is reconciled, not released.
+    await revoke(s2, w, link().linkId);
+    let v = await ownerOps(s2, w);
+    let op = v.json.operations.find(o => o.requestId === 'req-unk-0001');
+    assert.equal(op.state, 'requested');
+    assert.equal(Object.keys(link().grantUse.reserved).length, 1, 'still held after the revocation');
+    assert.deepEqual(v.json.connections[0].cancellation.awaitingReconciliation, [op.operationId]);
+    // Past the window, no trace on chain or herald, the owner's caravan counter unmoved: the chain says nothing was sent.
+    clock.t += 61_000;
+    v = await ownerOps(s2, w);
+    op = v.json.operations.find(o => o.requestId === 'req-unk-0001');
+    assert.deepEqual([op.state, op.error.code], ['failed', 'NotSent']);
+    assert.deepEqual([link().grantUse.used, Object.keys(link().grantUse.reserved).length], [0, 0], 'released on the chain\'s answer');
+    assert.equal(v.json.connections[0].cancellation.state, 'done');
+    assert.equal(w.r.chain.sent.length, 0);
+  } finally { await s2.close(); }
+});
+
+test('the answer was lost after the relay sent, then a seal-key mismatch and a revocation: the caravan\'s own trace decides; nothing is released', { skip: needsPatch }, async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'wylls-mcp-'));
+  const storeFile = path.join(dir, 'store.json');
+  const sealKey = randomBytes(32).toString('base64url');
+  const clock = { t: Date.now() };
+  const w = await world();
+  const s1 = await server(w, { storeFile, sealKey, clock, uncertainWindowMs: 60_000 });
+  const c = await connect(s1, w);
+  const m1 = client(s1, c.access_token);
+  const p = await plan(m1, 'vault', 'village', { Stone: 100 });
+  w.state.intercept = async (u, init) => {
+    if (u.pathname !== '/f/agent/action') return null;
+    w.state.intercept = null;
+    await w.fetch(u.toString(), init); // the relay sends
+    throw new Error('socket hang up (scripted)');
+  };
+  assert.equal((await m1.tool('send_caravan', { planId: p.planId, requestId: 'req-lost-0001' })).structuredContent.error.code, 'RelayUnreachable');
+  assert.equal(w.r.chain.sent.length, 1);
+  await s1.close();
+  const s2 = await server(w, { storeFile, sealKey: randomBytes(32).toString('base64url'), clock, uncertainWindowMs: 60_000 });
+  try {
+    s2.auth.issuer = s1.issuer; s2.auth.resource = `${s1.issuer}/mcp`;
+    const m2 = client(s2, c.access_token);
+    assert.equal((await m2.tool('send_caravan', { planId: p.planId, requestId: 'req-lost-0001' })).structuredContent.error.code, 'CapabilityUnavailable');
+    const link = () => s2.auth.link(Object.keys(s2.auth.db.links)[0]);
+    await revoke(s2, w, link().linkId);
+    // The caravan is on the road (the herald's feed): processing; the hold counts as used.
+    const st = s2.auth.db.operations[Object.keys(s2.auth.db.operations)[0]];
+    w.state.moving.push({ ownerTag: st.caravan.ownerTag, seq: st.caravan.seq, faction: 2, src: { kind: 2, p: w.P, q: w.Q, at: 33, gen: 1, tile: 33 }, dst: { kind: 1, p: w.P, q: w.Q, at: w.SITE, gen: 1, tile: 30 }, steps: 3, cargo: [0, 0, 100, 0, 0, 0, 0, 0], arriveTs: fx.GENESIS + 4_000, runs: [], raided: false });
+    clock.t += 61_000; // past the window: the trace, not the clock, decides
+    let v = await ownerOps(s2, w);
+    let op = v.json.operations.find(o => o.requestId === 'req-lost-0001');
+    assert.equal(op.state, 'processing');
+    assert.equal(Object.keys(link().grantUse.reserved).length + link().grantUse.used, 1, 'not released');
+    settle(w, op, 0);
+    clock.t += 1000;
+    v = await ownerOps(s2, w);
+    op = v.json.operations.find(o => o.requestId === 'req-lost-0001');
+    assert.deepEqual([op.state, op.outcome, op.arrival.quantity.state], ['completed', 'delivered', 'unverified']);
+    assert.equal(v.json.connections[0].cancellation.state, 'done');
+    assert.equal(w.r.chain.sent.length, 1, 'one transaction');
+  } finally { await s2.close(); }
+});

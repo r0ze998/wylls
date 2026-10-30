@@ -70,7 +70,9 @@
 | — | 倉庫の建設、襲撃の決定、そのほかの行動 | なし | **未実装** | — |
 | — | 送った隊商を取り消す | なし | **作れない**（チェーンに呼び戻しの命令が無い） | — |
 | — | 押し出しの通知（MCP Events） | なし | **未実装**（今は問い合わせ） | — |
-| — | CIMD、本番の認可サーバー、Claude の hosted callback | なし | **未実装** | — |
+| — | CIMD、本番の認可サーバー | なし | **未実装** | — |
+| — | Claude の hosted callback | `WYLLS_MCP_REDIRECT_PROFILES=claude`（既定では無効） | **実装済み（既定は無効）**。実機は未実行（[12](12-device-runbook.ja.md)） | — |
+| — | 接続の前の要件の確認 | `bin/wylls-mcp-preflight.mjs` | **実装済み**。Claude Code の要件は通る（[12 §1](12-device-runbook.ja.md)） | — |
 | — | 離席中の自動操作 | なし（⑤の runner） | **MCP の範囲外** | — |
 
 ## 3. ④⑤との契約と、同時に動いた時の責任分担
@@ -112,9 +114,11 @@
 
 | 担当 | 指定の commit | 結果（2026-10-30） | 必要なもの |
 |---|---|---|---|
-| ⑤ | `ba3c180b` | この clone に無い。origin を取得しても無い。GitHub の commit 照会は "No commit found"、commit 検索は 0 件 | その commit（push か bundle）。特に：⑤のパッチ 0001 の本体。それが変える `permutation-gateway/src/frontier/agent/` のファイル（`contract.mjs`、`gateway.mjs`、`runner.mjs`、`ledger.mjs` のうち該当するもの）とその試験。AI staking の資料 |
-| ④ | `bd415e7` | 同じく無い | RunReceipt の契約（状態、取消の 3 区分、照合の API、到着量の未検証の表し方、費用の 4 区分）の文書かコード |
+| ⑤ | `ba3c180b` | 2026-10-30 に再確認。この clone に無い。origin を取得しても無い。GitHub の commit 照会は "No commit found"、commit 検索は 0 件 | その commit（push か bundle）。特に：⑤のパッチ 0001 の本体。それが変える `permutation-gateway/src/frontier/agent/` のファイル（`contract.mjs`、`gateway.mjs`、`runner.mjs`、`ledger.mjs` のうち該当するもの）とその試験。AI staking の資料 |
+| ④ | `2e536b6b`（最新の指定。前回は `bd415e7`） | 同じく無い（2026-10-30 に再確認。`git fetch origin 2e536b6b` は "couldn't find remote ref"、GitHub も無し） | RunReceipt の契約（状態、取消の 3 区分、照合の API、到着量の未検証の表し方、費用の 4 区分）の文書かコード |
 | ② | `dc3bd3d`（前回の指定） | 同じく無い | session と財布の命令の一覧（10 §3.1.1 の照合用） |
+
+④につなぐ口の提案は [patches/0006](patches/0006-receipt-port.md)（未確定）。
 
 **パッチ 0005 と⑤の 0001 の照合は、⑤の資料が無いため行っていない。** 資料が来たら、次の点を比べる。
 
@@ -180,6 +184,14 @@
 | gateway の試験（パッチ 0005） | 102/102 |
 | **ローカルの実チェーン E2E** | **PASS、14 記録点**（season 96）。前回の 13 に、**取消の後の所有者の確認**を足した。caravan の接続を取り消した後、署名つきの照会で、2 本の隊商が `completed`・`delivered`・量 `unverified`、取消が `done` と返った。[results/mcp-local-stack.json](results/mcp-local-stack.json) は今回の記録で置き換えた（前回の season 93 の記録は `47b05ac6` に残る） |
 | E2E のスクリプトの修正 | 倉庫の場所の選び方が、keep と野営地のタイルを避けていなかった。season 95 で、この準備の段階（BuildVault の `VaultSite`）が失敗した。プログラムと同じ条件で避けるようにした。MCP の動作とは関係しない |
+
+**追加（同日、次の commit）：** 試験は 42 件になった。パッチ有りで 41 通過・1 省略・0 失敗、パッチ無しで 21 通過・21 省略・0 失敗。足した試験は次の 6 件。
+- 結果不明のまま復号に失敗した操作：解放せず、チェーンの答えが出てから解放する。
+- 送った後に答えが失われ、復号に失敗し、接続も取り消した操作：隊商の痕跡で決まり、解放しない。
+- redirect profile。
+- preflight（3 件）。
+
+実チェーンの E2E は再実行していない。送付の経路は変えていないため。
 
 省略した試験は合格に数えない。書込の試験はパッチ 0005 が要る。
 

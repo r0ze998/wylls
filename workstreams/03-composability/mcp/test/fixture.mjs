@@ -126,7 +126,7 @@ export async function world({ allowed = PATCHED ? ['transport'] : ['economy'], b
 }
 
 /** The MCP server over the world, on a loopback port; `clock` is the server's `now` (ms). */
-export async function server(w, { storeFile = null, clock = { t: Date.now() }, sealKey = null, uncertainWindowMs, rateLimit = { burst: 10_000, everySecs: 2 } } = {}) {
+export async function server(w, { storeFile = null, clock = { t: Date.now() }, sealKey = null, uncertainWindowMs, rateLimit = { burst: 10_000, everySecs: 2 }, redirectProfiles } = {}) {
   const now = () => clock.t;
   const store = new JsonStore(storeFile);
   const game = new Game({ relay: RELAY, herald: HERALD, fetch: w.fetch });
@@ -136,7 +136,7 @@ export async function server(w, { storeFile = null, clock = { t: Date.now() }, s
   let auth;
   const srv = await listen(async (req, res) => handler(req, res));
   const issuer = `http://127.0.0.1:${srv.address().port}`;
-  auth = new Auth({ issuer, resource: `${issuer}/mcp`, store, sealer, game, now, log });
+  auth = new Auth({ issuer, resource: `${issuer}/mcp`, store, sealer, game, now, log, ...(redirectProfiles ? { redirectProfiles } : {}) });
   const mcp = createWyllsMcp({ auth, game, store, now, log, ...(uncertainWindowMs !== undefined ? { uncertainWindowMs } : {}) });
   const handler = createHandler({ auth, mcp, log, rateLimit });
   return { srv, issuer, auth, mcp, store, game, logs, clock, close: () => new Promise(r => srv.close(r)) };
