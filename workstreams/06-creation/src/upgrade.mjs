@@ -1,21 +1,22 @@
 /**
- * What a new version of a manifest means for the users who prepared plans
+ * What a new version of a manifest means for the users who adopted plans
  * on an older one. See docs/05-update-policy.ja.md.
  *
- * A plan pins { author, name, version, hash }: nothing the author publishes
- * later changes what a prepared plan does. The author's update only decides
- * which bump the change needs, and so what the registry may offer to
- * existing users:
- *   patch  the machine part is identical (title, note, claims, validity end
- *          moved later): may be followed without a new preflight
- *   minor  every existing binding still fits and every existing step and
- *          output is unchanged; additions only (a new param with a default,
- *          a new output): offered, followed only after a new preflight
- *   major  anything else: never followed; the user prepares again
+ * An adopted plan is pinned to { author, name, version, hash } and runs that
+ * definition only. Nothing the author publishes later moves it — not even a
+ * patch that changes only the description, since a person or an AI deciding
+ * on the plan may read that description. The bump an update needs is still
+ * enforced at publication (so its size is not the author's word), and it is
+ * shown in the update notice:
+ *   patch  the machine part is identical (title, note, claims, a later end)
+ *   minor  additions only (a new param with a default, a new output)
+ *   major  anything else
+ * The user moves only by confirming: preparing a new plan on the new
+ * version, passing its preflight, and adopting it with `supersedes`.
  */
 
 import { canonicalize, own } from "./canonical.mjs";
-import { BUMP_ORDER, bumpOf } from "./semver.mjs";
+import { BUMP_ORDER, bumpOf, newest } from "./semver.mjs";
 
 const TEXT_FIELDS = ["version", "title", "note", "claims", "validUntilDay", "derivedFrom"];
 
@@ -60,11 +61,34 @@ export function bumpSufficient(prev, next) {
   return { ok: got !== null && BUMP_ORDER[got] >= BUMP_ORDER[need.bump], need, got };
 }
 
-/** How the registry treats a plan pinned to `pinned` once `latest` is out. */
-export function offerFor(pinned, latest) {
-  if (pinned.version === latest.version) return { action: "current" };
+/**
+ * The notice for a user whose adopted plan is pinned to `pinned` once
+ * `latest` is published. It is information only: it moves nothing.
+ */
+export function noticeFor(pinned, latest) {
+  if (pinned.version === latest.version) return null;
   const { bump, reasons } = requiredBump(pinned, latest);
-  if (bump === "patch") return { action: "follow", bump, reasons, ja: "文章だけの更新。そのまま新しい版に移ってよい" };
-  if (bump === "minor") return { action: "offer", bump, reasons, ja: "追加だけの更新。実行前の確認をやり直してから移る" };
-  return { action: "stay", bump, reasons, ja: "中身の変わる更新。今の計画は元の版のまま。移るなら準備し直す" };
+  return {
+    action: "notify",
+    from: pinned.version,
+    to: latest.version,
+    bump,
+    reasons,
+    ja: "新しい版が出た。今の計画は確認済みの版のまま動く。移るには、新しい版で計画を準備し、実行前の確認を通して、更新として採用する",
+  };
+}
+
+/** Update notices for every active adoption of a user (by public key). */
+export function updateNotices(adoptions, registry, actorPub) {
+  const out = [];
+  for (const a of adoptions.activeOf(actorPub)) {
+    const e = registry.entry(a.manifest.author, a.manifest.name);
+    if (!e) continue;
+    const latest = newest(Object.keys(e.versions));
+    const pinned = e.versions[a.manifest.version]?.manifest;
+    if (!pinned || latest === a.manifest.version) continue;
+    const n = noticeFor(pinned, e.versions[latest].manifest);
+    out.push({ planHash: a.planHash, name: a.manifest.name, status: e.status, canAdopt: e.status === "listed", ...n });
+  }
+  return out;
 }

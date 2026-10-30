@@ -46,8 +46,11 @@ test("C: consuming needs a finished result, not a definition and not a right", a
   const pub = await s.registry.publish(await signManifest(river, s.keys.B), s.ctx);
   assert.equal(pub.ok, true, JSON.stringify(pub.findings));
   const bind = { params: { workVault: "vault:B-work", receiver: "vault:B-home", workshop: "village:W" } };
-  const pf = await preflight(await preparePlan(s.registry.getVersion(pub.ref), bind, s.keys.B, { world: s.world }), s);
-  assert.deepEqual(pf.findings.filter((f) => f.severity === "error").map((f) => [f.code, f.reason]), [["RECEIPT_INVALID", "unbound"]]);
+  const plan = await preparePlan(s.registry.getVersion(pub.ref), bind, s.keys.B, { world: s.world });
+  // without run inputs, the batch is left to each run; with an empty run input, nothing backs the consume
+  assert.ok(codes((await preflight(plan, s)).findings, { severities: ["info"] }).includes("BATCH_AT_RUN"));
+  const pf = await preflight(plan, s, { inputs: { batches: {} } });
+  assert.deepEqual(pf.findings.filter((f) => f.severity === "error").map((f) => [f.code, f.reason]), [["BATCH_INVALID", "unbound"]]);
 });
 
 test("D: effects outside the commands are refused, by class, and nothing executes code", async () => {

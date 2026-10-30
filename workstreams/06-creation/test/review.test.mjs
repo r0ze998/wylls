@@ -8,10 +8,9 @@ import assert from "node:assert/strict";
 import { validateDefinition } from "../src/validate.mjs";
 import { signManifest } from "../src/registry.mjs";
 import { preparePlan, preflight } from "../src/plan.mjs";
-import { simulateRun } from "../src/run.mjs";
 import { requiredBump } from "../src/upgrade.mjs";
 import { editForkForRiver, frontSupply, giveUseLot, mineDelivery } from "../src/scenario.mjs";
-import { codes, setup } from "./helpers.mjs";
+import { adoptAndRun, codes, deliverToB, setup } from "./helpers.mjs";
 
 const prep = (s, ref, b, who = "B") => preparePlan(s.registry.getVersion(ref), b, s.keys[who], { world: s.world });
 
@@ -44,7 +43,7 @@ test("one lot bound to two connect dependencies is counted once for both", async
   assert.equal(f?.left, 3);
 });
 
-test("one receipt bound to two consume dependencies is refused", async () => {
+test("one batch bound to two consume dependencies is refused", async () => {
   const s = await setup();
   s.world = giveUseLot(s.world, { to: "B" });
   const mineRef = { author: s.pubs.M, name: "mine-delivery", range: "^1.0.0" };
@@ -54,12 +53,10 @@ test("one receipt bound to two consume dependencies is refused", async () => {
   delete m.claims;
   const pub = await s.registry.publish(await signManifest(m, s.keys.B), s.ctx);
   assert.equal(pub.ok, true, JSON.stringify(pub.findings));
-  const run = await simulateRun(await prep(s, s.refs.M, { params: { buyer: "vault:B-work" } }, "M"), s);
-  s.world = run.world;
-  const rid = run.receipts[0].id;
-  const b = { params: { workVault: "vault:B-work", receiver: "vault:B-home", workshop: "village:W" }, receipts: { ore: rid, ore2: rid } };
-  const pf = await preflight(await prep(s, pub.ref, b), s);
-  assert.equal(pf.findings.find((f) => f.code === "RECEIPT_INVALID")?.reason, "duplicate-in-plan");
+  const { batch } = await deliverToB(s);
+  const b = { params: { workVault: "vault:B-work", receiver: "vault:B-home", workshop: "village:W" } };
+  const pf = await preflight(await prep(s, pub.ref, b), s, { inputs: { batches: { ore: batch, ore2: batch } } });
+  assert.equal(pf.findings.find((f) => f.code === "BATCH_INVALID")?.reason, "duplicate-in-plan");
 });
 
 test("inherited names are not effects, outputs, triggers or versions", async () => {
@@ -92,7 +89,7 @@ test("deep nesting and non-integers are findings, not crashes", async () => {
   assert.ok(codes(validateDefinition(m, s.ctx).findings).includes("SHAPE"));
   const plan = await prep(s, s.refs.A, {});
   const bad = structuredClone(plan);
-  bad.plan.bindings.receipts = { x: { receipt: { a: 1.5 } } };
+  bad.plan.bindings.batches = { x: { receipt: { a: 1.5 } } };
   const pf = await preflight(bad, s);
   assert.ok(codes(pf.findings).includes("PLAN_SIGNATURE_INVALID"));
 });
@@ -101,7 +98,7 @@ test("a receipt answers to the producer's published output name", async () => {
   const s = await setup();
   const m = mineDelivery(s.pubs.M, { name: "ore-run", outputs: { ore: { from: { step: "ship", out: "delivered" } } } });
   const ref = (await s.registry.publish(await signManifest(m, s.keys.M), s.ctx)).ref;
-  const run = await simulateRun(await prep(s, ref, { params: { buyer: "vault:B-work" } }, "M"), s);
+  const { run } = await adoptAndRun(s, "M", ref, { params: { buyer: "vault:B-work" } });
   assert.deepEqual(run.receipts[0].receipt.outputs, ["ore"]);
   assert.equal(s.ledger.check(run.receipts[0].id, { output: "ore" }), null);
   assert.equal(s.ledger.check(run.receipts[0].id, { output: "delivered" }).reason, "wrong-output");

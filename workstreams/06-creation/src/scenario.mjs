@@ -18,6 +18,8 @@ export const DEMO_SEEDS = Object.freeze({
   D: "e5".repeat(32),
 });
 
+const LAMPORTS = { A: 1_000_000, B: 400_000, W: 200_000, M: 500_000, D: 100_000 };
+
 export const PEOPLE = Object.freeze({
   A: "作者A（前線補給を作った）",
   B: "利用者B（Aの定義を使い、写して作り変える）",
@@ -28,11 +30,12 @@ export const PEOPLE = Object.freeze({
 
 /** The world snapshot: S1 places and S2 issues and lots, as mock data. */
 export function demoWorld() {
-  return {
-    label: "模擬の世界。S1 の場所と、未統合ブランチ ccr-184d6862-fqutoz の S2 の札の規則を写したデータ",
+  const w = {
+    label: "模擬の世界。S1 の場所と、未統合ブランチ ccr-184d6862-fqutoz の S2 の札の規則を写したデータ。S2 の効果（工房の使用権など）は main の S1 では動かない",
     features: ["base", "s2-branch"],
     today: 12,
-    citizens: Object.fromEntries(Object.entries(PEOPLE).map(([id, ja]) => [id, { ja, pub: null }])),
+    // lamports: the balance a caravan's settlement fee (CARAVAN_FEE 50,000) is paid from [phase 6]
+    citizens: Object.fromEntries(Object.entries(PEOPLE).map(([id, ja]) => [id, { ja, pub: null, lamports: LAMPORTS[id] }])),
     places: {
       "village:W": { kind: "village", owner: "W", province: [3, -1], gen: 1, stamp: 900, live: true, workshops: 2, ja: "Wの村（工房2つ、峠の州）" },
       "village:W2": { kind: "village", owner: "W", province: [6, 1], gen: 1, stamp: 910, live: true, workshops: 1, ja: "Wの川沿いの村（工房1つ）" },
@@ -50,11 +53,15 @@ export function demoWorld() {
       "issue:W-1": { kind: "use", source: "village:W", srcGen: 1, srcStamp: 900, perUnit: 1, untilDay: 30, state: "live", issuer: "W", ja: "Wの工房の使用権（1枚で1日1回、30日まで）" },
       "issue:W-old": { kind: "use", source: "village:W", srcGen: 1, srcStamp: 900, perUnit: 1, untilDay: 10, state: "live", issuer: "W", ja: "Wの工房の使用権（10日まで、期限切れ）" },
     },
+    batches: {},
     lots: {
       "lot:A-1": { issue: "issue:W-1", holder: "A", amount: 3, srcGen: 1, state: "live", day: 0, dayUsed: 0, escrow: false },
       "lot:B-old": { issue: "issue:W-old", holder: "B", amount: 3, srcGen: 1, state: "live", day: 0, dayUsed: 0, escrow: false },
     },
   };
+  // goods held for batches (rights to consume a delivery), per vault
+  for (const p of Object.values(w.places)) if (p.kind === "vault") p.held = {};
+  return w;
 }
 
 /**

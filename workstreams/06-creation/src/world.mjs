@@ -46,6 +46,7 @@ export function grantProblem(world, lotId, { actor, kind, sourceId, today }) {
   if (v.escrow) return { code: "GRANT_NOT_HELD", detail: "the lot is held in an escrow" };
   if (v.issue.kind !== kind || v.issue.source !== sourceId) return { code: "GRANT_WRONG", has: { kind: v.issue.kind, source: v.issue.source }, needs: { kind, source: sourceId } };
   const src = place(world, sourceId);
+  if (v.issue.state === "revoked") return { code: "GRANT_REVOKED", detail: "the issuer revoked the issue (mock: whether S2 allows it is ②'s decision)" };
   if (v.state !== "live" || v.issue.state !== "live") return { code: "GRANT_VOID", detail: "closed" };
   if (!src || !src.live || src.gen !== v.issue.srcGen || src.gen !== v.srcGen || src.stamp !== v.issue.srcStamp) {
     return { code: "GRANT_VOID", detail: "the source was seized, captured, closed or built again" };
@@ -66,6 +67,33 @@ export function workshopRunsLeft(world, holdingId, today) {
   const h = place(world, holdingId);
   const used = h.useDay === today ? h.useRuns ?? 0 : 0;
   return (h.workshops ?? 0) * 24 - used;
+}
+
+/** Goods in a place that no batch holds: what an ordinary step may take. */
+export function freeStock(world, placeId, resource) {
+  const pl = place(world, placeId);
+  if (!pl) return 0;
+  return (own(pl.stores, resource) ?? 0) - (own(pl.held, resource) ?? 0);
+}
+
+export function balanceOf(world, citizen) {
+  return own(world.citizens, citizen)?.lamports ?? 0;
+}
+
+/**
+ * Why a batch does not let `actor` take its goods at `placeId` now, or null.
+ * A batch is the right to consume goods a finished delivery brought (see
+ * docs/07-guarantees.ja.md); its evidence is a separate record.
+ */
+export function batchProblem(world, batchId, { actor, placeId }) {
+  const b = own(world.batches, batchId);
+  if (!b) return { reason: "unknown", detail: "no such batch: a record alone gives no goods" };
+  if (b.owner !== actor) return { reason: "not-owner", owner: b.owner };
+  if (b.state !== "open") return { reason: "spent", state: b.state };
+  const pl = place(world, b.vault);
+  if (!pl || !pl.live || pl.gen !== b.vaultGen) return { reason: "void", detail: "the vault was seized or closed" };
+  if (placeId !== undefined && b.vault !== placeId) return { reason: "place-mismatch", at: b.vault, takesFrom: placeId };
+  return null;
 }
 
 /** The actor's lots that would give `kind` on `sourceId`, best first. */

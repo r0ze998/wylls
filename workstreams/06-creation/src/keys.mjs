@@ -17,6 +17,8 @@ export const DOMAIN = Object.freeze({
   publish: "wylls.creation.publish/0",
   status: "wylls.creation.status/0",
   plan: "wylls.creation.plan/0",
+  end: "wylls.creation.adoption-end/0",
+  run: "wylls.creation.run/0",
 });
 
 const ALG = { name: "Ed25519" };

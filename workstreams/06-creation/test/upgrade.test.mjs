@@ -1,11 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { offerFor, requiredBump } from "../src/upgrade.mjs";
+import { noticeFor, requiredBump, updateNotices } from "../src/upgrade.mjs";
 import { satisfies, bumpOf } from "../src/semver.mjs";
 import { signManifest } from "../src/registry.mjs";
-import { preparePlan, preflight } from "../src/plan.mjs";
+import { preflight } from "../src/plan.mjs";
 import { frontSupply, giveUseLot } from "../src/scenario.mjs";
-import { setup } from "./helpers.mjs";
+import { adopt, setup } from "./helpers.mjs";
 
 const PK = "ab".repeat(32);
 
@@ -40,25 +40,30 @@ test("required bumps: text is patch, additions are minor, behaviour is major", (
   assert.ok(r.reasons.includes("手順が変わった"));
 });
 
-test("existing users: pinned plans keep their version; the offer depends on the bump", async () => {
+test("existing users: an adopted plan keeps its pinned version; every update is a notice, none is followed", async () => {
   const s = await setup();
   s.world = giveUseLot(s.world, { to: "B" });
   s.world.places["vault:B-home"].stores = { ore: 60, wood: 30 };
   const bind = { params: { source: "vault:B-home", workVault: "vault:B-work", receiver: "vault:B-home", workshop: "village:W" } };
   const v1 = s.registry.getVersion(s.refs.A);
-  const plan = await preparePlan(v1, bind, s.keys.B, { world: s.world });
+  const plan = await adopt(s, "B", s.refs.A, bind);
   // A publishes 2.0.0 that ships only 2 arms per run
   const v2 = frontSupply(s.pubs.A, { version: "2.0.0" });
   v2.steps[2].args.cargo.goods.arms.times = 2;
   v2.claims.outputsPerRun = { arms: 6 };
   const pub = await s.registry.publish(await signManifest(v2, s.keys.A), s.ctx);
   assert.equal(pub.ok, true, JSON.stringify(pub.findings));
-  assert.equal((await preflight(plan, s)).ready, true, "the plan still runs the version it pinned");
-  const offer = offerFor(v1.manifest, s.registry.getVersion(pub.ref).manifest);
-  assert.equal(offer.action, "stay");
-  // a text-only patch may be followed
+  assert.equal((await preflight(plan, s)).ready, true, "the plan still checks against the version it pinned");
+  assert.equal(noticeFor(v1.manifest, s.registry.getVersion(pub.ref).manifest).bump, "major");
+  // even a text-only patch is only a notice: an AI deciding from the note must see the confirmed text
   const v201 = { ...v2, version: "2.0.1", note: "経路の注意を足した" };
-  const p2 = await s.registry.publish(await signManifest(v201, s.keys.A), s.ctx);
-  assert.equal(p2.ok, true);
-  assert.equal(offerFor(v2, v201).action, "follow");
+  assert.equal((await s.registry.publish(await signManifest(v201, s.keys.A), s.ctx)).ok, true);
+  const n = noticeFor(v2, v201);
+  assert.equal(n.action, "notify");
+  assert.equal(n.bump, "patch");
+  const notices = updateNotices(s.adoptions, s.registry, s.pubs.B);
+  assert.equal(notices.length, 1);
+  assert.equal(notices[0].from, "1.0.0");
+  assert.equal(notices[0].to, "2.0.1");
+  assert.equal(notices[0].action, "notify");
 });

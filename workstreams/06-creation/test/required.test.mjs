@@ -1,7 +1,9 @@
 /**
  * The ten tests the task requires, by name. Definition-only cases are also
  * in fixtures/ (fixtures.test.mjs); these add the registry, the preflight
- * against a world, and the mock ledger.
+ * against a world, and the mock ledger. Execution-time checks are in
+ * runtime.test.mjs, the publication and update policy in policy.test.mjs,
+ * evidence versus the right to consume in resources.test.mjs.
  */
 
 import test from "node:test";
@@ -11,10 +13,9 @@ import { validateDefinition } from "../src/validate.mjs";
 import { signManifest, signStatus } from "../src/registry.mjs";
 import { preparePlan, preflight } from "../src/plan.mjs";
 import { forkManifest } from "../src/fork.mjs";
-import { simulateRun } from "../src/run.mjs";
 import { describe as paper } from "../src/describe.mjs";
 import { editForkForRiver, frontSupply, giveUseLot, mineDelivery } from "../src/scenario.mjs";
-import { codes, setup } from "./helpers.mjs";
+import { adoptAndRun, codes, deliverToB, setup } from "./helpers.mjs";
 
 const B_BIND = { params: { source: "vault:B-home", workVault: "vault:B-work", receiver: "vault:B-home", runs: 3, workshop: "village:W" } };
 
@@ -30,18 +31,14 @@ async function readyB() {
   return s;
 }
 
-/** B's river copy published, M's delivery done into B's vault; returns the receipt. */
+/** B's river copy published, M's delivery done into B's vault: B holds a batch of it. */
 async function riverWithDelivery() {
   const s = await readyB();
   const fork = forkManifest(s.registry.getVersion(s.refs.A), s.pubs.B, { name: "front-supply-river" });
   const river = editForkForRiver(fork.manifest, { mineRef: { author: s.pubs.M, name: "mine-delivery", range: "^1.0.0" } });
   s.refs.river = (await s.registry.publish(await signManifest(river, s.keys.B), s.ctx)).ref;
-  const planM = await planFor(s, "M", s.refs.M, { params: { buyer: "vault:B-work", ore: 24, wood: 12 } });
-  const run = await simulateRun(planM, s);
-  assert.equal(run.ok, true);
-  s.world = run.world;
-  s.delivery = run.receipts[0];
-  s.riverBind = { params: { workshop: "village:W", workVault: "vault:B-work", receiver: "vault:D-fort", runs: 3 }, receipts: { ore: s.delivery.id } };
+  s.delivery = await deliverToB(s);
+  s.riverBind = { params: { workshop: "village:W", workVault: "vault:B-work", receiver: "vault:D-fort", runs: 3 }, batches: { ore: s.delivery.batch } };
   return s;
 }
 
@@ -111,7 +108,7 @@ test("4 削除・停止された依存先: closed or captured facility, suspende
   w = structuredClone(s.world);
   w.places["village:W"].workshops = 0;
   assert.ok(codes((await preflight(plan, { ...s, world: w })).findings).includes("DEPENDENCY_UNAVAILABLE"));
-  // A suspends front-supply: no plan on it passes preflight
+  // A suspends front-supply: no new plan on it passes preflight (adopted plans: policy.test.mjs)
   assert.equal((await s.registry.setStatus(s.refs.A, "suspended", s.registry.statusSeq(s.refs.A), await signStatus(s.refs.A, "suspended", s.registry.statusSeq(s.refs.A), s.keys.A))).ok, true);
   assert.ok(codes((await preflight(plan, s)).findings).includes("ENTRY_NOT_LISTED"));
   // only the author can change the status
@@ -133,6 +130,7 @@ test("4 削除・停止された依存先: a consume dependency suspended or wit
   const s = await riverWithDelivery();
   const plan = await planFor(s, "B", s.refs.river, s.riverBind);
   assert.equal((await preflight(plan, s)).ready, true);
+  // for a plan not yet adopted: a new adoption on a suspended producer is refused
   await s.registry.setStatus(s.refs.M, "suspended", s.registry.statusSeq(s.refs.M), await signStatus(s.refs.M, "suspended", s.registry.statusSeq(s.refs.M), s.keys.M));
   assert.ok(codes((await preflight(plan, s)).findings).includes("DEPENDENCY_SUSPENDED"));
   await s.registry.setStatus(s.refs.M, "withdrawn", s.registry.statusSeq(s.refs.M), await signStatus(s.refs.M, "withdrawn", s.registry.statusSeq(s.refs.M), s.keys.M));
@@ -163,7 +161,7 @@ test("5 版の不一致: ranges, pinned hashes, receipts of another version, imm
   const two = mk("river-on-two", "~2.0.0");
   const pubTwo = await s.registry.publish(await signManifest(two, s.keys.B), s.ctx);
   assert.equal(pubTwo.ok, true, JSON.stringify(pubTwo.findings));
-  const pf = await preflight(await planFor(s, "B", pubTwo.ref, s.riverBind), s);
+  const pf = await preflight(await planFor(s, "B", pubTwo.ref, s.riverBind), s, { inputs: { batches: s.riverBind.batches } });
   assert.equal(pf.findings.find((f) => f.code === "RECEIPT_INVALID")?.reason, "wrong-version");
   // a plan pinned to a hash the registry does not hold for that version
   const plan = await planFor(s, "B", s.refs.river, s.riverBind);
@@ -220,31 +218,46 @@ test("7 過大な処理量: static caps, and the workshop's shared daily runs", 
   assert.ok(codes(pf2.findings).includes("CAPACITY"));
 });
 
-test("8 偽の完了結果: unknown, edited, unfinished, failed, foreign, someone else's, reused, misplaced", async () => {
+test("8 偽の完了結果: records that prove nothing, or not this; a record is not a right to goods", async () => {
   const s = await riverWithDelivery();
-  const check = async (receipt, ledger = s.ledger) => {
-    const plan = await planFor(s, "B", s.refs.river, { ...s.riverBind, receipts: { ore: receipt } });
-    return (await preflight(plan, { ...s, ledger })).findings.find((f) => f.code === "RECEIPT_INVALID")?.reason;
+  const reason = async (batchId) => {
+    const plan = await planFor(s, "B", s.refs.river, s.riverBind);
+    const f = (await preflight(plan, s, { inputs: { batches: { ore: batchId } } })).findings.find((x) => x.code === "RECEIPT_INVALID" || x.code === "BATCH_INVALID");
+    return f ? `${f.code}:${f.reason}` : "ok";
   };
-  assert.equal(await check(s.delivery.id), undefined);
-  assert.equal(await check("9".repeat(64)), "unknown");
-  // B presents the receipt with more goods than were delivered
-  const edited = { id: s.delivery.id, receipt: { ...s.delivery.receipt, goods: { ore: 240, wood: 120 } } };
-  assert.equal(await check(edited), "tampered");
-  const forged = { ...s.delivery.receipt, goods: { ore: 240, wood: 120 } };
-  assert.equal(await check(forged), "not-in-ledger");
-  // records the ledger holds but that are no finished delivery to B
-  const base = { manifest: s.delivery.receipt.manifest, planHash: "p", runSeq: 9, actor: "M", step: "ship", port: "delivered", outputs: ["delivered"], at: "vault:B-work", goods: { ore: 24, wood: 12 }, day: 12 };
-  assert.equal(await check(s.ledger.record({ ...base, outcome: "delivered", final: false, beneficiary: "B" }).id), "not-final");
-  assert.equal(await check(s.ledger.record({ ...base, outcome: "raided", final: true, beneficiary: "B" }).id), "failed-run");
-  assert.equal(await check(s.ledger.record({ ...base, outcome: "delivered", final: true, beneficiary: "D" }).id), "not-beneficiary");
-  assert.equal(await check(s.ledger.record({ ...base, outcome: "delivered", final: true, beneficiary: "B", at: "vault:B-home" }).id), "place-mismatch");
-  const other = { ...s.refs.A, hash: s.refs.A.hash };
-  assert.equal(await check(s.ledger.record({ ...base, manifest: other, outcome: "delivered", final: true, beneficiary: "B" }).id), "wrong-producer");
-  // used once by a run, it cannot be used again
-  const run = await simulateRun(await planFor(s, "B", s.refs.river, s.riverBind), s);
-  assert.equal(run.ok, true, JSON.stringify(run.preflight?.findings));
-  assert.equal(await check(s.delivery.id), "already-consumed");
+  assert.equal(await reason(s.delivery.batch), "ok");
+  assert.equal(await reason("batch:999"), "BATCH_INVALID:unknown");
+  // the record of the delivery itself is evidence, not a right: binding it gives nothing
+  assert.equal(await reason(s.delivery.evidence), "BATCH_INVALID:unknown");
+  // edited or invented records presented to the ledger
+  const real = s.ledger.get(s.delivery.evidence);
+  assert.equal(s.ledger.check({ id: s.delivery.evidence, receipt: { ...real, goods: { ore: 240, wood: 120 } } }, {}).reason, "tampered");
+  assert.equal(s.ledger.check({ ...real, goods: { ore: 240, wood: 120 } }, {}).reason, "not-in-ledger");
+  // a batch whose evidence is no finished delivery of the expected producer to B
+  // (test-only injection: the chain mock never makes such a batch; it stands for a forged or buggy one)
+  const base = { manifest: real.manifest, planHash: "p", actor: "M", step: "ship", port: "delivered", outputs: ["delivered"], at: "vault:B-work", goods: { ore: 24, wood: 12 }, day: 12 };
+  const inject = (body) => {
+    const ev = s.ledger.record(body).id;
+    const id = `batch:inj-${Object.keys(s.world.batches).length}`;
+    s.world.batches[id] = { id, vault: "vault:B-work", vaultGen: 1, owner: "B", goods: { ore: 24, wood: 12 }, remaining: { ore: 24, wood: 12 }, evidence: ev, state: "open" };
+    return id;
+  };
+  assert.equal(await reason(inject({ ...base, outcome: "delivered", final: false, beneficiary: "B" })), "RECEIPT_INVALID:not-final");
+  assert.equal(await reason(inject({ ...base, outcome: "raided", final: true, beneficiary: "B" })), "RECEIPT_INVALID:failed-run");
+  assert.equal(await reason(inject({ ...base, outcome: "delivered", final: true, beneficiary: "D" })), "RECEIPT_INVALID:not-beneficiary");
+  assert.equal(await reason(inject({ ...base, manifest: { ...s.refs.A }, outcome: "delivered", final: true, beneficiary: "B" })), "RECEIPT_INVALID:wrong-producer");
+  assert.equal(await reason(inject({ ...base, outputs: ["other"], outcome: "delivered", final: true, beneficiary: "B" })), "RECEIPT_INVALID:wrong-output");
+  // someone else's batch, a batch in another vault, a spent batch
+  const d = await deliverToB(s, { vault: "vault:B-home" });
+  assert.equal(await reason(d.batch), "BATCH_INVALID:place-mismatch");
+  s.world.batches[d.batch].owner = "D";
+  assert.equal(await reason(d.batch), "BATCH_INVALID:not-owner");
+  s.world.batches[d.batch].owner = "B";
+  const run = await adoptAndRun(s, "B", s.refs.river, s.riverBind);
+  assert.equal(run.run.ok, true, JSON.stringify(run.run.failure));
+  assert.equal(await reason(s.delivery.batch), "BATCH_INVALID:spent");
+  // the evidence is still a valid record of the past delivery: it was never spent
+  assert.equal(s.ledger.check(s.delivery.evidence, { output: "delivered", outcomeOk: ["delivered"] }), null);
 });
 
 test("9 公開者の説明と機械条件の不一致: claims are checked, the note is shown apart", async () => {

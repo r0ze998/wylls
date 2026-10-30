@@ -1,5 +1,5 @@
 {
-  "label": "模擬の世界。S1 の場所と、未統合ブランチ ccr-184d6862-fqutoz の S2 の札の規則を写したデータ",
+  "label": "模擬の世界。S1 の場所と、未統合ブランチ ccr-184d6862-fqutoz の S2 の札の規則を写したデータ。S2 の効果（工房の使用権など）は main の S1 では動かない",
   "features": [
     "base",
     "s2-branch"
@@ -8,23 +8,28 @@
   "citizens": {
     "A": {
       "ja": "作者A（前線補給を作った）",
-      "pub": null
+      "pub": null,
+      "lamports": 1000000
     },
     "B": {
       "ja": "利用者B（Aの定義を使い、写して作り変える）",
-      "pub": null
+      "pub": null,
+      "lamports": 400000
     },
     "W": {
       "ja": "工房主W（工房を動かし、使用権の札を出す）",
-      "pub": null
+      "pub": null,
+      "lamports": 200000
     },
     "M": {
       "ja": "鉱山主M（鉱石と木材の定期便を出す）",
-      "pub": null
+      "pub": null,
+      "lamports": 500000
     },
     "D": {
       "ja": "Bの味方D（砦の倉を持つ）",
-      "pub": null
+      "pub": null,
+      "lamports": 100000
     }
   },
   "places": {
@@ -83,7 +88,8 @@
         "ore": 200,
         "wood": 100
       },
-      "ja": "Aの鉱山の倉"
+      "ja": "Aの鉱山の倉",
+      "held": {}
     },
     "vault:A-work": {
       "kind": "vault",
@@ -98,7 +104,8 @@
       "shared": false,
       "cap": 5000,
       "stores": {},
-      "ja": "Aの峠の倉（工房と同じ州）"
+      "ja": "Aの峠の倉（工房と同じ州）",
+      "held": {}
     },
     "vault:A-fort": {
       "kind": "vault",
@@ -113,7 +120,8 @@
       "shared": false,
       "cap": 5000,
       "stores": {},
-      "ja": "Aの前線の倉"
+      "ja": "Aの前線の倉",
+      "held": {}
     },
     "village:B": {
       "kind": "village",
@@ -144,7 +152,8 @@
         "ore": 30,
         "wood": 10
       },
-      "ja": "Bの村の倉"
+      "ja": "Bの村の倉",
+      "held": {}
     },
     "vault:B-work": {
       "kind": "vault",
@@ -159,7 +168,8 @@
       "shared": false,
       "cap": 5000,
       "stores": {},
-      "ja": "Bの峠の倉（工房と同じ州）"
+      "ja": "Bの峠の倉（工房と同じ州）",
+      "held": {}
     },
     "vault:D-fort": {
       "kind": "vault",
@@ -176,7 +186,8 @@
       "stores": {
         "arms": 4
       },
-      "ja": "Dの砦の倉"
+      "ja": "Dの砦の倉",
+      "held": {}
     },
     "vault:M-mine": {
       "kind": "vault",
@@ -194,7 +205,8 @@
         "ore": 600,
         "wood": 300
       },
-      "ja": "Mの鉱山の倉"
+      "ja": "Mの鉱山の倉",
+      "held": {}
     }
   },
   "issues": {
@@ -221,6 +233,7 @@
       "ja": "Wの工房の使用権（10日まで、期限切れ）"
     }
   },
+  "batches": {},
   "lots": {
     "lot:A-1": {
       "issue": "issue:W-1",

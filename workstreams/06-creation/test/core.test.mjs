@@ -50,7 +50,10 @@ test("the CLI demo runs to the end", () => {
   const out = execFileSync(process.execPath, [join(here, "..", "cli", "demo.mjs")], { encoding: "utf8" });
   assert.match(out, /Dの砦の倉：兵器16/);
   assert.match(out, /GRANT_NOT_HELD/);
-  assert.match(out, /already-consumed/);
+  assert.match(out, /同じ束をもう一度：spent/);
+  assert.match(out, /採用済みの計画の確認：ENTRY_DELISTED_PINNED/);
+  assert.match(out, /止まった：GRANT_REVOKED/);
+  assert.match(out, /計画を持っているだけでは動かせない：RUN_REQUEST_INVALID/);
   assert.match(out, /模擬です/);
 });
 

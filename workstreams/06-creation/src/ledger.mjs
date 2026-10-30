@@ -1,16 +1,18 @@
 /**
- * A MOCK run ledger standing in for ④'s Run/Receipt.
+ * A MOCK ledger of evidence, standing in for ④'s Receipt.
  *
- * Nothing here touches a chain. A receipt is a JSON record of one finished
- * step of one run of a plan; its id is the hash of its content, and it
- * counts only if this ledger holds it. In the real game the record would be
- * the program's log (CARAVAN_SETTLED, USE_RUN …) judged by the verifier,
- * and finality would be the chain's, not a boolean here.
+ * A record here proves that a step of a run finished, with what outcome,
+ * where and with what goods. It is the proof of a past event and nothing
+ * more: it is never spent, any number of plans may cite it, and it creates
+ * no goods. The right to consume the goods a delivery brought is a batch in
+ * the world (execute.mjs), which points at its evidence.
  *
- * What ⑥ needs from ④ (proposals/04-run-receipt.ja.md): to look a receipt
- * up by id, and to read its producer (manifest ref and hash, plan hash),
- * output name, beneficiary, place, goods, outcome and finality, and to
- * mark it consumed at most once.
+ * Nothing here touches a chain. A record's id is the hash of its content
+ * and it counts only if this ledger holds it. In the real game the record
+ * would be the program's log (CARAVAN_SETTLED, USE_RUN …) judged by the
+ * verifier, and finality would be the chain's, not a boolean here; and only
+ * the run itself could write it (here anyone holding the object can call
+ * `record`, which is why a record alone must never yield goods).
  */
 
 import { clone, contentHash, own } from "./canonical.mjs";
@@ -19,7 +21,7 @@ import { satisfies } from "./semver.mjs";
 export const RECEIPT_FORMAT = "wylls.mock.receipt/0";
 
 export class Ledger {
-  constructor(data = { receipts: {}, consumed: {} }) {
+  constructor(data = { receipts: {} }) {
     this.data = clone(data);
   }
 
@@ -40,18 +42,8 @@ export class Ledger {
     return r ? clone(r) : null;
   }
 
-  isConsumed(id) {
-    return Object.hasOwn(this.data.consumed, id);
-  }
-
-  consume(id, by) {
-    if (this.isConsumed(id)) return false;
-    this.data.consumed[id] = by;
-    return true;
-  }
-
   /**
-   * Whether a claimed receipt is a finished result the consumer may use.
+   * Whether a claimed record proves a finished result of the expected kind.
    * `claim` is an id, or a receipt object someone presents (its id is
    * recomputed, so an edited copy is caught). Returns null or a reason.
    */
@@ -78,7 +70,6 @@ export class Ledger {
     if (expect.output && !(r.outputs ?? []).includes(expect.output)) return { reason: "wrong-output", id, outputs: r.outputs ?? [] };
     if (expect.outcomeOk && !expect.outcomeOk.includes(r.outcome)) return { reason: "failed-run", id, outcome: r.outcome };
     if (expect.beneficiary && r.beneficiary !== expect.beneficiary) return { reason: "not-beneficiary", id, beneficiary: r.beneficiary };
-    if (this.isConsumed(id)) return { reason: "already-consumed", id, by: this.data.consumed[id] };
     return null;
   }
 }
