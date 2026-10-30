@@ -110,7 +110,7 @@ export function localReceiptPort({ view, txState, costs = null }) {
       if (!STAGES.includes(stage)) throw Object.assign(new Error(`stage: ${STAGES.join(' | ')}`), { code: 'BadStage' });
       if (stage === 'sent') { r.cancel = { stage, result: 'Irrevocable', phase: null, until: null }; return r.cancel; }
       if (stage === 'signed-unsent') { r.cancel = { stage, result: 'NotSupported', why: 'needs ④: the relay signs and sends in one step today', phase: null, until: null }; return r.cancel; }
-      r.cancel = { stage, result: 'stopped', phase: 'StoppingNew', until: null };
+      r.cancel = { stage, result: 'stopped', phase: 'StoppingNew', until: null, basis: 'the relay\'s agent_act answers and GET /f/tx fates read by ⑤ (not ④\'s run store)' };
       if (r.state === 'open') r.state = 'cancelled';
       return r.cancel;
     },
@@ -122,10 +122,13 @@ export function localReceiptPort({ view, txState, costs = null }) {
     cancelPhase(runId) {
       const r = must(runId);
       if (!r.cancel) return null;
-      if (r.state === 'cancelled' && r.acts.length === 0) { r.cancel.phase = 'Completed'; return { phase: 'Completed', effects: [] }; }
+      // Which record the phase rests on: NOT ④'s run store or attempt table (not connected).
+      const basis = 'the relay\'s agent_act answers and GET /f/tx fates read by ⑤ (not ④\'s run store)';
+      if (r.state === 'cancelled' && r.acts.length === 0) { r.cancel.phase = 'Completed'; return { phase: 'Completed', effects: [], basis }; }
       const open = r.acts.filter(a => a.status === 'sent' && !['landed', 'failed', 'expired'].includes(a.fate));
-      const out = open.length ? { phase: 'AwaitingSigned', until: null, waitingOn: open.map(a => a.signature), why: 'until is ④\'s (valid_until): not exposed by the relay' }
-        : { phase: 'Completed', effects: r.acts.filter(a => a.fate === 'landed').map(a => ({ requestId: a.requestId, action: a.action, signature: a.signature })) };
+      // `until` stays null: the relay does not expose valid_until, and ⑤ does not guess it from the clock.
+      const out = open.length ? { phase: 'AwaitingSigned', until: null, waitingOn: open.map(a => a.signature), why: 'until is ④\'s (valid_until): not exposed by the relay', basis }
+        : { phase: 'Completed', effects: r.acts.filter(a => a.fate === 'landed').map(a => ({ requestId: a.requestId, action: a.action, signature: a.signature })), basis };
       r.cancel.phase = out.phase;
       return out;
     },

@@ -21,7 +21,7 @@
 |---|---|
 | `permutation-gateway` の全体 | 2,543 件、通過 2,542、失敗 0、スキップ 1（Gemma のモデルファイルがない） |
 | `agent-wallet-*`・`frontier-relay*` | 111/111（③が報告した 0005 単独の 102 件に、⑤の新しい試験 9 件） |
-| ③の MCP の試験（`WS03_GATEWAY_ROOT` で指定） | 42 件：通過 40、失敗 1、スキップ 1。0005 だけの時と同じ。失敗は `sdk-client.test.mjs` で、依存の `@modelcontextprotocol/sdk` が無いため |
+| ③の MCP の試験（`WS03_GATEWAY_ROOT` で指定） | 42 件のうち、通過 40、スキップ 1、**未実行 1**（`sdk-client.test.mjs`：依存の `@modelcontextprotocol/sdk` が無く、読み込みの段階で止まる。test runner はこれを fail と数えるが、中身は実行されていない）。0005 だけの時と同じ。**全件成功ではない** |
 | ⑤の試験 | ⑤ 37/37、model-api 45/45、③との統合 3/3 |
 
 **④に決めてほしいこと：**
@@ -65,3 +65,43 @@
 - ④の Run・Receipt・取消を実際に呼ぶ口（④は Rust の実行器で、⑤の JavaScript から呼ぶ方法（HTTP、プロセス、ファイル）が決まっていない）
 - （④の `cargo test` は、使い捨ての clone で 62 件すべて通過した。`RECEIVED-2026-10-30.ja.md`）
 - ③の側の約束（§2.4）と、capability の分け方（§2.1）
+
+## 6. 統合候補 0002b：適用の順と、検証したツリー（2026-10-30 追記）
+
+**基準：** ④ `2e536b6b`、③ `acdcd0bf`、`4cd901de`、⑤ `ba3c180b`・`45cba41e` は、どれも `permutation-gateway` のツリーが同じ `560f8659fdc091d6870c35539333acf59381acf8` です。そのため、下の順に当てた後の `permutation-gateway` のツリーは、どの基準でも同じになるはずです（④の木で `git rev-parse HEAD:permutation-gateway`、または `git write-tree` の後に確かめられる）。
+
+| 順 | パッチ | 当てた後の `permutation-gateway` のツリー |
+|---|---|---|
+| 0 | （基準） | `560f8659fdc091d6870c35539333acf59381acf8` |
+| 1 | ③ `0005-agent-wallet-sendcaravan.patch` | `188cb4d95fe76088717d2fd4c4c9a074ae91eb3f` |
+| 2 | ⑤ `0002b-agent-wallet-rebuild-on-byte-collision-on-top-of-ws03-0005.patch` | `17a50673268dd1efeaef1b382e6c1b28b7f9b581` |
+| 3 | ⑤ `0001-agent-wallet-staking-limits.patch` | `1a9366ab2e20a1a307d12a48fe2be5d68e343e34` |
+| 4 | ⑤ `0003-agent-mcp-source.patch` | `98f52eb2bfdf153e4c2c0761e6a4387a28bbef3e` |
+
+（参考：⑤ `45cba41e` のリポジトリ全体のツリーで、4つを当てた後は `e4f7deffaa240d6853feaa59d126de8b02b9ceb9`）
+
+**このツリー（`98f52eb2…`）での試験：** `permutation-gateway` 全体 2,543 件、通過 2,542、失敗 0、スキップ 1（Gemma のモデルファイルがない）。③の MCP の試験は、上の表のとおりです（未実行 1 を含む）。⑤の試験（⑤ 37、model-api 48）と、③との統合（3＋6＝9）はすべて通過しました（このツリーの上で実行）。
+
+0002 は、0005 を採らない場合のために残します。0005 を採る場合は 0002b です。どちらにするかは④が決めます。
+
+## 7. 費用と取消：何に基づくか（2026-10-30 追記）
+
+| 項目 | ⑤が基づく記録 | ④の記録との関係 |
+|---|---|---|
+| 推論の費用（予約・確定・未確定・解放） | ⑤の `RunCostMock`（④の契約の mock）。単位は試験用 USDC。キーは⑤の試行キー（`d05-…#n`） | **④の4区分（中継の手数料、lamports、attempt ごと）とは別の台帳。** 名前だけ合わせた見方（`fourClasses()`・`inferenceIn4Names`）を出すが、足し合わせない |
+| ゲーム操作の費用 | 中継の台帳（`AgentLedger`）の保留（`agent_view.holds`） | ④の `FeeBook` とは別 |
+| 取消の段階 | 中継の `agent_act` の答えと `GET /f/tx` の結果（⑤が読んだ物）。**④の run store・attempt の表ではない**（受領証の `cancel.basis` に書く） | 名前は④の3段階に合わせた。`until`（`valid_until`）は中継が返さないので **null のまま**。時計から推測しない |
+| 未確定の費用 | 止めても、取り消しても、未確定のまま（`release` はできない）。動かせるのは根拠のある外部の答えだけ | ④の「期限だけで未課金としない」と同じ |
+
+## 8. capability の競合の、⑤の側の今（2026-10-30 追記）
+
+- `BadCapability` を受けたら止まる修正は、そのまま残しています。
+- 再開と開始の前に、モデルを呼ぶ前に、次を確かめます（`checkAccess`）。
+  - 対象の代理が委任条件のものか
+  - 所有者が、最初に始めた時と同じか
+  - mode が `auto` で、委任があるか
+  - 委任条件の命令が、中継の方針に今も含まれるか
+  - token が今の物か
+- token の確かめ方は、中継に読むだけの認証の口が無いための**代用**です。門で必ず断られる `agent_act`（版と epoch を大きくずらす）を送ります。送信・保留・履歴は増えず、冪等の記録が1件残ります。
+- token の値は、記録・ログ・受領証・誤りの文に残しません（試験で確かめた）。
+- 認可と送信の共有のしかたは、⑤では決めません。選択肢は `AUTH-OPTIONS-4.ja.md`、競合の再現は `CONTENTION-SCENARIOS.ja.md` です。

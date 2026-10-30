@@ -202,25 +202,119 @@ test('the autopilot never proposes SendCaravan, even when the mandate and the re
   let seen = null;
   const s = await setup({ adapter: openaiAdapter, model: 'gpt-fixture-model', script: body => { seen = userOf(body); return { answer: answerFirst(body) }; } });
   try {
-    s.ap.mandate = { ...s.ap.mandate, allowed: [...s.ap.mandate.allowed, 'SendCaravan'] };
     await s.ap.start({ by: 'owner' });
+    // After the start (whose access check would refuse a mandate the relay policy does not cover): the mandate now names it too.
+    s.ap.mandate = { ...s.ap.mandate, allowed: [...s.ap.mandate.allowed, 'SendCaravan'] };
     await s.ap.tick();
     assert.ok(seen, 'the model was asked');
     assert.equal(Object.keys(seen.commands).includes('SendCaravan'), false);
   } finally { await s.close(); }
 });
 
-test('after a BadCapability stop, resume needs the MCP over the owner\'s new token', async () => {
+test('after a BadCapability stop: a resume checks the new token (agent, owner, scope, validity) before any model call; the token never reaches a log', async () => {
+  const s = await setup({ adapter: openaiAdapter, model: 'gpt-fixture-model', script: body => ({ answer: answerFirst(body) }) });
+  const other = await createLocalWorld({ requests: board() });
+  try {
+    s.ap.mcpFor = token => createAgentMcp({ relay: 'http://relay.test', agentId: s.w.agentId, capability: token, fetch: s.w.fetch, source: 'ai' });
+    await s.ap.start({ by: 'owner' });
+    const first = await s.w.ownerRotate();
+    await s.ap.tick();
+    assert.equal(s.ap.state, 'stopped-capability');
+    const calls = s.srv.requests();
+    const sent = s.w.sentCount();
+    const history = (await s.view()).history.length;
+    await assert.rejects(s.ap.resume({ by: 'owner', note: 'no token' }), e => e.code === 'NeedsToken');
+    // A token that is not the agent's current one (the owner rotated again since): refused, still stopped.
+    const second = await s.w.ownerRotate();
+    await assert.rejects(s.ap.resume({ by: 'owner', note: `here is ${first}`, capability: first }), e => e.code === 'BadCapability' && !e.message.includes(first));
+    assert.equal(s.ap.state, 'stopped-capability');
+    // Another agent's current token, used against this agent: the relay does not take it.
+    await assert.rejects(s.ap.resume({ by: 'owner', note: 'wrong agent', capability: other.capability }), e => e.code === 'BadCapability');
+    // The owner narrows the relay policy below the mandate: refused even with the right token.
+    const pol = (await s.view()).policy;
+    await s.w.ownerSetPolicy({ ...pol, allowed: ['Harvest'] });
+    await assert.rejects(s.ap.resume({ by: 'owner', note: 'scope', capability: second }), e => e.code === 'ScopeNarrowed');
+    // None of the checks called the model, sent a transaction or wrote a history entry (the probe is refused at the gate).
+    assert.equal(s.srv.requests(), calls);
+    assert.equal(s.w.sentCount(), sent);
+    assert.equal((await s.view()).history.filter(h => h.type === 'action' && /probe/.test(h.key ?? '')).length, 0);
+    await s.w.ownerSetPolicy({ ...pol, allowed: ['economy'] });
+    assert.ok((await s.view()).history.length > history, 'only the owner\'s own policy commands were added');
+    await s.ap.resume({ by: 'owner', note: `handed over ${second}`, capability: second });
+    s.ap.mandate = { ...s.ap.mandate, basedOnPolicyVersion: (await s.view()).policy.version };
+    s.w.advance(60);
+    const t = await s.ap.tick();
+    assert.equal(t.game[0]?.outcome, 'sent', JSON.stringify(t.game));
+    // The token's value is in no event, record, receipt or journal entry.
+    const everything = JSON.stringify({ events: s.ap.events, records: s.ap.records, receipts: s.receipts.list(), journal: s.ap.journal.entries, status: s.ap.status() });
+    for (const tok of [first, second, other.capability]) assert.equal(everything.includes(tok), false);
+    assert.match(JSON.stringify(s.ap.events), /\[capability\]/);
+  } finally { await s.close(); }
+});
+
+test('checkAccess (stub server): wrong agent, wrong owner, not auto, not delegated, narrowed scope, an inconclusive probe — and a probe that can never pass the gate', async () => {
+  const { checkAccess } = await import('../src/autopilot.mjs');
+  const view = { agentId: 'A', owner: 'O', mode: 'auto', modeEpoch: 3, delegation: { delegated: true }, policy: { version: 7, allowed: ['Train', 'Harvest'] } };
+  const stub = (over = {}, actCode = 'StalePolicy') => {
+    const acts = [];
+    return { acts, handle: async m => { const { name, arguments: a } = m.params; if (name === 'agent_view') return { result: { structuredContent: { ...view, ...over } } }; acts.push(a); return { result: { structuredContent: { ok: false, error: { code: actCode } } } }; } };
+  };
+  const mandate = { agentId: 'A', allowed: ['Train'] };
+  const ok = stub();
+  assert.equal((await checkAccess(ok, { mandate, owner: 'O' })).ok, true);
+  assert.ok(ok.acts[0].policyVersion >= 7 + 1_000_000 && ok.acts[0].modeEpoch >= 3 + 1_000_000, 'both far off: the gate refuses it even if the owner changes the policy meanwhile');
+  assert.match(ok.acts[0].requestId, /^p05\.probe\./);
+  const code = async (s, o = {}) => (await checkAccess(s, { mandate, owner: 'O', ...o })).code;
+  assert.equal(await code(stub({ agentId: 'B' })), 'WrongAgent');
+  assert.equal(await code(stub({ owner: 'X' })), 'WrongOwner');
+  assert.equal(await code(stub({ mode: 'manual' })), 'NotAuto');
+  assert.equal(await code(stub({ delegation: { delegated: false } })), 'NotDelegated');
+  assert.equal(await code(stub({ policy: { version: 7, allowed: ['Harvest'] } })), 'ScopeNarrowed');
+  assert.equal(await code(stub({}, 'BadCapability')), 'BadCapability');
+  assert.equal(await code(stub({}, 'SomethingElse')), 'ProbeInconclusive');
+  const sentAnyway = stub({}, null);
+  assert.equal(await code(sentAnyway), 'ProbeInconclusive', 'an answer without a refusal code is never taken as "valid"');
+});
+
+test('a stop or cancel never releases an undecided inference cost; the cancel phase names the record it rests on; until stays null', async () => {
+  const s = await setup({ adapter: anthropicAdapter, model: 'claude-fixture-model', script: () => ({ delayMs: 200, answer: { proposals: [], skipped: [] } }), timeoutMs: 40 });
+  try {
+    await s.ap.start({ by: 'owner' });
+    const t = await s.ap.tick();
+    const held = s.costs.classes().undecided;
+    assert.notEqual(held, '0');
+    s.ap.stop({ by: 'owner' });
+    s.receipts.cancel(t.receipt.runId, 'before-sign');
+    const ph = s.receipts.cancelPhase(t.receipt.runId);
+    assert.equal(ph.phase, 'Completed');
+    assert.match(ph.basis, /not ④'s run store/);
+    assert.equal(s.receipts.get(t.receipt.runId).cancel.until, null);
+    assert.equal(s.costs.classes().undecided, held, 'still undecided after the stop and the cancel');
+    assert.equal(s.costs.fourClasses().unconfirmed, held);
+    assert.equal(s.costs.release(t.inference.attempts[0].key, 'cancel'), null, 'cannot be released by code');
+    await new Promise(res => setTimeout(res, 220));
+  } finally { await s.close(); }
+});
+
+test('a restarted autopilot continues its journal\'s run ids (no second t1 with another decision), and the relay replays a begun act once', async () => {
   const s = await setup({ adapter: openaiAdapter, model: 'gpt-fixture-model', script: body => ({ answer: answerFirst(body) }) });
   try {
     await s.ap.start({ by: 'owner' });
-    const token = await s.w.ownerRotate();
     await s.ap.tick();
-    assert.equal(s.ap.state, 'stopped-capability');
-    await assert.rejects(s.ap.resume({ by: 'owner', note: 'new token' }), e => e.code === 'NeedsToken');
-    await s.ap.resume({ by: 'owner', note: 'handed the autopilot the rotated token', mcp: () => createAgentMcp({ relay: 'http://relay.test', agentId: s.w.agentId, capability: token, fetch: s.w.fetch, source: 'ai' }) });
     s.w.advance(60);
-    const t = await s.ap.tick();
-    assert.equal(t.game[0].outcome, 'sent');
+    await s.ap.tick();
+    s.ap.stop({ by: 'process exit' });
+    const journal = s.ap.journal;
+    // A new process: a new autopilot over the same journal (as a RunJournal file would give it).
+    const again = new Autopilot({ world: s.w, mandate: s.ap.mandate, decider: s.decider, journal, citizen: s.ap.citizen, receipts: localReceiptPort({ view: s.view, txState: s.w.txState, costs: s.costs }), mcp: s.ap.mcp });
+    assert.equal(again.ticks, 2);
+    await again.start({ by: 'owner' });
+    s.w.advance(60);
+    const t3 = await again.tick();
+    assert.match(t3.runId, /:t3$/);
+    const sends = s.w.sentCount();
+    assert.equal(new Set(journal.entries.filter(e => e.step === 'act-begin').map(e => e.attemptId)).size, journal.entries.filter(e => e.step === 'act-begin').length, 'no requestId begun twice');
+    assert.ok(sends <= 3);
+    again.stop({ by: 'test' });
   } finally { await s.close(); }
 });
