@@ -11,6 +11,7 @@
 //! - [`policy`]: what may run without a person.
 
 pub mod executor;
+pub mod gateway;
 pub mod model;
 pub mod policy;
 pub mod ports;

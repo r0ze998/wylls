@@ -215,6 +215,7 @@ fn reason_of(step: Step, r: &Reject) -> Option<Reason> {
         (_, Reject::DestinationChanged) => Reason::DestinationChanged,
         (_, Reject::WalletRequired) => Reason::WalletRequired,
         (_, Reject::Other(e)) => Reason::FacilityRejected(e.clone()),
+        (_, Reject::Refused(code)) => Reason::GatewayRefused(code.clone()),
     })
 }
 
@@ -757,10 +758,15 @@ impl<C: Chain, R: Rights> Executor<C, R> {
             SendResult::Rejected(r) => {
                 let mut d = row.detail.clone();
                 let next = match reason_of(step, r) {
+                    // Refused before signing: no bytes exist; decided now.
+                    Some(why) if matches!(r, Reject::Refused(_)) => {
+                        d.pending = Some(why);
+                        now
+                    }
                     Some(why) => {
                         d.pending = Some(why);
                         // Decided only once these bytes are past validity.
-                        p.valid_until + 1
+                        p.valid_until.saturating_add(1)
                     }
                     // AlreadyDone / SeqMismatch / Expired: the lookup decides.
                     None => now,
@@ -810,7 +816,11 @@ impl<C: Chain, R: Rights> Executor<C, R> {
                     if push && matches!(a.status.as_str(), "intent" | "unknown") {
                         let _ = self.chain.send(&a.prepared);
                     }
-                    let at = (a.prepared.valid_until + 1).min(now + self.params.poll);
+                    let at = a
+                        .prepared
+                        .valid_until
+                        .saturating_add(1)
+                        .min(now + self.params.poll);
                     wait = Some(wait.map_or(at, |w| w.min(at)));
                 }
                 SigStatus::Absent => ops.push(status_op(&a.prepared.sig, "expired", None)),
@@ -1108,13 +1118,28 @@ impl<C: Chain, R: Rights> Executor<C, R> {
             .iter()
             .filter(|a| a.request_key == key.text())
             .collect();
-        // 1. Positive evidence that the send is ours: one of our signatures
-        //    for this seq landed (status), or a CaravanSent names it.
-        let mut landed: Option<(String, u64)> = None;
+        // Each attempt's handle and the chain signature it stands for (the
+        // same string when this process signs; the gateway's once it said).
+        let chain_sigs: Vec<(&AttemptRow, Option<String>)> = current
+            .iter()
+            .map(|a| (*a, self.chain.chain_sig(&a.prepared.sig)))
+            .collect();
+        let all_known = chain_sigs.iter().all(|(_, c)| c.is_some());
+        let ours = |sig: &str| chain_sigs.iter().any(|(_, c)| c.as_deref() == Some(sig));
+        // 1. Positive evidence that the send is ours: one of our attempts
+        //    landed (status), or a CaravanSent names its chain signature.
+        //    `landed` = (attempt handle, chain signature, slot).
+        let mut landed: Option<(String, String, u64)> = None;
         let mut status_missing = false;
-        for a in &current {
+        for (a, c) in &chain_sigs {
             match self.chain.status(&a.prepared.sig, a.prepared.valid_until)? {
-                SigStatus::Landed { slot, .. } => landed = Some((a.prepared.sig.clone(), slot)),
+                SigStatus::Landed { slot, .. } => {
+                    let Some(c) = c.clone() else {
+                        // Landed, but the port cannot name the signature.
+                        return Ok(self.indeterminate(row, now));
+                    };
+                    landed = Some((a.prepared.sig.clone(), c, slot));
+                }
                 SigStatus::Unavailable => status_missing = true,
                 _ => {}
             }
@@ -1122,15 +1147,17 @@ impl<C: Chain, R: Rights> Executor<C, R> {
         let records = self.sent_records(key)?;
         if landed.is_none() {
             if let Some(recs) = &records {
-                if let Some(r) = recs
-                    .iter()
-                    .find(|r| current.iter().any(|a| a.prepared.sig == r.sig))
-                {
-                    landed = Some((r.sig.clone(), now));
+                if let Some(r) = recs.iter().find(|r| ours(&r.sig)) {
+                    let handle = chain_sigs
+                        .iter()
+                        .find(|(_, c)| c.as_deref() == Some(r.sig.as_str()))
+                        .map(|(a, _)| a.prepared.sig.clone())
+                        .unwrap_or_else(|| r.sig.clone());
+                    landed = Some((handle, r.sig.clone(), now));
                 }
             }
         }
-        if let Some((sig, slot)) = landed {
+        if let Some((handle, sig, slot)) = landed {
             // 2. The content must be ours too: places, resources, amounts.
             let Some(sent) = self.sent_content(row, key, &sig)? else {
                 return Ok(self.indeterminate(row, now));
@@ -1162,7 +1189,7 @@ impl<C: Chain, R: Rights> Executor<C, R> {
                 format!("caravan {} is ours (signature and content)", key.text()),
             );
             c.ops.push(Op::ReleaseAll);
-            c.ops.extend(self.settle_attempts(&atts, &sig)?);
+            c.ops.extend(self.settle_attempts(&atts, &handle)?);
             c.ops.push(Op::Receipt(Receipt {
                 run_id: row.id().to_string(),
                 kind: "caravan_sent".into(),
@@ -1176,12 +1203,11 @@ impl<C: Chain, R: Rights> Executor<C, R> {
         // 3. Positive evidence that another sender used this seq: a
         //    CaravanSent for it with a signature not ours. Ours can then
         //    never take effect (the program refuses the seq); they may still
-        //    land failed, so their fees stay unconfirmed.
+        //    land failed, so their fees stay unconfirmed. Only when every
+        //    attempt's chain signature is known: an attempt a gateway has not
+        //    named yet could be the very record.
         if let Some(recs) = &records {
-            if let Some(other) = recs
-                .iter()
-                .find(|r| !current.iter().any(|a| a.prepared.sig == r.sig))
-            {
+            if let Some(other) = recs.iter().find(|r| all_known && !ours(&r.sig)) {
                 let ops = current
                     .iter()
                     .filter(|a| is_undecided(a))
@@ -1232,11 +1258,17 @@ impl<C: Chain, R: Rights> Executor<C, R> {
             amount: row.spec.ship.cargo,
         };
         match why {
-            Some(Reason::WalletRequired) => {
+            Some(why @ (Reason::WalletRequired | Reason::GatewayRefused(_))) => {
                 // Back to FacilityConfirmed so the owner's seq is free for
-                // their other runs; a person signs (or cancels) this one.
-                let mut c = change(RunState::FacilityConfirmed, d, now, "hold: WalletRequired");
-                c.hold = Some(format!("{:?}", Reason::WalletRequired));
+                // their other runs; a person signs, changes the agent's
+                // policy or mode, or cancels this one.
+                let mut c = change(
+                    RunState::FacilityConfirmed,
+                    d,
+                    now,
+                    format!("hold: {why:?}"),
+                );
+                c.hold = Some(format!("{why:?}"));
                 c.ops = ops;
                 c.ops.push(reserve);
                 Ok(Next::Go(c))

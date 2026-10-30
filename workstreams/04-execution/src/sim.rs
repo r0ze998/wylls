@@ -515,6 +515,39 @@ impl SimWorld {
         Ok(())
     }
 
+    /// A transaction someone else signed and sent (an agent gateway): it
+    /// lands now with this signature, as the scripted chain behind the
+    /// gateway confirmed it. The fee is the relay's, not the run owner's,
+    /// so it is not added to `ledger.fees`. MOCK: the effect is this
+    /// world's rule, applied to the request decoded from the signed bytes.
+    pub fn land_external(
+        &mut self,
+        sig: &str,
+        req: &Request,
+        valid_until: u64,
+    ) -> Result<(), Reject> {
+        if let Some(SigRec {
+            landed: Some((_, r)),
+            ..
+        }) = self.sigs.get(sig)
+        {
+            return r.clone();
+        }
+        self.sigs.insert(
+            sig.to_string(),
+            SigRec {
+                request: req.clone(),
+                valid_until,
+                landed: None,
+                land_at: None,
+            },
+        );
+        let r = self.execute(req, sig);
+        let slot = self.slot;
+        self.sigs.get_mut(sig).unwrap().landed = Some((slot, r.clone()));
+        r
+    }
+
     /// Whether a signature landed and took effect (test bookkeeping).
     pub fn took_effect(&self, sig: &str) -> bool {
         matches!(

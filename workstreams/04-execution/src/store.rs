@@ -415,7 +415,8 @@ impl Store {
             params![
                 c.to.name(),
                 serde_json::to_string(&c.detail).map_err(|e| e.to_string())?,
-                c.next_check as i64,
+                // "Never" (u64::MAX) must stay last in SQLite's i64, not wrap to -1.
+                c.next_check.min(i64::MAX as u64) as i64,
                 now as i64,
                 ship_key,
                 c.hold,

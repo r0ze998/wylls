@@ -302,6 +302,9 @@ pub enum Reason {
     // Hold reasons (operator needed):
     /// A send to another player's place needs the wallet's signature.
     WalletRequired,
+    /// The agent gateway refused before signing (policy, stop, limits): an
+    /// owner's decision is needed; the outputs stay at stock.
+    GatewayRefused(String),
     /// Statuses, entity history and events all missing: cannot decide
     /// whether our request took effect.
     Indeterminate,

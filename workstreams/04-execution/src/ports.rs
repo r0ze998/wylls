@@ -213,6 +213,9 @@ pub enum Reject {
     /// The blockhash is no longer valid: it can never land.
     Expired,
     Other(String),
+    /// Refused before anything was signed (an agent gateway's policy,
+    /// stop or limit refusal): no bytes exist, so it can never land.
+    Refused(String),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -266,6 +269,13 @@ pub trait Chain {
     fn prepare(&self, req: &Request, n: u32) -> PortResult<Prepared>;
     fn send(&self, p: &Prepared) -> SendResult;
     fn status(&self, sig: &str, valid_until: u64) -> PortResult<SigStatus>;
+    /// The chain signature an attempt's handle stands for. A port that signs
+    /// before sending returns the handle itself; a port that sends through a
+    /// gateway which signs (the agent wallet) returns the signature the
+    /// gateway reported, once known (`None`: not known yet).
+    fn chain_sig(&self, handle: &str) -> Option<String> {
+        Some(handle.to_string())
+    }
 }
 
 /// The rights check (②): the right's remaining units at the moment of the
