@@ -1292,6 +1292,24 @@ fn ruleset_hash_binds_versions_and_catalog() {
         &names[v2_names.len()..],
         &["arms", "caravan", "structure", "nation"]
     );
+    // S1 with custody (`KERNEL_VERSIONS_V4`, workstream 10) appends
+    // `custody` to the S1 list and binds every module of the tree; the S1
+    // list and hash do not change.
+    let v3_names = names;
+    let names: Vec<&str> = permutation_rules::frontier::KERNEL_VERSIONS_V4
+        .iter()
+        .map(|(n, _)| *n)
+        .collect();
+    assert_eq!(&names[..v3_names.len()], &v3_names[..], "v4 appends to v3");
+    assert_eq!(&names[v3_names.len()..], &["custody"]);
+    let v4 = permutation_rules::frontier::ruleset_hash_input_v4();
+    assert!(v4.starts_with(permutation_rules::frontier::RULESET_DOMAIN_V4));
+    let v3 = permutation_rules::frontier::ruleset_hash_input_v3();
+    assert!(v4.len() > v3.len());
+    assert_ne!(
+        permutation_rules::frontier::ruleset_hash_v4(),
+        permutation_rules::frontier::ruleset_hash_v3()
+    );
     let src = include_str!("../src/frontier/mod.rs");
     let mut modules = 0;
     for line in src.lines() {
