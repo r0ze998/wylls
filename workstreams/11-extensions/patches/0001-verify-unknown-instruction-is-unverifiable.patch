@@ -1,0 +1,112 @@
+diff --git a/frontier-node/crates/verify/src/checks/v2_program.rs b/frontier-node/crates/verify/src/checks/v2_program.rs
+index d117c998..6ac5a52a 100644
+--- a/frontier-node/crates/verify/src/checks/v2_program.rs
++++ b/frontier-node/crates/verify/src/checks/v2_program.rs
+@@ -11,6 +11,9 @@
+ //!   params hash of CreateSeason's data (`presets::params_hash`) equals
+ //!   both records'; creation at or after `t_create_min` and inside the
+ //!   creation window; the created program version is the binary's.
++//! - **Known instructions:** every instruction of the program in a
++//!   successful transaction has a v2 tag; another tag is UNVERIFIABLE
++//!   (`MissingData`: no check can judge what it did).
+ //!
+ //! Codes: `ProgramMismatch`, `RulesetMismatch`, `AnnounceMismatch`.
+ 
+@@ -76,6 +79,27 @@ pub fn run(cx: &mut Ctx) {
+                 "an archived transaction does not invoke the program",
+             );
+         }
++        // Workstream 11 (patch 0001): an instruction of the program with a
++        // tag this verifier does not know ran in a successful transaction
++        // (a later program's operation): no check judges it, so its effects
++        // are unjudged. UNVERIFIABLE, not a silent PASS.
++        if t.ok {
++            for ix in &t.ixs {
++                if ix.tag().and_then(frontier_abi::v2::Ix::from_tag).is_none() {
++                    cx.missing(
++                        V,
++                        format!("tx#{i}"),
++                        0,
++                        Some(i),
++                        format!(
++                            "instruction {} of the program has a tag this verifier does not know ({:?})",
++                            ix.index,
++                            ix.tag()
++                        ),
++                    );
++                }
++            }
++        }
+     }
+     if let Some(want) = cx.cfg.program_hash {
+         if cx.input.program_hashes.is_empty() {
+diff --git a/frontier-node/crates/verify/tests/unknown_ix.rs b/frontier-node/crates/verify/tests/unknown_ix.rs
+new file mode 100644
+index 00000000..68441856
+--- /dev/null
++++ b/frontier-node/crates/verify/tests/unknown_ix.rs
+@@ -0,0 +1,64 @@
++//! Workstream 11, patch 0001: a successful transaction whose Frontier
++//! instruction carries a tag this verifier does not know (an operation a
++//! later program may have, e.g. an extension call) is UNVERIFIABLE, not a
++//! silent PASS: no check judges it, so its effects are unjudged.
++
++mod common;
++
++use common::*;
++use verify_core::Verdict;
++
++/// The land fixture with one more Frontier instruction (`tag`, no
++/// accounts) appended to its first successful Frontier transaction.
++fn with_extra_ix(tag: u8) -> verify_core::input::Input {
++    let mut inp = land();
++    let program = inp.cfg.program;
++    let t = inp
++        .txs
++        .iter()
++        .position(|r| {
++            r.err.is_none()
++                && fclient::tx::from_wire(&r.tx).is_ok_and(|tx| {
++                    let keys = &tx.message.account_keys;
++                    tx.message
++                        .instructions
++                        .iter()
++                        .any(|c| keys[c.program_id_index as usize] == program)
++                })
++        })
++        .expect("a successful Frontier transaction");
++    let mut tx = fclient::tx::from_wire(&inp.txs[t].tx).expect("tx");
++    let keys = tx.message.account_keys.clone();
++    let mut extra = tx
++        .message
++        .instructions
++        .iter()
++        .find(|c| keys[c.program_id_index as usize] == program)
++        .cloned()
++        .expect("a Frontier instruction");
++    extra.data = vec![tag];
++    extra.accounts.clear();
++    tx.message.instructions.push(extra);
++    inp.txs[t].tx = fclient::tx::wire(&tx);
++    inp
++}
++
++#[test]
++fn the_fixture_passes_unchanged() {
++    let r = verify_core::verify(&land());
++    assert_eq!(r.verdict, Verdict::Pass, "{}", show(&r));
++}
++
++#[test]
++fn an_unknown_instruction_is_not_a_pass() {
++    assert!(frontier_abi::v2::Ix::from_tag(0xD4).is_none());
++    let r = verify_core::verify(&with_extra_ix(0xD4));
++    println!("verdict with an unknown tag 0xD4: {:?}\n{}", r.verdict, show(&r));
++    assert_ne!(r.verdict, Verdict::Pass, "{}", show(&r));
++    // With patch 0001: UNVERIFIABLE, and only for that reason.
++    assert_eq!(r.verdict, Verdict::Unverifiable, "{}", show(&r));
++    assert!(r
++        .findings
++        .iter()
++        .any(|f| f.check == "V2" && f.code == "MissingData"));
++}

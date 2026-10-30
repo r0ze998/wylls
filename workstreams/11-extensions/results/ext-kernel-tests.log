@@ -1,0 +1,81 @@
+# 2026-10-30T14:39:31Z 4cd901de9f8e0d6c0b2016851d30595c4a70aa46 rustc 1.89.0 (29483883e 2025-08-04)
+    Checking wylls-ext-kernel v0.1.0 (/home/user/wylls/workstreams/11-extensions/ext-kernel)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.22s
+   Compiling wylls-ext-kernel v0.1.0 (/home/user/wylls/workstreams/11-extensions/ext-kernel)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.70s
+     Running unittests src/lib.rs (/home/user/wylls/permutation-chain/target/debug/deps/wylls_ext_kernel-c5b73a01f61d62c2)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/flow.rs (/home/user/wylls/permutation-chain/target/debug/deps/flow-14bf58850a2dbe12)
+
+running 3 tests
+test f01_author_publishes_user_grants_and_calls_third_party_verifies ... --- what user B reads ---
+extension "watch-vow" by a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1
+id 67e2e82e3ff03e72ca18b2883dbcb4db226f08e06bcedc761694c1e033bd7ecb
+core program_version 4 ruleset 234c0dc225e5ce323687756b913f78e330757abb969df290745eae1e9aae422d
+state: 4 field(s) per user, at most 3 users
+  field0: 0..=1000 (starts 0)
+  field1: 0..=4611686018427387903 (starts 0)
+  field2: 0..=1000 (starts 0)
+  field3: 0..=20000 (starts 0)
+may take up to 20000 milli Wood per call
+entry 0 (arg0 in 1000..=20000, arg1 in 1..=144)
+  require field3 == 0
+  pay arg0 Wood from your holding into your escrow
+  field3 := arg0
+  field1 := now_bell
+  field1 += arg1
+  field0 += 1
+  record event 1
+entry 1 ()
+  require field3 > 0
+  require now_bell >= field1
+  refund field3 Wood from your escrow to your holding
+  field3 := 0
+  field2 += 1
+  record event 2
+cannot: create resources, touch another user's holding or escrow, call other programs
+stop: the author or the operator may pause or revoke; you can then withdraw your escrow
+---
+ok
+test f02_the_same_inputs_give_the_same_receipts ... ok
+test f03_core_resources_are_conserved_across_calls ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/refusals.rs (/home/user/wylls/permutation-chain/target/debug/deps/refusals-0c9de124e0bcd772)
+
+running 11 tests
+test r01_no_one_uses_anothers_keys_holding_or_grant ... ok
+test r02_the_grant_caps_what_a_call_may_take ... ok
+test r03_a_call_runs_once ... ok
+test r04_an_update_does_not_change_what_the_user_granted ... ok
+test r05_a_manifest_for_another_core_does_not_run ... ok
+test r06_stops_refuse_new_calls_keep_what_was_done_and_let_users_out ... ok
+test r07_publication_refuses_unbounded_or_unknown_manifests ... ok
+test r08_state_creation_is_bounded ... ok
+test r09_an_extension_cannot_mint_or_write_balances ... ok
+test r10_a_failure_after_a_payment_undoes_the_payment ... ok
+test r11_the_description_warns_of_resources_that_never_return ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/verifier.rs (/home/user/wylls/permutation-chain/target/debug/deps/verifier-11707018d7ed387a)
+
+running 4 tests
+test v01_a_forged_receipt_fails ... ok
+test v02_a_completion_that_did_not_happen_fails ... ok
+test v03_what_the_verifier_does_not_know_is_never_a_pass ... ok
+test v04_a_fail_outranks_an_unverifiable ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+   Doc-tests wylls_ext_kernel
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

@@ -1,0 +1,40 @@
+# ⑪ 拡張方式: 利用者や AI が世界の機能を増やす方法
+
+作業日 2026-10-30。基準 commit `4cd901de9f8e0d6c0b2016851d30595c4a70aa46`。この担当の成果物はすべてこのディレクトリにあり、共有コア（`permutation-frontier`、`frontier-abi`、`permutation-rules`、`frontier-node`、`permutation-gateway`）は一行も変えていない。
+
+> **これは本番に任意コード実行を開く決定ではない。** 比較と試作の許可の範囲で、案を比べ、推奨案をホスト上の隔離した crate で試作した。例の機能（「見張りの誓い」）は例であり、採用したゲームルールではない。
+
+## 結論
+
+| 問い | 答え | 根拠 |
+|---|---|---|
+| 三案のどれを推すか | **B 宣言型の効果**: 作者は manifest（状態の宣言と閉じた効果の列）を公開し、コアが解釈する。作者のコードは実行しない | [02](02-comparison.ja.md) |
+| A（既存命令の合成）の限界 | 74 命令の部分集合にとどまり、新しい状態遷移を足せない（③ `t01`・`t11`）。検証器はトップレベルの Frontier 命令しか判定しない | [02](02-comparison.ja.md)、③ |
+| C（外部プログラム接続）の限界 | 再入禁止・CPI 深さ 5・hook の CU と読込量・upgrade authority による無断の意味変更。コア資源に効かせるにはコア側の効果の語彙（＝B）が結局要る。検証には第三者の `.so` の再実行が要る | [02](02-comparison.ja.md)、[10](10-research.ja.md) |
+| 必須の実証（A が作る→B が確認→B の許可だけで呼ぶ→第三者が検証） | **ホスト上で通過**（`f01`）。新しい状態遷移（時間で解ける預かりと名声）を扱う | [03](03-prototype.ja.md) §2 |
+| 拒否の例 | 権限逸脱、二重実行、異なる版、コアの版違い、停止中、無限実行・未知 op、過大な状態、発行、偽の完了記録、未知の語彙 → すべて期待どおり拒否／FAIL／UNVERIFIABLE | [03](03-prototype.ja.md) §3、[05](05-results.ja.md) |
+| 既存の検証器の穴 | 知らないタグの Frontier 命令を黙って飛ばす（事実（コード）と、修正前後の実行結果は [05](05-results.ja.md) §3） | [patches/0001](patches/0001-verify-unknown-instruction-is-unverifiable.patch) |
+| Solana 上で動くか | **未確認**。SBF ツールチェーンの導入が承認されず、チェーン上の試験と CU の測定はしていない | [00](00-context.ja.md) §4 |
+
+## 文書
+
+| 文書 | 内容 |
+|---|---|
+| [00-context](00-context.ja.md) | 基準、ブランチ、AGENTS とスキルの有無、他担当の状態、実行できなかったこと |
+| [01-contract](01-contract.ja.md) | **④⑥⑨⑩②へ渡した最小契約**: manifest・効果・登録簿・許可・Call/Receipt・検証の三値 |
+| [02-comparison](02-comparison.ja.md) | 三案の比較（作れる／作れない、Solana の制約、費用、検証、更新・停止権限）と推奨 |
+| [03-prototype](03-prototype.ja.md) | 試作の構成、必須の実証、拒否の例の一覧 |
+| [04-safety](04-safety.ja.md) | 安全境界ごとの仕組み・試験・防げない範囲 |
+| [05-results](05-results.ja.md) | 試験結果、測定、未実行 |
+| [06-adoption](06-adoption.ja.md) | 採用前に決めること（オーナーの判断・技術の確認・他担当との照合） |
+| [07-discrepancies](07-discrepancies.ja.md) | 文書とコードの食い違い |
+| [10-research](10-research.ja.md) | OSS の先例（BOLT、Metaplex Core、Transfer Hook、MUD、Dojo、Swig、Lighthouse）と Solana の一次資料（Agave v3.1.9） |
+| [patches/](patches/) | 共有コアへの変更案（**未適用**） |
+
+## 実行
+
+```sh
+workstreams/11-extensions/run.sh   # fmt --check, clippy -D warnings, cargo test --locked, sizes
+```
+
+Rust 1.89.0（リポジトリの `rust-toolchain.toml`）。依存は `permutation-rules` と `frontier-abi`（どちらも path）と、ルートの `Cargo.lock` と同じ版の crates.io の crate だけ（`ext-kernel/Cargo.lock` はルートの lock を複製して刈り込んだもの）。Solana のツールチェーンは使わない。
