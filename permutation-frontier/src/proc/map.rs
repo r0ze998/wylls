@@ -74,7 +74,7 @@ use permutation_rules::fixed::MILLI;
 use permutation_rules::frontier::beacon;
 use permutation_rules::frontier::camp;
 use permutation_rules::frontier::clash::NEUTRAL;
-use permutation_rules::frontier::geometry::{region_of, ProvinceCoord, PROVINCE_TILES};
+use permutation_rules::frontier::geometry::{self, region_of, ProvinceCoord, PROVINCE_TILES};
 use permutation_rules::frontier::holding::Tier;
 use permutation_rules::frontier::terrain::{free_city_site, generate_province, ProvinceTerrain};
 use permutation_rules::hash::sha256;
@@ -570,19 +570,38 @@ pub fn open_province(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     let day = addr::day_of(now_bell);
     let reserved_ring = ring < camp::CAMP_FIRST_RING as u16;
     // MC §3.2: the keep (rings ≥ 2) on the symmetric keep tile (A-8).
+    // The keep's tile follows the wedge (terrain symmetry); its holder and
+    // heartland safety follow the season's placement (`home_nation`; the
+    // wedge under the wedge placement, so unchanged there).
+    let genesis_seed = {
+        let sd = season_ai.try_borrow_data()?;
+        Ro(&sd).arr::<32>(S::GENESIS_SEED)?
+    };
     let keep = match coord.wedge() {
         Some(w) if coord.ring() >= 2 => {
             let tile = kkeep::keep_tile(&terrain, &terrain.sites, terrain.site_count, w)
                 .unwrap_or(kkeep::NO_KEEP_TILE);
+            let holder = geometry::home_nation(coord, cq.placement, cq.heartland_max_ring, &genesis_seed)
+                .unwrap_or(w);
             kkeep::try_open(
                 coord,
-                w,
+                holder,
                 cq.heartland_max_ring,
                 tile,
                 &cq.keep_params(),
                 now_bell,
             )
             .map_err(|_| crate::error::kernel(SUB_KEEP_CAP))?
+            .map(|mut k| {
+                k.heartland_safe = geometry::is_home_heartland(
+                    coord,
+                    holder,
+                    cq.placement,
+                    cq.heartland_max_ring,
+                    &genesis_seed,
+                );
+                k
+            })
         }
         _ => None,
     };

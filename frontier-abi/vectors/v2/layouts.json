@@ -3987,9 +3987,21 @@
           "ty": "u8"
         },
         {
-          "name": "RSV",
+          "name": "PLACEMENT",
           "off": 77,
-          "len": 51,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "R_MAX_CEILING",
+          "off": 78,
+          "len": 2,
+          "ty": "u16"
+        },
+        {
+          "name": "RSV",
+          "off": 80,
+          "len": 48,
           "ty": "rsv"
         }
       ]

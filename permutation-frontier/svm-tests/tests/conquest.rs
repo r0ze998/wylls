@@ -666,6 +666,46 @@ fn g13_cq_declare_siege_refusals_steps_2_to_7() {
     );
 }
 
+/// The heartland refusal under the dispersed placement (`placement` 1):
+/// the owner's heartland is the provinces `home_nation` assigns to its
+/// nation, wherever their wedge; its own wedge's other provinces are not.
+#[test]
+fn cq_declare_siege_heartland_follows_the_dispersed_placement() {
+    use permutation_rules::frontier::geometry::{home_nation, ProvinceCoord, PLACEMENT_DISPERSED};
+    let mut prm = MC_LOCAL_7D.cq;
+    prm.placement = PLACEMENT_DISPERSED;
+    let k = Cast::with(mc_world_with(Build::TestBeacon, &prm));
+    let try_ = |f: &mut Chain, ix: Instruction| send_declare(f, &k.x, ix);
+    let sd = k.c.data(&k.w.a.season);
+    let g = frontier_abi::layout::world::season::GENESIS_SEED;
+    let seed: [u8; 32] = sd[g..g + 32].try_into().unwrap();
+    let nation = |pq: (i16, i16)| {
+        home_nation(ProvinceCoord::new(pq.0 as i32, pq.1 as i32), PLACEMENT_DISPERSED, prm.heartland_max_ring, &seed)
+    };
+    let wedge = |pq: (i16, i16)| ProvinceCoord::new(pq.0 as i32, pq.1 as i32).wedge();
+    // V (nation 1) in a ring-3 province assigned to nation 1 outside wedge 1: Heartland.
+    let mine = provinces_of(3, None)
+        .into_iter()
+        .find(|pq| nation(*pq) == Some(1) && wedge(*pq) != Some(1))
+        .expect("a nation-1 province outside wedge 1");
+    let mut f = k.c.fork();
+    let ho = k.w.cq_outpost(&mut f, &k.v, mine, 1, 3);
+    k.w.craft_host(&mut f, &k.x, &ho.province, 0, 1, 0, HOST, ho.tile);
+    assert_cq(try_(&mut f, declare_on(&k.w, &k.x, &ho, 0)), Cq::Heartland);
+    // V in a ring-3 province of wedge 1 assigned to another nation: not V's heartland.
+    let other = provinces_of(3, Some(1))
+        .into_iter()
+        .find(|pq| nation(*pq) != Some(1))
+        .expect("a wedge-1 province of another nation");
+    let mut f = k.c.fork();
+    let ho = k.w.cq_outpost(&mut f, &k.v, other, 1, 3);
+    k.w.craft_host(&mut f, &k.x, &ho.province, 0, 1, 0, HOST, ho.tile);
+    expect_lands(
+        try_(&mut f, declare_on(&k.w, &k.x, &ho, 0)),
+        "a wedge-1 province assigned to another nation is not V's heartland",
+    );
+}
+
 /// DeclareSiege's refusals of §3.4 steps 8–10 and the prologue:
 /// `ReservedSite`, `Friendly`, `Shielded` (target and declarer),
 /// `FrontierProtected` (and the nearby first holding that lifts it),

@@ -611,7 +611,7 @@ fn placed_home(cx: &mut Ctx, r: &crate::world::Rec) {
             && season.program_version >= 2
             && coord.ring() >= 2
             && coord.ring() < frontier.rings_opened as u32
-            && coord.wedge() == Some(cb.faction)
+            && home_nation_of(f, coord) == Some(cb.faction)
             && cb.flags
                 & (C::FLAG_HOME_GRANTED
                     | C::FLAG_FIRST_HOLDING_FINAL
@@ -670,5 +670,23 @@ fn placed_home(cx: &mut Ctx, r: &crate::world::Rec) {
             "first-home entitlement, selected site, ownership or mirror mismatch",
         ),
         Err(e) => cx.missing(V, what, r.bell, Some(r.tx), e),
+    }
+}
+
+/// The program's PlaceHome nation test (`geometry::home_nation` with the
+/// season's conquest `placement`; the wedge when the season or its genesis
+/// seed is not known).
+fn home_nation_of(
+    f: &crate::facts::Facts,
+    coord: permutation_rules::frontier::geometry::ProvinceCoord,
+) -> Option<u8> {
+    match (f.cq.as_ref(), f.genesis_seed.as_ref()) {
+        (Some(cq), Some(seed)) => permutation_rules::frontier::geometry::home_nation(
+            coord,
+            cq.placement,
+            cq.heartland_max_ring,
+            seed,
+        ),
+        _ => coord.wedge(),
     }
 }

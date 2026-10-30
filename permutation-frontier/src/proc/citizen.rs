@@ -88,7 +88,7 @@ use frontier_abi::v2::ix::FileOutpost as V2FileOutpost;
 use frontier_abi::v2::Ix as V2Ix;
 use permutation_rules::frontier::beacon;
 use permutation_rules::frontier::clash::NEUTRAL;
-use permutation_rules::frontier::geometry::ProvinceCoord;
+use permutation_rules::frontier::geometry::{self, ProvinceCoord};
 use permutation_rules::frontier::holding::{
     duplicate_cost, may_found_outpost, Holding, OutpostCheck, OutpostRefusal, Resource, Tier,
     RESOURCES,
@@ -1167,13 +1167,19 @@ pub fn place_home(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
             r.u64(C::CITIZEN_TAG)?,
         )
     };
-    let (r_max, home_max_ring) = {
+    let (r_max, home_max_ring, placement, genesis_seed) = {
         let sd = season_ai.try_borrow_data()?;
         let r = Ro(&sd);
         if r.u16(S::PROGRAM_VERSION)? != crate::PROGRAM_VERSION {
             return Err(FrontierError::RulesetMismatch.into());
         }
-        (r.u16(S::R_MAX)?, season_cq(&sd)?.heartland_max_ring)
+        let cq = season_cq(&sd)?;
+        (
+            r.u16(S::R_MAX)?,
+            cq.heartland_max_ring,
+            cq.placement,
+            r.arr::<32>(S::GENESIS_SEED)?,
+        )
     };
     let coord = ProvinceCoord::checked(x.p as i32, x.q as i32, r_max)
         .map_err(|_| FrontierError::BadData)?;
@@ -1183,7 +1189,11 @@ pub fn place_home(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     present_at(frontier, &ctx.frontier(), p, AccountKind::Frontier, hdr.id)?;
     {
         let fd = frontier.try_borrow_data()?;
-        if coord.ring() >= Ro(&fd).u16(FR::RINGS_OPENED)? as u32 || coord.wedge() != Some(faction) {
+        // The season's placement names the nation of a heartland province
+        // (`home_nation`: the wedge under the wedge placement).
+        if coord.ring() >= Ro(&fd).u16(FR::RINGS_OPENED)? as u32
+            || geometry::home_nation(coord, placement, home_max_ring, &genesis_seed) != Some(faction)
+        {
             return Err(FrontierError::BadData.into());
         }
     }
@@ -1199,7 +1209,7 @@ pub fn place_home(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     let (tile, gen) = {
         let pd = province.try_borrow_data()?;
         let r = Ro(&pd);
-        if r.i16(PV::P)? != x.p || r.i16(PV::Q)? != x.q || r.u8(PV::WEDGE)? != faction {
+        if r.i16(PV::P)? != x.p || r.i16(PV::Q)? != x.q || r.u8(PV::WEDGE)? != coord.wedge().unwrap_or(u8::MAX) {
             return Err(BAD_ACCOUNT);
         }
         record_is_zero(&pd, x.site)?;

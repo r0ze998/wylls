@@ -431,6 +431,62 @@ pub fn is_heartland_in(p: ProvinceCoord, faction: u8, heartland_max_ring: u8) ->
     r >= 2 && r <= heartland_max_ring as u32 && p.wedge() == Some(faction)
 }
 
+/// First-home placement 0: each nation's heartland is its own wedge (the
+/// rule of every season before the `placement` parameter).
+pub const PLACEMENT_WEDGE: u8 = 0;
+/// First-home placement 1: each nation's heartland is a set of single
+/// provinces spread round every heartland ring ([`home_nation`]).
+pub const PLACEMENT_DISPERSED: u8 = 1;
+/// Domain of the per-ring offset of [`PLACEMENT_DISPERSED`].
+pub const PLACEMENT_DOMAIN: &[u8] = b"PSF-PLACEMENT-v1";
+
+/// The nation whose first homes (and heartland keep) a province takes.
+///
+/// * [`PLACEMENT_WEDGE`], or any province outside rings
+///   `2..=heartland_max_ring`: the wedge, as before.
+/// * [`PLACEMENT_DISPERSED`] in ring `r` of the heartland: the province's
+///   position `i` in [`ring_provinces`]`(r)` (a walk round the ring, each
+///   step to a neighbour) plus the ring's offset `o_r =
+///   u64(sha256(PLACEMENT_DOMAIN ‖ genesis_seed ‖ le16(r))[..8]) mod 6`,
+///   mod 6. Neighbours on a ring differ, every nation takes exactly `r`
+///   provinces of ring `r`, six positions apart, and the same seed gives
+///   the same map.
+///
+/// `None` for the Concord only.
+pub fn home_nation(
+    p: ProvinceCoord,
+    placement: u8,
+    heartland_max_ring: u8,
+    genesis_seed: &[u8; 32],
+) -> Option<u8> {
+    let r = p.ring();
+    if placement != PLACEMENT_DISPERSED || r < 2 || r > heartland_max_ring as u32 {
+        return p.wedge();
+    }
+    let i = p.index() - provinces_within(r - 1);
+    let h = sha256(&[PLACEMENT_DOMAIN, genesis_seed, &(r as u16).to_le_bytes()]);
+    let mut b = [0u8; 8];
+    b.copy_from_slice(&h[..8]);
+    let o = u64::from_le_bytes(b) % FACTIONS as u64;
+    Some(((i as u64 + o) % FACTIONS as u64) as u8)
+}
+
+/// [`is_heartland_in`] under a placement: rings `2..=heartland_max_ring`
+/// whose [`home_nation`] is `faction`. Equal to `is_heartland_in` for
+/// [`PLACEMENT_WEDGE`].
+pub fn is_home_heartland(
+    p: ProvinceCoord,
+    faction: u8,
+    placement: u8,
+    heartland_max_ring: u8,
+    genesis_seed: &[u8; 32],
+) -> bool {
+    let r = p.ring();
+    r >= 2
+        && r <= heartland_max_ring as u32
+        && home_nation(p, placement, heartland_max_ring, genesis_seed) == Some(faction)
+}
+
 /// Region of a province for beacon anchors and seed caches:
 /// `sha256("frontier/region" ‖ P ‖ Q)[0] mod 16` (design §8.4).
 pub fn region_of(p: ProvinceCoord) -> u8 {
@@ -491,6 +547,103 @@ mod tests {
                 assert_eq!(tile_index(o), index_loop(o), "{q},{r}");
             }
         }
+    }
+
+    #[test]
+    fn ring_walk_steps_to_a_neighbour() {
+        for d in 1..20 {
+            let ring = ring_provinces(d);
+            for i in 0..ring.len() {
+                let (a, b) = (ring[i], ring[(i + 1) % ring.len()]);
+                assert_eq!(a.distance(b), 1, "ring {d} step {i}");
+            }
+        }
+    }
+
+    #[test]
+    fn home_nation_wedge_placement_is_the_wedge() {
+        let seed = [7u8; 32];
+        for d in 0..10 {
+            for p in ring_provinces(d) {
+                for hmr in 2..=6 {
+                    assert_eq!(home_nation(p, PLACEMENT_WEDGE, hmr, &seed), p.wedge());
+                    for f in 0..6 {
+                        assert_eq!(
+                            is_home_heartland(p, f, PLACEMENT_WEDGE, hmr, &seed),
+                            is_heartland_in(p, f, hmr)
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn home_nation_dispersed_groups_are_even_interleaved_and_reproducible() {
+        for s in 0..16u8 {
+            let seed = [s; 32];
+            for hmr in 2..=6u8 {
+                for d in 2..=hmr as u32 {
+                    let ring = ring_provinces(d);
+                    let n: Vec<u8> = ring
+                        .iter()
+                        .map(|p| home_nation(*p, PLACEMENT_DISPERSED, hmr, &seed).unwrap())
+                        .collect();
+                    for f in 0..6u8 {
+                        assert_eq!(n.iter().filter(|x| **x == f).count() as u32, d);
+                    }
+                    for i in 0..n.len() {
+                        assert_ne!(n[i], n[(i + 1) % n.len()]);
+                    }
+                    // every nation's provinces of a ring lie in d different wedges
+                    for f in 0..6u8 {
+                        let mut w: Vec<u8> = ring
+                            .iter()
+                            .zip(&n)
+                            .filter(|(_, x)| **x == f)
+                            .map(|(p, _)| p.wedge().unwrap())
+                            .collect();
+                        w.sort();
+                        w.dedup();
+                        assert_eq!(w.len() as u32, d.min(6));
+                    }
+                    assert_eq!(
+                        n,
+                        ring.iter()
+                            .map(|p| home_nation(*p, PLACEMENT_DISPERSED, hmr, &seed).unwrap())
+                            .collect::<Vec<_>>()
+                    );
+                }
+                // outside the heartland: the wedge
+                for p in ring_provinces(hmr as u32 + 1).into_iter().chain(ring_provinces(1)) {
+                    assert_eq!(home_nation(p, PLACEMENT_DISPERSED, hmr, &seed), p.wedge());
+                }
+            }
+        }
+        assert_eq!(home_nation(ProvinceCoord::CONCORD, PLACEMENT_DISPERSED, 3, &[0; 32]), None);
+        // different seeds rotate the map
+        let a: Vec<_> = ring_provinces(2).iter().map(|p| home_nation(*p, 1, 3, &[1; 32])).collect();
+        let b: Vec<_> = (0u8..32).map(|s| ring_provinces(2).iter().map(|p| home_nation(*p, 1, 3, &[s; 32])).collect::<Vec<_>>()).filter(|x| *x != a).collect();
+        assert!(!b.is_empty());
+    }
+
+    /// Pinned values (also pinned by the web client's `homeNation` test,
+    /// permutation-gateway/test/web-frontier-placement.test.mjs).
+    #[test]
+    fn home_nation_dispersed_pinned_vector() {
+        let seed = [1u8; 32];
+        let got: Vec<u8> = ring_provinces(2)
+            .into_iter()
+            .chain(ring_provinces(3))
+            .map(|p| home_nation(p, PLACEMENT_DISPERSED, 3, &seed).unwrap())
+            .collect();
+        assert_eq!(
+            got,
+            [
+                4, 5, 0, 1, 2, 3, 4, 5, 0, 1, 2, 3, // ring 2
+                5, 0, 1, 2, 3, 4, 5, 0, 1, 2, 3, 4, 5, 0, 1, 2, 3, 4, // ring 3
+            ]
+        );
     }
 
     #[test]
