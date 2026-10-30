@@ -176,6 +176,38 @@ C を勧めない理由：中央に荷と襲撃が集中し、独占・連合・
 | ⑧ 分散配置・拡張地図 | **未受領** | `placeVillages`（`compact`＝輪2〜3、`dispersed`＝輪2〜8 の仮置き）。切り替え `placement` | 村の置き方（国・参加時期ごと）、期間中に地図が広がるか、拡張しても大協約が輪0のままか |
 | ⑮ 達成・勝利 | ⑭から渡す側 | `toFacts(sim)`（スキーマ `wylls.ws14.tower-facts/0`）。`tower.*` と `centre.*` の出来事、塔の段階・在庫・休止。勝者・点数・順位・終了は含まない（試験で固定） | ⑮が使いたい事実の種類 |
 
+### 9.1 ⑮へ渡す事実の欄（`toFacts(sim).events` の実際の形）
+
+すべての事実は `{t, kind, actor, nation, ...欄}` です。
+- `t`：**模型の時（1時間＝6ターン）**。鐘（ターン）ではありません。
+- `actor`：村の番号（塔そのものの出来事は `null`）。
+- `nation`：その村の国（`null` あり）。
+- 順番は配列の並びそのままです。`seq` の欄はなく、配列の位置が連番の代わりになります。
+- すべて模型が作った事実で、チェーンの記録ではありません（⑮の `verified` に当てるなら `unverified`）。
+
+| kind | 追加の欄 | 意味 |
+|---|---|---|
+| `tower.board_post` | `req` | 依頼 `req` を塔に掲げた（B）。**目撃ではない** |
+| `tower.board_taken` | `req`, `cross` | `actor` が掲示の依頼 `req` に応えて荷を送った。`cross`＝他国。依頼主は `req` から引く（事実には入っていない） |
+| `tower.board_fulfilled` | `req`, `cross` | 掲示の依頼の交換が双方に届いた（`actor`＝依頼主） |
+| `tower.relay_swap` | `offer`, `cross`, `contributor` | 中継の倉で交換した（C）。`contributor`＝建設に何か出した人か |
+| `tower.relay_offer` | `offer` | 中継の倉に申し出を置いた |
+| `tower.sent` | `role`(give/upkeep), `res`, `amount` | 塔へ荷を送り出した（到着前） |
+| `tower.pledged` | `res`, `amount` | 運び手を待つ荷を差し出した |
+| `tower.carried` | `for`, `amount` | `for` の差し出した荷を運び出した |
+| `tower.contribution` | `amount`, `carrier`, `stage` | 建設の荷が**届いた**（`actor`＝出した人） |
+| `tower.escort` | — | 中央への道を護衛した |
+| `tower.upkeep_delivered` | `amount` | 維持費が届いた |
+| `tower.stage_opened` | `stage`, `retry?` | 段階が始まった（期限切れの後は `retry: true`） |
+| `tower.stage_completed` | `stage`, `contributors`, `nations` | 段階が完成した |
+| `tower.stage_lapsed` | `stage`, `fraction`, `contributors` | 期限切れ |
+| `tower.refund_claim` | `amount` | 返金分が中央に預けられた |
+| `tower.claim_withdrawn` | `amount` | 返金分を引き取りに出た |
+| `tower.dormant` / `tower.awake` | `stage` / — | 維持費切れで休止／再開 |
+| `centre.raid` | `stage`, `fraction` | 中央付近で襲撃を始めた（どの案でも起こりうる） |
+
+⑭の塔には**目撃（見張り）の働きはありません**。目撃は S1 の物見櫓のものです。そのため、⑮が仮置きした「`tower.board_post` → 目撃（tower.sighting）」の対応は意味が合いません。
+
 ## 10. 文書と既存のコードの食い違い（コードに従った）
 
 | # | 文書 | コード（4cd901de） | ⑭の扱い |
