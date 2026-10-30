@@ -8,7 +8,7 @@
 //   WYLLS_MCP_STORE=.local/wylls-mcp/store.json the JSON store (0600)
 //   WYLLS_MCP_SEAL_KEY=<32 bytes base64url>     seals the agent capability at rest (required with a store file)
 //   WYLLS_MCP_TEST_AS=1                         the local test authorization server (the only one implemented)
-//   WYLLS_MCP_RECEIPT_PORT=local                  local only (④'s adapter is not in this build; anything else refuses to start)
+//   WYLLS_MCP_RECEIPT_PORT=local                  local, or ws04-mapped (the same tracking in ④'s proposed vocabulary; both MOCK). ④'s real adapter is not in this build
 //   WYLLS_MCP_REDIRECT_PROFILES=chatgpt,loopback which clients may be redirected to (chatgpt, claude, loopback; default chatgpt,loopback)
 import { JsonStore } from '../src/store.mjs';
 import { Sealer } from '../src/seal.mjs';

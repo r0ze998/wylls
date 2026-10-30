@@ -42,11 +42,107 @@ export function assertReceiptPort(p) {
   return p;
 }
 
+// ------------------------------------------------------------ ④'s vocabulary (proposal 0.2), as a MOCK mapping
+
 /**
- * The port a deployment asks for (`WYLLS_MCP_RECEIPT_PORT`): `local` (default) or the name of ④'s adapter,
- * which this build does not have. Never falls back.
+ * ④'s received contract (workstream 04, HEAD 2e536b6b, docs/CONTRACTS.ja.md "④ 0.2", every item a *proposal*):
+ * the run states, held reasons, cancel phases, verification and fee categories this mapping speaks.
+ * Source: workstreams/04-execution/src/model.rs (RunState, CancelPhase, Verification, Outcome), src/store.rs (FeeBook).
+ */
+export const WS04 = Object.freeze({
+  source: '④ workstreams/04-execution @ 2e536b6b119d8eaa4e9f4d795e856b696249a664 (CONTRACTS 0.2, proposal)',
+  states: Object.freeze(['Accepted', 'Reserved', 'FacilityRequested', 'FacilitySubmitted', 'FacilityConfirmed', 'ShipRequested', 'ShipSubmitted', 'InTransit', 'Arrived', 'Fulfilled', 'Partial', 'DeliveredUnverified', 'Failed', 'Cancelled', 'Expired']),
+  held: Object.freeze(['WalletRequired', 'Indeterminate', 'PortUnavailable', 'Inconsistent']),
+  cancel: Object.freeze(['StoppingNew', 'AwaitingSigned', 'Completed', 'Ineffective']),
+  verification: Object.freeze(['Recorded', 'RuleDerived', 'KnownZero', 'Unverifiable', 'NotShipped']),
+  fees: Object.freeze(['reserved', 'charged', 'unconfirmed', 'released']),
+});
+
+const cvSubject = op => `cv:${BigInt(op.caravan?.ownerTag ?? 0).toString(16)}:${op.caravan?.seq ?? '?'}`;
+const failReason = { lost: 'DestinationChanged', taken: 'Raided', burned: 'LostInTransit' };
+
+/** ③'s operation (one SendCaravan between the owner's own places) as ④'s Run state, held reason and outcome. */
+export function ws04View(op) {
+  const toVault = String(op.planSummary?.to ?? '').startsWith('vault:');
+  const sent = Boolean(op.gateway?.signature) || op.state === STATES_PROCESSING || op.state === 'completed';
+  let state; let reason = null;
+  if (op.state === 'requested') state = op.attempts > 0 ? 'ShipRequested' : 'Accepted';
+  else if (op.state === 'accepted') state = 'ShipSubmitted';
+  else if (op.state === 'processing') state = 'InTransit';
+  else if (op.state === 'completed') state = op.outcome === 'delivered' ? (toVault ? 'DeliveredUnverified' : 'Fulfilled') : 'Failed';
+  else state = op.error?.code === 'GrantRevoked' && !sent ? 'Cancelled' : 'Failed';
+  if (state === 'Failed') reason = failReason[op.outcome] ?? op.error?.code ?? 'Failed';
+  // Held: an attempt whose outcome is unknown (Indeterminate), or this server cannot reach the agent wallet with
+  // the connection's capability (no ④ reason fits exactly: PortUnavailable is the nearest, a mismatch to report).
+  const held = op.hold?.code === 'CapabilityUnavailable' ? 'PortUnavailable' : (op.uncertain && !['completed', 'failed'].includes(op.state) ? 'Indeterminate' : null);
+  // Outcome (④ STATE-MACHINE "到着量の判定"): a holding credits the whole cargo (RuleDerived); a vault without
+  // `credited` cannot be known (Unverifiable); lost, taken and burned are known to be nothing (KnownZero).
+  let outcome = null;
+  if (op.outcome) {
+    const cargo = op.planSummary?.cargo ?? null;
+    if (op.outcome === 'delivered') outcome = toVault ? { delivered: null, verification: 'Unverifiable', cargo_logged: cargo } : { delivered: cargo, verification: 'RuleDerived', cargo_logged: cargo };
+    else outcome = { delivered: {}, verification: 'KnownZero', cargo_logged: op.outcome === 'lost' ? cargo : null };
+    outcome.effects = [`caravan_sent ${cvSubject(op)}`, `caravan_settled ${cvSubject(op)}`];
+  }
+  return { contract: WS04.source, state, ...(reason ? { reason } : {}), held_reason: held, outcome, fees: feesOf(op) };
+}
+
+/**
+ * ④'s four fee categories for the one network fee an attempt can cost (lamports, paid by the relay's payer).
+ * This server never sees the amount (the relay's /f/tx answer has no fee) and cannot prove absence (④ HANDOFF §3),
+ * so it can only say which category the attempt is in: never `released` (that needs Absent), and `unconfirmed`
+ * wherever ④ would want a reported fee. Amounts are null, not 0.
+ */
+export function feesOf(op) {
+  if (op.attempts === 0 && !op.gateway?.signature) return { category: null, lamports: null, basis: 'no attempt was made' };
+  if (op.gateway?.status === 'refused') return { category: null, lamports: null, basis: 'refused by the agent wallet before signing (its record for this key)' };
+  if (op.state === 'failed' && !op.uncertain && op.unknownSince === null && !op.gateway?.signature) return { category: null, lamports: null, basis: 'refused on a clean first attempt, before anything was signed' };
+  if (op.chain?.state === 'landed' || op.state === 'processing' || op.state === 'completed' || op.chain?.state === 'failed') return { category: 'unconfirmed', lamports: null, basis: 'landed (or landed and failed): the fee is charged, but the relay does not report its amount' };
+  if (op.gateway?.signature && !['failed'].includes(op.state)) return { category: 'reserved', lamports: null, basis: 'signed and may still land' };
+  return { category: 'unconfirmed', lamports: null, basis: 'an attempt may have been signed; absence cannot be proven here, so it is never released' };
+}
+
+/** A revoked connection's cancellation in ④'s phases, per operation. */
+export function ws04CancelPhase(op) {
+  if (op.state === 'processing') return { phase: 'Ineffective', at: 'InTransit' };
+  if (op.state === 'completed') return { phase: 'Completed', effects: [`caravan_sent ${cvSubject(op)}`, `caravan_settled ${cvSubject(op)}`] };
+  if (op.state === 'failed') return { phase: 'Completed', effects: [] };
+  // Signed or possibly signed, not yet decided: ④ wants `until` (the last slot it can land in). The agent wallet
+  // does not return it to this server, so it is null here: a gap to close in ⑤'s ActionResult (docs 14).
+  if (op.attempts > 0 || op.gateway?.signature) return { phase: 'AwaitingSigned', until: null };
+  return { phase: 'StoppingNew' };
+}
+
+const STATES_PROCESSING = 'processing';
+
+/**
+ * ③'s own tracking rendered in ④'s proposed vocabulary. Still a MOCK: it is not ④'s ledger (④'s executor is Rust
+ * with its own run store; no adapter between them exists yet). Every receipt keeps ③'s fields and adds `ws04`.
+ */
+export class Ws04MappedPort {
+  contract = 'wylls.mock-run-receipt/0+ws04-proposal-0.2';
+  real = false;
+  #local = new LocalReceiptPort();
+  receipt(op) { return { ...this.#local.receipt(op), contract: this.contract, ws04: ws04View(op) }; }
+  cancellation(link, ops) {
+    const c = this.#local.cancellation(link, ops);
+    return c && { ...c, contract: this.contract, ws04: Object.fromEntries(ops.map(o => [o.id, ws04CancelPhase(o)])) };
+  }
+  arrival(op) {
+    const v = ws04View(op).outcome;
+    if (!v) return this.#local.arrival(op);
+    if (v.verification === 'RuleDerived') return { transportEnded: true, settled: true, quantity: { state: 'verified', received: v.delivered, basis: 'RuleDerived (④): a holding credits the whole cargo (Accrual::add has no cap)' }, verification: v.verification };
+    if (v.verification === 'KnownZero') return { transportEnded: true, settled: op.outcome !== 'taken', quantity: { state: 'none', basis: `KnownZero (④): ${failReason[op.outcome] ?? op.outcome}` }, verification: v.verification };
+    return { ...this.#local.arrival(op), verification: v.verification };
+  }
+}
+
+/**
+ * The port a deployment asks for (`WYLLS_MCP_RECEIPT_PORT`): `local` (default), `ws04-mapped` (the same tracking
+ * in ④'s proposed vocabulary, still a MOCK), or ④'s real adapter, which this build does not have. Never falls back.
  */
 export function receiptPortFor(name = 'local') {
   if (name === 'local') return new LocalReceiptPort();
-  throw new Error(`receipt port "${name}": no adapter in this build (④'s RunReceipt contract has not been received; see patches/0006 and docs 13). Use local.`);
+  if (name === 'ws04-mapped') return new Ws04MappedPort();
+  throw new Error(`receipt port "${name}": no adapter in this build (④'s run ledger has no adapter to this server yet; see docs 14). Use local or ws04-mapped.`);
 }

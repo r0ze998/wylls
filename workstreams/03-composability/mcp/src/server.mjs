@@ -320,7 +320,14 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
       const tx = await game.txStatus(op.gateway.signature);
       if (tx?.state === 'landed') { op.chain = { state: 'landed', slot: tx.slot ?? null }; step(op, STATES.PROCESSING, 'the transaction landed: the caravan is on the road'); }
       else if (tx?.state === 'failed') { op.chain = { state: 'failed', code: tx.code ?? null }; definite(op, link, tx.code ?? 'TransactionFailed', 'the transaction failed on chain: nothing moved', 'program'); }
-      else if (tx?.state === 'expired') { op.chain = { state: 'expired' }; definite(op, link, 'Expired', 'the transaction expired before it landed: nothing moved'); }
+      else if (tx?.state === 'expired') {
+        // The relay found no status and its *confirmed* height is past the blockhash: that is not proof of absence
+        // (④ HANDOFF §3 needs a gapless, finalized history over the whole window). Nothing is released on it: the
+        // grant stays counted and the owner's caravan counter decides after the window (NotSent), as for any
+        // outcome that is not known.
+        op.chain = { state: 'expired', absenceProven: false };
+        if (!op.unknownSince) { op.unknownSince = now(); op.uncertain = true; step(op, STATES.ACCEPTED, 'the relay reports the blockhash expired with no status seen: not proof that nothing landed; the caravan counter decides'); }
+      }
       else op.chain = { state: tx?.state ?? 'unknown' };
     }
     if (!TERMINAL.includes(op.state)) {

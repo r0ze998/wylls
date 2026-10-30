@@ -35,7 +35,15 @@ export const FIVE_REFUSALS = Object.freeze({
   SendFailed: R('chain', 'chain', false, 'the chain\'s answer is in the receipt'),
   AgentKeyDirect: R('⑤', 'request', false, 'the agent\'s key is used only through the agent wallet'),
   AgentWalletDisabled: R('⑤', 'agent', false, 'the relay runs without the agent wallet'),
+  // ⑤'s patch 0001 (agent-wallet-staking-limits, ⑤ ba3c180b; not applied in this repository): present only on a
+  // gateway that has it.
+  PerCallLimit: R('⑤', 'budget', false, 'the owner raises the per-call limit, or the plan asks for less'),
+  CategoryLimit: R('⑤', 'budget', false, 'the owner raises this category\'s limit (game or inference), or waits for the next day'),
+  PolicyExpired: R('⑤', 'policy', false, 'the owner renews the agent\'s permission (its policy expired)'),
 });
+
+/** Codes above that only ⑤'s patch 0001 adds: a gateway without it does not have them (and is not wrong). */
+export const FIVE_PATCH_0001_CODES = Object.freeze(['PerCallLimit', 'CategoryLimit', 'PolicyExpired']);
 
 /**
  * ⑤'s codes that `POST /f/agent/action` does not answer (deposits, withdrawals, model calls, owner commands, agent

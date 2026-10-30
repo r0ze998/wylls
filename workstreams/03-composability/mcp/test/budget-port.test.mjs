@@ -2,12 +2,14 @@
 // through with their code, naming whose decision each was. Every code here is checked against the gateway in use.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { FIVE_NOT_FROM_ACTIONS, FIVE_REFUSALS, budgetOf, refusalOf } from '../src/budget-port.mjs';
+import { FIVE_NOT_FROM_ACTIONS, FIVE_PATCH_0001_CODES, FIVE_REFUSALS, budgetOf, refusalOf } from '../src/budget-port.mjs';
 import { client, connect, contract, server, world } from './fixture.mjs';
 
 test('every ⑤ refusal code named here is one the gateway has, and every gateway code is accounted for', () => {
   const codes = new Set(Object.values(contract.ERR));
-  for (const k of Object.keys(FIVE_REFUSALS)) assert.ok(codes.has(k), `${k} is not a code of ⑤'s gateway`);
+  for (const k of Object.keys(FIVE_REFUSALS)) assert.ok(codes.has(k) || FIVE_PATCH_0001_CODES.includes(k), `${k} is not a code of ⑤'s gateway`);
+  const has0001 = FIVE_PATCH_0001_CODES.every(k => codes.has(k));
+  assert.ok(has0001 || FIVE_PATCH_0001_CODES.every(k => !codes.has(k)), 'the gateway has all of ⑤ 0001\'s codes or none');
   for (const k of FIVE_NOT_FROM_ACTIONS) assert.ok(codes.has(k), `${k} is not a code of ⑤'s gateway`);
   for (const k of codes) assert.ok(FIVE_REFUSALS[k] || FIVE_NOT_FROM_ACTIONS.includes(k), `⑤'s ${k} is not accounted for`);
   assert.deepEqual(refusalOf('SomethingNew').by, 'unknown', 'an unknown code is not guessed');

@@ -282,3 +282,25 @@ test('the answer was lost after the relay sent, then a seal-key mismatch and a r
     assert.equal(w.r.chain.sent.length, 1, 'one transaction');
   } finally { await s2.close(); }
 });
+
+test('the relay\'s "expired" is not proof of absence: the send stays counted until the caravan counter decides', { skip: needsPatch }, async () => {
+  const clock = { t: Date.now() };
+  const w = await world();
+  const s = await server(w, { clock, uncertainWindowMs: 60_000 });
+  try {
+    w.r.chain.confirm = false; // sent, not seen landing
+    const m = client(s, (await connect(s, w)).access_token);
+    const p = await plan(m, 'vault', 'village', { Stone: 100 });
+    const r = (await m.tool('send_caravan', { planId: p.planId, requestId: 'req-exp-0001' })).structuredContent;
+    assert.equal(r.state, 'accepted');
+    w.state.intercept = async u => (u.pathname.startsWith('/f/tx/') ? { status: 200, ok: true, json: async () => ({ state: 'expired' }) } : null);
+    const a = (await m.tool('get_operation_status', { operationId: r.operationId })).structuredContent;
+    assert.equal(a.state, 'accepted', 'not failed on the relay\'s word');
+    assert.deepEqual(a.chain, { state: 'expired', absenceProven: false });
+    assert.equal((await m.tool('get_connection')).structuredContent.grant.used, 1, 'still counted');
+    clock.t += 61_000; // the window passes; no trace; the owner's caravan counter has not moved past this seq
+    const b = await m.tool('get_operation_status', { operationId: r.operationId });
+    assert.deepEqual([b.structuredContent.error.receipt.state, b.structuredContent.error.code], ['failed', 'NotSent']);
+    assert.equal((await m.tool('get_connection')).structuredContent.grant.used, 0, 'given back on the counter\'s answer');
+  } finally { w.state.intercept = null; await s.close(); }
+});

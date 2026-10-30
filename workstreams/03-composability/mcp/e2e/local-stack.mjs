@@ -39,6 +39,7 @@ import { JsonStore } from '../src/store.mjs';
 import { Sealer } from '../src/seal.mjs';
 import { Game } from '../src/game.mjs';
 import { Auth, ownerQueryStatement, revokeStatement } from '../src/auth.mjs';
+import { receiptPortFor } from '../src/receipt-port.mjs';
 import { createWyllsMcp } from '../src/server.mjs';
 import { createHandler, listen } from '../src/http.mjs';
 
@@ -142,7 +143,9 @@ try {
   const srv = await listen((req, res) => handler(req, res));
   const issuer = `http://127.0.0.1:${srv.address().port}`;
   const auth = new Auth({ issuer, resource: `${issuer}/mcp`, store, sealer: new Sealer(null), game, log: m => logs.push(m) });
-  handler = createHandler({ auth, mcp: createWyllsMcp({ auth, game, store, log: m => logs.push(m) }) });
+  const receipts = receiptPortFor(process.env.WS03_E2E_RECEIPT_PORT ?? 'local');
+  handler = createHandler({ auth, mcp: createWyllsMcp({ auth, game, store, log: m => logs.push(m), receipts }) });
+  report.receiptPort = { contract: receipts.contract, real: receipts.real };
   const post = async (p, b, form = false) => { const r = await fetch(issuer + p, { method: 'POST', headers: { 'content-type': form ? 'application/x-www-form-urlencoded' : 'application/json' }, body: form ? new URLSearchParams(b).toString() : JSON.stringify(b) }); return { status: r.status, json: await r.json() }; };
   async function link(scopes, grant) {
     const redirect = 'http://127.0.0.1:9/callback';
@@ -212,6 +215,13 @@ try {
   assert.deepEqual([second.end.state, second.end.outcome], ['completed', 'delivered'], json(second.end));
   const replay = await tool('send_caravan', { planId: second.plan.planId, requestId: second.sent.requestId });
   assert.equal(replay.structuredContent.replayed, true, 'the same requestId: the same operation, not a new send');
+  if (receipts.contract.includes('ws04')) {
+    // ④'s vocabulary on the real chain: the storehouse delivery cannot be verified, the village's follows the rule.
+    assert.deepEqual([first.end.ws04.state, first.end.ws04.outcome.verification, first.end.ws04.outcome.delivered], ['DeliveredUnverified', 'Unverifiable', null], json(first.end.ws04));
+    assert.deepEqual([second.end.ws04.state, second.end.ws04.outcome.verification], ['Fulfilled', 'RuleDerived'], json(second.end.ws04));
+    assert.ok(![first, second].some(c => c.end.ws04.fees.category === 'released'), 'never released without proof of absence');
+    check('ws04-vocabulary', { caravan1: first.end.ws04, caravan2: second.end.ws04 });
+  }
   check('caravan-2-storehouse-to-village', { plan: second.plan.summary, states: second.seen, receipt: { operationId: second.end.operationId, signature: second.end.gateway.signature, history: second.end.history }, replayOfSameRequestId: 'replayed' });
   const third = (await tool('prepare_caravan', { from: st2.village.placeId, to: st2.storehouses[0].placeId, cargo: { Food: 1 } })).structuredContent;
   assert.equal((await tool('send_caravan', { planId: third.planId, requestId: 'e2e-third-0001' })).structuredContent.error.code, 'GrantLimitReached');
@@ -231,7 +241,10 @@ try {
   const revoked = view.json.connections.find(l => l.linkId === caravanLink.linkId);
   assert.equal(revoked.cancellation.newRequests, 'stopped');
   const sentOps = view.json.operations.filter(o => o.linkId === caravanLink.linkId && o.gateway?.signature);
-  assert.deepEqual(sentOps.map(o => [o.state, o.outcome, o.arrival?.quantity?.state]), [['completed', 'delivered', 'unverified'], ['completed', 'delivered', 'unverified']]);
+  // local: every delivery's amount is unverified. ws04-mapped (④'s rule): a village's is RuleDerived, a storehouse's is not.
+  const expectQ = o => (receipts.contract.includes('ws04') && String(o.plan?.to).startsWith('village:') ? 'verified' : 'unverified');
+  assert.deepEqual(sentOps.map(o => [o.state, o.outcome, o.arrival?.quantity?.state]), sentOps.map(o => ['completed', 'delivered', expectQ(o)]));
+  assert.ok(sentOps.some(o => String(o.plan?.to).startsWith('vault:') && o.arrival.quantity.state === 'unverified'), 'the storehouse delivery is never verified');
   assert.ok(!JSON.stringify(view.json).includes(cap), 'no capability in the owner view');
   check('owner-view-after-revocation', { cancellation: revoked.cancellation, operations: sentOps.map(o => ({ requestId: o.requestId, state: o.state, outcome: o.outcome, quantity: o.arrival.quantity.state })) });
   srv.close();
