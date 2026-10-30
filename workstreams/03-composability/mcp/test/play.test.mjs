@@ -11,7 +11,7 @@ import { mkdtempSync, readFileSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { randomBytes } from 'node:crypto';
-import { PATCHED, client, connect, encodeCaravanRecord, fx, server, world } from './fixture.mjs';
+import { HAS_0007, PATCHED, client, connect, encodeCaravanRecord, fx, server, world } from './fixture.mjs';
 
 const needsPatch = PATCHED ? false : 'needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)';
 
@@ -151,7 +151,7 @@ test('raids and lost destinations are outcomes, not server failures: taken, burn
   }
 });
 
-test('a failed transaction on chain is failed (nothing moved), with the program\'s reason', { skip: needsPatch }, async () => {
+test('this request\'s own transaction failed: decided only at finalized (0007 reports the commitment); before that it is held', { skip: needsPatch }, async () => {
   const { w, s, m } = await setup();
   try {
     w.r.chain.confirm = false;
@@ -159,6 +159,15 @@ test('a failed transaction on chain is failed (nothing moved), with the program\
     const r = (await m.tool('send_caravan', { planId: plan.planId, requestId: 'req-txfail-01' })).structuredContent;
     const sig = r.gateway.signature;
     w.r.chain.statuses.set(sig, { slot: 80, err: { InstructionError: [3, { Custom: 4 }] }, confirmationStatus: 'confirmed' });
+    const early = (await m.tool('get_operation_status', { operationId: r.operationId })).structuredContent;
+    assert.deepEqual([early.state, early.hold?.code], ['accepted', 'Indeterminate'], 'a failure at confirmed is not final');
+    assert.equal((await m.tool('get_connection')).structuredContent.grant.used, 1);
+    w.r.chain.statuses.set(sig, { slot: 80, err: { InstructionError: [3, { Custom: 4 }] }, confirmationStatus: 'finalized' });
+    if (!HAS_0007) {
+      const still = (await m.tool('get_operation_status', { operationId: r.operationId })).structuredContent;
+      assert.equal(still.state, 'accepted', 'a relay without 0007 does not report the commitment: still not decided');
+      return;
+    }
     const res = await m.tool('get_operation_status', { operationId: r.operationId });
     assert.equal(res.isError, true);
     const end = res.structuredContent.error.receipt;
@@ -250,7 +259,7 @@ test('the relay answered but the MCP server never recorded it (crash): after a r
   } finally { await s2.close(); }
 });
 
-test('the send left but its answer says failed (outcome unknown): not "nothing sent"; the caravan\'s own trace decides', { skip: needsPatch }, async () => {
+test('the send left but its answer says failed (no signature): records under its caravan number decide nothing; held, still counted', { skip: needsPatch }, async () => {
   const { w, s, m } = await setup({}, { grant: { actions: ['SendCaravan'], maxSends: 1, maxCargo: Array(8).fill(500) } }, { uncertainWindowMs: 0 });
   try {
     const original = w.r.chain.sendRawTransaction;
@@ -266,16 +275,21 @@ test('the send left but its answer says failed (outcome unknown): not "nothing s
     w.state.caravans = 1;
     const second = await planned(m, { Stone: 1 });
     assert.equal((await m.tool('send_caravan', { planId: second.plan.planId, requestId: 'req-unknown-02' })).structuredContent.error.code, 'GrantLimitReached');
-    // The caravan's trace: on the road, then settled.
+    // A caravan with this number is on the road and settles; the gateway gave this request no signature, so the
+    // number alone cannot make it this request's own: held, never completed, the grant still counted.
     w.state.moving.push({ ownerTag: r.structuredContent.caravan.ownerTag, seq: 0, faction: 2, src: { kind: 2, p: w.P, q: w.Q, at: 33, gen: 1, tile: 33 }, dst: { kind: 1, p: w.P, q: w.Q, at: w.SITE, gen: 1, tile: 30 }, steps: 3, cargo: [0, 0, 250, 0, 0, 0, 0, 0], arriveTs: fx.GENESIS + 4_000, runs: [], raided: false });
+    w.state.events.push({ seq: String(w.state.events.length + 1), sig: 'whose-signature', kind: 91, bell: 30, tx: 1, slot: 70,
+      body_b64: encodeCaravanRecord('CARAVAN_SENT', { ownerTag: BigInt(r.structuredContent.caravan.ownerTag), seq: 0, payload: {} }).toString('base64') });
     const op = (await m.tool('get_operation_status', { operationId: r.structuredContent.operationId })).structuredContent;
-    assert.equal(op.state, 'processing');
+    assert.deepEqual([op.state, op.hold?.code], ['accepted', 'Indeterminate']);
     settle(w, op, 0);
-    assert.equal((await m.tool('get_operation_status', { operationId: op.operationId })).structuredContent.outcome, 'delivered');
+    const after = (await m.tool('get_operation_status', { operationId: op.operationId })).structuredContent;
+    assert.deepEqual([after.state, after.outcome ?? null], ['accepted', null], 'a settle record for the number is not this request\'s outcome');
+    assert.equal((await m.tool('get_connection')).structuredContent.grant.used, 1);
   } finally { await s.close(); }
 });
 
-test('outcome unknown and no trace: after the window, with the owner\'s caravan counter unmoved, it is NotSent and the grant is given back', { skip: needsPatch }, async () => {
+test('outcome unknown and no trace: after the window it is held (Indeterminate), never NotSent from the caravan counter; the grant stays counted', { skip: needsPatch }, async () => {
   const clock = { t: Date.now() };
   const { w, s, m } = await setup({}, {}, { clock, uncertainWindowMs: 5 * 60_000 });
   try {
@@ -285,10 +299,9 @@ test('outcome unknown and no trace: after the window, with the owner\'s caravan 
     assert.equal(r.state, 'accepted');
     assert.equal((await m.tool('get_operation_status', { operationId: r.operationId })).structuredContent.state, 'accepted', 'within the window: still unknown');
     clock.t += 5 * 60_000 + 1;
-    const end = await m.tool('get_operation_status', { operationId: r.operationId });
-    assert.equal(end.structuredContent.error.code, 'NotSent');
-    assert.equal(end.structuredContent.error.receipt.state, 'failed');
-    assert.equal((await m.tool('get_connection')).structuredContent.grant.used, 0);
+    const end = (await m.tool('get_operation_status', { operationId: r.operationId })).structuredContent;
+    assert.deepEqual([end.state, end.hold?.code], ['accepted', 'Indeterminate']);
+    assert.equal((await m.tool('get_connection')).structuredContent.grant.used, 1, 'not released: absence is not proven');
   } finally { await s.close(); }
 });
 
@@ -305,8 +318,9 @@ test('a retry after the relay was unreachable re-checks the owner\'s limits: pas
     assert.equal(w.r.chain.sent.length, 0, 'no new attempt after the grant expired');
     assert.match(r.structuredContent.history.at(-1).detail, /GrantExpired/);
     assert.equal(r.structuredContent.state, 'accepted', 'outcome unknown (the first attempt may have reached the relay): the chain decides');
-    const end = await m.tool('get_operation_status', { operationId: r.structuredContent.operationId });
-    assert.equal(end.structuredContent.error.code, 'NotSent', 'no trace, past the window, the counter unmoved');
+    clock.t += 5 * 60_000 + 1;
+    const end = (await m.tool('get_operation_status', { operationId: r.structuredContent.operationId })).structuredContent;
+    assert.deepEqual([end.state, end.hold?.code], ['accepted', 'Indeterminate'], 'no trace past the window: held, not NotSent');
   } finally { await s.close(); }
 });
 

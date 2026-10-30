@@ -20,16 +20,35 @@ export function portConformance(port) {
   }
   // 2. Sending is not arriving: no arrival before the end of transport.
   assert.equal(port.receipt(op({ state: STATES.PROCESSING })).arrival, undefined);
-  // 3. The end of transport is not a verified amount: never the full cargo as received, never 0, unless verified.
+  // 3. The end of transport is not a verified amount: never the plan's cargo as received, never 0, unless verified;
+  //    and only for a caravan proven this request's own (its signature). The settle record's cargo is
+  //    floor(milli / 1000): a lower bound, and a 0 there is not "nothing arrived".
+  const mine = { by: 'test', signature: 's' };
+  const settle = logged => ({ record: { kind: 'CARAVAN_SETTLED' }, cargoLogged: logged, precision: 'floor' });
   for (const to of ['vault:1,2,33', 'village:1,2,3']) {
-    const a = port.arrival(op({ state: STATES.COMPLETED, outcome: 'delivered', planSummary: { to, cargo: { Stone: 100 } } }));
+    const a = port.arrival(op({ state: STATES.COMPLETED, outcome: 'delivered', planSummary: { to, cargo: { Stone: 100 } }, caravan: { seq: 0, ownerTag: '1', mine, settle: settle({ Stone: 97 }) } }));
     assert.equal(a.transportEnded, true);
     assert.ok(['unverified', 'verified'].includes(a.quantity.state));
     if (a.quantity.state === 'unverified') { assert.equal(a.quantity.received, undefined); assert.ok(a.quantity.basis); }
-    else assert.ok(a.quantity.received && a.quantity.basis, 'a verified amount names its evidence');
+    else {
+      assert.ok(a.quantity.received && a.quantity.basis, 'a verified amount names its evidence');
+      assert.notDeepEqual(a.quantity.received, { Stone: 100 }, 'never the plan\'s cargo (the road wears it)');
+      assert.deepEqual(a.quantity.received.atLeast, { Stone: 97 }, 'the record\'s lower bound, with its precision');
+      assert.ok(a.quantity.received.precision);
+    }
+    // A record of 0: not "0 arrived".
+    const z = port.arrival(op({ state: STATES.COMPLETED, outcome: 'delivered', planSummary: { to, cargo: { Stone: 1 } }, caravan: { seq: 0, ownerTag: '1', mine, settle: settle({}) } }));
+    assert.notEqual(z.quantity.state, 'none');
+    // Not proven this request's own: nothing claimed.
+    const n = port.arrival(op({ state: STATES.COMPLETED, outcome: 'delivered', planSummary: { to, cargo: { Stone: 100 } } }));
+    assert.equal(n.quantity.state, 'unverified');
   }
-  assert.equal(port.arrival(op({ state: STATES.COMPLETED, outcome: 'lost' })).quantity.state, 'none');
-  for (const outcome of ['taken', 'burned']) assert.notEqual(port.arrival(op({ state: STATES.COMPLETED, outcome })).quantity.state, 'verified');
+  assert.equal(port.arrival(op({ state: STATES.COMPLETED, outcome: 'lost', caravan: { seq: 0, ownerTag: '1', mine, settle: settle({}) } })).quantity.state, 'none');
+  assert.equal(port.arrival(op({ state: STATES.COMPLETED, outcome: 'lost' })).quantity.state, 'unverified', 'lost, but not proven ours: not known to be nothing');
+  for (const outcome of ['taken', 'burned']) {
+    assert.notEqual(port.arrival(op({ state: STATES.COMPLETED, outcome, caravan: { seq: 0, ownerTag: '1', mine, raid: { choice: outcome, record: { kind: 'CARAVAN_RAIDED' } } } })).quantity.state, 'verified');
+    assert.notEqual(port.arrival(op({ state: STATES.COMPLETED, outcome })).quantity.state, 'none', 'a raid without its own matching record is not known to be nothing');
+  }
   // 4. A live connection has no cancellation; a revoked one stops new requests and lists what awaits reconciliation.
   assert.equal(port.cancellation({ linkId: 'lnk_a', revokedAt: null }, [op()]), null);
   const open = op({ id: 'op_open', state: STATES.ACCEPTED });

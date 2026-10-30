@@ -197,7 +197,12 @@ try {
   const first = await caravan(st1.village.placeId, st1.storehouses[0].placeId, { Food: carry }, `e2e-${randomBytes(4).toString('hex')}-1`);
   assert.deepEqual([first.end.state, first.end.outcome], ['completed', 'delivered'], json(first.end));
   assert.equal(first.end.arrival?.quantity?.state, 'unverified', 'the end of transport is not a verified amount');
-  check('caravan-1-village-to-storehouse', { plan: first.plan.summary, states: first.seen, receipt: { operationId: first.end.operationId, signature: first.end.gateway.signature, arriveAt: first.end.caravan.arriveAt, history: first.end.history } });
+  // The caravan is this request's own by its signature (the relay's landed status, or its signed CARAVAN_SENT with the
+  // plan's content), and the settle record's cargo is kept as recorded: whole units, a lower bound.
+  assert.equal(first.end.caravan.mine?.signature ?? first.end.gateway.signature, first.end.gateway.signature, json(first.end.caravan));
+  assert.ok(first.end.caravan.settle?.cargoLogged && /lower bound/.test(first.end.caravan.settle.precision), json(first.end.caravan));
+  check('caravan-1-village-to-storehouse', { plan: first.plan.summary, states: first.seen, receipt: { operationId: first.end.operationId, signature: first.end.gateway.signature, arriveAt: first.end.caravan.arriveAt, history: first.end.history },
+    attribution: first.end.caravan.mine, settle: first.end.caravan.settle, sentCargo: first.end.caravan.sentCargo ?? null, chain: first.end.chain });
   const st2 = (await tool('get_village_status')).structuredContent;
   const inVault = st2.storehouses[0].stores?.find(x => x.resource === 'Food')?.have;
   assert.ok(inVault >= carry, `the storehouse holds the food: ${json(st2.storehouses)}`);
@@ -222,7 +227,8 @@ try {
     assert.ok(![first, second].some(c => c.end.ws04.fees.category === 'released'), 'never released without proof of absence');
     check('ws04-vocabulary', { caravan1: first.end.ws04, caravan2: second.end.ws04 });
   }
-  check('caravan-2-storehouse-to-village', { plan: second.plan.summary, states: second.seen, receipt: { operationId: second.end.operationId, signature: second.end.gateway.signature, history: second.end.history }, replayOfSameRequestId: 'replayed' });
+  check('caravan-2-storehouse-to-village', { plan: second.plan.summary, states: second.seen, receipt: { operationId: second.end.operationId, signature: second.end.gateway.signature, history: second.end.history }, replayOfSameRequestId: 'replayed',
+    attribution: second.end.caravan.mine, settle: second.end.caravan.settle, sentCargo: second.end.caravan.sentCargo ?? null, chain: second.end.chain });
   const third = (await tool('prepare_caravan', { from: st2.village.placeId, to: st2.storehouses[0].placeId, cargo: { Food: 1 } })).structuredContent;
   assert.equal((await tool('send_caravan', { planId: third.planId, requestId: 'e2e-third-0001' })).structuredContent.error.code, 'GrantLimitReached');
   check('grant-limit', { code: 'GrantLimitReached', maxSends: 2 });

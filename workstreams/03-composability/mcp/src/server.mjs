@@ -11,7 +11,7 @@ import { SCOPES } from './auth.mjs';
 import { MockGrantPort, STATES, TERMINAL } from './ports.mjs';
 import { LocalReceiptPort, assertReceiptPort } from './receipt-port.mjs';
 import { budgetOf, refusalOf } from './budget-port.mjs';
-import { KINDS, SETTLE_OUTCOME, RAID_CHOICE, caravanEvent } from './events.mjs';
+import { KINDS, SETTLE_OUTCOME, RAID_CHOICE, caravanEvent, cargoOf, placeOfLog } from './events.mjs';
 import { REQUEST_ID, SERVER_INSTRUCTIONS, TOOLS } from './tools.mjs';
 
 export const PROTOCOL_VERSIONS = Object.freeze(['2025-11-25', '2025-06-18', '2025-03-26']);
@@ -275,42 +275,103 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
     return answer(op);
   }
 
-  /** The caravan's own trace (by owner tag and seq): on the road, sent, raided, settled. Moves `op` on. */
+  /** Holds an operation with a reason (not a state: nothing is decided, nothing released). */
+  const hold = (op, code, detail, extra = {}) => {
+    if (op.hold?.code === code) return;
+    op.hold = { code, since: new Date(now()).toISOString(), detail, ...extra };
+    op.updatedAt = op.hold.since;
+    op.steps.push({ state: op.state, at: op.hold.since, detail: `held (${code}): ${detail}` });
+  };
+  const named = arr => Object.fromEntries(RESOURCE_NAMES.map((r, i) => [r, arr[i]]).filter(([, n]) => n > 0));
+
+  /** Does the CARAVAN_SENT record say what this request asked (destination, cargo)? null when it does. */
+  function contentMismatch(op, payload) {
+    const f = db.plans[op.planId]?.fields;
+    const dst = placeOfLog(BigInt(payload.dst ?? 0));
+    if (f && (dst.kind !== Number(f.dst_kind) || dst.p !== Number(f.dst_p) || dst.q !== Number(f.dst_q) || dst.at !== Number(f.dst_at))) return `the record's destination ${JSON.stringify(dst)} is not the plan's`;
+    const sent = payload.cargo ?? Array(8).fill(0);
+    const asked = cargoArray(op.planSummary?.cargo);
+    const worn = Number(payload.worn_bps ?? 0);
+    // Worn on the road at the send (caravan.rs worn_cargo) and logged as floor(milli / 1000): never more than asked;
+    // equal when nothing was worn.
+    for (let r = 0; r < 8; r++) if (sent[r] > asked[r] || (worn === 0 && sent[r] !== asked[r])) return `the record's cargo ${JSON.stringify(named(sent))} is not the plan's ${JSON.stringify(named(asked))} (worn ${worn} bps)`;
+    return null;
+  }
+
+  /**
+   * The caravan's records (by owner tag and seq). A record counts for this operation only once the caravan is
+   * proven this request's own: the CARAVAN_SENT record signed by this request's signature with the plan's content,
+   * or this signature's own landed status. A record under another signature with the same seq is another route's
+   * send (the seq alone proves nothing): the operation is held, never completed or released on it.
+   */
   async function evidence(op) {
-    const feed = await game.caravansFeed();
-    const c = feed?.caravans?.moving?.find(x => String(x.ownerTag) === op.caravan.ownerTag && x.seq === op.caravan.seq);
-    let seen = false;
-    if (c) { seen = true; op.caravan.arriveAt = new Date(Number(c.arriveTs) * 1000).toISOString(); op.caravan.raided = c.raided; }
-    for (let i = 0; i < EVENT_PAGES_PER_CHECK && !TERMINAL.includes(op.state); i++) {
+    // 1. Collect every record under this caravan's number (kept with the operation, so that a signature learned
+    //    later, e.g. from a retry answered by the agent wallet's record, can still attribute earlier ones).
+    op.caravan.seen ??= [];
+    for (let i = 0; i < EVENT_PAGES_PER_CHECK; i++) {
       const page = await game.events(op.eventsCursor);
       if (!page) break;
       for (const row of page.events) {
         const e = caravanEvent(row);
         if (!e || e.ownerTag !== op.caravan.ownerTag || e.seq !== op.caravan.seq) continue;
-        seen = true;
-        if (e.kind === KINDS.CARAVAN_SENT) op.caravan.arriveAt ??= new Date(Number(e.payload.arrive_ts) * 1000).toISOString();
-        if (op.state !== STATES.PROCESSING && !TERMINAL.includes(op.state)) step(op, STATES.PROCESSING, 'the caravan is on the road (its record)');
-        if (e.kind === KINDS.CARAVAN_RAIDED) {
-          const choice = RAID_CHOICE[Number(e.payload.choice)] ?? 'raided';
-          op.caravan.raid = { bell: Number(e.payload.bell), choice };
-          if (choice === 'taken') { op.outcome = 'taken'; op.arrival = receipts.arrival(op); step(op, STATES.COMPLETED, 'another village took the caravan in a raid'); }
-        }
-        if (e.kind === KINDS.CARAVAN_SETTLED && !TERMINAL.includes(op.state)) {
-          const o = SETTLE_OUTCOME[Number(e.payload.outcome)] ?? 'settled';
-          op.outcome = op.caravan.raid?.choice === 'burned' && o === 'delivered' ? 'burned' : o;
-          op.caravan.settledAtBell = e.bell;
-          op.arrival = receipts.arrival(op);
-          step(op, STATES.COMPLETED, op.outcome === 'delivered' ? 'the caravan arrived and was settled' : `the caravan was settled: ${op.outcome}`);
-        }
+        if (op.caravan.seen.some(x => x.event === e.eventSeq)) continue;
+        const pl = e.payload;
+        op.caravan.seen.push({ kind: e.kind, name: e.name, signature: e.signature, slot: row.slot ?? null, event: e.eventSeq, bell: e.bell,
+          payload: { ...(pl.dst !== undefined ? { dst: String(pl.dst) } : {}), ...(pl.cargo ? { cargo: cargoOf(pl.cargo) } : {}), ...(pl.worn_bps !== undefined ? { worn_bps: Number(pl.worn_bps) } : {}),
+            ...(pl.arrive_ts !== undefined ? { arrive_ts: Number(pl.arrive_ts) } : {}), ...(pl.choice !== undefined ? { choice: Number(pl.choice) } : {}), ...(pl.outcome !== undefined ? { outcome: Number(pl.outcome) } : {}), ...(pl.bell !== undefined ? { bell: Number(pl.bell) } : {}) } });
       }
       if (page.next !== null && page.next !== undefined) op.eventsCursor = String(page.next);
       if (!page.full) break;
     }
-    if (seen && (op.state === STATES.ACCEPTED || op.state === STATES.REQUESTED)) step(op, STATES.PROCESSING, 'the caravan is on the road');
-    return seen;
+    // 2. Decide from what is known, in record order.
+    const ours = op.gateway?.signature ?? null;
+    for (const x of op.caravan.seen) {
+      if (TERMINAL.includes(op.state)) break;
+      const ref = { kind: x.name, signature: x.signature, slot: x.slot, event: x.event };
+      if (x.kind === KINDS.CARAVAN_SENT) {
+        if (op.caravan.mine?.event === x.event) continue;
+        if (!ours) { hold(op, 'Indeterminate', 'a send with this caravan number is recorded, but this server does not know its own signature (the answer was lost): it cannot tell whether the send is its own. Retrying with the same requestId lets the agent wallet answer from its record.', { evidence: ref }); continue; }
+        if (x.signature !== ours) { if (!op.caravan.mine) hold(op, 'SeqUsedByAnotherSend', 'another signature sent a caravan with this number: not this request\'s send; this request\'s own outcome is not decided by it', { evidence: ref }); continue; }
+        const bad = contentMismatch(op, x.payload);
+        if (bad) { hold(op, 'Inconsistent', bad, { evidence: ref }); continue; }
+        op.caravan.mine = { by: 'CARAVAN_SENT signed by this request, content as planned', ...ref };
+        if (op.hold && ['Indeterminate', 'SeqUsedByAnotherSend'].includes(op.hold.code)) delete op.hold;
+        op.caravan.sentCargo = named(x.payload.cargo ?? []);
+        op.caravan.wornBps = x.payload.worn_bps ?? 0;
+        if (x.payload.arrive_ts) op.caravan.arriveAt ??= new Date(x.payload.arrive_ts * 1000).toISOString();
+        if (op.state !== STATES.PROCESSING) step(op, STATES.PROCESSING, 'the caravan is on the road (its record, signed by this request)');
+        continue;
+      }
+      if (!op.caravan.mine || op.hold?.code === 'Inconsistent') continue; // settle and raid records follow only a caravan proven this request's
+      if (x.kind === KINDS.CARAVAN_RAIDED) {
+        const choice = RAID_CHOICE[x.payload.choice] ?? 'raided';
+        op.caravan.raid = { bell: x.payload.bell ?? x.bell, choice, record: ref };
+        if (choice === 'taken') { op.outcome = 'taken'; op.arrival = receipts.arrival(op); step(op, STATES.COMPLETED, 'another village took the caravan in a raid'); }
+      }
+      if (x.kind === KINDS.CARAVAN_SETTLED) {
+        const o = SETTLE_OUTCOME[x.payload.outcome] ?? 'settled';
+        op.outcome = op.caravan.raid?.choice === 'burned' && o === 'delivered' ? 'burned' : o;
+        op.caravan.settledAtBell = x.bell;
+        op.caravan.settle = { record: ref, cargoLogged: named(x.payload.cargo ?? []), precision: 'whole units, floor(milli / 1000): a lower bound of the cargo carried, 0 included' };
+        op.arrival = receipts.arrival(op);
+        step(op, STATES.COMPLETED, op.outcome === 'delivered' ? 'the caravan arrived and was settled' : `the caravan was settled: ${op.outcome}`);
+      }
+    }
+    if (op.caravan.mine) {
+      const feed = await game.caravansFeed();
+      const c = feed?.caravans?.moving?.find(x => String(x.ownerTag) === op.caravan.ownerTag && x.seq === op.caravan.seq);
+      if (c) { op.caravan.arriveAt ??= new Date(Number(c.arriveTs) * 1000).toISOString(); op.caravan.raided = c.raided; }
+    }
+    return Boolean(op.caravan.mine);
   }
 
-  /** Moves an operation on from what the chain and the herald now say (pull: the client asks again). */
+  /**
+   * Moves an operation on from what the chain and the herald now say (pull: the client asks again). Decided only on
+   * this request's own signature: landed (it is ours: on the road), failed at finalized (it ran and moved nothing),
+   * or absent with the proof patch 0007 gives (finalized, history covering its lifetime). The relay's plain
+   * "expired", the caravan counter, or a record under another signature decide nothing; past the window an
+   * operation without its own evidence is held (Indeterminate), its grant still counted.
+   */
   async function track(op, principal = null) {
     if (TERMINAL.includes(op.state)) return op;
     // A request that never reached the relay has nothing to look for (unless an attempt's outcome is unknown).
@@ -318,27 +379,30 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
     const link = auth.link(op.linkId);
     if (op.state === STATES.ACCEPTED && op.gateway?.signature) {
       const tx = await game.txStatus(op.gateway.signature);
-      if (tx?.state === 'landed') { op.chain = { state: 'landed', slot: tx.slot ?? null }; step(op, STATES.PROCESSING, 'the transaction landed: the caravan is on the road'); }
-      else if (tx?.state === 'failed') { op.chain = { state: 'failed', code: tx.code ?? null }; definite(op, link, tx.code ?? 'TransactionFailed', 'the transaction failed on chain: nothing moved', 'program'); }
-      else if (tx?.state === 'expired') {
-        // The relay found no status and its *confirmed* height is past the blockhash: that is not proof of absence
-        // (④ HANDOFF §3 needs a gapless, finalized history over the whole window). Nothing is released on it: the
-        // grant stays counted and the owner's caravan counter decides after the window (NotSent), as for any
-        // outcome that is not known.
-        op.chain = { state: 'expired', absenceProven: false };
-        if (!op.unknownSince) { op.unknownSince = now(); op.uncertain = true; step(op, STATES.ACCEPTED, 'the relay reports the blockhash expired with no status seen: not proof that nothing landed; the caravan counter decides'); }
-      }
-      else op.chain = { state: tx?.state ?? 'unknown' };
+      const d = tx?.detail ?? null;
+      const finality = d?.commitment ?? 'not reported';
+      if (tx?.state === 'landed') {
+        op.chain = { state: 'landed', slot: tx.slot ?? null, commitment: finality, fee: d?.fee ?? null };
+        op.caravan.mine ??= { by: 'this request\'s own signature landed (relay status)', signature: op.gateway.signature, slot: tx.slot ?? null };
+        step(op, STATES.PROCESSING, 'the transaction landed: the caravan is on the road');
+      } else if (tx?.state === 'failed') {
+        op.chain = { state: 'failed', code: tx.code ?? null, slot: tx.slot ?? null, commitment: finality, fee: d?.fee ?? null };
+        if (finality === 'finalized') definite(op, link, tx.code ?? 'TransactionFailed', 'this request\'s own transaction failed at finalized: it ran and moved nothing (its fee was charged)', 'program');
+        else hold(op, 'Indeterminate', `this request's own transaction failed at commitment "${finality}": not yet final, so nothing is decided`);
+      } else if (tx?.state === 'expired' || (d && d.absence)) {
+        const proven = d?.absence?.proven === true;
+        op.chain = { state: tx?.state ?? 'unknown', absenceProven: proven, ...(d?.absence ? { absence: d.absence } : {}), lastValidBlockHeight: d?.lastValidBlockHeight ?? null };
+        if (proven) definite(op, link, 'NotLanded', 'this request\'s own signature is proven absent over its whole lifetime (finalized history): it never landed and never will');
+        else if (tx?.state === 'expired' && !op.unknownSince) { op.unknownSince = now(); op.uncertain = true; step(op, STATES.ACCEPTED, 'the relay reports the blockhash expired with no status seen: not proof that nothing landed'); }
+      } else op.chain = { state: tx?.state ?? 'unknown' };
     }
     if (!TERMINAL.includes(op.state)) {
-      const seen = await evidence(op);
-      // Unknown outcome, no trace after the window, and the owner's caravan counter never reached past this seq:
-      // the transaction can no longer land (its blockhash has expired): nothing was sent.
-      if (!seen && op.unknownSince !== null && op.state !== STATES.PROCESSING && now() - op.unknownSince >= uncertainWindowMs) {
-        const owner = principal?.owner ?? link?.owner;
-        const me = owner ? await game.herald.me(owner) : null;
-        const counter = me?.ok ? Number(me.citizen?.caravans ?? -1) : -1;
-        if (counter >= 0 && counter <= op.caravan.seq) definite(op, link, 'NotSent', 'the attempt left no trace and can no longer land: nothing was sent');
+      const mine = await evidence(op);
+      if (mine && op.hold?.code === 'Indeterminate') { delete op.hold; op.steps.push({ state: op.state, at: new Date(now()).toISOString(), detail: 'no longer held: the caravan is proven this request\'s own' }); }
+      if (!mine && op.unknownSince !== null && op.state !== STATES.PROCESSING && now() - op.unknownSince >= uncertainWindowMs) {
+        hold(op, 'Indeterminate', op.gateway?.signature
+          ? 'no evidence for this request\'s own signature, and its absence is not proven (the relay cannot show finalized history over its lifetime): not decided; the grant stays counted'
+          : 'this server does not know its own signature (the answer was lost) and the caravan number alone proves nothing: not decided; retrying with the same requestId lets the agent wallet answer from its record');
       }
     }
     store.save();

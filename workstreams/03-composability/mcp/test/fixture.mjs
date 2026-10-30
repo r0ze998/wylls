@@ -8,6 +8,7 @@
 import assert from 'node:assert/strict';
 import { createHash, generateKeyPairSync } from 'node:crypto';
 import path from 'node:path';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { encode as base58, decode as fromBase58 } from '../../../../permutation-gateway/client/src/base58.mjs';
 import { encodeAccount } from '../../../../permutation-gateway/client/src/frontier/codec.mjs';
@@ -38,6 +39,8 @@ const fx = await import(pathToFileURL(path.join(GATEWAY_ROOT, 'test/agent-wallet
 export const contract = await import(pathToFileURL(path.join(GATEWAY_ROOT, 'src/frontier/agent/contract.mjs')).href);
 /** Whether the gateway tree has patch 0005 (SendCaravan as an agent action). */
 export const PATCHED = Object.keys(contract.ACTION_GROUPS).includes('transport');
+/** The gateway tree has patch 0007 (GET /f/tx?detail=1: commitment, fee, proven absence). */
+export const HAS_0007 = readFileSync(path.join(GATEWAY_ROOT, 'src/frontier/routes/season.mjs'), 'utf8').includes('?detail=1');
 
 export const RELAY = 'http://relay.test';
 export const HERALD = 'http://herald.test';

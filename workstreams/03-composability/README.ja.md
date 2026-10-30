@@ -50,6 +50,7 @@
 | [08-mcp-contracts.ja.md](08-mcp-contracts.ja.md) | 対応操作の一覧（ツール契約）、認証と権限、②④⑤との境界（AI staking のインターフェースを含む） |
 | [09-mcp-run-and-video.ja.md](09-mcp-run-and-video.ja.md) | テスト結果（ローカルと ChatGPT を分けて）、接続手順、撮影手順 |
 | [10-handoff.ja.md](10-handoff.ja.md) | 引き渡し：成功した構成の再現手順、②④⑤との契約対応表（一致・不一致・資料待ち）、鍵と認可の限界、到着の根拠、ChatGPT 実機検証の承認事項、保存パッケージ |
+| [15-attribution-and-quantity.ja.md](15-attribution-and-quantity.ja.md) | ④ 30e7de98 の訂正への対応：記録の cargo は下限（精度と根拠を残す）、自分の署名と中身でだけ自分の caravan とする（別経路の送信と区別）、caravan の通し番号の NotSent をやめた、0007 の限界と送信前の永続化の順序の提案、実チェーン（season 99）の証拠 |
 | [14-ws04-ws05-received.ja.md](14-ws04-ws05-received.ja.md) | ④⑤の実物の受領（SHA-256、復元 HEAD）、③0005 と⑤0001 の照合（両順で同じ tree、gateway 全試験、実チェーン E2E）、④の要求 ③-R1〜R9 と③の対応、不一致 M1〜M7、④向けパッチ 0007 |
 | [13-runreceipt-port.ja.md](13-runreceipt-port.ja.md) | RunReceipt port（パッチ 0006 の採用、④の adapter とは混同しない仕組み、適合試験）、⑤との予算の境界（拒否コードの照合）、0005 と⑤の 0001 の重なりうる場所、④⑤の資料に要るファイルとフィールド |
 | [12-device-runbook.ja.md](12-device-runbook.ja.md) | 実機接続の手順（Claude Code が最初）、接続の設定（redirect profile、preflight）、終了と失効の確かめ方、直前に要る承認 |

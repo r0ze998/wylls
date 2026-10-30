@@ -177,7 +177,8 @@ export class Game {
   }
 
   async txStatus(signature) {
-    const r = await this.json('GET', `${this.relay}/f/tx/${encodeURIComponent(signature)}`);
+    // `?detail=1` (patch 0007, for ④): commitment, fee, lifetime and proven absence. A relay without 0007 ignores it.
+    const r = await this.json('GET', `${this.relay}/f/tx/${encodeURIComponent(signature)}?detail=1`);
     if (r.transport || r.status !== 200) return null;
     return r.json;
   }

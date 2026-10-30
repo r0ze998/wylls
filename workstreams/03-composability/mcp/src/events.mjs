@@ -58,3 +58,11 @@ export function caravanEvent(row) {
 export const cargoOf = bytes => Array.from({ length: 8 }, (_, i) => Number(leUint(bytes, 4 * i, 4)));
 
 export { SPEC as CARAVAN_SPECS };
+
+/** A log_place field (8 bytes, read as a little-endian integer): `{kind, p, q, at, gen, tile}` (caravan.rs Place::log). */
+export function placeOfLog(v) {
+  const b = Array.from({ length: 8 }, (_, i) => Number((BigInt(v) >> BigInt(8 * i)) & 0xffn));
+  const i16 = (lo, hi) => { const x = lo | (hi << 8); return x >= 0x8000 ? x - 0x10000 : x; };
+  return { kind: b[0], p: i16(b[1], b[2]), q: i16(b[3], b[4]), at: b[5], gen: b[6], tile: b[7] };
+}
+

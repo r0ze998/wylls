@@ -12,15 +12,19 @@ export const RECEIPT_PORT_SHAPE = 'wylls.ws03.receipt-port/1';
 
 /**
  * What the end of a caravan says about the amount that arrived (④'s "arrival quantity unverified", as a MOCK field).
- * The settle record carries the cargo that was sent, not what was credited: a storehouse clips each resource at its
- * capacity, and a village's stores were not compared. So a delivery's quantity is `unverified`, never the full cargo
- * and never 0. A lost caravan credits nothing (the program's lost branch writes no store).
+ * The settle record's cargo is floor(milli / 1000) of what the caravan carried (worn on the road at the send), so it
+ * is a lower bound of the cargo carried, and a 0 there is not "nothing arrived". A storehouse also keeps at most its
+ * capacity and drops the rest silently; a village's stores were not compared here. So a delivery's quantity is
+ * `unverified`, with the record's lower bound kept beside it, never the plan's cargo, never 0. A lost caravan credits
+ * nothing (the program's lost branch writes no store), counted only for a caravan proven this request's own.
  */
 export function arrivalOf(op) {
   const toVault = String(op.planSummary?.to ?? '').startsWith('vault:');
-  if (op.outcome === 'lost') return { transportEnded: true, settled: true, quantity: { state: 'none', basis: 'program: a lost caravan credits nothing' } };
-  if (op.outcome === 'delivered') return { transportEnded: true, settled: true, quantity: { state: 'unverified', sent: op.planSummary?.cargo ?? null,
-    basis: toVault ? 'the settle record carries the sent cargo; a storehouse keeps at most its capacity of each resource and drops the rest' : 'the settle record carries the sent cargo; the village\'s stores were not compared' } };
+  const recorded = op.caravan?.settle ? { cargoLogged: op.caravan.settle.cargoLogged, precision: op.caravan.settle.precision } : null;
+  if (!op.caravan?.mine) return { transportEnded: Boolean(op.outcome), settled: Boolean(op.caravan?.settle), quantity: { state: 'unverified', basis: 'the caravan is not proven this request\'s own (signature): nothing about its amount is claimed' } };
+  if (op.outcome === 'lost') return { transportEnded: true, settled: true, quantity: { state: 'none', basis: 'program: a lost caravan credits nothing (its own settle record, outcome LOST)' } };
+  if (op.outcome === 'delivered') return { transportEnded: true, settled: true, quantity: { state: 'unverified', ...(recorded ? { recorded } : {}),
+    basis: toVault ? 'the settle record carries floor(milli / 1000) of the cargo carried; a storehouse keeps at most its capacity of each resource and drops the rest' : 'the settle record carries floor(milli / 1000) of the cargo carried; the village\'s stores were not compared' } };
   return { transportEnded: true, settled: op.outcome !== 'taken', quantity: { state: 'unverified', basis: `the caravan was ${op.outcome ?? 'raided'}: what reached the destination is not recorded` } };
 }
 
@@ -79,10 +83,17 @@ export function ws04View(op) {
   // `credited` cannot be known (Unverifiable); lost, taken and burned are known to be nothing (KnownZero).
   let outcome = null;
   if (op.outcome) {
-    const cargo = op.planSummary?.cargo ?? null;
-    if (op.outcome === 'delivered') outcome = toVault ? { delivered: null, verification: 'Unverifiable', cargo_logged: cargo } : { delivered: cargo, verification: 'RuleDerived', cargo_logged: cargo };
-    else outcome = { delivered: {}, verification: 'KnownZero', cargo_logged: op.outcome === 'lost' ? cargo : null };
-    outcome.effects = [`caravan_sent ${cvSubject(op)}`, `caravan_settled ${cvSubject(op)}`];
+    // ④ (30e7de98, as reported): the settle record's cargo is floor(milli / 1000), a lower bound; 0 there is not 0.
+    // A village credits the whole carried cargo (RuleDerived): what arrived is at least the logged units and less
+    // than one more of each, never the plan's cargo (the road wears it). KnownZero only on this request's own
+    // matching record (a raid's, or the settle's LOST).
+    const logged = op.caravan?.settle?.cargoLogged ?? null;
+    const mine = Boolean(op.caravan?.mine);
+    if (op.outcome === 'delivered' && mine && !toVault && logged) outcome = { delivered: { atLeast: logged, below: Object.fromEntries(Object.entries(logged).map(([r, n]) => [r, n + 1])), unit: 'whole', precision: 'floor(milli / 1000) in the record; resources not listed: at least 0, below 1' }, verification: 'RuleDerived', cargo_logged: logged };
+    else if (op.outcome === 'delivered') outcome = { delivered: null, verification: 'Unverifiable', cargo_logged: logged };
+    else if (mine && (op.outcome === 'lost' || (op.outcome === 'taken' || op.outcome === 'burned') && op.caravan?.raid?.record)) outcome = { delivered: {}, verification: 'KnownZero', cargo_logged: op.outcome === 'lost' ? logged : null };
+    else outcome = { delivered: null, verification: 'Unverifiable', cargo_logged: logged };
+    outcome.effects = mine ? [`caravan_sent ${cvSubject(op)}`, `caravan_settled ${cvSubject(op)}`] : [];
   }
   return { contract: WS04.source, state, ...(reason ? { reason } : {}), held_reason: held, outcome, fees: feesOf(op) };
 }
@@ -95,11 +106,13 @@ export function ws04View(op) {
  */
 export function feesOf(op) {
   if (op.attempts === 0 && !op.gateway?.signature) return { category: null, lamports: null, basis: 'no attempt was made' };
+  if (op.chain?.absenceProven === true) return { category: 'released', lamports: null, basis: 'this request\'s own signature is proven absent (patch 0007: finalized history over its lifetime): it never landed, so no fee' };
+  if (Number.isSafeInteger(op.chain?.fee) && ['landed', 'failed'].includes(op.chain?.state)) return { category: op.chain.commitment === 'finalized' ? 'charged' : 'unconfirmed', lamports: op.chain.fee, basis: `the relay reported the fee (patch 0007) at commitment ${op.chain.commitment}` };
   if (op.gateway?.status === 'refused') return { category: null, lamports: null, basis: 'refused by the agent wallet before signing (its record for this key)' };
   if (op.state === 'failed' && !op.uncertain && op.unknownSince === null && !op.gateway?.signature) return { category: null, lamports: null, basis: 'refused on a clean first attempt, before anything was signed' };
   if (op.chain?.state === 'landed' || op.state === 'processing' || op.state === 'completed' || op.chain?.state === 'failed') return { category: 'unconfirmed', lamports: null, basis: 'landed (or landed and failed): the fee is charged, but the relay does not report its amount' };
   if (op.gateway?.signature && !['failed'].includes(op.state)) return { category: 'reserved', lamports: null, basis: 'signed and may still land' };
-  return { category: 'unconfirmed', lamports: null, basis: 'an attempt may have been signed; absence cannot be proven here, so it is never released' };
+  return { category: 'unconfirmed', lamports: null, basis: 'an attempt may have been signed; its absence is not proven, so it is never released' };
 }
 
 /** A revoked connection's cancellation in ④'s phases, per operation. */
@@ -131,7 +144,7 @@ export class Ws04MappedPort {
   arrival(op) {
     const v = ws04View(op).outcome;
     if (!v) return this.#local.arrival(op);
-    if (v.verification === 'RuleDerived') return { transportEnded: true, settled: true, quantity: { state: 'verified', received: v.delivered, basis: 'RuleDerived (④): a holding credits the whole cargo (Accrual::add has no cap)' }, verification: v.verification };
+    if (v.verification === 'RuleDerived') return { transportEnded: true, settled: true, quantity: { state: 'verified', received: v.delivered, basis: 'RuleDerived (④): a holding credits the whole carried cargo (Accrual::add has no cap); the amount is the settle record\'s floor(milli / 1000), a lower bound' }, verification: v.verification };
     if (v.verification === 'KnownZero') return { transportEnded: true, settled: op.outcome !== 'taken', quantity: { state: 'none', basis: `KnownZero (④): ${failReason[op.outcome] ?? op.outcome}` }, verification: v.verification };
     return { ...this.#local.arrival(op), verification: v.verification };
   }

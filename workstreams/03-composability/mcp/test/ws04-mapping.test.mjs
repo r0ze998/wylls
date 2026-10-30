@@ -25,25 +25,33 @@ test('states, held reasons and outcomes follow ④\'s STATE-MACHINE for a ship-o
   assert.equal(v({ state: 'requested' }).state, 'ShipRequested');
   assert.equal(v({ state: 'accepted', gateway: { signature: 's' } }).state, 'ShipSubmitted');
   assert.equal(v({ state: 'processing', gateway: { signature: 's' } }).state, 'InTransit');
-  const vault = ws04View({ ...op({ state: 'completed', outcome: 'delivered', gateway: { signature: 's' } }), ...to('vault') });
-  assert.deepEqual([vault.state, vault.outcome.verification, vault.outcome.delivered, vault.outcome.cargo_logged], ['DeliveredUnverified', 'Unverifiable', null, { Stone: 100 }]);
-  const village = v({ state: 'completed', outcome: 'delivered', gateway: { signature: 's' } });
-  assert.deepEqual([village.state, village.outcome.verification, village.outcome.delivered], ['Fulfilled', 'RuleDerived', { Stone: 100 }]);
+  const mine = { by: 'test', signature: 's' };
+  const cv = (extra = {}) => ({ seq: 4, ownerTag: '255', mine, settle: { record: {}, cargoLogged: { Stone: 98 }, precision: 'floor' }, ...extra });
+  const vault = ws04View({ ...op({ state: 'completed', outcome: 'delivered', gateway: { signature: 's' }, caravan: cv() }), ...to('vault') });
+  assert.deepEqual([vault.state, vault.outcome.verification, vault.outcome.delivered, vault.outcome.cargo_logged], ['DeliveredUnverified', 'Unverifiable', null, { Stone: 98 }]);
+  const village = v({ state: 'completed', outcome: 'delivered', gateway: { signature: 's' }, caravan: cv() });
+  assert.deepEqual([village.state, village.outcome.verification, village.outcome.delivered.atLeast, village.outcome.delivered.below], ['Fulfilled', 'RuleDerived', { Stone: 98 }, { Stone: 99 }], 'the record\'s bound, not the plan\'s 100');
+  assert.equal(v({ state: 'completed', outcome: 'delivered', gateway: { signature: 's' } }).outcome.verification, 'Unverifiable', 'not proven ours: no rule applies');
   for (const [outcome, reason] of [['lost', 'DestinationChanged'], ['taken', 'Raided'], ['burned', 'LostInTransit']]) {
-    const x = v({ state: 'completed', outcome, gateway: { signature: 's' } });
+    const x = v({ state: 'completed', outcome, gateway: { signature: 's' }, caravan: cv({ raid: { choice: outcome, record: {} } }) });
     assert.deepEqual([x.state, x.reason, x.outcome.verification], ['Failed', reason, 'KnownZero']);
+    const y = v({ state: 'completed', outcome, gateway: { signature: 's' } });
+    assert.equal(y.outcome.verification, 'Unverifiable', `${outcome} without this request's own matching record is not KnownZero`);
   }
   assert.equal(v({ state: 'requested', hold: { code: 'CapabilityUnavailable' } }).held_reason, 'PortUnavailable');
   assert.equal(v({ state: 'accepted', uncertain: true, unknownSince: 1 }).held_reason, 'Indeterminate');
   assert.equal(ws04View(op({ state: 'failed', attempts: 0, error: { code: 'GrantRevoked' } })).state, 'Cancelled');
   // Arrival through the port: the village's is verified by the rule, the storehouse's is not, a take is nothing.
   const p = new Ws04MappedPort();
-  assert.deepEqual(p.arrival(op({ state: 'processing', outcome: 'delivered' })).quantity, { state: 'verified', received: { Stone: 100 }, basis: 'RuleDerived (④): a holding credits the whole cargo (Accrual::add has no cap)' });
-  assert.equal(p.arrival({ ...op({ outcome: 'delivered' }), ...to('vault') }).quantity.state, 'unverified');
-  assert.equal(p.arrival(op({ outcome: 'taken' })).quantity.state, 'none');
+  const q = p.arrival(op({ state: 'processing', outcome: 'delivered', caravan: cv() })).quantity;
+  assert.deepEqual([q.state, q.received.atLeast, q.received.unit], ['verified', { Stone: 98 }, 'whole']);
+  assert.match(q.basis, /lower bound/);
+  assert.equal(p.arrival({ ...op({ outcome: 'delivered', caravan: cv() }), ...to('vault') }).quantity.state, 'unverified');
+  assert.equal(p.arrival(op({ outcome: 'taken', caravan: cv({ raid: { choice: 'taken', record: {} } }) })).quantity.state, 'none');
+  assert.equal(p.arrival(op({ outcome: 'taken' })).quantity.state, 'unverified');
 });
 
-test('fees: never released (this server cannot prove absence); amounts are null, not 0', () => {
+test('fees: released only on proven absence of this request\'s own signature; amounts null unless reported, never 0 for unknown', () => {
   const samples = [
     op({ state: 'requested', attempts: 0 }), op({ state: 'requested', unknownSince: 1, uncertain: true }), op({ state: 'accepted', gateway: { signature: 's' } }),
     op({ state: 'processing', gateway: { signature: 's' }, chain: { state: 'landed' } }), op({ state: 'failed', gateway: { signature: 's' }, chain: { state: 'failed' } }),
@@ -61,6 +69,9 @@ test('fees: never released (this server cannot prove absence); amounts are null,
   assert.equal(feesOf(samples[3]).category, 'unconfirmed', 'landed: charged, amount not reported');
   assert.equal(feesOf(samples[5]).category, 'unconfirmed', 'NotSent proves no caravan, not no fee');
   assert.equal(feesOf(samples[7]).category, null, 'a clean refusal before signing costs nothing');
+  // Released only on this request's own signature proven absent (patch 0007); a fee the relay reports is kept.
+  assert.equal(feesOf(op({ state: 'failed', error: { code: 'NotLanded' }, gateway: { signature: 's' }, chain: { state: 'expired', absenceProven: true } })).category, 'released');
+  assert.deepEqual([feesOf(op({ state: 'processing', gateway: { signature: 's' }, chain: { state: 'landed', commitment: 'finalized', fee: 5000 } })).category, feesOf(op({ state: 'processing', gateway: { signature: 's' }, chain: { state: 'landed', commitment: 'confirmed', fee: 5000 } })).category], ['charged', 'unconfirmed']);
 });
 
 test('cancel phases: StoppingNew → AwaitingSigned (until unknown here) → Completed{effects} / Ineffective', () => {

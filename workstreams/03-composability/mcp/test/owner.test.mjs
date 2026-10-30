@@ -166,7 +166,7 @@ test('after a revocation: a held request with no attempt fails and gives its hol
   } finally { await s2.close(); }
 });
 
-test('the end of transport is not a verified amount: a delivery is quantity unverified (never 0, never the full cargo as received); a lost caravan is none', { skip: needsPatch }, async () => {
+test('the end of transport is not a verified amount: a delivery is quantity unverified with the record\'s lower bound (a recorded 0 is not 0); a lost caravan of this request\'s own is none', { skip: needsPatch }, async () => {
   const w = await world();
   const s = await server(w);
   try {
@@ -180,7 +180,9 @@ test('the end of transport is not a verified amount: a delivery is quantity unve
     const end = (await m.tool('get_operation_status', { operationId: r.operationId })).structuredContent;
     assert.deepEqual([end.state, end.outcome], ['completed', 'delivered']);
     assert.deepEqual([end.arrival.transportEnded, end.arrival.settled, end.arrival.quantity.state], [true, true, 'unverified']);
-    assert.deepEqual(end.arrival.quantity.sent, { Food: 100 }, 'what was sent, labelled as sent');
+    assert.deepEqual(end.arrival.quantity.recorded.cargoLogged, {}, 'the settle record\'s cargo (scripted 0): kept as recorded, with its precision');
+    assert.match(end.arrival.quantity.recorded.precision, /lower bound/);
+    assert.equal(end.arrival.quantity.sent, undefined, 'never the plan\'s cargo as an amount');
     assert.match(end.arrival.quantity.basis, /capacity/);
     assert.equal(end.arrival.quantity.received, undefined, 'no received amount is claimed');
     fx.sound(w.r);
@@ -199,7 +201,7 @@ test('the end of transport is not a verified amount: a delivery is quantity unve
   } finally { await s2.close(); }
 });
 
-test('an outcome that is unknown, then a seal-key mismatch: the hold is never released for the mismatch; only the chain\'s answer releases it', { skip: needsPatch }, async () => {
+test('an outcome that is unknown, then a seal-key mismatch and a revocation: never released for the mismatch or the caravan counter; held until this request\'s own evidence', { skip: needsPatch }, async () => {
   const dir = mkdtempSync(path.join(tmpdir(), 'wylls-mcp-'));
   const storeFile = path.join(dir, 'store.json');
   const sealKey = randomBytes(32).toString('base64url');
@@ -228,18 +230,19 @@ test('an outcome that is unknown, then a seal-key mismatch: the hold is never re
     assert.equal(op.state, 'requested');
     assert.equal(Object.keys(link().grantUse.reserved).length, 1, 'still held after the revocation');
     assert.deepEqual(v.json.connections[0].cancellation.awaitingReconciliation, [op.operationId]);
-    // Past the window, no trace on chain or herald, the owner's caravan counter unmoved: the chain says nothing was sent.
+    // Past the window, no trace: the caravan counter is not proof (another route could have sent, and this server
+    // does not know its own signature). Held; the reservation is not released; the cancellation is not done.
     clock.t += 61_000;
     v = await ownerOps(s2, w);
     op = v.json.operations.find(o => o.requestId === 'req-unk-0001');
-    assert.deepEqual([op.state, op.error.code], ['failed', 'NotSent']);
-    assert.deepEqual([link().grantUse.used, Object.keys(link().grantUse.reserved).length], [0, 0], 'released on the chain\'s answer');
-    assert.equal(v.json.connections[0].cancellation.state, 'done');
+    assert.deepEqual([op.state, op.hold.code], ['requested', 'Indeterminate']);
+    assert.equal(Object.keys(link().grantUse.reserved).length, 1, 'still held: neither the mismatch nor the counter releases it');
+    assert.equal(v.json.connections[0].cancellation.state, 'reconciling');
     assert.equal(w.r.chain.sent.length, 0);
   } finally { await s2.close(); }
 });
 
-test('the answer was lost after the relay sent, then a seal-key mismatch and a revocation: the caravan\'s own trace decides; nothing is released', { skip: needsPatch }, async () => {
+test('the answer was lost after the relay sent, then a seal-key mismatch and a revocation: without its own signature, records under its caravan number decide nothing; nothing is released', { skip: needsPatch }, async () => {
   const dir = mkdtempSync(path.join(tmpdir(), 'wylls-mcp-'));
   const storeFile = path.join(dir, 'store.json');
   const sealKey = randomBytes(32).toString('base64url');
@@ -265,25 +268,28 @@ test('the answer was lost after the relay sent, then a seal-key mismatch and a r
     assert.equal((await m2.tool('send_caravan', { planId: p.planId, requestId: 'req-lost-0001' })).structuredContent.error.code, 'CapabilityUnavailable');
     const link = () => s2.auth.link(Object.keys(s2.auth.db.links)[0]);
     await revoke(s2, w, link().linkId);
-    // The caravan is on the road (the herald's feed): processing; the hold counts as used.
+    // A caravan with this number is on the road and its send is recorded (under the transaction's real signature),
+    // but this server never learned its own signature: the number alone does not make it this request's. Held.
     const st = s2.auth.db.operations[Object.keys(s2.auth.db.operations)[0]];
     w.state.moving.push({ ownerTag: st.caravan.ownerTag, seq: st.caravan.seq, faction: 2, src: { kind: 2, p: w.P, q: w.Q, at: 33, gen: 1, tile: 33 }, dst: { kind: 1, p: w.P, q: w.Q, at: w.SITE, gen: 1, tile: 30 }, steps: 3, cargo: [0, 0, 100, 0, 0, 0, 0, 0], arriveTs: fx.GENESIS + 4_000, runs: [], raided: false });
-    clock.t += 61_000; // past the window: the trace, not the clock, decides
+    w.state.events.push({ seq: String(w.state.events.length + 1), sig: 'the-real-signature', kind: 91, bell: 30, tx: 1, slot: 70,
+      body_b64: encodeCaravanRecord('CARAVAN_SENT', { ownerTag: BigInt(st.caravan.ownerTag), seq: st.caravan.seq, payload: {} }).toString('base64') });
+    clock.t += 61_000;
     let v = await ownerOps(s2, w);
     let op = v.json.operations.find(o => o.requestId === 'req-lost-0001');
-    assert.equal(op.state, 'processing');
+    assert.deepEqual([op.state, op.hold.code], ['requested', 'Indeterminate']);
     assert.equal(Object.keys(link().grantUse.reserved).length + link().grantUse.used, 1, 'not released');
-    settle(w, op, 0);
+    settle(w, { caravan: st.caravan }, 0);
     clock.t += 1000;
     v = await ownerOps(s2, w);
     op = v.json.operations.find(o => o.requestId === 'req-lost-0001');
-    assert.deepEqual([op.state, op.outcome, op.arrival.quantity.state], ['completed', 'delivered', 'unverified']);
-    assert.equal(v.json.connections[0].cancellation.state, 'done');
+    assert.deepEqual([op.state, op.outcome ?? null], ['requested', null], 'a settle record for the number is not this request\'s outcome');
+    assert.equal(v.json.connections[0].cancellation.state, 'reconciling');
     assert.equal(w.r.chain.sent.length, 1, 'one transaction');
   } finally { await s2.close(); }
 });
 
-test('the relay\'s "expired" is not proof of absence: the send stays counted until the caravan counter decides', { skip: needsPatch }, async () => {
+test('the relay\'s "expired" is not proof of absence: the send stays counted (held) until its own signature is proven absent', { skip: needsPatch }, async () => {
   const clock = { t: Date.now() };
   const w = await world();
   const s = await server(w, { clock, uncertainWindowMs: 60_000 });
@@ -296,11 +302,16 @@ test('the relay\'s "expired" is not proof of absence: the send stays counted unt
     w.state.intercept = async u => (u.pathname.startsWith('/f/tx/') ? { status: 200, ok: true, json: async () => ({ state: 'expired' }) } : null);
     const a = (await m.tool('get_operation_status', { operationId: r.operationId })).structuredContent;
     assert.equal(a.state, 'accepted', 'not failed on the relay\'s word');
-    assert.deepEqual(a.chain, { state: 'expired', absenceProven: false });
+    assert.deepEqual([a.chain.state, a.chain.absenceProven], ['expired', false]);
     assert.equal((await m.tool('get_connection')).structuredContent.grant.used, 1, 'still counted');
-    clock.t += 61_000; // the window passes; no trace; the owner's caravan counter has not moved past this seq
-    const b = await m.tool('get_operation_status', { operationId: r.operationId });
-    assert.deepEqual([b.structuredContent.error.receipt.state, b.structuredContent.error.code], ['failed', 'NotSent']);
-    assert.equal((await m.tool('get_connection')).structuredContent.grant.used, 0, 'given back on the counter\'s answer');
+    clock.t += 61_000; // the window passes, no trace: still not proof
+    const b = (await m.tool('get_operation_status', { operationId: r.operationId })).structuredContent;
+    assert.deepEqual([b.state, b.hold.code], ['accepted', 'Indeterminate']);
+    assert.equal((await m.tool('get_connection')).structuredContent.grant.used, 1, 'still counted: absence is not proven');
+    // The relay proves absence (patch 0007's detail: finalized history over the lifetime): only then decided.
+    w.state.intercept = async u => (u.pathname.startsWith('/f/tx/') ? { status: 200, ok: true, json: async () => ({ state: 'expired', detail: { commitment: null, fee: null, lastValidBlockHeight: 150, absence: { proven: true, fate: 'expired', why: 'scripted' } } }) } : null);
+    const c = await m.tool('get_operation_status', { operationId: r.operationId });
+    assert.deepEqual([c.structuredContent.error.receipt.state, c.structuredContent.error.code], ['failed', 'NotLanded']);
+    assert.equal((await m.tool('get_connection')).structuredContent.grant.used, 0, 'given back on proven absence of its own signature');
   } finally { w.state.intercept = null; await s.close(); }
 });
