@@ -1,8 +1,8 @@
-# ⑨ 加工能力の貸し出し：接続契約（版 0.1）
+# ⑨ 加工能力の貸し出し：接続契約（版 0.2）
 
 作業日 2026-10-30。基準 commit `4cd901de9f8e0d6c0b2016851d30595c4a70aa46`（作業開始時の HEAD は `921429322d5aecd1a3df0dd8d82c405c87dd985a` = `main`、未 commit 変更なし。`4cd901de` は文書だけの 6 commit 先で、早送りで合わせた）。
 
-この文書は、⑨が実装より先に公開する**接続面**です。④（統合）へは操作・状態・イベント・エラー、⑩（預かり・所有権）へは必要な入出力と不変条件、⑥（作成画面・手順）へは再利用できる加工手順を渡します。版 0.1 は「仮」で、⑩・④から資料が来たら差し替える箇所を §6 に挙げます。
+この文書は、⑨が実装より先に公開した**接続面**です（版 0.1 は commit `9b801368`、実装の前）。版 0.2 は実装に合わせた改訂で、変更点は §9 にまとめます。④（統合）へは操作・状態・イベント・エラー、⑩（預かり・所有権）へは必要な入出力と不変条件、⑥（作成画面・手順）へは再利用できる加工手順を渡します。版 0.1 は「仮」で、⑩・④から資料が来たら差し替える箇所を §6 に挙げます。
 
 > **区別の約束。** ここでの「実装済み」は `kernel/`（純 Rust、`permutation-rules` の実物の `Holding`・工房定数・隊商の歩行を使う）で動いて試験された、という意味です。**オンチェーンの命令はまだ無い**（§5 に不足するコア命令を具体化）。預かりは ⑩ の資料が無いので **模擬（`MockCustody`）** です。
 
@@ -36,20 +36,23 @@ S1 のコードでは、工房は「1日に何回動かす」施設ではなく�
 
 | 操作 | 署名者 | 引数 | 効果 |
 |---|---|---|---|
-| `Lend` | 所有者 | facility, units | 所有者の工房 `units` 棟を貸出枠へ。Holding を owner touch し、`lent += units` |
-| `Reclaim` | 所有者 | facility, units | 将来の占有の最大 ≤ `lent − units` なら、`lent −= units` |
+| `OpenPool` | 所有者 | facility, policies | 施設の世代ごとの貸出枠を作り、§4 の方針を固定する |
+| `Lend` | 所有者 | facility, units, seq | 所有者の工房 `units` 棟を貸出枠へ。Holding を owner touch し、`lent += units` |
+| `Reclaim` | 所有者 | facility, units, seq | 将来の占有の最大 ≤ `lent − units` なら、`lent −= units` |
 | `Grant` | 所有者 | grant_seq, user, recipe, max_units, max_output, from, until | 許可を作る |
 | `Revoke` | 所有者 | grant | 新しい予約を止める。未開始の予約は方針（§4）に従う。加工中は止めない |
 | `Reserve` | 利用者 | job_seq, grant, units, start, end, max_output | 予約。許可・期間・枠・出力予算・離席方針を検査 |
-| `Deposit` | 利用者 | job, deposit_id, resource, amount | 材料を預かり（ホッパー）へ。開始前だけ |
+| `Deposit` | 利用者 | job, deposit_id, resource, amount, from | 利用者の置き場 `from` から預かり（ホッパー）へ。開始前だけ |
 | `Cancel` | 利用者 | job | 開始前：全額返却。加工中：その時刻まで精算し、以降の枠を返す |
 | `Settle` | 誰でも | job | 純関数で現在までの出力を確定（何度呼んでも同じ） |
-| `Claim` | 利用者 | job | 確定した出力と返却材料のうち、未受取分を利用者へ |
-| `FacilityLost` | 誰でも（コアの観測） | facility, at, captor | 世代変化・解放の時刻 `at` で全予約を締め、損失方針（§4）で配分 |
+| `Claim` | 利用者 | job, to | 確定した出力と（終わった予約なら）返却材料のうち、未受取分を `to` へ。加工中でも出来た分は受け取れる |
+| `FacilityLost` | 誰でも（コアの観測） | facility | コアが記録した世代の終わり（時刻 `at` と占領者）で全予約を締め、損失方針（§4）で配分 |
 
 再送・再起動の扱い：
 
 - **自然キー。** 許可は `(facility, grant_seq)`、予約は `(grant, job_seq)`、投入は `(job, deposit_id)`。同じキーで**同じ中身**の再送は `AlreadyApplied`（状態不変）、**違う中身**は `Conflict`。オンチェーンでは PDA の住所がこのキーになる。
+- **所有者の増減は楽観的な番号。** `Lend`/`Reclaim` は増減なので自然キーが無い。`seq` が貸出枠の `owner_seq` と同じときだけ適用し、直前と同じ操作の再送は `AlreadyApplied`、それ以外の古い番号は `Conflict`。
+- **時刻は戻らない。** 適用した最後の時刻より前の操作は `TimeReversed`。失敗した操作は何も変えない（時刻も進めない）。
 - **出力は時刻の純関数。** `Settle` を何回・どの順で呼んでも同じ値（経路独立。`Holding::settle` と同じ考え方）。
 - **受取は差分。** `Claim` は「確定量 − 受取済み」だけを渡す。2 回目は `AlreadyApplied`（0）。
 - **状態は Borsh で保存できる。** 途中で保存・復元しても結果は変わらない（試験 `restart_*`）。
@@ -93,7 +96,7 @@ end_eff = start + ⌈limit × 3600 / (k × 4000)⌉  （ただし ≤ end）
 
 ### イベント（`kernel/src/event.rs`）
 
-`Lent`, `Reclaimed`, `Granted`, `Revoked`, `Reserved`, `Deposited`, `Started`, `Settled{out, ore_used, wood_used}`, `Completed`, `Cancelled`, `Lost`, `Claimed{output, refund_ore, refund_wood, to}`, `Moved{lot, from, to, owner}`。`Moved` は ⑩ の預かりに対する移動で、保存則の検査はこの列から再計算できます。
+`PoolOpened`, `Lent`, `Reclaimed`, `Granted`, `Revoked{cancelled}`, `Reserved`, `Deposited`, `Started`, `Settled{out, used[鉱石, 木材], total}`, `Completed`, `Cancelled`, `Lost`, `Claimed{output, refund[鉱石, 木材], to}`, `Forfeited{output, refund, to, owner}`（喪失で占領者へ移った分）, `FacilityLost{at, captor}`。預かりの移動は ⑩ 側の記録（模擬では `custody::Move` の列）で、保存則の検査はこの列から再計算できます。
 
 ### エラー（安定コード。`kernel/src/error.rs`）
 
@@ -120,6 +123,9 @@ end_eff = start + ⌈limit × 3600 / (k × 4000)⌉  （ただし ≤ end）
 | 21 | `TooMany` | 固定長の表（予約・投入）が満杯 |
 | 22 | `Custody` | ⑩ の預かりが拒否（残高不足など） |
 | 23 | `Overflow` | |
+| 24 | `TimeReversed` | 前に適用した操作より前の時刻 |
+| 25 | `UnknownPool` | 貸出枠・施設が無い |
+| 26 | `FacilityLive` | 世代が終わっていない施設に `FacilityLost` |
 
 ## 4. 未決定の損失配分（仮案。切り替え可能）
 
@@ -139,7 +145,7 @@ end_eff = start + ⌈limit × 3600 / (k × 4000)⌉  （ただし ≤ end）
 
 1. **Holding に貸出数 `lent` が無い**（`patches/0001-holding-lent-workshops.patch`、`permutation-rules` の変更として独立）。`RSV_700`（4 バイト、未使用）を `LENT_WORKSHOPS u32` にする案。工房の棟数（`copy_number`）は `production[ARMS]` から数えるので、`production` を書き換えて貸すことはできない（Build の費用が狂う）。
 2. **CapacityPool／Grant／Job の口座と 10 命令**（`patches/0002-core-instructions.ja.md`）。
-3. **ホッパーと出力の置き場**：⑩ の預かりに依存。暫定は「施設タイルに置かれた利用者の倉（Vault）」に写す案（隊商は既存の SendCaravan で他人の村へ届く、PR #20）。
+3. **ホッパーと出力の置き場**：⑩ の預かりに依存。暫定は「施設の隣のタイルに置いた利用者の倉（Vault）」との出し入れに写す案（隊商は既存の SendCaravan で他人の村へ届く、PR #20）。
 
 ## 6. ⑩ の預かりへの要求（入出力と不変条件）
 
@@ -147,13 +153,16 @@ end_eff = start + ⌈limit × 3600 / (k × 4000)⌉  （ただし ≤ end）
 
 ### 入出力
 
-| 呼び出し | 入力 | 出力 | 意味 |
+| 呼び出し（`Custody` trait） | 入力 | 出力 | 意味 |
 |---|---|---|---|
-| `lock` | owner, from: `Place`, to: `Hopper(job)`, resource, amount, key | `LotId` | 利用者の物を、job に縛られた預かりへ移す |
-| `consume` | job, resource, amount | — | ホッパーから消費（レシピの入力） |
-| `produce` | job, resource, amount, owner | — | 出力の置き場に作る（レシピの出力） |
-| `release` | job, from: `Hopper`/`Output`, to: `Place`, resource, amount, new_owner, key | — | 返却・受取・占領者への移転 |
-| `balance` | place, resource | amount, owner | 照会 |
+| `import` | key, at, owner, resource, amount | — | コアから預かりへ入る（Holding が払った隊商の荷、到着） |
+| `transfer` | key, by（`Kernel` か本人）, from, to, resource, amount, owner | — | 置き場の間の移動。投入（本人 → `Hopper`）、受取・返却・喪失（`Kernel`: `Hopper`/`Output` → 宛先） |
+| `consume` | key, at（`Hopper`）, resource, amount | — | レシピの入力を使う（`Kernel` だけ） |
+| `produce` | key, at（`Output`）, owner, resource, amount | — | レシピの出力を作る（`Kernel` だけ） |
+| `export` | key, by, at, resource, amount | — | 預かりからコアへ出る（Holding への入庫） |
+| `balance` | at, resource | owner, amount | 照会 |
+
+版 0.1 の `lock`／`release` は、`transfer` の二つの向きにまとめた（同じ不変条件で足りるため）。
 
 ### 不変条件（⑨ の試験が検査し、⑩ の実装にも求める）
 
@@ -193,3 +202,12 @@ end_eff = start + ⌈limit × 3600 / (k × 4000)⌉  （ただし ≤ end）
 | 許可 | ⑨ の `Grant`（施設の利用に限る） | ② の Grant が汎用になれば、⑨ の `Grant` はその「施設利用」の種類として写す |
 | 所有者の工房 | パッチ 0001 を当てた `Holding`（試験は一時 worktree で実行）／当てない場合は写し（§ README） | コアに入れば直接 |
 | 命令 | 無し（カーネルのみ） | 0002 の案を ④ が割り当て |
+
+## 9. 版 0.1 → 0.2 の変更
+
+- `OpenPool` を足した（方針を最初に固定する口。0.1 では `Lend` の中で暗黙だった）。
+- イベントを実装に合わせた（`Moved` は ⑩ 側の記録へ、`Forfeited`・`PoolOpened`・`FacilityLost` を追加）。
+- `Lend`/`Reclaim` に楽観的な番号 `seq` を足した（増減の再送で二重に貸さないため）。
+- `Deposit` に `from`、`Claim` に `to` を足した（場所を明示するため）。`FacilityLost` の `at`・`captor` は引数ではなく、コアの記録から読む（送り手が時刻を偽れないように）。
+- エラー 24–26 を足した。
+- ⑩ への口を `import`/`transfer`/`consume`/`produce`/`export`/`balance` に整理した。
