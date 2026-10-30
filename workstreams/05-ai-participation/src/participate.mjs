@@ -176,7 +176,14 @@ export async function participate({ mcp, world, txState, meter = null, mandate, 
   let plan, by = decider.name, cause = null, modelError = null;
   const attempts = [];
   let charged = 0n;
-  if (decider.free || !meter) plan = await decider.plan(obs, grant, contract, planCtx);
+  if (decider.free || !meter) {
+    plan = await decider.plan(obs, grant, contract, planCtx);
+    // A decider that keeps its own model budget (model-api/src/api-decider.mjs) says when that budget stops it: nothing is decided or sent.
+    if (plan.stop) {
+      J({ step: 'plan', by: null, charged: plan.inference?.costs?.settled ?? '0', cause: plan.stop, inference: plan.inference ?? null, proposals: [], notes: plan.notes ?? [] });
+      return { ...report, status: 'stopped-by-budget', stoppedBy: plan.stop, inference: plan.inference ?? null, notes: plan.notes ?? [], reason: '予算の上限に達したので、新しい判断も操作もしない。本人が予算を見直すまで止まる' };
+    }
+  }
   else if (decider.needsCall && !decider.needsCall(obs, grant, contract, planCtx)) plan = { proposals: [], notes: [{ code: 'NothingToAsk', reason: '委任された命令か、開いている依頼がないので、モデルを呼ばない（請求なし）' }] };
   else {
     // A failed model call may be retried, each try a call of its own: held, charged and capped like the first (the
@@ -212,9 +219,10 @@ export async function participate({ mcp, world, txState, meter = null, mandate, 
   }
   const served = attempts.findLast(a => a.servedModel)?.servedModel ?? null;
   J({ step: 'plan', by, charged: report.charged, cause, attempts, configuredModel: S?.modelCfg?.model ?? null, servedModel: served, modelFile: S?.identity?.modelFile ?? null, reportedAlias: S?.identity?.reportedAlias ?? null,
-    modelError: modelError ? sanitize(modelError, { limit: 200 }) : null, proposals: plan.proposals.map(p => ({ requestId: p.requestId, command: p.command, reason: p.reason })), notes: plan.notes });
+    modelError: modelError ? sanitize(modelError, { limit: 200 }) : null, ...(plan.inference ? { inference: plan.inference } : {}), proposals: plan.proposals.map(p => ({ requestId: p.requestId, command: p.command, reason: p.reason })), notes: plan.notes });
   report.by = by;
   report.notes = plan.notes ?? [];
+  if (plan.inference) report.inference = plan.inference;
   // The board's requests this run does not answer, and why (another nation's, an author the owner does not follow, past its deadline).
   report.ignored = obs.requests.map(r => ({ requestId: r.id, code: ignoredWhy(r, grant, nowSec) })).filter(x => x.code);
 

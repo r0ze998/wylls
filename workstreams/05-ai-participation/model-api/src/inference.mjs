@@ -25,7 +25,31 @@ export function preflight({ view, grant = null, openRequests = 0, quote, gameRes
   return { call: reasons.length === 0, reasons };
 }
 
-const RETRY = Object.freeze({ maxAttempts: 3, retryFailed: true, retryUnknown: false, baseDelayMs: 500 });
+/**
+ * Retries inside one decision. By default only a request that provably never left is retried: every other failure
+ * leaves a cost that may have been billed (no documented idempotency key), and a retry would reserve, and maybe
+ * pay, a second time for the same decision. The next decision (a new tick, a new key) is the way to try again.
+ */
+const RETRY = Object.freeze({ maxAttempts: 3, retryThrottled: false, retryFailed: false, retryUnknown: false, baseDelayMs: 500 });
+
+/**
+ * One record per decision key: a second infer() for the same key returns what was recorded (replayed) and reserves
+ * nothing; a concurrent one shares the call in flight. In memory, one process (the first-run scope).
+ */
+export class DecisionRegistry {
+  constructor() { this.done = new Map(); this.flying = new Map(); }
+}
+
+/**
+ * The most one call can cost by the book, before it is made: the request as it will go on the wire, and its quote.
+ * An upper bound on input tokens is the UTF-8 byte length of the body (no tokenizer yields more tokens than bytes).
+ */
+export function quoteFor({ adapter, book, request }) {
+  const req = neutralRequest(request);
+  const wire = adapter.build(req);
+  const inputTokenCeiling = Buffer.byteLength(JSON.stringify(wire.body), 'utf8');
+  return { req, wire, quote: book.quote(adapter.provider, req.model, { inputTokenCeiling, maxOutputTokens: req.maxOutputTokens }) };
+}
 
 /**
  * @param {object} o
@@ -37,13 +61,21 @@ const RETRY = Object.freeze({ maxAttempts: 3, retryFailed: true, retryUnknown: f
  * @param {object} [o.retry]     {maxAttempts, retryFailed, retryUnknown, baseDelayMs}
  * @param {Function} [o.sleep]
  */
-export async function infer({ adapter, transport, book, costs, request, retry = {}, sleep = ms => new Promise(r => setTimeout(r, ms)) }) {
+export async function infer({ registry = null, ...o }) {
+  const key = o.request?.requestKey;
+  if (registry) {
+    if (registry.done.has(key)) return { ...registry.done.get(key), replayed: true };
+    if (registry.flying.has(key)) return registry.flying.get(key).then(r => ({ ...r, replayed: true }));
+  }
+  const p = inferOnce(o);
+  if (!registry) return p;
+  registry.flying.set(key, p);
+  try { const r = await p; registry.done.set(key, r); return r; } finally { registry.flying.delete(key); }
+}
+
+async function inferOnce({ adapter, transport, book, costs, request, retry = {}, sleep = ms => new Promise(r => setTimeout(r, ms)) }) {
   const R = { ...RETRY, ...retry };
-  const req = neutralRequest(request);
-  const wire = adapter.build(req);
-  // An upper bound on input tokens: the UTF-8 byte length of the body (no tokenizer yields more tokens than bytes).
-  const inputTokenCeiling = Buffer.byteLength(JSON.stringify(wire.body), 'utf8');
-  const quote = book.quote(adapter.provider, req.model, { inputTokenCeiling, maxOutputTokens: req.maxOutputTokens });
+  const { req, wire, quote } = quoteFor({ adapter, book, request });
   const attempts = [];
   let last = null;
   for (let i = 0; i < R.maxAttempts; i++) {
@@ -61,10 +93,10 @@ export async function infer({ adapter, transport, book, costs, request, retry = 
       if (measured === null) { costs.undecided(key, 'answer without a complete usage report'); a.cost = { quote, measured: null, unknown: true }; }
       else { const s = costs.settle(key, measured, p.outcome); a.cost = { quote, measured, settled: s.settled, unknown: false }; }
     } else if (p.cost.unknown) { costs.undecided(key, p.why ?? `${p.outcome} (HTTP ${x.status ?? 'none'}): billing not stated`); a.cost = { quote, measured: null, unknown: true }; }
-    else { costs.release(key, p.outcome); a.cost = { quote, measured: '0', unknown: false, assumed: p.outcome === OUTCOME.NOT_SENT ? 'not sent' : 'no usage returned; billing of errors is not stated by the provider' }; }
+    else { costs.release(key, p.outcome); a.cost = { quote, measured: '0', unknown: false, basis: 'not sent: the request never left this process' }; }
     attempts.push(a);
     last = p;
-    const again = p.outcome === OUTCOME.NOT_SENT || p.outcome === OUTCOME.THROTTLED || (p.outcome === OUTCOME.FAILED && R.retryFailed) || (p.outcome === OUTCOME.UNKNOWN && R.retryUnknown);
+    const again = p.outcome === OUTCOME.NOT_SENT || (p.outcome === OUTCOME.THROTTLED && R.retryThrottled) || (p.outcome === OUTCOME.FAILED && R.retryFailed) || (p.outcome === OUTCOME.UNKNOWN && R.retryUnknown);
     if (!again) break;
     if (i + 1 < R.maxAttempts) await sleep(p.retryAfterMs ?? R.baseDelayMs * 2 ** i);
   }

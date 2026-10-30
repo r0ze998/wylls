@@ -71,17 +71,19 @@ test('truncated and refused answers are billed by their usage; a refusal yields 
   assert.equal(gi.outcome, OUTCOME.TRUNCATED);
 });
 
-test('rate limits retry with a NEW reservation each time; billing stops never retry (Claude 429 without retry-after, 402; GPT quota codes)', async () => {
+test('a rate limit is not retried inside the decision by default (its cost is unreported, so it stays held); when allowed, each retry is a NEW reservation; billing stops never retry', async () => {
   const { r, costs } = await run(anthropicAdapter, [claudeError(429, 'rate_limit_error', { 'retry-after': '2' }), claude200()]);
-  assert.deepEqual(r.attempts.map(a => a.outcome), [OUTCOME.THROTTLED, OUTCOME.OK]);
-  assert.deepEqual(r.attempts.map(a => a.key), ['call-0001#0', 'call-0001#1']);
-  assert.equal(costs.classes().released, r.quote, 'the throttled attempt\'s reservation came back');
+  assert.deepEqual([r.outcome, r.attempts.length], [OUTCOME.THROTTLED, 1]);
+  assert.equal(costs.classes().undecided, r.quote, 'no usage report: held as undecided, not taken as 0');
+  const { r: r2, costs: c2 } = await run(anthropicAdapter, [claudeError(429, 'rate_limit_error', { 'retry-after': '2' }), claude200()], { retry: { retryThrottled: true } });
+  assert.deepEqual(r2.attempts.map(a => a.outcome), [OUTCOME.THROTTLED, OUTCOME.OK]);
+  assert.deepEqual(r2.attempts.map(a => a.key), ['call-0001#0', 'call-0001#1']);
+  assert.equal(c2.classes().undecided, r2.quote, 'the throttled attempt stays held');
+  assert.match(r2.possibleDoubleBilling, /billed both/);
   for (const [adapter, x] of [[anthropicAdapter, claudeError(429, 'rate_limit_error')], [anthropicAdapter, claudeError(402, 'billing_error')], [openaiAdapter, gptError(429, 'credit_balance_exhausted')], [openaiAdapter, gptError(429, 'organization_spend_limit_exceeded')]]) {
-    const { r: b } = await run(adapter, [x, adapter === anthropicAdapter ? claude200() : gpt200()]);
+    const { r: b } = await run(adapter, [x, adapter === anthropicAdapter ? claude200() : gpt200()], { retry: { retryThrottled: true, retryFailed: true } });
     assert.deepEqual([b.outcome, b.attempts.length], [OUTCOME.BILLING, 1], JSON.stringify(x.body));
   }
-  const { r: g } = await run(openaiAdapter, [gptError(429, 'rate_limit_exceeded', { 'retry-after': '1' }), gpt200()]);
-  assert.deepEqual(g.attempts.map(a => a.outcome), [OUTCOME.THROTTLED, OUTCOME.OK]);
 });
 
 test('a timeout after sending is undecided: held, never released or made available, not retried by default', async () => {
@@ -99,14 +101,17 @@ test('a timeout after sending is undecided: held, never released or made availab
   assert.match(r2.possibleDoubleBilling, /billed both/);
 });
 
-test('a connection refused before sending is not billed and may be retried; a server error is billed-unknown and its retries stay within the caps', async () => {
+test('a connection refused before sending is not billed and is retried; a server error is held as unknown, not retried by default, and when allowed its retries stay within the caps', async () => {
   const { r, costs } = await run(anthropicAdapter, [{ transportError: 'ECONNREFUSED', sent: false }, claude200()]);
   assert.deepEqual(r.attempts.map(a => a.outcome), [OUTCOME.NOT_SENT, OUTCOME.OK]);
   assert.equal(costs.classes().undecided, '0');
-  // 529 overloaded every time; the per-day inference cap allows two quotes: two attempts, then the reservation is refused.
+  // 529 overloaded: by default the decision ends there, the cost held (billing not stated).
+  const { r: once } = await run(anthropicAdapter, [claudeError(529, 'overloaded_error'), claude200()]);
+  assert.deepEqual([once.outcome, once.attempts.length, once.costs.undecided], [OUTCOME.FAILED, 1, once.quote]);
+  // When retries are allowed: the per-day inference cap allows two quotes: two attempts, then the reservation is refused.
   const quoteOf = (await run(anthropicAdapter, [claude200()])).r.quote;
   const capped = new RunCostMock({ available: '1000000', caps: { perDay: String(2n * BigInt(quoteOf)) } });
-  const { r: f } = await run(anthropicAdapter, [claudeError(529, 'overloaded_error')], { costs: capped, retry: { maxAttempts: 5 } });
+  const { r: f } = await run(anthropicAdapter, [claudeError(529, 'overloaded_error')], { costs: capped, retry: { maxAttempts: 5, retryFailed: true } });
   assert.deepEqual(f.attempts.map(a => a.outcome ?? a.stop), [OUTCOME.FAILED, OUTCOME.FAILED, 'CategoryDayLimit']);
   assert.equal(capped.classes().undecided, String(2n * BigInt(quoteOf)), 'both 529s stay undecided: billing is not stated');
   assert.match(f.possibleDoubleBilling, /billed both/);
@@ -165,7 +170,10 @@ test('this build cannot call a model: no credential is read, no network module i
   for (const f of readdirSync(dir)) {
     const src = readFileSync(new URL(f, dir), 'utf8').replace(/^\s*\/\/.*$/gm, '');
     assert.equal(/process\.env/.test(src), false, `${f}: reads the environment`);
-    assert.equal(/\bfetch\s*\(|node:https?|node:net|node:tls|require\(['"]https?/.test(src), false, `${f}: network code`);
+    // One file may open a socket: the loopback transport, plain http to 127.0.0.1 / ::1 only (no https, no net, no tls, no fetch).
+    const net = f === 'http-transport.mjs' ? /\bfetch\s*\(|node:https|node:net|node:tls|require\(['"]https?/ : /\bfetch\s*\(|node:https?|node:net|node:tls|require\(['"]https?/;
+    assert.equal(net.test(src), false, `${f}: network code`);
   }
+  assert.match(readFileSync(new URL('http-transport.mjs', dir), 'utf8'), /LOOPBACK = new Set\(\['127\.0\.0\.1', '::1', '\[::1\]', 'localhost'\]\)/);
   await assert.rejects(fixtureTransport([claude200()]).send({ headers: { 'x-api-key': 'not-a-real-key' }, body: {} }), /credential header/);
 });

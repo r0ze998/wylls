@@ -10,6 +10,12 @@ import { OUTCOME, PROVIDERS, emptyUsage, modelRecord } from './contract.mjs';
 const h = (headers, name) => { if (!headers) return null; const k = Object.keys(headers).find(x => x.toLowerCase() === name); return k ? headers[k] : null; };
 const retryAfterMs = headers => { const v = h(headers, 'retry-after'); const s = Number(v); return v !== null && Number.isFinite(s) && s >= 0 ? s * 1000 : null; };
 const n = v => (Number.isInteger(v) && v >= 0 ? v : null);
+/**
+ * An answer with no usage report (any HTTP error): neither provider documents whether such a request is billed,
+ * so its cost is UNKNOWN, never assumed to be 0. It stays reserved until a usage report or the operator decides.
+ * Only a request that provably never left this process (not_sent) costs nothing.
+ */
+const UNREPORTED = Object.freeze({ measurable: false, assumedZero: false, unknown: true });
 
 /** A transport failure: not sent at all (the request provably did not leave), or sent with no answer. */
 function transportOutcome(x) {
@@ -57,11 +63,11 @@ export const anthropicAdapter = Object.freeze({
     const type = x.body?.error?.type ?? null;
     const err = { ...base, usage: emptyUsage(), model: null, errorType: type, httpStatus: x.status };
     // A 429 is a rate limit when it names a retry time; a tier spend cap returns 429 WITHOUT retry-after and keeps failing (errors docs).
-    if (x.status === 429) return base.retryAfterMs !== null ? { ...err, outcome: OUTCOME.THROTTLED, cost: { measurable: false, assumedZero: true, unknown: false } }
-      : { ...err, outcome: OUTCOME.BILLING, why: '429 without retry-after: possibly the spend cap', cost: { measurable: false, assumedZero: true, unknown: false } };
-    if (x.status === 402) return { ...err, outcome: OUTCOME.BILLING, cost: { measurable: false, assumedZero: true, unknown: false } };
+    if (x.status === 429) return base.retryAfterMs !== null ? { ...err, outcome: OUTCOME.THROTTLED, cost: UNREPORTED }
+      : { ...err, outcome: OUTCOME.BILLING, why: '429 without retry-after: possibly the spend cap', cost: UNREPORTED };
+    if (x.status === 402) return { ...err, outcome: OUTCOME.BILLING, cost: UNREPORTED };
     // 400 is also returned when a spend limit the owner set is reached (errors docs): not retryable either way.
-    if (x.status >= 400 && x.status < 500) return { ...err, outcome: OUTCOME.REJECTED, cost: { measurable: false, assumedZero: true, unknown: false } };
+    if (x.status >= 400 && x.status < 500) return { ...err, outcome: OUTCOME.REJECTED, cost: UNREPORTED };
     // 500 api_error, 504 timeout_error, 529 overloaded_error: retryable; whether such a request is billed is not stated.
     return { ...err, outcome: OUTCOME.FAILED, cost: { measurable: false, assumedZero: false, unknown: true } };
   },
@@ -114,9 +120,9 @@ export const openaiAdapter = Object.freeze({
     }
     const code = x.body?.error?.code ?? null;
     const err = { ...base, usage: emptyUsage(), model: null, errorType: x.body?.error?.type ?? null, errorCode: code, httpStatus: x.status };
-    if (x.status === 429) return OPENAI_BILLING_CODES.includes(code) ? { ...err, outcome: OUTCOME.BILLING, cost: { measurable: false, assumedZero: true, unknown: false } }
-      : { ...err, outcome: OUTCOME.THROTTLED, cost: { measurable: false, assumedZero: true, unknown: false } };
-    if (x.status >= 400 && x.status < 500) return { ...err, outcome: OUTCOME.REJECTED, cost: { measurable: false, assumedZero: true, unknown: false } };
+    if (x.status === 429) return OPENAI_BILLING_CODES.includes(code) ? { ...err, outcome: OUTCOME.BILLING, cost: UNREPORTED }
+      : { ...err, outcome: OUTCOME.THROTTLED, cost: UNREPORTED };
+    if (x.status >= 400 && x.status < 500) return { ...err, outcome: OUTCOME.REJECTED, cost: UNREPORTED };
     return { ...err, outcome: OUTCOME.FAILED, cost: { measurable: false, assumedZero: false, unknown: true } };
   },
 });

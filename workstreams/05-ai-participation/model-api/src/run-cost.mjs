@@ -47,15 +47,24 @@ export class RunCostMock {
     this.gameReserve = a;
   }
 
+  /** Whether `amount` could be reserved now (no change): null, or {code, message}. reserve() applies the same checks. */
+  check(amount) {
+    const a = big(amount);
+    const day = dayOf(this.now());
+    if (this.caps.perCall !== null && a > big(this.caps.perCall)) return { code: 'PerCallLimit', message: `quote ${a} over the per-call cap ${this.caps.perCall}` };
+    if (this.caps.perDay !== null && this.#spentOrHeld(day) + a > big(this.caps.perDay)) return { code: 'CategoryDayLimit', message: `inference day cap ${this.caps.perDay}: ${this.#spentOrHeld(day)} used or held + quote ${a}` };
+    if (this.caps.total !== null && this.#spentOrHeld() + a > big(this.caps.total)) return { code: 'CategoryTotalLimit', message: `inference total cap ${this.caps.total}: ${this.#spentOrHeld()} used or held + quote ${a}` };
+    if (a > this.available) return { code: 'InsufficientBalance', message: `available ${this.available} < quote ${a} (game reserve ${this.gameReserve} kept apart)` };
+    return null;
+  }
+
   /** Synchronous: check and hold in one step. Throws {code}. */
   reserve(key, amount) {
     if (this.items.has(key)) throw Object.assign(new Error(`key ${key} already used: a retry is a new call with a new key`), { code: 'DuplicateKey' });
     const a = big(amount);
     const day = dayOf(this.now());
-    if (this.caps.perCall !== null && a > big(this.caps.perCall)) throw Object.assign(new Error(`quote ${a} over the per-call cap ${this.caps.perCall}`), { code: 'PerCallLimit' });
-    if (this.caps.perDay !== null && this.#spentOrHeld(day) + a > big(this.caps.perDay)) throw Object.assign(new Error('inference day cap'), { code: 'CategoryDayLimit' });
-    if (this.caps.total !== null && this.#spentOrHeld() + a > big(this.caps.total)) throw Object.assign(new Error('inference total cap'), { code: 'CategoryTotalLimit' });
-    if (a > this.available) throw Object.assign(new Error(`available ${this.available} < quote ${a} (game reserve ${this.gameReserve} kept apart)`), { code: 'InsufficientBalance' });
+    const no = this.check(a);
+    if (no) throw Object.assign(new Error(no.message), { code: no.code });
     this.available -= a;
     const it = { key, amount: String(a), state: 'reserved', day };
     this.items.set(key, it);
