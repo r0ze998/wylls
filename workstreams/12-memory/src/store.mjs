@@ -11,23 +11,29 @@
 // - a fact's id comes from its chain reference, so a duplicate delivery is a no-op and a different body under
 //   the same reference is a collision (the first is kept, the second is recorded as rejected);
 // - a correction may only target a note OF THE SAME OWNER (an AI cannot "correct" a chain fact or another's words);
-// - a rollback fact must name a fact that exists.
+// - a rollback fact must name a fact that exists;
+// - an allocation must carry a valid ed25519 signature of its signer (the key registry `keys`, tag -> public key
+//   hex, comes from the caller: the roster), and a signer's nonce is used once: the same signed operation again is
+//   a duplicate, other content under a used nonce is refused (`nonce_reused`).
+// Signatures are verified again when a journal is replayed, so an edited file cannot slip an allocation in.
 // A torn final line (a crash mid-write) is ignored on reload and counted in `j.torn`.
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { canonical, sha256hex } from './records.mjs';
+import { canonical, sha256hex, verifyAllocation } from './records.mjs';
 
 export class Journal {
-  constructor(path = null) {
+  constructor(path = null, { keys = {} } = {}) {
     this.path = path;
+    this.keys = keys;
     this.list = [];
     this.byId = new Map();
+    this.nonces = new Map(); // "signer#nonce" -> allocation id
     this.rejects = [];
     this.torn = 0;
   }
 
-  static open(path = null) {
-    const j = new Journal(null);
+  static open(path = null, { keys = {} } = {}) {
+    const j = new Journal(null, { keys });
     if (path && existsSync(path)) {
       const lines = readFileSync(path, 'utf8').split('\n');
       lines.forEach((line, i) => {
@@ -37,7 +43,12 @@ export class Journal {
           if (i === lines.length - 1 || (i === lines.length - 2 && lines[lines.length - 1] === '')) { j.torn++; return; }
           throw new Error(`journal: corrupt line ${i + 1} in ${path}`);
         }
-        if (row.rejected) j.rejects.push(row.rejected); else j._keep(row.record);
+        if (row.rejected) { j.rejects.push(row.rejected); return; }
+        if (row.record.type === 'allocation') {
+          const bad = verifyAllocation(row.record, keys);
+          if (bad) throw new Error(`journal: allocation ${row.record.id} on line ${i + 1} fails verification (${bad})`);
+        }
+        j._keep(row.record);
       });
     }
     j.path = path;
@@ -49,7 +60,7 @@ export class Journal {
     mkdirSync(dirname(this.path), { recursive: true });
     appendFileSync(this.path, `${JSON.stringify(row)}\n`);
   }
-  _keep(rec) { this.list.push(rec); this.byId.set(rec.id, rec); }
+  _keep(rec) { this.list.push(rec); this.byId.set(rec.id, rec); if (rec.type === 'allocation') this.nonces.set(rec.nonce_key, rec.id); }
   _reject(rec, reason) {
     const r = { id: rec?.id ?? null, type: rec?.type ?? null, reason };
     this.rejects.push(r);
@@ -58,11 +69,16 @@ export class Journal {
   }
 
   append(rec) {
+    if (rec.type === 'allocation') {
+      const bad = verifyAllocation(rec, this.keys);
+      if (bad) return this._reject(rec, bad);
+    }
     const prev = this.byId.get(rec.id);
     if (prev) {
       if (rec.type === 'fact' && prev.body_sha !== rec.body_sha) return this._reject(rec, 'collision');
       return { status: 'duplicate', id: rec.id };
     }
+    if (rec.type === 'allocation' && this.nonces.has(rec.nonce_key)) return this._reject(rec, 'nonce_reused');
     if (rec.type === 'correction') {
       const t = this.byId.get(rec.target);
       if (!t) return this._reject(rec, 'correction_target_unknown');
@@ -80,6 +96,8 @@ export class Journal {
   }
 
   records() { return [...this.list]; }
+  /** The position of a record in append order (what had reached memory before it). */
+  indexOf(id) { return this.list.findIndex(r => r.id === id); }
   get(id) { return this.byId.get(id) ?? null; }
   rejected() { return [...this.rejects]; }
   sha256() { return sha256hex(canonical(this.list)); }

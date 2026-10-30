@@ -1,4 +1,4 @@
-// Workstream 12: the journal records of the memory module and their validation (record v2).
+// Workstream 12: the journal records of the memory module and their validation (record v3).
 //
 // Four epistemic kinds are kept apart by TYPE, never by a flag a speaker can set:
 //
@@ -9,7 +9,11 @@
 //   note        the owner's own INTERPRETATION (code-made or model-written). epistemic "interpreted".
 //               A note is never evidence for a relationship.
 //   correction  the owner retracts or amends its own note; a `rollback` fact (not a correction) retracts a fact.
-//   decision    which candidate an owner chose, on what input, citing which memory ids (audit and reassessment).
+//   allocation  a party's SIGNED statement that (part of) a caravan is meant for a commitment. Authenticated by an
+//               ed25519 signature over canonical bytes against the key registry the caller configures; the text
+//               of a conversation can never allocate. Each signer numbers its operations (nonce): a resend is a
+//               duplicate, a reused nonce with other content is refused, a higher nonce corrects or revokes.
+//   decision    which candidate an owner chose, the full input it was shown, and the memory ids it cited.
 //
 // Two times on every record (the split of the existing episodes, AC2-NOTES rule 2: `bell` / `created_bell`):
 //   bell          when it HAPPENED (the chain bell of a settle, the bell an utterance was said)
@@ -23,21 +27,22 @@
 // Reused from the AI-citizens code: canonical JSON and sha256 (citizens/memory/config.mjs) and the pinned
 // sanitiser of citizens/mind/sanitize.mjs (not the memory/safe.mjs stand-in, which its own header says is no
 // drop-in for untrusted text).
+import { createPublicKey, verify as verifySig } from 'node:crypto';
 import { canonical, sha256hex } from '../../../permutation-gateway/citizens/memory/config.mjs';
 import { safeText } from '../../../permutation-gateway/citizens/mind/sanitize.mjs';
 
 export { canonical, sha256hex };
 
-export const RECORD_VERSION = 2;
-export const TYPES = Object.freeze(['utterance', 'fact', 'note', 'correction', 'decision']);
-export const EPISTEMIC = Object.freeze({ utterance: 'said', fact: 'verified', note: 'interpreted', correction: 'interpreted', decision: 'interpreted' });
+export const RECORD_VERSION = 3;
+export const TYPES = Object.freeze(['utterance', 'fact', 'note', 'correction', 'allocation', 'decision']);
+export const EPISTEMIC = Object.freeze({ utterance: 'said', fact: 'verified', note: 'interpreted', correction: 'interpreted', allocation: 'said', decision: 'interpreted' });
 
 // Speech acts the social protocol can carry. Nothing here grants authority, moves funds, forms a contract or
-// marks a delivery done: those exist only as facts from the execution side. `allocate` is a party SAYING which
-// caravan (and how much of it) is meant for which commitment; the fold checks it against the facts.
-export const ACTS = Object.freeze(['request', 'accept', 'decline', 'retract', 'claim_sent', 'claim_delivered', 'allocate', 'testimony']);
+// marks a delivery done: those exist only as facts from the execution side. Allocation is NOT an act: it is the
+// signed `allocation` record below.
+export const ACTS = Object.freeze(['request', 'accept', 'decline', 'retract', 'claim_sent', 'claim_delivered', 'testimony']);
 export const FACT_KINDS = Object.freeze([
-  'caravan_sent', 'caravan_settled', 'caravan_credited', 'caravan_raided', // chain records and the measured credit
+  'caravan_sent', 'caravan_settled', 'caravan_credited', 'caravan_raided', // chain records and 4's per-delivery credit
   'place_owner', 'coverage', 'lookup_failed', // index attestations
   'march_sent', 'rollback',
 ]);
@@ -46,6 +51,15 @@ export const RESOURCES = Object.freeze(['food', 'wood', 'stone', 'ore', 'horses'
 export const OUTCOME = Object.freeze({ DELIVERED: 0, LOST: 1 });
 // LogPlace kinds a caravan can be addressed to (fclient conquest.rs: 1 holding, 2 vault)
 export const PLACE_KINDS = Object.freeze([1, 2]);
+export const PLACE = Object.freeze({ HOLDING: 1, VAULT: 2 });
+
+// Every instruction path that emits CARAVAN_SENT for a sender, read in permutation-frontier/src/proc/caravan.rs
+// (send_caravan 0xB1 and the TAKE branch of settle_raid). Workstream 3 showed SendCaravan is also reachable by CPI
+// from another program, and that frontier-node's verify collects top-level instructions only, so an index that
+// reads top-level instructions alone does not cover the CPI path. A coverage attestation must name all three.
+export const SEND_ROUTES = Object.freeze(['send_caravan/top_level', 'send_caravan/cpi', 'settle_raid/take']);
+export const FINALITY = Object.freeze(['processed', 'confirmed', 'finalized']);
+export const CREDIT_UNIT = 'whole_units';
 
 export const TEXT_LIMIT = 280;
 
@@ -105,7 +119,6 @@ const ACT_FIELDS = Object.freeze({
   retract: ['type', 'ref'],
   claim_sent: ['type', 'ref', 'caravan'],
   claim_delivered: ['type', 'ref', 'caravan'],
-  allocate: ['type', 'ref', 'caravan', 'qty'],
   testimony: ['type', 'about', 'ref', 'says'],
 });
 
@@ -125,9 +138,6 @@ function checkAct(act) {
       return { type: 'accept', ref: ref(), qty: act.qty, by_bell: act.by_bell };
     case 'claim_sent': case 'claim_delivered':
       return { type: act.type, ref: ref(), caravan: act.caravan === undefined || act.caravan === null ? null : checkCaravan(act.caravan, 'act') };
-    case 'allocate':
-      if (!isQty(act.qty)) fail('act', 'allocate qty');
-      return { type: 'allocate', ref: ref(), caravan: checkCaravan(act.caravan, 'act'), qty: act.qty };
     case 'testimony':
       if (!isTag(act.about) || !['delivered', 'not_delivered'].includes(act.says)) fail('act', 'testimony');
       return { type: 'testimony', about: act.about, ref: ref(), says: act.says };
@@ -136,7 +146,15 @@ function checkAct(act) {
   }
 }
 
-const idOf = (type, body) => sha256hex('wylls-memory12/v2', type, canonical(body)).slice(0, 16);
+const idOf = (type, body) => sha256hex('wylls-memory12/v3', type, canonical(body)).slice(0, 16);
+
+/** The world a memory belongs to: cluster, program id and season. Coverage must name the same world. */
+export function checkWorld(w, what = 'world') {
+  if (!w || typeof w.cluster !== 'string' || !w.cluster || typeof w.program !== 'string' || !w.program || !Number.isInteger(w.season) || w.season < 0) {
+    fail(what, 'world {cluster, program, season}');
+  }
+  return { cluster: w.cluster, program: w.program, season: w.season };
+}
 
 /**
  * An utterance. `speaker` must be the authenticated signer (the caller, i.e. the social layer, vouches for it).
@@ -187,18 +205,34 @@ function checkFactData(kind, d, bell) {
     case 'caravan_settled': // CARAVAN_SETTLED: outcome and the cargo AS RECORDED (not the amount credited)
       if (!Object.values(OUTCOME).includes(d.outcome)) fail('fact', 'caravan_settled outcome');
       return { caravan: checkCaravan(d.caravan, 'fact'), outcome: d.outcome, dst: checkPlace(d.dst, 'fact'), cargo_recorded: cargoOf(d.cargo_recorded ?? {}) };
-    case 'caravan_credited': // the measured change of the destination's stock caused by that settle (4 reads it)
-      if (!['account_diff'].includes(d.basis)) fail('fact', 'caravan_credited basis');
-      return { caravan: checkCaravan(d.caravan, 'fact'), place: checkPlace(d.place, 'fact'), credited: cargoOf(d.credited), basis: d.basis };
+    case 'caravan_credited':
+      // The amount THIS delivery added, from 4's execution record of the settle instruction. A balance before /
+      // after difference mixes concurrent deliveries, production and upkeep, so it is refused (`account_diff`).
+      // For a holding the memory derives the credit itself by a pinned rule (fold.mjs CREDIT_RULES); a vault's
+      // addition depends on its stock and cap at that instant and needs this record.
+      if (d.basis !== 'exec_record') fail('fact', `caravan_credited basis ${d.basis} (only exec_record; a balance difference is not a per-delivery credit)`);
+      if (d.unit !== CREDIT_UNIT) fail('fact', `caravan_credited unit ${d.unit}`);
+      if (!d.exec || typeof d.exec.sig !== 'string' || !d.exec.sig || !Number.isInteger(d.exec.ix)) fail('fact', 'caravan_credited exec {sig, ix} of the settle instruction');
+      return { caravan: checkCaravan(d.caravan, 'fact'), place: checkPlace(d.place, 'fact'), credited: cargoOf(d.credited), unit: d.unit, basis: d.basis,
+        exec: { sig: d.exec.sig, ix: d.exec.ix } };
     case 'caravan_raided':
       if (!isTag(d.raider)) fail('fact', 'caravan_raided raider');
       return { caravan: checkCaravan(d.caravan, 'fact'), raider: d.raider, taken: cargoOf(d.taken ?? {}) };
     case 'place_owner': // who held a place of a given generation over [from_bell, to_bell]; to_bell null = through `bell`
       if (!isTag(d.owner) || !isBell(d.from_bell) || (d.to_bell !== null && d.to_bell !== undefined && (!isBell(d.to_bell) || d.to_bell < d.from_bell))) fail('fact', 'place_owner');
       return { place: checkPlace(d.place, 'fact'), owner: d.owner, from_bell: d.from_bell, to_bell: d.to_bell ?? null };
-    case 'coverage': // 4's index is complete for this sender's caravan departures over [from_bell, to_bell]: exactly these
+    case 'coverage':
+      // 4 attests: in `world`, every CARAVAN_SENT of `sender` with a departure bell in [from_bell, to_bell], over the
+      // listed `routes`, read from a gapless slot range at the stated finality, is exactly `caravans`. Whether it is
+      // SUFFICIENT to prove "not sent" is decided by the fold (fold.mjs coverageSufficiency), not here.
       if (!isTag(d.sender) || !isBell(d.from_bell) || !isBell(d.to_bell) || d.to_bell < d.from_bell || d.to_bell > bell || !Array.isArray(d.caravans)) fail('fact', 'coverage');
-      return { sender: d.sender, from_bell: d.from_bell, to_bell: d.to_bell, caravans: d.caravans.map(c => checkCaravan(c, 'fact')) };
+      if (!Array.isArray(d.routes) || !d.routes.every(r => typeof r === 'string')) fail('fact', 'coverage routes');
+      if (!FINALITY.includes(d.finality)) fail('fact', 'coverage finality');
+      if (!d.completeness || typeof d.completeness.gapless !== 'boolean' || !Number.isInteger(d.completeness.from_slot) || !Number.isInteger(d.completeness.to_slot)
+        || d.completeness.to_slot < d.completeness.from_slot) fail('fact', 'coverage completeness {gapless, from_slot, to_slot}');
+      return { world: checkWorld(d.world, 'fact'), sender: d.sender, from_bell: d.from_bell, to_bell: d.to_bell, routes: [...new Set(d.routes)].sort(),
+        finality: d.finality, completeness: { gapless: d.completeness.gapless, from_slot: d.completeness.from_slot, to_slot: d.completeness.to_slot },
+        caravans: d.caravans.map(c => checkCaravan(c, 'fact')) };
     case 'lookup_failed': // 4 tried and could not answer: unknown, not "absent"
       if (!['coverage', 'caravan', 'place_owner', 'credit'].includes(d.query) || !d.reason) fail('fact', 'lookup_failed');
       return { query: d.query, sender: isTag(d.sender) ? d.sender : null, caravan: d.caravan ? checkCaravan(d.caravan, 'fact') : null,
@@ -223,6 +257,47 @@ export function note({ owner, bell, about = null, text, basis = [], by = 'code',
   return { id: idOf('note', body), ...body, epistemic: EPISTEMIC.note, sources: [...basis].map(String) };
 }
 
+// ------------------------------------------------------------------ allocation (signed)
+
+export const ALLOCATION_DOMAIN = 'wylls-memory12-allocation/v1';
+
+/** The exact bytes a signer signs: domain, world and the operation, as canonical JSON. */
+export function allocationBytes({ world, by, op, commitment, caravan, qty, nonce, bell, visibility }) {
+  return Buffer.from(canonical({ domain: ALLOCATION_DOMAIN, world, by, op, commitment, caravan, qty, nonce, bell, visibility }), 'utf8');
+}
+
+/**
+ * A signed allocation operation. op 'set' says "qty of `caravan` is for `commitment`"; op 'revoke' withdraws the
+ * signer's allocation of that caravan to that commitment. `nonce` is the signer's own counter (one operation per
+ * nonce); `bell` is when it was signed, `created_bell` when it reached memory. The signature is checked against the
+ * key registry by `verifyAllocation` (the store refuses an allocation that fails it).
+ */
+export function allocation({ world, by, op, commitment, caravan, qty = 0, nonce, bell, created_bell = bell, visibility, sig }) {
+  if (!isTag(by) || !['set', 'revoke'].includes(op) || typeof commitment !== 'string' || !commitment) fail('allocation', 'by / op / commitment');
+  if (!Number.isInteger(nonce) || nonce < 0 || !isBell(bell) || !isBell(created_bell) || created_bell < bell) fail('allocation', 'nonce / bell');
+  if (op === 'set' ? !isQty(qty) : qty !== 0) fail('allocation', 'qty (positive for set, 0 for revoke)');
+  if (typeof sig !== 'string' || !/^[0-9a-f]{128}$/.test(sig)) fail('allocation', 'sig (ed25519, 64 bytes hex)');
+  // visibility is signed too: an allocation names a commitment, so it is shown to whom the signer chose (normally the
+  // parties of a private promise) and nobody can widen it
+  const signed = { world: checkWorld(world, 'allocation'), by, op, commitment, caravan: checkCaravan(caravan, 'allocation'), qty, nonce, bell,
+    visibility: checkVisibility(visibility) };
+  const body = { v: RECORD_VERSION, type: 'allocation', ...signed, created_bell, sig };
+  // the id covers the signed content only: the same operation received again (another created_bell) is a duplicate
+  return { id: idOf('allocation', signed), ...body, epistemic: EPISTEMIC.allocation, sources: [], nonce_key: `${by}#${nonce}`,
+    body_sha: sha256hex(canonical(signed)).slice(0, 16) };
+}
+
+/** Verify an allocation's signature with the signer's registered ed25519 public key (32 bytes hex). */
+export function verifyAllocation(rec, keys) {
+  const hex = keys?.[rec.by];
+  if (!hex) return 'auth_unknown_signer';
+  try {
+    const spki = Buffer.concat([Buffer.from('302a300506032b6570032100', 'hex'), Buffer.from(hex, 'hex')]);
+    const pub = createPublicKey({ key: spki, format: 'der', type: 'spki' });
+    return verifySig(null, allocationBytes(rec), pub, Buffer.from(rec.sig, 'hex')) ? null : 'auth_bad_signature';
+  } catch { return 'auth_bad_key'; }
+}
+
 /** The owner retracts or amends one of ITS OWN notes (checked by the store). */
 export function correction({ owner, bell, target, reason, replacement = null }) {
   if (!isTag(owner) || !isBell(bell) || typeof target !== 'string') fail('correction', 'fields');
@@ -235,9 +310,11 @@ export function correction({ owner, bell, target, reason, replacement = null }) 
  * Which candidate an owner chose and on what input. It keeps the request, the candidates and the limits so that
  * the decision can be reassessed when later-observed evidence changes what was true at that bell. Owner-private.
  */
-export function decision({ owner, nation, bell, request, candidates, limits, chosen, policy, cited = [], contributions = {} }) {
+export function decision({ owner, nation, bell, request, candidates, limits, input, chosen, policy, cited = [], contributions = {} }) {
   if (!isTag(owner) || !isBell(bell)) fail('decision', 'fields');
-  const body = { v: RECORD_VERSION, type: 'decision', owner, nation: nation ?? null, bell, created_bell: bell, request, candidates, limits, chosen,
-    policy: String(policy), cited: [...cited], contributions, visibility: { scope: 'parties', members: [owner] } };
+  // `input` is the exact decision input the policy was shown: what was visible at the time, kept as it was
+  const body = { v: RECORD_VERSION, type: 'decision', owner, nation: nation ?? null, bell, created_bell: bell, request, candidates, limits,
+    input, input_sha256: sha256hex(canonical(input)), chosen, policy: String(policy), cited: [...cited], contributions,
+    visibility: { scope: 'parties', members: [owner] } };
   return { id: idOf('decision', body), ...body, epistemic: EPISTEMIC.decision, sources: [...cited] };
 }

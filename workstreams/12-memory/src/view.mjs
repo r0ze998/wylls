@@ -16,8 +16,8 @@ import { CLAIM_CRITERIA, VERIFIED_STATES, reliabilityOf } from './fold.mjs';
 const STATE_WORD = {
   fulfilled: 'delivered in full by the due bell (credited at the promised place)',
   late: 'delivered in full after the due bell (credited at the promised place)',
-  partial: 'delivered in part; a complete index shows nothing more was sent',
-  not_delivered: 'not delivered: a complete index shows no caravan to the promised place',
+  partial: 'delivered in part; a sufficient index shows nothing more was sent',
+  not_sent: 'not sent: a sufficient index (world, season, every send route, gapless, finalized) shows no caravan to the promised place',
   raided: 'the allocated caravan was raided (not counted against the sender)',
   lost: 'the allocated caravan was lost at the destination (not counted)',
   recipient_changed: 'delivered, but the place had another owner at the settle bell (not counted)',
@@ -33,6 +33,7 @@ const REASON_WORD = {
   recipient_conflict: 'conflicting owner attestations', qty_unverified: 'settled, credited amount not measured', record_conflict: 'conflicting records',
   qty_split_ambiguous: 'a short credit shared by several allocations', coverage_caravan_unresolved: 'the index lists a caravan without its departure record',
   unassigned_caravan: 'a caravan to the place exists but nobody allocated it',
+  coverage_insufficient: 'the index attestation does not prove the sender sent nothing',
 };
 
 export function epistemicOf(state) {
@@ -46,7 +47,9 @@ export function commitmentLine(c) {
   if (c.delivered_max > 0 && c.state !== 'fulfilled') {
     text += c.delivered_min === c.delivered_max ? ` (credited ${c.delivered_min} of ${c.qty})` : ` (credited ${c.delivered_min} of ${c.qty} so far; up to ${c.delivered_max} still possible)`;
   }
-  if (c.reasons.length) text += ` (${c.reasons.map(r => REASON_WORD[r] ?? r).join('; ')})`;
+  if (c.reasons.length) text += ` (${c.reasons.map(r => REASON_WORD[r] ?? r).join('; ')}${c.coverage_gaps?.length ? `: ${c.coverage_gaps.join(', ')}` : ''})`;
+  const bases = [...new Set(c.links.filter(l => l.credit).map(l => (l.credit.basis === 'rule_derived' ? `credit by rule ${l.credit.rule}, ${l.credit.unit}` : l.credit.basis === 'exec_record' ? `credit by execution record, ${l.credit.unit}` : 'credit not verifiable (vault)')))];
+  if (bases.length) text += ` [${bases.join('; ')}]`;
   for (const cl of c.claims) if (cl.status !== 'consistent') text += `; ${cl.kind.replace('_', ' ')}: ${cl.status}${cl.criterion ? ` (${CLAIM_CRITERIA[cl.criterion]})` : ''}`;
   return { about: c.debtor, commitment: c.id, text, epistemic: epistemicOf(c.state), sources: [...c.sources] };
 }
@@ -58,8 +61,8 @@ export function summarize(k) {
     const cs = k.commitments.filter(c => c.debtor === t);
     const rel = reliabilityOf(k, t);
     const v = rel.verified;
-    const nv = v.fulfilled + v.late + v.partial + v.not_delivered;
-    const text = `${t}: verified ${v.fulfilled} fulfilled, ${v.late} late, ${v.partial} partial, ${v.not_delivered} not delivered; `
+    const nv = v.fulfilled + v.late + v.partial + v.not_sent;
+    const text = `${t}: verified ${v.fulfilled} fulfilled, ${v.late} late, ${v.partial} partial, ${v.not_sent} not sent; `
       + `${rel.unresolved.length} open or unconfirmed; ${rel.neutral.length} neutral; claims ${rel.claims.contradicted} false, ${rel.claims.mismatch} mismatched, `
       + `${rel.claims.unverified} unverified; reliability estimate ${rel.E} (verified evidence only)`;
     lines.push({ about: t, text, epistemic: nv ? 'verified' : rel.unresolved.length ? 'unknown' : 'said', sources: [...new Set(cs.flatMap(c => c.sources))].sort() });

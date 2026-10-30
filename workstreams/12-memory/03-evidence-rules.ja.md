@@ -1,74 +1,93 @@
-# ⑫ 事実認定の規則（fold v2）
+# ⑫ 事実認定の規則（fold v3）
 
-二度目のレビュー（2026-10-30）で指摘された「誤った評価で関係を壊す」経路を塞ぐための規則。実装は `src/fold.mjs`、テストは `test/evidence.test.mjs`。重みはすべて仮設定（`WEIGHTS.provisional: true`、`CAUTION.provisional: true`）で、調整していない。
+二度目・三度目のレビュー（2026-10-30）で指摘された「誤った評価で関係を壊す」経路を塞ぐための規則。実装は `src/fold.mjs`、`src/records.mjs`、`src/store.mjs`、`src/index.mjs`。テストは `test/evidence.test.mjs`（v2）と `test/contract-v3.test.mjs`（v3）。重みはすべて仮設定（`WEIGHTS.provisional: true`、`CAUTION.provisional: true`）で、調整していない。**本番の評判ルールとして採用したものではない。**
+
+v2 から維持していること：未確認で信頼度を下げない、配送と約束は明示的な割当でだけ結ぶ、発生時刻と観測時刻を分ける、caution は誠実さの評価ではない。
 
 ## 1. 記録がないことは、不履行や嘘の証拠にしない
 
-- 期限＋猶予（6 bell）を過ぎても判断材料が揃わない約束は **`unconfirmed`**（未確認）。理由を必ず付ける：`no_record_found`（記録が見つからない）、`lookup_failed`（④が照会できなかった）、`in_transit`（輸送中）、`settle_unobserved`（到着予定を過ぎても精算記録がない）、`caravan_unknown`（割当てた隊商の発送記録がない）、`recipient_unverified` / `recipient_conflict`、`qty_unverified`、`qty_split_ambiguous`、`record_conflict`、`unassigned_caravan`、`coverage_caravan_unresolved`。
-- **不足（`partial` / `not_delivered`）が確定するのは、④の `coverage`（その送り主の、約束から期限＋猶予までの全発送が漏れなく揃っている、という索引の証明）があるときだけ。** 区間が途切れていれば確定しない（区間は連続する場合だけ結合する）。
-- `unconfirmed` は信頼度 E を動かさない。取引判断で慎重になる場合は、別の **caution 項**（自分への約束のうち期限を過ぎて未確認のものの数×仮の係数）を使う。これは誠実さの評価ではないと入力に明記し、証拠が届けばどちらの結果でも消える。
+- 期限＋猶予（6 bell）を過ぎても判断材料が揃わない約束は **`unconfirmed`**（未確認）。理由を必ず付ける：`no_record_found`、`lookup_failed`、`coverage_insufficient`（＋`coverage_gaps` に何が足りないか）、`in_transit`、`settle_unobserved`、`caravan_unknown`、`recipient_unverified` / `recipient_conflict`、`qty_unverified`、`qty_split_ambiguous`、`record_conflict`、`unassigned_caravan`、`coverage_caravan_unresolved`。
+- `unconfirmed` は信頼度 E を動かさない。判断を慎重にする **caution 項**は別にあり、入力に `is_honesty_judgment: false` と意味を明記する。証拠が届けば、結果がどちらでも消える。
 - 襲撃（`raided`）・目的地消失（`lost`）・精算時の所有者違い（`recipient_changed`）・期限前の取り下げ（`withdrawn`）は**中立**。
 
-## 2. 約束と配送を推測で結び付けない
+## 2. 「未発送」の証明（v3 で厳密化）
 
-- 結び付けは、当事者（債務者または債権者）の **`allocate` 発言**だけ：`{ref: 約束 id, caravan: {sender, seq}, qty}`。これは発言（said）で、事実と照合して初めて効く。
-- 照合：隊商の送り主＝債務者、発送記録の目的地（**種類・座標・site/tile・世代**）＝約束の場所、資源を積んでいること、**隊商の容量を宣言順に全約束で消費**（超えた割当は `over_allocated` で無効。同じ数量を二度使わない）。
-- 第三者の割当は無効（`not_a_party`）。当事者の間で数量が食い違えば小さいほうを採り、`disputed` を付ける。
-- 誰も割当てていない隊商は **`unassigned`**。目的地が約束の場所と一致していても自動では結び付けない。期限後にそのような隊商があれば、約束は `unconfirmed`（`unassigned_caravan`）のまま。
+`not_sent`（旧 `not_delivered`）が確定するのは、④の `coverage` が次を**すべて**満たすときだけ（`coverageSufficiency`）。一つでも欠ければ `unconfirmed`（`coverage_insufficient`）で、`coverage_gaps` に欠けたものを書く。
 
-## 3. DELIVERED だけで数量や受取人を確定しない
-
-| ④からの事実 | 意味 | ないとき |
+| 条件 | coverage の項目 | 欠けたときの印 |
 |---|---|---|
-| `caravan_settled` DELIVERED | 精算が起きた（記録上の積荷 `cargo_recorded` 付き） | 輸送中または `settle_unobserved` |
-| `caravan_credited`（`basis: account_diff`） | 目的地の在庫が実際に増えた量 | **`qty_unverified`**（記録上の積荷は量として使わない） |
-| `place_owner`（区間 `[from_bell, to_bell]`） | **精算時点**の所有者 | **`recipient_unverified`** |
+| この記憶の世界と同じ cluster・program・**season** | `world` | `other_world_or_season`（記憶側に world が未設定なら `memory_world_unset`） |
+| 対象の送り主 | `sender` | 他人の coverage は使わない（`no_record_found`） |
+| 約束から期限＋猶予までの全区間 | `from_bell`〜`to_bell`（連続する証明だけ結合） | `window_not_fully_covered` |
+| **全送信経路** | `routes` ⊇ `send_caravan/top_level`、`send_caravan/cpi`、`settle_raid/take` | `route_missing:<経路>` |
+| 履歴の完全性 | `completeness.gapless` と slot 範囲 | `slot_range_has_gaps` |
+| 確定性 | `finality: 'finalized'` | `not_finalized:<finality>` |
 
-- 1 隊商を複数の約束に割当てていて実加算が合計に足りないとき、内訳は推測しない。各約束に **下限・上限**（`delivered_min..delivered_max`）を持たせ、差があれば `qty_split_ambiguous` で未確認にする。
-- 受取人は「今の所有者」ではなく、精算 bell を含む区間の所有者で判断する。精算時に別人が持っていれば `recipient_changed`（中立）。証明が食い違えば `recipient_conflict`。
-- 世代の違う場所は別の場所（`misdirected`）。誤配送であって嘘ではない。
+経路の一覧はコードから取った：`CARAVAN_SENT` を出すのは `permutation-frontier/src/proc/caravan.rs` の `send_caravan`（0xB1）と、`settle_raid` の TAKE 分岐（奪った隊商を襲撃者の隊商として出し直す）の 2 か所。③（composability）は SendCaravan が別プログラムからの CPI でも呼べること、`frontier-node` の verify がトップレベルの命令しか集めないことを示した。だから、トップレベルだけを読む索引では CPI の経路を覆えない。
 
-## 4. 発生時刻と観測時刻を分ける
+**未発送と未到着は別。** 割当てた隊商が出発していて精算記録がなければ、coverage が十分でも `settle_unobserved`（未確認）であり、`not_sent` にはならない。coverage に載っていて誰も割当てていない、約束の場所への隊商があれば `unassigned_caravan`（未確認）。偽の申告の判定（§6）も、十分な coverage があるときだけ行う。
 
-- すべての記録に `bell`（発生）と `created_bell`（観測＝記憶に入った時。`created_bell < bell` は拒否）。既存エピソードの `bell` / `created_bell`（AC2-NOTES 規則 2）と同じ分け方。
-- 期限内かどうかは**精算の発生 bell**で判断する。後から届いた記録でも、期限内に精算していれば `fulfilled`。
-- `knowledge(viewer, clock, {observedBy})`：`clock` で状態を判断し、`observedBy` までに観測された記録だけを使う。
-- **再評価** `m.reassess(decisionId, observedBy)`：判断時点の bell で、後から観測された記録も含めて判断し直す。約束状態の変化・候補ごとの費用項の変化・参照ルールなら選択が変わったかを返す。元の判断記録は書き換えない。判断後になされた発言（例：判断後に初めてなされた割当）は判断時点の事実には含めない。
-- rollback された事実は除外され、そこから導かれた判定（例：偽申告の認定）も、その根拠とともに取り消される。
+## 3. 約束と配送を推測で結び付けない（v3：割当は署名付きの入力）
 
-## 5. 評判と観測の不足を分ける
+- 割当は会話の act ではなく、**署名付きの `allocation` 記録**（`m.allocate`）。署名する内容は `{domain, world, by, op: set|revoke, commitment, caravan, qty, nonce, bell, visibility}` の正規 JSON で、ed25519 署名を呼び出し側が渡す鍵登録（tag → 公開鍵。本線では名簿）で検証する。会話の本文や act では割当できない（`allocate` act は存在しない）。
+- 検証に通らないものは拒否する：`auth_bad_signature`（他人になりすまし、署名後の改変、別の世界やシーズン向けの署名）、`auth_unknown_signer`。journal を再生するときにも検証し直すので、ファイルを書き換えた割当は読み込めない。
+- **nonce（署名者ごとの通し番号）**：同じ操作の再送は `duplicate`（観測時刻が違っても同じ）。同じ nonce で中身が違えば `nonce_reused` で拒否。署名者・約束・隊商ごとに、**nonce が最大の操作が有効**。到着順ではない。訂正は大きい nonce の `set`、撤回は大きい nonce の `revoke`。古い操作を再送しても戻らない。
+- 割当を数えるのは当事者（債務者・債権者）の有効な `set` だけ。第三者は `not_a_party`。両者の数量が違う、または一方だけが撤回しているときは `disputed`、数量は小さいほう。
+- 隊商の容量は、有効な割当の署名順に全約束で消費する。超えた割当は `over_allocated`。訂正や撤回で空いた分は他の約束が使え、同じ量が二度数えられることはない。
+- 割当の公開範囲も署名に含める（約束が私的なら当事者だけ）。
 
-`reliability[相手]` の出力：
+## 4. 加算量は、当該配送だけの加算として導ける根拠があるときだけ（v3）
 
-- `E, r, s`：**確認済みの根拠だけ**の Beta 推定。`fulfilled` r+1、`late` r+0.5・s+0.5、`partial` r+f・s+(1−f)、`not_delivered` s+1、偽の申告 s+0.5（仮）。各項目に経過の重み（半減期 432 bell）と、観察しただけの約束なら 0.5 倍。
-- `verified`：確認済みの件数。`claims`：申告の内訳（consistent / contradicted / mismatch / unverified）。
-- `unresolved`：未確認・進行中の約束と理由。`neutral`：中立の結末。`mismatches`：食い違いはあるが嘘とは判定しないもの。
-- `evidence[]`：信頼度に入った各項目と、その出典 id・判定規則。
+`settle_caravan`（`permutation-frontier/src/proc/caravan.rs`）を読んだ結果：
 
-### 偽の申告（`contradicted`、信頼度に入る）の判定基準
+| 宛先 | コードの動き | ⑫の扱い |
+|---|---|---|
+| 村（holding、kind 1） | 同じ時刻までの生産を精算した後、`Holding::credit` → `Store::add` で積荷を全量加算（上限なし。`holding.rs` の注記「may exceed the cap」） | **規則 `holding-credit-uncapped/v1` で⑫が導く**。`basis: rule_derived`、単位 `whole_units`、精度「milli 単位の切り捨て。正確な下限」、入力は settle 記録の id |
+| 倉（vault、kind 2） | `min(have + c, max(cap, have))`。加算量はその瞬間の在庫と上限で決まり、記録に残らない | ④の **実行記録**（`caravan_credited`、`basis: exec_record`、単位、settle 命令の `exec: {sig, ix}`）があるときだけ。無ければ `qty_unverified`（`credit.basis: none`） |
+
+- **口座残高の前後差（`account_diff`）は記録として受け付けない**。並行する入出庫・生産・消費が混ざるため。
+- 村宛てで④の実行記録が規則と食い違えば `record_conflict`（どちらかを選ばない）。
+- 複数の約束で 1 隊商を分けていて加算が足りないとき、内訳は推測しない。下限と上限を持たせ、`qty_split_ambiguous` にする。
+- 受取人は精算時点の所有者（`place_owner` の区間）で判断する。世代が違う場所は別の場所（`misdirected`）。
+
+## 5. 発生時刻と観測時刻、再評価（v3：遅着と新しい行為を分ける）
+
+- 全記録に `bell`（発生）と `created_bell`（観測）を持たせる。`created_bell < bell` は拒否。期限内かどうかは精算の発生 bell で判断する。
+- 判断記録には、ポリシーに見せた**入力そのもの**と `input_sha256` を保存する。元の判断と当時見えていた情報は書き換えない。
+- `m.reassess(id, observedBy)` は判断時点の bell で判断し直し、次を分けて返す：
+
+| 区分 | 定義 | 扱い |
+|---|---|---|
+| `late_arrivals` | 判断時点までに**起きていた**ことが、判断後に観測された（`bell ≤ 判断 bell < created_bell ≤ observedBy`） | 使う |
+| `later_events` | 判断後に**起きた**こと（新しい約束、割当、配送） | 一覧に出すが、過去の判断の評価には使わない |
+| `backdated` | 判断後に記憶へ入ったのに、判断前に観測したと称する記録 | 矛盾として除外し、一覧に出す |
+
+- `then_reproducible`：判断記録より前に journal にあった記録から、同じ入力（同じハッシュ）が再現できるか。
+- 判断後に初めて割当て・配送した善行は、今の評価では `late` として残るが、過去の判断の再評価は変えない（テスト済み）。
+
+## 6. 評判と観測の不足を分ける
+
+- `E, r, s`：**確認済みの根拠だけ**の Beta 推定（仮の重み）。`fulfilled` r+1、`late` r+0.5・s+0.5、`partial` r+f・s+(1−f)、`not_sent` s+1、偽の申告 s+0.5。
+- `verified`・`claims`・`unresolved`・`neutral`・`mismatches`・`evidence[]` を別に出す。
+
+偽の申告（`contradicted`、信頼度に入る）の基準は 2 つだけで、どちらも §2 の十分な coverage が前提：
 
 | 基準 | 内容 |
 |---|---|
-| `caravan_absent_in_complete_index` | 申告が名指しした隊商が、約束から申告までを覆う完全な索引に存在しない |
-| `no_caravan_to_place_in_complete_index` | 隊商を名指ししない申告で、完全な索引に、約束から申告までの送り主から約束の場所への発送が一つもない |
+| `caravan_absent_in_complete_index` | 名指しした隊商が、約束から申告までを覆う十分な coverage に無い |
+| `no_caravan_to_place_in_complete_index` | 隊商を名指ししない申告で、十分な coverage に、約束から申告までに送り主から約束の場所への発送が無い |
 
-### 食い違い（`mismatch`、表示するが信頼度に入れない）
+食い違い（`mismatch`、表示するが数えない）：`caravan_of_another`、`caravan_to_other_place`、`premature`（猶予 2 bell）、`not_delivered_by_record`。「送った」と「届いた」は別に判定する。
 
-`caravan_of_another`（他人の隊商を名指し）、`caravan_to_other_place`（別の場所・世代への隊商）、`premature`（発送・精算が申告より後。猶予 2 bell）、`not_delivered_by_record`（名指しした隊商が襲撃・消失）。
+## テストとの対応
 
-「送った」（`claim_sent`）と「届いた」（`claim_delivered`）は別の申告として判定する。索引がなければ、どちらも `unverified` のまま。
-
-## テストとの対応（`test/evidence.test.mjs`）
-
-| 指摘 | テスト名（抜粋） |
+| 指摘 | テスト（抜粋） |
 |---|---|
-| 記録遅延 | `time: an on-time delivery observed late is on time…`、`time: a decision taken before evidence arrived can be reassessed…` |
-| 複数の同時配送 | `allocation: parallel promises…`、`allocation: one caravan split over two promises…`、`allocation: a short credit shared…` |
-| 部分履行 | `quantity: a partial delivery before the index is complete…`、`quantity: DELIVERED without a measured credit…` |
-| 未検証量 | `quantity: DELIVERED without a measured credit is unverified…` |
-| 受取人の変更 | `recipient: the owner AT THE SETTLE BELL decides…`、`recipient: a place of another generation…` |
-| 観測欠落 | `absence: no record at all…`、`absence: a failed lookup and a gap in the index…`、`absence: in transit…` |
-| 訂正後の判断の回復 | `time: a wrong index attestation rolled back…`、core の `a rollback retracts a fact…` |
-| 偽の判定基準 | `a claim is false only by a stated criterion…`、`absence: "sent" and "delivered"…` |
+| v3-1 加算量の根拠 | `credit: a balance difference … is refused`、`credit: a village (holding) delivery is credited by the pinned rule…`、`credit: an execution record that disagrees…`、`credit: a vault delivery without 4's execution record stays unverified…`、`credit: a capped vault credit is partial only once…` |
+| v3-2 未発送の証明 | `not sent: only a sufficient coverage proves it…`（world・season・program・cluster・finality・gapless・各経路・区間・送り主・world 未設定）、`not sent: a claim is judged false only against a sufficient coverage`、`not sent is not "not arrived"…` |
+| v3-3 割当の認証 | `allocation: what a message says allocates nothing…`、`…a resend is a duplicate, a reused nonce…`、`…operations that arrive out of order…`、`…a correction and a revoke free capacity…`、`…concurrent allocations…`、`…the debtor revokes and the creditor still allocates…`、`…an edited journal line fails verification…` |
+| v3-4 再評価 | `reassess: late arrivals of past facts are used; events after the decision are listed…; backdated records are excluded`、`reassess: a good deed done after the decision does not rewrite the past judgement` |
+| caution の表示 | `caution is labelled as not an honesty judgment…` |
+| v2 の指摘 | `test/evidence.test.mjs`（記録遅延、並行取引、部分履行、未検証量、受取人変更、観測欠落、訂正後の回復、偽の判定基準） |
 
-主要な防御 25 個を一つずつ壊すと、どれも少なくとも 1 件のテストが失敗することを確認した（判定の根拠を無視、観測時刻を無視、容量、settle を加算量とみなす、内訳の推測、所有者、現在の所有者、受取人の仮定、第三者割当、世代、食い違いを嘘扱い、偽申告の重み、未割当の推測結合、索引の穴、caution、未確認を E に入れる、可視性、rollback、collision、余分な field など）。
+v2 の 25 か所に加え、v3 で 19 か所（合計 44 か所）の防御を 1 つずつ壊し、毎回少なくとも 1 件のテストが失敗することを確認した。v3 で追加したのは、残高差を受理、村の食い違いを無視、倉に村の規則を適用、world・finality・gapless・経路の検査、world 未設定、不十分な coverage を使用、追記時と再生時の署名検証、nonce 再使用、到着順で有効化、撤回の無視、撤回と設定の食い違いを隠す、world を署名に含めない、backdated を使用、新しい行為を混入、caution の表示を反転。再現は `sh workstreams/12-memory/tools/mutate.sh`、記録は保存パッケージの `test-results/mutation-check.txt`。

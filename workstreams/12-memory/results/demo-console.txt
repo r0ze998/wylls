@@ -1,6 +1,6 @@
 
 == none
-   B: E=0.5 (r=0, s=0); verified {"fulfilled":0,"late":0,"partial":0,"not_delivered":0}; claims {"consistent":0,"contradicted":0,"mismatch":0,"unverified":0}; unresolved 0
+   B: E=0.5 (r=0, s=0); verified {"fulfilled":0,"late":0,"partial":0,"not_sent":0}; claims {"consistent":0,"contradicted":0,"mismatch":0,"unverified":0}; unresolved 0
    offer-C  goods 900 + travel 40 + risk 600 (E=0.5) + caution 0 = 1540
    offer-D  goods 900 + travel 120 + risk 600 (E=0.5) + caution 0 = 1620
    offer-B  goods 1000 + travel 40 + risk 600 (E=0.5) + caution 0 = 1640
@@ -8,68 +8,68 @@
    cites (none)
 
 == kept
-   B: E=0.636252 (r=0.749154, s=0); verified {"fulfilled":1,"late":0,"partial":0,"not_delivered":0}; claims {"consistent":0,"contradicted":0,"mismatch":0,"unverified":0}; unresolved 0
+   B: E=0.636252 (r=0.749154, s=0); verified {"fulfilled":1,"late":0,"partial":0,"not_sent":0}; claims {"consistent":0,"contradicted":0,"mismatch":0,"unverified":0}; unresolved 0
    offer-B  goods 1000 + travel 40 + risk 436.4976 (E=0.636252) + caution 0 = 1476.4976
    offer-C  goods 900 + travel 40 + risk 600 (E=0.5) + caution 0 = 1540
    offer-D  goods 900 + travel 120 + risk 600 (E=0.5) + caution 0 = 1620
    -> offer-B  (without memory: offer-C; memory changed the choice: true)
-   cites ec9aacdf9d96b1de
-   - [verified] B: verified 1 fulfilled, 0 late, 0 partial, 0 not delivered; 0 open or unconfirmed; 0 neutral; claims 0 false, 0 mismatched, 0 unverified; reliability estimate 0.636252 (verified evidence only) {src: 19574ede6259d0fb,4aec7c0ed24308aa,784714c135ffb77c,876b64a9becd13a4,959a3a9de892a0f2,ec9aacdf9d96b1de,f834e610c129f554}
-   - [verified] B -> A: 100 wood due bell 130: delivered in full by the due bell (credited at the promised place) {src: 19574ede6259d0fb,ec9aacdf9d96b1de,f834e610c129f554,959a3a9de892a0f2,876b64a9becd13a4,4aec7c0ed24308aa,784714c135ffb77c}
-   - [interpreted] own note: B delivered the wood it promised, on time. {src: a3990fbac0f4ad06,ec9aacdf9d96b1de,784714c135ffb77c}
+   cites 2dd0d301cd944f2c
+   - [verified] B: verified 1 fulfilled, 0 late, 0 partial, 0 not sent; 0 open or unconfirmed; 0 neutral; claims 0 false, 0 mismatched, 0 unverified; reliability estimate 0.636252 (verified evidence only) {src: 26673f8d1a0d3c65,2dd0d301cd944f2c,45e683e199a5ce27,96ed64029f02f8cf,a37db8c541a58c86,df892251c607db1c,e00dd0a5a3e4650c}
+   - [verified] B -> A: 100 wood due bell 130: delivered in full by the due bell (credited at the promised place) [credit by execution record, whole_units] {src: df892251c607db1c,2dd0d301cd944f2c,45e683e199a5ce27,e00dd0a5a3e4650c,96ed64029f02f8cf,a37db8c541a58c86,26673f8d1a0d3c65}
+   - [interpreted] own note: B delivered the wood it promised, on time. {src: 89d8f827bc8e6e8b,2dd0d301cd944f2c,26673f8d1a0d3c65}
 
-== not_delivered
-   B: E=0.317841 (r=0, s=1.146229); verified {"fulfilled":0,"late":0,"partial":0,"not_delivered":1}; claims {"consistent":0,"contradicted":1,"mismatch":0,"unverified":0}; unresolved 0
+== not_sent
+   B: E=0.317841 (r=0, s=1.146229); verified {"fulfilled":0,"late":0,"partial":0,"not_sent":1}; claims {"consistent":0,"contradicted":1,"mismatch":0,"unverified":0}; unresolved 0
    offer-C  goods 900 + travel 40 + risk 600 (E=0.5) + caution 0 = 1540
    offer-D  goods 900 + travel 120 + risk 600 (E=0.5) + caution 0 = 1620
    offer-B  goods 1000 + travel 40 + risk 818.5908 (E=0.317841) + caution 0 = 1858.5908
    -> offer-C  (without memory: offer-C; memory changed the choice: false)
-   cites ec9aacdf9d96b1de
-   - [verified] B: verified 0 fulfilled, 0 late, 0 partial, 1 not delivered; 0 open or unconfirmed; 0 neutral; claims 1 false, 0 mismatched, 0 unverified; reliability estimate 0.317841 (verified evidence only) {src: 19574ede6259d0fb,1dad1fb42108f52f,225843f8d19d9304,ec9aacdf9d96b1de}
-   - [verified] B -> A: 100 wood due bell 130: not delivered: a complete index shows no caravan to the promised place; claim sent: contradicted (false: a complete index shows no caravan by the sender to the promised place between the promise and the claim) {src: 19574ede6259d0fb,ec9aacdf9d96b1de,225843f8d19d9304,1dad1fb42108f52f}
+   cites 2dd0d301cd944f2c
+   - [verified] B: verified 0 fulfilled, 0 late, 0 partial, 1 not sent; 0 open or unconfirmed; 0 neutral; claims 1 false, 0 mismatched, 0 unverified; reliability estimate 0.317841 (verified evidence only) {src: 2dd0d301cd944f2c,7973040bd9c2585d,ba483a219f2d7530,df892251c607db1c}
+   - [verified] B -> A: 100 wood due bell 130: not sent: a sufficient index (world, season, every send route, gapless, finalized) shows no caravan to the promised place; claim sent: contradicted (false: a sufficient coverage (world, season, every send route, gapless, finalized) shows no caravan by the sender to the promised place between the promise and the claim) {src: df892251c607db1c,2dd0d301cd944f2c,ba483a219f2d7530,7973040bd9c2585d}
 
 == claim_no_record
-   B: E=0.5 (r=0, s=0); verified {"fulfilled":0,"late":0,"partial":0,"not_delivered":0}; claims {"consistent":0,"contradicted":0,"mismatch":0,"unverified":1}; unresolved 1
+   B: E=0.5 (r=0, s=0); verified {"fulfilled":0,"late":0,"partial":0,"not_sent":0}; claims {"consistent":0,"contradicted":0,"mismatch":0,"unverified":1}; unresolved 1
    offer-C  goods 900 + travel 40 + risk 600 (E=0.5) + caution 0 = 1540
    offer-D  goods 900 + travel 120 + risk 600 (E=0.5) + caution 0 = 1620
    offer-B  goods 1000 + travel 40 + risk 600 (E=0.5) + caution 120 = 1760
    -> offer-C  (without memory: offer-C; memory changed the choice: false)
-   cites ec9aacdf9d96b1de
-   - [unknown] B: verified 0 fulfilled, 0 late, 0 partial, 0 not delivered; 1 open or unconfirmed; 0 neutral; claims 0 false, 0 mismatched, 1 unverified; reliability estimate 0.5 (verified evidence only) {src: 19574ede6259d0fb,225843f8d19d9304,ec9aacdf9d96b1de}
-   - [unknown] B -> A: 100 wood due bell 130: past the due bell but not decided (no record found); claim sent: unverified {src: 19574ede6259d0fb,ec9aacdf9d96b1de,225843f8d19d9304}
+   cites 2dd0d301cd944f2c
+   - [unknown] B: verified 0 fulfilled, 0 late, 0 partial, 0 not sent; 1 open or unconfirmed; 0 neutral; claims 0 false, 0 mismatched, 1 unverified; reliability estimate 0.5 (verified evidence only) {src: 2dd0d301cd944f2c,ba483a219f2d7530,df892251c607db1c}
+   - [unknown] B -> A: 100 wood due bell 130: past the due bell but not decided (no record found); claim sent: unverified {src: df892251c607db1c,2dd0d301cd944f2c,ba483a219f2d7530}
 
 == record_delayed
-   B: E=0.5 (r=0, s=0); verified {"fulfilled":0,"late":0,"partial":0,"not_delivered":0}; claims {"consistent":0,"contradicted":0,"mismatch":0,"unverified":0}; unresolved 1
+   B: E=0.5 (r=0, s=0); verified {"fulfilled":0,"late":0,"partial":0,"not_sent":0}; claims {"consistent":0,"contradicted":0,"mismatch":0,"unverified":0}; unresolved 1
    offer-C  goods 900 + travel 40 + risk 600 (E=0.5) + caution 0 = 1540
    offer-D  goods 900 + travel 120 + risk 600 (E=0.5) + caution 0 = 1620
    offer-B  goods 1000 + travel 40 + risk 600 (E=0.5) + caution 120 = 1760
    -> offer-C  (without memory: offer-C; memory changed the choice: false)
-   cites ec9aacdf9d96b1de
-   - [unknown] B: verified 0 fulfilled, 0 late, 0 partial, 0 not delivered; 1 open or unconfirmed; 0 neutral; claims 0 false, 0 mismatched, 0 unverified; reliability estimate 0.5 (verified evidence only) {src: 19574ede6259d0fb,ec9aacdf9d96b1de,f834e610c129f554}
-   - [unknown] B -> A: 100 wood due bell 130: past the due bell but not decided (credited 0 of 100 so far; up to 100 still possible) (the allocated caravan has no departure record yet) {src: 19574ede6259d0fb,ec9aacdf9d96b1de,f834e610c129f554}
-   reassessed with records observed by bell 320: reference choice offer-C -> offer-B
-     ec9aacdf9d96b1de: unconfirmed -> fulfilled
+   cites 2dd0d301cd944f2c
+   - [unknown] B: verified 0 fulfilled, 0 late, 0 partial, 0 not sent; 1 open or unconfirmed; 0 neutral; claims 0 false, 0 mismatched, 0 unverified; reliability estimate 0.5 (verified evidence only) {src: 2dd0d301cd944f2c,45e683e199a5ce27,df892251c607db1c}
+   - [unknown] B -> A: 100 wood due bell 130: past the due bell but not decided (credited 0 of 100 so far; up to 100 still possible) (the allocated caravan has no departure record yet) {src: df892251c607db1c,2dd0d301cd944f2c,45e683e199a5ce27}
+   reassessed with records observed by bell 320: reference choice offer-C -> offer-B (late arrivals used 4, later events not used 0, backdated excluded 0; original input reproducible: true)
+     2dd0d301cd944f2c: unconfirmed -> fulfilled
 
 == kept_but_cheaper_C
-   B: E=0.636252 (r=0.749154, s=0); verified {"fulfilled":1,"late":0,"partial":0,"not_delivered":0}; claims {"consistent":0,"contradicted":0,"mismatch":0,"unverified":0}; unresolved 0
+   B: E=0.636252 (r=0.749154, s=0); verified {"fulfilled":1,"late":0,"partial":0,"not_sent":0}; claims {"consistent":0,"contradicted":0,"mismatch":0,"unverified":0}; unresolved 0
    offer-C  goods 700 + travel 40 + risk 600 (E=0.5) + caution 0 = 1340
    offer-B  goods 1000 + travel 40 + risk 436.4976 (E=0.636252) + caution 0 = 1476.4976
    offer-D  goods 900 + travel 120 + risk 600 (E=0.5) + caution 0 = 1620
    -> offer-C  (without memory: offer-C; memory changed the choice: false)
-   cites ec9aacdf9d96b1de
-   - [verified] B: verified 1 fulfilled, 0 late, 0 partial, 0 not delivered; 0 open or unconfirmed; 0 neutral; claims 0 false, 0 mismatched, 0 unverified; reliability estimate 0.636252 (verified evidence only) {src: 19574ede6259d0fb,4aec7c0ed24308aa,784714c135ffb77c,876b64a9becd13a4,959a3a9de892a0f2,ec9aacdf9d96b1de,f834e610c129f554}
-   - [verified] B -> A: 100 wood due bell 130: delivered in full by the due bell (credited at the promised place) {src: 19574ede6259d0fb,ec9aacdf9d96b1de,f834e610c129f554,959a3a9de892a0f2,876b64a9becd13a4,4aec7c0ed24308aa,784714c135ffb77c}
-   - [interpreted] own note: B delivered the wood it promised, on time. {src: a3990fbac0f4ad06,ec9aacdf9d96b1de,784714c135ffb77c}
+   cites 2dd0d301cd944f2c
+   - [verified] B: verified 1 fulfilled, 0 late, 0 partial, 0 not sent; 0 open or unconfirmed; 0 neutral; claims 0 false, 0 mismatched, 0 unverified; reliability estimate 0.636252 (verified evidence only) {src: 26673f8d1a0d3c65,2dd0d301cd944f2c,45e683e199a5ce27,96ed64029f02f8cf,a37db8c541a58c86,df892251c607db1c,e00dd0a5a3e4650c}
+   - [verified] B -> A: 100 wood due bell 130: delivered in full by the due bell (credited at the promised place) [credit by execution record, whole_units] {src: df892251c607db1c,2dd0d301cd944f2c,45e683e199a5ce27,e00dd0a5a3e4650c,96ed64029f02f8cf,a37db8c541a58c86,26673f8d1a0d3c65}
+   - [interpreted] own note: B delivered the wood it promised, on time. {src: 89d8f827bc8e6e8b,2dd0d301cd944f2c,26673f8d1a0d3c65}
 
 == kept_but_no_stock
-   B: E=0.636252 (r=0.749154, s=0); verified {"fulfilled":1,"late":0,"partial":0,"not_delivered":0}; claims {"consistent":0,"contradicted":0,"mismatch":0,"unverified":0}; unresolved 0
+   B: E=0.636252 (r=0.749154, s=0); verified {"fulfilled":1,"late":0,"partial":0,"not_sent":0}; claims {"consistent":0,"contradicted":0,"mismatch":0,"unverified":0}; unresolved 0
    offer-C  goods 900 + travel 40 + risk 600 (E=0.5) + caution 0 = 1540
    offer-D  goods 900 + travel 120 + risk 600 (E=0.5) + caution 0 = 1620
    offer-B  ineligible: stock_below_qty
    -> offer-C  (without memory: offer-C; memory changed the choice: false)
    cites (none)
-   - [verified] B: verified 1 fulfilled, 0 late, 0 partial, 0 not delivered; 0 open or unconfirmed; 0 neutral; claims 0 false, 0 mismatched, 0 unverified; reliability estimate 0.636252 (verified evidence only) {src: 19574ede6259d0fb,4aec7c0ed24308aa,784714c135ffb77c,876b64a9becd13a4,959a3a9de892a0f2,ec9aacdf9d96b1de,f834e610c129f554}
-   - [verified] B -> A: 100 wood due bell 130: delivered in full by the due bell (credited at the promised place) {src: 19574ede6259d0fb,ec9aacdf9d96b1de,f834e610c129f554,959a3a9de892a0f2,876b64a9becd13a4,4aec7c0ed24308aa,784714c135ffb77c}
-   - [interpreted] own note: B delivered the wood it promised, on time. {src: a3990fbac0f4ad06,ec9aacdf9d96b1de,784714c135ffb77c}
+   - [verified] B: verified 1 fulfilled, 0 late, 0 partial, 0 not sent; 0 open or unconfirmed; 0 neutral; claims 0 false, 0 mismatched, 0 unverified; reliability estimate 0.636252 (verified evidence only) {src: 26673f8d1a0d3c65,2dd0d301cd944f2c,45e683e199a5ce27,96ed64029f02f8cf,a37db8c541a58c86,df892251c607db1c,e00dd0a5a3e4650c}
+   - [verified] B -> A: 100 wood due bell 130: delivered in full by the due bell (credited at the promised place) [credit by execution record, whole_units] {src: df892251c607db1c,2dd0d301cd944f2c,45e683e199a5ce27,e00dd0a5a3e4650c,96ed64029f02f8cf,a37db8c541a58c86,26673f8d1a0d3c65}
+   - [interpreted] own note: B delivered the wood it promised, on time. {src: 89d8f827bc8e6e8b,2dd0d301cd944f2c,26673f8d1a0d3c65}
 
-demo sha256 ae2f9fc593459409fb412cd22708c9d6b8fc4ebddc613788af367f7c84268f8a
+demo sha256 3e1e3e8e19d2208e79d8a41068ce46fe42518bbbba3e20e33721b6b693a9370e

@@ -1,5 +1,5 @@
 {
- "contract": "wylls.memory12.decision-input/v2",
+ "contract": "wylls.memory12.decision-input/v3",
  "self": {
   "tag": "A"
  },
@@ -19,7 +19,9 @@
   "caution": {
    "provisional": true,
    "share": 0.1,
-   "cap": 2
+   "cap": 2,
+   "is_honesty_judgment": false,
+   "meaning": "promises to you past due whose outcome is not known yet; it says nothing about the partner's honesty"
   },
   "formula": "price_per_unit*qty + dist_cost*distance + (1-E)*failure_cost + caution.share*failure_cost*min(open_overdue, caution.cap)"
  },
@@ -51,7 +53,7 @@
      "fulfilled": 0,
      "late": 0,
      "partial": 0,
-     "not_delivered": 0
+     "not_sent": 0
     },
     "claims": {
      "consistent": 0,
@@ -63,7 +65,8 @@
    "unknown": {
     "open_overdue": 0,
     "open_total": 0,
-    "neutral": 0
+    "neutral": 0,
+    "caution_is_honesty_judgment": false
    },
    "memory": []
   },
@@ -86,7 +89,7 @@
      "fulfilled": 0,
      "late": 0,
      "partial": 0,
-     "not_delivered": 0
+     "not_sent": 0
     },
     "claims": {
      "consistent": 0,
@@ -98,7 +101,8 @@
    "unknown": {
     "open_overdue": 0,
     "open_total": 0,
-    "neutral": 0
+    "neutral": 0,
+    "caution_is_honesty_judgment": false
    },
    "memory": []
   },
@@ -121,7 +125,7 @@
      "fulfilled": 0,
      "late": 0,
      "partial": 0,
-     "not_delivered": 0
+     "not_sent": 0
     },
     "claims": {
      "consistent": 0,
@@ -133,7 +137,8 @@
    "unknown": {
     "open_overdue": 0,
     "open_total": 0,
-    "neutral": 0
+    "neutral": 0,
+    "caution_is_honesty_judgment": false
    },
    "memory": []
   }

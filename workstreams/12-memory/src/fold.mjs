@@ -1,6 +1,6 @@
-// Workstream 12: what one viewer knows, derived by a pure fold of the journal (fold v2).
+// Workstream 12: what one viewer knows, derived by a pure fold of the journal (fold v3).
 //
-//   knowledge(records, viewer:{tag, nation}, clock, {observedBy = clock}) -> Knowledge
+//   knowledge(records, viewer:{tag, nation}, clock, {observedBy = clock, world = null}) -> Knowledge
 //
 // Two clocks. `clock` is the game bell at which states are judged (is a due bell past?); `observedBy` bounds what
 // had been OBSERVED (record.created_bell). Normally both are "now". To reassess a past decision with evidence that
@@ -9,30 +9,35 @@
 // Isolation is the first step: only records visible to `viewer` enter the fold, so nothing derived below can
 // depend on a record the viewer cannot see.
 //
-// What this fold will NOT do (the rules of the second review):
-//   - treat a missing record as a failure or a lie. A missing record is `unconfirmed`. A shortfall is verified
-//     only against a COVERAGE attestation (4's index is complete for the sender over the window) and a lie only
-//     when a claimed caravan does not exist in such a complete index (criteria below);
-//   - pair a promise with a delivery by guesswork. Only an `allocate` act by a party names which caravan, and how
-//     much of it, is for which commitment; it must match sender, place (with its generation), resource and the
-//     caravan's capacity, and a caravan's capacity is used up in declaration order across ALL commitments. A
-//     caravan nobody allocated stays `unassigned`;
-//   - read DELIVERED as the amount received or as "the creditor received it". The quantity comes only from a
-//     `caravan_credited` fact (measured stock change); a settle without it is `qty_unverified`. The recipient is
-//     the place's owner AT THE SETTLE BELL from a `place_owner` attestation; without one it is
-//     `recipient_unverified`, and a different owner is `recipient_changed` (neutral);
+// What this fold will NOT do (the rules of the second and third reviews):
+//   - treat a missing record as a failure or a lie. A missing record is `unconfirmed`. "Not sent" is verified only
+//     by a SUFFICIENT coverage attestation (coverageSufficiency: the memory's world and season, the sender, the
+//     whole window, every send route, a gapless slot range, finalized) and a lie only when a claimed caravan does
+//     not exist in such an index (criteria below). Not sent and not arrived are different: a caravan that left
+//     and has no settle record is unknown, never "not sent";
+//   - pair a promise with a delivery by guesswork. Only a SIGNED allocation by a party names which caravan, and
+//     how much of it, is for which commitment. Per signer, commitment and caravan the operation with the highest
+//     nonce is the one in force (a correction replaces, a revoke removes, a resend is a duplicate). It must match
+//     sender, place (with its generation), resource and the caravan's capacity, used up in the order the
+//     operations in force were signed, across ALL commitments. A caravan nobody allocated stays `unassigned`;
+//   - read DELIVERED as the amount received or as "the creditor received it". The quantity of a delivery to a
+//     HOLDING is derived by the pinned rule CREDIT_RULES (the settle credits the whole cargo, uncapped); for a
+//     VAULT (capped by its stock at that instant) only 4's per-delivery execution record gives it, else it stays
+//     `qty_unverified`. A balance difference is never used. The recipient is the place's owner AT THE SETTLE
+//     BELL from a `place_owner` attestation; without one it is `recipient_unverified`, and a different owner is
+//     `recipient_changed` (neutral);
 //   - judge timeliness by when a record was observed. On time / late compares the settle's chain bell with the
 //     due bell; a settle observed late is still on time.
 //
 // Commitment states:
-//   verified:   fulfilled | late | partial | not_delivered
+//   verified:   fulfilled | late | partial | not_sent
 //   neutral:    raided | lost | recipient_changed | withdrawn       (the sender is not judged on these)
 //   open:       promised | claimed_unverified | in_progress         (before the due bell plus grace)
 //   unknown:    unconfirmed (+ reasons)                             (after it, with something not yet known)
 //
 // Reliability is a Beta-reputation estimate (Jøsang & Ismail 2002) over VERIFIED evidence only, with
 // forgetting; unknowns are listed beside it and never move it. Every weight below is provisional (WEIGHTS).
-import { OUTCOME, caravanKey, placeKey, visibleTo } from './records.mjs';
+import { OUTCOME, PLACE, SEND_ROUTES, caravanKey, canonical, placeKey, visibleTo } from './records.mjs';
 
 export const WEIGHTS = Object.freeze({
   provisional: true,
@@ -47,24 +52,49 @@ export const HALF_LIFE_BELLS = WEIGHTS.half_life_bells;
 
 /** What makes a claim FALSE (counted) versus a MISMATCH (shown, not counted as dishonesty). */
 export const CLAIM_CRITERIA = Object.freeze({
-  caravan_absent_in_complete_index: 'false: the named caravan is not among the sender\'s caravans in a complete index covering the promise to the claim',
-  no_caravan_to_place_in_complete_index: 'false: a complete index shows no caravan by the sender to the promised place between the promise and the claim',
+  caravan_absent_in_complete_index: 'false: the named caravan is not among the sender\'s caravans in a sufficient coverage (world, season, every send route, gapless, finalized) from the promise to the claim',
+  no_caravan_to_place_in_complete_index: 'false: a sufficient coverage (world, season, every send route, gapless, finalized) shows no caravan by the sender to the promised place between the promise and the claim',
   caravan_of_another: 'mismatch: the named caravan belongs to someone else',
   caravan_to_other_place: 'mismatch: the named caravan went to another place or generation',
   premature: 'mismatch: the record (departure or settle) came after the claim',
   not_delivered_by_record: 'mismatch: the named caravan was raided or lost',
 });
 
-export const VERIFIED_STATES = Object.freeze(['fulfilled', 'late', 'partial', 'not_delivered']);
+/**
+ * The per-delivery credit the memory may derive itself. One rule, pinned to the code it restates:
+ * permutation-frontier/src/proc/caravan.rs settle_caravan credits each cargo resource to a live holding with
+ * Holding::credit, which calls Store::add ("may exceed the cap", permutation-rules/src/frontier/holding.rs), after
+ * settling production up to the same instant; so this delivery adds exactly its cargo. The settle log carries the
+ * cargo in whole units, floor(milli / 1000) (cargo_log), so the derived credit is that whole number, a lower bound
+ * exact to below one unit. A vault caps the addition by its stock and cap at that instant (min(have + c,
+ * max(cap, have))): not derivable from the records, so no rule for it.
+ */
+export const CREDIT_RULES = Object.freeze({
+  'holding-credit-uncapped/v1': Object.freeze({ place_kind: PLACE.HOLDING, unit: 'whole_units', precision: 'floor of milli-units: exact lower bound',
+    code: ['permutation-frontier/src/proc/caravan.rs settle_caravan (KIND_HOLDING branch, cargo_log)', 'permutation-rules/src/frontier/holding.rs Holding::credit, Store::add'] }),
+});
+
+/** Is a coverage attestation enough to prove "not sent"? Returns the missing conditions (empty = sufficient). */
+export function coverageSufficiency(cov, world) {
+  const why = [];
+  if (!world) why.push('memory_world_unset');
+  else if (canonical(cov.data.world) !== canonical(world)) why.push('other_world_or_season');
+  if (cov.data.finality !== 'finalized') why.push(`not_finalized:${cov.data.finality}`);
+  if (!cov.data.completeness.gapless) why.push('slot_range_has_gaps');
+  for (const r of SEND_ROUTES) if (!cov.data.routes.includes(r)) why.push(`route_missing:${r}`);
+  return why;
+}
+
+export const VERIFIED_STATES = Object.freeze(['fulfilled', 'late', 'partial', 'not_sent']);
 export const NEUTRAL_STATES = Object.freeze(['raided', 'lost', 'recipient_changed', 'withdrawn']);
 const PENDING_LINK = new Set(['caravan_unknown', 'lookup_failed', 'in_transit', 'settle_unobserved', 'recipient_unverified', 'recipient_conflict', 'qty_unverified', 'record_conflict']);
-const INVALID_LINK = new Set(['not_debtor_caravan', 'wrong_resource', 'over_allocated', 'not_a_party']);
+const INVALID_LINK = new Set(['not_debtor_caravan', 'wrong_resource', 'over_allocated', 'not_a_party', 'revoked']);
 
 const round = x => Math.round(x * 1e6) / 1e6;
 const byBellId = (a, b) => a.bell - b.bell || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 const group = (list, key) => { const m = new Map(); for (const x of list) { const k = key(x); (m.get(k) ?? m.set(k, []).get(k)).push(x); } return m; };
 
-export function knowledge(records, viewer, clock, { observedBy = clock } = {}) {
+export function knowledge(records, viewer, clock, { observedBy = clock, world = null } = {}) {
   const seen = records.filter(r => r.bell <= clock && (r.created_bell ?? r.bell) <= observedBy && visibleTo(r.visibility, viewer));
   const ids = new Set(seen.map(r => r.id));
   const byId = new Map(seen.map(r => [r.id, r]));
@@ -94,9 +124,16 @@ export function knowledge(records, viewer, clock, { observedBy = clock } = {}) {
     return { owner: who[0], basis: hits.map(o => o.id) };
   }
 
-  /** Is the sender's departure log complete over [from, to]? Merged coverage intervals. */
+  /**
+   * Is the sender's departure log proven complete over [from, to]? Only sufficient attestations count; contiguous
+   * ones are merged. When it is not proven, `insufficient` says what the attestations that exist lack.
+   */
   function covered(sender, from, to) {
-    const iv = coverages.filter(c => c.data.sender === sender).sort((a, b) => a.data.from_bell - b.data.from_bell);
+    const mine = coverages.filter(c => c.data.sender === sender);
+    const insufficient = [];
+    const good = [];
+    for (const c of mine) { const why = coverageSufficiency(c, world); if (why.length) insufficient.push(...why); else good.push(c); }
+    const iv = good.sort((a, b) => a.data.from_bell - b.data.from_bell);
     let reach = null; const basis = []; const listed = [];
     for (const c of iv) {
       if (c.data.to_bell < from) continue;
@@ -107,7 +144,8 @@ export function knowledge(records, viewer, clock, { observedBy = clock } = {}) {
       if (reach >= to) return { ok: true, basis, listed };
     }
     const failed = lookupFails.some(l => l.data.query === 'coverage' && l.data.sender === sender);
-    return { ok: false, failed, basis: failed ? lookupFails.filter(l => l.data.query === 'coverage' && l.data.sender === sender).map(l => l.id) : [] };
+    return { ok: false, failed, insufficient: [...new Set(insufficient)].sort(), partial_range: good.length > 0,
+      basis: [...(failed ? lookupFails.filter(l => l.data.query === 'coverage' && l.data.sender === sender).map(l => l.id) : []), ...mine.map(c => c.id)] };
   }
 
   // ---- notes: active, corrected, expired
@@ -139,22 +177,36 @@ export function knowledge(records, viewer, clock, { observedBy = clock } = {}) {
   const byRequest = group(commitments, c => c.request);
   const resolveRef = ref => commitById.get(ref) ?? ((byRequest.get(ref) ?? []).length === 1 ? byRequest.get(ref)[0] : null);
 
-  // ---- allocation links: (commitment, caravan) declared by a party; capacity in declaration order
-  const linkMap = new Map();
-  for (const u of acts('allocate')) {
-    const c = resolveRef(u.act.ref);
+  // ---- allocation links from SIGNED allocations (the store verified each signature and nonce)
+  // per (signer, commitment, caravan) the operation with the highest nonce is in force; a revoke in force removes it
+  const inForce = new Map();
+  const allocs = seen.filter(r => r.type === 'allocation');
+  for (const a of allocs) {
+    const c = commitById.get(a.commitment);
     if (!c) continue;
-    const key = `${c.id}|${caravanKey(u.act.caravan)}`;
-    const party = u.speaker === c.debtor || u.speaker === c.creditor;
-    const l = linkMap.get(key) ?? { commitment: c.id, caravan: u.act.caravan, declared: [], first_bell: u.bell, first_id: u.id };
-    l.declared.push({ by: u.speaker, qty: u.act.qty, id: u.id, party });
-    linkMap.set(key, l);
+    const key = `${a.by}|${c.id}|${caravanKey(a.caravan)}`;
+    const prev = inForce.get(key);
+    if (!prev || a.nonce > prev.nonce) inForce.set(key, a);
+  }
+  const history = key => allocs.filter(a => `${a.by}|${a.commitment}|${caravanKey(a.caravan)}` === key).map(a => a.id);
+  const linkMap = new Map();
+  for (const [key, a] of inForce) {
+    const c = commitById.get(a.commitment);
+    const lk = `${c.id}|${caravanKey(a.caravan)}`;
+    const l = linkMap.get(lk) ?? { commitment: c.id, caravan: a.caravan, declared: [], sources: [] };
+    l.declared.push({ by: a.by, op: a.op, qty: a.qty, id: a.id, nonce: a.nonce, bell: a.bell, party: a.by === c.debtor || a.by === c.creditor });
+    l.sources.push(...history(key));
+    linkMap.set(lk, l);
   }
   const links = [...linkMap.values()].map(l => {
     const parties = l.declared.filter(d => d.party);
-    const qtys = [...new Set(parties.map(d => d.qty))];
-    return { ...l, qty: parties.length ? Math.min(...qtys) : 0, disputed: qtys.length > 1, by: [...new Set(parties.map(d => d.by))].sort(),
-      sources: l.declared.map(d => d.id), state: parties.length ? null : 'not_a_party' };
+    const sets = parties.filter(d => d.op === 'set');
+    const qtys = [...new Set(sets.map(d => d.qty))];
+    // ordered for capacity by the earliest operation in force that sets it (a correction re-signs, so it re-queues)
+    const first = sets.length ? sets.reduce((m, d) => (d.bell < m.bell || (d.bell === m.bell && d.id < m.id) ? d : m)) : null;
+    return { ...l, qty: sets.length ? Math.min(...qtys) : 0, disputed: qtys.length > 1 || (sets.length > 0 && sets.length < parties.length),
+      by: [...new Set(sets.map(d => d.by))].sort(), first_bell: first?.bell ?? Infinity, first_id: first?.id ?? '',
+      state: !parties.length ? 'not_a_party' : !sets.length ? 'revoked' : null };
   }).sort((a, b) => a.first_bell - b.first_bell || (a.first_id < b.first_id ? -1 : 1));
 
   const used = new Map(); // caravanKey|resource -> allocated
@@ -190,18 +242,35 @@ export function knowledge(records, viewer, clock, { observedBy = clock } = {}) {
     if (own.conflict) { l.state = 'recipient_conflict'; continue; }
     if (own.owner !== c.creditor) { l.state = 'recipient_changed'; l.owner_at_settle = own.owner; continue; }
     l.recorded = st.f.data.cargo_recorded[c.resource] ?? 0;
+    l.settle_fact = st.f;
     l.state = 'awaiting_credit';
   }
-  // the measured credit of each caravan, split over its links; ambiguous splits keep bounds, never a guess
+  // the credit of each caravan, split over its links; ambiguous splits keep bounds, never a guess
   for (const [k, ls] of group(links.filter(l => l.state === 'awaiting_credit'), l => `${caravanKey(l.caravan)}|${commitById.get(l.commitment).resource}`)) {
     const [ck, res] = k.split('|');
+    const place = commitById.get(ls[0].commitment).place;
+    const settle = ls[0].settle_fact;
     const cr = one(creditBy, ck);
-    if (cr.conflict || (cr.f && placeKey(cr.f.data.place) !== placeKey(commitById.get(ls[0].commitment).place))) { for (const l of ls) l.state = 'record_conflict'; continue; }
-    if (!cr.f) { for (const l of ls) l.state = 'qty_unverified'; continue; }
-    const x = cr.f.data.credited[res] ?? 0;
+    if (cr.conflict || (cr.f && placeKey(cr.f.data.place) !== placeKey(place))) { for (const l of ls) l.state = 'record_conflict'; continue; }
+    // the basis of the amount: 4's execution record, or for a holding the pinned rule over the settle record
+    let x = null, credit = null;
+    if (place.kind === PLACE.HOLDING) {
+      const derived = settle.data.cargo_recorded[res] ?? 0;
+      if (cr.f && (cr.f.data.credited[res] ?? 0) !== derived) { for (const l of ls) l.state = 'record_conflict'; continue; }
+      x = derived;
+      credit = { basis: 'rule_derived', rule: 'holding-credit-uncapped/v1', unit: CREDIT_RULES['holding-credit-uncapped/v1'].unit,
+        precision: CREDIT_RULES['holding-credit-uncapped/v1'].precision, inputs: [settle.id, ...(cr.f ? [cr.f.id] : [])] };
+    } else if (cr.f) {
+      x = cr.f.data.credited[res] ?? 0;
+      credit = { basis: 'exec_record', unit: cr.f.data.unit, inputs: [cr.f.id], exec: cr.f.data.exec };
+    } else {
+      for (const l of ls) { l.state = 'qty_unverified'; l.credit = { basis: 'none', why: 'vault credit depends on its stock and cap at settle; needs 4\'s execution record' }; }
+      continue;
+    }
     const total = ls.reduce((s, l) => s + l.qty, 0);
     for (const l of ls) {
-      l.sources.push(cr.f.id);
+      l.sources.push(...credit.inputs);
+      l.credit = credit;
       l.state = 'delivered';
       if (x >= total) { l.qmin = l.qmax = l.qty; } else if (ls.length === 1) { l.qmin = l.qmax = x; } else { l.qmin = Math.max(0, x - (total - l.qty)); l.qmax = Math.min(l.qty, x); }
     }
@@ -247,7 +316,8 @@ export function knowledge(records, viewer, clock, { observedBy = clock } = {}) {
   for (const c of commitments) {
     const ls = links.filter(l => l.commitment === c.id);
     c.links = ls.map(l => ({ caravan: l.caravan, qty: l.qty, by: l.by, disputed: l.disputed, state: l.state, qmin: l.qmin ?? null, qmax: l.qmax ?? null,
-      settle_bell: l.settle_bell ?? null, on_time: l.settle_bell !== undefined ? l.settle_bell <= c.due_bell + GRACE_BELLS : null, owner_at_settle: l.owner_at_settle ?? null, sources: l.sources }));
+      settle_bell: l.settle_bell ?? null, on_time: l.settle_bell !== undefined ? l.settle_bell <= c.due_bell + GRACE_BELLS : null, owner_at_settle: l.owner_at_settle ?? null,
+      credit: l.credit ?? null, sources: [...new Set(l.sources)] }));
     for (const l of ls) c.sources.push(...l.sources);
     const del = c.links.filter(l => l.state === 'delivered');
     const onTime = del.filter(l => l.on_time).reduce((s, l) => s + l.qmin, 0);
@@ -261,6 +331,7 @@ export function knowledge(records, viewer, clock, { observedBy = clock } = {}) {
     claims.push(...c.claims);
     c.sources.push(...c.claims.map(x => x.id));
     c.reasons = [];
+    c.coverage_gaps = [];
     const retract = acts('retract').find(u => u.speaker === c.debtor && resolveRef(u.act.ref) === c && u.bell <= c.due_bell);
     const past = clock > c.due_bell + GRACE_BELLS;
     c.resolved_bell = null;
@@ -273,7 +344,12 @@ export function knowledge(records, viewer, clock, { observedBy = clock } = {}) {
     else {
       // a shortfall is verified only by a complete index of the debtor's departures over the promise window
       const cov = covered(c.debtor, c.made_bell, c.due_bell + GRACE_BELLS);
-      if (!cov.ok) { c.state = 'unconfirmed'; c.reasons = [cov.failed ? 'lookup_failed' : 'no_record_found']; c.sources.push(...cov.basis); }
+      if (!cov.ok) {
+        c.state = 'unconfirmed';
+        c.reasons = [cov.failed ? 'lookup_failed' : cov.insufficient.length || cov.partial_range ? 'coverage_insufficient' : 'no_record_found'];
+        c.coverage_gaps = [...cov.insufficient, ...(cov.partial_range ? ['window_not_fully_covered'] : [])];
+        c.sources.push(...cov.basis);
+      }
       else {
         c.sources.push(...cov.basis);
         const listed = cov.listed.map(x => ({ x, f: one(sentBy, caravanKey(x)).f }));
@@ -285,7 +361,7 @@ export function knowledge(records, viewer, clock, { observedBy = clock } = {}) {
           c.unassigned = toPlace.map(y => y.x);
         } else if (c.delivered_min > 0) { c.state = 'partial'; c.resolved_bell = c.due_bell + GRACE_BELLS; }
         else if (neutral.length) { c.state = neutral[0].state; c.resolved_bell = c.due_bell + GRACE_BELLS; }
-        else { c.state = 'not_delivered'; c.resolved_bell = c.due_bell + GRACE_BELLS; }
+        else { c.state = 'not_sent'; c.resolved_bell = c.due_bell + GRACE_BELLS; }
       }
     }
     c.sources = [...new Set(c.sources)];
@@ -298,7 +374,7 @@ export function knowledge(records, viewer, clock, { observedBy = clock } = {}) {
     const c = resolveRef(u.act.ref);
     let check = 'unverifiable';
     if (c && c.debtor === u.act.about && VERIFIED_STATES.includes(c.state)) {
-      const delivered = c.state !== 'not_delivered';
+      const delivered = c.state !== 'not_sent';
       check = (u.act.says === 'delivered') === delivered ? 'consistent' : 'contradicted_by_fact';
     }
     return { id: u.id, by: u.speaker, about: u.act.about, ref: u.act.ref, says: u.act.says, check };
@@ -316,7 +392,7 @@ export function knowledge(records, viewer, clock, { observedBy = clock } = {}) {
     if (c.state === 'fulfilled') dr = 1;
     else if (c.state === 'late') { dr = 0.5; ds = 0.5; }
     else if (c.state === 'partial') { dr = c.delivered_min / c.qty; ds = 1 - dr; }
-    else if (c.state === 'not_delivered') ds = 1;
+    else if (c.state === 'not_sent') ds = 1;
     if (VERIFIED_STATES.includes(c.state)) {
       const w = weight(c, c.resolved_bell);
       rel.r += dr * w; rel.s += ds * w;
@@ -342,7 +418,7 @@ export function knowledge(records, viewer, clock, { observedBy = clock } = {}) {
 }
 
 export function blankReliability() {
-  return { r: 0, s: 0, E: 0.5, n_direct: 0, n_observed: 0, verified: { fulfilled: 0, late: 0, partial: 0, not_delivered: 0 },
+  return { r: 0, s: 0, E: 0.5, n_direct: 0, n_observed: 0, verified: { fulfilled: 0, late: 0, partial: 0, not_sent: 0 },
     claims: { consistent: 0, contradicted: 0, mismatch: 0, unverified: 0 }, unresolved: [], neutral: [], mismatches: [], evidence: [] };
 }
 

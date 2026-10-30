@@ -30,6 +30,17 @@
 | AC2-NOTES「Additive deviations」：ledger の `decay_day`、`trust.applied`、grievance の `nation`・`answered_bell` など | 契約 §5.1 の例との食い違いの出典はここ（README・報告の食い違い一覧） |
 | AC2-NOTES：tag は 16 桁の小文字 hex | ⑫の fixture は短い ASCII の handle。本線では hex tag を渡す |
 
+## 1c. v3 で読んだコード（証拠の意味を決めるため）
+
+| 箇所 | 読んだこと | ⑫への影響 |
+|---|---|---|
+| `permutation-frontier/src/proc/caravan.rs` `settle_caravan`（0xB2） | 宛先が生きていれば DELIVERED。村宛ては `settle_tiered` で同じ時刻までの生産を精算した後、資源ごとに `h.credit(now, r, c)`。倉宛ては `to = min(have + c, max(cap, have))`。log の積荷は `cargo_log` で `floor(milli / 1000)` の整数単位 | 村宛ては規則で加算量を導ける（下限）。倉宛ては記録だけでは導けない |
+| `permutation-rules/src/frontier/holding.rs` `Holding::credit`、`Store::add` | `credit` は `settle` の後に `stores[r].add`。`add` は注記どおり上限を超えてもよい（`saturating_add`） | 村宛ての加算は積荷の全量 |
+| 同 `caravan.rs` の `CARAVAN_SENT` を出す箇所 | `send_caravan`（0xB1）と `settle_raid` の TAKE 分岐の 2 か所 | coverage が覆うべき経路 |
+| `workstreams/03-composability`（`origin/claude/modest-goldberg-c180fk`） | 外部プログラムが CPI で SendCaravan を呼べる（実チェーンで確認）。`frontier-node` の verify はトップレベルの命令しか集めない（③のコード読み） | トップレベルだけの索引では未発送を証明できない。経路 `send_caravan/cpi` を必須にした |
+| `frontier-abi` `caravan_outcome` | DELIVERED 0、LOST 1 のみ。受取人も加算量も記録に無い | 受取人は区間証明、量は上記の根拠 |
+| findex（`frontier-node/crates/findex`） | event index と account snapshot を持つ。加算量・所有者区間・完全性の証明を事実として出す機能は無い | ④への依頼（02）。snapshot の前後差は使わない |
+
 ## 2. 外部 OSS の比較（GitHub で検索・読了したもの）
 
 | 手法 | 出典 | 長所 | ⑫に合わない点 | 採否 |

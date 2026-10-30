@@ -1,20 +1,48 @@
 // Workstream 12: the deterministic fixture of the demo (fixture v2).
 //
-// A (nation 1) asks B for 100 wood at A's storehouse (place kind 2, generation 1) in a direct conversation; B
-// accepts and allocates its caravan B#7 to the promise. Workstream 4 reports the departure, the settle, the
-// measured credit at the storehouse and who held the storehouse at the settle bell. Later A needs wood again and
+// A (nation 1) asks B for 100 wood at A's storehouse (a vault: place kind 2, generation 1) in a direct
+// conversation; B accepts and SIGNS an allocation of its caravan B#7 to the promise. Workstream 4 reports the
+// departure, the settle, its execution record of what the settle added to the vault, and who held the vault at the
+// settle bell. (A vault's credit is not derivable from the log, so the execution record is required.) Later A needs wood again and
 // three suppliers can sell it. The WORLD at the second request (prices, distances, stock, arrival) is identical
 // across arms; only the history (and when it was observed) differs:
 //
 //   none              no history with anyone
 //   kept              the delivery is fully evidenced: allocated, settled, credited, owner attested
-//   not_delivered     B says it sent the wood; 4's complete index of B's departures shows no caravan
+//   not_sent          B says it sent the wood; 4's sufficient index of B's departures shows no caravan
 //   claim_no_record   B says it sent the wood; 4 has reported nothing at all (unknown, not a failure)
 //   record_delayed    the same delivery as `kept`, but 4's records are observed only at bell 310, after the
 //                     decision at 300; `reassess` at 320 shows the decision would differ
 // plus two arms where the world, not memory, decides: `kept_but_cheaper_C` and `kept_but_no_stock`.
 // Tags are short ASCII handles; a real run uses the citizens' tag hex (persona/names.mjs).
+import { createPrivateKey, createPublicKey, sign } from 'node:crypto';
 import { createMemory } from '../src/index.mjs';
+import { allocationBytes, SEND_ROUTES } from '../src/records.mjs';
+
+// The one world of the fixture, and deterministic TEST-ONLY ed25519 keys (seed = sha-like constant per tag).
+// These are fixture keys for a local test, not keys of any real account.
+export const WORLD = Object.freeze({ cluster: 'localnet-fixture', program: 'FrontierFixtureProgram111111111111111111111', season: 1 });
+const seedOf = tag => Buffer.alloc(32, tag.charCodeAt(0));
+const privOf = tag => createPrivateKey({ key: Buffer.concat([Buffer.from('302e020100300506032b657004220420', 'hex'), seedOf(tag)]), format: 'der', type: 'pkcs8' });
+const pubHex = tag => createPublicKey(privOf(tag)).export({ format: 'der', type: 'spki' }).subarray(12).toString('hex');
+export const KEYS = Object.freeze(Object.fromEntries(['A', 'B', 'C', 'D', 'E'].map(t => [t, pubHex(t)])));
+export const newMemory = (opts = {}) => createMemory({ world: WORLD, keys: KEYS, ...opts });
+
+/** Sign an allocation operation as `by` (test keys). */
+export function signedAllocation({ by, op = 'set', commitment, caravan, qty = op === 'set' ? 100 : 0, nonce, bell, created_bell = bell, visibility, world: w = WORLD, signAs = by }) {
+  const body = { world: w, by, op, commitment, caravan, qty, nonce, bell, visibility };
+  const sig = sign(null, allocationBytes({ ...body, visibility: { ...visibility, ...(visibility.members ? { members: [...new Set(visibility.members)].sort() } : {}) } }), privOf(signAs)).toString('hex');
+  return { ...body, created_bell, sig };
+}
+
+const nonces = new WeakMap();
+const nextNonce = (m, by) => { const n = nonces.get(m) ?? new Map(); nonces.set(m, n); const v = (n.get(by) ?? 0) + 1; n.set(by, v); return v; };
+
+/** A full coverage attestation (sufficient by construction); `over` breaks one condition at a time in tests. */
+export const coverage = (m, { sender = 'B', from = 90, to = 140, caravans = [], bell = to, created = bell, sig = `cov-${sender}-${from}-${to}`, over = {} } = {}) =>
+  m.observe({ kind: 'coverage', bell, created_bell: created, source: { chain: 'index', sig, ix: 0 },
+    data: { world: WORLD, sender, from_bell: from, to_bell: to, routes: [...SEND_ROUTES], finality: 'finalized',
+      completeness: { gapless: true, from_slot: from * 1500, to_slot: to * 1500 + 1499 }, caravans, ...over } });
 
 export const A = { tag: 'A', nation: 1 };
 export const B = { tag: 'B', nation: 1 };
@@ -61,15 +89,19 @@ export function caravanFacts(m, { sender = 'B', seq = 7, dst = PLACE_A, cargo = 
   ids.settled = m.observe({ kind: 'caravan_settled', bell: settle, created_bell: o(settle), source: { sig: `settle-${sigs}`, ix: 0 }, visibility: vis,
     data: { caravan: { sender, seq }, outcome: lost ? 1 : 0, dst, cargo_recorded: cargo } }).id;
   if (lost) return ids;
+  // 4's execution record of what this settle added (required for a vault; optional for a holding, where it must
+  // equal the rule-derived credit)
   if (credited) ids.credited = m.observe({ kind: 'caravan_credited', bell: settle, created_bell: o(settle), source: { sig: `credit-${sigs}`, ix: 0 }, visibility: vis,
-    data: { caravan: { sender, seq }, place: dst, credited, basis: 'account_diff' } }).id;
+    data: { caravan: { sender, seq }, place: dst, credited, unit: 'whole_units', basis: 'exec_record', exec: { sig: `settle-${sigs}`, ix: 0 } } }).id;
   if (owner) ids.owner = m.observe({ kind: 'place_owner', bell: settle, created_bell: o(settle), source: { sig: `owner-${sigs}`, ix: 0 }, visibility: vis,
     data: { place: dst, owner, from_bell: 0, to_bell: null } }).id;
   return ids;
 }
 
-export const allocate = (m, { by = 'B', ref, sender = 'B', seq = 7, qty = 100, bell = 102, vis = dm('A', 'B') }) =>
-  m.say({ speaker: by, bell, visibility: vis, act: { type: 'allocate', ref, caravan: { sender, seq }, qty } }).id;
+/** A signed allocation by a party (nonce counted per signer and memory). Returns the append result. */
+export const allocateOp = (m, { by = 'B', ref, sender = 'B', seq = 7, qty = 100, bell = 102, created_bell = bell, vis = dm('A', 'B'), op = 'set', nonce = null, signAs = by }) =>
+  m.allocate(signedAllocation({ by, op, commitment: ref, caravan: { sender, seq }, qty: op === 'set' ? qty : 0, nonce: nonce ?? nextNonce(m, by), bell, created_bell, visibility: vis, signAs }));
+export const allocate = (m, opts) => allocateOp(m, opts).id;
 
 export function firstExchange(m, { outcome }) {
   const ids = promise(m);
@@ -78,11 +110,11 @@ export function firstExchange(m, { outcome }) {
     Object.assign(ids, caravanFacts(m, { obs: outcome === 'record_delayed' ? LATE_OBSERVED : null }));
   }
   if (outcome === 'kept') ids.note = m.note({ owner: 'A', bell: 121, about: 'B', text: 'B delivered the wood it promised, on time.', basis: [ids.accept, ids.credited] }).id;
-  if (outcome === 'not_delivered' || outcome === 'claim_no_record') {
+  if (outcome === 'not_sent' || outcome === 'claim_no_record') {
     ids.claim = m.say({ speaker: 'B', bell: 125, visibility: dm('A', 'B'), text: 'The wood is already on its way, I sent it!', act: { type: 'claim_sent', ref: ids.accept } }).id;
   }
-  if (outcome === 'not_delivered') {
-    ids.coverage = m.observe({ kind: 'coverage', bell: 140, source: { chain: 'index', sig: 'cov-B-90-140', ix: 0 }, data: { sender: 'B', from_bell: 90, to_bell: 140, caravans: [] } }).id;
+  if (outcome === 'not_sent') {
+    ids.coverage = coverage(m).id;
   }
   return ids;
 }
@@ -90,7 +122,7 @@ export function firstExchange(m, { outcome }) {
 export const ARMS = Object.freeze({
   none: { outcome: null, world: {} },
   kept: { outcome: 'kept', world: {} },
-  not_delivered: { outcome: 'not_delivered', world: {} },
+  not_sent: { outcome: 'not_sent', world: {} },
   claim_no_record: { outcome: 'claim_no_record', world: {} },
   record_delayed: { outcome: 'record_delayed', world: {}, reassess: 320 },
   kept_but_cheaper_C: { outcome: 'kept', world: { C: { price_per_unit: 7 } } },
@@ -99,7 +131,7 @@ export const ARMS = Object.freeze({
 
 export async function runArm(name, { path = null, policy = null } = {}) {
   const arm = ARMS[name];
-  const m = createMemory({ path });
+  const m = newMemory({ path });
   const ids = arm.outcome ? firstExchange(m, { outcome: arm.outcome }) : {};
   const res = await m.choosePartner({ viewer: A, bell: SECOND_BELL, request: REQUEST, candidates: world(arm.world), limits: LIMITS, policy });
   const reassessed = arm.reassess ? m.reassess(res.decision_id, arm.reassess) : null;

@@ -1,5 +1,5 @@
 {
- "contract": "wylls.memory12.decision-input/v2",
+ "contract": "wylls.memory12.decision-input/v3",
  "self": {
   "tag": "A"
  },
@@ -19,7 +19,9 @@
   "caution": {
    "provisional": true,
    "share": 0.1,
-   "cap": 2
+   "cap": 2,
+   "is_honesty_judgment": false,
+   "meaning": "promises to you past due whose outcome is not known yet; it says nothing about the partner's honesty"
   },
   "formula": "price_per_unit*qty + dist_cost*distance + (1-E)*failure_cost + caution.share*failure_cost*min(open_overdue, caution.cap)"
  },
@@ -51,7 +53,7 @@
      "fulfilled": 1,
      "late": 0,
      "partial": 0,
-     "not_delivered": 0
+     "not_sent": 0
     },
     "claims": {
      "consistent": 0,
@@ -63,11 +65,12 @@
    "unknown": {
     "open_overdue": 0,
     "open_total": 0,
-    "neutral": 0
+    "neutral": 0,
+    "caution_is_honesty_judgment": false
    },
    "memory": [
-    "ec9aacdf9d96b1de",
-    "a3990fbac0f4ad06"
+    "2dd0d301cd944f2c",
+    "89d8f827bc8e6e8b"
    ]
   },
   {
@@ -89,7 +92,7 @@
      "fulfilled": 0,
      "late": 0,
      "partial": 0,
-     "not_delivered": 0
+     "not_sent": 0
     },
     "claims": {
      "consistent": 0,
@@ -101,7 +104,8 @@
    "unknown": {
     "open_overdue": 0,
     "open_total": 0,
-    "neutral": 0
+    "neutral": 0,
+    "caution_is_honesty_judgment": false
    },
    "memory": []
   },
@@ -124,7 +128,7 @@
      "fulfilled": 0,
      "late": 0,
      "partial": 0,
-     "not_delivered": 0
+     "not_sent": 0
     },
     "claims": {
      "consistent": 0,
@@ -136,42 +140,43 @@
    "unknown": {
     "open_overdue": 0,
     "open_total": 0,
-    "neutral": 0
+    "neutral": 0,
+    "caution_is_honesty_judgment": false
    },
    "memory": []
   }
  ],
  "memory": [
   {
-   "id": "ec9aacdf9d96b1de",
+   "id": "2dd0d301cd944f2c",
    "about": "B",
    "epistemic": "verified",
-   "text": "B -> A: 100 wood due bell 130: delivered in full by the due bell (credited at the promised place)",
+   "text": "B -> A: 100 wood due bell 130: delivered in full by the due bell (credited at the promised place) [credit by execution record, whole_units]",
    "sources": [
-    "19574ede6259d0fb",
-    "ec9aacdf9d96b1de",
-    "f834e610c129f554",
-    "959a3a9de892a0f2",
-    "876b64a9becd13a4",
-    "4aec7c0ed24308aa",
-    "784714c135ffb77c"
+    "df892251c607db1c",
+    "2dd0d301cd944f2c",
+    "45e683e199a5ce27",
+    "e00dd0a5a3e4650c",
+    "96ed64029f02f8cf",
+    "a37db8c541a58c86",
+    "26673f8d1a0d3c65"
    ]
   },
   {
-   "id": "a3990fbac0f4ad06",
+   "id": "89d8f827bc8e6e8b",
    "about": "B",
    "epistemic": "interpreted",
    "text": "own note: B delivered the wood it promised, on time.",
    "sources": [
-    "a3990fbac0f4ad06",
-    "ec9aacdf9d96b1de",
-    "784714c135ffb77c"
+    "89d8f827bc8e6e8b",
+    "2dd0d301cd944f2c",
+    "26673f8d1a0d3c65"
    ]
   }
  ],
  "untrusted_messages": [
   {
-   "id": "ec9aacdf9d96b1de",
+   "id": "2dd0d301cd944f2c",
    "from": "B",
    "bell": 101,
    "trust": "untrusted",

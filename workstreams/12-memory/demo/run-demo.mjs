@@ -11,14 +11,15 @@ import { canonical, sha256hex } from '../src/records.mjs';
 import { reliabilityOf } from '../src/fold.mjs';
 
 const inputs = {};
-const out = { contract: 'wylls.memory12.demo/v2', policy: 'reference-v2 (deterministic; not a language model)', bell: SECOND_BELL, arms: {} };
+const out = { contract: 'wylls.memory12.demo/v3', policy: 'reference-v3 (deterministic; not a language model)', bell: SECOND_BELL, arms: {} };
 for (const name of Object.keys(ARMS)) {
   const { m, ids, res, reassessed } = await runArm(name);
   const k = m.knowledge(A, SECOND_BELL);
   const rel = reliabilityOf(k, 'B');
   out.arms[name] = {
     first_exchange: ids,
-    commitments: k.commitments.map(c => ({ id: c.id, debtor: c.debtor, state: c.state, reasons: c.reasons, delivered: [c.delivered_min, c.delivered_max],
+    commitments: k.commitments.map(c => ({ id: c.id, debtor: c.debtor, state: c.state, reasons: c.reasons, coverage_gaps: c.coverage_gaps, delivered: [c.delivered_min, c.delivered_max],
+      credit: c.links.map(l => l.credit),
       claims: c.claims.map(x => ({ id: x.id, kind: x.kind, status: x.status, criterion: x.criterion, basis: x.basis })),
       authority: c.authority, contract: c.contract, sources: c.sources })),
     reliability_B: { E: rel.E, r: rel.r, s: rel.s, verified: rel.verified, claims: rel.claims, unresolved: rel.unresolved.length },
@@ -38,7 +39,9 @@ for (const name of Object.keys(ARMS)) {
   console.log(`   cites ${a.cite.join(', ') || '(none)'}`);
   if (a.memory_block) console.log(a.memory_block.split('\n').map(l => `   ${l}`).join('\n'));
   if (reassessed) {
-    console.log(`   reassessed with records observed by bell ${reassessed.observed_by}: reference choice ${reassessed.reference_then} -> ${reassessed.reference_now}`);
+    console.log(`   reassessed with records observed by bell ${reassessed.observed_by}: reference choice ${reassessed.reference_then} -> ${reassessed.reference_now}`
+      + ` (late arrivals used ${reassessed.late_arrivals.length}, later events not used ${reassessed.later_events.length}, backdated excluded ${reassessed.backdated.length}; `
+      + `original input reproducible: ${reassessed.then_reproducible})`);
     for (const c of reassessed.changed_commitments) console.log(`     ${c.commitment}: ${c.then} -> ${c.now}`);
   }
 }

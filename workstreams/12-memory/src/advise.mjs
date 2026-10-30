@@ -1,7 +1,7 @@
 // Workstream 12: the decision-input contract for choosing a trade partner, a deterministic reference policy,
-// and the validator any policy's answer (a fixture, Claude, GPT) must pass. Contract v2.
+// and the validator any policy's answer (a fixture, Claude, GPT) must pass. Contract v3.
 //
-//   decisionInput({k, request, candidates, limits}) -> input   (wylls.memory12.decision-input/v2; plain JSON)
+//   decisionInput({k, request, candidates, limits}) -> input   (wylls.memory12.decision-input/v3; plain JSON)
 //   referencePolicy(input) -> {answer, ranking, explanation}    (no model; same input -> same output)
 //   validateAnswer(input, answer) -> {ok, errors, answer}       (choice exists and is eligible; cites resolve)
 //
@@ -21,10 +21,11 @@ import { WEIGHTS, reliabilityOf } from './fold.mjs';
 import { memoryLines } from './view.mjs';
 import { safeText } from '../../../permutation-gateway/citizens/mind/sanitize.mjs';
 
-export const CONTRACT = 'wylls.memory12.decision-input/v2';
+export const CONTRACT = 'wylls.memory12.decision-input/v3';
 export const DIST_COST = 20;
 export const MAX_MESSAGES = 6;
-export const CAUTION = Object.freeze({ provisional: true, share: 0.1, cap: 2 });
+export const CAUTION = Object.freeze({ provisional: true, share: 0.1, cap: 2, is_honesty_judgment: false,
+  meaning: 'promises to you past due whose outcome is not known yet; it says nothing about the partner\'s honesty' });
 
 export const ANSWER_SCHEMA = Object.freeze({
   type: 'object', additionalProperties: false, required: ['choice', 'cite', 'why'],
@@ -67,7 +68,7 @@ export function decisionInput({ k, request, candidates, limits = {} }) {
       id: c.id, tag: c.tag, price_per_unit: c.price_per_unit, distance: c.distance, stock: c.stock, arrive_bell: c.arrive_bell,
       eligible: !ineligible, ineligible_reason: ineligible,
       reliability: { E: rel.E, r: rel.r, s: rel.s, n_direct: rel.n_direct, n_observed: rel.n_observed, verified: { ...rel.verified }, claims: { ...rel.claims } },
-      unknown: { open_overdue: openOverdue, open_total: rel.unresolved.length, neutral: rel.neutral.length },
+      unknown: { open_overdue: openOverdue, open_total: rel.unresolved.length, neutral: rel.neutral.length, caution_is_honesty_judgment: false },
       memory: memory.filter(m => m.about === c.tag).map(m => m.id),
     };
   });
