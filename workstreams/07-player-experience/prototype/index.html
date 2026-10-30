@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WYLLS 試作 ⑦</title>
+<link rel="stylesheet" href="proto.css">
+</head>
+<body>
+<a class="skip" href="#panel">カードへ移動</a>
+<header class="top" role="banner">
+  <div class="brand"><strong>WYLLS</strong> <span class="ws">⑦ 試作</span> <span class="mock" title="この画面の世界は試作用の架空データです。数値は S1 のルールのコードで計算しています。">試作用の架空データ</span></div>
+  <div class="clock" id="clock" aria-live="polite"></div>
+  <div class="tools">
+    <label class="sel">世界の時計 <select id="rate" aria-label="世界の時計の速さ"><option value="1">1倍（本番と同じ）</option><option value="10">10倍（ローカル）</option><option value="40">40倍（ローカル）</option></select></label>
+    <button type="button" id="lang" class="btn quiet" aria-label="English">EN</button>
+  </div>
+</header>
+<div class="alerts" id="alerts" role="region" aria-label="知らせ"></div>
+<main class="main">
+  <section class="mapwrap" aria-label="地図">
+    <div class="maptools">
+      <button type="button" class="btn small" data-act="legend" aria-expanded="false" aria-controls="legend">凡例</button>
+      <label class="sel small">場所へ移動 <select id="goto" aria-label="場所へ移動"></select></label>
+      <span class="hint" id="keyhint">矢印キーでマスを移動、Enter で選択</span>
+    </div>
+    <div id="map" class="map-host"></div>
+    <div id="legend" class="legend" hidden></div>
+  </section>
+  <aside id="panel" class="panel" tabindex="-1" aria-live="polite"></aside>
+</main>
+<div id="drawer" class="drawer" hidden role="dialog" aria-modal="false" aria-labelledby="drawer-title"></div>
+<footer class="foot">
+  <a href="compare.html">視覚の方向：3 案の比較</a> · <a href="#terms" data-act="terms">用語と締め切り</a> · <a href="#forecast" data-act="forecast">予測の点検</a> · <span class="muted">本番・公開・送信はしていません（ローカルの試作）</span>
+</footer>
+<script type="module" src="app.mjs"></script>
+</body>
+</html>

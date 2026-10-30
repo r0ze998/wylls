@@ -1,0 +1,268 @@
+{
+ "at": "2026-10-30T00:31:07.809Z",
+ "base": "http://127.0.0.1:41777/workstreams/07-player-experience/prototype/",
+ "pass": 52,
+ "fail": 0,
+ "results": [
+  {
+   "name": "pc: on a first look the away summary opens by itself, unconfirmed",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "pc: \"later\" closes it and the strip still says not confirmed",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "pc: after a reload nothing was confirmed by the reload",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "pc: \"show on map\" selects the place and closes the summary",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "pc: the shortfall compares at \"all there\"",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "pc: the browser's back returns from the comparison to the tile",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "pc: the caravan preview names its arrival turn and its tower wear before sending",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "pc: the road went round the palisade (the map marks it)",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "pc: a cargo over what the storehouse holds turns the send off, with the reason",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "pc: a failed send says nothing left and keeps the cargo",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "pc: pressing send again while it is under way sends once",
+   "ok": true,
+   "detail": "1 status lines"
+  },
+  {
+   "name": "pc: once the record is in, the arrival is marked confirmed, apart from the plan",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "pc: closing the caravan card returns to the tile",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "pc: arrows move the focus between tiles and Enter selects",
+   "ok": true,
+   "detail": "マス 0,0・47"
+  },
+  {
+   "name": "pc: Esc closes the summary",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "pc: the forecast check shows the page's 500 against the model's 487–489 (recorded 488)",
+   "ok": true,
+   "detail": "残る兵 500,残る兵 487〜489"
+  },
+  {
+   "name": "pc: tower wear moves the model forecast and not the page's",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "pc: on a 10× clock a turn is said as 10 game minutes, about 60 real seconds",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "pc: the join deadline is read from the season",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "pc: after \"seen\" and a reload there is nothing unconfirmed",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "pc: the summary says the case \"firstOnDevice\"",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "pc: the summary says the case \"otherWallet\"",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "pc: the summary says the case \"newSeason\"",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "pc: the summary says the case \"gap\"",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "pc: English",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "pc: no page error",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "phone: on a first look the away summary opens by itself, unconfirmed",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "phone: \"later\" closes it and the strip still says not confirmed",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "phone: after a reload nothing was confirmed by the reload",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "phone: \"show on map\" selects the place and closes the summary",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "phone: the shortfall compares at \"all there\"",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "phone: the browser's back returns from the comparison to the tile",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "phone: the caravan preview names its arrival turn and its tower wear before sending",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "phone: the road went round the palisade (the map marks it)",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "phone: a cargo over what the storehouse holds turns the send off, with the reason",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "phone: a failed send says nothing left and keeps the cargo",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "phone: pressing send again while it is under way sends once",
+   "ok": true,
+   "detail": "1 status lines"
+  },
+  {
+   "name": "phone: once the record is in, the arrival is marked confirmed, apart from the plan",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "phone: closing the caravan card returns to the tile",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "phone: the forecast check shows the page's 500 against the model's 487–489 (recorded 488)",
+   "ok": true,
+   "detail": "残る兵 500,残る兵 487〜489"
+  },
+  {
+   "name": "phone: tower wear moves the model forecast and not the page's",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "phone: on a 10× clock a turn is said as 10 game minutes, about 60 real seconds",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "phone: the join deadline is read from the season",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "phone: after \"seen\" and a reload there is nothing unconfirmed",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "phone: the summary says the case \"firstOnDevice\"",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "phone: the summary says the case \"otherWallet\"",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "phone: the summary says the case \"newSeason\"",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "phone: the summary says the case \"gap\"",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "phone: English",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "phone: no page error",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "phone: the comparison page has no sideways scroll",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "phone: the prototype page has no sideways scroll (the map scrolls inside its frame)",
+   "ok": true,
+   "detail": ""
+  }
+ ]
+}
