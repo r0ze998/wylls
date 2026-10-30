@@ -4,6 +4,8 @@ import { RESOURCE_JA, signRecord, ownerTagOf, RESOURCES } from './record.mjs';
 import { STATE_JA } from './arrival.mjs';
 import * as W from '../../../permutation-server/web/wallet.mjs';
 import { equal } from '../../../permutation-server/web/sdk/bytes.mjs';
+import { planSend, sendPlanned } from './send.mjs';
+import { rpcReader, caravanAccount } from './chain.mjs';
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -114,7 +116,8 @@ function renderRequests() {
         ${!mine && open && !accepted ? `<button data-act="accept" data-id="${esc(q.id)}">応じる（送るつもり。義務はない）</button><button data-act="decline" data-id="${esc(q.id)}">断る</button>` : ''}
         ${!mine && accepted && open ? `<button data-act="withdraw" data-id="${esc(q.id)}">取り下げる（別の相手を選ぶ）</button>` : ''}
       </div>
-      ${!mine && accepted && open ? `<div class="note">送るのはゲームの村の引き出し「交易と防備」から：行き先 (${q.to.p},${q.to.q}) 村${q.to.site}、荷 ${esc(needText(resp.offer))}。他の人の村へ送る隊商は、ウォレットで署名します。</div>
+      ${!mine && accepted && open && cfg.relay && cfg.rpcProxy ? `<div class="row"><button data-act="send" data-id="${esc(q.id)}">この画面から送る（${esc(needText(resp.offer))}。ウォレットで署名）</button></div>` : ''}
+      ${!mine && accepted && open ? `<div class="note">ゲームの村の引き出し「交易と防備」からも送れる：行き先 (${q.to.p},${q.to.q}) 村${q.to.site}、荷 ${esc(needText(resp.offer))}。他の人の村へ送る隊商は、ウォレットで署名します。</div>
         <div class="row">${cands.length ? cands.map(m => `<button data-act="link" data-id="${esc(q.id)}" data-tag="${esc(m.ownerTag)}" data-seq="${m.seq}">隊商 #${m.seq}（${esc(needText(Object.fromEntries(RESOURCES.map((r, i) => [r, m.cargo[i]]).filter(([, v]) => v > 0))))}）をこの依頼に結び付ける</button>`).join('') : '<span class="note">この届け先へ向かう自分の隊商はまだ見えない</span>'}</div>` : ''}
     </div>`;
   }).join('') : '<div class="note">依頼はまだない</div>';
@@ -152,9 +155,34 @@ document.addEventListener('click', e => {
     case 'withdraw': return post({ kind: 'withdraw', request: id }, '取り下げた。送った隊商があれば、それはそのまま届く');
     case 'cancel-self': return post({ kind: 'cancel', request: id, reason: 'self' }, '取り消した（自分で進める）');
     case 'cancel-other': return post({ kind: 'cancel', request: id, reason: 'other' }, '取り消した');
+    case 'send': return sendFor(q);
     case 'link': return post({ kind: 'link', request: id, caravan: { ownerTag: b.dataset.tag, seq: Number(b.dataset.seq) } }, '隊商を結び付けた。数えるのは確定した到着だけ');
   }
 });
+
+/**
+ * この画面から送る：ゲームと同じコード（send.mjs → fplay.submit）で SendCaravan を組み立て、接続したウォレットで署名して中継へ送る。
+ * チェーンに隊商の口座が見えたら、結び付けの記録に署名して板へ出す。
+ */
+async function sendFor(q) {
+  const c = W.connected();
+  if (!c || !signer) return say('先に署名する人を接続してください', 'warn');
+  const resp = q.responses[signer.address];
+  const reader = rpcReader('/coop/rpc');
+  say('送り元・道・番号をチェーンから読んでいます…');
+  const plan = await planSend({ reader, season: cfg.season, wallet: c.address, request: q, cargo: resp.offer });
+  if (!plan.ok) return say(`送れない：${plan.why}`, 'bad');
+  say(`送ります：村 (${plan.src.p},${plan.src.q}) から ${plan.plan.dirs.length} マス、隊商 #${plan.fields.seq}。ウォレットで署名してください`);
+  const r = await sendPlanned(plan, { relay: cfg.relay, season: cfg.season, wallet: c });
+  if (!r.ok) return say(`送れなかった：${r.error ?? r.code}`, 'bad');
+  say('送った。チェーンに載るのを待っています…');
+  for (let i = 0; i < 20; i++) {
+    const a = await caravanAccount(reader, cfg.season, plan.caravan);
+    if (a.status === 'found') return post({ kind: 'link', request: q.id, caravan: plan.caravan }, `隊商 #${plan.caravan.seq} を送り、この依頼に結び付けた。数えるのは確定した到着だけ`);
+    await new Promise(res => setTimeout(res, 1500));
+  }
+  say(`送ったが、隊商の口座がまだ見えない（取引 ${String(r.signature).slice(0, 8)}…）。見えたら下の「結び付ける」から`, 'warn');
+}
 
 $('send').addEventListener('click', () => {
   const need = {};

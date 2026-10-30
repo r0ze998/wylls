@@ -68,8 +68,44 @@ export function creditedOf(settled) {
 
 const samePlace = (dst, to) => dst && Number(dst.kind) === 1 && Number(dst.p) === to.p && Number(dst.q) === to.q && Number(dst.at) === to.site && Number(dst.gen) === to.gen;
 
-/** 結び付けた1本の隊商の到着の記録（契約の形）。 */
-export function arrivalOf(request, link, feed) {
+/**
+ * 結び付けた1本の隊商の到着の記録（契約の形）。
+ * 量を数えるのは、チェーンの取引の記録（CARAVAN_SETTLED、chain.mjs caravanEndFromChain）を読めたときだけ（source 'chain-log'）。
+ * ヘラルドの一覧（moving・ended）は、輸送中・終わったことの表示と、チェーンの記録との突き合わせにだけ使い、量は数えない。
+ * `chainEnd`：caravanEndFromChain の結果。undefined はチェーンを読まない板（量はすべて未検証）。
+ */
+export function arrivalOf(request, link, feed, chainEnd) {
+  const h = heraldArrival(request, link, feed);
+  if (chainEnd?.status === 'settled' || chainEnd?.status === 'raided') {
+    const c = chainArrival(request, link, chainEnd);
+    const agree = !['delivered', 'lost', 'misdelivered', 'raided-taken', 'raided-burned'].includes(h.state) || h.state === c.state;
+    return agree ? c : { ...c, note: `${c.note}（ヘラルドの写しは「${STATE_JA[h.state] ?? h.state}」で、チェーンの記録と食い違う）`, heraldDisagrees: h.state };
+  }
+  const why = chainEnd === undefined ? 'チェーンの取引の記録と照合していない（板に --rpc がない）'
+    : chainEnd.status === 'none' ? 'チェーンの取引の記録に、この隊商の確定・襲撃はまだない' : chainEnd.why;
+  if (['moving', 'raided-taken', 'raided-burned'].includes(h.state) && h.source === 'herald-moving') return { ...h, verifiedQty: null };
+  return { ...h, verifiedQty: null, qtyKind: undefined, basis: undefined, note: `${h.note}。${why}。量は数えない` };
+}
+
+/** チェーンの取引の記録から作る到着の記録。 */
+function chainArrival(request, link, end) {
+  const base = { requestId: request.id, caravanId: { ...link.caravan }, owner: { ownerTag: String(link.caravan.ownerTag) }, responder: link.responder, source: 'chain-log' };
+  const pick = cargo => Object.fromEntries(Object.keys(request.need).map(r => [r, cargoOf(cargo)[RESOURCES.indexOf(r)] ?? 0]));
+  if (end.raided) {
+    const r = end.raided;
+    if (r.choice === 1) return { ...base, state: 'raided-burned', verifiedQty: null, signature: r.signature, note: '襲撃で焼かれた（CARAVAN_RAIDED）。数えない' };
+    return { ...base, owner: { ownerTag: r.raiderTag }, state: 'raided-taken', verifiedQty: null, signature: r.signature, note: '襲撃で奪われた（CARAVAN_RAIDED。J2：奪った人の物）。数えない' };
+  }
+  const st = end.settled;
+  if (st.outcome !== 0) return { ...base, state: 'lost', cargo: pick(st.cargo), verifiedQty: null, signature: st.signature, note: '行き先がない・世代が違うので失われた（CARAVAN_SETTLED の LOST）' };
+  if (!samePlace(st.dst, request.to)) return { ...base, state: 'misdelivered', cargo: pick(st.cargo), verifiedQty: null, signature: st.signature, note: '依頼の届け先とは別の場所に確定した。数えない' };
+  const c = creditedOf(st);
+  if (c.qty === null) return { ...base, state: 'delivered', cargo: pick(st.cargo), verifiedQty: null, signature: st.signature, note: c.why };
+  return { ...base, state: 'delivered', cargo: pick(st.cargo), verifiedQty: pick(c.qty), qtyKind: c.qtyKind, basis: c.basis, signature: st.signature, note: '村あて：チェーンの CARAVAN_SETTLED の積荷を、実入荷量の下限として数える' };
+}
+
+/** ヘラルドの一覧だけから作る到着の記録（表示と突き合わせ用。量は呼び出し側で数えない）。 */
+function heraldArrival(request, link, feed) {
   const k = keyOf(link.caravan);
   const base = { requestId: request.id, caravanId: { ...link.caravan }, owner: { ownerTag: String(link.caravan.ownerTag) }, responder: link.responder };
   const raid = feed.raided.get(k);
@@ -82,7 +118,7 @@ export function arrivalOf(request, link, feed) {
     if (!samePlace(settled.dst, request.to)) return { ...base, state: 'misdelivered', cargo: pick(settled.cargo), verifiedQty: null, source: 'herald-ended', note: '依頼の届け先とは別の場所に確定した。数えない' };
     const c = creditedOf(settled);
     if (c.qty === null) return { ...base, state: 'delivered', cargo: pick(settled.cargo), verifiedQty: null, source: 'herald-ended', note: c.why };
-    return { ...base, state: 'delivered', cargo: pick(settled.cargo), verifiedQty: pick(c.qty), qtyKind: c.qtyKind, basis: c.basis, source: 'herald-ended', note: '村あて：記録の積荷を実入荷量の下限として数える（ヘラルドの写しを使う。④の確認待ち）' };
+    return { ...base, state: 'delivered', cargo: pick(settled.cargo), verifiedQty: null, source: 'herald-ended', note: 'ヘラルドの写しでは村に確定' };
   }
   const m = feed.moving.get(k);
   if (m) {
@@ -111,9 +147,11 @@ export function linkProblem(request, caravan, ownerTag, file) {
 }
 
 /** 依頼ごとの到着の記録の一覧。 */
-export function arrivalsOf(state, file) {
+export function arrivalsOf(state, file, chainEnds = undefined) {
   const feed = indexFeed(file);
   const out = [];
-  for (const q of Object.values(state.requests)) for (const l of q.links) out.push(arrivalOf(q, l, feed));
+  for (const q of Object.values(state.requests)) for (const l of q.links) out.push(arrivalOf(q, l, feed, chainEnds === undefined ? undefined : (chainEnds[keyOf(l.caravan)] ?? { status: 'unverified', why: 'まだ読んでいない' })));
   return out;
 }
+
+export const caravanKeyOf = keyOf;

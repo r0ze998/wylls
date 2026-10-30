@@ -3,7 +3,7 @@
 // それ以外の要求はヘラルドへそのまま転送する（127.0.0.1 だけ）。
 //
 //   node workstreams/01-national-strategy/coop/board.mjs --herald http://127.0.0.1:41940 \
-//        --program <program id> --season <id> --rpc http://127.0.0.1:41910 [--port 41873] [--data <dir>] [--judge arrivals]
+//        --program <program id> --season <id> --rpc http://127.0.0.1:41910 --relay http://127.0.0.1:41933 [--port 41873] [--data <dir>] [--judge arrivals]
 //
 //   http://127.0.0.1:41873/frontier/frontier/   … ゲーム（ヘラルドの画面を転送。Dev Wallet はこの入口のもの）
 //   http://127.0.0.1:41873/ws01/                 … 依頼の画面（同じ入口なので、同じ Dev Wallet で署名する）
@@ -19,7 +19,9 @@ import { fileURLToPath } from 'node:url';
 import { fold, recordId, shapeProblem, verifySig, ownerTagOf, CLOCK_SKEW } from './record.mjs';
 import { linkProblem } from './arrival.mjs';
 import { GOALS, JUDGES, coopView } from './goal.mjs';
-import { citizenOf, holdingOf, rpcReader } from './chain.mjs';
+import { citizenOf, holdingOf, rpcReader, caravanAccount, caravanEndFromChain } from './chain.mjs';
+import { caravanKeyOf } from './arrival.mjs';
+import { seasonAddresses } from '../../../permutation-server/web/frontier/faddr.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(here, '../../..');
@@ -47,7 +49,7 @@ export function loadRecords(file) {
  * 再起動：記録（records.jsonl）を最初から畳み込み直すので、依頼・応答・結び付け・重複防止（同じ記録・同じ隊商）は戻る。
  * 観測の時刻（observed.json）が失われると、再起動の後に初めて見た時刻になる（仮B は「到着より後」を確かめられず、達成にならない側に倒れる）。
  */
-export function createBoard({ herald, programId, seasonId, dataDir, judge = 'arrivals', now = () => Math.floor(Date.now() / 1000), fetchHerald = null, reader = null }) {
+export function createBoard({ herald, programId, seasonId, dataDir, judge = 'arrivals', now = () => Math.floor(Date.now() / 1000), fetchHerald = null, reader = null, relay = null, rpc = null }) {
   const season = { programId, seasonId: String(seasonId) };
   fs.mkdirSync(dataDir, { recursive: true });
   const recFile = path.join(dataDir, 'records.jsonl');
@@ -56,6 +58,7 @@ export function createBoard({ herald, programId, seasonId, dataDir, judge = 'arr
   let obs = { ended: {}, vaults: {} };
   try { if (fs.existsSync(obsFile)) obs = JSON.parse(fs.readFileSync(obsFile, 'utf8')); } catch { obs = { ended: {}, vaults: {} }; }
   const citizenCache = new Map();   // 確かめられた結果だけを覚える（未検証は毎回やり直す）
+  const endCache = new Map();       // 隊商の確定・襲撃（チェーンの記録。終わったものは変わらないので覚える）
   const getHerald = fetchHerald ?? (async p => {
     const r = await fetch(new URL(p, herald));
     return { status: r.status, json: r.ok ? await r.json() : null };
@@ -91,10 +94,21 @@ export function createBoard({ herald, programId, seasonId, dataDir, judge = 'arr
     if (rec.kind === 'link') {
       const q = state().requests[rec.request];
       if (!q) return { ok: false, why: '依頼が見つからない' };
-      const file = await caravans();
-      if (!file) return { ok: false, why: 'ヘラルドの隊商の一覧が読めないので、隊商を確かめられない' };
-      const why = linkProblem(q, rec.caravan, ownerTagOf(season, rec.signer), file);
-      if (why) return { ok: false, why };
+      if (reader) {
+        // 正本：チェーンの隊商の口座（輸送中なら口座がある）
+        const c = await caravanAccount(reader, season, rec.caravan);
+        if (c.status !== 'found') return { ok: false, why: `隊商をチェーンで確かめられない：${c.why}` };
+        // 持ち主の Citizen の住所は、署名したウォレットから決まる（口座の中身は国籍の確認で別に読む）
+        if (c.ownerCitizen !== seasonAddresses(programId, season.seasonId).of('Citizen', { wallet: rec.signer })) return { ok: false, why: 'この隊商の持ち主（OWNER_CITIZEN）ではない' };
+        if (c.state !== 'moving') return { ok: false, why: `隊商は輸送中ではない（${c.state}）` };
+        const why = linkProblem(q, rec.caravan, c.ownerTag, { moving: [{ ownerTag: c.ownerTag, seq: c.seq, dst: c.dst, cargo: c.cargo, raided: false }] });
+        if (why) return { ok: false, why };
+      } else {
+        const file = await caravans();
+        if (!file) return { ok: false, why: 'ヘラルドの隊商の一覧が読めないので、隊商を確かめられない' };
+        const why = linkProblem(q, rec.caravan, ownerTagOf(season, rec.signer), file);
+        if (why) return { ok: false, why };
+      }
     }
     const after = fold([...records, rec], { goals: GOALS, season });
     const id = recordId(rec);
@@ -125,7 +139,16 @@ export function createBoard({ herald, programId, seasonId, dataDir, judge = 'arr
     }
     const citizens = {};
     for (const w of wallets) citizens[w] = await citizen(w);
-    return { citizens, holdings };
+    if (!reader) return { citizens, holdings, caravans: undefined };
+    const ends = {};
+    for (const q of Object.values(st.requests)) for (const l of q.links) {
+      const k = caravanKeyOf(l.caravan);
+      if (endCache.has(k)) { ends[k] = endCache.get(k); continue; }
+      const e = await caravanEndFromChain(reader, season, l.caravan);
+      if (e.status === 'settled' || (e.status === 'raided' && e.settled)) endCache.set(k, e);
+      ends[k] = e;
+    }
+    return { citizens, holdings, caravans: ends };
   }
 
   async function view({ viewer = null, judgeId = judge } = {}) {
@@ -135,8 +158,8 @@ export function createBoard({ herald, programId, seasonId, dataDir, judge = 'arr
     return { ...v, heraldFeed: file ? { moving: (file.moving ?? []).length, ended: Array.isArray(file.ended) ? file.ended.length : null } : null, chain: !!reader, damaged };
   }
 
-  const config = () => ({ season, goals: GOALS, judges: Object.values(JUDGES).map(j => ({ id: j.id, label: j.label, means: j.means })), judge, herald, chain: !!reader, damaged });
-  return { submit, view, config, records, caravans, season };
+  const config = () => ({ season, goals: GOALS, judges: Object.values(JUDGES).map(j => ({ id: j.id, label: j.label, means: j.means })), judge, herald, chain: !!reader, damaged, relay, rpcProxy: !!rpc });
+  return { submit, view, config, records, caravans, season, rpc };
 }
 
 // ------------------------------------------------------------------ HTTP
@@ -164,6 +187,9 @@ function serveStatic(res, rel) {
   send(res, 200, fs.readFileSync(p), TYPES[path.extname(p)] ?? 'application/octet-stream');
 }
 
+/** 画面から読ませる RPC（読むだけ）。 */
+export const READ_METHODS = Object.freeze(['getAccountInfo', 'getSignaturesForAddress', 'getTransaction']);
+
 /** 板の HTTP サーバー。`/coop/*` は板、`/ws01/*` は画面、それ以外はヘラルドへ転送。 */
 export function createServer(board, { herald }) {
   const up = herald ? new URL(herald) : null;
@@ -178,6 +204,15 @@ export function createServer(board, { herald }) {
         try { rec = JSON.parse((await readBody(req)).toString('utf8')); } catch { return send(res, 400, { ok: false, why: '記録が読めない' }); }
         const r = await board.submit(rec);
         return send(res, r.ok ? 200 : 400, r);
+      }
+      if (url.pathname === '/coop/rpc' && req.method === 'POST') {
+        // 画面がチェーンを読むための入口（読むだけ）。送る取引は中継（relay）へ直接で、ここは通らない。
+        if (!board.rpc) return send(res, 404, { error: 'この板は --rpc なし' });
+        let body;
+        try { body = JSON.parse((await readBody(req)).toString('utf8')); } catch { return send(res, 400, { error: 'bad json' }); }
+        if (!READ_METHODS.includes(body?.method)) return send(res, 403, { error: `読むだけ：${READ_METHODS.join('・')}` });
+        const r = await fetch(board.rpc, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: body.id ?? 1, method: body.method, params: body.params }) });
+        return send(res, r.status, await r.text());
       }
       if (url.pathname === '/coop/view') {
         return send(res, 200, await board.view({ viewer: url.searchParams.get('viewer') || null, judgeId: url.searchParams.get('judge') || undefined }));
@@ -221,7 +256,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const port = Number(arg('port', '41873'));
   const dataDir = arg('data', path.join(repo, '.local/ws01-coop', `${programId.slice(0, 8)}-${seasonId}`));
   const rpc = arg('rpc');   // 例：http://127.0.0.1:41910（国と届け先の村をチェーンで確かめる。ないと国籍未検証）
-  const board = createBoard({ herald, programId, seasonId, dataDir, judge: arg('judge', 'arrivals'), reader: rpc ? rpcReader(rpc) : null });
+  const board = createBoard({ herald, programId, seasonId, dataDir, judge: arg('judge', 'arrivals'), reader: rpc ? rpcReader(rpc) : null, rpc, relay: arg('relay') });   // --relay 例：http://127.0.0.1:41933（この画面から送るとき）
   createServer(board, { herald }).listen(port, '127.0.0.1', () => {
     console.log(`依頼の板：http://127.0.0.1:${port}/ws01/  ゲーム：http://127.0.0.1:${port}/frontier/frontier/  （ヘラルド ${herald}、記録 ${dataDir}）`);
   });

@@ -81,12 +81,13 @@ export function allocate(arrivals, state) {
 /**
  * 表示の形。共同・国・個人を別々に返す。
  *   state：record.mjs の fold の結果、file：ヘラルドの caravans.json、obs：板の観測（{ended: {key: t}, vaults: {key: t}}）、
- *   checks：チェーンで確かめた結果（{citizens: {wallet: citizenOf の結果}, holdings: {requestId: holdingOf の結果}}）、
+ *   checks：チェーンで確かめた結果（{citizens: {wallet: citizenOf}, holdings: {requestId: holdingOf}, caravans: {ownerTag:seq: caravanEndFromChain}}。
+ *     caravans がない（undefined）のは、チェーンを読まない板で、量はすべて未検証）、
  *   viewer：見ている人のウォレット（なくてもよい）、now：秒、judgeId：JUDGES の鍵。
  */
 export function coopView({ state, file, obs = { ended: {}, vaults: {} }, checks = { citizens: {}, holdings: {} }, viewer = null, now, judgeId = 'arrivals', season }) {
   const judge = JUDGES[judgeId] ?? JUDGES.arrivals;
-  const arrivals = allocate(arrivalsOf(state, file), state);
+  const arrivals = allocate(arrivalsOf(state, file, checks.caravans), state);
   const byReq = {};
   for (const a of arrivals) (byReq[a.requestId] ??= []).push(a);
   const requests = Object.values(state.requests).map(q => ({ ...q, stateNow: stateAt(q, now), arrivals: byReq[q.id] ?? [] }));
