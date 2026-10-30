@@ -436,6 +436,32 @@ fn inbound_taken_fails_the_run() {
     h.audit();
 }
 
+/// R-1 for inbound materials: the inbound caravan settles with a cargo
+/// logged as 0 (worn below one unit; the stock kept the fraction). No burn
+/// record: not "lost" (no InputLost claim); the run waits on the canonical
+/// stock until its deadline and expires.
+#[test]
+fn inbound_fraction_is_not_reported_lost() {
+    let mut h = H::new("inbound-fraction");
+    let src = vault(4, 4, 2);
+    let inbound = h.sim.with(|w| {
+        w.add_place(src, OWNER, r(1, 50), None);
+        w.spend(&h.scene.stock, &r(1, 10));
+        w.wear_bps = 9_000; // 1 unit → 100 milli, logged 0
+        w.manual_send(OWNER, src, h.scene.stock, r(1, 1))
+    });
+    h.sim.with(|w| w.wear_bps = 0);
+    let mut sp = spec("r1", &h.scene);
+    sp.inbound = Some(inbound);
+    sp.deadline_slot = 60;
+    h.accept(&sp);
+    assert!(h.drive("r1", 120).is_none());
+    let row = h.run("r1");
+    assert_eq!(row.state, RunState::Expired);
+    assert_ne!(row.detail.reason, Some(Reason::InputLost));
+    h.audit();
+}
+
 /// 材料不足 until the deadline: expired, nothing used.
 #[test]
 fn no_materials_expires() {

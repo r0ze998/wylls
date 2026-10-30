@@ -167,9 +167,15 @@ pub enum RunState {
     InTransit,
     /// 到着: the settlement was observed (outcome not yet judged).
     Arrived,
-    /// 履行完了: delivered in full at the destination's generation.
+    /// 履行完了: proven delivered in full — the verified lower bound of
+    /// what the destination kept reaches the request.
     Fulfilled,
-    /// 部分履行: a verified amount arrived, less than asked (wear, capacity).
+    /// 部分履行: delivered, and the verified lower bound is below this run's
+    /// own request in some resource. Per run and per resource, in whole
+    /// units: the kept amount lies in [bound, bound + 1) (the record rounds
+    /// milli-units down), and the request is whole, so this run kept less
+    /// than it asked. It does not say a goal that sums several runs was
+    /// missed: their fractions may add up (docs/QUANTITY-CONTRACT.ja.md §4).
     Partial,
     /// 到着量未検証: delivered, but the amount kept cannot be verified (a
     /// vault's settle record without the credited amount). Never counted
@@ -293,9 +299,13 @@ pub enum Reason {
     DestinationChanged,
     /// The outputs were no longer at `stock` (spent by someone else).
     OutputShort,
-    /// The caravan was taken by a raider (it is the raider's now).
+    /// The caravan was taken by a raider (it is the raider's now). Only on
+    /// evidence for this very caravan: a CARAVAN_RAIDED TAKE record for its
+    /// (owner, seq), or its account owned by another Citizen (only a TAKE
+    /// rewrites it).
     Raided,
-    /// Delivered nothing: burned in a raid or the destination lost it.
+    /// Delivered nothing: burned in a raid (a CARAVAN_RAIDED BURN record for
+    /// this caravan). Never concluded from a zero logged cargo alone.
     LostInTransit,
     AttemptsExhausted,
     BudgetExhausted,
@@ -311,6 +321,11 @@ pub enum Reason {
     PortUnavailable,
     /// A canonical read contradicted itself (a bug to look at).
     Inconsistent(String),
+    /// The caravan settled at a place other than the spec's destination and
+    /// no raid record for it was found: the cause is unconfirmed. Not
+    /// evidence against anyone (no raider is named or blamed), and no
+    /// amount is stated.
+    DestinationMismatch,
 }
 
 /// How the amount a destination kept is known.
@@ -322,10 +337,9 @@ pub enum Verification {
     /// whole cargo (`Accrual::add` "may exceed the cap", holding.rs:296).
     /// A lower bound in whole units, not the exact amount: the program
     /// credits the worn cargo in milli-units and logs it rounded down
-    /// (`cargo_log`, permutation-frontier proc/caravan.rs:401-407), so up to
-    /// one unit less per resource than was credited. Fulfilled / Partial
-    /// judged on it stay sound (a bound at or over the request means the
-    /// credit is too).
+    /// (`cargo_log`, permutation-frontier proc/caravan.rs:401-407), so the
+    /// kept amount is in [bound, bound + 1) per resource. Fulfilled /
+    /// Partial judged on it against a whole request stay exact for the run.
     RuleDerived,
     /// Known to be nothing: outcome LOST, an empty (burned) cargo, a take.
     KnownZero,

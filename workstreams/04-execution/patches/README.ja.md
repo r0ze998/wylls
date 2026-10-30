@@ -9,13 +9,35 @@
 **案**（未適用）：
 
 1. **同じ計算から記録する**：資源を書き込むループの中で、各資源について `credited[r] = to − have`、`lost[r] = cargo[r] − credited[r]` を求める。記録は、書き込んだ値から作る（別の計算で作らない）。こうすれば、記録と残高の更新が同じ instruction の中で食い違えない。
-2. **欄**（整数単位。`cargo_log` と同じ符号化）：
-   - `credited [u32;8]`：宛先に実際に加えた量。
-   - `lost [u32;8]`：失った量。`cargo = credited + lost` が常に成り立つ。
-   - `loss_cause u8`：`0` なし、`1` 容量超過（vault の `CAP`）、`2` 宛先なし・世代違い（outcome LOST。全量が lost）。
-   - 識別子：既存の `owner_tag ‖ seq`（caravan の seed）に加えて、宛先の `Place`（kind、p、q、at、**gen**）と、送信の署名（または `CaravanSent` の log 位置）への参照。これにより、入荷記録と送付記録を名前で結べる。
-3. holding 宛ては上限なしで加算するので `credited = cargo`、`lost = 0`（現行の規則から導ける。④は `RuleDerived` として扱っている）。
-4. 襲撃（`CARAVAN_RAIDED`）の burn も同じ形で `lost` と `loss_cause = 3`（burn）を記録すると、損失の会計が一つの形にそろう（任意）。
+2. **単位・精度・丸め・範囲を、次の二つの案のどちらか一つに決める。二つを混ぜない**（一つの記録の中で、また記録の版をまたいで、同じ欄名に別の意味を持たせない）。前提：program の内部の量は milli 単位の `i64`（1 単位＝1000。holding の `Accrual`、vault の `VA::store`・`CAP`、caravan の `CV::cargo`）。今の記録の `cargo` は `cargo_log`：`floor(max(v,0) / 1000)` を `u32` に飽和させた値（`proc/caravan.rs:401-407`）。
+
+   **案 A：milli のまま記録する（正確な量）**
+
+   | 欄 | 型・単位 | 精度・丸め | 範囲・関係 |
+   |---|---|---|---|
+   | `cargo_milli [i64;8]` | milli | 正確（丸めなし） | settle の時点の積荷（損耗の後）。`0 ≤ cargo_milli ≤ 送付量 × 1000` |
+   | `credited_milli [i64;8]` | milli | 正確 | 宛先に書き込んだ差分 `to − have`。`0 ≤ credited_milli ≤ cargo_milli` |
+   | `lost_milli [i64;8]` | milli | 正確 | `cargo_milli − credited_milli`。**`credited_milli + lost_milli = cargo_milli` が常に成り立つ** |
+   | `loss_cause u8` | — | — | `0` なし、`1` 容量超過、`2` 宛先なし・世代違い（全量 lost） |
+
+   - ④の扱い：`Recorded` は**正確な量**。依頼量 × 1000 以上なら Fulfilled（証明）、未満なら**未達を証明できる** Partial、0 なら KnownZero。④の `Settle` port に `credited_milli` を足す（今の `credited: Res` は整数なので、そのままでは受けられない）。
+   - 記録の長さ：+200 バイト程度（3 × 64＋1。CU と log の長さの表に影響）。
+
+   **案 B：整数に切り捨てて記録する（下限）**
+
+   | 欄 | 型・単位 | 精度・丸め | 範囲・関係 |
+   |---|---|---|---|
+   | `credited_floor [u32;8]` | 整数単位 | `floor(credited_milli / 1000)`（`cargo_log` と同じ丸め・同じ飽和） | `0 ≤ credited_floor ≤ cargo`（記録の cargo）。**実際の加算量の下限**：資源ごとに 1 未満多く入っていうる |
+   | `loss_cause u8` | — | — | 案 A と同じ |
+
+   - `lost` は記録しない。切り捨てた値どうしでは `credited + lost = cargo` が成り立たず、和の関係を約束できないため（混ぜない）。
+   - ④の扱い：今の実装のまま。`Recorded` は下限で、下限が依頼量以上なら Fulfilled、未満なら Partial（未達の証明ではない）、**0 でも KnownZero にしない**（`fraction_below_one_unit_is_not_known_zero`）。
+   - 記録の長さ：+33 バイト。
+
+   どちらの案でも：値は資源を書き込むループの中で、書き込んだ値から作る（別の計算で作らない）。識別子は既存の `owner_tag ‖ seq` に加えて、宛先の `Place`（kind、p、q、at、**gen**）を載せる。burn（CARAVAN_RAIDED）は今も caravan の milli を 0 にするので、burn の記録があれば 0 は正確である（案に関係なく KnownZero）。
+
+3. holding 宛ては上限なしで加算するので、案 A なら `credited_milli = cargo_milli`、案 B なら `credited_floor = cargo`（今の記録の cargo と同じ値で、新しい情報は無い）。④は今、holding を `RuleDerived`（整数の下限）として扱っている。
+4. 選ぶ基準：①⑮が「目標に届かなかった」と**証明**したいなら案 A が要る（案 B と今の記録では、下限が目標未満でも未達とは言えない。複数の隊商の端数を足すと届いているかもしれない）。達成の証明だけでよいなら案 B で足りる。
 
 ```diff
  // proc/caravan.rs settle_caravan, vault branch（説明用の抜粋。ビルドしていない）
@@ -28,18 +50,18 @@
 +                let have = Ro(&vd).i64(VA::store(r))?;
 +                let to = have.saturating_add(*c).min(cap.max(have));
 +                Rw(&mut vd).set_i64(VA::store(r), to)?;
-+                credited[r] = to - have;          // what the write added
-+                lost[r] = *c - credited[r];       // what it dropped
++                credited_milli[r] = to - have;    // what the write added (milli)
++                lost_milli[r] = *c - credited_milli[r]; // option A only
 +            }
  …
 -        .bytes(&cargo_log(&cargo))
 +        .bytes(&cargo_log(&cargo))
-+        .bytes(&cargo_log(&credited))
-+        .bytes(&cargo_log(&lost))
++        // option A: cargo_milli, credited_milli, lost_milli as i64 LE (exact)
++        // option B: cargo_log(&credited_milli) only (floor, a lower bound)
 +        .u8(loss_cause)
 ```
 
-影響：verify V23 の replay（`credited + lost = cargo` と、残高の変化 = `credited` の検査を追加できる）、herald の表示、findex、fclient の `CqEvent::CaravanSettled`、log の長さの表（`frontier-abi::log`）、CU の測定、①の進捗と⑥の成果の計上（検証済みの量だけを数える。CONTRACTS §7、§9）。
+影響：verify V23 の replay（案 A なら `credited_milli + lost_milli = cargo_milli` と、残高の変化 = `credited_milli` の検査を追加できる。案 B では下限の検査だけ）、herald の表示、findex、fclient の `CqEvent::CaravanSettled`、log の長さの表（`frontier-abi::log`）、CU の測定、①の進捗と⑥の成果の計上（検証済みの量だけを数える。CONTRACTS §7、§9）。
 
 **適用しない**：共有コアへの変更なので、program の担当とレビューの判断を待つ。
 

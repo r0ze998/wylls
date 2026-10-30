@@ -52,7 +52,7 @@
 | `delivered`＋`verifiedQty`（村、chain-log） | `Fulfilled`／`Partial`、`outcome.delivered`、`verification: RuleDerived`（下限。2.2） |
 | `delivered`＋`verifiedQty: null`（倉） | `DeliveredUnverified`、`delivered: None`、`verification: Unverifiable`。④も残高の前後差で推し量らない |
 | `lost` | `Failed`（outcome LOST）、`KnownZero` |
-| `misdelivered`（依頼の届け先と別） | ④の Run は spec の宛先にだけ送る。決着の宛先が spec と違えば、奪われて行き先が変わったとみなし `Failed`（Raided）、`KnownZero`（`src/executor.rs` `on_arrived`「settled elsewhere」）。①はこれを `misdelivered`（数えない）とするので、算入量は同じ 0、状態の名前だけが違う |
+| `misdelivered`（依頼の届け先と別） | **（§5 で訂正）** 当初の④は、別の宛先での決着を証拠なしに「奪われた」（Raided、KnownZero）としていた。これは名前だけの違いではなく、根拠のない帰属だった。今は、この隊商の TAKE の記録があるときだけ Raided、無ければ保留 `DestinationMismatch`（原因未確認） |
 | `raided-taken`／`raided-burned` | `Failed`（Raided／LostInTransit）、`KnownZero` |
 | `moving` | `InTransit`（進捗ではない） |
 | `unknown` | 状態は進めない（`Indeterminate`、保留） |
@@ -110,3 +110,50 @@
 ## 4. ⑮から届いた予告（参考、未受領）
 
 ⑮は④の Receipt の body の欄名を仮定している（`owner_tag`、`verification`、`raider_tag` など）。④の実物とは違う（`verification` は Receipt でなく Run の `outcome` にある。欄名は `raider`）。⑮の成果物は未受領で、照合していない。
+
+## 5. 追記（同日、`30e7de98` の後）：指示を受けて直した点
+
+この節は `30e7de98` の照合の続きである。照合の対象は今も ① `3f3c8478`、⑤ `45cba41e`、③ `acdcd0bf` だけである。**その後に報告された ① `f5a953b`、⑤ `29365e60`、③ `a361a30f` は受け取っていない。** この文書の結果を、それらの版にも成り立つものとして扱わない。受け取ったら、照合済みの版からの差分だけを照合する。
+
+### 5.1 数量契約の正本
+
+[QUANTITY-CONTRACT](QUANTITY-CONTRACT.ja.md) を④の正本にした。①③⑦⑫⑮に揃えてほしい点は同文書 §7（提案。他の担当の作業は変えていない。⑫は資料を受け取っていない）。
+
+### 5.2 R-1（正確性の修正。新しいゲームルールではない）
+
+- 記録の cargo が 0 なだけでは KnownZero にしない。この隊商の BURN の記録（feed または entity 履歴）があるときだけ 0 と断定する。
+- 材料の入荷（inbound）にも同じ規則を当てた。証拠のない「材料が失われた」（`InputLost`）を出さず、正本の在庫を期限まで待つ。
+- 模擬正本を program の単位に合わせた。損耗は milli で計算し、記録は切り捨て、holding には milli の端数まで加算する。保存の監査も milli で行う。
+- 回帰試験は 5 件、変異 4 件をすべて検出（QUANTITY-CONTRACT §3）。既存の 62 件と変異 15 件は変わらず通る。
+
+### 5.3 宛先の不一致
+
+この隊商の TAKE の記録が無い不一致は、「奪われた」としない。記録を待ち、見つからなければ保留 `DestinationMismatch`（原因未確認）にする。量は述べず、相手の名前を出さず、責任や評判に使わない。後で記録が見つかれば、`resume` で判定する（`destination_mismatch_without_raid_record_is_unconfirmed`）。
+
+### 5.4 Fulfilled／Partial の精度
+
+判定はこの run の依頼量（資源ごと、整数）と、整数の下限 b との比較である。実際の量は［b, b＋1）にあるので、この run について Fulfilled も Partial も正しい。ただし、複数の run を足した目標には、Partial は何も言わない。合計の目標は「達成・未達・判定できない」の三つに分けて判定する（QUANTITY-CONTRACT §4）。④の旧い記述「未達の証明ではない」は、run 単位では言い過ぎだったので直した。
+
+### 5.5 R-2（P1 は適用しない）
+
+案 A（milli、正確。`credited_milli + lost_milli = cargo_milli`）と案 B（整数の切り捨て、下限。`lost` は載せない）に分けた。単位・精度・丸め・範囲は表にし、二つを混ぜないと明記した（[patches/README](../patches/README.ja.md) P1）。
+
+### 5.6 ⑤ 0002b と署名（隔離したコピーでだけ検証。採否は未定）
+
+**「Duplicate」が未送信を保証する範囲**（`permutation-gateway/src/frontier/routes/relay.mjs` `sponsor`、`src/guards.mjs` `ReplayCache`。コードを読んで確かめた）：
+
+| 保証する | 保証しない |
+|---|---|
+| `Duplicate` を受けた呼び出しは、何も送っていない。検査は `sponsor` の最初で、await・fee payer の署名・simulate・`beforeSend`・送信のどれよりも前にある | 同じバイト列（同じ署名）が送られていないこと。鍵を先に持つ別の要求が送った、または送っている |
+| 同じバイト列は同じ署名になる。チェーンは一度しか処理しない（効果と手数料は一度） | `Duplicate` が出ないこと＝未送信、ではない。cache は relay のプロセスのメモリだけにある（TTL 30 分、上限 200,000 件で古いものから消える）。再起動・別の relay・期限切れの後は検出しない |
+
+**0002b で署名し直すと**：一回目に作ったバイト列は、別の要求のものと同じで、この要求からは送られていない。二回目は別の fee payer で作るので、**別の署名**になる。中身が同じ SendCaravan（同じ owner・seq）なら、二つの取引がチェーンに届く（`bridge/probe-0002b-sendcaravan.test.mjs`。0002b なしでは 1 件と `Duplicate`、0002b ありでは 2 件。模擬チェーン）。
+
+- seq は一度しか受け付けられないので、ゲームの効果は一度まで。守られるのはここまでである。
+- 手数料は二重に発生しうる。二つ目は失敗として着地しても手数料がかかる。relay は送る前に simulate するので、一つ目が着地した後なら二つ目は送られない。二重になるのは、両方が着地する前の短い間だけである（コードを読んだ結果。実チェーンでは未確認）。
+- 手数料は relay の fee payer が払う。④の `fees` には gateway 経由の手数料が入らない（gateway の port の `fee = 0`）。relay の帳簿と、各署名の着地・失敗を突き合わせる必要がある。
+- ④が追う署名は、attempt ごとに gateway が返した署名（`chain_sig`）である。二回目の署名は返される。一回目のバイト列の署名は、別の要求のものとして gateway の記録に残る。④は、seq の `CaravanSent` が自分の署名でなければ「別の送り手が使った」とし、自分の attempt の手数料は未確定（`superseded`）のまま残す（M12 の試験）。
+- gateway の結果が `Sent` で、模擬チェーンの状態が着地以外なら、④は `Unavailable` として待つ。旧い署名の着地や失敗を「来ない」と決めない。
+- 書き直しが尽きると、gateway は `refused`（`Duplicate`）を返す。署名は無く、手数料も取られない。④はこれを gateway の拒否として保留にする（送信前に止まる）。
+
+**提案**（⑤・共有コアへ、未送付）：SendCaravan のように同じ中身の二つ目が必ず失敗する命令は、作り直しから外す。そうすれば、二つ目は `Duplicate` で止まり、手数料が二重にならない。gateway の結果には、作り直した回数と、使わなかった最初のバイト列の署名を載せる。

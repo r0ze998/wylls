@@ -10,7 +10,11 @@
 //!   (`permutation-frontier/src/proc/caravan.rs`), and a destination of
 //!   another generation or not live; a send to another player's place needs
 //!   the wallet (S1-1B §3.3).
-//! - The cargo leaves after the towers' wear (`CARAVAN_SENT.worn_bps`).
+//! - The cargo leaves after the towers' wear (`CARAVAN_SENT.worn_bps`),
+//!   worn in milli-units (`structure::wear` on `units × 1000`); the logs
+//!   carry it rounded down to whole units (`cargo_log`), and a holding is
+//!   credited the milli amount (so it keeps up to one unit more per
+//!   resource than the settle record states).
 //! - SettleCaravan credits a vault up to `CAP` and silently drops the rest,
 //!   and loses the cargo when the destination is gone or of another
 //!   generation; it closes the caravan account (S1-1B §3.4).
@@ -38,6 +42,9 @@ pub struct SimPlace {
     pub live: bool,
     pub gen: u8,
     pub stores: Res,
+    /// Milli-units below one whole unit a holding was credited (0..1000
+    /// per resource; carried into `stores` at 1000).
+    pub frac: Res,
     pub cap: Option<u64>,
     /// A capture-locked holding: SettleCaravan is refused
     /// (`CapturePending`) until SettleCapture; the caravan waits.
@@ -49,7 +56,10 @@ pub struct SimCaravan {
     pub owner_now: u64,
     pub src: PlaceRef,
     pub dst: PlaceRef,
+    /// The cargo as the logs state it: whole units, rounded down.
     pub cargo: Res,
+    /// The milli-units below `cargo` the caravan really carries (0..1000).
+    pub frac: Res,
     pub arrive_slot: u64,
     pub raid_open: bool,
     /// Test bookkeeping only (not visible through `Chain`): the request
@@ -109,6 +119,8 @@ pub struct Ledger {
     pub produced: Res,
     pub consumed: Res,
     pub destroyed: Res,
+    /// Milli-units destroyed (wear; fractions burned, lost or clipped).
+    pub destroyed_milli: Res,
     /// Goods added or removed by the test driver itself.
     pub injected: Res,
     pub removed: Res,
@@ -174,6 +186,7 @@ impl SimWorld {
                 live: true,
                 gen: p.gen,
                 stores,
+                frac: ZERO,
                 cap,
                 capture_locked: false,
             },
@@ -245,13 +258,16 @@ impl SimWorld {
             .get_mut(&(key.owner, key.seq))
             .expect("caravan");
         let taken = c.cargo;
+        let frac = c.frac;
         if take {
             c.owner_now = raider;
             c.dst = raider_dst;
             c.arrive_slot = slot + 5;
         } else {
             c.cargo = ZERO;
+            c.frac = ZERO;
             self.ledger.destroyed = res_add(&self.ledger.destroyed, &taken);
+            self.ledger.destroyed_milli = res_add(&self.ledger.destroyed_milli, &frac);
         }
         c.raid_open = false;
         self.emit(
@@ -267,6 +283,16 @@ impl SimWorld {
                 taken,
                 slot,
             }),
+        );
+    }
+
+    /// Test hook: a raid record reaching the log on its own (a record the
+    /// feed delivers late, after the settlement it explains). The world's
+    /// goods do not change; only the record is added.
+    pub fn log_raid_record(&mut self, raid: Raid) {
+        self.emit(
+            format!("raid:{}:{}", raid.key.text(), raid.slot),
+            Event::CaravanRaided(raid),
         );
     }
 
@@ -346,9 +372,23 @@ impl SimWorld {
                     *k = want.min(room);
                     *have += *k;
                 }
+                if pl.cap.is_none() {
+                    // A holding: credited in milli-units, the fraction too.
+                    for r in 0..c.frac.len() {
+                        pl.frac[r] += c.frac[r];
+                        pl.stores[r] += pl.frac[r] / 1000;
+                        pl.frac[r] %= 1000;
+                    }
+                } else {
+                    // MOCK simplification: a vault keeps whole units only.
+                    self.ledger.destroyed_milli = res_add(&self.ledger.destroyed_milli, &c.frac);
+                }
                 caravan_outcome::DELIVERED
             }
-            _ => caravan_outcome::LOST,
+            _ => {
+                self.ledger.destroyed_milli = res_add(&self.ledger.destroyed_milli, &c.frac);
+                caravan_outcome::LOST
+            }
         };
         self.ledger.destroyed = res_add(&self.ledger.destroyed, &res_sub(&c.cargo, &credited));
         let credited_field = (!self.faults.settle_without_credit).then_some(credited);
@@ -447,11 +487,15 @@ impl SimWorld {
                 }
                 let s = self.places.get_mut(&src.slot_key()).unwrap();
                 s.stores = res_sub(&s.stores, cargo);
-                let mut after = *cargo;
-                for x in after.iter_mut() {
-                    *x = *x * (10_000 - self.wear_bps) / 10_000;
+                // structure::wear on milli-units: v - floor(v × bps / 10_000).
+                let (mut after, mut frac) = (ZERO, ZERO);
+                for r in 0..cargo.len() {
+                    let m = cargo[r] * 1000;
+                    let worn = m - m * self.wear_bps.min(10_000) / 10_000;
+                    after[r] = worn / 1000;
+                    frac[r] = worn % 1000;
+                    self.ledger.destroyed_milli[r] += m - worn;
                 }
-                self.ledger.destroyed = res_add(&self.ledger.destroyed, &res_sub(cargo, &after));
                 self.seqs.insert(*owner, seq + 1);
                 let key = CaravanKey {
                     owner: *owner,
@@ -466,6 +510,7 @@ impl SimWorld {
                         src: *src,
                         dst: *dst,
                         cargo: after,
+                        frac,
                         arrive_slot,
                         raid_open: false,
                         sig: sig.to_string(),
@@ -495,17 +540,20 @@ impl SimWorld {
 
     /// Goods are neither created nor lost outside the ledger's accounts.
     pub fn audit(&self) -> Result<(), String> {
+        // In milli-units: wear and a holding's credit keep fractions.
+        let milli = |x: &Res| x.map(|v| v * 1000);
         let mut held = ZERO;
         for p in self.places.values() {
-            held = res_add(&held, &p.stores);
+            held = res_add(&held, &res_add(&milli(&p.stores), &p.frac));
         }
         for c in self.caravans.values() {
-            held = res_add(&held, &c.cargo);
+            held = res_add(&held, &res_add(&milli(&c.cargo), &c.frac));
         }
         let mut expect = res_add(&self.ledger.injected, &self.ledger.produced);
         expect = res_sub(&expect, &self.ledger.consumed);
         expect = res_sub(&expect, &self.ledger.destroyed);
         expect = res_sub(&expect, &self.ledger.removed);
+        let expect = res_sub(&milli(&expect), &self.ledger.destroyed_milli);
         if held != expect {
             return Err(format!("conservation: held {held:?} ≠ expected {expect:?}"));
         }

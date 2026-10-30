@@ -98,14 +98,18 @@ store の中での owner ごとの直列化（`sole_owner_send`）は、**その
 
 `CARAVAN_SETTLED` の `cargo` は**入荷量ではない**（vault は `CAP` を超える分を黙って捨てる。`proc/caravan.rs:1005`）。判定は settle の記録と規則だけで行い、**宛先の残高の差は使わない**（他の入出庫が並行するため、差から当該隊商の入荷量は分からない）。
 
+数量の単位・精度・「進捗に数えない」と「実際に 0」の区別は [QUANTITY-CONTRACT](QUANTITY-CONTRACT.ja.md) が正本である。判定は**この run の依頼量（資源ごと、整数単位）**に対するもので、量は整数の下限である。入った量は資源ごとに［下限, 下限＋1）にあり、依頼量は整数なので、この run について Fulfilled（下限 ≥ 依頼量）も Partial（下限 < 依頼量 ⇒ 実量 < 依頼量）も正しい。ただし Partial は、**複数の run を足した目標（①の国の目標など）の未達を意味しない**（各 run の 1 未満の端数が足し合わさりうる）。
+
 | 場合 | 正本で起きること | 判定 | `verification` |
 |---|---|---|---|
-| 記録に `credited` がある（P1） | 記録どおり | 依頼量以上なら Fulfilled、少なければ Partial、0 なら Failed | Recorded |
+| 記録に `credited` がある（P1。整数の切り捨てとして扱う：案 B） | 記録どおり | 下限が依頼量以上なら Fulfilled、少なければ Partial（0 でも Partial。0 と断定しない） | Recorded |
 | holding へ DELIVERED、`credited` 無し | `Accrual::add` は上限なしで全量を加える（holding.rs:296）。加算は milli 単位で、記録の cargo は整数に切り捨てた値（proc/caravan.rs:401-407 `cargo_log`） | cargo を入荷量の**下限**とする（資源ごとに 1 未満多く入っていうる）。下限が依頼量以上なら Fulfilled、少なければ Partial | RuleDerived |
+| holding へ DELIVERED、記録の cargo が全部 0、burn の記録なし | 1 未満の端数が入っていうる | **Partial**（下限 0）。Failed にも KnownZero にもしない | RuleDerived |
 | vault へ DELIVERED、`credited` 無し | 容量を超えた分は捨てられ、記録されない | **DeliveredUnverified**（`cargo_logged` は上限） | Unverifiable |
 | 容量超過（`credited` あり） | 超過分が失われる | Partial | Recorded |
-| 襲撃・take | caravan は襲撃者のもの。settle は別の宛先 | Failed（Raided）、0 | KnownZero |
-| 襲撃・burn | 空のまま進み、cargo 0 で settle | Failed（LostInTransit）、0 | KnownZero |
+| 襲撃・take（**この隊商の** CARAVAN_RAIDED TAKE の記録、または隊商の口座の持ち主が別の Citizen） | caravan は襲撃者のもの。settle は別の宛先 | Failed（Raided）、0 | KnownZero |
+| 襲撃・burn（**この隊商の** CARAVAN_RAIDED BURN の記録。feed に無ければ entity 履歴から） | 空のまま進み（milli も 0）、cargo 0 で settle | Failed（LostInTransit）、0 | KnownZero |
+| 別の宛先で settle、この隊商の take の記録が無い | 原因未確認（記録の欠落、読み取りの誤り） | **判定しない**。記録を待ち、見つからなければ保留 `DestinationMismatch`。量を述べず、誰の責任ともしない | — |
 | 宛先の世代変更 | outcome LOST | Failed（DestinationChanged）、0 | KnownZero |
 | 占領ロック（capture-locked holding） | settle が `CapturePending` で拒否され、待つ | `InTransit` のまま。解除後に上の規則で判定 | — |
 | 他の入出庫が並行 | 残高が動く | 判定に影響しない（残高を読まない） | — |

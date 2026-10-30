@@ -53,6 +53,7 @@ attempt の状態：
 | `WalletRequired` | 他人の場所への送付で、**送信者本人の** wallet の署名が必要（受取人の署名ではない。[SIGNATURES](SIGNATURES.ja.md)）。拒否された署名済みのバイト列の有効期間が過ぎた後、run は `FacilityConfirmed` に戻る。産出物は在庫の場所にある | (a) 依頼者が自分で SendCaravan に署名する。その後 `cancel` で run を閉じる（産出物はもう送られている）。または (b) `cancel` だけする |
 | `Indeterminate` | 要求が効いたかどうかを判断できない（署名の状態の履歴、entity 履歴、feed がすべて無い） | 情報源（RPC の履歴、findex）を回復させてから `resume`。回復できない場合は、chain explorer などで要求キーまたは seq を人が確認し、結果を記録してから `cancel` または `resume`。**推測で再送しない** |
 | `PortUnavailable` | run の読み取りが `max_port_errors` 回続けて失敗した | RPC を回復させてから `resume` |
+| `DestinationMismatch` | 隊商が spec と別の宛先で settle し、この隊商（同じ owner・seq）の襲撃 TAKE の記録が feed にも entity 履歴にも無い。原因は未確認 | feed・findex の欠落を調べる。TAKE の記録が見つかれば `resume`（Failed／Raided になる）。**襲撃・奪取と表示しない。相手の名前を出さず、責任や評判に使わない**。量も述べない（`outcome` は空のまま） |
 | `Inconsistent(…)` | 自分の署名の記録が spec と食い違う、または要求キーを自分以外の署名が使った | adapter、索引、program の不具合を調べる。**成功として扱わず、再送もしない**。原因が分かるまで run は保留のままにする |
 
 `resume` は保留と誤りの回数を消し、version を進める。古い snapshot を持つ実行者の書き込みは無効になる。

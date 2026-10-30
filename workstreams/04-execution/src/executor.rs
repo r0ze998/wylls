@@ -579,19 +579,25 @@ impl<C: Chain, R: Rights> Executor<C, R> {
         let Some(k) = row.spec.inbound else {
             return Ok(false);
         };
+        use frontier_abi::v2::log::{caravan_outcome, raid_choice};
         let key = k.text();
-        if let Some((_, r)) = self.store.raid_seen(&key)? {
-            if r.choice == frontier_abi::v2::log::raid_choice::TAKE {
-                return Ok(true);
-            }
+        let raided = |choice: u8| -> Result<bool, Fault> {
+            Ok(self
+                .store
+                .raids_seen(&key)?
+                .iter()
+                .any(|(_, r)| r.key == k && r.choice == choice))
+        };
+        if raided(raid_choice::TAKE)? {
+            return Ok(true);
         }
         if let Some((_, s)) = self.store.settle_seen(&key)? {
-            let ours = s.dst.slot_key() == row.spec.stock.slot_key();
-            return Ok(
-                s.outcome != frontier_abi::v2::log::caravan_outcome::DELIVERED
-                    || !ours
-                    || res_is_zero(&s.cargo),
-            );
+            // Lost only on evidence: the settle record's LOST, or a burn
+            // record. A zero logged cargo (less than a unit each) or another
+            // destination without a take record is not proof; the run keeps
+            // waiting on the canonical stock until its deadline.
+            return Ok(s.outcome != caravan_outcome::DELIVERED
+                || (res_is_zero(&s.cargo) && raided(raid_choice::BURN)?));
         }
         Ok(false)
     }
@@ -1392,6 +1398,29 @@ impl<C: Chain, R: Rights> Executor<C, R> {
         Ok(None)
     }
 
+    /// A raid record of `choice` for this very caravan (same owner tag and
+    /// seq): from the feed, else from the caravan's entity history. The
+    /// only evidence of a take or a burn at settlement; a zero cargo or
+    /// another destination alone is not.
+    fn raid_evidence(&self, key: CaravanKey, choice: u8) -> Result<Option<(String, Raid)>, Fault> {
+        let matching = |r: &Raid| r.key == key && r.choice == choice;
+        if let Some((id, r)) = self
+            .store
+            .raids_seen(&key.text())?
+            .into_iter()
+            .find(|(_, r)| matching(r))
+        {
+            return Ok(Some((format!("event:{id}"), r)));
+        }
+        let Some(h) = self.chain.caravan_history(key)? else {
+            return Ok(None);
+        };
+        Ok(h.into_iter().find_map(|r| match r.event {
+            Event::CaravanRaided(x) if matching(&x) => Some((format!("history:{}", r.id), x)),
+            _ => None,
+        }))
+    }
+
     /// The settlement from the feed, else from the entity history.
     fn settle_record(&self, key: CaravanKey) -> Result<Option<(String, Settle)>, Fault> {
         if let Some((id, s)) = self.store.settle_seen(&key.text())? {
@@ -1431,17 +1460,42 @@ impl<C: Chain, R: Rights> Executor<C, R> {
                 note: note.into(),
             });
         };
+        use frontier_abi::v2::log::raid_choice;
         if st.dst != s.ship.dst {
-            zero(
-                Reason::Raided,
-                "settled at another destination (taken)",
-                &mut d,
-            );
+            // Only a raid's take rewrites a caravan's destination. Without a
+            // take record for this caravan the cause is unconfirmed: wait
+            // for the record (the feed may be late), then hold. Nobody is
+            // named or blamed, and no amount is stated.
+            if let Some((src, r)) = self.raid_evidence(st.key, raid_choice::TAKE)? {
+                zero(
+                    Reason::Raided,
+                    "taken in a raid (CARAVAN_RAIDED TAKE for this caravan): settled at the raider's place",
+                    &mut d,
+                );
+                let mut c = change(RunState::Failed, d, now, "taken (raid record)");
+                if row.detail.raid.as_ref() != Some(&r) {
+                    c.ops.push(Op::Receipt(raid_receipt(row, &r, &src)));
+                    c.detail.raid = Some(r);
+                }
+                return Ok(Next::Go(c));
+            }
+            d.unresolved += 1;
+            if d.unresolved >= s.budget.max_port_errors {
+                d.reason = Some(Reason::DestinationMismatch);
+                let mut c = change(
+                    RunState::Arrived,
+                    d,
+                    now,
+                    "hold: settled at another destination, no raid record (cause unconfirmed)",
+                );
+                c.hold = Some(format!("{:?}", Reason::DestinationMismatch));
+                return Ok(Next::Go(c));
+            }
             return Ok(Next::Go(change(
-                RunState::Failed,
+                RunState::Arrived,
                 d,
-                now,
-                "settled elsewhere",
+                now + self.params.poll,
+                "settled at another destination; looking for a raid record",
             )));
         }
         if st.outcome != frontier_abi::v2::log::caravan_outcome::DELIVERED {
@@ -1457,9 +1511,22 @@ impl<C: Chain, R: Rights> Executor<C, R> {
                 "lost at arrival",
             )));
         }
+        // A zero logged cargo is "less than one unit each", not zero: only a
+        // burn record for this caravan proves nothing was left to deliver.
         if res_is_zero(&st.cargo) {
-            zero(Reason::LostInTransit, "nothing to deliver (burned)", &mut d);
-            return Ok(Next::Go(change(RunState::Failed, d, now, "burned")));
+            if let Some((src, r)) = self.raid_evidence(st.key, raid_choice::BURN)? {
+                zero(
+                    Reason::LostInTransit,
+                    "burned in a raid (CARAVAN_RAIDED BURN for this caravan)",
+                    &mut d,
+                );
+                let mut c = change(RunState::Failed, d, now, "burned (raid record)");
+                if row.detail.raid.as_ref() != Some(&r) {
+                    c.ops.push(Op::Receipt(raid_receipt(row, &r, &src)));
+                    c.detail.raid = Some(r);
+                }
+                return Ok(Next::Go(c));
+            }
         }
         let (delivered, verification) = match st.credited {
             Some(c) => (Some(c), Verification::Recorded),
@@ -1473,14 +1540,16 @@ impl<C: Chain, R: Rights> Executor<C, R> {
                 RunState::DeliveredUnverified,
                 "delivered; the amount kept cannot be verified (vault record without credited)",
             ),
-            Some(c) if res_is_zero(&c) => {
-                d.reason = Some(Reason::LostInTransit);
-                (RunState::Failed, "nothing kept (capacity)")
+            // The verified amount is a lower bound in whole units: the kept
+            // amount is in [bound, bound + 1) per resource. Against this
+            // run's whole request that decides both ways; a goal summing
+            // several runs is ①'s to judge (fractions add up).
+            Some(c) if res_ge(&c, &s.ship.cargo) => {
+                (RunState::Fulfilled, "delivered in full (lower bound ≥ request)")
             }
-            Some(c) if res_ge(&c, &s.ship.cargo) => (RunState::Fulfilled, "delivered in full"),
             Some(_) => (
                 RunState::Partial,
-                "a verified amount below the request (wear, capacity)",
+                "delivered; below this run's request (lower bound < request); fractions may count toward a summed goal",
             ),
         };
         d.outcome = Some(Outcome {

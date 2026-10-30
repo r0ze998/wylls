@@ -691,6 +691,18 @@ impl Store {
             }))
     }
 
+    /// Every raid record the feed delivered for a caravan, in feed order.
+    pub fn raids_seen(&self, key: &str) -> Result<Vec<(String, Raid)>, String> {
+        Ok(self
+            .events_of(key, "caravan_raided")?
+            .into_iter()
+            .filter_map(|r| match r.event {
+                crate::ports::Event::CaravanRaided(x) => Some((r.id, x)),
+                _ => None,
+            })
+            .collect())
+    }
+
     pub fn raid_seen(&self, key: &str) -> Result<Option<(String, Raid)>, String> {
         Ok(self
             .events_of(key, "caravan_raided")?

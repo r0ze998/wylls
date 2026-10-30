@@ -8,6 +8,8 @@
 
 第3回の受領物（① `3f3c8478`、⑤ `45cba41e`）との照合は [docs/RECONCILE-20261030c.ja.md](docs/RECONCILE-20261030c.ja.md)。`RuleDerived` は正確な量ではなく整数の下限、と直した（動作は不変）。共有パッチの採否は未確定で、この branch に新しい共有パッチは当てていない。
 
+**数量の正本は [docs/QUANTITY-CONTRACT.ja.md](docs/QUANTITY-CONTRACT.ja.md)。** 記録の cargo が 0 なだけでは「0 と分かっている」とせず、この隊商の burn の記録があるときだけ 0 と断定する。別の宛先での決着は、take の記録が無ければ「原因未確認」で保留にし、誰も名指ししない（RECONCILE-20261030c §5）。
+
 ## いまの到達点（④ 0.2、統合判断待ち）
 
 **新機能の追加は止めている。** 引き渡しの整理は [docs/HANDOFF.ja.md](docs/HANDOFF.ja.md)。②③⑤⑥の最新の資料は取得できておらず、接続済みではない。

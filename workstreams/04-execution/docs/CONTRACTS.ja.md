@@ -151,6 +151,8 @@ run ごとの費用は、attempt の表から計算する（`Store::fees`、`Fee
 
 ## 9. ①（国の進捗）への引き渡し
 
+数量の単位・精度・確度・合計の目標の判定は [QUANTITY-CONTRACT](QUANTITY-CONTRACT.ja.md) が正本（この節より優先）。
+
 - 国の目標の進捗に数えてよいのは、**検証済みの到着量**（`verification` が `Recorded` または `RuleDerived` の `delivered`）だけである。`RuleDerived` は整数の**下限**であり、正確な量ではない（記録は milli の加算量の切り捨て。①の `qtyKind: 'lower-bound'` と同じ扱い。[RECONCILE-20261030c](RECONCILE-20261030c.ja.md) §2）。
 - `DeliveredUnverified` は**進捗への算入量を 0** とする。これは実際の到着量を 0 と断定することではない（実際の量は不明）。`cargo_logged` を進捗に足さない（[HANDOFF](HANDOFF.ja.md) §2）。
 - `ShipSubmitted` と `InTransit` は「見込み」であり、進捗ではない。

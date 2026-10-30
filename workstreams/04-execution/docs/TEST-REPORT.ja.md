@@ -14,6 +14,19 @@
 
 **62 件・30 回の通過は、実チェーンでの安全性を示すものではない。** 各保証が何に依っているかは [INVARIANTS](INVARIANTS.ja.md) の「依存先」の列を参照。模擬正本が実チェーンに無い fencing を与えていないかの監査は [STATE-MACHINE](STATE-MACHINE.ja.md) の最後の表を参照。
 
+## 追記（2026-10-30、ws04/integration-20261030：R-1・宛先の不一致・数量の精度）
+
+| 項目 | 結果 |
+|---|---|
+| `cargo test` | 68 件：通過 68、失敗 0（新規 6 件：`tests/arrival.rs` 5 件、`tests/faults.rs` 1 件）。gateway の 9 件は ignored |
+| `cargo test --test gateway -- --ignored`（MOCK の gateway） | 9/9 |
+| 30 回の繰り返し | 30 回すべて通過 |
+| `cargo clippy --all-targets`／`cargo fmt --check` | 警告 0／差分 0 |
+| 変異 | 19 件すべて検出（既存 15 件＋新規 M15〜M18：証拠なしの 0、証拠なしの奪取、どの襲撃の記録でも証拠とする、材料の入荷の証拠なしの喪失） |
+| `node --test bridge/probe-0002b-sendcaravan.test.mjs` | 1/1（0002b なしの木。0002b ありの隔離したコピーでも 1/1。中身は RECONCILE-20261030c §5.6） |
+
+模擬正本の変更：損耗は milli で計算し、記録は切り捨て、holding には端数まで加算する。保存の監査も milli で行う。この変更の後も、既存の 62 件はすべて通った。
+
 ## 実行したコマンドと結果
 
 ```sh
