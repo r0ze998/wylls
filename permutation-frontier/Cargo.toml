@@ -35,6 +35,12 @@ oracle = []
 # `drand-replay --test-key` and its own QUICKNET_PK_HASH; marker
 # PSF_TEST_BEACON_BUILD, never deployable.
 test-beacon = []
+# Workstream 10 (custody), a preview: the custody instructions, embedding
+# RULESET_HASH_V4 and program_version 5 (so it refuses every S1 season, and
+# the default S1 build refuses every custody tag). Marker
+# PSF_CUSTODY_PREVIEW_BUILD; never deployable until LiteSVM tests, measured
+# budgets and the verifier's V26 exist.
+custody-preview = []
 
 # Dependency sections: owned by the integrator (M1 contract §3.4, I-55); the
 # set below is the one listed in docs/frontier/m1/W2-A-NOTES.md.

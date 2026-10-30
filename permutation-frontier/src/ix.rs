@@ -140,4 +140,88 @@ mod tests {
             assert!(v2::tag_of(&[t]).is_err(), "{t:#x}");
         }
     }
+
+    /// The S1 build refuses every custody tag before reading an account
+    /// (`BadData`); only the `custody-preview` build dispatches them.
+    #[cfg(all(feature = "program", not(feature = "custody-preview")))]
+    #[test]
+    fn the_s1_build_refuses_custody_tags() {
+        let pid = solana_program::pubkey::Pubkey::new_from_array([7; 32]);
+        for ix in v2::Ix::CUSTODY {
+            let r = crate::dispatch(&pid, &[], &[ix.tag()]);
+            assert!(
+                matches!(r, Err(e) if e == crate::FrontierError::BadData.into()),
+                "{}",
+                ix.name()
+            );
+        }
+        assert_eq!(
+            crate::RULESET_HASH,
+            frontier_abi::v2::presets::RULESET_HASH_V3
+        );
+        assert_eq!(crate::PROGRAM_VERSION, 4);
+    }
+
+    #[cfg(feature = "custody-preview")]
+    #[test]
+    fn the_custody_preview_is_another_program() {
+        assert_eq!(
+            crate::RULESET_HASH,
+            frontier_abi::v2::presets::RULESET_HASH_V4
+        );
+        assert_eq!(crate::PROGRAM_VERSION, 5);
+        assert_eq!(crate::RULES_VERSION, 13);
+    }
+
+    /// Workstream 10: a lot's room is reserved against the vault's `CAP`
+    /// only if every write of a vault's general stock keeps `STORES +
+    /// CUSTODY_QUOTA ≤ CAP`. The writers are listed here; a new one (a
+    /// workstream crediting a vault) must clamp as SettleCaravan does and be
+    /// added, or the reservation is no longer a guarantee.
+    #[test]
+    fn vault_stock_writers_are_the_listed_ones() {
+        fn walk(dir: &std::path::Path, out: &mut Vec<(String, String)>) {
+            for e in std::fs::read_dir(dir).unwrap() {
+                let p = e.unwrap().path();
+                if p.is_dir() {
+                    walk(&p, out);
+                } else if p.extension().is_some_and(|x| x == "rs")
+                    && p.file_name().is_some_and(|n| n != "ix.rs")
+                {
+                    let name = p.file_name().unwrap().to_string_lossy().to_string();
+                    for l in std::fs::read_to_string(&p).unwrap().lines() {
+                        let l = l.trim();
+                        if l.contains("set_i64(VA::store(") {
+                            out.push((name.clone(), l.to_string()));
+                        }
+                    }
+                }
+            }
+        }
+        let mut found = vec![];
+        walk(
+            &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src"),
+            &mut found,
+        );
+        found.sort();
+        let want = [
+            // SettleCaravan: clamped to CAP − CUSTODY_QUOTA.
+            ("caravan.rs", "Rw(&mut vd).set_i64(VA::store(r), to)?;"),
+            // SendCaravan from a vault: a debit.
+            (
+                "caravan.rs",
+                "Rw(&mut vd).set_i64(VA::store(r), have - c)?;",
+            ),
+            // Custody: the kernel's view written back (forfeiture within the
+            // lot's quota, a deposit's debit).
+            ("custody.rs", "w.set_i64(VA::store(i), v.stores[i])?;"),
+        ];
+        let want: Vec<(String, String)> = want
+            .iter()
+            .map(|(a, b)| (a.to_string(), b.to_string()))
+            .collect();
+        let mut want = want;
+        want.sort();
+        assert_eq!(found, want, "a new writer of a vault's STORES");
+    }
 }

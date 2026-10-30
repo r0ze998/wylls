@@ -938,7 +938,7 @@ pub fn settle_caravan(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         }
         // Workstream 10: a custody caravan's cargo is not the
         // destination's; SettleCustody puts it in its owner's lot.
-        if r.u8(CV::CUSTODY)? == CV::CUSTODY_LOT {
+        if cfg!(feature = "custody-preview") && r.u8(CV::CUSTODY)? == CV::CUSTODY_LOT {
             return Err(BAD_ACCOUNT);
         }
         if now.ts < r.i64(CV::ARRIVE_TS)? {
@@ -1009,7 +1009,12 @@ pub fn settle_caravan(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
                 let have = Ro(&vd).i64(VA::store(r))?;
                 // Workstream 10: the room committed to lots is not the
                 // general stock's.
-                let room = cap.saturating_sub(Ro(&vd).i64(VA::custody_quota(r))?);
+                let quota = if cfg!(feature = "custody-preview") {
+                    Ro(&vd).i64(VA::custody_quota(r))?
+                } else {
+                    0
+                };
+                let room = cap.saturating_sub(quota);
                 let to = have.saturating_add(*c).min(room.max(have));
                 Rw(&mut vd).set_i64(VA::store(r), to)?;
             }
@@ -1291,7 +1296,7 @@ fn settle_raid(
             w.set_u8(CV::FACTION, raider_faction)?;
             // Workstream 10: a custody caravan taken is the raider's (J2);
             // its lot logs the loss at ReconcileLot.
-            if Ro(w.0).u8(CV::CUSTODY)? == CV::CUSTODY_LOT {
+            if cfg!(feature = "custody-preview") && Ro(w.0).u8(CV::CUSTODY)? == CV::CUSTODY_LOT {
                 w.set_u8(CV::CUSTODY, CV::CUSTODY_TAKEN)?;
                 w.set_u64(CV::TAKEN_BY_TAG, raider_tag)?;
             }
@@ -1887,11 +1892,11 @@ pub fn close_vault(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
                 return Err(FrontierError::BadData.into());
             }
             // Workstream 10: not under its depositors' goods.
-            if r.i64(VA::custody_quota(i))? != 0 {
+            if cfg!(feature = "custody-preview") && r.i64(VA::custody_quota(i))? != 0 {
                 return Err(cq(CqError::LotNotEmpty));
             }
         }
-        if r.u16(VA::CUSTODY_LOTS)? != 0 {
+        if cfg!(feature = "custody-preview") && r.u16(VA::CUSTODY_LOTS)? != 0 {
             return Err(cq(CqError::LotNotEmpty));
         }
         (r.i16(VA::P)?, r.i16(VA::Q)?, r.u8(VA::TILE)?)
