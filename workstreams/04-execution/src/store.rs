@@ -41,6 +41,16 @@ impl RunRow {
     pub fn id(&self) -> &str {
         &self.spec.run_id
     }
+
+    /// Where a cancel stands, for display: requested but not yet seen by
+    /// an executor reads as "stopping new requests".
+    pub fn cancel_phase(&self) -> Option<crate::model::CancelPhase> {
+        match (&self.detail.cancel, self.cancel_requested) {
+            (Some(c), _) => Some(c.clone()),
+            (None, true) => Some(crate::model::CancelPhase::StoppingNew),
+            (None, false) => None,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -68,6 +78,29 @@ pub struct AttemptRow {
     /// `intent`, `sent`, `unknown`, `rejected`, `landed`, `failed`, `expired`.
     pub status: String,
     pub epoch: i64,
+}
+
+/// A run's fees (lamports), from its attempts:
+/// - `reserved`: budget held for attempts that may still land;
+/// - `charged`: fees the chain reported for landed attempts (success or
+///   failure);
+/// - `unconfirmed`: attempts that landed, or may still land failed, whose
+///   fee is not reported yet (an upper bound);
+/// - `released`: attempts confirmed never to land (past validity, absent
+///   from the full status history): budget freed, nothing was charged.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FeeBook {
+    pub reserved: u64,
+    pub charged: u64,
+    pub unconfirmed: u64,
+    pub released: u64,
+}
+
+impl FeeBook {
+    /// What the budget counts: everything not known to be free.
+    pub fn exposure(&self) -> u64 {
+        self.reserved + self.charged + self.unconfirmed
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -100,9 +133,12 @@ pub enum Op {
         step: Step,
         prepared: Prepared,
     },
+    /// A new status for a journalled attempt; `fee` is the fee the chain
+    /// reports for a landed (or landed-failed) attempt.
     AttemptStatus {
         sig: String,
         status: &'static str,
+        fee: Option<u64>,
     },
     Receipt(Receipt),
 }
@@ -206,7 +242,7 @@ impl Store {
                  reason TEXT NOT NULL, UNIQUE(run_id, version));
              CREATE TABLE IF NOT EXISTS attempts(id INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT NOT NULL,
                  step TEXT NOT NULL, request_key TEXT NOT NULL, sig TEXT NOT NULL UNIQUE, prepared TEXT NOT NULL,
-                 status TEXT NOT NULL, epoch INTEGER NOT NULL, slot INTEGER NOT NULL);
+                 status TEXT NOT NULL, epoch INTEGER NOT NULL, slot INTEGER NOT NULL, fee_charged INTEGER);
              CREATE INDEX IF NOT EXISTS attempts_run ON attempts(run_id, step);
              CREATE TABLE IF NOT EXISTS reservations(run_id TEXT NOT NULL, kind TEXT NOT NULL, place TEXT NOT NULL,
                  amount TEXT NOT NULL, PRIMARY KEY(run_id, kind, place));
@@ -443,10 +479,11 @@ impl Store {
                         ],
                     ))?;
                 }
-                Op::AttemptStatus { sig, status } => {
+                Op::AttemptStatus { sig, status, fee } => {
                     sql(tx.execute(
-                        "UPDATE attempts SET status = ?2 WHERE sig = ?1 AND run_id = ?3",
-                        params![sig, status, row.id()],
+                        "UPDATE attempts SET status = ?2, fee_charged = COALESCE(?4, fee_charged)
+                         WHERE sig = ?1 AND run_id = ?3",
+                        params![sig, status, row.id(), fee.map(|f| f as i64)],
                     ))?;
                 }
                 Op::Receipt(r) => {
@@ -534,6 +571,82 @@ impl Store {
         Ok(out)
     }
 
+    /// The run's fees by what is known of them (`docs/CONTRACTS.ja.md` §⑤).
+    pub fn fees(&self, run_id: &str) -> Result<FeeBook, String> {
+        let mut b = FeeBook::default();
+        let mut st = sql(self
+            .conn
+            .prepare("SELECT status, prepared, fee_charged FROM attempts WHERE run_id = ?1"))?;
+        let rows = sql(st.query_map(params![run_id], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, Option<i64>>(2)?,
+            ))
+        }))?;
+        for x in rows {
+            let (status, prepared, charged) = sql(x)?;
+            let p: Prepared = serde_json::from_str(&prepared).map_err(|e| e.to_string())?;
+            match (status.as_str(), charged) {
+                (_, Some(f)) => b.charged += f as u64,
+                ("intent" | "sent" | "unknown" | "rejected", None) => b.reserved += p.fee,
+                ("expired", None) => b.released += p.fee,
+                // Landed (or may land failed) with the fee not reported.
+                (_, None) => b.unconfirmed += p.fee,
+            }
+        }
+        Ok(b)
+    }
+
+    /// Attempts whose outcome is still open although their run no longer
+    /// waits on them (`superseded`, or landed with no fee reported), past
+    /// their validity: a status read can now settle their fee.
+    pub fn attempts_to_reconcile(&self, now: u64, limit: usize) -> Result<Vec<AttemptRow>, String> {
+        let mut st = sql(self.conn.prepare(
+            "SELECT id, run_id, step, request_key, prepared, status, epoch FROM attempts
+             WHERE (status = 'superseded' OR (status IN ('landed', 'failed') AND fee_charged IS NULL))
+             ORDER BY id LIMIT ?1",
+        ))?;
+        let rows = sql(st.query_map(params![limit as i64], |r| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+                r.get::<_, String>(3)?,
+                r.get::<_, String>(4)?,
+                r.get::<_, String>(5)?,
+                r.get::<_, i64>(6)?,
+            ))
+        }))?;
+        let mut out = vec![];
+        for x in rows {
+            let (id, run_id, step, request_key, prepared, status, epoch) = sql(x)?;
+            let prepared: Prepared = serde_json::from_str(&prepared).map_err(|e| e.to_string())?;
+            if prepared.valid_until < now {
+                out.push(AttemptRow {
+                    id,
+                    run_id,
+                    step,
+                    request_key,
+                    prepared,
+                    status,
+                    epoch,
+                });
+            }
+        }
+        Ok(out)
+    }
+
+    /// Settles an attempt's fee outside a run transition (reconciliation
+    /// of attempts no state depends on).
+    pub fn settle_attempt(&self, sig: &str, status: &str, fee: Option<u64>) -> Result<(), String> {
+        sql(self.conn.execute(
+            "UPDATE attempts SET status = ?2, fee_charged = COALESCE(?3, fee_charged) WHERE sig = ?1",
+            params![sig, status, fee.map(|f| f as i64)],
+        ))
+        .map(|_| ())
+    }
+
     /// Records a feed record once (by id). `true`: new.
     pub fn record_event(&self, rec: &EventRec, now: u64) -> Result<bool, String> {
         let subject = match (&rec.event, rec.event.caravan()) {
@@ -555,7 +668,7 @@ impl Store {
         Ok(n == 1)
     }
 
-    fn events_of(&self, subject: &str, kind: &str) -> Result<Vec<EventRec>, String> {
+    pub fn events_of(&self, subject: &str, kind: &str) -> Result<Vec<EventRec>, String> {
         let mut st = sql(self
             .conn
             .prepare("SELECT body FROM events WHERE subject = ?1 AND kind = ?2 ORDER BY pos"))?;
@@ -742,7 +855,7 @@ impl Store {
             sql(rows.collect())?
         };
         let in_flight: i64 = sql(self.conn.query_row(
-            "SELECT COUNT(*) FROM attempts WHERE status IN ('intent', 'sent', 'unknown')",
+            "SELECT COUNT(*) FROM attempts WHERE status IN ('intent', 'sent', 'unknown', 'rejected')",
             [],
             |r| r.get(0),
         ))?;
@@ -755,11 +868,27 @@ impl Store {
         let alerts: i64 = sql(self
             .conn
             .query_row("SELECT COUNT(*) FROM alerts", [], |r| r.get(0)))?;
+        let mut fees = FeeBook::default();
+        for id in self.run_ids()? {
+            let f = self.fees(&id)?;
+            fees.reserved += f.reserved;
+            fees.charged += f.charged;
+            fees.unconfirmed += f.unconfirmed;
+            fees.released += f.released;
+        }
+        let cancels: i64 = sql(self.conn.query_row(
+            "SELECT COUNT(*) FROM runs WHERE cancel_requested = 1 AND state NOT IN
+                 ('Fulfilled','Partial','DeliveredUnverified','Failed','Cancelled','Expired')",
+            [],
+            |r| r.get(0),
+        ))?;
         Ok(serde_json::json!({
             "slot": now,
             "byState": by_state,
             "held": held,
             "attemptsUndecided": in_flight,
+            "fees": fees,
+            "cancelsPending": cancels,
             "oldestOpenAgeSlots": oldest_open.map(|s| now.saturating_sub(s as u64)),
             "alerts": alerts,
             "eventCursor": self.cursor("events")?,

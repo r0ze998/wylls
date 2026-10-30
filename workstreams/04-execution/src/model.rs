@@ -169,8 +169,12 @@ pub enum RunState {
     Arrived,
     /// 履行完了: delivered in full at the destination's generation.
     Fulfilled,
-    /// 部分履行: something arrived, less than asked (wear, capacity).
+    /// 部分履行: a verified amount arrived, less than asked (wear, capacity).
     Partial,
+    /// 到着量未検証: delivered, but the amount kept cannot be verified (a
+    /// vault's settle record without the credited amount). Never counted
+    /// as full or as a known partial.
+    DeliveredUnverified,
     /// 失敗.
     Failed,
     /// 取消.
@@ -182,7 +186,7 @@ pub enum RunState {
 use RunState::*;
 
 impl RunState {
-    pub const ALL: [RunState; 14] = [
+    pub const ALL: [RunState; 15] = [
         Accepted,
         Reserved,
         FacilityRequested,
@@ -194,13 +198,17 @@ impl RunState {
         Arrived,
         Fulfilled,
         Partial,
+        DeliveredUnverified,
         Failed,
         Cancelled,
         Expired,
     ];
 
     pub fn terminal(self) -> bool {
-        matches!(self, Fulfilled | Partial | Failed | Cancelled | Expired)
+        matches!(
+            self,
+            Fulfilled | Partial | DeliveredUnverified | Failed | Cancelled | Expired
+        )
     }
 
     /// A request of this state may still take effect on the canonical side.
@@ -224,6 +232,7 @@ impl RunState {
             Arrived => "Arrived",
             Fulfilled => "Fulfilled",
             Partial => "Partial",
+            DeliveredUnverified => "DeliveredUnverified",
             Failed => "Failed",
             Cancelled => "Cancelled",
             Expired => "Expired",
@@ -263,8 +272,8 @@ pub fn allowed(from: RunState, to: RunState) -> bool {
         ),
         // No recall exists: once moving, only the road decides.
         InTransit => matches!(to, Arrived | Failed),
-        Arrived => matches!(to, Fulfilled | Partial | Failed),
-        Fulfilled | Partial | Failed | Cancelled | Expired => false,
+        Arrived => matches!(to, Fulfilled | Partial | DeliveredUnverified | Failed),
+        Fulfilled | Partial | DeliveredUnverified | Failed | Cancelled | Expired => false,
     }
 }
 
@@ -301,14 +310,66 @@ pub enum Reason {
     Inconsistent(String),
 }
 
+/// How the amount a destination kept is known.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Verification {
+    /// The settle record states it (`credited`, proposal P1).
+    Recorded,
+    /// Follows from the rules for this destination: a holding credits the
+    /// whole cargo (`Accrual::add` "may exceed the cap", holding.rs:296).
+    RuleDerived,
+    /// Known to be nothing: outcome LOST, an empty (burned) cargo, a take.
+    KnownZero,
+    /// Cannot be known (a vault's record without `credited`). Balances are
+    /// never used to guess it: other deposits and withdrawals interleave.
+    Unverifiable,
+    /// Nothing was shipped (stopped before or at the facility).
+    NotShipped,
+}
+
 /// What a terminal Run says about where the goods are.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Outcome {
-    pub delivered: Res,
-    /// The settle record did not state the credited amount (current chain:
-    /// `CARAVAN_SETTLED` logs the cargo, not what a vault at cap kept).
-    pub credit_unverified: bool,
+    /// The amount verified to have been kept by the destination
+    /// (`None`: unverifiable).
+    pub delivered: Option<Res>,
+    pub verification: Verification,
+    /// The cargo the settle record logged: an upper bound, not an amount
+    /// received.
+    pub cargo_logged: Option<Res>,
+    /// Canonical effects that took place before the run stopped (receipt
+    /// kinds and subjects), so a cancel or expiry is never shown as "nothing
+    /// happened" when something did.
+    pub effects: Vec<String>,
     pub note: String,
+}
+
+impl Outcome {
+    pub fn stopped(effects: Vec<String>, note: impl Into<String>) -> Outcome {
+        Outcome {
+            delivered: None,
+            verification: Verification::NotShipped,
+            cargo_logged: None,
+            effects,
+            note: note.into(),
+        }
+    }
+}
+
+/// Where a cancel stands. A cancel never recalls a request already signed:
+/// the chain cannot see this store, and signed bytes can land until their
+/// blockhash expires (`valid_until`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CancelPhase {
+    /// 新規要求の停止: no new request will be signed or re-broadcast.
+    StoppingNew,
+    /// 署名済み要求の確認待ち: signed requests may still land until `until`.
+    AwaitingSigned { until: u64 },
+    /// 取消完了 (state Cancelled): nothing more can land; `effects` lists
+    /// what did land before.
+    Completed { effects: Vec<String> },
+    /// Too late: the goods are on the road (no recall); the run goes on.
+    Ineffective { at: String },
 }
 
 /// The Run's mutable detail (persisted as JSON beside the state).
@@ -320,9 +381,14 @@ pub struct Detail {
     pub sent_cargo: Option<Res>,
     pub fac_attempts: u32,
     pub ship_attempts: u32,
-    /// Fees committed to (sum of every signed attempt's fee).
-    pub fee_committed: u64,
     pub port_errors: u32,
+    /// A refusal (preflight or landed failure) that ends the step once every
+    /// signed attempt is decided: the same bytes could still land until
+    /// their validity ends, so the run does not report failure before then.
+    #[serde(default)]
+    pub pending: Option<Reason>,
+    #[serde(default)]
+    pub cancel: Option<CancelPhase>,
     /// Consecutive looks that could not decide (held at the port budget).
     #[serde(default)]
     pub unresolved: u32,
@@ -374,6 +440,11 @@ pub fn ownership(s: RunState) -> (&'static str, &'static str, &'static str) {
             "nothing",
         ),
         Fulfilled | Partial => ("destination's owner", "nothing", "nothing"),
+        DeliveredUnverified => (
+            "destination's owner: an unverified amount (at most the logged cargo)",
+            "nothing",
+            "nothing",
+        ),
         Failed | Cancelled | Expired => (
             "as the last confirmed step left it (see outcome / reason)",
             "nothing (released)",

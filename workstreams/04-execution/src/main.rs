@@ -94,6 +94,14 @@ fn show(s: &Store, id: &str) -> Result<(), String> {
         r.cancel_requested
     );
     println!("detail: {}", serde_json::to_string(&r.detail).unwrap());
+    // A cancel is shown by phase: stopping new requests, waiting for
+    // signed requests, completed (with what landed before), or too late.
+    if let Some(c) = r.cancel_phase() {
+        println!("cancel: {}", serde_json::to_string(&c).unwrap());
+    }
+    // Fees by what is known: reserved (may land), charged (reported),
+    // unconfirmed (landed or may land failed, fee not reported), released.
+    println!("fees: {}", serde_json::to_string(&s.fees(id)?).unwrap());
     let (own, res, back) = ownership(r.state);
     println!("owns: {own}\nreserved: {res}\ngives back: {back}");
     println!("transitions:");

@@ -9,10 +9,17 @@ use runexec::model::*;
 use runexec::sim::SendFault;
 use runexec::store::Accept;
 
-fn assert_fulfilled(h: &H, id: &str) {
+/// Fulfilled with one effect per step, and its fees settled: after the
+/// last attempt's validity a reconciliation leaves nothing reserved or
+/// unconfirmed, and what is charged is what the world charged.
+fn assert_fulfilled(h: &mut H, id: &str) {
+    settle_fees(h);
     let row = h.run(id);
+    let book = h.ex.store.fees(id).unwrap();
+    assert_eq!(book.reserved, 0, "{id}: {book:?}");
+    assert_eq!(book.unconfirmed, 0, "{id}: {book:?}");
     assert_eq!(
-        row.detail.fee_committed,
+        book.charged,
         h.sim.with(|w| w.ledger.fees),
         "{id}: fees counted = fees charged"
     );
@@ -39,7 +46,7 @@ fn happy_path_fulfils_with_three_receipts() {
     let mut h = H::new("happy");
     h.accept(&spec("r1", &h.scene));
     assert!(h.drive("r1", 80).is_none());
-    assert_fulfilled(&h, "r1");
+    assert_fulfilled(&mut h, "r1");
     let kinds: Vec<String> =
         h.ex.store
             .receipts("r1")
@@ -83,7 +90,7 @@ fn stop_and_restart_at_every_point() {
         h.sim.with(|w| w.advance(3));
         h.restart();
         assert!(h.drive("r1", 120).is_none(), "{point}");
-        assert_fulfilled(&h, "r1");
+        assert_fulfilled(&mut h, "r1");
     }
 }
 
@@ -100,7 +107,7 @@ fn restart_after_validity_ran_out() {
         h.sim.with(|w| w.advance(30));
         h.restart();
         assert!(h.drive("r1", 120).is_none());
-        assert_fulfilled(&h, "r1");
+        assert_fulfilled(&mut h, "r1");
         let atts = h.run("r1").detail;
         assert_eq!(
             atts.fac_attempts + atts.ship_attempts,
@@ -120,15 +127,18 @@ fn response_lost_but_committed() {
     });
     h.accept(&spec("r1", &h.scene));
     assert!(h.drive("r1", 80).is_none());
-    assert_fulfilled(&h, "r1");
+    assert_fulfilled(&mut h, "r1");
     let d = h.run("r1").detail;
     assert_eq!(
         (d.fac_attempts, d.ship_attempts),
         (1, 1),
         "no second attempt was signed"
     );
-    // Only landed fees remain committed.
-    assert_eq!(d.fee_committed, h.sim.with(|w| w.ledger.fees));
+    // Only landed fees are charged.
+    assert_eq!(
+        h.ex.store.fees("r1").unwrap().charged,
+        h.sim.with(|w| w.ledger.fees)
+    );
 }
 
 /// Timeouts that never reached the leader: the same bytes are sent again,
@@ -142,7 +152,7 @@ fn timeout_without_commit_is_rebroadcast() {
     });
     h.accept(&spec("r1", &h.scene));
     assert!(h.drive("r1", 80).is_none());
-    assert_fulfilled(&h, "r1");
+    assert_fulfilled(&mut h, "r1");
     let d = h.run("r1").detail;
     assert_eq!(
         (d.fac_attempts, d.ship_attempts),
@@ -193,7 +203,7 @@ fn settle_seen_before_send_is_harmless() {
         w.faults.feed_reversed = true;
     });
     assert!(h.drive("r1", 120).is_none());
-    assert_fulfilled(&h, "r1");
+    assert_fulfilled(&mut h, "r1");
 }
 
 /// 履歴の欠落: the feed lost records (a gap); the entity history fills in.
@@ -219,7 +229,7 @@ fn history_gap_is_reconciled_from_entity_history() {
     let rep = h.ex.tick().unwrap();
     assert!(rep.gap);
     assert!(h.drive("r1", 40).is_none());
-    assert_fulfilled(&h, "r1");
+    assert_fulfilled(&mut h, "r1");
     let src: Vec<String> =
         h.ex.store
             .receipts("r1")
@@ -244,9 +254,12 @@ fn indeterminate_is_held_then_resumed() {
     let mut h = H::new("indeterminate");
     h.sim
         .with(|w| w.faults.send.push_back(SendFault::LoseResponse));
+    // No status history, no entity index and no feed: nothing names the
+    // signature that made the caravan.
     h.sim.with(|w| {
         w.faults.status_unavailable = true;
         w.faults.history_unavailable = true;
+        w.faults.pruned_before = u64::MAX;
     });
     h.accept(&spec("r1", &h.scene));
     // The facility is found by key (status not needed) …
@@ -265,10 +278,17 @@ fn indeterminate_is_held_then_resumed() {
         sends,
         "a held run sends nothing"
     );
-    h.sim.with(|w| w.faults.history_unavailable = false);
+    // While held: the fee of the landed facility use is unconfirmed (its
+    // status could not be read), not assumed.
+    assert!(h.ex.store.fees("r1").unwrap().unconfirmed > 0);
+    h.sim.with(|w| {
+        w.faults.history_unavailable = false;
+        w.faults.status_unavailable = false;
+        w.faults.pruned_before = 0;
+    });
     assert!(h.ex.store.resume("r1").unwrap());
     assert!(h.drive("r1", 80).is_none());
-    assert_fulfilled(&h, "r1");
+    assert_fulfilled(&mut h, "r1");
 }
 
 /// 古い状態: a write from a stale snapshot changes nothing and sends nothing.
@@ -289,7 +309,7 @@ fn stale_snapshot_writes_and_sends_nothing() {
     );
     assert_eq!(h.sim.with(|w| w.ledger.sends_received), sends);
     assert!(h.drive("r1", 80).is_none());
-    assert_fulfilled(&h, "r1");
+    assert_fulfilled(&mut h, "r1");
 }
 
 /// 権利失効 before the send: nothing is used, inputs stay.
@@ -459,7 +479,9 @@ fn wear_gives_partial() {
     assert!(h.drive("r1", 80).is_none());
     let row = h.run("r1");
     assert_eq!(row.state, RunState::Partial);
-    assert_eq!(row.detail.outcome.unwrap().delivered, r(6, 6));
+    let o = row.detail.outcome.unwrap();
+    assert_eq!(o.delivered, Some(r(6, 6)));
+    assert_eq!(o.verification, Verification::Recorded);
     assert_eq!(row.detail.sent_cargo, Some(r(6, 6)));
     h.audit();
 }
@@ -478,11 +500,17 @@ fn capacity_clip_gives_partial() {
         h.accept(&spec("r1", &h.scene));
         assert!(h.drive("r1", 80).is_none());
         let row = h.run("r1");
-        assert_eq!(row.state, RunState::Partial, "credit field: {with_credit}");
-        let o = row.detail.outcome.unwrap();
-        assert_eq!(o.credit_unverified, !with_credit);
+        let o = row.detail.outcome.clone().unwrap();
+        assert_eq!(o.cargo_logged, Some(r(6, 3)), "an upper bound only");
         if with_credit {
-            assert_eq!(o.delivered, r(6, 1));
+            assert_eq!(row.state, RunState::Partial);
+            assert_eq!(o.delivered, Some(r(6, 1)));
+            assert_eq!(o.verification, Verification::Recorded);
+        } else {
+            // Not "partial confirmed": the amount is unknown.
+            assert_eq!(row.state, RunState::DeliveredUnverified);
+            assert_eq!(o.delivered, None);
+            assert_eq!(o.verification, Verification::Unverifiable);
         }
         h.audit();
     }
@@ -729,7 +757,7 @@ fn cancel_in_transit_is_too_late() {
     }
     h.ex.store.request_cancel("r1").unwrap();
     assert!(h.drive("r1", 80).is_none());
-    assert_fulfilled(&h, "r1");
+    assert_fulfilled(&mut h, "r1");
 }
 
 /// Another send takes our pinned seq while ours did not land: ours is
@@ -805,10 +833,13 @@ fn attempts_are_bounded() {
     assert_eq!(row.state, RunState::Failed);
     assert_eq!(row.detail.reason, Some(Reason::AttemptsExhausted));
     assert_eq!(row.detail.fac_attempts, 3);
+    let book = h.ex.store.fees("r1").unwrap();
     assert_eq!(
-        row.detail.fee_committed, 0,
-        "nothing landed, nothing charged"
+        (book.charged, book.reserved, book.unconfirmed),
+        (0, 0, 0),
+        "nothing landed, nothing charged; every expired attempt released: {book:?}"
     );
+    assert_eq!(book.released, 3 * 5_000);
     let sends = h.sim.with(|w| w.ledger.sends_received);
     assert!(
         sends <= 3 * 12,
@@ -828,7 +859,7 @@ fn fee_budget_is_bounded() {
     let row = h.run("r1");
     assert_eq!(row.state, RunState::Failed);
     assert_eq!(row.detail.reason, Some(Reason::BudgetExhausted));
-    assert!(row.detail.fee_committed <= 7_000);
+    assert!(h.ex.store.fees("r1").unwrap().exposure() <= 7_000);
 }
 
 /// 停止条件: the canonical side is unreachable. A full outage stops the
@@ -858,7 +889,7 @@ fn port_down_holds_then_resumes() {
     h.sim.with(|w| w.faults.reads_down = false);
     assert!(h.ex.store.resume("r1").unwrap());
     assert!(h.drive("r1", 80).is_none());
-    assert_fulfilled(&h, "r1");
+    assert_fulfilled(&mut h, "r1");
 }
 
 /// A send to another player's place needs the wallet: held, outputs stay,
@@ -952,7 +983,7 @@ fn transient_indeterminate_is_retried_not_held() {
     assert!(row.detail.unresolved >= 1);
     h.sim.with(|w| w.faults.history_unavailable = false);
     assert!(h.drive("r1", 20).is_none());
-    assert_fulfilled(&h, "r1");
+    assert_fulfilled(&mut h, "r1");
     assert_eq!(h.run("r1").detail.unresolved, 0);
 }
 
@@ -999,6 +1030,15 @@ fn every_state_has_an_ownership_row_and_terminal_states_are_final() {
                     | RunState::ShipSubmitted
             ));
         }
+    }
+}
+
+/// Moves past every attempt's validity and ticks, so the reconciliation
+/// reads the fees of attempts no run waits on.
+fn settle_fees(h: &mut H) {
+    h.sim.with(|w| w.advance(w.validity + 2));
+    for _ in 0..3 {
+        h.ex.tick().unwrap();
     }
 }
 

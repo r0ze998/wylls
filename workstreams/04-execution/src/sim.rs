@@ -39,6 +39,9 @@ pub struct SimPlace {
     pub gen: u8,
     pub stores: Res,
     pub cap: Option<u64>,
+    /// A capture-locked holding: SettleCaravan is refused
+    /// (`CapturePending`) until SettleCapture; the caravan waits.
+    pub capture_locked: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -90,6 +93,9 @@ pub struct Faults {
     pub pruned_before: u64,
     /// Settle records omit the credited amount (today's chain).
     pub settle_without_credit: bool,
+    /// Taken from a place just before the next send is processed: another
+    /// player's action landing between our last check and our send.
+    pub spend_before_send: Option<(PlaceRef, Res)>,
 }
 
 /// Counters the invariants are checked against.
@@ -169,6 +175,7 @@ impl SimWorld {
                 gen: p.gen,
                 stores,
                 cap,
+                capture_locked: false,
             },
         );
     }
@@ -307,7 +314,14 @@ impl SimWorld {
             let settle: Vec<(u64, u32)> = self
                 .caravans
                 .iter()
-                .filter(|(_, c)| c.arrive_slot <= self.slot && !c.raid_open)
+                .filter(|(_, c)| {
+                    c.arrive_slot <= self.slot
+                        && !c.raid_open
+                        && !self
+                            .places
+                            .get(&c.dst.slot_key())
+                            .is_some_and(|p| p.capture_locked && p.gen == c.dst.gen)
+                })
                 .map(|(k, _)| *k)
                 .collect();
             for k in settle {
@@ -621,7 +635,10 @@ impl Chain for Sim {
             .take(limit)
             .cloned()
             .collect();
-        let next = events.last().map_or(start, |r| r.pos);
+        // An empty page never moves the cursor past the end of the log.
+        let next = events
+            .last()
+            .map_or(start.min(w.log.len() as u64).max(after), |r| r.pos);
         if w.faults.feed_duplicates {
             events = events.into_iter().flat_map(|r| [r.clone(), r]).collect();
         }
@@ -640,6 +657,7 @@ impl Chain for Sim {
             sha2::Sha256::digest(format!("{}|{n}|{}|{}", req.key(), w.slot, w.nonce).as_bytes());
         Ok(Prepared {
             sig: hex::encode(&h[..20]),
+            wire: serde_json::to_vec(req).unwrap_or_default(),
             request: req.clone(),
             valid_until: w.slot + w.validity,
             fee: w.fee,
@@ -652,6 +670,9 @@ impl Chain for Sim {
             return SendResult::Unknown("sim: down".into());
         }
         w.ledger.sends_received += 1;
+        if let Some((place, r)) = w.faults.spend_before_send.take() {
+            w.spend(&place, &r);
+        }
         if let Some(s) = w.sigs.get(&p.sig) {
             // The same signed bytes again: a no-op (AlreadyProcessed).
             return match &s.landed {
@@ -680,7 +701,10 @@ impl Chain for Sim {
             w.sigs.get_mut(&p.sig).unwrap().land_at = Some(at);
             return SendResult::Unknown("sim: timeout (it is still on its way)".into());
         }
-        // Preflight: a request the canonical state refuses is not landed.
+        // Preflight: a request the canonical state refuses is not forwarded
+        // by this RPC. It is NOT dead: the same signed bytes sent again
+        // (another executor, another RPC) may land while still valid, and
+        // `status` answers Pending until `valid_until` as the chain would.
         let sig = p.sig.clone();
         let r = w.execute(&p.request, &sig);
         let slot = w.slot;
@@ -711,12 +735,16 @@ impl Chain for Sim {
             Some(SigRec {
                 landed: Some((slot, Ok(()))),
                 ..
-            }) => SigStatus::Landed { slot: *slot },
+            }) => SigStatus::Landed {
+                slot: *slot,
+                fee: Some(w.fee),
+            },
             Some(SigRec {
                 landed: Some((slot, Err(r))),
                 ..
             }) => SigStatus::Failed {
                 slot: *slot,
+                fee: Some(w.fee),
                 reject: r.clone(),
             },
             Some(s) if w.slot <= s.valid_until => SigStatus::Pending,

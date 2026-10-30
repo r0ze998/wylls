@@ -2,14 +2,23 @@
 
 ④は共通コアと共有 UI を変更していない。以下は、④の実行器をより強く、または簡単にするための**案**である。適用するかどうかは、各担当とレビューが決める。差分は説明用の抜粋で、ビルドもテストもしていない。
 
-## P1 SettleCaravan の記録に「入った量」を載せる（program・abi・fclient）
+## P1 SettleCaravan の記録に、加算した量・失った量・識別子を、資源の更新と同じ計算から載せる（program・abi・fclient・findex）
 
-**問題**：vault は `CAP` を超える分を黙って捨てる（`permutation-frontier/src/proc/caravan.rs:1005`）。しかし `CARAVAN_SETTLED` には元の cargo が記録される（`:1037`）。そのため、記録だけでは何が届いたか分からない。④は今、到着を「未確認」として `Partial` にしている（`capacity_clip_gives_partial`）。
+**問題**：vault は `CAP` を超える分を黙って捨てる（`permutation-frontier/src/proc/caravan.rs:1005`）。しかし `CARAVAN_SETTLED` には元の cargo が記録される（`:1037`）。記録だけでは何が入ったか分からない。④は現在、vault 宛てで `credited` が無い到着を `DeliveredUnverified` にしている（`vault_record_without_credit_is_unverified_even_if_balance_matches`）。
 
-**案**：`CARAVAN_SETTLED` の payload に `credited [u32;8]`（整数単位）を追加し、`l2` の log の版を上げる。holding（上限なし）では cargo と等しくなる。
+**案**（未適用）：
+
+1. **同じ計算から記録する**：資源を書き込むループの中で、各資源について `credited[r] = to − have`、`lost[r] = cargo[r] − credited[r]` を求める。記録は、書き込んだ値から作る（別の計算で作らない）。こうすれば、記録と残高の更新が同じ instruction の中で食い違えない。
+2. **欄**（整数単位。`cargo_log` と同じ符号化）：
+   - `credited [u32;8]`：宛先に実際に加えた量。
+   - `lost [u32;8]`：失った量。`cargo = credited + lost` が常に成り立つ。
+   - `loss_cause u8`：`0` なし、`1` 容量超過（vault の `CAP`）、`2` 宛先なし・世代違い（outcome LOST。全量が lost）。
+   - 識別子：既存の `owner_tag ‖ seq`（caravan の seed）に加えて、宛先の `Place`（kind、p、q、at、**gen**）と、送信の署名（または `CaravanSent` の log 位置）への参照。これにより、入荷記録と送付記録を名前で結べる。
+3. holding 宛ては上限なしで加算するので `credited = cargo`、`lost = 0`（現行の規則から導ける。④は `RuleDerived` として扱っている）。
+4. 襲撃（`CARAVAN_RAIDED`）の burn も同じ形で `lost` と `loss_cause = 3`（burn）を記録すると、損失の会計が一つの形にそろう（任意）。
 
 ```diff
- // proc/caravan.rs settle_caravan, vault branch
+ // proc/caravan.rs settle_caravan, vault branch（説明用の抜粋。ビルドしていない）
 -            for (r, c) in cargo.iter().enumerate() {
 -                let have = Ro(&vd).i64(VA::store(r))?;
 -                let to = have.saturating_add(*c).min(cap.max(have));
@@ -18,16 +27,21 @@
 +            for (r, c) in cargo.iter().enumerate() {
 +                let have = Ro(&vd).i64(VA::store(r))?;
 +                let to = have.saturating_add(*c).min(cap.max(have));
-+                credited[r] = to - have;
 +                Rw(&mut vd).set_i64(VA::store(r), to)?;
++                credited[r] = to - have;          // what the write added
++                lost[r] = *c - credited[r];       // what it dropped
 +            }
  …
 -        .bytes(&cargo_log(&cargo))
 +        .bytes(&cargo_log(&cargo))
 +        .bytes(&cargo_log(&credited))
++        .bytes(&cargo_log(&lost))
++        .u8(loss_cause)
 ```
 
-影響：verify V23 の replay、herald の表示、findex、fclient の `CqEvent::CaravanSettled`、log の長さの表（`frontier-abi::log`）、CU の測定。
+影響：verify V23 の replay（`credited + lost = cargo` と、残高の変化 = `credited` の検査を追加できる）、herald の表示、findex、fclient の `CqEvent::CaravanSettled`、log の長さの表（`frontier-abi::log`）、CU の測定、①の進捗と⑥の成果の計上（検証済みの量だけを数える。CONTRACTS §7、§9）。
+
+**適用しない**：共有コアへの変更なので、program の担当とレビューの判断を待つ。
 
 ## P2 SendCaravan の seq 不一致を専用のコードにする（program・abi）
 
@@ -59,3 +73,11 @@
 - `events`、`caravan_history`：feed と findex の entity 索引。
 
 trait が同期なので、tokio の runtime の上では `block_on` で包むか、trait を async にする。どちらにするかは frontier-node の担当と決める。
+
+## P6 session key に命令の範囲を持たせる（program・agent wallet）
+
+**問題**：Citizen の session key は一つで、有効期限はあるが**命令の範囲が無い**（`frontier-abi/src/prologue.rs:1120-1131`）。物流だけを任せたい実行者や agent の鍵でも、session 可の命令すべて（Depart、RaidCaravan など）に署名できる。④の許可表と agent wallet の許可リストは off-chain の制限で、seed を持つ者は RPC へ直接送って回避できる（`docs/agent-wallet/DESIGN.md`）。
+
+**案**（未適用）：Citizen に `SESSION_SCOPE`（命令の bitmask、または命令群の id）を加え、`SetSession`（wallet の署名）で設定する。prologue で `by_session` の場合に、命令が範囲の中にあるかを検査する。④の実行器には `SendCaravan` だけの範囲を渡す。
+
+影響：Citizen の layout（予約領域を使う）、`SetSession` の引数、prologue の検査、agent wallet の `SetSession` の呼び出し、全命令の CU。①⑤の判断が必要。

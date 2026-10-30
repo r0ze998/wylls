@@ -319,3 +319,134 @@ fn cancels_race_executors() {
     eprintln!("cancelled {cancelled} (after the facility: {cancelled_after_facility}), fulfilled {fulfilled}");
     assert!(cancelled > 0 && fulfilled > 0, "the race was not exercised");
 }
+
+/// Deterministic regression for M4 (re-pin before every attempt of the
+/// pinned seq is decided). The SendCaravan lands three slots late, after
+/// an unknown answer: the run must wait for it, not pin a new seq and send
+/// the cargo twice.
+#[test]
+fn late_ship_landing_is_waited_for_not_resent() {
+    let mut h = H::new("m4");
+    h.accept(&spec("r1", &h.scene));
+    for _ in 0..30 {
+        if h.run("r1").state == RunState::FacilityConfirmed {
+            break;
+        }
+        h.ex.tick().unwrap();
+        h.sim.with(|w| w.advance(1));
+    }
+    h.sim
+        .with(|w| w.faults.send.push_back(SendFault::LandLater(3)));
+    for _ in 0..120 {
+        if h.run("r1").state.terminal() {
+            break;
+        }
+        h.ex.tick().unwrap();
+        h.sim.with(|w| w.advance(1));
+    }
+    let row = h.run("r1");
+    assert_eq!(row.state, RunState::Fulfilled);
+    assert_eq!(row.detail.ship_attempts, 1, "a second seq was pinned");
+    h.sim.with(|w| assert_eq!(w.stores(&h.scene.dst), r(6, 3)));
+    h.audit();
+}
+
+/// Deterministic regression for M9 (one send in flight per owner in a
+/// store). Two runs of one owner become ready to ship in the same tick; the
+/// first send is still on its way when the second would pin. With the rule
+/// the second waits and pins the next seq; without it both pin the same
+/// seq and one of them lands failed and has to re-pin.
+#[test]
+fn second_run_of_an_owner_waits_for_the_seq() {
+    let mut h = H::new("m9");
+    h.sim.with(|w| {
+        w.deposit(&h.scene.stock, &r(1, 5));
+        w.faults.send.extend([
+            SendFault::LandLater(0), // r1 facility
+            SendFault::LandLater(0), // r2 facility
+            SendFault::LandLater(2), // r1 ship: on its way two slots
+            SendFault::LandLater(0), // r2 ship
+        ]);
+    });
+    h.accept(&spec("r1", &h.scene));
+    h.accept(&spec("r2", &h.scene));
+    for _ in 0..150 {
+        if h.run("r1").state.terminal() && h.run("r2").state.terminal() {
+            break;
+        }
+        h.ex.tick().unwrap();
+        h.sim.with(|w| w.advance(1));
+    }
+    for id in ["r1", "r2"] {
+        let row = h.run(id);
+        assert_eq!(row.state, RunState::Fulfilled, "{id}");
+        assert_eq!(row.detail.ship_attempts, 1, "{id} had to re-pin");
+        for a in h.ex.store.attempts(id, Step::Ship).unwrap() {
+            assert_eq!(a.status, "landed", "{id}: {}", a.status);
+        }
+    }
+    h.audit();
+}
+
+/// Deterministic regression for M9b: two executors of one store both pass
+/// the per-owner check before either writes (A is run inside B's step, at
+/// the point between B's check and B's write). The compare-and-swap
+/// condition must refuse B's write: B sends nothing, no seq is pinned twice.
+#[test]
+fn per_owner_rule_holds_between_check_and_write() {
+    use std::cell::RefCell;
+    use std::rc::Rc;
+    let mut h = H::new("m9b");
+    h.sim.with(|w| w.deposit(&h.scene.stock, &r(1, 5)));
+    h.accept(&spec("r1", &h.scene));
+    h.accept(&spec("r2", &h.scene));
+    for _ in 0..30 {
+        if h.run("r1").state == RunState::FacilityConfirmed
+            && h.run("r2").state == RunState::FacilityConfirmed
+        {
+            break;
+        }
+        h.ex.tick().unwrap();
+        h.sim.with(|w| w.advance(1));
+    }
+    // A works r1, B works r2 (the leases are handed over first).
+    h.sim.with(|w| w.advance(20));
+    let a = Rc::new(RefCell::new(executor(&h.db, &h.sim, "exec-a2")));
+    let mut b = executor(&h.db, &h.sim, "exec-b");
+    // r1's send stays on its way, so its seq is not consumed yet.
+    h.sim
+        .with(|w| w.faults.send.push_back(SendFault::LandLater(3)));
+    let a2 = a.clone();
+    let mut fired = false;
+    b.hook = Some(Box::new(move |point| {
+        if point == "ship.before_pin" && !fired {
+            fired = true;
+            assert!(a2.borrow_mut().step_id("r1").unwrap());
+        }
+    }));
+    let sends = h.sim.with(|w| w.ledger.sends_received);
+    let wrote = b.step_id("r2").unwrap();
+    assert!(!wrote, "B's write must be refused");
+    assert_eq!(
+        h.sim.with(|w| w.ledger.sends_received),
+        sends + 1,
+        "only A's send went out"
+    );
+    assert_eq!(h.run("r1").state, RunState::ShipRequested);
+    assert_eq!(h.run("r2").state, RunState::FacilityConfirmed);
+    b.hook = None;
+    for _ in 0..150 {
+        if h.run("r1").state.terminal() && h.run("r2").state.terminal() {
+            break;
+        }
+        a.borrow_mut().tick().unwrap();
+        b.tick().unwrap();
+        h.sim.with(|w| w.advance(1));
+    }
+    for id in ["r1", "r2"] {
+        let row = h.run(id);
+        assert_eq!(row.state, RunState::Fulfilled, "{id}");
+        assert_eq!(row.detail.ship_attempts, 1, "{id} had to re-pin");
+    }
+    h.audit();
+}

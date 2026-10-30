@@ -198,7 +198,7 @@ pub fn check_store(store: &Store) {
             );
         }
         assert!(
-            row.detail.fee_committed <= row.spec.budget.max_fee,
+            store.fees(&id).unwrap().exposure() <= row.spec.budget.max_fee,
             "{id}: fees over budget"
         );
         assert!(row.detail.fac_attempts <= row.spec.budget.max_attempts);

@@ -188,6 +188,9 @@ impl Request {
 pub struct Prepared {
     pub sig: String,
     pub request: Request,
+    /// The signed wire bytes. Journalled before the send, so a restart
+    /// re-broadcasts exactly these (same signature) and never re-signs.
+    pub wire: Vec<u8>,
     /// The last slot the request may land in (blockhash validity).
     pub valid_until: u64,
     /// Worst-case fee if it lands.
@@ -223,17 +226,21 @@ pub enum SendResult {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SigStatus {
-    Landed {
-        slot: u64,
-    },
+    /// Landed and took effect; `fee` as the transaction's meta reports it
+    /// (`None`: not known).
+    Landed { slot: u64, fee: Option<u64> },
     /// Landed and failed (fee charged, no effect).
     Failed {
         slot: u64,
+        fee: Option<u64>,
         reject: Reject,
     },
     /// Not seen yet and still within its validity.
     Pending,
-    /// Not seen and past its validity: it never will land.
+    /// Past its validity **and** searched in the full status history
+    /// (`searchTransactionHistory`): it did not land and never will. An
+    /// adapter that cannot search the full history must answer
+    /// `Unavailable` instead: absence from a pruned cache proves nothing.
     Absent,
     /// The status history is not available (pruned, RPC without history).
     Unavailable,
