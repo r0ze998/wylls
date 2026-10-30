@@ -35,7 +35,7 @@ attempt の状態：
 - `landed`：着地して効いた。
 - `failed`：着地して失敗した（手数料あり）。
 - `superseded`：もう効かない（要求キーを別の attempt や別の送信者が使った）が、失敗として着地しうる。手数料は未確定。
-- `expired`：有効期間を過ぎ、全履歴にも無い。手数料は無い。
+- `expired`：③-R4 の条件（対象期間を覆い、欠落が無く、確定した履歴）で不在と確認された。手数料は無い。照会できないだけの attempt は `expired` にしない（HANDOFF §3）。
 
 `show` は取消の段階（`cancel`）と費用（`fees`：reserved / charged / unconfirmed / released）も表示する。
 
@@ -90,7 +90,7 @@ attempt の状態：
 | `reserved` | まだ着地しうる attempt の手数料（予算の予約） |
 | `charged` | chain が報告した、着地した attempt の手数料（成功・失敗とも） |
 | `unconfirmed` | 着地した、または失敗として着地しうるが、手数料が報告されていない |
-| `released` | 有効期間を過ぎ、全履歴にも無いと確認された attempt。**予約を解放しただけで、返金ではない** |
+| `released` | ③-R4 の条件で不在と確認された attempt。**予約を解放しただけで、返金ではない** |
 
 期限だけで「課金されていない」と判断しない。各 tick で、有効期間を過ぎた `superseded` と、手数料が未報告の `landed`／`failed` を status で照合する（`reconcile_fees`）。
 

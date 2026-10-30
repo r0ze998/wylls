@@ -21,7 +21,7 @@ Run は何十 bell にもわたり、段階ごとに別々の正本の変化が�
 | `Arrived` | 到着 | settle を観測した |
 | `Fulfilled` | 履行完了 | 検証できた入荷量が依頼量以上 |
 | `Partial` | 部分履行 | 検証できた入荷量が依頼量より少ない（損耗、容量） |
-| `DeliveredUnverified` | 到着量未検証 | DELIVERED だが、入った量を検証できない（vault で、記録に `credited` が無い）。**全量とも部分とも扱わない** |
+| `DeliveredUnverified` | 到着量未検証 | DELIVERED だが、入った量を検証できない（vault で、記録に `credited` が無い）。**全量とも部分とも扱わず、到着量 0 や全損とも扱わない**（実際の量は不明。①⑥の算入量は 0。[HANDOFF](HANDOFF.ja.md) §2） |
 | `Failed` | 失敗 | 理由は `detail.reason` |
 | `Cancelled` | 取消 | 署名済みの要求がすべて決着した後に、取消が完了した |
 | `Expired` | 期限切れ | 同上の条件で、期限による |
@@ -40,7 +40,7 @@ Run は何十 bell にもわたり、段階ごとに別々の正本の変化が�
 | Reserved | Failed / Cancelled / Expired | 利用権の失効・不足、施設が無い、予算切れ、取消、期限 |
 | Facility* | FacilitySubmitted | 送信の応答が Accepted |
 | Facility* | FacilityConfirmed | 要求キーの正本の記録を読めた。署名が自分のもので、中身が一致した |
-| Facility* | Reserved | 記録が無く、**すべての attempt が決着した**（Absent、または失敗として着地） |
+| Facility* | Reserved | 記録が無く、**すべての attempt が決着した**（③-R4 の条件での Absent、または失敗として着地。照会不能は決着ではない） |
 | Facility* | Failed | 同上で、確定的な拒否があった（事前検査での拒否は、有効期間の終わりまで保留：`pending`） |
 | Facility* | Cancelled / Expired | 同上で、取消・期限 |
 | FacilityConfirmed | ShipRequested | 宛先の世代が同じ、正本の在庫 ≥ 荷、この store で同じ owner の送信が飛んでいない（事前確認 + CAS の条件 `sole_owner_send`）。この条件で seq を固定し、署名し、記録してから送信する |

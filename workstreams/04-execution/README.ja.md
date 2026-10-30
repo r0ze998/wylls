@@ -2,7 +2,9 @@
 
 「材料が届く → 許可された施設を使う → 成果を送る → 到着を確認する」を、停止・重複・失敗があっても資源と権利を壊さずに進める実行器。基準 commit は `4cd901de`（PR #22 の統合候補）。**main への統合と、CI の全成功は前提にしていない**。
 
-## いまの到達点（④ 0.2）
+## いまの到達点（④ 0.2、統合判断待ち）
+
+**新機能の追加は止めている。** 引き渡しの整理は [docs/HANDOFF.ja.md](docs/HANDOFF.ja.md)。②③⑤⑥の最新の資料は取得できておらず、接続済みではない。
 
 **実際の SQLite と模擬正本で実行管理を検証した段階**であり、実チェーンでの安全性は確認していない。
 
@@ -30,6 +32,7 @@
 
 | 依頼の納品物 | ファイル |
 |---|---|
+| 引き渡し整理（StockSwap との違い、到着量未検証、不在の条件、未確認事項） | [docs/HANDOFF.ja.md](docs/HANDOFF.ja.md) |
 | 既存実装の調査 | [docs/SURVEY.ja.md](docs/SURVEY.ja.md) |
 | 署名の要件（送信者本人・委任 agent・他人宛て） | [docs/SIGNATURES.ja.md](docs/SIGNATURES.ja.md) |
 | 状態遷移表・所有表 | [docs/STATE-MACHINE.ja.md](docs/STATE-MACHINE.ja.md)、`src/model.rs` |

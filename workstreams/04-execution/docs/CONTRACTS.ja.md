@@ -1,6 +1,6 @@
 # 契約案：Run・Event・Receipt と、各担当への引き渡し
 
-**版：④ 0.2（2026-10-30）。** この文書の項目は、すべて**提案**である。確定した契約はまだ一つもない。
+**版：④ 0.2（2026-10-30）。** この文書の項目は、すべて**提案**である。確定した契約はまだ一つもない。②③⑤⑥の最新の報告（`dc3bd3d`、`47b05ac6`、`ba3c180b`、`517796dc`＋ADDENDUM）は取得できておらず、接続済みではない（[HANDOFF](HANDOFF.ja.md) §0、§4）。②の StockSwap は④の施設使用と別の契約である（HANDOFF §1）。
 
 | 相手 | 担当 | ④から見た状態 |
 |---|---|---|
@@ -84,7 +84,7 @@ Place は S1 の `Place` 記録に合わせる（kind、p、q、at、gen）。�
 | ③-R1 | 施設要求の要求キーによる重複拒否と、キーによる記録の検索 | 施設の命令は無い（MOCK、P3）。SendCaravan は (owner_tag, seq) で満たしている |
 | ③-R2 | 在庫の読み取りは min_slot 以降の値であり、holding は `stock_at(now)` で精算した値であること | `ChainPort::accounts(keys, min_slot)` で読める。精算は adapter の仕事 |
 | ③-R3 | 署名を送信の前に確定すること。**署名済みのワイヤのバイト列を返し、④がそれを保存し、同じバイト列を再送できること**。`valid_until` を返すこと | Solana の tx と blockhash（151 slot）で満たせる |
-| ③-R4 | `status(sig)` は Landed{fee} / Failed{fee} / Pending / Absent / Unavailable を区別すること。**Absent は、有効期間を過ぎ、かつ全履歴（`searchTransactionHistory`）を検索して見つからない場合に限る。** 全履歴を検索できない adapter は Unavailable を返す | `getSignatureStatuses` と tx meta の fee で作れる。直近の status cache だけで不在と判断してはならない |
+| ③-R4 | `status(sig)` は Landed{fee} / Failed{fee} / Pending / Absent / Unavailable を区別すること。**Absent は、対象期間（blockhash の slot から `valid_until` まで）を覆い、欠落が無いと保証でき、確定（finalized）した履歴を照会して見つからない場合に限る**（[HANDOFF](HANDOFF.ja.md) §3）。一つでも保証できなければ Unavailable を返す。履歴の欠落や照会不能を、失敗の確定・未課金・再署名可能として扱わない | `getSignatureStatuses`（`searchTransactionHistory`）と tx meta の fee で作れる見込み。完全性と確定性を adapter が保証できるかは**未確認** |
 | ③-R5 | 事前検査で拒否した要求を転送しないこと。**ただし④は、拒否された署名済みのバイト列を、有効期間が終わるまで「着地しうる」と扱う**（別の経路のコピーが着地しうるため） | RPC の `skipPreflight=false` |
 | ③-R6 | 実行者の鍵は委任された session key であること。他人宛ての SendCaravan は chain が拒否する（[SIGNATURES](SIGNATURES.ja.md)） | 満たしている。ただし session key には命令の範囲の指定が無い（P6） |
 | ③-R7 | entity 履歴を返し、`CaravanSent` に sig を含めること | findex の entity 索引はある。sig を含むかは未確認 |
@@ -108,7 +108,7 @@ run ごとの費用は、attempt の表から計算する（`Store::fees`、`Fee
 | `reserved`（予約） | 署名済みで、まだ着地しうる attempt の手数料。事前検査で拒否されたものも、有効期間の間は含める | 算入する |
 | `charged`（確定費用） | chain が報告した、着地した attempt（成功・失敗とも）の手数料 | 算入する |
 | `unconfirmed`（未確定費用） | 着地した、または失敗として着地しうるが、手数料が報告されていない attempt（status の履歴が使えない、seq を他人に使われた後のコピーなど）。上限値として扱う | 算入する |
-| `released`（解放） | 有効期間を過ぎ、全履歴にも無いと確認された attempt。**予算の予約を解放しただけで、返金ではない**（もともと課金されていない） | 算入しない |
+| `released`（解放） | ③-R4 の条件で不在と確認された attempt。**予算の予約を解放しただけで、返金ではない**（もともと課金されていない） | 算入しない |
 
 - **期限だけで「未課金」と判断しない。** `released` に移すのは、status が `Absent`（③-R4 の条件を満たすもの）を返したときだけである。`Unavailable` の間は `reserved` か `unconfirmed` のままにする。
 - 手数料は relay の payer（運営者の SOL）が払う。依頼者の残高やゲーム内の資源への換算は⑤が決める。④は lamports で記録するだけである。
@@ -118,7 +118,7 @@ run ごとの費用は、attempt の表から計算する（`Store::fees`、`Fee
 ## 7. ⑥（作成、公開、再利用）への引き渡し
 
 - 他人が作った仕組みの成果を「使えた」と数えるのは、正本で確定した段階だけにする（`FacilityConfirmed` の Receipt、検証済みの `delivered`）。
-- `DeliveredUnverified` の run は、成果の利用数・実績・評価に**量として計上しない**（0 として数え、上限 `cargo_logged` は参考値として別に表示する）。`Partial` は検証された量だけを数える。
+- `DeliveredUnverified` の run は、検証済みの量が 0 なので**算入量は 0** とする。ただし**実際の到着量を 0 や全損と記録・表示しない**（実際の量は「分からない」。上限 `cargo_logged` は参考値として別に表示する）。算入量と実際の到着量の状態は別の欄にする（[HANDOFF](HANDOFF.ja.md) §2）。`Partial` は検証された量だけを数える。
 - 取消や期限切れの run でも、`outcome.effects` に記録された変化（施設が使われた等）は実際に起きている。「使われなかった」と数えない。
 
 ## 8. ⑦（プレイヤー体験、UI/UX、表示の正確性）への引き渡し
@@ -152,5 +152,5 @@ run ごとの費用は、attempt の表から計算する（`Store::fees`、`Fee
 ## 9. ①（国の進捗）への引き渡し
 
 - 国の目標の進捗に数えてよいのは、**検証済みの到着量**（`verification` が `Recorded` または `RuleDerived` の `delivered`）だけである。
-- `DeliveredUnverified` は 0 として数える。`cargo_logged` を進捗に足さない。
+- `DeliveredUnverified` は**進捗への算入量を 0** とする。これは実際の到着量を 0 と断定することではない（実際の量は不明）。`cargo_logged` を進捗に足さない（[HANDOFF](HANDOFF.ja.md) §2）。
 - `ShipSubmitted` と `InTransit` は「見込み」であり、進捗ではない。

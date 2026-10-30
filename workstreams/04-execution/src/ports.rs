@@ -237,10 +237,13 @@ pub enum SigStatus {
     },
     /// Not seen yet and still within its validity.
     Pending,
-    /// Past its validity **and** searched in the full status history
-    /// (`searchTransactionHistory`): it did not land and never will. An
-    /// adapter that cannot search the full history must answer
-    /// `Unavailable` instead: absence from a pruned cache proves nothing.
+    /// It did not land and never will. Only when the history searched
+    /// covers the whole window the signature could land in (its
+    /// blockhash's slot to `valid_until`), is known to have no gap there,
+    /// and is finalized past `valid_until` (`docs/HANDOFF.ja.md` §3). An
+    /// adapter that cannot guarantee all three answers `Unavailable`:
+    /// absence from a pruned cache or a failed query proves nothing — not
+    /// a failure, not an unbilled attempt, not leave to re-sign.
     Absent,
     /// The status history is not available (pruned, RPC without history).
     Unavailable,
