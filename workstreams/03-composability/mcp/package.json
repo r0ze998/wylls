@@ -1,0 +1,17 @@
+{
+  "name": "wylls-mcp-ws03",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Workstream 03: a remote MCP server (Streamable HTTP + OAuth 2.1) that lets an MCP client such as ChatGPT read a Wylls owner's village and ask for caravans through the agent wallet gateway. Local test assets only.",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/sdk": "1.32.1"
+  }
+}

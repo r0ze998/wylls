@@ -52,6 +52,8 @@ MCP は「運営に頼む」経路、SDK は「自分で取引を作る」道具
 
 ## 6. MCP（`permutation-gateway/mcp/agent-mcp.mjs`）
 
+（2026-10-30 追記：ChatGPT 向けの MCP サーバーを `mcp/` に追加した。既存のこの stdio サーバーとの区分と差分は [07](07-mcp.ja.md) §2・§6。）
+
 ツールは `agent_view`、`agent_terms`、`agent_act`、`world_read`。1体のエージェントについて、所有者が許した行動群（`economy`: Harvest/Build/Train/Muster/Garrison、`explore`: Explore、`military`: Depart/Dissolve、`vigil`: SetVigil）だけを relay に頼める。**SendCaravan は許可行動に入っていない**（`src/frontier/agent/contract.mjs` `ACTION_GROUPS`）。MCP は CPI とも SDK とも別物で、この担当では変更しない。
 
 ## 7. 既存の CPI の検査

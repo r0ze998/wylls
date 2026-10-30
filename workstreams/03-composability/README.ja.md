@@ -18,6 +18,17 @@
 3. **コアの LiteSVM ハーネスは CPI 取引の読込量を約 1.74 MB 少なく数える。** `solana-test-validator` 3.1.9 で測ると、列挙されただけ／CPI で呼ばれただけの LoaderV3 プログラムの ProgramData も数えられる（`drill`）。ハーネスの修正をパッチ案として分離した（[patches/](patches/)）。
 4. **再生検証器（`frontier-node/crates/verify`）はトップレベルの Frontier 命令しか集めない**（コードを読んだ結果、未実行）。CPI で送られた隊商は、記録はログに残るが、それを判定する命令が見つからない。CPI 呼出しを正式に扱う前に検証器の変更が要る（パッチ案）。
 
+## 追加要件：ChatGPT から MCP で接続する（2026-10-30）
+
+| 確かめたい地点 | 判定 | 根拠 |
+|---|---|---|
+| ローカルの MCP クライアントで、状態を読み、不足を調べ、隊商を準備し、送り、到着まで確かめる | **確認できた（ローカルの実チェーン）** | `mcp/` のサーバーを、Streamable HTTP と OAuth（PKCE S256・resource・DCR）で接続。frontier-stack の上で 2 本の隊商が `accepted → processing → completed（delivered）` まで進んだ（keeper が受取）。公式 MCP SDK のクライアントも接続できた。[09](09-mcp-run-and-video.ja.md) |
+| 書込が本人の認証・権限・予算の範囲に限られる | **確認できた（模擬チェーンとローカルの実チェーン）** | 所有者のウォレット署名つきの link、読取と書込のスコープ、② MOCK の上限、⑤の予算・方針・委任。他人の村、期限切れ、失効、予算超過、重複、切断、悪意ある文章の試験が通過 |
+| ChatGPT の実機 | **未確認** | 公開 HTTPS とワークスペースの権限が要り、制約により行っていない。必要な操作とリスクは [09](09-mcp-run-and-video.ja.md) §2.2 |
+| 隊商の送付を代理人の行動にする | **他担当（⑤）への依存** | 今の relay には無い。[patches/0005](patches/0005-agent-wallet-sendcaravan.patch)（未適用）が必要。無い場合、`send_caravan` は `ActionNotAllowed` とその理由を返す |
+
+設計と既存実装の区分は [07](07-mcp.ja.md)、ツールの契約と②④⑤との境界は [08](08-mcp-contracts.ja.md)。
+
 ## 成果物の地図
 
 | パス | 内容 |
@@ -33,7 +44,11 @@
 | [04-interface-contract.ja.md](04-interface-contract.ja.md) | 権利を伴う機能を呼ぶ公開インターフェースの契約案（入出力型・版・エラー、②への差し替え点） |
 | [05-relay.ja.md](05-relay.ja.md) | relay が受理する形と実験の取引形の比較、使えない経路と必要な対応 |
 | [06-results.ja.md](06-results.ja.md) | テスト結果（通過/失敗/未実行）、費用・計算量の測定 |
-| [patches/](patches/) | コア・オフチェーン・relay への変更案（**未適用**） |
+| [patches/](patches/) | コア・オフチェーン・relay・代理人の財布への変更案（**未適用**） |
+| [mcp/](mcp/) | **MCP サーバー**（Streamable HTTP + OAuth 2.1、7 ツール、② Grant と ④ RunReceipt の MOCK）、契約の試験、公式 SDK クライアントの試験、ローカルの実チェーン E2E |
+| [07-mcp.ja.md](07-mcp.ja.md) | ChatGPT の接続方式（公式資料）、既存実装の区分、設計、既存との差分、依頼、未検証 |
+| [08-mcp-contracts.ja.md](08-mcp-contracts.ja.md) | 対応操作の一覧（ツール契約）、認証と権限、②④⑤との境界（AI staking のインターフェースを含む） |
+| [09-mcp-run-and-video.ja.md](09-mcp-run-and-video.ja.md) | テスト結果（ローカルと ChatGPT を分けて）、接続手順、撮影手順 |
 
 ## 実行手順
 

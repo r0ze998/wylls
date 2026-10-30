@@ -1,0 +1,351 @@
+{
+  "mode": "mcp-local-stack",
+  "chain": "frontier-localnet (local test chain)",
+  "testAssetsOnly": true,
+  "startedAt": "2026-10-30T00:42:58.823Z",
+  "checks": [
+    {
+      "name": "stack",
+      "ok": true,
+      "at": "2026-10-30T00:43:22.888Z",
+      "season": "92",
+      "programId": "EGUWxzQd11CXLNbHVrA4WnGeNoZ68iPixiTfe1xMMgXu",
+      "profile": 3,
+      "agentWallet": true
+    },
+    {
+      "name": "owner-joined",
+      "ok": true,
+      "at": "2026-10-30T00:43:24.333Z",
+      "wallet": "9tfiCPaWGbGdFGrF8TCANWt3zA6EFieUxDkttTMeM5Kz",
+      "nation": 0,
+      "join": "5LBJysQJ9LpZAuV6uxHNfWVhNTGzX8QCJmHjqjuc8YGkQJ4iyJ6oc76iYz1uehDiSpf5Naarm1bhsySgq7k8huHE",
+      "village": [
+        3,
+        0,
+        0
+      ],
+      "tile": 1
+    },
+    {
+      "name": "storehouse-built",
+      "ok": true,
+      "at": "2026-10-30T00:43:25.392Z",
+      "tile": 4,
+      "signature": "4f7wYiBmhbLgJveYxY1RGr7qEquTDLW6dYpMXNBiX4Us1utBt4jM8XMmXfRnDjpsNQ6a8eN6DeMiXHUoPCmtzmGQ"
+    },
+    {
+      "name": "agent-delegated",
+      "ok": true,
+      "at": "2026-10-30T00:43:25.928Z",
+      "agentId": "af076843-9d60-47b8-84fe-6a55b85a5090",
+      "agentKey": "CSJGiGY6TRGVNqqChmisTKVW2Cu1ZFwjCJjmEue73uyZ",
+      "allowed": [
+        "SendCaravan"
+      ],
+      "setSession": "54vPCadR12276HQzSYbCs7njBUDvrkb9hyEPEns63k6n9nCjLNwn6ZzroXctvxH8XMWZY3dLb2mW2gSirRCfrLJa"
+    },
+    {
+      "name": "mcp-connected",
+      "ok": true,
+      "at": "2026-10-30T00:43:25.961Z",
+      "issuer": "http://127.0.0.1:33931",
+      "scope": "wylls.read wylls.caravan"
+    },
+    {
+      "name": "village-status",
+      "ok": true,
+      "at": "2026-10-30T00:43:25.981Z",
+      "village": {
+        "placeId": "village:3,0,0",
+        "p": 3,
+        "q": 0,
+        "site": 0,
+        "stores": [
+          {
+            "resource": "Food",
+            "have": 300,
+            "perHour": 40,
+            "cap": 2000
+          },
+          {
+            "resource": "Wood",
+            "have": 100,
+            "perHour": 30,
+            "cap": 2000
+          },
+          {
+            "resource": "Stone",
+            "have": 0,
+            "perHour": 20,
+            "cap": 2000
+          },
+          {
+            "resource": "Ore",
+            "have": 100,
+            "perHour": 4,
+            "cap": 2000
+          },
+          {
+            "resource": "Arms",
+            "have": 0,
+            "perHour": 0,
+            "cap": 2000
+          },
+          {
+            "resource": "Gold",
+            "have": 50,
+            "perHour": 15,
+            "cap": 2000
+          },
+          {
+            "resource": "Science",
+            "have": 0,
+            "perHour": 5,
+            "cap": 2000
+          },
+          {
+            "resource": "Influence",
+            "have": 0,
+            "perHour": 0,
+            "cap": 2000
+          }
+        ]
+      },
+      "storehouses": [
+        {
+          "placeId": "vault:3,0,4",
+          "p": 3,
+          "q": 0,
+          "tile": 4,
+          "cap": 5000,
+          "stores": [
+            {
+              "resource": "Food",
+              "have": 0
+            },
+            {
+              "resource": "Wood",
+              "have": 0
+            },
+            {
+              "resource": "Stone",
+              "have": 0
+            },
+            {
+              "resource": "Ore",
+              "have": 0
+            },
+            {
+              "resource": "Arms",
+              "have": 0
+            },
+            {
+              "resource": "Gold",
+              "have": 0
+            },
+            {
+              "resource": "Science",
+              "have": 0
+            },
+            {
+              "resource": "Influence",
+              "have": 0
+            }
+          ],
+          "known": true
+        }
+      ],
+      "agent": {
+        "agentId": "af076843-9d60-47b8-84fe-6a55b85a5090",
+        "mode": "auto",
+        "modeEpoch": 1,
+        "policyVersion": 1,
+        "allowed": [
+          "SendCaravan"
+        ],
+        "delegation": {
+          "citizen": true,
+          "delegated": true,
+          "session": "CSJGiGY6TRGVNqqChmisTKVW2Cu1ZFwjCJjmEue73uyZ",
+          "expiry": 1786235020,
+          "now": 1785630244
+        },
+        "caravansAllowed": true
+      }
+    },
+    {
+      "name": "shortfall",
+      "ok": true,
+      "at": "2026-10-30T00:43:25.996Z",
+      "goal": {
+        "kind": "amounts",
+        "amounts": {
+          "Stone": 500
+        }
+      },
+      "rows": [
+        {
+          "resource": "Stone",
+          "need": 500,
+          "have": 0,
+          "short": 500,
+          "perHour": 20,
+          "hoursByProduction": 25
+        }
+      ],
+      "enough": false,
+      "storehouseSources": []
+    },
+    {
+      "name": "caravan-1-village-to-storehouse",
+      "ok": true,
+      "at": "2026-10-30T00:46:26.486Z",
+      "plan": {
+        "from": "village:3,0,0",
+        "to": "vault:3,0,4",
+        "cargo": {
+          "Food": 100
+        },
+        "steps": 3,
+        "estimatedMinutes": 20,
+        "seq": 0
+      },
+      "states": [
+        "accepted",
+        "processing",
+        "completed"
+      ],
+      "receipt": {
+        "operationId": "op_b23208bb6d92b4796fdadb8c",
+        "signature": "3SuFCecXNz88o3CfnmixiHhDFhAWsqAZqAgpYME8ndZsuRiRgSSWXMZCQMNLWP8rp1ThAdAE5CkLWFCwSP7JenhD",
+        "arriveAt": "2026-08-02T00:34:46.000Z",
+        "history": [
+          {
+            "state": "requested",
+            "at": "2026-10-30T00:43:26.036Z"
+          },
+          {
+            "state": "accepted",
+            "at": "2026-10-30T00:43:26.062Z",
+            "detail": "the relay sent the transaction"
+          },
+          {
+            "state": "processing",
+            "at": "2026-10-30T00:43:29.075Z",
+            "detail": "the transaction landed: the caravan is on the road"
+          },
+          {
+            "state": "completed",
+            "at": "2026-10-30T00:46:26.484Z",
+            "detail": "the caravan arrived and was settled"
+          }
+        ]
+      }
+    },
+    {
+      "name": "storehouse-filled",
+      "ok": true,
+      "at": "2026-10-30T00:46:26.535Z",
+      "food": 100,
+      "shortfall": {
+        "goal": {
+          "kind": "amounts",
+          "amounts": {
+            "Food": 320
+          }
+        },
+        "rows": [
+          {
+            "resource": "Food",
+            "need": 320,
+            "have": 220,
+            "short": 100,
+            "perHour": 40,
+            "hoursByProduction": 2.5
+          }
+        ],
+        "enough": false,
+        "storehouseSources": [
+          {
+            "placeId": "vault:3,0,4",
+            "covers": [
+              {
+                "resource": "Food",
+                "available": 100,
+                "short": 100
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "refusals",
+      "ok": true,
+      "at": "2026-10-30T00:46:26.588Z",
+      "strangersPlace": "NotYourPlace",
+      "readOnlyConnection": "InsufficientScope"
+    },
+    {
+      "name": "caravan-2-storehouse-to-village",
+      "ok": true,
+      "at": "2026-10-30T00:47:23.795Z",
+      "plan": {
+        "from": "vault:3,0,4",
+        "to": "village:3,0,0",
+        "cargo": {
+          "Food": 100
+        },
+        "steps": 3,
+        "estimatedMinutes": 18,
+        "seq": 1
+      },
+      "states": [
+        "accepted",
+        "processing",
+        "completed"
+      ],
+      "receipt": {
+        "operationId": "op_4464c7e9a3d5ccb02184d930",
+        "signature": "2uV8AhNxt2WECHCWVLVshhs182gJB5cZmRDtjEsrbX4NXQ5E8o54WSM6thxKpDQu5pXwwaoMp79L5W42D25oh7Um",
+        "history": [
+          {
+            "state": "requested",
+            "at": "2026-10-30T00:46:26.631Z"
+          },
+          {
+            "state": "accepted",
+            "at": "2026-10-30T00:46:26.677Z",
+            "detail": "the relay sent the transaction"
+          },
+          {
+            "state": "processing",
+            "at": "2026-10-30T00:46:29.688Z",
+            "detail": "the transaction landed: the caravan is on the road"
+          },
+          {
+            "state": "completed",
+            "at": "2026-10-30T00:47:23.792Z",
+            "detail": "the caravan arrived and was settled"
+          }
+        ]
+      },
+      "replayOfSameRequestId": "replayed"
+    },
+    {
+      "name": "grant-limit",
+      "ok": true,
+      "at": "2026-10-30T00:47:23.834Z",
+      "code": "GrantLimitReached",
+      "maxSends": 2
+    },
+    {
+      "name": "no-secret-in-transcript",
+      "ok": true,
+      "at": "2026-10-30T00:47:23.835Z"
+    }
+  ],
+  "finishedAt": "2026-10-30T00:47:23.836Z",
+  "result": "PASS"
+}
