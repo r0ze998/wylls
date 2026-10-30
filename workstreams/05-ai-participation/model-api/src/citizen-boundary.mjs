@@ -21,6 +21,8 @@ const OWNER_TYPES = new Set(['mode', 'policy', 'withdraw', 'withdrawal', 'capabi
 export function actorOf(h) {
   if (h.type === 'action') {
     if (OWN.test(String(h.key ?? ''))) return 'autopilot (⑤)';
+    // ③'s MCP server (received ws03-handoff-v4, acdcd0bf): idempotency key ws03:<linkId>:<requestId>, source mcp.
+    if (/^ws03:/.test(String(h.key ?? ''))) return 'owner\'s MCP (③ ws03)';
     if (h.source === 'browser') return 'owner (browser, wallet-signed)';
     if (h.source === 'mcp') return 'another MCP client on this agent (③ or the owner)';
     if (h.source === 'ai') return 'another ai client on this agent';

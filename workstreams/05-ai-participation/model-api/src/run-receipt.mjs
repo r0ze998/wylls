@@ -35,6 +35,8 @@ export const RECEIPT_FIELDS = Object.freeze({
   'costs.inference':        { local: 'RunCostMock classes for this run\'s keys', from4: false },
   'costs.game':             { local: 'agent_view holds for this run\'s keys', from4: false },
   'cancel.stage':           { local: 'before-sign only (⑤ stops deciding)', from4: true, why: 'signed-unsent and sent stages are ④\'s' },
+  'cancel.phase':           { local: 'derived: StoppingNew → AwaitingSigned (a sent act without a fate) → Completed{effects}', from4: false },
+  'cancel.until':           { local: null, from4: true, why: 'the slot until which a signed request can still land (④ AwaitingSigned{until}, ③-R3 valid_until): the relay does not expose it' },
 });
 
 const STAGES = Object.freeze(['before-sign', 'signed-unsent', 'sent']);
@@ -72,6 +74,8 @@ export function localReceiptPort({ view, txState, costs = null }) {
         const mine = [...costs.items.values()].filter(i => keys.has(i.key));
         const sum = st => mine.filter(i => i.state === st).reduce((t, i) => t + BigInt(st === 'settled' ? i.settled : i.amount), 0n).toString();
         r.costs.inference = { settled: sum('settled'), undecided: sum('undecided'), released: sum('released'), reserved: String(BigInt(sum('reserved')) + BigInt(sum('calling'))) };
+        // The same, in ④'s class names (CONTRACTS §6.2). Names only: ④'s classes are relay fees in lamports.
+        r.costs.inferenceIn4Names = { unit: 'test-USDC base units', reserved: r.costs.inference.reserved, charged: r.costs.inference.settled, unconfirmed: r.costs.inference.undecided, released: r.costs.inference.released };
       }
     },
     /** One act of the run: its agent_act requestId and outcome (participate's item). */
@@ -97,17 +101,33 @@ export function localReceiptPort({ view, txState, costs = null }) {
     async refreshFates(runId) {
       const r = must(runId);
       for (const a of r.acts) if (a.signature) { const t = await txState(a.signature); a.fate = t?.state ?? 'unknown'; }
+      if (r.cancel?.result === 'stopped') port.cancelPhase(runId);
       return structuredClone(r);
     },
     /** The local adapter can only stop before anything is signed; the other stages are ④'s (NotSupported / Irrevocable). */
     cancel(runId, stage) {
       const r = must(runId);
       if (!STAGES.includes(stage)) throw Object.assign(new Error(`stage: ${STAGES.join(' | ')}`), { code: 'BadStage' });
-      if (stage === 'sent') { r.cancel = { stage, result: 'Irrevocable' }; return r.cancel; }
-      if (stage === 'signed-unsent') { r.cancel = { stage, result: 'NotSupported', why: 'needs ④: the relay signs and sends in one step today' }; return r.cancel; }
-      r.cancel = { stage, result: 'stopped' };
+      if (stage === 'sent') { r.cancel = { stage, result: 'Irrevocable', phase: null, until: null }; return r.cancel; }
+      if (stage === 'signed-unsent') { r.cancel = { stage, result: 'NotSupported', why: 'needs ④: the relay signs and sends in one step today', phase: null, until: null }; return r.cancel; }
+      r.cancel = { stage, result: 'stopped', phase: 'StoppingNew', until: null };
       if (r.state === 'open') r.state = 'cancelled';
       return r.cancel;
+    },
+    /**
+     * The cancel phase in ④'s names (CONTRACTS §1, STATE-MACHINE): after a stop, AwaitingSigned while any sent act has
+     * no final fate (it may still land; `until` is ④'s and stays null here), then Completed with the effects that did
+     * land. Ineffective (in transit, cannot be recalled) does not arise: the autopilot sends no caravans.
+     */
+    cancelPhase(runId) {
+      const r = must(runId);
+      if (!r.cancel) return null;
+      if (r.state === 'cancelled' && r.acts.length === 0) { r.cancel.phase = 'Completed'; return { phase: 'Completed', effects: [] }; }
+      const open = r.acts.filter(a => a.status === 'sent' && !['landed', 'failed', 'expired'].includes(a.fate));
+      const out = open.length ? { phase: 'AwaitingSigned', until: null, waitingOn: open.map(a => a.signature), why: 'until is ④\'s (valid_until): not exposed by the relay' }
+        : { phase: 'Completed', effects: r.acts.filter(a => a.fate === 'landed').map(a => ({ requestId: a.requestId, action: a.action, signature: a.signature })) };
+      r.cancel.phase = out.phase;
+      return out;
     },
     get(runId) { const r = runs.get(runId); return r ? structuredClone(r) : null; },
     list() { return [...runs.values()].map(r => structuredClone(r)); },

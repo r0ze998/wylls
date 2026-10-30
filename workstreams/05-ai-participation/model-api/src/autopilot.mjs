@@ -63,7 +63,7 @@ export class Autopilot {
   async start({ by }) {
     const holder = RUNNING.get(this.w.agentId);
     if (holder && holder !== this) throw Object.assign(new Error('this agent already has an autopilot in this process'), { code: 'AlreadyRunning' });
-    if (this.state === 'stopped-by-budget') throw Object.assign(new Error('stopped by the budget: only the owner resumes'), { code: 'NeedsOwner' });
+    if (this.state === 'stopped-by-budget' || this.state === 'stopped-capability') throw Object.assign(new Error(`${this.state}: only the owner resumes`), { code: 'NeedsOwner' });
     const v = (await tool(this.w.mcp(), 'agent_view')).structuredContent;
     const why = v?.mode !== 'auto' ? 'the owner has not switched the agent on (relay mode is not auto)' : v?.delegation?.delegated !== true ? 'the agent\'s key is not the Citizen\'s session: the owner delegates it with their wallet; the autopilot never does' : null;
     if (why) { this.#event({ op: 'start', by, refused: why }); throw Object.assign(new Error(why), { code: 'NotReady' }); }
@@ -92,6 +92,10 @@ export class Autopilot {
     }
     this.records.push(rec);
     if (report.status === 'stopped-by-budget') { this.state = 'stopped-by-budget'; this.stoppedBy = report.stoppedBy; RUNNING.delete(this.w.agentId); this.#event({ op: 'stop', by: 'budget', code: report.stoppedBy }); }
+    // The relay no longer takes this autopilot's capability (the owner rotated it, e.g. when granting ③'s MCP server):
+    // agent_view is a public read, so the next preflight would not see it and every tick would pay for a model call whose
+    // act cannot go. Stop until the owner hands a token over and resumes.
+    else if ((report.items ?? []).some(it => it.code === 'BadCapability')) { this.state = 'stopped-capability'; this.stoppedBy = 'BadCapability'; RUNNING.delete(this.w.agentId); this.#event({ op: 'stop', by: 'relay', code: 'BadCapability' }); }
     return rec;
   }
 
@@ -103,10 +107,13 @@ export class Autopilot {
   }
 
   /** Only the owner, with a note (e.g. "raised the inference cap"). The budget is checked again before the next call. */
-  async resume({ by, note }) {
+  /** `mcp`: after a BadCapability stop, the MCP server over the token the owner handed this autopilot. */
+  async resume({ by, note, mcp = null }) {
     if (by !== 'owner') throw Object.assign(new Error('only the owner resumes'), { code: 'NeedsOwner' });
     if (!note) throw Object.assign(new Error('a resume needs a note'), { code: 'NoteRequired' });
     if (this.state === 'running') return this.status();
+    if (this.state === 'stopped-capability' && !mcp) throw Object.assign(new Error('stopped on BadCapability: resume needs the MCP server over the owner\'s new token'), { code: 'NeedsToken' });
+    if (mcp) this.mcp = mcp;
     this.state = 'idle';
     this.#event({ op: 'resume', by, note });
     return this.start({ by });

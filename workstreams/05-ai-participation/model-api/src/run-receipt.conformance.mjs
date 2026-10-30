@@ -16,7 +16,7 @@ export function checkShape(receipt, { allowFrom4Null = true } = {}) {
     }
     const v = get(receipt, path);
     if (v === undefined) fails.push(`${path} missing`);
-    else if (v === null && !(f.from4 && allowFrom4Null) && !['cancel.stage', 'inference.status', 'inference.attempts', 'costs.inference', 'costs.game'].includes(path)) fails.push(`${path} is null`);
+    else if (v === null && !(f.from4 && allowFrom4Null) && !['cancel.stage', 'cancel.phase', 'inference.status', 'inference.attempts', 'costs.inference', 'costs.game'].includes(path)) fails.push(`${path} is null`);
   }
   return fails;
 }

@@ -18,6 +18,14 @@ import { infer, preflight, quoteFor } from './inference.mjs';
 import { answerSchema, promptFor } from '../../src/deciders.mjs';
 import { sanitize } from '../../src/deps.mjs';
 
+/**
+ * Commands the autopilot never proposes, even where the relay would take them as an agent action:
+ * SendCaravan (③'s patch 0005 makes it one) — its arrival can be unverifiable (④ DeliveredUnverified: not 0, not a
+ * loss, not known) and ⑤ has no way yet to show or count that; until ④'s arrival states are connected it stays the
+ * owner's own operation (③'s MCP), never the autopilot's.
+ */
+export const NOT_FOR_AUTOPILOT = Object.freeze(['SendCaravan']);
+
 /** Codes that stop the autopilot until the owner acts (budget, cap, the provider's own billing stop). */
 export const API_BUDGET_STOPS = Object.freeze(new Set(['BudgetShort', 'CallCapReached', 'PerCallLimit', 'CategoryDayLimit', 'CategoryTotalLimit', 'InsufficientBalance', 'ProviderBilling']));
 
@@ -49,6 +57,8 @@ export function validateAnswer(text, { names, requestIds }) {
   return errors.length ? { ok: false, answer: null, errors } : { ok: true, answer: a, errors: [] };
 }
 
+const autopilotGrant = grant => ({ ...grant, allowed: grant.allowed.filter(n => !NOT_FOR_AUTOPILOT.includes(n)) });
+
 /** One key per decision: the same run asking the same thing gets the same key (and so the recorded result). */
 export const decisionKeyOf = ({ agentId, policyVersion, modeEpoch, runId, messages }) =>
   `d05-${createHash('sha256').update(JSON.stringify([agentId, policyVersion, modeEpoch, runId, messages])).digest('hex').slice(0, 40)}`;
@@ -70,9 +80,9 @@ export function apiDecider({ adapter, model, transport, book, costs, registry, r
   const d = {
     name: `api:${adapter.provider}:${model}`, free: true, // free to participate(): this decider reserves and settles its own model cost
     records: [],
-    needsCall(obs, grant, contract, ctx = {}) { const p = promptFor(obs, grant, contract, ctx); return p.names.length > 0 && p.requestIds.length > 0; },
+    needsCall(obs, grant, contract, ctx = {}) { const p = promptFor(obs, autopilotGrant(grant), contract, ctx); return p.names.length > 0 && p.requestIds.length > 0; },
     async plan(obs, grant, contract, ctx = {}) {
-      const p = promptFor(obs, grant, contract, ctx);
+      const p = promptFor(obs, autopilotGrant(grant), contract, ctx);
       const messages = p.messages.map(m => ({ role: m.role, text: m.content }));
       const requestKey = decisionKeyOf({ agentId: obs.view.agentId, policyVersion: obs.view.policy?.version, modeEpoch: obs.view.modeEpoch, runId: runId(), messages });
       const request = { requestKey, model, messages, maxOutputTokens, jsonSchema: answerSchema(p.names, p.requestIds) };

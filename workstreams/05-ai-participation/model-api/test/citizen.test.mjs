@@ -154,3 +154,73 @@ test('RunReceipt: an undecided inference is shown as undecided, never 0; the che
     await new Promise(res => setTimeout(res, 220));
   } finally { await s.close(); }
 });
+
+test('the owner rotates the capability (as granting ③\'s MCP does): ⑤\'s one paid call ends in BadCapability and the autopilot stops; no more model calls until the owner resumes', async () => {
+  const s = await setup({ adapter: openaiAdapter, model: 'gpt-fixture-model', script: body => ({ answer: answerFirst(body) }) });
+  try {
+    await s.ap.start({ by: 'owner' });
+    await s.w.ownerRotate(); // the relay keeps one capability per agent: ⑤'s token is now the old one
+    const v = await s.view();
+    assert.equal(v.mode, 'auto', 'agent_view is public: it does not show the rotation');
+    const t = await s.ap.tick();
+    assert.equal(t.inference.status, 'ok');
+    assert.equal(t.game[0].code, 'BadCapability');
+    assert.equal(s.w.sentCount(), 0);
+    assert.equal(s.ap.state, 'stopped-capability');
+    const calls = s.srv.requests();
+    assert.deepEqual(await s.ap.tick(), { skipped: true, state: 'stopped-capability' });
+    assert.equal(s.srv.requests(), calls, 'stopped: no further model call');
+    await assert.rejects(s.ap.start({ by: 'owner' }), e => e.code === 'NeedsOwner');
+  } finally { await s.close(); }
+});
+
+test('④\'s names: cancel phases StoppingNew → AwaitingSigned → Completed{effects}; inference costs in ④\'s four class names (names only, a separate ledger)', async () => {
+  const s = await setup({ adapter: anthropicAdapter, model: 'claude-fixture-model', script: body => ({ answer: answerFirst(body) }) });
+  try {
+    await s.ap.start({ by: 'owner' });
+    const t = await s.ap.tick();
+    const id = t.receipt.runId;
+    assert.equal(s.receipts.cancel(id, 'before-sign').phase, 'StoppingNew');
+    // The training was sent and has no fate yet: it may still land.
+    assert.equal(s.receipts.cancelPhase(id).phase, 'AwaitingSigned');
+    assert.equal(s.receipts.cancelPhase(id).until, null, 'valid_until is ④\'s');
+    s.w.settle();
+    const r = await s.receipts.refreshFates(id);
+    assert.equal(r.cancel.phase, 'Completed');
+    assert.deepEqual(s.receipts.cancelPhase(id).effects.map(e => e.action?.name), ['Train'], 'what landed before the stop is an effect, not undone');
+    assert.deepEqual(conformance(r), []);
+    const four = s.costs.fourClasses();
+    assert.deepEqual(Object.keys(four), ['unit', 'reserved', 'charged', 'unconfirmed', 'released']);
+    assert.equal(four.charged, s.costs.classes().settled);
+    assert.equal(r.costs.inferenceIn4Names.charged, r.costs.inference.settled);
+  } finally { await s.close(); }
+});
+
+test('the autopilot never proposes SendCaravan, even when the mandate and the relay would allow it (arrival can be unverifiable)', async () => {
+  const { NOT_FOR_AUTOPILOT } = await import('../src/api-decider.mjs');
+  assert.ok(NOT_FOR_AUTOPILOT.includes('SendCaravan'));
+  let seen = null;
+  const s = await setup({ adapter: openaiAdapter, model: 'gpt-fixture-model', script: body => { seen = userOf(body); return { answer: answerFirst(body) }; } });
+  try {
+    s.ap.mandate = { ...s.ap.mandate, allowed: [...s.ap.mandate.allowed, 'SendCaravan'] };
+    await s.ap.start({ by: 'owner' });
+    await s.ap.tick();
+    assert.ok(seen, 'the model was asked');
+    assert.equal(Object.keys(seen.commands).includes('SendCaravan'), false);
+  } finally { await s.close(); }
+});
+
+test('after a BadCapability stop, resume needs the MCP over the owner\'s new token', async () => {
+  const s = await setup({ adapter: openaiAdapter, model: 'gpt-fixture-model', script: body => ({ answer: answerFirst(body) }) });
+  try {
+    await s.ap.start({ by: 'owner' });
+    const token = await s.w.ownerRotate();
+    await s.ap.tick();
+    assert.equal(s.ap.state, 'stopped-capability');
+    await assert.rejects(s.ap.resume({ by: 'owner', note: 'new token' }), e => e.code === 'NeedsToken');
+    await s.ap.resume({ by: 'owner', note: 'handed the autopilot the rotated token', mcp: () => createAgentMcp({ relay: 'http://relay.test', agentId: s.w.agentId, capability: token, fetch: s.w.fetch, source: 'ai' }) });
+    s.w.advance(60);
+    const t = await s.ap.tick();
+    assert.equal(t.game[0].outcome, 'sent');
+  } finally { await s.close(); }
+});

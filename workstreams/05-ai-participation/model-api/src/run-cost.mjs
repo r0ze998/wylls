@@ -148,4 +148,15 @@ export class RunCostMock {
     return { reserved: String(big(sum('reserved')) + big(sum('calling'))), settled: sum('settled'), undecided: sum('undecided'), released: sum('released'),
       available: String(this.available), gameReserve: String(this.gameReserve), withdrawable: String(this.available), overruns: this.overruns.length };
   }
+
+  /**
+   * The same money in ④'s four class names (received ④ CONTRACTS §6.2, 2e536b6b): reserved = held before or during a
+   * call; charged = settled from a usage report or the operator's charge; unconfirmed = sent, no usage (⑤'s undecided);
+   * released = provably not sent, or refunded on a provider record. NAMES ONLY: ④'s classes count relay fees in
+   * lamports per signed attempt, these count model inference in test-USDC base units. Two ledgers, never summed.
+   */
+  fourClasses() {
+    const c = this.classes();
+    return { unit: 'test-USDC base units (model inference)', reserved: c.reserved, charged: c.settled, unconfirmed: c.undecided, released: c.released };
+  }
 }

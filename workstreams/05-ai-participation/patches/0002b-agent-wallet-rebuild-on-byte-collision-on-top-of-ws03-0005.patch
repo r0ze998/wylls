@@ -1,0 +1,159 @@
+From 09d823cf85f0e177e972783485bb7db6fe7e66df Mon Sep 17 00:00:00 2001
+From: Workstream 05 <noreply@anthropic.com>
+Date: Fri, 30 Oct 2026 13:10:26 +0000
+Subject: [PATCH 0002b] =?UTF-8?q?agent=20wallet:=20rebuild=20an=20action=20whose?=
+ =?UTF-8?q?=20bytes=20collided=20with=20another=20request's=20(on=20top=20?=
+ =?UTF-8?q?of=20=E2=91=A2=200005)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ .../src/frontier/agent/gateway.mjs            | 45 ++++++++++-----
+ .../agent-wallet-duplicate-bytes.test.mjs     | 57 +++++++++++++++++++
+ 2 files changed, 88 insertions(+), 14 deletions(-)
+ create mode 100644 permutation-gateway/test/agent-wallet-duplicate-bytes.test.mjs
+
+diff --git a/permutation-gateway/src/frontier/agent/gateway.mjs b/permutation-gateway/src/frontier/agent/gateway.mjs
+index 03b72aae..7a816420 100644
+--- a/permutation-gateway/src/frontier/agent/gateway.mjs
++++ b/permutation-gateway/src/frontier/agent/gateway.mjs
+@@ -58,6 +58,8 @@ export const ITEM_WALLS = 6;
+ export const ACTION_HOLD_TTL_MS = 120_000;
+ /** A model call's hold: long enough for a slow local model. */
+ export const INFERENCE_HOLD_TTL_MS = 10 * 60_000;
++/** How many times an action is built again after its bytes collided with another request's (Duplicate before sending). */
++export const DUPLICATE_REBUILDS = 2;
+ /** Default per-call test price of one model call (base units; 0.01 test USDC). TEST VALUE. */
+ export const DEFAULT_INFERENCE_PRICE = '10000';
+ 
+@@ -458,18 +460,32 @@ export class AgentGateway {
+     let sending = false;
+     let res;
+     try {
+-      const { shape, tx, wire, lastValidBlockHeight, slotFloor } = await this.#build(rec, r);
+-      const sent = await sponsor(this.ctx, { ip: '127.0.0.1', surface: 'agent' }, {
+-        tx, wire, shape, lastValidBlockHeight, viaAgent: true,
+-        beforeSend: ({ signature, lastValidBlockHeight: lvbh }) => {
+-          // Synchronous, right before the bytes leave: a stop or a new policy in the meantime refuses.
+-          if (rec.mode !== MODES.AUTO || rec.modeEpoch !== epoch) throw new AgentError(ERR.AGENT_STOPPED, 'the agent was stopped while this action was being prepared', 409);
+-          if (rec.policy.version !== r.policyVersion) throw new AgentError(ERR.STALE_POLICY, 'the policy changed while this action was being prepared', 409);
+-          this.ledger.markSending(rec.agentId, hold.id, signature, lvbh, slotFloor);
+-          sending = true;
+-        },
+-        onSent: ({ signature, moved }) => this.ledger.recordNetwork(rec.agentId, { lamports: feeOf(shape) + BigInt(moved ?? 0), signature, key }),
+-      });
++      // Two different requests for the same action, built with the same blockhash (the book shares one read between
++      // concurrent callers and caches it) and the same randomly drawn fee payer, are the same bytes: the relay's replay
++      // guard refuses the second as Duplicate. This request's key is new (checked above), so that Duplicate is another
++      // request's transaction, nothing of this one was sent: build it again with another fee payer.
++      const avoid = new Set();
++      let sent;
++      for (let attempt = 0; ; attempt++) {
++        const { shape, tx, wire, lastValidBlockHeight, slotFloor } = await this.#build(rec, r, avoid);
++        try {
++          sent = await sponsor(this.ctx, { ip: '127.0.0.1', surface: 'agent' }, {
++            tx, wire, shape, lastValidBlockHeight, viaAgent: true,
++            beforeSend: ({ signature, lastValidBlockHeight: lvbh }) => {
++              // Synchronous, right before the bytes leave: a stop or a new policy in the meantime refuses.
++              if (rec.mode !== MODES.AUTO || rec.modeEpoch !== epoch) throw new AgentError(ERR.AGENT_STOPPED, 'the agent was stopped while this action was being prepared', 409);
++              if (rec.policy.version !== r.policyVersion) throw new AgentError(ERR.STALE_POLICY, 'the policy changed while this action was being prepared', 409);
++              this.ledger.markSending(rec.agentId, hold.id, signature, lvbh, slotFloor);
++              sending = true;
++            },
++            onSent: ({ signature, moved }) => this.ledger.recordNetwork(rec.agentId, { lamports: feeOf(shape) + BigInt(moved ?? 0), signature, key }),
++          });
++        } catch (e) {
++          if (!sending && e instanceof RouteError && e.code === 'Duplicate' && attempt < DUPLICATE_REBUILDS) { avoid.add(shape.feePayer); continue; }
++          throw e;
++        }
++        break;
++      }
+       // Sent. A priced action stays reserved until the chain's answer (reconcile); a free one has nothing to settle.
+       if (big(hold.amount) === 0n) this.ledger.release(rec.agentId, hold.id, 'free');
+       this.ledger.recordAction(rec.agentId, { name: r.action.name, key, source: r.source, status: RESULT_STATUS.SENT, signature: sent.signature, holdId: big(hold.amount) > 0n ? hold.id : undefined, ...(r.reason ? { reason: r.reason } : {}) });
+@@ -494,7 +510,7 @@ export class AgentGateway {
+   }
+ 
+   /** The signed transaction of an action, after the chain says the agent's key is the Citizen's live session key. */
+-  async #build(rec, r) {
++  async #build(rec, r, avoid = new Set()) {
+     const { ctx } = this;
+     const [season, clock, citizen] = await Promise.all([ctx.chain.season(), ctx.chain.clock(), ctx.chain.citizen(ctx.addresses.citizen(rec.owner))]);
+     if (!citizen) throw new AgentError(ERR.SESSION_NOT_DELEGATED, 'the owner has no Citizen this season', 409);
+@@ -503,7 +519,8 @@ export class AgentGateway {
+     const profile = profileForSeason(season);
+     const fields = normaliseFields(r.action.name, r.action.fields, profile);
+     const accounts = accountsFor(r.action.name, { addresses: ctx.addresses, actor: rec.agentKey, owner: rec.owner, holding: r.action.holding, fields, route: r.action.route ?? null, profile });
+-    const feePayer = ctx.pool.draw().publicKey.toBase58();
++    let feePayer = ctx.pool.draw().publicKey.toBase58();
++    for (let i = 0; i < 8 && avoid.has(feePayer); i++) feePayer = ctx.pool.draw().publicKey.toBase58();
+     // Read before the blockhash: at or below any slot this transaction can land in (fate.mjs history coverage).
+     const slotFloor = await slotFloorOf(ctx.connection);
+     const { blockhash, lastValidBlockHeight } = await ctx.blockhashes.latest();
+diff --git a/permutation-gateway/test/agent-wallet-duplicate-bytes.test.mjs b/permutation-gateway/test/agent-wallet-duplicate-bytes.test.mjs
+new file mode 100644
+index 00000000..70a87494
+--- /dev/null
++++ b/permutation-gateway/test/agent-wallet-duplicate-bytes.test.mjs
+@@ -0,0 +1,57 @@
++// Two different requests for the same action, built concurrently (one shared blockhash read) with the same randomly
++// drawn fee payer, are byte-identical transactions: the relay's replay guard refused the second as Duplicate although
++// it was a request of its own (about 1 in 150 such pairs). The gateway now builds it again with another fee payer.
++import { test } from 'node:test';
++import assert from 'node:assert/strict';
++import { Keypair } from '@solana/web3.js';
++import { DUPLICATE_REBUILDS } from '../src/frontier/agent/gateway.mjs';
++import { actionRequest, call, createAgent, delegate, ownerCommand, policy, relay, sound } from './agent-wallet-fixtures.mjs';
++
++async function ready() {
++  const r = relay();
++  // One blockhash for every read, as the relay's book hands out within its cache window (1 s in production).
++  const one = Keypair.generate().publicKey.toBase58();
++  r.chain.getLatestBlockhash = async () => ({ blockhash: one, lastValidBlockHeight: 150 });
++  const owner = Keypair.generate();
++  const { agentId, agentKey, capability } = await createAgent(r, owner, { policy: policy(['economy']) });
++  await call(r.public, 'POST', '/f/agent/command', { body: ownerCommand(owner, 'mode', { agentId, params: { mode: 'auto' } }), ip: '127.0.0.1' });
++  delegate(r, owner.publicKey.toBase58(), agentKey);
++  return { r, agentId, capability, act: key => r.gateway.submit(actionRequest(agentId, { key, modeEpoch: 1 }), { capability }) };
++}
++
++test('two requests whose first builds collide byte for byte are both sent, each with its own fee payer', async () => {
++  const { r, act } = await ready();
++  const draws = [0, 0, 1, 2]; // the first two builds draw the same payer
++  r.pool.randomIndex = () => draws.shift() ?? 3;
++  const [a, b] = await Promise.all([act('dup-a-000001'), act('dup-b-000001')]);
++  assert.deepEqual([a.status, b.status], ['sent', 'sent'], JSON.stringify([a.error, b.error]));
++  assert.notEqual(a.signature, b.signature);
++  const payers = r.chain.sent.map(tx => String(tx.signers[0]));
++  assert.equal(new Set(payers).size, 2);
++  sound(r);
++});
++
++test('a collision that persists after the rebuilds is still refused as Duplicate, nothing sent twice, nothing charged', async () => {
++  const { r, agentId, act } = await ready();
++  r.pool.randomIndex = () => 0; // every draw the same payer: no rebuild can differ
++  const [a, b] = await Promise.all([act('dup-a-000002'), act('dup-b-000002')]);
++  const statuses = [a.status, b.status].sort();
++  assert.deepEqual(statuses, ['refused', 'sent']);
++  const refused = [a, b].find(x => x.status === 'refused');
++  assert.equal(refused.error.code, 'Duplicate');
++  assert.deepEqual(refused.charges, []);
++  assert.equal(r.chain.sent.length, 1);
++  assert.ok(DUPLICATE_REBUILDS >= 1);
++  assert.equal(r.gateway.view(agentId).balance.reserved, '0');
++  sound(r);
++});
++
++test('the same request asked twice is still one send (idempotency, not a rebuild)', async () => {
++  const { r, act } = await ready();
++  r.pool.randomIndex = () => 0;
++  const [a, b] = await Promise.all([act('dup-same-0001'), act('dup-same-0001')]);
++  assert.equal(a.signature, b.signature);
++  assert.equal([a, b].filter(x => x.replayed).length, 1);
++  assert.equal(r.chain.sent.length, 1);
++  sound(r);
++});
+-- 
+2.43.0
+

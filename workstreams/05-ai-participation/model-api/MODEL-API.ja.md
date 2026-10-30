@@ -265,3 +265,14 @@ Claude（Anthropic Messages API）と GPT（OpenAI Responses API）を、同じ�
 - **記録の区別：** 今の MCP は `source: 'mcp'` に固定で、⑤と③は requestId の接頭辞でしか分けられません。パッチ 0003（未適用）で、⑤は `source: 'ai'` になります。
 - **RunReceipt の port（`src/run-receipt.mjs`）：** ⑤が1回ごとに読む欄を固定しました。今はローカルの代わりが、既存の中継から埋めます。④だけが出せる欄（`run4Id`・`acts[].signedAt`・`acts[].cancellable`・取消の段階）は null のままで、`missingFrom4` に出ます。適合の確認は `src/run-receipt.conformance.mjs`。④の実物を受け取ったら、同じ確認にかけます。
 - デモの各回は、RunReceipt と、その適合の結果を表示します。
+
+## 12. 受領した③・④の実物との照合（2026-10-30）
+
+- 受領の確認（SHA-256、bundle の前提、HEAD、ツリー、足りない物）：`RECEIVED-2026-10-30.ja.md`
+- ④への接続差分と不一致：`CONTRACT-DIFF-4.ja.md`。要点：
+  - ③の 0005 と⑤の 0002 は文字の上で衝突し、0002b で解ける。4つを当てて `permutation-gateway` の全試験が通る
+  - **代理1つに capability は1つ。** ③の接続で⑤の token が無効になる（③の本物のサーバーで確認）。今は、③と⑤が同じ Citizen で同時に書き込めない。分け方は共有コアの判断
+  - ⑤の自動運転は、`BadCapability` で止まるようにした（`agent_view` は公開の読み取りで、回されたことが見えないため）
+  - ⑤の費用と取消を④の名前でも出す（`fourClasses()`、`cancelPhase()`）。ただし④の4区分は relay の手数料（lamports）で、⑤は推論（試験用 USDC）。足し合わせない
+  - ⑤の自動運転は SendCaravan を送らない（到着量を検証できないことがあるため）
+- ③との境界の試験：`integration/ws03-same-citizen.test.mjs`（既定の試験には入れていない。受領した木が要る）

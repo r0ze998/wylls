@@ -1,41 +1,44 @@
-# テストの結果：provider・予算・自動運転の接続、同じ Citizen の境界、RunReceipt、共有コードのパッチ（2026-10-30 再改訂）
+# テストの結果（2026-10-30、③・④の実物を受領した後）
 
-**外部通信なし。** モデルの相手は 127.0.0.1 の HTTP fixture だけです。キーは読まず、送らず、作っていません。実資金・課金・push・merge・deploy はしていません。client request ID は、本番の課金照会の保証とみなしていません（照合は fixture の契約）。
+**外部通信なし。** モデルの相手は 127.0.0.1 の HTTP fixture だけです。キーは読まず、作らず、設定していません。実資金・課金・push・merge・deploy はしていません。鎖はすべて試験用の偽物（scripted chain）です。
 
-## 実行したもの
+## ⑤のブランチ（共有コードは変えていない）
 
 | コマンド | 結果 |
 |---|---|
-| `node --test workstreams/05-ai-participation/model-api/test/*.test.mjs` | **41 件、通過 41、失敗 0**（3回連続） |
-| `node --test workstreams/05-ai-participation/test/*.test.mjs`（⑤） | **37 件、通過 37、失敗 0**（3回連続） |
-| 同じ2つを、パッチ 0002・0003 を当てた共有コードで | 37/37、41/41。支払い者を常に同じにした⑤の実行も 37/37 |
-| 同じ2つを、パッチ 0001・0002・0003 を当てた共有コードで | 37/37、41/41 |
-| `permutation-gateway` の全テスト（0002・0003 を当てた状態） | **2,533 件、通過 2,532、失敗 0、スキップ 1**（Gemma のモデルファイルがない） |
-| `permutation-gateway` の `agent-wallet` テスト（0001〜0003 を当てた状態） | 81/81 |
-| `0002` の新しいテストを、パッチなしの中継で | 1件目が `Duplicate` で失敗する（パッチが直す問題を再現） |
-| `node workstreams/05-ai-participation/model-api/demo/run-api-demo.mjs` | 完了。Claude・GPT とも 1〜7 の段階。各回の RunReceipt は適合 |
-| 既存のデモ `demo/run-demo.mjs`・`demo/run-staking-demo.mjs` | どちらも終了コード 0 |
+| `node --test workstreams/05-ai-participation/model-api/test/*.test.mjs` | **45 件、通過 45、失敗 0**（3回連続） |
+| `node --test workstreams/05-ai-participation/test/*.test.mjs` | **37 件、通過 37、失敗 0**（3回連続） |
+| `node workstreams/05-ai-participation/model-api/demo/run-api-demo.mjs` | 完了。各回の RunReceipt は適合 |
 
-## 不安定だった staking のテスト
+## 共有コードのパッチを当てた、使い捨ての worktree
 
-- **原因：** 同じ命令を同時に送ると blockhash が共有され、乱数の支払い者が同じ（1/150）だとバイト列が同じになり、中継が2つ目を `Duplicate` で断る。予算の安全性の失敗ではない。詳細は `MODEL-API.ja.md` §10。
-- **テストの修正：** 主張する条件（違う支払い者）を固定。衝突の場合は別のテストで確かめ、パッチ 0002 の有無で期待を分ける。
-- **中継の修正（提案）：** パッチ 0002。
-- **合格の根拠は再実行ではありません。** 失敗する条件と通る条件を、それぞれ固定して 100% 再現しました。
-
-## 内訳（model-api、41 件）
-
-| ファイル | 件数 | 確かめたこと |
+| 当てた物（順に） | 試験 | 結果 |
 |---|---|---|
-| `test/model-api.test.mjs` | 11 | 契約の形、使用量、料金表、再試行の既定、時間切れ（根拠なしの返金・0 円を断る）、事前確認、静的な確認 |
-| `test/http.test.mjs` | 12 | 本物の HTTP で：要求・応答・使用量、時間切れ、切断、429／529／500、接続拒否、同じ判断の2回目、外の宛先と認証ヘッダーを断る |
-| `test/autopilot.test.mjs` | 11 | 最小の流れ（Claude・GPT）、推論とゲーム操作を分けた記録、形式外の答え、照合（fixture のみ）、事前確認、1プロセス、SetSession を持たない |
-| `test/citizen.test.mjs` | 7 | ⑤のモデルが考えている間に、本人の MCP（③の代わり）が操作すると、⑤は送らない（Claude・GPT）、記録の区別（パッチ 0003 の有無で期待を分ける）、本人の取り分（枠・予算）、seq の印と窓の切れ目、RunReceipt の欄・結果・取消の段階・④だけの欄、結果不明の推論を 0 と見せない |
+| ③ 0005 → ⑤ 0002b → 0001 → 0003 | `permutation-gateway` 全体 | **2,543 件、通過 2,542、失敗 0、スキップ 1**（Gemma のモデルファイルがない） |
+| 同上 | `agent-wallet-*`・`frontier-relay*` | 111/111 |
+| 同上 | ③の MCP（`WS03_GATEWAY_ROOT`） | 42 件：通過 40、**失敗 1**、スキップ 1（失敗は `sdk-client.test.mjs`：依存 `@modelcontextprotocol/sdk` が無い。0005 だけの時も同じ） |
+| 同上 | ⑤ 37 件・model-api 45 件 | すべて通過 |
+| 同上 | **③との統合 `integration/ws03-same-citizen.test.mjs`**（③の本物のサーバー） | **3/3** |
+| ⑤ 0002・0003（0005 なし） | `permutation-gateway` 全体 | 2,533 件、通過 2,532、失敗 0、スキップ 1（前回） |
+
+## 受領した④の試験（使い捨ての clone、`2e536b6b`）
+
+| コマンド | 結果 |
+|---|---|
+| `cargo test --locked`（`workstreams/04-execution`） | **62 件すべて通過**。ツールチェーンは rustup が自動で取得し、crate は `cargo fetch --locked` で取得した（`RECEIVED-2026-10-30.ja.md`） |
+
+## 内訳（model-api、45 件）
+
+| ファイル | 件数 |
+|---|---|
+| `test/model-api.test.mjs` | 11 |
+| `test/http.test.mjs` | 12 |
+| `test/autopilot.test.mjs` | 11 |
+| `test/citizen.test.mjs` | 11（追加：`BadCapability` で止まる、④の名前での取消と費用、SendCaravan を出さない、新しい token での再開） |
 
 ## 実行していないもの
 
-- 本物の Claude・GPT・課金 API への呼び出し（禁止）
-- 提供者の本物の利用レポートとの照合（未実装。ID で照会できるかも未検証）
-- ④の RunReceipt・Run・取消・照合の実物との結合（この環境にない）
-- ③の本人 MCP の実物と、パッチ 0005（この環境にない。0005 との競合は未解消）
-- 2つ目のプロセスでの実行（安全と表示しない）
+- ③の `sdk-client.test.mjs`（依存が無い）と、③の実チェーンの E2E（validator が要る）
+- 本物の LLM・課金 API、本番の利用レポートとの照合
+- ④の Run・Receipt を⑤から実際に呼ぶこと（呼び方が決まっていない）
+- 2つ目のプロセスでの実行
