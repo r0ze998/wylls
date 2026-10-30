@@ -1,0 +1,245 @@
+//! **Workstream 02-rights (proposal; written, compiled, NOT yet run):** the
+//! workshop-stock swap Grant on the SBPF build in LiteSVM — what the host
+//! harness (`permutation-frontier/src/proc/rights_tests.rs`) cannot show:
+//! the real System program CPI and PDA signing of IssueGrant, the
+//! runtime's owner/writable rules, a failed transaction's rollback, the
+//! compute units and the wire size.
+//!
+//! Needs the program built **with patch 0001** (`scripts/build-frontier.sh`
+//! with Agave 3.1.9) and is run by `./run.sh --release -- rights`
+//! (`workstreams/02-rights/07-VERIFICATION.ja.md`). The CU and size bounds
+//! asserted here are this proposal's acceptance limits, not measured
+//! values: the first run measures them.
+
+mod common;
+
+use frontier_abi::addr::AddrCtx;
+use frontier_abi::v2::layout::player::holding as H;
+use frontier_abi::v2::presets::MC_LOCAL_7D;
+use frontier_abi::v2::rights::{self as rt, layout as G};
+use permutation_frontier_svm_tests::chain::{
+    expect_lands, program_id, Build, Chain, Fail, Profile, SendResult,
+};
+use permutation_frontier_svm_tests::world::holding::{read_kholding, Estate};
+use permutation_frontier_svm_tests::world::land::provinces_of;
+use permutation_frontier_svm_tests::world::World;
+use permutation_frontier_svm_tests::{Address, FrontierError as E, Instruction, Keypair, Signer};
+use permutation_rules::frontier::arms;
+use solana_instruction::AccountMeta;
+
+const MILLI: i64 = 1_000;
+/// Acceptance limits of this proposal (to be confirmed by measurement).
+const CU_MAX: u64 = 200_000;
+const TX_MAX: usize = 1_232;
+
+struct Cast {
+    c: Chain,
+    w: World,
+    a: Estate,
+    b: Estate,
+    x: Estate,
+}
+
+fn cast() -> Cast {
+    let mut c = Chain::new(Build::TestBeacon);
+    let w = World::running(&mut c, 1);
+    w.cq_set_params(&mut c, &MC_LOCAL_7D.cq);
+    w.to_bell(&mut c, 20, 5);
+    let t = provinces_of(4, Some(0))[0];
+    let a = w.cq_estate(&mut c, "a", 0, t, 0);
+    let b = w.cq_estate(&mut c, "b", 1, t, 1);
+    let x = w.cq_estate(&mut c, "x", 0, t, 2);
+    for e in [&a, &b, &x] {
+        w.enrich(&mut c, e, 5_000);
+    }
+    w.edit_kholding(&mut c, &a, |h| {
+        h.production[arms::ARMS as usize] = 2 * arms::WORKSHOP_DELTA;
+    });
+    Cast { c, w, a, b, x }
+}
+
+fn ctx(w: &World) -> AddrCtx {
+    AddrCtx {
+        season: w.a.season.to_bytes(),
+        program: program_id().to_bytes(),
+    }
+}
+
+fn grant_of(w: &World, issuer: &Estate, nonce: u32) -> Address {
+    Address::new_from_array(rt::grant(&ctx(w), issuer.citizen_tag(), nonce))
+}
+
+fn send(c: &mut Chain, ix: Instruction, signers: &[&Keypair]) -> SendResult {
+    let p = Profile::NONE
+        .with_cu(1_400_000)
+        .with_loaded(frontier_abi::budgets::LOADED_LIMIT_WORKING_DEFAULT.max(1 << 20));
+    c.send_with(&p, &[ix], signers)
+}
+
+fn code(r: SendResult) -> Fail {
+    match r {
+        Ok(_) => panic!("expected a refusal"),
+        Err(f) => f,
+    }
+}
+
+fn arms_of(c: &Chain, e: &Estate) -> i64 {
+    let h = read_kholding(&c.data(&e.holding));
+    h.stock_at(c.now)[arms::ARMS as usize]
+}
+
+impl Cast {
+    fn issue(&mut self, nonce: u32, actor: &Keypair) -> SendResult {
+        let g = grant_of(&self.w, &self.a, nonce);
+        let x = rt::IssueGrant {
+            nonce,
+            kind: rt::KIND_STOCK_SWAP,
+            max_swaps: 3,
+            max_units: 30,
+            expires_ts: self.c.now + 86_400,
+        };
+        let ix = Instruction {
+            program_id: program_id(),
+            accounts: vec![
+                AccountMeta::new_readonly(actor.pubkey(), true),
+                AccountMeta::new(actor.pubkey(), true),
+                AccountMeta::new_readonly(self.w.a.season, false),
+                AccountMeta::new(self.a.citizen, false),
+                AccountMeta::new_readonly(self.a.holding, false),
+                AccountMeta::new_readonly(self.a.province, false),
+                AccountMeta::new_readonly(self.b.citizen, false),
+                AccountMeta::new_readonly(self.b.holding, false),
+                AccountMeta::new(g, false),
+                AccountMeta::new_readonly(Address::default(), false),
+            ],
+            data: x.to_bytes().to_vec(),
+        };
+        send(&mut self.c, ix, &[actor])
+    }
+
+    fn swap_ix(&self, data: Vec<u8>, by: &Keypair, citizen: Address, g: Address) -> Instruction {
+        Instruction {
+            program_id: program_id(),
+            accounts: vec![
+                AccountMeta::new_readonly(by.pubkey(), true),
+                AccountMeta::new(by.pubkey(), true),
+                AccountMeta::new_readonly(self.w.a.season, false),
+                AccountMeta::new(citizen, false),
+                AccountMeta::new(g, false),
+                AccountMeta::new(self.a.holding, false),
+                AccountMeta::new(self.b.holding, false),
+                AccountMeta::new_readonly(self.a.province, false),
+            ],
+            data,
+        }
+    }
+}
+
+#[test]
+fn rights_round_trip_on_sbf_within_cu_and_size() {
+    let mut k = cast();
+    let a_wallet = k.a.wallet.insecure_clone();
+    let b_wallet = k.b.wallet.insecure_clone();
+    let issued = expect_lands(k.issue(0, &a_wallet), "IssueGrant");
+    let g = grant_of(&k.w, &k.a, 0);
+    // The real System program created it through the Season PDA's
+    // AllocateWithSeed CPI.
+    assert_eq!(k.c.owner(&g), Some(program_id()));
+    assert_eq!(k.c.data(&g).len(), G::SIZE);
+    assert_eq!(k.c.lamports(&g), k.c.rent(G::SIZE));
+    let f0 = arms_of(&k.c, &k.a);
+    let ix = k.swap_ix(
+        rt::ReserveSwap { units: 10, seq: 0 }.to_bytes().to_vec(),
+        &b_wallet,
+        k.b.citizen,
+        g,
+    );
+    let reserved = expect_lands(send(&mut k.c, ix, &[&b_wallet]), "ReserveSwap");
+    assert_eq!(f0 - arms_of(&k.c, &k.a), 10 * MILLI);
+    let ix = k.swap_ix(
+        rt::ExecuteSwap { seq: 0 }.to_bytes().to_vec(),
+        &b_wallet,
+        k.b.citizen,
+        g,
+    );
+    let executed = expect_lands(send(&mut k.c, ix, &[&b_wallet]), "ExecuteSwap");
+    for (what, l) in [
+        ("IssueGrant", &issued),
+        ("ReserveSwap", &reserved),
+        ("ExecuteSwap", &executed),
+    ] {
+        println!("{what}: {} CU, {} B on the wire", l.cu, l.tx_bytes);
+        assert!(l.cu <= CU_MAX, "{what}: {} CU", l.cu);
+        assert!(l.tx_bytes <= TX_MAX, "{what}: {} B", l.tx_bytes);
+    }
+}
+
+#[test]
+fn a_failed_reserve_is_rolled_back_by_the_runtime() {
+    let mut k = cast();
+    let a_wallet = k.a.wallet.insecure_clone();
+    let b_wallet = k.b.wallet.insecure_clone();
+    expect_lands(k.issue(0, &a_wallet), "IssueGrant");
+    let g = grant_of(&k.w, &k.a, 0);
+    // F holds 3 arms only: the station's debit happens first in the
+    // handler, the facility's then fails; the runtime keeps neither.
+    k.w.edit_kholding(&mut k.c, &k.a, |h| {
+        h.stores[arms::ARMS as usize].value = 3 * MILLI;
+    });
+    let (s0, g0) = (k.c.data(&k.b.holding), k.c.data(&g));
+    let ix = k.swap_ix(
+        rt::ReserveSwap { units: 4, seq: 0 }.to_bytes().to_vec(),
+        &b_wallet,
+        k.b.citizen,
+        g,
+    );
+    let f = code(send(&mut k.c, ix, &[&b_wallet]));
+    assert_eq!(f.code, Some(E::Insufficient.code()));
+    assert_eq!(k.c.data(&k.b.holding), s0);
+    assert_eq!(k.c.data(&g), g0);
+}
+
+#[test]
+fn signers_sessions_and_flags_on_sbf() {
+    let mut k = cast();
+    let a_wallet = k.a.wallet.insecure_clone();
+    let x_wallet = k.x.wallet.insecure_clone();
+    let b_wallet = k.b.wallet.insecure_clone();
+    // X (A's own nation) names B's Citizen and signs as itself.
+    expect_lands(k.issue(0, &a_wallet), "IssueGrant");
+    let g = grant_of(&k.w, &k.a, 0);
+    let ix = k.swap_ix(
+        rt::ReserveSwap { units: 1, seq: 0 }.to_bytes().to_vec(),
+        &x_wallet,
+        k.b.citizen,
+        g,
+    );
+    assert_eq!(
+        code(send(&mut k.c, ix, &[&x_wallet])).code,
+        Some(E::Auth.code())
+    );
+    // The Grant passed read-only.
+    let mut ix = k.swap_ix(
+        rt::ReserveSwap { units: 1, seq: 0 }.to_bytes().to_vec(),
+        &b_wallet,
+        k.b.citizen,
+        g,
+    );
+    ix.accounts[4].is_writable = false;
+    assert_eq!(
+        code(send(&mut k.c, ix, &[&b_wallet])).code,
+        Some(E::BadAccount.code())
+    );
+    // The program's code for a refused right is the proposal's.
+    let ix = k.swap_ix(
+        rt::ExecuteSwap { seq: 0 }.to_bytes().to_vec(),
+        &b_wallet,
+        k.b.citizen,
+        g,
+    );
+    assert_eq!(
+        code(send(&mut k.c, ix, &[&b_wallet])).code,
+        Some(rt::RightsError::NoReservation.code())
+    );
+    let _ = H::SIZE;
+}
