@@ -32,6 +32,8 @@ WYLLS の「国のチーム戦略」を、実装に渡せるゲーム設計と�
 | [docs/14-international-supply.ja.md](docs/14-international-supply.ja.md) | 追加（2026-10-30）：国を越えた小さな供給網。シナリオ、共同成果、得と費用、退出、代わりの手、権限、勝利条件の比較（採用しない）、数え方、②④の境、⑧への比較条件と失敗仮説 |
 | [docs/15-supply-consistency.ja.md](docs/15-supply-consistency.ja.md) | 整合確認（2026-10-30）：作例の全操作と実装範囲（S1 の贈与・②の候補・模擬・新しい契約。②④の成果物は取得できず未検証）、人ごとの時間順の記録、「自分の物から先に」の限定、共同・国・個人の評価の分離 |
 | [docs/16-handoff-08-win-conditions.ja.md](docs/16-handoff-08-win-conditions.ja.md) | ⑧への引き渡し（一つにまとめたもの）：0a／0b／X／Y を評価するための入力。採用はしない |
+| [docs/17-coop-connect.ja.md](docs/17-coop-connect.ja.md) | **競争以外の協力を本物のゲームにつなぐ最小版**（ブランチ `ws/01-coop-connect`）：署名付きの依頼の記録、S1 の隊商、到着の確定（④との契約）、共同・国・個人の別表示。動く経路・未接続・統合用の変更一覧 |
+| `coop/` | 国をまたぐ依頼の板と画面（`node coop/board.mjs --herald … --program … --season …`） |
 | `prototype/supply.html` | 国際供給網の最小デモ（配置は固定。交換は②を模したもの） |
 | [proposals/](proposals/README.ja.md) | 接続の差分の提案（未適用） |
 | `prototype/` | 国の卓の試作（依存なし） |
@@ -55,8 +57,9 @@ node workstreams/01-national-strategy/prototype/serve.mjs --port 8080
 ## テスト
 
 ```sh
-node --test workstreams/01-national-strategy/test/*.test.mjs        # ルール20・条件15・乱数40・回帰12・配置15・供給網18・供給網の回帰11・供給網の乱数30（161件）
+node --test workstreams/01-national-strategy/test/*.test.mjs        # ルール20・条件15・乱数40・回帰12・配置15・供給網18・供給網の回帰11・供給網の乱数30（161件）＋国をまたぐ依頼13件（`coop.test.mjs`）
 node workstreams/01-national-strategy/test/browser.smoke.mjs        # ブラウザで押す（14件）。--shots で screenshots/ に保存
+node workstreams/01-national-strategy/test/coop.browser.mjs         # 国をまたぐ依頼をブラウザで押す（8件）
 ```
 
 結果は [docs/09-test-results.ja.md](docs/09-test-results.ja.md)。**どちらも「ルールと画面が書いたとおりに動く」ことの確認で、人間が面白いと感じた証拠ではない。**

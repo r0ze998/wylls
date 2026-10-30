@@ -5,6 +5,8 @@
 | ファイル | 中身 | 触る共有物 | 確認 |
 |---|---|---|---|
 | `0001-nav-nation-table.patch` | Frontier の下のナビに「国の卓」のタブを足す（`table.html` へ、旗の絵）。英訳 `'国の卓': 'Nation table'` を足す | 共有ナビ（`permutation-server/web/frontier/index.html`）、共有翻訳（`permutation-server/web/lang/en-frontier.mjs`） | 基準 commit 4cd901d に `git apply --check` で当たることを確認。`table.html` 自体はまだない（試作は `workstreams/01-national-strategy/prototype/` にある） |
+| `0002-herald-caravan-ended.patch`（2026-10-30、④へ） | ヘラルドの `h/caravans.json` に `ended`（CARAVAN_SETTLED と CARAVAN_RAIDED の記録、新しい512件）を足す。依頼に結び付けた隊商が届いたか・どれだけかを確かめるのに要る（17章 17-3） | 共通コア（`frontier-node/crates/herald/src/caravan.rs`） | `git apply --check` で当たる。当てた状態で `cargo test --locked -p herald --lib` 39件が通る。当てた後は元に戻した |
+| `0003-s1-coop-entry.patch`（2026-10-30、⑦へ） | 村の引き出し「交易と防備」に「国をまたぐ依頼」を足し、この村を届け先にして依頼の画面を開く。開く先の住所と英訳は統合で決める | 共有 UI（`permutation-server/web/frontier/screens/s1.mjs`） | `git apply --check` で当たる。当てた状態でモジュールが読み込めることを確認 |
 
 ## 本番に入れるときに要るもの（差分はまだ書いていない）
 

@@ -1,0 +1,126 @@
+diff --git a/frontier-node/crates/herald/src/caravan.rs b/frontier-node/crates/herald/src/caravan.rs
+index 211ebe1..230bd05 100644
+--- a/frontier-node/crates/herald/src/caravan.rs
++++ b/frontier-node/crates/herald/src/caravan.rs
+@@ -35,10 +35,20 @@ pub struct Caravans {
+     pub moving: BTreeMap<(u64, u32), Value>,
+     /// `(p, q, tile)` → the vault's entry.
+     pub vaults: BTreeMap<(i32, i32, u8), Value>,
++    /// How caravans ended, oldest first, the last [`ENDED_KEEP`]: each
++    /// CARAVAN_SETTLED (`end: "settled"`, its outcome, destination and
++    /// cargo as logged) and CARAVAN_RAIDED (`end: "raided"`, take or burn,
++    /// the raider's tag, the cargo taken). A reader that ties a caravan to
++    /// something else (a request between players) learns from it whether
++    /// and what the caravan delivered; `moving` alone only shows it gone.
++    pub ended: std::collections::VecDeque<Value>,
+     /// Changed since the file was last written.
+     pub dirty: bool,
+ }
+ 
++/// How many ended caravans `h/caravans.json` keeps (oldest dropped first).
++pub const ENDED_KEEP: usize = 512;
++
+ fn place(p: &LogPlace) -> Value {
+     json!({"kind": p.kind, "p": p.p, "q": p.q, "at": p.at, "gen": p.gen, "tile": p.tile})
+ }
+@@ -85,15 +95,28 @@ impl Caravans {
+                         "path": path.to_vec(), "provinces": provinces}),
+                 );
+             }
+-            CqEvent::CaravanSettled { owner_tag, seq, .. } => {
++            CqEvent::CaravanSettled {
++                owner_tag,
++                seq,
++                outcome,
++                dst,
++                cargo,
++                ..
++            } => {
+                 self.moving.remove(&(*owner_tag, *seq));
++                self.end(json!({"ownerTag": owner_tag.to_string(), "seq": seq, "end": "settled",
++                    "outcome": outcome, "dst": place(dst), "cargo": cargo}));
+             }
+             CqEvent::CaravanRaided {
+                 owner_tag,
+                 seq,
+                 choice,
++                raider_tag,
++                taken,
+                 ..
+             } => {
++                self.end(json!({"ownerTag": owner_tag.to_string(), "seq": seq, "end": "raided",
++                    "choice": choice, "raiderTag": raider_tag.to_string(), "taken": taken}));
+                 if let Some(m) = self.moving.get_mut(&(*owner_tag, *seq)) {
+                     m["raided"] = json!(true);
+                     if *choice == frontier_abi::v2::log::raid_choice::BURN {
+@@ -198,12 +221,20 @@ impl Caravans {
+         true
+     }
+ 
++    fn end(&mut self, e: Value) {
++        if self.ended.len() == ENDED_KEEP {
++            self.ended.pop_front();
++        }
++        self.ended.push_back(e);
++    }
++
+     /// `h/caravans.json`.
+     pub fn file(&self) -> Value {
+         json!({
+             "v": 1,
+             "moving": self.moving.values().collect::<Vec<_>>(),
+             "vaults": self.vaults.values().collect::<Vec<_>>(),
++            "ended": self.ended.iter().collect::<Vec<_>>(),
+         })
+     }
+ 
+@@ -228,6 +259,10 @@ impl Caravans {
+             );
+             c.vaults.insert(key, x.clone());
+         }
++        // a checkpoint from before `ended` has none
++        if let Some(e) = v.get("ended") {
++            c.ended = e.as_array()?.iter().cloned().collect();
++        }
+         Some(c)
+     }
+ }
+@@ -360,6 +395,38 @@ mod tests {
+             fee: 0,
+         });
+         assert!(c.moving.is_empty());
++        // how each caravan ended stays readable: the raid's burn, then the settlement (LOST)
++        let ended = &c.file()["ended"];
++        assert_eq!(ended.as_array().unwrap().len(), 2);
++        assert_eq!(ended[0]["end"], json!("raided"));
++        assert_eq!(ended[0]["choice"], json!(frontier_abi::v2::log::raid_choice::BURN));
++        assert_eq!(ended[1]["end"], json!("settled"));
++        assert_eq!(ended[1]["outcome"], json!(1));
++        assert_eq!(ended[1]["ownerTag"], json!("77"));
++        assert_eq!(Caravans::from_json(&c.to_json()).unwrap().file(), c.file());
++        // an older checkpoint without `ended` still loads
++        let mut old = c.to_json();
++        old.as_object_mut().unwrap().remove("ended");
++        assert!(Caravans::from_json(&old).unwrap().ended.is_empty());
++    }
++
++    #[test]
++    fn ended_keeps_the_last_entries_only() {
++        let mut c = Caravans::default();
++        for seq in 0..(ENDED_KEEP as u32 + 3) {
++            c.fold(&CqEvent::CaravanSettled {
++                owner_tag: 5,
++                seq,
++                outcome: 0,
++                dst: here(1),
++                cargo: [0, 10, 0, 0, 0, 0, 0, 0],
++                fee: 0,
++            });
++        }
++        assert_eq!(c.ended.len(), ENDED_KEEP);
++        assert_eq!(c.ended[0]["seq"], json!(3), "the oldest dropped first");
++        assert_eq!(c.ended[ENDED_KEEP - 1]["cargo"][1], json!(10));
++        assert_eq!(c.ended[ENDED_KEEP - 1]["dst"]["kind"], json!(1));
+     }
+ 
+     /// A Vault's bytes as the program writes them (`layout::s1::vault`).
