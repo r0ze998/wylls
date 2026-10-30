@@ -161,7 +161,7 @@ import { tileHex, ringProvinces, wedgeOf } from './fgeo.mjs';
 import { project, RADIUS } from '../map.mjs';
 import { identityOf, displayName, withProfile, tagKey } from './people/identity.mjs';
 import { lifeAt, lordLine } from './people/life.mjs';
-import { instantHomeEnabled, homeSites, sameHome } from './home.mjs';
+import { instantHomeEnabled, homeSites, seasonPlace, sameHome } from './home.mjs';
 
 const $ = id => globalThis.document?.getElementById(id);
 const setText = (id, text) => { const el = $(id); if (el && el.textContent !== text) el.textContent = text; };
@@ -3655,7 +3655,7 @@ export async function boot() {
         // The inspector reads the province envelope (loaded once, on demand).
         const chooseHome = () => {
           if (FS.selected !== hit || !instantHomeEnabled(FS.season) || FS.holdings?.length || FS.homeChoice?.busy || !Number.isInteger(hit.idx)) return;
-          const candidate = homeSites(FS.provinces.get(`${hit.p},${hit.q}`)?.province, { faction: FS.citizen?.faction ?? null, nowBell: FS.nowBell, ringsOpen: FS.record?.rings?.length ?? 0 }).find(s => s.tile === hit.idx);
+          const candidate = homeSites(FS.provinces.get(`${hit.p},${hit.q}`)?.province, { faction: FS.citizen?.faction ?? null, nowBell: FS.nowBell, ringsOpen: FS.record?.rings?.length ?? 0, place: seasonPlace(FS.season) }).find(s => s.tile === hit.idx);
           if (!candidate) return;
           const choice = FS.homeChoice;
           if (!choice) return;

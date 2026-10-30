@@ -23,7 +23,7 @@ use fclient::ix::Site;
 use fclient::land::{cohort_free, NO_TICKET};
 use frontier_abi::v2::layout::player::citizen as C2;
 use frontier_agents::obs::Observation;
-use permutation_rules::frontier::geometry::ProvinceCoord;
+use permutation_rules::frontier::geometry::{home_nation, ProvinceCoord};
 
 /// `fjoin.mjs` `hash32`: FNV-1a over the string's UTF-16 code units.
 pub fn hash32(s: &str) -> u32 {
@@ -45,13 +45,19 @@ pub fn home_sites(
     now_bell: u32,
     rings_opened: u16,
     max_ring: Option<u16>,
+    place: Option<(u8, u8, [u8; 32])>,
 ) -> Vec<Site> {
     let pc = ProvinceCoord::new(pv.p as i32, pv.q as i32);
     let ring = pc.ring();
     if ring < 2 || ring >= rings_opened as u32 || max_ring.is_some_and(|m| ring > m as u32) {
         return vec![];
     }
-    if pc.wedge() != Some(faction) {
+    // The season's placement (`home_nation`; the wedge when not known).
+    let nation = match place {
+        Some((placement, hmr, seed)) => home_nation(pc, placement, hmr, &seed),
+        None => pc.wedge(),
+    };
+    if nation != Some(faction) {
         return vec![];
     }
     if pv.cohorts.iter().any(|c| !cohort_free(c, now_bell)) {
@@ -96,10 +102,15 @@ pub fn plan_home(obs: &Observation, faction: u8, seed: &str) -> Option<Site> {
         .as_ref()
         .and_then(|s| s.conquest.as_ref())
         .map(|c| c.heartland_max_ring as u16);
+    let place = obs.season.season.as_ref().and_then(|s| {
+        s.conquest
+            .as_ref()
+            .map(|c| (c.placement, c.heartland_max_ring, s.genesis_seed))
+    });
     let mut all: Vec<(u32, u32, Site)> = obs
         .provinces
         .values()
-        .flat_map(|v| home_sites(&v.province, faction, bell, rings, max_ring))
+        .flat_map(|v| home_sites(&v.province, faction, bell, rings, max_ring, place))
         .map(|s| {
             (
                 ProvinceCoord::new(s.p as i32, s.q as i32).ring(),
