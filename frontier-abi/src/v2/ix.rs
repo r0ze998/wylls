@@ -164,6 +164,70 @@ ix_data_v2! {
     ExtendFrontier { d: u16 }
 }
 
+ix_data_v2! {
+    /// 0xC2 (P, custody): the vault's owner opens a lot of `resource` for
+    /// the Citizen at account 5, committing `quota` whole units of the
+    /// vault's capacity.
+    OpenLot { resource: u8, quota: u32 }
+    /// 0xC3 (P, custody): the vault's owner sets the lot's quota.
+    SetLotQuota { quota: u32 }
+    /// 0xC4 (P, custody): the owner's `seq`-th caravan (= `Citizen.CARAVANS`)
+    /// takes `qty` whole units of its general stock at the source account
+    /// to its lot, along `steps` packed steps; `fee` as SendCaravan's.
+    DepositLot { seq: u32, qty: u32, steps: u8, path: [u8; 12], fee: u64 }
+    /// 0xC5 (P, custody): the owner reserves `qty` whole units in order
+    /// `slot` for the Citizen at account 6, if the lot's `NONCE` is `nonce`:
+    /// `kind` 1 ship to the vault `(dst_p, dst_q, dst_tile)` of generation
+    /// `dst_gen` (account 7), 2 use for `purpose`; until `expires_bell`.
+    SetLotOrder {
+        slot: u8,
+        nonce: u32,
+        kind: u8,
+        qty: u32,
+        expires_bell: u32,
+        dst_p: i16,
+        dst_q: i16,
+        dst_tile: u8,
+        dst_gen: u8,
+        purpose: u16,
+    }
+    /// 0xC6 (P, custody): the owner ends order `id` in `slot`.
+    RevokeLotOrder { slot: u8, id: u32 }
+    /// 0xC7 (P, custody): the signer's `seq`-th caravan carries `qty` whole
+    /// units from the lot to the owner's lot at account 7: the owner
+    /// (`slot` 0xFF) or the grantee of ship order `id` in `slot`.
+    ShipLot { seq: u32, slot: u8, id: u32, qty: u32, steps: u8, path: [u8; 12], fee: u64 }
+    /// 0xC8 (D, custody): a custody caravan's settlement into its lot.
+    SettleCustody { beneficiary: [u8; 32] }
+    /// 0xC9 (P, custody): the grantee of use order `id` in `slot` uses
+    /// `qty` whole units for `purpose`.
+    ConsumeLot { slot: u8, id: u32, qty: u32, purpose: u16 }
+    /// 0xCA (D, custody): the lot's forfeiture after a seizure of its
+    /// vault, and the drop of its inbound caravans taken on the way (the
+    /// listed caravans).
+    ReconcileLot {}
+    /// 0xCB (P, custody): an empty lot closes.
+    CloseLot {}
+    /// 0xCC (P, custody): the owner's `seq`-th caravan takes `qty` whole
+    /// units from the lot to its own place (a withdrawal into the general
+    /// stock there; an ordinary caravan).
+    WithdrawLot {
+        seq: u32,
+        qty: u32,
+        dst_kind: u8,
+        dst_p: i16,
+        dst_q: i16,
+        dst_at: u8,
+        dst_gen: u8,
+        steps: u8,
+        path: [u8; 12],
+        fee: u64,
+    }
+}
+
+/// ShipLot's `slot` when the owner ships (no order).
+pub const SHIP_BY_OWNER: u8 = 0xFF;
+
 /// SendCaravan's and RaidCaravan's cargo as milli-units (whole units ×
 /// 1,000), checked.
 pub fn cargo_milli(cargo: &[u8; 32]) -> Option<[i64; 8]> {
@@ -330,6 +394,17 @@ pub fn fixed_len(ix: Ix) -> Option<usize> {
         Ix::RaidDomestic => RaidDomestic::LEN,
         Ix::FastForward => FastForward::LEN,
         Ix::ExtendFrontier => ExtendFrontier::LEN,
+        Ix::OpenLot => OpenLot::LEN,
+        Ix::SetLotQuota => SetLotQuota::LEN,
+        Ix::DepositLot => DepositLot::LEN,
+        Ix::SetLotOrder => SetLotOrder::LEN,
+        Ix::RevokeLotOrder => RevokeLotOrder::LEN,
+        Ix::ShipLot => ShipLot::LEN,
+        Ix::SettleCustody => SettleCustody::LEN,
+        Ix::ConsumeLot => ConsumeLot::LEN,
+        Ix::ReconcileLot => ReconcileLot::LEN,
+        Ix::CloseLot => CloseLot::LEN,
+        Ix::WithdrawLot => WithdrawLot::LEN,
         Ix::FileOutpost | Ix::CreateSeason => return None,
         other => return crate::ix::fixed_len(other.to_v1()?),
     })
@@ -361,6 +436,17 @@ pub fn wire_of(ix: Ix) -> Option<&'static [(&'static str, usize)]> {
         Ix::RaidDomestic => RaidDomestic::WIRE,
         Ix::FastForward => FastForward::WIRE,
         Ix::ExtendFrontier => ExtendFrontier::WIRE,
+        Ix::OpenLot => OpenLot::WIRE,
+        Ix::SetLotQuota => SetLotQuota::WIRE,
+        Ix::DepositLot => DepositLot::WIRE,
+        Ix::SetLotOrder => SetLotOrder::WIRE,
+        Ix::RevokeLotOrder => RevokeLotOrder::WIRE,
+        Ix::ShipLot => ShipLot::WIRE,
+        Ix::SettleCustody => SettleCustody::WIRE,
+        Ix::ConsumeLot => ConsumeLot::WIRE,
+        Ix::ReconcileLot => ReconcileLot::WIRE,
+        Ix::CloseLot => CloseLot::WIRE,
+        Ix::WithdrawLot => WithdrawLot::WIRE,
         Ix::FileOutpost | Ix::CreateSeason => return None,
         other => return crate::ix::wire_of(other.to_v1()?),
     })
@@ -391,6 +477,25 @@ mod tests {
             1 + 2 + 2 + 1 + 1 + 1 + 2 + 2 + 1 + 1 + 1 + 12
         );
         assert_eq!(DefaultRaid::LEN, 1 + 2 + 2 + 1 + 1 + 12 + 32);
+        // Custody
+        assert_eq!(OpenLot::LEN, 6);
+        assert_eq!(DepositLot::LEN, 1 + 4 + 4 + 1 + 12 + 8);
+        assert_eq!(SetLotOrder::LEN, 1 + 1 + 4 + 1 + 4 + 4 + 2 + 2 + 1 + 1 + 2);
+        assert_eq!(ShipLot::LEN, 1 + 4 + 1 + 4 + 4 + 1 + 12 + 8);
+        let o = SetLotOrder {
+            slot: 2,
+            nonce: 7,
+            kind: 1,
+            qty: 200,
+            expires_bell: 900,
+            dst_p: -1,
+            dst_q: 4,
+            dst_tile: 20,
+            dst_gen: 1,
+            purpose: 0,
+        };
+        assert_eq!(SetLotOrder::decode(&o.to_bytes()), Ok(o));
+        assert_eq!(tag_of(&o.to_bytes()), Ok(Ix::SetLotOrder));
         let units = [0, 120, 0, 40, 9, 0, 0, 0];
         let m = cargo_milli(&cargo_bytes(&units)).unwrap();
         assert_eq!(m[1], 120_000);

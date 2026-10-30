@@ -670,6 +670,41 @@
       "keeper": "refused"
     },
     {
+      "code": 100,
+      "name": "CustodyCapacity",
+      "program": true,
+      "mc": true,
+      "keeper": "refused"
+    },
+    {
+      "code": 101,
+      "name": "CustodyNoSlot",
+      "program": true,
+      "mc": true,
+      "keeper": "refused"
+    },
+    {
+      "code": 102,
+      "name": "OrderExpired",
+      "program": true,
+      "mc": true,
+      "keeper": "refused"
+    },
+    {
+      "code": 103,
+      "name": "LotForfeited",
+      "program": true,
+      "mc": true,
+      "keeper": "refused"
+    },
+    {
+      "code": 104,
+      "name": "LotNotEmpty",
+      "program": true,
+      "mc": true,
+      "keeper": "refused"
+    },
+    {
       "code": 170,
       "name": "ResidentNotSigned",
       "program": true,

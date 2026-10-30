@@ -114,6 +114,20 @@ pub const MC_ROWS: &[(Ix, u32, u32, u32)] = &[
     // S1 (map growth): reads the Season and the Frontier, writes one u16
     // and logs; OpenRing's row (it does strictly less), unmeasured.
     (Ix::ExtendFrontier, 30_000, 0, 600),
+    // Custody (workstream 10): placeholders until measured in LiteSVM.
+    // DepositLot, ShipLot and WithdrawLot walk and claim slots as
+    // SendCaravan does; the rest touch one lot and one vault.
+    (Ix::OpenLot, 30_000, 0, 600),
+    (Ix::SetLotQuota, 15_000, 0, 500),
+    (Ix::DepositLot, 130_000, 0, 1_000),
+    (Ix::SetLotOrder, 20_000, 0, 600),
+    (Ix::RevokeLotOrder, 10_000, 0, 500),
+    (Ix::ShipLot, 130_000, 0, 1_100),
+    (Ix::SettleCustody, 45_000, 0, 700),
+    (Ix::ConsumeLot, 15_000, 0, 500),
+    (Ix::ReconcileLot, 30_000, 0, 600),
+    (Ix::CloseLot, 15_000, 0, 500),
+    (Ix::WithdrawLot, 120_000, 0, 1_000),
 ];
 
 /// The v2 row of `ix`.
@@ -270,7 +284,7 @@ pub const S1_SETTLE_EXTRA_CU: u32 = 20_000;
 /// The owner instructions that settle a holding first (`load_touched` in
 /// `proc/holding.rs`, `host.rs`, `caravan.rs`, `structure.rs`,
 /// `conquest.rs`, `citizen.rs`).
-pub const S1_SETTLES: [Ix; 14] = [
+pub const S1_SETTLES: [Ix; 15] = [
     Ix::Harvest,
     Ix::Build,
     Ix::Train,
@@ -285,6 +299,8 @@ pub const S1_SETTLES: [Ix; 14] = [
     Ix::FortGarrison,
     Ix::DeclareSiege,
     Ix::FileOutpost,
+    // Custody: a deposit from a holding pays from it as SendCaravan does.
+    Ix::DepositLot,
 ];
 
 /// The keeper's instructions that settle a holding (`settle_tiered` in
