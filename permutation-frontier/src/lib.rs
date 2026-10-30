@@ -216,6 +216,18 @@ pub fn dispatch(
         Ix::RaidDomestic => caravan::raid_domestic(p, a, data),
         // S1 (map growth): a resting Province in closed form.
         Ix::FastForward => clash::fast_forward(p, a, data),
+        // Custody (workstream 10): lots, carriers and users.
+        Ix::OpenLot => custody::open_lot(p, a, data),
+        Ix::SetLotQuota => custody::set_lot_quota(p, a, data),
+        Ix::DepositLot => custody::deposit_lot(p, a, data),
+        Ix::SetLotOrder => custody::set_lot_order(p, a, data),
+        Ix::RevokeLotOrder => custody::revoke_lot_order(p, a, data),
+        Ix::ShipLot => custody::ship_lot(p, a, data),
+        Ix::SettleCustody => custody::settle_custody(p, a, data),
+        Ix::ConsumeLot => custody::consume_lot(p, a, data),
+        Ix::ReconcileLot => custody::reconcile_lot(p, a, data),
+        Ix::CloseLot => custody::close_lot(p, a, data),
+        Ix::WithdrawLot => custody::withdraw_lot(p, a, data),
     };
     heap::trace_checkpoint(0xffff);
     r

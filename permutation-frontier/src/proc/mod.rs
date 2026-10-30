@@ -57,6 +57,7 @@ pub mod caravan;
 pub mod citizen;
 pub mod clash;
 pub mod conquest;
+pub mod custody;
 pub mod defence;
 pub mod holding;
 pub mod host;
