@@ -23,6 +23,7 @@ import { territoryEnabled } from '../territory.mjs';
 import { DEPART_STAMINA } from '../fmarch.mjs';
 import { conquestOn } from '../hud/keephand.mjs';
 import { conquestObjective, renderConquestGuide } from './conquestguide.mjs';
+import { turnLine } from '../seasonterms.mjs';
 
 const TITLE = {
   welcome: () => L`ようこそ`,
@@ -38,7 +39,7 @@ const TITLE = {
   done: () => L`完了`,
 };
 const DO = {
-  welcome: () => L`五つの言葉だけ覚えましょう。村（あなたの拠点）、軍勢（動かす兵）、ターン（10分ごとの区切り）、進軍（封をした移動）、探索（斥候で周りを調べる）です。`,
+  welcome: () => L`五つの言葉だけ覚えましょう。村（あなたの拠点）、軍勢（動かす兵）、ターン（${turnLine()}ごとの区切り）、進軍（封をした移動）、探索（斥候で周りを調べる）です。`,
   // stage-neutral (a returning or refugee player too), following the automatic ticket (review finding 9)
   join: FS => {
     const stage = FS.land?.stage ?? 'none', st = FS.autoTicket?.state;

@@ -5,6 +5,7 @@
 import { html } from '../../util.mjs';
 import { L } from '../../lang.mjs';
 import { icon } from './icons.mjs';
+import { turnLine } from '../seasonterms.mjs';
 
 /**
  * The seal in ONE sentence, the same wherever it is said (UX design 11.13): the order card (hud/marchcard.mjs), the
@@ -17,7 +18,8 @@ export const sealLine = () => L`行き先と構えは封印され、到着のタ
 
 export const TERMS = Object.freeze({
   // the one line that ties the bell to the turn (every number on the screen is a turn's; the bell is what tolls)
-  bell: { name: () => L`ターン`, text: () => L`10分ごとの区切りがターンです。同じターンに同じ州へ着いた軍勢の衝突は、まとめて一度に決まります。守り手に数えられるのは、ターンの始まりにそこにいた軍勢です。` },
+  // (the length from the clock, never typed: frontier/seasonterms.mjs — on a faster local clock the real time too)
+  bell: { name: () => L`ターン`, text: () => L`${turnLine()}ごとの区切りがターンです。同じターンに同じ州へ着いた軍勢の衝突は、まとめて一度に決まります。守り手に数えられるのは、ターンの始まりにそこにいた軍勢です。` },
   stance: { name: () => L`構え`, text: () => L`進軍の戦い方です。突撃は側撃に、側撃は迎撃に、迎撃は突撃に強く、待機の構えには相性がありません。` },
   retreat: { name: () => L`撤退の倍率`, text: () => L`守り手の兵が自軍のこの倍率を超えていたら、戦わずに引き返します（損失なし）。` },
   seal: { name: () => L`封`, text: () => `${sealLine()}${L`ほかの人に見えるのは、出発したこと、出発地、兵の数、到着のターンです。到着のターンが始まると、あなたの端末が先に封を開けることがあります。そのときにはもう、そのターンの到着も守り手も変えられません。`}` },
