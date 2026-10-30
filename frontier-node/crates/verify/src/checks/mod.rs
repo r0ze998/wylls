@@ -16,6 +16,7 @@ pub mod v22_outposts;
 pub mod v23_caravans;
 pub mod v24_structures;
 pub mod v25_nations;
+pub mod v26_custody;
 pub mod v2_program;
 pub mod v3_random;
 pub mod v4_windows;
@@ -114,6 +115,27 @@ impl Ctx<'_> {
     ) {
         self.push(
             Severity::Warn,
+            check,
+            code,
+            entity.into(),
+            bell,
+            tx,
+            detail.into(),
+        );
+    }
+    /// What the check found cannot be verified by this build (UNVERIFIABLE
+    /// unless a FAIL exists), with its own code.
+    pub fn unverifiable(
+        &mut self,
+        check: &'static str,
+        code: &str,
+        entity: impl Into<String>,
+        bell: u32,
+        tx: Option<usize>,
+        detail: impl Into<String>,
+    ) {
+        self.push(
+            Severity::Unverifiable,
             check,
             code,
             entity.into(),
@@ -241,6 +263,10 @@ pub fn run(input: &Input) -> Report {
         v25_nations::run(&mut cx);
         ran.push("V25:nations");
     }
+    // Workstream 10: custody has no check yet; any trace of it is never a
+    // PASS (every season: a season without custody FAILs on it).
+    v26_custody::run(&mut cx);
+    ran.push("V26:custody-guard");
     ran.push("V10");
     counts(&mut cx);
     let verdict = if cx.findings.iter().any(|x| x.severity == Severity::Fail) {

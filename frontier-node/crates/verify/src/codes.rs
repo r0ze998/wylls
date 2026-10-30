@@ -168,3 +168,12 @@ pub const WARN_CODES: &[&str] = &[
     CONSERVATION_GAP,
     PREFUNDED,
 ];
+// Custody (workstream 10): no V26 yet.
+/// A custody trace (a landed custody instruction, a custody record, a Lot
+/// account, custody fields in a Vault or Caravan) in a season whose program
+/// has no custody (ruleset up to `RULESET_HASH_V3`): that program refuses
+/// the tags, so the history is not its own.
+pub const CUSTODY_IN_PROGRAM_WITHOUT_IT: &str = "CustodyInProgramWithoutIt";
+/// A custody trace in a custody season (`RULESET_HASH_V4`): V26 does not
+/// exist, so the history cannot be verified (never PASS).
+pub const CUSTODY_UNVERIFIED: &str = "CustodyUnverified";
