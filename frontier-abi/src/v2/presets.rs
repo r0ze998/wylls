@@ -55,7 +55,9 @@ pub mod cq_layout {
         RETIRE_HOSTS @ 74 : "u8" = 1;
         RELATIONS @ 75 : "u8" = 1;
         FLAGS @ 76 : "u8" = 1;
-        RSV @ 77 : "rsv" = 51;
+        PLACEMENT @ 77 : "u8" = 1;
+        R_MAX_CEILING @ 78 : "u16" = 2;
+        RSV @ 80 : "rsv" = 48;
     );
 }
 
@@ -158,6 +160,11 @@ pub struct ConquestParams {
     pub retire_hosts: u8,
     pub relations: u8,
     pub flags: u8,
+    /// Home placement mode (unit A owns its meaning; 0 = by wedge).
+    pub placement: u8,
+    /// Map growth: the outermost ring ExtendFrontier may raise the season
+    /// to (0 = no extension: `r_max` is final).
+    pub r_max_ceiling: u16,
 }
 
 impl ConquestParams {
@@ -215,7 +222,9 @@ impl ConquestParams {
             & wr_u16(&mut d, L::OUTPOST_CLOSE_BELLS, self.outpost_close_bells)
             & wr_u8(&mut d, L::RETIRE_HOSTS, self.retire_hosts)
             & wr_u8(&mut d, L::RELATIONS, self.relations)
-            & wr_u8(&mut d, L::FLAGS, self.flags);
+            & wr_u8(&mut d, L::FLAGS, self.flags)
+            & wr_u8(&mut d, L::PLACEMENT, self.placement)
+            & wr_u16(&mut d, L::R_MAX_CEILING, self.r_max_ceiling);
         d
     }
 
@@ -257,6 +266,8 @@ impl ConquestParams {
             retire_hosts: rd_u8(d, L::RETIRE_HOSTS)?,
             relations: rd_u8(d, L::RELATIONS)?,
             flags: rd_u8(d, L::FLAGS)?,
+            placement: rd_u8(d, L::PLACEMENT)?,
+            r_max_ceiling: rd_u16(d, L::R_MAX_CEILING)?,
         })
     }
 
@@ -396,6 +407,15 @@ impl SeasonParamsV2 {
         {
             return Err("dormancy timers differ");
         }
+        // Map growth: 0, or above `r_max` and within the program's hard
+        // maximum (geometry `R_MAX_HARD`).
+        let ceiling = self.cq.r_max_ceiling;
+        if ceiling != 0
+            && (ceiling <= self.base.r_max
+                || ceiling > permutation_rules::frontier::geometry::R_MAX_HARD)
+        {
+            return Err("r_max_ceiling");
+        }
         self.cq.validate(self.base.end_bell)
     }
 
@@ -457,6 +477,8 @@ pub const FRONTIER_7: ConquestParams = ConquestParams {
     retire_hosts: 1,
     relations: 0,
     flags: 0,
+    placement: 0,
+    r_max_ceiling: 0,
 };
 
 /// Frontier-28's conquest block (§3.12).
@@ -688,6 +710,26 @@ mod tests {
         assert_eq!(bad(|p| p.base.program_version = 1), Err("program_version"));
         assert_eq!(bad(|p| p.cq.relations = 1), Err("relations"));
         assert_eq!(bad(|p| p.cq.flags = 1), Err("flags"));
+        // Map growth: 0 (no extension), or above r_max (16) and ≤ 128.
+        assert_eq!(bad(|p| p.cq.r_max_ceiling = 16), Err("r_max_ceiling"));
+        assert_eq!(bad(|p| p.cq.r_max_ceiling = 129), Err("r_max_ceiling"));
+        assert_eq!(bad(|p| p.cq.r_max_ceiling = 17), Ok(()));
+        assert_eq!(bad(|p| p.cq.r_max_ceiling = 128), Ok(()));
+        {
+            // The ceiling round-trips at bytes 78..80; existing presets keep 0.
+            let mut p = base;
+            p.cq.r_max_ceiling = 24;
+            let b = p.cq.to_bytes();
+            assert_eq!(
+                &b[cq_layout::R_MAX_CEILING..cq_layout::R_MAX_CEILING + 2],
+                &24u16.to_le_bytes()
+            );
+            assert_eq!(ConquestParams::from_bytes(&b), Some(p.cq));
+            assert_eq!(
+                base.cq.to_bytes()[cq_layout::PLACEMENT..cq_layout::RSV],
+                [0u8; 3]
+            );
+        }
         assert_eq!(
             bad(|p| p.cq.heartland_max_ring = 1),
             Err("heartland_max_ring")

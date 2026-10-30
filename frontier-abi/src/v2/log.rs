@@ -143,6 +143,7 @@ cq_kinds! {
     RAID_OPENED = 101; key ["owner_tag": 8, "seq": 4]; payload ["p": 4, "q": 4, "bell": 4, "raider_host": 8, "raider_tag": 8, "domestic": 1];
     FORT_GARRISONED = 102; key ["p": 4, "q": 4, "tile": 1]; payload ["owner_tag": 8, "troops": 4, "pend_bell": 4, "pend": 2, "holding_key": 8];
     REST = 103; key ["p": 4, "q": 4, "from": 4]; payload ["to": 4, "holder": 1, "territory": 4, "spawns": 1, "digest": 32];
+    FRONTIER_EXTENDED = 104; key ["d": 2]; payload ["from": 2, "ceiling": 2];
 }
 
 /// S1 caravan places as logged (8 B): `kind u8 ‖ p i16 ‖ q i16 ‖
@@ -814,6 +815,10 @@ pub fn chains_of(kind: AnyKind, key: &[u8], payload: &[u8]) -> Option<Chains> {
             let (p, q) = pq()?;
             c.push(E::Province, Base(EntityRef::Province { p, q }), false);
         }
+        CqKind::FRONTIER_EXTENDED => {
+            // ExtendFrontier: the Frontier alone.
+            c.push(E::Frontier, Base(EntityRef::Frontier), false);
+        }
     }
     c.sort();
     Some(c)
@@ -1071,7 +1076,7 @@ mod tests {
                 k.body_len()
             );
         }
-        assert_eq!(CQ_SPECS.len(), 23, "MC's 9 and S1's 14");
+        assert_eq!(CQ_SPECS.len(), 24, "MC's 9 and S1's 15");
         assert_eq!(AnyKind::Cq(CqKind::CONQUEST).body_len(), 137);
         assert_eq!(
             AnyKind::Cq(CqKind::CONQUEST).payload_len(),
