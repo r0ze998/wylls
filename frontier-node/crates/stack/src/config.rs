@@ -151,6 +151,14 @@ pub struct StackConfig {
     /// fast-forwarded when woken instead of written every turn;
     /// `docs/frontier/map-growth/keeper-load-rules.ja.md`). Off by default.
     pub keeper_rest: bool,
+    /// Map growth, a local candidate: keeper A writes `extend = true` and
+    /// sends ExtendFrontier when the season's `r_max_ceiling` allows it
+    /// (keeper cap: ring 17, the prize program's). Off by default.
+    pub keeper_extend: bool,
+    /// Map growth: the season's `r_max_ceiling` (`--r-max-ceiling N`,
+    /// `--conquest` only; above `r_max`, at most 128; with `--prize-so` at
+    /// most 17, the pool's tally). Unset: 0, the preset (no extension).
+    pub r_max_ceiling: Option<u16>,
     /// Test-asset prize pool: the permutation-prize build to deploy next to
     /// the game (scripts/build-prize.sh). With it the season's join gate is
     /// a key the relay holds, a test mint and the season's pool are created,
@@ -291,6 +299,8 @@ impl Default for StackConfig {
             ring_theta_bps: None,
             r_max: None,
             keeper_rest: false,
+            keeper_extend: false,
+            r_max_ceiling: None,
             prize_so: None,
             entry_fee: 25_000_000,
             prize_ops_bps: 2_000,
@@ -449,6 +459,12 @@ impl StackConfig {
         }
         if let Some(v) = b!("keeper_rest") {
             c.keeper_rest = v;
+        }
+        if let Some(v) = b!("keeper_extend") {
+            c.keeper_extend = v;
+        }
+        if let Some(v) = i!("r_max_ceiling") {
+            c.r_max_ceiling = Some(r_max(v as u64)?);
         }
         if let Some(v) = s!("prize_so") {
             c.prize_so = Some(v.into());
@@ -692,6 +708,13 @@ impl StackConfig {
             if self.r_max.is_some_and(|r| r > 17) {
                 return Err("--prize-so: the prize pool takes --r-max ≤ 17".into());
             }
+            // Map growth: InitPool refuses a ceiling past its tally too.
+            if self.r_max_ceiling.is_some_and(|r| r > 17) {
+                return Err("--prize-so: the prize pool takes --r-max-ceiling ≤ 17".into());
+            }
+        }
+        if self.r_max_ceiling.is_some() && !self.conquest {
+            return Err("--r-max-ceiling: map growth is an S1 season's (needs --conquest)".into());
         }
         if !(self.preseason_scale > 0.0 && self.preseason_scale <= 100_000.0) {
             return Err("preseason_scale in (0, 100000]".into());
@@ -818,6 +841,8 @@ impl StackConfig {
         v["ring_theta_bps"] = json!(self.ring_theta_bps);
         v["r_max"] = json!(self.r_max);
         v["keeper_rest"] = json!(self.keeper_rest);
+        v["keeper_extend"] = json!(self.keeper_extend);
+        v["r_max_ceiling"] = json!(self.r_max_ceiling);
         v
     }
 
@@ -949,6 +974,7 @@ pub fn apply_flags(c: &mut StackConfig, flags: &[(String, Option<String>)]) -> R
             "keep-bells" => c.keep_bells = Some(count(k, v)? as u16),
             "ring-theta-bps" => c.ring_theta_bps = Some(theta_bps(count(k, v)?)?),
             "r-max" => c.r_max = Some(r_max(count(k, v)?)?),
+            "r-max-ceiling" => c.r_max_ceiling = Some(r_max(count(k, v)?)?),
             "prize-so" => c.prize_so = Some(need(k, v)?.into()),
             "entry-fee" => c.entry_fee = count(k, v)?,
             "prize-ops-bps" => c.prize_ops_bps = count(k, v)? as u16,
@@ -1001,6 +1027,7 @@ pub fn apply_flags(c: &mut StackConfig, flags: &[(String, Option<String>)]) -> R
             "runs-dir" => c.runs_dir = Some(need(k, v)?.into()),
             "season-end-at-play-end" => c.season_end_at_play_end = true,
             "keeper-rest" => c.keeper_rest = true,
+            "keeper-extend" => c.keeper_extend = true,
             "no-season-end-at-play-end" => c.season_end_at_play_end = false,
             "chaos-force" => c.chaos_force.push(parse_force(&need(k, v)?)?),
             "viewer-think-ms" => c.viewer_think_ms = count(k, v)?,
@@ -1033,6 +1060,7 @@ pub const SWITCHES: &[&str] = &[
     "season-end-at-play-end",
     "no-season-end-at-play-end",
     "keeper-rest",
+    "keeper-extend",
     "no-viewer-follow-status",
     "json",
     "strict",
@@ -1340,5 +1368,14 @@ mod tests {
         let f = split_flags(&["--keeper-rest"].map(String::from)).unwrap();
         apply_flags(&mut c, &f).unwrap();
         assert_eq!(c.to_json()["keeper_rest"], json!(true));
+        // --keeper-extend and --r-max-ceiling: off / unset by default
+        assert!(!c.keeper_extend && c.r_max_ceiling.is_none());
+        let f =
+            split_flags(&["--keeper-extend", "--r-max-ceiling", "8"].map(String::from)).unwrap();
+        apply_flags(&mut c, &f).unwrap();
+        assert_eq!(c.to_json()["keeper_extend"], json!(true));
+        assert_eq!(c.to_json()["r_max_ceiling"], json!(8));
+        let f = split_flags(&["--r-max-ceiling", "129"].map(String::from)).unwrap();
+        assert!(apply_flags(&mut StackConfig::default(), &f).is_err());
     }
 }
