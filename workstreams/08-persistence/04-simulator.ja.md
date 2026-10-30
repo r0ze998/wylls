@@ -34,6 +34,16 @@ node run.mjs --seeds 30 --first-seed 101 --only core --out ../results/replicatio
 
 シーズン終了時の再現テスト（11章）は、別の手順です：`repro/run.sh`。Agave 3.1.9 が要ります。
 
+**初期配置の比較（16章）：** `placement.mjs` を使います。地理の層（`geo.mjs`）は、ここでだけ有効になります。
+
+```sh
+for g in main distance populations robustness interaction localops; do
+  node placement.mjs --seeds 30 --only $g --out ../results/placement/$g
+done
+node placement.mjs --seeds 30 --first-seed 101 --only main     --out ../results/placement/replication-seeds101-130/main
+node placement.mjs --seeds 30 --first-seed 101 --only localops --out ../results/placement/replication-seeds101-130/localops
+```
+
 ## 4-3. 構成
 
 | ファイル | 中身 |
@@ -45,6 +55,8 @@ node run.mjs --seeds 30 --first-seed 101 --only core --out ../results/replicatio
 | `world.mjs` | 世界の1時間ごとの更新。区切り、所有権の扱い、解散、離脱と復帰 |
 | `metrics.mjs`、`stats.mjs` | 測定（定義は9章） |
 | `paired.mjs` | 対になった差の統計（ブートストラップ） |
+| `geo.mjs` | 初期配置の比較用の地理：州の格子（コードと同じ環とくさび）、配置の規則（PL-W、PL-G、PL-S）、道の危険、出現した時点の条件。既定では無効 |
+| `placement.mjs` | 配置の比較の実行と表。同じ条件の中で、配置どうしを同じ seed で対にする |
 | `run.mjs`、`report.mjs` | 実験の一覧、集計、逆転の判定の規則（`REVERSAL_RULE`）、表 |
 | `sim.test.mjs` | テスト |
 
@@ -109,7 +121,7 @@ node run.mjs --seeds 30 --first-seed 101 --only core --out ../results/replicatio
 - 代理（AI）の費用。代理つきの人は、無料で毎時間動ける（14章）。
 - 賞金・お金。このモデルには通貨も報酬もない。「国の勝ち」は砦を持った時間だけで測る。
 
-## 4-7. テスト（`sim.test.mjs`、20件）
+## 4-7. テスト（`sim.test.mjs`、25件）
 
 | テスト | 確かめること |
 |---|---|
@@ -133,3 +145,8 @@ node run.mjs --seeds 30 --first-seed 101 --only core --out ../results/replicatio
 | 別村の費用 | 費用を全額払えるまで、別の村は作られない |
 | 集計 | ジニ係数、分位点（∞を含む）、HHI |
 | 表 | 小さな実験から表を書き出せる |
+| 地理：州の格子 | 環 d に 6d 州、環2〜3の各くさびに5州、sextant がコードと同じ、目標が6つのくさびに1つずつ |
+| 地理：配置の規則 | PL-W は自国のくさび、PL-G は同国の集団（k 人以下）、PL-S は1国が複数のくさびに散る。州の定員を守る |
+| 地理：保存則と配置し直し | 3つの配置×3つの世界の構造で物資が保存される。世界を作り直す案では、全員が配置し直される |
+| 地理：局地の作戦 | 局地の作戦では追加の作戦が開かれ、1国1作戦では開かれない |
+| 地理なし | 既定の実行では、どの村も州を持たない（既存の結果に影響しない） |

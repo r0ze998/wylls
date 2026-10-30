@@ -1,6 +1,6 @@
 # ⑧ 続く世界で、新人・敗者・離席した人にも役割を残す設計
 
-**状態（2026-10-30）：** 抽象モデルによる比較と、仮説の整理です。
+**状態（2026-10-30。初期配置の比較を追加）：** 抽象モデルによる比較と、仮説の整理です。
 
 - A・B1・B2・C の**いずれも採用していません。**
 - 次の検証の候補は B2（B1＋軍解散）です。A と C は比較の対象として残します。
@@ -34,8 +34,10 @@
 | 13 | [13-handoff-01-operations.ja.md](13-handoff-01-operations.ja.md) | ①への引き渡し：受付時間、非同期の申し出、離席中の参加、期限 |
 | 14 | [14-handoff-05-ai.ja.md](14-handoff-05-ai.ja.md) | ⑤への引き渡し：常時稼働 agent は格差を縮めるか、広げるか |
 | 15 | [15-playtest-four-scenes.ja.md](15-playtest-four-scenes.ja.md) | 試遊案：新規参加・敗北・復帰・区切り直前の4場面（外部募集はしない） |
+| 16 | [16-placement.ja.md](16-placement.ja.md) | 6国の初期配置の比較（PL-W 現行型／PL-G 小集団型／PL-S 完全分散型）。比較検証で、採用ではない |
+| 17 | [17-handoff-01-placement-tower.ja.md](17-handoff-01-placement-tower.ja.md) | ①への引き渡し：中央の塔について知りたいこと、作戦の作りとの関係、配置の試遊の場面 |
 | — | [sim/](sim/) | シミュレーター（Node.js、依存ライブラリなし） |
-| — | [results/](results/) | 生成された結果。`core`、`replication-seeds101-130`、`sensitivity`、`exploits`、`retention` |
+| — | [results/](results/) | 生成された結果。`core`、`replication-seeds101-130`、`sensitivity`、`exploits`、`retention`、`placement/`（配置の比較。その中の各群と再現） |
 | — | [repro/](repro/) | シーズン終了時の再現テスト（リポジトリの外で組み立てて実行）と、修正の草案 |
 
 ## 再現
@@ -44,6 +46,7 @@
 cd workstreams/08-persistence/sim
 node --test ./*.test.mjs                                        # 20件
 node run.mjs --seeds 30 --only core --out ../results/core       # ほかの群は 4章
+node placement.mjs --seeds 30 --only main --out ../results/placement/main   # 配置の比較（群は 16章）
 workstreams/08-persistence/repro/run.sh [作業ディレクトリ]        # Agave 3.1.9 が要る（11章）
 ```
 
@@ -64,6 +67,10 @@ workstreams/08-persistence/repro/run.sh [作業ディレクトリ]        # Agav
    - どちらが現実に近いかは、試遊で確かめる（15章）。
 5. **接続回数による貢献の差は、大部分が作戦の受付の規則から直接決まる**（組み込み）。①の作戦の作りで変えられる（13章）。
 6. **シーズン終了時の2つの疑いは、LiteSVM で再現した**（11章）。
+7. **初期配置（16章）：このモデルでは、小集団型（PL-G）が現行型（PL-W）より良いとは言えなかった。**
+   - 1国1作戦なら、まとまる配置が協力のほぼ全指標で有利だった。作戦が地域ごとなら、差の多くは消えた。
+   - 散る配置は、国ごとの配置運（最も弱い国のシェアの低下）を生んだ。区切りのない世界（C）では、勝ち続けを弱めた（0.86 → 0.64）。
+   - 中央の塔の効果は未確認のため、入れていない。
    - 終了をまたいだ隊商は、永久に決着できない。
    - 倉は、終了後に閉じられない。
 
@@ -71,8 +78,10 @@ workstreams/08-persistence/repro/run.sh [作業ディレクトリ]        # Agav
 
 | 対象 | 状態 |
 |---|---|
-| `node --test workstreams/08-persistence/sim/*.test.mjs` | **通過 20／失敗 0** |
+| `node --test workstreams/08-persistence/sim/*.test.mjs` | **通過 25／失敗 0** |
 | `node run.mjs` 全5群（core、replication、sensitivity、exploits、retention） | 実行済み、終了コード 0 |
+| `node placement.mjs` 全6群＋再現2群 | 実行済み、終了コード 0 |
+| 既存の結果の保全（地理の層を足した後に `results/core` を作り直して比較） | 全ての値が一致（16-13） |
 | `repro/run.sh`（LiteSVM、test-beacon ビルド） | **通過 3／失敗 0**（＝2つの疑いが再現した） |
 | リポジトリ既存のテスト（Rust、LiteSVM の共有スイート、web など） | **未実行**。この作業は既存のコードを変えていない |
 | CI | **未実行**。push していない |

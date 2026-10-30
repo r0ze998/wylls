@@ -7,6 +7,7 @@
 
 import { draw, drawInt, pickWeighted } from './rng.mjs';
 import { BEHAVIOURS, MIXES } from './params.mjs';
+import { createGeo, resetGeo, assignHome, leaveHome, hexDistance, routeHostility, spawnConditions, objectiveProvinces } from './geo.mjs';
 
 const DAY = 24;
 
@@ -41,6 +42,7 @@ export function createWorld(params, proposal, scenario, seed) {
   for (let n = 0; n < P.nations; n++) {
     w.nations.push({ id: n, opOffset: drawInt(seed, 'opOffset', 24, n), fortHours: 0, op: null, stock: 0 });
   }
+  if (P.geo) w.geo = createGeo(P);
   openTheater(w);
   const specs = scenario.populate(P, seed);
   for (const s of specs) addAgent(w, s);
@@ -102,6 +104,7 @@ function addAgent(w, s) {
     standing: false,
     lastOnline: -1,
     proxy: !!s.proxy, // a human whose village is run by an always-on agent between sessions
+    rerollGroup: !!s.rerollGroup, // marked for the spawn re-roll comparison (with or without re-rolls)
     quit: false,
     quitT: null,
     returnT: null,
@@ -214,6 +217,10 @@ function found(w, a, first) {
     a.altWaitH = (a.altWaitH || 0) + (w.t - Math.max(a.plannedJoinT, periodStart(w)));
   }
   place(w, a, rule.placement);
+  if (w.geo) {
+    a.loc = 'geo';
+    assignHome(w, a);
+  }
   // protection: once per period for re-founding; newcomers always get it on their first founding
   let prot = rule.protectionH || 0;
   if (first && rule.lateExtraH && w.t - periodStart(w) > rule.lateAfterH) prot += rule.lateExtraH;
@@ -378,6 +385,12 @@ function openTheater(w) {
       return rank < 2 ? 0.7 : rank < 4 ? 1.0 : 1.3;
     });
   }
+  if (w.geo) {
+    for (const prov of objectiveProvinces(P.objectiveLayout, P.homeRingMax + 1)) {
+      w.forts.push({ id: w.forts.length, theater: th, holder: null, garrison: new Map(), supply: 0, supplyBy: new Map(), dist, prov });
+    }
+    return;
+  }
   for (let i = 0; i < P.forts; i++) {
     w.forts.push({ id: w.forts.length, theater: th, holder: null, garrison: new Map(), supply: 0, supplyBy: new Map(), dist });
   }
@@ -395,6 +408,7 @@ function garrisonSize(f) {
 
 function travelTime(w, a, fort) {
   const { P } = w;
+  if (w.geo && a.prov && fort.prov) return Math.max(1, Math.round(hexDistance(a.prov, fort.prov) * P.hoursPerProvince));
   const base = a.loc === 'interior' ? P.travelInterior : a.loc === 'border' ? P.travelBorder : P.travelRing;
   return Math.max(1, Math.round(base * fort.dist[a.nation]));
 }
@@ -411,7 +425,12 @@ function openOps(w) {
     const u = draw(w.seed, 'opMode', n.id, w.t);
     if (others.length && (own.length === 0 || u < 0.5)) {
       mode = 'attack';
-      target = others.reduce((m, f) => (garrisonOrNeutral(w, f) < garrisonOrNeutral(w, m) ? f : m));
+      if (w.geo) {
+        // a nation picks the objective its members can reach: garrison plus the members' median distance
+        const members = w.agents.filter((a) => a.active && a.nation === n.id && a.prov);
+        const cost = (f) => garrisonOrNeutral(w, f) + w.P.distanceWeight * median(members.map((a) => hexDistance(a.prov, f.prov)));
+        target = others.reduce((m, f) => (cost(f) < cost(m) ? f : m));
+      } else target = others.reduce((m, f) => (garrisonOrNeutral(w, f) < garrisonOrNeutral(w, m) ? f : m));
     } else {
       mode = 'defend';
       target = own.reduce((m, f) => (garrisonSize(f) < garrisonSize(m) ? f : m));
@@ -431,8 +450,36 @@ function openOps(w) {
         }
       }
     }
-    n.op = { id: w.ops.length, nation: n.id, mode, fort: target.id, opensT: w.t, closesT: w.t + w.P.opWindowHours, resolveT: w.t + w.P.opWindowHours + Math.ceil(w.P.travelInterior * 1.3), troops: new Map(), supply: new Map(), watch: 0, craft: 0, escorts: 0, contributors: new Set() };
-    w.ops.push(n.op);
+    const resolveDelay = w.geo ? w.P.geoResolveDelay : Math.ceil(w.P.travelInterior * 1.3);
+    const mk = (f, m) => {
+      const op = { id: w.ops.length, nation: n.id, mode: m, fort: f.id, opensT: w.t, closesT: w.t + w.P.opWindowHours, resolveT: w.t + w.P.opWindowHours + resolveDelay, troops: new Map(), supply: new Map(), watch: 0, craft: 0, escorts: 0, contributors: new Set() };
+      w.ops.push(op);
+      return op;
+    };
+    n.op = mk(target, mode);
+    n.side = [];
+    if (w.geo && w.P.opMode === 'local') {
+      // local operations: every objective that is the nearest one for at least `localMin` members
+      // gets its own operation (attack if another nation holds it or it is neutral, else defend)
+      const members = w.agents.filter((a) => a.active && a.nation === n.id && a.prov);
+      const count = new Map();
+      for (const a of members) {
+        const f = forts.reduce((m, x) => (hexDistance(a.prov, x.prov) < hexDistance(a.prov, m.prov) ? x : m));
+        count.set(f.id, (count.get(f.id) || 0) + 1);
+      }
+      for (const f of forts) {
+        if (f.id === target.id || (count.get(f.id) || 0) < w.P.localMin) continue;
+        n.side.push(mk(f, f.holder === n.id ? 'defend' : 'attack'));
+      }
+    }
+    if (w.geo) {
+      for (const a of w.agents) {
+        if (!a.active || a.nation !== n.id || a.kind !== 'human' || !a.prov) continue;
+        a.opsReachSeen = (a.opsReachSeen || 0) + 1;
+        const best = Math.min(...openOpsOf(n).map((o) => travelTime(w, a, w.forts[o.fort])));
+        if (best <= w.P.opWindowHours + resolveDelay) a.opsReach = (a.opsReach || 0) + 1;
+      }
+    }
     if (w.P.standingOrders) {
       for (const a of w.agents) {
         if (a.active && a.nation === n.id && a.standing && a.goods >= w.P.supplyLot) {
@@ -465,12 +512,27 @@ function sendSupply(w, a, op, amount, standing = false) {
   const fort = w.forts[op.fort];
   a.goods -= amount;
   const tt = travelTime(w, a, fort);
+  if (w.geo) {
+    const st = (w.supplyStats ||= { sent: 0, lost: 0, n: 0, hours: 0 });
+    st.sent += amount;
+    st.n++;
+    st.hours += tt;
+  }
   w.caravans.push({ from: a.id, nation: a.nation, op: op.id, fort: fort.id, goods: amount, arriveT: w.t + tt, kind: 'supply', standing });
+}
+
+/** The operations a nation has open (the primary one and, in local mode, the side ones). */
+export function openOpsOf(n) {
+  return [n.op, ...(n.side || [])].filter(Boolean);
 }
 
 function contribute(w, a) {
   const n = w.nations[a.nation];
-  const op = n.op;
+  let op = n.op;
+  if (w.geo && n.side && n.side.length && a.prov) {
+    // local operations: join the nearest one
+    op = openOpsOf(n).reduce((m, o) => (hexDistance(a.prov, w.forts[o.fort].prov) < hexDistance(a.prov, w.forts[m.fort].prov) ? o : m));
+  }
   if (!op || w.t >= op.closesT || op.contributors.has(a.id)) return;
   const { P } = w;
   const b = BEHAVIOURS[a.behaviour];
@@ -557,7 +619,17 @@ function maybeIntercept(w, c) {
   const pressure = Math.min(1, (3 * raiders.length) / others);
   const op = c.op !== undefined ? w.ops[c.op] : null;
   const shield = op ? Math.min(0.8, 0.2 * op.escorts) : 0;
-  const p = P.interceptBase * P.raidPower * pressure * (1 - shield);
+  let route = 1;
+  if (w.geo) {
+    const src = w.agents[c.from].prov;
+    const dst = c.kind === 'transfer' ? w.agents[c.to].prov : w.forts[c.fort]?.prov;
+    if (src && dst) {
+      const h = routeHostility(w, src, dst, c.nation);
+      route = P.routeBase + P.routeHostile * h;
+      c.hostility = h;
+    }
+  }
+  const p = P.interceptBase * P.raidPower * pressure * (1 - shield) * route;
   if (draw(w.seed, 'intercept', c.from, w.t, c.goods | 0) >= p) return false;
   const r = raiders[drawInt(w.seed, 'interceptor', raiders.length, c.from, w.t)];
   const take = Math.floor(c.goods * 0.5);
@@ -566,74 +638,80 @@ function maybeIntercept(w, c) {
   w.ledger.consumed += c.goods - take;
   w.agents[c.from].raidedLoss += c.goods;
   w.events.intercepts++;
+  if (w.geo && c.kind === 'supply' && w.supplyStats) w.supplyStats.lost += c.goods;
   return true;
 }
 
 function closeOps(w) {
   for (const n of w.nations) {
-    const op = n.op;
-    if (!op || w.t < op.resolveT) continue;
-    n.op = null;
-    op.resolved = true;
-    const f = w.forts[op.fort];
-    let troops = 0;
-    for (const v of op.troops.values()) troops += v;
-    let supply = 0;
-    for (const v of op.supply.values()) supply += v;
-    if (f.theater !== w.theater) {
-      // the theater moved while the operation was open: troops go home, supply returns
+    const due = [n.op, ...(n.side || [])].filter((op) => op && w.t >= op.resolveT);
+    if (!due.length) continue;
+    if (n.op && due.includes(n.op)) n.op = null;
+    if (n.side) n.side = n.side.filter((op) => !due.includes(op));
+    for (const op of due) resolveOp(w, n, op);
+  }
+}
+
+function resolveOp(w, n, op) {
+  op.resolved = true;
+  const f = w.forts[op.fort];
+  let troops = 0;
+  for (const v of op.troops.values()) troops += v;
+  let supply = 0;
+  for (const v of op.supply.values()) supply += v;
+  if (f.theater !== w.theater) {
+    // the theater moved while the operation was open: troops go home, supply returns
+    for (const [id, v] of op.troops) if (w.agents[id].active) w.agents[id].troops += v;
+    for (const [id, v] of op.supply) returnGoods(w, id, v);
+    return;
+  }
+  if (op.mode === 'defend') {
+    if (f.holder === n.id) {
+      for (const [id, v] of op.troops) f.garrison.set(id, (f.garrison.get(id) || 0) + v);
+      f.supply += supply;
+      for (const [id, v] of op.supply) f.supplyBy.set(id, (f.supplyBy.get(id) || 0) + v);
+    } else {
       for (const [id, v] of op.troops) if (w.agents[id].active) w.agents[id].troops += v;
       for (const [id, v] of op.supply) returnGoods(w, id, v);
-      continue;
     }
-    if (op.mode === 'defend') {
-      if (f.holder === n.id) {
-        for (const [id, v] of op.troops) f.garrison.set(id, (f.garrison.get(id) || 0) + v);
-        f.supply += supply;
-        for (const [id, v] of op.supply) f.supplyBy.set(id, (f.supplyBy.get(id) || 0) + v);
-      } else {
-        for (const [id, v] of op.troops) if (w.agents[id].active) w.agents[id].troops += v;
-        for (const [id, v] of op.supply) returnGoods(w, id, v);
-      }
-      continue;
-    }
-    if (troops === 0) {
-      for (const [id, v] of op.supply) returnGoods(w, id, v);
-      continue;
-    }
-    // attack: the nation's own stock tops up what members delivered
-    if (n.stock > 0) {
-      const top = Math.min(n.stock, Math.max(0, troops * 2 - supply));
-      n.stock -= top;
-      supply += top;
-    }
-    const supplyFactor = 0.6 + 0.4 * Math.min(1, supply / (troops * 2));
-    const S = troops * supplyFactor * (1 + 0.03 * Math.min(10, op.watch + op.craft));
-    const D = garrisonOrNeutral(w, f) * w.P.fortDefence * (f.supply > 0 ? 1.1 : 1.0);
-    w.ledger.consumed += supply; // consumed in the attack
-    const s = S * (0.8 + 0.4 * draw(w.seed, 'opS', op.id));
-    const d = D * (0.8 + 0.4 * draw(w.seed, 'opD', op.id));
-    if (s > d) {
-      w.events.captures++;
-      const keepFrac = 1 - (0.5 * d) / (s + d);
-      f.garrison = new Map();
-      for (const [id, v] of op.troops) f.garrison.set(id, Math.round(v * keepFrac));
-      const wasNeutral = f.holder === null;
-      f.holder = n.id;
-      if (wasNeutral && f.supply > 0) {
-        n.stock += f.supply; // stock left in a neutral fort goes to whoever takes it
-      } else {
-        // supply stored by the previous holder is captured (burned)
-        w.ledger.burned += f.supply;
-        w.ledger.consumed += f.supply;
-      }
-      f.supply = 0;
-      f.supplyBy = new Map();
+    return;
+  }
+  if (troops === 0) {
+    for (const [id, v] of op.supply) returnGoods(w, id, v);
+    return;
+  }
+  // attack: the nation's own stock tops up what members delivered
+  if (n.stock > 0) {
+    const top = Math.min(n.stock, Math.max(0, troops * 2 - supply));
+    n.stock -= top;
+    supply += top;
+  }
+  const supplyFactor = 0.6 + 0.4 * Math.min(1, supply / (troops * 2));
+  const S = troops * supplyFactor * (1 + 0.03 * Math.min(10, op.watch + op.craft));
+  const D = garrisonOrNeutral(w, f) * w.P.fortDefence * (f.supply > 0 ? 1.1 : 1.0);
+  w.ledger.consumed += supply; // consumed in the attack
+  const s = S * (0.8 + 0.4 * draw(w.seed, 'opS', op.id));
+  const d = D * (0.8 + 0.4 * draw(w.seed, 'opD', op.id));
+  if (s > d) {
+    w.events.captures++;
+    const keepFrac = 1 - (0.5 * d) / (s + d);
+    f.garrison = new Map();
+    for (const [id, v] of op.troops) f.garrison.set(id, Math.round(v * keepFrac));
+    const wasNeutral = f.holder === null;
+    f.holder = n.id;
+    if (wasNeutral && f.supply > 0) {
+      n.stock += f.supply; // stock left in a neutral fort goes to whoever takes it
     } else {
-      for (const [id, v] of op.troops) if (w.agents[id].active) w.agents[id].troops += Math.round(v * 0.4);
-      const loss = (0.3 * s) / (s + d);
-      for (const [id, v] of f.garrison) f.garrison.set(id, Math.round(v * (1 - loss)));
+      // supply stored by the previous holder is captured (burned)
+      w.ledger.burned += f.supply;
+      w.ledger.consumed += f.supply;
     }
+    f.supply = 0;
+    f.supplyBy = new Map();
+  } else {
+    for (const [id, v] of op.troops) if (w.agents[id].active) w.agents[id].troops += Math.round(v * 0.4);
+    const loss = (0.3 * s) / (s + d);
+    for (const [id, v] of f.garrison) f.garrison.set(id, Math.round(v * (1 - loss)));
   }
 }
 
@@ -664,8 +742,8 @@ function fortUpkeep(w) {
 
 // ---------------------------------------------------------------- raids and occupation
 
-const EXPOSURE = { interior: 0.3, border: 1.0, ring: 1.2 };
-const DEFENCE = { interior: 1.5, border: 1.0, ring: 0.8 };
+const EXPOSURE = { interior: 0.3, border: 1.0, ring: 1.2, geo: 1.0 };
+const DEFENCE = { interior: 1.5, border: 1.0, ring: 0.8, geo: 1.0 };
 
 function maybeRaid(w, a) {
   const { P } = w;
@@ -678,6 +756,7 @@ function maybeRaid(w, a) {
   for (const d of w.agents) {
     if (!d.active || d.nation === a.nation || d.protectedUntil > w.t) continue;
     if (d.owner === a.owner) continue;
+    if (w.geo && hexDistance(a.prov, d.prov) > w.P.raidRange) continue;
     cands.push(d);
     weights.push(EXPOSURE[d.loc] * (d.goods + 1) / (d.troops * DEFENCE[d.loc] + 5));
   }
@@ -691,7 +770,22 @@ function raid(w, a, d) {
   w.events.raids++;
   if (a.protectedUntil > w.t && w.prop.newcomer.onAttack === 'ends') a.protectedUntil = w.t; // attacking ends protection
   const att = Math.floor(a.troops * 0.6);
-  const def = d.troops * DEFENCE[d.loc];
+  let def = d.troops * DEFENCE[d.loc];
+  if (w.geo && w.P.allyHelp > 0) {
+    // neighbours of the same nation lend part of their home guard (automatic defence, decided line)
+    let help = 0;
+    for (const b of w.agents) {
+      if (!b.active || b.id === d.id || b.nation !== d.nation || !b.prov) continue;
+      if (hexDistance(b.prov, d.prov) > 1 || b.troops <= 0) continue;
+      help += b.troops * w.P.allyHelp;
+      if (b.firstAidT === undefined) b.firstAidT = w.t;
+    }
+    if (help > 0) {
+      def += help;
+      if (d.firstAidT === undefined) d.firstAidT = w.t;
+      w.events.aids = (w.events.aids || 0) + 1;
+    }
+  }
   const s = att * (0.7 + 0.6 * draw(w.seed, 'raidS', a.id, w.t));
   const r = def * (0.7 + 0.6 * draw(w.seed, 'raidD', a.id, w.t));
   const success = s > r;
@@ -768,6 +862,7 @@ function defeat(w, a, cause, by) {
   a.active = false;
   a.protectedUntil = -1;
   a.loc = null;
+  leaveHome(w, a);
   const delay = w.prop.rejoin.delayH || 0;
   if (!a.quit) w.pending.push({ id: a.id, at: w.t + delay, first: false });
 }
@@ -878,6 +973,7 @@ function churn(w, a) {
   a.farms = 0;
   a.active = false;
   a.loc = null;
+  leaveHome(w, a);
   w.pending.push({ id: a.id, at: w.t + (w.prop.rejoin.delayH || 0), first: false, churn: true });
 }
 
@@ -922,7 +1018,7 @@ export function boundary(w) {
     garrisons += garrisonSize(f);
   }
   const standing = w.agents.filter((a) => a.active && a.standing).length;
-  const openOpsCount = w.nations.filter((n) => n.op).length;
+  const openOpsCount = w.nations.reduce((c, n) => c + (n.op ? 1 : 0), 0);
   const rec = { period: w.period, caravanValue, troopsInFlight, fortSupply, garrisons, standing, openOps: openOpsCount, voided: 0, returned: 0 };
 
   if (prop.boundary === 'reset_world') {
@@ -930,8 +1026,9 @@ export function boundary(w) {
     for (const c of w.caravans) w.ledger.voided += c.goods || 0;
     w.caravans = [];
     for (const n of w.nations) {
-      if (n.op) for (const v of n.op.supply.values()) w.ledger.voided += v;
+      for (const op of openOpsOf(n)) for (const v of op.supply.values()) w.ledger.voided += v;
       n.op = null;
+      n.side = [];
     }
     for (const f of w.forts) {
       w.ledger.voided += f.supply;
@@ -942,6 +1039,10 @@ export function boundary(w) {
     }
     w.forts = [];
     w.theater++;
+    if (w.geo) {
+      resetGeo(w); // a new world: everyone is placed again
+      for (const a of w.agents) a.prov = null;
+    }
     openTheater(w);
     w.rings = 0;
     const carry = [];
@@ -1003,15 +1104,16 @@ export function boundary(w) {
       }
       w.caravans = keep;
       for (const n of w.nations) {
-        if (n.op) {
-          for (const [id, v] of n.op.troops) if (w.agents[id].active) w.agents[id].troops += v;
+        for (const op of openOpsOf(n)) {
+          for (const [id, v] of op.troops) if (w.agents[id].active) w.agents[id].troops += v;
           let delivered = 0;
-          for (const v of n.op.supply.values()) delivered += v;
-          if (r.fortSupply === 'return') for (const [id, v] of n.op.supply) returnGoods(w, id, v);
+          for (const v of op.supply.values()) delivered += v;
+          if (r.fortSupply === 'return') for (const [id, v] of op.supply) returnGoods(w, id, v);
           else if (r.fortSupply === 'destroy') w.ledger.voided += delivered;
           else n.stock += delivered; // delivered to the nation's operation: the nation's
-          n.op = null;
         }
+        n.op = null;
+        n.side = [];
       }
       if (prop.forts.rotateTheater) {
         w.theater++;
@@ -1112,7 +1214,22 @@ export function step(w) {
   w.t++;
 }
 
+function median(xs) {
+  if (!xs.length) return 0;
+  const s = [...xs].sort((x, y) => x - y);
+  return s[Math.floor(s.length / 2)];
+}
+
 function observe(w) {
+  if (w.geo) {
+    for (const a of w.agents) {
+      // conditions where a village was first placed, once every village placed in this hour is on the map
+      if (a.active && a.foundT === w.t && a.foundT === a.joinT && !a.snapshots.spawn) a.snapshots.spawn = spawnConditions(w, a);
+      if (a.active && a.foundT === w.t && w.period > 0 && a.foundT !== a.joinT && w.prop.boundary === 'reset_world' && !a.snapshots[`spawn@${w.period}`]) {
+        a.snapshots[`spawn@${w.period}`] = spawnConditions(w, a);
+      }
+    }
+  }
   for (const a of w.agents) {
     if (!a.absence) continue;
     if (w.t === a.absence[0]) a.snapshots.absenceStart = { wealth: a.active ? wealth(w, a) : 0, farms: a.farms };
@@ -1154,7 +1271,7 @@ export function goodsInWorld(w) {
   let s = 0;
   for (const a of w.agents) s += a.goods;
   for (const c of w.caravans) s += c.goods || 0;
-  for (const n of w.nations) if (n.op) for (const v of n.op.supply.values()) s += v;
+  for (const n of w.nations) for (const op of openOpsOf(n)) for (const v of op.supply.values()) s += v;
   for (const f of w.forts) s += f.supply;
   for (const n of w.nations) s += n.stock;
   return s;

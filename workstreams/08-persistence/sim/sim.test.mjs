@@ -331,3 +331,79 @@ test('an extra village is founded only once its full cost is paid', () => {
     assert.ok(a.joinT >= a.plannedJoinT);
   }
 });
+
+// ---------------------------------------------------------------- placement study (geo)
+import { provincesInRings, sextant, hexDistance, objectiveProvinces, line } from './geo.mjs';
+
+test('geo: the province grid matches the code (ring d has 6d provinces; 5 home provinces per wedge in rings 2-3)', () => {
+  for (const d of [2, 3, 4, 5]) assert.equal(provincesInRings(d, d).length, 6 * d);
+  const homes = provincesInRings(2, 3);
+  for (let k = 0; k < 6; k++) assert.equal(homes.filter((h) => h.wedge === k).length, 5);
+  // hex.rs: (1, 0) is sextant 0 and turning by 60 degrees moves to the next sextant
+  assert.equal(sextant({ p: 1, q: 0 }), 0);
+  assert.equal(sextant({ p: 0, q: 1 }), 1);
+  const obj = objectiveProvinces('corner', 4);
+  assert.equal(new Set(obj.map((o) => sextant(o))).size, 6);
+  for (const o of obj) assert.equal(hexDistance(o, { p: 0, q: 0 }), 4);
+  const l = line({ p: 2, q: 0 }, { p: -2, q: 0 });
+  assert.equal(l.length, 5);
+});
+
+test('geo: placements put villages where they say', () => {
+  const homesOf = (w) => w.agents.filter((a) => a.active && a.prov);
+  const W = run({ ...P_SHORT, geo: true, placement: 'PL-W', homeRingMax: 5 }, PROPOSALS.B2, SCENARIOS.standard, 3);
+  for (const a of homesOf(W)) assert.equal(a.prov.wedge, a.nation, 'PL-W: own wedge');
+  const G = createWorld({ ...P_SHORT, geo: true, placement: 'PL-G', group: 3, spread: 1, homeRingMax: 5 }, PROPOSALS.B2, SCENARIOS.standard, 3);
+  step(G);
+  for (const g of G.geo.groups) {
+    assert.ok(g.members.length <= 3);
+    for (const id of g.members) assert.equal(G.agents[id].nation, g.nation);
+  }
+  const S = run({ ...P_SHORT, geo: true, placement: 'PL-S', homeRingMax: 5 }, PROPOSALS.B2, SCENARIOS.standard, 3);
+  const wedges = new Set(homesOf(S).filter((a) => a.nation === 0).map((a) => a.prov.wedge));
+  assert.ok(wedges.size >= 3, 'PL-S: a nation is spread over several wedges');
+  for (const w of [W, S]) for (const [, ids] of w.geo.occ) assert.ok(ids.length <= w.P.provCap);
+});
+
+test('geo: goods are conserved, and a world reset places everyone again', () => {
+  for (const pl of ['PL-W', 'PL-G', 'PL-S']) {
+    for (const id of ['P0', 'B2', 'C']) {
+      const opMode = id === 'B2' ? 'local' : 'single';
+      const w = createWorld({ ...BASE, geo: true, placement: pl, homeRingMax: 5, quitOnDefeat: 0.25, returnProb: 0.5, opMode }, PROPOSALS[id], SCENARIOS.alts_control, 5);
+      while (w.t < w.horizon) {
+        step(w);
+        const d = Math.abs(goodsInWorld(w) - goodsByLedger(w));
+        assert.ok(d < 1e-6 + 1e-10 * (w.ledger.starter + w.ledger.produced), `${pl}/${id} drift ${d}`);
+      }
+      const placed = w.agents.filter((a) => a.active).every((a) => a.prov);
+      assert.ok(placed, `${pl}/${id}: every active village is on the map`);
+    }
+  }
+  const w = createWorld({ ...P_SHORT, geo: true, placement: 'PL-S', homeRingMax: 5 }, PROPOSALS.P0, SCENARIOS.standard, 2);
+  while (w.t < U) step(w);
+  const before = w.agents.filter((a) => a.active).map((a) => a.prov.id).join();
+  step(w);
+  const after = w.agents.filter((a) => a.active).map((a) => a.prov.id).join();
+  assert.notEqual(before, after);
+});
+
+test('geo off: no village gets a province (earlier results are untouched)', () => {
+  const w = run(P_SHORT, PROPOSALS.B2, SCENARIOS.standard, 1);
+  assert.equal(w.geo, undefined);
+  assert.ok(w.agents.every((a) => a.prov === undefined));
+});
+
+test('geo: local operations open one operation per objective nearest to enough members, and each member joins the nearest', () => {
+  const w = createWorld({ ...P_SHORT, geo: true, placement: 'PL-S', homeRingMax: 5, opMode: 'local', localMin: 2 }, PROPOSALS.B2, SCENARIOS.standard, 4);
+  let sides = 0;
+  while (w.t < 24 * 3) {
+    step(w);
+    for (const n of w.nations) sides += (n.side || []).length;
+  }
+  assert.ok(sides > 0, 'side operations were opened');
+  const single = createWorld({ ...P_SHORT, geo: true, placement: 'PL-S', homeRingMax: 5 }, PROPOSALS.B2, SCENARIOS.standard, 4);
+  while (single.t < 24 * 3) {
+    step(single);
+    for (const n of single.nations) assert.equal((n.side || []).length, 0);
+  }
+});

@@ -277,3 +277,83 @@ export function proxies(w) {
   }
   return out;
 }
+
+// ---------------------------------------------------------------- placement study (geo runs only)
+
+function pearson(xs, ys) {
+  const n = xs.length;
+  if (n < 3) return NaN;
+  const mx = xs.reduce((a, b) => a + b, 0) / n;
+  const my = ys.reduce((a, b) => a + b, 0) / n;
+  let sxy = 0;
+  let sxx = 0;
+  let syy = 0;
+  for (let i = 0; i < n; i++) {
+    sxy += (xs[i] - mx) * (ys[i] - my);
+    sxx += (xs[i] - mx) ** 2;
+    syy += (ys[i] - my) ** 2;
+  }
+  return sxx > 0 && syy > 0 ? sxy / Math.sqrt(sxx * syy) : NaN;
+}
+
+function sd(xs) {
+  if (xs.length < 2) return NaN;
+  const m = xs.reduce((a, b) => a + b, 0) / xs.length;
+  return Math.sqrt(xs.reduce((s, x) => s + (x - m) ** 2, 0) / (xs.length - 1));
+}
+
+/**
+ * Placement measures. Initial conditions are taken where each village was first placed (all
+ * villages that founded in that hour already on the map). `cap` stands for "no ally anywhere".
+ */
+export function placement(w) {
+  const days = w.horizon / DAY;
+  const placed = w.agents.filter((a) => a.snapshots.spawn);
+  const humans = placed.filter((a) => a.kind === 'human' && Object.keys(a.flags).length === 0);
+  const sp = (xs, k) => xs.map((a) => a.snapshots.spawn[k]);
+  const cap = (x) => (Number.isFinite(x) ? x : 10);
+  const d1 = humans.filter((a) => a.cohort === 'day1');
+  const contrib = d1.map((a) => a.contribValue / days);
+  const fortD = sp(d1, 'fortDist');
+  const allies = sp(d1, 'allies1');
+  // contribution of the third of day-1 people with the best and the worst spawn (by objective distance)
+  const order = d1.map((a, i) => i).sort((i, j) => fortD[i] - fortD[j]);
+  const k = Math.max(1, Math.floor(order.length / 3));
+  const meanOf = (idx) => idx.reduce((s, i) => s + contrib[i], 0) / idx.length;
+  const near = meanOf(order.slice(0, k));
+  const far = meanOf(order.slice(-k));
+  const aidDays = humans.filter((a) => a.firstAidT !== undefined && a.joinT !== null).map((a) => (a.firstAidT - a.joinT) / 24);
+  const reachSeen = humans.reduce((s, a) => s + (a.opsReachSeen || 0), 0);
+  const reach = humans.reduce((s, a) => s + (a.opsReach || 0), 0);
+  const st = w.supplyStats || { sent: 0, lost: 0, n: 0, hours: 0 };
+  // fort share by nation over all units, and its spread (does geography favour some nations?)
+  const units = w.periodResults.slice(0, w.P.periods);
+  const share = w.nations.map((n) => mean(units.map((r) => {
+    const t = r.fortHours.reduce((x, y) => x + y, 0);
+    return t > 0 ? r.fortHours[n.id] / t : 0;
+  })));
+  return {
+    nearestAlly: mean(sp(humans, 'nearestAlly').map(cap)),
+    isolated1: mean(sp(humans, 'allies1').map((x) => (x === 0 ? 1 : 0))),
+    isolated2: mean(sp(humans, 'nearestAlly').map((x) => (x > 2 ? 1 : 0))),
+    allies1: mean(sp(humans, 'allies1')),
+    enemies1: mean(sp(humans, 'enemies1')),
+    otherNations1: mean(sp(humans, 'otherNations1')),
+    fortDist: mean(sp(humans, 'fortDist')),
+    fortDistSD: sd(sp(humans, 'fortDist')),
+    fortRoute: mean(sp(humans, 'fortRoute')),
+    centre: mean(sp(humans, 'centre')),
+    centreSD: sd(sp(humans, 'centre')),
+    corrFortContrib: pearson(fortD, contrib),
+    corrAlliesContrib: pearson(allies, contrib),
+    nearFarRatio: far > 0 ? near / far : NaN,
+    contribGini: gini(contrib),
+    firstAidDays: aidDays.length ? aidDays.sort((x, y) => x - y)[Math.floor(aidDays.length / 2)] : Infinity,
+    aidShare: humans.length ? aidDays.length / humans.length : NaN,
+    reachRate: reachSeen ? reach / reachSeen : NaN,
+    supplyHours: st.n ? st.hours / st.n : NaN,
+    supplyLossRate: st.sent ? st.lost / st.sent : NaN,
+    nationShareSD: sd(share),
+    nationShareMin: Math.min(...share),
+  };
+}

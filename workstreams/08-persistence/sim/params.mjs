@@ -82,6 +82,24 @@ export const BASE = {
   returnMinDays: 7,
   returnMaxDays: 21,
 
+  // ---- geography (placement study, 16-placement.ja.md). Off by default: every earlier result is unchanged.
+  geo: false,
+  placement: 'PL-W', // 'PL-W' clustered (the code's rule) | 'PL-G' small groups | 'PL-S' scattered
+  group: 3, // PL-G: villages of one nation per group
+  spread: 1, // PL-G: minimum province distance between groups of the same nation, where possible
+  homeRingMax: 3, // home area: rings 2..3 (the code's heartland, dense) or 2..5 (sparse); objectives sit one ring beyond
+  provCap: 6, // villages per province (the code has 12 sites per province), assumption
+  hoursPerProvince: 2, // travel time per province step, assumption (sensitivity 1 and 4)
+  geoResolveDelay: 8, // an operation resolves this long after its window closes, assumption
+  distanceWeight: 10, // how much a nation weighs its members' median distance when picking an objective, assumption
+  raidRange: 2, // provinces a raider reaches from home, assumption
+  allyHelp: 0.25, // share of a same-nation neighbour's home guard that joins a defence (distance <= 1), assumption
+  routeBase: 0.5, // interception multiplier on a route through nobody's or own provinces, assumption
+  routeHostile: 1.5, // ... plus this times the share of the route held by another nation, assumption
+  objectiveLayout: 'corner', // the six objectives: ring-4 corners between wedges ('corner') or wedge middles ('mid')
+  opMode: 'single', // 'single': one operation per nation a day | 'local': also one per objective nearest to >= localMin members
+  localMin: 2,
+
   // ---- other levers used only in sensitivity runs
   rushHours: 0, // in the last N hours before a cut, operations always attack and non-turtles send all troops
   altFoundCost: 0, // goods the owner pays (from the main village) when an extra village is founded

@@ -28,6 +28,19 @@ function base(P, opts = {}) {
 
 const LADDER_SMALL = [1, 2, 3];
 
+function withReroll(P, rolls) {
+  const specs = base(P);
+  for (let n = 0; n < P.nations; n++) {
+    const two = specs.filter((s) => s.nation === n && s.cohort === 'day1' && s.sessionsPerDay === 2);
+    const mid = specs.find((s) => s.nation === n && s.cohort === 'mid');
+    for (const s of [...two, mid]) {
+      s.flags = { ...(s.flags || {}), reroll: rolls };
+      s.rerollGroup = true;
+    }
+  }
+  return specs;
+}
+
 // Two people in nation 0, each with three extra villages founded on days 0, 3 and 6 of the second unit.
 //   stash      – the main village moves stock into the extra villages while they are protected
 //   attention  – 'free':  every account gets 4 sessions/day (the person has unlimited time)
@@ -133,6 +146,19 @@ export const SCENARIOS = {
       }
       return specs;
     },
+  },
+  // Spawn re-roll (placement study): in each nation two day-1 people (2 sessions/day) and the
+  // mid-unit joiner may pick the best of six candidate spawn points; the control is the same
+  // people with one draw. Only meaningful with geo on.
+  reroll: {
+    id: 'reroll',
+    label: '出現場所の引き直し（各国3人が6候補から最良を選ぶ）',
+    populate: (P) => withReroll(P, 5),
+  },
+  reroll_control: {
+    id: 'reroll_control',
+    label: '対照：同じ3人が引き直さない',
+    populate: (P) => withReroll(P, 0),
   },
   churn: {
     id: 'churn',
