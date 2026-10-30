@@ -2321,6 +2321,29 @@ function awayPump() {
     }).catch(() => {}).finally(() => { awayBusy = false; });
   }
 }
+/**
+ * The away summary's way in on a phone. A phone shows one notice over the map, the newest (frontier.css: one toast at a
+ * time), so the summary of what happened while away waited under this turn's card, and only the list under その他 had
+ * it. While a summary of this scope is not confirmed, a line under the strip says so and opens that list at it; it goes
+ * when "seen" is pressed (closing the notice with × does not confirm, so the line stays). Wide screens show the
+ * summary itself over the map, and the line is not drawn there (frontier.css).
+ */
+const awayConfirmed = new Set();
+const awayHeadNow = () => { const sc = awayScopeNow(); return sc === null ? null : (FS.feed ?? []).find(x => x.kind === 'away' && x.away?.summary && x.scope === sc && !awayConfirmed.has(x.id)) ?? null; };
+function renderAwayEntry() {
+  const doc = globalThis.document;
+  if (!doc?.body) return;
+  const head = FS.mode === 'play' ? awayHeadNow() : null;
+  let b = doc.getElementById('away-entry');
+  if (!head) { if (b) b.hidden = true; delete doc.body.dataset.awayEntry; return; }
+  if (!b) { b = doc.createElement('button'); b.type = 'button'; b.id = 'away-entry'; b.className = 'away-entry'; b.dataset.act = 'away-open'; doc.body.appendChild(b); }
+  const s = head.away.summary, n = (s.items?.length ?? 0) + (s.more ?? 0);
+  const text = n > 0 ? L`留守中の未確認の出来事 ${fmtNum(n)} 件` : L`留守中の記録に未確認があります`;
+  if (b.dataset.text !== text) { setHtml(b, html`${icon('bell')}<span>${text}</span>`); b.dataset.text = text; b.setAttribute('aria-label', L`${text}（押すと要約を開きます）`); }
+  b.dataset.id = head.id;
+  b.hidden = false;
+  doc.body.dataset.awayEntry = '1';
+}
 /** What the away reading found since the last tick (and the next reading started). */
 function awayTake() { const out = awayQueue.splice(0); awayPump(); return out; }
 /** One item of the away summary as a notice; `awayOf` keeps the item so that a change of language words it again. */
@@ -2458,6 +2481,7 @@ function renderFeed() {
     ...feed.stackOrder(stripItem, toasts, { alarmsFirst: phone() })];
   syncStack(el, items);
   publishNoGo();
+  renderAwayEntry();
 }
 /** How long a notice of how a fight ended waits for that fight's battle to be told (ms), and the timer that shows it. */
 const OUTCOME_BEAT_MS = 1500;
@@ -3161,6 +3185,18 @@ export const HUD_ACTIONS = {
   'turn-dismiss': () => { if (turnStrip) turnStrip.dismissed = true; renderFeed(); },
   'feed-dismiss': d => { FS.feedDismissed = new Set([...(FS.feedDismissed ?? []), d.id]); renderFeed(); },
   // the away summary's "seen": the player's own mark moves to the last record it told (closing it with × does not)
+  // the away summary's way in on a phone (renderAwayEntry): the list under その他, at the summary, its "seen" in focus
+  'away-open': () => {
+    if (FS.mode !== 'play') return;
+    FS.feedFilter = 'all';
+    if (drawerOf(FS)?.kind !== 'more') HUD_ACTIONS.tab({ tab: 'more' });
+    else invalidate('panel');
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      const row = globalThis.document?.querySelector('.panel .feed-away, .panel li.feed-away');
+      row?.scrollIntoView?.({ block: 'center' });
+      (row?.querySelector('[data-act="away-seen"]') ?? row)?.focus?.({ preventScroll: true });
+    }));
+  },
   'away-seen': d => {
     const x = (FS.feed ?? []).find(y => y.id === d.id);
     // (only a summary of this scope whose reading has no gap moves the mark: returnsum.confirm; twice is harmless)
@@ -3173,6 +3209,7 @@ export const HUD_ACTIONS = {
       renderFeed();
       return;
     }
+    awayConfirmed.add(x.id);
     FS.feedDismissed = new Set([...(FS.feedDismissed ?? []), ...(FS.feed ?? []).filter(y => y.scope === x.scope && (y.kind === 'away' || String(y.id).startsWith('aw:'))).map(y => y.id)]);
     renderFeed();
   },

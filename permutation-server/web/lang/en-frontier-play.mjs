@@ -1406,6 +1406,10 @@ export default {
   '全部入りました：{0}': 'All was taken in: {0}',
   '送り出すときに物見櫓で {0}% 減っています（送った量はその後の量です）': 'Watchtowers wore it by {0}% at sending (what was sent is after that)',
   '隊商が決着しました（ターン {0}）。{1}': 'Your caravan\'s journey ended (turn {0}). {1}',
+  // workstream 07: the away summary's way in on a phone (app.mjs renderAwayEntry)
+  '留守中の未確認の出来事 {0} 件': n => `${plural(Number(String(n).replace(/,/g, '')), '{0} event', '{0} events')} while you were away, not yet marked as seen`,
+  '留守中の記録に未確認があります': 'Records from while you were away are not yet marked as seen',
+  '{0}（押すと要約を開きます）': '{0} (opens the summary)',
   '使える量（未確定の費用を最大で引いた見込み）：{0}': 'Usable (with unsettled costs taken at their most, an estimate): {0}',
   '使える量（予約を引いたあと）：{0}': 'Usable (after reservations): {0}',
   '使える量を出せません：{0}': 'Cannot say what is usable: {0}',
