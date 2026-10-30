@@ -1091,6 +1091,7 @@ async fn run_all(st: &mut Stack) -> Result<(), String> {
             ring_theta_bps: st.cfg.ring_theta_bps,
             r_max: st.cfg.r_max,
             r_max_ceiling: st.cfg.r_max_ceiling,
+            placement: st.cfg.placement,
         },
         st.prize.as_ref().map(|p| p.gate.pubkey().to_bytes()),
         st.cfg.season_end_bell(),

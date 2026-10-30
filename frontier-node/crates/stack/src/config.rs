@@ -159,6 +159,10 @@ pub struct StackConfig {
     /// `--conquest` only; above `r_max`, at most 128; with `--prize-so` at
     /// most 17, the pool's tally). Unset: 0, the preset (no extension).
     pub r_max_ceiling: Option<u16>,
+    /// First-home placement (`--placement N`, `--conquest` only): 0 the
+    /// wedge rule, 1 dispersed small groups (`geometry::home_nation`). Unset:
+    /// the preset's (0).
+    pub placement: Option<u8>,
     /// Test-asset prize pool: the permutation-prize build to deploy next to
     /// the game (scripts/build-prize.sh). With it the season's join gate is
     /// a key the relay holds, a test mint and the season's pool are created,
@@ -301,6 +305,7 @@ impl Default for StackConfig {
             keeper_rest: false,
             keeper_extend: false,
             r_max_ceiling: None,
+            placement: None,
             prize_so: None,
             entry_fee: 25_000_000,
             prize_ops_bps: 2_000,
@@ -369,6 +374,15 @@ fn theta_bps(v: u64) -> Result<u16, String> {
 
 /// `--r-max` / `r_max`: the program's hard maximum (the season's own
 /// validation also wants it above the genesis ring).
+/// `--placement`: 0 (wedge) or 1 (dispersed), as the preset validation.
+fn placement(v: u64) -> Result<u8, String> {
+    if v <= 1 {
+        Ok(v as u8)
+    } else {
+        Err(format!("placement {v}: 0 (wedge) or 1 (dispersed)"))
+    }
+}
+
 fn r_max(v: u64) -> Result<u16, String> {
     if (1..=128).contains(&v) {
         Ok(v as u16)
@@ -465,6 +479,9 @@ impl StackConfig {
         }
         if let Some(v) = i!("r_max_ceiling") {
             c.r_max_ceiling = Some(r_max(v as u64)?);
+        }
+        if let Some(v) = i!("placement") {
+            c.placement = Some(placement(v as u64)?);
         }
         if let Some(v) = s!("prize_so") {
             c.prize_so = Some(v.into());
@@ -713,6 +730,11 @@ impl StackConfig {
                 return Err("--prize-so: the prize pool takes --r-max-ceiling ≤ 17".into());
             }
         }
+        if self.placement.is_some() && !self.conquest {
+            return Err(
+                "--placement: first-home placement is an S1 season's (needs --conquest)".into(),
+            );
+        }
         if self.r_max_ceiling.is_some() && !self.conquest {
             return Err("--r-max-ceiling: map growth is an S1 season's (needs --conquest)".into());
         }
@@ -843,6 +865,7 @@ impl StackConfig {
         v["keeper_rest"] = json!(self.keeper_rest);
         v["keeper_extend"] = json!(self.keeper_extend);
         v["r_max_ceiling"] = json!(self.r_max_ceiling);
+        v["placement"] = json!(self.placement);
         v
     }
 
@@ -975,6 +998,7 @@ pub fn apply_flags(c: &mut StackConfig, flags: &[(String, Option<String>)]) -> R
             "ring-theta-bps" => c.ring_theta_bps = Some(theta_bps(count(k, v)?)?),
             "r-max" => c.r_max = Some(r_max(count(k, v)?)?),
             "r-max-ceiling" => c.r_max_ceiling = Some(r_max(count(k, v)?)?),
+            "placement" => c.placement = Some(placement(count(k, v)?)?),
             "prize-so" => c.prize_so = Some(need(k, v)?.into()),
             "entry-fee" => c.entry_fee = count(k, v)?,
             "prize-ops-bps" => c.prize_ops_bps = count(k, v)? as u16,
@@ -1376,6 +1400,13 @@ mod tests {
         assert_eq!(c.to_json()["keeper_extend"], json!(true));
         assert_eq!(c.to_json()["r_max_ceiling"], json!(8));
         let f = split_flags(&["--r-max-ceiling", "129"].map(String::from)).unwrap();
+        assert!(apply_flags(&mut StackConfig::default(), &f).is_err());
+        // --placement: unset by default, 0 or 1 only
+        assert!(c.placement.is_none());
+        let f = split_flags(&["--placement", "1"].map(String::from)).unwrap();
+        apply_flags(&mut c, &f).unwrap();
+        assert_eq!(c.to_json()["placement"], json!(1));
+        let f = split_flags(&["--placement", "2"].map(String::from)).unwrap();
         assert!(apply_flags(&mut StackConfig::default(), &f).is_err());
     }
 }
