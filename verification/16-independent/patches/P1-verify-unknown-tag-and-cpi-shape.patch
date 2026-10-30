@@ -1,0 +1,81 @@
+diff --git a/frontier-node/crates/verify/src/checks/v2_program.rs b/frontier-node/crates/verify/src/checks/v2_program.rs
+index d117c998..9f04ce3d 100644
+--- a/frontier-node/crates/verify/src/checks/v2_program.rs
++++ b/frontier-node/crates/verify/src/checks/v2_program.rs
+@@ -65,16 +65,53 @@ pub fn run(cx: &mut Ctx) {
+     }
+     for (i, t) in w.txs.iter().enumerate() {
+         if t.ixs.is_empty() && !t.keys.is_empty() {
+-            // Harmless (its logs count for nothing), but not the archive
+-            // of this program: reported, not failed.
+-            cx.warn(
+-                V,
+-                PROGRAM_MISMATCH,
+-                format!("tx#{i}"),
+-                0,
+-                Some(i),
+-                "an archived transaction does not invoke the program",
+-            );
++            // ⑯ P1: a transaction that lists the program among its accounts
++            // but calls it in no top-level instruction may have reached it
++            // by CPI (③'s courier). Its inner instructions are not in the
++            // archive, so nothing of it can be judged: not a pass.
++            let names_program = t.keys.iter().any(|k| k.0 == w.program);
++            if names_program {
++                cx.missing(
++                    V,
++                    format!("tx#{i} inner instructions"),
++                    0,
++                    Some(i),
++                    "the transaction names the program but calls it in no top-level instruction; a CPI call cannot be judged from this archive",
++                );
++            } else {
++                // Harmless (its logs count for nothing), but not the archive
++                // of this program: reported, not failed.
++                cx.warn(
++                    V,
++                    PROGRAM_MISMATCH,
++                    format!("tx#{i}"),
++                    0,
++                    Some(i),
++                    "an archived transaction does not invoke the program",
++                );
++            }
++        }
++        // ⑯ P1: every landed program instruction must carry a tag the ABI
++        // knows and does not reserve; anything else is a program this
++        // verifier does not model, whatever the Season's ruleset hash says.
++        for ix in &t.ixs {
++            let tag = ix.tag();
++            let known = tag
++                .and_then(frontier_abi::v2::tags::Ix::from_tag)
++                .is_some_and(|x| !frontier_abi::v2::tags::is_reserved(x.tag()));
++            if !known {
++                cx.fail(
++                    V,
++                    UNKNOWN_INSTRUCTION,
++                    format!("tx#{i}"),
++                    0,
++                    Some(i),
++                    format!(
++                        "a landed program instruction with tag {} is unknown to the ABI table or reserved: no check judges it",
++                        tag.map_or("none".to_string(), |b| format!("0x{b:02X}"))
++                    ),
++                );
++            }
+         }
+     }
+     if let Some(want) = cx.cfg.program_hash {
+diff --git a/frontier-node/crates/verify/src/codes.rs b/frontier-node/crates/verify/src/codes.rs
+index 87eebbc0..dc0b9139 100644
+--- a/frontier-node/crates/verify/src/codes.rs
++++ b/frontier-node/crates/verify/src/codes.rs
+@@ -11,6 +11,8 @@ pub const UNKNOWN_ENTITY: &str = "UnknownEntity";
+ pub const UNDECODABLE: &str = "Undecodable";
+ // V2 program and rules
+ pub const PROGRAM_MISMATCH: &str = "ProgramMismatch";
++/// V2 (⑯ P1): a landed program instruction whose tag the ABI table does not know, or reserves.
++pub const UNKNOWN_INSTRUCTION: &str = "UnknownInstruction";
+ pub const RULESET_MISMATCH: &str = "RulesetMismatch";
+ pub const ANNOUNCE_MISMATCH: &str = "AnnounceMismatch";
+ // V3 randomness
