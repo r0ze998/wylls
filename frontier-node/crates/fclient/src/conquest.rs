@@ -413,8 +413,8 @@ pub struct CqLog {
     pub event: CqEvent,
 }
 
-/// Parses a PS2 body of an MC kind (`None` for an M1 kind or a body that
-/// does not decode).
+/// Parses a PS2 body of an MC kind (`None` for an M1 kind, a custody kind
+/// or a body that does not decode).
 pub fn parse(body: &[u8]) -> Option<CqLog> {
     let r = l2::decode(body).ok()?;
     let AnyKind::Cq(k) = r.kind else {
@@ -436,6 +436,17 @@ pub fn parse(body: &[u8]) -> Option<CqLog> {
     let i = |name: &str| -> Option<i32> { u(name).map(|v| v as u32 as i32) };
     let b8 = |name: &str| -> Option<u8> { u(name).map(|v| v as u8) };
     let event = match k {
+        // Custody (workstream 10): not a conquest event; a custody reader
+        // decodes these records (`frontier_abi::v2::log`, kinds 104–112).
+        CqKind::LOT_OPENED
+        | CqKind::LOT_QUOTA
+        | CqKind::LOT_INBOUND
+        | CqKind::LOT_SHIPPED
+        | CqKind::LOT_SETTLED
+        | CqKind::LOT_ORDER
+        | CqKind::LOT_REVOKED
+        | CqKind::LOT_CONSUMED
+        | CqKind::LOT_LOSS => return None,
         CqKind::SIEGE_DECLARED => CqEvent::SiegeDeclared {
             p: i("p")?,
             q: i("q")?,
