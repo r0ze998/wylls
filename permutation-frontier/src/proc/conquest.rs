@@ -773,7 +773,10 @@ pub fn declare_siege(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         // range) and the same refusal, still the last step, is made here.
         let (placement, genesis_seed) = {
             let sd = season_ai.try_borrow_data()?;
-            (cq_u8(&sd, CQ::PLACEMENT)?, Ro(&sd).arr::<32>(crate::layout::season::GENESIS_SEED)?)
+            (
+                cq_u8(&sd, CQ::PLACEMENT)?,
+                Ro(&sd).arr::<32>(crate::layout::season::GENESIS_SEED)?,
+            )
         };
         if placement == geometry::PLACEMENT_WEDGE {
             siege::may_besiege_v3(&check).map_err(refusal)?;

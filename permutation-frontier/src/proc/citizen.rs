@@ -1192,7 +1192,8 @@ pub fn place_home(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         // The season's placement names the nation of a heartland province
         // (`home_nation`: the wedge under the wedge placement).
         if coord.ring() >= Ro(&fd).u16(FR::RINGS_OPENED)? as u32
-            || geometry::home_nation(coord, placement, home_max_ring, &genesis_seed) != Some(faction)
+            || geometry::home_nation(coord, placement, home_max_ring, &genesis_seed)
+                != Some(faction)
         {
             return Err(FrontierError::BadData.into());
         }
@@ -1209,7 +1210,10 @@ pub fn place_home(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     let (tile, gen) = {
         let pd = province.try_borrow_data()?;
         let r = Ro(&pd);
-        if r.i16(PV::P)? != x.p || r.i16(PV::Q)? != x.q || r.u8(PV::WEDGE)? != coord.wedge().unwrap_or(u8::MAX) {
+        if r.i16(PV::P)? != x.p
+            || r.i16(PV::Q)? != x.q
+            || r.u8(PV::WEDGE)? != coord.wedge().unwrap_or(u8::MAX)
+        {
             return Err(BAD_ACCOUNT);
         }
         record_is_zero(&pd, x.site)?;

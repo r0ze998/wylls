@@ -615,15 +615,32 @@ mod tests {
                     );
                 }
                 // outside the heartland: the wedge
-                for p in ring_provinces(hmr as u32 + 1).into_iter().chain(ring_provinces(1)) {
+                for p in ring_provinces(hmr as u32 + 1)
+                    .into_iter()
+                    .chain(ring_provinces(1))
+                {
                     assert_eq!(home_nation(p, PLACEMENT_DISPERSED, hmr, &seed), p.wedge());
                 }
             }
         }
-        assert_eq!(home_nation(ProvinceCoord::CONCORD, PLACEMENT_DISPERSED, 3, &[0; 32]), None);
+        assert_eq!(
+            home_nation(ProvinceCoord::CONCORD, PLACEMENT_DISPERSED, 3, &[0; 32]),
+            None
+        );
         // different seeds rotate the map
-        let a: Vec<_> = ring_provinces(2).iter().map(|p| home_nation(*p, 1, 3, &[1; 32])).collect();
-        let b: Vec<_> = (0u8..32).map(|s| ring_provinces(2).iter().map(|p| home_nation(*p, 1, 3, &[s; 32])).collect::<Vec<_>>()).filter(|x| *x != a).collect();
+        let a: Vec<_> = ring_provinces(2)
+            .iter()
+            .map(|p| home_nation(*p, 1, 3, &[1; 32]))
+            .collect();
+        let b: Vec<_> = (0u8..32)
+            .map(|s| {
+                ring_provinces(2)
+                    .iter()
+                    .map(|p| home_nation(*p, 1, 3, &[s; 32]))
+                    .collect::<Vec<_>>()
+            })
+            .filter(|x| *x != a)
+            .collect();
         assert!(!b.is_empty());
     }
 

@@ -680,7 +680,12 @@ fn cq_declare_siege_heartland_follows_the_dispersed_placement() {
     let g = frontier_abi::layout::world::season::GENESIS_SEED;
     let seed: [u8; 32] = sd[g..g + 32].try_into().unwrap();
     let nation = |pq: (i16, i16)| {
-        home_nation(ProvinceCoord::new(pq.0 as i32, pq.1 as i32), PLACEMENT_DISPERSED, prm.heartland_max_ring, &seed)
+        home_nation(
+            ProvinceCoord::new(pq.0 as i32, pq.1 as i32),
+            PLACEMENT_DISPERSED,
+            prm.heartland_max_ring,
+            &seed,
+        )
     };
     let wedge = |pq: (i16, i16)| ProvinceCoord::new(pq.0 as i32, pq.1 as i32).wedge();
     // V (nation 1) in a ring-3 province assigned to nation 1 outside wedge 1: Heartland.

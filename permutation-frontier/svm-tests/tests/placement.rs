@@ -32,7 +32,13 @@ fn seed_of(c: &Chain, w: &World) -> [u8; 32] {
 }
 
 fn nation(seed: &[u8; 32], pq: (i16, i16)) -> u8 {
-    home_nation(ProvinceCoord::new(pq.0 as i32, pq.1 as i32), PLACEMENT_DISPERSED, HMR, seed).unwrap()
+    home_nation(
+        ProvinceCoord::new(pq.0 as i32, pq.1 as i32),
+        PLACEMENT_DISPERSED,
+        HMR,
+        seed,
+    )
+    .unwrap()
 }
 
 fn place(c: &Chain, w: &World, who: &Citizen, s: Site) -> Instruction {
@@ -54,7 +60,11 @@ fn setup() -> (Chain, World, [u8; 32], Vec<(i16, i16)>) {
 fn placement_six_nations_place_homes_in_groups_spread_over_wedges() {
     let (mut c, w, seed, v) = setup();
     for f in 0..6u8 {
-        let mine: Vec<_> = v.iter().copied().filter(|pq| nation(&seed, *pq) == f).collect();
+        let mine: Vec<_> = v
+            .iter()
+            .copied()
+            .filter(|pq| nation(&seed, *pq) == f)
+            .collect();
         assert_eq!(mine.len(), 5, "2 provinces of ring 2 and 3 of ring 3");
         let wedges: std::collections::BTreeSet<_> = mine
             .iter()
@@ -65,12 +75,22 @@ fn placement_six_nations_place_homes_in_groups_spread_over_wedges() {
         for (i, pq) in mine.iter().enumerate() {
             for k in 0..2u8 {
                 let who = w.citizen(&mut c, &format!("n{f}-{i}-{k}"), f);
-                let s = Site { p: pq.0, q: pq.1, site: k };
-                expect_lands(c.send(&[place(&c, &w, &who, s)], &[&who.wallet]), "PlaceHome");
+                let s = Site {
+                    p: pq.0,
+                    q: pq.1,
+                    site: k,
+                };
+                expect_lands(
+                    c.send(&[place(&c, &w, &who, s)], &[&who.wallet]),
+                    "PlaceHome",
+                );
                 let hd = c.data(&w.a.holding(pq.0 as i32, pq.1 as i32, k));
                 assert_eq!(hd[H::STATE], H::STATE_FINAL);
                 // shield: the season's first-holding shield, unchanged by the placement
-                assert_eq!(rd_i64(&hd, H::SHIELD_UNTIL), c.now + w.params.cq.shield_secs as i64);
+                assert_eq!(
+                    rd_i64(&hd, H::SHIELD_UNTIL),
+                    c.now + w.params.cq.shield_secs as i64
+                );
             }
         }
     }
@@ -91,17 +111,32 @@ fn placement_refuses_another_nations_province_an_occupied_site_and_a_late_join()
     let other = (owner + 1) % 6;
     // Another nation's assigned province (even inside the joiner's own wedge).
     let stranger = w.citizen(&mut c, "stranger", other);
-    let s = Site { p: pq.0, q: pq.1, site: 0 };
-    assert_code(c.send(&[place(&c, &w, &stranger, s)], &[&stranger.wallet]), E::BadData);
+    let s = Site {
+        p: pq.0,
+        q: pq.1,
+        site: 0,
+    };
+    assert_code(
+        c.send(&[place(&c, &w, &stranger, s)], &[&stranger.wallet]),
+        E::BadData,
+    );
     let own_wedge_foreign = v
         .iter()
         .copied()
         .find(|(p, q)| {
-            ProvinceCoord::new(*p as i32, *q as i32).wedge() == Some(other) && nation(&seed, (*p, *q)) != other
+            ProvinceCoord::new(*p as i32, *q as i32).wedge() == Some(other)
+                && nation(&seed, (*p, *q)) != other
         })
         .expect("a province of the stranger's wedge assigned elsewhere");
-    let s2 = Site { p: own_wedge_foreign.0, q: own_wedge_foreign.1, site: 0 };
-    assert_code(c.send(&[place(&c, &w, &stranger, s2)], &[&stranger.wallet]), E::BadData);
+    let s2 = Site {
+        p: own_wedge_foreign.0,
+        q: own_wedge_foreign.1,
+        site: 0,
+    };
+    assert_code(
+        c.send(&[place(&c, &w, &stranger, s2)], &[&stranger.wallet]),
+        E::BadData,
+    );
     // The site taken by one member cannot be taken by a second (no overlap).
     let a = w.citizen(&mut c, "a", owner);
     let b = w.citizen(&mut c, "b", owner);
@@ -109,10 +144,20 @@ fn placement_refuses_another_nations_province_an_occupied_site_and_a_late_join()
     let pd = c.data(&w.a.province(pq.0 as i32, pq.1 as i32));
     assert_eq!(pd[P::site(0) + S::STATE], S::STATE_HOLDING);
     c.next_slot();
-    assert_code(c.send(&[place(&c, &w, &b, s)], &[&b.wallet]), E::TicketState);
+    assert_code(
+        c.send(&[place(&c, &w, &b, s)], &[&b.wallet]),
+        E::TicketState,
+    );
     // ...but the next site of the same province is free for the second member.
-    let s1 = Site { p: pq.0, q: pq.1, site: 1 };
-    expect_lands(c.send(&[place(&c, &w, &b, s1)], &[&b.wallet]), "PlaceHome (site 1)");
+    let s1 = Site {
+        p: pq.0,
+        q: pq.1,
+        site: 1,
+    };
+    expect_lands(
+        c.send(&[place(&c, &w, &b, s1)], &[&b.wallet]),
+        "PlaceHome (site 1)",
+    );
     // Join closes at join_close_bell as before.
     let late = c.funded(b"late-joiner", 10);
     let mut f = c.fork();
@@ -126,8 +171,12 @@ fn placement_is_reproducible_from_the_genesis_seed() {
     let (c2, w2, seed2, _) = setup();
     assert_eq!(seed, seed2);
     for pq in &v {
-        let k1 = read_keep(&c.data(&w.a.province(pq.0 as i32, pq.1 as i32))).unwrap().unwrap();
-        let k2 = read_keep(&c2.data(&w2.a.province(pq.0 as i32, pq.1 as i32))).unwrap().unwrap();
+        let k1 = read_keep(&c.data(&w.a.province(pq.0 as i32, pq.1 as i32)))
+            .unwrap()
+            .unwrap();
+        let k2 = read_keep(&c2.data(&w2.a.province(pq.0 as i32, pq.1 as i32)))
+            .unwrap()
+            .unwrap();
         assert_eq!(k1.holder, k2.holder);
     }
 }

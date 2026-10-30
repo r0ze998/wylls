@@ -581,8 +581,9 @@ pub fn open_province(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         Some(w) if coord.ring() >= 2 => {
             let tile = kkeep::keep_tile(&terrain, &terrain.sites, terrain.site_count, w)
                 .unwrap_or(kkeep::NO_KEEP_TILE);
-            let holder = geometry::home_nation(coord, cq.placement, cq.heartland_max_ring, &genesis_seed)
-                .unwrap_or(w);
+            let holder =
+                geometry::home_nation(coord, cq.placement, cq.heartland_max_ring, &genesis_seed)
+                    .unwrap_or(w);
             kkeep::try_open(
                 coord,
                 holder,
