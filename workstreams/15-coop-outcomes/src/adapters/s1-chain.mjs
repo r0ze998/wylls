@@ -9,7 +9,8 @@
 //
 // What the records do not say, the caller's `resolve` supplies:
 //   actorOfTag(tag)                 → actor id (Citizen tag → Citizen → wallet; null: unknown)
-//   destination(place, ownerTag)    → {actor, project?, kind: 'village'|'storehouse'} or null
+//   destination(place, ownerTag, seq) → {actor, project?, kind: 'village'|'storehouse'} or null
+//                                     (①'s links say which request a caravan serves: ws01.mjs)
 //   projectOfStructure(p, q, tile)  → project id or null (①'s board links a fort to a request)
 //   nationOf(faction)               → nation id (default `n<faction>`)
 //
@@ -62,7 +63,7 @@ export function fromS1Records(page, resolve, { stream = 'chain', trust = DEFAULT
     switch (r.name) {
       case 'CARAVAN_SENT': {
         const from = resolve.actorOfTag(r.owner_tag);
-        const dst = resolve.destination(placeOf(r.dst), r.owner_tag);
+        const dst = resolve.destination(placeOf(r.dst), r.owner_tag, r.seq);
         if (!from || !dst) { unresolved.push({ seq, name: r.name, missing: !from ? 'owner' : 'destination' }); break; }
         cargoOf(r.cargo).forEach((q, i) => {
           const res = SLOT_RESOURCES[i];
@@ -71,7 +72,7 @@ export function fromS1Records(page, resolve, { stream = 'chain', trust = DEFAULT
         break;
       }
       case 'CARAVAN_SETTLED': {
-        const dst = resolve.destination(placeOf(r.dst), r.owner_tag);
+        const dst = resolve.destination(placeOf(r.dst), r.owner_tag, r.seq);
         const v = (dst && trust[dst.kind]) ?? 'unverified';
         cargoOf(r.cargo).forEach((q, i) => {
           const res = SLOT_RESOURCES[i];
