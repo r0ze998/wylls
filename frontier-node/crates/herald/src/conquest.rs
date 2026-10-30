@@ -2869,4 +2869,19 @@ mod tests {
         let d = Cq::from_json(&j).expect("decodes");
         assert_eq!(d.to_json(), j);
     }
+
+    /// ExtendFrontier's record as the local world logged it (ring 5 → 6,
+    /// ceiling 8; `/h/events` `decoded`).
+    #[test]
+    fn record_json_names_a_frontier_extension() {
+        use base64::Engine;
+        let body = base64::engine::general_purpose::STANDARD
+            .decode("AWgDAAAABgAFAAgAAQITAAAAAAAAAIY5I3lZl64YQf+5mEzsYTDQTSoEcE/CD/007LR2fBEr")
+            .unwrap();
+        let j = record_json(&body).expect("decoded");
+        assert_eq!(j["name"], "FRONTIER_EXTENDED");
+        assert_eq!(j["key"]["d"], 6);
+        assert_eq!(j["payload"]["from"], 5);
+        assert_eq!(j["payload"]["ceiling"], 8);
+    }
 }
