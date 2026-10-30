@@ -2,6 +2,14 @@
 // is before any question of what the viewer has seen.
 //
 //   outside    its ring is beyond the season's rMax: never land this season
+//              (a season without a ceiling, as every season before map growth)
+//   extendable a season with a ceiling (r_max_ceiling, ExtendFrontier): beyond
+//              the current rMax but within the ceiling — not on the map yet,
+//              the map may still be extended to it one ring at a time
+//   beyondCeiling  a season with a ceiling: beyond it — never land this season
+//   beyondHard a season with a ceiling: beyond ring 128, the program's hard
+//              limit (R_MAX_HARD); no season reaches it. The map is bounded,
+//              never infinite
 //   unopened   its ring is not open: no land yet (OpenRing opens the next ring
 //              when the crowding rule holds; the cloud sea lies there)
 //   pending    its ring is open but its seed is still on its way, or the
@@ -12,7 +20,9 @@
 //
 // From the herald's season record: `rings` (the seeded rings, 0..n−1),
 // `ringsOpened` (also the rings whose seed is on its way), `ringProvinces`
-// (Provinces on chain per ring) and `rMax`; for a ring only partly on
+// (Provinces on chain per ring), `rMax` (the effective outermost ring:
+// the season's r_max or the Frontier's r_max_ext), `rMaxCeiling` (0 or
+// absent: no extension) and `rMaxHard` (128); for a ring only partly on
 // chain, `/h/world/ring/{d}` names its Provinces (`present`). An older
 // herald without the new fields gives `open` / `unopened` as before.
 // Pure: no DOM, no fetch.
@@ -21,7 +31,9 @@ import { L, fmtNum } from '../../lang.mjs';
 import { locate, ringOf, ringProvinces, ringSize } from '../fgeo.mjs';
 import { provinceCorners, provincePixel } from './layers.mjs';
 
-export const PLACE = Object.freeze({ open: 'open', pending: 'pending', unopened: 'unopened', outside: 'outside' });
+export const PLACE = Object.freeze({ open: 'open', pending: 'pending', unopened: 'unopened', outside: 'outside', extendable: 'extendable', beyondCeiling: 'beyondCeiling', beyondHard: 'beyondHard' });
+/** The program's hard limit of any season's outermost ring (geometry R_MAX_HARD). */
+export const R_MAX_HARD = 128;
 
 const int = Number.isInteger;
 
@@ -31,7 +43,14 @@ export function worldOf(record) {
   const ringsOpened = int(record?.ringsOpened) ? Math.max(ringsOpen, record.ringsOpened) : ringsOpen;
   const rMax = int(record?.rMax) ? record.rMax : null;
   const ringProvinces = Array.isArray(record?.ringProvinces) ? record.ringProvinces : null;
-  return { ringsOpen, ringsOpened, rMax, ringProvinces };
+  const w = { ringsOpen, ringsOpened, rMax, ringProvinces };
+  // map growth: only a season with a ceiling above its map carries one (every other season keeps the four states)
+  const ceiling = record?.rMaxCeiling;
+  if (int(ceiling) && rMax !== null && ceiling > rMax) {
+    w.rMaxCeiling = Math.min(ceiling, R_MAX_HARD);
+    w.rMaxHard = int(record?.rMaxHard) ? record.rMaxHard : R_MAX_HARD;
+  }
+  return w;
 }
 
 /** Seeded rings with some of their Provinces not on chain yet (each wants its `/h/world/ring/{d}` list). */
@@ -50,7 +69,11 @@ export function partialRings(w) {
  */
 export function placeOf(w, p, q, present = () => null) {
   const d = ringOf(p, q);
-  if (w.rMax !== null && d > w.rMax) return PLACE.outside;
+  if (w.rMax !== null && d > w.rMax) {
+    if (!int(w.rMaxCeiling)) return PLACE.outside;
+    if (d > (w.rMaxHard ?? R_MAX_HARD)) return PLACE.beyondHard;
+    return d <= w.rMaxCeiling ? PLACE.extendable : PLACE.beyondCeiling;
+  }
   if (d >= w.ringsOpened) return PLACE.unopened;
   if (d >= w.ringsOpen) return PLACE.pending;
   const n = w.ringProvinces?.[d];
@@ -75,15 +98,19 @@ export const EDGE_NEAR_RINGS = 2;
 /** Whether the border of a map of `rMax` rings is near enough to `ringsOpen` open rings to be drawn. */
 export const edgeNear = (rMax, ringsOpen) => int(rMax) && rMax <= Math.max(0, ringsOpen - 1) + EDGE_NEAR_RINGS;
 
-/** The season's border (edgeSegments) on a world-transformed canvas: a dark dashed ink over a paper halo, widths in screen px. */
-export function paintEdge(ctx, segs, scale = 1) {
+/**
+ * The season's border (edgeSegments) on a world-transformed canvas: a dark dashed ink over a paper halo, widths in
+ * screen px. `faint`: the ceiling of a season that may still be extended (a thinner, lighter, sparser dash).
+ */
+export function paintEdge(ctx, segs, scale = 1, { faint = false } = {}) {
   if (!segs.length) return;
   ctx.save();
   ctx.beginPath();
   for (const [x0, y0, x1, y1] of segs) { ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); }
   ctx.lineCap = 'round';
-  ctx.strokeStyle = 'rgba(244,239,224,.9)'; ctx.lineWidth = 6 / scale; ctx.setLineDash([]); ctx.stroke();
-  ctx.strokeStyle = '#3a2a22'; ctx.lineWidth = 2.5 / scale; ctx.setLineDash([10 / scale, 7 / scale]); ctx.stroke();
+  ctx.strokeStyle = 'rgba(244,239,224,.9)'; ctx.lineWidth = (faint ? 4 : 6) / scale; ctx.setLineDash([]); ctx.stroke();
+  ctx.strokeStyle = faint ? 'rgba(58,42,34,.55)' : '#3a2a22'; ctx.lineWidth = (faint ? 1.5 : 2.5) / scale;
+  ctx.setLineDash(faint ? [4 / scale, 9 / scale] : [10 / scale, 7 / scale]); ctx.stroke();
   ctx.restore();
 }
 
@@ -92,6 +119,9 @@ export const PLACE_NOTE = Object.freeze({
   outside: () => L`ここはこのシーズンの地図の外です`,
   unopened: () => L`まだひらいていない土地です`,
   pending: () => L`この土地は生まれるところです（しばらくお待ちください）`,
+  extendable: () => L`ここはまだ地図の外です（このシーズンは、ここまで地図を広げられます）`,
+  beyondCeiling: () => L`ここはこのシーズンの上限の外です`,
+  beyondHard: () => L`ここはプログラムの上限（第128輪）の外です`,
 });
 
 /** The ring as the inspector says it, with what the place is. */
@@ -99,6 +129,9 @@ export function ringText(state, ring) {
   if (state === PLACE.outside) return L`第${fmtNum(ring)}輪（このシーズンの地図の外）`;
   if (state === PLACE.unopened) return L`第${fmtNum(ring)}輪（まだひらいていません）`;
   if (state === PLACE.pending) return L`第${fmtNum(ring)}輪（生まれるところです）`;
+  if (state === PLACE.extendable) return L`第${fmtNum(ring)}輪（広げられるが、まだ地図の外）`;
+  if (state === PLACE.beyondCeiling) return L`第${fmtNum(ring)}輪（このシーズンの上限の外）`;
+  if (state === PLACE.beyondHard) return L`第${fmtNum(ring)}輪（プログラムの上限・第128輪の外）`;
   return L`第${fmtNum(ring)}輪`;
 }
 

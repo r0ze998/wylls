@@ -93,6 +93,19 @@ pub fn season_json(f: &Fold, s: &SeasonStatic) -> Option<Value> {
     let states = crate::world::ring_states(f);
     v["ringsOpened"] = json!(states.len());
     v["ringProvinces"] = json!(states.iter().map(|r| r.provinces).collect::<Vec<_>>());
+    // Map growth and first-home placement (the same as the Season bytes say;
+    // spelled out for readers that do not decode them): the ceiling (0: none),
+    // the hard limit, the prize tally's last ring, the placement, the
+    // heartland rings and the genesis seed `home_nation` reads.
+    v["rMaxCeiling"] = json!(crate::world::r_max_ceiling(f));
+    v["rMaxHard"] = json!(permutation_rules::frontier::geometry::R_MAX_HARD);
+    v["prizeMaxRing"] = json!(crate::world::PRIZE_MAX_RING);
+    v["placement"] = json!(crate::world::placement(f));
+    v["heartlandMaxRing"] = se
+        .conquest
+        .as_ref()
+        .map_or(Value::Null, |c| json!(c.heartland_max_ring));
+    v["genesisSeed"] = json!(hex::encode(se.genesis_seed));
     Some(v)
 }
 
