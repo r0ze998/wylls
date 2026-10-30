@@ -4,6 +4,8 @@ import { RESOURCE_JA, signRecord, ownerTagOf, RESOURCES } from './record.mjs';
 import { STATE_JA } from './arrival.mjs';
 import * as W from '../../../permutation-server/web/wallet.mjs';
 import { equal } from '../../../permutation-server/web/sdk/bytes.mjs';
+import { parseTransaction } from '../../../permutation-server/web/sdk/solana-tx.mjs';
+import { encode as toBase58 } from '../../../permutation-server/web/sdk/base58.mjs';
 import { planSend, sendPlanned } from './send.mjs';
 import { rpcReader, sendOutcome } from './chain.mjs';
 
@@ -17,8 +19,8 @@ const REQ_JA = { open: '受付中', cancelled: '取り消し', expired: '期限�
 const CANCEL_JA = { self: '自分で進める', other: 'ほかの理由', done: '足りた', left: '目的から抜けた' };
 
 let cfg = null, view = null, feed = null, signer = null;
-/** 結果の分からない送信（依頼ごと）。分かるまで同じ依頼へ次を送らない。 */
-const pending = new Map();
+/** 送った後に結果を確かめる回数（1.5 秒ごと）。?follow= で変えられる（試験用）。 */
+const FOLLOW_TRIES = Math.max(1, Math.min(60, Number(new URLSearchParams(location.search).get('follow')) || 20));
 const goalId = 'crossing-storehouse-v1';
 
 function say(text, kind = '') { $('msg').innerHTML = text ? `<span class="${kind}">${esc(text)}</span>` : ''; }
@@ -70,7 +72,8 @@ function renderJoint() {
       <div class="req" data-host="${esc(j.host)}">
         <div><b>${esc(short(j.host))}</b>（${j.hostNation === null ? `<span class="warn">国籍未検証</span>` : esc(nationName(j.hostNation))}）の貯蔵庫：
           <span class="tag ${j.done ? 'ok' : 'warn'}" data-testid="joint-status">${j.done ? '達成（記録だけ）' : '未達成'}</span></div>
-        <div>${j.progress.map(p => `${esc(RESOURCE_JA[p.resource])} <b data-testid="joint-${p.resource}">${p.verified}</b>／${p.need}`).join('　')}（証明できた入荷量だけ。資源ごと。合計しない）</div>
+        <div>${j.progress.map(p => `${esc(RESOURCE_JA[p.resource])} <b data-testid="joint-${p.resource}">${p.verified}</b>／${p.need}`).join('　')}（数えた入荷量だけ。資源ごと。合計しない）</div>
+        <div class="note" data-testid="joint-precision">整数単位。記録は到着1件ごとにミリ単位を切り捨てた値なので、本当の量は表示より ${j.progress.map(p => `${esc(RESOURCE_JA[p.resource])} ${p.underBy} 未満`).join('・')} 多いことがある（件数ぶん）</div>
         <div class="note" data-testid="joint-why">${esc(j.judgeLabel)}：${esc(j.why)}</div>
         <div class="note">確かめた他国：${j.otherNations.length ? j.otherNations.map(nationName).join('・') : 'なし'}${j.nationsUnverified.length ? `（<span class="warn" data-testid="nation-unverified">${esc(j.nationsUnverified.join('、'))}</span>）` : ''}。輸送中・不明の隊商 ${j.unverifiedCaravans} 本、届いたが量を証明できない隊商 ${j.unprovenDeliveries} 本（どちらも数えない）</div>
       </div>`).join('') : '<div class="note">まだ依頼はない</div>'}`;
@@ -119,7 +122,9 @@ function renderRequests() {
         ${!mine && open && !accepted ? `<button data-act="accept" data-id="${esc(q.id)}">応じる（送るつもり。義務はない）</button><button data-act="decline" data-id="${esc(q.id)}">断る</button>` : ''}
         ${!mine && accepted && open ? `<button data-act="withdraw" data-id="${esc(q.id)}">取り下げる（別の相手を選ぶ）</button>` : ''}
       </div>
-      ${!mine && accepted && open && cfg.relay && cfg.rpcProxy ? `<div class="row"><button data-act="send" data-id="${esc(q.id)}">この画面から送る（${esc(needText(resp.offer))}。ウォレットで署名）</button></div>` : ''}
+      ${!mine && accepted && open && cfg.relay && cfg.rpcProxy ? (unresolved(q).length
+        ? `<div class="row"><button data-act="send" data-id="${esc(q.id)}" data-testid="pending-send">前の送信（隊商 #${unresolved(q)[0].caravan.seq}）の結果を確かめる</button><span class="warn">結果が分かるまで次は署名・送付しない</span></div>`
+        : `<div class="row"><button data-act="send" data-id="${esc(q.id)}">この画面から送る（${esc(needText(resp.offer))}。ウォレットで署名）</button></div>`) : ''}
       ${!mine && accepted && open ? `<div class="note">ゲームの村の引き出し「交易と防備」からも送れる：行き先 (${q.to.p},${q.to.q}) 村${q.to.site}、荷 ${esc(needText(resp.offer))}。他の人の村へ送る隊商は、ウォレットで署名します。</div>
         <div class="row">${cands.length ? cands.map(m => `<button data-act="link" data-id="${esc(q.id)}" data-tag="${esc(m.ownerTag)}" data-seq="${m.seq}">隊商 #${m.seq}（${esc(needText(Object.fromEntries(RESOURCES.map((r, i) => [r, m.cargo[i]]).filter(([, v]) => v > 0))))}）をこの依頼に結び付ける</button>`).join('') : '<span class="note">この届け先へ向かう自分の隊商はまだ見えない</span>'}</div>` : ''}
     </div>`;
@@ -162,7 +167,7 @@ document.addEventListener('click', e => {
     case 'withdraw': return post({ kind: 'withdraw', request: id }, '取り下げた。送った隊商があれば、それはそのまま届く');
     case 'cancel-self': return post({ kind: 'cancel', request: id, reason: 'self' }, '取り消した（自分で進める）');
     case 'cancel-other': return post({ kind: 'cancel', request: id, reason: 'other' }, '取り消した');
-    case 'send': return pending.get(q.id)?.recheck ? followSend(q.id) : sendFor(q);
+    case 'send': return sendFor(q);
     case 'link': return post({ kind: 'link', request: id, caravan: { ownerTag: b.dataset.tag, seq: Number(b.dataset.seq) } }, '隊商を結び付けた。数えるのは確定した到着だけ');
   }
 });
@@ -171,11 +176,14 @@ document.addEventListener('click', e => {
  * この画面から送る：ゲームと同じコード（send.mjs → fplay.submit）で SendCaravan を組み立て、接続したウォレットで署名して中継へ送る。
  * チェーンに隊商の口座が見えたら、結び付けの記録に署名して板へ出す。
  */
+/** この依頼への自分の送信のうち、結果の分からないもの（板の sending の記録から。再読込・板の再起動の後も残る）。 */
+const unresolved = q => (q.sendings ?? []).filter(z => z.responder === signer?.address && z.outcome?.status === 'unknown');
+
 async function sendFor(q) {
   const c = W.connected();
   if (!c || !signer) return say('先に署名する人を接続してください', 'warn');
-  const pend = pending.get(q.id);
-  if (pend) return say(`前の送信（隊商 #${pend.caravan.seq}）の結果がまだ分からない。分かるまで次を送らない（二重に送らないため）`, 'warn');
+  const open = unresolved(q);
+  if (open.length) return followSend(q, open[0]);
   const resp = q.responses[signer.address];
   const reader = rpcReader('/coop/rpc');
   say('送り元・道・番号をチェーンから読んでいます…');
@@ -186,32 +194,46 @@ async function sendFor(q) {
   const est = `送り元の在庫（見込み）：${needText(plan.estimate.have)}${short.length ? `。不足（見込み）：${needText(Object.fromEntries(short))}` : '。不足なし（見込み）'}。足りるかの最終判定は、送信の時にプログラムが行う`;
   if (!confirm(`村 (${plan.src.p},${plan.src.q}) から ${plan.plan.dirs.length} マス、隊商 #${plan.fields.seq} で ${needText(resp.offer)} を送ります。\n${est}\nウォレットで署名しますか？`)) return say(`送らなかった。${est}`, short.length ? 'warn' : '');
   say(`${est}。ウォレットで署名してください`);
-  const r = await sendPlanned(plan, { relay: cfg.relay, season: cfg.season, wallet: c });
-  if (!r.ok && r.code !== 'network') return say(`送れなかった：${r.error ?? r.code}`, 'bad');
-  const sent = { wallet: c.address, caravan: plan.caravan, dst: plan.dst, cargo: plan.cargo, signature: r.ok ? r.signature : null };
-  pending.set(q.id, sent);
-  await followSend(q.id, reader);
+  // ウォレットが署名した直後、中継へ出す前に、板へ sending の記録を残す（再読込・板の再起動の後も結果を追え、二重に送らない）。
+  // 板が断ったら（結果の分からない送信が残っている等）、中継へは出さない。
+  let sending = null;
+  const wallet = {
+    address: c.address,
+    signTransaction: async wire => {
+      const signed = await c.signTransaction(wire);
+      const tx = parseTransaction(signed);
+      const i = tx.signers.indexOf(c.address);
+      sending = { kind: 'sending', request: q.id, caravan: plan.caravan, walletSig: toBase58(tx.signatures[i]), blockhash: tx.recentBlockhash,
+        cargo: Object.fromEntries(Object.entries(resp.offer)), src: { p: plan.src.p, q: plan.src.q, site: plan.src.site, gen: plan.src.gen } };
+      const signedRec = await signRecord(signer, { v: 1, season: cfg.season, at: Math.floor(Date.now() / 1000), ...sending });
+      const r = await api('/coop/records', signedRec);
+      if (!r.ok) throw Object.assign(new Error(`板が送信の記録を受けなかった：${r.why}`), { code: 'SendingRefused' });
+      return signed;
+    },
+  };
+  const r = await sendPlanned(plan, { relay: cfg.relay, season: cfg.season, wallet });
+  if (!r.ok && !sending) return say(`送れなかった：${r.error ?? r.code}`, 'bad');
+  if (!r.ok && r.code === 'SendingRefused') return say(r.error, 'bad');
+  await refresh();
+  const z = (view.requests.find(x => x.id === q.id)?.sendings ?? []).find(x => x.walletSig === sending.walletSig);
+  return followSend(q, z ?? { ...sending, responder: c.address }, r.ok ? r.signature : null);
 }
 
-/** 送った取引の結果を、自分の取引の署名で確かめる（(持ち主, 番号) だけでは自分の送信とみなさない）。 */
-async function followSend(requestId, reader = rpcReader('/coop/rpc')) {
-  const sent = pending.get(requestId);
-  if (!sent) return;
-  for (let i = 0; i < 20; i++) {
-    const o = await sendOutcome(reader, cfg.season, sent, sent.signature);
-    if (o.status === 'landed') {
-      pending.delete(requestId);
-      return post({ kind: 'link', request: requestId, caravan: sent.caravan }, `隊商 #${sent.caravan.seq} が着地し（自分の取引で確かめた）、この依頼に結び付けた。数えるのは確定した到着だけ`);
-    }
-    if (o.status === 'failed' || o.status === 'mismatch' || o.status === 'seq-taken') {
-      pending.delete(requestId);
-      return say(`送信は成り立たなかった（${o.status}）：${o.why}。物は動いていない。計画し直して送れる`, 'bad');
-    }
+/**
+ * 送った取引の結果を確かめる（chain.mjs sendOutcome）。取引の中身（プログラム・命令・番号・送り元・届け先・荷）が計画と一致して
+ * 成功したときだけ結び付ける。失敗・不一致・番号を取られた・期限切れなら、送り直せる。分からないままなら、板の記録が残るので次は送らない。
+ */
+async function followSend(q, z, signature = null) {
+  const reader = rpcReader('/coop/rpc');
+  const plan = { wallet: z.responder, caravan: z.caravan, src: z.src, dst: q.to, cargo: RESOURCES.map(r => z.cargo[r] ?? 0) };
+  for (let i = 0; i < FOLLOW_TRIES; i++) {
+    const o = await sendOutcome(reader, cfg.season, plan, { signature, walletSig: z.walletSig, blockhash: z.blockhash });
+    if (o.status === 'landed') return post({ kind: 'link', request: q.id, caravan: z.caravan }, `隊商 #${z.caravan.seq} が着地し（取引の中身が依頼と一致）、この依頼に結び付けた。数えるのは確定した到着だけ`);
+    if (o.status !== 'unknown') { await refresh(); return say(`送信は成り立たなかった（${o.status}）：${o.why}。物は動いていない。計画し直して送れる`, 'bad'); }
     await new Promise(res => setTimeout(res, 1500));
   }
-  say(`送信の結果がまだ分からない（${sent.signature ? `取引 ${String(sent.signature).slice(0, 8)}…` : '取引の署名も分からない'}）。分かるまで次は送らない。もう一度「この画面から送る」を押すと確かめ直す`, 'warn');
-  // 次に押されたとき、まず確かめ直す
-  pending.set(requestId, { ...sent, recheck: true });
+  await refresh();
+  say(`送信の結果がまだ分からない（隊商 #${z.caravan.seq}）。板に記録があるので、再読込しても次は送らない。もう一度押すと確かめ直す`, 'warn');
 }
 
 $('send').addEventListener('click', () => {

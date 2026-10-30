@@ -21,10 +21,10 @@ import net from 'node:net';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { fold, recordId, shapeProblem, verifySig, ownerTagOf, CLOCK_SKEW } from './record.mjs';
+import { fold, recordId, shapeProblem, verifySig, ownerTagOf, CLOCK_SKEW, RESOURCES } from './record.mjs';
 import { linkProblem } from './arrival.mjs';
-import { GOALS, JUDGES, coopView } from './goal.mjs';
-import { citizenOf, holdingNow, rpcReader, caravanAccount, caravanEndFromChain, caravanHistory } from './chain.mjs';
+import { GOALS, JUDGES, coopView, timingOf } from './goal.mjs';
+import { citizenOf, holdingNow, rpcReader, caravanAccount, caravanHistory, sendOutcome, seasonRules } from './chain.mjs';
 import { caravanKeyOf } from './arrival.mjs';
 import { seasonAddresses } from '../../../permutation-server/web/frontier/faddr.mjs';
 
@@ -40,13 +40,17 @@ const TYPES = { '.html': 'text/html; charset=utf-8', '.mjs': 'text/javascript; c
  * 飛ばした行は記録の欠落なので、`damaged` として表示に出す（黙って消さない。ファイルも書き換えない）。
  */
 export function loadRecords(file) {
-  if (!fs.existsSync(file)) return { records: [], damaged: [] };
-  const records = [], damaged = [];
+  if (!fs.existsSync(file)) return { records: [], damaged: [], received: [] };
+  const records = [], damaged = [], received = [];
   fs.readFileSync(file, 'utf8').split('\n').forEach((l, i) => {
     if (!l.trim()) return;
-    try { records.push(JSON.parse(l)); } catch { damaged.push({ line: i + 1, head: l.slice(0, 40) }); }
+    let x;
+    try { x = JSON.parse(l); } catch { damaged.push({ line: i + 1, head: l.slice(0, 40) }); return; }
+    // 新しい形：{rec, receivedAt}（板が受け取った時刻。署名の外）。古い形：記録そのもの（受け取った時刻は分からない）
+    if (x && x.rec && typeof x.rec === 'object') { records.push(x.rec); received.push(Number.isInteger(x.receivedAt) ? x.receivedAt : null); }
+    else { records.push(x); received.push(null); }
   });
-  return { records, damaged };
+  return { records, damaged, received };
 }
 
 /**
@@ -59,7 +63,10 @@ export function createBoard({ herald, programId, seasonId, dataDir, judge = 'arr
   fs.mkdirSync(dataDir, { recursive: true });
   const recFile = path.join(dataDir, 'records.jsonl');
   const obsFile = path.join(dataDir, 'observed.json');
-  const { records, damaged } = loadRecords(recFile);
+  const { records, damaged, received } = loadRecords(recFile);
+  /** 記録の ID → 板が受け取った時刻（板の時計）。受諾の後の送信かを決めるのに使う（goal.mjs timingOf）。 */
+  const receivedAt = new Map(records.map((r, i) => [recordId(r), received[i]]));
+  const sendCache = new Map();      // 送信の結果（終わったものは変わらないので覚える）
   let obs = { ended: {}, vaults: {} };
   try { if (fs.existsSync(obsFile)) obs = JSON.parse(fs.readFileSync(obsFile, 'utf8')); } catch { obs = { ended: {}, vaults: {} }; }
   const citizenCache = new Map();   // 確かめられた結果だけを覚える（未検証は毎回やり直す）
@@ -96,6 +103,15 @@ export function createBoard({ herald, programId, seasonId, dataDir, judge = 'arr
     if (shape) return { ok: false, why: shape };
     if (!(await verifySig(rec))) return { ok: false, why: '署名が合わない' };
     if (Math.abs(rec.at - now()) > CLOCK_SKEW) return { ok: false, why: `時刻が板の時計と ${CLOCK_SKEW} 秒より離れている` };
+    if (rec.kind === 'sending') {
+      // 結果の分からない送信が同じ依頼・同じ人に残っていれば、次の署名・送付を受けない（二重送付を防ぐ）
+      const q = state().requests[rec.request];
+      for (const z of q?.sendings ?? []) {
+        if (z.responder !== rec.signer) continue;
+        const o = await sendingStatus(q, z);
+        if (o.status === 'unknown') return { ok: false, why: `結果の分からない送信（隊商 #${z.caravan.seq}）が残っている。着地・失敗・期限切れが分かるまで次を送らない`, pending: z.caravan };
+      }
+    }
     if (rec.kind === 'link') {
       const q = state().requests[rec.request];
       if (!q) return { ok: false, why: '依頼が見つからない' };
@@ -118,8 +134,9 @@ export function createBoard({ herald, programId, seasonId, dataDir, judge = 'arr
           if (!h.sent) return { ok: false, why: '隊商の口座も、送信の記録もない（まだ載っていない）' };
           if (h.raided) return { ok: false, why: '襲われた隊商は結び付けない' };
           const resp = q.responses[rec.signer];
-          if (h.sent.blockTime === null || h.sent.blockTime === undefined) return { ok: false, why: '送信の時刻が分からないので、応じた後の送信か確かめられない' };
-          if (!resp || h.sent.blockTime < resp.at - CLOCK_SKEW) return { ok: false, why: '応じる前に送った隊商は結び付けない' };
+          // 応じた後の送信か：送信の blockTime と、板が応答を受け取った時刻を比べる。前と分かれば断る。境界（同じ時刻の近く）と後は受け、
+          // 境界は数えない（goal.mjs timingOf）。
+          if (timingOf(h.sent.blockTime, receivedAt.get(resp?.id) ?? null).status === 'before') return { ok: false, why: '応じる前に送った隊商は結び付けない' };
           const why = linkProblem(q, rec.caravan, rec.caravan.ownerTag, { moving: [{ ownerTag: String(rec.caravan.ownerTag), seq: rec.caravan.seq, dst: h.sent.dst, cargo: h.sent.cargo, raided: false }] });
           if (why) return { ok: false, why };
         } else return { ok: false, why: `隊商をチェーンで確かめられない：${c.why}` };
@@ -136,8 +153,10 @@ export function createBoard({ herald, programId, seasonId, dataDir, judge = 'arr
     if (bad) return { ok: false, why: bad.why };
     // 書きかけで止まった最後の行に続けて書かない
     if (fs.existsSync(recFile)) { const st = fs.statSync(recFile); if (st.size > 0) { const fd = fs.openSync(recFile, 'r'); const b = Buffer.alloc(1); fs.readSync(fd, b, 0, 1, st.size - 1); fs.closeSync(fd); if (b[0] !== 10) fs.appendFileSync(recFile, '\n'); } }
-    fs.appendFileSync(recFile, `${JSON.stringify(rec)}\n`);
+    const at = now();
+    fs.appendFileSync(recFile, `${JSON.stringify({ rec, receivedAt: at })}\n`);
     records.push(rec);
+    receivedAt.set(id, at);
     return { ok: true, id };
   }
 
@@ -159,16 +178,30 @@ export function createBoard({ herald, programId, seasonId, dataDir, judge = 'arr
     }
     const citizens = {};
     for (const w of wallets) citizens[w] = await citizen(w);
-    if (!reader) return { citizens, holdings, caravans: undefined };
+    const times = Object.fromEntries(receivedAt);
+    if (!reader) return { citizens, holdings, caravans: undefined, times, rules: { status: 'unverified', why: 'チェーンを読めない（板に --rpc がない）' }, sendings: {} };
     const ends = {};
     for (const q of Object.values(st.requests)) for (const l of q.links) {
       const k = caravanKeyOf(l.caravan);
       if (endCache.has(k)) { ends[k] = endCache.get(k); continue; }
-      const e = await caravanEndFromChain(reader, season, l.caravan);
+      const h = await caravanHistory(reader, season, l.caravan);
+      const e = h.status !== 'ok' ? h : { ...h, status: h.raided ? 'raided' : h.settled ? 'settled' : 'none' };
       if (e.status === 'settled' || (e.status === 'raided' && e.settled)) endCache.set(k, e);
       ends[k] = e;
     }
-    return { citizens, holdings, caravans: ends };
+    const sendings = {};
+    for (const q of Object.values(st.requests)) for (const z of q.sendings) sendings[z.walletSig] = await sendingStatus(q, z);
+    return { citizens, holdings, caravans: ends, times, rules: await seasonRules(reader, season), sendings };
+  }
+
+  /** sending の記録の送信が、いまどうなったか（chain.mjs sendOutcome）。終わったものは覚える。 */
+  async function sendingStatus(q, z) {
+    if (sendCache.has(z.walletSig)) return sendCache.get(z.walletSig);
+    if (!reader) return { status: 'unknown', why: 'チェーンを読めない' };
+    const plan = { wallet: z.responder, caravan: z.caravan, src: z.src, dst: q.to, cargo: RESOURCES.map(r => z.cargo[r] ?? 0) };
+    const o = await sendOutcome(reader, season, plan, { walletSig: z.walletSig, blockhash: z.blockhash });
+    if (o.status !== 'unknown') sendCache.set(z.walletSig, o);
+    return o;
   }
 
   async function view({ viewer = null, judgeId = judge } = {}) {
@@ -208,7 +241,7 @@ function serveStatic(res, rel) {
 }
 
 /** 画面から読ませる RPC（読むだけ）。 */
-export const READ_METHODS = Object.freeze(['getAccountInfo', 'getSignaturesForAddress', 'getTransaction']);
+export const READ_METHODS = Object.freeze(['getAccountInfo', 'getSignaturesForAddress', 'getTransaction', 'isBlockhashValid']);
 
 /** 板の HTTP サーバー。`/coop/*` は板、`/ws01/*` は画面、それ以外はヘラルドへ転送。 */
 export function createServer(board, { herald }) {

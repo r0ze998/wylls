@@ -11,7 +11,8 @@ import { equal, fromBase64 } from '../../../permutation-server/web/sdk/bytes.mjs
 import { pubkeyBytes, pubkeyString } from '../../../permutation-server/web/sdk/solana-tx.mjs';
 import { LAYOUTS as V2 } from '../../../permutation-server/web/sdk/frontier/abi-v2-layouts.mjs';
 import { decodeRecord } from '../../../permutation-server/web/frontier/flog.mjs';
-import { encode as toBase58 } from '../../../permutation-server/web/sdk/base58.mjs';
+import { encode as toBase58, decode as fromBase58 } from '../../../permutation-server/web/sdk/base58.mjs';
+import { decodeIxData } from '../../../permutation-server/web/sdk/frontier/codec.mjs';
 
 /**
  * JSON-RPC でチェーンを読む。account(address) → バイト列か null、signatures(address) → [{signature, err}]（新しい順）、
@@ -34,7 +35,15 @@ export function rpcReader(rpcUrl, { fetchImpl = fetch } = {}) {
     },
     async transaction(signature) {
       const t = await call('getTransaction', [signature, { encoding: 'json', commitment: 'confirmed', maxSupportedTransactionVersion: 0 }]);
-      return t ? { err: t.meta?.err ?? null, logs: t.meta?.logMessages ?? [], slot: t.slot, blockTime: t.blockTime ?? null } : null;
+      if (!t) return null;
+      const m = t.transaction?.message;
+      return { err: t.meta?.err ?? null, logs: t.meta?.logMessages ?? [], slot: t.slot, blockTime: t.blockTime ?? null,
+        signatures: t.transaction?.signatures ?? [],
+        message: m ? { accountKeys: m.accountKeys ?? [], numSigners: m.header?.numRequiredSignatures ?? 0, instructions: (m.instructions ?? []).map(i => ({ programIdIndex: i.programIdIndex, accounts: i.accounts ?? [], data: i.data })) } : null };
+    },
+    /** まだ着地しうる blockhash か（false なら、その blockhash の取引はもう着地しない）。 */
+    async blockhashValid(blockhash) {
+      return (await call('isBlockhashValid', [blockhash, { commitment: 'confirmed' }]))?.value ?? null;
     },
   };
 }
@@ -180,31 +189,95 @@ export async function caravanHistory(reader, season, caravan) {
 }
 
 /**
- * 自分が送った取引が着地したか（④ STATE-MACHINE「別の送信経路と owner の連番」：(owner, seq) が一致するだけでは自分の送信とみなさない）。
- * 自分の取引の署名 `signature` を読み、その取引の中にこのプログラムの CARAVAN_SENT（計画の ownerTag・seq・届け先・荷）があるかを見る。
- *   'landed'：自分の取引が成功し、計画どおりの隊商を記録した
- *   'failed'：自分の取引は着地したが失敗した（在庫不足・番号の不一致などをプログラムが断った）
- *   'mismatch'：自分の取引は成功したが、計画の隊商の記録がない・中身が違う
- *   'seq-taken'：自分の取引は見えず、送った人の隊商の番号（CARAVANS）は計画の番号を越えた（別の送信がその番号を使った可能性）
- *   'unknown'：自分の取引も、番号の進みも見えない（まだ着地していない、期限切れで捨てられた、のどちらか分からない）
+ * 自分が送った取引を見つけ、その中身が計画（＝依頼）と一致するかを確かめる。
+ * ④ STATE-MACHINE「別の送信経路と owner の連番」：(owner, seq) が一致するだけでは自分の送信とみなさない。
+ *
+ *   plan：{wallet, programId, caravan: {ownerTag, seq}, src: {p,q,site,gen}, dst: {p,q,site,gen}, cargo: [8]（整数単位）, srcAddress}
+ *   ev：{signature?（取引の署名＝手数料の鍵の署名）, walletSig?（送る人のウォレットの署名。sending の記録にある）, blockhash?}
+ *
+ * 取引は、署名で直接読むか、隊商の口座の住所に触れた取引の中からウォレットの署名を含むものを探す。見つけたら、次をすべて確かめる：
+ *   - 取引が成功している（失敗なら 'failed'：在庫不足・番号の不一致などをプログラムが断った）
+ *   - 送る人のウォレットが署名者で、署名が取引に入っている
+ *   - 対象のプログラムの命令が SendCaravan で、番号・届け先（p, q, 村, 世代）・荷（8資源の整数、経路の目減りの前）が計画と同じ
+ *   - 命令の口座に、計画の送り元の村と隊商の口座がある
+ *   - このプログラムの CARAVAN_SENT の記録の送り元・届け先が計画と同じで、荷が計画以下（経路の塔の目減り）
+ * 一つでも違えば 'mismatch'（理由つき）。見つからなければ、blockhash が切れていれば 'expired'（もう着地しない。送り直してよい）、
+ * 番号が進んでいれば 'seq-taken'、どちらでもなければ 'unknown'（送り直さない）。
  */
-export async function sendOutcome(reader, season, { wallet, caravan, dst, cargo }, signature) {
+export async function sendOutcome(reader, season, plan, ev = {}) {
   if (!reader?.transaction) return { status: 'unknown', why: 'チェーンを読めない' };
+  const evidence = typeof ev === 'string' || ev === null ? { signature: ev } : ev;
+  const A = seasonAddresses(season.programId, season.seasonId);
+  const caravanAddr = A.of('Caravan', { ownerTag: BigInt(plan.caravan.ownerTag), seq: plan.caravan.seq });
   let t = null;
-  if (signature) { try { t = await reader.transaction(signature); } catch (e) { return { status: 'unknown', why: `取引を読めない：${e.message ?? e}` }; } }
+  try {
+    if (evidence.signature) t = await reader.transaction(evidence.signature);
+    if (!t && evidence.walletSig && reader.signatures) {
+      for (const s of await reader.signatures(caravanAddr)) {
+        const x = await reader.transaction(s.signature);
+        if (x?.signatures?.includes(evidence.walletSig)) { t = x; break; }
+      }
+    }
+  } catch (e) { return { status: 'unknown', why: `取引を読めない：${e.message ?? e}` }; }
   if (t) {
     if (t.err) return { status: 'failed', why: `プログラムが断った：${JSON.stringify(t.err)}`, slot: t.slot };
-    const A = seasonAddresses(season.programId, season.seasonId);
-    const r = programRecords(t.logs, A.programId).find(x => x.name === 'CARAVAN_SENT' && x.owner_tag === BigInt(caravan.ownerTag) && x.seq === caravan.seq);
-    if (!r) return { status: 'mismatch', why: '自分の取引に、計画の隊商の記録がない' };
-    const d = placeOf(r.dst), c = cargoOfLog(r.cargo);
-    if (d.kind !== 1 || d.p !== dst.p || d.q !== dst.q || d.at !== dst.site || d.gen !== dst.gen) return { status: 'mismatch', why: '自分の取引の隊商の行き先が計画と違う' };
-    if (c.some((v, i) => v > (cargo[i] ?? 0))) return { status: 'mismatch', why: '自分の取引の隊商の荷が計画より多い' };
-    return { status: 'landed', slot: t.slot, cargoLogged: c };   // 荷は経路の塔で減りうる（計画以下）
+    const why = txMismatch(t, A, plan, caravanAddr, evidence);
+    if (why) return { status: 'mismatch', why };
+    const r = programRecords(t.logs, A.programId).find(x => x.name === 'CARAVAN_SENT' && x.owner_tag === BigInt(plan.caravan.ownerTag) && x.seq === plan.caravan.seq);
+    return { status: 'landed', slot: t.slot, blockTime: t.blockTime, cargoLogged: cargoOfLog(r.cargo) };
   }
-  const me = await citizenOf(reader, season, wallet);
-  if (me.caravans !== undefined && Number(me.caravans) > caravan.seq) return { status: 'seq-taken', why: `自分の取引は見えないが、隊商の番号は ${me.caravans} まで進んだ（番号 #${caravan.seq} は別の送信が使った可能性）` };
-  return { status: 'unknown', why: '自分の取引も番号の進みも見えない（まだ着地していない、または期限切れで捨てられた）' };
+  if (evidence.blockhash && reader.blockhashValid) {
+    try { if (await reader.blockhashValid(evidence.blockhash) === false) return { status: 'expired', why: 'この取引の blockhash は切れた。もう着地しないので、送り直してよい' }; } catch { /* 分からない */ }
+  }
+  const me = await citizenOf(reader, season, plan.wallet);
+  if (me.caravans !== undefined && Number(me.caravans) > plan.caravan.seq) return { status: 'seq-taken', why: `自分の取引は見えないが、隊商の番号は ${me.caravans} まで進んだ（番号 #${plan.caravan.seq} は別の送信が使った可能性）` };
+  return { status: 'unknown', why: '自分の取引も、blockhash の期限切れも、番号の進みも見えない（まだ着地していない可能性がある）' };
+}
+
+/** 取引の中身が計画と一致しないなら理由。命令（口座・データ）と、記録（CARAVAN_SENT）の両方を見る。 */
+function txMismatch(t, A, plan, caravanAddr, evidence) {
+  const m = t.message;
+  if (!m) return '取引の中身（message）を読めない';
+  const keys = m.accountKeys;
+  const signerAt = keys.indexOf(plan.wallet);
+  if (signerAt < 0 || signerAt >= m.numSigners) return '送る人のウォレットが、この取引の署名者ではない';
+  if (evidence.walletSig && t.signatures[signerAt] !== evidence.walletSig) return 'この取引のウォレットの署名が、記録した署名と違う';
+  const ixs = m.instructions.filter(i => keys[i.programIdIndex] === A.programId);
+  if (ixs.length !== 1) return `対象のプログラムの命令が ${ixs.length} 個（1個のはず）`;
+  let d;
+  try { d = decodeIxData(fromBase58(ixs[0].data), 3); } catch (e) { return `命令を読めない：${e.message ?? e}`; }
+  if (d.name !== 'SendCaravan') return `命令が SendCaravan ではない（${d.name}）`;
+  if (Number(d.seq) !== plan.caravan.seq) return `番号が違う（${d.seq}、計画 ${plan.caravan.seq}）`;
+  if (Number(d.dst_kind) !== 1 || Number(d.dst_p) !== plan.dst.p || Number(d.dst_q) !== plan.dst.q || Number(d.dst_at) !== plan.dst.site || Number(d.dst_gen) !== plan.dst.gen) return '命令の届け先が計画と違う';
+  const cargo = Array.from({ length: 8 }, (_, i) => new DataView(d.cargo.buffer, d.cargo.byteOffset).getUint32(4 * i, true));
+  if (cargo.some((v, i) => v !== (plan.cargo[i] ?? 0))) return `命令の荷が計画と違う（${cargo.join(',')}）`;
+  const ixKeys = ixs[0].accounts.map(i => keys[i]);
+  if (!ixKeys.includes(caravanAddr)) return '命令の口座に、計画の隊商の口座がない';
+  const srcAddr = A.of('Holding', { p: plan.src.p, q: plan.src.q, site: plan.src.site });
+  if (!ixKeys.includes(srcAddr)) return '命令の口座に、計画の送り元の村がない';
+  const r = programRecords(t.logs, A.programId).find(x => x.name === 'CARAVAN_SENT' && x.owner_tag === BigInt(plan.caravan.ownerTag) && x.seq === plan.caravan.seq);
+  if (!r) return 'このプログラムの CARAVAN_SENT の記録がない';
+  const rs = placeOf(r.src), rd = placeOf(r.dst), rc = cargoOfLog(r.cargo);
+  if (rs.p !== plan.src.p || rs.q !== plan.src.q || rs.at !== plan.src.site || rs.gen !== plan.src.gen) return '記録の送り元が計画と違う';
+  if (rd.kind !== 1 || rd.p !== plan.dst.p || rd.q !== plan.dst.q || rd.at !== plan.dst.site || rd.gen !== plan.dst.gen) return '記録の届け先が計画と違う';
+  if (rc.some((v, i) => v > (plan.cargo[i] ?? 0))) return '記録の荷が計画より多い';
+  return null;
+}
+
+/**
+ * シーズンの規則の版（Season の口座の RULESET_HASH・PROGRAM_VERSION）。到着時の受取人を世代から決める規則は、
+ * この版のプログラムのコードで確かめたもの（goal.mjs RECIPIENT_RULE）。{status: 'verified', rulesetHash, programVersion} か {status: 'unverified', why}
+ */
+export async function seasonRules(reader, season) {
+  if (!reader) return { status: 'unverified', why: 'チェーンを読めない（板に --rpc がない）' };
+  const A = seasonAddresses(season.programId, season.seasonId);
+  let bytes;
+  try { bytes = await reader.account(A.season); } catch (e) { return { status: 'unverified', why: `チェーンを読めない：${e.message ?? e}` }; }
+  if (!bytes) return { status: 'unverified', why: 'シーズンの口座がない' };
+  try {
+    const x = readAccount('Season', bytes, season.seasonId, ['RULESET_HASH', 'PROGRAM_VERSION']);
+    return { status: 'verified', rulesetHash: Array.from(x.RULESET_HASH, b => b.toString(16).padStart(2, '0')).join(''), programVersion: x.PROGRAM_VERSION };
+  } catch (e) { return { status: 'unverified', why: `シーズンの口座が読めない：${e.message ?? e}` }; }
 }
 
 /**

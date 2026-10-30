@@ -57,14 +57,28 @@
 | # | 点 | ①の扱い |
 |---|---|---|
 | D1 | ④の `CaravanSettled` の event は `slot`・`credited/lost`（P1）を持つ。①の提案パッチ 0002（ヘラルドの `ended`）は `slot`・取引の署名を持たない（ヘラルドの fold には bell・署名が渡らない） | ①は量をヘラルドの `ended` から数えない（チェーンの取引の記録だけ）。0002 は表示用。④の findex の event を使えるなら、①はそちらに合わせる |
-| D2 | 単位：④は「cargo を入荷量」。①は整数単位の切り捨てと明記 | 19-2。④の確認待ち |
+| D2 | 単位 | **解決**：④のコード（`src/model.rs`：`pub type Res = [u64; RESOURCES]`「Whole units per resource (the PS2 logs' unit for cargo)」、`executor.rs:1432-1437` で RuleDerived の delivered は記録の cargo）も整数単位。①と④は同じ数（契約テスト「村あて」「単位」） |
 | D3 | ④の状態名（Fulfilled・Partial・DeliveredUnverified など、15 の状態）は④の実行器の状態。①は依頼の板で、到着ごとに `state`（moving・delivered・lost・misdelivered・raided-*・unknown）と `verification` を持つ | 対応表：delivered＋RuleDerived ≒ Fulfilled/Partial、delivered＋Unverifiable ≒ DeliveredUnverified、lost・raided-*・misdelivered ≒ Failed（KnownZero） |
 | D4 | ④は「依頼量以上なら Fulfilled、少なければ Partial」。①は依頼の量で到着を切らず、共同の目的の判定は資源ごとの合計 | 依頼ごとの充足の表示は①では作らない（今回は増やさない） |
 | D5 | MANIFEST・SHA256SUMS が完全な bundle を載せるが、このアーカイブにない | 照合には影響しない（増分の bundle とパッチで同じ tree） |
 | D6 | ①の 18章の「村あては下限」という書き方 | 今回④の言葉（RuleDerived）に直した。量は同じ |
 
+## 19-4b. 契約テスト（`test/coop.contract04.test.mjs`、7件）
+
+最小の実データ：`test/fixtures/ws04-outcomes-2e536b6b.json`。④の受領版のコードの `Outcome` を、この作業の一時的な写しで `serde_json` で書き出したもの（RuleDerived・Unverifiable・KnownZero・Recorded・NotShipped の5つ）。④の tree は変えていない（書き出しに使った一時的なテストは消した）。①の側の変換は `coop/ws04.mjs`。
+
+| テスト | 確かめる不一致・一致 |
+|---|---|
+| 形 | ④の JSON を①が読める。`Unverifiable` なのに delivered がある・`KnownZero` なのに 0 でない・整数でない・知らない verification は断る |
+| 村あて | ①がチェーンの CARAVAN_SETTLED から作る到着を④の形にすると、④の RuleDerived の Outcome と同じ（D2） |
+| 倉あて | ①も④も delivered は null・Unverifiable |
+| LOST | ①も④も delivered は 0・KnownZero（null とは別） |
+| Recorded・NotShipped | ①は Recorded を作らない（P1 未適用）が、④から届けば数える。NotShipped は数えない |
+| 単位 | 記録はミリ単位を1件ずつ切り捨てた整数。3件（100.6・100.6・100.999 単位）は、切り捨ててから足すと 300、足してから切り捨てると 302。差は最大 k−1。①も④も記録の整数を足す（ミリ単位は記録にないので、足してから切り捨てた値は作れない）。共同の目的の表示に `underBy`（数えた件数）を出す |
+| 状態 | ①の到着の状態と④の終わりの状態の対応（D3）。Fulfilled と Partial は①では分けない（D4） |
+
 ## 19-5. ④に確かめてほしいこと
 
-1. `delivered`（RuleDerived）の単位は整数単位で、ミリ単位の端数は切り捨てか。
+1. （解決：④のコードで整数単位と確認）④の文書にも「整数単位・1件ずつ切り捨て」を書くか。複数の到着の合計の精度（最大 k 未満）を④の進捗の表示でも示すか。
 2. 依頼に対する「自分の送信」の確認で、①の板が使う「結び付けの署名をした人＝隊商の鍵（OWNER_TAG）の持ち主、かつ今の OWNER_CITIZEN」で足りるか（④は実行器の署名の着地で確かめる。①の板は送った人の署名付きの結び付けの記録で確かめる）。
 3. findex の `CaravanSettled` の event（slot・署名つき）を①が読めるか。読めるなら、①の提案パッチ 0002 は要らなくなる。

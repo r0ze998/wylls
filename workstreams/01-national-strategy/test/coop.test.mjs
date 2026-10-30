@@ -35,12 +35,13 @@ async function people() {
  * 偽のヘラルド：隊商の一覧を手で書き換える。`chain` を渡すと、同じ出来事をチェーン（隊商の口座と取引の記録）にも書く。
  * `heraldOnly` の出来事は、ヘラルドの一覧だけを書き換える（チェーンとの食い違いを作る）。
  */
-function fakeHerald({ ended = true, chain = null } = {}) {
+function fakeHerald({ ended = true, chain = null, onSend = () => {} } = {}) {
   const file = { v: 1, moving: [], vaults: [], ...(ended ? { ended: [] } : {}) };
   const ch = (f, ...a) => { if (chain) chain[f](...a); };
   return {
     file,
     send(owner, seq, cargo, to = HOME_A) {
+      onSend();   // 送信は応答より後（板の時計を進める。±TIMING_MARGIN 秒の境界を越える）
       ch('caravanSent', owner, ownerTagOf(season, owner.address), seq, to, cargo);
       file.moving.push({ ownerTag: ownerTagOf(season, owner.address), seq, faction: 2, src: { kind: 1, p: 4, q: 0, at: 5, gen: 1, tile: 11 }, dst: dstOf(to), steps: 3, cargo, arriveTs: 1, runs: [], raided: false, path: Array(12).fill(0), provinces: [[4, 0], [3, 0]] });
     },
@@ -69,15 +70,16 @@ const fakeChain = () => fakeChainOf(programId, '90');
 function standardChain(P) {
   const ch = fakeChain();
   for (const [w, f] of [[P.a, 0], [P.b, 2], [P.c, 4], [P.d, 5]]) ch.citizen(w, f);
+  ch.season();
   ch.holding(HOME_A, P.a, 0);
   return ch;
 }
 
 function setup({ ended = true, chain = null, dir = null, clockAt = 1_790_000_000 } = {}) {
   dir ??= fs.mkdtempSync(path.join(os.tmpdir(), 'ws01-coop-'));
-  const H = fakeHerald({ ended, chain });
   let t = clockAt;
   const clock = { now: () => t, tick: (s = 60) => { t += s; } };
+  const H = fakeHerald({ ended, chain, onSend: () => clock.tick(10) });
   chain?.setClock?.(clock.now);
   const board = createBoard({ herald: null, programId, seasonId: '90', dataDir: dir, now: clock.now, fetchHerald: async () => ({ status: 200, json: structuredClone(H.file) }), reader: chain?.reader ?? null });
   const put = async (who, rec) => { clock.tick(1); return board.submit(await signRecord(who, { v: 1, season, at: clock.now(), ...rec })); };
@@ -493,14 +495,14 @@ test('国籍：申告は使わず、チェーンの Citizen で確かめる。�
   assert.equal(j.done, false);
   assert.equal(j.progress[0].verified, 0, '届け先の村が依頼した人の物か確かめられない到着は数えない');
   // 村は確かめられるが、b の Citizen がない
-  const ch = fakeChain(); ch.citizen(P.a, 0); ch.holding(HOME_A, P.a, 0);
+  const ch = fakeChain(); ch.season(); ch.citizen(P.a, 0); ch.holding(HOME_A, P.a, 0);
   j = await run(ch);
   assert.equal(j.progress[0].verified, 200);
   assert.equal(j.done, false);
   assert.match(j.why, /国籍未検証/);
   assert.equal(j.otherNations.length, 0);
   // b の Citizen のウォレットが違う（別人の口座）
-  const ch2 = fakeChain(); ch2.citizen(P.a, 0); ch2.holding(HOME_A, P.a, 0); ch2.citizen(P.b, 2, { wallet: P.c.address });
+  const ch2 = fakeChain(); ch2.season(); ch2.citizen(P.a, 0); ch2.holding(HOME_A, P.a, 0); ch2.citizen(P.b, 2, { wallet: P.c.address });
   j = await run(ch2);
   assert.match(j.why, /国籍未検証/);
   // 確かめられた：申告（国1）ではなくチェーン（国3）で他国と数える
@@ -572,12 +574,12 @@ test('重複：履歴が欠けた板が二つ目の結び付けを受けても�
   const { put, H, dir, chain } = setup({ chain: standardChain(P) });
   const id1 = await request(put, P.a);
   const id2 = (await put(P.a, { kind: 'request', goalId, need: { wood: 200 }, to: HOME_A, nation: 0, expiresAt: 1_790_000_000 + 86400, nonce: 'n2' })).id;
+  await put(P.b, { kind: 'respond', request: id2, answer: 'accept', offer: { wood: 200 }, nation: 2 });   // 両方に応じてから送る
   assert.ok((await linked(put, H, id1, P.b, 0, [0, 200, 0, 0, 0, 0, 0, 0])).ok);
-  await put(P.b, { kind: 'respond', request: id2, answer: 'accept', offer: { wood: 200 }, nation: 2 });
   // 履歴の欠落：板のファイルから id1 への結び付けの行が消えた
   const file = path.join(dir, 'records.jsonl');
   const lines = fs.readFileSync(file, 'utf8').trim().split('\n');
-  const linkLine = lines.find(l => JSON.parse(l).kind === 'link');
+  const linkLine = lines.find(l => (JSON.parse(l).rec ?? JSON.parse(l)).kind === 'link');
   fs.writeFileSync(file, `${lines.filter(l => l !== linkLine).join('\n')}\n`);
   let t = 1_790_000_000 + 100;
   const gap = createBoard({ herald: null, programId, seasonId: '90', dataDir: dir, now: () => t, fetchHerald: async () => ({ status: 200, json: structuredClone(H.file) }), reader: chain.reader });
@@ -732,4 +734,23 @@ test('所有者の変更：占領の決着待ちの村には確定できない�
   assert.equal(recipientOf(arrival, undefined, 'X').status, 'unverified');
   assert.equal(recipientOf({ state: 'lost' }, null, 'X'), null);
   void chain;
+});
+
+test('単位と精度：共同の目的の量は、到着の記録の整数（1件ずつ切り捨て）の合計で、underBy は数えた到着の件数（本当の量はそれ未満多いことがある）', async () => {
+  const P = await people();
+  const { H, board, put } = setup({ chain: standardChain(P) });
+  const id = await request(put, P.a);
+  for (const [w, f] of [[P.b, 2], [P.c, 4]]) {
+    await put(w, { kind: 'respond', request: id, answer: 'accept', offer: { wood: 200 }, nation: f });
+    H.send(w, 0, [0, 100, 0, 0, 0, 0, 0, 0]);
+    const r = await put(w, { kind: 'link', request: id, caravan: { ownerTag: ownerTagOf(season, w.address), seq: 0 } });
+    assert.ok(r.ok, r.why);
+    H.settle(w, 0, 0, [0, 100, 0, 0, 0, 0, 0, 0]);   // 本当は 100.6 単位（100600 ミリ）でも、記録は 100
+  }
+  const j = (await board.view({})).joint[0];
+  const wood = j.progress.find(p => p.resource === 'wood');
+  assert.equal(wood.verified, 200);
+  assert.equal(wood.unit, 'whole');
+  assert.equal(wood.underBy, 2, '2件：本当の量は 200 以上 202 未満');
+  assert.equal(j.progress.find(p => p.resource === 'stone').underBy, 0);
 });

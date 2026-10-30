@@ -15,7 +15,10 @@ import { decode as fromBase58, encode as toBase58 } from '../../../permutation-s
 import { citizenTag, seasonAddresses } from '../../../permutation-server/web/frontier/faddr.mjs';
 
 export const DOMAIN = 'WYLLS-COOP-V1';
-export const KINDS = Object.freeze(['request', 'respond', 'withdraw', 'cancel', 'link', 'leave']);
+export const KINDS = Object.freeze(['request', 'respond', 'withdraw', 'cancel', 'sending', 'link', 'leave']);
+// sending：送る人が隊商の取引にウォレットで署名した直後、中継へ出す前に板へ残す記録（ウォレットの署名・blockhash・番号・送り元・荷）。
+//   これがあるので、画面の再読込や板の再起動の後も「結果の分からない送信」が残り、同じ依頼へ二重に署名・送付しない（board.mjs）。
+//   記録するのは送るつもりの取引で、物を動かすのは中継とプログラム。記録だけでは何も起きない。
 /** S1 の資源の並び（permutation-rules holding.rs Resource）。兵器は Horses の枠（arms.rs ARMS）。 */
 export const RESOURCES = Object.freeze(['food', 'wood', 'stone', 'ore', 'arms', 'gold']);
 export const RESOURCE_JA = Object.freeze({ food: '食料', wood: '木材', stone: '石材', ore: '鉱石', arms: '兵器', gold: '金' });
@@ -142,6 +145,14 @@ export function shapeProblem(rec, goals) {
       if (typeof rec.request !== 'string') return '依頼の ID がない';
       if (rec.kind === 'cancel' && !['self', 'other', 'done'].includes(rec.reason)) return '取消の理由が正しくない';
       return null;
+    case 'sending':
+      if (typeof rec.request !== 'string') return '依頼の ID がない';
+      if (!rec.caravan || !/^\d{1,20}$/.test(String(rec.caravan.ownerTag)) || !isInt(rec.caravan.seq, 0, 0xffffffff)) return '隊商の ID が正しくない';
+      if (typeof rec.walletSig !== 'string' || !/^[1-9A-HJ-NP-Za-km-z]{80,90}$/.test(rec.walletSig)) return 'ウォレットの署名が正しくない';
+      if (typeof rec.blockhash !== 'string' || !/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(rec.blockhash)) return 'blockhash が正しくない';
+      if (!needOf(rec.cargo)) return '荷が正しくない';
+      if (!rec.src || !isInt(rec.src.p, -64, 64) || !isInt(rec.src.q, -64, 64) || !isInt(rec.src.site, 0, 63) || !isInt(rec.src.gen, 0, 255)) return '送り元が正しくない';
+      return null;
     case 'link':
       if (typeof rec.request !== 'string') return '依頼の ID がない';
       if (!rec.caravan || !/^\d{1,20}$/.test(String(rec.caravan.ownerTag)) || !isInt(rec.caravan.seq, 0, 0xffffffff)) return '隊商の ID が正しくない';
@@ -181,7 +192,7 @@ export function fold(records, { goals, season }) {
           if (leftOf(rec.goalId, rec.signer)) return 'この目的から抜けた人は依頼できない';
           S.requests[id] = {
             id, goalId: rec.goalId, requester: rec.signer, nation: rec.nation, need: { ...rec.need }, to: { ...rec.to },
-            at: rec.at, expiresAt: rec.expiresAt, state: 'open', cancel: null, responses: {}, links: [],
+            at: rec.at, expiresAt: rec.expiresAt, state: 'open', cancel: null, responses: {}, links: [], sendings: [],
           };
           return null;
         }
@@ -193,7 +204,7 @@ export function fold(records, { goals, season }) {
           if (rec.answer === 'accept') {
             for (const [k, v] of Object.entries(rec.offer)) if (!(k in r.need) || v > r.need[k]) return `依頼にない量：${RESOURCE_JA[k] ?? k} ${v}`;
           }
-          r.responses[rec.signer] = { answer: rec.answer, offer: rec.answer === 'accept' ? { ...rec.offer } : null, nation: rec.nation, at: rec.at, withdrawn: false };
+          r.responses[rec.signer] = { id: recordId(rec), answer: rec.answer, offer: rec.answer === 'accept' ? { ...rec.offer } : null, nation: rec.nation, at: rec.at, withdrawn: false };
           return null;
         }
         case 'withdraw': {
@@ -208,6 +219,18 @@ export function fold(records, { goals, season }) {
           if (rec.signer !== r.requester) return '依頼した人だけが取り消せる';
           if (r.state !== 'open') return 'もう閉じている';
           r.state = 'cancelled'; r.cancel = { reason: rec.reason, at: rec.at };
+          return null;
+        }
+        case 'sending': {
+          if (!r) return '依頼が見つからない';
+          const x = r.responses[rec.signer];
+          if (!x || x.answer !== 'accept' || x.withdrawn) return '応じていない人は送れない';
+          if (!openAt(r, rec.at)) return '依頼が開いていない';
+          if (String(rec.caravan.ownerTag) !== ownerTagOf(season, rec.signer)) return '隊商の鍵がこの署名の人のものではない';
+          for (const [k, v] of Object.entries(rec.cargo)) if (!(k in r.need) || v > r.need[k]) return `依頼にない量：${RESOURCE_JA[k] ?? k} ${v}`;
+          if (Object.values(S.requests).some(q => q.sendings.some(z => z.walletSig === rec.walletSig))) return '同じ取引の記録が二度';
+          r.sendings.push({ responder: rec.signer, caravan: { ownerTag: String(rec.caravan.ownerTag), seq: rec.caravan.seq }, walletSig: rec.walletSig, blockhash: rec.blockhash,
+            cargo: { ...rec.cargo }, src: { ...rec.src }, at: rec.at, n });
           return null;
         }
         case 'link': {
