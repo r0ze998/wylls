@@ -45,15 +45,6 @@ test('the synthesised ClashInputs is the gathered one: the kernel resolves both 
   }
 });
 
-test('REPRO: the page\'s forecast of a march on a keep\'s tile counts no keep garrison (the host of 500 keeps 500)', async () => {
-  const k = await s1;
-  const fc = forecast(k, composed(), PV, ARR.faction);
-  assert.equal(fc.ok, true);
-  assert.deepEqual([fc.troops.min, fc.troops.max], [500, 500], 'the page says the host comes out whole');
-  // the chain, on the same arrival, recorded 488.122 left
-  assert.equal(REC.decoded.fighters[0].troops, 488122);
-});
-
 test('the model forecast counts the keep as the program does: fewer than 500 left, the recorded 488 within a turn\'s rolls', async () => {
   const k = await s1;
   const fc = modelForecast(k, composed(), PB, ARR.faction);
@@ -77,14 +68,6 @@ function withFort(troopsWhole, faction = 4) {
 const V2 = Object.fromEntries(LAYOUTS.accounts.map(x => [x.kind, x]));
 const R2 = Object.fromEntries(LAYOUTS.records.map(x => [x.name, x]));
 
-test('REPRO: a manned fort on the destination tile is not in the page\'s forecast', async () => {
-  const k = await s1;
-  const pb = withFort(300);
-  const fc = forecast(k, composed({ dest: { p: PV.p, q: PV.q, tile: FORT_TILE } }), decode('Province', pb), ARR.faction);
-  assert.equal(fc.ok, true);
-  assert.deepEqual([fc.troops.min, fc.troops.max], [500, 500], 'the page says nobody defends the fort\'s tile');
-});
-
 test('the model forecast fights the fort: a walled garrison of 300 wears the host of 500', async () => {
   const k = await s1;
   const fc = modelForecast(k, composed({ dest: { p: PV.p, q: PV.q, tile: FORT_TILE } }), withFort(300), ARR.faction);
@@ -96,12 +79,6 @@ test('the model forecast fights the fort: a walled garrison of 300 wears the hos
 });
 
 // ---------------------------------------------------------------- tower wear (S1 1d)
-test('REPRO: the page\'s forecast inputs carry the host\'s full troops whatever towers its road crosses', async () => {
-  const { forecastInputs } = await import('../../../permutation-server/web/frontier/hud/forecast.mjs');
-  // (the input has no place for the structures at all: a road under a tower and one under none give the same arrival)
-  const a = forecastInputs(composed({ route: { dirs: [0, 0, 0] } }), ARR.faction).arrivals[0];
-  assert.equal(a.troops, 500_000);
-});
 
 test('the model forecast wears the arrival by the towers its road crosses, as Reveal and the gather do', async () => {
   const k = await s1;

@@ -25,21 +25,6 @@ test('the program\'s refusals named here are declare_siege\'s, in its order', ()
   assert.ok(SIEGE_UNJUDGED.includes('FrontierProtected'));
 });
 
-test('REPRO: a new player whose own village is still shielded is offered the siege button (the program refuses Shielded)', () => {
-  const fs = world({ holdings: [holding(0, 0, 0, 30, { shieldUntil: 100_000 + 48 * 3600 })] });
-  const o = siegeOffer(fs, sel);
-  assert.deepEqual(o.blocks, [], 'nothing on the page holds the button back');
-  assert.deepEqual(siegeExtraBlocks(fs, sel, o), [{ code: 'SourceShielded', until: 100_000 + 48 * 3600 }]);
-});
-
-test('REPRO: a village already under siege, or owing a stake, is offered a second siege', () => {
-  const busy = world({ provinces: new Map([['0,0', { province: prov({ conquest: [{ kind: CR.KIND_SIEGE, flags: 1 }, ...Array(11).fill({ kind: 0, flags: 0 })] }) }]]) });
-  assert.deepEqual(siegeOffer(busy, sel).blocks, []);
-  assert.deepEqual(siegeExtraBlocks(busy, sel, siegeOffer(busy, sel)), [{ code: 'SiegeBusy', kind: 1 }]);
-  const owed = world({ provinces: new Map([['0,0', { province: prov({ conquest: [{ kind: 0, flags: 1 << 2 }, ...Array(11).fill({ kind: 0, flags: 0 })] }) }]]) });
-  assert.deepEqual(siegeExtraBlocks(owed, sel, siegeOffer(owed, sel)), [{ code: 'StakeUnsettled' }]);
-});
-
 test('an unshielded village and a free record add nothing; a shield that ended adds nothing', () => {
   const fs = world();
   assert.deepEqual(siegeExtraBlocks(fs, sel, siegeOffer(fs, sel)), []);

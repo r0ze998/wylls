@@ -16,12 +16,6 @@ const k = new Kernel((await WebAssembly.instantiate(readFileSync(new URL('wasm/f
 const seeds = [1, 2, 3].map(ring => ({ ring, seed: Array.from({ length: 32 }, (_, i) => (i * 7 + ring) & 0xff).map(x => x.toString(16).padStart(2, '0')).join('') }));
 const from = { p: 1, q: 0, tile: 30 }, to = { p: 1, q: 0, tile: 34 };
 
-test('REPRO: no caller of the march planner gives it the palisades (app.mjs, controller.mjs, fkeepreach.mjs)', () => {
-  const calls = ['app.mjs', 'controller.mjs', 'fkeepreach.mjs'].flatMap(f => (src(f).match(/planRoute\((?:k|kernel), \{[^}]*\}[^)]*\)/g) ?? []).map(c => [f, c]));
-  assert.equal(calls.length, 3, JSON.stringify(calls));
-  for (const [f, c] of calls) assert.doesNotMatch(c, /blocked/, `${f}: ${c}`);
-  assert.match(CONTRACT, /`fastest_path` callers \(keeper, clients\) remove the stopped palisade\s+tiles from the passable mask/);
-});
 const CONTRACT = readFileSync(new URL('../../../docs/frontier/stage1e/S1-1E-CONTRACT.md', import.meta.url), 'utf8');
 
 test('the planner\'s fastest road meets a stopping palisade; given its hex, the planner goes round it', () => {

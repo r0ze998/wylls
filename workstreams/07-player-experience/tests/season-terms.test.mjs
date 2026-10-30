@@ -8,14 +8,6 @@ const WEB = new URL('../../../permutation-server/web/frontier/', import.meta.url
 const read = p => readFileSync(new URL(p, WEB), 'utf8');
 const PRESETS_V2 = readFileSync(new URL('../../../frontier-abi/src/v2/presets.rs', import.meta.url), 'utf8');
 
-test('REPRO: the page writes the turn\'s length into its words and never names the join deadline', () => {
-  assert.match(read('hud/glossary.mjs'), /L`10分ごとの区切りがターンです/);
-  assert.match(read('screens/onboarding.mjs'), /ターン（10分ごとの区切り）/);
-  assert.match(read('intro/title.mjs'), /十分ごとにターンが変わり/);
-  const all = ['app.mjs', 'controller.mjs', 'screens/join.mjs', 'screens/onboarding.mjs', 'hud/hud.mjs', 'fjoin.mjs'].map(read).join('\n');
-  assert.doesNotMatch(all, /joinCloseBell/, 'no screen reads the season\'s join deadline');
-});
-
 test('the S1 presets\' end and join close are what the times read (S1_LOCAL_14D: 2,016 and 1,512 turns)', () => {
   assert.match(PRESETS_V2, /join_close_bell: 1_512/);
   const t = seasonTimes({ genesisTs: 0, endBell: 2016, joinCloseBell: 1512 }, { now: () => 600 * 100, rate: 1 });

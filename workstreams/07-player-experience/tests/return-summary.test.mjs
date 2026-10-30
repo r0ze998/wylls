@@ -56,26 +56,6 @@ test('the S1 records are decoded by the page itself (flog.mjs with the v2 log ta
   assert.deepEqual(RS.cargoOf(EVENTS[2].record.taken), [0, 300, 0, 0, 0, 120, 0, 0]);
 });
 
-test('REPRO: the page\'s first look is never news, whatever happened before it opened', () => {
-  const FS = { marches: [], holdings: [{ p: 1, q: 0, site: 3, state: 2, tier: 1, queue: [] }], chronicle: EVENTS, nowBell: 340, chain: { now: () => 0 }, citizen: { faction: 2 } };
-  assert.deepEqual(diffFeed(null, snapshot(FS)), [], 'hud/feed.mjs: "A first snapshot (prev null) is not news"');
-});
-
-test('REPRO: even between two looks, no S1 loss becomes a notification (a caravan raided, a storehouse seized, a siege on the village)', () => {
-  const holdings = [{ p: 1, q: 0, site: 3, state: 2, tier: 1, queue: [] }];
-  const before = snapshot({ marches: [], holdings, chronicle: [], nowBell: 300, chain: { now: () => 0 }, citizen: { faction: 2 } });
-  const after = snapshot({ marches: [], holdings, chronicle: EVENTS, nowBell: 340, chain: { now: () => 0 }, citizen: { faction: 2 } }, 0, before);
-  assert.deepEqual(diffFeed(before, after), []);
-});
-
-test('REPRO: the chronicle starts 500 events behind the head and keeps 400; the herald itself keeps them all', () => {
-  assert.equal(CHRONICLE_WINDOW, 500);
-  assert.equal(chronicleStart(10_000), 9_500);
-  assert.match(CONTROLLER, /FS\.chronicle = \[\.\.\.\(FS\.chronicle \?\? \[\]\), \.\.\.records\]\.slice\(-400\)/);
-  assert.match(SERVER_RS, /\.route\("\/h\/events", get\(events\)\)/);
-  assert.match(SERVER_RS, /events_after\(after, EVENTS_PAGE\)/, 'a page from any `after`, from the index');
-});
-
 test('the summary lists the viewer\'s own losses first, from the records alone, with the amounts they carry', () => {
   setLang('ja');
   const s = RS.summarize({ records: EVENTS, read: { after: '100', complete: true }, marks: { v: 1, seasonId: '7', wallet: 'W', confirmedSeq: '100', confirmedBell: 299 }, last: { seasonId: '7', wallet: 'W' }, season: '7', wallet: 'W', nowBell: 340, me });

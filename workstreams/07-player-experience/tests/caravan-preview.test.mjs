@@ -35,19 +35,6 @@ test('the caravan speed by nation is DOCTRINES_V3\'s: B Tide alone carries carav
   assert.deepEqual(CARAVAN_TIME_BPS, [10000, 8000, 10000, 10000, 10000, 10000]);
 });
 
-test('REPRO: the page sends a caravan along the fastest road without removing the palisades that stop it', () => {
-  // controller.mjs s1Caravan: `fastestPath(…, await landsFor(from, dst))` — the lands as served, palisades and all
-  const body = CONTROLLER.slice(CONTROLLER.indexOf('async function s1Caravan'), CONTROLLER.indexOf('export const ACTIONS'));
-  assert.match(body, /fastestPath\(\{ p: from\.p, q: from\.q, tile: from\.tile \}, \{ p: dst\.p, q: dst\.q, tile: dst\.tile \}, await landsFor\(from, dst\)\)/);
-  assert.doesNotMatch(body, /palisade|block|structures/i);
-  const lands = CONTROLLER.slice(CONTROLLER.indexOf('async function landsFor'), CONTROLLER.indexOf('const s1Tile'));
-  assert.doesNotMatch(lands, /avoidingPalisades|palisade|block/i, 'nor do the lands it plans over (connection patch 0001 removes them there)');
-  // and on the rules' own roads such a send is refused: where the fastest road meets a stopping palisade, caravan_watch
-  // is Blocked (the program returns Path), while a road around it exists
-  const refusedButAvoidable = V.walks.filter(c => c.caravan?.walked === 'blocked' && c.fastestAvoiding?.length);
-  assert.ok(refusedButAvoidable.length >= 10, `${refusedButAvoidable.length} roads the page would have refused that go round`);
-});
-
 test('the preview finds the road round a palisade, the arrival turn, the wear of the cargo and who is known on the way', () => {
   // two Provinces side by side, all flat; the viewer of nation 0, an enemy (nation 3) palisade in the way, a tower too
   const ALL = (1n << 61n) - 1n;

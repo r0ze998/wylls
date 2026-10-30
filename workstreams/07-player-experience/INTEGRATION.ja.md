@@ -8,6 +8,71 @@
 
 ---
 
+## 0. 修正版 v2（この節が最新。§1〜§7 は v1 の記録として残す）
+
+### 0.1 ブランチと commit
+
+- 新しい作業ブランチ：`claude/ws07-return-fixes-oixhgs`（ローカルのみ。push していない）
+- 分岐元：`e9e20d1f230438048c54c6cf7384ca9d854364b2`。保全のため、元のブランチ `claude/wylls-ui-ux-visual-oixhgs` と v1 の保存パッケージは、変更せずに残した。
+- v1 のパッチは `patches/v1/` に移し、中身は変えていない（SHA256 は §1.3 と同じ）。v2 のパッチは `patches/v2/` に入れた。
+
+### 0.2 v2 のパッチ：基準・順序・依存
+
+基準は `a997a756db1f3ffdea32d3d4a736fff85534585c` で固定する（局所修正を含み、パッチ側には含まない）。
+
+| 順 | パッチ | 中身 | 単独で当たるか | 依存 |
+|---|---|---|---|---|
+| 0001 | 締め切り表示 | ターンの長さと締め切りをシーズンから読む（v1 の 0003） | **当たる** | なし |
+| 0002 | 柵と予測 | 柵を避ける経路、プログラムと同じ組み立ての予測、包囲の事前判定（v1 の 0001） | 当たる | なし |
+| 0003 | 留守の要約（修正済み） | v1 の 0002 に、C1〜C6 の修正を入れたもの | 当たらない | **0002 が必要**（import 行とテストのファイルを共有） |
+| 0004 | 表示契約と協力入口 | ④⑤ の状態の表示、① の協力入口の枠（`CONTRACTS.ja.md`） | 当たる | なし |
+| 0005 | S1 部品の画面テスト | Chromium で、S1 の記録から実クライアントの部品を描く | — | 0003 と 0004 が必要 |
+
+`git am` で当たるかを、基準の上で組み合わせごとに確かめた。
+
+| 組み合わせ | 結果 |
+|---|---|
+| 0001、0002、0004 をそれぞれ単独 | 当たる |
+| 0001+0002、0001+0004、0002+0004、0002+0003、0002+0003+0004、0001+0002+0003、0001+0002+0004、0001〜0004 | 当たる |
+| 0003 単独、0001+0003 | 当たらない（0003 は 0002 が必要） |
+
+v1 では「0003（締め切り）が 0002（留守）の上でしか当たらない」という問題があった。v2 では締め切りを先頭に置き、基準だけで当たるようにした。
+
+### 0.3 C1〜C6 の修正と回帰テスト
+
+修正は 0003 にある：`hud/returnsum.mjs`、新しい `hud/awayread.mjs`、`hud/returnwords.mjs`、`app.mjs`、`hud/feed.mjs`。回帰テストは `permutation-gateway/test/web-frontier-ws07-away.test.mjs` の 21 件で、通常テスト（`npm test`）に入る。
+
+| # | 修正 | 回帰テスト（抜粋） |
+|---|---|---|
+| C1 欠けがあっても位置が進む | 要約に `confirm` を持たせた。欠けがあれば `{ok:false, why:'gap'}` で「確認した」を出さず、理由を出す。`confirm()` も ok でなければ書かない。読み込みは確認位置そのものから行うので、年代記の窓のせいで欠けが出ることはない | 「C1: with a gap … the mark does not move」「C1: the reader reads from the mark itself …」 |
+| C2 初回の窓より前まで確認済みになる | 初回は、窓の最初のターン（読み始めが遅ければ、読めた最初のターン）を `horizonBell` として位置と一緒に保存する。次回は「この端末では第 N ターンより前の出来事は見ていません」と出す | 「C2: a first look marks its window's first turn as the horizon …」「C2: … says from which turn it read」 |
+| C3 常に `complete: true` を渡していた | 専用の読み込み器が、最後のページか、失敗か、ページ数の上限かを返す。途中で止まったら「途中で失敗」「まだ続きがある」と出し、読めた最後の記録までしか確認済みにしない。続きは次に、そこから読む | 「C3: a page that fails stops the reading …」「C3: the page limit is not a complete read」 |
+| C4 奪われた隊商の持ち主を取り違える | 隊商ごとに、いまの持ち主（`caravanBook`）を記録から積み上げる。2 回目以降の知らせにも引き継ぎ、道中の隊商の分は確認位置と一緒に保存する。送った記録も奪われた記録も読めていない隊商は「持ち主不明」とし、送り主の到着とは言わない。項目には送り主と持ち主を別々に持たせる | 「C4: a caravan taken from the viewer arrives for the taker …」「C4: between two looks the book is carried on …」「C4: the book is kept with the mark …」「C4: with neither the send nor the take read, the holder is unknown …」 |
+| C5 重複・順序 | `normalizeRecords` で、seq ごとに 1 件にし、昇順に並べ、seq の無い記録を除いて数える。ページが重なっても 1 回だけ読む | 「C5: records read twice or out of order …」「C5: overlapping pages from the herald are read once」 |
+| C6 シーズン・ウォレットの切替 | 読み込み器を、herald・シーズン・ウォレットの組（scope）に結びつけた。scope が変わったら最初から読み、ほかの scope の知らせを消し、遅れて届いた古い結果は捨てる。確認位置がシーズンの先頭より先を指していれば使わず（`markAhead`）、「確認した」で置き換える | 「C6: another wallet and another season never read this one's mark or book」「C6: a reading started for one scope and overtaken by another is stale」「C6: a mark beyond the season's head …」 |
+| 再読込・二度押し・保存失敗・別端末 | 確認位置は後ろへ戻らない（別のタブの古い要約に引き戻されない）。書いたあとに読み直して確かめる。黙って書き込みを捨てる保存領域も「失敗」と扱う。v1 形式の位置も読める | 「a reload without "seen" …」「storage that refuses or silently drops a write …」「another device …」「a version 1 mark …」 |
+
+### 0.4 通常のテストと REPRO の分離
+
+- **通常のテスト**：修正後の正しい挙動を求める。
+  - `permutation-gateway/test/web-frontier-ws07-*.test.mjs`：パッチ側。`npm test` に入る。away 21 件、contracts 8 件、s1walk、terms、guide。
+  - `workstreams/07-player-experience/tests/*.test.mjs`：43 件。⑦ の model のテスト。
+- **REPRO**：欠陥の存在を確かめる。`workstreams/07-player-experience/tests/repro/*.repro.test.mjs` の 12 件。
+  - 基準（パッチなし）では通る。パッチを当てると、直った欠陥の分だけ失敗する。
+  - 常時テストには入れない。各ファイルの先頭にもそう書いた。
+- **画面テスト（S1 の記録から部品を描く）**：`permutation-gateway/screens/ws07-s1.screen.mjs` の 8 件（0005）。
+  - S1 の記録は、v2 のログ表から作った合成で、チェーンで記録したものではない。
+  - ページ全体は起動していない。S1 の世界には配置 v2 の固定データが要るが、screens の固定データには無い。
+  - 「確認した」の配線は、テスト用ページで app.mjs と同じ手順を組んだもの。app.mjs そのものの配線は、通常テストの「the page reads the away summary from its own reader …」が、ソースを読んで確かめている。
+  - M1 の画面テスト（78 件）が通っても、S1 の画面が動いたとは言えない。この 8 件も、「S1 の記録を実際の部品で描けた」ところまでしか言えない。
+
+### 0.5 まだ確かめていないこと（v2）
+
+- ページ全体を S1 で起動した画面（S1 の配置 v2 の固定データが無い）
+- 実チェーンの S1 記録での留守の要約（S1 の記録ログは保存されていない。SBF 環境は権限で拒否されたまま回避していない）
+- ④⑤① の実物との接続（成果物を受け取っていない。`CONTRACTS.ja.md` §5）
+- 試作（`prototype/`）の留守の画面は、v1 の model（`src/return-summary.mjs`）のままで、C1〜C6 の修正は入っていない。修正後の挙動の基準は、0003 とその画面テスト。
+
 ## 1. commit と変更範囲
 
 ### 1.1 基準と commit
@@ -112,8 +177,8 @@ REPRO は「欠陥がいまのページにある」ことを固定する検査�
 
 1. 常時テストは `npm test` のままにする。⑦ の回帰テスト `web-frontier-ws07-*.test.mjs` はパッチと一緒に入る。
 2. `workstreams/07-player-experience/tests/` は常時テストに入れない。
-   - REPRO 13 件は「基準 `a997a756` で通る」ことを記録した証拠として残す（§6 のログ）。
-   - パッチ適用後に流すと 5 件が意図どおり失敗する。統合後に `workstreams/` のテストを常時テストへ移すなら、先に REPRO 13 件を削除する（スキップではなく削除）。残りの model テスト 42 件は移してよい。
+   - REPRO 12 件（前の版で「13 件」と書いたのは、注釈の行まで数えた誤り）は、「基準 `a997a756` で通る」ことを記録した証拠として残す（§6 のログ）。
+   - パッチ適用後に流すと 5 件が意図どおり失敗する。v2 では `tests/repro/` に分けた（§0.4）。
 3. 不足の比較を本体に入れる場合は、その時点で `shortfall` の model テストを `permutation-gateway/test/` に移し、回帰テストを書き足す。
 
 追加の実験はしていない。上の対応は、§6 のログ（パッチ前後の `node --test` の結果）と、テスト名から作った。
@@ -171,7 +236,7 @@ REPRO は「欠陥がいまのページにある」ことを固定する検査�
 | 途中までしか読めない | `incomplete` と書く | 同上（`complete: false`） | model では確認済み。**クライアントは常に `complete: true` を渡す（下の C3）** |
 | 重複・順序 | 同じ seq を 2 度出さない。seq の昇順に処理する | 要約は seq の昇順と重複なしを前提にしている。重複を除く処理はない | **未検証（下の C5）** |
 
-### 4.1 パッチ 0002 の統合前条件（コードを読んで見つけた。いずれも修正していない）
+### 4.1 パッチ 0002 の統合前条件（v1 の記録。v2 の 0003 で修正済み：§0.3）
 
 | # | 所見 | 場所 | 統合前に要ること |
 |---|---|---|---|

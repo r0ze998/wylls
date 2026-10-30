@@ -16,12 +16,6 @@ const town = (over = {}) => ({ p: 0, q: 0, site: 0, tier: 1, state: 2, flags: 0,
 const END = NOW + 14 * 24 * H;
 const NEED = [0, 0, 1613, 0, 0, 0, 0, 0];
 
-test('REPRO: the promotion card today says what is short and nothing of when or how it could be there', () => {
-  const o = promotionOffer(town(), { now: NOW, have: [1000, 3000, 700, 0, 0, 2000, 0, 0] });
-  assert.ok(o.short.length > 0);
-  assert.deepEqual(Object.keys(o.short[0]).sort(), ['need', 'r'], 'an amount, no time, no way to fill it');
-});
-
 test('waiting: the moment the projection holds every needed amount, exactly', () => {
   const c = compareRemedies({ h: town(), need: NEED, now: NOW, endTs: END });
   const w = c.options.find(o => o.kind === 'wait');
