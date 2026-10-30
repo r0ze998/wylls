@@ -1,15 +1,18 @@
-//! **Proposal (workstream 02-rights, not adopted):** the WorkshopUse
-//! Grant (`frontier_abi::v2::rights`, contract
+//! **Proposal (workstream 02-rights, not adopted):** the workshop-stock
+//! swap Grant (`frontier_abi::v2::rights`, contract
 //! `workstreams/02-rights/03-CONTRACT.ja.md`). Routed by [`crate::dispatch`]
 //! before the v2 tag table, so no allocated tag, code or account kind
-//! changes.
+//! changes. The right exchanges the grantee's ore and wood for arms the
+//! facility has **already made**; it neither runs the workshop nor reserves
+//! its future output, and the continuous conversion of `Holding::settle`
+//! is untouched.
 //!
 //! - **Who signs.** IssueGrant: the issuer's wallet only (a session is
-//!   refused `WalletRequired`, as a send to another player). ReserveUse
-//!   and ConsumeUse: the grantee (wallet or its own live session, through
+//!   refused `WalletRequired`, as a send to another player). ReserveSwap
+//!   and ExecuteSwap: the grantee (wallet or its own live session, through
 //!   the player prologue, its action bucket included). RevokeGrant: the
 //!   issuer (wallet or session; revoking only takes power away).
-//!   ReleaseUse: the grantee, or any signer once the Grant is expired or a
+//!   ReleaseSwap: the grantee, or any signer once the Grant is expired or a
 //!   pinned holding is stale. CloseGrant: any signer once nothing is
 //!   escrowed and the Grant can no longer be used (the rent goes to
 //!   `RENT_TO` whoever signs).
@@ -17,20 +20,24 @@
 //!   Season PDA (`gr‖issuer_tag,nonce`), recomputed on every use; the
 //!   facility and the station by key, generation and owner; both in one
 //!   Province, whose capture lock is checked for both.
+//! - **Where escrow lives.** As numbers in the Grant (`OPEN_*`), in no
+//!   holding's store: no production, owner action or other Grant can
+//!   spend it until ExecuteSwap, ReleaseSwap or RevokeGrant moves it.
 //! - **Not owner activity.** Grant instructions settle the holdings they
 //!   write without `touch_owner` (as a caravan's delivery does): a grantee
 //!   cannot keep an absent owner's holding awake.
-//! - **Capture.** A holding that changed generation makes the Grant
-//!   unusable (`StaleHolding`), as redesign 20 §5 (adopted) voids a
-//!   captured store's cards. An open reservation is then released into the
-//!   holdings as they stand — the captor's included, since that section
-//!   gives a captured store's contents to the captor — and is lost only
-//!   where no live holding remains (contract §6; the alternative, burning,
-//!   is listed there as a proposal).
-//! - **No log record yet.** The PS2 log has no kind for these (the
-//!   verifier and herald would need one; contract §8). The handlers write
-//!   holdings without a chained record, which the current verifier would
-//!   flag: adopting this needs the record kinds first.
+//! - **Undoing.** Each escrowed side goes back to the holding it came from
+//!   as that holding stands now (after a capture, its captor's: redesign
+//!   20 §5 gives a captured store's contents to the captor; contract §6
+//!   lists what that rule does not settle). A side whose holding no longer
+//!   exists is **kept in the Grant**, neither credited elsewhere nor
+//!   burned; ReleaseSwap that can return nothing is `ReturnBlocked`, and
+//!   CloseGrant waits (`StillLive`). A store above its cap keeps a return
+//!   (`Accrual::add` may exceed the cap; settle never lowers it).
+//! - **No log record yet.** The PS2 log has no kind for these (contract
+//!   §8): the handlers write holdings without a chained record, and the
+//!   verifier's holding continuity (V7) reports such a write as
+//!   `HoldingReplayMismatch` (reproduced in `workstreams/02-rights`).
 
 use solana_program::{account_info::AccountInfo, pubkey::Pubkey};
 
@@ -55,9 +62,9 @@ use crate::{FrontierError, R};
 pub fn dispatch(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     match d.first().copied() {
         Some(rt::tag::ISSUE_GRANT) => issue_grant(p, a, d),
-        Some(rt::tag::RESERVE_USE) => reserve_use(p, a, d),
-        Some(rt::tag::CONSUME_USE) => consume_use(p, a, d),
-        Some(rt::tag::RELEASE_USE) => release_use(p, a, d),
+        Some(rt::tag::RESERVE_SWAP) => reserve_swap(p, a, d),
+        Some(rt::tag::EXECUTE_SWAP) => execute_swap(p, a, d),
+        Some(rt::tag::RELEASE_SWAP) => release_swap(p, a, d),
         Some(rt::tag::REVOKE_GRANT) => revoke_grant(p, a, d),
         Some(rt::tag::CLOSE_GRANT) => close_grant(p, a, d),
         _ => Err(FrontierError::BadData.into()),
@@ -92,11 +99,13 @@ struct Grant {
     station: [u8; 32],
     station_gen: u8,
     expires_ts: i64,
-    max_uses: u16,
-    uses: u16,
+    max_swaps: u16,
+    swaps: u16,
     max_units: u32,
-    units_consumed: u32,
+    units_swapped: u32,
     open_units: u32,
+    open_ts: i64,
+    /// Escrow (milli): ore, wood (station side), arms (facility side).
     open: [i64; 3],
     rent_to: [u8; 32],
 }
@@ -113,7 +122,7 @@ fn load_grant(p: &Pubkey, ctx: &AddrCtx, sid: u64, ai: &AccountInfo) -> R<Grant>
     let r = Ro(&d);
     if r.u64(G::SEASON_ID)? != sid
         || r.u16(G::VERSION)? != G::VERSION_1
-        || r.u8(G::KIND)? != rt::KIND_WORKSHOP_USE
+        || r.u8(G::KIND)? != rt::KIND_STOCK_SWAP
     {
         return Err(bad());
     }
@@ -132,11 +141,12 @@ fn load_grant(p: &Pubkey, ctx: &AddrCtx, sid: u64, ai: &AccountInfo) -> R<Grant>
         station: r.arr(G::STATION)?,
         station_gen: r.u8(G::STATION_GEN)?,
         expires_ts: r.i64(G::EXPIRES_TS)?,
-        max_uses: r.u16(G::MAX_USES)?,
-        uses: r.u16(G::USES)?,
+        max_swaps: r.u16(G::MAX_SWAPS)?,
+        swaps: r.u16(G::SWAPS)?,
         max_units: r.u32(G::MAX_UNITS)?,
-        units_consumed: r.u32(G::UNITS_CONSUMED)?,
+        units_swapped: r.u32(G::UNITS_SWAPPED)?,
         open_units: r.u32(G::OPEN_UNITS)?,
+        open_ts: r.i64(G::OPEN_TS)?,
         open: [
             r.i64(G::OPEN_ORE)?,
             r.i64(G::OPEN_WOOD)?,
@@ -146,7 +156,7 @@ fn load_grant(p: &Pubkey, ctx: &AddrCtx, sid: u64, ai: &AccountInfo) -> R<Grant>
     })
 }
 
-/// Writes the open reservation (`units == 0`: none).
+/// Writes the escrow (`units == 0`: none).
 fn write_open(ai: &AccountInfo, units: u32, ts: i64, open: [i64; 3]) -> R<()> {
     let mut d = ai.try_borrow_mut_data()?;
     let mut w = Rw(&mut d);
@@ -158,7 +168,7 @@ fn write_open(ai: &AccountInfo, units: u32, ts: i64, open: [i64; 3]) -> R<()> {
     Ok(())
 }
 
-/// Ore, wood and arms (milli) of `units` arms' worth of work.
+/// Ore, wood and arms (milli) of a swap of `units` arms.
 fn escrow_of(units: u32) -> R<[i64; 3]> {
     let u = units as i64;
     let m = |per: i64| u.checked_mul(per)?.checked_mul(MILLI);
@@ -286,12 +296,13 @@ fn place_now(
     Ok(hold::live(&h).ok().map(|_| h))
 }
 
-/// Undoes the open reservation: each side goes back to the holding it
-/// came from **as that holding stands now** — its owner's, or its
-/// captor's after a capture (redesign 20 §5, adopted: a captured store's
-/// contents are the captor's) — and is lost only when no live holding is
-/// there any more. A capture not yet settled waits (`CapturePending`).
-/// Clears the reservation.
+/// Undoes the escrow: each side goes back to the holding it came from
+/// **as that holding stands now** — its owner's, or its captor's after a
+/// capture (redesign 20 §5, adopted: a captured store's contents are the
+/// captor's). A side whose holding is gone (closed, released) is **kept
+/// in the Grant**, not burned. A capture not yet settled waits
+/// (`CapturePending`). Returns whether anything went back (or nothing was
+/// escrowed).
 #[allow(clippy::too_many_arguments)]
 fn unwind(
     p: &Pubkey,
@@ -303,26 +314,39 @@ fn unwind(
     facility: &AccountInfo,
     station: &AccountInfo,
     province: &AccountInfo,
-) -> R<()> {
+) -> R<bool> {
     if g.open_units == 0 {
-        return Ok(());
+        return Ok(true);
     }
     let st = place_now(p, sid, station, &g.station)?;
     let fa = place_now(p, sid, facility, &g.facility)?;
+    let st_due = g.open[0] > 0 || g.open[1] > 0;
+    let fa_due = g.open[2] > 0;
+    let st_back = if st_due { st.as_ref() } else { None };
+    let fa_back = if fa_due { fa.as_ref() } else { None };
     let live: alloc::vec::Vec<&frontier_abi::prologue::HoldingHdr> =
-        [&st, &fa].into_iter().flatten().collect();
+        [st_back, fa_back].into_iter().flatten().collect();
     province_unlocked(p, ctx, sid, g, province, &live)?;
-    if st.is_some() {
+    let mut kept = g.open;
+    if st_back.is_some() {
         credit(
             station,
             now,
             &[(Resource::Ore, g.open[0]), (Resource::Wood, g.open[1])],
         )?;
+        kept[0] = 0;
+        kept[1] = 0;
     }
-    if fa.is_some() {
+    if fa_back.is_some() {
         credit(facility, now, &[(arms::ARMS, g.open[2])])?;
+        kept[2] = 0;
     }
-    write_open(grant, 0, 0, [0; 3])
+    if kept == [0; 3] {
+        write_open(grant, 0, 0, [0; 3])?;
+    } else {
+        write_open(grant, g.open_units, g.open_ts, kept)?;
+    }
+    Ok(st_back.is_some() || fa_back.is_some())
 }
 
 // ------------------------------------------------------------ 0xD0 IssueGrant
@@ -380,7 +404,7 @@ pub fn issue_grant(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         return Err(err(RightsError::BadStation));
     }
     hold::capture_lock(&sh, province)?;
-    if !rt::terms_ok(x.kind, x.max_uses, x.max_units, x.expires_ts, now) {
+    if !rt::terms_ok(x.kind, x.max_swaps, x.max_units, x.expires_ts, now) {
         return Err(err(RightsError::BadTerms));
     }
     // The Grant.
@@ -414,18 +438,18 @@ pub fn issue_grant(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     w.set_u64(G::ISSUER_TAG, tag)?;
     w.set_i64(G::EXPIRES_TS, x.expires_ts)?;
     w.set_i64(G::ISSUED_TS, now)?;
-    w.set_u16(G::MAX_USES, x.max_uses)?;
+    w.set_u16(G::MAX_SWAPS, x.max_swaps)?;
     w.set_u32(G::MAX_UNITS, x.max_units)?;
     w.set_arr(G::RENT_TO, payer.key.as_ref())?;
     Ok(())
 }
 
-// ------------------------------------------------------------ use
+// ------------------------------------------------------------ swap
 
-/// The checks ReserveUse and ConsumeUse share: P (grantee) + `[grant w]
+/// The checks ReserveSwap and ExecuteSwap share: P (grantee) + `[grant w]
 /// [facility w] [station w] [province r]`; the Grant active and unexpired,
 /// both holdings pinned and unlocked.
-struct Use<'x, 'a> {
+struct Swap<'x, 'a> {
     now: i64,
     g: Grant,
     grant: &'x AccountInfo<'a>,
@@ -433,7 +457,7 @@ struct Use<'x, 'a> {
     station: &'x AccountInfo<'a>,
 }
 
-fn use_prologue<'x, 'a>(p: &Pubkey, a: &'x [AccountInfo<'a>]) -> R<Use<'x, 'a>> {
+fn swap_prologue<'x, 'a>(p: &Pubkey, a: &'x [AccountInfo<'a>]) -> R<Swap<'x, 'a>> {
     let [_, _payer, _season, citizen, grant, facility, station, province] = a else {
         return Err(FrontierError::TooManyAccounts.into());
     };
@@ -455,7 +479,7 @@ fn use_prologue<'x, 'a>(p: &Pubkey, a: &'x [AccountInfo<'a>]) -> R<Use<'x, 'a>> 
     let fh = pinned(p, sid, facility, &g.facility, g.facility_gen, &g.issuer)?;
     let sh = pinned(p, sid, station, &g.station, g.station_gen, &g.grantee)?;
     province_unlocked(p, &pl.ctx, sid, &g, province, &[&fh, &sh])?;
-    Ok(Use {
+    Ok(Swap {
         now: pl.now.ts,
         g,
         grant,
@@ -464,16 +488,20 @@ fn use_prologue<'x, 'a>(p: &Pubkey, a: &'x [AccountInfo<'a>]) -> R<Use<'x, 'a>> 
     })
 }
 
-/// 0xD1 ReserveUse(units): the station's ore and wood and the facility's
-/// arms for `units` go into the Grant; all or nothing (`Insufficient`).
-pub fn reserve_use(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
-    let x = rt::ReserveUse::decode(d)?;
-    let u = use_prologue(p, a)?;
+/// 0xD1 ReserveSwap(units): the station's ore and wood and the facility's
+/// arms for `units` go into the Grant; all or nothing (`Insufficient`: no
+/// queue, no waiting state; the grantee may try again later).
+pub fn reserve_swap(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+    let x = rt::ReserveSwap::decode(d)?;
+    let u = swap_prologue(p, a)?;
     let g = &u.g;
     if g.open_units != 0 {
         return Err(err(RightsError::ReservationOpen));
     }
-    rt::quota_allows(g.max_uses, g.uses, g.max_units, g.units_consumed, x.units).map_err(err)?;
+    if x.seq != g.swaps {
+        return Err(err(RightsError::SeqMismatch));
+    }
+    rt::quota_allows(g.max_swaps, g.swaps, g.max_units, g.units_swapped, x.units).map_err(err)?;
     let e = escrow_of(x.units)?;
     let mut sh = settled(u.station, u.now)?;
     sh.pay(u.now, &cost(e[0], e[1], 0))
@@ -486,14 +514,17 @@ pub fn reserve_use(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     write_open(u.grant, x.units, u.now, e)
 }
 
-/// 0xD2 ConsumeUse: the escrowed arms to the station, the escrowed ore and
-/// wood to the facility; one use and its units counted. Final.
-pub fn consume_use(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
-    let _ = rt::ConsumeUse::decode(d)?;
-    let u = use_prologue(p, a)?;
+/// 0xD2 ExecuteSwap: the escrowed arms to the station, the escrowed ore and
+/// wood to the facility; one swap and its units counted. Final.
+pub fn execute_swap(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+    let x = rt::ExecuteSwap::decode(d)?;
+    let u = swap_prologue(p, a)?;
     let g = &u.g;
     if g.open_units == 0 {
         return Err(err(RightsError::NoReservation));
+    }
+    if x.seq != g.swaps {
+        return Err(err(RightsError::SeqMismatch));
     }
     credit(u.station, u.now, &[(arms::ARMS, g.open[2])])?;
     credit(
@@ -501,18 +532,18 @@ pub fn consume_use(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         u.now,
         &[(Resource::Ore, g.open[0]), (Resource::Wood, g.open[1])],
     )?;
-    let uses = g.uses.checked_add(1).ok_or(OVERFLOW)?;
-    let units = g.units_consumed.checked_add(g.open_units).ok_or(OVERFLOW)?;
+    let swaps = g.swaps.checked_add(1).ok_or(OVERFLOW)?;
+    let units = g.units_swapped.checked_add(g.open_units).ok_or(OVERFLOW)?;
     {
         let mut gd = u.grant.try_borrow_mut_data()?;
         let mut w = Rw(&mut gd);
-        w.set_u16(G::USES, uses)?;
-        w.set_u32(G::UNITS_CONSUMED, units)?;
+        w.set_u16(G::SWAPS, swaps)?;
+        w.set_u32(G::UNITS_SWAPPED, units)?;
     }
     write_open(u.grant, 0, 0, [0; 3])
 }
 
-// ------------------------------------------------------------ 0xD3 ReleaseUse
+// ------------------------------------------------------------ 0xD3 ReleaseSwap
 
 /// The Season at its PDA in any status (Release and Close run after the
 /// season's end too).
@@ -525,10 +556,11 @@ fn season_any(p: &Pubkey, season_ai: &AccountInfo, now: i64) -> R<(u64, AddrCtx)
     Ok((s.id, addr::ctx(&key(season_ai), &p.to_bytes())))
 }
 
-/// 0xD3 ReleaseUse: `[actor s] [season r] [grantee_citizen r] [grant w]
-/// [facility w] [station w] [province r]`.
-pub fn release_use(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
-    let _ = rt::ReleaseUse::decode(d)?;
+/// 0xD3 ReleaseSwap: `[actor s] [season r] [grantee_citizen r] [grant w]
+/// [facility w] [station w] [province r]`. `ReturnBlocked` when no
+/// escrowed side has a live holding to go back to (nothing changes).
+pub fn release_swap(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+    let _ = rt::ReleaseSwap::decode(d)?;
     let [actor, season_ai, grantee, grant, facility, station, province] = a else {
         return Err(FrontierError::TooManyAccounts.into());
     };
@@ -571,14 +603,19 @@ pub fn release_use(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
             return Err(err(RightsError::NotGrantee));
         }
     }
-    unwind(p, &ctx, sid, now, &g, grant, facility, station, province)
+    if unwind(p, &ctx, sid, now, &g, grant, facility, station, province)? {
+        Ok(())
+    } else {
+        Err(err(RightsError::ReturnBlocked))
+    }
 }
 
 // ------------------------------------------------------------ 0xD4 RevokeGrant
 
 /// 0xD4 RevokeGrant: P (issuer) + `[grant w] [facility w] [station w]
-/// [province r]`. An open reservation is undone first; the unused quota is
-/// void; what was consumed stays.
+/// [province r]`. An open reservation is undone first (a side with no live
+/// holding stays in the Grant); the unused quota is void; executed swaps
+/// stay.
 pub fn revoke_grant(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     let _ = rt::RevokeGrant::decode(d)?;
     let [_, _payer, _season, citizen, grant, facility, station, province] = a else {
@@ -596,7 +633,7 @@ pub fn revoke_grant(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     if g.state != rt::STATE_ACTIVE {
         return Err(err(RightsError::Revoked));
     }
-    unwind(
+    let _ = unwind(
         p, &pl.ctx, sid, pl.now.ts, &g, grant, facility, station, province,
     )?;
     let mut gd = grant.try_borrow_mut_data()?;
@@ -608,9 +645,9 @@ pub fn revoke_grant(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
 
 // ------------------------------------------------------------ 0xD5 CloseGrant
 
-/// 0xD5 CloseGrant: `[actor s] [season r] [grant w] [rent_to w]`, once no
-/// reservation is open and the Grant can no longer be used (revoked,
-/// expired or its quota spent; `StillLive`).
+/// 0xD5 CloseGrant: `[actor s] [season r] [grant w] [rent_to w]`, once
+/// nothing is escrowed (an open or kept side) and the Grant can no longer
+/// be used (revoked, expired or its quota spent; `StillLive`).
 pub fn close_grant(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     let _ = rt::CloseGrant::decode(d)?;
     let [actor, season_ai, grant, rent_to] = a else {
@@ -627,7 +664,7 @@ pub fn close_grant(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     if key(rent_to) != g.rent_to {
         return Err(err(RightsError::BadGrant));
     }
-    let spent = g.uses >= g.max_uses || g.units_consumed >= g.max_units;
+    let spent = g.swaps >= g.max_swaps || g.units_swapped >= g.max_units;
     let done = g.state == rt::STATE_REVOKED || now >= g.expires_ts || spent;
     if g.open_units != 0 || !done {
         return Err(err(RightsError::StillLive));
