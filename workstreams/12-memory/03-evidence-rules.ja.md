@@ -71,4 +71,4 @@
 | 訂正後の判断の回復 | `time: a wrong index attestation rolled back…`、core の `a rollback retracts a fact…` |
 | 偽の判定基準 | `a claim is false only by a stated criterion…`、`absence: "sent" and "delivered"…` |
 
-主要な防御 20 個を一つずつ壊すと、どれも少なくとも 1 件のテストが失敗することを確認した（判定の根拠を無視、観測時刻を無視、容量、settle を加算量とみなす、内訳の推測、所有者、現在の所有者、受取人の仮定、第三者割当、世代、食い違いを嘘扱い、偽申告の重み、未割当の推測結合、索引の穴、caution、未確認を E に入れる、可視性、rollback、collision、余分な field など）。
+主要な防御 25 個を一つずつ壊すと、どれも少なくとも 1 件のテストが失敗することを確認した（判定の根拠を無視、観測時刻を無視、容量、settle を加算量とみなす、内訳の推測、所有者、現在の所有者、受取人の仮定、第三者割当、世代、食い違いを嘘扱い、偽申告の重み、未割当の推測結合、索引の穴、caution、未確認を E に入れる、可視性、rollback、collision、余分な field など）。
