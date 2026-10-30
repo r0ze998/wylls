@@ -209,3 +209,127 @@ test('テストの記録の書き方は、ABI の見本（abi-v2-logs.mjs の ve
     assert.equal(Buffer.from(ps2Body(name, r.logBell, fields)).toString('hex'), k.vector.body, name);
   }
 });
+
+// ------------------------------------------------------------------ 送る前の見込み・競合・結果不明・結び付けの前の到着（2026-10-30）
+
+import { sendOutcome } from '../coop/chain.mjs';
+
+/**
+ * 「プログラムのように振る舞う」偽の中継：受け取った SendCaravan の番号が Citizen の CARAVANS と同じで、在庫が足りれば
+ * 隊商を作って番号を進め、違えば失敗した取引として記録する（caravan.rs:695 の BadData、Insufficient）。land=false なら何も載せない。
+ */
+async function programRelay(ch, b, stock, { land = true } = {}) {
+  let caravans = 3;
+  return fakeRelay(async tx => {
+    if (!land) return;
+    const ix = tx.instructions.find(i => tx.accountKeys[i.programIdIndex] === programId);
+    const d = decodeIxData(ix.data, 3);
+    const cargo = Array.from({ length: 8 }, (_, i) => new DataView(d.cargo.buffer, d.cargo.byteOffset).getUint32(4 * i, true));
+    const signature = b58(await (await testSigner(new Uint8Array(32).fill(9))).signMessage(tx.message));
+    const bad = Number(d.seq) !== caravans ? 'BadData' : cargo.some((v, i) => v > (stock[i] ?? 0)) ? 'Insufficient' : null;
+    if (bad) { ch.tx([], [], { err: { InstructionError: [1, { Custom: bad }] }, signature }); return; }
+    cargo.forEach((v, i) => { stock[i] -= v; });
+    ch.caravanSent(b, ownerTagOf(season, b.address), caravans, { kind: 1, p: Number(d.dst_p), q: Number(d.dst_q), site: Number(d.dst_at), gen: Number(d.dst_gen) }, cargo, { signature });
+    caravans += 1;
+    ch.citizen(b, 2, { caravans, holdings: [HOME_B] });
+  });
+}
+
+test('見込み：送る前に送り元の不足量を出す（ゲームと同じ在庫の計算）。不足があっても計画は止めず、最終判定はプログラム', async () => {
+  const { b, ch, request } = await world();
+  ch.holding(HOME_B, b, 2, { tile: 11, stores: [0, 150, 30] });
+  const p = await planSend({ reader: ch.reader, season, wallet: b.address, request, cargo: { wood: 200, stone: 20 }, now: 1_790_000_000 });
+  assert.ok(p.ok);
+  assert.deepEqual(p.estimate.have, { wood: 150, stone: 30 });
+  assert.deepEqual(p.estimate.shortfall, { wood: 50 });
+  assert.match(p.estimate.final, /プログラム/);
+});
+
+test('在庫の競合：見込みでは足りても、先に別の送信が在庫を使えば、プログラムが断り（failed）、結び付けない', async () => {
+  const { b, seedB, ch, request } = await world();
+  ch.holding(HOME_B, b, 2, { tile: 11, stores: [0, 150] });
+  const stock = [0, 150, 0, 0, 0, 0, 0, 0];
+  const relay = await programRelay(ch, b, stock);
+  try {
+    const p1 = await planSend({ reader: ch.reader, season, wallet: b.address, request, cargo: { wood: 100 }, now: 1_790_000_000 });
+    assert.deepEqual(p1.estimate.shortfall, {});
+    const r1 = await sendPlanned(p1, { relay: relay.url, season, wallet: await devSigner(seedB) });
+    assert.equal((await sendOutcome(ch.reader, season, { wallet: b.address, ...p1 }, r1.signature)).status, 'landed');
+    // 二つ目：計画の時点の見込みは古い（在庫 150 のまま）。番号は進んだので計画し直すが、在庫は 50 しかない
+    const p2 = await planSend({ reader: ch.reader, season, wallet: b.address, request, cargo: { wood: 100 }, now: 1_790_000_000 });
+    assert.deepEqual(p2.estimate.shortfall, {}, '見込みは村の口座の記録（偽のチェーンは在庫を書き換えない）');
+    const r2 = await sendPlanned(p2, { relay: relay.url, season, wallet: await devSigner(seedB) });
+    assert.ok(r2.ok, '中継は受け取る（判定はプログラム）');
+    const o2 = await sendOutcome(ch.reader, season, { wallet: b.address, ...p2 }, r2.signature);
+    assert.equal(o2.status, 'failed');
+    assert.match(o2.why, /Insufficient/);
+  } finally { relay.close(); }
+});
+
+test('隊商の番号の競合：同じ番号で計画した二つの送信は、先に着いた方だけが成功し、後は失敗（BadData）。自分の取引の署名で区別する', async () => {
+  const { b, seedB, ch, request } = await world();
+  ch.holding(HOME_B, b, 2, { tile: 11, stores: [0, 500] });
+  const relay = await programRelay(ch, b, [0, 500, 0, 0, 0, 0, 0, 0]);
+  try {
+    const p1 = await planSend({ reader: ch.reader, season, wallet: b.address, request, cargo: { wood: 100 } });
+    const p2 = await planSend({ reader: ch.reader, season, wallet: b.address, request, cargo: { wood: 120 } });
+    assert.equal(p1.fields.seq, p2.fields.seq, '同じ番号で計画された');
+    const w = await devSigner(seedB);
+    const r1 = await sendPlanned(p1, { relay: relay.url, season, wallet: w });
+    const r2 = await sendPlanned(p2, { relay: relay.url, season, wallet: w });
+    assert.equal((await sendOutcome(ch.reader, season, { wallet: b.address, ...p1 }, r1.signature)).status, 'landed');
+    const o2 = await sendOutcome(ch.reader, season, { wallet: b.address, ...p2 }, r2.signature);
+    assert.equal(o2.status, 'failed');
+    assert.match(o2.why, /BadData/);
+    // 番号 #3 の隊商はチェーンにある（同じ持ち主・同じ番号）が、それは p1 のもの。p2 は自分の取引の署名で「失敗」と分かる
+    const { caravanAccount } = await import('../coop/chain.mjs');
+    assert.equal((await caravanAccount(ch.reader, season, p2.caravan)).status, 'found', '(owner, seq) が同じ隊商はある');
+    assert.notEqual(r1.signature, r2.signature);
+  } finally { relay.close(); }
+});
+
+test('送信結果不明：中継は受け取ったが取引が見えない間は unknown。番号が別の送信で進めば seq-taken（推測で結び付けない）', async () => {
+  const { b, seedB, ch, request } = await world();
+  ch.holding(HOME_B, b, 2, { tile: 11, stores: [0, 500] });
+  const relay = await programRelay(ch, b, [0, 500, 0, 0, 0, 0, 0, 0], { land: false });
+  try {
+    const p = await planSend({ reader: ch.reader, season, wallet: b.address, request, cargo: { wood: 100 } });
+    const r = await sendPlanned(p, { relay: relay.url, season, wallet: await devSigner(seedB) });
+    assert.ok(r.ok);
+    assert.equal((await sendOutcome(ch.reader, season, { wallet: b.address, ...p }, r.signature)).status, 'unknown');
+    assert.equal((await sendOutcome(ch.reader, season, { wallet: b.address, ...p }, null)).status, 'unknown', '署名も分からない（通信の失敗）');
+    // ゲームの画面から別の隊商を送り、番号 #3 が使われた
+    ch.caravanSent(b, ownerTagOf(season, b.address), 3, { kind: 1, p: 8, q: 1, site: 0, gen: 1 }, [10, 0, 0, 0, 0, 0, 0, 0]);
+    ch.citizen(b, 2, { caravans: 4, holdings: [HOME_B] });
+    const o = await sendOutcome(ch.reader, season, { wallet: b.address, ...p }, r.signature);
+    assert.equal(o.status, 'seq-taken');
+  } finally { relay.close(); }
+});
+
+test('結び付けの前の到着：応じた後に送った隊商は、着いて口座が閉じた後でも元の送信の記録で結び付けて数える。応じる前の送信は断る', async () => {
+  const { a, b, ch } = await world();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ws01-early-'));
+  let t = 1_790_000_000;
+  ch.setClock(() => t);
+  const board = createBoard({ herald: null, programId, seasonId: '90', dataDir: dir, now: () => t, reader: ch.reader, fetchHerald: async () => ({ status: 200, json: { v: 1, moving: [], vaults: [], ended: [] } }) });
+  const put = async (who, rec) => { t += 1; return board.submit(await signRecord(who, { v: 1, season, at: t, ...rec })); };
+  const tag = ownerTagOf(season, b.address);
+  // 応じる前に送って着いた隊商（#1）
+  ch.caravanSent(b, tag, 1, HOME_A, [0, 50, 0, 0, 0, 0, 0, 0]);
+  ch.caravanSettled(tag, 1, 0, HOME_A, [0, 50, 0, 0, 0, 0, 0, 0]);
+  t += 1000;
+  const id = (await put(a, { kind: 'request', goalId: 'crossing-storehouse-v1', need: { wood: 200 }, to: HOME_A, nation: 0, expiresAt: t + 86400, nonce: 'e' })).id;
+  { const r = await put(b, { kind: 'respond', request: id, answer: 'accept', offer: { wood: 200 }, nation: 2 }); assert.ok(r.ok, r.why); }
+  // 応じた後に送り、結び付ける前に着いた隊商（#2）
+  t += 10;
+  ch.caravanSent(b, tag, 2, HOME_A, [0, 200, 0, 0, 0, 0, 0, 0]);
+  ch.caravanSettled(tag, 2, 0, HOME_A, [0, 200, 0, 0, 0, 0, 0, 0]);
+  assert.match((await put(b, { kind: 'link', request: id, caravan: { ownerTag: tag, seq: 1 } })).why, /応じる前に送った/);
+  { const r = await put(b, { kind: 'link', request: id, caravan: { ownerTag: tag, seq: 2 } }); assert.ok(r.ok, r.why); }
+  const v = await board.view({});
+  assert.equal(v.arrivals[0].state, 'delivered');
+  assert.equal(v.arrivals[0].verification, 'RuleDerived');
+  assert.equal(v.joint[0].progress[0].verified, 200);
+  // 他人（a）は、b の隊商を結び付けられない（元の送り主の印が違う）
+  assert.match((await put(a, { kind: 'link', request: id, caravan: { ownerTag: tag, seq: 2 } })).why, /送った人|自分の依頼|応じていない/);
+});

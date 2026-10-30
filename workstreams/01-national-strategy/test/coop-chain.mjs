@@ -48,12 +48,14 @@ export function fakeChain(programId, seasonId) {
   };
   const sigs = new Map(), txs = new Map();
   let n = 0;
+  let clock = () => 1_790_000_000;   // 取引の blockTime（テストの時計に合わせる：setClock）
   /** 取引を一つ足す：触れた口座の住所、ログの記録（[name, fields]）。ほかのプログラムの記録を混ぜることもできる。 */
-  const tx = (addrs, records, { err = null, foreign = [] } = {}) => {
-    const signature = `sig${++n}`;
+  const tx = (addrs, records, { err = null, foreign = [], signature: named = null } = {}) => {
+    const signature = named ?? `sig${++n}`;
+    if (named) ++n;
     const logs = [`Program ${programId} invoke [1]`, ...records.map(([name, f]) => `Program data: UFMy ${toBase64(ps2Body(name, 100 + n, f))}`), `Program ${programId} success`,
       ...foreign.map(([pid, name, f]) => [`Program ${pid} invoke [1]`, `Program data: UFMy ${toBase64(ps2Body(name, 1, f))}`, `Program ${pid} success`]).flat()];
-    txs.set(signature, { err, logs, slot: n });
+    txs.set(signature, { err, logs, slot: n, blockTime: clock() });
     for (const a of addrs) sigs.set(a, [{ signature, err }, ...(sigs.get(a) ?? [])]);
     return signature;
   };
@@ -72,10 +74,11 @@ export function fakeChain(programId, seasonId) {
   };
   return {
     tx, txs, sigs,
+    setClock(f) { clock = f; },
     /** 隊商を送る（口座を作り、CARAVAN_SENT を記録する）。 */
-    caravanSent(who, ownerTag, seq, dst, cargo) {
+    caravanSent(who, ownerTag, seq, dst, cargo, opts = {}) {
       writeCaravan(who, ownerTag, seq, dst, cargo);
-      tx([A.of('Caravan', { ownerTag: BigInt(ownerTag), seq })], [['CARAVAN_SENT', { owner_tag: ownerTag, seq, cargo: cargoLog(cargo) }]]);
+      return tx([A.of('Caravan', { ownerTag: BigInt(ownerTag), seq })], [['CARAVAN_SENT', { owner_tag: ownerTag, seq, dst: logPlace({ kind: kindNum(dst.kind), p: dst.p, q: dst.q, at: dst.site ?? dst.at, gen: dst.gen }), cargo: cargoLog(cargo) }]], opts);
     },
     /** 確定（口座を閉じ、CARAVAN_SETTLED を記録する）。 */
     caravanSettled(ownerTag, seq, outcome, dst, cargo, opts = {}) {
@@ -117,9 +120,11 @@ export function fakeChain(programId, seasonId) {
       dv.setBigUint64(at('PASSABLE_MASK'), (1n << 61n) - 1n, true);
       accounts.set(A.of('Province', { p, q }), b);
     },
-    holding(to, who, faction, { tile = 20 } = {}) {
+    /** 村：stores は整数単位の在庫（rate 0、t0 = 0。STORES は Accrual ×8：VALUE ミリ・RATE・CAP・T0・FRAC）。 */
+    holding(to, who, faction, { tile = 20, stores = [] } = {}) {
       const { b, dv } = head(1280, 'PSF1HOLD');
       dv.setInt16(64, to.p, true); dv.setInt16(66, to.q, true); b[68] = to.site; b[69] = to.gen; b[70] = tile;
+      stores.forEach((v, i) => { dv.setBigInt64(152 + 40 * i, BigInt(v) * 1000n, true); dv.setBigInt64(152 + 40 * i + 16, 10_000_000n, true); });
       b.set(pubkeyBytes(A.of('Citizen', { wallet: who.address })), 72);
       b[112] = faction;
       accounts.set(A.of('Holding', { p: to.p, q: to.q, site: to.site }), b);

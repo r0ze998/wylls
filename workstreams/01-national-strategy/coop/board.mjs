@@ -3,7 +3,12 @@
 // それ以外の要求はヘラルドへそのまま転送する（127.0.0.1 だけ）。
 //
 //   node workstreams/01-national-strategy/coop/board.mjs --herald http://127.0.0.1:41940 \
-//        --program <program id> --season <id> --rpc http://127.0.0.1:41910 --relay http://127.0.0.1:41933 [--port 41873] [--data <dir>] [--judge arrivals]
+//        --program <program id> --season <id> --rpc http://127.0.0.1:41910 [--port 41873] [--data <dir>] [--judge arrivals]
+//
+// 中継（relay）へは、ゲームと同じく同じ入口の /gw を通す（板 → ヘラルドの /gw → 中継）。
+// 中継は CORS の見出しを返さず、OPTIONS にも答えない（permutation-gateway src/frontier/app.mjs：Access-Control-Allow-Origin なし、
+// OPTIONS は NotFound）。だから、別の入口の画面から中継の住所へ直接送ると、ブラウザが止める。ヘラルドは --relay で中継へ転送する
+// （frontier-node/crates/herald/src/server.rs の gw）。
 //
 //   http://127.0.0.1:41873/frontier/frontier/   … ゲーム（ヘラルドの画面を転送。Dev Wallet はこの入口のもの）
 //   http://127.0.0.1:41873/ws01/                 … 依頼の画面（同じ入口なので、同じ Dev Wallet で署名する）
@@ -19,7 +24,7 @@ import { fileURLToPath } from 'node:url';
 import { fold, recordId, shapeProblem, verifySig, ownerTagOf, CLOCK_SKEW } from './record.mjs';
 import { linkProblem } from './arrival.mjs';
 import { GOALS, JUDGES, coopView } from './goal.mjs';
-import { citizenOf, holdingOf, rpcReader, caravanAccount, caravanEndFromChain } from './chain.mjs';
+import { citizenOf, holdingNow, rpcReader, caravanAccount, caravanEndFromChain, caravanHistory } from './chain.mjs';
 import { caravanKeyOf } from './arrival.mjs';
 import { seasonAddresses } from '../../../permutation-server/web/frontier/faddr.mjs';
 
@@ -49,7 +54,7 @@ export function loadRecords(file) {
  * 再起動：記録（records.jsonl）を最初から畳み込み直すので、依頼・応答・結び付け・重複防止（同じ記録・同じ隊商）は戻る。
  * 観測の時刻（observed.json）が失われると、再起動の後に初めて見た時刻になる（仮B は「到着より後」を確かめられず、達成にならない側に倒れる）。
  */
-export function createBoard({ herald, programId, seasonId, dataDir, judge = 'arrivals', now = () => Math.floor(Date.now() / 1000), fetchHerald = null, reader = null, relay = null, rpc = null }) {
+export function createBoard({ herald, programId, seasonId, dataDir, judge = 'arrivals', now = () => Math.floor(Date.now() / 1000), fetchHerald = null, reader = null, relay = '/gw', rpc = null }) {
   const season = { programId, seasonId: String(seasonId) };
   fs.mkdirSync(dataDir, { recursive: true });
   const recFile = path.join(dataDir, 'records.jsonl');
@@ -95,14 +100,29 @@ export function createBoard({ herald, programId, seasonId, dataDir, judge = 'arr
       const q = state().requests[rec.request];
       if (!q) return { ok: false, why: '依頼が見つからない' };
       if (reader) {
+        // 元の送り主：隊商の鍵（OWNER_TAG）は送った人の印。奪われると OWNER_CITIZEN は奪った人になるが鍵は変わらない
+        if (String(rec.caravan.ownerTag) !== ownerTagOf(season, rec.signer)) return { ok: false, why: 'この隊商を送った人（隊商の鍵の持ち主の印）ではない' };
+        const me = seasonAddresses(programId, season.seasonId).of('Citizen', { wallet: rec.signer });
         // 正本：チェーンの隊商の口座（輸送中なら口座がある）
         const c = await caravanAccount(reader, season, rec.caravan);
-        if (c.status !== 'found') return { ok: false, why: `隊商をチェーンで確かめられない：${c.why}` };
-        // 持ち主の Citizen の住所は、署名したウォレットから決まる（口座の中身は国籍の確認で別に読む）
-        if (c.ownerCitizen !== seasonAddresses(programId, season.seasonId).of('Citizen', { wallet: rec.signer })) return { ok: false, why: 'この隊商の持ち主（OWNER_CITIZEN）ではない' };
-        if (c.state !== 'moving') return { ok: false, why: `隊商は輸送中ではない（${c.state}）` };
-        const why = linkProblem(q, rec.caravan, c.ownerTag, { moving: [{ ownerTag: c.ownerTag, seq: c.seq, dst: c.dst, cargo: c.cargo, raided: false }] });
-        if (why) return { ok: false, why };
+        if (c.status === 'found') {
+          if (c.ownerCitizen !== me) return { ok: false, why: 'この隊商の今の持ち主（OWNER_CITIZEN）ではない（奪われた）' };
+          if (c.state !== 'moving') return { ok: false, why: `隊商は輸送中ではない（${c.state}）` };
+          const why = linkProblem(q, rec.caravan, c.ownerTag, { moving: [{ ownerTag: c.ownerTag, seq: c.seq, dst: c.dst, cargo: c.cargo, raided: false }] });
+          if (why) return { ok: false, why };
+        } else if (c.status === 'absent') {
+          // 結び付ける前に着いた隊商（口座は確定で閉じる）：チェーンの取引の記録の、元の送信（CARAVAN_SENT）で確かめる。
+          // 応じる前に送った隊商を後から結び付けないよう、送信の時刻が応答より後であること。
+          const h = await caravanHistory(reader, season, rec.caravan);
+          if (h.status !== 'ok') return { ok: false, why: `隊商の記録を読めない：${h.why}` };
+          if (!h.sent) return { ok: false, why: '隊商の口座も、送信の記録もない（まだ載っていない）' };
+          if (h.raided) return { ok: false, why: '襲われた隊商は結び付けない' };
+          const resp = q.responses[rec.signer];
+          if (h.sent.blockTime === null || h.sent.blockTime === undefined) return { ok: false, why: '送信の時刻が分からないので、応じた後の送信か確かめられない' };
+          if (!resp || h.sent.blockTime < resp.at - CLOCK_SKEW) return { ok: false, why: '応じる前に送った隊商は結び付けない' };
+          const why = linkProblem(q, rec.caravan, rec.caravan.ownerTag, { moving: [{ ownerTag: String(rec.caravan.ownerTag), seq: rec.caravan.seq, dst: h.sent.dst, cargo: h.sent.cargo, raided: false }] });
+          if (why) return { ok: false, why };
+        } else return { ok: false, why: `隊商をチェーンで確かめられない：${c.why}` };
       } else {
         const file = await caravans();
         if (!file) return { ok: false, why: 'ヘラルドの隊商の一覧が読めないので、隊商を確かめられない' };
@@ -135,7 +155,7 @@ export function createBoard({ herald, programId, seasonId, dataDir, judge = 'arr
     for (const q of Object.values(st.requests)) {
       wallets.add(q.requester);
       for (const l of q.links) wallets.add(l.responder);
-      if (q.links.length) holdings[q.id] = await holdingOf(reader, season, q.to, q.requester);
+      if (q.links.length) holdings[q.id] = await holdingNow(reader, season, q.to);   // 今の口座。到着時の受取人は goal.mjs で世代と合わせて決める
     }
     const citizens = {};
     for (const w of wallets) citizens[w] = await citizen(w);
@@ -206,7 +226,7 @@ export function createServer(board, { herald }) {
         return send(res, r.ok ? 200 : 400, r);
       }
       if (url.pathname === '/coop/rpc' && req.method === 'POST') {
-        // 画面がチェーンを読むための入口（読むだけ）。送る取引は中継（relay）へ直接で、ここは通らない。
+        // 画面がチェーンを読むための入口（読むだけ）。送る取引は /gw（ヘラルド → 中継）で、ここは通らない。
         if (!board.rpc) return send(res, 404, { error: 'この板は --rpc なし' });
         let body;
         try { body = JSON.parse((await readBody(req)).toString('utf8')); } catch { return send(res, 400, { error: 'bad json' }); }
@@ -256,7 +276,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const port = Number(arg('port', '41873'));
   const dataDir = arg('data', path.join(repo, '.local/ws01-coop', `${programId.slice(0, 8)}-${seasonId}`));
   const rpc = arg('rpc');   // 例：http://127.0.0.1:41910（国と届け先の村をチェーンで確かめる。ないと国籍未検証）
-  const board = createBoard({ herald, programId, seasonId, dataDir, judge: arg('judge', 'arrivals'), reader: rpc ? rpcReader(rpc) : null, rpc, relay: arg('relay') });   // --relay 例：http://127.0.0.1:41933（この画面から送るとき）
+  const board = createBoard({ herald, programId, seasonId, dataDir, judge: arg('judge', 'arrivals'), reader: rpc ? rpcReader(rpc) : null, rpc });   // 中継は同じ入口の /gw（ヘラルドの --relay が要る）
   createServer(board, { herald }).listen(port, '127.0.0.1', () => {
     console.log(`依頼の板：http://127.0.0.1:${port}/ws01/  ゲーム：http://127.0.0.1:${port}/frontier/frontier/  （ヘラルド ${herald}、記録 ${dataDir}）`);
   });

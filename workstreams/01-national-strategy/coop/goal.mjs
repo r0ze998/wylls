@@ -11,6 +11,7 @@
 
 import { RESOURCES, RESOURCE_JA, stateAt, ownerTagOf } from './record.mjs';
 import { arrivalsOf } from './arrival.mjs';
+import { seasonAddresses } from '../../../permutation-server/web/frontier/faddr.mjs';
 import { VAULT_COST } from '../../../permutation-server/web/frontier/fcaravan.mjs';
 
 const vaultCost = Object.fromEntries(RESOURCES.map((r, i) => [r, VAULT_COST[i] ?? 0]).filter(([, v]) => v > 0));
@@ -74,8 +75,36 @@ export function allocate(arrivals, state) {
   return sorted.map(a => {
     const k = caravanKey(a.caravanId);
     if (!first.has(k)) { first.set(k, a.requestId); return a; }
-    return { ...a, duplicateOf: first.get(k), verifiedQty: null, note: `同じ隊商はもう依頼 ${first.get(k).slice(0, 8)} に割り当てた。二重に数えない` };
+    return { ...a, duplicateOf: first.get(k), note: `同じ隊商はもう依頼 ${first.get(k).slice(0, 8)} に割り当てた。二重に数えない` };
   });
+}
+
+/** 進捗に数えてよい検証（④ CONTRACTS §9：Recorded か RuleDerived の delivered だけ）。 */
+export const COUNTABLE = Object.freeze(['Recorded', 'RuleDerived']);
+
+/**
+ * 到着時の受取人（村の持ち主）を、今の口座と分けて決める。
+ * 同じ世代の間、村の持ち主は変わらない：Holding の OWNER_CITIZEN を書くのは、世代を1つ進める占領（conquest.rs:1292-1295、1322、1425-1426）と
+ * 入植（citizen.rs:1465-1468、1814）だけ。だから、今の口座の世代が到着の記録の世代（dst.gen）と同じなら、今の持ち主が到着時の持ち主。
+ * 世代が違えば（到着の後に占領・再入植）、到着時の持ち主は今の口座からは確定できない → 未検証（推測しない）。
+ *   now：chain.mjs holdingNow の結果、requesterCitizen：依頼した人の Citizen の住所
+ */
+export function recipientOf(arrival, now, requesterCitizen) {
+  if (arrival.state !== 'delivered') return null;
+  if (!now || now.status !== 'found') return { status: 'unverified', why: now?.why ?? '届け先の村の口座をまだ読んでいない' };
+  if (now.gen !== arrival.dstGen) return { status: 'unverified', gen: arrival.dstGen, currentGen: now.gen, why: `村の世代が変わった（到着時 ${arrival.dstGen}、今 ${now.gen}：占領か再入植）。到着時の持ち主は今の口座からは確定できない` };
+  return { status: 'verified', gen: arrival.dstGen, ownerCitizen: now.ownerCitizen, isRequester: now.ownerCitizen === requesterCitizen,
+    basis: '同じ世代の間、村の持ち主は変わらない（OWNER_CITIZEN を書くのは世代を進める占領・入植だけ）' };
+}
+
+/** 一つの到着を、共同の目的に数える量（依頼の資源ごと）と、数えない理由。 */
+function countOf(a, recipient) {
+  if (a.duplicateOf) return { counted: null, why: '同じ隊商は別の依頼に割り当て済み' };
+  if (a.state !== 'delivered') return { counted: null, why: a.verification === 'KnownZero' ? '届かなかった（0 と分かっている）' : 'まだ届いていない・分からない' };
+  if (!COUNTABLE.includes(a.verification)) return { counted: null, why: a.verification === 'Unverifiable' ? '到着したが、入った量を確認できない' : 'チェーンの記録で確かめていない' };
+  if (recipient?.status !== 'verified') return { counted: null, why: `到着時の受取人が未検証：${recipient?.why ?? ''}` };
+  if (!recipient.isRequester) return { counted: null, why: '到着時の受取人が依頼した人ではない' };
+  return { counted: a.delivered, why: null };
 }
 
 /**
@@ -87,7 +116,14 @@ export function allocate(arrivals, state) {
  */
 export function coopView({ state, file, obs = { ended: {}, vaults: {} }, checks = { citizens: {}, holdings: {} }, viewer = null, now, judgeId = 'arrivals', season }) {
   const judge = JUDGES[judgeId] ?? JUDGES.arrivals;
-  const arrivals = allocate(arrivalsOf(state, file, checks.caravans), state);
+  const A = season ? seasonAddresses(season.programId, season.seasonId) : null;
+  const arrivals = allocate(arrivalsOf(state, file, checks.caravans), state).map(a => {
+    const q = state.requests[a.requestId];
+    const now = checks.holdings?.[a.requestId];
+    const recipient = recipientOf(a, now, A ? A.of('Citizen', { wallet: q.requester }) : null);
+    const c = countOf(a, recipient);
+    return { ...a, recipient, currentOwner: now?.status === 'found' ? { gen: now.gen, ownerCitizen: now.ownerCitizen } : null, counted: c.counted, notCountedWhy: c.why };
+  });
   const byReq = {};
   for (const a of arrivals) (byReq[a.requestId] ??= []).push(a);
   const requests = Object.values(state.requests).map(q => ({ ...q, stateNow: stateAt(q, now), arrivals: byReq[q.id] ?? [] }));
@@ -98,20 +134,17 @@ export function coopView({ state, file, obs = { ended: {}, vaults: {} }, checks 
   const hosts = {};
   for (const q of requests) {
     const h = (hosts[`${q.goalId}|${q.requester}`] ??= { goal: GOALS[q.goalId], host: q.requester, perResource: blank(), contributors: new Set(), otherNations: new Set(), unverified: new Set(), unverifiedCaravans: 0, unprovenDeliveries: 0, lastArrivalSeen: 0, holdingIssues: new Set() });
-    const hc = checks.holdings?.[q.id];
-    if (q.arrivals.some(a => a.state === 'delivered') && hc?.status !== 'verified') h.holdingIssues.add(hc?.why ?? '届け先の村の持ち主をまだ確かめていない');
     for (const a of q.arrivals) {
       if (a.duplicateOf) continue;
-      if (a.state === 'delivered' && a.verifiedQty) {
-        if (hc?.status !== 'verified') continue;   // 届け先が依頼した人の村だと確かめられない到着は数えない
-        for (const [r, v] of Object.entries(a.verifiedQty)) h.perResource[r] += v;
+      if (a.counted) {
+        for (const [r, v] of Object.entries(a.counted)) h.perResource[r] += v;
         h.contributors.add(a.responder);
         h.lastArrivalSeen = Math.max(h.lastArrivalSeen, obs.ended?.[caravanKey(a.caravanId)] ?? 0);
         const hf = factionOf(q.requester), rf = factionOf(a.responder);
         if (hf === null) h.unverified.add('依頼した人の国が未検証');
         if (rf === null) h.unverified.add(`届けた人 ${a.responder.slice(0, 4)}… の国が未検証`);
         if (hf !== null && rf !== null && hf !== rf) h.otherNations.add(rf);
-      } else if (a.state === 'delivered') h.unprovenDeliveries += 1;
+      } else if (a.state === 'delivered') { h.unprovenDeliveries += 1; if (a.recipient?.status !== 'verified' || !a.recipient.isRequester) h.holdingIssues.add(a.notCountedWhy); }
       else if (a.state === 'moving' || a.state === 'unknown') h.unverifiedCaravans += 1;
     }
   }
@@ -129,7 +162,7 @@ export function coopView({ state, file, obs = { ended: {}, vaults: {} }, checks 
       progress: Object.entries(h.goal.fromOthers).map(([r, n]) => ({ resource: r, verified: h.perResource[r], need: n })),
       otherNations: [...h.otherNations], nationsUnverified: [...h.unverified], holdingIssues: [...h.holdingIssues], contributors: [...h.contributors],
       unverifiedCaravans: h.unverifiedCaravans, unprovenDeliveries: h.unprovenDeliveries,
-      done: verdict.done && h.holdingIssues.size === 0, why: h.holdingIssues.size ? [...h.holdingIssues].join('、') : verdict.why, vaultSeenAfter,
+      done: verdict.done, why: verdict.done || !h.holdingIssues.size ? verdict.why : `${verdict.why}（数えなかった到着：${[...h.holdingIssues].join('、')}）`, vaultSeenAfter,
     };
   });
 
@@ -139,7 +172,7 @@ export function coopView({ state, file, obs = { ended: {}, vaults: {} }, checks 
     nation: vf.faction,
     note: '国の目標はこの版では設定しない（誰がどう決めるかは未決定）。国の議会の構え・投票は既存の画面にある',
     requests: requests.filter(q => factionOf(q.requester) === vf.faction).length,
-    deliveredFromNation: arrivals.filter(a => !a.duplicateOf && a.state === 'delivered' && a.verifiedQty && factionOf(a.responder) === vf.faction).length,
+    deliveredFromNation: arrivals.filter(a => a.counted && factionOf(a.responder) === vf.faction).length,
   };
 
   // ---------------------------------------------------------------- 個人
@@ -150,7 +183,7 @@ export function coopView({ state, file, obs = { ended: {}, vaults: {} }, checks 
     myResponses: requests.filter(q => q.responses[viewer]).map(q => ({ id: q.id, requester: q.requester, response: q.responses[viewer], arrivals: q.arrivals.filter(a => a.responder === viewer) })),
     myVerified: (() => {
       const t = blank();
-      for (const a of arrivals) if (a.responder === viewer && !a.duplicateOf && a.state === 'delivered' && a.verifiedQty) for (const [r, v] of Object.entries(a.verifiedQty)) t[r] += v;
+      for (const a of arrivals) if (a.responder === viewer && a.counted) for (const [r, v] of Object.entries(a.counted)) t[r] += v;
       return Object.fromEntries(Object.entries(t).filter(([, v]) => v > 0));
     })(),
     left: Object.entries(state.left).filter(([, ws]) => ws.includes(viewer)).map(([g]) => g),

@@ -34,7 +34,7 @@ export function rpcReader(rpcUrl, { fetchImpl = fetch } = {}) {
     },
     async transaction(signature) {
       const t = await call('getTransaction', [signature, { encoding: 'json', commitment: 'confirmed', maxSupportedTransactionVersion: 0 }]);
-      return t ? { err: t.meta?.err ?? null, logs: t.meta?.logMessages ?? [], slot: t.slot } : null;
+      return t ? { err: t.meta?.err ?? null, logs: t.meta?.logMessages ?? [], slot: t.slot, blockTime: t.blockTime ?? null } : null;
     },
   };
 }
@@ -143,13 +143,24 @@ const cargoOfLog = b => Array.from({ length: 8 }, (_, i) => new DataView(b.buffe
  * 襲撃のあとに確定した隊商は、両方を返す（raided を先に見る）。
  */
 export async function caravanEndFromChain(reader, season, caravan) {
+  const h = await caravanHistory(reader, season, caravan);
+  if (h.status !== 'ok') return h;
+  if (!h.settled && !h.raided) return { status: 'none', why: 'この隊商の確定・襲撃の記録はまだない' };
+  return { status: h.raided ? 'raided' : 'settled', settled: h.settled, raided: h.raided };
+}
+
+/**
+ * 隊商の口座の住所に触れた、このプログラムの成功した取引の記録を集める。
+ * {status: 'ok', sent: 最初の CARAVAN_SENT（元の送信。奪われた後の CARAVAN_SENT は同じ鍵なので、いちばん古いもの）, settled, raided} か {status: 'unverified', why}
+ */
+export async function caravanHistory(reader, season, caravan) {
   if (!reader?.signatures || !reader?.transaction) return { status: 'unverified', why: 'チェーンの取引を読めない（板に --rpc がない）' };
   const A = seasonAddresses(season.programId, season.seasonId);
   const addr = A.of('Caravan', { ownerTag: BigInt(caravan.ownerTag), seq: caravan.seq });
   const tag = BigInt(caravan.ownerTag);
   let sigs;
   try { sigs = await reader.signatures(addr); } catch (e) { return { status: 'unverified', why: `チェーンを読めない：${e.message ?? e}` }; }
-  const found = { settled: null, raided: null };
+  const found = { settled: null, raided: null, sent: null };
   for (const s of sigs) {
     if (s.err) continue;
     let t;
@@ -159,10 +170,41 @@ export async function caravanEndFromChain(reader, season, caravan) {
       if (r.owner_tag !== tag || r.seq !== caravan.seq) continue;
       if (r.name === 'CARAVAN_SETTLED' && !found.settled) found.settled = { outcome: r.outcome, dst: placeOf(r.dst), cargo: cargoOfLog(r.cargo), signature: s.signature };
       if (r.name === 'CARAVAN_RAIDED' && !found.raided) found.raided = { choice: r.choice, raiderTag: String(r.raider_tag), signature: s.signature };
+      if (r.name === 'CARAVAN_SENT') {
+        const x = { dst: placeOf(r.dst), cargo: cargoOfLog(r.cargo), signature: s.signature, slot: t.slot, blockTime: t.blockTime };
+        if (!found.sent || (t.slot ?? 0) < (found.sent.slot ?? 0)) found.sent = x;   // いちばん古い送信（元の送り主の送信）
+      }
     }
   }
-  if (!found.settled && !found.raided) return { status: 'none', why: 'この隊商の確定・襲撃の記録はまだない' };
-  return { status: found.raided ? 'raided' : 'settled', ...found };
+  return { status: 'ok', ...found };
+}
+
+/**
+ * 自分が送った取引が着地したか（④ STATE-MACHINE「別の送信経路と owner の連番」：(owner, seq) が一致するだけでは自分の送信とみなさない）。
+ * 自分の取引の署名 `signature` を読み、その取引の中にこのプログラムの CARAVAN_SENT（計画の ownerTag・seq・届け先・荷）があるかを見る。
+ *   'landed'：自分の取引が成功し、計画どおりの隊商を記録した
+ *   'failed'：自分の取引は着地したが失敗した（在庫不足・番号の不一致などをプログラムが断った）
+ *   'mismatch'：自分の取引は成功したが、計画の隊商の記録がない・中身が違う
+ *   'seq-taken'：自分の取引は見えず、送った人の隊商の番号（CARAVANS）は計画の番号を越えた（別の送信がその番号を使った可能性）
+ *   'unknown'：自分の取引も、番号の進みも見えない（まだ着地していない、期限切れで捨てられた、のどちらか分からない）
+ */
+export async function sendOutcome(reader, season, { wallet, caravan, dst, cargo }, signature) {
+  if (!reader?.transaction) return { status: 'unknown', why: 'チェーンを読めない' };
+  let t = null;
+  if (signature) { try { t = await reader.transaction(signature); } catch (e) { return { status: 'unknown', why: `取引を読めない：${e.message ?? e}` }; } }
+  if (t) {
+    if (t.err) return { status: 'failed', why: `プログラムが断った：${JSON.stringify(t.err)}`, slot: t.slot };
+    const A = seasonAddresses(season.programId, season.seasonId);
+    const r = programRecords(t.logs, A.programId).find(x => x.name === 'CARAVAN_SENT' && x.owner_tag === BigInt(caravan.ownerTag) && x.seq === caravan.seq);
+    if (!r) return { status: 'mismatch', why: '自分の取引に、計画の隊商の記録がない' };
+    const d = placeOf(r.dst), c = cargoOfLog(r.cargo);
+    if (d.kind !== 1 || d.p !== dst.p || d.q !== dst.q || d.at !== dst.site || d.gen !== dst.gen) return { status: 'mismatch', why: '自分の取引の隊商の行き先が計画と違う' };
+    if (c.some((v, i) => v > (cargo[i] ?? 0))) return { status: 'mismatch', why: '自分の取引の隊商の荷が計画より多い' };
+    return { status: 'landed', slot: t.slot, cargoLogged: c };   // 荷は経路の塔で減りうる（計画以下）
+  }
+  const me = await citizenOf(reader, season, wallet);
+  if (me.caravans !== undefined && Number(me.caravans) > caravan.seq) return { status: 'seq-taken', why: `自分の取引は見えないが、隊商の番号は ${me.caravans} まで進んだ（番号 #${caravan.seq} は別の送信が使った可能性）` };
+  return { status: 'unknown', why: '自分の取引も番号の進みも見えない（まだ着地していない、または期限切れで捨てられた）' };
 }
 
 /**
@@ -179,8 +221,24 @@ export async function citizenOf(reader, season, wallet) {
   try { c = decode('Citizen', bytes, { seasonId: season.seasonId }); } catch (e) { return { status: 'unverified', why: `Citizen の口座が読めない：${e.code ?? e.message}` }; }
   if (!equal(c.wallet, pubkeyBytes(wallet))) return { status: 'unverified', why: 'Citizen の口座のウォレットが署名した人と違う' };
   // 国から追放されている間は、その国の一員として数えない（nation.rs：EXPELLED_SINCE、村には FLAG_EXPELLED）
-  if (c.expelledSince && c.expelledSince !== 0n) return { status: 'unverified', why: `国（${c.faction + 1}）から追放されている`, expelled: true, faction: c.faction };
+  if (c.expelledSince && c.expelledSince !== 0n) return { status: 'unverified', why: `国（${c.faction + 1}）から追放されている`, expelled: true, faction: c.faction, caravans: c.caravans };
   return { status: 'verified', faction: c.faction, citizen, caravans: c.caravans, holdings: c.holding, holdingsN: c.holdingsN };
+}
+
+/**
+ * 村の今の口座：{status: 'found', gen, ownerCitizen, faction} か {status: 'unverified', why}。
+ * 「今の持ち主」であって、過去の到着時の持ち主ではない（到着時の受取人は goal.mjs recipientOf で世代と合わせて決める）。
+ */
+export async function holdingNow(reader, season, place) {
+  if (!reader) return { status: 'unverified', why: 'チェーンを読めない（板に --rpc がない）' };
+  const A = seasonAddresses(season.programId, season.seasonId);
+  let bytes;
+  try { bytes = await reader.account(A.of('Holding', { p: place.p, q: place.q, site: place.site })); } catch (e) { return { status: 'unverified', why: `チェーンを読めない：${e.message ?? e}` }; }
+  if (!bytes) return { status: 'unverified', why: '村の口座がない' };
+  try {
+    const h = decode('Holding', bytes, { seasonId: season.seasonId });
+    return { status: 'found', gen: h.gen, ownerCitizen: toBase58(h.ownerCitizen), faction: h.faction };
+  } catch (e) { return { status: 'unverified', why: `村の口座が読めない：${e.code ?? e.message}` }; }
 }
 
 /**

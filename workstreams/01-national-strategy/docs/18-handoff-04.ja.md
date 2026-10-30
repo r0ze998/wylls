@@ -10,14 +10,16 @@
 | 2 | チェーンの隊商の口座（輸送中だけある。確定で閉じる：`caravan.rs` `close_caravan`）：`OWNER_CITIZEN`・`STATE`・`DST`・`CARGO` | 結び付けの確かめ（持ち主・輸送中・行き先・積荷） |
 | 3 | ヘラルドの `h/caravans.json`（`moving`、パッチ 0002 の `ended`） | 表示と、チェーンの記録との突き合わせ（食い違いは `heraldDisagrees` で示す）。量は数えない |
 
-**実入荷量：** CARAVAN_SETTLED の `cargo` は積荷（目減り後・整数に切り捨て）で、宛先の加算量ではない。村あて（kind 1）は Holding::credit が上限なしで全部加算する規則（`holding.rs:296-300, 774-783`）なので、積荷を**下限**として数える。倉あて（kind 2）は上限で切り捨てられ、加算量も前の在庫も記録にないので**未検証**。依頼の届け先は村だけ。
+**実入荷量：** ④の分類に合わせた（19章）。村あては RuleDerived（整数単位で記録の cargo が入荷量。加算処理との対応は19章 19-2）、倉あては Unverifiable、届かなかったものは KnownZero。依頼の届け先は村だけ。
 
 ## 18-2. 契約（1本の隊商ごと）
 
-`{ requestId, caravanId: {ownerTag, seq}, owner: {ownerTag}, responder, state, cargo, verifiedQty, qtyKind, basis, source, signature, note, heraldDisagrees?, duplicateOf? }`
+`{ requestId, caravanId: {ownerTag, seq}, owner: {ownerTag}, responder, state, delivered, verification, cargoLogged, dstGen, basis, source, signature, note, recipient, currentOwner, counted, notCountedWhy, heraldDisagrees?, duplicateOf? }`（2026-10-30、④の受領版 2e536b6b に合わせて改めた。照合は19章）
 
 - `state`：`moving` / `delivered` / `misdelivered` / `lost` / `raided-taken` / `raided-burned` / `unknown`
-- `verifiedQty`：`source: 'chain-log'` かつ村あてで依頼の届け先のときだけ。ほかは `null`
+- `delivered`・`verification`：④と同じ意味。村あて DELIVERED は `RuleDerived`（cargo を整数単位の入荷量）、倉あては `null`・`Unverifiable`、LOST・襲撃・別の場所は 0・`KnownZero`、チェーンの記録がまだなら `null`・`null`
+- `recipient`：到着時の受取人（村の世代が到着の記録と同じときだけ今の口座から。違えば未検証）。`currentOwner`：今の持ち主
+- `counted`：共同の目的に数えた量（Recorded・RuleDerived で、受取人が依頼した人で、重複でないときだけ）
 - `duplicateOf`：同じ隊商が二つ目の依頼に結び付いていたとき（数えない）
 - 届け先の持ち主（Holding の `OWNER_CITIZEN`・`GEN`）と国（Citizen の `WALLET`・`FACTION`、`EXPELLED_SINCE` が0でなければ国籍未検証）もチェーンで確かめる（`coop/chain.mjs`）
 

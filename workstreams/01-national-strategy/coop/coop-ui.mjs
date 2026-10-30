@@ -5,17 +5,20 @@ import { STATE_JA } from './arrival.mjs';
 import * as W from '../../../permutation-server/web/wallet.mjs';
 import { equal } from '../../../permutation-server/web/sdk/bytes.mjs';
 import { planSend, sendPlanned } from './send.mjs';
-import { rpcReader, caravanAccount } from './chain.mjs';
+import { rpcReader, sendOutcome } from './chain.mjs';
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const short = a => (a ? `${String(a).slice(0, 4)}…${String(a).slice(-4)}` : '?');
 const nationName = n => `国${Number(n) + 1}`;
 const needText = o => Object.entries(o ?? {}).map(([r, v]) => `${RESOURCE_JA[r] ?? r} ${v}`).join('・') || '—';
+const VERIFICATION_JA = { RuleDerived: '規則から', Recorded: '記録から', Unverifiable: '確認できない', KnownZero: '0 と分かっている' };
 const REQ_JA = { open: '受付中', cancelled: '取り消し', expired: '期限切れ' };
 const CANCEL_JA = { self: '自分で進める', other: 'ほかの理由', done: '足りた', left: '目的から抜けた' };
 
 let cfg = null, view = null, feed = null, signer = null;
+/** 結果の分からない送信（依頼ごと）。分かるまで同じ依頼へ次を送らない。 */
+const pending = new Map();
 const goalId = 'crossing-storehouse-v1';
 
 function say(text, kind = '') { $('msg').innerHTML = text ? `<span class="${kind}">${esc(text)}</span>` : ''; }
@@ -127,12 +130,16 @@ function renderArrivals() {
   const a = view.arrivals;
   const feedNote = view.heraldFeed ? (view.heraldFeed.ended === null ? '<div class="warn">このヘラルドは確定の記録（ended）を出していない。到着は未検証のまま（④のパッチ待ち）</div>' : '') : '<div class="bad">ヘラルドの隊商の一覧が読めない</div>';
   $('arrivals').querySelector('.body').innerHTML = `${feedNote}
-    <table><thead><tr><th>依頼</th><th>隊商</th><th>持ち主の印</th><th>状態</th><th>記録の積荷（目減り後）</th><th>証明できた入荷量</th></tr></thead><tbody>
-    ${a.map(x => `<tr data-testid="arrival"><td><code>${esc(x.requestId.slice(0, 8))}</code></td><td>${esc(x.caravanId.ownerTag.slice(0, 6))}…#${x.caravanId.seq}</td><td>${esc(x.owner.ownerTag.slice(0, 6))}…</td>
-      <td data-testid="arrival-state">${esc(STATE_JA[x.state] ?? x.state)}</td><td>${x.cargo ? esc(needText(x.cargo)) : '—'}</td>
-      <td data-testid="arrival-qty">${x.verifiedQty ? `${esc(needText(x.verifiedQty))}${x.qtyKind === 'lower-bound' ? '（下限）' : ''}` : `<span class="note">未検証（数えない）${x.note ? `：${esc(x.note)}` : ''}</span>`}</td></tr>`).join('') || '<tr><td colspan="6" class="note">結び付けた隊商はまだない</td></tr>'}
+    <table><thead><tr><th>依頼</th><th>隊商</th><th>状態</th><th>到着量（④の分類）</th><th>記録の cargo（上限）</th><th>到着時の受取人</th><th>今の持ち主</th><th>数えた量</th></tr></thead><tbody>
+    ${a.map(x => `<tr data-testid="arrival"><td><code>${esc(x.requestId.slice(0, 8))}</code></td><td>${esc(x.caravanId.ownerTag.slice(0, 6))}…#${x.caravanId.seq}</td>
+      <td data-testid="arrival-state">${esc(STATE_JA[x.state] ?? x.state)}</td>
+      <td data-testid="arrival-qty">${x.delivered ? `${esc(needText(x.delivered))}（${esc(VERIFICATION_JA[x.verification] ?? x.verification)}）` : `<span class="note">分からない${x.verification ? `（${esc(VERIFICATION_JA[x.verification] ?? x.verification)}）` : ''}</span>`}</td>
+      <td>${x.cargoLogged ? esc(needText(x.cargoLogged)) : '—'}</td>
+      <td data-testid="arrival-recipient">${!x.recipient ? '—' : x.recipient.status === 'verified' ? (x.recipient.isRequester ? '依頼した人（世代 ' + x.recipient.gen + '）' : '<span class="warn">依頼した人ではない</span>') : `<span class="warn">未検証：${esc(x.recipient.why)}</span>`}</td>
+      <td>${x.currentOwner ? `世代 ${x.currentOwner.gen}・${esc(String(x.currentOwner.ownerCitizen).slice(0, 4))}…` : '—'}</td>
+      <td data-testid="arrival-counted">${x.counted ? esc(needText(x.counted)) : `<span class="note">0（${esc(x.notCountedWhy ?? '')}）</span>`}</td></tr>`).join('') || '<tr><td colspan="8" class="note">結び付けた隊商はまだない</td></tr>'}
     </tbody></table>
-    <div class="note">積荷は隊商が運んだ量で、宛先に加算された量ではない。村あては上限なしで全部加算される規則なので、記録の積荷を入荷量の下限として数える。倉あては上限で減りうるので数えない。</div>`;
+    <div class="note">到着量の分類は④の契約に合わせた。村あては規則から（RuleDerived：記録の cargo を整数単位の入荷量とする）、倉あては credited が記録にないので分からない（Unverifiable）、届かなかったものは 0 と分かっている（KnownZero）。記録の cargo は上限で、数えない。到着時の受取人は、村の世代が到着の記録と同じときだけ今の口座から決まる（世代が変わったら未検証）。</div>`;
 }
 
 async function refresh() {
@@ -155,7 +162,7 @@ document.addEventListener('click', e => {
     case 'withdraw': return post({ kind: 'withdraw', request: id }, '取り下げた。送った隊商があれば、それはそのまま届く');
     case 'cancel-self': return post({ kind: 'cancel', request: id, reason: 'self' }, '取り消した（自分で進める）');
     case 'cancel-other': return post({ kind: 'cancel', request: id, reason: 'other' }, '取り消した');
-    case 'send': return sendFor(q);
+    case 'send': return pending.get(q.id)?.recheck ? followSend(q.id) : sendFor(q);
     case 'link': return post({ kind: 'link', request: id, caravan: { ownerTag: b.dataset.tag, seq: Number(b.dataset.seq) } }, '隊商を結び付けた。数えるのは確定した到着だけ');
   }
 });
@@ -167,21 +174,44 @@ document.addEventListener('click', e => {
 async function sendFor(q) {
   const c = W.connected();
   if (!c || !signer) return say('先に署名する人を接続してください', 'warn');
+  const pend = pending.get(q.id);
+  if (pend) return say(`前の送信（隊商 #${pend.caravan.seq}）の結果がまだ分からない。分かるまで次を送らない（二重に送らないため）`, 'warn');
   const resp = q.responses[signer.address];
   const reader = rpcReader('/coop/rpc');
   say('送り元・道・番号をチェーンから読んでいます…');
   const plan = await planSend({ reader, season: cfg.season, wallet: c.address, request: q, cargo: resp.offer });
   if (!plan.ok) return say(`送れない：${plan.why}`, 'bad');
-  say(`送ります：村 (${plan.src.p},${plan.src.q}) から ${plan.plan.dirs.length} マス、隊商 #${plan.fields.seq}。ウォレットで署名してください`);
+  // 送る前の見込み（判定ではない）
+  const short = Object.entries(plan.estimate.shortfall);
+  const est = `送り元の在庫（見込み）：${needText(plan.estimate.have)}${short.length ? `。不足（見込み）：${needText(Object.fromEntries(short))}` : '。不足なし（見込み）'}。足りるかの最終判定は、送信の時にプログラムが行う`;
+  if (!confirm(`村 (${plan.src.p},${plan.src.q}) から ${plan.plan.dirs.length} マス、隊商 #${plan.fields.seq} で ${needText(resp.offer)} を送ります。\n${est}\nウォレットで署名しますか？`)) return say(`送らなかった。${est}`, short.length ? 'warn' : '');
+  say(`${est}。ウォレットで署名してください`);
   const r = await sendPlanned(plan, { relay: cfg.relay, season: cfg.season, wallet: c });
-  if (!r.ok) return say(`送れなかった：${r.error ?? r.code}`, 'bad');
-  say('送った。チェーンに載るのを待っています…');
+  if (!r.ok && r.code !== 'network') return say(`送れなかった：${r.error ?? r.code}`, 'bad');
+  const sent = { wallet: c.address, caravan: plan.caravan, dst: plan.dst, cargo: plan.cargo, signature: r.ok ? r.signature : null };
+  pending.set(q.id, sent);
+  await followSend(q.id, reader);
+}
+
+/** 送った取引の結果を、自分の取引の署名で確かめる（(持ち主, 番号) だけでは自分の送信とみなさない）。 */
+async function followSend(requestId, reader = rpcReader('/coop/rpc')) {
+  const sent = pending.get(requestId);
+  if (!sent) return;
   for (let i = 0; i < 20; i++) {
-    const a = await caravanAccount(reader, cfg.season, plan.caravan);
-    if (a.status === 'found') return post({ kind: 'link', request: q.id, caravan: plan.caravan }, `隊商 #${plan.caravan.seq} を送り、この依頼に結び付けた。数えるのは確定した到着だけ`);
+    const o = await sendOutcome(reader, cfg.season, sent, sent.signature);
+    if (o.status === 'landed') {
+      pending.delete(requestId);
+      return post({ kind: 'link', request: requestId, caravan: sent.caravan }, `隊商 #${sent.caravan.seq} が着地し（自分の取引で確かめた）、この依頼に結び付けた。数えるのは確定した到着だけ`);
+    }
+    if (o.status === 'failed' || o.status === 'mismatch' || o.status === 'seq-taken') {
+      pending.delete(requestId);
+      return say(`送信は成り立たなかった（${o.status}）：${o.why}。物は動いていない。計画し直して送れる`, 'bad');
+    }
     await new Promise(res => setTimeout(res, 1500));
   }
-  say(`送ったが、隊商の口座がまだ見えない（取引 ${String(r.signature).slice(0, 8)}…）。見えたら下の「結び付ける」から`, 'warn');
+  say(`送信の結果がまだ分からない（${sent.signature ? `取引 ${String(sent.signature).slice(0, 8)}…` : '取引の署名も分からない'}）。分かるまで次は送らない。もう一度「この画面から送る」を押すと確かめ直す`, 'warn');
+  // 次に押されたとき、まず確かめ直す
+  pending.set(requestId, { ...sent, recheck: true });
 }
 
 $('send').addEventListener('click', () => {

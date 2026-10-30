@@ -78,6 +78,7 @@ function setup({ ended = true, chain = null, dir = null, clockAt = 1_790_000_000
   const H = fakeHerald({ ended, chain });
   let t = clockAt;
   const clock = { now: () => t, tick: (s = 60) => { t += s; } };
+  chain?.setClock?.(clock.now);
   const board = createBoard({ herald: null, programId, seasonId: '90', dataDir: dir, now: clock.now, fetchHerald: async () => ({ status: 200, json: structuredClone(H.file) }), reader: chain?.reader ?? null });
   const put = async (who, rec) => { clock.tick(1); return board.submit(await signRecord(who, { v: 1, season, at: clock.now(), ...rec })); };
   return { dir, H, clock, board, put, chain };
@@ -146,7 +147,7 @@ test('一巡：依頼 → 応じる → 送り主のウォレットで署名し�
   assert.deepEqual(v.personal.myVerified, { wood: 196 });
   assert.equal(v.nation.nation, 2, 'b の国はチェーンの Citizen から');
   assert.equal(v.nation.deliveredFromNation, 1);
-  assert.equal(v.arrivals.find(x => x.responder === b.address).qtyKind, 'lower-bound');
+  assert.equal(v.arrivals.find(x => x.responder === b.address).verification, 'RuleDerived', '④の分類：村あての DELIVERED は規則から');
 });
 
 test('資源は合計しない：木材だけ400届いても、石材が0なら達成しない', async () => {
@@ -189,7 +190,9 @@ test('失敗：行き先がない・世代が違う（LOST）と、別の場所�
   H.settle(b, 0, 1, [0, 200, 0, 0, 0, 0, 0, 0]);
   const v = await board.view({});
   assert.equal(v.arrivals[0].state, 'lost');
-  assert.equal(v.arrivals[0].verifiedQty, null);
+  assert.equal(v.arrivals[0].verification, 'KnownZero', 'LOST は「0 と分かっている」（④ HANDOFF §2）');
+  assert.deepEqual(v.arrivals[0].delivered, { wood: 0, stone: 0 });
+  assert.equal(v.arrivals[0].counted, null);
   assert.equal(v.joint[0].progress[0].verified, 0);
 });
 
@@ -301,7 +304,8 @@ test('正本はチェーン：ヘラルドの写しだけの確定は数えず�
   H.settle(P.c, 0, 0, [0, 200, 0, 0, 0, 0, 0, 0], HOME_A, { heraldOnly: true });
   let v = await board.view({});
   const by = Object.fromEntries(v.arrivals.map(a => [a.responder, a]));
-  assert.equal(by[P.b.address].verifiedQty, null);
+  assert.equal(by[P.b.address].delivered, null, 'ヘラルドの写しだけでは「分からない」');
+  assert.equal(by[P.b.address].verification, null);
   assert.match(by[P.b.address].note, /チェーンの取引の記録に、この隊商の確定・襲撃はまだない/);
   assert.equal(by[P.c.address].state, 'lost');
   assert.equal(by[P.c.address].heraldDisagrees, 'delivered');
@@ -316,13 +320,14 @@ test('正本はチェーン：ヘラルドの写しだけの確定は数えず�
   chain.tx([addr], [['CARAVAN_SETTLED', fake]], { err: { InstructionError: [0, 'Custom'] } });
   chain.tx([addr], [], { foreign: [[b58(new Uint8Array(32).fill(8)), 'CARAVAN_SETTLED', fake]] });
   v = await board.view({});
-  assert.equal(v.arrivals.find(a => a.responder === P.b.address).verifiedQty, null);
+  assert.equal(v.arrivals.find(a => a.responder === P.b.address).delivered, null);
   // 本物の確定がチェーンに載ると数える
   chain.caravanSettled(tagB, 0, 0, HOME_A, [0, 196, 0, 0, 0, 0, 0, 0]);
   v = await board.view({});
   const b2 = v.arrivals.find(a => a.responder === P.b.address);
   assert.equal(b2.source, 'chain-log');
-  assert.deepEqual(b2.verifiedQty, { wood: 196, stone: 0 });
+  assert.deepEqual(b2.delivered, { wood: 196, stone: 0 });
+  assert.equal(b2.verification, 'RuleDerived');
   assert.equal(b2.heraldDisagrees, undefined, '状態は同じ（届いた）。量は写しの 200 ではなくチェーンの 196');
   assert.equal(v.joint[0].progress[0].verified, 196);
 });
@@ -341,7 +346,7 @@ test('結び付けの確かめ：持ち主でない人・行き先の違う隊�
   assert.match((await put(b, { kind: 'link', request: id, caravan: { ownerTag: ownerTagOf(season, b.address), seq: 2 } })).why, /資源を積んでいない/);
   { const r = await put(b, { kind: 'link', request: id, caravan: { ownerTag: ownerTagOf(season, b.address), seq: 0 } }); assert.ok(r.ok, r.why); }
   assert.match((await put(b, { kind: 'link', request: id, caravan: { ownerTag: ownerTagOf(season, b.address), seq: 0 } })).why, /もう結び付け/);
-  assert.match((await put(b, { kind: 'link', request: id, caravan: { ownerTag: ownerTagOf(season, b.address), seq: 9 } })).why, /口座がない/);
+  assert.match((await put(b, { kind: 'link', request: id, caravan: { ownerTag: ownerTagOf(season, b.address), seq: 9 } })).why, /送信の記録もない/);
 });
 
 test('記録の確かめ：署名の改ざん・時刻のずれ・自分の依頼への応答・依頼にない量・知らない目的は断る', async () => {
@@ -446,13 +451,14 @@ async function linked(put, H, id, who, seq, cargo, nation = 2) {
   return put(who, { kind: 'link', request: id, caravan: { ownerTag: ownerTagOf(season, who.address), seq } });
 }
 
-test('入荷量：村あては記録の積荷を下限として証明でき、倉あては上限で減りうるので未検証。積荷と入荷量は別に返す', async () => {
+test('入荷量（④の分類）：村あては RuleDerived、倉あては Unverifiable（credited が無い）。記録の cargo は入荷量と別に返す', async () => {
   const village = creditedOf({ dst: { kind: 1 }, cargo: [0, 196, 0, 0, 0, 0, 0, 0] });
-  assert.equal(village.qtyKind, 'lower-bound');
+  assert.equal(village.verification, 'RuleDerived');
   assert.match(village.basis, /Holding::credit/);
+  assert.equal(creditedOf({ dst: { kind: 2 }, cargo: [0, 196, 0, 0, 0, 0, 0, 0] }).verification, 'Unverifiable');
   const vault = creditedOf({ dst: { kind: 2 }, cargo: [0, 196, 0, 0, 0, 0, 0, 0] });
   assert.equal(vault.qty, null);
-  assert.match(vault.why, /上限/);
+  assert.match(vault.why, /CAP/);
   assert.equal(creditedOf({ dst: { kind: 7 }, cargo: [] }).qty, null);
 
   // 依頼の届け先は村だけ（倉あての依頼は、入荷量を証明できないので受け付けない）
@@ -467,8 +473,8 @@ test('入荷量：村あては記録の積荷を下限として証明でき、�
   H.file.ended.push({ ownerTag: tag, seq: 0, end: 'settled', outcome: 0, dst: { kind: 2, p: 3, q: 0, at: 40, gen: 1, tile: 40 }, cargo: [0, 200, 0, 0, 0, 0, 0, 0] });
   const v = await board.view({});
   assert.equal(v.arrivals[0].state, 'misdelivered');
-  assert.deepEqual(v.arrivals[0].cargo, { wood: 200, stone: 0 });
-  assert.equal(v.arrivals[0].verifiedQty, null);
+  assert.deepEqual(v.arrivals[0].cargoLogged, { wood: 200, stone: 0 });
+  assert.equal(v.arrivals[0].delivered, null, 'ヘラルドの写しだけ（チェーンに記録なし）は分からない');
   assert.equal(v.joint[0].progress[0].verified, 0);
 });
 
@@ -536,7 +542,7 @@ test('重複：同じ隊商は二つ目の依頼に結び付けられない（�
   assert.match((await link2()).why, /もう結び付け/);
   // 到着の後（一覧から消える）
   H.settle(P.b, 0, 0, [0, 200, 0, 0, 0, 0, 0, 0]);
-  assert.match((await link2()).why, /口座がない|もう結び付け/, '確定すると隊商の口座は閉じる');
+  assert.match((await link2()).why, /もう結び付け/, '確定して口座が閉じても、元の送信の記録で確かめたうえで、二重の結び付けは断る');
   // 再読込（板を作り直す）
   const again = createBoard({ herald: null, programId, seasonId: '90', dataDir: dir, now: clock.now, fetchHerald: async () => ({ status: 200, json: structuredClone(H.file) }), reader: chain.reader });
   H.send(P.b, 0, [0, 200, 0, 0, 0, 0, 0, 0]);   // たとえ一覧に戻って見えても
@@ -582,17 +588,17 @@ test('重複：履歴が欠けた板が二つ目の結び付けを受けても�
   H.settle(P.b, 0, 0, [0, 200, 0, 0, 0, 0, 0, 0]);
   const merged = createBoard({ herald: null, programId, seasonId: '90', dataDir: dir, now: () => t, fetchHerald: async () => ({ status: 200, json: structuredClone(H.file) }), reader: chain.reader });
   const v = await merged.view({});
-  assert.equal(v.arrivals.filter(a => a.state === 'delivered' && a.verifiedQty).length, 1, '数えるのは一つだけ');
+  assert.equal(v.arrivals.filter(a => a.counted).length, 1, '数えるのは一つだけ');
   assert.equal(v.joint[0].progress.find(p => p.resource === 'wood').verified, 200);
   assert.ok(v.rejected.some(r => r.kind === 'link' && /もう結び付け/.test(r.why)), '戻った行は、記録の順で後なので断られた扱い');
 
   // allocate そのもの：同じ隊商の二つの到着は、先の結び付けにだけ割り当てる
   const st = { requests: { r1: { id: 'r1', links: [{ caravan: { ownerTag: '5', seq: 0 }, n: 3 }] }, r2: { id: 'r2', links: [{ caravan: { ownerTag: '5', seq: 0 }, n: 1 }] } } };
-  const arr = [{ requestId: 'r1', caravanId: { ownerTag: '5', seq: 0 }, state: 'delivered', verifiedQty: { wood: 1 } }, { requestId: 'r2', caravanId: { ownerTag: '5', seq: 0 }, state: 'delivered', verifiedQty: { wood: 1 } }];
+  const arr = [{ requestId: 'r1', caravanId: { ownerTag: '5', seq: 0 }, state: 'delivered', delivered: { wood: 1 }, verification: 'RuleDerived' }, { requestId: 'r2', caravanId: { ownerTag: '5', seq: 0 }, state: 'delivered', delivered: { wood: 1 }, verification: 'RuleDerived' }];
   const al = allocate(arr, st);
   assert.equal(al.find(a => a.requestId === 'r2').duplicateOf, undefined);
   assert.equal(al.find(a => a.requestId === 'r1').duplicateOf, 'r2');
-  assert.equal(al.find(a => a.requestId === 'r1').verifiedQty, null);
+  assert.ok(al.find(a => a.requestId === 'r1').duplicateOf, '二つ目は割り当てない（数えるかは countOf が duplicateOf を見て決める）');
 });
 
 test('複数の評価への寄与は重複割当ではない：一つの到着が共同の目的・国の記録・個人の記録に一度ずつ出る', async () => {
@@ -647,4 +653,83 @@ test('再起動：観測の時刻（observed.json）が失われても、仮B �
   const j = (await re.view({ judgeId: 'arrivals-and-facility' })).joint[0];
   assert.equal(j.done, false, '再起動の後は、到着と貯蔵庫を同じ時刻に初めて見るので、前後が分からない');
   assert.match(j.judgeMeans, /使って建てた証拠ではない/);
+});
+
+// ------------------------------------------------------------------ 到着時の受取人と今の持ち主（2026-10-30）
+
+import { recipientOf } from '../coop/goal.mjs';
+
+/** b が a の依頼に応じ、隊商 seq を送って結び付けるまで。 */
+async function sentAndLinked(P, opts = {}) {
+  const env = setup({ chain: standardChain(P), ...opts });
+  const id = await request(env.put, P.a);
+  await env.put(P.b, { kind: 'respond', request: id, answer: 'accept', offer: { wood: 200 }, nation: 2 });
+  env.H.send(P.b, 0, [0, 200, 0, 0, 0, 0, 0, 0]);
+  const r = await env.put(P.b, { kind: 'link', request: id, caravan: { ownerTag: ownerTagOf(season, P.b.address), seq: 0 } });
+  assert.ok(r.ok, r.why);
+  return { ...env, id };
+}
+
+test('所有者の変更：発送の後・到着の前に村が占領されると、世代が変わり LOST（0 と分かっている）で、占領した人の物にもならない', async () => {
+  const P = await people();
+  const { H, chain, board } = await sentAndLinked(P);
+  chain.holding({ ...HOME_A, gen: 2 }, P.c, 4);   // 占領：世代 1 → 2、持ち主 c（conquest.rs：hgen + 1 == mgen）
+  // SettleCaravan は宛先の世代が違えば LOST（caravan.rs：pl.gen == dplace.gen でなければ live でない）
+  H.settle(P.b, 0, 1, [0, 200, 0, 0, 0, 0, 0, 0]);
+  const v = await board.view({});
+  const a = v.arrivals[0];
+  assert.equal(a.state, 'lost');
+  assert.equal(a.verification, 'KnownZero');
+  assert.equal(a.recipient, null, '届いていないので受取人はない');
+  assert.equal(v.joint[0].progress[0].verified, 0);
+});
+
+test('所有者の変更：到着の後に村が占領されると、到着時の受取人は今の口座から確定できず未検証で、数えない（今の持ち主は別に示す）', async () => {
+  const P = await people();
+  const { H, chain, board } = await sentAndLinked(P);
+  H.settle(P.b, 0, 0, [0, 200, 0, 0, 0, 0, 0, 0]);
+  let v = await board.view({});
+  assert.equal(v.arrivals[0].recipient.status, 'verified');
+  assert.equal(v.arrivals[0].recipient.isRequester, true);
+  assert.deepEqual(v.arrivals[0].counted, { wood: 200, stone: 0 });
+  assert.equal(v.joint[0].progress[0].verified, 200);
+  // 到着の後に占領（世代 2、持ち主 c）
+  chain.holding({ ...HOME_A, gen: 2 }, P.c, 4);
+  v = await board.view({});
+  const a = v.arrivals[0];
+  assert.equal(a.state, 'delivered');
+  assert.equal(a.verification, 'RuleDerived', '到着の事実と量の分類は変わらない');
+  assert.equal(a.recipient.status, 'unverified');
+  assert.match(a.recipient.why, /世代が変わった（到着時 1、今 2/);
+  assert.equal(a.counted, null, '推測で数えない');
+  assert.equal(a.currentOwner.gen, 2);
+  assert.equal(a.currentOwner.ownerCitizen, seasonAddresses(programId, '90').of('Citizen', { wallet: P.c.address }), '今の持ち主は c と別に示す');
+  assert.equal(v.joint[0].progress[0].verified, 0);
+  assert.match(v.joint[0].why, /到着時の受取人が未検証/);
+});
+
+test('所有者の変更：同じ世代のまま持ち主だけが違う口座（規則にない状態）は、受取人が依頼した人でないとして数えない', async () => {
+  const P = await people();
+  const { H, chain, board } = await sentAndLinked(P);
+  H.settle(P.b, 0, 0, [0, 200, 0, 0, 0, 0, 0, 0]);
+  chain.holding(HOME_A, P.d, 5);   // 世代 1 のまま持ち主 d（今のプログラムでは起きない）
+  const v = await board.view({});
+  assert.equal(v.arrivals[0].recipient.status, 'verified');
+  assert.equal(v.arrivals[0].recipient.isRequester, false);
+  assert.equal(v.arrivals[0].counted, null);
+  assert.equal(v.joint[0].progress[0].verified, 0);
+});
+
+test('所有者の変更：占領の決着待ちの村には確定できない（CapturePending）ので輸送中のまま。村の口座が読めなければ受取人は未検証', async () => {
+  const P = await people();
+  const { board, chain } = await sentAndLinked(P);
+  let v = await board.view({});
+  assert.equal(v.arrivals[0].state, 'moving', '確定の記録が無い間は輸送中');
+  assert.equal(v.arrivals[0].delivered, null);
+  // recipientOf そのもの
+  const arrival = { state: 'delivered', dstGen: 1 };
+  assert.equal(recipientOf(arrival, { status: 'unverified', why: '村の口座がない' }, 'X').status, 'unverified');
+  assert.equal(recipientOf(arrival, undefined, 'X').status, 'unverified');
+  assert.equal(recipientOf({ state: 'lost' }, null, 'X'), null);
+  void chain;
 });

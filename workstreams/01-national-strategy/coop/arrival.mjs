@@ -6,25 +6,23 @@
 //     ①の提案パッチ（proposals/0002-herald-caravan-ended.patch、④へ渡す）で足す。
 //     `ended` がないヘラルドでは、一覧から消えた隊商は「不明（未検証）」になり、量は数えない。
 //
-// 積荷と実入荷量は別（2026-10-30 の確認）：
-//   - CARAVAN_SETTLED の `cargo` は、隊商が運んだ積荷（経路の塔の目減りの後、整数に切り捨て：caravan.rs cargo_log）で、
-//     宛先に加算された量ではない。
-//   - 村あて（kind 1）：SettleCaravan は Holding::credit で積荷を全部加算する。村の在庫に上限はない
-//     （holding.rs:296-300「may exceed the cap」、:774-783）。だから実入荷量は積荷以上（切り捨ての分だけ多い）で、
-//     記録の数は「実入荷量の下限」として証明できる。
-//   - 倉あて（kind 2）：min(在庫＋積荷, max(上限, 在庫)) まで（caravan.rs の SettleCaravan）。上限で切り捨てた量は記録にない。
-//     加算の前の在庫も記録にないので、実入荷量は記録と規則からは決まらない → 未検証。
-//   - 依頼の届け先は村だけにしている（record.mjs）。倉あての依頼は、実入荷量を証明できないので受け付けない。
-//
-// 契約の形（1本の隊商ごと）：
-//   { requestId, caravanId: {ownerTag, seq}, owner: {ownerTag}, state, cargo, verifiedQty, qtyKind, basis, source, note }
-//   state: 'moving'（輸送中・送り主の物） | 'delivered'（依頼の届け先に確定） | 'misdelivered'（別の場所に確定）
-//        | 'lost'（行き先がない・世代が違う） | 'raided-taken'（奪われた。J2：奪った人の物） | 'raided-burned'（焼かれた）
-//        | 'unknown'（一覧にも確定の記録にもない：未検証）
-//   cargo: 記録の積荷（依頼の資源ごと。目減りの後・切り捨て）| null
-//   verifiedQty: 証明できた実入荷量（依頼の資源ごと）| null（未検証）。qtyKind: 'lower-bound'（村あて：記録の数は下限）
-//   basis: 量を証明した根拠（記録と規則）
-//   source: 'herald-ended' | 'herald-moving' | 'none'
+// 到着量は④の契約（wylls-ws04-handoff-20261030、HEAD 2e536b6b の CONTRACTS §1・§9、STATE-MACHINE「到着量の判定」、HANDOFF §2）の
+// 言葉と意味に合わせる（2026-10-30 の照合）。①は独自の「検証済み」を作らない。
+//   delivered     ：検証できた量（依頼の資源ごと、整数単位）。null は「分からない」。0 は「0 と分かっている」（別の意味）
+//   verification  ：'Recorded'（settle の記録に credited がある：④の提案 P1。今のプログラムには無いので①は作らない）
+//                   'RuleDerived'（村あて DELIVERED：Holding::credit は上限なしで全量を加える）
+//                   'Unverifiable'（倉あて DELIVERED で credited が無い：CAP で切り捨てた量が記録にない）
+//                   'KnownZero'（LOST・襲撃の奪取と焼却・依頼の届け先とは別の場所への確定）
+//                   null（まだ終わっていない、またはチェーンの記録を読めていない）
+//   cargoLogged   ：CARAVAN_SETTLED の cargo。上限であり入荷量ではない。進捗に足さない
+// 村あての RuleDerived の根拠（実際の加算処理との対応）：
+//   caravan.rs settle_caravan：DELIVERED で宛先が holding のとき、cargo の各資源について h.credit(now, r, c)（c はミリ単位、c > 0 だけ）
+//   holding.rs:774-783 Holding::credit：settle(now) の後に stores[r].add(now, amount)
+//   holding.rs:296-300 Accrual::add：value = value.saturating_add(amount.max(0))（上限で切らない。「may exceed the cap」）
+//   caravan.rs:402-409 cargo_log：記録はミリ単位の cargo を 1000 で割った切り捨て
+//   → 加えられたミリ単位の量は記録の値 ×1000 以上、(値＋1)×1000 未満。整数単位では記録の値が入荷量（切り捨て）。
+//   倉あて（caravan.rs settle_caravan の vault 分岐）：to = min(have + c, max(cap, have)) で切り捨て、記録は元の cargo → Unverifiable。
+// 届け先の村の「到着時の持ち主」は goal.mjs で別に扱う（今の口座の持ち主と分ける）。
 
 import { RESOURCES } from './record.mjs';
 
@@ -58,13 +56,15 @@ export function indexFeed(file) {
   return { moving, settled, raided, hasEnded, vaults: file?.vaults ?? [] };
 }
 
-/** 確定の記録と規則から、宛先に加算された量を証明できるか。{qty, qtyKind, basis} か {qty: null, why}。 */
+/** 確定の記録と規則から、宛先に加算された量（④の delivered・verification）。 */
 export function creditedOf(settled) {
   const kind = Number(settled.dst?.kind);
-  if (kind === 1) return { qty: cargoOf(settled.cargo), qtyKind: 'lower-bound', basis: 'CARAVAN_SETTLED の積荷（切り捨て）＋ Holding::credit は上限なしで全部加算（holding.rs:296-300, 774-783）' };
-  if (kind === 2) return { qty: null, why: '倉あては上限で切り捨てられ、加算された量も加算の前の在庫も記録にない（caravan.rs SettleCaravan）。未検証' };
-  return { qty: null, why: '宛先の種類が分からない。未検証' };
+  if (kind === 1) return { qty: cargoOf(settled.cargo), verification: 'RuleDerived', basis: 'CARAVAN_SETTLED の cargo（整数単位・切り捨て）。Holding::credit → Accrual::add は上限なしで全量を加える（holding.rs:296-300, 774-783、caravan.rs settle_caravan の holding 分岐、cargo_log:402-409）' };
+  if (kind === 2) return { qty: null, verification: 'Unverifiable', why: '倉あては CAP で切り捨てられ、加算した量（credited）が記録にない（④の提案 P1 は未適用）。到着量は分からない（最大は cargo）' };
+  return { qty: null, verification: 'Unverifiable', why: '宛先の種類が分からない' };
 }
+
+const zeros = need => Object.fromEntries(Object.keys(need).map(r => [r, 0]));
 
 const samePlace = (dst, to) => dst && Number(dst.kind) === 1 && Number(dst.p) === to.p && Number(dst.q) === to.q && Number(dst.at) === to.site && Number(dst.gen) === to.gen;
 
@@ -83,25 +83,27 @@ export function arrivalOf(request, link, feed, chainEnd) {
   }
   const why = chainEnd === undefined ? 'チェーンの取引の記録と照合していない（板に --rpc がない）'
     : chainEnd.status === 'none' ? 'チェーンの取引の記録に、この隊商の確定・襲撃はまだない' : chainEnd.why;
-  if (['moving', 'raided-taken', 'raided-burned'].includes(h.state) && h.source === 'herald-moving') return { ...h, verifiedQty: null };
-  return { ...h, verifiedQty: null, qtyKind: undefined, basis: undefined, note: `${h.note}。${why}。量は数えない` };
+  if (['moving', 'raided-taken', 'raided-burned'].includes(h.state) && h.source === 'herald-moving') return { ...h, delivered: null, verification: null };
+  return { ...h, delivered: null, verification: null, note: `${h.note}。${why}。量は分からない（数えない）` };
 }
 
-/** チェーンの取引の記録から作る到着の記録。 */
+/** チェーンの取引の記録から作る到着の記録（④の分類）。 */
 function chainArrival(request, link, end) {
   const base = { requestId: request.id, caravanId: { ...link.caravan }, owner: { ownerTag: String(link.caravan.ownerTag) }, responder: link.responder, source: 'chain-log' };
   const pick = cargo => Object.fromEntries(Object.keys(request.need).map(r => [r, cargoOf(cargo)[RESOURCES.indexOf(r)] ?? 0]));
+  const known0 = { delivered: zeros(request.need), verification: 'KnownZero' };
   if (end.raided) {
     const r = end.raided;
-    if (r.choice === 1) return { ...base, state: 'raided-burned', verifiedQty: null, signature: r.signature, note: '襲撃で焼かれた（CARAVAN_RAIDED）。数えない' };
-    return { ...base, owner: { ownerTag: r.raiderTag }, state: 'raided-taken', verifiedQty: null, signature: r.signature, note: '襲撃で奪われた（CARAVAN_RAIDED。J2：奪った人の物）。数えない' };
+    if (r.choice === 1) return { ...base, state: 'raided-burned', ...known0, cargoLogged: null, signature: r.signature, note: '襲撃で焼かれた（CARAVAN_RAIDED）。0 と分かっている' };
+    return { ...base, owner: { ownerTag: r.raiderTag }, state: 'raided-taken', ...known0, cargoLogged: null, signature: r.signature, note: '襲撃で奪われた（CARAVAN_RAIDED。J2：奪った人の物）。依頼の届け先には 0' };
   }
   const st = end.settled;
-  if (st.outcome !== 0) return { ...base, state: 'lost', cargo: pick(st.cargo), verifiedQty: null, signature: st.signature, note: '行き先がない・世代が違うので失われた（CARAVAN_SETTLED の LOST）' };
-  if (!samePlace(st.dst, request.to)) return { ...base, state: 'misdelivered', cargo: pick(st.cargo), verifiedQty: null, signature: st.signature, note: '依頼の届け先とは別の場所に確定した。数えない' };
+  const cargoLogged = pick(st.cargo);
+  if (st.outcome !== 0) return { ...base, state: 'lost', ...known0, cargoLogged, dstGen: st.dst.gen, signature: st.signature, note: '行き先がない・世代が違うので失われた（CARAVAN_SETTLED の LOST）。0 と分かっている' };
+  if (!samePlace(st.dst, request.to)) return { ...base, state: 'misdelivered', ...known0, cargoLogged, dstGen: st.dst.gen, signature: st.signature, note: '依頼の届け先とは別の場所に確定した。依頼の届け先には 0' };
   const c = creditedOf(st);
-  if (c.qty === null) return { ...base, state: 'delivered', cargo: pick(st.cargo), verifiedQty: null, signature: st.signature, note: c.why };
-  return { ...base, state: 'delivered', cargo: pick(st.cargo), verifiedQty: pick(c.qty), qtyKind: c.qtyKind, basis: c.basis, signature: st.signature, note: '村あて：チェーンの CARAVAN_SETTLED の積荷を、実入荷量の下限として数える' };
+  if (c.qty === null) return { ...base, state: 'delivered', delivered: null, verification: c.verification, cargoLogged, dstGen: st.dst.gen, signature: st.signature, note: c.why };
+  return { ...base, state: 'delivered', delivered: pick(c.qty), verification: c.verification, basis: c.basis, cargoLogged, dstGen: st.dst.gen, signature: st.signature, note: '村あて（RuleDerived）：記録の cargo が整数単位の入荷量' };
 }
 
 /** ヘラルドの一覧だけから作る到着の記録（表示と突き合わせ用。量は呼び出し側で数えない）。 */
@@ -111,24 +113,24 @@ function heraldArrival(request, link, feed) {
   const raid = feed.raided.get(k);
   const settled = feed.settled.get(k);
   const pick = cargo => Object.fromEntries(Object.keys(request.need).map(r => [r, cargoOf(cargo)[RESOURCES.indexOf(r)] ?? 0]));
-  if (raid && raid.choice === 1) return { ...base, state: 'raided-burned', verifiedQty: null, source: 'herald-ended', note: '襲撃で焼かれた。数えない' };
-  if (raid && raid.choice === 0) return { ...base, owner: { ownerTag: String(raid.raiderTag ?? '') }, state: 'raided-taken', verifiedQty: null, source: 'herald-ended', note: '襲撃で奪われた（J2：荷車ごと奪った人の物）。数えない' };
+  if (raid && raid.choice === 1) return { ...base, state: 'raided-burned', source: 'herald-ended', note: '襲撃で焼かれた。数えない' };
+  if (raid && raid.choice === 0) return { ...base, owner: { ownerTag: String(raid.raiderTag ?? '') }, state: 'raided-taken', source: 'herald-ended', note: '襲撃で奪われた（J2：荷車ごと奪った人の物）。数えない' };
   if (settled) {
-    if (settled.outcome === 1) return { ...base, state: 'lost', verifiedQty: null, source: 'herald-ended', note: '行き先がない・世代が違うので失われた（caravan.rs LOST）' };
-    if (!samePlace(settled.dst, request.to)) return { ...base, state: 'misdelivered', cargo: pick(settled.cargo), verifiedQty: null, source: 'herald-ended', note: '依頼の届け先とは別の場所に確定した。数えない' };
+    if (settled.outcome === 1) return { ...base, state: 'lost', source: 'herald-ended', note: '行き先がない・世代が違うので失われた（caravan.rs LOST）' };
+    if (!samePlace(settled.dst, request.to)) return { ...base, state: 'misdelivered', cargoLogged: pick(settled.cargo), source: 'herald-ended', note: '依頼の届け先とは別の場所に確定した。数えない' };
     const c = creditedOf(settled);
-    if (c.qty === null) return { ...base, state: 'delivered', cargo: pick(settled.cargo), verifiedQty: null, source: 'herald-ended', note: c.why };
-    return { ...base, state: 'delivered', cargo: pick(settled.cargo), verifiedQty: null, source: 'herald-ended', note: 'ヘラルドの写しでは村に確定' };
+    if (c.qty === null) return { ...base, state: 'delivered', cargoLogged: pick(settled.cargo), source: 'herald-ended', note: c.why };
+    return { ...base, state: 'delivered', cargoLogged: pick(settled.cargo), source: 'herald-ended', note: 'ヘラルドの写しでは村に確定' };
   }
   const m = feed.moving.get(k);
   if (m) {
-    if (m.raided) return { ...base, state: cargoOf(m.cargo).every(x => x === 0) ? 'raided-burned' : 'raided-taken', verifiedQty: null, source: 'herald-moving', note: '襲われた（一覧の印）。数えない' };
+    if (m.raided) return { ...base, state: cargoOf(m.cargo).every(x => x === 0) ? 'raided-burned' : 'raided-taken', source: 'herald-moving', note: '襲われた（一覧の印）。数えない' };
     // 奪われると、同じ隊商の ID のまま奪った人の行き先へ向かう（caravan.rs の RaidCaravan は同じ鍵で CARAVAN_SENT を出し、
     // ヘラルドの一覧はそれで書き換わる）。行き先が依頼の届け先と違えば、奪われたとみる。
-    if (!samePlace(m.dst, request.to)) return { ...base, state: 'raided-taken', verifiedQty: null, source: 'herald-moving', note: '行き先が依頼の届け先と違う（奪われて行き先が変わったとみられる）。数えない' };
-    return { ...base, state: 'moving', verifiedQty: null, source: 'herald-moving', note: `着く予定：${m.arriveTs ?? '?'}（まだ数えない）` };
+    if (!samePlace(m.dst, request.to)) return { ...base, state: 'raided-taken', source: 'herald-moving', note: '行き先が依頼の届け先と違う（奪われて行き先が変わったとみられる）。数えない' };
+    return { ...base, state: 'moving', source: 'herald-moving', note: `着く予定：${m.arriveTs ?? '?'}（まだ数えない）` };
   }
-  return { ...base, state: 'unknown', verifiedQty: null, source: 'none', note: feed.hasEnded ? '一覧にも確定の記録にもない' : 'このヘラルドは確定の記録（ended）を出していない。到着は未検証（④のパッチ待ち）' };
+  return { ...base, state: 'unknown', source: 'none', note: feed.hasEnded ? '一覧にも確定の記録にもない' : 'このヘラルドは確定の記録（ended）を出していない。到着は未検証（④のパッチ待ち）' };
 }
 
 /**
