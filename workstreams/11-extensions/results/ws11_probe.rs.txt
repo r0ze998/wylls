@@ -1,0 +1,156 @@
+//! Workstream 11 probe (not part of any patch): what the replay verifier
+//! says about evidence it cannot fully judge. Each case prints the verdict
+//! and the findings; the assertions only pin what was observed, so a
+//! change in behaviour shows up.
+
+mod common;
+
+use common::*;
+use verify_core::input::Input;
+use verify_core::Verdict;
+
+fn report(name: &str, inp: &Input) -> Verdict {
+    let r = verify_core::verify(inp);
+    let mut codes: Vec<String> = r
+        .findings
+        .iter()
+        .map(|f| format!("{:?} {} {}", f.severity, f.check, f.code))
+        .collect();
+    codes.sort();
+    codes.dedup();
+    println!("PROBE {name}: {:?} {:?}", r.verdict, codes);
+    r.verdict
+}
+
+fn frontier_tx(inp: &Input) -> usize {
+    let program = inp.cfg.program;
+    inp.txs
+        .iter()
+        .position(|r| {
+            r.err.is_none()
+                && fclient::tx::from_wire(&r.tx).is_ok_and(|tx| {
+                    let k = &tx.message.account_keys;
+                    tx.message
+                        .instructions
+                        .iter()
+                        .any(|c| k[c.program_id_index as usize] == program)
+                })
+        })
+        .expect("a successful Frontier transaction")
+}
+
+const HOLD: &[u8; 8] = b"PSF1HOLD";
+
+fn holding_keys(inp: &Input, t: usize) -> Vec<fclient::Address> {
+    inp.txs[t]
+        .post
+        .iter()
+        .filter(|(_, a)| a.as_ref().is_some_and(|a| a.data.starts_with(HOLD)))
+        .map(|(k, _)| *k)
+        .collect()
+}
+
+#[test]
+fn probe_baseline() {
+    assert_eq!(report("baseline land", &land()), Verdict::Pass);
+}
+
+/// Frontier runs only inside another program, one transaction at a time:
+/// that transaction's Frontier instructions get another program of the
+/// message (the compute-budget one) as their top-level program; the logs
+/// still carry the Frontier frame, as a CPI's would. Verdicts by
+/// instruction.
+#[test]
+fn probe_cpi_shaped() {
+    use std::collections::BTreeMap;
+    let base = land();
+    let program = base.cfg.program;
+    let mut tally: BTreeMap<String, BTreeMap<String, usize>> = BTreeMap::new();
+    let mut n = 0;
+    for t in 0..base.txs.len() {
+        if base.txs[t].err.is_some() {
+            continue;
+        }
+        let Ok(mut tx) = fclient::tx::from_wire(&base.txs[t].tx) else {
+            continue;
+        };
+        let keys = tx.message.account_keys.clone();
+        let Some(other) = tx
+            .message
+            .instructions
+            .iter()
+            .map(|c| c.program_id_index as usize)
+            .find(|&i| keys[i] != program)
+        else {
+            continue;
+        };
+        let mut names = Vec::new();
+        for c in tx.message.instructions.iter_mut() {
+            if keys[c.program_id_index as usize] != program {
+                continue;
+            }
+            let ix = c.data.first().and_then(|t| frontier_abi::v2::Ix::from_tag(*t));
+            // Only instructions a CPI may carry (not `top_level_only`).
+            if let Some(ix) = ix.filter(|ix| !ix.top_level_only()) {
+                c.program_id_index = other as u8;
+                names.push(ix.name());
+            }
+        }
+        if names.is_empty() {
+            continue;
+        }
+        let mut inp = base.clone();
+        inp.txs[t].tx = fclient::tx::wire(&tx);
+        let r = verify_core::verify(&inp);
+        let mut codes: Vec<String> = r
+            .findings
+            .iter()
+            .filter(|f| f.severity != verify_core::Severity::Warn)
+            .map(|f| format!("{} {}", f.check, f.code))
+            .collect();
+        codes.sort();
+        codes.dedup();
+        let key = format!("{:?} {:?}", r.verdict, codes);
+        *tally.entry(names.join("+")).or_default().entry(key).or_default() += 1;
+        n += 1;
+    }
+    for (ix, v) in &tally {
+        println!("PROBE cpi {ix}: {v:?}");
+    }
+    println!("PROBE cpi-shaped: {n} transactions, each rewritten alone");
+    assert!(n > 0);
+}
+
+/// An archive from a public RPC: no post-states at all.
+#[test]
+fn probe_no_posts() {
+    let mut inp = land();
+    for r in inp.txs.iter_mut() {
+        r.post.clear();
+    }
+    let v = report("no post-states", &inp);
+    println!("PROBE no-posts verdict {v:?}");
+}
+
+/// One Holding's earlier post-state missing, so V7 has no state before a
+/// later write of it.
+#[test]
+fn probe_one_pre_state_missing() {
+    let mut inp = land();
+    let t0 = frontier_tx(&inp);
+    // A Holding written twice: drop it from its first writer's post.
+    let mut done = false;
+    'outer: for t in t0..inp.txs.len() {
+        for k in holding_keys(&inp, t) {
+            if (t + 1..inp.txs.len()).any(|u| holding_keys(&inp, u).contains(&k)) {
+                inp.txs[t].post.retain(|(x, _)| *x != k);
+                println!("PROBE pre-state: dropped holding {k} from tx#{t}");
+                done = true;
+                break 'outer;
+            }
+        }
+    }
+    assert!(done);
+    let v = report("one Holding pre-state missing", &inp);
+    println!("PROBE pre-state verdict {v:?}");
+}

@@ -112,7 +112,12 @@ pub fn evidence(before: &Host, after: &Host) -> Evidence {
         instances_before: before.instances.clone(),
         created_before: before.created.clone(),
         log: after.log[before.log.len()..].to_vec(),
+        grant_log: after.grant_log[before.grant_log.len()..]
+            .iter()
+            .map(|(i, g)| (i - before.log.len(), g.clone()))
+            .collect(),
         instances_after: Some(after.instances.clone()),
         holdings_after: Some(after.holdings.clone()),
+        grants_after: Some(after.grants.clone()),
     }
 }

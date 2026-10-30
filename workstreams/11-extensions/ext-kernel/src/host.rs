@@ -10,7 +10,7 @@ use alloc::vec::Vec;
 use permutation_rules::frontier::holding::Holding;
 
 use crate::error::ExtError;
-use crate::exec::{run_entry, run_withdraw, Instance, Key, Outcome};
+use crate::exec::{exit_reason, run_entry, run_withdraw, Instance, Key, Outcome};
 use crate::grant::{Grant, GrantAdapter};
 use crate::manifest::{CoreVersion, ManifestId, EFFECT_SET};
 use crate::receipt::{Call, Receipt, RECEIPT_VERSION, WITHDRAW};
@@ -44,6 +44,9 @@ pub struct Host {
     pub created: BTreeMap<ManifestId, u32>,
     /// What the program would log: each accepted call with its receipt.
     pub log: Vec<(Call, Receipt)>,
+    /// Every grant the users wrote, with `log.len()` at the time (the
+    /// update applies before the record of that index).
+    pub grant_log: Vec<(usize, Grant)>,
 }
 
 impl Host {
@@ -57,6 +60,7 @@ impl Host {
             instances: BTreeMap::new(),
             created: BTreeMap::new(),
             log: Vec::new(),
+            grant_log: Vec::new(),
         }
     }
 
@@ -89,6 +93,7 @@ impl Host {
         if signer != &c.wallet {
             return Err(ExtError::NotSigned);
         }
+        self.grant_log.push((self.log.len(), g.clone()));
         self.grants.insert((g.citizen, g.manifest_id), g);
         Ok(())
     }
@@ -162,30 +167,36 @@ impl Host {
         Ok(self.commit(call, &inst, out))
     }
 
-    /// The core-defined exit: only while the extension is stopped, only by
-    /// the user, the whole escrow back to the user's own Holding.
+    /// The core-defined exit: only by the user, only when the manifest's own
+    /// entries can no longer return the escrow (`exec::exit_reason`), the
+    /// whole escrow back to one of the user's own Holdings, then the
+    /// instance is closed (a second exit is refused).
     pub fn withdraw(&mut self, call: &Call) -> Result<Receipt, ExtError> {
         let reg = self
             .registry
             .get(&call.manifest_id)
             .ok_or(ExtError::NotRegistered)?;
-        if reg.status() == Status::Active {
-            return Err(ExtError::NotStopped);
-        }
         if call.entry != WITHDRAW || !call.args.is_empty() {
             return Err(ExtError::NoEntry);
         }
         self.signer_ok(&call.citizen, &call.signer, call.now_ts)?;
+        let reason = exit_reason(
+            reg.status() == Status::Active,
+            self.grants.get(&(call.citizen, call.manifest_id)),
+            reg.manifest.core == self.core,
+            call.now_ts,
+        )
+        .ok_or(ExtError::ExitNotOpen)?;
         let h = self.holding_of(call)?.holding.clone();
         let inst = self
             .instances
             .get(&(call.manifest_id, call.citizen))
             .cloned()
-            .ok_or(ExtError::EscrowInsufficient)?;
+            .ok_or(ExtError::NothingToWithdraw)?;
         if call.seq != inst.seq {
             return Err(ExtError::SeqMismatch);
         }
-        let out = run_withdraw(call.now_ts, &inst, &h)?;
+        let out = run_withdraw(call.now_ts, reason, &inst, &h)?;
         Ok(self.commit(call, &inst, out))
     }
 

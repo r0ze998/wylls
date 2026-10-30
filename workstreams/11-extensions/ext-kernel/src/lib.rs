@@ -9,6 +9,7 @@
 //! - [`host`]: the core side's checks and atomic commit.
 //! - [`receipt`], [`verify`]: the record and the third party's replay.
 //! - [`describe`]: what the user reads before granting.
+//! - [`buffer`]: chunked publication, registered only after the hash check.
 //!
 //! `no_std` + `alloc`, like the rules crate it uses, so the same code can
 //! link into the program (patches/0002); this workstream only builds it on
@@ -18,6 +19,7 @@
 
 extern crate alloc;
 
+pub mod buffer;
 pub mod describe;
 pub mod error;
 pub mod examples;

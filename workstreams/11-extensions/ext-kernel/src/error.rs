@@ -63,9 +63,18 @@ errors! {
     CoreVersion = 11_204, Registry;
     InstanceCap = 11_205, Registry;
     SeqMismatch = 11_206, Registry;
-    NotStopped = 11_207, Registry;
+    ExitNotOpen = 11_207, Registry;
     AlreadyRegistered = 11_208, Registry;
     NotAuthor = 11_209, Registry;
+    InstanceClosed = 11_210, Registry;
+    NothingToWithdraw = 11_211, Registry;
+    // Chunked publication (buffer.rs).
+    NoBuffer = 11_220, Registry;
+    BufferExists = 11_221, Registry;
+    OutOfBounds = 11_222, Registry;
+    ChunkConflict = 11_223, Registry;
+    Incomplete = 11_224, Registry;
+    HashMismatch = 11_225, Registry;
     // Exec.
     NoEntry = 11_301, Exec;
     ArgCount = 11_302, Exec;

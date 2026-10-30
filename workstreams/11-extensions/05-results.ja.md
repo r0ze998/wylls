@@ -50,3 +50,37 @@
 - ④⑥②⑨⑩の成果物との照合（コンテナ外で読めない。[06](06-adoption.ja.md) §3）。
 - 第三者の拡張コードの取得・実行（していない。例はすべて試験内のデータ）。
 - devnet・mainnet、実資金、外部 API の課金、鍵の設定（禁止事項）。
+
+## 5. r3 の追加検証（2026-10-30）
+
+すべてホスト上の試験と、一時 worktree での既存の検証器の実行。オンチェーンの保証との区別は [08](08-host-vs-onchain.ja.md)。
+
+### ext-kernel（`results/ext-kernel-tests.log`）: 33 件すべて通過、clippy `-D warnings` 通過
+
+| ファイル | 件数 | 内容 |
+|---|---|---|
+| `tests/exit.rs` | 6 | 出口の条件、一度だけの返却、行き先、5 手の全 16,807 通り（出口 578 回・fulfil 794 回を含む）で保存則・利用者だけでの全量回収・検証 PASS |
+| `tests/buffer.rs` | 7 | 分割書込み（未完成、欠落、120 通りの順序、重複、食い違い、違う内容、不正な manifest、他人、範囲外）。登録前は実行できない |
+| `tests/never_pass.rs` | 2 | 2 つの正直な履歴に 1,254 個の改変（変化のない 3 個は数えない）: H1 FAIL 610・UNVERIFIABLE 15、H2 FAIL 611・UNVERIFIABLE 15、PASS 0。知らない・欠けたものは UNVERIFIABLE |
+| 既存（flow 3、refusals 11、verifier 4） | 18 | `r06` の期待を新しい出口の規則に合わせた（`NotStopped`→`ExitNotOpen`、再開後の fulfil は `InstanceClosed`） |
+
+**検証で見つかり、直したもの（試作の欠陥）:**
+1. **預かりが取り出せなくなる穴。** r2 の出口は「停止中」だけで開いたため、利用者の Grant が期限切れ・取消・回数切れになったり、コアの版が変わったりすると、拡張が Active のまま fulfil も出口も使えず預かりが残った。出口の条件を 3 つにし、コア側と検証器で同じ関数を使うようにした。
+2. **返却後の不整合。** r2 では停止中に返却し再開すると、manifest の欄（誓いの量）が残ったまま預かりが 0 になり、その利用者は二度と誓えなかった。返却で instance を閉じるようにした。
+3. **Grant の更新が検証されていなかった。** 改変の網羅で「Grant の更新を証拠から消しても PASS」になった。Grant の更新の位置（`grant_log`）と最終状態（`grants_after`）を検証器に渡し、照合するようにした。
+4. **欠けたデータを偽造と判定していた。** manifest が欠けた履歴で、Grant の最終状態の照合が FAIL を出していた（再実行できなかったので消費が合わない）。追えなかった鎖の Grant は照合しない（UNVERIFIABLE のまま）ようにした。
+
+**開発中の試験側の誤り（記録）:** 改変の網羅で、Grant の更新を後ろへずらす改変が H1（停止による出口）では結果を変えず PASS になった。どちらの順序も規則上正しい履歴なので、H2（Grant の取消による出口）を加え、変化のない改変は数えないようにした。`v03` の語彙の例で Grant の鍵を付け替えていなかった。
+
+### 既存の再生検証器（`results/verify-before-r3.log`、`results/verify-after-r3.log`）
+
+| 入力 | パッチ前 | パッチ後 |
+|---|---|---|
+| 知らないタグの命令 | PASS | UNVERIFIABLE（0001） |
+| CPI で呼ばれた Frontier（135 取引を 1 つずつ、ログは `invoke [2]`） | tx#0 で PASS（V2 の警告のみ） | 135 件すべて非 PASS（0001） |
+| Holding の post-state を 1 つ落とす（8 個を 1 つずつ） | tx#88 で PASS | 8 件すべて非 PASS（0003） |
+| post-state のない archive | V7 は何も言わない（V11 が UNVERIFIABLE） | V7 も `MissingData`（0003） |
+
+パッチ後の既存の試験: lib 12、camp_clear 3、fixtures 9、tamper 58、unit 8 と追加の unknown_ix 3、missing_state 2、計 95 件通過。
+
+**開発中に見つかった範囲の不足（記録）:** パッチ 0003 の最初の版（前の状態が無いときだけ報告）は、間の書込の post-state を落とす場合（tx#90）を見逃し、唯一の post-state を落とす場合（tx#89）は Holding と認識できなかった。「書込可の既知の Holding に post-state が無い」検査と、最終状態からの Holding の認識を足した。

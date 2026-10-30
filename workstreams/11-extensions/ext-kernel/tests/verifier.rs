@@ -133,6 +133,13 @@ fn v03_what_the_verifier_does_not_know_is_never_a_pass() {
         m.insert((new_id, B_CITIZEN), v);
     };
     rekey(e.instances_after.as_mut().unwrap());
+    let rekey_grants = |m: &mut std::collections::BTreeMap<_, wylls_ext_kernel::grant::Grant>| {
+        let mut g = m.remove(&(B_CITIZEN, id)).unwrap();
+        g.manifest_id = new_id;
+        m.insert((B_CITIZEN, new_id), g);
+    };
+    rekey_grants(&mut e.grants_before);
+    rekey_grants(e.grants_after.as_mut().unwrap());
     unverifiable(&e, "UnknownManifestVocabulary");
     // No final state.
     let mut e = ev.clone();

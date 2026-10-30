@@ -27,6 +27,10 @@ pub struct Instance {
     pub escrow: [i64; RESOURCES],
     /// The receipt chain's head (zero before the first call).
     pub last_receipt: Digest32,
+    /// Set by the core's exit: the escrow went back and the state is
+    /// frozen (a manifest's fields may still describe the escrow it no
+    /// longer holds, so no entry may run on them again).
+    pub closed: bool,
 }
 
 impl Instance {
@@ -36,6 +40,7 @@ impl Instance {
             fields: m.fields.iter().map(|f| f.init).collect(),
             escrow: [0; RESOURCES],
             last_receipt: [0; 32],
+            closed: false,
         }
     }
 
@@ -52,6 +57,7 @@ impl Instance {
         for e in &self.escrow {
             b.extend_from_slice(&e.to_le_bytes());
         }
+        b.push(self.closed as u8);
         sha256(&[STATE_DOMAIN, id, citizen, &b])
     }
 }
@@ -107,6 +113,9 @@ pub fn run_entry(
     inst: &Instance,
     holding: &Holding,
 ) -> Result<Outcome, ExtError> {
+    if inst.closed {
+        return Err(ExtError::InstanceClosed);
+    }
     let e = m.entry(entry).ok_or(ExtError::NoEntry)?;
     if args.len() != e.args.len() {
         return Err(ExtError::ArgCount);
@@ -198,9 +207,59 @@ pub fn run_entry(
     })
 }
 
+/// Why the core's exit is open for one user (contract §3). The escrow is
+/// always the user's own (v1 has no op that pledges it to anyone else), so
+/// the exit opens whenever the user can no longer reach a refund through
+/// the manifest: the extension stopped, the user's grant ended, or the core
+/// moved to a version the manifest does not name.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub enum ExitReason {
+    Stopped = 1,
+    GrantEnded = 2,
+    CoreChanged = 3,
+}
+
+/// The exit rule, shared by the core side and the verifier so the two can
+/// never disagree. `None`: the exit is closed (the manifest's own entries
+/// are the way out).
+pub fn exit_reason(
+    active: bool,
+    grant: Option<&crate::grant::Grant>,
+    manifest_core_matches: bool,
+    now_ts: i64,
+) -> Option<ExitReason> {
+    if !active {
+        return Some(ExitReason::Stopped);
+    }
+    let ended = match grant {
+        None => true,
+        Some(g) => g.revoked || now_ts >= g.expires_ts || g.calls_left == 0,
+    };
+    if ended {
+        return Some(ExitReason::GrantEnded);
+    }
+    if !manifest_core_matches {
+        return Some(ExitReason::CoreChanged);
+    }
+    None
+}
+
 /// The core-defined exit (contract §3): the whole escrow back to the same
-/// user's Holding. Runs no manifest op.
-pub fn run_withdraw(now_ts: i64, inst: &Instance, holding: &Holding) -> Result<Outcome, ExtError> {
+/// user's Holding, the instance closed. Runs no manifest op; refuses an
+/// instance already closed (no second return) or holding nothing.
+pub fn run_withdraw(
+    now_ts: i64,
+    reason: ExitReason,
+    inst: &Instance,
+    holding: &Holding,
+) -> Result<Outcome, ExtError> {
+    if inst.closed {
+        return Err(ExtError::InstanceClosed);
+    }
+    if inst.escrow.iter().all(|e| *e == 0) {
+        return Err(ExtError::NothingToWithdraw);
+    }
     let before = holding.stock_at(now_ts);
     let mut st = inst.clone();
     let mut h = holding.clone();
@@ -211,6 +270,7 @@ pub fn run_withdraw(now_ts: i64, inst: &Instance, holding: &Holding) -> Result<O
         }
         st.escrow[r] = 0;
     }
+    st.closed = true;
     h.settle(now_ts).map_err(holding_err)?;
     let after = h.stock_at(now_ts);
     st.seq = inst.seq.checked_add(1).ok_or(ExtError::Overflow)?;
@@ -219,7 +279,7 @@ pub fn run_withdraw(now_ts: i64, inst: &Instance, holding: &Holding) -> Result<O
         escrow_delta: core::array::from_fn(|r| -inst.escrow[r]),
         burned: [0; RESOURCES],
         spent: [0; RESOURCES],
-        events: Vec::new(),
+        events: alloc::vec![reason as u8],
         instance: st,
         holding: h,
     })

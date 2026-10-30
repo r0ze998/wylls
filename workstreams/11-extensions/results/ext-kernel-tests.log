@@ -1,13 +1,39 @@
-# 2026-10-30T15:07:07Z 87d73346c467a661f3645068a3c83767aed5b112 rustc 1.89.0 (29483883e 2025-08-04)
+# 2026-10-30T23:23:36Z 93f51b69f8ae5bf3012bdc858450e9a54bd7dd52 rustc 1.89.0 (29483883e 2025-08-04)
     Checking wylls-ext-kernel v0.1.0 (/home/user/wylls/workstreams/11-extensions/ext-kernel)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 11.87s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.72s
    Compiling wylls-ext-kernel v0.1.0 (/home/user/wylls/workstreams/11-extensions/ext-kernel)
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 12.55s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.31s
      Running unittests src/lib.rs (/home/user/wylls/permutation-chain/target/debug/deps/wylls_ext_kernel-c5b73a01f61d62c2)
 
 running 0 tests
 
 test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/buffer.rs (/home/user/wylls/permutation-chain/target/debug/deps/buffer-72d0fe8b7d8d593d)
+
+running 7 tests
+test b01_pieces_in_any_order_with_repeats_then_the_hash_then_it_runs ... ok
+test b02_every_order_of_five_pieces_gives_the_same_id ... ok
+test b03_a_missing_piece_is_unfinished_and_runs_nothing ... ok
+test b04_a_piece_that_changes_written_bytes_is_refused_whole ... ok
+test b05_bytes_that_are_not_the_promised_content_never_register ... ok
+test b06_a_matching_hash_still_needs_a_valid_manifest ... ok
+test b07_bounds_and_ownership_of_a_buffer ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/exit.rs (/home/user/wylls/permutation-chain/target/debug/deps/exit-8784889c6cf54540)
+
+running 6 tests
+test e01_an_ended_grant_opens_the_exit_once ... ok
+test e02_a_core_upgrade_opens_the_exit ... ok
+test e03_the_exit_goes_to_the_users_own_holding_only ... ok
+test e04_nothing_to_return_is_refused ... ok
+test e05_a_replayed_exit_does_not_verify ... ok
+test e06_every_short_history_conserves_and_lets_the_user_out ... e06: 16807 histories, 29032 refused steps, 578 exits and 794 fulfils inside them; all conserved and recoverable
+ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.16s
 
      Running tests/flow.rs (/home/user/wylls/permutation-chain/target/debug/deps/flow-14bf58850a2dbe12)
 
@@ -45,6 +71,16 @@ test f02_the_same_inputs_give_the_same_receipts ... ok
 test f03_core_resources_are_conserved_across_calls ... ok
 
 test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/never_pass.rs (/home/user/wylls/permutation-chain/target/debug/deps/never_pass-de7dc1bfb5c78fbe)
+
+running 2 tests
+test n01_no_mutation_of_the_evidence_is_a_pass ... n01 H1: 627 mutations (2 change nothing here), 610 FAIL, 15 UNVERIFIABLE, 0 PASS; first finding by code: {"CallReceiptMismatch": 4, "CalledWhileStopped": 2, "ChainBreak": 7, "CoreVersion": 1, "ExitNotOpen": 1, "FinalStateMismatch": 7, "InstanceCap": 1, "ManifestHashMismatch": 438, "MissingCitizen": 1, "MissingCoreVersion": 1, "MissingFinalState": 2, "MissingHolding": 1, "MissingManifest": 1, "NoGrant": 1, "NotOwner": 4, "NotRegisteredAtTime": 1, "NotSigned": 8, "OutsideExtensions": 1, "PreStateMismatch": 4, "ReceiptMismatch": 110, "RulesRefuse": 6, "SeqReplay": 15, "UnknownEffectSet": 4, "UnknownReceiptVersion": 4}
+n01 H2: 627 mutations (1 change nothing here), 611 FAIL, 15 UNVERIFIABLE, 0 PASS; first finding by code: {"CallReceiptMismatch": 4, "CalledWhileStopped": 1, "ChainBreak": 7, "CoreVersion": 1, "ExitNotOpen": 4, "FinalStateMismatch": 7, "GrantRefuses": 1, "InstanceCap": 1, "ManifestHashMismatch": 438, "MissingCitizen": 1, "MissingCoreVersion": 1, "MissingFinalState": 2, "MissingHolding": 1, "MissingManifest": 1, "NoGrant": 1, "NotOwner": 4, "NotRegisteredAtTime": 1, "NotSigned": 8, "OutsideExtensions": 1, "PreStateMismatch": 4, "ReceiptMismatch": 110, "RulesRefuse": 6, "SeqReplay": 13, "UnknownEffectSet": 4, "UnknownReceiptVersion": 4}
+ok
+test n02_unknown_or_missing_is_unverifiable_not_fail ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.15s
 
      Running tests/refusals.rs (/home/user/wylls/permutation-chain/target/debug/deps/refusals-0c9de124e0bcd772)
 

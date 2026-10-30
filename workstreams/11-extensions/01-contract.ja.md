@@ -62,7 +62,22 @@ Registration = {
 | 一時停止／再開 | 作者・運営（緊急停止） | 新しい呼出しを拒否／再開 | 変わらない。escrow は `Withdraw` で戻せる |
 | 取消 | 作者・運営 | 恒久的に拒否 | 変わらない。escrow は `Withdraw` で戻せる |
 
-`Withdraw`（コア定義の出口、拡張のコードを実行しない）: 停止中または取消後に、利用者が自分の escrow を全額自分の Holding へ戻す。停止で利用者の資源が閉じ込められない。
+`Withdraw`（コア定義の出口、拡張のコードを実行しない。r3 で改訂）:
+- **開く条件**（`exec::exit_reason`、コア側と検証器が同じ関数を使う）: (1) 実行状態が Paused / Revoked、(2) その利用者の Grant が無い・取り消し・期限切れ・回数切れ、(3) manifest の `core` が今のコアの版と違う。どれでもなければ閉じている（manifest 自身の entry が返却の道）。r2 までは (1) だけで、Grant の期限切れやコアの更新で預かりが取り出せなくなる穴があった。
+- **一度だけ**: 返却後に instance を `closed` にする（状態の hash に含む）。閉じた instance はどの entry も実行せず（`InstanceClosed`）、2 度目の出口も拒否。預かりが 0 なら `NothingToWithdraw`。
+- **行き先**: 署名者は Citizen の wallet か期限内の session、行き先はその Citizen が所有するどの Holding でもよい（最初の Holding を失っていても戻せる）。他人の Holding は `NotOwner`。
+- receipt の `events` に開いた理由（1 停止、2 Grant の終了、3 コアの版の変更）を 1 byte 残す。
+- 利用者は自分の Grant をいつでも取り消せるので、**v1 の預かりは利用者が自分でいつでも取り戻せる**（「見張りの誓い」の時間の縛りも、利用者自身が破れる）。v1 の op は預かりを他人に約束しないので、これで他人は損をしない。利用者をまたぐ op を足すなら（effect_set 2）、この性質を見直す必要がある。
+
+**Grant の更新も検証の対象（r3）。** Grant の書き換えは呼出しの記録の列のどこで起きたか（`grant_log: (位置, Grant)`）と、最終状態（`grants_after`）を検証器に渡す。Grant の更新の順序を入れ替えても結果が変わらない場合（例: 停止中の出口の前後の取り消し）は、記録からは区別できない。チェーン上では slot の順で決まる。
+
+## 3b. 分割書込み（r3）
+
+1 取引（1,232 B）に載らない manifest は buffer に分けて書く（`buffer.rs`）。
+- `open(作者, 期待する manifest_id, 長さ)`: 長さ 1–1,024、既に登録済みの id や同じ (作者, id) の buffer は拒否。
+- `write(作者, id, offset, bytes)`: 順序は自由。範囲外・空は `OutOfBounds`。既に書いた byte と同じなら受理（重複は無害）、1 byte でも違えば片全体を拒否（`ChunkConflict`、新しい部分も書かない）。他人は (作者, id) が違うので `NoBuffer`。
+- `finalize`: 全 byte がそろい（`Incomplete`）、その hash が期待した id と一致し（`HashMismatch`）、通常の公開検査（解読・静的検査・作者の署名）を通ったときだけ登録し、buffer を閉じる。失敗しても buffer は残る。書き間違えた byte は直せないので `abandon` して開き直す。
+- **登録前はその id で何も実行できない**（`NotRegistered`）。
 
 ## 4. 許可（Grant。⑨⑩②の契約が届いたら差し替え）
 

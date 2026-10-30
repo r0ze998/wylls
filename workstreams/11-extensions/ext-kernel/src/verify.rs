@@ -11,7 +11,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use crate::error::ExtError;
-use crate::exec::{run_entry, run_withdraw, Instance, Key};
+use crate::exec::{exit_reason, run_entry, run_withdraw, Instance, Key};
 use crate::grant::{Grant, GrantAdapter};
 use crate::host::{CitizenKeys, HoldingAcct};
 use crate::manifest::{id_of, CoreVersion, Manifest, ManifestId, EFFECT_SET};
@@ -30,8 +30,13 @@ pub struct Evidence {
     pub instances_before: BTreeMap<(ManifestId, Key), Instance>,
     pub created_before: BTreeMap<ManifestId, u32>,
     pub log: Vec<(Call, Receipt)>,
+    /// Grant updates in the window, `(i, grant)`: applies before record `i`.
+    pub grant_log: Vec<(usize, Grant)>,
     pub instances_after: Option<BTreeMap<(ManifestId, Key), Instance>>,
     pub holdings_after: Option<BTreeMap<Key, HoldingAcct>>,
+    /// Grants are state the core keeps too: their final state is checked
+    /// against the replayed one (spending, calls and every update).
+    pub grants_after: Option<BTreeMap<(Key, ManifestId), Grant>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -124,7 +129,11 @@ pub fn verify(ev: &Evidence) -> Verdict {
     let mut touched_holdings: BTreeSet<Key> = BTreeSet::new();
     let mut touched_chains: BTreeSet<(ManifestId, Key)> = BTreeSet::new();
 
+    let mut updates = ev.grant_log.iter().peekable();
     for (i, (call, r)) in ev.log.iter().enumerate() {
+        while let Some((_, g)) = updates.next_if(|(j, _)| *j <= i) {
+            grants.insert((g.citizen, g.manifest_id), g.clone());
+        }
         let at = Some(i);
         let chain = (r.manifest_id, r.citizen);
         touched_holdings.insert(r.holding);
@@ -205,24 +214,16 @@ pub fn verify(ev: &Evidence) -> Verdict {
             }
         };
         let withdraw = r.entry == WITHDRAW;
-        match ev
+        let status = ev
             .history
             .get(&r.manifest_id)
-            .and_then(|h| status_at(h, r.now_ts))
-        {
+            .and_then(|h| status_at(h, r.now_ts));
+        let exit = match status {
             None => {
                 cx.fail(
                     at,
                     "NotRegisteredAtTime",
                     "no registration covers the call's time",
-                );
-                continue;
-            }
-            Some(Status::Active) if withdraw => {
-                cx.fail(
-                    at,
-                    "WithdrawWhileActive",
-                    "the exit ran while the extension was active",
                 );
                 continue;
             }
@@ -234,8 +235,28 @@ pub fn verify(ev: &Evidence) -> Verdict {
                 );
                 continue;
             }
-            _ => {}
-        }
+            Some(st) if withdraw => {
+                // The same rule as the core's (`exec::exit_reason`), on the
+                // replayed grant and the registration's status at the time.
+                match exit_reason(
+                    st == Status::Active,
+                    grants.get(&(r.citizen, r.manifest_id)),
+                    m.core == core,
+                    r.now_ts,
+                ) {
+                    Some(x) => Some(x),
+                    None => {
+                        cx.fail(
+                            at,
+                            "ExitNotOpen",
+                            "the exit ran while the manifest's own entries could still return the escrow",
+                        );
+                        continue;
+                    }
+                }
+            }
+            Some(_) => None,
+        };
         if !withdraw && m.core != core {
             cx.fail(at, "CoreVersion", "the manifest names another core version");
             continue;
@@ -334,8 +355,8 @@ pub fn verify(ev: &Evidence) -> Verdict {
                 }
             }
         }
-        let run = if withdraw {
-            run_withdraw(r.now_ts, &pre, &h.holding)
+        let run = if let Some(reason) = exit {
+            run_withdraw(r.now_ts, reason, &pre, &h.holding)
         } else {
             run_entry(&m, r.entry, &r.args, r.now_ts, &pre, &h.holding)
         };
@@ -443,6 +464,34 @@ pub fn verify(ev: &Evidence) -> Verdict {
             }
         }
         _ => cx.unver(None, "MissingFinalState", "the final state is not given"),
+    }
+
+    // Updates after the last record still count for the final state.
+    for (_, g) in updates {
+        grants.insert((g.citizen, g.manifest_id), g.clone());
+    }
+    // A chain the verifier could not follow left its grant unreplayed:
+    // already UNVERIFIABLE, not compared (missing data is not a forgery).
+    let followed = |k: &(Key, ManifestId)| !lost_chain.contains(&(k.1, k.0));
+    let grants: BTreeMap<_, _> = grants.into_iter().filter(|(k, _)| followed(k)).collect();
+    match &ev.grants_after {
+        Some(ga)
+            if ga
+                .iter()
+                .filter(|(k, _)| followed(k))
+                .map(|(k, v)| (*k, v.clone()))
+                .collect::<BTreeMap<_, _>>()
+                == grants => {}
+        Some(_) => cx.fail(
+            None,
+            "GrantStateMismatch",
+            "the grants after are not the replay of the grants before, their updates and the calls",
+        ),
+        None => cx.unver(
+            None,
+            "MissingFinalState",
+            "the grants' final state is not given",
+        ),
     }
 
     if !cx.fail.is_empty() {

@@ -1,6 +1,6 @@
 # 06 採用前に決めること
 
-この試作は**本番に任意コード実行を開く決定ではない**。案 B もまだ採用されていない。採用するなら、次をこの順に決める必要がある（決定ログ `docs/design/redesign/99-decisions.ja.md` への記録はオーナーの判断）。
+この試作は**本番に任意コード実行を開く決定ではない**。**案 B、Burn、運営の停止権限はいずれも採用していない**（2026-10-30 のオーナーの指示）。⑩との接続は、⑩の実物を照合してから行う。採用するなら、次をこの順に決める必要がある（決定ログ `docs/design/redesign/99-decisions.ja.md` への記録はオーナーの判断）。
 
 ## 1. 方針の判断（オーナー）
 
@@ -19,7 +19,7 @@
 | T1 | 解釈器を Frontier プログラムに組み込み、SBF でビルドして CU を測る | Agave 3.1.9 の導入（CI と同じ `release.anza.xyz`）の承認 |
 | T2 | LiteSVM で `f01` と拒否の試験をチェーン上で再現 | 同上 |
 | T3 | 再生検証器 V7 に拡張の Holding 書込の判定を足す | 共有コアの変更（integrator） |
-| T4 | 検証器の未知タグの扱い（[patches/0001](patches/0001-verify-unknown-instruction-is-unverifiable.patch)） | 同上。B を採らなくても入れてよい修正 |
+| T4 | 検証器の未知タグと CPI（[patches/0001](patches/0001-verify-unknown-instruction-is-unverifiable.patch)）、Holding の post-state の欠落（[0003](patches/0003-verify-v7-missing-holding-state-is-unverifiable.patch)） | 同上。B を採らなくても入れてよい修正 |
 | T5 | instance を閉じる命令と `max_instances` の数え方 | 設計 |
 | T6 | 利用者をまたぐ op（相手の Grant を同じ取引で確かめる）を effect_set 2 として設計するか | D1 の後 |
 
@@ -30,9 +30,9 @@
 | ② | Grant の欄（per_call・budget・回数・期限）と②の Grant の対応 | ②の HANDOFF を未読（コンテナ外） |
 | ④ | Receipt を Run の結果に入れる。`SeqMismatch`＋`last_receipt` 一致＝完了済み | 契約を送付、返信待ち |
 | ⑥ | 登録簿の最小欄、停止権限、利用者に見せる説明（`describe`） | **回答あり**（[01](01-contract.ja.md) §7-1）。公開状態と実行状態は別系列、識別子は別の型、上限の表示には強制する場所を添える。運営の緊急停止は⑥でも未決定 |
-| ⑨⑩ | escrow を保管の契約で表せるか | 未連絡 |
+| ⑨⑩ | escrow を保管の契約で表せるか | 未連絡。⑩との接続は実物を照合してから（指示） |
 
 ## 4. 採らない場合に残るもの
 
-- [patches/0001](patches/0001-verify-unknown-instruction-is-unverifiable.patch)（未知タグを UNVERIFIABLE に）は、拡張の採否と無関係に既存の検証器の穴を塞ぐ。
+- [patches/0001](patches/0001-verify-unknown-instruction-is-unverifiable.patch)（未知タグと CPI を UNVERIFIABLE に）と [0003](patches/0003-verify-v7-missing-holding-state-is-unverifiable.patch)（Holding の post-state の欠落を UNVERIFIABLE に）は、拡張の採否と無関係に既存の検証器の穴を塞ぐ。
 - [01 契約](01-contract.ja.md) の Receipt・版固定・三値の検証は、案 A（③の CPI）にもそのまま当てはまる（courier の receipt を鎖にする等）。

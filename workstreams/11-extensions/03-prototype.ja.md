@@ -16,6 +16,7 @@
 | `receipt.rs` | Call と Receipt、`receipt_id`、鎖 | §5 |
 | `verify.rs` | 第三者の再実行。PASS / FAIL / UNVERIFIABLE | §6 |
 | `describe.rs` | 利用者 B が許可の前に読む説明（manifest の byte 列だけから作る） | §1、§4 |
+| `buffer.rs` | 分割書込み。hash の確認と公開検査の後にだけ登録（r3） | §3b |
 | `examples.rs` | 例の manifest（**例であり、採用したゲームルールではない**） | — |
 
 ## 2. 必須の実証（`tests/flow.rs` `f01`）
@@ -32,7 +33,7 @@
      field1: 0..=4611686018427387903 (starts 0)  ← 解ける鐘
      field2: 0..=1000 (starts 0)            ← 名声
      field3: 0..=20000 (starts 0)           ← 預けている木材
-   may take up to 20000 milli Wood per call
+   may take up to 20000 milli Wood per call (core resources only; enforced by the core interpreter)
    entry 0 (arg0 in 1000..=20000, arg1 in 1..=144)
      require field3 == 0
      pay arg0 Wood from your holding into your escrow
@@ -70,7 +71,10 @@
 | 二重実行 | 同じ Call の再送、seq の飛ばし、同じ記録を 2 回含む記録簿 | `SeqMismatch`、検証は FAIL `SeqReplay` | `r03` |
 | 異なる版 | 作者が v2 を公開（新 id）、B の v1 の Grant で v2 を呼ぶ／v1 は v1 の意味のまま／他人の「更新」／作者でない公開 | `GrantVersion`、v1 は名声 +1（v2 は +2）／`NotAuthor`／`NotSigned` | `r04` |
 | コアの版違い | `program_version` 5、ruleset 違い | `CoreVersion` | `r05` |
-| 停止・取消・実行済み | 一時停止中の呼出し、出口（他人は不可、Active 中は不可）、再開後、取消は恒久 | `Paused`／`NotSigned`／`NotStopped`／`Revoked`。実行済みの receipt と状態は残る。全体の検証は PASS、停止中の時刻の呼出しを含む履歴は FAIL | `r06` |
+| 停止・取消・実行済み | 一時停止中の呼出し、出口（他人は不可、Grant が有効で Active 中は不可）、再開後、取消は恒久 | `Paused`／`NotSigned`／`ExitNotOpen`／`InstanceClosed`／`Revoked`。実行済みの receipt と状態は残る。全体の検証は PASS、停止中の時刻の呼出しを含む履歴は FAIL | `r06` |
+| 返却（r3） | Grant の期限切れ・取消・回数切れ、コアの版の変更で出口が開く／2 度目の返却／自分の別の Holding へ／他人の Holding へ／返すものがない／返却の記録の重複／開いていない出口の記録／5 手の全 16,807 通り | `ExitNotOpen`→返却、`InstanceClosed`、`NotOwner`、`NothingToWithdraw`、検証 FAIL。全通りで保存則と利用者だけでの全量回収、検証 PASS | `e01`–`e06` |
+| 分割書込み（r3） | 未完成・欠落・120 通りの順序・重複・食い違う片・違う内容・正しい hash の不正 manifest・他人・範囲外 | `Incomplete`／`ChunkConflict`／`HashMismatch`／`UnknownEffectSet`／`NotSigned`／`NoBuffer`／`OutOfBounds`。登録前の呼出しは `NotRegistered` | `b01`–`b07` |
+| PASS にしない（r3） | 2 つの正直な履歴への 1,254 個の改変 | PASS 0。知らない・欠けたものは UNVERIFIABLE | `n01`、`n02` |
 | 無限実行・未知の op | 33 op、範囲外の参照、上限のない資源の支払い、予約 id、未知の effect_set、0x08–0xFF の全 op コード、非正準・余分な byte、1,025 B | `TooManyOps`／`BadReference`／`BadBounds`／`UnknownEffectSet`／`UnknownOp`／`Malformed`／`TooLarge` | `r07` |
 | 過大な状態作成 | `max_instances` = 3 を超える 4 人目 | `InstanceCap` | `r08` |
 | 発行・残高の書換 | 預かりのない返却、Holding にない量の支払い | `EscrowInsufficient`／`Insufficient` | `r09` |

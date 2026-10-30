@@ -279,15 +279,17 @@ fn r06_stops_refuse_new_calls_keep_what_was_done_and_let_users_out() {
     assert_eq!(wood(&host, &B_HOLDING, T + 2 * BELL), WOOD0);
     assert_eq!(host.instances[&(id, B_CITIZEN)].escrow, [0; 8]);
     assert_eq!(host.instances[&(id, B_CITIZEN)].fields[RENOWN as usize], 0);
-    // Resume: the vow's escrow is gone, fulfil finds nothing to return.
+    // Resume: the exit is shut again (the grant is live), and the closed
+    // instance runs no entry: its fields still name a pledge it no longer
+    // holds, so fulfil cannot pay it twice.
     host.registry
         .set_status(&OPERATOR, &id, Status::Active, T + 3 * BELL)
         .unwrap();
-    refused(&mut host, &w(2, B_WALLET), ExtError::NotStopped);
+    refused(&mut host, &w(2, B_WALLET), ExtError::ExitNotOpen);
     refused(
         &mut host,
         &call(id, FULFIL, &[], 2, T + 7 * BELL),
-        ExtError::EscrowInsufficient,
+        ExtError::InstanceClosed,
     );
     // Revoke is final.
     host.registry
