@@ -222,3 +222,41 @@ test('期限までに達成されなければ「期限切れ」として一区�
   advanceSupply(w, 100);
   assert.equal(w.supply.joint.status, '期限切れ');
 });
+
+test('時間順の記録：ターン19 と最終の数（15章 15-2 の表と同じ）', () => {
+  const w = createSupplyWorld();
+  playChain(w);   // ターン21 で終わる
+  // ターン19 の記録（共同成果の一区切り）
+  assert.equal(w.supply.joint.achievedAt, 19);
+  assert.deepEqual(w.supply.joint.qualified, ['nagi', 'tou', 'rin']);
+  const at21 = credits(w);
+  assert.equal(at21.tou.per.ore.credit, 78, 'ターン21：トウの鉱石は 70（ターン19）＋ 4×2');
+  assert.equal(nationStatus(w, 'A').progress, 'A国の村の兵器 21／100');
+  advanceSupply(w, 38);   // ターン59
+  const end = credits(w);
+  assert.equal(end.nagi.total, 700);
+  assert.equal(end.tou.per.ore.credit, 120, '受け取った鉱石120を使い切る');
+  assert.equal(end.tou.per.ore.ownUsed, 40, '自分の鉱石40は、受け取る前と工房の建設で先に使った');
+  assert.equal(end.rin.total, 50);
+  assert.equal(end.sena.total, 0, 'セナは木材100を受け取ったが、自分の木材で足りたので数えない');
+  assert.equal(end.sena.per.wood.received, 100);
+  assert.equal(nationStatus(w, 'A').progress, 'A国の村の兵器 50／100', 'A国の数は時点で変わる');
+  assert.equal(w.members.nagi.tier, '町');
+  assert.deepEqual(w.stock.tou, { food: 410, wood: 1770, stone: 280, ore: 0, arms: 50, gold: 200 });
+});
+
+test('時間順の記録：ターン19 のトウは 70（受け取る前に自分の鉱石を工房で使っていた）', () => {
+  const w = createSupplyWorld();
+  pick(w, 'nagi', 'deals', 'トウ');
+  pick(w, 'tou', 'offer-', '受ける');
+  pick(w, 'rin', 'deals', 'セナ');
+  pick(w, 'sena', 'offer-', '受ける');
+  advanceSupply(w, 13);
+  assert.equal(w.stock.tou.ore, 134, '自分の40のうち26を工房で使い、120が着いた');
+  pick(w, 'nagi', 'deals', 'リン');
+  pick(w, 'rin', 'offer-', '受ける');
+  pick(w, 'tou', 'workshop', '工房を1基足す');
+  assert.equal(credits(w).tou.per.ore.credit, 46, '建設の鉱石60のうち、自分の14を先に使い、46');
+  advanceSupply(w, 6);
+  assert.equal(credits(w).tou.per.ore.credit, 70);
+});

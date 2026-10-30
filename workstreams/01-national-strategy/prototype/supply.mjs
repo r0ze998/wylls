@@ -43,10 +43,9 @@ export function createSupplyWorld() {
 export const isVerifiedArrival = s => s.state === '到着済み' && s.verified !== false;
 
 /**
- * 人ごとの「使われた交易」（クレジット）。資源ごとに
- *   受け取った量（他の人から、確定した到着）− 他の人へ送った量（取り消されていないもの）
- * を正味の受け取りとし、それと「実際に使った量」（消費の記録）の小さい方。
- * 往復や回し合いは正味0になる。通り抜け（受け取って別の人へ送る）は数えない。
+ * 人ごとの「使われた交易」（クレジット）。資源ごとに、確定した到着・送り・消費を時間の順にたどる帳簿で数える。
+ * 送りは受け取った分から先に減らし（通り抜け・往復は数えない）、消費は帳簿の上で自分の物から先に使ったとみなす。
+ * これは混ざった在庫の帰属の規則で、受け取った物が本当に必要だったことの証明ではない（docs 15章 15-3）。
  */
 export function credits(w) {
   const out = {};
@@ -77,7 +76,7 @@ export function credits(w) {
       if (e.kind === 'in') { p.received += e.v; pool[e.r] = have + e.v; }
       else if (e.kind === 'out') { p.sent += e.v; pool[e.r] = have - Math.min(have, e.v); }   // 受け取った物から先に送る（通り抜け）
       else {
-        // 自分の物から先に使う。自分の物で足りなかった分だけが、受け取った物を使った分
+        // 帳簿の上で自分の物から先に使う。自分の物で足りなかった分だけを、受け取った物を使った分とする
         p.used += e.v;
         const own = Math.max(0, e.before - have);
         const fromOthers = Math.min(have, Math.max(0, e.v - own));
