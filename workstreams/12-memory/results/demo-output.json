@@ -1,0 +1,290 @@
+{
+ "contract": "wylls.memory12.demo/v1",
+ "bell": 300,
+ "arms": {
+  "none": {
+   "first_exchange": {},
+   "commitments": [],
+   "reliability_B": {
+    "E": 0.5,
+    "r": 0,
+    "s": 0
+   },
+   "choice": "offer-C",
+   "without_memory": "offer-C",
+   "memory_changed_choice": false,
+   "cite": [],
+   "why": "offer-C: lowest expected cost 1540 (goods 900, travel 40, risk 600 at E=0.5); memory did not change the choice",
+   "terms": {
+    "offer-C": {
+     "goods": 900,
+     "travel": 40,
+     "risk": 600,
+     "E": 0.5,
+     "cost": 1540
+    },
+    "offer-D": {
+     "goods": 900,
+     "travel": 120,
+     "risk": 600,
+     "E": 0.5,
+     "cost": 1620
+    },
+    "offer-B": {
+     "goods": 1000,
+     "travel": 40,
+     "risk": 600,
+     "E": 0.5,
+     "cost": 1640
+    }
+   },
+   "ineligible": [],
+   "memory_block": "",
+   "decision_input_sha256": "a95bb62790bc5c0ceab5801caed068d4ea1c76a8208810b8b4d6c09e2af62ab5"
+  },
+  "kept": {
+   "first_exchange": {
+    "request": "8f1945dfa940dd37",
+    "accept": "e50a1e632caf4997",
+    "sent": "457266e4fe634eb4",
+    "settled": "d20b5fecd01a3134",
+    "note": "6a7a63958512cc71"
+   },
+   "commitments": [
+    {
+     "id": "e50a1e632caf4997",
+     "debtor": "B",
+     "state": "fulfilled",
+     "false_claim": false,
+     "authority": false,
+     "contract": false,
+     "sources": [
+      "8f1945dfa940dd37",
+      "e50a1e632caf4997",
+      "d20b5fecd01a3134"
+     ]
+    }
+   ],
+   "reliability_B": {
+    "E": 0.636252,
+    "r": 0.749154,
+    "s": 0
+   },
+   "choice": "offer-B",
+   "without_memory": "offer-C",
+   "memory_changed_choice": true,
+   "cite": [
+    "e50a1e632caf4997",
+    "6a7a63958512cc71"
+   ],
+   "why": "offer-B: lowest expected cost 1476.4976 (goods 1000, travel 40, risk 436.4976 at E=0.636252); without memory offer-C would be chosen",
+   "terms": {
+    "offer-B": {
+     "goods": 1000,
+     "travel": 40,
+     "risk": 436.4976,
+     "E": 0.636252,
+     "cost": 1476.4976
+    },
+    "offer-C": {
+     "goods": 900,
+     "travel": 40,
+     "risk": 600,
+     "E": 0.5,
+     "cost": 1540
+    },
+    "offer-D": {
+     "goods": 900,
+     "travel": 120,
+     "risk": 600,
+     "E": 0.5,
+     "cost": 1620
+    }
+   },
+   "ineligible": [],
+   "memory_block": "- [verified] B: 1 kept, 0 broken, 0 other of 1 known promises; reliability estimate 0.636252 {src: 8f1945dfa940dd37,d20b5fecd01a3134,e50a1e632caf4997}\n- [verified] B -> A: 100 wood due bell 130: delivered in full (chain-verified) {src: 8f1945dfa940dd37,e50a1e632caf4997,d20b5fecd01a3134}\n- [interpreted] own note: B delivered the wood it promised, on time. {src: 6a7a63958512cc71,e50a1e632caf4997,d20b5fecd01a3134}",
+   "decision_input_sha256": "49491409d858ba267954182507b35aa470235da651c9d2e71fe9a9a4734d726d"
+  },
+  "broken": {
+   "first_exchange": {
+    "request": "8f1945dfa940dd37",
+    "accept": "e50a1e632caf4997",
+    "claim": "9ddfc9a29a166c70"
+   },
+   "commitments": [
+    {
+     "id": "e50a1e632caf4997",
+     "debtor": "B",
+     "state": "broken",
+     "false_claim": true,
+     "authority": false,
+     "contract": false,
+     "sources": [
+      "8f1945dfa940dd37",
+      "e50a1e632caf4997",
+      "9ddfc9a29a166c70"
+     ]
+    }
+   ],
+   "reliability_B": {
+    "E": 0.317163,
+    "r": 0,
+    "s": 1.152952
+   },
+   "choice": "offer-C",
+   "without_memory": "offer-C",
+   "memory_changed_choice": false,
+   "cite": [
+    "e50a1e632caf4997"
+   ],
+   "why": "offer-C: lowest expected cost 1540 (goods 900, travel 40, risk 600 at E=0.5); memory did not change the choice",
+   "terms": {
+    "offer-C": {
+     "goods": 900,
+     "travel": 40,
+     "risk": 600,
+     "E": 0.5,
+     "cost": 1540
+    },
+    "offer-D": {
+     "goods": 900,
+     "travel": 120,
+     "risk": 600,
+     "E": 0.5,
+     "cost": 1620
+    },
+    "offer-B": {
+     "goods": 1000,
+     "travel": 40,
+     "risk": 819.4044,
+     "E": 0.317163,
+     "cost": 1859.4044
+    }
+   },
+   "ineligible": [],
+   "memory_block": "- [interpreted] B: 0 kept, 1 broken, 0 other of 1 known promises; reliability estimate 0.317163 {src: 8f1945dfa940dd37,9ddfc9a29a166c70,e50a1e632caf4997}\n- [interpreted] B -> A: 100 wood due bell 130: no delivery record by the due bell plus grace; the sender had claimed delivery (no chain record) {src: 8f1945dfa940dd37,e50a1e632caf4997,9ddfc9a29a166c70}",
+   "decision_input_sha256": "d929e24954ae57aa845adf8dc0d4a7de10d429719843375fb9cef2816750bb16"
+  },
+  "kept_but_cheaper_C": {
+   "first_exchange": {
+    "request": "8f1945dfa940dd37",
+    "accept": "e50a1e632caf4997",
+    "sent": "457266e4fe634eb4",
+    "settled": "d20b5fecd01a3134",
+    "note": "6a7a63958512cc71"
+   },
+   "commitments": [
+    {
+     "id": "e50a1e632caf4997",
+     "debtor": "B",
+     "state": "fulfilled",
+     "false_claim": false,
+     "authority": false,
+     "contract": false,
+     "sources": [
+      "8f1945dfa940dd37",
+      "e50a1e632caf4997",
+      "d20b5fecd01a3134"
+     ]
+    }
+   ],
+   "reliability_B": {
+    "E": 0.636252,
+    "r": 0.749154,
+    "s": 0
+   },
+   "choice": "offer-C",
+   "without_memory": "offer-C",
+   "memory_changed_choice": false,
+   "cite": [
+    "e50a1e632caf4997",
+    "6a7a63958512cc71"
+   ],
+   "why": "offer-C: lowest expected cost 1340 (goods 700, travel 40, risk 600 at E=0.5); memory did not change the choice",
+   "terms": {
+    "offer-C": {
+     "goods": 700,
+     "travel": 40,
+     "risk": 600,
+     "E": 0.5,
+     "cost": 1340
+    },
+    "offer-B": {
+     "goods": 1000,
+     "travel": 40,
+     "risk": 436.4976,
+     "E": 0.636252,
+     "cost": 1476.4976
+    },
+    "offer-D": {
+     "goods": 900,
+     "travel": 120,
+     "risk": 600,
+     "E": 0.5,
+     "cost": 1620
+    }
+   },
+   "ineligible": [],
+   "memory_block": "- [verified] B: 1 kept, 0 broken, 0 other of 1 known promises; reliability estimate 0.636252 {src: 8f1945dfa940dd37,d20b5fecd01a3134,e50a1e632caf4997}\n- [verified] B -> A: 100 wood due bell 130: delivered in full (chain-verified) {src: 8f1945dfa940dd37,e50a1e632caf4997,d20b5fecd01a3134}\n- [interpreted] own note: B delivered the wood it promised, on time. {src: 6a7a63958512cc71,e50a1e632caf4997,d20b5fecd01a3134}",
+   "decision_input_sha256": "a87d1a40dd59fc95f870205050f49399a4733c56ff0979365209fa2fded7da4d"
+  },
+  "kept_but_no_stock": {
+   "first_exchange": {
+    "request": "8f1945dfa940dd37",
+    "accept": "e50a1e632caf4997",
+    "sent": "457266e4fe634eb4",
+    "settled": "d20b5fecd01a3134",
+    "note": "6a7a63958512cc71"
+   },
+   "commitments": [
+    {
+     "id": "e50a1e632caf4997",
+     "debtor": "B",
+     "state": "fulfilled",
+     "false_claim": false,
+     "authority": false,
+     "contract": false,
+     "sources": [
+      "8f1945dfa940dd37",
+      "e50a1e632caf4997",
+      "d20b5fecd01a3134"
+     ]
+    }
+   ],
+   "reliability_B": {
+    "E": 0.636252,
+    "r": 0.749154,
+    "s": 0
+   },
+   "choice": "offer-C",
+   "without_memory": "offer-C",
+   "memory_changed_choice": false,
+   "cite": [],
+   "why": "offer-C: lowest expected cost 1540 (goods 900, travel 40, risk 600 at E=0.5); memory did not change the choice",
+   "terms": {
+    "offer-C": {
+     "goods": 900,
+     "travel": 40,
+     "risk": 600,
+     "E": 0.5,
+     "cost": 1540
+    },
+    "offer-D": {
+     "goods": 900,
+     "travel": 120,
+     "risk": 600,
+     "E": 0.5,
+     "cost": 1620
+    }
+   },
+   "ineligible": [
+    {
+     "id": "offer-B",
+     "reason": "stock_below_qty"
+    }
+   ],
+   "memory_block": "- [verified] B: 1 kept, 0 broken, 0 other of 1 known promises; reliability estimate 0.636252 {src: 8f1945dfa940dd37,d20b5fecd01a3134,e50a1e632caf4997}\n- [verified] B -> A: 100 wood due bell 130: delivered in full (chain-verified) {src: 8f1945dfa940dd37,e50a1e632caf4997,d20b5fecd01a3134}\n- [interpreted] own note: B delivered the wood it promised, on time. {src: 6a7a63958512cc71,e50a1e632caf4997,d20b5fecd01a3134}",
+   "decision_input_sha256": "ac039ab7fee09071cac775cc2ec4ceac517737f01d9f6f17d953888ada8c20e9"
+  }
+ }
+}

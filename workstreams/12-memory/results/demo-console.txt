@@ -1,0 +1,53 @@
+
+== none
+   B reliability E=0.5 (r=0, s=0)
+   offer-C  goods 900 + travel 40 + risk 600 (E=0.5) = 1540
+   offer-D  goods 900 + travel 120 + risk 600 (E=0.5) = 1620
+   offer-B  goods 1000 + travel 40 + risk 600 (E=0.5) = 1640
+   -> offer-C  (without memory: offer-C; memory changed the choice: false)
+   cites (none)
+
+== kept
+   B reliability E=0.636252 (r=0.749154, s=0)
+   offer-B  goods 1000 + travel 40 + risk 436.4976 (E=0.636252) = 1476.4976
+   offer-C  goods 900 + travel 40 + risk 600 (E=0.5) = 1540
+   offer-D  goods 900 + travel 120 + risk 600 (E=0.5) = 1620
+   -> offer-B  (without memory: offer-C; memory changed the choice: true)
+   cites e50a1e632caf4997, 6a7a63958512cc71
+   - [verified] B: 1 kept, 0 broken, 0 other of 1 known promises; reliability estimate 0.636252 {src: 8f1945dfa940dd37,d20b5fecd01a3134,e50a1e632caf4997}
+   - [verified] B -> A: 100 wood due bell 130: delivered in full (chain-verified) {src: 8f1945dfa940dd37,e50a1e632caf4997,d20b5fecd01a3134}
+   - [interpreted] own note: B delivered the wood it promised, on time. {src: 6a7a63958512cc71,e50a1e632caf4997,d20b5fecd01a3134}
+
+== broken
+   B reliability E=0.317163 (r=0, s=1.152952)
+   offer-C  goods 900 + travel 40 + risk 600 (E=0.5) = 1540
+   offer-D  goods 900 + travel 120 + risk 600 (E=0.5) = 1620
+   offer-B  goods 1000 + travel 40 + risk 819.4044 (E=0.317163) = 1859.4044
+   -> offer-C  (without memory: offer-C; memory changed the choice: false)
+   cites e50a1e632caf4997
+   - [interpreted] B: 0 kept, 1 broken, 0 other of 1 known promises; reliability estimate 0.317163 {src: 8f1945dfa940dd37,9ddfc9a29a166c70,e50a1e632caf4997}
+   - [interpreted] B -> A: 100 wood due bell 130: no delivery record by the due bell plus grace; the sender had claimed delivery (no chain record) {src: 8f1945dfa940dd37,e50a1e632caf4997,9ddfc9a29a166c70}
+
+== kept_but_cheaper_C
+   B reliability E=0.636252 (r=0.749154, s=0)
+   offer-C  goods 700 + travel 40 + risk 600 (E=0.5) = 1340
+   offer-B  goods 1000 + travel 40 + risk 436.4976 (E=0.636252) = 1476.4976
+   offer-D  goods 900 + travel 120 + risk 600 (E=0.5) = 1620
+   -> offer-C  (without memory: offer-C; memory changed the choice: false)
+   cites e50a1e632caf4997, 6a7a63958512cc71
+   - [verified] B: 1 kept, 0 broken, 0 other of 1 known promises; reliability estimate 0.636252 {src: 8f1945dfa940dd37,d20b5fecd01a3134,e50a1e632caf4997}
+   - [verified] B -> A: 100 wood due bell 130: delivered in full (chain-verified) {src: 8f1945dfa940dd37,e50a1e632caf4997,d20b5fecd01a3134}
+   - [interpreted] own note: B delivered the wood it promised, on time. {src: 6a7a63958512cc71,e50a1e632caf4997,d20b5fecd01a3134}
+
+== kept_but_no_stock
+   B reliability E=0.636252 (r=0.749154, s=0)
+   offer-C  goods 900 + travel 40 + risk 600 (E=0.5) = 1540
+   offer-D  goods 900 + travel 120 + risk 600 (E=0.5) = 1620
+   offer-B  ineligible: stock_below_qty
+   -> offer-C  (without memory: offer-C; memory changed the choice: false)
+   cites (none)
+   - [verified] B: 1 kept, 0 broken, 0 other of 1 known promises; reliability estimate 0.636252 {src: 8f1945dfa940dd37,d20b5fecd01a3134,e50a1e632caf4997}
+   - [verified] B -> A: 100 wood due bell 130: delivered in full (chain-verified) {src: 8f1945dfa940dd37,e50a1e632caf4997,d20b5fecd01a3134}
+   - [interpreted] own note: B delivered the wood it promised, on time. {src: 6a7a63958512cc71,e50a1e632caf4997,d20b5fecd01a3134}
+
+demo sha256 c510ce6fd212330e947d5b8894780ce54977763f802044d8e0950b51e330fa44
