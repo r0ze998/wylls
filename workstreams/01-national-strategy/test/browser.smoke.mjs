@@ -163,6 +163,31 @@ try {
     assert.ok(await page.evaluate(() => !!window.__table.world.travelOverride), 'やり直しても配置の距離のまま');
   });
 
+  await step('国際供給網：ナギとトウの交換、リンとセナの交換、ナギとリンの交換の後、共同成果が達成と出る', async () => {
+    await page.goto(url + 'supply.html');
+    await page.waitForSelector('#joint h3');
+    const me = id => page.click(`[data-ui="me"][data-id="${id}"]`);
+    const opt = async (title, text) => page.locator('#decisions .decision', { hasText: title }).locator('button', { hasText: text }).first().click();
+    const adv = async n => { for (let i = 0; i < n; i++) await page.click('[data-ui="advance"][data-n="1"]'); };
+    await me('nagi'); await opt('誰と', 'トウ');
+    await me('tou'); await opt('ナギ', '受ける');
+    await me('rin'); await opt('誰と', 'セナ');
+    await me('sena'); await opt('リン', '受ける');
+    await adv(13);
+    await me('nagi'); await opt('誰と', 'リン');
+    await me('rin'); await opt('ナギ', '受ける');
+    await me('tou'); await opt('工房を足す', '工房を1基足す');
+    await adv(6);
+    await me('nagi'); await opt('村を町に', '昇格を始める');
+    await me('rin'); await opt('長槍兵', '長槍兵100');
+    await adv(2);
+    assert.equal((await page.textContent('#joint .pill')).trim(), '達成');
+    const closed = await page.locator('#decisions button[disabled]', { hasText: '借りて' }).count();
+    await me('nagi');
+    assert.ok(await page.locator('#decisions button[disabled]', { hasText: '借りて' }).count() >= closed);
+  });
+  if (shots) await page.screenshot({ path: join(shotDir, '08-supply.jpg'), fullPage: true, type: 'jpeg', quality: 70 });
+
   const phone = await browser.newPage({ viewport: { width: 390, height: 844 } });
   phone.on('pageerror', e => errors.push(String(e)));
   await phone.goto(url);

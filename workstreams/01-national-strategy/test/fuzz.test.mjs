@@ -4,6 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createWorld, act, advance, inject, decisionsFor, perform, inventory, needProgress, EVENTS } from '../prototype/model.mjs';
+import { place, tableTravel } from '../prototype/placement.mjs';
 
 const PEOPLE = ['kei', 'mira', 'sota', 'haru'];
 const EVENT_KINDS = Object.keys(EVENTS);
@@ -21,7 +22,10 @@ function totals(w) {
 for (const seed of Array.from({ length: 40 }, (_, i) => i + 1)) {
   test(`乱数の流れ（seed ${seed}）でも約束が崩れない`, () => {
     const rand = rng(seed);
-    const w = createWorld(seed % 2 ? 'preparing' : 'start');
+    // 4の倍数の seed は、初期配置の比較（B）から開いた世界（移動ターンの差し替えあり）で回す
+    const w = seed % 4 === 0
+      ? createWorld('preparing', { travel: tableTravel(place('B', [6, 6, 6, 6, 6, 6], { groupSize: 3, seed })).travel })
+      : createWorld(seed % 2 ? 'preparing' : 'start');
     for (let i = 0; i < 400; i++) {
       const r = rand();
       if (r < 0.08) {

@@ -29,6 +29,8 @@ WYLLS の「国のチーム戦略」を、実装に渡せるゲーム設計と�
 | [docs/12-placement-comparison.ja.md](docs/12-placement-comparison.ja.md) | 初期配置 A・B・C の比較（B が最初の試作候補）、場面、配置運と戦略、中央塔との相性、試遊の質問 |
 | [docs/13-handoff-08.ja.md](docs/13-handoff-08.ja.md) | ⑧への引き渡し（⑧の成果物は手元になく、接続していない） |
 | `prototype/placement.html` | 配置を切り替える地図。数字の比較と、その配置の距離で国の卓を開く |
+| [docs/14-international-supply.ja.md](docs/14-international-supply.ja.md) | 追加（2026-10-30）：国を越えた小さな供給網。シナリオ、共同成果、得と費用、退出、代わりの手、権限、勝利条件の比較（採用しない）、数え方、②④の境、⑧への比較条件と失敗仮説 |
+| `prototype/supply.html` | 国際供給網の最小デモ（配置は固定。交換は②を模したもの） |
 | [proposals/](proposals/README.ja.md) | 接続の差分の提案（未適用） |
 | `prototype/` | 国の卓の試作（依存なし） |
 | `test/` | ルールのテスト（`node --test`）とブラウザの煙テスト（Playwright） |
@@ -51,8 +53,8 @@ node workstreams/01-national-strategy/prototype/serve.mjs --port 8080
 ## テスト
 
 ```sh
-node --test workstreams/01-national-strategy/test/*.test.mjs        # ルール20・条件15・乱数40・回帰12・配置15（102件）
-node workstreams/01-national-strategy/test/browser.smoke.mjs        # ブラウザで押す（13件）。--shots で screenshots/ に保存
+node --test workstreams/01-national-strategy/test/*.test.mjs        # ルール20・条件15・乱数40・回帰12・配置15・供給網16・供給網の乱数20（138件）
+node workstreams/01-national-strategy/test/browser.smoke.mjs        # ブラウザで押す（14件）。--shots で screenshots/ に保存
 ```
 
 結果は [docs/09-test-results.ja.md](docs/09-test-results.ja.md)。**どちらも「ルールと画面が書いたとおりに動く」ことの確認で、人間が面白いと感じた証拠ではない。**

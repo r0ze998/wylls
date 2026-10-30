@@ -20,12 +20,13 @@ import {
   PLACES, travelTurns, OUTPOST_GOAL, RIVAL_GOAL, BENEFITS, ARMS_PER_100_PIKEMEN, initialWorld,
   VAULT_CAP, ESCORT_TURNS,
 } from './scenario.mjs';
+import { SUPPLY_PLACES } from './scenario-supply.mjs';
 
 // ------------------------------------------------------------------ 表示の補助
 
 export const label = {
   res: r => RESOURCES[r] ?? r,
-  place: p => PLACES[p] ?? p,
+  place: p => PLACES[p] ?? SUPPLY_PLACES[p] ?? p,
   who: (w, id) => (id === 'enemy' ? '北の国の村' : w.members[id]?.name ?? id),
 };
 
@@ -531,6 +532,14 @@ function dispatch(w, actor, { pledge: id, qty }) {
   return ok({ shipment: s.id });
 }
 
+/**
+ * 実際の消費の記録。共同成果の「使われた量」は、この記録だけから数える（届いた量や回数では数えない）。
+ * sink：何に使ったか（建設・訓練・昇格・工房）。
+ */
+function consumed(w, who, cost, sink) {
+  (w.consumed ??= []).push({ turn: w.turn, who, cost: { ...cost }, sink });
+}
+
 function payCost(w, actor, cost) {
   const st = w.stock[actor];
   const short = Object.entries(cost).filter(([r, v]) => (st[r] ?? 0) < v).map(([r, v]) => `${label.res(r)} ${v - (st[r] ?? 0)}`);
@@ -555,6 +564,7 @@ function build(w, actor, { kind, at, pledge: pid }) {
   if (kind === '砦' && Object.values(w.facilities).some(f => f.kind === '砦' && f.at === at && f.status !== '奪われた' && f.status !== '壊れた')) return fail('ここにはもう砦がある');
   const short = payCost(w, actor, cost);
   if (short) return fail(`材料が足りない：${short.join('、')}`);
+  consumed(w, actor, cost, `建設：${kind}`);
   const f = { id: nextId(w, 'f'), kind, owner: actor, at, status: '建設中', readyAt: w.turn + BUILD_TURNS[kind], contents: {}, troops: 0, gen: 0 };
   w.facilities[f.id] = f;
   if (linked) { linked.status = '発送済み'; linked.sent = 1; }
@@ -574,6 +584,7 @@ function train(w, actor, { n }) {
   const food = n * FOOD_PER_SPEARMAN;
   if ((w.stock[actor].food ?? 0) < food) return fail(`食料が足りない（${food} 要る）`);
   w.stock[actor].food -= food;
+  consumed(w, actor, { food }, '訓練：槍兵');
   w.reserve[actor] += n;
   log(w, 'train', `${label.who(w, actor)}が自分の村で槍兵 ${n} を訓練した（食料 ${food}）`);
   return ok();
@@ -811,7 +822,14 @@ function step(w) {
     if (f.kind !== '工房' || f.status !== '稼働' || !w.members[f.owner]) continue;
     const st = w.stock[f.owner];
     const k = Math.min(f.perTurn, Math.floor((st.ore ?? 0) / 2), st.wood ?? 0);
-    if (k > 0) { st.ore -= 2 * k; st.wood -= k; st.arms += k; }
+    if (k > 0) { st.ore -= 2 * k; st.wood -= k; st.arms += k; consumed(w, f.owner, { ore: 2 * k, wood: k }, '工房：兵器づくり'); }
+  }
+  // 村の昇格の完了
+  for (const m of Object.values(w.members)) {
+    if (m.tierUpAt != null && m.tierUpAt <= w.turn) {
+      m.tier = m.tierNext; m.tierUpAt = null; m.tierNext = null;
+      log(w, 'build', `${m.name}の村が${m.tier}になった`);
+    }
   }
   // 建設の完了
   for (const f of Object.values(w.facilities)) {
@@ -1056,6 +1074,7 @@ function evFacility(w, { facility = 'ws-mira' }) {
   f.status = '奪われた';
   const was = f.owner;
   f.owner = 'enemy';
+  f.lostBy = was;
   for (const p of Object.values(w.pledges)) {
     if (p.provider === was && isLive(p) && p.status !== '再確認待ち' && p.resource === 'arms' && p.qty - p.sent > (w.stock[was].arms ?? 0)) p.status = '供給元を失った';
   }
@@ -1476,6 +1495,106 @@ ACTIONS.sendFromVault = (w, actor, { facility, resource, qty, to }) => {
   log(w, 'ship', `${label.who(w, actor)}が自分の倉（${label.place(f.at)}）から${label.who(w, to)}へ${label.res(resource)} ${qty} を送った（着けば${label.who(w, to)}の物）`);
   return ok({ shipment: s.id });
 };
+// ------------------------------------------------------------------ 供給網の試作で使う小さな行動（2026-10-30）
+
+/** 村の昇格（S1：catalog.rs tier_up。村→町は 木材1000・石材600・金300、6時間＝36ターン）。 */
+export const TIER_UP = { 村: { next: '町', cost: { wood: 1000, stone: 600, gold: 300 }, turns: 36 } };
+ACTIONS.tierUp = (w, actor) => {
+  const m = w.members[actor];
+  const tier = m.tier ?? '村';
+  const t = TIER_UP[tier];
+  if (!t) return fail(`${tier}からの昇格は試作にない`);
+  if (m.tierUpAt != null) return fail('もう昇格の途中');
+  const short = payCost(w, actor, t.cost);
+  if (short) return fail(`材料が足りない：${short.join('、')}`);
+  consumed(w, actor, t.cost, `昇格：${tier}→${t.next}`);
+  m.tierUpAt = w.turn + t.turns; m.tierNext = t.next;
+  log(w, 'build', `${m.name}が村の昇格を始めた（${tier}→${t.next}、完成：ターン${m.tierUpAt}）`);
+  return ok();
+};
+
+/** 工房を1基足す（S1：arms.rs WORKSHOP_COST＝食料60・木材120・石材80・鉱石40。2基目以降の割り増しは仮で1.5倍ずつ）。 */
+export function workshopCost(copies) {
+  const k = Math.pow(1.5, Math.max(0, (copies ?? 1) - 1));
+  return Object.fromEntries(Object.entries({ food: 60, wood: 120, stone: 80, ore: 40 }).map(([r, v]) => [r, Math.ceil(v * k)]));
+}
+ACTIONS.addWorkshop = (w, actor) => {
+  const f = Object.values(w.facilities).find(x => x.kind === '工房' && x.owner === actor && x.status === '稼働');
+  if (!f) return fail('稼働中の自分の工房がない');
+  const cost = workshopCost(f.copies);
+  const short = payCost(w, actor, cost);
+  if (short) return fail(`材料が足りない：${short.join('、')}`);
+  consumed(w, actor, cost, '建設：工房');
+  f.copies = (f.copies ?? 1) + 1;
+  f.perTurn = Math.max(1, Math.round(f.copies * 0.67));
+  log(w, 'build', `${label.who(w, actor)}が工房を1基足した（${f.copies}基、1ターンに兵器${f.perTurn}）`);
+  return ok();
+};
+
+/** 兵器を使う訓練（長槍兵：100人あたり兵器50、食料は仮で1人1）。 */
+ACTIONS.trainPikemen = (w, actor, { n }) => {
+  n = toInt(n);
+  if (!(n > 0) || n % 100) return fail('人数は100人単位');
+  const cost = { arms: (n / 100) * ARMS_PER_100_PIKEMEN, food: n * FOOD_PER_SPEARMAN };
+  const short = payCost(w, actor, cost);
+  if (short) return fail(`材料が足りない：${short.join('、')}`);
+  consumed(w, actor, cost, '訓練：長槍兵');
+  w.reserve[actor] += n;
+  log(w, 'train', `${label.who(w, actor)}が長槍兵 ${n} を訓練した（兵器 ${cost.arms}）`);
+  return ok();
+};
+
+/**
+ * 交換の申し出（②の「素材と生産済み武具の交換権」を模したもの。②の実装ではない）。
+ * 片方は生産済みの兵器、もう片方は素材（鉱石・木材・石材・食料）に限る。加工の貸出や、
+ * 所有を移さない輸送、届いたら払う条件つきの支払いは、未実装の契約として扱わない。
+ * 受けた時点で両方の在庫から引き、互いの村へ荷車を出す（両方の持ち主が同意した交換）。
+ */
+const MATERIALS = new Set(['ore', 'wood', 'stone', 'food']);
+ACTIONS.offerExchange = (w, actor, { to, give, want, until }) => {
+  if (!w.members[to] || to === actor) return fail('相手が正しくない');
+  const ok1 = give && want && Number.isInteger(give.qty) && Number.isInteger(want.qty) && give.qty > 0 && want.qty > 0;
+  if (!ok1) return fail('量を1以上の整数にする');
+  const kinds = [give.res, want.res];
+  if (!(kinds.includes('arms') && kinds.some(r => MATERIALS.has(r)))) return fail('②の交換権で扱えるのは「素材」と「生産済みの兵器」の交換だけ（それ以外は未実装の契約）');
+  if ((w.stock[actor][give.res] ?? 0) < give.qty) return fail(`手元の${label.res(give.res)}が足りない`);
+  const o = { id: nextId(w, 'x'), from: actor, to, give: { ...give }, want: { ...want }, status: '申し出中', at: w.turn, until: until ?? w.turn + 24 };
+  (w.offers ??= {})[o.id] = o;
+  log(w, 'offer', `${label.who(w, actor)}が${label.who(w, to)}に交換を申し出た：${label.res(give.res)} ${give.qty} と ${label.res(want.res)} ${want.qty}（ターン${o.until}まで）`);
+  return ok({ offer: o.id });
+};
+ACTIONS.answerExchange = (w, actor, { offer, accept }) => {
+  const o = w.offers?.[offer];
+  if (!o || o.to !== actor) return fail('自分あての申し出ではない');
+  if (o.status !== '申し出中') return fail(`申し出は「${o.status}」`);
+  if (w.turn > o.until) return fail('申し出の期限が過ぎている');
+  if (!accept) { o.status = '断られた'; log(w, 'offer', `${label.who(w, actor)}は交換を断った`); return ok(); }
+  if (!w.members[o.from].present) return fail('申し出た人が不在（本人の在庫は動かせない）');
+  if ((w.stock[o.from][o.give.res] ?? 0) < o.give.qty) return fail(`相手の${label.res(o.give.res)}がもう足りない`);
+  if ((w.stock[actor][o.want.res] ?? 0) < o.want.qty) return fail(`手元の${label.res(o.want.res)}が足りない`);
+  w.stock[o.from][o.give.res] -= o.give.qty;
+  w.stock[actor][o.want.res] -= o.want.qty;
+  const send = (owner, to, res, qty) => {
+    const from = w.members[owner].home;
+    const s = { id: nextId(w, 's'), pledge: null, owner, resource: res, qty, from, to: { kind: 'village', member: to }, sentAt: w.turn, state: '送信済み',
+      eta: w.turn + 1 + travel(w, from, w.members[to].home), delay: 0, reason: null, why: '交換', exchange: o.id, arrivedOwner: null, toGen: null };
+    w.shipments[s.id] = s;
+    return s.id;
+  };
+  o.legs = [send(o.from, actor, o.give.res, o.give.qty), send(actor, o.from, o.want.res, o.want.qty)];
+  o.status = '成立';
+  log(w, 'offer', `交換が成立した：${label.who(w, o.from)}の${label.res(o.give.res)} ${o.give.qty} と ${label.who(w, actor)}の${label.res(o.want.res)} ${o.want.qty}。両方の荷車が出た（着くまでは送り主の物）`);
+  return ok({ legs: o.legs });
+};
+ACTIONS.withdrawOffer = (w, actor, { offer }) => {
+  const o = w.offers?.[offer];
+  if (!o || o.from !== actor) return fail('自分の申し出ではない');
+  if (o.status !== '申し出中') return fail(`申し出は「${o.status}」`);
+  o.status = '取り下げ';
+  log(w, 'offer', `${label.who(w, actor)}が交換の申し出を取り下げた（成立済みの交換には影響しない）`);
+  return ok();
+};
+
 ACTIONS.keep = (w, actor, { shipment }) => {
   const s = w.shipments[shipment];
   if (!s || s.arrivedOwner !== actor || s.returned || s.kept) return fail('決める荷ではない');
