@@ -125,7 +125,8 @@
 | `fclient` | 通過 79 / 失敗 0 |
 | `herald` | 通過 78 / 失敗 0 / 無視 3 |
 | `keeper` | 通過 80 / 失敗 0 / 無視 1 |
-| `bots`、`verify` | 実行中（結果は次の commit で記入） |
+| `bots` | 通過 164 / 失敗 0 |
+| `verify` | 通過 90 / 失敗 0 / 無視 2 |
 | Node：placement、home、world、land | 通過 43 / 失敗 0 |
 | Node：web-frontier 全体 | 通過 844 / 失敗 8。失敗8ファイルは、基準のチェックアウトでも同じ8ファイルが失敗する（`@solana/web3.js` が入っていないなど、環境の問題） |
 | 生成ファイルの鮮度 | ABI のベクタとウェブ SDK は鮮度の確認を通過 |
