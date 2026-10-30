@@ -2,7 +2,7 @@
 
 **基準：** 共通基準 commit `4cd901de9f8e0d6c0b2016851d30595c4a70aa46`（PR #22 の統合候補の祖先。main 統合済み・CI 全成功とは扱わない）。ブランチ `claude/wylls-creation-publishing-reuse-31aiyj`。成果物はこのフォルダだけにあり、共通コア・他担当の仕様・共有 UI・CI は変更していない。
 
-**状態（2026-10-30）：** ローカル試作まで完了。ゲーム本体への接続は未完了。
+**状態（2026-10-30）：** ローカル試作まで完了。ゲーム本体への接続は未完了。**⑥の追加実装は停止し、統合判断待ち。** 引き継ぎは [HANDOFF.ja.md](HANDOFF.ja.md)。
 
 **一言で：** 既存の命令（S1 の荷車、S2 の札の命令）を組み合わせる **型つきの定義（manifest）** と、その **検証器**、そして「作る → 条件を確認 → ローカルの一覧へ公開 → 別の利用者が選ぶ → 実行前に不足を確認 → 採用（固定）→ 自分の依頼で実行（模擬）→ 写して編集」を操作できる **試作** です。プログラミングは参加の条件にしていません（見本を選んで、場所と数を選ぶだけで作れる）。
 
@@ -26,7 +26,7 @@
 | 写して編集（A） | **動く** | 写らないもの（署名・札・物・記録・作者の場所の既定・主張・説明）を一覧にして示す |
 | 実行前の確認・採用（固定） | **動く**（世界は模擬） | 世界のスナップショットは S1 の場所と、**未統合ブランチ `ccr-184d6862-fqutoz` の S2 の札の規則** を写した模擬データ。確認は助言で、何も許可せず何も押さえない |
 | 実行 | **模擬だけ** | `src/execute.mjs`。チェーン・中継サーバー・ウォレットに **何も送らない**。手順ごとに権利・物・残高・容量を検査し直す。荷車はすぐ着く（襲撃は指定時のみ）。実行できるのは荷車と工房の手順だけ |
-| 完了記録（証明）と束（消費する権利） | **模擬** | 記録は消費されない過去の出来事の証明、束は配達の物を押さえた1回きりの権利（[docs/07](docs/07-guarantees.ja.md)） |
+| 完了記録（証明）と束（消費する権利） | **模擬** | 記録は消費されない過去の出来事の証明、束は配達の物を押さえた1回きりの権利。**束はコア仕様としては採用保留**で、「証拠＋在庫の原子的な消費」との比較のための模擬（[docs/07](docs/07-guarantees.ja.md) §4） |
 | 実世界（ゲームのチェーン）への作用 | **できない** | ④の Run が⑥の計画と依頼を受け取って既存の命令を送る部分は、まだどこにもない |
 | S2 の効果を main（S1）で | **動かない** | S1 だけの世界では、工房の手順は確認でも実行でも `EFFECT_UNAVAILABLE` |
 | 新しい種類の世界効果（D） | **追加していない** | 分類と比較だけ。任意コード実行は入れていない |
@@ -86,9 +86,10 @@ node workstreams/06-creation/proto/e2e.mjs [画像の保存先]
 | 既存機能で表現できる範囲と拡張が必要な範囲 | [docs/04-world-effects.ja.md](docs/04-world-effects.ja.md) |
 | 公開停止・固定版・更新の扱い | [docs/05-update-policy.ja.md](docs/05-update-policy.ja.md) |
 | ローカルで防げること／②④・チェーンが要ること | [docs/07-guarantees.ja.md](docs/07-guarantees.ja.md) |
-| 緊急停止（提案） | [docs/08-emergency-stop.ja.md](docs/08-emergency-stop.ja.md) |
+| 止める権限の分け方・緊急停止（提案） | [docs/08-emergency-stop.ja.md](docs/08-emergency-stop.ja.md) |
 | 独立レビュー11件の一覧 | [docs/09-review-findings.ja.md](docs/09-review-findings.ja.md) |
-| ②③④・共有UI・CI への引き渡し | [handoff/](handoff/README.ja.md)（`ci.diff` は未適用） |
+| ②③④・共有UI・CI への引き渡し | [handoff/](handoff/README.ja.md)（一枚の対応表は [handoff/00](handoff/00-correspondence.ja.md)。`ci.diff` は未適用） |
+| 引き継ぎ・保全 | [HANDOFF.ja.md](HANDOFF.ja.md) |
 
 ## テストの結果
 
@@ -96,9 +97,9 @@ node workstreams/06-creation/proto/e2e.mjs [画像の保存先]
 
 | テスト | 結果 |
 |---|---|
-| `node --test workstreams/06-creation/test/*.test.mjs`（Node 22.22.0） | **99 通過・0 失敗** |
-| 同上（Node 20.20.0、今の CI の版） | **99 通過・0 失敗** |
-| うち 2026-10-30 の決定・資源・実行時の検査（`policy` 6・`resources` 6・`runtime` 15） | すべて通過 |
+| `node --test workstreams/06-creation/test/*.test.mjs`（Node 22.22.0） | **101 通過・0 失敗** |
+| 同上（Node 20.20.0、今の CI の版） | **101 通過・0 失敗** |
+| うち 2026-10-30 の決定・資源・実行時の検査（`policy` 8・`resources` 6・`runtime` 15） | すべて通過 |
 | 独立レビュー1回目の再現（`review` 9）／2回目（`review2` 6） | すべて通過。修正前の commit（`4f3a6921`／`308087dc`）ではそれぞれ全件失敗（[docs/09](docs/09-review-findings.ja.md)） |
 | 揺れの確認（`review2`・`resources`・`runtime` を15回） | 15回とも失敗なし |
 | `cli/fixtures.mjs --check` | 一致 |
@@ -107,12 +108,9 @@ node workstreams/06-creation/proto/e2e.mjs [画像の保存先]
 | repo の既存テスト（Rust・gateway・web） | **未実行**。⑥は `workstreams/06-creation/` の外を変えていない |
 | GitHub の CI | **未実行**（push していない。CI への追加は `handoff/ci.diff` の未適用の差分） |
 
-## 判断してほしいこと（まとめ）
+## 未決定・資料待ち
 
-1. 1日の回数を「実行の開始」で数えるか「成功」で数えるか（[docs/05](docs/05-update-policy.ja.md) §4）。
-2. 緊急停止の権限者・範囲・作者の注意の知らせ（[docs/08](docs/08-emergency-stop.ja.md) §4）。
-3. 配達の物を押さえる「束」をコアの仕組みとして求めるか、C を自由在庫から取る形に下げるか（[handoff/04](handoff/04-run-receipt.ja.md) §1.4）。
-4. ②③④への依頼（[handoff/README](handoff/README.ja.md) の最後）を各担当に渡すか。
+[HANDOFF.ja.md](HANDOFF.ja.md) §3 にまとめた（②④の成果物、1日の回数の本番の規則、緊急停止の権限者、束の要否、②の加工能力の貸出と取り消し）。
 
 ## 変えていないもの
 

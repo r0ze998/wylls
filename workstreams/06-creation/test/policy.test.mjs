@@ -14,7 +14,7 @@ import { signManifest, signStatus } from "../src/registry.mjs";
 import { forkManifest } from "../src/fork.mjs";
 import { DOMAIN, signHash } from "../src/keys.mjs";
 import { editForkForRiver, frontSupply, giveUseLot } from "../src/scenario.mjs";
-import { adopt, codes, deliverToB, exec, prepare, preflight, setup } from "./helpers.mjs";
+import { adopt, codes, deliverToB, exec, execute, prepare, preflight, setup } from "./helpers.mjs";
 
 const BIND = { params: { source: "vault:B-home", workVault: "vault:B-work", receiver: "vault:B-home", workshop: "village:W" } };
 
@@ -135,4 +135,51 @@ test("runs per day of the pinned definition are enforced at execution", async ()
   assert.equal((await exec(s, plan)).failure.code, "RUNS_PER_DAY_EXCEEDED");
   s.world.today += 1;
   assert.equal((await exec(s, plan)).ok, true);
+});
+
+test("runs per day (provisional): only accepted starts count; failures after acceptance are recorded apart", async () => {
+  const s = await ready();
+  const plan = await adopt(s, "B", s.refs.A, BIND);
+  const day = s.world.today;
+  // a preflight, a request signed by someone else, and a malformed request are not counted
+  await preflight(plan, s);
+  const { requestRun } = await import("./helpers.mjs");
+  await execute(plan, s, { request: await requestRun(plan, { nonce: "x1" }, s.keys.A) });
+  await execute(plan, s, {});
+  assert.deepEqual(s.adoptions.tally(plan.hash, day), { started: 0, succeeded: 0, failed: 0 });
+  // accepted, then stopped at a step: one start, one failure, no success
+  const saved = s.world.citizens.B.lamports;
+  s.world.citizens.B.lamports = 0;
+  const req = await requestRun(plan, { nonce: "x2" }, s.keys.B);
+  assert.equal((await execute(plan, s, { request: req })).failure.code, "BALANCE_SHORT");
+  assert.deepEqual(s.adoptions.tally(plan.hash, day), { started: 1, succeeded: 0, failed: 1 });
+  // the same request again is refused as replayed and not counted
+  s.world.citizens.B.lamports = saved;
+  assert.equal((await execute(plan, s, { request: req })).failure.reason, "replayed");
+  assert.deepEqual(s.adoptions.tally(plan.hash, day), { started: 1, succeeded: 0, failed: 1 });
+  // the cap (1 a day) is on starts: a new request the same day is refused before it starts
+  assert.equal((await exec(s, plan)).failure.code, "RUNS_PER_DAY_EXCEEDED");
+  assert.deepEqual(s.adoptions.tally(plan.hash, day), { started: 1, succeeded: 0, failed: 1 });
+  s.world.today += 1;
+  assert.equal((await exec(s, plan)).ok, true);
+  assert.deepEqual(s.adoptions.tally(plan.hash, s.world.today), { started: 1, succeeded: 1, failed: 0 });
+});
+
+test("runs per day: another plan or another version of the same definition shares the cap; a fork does not", async () => {
+  const s = await ready();
+  const p1 = await adopt(s, "B", s.refs.A, BIND);
+  assert.equal((await exec(s, p1)).ok, true);
+  const v2 = await s.registry.publish(await signManifest(frontSupply(s.pubs.A, { version: "1.0.1", note: "説明だけ直した" }), s.keys.A), s.ctx);
+  const p2 = await adopt(s, "B", v2.ref, BIND);
+  assert.equal((await exec(s, p2)).failure.code, "RUNS_PER_DAY_EXCEEDED", "a new version is the same definition");
+  // a fork is another definition (another author/name): its cap is its own. The resources it
+  // uses are still bounded by the grants (the lot's and the workshop's runs a day).
+  const fork = forkManifest(s.registry.getVersion(s.refs.A), s.pubs.B, { name: "front-supply-b" });
+  const fr = (await s.registry.publish(await signManifest(fork.manifest, s.keys.B), s.ctx)).ref;
+  const p3 = await adopt(s, "B", fr, BIND);
+  const r3 = await exec(s, p3);
+  assert.equal(r3.ok, true, JSON.stringify(r3.failure));
+  assert.equal(s.world.lots["lot:B-1"].dayUsed, 6, "the lot (6 runs a day) is now used up");
+  const p4 = await adopt(s, "B", fr, { params: { ...BIND.params, receiver: "vault:B-work" } }).catch((e) => e);
+  assert.match(String(p4.message), /GRANT_INSUFFICIENT/, "a further plan cannot even be adopted today: the grant bounds it");
 });

@@ -110,20 +110,41 @@ export class AdoptionBook {
   }
 
   /**
-   * Runs started on a day, counted per user and definition (author/name):
-   * the definition's runsPerDay holds however many plans the user adopts.
+   * Runs per user and definition (author/name, every version and plan of
+   * it together) and per start day. A run counts as started once execute.mjs
+   * has accepted its request (signature, nonce, adoption, the day's cap):
+   * a preflight, a refused request or a replayed request is not counted.
+   * Started runs are then recorded as succeeded or failed, apart.
+   * Provisional rule (2026-10-30): the limit is on `started`.
    */
   runsOn(planHash, day) {
+    return this.tally(planHash, day).started;
+  }
+
+  tally(planHash, day) {
     const a = own(this.data.adoptions, planHash);
-    return a ? own(own(this.data.runs, runKey(a)), String(day)) ?? 0 : 0;
+    const t = a ? own(own(this.data.runs, runKey(a)), String(day)) : null;
+    return { started: t?.started ?? 0, succeeded: t?.succeeded ?? 0, failed: t?.failed ?? 0 };
   }
 
   noteRun(planHash, day) {
+    const t = this.#slot(planHash, day);
+    if (t) t.started += 1;
+  }
+
+  /** After an accepted run ends: `ok` → succeeded, else failed (with the stopping code). */
+  noteOutcome(planHash, day, ok) {
+    const t = this.#slot(planHash, day);
+    if (t) t[ok ? "succeeded" : "failed"] += 1;
+  }
+
+  #slot(planHash, day) {
     const a = own(this.data.adoptions, planHash);
-    if (!a) return;
+    if (!a) return null;
     this.data.runs ??= {};
     const k = runKey(a);
     this.data.runs[k] ??= {};
-    this.data.runs[k][String(day)] = (this.data.runs[k][String(day)] ?? 0) + 1;
+    this.data.runs[k][String(day)] ??= { started: 0, succeeded: 0, failed: 0 };
+    return this.data.runs[k][String(day)];
   }
 }

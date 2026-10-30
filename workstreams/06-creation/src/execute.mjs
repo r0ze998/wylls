@@ -113,9 +113,11 @@ export async function execute(signed, ctx, { request, raidAt = null } = {}) {
     if (!r.ok) {
       receipts.push(ledger.record({ ...base, beneficiary: actor, step: s.id, ...ports(s), outcome: r.code === "RAIDED" ? "raided" : "failed", final: true, reason: r.code, at: r.at ?? null, goods: r.goods ?? null }));
       log.push(`${s.id}: 止まった — ${r.code}`);
+      adoptions.noteOutcome(signed.hash, base.day, false);
       return fail(r.code, r.detail, s.id);
     }
   }
+  adoptions.noteOutcome(signed.hash, base.day, true);
   return { ok: true, mock: true, world, receipts, log, run };
 
   function ports(s) {
