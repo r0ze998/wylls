@@ -86,7 +86,7 @@ path.pt[fill="none"] { fill: none; }
 .num { font: 700 9px system-ui; fill: var(--ink); paint-order: stroke; stroke: var(--paper); stroke-width: 2.5px; pointer-events: none; }
 .route { fill: none; stroke: var(--accent); stroke-width: 3; stroke-dasharray: 7 4; stroke-linecap: round; pointer-events: none; }
 .turn rect { fill: var(--card); stroke: var(--accent); stroke-width: 2; } .turn text { font: 700 10px system-ui; fill: var(--ink); }
-.turn.danger rect { stroke: var(--loss); stroke-width: 3; } .turn.unknown rect { stroke-dasharray: 3 2; } .turn.safe rect { stroke: var(--gain); }
+.turn.danger rect { stroke: var(--loss); stroke-width: 3; } .turn.unknown rect { stroke-dasharray: 3 2; } .turn.sheltered rect { stroke: var(--gain); }
 .turn .q { font: 800 12px system-ui; fill: var(--loss); }
 .avoid circle { fill: var(--card); stroke: var(--war); stroke-width: 2; } .avoid path { stroke: var(--war); stroke-width: 2; }
 

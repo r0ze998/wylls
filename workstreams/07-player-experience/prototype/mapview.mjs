@@ -173,7 +173,7 @@ export function renderMap(scene, opt = {}) {
   if (opt.route?.steps?.length) {
     (opt.route.turns ?? []).forEach((t, i) => {
       const h = hexes.get(`${t.p},${t.q},${t.tile}`); if (!h) return;
-      const cls = t.known.length ? 'turn danger' : t.unknown ? 'turn unknown' : t.sheltered ? 'turn safe' : 'turn';
+      const cls = t.known.length ? 'turn danger' : t.unknown ? 'turn unknown' : t.sheltered ? 'turn sheltered' : 'turn';
       out.push(`<g class="${cls}" transform="translate(${(h.x + s * 0.5).toFixed(1)} ${(h.y + s * 0.42).toFixed(1)})"><rect x="-8" y="-8" width="16" height="16" rx="3"/><text y="4" text-anchor="middle">${i + 1}</text>${t.unknown ? '<text class="q" x="11" y="-6">?</text>' : ''}${t.known.length ? '<text class="q" x="11" y="-6">!</text>' : ''}</g>`);
     });
     if (opt.route.avoidedAt) { const h = hexes.get(opt.route.avoidedAt); if (h) out.push(`<g class="avoid" transform="translate(${(h.x - s * 0.52).toFixed(1)} ${(h.y + s * 0.45).toFixed(1)})"><circle r="7"/><path d="M-4 -4l8 8M4 -4l-8 8"/></g>`); }

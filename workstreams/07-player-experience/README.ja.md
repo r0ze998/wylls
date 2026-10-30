@@ -7,6 +7,7 @@ WYLLS の既存のルールを人が理解して遊べるようにする UI/UX �
 | [REPORT.ja.md](REPORT.ja.md) | 5 つの主張の検証（再現・不再現・未確認）、局所修正、接続パッチ、テストの結果、未確認事項 |
 | [VISUAL.ja.md](VISUAL.ja.md) | 視覚の方向 3 案の比較と、推奨「記録の地図」の決め事（符号の表、優先順位、操作、入れ方） |
 | [PLAYTEST.ja.md](PLAYTEST.ja.md) | 人間の試遊で確かめる問い（R1〜R5、V1〜V3、A1）と手順 |
+| [INTEGRATION.ja.md](INTEGRATION.ja.md) | 統合の確認条件：commit とパッチの範囲、REPRO と回帰テストの対応、予測と確定の区別、復帰要約の継続性（0002 の統合前条件）、④⑤ との接続条件、証拠の層 |
 
 ## 中身
 
