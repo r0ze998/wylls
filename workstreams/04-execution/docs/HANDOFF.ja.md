@@ -39,7 +39,7 @@
 |---|---|---|---|---|
 | `DeliveredUnverified`（到着量未検証） | **分からない**（0 以上、`cargo_logged` 以下） | `delivered: None`、`verification: Unverifiable` | **0**（検証できた量が 0 だから。実際の量を 0 と断定するのではない） | 「到着したが、入った量を確認できない（最大 n 個）」。「0 個」「全損」「失敗」とは表示しない |
 | 0 と分かっている（take、burn、宛先の世代変更、容量に全く入らなかった `credited` 0） | 0 と分かっている | `delivered: Some(0)`、`verification: KnownZero`（または Recorded で 0） | 0 | 「届かなかった（理由）」 |
-| `Partial`／`Fulfilled` | 検証した量 | `delivered: Some(n)`、Recorded か RuleDerived | n | 「届いた n 個」 |
+| `Partial`／`Fulfilled` | 検証した量（RuleDerived は整数の下限：資源ごとに 1 未満多く入っていうる） | `delivered: Some(n)`、Recorded か RuleDerived | n | 「届いた n 個」（RuleDerived は「n 個以上」） |
 
 - ①と⑥は、算入量（検証済みの量）と、実際の到着量の状態（分からない／0 と分かる／n と分かる）を**別の欄として**扱う。算入量が 0 だからといって、実際の到着量を 0 として記録したり表示したりしない。
 - 後から検証できた場合（P1 の記録が使えるようになった、など）は、算入量を増やしうる。その更新の扱い（再計上の可否）は①⑥の判断とする。

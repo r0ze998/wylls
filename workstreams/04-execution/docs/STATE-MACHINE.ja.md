@@ -101,7 +101,7 @@ store の中での owner ごとの直列化（`sole_owner_send`）は、**その
 | 場合 | 正本で起きること | 判定 | `verification` |
 |---|---|---|---|
 | 記録に `credited` がある（P1） | 記録どおり | 依頼量以上なら Fulfilled、少なければ Partial、0 なら Failed | Recorded |
-| holding へ DELIVERED、`credited` 無し | `Accrual::add` は上限なしで全量を加える（holding.rs:296） | cargo を入荷量とする | RuleDerived |
+| holding へ DELIVERED、`credited` 無し | `Accrual::add` は上限なしで全量を加える（holding.rs:296）。加算は milli 単位で、記録の cargo は整数に切り捨てた値（proc/caravan.rs:401-407 `cargo_log`） | cargo を入荷量の**下限**とする（資源ごとに 1 未満多く入っていうる）。下限が依頼量以上なら Fulfilled、少なければ Partial | RuleDerived |
 | vault へ DELIVERED、`credited` 無し | 容量を超えた分は捨てられ、記録されない | **DeliveredUnverified**（`cargo_logged` は上限） | Unverifiable |
 | 容量超過（`credited` あり） | 超過分が失われる | Partial | Recorded |
 | 襲撃・take | caravan は襲撃者のもの。settle は別の宛先 | Failed（Raided）、0 | KnownZero |

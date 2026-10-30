@@ -32,7 +32,7 @@
 | 他人の場所への送付には、**送信者本人の** wallet の署名が必要。session key では `WalletRequired` になる。受取人は署名しない | 契約 §3.3、`proc/caravan.rs:726-729`、[SIGNATURES](SIGNATURES.ja.md) | **自動実行（委任された session key）で送れるのは自分の場所だけ**。他人宛ては、送信者本人の署名待ちで止める |
 | 送る荷は塔の損耗の後の値（`CARAVAN_SENT.worn_bps`） | `fclient/src/conquest.rs` `CaravanSent` | 送った量が依頼量より少ないことがある（部分到着の原因 1） |
 | **倉庫（vault）は `CAP` を超える分を黙って捨てる。`CARAVAN_SETTLED` には元の cargo が記録され、実際に入った量は記録されない** | `proc/caravan.rs:1005`（`min(cap.max(have))`）、`:1037`（`cargo_log(&cargo)`） | **settle の記録は、到着した量の証明にならない**（部分到着の原因 2。→ patches P1） |
-| holding への加算には上限が無い（`Accrual::add`「may exceed the cap」） | `permutation-rules/src/frontier/holding.rs:296` | holding 宛てなら、規則から入荷量 = cargo と言える（`RuleDerived`） |
+| holding への加算には上限が無い（`Accrual::add`「may exceed the cap」） | `permutation-rules/src/frontier/holding.rs:296` | holding 宛てなら、規則から入荷量 ≥ 記録の cargo と言える（`RuleDerived`。記録は milli の加算量を整数に切り捨てた値なので下限。proc/caravan.rs:401-407） |
 | session key には命令の範囲が無い（有効期限だけ） | `frontier-abi/src/prologue.rs:1120-1131` | ④の「物流だけ」は off-chain の制限（→ patches P6） |
 | 宛先が無いか世代が違えば cargo は失われる（`STATE 3`、`outcome LOST`） | 契約 §3.4 | 宛先の世代変更を、送る直前と到着時の両方で扱う |
 | capture-locked の holding への settle は `CapturePending` で拒否され、keeper が後で再試行する | `proc/caravan.rs:981` | 到着が遅れるだけなので、`InTransit` のまま待つ |

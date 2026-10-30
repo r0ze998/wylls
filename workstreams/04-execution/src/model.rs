@@ -320,6 +320,12 @@ pub enum Verification {
     Recorded,
     /// Follows from the rules for this destination: a holding credits the
     /// whole cargo (`Accrual::add` "may exceed the cap", holding.rs:296).
+    /// A lower bound in whole units, not the exact amount: the program
+    /// credits the worn cargo in milli-units and logs it rounded down
+    /// (`cargo_log`, permutation-frontier proc/caravan.rs:401-407), so up to
+    /// one unit less per resource than was credited. Fulfilled / Partial
+    /// judged on it stay sound (a bound at or over the request means the
+    /// credit is too).
     RuleDerived,
     /// Known to be nothing: outcome LOST, an empty (burned) cargo, a take.
     KnownZero,

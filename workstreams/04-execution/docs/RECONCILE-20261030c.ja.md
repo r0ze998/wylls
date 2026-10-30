@@ -1,0 +1,112 @@
+# ④ 受領物との照合（第3回：① ws01-coop-s1、⑤ ai05-ws03-ws04-check-delivery、2026-10-30）
+
+**この文書は照合の記録である。** 共有パッチの採否は、この送付では確定しない（受け取った指示のとおり）。統合ブランチ `ws04/integration-20261030` に当てた共有コードは、前回と同じ③0005・⑤0001 だけである。今回の受領物は、使い捨ての作業コピーでだけ当てて試した。
+
+すべて MOCK かローカルの実証であり、実チェーン・実 API・実資金では確かめていない。
+
+## 1. 受領物と復元
+
+| | ① | ⑤ |
+|---|---|---|
+| ファイル | `ws01-coop-s1-20261030.tar.gz` | `ai05-ws03-ws04-check-delivery.tar.gz` |
+| 外側の SHA256 | `07fc6d152706927a6e8afadf94fbdb666487b990cd15f4d876982e84022f1aa6`（一致） | `e2f91ac823f7d202d33f325637b5f3c798a8baf8a7a512b95ac15852bfaaa3a0`（一致） |
+| 内部の `SHA256SUMS` | 全件 OK。一覧に無いファイル・一覧にあって無いファイルは無い | 全 15 件 OK。同上 |
+| パス | 絶対パス・`..` 無し | 同左 |
+| bundle | `ws01.bundle`：前提 `9214293`・`9aa4ea12`（どちらも手元にある）。ref 3 本 | `…budget.bundle`：前提 `ba3c180b`。`…since-9f1209c4.bundle`：前提 `9f1209c4`（全体の bundle を取り込んだ後に検証 OK） |
+| 復元した HEAD | `3f3c8478b0a37a7ecfd6ca4641b8d47fb58aff52`（`ws/01-coop-s1`） | `45cba41e57341c61a3b2999ce33cec1fd425065b`（2 つの bundle で同じ） |
+| 復元した tree | `8d94de0505eed410b491084e07b7b5d61bf1d945`（一致） | `c6e07b04aaa821b054a54507bbf6e8eccebd62f1`（一致） |
+| patch から | `4cd901de` に `all-ws01` 10 本 → 同じ tree。`ccc2f8e7` に `this-round` 1 本 → 同じ tree | `ba3c180b` に `five-patches` 5 本 → 同じ tree |
+| 基準との関係 | merge-base は `4cd901de`。変更は `workstreams/01-national-strategy/` だけ | `ba3c180b..45cba41e` は 5 commit（`6cdd648c`・`9f1209c4` を含む）。変更は `workstreams/05-ai-participation/` だけ |
+| 展開物 | `workstreams/01-national-strategy/` は bundle の tree と同一 | — |
+| 試験 | `node --test` 191/191 | model-api 45/45、participation 37/37（`permutation-gateway/node_modules` は④の統合 worktree の既存のものを link。新しい install はしていない） |
+
+不足：無し。① `ccc2f8e` は今回の bundle に含まれる（`ws/01-coop-connect`）。⑧ の新しい地図は今回も受け取っていない。
+
+## 2. ①の到着量と④の契約
+
+### 2.1 実物で確かめた規則
+
+村（holding）への決着では、加算は milli 単位の全量で、上限が無い（`permutation-rules/src/frontier/holding.rs:296`、`:774-783`）。記録 CARAVAN_SETTLED の `cargo` は、その milli の量を整数に**切り捨てた**値である（`permutation-frontier/src/proc/caravan.rs:401-407` `cargo_log`。送付時の損耗 `worn_cargo` で端数が出うる）。
+
+したがって、記録の `cargo` は**入った量の下限**であり、資源ごとに 1 未満多く入っていうる。①の `qtyKind: 'lower-bound'` が正しい。
+
+### 2.2 ④の誤りと修正
+
+④は `RuleDerived` を「入荷量 = cargo」と書いていた（`docs/SURVEY` §2、`STATE-MACHINE`、`HANDOFF` §2、`RUNBOOK`、`src/model.rs`）。これを「整数の下限」に直した（この commit）。
+
+- 動作は変えていない。Fulfilled／Partial の判定は下限で正しい。下限が依頼量以上なら実際も以上で、下限が少なくても Partial として扱うのは安全側である。
+- 表示（⑦）は、RuleDerived の量を「n 個以上」とする。
+
+### 2.3 未解決（④の動作に関わる。判断待ち、未修正）
+
+| # | 内容 | 影響 | 案 |
+|---|---|---|---|
+| R-1 | ④は、記録の `cargo` が全部 0 の決着を「焼かれた」（KnownZero、Failed LostInTransit）としている（`src/executor.rs` `on_arrived`）。しかし 1 未満の積荷も 0 と記録される。襲撃の記録（burn）が無いのに 0 と断定しうる | 端数だけの隊商で「0 と分かっている」と表示しうる。量は 1 未満なので、進捗への算入は変わらない | burn の記録（CARAVAN_RAIDED、choice=BURN）があるときだけ KnownZero にし、無ければ RuleDerived の下限 0（Partial）にする。テストの期待値が変わるので、採否を決めてから直す |
+| R-2 | 提案 P1（`credited` を記録に足す）も、整数で記録するなら同じ切り捨てになる | Recorded も下限になりうる | P1 の案に「milli のまま記録するか、整数なら下限と明記する」を足す（P1 は未適用の提案のまま） |
+
+### 2.4 ①の契約（18-2）と④の Run の対応
+
+| ①の欄・状態 | ④ |
+|---|---|
+| `caravanId: {ownerTag, seq}` | `CaravanKey {owner, seq}`、Receipt の `subject` `cv:<owner_hex>:<seq>` |
+| `delivered`＋`verifiedQty`（村、chain-log） | `Fulfilled`／`Partial`、`outcome.delivered`、`verification: RuleDerived`（下限。2.2） |
+| `delivered`＋`verifiedQty: null`（倉） | `DeliveredUnverified`、`delivered: None`、`verification: Unverifiable`。④も残高の前後差で推し量らない |
+| `lost` | `Failed`（outcome LOST）、`KnownZero` |
+| `misdelivered`（依頼の届け先と別） | ④の Run は spec の宛先にだけ送る。決着の宛先が spec と違えば、奪われて行き先が変わったとみなし `Failed`（Raided）、`KnownZero`（`src/executor.rs` `on_arrived`「settled elsewhere」）。①はこれを `misdelivered`（数えない）とするので、算入量は同じ 0、状態の名前だけが違う |
+| `raided-taken`／`raided-burned` | `Failed`（Raided／LostInTransit）、`KnownZero` |
+| `moving` | `InTransit`（進捗ではない） |
+| `unknown` | 状態は進めない（`Indeterminate`、保留） |
+| `source: 'chain-log'`＋`signature` | Receipt の `source`（`sig:`／`event:`／`history:`）。④は settle の取引の署名を Receipt に載せていない（event／history の id だけ） |
+| `duplicateOf` | ④では一つの隊商は一つの Run に固定（`(owner, seq)` は spec に結び付く）。依頼との多対一は④の外（①の判断） |
+
+### 2.5 ①18-4 の問いへの答え（④の今の実装から）
+
+1. 検証済み量は「加算量の下限」（村）。積荷そのものではなく、加算量を切り捨てた記録から得る。倉あては未検証。
+2. 倉あての加算量は、P1（記録に加算量を足す）でだけ得る案。ヘラルドが前後の倉の口座を比べる案は採らない（他の入出庫が混ざる）。
+3. ④は新しい公開物を作らない。Receipt はローカルの store の中だけ。
+
+### 2.6 ①の共有パッチ（未適用）
+
+| パッチ | 統合ブランチ `967ffc01` | ⑤の 0002b＋0003 を当てた上 | 試験 |
+|---|---|---|---|
+| 0002 herald `ended` | `apply --check` OK | OK | 当てた作業コピーで `cargo test --locked -p herald --lib` 39/39 |
+| 0003 s1 の入口（⑦向け） | OK | OK | 未実行（⑦の判断） |
+| 0004 `fcodec` `[i16;N]` | OK | OK | 未実行 |
+
+`shared-patches-for-04/` は `proposals/` の写しとバイト単位で同じ。⑤の共有パッチとファイルが重ならない。
+
+## 3. ⑤の CONTRACT-DIFF-4 と共有パッチ
+
+### 3.1 共有パッチ
+
+| パッチ | SHA256 | 統合ブランチ（③0005＋⑤0001 適用済み） |
+|---|---|---|
+| 0001 staking limits | `83f3f77c…d175` | **前回適用したものとバイト単位で同じ**（`eb5ad70d`） |
+| 0002 byte collision | `64b2142e…59b2` | **当たらない**（`gateway.mjs` の `#build` で③0005 と衝突。⑤の報告どおり） |
+| 0002b（0005 の上に作り直し） | `0ea2db14…073b` | 当たる |
+| 0003 MCP `source` | `a2c8f45d…a6f6` | 当たる |
+
+0002b＋0003 を当てた使い捨ての作業コピーでの結果：
+
+| 試験 | 結果 |
+|---|---|
+| `permutation-gateway` の `npm test` | 2,543 件、通過 2,542、失敗 0、スキップ 1（⑤の報告と同じ） |
+| `agent-wallet-*`・`frontier-relay*` | 111/111 |
+| ④ `cargo test` | 62/62 |
+| ④ `cargo test --test gateway -- --ignored`（MOCK の gateway） | 9/9 |
+
+0002b が④に与える影響：relay が `Duplicate`（送る前、同じバイト列）を返したとき、別の fee payer で作り直して署名する。④の SendCaravan では、同じ `(owner, seq)` に二つ目の署名ができうるが、program が seq を一度しか受け付けないので、効果は一度までのまま。④は署名を gateway の記録（`chain_sig`）から得るので、作り直した署名もそこから読む。
+
+### 3.2 CONTRACT-DIFF-4 §3 の不一致（④の判断待ち、未実装）
+
+| # | ⑤の指摘 | ④の今 | ④の案 |
+|---|---|---|---|
+| D-1 | ⑤の Train などの代理人の行動は④の Run の外 | ④の Run は物流（施設→隊商）だけ | Run に入れない。⑤の RunReceipt は別の kind（例 `agent_action`）として並べる案。採否は未定 |
+| D-2 | 費用の単位が違う（④ lamports、⑤ 試験用 USDC） | ④の `fees` は lamports だけ | 足し合わせない。⑤の `fourClasses()` の名前の対応（settled＝charged、undecided＝unconfirmed）は④と一致 |
+| D-3 | `cancel.until`（`valid_until`）を中継が返さない | ④の gateway port は `valid_until = u64::MAX`（前回の G-1） | 前回の G-1 のまま。中継が `lastValidBlockHeight` を返すまで、署名済みの取消は「確認待ち」のまま |
+| D-4 | ④の実行器が別の場所で session key を持つと、③⑤と Citizen の 1 枠を取り合う。`sole_owner_send` は③の送付を見ない | ④の統合経路は gateway の `submit` の後ろ（session key は中継の keyring）。ただし同じ owner の③⑤の送付は④の store に見えない | seq の検査（program の `SeqMismatch`）で効果は一度まで。④は gateway の `/history`（`historySeq`）を見て、他の送り手の送付を検出する案 |
+| D-5 | 代理 1 つに capability は 1 つ（③と⑤が同じ Citizen で同時に書けない） | ④も同じ代理を使えば同じ制約を受ける | 共有コアの判断（⑤の提案：送り手ごとの capability） |
+
+## 4. ⑮から届いた予告（参考、未受領）
+
+⑮は④の Receipt の body の欄名を仮定している（`owner_tag`、`verification`、`raider_tag` など）。④の実物とは違う（`verification` は Receipt でなく Run の `outcome` にある。欄名は `raider`）。⑮の成果物は未受領で、照合していない。

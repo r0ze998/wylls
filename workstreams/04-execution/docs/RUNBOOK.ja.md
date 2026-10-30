@@ -79,7 +79,7 @@ attempt の状態：
 1. `transitions` は、run ごとに version 1..n が欠けずに一件ずつある（UNIQUE 制約）。
 2. 着地した attempt（`landed`）は、要求キーごとに一つ以下。施設の着地は正本の `facility_use(key).sig` と、発送の着地は `CaravanSent.sig` と一致する。
 3. 終端の run は `reservations` を持たない。
-4. `Fulfilled`／`Partial` の run には `caravan_settled` の Receipt がある。`outcome.verification` が `Recorded` なら `credited` が、`RuleDerived` なら holding 宛ての cargo が `outcome.delivered` と一致する。`DeliveredUnverified` は `delivered` を持たない。
+4. `Fulfilled`／`Partial` の run には `caravan_settled` の Receipt がある。`outcome.verification` が `Recorded` なら `credited` が、`RuleDerived` なら holding 宛ての cargo（整数に切り捨てた記録。実際の加算量の下限）が `outcome.delivered` と一致する。`DeliveredUnverified` は `delivered` を持たない。
 5. `fees` の reserved + charged + unconfirmed ≤ `budget.max_fee`。
 6. `caravan_sent` の Receipt の署名は、その run の attempt の一つであり、正本の `CaravanSent` の中身（送り元、宛先、資源、量）が spec と一致する。
 

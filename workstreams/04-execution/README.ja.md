@@ -6,6 +6,8 @@
 
 この branch で、③のパッチ 0005（代理の財布の SendCaravan）と⑤のパッチ 0001（上限・期限）を共有コードにそのまま当て、④の隊商 Run を代理の財布の gateway 経由で送る経路（`src/gateway.rs`）をつないだ。**gateway のコードは実物、チェーンは模擬。** 実チェーン・実際の鍵・有料 API には接続していない。詳細・試験・③⑤への依頼は [docs/INTEGRATION-20261030.ja.md](docs/INTEGRATION-20261030.ja.md)。
 
+第3回の受領物（① `3f3c8478`、⑤ `45cba41e`）との照合は [docs/RECONCILE-20261030c.ja.md](docs/RECONCILE-20261030c.ja.md)。`RuleDerived` は正確な量ではなく整数の下限、と直した（動作は不変）。共有パッチの採否は未確定で、この branch に新しい共有パッチは当てていない。
+
 ## いまの到達点（④ 0.2、統合判断待ち）
 
 **新機能の追加は止めている。** 引き渡しの整理は [docs/HANDOFF.ja.md](docs/HANDOFF.ja.md)。②③⑤⑥の最新の資料は取得できておらず、接続済みではない。
