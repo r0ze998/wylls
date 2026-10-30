@@ -143,9 +143,9 @@ for (const size of SIZES) {
     assert.ok(layouts.provinces.length > 0 && layouts.provinces.every(l => l === 2), `provinces at layout 2: ${JSON.stringify(layouts.provinces)}`);
     const feedText = await page.evaluate(async () => { const { FS } = await import('/frontier/fstate.mjs'); return (FS.feed ?? []).filter(x => x.away || x.awayOf).map(x => x.text).join('\n'); });
     assert.match(feedText, /直近 144 ターン/);
-    assert.match(feedText, /一部が入りました：食料 352。送った量：食料 400/, 'to a village: verified against the send');
+    assert.match(feedText, /送付記録の数量に対して一部が入りました：食料 352。送付記録の数量：食料 400。比べた基準は送付記録の数量です/, 'to a village: verified against the send record, said so');
     assert.match(feedText, /決着しました。入った量はまだ確かめられていません。倉庫は上限を超えた分を切り捨てます/, 'to a storehouse: not verified');
-    assert.doesNotMatch(feedText, /全部入りました：木材 300|隊商が着きました：木材 300/);
+    assert.doesNotMatch(feedText, /全量が入りました：木材 300|村に入った量：木材 300|隊商が着きました：木材 300/);
     await shot(page, `ws07-s1-page-away-${size.name}`);
     // (a phone shows one notice over the map, the newest — here the turn's card —: the away summary waits under it, and
     // a line under the strip says there is something not yet seen and opens the summary in the list under その他 —

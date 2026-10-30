@@ -58,7 +58,13 @@ export function statusFrom(kind, ...args) {
 export const DST_HOLDING = 1, DST_VAULT = 2;
 export const dstKind = dst => { try { return dst === undefined || dst === null ? null : Number(BigInt(dst) & 0xffn); } catch { return null; } };
 /** caravan.rs caravan_outcome: 0 delivered, 1 lost. */
-const LOST = 1;
+const DELIVERED = 0, LOST = 1;
+/**
+ * The program version whose settlement rules the village reading below was checked against (permutation-frontier
+ * lib.rs PROGRAM_VERSION = PROGRAM_VERSION_S1, the S1 program). Under any other version a village's intake is not read
+ * from the record.
+ */
+export const S1_PROGRAM_VERSION = 4;
 
 /** A caravan still on the road (the caravans feed): overdue once its arrival turn has come — not arrived —, else nothing yet. */
 export function arrivalOnRoad(c, nowBell) {
@@ -68,16 +74,32 @@ export function arrivalOnRoad(c, nowBell) {
 
 /**
  * A settlement read. `settled`: `{outcome, dst, cargo}` from CARAVAN_SETTLED;
- * `sent`: `{cargo, wornBps}` from the same caravan's CARAVAN_SENT, or null
- * when it was not read. → arrivalView input.
+ * `sent`: `{cargo, wornBps, dst}` from the same caravan's CARAVAN_SENT, or
+ * null when it was not read; `rules`: `{programVersion}` of the season.
+ * → arrivalView input. Two judgements are kept apart:
+ *   intake    what went into the destination is known: a delivered outcome,
+ *             to a village, under the S1 program's rules (Holding::credit adds
+ *             the record's cargo whole). Counted in the record's units (whole
+ *             amounts: cargo_log drops what is under one).
+ *   compare   whether that is all of what the send recorded: the send read,
+ *             to the very place (kind, province, site, generation, tile) the
+ *             settlement names. The send's cargo is AFTER the towers' wear —
+ *             the first loaded amount and the road's loss are not in it, and
+ *             nothing is worked out for them.
  */
-export function arrivalSettled(settled, sent) {
+export function arrivalSettled(settled, sent, { programVersion } = {}) {
   const ok = c => Array.isArray(c) && c.length === 8;
-  if (Number(settled?.outcome) === LOST) return { state: 'lost', recorded: ok(settled.cargo) ? settled.cargo : null };
-  const kind = dstKind(settled?.dst), recorded = ok(settled?.cargo) ? settled.cargo : null;
-  if (kind === DST_VAULT) return { state: 'settledUnverified', why: 'vault', recorded, sent: sent?.cargo ?? null };
+  const outcome = Number(settled?.outcome), recorded = ok(settled?.cargo) ? settled.cargo : null;
+  if (outcome === LOST) return { state: 'lost', recorded };
+  if (outcome !== DELIVERED) return { state: 'settledUnverified', why: 'outcomeUnknown', recorded };
+  const kind = dstKind(settled?.dst);
+  if (kind === DST_VAULT) return { state: 'settledUnverified', why: 'vault', recorded };
   if (kind !== DST_HOLDING || !recorded) return { state: 'settledUnverified', why: 'dstUnknown', recorded };
-  if (!ok(sent?.cargo)) return { state: 'settledUnverified', why: 'sentUnknown', recorded };
+  if (Number(programVersion) !== S1_PROGRAM_VERSION) return { state: 'settledUnverified', why: 'rulesUnknown', recorded };
+  if (!ok(sent?.cargo)) return { state: 'verifiedIntake', intake: recorded, compare: 'sentUnknown' };
+  const samePlace = (() => { try { return sent.dst !== undefined && sent.dst !== null && BigInt(sent.dst) === BigInt(settled.dst); } catch { return false; } })();
+  if (!samePlace) return { state: 'verifiedIntake', intake: recorded, compare: 'dstChanged' };
   const full = recorded.every((n, i) => n >= sent.cargo[i]);
-  return full ? { state: 'verifiedFull', arrived: recorded, wornBps: sent.wornBps ?? 0 } : { state: 'verifiedPartial', sent: sent.cargo, arrived: recorded, wornBps: sent.wornBps ?? 0 };
+  const base = { basis: 'sentRecord', sent: sent.cargo, arrived: recorded, wornBps: sent.wornBps ?? 0 };
+  return full ? { state: 'verifiedFull', ...base } : { state: 'verifiedPartial', ...base };
 }

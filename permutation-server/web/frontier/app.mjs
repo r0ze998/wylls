@@ -2306,7 +2306,7 @@ function awayPump() {
     awayReader.start({ scope: sc, from }).then(r => {
       if (r.stale || r.scope !== awayScopeNow()) return;
       const s = returnSum.summarize({ records: r.records, read: { after: r.after, complete: r.complete, failed: r.failed }, marks: returnSum.loadMarks(awayStore(), season, wallet), last: returnSum.loadLast(awayStore()),
-        season, wallet, nowBell: FS.nowBell ?? 0, headSeq: head === null ? null : String(head), me: awayMe() });
+        season, wallet, nowBell: FS.nowBell ?? 0, headSeq: head === null ? null : String(head), me: awayMe(), rules: { programVersion: FS.season?.programVersion } });
       awayBook = s.book; awaySent = s.sent;
       if (!s.items.length && !s.gap && !s.failed && s.windowFrom === null && s.mode !== 'markAhead') return;
       awayQueue.push({ id: `away:${sc}:${s.read.toSeq ?? r.after}`, kind: 'away', scope: sc, bell: FS.nowBell ?? null, text: awayHeadText(s), away: { ok: s.confirm.ok, summary: s } },
@@ -2315,7 +2315,7 @@ function awayPump() {
   } else {
     awayReader.more().then(r => {
       if (r.stale || r.scope !== awayScopeNow() || awayBook === null) return;
-      const { items, book, sent } = returnSum.itemsSince(r.records, awayMe(), awayBook, awaySent);
+      const { items, book, sent } = returnSum.itemsSince(r.records, awayMe(), awayBook, awaySent, { programVersion: FS.season?.programVersion });
       awayBook = book; awaySent = sent;
       awayQueue.push(...items.filter(i => S1_NEWS.has(i.kind)).map(i => ({ ...awayItem(i), scope: sc })));
     }).catch(() => {}).finally(() => { awayBusy = false; });

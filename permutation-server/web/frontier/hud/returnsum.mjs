@@ -226,10 +226,10 @@ export function itemOf({ seq, record: r }, me, book = null) {
  * The items of records read after a summary (between two looks), with the book carried on: → `{items, book}`. The
  * book is not changed in place.
  */
-export function itemsSince(records, me, book, sent = null) {
+export function itemsSince(records, me, book, sent = null, rules = {}) {
   const b = new Map(book ?? []), sn = new Map(sent ?? []), items = [];
   for (const x of normalizeRecords(records).records) {
-    const it = withArrival(itemOf(x, me, b), x.record, sn);
+    const it = withArrival(itemOf(x, me, b), x.record, sn, rules);
     if (it) items.push(it);
     fold(b, x.record);
     foldSent(sn, x.record);
@@ -238,20 +238,24 @@ export function itemsSince(records, me, book, sent = null) {
 }
 
 /**
- * What each caravan was sent with, from CARAVAN_SENT (key → `{cargo, wornBps}`: the cargo after the towers' wear,
+ * What each caravan was sent with, from CARAVAN_SENT (key → `{cargo, wornBps, dst}`: the cargo after the towers' wear,
  * caravan.rs send), forgotten at its settlement. Not kept with the mark: a caravan whose send was not read is not
  * compared, and its arrival stays unverified.
  */
 function foldSent(sent, r) {
   const key = caravanKey(r);
   if (!key) return;
-  if (r.name === 'CARAVAN_SENT') { const c = cargoOf(r.cargo); if (c) sent.set(key, { cargo: c, wornBps: Number(r.worn_bps ?? 0) }); }
+  if (r.name === 'CARAVAN_SENT') { const c = cargoOf(r.cargo); if (c) sent.set(key, { cargo: c, wornBps: Number(r.worn_bps ?? 0), dst: r.dst ?? null }); }
   else if (r.name === 'CARAVAN_SETTLED') sent.delete(key);
 }
-/** A settlement of a caravan the viewer holds (sent and never taken, or taken by the viewer): `facts.arrival`, in the five states of statussources.arrivalSettled. */
-function withArrival(it, r, sent) {
+/**
+ * A settlement of a caravan the viewer holds (sent and never taken, or taken by the viewer): `facts.arrival`, as
+ * statussources.arrivalSettled judges it under the season's `rules` (`{programVersion}`). A burned caravan (no holder)
+ * and one taken from the viewer are not the viewer's, so they are told no arrival at all.
+ */
+function withArrival(it, r, sent, rules = {}) {
   if (!it || it.kind !== 'CARAVAN_SETTLED' || it.facts?.holder !== 'me') return it;
-  const a = arrivalSettled({ outcome: r.outcome, dst: r.dst, cargo: it.facts.cargo }, sent.get(caravanKey(r)) ?? null);
+  const a = arrivalSettled({ outcome: r.outcome, dst: r.dst, cargo: it.facts.cargo }, sent.get(caravanKey(r)) ?? null, rules);
   return { ...it, facts: { ...it.facts, arrival: a } };
 }
 
@@ -268,7 +272,7 @@ function withArrival(it, r, sent) {
  * toSeq, toBell, horizonBell, caravans, partial, reset}` or `{ok: false, why:
  * 'gap' | 'nothing'}`.
  */
-export function summarize({ records: raw, read, marks: given, last, season, wallet, nowBell, headSeq = null, me }) {
+export function summarize({ records: raw, read, marks: given, last, season, wallet, nowBell, headSeq = null, me, rules = {} }) {
   const norm = normalizeRecords(raw);
   const records = norm.records;
   const ahead = !!given && big(headSeq) !== null && big(given.confirmedSeq) > big(headSeq);
@@ -291,7 +295,7 @@ export function summarize({ records: raw, read, marks: given, last, season, wall
   // who holds each caravan, record by record, from the mark's own book on
   const book = caravanBook(marks?.caravans ?? {}, []), sent = new Map(), items = [], want = new Set(inRange);
   for (const x of records) {
-    const it = want.has(x) ? withArrival(itemOf(x, me, book), x.record, sent) : null;
+    const it = want.has(x) ? withArrival(itemOf(x, me, book), x.record, sent, rules) : null;
     if (it) items.push(it);
     fold(book, x.record);
     foldSent(sent, x.record);

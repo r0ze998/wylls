@@ -27,7 +27,7 @@ test('04 cancel: three stages said apart; a stage not received is "not received"
   assert.match(SV.cancelView({ stage: 'awaitSigned' }).text, /件数は受け取っていません/);
 });
 
-test('a caravan\'s arrival in five states: overdue is not arrived, settled-unverified shows no amount as taken in, verified part, verified all, lost', () => {
+test('a caravan\'s arrival in its states: overdue is not arrived, settled-unverified shows no amount as taken in, verified part, verified all, lost', () => {
   setLang('ja');
   const o = SV.arrivalView({ state: 'overdue', bell: 292 });
   assert.deepEqual([o.key, o.symbol], ['arrival:overdue', '…']);
@@ -37,16 +37,21 @@ test('a caravan\'s arrival in five states: overdue is not arrived, settled-unver
   assert.deepEqual([v.key, v.symbol], ['arrival:settledUnverified:vault', '?']);
   assert.match(v.text, /決着しました。入った量はまだ確かめられていません/);
   assert.match(v.details.join(), /倉庫は上限を超えた分を切り捨てます。決着の記録には元の積荷（食料 400）が載る/);
-  assert.match(SV.arrivalView({ state: 'settledUnverified', why: 'sentUnknown', recorded: C(352) }).details.join(), /村に入った量は記録どおりです（食料 352）。送った記録を読めていない/);
+  assert.match(SV.arrivalView({ state: 'settledUnverified', why: 'rulesUnknown', recorded: C(352) }).details.join(), /このシーズンのプログラムの版では、入った量の確かめ方を確認していません/);
+  const k = SV.arrivalView({ state: 'verifiedIntake', intake: C(352), compare: 'sentUnknown' });
+  assert.deepEqual([k.key, k.symbol], ['arrival:verifiedIntake:sentUnknown', '○']);
+  assert.match([k.text, ...k.details].join(), /村に入った量：食料 352.*送付記録を読めていないため、送った量の全部か一部かは比べられません.*数量は記録の単位です/);
+  assert.equal(SV.arrivalView({ state: 'verifiedIntake', intake: C(1) }).ok, false, 'an intake says why it is not compared');
   assert.equal(SV.arrivalView({ state: 'settledUnverified' }).ok, false, 'an unverified arrival says why');
-  const p = SV.arrivalView({ state: 'verifiedPartial', sent: C(400), arrived: C(100) });
+  const p = SV.arrivalView({ state: 'verifiedPartial', basis: 'sentRecord', sent: C(400), arrived: C(100) });
   assert.deepEqual([p.key, p.symbol], ['arrival:verifiedPartial', '◐']);
-  assert.match(p.text, /一部が入りました：食料 100/);
-  assert.match(p.details.join(), /送った量：食料 400.*差の理由は、記録で確かめるまで決めません/);
-  assert.equal(SV.arrivalView({ state: 'verifiedPartial', arrived: C(100) }).ok, false, 'a partial arrival needs what was sent');
-  const f = SV.arrivalView({ state: 'verifiedFull', arrived: C(400), wornBps: 250 });
+  assert.match(p.text, /送付記録の数量に対して一部が入りました：食料 100/);
+  assert.match(p.details.join(), /送付記録の数量：食料 400.*差の理由は、記録で確かめるまで決めません/);
+  assert.equal(SV.arrivalView({ state: 'verifiedPartial', basis: 'sentRecord', arrived: C(100) }).ok, false, 'a partial arrival needs what was sent');
+  assert.equal(SV.arrivalView({ state: 'verifiedFull', sent: C(1), arrived: C(1) }).ok, false, 'full or partial only with its basis named');
+  const f = SV.arrivalView({ state: 'verifiedFull', basis: 'sentRecord', sent: C(400), arrived: C(400), wornBps: 250 });
   assert.equal(f.symbol, '●');
-  assert.match([f.text, ...f.details].join(), /全部入りました：食料 400.*送り出すときに物見櫓で 2.5% 減っています/);
+  assert.match([f.text, ...f.details].join(), /送付記録の数量に対して全量が入りました：食料 400.*比べた基準は送付記録の数量です.*最初に積んだ量と経路の損失は、この記録からは確定しません.*経路の減少率 2\.5% が記されています/);
   const l = SV.arrivalView({ state: 'lost', recorded: C(400) });
   assert.deepEqual([l.symbol, l.tone], ['✕', 'loss']);
   assert.match([l.text, ...l.details].join(), /積荷は失われました：食料 400.*確定/);
@@ -91,7 +96,7 @@ test('a status line says its state with a symbol and words (role=status), and ha
   setLang('en');
   const all = [SV.cancelView({ stage: 'stopNew' }), SV.cancelView({ stage: 'awaitSigned', signedPending: 1 }), SV.cancelView({ stage: 'cancelled', settled: [] }), SV.arrivalView({ state: 'overdue', bell: 3 }),
     ...SV.UNVERIFIED_WHY.map(why => SV.arrivalView({ state: 'settledUnverified', why, recorded: C(2) })), SV.arrivalView({ state: 'lost', recorded: C(2) }),
-    SV.arrivalView({ state: 'verifiedPartial', sent: C(4), arrived: C(1), wornBps: 100 }), SV.arrivalView({ state: 'verifiedFull', arrived: C(4) }), ...SV.COST_PHASES.map(phase => SV.costView({ phase, amounts: C(1) })), SV.costView({ phase: 'unsettled' }),
+    SV.arrivalView({ state: 'verifiedPartial', basis: 'sentRecord', sent: C(4), arrived: C(1), wornBps: 100 }), SV.arrivalView({ state: 'verifiedFull', basis: 'sentRecord', sent: C(4), arrived: C(4) }), ...SV.COMPARE_WHY.map(compare => SV.arrivalView({ state: 'verifiedIntake', intake: C(2), compare })), ...SV.COST_PHASES.map(phase => SV.costView({ phase, amounts: C(1) })), SV.costView({ phase: 'unsettled' }),
     SV.manualView({ signedPending: 2 }), SV.manualView({}), SV.manualView({ signedPending: 0 }), SV.cancelView({})];
   for (const v of all) assert.doesNotMatch([v.text, ...v.details].join(' '), jp, `${v.key}: ${v.text}`);
   setLang('ja');
