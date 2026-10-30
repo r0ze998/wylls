@@ -1,4 +1,4 @@
-# 0006 ④ の実行台帳とつなぐ口（提案。未確定・未適用）
+# 0006 ④ の実行台帳とつなぐ口（③の側は採用・実装済み。④との契約は未確定）
 
 **状態（2026-10-30 更新）：** ③の側は採用して実装した（`mcp/src/receipt-port.mjs`、適合試験 `mcp/test/port-conformance.mjs`、[13](../13-runreceipt-port.ja.md)）。④との契約は未確定のまま。
 
@@ -10,7 +10,7 @@
 |---|---|---|
 | `ports.mjs` `receiptOf(op)` | 操作の状態を受領証の形にする（`wylls.mock-run-receipt/0`） | ④の受領証を返す（③は自分の形を作らない） |
 | `ports.mjs` `cancellationOf(link, ops)` | 取消の 3 区分（新規要求の停止、照合待ち、完了） | ④の取消状態を読む |
-| `server.mjs` `arrivalOf(op)` | 輸送の終わりと到着量（`unverified` / `none`）を分ける | ④の「到着量の未検証」の状態を読む |
+| `receipt-port.mjs` `arrivalOf(op)`（`server.mjs` から移した） | 輸送の終わりと到着量（`unverified` / `none`）を分ける | ④の「到着量の未検証」の状態を読む |
 | `server.mjs` `track(op)` / `evidence(op)` | チェーンと herald から状態を進める（問い合わせのたびに） | ④が状態を進めるなら、③は照会するだけにする |
 | `server.mjs` `ownerOperations(owner)` | 取消の後の所有者の照会（署名つき） | ④の照会の API に、所有者の確認（署名）を付けて渡す |
 
