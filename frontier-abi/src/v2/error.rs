@@ -1,5 +1,6 @@
-//! ABI v2 error codes (MC contract §5.3), **stable forever**: 62–78 (MC)
-//! and 79–86 (S1, 1b), beside
+//! ABI v2 error codes (MC contract §5.3), **stable forever**: 62–78 (MC),
+//! 79–93 (S1) and 94–98 (custody, workstream 10; the space ends below
+//! M1's 99), beside
 //! M1's 1–61 and 99 ([`crate::error::FrontierError`], unchanged).
 //!
 //! The program returns `ProgramError::Custom(code)` for either enum;
@@ -82,10 +83,23 @@ pub enum CqError {
     /// vote on a closed one, a settle of an open one, a second open
     /// proposal of the proposer, a target that does not qualify).
     ProposalState = 93,
+    /// Custody: the vault has no room for the quota, or the lot for the
+    /// caravan (room is reserved at departure).
+    CustodyCapacity = 94,
+    /// Custody: no free order or inbound slot in the lot.
+    CustodyNoSlot = 95,
+    /// Custody: the order has expired, or would run too long.
+    OrderExpired = 96,
+    /// Custody: the lot's vault was seized (another generation): only
+    /// ReconcileLot applies.
+    LotForfeited = 97,
+    /// Custody: the lot still holds goods, expects a caravan or has a live
+    /// order; or a quota below what it holds and expects.
+    LotNotEmpty = 98,
 }
 
 impl CqError {
-    pub const ALL: [CqError; 32] = {
+    pub const ALL: [CqError; 37] = {
         use CqError::*;
         [
             CapturePending,
@@ -120,6 +134,11 @@ impl CqError {
             ProposalsFull,
             NotVoter,
             ProposalState,
+            CustodyCapacity,
+            CustodyNoSlot,
+            OrderExpired,
+            LotForfeited,
+            LotNotEmpty,
         ]
     };
 
@@ -166,6 +185,11 @@ impl CqError {
             ProposalsFull => "ProposalsFull",
             NotVoter => "NotVoter",
             ProposalState => "ProposalState",
+            CustodyCapacity => "CustodyCapacity",
+            CustodyNoSlot => "CustodyNoSlot",
+            OrderExpired => "OrderExpired",
+            LotForfeited => "LotForfeited",
+            LotNotEmpty => "LotNotEmpty",
         }
     }
 
@@ -260,8 +284,10 @@ mod tests {
         }
         assert_eq!(CqError::NotLead.code(), 78);
         let all: std::vec::Vec<u32> = all_codes().map(|c| c.code()).collect();
-        assert_eq!(all.len(), 62 + 32);
+        assert_eq!(all.len(), 62 + 37);
         assert_eq!(CqError::ProposalState.code(), 93);
+        // Custody fills the space up to M1's 99.
+        assert_eq!(CqError::LotNotEmpty.code(), 98);
         assert_eq!(CqError::NotOnTile.code(), 86);
         assert_eq!(CqError::StructureFull.code(), 89);
         assert!(all.windows(2).all(|w| w[0] < w[1]), "code order");
@@ -276,7 +302,11 @@ mod tests {
         assert_eq!(Code::from_code(79), Some(Code::Cq(CqError::VaultSite)));
         assert_eq!(Code::from_code(87), Some(Code::Cq(CqError::StructureSite)));
         assert_eq!(Code::from_code(91), Some(Code::Cq(CqError::ProposalsFull)));
-        assert_eq!(Code::from_code(94), None);
+        assert_eq!(
+            Code::from_code(94),
+            Some(Code::Cq(CqError::CustodyCapacity))
+        );
+        assert_eq!(Code::from_code(98), Some(Code::Cq(CqError::LotNotEmpty)));
         assert_eq!(
             Code::Cq(CqError::FoldTooEarly).keeper_action(),
             KeeperAction::Wait

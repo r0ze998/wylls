@@ -1,6 +1,7 @@
 //! ABI v2 instruction tags (MC contract §5.4): M1's 51 tags unchanged
-//! plus 0xA0–0xA3 and 0xA5–0xA7 (MC), 0xB0–0xBE (S1) and 0xC0 (S1's
-//! FastForward, map growth). 0xA4 (CollectTribute, M3) and 0xA8–0xAF
+//! plus 0xA0–0xA3 and 0xA5–0xA7 (MC), 0xB0–0xBE (S1), 0xC0 (S1's
+//! FastForward, map growth) and 0xC1–0xCB (custody, workstream 10;
+//! provisional numbers). 0xA4 (CollectTribute, M3) and 0xA8–0xAF
 //! (Settler march, SettleFounding, Raid, AutoReinforce) are reserved.
 //!
 //! **Staged (v1.1, R-16):** v1's [`crate::tags::Ix`] keeps its 50 variants
@@ -12,7 +13,8 @@ use crate::tags::Class;
 
 macro_rules! tags_v2 {
     ($( $name:ident = $tag:literal, $class:ident, $top:literal; )*) => {
-        /// Every ABI v2 instruction (74: M1's 51, MC's 7 and S1's 16).
+        /// Every ABI v2 instruction (85: M1's 51, MC's 7, S1's 16 and
+        /// custody's 11).
         #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
         #[repr(u8)]
         pub enum Ix { $( $name = $tag, )* }
@@ -124,6 +126,19 @@ tags_v2! {
     RaidDomestic = 0xBE, P, false;
     // S1 (map growth: a resting Province advanced in closed form)
     FastForward = 0xC0, D, true;
+    // Custody (workstream 10): lots kept in another's vault, carriers and
+    // users within the owner's orders.
+    OpenLot = 0xC1, P, false;
+    SetLotQuota = 0xC2, P, false;
+    DepositLot = 0xC3, P, false;
+    SetLotOrder = 0xC4, P, false;
+    RevokeLotOrder = 0xC5, P, false;
+    ShipLot = 0xC6, P, false;
+    SettleCustody = 0xC7, D, false;
+    ConsumeLot = 0xC8, P, false;
+    ReconcileLot = 0xC9, D, false;
+    CloseLot = 0xCA, P, false;
+    WithdrawLot = 0xCB, P, false;
 }
 
 impl Ix {
@@ -158,6 +173,26 @@ impl Ix {
         Ix::FortGarrison,
         Ix::FastForward,
     ];
+
+    /// The custody instructions (workstream 10).
+    pub const CUSTODY: [Ix; 11] = [
+        Ix::OpenLot,
+        Ix::SetLotQuota,
+        Ix::DepositLot,
+        Ix::SetLotOrder,
+        Ix::RevokeLotOrder,
+        Ix::ShipLot,
+        Ix::SettleCustody,
+        Ix::ConsumeLot,
+        Ix::ReconcileLot,
+        Ix::CloseLot,
+        Ix::WithdrawLot,
+    ];
+
+    /// Whether the instruction is custody's.
+    pub const fn is_custody(self) -> bool {
+        self.tag() >= 0xC1 && self.tag() <= 0xCB
+    }
 
     /// Whether the instruction is S1's.
     pub const fn is_s1(self) -> bool {
@@ -276,8 +311,24 @@ mod tests {
 
     #[test]
     fn v2_extends_m1() {
-        assert_eq!(Ix::ALL.len(), 74);
-        assert_eq!(crate::tags::Ix::ALL_V2.len(), 74);
+        assert_eq!(Ix::ALL.len(), 85);
+        assert_eq!(crate::tags::Ix::ALL_V2.len(), 85);
+        for ix in Ix::CUSTODY {
+            assert!(
+                ix.is_custody() && ix.is_s1() && ix.is_new(),
+                "{}",
+                ix.name()
+            );
+            assert!(
+                !relay_player_shape(ix) && !relay_settle_shape(ix),
+                "{}",
+                ix.name()
+            );
+        }
+        assert_eq!(
+            Ix::ALL.iter().filter(|i| i.is_custody()).count(),
+            Ix::CUSTODY.len()
+        );
         for v1 in crate::tags::Ix::ALL {
             let v = Ix::of_v1(*v1);
             assert_eq!(v.tag(), v1.tag());

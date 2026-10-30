@@ -18,8 +18,8 @@ use permutation_rules::hash::sha256;
 
 pub use crate::log::{next_head, LINK_LEN, PREFIX, SOFT_BODY_MAX};
 
-/// Chained entity kinds of a v2 tail: M1's 1–7, MarchState 8 and S1's
-/// Vault 9, Caravan 10, Structure 11, Nation 12.
+/// Chained entity kinds of a v2 tail: M1's 1–7, MarchState 8, S1's
+/// Vault 9, Caravan 10, Structure 11, Nation 12, and custody's Lot 13.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(u8)]
 pub enum EntityKind {
@@ -39,10 +39,12 @@ pub enum EntityKind {
     Structure = 11,
     /// S1 (1e).
     Nation = 12,
+    /// Workstream 10 (custody).
+    Lot = 13,
 }
 
 impl EntityKind {
-    pub const ALL: [EntityKind; 12] = [
+    pub const ALL: [EntityKind; 13] = [
         EntityKind::Season,
         EntityKind::Frontier,
         EntityKind::JoinShard,
@@ -55,6 +57,7 @@ impl EntityKind {
         EntityKind::Caravan,
         EntityKind::Structure,
         EntityKind::Nation,
+        EntityKind::Lot,
     ];
     pub fn from_u8(v: u8) -> Option<EntityKind> {
         Self::ALL.iter().copied().find(|k| *k as u8 == v)
@@ -77,6 +80,7 @@ impl EntityKind {
             EntityKind::Caravan => A::Caravan,
             EntityKind::Structure => A::Structure,
             EntityKind::Nation => A::Nation,
+            EntityKind::Lot => A::Lot,
         }
     }
 }
@@ -143,6 +147,15 @@ cq_kinds! {
     RAID_OPENED = 101; key ["owner_tag": 8, "seq": 4]; payload ["p": 4, "q": 4, "bell": 4, "raider_host": 8, "raider_tag": 8, "domestic": 1];
     FORT_GARRISONED = 102; key ["p": 4, "q": 4, "tile": 1]; payload ["owner_tag": 8, "troops": 4, "pend_bell": 4, "pend": 2, "holding_key": 8];
     REST = 103; key ["p": 4, "q": 4, "from": 4]; payload ["to": 4, "holder": 1, "territory": 4, "spawns": 1, "digest": 32];
+    LOT_OPENED = 104; key ["lot": 15]; payload ["custodian_tag": 8, "quota": 8];
+    LOT_QUOTA = 105; key ["lot": 15]; payload ["quota": 8];
+    LOT_INBOUND = 106; key ["owner_tag": 8, "seq": 4]; payload ["lot": 15, "sent": 8, "worn": 8, "from_lot": 1];
+    LOT_SHIPPED = 107; key ["owner_tag": 8, "seq": 4]; payload ["lot": 15, "sent": 8, "worn": 8, "to_lot": 1, "order_id": 4, "carrier_tag": 8];
+    LOT_SETTLED = 108; key ["owner_tag": 8, "seq": 4]; payload ["lot": 15, "delivered": 8, "burned": 8, "dest_gone": 8];
+    LOT_ORDER = 109; key ["lot": 15]; payload ["slot": 1, "id": 4, "kind": 1, "grantee_tag": 8, "qty": 8, "expires_bell": 4, "dst": 8, "purpose": 2];
+    LOT_REVOKED = 110; key ["lot": 15]; payload ["slot": 1, "id": 4, "released": 8];
+    LOT_CONSUMED = 111; key ["lot": 15]; payload ["id": 4, "user_tag": 8, "qty": 8, "purpose": 2];
+    LOT_LOSS = 112; key ["lot": 15]; payload ["cause": 1, "qty": 8, "to_tag": 8, "caravan_tag": 8, "caravan_seq": 4];
 }
 
 /// S1 caravan places as logged (8 B): `kind u8 ‖ p i16 ‖ q i16 ‖
@@ -475,6 +488,44 @@ pub enum EntityRefV2 {
     Structure { p: i32, q: i32, tile: u8 },
     /// S1 (1e): a faction's Nation.
     Nation { faction: u8 },
+    /// Custody: a Lot by its raw key (`v2::addr::lot_seed`).
+    Lot(LotKey),
+}
+
+/// A Lot's address key (workstream 10).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LotKey {
+    pub p: i16,
+    pub q: i16,
+    pub tile: u8,
+    pub gen: u8,
+    pub owner_tag: u64,
+    pub resource: u8,
+}
+
+impl LotKey {
+    /// The 15-byte raw key (a record's key, a CLOSE key's tail).
+    pub fn raw(&self) -> [u8; 15] {
+        permutation_rules::frontier::custody::layout::lot_raw_key(
+            self.p,
+            self.q,
+            self.tile,
+            self.gen,
+            self.owner_tag,
+            self.resource,
+        )
+    }
+
+    pub fn read(b: &[u8]) -> Option<LotKey> {
+        Some(LotKey {
+            p: rd_i16(b, 0)?,
+            q: rd_i16(b, 2)?,
+            tile: rd_u8(b, 4)?,
+            gen: rd_u8(b, 5)?,
+            owner_tag: rd_u64(b, 6)?,
+            resource: rd_u8(b, 14)?,
+        })
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -545,6 +596,16 @@ pub fn chains_of(kind: AnyKind, key: &[u8], payload: &[u8]) -> Option<Chains> {
         {
             let (p, q, tile) = (rd_i32(key, 1)?, rd_i32(key, 5)?, *key.get(9)?);
             c.push(E::Vault, Vault { p, q, tile }, false);
+            return Some(c);
+        }
+        AnyKind::V1(crate::log::Kind::CLOSE)
+            if key.first() == Some(&(crate::v2::layout::AccountKind::Lot as u8)) =>
+        {
+            c.push(
+                E::Lot,
+                EntityRefV2::Lot(LotKey::read(key.get(1..16)?)?),
+                false,
+            );
             return Some(c);
         }
         AnyKind::V1(crate::log::Kind::CLOSE)
@@ -814,9 +875,55 @@ pub fn chains_of(kind: AnyKind, key: &[u8], payload: &[u8]) -> Option<Chains> {
             let (p, q) = pq()?;
             c.push(E::Province, Base(EntityRef::Province { p, q }), false);
         }
+        // Custody (workstream 10). A lot's records chain the lot; those
+        // that change the vault's counts or stock chain the vault too.
+        CqKind::LOT_OPENED => {
+            let k = LotKey::read(key)?;
+            let me = CitizenRef::Tag8(rd_u64(pay("custodian_tag")?, 0)?);
+            c.push(E::Citizen, Base(EntityRef::Citizen(me)), false);
+            c.push(E::Vault, lot_vault(&k), false);
+            c.push(E::Lot, EntityRefV2::Lot(k), false);
+        }
+        CqKind::LOT_QUOTA => {
+            let k = LotKey::read(key)?;
+            c.push(E::Vault, lot_vault(&k), false);
+            c.push(E::Lot, EntityRefV2::Lot(k), false);
+        }
+        CqKind::LOT_INBOUND | CqKind::LOT_SHIPPED | CqKind::LOT_SETTLED => {
+            let k = LotKey::read(pay("lot")?)?;
+            c.push(E::Lot, EntityRefV2::Lot(k), false);
+        }
+        CqKind::LOT_ORDER | CqKind::LOT_REVOKED | CqKind::LOT_CONSUMED => {
+            c.push(E::Lot, EntityRefV2::Lot(LotKey::read(key)?), false);
+        }
+        CqKind::LOT_LOSS => {
+            let k = LotKey::read(key)?;
+            if pay("cause")?[0] == lot_loss::SEIZED {
+                c.push(E::Vault, lot_vault(&k), false);
+            }
+            c.push(E::Lot, EntityRefV2::Lot(k), false);
+        }
     }
     c.sort();
     Some(c)
+}
+
+/// The Vault a lot is in.
+fn lot_vault(k: &LotKey) -> EntityRefV2 {
+    EntityRefV2::Vault {
+        p: k.p as i32,
+        q: k.q as i32,
+        tile: k.tile,
+    }
+}
+
+/// `LOT_LOSS.cause` (the custody kernel's `Loss`).
+pub mod lot_loss {
+    pub const WORN: u8 = 1;
+    pub const BURNED: u8 = 2;
+    pub const RAIDED: u8 = 3;
+    pub const DESTINATION_GONE: u8 = 4;
+    pub const SEIZED: u8 = 5;
 }
 
 /// The chain link of a logged S1 place (a holding or a vault).
@@ -854,6 +961,15 @@ pub fn march_address(ctx: &crate::addr::AddrCtx, who: &EntityRefV2) -> Option<[u
             Some(crate::v2::addr::caravan(ctx, *owner_tag, *seq))
         }
         EntityRefV2::Nation { faction } => Some(crate::v2::addr::nation(ctx, *faction)),
+        EntityRefV2::Lot(k) => Some(crate::v2::addr::lot(
+            ctx,
+            k.p,
+            k.q,
+            k.tile,
+            k.gen,
+            k.owner_tag,
+            k.resource,
+        )),
         EntityRefV2::Base(b) => b.address(ctx),
     }
 }
@@ -995,6 +1111,13 @@ pub fn close_key_structure(p: i32, q: i32, tile: u8) -> [u8; 16] {
 }
 
 /// The CLOSE key of an S1 Caravan: account kind 20 ‖ `owner_tag, seq`.
+pub fn close_key_lot(k: &LotKey) -> [u8; 16] {
+    let mut b = [0u8; 16];
+    b[0] = crate::v2::layout::AccountKind::Lot as u8;
+    b[1..].copy_from_slice(&k.raw());
+    b
+}
+
 pub fn close_key_caravan(owner_tag: u64, seq: u32) -> [u8; 16] {
     let mut k = [0u8; 16];
     k[0] = crate::v2::layout::AccountKind::Caravan as u8;
@@ -1071,13 +1194,59 @@ mod tests {
                 k.body_len()
             );
         }
-        assert_eq!(CQ_SPECS.len(), 23, "MC's 9 and S1's 14");
+        assert_eq!(CQ_SPECS.len(), 32, "MC's 9, S1's 14 and custody's 9");
+        // LOT_LOSS's causes are the kernel's `Loss`.
+        use permutation_rules::frontier::custody::Loss;
+        assert_eq!(lot_loss::WORN, Loss::Worn as u8);
+        assert_eq!(lot_loss::BURNED, Loss::Burned as u8);
+        assert_eq!(lot_loss::RAIDED, Loss::Raided as u8);
+        assert_eq!(lot_loss::DESTINATION_GONE, Loss::DestinationGone as u8);
+        assert_eq!(lot_loss::SEIZED, Loss::Seized as u8);
         assert_eq!(AnyKind::Cq(CqKind::CONQUEST).body_len(), 137);
         assert_eq!(
             AnyKind::Cq(CqKind::CONQUEST).payload_len(),
             CONQUEST_PAYLOAD_LEN
         );
         assert!(CqKind::from_u8(RESERVED_KIND).is_none());
+    }
+
+    /// Custody records chain the lot (and the vault where its counts or
+    /// stock change); a lot's CLOSE chains the lot.
+    #[test]
+    fn custody_records_chain_the_lot() {
+        let k = LotKey {
+            p: -2,
+            q: 5,
+            tile: 17,
+            gen: 3,
+            owner_tag: 0xA1B2,
+            resource: 3,
+        };
+        let mut pay = [0u8; 16];
+        pay[..8].copy_from_slice(&7u64.to_le_bytes());
+        let c = chains_of(AnyKind::Cq(CqKind::LOT_OPENED), &k.raw(), &pay).unwrap();
+        let es: std::vec::Vec<_> = c.iter().map(|x| (x.entity, x.who)).collect();
+        assert_eq!(es.len(), 3);
+        assert_eq!(es[2], (EntityKind::Lot, EntityRefV2::Lot(k)));
+        assert_eq!(es[1].0, EntityKind::Vault);
+        let mut loss = [0u8; 29];
+        loss[0] = lot_loss::SEIZED;
+        assert_eq!(
+            chains_of(AnyKind::Cq(CqKind::LOT_LOSS), &k.raw(), &loss)
+                .unwrap()
+                .len,
+            2
+        );
+        loss[0] = lot_loss::RAIDED;
+        assert_eq!(
+            chains_of(AnyKind::Cq(CqKind::LOT_LOSS), &k.raw(), &loss)
+                .unwrap()
+                .len,
+            1
+        );
+        let close = chains_of(AnyKind::V1(V1Kind::CLOSE), &close_key_lot(&k), &[]).unwrap();
+        assert_eq!(close.iter().next().unwrap().who, EntityRefV2::Lot(k));
+        assert_eq!(LotKey::read(&k.raw()), Some(k));
     }
 
     #[test]

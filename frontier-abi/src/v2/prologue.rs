@@ -413,6 +413,152 @@ pub fn accounts_of(ix: Ix) -> &'static [Group] {
                 ]
             }
         }
+        // Custody (workstream 10; `workstreams/10-custody/02-contract.ja.md`
+        // §4). The lot's vault is read for its owner and generation; it is
+        // writable where its custody counts change or a record chains it.
+        Ix::OpenLot => {
+            const {
+                &[
+                    one!(PLAYER_PROLOGUE),
+                    one!(&[
+                        s!("vault", KindV2(K2::Vault), false, W),
+                        s!("owner_citizen", KindV2(K2::Citizen), false, R),
+                        s!("lot", KindV2(K2::Lot), false, W),
+                        SYSTEM,
+                    ]),
+                ]
+            }
+        }
+        Ix::SetLotQuota => {
+            const {
+                &[
+                    one!(PLAYER_PROLOGUE),
+                    one!(&[
+                        s!("vault", KindV2(K2::Vault), false, W),
+                        s!("lot", KindV2(K2::Lot), false, W),
+                    ]),
+                ]
+            }
+        }
+        Ix::DepositLot => {
+            const {
+                &[
+                    one!(PLAYER_PROLOGUE),
+                    one!(&[
+                        s!("src", EitherV2(K2::Holding, K2::Vault), false, W),
+                        s!("vault", KindV2(K2::Vault), false, R),
+                        s!("lot", KindV2(K2::Lot), false, W),
+                        s!("caravan", KindV2(K2::Caravan), false, W),
+                        SYSTEM,
+                    ]),
+                    rep!(&[s!("path_province", KindV2(K2::Province), false, W)], 1, 4),
+                ]
+            }
+        }
+        Ix::SetLotOrder => {
+            const {
+                &[
+                    one!(PLAYER_PROLOGUE),
+                    one!(&[
+                        s!("vault", KindV2(K2::Vault), false, R),
+                        s!("lot", KindV2(K2::Lot), false, W),
+                        s!("grantee_citizen", KindV2(K2::Citizen), false, R),
+                        s!("dst_vault", KindV2(K2::Vault), false, R),
+                    ]),
+                ]
+            }
+        }
+        Ix::RevokeLotOrder => {
+            const {
+                &[
+                    one!(PLAYER_PROLOGUE),
+                    one!(&[s!("lot", KindV2(K2::Lot), false, W)]),
+                ]
+            }
+        }
+        Ix::ShipLot => {
+            const {
+                &[
+                    one!(PLAYER_PROLOGUE),
+                    one!(&[
+                        s!("vault", KindV2(K2::Vault), false, W),
+                        s!("lot", KindV2(K2::Lot), false, W),
+                        s!("dst_vault", KindV2(K2::Vault), false, R),
+                        s!("dst_lot", KindV2(K2::Lot), false, W),
+                        s!("caravan", KindV2(K2::Caravan), false, W),
+                        SYSTEM,
+                    ]),
+                    rep!(&[s!("path_province", KindV2(K2::Province), false, W)], 1, 4),
+                ]
+            }
+        }
+        Ix::WithdrawLot => {
+            const {
+                &[
+                    one!(PLAYER_PROLOGUE),
+                    one!(&[
+                        s!("vault", KindV2(K2::Vault), false, W),
+                        s!("lot", KindV2(K2::Lot), false, W),
+                        s!("dst", EitherV2(K2::Holding, K2::Vault), false, R),
+                        s!("caravan", KindV2(K2::Caravan), false, W),
+                        SYSTEM,
+                    ]),
+                    rep!(&[s!("path_province", KindV2(K2::Province), false, W)], 1, 4),
+                ]
+            }
+        }
+        Ix::SettleCustody => {
+            const {
+                &[
+                    one!(&[
+                        FEE_PAYER,
+                        SEASON_R,
+                        s!("caravan", KindV2(K2::Caravan), false, W),
+                        s!("dst_vault", KindV2(K2::Vault), false, R),
+                        s!("lot", KindV2(K2::Lot), false, W),
+                        s!("beneficiary", Wallet, false, W),
+                        s!("rent_to", Wallet, false, W),
+                    ]),
+                    rep!(&[s!("path_province", KindV2(K2::Province), false, R)], 1, 4),
+                ]
+            }
+        }
+        Ix::ConsumeLot => {
+            const {
+                &[
+                    one!(PLAYER_PROLOGUE),
+                    one!(&[
+                        s!("vault", KindV2(K2::Vault), false, R),
+                        s!("lot", KindV2(K2::Lot), false, W),
+                    ]),
+                ]
+            }
+        }
+        Ix::ReconcileLot => {
+            const {
+                &[
+                    one!(&[
+                        FEE_PAYER,
+                        SEASON_R,
+                        s!("vault", KindV2(K2::Vault), false, W),
+                        s!("lot", KindV2(K2::Lot), false, W),
+                    ]),
+                    rep!(&[s!("caravan", KindV2(K2::Caravan), false, R)], 0, 4),
+                ]
+            }
+        }
+        Ix::CloseLot => {
+            const {
+                &[
+                    one!(PLAYER_PROLOGUE),
+                    one!(&[
+                        s!("vault", KindV2(K2::Vault), false, W),
+                        s!("lot", KindV2(K2::Lot), false, W),
+                        s!("rent_to", Wallet, false, W),
+                    ]),
+                ]
+            }
+        }
         Ix::DefaultRaid => {
             const {
                 &[

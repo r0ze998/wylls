@@ -2830,9 +2830,21 @@
           "ty": "[u8;32]"
         },
         {
-          "name": "RSV",
+          "name": "CUSTODY_QUOTA",
           "off": 232,
-          "len": 280,
+          "len": 64,
+          "ty": "[i64;8]"
+        },
+        {
+          "name": "CUSTODY_LOTS",
+          "off": 296,
+          "len": 2,
+          "ty": "u16"
+        },
+        {
+          "name": "RSV",
+          "off": 298,
+          "len": 214,
           "ty": "rsv"
         }
       ]
@@ -2987,10 +2999,34 @@
           "ty": "[u8;32]"
         },
         {
-          "name": "RSV",
+          "name": "CUSTODY",
           "off": 296,
-          "len": 24,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "CUSTODY_RESOURCE",
+          "off": 297,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "RSV_298",
+          "off": 298,
+          "len": 6,
           "ty": "rsv"
+        },
+        {
+          "name": "CUSTODY_OWNER_TAG",
+          "off": 304,
+          "len": 8,
+          "ty": "u64"
+        },
+        {
+          "name": "TAKEN_BY_TAG",
+          "off": 312,
+          "len": 8,
+          "ty": "u64"
         }
       ]
     },
@@ -3214,6 +3250,181 @@
           "name": "RSV",
           "off": 328,
           "len": 56,
+          "ty": "rsv"
+        }
+      ]
+    },
+    {
+      "kind": "Lot",
+      "code": 23,
+      "magic": "PSF1CLOT",
+      "size": 576,
+      "rent": 3576320,
+      "chained": true,
+      "changed_in_v2": true,
+      "seed_tag": "cl",
+      "raw_key_len": 15,
+      "fields": [
+        {
+          "name": "HDR_MAGIC",
+          "off": 0,
+          "len": 8,
+          "ty": "[u8;8]"
+        },
+        {
+          "name": "SEASON_ID",
+          "off": 8,
+          "len": 8,
+          "ty": "u64"
+        },
+        {
+          "name": "LAYOUT_VERSION",
+          "off": 16,
+          "len": 2,
+          "ty": "u16"
+        },
+        {
+          "name": "RSV_HEADER",
+          "off": 18,
+          "len": 6,
+          "ty": "rsv"
+        },
+        {
+          "name": "EVENT_SEQ",
+          "off": 24,
+          "len": 8,
+          "ty": "u64"
+        },
+        {
+          "name": "EVENT_HEAD",
+          "off": 32,
+          "len": 32,
+          "ty": "[u8;32]"
+        },
+        {
+          "name": "P",
+          "off": 64,
+          "len": 2,
+          "ty": "i16"
+        },
+        {
+          "name": "Q",
+          "off": 66,
+          "len": 2,
+          "ty": "i16"
+        },
+        {
+          "name": "TILE",
+          "off": 68,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "VAULT_GEN",
+          "off": 69,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "RESOURCE",
+          "off": 70,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "STATE",
+          "off": 71,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "OWNER_CITIZEN",
+          "off": 72,
+          "len": 32,
+          "ty": "[u8;32]"
+        },
+        {
+          "name": "OWNER_TAG",
+          "off": 104,
+          "len": 8,
+          "ty": "u64"
+        },
+        {
+          "name": "CUSTODIAN_TAG",
+          "off": 112,
+          "len": 8,
+          "ty": "u64"
+        },
+        {
+          "name": "QUOTA",
+          "off": 120,
+          "len": 8,
+          "ty": "i64"
+        },
+        {
+          "name": "HELD",
+          "off": 128,
+          "len": 8,
+          "ty": "i64"
+        },
+        {
+          "name": "IN_TOTAL",
+          "off": 136,
+          "len": 8,
+          "ty": "i64"
+        },
+        {
+          "name": "OUT_TOTAL",
+          "off": 144,
+          "len": 8,
+          "ty": "i64"
+        },
+        {
+          "name": "CONSUMED",
+          "off": 152,
+          "len": 8,
+          "ty": "i64"
+        },
+        {
+          "name": "FORFEITED",
+          "off": 160,
+          "len": 8,
+          "ty": "i64"
+        },
+        {
+          "name": "NONCE",
+          "off": 168,
+          "len": 4,
+          "ty": "u32"
+        },
+        {
+          "name": "OPENED_BELL",
+          "off": 172,
+          "len": 4,
+          "ty": "u32"
+        },
+        {
+          "name": "ORDERS",
+          "off": 176,
+          "len": 256,
+          "ty": "rec:LotOrder x4"
+        },
+        {
+          "name": "INBOUND",
+          "off": 432,
+          "len": 96,
+          "ty": "rec:LotInbound x4"
+        },
+        {
+          "name": "RENT_TO",
+          "off": 528,
+          "len": 32,
+          "ty": "[u8;32]"
+        },
+        {
+          "name": "RSV",
+          "off": 560,
+          "len": 16,
           "ty": "rsv"
         }
       ]
@@ -3793,6 +4004,102 @@
           "off": 60,
           "len": 4,
           "ty": "rsv"
+        }
+      ]
+    },
+    {
+      "name": "LotOrder",
+      "size": 64,
+      "fields": [
+        {
+          "name": "KIND",
+          "off": 0,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "RSV_1",
+          "off": 1,
+          "len": 1,
+          "ty": "rsv"
+        },
+        {
+          "name": "PURPOSE",
+          "off": 2,
+          "len": 2,
+          "ty": "u16"
+        },
+        {
+          "name": "ID",
+          "off": 4,
+          "len": 4,
+          "ty": "u32"
+        },
+        {
+          "name": "EXPIRES_BELL",
+          "off": 8,
+          "len": 4,
+          "ty": "u32"
+        },
+        {
+          "name": "DST",
+          "off": 12,
+          "len": 8,
+          "ty": "[u8;8]"
+        },
+        {
+          "name": "GRANTEE",
+          "off": 20,
+          "len": 32,
+          "ty": "[u8;32]"
+        },
+        {
+          "name": "RSV_52",
+          "off": 52,
+          "len": 4,
+          "ty": "rsv"
+        },
+        {
+          "name": "QTY_LEFT",
+          "off": 56,
+          "len": 8,
+          "ty": "i64"
+        }
+      ]
+    },
+    {
+      "name": "LotInbound",
+      "size": 24,
+      "fields": [
+        {
+          "name": "CARAVAN_TAG",
+          "off": 0,
+          "len": 8,
+          "ty": "u64"
+        },
+        {
+          "name": "SEQ",
+          "off": 8,
+          "len": 4,
+          "ty": "u32"
+        },
+        {
+          "name": "LIVE",
+          "off": 12,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "RSV_13",
+          "off": 13,
+          "len": 3,
+          "ty": "rsv"
+        },
+        {
+          "name": "QTY",
+          "off": 16,
+          "len": 8,
+          "ty": "i64"
         }
       ]
     },
