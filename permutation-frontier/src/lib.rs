@@ -90,7 +90,17 @@ pub use error::{CqError, Error, FrontierError, R};
 /// it refuses every MC Season and an MC program refuses every S1 Season
 /// (redesign 30, J5: stage 1 runs in a new season). MC seasons keep the MC
 /// release `.so`.
+///
+/// **Custody preview (workstream 10, feature `custody-preview`):** the
+/// binary is a different program: it embeds `RULESET_HASH_V4` and writes
+/// `program_version` 5, so it refuses every S1 Season, and dispatches the
+/// custody tags 0xC1–0xCB, which the S1 build refuses (`BadData`). Hash,
+/// version and dispatch switch together; there is no build that runs
+/// custody under the S1 hash.
+#[cfg(not(feature = "custody-preview"))]
 pub const RULESET_HASH: [u8; 32] = frontier_abi::v2::presets::RULESET_HASH_V3;
+#[cfg(feature = "custody-preview")]
+pub const RULESET_HASH: [u8; 32] = frontier_abi::v2::presets::RULESET_HASH_V4;
 
 /// The MC program's ruleset hash (`5fbaf678…1a8b`), for the record and the
 /// tests that show an MC Season is refused.
@@ -102,7 +112,10 @@ pub const RULESET_HASH_M1: [u8; 32] = frontier_abi::presets::RULESET_HASH;
 
 /// The rules version CreateSeason writes (`RULES_VERSION_FRONTIER_V3` 12,
 /// the S1 rules).
+#[cfg(not(feature = "custody-preview"))]
 pub const RULES_VERSION: u16 = frontier_abi::v2::presets::RULES_VERSION_S1;
+#[cfg(feature = "custody-preview")]
+pub const RULES_VERSION: u16 = frontier_abi::v2::presets::RULES_VERSION_CUSTODY;
 
 /// `sha256` of the beacon public key this binary verifies against: the
 /// quicknet group key, or the local test key in a `test-beacon` build
@@ -113,13 +126,21 @@ pub const QUICKNET_PK_HASH: [u8; 32] = crypto::quick::PK_HASH;
 /// with every deployable change. Version 3 integrates first homes and
 /// authoritative province-time scoring on the conquest layout (version 2);
 /// version 4 is the S1 program (the arms economy on the same layout).
-#[cfg(not(feature = "nft-experimental"))]
+#[cfg(not(any(feature = "nft-experimental", feature = "custody-preview")))]
 pub const PROGRAM_VERSION: u16 = frontier_abi::v2::presets::PROGRAM_VERSION_S1;
 /// The `nft-experimental` build carries its own program version, so its
 /// Seasons and the production Seasons never mix (workstream 4's allocation
 /// §4; the integrated value is 4's to set).
-#[cfg(feature = "nft-experimental")]
+#[cfg(all(feature = "nft-experimental", not(feature = "custody-preview")))]
 pub const PROGRAM_VERSION: u16 = 0x8000 | frontier_abi::v2::presets::PROGRAM_VERSION_S1;
+/// Workstream 10's custody preview: program version 5 with RULESET_HASH_V4.
+#[cfg(all(feature = "custody-preview", not(feature = "nft-experimental")))]
+pub const PROGRAM_VERSION: u16 = frontier_abi::v2::presets::PROGRAM_VERSION_CUSTODY;
+// Which version a program with both residents and custody carries is not
+// decided (workstream 4's allocation §2.6): refuse the combination rather
+// than pick one.
+#[cfg(all(feature = "custody-preview", feature = "nft-experimental"))]
+compile_error!("custody-preview and nft-experimental together: the program version is undecided (workstream 4)");
 
 /// Routes one instruction by its ABI v2 tag (M1 §5.5; MC contract §5.4:
 /// M1's 51 tags, 0xA0–0xA3, 0xA5–0xA7 and S1's 0xB0–0xBE). Unknown and reserved tags
@@ -241,21 +262,57 @@ pub fn dispatch(
         // S1 (map growth): a resting Province in closed form.
         Ix::FastForward => clash::fast_forward(p, a, data),
         Ix::ExtendFrontier => map::extend_frontier(p, a, data),
-        // Custody (workstream 10): lots, carriers and users.
-        Ix::OpenLot => custody::open_lot(p, a, data),
-        Ix::SetLotQuota => custody::set_lot_quota(p, a, data),
-        Ix::DepositLot => custody::deposit_lot(p, a, data),
-        Ix::SetLotOrder => custody::set_lot_order(p, a, data),
-        Ix::RevokeLotOrder => custody::revoke_lot_order(p, a, data),
-        Ix::ShipLot => custody::ship_lot(p, a, data),
-        Ix::SettleCustody => custody::settle_custody(p, a, data),
-        Ix::ConsumeLot => custody::consume_lot(p, a, data),
-        Ix::ReconcileLot => custody::reconcile_lot(p, a, data),
-        Ix::CloseLot => custody::close_lot(p, a, data),
-        Ix::WithdrawLot => custody::withdraw_lot(p, a, data),
+        // Custody (workstream 10): the `custody-preview` build only; the
+        // S1 build refuses the tags as it refuses a reserved tag.
+        Ix::OpenLot
+        | Ix::SetLotQuota
+        | Ix::DepositLot
+        | Ix::SetLotOrder
+        | Ix::RevokeLotOrder
+        | Ix::ShipLot
+        | Ix::SettleCustody
+        | Ix::ConsumeLot
+        | Ix::ReconcileLot
+        | Ix::CloseLot
+        | Ix::WithdrawLot => custody_dispatch(ix, p, a, data),
     };
     heap::trace_checkpoint(0xffff);
     r
+}
+
+/// The custody instructions (feature `custody-preview`); `BadData` in every
+/// other build.
+#[cfg(feature = "program")]
+fn custody_dispatch(
+    ix: frontier_abi::v2::tags::Ix,
+    p: &solana_program::pubkey::Pubkey,
+    a: &[solana_program::account_info::AccountInfo],
+    d: &[u8],
+) -> R<()> {
+    #[cfg(feature = "custody-preview")]
+    {
+        use frontier_abi::v2::tags::Ix;
+        use proc::custody;
+        match ix {
+            Ix::OpenLot => custody::open_lot(p, a, d),
+            Ix::SetLotQuota => custody::set_lot_quota(p, a, d),
+            Ix::DepositLot => custody::deposit_lot(p, a, d),
+            Ix::SetLotOrder => custody::set_lot_order(p, a, d),
+            Ix::RevokeLotOrder => custody::revoke_lot_order(p, a, d),
+            Ix::ShipLot => custody::ship_lot(p, a, d),
+            Ix::SettleCustody => custody::settle_custody(p, a, d),
+            Ix::ConsumeLot => custody::consume_lot(p, a, d),
+            Ix::ReconcileLot => custody::reconcile_lot(p, a, d),
+            Ix::CloseLot => custody::close_lot(p, a, d),
+            Ix::WithdrawLot => custody::withdraw_lot(p, a, d),
+            _ => Err(FrontierError::BadData.into()),
+        }
+    }
+    #[cfg(not(feature = "custody-preview"))]
+    {
+        let _ = (ix, p, a, d);
+        Err(FrontierError::BadData.into())
+    }
 }
 
 /// ResolveClash (0x62) exists only in the `oracle` build (tests); in every

@@ -77,6 +77,14 @@ pub const PROGRAM_VERSION_V2: u16 = 3;
 /// season as conquest (S1 keeps every MC rule); S1 behaviour is gated on
 /// `>= PROGRAM_VERSION_S1`.
 pub const PROGRAM_VERSION_S1: u16 = 4;
+/// `program_version` of an S1 season with custody (workstream 10, a
+/// preview: the `custody-preview` program build, never deployable as it
+/// stands). S1 behaviour stays gated on `>= PROGRAM_VERSION_S1`; custody on
+/// `>= PROGRAM_VERSION_CUSTODY`.
+pub const PROGRAM_VERSION_CUSTODY: u16 = 5;
+/// Rules version of S1 with custody (`RULES_VERSION_FRONTIER_V4` 13).
+pub const RULES_VERSION_CUSTODY: u16 = permutation_rules::frontier::RULES_VERSION_FRONTIER_V4;
+const _: () = assert!(PROGRAM_VERSION_CUSTODY > PROGRAM_VERSION_S1);
 /// Rules version of the S1 kernels (`RULES_VERSION_FRONTIER` 11 → 12).
 pub const RULES_VERSION_S1: u16 = permutation_rules::frontier::RULES_VERSION_FRONTIER_V3;
 /// `conquest_version` of the block.
@@ -125,6 +133,17 @@ pub const RULESET_HASH_V2: [u8; 32] = [
 pub const RULESET_HASH_V3: [u8; 32] = [
     0x23, 0x4c, 0x0d, 0xc2, 0x25, 0xe5, 0xce, 0x32, 0x36, 0x87, 0x75, 0x6b, 0x91, 0x3f, 0x78, 0xe3,
     0x30, 0x75, 0x7a, 0xbb, 0x96, 0x9d, 0xf2, 0x90, 0x74, 0x5e, 0xae, 0x1e, 0x9a, 0xae, 0x42, 0x2d,
+];
+
+/// `RULESET_HASH_V4` (workstream 10, a preview): the hash the
+/// `custody-preview` program embeds, pinned by
+/// `ruleset_hash_v4_is_the_kernels` against
+/// `permutation_rules::frontier::ruleset_hash_v4`. It is not
+/// `RULESET_HASH_V3`: a custody program refuses every S1 season, and the S1
+/// program (which has no custody instructions) refuses every custody one.
+pub const RULESET_HASH_V4: [u8; 32] = [
+    0x2f, 0x43, 0x0c, 0x06, 0x2f, 0xbc, 0x2f, 0x12, 0xf5, 0x87, 0xec, 0xfd, 0x46, 0xc3, 0x8e, 0x57,
+    0x2f, 0x30, 0x3a, 0xa4, 0xcb, 0x6a, 0xbc, 0x6b, 0x3d, 0x78, 0x15, 0x47, 0xfd, 0xf4, 0x86, 0x35,
 ];
 
 /// The conquest block (§5.2.5).
@@ -411,9 +430,10 @@ impl SeasonParamsV2 {
         })
     }
 
-    /// M1's ranges, `program_version` 3 (MC) or 4 (S1, same parameters),
-    /// the block's ranges and the dormancy timers agreeing in both parts.
-    /// The program refuses a version other than its own.
+    /// M1's ranges, `program_version` 3 (MC), 4 (S1) or 5 (S1 with
+    /// custody, same parameters), the block's ranges and the dormancy timers
+    /// agreeing in both parts. The program refuses a version other than its
+    /// own.
     pub fn validate(&self) -> Result<(), &'static str> {
         if self.cq.continuous > 1 {
             return Err("continuous");
@@ -421,6 +441,7 @@ impl SeasonParamsV2 {
         self.base.validate_world(self.cq.continuous == 1)?;
         if self.base.program_version != PROGRAM_VERSION_V2
             && self.base.program_version != PROGRAM_VERSION_S1
+            && self.base.program_version != PROGRAM_VERSION_CUSTODY
         {
             return Err("program_version");
         }
@@ -651,6 +672,17 @@ mod tests {
             [0x72, 0xc6, 0xb5, 0x83],
             "M1's RULESET_HASH is unchanged"
         );
+    }
+
+    #[test]
+    fn ruleset_hash_v4_is_the_kernels() {
+        assert_eq!(
+            RULESET_HASH_V4,
+            permutation_rules::frontier::ruleset_hash_v4(),
+            "the custody kernels changed: update RULESET_HASH_V4"
+        );
+        assert_ne!(RULESET_HASH_V4, RULESET_HASH_V3);
+        assert_eq!(RULES_VERSION_CUSTODY, 13);
     }
 
     #[test]

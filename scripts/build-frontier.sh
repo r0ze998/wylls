@@ -2,7 +2,7 @@
 # Reproducible SBPF v2 build of permutation-frontier (M1 contract §3.2),
 # ported from build-program.sh.
 #
-#   scripts/build-frontier.sh [--twice] [--features trace|oracle|test-beacon]
+#   scripts/build-frontier.sh [--twice] [--features trace|oracle|test-beacon|custody-preview]
 #
 # Plain build (the deployable artefact):
 #   permutation-frontier/target/deploy/permutation_frontier.so
@@ -12,14 +12,15 @@
 #     for permutation-frontier, [profile.release.package.permutation-frontier]
 #     in the root Cargo.toml; the rules crate stays unchecked for compute),
 #   - none of the test-build markers PSF_ORACLE_BUILD, PSF_TRACE_BUILD and
-#     PSF_TEST_BEACON_BUILD is in the file,
+#     PSF_TEST_BEACON_BUILD, nor PSF_CUSTODY_PREVIEW_BUILD (workstream 10,
+#     not deployable until verified), is in the file,
 #   - no R_SBF_64_RELATIVE relocation of a data section carries a non-zero
 #     low word: platform-tools v1.52 writes a pointer into the middle of a
 #     static object (e.g. a switch table of `&SPECS[i]`) as `(base << 32) |
 #     offset`, and the loader (solana-sbpf 0.21) uses the high word only,
 #     so such a pointer silently resolves to the object's start [measured,
 #     W2-A notes]. Every build is checked (feature builds too).
-# Feature builds are never deployable: --features trace|oracle|test-beacon
+# Feature builds are never deployable: --features trace|oracle|test-beacon|custody-preview
 # builds into permutation-frontier/target/deploy-<feature>/, requires that
 # feature's marker to be present (and the others absent), and prints
 # "deployable no".
@@ -49,8 +50,8 @@ while [ $# -gt 0 ]; do
   shift
 done
 case "$feature" in
-  ""|trace|oracle|test-beacon) ;;
-  *) echo "unknown feature: $feature (trace, oracle or test-beacon)" >&2; exit 2 ;;
+  ""|trace|oracle|test-beacon|custody-preview) ;;
+  *) echo "unknown feature: $feature (trace, oracle, test-beacon or custody-preview)" >&2; exit 2 ;;
 esac
 
 want="solana-cargo-build-sbf 3.1.9"
@@ -104,10 +105,10 @@ check() { # check <so>: the refusals; exit 3 on any
     bad=1
   fi
   local m want_m
-  for m in PSF_ORACLE_BUILD PSF_TRACE_BUILD PSF_TEST_BEACON_BUILD; do
+  for m in PSF_ORACLE_BUILD PSF_TRACE_BUILD PSF_TEST_BEACON_BUILD PSF_CUSTODY_PREVIEW_BUILD; do
     want_m=0
     case "$feature:$m" in
-      oracle:PSF_ORACLE_BUILD|trace:PSF_TRACE_BUILD|test-beacon:PSF_TEST_BEACON_BUILD) want_m=1 ;;
+      oracle:PSF_ORACLE_BUILD|trace:PSF_TRACE_BUILD|test-beacon:PSF_TEST_BEACON_BUILD|custody-preview:PSF_CUSTODY_PREVIEW_BUILD) want_m=1 ;;
     esac
     local n; n="$(count "$m" "$so")"
     if [ "$want_m" = 1 ] && [ "$n" -eq 0 ]; then echo "$so: marker $m missing from a --features $feature build" >&2; bad=1; fi
