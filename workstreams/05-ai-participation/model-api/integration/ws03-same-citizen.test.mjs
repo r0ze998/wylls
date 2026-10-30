@@ -109,7 +109,7 @@ test('with one shared capability (the only way both can act on one agent today):
     const v0 = await view();
     const mandate = { mandateId: 'ws03-x', version: 1, agentId: w.agent.agentId, basedOnPolicyVersion: v0.policy.version, purpose: '北方の守り', nation: L.NATION, from: ['Aster-officer'], allowed: ['Train'], partial: true,
       limits: { perRequest: { Food: 60, Ore: 20, Gold: 10 }, perDay: { Food: 600, Ore: 200, Gold: 100 }, troopsPerRequest: 100 }, expiresAt: L.f.NOW + 3_600, revokedAt: null };
-    ap = new L.Autopilot({ world, mandate, decider, journal: new L.RunJournal({ now: () => L.f.NOW * 1000 }), citizen, receipts, mcp: world.mcp });
+    ap = new L.Autopilot({ world, mandate, decider, journal: new L.RunJournal({ now: () => L.f.NOW * 1000 }), citizen, receipts, mcp: world.mcp, tokenCheck: await (await import('./ws03-harness.mjs')).tokenCheckFor() });
     await ap.start({ by: 'owner' });
     const t = await ap.tick();
     assert.equal(during?.state, 'accepted', `③'s second caravan: ${JSON.stringify(during).slice(0, 200)}`);

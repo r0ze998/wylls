@@ -21,6 +21,7 @@ import { DecisionRegistry } from '../src/inference.mjs';
 import { apiDecider } from '../src/api-decider.mjs';
 import { Autopilot } from '../src/autopilot.mjs';
 import { CitizenBoundary } from '../src/citizen-boundary.mjs';
+import { ProbeBudget } from '../src/access-check.mjs';
 import { localReceiptPort } from '../src/run-receipt.mjs';
 import { conformance } from '../src/run-receipt.conformance.mjs';
 import { tool } from '../../src/participate.mjs';
@@ -62,7 +63,9 @@ async function flow(name, adapter, model) {
     // The RunReceipt of every tick comes from the LOCAL ADAPTER (④'s RunReceipt not received); the owner keeps one
     // sponsored transaction a day (CitizenBoundary, ⑤'s side only: ③'s contract not received).
     const receipts = localReceiptPort({ view: async () => (await tool(w.mcp(), 'agent_view')).structuredContent, txState: w.txState, costs });
-    ap = new Autopilot({ world: w, mandate, decider, journal: new RunJournal({ now: () => w.state.clock * 1000 }), citizen: new CitizenBoundary({ ownerQuotaReserve: 1 }), receipts });
+    ap = new Autopilot({ world: w, mandate, decider, journal: new RunJournal({ now: () => w.state.clock * 1000 }), citizen: new CitizenBoundary({ ownerQuotaReserve: 1 }), receipts,
+      // The token check before start and resume: the quarantined gate-refusal probe, for this repository's relay tree only.
+      tokenCheck: { probe: { enabled: true, relayTree: '560f8659fdc091d6870c35539333acf59381acf8', budget: new ProbeBudget() } } });
     line(`\n## ${name}: configured ${model} (fixture id) over ${decider.name}`);
     line(`  [receipt] ${BOUNDARY.receipt}`);
 

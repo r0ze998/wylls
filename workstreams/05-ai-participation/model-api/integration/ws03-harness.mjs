@@ -7,7 +7,10 @@ import { pathToFileURL } from 'node:url';
 
 export const MCP = process.env.WS03_MCP;
 export const GW = process.env.WS03_GATEWAY_ROOT;
+/** The gateway tree under test, as the operator states it (git rev-parse of the applied tree; see RESTORE). */
+export const GW_TREE = process.env.WS03_GATEWAY_TREE ?? null;
 export const skip = !MCP || !GW ? 'needs WS03_MCP and WS03_GATEWAY_ROOT (the received ③ tree and a gateway tree with patch 0005)' : false;
+export const tokenCheckFor = async () => { const { ProbeBudget } = await import('../src/access-check.mjs'); return { probe: { enabled: true, relayTree: GW_TREE, budget: new ProbeBudget({ perDay: 20 }) } }; };
 
 export async function load() {
   const f = await import(pathToFileURL(path.join(MCP, 'test/fixture.mjs')).href);
@@ -57,7 +60,7 @@ export async function autopilotOver(L, w, capability, { script, budget = {} }) {
   const mandate = { mandateId: 'ws03-x', version: 1, agentId: w.agent.agentId, basedOnPolicyVersion: v0.policy.version, purpose: '北方の守り', nation: L.NATION, from: ['Aster-officer'], allowed: ['Train'], partial: true,
     limits: { perRequest: { Food: 60, Ore: 20, Gold: 10 }, perDay: { Food: 600, Ore: 200, Gold: 100 }, troopsPerRequest: 100 }, expiresAt: L.f.NOW + 3_600, revokedAt: null };
   const journal = new L.RunJournal({ now: () => L.f.NOW * 1000 });
-  ap = new L.Autopilot({ world, mandate, decider, journal, citizen, receipts, mcp: world.mcp });
+  ap = new L.Autopilot({ world, mandate, decider, journal, citizen, receipts, mcp: world.mcp, tokenCheck: await tokenCheckFor() });
   return { ap, srv, costs, receipts, view, world, decider, journal, mandate };
 }
 

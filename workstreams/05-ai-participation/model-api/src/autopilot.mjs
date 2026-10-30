@@ -12,8 +12,8 @@
 //
 // It guards one process: two Autopilot objects for one agent in this process are refused, but a second PROCESS is
 // not detected, so a second process is not safe (its reservations and its decision keys are its own).
-import { randomBytes } from 'node:crypto';
-import { participate, tool } from '../../src/participate.mjs';
+import { participate } from '../../src/participate.mjs';
+import { checkAccess } from './access-check.mjs';
 
 const RUNNING = new Map(); // agentId → Autopilot, this process only
 
@@ -26,32 +26,7 @@ function lastTickOf(journal, agentId) {
 }
 const scrub = (text, secret) => (secret ? String(text).split(secret).join('[capability]') : String(text));
 
-/**
- * Whether the autopilot may decide through `mcp` now, checked BEFORE any model call (start and resume):
- *   the target agent is the mandate's; the owner is the one this autopilot works for; the relay is in auto and the agent's
- *   key is the Citizen's session; every command the mandate delegates is still in the relay policy; and the token is the
- *   agent's current one.
- * The relay has no authenticated read (agent_view is public), so the token is checked by an agent_act that can never pass
- * the relay's gate: its policy version and mode epoch are both far off, so the relay authenticates it and then refuses it
- * at the gate (StalePolicy) — nothing is held, sent or added to the history (only an idempotency record is kept).
- * THIS IS A WORKAROUND over the existing relay; a read-only authenticated `agent_whoami` is a shared-code choice for ④.
- */
-export async function checkAccess(mcp, { mandate, owner = null }) {
-  const fail = (code, detail) => ({ ok: false, code, detail });
-  const v = (await tool(mcp, 'agent_view')).structuredContent;
-  if (!v || v.error) return fail('ViewFailed', v?.error?.code ?? 'agent_view did not answer');
-  if (mandate.agentId && v.agentId !== mandate.agentId) return fail('WrongAgent', 'the token\'s server reads another agent than the mandate\'s');
-  if (owner && v.owner !== owner) return fail('WrongOwner', 'the agent belongs to another owner than the one this autopilot works for');
-  if (v.mode !== 'auto') return fail('NotAuto', 'the owner has not switched the agent on (relay mode is not auto)');
-  if (v.delegation?.delegated !== true) return fail('NotDelegated', 'the agent\'s key is not the Citizen\'s session: the owner delegates it with their wallet; the autopilot never does');
-  const missing = (mandate.allowed ?? []).filter(n => !(v.policy?.allowed ?? []).includes(n));
-  if (missing.length) return fail('ScopeNarrowed', `the relay policy no longer allows ${missing.join(', ')}`);
-  const probe = await tool(mcp, 'agent_act', { requestId: `p05.probe.${randomBytes(8).toString('hex')}`, policyVersion: v.policy.version + 1_000_000, modeEpoch: v.modeEpoch + 1_000_000, action: { name: mandate.allowed?.[0] ?? 'Harvest', fields: {} }, reason: 'access check: cannot pass the gate' });
-  const code = probe.structuredContent?.error?.code ?? probe.structuredContent?.code ?? null;
-  if (code === 'BadCapability') return fail('BadCapability', 'the relay does not take this token for this agent');
-  if (code !== 'StalePolicy') return fail('ProbeInconclusive', `the access check answered ${code ?? 'without a code'}: not resuming`);
-  return { ok: true, owner: v.owner, agentId: v.agentId, policyVersion: v.policy.version, method: 'gate-refused probe (workaround; no authenticated read exists)' };
-}
+export { checkAccess } from './access-check.mjs';
 
 /** Where game operations go today, and what is NOT integrated. Carried in every status and record. */
 export const EXECUTION_PATH = Object.freeze({
@@ -88,7 +63,7 @@ export class Autopilot {
    * @param {object} [o.citizen]   CitizenBoundary (the owner's own client on the same Citizen goes first)
    * @param {object} [o.receipts]  a RunReceipt port (run-receipt.mjs); the local adapter until ④'s is received
    */
-  constructor({ world, mandate, decider, journal, citizen = null, receipts = null, mcp = null, mcpFor = null, owner = null }) {
+  constructor({ world, mandate, decider, journal, citizen = null, receipts = null, mcp = null, mcpFor = null, owner = null, tokenCheck = null }) {
     Object.assign(this, { w: world, mandate, decider, journal, citizen, receipts, state: 'idle', records: [], events: [] });
     /** The MCP server the autopilot acts through: by default the world's; pass one created with source 'ai' (patch 0003). */
     this.mcp = mcp ?? (() => world.mcp());
@@ -96,6 +71,8 @@ export class Autopilot {
     this.mcpFor = mcpFor;
     /** The owner this autopilot works for: fixed at the first successful start (or given), checked on every start and resume. */
     this.owner = owner;
+    /** How the token is checked before start and resume (access-check.mjs): {probe: {enabled, relayTree, budget}}; none → unverifiable → no start. */
+    this.tokenCheck = tokenCheck;
     // A restarted process continues the run ids of its journal: tick n+1, never a second "t1" with a different decision.
     this.ticks = lastTickOf(journal, world.agentId);
     this.scope = 'one process: a second Autopilot in this process is refused; a second process is NOT detected (not safe)';
@@ -107,7 +84,8 @@ export class Autopilot {
     const holder = RUNNING.get(this.w.agentId);
     if (holder && holder !== this) throw Object.assign(new Error('this agent already has an autopilot in this process'), { code: 'AlreadyRunning' });
     if (this.state === 'stopped-by-budget' || this.state === 'stopped-capability') throw Object.assign(new Error(`${this.state}: only the owner resumes`), { code: 'NeedsOwner' });
-    const a = await checkAccess(this.mcp(), { mandate: this.mandate, owner: this.owner });
+    const a = await checkAccess(this.mcp(), { mandate: this.mandate, owner: this.owner, probe: this.tokenCheck?.probe ?? null });
+    this.lastAccess = { ok: a.ok, code: a.code ?? null, method: a.method ?? null, sideEffects: a.sideEffects ?? null };
     if (!a.ok) { this.#event({ op: 'start', by, refused: a.code, why: a.detail }); throw Object.assign(new Error(a.detail), { code: a.code === 'NotAuto' || a.code === 'NotDelegated' ? 'NotReady' : a.code, check: a.code }); }
     this.owner ??= a.owner;
     RUNNING.set(this.w.agentId, this);
@@ -165,7 +143,7 @@ export class Autopilot {
     if (capability) {
       if (!this.mcpFor) throw Object.assign(new Error('no mcpFor: this autopilot cannot take a token'), { code: 'NoTokenPath' });
       const next = () => this.mcpFor(capability);
-      const a = await checkAccess(next(), { mandate: this.mandate, owner: this.owner });
+      const a = await checkAccess(next(), { mandate: this.mandate, owner: this.owner, probe: this.tokenCheck?.probe ?? null });
       if (!a.ok) { this.#event({ op: 'resume', by, note: safeNote, refused: a.code }); throw Object.assign(new Error(scrub(a.detail, capability)), { code: a.code }); }
       this.mcp = next;
     }

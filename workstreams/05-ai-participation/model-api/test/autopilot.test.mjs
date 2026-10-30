@@ -15,6 +15,7 @@ import { RunCostMock } from '../src/run-cost.mjs';
 import { DecisionRegistry } from '../src/inference.mjs';
 import { apiDecider, validateAnswer } from '../src/api-decider.mjs';
 import { Autopilot } from '../src/autopilot.mjs';
+import { tokenCheck } from './relay-tree.mjs';
 import { reconcileUndecided } from '../src/reconcile.mjs';
 import { startHttpFixture } from '../fixture/http-fixture.mjs';
 
@@ -32,7 +33,7 @@ async function setup({ adapter, model, script, world = {}, caps = {}, available 
   let ap;
   const decider = apiDecider({ adapter, model, transport: loopbackTransport({ baseUrl: srv.url, timeoutMs }), book: FIXTURE_BOOK(), costs, registry, runId: () => ap.currentRun, sleep: async () => {} });
   const mandate = mandateFor(w, { allowed: ['Train'], limits: { perRequest: { Food: 60, Ore: 20, Gold: 10 }, perDay: { Food: 600, Ore: 200, Gold: 100 }, troopsPerRequest: 100 } });
-  ap = new Autopilot({ world: { ...w, mcp: () => w.mcp() }, mandate, decider, journal: new RunJournal({ now: () => w.state.clock * 1000 }) });
+  ap = new Autopilot({ world: { ...w, mcp: () => w.mcp() }, mandate, decider, journal: new RunJournal({ now: () => w.state.clock * 1000 }), tokenCheck: tokenCheck() });
   return { srv, w, costs, decider, ap, registry, close: () => { ap.stop({ by: 'test' }); return srv.close(); } };
 }
 
@@ -186,7 +187,7 @@ test('one process: a second autopilot for the same agent is refused; the autopil
   const s = await setup({ adapter: anthropicAdapter, model: 'claude-fixture-model', script: body => ({ answer: firstRequest(body) }) });
   try {
     await s.ap.start({ by: 'owner' });
-    const other = new Autopilot({ world: s.w, mandate: s.ap.mandate, decider: s.decider, journal: new RunJournal() });
+    const other = new Autopilot({ world: s.w, mandate: s.ap.mandate, decider: s.decider, journal: new RunJournal(), tokenCheck: tokenCheck() });
     await assert.rejects(other.start({ by: 'owner' }), e => e.code === 'AlreadyRunning');
     assert.match(s.ap.status().scope, /second process is NOT detected/);
     for (const f of ['autopilot.mjs', 'api-decider.mjs', 'reconcile.mjs']) {

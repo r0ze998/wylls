@@ -68,3 +68,12 @@
 - 0002 と 0002b のどちらを使うかは④が決めます（`model-api/CONTRACT-DIFF-4.ja.md` §1）。
 
 **訂正：** 上の「③のパッチ 0005 は未受領」は受領前の記録です。2026-10-30 に受け取り、上のとおり照合しました。
+
+## 0004 読むだけの認証の口 `agent_whoami`（独立した変更候補、2026-10-30）
+
+`0004-agent-wallet-whoami.patch`：`gateway.mjs`（`whoami`）、`routes/agent.mjs`（`POST /f/agent/whoami`）、`app.mjs`（公開の経路と制限）、`mcp/agent-mcp.mjs`（ツール `agent_whoami`）、新しい試験 `agent-wallet-whoami.test.mjs`（3件）、`agent-wallet-mcp.test.mjs`（ツールの数の期待 4 → 5）。
+
+- 目的：capability が今の物かを、何も記録せずに確かめる。今の⑤の暫定策の probe（冪等の記録を1件残す）を要らなくする。
+- 確かめたこと：0004 だけで、`permutation-gateway` 全体が 2,532 件、通過 2,531、失敗 0、スキップ 1。状態ファイルの保存回数・冪等の記録・履歴が増えないことを試験で確かめた。
+- 当てる順：**0003 の後**（0004 → 0003 は当たらない）。組み合わせとツリーは `model-api/CONTRACT-DIFF-4.ja.md` §9。
+- 説明：`model-api/WHOAMI-PROPOSAL-4.ja.md`。採るかは④が決める。

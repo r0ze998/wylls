@@ -1,3 +1,4 @@
+// COMPOSITION: ③ real server + ⑤ real code + ④ STAND-IN + simulated chain. NOT a run with ④'s Rust executor connected.
 // Three clients on ONE Citizen and ONE agent, on the real relay: ③'s REAL MCP server (the owner's own operations),
 // ⑤'s autopilot (model behind the HTTP fixture), and a STAND-IN for ④'s executor (relay submit with ws04: keys).
 // Scenarios for ④ (CONTENTION-SCENARIOS.ja.md lists each with its invariant, and maps what other suites already cover):
@@ -181,7 +182,7 @@ test('C5 ⑤ restarted between ③\'s operations: the new process continues its 
       const b = await threeSend(three, 'req-c5-000002');       // ③ acts while ⑤ is down
       assert.equal((await b.send()).state, 'accepted');
       w.state.caravans = 2;
-      const restarted = new L.Autopilot({ world: five.world, mandate: five.mandate, decider: five.decider, journal: five.journal, citizen: new L.CitizenBoundary({ ownerQuotaReserve: 1 }), receipts: five.receipts, mcp: five.world.mcp });
+      const restarted = new L.Autopilot({ world: five.world, mandate: five.mandate, decider: five.decider, journal: five.journal, citizen: new L.CitizenBoundary({ ownerQuotaReserve: 1 }), receipts: five.receipts, mcp: five.world.mcp, tokenCheck: five.ap.tokenCheck });
       assert.equal(restarted.ticks, 1);
       await restarted.start({ by: 'owner' });
       const t2 = await restarted.tick();

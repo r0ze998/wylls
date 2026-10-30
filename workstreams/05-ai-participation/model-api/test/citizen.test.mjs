@@ -13,6 +13,7 @@ import { mandateFor } from '../../test/helpers.mjs';
 import { anthropicAdapter, openaiAdapter } from '../src/adapters.mjs';
 import { apiDecider } from '../src/api-decider.mjs';
 import { Autopilot } from '../src/autopilot.mjs';
+import { LOCAL_RELAY_TREE, tokenCheck } from './relay-tree.mjs';
 import { CitizenBoundary, actorOf } from '../src/citizen-boundary.mjs';
 import { loopbackTransport } from '../src/http-transport.mjs';
 import { DecisionRegistry } from '../src/inference.mjs';
@@ -40,7 +41,7 @@ async function setup({ adapter, model, script, citizen = new CitizenBoundary({ o
   const receipts = localReceiptPort({ view, txState: w.txState, costs });
   // ⑤ acts through its own MCP server, declaring source ai (taken only where patch 0003 is applied; ignored otherwise).
   const fiveMcp = () => createAgentMcp({ relay: 'http://relay.test', agentId: w.agentId, capability: w.capability, fetch: w.fetch, source: 'ai' });
-  ap = new Autopilot({ world: w, mandate, decider, journal: new RunJournal({ now: () => w.state.clock * 1000 }), citizen, receipts, mcp: fiveMcp });
+  ap = new Autopilot({ world: w, mandate, decider, journal: new RunJournal({ now: () => w.state.clock * 1000 }), citizen, receipts, mcp: fiveMcp, tokenCheck: tokenCheck(LOCAL_RELAY_TREE, 20) });
   // The owner's own MCP client on the same agent (the ③ stand-in): the default source mcp, its own requestIds.
   const owner = createAgentMcp({ relay: 'http://relay.test', agentId: w.agentId, capability: w.capability, fetch: w.fetch });
   const ownerAct = async id => { const v = await view(); return (await tool(owner, 'agent_act', { requestId: `o3.${id}`, policyVersion: v.policy.version, modeEpoch: v.modeEpoch, action: { name: 'Harvest', fields: {} } })).structuredContent; };
@@ -252,28 +253,50 @@ test('after a BadCapability stop: a resume checks the new token (agent, owner, s
   } finally { await s.close(); }
 });
 
-test('checkAccess (stub server): wrong agent, wrong owner, not auto, not delegated, narrowed scope, an inconclusive probe — and a probe that can never pass the gate', async () => {
-  const { checkAccess } = await import('../src/autopilot.mjs');
+test('checkAccess (stub server): agent, owner, mode, delegation, scope; the token is unverifiable without a read-only check or a verified relay tree; the probe is capped and must be refused', async () => {
+  const { checkAccess, ProbeBudget, VERIFIED_RELAY_TREES } = await import('../src/access-check.mjs');
   const view = { agentId: 'A', owner: 'O', mode: 'auto', modeEpoch: 3, delegation: { delegated: true }, policy: { version: 7, allowed: ['Train', 'Harvest'] } };
-  const stub = (over = {}, actCode = 'StalePolicy') => {
+  const stub = (over = {}, act = { ok: false, error: { code: 'StalePolicy' } }, tools = ['agent_view', 'agent_act']) => {
     const acts = [];
-    return { acts, handle: async m => { const { name, arguments: a } = m.params; if (name === 'agent_view') return { result: { structuredContent: { ...view, ...over } } }; acts.push(a); return { result: { structuredContent: { ok: false, error: { code: actCode } } } }; } };
+    return { acts, tools, handle: async m => { const { name, arguments: a } = m.params; if (name === 'agent_view') return { result: { structuredContent: { ...view, ...over } } }; if (name === 'agent_whoami') return { result: { structuredContent: act } }; acts.push(a); return { result: { structuredContent: act } }; } };
   };
   const mandate = { agentId: 'A', allowed: ['Train'] };
-  const ok = stub();
-  assert.equal((await checkAccess(ok, { mandate, owner: 'O' })).ok, true);
-  assert.ok(ok.acts[0].policyVersion >= 7 + 1_000_000 && ok.acts[0].modeEpoch >= 3 + 1_000_000, 'both far off: the gate refuses it even if the owner changes the policy meanwhile');
-  assert.match(ok.acts[0].requestId, /^p05\.probe\./);
-  const code = async (s, o = {}) => (await checkAccess(s, { mandate, owner: 'O', ...o })).code;
+  const probe = (relayTree = Object.keys(VERIFIED_RELAY_TREES)[0], perDay = 3) => ({ enabled: true, relayTree, budget: new ProbeBudget({ perDay }) });
+  const code = async (s, o = {}) => (await checkAccess(s, { mandate, owner: 'O', probe: probe(), ...o })).code;
   assert.equal(await code(stub({ agentId: 'B' })), 'WrongAgent');
   assert.equal(await code(stub({ owner: 'X' })), 'WrongOwner');
   assert.equal(await code(stub({ mode: 'manual' })), 'NotAuto');
   assert.equal(await code(stub({ delegation: { delegated: false } })), 'NotDelegated');
   assert.equal(await code(stub({ policy: { version: 7, allowed: ['Harvest'] } })), 'ScopeNarrowed');
-  assert.equal(await code(stub({}, 'BadCapability')), 'BadCapability');
-  assert.equal(await code(stub({}, 'SomethingElse')), 'ProbeInconclusive');
-  const sentAnyway = stub({}, null);
-  assert.equal(await code(sentAnyway), 'ProbeInconclusive', 'an answer without a refusal code is never taken as "valid"');
+  // No read-only check and no probe, or a relay tree not verified: unverifiable, and nothing is sent.
+  const none = stub();
+  assert.equal((await checkAccess(none, { mandate, owner: 'O' })).code, 'TokenUnverifiable');
+  assert.equal(await code(none, { probe: probe('0000000000000000000000000000000000000000') }), 'TokenUnverifiable');
+  assert.equal(none.acts.length, 0, 'no probe sent to an unverified relay');
+  // The probe: a never-delegated action, both numbers at the top of the accepted range.
+  const ok = stub();
+  const r = await checkAccess(ok, { mandate, owner: 'O', probe: probe() });
+  assert.equal(r.ok, true);
+  assert.equal(r.sideEffects, 'one idempotency record', 'never described as side-effect free');
+  assert.deepEqual([ok.acts[0].action.name, ok.acts[0].policyVersion, ok.acts[0].modeEpoch], ['SetSession', Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER]);
+  assert.match(ok.acts[0].requestId, /^p05\.probe\.[0-9a-f]{24}$/);
+  // Capped: a fourth probe the same day is refused before anything is sent.
+  const capped = stub();
+  const b = probe(undefined, 3);
+  for (let i = 0; i < 3; i++) assert.equal((await checkAccess(capped, { mandate, owner: 'O', probe: b })).ok, true);
+  assert.equal((await checkAccess(capped, { mandate, owner: 'O', probe: b })).code, 'ProbeLimit');
+  assert.equal(capped.acts.length, 3);
+  // Answers that are not a gate refusal are never taken as proof.
+  assert.equal(await code(stub({}, { ok: false, error: { code: 'BadCapability' } })), 'BadCapability');
+  assert.equal(await code(stub({}, { ok: true, status: 'sent' })), 'ProbeUnsafe');
+  assert.equal(await code(stub({}, { ok: false, error: { code: 'ActionNotAllowed' } })), 'TokenUnverifiable');
+  assert.equal(await code(stub({}, { ok: false, error: { code: 'AgentStopped' } })), 'TokenUnverifiable');
+  // A read-only agent_whoami (proposed patch 0004), where the server has it: used first, no probe sent.
+  const who = stub({}, { agentId: 'A', owner: 'O' }, ['agent_view', 'agent_act', 'agent_whoami']);
+  const w = await checkAccess(who, { mandate, owner: 'O', probe: probe() });
+  assert.deepEqual([w.ok, w.sideEffects], [true, 'none']);
+  assert.equal(who.acts.length, 0);
+  assert.equal(await code(stub({}, { error: { code: 'BadCapability' } }, ['agent_view', 'agent_act', 'agent_whoami'])), 'BadCapability');
 });
 
 test('a stop or cancel never releases an undecided inference cost; the cancel phase names the record it rests on; until stays null', async () => {
@@ -306,7 +329,7 @@ test('a restarted autopilot continues its journal\'s run ids (no second t1 with 
     s.ap.stop({ by: 'process exit' });
     const journal = s.ap.journal;
     // A new process: a new autopilot over the same journal (as a RunJournal file would give it).
-    const again = new Autopilot({ world: s.w, mandate: s.ap.mandate, decider: s.decider, journal, citizen: s.ap.citizen, receipts: localReceiptPort({ view: s.view, txState: s.w.txState, costs: s.costs }), mcp: s.ap.mcp });
+    const again = new Autopilot({ world: s.w, mandate: s.ap.mandate, decider: s.decider, journal, citizen: s.ap.citizen, receipts: localReceiptPort({ view: s.view, txState: s.w.txState, costs: s.costs }), mcp: s.ap.mcp, tokenCheck: s.ap.tokenCheck });
     assert.equal(again.ticks, 2);
     await again.start({ by: 'owner' });
     s.w.advance(60);
@@ -316,5 +339,53 @@ test('a restarted autopilot continues its journal\'s run ids (no second t1 with 
     assert.equal(new Set(journal.entries.filter(e => e.step === 'act-begin').map(e => e.attemptId)).size, journal.entries.filter(e => e.step === 'act-begin').length, 'no requestId begun twice');
     assert.ok(sends <= 3);
     again.stop({ by: 'test' });
+  } finally { await s.close(); }
+});
+
+test('the probe on the real relay: one idempotency record and nothing else; probe keys cannot meet real ones; a repeated key is a replay, not a send', async t => {
+  const { checkAccess, ProbeBudget } = await import('../src/access-check.mjs');
+  const { requestIdOf } = await import('../../src/participate.mjs');
+  const s = await setup({ adapter: openaiAdapter, model: 'gpt-fixture-model', script: body => ({ answer: answerFirst(body) }) });
+  try {
+    // On a relay with the read-only check (patch 0004) the probe is never sent: nothing to test here.
+    if (s.ap.mcp().tools?.includes('agent_whoami')) { t.skip('this relay has agent_whoami: checkAccess does not use the probe'); return; }
+    const rec = () => s.w.relay.gateway.ledger.get(s.w.agentId);
+    const before = { requests: Object.keys(rec().requests).length, history: rec().history.length, sent: s.w.sentCount(), view: await s.view() };
+    const mcp = s.ap.mcp();
+    const probe = { enabled: true, relayTree: LOCAL_RELAY_TREE, budget: new ProbeBudget({ perDay: 10 }), key: () => 'p05.probe.000000000000000000000001' };
+    const a = await checkAccess(mcp, { mandate: s.ap.mandate, probe });
+    assert.equal(a.ok, true, JSON.stringify(a));
+    const after = await s.view();
+    assert.equal(Object.keys(rec().requests).length, before.requests + 1, 'one idempotency record');
+    assert.equal(rec().history.length, before.history, 'no history entry');
+    assert.equal(s.w.sentCount(), before.sent, 'nothing sent');
+    assert.deepEqual([after.balance.reserved, after.balance.spent], [before.view.balance.reserved, before.view.balance.spent], 'nothing held or charged');
+    // The same key again: the relay authenticates, then answers from the record (a replay of the refusal).
+    const again = await checkAccess(mcp, { mandate: s.ap.mandate, probe });
+    assert.deepEqual([again.ok, again.probe.replayed], [true, true]);
+    assert.equal(Object.keys(rec().requests).length, before.requests + 1);
+    assert.equal(s.w.sentCount(), before.sent);
+    // Formats: a real act's requestId is p05.<40 hex>; a probe's is p05.probe.<24 hex>. They cannot be equal.
+    assert.match(requestIdOf('any-key'), /^p05\.[0-9a-f]{40}$/);
+    assert.doesNotMatch(requestIdOf('any-key'), /^p05\.probe\./);
+  } finally { await s.close(); }
+});
+
+test('why probes are capped: the relay keeps 2,000 idempotency records per agent — after 2,000 later records, a retry of an old real request is sent again', async () => {
+  const s = await setup({ adapter: openaiAdapter, model: 'gpt-fixture-model', script: body => ({ answer: answerFirst(body) }) });
+  try {
+    const mcp = s.ap.mcp();
+    const v = await s.view();
+    const real = { requestId: 'p05.real-request-000001', policyVersion: v.policy.version, modeEpoch: v.modeEpoch, action: { name: 'Train', fields: { unit: 0, n: 100 } } };
+    const first = (await tool(mcp, 'agent_act', real)).structuredContent;
+    assert.equal(first.status, 'sent');
+    const replay = (await tool(mcp, 'agent_act', real)).structuredContent;
+    assert.deepEqual([replay.status, replay.replayed, s.w.sentCount()], ['sent', true, 1], 'within the window: one send');
+    // 2,000 later records (as unbounded probes would leave), straight into the relay's ledger to keep the test fast.
+    const g = s.w.relay.gateway;
+    for (let i = 0; i < 2_000; i++) g.ledger.remember(s.w.agentId, `ai:p05.probe.filler${i}`, 'h', { status: 'refused' });
+    const late = (await tool(mcp, 'agent_act', real)).structuredContent;
+    assert.equal(late.replayed, undefined, 'the record was evicted: the relay no longer knows this request');
+    assert.equal(s.w.sentCount(), 2, 'the same request was SENT A SECOND TIME — the hazard the probe cap guards against');
   } finally { await s.close(); }
 });

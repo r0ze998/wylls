@@ -1,5 +1,8 @@
 # 同じ Citizen での競合：再現の試験と、既にある試験との対応表（④向け、2026-10-30）
 
+> **試験の構成：③ 実サーバー ＋ ⑤ 実コード ＋ ④ 代役 ＋ 模擬チェーン。**
+> これは**④の Rust の実行器をつないだ結果ではありません。** ④の実行器（`workstreams/04-execution`、`cargo test` 62 件は別に通過）を中継につないだ試験は、まだしていません。この文書の結果を「④と統合済み」とは扱いません。
+
 **対象：** 1つの Citizen、1つの代理の上で動く3つの送り手です。
 - ③の MCP（本人の操作）：**本物**（受領した `acdcd0bf` のサーバー）
 - ⑤の自動運転：⑤のコード。モデルは 127.0.0.1 の HTTP fixture
@@ -19,7 +22,7 @@ WS03_GATEWAY_ROOT=<0005→0002b→0001→0003 を当てた木>/permutation-gatew
 
 環境変数が無いとスキップします。スキップは合格に数えません。共通の準備は `integration/ws03-harness.mjs` にあります。
 
-## 新しく足した試験（`integration/same-citizen-contention.test.mjs`、6件、すべて通過）
+## 新しく足した試験（`integration/same-citizen-contention.test.mjs`、6件、すべて通過。構成は上のとおり）
 
 | # | 場面 | 確かめる不変条件 |
 |---|---|---|
@@ -49,3 +52,7 @@ WS03_GATEWAY_ROOT=<0005→0002b→0001→0003 を当てた木>/permutation-gatew
 - **④の代役（`fourStandIn`）** を、④の実行器の送信に置き換えます。④が中継の `submit` の後ろに入るなら、キーの形（`ws04:`）と `source` を④が決めます。
 - **鎖の番号を手で写す所**（`w.state.caravans`）は、本物の program か④の模擬の正本で置き換えます。
 - **token の共有**は、④が選ぶ認可の形（`AUTH-OPTIONS-4.ja.md` の B・C・D）に置き換えます。
+
+## ③の試験の未実行
+
+③の `sdk-client.test.mjs` は、依存の `@modelcontextprotocol/sdk` が無く、読み込みの段階で止まります。**未実行**で、全件成功とは扱いません。今回も依存は入れていません。
