@@ -429,6 +429,7 @@ export class AgentGateway {
   /** The synchronous gate every action passes before money moves; throws the refusal. */
   #gate(rec, r) {
     if (rec.mode !== MODES.AUTO) throw new AgentError(ERR.AGENT_STOPPED, 'the agent is stopped (manual mode); the owner must switch it to auto', 409, { mode: rec.mode, modeEpoch: rec.modeEpoch });
+    this.#unexpired(rec);
     if (r.policyVersion !== rec.policy.version) throw new AgentError(ERR.STALE_POLICY, `the request was decided under policy ${r.policyVersion}; the current one is ${rec.policy.version}`, 409, { policyVersion: rec.policy.version });
     if (r.modeEpoch !== undefined && r.modeEpoch !== rec.modeEpoch) throw new AgentError(ERR.STALE_MODE, `the request began in mode epoch ${r.modeEpoch}; the current one is ${rec.modeEpoch}`, 409, { modeEpoch: rec.modeEpoch });
     checkAllowed(rec.policy, r.action.name);
@@ -529,14 +530,27 @@ export class AgentGateway {
    * held before the call, so a call the agent cannot pay for is never
    * made. Returns `{ok, charged, result | error, tokens}`.
    */
-  async meterInference(agentId, fn, { key = randomUUID(), free = false, model = null } = {}) {
+  /** The owner's permission has an end (policy.expiresAt): past it nothing is acted or called, as after a stop. */
+  #unexpired(rec) {
+    if (Number.isSafeInteger(rec.policy.expiresAt) && this.now() >= rec.policy.expiresAt) throw new AgentError(ERR.POLICY_EXPIRED, 'the owner\'s permission for this agent has expired', 409, { expiresAt: rec.policy.expiresAt });
+  }
+
+  /**
+   * `price` (optional): this call's hold instead of the fixed test price — the most it can cost (a token ceiling × a
+   * price). `actual(result, error)` (optional): what it did cost, settled ≤ the hold (the rest comes back). Without
+   * them the call is held and settled at the fixed price, as before. `served(result)` (optional): the model the server
+   * says answered, recorded next to the configured `model`.
+   */
+  async meterInference(agentId, fn, { key = randomUUID(), free = false, model = null, price = null, actual = null, served = null } = {}) {
     const rec = this.ledger.get(agentId);
     if (rec.mode !== MODES.AUTO) throw new AgentError(ERR.AGENT_STOPPED, 'the agent is stopped', 409);
+    this.#unexpired(rec);
+    if (price !== null && !isAmount(String(price))) throw new AgentError(ERR.BAD_REQUEST, 'price must be a base-unit amount');
     if (free) {
       const result = await fn();
       return { ok: true, charged: '0', result };
     }
-    const hold = this.ledger.hold(agentId, { category: CATEGORIES.INFERENCE, amount: this.prices.inference, key, ttlMs: INFERENCE_HOLD_TTL_MS, policyVersion: rec.policy.version, modeEpoch: rec.modeEpoch });
+    const hold = this.ledger.hold(agentId, { category: CATEGORIES.INFERENCE, amount: price !== null ? String(price) : this.prices.inference, key, ttlMs: INFERENCE_HOLD_TTL_MS, policyVersion: rec.policy.version, modeEpoch: rec.modeEpoch });
     // Running: a stop while the model works does not give the hold back; the call is paid for when it returns.
     this.ledger.markRunning(agentId, hold.id);
     let result;
@@ -545,13 +559,19 @@ export class AgentGateway {
     const tokens = result?.tokens ?? null;
     // The outcome is known now: settle, also when the hold had become unresolved (past its TTL) in the meantime.
     const late = rec.holds[hold.id]?.state === 'unresolved';
-    const settled = this.ledger.settle(agentId, hold.id, undefined, { model, tokens, ok: !error, ...(late ? { late: true } : {}) });
+    let spent;
+    if (typeof actual === 'function') {
+      try { const a = BigInt(actual(result, error)); spent = String(a < 0n ? 0n : a > BigInt(hold.amount) ? BigInt(hold.amount) : a); } catch { spent = undefined; }
+    }
+    let servedModel = null;
+    if (typeof served === 'function') { try { servedModel = served(result) ?? null; } catch { servedModel = null; } }
+    const settled = this.ledger.settle(agentId, hold.id, spent, { model, tokens, ok: !error, ...(servedModel ? { servedModel: String(servedModel).slice(0, 120) } : {}), ...(spent !== undefined ? { metered: true } : {}), ...(late ? { late: true } : {}) });
     if (!settled) {
       // The hold is gone (the operator refunded it): the owner is not billed twice; the operator's record keeps the late result.
       this.ledger.recordOperatorCost({ agentId, kind: 'late-result', holdId: hold.id, key, amount: hold.amount, model, ok: !error });
       this.log(`agent wallet: ${agentId} model call ${key} returned after its hold was refunded: not charged, recorded`);
     }
-    const charged = settled ? hold.amount : '0';
+    const charged = settled ? (spent ?? hold.amount) : '0';
     if (error) return { ok: false, charged, error: { code: ERR.INFERENCE_FAILED, message: String(error?.message ?? error) }, tokens };
     return { ok: true, charged, result, tokens };
   }

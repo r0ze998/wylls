@@ -3,7 +3,10 @@
 // the gateway on every request, never by the model's prompt.
 //
 //   { allowed: [action or group name, …],
-//     budget: { total, perDay, callsPerDay? } }   // test-USDC base units (strings); callsPerDay: model calls a day (integer), optional
+//     budget: { total, perDay, callsPerDay?,      // test-USDC base units (strings); callsPerDay: model calls a day (integer), optional
+//               perCall?,                         // optional: the most one hold (one model call, one priced action) may take
+//               byCategory? },                    // optional: { inference: {total?, perDay?}, game: {total?, perDay?} }, apart from the whole
+//     expiresAt? }                                // optional: unix ms after which the agent may not act or call (the owner's permission ends)
 //
 // `total` caps all the agent's spending ever (settled + held); `perDay` caps
 // one UTC day's. Prices are the operator's (config), not the owner's.
@@ -25,7 +28,21 @@ export function normalisePolicy(p) {
   if (!isAmount(b.total)) bad('budget.total must be a base-unit amount string');
   if (!isAmount(b.perDay)) bad('budget.perDay must be a base-unit amount string');
   if (b.callsPerDay !== undefined && b.callsPerDay !== null && (!Number.isInteger(b.callsPerDay) || b.callsPerDay < 0)) bad('budget.callsPerDay must be a non-negative integer');
-  return { allowed: [...allowed].sort(), budget: { total: b.total, perDay: b.perDay, ...(Number.isInteger(b.callsPerDay) ? { callsPerDay: b.callsPerDay } : {}) } };
+  if (b.perCall !== undefined && b.perCall !== null && !isAmount(b.perCall)) bad('budget.perCall must be a base-unit amount string');
+  let byCategory = null;
+  if (b.byCategory !== undefined && b.byCategory !== null) {
+    if (typeof b.byCategory !== 'object' || Array.isArray(b.byCategory)) bad('budget.byCategory must be an object');
+    byCategory = {};
+    for (const [c, lim] of Object.entries(b.byCategory)) {
+      if (c !== 'inference' && c !== 'game') bad(`budget.byCategory: ${c} is not a spending category an owner caps (inference, game)`);
+      const out = {};
+      for (const k of ['total', 'perDay']) if (lim?.[k] !== undefined && lim[k] !== null) { if (!isAmount(lim[k])) bad(`budget.byCategory.${c}.${k} must be a base-unit amount string`); out[k] = lim[k]; }
+      byCategory[c] = out;
+    }
+  }
+  if (p.expiresAt !== undefined && p.expiresAt !== null && (!Number.isSafeInteger(p.expiresAt) || p.expiresAt <= 0)) bad('expiresAt must be unix milliseconds');
+  return { allowed: [...allowed].sort(), budget: { total: b.total, perDay: b.perDay, ...(Number.isInteger(b.callsPerDay) ? { callsPerDay: b.callsPerDay } : {}),
+    ...(isAmount(b.perCall) ? { perCall: b.perCall } : {}), ...(byCategory ? { byCategory } : {}) }, ...(Number.isSafeInteger(p.expiresAt) ? { expiresAt: p.expiresAt } : {}) };
 }
 
 /** Throws ActionNotAllowed unless `name` is allowed by `policy` (and delegable at all). */

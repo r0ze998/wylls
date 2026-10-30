@@ -141,6 +141,7 @@ export class AgentLedger {
     const key = budgetDay(this.now());
     if (rec.day.key !== key) rec.day = { key, spent: ZERO, calls: 0 };
     rec.day.calls ??= 0;
+    rec.day.byCategory ??= {};
   }
 
   #heldTotal(rec, filter = () => true) {
@@ -170,6 +171,16 @@ export class AgentLedger {
       const perDay = big(rec.policy.budget.perDay);
       const today = big(rec.day.spent) + this.#heldTotal(rec);
       if (today + a > perDay) throw new AgentError(ERR.DAILY_LIMIT, `daily limit ${perDay} would be exceeded`, 402, { perDay: str(perDay), today: str(today) });
+      // The owner's optional finer caps: one hold's most, and each category's total and day apart from the whole.
+      const b = rec.policy.budget;
+      if (b.perCall !== undefined && a > big(b.perCall)) throw new AgentError(ERR.PER_CALL_LIMIT, `one ${category} hold of ${a} is over the per-call cap ${b.perCall}`, 402, { perCall: b.perCall, needed: str(a), category });
+      const cap = b.byCategory?.[category];
+      if (cap) {
+        const heldCat = this.#heldTotal(rec, h => h.category === category);
+        if (cap.total !== undefined && big(rec.bal.spent[category]) + heldCat + a > big(cap.total)) throw new AgentError(ERR.CATEGORY_LIMIT, `the ${category} budget ${cap.total} would be exceeded`, 402, { category, cap: cap.total, used: str(big(rec.bal.spent[category]) + heldCat) });
+        const todayCat = big(rec.day.byCategory[category] ?? ZERO) + heldCat;
+        if (cap.perDay !== undefined && todayCat + a > big(cap.perDay)) throw new AgentError(ERR.CATEGORY_LIMIT, `the ${category} daily limit ${cap.perDay} would be exceeded`, 402, { category, perDay: cap.perDay, today: str(todayCat) });
+      }
     }
     if (category === CATEGORIES.INFERENCE) {
       // A model call counts whether or not it is priced: the owner's callsPerDay is a count, next to the money.
@@ -280,6 +291,7 @@ export class AgentLedger {
     rec.bal.available = str(big(rec.bal.available) + big(h.amount) - s);
     rec.bal.spent[h.category] = str(big(rec.bal.spent[h.category]) + s);
     rec.day.spent = str(big(rec.day.spent) + s);
+    rec.day.byCategory[h.category] = str(big(rec.day.byCategory[h.category] ?? ZERO) + s);
     this.note(rec, { type: 'spend', category: h.category, amount: str(s), key: h.key, ...ref });
     this.save();
     return true;
