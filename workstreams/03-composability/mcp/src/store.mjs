@@ -7,7 +7,7 @@
 import { mkdirSync, openSync, writeSync, fsyncSync, closeSync, renameSync, readFileSync, existsSync, chmodSync } from 'node:fs';
 import path from 'node:path';
 
-export const EMPTY = Object.freeze({ v: 1, clients: {}, links: {}, codes: {}, tokens: {}, refresh: {}, nonces: {}, plans: {}, operations: {} });
+export const EMPTY = Object.freeze({ v: 1, clients: {}, links: {}, codes: {}, tokens: {}, refresh: {}, nonces: {}, seen: {}, plans: {}, operations: {} });
 
 export class JsonStore {
   constructor(file = null) {

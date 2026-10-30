@@ -120,9 +120,23 @@ export function receiptOf(op) {
     gateway: op.gateway ?? null,
     chain: op.chain ?? null,
     caravan: op.caravan ?? null,
+    ...(op.arrival ? { arrival: op.arrival } : {}),
+    ...(op.hold ? { hold: op.hold } : {}),
     ...(op.error ? { error: op.error } : {}),
     history: op.steps.map(s => ({ ...s })),
     next,
-    notes: ['accepted = the relay sent the transaction; processing = it landed and the caravan is on the road; completed = the caravan was settled (delivered, lost, or raided). Sending is not arriving.'],
+    notes: ['accepted = the relay sent the transaction; processing = it landed and the caravan is on the road; completed = the caravan was settled (delivered, lost, or raided). Sending is not arriving.',
+      'completed is the end of transport; arrival.quantity says whether the amount that arrived is known (unverified: it is not).'],
   };
+}
+
+/**
+ * A revoked connection's cancellation, in ④'s three stages as reported (④'s contract not received: MOCK shape):
+ * new requests stopped; requests that may have been sent awaiting reconciliation; done when none is left.
+ */
+export function cancellationOf(link, ops) {
+  if (!link?.revokedAt) return null;
+  const pending = ops.filter(o => !TERMINAL.includes(o.state)).map(o => o.id);
+  return { contract: MOCK_RUN_RECEIPT, mock: true, newRequests: 'stopped', since: new Date(link.revokedAt).toISOString(),
+    awaitingReconciliation: pending, state: pending.length ? 'reconciling' : 'done' };
 }

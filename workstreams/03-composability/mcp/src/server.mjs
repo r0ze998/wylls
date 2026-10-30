@@ -8,7 +8,7 @@
 import { createHash } from 'node:crypto';
 import { Game, GameError, untrusted } from './game.mjs';
 import { SCOPES } from './auth.mjs';
-import { MockGrantPort, STATES, TERMINAL, receiptOf } from './ports.mjs';
+import { MockGrantPort, STATES, TERMINAL, receiptOf, cancellationOf } from './ports.mjs';
 import { KINDS, SETTLE_OUTCOME, RAID_CHOICE, caravanEvent } from './events.mjs';
 import { REQUEST_ID, SERVER_INSTRUCTIONS, TOOLS } from './tools.mjs';
 
@@ -25,6 +25,20 @@ const fail = (code, message, extra = {}) => { const e = { ok: false, error: { co
 const sha = s => createHash('sha256').update(s).digest('hex');
 const RESOURCE_NAMES = ['Food', 'Wood', 'Stone', 'Ore', 'Arms', 'Gold', 'Science', 'Influence'];
 const cargoArray = c => RESOURCE_NAMES.map(r => (Number.isInteger(c?.[r]) ? c[r] : 0));
+
+/**
+ * What the end of a caravan says about the amount that arrived (④'s "arrival quantity unverified", as a MOCK field).
+ * The settle record carries the cargo that was sent, not what was credited: a storehouse clips each resource at its
+ * capacity, and a village's stores were not compared. So a delivery's quantity is `unverified`, never the full cargo
+ * and never 0. A lost caravan credits nothing (the program's lost branch writes no store).
+ */
+function arrivalOf(op) {
+  const toVault = String(op.planSummary?.to ?? '').startsWith('vault:');
+  if (op.outcome === 'lost') return { transportEnded: true, settled: true, quantity: { state: 'none', basis: 'program: a lost caravan credits nothing' } };
+  if (op.outcome === 'delivered') return { transportEnded: true, settled: true, quantity: { state: 'unverified', sent: op.planSummary?.cargo ?? null,
+    basis: toVault ? 'the settle record carries the sent cargo; a storehouse keeps at most its capacity of each resource and drops the rest' : 'the settle record carries the sent cargo; the village\'s stores were not compared' } };
+  return { transportEnded: true, settled: op.outcome !== 'taken', quantity: { state: 'unverified', basis: `the caravan was ${op.outcome ?? 'raided'}: what reached the destination is not recorded` } };
+}
 
 /**
  * @param {object} o
@@ -202,7 +216,20 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
     // The owner's limits and the plan's life hold for a retry too.
     const g = link?.grant;
     const late = !g || link.revokedAt ? 'GrantRevoked' : now() >= g.expiresAt ? 'GrantExpired' : plan.expiresAt <= now() ? 'PlanExpired' : null;
-    const capability = late ? null : auth.capabilityOf(op.linkId);
+    let capability = null;
+    if (!late) {
+      try { capability = auth.capabilityOf(op.linkId); } catch {
+        // The capability is sealed under another key than this process's: hold, decide nothing. No attempt is made,
+        // the grant's hold stays, and nothing is released: the operator restores the key, or the owner revokes the
+        // connection and the operation is reconciled (ownerOperations).
+        op.hold = { code: 'CapabilityUnavailable', since: op.hold?.since ?? new Date(now()).toISOString() };
+        op.error = { code: 'CapabilityUnavailable', retryable: true, by: 'server',
+          message: 'this server cannot open the connection\'s agent capability (sealed under another key): nothing new was sent; the operation and the limit it holds are kept until the operator restores the key or the owner revokes the connection' };
+        op.updatedAt = new Date(now()).toISOString();
+        store.save();
+        return fail('CapabilityUnavailable', op.error.message, { operationId: op.id, receipt: receiptOf(op) });
+      }
+    }
     const stop = late ?? (capability ? null : 'NoCapability');
     if (stop) {
       if (op.attempts === 0) definite(op, link, stop, `no send: ${stop}`);
@@ -212,6 +239,8 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
     }
     const request = { agentId: principal.agentId, source: 'mcp', idempotencyKey: `ws03:${op.linkId}:${op.requestId}`, policyVersion: plan.policyVersion, modeEpoch: plan.modeEpoch,
       action: { name: 'SendCaravan', holding: plan.holding, fields: plan.fields, route: plan.route } };
+    delete op.hold;
+    if (op.error?.code === 'CapabilityUnavailable') delete op.error;
     op.attempts++;
     store.save();
     const r = await game.submit(capability, request);
@@ -272,12 +301,13 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
         if (e.kind === KINDS.CARAVAN_RAIDED) {
           const choice = RAID_CHOICE[Number(e.payload.choice)] ?? 'raided';
           op.caravan.raid = { bell: Number(e.payload.bell), choice };
-          if (choice === 'taken') { op.outcome = 'taken'; step(op, STATES.COMPLETED, 'another village took the caravan in a raid'); }
+          if (choice === 'taken') { op.outcome = 'taken'; op.arrival = arrivalOf(op); step(op, STATES.COMPLETED, 'another village took the caravan in a raid'); }
         }
         if (e.kind === KINDS.CARAVAN_SETTLED && !TERMINAL.includes(op.state)) {
           const o = SETTLE_OUTCOME[Number(e.payload.outcome)] ?? 'settled';
           op.outcome = op.caravan.raid?.choice === 'burned' && o === 'delivered' ? 'burned' : o;
           op.caravan.settledAtBell = e.bell;
+          op.arrival = arrivalOf(op);
           step(op, STATES.COMPLETED, op.outcome === 'delivered' ? 'the caravan arrived and was settled' : `the caravan was settled: ${op.outcome}`);
         }
       }
@@ -317,6 +347,31 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
   }
 
   const mineOp = (principal, op) => op && op.linkId === principal.linkId;
+
+  /**
+   * The owner's operations across all their connections, revoked ones included: for an owner whose signed query
+   * auth.ownerQuery verified (http: POST /owner/operations). Reads only. A revoked connection's operations are
+   * reconciled here: one with no recorded attempt is failed and its hold given back (the attempt counter is
+   * written before anything leaves, so 0 means nothing was sent); any other is tracked on the chain and herald.
+   */
+  async function ownerOperations(owner) {
+    const links = Object.values(db.links).filter(l => l.owner === owner);
+    const ids = new Set(links.map(l => l.linkId));
+    const ops = Object.values(db.operations).filter(op => ids.has(op.linkId)).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))).slice(0, 50);
+    for (const op of ops) {
+      if (TERMINAL.includes(op.state) || inflight.has(op.id)) continue;
+      const link = auth.link(op.linkId);
+      if (link?.revokedAt && op.state === STATES.REQUESTED && op.attempts === 0) definite(op, link, 'GrantRevoked', 'the connection was revoked before anything was sent: nothing was sent');
+      else await track(op);
+    }
+    store.save();
+    return {
+      owner,
+      connections: links.map(l => ({ linkId: l.linkId, agentId: l.agentId, scopes: l.scopes, createdAt: new Date(l.createdAt).toISOString(), revokedAt: l.revokedAt ? new Date(l.revokedAt).toISOString() : null,
+        cancellation: cancellationOf(l, ops.filter(o => o.linkId === l.linkId)) })),
+      operations: ops.map(op => ({ ...receiptOf(op), linkId: op.linkId })),
+    };
+  }
 
   async function opStatus(principal, args) {
     let op = null;
@@ -360,5 +415,5 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
     }
   }
 
-  return { handle, tools: Object.keys(tools), track };
+  return { handle, tools: Object.keys(tools), track, ownerOperations };
 }

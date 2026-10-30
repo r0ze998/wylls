@@ -30,6 +30,7 @@ export const SCOPE_TEXT = Object.freeze({
 });
 export const LINK_PREFIX = 'Wylls MCP connection v1\n';
 export const REVOKE_PREFIX = 'Wylls MCP revoke v1\n';
+export const OWNER_QUERY_PREFIX = 'Wylls MCP owner operations v1\n';
 /** ChatGPT's redirect URIs (developers.openai.com/plugins/build/auth): the stable one and the per-connector form. */
 export const CHATGPT_REDIRECTS = Object.freeze([/^https:\/\/chatgpt\.com\/connector_platform_oauth_redirect$/, /^https:\/\/chatgpt\.com\/connector\/oauth\/[A-Za-z0-9_-]{1,128}$/]);
 const LOOPBACK = /^http:\/\/(127\.0\.0\.1|localhost|\[::1\]):\d{1,5}(\/[\w./-]*)?$/;
@@ -51,6 +52,8 @@ export class OAuthError extends Error {
 /** The statement the owner's wallet signs for a link (bytes = prefix ‖ canonical JSON). */
 export const linkStatement = s => utf8(LINK_PREFIX + canonical(s));
 export const revokeStatement = s => utf8(REVOKE_PREFIX + canonical(s));
+/** What the owner signs to read their operations without a connection (after a revocation): `{type, aud, owner, at}`. */
+export const ownerQueryStatement = s => utf8(OWNER_QUERY_PREFIX + canonical(s));
 
 function verifySig(bytes, signatureB64, owner) {
   try {
@@ -328,6 +331,37 @@ export class Auth {
 
   link(linkId) { return this.db.links[linkId] ?? null; }
 
+  /**
+   * The owner's signed query `{owner, at, signature}` for their own operations, with or without a live connection
+   * (a revoked one included). The signature covers this resource and a time within 10 minutes, and is good once.
+   * Returns the owner, or throws OAuthError (401 for a bad signature, 400 otherwise).
+   */
+  ownerQuery(b) {
+    const owner = String(b?.owner ?? '');
+    const at = Number(b?.at);
+    if (!owner || !Number.isInteger(at) || Math.abs(at - this.now()) > 10 * 60_000) throw new OAuthError(400, 'invalid_request', 'owner, and at within 10 minutes of now (ms), are required');
+    const st = { type: 'wylls-mcp-owner-operations/1', aud: this.resource, owner, at };
+    if (!verifySig(ownerQueryStatement(st), b.signature, owner)) throw new OAuthError(401, 'access_denied', 'not signed by this owner');
+    this.db.seen ??= {};
+    const h = sha(`oq:${b.signature}`);
+    if (this.db.seen[h]) throw new OAuthError(400, 'invalid_request', 'this signed query was used already: sign a new one');
+    this.db.seen[h] = { expiresAt: at + 10 * 60_000 };
+    this.#sweep();
+    this.store.save();
+    return owner;
+  }
+
+  /** How many links hold a capability this process cannot open (another seal key). Counts only: no value leaves. */
+  sealCheck() {
+    let sealed = 0, unopenable = 0;
+    for (const l of Object.values(this.db.links)) {
+      if (!l.capability) continue;
+      sealed++;
+      try { this.sealer.open(l.capability); } catch { unopenable++; }
+    }
+    return { sealed, unopenable };
+  }
+
   /** The agent capability of a link, opened for one relay call (never stored opened). */
   capabilityOf(linkId) {
     const l = this.db.links[linkId];
@@ -336,7 +370,7 @@ export class Auth {
 
   #sweep() {
     const now = this.now();
-    for (const k of ['tokens', 'nonces']) for (const [h, v] of Object.entries(this.db[k])) if (v.expiresAt <= now) delete this.db[k][h];
+    for (const k of ['tokens', 'nonces', 'seen']) for (const [h, v] of Object.entries(this.db[k] ?? {})) if (v.expiresAt <= now) delete this.db[k][h];
     // A used code is kept a while as a tombstone, so that its reuse is recognised.
     for (const [h, v] of Object.entries(this.db.codes)) if (v.expiresAt + TTL.pending <= now) delete this.db.codes[h];
     for (const [h, v] of Object.entries(this.db.refresh)) if (v.expiresAt <= now) delete this.db.refresh[h];

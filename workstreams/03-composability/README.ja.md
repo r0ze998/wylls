@@ -50,6 +50,7 @@
 | [08-mcp-contracts.ja.md](08-mcp-contracts.ja.md) | 対応操作の一覧（ツール契約）、認証と権限、②④⑤との境界（AI staking のインターフェースを含む） |
 | [09-mcp-run-and-video.ja.md](09-mcp-run-and-video.ja.md) | テスト結果（ローカルと ChatGPT を分けて）、接続手順、撮影手順 |
 | [10-handoff.ja.md](10-handoff.ja.md) | 引き渡し：成功した構成の再現手順、②④⑤との契約対応表（一致・不一致・資料待ち）、鍵と認可の限界、到着の根拠、ChatGPT 実機検証の承認事項、保存パッケージ |
+| [11-claude-chatgpt.ja.md](11-claude-chatgpt.ja.md) | Claude／ChatGPT から MCP で操作する経路：クライアントごとの接続方式（公式資料）、ツールの実装済み・模擬・未実装、④⑤との契約と同時操作の責任分担、取消の後の確認と復号失敗の保留（ローカルで実装）、取得できなかった資料、最初に実機で通すクライアントの推奨 |
 
 ## 実行手順
 

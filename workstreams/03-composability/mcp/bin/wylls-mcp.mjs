@@ -26,5 +26,7 @@ const store = new JsonStore(env.WYLLS_MCP_STORE ?? null);
 const game = new Game({ relay: env.WYLLS_MCP_RELAY ?? 'http://127.0.0.1:41933', herald: env.WYLLS_MCP_HERALD ?? 'http://127.0.0.1:41940' });
 const auth = new Auth({ issuer, resource: `${issuer}/mcp`, store, sealer: new Sealer(env.WYLLS_MCP_SEAL_KEY ?? null), game, log });
 const mcp = createWyllsMcp({ auth, game, store, log });
+const seal = auth.sealCheck();
+if (seal.unopenable) log(`warning: ${seal.unopenable} of ${seal.sealed} connection capabilities cannot be opened with this WYLLS_MCP_SEAL_KEY; their sends are held (CapabilityUnavailable) until the key is restored or the owner revokes the connection`);
 await listen(createHandler({ auth, mcp, log }), { port, host });
 log(`listening on http://${host}:${port}/mcp (issuer ${issuer})`);

@@ -1,72 +1,83 @@
-== mcp tests, this repository's gateway (no patch 0005)
-ok 1 - reads: the village, the owner's storehouse (not a stranger's), the shortfall and where to fill it
-ok 2 - reads never show another player's march: the Province envelope's ArrivalSlots stay out of every answer
-ok 3 - prepare: only the owner's places; the cargo against the source; a plan sends nothing
-ok 4 - without patch 0005 the relay refuses the caravan (ActionNotAllowed): nothing is sent, the owner is told why
-ok 5 - the whole play: send → accepted → processing (landed, on the road) → completed (delivered); sending is not arriving # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
-ok 6 - raids and lost destinations are outcomes, not server failures: taken, burned, lost # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
-ok 7 - a failed transaction on chain is failed (nothing moved), with the program's reason # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
-ok 8 - duplicates: the same requestId (again, concurrently) sends once; a new requestId on a used plan is PlanUsed; a used requestId on another plan conflicts # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
-ok 9 - a lost connection to the relay: requested and retryable; the retry with the same requestId sends once # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
-ok 10 - the relay answered but the MCP server never recorded it (crash): after a restart the retry is the gateway's replay, not a second send # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
-ok 11 - the send left but its answer says failed (outcome unknown): not "nothing sent"; the caravan's own trace decides # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
-ok 12 - outcome unknown and no trace: after the window, with the owner's caravan counter unmoved, it is NotSent and the grant is given back # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
-ok 13 - a retry after the relay was unreachable re-checks the owner's limits: past the grant's expiry nothing new is sent # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
-ok 14 - a retry while the first attempt is still at the relay joins it: one transaction, no contradictory state # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
-ok 15 - rate limited by the relay on a retry: nothing is decided, the grant hold stays, the next retry sends once # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
-ok 16 - the owner's signed limits (MOCK grant): sends, cargo per send, expiry — enforced by the server # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
-ok 17 - ⑤'s budget decides, not this server: a priced action over the agent's budget is BudgetExceeded, nothing sent # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
-ok 18 - the owner's controls on the agent hold: stopped (manual), the delegation taken back on chain, the capability rotated # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
-ok 19 - another player's village: refused by this server (a tampered plan is stale) and, under it, by the gateway (WrongVillage) # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
-ok 20 - words in the game are data: an injected order in the agent's history is marked untrusted and changes nothing
-ok 21 - secrets: the capability never appears in an answer, a log or the store file; tokens are stored as hashes # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
-ok 22 - consent: a caravan scope without the owner's signed rotate command is refused
-ok 23 - discovery: protected resource and authorization server metadata name this resource, S256 only, DCR
-ok 24 - /mcp without a token: 401 with WWW-Authenticate naming the resource metadata; GET is 405; a foreign Origin is 403; no batches
-ok 25 - initialize negotiates a supported version; tools/list: one operation per tool, every annotation explicit, OAuth schemes
-ok 26 - OAuth: PKCE, code reuse, resource, redirect URIs, and a refresh token used twice revokes the connection
-ok 27 - consent: a statement signed by another key, an agent this relay does not know; the page holds no secret
-ok 28 - consent: an agent that belongs to another owner on the same relay is refused
-ok 29 - the unauthenticated OAuth routes are rate limited per address
-ok 30 - tokens expire; the owner's signed revocation stops the connection; a read-only connection cannot send (insufficient_scope)
-ok 31 - the official MCP SDK client: OAuth discovery, DCR, PKCE, then tools/list and the read path
-# tests 31
-# pass 15
+# 2026-10-30T09:40:58Z base 47b05ac6 + uncommitted ws03 changes (docs 11); node v22.22.0
+## gateway: this repository (no patch 0005)
+ok 1 - the owner's operations without a connection: wallet-signed, once, recent, only their own; the page holds no secret
+ok 2 - consent shows where it sends the owner back, and warns for a loopback client
+ok 3 - a capability sealed under another key: held (CapabilityUnavailable), nothing sent, nothing released; the right key resumes it once # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
+ok 4 - after a revocation: a held request with no attempt fails and gives its hold back; a sent one is reconciled to its end; cancellation goes reconciling → done # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
+ok 5 - the end of transport is not a verified amount: a delivery is quantity unverified (never 0, never the full cargo as received); a lost caravan is none # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
+ok 6 - reads: the village, the owner's storehouse (not a stranger's), the shortfall and where to fill it
+ok 7 - reads never show another player's march: the Province envelope's ArrivalSlots stay out of every answer
+ok 8 - prepare: only the owner's places; the cargo against the source; a plan sends nothing
+ok 9 - without patch 0005 the relay refuses the caravan (ActionNotAllowed): nothing is sent, the owner is told why
+ok 10 - the whole play: send → accepted → processing (landed, on the road) → completed (delivered); sending is not arriving # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
+ok 11 - raids and lost destinations are outcomes, not server failures: taken, burned, lost # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
+ok 12 - a failed transaction on chain is failed (nothing moved), with the program's reason # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
+ok 13 - duplicates: the same requestId (again, concurrently) sends once; a new requestId on a used plan is PlanUsed; a used requestId on another plan conflicts # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
+ok 14 - a lost connection to the relay: requested and retryable; the retry with the same requestId sends once # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
+ok 15 - the relay answered but the MCP server never recorded it (crash): after a restart the retry is the gateway's replay, not a second send # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
+ok 16 - the send left but its answer says failed (outcome unknown): not "nothing sent"; the caravan's own trace decides # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
+ok 17 - outcome unknown and no trace: after the window, with the owner's caravan counter unmoved, it is NotSent and the grant is given back # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
+ok 18 - a retry after the relay was unreachable re-checks the owner's limits: past the grant's expiry nothing new is sent # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
+ok 19 - a retry while the first attempt is still at the relay joins it: one transaction, no contradictory state # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
+ok 20 - rate limited by the relay on a retry: nothing is decided, the grant hold stays, the next retry sends once # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
+ok 21 - the owner's signed limits (MOCK grant): sends, cargo per send, expiry — enforced by the server # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
+ok 22 - ⑤'s budget decides, not this server: a priced action over the agent's budget is BudgetExceeded, nothing sent # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
+ok 23 - the owner's controls on the agent hold: stopped (manual), the delegation taken back on chain, the capability rotated # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
+ok 24 - another player's village: refused by this server (a tampered plan is stale) and, under it, by the gateway (WrongVillage) # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
+ok 25 - words in the game are data: an injected order in the agent's history is marked untrusted and changes nothing
+ok 26 - secrets: the capability never appears in an answer, a log or the store file; tokens are stored as hashes # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
+ok 27 - consent: a caravan scope without the owner's signed rotate command is refused
+ok 28 - discovery: protected resource and authorization server metadata name this resource, S256 only, DCR
+ok 29 - /mcp without a token: 401 with WWW-Authenticate naming the resource metadata; GET is 405; a foreign Origin is 403; no batches
+ok 30 - initialize negotiates a supported version; tools/list: one operation per tool, every annotation explicit, OAuth schemes
+ok 31 - OAuth: PKCE, code reuse, resource, redirect URIs, and a refresh token used twice revokes the connection
+ok 32 - consent: a statement signed by another key, an agent this relay does not know; the page holds no secret
+ok 33 - consent: an agent that belongs to another owner on the same relay is refused
+ok 34 - the unauthenticated OAuth routes are rate limited per address
+ok 35 - tokens expire; the owner's signed revocation stops the connection; a read-only connection cannot send (insufficient_scope)
+ok 36 - the official MCP SDK client: OAuth discovery, DCR, PKCE, then tools/list and the read path
+# tests 36
+# pass 17
 # fail 0
-# skipped 16
-== mcp tests, gateway with patch 0005
-ok 1 - reads: the village, the owner's storehouse (not a stranger's), the shortfall and where to fill it
-ok 2 - reads never show another player's march: the Province envelope's ArrivalSlots stay out of every answer
-ok 3 - prepare: only the owner's places; the cargo against the source; a plan sends nothing
-ok 4 - without patch 0005 the relay refuses the caravan (ActionNotAllowed): nothing is sent, the owner is told why # SKIP the gateway tree has patch 0005
-ok 5 - the whole play: send → accepted → processing (landed, on the road) → completed (delivered); sending is not arriving
-ok 6 - raids and lost destinations are outcomes, not server failures: taken, burned, lost
-ok 7 - a failed transaction on chain is failed (nothing moved), with the program's reason
-ok 8 - duplicates: the same requestId (again, concurrently) sends once; a new requestId on a used plan is PlanUsed; a used requestId on another plan conflicts
-ok 9 - a lost connection to the relay: requested and retryable; the retry with the same requestId sends once
-ok 10 - the relay answered but the MCP server never recorded it (crash): after a restart the retry is the gateway's replay, not a second send
-ok 11 - the send left but its answer says failed (outcome unknown): not "nothing sent"; the caravan's own trace decides
-ok 12 - outcome unknown and no trace: after the window, with the owner's caravan counter unmoved, it is NotSent and the grant is given back
-ok 13 - a retry after the relay was unreachable re-checks the owner's limits: past the grant's expiry nothing new is sent
-ok 14 - a retry while the first attempt is still at the relay joins it: one transaction, no contradictory state
-ok 15 - rate limited by the relay on a retry: nothing is decided, the grant hold stays, the next retry sends once
-ok 16 - the owner's signed limits (MOCK grant): sends, cargo per send, expiry — enforced by the server
-ok 17 - ⑤'s budget decides, not this server: a priced action over the agent's budget is BudgetExceeded, nothing sent
-ok 18 - the owner's controls on the agent hold: stopped (manual), the delegation taken back on chain, the capability rotated
-ok 19 - another player's village: refused by this server (a tampered plan is stale) and, under it, by the gateway (WrongVillage)
-ok 20 - words in the game are data: an injected order in the agent's history is marked untrusted and changes nothing
-ok 21 - secrets: the capability never appears in an answer, a log or the store file; tokens are stored as hashes
-ok 22 - consent: a caravan scope without the owner's signed rotate command is refused
-ok 23 - discovery: protected resource and authorization server metadata name this resource, S256 only, DCR
-ok 24 - /mcp without a token: 401 with WWW-Authenticate naming the resource metadata; GET is 405; a foreign Origin is 403; no batches
-ok 25 - initialize negotiates a supported version; tools/list: one operation per tool, every annotation explicit, OAuth schemes
-ok 26 - OAuth: PKCE, code reuse, resource, redirect URIs, and a refresh token used twice revokes the connection
-ok 27 - consent: a statement signed by another key, an agent this relay does not know; the page holds no secret
-ok 28 - consent: an agent that belongs to another owner on the same relay is refused
-ok 29 - the unauthenticated OAuth routes are rate limited per address
-ok 30 - tokens expire; the owner's signed revocation stops the connection; a read-only connection cannot send (insufficient_scope)
-ok 31 - the official MCP SDK client: OAuth discovery, DCR, PKCE, then tools/list and the read path
-# tests 31
-# pass 30
+# skipped 19
+## gateway: + patch 0005 (temporary worktree)
+ok 1 - the owner's operations without a connection: wallet-signed, once, recent, only their own; the page holds no secret
+ok 2 - consent shows where it sends the owner back, and warns for a loopback client
+ok 3 - a capability sealed under another key: held (CapabilityUnavailable), nothing sent, nothing released; the right key resumes it once
+ok 4 - after a revocation: a held request with no attempt fails and gives its hold back; a sent one is reconciled to its end; cancellation goes reconciling → done
+ok 5 - the end of transport is not a verified amount: a delivery is quantity unverified (never 0, never the full cargo as received); a lost caravan is none
+ok 6 - reads: the village, the owner's storehouse (not a stranger's), the shortfall and where to fill it
+ok 7 - reads never show another player's march: the Province envelope's ArrivalSlots stay out of every answer
+ok 8 - prepare: only the owner's places; the cargo against the source; a plan sends nothing
+ok 9 - without patch 0005 the relay refuses the caravan (ActionNotAllowed): nothing is sent, the owner is told why # SKIP the gateway tree has patch 0005
+ok 10 - the whole play: send → accepted → processing (landed, on the road) → completed (delivered); sending is not arriving
+ok 11 - raids and lost destinations are outcomes, not server failures: taken, burned, lost
+ok 12 - a failed transaction on chain is failed (nothing moved), with the program's reason
+ok 13 - duplicates: the same requestId (again, concurrently) sends once; a new requestId on a used plan is PlanUsed; a used requestId on another plan conflicts
+ok 14 - a lost connection to the relay: requested and retryable; the retry with the same requestId sends once
+ok 15 - the relay answered but the MCP server never recorded it (crash): after a restart the retry is the gateway's replay, not a second send
+ok 16 - the send left but its answer says failed (outcome unknown): not "nothing sent"; the caravan's own trace decides
+ok 17 - outcome unknown and no trace: after the window, with the owner's caravan counter unmoved, it is NotSent and the grant is given back
+ok 18 - a retry after the relay was unreachable re-checks the owner's limits: past the grant's expiry nothing new is sent
+ok 19 - a retry while the first attempt is still at the relay joins it: one transaction, no contradictory state
+ok 20 - rate limited by the relay on a retry: nothing is decided, the grant hold stays, the next retry sends once
+ok 21 - the owner's signed limits (MOCK grant): sends, cargo per send, expiry — enforced by the server
+ok 22 - ⑤'s budget decides, not this server: a priced action over the agent's budget is BudgetExceeded, nothing sent
+ok 23 - the owner's controls on the agent hold: stopped (manual), the delegation taken back on chain, the capability rotated
+ok 24 - another player's village: refused by this server (a tampered plan is stale) and, under it, by the gateway (WrongVillage)
+ok 25 - words in the game are data: an injected order in the agent's history is marked untrusted and changes nothing
+ok 26 - secrets: the capability never appears in an answer, a log or the store file; tokens are stored as hashes
+ok 27 - consent: a caravan scope without the owner's signed rotate command is refused
+ok 28 - discovery: protected resource and authorization server metadata name this resource, S256 only, DCR
+ok 29 - /mcp without a token: 401 with WWW-Authenticate naming the resource metadata; GET is 405; a foreign Origin is 403; no batches
+ok 30 - initialize negotiates a supported version; tools/list: one operation per tool, every annotation explicit, OAuth schemes
+ok 31 - OAuth: PKCE, code reuse, resource, redirect URIs, and a refresh token used twice revokes the connection
+ok 32 - consent: a statement signed by another key, an agent this relay does not know; the page holds no secret
+ok 33 - consent: an agent that belongs to another owner on the same relay is refused
+ok 34 - the unauthenticated OAuth routes are rate limited per address
+ok 35 - tokens expire; the owner's signed revocation stops the connection; a read-only connection cannot send (insufficient_scope)
+ok 36 - the official MCP SDK client: OAuth discovery, DCR, PKCE, then tools/list and the read path
+# tests 36
+# pass 35
 # fail 0
 # skipped 1

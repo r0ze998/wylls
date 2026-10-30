@@ -38,7 +38,7 @@ import { decode as fromBase58 } from '../../../../permutation-gateway/client/src
 import { JsonStore } from '../src/store.mjs';
 import { Sealer } from '../src/seal.mjs';
 import { Game } from '../src/game.mjs';
-import { Auth } from '../src/auth.mjs';
+import { Auth, ownerQueryStatement, revokeStatement } from '../src/auth.mjs';
 import { createWyllsMcp } from '../src/server.mjs';
 import { createHandler, listen } from '../src/http.mjs';
 
@@ -107,11 +107,13 @@ try {
   const holding = me.holdings[0];
   player.context.holding = holding; player.context.province = holding;
   check('owner-joined', { wallet: wallet.address, nation: home.faction, join: joined.signature, village: [holding.p, holding.q, holding.site], tile: holding.tile });
-  // A storehouse two to four steps from the village, on a passable tile that is not a site.
+  // A storehouse two to four steps from the village, on a passable tile that is not a site, the keep or the camp
+  // (the program's VaultSite conditions, caravan.rs BuildVault).
   const env = await h.province(holding.p, holding.q);
   const prov = env.province;
   const land = landOfProvince(prov);
-  const tile = [...Array(61).keys()].find(t => !prov.sites.includes(t) && ((BigInt(prov.passableMask) >> BigInt(t)) & 1n) === 1n
+  const taken = new Set([...Array.from(prov.sites).slice(0, Number(prov.siteCount ?? 12)), prov.keep?.tile, prov.camp?.tile].filter(Number.isInteger));
+  const tile = [...Array(61).keys()].find(t => !taken.has(t) && ((BigInt(prov.passableMask) >> BigInt(t)) & 1n) === 1n
     && (fastestPath({ p: holding.p, q: holding.q, tile: holding.tile }, { p: holding.p, q: holding.q, tile: t }, [land])?.dirs.length ?? 0) >= 2
     && (fastestPath({ p: holding.p, q: holding.q, tile: holding.tile }, { p: holding.p, q: holding.q, tile: t }, [land])?.dirs.length ?? 9) <= 4);
   assert.ok(Number.isInteger(tile), 'a storehouse tile');
@@ -191,6 +193,7 @@ try {
   }
   const first = await caravan(st1.village.placeId, st1.storehouses[0].placeId, { Food: carry }, `e2e-${randomBytes(4).toString('hex')}-1`);
   assert.deepEqual([first.end.state, first.end.outcome], ['completed', 'delivered'], json(first.end));
+  assert.equal(first.end.arrival?.quantity?.state, 'unverified', 'the end of transport is not a verified amount');
   check('caravan-1-village-to-storehouse', { plan: first.plan.summary, states: first.seen, receipt: { operationId: first.end.operationId, signature: first.end.gateway.signature, arriveAt: first.end.caravan.arriveAt, history: first.end.history } });
   const st2 = (await tool('get_village_status')).structuredContent;
   const inVault = st2.storehouses[0].stores?.find(x => x.resource === 'Food')?.have;
@@ -216,6 +219,21 @@ try {
   const cap = auth.capabilityOf(Object.keys(store.state.links)[0]);
   assert.ok(!JSON.stringify(report).includes(cap) && !logs.join('\n').includes(cap), 'the capability is in no transcript or log');
   check('no-secret-in-transcript', {});
+  // 6. After the handoff (docs 11): the owner revokes the caravan connection, then reads its operations by a signed query.
+  const sig = bytes => Buffer.from(signTalk(bytes, kp)).toString('base64');
+  const caravanLink = Object.values(store.state.links).find(l => l.scopes.includes('wylls.caravan'));
+  const at = Date.now();
+  assert.equal((await post('/link/revoke', { linkId: caravanLink.linkId, owner: wallet.address, at, signature: sig(revokeStatement({ linkId: caravanLink.linkId, owner: wallet.address, at })) })).status, 200);
+  assert.equal((await tool('get_connection'))?.structuredContent ?? 'gone', 'gone', 'the revoked connection no longer answers');
+  const qst = (await post('/owner/statement', { owner: wallet.address })).json;
+  const view = await post('/owner/operations', { owner: wallet.address, at: qst.at, signature: sig(Buffer.from(qst.statementB64, 'base64')) });
+  assert.equal(view.status, 200, json(view.json));
+  const revoked = view.json.connections.find(l => l.linkId === caravanLink.linkId);
+  assert.equal(revoked.cancellation.newRequests, 'stopped');
+  const sentOps = view.json.operations.filter(o => o.linkId === caravanLink.linkId && o.gateway?.signature);
+  assert.deepEqual(sentOps.map(o => [o.state, o.outcome, o.arrival?.quantity?.state]), [['completed', 'delivered', 'unverified'], ['completed', 'delivered', 'unverified']]);
+  assert.ok(!JSON.stringify(view.json).includes(cap), 'no capability in the owner view');
+  check('owner-view-after-revocation', { cancellation: revoked.cancellation, operations: sentOps.map(o => ({ requestId: o.requestId, state: o.state, outcome: o.outcome, quantity: o.arrival.quantity.state })) });
   srv.close();
   report.finishedAt = new Date().toISOString();
   report.result = 'PASS';

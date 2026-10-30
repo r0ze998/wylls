@@ -8,7 +8,7 @@ import http from 'node:http';
 import { randomBytes } from 'node:crypto';
 import { toBase64 } from '../../../../permutation-gateway/client/src/bytes.mjs';
 import { commandBytes } from '../../../../permutation-gateway/src/frontier/agent/owner-auth.mjs';
-import { linkStatement, OAuthError, SCOPE_TEXT, SCOPES, TTL } from './auth.mjs';
+import { linkStatement, ownerQueryStatement, OAuthError, SCOPE_TEXT, SCOPES, TTL } from './auth.mjs';
 import { PROTOCOL_VERSIONS } from './server.mjs';
 
 const MAX_BODY = 64 * 1024;
@@ -26,6 +26,27 @@ async function body(req) {
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
+const hostOf = u => { try { const x = new URL(u); return `${x.protocol}//${x.host}`; } catch { return String(u ?? ''); } };
+const isLoopback = u => { try { return ['localhost', '127.0.0.1', '[::1]'].includes(new URL(u).hostname); } catch { return false; } };
+
+/** The owner's page for their operations without a connection (after a revocation): the wallet signs a query; nothing else. */
+function ownerPage(nonce) {
+  return `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Wylls operations</title>
+<style nonce="${nonce}">body{font:16px system-ui,sans-serif;max-width:720px;margin:2rem auto;padding:0 16px;color:#1b1b1b;background:#fafaf7}input{font:inherit;width:100%;box-sizing:border-box}pre{white-space:pre-wrap;word-break:break-all;background:#fff;border:1px solid #ccc;padding:.6rem;border-radius:6px}button{font:inherit;padding:.5rem 1rem;margin-top:.5rem}</style></head><body>
+<h1>Wylls の操作の確認</h1>
+<p>接続を取り消した後も、あなたの隊商の操作の状態を、ウォレットの署名で確かめられます。署名は読取だけに使い、10 分以内に 1 回だけ有効です（ローカルのテスト環境）。</p>
+<form id="f"><label>ウォレットのアドレス <input name="owner" required autocomplete="off"></label><button type="submit">ウォレットで署名して確認</button></form>
+<pre id="out"></pre>
+<script nonce="${nonce}">
+const b64=u=>btoa(String.fromCharCode(...u)), unb64=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
+const wallet=()=>window.solana??window.phantom?.solana??null;
+async function post(u,b){const r=await fetch(u,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(b)});const j=await r.json();if(!r.ok)throw new Error(j.error_description??j.error);return j;}
+document.getElementById('f').onsubmit=async e=>{e.preventDefault();const out=document.getElementById('out');
+try{const owner=new FormData(e.target).get('owner');const st=await post('/owner/statement',{owner});const w=wallet();if(!w)throw new Error('ブラウザのウォレットが見つかりません');await w.connect?.();
+const r=await w.signMessage(unb64(st.statementB64),'utf8');const j=await post('/owner/operations',{owner,at:st.at,signature:b64(r.signature??r)});out.textContent=JSON.stringify(j,null,2);}catch(err){out.textContent=err.message;}};
+</script></body></html>`;
+}
+
 /** The owner's consent page: what is asked, then the wallet signs (a browser wallet's signMessage; no key is typed). */
 function consentPage(p, nonce) {
   const write = p.scopes.includes(SCOPES.CARAVAN);
@@ -35,6 +56,8 @@ fieldset{border:1px solid #ccc;border-radius:8px;margin:1rem 0}label{display:blo
 .warn{background:#fff4d6;border:1px solid #e0c060;padding:.6rem;border-radius:6px}button{font:inherit;padding:.5rem 1rem;margin-right:.5rem}code{word-break:break-all}</style></head><body>
 <h1>Wylls に接続</h1>
 <p><b>${esc(p.clientName)}</b> があなたの村への接続を求めています（ローカルのテスト環境・テスト資産のみ）。</p>
+<p>許可した後の戻り先: <code>${esc(hostOf(p.redirectUri))}</code></p>
+${isLoopback(p.redirectUri) ? '<p class="warn">戻り先はこの機械の上のアドレス（loopback）です。この機械で動くプログラムなら、どれでもその番号を使えます。自分で起動したクライアント（Claude Code など）からの接続でなければ、拒否してください。</p>' : ''}
 <ul>${p.scopes.map(s => `<li><code>${esc(s)}</code>: ${esc(SCOPE_TEXT[s])}</li>`).join('')}</ul>
 <p class="warn">署名は、あなたのウォレットが「この接続を許す」ことを証明します。チャットで表示される確認は、この署名の代わりになりません。</p>
 <form id="f"><fieldset><legend>あなたと代理人</legend>
@@ -44,7 +67,7 @@ ${write ? `<fieldset><legend>隊商を送る上限（このサーバーが守る
 <label>送れる回数 <input name="maxSends" type="number" min="1" max="100" value="3"></label>
 <label>1回あたりの各資源の上限 <input name="maxEach" type="number" min="0" max="1000000" value="500"></label>
 <label>有効期限（時間） <input name="hours" type="number" min="1" max="720" value="24"></label>
-<p class="warn">隊商を許すと、代理人の鍵（ケイパビリティ）が作り直され、このサーバーだけが持ちます。以前の鍵を使う接続は止まります。</p></fieldset>` : ''}
+<p class="warn">隊商を許すと、代理人の capability（relay に行動を頼むための権限。代理人の session 鍵ではありません）が作り直され、このサーバーだけが封印して持ちます。以前の capability を使う接続は止まります。</p></fieldset>` : ''}
 <button type="submit">ウォレットで署名して接続</button><button type="button" id="deny">拒否</button></form>
 <p id="msg"></p>
 <script nonce="${nonce}">
@@ -96,7 +119,7 @@ export function createHandler({ auth, mcp, origins = [], log = () => {}, rateLim
     b.tokens -= 1;
     return false;
   };
-  const KEEPING = new Set(['POST /oauth/register', 'GET /oauth/authorize', 'POST /oauth/statement', 'POST /oauth/consent']);
+  const KEEPING = new Set(['POST /oauth/register', 'GET /oauth/authorize', 'POST /oauth/statement', 'POST /oauth/consent', 'POST /owner/statement', 'POST /owner/operations']);
 
   return async function handler(req, res) {
     const url = new URL(req.url, auth.issuer);
@@ -154,6 +177,23 @@ export function createHandler({ auth, mcp, origins = [], log = () => {}, rateLim
           return send(res, 200, {});
         case 'POST /link/revoke':
           return send(res, 200, auth.ownerRevoke(await body(req)));
+        case 'GET /owner': {
+          const nonce = randomBytes(16).toString('base64');
+          res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'x-frame-options': 'DENY', 'referrer-policy': 'no-referrer',
+            'content-security-policy': `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'nonce-${nonce}'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'` });
+          return res.end(ownerPage(nonce));
+        }
+        case 'POST /owner/statement': {
+          // The bytes the owner's wallet signs to read their operations (built here so page and server agree).
+          const owner = String((await body(req))?.owner ?? '');
+          if (!owner) throw new OAuthError(400, 'invalid_request', 'owner is required');
+          const at = auth.now();
+          return send(res, 200, { at, statementB64: toBase64(ownerQueryStatement({ type: 'wylls-mcp-owner-operations/1', aud: auth.resource, owner, at })) });
+        }
+        case 'POST /owner/operations': {
+          const owner = auth.ownerQuery(await body(req));
+          return send(res, 200, await mcp.ownerOperations(owner));
+        }
         case 'GET /mcp': case 'DELETE /mcp':
           res.writeHead(405, { allow: 'POST' });
           return res.end();
