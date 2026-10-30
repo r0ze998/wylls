@@ -22,9 +22,9 @@ use std::sync::Arc;
 use solana_address::Address;
 
 use fclient::abi::{status, tag, Class};
-use fclient::decode::{Frontier, RingSeed};
+use fclient::decode::{Frontier, RingSeed, Season};
 use fclient::ix;
-use fclient::land::{ring_open_check, RingWait};
+use fclient::land::{frontier_extend_check, ring_open_check, ExtendWait, RingWait};
 use fclient::ports::{ChainPort, DrandPort, PortResult};
 use permutation_rules::frontier::geometry::ring_provinces;
 
@@ -41,6 +41,9 @@ pub fn ring_seed_key(d: u16) -> String {
 pub fn province_key(p: i32, q: i32) -> String {
     format!("open-province:{p},{q}")
 }
+pub fn extend_key(d: u16) -> String {
+    format!("extend-frontier:{d}")
+}
 
 #[derive(Default)]
 pub struct RingDuty {
@@ -54,6 +57,9 @@ pub struct RingDuty {
     pub genesis_done: bool,
     /// Why the next crowding ring waits (status).
     pub waiting: Option<RingWait>,
+    /// Why ExtendFrontier waits (status; `None` while the duty is off or
+    /// the season has no ceiling).
+    pub extend_waiting: Option<ExtendWait2>,
     /// `(d, slot)` when this keeper first saw ring d opened / seeded.
     pub opened_at: Vec<(u16, u64)>,
     pub seeded_at: Vec<(u16, u64)>,
@@ -78,6 +84,50 @@ pub fn crowding_ring_allowed(
     fold_part: u8,
 ) -> bool {
     d <= genesis || complete_bell.is_some_and(|cb| fold_bell > cb && fold_part == 0)
+}
+
+/// Why this keeper does not send ExtendFrontier now: the program's rule
+/// ([`fclient::land::frontier_extend_check`]) or one of the keeper's own
+/// waits.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ExtendWait2 {
+    /// The program would refuse it.
+    Rule(ExtendWait),
+    /// The outermost ring is not complete (every province on chain) and
+    /// folded by a later bell yet ([`crowding_ring_allowed`]).
+    RingIncomplete,
+    /// `d` is past the keeper's cap (`extend_max_ring`, default 17: the
+    /// prize program's `MAX_RING`).
+    PastCap { d: u16, cap: u16 },
+}
+
+/// The keeper's ExtendFrontier policy (map growth, a local candidate; off
+/// unless `extend = true`): `Ok(d)` to send ExtendFrontier(d) now. `d` is
+/// computed from the chain on every tick (`effective r_max + 1`), never
+/// remembered: once it lands the effective `r_max` is `d` and the next
+/// tick asks for `d + 1` only after ring `d` is opened, complete and folded.
+///
+/// - the program's rule holds now ([`frontier_extend_check`]: a ceiling,
+///   `d ≤ ceiling`, Running, every ring up to the effective `r_max`
+///   opened, a bell since the last opening, some wedge crowded past θ);
+/// - the outermost ring is complete and a whole fold of a later bell has
+///   landed (the wait of a crowding ring, so the fold counts its sites);
+/// - `d ≤ cap` (the keeper's `extend_max_ring`).
+pub fn extend_due(
+    s: &Season,
+    fr: &Frontier,
+    now: i64,
+    outer_complete_bell: Option<u32>,
+    cap: u16,
+) -> Result<u16, ExtendWait2> {
+    let d = frontier_extend_check(s, fr, now).map_err(ExtendWait2::Rule)?;
+    if d > cap {
+        return Err(ExtendWait2::PastCap { d, cap });
+    }
+    if !crowding_ring_allowed(d, 0, outer_complete_bell, fr.fold_bell, fr.fold_part) {
+        return Err(ExtendWait2::RingIncomplete);
+    }
+    Ok(d)
 }
 
 impl RingDuty {
@@ -109,12 +159,14 @@ impl RingDuty {
                 self.opened_at.push((d, t.slot));
             }
         }
-        // The next ring.
+        // The next ring (map growth: up to the effective r_max, the Season's
+        // or the Frontier's `r_max_ext` after ExtendFrontier).
+        let r_max = s.r_max.max(fr.r_max_ext);
         let d = opened;
         let ready = if d <= g {
             self.waiting = None;
             true
-        } else if d <= s.r_max
+        } else if d <= r_max
             && !crowding_ring_allowed(
                 d,
                 g,
@@ -125,7 +177,7 @@ impl RingDuty {
         {
             self.waiting = Some(RingWait::TooSoon);
             false
-        } else if d <= s.r_max {
+        } else if d <= r_max {
             let funds = port.accounts(&t.addrs.province_funds(), 0).await?;
             let lam: [u64; 6] =
                 core::array::from_fn(|w| funds[w].as_ref().map_or(0, |a| a.lamports));
@@ -141,6 +193,41 @@ impl RingDuty {
             }
         } else {
             self.waiting = Some(RingWait::AtMax);
+            // Map growth (local candidate, off by default): every ring up
+            // to the effective r_max is opened; extend by one ring when the
+            // program would accept it and the keeper's waits hold.
+            if t.cfg.extend && s.conquest.as_ref().is_some_and(|c| c.r_max_ceiling != 0) {
+                match extend_due(
+                    s,
+                    &fr,
+                    t.now,
+                    self.complete_bell.get(&r_max).copied(),
+                    t.cfg.extend_max_ring,
+                ) {
+                    Ok(e) => {
+                        self.extend_waiting = None;
+                        let a = t.addrs.clone();
+                        engine.ensure(
+                            WriteSpec {
+                                key: extend_key(e),
+                                kind: "extend-frontier",
+                                tag: tag::EXTEND_FRONTIER,
+                                class: Class::D,
+                                bell: None,
+                                region: None,
+                                build: Arc::new(move |c: &BuildCtx| {
+                                    vec![ix::v2::extend_frontier(&a, c.payer, e)]
+                                }),
+                                deadline_slot: None,
+                                not_before_slot: 0,
+                                fixed_payer: None,
+                            },
+                            t.slot,
+                        );
+                    }
+                    Err(w) => self.extend_waiting = Some(w),
+                }
+            }
             false
         };
         if ready {
@@ -307,5 +394,97 @@ mod tests {
         assert!(!crowding_ring_allowed(4, 3, Some(40), 40, 0));
         assert!(!crowding_ring_allowed(4, 3, Some(40), 41, 1));
         assert!(crowding_ring_allowed(4, 3, Some(40), 41, 0));
+    }
+
+    fn put(d: &mut [u8], o: usize, v: &[u8]) {
+        d[o..o + v.len()].copy_from_slice(v);
+    }
+
+    /// A Running S1-shaped season: r_max 16, θ 55% early, `ceiling` (0: none).
+    fn season(genesis: i64, ceiling: u16) -> Season {
+        use fclient::abi::layout::season as l;
+        let mut d = vec![0u8; fclient::abi::size::SEASON];
+        put(&mut d, 0, fclient::abi::magic::SEASON);
+        d[l::STATUS] = status::SEEDED;
+        put(&mut d, l::GENESIS_TS, &genesis.to_le_bytes());
+        put(&mut d, l::R_MAX, &16u16.to_le_bytes());
+        put(&mut d, l::THETA_EARLY_BPS, &5_500u16.to_le_bytes());
+        put(&mut d, l::THETA_LATE_BPS, &6_500u16.to_le_bytes());
+        put(&mut d, l::THETA_SWITCH_SECS, &259_200u32.to_le_bytes());
+        let mut s = Season::decode(&d).unwrap();
+        let mut cq = frontier_abi::v2::presets::FRONTIER_7;
+        cq.r_max_ceiling = ceiling;
+        s.conquest = Some(cq);
+        s
+    }
+
+    /// Rings 0..opened−1 opened, the last at bell 3, wedge 2 crowded (60%),
+    /// a whole fold of bell `fold_bell`.
+    fn frontier(opened: u16, ext: u16, fold_bell: u32) -> Frontier {
+        use fclient::abi::layout::frontier as l;
+        let mut b = vec![0u8; fclient::abi::size::FRONTIER];
+        put(&mut b, 0, fclient::abi::magic::FRONTIER);
+        put(&mut b, l::RINGS_OPENED, &opened.to_le_bytes());
+        put(&mut b, l::LAST_RING_OPEN_BELL, &3u32.to_le_bytes());
+        put(&mut b, l::FOLD_BELL, &fold_bell.to_le_bytes());
+        for w in 0..6 {
+            put(&mut b, l::WEDGE_OPEN + 4 * w, &100u32.to_le_bytes());
+        }
+        put(&mut b, l::WEDGE_OCCUPIED + 8, &60u32.to_le_bytes());
+        let mut fr = Frontier::decode(&b).unwrap();
+        fr.r_max_ext = ext;
+        fr
+    }
+
+    /// Map growth (local candidate): the keeper's ExtendFrontier policy.
+    #[test]
+    fn extend_waits_for_the_rule_the_outer_ring_and_the_cap() {
+        let g = 1_000_000;
+        let now = g + 10 * 600; // bell 10
+                                // A season without a ceiling: never.
+        let s0 = season(g, 0);
+        assert_eq!(
+            extend_due(&s0, &frontier(17, 0, 9), now, Some(5), 17),
+            Err(ExtendWait2::Rule(ExtendWait::NoCeiling))
+        );
+        let s = season(g, 24);
+        // All rules met: ring 16 complete at bell 5, folded at bell 9.
+        assert_eq!(
+            extend_due(&s, &frontier(17, 0, 9), now, Some(5), 24),
+            Ok(17)
+        );
+        // Ring 16 not opened yet; not complete; not folded after completing.
+        assert_eq!(
+            extend_due(&s, &frontier(16, 0, 9), now, Some(5), 24),
+            Err(ExtendWait2::Rule(ExtendWait::RingsNotOpened))
+        );
+        assert_eq!(
+            extend_due(&s, &frontier(17, 0, 9), now, None, 24),
+            Err(ExtendWait2::RingIncomplete)
+        );
+        assert_eq!(
+            extend_due(&s, &frontier(17, 0, 5), now, Some(5), 24),
+            Err(ExtendWait2::RingIncomplete)
+        );
+        // The keeper's cap (the prize program's ring 17 by default).
+        assert_eq!(
+            extend_due(&s, &frontier(17, 0, 9), now, Some(5), 17),
+            Ok(17)
+        );
+        assert_eq!(
+            extend_due(&s, &frontier(18, 17, 9), now, Some(5), 17),
+            Err(ExtendWait2::PastCap { d: 18, cap: 17 })
+        );
+        // After it landed (r_max_ext 17): nothing until ring 17 is opened,
+        // then d is 18, recomputed from the chain.
+        assert_eq!(
+            extend_due(&s, &frontier(17, 17, 9), now, Some(5), 24),
+            Err(ExtendWait2::Rule(ExtendWait::RingsNotOpened))
+        );
+        assert_eq!(
+            extend_due(&s, &frontier(18, 17, 9), now, Some(5), 24),
+            Ok(18)
+        );
+        assert_eq!(crate::config::EXTEND_MAX_RING_DEFAULT, 17);
     }
 }

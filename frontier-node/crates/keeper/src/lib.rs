@@ -1124,6 +1124,7 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
                 "provinces_opened": self.rings.opened.len(),
                 "rings_complete": self.rings.complete.iter().collect::<Vec<_>>(),
                 "ring_waiting": self.rings.waiting.as_ref().map(|w| format!("{w:?}")),
+                "extend_waiting": self.rings.extend_waiting.as_ref().map(|w| format!("{w:?}")),
                 "rings_unsupported": self.rings.unsupported,
                 "folded_bells": self.fold.folded.len(),
                 "tickets_open": self.index.tickets.len(),

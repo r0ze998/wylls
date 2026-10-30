@@ -119,6 +119,7 @@ Tally と Finalize は `permutation-prize/src/lib.rs` にあります。
 - **Tally（P1'）**：州の `opened_bell ≥ end_bell` なら、ビットマップに印を付けて `counted` を+1し、面積と同点用の値には何も足しません。このとき `resolved_next` と砦の `since_bell` は見ません。
   - `opened_bell < end_bell` の州は今までどおりです（`since_bell ≥ end_bell` なら `ProvinceNotFinal`）。
 - **InitPool（B）**：Season の `r_max` が17を超えると `BadParams` で断ります（定数 `MAX_RING` = 17）。
+  - **追記（地図の拡張、2026-10-30、ローカルの候補）：** Season の征服ブロックの `r_max_ceiling`（ExtendFrontier で広げられる上限）が17を超える場合も、InitPool は `CeilingPastTally`（0x111）で断ります。17の上限そのものは変えていません。ゲームのプログラムはプールの有無を知らないので、守りは InitPool のこの拒否と、keeper の拡張の上限（既定17）の2つです。
 
 ### そのほかの部品
 

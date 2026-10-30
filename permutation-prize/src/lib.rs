@@ -24,7 +24,11 @@
 //! (between the end bell and EndSeason) did not exist at the end: it is
 //! counted with no area and no territory. A counted Province is never read
 //! again (bitmap), and Finalize closes the tally for good. The bitmap
-//! covers rings 0–17, so InitPool refuses a season with `r_max` > 17.
+//! covers rings 0–17, so InitPool refuses a season with `r_max` > 17,
+//! and (map growth) one whose conquest `r_max_ceiling` > 17
+//! (`CeilingPastTally`): ExtendFrontier may raise such a season's map past
+//! the bitmap, and the game program cannot see the pool. The limit stays
+//! 17; a ceiling of at most 17 keeps the whole map inside the tally.
 //!
 //! **Decided** (owner): the winner is the nation holding the most provinces
 //! at the end; 80% of each fee is prize, 20% the operator's. **Provisional**
@@ -182,6 +186,9 @@ pub enum PrizeError {
     NothingToPay = 0x10E,
     Overflow = 0x10F,
     WrongExpectedCount = 0x110,
+    /// InitPool: the season's `r_max_ceiling` lets ExtendFrontier grow the
+    /// map past [`MAX_RING`] (the tally bitmap's rings 0–17).
+    CeilingPastTally = 0x111,
 }
 
 impl From<PrizeError> for ProgramError {
@@ -438,9 +445,7 @@ fn init_pool(program: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
             return Err(E::NotOperator.into());
         }
         // A map that may grow past the bitmap could never be tallied whole.
-        if u16_at(&sd, S::R_MAX)? > MAX_RING {
-            return Err(E::BadParams.into());
-        }
+        season_rings_fit(&sd)?;
         (u64_at(&sd, S::SEASON_ID)?, u32_at(&sd, S::END_BELL)?)
     };
     let (season_pda, _) =
@@ -940,12 +945,56 @@ pub fn process_instruction(program: &Pubkey, a: &[AccountInfo], data: &[u8]) -> 
     }
 }
 
+/// InitPool's map check: the season's `r_max` (`BadParams` past
+/// [`MAX_RING`]) and, map growth, its conquest `r_max_ceiling` (0: no
+/// extension; `CeilingPastTally` past [`MAX_RING`]).
+fn season_rings_fit(sd: &[u8]) -> R<()> {
+    if u16_at(sd, S::R_MAX)? > MAX_RING {
+        return Err(E::BadParams.into());
+    }
+    let ceiling = u16_at(
+        sd,
+        frontier_abi::v2::presets::SEASON_CQ_OFFSET
+            + frontier_abi::v2::presets::cq_layout::R_MAX_CEILING,
+    )?;
+    if ceiling > MAX_RING {
+        return Err(E::CeilingPastTally.into());
+    }
+    Ok(())
+}
+
 #[cfg(not(feature = "no-entrypoint"))]
 solana_program::entrypoint!(process_instruction);
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Map growth: a ceiling past ring 17 is refused by name; up to 17 (or
+    /// none) is taken; `r_max` past 17 stays `BadParams`.
+    #[test]
+    fn the_map_must_fit_the_tally_ceiling_included() {
+        let at = frontier_abi::v2::presets::SEASON_CQ_OFFSET
+            + frontier_abi::v2::presets::cq_layout::R_MAX_CEILING;
+        let season = |r_max: u16, ceiling: u16| {
+            let mut d = vec![0u8; S::SIZE];
+            d[S::R_MAX..S::R_MAX + 2].copy_from_slice(&r_max.to_le_bytes());
+            d[at..at + 2].copy_from_slice(&ceiling.to_le_bytes());
+            d
+        };
+        assert_eq!(season_rings_fit(&season(16, 0)), Ok(()));
+        assert_eq!(season_rings_fit(&season(16, 17)), Ok(()));
+        assert_eq!(
+            season_rings_fit(&season(16, 18)),
+            Err(E::CeilingPastTally.into())
+        );
+        assert_eq!(
+            season_rings_fit(&season(16, 128)),
+            Err(E::CeilingPastTally.into())
+        );
+        assert_eq!(season_rings_fit(&season(18, 0)), Err(E::BadParams.into()));
+        assert_eq!(MAX_RING, 17);
+    }
 
     #[test]
     fn fee_split_is_80_20() {
