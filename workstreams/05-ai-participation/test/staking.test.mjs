@@ -422,21 +422,30 @@ test('two executor processes do NOT share the executor\'s caps (the limit of a s
   assert.ok(BigInt(v.balance.reserved) + BigInt(v.balance.spent.inference) + BigInt(v.balance.spent.game) <= 60_000n);
 });
 
-test('two identical sends in one blockhash window with the same fee payer are one transaction: the relay refuses the second as Duplicate, charges no game price for it, and the budget holds', async () => {
+test('two identical sends in one blockhash window with the same fee payer: today the relay refuses the second as Duplicate (no game price, the budget holds); with the proposed patch 0002 both are sent', async () => {
   const { w, s } = await session({ requests: board(4), budget: { deposit: '1000000', total: '60000', perDay: '60000', callsPerDay: 50 } });
   w.relay.pool.randomIndex = () => 0; // the collision the random draw makes about once in 150 runs, made certain
   const pick = i => body => { const u = JSON.parse(body.messages[1].content); const r = u.requests.find(q => q.id === `R-${i}`); return { proposals: r ? [{ request: r.id, action: 'Train', fields: { unit: 0, n: 100 }, reason: 'mine' }] : [], skipped: [] }; };
   const caps = { perDay: { game: '15000' } };
   const run = (i, guard) => participate({ mcp: w.mcp(), world: w.publicWorld, txState: w.txState, meter: w.meter, mandate: s.mandate, decider: modelDecider({ llm: scriptedLlm(pick(i)) }), journal: new RunJournal(), runId: `p${i}`,
     staking: { guard, priceBook: TEST_BOOK(), modelCfg: parseModelConfig({ provider: 'scripted', model: 'scripted-stand-in' }), gamePrices: s.terms.prices.game, onBudgetLimit: 'stop' } });
+  // The proposed relay patch 0002 builds the colliding one again (a fresh blockhash read here, another payer in production).
+  const gw = await import('../../../permutation-gateway/src/frontier/agent/gateway.mjs');
+  const rebuilds = Number.isInteger(gw.DUPLICATE_REBUILDS);
   const [a, b] = await Promise.all([run(1, new BudgetGuard({ caps })), run(2, new BudgetGuard({ caps }))]);
   const items = [...a.items, ...b.items];
-  assert.deepEqual(items.map(i => i.outcome).sort(), ['refused', 'sent']);
-  assert.equal(items.find(i => i.outcome === 'refused').code, 'Duplicate');
-  assert.equal(w.sentCount(), 1, 'one transaction left the relay');
   const v = w.view();
-  assert.equal(v.balance.spent.game, '0');
-  assert.equal(v.balance.reserved, '15000', 'only the sent training is held (until the chain answers)');
+  if (rebuilds) {
+    assert.deepEqual(items.map(i => i.outcome), ['sent', 'sent'], 'patch 0002: both sent');
+    assert.equal(w.sentCount(), 2);
+    assert.equal(v.balance.reserved, '30000');
+  } else {
+    assert.deepEqual(items.map(i => i.outcome).sort(), ['refused', 'sent']);
+    assert.equal(items.find(i => i.outcome === 'refused').code, 'Duplicate');
+    assert.equal(w.sentCount(), 1, 'one transaction left the relay');
+    assert.equal(v.balance.spent.game, '0');
+    assert.equal(v.balance.reserved, '15000', 'only the sent training is held (until the chain answers)');
+  }
   assert.ok(BigInt(v.balance.reserved) + BigInt(v.balance.spent.inference) + BigInt(v.balance.spent.game) <= 60_000n);
   assert.deepEqual(w.books(), []);
 });

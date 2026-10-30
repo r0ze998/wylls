@@ -145,7 +145,7 @@ Claude（Anthropic Messages API）と GPT（OpenAI Responses API）を、同じ�
 
 ## 7. テスト（fixture、外部通信なし）
 
-`node --test workstreams/05-ai-participation/model-api/test/*.test.mjs`：**34件すべて通過**（内訳と回数は `TEST-REPORT-API.ja.md`）。既存の⑤のテスト36件も通ります。
+`node --test workstreams/05-ai-participation/model-api/test/*.test.mjs`：**41件すべて通過**（内訳と回数は `TEST-REPORT-API.ja.md`）。⑤のテスト37件も通ります。
 
 **実際の API は呼んでいません。** fixture は公式資料の欄名に合わせた、作り物の値です。テストでは次も確かめています。
 - `src/` が環境変数を読まないこと
@@ -256,3 +256,12 @@ Claude（Anthropic Messages API）と GPT（OpenAI Responses API）を、同じ�
 - 「依頼が違えば中継が合わせない」という誤ったコメントを直した
 
 **合格の根拠：** 再実行して通ったことではありません。上の「同じ」「違う」の固定条件で、失敗する条件と通る条件をそれぞれ 100% で再現したことです。
+
+**中継側の直し方の提案（④向け、パッチ 0002、未適用）：** 送る前の `Duplicate` は別の要求の取引なので、この要求は何も送られていません。使った支払い者を避けて、最大 2 回作り直します。パッチを当てると、支払い者を常に同じにした実行でも、⑤の 37 件が通ります（`patches/README.ja.md`）。
+
+## 11. 同じ Citizen の境界と、RunReceipt の port（2026-10-30 追加）
+
+- **③の本人 MCP と⑤の境界（`src/citizen-boundary.mjs`）：** 観測した時の `historySeq` を印にします。送る直前に、⑤以外の操作が印の後にあれば送りません（`OwnerActed`）。窓が届かなければ送りません（`HistoryGap`）。取引の枠と1日の予算には、本人の取り分を残します。③の側の欄は `HANDOFF-3.ja.md`。
+- **記録の区別：** 今の MCP は `source: 'mcp'` に固定で、⑤と③は requestId の接頭辞でしか分けられません。パッチ 0003（未適用）で、⑤は `source: 'ai'` になります。
+- **RunReceipt の port（`src/run-receipt.mjs`）：** ⑤が1回ごとに読む欄を固定しました。今はローカルの代わりが、既存の中継から埋めます。④だけが出せる欄（`run4Id`・`acts[].signedAt`・`acts[].cancellable`・取消の段階）は null のままで、`missingFrom4` に出ます。適合の確認は `src/run-receipt.conformance.mjs`。④の実物を受け取ったら、同じ確認にかけます。
+- デモの各回は、RunReceipt と、その適合の結果を表示します。

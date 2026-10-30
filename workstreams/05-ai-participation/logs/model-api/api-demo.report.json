@@ -8,32 +8,92 @@
         "model": "claude-fixture-model",
         "ticks": [
           {
-            "runId": "6793a6a9:t1",
+            "runId": "5f33d0d0:t1",
             "status": "done",
             "inference": "ok",
             "outcome": "ok",
-            "game": "R-1=sent"
+            "game": "R-1=sent",
+            "receipt": {
+              "seq": {
+                "observed": 4,
+                "closed": 6
+              },
+              "acts": [
+                "mcp:p05.de0977d8b83e01f6ab1f14731e6f4befe7d47f55:sent"
+              ],
+              "inference": {
+                "settled": "1500",
+                "undecided": "0",
+                "released": "0",
+                "reserved": "0"
+              },
+              "conformance": []
+            }
           },
           {
-            "runId": "6793a6a9:t2",
+            "runId": "5f33d0d0:t2",
             "status": "done",
             "inference": "inference-failed",
             "outcome": "unknown",
-            "game": ""
+            "game": "",
+            "receipt": {
+              "seq": {
+                "observed": 6,
+                "closed": 6
+              },
+              "acts": [],
+              "inference": {
+                "settled": "0",
+                "undecided": "12050",
+                "released": "0",
+                "reserved": "0"
+              },
+              "conformance": []
+            }
           },
           {
-            "runId": "6793a6a9:t3",
+            "runId": "5f33d0d0:t3",
             "status": "stopped-by-budget",
             "inference": "stopped-by-budget",
             "outcome": null,
-            "game": ""
+            "game": "",
+            "receipt": {
+              "seq": {
+                "observed": 6,
+                "closed": 6
+              },
+              "acts": [],
+              "inference": {
+                "settled": "0",
+                "undecided": "0",
+                "released": "0",
+                "reserved": "0"
+              },
+              "conformance": []
+            }
           },
           {
-            "runId": "6793a6a9:t4",
+            "runId": "5f33d0d0:t4",
             "status": "done",
             "inference": "ok",
             "outcome": "ok",
-            "game": "R-2=sent"
+            "game": "R-2=sent",
+            "receipt": {
+              "seq": {
+                "observed": 6,
+                "closed": 8
+              },
+              "acts": [
+                "mcp:p05.8150b8a2aa8114fd6454f985fc38479ae67504b5:sent"
+              ],
+              "inference": {
+                "settled": "1500",
+                "undecided": "0",
+                "released": "0",
+                "reserved": "0"
+              },
+              "conformance": []
+            }
           }
         ],
         "costs": {
@@ -123,7 +183,7 @@
             "outcome": "ok",
             "called": true,
             "replayed": false,
-            "requestKey": "d05-9a953bae6702746e1682c8ea5e81421ed6a609d9",
+            "requestKey": "d05-7414f7c94d8c12d234415be40d799f94b1aaa934",
             "provider": "anthropic",
             "configuredModel": "claude-fixture-model",
             "servedModel": "claude-fixture-model",
@@ -131,7 +191,7 @@
             "errors": [],
             "attempts": [
               {
-                "key": "d05-9a953bae6702746e1682c8ea5e81421ed6a609d9#0",
+                "key": "d05-7414f7c94d8c12d234415be40d799f94b1aaa934#0",
                 "outcome": "ok",
                 "stop": null,
                 "cost": {
@@ -161,7 +221,7 @@
               "outcome": "sent",
               "code": null,
               "decidedBy": "existing relay (via MCP agent_act)",
-              "signature": "5otDbP5pSKXdhjfJi8uPENCJ2PRp6fD3oNXKhTKhLUyvUgAC4TBQFNj9Jb7a6pfXYF523aHJbY3nh4Eg8CY2VMzx"
+              "signature": "4f9726L56ZmhasYQw85SXYTtRi8ZCyoJkbUj1y9c1Te9RNmekLHrbtnURF3hh7Y1RP1JLWGRtu1AZD4uDq23Y8Zn"
             }
           ],
           "sent": 1
@@ -175,7 +235,7 @@
             "outcome": "unknown",
             "called": true,
             "replayed": false,
-            "requestKey": "d05-07459f155d1603c4ceb03d27f16b2ee2c8a9b870",
+            "requestKey": "d05-fa8641f8ff1e405e2eb9bea0137385d1fc4febcf",
             "provider": "anthropic",
             "configuredModel": "claude-fixture-model",
             "servedModel": null,
@@ -183,7 +243,7 @@
             "errors": [],
             "attempts": [
               {
-                "key": "d05-07459f155d1603c4ceb03d27f16b2ee2c8a9b870#0",
+                "key": "d05-fa8641f8ff1e405e2eb9bea0137385d1fc4febcf#0",
                 "outcome": "unknown",
                 "stop": null,
                 "cost": {
@@ -197,7 +257,7 @@
           "undecidedBefore": "12050",
           "reconcile": [
             {
-              "key": "d05-07459f155d1603c4ceb03d27f16b2ee2c8a9b870#0",
+              "key": "d05-fa8641f8ff1e405e2eb9bea0137385d1fc4febcf#0",
               "contract": "fixture",
               "productionVerified": false,
               "result": "undecided",
@@ -236,7 +296,7 @@
             }
           },
           "last": {
-            "runId": "6793a6a9:t3",
+            "runId": "5f33d0d0:t3",
             "status": "stopped-by-budget",
             "stoppedBy": "CategoryTotalLimit",
             "executionPath": "existing MCP agent_act → relay POST /f/agent/action (AgentGateway), as in this repository",
@@ -246,7 +306,7 @@
               "outcome": null,
               "called": false,
               "replayed": false,
-              "requestKey": "d05-0ca9984fa814312df764484bbc25f8a52c3cbe72",
+              "requestKey": "d05-4092b6d6e904ef6ecc327a95e9da86f1f7b319a6",
               "provider": "anthropic",
               "configuredModel": "claude-fixture-model",
               "servedModel": null,
@@ -260,7 +320,49 @@
             "game": [],
             "notes": [
               "CategoryTotalLimit"
-            ]
+            ],
+            "receipt": {
+              "receiptVersion": "p05-port/0.1",
+              "provenance": "local adapter (④ RunReceipt not received)",
+              "runId": "5f33d0d0:t3",
+              "run4Id": null,
+              "agentId": "5f33d0d0-db9a-4aef-880d-c7dae233da0f",
+              "citizen": "9bxhgk7tEvuzbo1p4eeYUPeBfG6dQrsLNR4VjVprSmvY",
+              "decisionKey": "d05-4092b6d6e904ef6ecc327a95e9da86f1f7b319a6",
+              "policyVersion": 1,
+              "modeEpoch": 1,
+              "seq": {
+                "observed": 6,
+                "closed": 6
+              },
+              "state": "closed",
+              "inference": {
+                "status": "stopped-by-budget",
+                "outcome": null,
+                "called": false,
+                "replayed": false,
+                "attempts": []
+              },
+              "acts": [],
+              "costs": {
+                "inference": {
+                  "settled": "0",
+                  "undecided": "0",
+                  "released": "0",
+                  "reserved": "0"
+                },
+                "game": {
+                  "reserved": "0"
+                }
+              },
+              "cancel": null,
+              "missingFrom4": [
+                "run4Id",
+                "acts[].signedAt",
+                "acts[].cancellable",
+                "cancel.stage"
+              ]
+            }
           },
           "skippedAfterStop": {
             "skipped": true,
@@ -289,7 +391,7 @@
             }
           },
           "record": {
-            "runId": "6793a6a9:t4",
+            "runId": "5f33d0d0:t4",
             "status": "done",
             "stoppedBy": null,
             "executionPath": "existing MCP agent_act → relay POST /f/agent/action (AgentGateway), as in this repository",
@@ -299,7 +401,7 @@
               "outcome": "ok",
               "called": true,
               "replayed": false,
-              "requestKey": "d05-21365fe52c3115e4dd3f704a101249f92fa1abd4",
+              "requestKey": "d05-370b952b0c156aa8aa5f7b029ff6488c44f7dafd",
               "provider": "anthropic",
               "configuredModel": "claude-fixture-model",
               "servedModel": "claude-fixture-model",
@@ -307,7 +409,7 @@
               "errors": [],
               "attempts": [
                 {
-                  "key": "d05-21365fe52c3115e4dd3f704a101249f92fa1abd4#0",
+                  "key": "d05-370b952b0c156aa8aa5f7b029ff6488c44f7dafd#0",
                   "outcome": "ok",
                   "stop": null,
                   "cost": {
@@ -331,10 +433,85 @@
                 "outcome": "sent",
                 "code": null,
                 "decidedBy": "existing relay (via MCP agent_act)",
-                "signature": "5x5bBJpVhGkKFv3FWpp13iDdCa2KX6Rwxyh9zuVPWn1G9Sv3TJsCJLymwmtkRiZUWsupa1mVZAmLViYnyiz2PesZ"
+                "signature": "3JJbJiYegastGB6uhmARYfCrrxHcicUV3iAa1zghQidSqBJ6QjvRHFhGitRNwFi5LhF7PzcedzsMTTDqDUGfE3Yq"
               }
             ],
-            "notes": []
+            "notes": [],
+            "receipt": {
+              "receiptVersion": "p05-port/0.1",
+              "provenance": "local adapter (④ RunReceipt not received)",
+              "runId": "5f33d0d0:t4",
+              "run4Id": null,
+              "agentId": "5f33d0d0-db9a-4aef-880d-c7dae233da0f",
+              "citizen": "9bxhgk7tEvuzbo1p4eeYUPeBfG6dQrsLNR4VjVprSmvY",
+              "decisionKey": "d05-370b952b0c156aa8aa5f7b029ff6488c44f7dafd",
+              "policyVersion": 1,
+              "modeEpoch": 1,
+              "seq": {
+                "observed": 6,
+                "closed": 8
+              },
+              "state": "closed",
+              "inference": {
+                "status": "ok",
+                "outcome": "ok",
+                "called": true,
+                "replayed": false,
+                "attempts": [
+                  {
+                    "key": "d05-370b952b0c156aa8aa5f7b029ff6488c44f7dafd#0",
+                    "outcome": "ok",
+                    "stop": null,
+                    "cost": {
+                      "measured": "1500",
+                      "unknown": false
+                    }
+                  }
+                ]
+              },
+              "acts": [
+                {
+                  "requestId": "p05.8150b8a2aa8114fd6454f985fc38479ae67504b5",
+                  "idempotencyKey": "mcp:p05.8150b8a2aa8114fd6454f985fc38479ae67504b5",
+                  "source": "mcp",
+                  "action": {
+                    "name": "Train",
+                    "fields": {
+                      "unit": 0,
+                      "n": 100
+                    }
+                  },
+                  "status": "sent",
+                  "code": null,
+                  "signature": "3JJbJiYegastGB6uhmARYfCrrxHcicUV3iAa1zghQidSqBJ6QjvRHFhGitRNwFi5LhF7PzcedzsMTTDqDUGfE3Yq",
+                  "signedAt": null,
+                  "fate": "unknown",
+                  "gameCharge": {
+                    "reserved": "0",
+                    "state": "none or settled (see history)"
+                  },
+                  "cancellable": null
+                }
+              ],
+              "costs": {
+                "inference": {
+                  "settled": "1500",
+                  "undecided": "0",
+                  "released": "0",
+                  "reserved": "0"
+                },
+                "game": {
+                  "reserved": "0"
+                }
+              },
+              "cancel": null,
+              "missingFrom4": [
+                "run4Id",
+                "acts[].signedAt",
+                "acts[].cancellable",
+                "cancel.stage"
+              ]
+            }
           }
         }
       ],
@@ -371,7 +548,7 @@
         {
           "seq": 1,
           "at": 1800108000000,
-          "runId": "6793a6a9:t1",
+          "runId": "5f33d0d0:t1",
           "step": "observe",
           "ok": true,
           "worldSec": 1800108000,
@@ -475,7 +652,7 @@
         {
           "seq": 2,
           "at": 1800108000000,
-          "runId": "6793a6a9:t1",
+          "runId": "5f33d0d0:t1",
           "step": "grant",
           "ok": true,
           "reasons": [],
@@ -506,7 +683,7 @@
         {
           "seq": 3,
           "at": 1800108000000,
-          "runId": "6793a6a9:t1",
+          "runId": "5f33d0d0:t1",
           "step": "plan",
           "by": "api:anthropic:claude-fixture-model",
           "charged": "0",
@@ -518,7 +695,7 @@
           "reportedAlias": null,
           "modelError": null,
           "inference": {
-            "requestKey": "d05-9a953bae6702746e1682c8ea5e81421ed6a609d9",
+            "requestKey": "d05-7414f7c94d8c12d234415be40d799f94b1aaa934",
             "boundary": "fixture",
             "provider": "anthropic",
             "configuredModel": "claude-fixture-model",
@@ -529,7 +706,7 @@
             "outcome": "ok",
             "attempts": [
               {
-                "key": "d05-9a953bae6702746e1682c8ea5e81421ed6a609d9#0",
+                "key": "d05-7414f7c94d8c12d234415be40d799f94b1aaa934#0",
                 "outcome": "ok",
                 "stop": null,
                 "providerRequestId": "req_fixture_0",
@@ -575,9 +752,9 @@
         {
           "seq": 4,
           "at": 1800108000000,
-          "runId": "6793a6a9:t1",
+          "runId": "5f33d0d0:t1",
           "step": "guard",
-          "key": "6793a6a9-4b95-4df7-941c-f662c380a7dc|R-1|Train|m1",
+          "key": "5f33d0d0-db9a-4aef-880d-c7dae233da0f|R-1|Train|m1",
           "requestId": "R-1",
           "by": "api:anthropic:claude-fixture-model",
           "command": {
@@ -595,14 +772,14 @@
         {
           "seq": 5,
           "at": 1800108000000,
-          "runId": "6793a6a9:t1",
+          "runId": "5f33d0d0:t1",
           "step": "act-begin",
-          "key": "6793a6a9-4b95-4df7-941c-f662c380a7dc|R-1|Train|m1",
+          "key": "5f33d0d0-db9a-4aef-880d-c7dae233da0f|R-1|Train|m1",
           "requestId": "R-1",
-          "attemptId": "p05.640c071f8e1c6a5825429cd4ac671e0efef371fb",
+          "attemptId": "p05.de0977d8b83e01f6ab1f14731e6f4befe7d47f55",
           "outcome": "acting",
           "args": {
-            "requestId": "p05.640c071f8e1c6a5825429cd4ac671e0efef371fb",
+            "requestId": "p05.de0977d8b83e01f6ab1f14731e6f4befe7d47f55",
             "policyVersion": 1,
             "modeEpoch": 1,
             "action": {
@@ -627,14 +804,14 @@
         {
           "seq": 6,
           "at": 1800108000000,
-          "runId": "6793a6a9:t1",
+          "runId": "5f33d0d0:t1",
           "step": "act-result",
-          "key": "6793a6a9-4b95-4df7-941c-f662c380a7dc|R-1|Train|m1",
+          "key": "5f33d0d0-db9a-4aef-880d-c7dae233da0f|R-1|Train|m1",
           "requestId": "R-1",
-          "attemptId": "p05.640c071f8e1c6a5825429cd4ac671e0efef371fb",
+          "attemptId": "p05.de0977d8b83e01f6ab1f14731e6f4befe7d47f55",
           "outcome": "sent",
           "code": null,
-          "signature": "5otDbP5pSKXdhjfJi8uPENCJ2PRp6fD3oNXKhTKhLUyvUgAC4TBQFNj9Jb7a6pfXYF523aHJbY3nh4Eg8CY2VMzx",
+          "signature": "4f9726L56ZmhasYQw85SXYTtRi8ZCyoJkbUj1y9c1Te9RNmekLHrbtnURF3hh7Y1RP1JLWGRtu1AZD4uDq23Y8Zn",
           "replayed": false,
           "cost": {
             "Food": 60,
@@ -648,9 +825,9 @@
           "seq": 7,
           "at": 1800108060000,
           "step": "verify",
-          "key": "6793a6a9-4b95-4df7-941c-f662c380a7dc|R-1|Train|m1",
+          "key": "5f33d0d0-db9a-4aef-880d-c7dae233da0f|R-1|Train|m1",
           "requestId": "R-1",
-          "signature": "5otDbP5pSKXdhjfJi8uPENCJ2PRp6fD3oNXKhTKhLUyvUgAC4TBQFNj9Jb7a6pfXYF523aHJbY3nh4Eg8CY2VMzx",
+          "signature": "4f9726L56ZmhasYQw85SXYTtRi8ZCyoJkbUj1y9c1Te9RNmekLHrbtnURF3hh7Y1RP1JLWGRtu1AZD4uDq23Y8Zn",
           "tx": "landed",
           "outcome": "contributed",
           "effect": {
@@ -663,7 +840,7 @@
           "seq": 8,
           "at": 1800108060000,
           "step": "memory",
-          "key": "6793a6a9-4b95-4df7-941c-f662c380a7dc|R-1|Train|m1",
+          "key": "5f33d0d0-db9a-4aef-880d-c7dae233da0f|R-1|Train|m1",
           "outcome": "contributed",
           "verified": true,
           "requestId": "R-1",
@@ -674,12 +851,12 @@
               "n": 100
             }
           },
-          "signature": "5otDbP5pSKXdhjfJi8uPENCJ2PRp6fD3oNXKhTKhLUyvUgAC4TBQFNj9Jb7a6pfXYF523aHJbY3nh4Eg8CY2VMzx"
+          "signature": "4f9726L56ZmhasYQw85SXYTtRi8ZCyoJkbUj1y9c1Te9RNmekLHrbtnURF3hh7Y1RP1JLWGRtu1AZD4uDq23Y8Zn"
         },
         {
           "seq": 9,
           "at": 1800108060000,
-          "runId": "6793a6a9:t2",
+          "runId": "5f33d0d0:t2",
           "step": "observe",
           "ok": true,
           "worldSec": 1800108060,
@@ -783,7 +960,7 @@
         {
           "seq": 10,
           "at": 1800108060000,
-          "runId": "6793a6a9:t2",
+          "runId": "5f33d0d0:t2",
           "step": "grant",
           "ok": true,
           "reasons": [],
@@ -814,7 +991,7 @@
         {
           "seq": 11,
           "at": 1800108060000,
-          "runId": "6793a6a9:t2",
+          "runId": "5f33d0d0:t2",
           "step": "plan",
           "by": "api:anthropic:claude-fixture-model",
           "charged": "0",
@@ -826,7 +1003,7 @@
           "reportedAlias": null,
           "modelError": null,
           "inference": {
-            "requestKey": "d05-07459f155d1603c4ceb03d27f16b2ee2c8a9b870",
+            "requestKey": "d05-fa8641f8ff1e405e2eb9bea0137385d1fc4febcf",
             "boundary": "fixture",
             "provider": "anthropic",
             "configuredModel": "claude-fixture-model",
@@ -837,7 +1014,7 @@
             "outcome": "unknown",
             "attempts": [
               {
-                "key": "d05-07459f155d1603c4ceb03d27f16b2ee2c8a9b870#0",
+                "key": "d05-fa8641f8ff1e405e2eb9bea0137385d1fc4febcf#0",
                 "outcome": "unknown",
                 "stop": null,
                 "providerRequestId": null,
@@ -875,7 +1052,7 @@
         {
           "seq": 12,
           "at": 1800108120000,
-          "runId": "6793a6a9:t3",
+          "runId": "5f33d0d0:t3",
           "step": "observe",
           "ok": true,
           "worldSec": 1800108120,
@@ -979,7 +1156,7 @@
         {
           "seq": 13,
           "at": 1800108120000,
-          "runId": "6793a6a9:t3",
+          "runId": "5f33d0d0:t3",
           "step": "grant",
           "ok": true,
           "reasons": [],
@@ -1010,13 +1187,13 @@
         {
           "seq": 14,
           "at": 1800108120000,
-          "runId": "6793a6a9:t3",
+          "runId": "5f33d0d0:t3",
           "step": "plan",
           "by": null,
           "charged": "1500",
           "cause": "CategoryTotalLimit",
           "inference": {
-            "requestKey": "d05-0ca9984fa814312df764484bbc25f8a52c3cbe72",
+            "requestKey": "d05-4092b6d6e904ef6ecc327a95e9da86f1f7b319a6",
             "boundary": "fixture",
             "provider": "anthropic",
             "configuredModel": "claude-fixture-model",
@@ -1056,7 +1233,7 @@
         {
           "seq": 15,
           "at": 1800108180000,
-          "runId": "6793a6a9:t4",
+          "runId": "5f33d0d0:t4",
           "step": "observe",
           "ok": true,
           "worldSec": 1800108180,
@@ -1160,7 +1337,7 @@
         {
           "seq": 16,
           "at": 1800108180000,
-          "runId": "6793a6a9:t4",
+          "runId": "5f33d0d0:t4",
           "step": "grant",
           "ok": true,
           "reasons": [],
@@ -1191,7 +1368,7 @@
         {
           "seq": 17,
           "at": 1800108180000,
-          "runId": "6793a6a9:t4",
+          "runId": "5f33d0d0:t4",
           "step": "plan",
           "by": "api:anthropic:claude-fixture-model",
           "charged": "0",
@@ -1203,7 +1380,7 @@
           "reportedAlias": null,
           "modelError": null,
           "inference": {
-            "requestKey": "d05-21365fe52c3115e4dd3f704a101249f92fa1abd4",
+            "requestKey": "d05-370b952b0c156aa8aa5f7b029ff6488c44f7dafd",
             "boundary": "fixture",
             "provider": "anthropic",
             "configuredModel": "claude-fixture-model",
@@ -1214,7 +1391,7 @@
             "outcome": "ok",
             "attempts": [
               {
-                "key": "d05-21365fe52c3115e4dd3f704a101249f92fa1abd4#0",
+                "key": "d05-370b952b0c156aa8aa5f7b029ff6488c44f7dafd#0",
                 "outcome": "ok",
                 "stop": null,
                 "providerRequestId": "req_fixture_2",
@@ -1260,9 +1437,9 @@
         {
           "seq": 18,
           "at": 1800108180000,
-          "runId": "6793a6a9:t4",
+          "runId": "5f33d0d0:t4",
           "step": "guard",
-          "key": "6793a6a9-4b95-4df7-941c-f662c380a7dc|R-2|Train|m1",
+          "key": "5f33d0d0-db9a-4aef-880d-c7dae233da0f|R-2|Train|m1",
           "requestId": "R-2",
           "by": "api:anthropic:claude-fixture-model",
           "command": {
@@ -1280,14 +1457,14 @@
         {
           "seq": 19,
           "at": 1800108180000,
-          "runId": "6793a6a9:t4",
+          "runId": "5f33d0d0:t4",
           "step": "act-begin",
-          "key": "6793a6a9-4b95-4df7-941c-f662c380a7dc|R-2|Train|m1",
+          "key": "5f33d0d0-db9a-4aef-880d-c7dae233da0f|R-2|Train|m1",
           "requestId": "R-2",
-          "attemptId": "p05.d81cccf21082c11cebcf9900c8e8b10bbc65e650",
+          "attemptId": "p05.8150b8a2aa8114fd6454f985fc38479ae67504b5",
           "outcome": "acting",
           "args": {
-            "requestId": "p05.d81cccf21082c11cebcf9900c8e8b10bbc65e650",
+            "requestId": "p05.8150b8a2aa8114fd6454f985fc38479ae67504b5",
             "policyVersion": 1,
             "modeEpoch": 1,
             "action": {
@@ -1312,14 +1489,14 @@
         {
           "seq": 20,
           "at": 1800108180000,
-          "runId": "6793a6a9:t4",
+          "runId": "5f33d0d0:t4",
           "step": "act-result",
-          "key": "6793a6a9-4b95-4df7-941c-f662c380a7dc|R-2|Train|m1",
+          "key": "5f33d0d0-db9a-4aef-880d-c7dae233da0f|R-2|Train|m1",
           "requestId": "R-2",
-          "attemptId": "p05.d81cccf21082c11cebcf9900c8e8b10bbc65e650",
+          "attemptId": "p05.8150b8a2aa8114fd6454f985fc38479ae67504b5",
           "outcome": "sent",
           "code": null,
-          "signature": "5x5bBJpVhGkKFv3FWpp13iDdCa2KX6Rwxyh9zuVPWn1G9Sv3TJsCJLymwmtkRiZUWsupa1mVZAmLViYnyiz2PesZ",
+          "signature": "3JJbJiYegastGB6uhmARYfCrrxHcicUV3iAa1zghQidSqBJ6QjvRHFhGitRNwFi5LhF7PzcedzsMTTDqDUGfE3Yq",
           "replayed": false,
           "cost": {
             "Food": 60,
@@ -1338,46 +1515,138 @@
         "model": "gpt-fixture-model",
         "ticks": [
           {
-            "runId": "8b013cb3:t1",
+            "runId": "7ee70558:t1",
             "status": "done",
             "inference": "ok",
             "outcome": "ok",
-            "game": "R-1=sent"
+            "game": "R-1=sent",
+            "receipt": {
+              "seq": {
+                "observed": 4,
+                "closed": 6
+              },
+              "acts": [
+                "mcp:p05.a37a17222d35cf72b220578b77d60d46b8fbf5e1:sent"
+              ],
+              "inference": {
+                "settled": "1500",
+                "undecided": "0",
+                "released": "0",
+                "reserved": "0"
+              },
+              "conformance": []
+            }
           },
           {
-            "runId": "8b013cb3:t2",
+            "runId": "7ee70558:t2",
             "status": "done",
             "inference": "inference-failed",
             "outcome": "unknown",
-            "game": ""
+            "game": "",
+            "receipt": {
+              "seq": {
+                "observed": 6,
+                "closed": 6
+              },
+              "acts": [],
+              "inference": {
+                "settled": "0",
+                "undecided": "8305",
+                "released": "0",
+                "reserved": "0"
+              },
+              "conformance": []
+            }
           },
           {
-            "runId": "8b013cb3:t3",
+            "runId": "7ee70558:t3",
             "status": "done",
             "inference": "ok",
             "outcome": "ok",
-            "game": "R-2=sent"
+            "game": "R-2=sent",
+            "receipt": {
+              "seq": {
+                "observed": 6,
+                "closed": 8
+              },
+              "acts": [
+                "mcp:p05.1a718a3033fc2673e22ba1120a3668b6f1db28ff:sent"
+              ],
+              "inference": {
+                "settled": "1500",
+                "undecided": "0",
+                "released": "0",
+                "reserved": "0"
+              },
+              "conformance": []
+            }
           },
           {
-            "runId": "8b013cb3:t4",
+            "runId": "7ee70558:t4",
             "status": "done",
             "inference": "ok",
             "outcome": "ok",
-            "game": "R-3=sent"
+            "game": "R-3=sent",
+            "receipt": {
+              "seq": {
+                "observed": 8,
+                "closed": 10
+              },
+              "acts": [
+                "mcp:p05.415939be96ee2be7e5e3eeb887a182a201bcc580:sent"
+              ],
+              "inference": {
+                "settled": "1500",
+                "undecided": "0",
+                "released": "0",
+                "reserved": "0"
+              },
+              "conformance": []
+            }
           },
           {
-            "runId": "8b013cb3:t5",
+            "runId": "7ee70558:t5",
             "status": "stopped-by-budget",
             "inference": "stopped-by-budget",
             "outcome": null,
-            "game": ""
+            "game": "",
+            "receipt": {
+              "seq": {
+                "observed": 10,
+                "closed": 10
+              },
+              "acts": [],
+              "inference": {
+                "settled": "0",
+                "undecided": "0",
+                "released": "0",
+                "reserved": "0"
+              },
+              "conformance": []
+            }
           },
           {
-            "runId": "8b013cb3:t6",
+            "runId": "7ee70558:t6",
             "status": "done",
             "inference": "ok",
             "outcome": "ok",
-            "game": "R-4=sent"
+            "game": "R-4=sent",
+            "receipt": {
+              "seq": {
+                "observed": 10,
+                "closed": 12
+              },
+              "acts": [
+                "mcp:p05.7e9dbfb53afdf81db88e84234de4d9c79c8e9a4c:sent"
+              ],
+              "inference": {
+                "settled": "1500",
+                "undecided": "0",
+                "released": "0",
+                "reserved": "0"
+              },
+              "conformance": []
+            }
           }
         ],
         "costs": {
@@ -1467,7 +1736,7 @@
             "outcome": "ok",
             "called": true,
             "replayed": false,
-            "requestKey": "d05-c50d515a6198681cc74b96c9bc583799667facb2",
+            "requestKey": "d05-356459374ee29a11cd7c5a1896c7c6c4275d8f4c",
             "provider": "openai",
             "configuredModel": "gpt-fixture-model",
             "servedModel": "gpt-fixture-model",
@@ -1475,7 +1744,7 @@
             "errors": [],
             "attempts": [
               {
-                "key": "d05-c50d515a6198681cc74b96c9bc583799667facb2#0",
+                "key": "d05-356459374ee29a11cd7c5a1896c7c6c4275d8f4c#0",
                 "outcome": "ok",
                 "stop": null,
                 "cost": {
@@ -1505,7 +1774,7 @@
               "outcome": "sent",
               "code": null,
               "decidedBy": "existing relay (via MCP agent_act)",
-              "signature": "2k7U9fGMPTne7TgnTFC7BN88p87hASWGi1TUzmcghFurVXnUuhK3k2vDCCgHGHJbMLtS9kEJnjyqhhVcPN4DcrHh"
+              "signature": "5UEaedsFii55hD9A9ZmFjST7wi6ZHnbbzJrjHfe6x4VcuD8bkk7fScgTVPYHBGQLjYzFpTkLpPUshkxtaxyD7R8e"
             }
           ],
           "sent": 1
@@ -1519,7 +1788,7 @@
             "outcome": "unknown",
             "called": true,
             "replayed": false,
-            "requestKey": "d05-28b9e46a6d1054114a50ee147c5dd88b47ef2f7b",
+            "requestKey": "d05-3b85a63ef02d9e78d9650d37877b0cf28745b253",
             "provider": "openai",
             "configuredModel": "gpt-fixture-model",
             "servedModel": null,
@@ -1527,7 +1796,7 @@
             "errors": [],
             "attempts": [
               {
-                "key": "d05-28b9e46a6d1054114a50ee147c5dd88b47ef2f7b#0",
+                "key": "d05-3b85a63ef02d9e78d9650d37877b0cf28745b253#0",
                 "outcome": "unknown",
                 "stop": null,
                 "cost": {
@@ -1541,7 +1810,7 @@
           "undecidedBefore": "8305",
           "reconcile": [
             {
-              "key": "d05-28b9e46a6d1054114a50ee147c5dd88b47ef2f7b#0",
+              "key": "d05-3b85a63ef02d9e78d9650d37877b0cf28745b253#0",
               "contract": "fixture",
               "productionVerified": false,
               "result": "settled",
@@ -1582,7 +1851,7 @@
             }
           },
           "last": {
-            "runId": "8b013cb3:t5",
+            "runId": "7ee70558:t5",
             "status": "stopped-by-budget",
             "stoppedBy": "CategoryTotalLimit",
             "executionPath": "existing MCP agent_act → relay POST /f/agent/action (AgentGateway), as in this repository",
@@ -1592,7 +1861,7 @@
               "outcome": null,
               "called": false,
               "replayed": false,
-              "requestKey": "d05-5e912b72d57c052aa98eb4f33b3c6fe731fc1f30",
+              "requestKey": "d05-560e451fc2b62a6c8d28cca6cec1a56973b546fa",
               "provider": "openai",
               "configuredModel": "gpt-fixture-model",
               "servedModel": null,
@@ -1606,7 +1875,49 @@
             "game": [],
             "notes": [
               "CategoryTotalLimit"
-            ]
+            ],
+            "receipt": {
+              "receiptVersion": "p05-port/0.1",
+              "provenance": "local adapter (④ RunReceipt not received)",
+              "runId": "7ee70558:t5",
+              "run4Id": null,
+              "agentId": "7ee70558-c08c-48c9-8929-853285a779a6",
+              "citizen": "7t4C9RbrjJtW28DxsCTsMpuGsCY7wY4WXSTM3PpbZyMo",
+              "decisionKey": "d05-560e451fc2b62a6c8d28cca6cec1a56973b546fa",
+              "policyVersion": 1,
+              "modeEpoch": 1,
+              "seq": {
+                "observed": 10,
+                "closed": 10
+              },
+              "state": "closed",
+              "inference": {
+                "status": "stopped-by-budget",
+                "outcome": null,
+                "called": false,
+                "replayed": false,
+                "attempts": []
+              },
+              "acts": [],
+              "costs": {
+                "inference": {
+                  "settled": "0",
+                  "undecided": "0",
+                  "released": "0",
+                  "reserved": "0"
+                },
+                "game": {
+                  "reserved": "0"
+                }
+              },
+              "cancel": null,
+              "missingFrom4": [
+                "run4Id",
+                "acts[].signedAt",
+                "acts[].cancellable",
+                "cancel.stage"
+              ]
+            }
           },
           "skippedAfterStop": {
             "skipped": true,
@@ -1635,7 +1946,7 @@
             }
           },
           "record": {
-            "runId": "8b013cb3:t6",
+            "runId": "7ee70558:t6",
             "status": "done",
             "stoppedBy": null,
             "executionPath": "existing MCP agent_act → relay POST /f/agent/action (AgentGateway), as in this repository",
@@ -1645,7 +1956,7 @@
               "outcome": "ok",
               "called": true,
               "replayed": false,
-              "requestKey": "d05-1e630098990cb1738ec1a440aef5479f2aa420dc",
+              "requestKey": "d05-fd1a06a09448f0ddaf9b0b079269db059c0b283f",
               "provider": "openai",
               "configuredModel": "gpt-fixture-model",
               "servedModel": "gpt-fixture-model",
@@ -1653,7 +1964,7 @@
               "errors": [],
               "attempts": [
                 {
-                  "key": "d05-1e630098990cb1738ec1a440aef5479f2aa420dc#0",
+                  "key": "d05-fd1a06a09448f0ddaf9b0b079269db059c0b283f#0",
                   "outcome": "ok",
                   "stop": null,
                   "cost": {
@@ -1677,10 +1988,85 @@
                 "outcome": "sent",
                 "code": null,
                 "decidedBy": "existing relay (via MCP agent_act)",
-                "signature": "2TvQMgsWiGHter3iPSVmicpKLQswBRutLFvmF2bZ3whEUMHNfD3U7qhoCWJTnoWU3fnnXKajV2QCiqzYvkEFAvJB"
+                "signature": "27bwS2zKRv5fEHCZS3Vdci2SmsjxTsBRFLXyRvE8wFinLd9E7Kb3QL5whhu2ir9hV9WNKg9389rcjz4Y1Ab7LcKh"
               }
             ],
-            "notes": []
+            "notes": [],
+            "receipt": {
+              "receiptVersion": "p05-port/0.1",
+              "provenance": "local adapter (④ RunReceipt not received)",
+              "runId": "7ee70558:t6",
+              "run4Id": null,
+              "agentId": "7ee70558-c08c-48c9-8929-853285a779a6",
+              "citizen": "7t4C9RbrjJtW28DxsCTsMpuGsCY7wY4WXSTM3PpbZyMo",
+              "decisionKey": "d05-fd1a06a09448f0ddaf9b0b079269db059c0b283f",
+              "policyVersion": 1,
+              "modeEpoch": 1,
+              "seq": {
+                "observed": 10,
+                "closed": 12
+              },
+              "state": "closed",
+              "inference": {
+                "status": "ok",
+                "outcome": "ok",
+                "called": true,
+                "replayed": false,
+                "attempts": [
+                  {
+                    "key": "d05-fd1a06a09448f0ddaf9b0b079269db059c0b283f#0",
+                    "outcome": "ok",
+                    "stop": null,
+                    "cost": {
+                      "measured": "1500",
+                      "unknown": false
+                    }
+                  }
+                ]
+              },
+              "acts": [
+                {
+                  "requestId": "p05.7e9dbfb53afdf81db88e84234de4d9c79c8e9a4c",
+                  "idempotencyKey": "mcp:p05.7e9dbfb53afdf81db88e84234de4d9c79c8e9a4c",
+                  "source": "mcp",
+                  "action": {
+                    "name": "Train",
+                    "fields": {
+                      "unit": 0,
+                      "n": 100
+                    }
+                  },
+                  "status": "sent",
+                  "code": null,
+                  "signature": "27bwS2zKRv5fEHCZS3Vdci2SmsjxTsBRFLXyRvE8wFinLd9E7Kb3QL5whhu2ir9hV9WNKg9389rcjz4Y1Ab7LcKh",
+                  "signedAt": null,
+                  "fate": "unknown",
+                  "gameCharge": {
+                    "reserved": "0",
+                    "state": "none or settled (see history)"
+                  },
+                  "cancellable": null
+                }
+              ],
+              "costs": {
+                "inference": {
+                  "settled": "1500",
+                  "undecided": "0",
+                  "released": "0",
+                  "reserved": "0"
+                },
+                "game": {
+                  "reserved": "0"
+                }
+              },
+              "cancel": null,
+              "missingFrom4": [
+                "run4Id",
+                "acts[].signedAt",
+                "acts[].cancellable",
+                "cancel.stage"
+              ]
+            }
           }
         }
       ],
@@ -1717,7 +2103,7 @@
         {
           "seq": 1,
           "at": 1800108000000,
-          "runId": "8b013cb3:t1",
+          "runId": "7ee70558:t1",
           "step": "observe",
           "ok": true,
           "worldSec": 1800108000,
@@ -1821,7 +2207,7 @@
         {
           "seq": 2,
           "at": 1800108000000,
-          "runId": "8b013cb3:t1",
+          "runId": "7ee70558:t1",
           "step": "grant",
           "ok": true,
           "reasons": [],
@@ -1852,7 +2238,7 @@
         {
           "seq": 3,
           "at": 1800108000000,
-          "runId": "8b013cb3:t1",
+          "runId": "7ee70558:t1",
           "step": "plan",
           "by": "api:openai:gpt-fixture-model",
           "charged": "0",
@@ -1864,7 +2250,7 @@
           "reportedAlias": null,
           "modelError": null,
           "inference": {
-            "requestKey": "d05-c50d515a6198681cc74b96c9bc583799667facb2",
+            "requestKey": "d05-356459374ee29a11cd7c5a1896c7c6c4275d8f4c",
             "boundary": "fixture",
             "provider": "openai",
             "configuredModel": "gpt-fixture-model",
@@ -1875,7 +2261,7 @@
             "outcome": "ok",
             "attempts": [
               {
-                "key": "d05-c50d515a6198681cc74b96c9bc583799667facb2#0",
+                "key": "d05-356459374ee29a11cd7c5a1896c7c6c4275d8f4c#0",
                 "outcome": "ok",
                 "stop": null,
                 "providerRequestId": "req_fixture_0",
@@ -1921,9 +2307,9 @@
         {
           "seq": 4,
           "at": 1800108000000,
-          "runId": "8b013cb3:t1",
+          "runId": "7ee70558:t1",
           "step": "guard",
-          "key": "8b013cb3-ae10-432e-a8e7-dcfc58aa6652|R-1|Train|m1",
+          "key": "7ee70558-c08c-48c9-8929-853285a779a6|R-1|Train|m1",
           "requestId": "R-1",
           "by": "api:openai:gpt-fixture-model",
           "command": {
@@ -1941,14 +2327,14 @@
         {
           "seq": 5,
           "at": 1800108000000,
-          "runId": "8b013cb3:t1",
+          "runId": "7ee70558:t1",
           "step": "act-begin",
-          "key": "8b013cb3-ae10-432e-a8e7-dcfc58aa6652|R-1|Train|m1",
+          "key": "7ee70558-c08c-48c9-8929-853285a779a6|R-1|Train|m1",
           "requestId": "R-1",
-          "attemptId": "p05.1e4d2b3aba43a77867dde0271c8d4932c1c7651f",
+          "attemptId": "p05.a37a17222d35cf72b220578b77d60d46b8fbf5e1",
           "outcome": "acting",
           "args": {
-            "requestId": "p05.1e4d2b3aba43a77867dde0271c8d4932c1c7651f",
+            "requestId": "p05.a37a17222d35cf72b220578b77d60d46b8fbf5e1",
             "policyVersion": 1,
             "modeEpoch": 1,
             "action": {
@@ -1973,14 +2359,14 @@
         {
           "seq": 6,
           "at": 1800108000000,
-          "runId": "8b013cb3:t1",
+          "runId": "7ee70558:t1",
           "step": "act-result",
-          "key": "8b013cb3-ae10-432e-a8e7-dcfc58aa6652|R-1|Train|m1",
+          "key": "7ee70558-c08c-48c9-8929-853285a779a6|R-1|Train|m1",
           "requestId": "R-1",
-          "attemptId": "p05.1e4d2b3aba43a77867dde0271c8d4932c1c7651f",
+          "attemptId": "p05.a37a17222d35cf72b220578b77d60d46b8fbf5e1",
           "outcome": "sent",
           "code": null,
-          "signature": "2k7U9fGMPTne7TgnTFC7BN88p87hASWGi1TUzmcghFurVXnUuhK3k2vDCCgHGHJbMLtS9kEJnjyqhhVcPN4DcrHh",
+          "signature": "5UEaedsFii55hD9A9ZmFjST7wi6ZHnbbzJrjHfe6x4VcuD8bkk7fScgTVPYHBGQLjYzFpTkLpPUshkxtaxyD7R8e",
           "replayed": false,
           "cost": {
             "Food": 60,
@@ -1994,9 +2380,9 @@
           "seq": 7,
           "at": 1800108060000,
           "step": "verify",
-          "key": "8b013cb3-ae10-432e-a8e7-dcfc58aa6652|R-1|Train|m1",
+          "key": "7ee70558-c08c-48c9-8929-853285a779a6|R-1|Train|m1",
           "requestId": "R-1",
-          "signature": "2k7U9fGMPTne7TgnTFC7BN88p87hASWGi1TUzmcghFurVXnUuhK3k2vDCCgHGHJbMLtS9kEJnjyqhhVcPN4DcrHh",
+          "signature": "5UEaedsFii55hD9A9ZmFjST7wi6ZHnbbzJrjHfe6x4VcuD8bkk7fScgTVPYHBGQLjYzFpTkLpPUshkxtaxyD7R8e",
           "tx": "landed",
           "outcome": "contributed",
           "effect": {
@@ -2009,7 +2395,7 @@
           "seq": 8,
           "at": 1800108060000,
           "step": "memory",
-          "key": "8b013cb3-ae10-432e-a8e7-dcfc58aa6652|R-1|Train|m1",
+          "key": "7ee70558-c08c-48c9-8929-853285a779a6|R-1|Train|m1",
           "outcome": "contributed",
           "verified": true,
           "requestId": "R-1",
@@ -2020,12 +2406,12 @@
               "n": 100
             }
           },
-          "signature": "2k7U9fGMPTne7TgnTFC7BN88p87hASWGi1TUzmcghFurVXnUuhK3k2vDCCgHGHJbMLtS9kEJnjyqhhVcPN4DcrHh"
+          "signature": "5UEaedsFii55hD9A9ZmFjST7wi6ZHnbbzJrjHfe6x4VcuD8bkk7fScgTVPYHBGQLjYzFpTkLpPUshkxtaxyD7R8e"
         },
         {
           "seq": 9,
           "at": 1800108060000,
-          "runId": "8b013cb3:t2",
+          "runId": "7ee70558:t2",
           "step": "observe",
           "ok": true,
           "worldSec": 1800108060,
@@ -2129,7 +2515,7 @@
         {
           "seq": 10,
           "at": 1800108060000,
-          "runId": "8b013cb3:t2",
+          "runId": "7ee70558:t2",
           "step": "grant",
           "ok": true,
           "reasons": [],
@@ -2160,7 +2546,7 @@
         {
           "seq": 11,
           "at": 1800108060000,
-          "runId": "8b013cb3:t2",
+          "runId": "7ee70558:t2",
           "step": "plan",
           "by": "api:openai:gpt-fixture-model",
           "charged": "0",
@@ -2172,7 +2558,7 @@
           "reportedAlias": null,
           "modelError": null,
           "inference": {
-            "requestKey": "d05-28b9e46a6d1054114a50ee147c5dd88b47ef2f7b",
+            "requestKey": "d05-3b85a63ef02d9e78d9650d37877b0cf28745b253",
             "boundary": "fixture",
             "provider": "openai",
             "configuredModel": "gpt-fixture-model",
@@ -2183,7 +2569,7 @@
             "outcome": "unknown",
             "attempts": [
               {
-                "key": "d05-28b9e46a6d1054114a50ee147c5dd88b47ef2f7b#0",
+                "key": "d05-3b85a63ef02d9e78d9650d37877b0cf28745b253#0",
                 "outcome": "unknown",
                 "stop": null,
                 "providerRequestId": null,
@@ -2221,7 +2607,7 @@
         {
           "seq": 12,
           "at": 1800108120000,
-          "runId": "8b013cb3:t3",
+          "runId": "7ee70558:t3",
           "step": "observe",
           "ok": true,
           "worldSec": 1800108120,
@@ -2325,7 +2711,7 @@
         {
           "seq": 13,
           "at": 1800108120000,
-          "runId": "8b013cb3:t3",
+          "runId": "7ee70558:t3",
           "step": "grant",
           "ok": true,
           "reasons": [],
@@ -2356,7 +2742,7 @@
         {
           "seq": 14,
           "at": 1800108120000,
-          "runId": "8b013cb3:t3",
+          "runId": "7ee70558:t3",
           "step": "plan",
           "by": "api:openai:gpt-fixture-model",
           "charged": "0",
@@ -2368,7 +2754,7 @@
           "reportedAlias": null,
           "modelError": null,
           "inference": {
-            "requestKey": "d05-d89538f742a7807e815480ab030eb0d84d24e753",
+            "requestKey": "d05-f56bf8c79d1a6fcc1e4fb17a3ae87a837c2ad2e2",
             "boundary": "fixture",
             "provider": "openai",
             "configuredModel": "gpt-fixture-model",
@@ -2379,7 +2765,7 @@
             "outcome": "ok",
             "attempts": [
               {
-                "key": "d05-d89538f742a7807e815480ab030eb0d84d24e753#0",
+                "key": "d05-f56bf8c79d1a6fcc1e4fb17a3ae87a837c2ad2e2#0",
                 "outcome": "ok",
                 "stop": null,
                 "providerRequestId": "req_fixture_2",
@@ -2425,9 +2811,9 @@
         {
           "seq": 15,
           "at": 1800108120000,
-          "runId": "8b013cb3:t3",
+          "runId": "7ee70558:t3",
           "step": "guard",
-          "key": "8b013cb3-ae10-432e-a8e7-dcfc58aa6652|R-2|Train|m1",
+          "key": "7ee70558-c08c-48c9-8929-853285a779a6|R-2|Train|m1",
           "requestId": "R-2",
           "by": "api:openai:gpt-fixture-model",
           "command": {
@@ -2445,14 +2831,14 @@
         {
           "seq": 16,
           "at": 1800108120000,
-          "runId": "8b013cb3:t3",
+          "runId": "7ee70558:t3",
           "step": "act-begin",
-          "key": "8b013cb3-ae10-432e-a8e7-dcfc58aa6652|R-2|Train|m1",
+          "key": "7ee70558-c08c-48c9-8929-853285a779a6|R-2|Train|m1",
           "requestId": "R-2",
-          "attemptId": "p05.569eae07298d2f35f3dd66a0e03350cda65f04e6",
+          "attemptId": "p05.1a718a3033fc2673e22ba1120a3668b6f1db28ff",
           "outcome": "acting",
           "args": {
-            "requestId": "p05.569eae07298d2f35f3dd66a0e03350cda65f04e6",
+            "requestId": "p05.1a718a3033fc2673e22ba1120a3668b6f1db28ff",
             "policyVersion": 1,
             "modeEpoch": 1,
             "action": {
@@ -2477,14 +2863,14 @@
         {
           "seq": 17,
           "at": 1800108120000,
-          "runId": "8b013cb3:t3",
+          "runId": "7ee70558:t3",
           "step": "act-result",
-          "key": "8b013cb3-ae10-432e-a8e7-dcfc58aa6652|R-2|Train|m1",
+          "key": "7ee70558-c08c-48c9-8929-853285a779a6|R-2|Train|m1",
           "requestId": "R-2",
-          "attemptId": "p05.569eae07298d2f35f3dd66a0e03350cda65f04e6",
+          "attemptId": "p05.1a718a3033fc2673e22ba1120a3668b6f1db28ff",
           "outcome": "sent",
           "code": null,
-          "signature": "wNEfQRYxENqGsF5uHoHgNjV8DsFAKEKauEmHPrZzWDLfT8MXcXx5qdkjtdLVxhtXMfz3f5wAcdArEyYW3XBSeM6",
+          "signature": "5iBLQPHs1cNi6scwsYojkQyTcDSprF2xA1WEFKbiYSf5LpePnzC4dX44zpj461KVNB84zi38habBSCCB5KDHrZ9A",
           "replayed": false,
           "cost": {
             "Food": 60,
@@ -2498,9 +2884,9 @@
           "seq": 18,
           "at": 1800108180000,
           "step": "verify",
-          "key": "8b013cb3-ae10-432e-a8e7-dcfc58aa6652|R-2|Train|m1",
+          "key": "7ee70558-c08c-48c9-8929-853285a779a6|R-2|Train|m1",
           "requestId": "R-2",
-          "signature": "wNEfQRYxENqGsF5uHoHgNjV8DsFAKEKauEmHPrZzWDLfT8MXcXx5qdkjtdLVxhtXMfz3f5wAcdArEyYW3XBSeM6",
+          "signature": "5iBLQPHs1cNi6scwsYojkQyTcDSprF2xA1WEFKbiYSf5LpePnzC4dX44zpj461KVNB84zi38habBSCCB5KDHrZ9A",
           "tx": "landed",
           "outcome": "contributed",
           "effect": {
@@ -2513,7 +2899,7 @@
           "seq": 19,
           "at": 1800108180000,
           "step": "memory",
-          "key": "8b013cb3-ae10-432e-a8e7-dcfc58aa6652|R-2|Train|m1",
+          "key": "7ee70558-c08c-48c9-8929-853285a779a6|R-2|Train|m1",
           "outcome": "contributed",
           "verified": true,
           "requestId": "R-2",
@@ -2524,12 +2910,12 @@
               "n": 100
             }
           },
-          "signature": "wNEfQRYxENqGsF5uHoHgNjV8DsFAKEKauEmHPrZzWDLfT8MXcXx5qdkjtdLVxhtXMfz3f5wAcdArEyYW3XBSeM6"
+          "signature": "5iBLQPHs1cNi6scwsYojkQyTcDSprF2xA1WEFKbiYSf5LpePnzC4dX44zpj461KVNB84zi38habBSCCB5KDHrZ9A"
         },
         {
           "seq": 20,
           "at": 1800108180000,
-          "runId": "8b013cb3:t4",
+          "runId": "7ee70558:t4",
           "step": "observe",
           "ok": true,
           "worldSec": 1800108180,
@@ -2633,7 +3019,7 @@
         {
           "seq": 21,
           "at": 1800108180000,
-          "runId": "8b013cb3:t4",
+          "runId": "7ee70558:t4",
           "step": "grant",
           "ok": true,
           "reasons": [],
@@ -2664,7 +3050,7 @@
         {
           "seq": 22,
           "at": 1800108180000,
-          "runId": "8b013cb3:t4",
+          "runId": "7ee70558:t4",
           "step": "plan",
           "by": "api:openai:gpt-fixture-model",
           "charged": "0",
@@ -2676,7 +3062,7 @@
           "reportedAlias": null,
           "modelError": null,
           "inference": {
-            "requestKey": "d05-3dff8df0845b52f02a6d04042eab8b5c00d75f90",
+            "requestKey": "d05-60092b85dd6e93873b036da6db5739a64b7f09cf",
             "boundary": "fixture",
             "provider": "openai",
             "configuredModel": "gpt-fixture-model",
@@ -2687,7 +3073,7 @@
             "outcome": "ok",
             "attempts": [
               {
-                "key": "d05-3dff8df0845b52f02a6d04042eab8b5c00d75f90#0",
+                "key": "d05-60092b85dd6e93873b036da6db5739a64b7f09cf#0",
                 "outcome": "ok",
                 "stop": null,
                 "providerRequestId": "req_fixture_3",
@@ -2733,9 +3119,9 @@
         {
           "seq": 23,
           "at": 1800108180000,
-          "runId": "8b013cb3:t4",
+          "runId": "7ee70558:t4",
           "step": "guard",
-          "key": "8b013cb3-ae10-432e-a8e7-dcfc58aa6652|R-3|Train|m1",
+          "key": "7ee70558-c08c-48c9-8929-853285a779a6|R-3|Train|m1",
           "requestId": "R-3",
           "by": "api:openai:gpt-fixture-model",
           "command": {
@@ -2753,14 +3139,14 @@
         {
           "seq": 24,
           "at": 1800108180000,
-          "runId": "8b013cb3:t4",
+          "runId": "7ee70558:t4",
           "step": "act-begin",
-          "key": "8b013cb3-ae10-432e-a8e7-dcfc58aa6652|R-3|Train|m1",
+          "key": "7ee70558-c08c-48c9-8929-853285a779a6|R-3|Train|m1",
           "requestId": "R-3",
-          "attemptId": "p05.0cf07507d47b15eaf8150837978290eb300ecb51",
+          "attemptId": "p05.415939be96ee2be7e5e3eeb887a182a201bcc580",
           "outcome": "acting",
           "args": {
-            "requestId": "p05.0cf07507d47b15eaf8150837978290eb300ecb51",
+            "requestId": "p05.415939be96ee2be7e5e3eeb887a182a201bcc580",
             "policyVersion": 1,
             "modeEpoch": 1,
             "action": {
@@ -2785,14 +3171,14 @@
         {
           "seq": 25,
           "at": 1800108180000,
-          "runId": "8b013cb3:t4",
+          "runId": "7ee70558:t4",
           "step": "act-result",
-          "key": "8b013cb3-ae10-432e-a8e7-dcfc58aa6652|R-3|Train|m1",
+          "key": "7ee70558-c08c-48c9-8929-853285a779a6|R-3|Train|m1",
           "requestId": "R-3",
-          "attemptId": "p05.0cf07507d47b15eaf8150837978290eb300ecb51",
+          "attemptId": "p05.415939be96ee2be7e5e3eeb887a182a201bcc580",
           "outcome": "sent",
           "code": null,
-          "signature": "2BqwhZm6hxHXpXhkvhgNcGBZ1tNDJMDKXaL2G2ibrcDHiGZcum6ePLWna6CzBjSgYDtEWqxpyh9v9333crBs9CEc",
+          "signature": "4pxprE2rfVqTbmM8ECdeTpFbXrhrSZbrZ7u18YFU7jSJRLNzc2NrSpGNMsHiWPk1xC3EUoasEJWnMhodS8pvK9vi",
           "replayed": false,
           "cost": {
             "Food": 60,
@@ -2806,9 +3192,9 @@
           "seq": 26,
           "at": 1800108240000,
           "step": "verify",
-          "key": "8b013cb3-ae10-432e-a8e7-dcfc58aa6652|R-3|Train|m1",
+          "key": "7ee70558-c08c-48c9-8929-853285a779a6|R-3|Train|m1",
           "requestId": "R-3",
-          "signature": "2BqwhZm6hxHXpXhkvhgNcGBZ1tNDJMDKXaL2G2ibrcDHiGZcum6ePLWna6CzBjSgYDtEWqxpyh9v9333crBs9CEc",
+          "signature": "4pxprE2rfVqTbmM8ECdeTpFbXrhrSZbrZ7u18YFU7jSJRLNzc2NrSpGNMsHiWPk1xC3EUoasEJWnMhodS8pvK9vi",
           "tx": "landed",
           "outcome": "contributed",
           "effect": {
@@ -2821,7 +3207,7 @@
           "seq": 27,
           "at": 1800108240000,
           "step": "memory",
-          "key": "8b013cb3-ae10-432e-a8e7-dcfc58aa6652|R-3|Train|m1",
+          "key": "7ee70558-c08c-48c9-8929-853285a779a6|R-3|Train|m1",
           "outcome": "contributed",
           "verified": true,
           "requestId": "R-3",
@@ -2832,12 +3218,12 @@
               "n": 100
             }
           },
-          "signature": "2BqwhZm6hxHXpXhkvhgNcGBZ1tNDJMDKXaL2G2ibrcDHiGZcum6ePLWna6CzBjSgYDtEWqxpyh9v9333crBs9CEc"
+          "signature": "4pxprE2rfVqTbmM8ECdeTpFbXrhrSZbrZ7u18YFU7jSJRLNzc2NrSpGNMsHiWPk1xC3EUoasEJWnMhodS8pvK9vi"
         },
         {
           "seq": 28,
           "at": 1800108240000,
-          "runId": "8b013cb3:t5",
+          "runId": "7ee70558:t5",
           "step": "observe",
           "ok": true,
           "worldSec": 1800108240,
@@ -2941,7 +3327,7 @@
         {
           "seq": 29,
           "at": 1800108240000,
-          "runId": "8b013cb3:t5",
+          "runId": "7ee70558:t5",
           "step": "grant",
           "ok": true,
           "reasons": [],
@@ -2972,13 +3358,13 @@
         {
           "seq": 30,
           "at": 1800108240000,
-          "runId": "8b013cb3:t5",
+          "runId": "7ee70558:t5",
           "step": "plan",
           "by": null,
           "charged": "6000",
           "cause": "CategoryTotalLimit",
           "inference": {
-            "requestKey": "d05-5e912b72d57c052aa98eb4f33b3c6fe731fc1f30",
+            "requestKey": "d05-560e451fc2b62a6c8d28cca6cec1a56973b546fa",
             "boundary": "fixture",
             "provider": "openai",
             "configuredModel": "gpt-fixture-model",
@@ -3018,7 +3404,7 @@
         {
           "seq": 31,
           "at": 1800108300000,
-          "runId": "8b013cb3:t6",
+          "runId": "7ee70558:t6",
           "step": "observe",
           "ok": true,
           "worldSec": 1800108300,
@@ -3122,7 +3508,7 @@
         {
           "seq": 32,
           "at": 1800108300000,
-          "runId": "8b013cb3:t6",
+          "runId": "7ee70558:t6",
           "step": "grant",
           "ok": true,
           "reasons": [],
@@ -3153,7 +3539,7 @@
         {
           "seq": 33,
           "at": 1800108300000,
-          "runId": "8b013cb3:t6",
+          "runId": "7ee70558:t6",
           "step": "plan",
           "by": "api:openai:gpt-fixture-model",
           "charged": "0",
@@ -3165,7 +3551,7 @@
           "reportedAlias": null,
           "modelError": null,
           "inference": {
-            "requestKey": "d05-1e630098990cb1738ec1a440aef5479f2aa420dc",
+            "requestKey": "d05-fd1a06a09448f0ddaf9b0b079269db059c0b283f",
             "boundary": "fixture",
             "provider": "openai",
             "configuredModel": "gpt-fixture-model",
@@ -3176,7 +3562,7 @@
             "outcome": "ok",
             "attempts": [
               {
-                "key": "d05-1e630098990cb1738ec1a440aef5479f2aa420dc#0",
+                "key": "d05-fd1a06a09448f0ddaf9b0b079269db059c0b283f#0",
                 "outcome": "ok",
                 "stop": null,
                 "providerRequestId": "req_fixture_4",
@@ -3222,9 +3608,9 @@
         {
           "seq": 34,
           "at": 1800108300000,
-          "runId": "8b013cb3:t6",
+          "runId": "7ee70558:t6",
           "step": "guard",
-          "key": "8b013cb3-ae10-432e-a8e7-dcfc58aa6652|R-4|Train|m1",
+          "key": "7ee70558-c08c-48c9-8929-853285a779a6|R-4|Train|m1",
           "requestId": "R-4",
           "by": "api:openai:gpt-fixture-model",
           "command": {
@@ -3242,14 +3628,14 @@
         {
           "seq": 35,
           "at": 1800108300000,
-          "runId": "8b013cb3:t6",
+          "runId": "7ee70558:t6",
           "step": "act-begin",
-          "key": "8b013cb3-ae10-432e-a8e7-dcfc58aa6652|R-4|Train|m1",
+          "key": "7ee70558-c08c-48c9-8929-853285a779a6|R-4|Train|m1",
           "requestId": "R-4",
-          "attemptId": "p05.b8405e2073e32b95682dace7455664cb98b656eb",
+          "attemptId": "p05.7e9dbfb53afdf81db88e84234de4d9c79c8e9a4c",
           "outcome": "acting",
           "args": {
-            "requestId": "p05.b8405e2073e32b95682dace7455664cb98b656eb",
+            "requestId": "p05.7e9dbfb53afdf81db88e84234de4d9c79c8e9a4c",
             "policyVersion": 1,
             "modeEpoch": 1,
             "action": {
@@ -3274,14 +3660,14 @@
         {
           "seq": 36,
           "at": 1800108300000,
-          "runId": "8b013cb3:t6",
+          "runId": "7ee70558:t6",
           "step": "act-result",
-          "key": "8b013cb3-ae10-432e-a8e7-dcfc58aa6652|R-4|Train|m1",
+          "key": "7ee70558-c08c-48c9-8929-853285a779a6|R-4|Train|m1",
           "requestId": "R-4",
-          "attemptId": "p05.b8405e2073e32b95682dace7455664cb98b656eb",
+          "attemptId": "p05.7e9dbfb53afdf81db88e84234de4d9c79c8e9a4c",
           "outcome": "sent",
           "code": null,
-          "signature": "2TvQMgsWiGHter3iPSVmicpKLQswBRutLFvmF2bZ3whEUMHNfD3U7qhoCWJTnoWU3fnnXKajV2QCiqzYvkEFAvJB",
+          "signature": "27bwS2zKRv5fEHCZS3Vdci2SmsjxTsBRFLXyRvE8wFinLd9E7Kb3QL5whhu2ir9hV9WNKg9389rcjz4Y1Ab7LcKh",
           "replayed": false,
           "cost": {
             "Food": 60,

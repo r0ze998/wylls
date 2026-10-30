@@ -128,11 +128,13 @@ async function act(mcp, args, retries) {
  * @param {string} o.runId
  * @param {number} [o.maxObsAgeSec]  an observation older than this (world clock) is not acted on
  * @param {Function} [o.crash]  test hook: called with a step name; throwing there is a process dying at that step
+ * @param {object} [o.boundary] model-api/src/citizen-boundary.mjs CitizenBoundary: the owner's own client on the same Citizen
+ *                              acts first (any of its actions since the observation, or a history gap, skips this act)
  * @param {object} [o.staking]  the AI-staking executor's layer (src/staking): {guard: BudgetGuard, priceBook, modelCfg, identity,
  *                              gamePrices: the relay's game price table (agent_terms), onBudgetLimit: 'stop'|'rules', modelRetries}.
  *                              Absent: the participation demo's behaviour (a refused model call falls back to the free rules).
  */
-export async function participate({ mcp, world, txState, meter = null, mandate, decider, fallback = ruleDecider(), contract = new CommandContract(), journal, runId, maxObsAgeSec = 300, retries = 2, crash = () => {}, staking = null }) {
+export async function participate({ mcp, world, txState, meter = null, mandate, decider, fallback = ruleDecider(), contract = new CommandContract(), journal, runId, maxObsAgeSec = 300, retries = 2, crash = () => {}, staking = null, boundary = null }) {
   const S = staking;
   const report = { runId, version: PARTICIPATION_VERSION, decider: decider.name, resumed: [], verified: [], items: [], notes: [], charged: '0', status: 'done' };
   const J = e => journal.append({ runId, ...e });
@@ -255,6 +257,14 @@ export async function participate({ mcp, world, txState, meter = null, mandate, 
       const why = v2.isError ? 'agent_view が読めない' : view2.mode !== 'auto' ? '本人が停止した' : view2.policy?.version !== obs.view.policy.version ? `方針が版 ${obs.view.policy.version} から ${view2.policy?.version} に変わった` : view2.modeEpoch !== obs.view.modeEpoch ? '停止と再開があった' : `観測から ${worldNow - obs.observedAtSec} 秒たった（上限 ${maxObsAgeSec}）`;
       J({ step: 'guard', key, requestId: p.requestId, verdict: 'refused', code: stale, reason: why });
       Object.assign(item, { outcome: OUTCOME.SKIPPED, code: stale, reason: why, ownerDecision: view2?.mode !== 'auto' ? '再開するかは本人が決める' : null });
+      continue;
+    }
+    // The same Citizen's other client (the owner's own MCP, ③): if it acted since we observed, the owner goes first.
+    const bd = boundary?.beforeAct(obs.view, view2, { nextGamePrice: String(S?.gamePrices?.[g.command.name] ?? '0') });
+    if (bd && !bd.ok) {
+      stale = bd.code;
+      J({ step: 'guard', key, requestId: p.requestId, verdict: 'refused', code: bd.code, reason: bd.detail });
+      Object.assign(item, { outcome: OUTCOME.SKIPPED, code: bd.code, reason: `本人の側の操作を優先する（${bd.detail}）。この観測では送らない`, ownerDecision: null });
       continue;
     }
 

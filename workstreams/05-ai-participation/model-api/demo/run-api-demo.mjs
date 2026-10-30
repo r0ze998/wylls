@@ -20,6 +20,10 @@ import { RunCostMock } from '../src/run-cost.mjs';
 import { DecisionRegistry } from '../src/inference.mjs';
 import { apiDecider } from '../src/api-decider.mjs';
 import { Autopilot } from '../src/autopilot.mjs';
+import { CitizenBoundary } from '../src/citizen-boundary.mjs';
+import { localReceiptPort } from '../src/run-receipt.mjs';
+import { conformance } from '../src/run-receipt.conformance.mjs';
+import { tool } from '../../src/participate.mjs';
 import { reconcileUndecided } from '../src/reconcile.mjs';
 import { startHttpFixture } from '../fixture/http-fixture.mjs';
 
@@ -36,6 +40,7 @@ const BOUNDARY = {
   reconcile: 'FIXTURE CONTRACT: measured = fixture usage × fixture book, matched to a fixture provider record. Sending a client request id is documented; querying billing by it is NOT verified in production. Unmatched costs stay held (no 0, no refund on the operator\'s word)',
   stop: 'MOCK: the inference total cap of RunCostMock; the stop itself is ⑤\'s autopilot (REAL code, one process)',
   resume: 'REAL code; the owner is a test keypair; the cap change is on the mock',
+  receipt: 'LOCAL ADAPTER of the RunReceipt port: filled from the existing relay reads; ④\'s RunReceipt (run4Id, signedAt, cancellable) not received',
 };
 
 const userOf = body => JSON.parse((body.messages ?? body.input).find(m => m.role === 'user').content);
@@ -54,8 +59,12 @@ async function flow(name, adapter, model) {
     let ap;
     const decider = apiDecider({ adapter, model, transport: loopbackTransport({ baseUrl: srv.url, timeoutMs: 80 }), book: FIXTURE_BOOK(), costs, registry, runId: () => ap.currentRun, sleep: async () => {} });
     const mandate = mandateFor(w, { allowed: ['Train'], limits: { perRequest: { Food: 60, Ore: 20, Gold: 10 }, perDay: { Food: 600, Ore: 200, Gold: 100 }, troopsPerRequest: 100 } });
-    ap = new Autopilot({ world: w, mandate, decider, journal: new RunJournal({ now: () => w.state.clock * 1000 }) });
+    // The RunReceipt of every tick comes from the LOCAL ADAPTER (④'s RunReceipt not received); the owner keeps one
+    // sponsored transaction a day (CitizenBoundary, ⑤'s side only: ③'s contract not received).
+    const receipts = localReceiptPort({ view: async () => (await tool(w.mcp(), 'agent_view')).structuredContent, txState: w.txState, costs });
+    ap = new Autopilot({ world: w, mandate, decider, journal: new RunJournal({ now: () => w.state.clock * 1000 }), citizen: new CitizenBoundary({ ownerQuotaReserve: 1 }), receipts });
     line(`\n## ${name}: configured ${model} (fixture id) over ${decider.name}`);
+    line(`  [receipt] ${BOUNDARY.receipt}`);
 
     // 1. 予算設定: the inference cap is set from the first quote below, so that a few calls fit and then the cap stops it.
     stage('budget', '1 予算設定', { available: costs.classes().available, caps: { ...costs.caps }, priceBook: FIXTURE_BOOK().toJSON?.() ?? 'FIXTURE' });
@@ -92,8 +101,9 @@ async function flow(name, adapter, model) {
     stage('resume', '7 手動復帰', { status: ap.status(), record: back });
     ap.stop({ by: 'owner' });
 
-    const sum = { provider: adapter.provider, model, ticks: ticks.map(t => ({ runId: t.runId, status: t.status, inference: t.inference?.status, outcome: t.inference?.outcome, game: t.game.map(g => `${g.requestId}=${g.outcome}`).join(' ') })), costs: costs.classes(), overruns: costs.overruns, modelRequests: srv.requests(), gameSends: w.sentCount(), books: w.books().length ? 'UNSOUND' : 'sound' };
-    for (const t of sum.ticks) line(`  ${t.runId}: ${t.status}; inference ${t.inference ?? '-'}${t.outcome ? ` (${t.outcome})` : ''}; game ${t.game || '-'}`);
+    const sum = { provider: adapter.provider, model, ticks: ticks.map(t => ({ runId: t.runId, status: t.status, inference: t.inference?.status, outcome: t.inference?.outcome, game: t.game.map(g => `${g.requestId}=${g.outcome}`).join(' '),
+      receipt: t.receipt ? { seq: t.receipt.seq, acts: t.receipt.acts.map(a => `${a.idempotencyKey ?? a.requestId}:${a.status}`), inference: t.receipt.costs.inference, conformance: conformance(t.receipt) } : null })), costs: costs.classes(), overruns: costs.overruns, modelRequests: srv.requests(), gameSends: w.sentCount(), books: w.books().length ? 'UNSOUND' : 'sound' };
+    for (const t of sum.ticks) line(`  ${t.runId}: ${t.status}; inference ${t.inference ?? '-'}${t.outcome ? ` (${t.outcome})` : ''}; game ${t.game || '-'}${t.receipt ? `; receipt seq ${t.receipt.seq.observed}→${t.receipt.seq.closed}, ${t.receipt.conformance.length ? `NOT CONFORMANT: ${t.receipt.conformance.join('; ')}` : 'conformant'}` : ''}`);
     line(`  costs (test-USDC base units, MOCK): settled ${sum.costs.settled}, undecided ${sum.costs.undecided}, released ${sum.costs.released}, available ${sum.costs.available}; model HTTP requests to the fixture ${sum.modelRequests}; game sends ${sum.gameSends} (scripted chain)`);
     return { summary: sum, stages, autopilotEvents: ap.events, journal: ap.journal.entries };
   } finally { await srv.close(); }

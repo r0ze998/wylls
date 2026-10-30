@@ -64,8 +64,9 @@ export const decisionKeyOf = ({ agentId, policyVersion, modeEpoch, runId, messag
  * @param {Function} o.runId     () → the current run id (the autopilot's tick)
  * @param {object} [o.retry]     inference.mjs retry options (default: only not_sent is retried)
  * @param {string} [o.gameReserve]  money to keep apart for the game action, checked before the call
+ * @param {object} [o.citizen]   CitizenBoundary: the owner's reserves of the shared quota and day budget, checked before the call
  */
-export function apiDecider({ adapter, model, transport, book, costs, registry, runId, maxOutputTokens = 400, retry = {}, gameReserve = '0', sleep, boundary = 'fixture' }) {
+export function apiDecider({ adapter, model, transport, book, costs, registry, runId, maxOutputTokens = 400, retry = {}, gameReserve = '0', sleep, boundary = 'fixture', citizen = null }) {
   const d = {
     name: `api:${adapter.provider}:${model}`, free: true, // free to participate(): this decider reserves and settles its own model cost
     records: [],
@@ -90,6 +91,9 @@ export function apiDecider({ adapter, model, transport, book, costs, registry, r
         const cap = pf.call ? costs.check(quote) : null;
         if (cap) pf.reasons.push({ code: cap.code, detail: cap.message });
         pf.call = pf.call && !cap;
+        // The same Citizen's owner keeps a reserve of the shared quota and day budget: no call that could only eat into it.
+        const own = pf.call && citizen ? citizen.beforeDecide(obs.view, { nextGamePrice: gameReserve }) : null;
+        if (own && !own.ok) { pf.reasons.push(...own.reasons); pf.call = false; }
         rec.preflight = pf.reasons;
         if (!pf.call) {
           const stop = pf.reasons.find(r => API_BUDGET_STOPS.has(r.code))?.code ?? null;

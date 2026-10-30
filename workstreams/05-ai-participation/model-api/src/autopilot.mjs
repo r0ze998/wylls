@@ -47,8 +47,14 @@ export class Autopilot {
    * @param {object} o.decider  apiDecider(...)
    * @param {object} o.journal  RunJournal
    */
-  constructor({ world, mandate, decider, journal }) {
-    Object.assign(this, { w: world, mandate, decider, journal, state: 'idle', ticks: 0, records: [], events: [] });
+  /**
+   * @param {object} [o.citizen]   CitizenBoundary (the owner's own client on the same Citizen goes first)
+   * @param {object} [o.receipts]  a RunReceipt port (run-receipt.mjs); the local adapter until ④'s is received
+   */
+  constructor({ world, mandate, decider, journal, citizen = null, receipts = null, mcp = null }) {
+    Object.assign(this, { w: world, mandate, decider, journal, citizen, receipts, state: 'idle', ticks: 0, records: [], events: [] });
+    /** The MCP server the autopilot acts through: by default the world's; pass one created with source 'ai' (patch 0003). */
+    this.mcp = mcp ?? (() => world.mcp());
     this.scope = 'one process: a second Autopilot in this process is refused; a second process is NOT detected (not safe)';
   }
 
@@ -71,8 +77,19 @@ export class Autopilot {
     if (this.state !== 'running') return { skipped: true, state: this.state };
     const runId = `${this.w.agentId.slice(0, 8)}:t${++this.ticks}`;
     this.currentRun = runId;
-    const report = await participate({ mcp: this.w.mcp(), world: this.w.publicWorld, txState: this.w.txState, meter: null, mandate: this.mandate, decider: this.decider, journal: this.journal, runId });
+    if (this.receipts) await this.receipts.open({ runId });
+    const report = await participate({ mcp: this.mcp(), world: this.w.publicWorld, txState: this.w.txState, meter: null, mandate: this.mandate, decider: this.decider, journal: this.journal, runId, boundary: this.citizen });
     const rec = decisionRecord(report);
+    if (this.receipts) {
+      this.receipts.attachInference(runId, report.inference ?? null);
+      // Every item that reached agent_act: its requestId is in the journal's act-begin of this run.
+      const begun = this.journal.entries.filter(e => e.runId === runId && e.step === 'act-begin');
+      for (const it of report.items ?? []) {
+        const b = begun.find(e => e.requestId === it.requestId);
+        if (b) this.receipts.attachAct(runId, { requestId: b.attemptId, outcome: it.outcome, code: it.code ?? null, signature: it.signature ?? null, proposed: it.proposed });
+      }
+      rec.receipt = await this.receipts.close(runId);
+    }
     this.records.push(rec);
     if (report.status === 'stopped-by-budget') { this.state = 'stopped-by-budget'; this.stoppedBy = report.stoppedBy; RUNNING.delete(this.w.agentId); this.#event({ op: 'stop', by: 'budget', code: report.stoppedBy }); }
     return rec;
