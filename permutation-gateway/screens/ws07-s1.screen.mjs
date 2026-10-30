@@ -108,15 +108,15 @@ for (const size of SIZES) {
     for (const l of ['ja', 'en']) {
       const { c, page, errors } = await open(size, `s=first&lang=${l}`);
       const rows = page.locator('#contract [role="status"]');
-      assert.equal(await rows.count(), 11);
+      assert.equal(await rows.count(), 14);
       const syms = await page.locator('#contract .ws07-sym').allInnerTexts();
-      assert.deepEqual(syms, ['‖', '⌛', '■', '?', '◐', '◇', '◆', '◇?', '↺', '✋', '?']);
+      assert.deepEqual(syms, ['‖', '⌛', '■', '…', '?', '◐', '●', '✕', '◇', '◆', '◇?', '↺', '✋', '?']);
       const t = await page.locator('#contract').innerText();
-      if (l === 'ja') { assert.match(t, /到着量はまだ確かめられていません/); assert.match(t, /状態を受け取れていません/); }
+      if (l === 'ja') { assert.match(t, /到着予定のターン 292 を過ぎました。まだ決着していません/); assert.match(t, /決着しました。入った量はまだ確かめられていません/); assert.match(t, /状態を受け取れていません/); }
       else assert.doesNotMatch(t, /[぀-ヿ一-鿿]/, 'English words throughout');
       // nothing by colour alone: the same rows in greyscale still carry their symbols and words
       await page.emulateMedia({ forcedColors: 'active' });
-      assert.equal((await page.locator('#contract .ws07-sym').allInnerTexts()).length, 11);
+      assert.equal((await page.locator('#contract .ws07-sym').allInnerTexts()).length, 14);
       await shot(page, `ws07-s1-contract-${l}-${size.name}`);
       assert.ok(await noSideScroll(page));
       assert.deepEqual(errors, []);
