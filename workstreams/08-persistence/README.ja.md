@@ -42,6 +42,7 @@
 | 21 | [21-handoff-01-coop.ja.md](21-handoff-01-coop.ja.md) | ①への接続（1枚）：I1〜I7、未入力だと判定できないこと、受け取った後の最小手順 |
 | 22 | [22-commit-index.ja.md](22-commit-index.ja.md) | commit の索引と保存パッケージ |
 | 23 | [23-map-inventory.ja.md](23-map-inventory.ja.md) | 地図の2点の棚卸し：同国分散配置と継続拡張マップの、設計・模擬・実コード・LiteSVM・ローカルチェーン・本番の段階と、既存テストでの最小確認 |
+| 24 | [24-map-implementation.ja.md](24-map-implementation.ja.md) | 同国分散配置（placement 1）と継続拡張マップ（ExtendFrontier、上限まで）の最小実装。④への引き渡しのパッチは `handoff-04/` |
 | — | [sim/](sim/) | シミュレーター（Node.js、依存ライブラリなし） |
 | — | [results/](results/) | 生成された結果。`core`、`replication-seeds101-130`、`sensitivity`、`exploits`、`retention`、`placement/`（配置の比較。その中の各群と再現）、`coop/`（協力の検査器と再現） |
 | — | [repro/](repro/) | シーズン終了時の再現テスト（リポジトリの外で組み立てて実行）と、修正の草案 |
