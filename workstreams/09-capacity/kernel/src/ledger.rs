@@ -860,6 +860,11 @@ impl<C: Custody + Clone> World<C> {
         if j.user != signer {
             return Err(CapError::NotUser);
         }
+        // A job's own places are kept by its books: goods put into another
+        // job's hopper or output there would be stranded outside them.
+        if to.kernel_only() {
+            return Err(CapError::BadPlace);
+        }
         if !lost {
             self.settle(now, job, ev)?;
         }

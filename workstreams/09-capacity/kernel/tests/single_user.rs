@@ -639,3 +639,28 @@ fn events_tell_the_whole_story() {
         ]
     );
 }
+
+#[test]
+fn claims_go_only_to_a_players_place() {
+    let (mut w, f) = world(3, 2, 2, Policies::PROVISIONAL);
+    let (j1, j2) = (job(f, 1), job(f, 2));
+    reserve(&mut w, j1, 1, S, S + HOUR, 4).unwrap();
+    reserve(&mut w, j2, 1, S + HOUR, S + 2 * HOUR, 4).unwrap();
+    deposit(&mut w, j1, 8, 4);
+    for to in [Place::Hopper(j2), Place::Output(j2), Place::Output(j1)] {
+        assert_eq!(
+            w.apply(S + HOUR, B, &Op::Claim { job: j1, to }),
+            Err(CapError::BadPlace)
+        );
+    }
+    w.apply(
+        S + HOUR,
+        B,
+        &Op::Claim {
+            job: j1,
+            to: Place::Vault(5),
+        },
+    )
+    .unwrap();
+    assert_eq!(bal(&w, Place::Vault(5), ARMS), 4 * MILLI);
+}

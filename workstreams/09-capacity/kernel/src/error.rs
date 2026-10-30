@@ -29,6 +29,7 @@ pub enum CapError {
     TimeReversed = 24,
     UnknownPool = 25,
     FacilityLive = 26,
+    BadPlace = 27,
 }
 
 impl CapError {

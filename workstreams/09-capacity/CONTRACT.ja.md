@@ -126,6 +126,7 @@ end_eff = start + ⌈limit × 3600 / (k × 4000)⌉  （ただし ≤ end）
 | 24 | `TimeReversed` | 前に適用した操作より前の時刻 |
 | 25 | `UnknownPool` | 貸出枠・施設が無い |
 | 26 | `FacilityLive` | 世代が終わっていない施設に `FacilityLost` |
+| 27 | `BadPlace` | `Claim` の宛先が予約の置き場（`Hopper`／`Output`）。帳簿の外に物が残るのを防ぐ |
 
 ## 4. 未決定の損失配分（仮案。切り替え可能）
 
@@ -209,5 +210,5 @@ end_eff = start + ⌈limit × 3600 / (k × 4000)⌉  （ただし ≤ end）
 - イベントを実装に合わせた（`Moved` は ⑩ 側の記録へ、`Forfeited`・`PoolOpened`・`FacilityLost` を追加）。
 - `Lend`/`Reclaim` に楽観的な番号 `seq` を足した（増減の再送で二重に貸さないため）。
 - `Deposit` に `from`、`Claim` に `to` を足した（場所を明示するため）。`FacilityLost` の `at`・`captor` は引数ではなく、コアの記録から読む（送り手が時刻を偽れないように）。
-- エラー 24–26 を足した。
+- エラー 24–27 を足した。
 - ⑩ への口を `import`/`transfer`/`consume`/`produce`/`export`/`balance` に整理した。
