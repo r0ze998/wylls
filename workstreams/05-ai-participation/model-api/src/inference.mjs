@@ -56,7 +56,7 @@ export function quoteFor({ adapter, book, request }) {
  * @param {object} o.adapter     anthropicAdapter | openaiAdapter
  * @param {object} o.transport   {send(wire) → exchange}  (fixtureTransport in this build)
  * @param {object} o.book        TokenPriceBook
- * @param {object} o.costs       RunCostMock (④'s cost contract, mocked)
+ * @param {object} o.costs       RunCostMock (⑤'s mock of the cost contract it needs from ④; ④'s is not received)
  * @param {object} o.request     neutralRequest fields
  * @param {object} [o.retry]     {maxAttempts, retryFailed, retryUnknown, baseDelayMs}
  * @param {Function} [o.sleep]

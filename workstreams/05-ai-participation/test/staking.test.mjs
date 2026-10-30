@@ -79,7 +79,10 @@ test('the flow: budget → scope → auto → actions and costs → the budget l
 test('concurrent runs: the relay\'s budget and the executor\'s caps are each used once, never twice', async () => {
   // Relay: a budget for two trainings (25,000 each: one call 10,000 + one training 15,000), five runs at once.
   const { w, s } = await session({ requests: board(5), budget: { deposit: '100000', total: '50000', perDay: '50000', callsPerDay: 20 } });
-  // Each run answers a different request, so the relay's idempotency does not merge them: only the budget can stop them.
+  // Each run answers a different request (different agent_act requestIds), but the transactions themselves are the same
+  // Train: only distinct fee payers keep them from being byte-identical (diag/staking-race.mjs), so each send gets its own.
+  const distinctPayers = world => { let d = 0; world.relay.pool.randomIndex = n => (d++) % n; };
+  distinctPayers(w);
   const pick = i => body => { const u = JSON.parse(body.messages[1].content); const r = u.requests.find(q => q.id === `R-${i}`); return { proposals: r ? [{ request: r.id, action: 'Train', fields: { unit: 0, n: 100 }, reason: 'mine' }] : [], skipped: [] }; };
   const runs = await Promise.all([1, 2, 3, 4, 5].map(i => participate({
     mcp: w.mcp(), world: w.publicWorld, txState: w.txState, meter: w.meter, mandate: s.mandate, decider: modelDecider({ llm: scriptedLlm(pick(i)) }), journal: new RunJournal(), runId: `c${i}`,
@@ -98,6 +101,7 @@ test('concurrent runs: the relay\'s budget and the executor\'s caps are each use
   assert.equal(w.sentCount(), sent, 'what was sent is what was held');
   // Executor: one guard shared by five concurrent runs, a game cap of 30,000 a day (two trainings), the relay's budget large.
   const x = await session({ requests: board(5), budget: { deposit: '1000000', total: '1000000', perDay: '1000000', callsPerDay: 50 }, mandate: { budget: { perDay: { game: '30000' } } } });
+  distinctPayers(x.w);
   const guard = new BudgetGuard({ caps: x.s.mandate.budget, now: () => x.w.state.clock * 1000 });
   // Five different requests, each run answering a different one.
   const reps = await Promise.all([1, 2, 3, 4, 5].map(i => participate({
@@ -397,6 +401,12 @@ test('undecided money is never released or withdrawn by itself: an unknown send 
 
 test('two executor processes do NOT share the executor\'s caps (the limit of a single-process guard); the relay\'s one ledger still holds the whole budget', async () => {
   const { w, s } = await session({ requests: board(4), budget: { deposit: '1000000', total: '60000', perDay: '60000', callsPerDay: 50 } });
+  // The relay draws each send's fee payer at random (crypto.randomInt) from 150. Both runs send the same Train with the same
+  // accounts and the fixture's one blockhash: with the same payer the two transactions are byte-identical and the relay's
+  // replay guard refuses the second as Duplicate (about 1 run in 150; diag/staking-race.mjs). That case has its own test
+  // below; here each send gets a payer of its own, the condition this test's claim is about.
+  let draw = 0;
+  w.relay.pool.randomIndex = n => (draw++) % n;
   const pick = i => body => { const u = JSON.parse(body.messages[1].content); const r = u.requests.find(q => q.id === `R-${i}`); return { proposals: r ? [{ request: r.id, action: 'Train', fields: { unit: 0, n: 100 }, reason: 'mine' }] : [], skipped: [] }; };
   // The owner's executor cap: one training (15,000) of game spending a day. Two processes, two guards.
   const caps = { perDay: { game: '15000' } };
@@ -410,6 +420,25 @@ test('two executor processes do NOT share the executor\'s caps (the limit of a s
   assert.equal(c.status, 'stopped-by-budget');
   const v = w.view();
   assert.ok(BigInt(v.balance.reserved) + BigInt(v.balance.spent.inference) + BigInt(v.balance.spent.game) <= 60_000n);
+});
+
+test('two identical sends in one blockhash window with the same fee payer are one transaction: the relay refuses the second as Duplicate, charges no game price for it, and the budget holds', async () => {
+  const { w, s } = await session({ requests: board(4), budget: { deposit: '1000000', total: '60000', perDay: '60000', callsPerDay: 50 } });
+  w.relay.pool.randomIndex = () => 0; // the collision the random draw makes about once in 150 runs, made certain
+  const pick = i => body => { const u = JSON.parse(body.messages[1].content); const r = u.requests.find(q => q.id === `R-${i}`); return { proposals: r ? [{ request: r.id, action: 'Train', fields: { unit: 0, n: 100 }, reason: 'mine' }] : [], skipped: [] }; };
+  const caps = { perDay: { game: '15000' } };
+  const run = (i, guard) => participate({ mcp: w.mcp(), world: w.publicWorld, txState: w.txState, meter: w.meter, mandate: s.mandate, decider: modelDecider({ llm: scriptedLlm(pick(i)) }), journal: new RunJournal(), runId: `p${i}`,
+    staking: { guard, priceBook: TEST_BOOK(), modelCfg: parseModelConfig({ provider: 'scripted', model: 'scripted-stand-in' }), gamePrices: s.terms.prices.game, onBudgetLimit: 'stop' } });
+  const [a, b] = await Promise.all([run(1, new BudgetGuard({ caps })), run(2, new BudgetGuard({ caps }))]);
+  const items = [...a.items, ...b.items];
+  assert.deepEqual(items.map(i => i.outcome).sort(), ['refused', 'sent']);
+  assert.equal(items.find(i => i.outcome === 'refused').code, 'Duplicate');
+  assert.equal(w.sentCount(), 1, 'one transaction left the relay');
+  const v = w.view();
+  assert.equal(v.balance.spent.game, '0');
+  assert.equal(v.balance.reserved, '15000', 'only the sent training is held (until the chain answers)');
+  assert.ok(BigInt(v.balance.reserved) + BigInt(v.balance.spent.inference) + BigInt(v.balance.spent.game) <= 60_000n);
+  assert.deepEqual(w.books(), []);
 });
 
 test('the session slot is the Citizen\'s, not the village\'s: delegating to the owner\'s second agent ends the first one\'s delegation, for all its villages', async () => {

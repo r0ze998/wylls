@@ -44,7 +44,7 @@ for (const [name, adapter, model] of BOTH) {
       const t1 = await s.ap.tick();
       assert.equal(t1.inference.status, 'ok');
       assert.equal(t1.inference.servedModel, model);
-      assert.deepEqual(t1.game.map(g => [g.requestId, g.outcome, g.decidedBy]), [['R-1', 'sent', 'relay (agent_act)']]);
+      assert.deepEqual(t1.game.map(g => [g.requestId, g.outcome, g.decidedBy]), [['R-1', 'sent', 'existing relay (via MCP agent_act)']]);
       assert.equal(s.w.sentCount(), 1, 'the game operation went through MCP agent_act to the relay');
       s.w.settle();
       const settledAfter1 = s.costs.classes().settled;
@@ -92,7 +92,7 @@ for (const [name, adapter, model] of BOTH) {
       assert.equal(t2.inference.status, 'ok');
       assert.equal(t2.game.length, 1);
       assert.equal(t2.game[0].outcome, 'refused');
-      assert.equal(t2.game[0].decidedBy, 'relay (agent_act)');
+      assert.equal(t2.game[0].decidedBy, 'existing relay (via MCP agent_act)');
       assert.ok(t2.game[0].code, 'the relay\'s code is kept');
       assert.equal(s.w.sentCount(), 0);
     } finally { await s.close(); }
@@ -129,7 +129,7 @@ test('the same tick re-run is the recorded decision: no second model call, no se
   } finally { await s.close(); }
 });
 
-test('a timeout is undecided; the provider record fixture settles it by the client request id (GPT) — or leaves it for the operator (Claude, no id)', async () => {
+test('a timeout is undecided; a FIXTURE provider record settles it by the client request id (GPT; production unverified) — Claude has no id and it stays held', async () => {
   for (const [adapter, model, expect] of [[openaiAdapter, 'gpt-fixture-model', 'settled'], [anthropicAdapter, 'claude-fixture-model', 'undecided']]) {
     const s = await setup({ adapter, model, script: () => ({ delayMs: 200, answer: { proposals: [], skipped: [] } }), timeoutMs: 40 });
     try {
@@ -141,10 +141,18 @@ test('a timeout is undecided; the provider record fixture settles it by the clie
       assert.equal(s.costs.items.get(key).state, 'undecided');
       // The same record for both: Claude never received our key, so it cannot be matched by it.
       const entries = [{ clientRequestId: key, providerRequestId: null, usage: { inputUncached: 900, cacheRead: 0, cacheWrite: {}, output: 0, reasoning: 0, serverTools: {} }, billed: true }];
-      const r = reconcileUndecided({ costs: s.costs, book: FIXTURE_BOOK(), records: s.decider.records, entries });
+      assert.throws(() => reconcileUndecided({ costs: s.costs, book: FIXTURE_BOOK(), records: s.decider.records, report: { source: 'provider-usage-report', entries } }), e => e.code === 'UnverifiedReportSource');
+      const r = reconcileUndecided({ costs: s.costs, book: FIXTURE_BOOK(), records: s.decider.records, report: { source: 'fixture', entries } });
+      assert.equal(r[0].productionVerified, false);
+      assert.equal(r[0].contract, 'fixture');
       assert.equal(r[0].result, expect);
       if (expect === 'settled') { assert.equal(r[0].settled, '900'); assert.equal(s.costs.classes().undecided, '0'); }
-      else assert.match(r[0].why, /operator decides/);
+      else {
+        assert.match(r[0].why, /stays undecided, held, not withdrawable/);
+        // And the operator cannot refund it without a provider record: it stays held.
+        assert.throws(() => s.costs.decide(key, { by: 'operator', outcome: 'refund', note: 'probably unbilled' }), e => e.code === 'EvidenceRequired');
+        assert.equal(s.costs.items.get(key).state, 'undecided');
+      }
       await new Promise(res => setTimeout(res, 220));
     } finally { await s.close(); }
   }

@@ -14,6 +14,11 @@
 //     (the provider's usage report, or the operator's decision, both with a note)
 //   - a restart turns every call that was in flight into undecided
 const big = v => BigInt(v ?? 0);
+/**
+ * What may close an undecided call. 'fixture' is a test record. No production source is listed: which provider report
+ * gives per-request usage, and whether it can be matched to our ids, is not verified (an approval item).
+ */
+const EVIDENCE = new Set(['fixture']);
 const dayOf = ms => new Date(ms).toISOString().slice(0, 10);
 
 export class RunCostMock {
@@ -106,15 +111,29 @@ export class RunCostMock {
     return { ...it };
   }
 
-  /** Only an outside answer decides an undecided call: the provider's usage report (amount) or the operator (charge/refund), with a note. */
-  decide(key, { by, amount = null, outcome = null, note }) {
+  /**
+   * Only an outside answer decides an undecided call, and never the operator's word alone:
+   *   by 'provider-report'  settle at the measured amount (≤ the reservation), with `evidence` {source, ref}
+   *   by 'operator' 'charge' settle at the reservation (the most the owner agreed to pay for this call), with a note
+   *   by 'operator' 'refund' release it, ONLY with `evidence` that the provider did not bill (a provider record)
+   * An undecided cost with no such evidence stays undecided: not 0, not refunded, not withdrawable.
+   * `evidence.source` 'fixture' marks a test record: the result says productionVerified: false.
+   */
+  decide(key, { by, amount = null, outcome = null, note, evidence = null }) {
     const it = this.items.get(key);
     if (!it || it.state !== 'undecided') throw Object.assign(new Error('no undecided call with this key'), { code: 'NotUndecided' });
     if (!note) throw Object.assign(new Error('a decision needs a note (what evidence)'), { code: 'NoteRequired' });
-    if (by === 'provider-report') return this.settle(key, amount, `provider report: ${note}`);
-    if (by === 'operator' && outcome === 'charge') return this.settle(key, it.amount, `operator: ${note}`);
-    if (by === 'operator' && outcome === 'refund') { it.state = 'reserved'; return this.release(key, `operator refund: ${note}`); }
-    throw Object.assign(new Error('by: provider-report (with amount) or operator (charge|refund)'), { code: 'BadDecision' });
+    const ev = evidence && EVIDENCE.has(evidence.source) && evidence.ref ? { source: evidence.source, ref: String(evidence.ref), productionVerified: evidence.source !== 'fixture' } : null;
+    const needEvidence = by === 'provider-report' || (by === 'operator' && outcome === 'refund');
+    if (needEvidence && !ev) throw Object.assign(new Error(`${by === 'provider-report' ? 'a provider report' : 'a refund'} needs evidence {source: ${[...EVIDENCE].join('|')}, ref}: the operator's judgement alone does not make an unknown cost 0`), { code: 'EvidenceRequired' });
+    let r;
+    if (by === 'provider-report') r = this.settle(key, amount, `provider report: ${note}`);
+    else if (by === 'operator' && outcome === 'charge') r = this.settle(key, it.amount, `operator: ${note}`);
+    else if (by === 'operator' && outcome === 'refund') { it.state = 'reserved'; r = this.release(key, `refund on a provider record: ${note}`); }
+    else throw Object.assign(new Error('by: provider-report (with amount and evidence) or operator (charge | refund with evidence)'), { code: 'BadDecision' });
+    it.evidence = ev ?? { source: 'operator-note-only', ref: null, productionVerified: false };
+    this.log.push({ op: 'decide', key, by, outcome, evidence: it.evidence });
+    return { ...r, evidence: it.evidence };
   }
 
   /** A process restart: whatever was calling may have reached the provider. */
@@ -123,7 +142,7 @@ export class RunCostMock {
     for (const it of this.items.values()) if (it.state === 'reserved') { this.available += big(it.amount); Object.assign(it, { state: 'released', reason: 'restart before calling' }); }
   }
 
-  /** The four classes (④'s summary), and what the owner could withdraw (available only). */
+  /** The four classes (as named in ④'s summary; ④'s contract itself is not received), and what the owner could withdraw (available only). */
   classes() {
     const sum = st => [...this.items.values()].filter(i => i.state === st).reduce((s, i) => s + big(st === 'settled' ? i.settled : i.amount), 0n).toString();
     return { reserved: String(big(sum('reserved')) + big(sum('calling'))), settled: sum('settled'), undecided: sum('undecided'), released: sum('released'),

@@ -93,7 +93,13 @@ test('a timeout after sending is undecided: held, never released or made availab
   assert.deepEqual([c.undecided, c.withdrawable], [r.quote, String(100000n - BigInt(r.quote))]);
   assert.equal(costs.release('call-0001#0', 'try'), null, 'an undecided call cannot be released by code');
   assert.throws(() => costs.decide('call-0001#0', { by: 'operator', outcome: 'refund' }), /needs a note/);
-  costs.decide('call-0001#0', { by: 'provider-report', amount: '700', note: 'usage report line for X-Client-Request-Id call-0001#0' });
+  // The operator's word alone neither refunds nor zeroes it; a provider report needs evidence (here a fixture record).
+  assert.throws(() => costs.decide('call-0001#0', { by: 'operator', outcome: 'refund', note: 'looks unbilled' }), e => e.code === 'EvidenceRequired');
+  assert.throws(() => costs.decide('call-0001#0', { by: 'provider-report', amount: '0', note: 'trust me' }), e => e.code === 'EvidenceRequired');
+  assert.throws(() => costs.decide('call-0001#0', { by: 'provider-report', amount: '0', note: 'x', evidence: { source: 'provider-usage-report', ref: 'r' } }), e => e.code === 'EvidenceRequired', 'no production source is accepted yet');
+  assert.equal(costs.classes().undecided, r.quote);
+  const d = costs.decide('call-0001#0', { by: 'provider-report', amount: '700', note: 'usage line', evidence: { source: 'fixture', ref: 'X-Client-Request-Id call-0001#0' } });
+  assert.equal(d.evidence.productionVerified, false);
   assert.equal(costs.classes().settled, '700');
   // Allowed by policy: a retry after an unknown result, flagged as possible double billing.
   const { r: r2 } = await run(openaiAdapter, [{ transportError: 'ECONNRESET', sent: true }, gpt200()], { retry: { retryUnknown: true } });

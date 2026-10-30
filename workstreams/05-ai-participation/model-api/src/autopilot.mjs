@@ -3,9 +3,10 @@
 //   start   only when the relay says the owner switched the agent on (mode auto) and the agent's key is the Citizen's
 //           session now; the autopilot never switches the relay mode and never sets or changes a session key
 //           (those are the owner's wallet operations)
-//   tick    one participate() run: preflight → (the model call) → guard → game operations through the MCP
-//           agent_act tool (④'s execution path as it is in this repository; ⑤ does not resend or reconcile game
-//           operations itself) → one decision record
+//   tick    one participate() run: preflight → (the model call) → guard → game operations through the EXISTING
+//           MCP agent_act tool and relay (POST /f/agent/action, AgentGateway) → one decision record.
+//           This is not ④'s Run / cancel / reconcile: ④'s material is not received and nothing of it is integrated
+//           (EXECUTION_PATH). ⑤ does not build its own resend or reconcile for game operations either.
 //   stop    the autopilot stops deciding at once; a budget stop (the decider's or the relay's) stops it the same way
 //   resume  only by the owner, with a note; the next tick checks the budget again before any call
 //
@@ -15,17 +16,25 @@ import { participate, tool } from '../../src/participate.mjs';
 
 const RUNNING = new Map(); // agentId → Autopilot, this process only
 
+/** Where game operations go today, and what is NOT integrated. Carried in every status and record. */
+export const EXECUTION_PATH = Object.freeze({
+  via: 'existing MCP agent_act → relay POST /f/agent/action (AgentGateway), as in this repository',
+  fourIntegrated: false,
+  notIntegrated: Object.freeze(['④ Run (the execution unit)', '④ cancel / stop contract', '④ reconcile of signed requests and their costs']),
+  why: '④ bd415e7 not received',
+});
+
 /** One record per tick, the inference and the game apart: which failed, and who refused. */
 export function decisionRecord(report) {
   const inf = report.inference ?? null;
   return {
-    runId: report.runId, status: report.status, stoppedBy: report.stoppedBy ?? null,
+    runId: report.runId, status: report.status, stoppedBy: report.stoppedBy ?? null, executionPath: EXECUTION_PATH.via, fourIntegrated: false,
     inference: inf ? { status: inf.status, outcome: inf.outcome, called: inf.called, replayed: inf.replayed ?? false, requestKey: inf.requestKey, provider: inf.provider,
       configuredModel: inf.configuredModel, servedModel: inf.servedModel, preflight: inf.preflight.map(r => r.code), errors: inf.errors,
       attempts: inf.attempts.map(a => ({ key: a.key, outcome: a.outcome, stop: a.stop, cost: a.cost && { measured: a.cost.measured, unknown: a.cost.unknown } })), possibleDoubleBilling: inf.possibleDoubleBilling ?? null } : null,
     game: (report.items ?? []).map(it => ({ requestId: it.requestId, proposed: it.proposed, outcome: it.outcome, code: it.code ?? null,
       // Who said no: the relay (it answered agent_act), or this executor's guard and checks before anything was sent.
-      decidedBy: it.attempts !== undefined ? 'relay (agent_act)' : 'executor (guard, before sending)', signature: it.signature ?? null })),
+      decidedBy: it.attempts !== undefined ? 'existing relay (via MCP agent_act)' : 'executor (guard, before sending)', signature: it.signature ?? null })),
     notes: (report.notes ?? []).map(n => n.code),
   };
 }
@@ -86,5 +95,5 @@ export class Autopilot {
     return this.start({ by });
   }
 
-  status() { return { state: this.state, stoppedBy: this.stoppedBy ?? null, ticks: this.ticks, scope: this.scope }; }
+  status() { return { state: this.state, stoppedBy: this.stoppedBy ?? null, ticks: this.ticks, scope: this.scope, executionPath: EXECUTION_PATH }; }
 }

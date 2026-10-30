@@ -32,8 +32,8 @@ const BOUNDARY = {
   budget: 'MOCK: RunCostMock stands in for ④\'s cost contract (bd415e7 not received); FIXTURE price book (invented prices; no production model or price)',
   start: 'REAL: relay mode and on-chain delegation read through MCP agent_view (the chain is the gateway tests\' scripted fake). The autopilot never sets the mode or a session key',
   decide: 'FIXTURE: the HTTP fixture on 127.0.0.1 answers in the provider\'s documented shape. Not a model, not a provider, not a live call',
-  act: 'REAL: ⑤\'s guard, MCP agent_act, the relay\'s checks (④\'s path as it is in this repository). FAKE: the chain and the game\'s effects (emulated)',
-  reconcile: 'MOCK: measured = fixture usage × fixture book; the provider record used to settle an undecided call is a FIXTURE (the real report is an approval item)',
+  act: 'REAL: ⑤\'s guard, the EXISTING MCP agent_act and relay checks. NOT ④: ④\'s Run / cancel / reconcile are not received and not integrated. FAKE: the chain and the game\'s effects (emulated)',
+  reconcile: 'FIXTURE CONTRACT: measured = fixture usage × fixture book, matched to a fixture provider record. Sending a client request id is documented; querying billing by it is NOT verified in production. Unmatched costs stay held (no 0, no refund on the operator\'s word)',
   stop: 'MOCK: the inference total cap of RunCostMock; the stop itself is ⑤\'s autopilot (REAL code, one process)',
   resume: 'REAL code; the owner is a test keypair; the cap change is on the mock',
 };
@@ -74,7 +74,7 @@ async function flow(name, adapter, model) {
     const t2 = await ap.tick(); w.settle();
     const undecidedBefore = costs.classes().undecided;
     const key = t2.inference.attempts[0]?.key;
-    const rec = reconcileUndecided({ costs, book: FIXTURE_BOOK(), records: decider.records, entries: [{ clientRequestId: adapter === openaiAdapter ? key : null, providerRequestId: null, usage: { inputUncached: 900, cacheRead: 0, cacheWrite: {}, output: 120, reasoning: 30, serverTools: {} }, billed: true }] });
+    const rec = reconcileUndecided({ costs, book: FIXTURE_BOOK(), records: decider.records, report: { source: 'fixture', entries: [{ clientRequestId: adapter === openaiAdapter ? key : null, providerRequestId: null, usage: { inputUncached: 900, cacheRead: 0, cacheWrite: {}, output: 120, reasoning: 30, serverTools: {} }, billed: true }] } });
     stage('reconcile', '5 費用照合', { timedOut: t2.inference, undecidedBefore, reconcile: rec, after: costs.classes() });
     await new Promise(r => setTimeout(r, 260));
     // 6. 上限停止
