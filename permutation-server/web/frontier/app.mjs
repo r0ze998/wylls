@@ -36,6 +36,7 @@ import { PLACE, PLACE_NOTE, partialRings, placeNow, worldOf } from './map/world.
 import * as hand from './hud/hand.mjs';
 import * as turnlist from './hud/turnlist.mjs';
 import { createCamKeep } from './hud/camkeep.mjs';
+import { openCoop as coopEntryOpen } from './hud/coopentry.mjs';
 import { settled } from './hud/rulebook.mjs';
 import * as dialcard from './hud/dialcard.mjs';
 import { paintVillagePics } from './map/village.mjs';
@@ -2950,6 +2951,8 @@ function shutDrawer({ focus = false } = {}) {
 }
 
 export const HUD_ACTIONS = {
+  // nations' cooperation (hud/coopentry.mjs): the entry workstream 01 registers, pressed in the S1 village card
+  'coop-open': d => { if (coopEntryOpen(FS, d.id)) invalidate('panel'); },
   // ---- a conquest season (hud/keephand.mjs, hud/provstrip.mjs): a signature to the clipboard, the season-end card put away
   'kh-copy': async (d, el) => {
     let ok = false;

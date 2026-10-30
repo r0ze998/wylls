@@ -29,6 +29,7 @@ import { MAX_VAULTS, VAULT_COST } from '../fcaravan.mjs';
 import { S1_WORDS, caravanArriveBell, caravanId } from '../map/s1marks.mjs';
 import { cardHead, chip, fold, label } from './parts.mjs';
 import { swatch } from './shell.mjs';
+import { renderCoopSlot } from '../hud/coopentry.mjs';
 
 // ------------------------------------------------------------------ the rules the page offers by (structure.rs, caravan.rs, nation.rs)
 /** structure::KIND_*. */
@@ -490,7 +491,8 @@ export function renderS1Village(FS) {
     ${caravans}${owned}
     ${fold('s1-send', html`${icon('flag')}${L`隊商を送る`}`, send)}
     ${fort ? fold('s1-fort', html`${icon('shield')}${L`要塞に兵を入れる`}`, fort) : ''}
-    ${nation ? fold('s1-nation', html`${icon('banner')}${L`国の議会`}`, nation) : ''}</section>`;
+    ${nation ? fold('s1-nation', html`${icon('banner')}${L`国の議会`}`, nation) : ''}
+    ${renderCoopSlot(FS)}</section>`;
 }
 
 /** A proposal in words. */

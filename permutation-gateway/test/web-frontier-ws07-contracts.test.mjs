@@ -1,0 +1,112 @@
+// Workstream 07: the display contract of states workstreams 04 and 05 own (hud/statusview.mjs) and the slot that
+// workstream 01's cooperation fills (hud/coopentry.mjs). The states' own rules are not here: these tests ask that the
+// page says each state apart, says what it did not receive, and never fills it in.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import * as SV from '../../permutation-server/web/frontier/hud/statusview.mjs';
+import * as CO from '../../permutation-server/web/frontier/hud/coopentry.mjs';
+import { renderS1Village } from '../../permutation-server/web/frontier/screens/s1.mjs';
+import { setLang } from '../../permutation-server/web/lang.mjs';
+
+const C = (...a) => [...a, 0, 0, 0, 0, 0, 0, 0, 0].slice(0, 8);
+const jp = /[぀-ヿ一-鿿]/;
+
+test('04 cancel: three stages said apart; a stage not received is "not received", never a stage', () => {
+  setLang('ja');
+  const a = SV.cancelView({ stage: 'stopNew' }), b = SV.cancelView({ stage: 'awaitSigned', signedPending: 2 }), c = SV.cancelView({ stage: 'cancelled', settled: [{ text: '木材 300 は着いています' }] });
+  assert.deepEqual([a.symbol, b.symbol, c.symbol], ['‖', '⌛', '■']);
+  assert.match(a.details.join(), /署名済みの要求はまだ止まっていません/, 'stopping new sends does not stop signed ones');
+  assert.match(b.text, /署名済みの要求 2 件の確認を待っています/);
+  assert.match(c.details.join(), /取消の前に成立した分は戻りません.*木材 300 は着いています/);
+  const nosettled = SV.cancelView({ stage: 'cancelled' });
+  assert.match(nosettled.details.join(), /まだ受け取っていません/, 'no "settled" is not "nothing settled"');
+  assert.deepEqual(nosettled.errors, ['settled: missing']);
+  assert.match(SV.cancelView({ stage: 'cancelled', settled: [] }).details.join(), /成立した分はありません/);
+  const bad = SV.cancelView({ stage: 'done' });
+  assert.deepEqual([bad.ok, bad.symbol, bad.errors], [false, '?', ['stage: done']]);
+  assert.match(SV.cancelView({ stage: 'awaitSigned' }).text, /件数は受け取っていません/);
+});
+
+test('04 arrival: an unverified amount is not a partial arrival and shows no amount', () => {
+  setLang('ja');
+  const u = SV.arrivalView({ state: 'unverified', sent: C(400), arrived: C(100) });
+  assert.equal(u.key, 'arrival:unverified');
+  assert.doesNotMatch([u.text, ...u.details].join(), /100|400/);
+  const p = SV.arrivalView({ state: 'partial', sent: C(400), arrived: C(100) });
+  assert.deepEqual([p.key, p.symbol], ['arrival:partial', '◐']);
+  assert.match(p.text, /一部が着きました：食料 100/);
+  assert.match(p.details.join(), /差の理由.*記録で確かめるまで決めません/);
+  assert.equal(SV.arrivalView({ state: 'partial', arrived: C(100) }).ok, false, 'a partial arrival needs what was sent');
+  assert.equal(SV.arrivalView({ state: 'full', arrived: C(400) }).symbol, '●');
+  assert.equal(SV.arrivalView({}).ok, false);
+});
+
+test('05 cost: reserved, committed, unsettled, released said apart; only "committed" is paid', () => {
+  setLang('ja');
+  const v = SV.COST_PHASES.map(phase => SV.costView({ phase, amounts: C(0, 50) }));
+  assert.deepEqual(v.map(x => x.symbol), ['◇', '◆', '◇?', '↺']);
+  assert.match(v[0].details.join(), /まだ支払っていません/);
+  assert.match(v[1].details.join(), /支払いが確定しました/);
+  assert.match(SV.costView({ phase: 'unsettled' }).text, /額はまだ決まっていません/);
+  assert.equal(SV.costView({ phase: 'reserved' }).ok, false, 'a reservation with no amount was not received');
+  assert.equal(SV.costView({ phase: 'paid' }).ok, false);
+});
+
+test('05 spendable: the stores less the costs; whether committed costs already left the stores must be said', () => {
+  const have = C(100, 100);
+  assert.deepEqual(SV.spendable(have, [{ phase: 'reserved', amounts: C(30) }]).errors, ['committedInHave: missing']);
+  const r = SV.spendable(have, [{ phase: 'reserved', amounts: C(30) }, { phase: 'committed', amounts: C(10) }, { phase: 'released', amounts: C(50) }], { committedInHave: true });
+  assert.deepEqual([r.free.slice(0, 2), r.uncertain], [[70, 100], false]);
+  const r2 = SV.spendable(have, [{ phase: 'committed', amounts: C(10) }], { committedInHave: false });
+  assert.deepEqual(r2.free.slice(0, 1), [90]);
+  const r3 = SV.spendable(have, [{ phase: 'unsettled', amounts: C(0, 40) }, { phase: 'unsettled' }], { committedInHave: true });
+  assert.deepEqual([r3.free.slice(0, 2), r3.uncertain], [[100, 60], true], 'an unsettled cost is held back at its most, and said uncertain');
+});
+
+test('05 manual: back to manual play, and the orders already signed go on', () => {
+  setLang('ja');
+  assert.match(SV.manualView({ signedPending: 3 }).details.join(), /すでに署名した操作 3 件は止まらずに進みます/);
+  assert.match(SV.manualView({}).details.join(), /止まりません（件数は受け取っていません）/);
+  assert.deepEqual(SV.manualView({}).errors, ['signedPending: missing']);
+});
+
+test('a status line says its state with a symbol and words (role=status), and has English words', () => {
+  setLang('ja');
+  const out = String(SV.renderStatus(SV.arrivalView({ state: 'unverified' })));
+  assert.match(out, /role="status"/);
+  assert.match(out, /aria-hidden="true">\?<\/span> <strong>到着量はまだ確かめられていません/);
+  setLang('en');
+  const all = [SV.cancelView({ stage: 'stopNew' }), SV.cancelView({ stage: 'awaitSigned', signedPending: 1 }), SV.cancelView({ stage: 'cancelled', settled: [] }), SV.arrivalView({ state: 'unverified' }),
+    SV.arrivalView({ state: 'partial', sent: C(4), arrived: C(1) }), SV.arrivalView({ state: 'full', arrived: C(4) }), ...SV.COST_PHASES.map(phase => SV.costView({ phase, amounts: C(1) })), SV.costView({ phase: 'unsettled' }),
+    SV.manualView({ signedPending: 2 }), SV.manualView({}), SV.manualView({ signedPending: 0 }), SV.cancelView({})];
+  for (const v of all) assert.doesNotMatch([v.text, ...v.details].join(' '), jp, `${v.key}: ${v.text}`);
+  setLang('ja');
+});
+
+test('01 cooperation: with nothing registered the S1 village card is as it was; a registered entry adds one button', () => {
+  setLang('ja');
+  assert.equal(CO.renderCoopSlot({}), '');
+  assert.equal(CO.openCoop({}, 'x'), false);
+  let opened = 0, avail = false;
+  const off = CO.registerCoopEntry({ id: 'n1', title: () => '国と協力する', state: () => (avail ? { available: true } : { available: false, why: '国の卓が開くのはターン 700 から' }), open: () => { opened++; } });
+  const closed = String(CO.renderCoopSlot({}));
+  assert.match(closed, /data-act="coop-open"[^>]*data-id="n1"[^>]*disabled/);
+  assert.match(closed, /国の卓が開くのはターン 700 から/);
+  assert.equal(CO.openCoop({}, 'n1'), false, 'not while it says it is not available');
+  avail = true;
+  assert.doesNotMatch(String(CO.renderCoopSlot({})), /disabled/);
+  assert.equal(CO.openCoop({}, 'other'), false);
+  assert.equal(CO.openCoop({}, 'n1'), true);
+  assert.equal(opened, 1);
+  off();
+  assert.equal(CO.renderCoopSlot({}), '');
+  assert.throws(() => CO.registerCoopEntry({ id: 'x' }), TypeError);
+  CO.registerCoopEntry({ id: 'n2', title: () => 'x', state: () => { throw new Error('boom'); }, open: () => {} });
+  assert.match(String(CO.renderCoopSlot({})), /理由を受け取れていません/);
+  CO.registerCoopEntry({ id: 'n3', title: () => 'x', state: () => ({ available: true }), open: () => {} })();
+});
+
+test('the slot sits in the S1 village card under the nation\'s council', () => {
+  const src = renderS1Village.toString();
+  assert.match(src, /fold\('s1-nation'[\s\S]*renderCoopSlot\(FS\)\}<\/section>/);
+});
