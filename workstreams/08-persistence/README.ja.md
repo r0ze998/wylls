@@ -36,8 +36,10 @@
 | 15 | [15-playtest-four-scenes.ja.md](15-playtest-four-scenes.ja.md) | 試遊案：新規参加・敗北・復帰・区切り直前の4場面（外部募集はしない） |
 | 16 | [16-placement.ja.md](16-placement.ja.md) | 6国の初期配置の比較（PL-W 現行型／PL-G 小集団型／PL-S 完全分散型）。比較検証で、採用ではない |
 | 17 | [17-handoff-01-placement-tower.ja.md](17-handoff-01-placement-tower.ja.md) | ①への引き渡し：中央の塔について知りたいこと、作戦の作りとの関係、配置の試遊の場面 |
+| 18 | [18-coop-victory.ja.md](18-coop-victory.ja.md) | 協力型の勝利条件：検査器と、仮の規則（probe）での確認。成立条件・破綻条件・悪用の再現例・試遊の質問・採用前の判断。①の候補の評価ではない |
+| 19 | [19-coop-inputs.ja.md](19-coop-inputs.ja.md) | ①への必要入力：協力型の候補を比べるために要るもの（①の成果物は未着） |
 | — | [sim/](sim/) | シミュレーター（Node.js、依存ライブラリなし） |
-| — | [results/](results/) | 生成された結果。`core`、`replication-seeds101-130`、`sensitivity`、`exploits`、`retention`、`placement/`（配置の比較。その中の各群と再現） |
+| — | [results/](results/) | 生成された結果。`core`、`replication-seeds101-130`、`sensitivity`、`exploits`、`retention`、`placement/`（配置の比較。その中の各群と再現）、`coop/`（協力の検査器と再現） |
 | — | [repro/](repro/) | シーズン終了時の再現テスト（リポジトリの外で組み立てて実行）と、修正の草案 |
 
 ## 再現
@@ -47,6 +49,7 @@ cd workstreams/08-persistence/sim
 node --test ./*.test.mjs                                        # 20件
 node run.mjs --seeds 30 --only core --out ../results/core       # ほかの群は 4章
 node placement.mjs --seeds 30 --only main --out ../results/placement/main   # 配置の比較（群は 16章）
+node coop-run.mjs --seeds 30 --out ../results/coop                          # 協力の検査器（18章）
 workstreams/08-persistence/repro/run.sh [作業ディレクトリ]        # Agave 3.1.9 が要る（11章）
 ```
 
@@ -71,6 +74,10 @@ workstreams/08-persistence/repro/run.sh [作業ディレクトリ]        # Agav
    - 1国1作戦なら、まとまる配置が協力のほぼ全指標で有利だった。作戦が地域ごとなら、差の多くは消えた。
    - 散る配置は、国ごとの配置運（最も弱い国のシェアの低下）を生んだ。区切りのない世界（C）では、勝ち続けを弱めた（0.86 → 0.64）。
    - 中央の塔の効果は未確認のため、入れていない。
+8. **協力型の勝利条件（18章）：①の候補が未着のため、検査器と仮の規則で構造的な条件だけを確かめた。**
+   - 国をまたぐ取引は、対称な条件では選択肢を増やし（選べる担い手 3.9 → 30.5）、依存を減らした。所有が偏ると、同じ取引が従属に変わった（独占者を通る割合 76〜100%）。
+   - 共同の報酬は、判断を変える仕組みがない限り利益を配り直すだけだった。判断を変えるのは、報酬が「他国を助けるためらい」を上回るときだけ（ためらいの大きさは試遊で確かめる）。
+   - 取引件数で報酬を配ると、往復取引で水増しされた。
    - 終了をまたいだ隊商は、永久に決着できない。
    - 倉は、終了後に閉じられない。
 
@@ -78,9 +85,10 @@ workstreams/08-persistence/repro/run.sh [作業ディレクトリ]        # Agav
 
 | 対象 | 状態 |
 |---|---|
-| `node --test workstreams/08-persistence/sim/*.test.mjs` | **通過 25／失敗 0** |
+| `node --test workstreams/08-persistence/sim/*.test.mjs` | **通過 32／失敗 0** |
 | `node run.mjs` 全5群（core、replication、sensitivity、exploits、retention） | 実行済み、終了コード 0 |
 | `node placement.mjs` 全6群＋再現2群 | 実行済み、終了コード 0 |
+| `node coop-run.mjs`（seed 1〜30 と 101〜130） | 実行済み、終了コード 0。有意な対の差の 1,479/1,501 が再現 |
 | 既存の結果の保全（地理の層を足した後に `results/core` を作り直して比較） | 全ての値が一致（16-13） |
 | `repro/run.sh`（LiteSVM、test-beacon ビルド） | **通過 3／失敗 0**（＝2つの疑いが再現した） |
 | リポジトリ既存のテスト（Rust、LiteSVM の共有スイート、web など） | **未実行**。この作業は既存のコードを変えていない |
