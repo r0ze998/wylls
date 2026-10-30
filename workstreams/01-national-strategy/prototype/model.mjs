@@ -536,8 +536,11 @@ function dispatch(w, actor, { pledge: id, qty }) {
  * 実際の消費の記録。共同成果の「使われた量」は、この記録だけから数える（届いた量や回数では数えない）。
  * sink：何に使ったか（建設・訓練・昇格・工房）。
  */
-function consumed(w, who, cost, sink) {
-  (w.consumed ??= []).push({ turn: w.turn, who, cost: { ...cost }, sink });
+function consumed(w, who, cost, sink, phase = 2) {
+  // before：消費の直前に手元にあった量（「自分の物から先に使った」とみなす数え方に使う）
+  const before = Object.fromEntries(Object.entries(cost).map(([r, v]) => [r, (w.stock[who]?.[r] ?? 0) + v]));
+  w.cseq = (w.cseq ?? 0) + 1;
+  (w.consumed ??= []).push({ turn: w.turn, who, cost: { ...cost }, sink, before, phase, seq: w.cseq });
 }
 
 function payCost(w, actor, cost) {
@@ -822,7 +825,7 @@ function step(w) {
     if (f.kind !== '工房' || f.status !== '稼働' || !w.members[f.owner]) continue;
     const st = w.stock[f.owner];
     const k = Math.min(f.perTurn, Math.floor((st.ore ?? 0) / 2), st.wood ?? 0);
-    if (k > 0) { st.ore -= 2 * k; st.wood -= k; st.arms += k; consumed(w, f.owner, { ore: 2 * k, wood: k }, '工房：兵器づくり'); }
+    if (k > 0) { st.ore -= 2 * k; st.wood -= k; st.arms += k; consumed(w, f.owner, { ore: 2 * k, wood: k }, '工房：兵器づくり', 0); }
   }
   // 村の昇格の完了
   for (const m of Object.values(w.members)) {
@@ -1558,6 +1561,9 @@ ACTIONS.offerExchange = (w, actor, { to, give, want, until }) => {
   const kinds = [give.res, want.res];
   if (!(kinds.includes('arms') && kinds.some(r => MATERIALS.has(r)))) return fail('②の交換権で扱えるのは「素材」と「生産済みの兵器」の交換だけ（それ以外は未実装の契約）');
   if ((w.stock[actor][give.res] ?? 0) < give.qty) return fail(`手元の${label.res(give.res)}が足りない`);
+  if (until != null && !(Number.isInteger(until) && until > w.turn)) return fail('期限は今より後のターン（整数）にする');
+  if (w.supply?.left?.[actor] != null) return fail('交易路から抜けている');
+  if (w.supply?.left?.[to] != null) return fail('相手は交易路から抜けている');
   const o = { id: nextId(w, 'x'), from: actor, to, give: { ...give }, want: { ...want }, status: '申し出中', at: w.turn, until: until ?? w.turn + 24 };
   (w.offers ??= {})[o.id] = o;
   log(w, 'offer', `${label.who(w, actor)}が${label.who(w, to)}に交換を申し出た：${label.res(give.res)} ${give.qty} と ${label.res(want.res)} ${want.qty}（ターン${o.until}まで）`);
@@ -1567,8 +1573,9 @@ ACTIONS.answerExchange = (w, actor, { offer, accept }) => {
   const o = w.offers?.[offer];
   if (!o || o.to !== actor) return fail('自分あての申し出ではない');
   if (o.status !== '申し出中') return fail(`申し出は「${o.status}」`);
-  if (w.turn > o.until) return fail('申し出の期限が過ぎている');
   if (!accept) { o.status = '断られた'; log(w, 'offer', `${label.who(w, actor)}は交換を断った`); return ok(); }
+  if (w.turn > o.until) return fail('申し出の期限が過ぎている');
+  if (w.supply?.left?.[actor] != null || w.supply?.left?.[o.from] != null) return fail('どちらかが交易路から抜けている');
   if (!w.members[o.from].present) return fail('申し出た人が不在（本人の在庫は動かせない）');
   if ((w.stock[o.from][o.give.res] ?? 0) < o.give.qty) return fail(`相手の${label.res(o.give.res)}がもう足りない`);
   if ((w.stock[actor][o.want.res] ?? 0) < o.want.qty) return fail(`手元の${label.res(o.want.res)}が足りない`);

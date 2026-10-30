@@ -50,29 +50,44 @@ export const isVerifiedArrival = s => s.state === '到着済み' && s.verified !
  */
 export function credits(w) {
   const out = {};
+  const seqOf = s => Number(String(s.id).replace(/\D/g, '')) || 0;
   for (const id of Object.keys(w.members)) {
+    // 出来事を時間の順に並べる。同じターンの中は：工房の消費 → 到着 → 行動（送る・消費）の順（model.mjs の step と行動の順）
+    const evs = [];
     const per = {};
-    const res = new Set();
-    const received = {}, sent = {}, used = {}, unverified = {};
+    const touch = r => (per[r] ??= { received: 0, sent: 0, used: 0, credit: 0, unverified: 0, ownUsed: 0, net: 0 });
     for (const s of Object.values(w.shipments)) {
       if (s.to?.kind !== 'village') continue;
       if (s.to.member === id && s.owner !== id) {
-        if (isVerifiedArrival(s)) { received[s.resource] = (received[s.resource] ?? 0) + s.qty - (s.overflow ?? 0); res.add(s.resource); }
-        else if (s.state === '到着済み') unverified[s.resource] = (unverified[s.resource] ?? 0) + s.qty;
+        if (isVerifiedArrival(s)) evs.push({ t: s.arrivedAt, ph: 1, q: seqOf(s), kind: 'in', r: s.resource, v: s.qty - (s.overflow ?? 0) });
+        else if (s.state === '到着済み') touch(s.resource).unverified += s.qty;
       }
-      if (s.owner === id && s.to.member !== id && s.state !== '送信失敗') { sent[s.resource] = (sent[s.resource] ?? 0) + s.qty; res.add(s.resource); }
+      if (s.owner === id && s.to.member !== id && s.state !== '送信失敗') evs.push({ t: s.sentAt, ph: 2, q: seqOf(s), kind: 'out', r: s.resource, v: s.qty });
     }
     for (const c of w.consumed ?? []) {
       if (c.who !== id) continue;
-      for (const [r, v] of Object.entries(c.cost)) { used[r] = (used[r] ?? 0) + v; res.add(r); }
+      for (const [r, v] of Object.entries(c.cost)) evs.push({ t: c.turn, ph: c.phase ?? 2, q: c.seq ?? 0, kind: 'use', r, v, before: c.before?.[r] ?? v });
+    }
+    evs.sort((a, b) => a.t - b.t || a.ph - b.ph || a.q - b.q);
+    // pool：他の人から受け取って、まだ使っても送ってもいない量
+    const pool = {};
+    for (const e of evs) {
+      const p = touch(e.r);
+      const have = pool[e.r] ?? 0;
+      if (e.kind === 'in') { p.received += e.v; pool[e.r] = have + e.v; }
+      else if (e.kind === 'out') { p.sent += e.v; pool[e.r] = have - Math.min(have, e.v); }   // 受け取った物から先に送る（通り抜け）
+      else {
+        // 自分の物から先に使う。自分の物で足りなかった分だけが、受け取った物を使った分
+        p.used += e.v;
+        const own = Math.max(0, e.before - have);
+        const fromOthers = Math.min(have, Math.max(0, e.v - own));
+        p.credit += fromOthers;
+        p.ownUsed += e.v - fromOthers;
+        pool[e.r] = have - fromOthers;
+      }
     }
     let total = 0;
-    for (const r of res) {
-      const net = Math.max(0, (received[r] ?? 0) - (sent[r] ?? 0));
-      const credit = Math.min(net, used[r] ?? 0);
-      if (net || used[r] || sent[r] || received[r] || unverified[r]) per[r] = { received: received[r] ?? 0, sent: sent[r] ?? 0, net, used: used[r] ?? 0, credit, unverified: unverified[r] ?? 0 };
-      total += credit;
-    }
+    for (const [r, p] of Object.entries(per)) { p.net = Math.max(0, p.received - p.sent); total += p.credit; void r; }
     out[id] = { total, per };
   }
   return out;
@@ -126,21 +141,26 @@ export function nationStatus(w, nation) {
   return { goal: '', done: null, progress: '—' };
 }
 
-/** ターンを進め、共同成果の一区切り（達成の記録、または期限）を記録する。 */
+/** 共同成果の一区切りを記録する（達成は期限までに限る。一度記録したら変えない）。 */
+function checkJoint(w) {
+  const j = w.supply.joint;
+  if (j.status !== '未達成') return;
+  const st = jointStatus(w);
+  if (st.met && w.turn <= JOINT.deadline) {
+    j.status = '達成'; j.achievedAt = w.turn; j.qualified = st.qualified;
+    w.log.push({ turn: w.turn, kind: 'goal', text: `共同成果「三国の交易路が使われる」を達成（${st.qualified.map(id => w.members[id].name).join('・')}。${st.nations.length}か国）。ここで共同成果は一区切り。個人と国の評価は別に続く` });
+  } else if (w.turn >= JOINT.deadline) {
+    j.status = '期限切れ'; j.closedAt = w.turn;
+    w.log.push({ turn: w.turn, kind: 'goal', text: `共同成果は期限（ターン${JOINT.deadline}）までに達成されなかった。届いた物・建てた物は、それぞれの持ち主の物のまま` });
+  }
+}
+
+/** ターンを進める。期限の過ぎた申し出は「期限切れ」にし、共同成果の一区切りを記録する。 */
 export function advanceSupply(w, n = 1) {
   for (let i = 0; i < n; i++) {
     advance(w, 1);
-    const j = w.supply.joint;
-    if (j.status === '未達成') {
-      const st = jointStatus(w);
-      if (st.met) {
-        j.status = '達成'; j.achievedAt = w.turn; j.qualified = st.qualified;
-        w.log.push({ turn: w.turn, kind: 'goal', text: `共同成果「三国の交易路が使われる」を達成（${st.qualified.map(id => w.members[id].name).join('・')}。${st.nations.length}か国）。ここで共同成果は一区切り。個人と国の評価は別に続く` });
-      } else if (w.turn >= JOINT.deadline) {
-        j.status = '期限切れ'; j.closedAt = w.turn;
-        w.log.push({ turn: w.turn, kind: 'goal', text: `共同成果は期限（ターン${JOINT.deadline}）までに達成されなかった。届いた物・建てた物は、それぞれの持ち主の物のまま` });
-      }
-    }
+    for (const o of Object.values(w.offers)) if (o.status === '申し出中' && w.turn > o.until) o.status = '期限切れ';
+    checkJoint(w);
   }
   return w;
 }
@@ -163,7 +183,7 @@ export function injectSupply(w, kind, args = {}) {
   if (kind === 'delay') return inject(w, 'delay', { turns: 8 });
   if (kind === 'facility') return inject(w, 'facility', { facility: 'ws-tou' });
   if (kind === 'absent') return inject(w, 'absent', { member: 'tou' });
-  if (kind === 'back') return inject(w, 'back', {});
+  if (kind === 'back') return inject(w, 'back', { member: args.member });
   if (kind === 'terms') {
     const offers = Object.values(w.offers).filter(o => o.to === 'tou' && o.status === '申し出中');
     if (!offers.length) return fail('トウあての申し出がない（先に誰かがトウに申し出る）');
@@ -231,9 +251,12 @@ export function supplyDecisions(w, me) {
     if (o.to !== me || o.status !== '申し出中') continue;
     const can = (w.stock[me][o.want.res] ?? 0) >= o.want.qty;
     const late = w.turn > o.until;
+    const fromAway = !w.members[o.from].present;
+    const fromShort = (w.stock[o.from][o.give.res] ?? 0) < o.give.qty;
     const t = travelOf(w, w.members[o.from].home, m.home);
     out.push({ id: `offer-${o.id}`, title: `${w.members[o.from].name}（${SUPPLY_NATIONS[w.members[o.from].nation]}）からの交換の申し出`, why: `あなたが${label.res(o.want.res)} ${o.want.qty} を渡し、${label.res(o.give.res)} ${o.give.qty} を受け取る。受けた時点で両方の荷車が出る（片方だけ持ち逃げはできない）。届くまで${t}ターン。②の交換権（模擬）`, options: [
-      { label: '受ける', act: 'answerExchange', args: { offer: o.id, accept: true }, enabled: can && !late, reason: late ? '期限が過ぎた' : `手元の${label.res(o.want.res)}が足りない（${w.stock[me][o.want.res] ?? 0}）`, consequence: `代わりにできたこと：${label.res(o.want.res)} ${o.want.qty} を自分の${goal?.text ?? '目標'}に使う` },
+      { label: '受ける', act: 'answerExchange', args: { offer: o.id, accept: true }, enabled: can && !late && !fromAway && !fromShort,
+        reason: late ? '期限が過ぎた' : fromAway ? `${w.members[o.from].name}が不在（本人の在庫は動かせない）` : fromShort ? `${w.members[o.from].name}の${label.res(o.give.res)}がもう足りない` : `手元の${label.res(o.want.res)}が足りない（${w.stock[me][o.want.res] ?? 0}）`, consequence: `代わりにできたこと：${label.res(o.want.res)} ${o.want.qty} を自分の${goal?.text ?? '目標'}に使う` },
       { label: '断る', act: 'answerExchange', args: { offer: o.id, accept: false }, enabled: true, consequence: '断っても罰はない。相手は別の相手を探すか、条件を変える' },
     ] });
   }
@@ -250,7 +273,7 @@ export function supplyDecisions(w, me) {
     const opts = [];
     for (const d of DEAL_TEMPLATES.filter(x => x.from === me)) {
       if (w.supply.left[d.to] != null) continue;
-      const exists = Object.values(w.offers).some(o => o.from === me && o.to === d.to && o.give.res === d.give.res && o.want.res === d.want.res && (o.status === '申し出中' || o.status === '成立'));
+      const exists = Object.values(w.offers).some(o => o.from === me && o.to === d.to && o.give.res === d.give.res && o.want.res === d.want.res && ((o.status === '申し出中' && w.turn <= o.until) || o.status === '成立'));
       if (exists) continue;
       const have = w.stock[me][d.give.res] ?? 0;
       const other = w.members[d.to];
@@ -326,9 +349,13 @@ function nationFollowText(n) {
 export function performSupply(w, me, option, over = {}) {
   if (!option || option.enabled === false) return fail(option?.reason || '選べない');
   if (option.wait) return ok({ waited: true });
-  if (option.event) return injectSupply(w, option.event);
+  if (option.event) return injectSupply(w, option.event, { member: me, ...(option.args ?? {}) });
+  const m = w.members[me];
+  if ((option.act === 'ackNation' || option.act === 'leaveSupply') && !m.present) return fail(`${m.name}は不在。本人の判断は本人しかできない`);
   if (option.act === 'ackNation') {
     const { nation, follow } = option.args;
+    if (nation !== m.nation) return fail('自分の国の頼みではない');
+    if (w.supply.answeredNation[`${nation}|${me}`]) return fail('もう答えた');
     w.supply.answeredNation[`${nation}|${me}`] = follow ? '応じた' : '断った';
     if (follow) {
       // 国の目標に沿って、関係する見本の申し出を自分で取り下げる（持ち主の判断として）
@@ -341,6 +368,7 @@ export function performSupply(w, me, option, over = {}) {
     return ok();
   }
   if (option.act === 'leaveSupply') {
+    if (w.supply.left[me] != null) return fail('もう抜けている');
     w.supply.left[me] = w.turn;
     for (const o of Object.values(w.offers)) {
       if (o.status !== '申し出中') continue;
@@ -350,7 +378,9 @@ export function performSupply(w, me, option, over = {}) {
     w.log.push({ turn: w.turn, kind: 'withdraw', text: `${w.members[me].name}が交易路から抜けた。成立済みの交換の荷車はそのまま届く` });
     return ok();
   }
-  return performModel(w, me, option, over);
+  const r = performModel(w, me, option, over);
+  if (r.ok) checkJoint(w);   // 行動で条件を満たしたら、そのターンのうちに記録する
+  return r;
 }
 
 /** 国の頼みに応じたとき、取り下げる（断る）ことになる申し出。自分が兵器を他国へ渡す（A）、他国から鉱石を得る（B）。 */
