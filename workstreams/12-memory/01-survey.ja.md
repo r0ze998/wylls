@@ -18,6 +18,18 @@
 
 既存の AI 市民は**約束（pact）を意図的に作っていない**（契約 v1.3 付録 A.5：ledger `commitments` は常に空、pact 語は検証で拒否、テストが persona・prompt・PUB を grep）。⑫はこの不活性経路に触れず、`workstreams/12-memory/` の独立 module として作った。本線へ接続するには契約の新版と所有者の判断が要る（README「限界」）。
 
+## 1b. コードが根拠にしている関連文書（v2 で確認）
+
+`ledger.mjs` の冒頭は「AC2-NOTES.md に記載」、`mind/memory.mjs` は「AC1a-NOTES.md」を参照するが、**基点 `4cd901de`・`main` には `docs/frontier/ai-citizens/AC2-NOTES.md`、`AC1a-NOTES.md`、`integ-A-NOTES.md` が無い**。`origin/frontier/ai-run`、`origin/frontier/ux`、`origin/archive/claude-submit-20261029` にあり、三つのブランチで同一（AC2-NOTES の blob は `dd75b4bc`）。そこから読んだもの：
+
+| 文書の記述 | ⑫への影響 |
+|---|---|
+| AC2-NOTES 規則 2：記録の `bell` は chain の slot の bell、`created_bell` は使った行の最大 bell。`bell > ref + 14` の行は無視して、遅い行で再生が変わらないようにする | 発生 `bell` と観測 `created_bell` の分け方と名前を踏襲。ただし⑫は遅い記録を**捨てずに**取り込み、`observedBy` で「その時点で知っていたこと」を再現する（再生の決定性は `created_bell` で保つ） |
+| integ-A-NOTES §17「Open points after part 3」：province・clash file が 2 bell 以上遅れると `missing_recent` を数えるが cursor は止めない。そのため、判断済みの bell より小さい `created_bell` のエピソードができうる | 今回の指摘 4（記録だけ遅れた配送）と同じ問題が既存側にもある。⑫の `reassess` はこれを扱う形 |
+| AC2-NOTES 規則 12：`mind/sanitize.mjs` が未作成のため `memory/safe.mjs` で代用、統合時に差し替え可 | その後 `mind/sanitize.mjs` は作られたが、memory は代用品のまま。integ-A-NOTES は「代用品はもう drop-in と称さず、エピソード文で同じ結果になることをテストで示した」と記す。⑫は本物を使う |
+| AC2-NOTES「Additive deviations」：ledger の `decay_day`、`trust.applied`、grievance の `nation`・`answered_bell` など | 契約 §5.1 の例との食い違いの出典はここ（README・報告の食い違い一覧） |
+| AC2-NOTES：tag は 16 桁の小文字 hex | ⑫の fixture は短い ASCII の handle。本線では hex tag を渡す |
+
 ## 2. 外部 OSS の比較（GitHub で検索・読了したもの）
 
 | 手法 | 出典 | 長所 | ⑫に合わない点 | 採否 |
@@ -25,6 +37,6 @@
 | 記憶ストリーム＋ recency×importance×relevance 想起 | joonspk-research/generative_agents（`retrieve.py` の `new_retrieve`、重み `[0.5, 3, 2]`） | 単純、説明しやすい | relevance に埋め込み（非決定的・外部呼出し）。出典が要約で消える | 半減期による減衰だけ採用（既存 retrieve.mjs も同系） |
 | 時間付き知識グラフ。矛盾は削除せず `invalid_at`/`expired_at` で失効、edge は `episodes` で出典を保持 | getzep/graphiti（`edges.py` EntityEdge、`edge_operations.py` `resolve_edge_contradictions`） | 訂正・失効・出典の扱いがまさに要件 | 事実抽出と矛盾判定を LLM が行う | **採用（考え方）**：追記のみ、訂正は新記録、rollback で失効、全派生行が出典 id を持つ |
 | LLM が ADD/UPDATE/DELETE を決める記憶層 | mem0ai/mem0 | 導入が容易 | 削除と上書きが LLM 任せで再生不能。偽申告に弱い | 不採用 |
-| Beta 評判（Jøsang & Ismail 2002）：E=(r+1)/(r+s+2)、忘却係数 | 論文の式（OSS 依存なし） | 正負の根拠を分けて持てる。根拠ゼロで 0.5、不履行で下がる、古い根拠は薄まる | — | **採用**：「関係値を上げ続けない」要件に合う |
+| Beta 評判（Jøsang & Ismail 2002）：E=(r+1)/(r+s+2)、忘却係数 | 論文の式（OSS 依存なし） | 正負の根拠を分けて持てる。根拠ゼロで 0.5、不履行で下がる、古い根拠は薄まる | 「根拠が無い」と「根拠が足りない」を区別しない | **採用**。v2 では確認済みの根拠だけを入れ、未確認は別の一覧と caution 項に分けた |
 
 外部コードは取り込んでいない（ライセンス上も依存を増やさない）。式と設計だけを参考にした。

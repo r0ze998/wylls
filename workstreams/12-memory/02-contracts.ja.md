@@ -1,64 +1,87 @@
-# ⑫ 接続契約（④ 実行・⑤ provider と予算・⑬ 独立住民）
+# ⑫ 接続契約 v2（④ 実行・⑤ provider と予算・⑬ 独立住民）
 
-版：`wylls.memory12.*/v1`。⑫は記憶・検索・関係更新の module だけを持つ。**モデル呼出し、scheduler、予算管理、実行は持たない。** 実体は `src/index.mjs`（`createMemory`）。
+版：記録 v2、判断入力 `wylls.memory12.decision-input/v2`。⑫は記憶・検索・関係更新の module だけを持つ。**モデル呼出し、scheduler、予算管理、実行は持たない。** 実体は `src/index.mjs`（`createMemory`）。v1 からの変更点は末尾。
 
 ## 1. ④（実行）→ ⑫：事実イベント
 
-④が chain／実行記録から確認した事実だけを `m.observe(fact)` で渡す。発言から fact は作れない（`utterance` の act に該当型が無く、未知の act・余分な field は拒否）。
+④が chain／実行記録・索引から確認した事実だけを `m.observe(fact)` で渡す。発言から fact は作れない。
 
 ```js
 m.observe({
-  kind: 'caravan_sent' | 'caravan_settled' | 'caravan_raided' | 'march_sent' | 'rollback',
-  bell,                                   // 記録が公開になった chain bell
-  source: { chain: 'local', sig, ix },    // tx 署名と、その tx 内の記録の位置。id はこれだけから決まる
+  kind, bell,                 // bell = 発生した chain bell
+  created_bell,               // ④がそれを観測して渡した bell（>= bell。省略時 bell）
+  source: { chain: 'local' | 'index', sig, ix },  // 記録（または索引の証明）の参照。id はこれだけから決まる
   visibility: { scope: 'public' } | { scope: 'nation', nation } | { scope: 'parties', members: [tag...] },
-  data,                                   // 下表
+  data,
 })  // -> {status: 'added' | 'duplicate' | 'collision' | 'refused', id, reason?}
 ```
 
-| kind | data | 由来（既存コード） |
-|---|---|---|
-| `caravan_sent` | `{sender, seq, recipient, cargo:{wood:100,...}, arrive_bell}` | `CqEvent::CaravanSent{owner_tag, seq, dst, cargo, arrive_ts}` |
-| `caravan_settled` | `{sender, seq, recipient, outcome: 0 DELIVERED / 1 LOST, cargo}` | `CqEvent::CaravanSettled{owner_tag, seq, outcome, dst, cargo}` |
-| `caravan_raided` | `{sender, seq, raider, taken}` | `CqEvent::CaravanRaided{owner_tag, seq, raider_tag, taken}` |
-| `march_sent` | `{owner, host_id, dest:{p,q}, arrive_bell}`（**封印された行軍は `parties:[owner]`**） | DEPART＋自分の送信記録 |
-| `rollback` | `{fact: <id>, reason}`（**対象と同じ visibility 必須**。違えば `rollback_visibility_mismatch`） | slot の再編・誤配信の取り消し |
+場所は `{kind: 1 holding | 2 vault, p, q, at, gen}`（fclient `LogPlace`）、隊商 id は `{sender, seq}`（記録の `owner_tag`, `seq`）。
 
-④への依頼：
-1. **受取人の解決**：`CARAVAN_SETTLED` は目的地の場所（`LogPlace` kind/p/q/at/gen/tile）しか持たない。精算時点の保有者（村・倉庫）を `recipient` tag として解決して渡す。解決できなければ送らない（推測しない）。
-2. **発送と到着を分ける**：`caravan_sent` は履行ではない。⑫は `caravan_settled` DELIVERED だけを履行の根拠にする（引き継ぎ文書の確認項目 1 と同じ）。
-3. **重複配信は同じ `source` で**：同じ記録は何度送ってもよい（`duplicate`）。同じ `source` で中身が違うと `collision` として拒否・記録され、最初が残る。
-4. 資源名は `food wood stone ore horses gold science influence`（`Resource` の順）。0 の資源は省略可。
+| kind | data | 由来・意味 | ⑫の扱い |
+|---|---|---|---|
+| `caravan_sent` | `{caravan, dst, cargo, eta_bell?}` | `CqEvent::CaravanSent` | 発送。**履行ではない** |
+| `caravan_settled` | `{caravan, outcome: 0 DELIVERED / 1 LOST, dst, cargo_recorded}` | `CqEvent::CaravanSettled` | 精算が起きたこと。**量・受取人は確定しない** |
+| `caravan_credited` | `{caravan, place, credited, basis: 'account_diff'}` | **新規依頼**：その精算で目的地の在庫が実際に増えた量 | 量の唯一の根拠 |
+| `caravan_raided` | `{caravan, raider, taken}` | `CqEvent::CaravanRaided` | 中立 |
+| `place_owner` | `{place, owner, from_bell, to_bell \| null}` | **新規依頼**：その区間の所有者（null＝この記録の bell まで） | 精算時点の受取人 |
+| `coverage` | `{sender, from_bell, to_bell, caravans: [{sender, seq}...]}` | **新規依頼**：その送り主の、区間内に発送した隊商は**これで全部**（`to_bell` ≤ 記録の bell） | 不足・偽申告を確定できる唯一の根拠 |
+| `lookup_failed` | `{query: coverage \| caravan \| place_owner \| credit, sender?, caravan?, reason}` | **新規依頼**：照会できなかった | 未確認（不在扱いしない） |
+| `march_sent` | `{owner, host_id, dest, arrive_bell}`（封印された行軍は `parties:[owner]`） | DEPART＋自分の送信記録 | 可視性の試験用 |
+| `rollback` | `{fact, reason}`（**対象と同じ visibility 必須**） | 再編・誤配信・誤った証明の取り消し | 対象と、そこから導いた判定を除外 |
+
+④への依頼（v1 からの変更を含む）：
+
+1. **受取人を推測して付けない**。v1 で依頼した「受取人 tag の解決」は取り下げ、`place_owner` の区間証明に置き換える。所有者が分からなければ送らない（⑫は `recipient_unverified` にする）。
+2. **実加算量を測る**。`CARAVAN_SETTLED` の積荷は記録上の量で、倉庫の容量などで実加算と異なりうる。測れなければ `caravan_credited` は送らない（⑫は `qty_unverified`）。
+3. **完全性を証明できる区間だけ `coverage` を出す**。索引が追いついていない区間は出さない。照会が失敗したら `lookup_failed`。
+4. **遅れて届いた記録には、本当の `bell` と遅い `created_bell` を付ける**。⑫は期限内かどうかを `bell` で判断し、`created_bell` で「いつ知ったか」を扱う。
+5. 同じ記録は何度送ってもよい（`created_bell` が違っても `duplicate`）。同じ `source` で中身が違えば `collision` として拒否・記録され、最初が残る。訂正は `rollback`＋正しい記録で。
+6. 資源名は `food wood stone ore horses gold science influence`（`Resource` の順）。0 は省略可。
+7. 実装の手掛かり（未確認）：findex は account snapshot と event index を持つので、実加算量・所有者の区間・送り主別の発送一覧はそこから導ける見込みがある。
 
 ## 2. ⑬（独立住民の目標と行動ループ）↔ ⑫
 
-⑬が行動ループの中で呼ぶ。⑫は自分から時間を進めない。
-
 | 呼び出し | 用途 |
 |---|---|
-| `m.say({speaker, bell, channel, visibility, text, act})` | 社会層が**署名を検証した**発言を記録。`act` は `request{to,resource,qty,by_bell}` / `accept{ref,qty,by_bell}` / `decline{ref}` / `claim_delivered{ref}` / `testimony{about,ref,says}` / `retract{ref}` のみ |
-| `m.knowledge({tag, nation}, bell)` | その住民がその bell に知っていること（可視性で絞った後の純 fold）。`commitments`, `reliability`, `testimonies`, `notes`, `facts` |
-| `m.summary(viewer, bell)` | 出典 id 付きの要約行（`epistemic: said / verified / interpreted`） |
-| `m.note({owner, bell, about, text, basis, by:'code'|'model', expires_bell})` | 本人の解釈。根拠にはならない |
-| `m.correct({owner, bell, target, reason, replacement})` | 自分の note の訂正だけ（他人の発言・事実は不可） |
-| `await m.choosePartner({viewer, bell, request, candidates, limits, policy, policyName})` | 取引相手の選択。入力を作り、policy に渡し、検証し、`decision` 記録（引用 id 付き）を残す |
+| `m.say({speaker, bell, channel, visibility, text, act})` | 社会層が**署名を検証した**発言を記録 |
+| `m.knowledge({tag, nation}, clock, {observedBy})` | その住民の知識（可視性で絞った後の純 fold） |
+| `m.summary(viewer, clock)` | 出典 id 付きの要約行（`said / verified / interpreted / unknown`） |
+| `m.note(...)` / `m.correct(...)` | 本人の解釈と、その訂正（自分の note だけ） |
+| `await m.choosePartner({viewer, bell, request, candidates, limits, policy, policyName})` | 取引相手の選択。判断記録に入力（request・candidates・limits）と引用 id を残す |
+| `m.reassess(decisionId, observedBy)` | 後から観測された記録で、その判断を判断時点の bell で評価し直す |
 
-`request = {resource, qty, need_by_bell, failure_cost}`、`candidates = [{id, tag, price_per_unit, distance, stock, arrive_bell}]` は **⑬（または世界）が code で作る**。`limits = {budget}` は**⑬／⑤が渡す**。⑫は journal や発言から limits を読まない。
+act（whitelist。余分な field は拒否）：
 
-約束の状態（派生、保存しない）：`promised`（話しただけ。`authority:false`, `contract:false`）→ `fulfilled` / `late` / `partial`（DELIVERED の fact が必要）・`raided` / `lost` / `withdrawn`（中立）・`claimed_unverified`（申告のみ）・`broken`（期限＋6 bell 過ぎて fact なし。申告済みなら `false_claim`）。
+| act | 形 | 意味 |
+|---|---|---|
+| `request` | `{to, resource, qty, by_bell, place}` | **場所（世代込み）が必須** |
+| `accept` | `{ref: request id, qty, by_bell}` | 約束 id ＝ この発言の id。`authority:false`, `contract:false` |
+| `decline` / `retract` | `{ref}` | 期限前の取り下げは中立 |
+| `allocate` | `{ref: 約束 id, caravan: {sender, seq}, qty}` | **約束と隊商を結ぶ唯一の手段**。当事者の発言だけ有効 |
+| `claim_sent` / `claim_delivered` | `{ref, caravan?}` | 「送った」「届いた」は別の申告。名指しがあれば照合しやすい |
+| `testimony` | `{about, ref, says}` | 第三者の証言。表示と照合のみ |
+
+`request = {resource, qty, need_by_bell, failure_cost}`、`candidates = [{id, tag, price_per_unit, distance, stock, arrive_bell}]` は⑬（または世界）が code で作る。`limits = {budget}` は⑬／⑤が渡す。⑫は journal や発言から limits を読まない。
 
 ## 3. ⑤（provider と予算）↔ ⑫
 
 ⑤は `policy(input) -> answer` を実装して `choosePartner` に渡す。⑫は通信しない。
 
-- 入力 `input`（`wylls.memory12.decision-input/v1`、JSON のみ）：`self, bell, request, limits, cost_model, candidates[{…, eligible, ineligible_reason, reliability{E,r,s,n_direct,n_observed}, memory[ids]}], memory[{id, about, epistemic, text, sources}], untrusted_messages[{id, from, bell, trust:'untrusted', text}], rules[], answer_schema`。実例：`results/inputs/*.json`。
-- 出力：`answer_schema`（`{choice, cite[], why}`、追加 field 禁止）。Claude なら tool の input_schema、GPT なら json_schema の structured output にそのまま渡せる。
-- 検証（`validateAnswer`）：未知・不適格の候補、未知の引用 id、追加 field は拒否 → 参照 policy で決め、`refused` に理由を返す。⑤の予算超過・timeout は `policy` が throw すれば同じく参照 policy に落ちる。
-- policy には入力の**複製**を渡す。policy が書き換えても呼び出し側の limits は変わらない（テスト済み）。
-- token 予算：v1 の入力は小さい（例：約 3 KB）。⑤が上限を持つ場合、⑫は今後 `memory[]` を「選ばれうる候補の verified → interpreted → said」の順で切る（未実装。限界参照）。
+- 入力（`wylls.memory12.decision-input/v2`、JSON のみ。実例 `results/inputs/*.json`）：`self, bell, observed_by, request, limits, cost_model{dist_cost, caution, formula}, weights（仮設定であることを含む）, candidates[{…, eligible, ineligible_reason, reliability{E, r, s, n_direct, n_observed, verified, claims}, unknown{open_overdue, open_total, neutral}, memory[ids]}], memory[{id, about, epistemic, text, sources}], untrusted_messages[...], rules[], answer_schema`。
+- 出力：`answer_schema`（`{choice, cite[], why}`、追加 field 禁止）。Claude なら tool の input_schema、GPT なら json_schema の structured output にそのまま使える。
+- 検証（`validateAnswer`）：未知・不適格の候補、未知の引用 id、追加 field は拒否し、参照ルールで決める（`refused` に理由）。policy が throw した場合（予算超過・timeout）も同じ。policy には入力の複製を渡す。
+- **決定的な参照ルールの結果と、実 LLM の結果を混ぜない**。判断記録の `policy` に `reference-v2` か、⑤が渡した `policyName` が残る。実 LLM の評価（同じ入力で何を選び、何を引用したか）は⑤側の試験として別に記録する。
 
 ## 4. 共通の約束事
 
-- 可視性：`public` / `nation`（国の卓）/ `parties`（直接会話・私的な実行記録）。fold の**最初**で絞るので、派生値（信頼度など）にも見えない記録は混ざらない。
-- journal は追記のみ。訂正・失効・rollback はすべて新しい記録。`Journal.open(path)` で再起動時に再生（最後の行が壊れていれば無視して `torn` に数える）。
+- 可視性：`public` / `nation` / `parties`。fold の**最初**で絞るので、派生値にも見えない記録は混ざらない。
+- journal は追記のみ。訂正・失効・rollback はすべて新しい記録。`Journal.open(path)` で再起動時に再生する（最後の行が壊れていれば無視して `torn` に数える）。
 - 時刻は bell（10 分）。
+
+## v1 → v2 の変更（互換性なし）
+
+- 記録 v2：全記録に `created_bell`。fact の形を変更（隊商 id、場所と世代、`cargo_recorded`）。`caravan_credited`・`place_owner`・`coverage`・`lookup_failed` を追加。
+- act：`request` に `place` 必須。`allocate`・`claim_sent` を追加。`claim_delivered` に任意の `caravan`。
+- 状態：`broken` を廃止し、`not_delivered`（完全な索引による確認）と `unconfirmed`（未確認＋理由）に分割。`in_progress`・`recipient_changed` を追加。
+- 判断入力 v2：`unknown`・`weights`・caution 項・`observed_by` を追加。判断記録に `candidates`・`limits`・`nation` を追加（再評価用）。
