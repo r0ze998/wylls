@@ -145,15 +145,57 @@ for d in permutation-frontier/target permutation-prize/target frontier-node/targ
 |---|---|---|---|
 | ① MCP の接続（OAuth トークンと link） | ChatGPT など MCP のクライアント | ③のツールを呼ぶこと。書込は `send_caravan` だけで、所有者の場所の間の隊商に限る | ③のサーバー（スコープ、② MOCK の上限、計画の期限、速度制限） |
 | ② 代理人の capability | **③の MCP サーバー**（AES-256-GCM で封印して保存） | relay の `POST /f/agent/action` に、⑤の方針の範囲で行動を頼むこと | ⑤の relay（方針、予算、mode、村、relay の形の検査） |
-| ③ session 鍵（ed25519） | **⑤の relay の keyring**（`FRONTIER_AGENT_KEYS_DIR/<agentId>.key`、16 進の seed、mode 0600、**暗号化なし**）。MCP サーバーは持たない | **チェーンの上では、所有者の Citizen のプレイヤー命令を、SetSession を除いてすべて署名できる**。期限まで、または所有者が置き換えるまで | チェーン（`player_prologue`：`session_ok` が偽なのは SetSession だけ。期限は最長 30 日） |
+| ③ session 鍵（ed25519） | **⑤の relay の keyring**（`FRONTIER_AGENT_KEYS_DIR/<agentId>.key`、16 進の seed、mode 0600、**暗号化なし**）。MCP サーバーは持たない | 所有者の Citizen のプレイヤー命令のうち、プログラムが session を受け入れるもの（§3.1.1）。期限まで、または所有者が置き換えるまで | チェーン（§3.1.1 の命令ごとの条件。期限は最長 30 日） |
 
-コードの根拠：
+#### 3.1.1 session 鍵：署名できることと、プログラムが受け入れることは別
 
-- `frontier-abi/src/prologue.rs` の `player_prologue`。
-- `permutation-frontier/src/proc/citizen.rs`：SetSession だけが `player(…, false)`。ほかに PlaceHome などの `player(…, true)` があり、`conquest.rs:227` も同じく session を受ける。
-- gateway の `NEVER_DELEGATED`（Join、SetSession、PlaceHome、FileTicket、FileOutpost、DeclareSiege、RetireHost）は **relay の方針**であって、チェーンの制限ではない。
+**訂正（2026-10-30）。** この節の最初の版は「SetSession を除くすべてのプレイヤー命令を署名できる」と書いていた。これは、共通の入口の `player_prologue` で session を拒むのが SetSession だけ、というところまでしか見ていなかった。命令ごとに読み直すと、入口の後で session を拒む命令がほかにもある。下の表に分けて書き直した。
 
-したがって、**今回のスコープ・上限・予算は「信頼するサーバー」（③の MCP サーバーと⑤の relay）での制限である。鍵そのものの権限が狭くなったわけではない。** relay の外では、keyring の鍵を持つ者は誰でも、その Citizen の命令をほぼすべて送れる。relay は、代理人の鍵が署名した取引を gateway の外では受け付けない（`isAgentKey`）。しかし、それはその relay の中だけの話である。
+区別：
+
+1. **暗号学的な署名。** ed25519 の秘密鍵を持つ者は、どんな取引にも署名できる。鍵には、命令を限る仕組みが無い。
+2. **プログラムが受け入れるか。** 下の表のとおり。
+3. **relay（⑤）が通すか。** gateway の方針。チェーンの制限ではない。
+
+参照 commit は `4cd901de9f8e0d6c0b2016851d30595c4a70aa46`（基準）。③の commit は `workstreams/03-composability/` の外を変えていないので、`ba5d5a9a` でも同じ内容である。行番号はこの版のもの。
+
+| 命令 | 財布 | session 鍵 | 条件・拒否のコード | 根拠（コード） | 試験 |
+|---|---|---|---|---|---|
+| Join（0x30） | 可 | **不可** | 署名者が財布そのもの（`[wallet s]`）。Citizen がまだ無いので、session が存在しない | `proc/citizen.rs` 315 行付近の文書と `join` | 未確認（読んだだけ） |
+| SetSession（0x31） | 可 | **不可** | `player(…, false)` で `Auth` | `proc/citizen.rs:472`、`frontier-abi/src/prologue.rs:1124` | `svm-tests/tests/citizen.rs` の `citizen_session_and_vigil_through_the_player_prologue`（名前から。中身は読んでいない） |
+| CloseStructure（0xB9） | 可 | **不可** | `WalletRequired` | `proc/structure.rs:557` | `svm-tests/tests/structure.rs:512` |
+| CloseVault（0xB5） | 可 | **不可** | `WalletRequired` | `proc/caravan.rs:1855` | `svm-tests/tests/caravan.rs:1225` |
+| SendCaravan（他人の場所宛て） | 可 | **不可** | 宛先の持ち主が自分の Citizen でなければ `WalletRequired` | `proc/caravan.rs:727` | `svm-tests/tests/caravan.rs:641` |
+| SendCaravan（自分の場所宛て） | 可 | 可（期限内） | — | 同上 | ③の E2E（session 鍵で 2 本） |
+| RetireHost（季節中） | 可 | 可（期限内） | 被害者の財布か、有効な session | `proc/conquest.rs:1648` | 未確認 |
+| `player(…, true)` か、`session_ok = true` の入口を使う命令（PlaceHome、`proc/holding.rs:151`、`proc/conquest.rs:227` など） | 可 | 可（期限内） | 入口の後に個別の拒否があるかは、命令ごとに確かめる必要がある | `proc/citizen.rs:506, 650, 942, 1154` ほか | **全命令の一覧は作っていない（未確認）** |
+
+`WalletRequired` の拒否は、このソースでは上の 3 か所だけである（grep の結果）。
+
+他担当の報告との照合:
+
+| 報告 | このソースでの結果 | 判定 |
+|---|---|---|
+| ②「財布専用の命令が 5 つある」 | 財布だけが通る命令は、常にのものが 4 つ（Join、SetSession、CloseStructure、CloseVault）と、宛先しだいのものが 1 つ（他人宛ての SendCaravan）。合わせて 5 | **数は合うが、同じ 5 つかは未確認**（②の資料が無い） |
+| ④「他人宛ての SendCaravan は session では拒否される」 | `caravan.rs:727` で `WalletRequired` | **一致** |
+
+gateway の `NEVER_DELEGATED`（Join、SetSession、PlaceHome、FileTicket、FileOutpost、DeclareSiege、RetireHost）は **relay の方針**で、チェーンの制限ではない。たとえば PlaceHome と RetireHost は、チェーンの上では session でも受け入れられる。
+
+したがって、**今回のスコープ・上限・予算は「信頼するサーバー」（③の MCP サーバーと⑤の relay）での制限である。鍵そのものの権限が狭くなったわけではない。** relay の外では、keyring の鍵を持つ者は、上の表で session が「可」の命令をその Citizen の名前で送れる。relay は、代理人の鍵が署名した取引を gateway の外では受け付けない（`isAgentKey`）。しかし、それはその relay の中だけの話である。
+
+#### 3.1.2 秘密の置き場（値はどこにも書かない）
+
+**訂正（2026-10-30）。** 07 §3 に、読取のスコープは「代理人の鍵を受け取らない」と書いていた。これは、書込のスコープなら MCP サーバーが鍵を受け取るように読める。実際に MCP サーバーへ渡り、封印して保存されるのは **capability（relay に行動を頼むための token）**で、session 鍵ではない。07 も直した。
+
+| 秘密 | 置き場 | 保存の形 | MCP サーバーが持つか |
+|---|---|---|---|
+| 所有者のウォレットの秘密鍵 | 所有者のウォレット（E2E では、試験スクリプトのメモリにある試験用の鍵） | ウォレットによる | **持たない**。同意画面は署名だけを受け取る |
+| 代理人の session 鍵 | ⑤の relay の keyring（`FRONTIER_AGENT_KEYS_DIR`） | 16 進の seed、mode 0600、暗号化なし（`keyring.mjs`） | **持たない** |
+| custody 鍵（預かった試験用 USDC） | ⑤の relay（`FRONTIER_AGENT_CUSTODY_KEY_FILE`） | `loadOrCreateKeypairSync` で読み書きする鍵ファイル。暗号化の処理は見当たらない（ファイルの形の細部は未確認） | **持たない** |
+| 代理人の capability | relay は SHA-256 だけを保存（`ledger.mjs:421`）。平文は rotate の応答で一度だけ渡る。③は AES-256-GCM で封印してストアに保存し、relay を呼ぶ時だけメモリで開く | 封印：`v1.<iv>.<本文>.<tag>` | **持つ**（封印して） |
+| OAuth のアクセストークン・リフレッシュトークン・認可コード | 平文を持つのはクライアント（ChatGPT など）だけ | ③のストアには SHA-256 だけ | 値は持たない（照合用のハッシュだけ） |
+| 封印の鍵（`WYLLS_MCP_SEAL_KEY`） | MCP サーバーのプロセスの環境変数。ストアには入れない。E2E ではプロセスごとの乱数で、メモリだけ | — | 持つ（プロセスの中だけ） |
+| ③のストア（link、操作、封印された capability、ハッシュ） | `WYLLS_MCP_STORE` のファイル（mode 0600）。E2E ではメモリだけ | JSON（ファイル全体の暗号化はしていない。capability だけを封印） | 持つ |
 
 賞金と USDC について：`permutation-prize` のソースに session の扱いは見当たらない（grep の結果）。session 鍵で賞金を受け取れるかどうかは確かめていない（**未確認**）。預かった試験用 USDC は、別の custody 鍵が持っている。引き出しは、所有者が署名して登録した払出先にしか送られない（コード：`custody.mjs`）。
 
@@ -204,7 +246,7 @@ for d in permutation-frontier/target permutation-prize/target frontier-node/targ
 |---|---|---|---|
 | 管理 | 環境変数（32 バイト、base64url）。ストアをファイルにする時は必須で、無ければ起動しない。メモリのストアならプロセスごとの乱数 | コード（`bin/wylls-mcp.mjs`、`seal.mjs`） | 本番では KMS か secret manager から渡す。環境変数は `/proc/<pid>/environ` で同じ利用者から読める |
 | 再起動（同じ鍵） | ストアと鍵が同じなら続きから動く | 実行：試験 `… (crash): after a restart …` | — |
-| 再起動（違う鍵） | capability を開けない | 実行（一時の確認、commit していない、2026-10-30）：読取は動く。`send_caravan` は `InternalError` になり、何も送られない。操作は `requested` のまま残り、② MOCK の確保も残る | 「鍵が違う」と分かる名前のエラーにし、確保を解くのが望ましい（未実装。追加実装は止めているので提案のみ）。回復の手順：正しい鍵で起動し直すか、所有者が接続を取り消して作り直す |
+| 再起動（違う鍵） | capability を開けない | 実行（一時の確認、commit していない、2026-10-30）：読取は動く。`send_caravan` は `InternalError` になり、何も送られない。操作は `requested` のまま残り、② MOCK の確保も残る | **統合を止める条件**（§7）。理由の分かる保留の表示（例：`SealKeyMismatch`、保留中）にする。確保は**無条件には解かない**：同じ操作に過去の試行（`attempts > 0` や結果不明）があれば、送っていないと確かめられるまで保留のままにし、gateway の記録とチェーンで照合する。回復の手順：正しい鍵で起動し直して照合する。鍵が戻らないなら、所有者が capability を rotate し、照合が終わってから接続を作り直す（**提案。今の版は訂正前の「確保を解く」案を実装していない**） |
 | バックアップ | 鍵とストアは別々に置く前提 | — | ストアのバックアップに鍵を同梱しない。鍵を失えば capability は開けないが、所有者が rotate して接続を作り直せば済む（鍵の紛失で資産は失われない）。逆に、鍵とストアが一緒に漏れた場合は、所有者が capability を rotate し、mode を manual にし、必要なら SetSession で session を失効させる |
 | 削除 | link の取消で、その link の capability を消す（`capability = null`）。ファイルは原子的に書き換える（一時ファイル → fsync → rename） | コード | 古い内容が、ディスクの未使用領域やバックアップ・スナップショットに残りうる。relay の側の capability は rotate するまで有効 |
 | ローテーション | 仕組みが無い（鍵を替えると既存の link は開けなくなる） | — | 鍵の版を `v1` の後に持たせ、新旧の両方で開けるようにする案 |
@@ -278,6 +320,8 @@ for d in permutation-frontier/target permutation-prize/target frontier-node/targ
 
 ChatGPT で使えている映像は、この手順で実機の検証が通るまで作らない（09 §3.2）。
 
+**外部公開用の設定の候補（今のローカル試験用の設定は変えない）。** 許すリダイレクト URI を ChatGPT の 2 つ（`https://chatgpt.com/connector_platform_oauth_redirect` と `https://chatgpt.com/connector/oauth/{callback_id}`）に限り、loopback を外す。実機検証を始める時は、次の項目をまとめて確認してから行う：接続するアカウント、公開範囲、使う試験データ、権限、費用、終了の時の失効の確かめ方。**この文書は実行の承認ではない。**
+
 ## 6. 保存パッケージ
 
 チャットからダウンロードできる 1 つの tar.gz にまとめた。中身（`MANIFEST.txt` と `SHA256SUMS` が正本）:
@@ -294,3 +338,14 @@ ChatGPT で使えている映像は、この手順で実機の検証が通るま
 含めないもの：秘密鍵、トークン、認証状態（ストアのファイル）、代理人と custody の鍵、利用者のデータ、`node_modules`、ビルド結果。
 
 この作業は push の許可ではない。bundle はローカルのファイルで、どのリモートにも送っていない。
+
+## 7. 統合を止める条件（解消するまで、統合完了とは扱わない）
+
+| # | 条件 | 今の状態 | 解消の条件 | 所在 |
+|---|---|---|---|---|
+| 1 | 接続を取り消すと、照合待ちの操作が ChatGPT から見えなくなる | 未解消 | 取消の後も、所有者が安全に確かめられる照会の経路（⑤の代理人ページか、④の受領証）。照合待ちの操作は、③の pull に頼らず終端まで進める | §3.3 |
+| 2 | 復号鍵の違う再起動で、`requested` と上限の確保が残る | 未解消（`InternalError` になるだけ） | 原因の分かる保留の表示と、既存の操作の照合・復旧の手順。送っていないと確かめられない操作を、無条件に解放しない | §3.5 |
+| 3 | 倉庫の settle の記録だけでは、実際に入った量を証明できない | 未解消 | 「決済済み／輸送の終了」と「検証済みの到着量」を分ける。量を返さないことは、全量の配送を確かめたことにはならない | §4.1、§4.2 |
+| 4 | ②④⑤の最新の成果物との接続は未検証 | 未解消（②④の成果物は未受領。⑤は既存コードとパッチ 0005 だけ） | 各担当の成果物で照合と試験をすること。パッチ 0005 を当てた局所の試験だけでは、統合完了とは扱わない | §2 |
+| 5 | session 鍵の命令ごとの範囲が、②の資料と照合されていない | 未解消（数は合うが、命令の一致は未確認） | ②の資料での照合 | §3.1.1 |
+
