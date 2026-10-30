@@ -27,7 +27,7 @@
 | ChatGPT の実機 | **未確認** | 公開 HTTPS とワークスペースの権限が要り、制約により行っていない。必要な操作とリスクは [09](09-mcp-run-and-video.ja.md) §2.2 |
 | 隊商の送付を代理人の行動にする | **他担当（⑤）への依存** | 今の relay には無い。[patches/0005](patches/0005-agent-wallet-sendcaravan.patch)（未適用）が必要。無い場合、`send_caravan` は `ActionNotAllowed` とその理由を返す |
 
-設計と既存実装の区分は [07](07-mcp.ja.md)、ツールの契約と②④⑤との境界は [08](08-mcp-contracts.ja.md)。
+設計と既存実装の区分は [07](07-mcp.ja.md)、ツールの契約と②④⑤との境界は [08](08-mcp-contracts.ja.md)。**引き渡し（再現手順、②④⑤との契約対応表、鍵と認可の限界、到着の根拠、ChatGPT 実機検証の承認事項）は [10](10-handoff.ja.md)。** 書込はパッチ 0005 が無いと使えない（[10 §0](10-handoff.ja.md)）。③の追加実装は止めて、統合の判断と ChatGPT 実機検証の承認を待っている。
 
 ## 成果物の地図
 
@@ -49,6 +49,7 @@
 | [07-mcp.ja.md](07-mcp.ja.md) | ChatGPT の接続方式（公式資料）、既存実装の区分、設計、既存との差分、依頼、未検証 |
 | [08-mcp-contracts.ja.md](08-mcp-contracts.ja.md) | 対応操作の一覧（ツール契約）、認証と権限、②④⑤との境界（AI staking のインターフェースを含む） |
 | [09-mcp-run-and-video.ja.md](09-mcp-run-and-video.ja.md) | テスト結果（ローカルと ChatGPT を分けて）、接続手順、撮影手順 |
+| [10-handoff.ja.md](10-handoff.ja.md) | 引き渡し：成功した構成の再現手順、②④⑤との契約対応表（一致・不一致・資料待ち）、鍵と認可の限界、到着の根拠、ChatGPT 実機検証の承認事項、保存パッケージ |
 
 ## 実行手順
 

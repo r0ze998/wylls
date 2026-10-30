@@ -55,8 +55,8 @@ GrantPort.release(principal, operationId)           // 何も送っていない
 GrantPort.view(principal)                            → 人に見せる上限と残り
 ```
 
-- `principal` は ③の link（所有者のウォレット、代理人、スコープ）。②の Grant の識別子を link に持たせる想定。
-- 置き換えの対象は `MockGrantPort` だけ。`send_caravan` の流れ（reserve → 送る → consume/release）は変えない。
+- `principal` は ③の link（所有者のウォレット、代理人、スコープ）。
+- **訂正（2026-10-30、[10 §2.1](10-handoff.ja.md)）。** 今の MOCK は「接続の時に所有者が署名した、この接続の中だけの上限」である。②の施設の交換権とは別のものなので、②の権利と置き換えられるとは扱わない。②の権利を MCP の操作の前提にするかどうかは、②の資料を受け取ってから決める。`send_caravan` の流れ（reserve → 送る → consume/release）は、接続の上限の扱いとして残す。
 - コアで範囲を絞った委任（今の session 鍵は全部か無しか）は [patches/0004](patches/0004-core-scoped-delegation.md)。
 
 ## 4. ④ RunReceipt との境界（MOCK `wylls.mock-run-receipt/0`）

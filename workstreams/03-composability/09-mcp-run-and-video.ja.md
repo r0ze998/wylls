@@ -20,7 +20,7 @@
 | 所有者 | dev wallet で x402 参加、村を置く（PlaceHome）、倉庫を建てる（BuildVault）。手動のプレイ、所有者の session 鍵 |
 | 代理人 | `transport` を許す方針で作成、SetSession（ウォレット署名）で委任、auto |
 | 接続 | DCR → 同意（link の文とrotate-capability にウォレット署名）→ PKCE でトークン |
-| 隊商 1（村 → 倉庫、食料 100、3 歩） | `requested 01:01:49 → accepted 01:01:49 → processing 01:01:52 → completed 01:04:46`、結末 `delivered`（keeper が受取）。倉庫に食料 100 |
+| 隊商 1（村 → 倉庫、食料 100、3 歩） | `requested 01:01:49 → accepted 01:01:49 → processing 01:01:52 → completed 01:04:46`、結末 `delivered`（keeper が受取）。倉庫の食料が積荷の量以上（空の倉庫で、容量の超過は無い条件。量の根拠は [10 §4](10-handoff.ja.md)） |
 | 不足の確認 | 倉庫が食料の供給元として出る |
 | 拒否 | 他人の場所 `NotYourPlace`、読取だけの接続の送付 `InsufficientScope` |
 | 隊商 2（倉庫 → 村） | `requested 01:04:46 → … → completed 01:05:43`、`delivered`。同じ requestId の再送は `replayed`（取引は増えない） |
@@ -40,7 +40,7 @@
 | 重複送信 | `duplicates …`（並行 3 本で 1 取引）（模擬）、E2E の再送（実） | 通過 |
 | 切断後の結果確認 | `a lost connection to the relay …`、`the relay answered but the MCP server never recorded it (crash) …`（再起動後の再送が gateway の記録の再生になる）、`the send left but its answer says failed …`、`outcome unknown and no trace …`、`rate limited by the relay on a retry …`、`a retry while the first attempt is still at the relay …`（模擬） | 通過 |
 | 再送時の期限 | `a retry after the relay was unreachable re-checks the owner's limits …`（模擬） | 通過 |
-| 悪意あるゲーム内文章 | `words in the game are data …`（模擬） | 通過 |
+| 悪意あるゲーム内文章 | `words in the game are data …`（模擬） | 通過（サーバーが文章を実行しないこと。接続したモデルが誘導されないことは ChatGPT 未検証のため**未確認**。[10 §4.3](10-handoff.ja.md)） |
 | 閲覧権限のない情報 | `reads never show another player's march`（模擬） | 通過 |
 | 秘密を出さない | `secrets: …`（模擬）、E2E（実） | 通過 |
 
