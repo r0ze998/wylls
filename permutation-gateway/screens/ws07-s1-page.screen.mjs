@@ -105,7 +105,13 @@ async function context(viewport) {
   await ctx.addInitScript(s => { for (const [k, v] of Object.entries(s)) { try { localStorage.setItem(k, v); } catch { /* none */ } } }, W.storageFor(srv.viewer, { stage: 'holding', lang: 'ja' }));
   return ctx;
 }
-const shot = async (target, name) => { if (SHOTS) await target.screenshot({ path: join(SHOTS, `${name.replace('ws07-s1-page-', 'ws07-s1-mixed-')}.png`) }); };
+// (the drawer is drawn again when the feeds come in: a card caught between two drawings is taken again)
+const shot = async (target, name) => {
+  if (!SHOTS) return;
+  for (let i = 0; ; i++) {
+    try { await target.screenshot({ path: join(SHOTS, `${name.replace('ws07-s1-page-', 'ws07-s1-mixed-')}.png`), timeout: 5000 }); return; } catch (e) { if (i >= 3) throw e; await new Promise(r => setTimeout(r, 300)); }
+  }
+};
 const s1On = page => page.evaluate(async () => (await import('/frontier/fs1.mjs')).s1On());
 
 const SIZES = [{ name: 'pc', width: 1440, height: 900 }, { name: 'phone', width: 390, height: 844 }];
@@ -125,18 +131,28 @@ for (const size of SIZES) {
     assert.match(feedText, /決着しました。入った量はまだ確かめられていません。倉庫は上限を超えた分を切り捨てます/, 'to a storehouse: not verified');
     assert.doesNotMatch(feedText, /全部入りました：木材 300|隊商が着きました：木材 300/);
     await shot(page, `ws07-s1-page-away-${size.name}`);
-    // (a phone shows one notice over the map, the newest — here the turn's card —; the list under その他 holds them all,
-    // each with its own buttons: hud/feed.mjs renderCentre. A desktop shows the away summary over the map)
+    // (a phone shows one notice over the map, the newest — here the turn's card —: the away summary waits under it, and
+    // a line under the strip says there is something not yet seen and opens the summary in the list under その他 —
+    // the player does not have to find その他 by themselves. A desktop shows the summary over the map, and no line)
+    const entry = page.locator('#away-entry');
     if (size.name === 'phone') {
       assert.equal(await seen.count(), 0, 'on a phone the away summary waits under the newest notice');
-      await page.locator('.tab', { hasText: 'その他' }).first().click();
+      await entry.waitFor({ state: 'visible', timeout: 15000 });
+      assert.match(await entry.innerText(), /留守中の未確認の出来事 \d+ 件/);
+      await shot(page, `ws07-s1-page-away-${size.name}-entry`);
+      // closing the notice over it with × confirms nothing: the line stays
+      await page.locator('[data-act="turn-dismiss"]:visible, [data-act="feed-dismiss"]:visible').first().click();
+      assert.equal(await entry.isVisible(), true, 'still there after ×');
+      await entry.focus();
+      await page.keyboard.press('Enter');
       await seen.first().waitFor({ state: 'visible', timeout: 15000 });
-      await seen.first().scrollIntoViewIfNeeded();
+      assert.equal(await page.evaluate(() => document.activeElement?.dataset?.act), 'away-seen', 'the list opens at the summary, its "seen" in focus');
       await shot(page, `ws07-s1-page-away-${size.name}-list`);
-    }
+    } else assert.equal(await entry.isVisible().catch(() => false), false, 'no line on a wide screen');
     assert.equal(await seen.count(), 1, '"seen" is on screen');
     await seen.first().focus();
     await page.keyboard.press('Enter');
+    if (size.name === 'phone') { await page.waitForTimeout(300); assert.equal(await page.locator('#away-entry:visible').count(), 0, '"seen" takes the line away'); }
     const key = await page.evaluate(() => Object.keys(localStorage).find(k => k.startsWith('ws07-return:') && k !== 'ws07-return:last'));
     assert.ok(key, 'the mark is saved');
     const mark = await page.evaluate(k => JSON.parse(localStorage.getItem(k)), key);
@@ -145,11 +161,12 @@ for (const size of SIZES) {
     await untilPage(page, fsReady);
     await page.waitForTimeout(4000);
     assert.equal(await page.locator('[data-act="away-seen"]').count(), 0, 'nothing new after the mark: no summary');
+    assert.equal(await page.locator('#away-entry:visible').count(), 0, 'and no line');
     assert.deepEqual(errors, []);
     await ctx.close();
   });
 
-  test(`${size.name} [mixed fixture: S1 Season, M1 accounts]: in the village drawer, the S1 card says a caravan's arrival is not verified; with 04, 05 and 01 registered (mocks) their states too`, async () => {
+  test(`${size.name} [mixed fixture: S1 Season, M1 accounts]: in the village drawer, the S1 card says a caravan past its turn is overdue, not arrived; with 04, 05 and 01 registered (mocks) their states too`, async () => {
     const ctx = await context({ width: size.width, height: size.height });
     const page = await ctx.newPage();
     const errors = [];
