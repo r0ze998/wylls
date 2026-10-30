@@ -49,3 +49,18 @@ const r = await reg.setStatus(ref, "listed", 4, relist);                       /
 | C を使う計画が特定の束を計画に固定していたため、1回しか動かず、次の回は新しい採用（公開停止中は不可）が要った。決定2（固定版の継続）と両立しない | 束を計画から外し、実行の依頼ごとに名指しする形にした | `policy`「a new definition cannot newly adopt a suspended producer; an adopted consumer keeps going」 |
 | 署名つきの計画を持っている人なら誰でも実行を起こせた（利用者の物と残高を、利用者の選ばない時に使わせられる） | 利用者が署名した実行の依頼（使い捨て番号つき）を必須にした | `runtime`「only the plan's user can make it run, once per request」 |
 | 画面が、作者の既定の届け先（作者の倉）を利用者の入力に黙って入れていた | 他人の場所の既定は入れず、確認で `PARAM_DEFAULT_FOREIGN` を見せる | `proto/e2e.mjs`「left at the author's default, the receiver (A's fort) is flagged」 |
+
+## 二回目の独立レビュー（commit `308087dc`、採用・実行・束）
+
+採用・実行の依頼・束を足した版を、別のエージェントにコードだけを渡して読ませ、6件の欠陥の報告を受けた（2026-10-30）。すべて直し、`test/review2.test.mjs` に再現を残した。**6件のテストは、修正前の `308087dc` の木ではすべて失敗し、修正後はすべて通る**（15回続けて実行して揺れがないことも確認）。
+
+| # | 欠陥（修正前の振る舞い） | 修正した場所 | 対応するテスト |
+|---|---|---|---|
+| R2-1 | 一つの実行の依頼で同じ束を二つの依存に名指しすると、束の物を二重に数え、倉の在庫が負になった（物が無から出た）。確認は重複を見ていたが、採用は束なしで確認するため素通りした | `src/execute.mjs`（同じ手順・同じ実行の中の束の重複を `BATCH_INVALID duplicate-in-plan`） | `review2`「one batch named twice in one run is refused…」 |
+| R2-2 | 実行の途中で利用者が計画を止めても・置き換えても、残りの手順が動いた。定義の利用期限も最初にしか見ていなかった | `src/execute.mjs`（手順ごとに採用の状態と利用期限を検査し直す） | `review2`「ending or superseding a plan stops a run already under way…」 |
+| R2-3 | 採用の検査と書き込みの間に確認の `await` があり、同じ古い計画を二つの更新が同時に置き換えられた。同じ計画を同時に二度採用すると、記録が上書きされ、回数と使い捨て番号が消えた | `src/adoption.mjs`（確認の後に検査をやり直し、書き込みまで `await` を挟まない） | `review2`「adoption re-checks after its preflight…」 |
+| R2-4 | 同じ定義の計画を二つ採用すれば、1日の回数の上限を超えて動かせた | `src/adoption.mjs`（回数を「利用者×定義」で数える） | `review2`「runs per day hold per user and definition…」 |
+| R2-5 | C の依存を荷車の手順に待たせると、束も記録もなしに動いた | `src/validate.mjs`（C の依存は物を使う手順（工房）にだけ待たせられる）、`src/execute.mjs`（荷車の手順が束を消費しようとしたら止める） | `review2`「a consumed result must feed a step that uses goods…」 |
+| R2-6 | 止めた・置き換えた計画をもう一度採用すると「採用済み」と返った（動かないのに） | `src/adoption.mjs`（その理由を返す） | `review2`「re-adopting an ended or superseded plan is not reported as adopted」 |
+
+あわせて、実行前の確認が「1回の回数 × 1日の回数」を要求していたのを、次の1回に要る回数に直した（1日の回数は上限であって、毎回それだけ動く約束ではないため）。

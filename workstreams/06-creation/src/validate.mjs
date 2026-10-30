@@ -240,8 +240,11 @@ function checkSteps(m, features, add) {
   });
   if (m.steps.length === 0) add("SHAPE", "$.steps", { detail: "at least one step" });
   for (const [id, u] of Object.entries(m.uses)) {
-    if (u?.relation === "consume" && !m.steps.some((s) => afterRefs(s).some((a) => a.use === id))) {
-      add("REF_UNKNOWN", `$.uses.${id}`, { detail: "no step waits for this result: name it in a step's after, where its goods are used" });
+    if (u?.relation !== "consume") continue;
+    const waiting = m.steps.filter((s) => afterRefs(s).some((a) => a.use === id));
+    if (!waiting.length) add("REF_UNKNOWN", `$.uses.${id}`, { detail: "no step waits for this result: name it in a step's after, where its goods are used" });
+    for (const s of waiting) {
+      if (!own(EFFECTS, s.effect)?.takes?.perRun) add("REF_UNKNOWN", `$.uses.${id}`, { step: s.id, detail: "a consumed result feeds a step that uses goods (workshop.run); this step would not consume it" });
     }
   }
   const cycle = findStepCycle(m.steps);

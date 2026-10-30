@@ -92,7 +92,20 @@ node workstreams/06-creation/proto/e2e.mjs [画像の保存先]
 
 ## テストの結果
 
-[テストの結果は、このブランチの最新 commit で実行した結果を下に記す]
+2026-10-30、このブランチの最新 commit で実行。
+
+| テスト | 結果 |
+|---|---|
+| `node --test workstreams/06-creation/test/*.test.mjs`（Node 22.22.0） | **99 通過・0 失敗** |
+| 同上（Node 20.20.0、今の CI の版） | **99 通過・0 失敗** |
+| うち 2026-10-30 の決定・資源・実行時の検査（`policy` 6・`resources` 6・`runtime` 15） | すべて通過 |
+| 独立レビュー1回目の再現（`review` 9）／2回目（`review2` 6） | すべて通過。修正前の commit（`4f3a6921`／`308087dc`）ではそれぞれ全件失敗（[docs/09](docs/09-review-findings.ja.md)） |
+| 揺れの確認（`review2`・`resources`・`runtime` を15回） | 15回とも失敗なし |
+| `cli/fixtures.mjs --check` | 一致 |
+| `cli/demo.mjs` | 最後まで動く（テストにも含む） |
+| `proto/e2e.mjs`（ヘッドレス Chromium） | **27 項目すべて ok**、ページのエラーなし、幅 390px で横スクロールなし |
+| repo の既存テスト（Rust・gateway・web） | **未実行**。⑥は `workstreams/06-creation/` の外を変えていない |
+| GitHub の CI | **未実行**（push していない。CI への追加は `handoff/ci.diff` の未適用の差分） |
 
 ## 判断してほしいこと（まとめ）
 

@@ -19,6 +19,10 @@ import { finding } from "./codes.mjs";
 import { DOMAIN, verifyHash } from "./keys.mjs";
 import { preflight, verifyPlanSignature } from "./plan.mjs";
 
+function runKey(a) {
+  return `${a.actor}|${a.manifest.author}/${a.manifest.name}`;
+}
+
 export class AdoptionBook {
   constructor(data = { adoptions: {}, seq: 0 }) {
     this.data = clone(data);
@@ -55,17 +59,30 @@ export class AdoptionBook {
    */
   async adopt(signed, ctx) {
     if (!(await verifyPlanSignature(signed))) return { ok: false, findings: [finding("PLAN_SIGNATURE_INVALID", "$.plan", {})] };
-    if (own(this.data.adoptions, signed.hash)) return { ok: true, findings: [], adoption: this.get(signed.hash), already: true };
     const plan = signed.plan;
-    let old = null;
-    if (plan.supersedes !== undefined && plan.supersedes !== null) {
-      old = own(this.data.adoptions, plan.supersedes);
-      if (!old || old.state !== "active" || old.actor !== plan.actor || old.manifest.author !== plan.manifest.author || old.manifest.name !== plan.manifest.name) {
-        return { ok: false, findings: [finding("SHAPE", "$.plan.supersedes", { detail: "names an active adoption of the same user and definition" })] };
+    const guard = () => {
+      // an adoption that exists is reported as it is: "already" only while it can still run
+      const existing = own(this.data.adoptions, signed.hash);
+      if (existing) {
+        const p = this.problem(signed.hash);
+        return p ? { ok: false, findings: [finding(p, "$.plan", { by: existing.by })] } : { ok: true, findings: [], adoption: clone(existing), already: true };
       }
-    }
+      if (plan.supersedes !== undefined && plan.supersedes !== null) {
+        const old = own(this.data.adoptions, plan.supersedes);
+        if (!old || old.state !== "active" || old.actor !== plan.actor || old.manifest.author !== plan.manifest.author || old.manifest.name !== plan.manifest.name) {
+          return { ok: false, findings: [finding("SHAPE", "$.plan.supersedes", { detail: "names an active adoption of the same user and definition" })] };
+        }
+      }
+      return null;
+    };
+    const early = guard();
+    if (early) return early;
     const check = await preflight(signed, { ...ctx, adoptions: null });
     if (!check.ready) return { ok: false, findings: check.findings, preflight: check };
+    // the preflight awaited: everything checked before it is checked again, with no await before the writes
+    const late = guard();
+    if (late) return late;
+    const old = plan.supersedes ? own(this.data.adoptions, plan.supersedes) : null;
     this.data.seq += 1;
     const record = { planHash: signed.hash, actor: plan.actor, manifest: plan.manifest, seq: this.data.seq, day: ctx.world.today, state: "active", runs: {}, supersedes: old ? old.planHash : null };
     this.data.adoptions[signed.hash] = record;
@@ -92,12 +109,21 @@ export class AdoptionBook {
     return true;
   }
 
+  /**
+   * Runs started on a day, counted per user and definition (author/name):
+   * the definition's runsPerDay holds however many plans the user adopts.
+   */
   runsOn(planHash, day) {
-    return own(own(this.data.adoptions, planHash)?.runs, String(day)) ?? 0;
+    const a = own(this.data.adoptions, planHash);
+    return a ? own(own(this.data.runs, runKey(a)), String(day)) ?? 0 : 0;
   }
 
   noteRun(planHash, day) {
     const a = own(this.data.adoptions, planHash);
-    if (a) a.runs[String(day)] = (a.runs[String(day)] ?? 0) + 1;
+    if (!a) return;
+    this.data.runs ??= {};
+    const k = runKey(a);
+    this.data.runs[k] ??= {};
+    this.data.runs[k][String(day)] = (this.data.runs[k][String(day)] ?? 0) + 1;
   }
 }

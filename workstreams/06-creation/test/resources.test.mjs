@@ -11,7 +11,7 @@ import assert from "node:assert/strict";
 import { signManifest } from "../src/registry.mjs";
 import { forkManifest } from "../src/fork.mjs";
 import { checkHoldInvariant, releaseBatch } from "../src/execute.mjs";
-import { editForkForRiver, giveUseLot, mineDelivery } from "../src/scenario.mjs";
+import { editForkForRiver, frontSupply, giveUseLot, mineDelivery } from "../src/scenario.mjs";
 import { adopt, check, deliverToB, exec, setup } from "./helpers.mjs";
 
 const RIVER_BIND = (batch, receiver = "vault:B-home") => ({ params: { workshop: "village:W", workVault: "vault:B-work", receiver }, batches: { ore: batch } });
@@ -21,6 +21,9 @@ async function river() {
   const s = await setup();
   s.world = giveUseLot(s.world, { to: "B", amount: 6 });
   const m = editForkForRiver(forkManifest(s.registry.getVersion(s.refs.A), s.pubs.B, { name: "river" }).manifest, { mineRef: { author: s.pubs.M, name: "mine-delivery", range: "^1.0.0" } });
+  // runs per day count per user and definition: these tests run several plans of it in one day
+  m.limits.runsPerDay = 3;
+  m.claims.runsPerDay = 3;
   s.refs.river = (await s.registry.publish(await signManifest(m, s.keys.B), s.ctx)).ref;
   return s;
 }
@@ -108,8 +111,11 @@ test("one lot, one stock, one balance shared by concurrent plans: the second is 
   s.world = giveUseLot(s.world, { to: "B", amount: 3 });
   s.world.places["vault:B-home"].stores = { ore: 200, wood: 100 };
   const bind = (receiver) => ({ params: { source: "vault:B-home", workVault: "vault:B-work", receiver, workshop: "village:W" } });
-  let p1 = await adopt(s, "B", s.refs.A, bind("vault:B-home"));
-  let p2 = await adopt(s, "B", s.refs.A, bind("vault:B-work"));
+  // a variant of A's definition that allows two runs a day (runs per day count per user and definition)
+  const twice = async (s) => (await s.registry.publish(await signManifest(frontSupply(s.pubs.A, { name: "front-supply-2x", limits: { runsPerDay: 2 }, claims: { ...frontSupply(s.pubs.A).claims, runsPerDay: 2 } }), s.keys.A), s.ctx)).ref;
+  let ref = await twice(s);
+  let p1 = await adopt(s, "B", ref, bind("vault:B-home"));
+  let p2 = await adopt(s, "B", ref, bind("vault:B-work"));
   let [r1, r2] = await Promise.all([exec(s, p1), exec(s, p2)]);
   assert.deepEqual([r1.ok, r2.ok].sort(), [false, true]);
   assert.equal([r1, r2].find((r) => !r.ok).failure.code, "GRANT_INSUFFICIENT");
@@ -118,8 +124,9 @@ test("one lot, one stock, one balance shared by concurrent plans: the second is 
   s = await setup();
   s.world = giveUseLot(s.world, { to: "B", amount: 6 });
   s.world.places["vault:B-home"].stores = { ore: 30, wood: 20 };
-  p1 = await adopt(s, "B", s.refs.A, bind("vault:B-home"));
-  p2 = await adopt(s, "B", s.refs.A, bind("vault:B-work"));
+  ref = await twice(s);
+  p1 = await adopt(s, "B", ref, bind("vault:B-home"));
+  p2 = await adopt(s, "B", ref, bind("vault:B-work"));
   [r1, r2] = await Promise.all([exec(s, p1), exec(s, p2)]);
   assert.deepEqual([r1.ok, r2.ok].sort(), [false, true]);
   assert.equal([r1, r2].find((r) => !r.ok).failure.code, "STOCK_SHORT");
@@ -129,8 +136,9 @@ test("one lot, one stock, one balance shared by concurrent plans: the second is 
   s.world = giveUseLot(s.world, { to: "B", amount: 6 });
   s.world.places["vault:B-home"].stores = { ore: 200, wood: 100 };
   s.world.citizens.B.lamports = 150_000;
-  p1 = await adopt(s, "B", s.refs.A, bind("vault:B-home"));
-  p2 = await adopt(s, "B", s.refs.A, bind("vault:B-work"));
+  ref = await twice(s);
+  p1 = await adopt(s, "B", ref, bind("vault:B-home"));
+  p2 = await adopt(s, "B", ref, bind("vault:B-work"));
   [r1, r2] = await Promise.all([exec(s, p1), exec(s, p2)]);
   const failed = [r1, r2].filter((r) => !r.ok);
   assert.equal(failed.length, 1);

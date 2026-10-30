@@ -106,8 +106,9 @@ export async function execute(signed, ctx, { request, raidAt = null } = {}) {
 
   const params = plan.bindings.params ?? {};
   const base = { manifest: plan.manifest, planHash: signed.hash, run, actor, day: today };
+  const spentInRun = new Set();
   for (const s of stepOrder(m)) {
-    await yieldTurn(); // another execution may run here: everything below is re-checked
+    await yieldTurn(); // another execution, an end or a supersede may happen here: re-checked below
     const r = applyStep(s);
     if (!r.ok) {
       receipts.push(ledger.record({ ...base, beneficiary: actor, step: s.id, ...ports(s), outcome: r.code === "RAIDED" ? "raided" : "failed", final: true, reason: r.code, at: r.at ?? null, goods: r.goods ?? null }));
@@ -128,6 +129,12 @@ export async function execute(signed, ctx, { request, raidAt = null } = {}) {
     const today = world.today; // the day the step runs on (a run may cross a day)
     const spec = own(EFFECTS, s.effect);
     const no = (code, detail = {}, extra = {}) => ({ ok: false, code, detail, ...extra });
+    // the plan and its pinned definition are re-checked at every step
+    const ap = adoptions.problem(signed.hash);
+    if (ap) return no(ap);
+    if (m.validUntilDay != null && today > m.validUntilDay) return no("MANIFEST_EXPIRED", { validUntilDay: m.validUntilDay, today });
+    const consumes = afterRefs(s).filter((a) => a.use !== undefined);
+    if (consumes.length && s.effect !== "workshop.run") return no("EFFECT_UNKNOWN", { effect: s.effect, detail: "only a step that uses goods may consume a batch" });
     if (s.effect === "caravan.send") {
       const from = resolve(s.args.from, m, params), to = resolve(s.args.to, m, params);
       const cargo = goodsOf(s.args.cargo, params);
@@ -171,9 +178,9 @@ export async function execute(signed, ctx, { request, raidAt = null } = {}) {
       const need = scale(spec.takes.perRun, runs);
       // the batches this step waits on: rights to goods held in this vault
       const batches = [];
-      for (const a of afterRefs(s)) {
-        if (a.use === undefined) continue;
+      for (const a of consumes) {
         const id = own(inputs.batches, a.use);
+        if (typeof id === "string" && (spentInRun.has(id) || batches.some((b) => b.id === id))) return no("BATCH_INVALID", { batch: id, reason: "duplicate-in-plan" });
         const bp = batchProblem(world, id, { actor, placeId: vault });
         if (bp) return no("BATCH_INVALID", { batch: id ?? null, ...bp });
         const u = own(m.uses, a.use);
@@ -191,6 +198,7 @@ export async function execute(signed, ctx, { request, raidAt = null } = {}) {
       for (const [r, n] of Object.entries(made)) if ((own(pv.stores, r) ?? 0) - (need[r] ?? 0) + n > pv.cap) return no("CAPACITY", { place: vault, resource: r, cap: pv.cap });
       // changes: the batches are spent (what this run did not need goes back to free stock)
       for (const b of batches) {
+        spentInRun.add(b.id);
         for (const [r, n] of Object.entries(b.remaining)) pv.held[r] -= n;
         b.remaining = {};
         b.state = "spent";

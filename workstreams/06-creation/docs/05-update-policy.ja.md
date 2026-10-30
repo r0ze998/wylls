@@ -26,11 +26,11 @@
 | 使う成果（C）の作り手の定義が停止 | **止まる**（公開時・採用時） | **止まらない**（記録は過去の事実の証明として有効） | 公開・採用時 | `DEPENDENCY_SUSPENDED`／`DEPENDENCY_DELISTED_PINNED` |
 | 作者が新しい版を出す（patch を含む） | 新しい版で採用できる | **変わらない**。通知だけ | 実行時は固定のハッシュだけを使う | 通知：`updateNotices` |
 | 利用者が更新を確認 | ― | 古い計画は置き換わって動かなくなり、新しい計画が動く | 採用時（`supersedes`） | `PLAN_SUPERSEDED` |
-| 利用者が自分の計画を止める | ― | **止まる** | 実行時 | `PLAN_ENDED` |
+| 利用者が自分の計画を止める | ― | **止まる**（実行の途中でも次の手順から） | 実行時、各手順で | `PLAN_ENDED` |
 | 施設の持ち主の取り消し（模擬） | 止まる | **止まる** | 実行時、各手順で | `GRANT_REVOKED` |
 | 施設が奪われた・閉じた・工房がなくなった | 止まる | **止まる** | 同上 | `GRANT_VOID`・`DEPENDENCY_UNAVAILABLE` |
 | 札の期限切れ・定義の利用期限切れ | 止まる | **止まる** | 同上 | `GRANT_EXPIRED`・`MANIFEST_EXPIRED` |
-| 残高（荷車の精算預け）・物・容量・回数の不足 | 確認では警告・エラー | **止まる** | 同上 | `BALANCE_SHORT`・`STOCK_SHORT`・`CAPACITY`・`GRANT_INSUFFICIENT`・`RUNS_PER_DAY_EXCEEDED` |
+| 残高（荷車の精算預け）・物・容量・回数の不足 | 確認では警告・エラー | **止まる** | 同上 | `BALANCE_SHORT`・`STOCK_SHORT`・`CAPACITY`・`GRANT_INSUFFICIENT`・`RUNS_PER_DAY_EXCEEDED`（1日の回数は利用者×定義で数える。同じ定義の計画をいくつ採用しても合計で上限） |
 | 実行の依頼がない・他人の署名・使い回し | ― | **始まらない** | 実行時 | `RUN_REQUEST_INVALID` |
 | 世界の規則に効果がない（S2 の効果を main の S1 で） | 止まる | **始まらない** | 実行時 | `EFFECT_UNAVAILABLE` |
 

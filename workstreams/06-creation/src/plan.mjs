@@ -255,7 +255,8 @@ function runsNeeded(m, dep, params) {
   for (const s of m.steps) {
     if (s.effect === "workshop.run" && s.args.via?.use === dep) runs += resolve(s.args.runs, m, params) ?? 0;
   }
-  return runs * m.limits.runsPerDay;
+  // what the next run needs: runsPerDay is a cap on runs, not a promise to run that often
+  return runs;
 }
 
 function checkPlace(world, id, type, path, add, { owner }) {
