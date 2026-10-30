@@ -11,7 +11,7 @@
 import { RunJournal } from '../adapters.mjs';
 import { modelDecider } from '../deciders.mjs';
 import { participate, tool, verifyPending } from '../participate.mjs';
-import { BudgetGuard, statement, trace } from './budget.mjs';
+import { BudgetGuard, costClasses, statement, stopReport, trace } from './budget.mjs';
 import { createProvider, parseModelConfig } from './providers.mjs';
 
 export class StakingSession {
@@ -86,21 +86,32 @@ export class StakingSession {
   }
 
   statement() { return statement(this.w.view()); }
+  costs() { return costClasses(this.w.view()); }
   trace() { return trace(this.journal, this.w.view()); }
 
-  /** 停止: the relay's stop; what was already accepted is shown with whether it can still be cancelled. */
+  /** 停止: three stages (stop, reconcile, release); see budget.mjs stopReport. Nothing already signed, sent or running is undone. */
   async stop() {
-    const before = statement(this.w.view()).inFlight;
+    const beforeView = this.w.view();
+    const before = statement(beforeView).inFlight;
     const res = await this.w.ownerSetMode('manual');
-    return this.#note('stop', { mode: res.agent.mode, inFlightAtStop: before, inFlightAfter: statement(this.w.view()).inFlight });
+    const report = stopReport({ before: beforeView, after: this.w.view(), journal: this.journal });
+    return this.#note('stop', { mode: res.agent.mode, inFlightAtStop: before, inFlightAfter: statement(this.w.view()).inFlight, report });
   }
 
-  /** 手動復帰: stopped, and the key taken back on chain (the owner's SetSession), so only the owner's wallet acts for the village. */
+  /**
+   * 手動復帰: stopped at the relay, then the session taken back on chain. The three facts kept apart:
+   *   signer  only the owner's WALLET can sign SetSession (wallet-only on chain: permutation-frontier proc/citizen.rs set_session, player(..., false))
+   *   final   it takes effect when that transaction lands; until then the agent's key is still the session. HERE the
+   *           fixture writes the Citizen account directly (no transaction, no signature): a MOCK of the landed result
+   *   scope   the session is the Citizen's (one per wallet per season, frontier-abi v2/layout/player.rs SESSION):
+   *           taking it back ends it for every village of that Citizen and for whatever else held that one slot
+   */
   async backToManual() {
     if (this.w.view().mode !== 'manual') await this.w.ownerSetMode('manual');
     this.w.ownerTakeKeyBack();
     const v = (await tool(this.w.mcp(), 'agent_view')).structuredContent;
-    return this.#note('manual', { mode: v.mode, delegated: v.delegation?.delegated ?? null, session: v.delegation?.session === this.w.agentKey ? 'agent' : 'not the agent' });
+    return this.#note('manual', { mode: v.mode, delegated: v.delegation?.delegated ?? null, session: v.delegation?.session === this.w.agentKey ? 'agent' : 'not the agent',
+      sessionRevocation: { signer: 'the owner\'s wallet (SetSession is wallet-only on chain)', final: 'MOCK here: the fixture wrote the Citizen account; on a chain, only when the SetSession transaction lands', scope: 'the Citizen: all its villages (up to 3) and every session-allowed instruction; any other holder of the one session slot loses it too' } });
   }
 
   /** 引出し: available only (the relay's rule); the transfer is final when the chain answers and the relay's reconcile reads it. */

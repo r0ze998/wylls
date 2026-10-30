@@ -70,7 +70,7 @@ try {
     model: { configured: s.modelCfg, identity: s.identity }, priceBook: s.priceBook.toJSON(), steps, ticks, trace: s.trace(), books: w.books(), finalStatement: final,
   });
   line(`# AI staking demo (local fixture; fake model server; scripted chain) → ${relative(process.cwd(), OUT) || '.'}`);
-  line(`model: configured ${s.modelCfg.model} via ${s.modelCfg.provider}; the server reports alias ${s.identity.reportedAlias}, file ${s.identity.modelFile}`);
-  for (const t of ticks) line(`${t.runId}: ${t.status}${t.stoppedBy ? ` (${t.stoppedBy})` : ''}, charged ${t.charged}; ${t.items.map(i => `${i.request}=${i.outcome}${i.code ? `(${i.code})` : ''}`).join(' ') || 'no proposal'}; verified ${t.verified.join(' ') || '-'}`);
-  line(`settled: inference ${final.balance.settled.inference}, game ${final.balance.settled.game}; withdrawn ${final.balance.withdrawn} of ${final.balance.deposited}; books ${w.books().length ? 'UNSOUND' : 'sound'}; agent ${manual.mode}, key ${manual.session}`);
+  line(`model: configured ${s.modelCfg.model} via ${s.modelCfg.provider}; the server SELF-REPORTS alias ${s.identity.reportedAlias}, file name ${s.identity.modelFile} (not verified: no file hash)`);
+  for (const t of ticks) line(`${t.runId}: ${t.status}${t.stoppedBy ? ` (${t.stoppedBy})` : ''}, charged ${t.charged}; ${t.items.map(i => `${i.request}=${i.outcome}${i.code ? `(${i.code})` : ''}`).join(' ') || 'no proposal'}; checked against the mock chain and mock effect: ${t.verified.join(' ') || '-'}`);
+  line(`settled: inference ${final.balance.settled.inference}, game ${final.balance.settled.game}; withdrawn ${final.balance.withdrawn} of ${final.balance.deposited} test-USDC base units (6 decimals; no USDC moved: scripted chain); books ${w.books().length ? 'UNSOUND' : 'sound'}; agent ${manual.mode}, key ${manual.session}`);
 } finally { await srv.close(); }

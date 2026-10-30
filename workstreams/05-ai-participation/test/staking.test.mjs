@@ -260,7 +260,7 @@ test('accepted is not landed, landed is not the effect, a caravan off the road i
 
 // ------------------------------------------------------------------ the model, its provider and its price
 
-test('the model is configuration: presets, loopback only, an external provider never sends; configured, reported alias and loaded file are recorded apart', async () => {
+test('the model is configuration: presets, loopback only, an external provider never sends; configured name, self-reported alias and self-reported file are recorded apart, none as verified', async () => {
   assert.equal(parseModelConfig('gemma-4-26b-local').model, 'gemma-4-26b-a4b-it');
   assert.equal(parseModelConfig({ provider: 'local-openai', url: 'http://127.0.0.1:9', model: 'qwen-local' }).model, 'qwen-local');
   assert.throws(() => parseModelConfig({ provider: 'local-openai', url: 'https://api.example.com', model: 'x' }), /loopback only/);
@@ -272,7 +272,8 @@ test('the model is configuration: presets, loopback only, an external provider n
   const srv = await startFakeModelServer({ alias: 'gemma-4-26b-a4b-it', modelPath: '/models/private/gemma-3-4b-it-Q4_K_M.gguf', answer: answerFirst });
   try {
     const { w, s } = await session({ model: { provider: 'local-openai', url: srv.url, model: 'gemma-4-26b-a4b-it' }, providerDeps: {} });
-    assert.deepEqual(s.identity, { reportedAlias: 'gemma-4-26b-a4b-it', modelFile: 'gemma-3-4b-it-Q4_K_M.gguf', source: 'server report' });
+    // The server's own words: a file NAME is not the weights. No hash is taken, so nothing is marked verified.
+    assert.deepEqual(s.identity, { reportedAlias: 'gemma-4-26b-a4b-it', modelFile: 'gemma-3-4b-it-Q4_K_M.gguf', source: 'server report', assurance: 'self-reported by the server (alias / file name; not verified)', verified: false });
     const t = await s.tick();
     assert.equal(t.report.items[0].outcome, 'sent');
     const plan = s.journal.entries.find(e => e.step === 'plan');
@@ -344,4 +345,89 @@ test('a trace joins what the agent thought, asked, what was accepted, what final
   assert.equal(it.accepted.outcome, 'sent');
   assert.deepEqual(it.gameCost, { state: 'settled', amount: '15000' });
   assert.equal(it.final.outcome, 'contributed');
+});
+
+// ------------------------------------------------------------------ guarantees (2026-10-30 corrections): what holds, and what does not
+
+test('a stop in three stages: new work stops; what was signed, sent or running waits for its answer; only unused reservations come back', async () => {
+  const { w, s } = await session();
+  // One training sent with no chain answer yet, and a model call running when the owner stops.
+  w.faults.txUnknown = true;
+  await s.tick();
+  let release;
+  const gate = new Promise(r => { release = r; });
+  const running = w.meter(() => gate.then(() => ({ proposals: [], notes: [] })), { key: 'running-at-stop', free: false, model: 'scripted-stand-in' });
+  await new Promise(r => setImmediate(r));
+  const stop = await s.stop();
+  const rep = stop.report;
+  assert.equal(rep.stage1_stop.mode, 'manual');
+  assert.ok(rep.stage1_stop.modeEpoch.after > rep.stage1_stop.modeEpoch.before);
+  assert.deepEqual(rep.stage2_reconcile.waiting.map(x => [x.category, x.state]).sort(), [['game', 'sending'], ['inference', 'running']]);
+  assert.match(rep.stage2_reconcile.note, /取り消さない/);
+  assert.deepEqual(rep.stage3_release.notReleased.length, 2, 'the stop released neither the send nor the running call');
+  // A held (before-send) reservation is released by the stop itself.
+  const x = await session();
+  x.w.relay.gateway.ledger.hold(x.w.agentId, { category: 'game', amount: '7000', key: 'held-at-stop', policyVersion: 3, modeEpoch: 1 });
+  const xs = await x.s.stop();
+  assert.deepEqual(xs.report.stage3_release.released.map(r => [r.category, r.amount, r.key]), [['game', '7000', 'held-at-stop']]);
+  release();
+  await running;
+  assert.equal(w.view().balance.spent.inference, '20000', 'the running call is charged when it returns, after the stop');
+  assert.deepEqual(w.books(), []);
+});
+
+test('undecided money is never released or withdrawn by itself: an unknown send across reconciles and a restart, a running call through a full withdrawal', async () => {
+  const { w, s } = await session();
+  w.faults.txUnknown = true;
+  await s.tick();
+  // Past its lifetime: the node shows no status. Reconcile marks it undecided (the scripted node keeps no history proof), never releases it.
+  w.relay.chain.height = 1_000;
+  for (let i = 0; i < 3; i++) await w.reconcile();
+  w.relay.gateway.recover(); // a relay restart: sending holds wait for reconcile
+  const v = w.view();
+  const h = v.holds.find(x => x.category === 'game');
+  assert.equal(h.state, 'sending');
+  const c = s.costs();
+  assert.equal(BigInt(c.reserved.sending) + BigInt(c.undecided.send), 15_000n, 'still reserved (sending or undecided), not released');
+  const out = await s.withdraw({ all: true });
+  assert.equal(out.balance.reserved, '15000', 'a full withdrawal leaves it reserved');
+  assert.equal(out.balance.withdrawn, String(100_000 - 10_000 - 15_000));
+  assert.deepEqual(w.books(), []);
+});
+
+test('two executor processes do NOT share the executor\'s caps (the limit of a single-process guard); the relay\'s one ledger still holds the whole budget', async () => {
+  const { w, s } = await session({ requests: board(4), budget: { deposit: '1000000', total: '60000', perDay: '60000', callsPerDay: 50 } });
+  const pick = i => body => { const u = JSON.parse(body.messages[1].content); const r = u.requests.find(q => q.id === `R-${i}`); return { proposals: r ? [{ request: r.id, action: 'Train', fields: { unit: 0, n: 100 }, reason: 'mine' }] : [], skipped: [] }; };
+  // The owner's executor cap: one training (15,000) of game spending a day. Two processes, two guards.
+  const caps = { perDay: { game: '15000' } };
+  const run = (i, guard) => participate({ mcp: w.mcp(), world: w.publicWorld, txState: w.txState, meter: w.meter, mandate: s.mandate, decider: modelDecider({ llm: scriptedLlm(pick(i)) }), journal: new RunJournal(), runId: `p${i}`,
+    staking: { guard, priceBook: TEST_BOOK(), modelCfg: parseModelConfig({ provider: 'scripted', model: 'scripted-stand-in' }), gamePrices: s.terms.prices.game, onBudgetLimit: 'stop' } });
+  const [a, b] = await Promise.all([run(1, new BudgetGuard({ caps })), run(2, new BudgetGuard({ caps }))]);
+  const sent = [...a.items, ...b.items].filter(i => i.outcome === 'sent').length;
+  assert.equal(sent, 2, 'each process kept its own count: the executor cap of one was used twice');
+  // The relay's budget is one ledger: 2 × (10,000 + 15,000) = 50,000 of 60,000; a third training cannot pass it from any process.
+  const c = await run(3, new BudgetGuard({ caps }));
+  assert.equal(c.status, 'stopped-by-budget');
+  const v = w.view();
+  assert.ok(BigInt(v.balance.reserved) + BigInt(v.balance.spent.inference) + BigInt(v.balance.spent.game) <= 60_000n);
+});
+
+test('the session slot is the Citizen\'s, not the village\'s: delegating to the owner\'s second agent ends the first one\'s delegation, for all its villages', async () => {
+  const { w } = await createLocalWorld().then(world => ({ w: world }));
+  const second = await w.ownerCreateAgent([-3, 8, 2]);
+  assert.equal((await tool(w.mcp(), 'agent_view')).structuredContent.delegation.delegated, true);
+  w.ownerDelegateTo(second.agentKey);
+  const first = (await tool(w.mcp(), 'agent_view')).structuredContent;
+  assert.equal(first.delegation.delegated, false, 'one Citizen, one session key');
+  // The first agent's actions are refused by the relay's delegation check; nothing is sent.
+  const n = w.sentCount();
+  const act = await tool(w.mcp(), 'agent_act', { requestId: 'slot-check-1', policyVersion: first.policy.version, modeEpoch: first.modeEpoch, action: { name: 'Harvest', fields: {} } });
+  assert.equal(act.structuredContent.error.code, 'SessionNotDelegated');
+  assert.equal(w.sentCount(), n);
+  // On chain the session key is checked only against the Citizen (actor == SESSION, not expired): no village or instruction field exists.
+  const { decodeAccount } = await import('../../../permutation-gateway/client/src/frontier/codec.mjs');
+  const { A } = await import('../../../permutation-gateway/test/agent-wallet-fixtures.mjs');
+  const fields = Object.keys(decodeAccount('Citizen', w.relay.chain.accounts.get(A.citizen(w.owner)).data));
+  assert.ok(fields.includes('SESSION') && fields.includes('SESSION_EXPIRY'));
+  assert.equal(fields.some(f => /SESSION_(SCOPE|IX|HOLDING|LIMIT)/.test(f)), false);
 });

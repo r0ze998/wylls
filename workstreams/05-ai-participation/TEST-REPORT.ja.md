@@ -1,8 +1,27 @@
 # テストの結果（通過・失敗・未実行）
 
+## 00. 保証範囲の訂正（2026-10-30、2回目）
+
+`node --test workstreams/05-ai-participation/test/*.test.mjs`：**36 件すべて通過、失敗 0**（参加 19件＋AI staking 17件）。3回くり返して安定。
+
+足した再現テスト（すべて模擬の環境の中。台帳・決済の新しい実装はしていない）：
+
+| テスト | 確かめたこと |
+|---|---|
+| a stop in three stages | 停止は「新しい作業を止める」だけ。送信中のゲーム支出と実行中の推論は返らない。推論は停止の後に答えが返った時点で請求。送る前の予約だけが返る |
+| undecided money is never released or withdrawn by itself | 鎖の答えがない送信は、reconcile を3回しても、中継が再起動しても予約のまま。全額の引出しでも残る |
+| two executor processes do NOT share the executor's caps | **⑤の実行層の上限は、複数プロセスでは守れない**（2つのプロセスが、1つ分の上限を2回使う）。中継の台帳の予算は全体で守られる |
+| the session slot is the Citizen's | 同じ持ち主の2つ目の代理へ委任すると、1つ目は `SessionNotDelegated`。Citizen の口座に範囲の欄はない |
+
+直したテスト：「the model is configuration」。サーバーの自己申告に `assurance` と `verified: false` が付くことを確かめる。
+
+前の報告の言い過ぎは [GUARANTEES](GUARANTEES.ja.md) で訂正しました。下の節にある「本物」は、**実装コード**の意味です（鎖・モデル・USDC の移動は模擬）。
+
+---
+
 ## 0. 追加要件 AI staking（2026-10-30）
 
-`node --test workstreams/05-ai-participation/test/*.test.mjs`：**32 件すべて通過、失敗 0**（既存の参加テスト 19 件＋AI staking 13 件）。並行実行のテストは5回くり返して安定。
+`node --test workstreams/05-ai-participation/test/*.test.mjs`：**32 件すべて通過、失敗 0**（既存の参加テスト 19 件＋AI staking 13 件。この時点）。並行実行のテストは5回くり返して安定。
 
 | # | `test/staking.test.mjs` | 要件 |
 |---|---|---|

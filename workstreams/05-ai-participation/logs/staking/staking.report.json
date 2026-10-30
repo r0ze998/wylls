@@ -3,7 +3,7 @@
   "model": {
     "configured": {
       "provider": "local-openai",
-      "url": "http://127.0.0.1:41443",
+      "url": "http://127.0.0.1:39601",
       "model": "gemma-4-26b-a4b-it",
       "deadlineMs": 30000,
       "maxTokens": 400
@@ -11,7 +11,9 @@
     "identity": {
       "reportedAlias": "gemma-4-26b-a4b-it",
       "modelFile": "gemma-3-4b-it-Q4_K_M.gguf",
-      "source": "server report"
+      "source": "server report",
+      "assurance": "self-reported by the server (alias / file name; not verified)",
+      "verified": false
     }
   },
   "priceBook": {
@@ -129,7 +131,7 @@
           ]
         },
         "expiresAt": 1800194400,
-        "agentId": "0a8dd3e4-d727-4494-a46f-b6017700530a",
+        "agentId": "fd51a2c2-82c3-401c-9ae8-ddf60061cbd6",
         "basedOnPolicyVersion": 3,
         "version": 1
       },
@@ -161,7 +163,9 @@
       "identity": {
         "reportedAlias": "gemma-4-26b-a4b-it",
         "modelFile": "gemma-3-4b-it-Q4_K_M.gguf",
-        "source": "server report"
+        "source": "server report",
+        "assurance": "self-reported by the server (alias / file name; not verified)",
+        "verified": false
       },
       "quote": {
         "amount": "10000",
@@ -509,13 +513,13 @@
       "items": [
         {
           "requestId": "R-1",
-          "key": "0a8dd3e4-d727-4494-a46f-b6017700530a|R-1|Train|m1",
+          "key": "fd51a2c2-82c3-401c-9ae8-ddf60061cbd6|R-1|Train|m1",
           "verdict": "execute",
           "code": null,
           "reason": "ok",
           "ownerDecision": null,
           "request": {
-            "requestId": "p05.57480104ceb5a43e9b61b5651d50a60d4c700d40",
+            "requestId": "p05.57669db2650aa9ff4baf9c015dec152eb64bae27",
             "policyVersion": 3,
             "modeEpoch": 1,
             "action": {
@@ -531,7 +535,7 @@
           "accepted": {
             "outcome": "sent",
             "code": null,
-            "signature": "42ipdxhrAkAQ2EcHXxJDZSv3FdWc22emknHowEMmpTPrtyRFjph8kRByEGw793oXdtHmsLimbiaspfALsRfM5Lk5"
+            "signature": "4fcYWfRU1Q9eEub3nZBR6mYpagtVf46KBpPmMNKUf5febrLZwa7ZBeVVSovAY88JKVNRrP1oDCrH6uvfCmLAEHSn"
           },
           "gameCost": {
             "state": "settled",
@@ -579,13 +583,13 @@
       "items": [
         {
           "requestId": "R-2",
-          "key": "0a8dd3e4-d727-4494-a46f-b6017700530a|R-2|Train|m1",
+          "key": "fd51a2c2-82c3-401c-9ae8-ddf60061cbd6|R-2|Train|m1",
           "verdict": "execute",
           "code": null,
           "reason": "ok",
           "ownerDecision": null,
           "request": {
-            "requestId": "p05.4181f6c1001251ae3f3047e9bae4ad039f9adf34",
+            "requestId": "p05.17e0ca997efbc635a75058d8404919f72ba455f5",
             "policyVersion": 3,
             "modeEpoch": 1,
             "action": {
@@ -601,7 +605,7 @@
           "accepted": {
             "outcome": "sent",
             "code": null,
-            "signature": "3XVuHMq4W7FxRChgsALK4xgUgfQaM2qK97dkGGw6BmRknsMNbbTfftM5ViKQCX6YhwrcE691oCRmK6VZVcieqUv7"
+            "signature": "2rzCUFupAyu3r5WdNqM7XJPUeBWXaCzyCQMEtsLMfwt7oUwKKnLsGSE6sYurR2B8bxGTeX6YQVEhEqPq2DGaa6Ue"
           },
           "gameCost": {
             "state": "settled",
@@ -649,13 +653,13 @@
       "items": [
         {
           "requestId": "R-3",
-          "key": "0a8dd3e4-d727-4494-a46f-b6017700530a|R-3|Train|m1",
+          "key": "fd51a2c2-82c3-401c-9ae8-ddf60061cbd6|R-3|Train|m1",
           "verdict": "execute",
           "code": null,
           "reason": "ok",
           "ownerDecision": null,
           "request": {
-            "requestId": "p05.6a1339c896974f1601f9b1e0816088cda688d9b3",
+            "requestId": "p05.38cf39f31401267713822edf9c9c6a3f6a97aac2",
             "policyVersion": 3,
             "modeEpoch": 1,
             "action": {
@@ -737,7 +741,7 @@
     },
     "lines": [
       {
-        "at": 1793319584678,
+        "at": 1793349535622,
         "type": "deposit",
         "category": null,
         "amount": "100000",
@@ -747,7 +751,7 @@
         "reason": null
       },
       {
-        "at": 1793319584736,
+        "at": 1793349535674,
         "type": "spend",
         "category": "inference",
         "amount": "10000",
@@ -757,27 +761,27 @@
         "reason": null
       },
       {
-        "at": 1793319584762,
+        "at": 1793349535688,
         "type": "network",
         "category": "network",
         "amount": "0",
         "lamports": "10000",
-        "key": "mcp:p05.57480104ceb5a43e9b61b5651d50a60d4c700d40",
+        "key": "mcp:p05.57669db2650aa9ff4baf9c015dec152eb64bae27",
         "model": null,
         "reason": null
       },
       {
-        "at": 1793319584764,
+        "at": 1793349535689,
         "type": "spend",
         "category": "game",
         "amount": "15000",
         "lamports": null,
-        "key": "mcp:p05.57480104ceb5a43e9b61b5651d50a60d4c700d40",
+        "key": "mcp:p05.57669db2650aa9ff4baf9c015dec152eb64bae27",
         "model": null,
         "reason": null
       },
       {
-        "at": 1793319584772,
+        "at": 1793349535694,
         "type": "spend",
         "category": "inference",
         "amount": "10000",
@@ -787,27 +791,27 @@
         "reason": null
       },
       {
-        "at": 1793319584779,
+        "at": 1793349535699,
         "type": "network",
         "category": "network",
         "amount": "0",
         "lamports": "10000",
-        "key": "mcp:p05.4181f6c1001251ae3f3047e9bae4ad039f9adf34",
+        "key": "mcp:p05.17e0ca997efbc635a75058d8404919f72ba455f5",
         "model": null,
         "reason": null
       },
       {
-        "at": 1793319584780,
+        "at": 1793349535700,
         "type": "spend",
         "category": "game",
         "amount": "15000",
         "lamports": null,
-        "key": "mcp:p05.4181f6c1001251ae3f3047e9bae4ad039f9adf34",
+        "key": "mcp:p05.17e0ca997efbc635a75058d8404919f72ba455f5",
         "model": null,
         "reason": null
       },
       {
-        "at": 1793319584786,
+        "at": 1793349535703,
         "type": "spend",
         "category": "inference",
         "amount": "10000",
@@ -817,7 +821,7 @@
         "reason": null
       },
       {
-        "at": 1793319584805,
+        "at": 1793349535717,
         "type": "withdraw",
         "category": null,
         "amount": "40000",

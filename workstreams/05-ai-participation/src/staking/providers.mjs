@@ -13,10 +13,23 @@
 // the alias gemma-4-26b-a4b-it (start-pinned.sh:11), so an alias proves nothing
 // about the weights. `identify()` reads the server's own report (/v1/models,
 // /props model_path) and keeps only the file's base name.
+//
+// What each name is worth (ASSURANCE): the configured name is only our request;
+// the alias and the file name are the server's SELF-REPORT (a server can say
+// anything); only a hash of the weights file, taken on the host and compared
+// with a pinned hash, would identify the model. No hash is taken here, so no
+// model is ever "verified" by this code.
 
 export const PROVIDERS = Object.freeze({ LOCAL_OPENAI: 'local-openai', SCRIPTED: 'scripted', EXTERNAL: 'external' });
 
 const LOOPBACK = new Set(['127.0.0.1', 'localhost', '::1', '[::1]']);
+
+/** How much a model name proves, weakest first. This code reaches 'self-reported' at most. */
+export const ASSURANCE = Object.freeze({
+  CONFIGURED: 'configured (our request only)',
+  SELF_REPORTED: 'self-reported by the server (alias / file name; not verified)',
+  HASH_MATCHED: 'file hash matched a pinned hash (NOT IMPLEMENTED here)',
+});
 
 export class ProviderError extends Error {
   constructor(code, message) { super(message); this.code = code; }
@@ -67,7 +80,7 @@ export function createProvider(cfg, { fetch: f = globalThis.fetch, answer = null
     let n = 0;
     return {
       kind: cfg.provider, configuredModel: cfg.model, alias: cfg.model, calls: [],
-      async identify() { return { reportedAlias: cfg.model, modelFile: null, source: 'scripted (not a model)' }; },
+      async identify() { return { reportedAlias: cfg.model, modelFile: null, source: 'scripted (not a model)', assurance: ASSURANCE.CONFIGURED, verified: false }; },
       async complete(body) {
         n += 1;
         this.calls.push(body);
@@ -90,7 +103,8 @@ export function createProvider(cfg, { fetch: f = globalThis.fetch, answer = null
     /** What the server says it runs: the alias it answers to and the file it loaded (base name only). Null fields: not reported. */
     async identify() {
       const [models, props] = await Promise.all([getJson('/v1/models'), getJson('/props')]);
-      return { reportedAlias: models?.data?.[0]?.id ?? props?.model_alias ?? null, modelFile: baseName(props?.model_path ?? props?.default_generation_settings?.model), source: models || props ? 'server report' : 'not reported' };
+      return { reportedAlias: models?.data?.[0]?.id ?? props?.model_alias ?? null, modelFile: baseName(props?.model_path ?? props?.default_generation_settings?.model), source: models || props ? 'server report' : 'not reported',
+        assurance: models || props ? ASSURANCE.SELF_REPORTED : ASSURANCE.CONFIGURED, verified: false };
     },
     async complete(body, { deadlineMs = cfg.deadlineMs } = {}) {
       const ac = new AbortController();

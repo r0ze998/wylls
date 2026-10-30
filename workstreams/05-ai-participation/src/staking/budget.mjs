@@ -113,6 +113,56 @@ export function statement(view) {
 }
 
 /**
+ * The costs in the four classes the ④ report names (bd415e7, report summary only: not fetched):
+ *   reserved    held and not yet decided: before sending (a stop gives it back), sending (the chain decides), a model call running (it will be charged)
+ *   settled     spent: the ledger's settled amounts per category
+ *   undecided   reserved and not decidable by this process: a model call whose outcome is unknown (unresolved), a send the node cannot prove (undecided)
+ *   released    given back: the ledger's release lines (stop, refusal, failure, expiry)
+ * Undecided money is never released by this code: only the chain's proven answer, the operator's decision or the
+ * operator's opt-in deadline rule (off by default) moves it (DESIGN.md §6.5, §6.7).
+ */
+export function costClasses(view) {
+  const holds = view.holds ?? [];
+  const sum = f => holds.filter(f).reduce((s, h) => s + big(h.amount), 0n).toString();
+  const released = (view.history ?? []).filter(h => h.type === 'release').reduce((s, h) => s + big(h.amount), 0n).toString();
+  return {
+    reserved: { beforeSend: sum(h => h.state === 'held'), sending: sum(h => h.state === 'sending' && !h.undecided), modelRunning: sum(h => h.state === 'running') },
+    settled: { ...view.balance.spent },
+    undecided: { modelCall: sum(h => h.state === 'unresolved'), send: sum(h => h.state === 'sending' && !!h.undecided) },
+    released: { inLast50Lines: released },
+    withdrawable: view.balance.available,
+  };
+}
+
+/**
+ * A stop, in three separate stages (none of them is "undo"):
+ *   1 stop       no new decision, signature or send: the relay's mode is manual, its epoch moved; a request decided
+ *                before refuses (AgentStopped / StaleMode), also right before the bytes leave (beforeSend)
+ *   2 reconcile  what was already signed or sent, and what was being paid for, waits for its answer: sending holds
+ *                (the chain), running model calls (charged when they return), the executor's actions with no result
+ *   3 release    what was reserved and not used comes back: `held` holds are released by the stop itself (reason
+ *                'stopped'); nothing else is released by the stop
+ * Switching to manual does not cancel a signed transaction, a send or a running model call.
+ */
+export function stopReport({ before, after, journal = null }) {
+  const was = new Map((before.holds ?? []).map(h => [h.id, h]));
+  const releasedByStop = (after.history ?? []).filter(h => h.type === 'release' && h.reason === 'stopped' && (h.seq ?? 0) > (before.historySeq ?? 0));
+  const pending = (after.holds ?? []).filter(h => h.state === 'sending' || h.state === 'running' || h.state === 'unresolved');
+  const unknownActs = journal ? journal.unfinished().map(b => ({ requestId: b.requestId, attemptId: b.attemptId, why: 'begun by the executor; the relay\'s answer was not recorded' })) : [];
+  return {
+    stage1_stop: { mode: after.mode, modeEpoch: { before: before.modeEpoch, after: after.modeEpoch }, effect: '新しい判断・署名・送信をしない。停止前に決めた要求は中継が断る（AgentStopped／StaleMode、送る直前の beforeSend でも）' },
+    stage2_reconcile: {
+      waiting: pending.map(h => ({ holdId: h.id, category: h.category, amount: h.amount, state: h.state, signature: h.signature ?? null,
+        until: h.state === 'sending' ? '鎖の答え（着地なら確定、失敗・期限切れの証明なら返金、証明できなければ未確定のまま）' : h.state === 'running' ? 'モデルの答え（返れば請求、再起動なら未確定）' : '運営の判断' })),
+      executorUnknown: unknownActs,
+      note: '停止は、署名済みの取引・送信済みの取引・実行中の推論を取り消さない',
+    },
+    stage3_release: { released: releasedByStop.map(h => ({ category: h.category, amount: h.amount, key: h.key })), notReleased: pending.map(h => ({ holdId: h.id, state: h.state, amount: h.amount })), heldBefore: [...was.values()].filter(h => h.state === 'held').length },
+    costs: costClasses(after),
+  };
+}
+
+/**
  * One line per decision: what the agent thought, what it asked, what the relay accepted, what finally
  * happened, and what it cost — joined from the executor's journal and the relay's ledger lines.
  */

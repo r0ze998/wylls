@@ -1,5 +1,7 @@
 # AI staking：現在の実装の確定（要件1）
 
+> **2026-10-30 の訂正あり。** 制限の強制場所・session の単位・停止の段階・費用と出金・モデル情報の保証は [GUARANTEES](GUARANTEES.ja.md) が正です。
+
 調べた対象：共通基準 commit `4cd901de`、⑤の commit `7ac94cc1`（共有コードは同じ）。根拠は、ファイル・行番号と、この作業のテスト（`test/staking.test.mjs`）です。秘密情報・APIキーは出力していません（このコードには外部APIのキーを読む所がありません）。
 
 ## 結論
@@ -85,7 +87,7 @@
 | 手動／自動、停止、失効、期限切れ、予算不足で止まる | **中継で実装済み**。⑤は「上限で止まる」を選べるようにした | `gateway.mjs:410-416`、`participate.mjs` |
 | 停止前に受理済みの操作が取り消せるか | 台帳の状態から⑤が表示（送る前は取消可、送信中・考え中は不可） | `budget.mjs` `statement().inFlight` |
 | 考えた内容・要求・受理・結果・費用の追跡 | ⑤の記録と台帳の行をつなぐ | `budget.mjs` `trace()` |
-| 残高追加・引出し | **中継で実装済み**。⑤はテスト用の残高で通した | `session.mjs`、`test/staking.test.mjs` |
+| 残高追加・引出し | **中継のコードで実装済み**。⑤はテスト用の残高で、そのコードを通した。**鎖は模擬で、USDC は動いていない**（[GUARANTEES](GUARANTEES.ja.md) §4・§6） | `session.mjs`、`test/staking.test.mjs` |
 | モデル／提供者を設定で切り替え | ⑤で実装（loopback の OpenAI 互換・台本）。外部提供者は宣言だけで、送らない | `src/staking/providers.mjs` |
 | 推論費用の計測・換算・精算方法 | ⑤で計測と換算を実装。精算は今の固定額だけが実装済み。ほかは整理だけ | `src/staking/pricing.mjs` |
 | 他担当の境界 | 文書化 | [STAKING-BOUNDARIES](STAKING-BOUNDARIES.ja.md) |

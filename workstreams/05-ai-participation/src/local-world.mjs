@@ -193,6 +193,10 @@ export async function createLocalWorld({ stores = { Food: 400, Wood: 1200, Stone
   w.ownerDeposit = async amount => (await deposit(r, o, made.agentId, BigInt(amount))).res;
   w.ownerWithdraw = params => ownerCmd('withdraw', params);
   w.view = () => r.gateway.view(made.agentId);
+  /** A second agent of the same owner for another village (fixture: the owner's create command, signed). */
+  w.ownerCreateAgent = async village => createAgent(r, owner, { village, policy });
+  /** The owner's SetSession to `agentKey` (fixture: writes the Citizen account as a landed SetSession would). */
+  w.ownerDelegateTo = agentKey => delegate(r, o, agentKey, { expiry: SESSION_UNTIL });
   w.books = () => r.gateway.ledger.check();
   w.resourcesNames = RESOURCES_S1;
   return w;
