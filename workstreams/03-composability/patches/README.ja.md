@@ -10,7 +10,7 @@
 | [0004](0004-core-scoped-delegation.md) | コアの委任（②と共同） | 要求の整理 | 「所有者のオンライン署名なしの**限定**委任」をコアが保証するため | 該当なし（設計の入力） |
 | [0005](0005-agent-wallet-sendcaravan.patch) | `permutation-gateway/src/frontier/agent/{contract,gateway}.mjs`（⑤ 代理人の財布）＋試験 1 本 | 差分（適用可能） | MCP の `send_caravan` を代理人の財布で通すため（SendCaravan を `transport` 群として代理人の行動に加える。出発は代理人の村か所有者の倉庫、宛先と経路は `action.route`） | 一時 worktree で適用。`agent-wallet-*` と `frontier-relay*` の試験が、適用前 97/97、適用後 102/102（新規 5 件）で通過（[results/gateway-patch-0005.log](../results/gateway-patch-0005.log)）。ローカルの実チェーンで MCP から 2 本の隊商が届いた（[09](../09-mcp-run-and-video.ja.md)） |
 
-| [0006](0006-receipt-port.md) | ④ 実行台帳とつなぐ口（③の側の差し替え場所と、③が渡せる値） | 提案（未確定・未適用） | ④の契約が来た時に、③の MOCK（受領証、取消、到着量）を置き換えるため。共通部分のコードは変えていない | 該当なし（④の資料待ち） |
+| [0006](0006-receipt-port.md) | ④ 実行台帳とつなぐ口（③の側の差し替え場所と、③が渡せる値） | **③の側は採用・実装済み**（`mcp/src/receipt-port.mjs`）。④との契約は未確定 | ④の契約が来た時に、③の MOCK（受領証、取消、到着量）を置き換えるため。共通部分のコードは変えていない | 適合試験 `mcp/test/port-conformance.mjs`（local の adapter は通過）。④の adapter は資料待ち（[13](../13-runreceipt-port.ja.md)） |
 
 合格地点(1)「所有者が署名すれば呼べる」に必要なコア変更・relay 変更は**なし**。
 

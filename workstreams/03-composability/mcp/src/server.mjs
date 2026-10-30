@@ -8,7 +8,9 @@
 import { createHash } from 'node:crypto';
 import { Game, GameError, untrusted } from './game.mjs';
 import { SCOPES } from './auth.mjs';
-import { MockGrantPort, STATES, TERMINAL, receiptOf, cancellationOf } from './ports.mjs';
+import { MockGrantPort, STATES, TERMINAL } from './ports.mjs';
+import { LocalReceiptPort, assertReceiptPort } from './receipt-port.mjs';
+import { budgetOf, refusalOf } from './budget-port.mjs';
 import { KINDS, SETTLE_OUTCOME, RAID_CHOICE, caravanEvent } from './events.mjs';
 import { REQUEST_ID, SERVER_INSTRUCTIONS, TOOLS } from './tools.mjs';
 
@@ -27,26 +29,14 @@ const RESOURCE_NAMES = ['Food', 'Wood', 'Stone', 'Ore', 'Arms', 'Gold', 'Science
 const cargoArray = c => RESOURCE_NAMES.map(r => (Number.isInteger(c?.[r]) ? c[r] : 0));
 
 /**
- * What the end of a caravan says about the amount that arrived (④'s "arrival quantity unverified", as a MOCK field).
- * The settle record carries the cargo that was sent, not what was credited: a storehouse clips each resource at its
- * capacity, and a village's stores were not compared. So a delivery's quantity is `unverified`, never the full cargo
- * and never 0. A lost caravan credits nothing (the program's lost branch writes no store).
- */
-function arrivalOf(op) {
-  const toVault = String(op.planSummary?.to ?? '').startsWith('vault:');
-  if (op.outcome === 'lost') return { transportEnded: true, settled: true, quantity: { state: 'none', basis: 'program: a lost caravan credits nothing' } };
-  if (op.outcome === 'delivered') return { transportEnded: true, settled: true, quantity: { state: 'unverified', sent: op.planSummary?.cargo ?? null,
-    basis: toVault ? 'the settle record carries the sent cargo; a storehouse keeps at most its capacity of each resource and drops the rest' : 'the settle record carries the sent cargo; the village\'s stores were not compared' } };
-  return { transportEnded: true, settled: op.outcome !== 'taken', quantity: { state: 'unverified', basis: `the caravan was ${op.outcome ?? 'raided'}: what reached the destination is not recorded` } };
-}
-
-/**
  * @param {object} o
  * @param {Auth} o.auth
  * @param {Game} o.game
  * @param {JsonStore} o.store
  */
-export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => {}, grants = new MockGrantPort({ now }), uncertainWindowMs = UNCERTAIN_WINDOW_MS }) {
+export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => {}, grants = new MockGrantPort({ now }), receipts = new LocalReceiptPort(), uncertainWindowMs = UNCERTAIN_WINDOW_MS }) {
+  assertReceiptPort(receipts);
+  const receiptOf = op => receipts.receipt(op);
   const db = store.state;
   const inflight = new Map();
   const buckets = new Map();
@@ -95,7 +85,7 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
       agent: { agentId: a.agentId, mode: a.mode, modeEpoch: a.modeEpoch, policyVersion: a.policy?.version, allowed: a.policy?.allowed ?? [],
         delegation: a.delegation ?? null, caravansAllowed: (a.policy?.allowed ?? []).includes('SendCaravan') },
       // ⑤'s budget, as the agent wallet reports it (this server keeps no balance of its own).
-      budget: { source: 'agent wallet (GET /f/agent)', testAssetsOnly: true, balance: a.balance, policyBudget: a.policy?.budget ?? null, day: a.day ?? null, quota: a.quota ?? null },
+      budget: budgetOf(a),
       recentAgentHistory: (a.history ?? []).slice(-5).map(h => ({ at: h.at, name: h.name, status: h.status, code: h.code ?? null, source: h.source ?? null, ...(h.reason ? { reason: untrusted('agent history (a model\'s or a person\'s words)', h.reason) } : {}) })),
     });
   }
@@ -265,9 +255,11 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
     } else if (r.status === 200 && res.status === 'refused') {
       // The gateway's own record for this key: nothing was sent under it, ever.
       definite(op, link, code, res.error?.message ?? 'refused', 'agent wallet gateway / relay');
+      op.error.boundary = refusalOf(code);
     } else if (op.unknownSince === null && [400, 401, 403, 404, 409].includes(r.status)) {
       // Refused before anything (credential, shape, conflict) on a first, clean attempt.
       definite(op, link, code, res.error?.message ?? res.error ?? 'refused', 'agent wallet gateway / relay');
+      op.error.boundary = refusalOf(code);
     } else if (op.unknownSince !== null && [400, 401, 403, 404, 409].includes(r.status)) {
       // An earlier attempt may have been sent and this one cannot be: the chain decides.
       uncertain(op, link, `a retry was refused (${code}) after an attempt with an unknown outcome: the chain decides`);
@@ -301,13 +293,13 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
         if (e.kind === KINDS.CARAVAN_RAIDED) {
           const choice = RAID_CHOICE[Number(e.payload.choice)] ?? 'raided';
           op.caravan.raid = { bell: Number(e.payload.bell), choice };
-          if (choice === 'taken') { op.outcome = 'taken'; op.arrival = arrivalOf(op); step(op, STATES.COMPLETED, 'another village took the caravan in a raid'); }
+          if (choice === 'taken') { op.outcome = 'taken'; op.arrival = receipts.arrival(op); step(op, STATES.COMPLETED, 'another village took the caravan in a raid'); }
         }
         if (e.kind === KINDS.CARAVAN_SETTLED && !TERMINAL.includes(op.state)) {
           const o = SETTLE_OUTCOME[Number(e.payload.outcome)] ?? 'settled';
           op.outcome = op.caravan.raid?.choice === 'burned' && o === 'delivered' ? 'burned' : o;
           op.caravan.settledAtBell = e.bell;
-          op.arrival = arrivalOf(op);
+          op.arrival = receipts.arrival(op);
           step(op, STATES.COMPLETED, op.outcome === 'delivered' ? 'the caravan arrived and was settled' : `the caravan was settled: ${op.outcome}`);
         }
       }
@@ -368,7 +360,7 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
     return {
       owner,
       connections: links.map(l => ({ linkId: l.linkId, agentId: l.agentId, scopes: l.scopes, createdAt: new Date(l.createdAt).toISOString(), revokedAt: l.revokedAt ? new Date(l.revokedAt).toISOString() : null,
-        cancellation: cancellationOf(l, ops.filter(o => o.linkId === l.linkId)) })),
+        cancellation: receipts.cancellation(l, ops.filter(o => o.linkId === l.linkId)) })),
       operations: ops.map(op => ({ ...receiptOf(op), linkId: op.linkId })),
     };
   }
@@ -415,5 +407,5 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
     }
   }
 
-  return { handle, tools: Object.keys(tools), track, ownerOperations };
+  return { handle, tools: Object.keys(tools), track, ownerOperations, receipts: { contract: receipts.contract, real: receipts.real } };
 }

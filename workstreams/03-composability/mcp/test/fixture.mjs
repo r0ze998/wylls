@@ -35,7 +35,7 @@ const keyBytes = k => Uint8Array.from(fromBase58(k));
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const GATEWAY_ROOT = process.env.WS03_GATEWAY_ROOT ?? path.resolve(here, '../../../../permutation-gateway');
 const fx = await import(pathToFileURL(path.join(GATEWAY_ROOT, 'test/agent-wallet-fixtures.mjs')).href);
-const contract = await import(pathToFileURL(path.join(GATEWAY_ROOT, 'src/frontier/agent/contract.mjs')).href);
+export const contract = await import(pathToFileURL(path.join(GATEWAY_ROOT, 'src/frontier/agent/contract.mjs')).href);
 /** Whether the gateway tree has patch 0005 (SendCaravan as an agent action). */
 export const PATCHED = Object.keys(contract.ACTION_GROUPS).includes('transport');
 
