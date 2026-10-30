@@ -79,9 +79,9 @@ const RESOURCES_S1 = ['Food', 'Wood', 'Stone', 'Ore', 'Arms', 'Gold', 'Science',
  * @param {string} [o.inferencePrice]
  */
 export async function createLocalWorld({ stores = { Food: 400, Wood: 1200, Stone: 300, Ore: 120, Arms: 0, Gold: 80 }, reserve = { Spearman: 0 },
-  policy = { allowed: ['economy'], budget: { total: '1000000', perDay: '1000000' } }, requests = northernRequests(), balance = '1000000', inferencePrice = '10000', clock = T0 } = {}) {
+  policy = { allowed: ['economy'], budget: { total: '1000000', perDay: '1000000' } }, requests = northernRequests(), balance = '1000000', inferencePrice = '10000', gamePrices = {}, clock = T0 } = {}) {
   const chain = fakeChain({ confirm: false });
-  const r = relay({ chain, clock, season: { RULESET_HASH: Buffer.from(rulesetFor(3), 'hex') }, prices: { inference: inferencePrice } });
+  const r = relay({ chain, clock, season: { RULESET_HASH: Buffer.from(rulesetFor(3), 'hex') }, prices: { inference: inferencePrice, game: gamePrices } });
   const owner = Keypair.generate();
   const o = owner.publicKey.toBase58();
   const made = await createAgent(r, owner, { policy });
@@ -158,7 +158,8 @@ export async function createLocalWorld({ stores = { Food: 400, Wood: 1200, Stone
     for (const tx of sent) {
       const sig = base58(tx.signatures[0]);
       const ix = tx.instructions.find(i => i.programId === PROGRAM);
-      if (!ix) continue;
+      // Not a game transaction (the custody's withdrawal transfer): the chain lands it.
+      if (!ix) { r.chain.statuses.set(sig, { slot: 79, err: null, confirmationStatus: 'finalized' }); w.log.push({ sig, name: 'transfer', status: 'landed' }); continue; }
       const d = decodeIxData(ix.data, 3);
       if (w.faults.txUnknown) { w.log.push({ sig, name: d.name, status: 'none' }); continue; }
       if (w.faults.txFail) { r.chain.statuses.set(sig, { slot: 79, err: { InstructionError: [ix.index ?? 2, { Custom: w.faults.txFail }] }, confirmationStatus: 'finalized' }); w.log.push({ sig, name: d.name, status: 'failed' }); continue; }
@@ -186,6 +187,13 @@ export async function createLocalWorld({ stores = { Food: 400, Wood: 1200, Stone
     w.pendingEffects = [];
   };
   w.sentCount = () => r.chain.sent.length;
+  /** The relay's reconcile (its timer runs it every --agent-reconcile-ms): priced holds settle on the chain's answer. */
+  w.reconcile = () => r.gateway.reconcile();
+  /** The owner's money in and out (test USDC on the scripted chain): a deposit the owner signed, verified by the real Custody; a withdrawal the owner commands. */
+  w.ownerDeposit = async amount => (await deposit(r, o, made.agentId, BigInt(amount))).res;
+  w.ownerWithdraw = params => ownerCmd('withdraw', params);
+  w.view = () => r.gateway.view(made.agentId);
+  w.books = () => r.gateway.ledger.check();
   w.resourcesNames = RESOURCES_S1;
   return w;
 }

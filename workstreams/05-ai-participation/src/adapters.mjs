@@ -159,6 +159,7 @@ export const GRANT = Object.freeze({
   MANDATE_REVOKED: 'MandateRevoked',
   MANDATE_STALE: 'MandatePolicyChanged',
   MANDATE_OTHER: 'MandateNotForThisAgent',
+  VILLAGE_NOT_IN_MANDATE: 'VillageNotInMandate',
 });
 
 /**
@@ -183,6 +184,11 @@ export function normaliseMandate(m) {
     allowed: Array.isArray(m.allowed) ? m.allowed.filter(x => typeof x === 'string') : [], partial: m.partial === true,
     limits: { perRequest: nums(m.limits?.perRequest), perDay: nums(m.limits?.perDay), troopsPerRequest: Number.isInteger(m.limits?.troopsPerRequest) ? m.limits.troopsPerRequest : 0 },
     expiresAt: Number.isFinite(m.expiresAt) ? m.expiresAt : 0, revokedAt: Number.isFinite(m.revokedAt) ? m.revokedAt : null,
+    // AI staking (provisional, the executor's layer): test-USDC caps per category, and the places the agent may act on.
+    budget: ['perCall', 'perDay', 'total'].reduce((o, k) => ({ ...o, [k]: Object.fromEntries(Object.entries(m.budget?.[k] ?? {}).filter(([c, v]) => ['inference', 'game'].includes(c) && /^\d{1,20}$/.test(String(v))).map(([c, v]) => [c, String(v)])) }), {}),
+    targets: { villages: Array.isArray(m.targets?.villages) ? m.targets.villages.filter(v => Array.isArray(v) && v.length === 3 && v.every(Number.isInteger)) : null,
+      facilities: Array.isArray(m.targets?.facilities) ? m.targets.facilities.map(String).slice(0, 16) : [] },
+    onBudgetLimit: m.onBudgetLimit === 'rules' ? 'rules' : 'stop',
   };
 }
 
@@ -207,6 +213,7 @@ export function grantFrom(view, mandate, nowSec) {
     if (m.agentId !== view.agentId) say(GRANT.MANDATE_OTHER, '別の代理のための委任条件。本人が書き直す');
     if (m.revokedAt !== null && m.revokedAt <= nowSec) say(GRANT.MANDATE_REVOKED, '本人が委任条件を取り消した');
     if (!(m.expiresAt > nowSec)) say(GRANT.MANDATE_EXPIRED, '委任条件の期限が切れた。続けるなら本人が期限を延ばす');
+    if (m.targets.villages && !m.targets.villages.some(v => v.every((x, i) => x === view.village?.[i]))) say(GRANT.VILLAGE_NOT_IN_MANDATE, `委任条件の対象の村に、この代理の村 ${view.village?.join(',')} がない。本人が対象を書き直す`);
     if (m.basedOnPolicyVersion !== view.policy?.version) say(GRANT.MANDATE_STALE, `中継の方針が版 ${m.basedOnPolicyVersion} から ${view.policy?.version} に変わった。本人が委任条件を見直す`);
   }
   const policyAllowed = new Set(view.policy?.allowed ?? []);
@@ -216,6 +223,7 @@ export function grantFrom(view, mandate, nowSec) {
     allowed, deniedByPolicy: m ? m.allowed.filter(a => !policyAllowed.has(a)) : [],
     limits: m?.limits ?? { perRequest: {}, perDay: {}, troopsPerRequest: 0 }, partial: m?.partial ?? false,
     purpose: m?.purpose ?? '', nation: m?.nation ?? null, from: m?.from ?? [],
+    budget: m?.budget ?? { perCall: {}, perDay: {}, total: {} }, targets: m?.targets ?? { villages: null, facilities: [] }, onBudgetLimit: m?.onBudgetLimit ?? 'stop',
     versions: { policyVersion: view.policy?.version, modeEpoch: view.modeEpoch, mandateId: m?.mandateId ?? null, mandateVersion: m?.version ?? null },
   };
 }

@@ -1,11 +1,34 @@
 # ⑤ 人間の意図と権限を守って、AIが国の活動に参加する
 
-**状態：** 監査と局所デモ。**提案であり、採用済みの仕様ではありません。** 共有コア・共通API・他の担当の仕様は変えていません（このフォルダの外のファイルは一つも変更していない）。公開の push・main への merge・配備・実資金・追加課金・外部のLLM・独立AIの本番登録は、どれもしていません。
+**状態：** 監査と局所デモ。**提案であり、採用済みの仕様ではありません。** 共有コア・共通API・他の担当の仕様は変えていません（このフォルダの外のファイルは一つも変更していない。共有コアへの変更は `patches/` に未適用の差分として分けた）。公開の push・main への merge・配備・実資金・追加課金・外部のLLM・独立AIの本番登録は、どれもしていません。
 
 - 共通基準 commit：`4cd901de9f8e0d6c0b2016851d30595c4a70aa46`（PR #22 の統合候補の途中。main 統合済みではなく、CI 全成功でもない）。
 - 作業ブランチ：`claude/ai-participation-audit-dbzqw0`（基準 commit から分岐）。
 - `AGENTS.md` と関連スキル（`.claude/skills/` など）は、基準 commit にも他のブランチにもありませんでした。読んだのは `docs/DEVELOPMENT-HANDOFF.ja.md`、`docs/agent-wallet/`（DESIGN・MCP・STATUS ほか）、`docs/design/redesign/24-ai-roles`・`29-remaining-decisions`・`99-decisions`、AI住人の契約、試遊甲のキット、関係するコードです。
-- ②（権利）・③（命令契約）・④（Run）の契約は届いていません。接続は**仮アダプター**です（[ADAPTERS](ADAPTERS.ja.md)）。
+- ②（権利）・④（Run）の契約は届いていません。③は未 merge のブランチ `claude/modest-goldberg-c180fk` に成果物があり、読むだけにしました。接続は**仮アダプター**です（[ADAPTERS](ADAPTERS.ja.md)、[STAKING-BOUNDARIES](STAKING-BOUNDARIES.ja.md)）。
+
+## 追加要件：AI staking（2026-10-30）
+
+agent に予算と行動範囲を任せ、預けた残高から推論とゲーム内の支出を払う仕組みです。前回の成果の上に足しました。前回の成果は壊していません（既存の19件のテストはそのまま通る）。
+
+| 文書 | 中身 |
+|---|---|
+| [STAKING-STATUS](STAKING-STATUS.ja.md) | 現状の確定：起動設定・モデル呼び出し・実行経路・支払い・記録。**「Gemma で動いている」は repo の中では確かめられない**（記録のモデル名は設定した別名）。前回の⑤と今回の要件の対応 |
+| [STAKING](STAKING.ja.md) | モデルと予算の分離、どこで何を強制するか、最小実装、必須の検証、デモ、模擬と本物の区別、残る不足 |
+| [STAKING-BOUNDARIES](STAKING-BOUNDARIES.ja.md) | ②③④・画面の担当への依頼事項 |
+| [patches/](patches/README.ja.md) | 共有コア（代理の財布）への統合用パッチと、適用の条件（未適用） |
+| `logs/staking/` | デモの記録、パッチを当てた状態でのテスト結果 |
+
+| コード | 中身 |
+|---|---|
+| `src/staking/providers.mjs` | モデルの提供者（loopback の OpenAI 互換・台本・外部は宣言だけ）。設定したモデルと実際のモデルを分けて記録 |
+| `src/staking/pricing.mjs` | 推論費用の見積り・実測・換算（試験値だけ）と、決済方法の整理 |
+| `src/staking/budget.mjs` | 実行層のカテゴリ別の上限（同期的な予約）、本人向けの明細、追跡 |
+| `src/staking/session.mjs` | 予算設定 → 許可範囲 → 自動開始 → 実行 → 停止 → 手動復帰 → 引出し |
+| `src/staking/outcomes.mjs` | 受理・着地・効果・隊商の出発と到着を分ける |
+| `src/staking/fake-model-server.mjs` | loopback の **fake** の OpenAI 互換サーバー（モデルではない） |
+| `test/staking.test.mjs` | AI staking の検証 13件 |
+| `demo/run-staking-demo.mjs` | AI staking のデモ。`logs/staking/` に記録を書く |
 
 ## 目的と、このデモがすること
 
@@ -45,7 +68,8 @@
 ```sh
 (cd permutation-gateway && npm ci)                                   # 共有コードの依存（局所、無料）
 node --test workstreams/05-ai-participation/test/*.test.mjs           # 再現テスト
-node workstreams/05-ai-participation/demo/run-demo.mjs               # デモ（logs/ を書き直す）
+node workstreams/05-ai-participation/demo/run-demo.mjs               # 参加のデモ（logs/ を書き直す）
+node workstreams/05-ai-participation/demo/run-staking-demo.mjs       # AI staking のデモ（logs/staking/ を書き直す）
 ```
 
 ネットワーク・外部のモデル・鍵ファイルは使いません。署名と agent id は毎回変わります（新しい鍵）。結果は変わりません。
@@ -94,3 +118,7 @@ E は、規則の代理でも「従う相手」の設定が守りになってい
 2. **自分の倉どうしの隊商を代理に開くか。** 鎖は許しているが、代理の経路にない（[MCP-EXTENSIONS](MCP-EXTENSIONS.ja.md) の6）。
 3. **国の依頼板をどこに置くか。** 今はどこにもない。国ごとの閲覧の権限と、書いた人の身元（財布の署名）が要る。
 4. **モデルを呼ぶ場面を絞るか**（[RULES-VS-MODEL](RULES-VS-MODEL.ja.md) の3）。
+5. **推論費用の精算方法**（AI staking）。今は台帳から1回いくらの固定額だけ。実測、運営の立て替え、本人自身のキーのどれを採るか。採るなら、利用ID・換算の出所・精算の周期・換算差を誰が負うかも（[STAKING](STAKING.ja.md) §1）。
+6. **本番の価格と上限の既定値。** どれも試験値のまま。固定していない。
+7. **パッチ 0001 を採るか**（中継で、1回の上限・カテゴリ別の上限・権限の期限を強制する）。採るなら、②の Grant と欄の形をそろえる（[patches/README](patches/README.ja.md)）。
+8. **外部のモデル提供者を有効にするか。** 今は宣言だけで、通信もキーの読み取りもしない。

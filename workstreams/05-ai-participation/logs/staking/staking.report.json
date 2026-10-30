@@ -1,0 +1,833 @@
+{
+  "label": "LOCAL FIXTURE. REAL: owner commands, ledger, budget, call cap, stop, versions, delegation check, MCP, GET /f/tx, reconcile. FAKE: chain (scripted), program effects (emulated), board (fixture), model (a fake loopback server answering from a script). Game prices: TEST VALUES.",
+  "model": {
+    "configured": {
+      "provider": "local-openai",
+      "url": "http://127.0.0.1:41443",
+      "model": "gemma-4-26b-a4b-it",
+      "deadlineMs": 30000,
+      "maxTokens": 400
+    },
+    "identity": {
+      "reportedAlias": "gemma-4-26b-a4b-it",
+      "modelFile": "gemma-3-4b-it-Q4_K_M.gguf",
+      "source": "server report"
+    }
+  },
+  "priceBook": {
+    "version": "test-2026-10-30",
+    "status": "TEST",
+    "settlement": "ledger-fixed-per-call",
+    "settlementHow": {
+      "implemented": "yes (relay)",
+      "how": "The relay holds one fixed price per call from the prepaid test-USDC balance and settles it whether the call succeeds or fails (AgentGateway.meterInference, prices.inference). The owner decision of 2026-10-17.",
+      "whoPaysTheModel": "the operator (its own machine for a local model); the ledger charge is the owner's price for a call, not a pass-through of a bill"
+    },
+    "entries": [
+      {
+        "match": {
+          "provider": "scripted"
+        },
+        "unit": "call",
+        "amount": "10000"
+      },
+      {
+        "match": {
+          "provider": "local-openai"
+        },
+        "unit": "call",
+        "amount": "10000"
+      }
+    ],
+    "rates": {}
+  },
+  "steps": [
+    {
+      "step": "1 budget",
+      "policy": {
+        "allowed": [
+          "Build",
+          "Garrison",
+          "Harvest",
+          "Muster",
+          "Train"
+        ],
+        "budget": {
+          "total": "60000",
+          "perDay": "60000",
+          "callsPerDay": 10
+        },
+        "version": 2
+      },
+      "balance": {
+        "deposited": "100000",
+        "available": "100000",
+        "withdrawn": "0",
+        "pendingWithdraw": "0",
+        "inFlight": {
+          "total": "0",
+          "beforeSend": "0",
+          "sending": "0",
+          "modelRunning": "0",
+          "unresolved": "0"
+        },
+        "settled": {
+          "inference": "0",
+          "game": "0",
+          "network": "0"
+        }
+      },
+      "inFlight": [],
+      "sound": true
+    },
+    {
+      "step": "2 scope",
+      "policyAllowed": [
+        "Build",
+        "Garrison",
+        "Harvest",
+        "Muster",
+        "Train"
+      ],
+      "mandate": {
+        "mandateId": "stake-demo",
+        "purpose": "北方拠点の守りに、蓄えの範囲で槍兵を出す",
+        "nation": 2,
+        "from": [
+          "Aster-officer"
+        ],
+        "allowed": [
+          "Train"
+        ],
+        "partial": true,
+        "limits": {
+          "perRequest": {
+            "Food": 60,
+            "Ore": 20,
+            "Gold": 10
+          },
+          "perDay": {
+            "Food": 600,
+            "Ore": 200,
+            "Gold": 100
+          },
+          "troopsPerRequest": 100
+        },
+        "budget": {
+          "perCall": {
+            "inference": "10000",
+            "game": "15000"
+          }
+        },
+        "targets": {
+          "villages": [
+            [
+              -3,
+              7,
+              11
+            ]
+          ]
+        },
+        "expiresAt": 1800194400,
+        "agentId": "0a8dd3e4-d727-4494-a46f-b6017700530a",
+        "basedOnPolicyVersion": 3,
+        "version": 1
+      },
+      "balance": {
+        "deposited": "100000",
+        "available": "100000",
+        "withdrawn": "0",
+        "pendingWithdraw": "0",
+        "inFlight": {
+          "total": "0",
+          "beforeSend": "0",
+          "sending": "0",
+          "modelRunning": "0",
+          "unresolved": "0"
+        },
+        "settled": {
+          "inference": "0",
+          "game": "0",
+          "network": "0"
+        }
+      },
+      "inFlight": [],
+      "sound": true
+    },
+    {
+      "step": "3 start",
+      "configuredModel": "gemma-4-26b-a4b-it",
+      "provider": "local-openai",
+      "identity": {
+        "reportedAlias": "gemma-4-26b-a4b-it",
+        "modelFile": "gemma-3-4b-it-Q4_K_M.gguf",
+        "source": "server report"
+      },
+      "quote": {
+        "amount": "10000",
+        "basis": "TEST per call (book test-2026-10-30)"
+      },
+      "relayPrices": {
+        "inference": "10000",
+        "game": {
+          "Train": "15000"
+        },
+        "autopilot": "0"
+      },
+      "balance": {
+        "deposited": "100000",
+        "available": "100000",
+        "withdrawn": "0",
+        "pendingWithdraw": "0",
+        "inFlight": {
+          "total": "0",
+          "beforeSend": "0",
+          "sending": "0",
+          "modelRunning": "0",
+          "unresolved": "0"
+        },
+        "settled": {
+          "inference": "0",
+          "game": "0",
+          "network": "0"
+        }
+      },
+      "inFlight": [],
+      "sound": true
+    },
+    {
+      "step": "4 tick 1",
+      "tick": {
+        "runId": "stake-1",
+        "status": "done",
+        "stoppedBy": null,
+        "charged": "10000",
+        "items": [
+          {
+            "request": "R-1",
+            "outcome": "sent",
+            "code": null
+          }
+        ],
+        "verified": [
+          "contributed"
+        ]
+      },
+      "balance": {
+        "deposited": "100000",
+        "available": "75000",
+        "withdrawn": "0",
+        "pendingWithdraw": "0",
+        "inFlight": {
+          "total": "0",
+          "beforeSend": "0",
+          "sending": "0",
+          "modelRunning": "0",
+          "unresolved": "0"
+        },
+        "settled": {
+          "inference": "10000",
+          "game": "15000",
+          "network": "0"
+        }
+      },
+      "inFlight": [],
+      "sound": true
+    },
+    {
+      "step": "4 tick 2",
+      "tick": {
+        "runId": "stake-2",
+        "status": "done",
+        "stoppedBy": null,
+        "charged": "10000",
+        "items": [
+          {
+            "request": "R-2",
+            "outcome": "sent",
+            "code": null
+          }
+        ],
+        "verified": [
+          "contributed"
+        ]
+      },
+      "balance": {
+        "deposited": "100000",
+        "available": "50000",
+        "withdrawn": "0",
+        "pendingWithdraw": "0",
+        "inFlight": {
+          "total": "0",
+          "beforeSend": "0",
+          "sending": "0",
+          "modelRunning": "0",
+          "unresolved": "0"
+        },
+        "settled": {
+          "inference": "20000",
+          "game": "30000",
+          "network": "0"
+        }
+      },
+      "inFlight": [],
+      "sound": true
+    },
+    {
+      "step": "4 tick 3",
+      "tick": {
+        "runId": "stake-3",
+        "status": "stopped-by-budget",
+        "stoppedBy": "BudgetExceeded",
+        "charged": "10000",
+        "items": [
+          {
+            "request": "R-3",
+            "outcome": "refused",
+            "code": "BudgetExceeded"
+          }
+        ],
+        "verified": []
+      },
+      "balance": {
+        "deposited": "100000",
+        "available": "40000",
+        "withdrawn": "0",
+        "pendingWithdraw": "0",
+        "inFlight": {
+          "total": "0",
+          "beforeSend": "0",
+          "sending": "0",
+          "modelRunning": "0",
+          "unresolved": "0"
+        },
+        "settled": {
+          "inference": "30000",
+          "game": "30000",
+          "network": "0"
+        }
+      },
+      "inFlight": [],
+      "sound": true
+    },
+    {
+      "step": "4 tick 4",
+      "tick": {
+        "runId": "stake-4",
+        "status": "stopped-by-budget",
+        "stoppedBy": "BudgetExceeded",
+        "charged": "0",
+        "items": [],
+        "verified": []
+      },
+      "balance": {
+        "deposited": "100000",
+        "available": "40000",
+        "withdrawn": "0",
+        "pendingWithdraw": "0",
+        "inFlight": {
+          "total": "0",
+          "beforeSend": "0",
+          "sending": "0",
+          "modelRunning": "0",
+          "unresolved": "0"
+        },
+        "settled": {
+          "inference": "30000",
+          "game": "30000",
+          "network": "0"
+        }
+      },
+      "inFlight": [],
+      "sound": true
+    },
+    {
+      "step": "5 stop",
+      "inFlightAtStop": [],
+      "balance": {
+        "deposited": "100000",
+        "available": "40000",
+        "withdrawn": "0",
+        "pendingWithdraw": "0",
+        "inFlight": {
+          "total": "0",
+          "beforeSend": "0",
+          "sending": "0",
+          "modelRunning": "0",
+          "unresolved": "0"
+        },
+        "settled": {
+          "inference": "30000",
+          "game": "30000",
+          "network": "0"
+        }
+      },
+      "inFlight": [],
+      "sound": true
+    },
+    {
+      "step": "6 manual",
+      "delegated": false,
+      "session": "not the agent",
+      "balance": {
+        "deposited": "100000",
+        "available": "40000",
+        "withdrawn": "0",
+        "pendingWithdraw": "0",
+        "inFlight": {
+          "total": "0",
+          "beforeSend": "0",
+          "sending": "0",
+          "modelRunning": "0",
+          "unresolved": "0"
+        },
+        "settled": {
+          "inference": "30000",
+          "game": "30000",
+          "network": "0"
+        }
+      },
+      "inFlight": [],
+      "sound": true
+    },
+    {
+      "step": "7 withdraw",
+      "withdrawal": {
+        "state": "done",
+        "amount": "40000"
+      },
+      "balance": {
+        "deposited": "100000",
+        "available": "0",
+        "withdrawn": "40000",
+        "pendingWithdraw": "0",
+        "inFlight": {
+          "total": "0",
+          "beforeSend": "0",
+          "sending": "0",
+          "modelRunning": "0",
+          "unresolved": "0"
+        },
+        "settled": {
+          "inference": "30000",
+          "game": "30000",
+          "network": "0"
+        }
+      },
+      "inFlight": [],
+      "sound": true
+    }
+  ],
+  "ticks": [
+    {
+      "runId": "stake-1",
+      "status": "done",
+      "stoppedBy": null,
+      "charged": "10000",
+      "items": [
+        {
+          "request": "R-1",
+          "outcome": "sent",
+          "code": null
+        }
+      ],
+      "verified": [
+        "contributed"
+      ]
+    },
+    {
+      "runId": "stake-2",
+      "status": "done",
+      "stoppedBy": null,
+      "charged": "10000",
+      "items": [
+        {
+          "request": "R-2",
+          "outcome": "sent",
+          "code": null
+        }
+      ],
+      "verified": [
+        "contributed"
+      ]
+    },
+    {
+      "runId": "stake-3",
+      "status": "stopped-by-budget",
+      "stoppedBy": "BudgetExceeded",
+      "charged": "10000",
+      "items": [
+        {
+          "request": "R-3",
+          "outcome": "refused",
+          "code": "BudgetExceeded"
+        }
+      ],
+      "verified": []
+    },
+    {
+      "runId": "stake-4",
+      "status": "stopped-by-budget",
+      "stoppedBy": "BudgetExceeded",
+      "charged": "0",
+      "items": [],
+      "verified": []
+    }
+  ],
+  "trace": [
+    {
+      "runId": "stake-1",
+      "thought": {
+        "by": "model:gemma-4-26b-a4b-it",
+        "configuredModel": "gemma-4-26b-a4b-it",
+        "servedModel": "gemma-4-26b-a4b-it",
+        "modelFile": "gemma-3-4b-it-Q4_K_M.gguf",
+        "proposals": [
+          {
+            "requestId": "R-1",
+            "command": {
+              "name": "Train",
+              "fields": {
+                "unit": 0,
+                "n": 100
+              }
+            },
+            "reason": "the owner asked to defend the northern outpost; one batch fits the limits"
+          }
+        ],
+        "notes": []
+      },
+      "inference": [
+        {
+          "attempt": 0,
+          "ok": true,
+          "charged": "10000",
+          "error": null,
+          "relayLine": "settled"
+        }
+      ],
+      "items": [
+        {
+          "requestId": "R-1",
+          "key": "0a8dd3e4-d727-4494-a46f-b6017700530a|R-1|Train|m1",
+          "verdict": "execute",
+          "code": null,
+          "reason": "ok",
+          "ownerDecision": null,
+          "request": {
+            "requestId": "p05.57480104ceb5a43e9b61b5651d50a60d4c700d40",
+            "policyVersion": 3,
+            "modeEpoch": 1,
+            "action": {
+              "name": "Train",
+              "fields": {
+                "unit": 0,
+                "n": 100
+              }
+            },
+            "reason": "nation request R-1: the owner asked to defend the northern outpost; one batch fits the limits"
+          },
+          "gamePrice": "15000",
+          "accepted": {
+            "outcome": "sent",
+            "code": null,
+            "signature": "42ipdxhrAkAQ2EcHXxJDZSv3FdWc22emknHowEMmpTPrtyRFjph8kRByEGw793oXdtHmsLimbiaspfALsRfM5Lk5"
+          },
+          "gameCost": {
+            "state": "settled",
+            "amount": "15000"
+          },
+          "final": {
+            "outcome": "contributed",
+            "tx": null,
+            "effect": null
+          }
+        }
+      ]
+    },
+    {
+      "runId": "stake-2",
+      "thought": {
+        "by": "model:gemma-4-26b-a4b-it",
+        "configuredModel": "gemma-4-26b-a4b-it",
+        "servedModel": "gemma-4-26b-a4b-it",
+        "modelFile": "gemma-3-4b-it-Q4_K_M.gguf",
+        "proposals": [
+          {
+            "requestId": "R-2",
+            "command": {
+              "name": "Train",
+              "fields": {
+                "unit": 0,
+                "n": 100
+              }
+            },
+            "reason": "the owner asked to defend the northern outpost; one batch fits the limits"
+          }
+        ],
+        "notes": []
+      },
+      "inference": [
+        {
+          "attempt": 0,
+          "ok": true,
+          "charged": "10000",
+          "error": null,
+          "relayLine": "settled"
+        }
+      ],
+      "items": [
+        {
+          "requestId": "R-2",
+          "key": "0a8dd3e4-d727-4494-a46f-b6017700530a|R-2|Train|m1",
+          "verdict": "execute",
+          "code": null,
+          "reason": "ok",
+          "ownerDecision": null,
+          "request": {
+            "requestId": "p05.4181f6c1001251ae3f3047e9bae4ad039f9adf34",
+            "policyVersion": 3,
+            "modeEpoch": 1,
+            "action": {
+              "name": "Train",
+              "fields": {
+                "unit": 0,
+                "n": 100
+              }
+            },
+            "reason": "nation request R-2: the owner asked to defend the northern outpost; one batch fits the limits"
+          },
+          "gamePrice": "15000",
+          "accepted": {
+            "outcome": "sent",
+            "code": null,
+            "signature": "3XVuHMq4W7FxRChgsALK4xgUgfQaM2qK97dkGGw6BmRknsMNbbTfftM5ViKQCX6YhwrcE691oCRmK6VZVcieqUv7"
+          },
+          "gameCost": {
+            "state": "settled",
+            "amount": "15000"
+          },
+          "final": {
+            "outcome": "contributed",
+            "tx": null,
+            "effect": null
+          }
+        }
+      ]
+    },
+    {
+      "runId": "stake-3",
+      "thought": {
+        "by": "model:gemma-4-26b-a4b-it",
+        "configuredModel": "gemma-4-26b-a4b-it",
+        "servedModel": "gemma-4-26b-a4b-it",
+        "modelFile": "gemma-3-4b-it-Q4_K_M.gguf",
+        "proposals": [
+          {
+            "requestId": "R-3",
+            "command": {
+              "name": "Train",
+              "fields": {
+                "unit": 0,
+                "n": 100
+              }
+            },
+            "reason": "the owner asked to defend the northern outpost; one batch fits the limits"
+          }
+        ],
+        "notes": []
+      },
+      "inference": [
+        {
+          "attempt": 0,
+          "ok": true,
+          "charged": "10000",
+          "error": null,
+          "relayLine": "settled"
+        }
+      ],
+      "items": [
+        {
+          "requestId": "R-3",
+          "key": "0a8dd3e4-d727-4494-a46f-b6017700530a|R-3|Train|m1",
+          "verdict": "execute",
+          "code": null,
+          "reason": "ok",
+          "ownerDecision": null,
+          "request": {
+            "requestId": "p05.6a1339c896974f1601f9b1e0816088cda688d9b3",
+            "policyVersion": 3,
+            "modeEpoch": 1,
+            "action": {
+              "name": "Train",
+              "fields": {
+                "unit": 0,
+                "n": 100
+              }
+            },
+            "reason": "nation request R-3: the owner asked to defend the northern outpost; one batch fits the limits"
+          },
+          "gamePrice": "15000",
+          "accepted": {
+            "outcome": "refused",
+            "code": "BudgetExceeded",
+            "signature": null
+          },
+          "gameCost": {
+            "state": "unknown",
+            "amount": "15000"
+          },
+          "final": {
+            "outcome": "not checked yet"
+          }
+        }
+      ]
+    },
+    {
+      "runId": "stake-4",
+      "thought": {
+        "by": null,
+        "configuredModel": "gemma-4-26b-a4b-it",
+        "servedModel": null,
+        "modelFile": null,
+        "proposals": [],
+        "notes": []
+      },
+      "inference": [],
+      "items": []
+    }
+  ],
+  "books": [],
+  "finalStatement": {
+    "balance": {
+      "deposited": "100000",
+      "available": "0",
+      "withdrawn": "40000",
+      "pendingWithdraw": "0",
+      "inFlight": {
+        "total": "0",
+        "beforeSend": "0",
+        "sending": "0",
+        "modelRunning": "0",
+        "unresolved": "0"
+      },
+      "settled": {
+        "inference": "30000",
+        "game": "30000",
+        "network": "0"
+      }
+    },
+    "networkFees": {
+      "paidBy": "relay",
+      "recordedLamports": "20000"
+    },
+    "budget": {
+      "policy": {
+        "total": "60000",
+        "perDay": "60000",
+        "callsPerDay": 10
+      },
+      "today": {
+        "key": "2026-10-30",
+        "spent": "60000",
+        "calls": 3
+      },
+      "mode": "manual",
+      "policyVersion": 3
+    },
+    "lines": [
+      {
+        "at": 1793319584678,
+        "type": "deposit",
+        "category": null,
+        "amount": "100000",
+        "lamports": null,
+        "key": null,
+        "model": null,
+        "reason": null
+      },
+      {
+        "at": 1793319584736,
+        "type": "spend",
+        "category": "inference",
+        "amount": "10000",
+        "lamports": null,
+        "key": "stake-1:plan:0",
+        "model": "gemma-4-26b-a4b-it",
+        "reason": null
+      },
+      {
+        "at": 1793319584762,
+        "type": "network",
+        "category": "network",
+        "amount": "0",
+        "lamports": "10000",
+        "key": "mcp:p05.57480104ceb5a43e9b61b5651d50a60d4c700d40",
+        "model": null,
+        "reason": null
+      },
+      {
+        "at": 1793319584764,
+        "type": "spend",
+        "category": "game",
+        "amount": "15000",
+        "lamports": null,
+        "key": "mcp:p05.57480104ceb5a43e9b61b5651d50a60d4c700d40",
+        "model": null,
+        "reason": null
+      },
+      {
+        "at": 1793319584772,
+        "type": "spend",
+        "category": "inference",
+        "amount": "10000",
+        "lamports": null,
+        "key": "stake-2:plan:0",
+        "model": "gemma-4-26b-a4b-it",
+        "reason": null
+      },
+      {
+        "at": 1793319584779,
+        "type": "network",
+        "category": "network",
+        "amount": "0",
+        "lamports": "10000",
+        "key": "mcp:p05.4181f6c1001251ae3f3047e9bae4ad039f9adf34",
+        "model": null,
+        "reason": null
+      },
+      {
+        "at": 1793319584780,
+        "type": "spend",
+        "category": "game",
+        "amount": "15000",
+        "lamports": null,
+        "key": "mcp:p05.4181f6c1001251ae3f3047e9bae4ad039f9adf34",
+        "model": null,
+        "reason": null
+      },
+      {
+        "at": 1793319584786,
+        "type": "spend",
+        "category": "inference",
+        "amount": "10000",
+        "lamports": null,
+        "key": "stake-3:plan:0",
+        "model": "gemma-4-26b-a4b-it",
+        "reason": null
+      },
+      {
+        "at": 1793319584805,
+        "type": "withdraw",
+        "category": null,
+        "amount": "40000",
+        "lamports": null,
+        "key": null,
+        "model": null,
+        "reason": null
+      }
+    ],
+    "inFlight": [],
+    "sound": true
+  }
+}

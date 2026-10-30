@@ -86,9 +86,10 @@ export function answerSchema(names, requestIds) {
  * and the owner's own mandate: no key, no token, no owner address, nothing
  * of the operator's, no sealed march (the observation has none to give).
  */
-export function promptFor(obs, grant, contract, { nowSec }) {
+export function promptFor(obs, grant, contract, { nowSec, contributedTo = () => 0 }) {
   const names = grant.allowed.filter(n => Object.hasOwn(CANDIDATES, n));
-  const requests = openRequests(obs, grant, nowSec);
+  // A request already answered in full is not offered again (a call about it would be paid for nothing).
+  const requests = openRequests(obs, grant, nowSec).filter(r => { const a = parseAsk(r.ask); return !(a?.kind === 'train' && contributedTo(r.id) >= a.n); });
   const user = {
     owner_purpose: sanitize(grant.purpose, { limit: 200 }),
     limits: grant.limits, partial_help_allowed: grant.partial,
@@ -108,8 +109,10 @@ export function promptFor(obs, grant, contract, { nowSec }) {
 export function modelDecider({ llm, maxTokens = 400, deadlineMs = 30_000, seed = 7 }) {
   const d = {
     name: `model:${llm.alias}`, free: false, lastPrompt: null,
-    async plan(obs, grant, contract, { nowSec } = {}) {
-      const p = promptFor(obs, grant, contract, { nowSec });
+    /** Whether a call would have anything to decide: no allowed command or no open request means no call (and no charge). */
+    needsCall(obs, grant, contract, { nowSec, contributedTo } = {}) { const p = promptFor(obs, grant, contract, { nowSec, contributedTo }); return p.names.length > 0 && p.requestIds.length > 0; },
+    async plan(obs, grant, contract, { nowSec, contributedTo } = {}) {
+      const p = promptFor(obs, grant, contract, { nowSec, contributedTo });
       d.lastPrompt = p.messages;
       if (!p.names.length || !p.requestIds.length) return { proposals: [], notes: [{ code: 'NothingToAsk', reason: '委任された命令か、開いている依頼がない' }] };
       const body = { model: llm.alias, messages: p.messages, temperature: 0, top_k: 1, seed, max_tokens: maxTokens, stream: false,
@@ -121,7 +124,7 @@ export function modelDecider({ llm, maxTokens = 400, deadlineMs = 30_000, seed =
       if (!a || !Array.isArray(a.proposals)) throw new Error('model: no proposals list');
       const proposals = a.proposals.slice(0, 8).map(x => ({ requestId: String(x?.request ?? ''), command: { name: String(x?.action ?? ''), fields: x?.fields ?? {} }, by: d.name, reason: sanitize(x?.reason ?? '', { limit: 200 }) }));
       const notes = (Array.isArray(a.skipped) ? a.skipped : []).slice(0, 8).map(x => ({ requestId: String(x?.request ?? ''), code: 'ModelSkipped', reason: sanitize(x?.why ?? '', { limit: 200 }) }));
-      return { proposals, notes, tokens: r.usage ?? null };
+      return { proposals, notes, tokens: r.usage ?? null, servedModel: r.servedModel ?? null };
     },
   };
   return d;

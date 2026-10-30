@@ -15,6 +15,7 @@ import { CommandContract, OUTCOME, grantFrom } from './adapters.mjs';
 import { checkProposal, ignoredWhy, parseAsk } from './guard.mjs';
 import { ruleDecider } from './deciders.mjs';
 import { ERR, sanitize } from './deps.mjs';
+import { BUDGET_STOP_CODES } from './staking/budget.mjs';
 
 export const PARTICIPATION_VERSION = 'wylls-05/0.1';
 
@@ -65,7 +66,7 @@ export function contributedTo(journal, requestId) {
  * memory; a failed or expired one is remembered as that; anything not yet
  * provable stays open for the next run.
  */
-export async function verifyPending({ journal, txState, world }) {
+export async function verifyPending({ journal, txState, world, guard = null }) {
   const out = [];
   const keys = new Set(journal.entries.filter(e => e.step === 'act-result' && e.outcome === OUTCOME.SENT).map(e => e.key));
   for (const key of keys) {
@@ -78,6 +79,8 @@ export async function verifyPending({ journal, txState, world }) {
     try { tx = await txState(sent.signature); } catch (e) { tx = { state: 'unknown', why: String(e?.message ?? e) }; }
     const base = { step: 'verify', key, requestId: begin?.requestId, signature: sent.signature, tx: tx.state, ...(tx.code ? { txCode: tx.code } : {}) };
     if (tx.state === 'failed' || tx.state === 'expired') {
+      // Nothing moved: the executor's game reservation comes back (the relay's own hold is released by its reconcile).
+      guard?.release(`game:${begin?.attemptId}`);
       journal.append({ ...base, outcome: tx.state === 'failed' ? OUTCOME.FAILED : OUTCOME.EXPIRED });
       journal.remember(key, { outcome: tx.state === 'failed' ? OUTCOME.FAILED : OUTCOME.EXPIRED, verified: true, requestId: begin?.requestId, txCode: tx.code ?? null });
       out.push({ key, outcome: tx.state });
@@ -125,13 +128,17 @@ async function act(mcp, args, retries) {
  * @param {string} o.runId
  * @param {number} [o.maxObsAgeSec]  an observation older than this (world clock) is not acted on
  * @param {Function} [o.crash]  test hook: called with a step name; throwing there is a process dying at that step
+ * @param {object} [o.staking]  the AI-staking executor's layer (src/staking): {guard: BudgetGuard, priceBook, modelCfg, identity,
+ *                              gamePrices: the relay's game price table (agent_terms), onBudgetLimit: 'stop'|'rules', modelRetries}.
+ *                              Absent: the participation demo's behaviour (a refused model call falls back to the free rules).
  */
-export async function participate({ mcp, world, txState, meter = null, mandate, decider, fallback = ruleDecider(), contract = new CommandContract(), journal, runId, maxObsAgeSec = 300, retries = 2, crash = () => {} }) {
+export async function participate({ mcp, world, txState, meter = null, mandate, decider, fallback = ruleDecider(), contract = new CommandContract(), journal, runId, maxObsAgeSec = 300, retries = 2, crash = () => {}, staking = null }) {
+  const S = staking;
   const report = { runId, version: PARTICIPATION_VERSION, decider: decider.name, resumed: [], verified: [], items: [], notes: [], charged: '0', status: 'done' };
   const J = e => journal.append({ runId, ...e });
 
   // ---- verify earlier sends.
-  report.verified = await verifyPending({ journal, txState, world });
+  report.verified = await verifyPending({ journal, txState, world, guard: S?.guard ?? null });
 
   // ---- observe.
   const v = await tool(mcp, 'agent_view');
@@ -167,21 +174,45 @@ export async function participate({ mcp, world, txState, meter = null, mandate, 
   const committedToday = journal.committedToday(nowSec);
   const planCtx = { nowSec, committedToday, contributedTo: id => contributedTo(journal, id) };
   let plan, by = decider.name, cause = null, modelError = null;
+  const attempts = [];
+  let charged = 0n;
   if (decider.free || !meter) plan = await decider.plan(obs, grant, contract, planCtx);
+  else if (decider.needsCall && !decider.needsCall(obs, grant, contract, planCtx)) plan = { proposals: [], notes: [{ code: 'NothingToAsk', reason: '委任された命令か、開いている依頼がないので、モデルを呼ばない（請求なし）' }] };
   else {
-    try {
-      const m = await meter(() => decider.plan(obs, grant, contract, planCtx), { key: `${runId}:plan`, free: false, model: decider.name });
-      report.charged = m.charged;
-      if (m.ok) plan = m.result;
-      else { modelError = m.error.message; cause = m.error.code; }
-    } catch (e) {
-      // Cannot pay for the call (balance, budget, the owner's daily call cap) or stopped: nothing was asked of the model.
-      cause = e?.code ?? 'MeterRefused';
-      modelError = String(e?.message ?? e);
+    // A failed model call may be retried, each try a call of its own: held, charged and capped like the first (the
+    // relay's call cap and budget, and this executor's per-call and per-category caps), so retries cannot exceed them.
+    const tries = 1 + Math.max(0, S?.modelRetries ?? 0);
+    for (let i = 0; i < tries && !plan; i++) {
+      const mkey = `${runId}:plan:${i}`;
+      let quote = null;
+      try {
+        if (S) { quote = S.priceBook.quote(S.modelCfg); S.guard.reserve(mkey, 'inference', quote.amount); }
+      } catch (e) { cause = e?.code ?? 'QuoteRefused'; modelError = String(e?.message ?? e); break; }
+      try {
+        const m = await meter(() => decider.plan(obs, grant, contract, planCtx), { key: mkey, free: false, model: S?.modelCfg?.model ?? decider.name });
+        S?.guard.commit(mkey, m.charged);
+        charged += BigInt(m.charged);
+        attempts.push({ attempt: i, ok: m.ok, charged: m.charged, quote: quote?.amount ?? null, ...(quote && BigInt(m.charged) > BigInt(quote.amount) ? { priceMismatch: true } : {}), servedModel: m.result?.servedModel ?? null, error: m.ok ? null : sanitize(m.error.message, { limit: 120 }) });
+        if (m.ok) plan = m.result;
+        else { modelError = m.error.message; cause = m.error.code; }
+      } catch (e) {
+        // The relay refused to hold the call (balance, budget, the owner's daily call cap, a stop): no call was made.
+        S?.guard.release(mkey);
+        cause = e?.code ?? 'MeterRefused';
+        modelError = String(e?.message ?? e);
+        break;
+      }
+    }
+    report.charged = String(charged);
+    if (!plan && S?.onBudgetLimit === 'stop' && BUDGET_STOP_CODES.has(cause)) {
+      J({ step: 'plan', by: null, charged: report.charged, cause, attempts, configuredModel: S.modelCfg?.model ?? null, modelError: sanitize(modelError ?? '', { limit: 200 }), proposals: [], notes: [] });
+      return { ...report, status: 'stopped-by-budget', stoppedBy: cause, reason: '予算の上限に達したので、新しい判断も操作もしない。本人が予算を見直すまで止まる' };
     }
     if (!plan) { plan = await fallback.plan(obs, grant, contract, planCtx); by = `${fallback.name} (after ${cause})`; }
   }
-  J({ step: 'plan', by, charged: report.charged, cause, modelError: modelError ? sanitize(modelError, { limit: 200 }) : null, proposals: plan.proposals.map(p => ({ requestId: p.requestId, command: p.command, reason: p.reason })), notes: plan.notes });
+  const served = attempts.findLast(a => a.servedModel)?.servedModel ?? null;
+  J({ step: 'plan', by, charged: report.charged, cause, attempts, configuredModel: S?.modelCfg?.model ?? null, servedModel: served, modelFile: S?.identity?.modelFile ?? null, reportedAlias: S?.identity?.reportedAlias ?? null,
+    modelError: modelError ? sanitize(modelError, { limit: 200 }) : null, proposals: plan.proposals.map(p => ({ requestId: p.requestId, command: p.command, reason: p.reason })), notes: plan.notes });
   report.by = by;
   report.notes = plan.notes ?? [];
   // The board's requests this run does not answer, and why (another nation's, an author the owner does not follow, past its deadline).
@@ -192,11 +223,13 @@ export async function participate({ mcp, world, txState, meter = null, mandate, 
   /** Troops of each unit this run has sent so far: the next one's effect is counted on top of them. */
   const sentUnits = {};
   let stale = null;
+  let budgetStop = null;
   for (const p of plan.proposals) {
     const req = obs.requests.find(r => r.id === p.requestId);
     // The request's author goes with every item, so that an owner asked to decide sees who asked.
     const item = { requestId: p.requestId, title: req ? sanitize(req.title ?? '', { limit: 60, untrusted: true }) : null, author: req ? sanitize(req.author ?? '?', { limit: 40, untrusted: true }) : null, by: p.by, proposed: p.command };
     report.items.push(item);
+    if (budgetStop) { Object.assign(item, { outcome: OUTCOME.SKIPPED, code: budgetStop, reason: '予算の上限に達したので、残りの提案は送らない' }); continue; }
     if (stale) { Object.assign(item, { outcome: OUTCOME.SKIPPED, code: stale, reason: 'この回の観測が古くなったので、残りの提案は次の回に観測し直してから決める' }); continue; }
     const key = keyOf(obs.view.agentId, p.requestId, p.command?.name, grant.versions.mandateVersion);
     const prior = journal.stateOf(key);
@@ -219,7 +252,17 @@ export async function participate({ mcp, world, txState, meter = null, mandate, 
 
     const unitName = g.command.name === 'Train' ? contract.catalog.train.find(u => u.unit === g.command.fields.unit)?.name : null;
     const args = { requestId: requestIdOf(`${key}#${attemptOf(journal, key)}`), policyVersion: obs.view.policy.version, modeEpoch: obs.view.modeEpoch, action: g.command, reason: `nation request ${String(p.requestId).slice(0, 40)}: ${p.reason ?? ''}`.slice(0, 200) };
-    J({ step: 'act-begin', key, requestId: p.requestId, attemptId: args.requestId, outcome: OUTCOME.ACTING, args, cost: g.cost, worldSec: nowSec, unitName, baseline: unitName ? (obs.village?.reserve_troops?.[unitName] ?? 0) + (sentUnits[unitName] ?? 0) : null });
+    // The game's USDC price of this action (the relay's table; empty in the shipped config): this executor's cap first.
+    const gamePrice = String(S?.gamePrices?.[g.command.name] ?? '0');
+    if (S && BigInt(gamePrice) > 0n) {
+      try { S.guard.reserve(`game:${args.requestId}`, 'game', gamePrice); } catch (e) {
+        J({ step: 'guard', key, requestId: p.requestId, verdict: 'refused', code: e.code, reason: e.message });
+        Object.assign(item, { outcome: OUTCOME.REFUSED, code: e.code, reason: `${e.message}（送らない。何も請求されない）`, ownerDecision: '本人が上限を見直すか、待つ' });
+        if (S.onBudgetLimit === 'stop') { budgetStop = e.code; report.status = 'stopped-by-budget'; report.stoppedBy = e.code; }
+        continue;
+      }
+    }
+    J({ step: 'act-begin', key, requestId: p.requestId, attemptId: args.requestId, outcome: OUTCOME.ACTING, args, cost: g.cost, gamePrice, worldSec: nowSec, unitName, baseline: unitName ? (obs.village?.reserve_troops?.[unitName] ?? 0) + (sentUnits[unitName] ?? 0) : null });
     await crash('act-begin');
     const { r, unreachable, attempts } = await act(mcp, args, retries);
     await crash('act-sent');
@@ -238,6 +281,7 @@ export async function participate({ mcp, world, txState, meter = null, mandate, 
       Object.assign(item, { outcome: OUTCOME.UNKNOWN, code: a.code, reason: `中継の答え（${a.code}）からは、送られたか分からない。次の回に同じ requestId で確かめる` });
       continue;
     }
+    if (a.status !== 'sent') S?.guard.release(`game:${args.requestId}`);
     J({ step: 'act-result', key, requestId: p.requestId, attemptId: args.requestId, outcome: a.status, code: a.code, signature: a.signature, replayed: a.replayed, cost: g.cost, worldSec: nowSec, attempts });
     Object.assign(item, { outcome: a.status, code: a.code, signature: a.signature, command: g.command, attempts,
       reason: a.status === 'sent' ? '中継が受け付けて送った。着地と効果は次の確認で見る' : `中継が断った（${a.code}）。何も送られず、何も請求されない`,
@@ -245,6 +289,8 @@ export async function participate({ mcp, world, txState, meter = null, mandate, 
     if (a.status === 'sent') commit();
     // A refusal for a stale version, a stop or a revoked token means nothing else in this run can go either.
     if (['StalePolicy', 'StaleMode', 'AgentStopped', 'BadCapability'].includes(a.code)) stale = 'StaleObservation';
+    // The relay's budget refused it: with the owner's "stop at the limit", nothing more this run.
+    if (S?.onBudgetLimit === 'stop' && BUDGET_STOP_CODES.has(a.code)) { budgetStop = a.code; report.status = 'stopped-by-budget'; report.stoppedBy = a.code; }
   }
   return report;
 }
