@@ -7,6 +7,10 @@
 - `AGENTS.md` と関連スキル（`.claude/skills/` など）は、基準 commit にも他のブランチにもありませんでした。読んだのは `docs/DEVELOPMENT-HANDOFF.ja.md`、`docs/agent-wallet/`（DESIGN・MCP・STATUS ほか）、`docs/design/redesign/24-ai-roles`・`29-remaining-decisions`・`99-decisions`、AI住人の契約、試遊甲のキット、関係するコードです。
 - ②（権利）・④（Run）の契約は届いていません。③は未 merge のブランチ `claude/modest-goldberg-c180fk` に成果物があり、読むだけにしました。接続は**仮アダプター**です（[ADAPTERS](ADAPTERS.ja.md)、[STAKING-BOUNDARIES](STAKING-BOUNDARIES.ja.md)）。
 
+## 追加：離席中の自動運転の推論費用（Claude／GPT、2026-10-30、ブランチ `claude/ai-participation-model-api`）
+
+`model-api/` に分けました（`ba3c180b` はそのまま）。設計は [model-api/MODEL-API](model-api/MODEL-API.ja.md)、本人向けの1ページは [model-api/OWNER-ONE-PAGE](model-api/OWNER-ONE-PAGE.ja.md)、テストは `model-api/test/`（fixture のみ。API は呼んでいない）。
+
 ## 追加要件：AI staking（2026-10-30）
 
 agent に予算と行動範囲を任せ、預けた残高から推論とゲーム内の支出を払う仕組みです。前回の成果の上に足しました。前回の成果は壊していません（既存の19件のテストはそのまま通る）。
