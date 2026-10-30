@@ -48,8 +48,14 @@ test('a missing record makes the dependent verdicts indeterminate, not failed', 
   const v = evaluate(RULESETS.B, withEvents(coop, es => es.filter(e => e !== arrival && e.id !== arrival.id)));
   assert.deepEqual(v.records.gaps, [{ stream: 'chain', missing: [String(arrival.seq)] }]);
   assert.equal(joint(v).status, 'indeterminate');
-  // The prize leans on the same stream after the gap only if a keep moved after it: here none did.
-  assert.equal(v.prize.status, 'decided');
+  // The same stream carries keeps: a keep record may be missing too, so the prize is not decided either.
+  assert.equal(v.prize.status, 'indeterminate');
+  // A gap in a stream declared to carry only the board's records leaves the prize decided.
+  const board = coop.events.find(e => e.stream === 'ws01' && e.kind === 'contribute');
+  const streams = { ...coop.state.streams, ws01: { from: 0, kinds: ['project.open', 'contribute'] } };
+  const v2 = evaluate(RULESETS.B, { state: { ...coop.state, streams }, events: coop.events.filter(e => e !== board) });
+  assert.equal(joint(v2).status, 'indeterminate');
+  assert.equal(v2.prize.status, 'decided');
   // A trailing gap: the source says it sent through seq 30, the evaluator saw fewer.
   const trailing = evaluate(RULESETS.B, { ...coop, state: { ...coop.state, streams: { ...coop.state.streams, chain: { from: 0, through: 30 } } } });
   assert.equal(trailing.records.gaps[0].stream, 'chain');

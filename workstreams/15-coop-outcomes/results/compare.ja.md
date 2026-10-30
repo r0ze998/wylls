@@ -18,6 +18,6 @@
 | rush-solo | 480 / n1 / — | 480 / n1 / 未達 | 480 / n1 / 未達 | diversity |
 | sybil-labelled | 480 / n1 / — | 480 / n1 / 未達 | 480 / n1 / 未達 | diversity |
 | sybil-unlabelled | 480 / n1 / — | 480 / n1 / 達成@72 | 96＊ / n0 / 達成@72 | achieved |
-| unverified-storehouse | 480 / n0 / — | 480 / n0 / 判定不能 | 480 / n0 / 判定不能 | stage_inputs, unverified_qty |
+| unverified-storehouse | 480 / n0 / — | 480 / n0 / 判定不能 | 480 / n0（判定不能） / 判定不能 | stage_inputs, unverified_qty |
 
 選択肢：どのシナリオ・どの案でも、待つ・従う以外の選択肢がない参加者は いなかった（戦期が閉じた後を除く）。

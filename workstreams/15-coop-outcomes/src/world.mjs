@@ -22,9 +22,9 @@ export const countsAs = v => (v === 'chain' || v === 'derived' ? 'exact' : v ===
  * the structures' material requirements; `jointGoals` the ruleset's joint
  * goals by id (their requirements apply to their projects).
  */
-export function buildWorld({ state, events, taint, closeAt, costs, jointGoals }) {
+export function buildWorld({ state, events, taint, gapFrom = {}, closeAt, costs, jointGoals }) {
   const W = {
-    closeAt,
+    closeAt, gapFrom,
     opensAt: state.period.opensAt,
     actors: new Map(), lots: new Map(), ships: new Map(), projects: new Map(), structures: new Map(),
     keeps: new Map(), keepHistory: [], keepsAtClose: null, territory: {}, territoryAtClose: null,
@@ -58,6 +58,7 @@ export function buildWorld({ state, events, taint, closeAt, costs, jointGoals })
     switch (e.kind) {
       case 'actor.join': {
         const a = W.actors.get(e.actor);
+        if (!W.nations.includes(e.nation)) W.nations = [...W.nations, e.nation].sort();
         if (a) { a.nation = e.nation; a.expelled = false; a.history.push({ at: e.at, nation: e.nation }); }
         else W.actors.set(e.actor, { id: e.actor, nation: e.nation, cluster: e.cluster ?? e.actor, kind: e.actorKind ?? 'human', joinedAt: e.at, expelled: false, history: [{ at: e.at, nation: e.nation }] });
         out(e, true);
@@ -73,7 +74,8 @@ export function buildWorld({ state, events, taint, closeAt, costs, jointGoals })
         break;
       }
       case 'lot.produce': {
-        if (W.lots.has(e.lot)) { out(e, false, 'conflict'); break; }
+        // `#` is reserved for lots the evaluator names (arrivals, raids).
+        if (W.lots.has(e.lot) || e.lot.includes('#')) { out(e, false, 'conflict'); break; }
         W.lots.set(e.lot, { id: e.lot, owner: e.owner, resource: e.resource, qty: e.qty, verified: e.verified, origin: { actor: e.owner, nation: nationOf(e.owner) }, path: [e.lot], at: e.at, evidence: [e.id] });
         out(e, true);
         break;
@@ -168,7 +170,7 @@ export function buildWorld({ state, events, taint, closeAt, costs, jointGoals })
         if (p.completed) { out(e, false, 'project_closed'); break; }
         l.qty -= e.qty;
         const a = W.actors.get(e.actor);
-        const input = { id: e.id, at: e.at, actor: e.actor, nation: a?.nation ?? null, cluster: a?.cluster ?? e.actor, lot: l.id, resource: l.resource, qty: e.qty, verified: l.verified, origin: l.origin, path: l.path, late: e.at > p.deadline, lotLate: !!l.late, evidence: [...(l.evidence ?? []), e.id], tainted: !!l.tainted || tainted(taint, e) };
+        const input = { id: e.id, at: e.at, actor: e.actor, nation: a?.nation ?? null, cluster: a?.cluster ?? e.actor, lot: l.id, resource: l.resource, qty: e.qty, verified: worst(l.verified, e.verified), origin: l.origin, path: l.path, late: e.at > p.deadline, lotLate: !!l.late, evidence: [...(l.evidence ?? []), e.id], tainted: !!l.tainted || tainted(taint, e) };
         p.inputs.push(input);
         out(e, true, input.late ? 'late' : null);
         break;
@@ -179,6 +181,7 @@ export function buildWorld({ state, events, taint, closeAt, costs, jointGoals })
         if (p.completed) { out(e, false, 'project_closed'); break; }
         if (W.structures.has(e.structure)) { out(e, false, 'conflict'); break; }
         if ((e.by ?? p.steward) !== p.steward) { out(e, false, 'not_steward'); break; }
+        if (e.structureKind !== undefined && e.structureKind !== p.structure) { out(e, false, 'wrong_structure'); break; }
         // The program builds from what the steward holds; inputs short of the requirement mean
         // the structure stands on goods this evaluator cannot trace to the project.
         const have = {};

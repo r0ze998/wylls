@@ -14,6 +14,7 @@
 // ④ and ① disagree on a village arrival without `credited`: ④ calls the
 // logged cargo the delivered amount (RuleDerived), ① a lower bound. The
 // caller picks (`ruleDerivedAs`); the default is ①'s, the more cautious.
+import { canonical } from '../canon.mjs';
 import { SLOT_RESOURCES } from './s1-chain.mjs';
 
 export const VERIFICATION = Object.freeze({
@@ -26,23 +27,28 @@ export function fromRunReceipts(receipts, map, { stream = 'ws04', ruleDerivedAs 
   const events = [];
   const skipped = [];
   // ④ removes duplicates by sig ‖ instruction position ‖ log position; its `source` names that.
+  // The same key with the same content is one receipt; with other content, both are emitted
+  // under one id and position, and the evaluator's record check sets both aside as a conflict.
+  // The order is total (content breaks ties), so the input's order does not matter.
+  const keyOf = r => `${r.kind}|${r.source}|${r.subject}`;
+  const sorted = [...receipts].map(r => ({ r, k: keyOf(r), c: canonical(r) })).sort((a, b) => a.r.slot - b.r.slot || (a.k < b.k ? -1 : a.k > b.k ? 1 : a.c < b.c ? -1 : a.c > b.c ? 1 : 0));
+  const seqOf = new Map();
   const seen = new Set();
-  const sorted = [...receipts].sort((a, b) => a.slot - b.slot || (a.source < b.source ? -1 : 1));
   let seq = 0;
-  for (const r of sorted) {
-    const key = `${r.kind}|${r.source}|${r.subject}`;
-    if (seen.has(key)) { skipped.push({ source: r.source, why: 'duplicate receipt' }); continue; }
-    seen.add(key);
+  for (const { r, k, c } of sorted) {
+    if (seen.has(c)) { skipped.push({ source: r.source, why: 'duplicate receipt' }); continue; }
+    seen.add(c);
+    if (!seqOf.has(k)) seqOf.set(k, seq++);
     const b = r.body ?? {};
     const at = map.bellOfSlot(r.slot);
-    const s = seq++;
+    const s = seqOf.get(k);
     let sub = 0;
-    const emit = (kind, fields, verified) => events.push({ id: `${stream}:${s}:${sub}`, stream, seq: s, sub: sub++, at, kind, verified, ...fields, src: { run: r.run_id, source: r.source } });
+    const emit = (kind, fields, verified) => events.push({ id: `${stream}:${s}:${sub}`, stream, seq: s, sub: sub++, at, kind, verified, ...fields, src: { source: r.source } });
     const ship = res => `cv:${b.owner_tag}:${b.seq}:${res}`;
     if (r.kind === 'caravan_sent') {
       const from = map.actorOfTag(b.owner_tag);
       const dst = map.destination(b.dst, b.owner_tag, b.seq);
-      if (!from || !dst) { skipped.push({ source: r.source, why: 'unresolved' }); emit('position', {}, 'chain'); continue; }
+      if (!from || !dst) { skipped.push({ source: r.source, why: 'unresolved (left as a gap)' }); continue; }
       b.cargo.forEach((q, i) => { if (q && SLOT_RESOURCES[i]) emit('ship.send', { ship: ship(SLOT_RESOURCES[i]), from, to: dst.project ? `project:${dst.project}` : dst.actor, resource: SLOT_RESOURCES[i], qty: q }, 'chain'); });
     } else if (r.kind === 'caravan_settled') {
       const v = b.verification === 'RuleDerived' ? ruleDerivedAs : VERIFICATION[b.verification] ?? 'unverified';
@@ -51,7 +57,7 @@ export function fromRunReceipts(receipts, map, { stream = 'ws04', ruleDerivedAs 
     } else if (r.kind === 'caravan_raided') {
       const raider = map.actorOfTag(b.raider_tag);
       const sent = map.cargoSent(b.owner_tag, b.seq);
-      if (!raider || !sent) { skipped.push({ source: r.source, why: 'unresolved' }); emit('position', {}, 'chain'); continue; }
+      if (!raider || !sent) { skipped.push({ source: r.source, why: 'unresolved (left as a gap)' }); continue; }
       sent.forEach((q, i) => {
         if (!q || !SLOT_RESOURCES[i]) return;
         const take = b.choice === 'take' ? b.taken[i] : 0;

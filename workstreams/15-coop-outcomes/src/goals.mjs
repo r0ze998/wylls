@@ -11,6 +11,25 @@
 // is never a reason. Resources are never added together; progress is a
 // per-resource table and, where one number is shown, the scarcest share.
 import { countsAs } from './world.mjs';
+import { gapsBefore } from './ledger.mjs';
+
+/** Record kinds each kind of verdict could be changed by (a gap in a stream that may carry one undecides it). */
+const ACTORS = ['actor.join', 'actor.move', 'actor.expel'];
+const GOODS = [...ACTORS, 'lot.produce', 'ship.send', 'ship.arrive', 'ship.raid', 'ship.lost', 'project.open', 'contribute', 'build.complete', 'structure.seized', 'use'];
+export const KINDS_OF = Object.freeze({
+  joint: GOODS, build_use: GOODS, joint_share: GOODS, supplier: GOODS, founder: GOODS,
+  cross_user: [...ACTORS, 'build.complete', 'structure.seized', 'use', 'project.open'],
+  hold_bells: [...ACTORS, 'keep.set'],
+  raider: [...ACTORS, 'ship.send', 'ship.raid', 'ship.arrive', 'ship.lost'],
+  scout: [...ACTORS, 'tower.sighting', 'tower.report.used'],
+  prize: ['keep.set', 'territory.counter'],
+});
+/** A verdict decided at bell `at` is undecided when a gap could hide a record that changes it. */
+function undecide(W, r, at, kinds) {
+  const gaps = gapsBefore(W.gapFrom, at, kinds);
+  if (!gaps.length || r.status === 'indeterminate' || r.status === 'not_offered' || r.status === 'not_awarded') return r;
+  return { ...r, status: 'indeterminate', decidedAt: at, reasons: [...r.reasons, R('missing_records', [], { streams: gaps, was: r.status })] };
+}
 
 const R = (code, evidence = [], detail = undefined) => ({ code, evidence: [...new Set(evidence)].sort(), ...(detail === undefined ? {} : { detail }) });
 const sortBy = (k) => (a, b) => (a[k] < b[k] ? -1 : a[k] > b[k] ? 1 : 0);
@@ -101,12 +120,16 @@ export function judgeJoint(W, g, ctx) {
   const results = projects.map(p => judgeProject(W, g, p, ctx));
   const achieved = results.filter(r => r.status === 'achieved').sort((a, b) => a.achievedAt - b.achievedAt || (a.project < b.project ? -1 : 1));
   const best = achieved[0] ?? results.find(r => r.status === 'indeterminate') ?? results[0] ?? null;
+  // An undecided project could have been achieved earlier: the goal is achieved, but not certainly when.
+  const whenUncertain = !!achieved[0] && results.some(r => r.status === 'indeterminate');
+  const empty = undecide(W, { status: 'not_achieved', reasons: [R('causality', [], 'この目標の計画が一つも開かれていない')] }, W.closeAt, KINDS_OF.joint);
   return {
     goal: g.id, track: 'joint', label: g.label,
-    status: best ? best.status : 'not_achieved',
+    status: best ? best.status : empty.status,
     achievedAt: achieved[0]?.achievedAt ?? null,
+    achievedAtUncertain: whenUncertain,
     project: best?.project ?? null,
-    reasons: best ? best.reasons : [R('causality', [], 'この目標の計画が一つも開かれていない')],
+    reasons: best ? best.reasons : empty.reasons,
     projects: results,
   };
 }
@@ -155,8 +178,11 @@ function judgeProject(W, g, p, ctx) {
   if (standsOn.some(x => x.tainted) || c?.tainted) { indeterminate = true; reasons.push(R('missing_records', standsOn.filter(x => x.tainted).map(x => x.input ?? x.id))); }
   ev.push(...p.evidence);
   const all = inputs.met && completion.done && use.met && diversity.met;
-  const status = indeterminate ? 'indeterminate' : all ? 'achieved' : 'not_achieved';
-  const credits = credit.lines.filter(l => l.credited).map(l => ({ actor: l.actor, nation: l.nation, originNation: l.origin.nation, resource: l.resource, credited: l.credited, input: l.input }));
+  let status = indeterminate ? 'indeterminate' : all ? 'achieved' : 'not_achieved';
+  const achievedAt0 = all && !indeterminate ? Math.max(completion.at, use.at) : null;
+  const gaps = gapsBefore(W.gapFrom, achievedAt0 ?? W.closeAt, KINDS_OF.joint);
+  if (gaps.length && status !== 'indeterminate') { reasons.push(R('missing_records', [], { streams: gaps, was: status })); status = 'indeterminate'; }
+  const credits = credit.lines.filter(l => l.credited).map(l => ({ actor: l.actor, cluster: l.cluster, nation: l.nation, originNation: l.origin.nation, resource: l.resource, credited: l.credited, input: l.input }));
   const nationShareBps = {};
   for (const l of credits) {
     const t = (nationShareBps[l.nation] ??= {});
@@ -164,7 +190,7 @@ function judgeProject(W, g, p, ctx) {
   }
   return {
     project: p.id, steward: p.steward, structure: p.structure, status,
-    achievedAt: all && !indeterminate ? Math.max(completion.at, use.at) : null,
+    achievedAt: status === 'achieved' ? achievedAt0 : null,
     stages: { inputs, completion, use, diversity },
     credits, nationShareBps,
     reasons: status === 'achieved' ? [R('achieved', [...ev, c.id, ...use.uses])] : reasons,
@@ -211,7 +237,7 @@ export function judgeNational(W, nationalRules, joint, ctx) {
     if (!g) { out.push({ goal: chosen, track: 'national', subject: n, status: 'not_achieved', reasons: [R('goal_not_in_ruleset', W.nationGoals[n] ? [W.nationGoals[n].id] : [])] }); continue; }
     const size = members[n]?.length ?? 0;
     const scale = size ? size / mean : 0;
-    out.push({ ...judgeNationGoal(W, g, n, scale, size, joint), goal: g.id, track: 'national', subject: n, members: size });
+    out.push({ ...undecide(W, judgeNationGoal(W, g, n, scale, size, joint), W.closeAt, KINDS_OF[g.kind] ?? GOODS), goal: g.id, track: 'national', subject: n, members: size });
   }
   return out;
 }
@@ -261,8 +287,9 @@ export function judgePersonal(W, personalRules, joint, ctx) {
     }
     const slots = new Map();
     for (const a of actors) {
-      const r = judgePersonalGoal(W, g, a, credited);
-      if (!r) continue;
+      const r0 = judgePersonalGoal(W, g, a, credited);
+      if (!r0) continue;
+      const r = undecide(W, r0, W.closeAt, KINDS_OF[g.kind] ?? GOODS);
       const slot = `${g.id}|${ctx.periodId}|${ctx.slotBy === 'cluster' ? a.cluster : a.id}`;
       if (r.status === 'achieved' && slots.has(slot)) {
         out.push({ goal: g.id, track: 'personal', subject: a.id, status: 'not_awarded', slot, reasons: [R('same_slot', r.reasons.flatMap(x => x.evidence), { holder: slots.get(slot) })] });
@@ -271,6 +298,9 @@ export function judgePersonal(W, personalRules, joint, ctx) {
       if (r.status === 'achieved') slots.set(slot, a.id);
       out.push({ goal: g.id, track: 'personal', subject: a.id, slot, ...r });
     }
+    // Someone with no record seen may have one behind a gap.
+    const hidden = gapsBefore(W.gapFrom, W.closeAt, KINDS_OF[g.kind] ?? GOODS);
+    if (hidden.length) out.push({ goal: g.id, track: 'personal', subject: null, status: 'indeterminate', reasons: [R('missing_records', [], { streams: hidden, note: '記録の見えない人も、欠落の中で達成しているかもしれない' })] });
   }
   return out;
 }
@@ -278,8 +308,11 @@ export function judgePersonal(W, personalRules, joint, ctx) {
 function judgePersonalGoal(W, g, a, credited) {
   const tainted = xs => xs.some(x => x.tainted);
   if (g.kind === 'supplier') {
-    const mine = credited.filter(l => l.actor === a.id);
-    if (!mine.length) return null;
+    // Own goods only: goods someone else shipped in count for where they came from, not for the holder.
+    const all = credited.filter(l => l.actor === a.id);
+    if (!all.length) return null;
+    const mine = all.filter(l => clusterOfOrigin(l) === a.cluster);
+    if (!mine.length) return { status: tainted(all) ? 'indeterminate' : 'not_achieved', perResource: {}, reasons: [R('not_own_goods', all.map(l => l.input))] };
     const per = {};
     for (const l of mine) per[l.resource] = (per[l.resource] ?? 0) + l.credited;
     const hit = Object.entries(per).filter(([r, q]) => q >= (g.minQty[r] ?? Infinity)).map(([r]) => r).sort();
@@ -294,8 +327,10 @@ function judgePersonalGoal(W, g, a, credited) {
   if (g.kind === 'founder') {
     const ps = [...W.projects.values()].filter(p => p.steward === a.id && p.completed && !p.completed.late);
     if (!ps.length) return null;
-    const ok = ps.filter(p => new Set(credited.filter(l => l.project === p.id && l.cluster !== a.cluster).map(l => l.cluster)).size >= g.minOthers);
-    return { status: ok.length ? 'achieved' : 'not_achieved', reasons: [R(ok.length ? 'achieved' : 'diversity', ps.flatMap(p => p.evidence), { projects: ok.map(p => p.id) })] };
+    // Others are counted by where the goods came from: one's own goods passed through others do not count.
+    const ok = ps.filter(p => new Set(credited.filter(l => l.project === p.id && clusterOfOrigin(l) !== a.cluster).map(clusterOfOrigin)).size >= g.minOthers);
+    const t = ps.some(p => p.completed.tainted) || tainted(credited.filter(l => ps.some(p => p.id === l.project)));
+    return { status: t ? 'indeterminate' : ok.length ? 'achieved' : 'not_achieved', reasons: [R(ok.length ? 'achieved' : 'diversity', ps.flatMap(p => p.evidence), { projects: ok.map(p => p.id) })] };
   }
   if (g.kind === 'raider') {
     const mine = W.raids.filter(r => r.raider === a.id && !r.late);

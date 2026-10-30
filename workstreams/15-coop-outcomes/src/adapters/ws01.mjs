@@ -30,6 +30,7 @@ export function fromWs01Board(board, map, { stream = 'ws01' } = {}) {
   const byCaravan = new Map();
   let seq = 0;
   const requests = [...(board.requests ?? [])].sort((a, b) => a.at - b.at || (a.id < b.id ? -1 : 1));
+  const links = [];
   for (const r of requests) {
     const p = map.projectOf(r);
     if (!p) { rejected.push({ request: r.id, why: 'no project for this goal' }); continue; }
@@ -40,13 +41,15 @@ export function fromWs01Board(board, map, { stream = 'ws01' } = {}) {
       events.push({ id: `${stream}:req:${r.id}`, stream, seq: seq++, at: map.bellOf(r.at), kind: 'project.open', verified: 'chain',
         project: p.project, goal: p.goal, structure: p.structure, steward, ...(r.expiresAt ? { deadline: map.bellOf(r.expiresAt) } : {}), src: { request: r.id } });
     }
-    // ①: the first link of a caravan wins; later ones are duplicates (allocate()).
-    for (const l of [...(r.links ?? [])].sort((a, b) => a.at - b.at)) {
-      const key = `${l.caravan.ownerTag}:${l.caravan.seq}`;
-      if (byCaravan.has(key)) { rejected.push({ request: r.id, caravan: key, why: 'duplicateOf', of: byCaravan.get(key).request }); continue; }
-      if (!OPEN.has(r.state) && r.state !== undefined) { rejected.push({ request: r.id, caravan: key, why: `request ${r.state}` }); continue; }
-      byCaravan.set(key, { request: r.id, project: p.project, steward, responder: map.actorOf(l.responder) });
-    }
+    for (const l of r.links ?? []) links.push({ l, r, p, steward });
+  }
+  // ①: the first link of a caravan wins, by the link's own time across all requests (allocate()).
+  links.sort((x, y) => x.l.at - y.l.at || x.r.at - y.r.at || (x.r.id < y.r.id ? -1 : x.r.id > y.r.id ? 1 : 0));
+  for (const { l, r, p, steward } of links) {
+    const key = `${l.caravan.ownerTag}:${l.caravan.seq}`;
+    if (!OPEN.has(r.state) && r.state !== undefined) { rejected.push({ request: r.id, caravan: key, why: `request ${r.state}` }); continue; }
+    if (byCaravan.has(key)) { rejected.push({ request: r.id, caravan: key, why: 'duplicateOf', of: byCaravan.get(key).request }); continue; }
+    byCaravan.set(key, { request: r.id, project: p.project, steward, responder: map.actorOf(l.responder) });
   }
   /** For s1-chain.mjs: a caravan linked to a request goes to that request's project. */
   const linkResolver = (fallback = () => null) => (place, ownerTag, s) => {

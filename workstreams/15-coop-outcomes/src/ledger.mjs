@@ -20,7 +20,9 @@ export function normalize(events = [], streams = {}) {
   const conflicted = new Set();
   for (const e of events) {
     const bad = shapeProblems(e);
-    if (bad.length) { notes.rejected.push({ id: e?.id ?? null, code: bad[0] }); continue; }
+    const allowed = streams[e?.stream]?.kinds;
+    if (!bad.length && allowed && !allowed.includes(e.kind)) bad.push('stream_kind');
+    if (bad.length) { notes.rejected.push({ id: e?.id ?? null, code: bad[0], text: safeText(e) }); continue; }
     const text = canonical(e);
     const seen = byId.get(e.id);
     if (!seen) byId.set(e.id, { e, text });
@@ -52,19 +54,27 @@ export function normalize(events = [], streams = {}) {
     if (!holes.has(group[0].stream)) holes.set(group[0].stream, new Set());
     holes.get(group[0].stream).add(group[0].seq);
   }
-  // Gaps per stream (missing positions, and holes left by conflicts).
+  // Gaps per stream (missing positions, and holes left by conflicts). A gap
+  // could hide a record from any bell after the last record seen before it:
+  // `gapFrom` is that bell (the period's start when nothing precedes it), and
+  // `kinds` what the stream may carry (all kinds unless the state says).
   const taint = {};
+  const gapFrom = {};
   const names = new Set([...kept.map(e => e.stream), ...Object.keys(streams), ...holes.keys()]);
   for (const s of [...names].sort()) {
-    const seqs = new Set(kept.filter(e => e.stream === s).map(e => e.seq));
+    const mine = kept.filter(e => e.stream === s);
+    const seqs = new Set(mine.map(e => e.seq));
+    const hole = holes.get(s) ?? new Set();
     const from = streams[s]?.from ?? 0;
-    const max = Math.max(from - 1, ...seqs, ...(holes.get(s) ?? []));
+    const max = Math.max(from - 1, ...seqs, ...hole);
     const through = streams[s]?.through ?? max;
     const missing = [];
-    for (let i = from; i <= Math.max(max, through); i++) if (!seqs.has(i)) missing.push(i);
+    for (let i = from; i <= Math.max(max, through); i++) if (!seqs.has(i) || hole.has(i)) missing.push(i);
     if (missing.length) {
       notes.gaps.push({ stream: s, missing: compress(missing) });
       taint[s] = missing[0];
+      const before = mine.filter(e => e.seq < missing[0]).map(e => e.at);
+      gapFrom[s] = { bell: before.length ? Math.max(...before) : -Infinity, kinds: streams[s]?.kinds ?? null };
     }
   }
   // How far the input was from the canonical order (information only).
@@ -72,8 +82,21 @@ export function normalize(events = [], streams = {}) {
   for (let i = 1; i < order.length; i++) if (byOrder(order[i - 1], order[i]) > 0) notes.inputInversions++;
   kept.sort(byOrder);
   for (const k of ['duplicates', 'conflicts']) notes[k] = [...new Set(notes[k])].sort();
-  notes.rejected.sort((a, b) => String(a.id).localeCompare(String(b.id)));
-  return { events: kept, notes, taint };
+  // Rejected events, once each, in a total order that does not depend on the input's.
+  const rej = new Map(notes.rejected.map(r => [`${r.id}\u0000${r.code}\u0000${r.text}`, r]));
+  notes.rejected = [...rej.keys()].sort().map(k => { const { id, code } = rej.get(k); return { id, code }; });
+  return { events: kept, notes, taint, gapFrom };
+}
+
+const safeText = e => { try { return canonical(e); } catch { return String(e?.id ?? ''); } };
+
+/**
+ * The streams whose gaps could hide a record of one of `kinds` at or before
+ * bell `at`: a verdict decided at `at` that such a record could change is
+ * not decided.
+ */
+export function gapsBefore(gapFrom, at, kinds) {
+  return Object.entries(gapFrom).filter(([, g]) => g.bell <= at && (!g.kinds || g.kinds.some(k => kinds.includes(k)))).map(([s]) => s).sort();
 }
 
 /** `[3,4,5,9]` → `['3-5','9']`. */

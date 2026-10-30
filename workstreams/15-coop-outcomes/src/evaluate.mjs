@@ -12,9 +12,9 @@
 // depends on how the input was delivered, so it is outside the hash.
 import { canonical, hashOf } from './canon.mjs';
 import { RESOURCES } from './contract.mjs';
-import { normalize } from './ledger.mjs';
+import { gapsBefore, normalize } from './ledger.mjs';
 import { buildWorld } from './world.mjs';
-import { judgeJoint, judgeNational, judgePersonal, keepBells, membersAt } from './goals.mjs';
+import { judgeJoint, judgeNational, judgePersonal, keepBells, KINDS_OF, membersAt } from './goals.mjs';
 
 export const EVALUATOR = Object.freeze({ name: 'ws15-coop-eval', version: '0.1.0', contract: 0 });
 
@@ -30,7 +30,7 @@ export function evaluate(ruleset, input, { asOf = null } = {}) {
   const jointGoals = Object.fromEntries(ruleset.joint.map(g => [g.id, g]));
   const endsAt = state.period.endsAt;
   const run = closeAt => {
-    const W = buildWorld({ state, events: norm.events, taint: norm.taint, closeAt, costs: ruleset.costs, jointGoals });
+    const W = buildWorld({ state, events: norm.events, taint: norm.taint, gapFrom: norm.gapFrom, closeAt, costs: ruleset.costs, jointGoals });
     const ctx = { periodId: state.period.id, slotBy: ruleset.slotBy };
     const joint = ruleset.joint.map(g => judgeJoint(W, g, ctx));
     return { W, joint, ctx };
@@ -41,7 +41,10 @@ export function evaluate(ruleset, input, { asOf = null } = {}) {
   let trigger = null;
   if (ruleset.close.kind === 'joint-chapter') {
     const j = pass.joint.find(x => x.goal === ruleset.close.goal);
-    if (j?.status === 'achieved') {
+    if (j?.status === 'achieved' && j.achievedAtUncertain) {
+      // Another project of the goal is undecided and might have closed the period earlier.
+      trigger = { goal: j.goal, status: 'indeterminate', achievedAt: j.achievedAt, reason: 'close_undecided' };
+    } else if (j?.status === 'achieved') {
       const at = Math.min(endsAt, j.achievedAt + ruleset.close.noticeBells);
       trigger = { goal: j.goal, project: j.project, achievedAt: j.achievedAt, noticeBells: ruleset.close.noticeBells };
       if (at < endsAt) { pass = run(at); closedBy = `joint:${j.goal}`; }
@@ -59,13 +62,13 @@ export function evaluate(ruleset, input, { asOf = null } = {}) {
   };
   // Options are judged on the world as it stood at that bell (later events unseen).
   const optionsAt = at => {
-    const Wq = buildWorld({ state, events: norm.events.filter(e => e.at <= at), taint: norm.taint, closeAt: W.closeAt, costs: ruleset.costs, jointGoals });
+    const Wq = buildWorld({ state, events: norm.events.filter(e => e.at <= at), taint: norm.taint, gapFrom: norm.gapFrom, closeAt: W.closeAt, costs: ruleset.costs, jointGoals });
     const jq = ruleset.joint.map(g => judgeJoint(Wq, g, ctx));
     const nq = ruleset.national ? judgeNational(Wq, ruleset.national, jq, ctx) : [];
     return { at, byActor: optionsOf(Wq, ruleset, jq, nq, judgePersonal(Wq, ruleset.personal, jq, ctx), at) };
   };
   const scores = scoresOf(W, norm);
-  const prize = prizeOf(W, scores, ruleset);
+  const prize = prizeOf(W, scores, ruleset, period);
   const verdict = {
     evaluator: EVALUATOR,
     ruleset: { id: ruleset.id, version: ruleset.version, variant: ruleset.variant, hash: hashOf(ruleset) },
@@ -102,7 +105,7 @@ function scoresOf(W, norm) {
 }
 
 /** The existing prize rule (variant A's), read at the period's close: most keeps; tie → territory; still tied → shared. */
-function prizeOf(W, scores, ruleset) {
+function prizeOf(W, scores, ruleset, period) {
   const max = Math.max(0, ...Object.values(scores.keeps));
   let top = W.nations.filter(n => scores.keeps[n] === max);
   let rule = 'most keeps';
@@ -113,7 +116,8 @@ function prizeOf(W, scores, ruleset) {
   }
   return {
     source: 'baseline rule (permutation-prize winners(); the program itself is not run here)',
-    status: scores.tainted ? 'indeterminate' : 'decided',
+    // Undecided when a keep record may be missing before the close, or the close itself is undecided (C).
+    status: scores.tainted || gapsBefore(W.gapFrom, W.closeAt, KINDS_OF.prize).length || period.status !== 'closed' ? 'indeterminate' : 'decided',
     winners: top, rule, countedAt: W.closeAt,
     newMoney: 0, fromAchievements: 0,
     note: '達成・得点は賞金に換算しない。共同達成は賞金の額も受取国の決め方も変えない（数える時刻は案 C で変わりうる）',
@@ -158,11 +162,13 @@ function awardsOf(joint, national, personal, ctx) {
   for (const j of joint) {
     if (j.status !== 'achieved') continue;
     const p = j.projects.find(x => x.project === j.project);
+    // One slot per independent participant, as for personal goals.
     const seen = new Set();
     for (const c of p.credits) {
-      if (seen.has(c.actor)) continue;
-      seen.add(c.actor);
-      out.push({ slot: `${j.goal}|${ctx.periodId}|${c.actor}`, goal: j.goal, track: 'joint', beneficiary: c.actor, basis: 'credited input into the completed and used structure' });
+      const who = ctx.slotBy === 'cluster' ? c.cluster : c.actor;
+      if (seen.has(who)) continue;
+      seen.add(who);
+      out.push({ slot: `${j.goal}|${ctx.periodId}|${who}`, goal: j.goal, track: 'joint', beneficiary: c.actor, basis: 'credited input into the completed and used structure' });
     }
   }
   for (const n of national) if (n.status === 'achieved') out.push({ slot: `${n.goal}|${ctx.periodId}|${n.subject}`, goal: n.goal, track: 'national', beneficiary: n.subject, basis: 'nation' });

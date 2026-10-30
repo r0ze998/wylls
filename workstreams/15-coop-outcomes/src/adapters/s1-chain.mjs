@@ -18,7 +18,9 @@
 // STRUCTURE_SEIZED, FORT_GARRISONED, KEEP. Not mapped (no counterpart, or not
 // needed by the goals): everything else, and NATION_DECIDED (no vote kind
 // sets a nation goal today). A record kind the adapter does not map is
-// still emitted, as a `position` event, so that it is not taken for a gap.
+// still emitted, as a `position` event, so that it is not taken for a gap. A
+// record the adapter could not resolve is NOT emitted at all: it shows as a
+// gap, and the verdicts that might depend on it are left undecided.
 /** S1 store slots in kernel order (holding.rs `Resource`); arms ride in the Horses slot. */
 export const SLOT_RESOURCES = ['food', 'wood', 'stone', 'ore', 'arms', 'gold', null, null];
 /** STRUCTURE kinds (permutation-rules frontier/structure.rs). */
@@ -56,6 +58,7 @@ export function fromS1Records(page, resolve, { stream = 'chain', trust = DEFAULT
   const unresolved = [];
   const nationOf = resolve.nationOf ?? (f => `n${f}`);
   for (const { seq, sig, record: r } of page) {
+    const before = unresolved.length;
     const base = { stream, seq: Number(seq), at: Number(r.bell ?? r.logBell) };
     let sub = 0;
     const emit = (kind, fields, verified = 'chain') => events.push({ id: `${stream}:${seq}:${sub}`, ...base, sub: sub++, kind, verified, ...fields, src: { sig, kind: r.name } });
@@ -87,6 +90,8 @@ export function fromS1Records(page, resolve, { stream = 'chain', trust = DEFAULT
         if (!raider) { unresolved.push({ seq, name: r.name, missing: 'raider' }); break; }
         const taken = cargoOf(r.taken);
         const sent = resolve.cargoSent?.(r.owner_tag, r.seq) ?? null;
+        // A burn logs nothing taken: without the sent cargo the burned amounts are unknown.
+        if (!sent && Number(r.choice) !== RAID_TAKE) { unresolved.push({ seq, name: r.name, missing: 'cargo sent' }); break; }
         taken.forEach((q, i) => {
           const res = SLOT_RESOURCES[i];
           if (!res) return;
@@ -102,7 +107,7 @@ export function fromS1Records(page, resolve, { stream = 'chain', trust = DEFAULT
         const kind = STRUCTURE_KINDS[Number(r.kind)];
         const project = resolve.projectOfStructure(r.p, r.q, r.tile);
         if (!kind || !project) { skipped.push({ seq, name: r.name, why: project ? 'kind' : 'no project links this structure' }); break; }
-        emit('build.complete', { project, structure: `st:${r.p},${r.q},${r.tile}`, structureKind: kind, by: resolve.actorOfTag(r.owner_tag) ?? undefined });
+        emit('build.complete', { project, structure: `st:${r.p},${r.q},${r.tile}`, structureKind: kind, by: resolve.actorOfTag(r.owner_tag) ?? `tag:${r.owner_tag}` });
         break;
       }
       case 'STRUCTURE_SEIZED': {
@@ -122,7 +127,7 @@ export function fromS1Records(page, resolve, { stream = 'chain', trust = DEFAULT
       }
       default: skipped.push({ seq, name: r.name, why: 'not mapped' });
     }
-    if (!sub) events.push({ id: `${stream}:${seq}:0`, ...base, sub: 0, kind: 'position', verified: 'chain', src: { sig, kind: r.name } });
+    if (!sub && unresolved.length === before) events.push({ id: `${stream}:${seq}:0`, ...base, sub: 0, kind: 'position', verified: 'chain', src: { sig, kind: r.name } });
   }
   return { events, skipped, unresolved };
 }
