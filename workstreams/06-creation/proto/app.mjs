@@ -11,9 +11,11 @@ import { Ledger } from "../src/ledger.mjs";
 import { validateDefinition } from "../src/validate.mjs";
 import { describe } from "../src/describe.mjs";
 import { preparePlan, preflight } from "../src/plan.mjs";
+import { AdoptionBook } from "../src/adoption.mjs";
 import { forkManifest } from "../src/fork.mjs";
-import { simulateRun, fmt } from "../src/run.mjs";
-import { requiredBump } from "../src/upgrade.mjs";
+import { execute, fmt, releaseBatch, requestRun } from "../src/execute.mjs";
+import { requiredBump, updateNotices } from "../src/upgrade.mjs";
+import { DOMAIN, signHash } from "../src/keys.mjs";
 import { bindIdentities, citizenOf } from "../src/world.mjs";
 import { TYPES, placeKindsOf } from "../src/types.mjs";
 import { TRIGGERS } from "../src/catalog.mjs";
@@ -27,12 +29,12 @@ const STORE = "wylls06-creation-proto";
 const keys = {};
 const pubs = {};
 const state = { actor: "A", draft: null, draftOrigin: null, selected: null, useTarget: null, lastPlan: null, lastCheck: null, runlog: [] };
-let registry, ledger, world, signlog;
+let registry, ledger, adoptions, world, signlog, plans, nonce;
 
 // ------------------------------------------------------------------ storage
 
 function save() {
-  try { localStorage.setItem(STORE, JSON.stringify({ registry: registry.toJSON(), ledger: ledger.toJSON(), world, signlog })); } catch { /* private window: state stays in memory */ }
+  try { localStorage.setItem(STORE, JSON.stringify({ registry: registry.toJSON(), ledger: ledger.toJSON(), adoptions: adoptions.toJSON(), world, signlog, plans, nonce })); } catch { /* private window: state stays in memory */ }
 }
 
 function load() {
@@ -40,16 +42,22 @@ function load() {
   try { saved = JSON.parse(localStorage.getItem(STORE) ?? "null"); } catch { saved = null; }
   registry = new Registry(saved?.registry ?? undefined);
   ledger = new Ledger(saved?.ledger ?? undefined);
+  adoptions = new AdoptionBook(saved?.adoptions ?? undefined);
   world = saved?.world ?? bindIdentities(demoWorld(), pubs);
   signlog = saved?.signlog ?? [];
+  plans = saved?.plans ?? {}; // signed plans the users adopted, by hash (needed to run them)
+  nonce = saved?.nonce ?? 0;
 }
 
 function resetAll() {
   try { localStorage.removeItem(STORE); } catch { /* ignore */ }
   registry = new Registry();
   ledger = new Ledger();
+  adoptions = new AdoptionBook();
   world = bindIdentities(demoWorld(), pubs);
   signlog = [];
+  plans = {};
+  nonce = 0;
   state.selected = state.useTarget = state.lastPlan = state.lastCheck = null;
   state.runlog = [];
   loadTemplate();
@@ -263,7 +271,7 @@ function renderEntry() {
     ${v.findings.length ? `<h3>今の世界での確認</h3>${v.findings.map(findingHtml).join("")}` : ""}
     <h3>仕組みの紙</h3><div class="paper">${v.facts ? paperHtml(m, v.facts) : ""}</div>`;
   $("entry-version")?.addEventListener("change", (ev) => { state.selected = { ...sel, version: ev.target.value }; renderEntry(); });
-  $("entry-use").addEventListener("click", () => { state.useTarget = { author: e.author, name: e.name, version }; state.lastPlan = state.lastCheck = null; showTab("use"); });
+  $("entry-use").addEventListener("click", () => { state.useTarget = { author: e.author, name: e.name, version }; state.lastPlan = state.lastCheck = state.supersedes = null; $("adopt-result").innerHTML = ""; showTab("use"); });
   $("entry-fork").addEventListener("click", () => {
     const f = forkManifest(env, pubs[state.actor], { name: `${m.name}-${state.actor.toLowerCase()}`.slice(0, 40), title: `${m.title}（${personName(state.actor)}の写し）`.slice(0, 60) });
     setDraft(f.manifest, { from: `${m.name}@${version}（${personName(whoIs(e.author))}）`, dropped: f.dropped, kept: f.kept, riverable: m.name === "front-supply" });
@@ -285,21 +293,40 @@ function renderEntry() {
 
 // ------------------------------------------------------------------ use
 
+const ctx = () => ({ registry, world, ledger, adoptions });
+
 function currentEnv() {
   const t = state.useTarget;
   return t ? registry.getVersion(t) : null;
 }
 
+/** The current person's open batches (rights to consume delivered goods). */
+function myBatches() {
+  return Object.values(world.batches ?? {}).filter((b) => b.owner === state.actor && b.state === "open");
+}
+
+function batchOptions(dep, value) {
+  return `<option value="">（未設定）</option>` + myBatches().map((b) => `<option value="${esc(b.id)}" ${b.id === value ? "selected" : ""}>${esc(b.id)}：${esc(fmt(b.remaining))} @ ${esc(b.vault)}（${esc(b.producer?.name ?? "")} の記録 ${esc(String(b.evidence).slice(0, 8))}…）</option>`).join("");
+}
+
 function renderUse() {
   $("use-who").textContent = `（${PEOPLE[state.actor]}として）`;
+  renderAdopted();
   const env = currentEnv();
+  $("helpers").innerHTML = `<span>定義の外の操作（模擬）：</span>
+    <button type="button" data-help="lot">工房主Wから使用権の札3枚を得る（引き換え）</button>
+    <button type="button" data-help="stock">自分の倉に鉱石60・木材30を足す</button>
+    <button type="button" data-help="revoke">Wが使用権を取り消す</button>
+    <button type="button" data-help="capture">Wの村が奪われる</button>
+    <button type="button" data-help="day">次の日へ</button>`;
   if (!env) {
     $("use-target").innerHTML = `<p>「2 一覧から選ぶ」で定義を選び、「使う準備をする」を押してください。</p>`;
-    $("bind").innerHTML = ""; $("helpers").innerHTML = ""; $("preflight").innerHTML = ""; $("run").disabled = true;
+    $("bind").innerHTML = ""; $("preflight").innerHTML = ""; $("adopt").disabled = true;
     return;
   }
   const m = env.manifest;
-  $("use-target").innerHTML = `<p><strong>${esc(m.title)}</strong> ${esc(m.name)}@${esc(m.version)}（作者 ${esc(personName(whoIs(m.author)))}）。準備に使う鍵は ${esc(personName(state.actor))} のものだけで、作者の秘密鍵は要りません。</p>`;
+  const entry = registry.entry(m.author, m.name);
+  $("use-target").innerHTML = `<p><strong>${esc(m.title)}</strong> ${esc(m.name)}@${esc(m.version)}（作者 ${esc(personName(whoIs(m.author)))}${entry.status !== "listed" ? `・<span class="badge">${esc(STATUSES[entry.status])}：新しく採用できない</span>` : ""}）。準備に使う鍵は ${esc(personName(state.actor))} のものだけで、作者の秘密鍵は要りません。</p>`;
   const prev = state.lastPlan?.plan.bindings ?? {};
   const f = [];
   for (const [name, p] of Object.entries(m.params)) {
@@ -312,31 +339,27 @@ function renderUse() {
       const lots = Object.entries(world.lots);
       f.push(`<label>${esc(u.ja ?? dep)}に使う札（B）<select data-bind="grants" data-name="${esc(dep)}"><option value="">自分の札から自動で探す</option>${lots.map(([id, l]) => `<option value="${esc(id)}" ${prev.grants?.[dep] === id ? "selected" : ""}>${esc(id)}（持ち手 ${esc(personName(l.holder))}・${esc(world.issues[l.issue]?.ja ?? l.issue)}）</option>`).join("")}</select></label>`);
     } else {
-      const rs = Object.entries(ledger.data.receipts);
-      f.push(`<label>${esc(u.ja ?? dep)}（C：完了記録）<select data-bind="receipts" data-name="${esc(dep)}"><option value="">（未設定）</option>${rs.map(([id, r]) => `<option value="${esc(id)}" ${prev.receipts?.[dep] === id ? "selected" : ""}>${esc(id.slice(0, 10))}… ${esc(r.manifest.name)} ${esc(r.outcome)} → ${esc(r.at ?? "")}（受け取り手 ${esc(personName(r.beneficiary))}${ledger.isConsumed(id) ? "・使用済み" : ""}）</option>`).join("")}</select></label>`);
+      f.push(`<label>${esc(u.ja ?? dep)}（C：消費する束。計画には固定せず、確認と実行ごとに指定）<select data-bind="batches" data-name="${esc(dep)}">${batchOptions(dep)}</select></label>`);
     }
   }
   $("bind").innerHTML = f.join("");
-  $("helpers").innerHTML = `<span>定義の外の操作（模擬）：</span>
-    <button type="button" data-help="lot">工房主Wから使用権の札3枚を得る（引き換え）</button>
-    <button type="button" data-help="stock">自分の倉に鉱石60・木材30を足す</button>
-    <button type="button" data-help="capture">Wの村が奪われる</button>
-    <button type="button" data-help="day">次の日へ</button>`;
   renderPreflight();
 }
 
 function suggest(name, p) {
   if (!TYPES[p.type]?.place) return p.default;
-  if (p.default && (!p.own || world.places[p.default]?.owner === state.actor)) return p.default;
+  // an author's default that is someone else's place is not preselected: left unset, the
+  // preflight shows it (PARAM_DEFAULT_FOREIGN) instead of quietly sending there
+  if (p.default && world.places[p.default]?.owner === state.actor) return p.default;
   if (!p.own) return undefined;
   const mine = ownPlaces(p.type);
   if (name === "workVault") return mine.find((id) => world.places[id].province.join() === "3,-1");
   return mine[0];
 }
 
-function readBindings() {
-  const b = { params: {}, grants: {}, receipts: {} };
-  for (const el of $("bind").querySelectorAll("[data-bind]")) {
+function readBindings(root = $("bind")) {
+  const b = { params: {}, grants: {}, batches: {} };
+  for (const el of root.querySelectorAll("[data-bind]")) {
     if (el.value === "") continue;
     b[el.dataset.bind][el.dataset.name] = el.type === "number" ? Number(el.value) : el.value;
   }
@@ -346,36 +369,87 @@ function readBindings() {
 async function prepareAndCheck() {
   const env = currentEnv();
   if (!env) return;
-  state.lastPlan = await preparePlan(env, readBindings(), myKey(`${env.manifest.name}@${env.manifest.version} の計画を準備`), { world });
-  state.lastCheck = await preflight(state.lastPlan, { registry, world, ledger });
+  const b = readBindings();
+  state.lastPlan = await preparePlan(env, b, myKey(`${env.manifest.name}@${env.manifest.version} の計画を準備`), { world, supersedes: state.supersedes ?? undefined });
+  state.lastInputs = { batches: b.batches };
+  state.lastCheck = await preflight(state.lastPlan, ctx(), { inputs: Object.keys(b.batches).length ? state.lastInputs : undefined });
   save();
   renderPreflight();
 }
 
 function renderPreflight() {
   const c = state.lastCheck;
-  $("run").disabled = !c?.ready;
+  $("adopt").disabled = !c?.ready || !!adoptions.get(state.lastPlan?.hash);
   if (!c) { $("preflight").innerHTML = `<p>まだ確かめていません。</p>`; return; }
   const by = (s) => c.findings.filter((f) => f.severity === s);
   const signers = (c.signers ?? []).map((s) => `<li>${esc(s.step)}：${s.signer === "wallet" ? `ウォレットの署名が要る（届け先 ${esc(s.to)} は ${esc(personName(s.owner))} のもの）` : "ゲーム内の鍵でよい（自分の場所あて）"}</li>`).join("");
   const costs = c.costs ? `<li>荷車の精算預け ${c.costs.feeLamports.toLocaleString("ja-JP")} lamports・取引 ${c.costs.tx} 件（［フェーズ6］の仮の値）</li><li>倉から出す物（手順ごとの合計）：${esc(fmt(c.costs.materials))}</li>` : "";
-  $("preflight").innerHTML = `${findingHtml(c.ready ? { severity: "ok", code: "READY", path: "", message: "実行できる状態（模擬実行へ進める）" } : { severity: "error", code: "NOT_READY", path: "", message: "足りないものがある" })}
+  $("preflight").innerHTML = `${findingHtml(c.ready ? { severity: "ok", code: "READY", path: "", message: "今の状態では問題なし。採用すると、この版と内容ハッシュに固定される。実行のたびに、実行時点の権利・残高・物をもう一度確かめる" } : { severity: "error", code: "NOT_READY", path: "", message: "足りないものがある" })}
     ${by("error").length ? `<h3>足りないもの</h3>${by("error").map(findingHtml).join("")}` : ""}
     ${by("warning").length ? `<h3>注意</h3>${by("warning").map(findingHtml).join("")}` : ""}
+    ${by("info").length ? `<h3>知らせ</h3>${by("info").map(findingHtml).join("")}` : ""}
     ${signers ? `<h3>署名</h3><ul>${signers}</ul>` : ""}
     ${costs ? `<h3>費用</h3><ul>${costs}</ul>` : ""}
     ${c.grantsUsed && Object.keys(c.grantsUsed).length ? `<p>使う札：${esc(Object.values(c.grantsUsed).join("、"))}</p>` : ""}`;
 }
 
-async function runPlan() {
+async function adoptLast() {
   if (!state.lastPlan) return;
-  const r = await simulateRun(state.lastPlan, { registry, world, ledger });
-  if (r.world) world = r.world;
-  state.runlog.unshift(`<li><span class="badge mock">模擬</span> ${esc(state.lastPlan.plan.manifest.name)}：${r.ok ? "完了" : `止まった（${esc(r.stoppedAt ?? "確認で不可")}）`}<ul>${r.log.map((l) => `<li>${esc(l)}</li>`).join("")}</ul></li>`);
-  $("runlog").innerHTML = `<p>チェーンには何も送っていません。記録は模擬の台帳にだけ残ります。</p><ol>${state.runlog.join("")}</ol>`;
-  state.lastCheck = await preflight(state.lastPlan, { registry, world, ledger });
+  const a = await adoptions.adopt(state.lastPlan, ctx());
+  if (a.ok) { plans[state.lastPlan.hash] = state.lastPlan; state.supersedes = null; }
+  $("adopt-result").innerHTML = a.ok ? findingHtml({ severity: "ok", code: "ADOPTED", path: "", message: `採用した：${state.lastPlan.plan.manifest.name}@${state.lastPlan.plan.manifest.version}（ハッシュ ${state.lastPlan.plan.manifest.hash.slice(0, 12)}…）に固定${a.adoption.supersedes ? "。前の計画は置き換わった" : ""}` }) : a.findings.filter((f) => f.severity === "error").map(findingHtml).join("");
   save();
-  renderPreflight();
+  renderUse();
+}
+
+/** The current person's adopted plans: run (with a signed request), end, and update notices. */
+function renderAdopted() {
+  const mine = adoptions.activeOf(pubs[state.actor]).filter((a) => plans[a.planHash]);
+  const notices = Object.fromEntries(updateNotices(adoptions, registry, pubs[state.actor]).map((n) => [n.planHash, n]));
+  $("adopted").innerHTML = mine.length ? mine.map((a) => {
+    const p = plans[a.planHash];
+    const m = registry.getVersion(a.manifest)?.manifest;
+    const entry = registry.entry(a.manifest.author, a.manifest.name);
+    const consumes = Object.entries(m?.uses ?? {}).filter(([, u]) => u.relation === "consume");
+    const n = notices[a.planHash];
+    return `<div class="adopted" data-plan="${esc(a.planHash)}">
+      <p><strong>${esc(a.manifest.name)}@${esc(a.manifest.version)}</strong> <small>ハッシュ ${esc(a.manifest.hash.slice(0, 12))}…・今日 ${esc(adoptions.runsOn(a.planHash, world.today))}/${esc(m?.limits.runsPerDay)} 回</small>
+      ${entry.status !== "listed" ? `<span class="badge">${esc(STATUSES[entry.status])}（採用済みなので続けられる）</span>` : ""}</p>
+      ${consumes.map(([dep, u]) => `<label>${esc(u.ja ?? dep)}（この実行で消費する束）<select data-bind="batches" data-name="${esc(dep)}">${batchOptions(dep)}</select></label>`).join("")}
+      <div class="row"><button class="primary" data-act="run">自分の鍵で実行を依頼する（模擬）</button><button class="ghost" data-act="end">この計画を止める</button></div>
+      ${n ? `<div class="finding info"><strong>更新の通知</strong> ${esc(n.from)} → ${esc(n.to)}（${esc(n.bump)}：${esc(n.reasons.join("、") || "説明だけ")}）。今の計画は確認済みの版のまま動く。${n.canAdopt ? `<button data-act="update">新しい版で準備し直して確認する</button>` : "（公開停止中なので、新しい版にも移れない）"}</div>` : ""}
+    </div>`;
+  }).join("") : "<p>まだ採用した計画はありません。</p>";
+}
+
+async function onAdopted(e) {
+  const btn = e.target.closest("[data-act]");
+  if (!btn) return;
+  const box = btn.closest("[data-plan]");
+  const hash = box.dataset.plan;
+  const p = plans[hash];
+  if (btn.dataset.act === "run") {
+    const { batches } = readBindings(box);
+    nonce += 1;
+    const request = await requestRun(p, { batches, nonce: `ui-${nonce}` }, myKey(`${p.plan.manifest.name} の実行を依頼（${Object.keys(batches).length ? `束 ${Object.values(batches).join("・")}` : "束なし"}）`));
+    const r = await execute(p, ctx(), { request });
+    state.runlog.unshift(`<li><span class="badge mock">模擬</span> ${esc(p.plan.manifest.name)}@${esc(p.plan.manifest.version)}：${r.ok ? "完了" : `止まった（${esc(r.failure.code)}${r.stoppedAt ? ` @ ${esc(r.stoppedAt)}` : ""}）`}<ul>${r.log.map((l) => `<li>${esc(l)}</li>`).join("")}${r.ok ? "" : `<li>${esc(r.failure.message)} <code>${esc(JSON.stringify(Object.fromEntries(Object.entries(r.failure).filter(([k]) => !["code", "severity", "stage", "path", "message"].includes(k)))))}</code></li>`}</ul></li>`);
+    $("runlog").innerHTML = `<p>チェーンには何も送っていません。記録は模擬の台帳にだけ残ります。実行は、確認の結果ではなく、実行時点の権利・残高・物で決まります。</p><ol>${state.runlog.join("")}</ol>`;
+  } else if (btn.dataset.act === "end") {
+    await adoptions.end(hash, await signHash(myKey(`${p.plan.manifest.name} の計画を止める`), DOMAIN.end, hash));
+  } else if (btn.dataset.act === "update") {
+    const e2 = registry.entry(p.plan.manifest.author, p.plan.manifest.name);
+    const latest = Object.keys(e2.versions).sort(compare).at(-1);
+    state.useTarget = { author: e2.author, name: e2.name, version: latest };
+    state.supersedes = hash;
+    state.lastPlan = { ...p, plan: { ...p.plan, bindings: p.plan.bindings } }; // prefill the form with the old bindings
+    state.lastCheck = null;
+    renderUse();
+    $("use-target").insertAdjacentHTML("beforeend", `<p class="dropped">更新の確認：前の計画（${esc(p.plan.manifest.version)}）は、新しい計画を採用したときに置き換わる。それまで前の計画はそのまま動く。</p>`);
+    return;
+  }
+  save();
+  renderUse();
 }
 
 function help(kind) {
@@ -385,6 +459,8 @@ function help(kind) {
   } else if (kind === "stock") {
     const v = ownPlaces("vault")[0];
     if (v) { const st = world.places[v].stores ??= {}; st.ore = (st.ore ?? 0) + 60; st.wood = (st.wood ?? 0) + 30; }
+  } else if (kind === "revoke") {
+    world.issues["issue:W-1"].state = world.issues["issue:W-1"].state === "revoked" ? "live" : "revoked";
   } else if (kind === "capture") {
     world.places["village:W"].gen += 1;
   } else if (kind === "day") {
@@ -397,10 +473,13 @@ function help(kind) {
 // ------------------------------------------------------------------ world
 
 function renderWorld() {
-  $("places").innerHTML = `<p>今日：${world.today} 日目・規則：${esc(world.features.join(" + "))}（${esc(world.label)}）</p><div class="scroll"><table><tr><th>場所</th><th>持ち主</th><th>州</th><th>世代</th><th>中身</th></tr>${Object.entries(world.places).map(([id, p]) => `<tr><td><code>${esc(id)}</code><br><small>${esc(p.ja ?? "")}</small></td><td>${esc(personName(p.owner))}</td><td>${esc(p.province?.join(","))}</td><td>${esc(p.gen)}${p.live ? "" : "（閉）"}</td><td>${esc(p.kind === "vault" ? fmt(p.stores ?? {}) : `工房 ${p.workshops ?? 0}`)}</td></tr>`).join("")}</table></div>`;
+  $("places").innerHTML = `<p>今日：${world.today} 日目・規則：${esc(world.features.join(" + "))}（${esc(world.label)}）</p><div class="scroll"><table><tr><th>場所</th><th>持ち主</th><th>州</th><th>世代</th><th>中身</th></tr>${Object.entries(world.places).map(([id, p]) => `<tr><td><code>${esc(id)}</code><br><small>${esc(p.ja ?? "")}</small></td><td>${esc(personName(p.owner))}</td><td>${esc(p.province?.join(","))}</td><td>${esc(p.gen)}${p.live ? "" : "（閉）"}</td><td>${esc(p.kind === "vault" ? fmt(p.stores ?? {}) : `工房 ${p.workshops ?? 0}`)}${p.kind === "vault" && Object.values(p.held ?? {}).some(Boolean) ? `<br><small>うち束で押さえ：${esc(fmt(p.held))}</small>` : ""}</td></tr>`).join("")}</table></div>
+    <p>所持金（lamports）：${Object.entries(world.citizens).map(([id, c]) => `${esc(personName(id))} ${esc((c.lamports ?? 0).toLocaleString("ja-JP"))}`).join("・")}</p>`;
   $("lots").innerHTML = `<div class="scroll"><table><tr><th>束</th><th>持ち手</th><th>発行</th><th>量</th></tr>${Object.entries(world.lots).map(([id, l]) => `<tr><td><code>${esc(id)}</code></td><td>${esc(personName(l.holder))}</td><td>${esc(world.issues[l.issue]?.ja ?? l.issue)}</td><td>${esc(l.amount)}</td></tr>`).join("")}</table></div>`;
   const rs = Object.entries(ledger.data.receipts);
-  $("receipts").innerHTML = rs.length ? `<div class="scroll"><table><tr><th>id</th><th>作った定義</th><th>結果</th><th>場所・物</th><th>受け取り手</th></tr>${rs.map(([id, r]) => `<tr><td><code>${esc(id.slice(0, 10))}…</code> <span class="badge mock">模擬</span></td><td>${esc(r.manifest.name)}@${esc(r.manifest.version)}</td><td>${esc(r.outcome)}${ledger.isConsumed(id) ? "・使用済み" : ""}</td><td>${esc(r.at ?? "")} ${esc(fmt(r.goods ?? {}))}</td><td>${esc(personName(r.beneficiary))}</td></tr>`).join("")}</table></div>` : "<p>まだありません。</p>";
+  $("receipts").innerHTML = rs.length ? `<div class="scroll"><table><tr><th>id</th><th>作った定義</th><th>結果</th><th>場所・物</th><th>受け取り手</th></tr>${rs.map(([id, r]) => `<tr><td><code>${esc(id.slice(0, 10))}…</code> <span class="badge mock">模擬</span></td><td>${esc(r.manifest.name)}@${esc(r.manifest.version)}</td><td>${esc(r.outcome)}</td><td>${esc(r.at ?? "")} ${esc(fmt(r.goods ?? {}))}</td><td>${esc(personName(r.beneficiary))}</td></tr>`).join("")}</table></div>` : "<p>まだありません。</p>";
+  const bs = Object.values(world.batches ?? {});
+  $("batches").innerHTML = bs.length ? `<div class="scroll"><table><tr><th>束</th><th>持ち主</th><th>倉</th><th>残り</th><th>状態</th><th>証明（記録）</th></tr>${bs.map((b) => `<tr><td><code>${esc(b.id)}</code></td><td>${esc(personName(b.owner))}</td><td>${esc(b.vault)}</td><td>${esc(fmt(b.remaining))}</td><td>${esc(b.state)}${b.state === "open" && b.owner === state.actor ? ` <button data-release="${esc(b.id)}">普通の在庫に戻す</button>` : ""}</td><td><code>${esc(String(b.evidence).slice(0, 10))}…</code></td></tr>`).join("")}</table></div>` : "<p>まだありません。</p>";
   $("signlog").innerHTML = signlog.length ? signlog.map((s) => `<li><strong>${esc(personName(s.who))}</strong> の鍵：${esc(s.what)}</li>`).join("") : "<li>まだ署名していません。</li>";
 }
 
@@ -438,7 +517,7 @@ $("actors").addEventListener("click", (e) => {
   const id = e.target.closest("[data-actor]")?.dataset.actor;
   if (!id) return;
   state.actor = id;
-  state.lastPlan = state.lastCheck = null;
+  state.lastPlan = state.lastCheck = state.supersedes = null;
   renderAll();
 });
 $("tabs").addEventListener("click", (e) => { const t = e.target.closest("[data-tab]"); if (t) showTab(t.dataset.tab); });
@@ -457,6 +536,11 @@ $("entries").addEventListener("click", (e) => {
   renderEntry();
 });
 $("prepare").addEventListener("click", prepareAndCheck);
-$("run").addEventListener("click", runPlan);
+$("adopt").addEventListener("click", adoptLast);
+$("adopted").addEventListener("click", onAdopted);
+$("batches").addEventListener("click", (e) => {
+  const id = e.target.closest("[data-release]")?.dataset.release;
+  if (id && releaseBatch(world, id, state.actor)) { save(); renderWorld(); }
+});
 $("helpers").addEventListener("click", (e) => { const b = e.target.closest("[data-help]"); if (b) help(b.dataset.help); });
 $("reset").addEventListener("click", resetAll);

@@ -6,7 +6,7 @@
  * needs: typed arguments, typed outputs, the right it needs, the place
  * rule, what it consumes and makes, and how it fails. When ③ publishes the
  * command-type registry, this table is to be generated from it (see
- * proposals/03-command-types.ja.md).
+ * handoff/03-command-types.ja.md).
  *
  * `availability` is where the instruction exists today:
  *   base       on the base commit 4cd901de (S1, merged in main)

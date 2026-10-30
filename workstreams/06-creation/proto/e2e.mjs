@@ -37,6 +37,8 @@ const shot = (n) => page.screenshot({ path: join(shots, `${n}.png`), fullPage: t
 try {
   await page.goto(`http://127.0.0.1:${port}/proto/`);
   await page.waitForSelector("#paper h3");
+  const ready = () => page.waitForSelector("#preflight .finding.ok");
+  const runFirstAdopted = async (name) => { await page.locator(`#adopted [data-plan]`, { hasText: name }).first().locator('[data-act="run"]').click(); await page.waitForTimeout(150); };
   // 1 A makes and publishes
   await actor("A");
   await page.click("#load-template");
@@ -64,12 +66,21 @@ try {
   await page.click("#prepare");
   await page.waitForSelector("#preflight .finding");
   ok((await text("#preflight")).includes("MISSING_GRANT"), "B's preflight names the missing use ticket");
+  ok(await page.locator("#adopt").isDisabled(), "a plan with errors cannot be adopted");
   await shot("3-preflight-missing");
   await page.click('[data-help="lot"]');
   await page.click('[data-help="stock"]');
   await page.click("#prepare");
-  await page.waitForFunction(() => document.querySelector("#preflight .finding.ok"));
-  ok(true, "with B's own lot and stock, the plan is ready");
+  await ready();
+  ok((await text("#preflight")).includes("PARAM_DEFAULT_FOREIGN"), "left at the author's default, the receiver (A's fort) is flagged");
+  await page.selectOption('#bind [data-bind="params"][data-name="receiver"]', "vault:B-home");
+  await page.click("#prepare");
+  await ready();
+  await page.click("#adopt");
+  await page.waitForSelector("#adopt-result .finding.ok");
+  ok((await text("#adopt-result")).includes("固定"), "B adopts: pinned to version and content hash");
+  await runFirstAdopted("front-supply@1.0.0");
+  ok((await text("#runlog")).includes("完了"), "B runs the adopted plan with a request signed by B (mock)");
   // 4 B copies and edits
   await tab("list");
   await page.click('[data-entry*="front-supply|"]');
@@ -81,43 +92,97 @@ try {
   await page.click("#publish");
   await page.waitForSelector("#goto-list");
   ok((await text("#publish-result")).includes("公開した"), "B publishes the copy with B's key");
-  // 5 M runs the delivery to B's vault (mock)
+  // 5 M adopts and runs the delivery to B's vault (mock)
   await actor("M");
   await tab("list");
   await page.fill("#query", "");
   await page.click('[data-entry*="mine-delivery|"]');
   await page.click("#entry-use");
-  await page.selectOption('[data-bind="params"][data-name="buyer"]', "vault:B-work");
+  await page.selectOption('#bind [data-bind="params"][data-name="buyer"]', "vault:B-work");
   await page.click("#prepare");
-  await page.waitForFunction(() => !document.querySelector("#run").disabled);
-  await page.click("#run");
-  ok((await text("#runlog")).includes("模擬"), "M's delivery runs on the mock world");
-  // 6 B runs the copy on the delivered result
+  await ready();
+  await page.click("#adopt");
+  await page.waitForSelector("#adopt-result .finding.ok");
+  await runFirstAdopted("mine-delivery");
+  ok((await text("#runlog")).includes("束 batch:"), "M's delivery leaves B a batch (right to consume), apart from its record");
+  // 6 B adopts the copy and runs it, naming the batch in the run request
   await actor("B");
   await tab("list");
   await page.click('[data-entry*="front-supply-b|"]');
   await page.click("#entry-use");
+  await page.click('[data-help="day"]'); // the lot's 3 runs for today went to the first plan
   await page.click("#prepare");
   await page.waitForSelector("#preflight .finding.error");
   ok((await text("#preflight")).includes("PARAM_UNBOUND"), "the copy's place inputs start unset (A's defaults did not carry)");
-  await page.selectOption('[data-bind="params"][data-name="workshop"]', "village:W");
-  await page.selectOption('[data-bind="params"][data-name="receiver"]', "vault:D-fort");
-  const opt = await page.locator('[data-bind="receipts"] option').nth(1).getAttribute("value");
-  await page.selectOption('[data-bind="receipts"]', opt);
+  await page.selectOption('#bind [data-bind="params"][data-name="workshop"]', "village:W");
+  await page.selectOption('#bind [data-bind="params"][data-name="receiver"]', "vault:D-fort");
+  const batchOpt = await page.locator('#bind [data-bind="batches"] option', { hasText: "鉱石24" }).first().getAttribute("value");
+  await page.selectOption('#bind [data-bind="batches"]', batchOpt);
   await page.click("#prepare");
-  await page.waitForFunction(() => document.querySelector("#preflight .finding.ok"));
+  await ready();
   ok((await text("#preflight")).includes("ウォレットの署名が要る"), "sending to D's fort needs B's wallet");
-  await page.click("#run");
-  ok((await text("#runlog")).includes("兵器12"), "B's copy makes and ships 12 arms (mock)");
+  await page.click("#adopt");
+  await page.waitForSelector("#adopt-result .finding.ok");
+  const box = page.locator("#adopted [data-plan]", { hasText: "front-supply-b" }).first();
+  await box.locator('[data-bind="batches"]').selectOption(batchOpt);
+  await box.locator('[data-act="run"]').click();
+  await page.waitForTimeout(150);
+  ok((await text("#runlog")).includes("兵器12"), "B's copy makes and ships 12 arms, spending the batch (mock)");
   await shot("5-run-B");
+  // 7 B (the copy's author) suspends it: B's adopted plan stays runnable; D cannot newly adopt
+  await tab("list");
+  await page.click('[data-entry*="front-supply-b|"]');
+  await page.click('[data-status="suspended"]');
+  await tab("use");
+  ok((await text("#adopted")).includes("採用済みなので続けられる"), "after the author's stop, the adopted plan is marked as continuing");
+  await actor("D");
+  await tab("list");
+  await page.check("#show-hidden");
+  await page.click('[data-entry*="front-supply-b|"]');
+  await page.click("#entry-use");
+  await page.click("#prepare");
+  await page.waitForSelector("#preflight .finding.error");
+  ok((await text("#preflight")).includes("ENTRY_NOT_LISTED"), "a new user cannot adopt a suspended definition");
+  await tab("list");
+  await page.uncheck("#show-hidden");
+  // 8 A publishes a description-only patch: B gets a notice, nothing moves until B confirms
+  await actor("A");
+  await tab("make");
+  await page.selectOption("#template", "front-supply");
+  await page.click("#load-template");
+  await page.fill('[data-q="version"]', "1.0.1");
+  await page.dispatchEvent('[data-q="version"]', "change");
+  await page.fill('[data-q="note"]', "峠は夜に通るのが安全です。");
+  await page.dispatchEvent('[data-q="note"]', "change");
+  await page.click("#publish");
+  await page.waitForSelector("#goto-list");
+  await actor("B");
+  await tab("use");
+  ok((await text("#adopted")).includes("1.0.0 → 1.0.1（patch"), "B sees an update notice for the patch");
+  ok((await text("#adopted")).includes("front-supply@1.0.0"), "B's plan is still pinned to 1.0.0");
+  await page.locator("#adopted [data-plan]", { hasText: "front-supply@1.0.0" }).first().locator('[data-act="update"]').click();
+  await page.click('[data-help="day"]'); // today's runs of B's lot are used
+  ok((await page.locator('#bind [data-bind="params"][data-name="receiver"]').inputValue()) === "vault:B-home", "the update form starts from the old plan's bindings");
+  await page.click("#prepare");
+  await ready();
+  await page.click("#adopt");
+  await page.waitForSelector("#adopt-result .finding.ok");
+  ok((await text("#adopt-result")).includes("置き換わった"), "B confirms the update: the new plan supersedes the old");
+  ok((await text("#adopted")).includes("front-supply@1.0.1") && !(await text("#adopted")).includes("front-supply@1.0.0"), "only the 1.0.1 plan remains adopted");
+  // 9 W revokes the use ticket: the adopted plan stops at execution
+  await page.click('[data-help="day"]');
+  await page.click('[data-help="revoke"]');
+  await runFirstAdopted("front-supply@1.0.1");
+  ok((await text("#runlog")).includes("GRANT_REVOKED"), "a revocation stops the adopted plan when it runs");
   await tab("world");
   const log = await text("#signlog");
-  ok(!/作者A の鍵：.*(計画|写し)/.test(log) && log.includes("利用者B の鍵"), "A's key signed nothing of B's");
+  ok(!/作者A の鍵：.*(計画|実行|採用)/.test(log) && log.includes("利用者B の鍵：front-supply の実行を依頼"), "A's key signed nothing of B's; B's runs are B's requests");
   await shot("6-world");
   // phone width
   await page.setViewportSize({ width: 390, height: 844 });
-  await tab("make");
+  await tab("use");
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+  if (overflow > 0) console.log(await page.evaluate(() => [...document.querySelectorAll("body *")].filter((el) => el.getBoundingClientRect().right > window.innerWidth + 1).slice(0, 8).map((el) => `${el.tagName}#${el.id}.${el.className} ${Math.round(el.getBoundingClientRect().right)}`).join("\n")));
   ok(overflow <= 0, `no horizontal scroll at phone width (${overflow})`);
   await shot("7-phone");
 } catch (e) {

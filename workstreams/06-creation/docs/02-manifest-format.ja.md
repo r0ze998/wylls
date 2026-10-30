@@ -58,14 +58,14 @@
 "uses": {
   // B：他人が動かしている施設・倉へ接続する。権利は利用者自身の札
   "ws":  { "relation": "connect", "target": { "param": "workshop" }, "grant": "use", "amount": { "param": "runs" }, "ja": "工房" },
-  // C：別の定義の実行で確定した成果を使う。1回の実行で記録を1つ使い切る
+  // C：別の定義の実行で確定した成果を使う。1回の実行で束を1つ使い切る（記録そのものは使い切らない）
   "ore": { "relation": "consume", "manifest": { "author": "<M>", "name": "mine-delivery", "range": "^1.0.0", "hash": "<省略可>" },
            "output": "delivered", "type": "result:delivery", "ja": "Mの鉱山の便が届いた記録" }
 }
 ```
 
 - `connect` の `target` は入力か固定の場所だけ。`grant` と target の型の組は決まっている：`use`→`workshop`、`share`/`receipt`→`vault`（違えば `GRANT_KIND_MISMATCH`）。
-- `consume` の依存は、どれかの手順の `after` に名前を挙げる（その手順が物を使う場所に届いていることを確かめるため。挙げなければ `REF_UNKNOWN`）。記録は、作った定義の **公開した出力の名前**（`outputs` のキー）で照合する。
+- `consume` の依存は、どれかの手順の `after` に名前を挙げる（その手順が物を使う場所に届いていることを確かめるため。挙げなければ `REF_UNKNOWN`）。記録は、作った定義の **公開した出力の名前**（`outputs` のキー）で照合する。実行時に消費するのは記録ではなく、その配達で届いた物を押さえた「束」で、実行の依頼ごとに名指しする（[07](07-guarantees.ja.md)）。
 - `consume` の `range` は `1.2.3`（その版だけ）・`^1.2.3`・`~1.2.3`。`hash` を書けば、その内容の版だけ。宣言した `type` は、依存先の出力の型と一致しなければならない（公開時に `TYPE_MISMATCH`）。
 - **A（定義の写し）は依存ではない。** 写しは `derivedFrom` に元を記録するだけで、元の定義にも、元の作者の札にも、何も接続しない。
 
@@ -114,5 +114,10 @@
 
 - 公開：`{ manifest, hash, signature }`。署名は作者の鍵で `"wylls.creation.publish/0" ‖ 0x00 ‖ hash`。
 - 状態の変更（停止・取り下げ・再開）：作者の鍵で `"wylls.creation.status/0"`。署名する内容は `{ author, name, status, seq }` で、`seq` はその名前の状態の履歴の長さ。古い署名を後から出し直して、後の変更を取り消すことはできない。
-- 計画（利用者が準備するもの）：`{ format: "wylls.creation.plan/0", manifest: { author, name, version, hash }, actor: 利用者の公開鍵, bindings: { params, grants, receipts }, preparedDay }` を **利用者の鍵** で `"wylls.creation.plan/0"` に署名。作者の秘密鍵は使わない。
-- 署名の領域を分けているので、公開の署名を計画や状態変更に使い回せない（`test/roles.test.mjs`）。
+- 計画（利用者が準備するもの）：`{ format: "wylls.creation.plan/0", manifest: { author, name, version, hash }, actor: 利用者の公開鍵, bindings: { params, grants }, preparedDay, supersedes? }` を **利用者の鍵** で `"wylls.creation.plan/0"` に署名。作者の秘密鍵は使わない。`supersedes` は、更新を確認するときに置き換える自分の採用済みの計画のハッシュ。
+- 採用：実行前の確認が通った計画を、利用者が「この版・この内容ハッシュで動かす」と確認した記録（`src/adoption.mjs`）。新しい採用は、定義が一覧に出ているときだけできる。
+- 実行の依頼：`{ format: "wylls.creation.run/0", planHash, nonce, inputs: { batches } }` を利用者の鍵で `"wylls.creation.run/0"` に署名。`nonce` は計画ごとに一度だけ。`batches` は、その回に C の依存が消費する束（記録ではなく、消費する権利）。束は計画に固定しない。
+- 利用者による停止：計画のハッシュを利用者の鍵で `"wylls.creation.adoption-end/0"` に署名。
+- 署名の領域を分けているので、公開の署名を計画・状態変更・実行の依頼に使い回せない（`test/roles.test.mjs`）。
+
+公開・採用・実行の依頼の関係と、何が何を止めるかは [05](05-update-policy.ja.md)、記録と束の違いは [07](07-guarantees.ja.md)。

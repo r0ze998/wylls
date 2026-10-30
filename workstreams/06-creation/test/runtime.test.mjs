@@ -116,3 +116,21 @@ test("only the plan's user can make it run, once per request", async () => {
   edited.request.nonce = "n4";
   assert.equal((await execute(plan, s, { request: edited })).failure.reason, "hash");
 });
+
+test("the mock runs caravans and workshop runs only: a share withdrawal is checked but not executed", async () => {
+  const { s } = await adopted();
+  s.world.issues["issue:M-sh"] = { kind: "share", source: "vault:M-mine", srcGen: 1, srcStamp: 400, perUnit: 0, untilDay: 4294967295, state: "live", issuer: "M" };
+  s.world.lots["lot:B-sh"] = { issue: "issue:M-sh", holder: "B", amount: 10, srcGen: 1, state: "live", day: 0, dayUsed: 0, escrow: false };
+  const m = {
+    format: "wylls.creation.manifest/0", name: "share-out", version: "1.0.0", author: s.pubs.B, title: "持ち分の引き出し",
+    params: { pool: { type: "vault", ja: "共有の倉" }, to: { type: "vault", own: true, ja: "受け取る倉" } },
+    uses: { sh: { relation: "connect", target: { param: "pool" }, grant: "share" } },
+    steps: [{ id: "out", effect: "shares.withdraw", args: { via: { use: "sh" }, to: { param: "to" } } }],
+    trigger: "manual", limits: { runsPerDay: 1 }, outputs: { got: { from: { step: "out", out: "delivered" } } },
+  };
+  const ref = (await s.registry.publish(await signManifest(m, s.keys.B), s.ctx)).ref;
+  const plan = await adopt(s, "B", ref, { params: { pool: "vault:M-mine", to: "vault:B-home" } });
+  const run = await exec(s, plan);
+  assert.equal(run.failure.code, "EFFECT_UNKNOWN");
+  assert.match(run.failure.detail, /not simulated/);
+});

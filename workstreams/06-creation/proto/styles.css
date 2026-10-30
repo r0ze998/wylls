@@ -89,3 +89,6 @@ td code { font-family: var(--mono); }
   .top, main { padding-left: 16px; padding-right: 16px; }
   .tab { padding: 8px; }
 }
+.adopted { border: 1px solid var(--line); border-radius: 6px; padding: 4px 10px; margin: 8px 0; }
+.adopted p { margin: 4px 0; }
+code { overflow-wrap: anywhere; word-break: break-all; }

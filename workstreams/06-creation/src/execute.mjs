@@ -210,7 +210,8 @@ export async function execute(signed, ctx, { request, raidAt = null } = {}) {
       log.push(`${s.id}: ${shop} の工房を ${runs} 回（${vault} の中で ${fmt(need)} → ${fmt(made)}${batches.length ? `、束 ${batches.map((b) => b.id).join("・")} を使った` : ""}${note}、模擬）`);
       return { ok: true };
     }
-    return no("EFFECT_UNKNOWN", { effect: s.effect });
+    // receipt.withdraw and shares.withdraw are typed and checked, but this mock does not run them
+    return no("EFFECT_UNKNOWN", { effect: s.effect, detail: "valid in the catalog, not simulated by this mock executor" });
   }
 
   function makeBatch(vaultId, pv, goods, evidence, outputs) {

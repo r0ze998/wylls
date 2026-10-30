@@ -6,7 +6,7 @@
  * and lots (docs/frontier/stage2/S2-2A-CONTRACT.md §2, on the unmerged
  * branch). It is mock data: in the real game it would be read from the
  * herald's feeds (`h/tickets.json`, the vault and holding accounts), and
- * the grant checks would be ②'s Grant verifier (see proposals/).
+ * the grant checks would be ②'s Grant verifier (see handoff/02-grant.ja.md).
  */
 
 import { clone, own } from "./canonical.mjs";

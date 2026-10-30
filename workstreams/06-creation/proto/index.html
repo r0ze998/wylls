@@ -13,6 +13,7 @@
       <strong>公開</strong>はこのブラウザの中の一覧だけ（インターネットにも外部の登録先にも出しません）。
       <strong>実行</strong>は模擬の世界と模擬の台帳の上だけ（チェーン・中継サーバー・ウォレットには何も送りません）。
       公開された定義は説明と接続の約束で、履行の保証でも権利そのものでもありません。
+      札・工房の使用権は<strong>未統合ブランチ（S2）の規則の写し</strong>で、main（S1）では動きません。
     </p>
     <div class="actor">
       <span>今の人：</span>
@@ -85,10 +86,13 @@
           <div id="use-target"></div>
           <form id="bind" class="bind"></form>
           <div class="row">
-            <button id="prepare" class="primary">自分の鍵で計画を準備して確かめる</button>
-            <button id="run" disabled>模擬実行</button>
+            <button id="prepare">自分の鍵で計画を準備して確かめる</button>
+            <button id="adopt" class="primary" disabled>採用する（この版と内容ハッシュに固定）</button>
           </div>
+          <div id="adopt-result"></div>
           <div class="row" id="helpers"></div>
+          <h2>採用済みの計画 <small>（作者の公開停止では止まらない。実行は自分の鍵で1回ずつ依頼）</small></h2>
+          <div id="adopted"></div>
         </div>
         <div class="col">
           <h2>実行前の確認</h2>
@@ -103,7 +107,8 @@
       <div class="cols">
         <div class="col"><h2>場所（模擬の世界）</h2><div id="places"></div></div>
         <div class="col"><h2>札（S2 の束を写した模擬）</h2><div id="lots"></div>
-          <h2>完了記録（④ の代わりの模擬台帳）</h2><div id="receipts"></div>
+          <h2>使う物の束（消費する権利。模擬）</h2><div id="batches"></div>
+          <h2>完了記録（過去の出来事の証明。④ の代わりの模擬台帳）</h2><div id="receipts"></div>
           <h2>署名の記録</h2><ol id="signlog" class="signlog"></ol></div>
       </div>
     </section>
