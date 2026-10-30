@@ -28,14 +28,30 @@ function base(P, opts = {}) {
 
 const LADDER_SMALL = [1, 2, 3];
 
-function withAlts(P, stash) {
+// Two people in nation 0, each with three extra villages founded on days 0, 3 and 6 of the second unit.
+//   stash      – the main village moves stock into the extra villages while they are protected
+//   attention  – 'free':  every account gets 4 sessions/day (the person has unlimited time)
+//                'split': the person's 4 sessions are split: main 2, extra villages 1 each (5 in all)
+//                'ai':    the extra villages are run by an always-on agent
+function withAlts(P, stash, attention = 'free') {
   const specs = base(P);
   const U = P.periodDays * DAY;
   for (let m = 0; m < 2; m++) {
     const mainIdx = specs.length;
-    specs.push({ nation: 0, kind: 'human', cohort: 'abuser', joinT: 0, sessionsPerDay: 4, behaviour: 'coop', flags: stash ? { altMain: true } : {} });
+    const mainSessions = attention === 'split' ? 2 : 4;
+    specs.push({ nation: 0, kind: 'human', cohort: 'abuser', joinT: 0, sessionsPerDay: mainSessions, behaviour: 'coop', flags: stash ? { altMain: true } : {} });
     for (let k = 0; k < 3; k++) {
-      specs.push({ nation: 0, kind: 'human', cohort: 'alt', joinT: U + k * 3 * DAY, sessionsPerDay: 4, behaviour: 'turtle', owner: mainIdx, flags: { alt: true } });
+      specs.push({
+        nation: 0,
+        kind: 'human',
+        cohort: 'alt',
+        joinT: U + k * 3 * DAY,
+        sessionsPerDay: attention === 'split' ? 1 : 4,
+        proxy: attention === 'ai',
+        behaviour: 'turtle',
+        owner: mainIdx,
+        flags: { alt: true },
+      });
     }
   }
   return specs;
@@ -81,12 +97,40 @@ export const SCENARIOS = {
     label: '対照：同じ別村を持つが、退避はしない',
     populate: (P) => withAlts(P, false),
   },
+  alts_split: {
+    id: 'alts_split',
+    label: '別村3つ（本人の時間を分ける：本村2回＋別村1回ずつ）',
+    populate: (P) => withAlts(P, false, 'split'),
+  },
+  alts_ai: {
+    id: 'alts_ai',
+    label: '別村3つ（別村は常時稼働の代理が動かす）',
+    populate: (P) => withAlts(P, false, 'ai'),
+  },
   alts_none: {
     id: 'alts_none',
     label: '対照：同じ2人が別村を持たない',
     populate: (P) => {
       const specs = base(P);
       for (let m = 0; m < 2; m++) specs.push({ nation: 0, kind: 'human', cohort: 'abuser', joinT: 0, sessionsPerDay: 4, behaviour: 'coop' });
+      return specs;
+    },
+  },
+  proxy: {
+    id: 'proxy',
+    label: '代理AIつきの人（各国の1日1回と1日2回の人を1人ずつ、常時稼働の代理が動かす）',
+    populate: (P) => {
+      const specs = base(P);
+      for (let n = 0; n < P.nations; n++) {
+        const mine = specs.filter((s) => s.nation === n && s.cohort === 'day1');
+        // the ladder holds two people at 1/day and two at 2/day; the first of each gets a proxy
+        const one = mine.find((s) => s.sessionsPerDay === 1);
+        const two = mine.find((s) => s.sessionsPerDay === 2);
+        for (const s of [one, two]) {
+          s.proxy = true;
+          s.cohort = 'proxied';
+        }
+      }
       return specs;
     },
   },

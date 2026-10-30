@@ -43,7 +43,12 @@ export function newcomers(w, name) {
 
 /** Reference: what a day-1 player contributes per 7 days in the same window. */
 export function day1Contrib7d(w, fromT) {
-  const xs = cohort(w, 'day1').filter((a) => a.sessions === 2).map((a) => contribIn(a, fromT, fromT + 7 * DAY));
+  // people still playing when the window opens (someone who left and has not come back is not a reference)
+  const playing = (a) => a.quitT === null || a.quitT >= fromT || (a.returnT !== null && a.returnT <= fromT);
+  const xs = cohort(w, 'day1')
+    .filter((a) => a.baseSessions === 2)
+    .filter(playing)
+    .map((a) => contribIn(a, fromT, fromT + 7 * DAY));
   return mean(xs);
 }
 
@@ -151,7 +156,7 @@ export function connection(w) {
   const days = w.horizon / DAY;
   for (const a of w.agents) {
     if (a.cohort !== 'day1' && a.cohort !== 'ai') continue;
-    const key = a.kind === 'ai' ? 'ai' : String(a.sessions);
+    const key = a.kind === 'ai' ? 'ai' : String(a.baseSessions);
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push({ perDay: a.contribValue / days, raided: a.raidedLoss / days });
   }
@@ -201,4 +206,74 @@ export function fed(w) {
   const all = Object.entries(r.wealthById).map(([id, v]) => v);
   const rank = all.filter((v) => v > r.wealthById[a.id]).length + 1;
   return { wealth: r.wealthById[a.id], rank, n: all.length, farms: a.farms };
+}
+
+/** Exposure: how often a person was online during their nation's commitment window, and what they gave per exposure. */
+export function exposure(w) {
+  const groups = new Map();
+  for (const a of w.agents) {
+    if (a.cohort !== 'day1') continue;
+    const k = String(a.baseSessions);
+    if (!groups.has(k)) groups.set(k, { seen: 0, exposed: 0, value: 0 });
+    const g = groups.get(k);
+    g.seen += a.opsSeen;
+    g.exposed += a.opsExposed;
+    g.value += a.contribValue;
+  }
+  const out = {};
+  for (const [k, g] of groups) out[k] = { rate: g.seen ? g.exposed / g.seen : NaN, perExposed: g.exposed ? g.value / g.exposed : NaN };
+  return out;
+}
+
+/** People who joined and are still playing at the end. */
+export function retention(w) {
+  const humans = w.agents.filter((a) => a.kind === 'human' && a.joinT !== null && Object.keys(a.flags).length === 0);
+  const stay = (xs) => (xs.length ? xs.filter((a) => !a.quit).length / xs.length : NaN);
+  const newcomers = humans.filter((a) => a.cohort === 'mid' || a.cohort === 'late');
+  const playing = w.nations.map((n) => humans.filter((a) => !a.quit && a.nation === n.id).length);
+  const total = playing.reduce((x, y) => x + y, 0);
+  const everLeft = humans.filter((a) => a.quits > 0);
+  return {
+    humans: stay(humans),
+    newcomers: stay(newcomers),
+    day1: stay(humans.filter((a) => a.cohort === 'day1')),
+    defeated: stay(humans.filter((a) => a.cohort === 'defeated')),
+    everLeft: humans.length ? everLeft.length / humans.length : NaN,
+    cameBack: everLeft.length ? everLeft.filter((a) => a.returns > 0).length / everLeft.length : NaN,
+    topNationPlayers: total > 0 ? Math.max(...playing) / total : NaN,
+  };
+}
+
+/** Disbanding at the cut: who lost how much of their army. */
+export function demobImpact(w) {
+  if (!w.demob.length) return { affected: 0, lostFrac: NaN, lostFracCoop: NaN, lostFracRaider: NaN, troopsCut: 0 };
+  let affected = 0;
+  let active = 0;
+  let cut = 0;
+  const fr = { all: [], coop: [], raider: [], turtle: [] };
+  for (const d of w.demob) {
+    active += d.activeCount;
+    for (const v of d.byAgent.values()) {
+      affected++;
+      cut += v.cut;
+      const f = v.cut / v.before;
+      fr.all.push(f);
+      fr[v.behaviour].push(f);
+    }
+  }
+  const m = (xs) => (xs.length ? xs.reduce((x, y) => x + y, 0) / xs.length : NaN);
+  return { affected: active ? affected / active : NaN, lostFrac: m(fr.all), lostFracCoop: m(fr.coop), lostFracRaider: m(fr.raider), troopsCut: cut };
+}
+
+/** Always-on proxies: contribution per day of proxied people vs others with the same sessions. */
+export function proxies(w) {
+  const days = w.horizon / DAY;
+  const per = (xs) => (xs.length ? xs.reduce((s, a) => s + a.contribValue, 0) / xs.length / days : NaN);
+  const ref = per(w.agents.filter((a) => a.cohort === 'day1' && a.sessions === 12));
+  const out = {};
+  for (const k of [1, 2]) {
+    out[`proxied${k}`] = per(w.agents.filter((a) => a.cohort === 'proxied' && a.sessions === k)) / ref;
+    out[`plain${k}`] = per(w.agents.filter((a) => a.cohort === 'day1' && a.sessions === k)) / ref;
+  }
+  return out;
 }

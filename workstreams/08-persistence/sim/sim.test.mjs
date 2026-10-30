@@ -1,13 +1,14 @@
 // node --test workstreams/08-persistence/sim/
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createWorld, step, run, goodsInWorld, goodsByLedger, isOnline, boundary } from './world.mjs';
+import { createWorld, step, run, goodsInWorld, goodsByLedger, isOnline, boundary, wealth, farmValue } from './world.mjs';
 import { BASE } from './params.mjs';
 import { PROPOSALS } from './proposals.mjs';
 import { SCENARIOS } from './scenarios.mjs';
-import { measure, experiment } from './run.mjs';
+import { measure, experiment, paired, PAIRED_KEYS } from './run.mjs';
 import { renderMarkdown } from './report.mjs';
 import { gini, quantile, hhi } from './stats.mjs';
+import { pairedSummary } from './paired.mjs';
 import { draw } from './rng.mjs';
 
 const U = BASE.periodDays * 24;
@@ -33,9 +34,12 @@ test('draws are keyed, not sequential (common random numbers)', () => {
 });
 
 test('goods are conserved every hour, in every proposal and exploit scenario', () => {
-  for (const sc of ['standard', 'alts', 'churn', 'kingmaker', 'feeder']) {
-    for (const p of Object.values(PROPOSALS)) {
-      const w = createWorld({ ...BASE, standingOrders: true }, p, SCENARIOS[sc], 11);
+  const levers = { standingOrders: true, quitOnDefeat: 0.3, quitHazard: 0.1, freqDrop: 0.1, returnProb: 0.5, rushHours: 48, altFoundCost: 500 };
+  for (const sc of ['standard', 'alts', 'churn', 'kingmaker', 'feeder', 'proxy']) {
+    for (const base of Object.values(PROPOSALS)) {
+      const p = structuredClone(base);
+      if (p.id === 'B2') p.demobRefund = 0.5;
+      const w = createWorld({ ...BASE, ...levers }, p, SCENARIOS[sc], 11);
       while (w.t < w.horizon) {
         step(w);
         const d = Math.abs(goodsInWorld(w) - goodsByLedger(w));
@@ -102,8 +106,8 @@ test('P0: a protected village never raids (code: a shielded holding cannot be a 
   assert.ok(raids > 0);
 });
 
-test('defeat: the home stays in strip mode (P0, A, B); C removes the village and re-founds it later', () => {
-  for (const id of ['P0', 'A', 'B']) {
+test('defeat: the home stays in strip mode (P0, A, B1, B2); C removes the village and re-founds it later', () => {
+  for (const id of ['P0', 'A', 'B1', 'B2']) {
     const w = createWorld(P_SHORT, PROPOSALS[id], SCENARIOS.standard, 2);
     while (w.t <= U + 4 * 24) step(w);
     for (const a of w.agents.filter((x) => x.cohort === 'defeated')) {
@@ -142,15 +146,23 @@ test('boundaries do what each proposal says', () => {
     assert.ok(w.forts.every((f) => f.holder === null));
     assert.ok(w.agents.every((a) => a.joinT === null || a.history.some((h) => h.kind === 'unit_end')));
   }
-  {
-    const { w, before } = at('B');
-    assert.equal(w.theater, before.theater + 1);
-    assert.ok(w.forts.every((f) => f.holder === null && f.supply === 0));
-    assert.ok(w.agents.filter((a) => a.active).some((a) => a.farms > BASE.starterFarms));
+  for (const id of ['B1', 'B2']) {
+    const { w, before } = at(id);
+    assert.equal(w.theater, before.theater, id); // no rotating region in the decided plan
+    assert.ok(w.forts.every((f) => f.holder === null && f.supply === 0 && f.garrison.size === 0), id);
+    assert.ok(w.agents.filter((a) => a.active).some((a) => a.farms > BASE.starterFarms), id);
   }
   {
-    // B: armies stand down to the home guard at the cut
-    const w = createWorld(P_SHORT, PROPOSALS.B, SCENARIOS.standard, 4);
+    // B1 (the decided plan) does not disband armies
+    const w = createWorld(P_SHORT, PROPOSALS.B1, SCENARIOS.standard, 4);
+    while (w.t < U) step(w);
+    boundary(w);
+    assert.equal(w.demob.length, 0);
+    assert.ok(w.agents.filter((a) => a.active).some((a) => a.troops > Math.max(BASE.starterTroops, 2 * a.farms)));
+  }
+  {
+    // B2: armies stand down to the home guard at the cut
+    const w = createWorld(P_SHORT, PROPOSALS.B2, SCENARIOS.standard, 4);
     while (w.t < U) step(w);
     const troopsBefore = w.agents.filter((a) => a.active).reduce((s, a) => s + a.troops, 0);
     boundary(w);
@@ -188,14 +200,92 @@ test('the AI is online every hour, a human only in sessions', () => {
   assert.ok(nH > 20 && nH <= 40, `human sessions ${nH}`);
 });
 
-test('rights at the boundary: P0 voids what is in flight, B returns fort deposits, C carries everything', () => {
+test('rights at the boundary: P0 voids what is in flight, B1 sends undelivered cargo home, C carries everything', () => {
   const r = (id) => measure(run(BASE, PROPOSALS[id], SCENARIOS.standard, 6));
   const p0 = r('P0');
-  const b = r('B');
+  const b = r('B1');
   const c = r('C');
   assert.ok(p0['rights.voided'] > 0);
-  assert.ok(b['rights.returned'] > 0);
+  assert.ok(b['rights.returned'] > 0); // cargo still on the road is its sender's
   assert.equal(c['rights.voided'], 0);
+});
+
+test('fort stock at a B cut follows the ownership policy', () => {
+  const at = (policy) => {
+    const prop = structuredClone(PROPOSALS.B1);
+    prop.rights.fortSupply = policy;
+    const w = createWorld(P_SHORT, prop, SCENARIOS.standard, 6);
+    while (w.t < U) step(w);
+    const stock = w.forts.reduce((s, f) => s + f.supply, 0);
+    const holders = w.forts.map((f) => f.holder);
+    const nationBefore = w.nations.map((n) => n.stock);
+    const goodsBefore = w.agents.reduce((s, a) => s + a.goods, 0);
+    const voidedBefore = w.ledger.voided;
+    boundary(w);
+    return { w, stock, holders, nationBefore, goodsBefore, voidedBefore };
+  };
+  const n = at('nation');
+  assert.ok(n.stock > 0, 'some stock in forts at the cut');
+  const gained = n.w.nations.reduce((s, x, i) => s + x.stock - n.nationBefore[i], 0);
+  assert.ok(gained >= n.stock - 1e-9, 'the holders keep what was given to them');
+  const d = at('destroy');
+  assert.ok(d.w.ledger.voided - d.voidedBefore >= d.stock - 1e-9);
+  const st = at('stay');
+  assert.ok(Math.abs(st.w.forts.reduce((s, f) => s + f.supply, 0) - st.stock) < 1e-9, 'stays in the neutral forts');
+  const rt = at('return');
+  assert.ok(rt.w.agents.reduce((s, a) => s + a.goods, 0) > rt.goodsBefore, 'senders get it back');
+});
+
+test('leaving and coming back', () => {
+  // everyone defeated leaves; in C nobody re-founds unless they come back
+  const P = { ...P_SHORT, quitOnDefeat: 1 };
+  const w = run(P, PROPOSALS.C, SCENARIOS.standard, 3);
+  for (const a of w.agents.filter((x) => x.cohort === 'defeated')) {
+    assert.equal(a.quit, true);
+    assert.equal(a.active, false);
+    assert.equal(a.history.filter((h) => h.kind === 'refound').length, 0);
+  }
+  // with returnProb 1 they come back 7..21 days later and found again
+  const w2 = run({ ...BASE, quitOnDefeat: 1, returnProb: 1 }, PROPOSALS.C, SCENARIOS.standard, 3);
+  let backs = 0;
+  for (const a of w2.agents.filter((x) => x.cohort === 'defeated')) {
+    const left = a.history.find((h) => h.kind === 'left');
+    assert.ok(a.returnT - left.t >= 7 * 24 && a.returnT - left.t <= 21 * 24);
+    if (a.returnT >= w2.horizon) continue; // would come back after the run ends
+    const back = a.history.find((h) => h.kind === 'came_back');
+    assert.equal(back.t, a.returnT);
+    assert.ok(a.history.some((h) => h.kind === 'refound' && h.t === back.t));
+    backs++;
+  }
+  assert.ok(backs > 0);
+  // a person who left is never online
+  const w3 = createWorld({ ...P_SHORT, quitHazard: 0.5, freqDrop: 0.5 }, PROPOSALS.B2, SCENARIOS.standard, 3);
+  let checked = 0;
+  while (w3.t < w3.horizon) {
+    step(w3);
+    for (const a of w3.agents) if (a.quit) {
+      assert.equal(isOnline(w3, a), false);
+      checked++;
+    }
+  }
+  assert.ok(checked > 0 && w3.events.freqDrops > 0);
+});
+
+test('exposure: more sessions are online in more commitment windows', () => {
+  const w = run(BASE, PROPOSALS.P0, SCENARIOS.standard, 2);
+  const m = measure(w);
+  assert.ok(m['expo.rate12'] > m['expo.rate2'] && m['expo.rate2'] > m['expo.rate1']);
+  assert.ok(m['expo.rate1'] > 0 && m['expo.rate12'] <= 1);
+});
+
+test('paired bootstrap is deterministic and brackets the mean', () => {
+  const xs = [1, 2, 3, 4, 5, 6, 7, 8];
+  const ys = [0, 2, 2, 5, 4, 5, 6, 9];
+  const a = pairedSummary(xs, ys, 'k');
+  const b = pairedSummary(xs, ys, 'k');
+  assert.deepEqual(a, b);
+  assert.ok(a.lo <= a.mean && a.mean <= a.hi);
+  assert.equal(a.pos + a.neg + a.zero, 8);
 });
 
 test('stats', () => {
@@ -208,8 +298,36 @@ test('stats', () => {
 });
 
 test('the report renders from a small experiment', () => {
-  const e = experiment('core/standard/mixed', 'standard', { periods: 2 }, [1, 2]);
-  const md = renderMarkdown({ generatedBy: 'test', seeds: 2, firstSeed: 1 }, [{ group: 'core', ...e }]);
+  const e = experiment('core/standard/mixed', 'standard', { periods: 2 }, [1, 2, 3]);
+  e.paired = paired(e, PAIRED_KEYS);
+  const md = renderMarkdown({ generatedBy: 'test', seeds: 3, firstSeed: 1 }, [{ group: 'core', ...e }]);
   assert.match(md, /core\/standard\/mixed/);
-  assert.match(md, /P0より良/);
+  assert.match(md, /1b\. 対になった差/);
+  assert.match(md, /B2−A/);
+});
+
+test('wealth values buildings at their build cost, so building does not change it', () => {
+  const w = createWorld(BASE, PROPOSALS.P0, SCENARIOS.standard, 1);
+  for (let n = 0; n < 12; n++) {
+    const cost = BASE.farmBaseCost * BASE.farmCostGrowth ** n;
+    assert.ok(Math.abs(farmValue(w, n + 1) - farmValue(w, n) - cost) < 1e-9);
+  }
+  const a = { goods: 1000, troops: 0, farms: 3, tower: false, workshop: false };
+  const before = wealth(w, a);
+  const cost = BASE.farmBaseCost * BASE.farmCostGrowth ** 3;
+  const after = wealth(w, { ...a, goods: 1000 - cost, farms: 4 });
+  assert.ok(Math.abs(after - before) < 1e-9);
+});
+
+test('an extra village is founded only once its full cost is paid', () => {
+  const cost = 1000;
+  const w = run({ ...BASE, altFoundCost: cost }, PROPOSALS.B2, SCENARIOS.alts_control, 4);
+  const alts = w.agents.filter((a) => a.cohort === 'alt');
+  assert.ok(alts.some((a) => a.joinT !== null));
+  for (const a of alts) {
+    if (a.joinT === null) continue;
+    assert.equal(a.altCostPaid % cost, 0);
+    assert.ok(a.altCostPaid >= cost);
+    assert.ok(a.joinT >= a.plannedJoinT);
+  }
 });

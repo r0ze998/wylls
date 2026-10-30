@@ -1,5 +1,6 @@
-// The reference (current shape) and up to three candidate structures.
-// None of the candidates is adopted; see ../03-proposals.ja.md.
+// The reference (current shape) and three candidate structures; B is split into B1 (the decision
+// log's plan as written) and B2 (B1 + this workstream's disbanding rule). None is adopted;
+// see ../03-proposals.ja.md.
 //
 // boundary:
 //   'reset_world' – the competitive unit ends and the material world is rebuilt (villages,
@@ -52,9 +53,14 @@ export const A = {
   rights: { caravans: 'void', fortSupply: 'void', standing: 'cancel' },
 };
 
-export const B = {
-  id: 'B',
-  name: '世界は続き、地域と目標を区切る',
+// B1: the decision log's adopted plan (docs/design/redesign/23, 99: 2026-10-23) as written:
+// the world continues; at each cut the victory forts return to neutral, their garrisons go home,
+// war state and scores restart. Nothing else is reset. Newcomer protection follows doc 19 (decided
+// mechanism; 72 h is the doc's example figure), "bigger is heavier" upkeep follows the decided idea
+// (figures are this model's). The rotating region is NOT part of the decision; it is a sensitivity knob.
+export const B1 = {
+  id: 'B1',
+  name: '世界は続き、砦の中立化と守備兵の帰還で区切る（文書23の既存決定どおり）',
   boundary: 'reset_war',
   joinDeadlineDay: null,
   switching: true,
@@ -63,11 +69,21 @@ export const B = {
   rejoin: { allowedInPeriod: true, delayH: 0, keepFarmsFrac: 0, salvageFrac: 0, protectionH: 0, placement: 'interior' },
   upkeep: { freeFarms: 8, rate: 0.5, exp: 1.3 },
   cellarFrac: 0.5, // the home stays immune as today
-  forts: { rotateTheater: true },
-  // armies stand down at the boundary to a home guard of 2 troops per farm (at least the starter troops);
-  // without this, B's lock-in matched C's (see 05-results, "B without demobilisation")
+  forts: { rotateTheater: false },
+  demobilize: 0,
+  // delivered supply belongs to the nation (gift); cargo still on the road stays its sender's
+  rights: { caravans: 'deliver_or_return', fortSupply: 'nation', standing: 'keep' },
+};
+
+// B2: B1 plus a NEW rule this workstream proposes for testing only (not in any decision):
+// at each cut every army stands down to a home guard of 2 troops per farm (at least the starter
+// troops); the rest is disbanded with no refund. Figures are placeholders, not a spec.
+export const B2 = {
+  ...B1,
+  id: 'B2',
+  name: 'B1＋区切りで軍を解散（⑧の追加案、検証用）',
   demobilize: 2,
-  rights: { caravans: 'deliver_or_return', fortSupply: 'return', standing: 'keep' },
+  demobRefund: 0,
 };
 
 export const C = {
@@ -85,4 +101,4 @@ export const C = {
   rights: { caravans: 'deliver_or_return', fortSupply: 'keep', standing: 'keep' },
 };
 
-export const PROPOSALS = { P0, A, B, C };
+export const PROPOSALS = { P0, A, B1, B2, C };

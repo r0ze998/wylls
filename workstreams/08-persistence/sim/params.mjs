@@ -70,6 +70,21 @@ export const BASE = {
   receiptEndsProtection: false, // a protected village that receives goods from others loses protection
   sessionSkip: 0.15, // chance a human skips a planned session, assumption
   sessionJitter: 2, // a planned session moves by up to ±2 h from day to day, assumption
+
+  // ---- leaving and coming back (assumptions only; nothing here is measured, see run.mjs 'retention')
+  quitOnDefeat: 0, // chance a human leaves when their village is defeated
+  quitBase: 0, // daily chance any human leaves
+  quitHazard: 0, // extra daily chance, times a 0..1 gap (see quitModel)
+  quitModel: 'relative', // 'relative': gap below the median human village; 'decline': gap below the village's own peak
+  quitPeakAcrossResets: false, // 'decline' only: does a world reset count as the person's own loss?
+  freqDrop: 0, // daily chance, times the same gap, that a human halves their sessions
+  returnProb: 0, // chance someone who left comes back
+  returnMinDays: 7,
+  returnMaxDays: 21,
+
+  // ---- other levers used only in sensitivity runs
+  rushHours: 0, // in the last N hours before a cut, operations always attack and non-turtles send all troops
+  altFoundCost: 0, // goods the owner pays (from the main village) when an extra village is founded
 };
 
 export const MIXES = {

@@ -31,14 +31,15 @@ export function createWorld(params, proposal, scenario, seed) {
     caravans: [],
     rings: 0,
     ops: [],
-    ledger: { starter: 0, produced: 0, consumed: 0, upkeep: 0, burned: 0, reset: 0, voided: 0, returned: 0 },
+    ledger: { starter: 0, produced: 0, consumed: 0, upkeep: 0, burned: 0, reset: 0, voided: 0, returned: 0, refund: 0 },
     periodResults: [],
     boundaryRights: [],
-    events: { raids: 0, raidSuccess: 0, occupations: 0, intercepts: 0, captures: 0 },
+    events: { raids: 0, raidSuccess: 0, occupations: 0, intercepts: 0, captures: 0, quits: 0, returns: 0, freqDrops: 0 },
+    demob: [], // per boundary: { period, byAgent: Map(id -> troops disbanded) }
     pending: [], // agents waiting to (re)found: { id, at }
   };
   for (let n = 0; n < P.nations; n++) {
-    w.nations.push({ id: n, opOffset: drawInt(seed, 'opOffset', 24, n), fortHours: 0, op: null });
+    w.nations.push({ id: n, opOffset: drawInt(seed, 'opOffset', 24, n), fortHours: 0, op: null, stock: 0 });
   }
   openTheater(w);
   const specs = scenario.populate(P, seed);
@@ -65,6 +66,7 @@ function addAgent(w, s) {
     owner: s.owner ?? id, // the real person behind the account (alts share an owner)
     starterMult: s.starterMult ?? 1,
     sessions,
+    baseSessions: sessions, // the plan at the start; `sessions` can drop later (freqDrop)
     sessionOffset: drawInt(seed, 'sessionOffset', 24, id),
     absence: s.absence || null,
     forcedDefeatT: s.forcedDefeatT ?? null,
@@ -99,6 +101,15 @@ function addAgent(w, s) {
     snapshots: {}, // keyed observations for metrics
     standing: false,
     lastOnline: -1,
+    proxy: !!s.proxy, // a human whose village is run by an always-on agent between sessions
+    quit: false,
+    quitT: null,
+    returnT: null,
+    quits: 0,
+    returns: 0,
+    opsSeen: 0, // operations of the own nation while active
+    opsExposed: 0, // ... of which the owner was online at least once in the commitment window
+    demobLost: 0,
   };
   w.agents.push(a);
   w.pending.push({ id, at: s.joinT, first: true });
@@ -196,6 +207,12 @@ function found(w, a, first) {
   a.uncollected = 0;
   a.starterKits++;
   w.ledger.starter += goods;
+  if (first && a.flags.alt && P.altFoundCost > 0) {
+    // the person behind the account pays in full for each extra village (checked in processPending)
+    spend(w, w.agents[a.owner], P.altFoundCost);
+    a.altCostPaid = (a.altCostPaid || 0) + P.altFoundCost;
+    a.altWaitH = (a.altWaitH || 0) + (w.t - Math.max(a.plannedJoinT, periodStart(w)));
+  }
   place(w, a, rule.placement);
   // protection: once per period for re-founding; newcomers always get it on their first founding
   let prot = rule.protectionH || 0;
@@ -241,6 +258,10 @@ function processPending(w) {
       keep.push({ ...p, at: periodStart(w) + w.periodLen });
       continue;
     }
+    if (p.first && a.flags.alt && w.P.altFoundCost > 0 && w.agents[a.owner].goods < w.P.altFoundCost) {
+      keep.push({ ...p, at: w.t + 1 }); // the owner cannot pay yet: try again next hour
+      continue;
+    }
     found(w, a, p.first);
   }
   w.pending = keep;
@@ -249,8 +270,9 @@ function processPending(w) {
 // ---------------------------------------------------------------- presence
 
 export function isOnline(w, a, t = w.t) {
+  if (a.quit) return false;
   if (a.absence && t >= a.absence[0] && t < a.absence[1]) return false;
-  if (a.kind === 'ai') {
+  if (a.kind === 'ai' || a.proxy) {
     const every = Math.max(1, Math.round(24 / w.P.aiActsPerDay));
     return t % every === 0;
   }
@@ -394,6 +416,21 @@ function openOps(w) {
       mode = 'defend';
       target = own.reduce((m, f) => (garrisonSize(f) < garrisonSize(m) ? f : m));
     }
+    if (w.P.rushHours > 0 && periodStart(w) + w.periodLen - w.t <= w.P.rushHours && others.length) {
+      // anticipating the cut: always attack (assumed behaviour, sensitivity only)
+      mode = 'attack';
+      target = others.reduce((m, f) => (garrisonOrNeutral(w, f) < garrisonOrNeutral(w, m) ? f : m));
+    }
+    for (const a of w.agents) {
+      if (!a.active || a.nation !== n.id || a.kind !== 'human') continue;
+      a.opsSeen++;
+      for (let h = 0; h < w.P.opWindowHours; h++) {
+        if (isOnline(w, a, w.t + h)) {
+          a.opsExposed++;
+          break;
+        }
+      }
+    }
     n.op = { id: w.ops.length, nation: n.id, mode, fort: target.id, opensT: w.t, closesT: w.t + w.P.opWindowHours, resolveT: w.t + w.P.opWindowHours + Math.ceil(w.P.travelInterior * 1.3), troops: new Map(), supply: new Map(), watch: 0, craft: 0, escorts: 0, contributors: new Set() };
     w.ops.push(n.op);
     if (w.P.standingOrders) {
@@ -444,7 +481,8 @@ function contribute(w, a) {
     sendSupply(w, a, op, supply);
     did = true;
   }
-  const send = Math.floor(a.troops * b.sendTroops);
+  const rush = w.P.rushHours > 0 && periodStart(w) + w.periodLen - w.t <= w.P.rushHours && a.behaviour !== 'turtle';
+  const send = Math.floor(a.troops * (rush ? 1 : b.sendTroops));
   if (send >= P.minTroopsToSend) {
     a.troops -= send;
     const tt = travelTime(w, a, fort);
@@ -563,7 +601,12 @@ function closeOps(w) {
       for (const [id, v] of op.supply) returnGoods(w, id, v);
       continue;
     }
-    // attack
+    // attack: the nation's own stock tops up what members delivered
+    if (n.stock > 0) {
+      const top = Math.min(n.stock, Math.max(0, troops * 2 - supply));
+      n.stock -= top;
+      supply += top;
+    }
     const supplyFactor = 0.6 + 0.4 * Math.min(1, supply / (troops * 2));
     const S = troops * supplyFactor * (1 + 0.03 * Math.min(10, op.watch + op.craft));
     const D = garrisonOrNeutral(w, f) * w.P.fortDefence * (f.supply > 0 ? 1.1 : 1.0);
@@ -575,10 +618,15 @@ function closeOps(w) {
       const keepFrac = 1 - (0.5 * d) / (s + d);
       f.garrison = new Map();
       for (const [id, v] of op.troops) f.garrison.set(id, Math.round(v * keepFrac));
+      const wasNeutral = f.holder === null;
       f.holder = n.id;
-      // supply stored by the previous holder is captured (burned)
-      w.ledger.burned += f.supply;
-      w.ledger.consumed += f.supply;
+      if (wasNeutral && f.supply > 0) {
+        n.stock += f.supply; // stock left in a neutral fort goes to whoever takes it
+      } else {
+        // supply stored by the previous holder is captured (burned)
+        w.ledger.burned += f.supply;
+        w.ledger.consumed += f.supply;
+      }
       f.supply = 0;
       f.supplyBy = new Map();
     } else {
@@ -676,8 +724,15 @@ export function capacity(a) {
   return a.farms + a.troops / 10 + a.goods / 100;
 }
 
+/** What it would cost to build the village's farms again (farm n costs base x growth^n). */
+export function farmValue(w, farms) {
+  const { farmBaseCost: b, farmCostGrowth: g } = w.P;
+  return g === 1 ? b * farms : (b * (g ** farms - 1)) / (g - 1);
+}
+
+/** A village's assets at replacement cost: stock, troops at their training price, buildings at their build cost. */
 export function wealth(w, a) {
-  return a.goods + a.troops * w.P.troopPrice + a.farms * 80 + (a.tower ? w.P.towerCost : 0) + (a.workshop ? w.P.workshopCost : 0);
+  return a.goods + a.troops * w.P.troopPrice + farmValue(w, a.farms) + (a.tower ? w.P.towerCost : 0) + (a.workshop ? w.P.workshopCost : 0);
 }
 
 function defeat(w, a, cause, by) {
@@ -686,6 +741,7 @@ function defeat(w, a, cause, by) {
   a.defeats.push({ t: w.t, cause, by, capacity: capacity(a), wealth: before, recoveredT: null, contribT: null, period: w.period, foundT: w.t });
   a.history.push({ t: w.t, kind: 'defeated', cause, by });
   a.defeats[a.defeats.length - 1].after = 0;
+  if (a.kind === 'human' && w.P.quitOnDefeat > 0 && draw(w.seed, 'quitOnDefeat', a.id, w.t) < w.P.quitOnDefeat) quit(w, a, 'defeat');
   if (w.prop.defeatMode === 'strip') {
     // the home cannot be taken (code: PlaceHome sits in the unbesiegeable heartland);
     // what is lost is everything beyond it: outposts, stores, garrison
@@ -701,7 +757,7 @@ function defeat(w, a, cause, by) {
     return;
   }
   a.ruins = a.farms;
-  a.ruinsValue = a.farms * 80;
+  a.ruinsValue = farmValue(w, a.farms);
   w.ledger.voided += a.goods;
   a.goods = 0;
   a.troops = 0;
@@ -713,7 +769,65 @@ function defeat(w, a, cause, by) {
   a.protectedUntil = -1;
   a.loc = null;
   const delay = w.prop.rejoin.delayH || 0;
-  w.pending.push({ id: a.id, at: w.t + delay, first: false });
+  if (!a.quit) w.pending.push({ id: a.id, at: w.t + delay, first: false });
+}
+
+// ---------------------------------------------------------------- leaving, coming back, playing less
+//
+// None of these rates is measured; they are swept as assumptions (run.mjs 'retention').
+
+function quit(w, a, cause) {
+  a.quit = true;
+  a.quitT = w.t;
+  a.quits++;
+  w.events.quits++;
+  a.history.push({ t: w.t, kind: 'left', cause });
+  w.pending = w.pending.filter((p) => p.id !== a.id);
+  const P = w.P;
+  if (P.returnProb > 0 && draw(w.seed, 'returns', a.id, w.t) < P.returnProb) {
+    const span = Math.max(0, P.returnMaxDays - P.returnMinDays);
+    a.returnT = w.t + 24 * (P.returnMinDays + drawInt(w.seed, 'returnDay', span + 1, a.id, w.t));
+  } else a.returnT = null;
+}
+
+function comeBack(w) {
+  for (const a of w.agents) {
+    if (!a.quit || a.returnT !== w.t) continue;
+    a.quit = false;
+    a.returns++;
+    w.events.returns++;
+    a.history.push({ t: w.t, kind: 'came_back' });
+    if (!a.active) {
+      // the village is gone (world rebuilt, or occupied and not re-founded): found again
+      const fresh = a.joinT === null || w.prop.boundary === 'reset_world';
+      w.pending.push({ id: a.id, at: w.t, first: fresh });
+    }
+  }
+}
+
+function dailyChoices(w) {
+  const { P } = w;
+  if (w.t % DAY !== 0 || (P.quitBase <= 0 && P.quitHazard <= 0 && P.freqDrop <= 0)) return;
+  const people = w.agents.filter((a) => a.active && !a.quit && a.kind === 'human' && Object.keys(a.flags).length === 0);
+  if (people.length === 0) return;
+  const ws = people.map((a) => wealth(w, a)).sort((x, y) => x - y);
+  const median = ws[Math.floor(ws.length / 2)] || 1;
+  for (const a of people) {
+    const now = wealth(w, a);
+    a.peakWealth = Math.max(a.peakWealth || 0, now);
+    // quitModel 'relative': a village below the median human village feels behind (compares with others)
+    // quitModel 'decline':  a village below its own best feels it is losing (compares with itself)
+    const deficit = P.quitModel === 'decline' ? Math.max(0, 1 - now / Math.max(1, a.peakWealth)) : Math.max(0, 1 - now / median);
+    if (draw(w.seed, 'quitDaily', a.id, w.t) < P.quitBase + P.quitHazard * deficit) {
+      quit(w, a, 'behind');
+      continue;
+    }
+    if (a.sessions > 1 && draw(w.seed, 'freqDrop', a.id, w.t) < P.freqDrop * deficit) {
+      a.sessions = Math.ceil(a.sessions / 2);
+      w.events.freqDrops++;
+      a.history.push({ t: w.t, kind: 'plays_less', sessions: a.sessions });
+    }
+  }
 }
 
 // ---------------------------------------------------------------- scenario hooks (exploits)
@@ -822,6 +936,10 @@ export function boundary(w) {
     for (const f of w.forts) {
       w.ledger.voided += f.supply;
     }
+    for (const n of w.nations) {
+      w.ledger.voided += n.stock;
+      n.stock = 0;
+    }
     w.forts = [];
     w.theater++;
     openTheater(w);
@@ -831,8 +949,17 @@ export function boundary(w) {
       if (a.active) {
         w.ledger.reset += a.goods;
         a.history.push({ t: w.t, kind: 'unit_end', farms: a.farms, wealth: wealth(w, a) });
+        a.goods = 0;
+        a.troops = 0;
+        a.farms = 0;
+        a.tower = false;
+        a.workshop = false;
+        a.uncollected = 0;
         a.active = false;
-        carry.push(a.id);
+        // a scheduled reset that hits everyone is not counted as the person's own loss, unless
+        // quitPeakAcrossResets says the reset itself feels like losing (assumption, swept)
+        if (!w.P.quitPeakAcrossResets) a.peakWealth = 0;
+        if (!a.quit) carry.push(a.id);
       }
     }
     rec.voided = w.ledger.voided - before;
@@ -843,7 +970,7 @@ export function boundary(w) {
     w.pending = w.pending.filter((p) => !carry.includes(p.id) && !(waiting.has(p.id) && !p.first && w.agents[p.id].joinT !== null));
     for (const id of carry) w.pending.push({ id, at: w.t, first: true });
     for (const a of w.agents) {
-      if (!a.active && a.joinT !== null && !carry.includes(a.id) && !w.pending.some((p) => p.id === a.id)) {
+      if (!a.active && !a.quit && a.joinT !== null && !carry.includes(a.id) && !w.pending.some((p) => p.id === a.id)) {
         w.pending.push({ id: a.id, at: w.t, first: true });
       }
       a.lastProtectionPeriod = -1;
@@ -853,26 +980,21 @@ export function boundary(w) {
     const before = w.ledger.returned;
     const voidBefore = w.ledger.voided;
     if (prop.boundary === 'reset_war') {
-      // garrisons go home, forts return to neutral, fort supply returns to whoever stored it
+      // garrisons go home and forts return to neutral. What was delivered to a fort or to an open
+      // operation has already left its sender: by default it is the nation's (r.fortSupply):
+      //   'nation'  – moves to the storehouse of the nation that held it (the donee keeps it)
+      //   'stay'    – stays in the neutral fort; whoever takes the fort next takes it
+      //   'destroy' – lost with the neutralisation
+      //   'return'  – handed back to the senders pro rata (needs per-deposit provenance AND a custody
+      //               right; only a comparison variant, not a default)
+      // Cargo still on the road was never delivered, so it stays its sender's and goes back home.
       for (const f of w.forts) {
         for (const [id, v] of f.garrison) if (w.agents[id].active) w.agents[id].troops += v;
         f.garrison = new Map();
+        const holder = f.holder;
         f.holder = null;
-        if (r.fortSupply === 'return') {
-          let left = f.supply;
-          let total = 0;
-          for (const v of f.supplyBy.values()) total += v;
-          for (const [id, v] of f.supplyBy) {
-            const share = total > 0 ? Math.floor((f.supply * v) / total) : 0;
-            returnGoods(w, id, share);
-            left -= share;
-          }
-          w.ledger.voided += left;
-        } else w.ledger.voided += f.supply;
-        f.supply = 0;
-        f.supplyBy = new Map();
+        settleFortStock(w, f, holder, r.fortSupply);
       }
-      // caravans bound for the old theater: delivered if they land before the cut else returned
       const keep = [];
       for (const c of w.caravans) {
         if (c.kind === 'transfer') keep.push(c);
@@ -883,7 +1005,11 @@ export function boundary(w) {
       for (const n of w.nations) {
         if (n.op) {
           for (const [id, v] of n.op.troops) if (w.agents[id].active) w.agents[id].troops += v;
-          for (const [id, v] of n.op.supply) returnGoods(w, id, v);
+          let delivered = 0;
+          for (const v of n.op.supply.values()) delivered += v;
+          if (r.fortSupply === 'return') for (const [id, v] of n.op.supply) returnGoods(w, id, v);
+          else if (r.fortSupply === 'destroy') w.ledger.voided += delivered;
+          else n.stock += delivered; // delivered to the nation's operation: the nation's
           n.op = null;
         }
       }
@@ -893,12 +1019,26 @@ export function boundary(w) {
       }
     }
     if (prop.demobilize) {
-      // armies stand down to a home guard; the rest is disbanded (no refund)
+      // armies stand down to a home guard of `demobilize` troops per farm (at least the starter
+      // troops); the rest is disbanded. demobRefund: share of the training price paid back as goods.
+      const byAgent = new Map();
       for (const a of w.agents) {
         if (!a.active) continue;
         const keep = Math.max(w.P.starterTroops, Math.round(prop.demobilize * a.farms));
-        if (a.troops > keep) a.troops = keep;
+        if (a.troops > keep) {
+          const cut = a.troops - keep;
+          byAgent.set(a.id, { cut, before: a.troops, behaviour: a.behaviour, kind: a.kind });
+          a.troops = keep;
+          a.demobLost += cut;
+          const refund = Math.floor(cut * w.P.troopPrice * (prop.demobRefund || 0));
+          if (refund > 0) {
+            a.goods += refund;
+            w.ledger.refund += refund;
+          }
+        }
       }
+      const activeCount = w.agents.filter((a) => a.active).length;
+      w.demob.push({ period: w.period, byAgent, activeCount });
     }
     rec.returned = w.ledger.returned - before;
     rec.voided = w.ledger.voided - voidBefore;
@@ -909,6 +1049,33 @@ export function boundary(w) {
   w.boundaryRights.push(rec);
 }
 
+function settleFortStock(w, f, holder, policy) {
+  if (f.supply <= 0) {
+    f.supply = 0;
+    f.supplyBy = new Map();
+    return;
+  }
+  if (policy === 'return') {
+    let left = f.supply;
+    let total = 0;
+    for (const v of f.supplyBy.values()) total += v;
+    for (const [id, v] of f.supplyBy) {
+      const share = total > 0 ? Math.floor((f.supply * v) / total) : 0;
+      returnGoods(w, id, share);
+      left -= share;
+    }
+    w.ledger.voided += left;
+  } else if (policy === 'nation' && holder !== null) {
+    w.nations[holder].stock += f.supply;
+  } else if (policy === 'stay') {
+    return; // the stock stays in the neutral fort (supplyBy is kept only as history)
+  } else {
+    w.ledger.voided += f.supply;
+  }
+  f.supply = 0;
+  f.supplyBy = new Map();
+}
+
 function resetScores(w) {
   for (const n of w.nations) n.fortHours = 0;
 }
@@ -917,7 +1084,9 @@ function resetScores(w) {
 
 export function step(w) {
   if (w.t > 0 && w.t % w.periodLen === 0) boundary(w);
+  comeBack(w);
   processPending(w);
+  dailyChoices(w);
   for (const a of w.agents) {
     if (a.forcedDefeatT === w.t && a.active) defeat(w, a, 'forced', null);
   }
@@ -987,13 +1156,14 @@ export function goodsInWorld(w) {
   for (const c of w.caravans) s += c.goods || 0;
   for (const n of w.nations) if (n.op) for (const v of n.op.supply.values()) s += v;
   for (const f of w.forts) s += f.supply;
+  for (const n of w.nations) s += n.stock;
   return s;
 }
 
 /** What the ledger says should exist. */
 export function goodsByLedger(w) {
   const L = w.ledger;
-  return L.starter + L.produced - L.consumed - L.upkeep - L.voided - L.reset;
+  return L.starter + L.refund + L.produced - L.consumed - L.upkeep - L.voided - L.reset;
 }
 
 export function run(params, proposal, scenario, seed) {
