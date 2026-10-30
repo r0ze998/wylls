@@ -25,6 +25,10 @@ WYLLS の「国のチーム戦略」を、実装に渡せるゲーム設計と�
 | [docs/09-test-results.ja.md](docs/09-test-results.ja.md) | 結果：テスト・S1 への接続・人間の理解・面白さを分けて。保全の状態 |
 | [docs/10-playtest-plan.ja.md](docs/10-playtest-plan.ja.md) | 人間3〜5人の試遊の準備（既存の試作を使う）。募集・外部送信はしていない |
 | `playtest/observation-sheet.csv` | 試遊の記録用紙（空の雛形） |
+| [docs/11-nations-tower-placement-now.ja.md](docs/11-nations-tower-placement-now.ja.md) | 追加検証（2026-10-30）：6国の説明と実装された能力、中央の塔、現行の初期配置 |
+| [docs/12-placement-comparison.ja.md](docs/12-placement-comparison.ja.md) | 初期配置 A・B・C の比較（B が最初の試作候補）、場面、配置運と戦略、中央塔との相性、試遊の質問 |
+| [docs/13-handoff-08.ja.md](docs/13-handoff-08.ja.md) | ⑧への引き渡し（⑧の成果物は手元になく、接続していない） |
+| `prototype/placement.html` | 配置を切り替える地図。数字の比較と、その配置の距離で国の卓を開く |
 | [proposals/](proposals/README.ja.md) | 接続の差分の提案（未適用） |
 | `prototype/` | 国の卓の試作（依存なし） |
 | `test/` | ルールのテスト（`node --test`）とブラウザの煙テスト（Playwright） |
@@ -40,15 +44,15 @@ node workstreams/01-national-strategy/prototype/serve.mjs          # http://127.
 node workstreams/01-national-strategy/prototype/serve.mjs --port 8080
 ```
 
-ブラウザで開き、上の人物（ケイ・ミラ・ソウタ・ハル）を切り替えて、その人の「次に必要な判断」を押す。「出来事」から遅延・退出・施設の喪失・方針の対立・不在を起こす。画面の下の「試し方（5分）」に手順がある。
+ブラウザで開き（配置の比較は `/placement.html`）、上の人物（ケイ・ミラ・ソウタ・ハル）を切り替えて、その人の「次に必要な判断」を押す。「出来事」から遅延・退出・施設の喪失・方針の対立・不在を起こす。画面の下の「試し方（5分）」に手順がある。
 
 **ES モジュールなので、`file://` で直接開くと動かない。** `serve.mjs` か、任意の静的サーバーで `prototype/` を配る。
 
 ## テスト
 
 ```sh
-node --test workstreams/01-national-strategy/test/*.test.mjs        # ルール20・条件15・乱数40・回帰12（87件）
-node workstreams/01-national-strategy/test/browser.smoke.mjs        # ブラウザで押す（11件）。--shots で screenshots/ に保存
+node --test workstreams/01-national-strategy/test/*.test.mjs        # ルール20・条件15・乱数40・回帰12・配置15（102件）
+node workstreams/01-national-strategy/test/browser.smoke.mjs        # ブラウザで押す（13件）。--shots で screenshots/ に保存
 ```
 
 結果は [docs/09-test-results.ja.md](docs/09-test-results.ja.md)。**どちらも「ルールと画面が書いたとおりに動く」ことの確認で、人間が面白いと感じた証拠ではない。**

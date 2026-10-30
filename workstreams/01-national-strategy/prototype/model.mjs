@@ -33,14 +33,24 @@ function log(w, kind, text, extra = {}) {
   w.log.push({ turn: w.turn, kind, text, ...extra });
 }
 const nextId = (w, p) => `${p}${w.seq++}`;
+/** 場所の間の移動ターン。配置の比較から開いたときは、その配置から作った値を使う。 */
+function travel(w, a, b) {
+  if (a === b) return 0;
+  const o = w.travelOverride;
+  return o ? (o[`${a}|${b}`] ?? o[`${b}|${a}`] ?? travelTurns(a, b)) : travelTurns(a, b);
+}
 const fail = error => ({ ok: false, error });
 const ok = (extra = {}) => ({ ok: true, ...extra });
 
 // ------------------------------------------------------------------ 世界
 
-/** 新しい世界。preset: 'start'（提案の直後）／'preparing'（採択済み・申し出がそろった所）。 */
-export function createWorld(preset = 'start') {
+/**
+ * 新しい世界。preset: 'start'（提案の直後）／'preparing'（採択済み・申し出がそろった所）。
+ * opts.travel があれば、場所の間の移動ターンを差し替える（配置の比較から開くとき。キーは 'v:kei|site' など）。
+ */
+export function createWorld(preset = 'start', opts = {}) {
   const w = initialWorld();
+  if (opts.travel) { w.travelOverride = { ...opts.travel }; w.placementNote = opts.note ?? null; }
   proposeGoal(w, OUTPOST_GOAL);
   w.goals.outpost.adoptedAt = null;
   if (preset === 'preparing') {
@@ -158,10 +168,10 @@ function destinationOf(w, p, building = false) {
 function etaIfSent(w, p) {
   const dest = destinationOf(w, p, true);
   if (!dest) return Infinity;
-  const travel = travelTurns(w.members[p.provider].home, placeOf(w, dest));
+  const turns = travel(w, w.members[p.provider].home, placeOf(w, dest));
   const f = dest.kind === 'facility' ? w.facilities[dest.id] : null;
   const start = f && f.status === '建設中' ? Math.max(w.turn, f.readyAt) : w.turn;
-  return start + 1 + travel;
+  return start + 1 + turns;
 }
 function recipientOf(w, dest) {
   if (dest.kind === 'village') return dest.member;
@@ -511,7 +521,7 @@ function dispatch(w, actor, { pledge: id, qty }) {
   w.stock[actor][n.resource] = have - qty;
   const s = {
     id: nextId(w, 's'), pledge: p.id, owner: actor, resource: n.resource, qty, from, to: dest,
-    sentAt: w.turn, state: '送信済み', eta: w.turn + 1 + travelTurns(from, to), delay: 0, reason: null, arrivedOwner: null,
+    sentAt: w.turn, state: '送信済み', eta: w.turn + 1 + travel(w, from, to), delay: 0, reason: null, arrivedOwner: null,
     toGen: dest.kind === 'facility' ? w.facilities[dest.id].gen : null,
   };
   w.shipments[s.id] = s;
@@ -589,7 +599,7 @@ function scout(w, actor, { at = 'pass' }) {
   if (!PLACES[at] || at.startsWith('v:')) return fail('偵察の行き先が正しくない');
   if (w.reserve[actor] < 10) return fail('偵察に出す兵（10）がいない');
   w.reserve[actor] -= 10;
-  const t = travelTurns(w.members[actor].home, at);
+  const t = travel(w, w.members[actor].home, at);
   const s = { id: nextId(w, 'sc'), owner: actor, at, state: '偵察中', returnAt: w.turn + 2 * t, returnedAt: null };
   w.scouts.push(s);
   const p = ownCountedPledge(w, actor, 'watch', at);
@@ -608,7 +618,7 @@ function march(w, actor, { n, to = 'pass', purpose = '進軍' }) {
   const pool = fromFort ? fort?.troops ?? 0 : w.reserve[actor];
   if (pool < n) return fail(`${fromFort ? '砦の兵' : '予備の兵'}は ${pool}。足りない`);
   if (fromFort) fort.troops -= n; else w.reserve[actor] -= n;
-  const m = { id: nextId(w, 'm'), kind: purpose === '護衛' ? 'escort' : 'march', owner: actor, size: n, to, state: '移動中(封)', eta: w.turn + travelTurns(fromFort ? 'site' : w.members[actor].home, to), sealed: true };
+  const m = { id: nextId(w, 'm'), kind: purpose === '護衛' ? 'escort' : 'march', owner: actor, size: n, to, state: '移動中(封)', eta: w.turn + travel(w, fromFort ? 'site' : w.members[actor].home, to), sealed: true };
   w.marches[m.id] = m;
   if (purpose === '護衛') {
     const p = ownCountedPledge(w, actor, 'escort');
@@ -777,7 +787,7 @@ function returnGift(w, actor, { to, resource, qty, why = '返す', returnOf = nu
   if (returnOf != null) w.shipments[returnOf].returned = true;
   const from = w.members[actor].home;
   const dest = { kind: 'village', member: to };
-  const s = { id: nextId(w, 's'), pledge: null, owner: actor, resource, qty, from, to: dest, sentAt: w.turn, state: '送信済み', eta: w.turn + 1 + travelTurns(from, w.members[to].home), delay: 0, reason: null, why, arrivedOwner: null };
+  const s = { id: nextId(w, 's'), pledge: null, owner: actor, resource, qty, from, to: dest, sentAt: w.turn, state: '送信済み', eta: w.turn + 1 + travel(w, from, w.members[to].home), delay: 0, reason: null, why, arrivedOwner: null };
   w.shipments[s.id] = s;
   log(w, 'ship', `${label.who(w, actor)}が${label.who(w, to)}へ${label.res(resource)} ${qty} を送った（${why}。送信済み。着けば${label.who(w, to)}の物）`);
   return ok({ shipment: s.id });
@@ -827,7 +837,7 @@ function step(w) {
       if (m.kind === 'escort') m.until = w.turn + ESCORT_TURNS;
     } else if (m.kind === 'escort' && m.state === '到着(封)' && m.until <= w.turn) {
       m.state = '帰還中(封)';
-      m.backAt = w.turn + travelTurns(m.to, w.members[m.owner].home);
+      m.backAt = w.turn + travel(w, m.to, w.members[m.owner].home);
     } else if (m.kind === 'escort' && m.state === '帰還中(封)' && m.backAt <= w.turn) {
       m.state = '帰還';
       w.reserve[m.owner] += m.size;
@@ -1275,7 +1285,7 @@ function pledgeDecision(w, g, n, me, prog) {
   } else if (n.kind === 'garrison') {
     options.push({ label: `守備兵 ${n.qty} を置くと申し出る`, act: 'pledge', args: { goal: g.id, need: n.id, qty: n.qty }, consequence: `予備 ${w.reserve[me]}。足りない分は自分の村で訓練する（食料）。その間、兵は自分の村の守りに使えない`, enabled: true });
   } else if (n.kind === 'watch') {
-    options.push({ label: '偵察を一度出す（短い参加）', act: 'pledge', args: { goal: g.id, need: n.id, method: '偵察' }, consequence: `兵10を${2 * travelTurns(w.members[me].home, n.at)}ターン出す。知らせは${SCOUT_FRESH_TURNS}ターン有効なので、期限の近くにもう一度要るかもしれない`, enabled: w.reserve[me] >= 10, reason: '予備の兵が10より少ない' });
+    options.push({ label: '偵察を一度出す（短い参加）', act: 'pledge', args: { goal: g.id, need: n.id, method: '偵察' }, consequence: `兵10を${2 * travel(w, w.members[me].home, n.at)}ターン出す。知らせは${SCOUT_FRESH_TURNS}ターン有効なので、期限の近くにもう一度要るかもしれない`, enabled: w.reserve[me] >= 10, reason: '予備の兵が10より少ない' });
     options.push({ label: '峠に見張り塔を建てると申し出る', act: 'pledge', args: { goal: g.id, need: n.id, method: '塔' }, consequence: costLine(w, me, { kind: 'build', building: '見張り塔' }), enabled: facilitiesOf(w, me, '見張り塔').length < BUILD_LIMIT['見張り塔'] });
   } else if (n.kind === 'escort') {
     options.push({ label: '護衛を申し出る（中身は封）', act: 'pledge', args: { goal: g.id, need: n.id }, consequence: '卓には件数だけが出る。出す兵と場所はあなただけが知る。その兵は護衛の間、他に使えない', enabled: true });
@@ -1314,7 +1324,7 @@ function pledgeDecisions(w, g, p, me) {
     const have = w.stock[me][n.resource] ?? 0;
     const left = p.qty - p.sent;
     const q = Math.min(have, left);
-    const eta = dest ? w.turn + 1 + travelTurns(w.members[me].home, placeOf(w, dest)) : null;
+    const eta = dest ? w.turn + 1 + travel(w, w.members[me].home, placeOf(w, dest)) : null;
     const late = eta != null && eta > g.deadline;
     const building = !dest && destinationOf(w, p, true);
     out.push({ id: `send-${p.id}`, goal: g.id, title: `発送するか：${label.res(n.resource)}（残り ${left}）`, why: `${dest ? `今送ると、到着見込みはターン${eta}${late ? `。期限（ターン${g.deadline}）に間に合わない` : ''}。` : (building ? `受け取る倉は建設中（ターン${w.facilities[building.id].readyAt}に完成）。` : '受け取る倉がまだない。')}発送しても、着くまでは「到着済み」に数えない`, options: [
@@ -1347,7 +1357,7 @@ function pledgeDecisions(w, g, p, me) {
     const tower = p.method === '見張り塔を建てる';
     out.push({ id: `watch-${p.id}`, goal: g.id, title: tower ? '見張り塔を建てるか' : '偵察を出すか', why: tower ? '塔は残るので、期限まで見張りが続く' : `偵察の知らせは${SCOUT_FRESH_TURNS}ターン有効。期限（ターン${g.deadline}）の近くで出すほうがよい`, options: [
       tower ? { label: '峠に見張り塔を建て始める', act: 'build', args: { kind: '見張り塔', at: 'pass', pledge: p.id }, consequence: costLine(w, me, { kind: 'build', building: '見張り塔' }), enabled: Object.entries(BUILD_COST['見張り塔']).every(([r, v]) => (w.stock[me][r] ?? 0) >= v), reason: '材料が足りない' }
-        : { label: '偵察を出す', act: 'scout', args: { at: 'pass' }, consequence: `兵10を出す。戻りはターン${w.turn + 2 * travelTurns(w.members[me].home, 'pass')}`, enabled: w.reserve[me] >= 10, reason: '予備の兵が足りない' },
+        : { label: '偵察を出す', act: 'scout', args: { at: 'pass' }, consequence: `兵10を出す。戻りはターン${w.turn + 2 * travel(w, w.members[me].home, 'pass')}`, enabled: w.reserve[me] >= 10, reason: '予備の兵が足りない' },
       waitOption('あとで出す'),
       { label: '取り下げる', act: 'withdraw', args: { pledge: p.id }, consequence: '他の人が見張りを引き受けるかは、調整役が探す', enabled: true },
     ] });
@@ -1366,7 +1376,7 @@ function pledgeDecisions(w, g, p, me) {
       const late = s.eta > g.deadline;
       const near = vaultsAt(w, 'site').filter(f => f.owner === me);
       const altFrom = Object.values(w.members).filter(x => x.id !== me && x.present && x.playable && x.inNation && x.id !== n.consumer && (w.stock[x.id][s.resource] ?? 0) > 0)
-        .sort((a, b) => travelTurns(a.home, placeOf(w, s.to)) - travelTurns(b.home, placeOf(w, s.to)));
+        .sort((a, b) => travel(w, a.home, placeOf(w, s.to)) - travel(w, b.home, placeOf(w, s.to)));
       out.push({ id: `delay-${s.id}`, goal: g.id, title: `あなたの荷車が遅れている（${label.res(s.resource)} ${s.qty}）`, why: `到着見込みはターン${s.eta}${late ? `。期限（ターン${g.deadline}）に間に合わない` : ''}。理由：${s.reason}`, options: [
         { label: '手元から追加で送る', act: 'pledgeMore', enabled: (w.stock[me][s.resource] ?? 0) > 0 && goalIsLive(g) && !['準備中', '再確認待ち', '供給元を失った'].includes(p.status), reason: !goalIsLive(g) ? `目標は「${g.status}」` : (w.stock[me][s.resource] ?? 0) > 0 ? `申し出は「${p.status}」。先にそれを決める` : `手元の${label.res(s.resource)}がない`, consequence: `新しい荷も同じ道なら同じく遅れうる。追加分も着くまであなたの物`, args: { goal: g.id, need: p.need, qty: Math.min(s.qty, w.stock[me][s.resource] ?? 0) } },
         { label: `近くの人に頼む（${altFrom.slice(0, 1).map(x => x.name).join('') || 'なし'}）`, act: 'request', args: { to: altFrom[0]?.id, goal: g.id, need: p.need, qty: s.qty, text: '私の荷車が遅れている。近い所から出してもらえないか' }, consequence: '受けるかは頼まれた人が決める。遅れた荷も後で届くので、余りが出る（余りは受け取った人の物）', enabled: altFrom.length > 0, reason: '頼める人がいない' },
@@ -1398,7 +1408,7 @@ function coordinatorDecisions(w, g, me) {
   const latest = Math.max(...Object.values(w.shipments).filter(s => w.pledges[s.pledge]?.goal === g.id && (s.state === '輸送中' || s.state === '送信済み')).map(s => s.eta), g.deadline);
   const options = [];
   const destPlace = first.n.kind === 'deliver' ? (first.n.to.kind === 'village' ? w.members[first.n.to.member].home : first.n.to.at) : g.site;
-  askable.sort((a, b) => travelTurns(a.home, destPlace) - travelTurns(b.home, destPlace));
+  askable.sort((a, b) => travel(w, a.home, destPlace) - travel(w, b.home, destPlace));
   for (const x of askable.slice(0, 3)) {
     options.push({ label: `${x.name}に頼む：${describeNeed(w, first.n)}`, act: 'request', args: { to: x.id, goal: g.id, need: first.n.id, qty: first.n.kind === 'deliver' ? Math.min(first.gap, Math.max(1, w.stock[x.id][first.n.resource] ?? first.gap)) : undefined },
       consequence: `${x.name}が受けるか決める。断られても罰はない`, enabled: true });
@@ -1461,7 +1471,7 @@ ACTIONS.sendFromVault = (w, actor, { facility, resource, qty, to }) => {
   if (!w.members[to]) return fail('送り先が正しくない');
   f.contents[resource] -= qty;
   const s = { id: nextId(w, 's'), pledge: null, owner: actor, resource, qty, from: f.at, to: { kind: 'village', member: to }, sentAt: w.turn, state: '送信済み',
-    eta: w.turn + 1 + travelTurns(f.at, w.members[to].home), delay: 0, reason: null, why: '倉から送る', arrivedOwner: null, toGen: null };
+    eta: w.turn + 1 + travel(w, f.at, w.members[to].home), delay: 0, reason: null, why: '倉から送る', arrivedOwner: null, toGen: null };
   w.shipments[s.id] = s;
   log(w, 'ship', `${label.who(w, actor)}が自分の倉（${label.place(f.at)}）から${label.who(w, to)}へ${label.res(resource)} ${qty} を送った（着けば${label.who(w, to)}の物）`);
   return ok({ shipment: s.id });

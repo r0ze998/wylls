@@ -125,3 +125,15 @@ tr.over td { color: var(--warn); }
 .toast { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 8px 14px; border-radius: 10px; opacity: 0; pointer-events: none; transition: opacity .2s; max-width: calc(100vw - 32px); font-size: .9rem; }
 .toast.show { opacity: .95; }
 .toast.bad { background: var(--bad); color: #fff; }
+
+/* 初期配置の比較（placement.html） */
+.grid.placement { grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 0.8fr); }
+@media (max-width: 1180px) { .grid.placement { grid-template-columns: minmax(0, 1fr); } }
+.mapbox { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 6px; }
+.mapbox svg { width: 100%; height: auto; display: block; max-height: 78vh; }
+.mapbox .dot { cursor: pointer; }
+.mapbox .dot:focus-visible circle { stroke: var(--info); stroke-width: 3; }
+.sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: middle; }
+.btnlink { display: inline-block; padding: 6px 12px; border-radius: 8px; background: var(--accent); color: var(--accent-ink); text-decoration: none; }
+.placementnote { margin: 8px 16px 0; padding: 8px 12px; border-left: 4px solid var(--info); background: var(--panel); font-size: .85rem; }
+.mapbox polygon, .mapbox text { pointer-events: none; }

@@ -134,6 +134,35 @@ try {
   });
   if (shots) await page.screenshot({ path: join(shotDir, '06-vault-lost.jpg'), fullPage: true, type: 'jpeg', quality: 70 });
 
+  await step('初期配置の比較：A・B・C を切り替えると、地図と数字が変わる。B が最初に出る', async () => {
+    await page.goto(url + 'placement.html');
+    await page.waitForSelector('#map svg');
+    assert.equal(await page.inputValue('#scheme'), 'B');
+    const dotsB = await page.locator('#map .dot').count();
+    assert.equal(dotsB, 36);
+    const sumB = await page.textContent('#summary');
+    await page.selectOption('#scheme', 'A');
+    const sumA = await page.textContent('#summary');
+    assert.notEqual(sumA, sumB);
+    await page.selectOption('#scheme', 'B');
+    await page.click('[data-ui="late"]');
+    assert.equal(await page.locator('#map .dot').count(), 38);
+    await page.locator('#map .dot circle').first().click();
+    assert.match(await page.textContent('#pick'), /中心（Concord）までの州の数/);
+  });
+  if (shots) await page.screenshot({ path: join(shotDir, '07-placement-B.jpg'), fullPage: true, type: 'jpeg', quality: 70 });
+
+  await step('初期配置の比較から国の卓を開くと、その配置の距離で作例が動く', async () => {
+    await page.click('[data-ui="reset"]');
+    await page.click('text=この配置の距離で「国境の共同拠点」を試す');
+    await page.waitForSelector('.placementnote');
+    assert.match(await page.textContent('.placementnote'), /B：同国が小集団で各地に散る/);
+    const t = await page.evaluate(() => window.__table.world.travelOverride);
+    assert.ok(t['v:haru|site'] > 3, `B のハル（別の小集団）は拠点まで遠い：${t['v:haru|site']}`);
+    await page.click('[data-ui="reset"]');
+    assert.ok(await page.evaluate(() => !!window.__table.world.travelOverride), 'やり直しても配置の距離のまま');
+  });
+
   const phone = await browser.newPage({ viewport: { width: 390, height: 844 } });
   phone.on('pageerror', e => errors.push(String(e)));
   await phone.goto(url);

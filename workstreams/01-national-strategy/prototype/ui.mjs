@@ -5,12 +5,33 @@ import {
   label, EVENTS, describeNeed, seemsAbsent, stanceName, cosignCount,
 } from './model.mjs';
 import { BENEFITS, RESOURCES, ADOPT_COSIGNERS, MINUTES_PER_TURN } from './scenario.mjs';
+import { place, addLate, remove, tableTravel } from './placement.mjs';
 
 const $ = s => document.querySelector(s);
 const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
+/**
+ * placement.html から ?placement=B&k=3&sizes=...&seed=...&ev=late,leave で開かれたときは、
+ * その配置の国0の4人の距離で、作例の移動ターンを置き換える（持ち物と期限は同じ）。
+ */
+function placementOpts() {
+  const q = new URLSearchParams(location.search);
+  const scheme = q.get('placement');
+  if (!['A', 'B', 'C'].includes(scheme)) return {};
+  const sizes = (q.get('sizes') ?? '6,6,6,6,6,6').split(',').map(Number).slice(0, 6);
+  if (sizes.length !== 6 || sizes.some(n => !Number.isInteger(n) || n < 0 || n > 60)) return {};
+  let r = place(scheme, sizes, { groupSize: Math.min(6, Math.max(2, Number(q.get('k')) || 3)), seed: Math.max(1, Number(q.get('seed')) | 0) });
+  for (const e of (q.get('ev') ?? '').split(',').filter(Boolean).slice(0, 20)) {
+    if (e === 'late') r = addLate(r, 0, 2);
+    if (e === 'leave') { const f = r.placed.filter(p => p.nation === 0 && p.at).sort((a, b) => a.join - b.join)[0]; if (f) r = remove(r, [f.id]); }
+  }
+  const tt = tableTravel(r);
+  return tt ? { travel: tt.travel, note: tt.note } : {};
+}
+const WORLD_OPTS = placementOpts();
+
 const ui = {
-  world: createWorld('preparing'),
+  world: createWorld('preparing', WORLD_OPTS),
   me: 'kei',
   options: new Map(),
 };
@@ -246,7 +267,7 @@ document.addEventListener('click', ev => {
   const kind = b.dataset.ui;
   if (kind === 'me') { ui.me = b.dataset.id; render(); return; }
   if (kind === 'advance') { advance(w, Number(b.dataset.n)); render(); toast(`ターン${w.turn}になった`); return; }
-  if (kind === 'reset') { ui.world = createWorld($('#preset').value); render(); toast('やり直した'); return; }
+  if (kind === 'reset') { ui.world = createWorld($('#preset').value, WORLD_OPTS); render(); toast('やり直した'); return; }
   if (kind === 'inject') {
     const k = $('#event').value;
     const r = inject(w, k, {});
@@ -268,6 +289,12 @@ document.addEventListener('click', ev => {
 });
 
 fillEvents();
+if (WORLD_OPTS.note) {
+  const n = document.createElement('p');
+  n.className = 'placementnote';
+  n.textContent = `配置の比較から開いた：${WORLD_OPTS.note}。移動ターンだけを置き換えている（近似、仮）。`;
+  document.querySelector('.notice').after(n);
+}
 render();
 // テストと手で試すための入口（本番の画面には置かない）
 window.__table = ui;
