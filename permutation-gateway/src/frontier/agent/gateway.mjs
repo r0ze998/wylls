@@ -28,6 +28,11 @@ import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypt
 import { encode as base58 } from '../../../client/src/base58.mjs';
 import { fromBase64 } from '../../../client/src/bytes.mjs';
 import { ixOf } from '../../../client/src/frontier/codec.mjs';
+import { citizenTag, seed } from '../../../client/src/frontier/addresses.mjs';
+import { LAYOUTS as LAYOUTS_V2 } from '../../../client/src/frontier/abi-v2-layouts.mjs';
+
+/** The S1 seed tags (the v2 layout table): Vault and Caravan for SendCaravan (workstream 03 patch 0005). */
+const S1_TAG = Object.fromEntries(LAYOUTS_V2.accounts.filter(a => ['Vault', 'Caravan'].includes(a.kind) && a.seed_tag).map(a => [a.kind, a.seed_tag]));
 import { isV2, profileForSeason } from '../../../client/src/frontier/profile.mjs';
 import { classify, shapeMessage } from '../../../client/src/frontier/shapes.mjs';
 import { parseTransaction, wireTransaction } from '../../../client/src/solana-tx.mjs';
@@ -64,7 +69,7 @@ const big = v => BigInt(v ?? 0);
  * season's addresses (the mirror of the web client's fplay.accountsFor for
  * the delegable actions; the fee payer is added by shapeMessage).
  */
-export function accountsFor(name, { addresses: A, actor, owner, holding: [p, q, site], fields = {}, profile = 1 }) {
+export function accountsFor(name, { addresses: A, actor, owner, holding: [p, q, site], fields = {}, route = null, profile = 1 }) {
   // The conquest layouts (profile 2, MC) and S1 (profile 3, every MC rule kept) name the same accounts.
   const cq = isV2(profile);
   const base = { actor, season: A.season, citizen: A.citizen(owner) };
@@ -76,6 +81,21 @@ export function accountsFor(name, { addresses: A, actor, owner, holding: [p, q, 
     case 'Build': return { ...base, holding, ...(cq || Number(fields.item) === ITEM_WALLS ? { province } : {}) };
     case 'Muster': case 'Garrison': return { ...base, holding, province };
     case 'Dissolve': case 'Explore': case 'Depart': return { ...base, holding, province, ...(cq ? { holding_province: province } : {}) };
+    case 'SendCaravan': {
+      // Workstream 03 patch 0005 (S1 only): from the agent's village to `route.dst`; the program re-checks the
+      // owner, the places, the path and the session rule (a send to another player needs the wallet).
+      if (profile < 3) throw new AgentError(ERR.ACTION_NOT_ALLOWED, 'SendCaravan exists in S1 seasons only', 403);
+      if (!route) throw new AgentError(ERR.BAD_REQUEST, 'SendCaravan needs action.route');
+      const d = route.dst;
+      const named = { dst_kind: d.kind === 'vault' ? 2 : 1, dst_p: d.p, dst_q: d.q, dst_at: d.kind === 'vault' ? d.tile : d.site };
+      for (const [k, v] of Object.entries(named)) if (Number(fields[k]) !== v) throw new AgentError(ERR.BAD_REQUEST, `SendCaravan: ${k} does not match action.route.dst`);
+      const from = route.src ?? { p, q };
+      if (route.provinces[0].p !== from.p || route.provinces[0].q !== from.q) throw new AgentError(ERR.BAD_REQUEST, 'SendCaravan: the first path Province is the source\'s');
+      const le = (v, n) => Array.from({ length: n }, (_, i) => Number((BigInt.asUintN(8 * n, BigInt(v)) >> BigInt(8 * i)) & 0xffn));
+      const place = x => (x.kind === 'vault' ? A.of(seed(S1_TAG.Vault, [...le(x.p, 4), ...le(x.q, 4), x.tile])) : A.holding(x.p, x.q, x.site));
+      const caravan = A.of(seed(S1_TAG.Caravan, [...le(citizenTag(base.citizen), 8), ...le(fields.seq, 4)]));
+      return { ...base, src: route.src ? place(route.src) : holding, dst: place(d), caravan, path_province: route.provinces.map(v => A.province(v.p, v.q)) };
+    }
     default: throw new AgentError(ERR.ACTION_NOT_ALLOWED, `${name} is not an action an agent sends`, 403);
   }
 }
@@ -482,7 +502,7 @@ export class AgentGateway {
     if (!live) throw new AgentError(ERR.SESSION_NOT_DELEGATED, 'the agent\'s key is not the Citizen\'s unexpired session key (the owner sets it with SetSession)', 409, { agentKey: rec.agentKey, sessionExpiry: String(citizen.SESSION_EXPIRY) });
     const profile = profileForSeason(season);
     const fields = normaliseFields(r.action.name, r.action.fields, profile);
-    const accounts = accountsFor(r.action.name, { addresses: ctx.addresses, actor: rec.agentKey, owner: rec.owner, holding: r.action.holding, fields, profile });
+    const accounts = accountsFor(r.action.name, { addresses: ctx.addresses, actor: rec.agentKey, owner: rec.owner, holding: r.action.holding, fields, route: r.action.route ?? null, profile });
     const feePayer = ctx.pool.draw().publicKey.toBase58();
     // Read before the blockhash: at or below any slot this transaction can land in (fate.mjs history coverage).
     const slotFloor = await slotFloorOf(ctx.connection);
