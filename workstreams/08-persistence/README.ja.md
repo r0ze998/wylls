@@ -41,6 +41,7 @@
 | 20 | [20-coop-corrections.ja.md](20-coop-corrections.ja.md) | 18・19章の範囲の固定と訂正：仮定から直接出た結果と残った傾向、勝利条件と賞金の分離（文書28などとの衝突先）、二重計上の3区別、配送と貢献、統計の数え方 |
 | 21 | [21-handoff-01-coop.ja.md](21-handoff-01-coop.ja.md) | ①への接続（1枚）：I1〜I7、未入力だと判定できないこと、受け取った後の最小手順 |
 | 22 | [22-commit-index.ja.md](22-commit-index.ja.md) | commit の索引と保存パッケージ |
+| 23 | [23-map-inventory.ja.md](23-map-inventory.ja.md) | 地図の2点の棚卸し：同国分散配置と継続拡張マップの、設計・模擬・実コード・LiteSVM・ローカルチェーン・本番の段階と、既存テストでの最小確認 |
 | — | [sim/](sim/) | シミュレーター（Node.js、依存ライブラリなし） |
 | — | [results/](results/) | 生成された結果。`core`、`replication-seeds101-130`、`sensitivity`、`exploits`、`retention`、`placement/`（配置の比較。その中の各群と再現）、`coop/`（協力の検査器と再現） |
 | — | [repro/](repro/) | シーズン終了時の再現テスト（リポジトリの外で組み立てて実行）と、修正の草案 |
