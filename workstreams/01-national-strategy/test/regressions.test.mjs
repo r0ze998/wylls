@@ -9,17 +9,20 @@ import { start } from '../prototype/serve.mjs';
 const pledgeOf = (w, who, need) => Object.values(w.pledges).find(p => p.provider === who && p.need === need);
 const unchanged = (w, f) => { const before = JSON.stringify(w); const r = f(); assert.equal(r.ok, false); assert.equal(JSON.stringify(w), before); return r; };
 
-/** 石材だけが条件の目標に絞る（他の必要は任意にする）。 */
-function stoneOnly(w) {
-  for (const n of w.goals.outpost.needs) if (n.id !== 'stone') n.optional = true;
-  return Object.values(w.shipments).find(s => s.resource === 'stone');
+/** 拠点の倉の食料だけが条件の目標に絞り（他は任意にする）、ソウタに食料400を送らせる。 */
+function foodOnly(w) {
+  for (const n of w.goals.outpost.needs) if (n.id !== 'food') n.optional = true;
+  advance(w, 3);
+  const p = pledgeOf(w, 'sota', 'food');
+  return w.shipments[act(w, 'sota', 'dispatch', { pledge: p.id, qty: 400 }).shipment];
 }
 
 test('1：期限を過ぎてそろっても成立にはならない', () => {
   const w = createWorld('preparing');
-  const stone = stoneOnly(w);
-  inject(w, 'delay', { shipment: stone.id, turns: w.goals.outpost.deadline + 1 - stone.eta });
+  const food = foodOnly(w);
+  inject(w, 'delay', { shipment: food.id, turns: w.goals.outpost.deadline + 1 - food.eta });
   advance(w, 60);
+  assert.equal(food.state, '到着済み', '荷は期限の後に着く');
   assert.equal(w.goals.outpost.status, '期限切れ');
 });
 
@@ -116,9 +119,9 @@ test('11：壊れた URL でもサーバーは止まらない', async () => {
 
 test('追加：成立したあとは、残りの申し出は終わり、送れない', () => {
   const w = createWorld('preparing');
-  const stone = stoneOnly(w);
+  foodOnly(w);
   const p = pledgeOf(w, 'mira', 'arms');
-  advance(w, stone.eta - w.turn);
+  advance(w, w.goals.outpost.deadline - w.turn);
   assert.equal(w.goals.outpost.status, '成立');
   unchanged(w, () => act(w, 'mira', 'dispatch', { pledge: p.id, qty: 1 }));
 });

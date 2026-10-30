@@ -4,48 +4,14 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { choose, playToReady } from './helpers.mjs';
 import {
   createWorld, act, advance, inject, needProgress, readiness, custody, decisionsFor, perform, inventory,
-  pledgeTotals,
+  pledgeTotals, cosignCount,
 } from '../prototype/model.mjs';
 
 const PLAYERS = ['kei', 'mira', 'sota'];
-
-/** 判断の中から、id の頭とラベルの頭で選択肢を探して実行する。見つからなければ失敗させる。 */
-function choose(w, me, idPrefix, labelPrefix, over) {
-  const ds = decisionsFor(w, me);
-  const d = ds.find(x => x.id.startsWith(idPrefix));
-  assert.ok(d, `${me} に「${idPrefix}」の判断がない：${ds.map(x => x.id).join(', ')}`);
-  const o = d.options.find(x => x.label.startsWith(labelPrefix));
-  assert.ok(o, `${me} の「${d.title}」に「${labelPrefix}」がない：${d.options.map(x => x.label).join(' / ')}`);
-  const r = perform(w, me, o, over);
-  assert.ok(r.ok, `${me}：${o.label} が失敗：${r.error}`);
-  return r;
-}
 const nonWait = d => d.options.filter(o => o.enabled !== false && !o.wait);
-
-/** ケイ・ミラ・ソウタが、それぞれ違うやり方で拠点をそろえる最後までの流れ。 */
-function playToReady(w) {
-  // ミラ：残りの兵器を作りながら送る（生産）
-  while (needProgress(w, 'outpost', 'arms').inTransit + needProgress(w, 'outpost', 'arms').arrived < 50) {
-    const p = Object.values(w.pledges).find(x => x.provider === 'mira' && x.need === 'arms');
-    if (w.stock.mira.arms >= p.qty - p.sent) act(w, 'mira', 'dispatch', { pledge: p.id, qty: p.qty - p.sent });
-    advance(w, 1);
-  }
-  // ソウタ：倉が建つのを待ってから、自分の倉へ食料を置く（輸送）
-  while (w.facilities[Object.keys(w.facilities).find(k => w.facilities[k].kind === '倉')].status !== '稼働') advance(w, 1);
-  choose(w, 'sota', 'send-', '400 を送る');
-  // ハル：偵察を一度だけ（短い参加）
-  choose(w, 'haru', 'need-outpost-watch', '偵察を一度出す');
-  // ケイ：材料が届いたら砦を建て、兵を訓練して置く（軍事）
-  while (!decisionsFor(w, 'kei').find(d => d.id.startsWith('build-'))?.options[0].enabled) advance(w, 1);
-  choose(w, 'kei', 'build-', '建て始める');
-  choose(w, 'kei', 'garrison-', '槍兵');
-  while (needProgress(w, 'outpost', 'fort').arrived === 0) advance(w, 1);
-  choose(w, 'kei', 'garrison-', '予備の兵');
-  choose(w, 'haru', 'watch-', '偵察を出す');
-  for (let i = 0; i < 40 && w.goals.outpost.status === '準備中'; i++) advance(w, 1);
-}
 
 test('最初から：提案は賛同3で採択され、賛同は何かを出す約束にならない', () => {
   const w = createWorld('start');
@@ -141,7 +107,7 @@ test('提案者・調整役でも、他人の物は動かせない', () => {
   assert.match(c.error, /砦の持ち主/);
 });
 
-test('国は物を持たない。物の総量は、工房・建設・訓練の出入りの他は保存される', () => {
+test('試作では国の共有資産を作らない（範囲の限定）。物の総量は、工房・建設・訓練の出入りの他は保存される', () => {
   const w = createWorld('preparing');
   assert.equal(w.nation.stock, undefined);
   assert.equal(w.nation.treasury, undefined);
@@ -269,7 +235,8 @@ test('方針の対立（構えの投票）：賛成が定足数に届かなけ�
 test('方針の対立（競合する目標）：兵器の持ち主が行き先を決め、申し出の合計が手元を超えると準備中になる', () => {
   const w = createWorld('preparing');
   inject(w, 'rival', {});
-  assert.equal(w.goals.eastsiege.status, '準備中');
+  assert.equal(w.goals.eastsiege.status, '提案中', '3村の賛同でも、同じ運営者が動かす台本なので採択されない');
+  assert.deepEqual([cosignCount(w, w.goals.eastsiege).villages, cosignCount(w, w.goals.eastsiege).controllers], [3, 1]);
   const d = decisionsFor(w, 'mira').find(x => x.id === 'need-eastsiege-arms');
   assert.ok(d, 'ミラに東の砦攻めへの申し出の判断が出る');
   const r = act(w, 'mira', 'pledge', { goal: 'eastsiege', need: 'arms', qty: 60 });

@@ -2,7 +2,7 @@
 
 import {
   createWorld, advance, inject, needProgress, readiness, custody, decisionsFor, perform, pledgeTotals,
-  label, EVENTS, describeNeed, seemsAbsent, stanceName,
+  label, EVENTS, describeNeed, seemsAbsent, stanceName, cosignCount,
 } from './model.mjs';
 import { BENEFITS, RESOURCES, ADOPT_COSIGNERS, MINUTES_PER_TURN } from './scenario.mjs';
 
@@ -52,7 +52,7 @@ function renderGoals(w) {
     const needs = g.needs.map(n => needRow(w, g, n)).join('');
     const conflict = g.conflict && !g.conflict.answered ? `<p class="alert">前提が変わった：${esc(g.conflict.text)}</p>` : '';
     const history = g.history.length ? `<details class="hist"><summary>方針の変更 ${g.history.length} 回</summary><ul>${g.history.map(h => `<li>第${h.version}版→第${h.version + 1}版（ターン${h.turn}）：${esc(h.changes.join('、'))}</li>`).join('')}</ul></details>` : '';
-    const outcome = g.status === '成立' ? `<p class="okline">成立（ターン${g.readyAt}）：必要なものが実際にそろった。軍をどうするかは各持ち主が決める。</p>`
+    const outcome = g.status === '成立' ? `<p class="okline">成立（ターン${g.readyAt}）：期限のターンに、条件が使える状態でそろっていた。軍をどうするかは各持ち主が決める（自動では出ない）。</p>`
       : g.status === '期限切れ' ? `<p class="alert">期限切れ：${esc(g.outcome.missing.map(id => describeNeed(w, g.needs.find(n => n.id === id))).join('、'))} がそろわなかった。届いた物は受け取った人の物のまま。</p>`
       : g.status === '中止' ? `<p class="alert">中止：${esc(g.outcome.reason || '')}</p>` : '';
     return `<article class="card goal">
@@ -63,40 +63,49 @@ function renderGoals(w) {
         <dt>場所</dt><dd>${esc(label.place(g.site))}</dd>
         <dt>期限</dt><dd>ターン${g.deadline}${g.status === '準備中' || g.status === '提案中' ? `（あと${left}）` : ''}</dd>
         <dt>提案</dt><dd>${esc(label.who(w, g.proposer))}</dd>
-        <dt>調整役</dt><dd>${esc(label.who(w, g.coordinator))}${seemsAbsent(w, g.coordinator) ? ' <span class="pill warn">不在の可能性</span>' : ''}<br><small>できるのは計画の編集と依頼だけ。人の物は動かせない</small></dd>
-        <dt>賛同</dt><dd>${g.cosigners.length}/${ADOPT_COSIGNERS}（${esc(g.cosigners.map(c => label.who(w, c)).join('・'))}）<br><small>賛同は「卓に出す」ことへの同意で、何かを出す約束ではない</small></dd>
+        <dt>調整役</dt><dd>${g.coordinator ? `${esc(label.who(w, g.coordinator))}${seemsAbsent(w, g.coordinator) ? ' <span class="pill warn">不在の可能性</span>' : ''}` : '<span class="pill warn">いない</span>（誰でも名乗り出られる）'}<br><small>できるのは計画の編集と依頼だけ。人の物は動かせない</small></dd>
+        <dt>賛同</dt><dd>${cosignText(w, g)}<br><small>採択は試遊のための仮説（判断する人${ADOPT_COSIGNERS}）で、国の正式な決定でも議会の代わりでもない。賛同は資源を出す約束でも、発送の権限でもない</small></dd>
         <dt>参加の条件</dt><dd>この国の仲間（追放中でない）なら誰でも、何でも、どれだけでも。投票権は要らない。出す量の上限は各自が決め、発送までいつでも取り下げられる</dd>
       </dl>
       ${conflict}${outcome}
-      <h4>必要なもの <small>（成立は「到着済み」「稼働」だけで判定）</small></h4>
+      <h4>必要なもの <small>（条件は、期限のターンに「今ある量」「稼働中の建物」「砦にいる兵」で判定。材料は進み具合だけ）</small></h4>
       <ul class="needs">${needs}</ul>
-      <p class="ready">${r.ready ? 'すべてそろっている' : `まだそろっていない：${esc(r.missing.map(id => describeNeed(w, g.needs.find(n => n.id === id))).join('、'))}`}</p>
+      <p class="ready">${g.status === '準備中' || g.status === '提案中' ? `成立はターン${g.deadline}（期限）に判定する。` : ''}${r.ready ? '今は条件がそろっている' + (g.status === '準備中' || g.status === '提案中' ? '（期限まで保つ必要がある）' : '') : `今そろっていない：${esc(r.missing.map(id => describeNeed(w, g.needs.find(n => n.id === id))).join('、'))}`}</p>
       ${history}
     </article>`;
   }).join('');
   $('#goals').innerHTML = html || '<p class="empty">目標はまだない</p>';
 }
 
+function cosignText(w, g) {
+  const c = cosignCount(w, g);
+  const kinds = Object.entries(c.kinds).map(([k, v]) => `${{ human: '人間', script: '台本', ai: 'AI' }[k] ?? k}${v}`).join('・');
+  const below = g.status === '準備中' && c.controllers < ADOPT_COSIGNERS ? ' <span class="pill warn">採択の数を下回った</span>' : '';
+  return `${c.villages}村（${esc(kinds)}）・判断する人 <b>${c.controllers}</b>／${ADOPT_COSIGNERS}${below}<br>${esc(g.cosigners.map(id => label.who(w, id)).join('・'))}`;
+}
+
 function bar(p) {
   const req = Math.max(1, p.required);
   const pct = v => `${Math.min(100, (100 * v) / req).toFixed(1)}%`;
   const onTimeTransit = Math.max(0, p.inTransit - (p.lateTransit ?? 0));
-  return `<div class="bar" role="img" aria-label="到着済み ${p.arrived}、輸送中 ${p.inTransit}、申し出 ${p.pledged}、必要 ${p.required}">
-    <span class="arrived" style="width:${pct(p.arrived)}"></span><span class="moving" style="width:${pct(onTimeTransit)}"></span><span class="late" style="width:${pct(p.lateTransit ?? 0)}"></span><span class="pledged" style="width:${pct(p.pledged)}"></span></div>`;
+  const have = p.available ?? p.arrived;
+  return `<div class="bar" role="img" aria-label="使える ${have}、輸送中 ${p.inTransit}、申し出 ${p.pledged}、必要 ${p.required}">
+    <span class="arrived" style="width:${pct(have)}"></span><span class="moving" style="width:${pct(onTimeTransit)}"></span><span class="late" style="width:${pct(p.lateTransit ?? 0)}"></span><span class="pledged" style="width:${pct(p.pledged)}"></span></div>`;
 }
 
 function needRow(w, g, n) {
   const p = needProgress(w, g.id, n.id);
-  const state = n.kind === 'escort' || (n.optional && !p.satisfied) ? '<span class="pill">任意</span>' : p.satisfied ? '<span class="pill good">そろった</span>' : '<span class="pill warn">まだ</span>';
+  const state = n.input ? `<span class="pill">材料${p.satisfied ? '・届いた' : ''}</span>` : n.kind === 'escort' || (n.optional && !p.satisfied) ? '<span class="pill">任意</span>' : p.satisfied ? '<span class="pill good">今そろっている</span>' : '<span class="pill warn">まだ</span>';
   let detail = '';
   if (n.kind === 'deliver') {
     const to = n.to.kind === 'village' ? `${label.who(w, n.to.member)}の村` : '拠点の倉（倉の持ち主の物になる）';
-    detail = `${bar(p)}<p class="nums">到着済み <b>${p.arrived}</b> ／ 輸送中 ${p.inTransit}${p.lateTransit ? `（うち期限後 ${p.lateTransit}）` : ''} ／ 申し出 ${p.pledged}${p.unconfirmed ? ` ／ 再確認待ち ${p.unconfirmed}` : ''}${p.pledgedAbsent ? ` ／ 不在の人の申し出 ${p.pledgedAbsent}（見込みに数えない）` : ''}${p.lost ? ` ／ 失った ${p.lost}` : ''} ／ 必要 ${p.required}</p>
+    const head = n.input ? `到着の累計 <b>${p.arrived}</b>（材料。使われて減っても成立の条件には関係しない）` : `今ある・この目標に使える <b>${p.available}</b> ／ 到着の累計 ${p.arrived}`;
+    detail = `${bar(p)}<p class="nums">${head} ／ 輸送中 ${p.inTransit}${p.lateTransit ? `（うち期限後 ${p.lateTransit}）` : ''} ／ 申し出 ${p.pledged}${p.unconfirmed ? ` ／ 再確認待ち ${p.unconfirmed}` : ''}${p.pledgedAbsent ? ` ／ 不在の人の申し出 ${p.pledgedAbsent}（見込みに数えない）` : ''}${p.lost ? ` ／ 失った ${p.lost}` : ''} ／ 必要 ${p.required}</p>
       <p class="small">届け先：${esc(to)}。使う人：${esc(n.usedBy === 'vault-owner' ? '倉の持ち主（ケイの守備兵へ送るかは倉の持ち主が決める）' : label.who(w, n.usedBy))}</p>`;
   } else if (n.kind === 'build') {
     detail = `<p class="nums">${p.satisfied ? `稼働中（持ち主：${esc(label.who(w, p.owner))}）` : p.inTransit ? `建設中（持ち主：${esc(label.who(w, p.owner))}、完成ターン${p.eta}）` : p.pledgedBy.length ? `${esc(p.pledgedBy.map(x => label.who(w, x)).join('・'))}が建てると申し出` : '引き受け手なし'}</p>`;
   } else if (n.kind === 'garrison') {
-    detail = `${bar(p)}<p class="nums">砦にいる <b>${p.arrived}</b> ／ 向かっている ${p.inTransit} ／ 申し出 ${p.pledged} ／ 必要 ${p.required}${p.owner ? `（砦の持ち主：${esc(label.who(w, p.owner))}）` : ''}</p>`;
+    detail = `${bar(p)}<p class="nums">この目標に数える兵 <b>${p.arrived}</b>（砦にいる ${p.inFort}） ／ 向かっている ${p.inTransit} ／ 申し出 ${p.pledged} ／ 必要 ${p.required}${p.owner ? `（砦の持ち主：${esc(label.who(w, p.owner))}）` : ''}</p>`;
   } else if (n.kind === 'watch') {
     detail = `<p class="nums">${p.satisfied ? `満たしている：${esc(p.by)}` : p.inTransit ? '偵察中または塔の建設中' : p.pledged ? '申し出あり' : '引き受け手なし'}</p>`;
   } else if (n.kind === 'escort') {

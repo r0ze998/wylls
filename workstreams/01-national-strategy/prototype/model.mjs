@@ -1,11 +1,13 @@
 // 国の卓の試作：ルール本体。画面を持たない純粋なモジュール（ブラウザでも node でも動く）。
 //
 // 守っていること（workstreams/01-national-strategy/docs/05-rules-draft.ja.md）：
-//   1. 国は物を持たない。物はいつも一人の持ち主の村・倉・荷車にある。国の財布はない。
+//   1. この試作の範囲では、国による徴収と国の共有資産を作らない。物はいつも一人の持ち主の村・倉・荷車にある。
+//      （ゲーム全体の原則ではない。既存の「国の取り分」の決定は、国の卓とは別の未統合事項として残っている）
 //   2. 申し出は約束の表明で、命令ではない。発送できるのは持ち主だけ。
 //   3. 発送した荷は、着くまで送り主の物。着いたら受け取り側の物（今の S1 の隊商と同じ）。
 //   4. 進み具合は「到着済み」だけを数える。送信済み・輸送中は見込みとして別に見せる。
-//   5. 目標の成立は、期限の時点で、条件が実際にそろっているかで決める。
+//   5. 目標の成立は、期限のターンに、条件が実際に使える状態でそろっているかで決める。
+//      届いた累計ではなく、その時点で倉・村にある量（他の目標と二重に数えない）と、稼働中の建物で見る。
 //   6. 軍は自動で出発しない。ターンを進めても、進軍は持ち主が出したものだけが動く。
 //   7. 徴収・通貨・報酬はない。
 //
@@ -16,6 +18,7 @@ import {
   RESOURCES, BUILD_COST, BUILD_LIMIT, BUILD_TURNS, FOOD_PER_SPEARMAN, QUORUM, VOTE_WINDOW_TURNS,
   REAL_VOTE_WINDOW_TURNS, ADOPT_COSIGNERS, PROPOSAL_EXPIRES_TURNS, ABSENT_TURNS, SCOUT_FRESH_TURNS,
   PLACES, travelTurns, OUTPOST_GOAL, RIVAL_GOAL, BENEFITS, ARMS_PER_100_PIKEMEN, initialWorld,
+  VAULT_CAP, ESCORT_TURNS,
 } from './scenario.mjs';
 
 // ------------------------------------------------------------------ 表示の補助
@@ -39,6 +42,7 @@ const ok = (extra = {}) => ({ ok: true, ...extra });
 export function createWorld(preset = 'start') {
   const w = initialWorld();
   proposeGoal(w, OUTPOST_GOAL);
+  w.goals.outpost.adoptedAt = null;
   if (preset === 'preparing') {
     act(w, 'mira', 'cosign', { goal: 'outpost' });
     act(w, 'sota', 'cosign', { goal: 'outpost' });
@@ -54,6 +58,11 @@ export function createWorld(preset = 'start') {
     advance(w, 1);
   }
   return w;
+}
+
+/** 目標を出す（作例と台本とテストから使う。画面からの自由な提案は試作にない）。 */
+export function addGoal(w, tpl, by = tpl.proposer) {
+  return proposeGoal(w, tpl, by);
 }
 
 function proposeGoal(w, tpl, by = tpl.proposer) {
@@ -114,7 +123,12 @@ export function custody(w, ref) {
   const recipient = dest ? recipientOf(w, dest) : null;
   const provider = p ? p.provider : s?.owner;
   let ownerNow = provider;
-  if (s && s.state === '到着済み') ownerNow = s.arrivedOwner;
+  if (s && s.state === '到着済み') {
+    ownerNow = s.arrivedOwner;
+    // 着いた後に倉ごと奪われたら、中身は奪った人の物（S1：goods stay in the vault）
+    const f = s.to.kind === 'facility' ? w.facilities[s.to.id] : null;
+    if (f && s.toGen != null && f.gen !== s.toGen) ownerNow = f.owner;
+  }
   if (s && s.state === '奪われた') ownerNow = 'enemy';
   if (s && (s.state === '失われた' || s.state === '送信失敗')) ownerNow = s.state === '送信失敗' ? provider : null;
   let user = null;
@@ -155,6 +169,43 @@ function recipientOf(w, dest) {
 }
 const placeOf = (w, dest) => (dest.kind === 'village' ? w.members[dest.member].home : w.facilities[dest.id].at);
 
+// ------------------------------------------------------------------ 使える量の割り当て
+
+/**
+ * 成立の条件に使う「今そこにある物と兵」を、目標に割り当てる。同じ物を二つの目標で数えないため、
+ * 生きている目標を提案の古い順に並べ、先の目標から順に取る。材料（input）は割り当てない。
+ * 返り値は `${goal}|${need}` → 割り当てた量。
+ */
+export function allocations(w) {
+  const out = {};
+  const pools = new Map();
+  const take = (key, have, want) => {
+    const used = pools.get(key) ?? 0;
+    const got = Math.max(0, Math.min(want, have - used));
+    pools.set(key, used + got);
+    return got;
+  };
+  const goals = Object.values(w.goals).filter(g => goalIsLive(g) || g.status === '成立')
+    .sort((a, b) => a.proposedAt - b.proposedAt || (a.id < b.id ? -1 : 1));
+  for (const g of goals) {
+    for (const n of g.needs) {
+      if (n.kind === 'deliver' && !n.input) {
+        let got = 0;
+        if (n.to.kind === 'village') {
+          got = take(`v|${n.to.member}|${n.resource}`, w.stock[n.to.member][n.resource] ?? 0, n.qty);
+        } else {
+          for (const f of vaultsAt(w, n.to.at)) got += take(`f|${f.id}|${n.resource}`, f.contents[n.resource] ?? 0, n.qty - got);
+        }
+        out[`${g.id}|${n.id}`] = got;
+      } else if (n.kind === 'garrison') {
+        const fort = fortAt(w, g.site);
+        out[`${g.id}|${n.id}`] = fort ? take(`t|${fort.id}`, fort.troops, n.qty) : 0;
+      }
+    }
+  }
+  return out;
+}
+
 // ------------------------------------------------------------------ 進み具合
 
 /**
@@ -168,7 +219,7 @@ export function needProgress(w, goalId, needId) {
   const ships = Object.values(w.shipments).filter(s => s.pledge && w.pledges[s.pledge]?.goal === goalId && w.pledges[s.pledge]?.need === needId);
   const sum = (xs, f) => xs.reduce((a, x) => a + f(x), 0);
   if (n.kind === 'deliver') {
-    const arrived = sum(ships.filter(s => s.state === '到着済み' && s.arrivedOwner !== 'enemy'), s => s.qty);
+    const arrived = sum(ships.filter(s => s.state === '到着済み' && s.arrivedOwner !== 'enemy'), s => s.qty - (s.overflow ?? 0));
     const moving = ships.filter(s => s.state === '送信済み' || s.state === '輸送中');
     const inTransit = sum(moving, s => s.qty);
     const lateTransit = sum(moving.filter(s => s.eta > g.deadline), s => s.qty);
@@ -178,10 +229,13 @@ export function needProgress(w, goalId, needId) {
     const lost = sum(ships.filter(s => s.state === '失われた' || s.state === '奪われた' || s.arrivedOwner === 'enemy'), s => s.qty);
     const pledgedOnTime = sum(live.filter(p => w.members[p.provider].present && p.status !== '供給元を失った'), p => (etaIfSent(w, p) <= g.deadline ? Math.max(0, p.qty - p.sent) : 0));
     const pledgedAbsent = sum(live.filter(p => !w.members[p.provider].present), p => Math.max(0, p.qty - p.sent));
+    // 材料は届いた累計で進み具合だけを見る。条件は「今そこにあって、この目標に割り当てられる量」で見る
+    const available = n.input ? null : (allocations(w)[`${goalId}|${needId}`] ?? 0);
+    const have = n.input ? arrived : available;
     return {
-      kind: n.kind, required: n.qty, arrived, inTransit, lateTransit, pledged, pledgedAbsent, unconfirmed, lost,
-      onTime: arrived + inTransit - lateTransit + pledgedOnTime,
-      satisfied: arrived >= n.qty,
+      kind: n.kind, input: !!n.input, required: n.qty, arrived, available, inTransit, lateTransit, pledged, pledgedAbsent, unconfirmed, lost,
+      onTime: have + inTransit - lateTransit + pledgedOnTime,
+      satisfied: have >= n.qty,
     };
   }
   if (n.kind === 'build') {
@@ -195,10 +249,10 @@ export function needProgress(w, goalId, needId) {
   }
   if (n.kind === 'garrison') {
     const fort = fortAt(w, g.site);
-    const troops = fort?.troops ?? 0;
+    const troops = allocations(w)[`${goalId}|${needId}`] ?? 0;
     const marching = sum(Object.values(w.marches).filter(m => m.kind === 'garrison' && m.state === '移動中' && fort && m.to === fort.id), m => m.size);
     const pledged = sum(pledges.filter(isCounted), p => Math.max(0, p.qty - p.sent));
-    return { kind: n.kind, required: n.qty, arrived: troops, inTransit: marching, pledged, owner: fort?.owner ?? null, satisfied: troops >= n.qty };
+    return { kind: n.kind, required: n.qty, arrived: troops, inFort: fort?.troops ?? 0, inTransit: marching, pledged, owner: fort?.owner ?? null, satisfied: troops >= n.qty };
   }
   if (n.kind === 'watch') {
     const tower = Object.values(w.facilities).find(f => f.kind === '見張り塔' && f.at === n.at && f.status === '稼働' && w.members[f.owner]?.inNation);
@@ -219,10 +273,10 @@ function fortAt(w, at) {
   return Object.values(w.facilities).find(f => f.kind === '砦' && f.at === at && f.status === '稼働' && w.members[f.owner]?.inNation);
 }
 
-/** 目標が今そろっているか。missing は足りないものの id。 */
+/** 目標の条件が今そろっているか（材料と任意のものは条件にしない）。missing は足りないものの id。 */
 export function readiness(w, goalId) {
   const g = w.goals[goalId];
-  const missing = g.needs.filter(n => !n.optional && !needProgress(w, goalId, n.id).satisfied).map(n => n.id);
+  const missing = g.needs.filter(n => !n.optional && !n.input && !needProgress(w, goalId, n.id).satisfied).map(n => n.id);
   return { ready: missing.length === 0, missing };
 }
 
@@ -239,7 +293,7 @@ export function pledgeTotals(w, member) {
 // ------------------------------------------------------------------ 行動（人が選ぶこと）
 
 const ACTIONS = {
-  cosign, pledge, withdraw, dispatch, build, train, garrison, scout, march, leaveGoal,
+  cosign, uncosign, volunteer, pledge, withdraw, dispatch, build, train, garrison, scout, march, leaveGoal,
   amend, reconfirm, request, answer, vote, takeOver, closeGoal, returnGift, decline, gift: (w, a, x) => returnGift(w, a, x),
 };
 
@@ -269,13 +323,59 @@ function cosign(w, actor, { goal }) {
   const [g, e] = liveGoal(w, goal);
   if (e) return e;
   if (w.members[actor].expelled) return fail('追放中は賛同できない');
-  if (g.cosigners.includes(actor)) return fail('もう賛同している');
+  if (g.cosigners.includes(actor)) return fail('もう賛同している（同じ村の賛同は1つだけ）');
   g.cosigners.push(actor);
-  log(w, 'goal', `${label.who(w, actor)}が「${g.title}」に賛同した（${g.cosigners.length}/${ADOPT_COSIGNERS}）。賛同は参加の約束ではない`, { goal });
-  if (g.status === '提案中' && g.cosigners.length >= ADOPT_COSIGNERS) {
+  const c = cosignCount(w, g);
+  log(w, 'goal', `${label.who(w, actor)}が「${g.title}」に賛同した（${c.villages}村・判断する人${c.controllers}／採択に${ADOPT_COSIGNERS}）。賛同は資源を出す約束でも、発送の権限でもない`, { goal });
+  if (g.status === '提案中' && c.controllers >= ADOPT_COSIGNERS) {
     g.status = '準備中';
-    log(w, 'goal', `「${g.title}」が国の目標として採択された。参加は各自の任意`, { goal });
+    g.adoptedAt = w.turn;
+    log(w, 'goal', `「${g.title}」が試遊の仮説（賛同${ADOPT_COSIGNERS}）で採択された。国の正式な決定ではない。参加は各自の任意`, { goal });
   }
+  return ok();
+}
+
+/**
+ * 賛同の数。村の数と、判断する人（controller）の数を分けて返す。採択は controller の数で見る。
+ * 同じ人が動かす複数の村や、同じ運営者が動かす台本・AI は、一つの意思として数える。
+ */
+export function cosignCount(w, g) {
+  const ms = g.cosigners.map(id => w.members[id]).filter(Boolean);
+  return {
+    villages: ms.length,
+    controllers: new Set(ms.map(m => m.controller ?? m.id)).size,
+    kinds: ms.reduce((a, m) => ({ ...a, [m.kind ?? 'human']: (a[m.kind ?? 'human'] ?? 0) + 1 }), {}),
+  };
+}
+
+/** 賛同を取り消す。採択済みの目標は、取り消しで自動には取り消されない（調整役に知らせる）。 */
+function uncosign(w, actor, { goal }) {
+  const [g, e] = liveGoal(w, goal);
+  if (e) return e;
+  if (!g.cosigners.includes(actor)) return fail('賛同していない');
+  g.cosigners = g.cosigners.filter(x => x !== actor);
+  log(w, 'goal', `${label.who(w, actor)}が「${g.title}」への賛同を取り消した。出した申し出はそのまま（取り下げは別の操作）`, { goal });
+  if (g.coordinator === actor) handOver(w, g, actor);
+  return ok();
+}
+
+/** 調整役が抜けたとき、次の調整役を決める。残る賛同者がいなければ空にする（誰でも名乗り出られる）。 */
+function handOver(w, g, leaving) {
+  const next = g.cosigners.find(c => c !== leaving && w.members[c].present && w.members[c].playable !== false)
+    ?? g.cosigners.find(c => c !== leaving && w.members[c].present);
+  g.coordinator = next ?? null;
+  log(w, 'goal', next ? `調整役が${label.who(w, next)}に移った（残っている賛同者の最初の人）` : '調整役がいなくなった。国の仲間なら誰でも名乗り出られる', { goal: g.id });
+}
+
+/** 調整役がいないときに名乗り出る。名乗り出た人は賛同者にもなる。物の持ち主は変わらない。 */
+function volunteer(w, actor, { goal }) {
+  const [g, e] = liveGoal(w, goal);
+  if (e) return e;
+  if (g.coordinator) return fail(`調整役は${label.who(w, g.coordinator)}がいる`);
+  if (w.members[actor].expelled) return fail('追放中は名乗り出られない');
+  g.coordinator = actor;
+  if (!g.cosigners.includes(actor)) g.cosigners.push(actor);
+  log(w, 'goal', `${label.who(w, actor)}が調整役に名乗り出た`, { goal });
   return ok();
 }
 
@@ -412,6 +512,7 @@ function dispatch(w, actor, { pledge: id, qty }) {
   const s = {
     id: nextId(w, 's'), pledge: p.id, owner: actor, resource: n.resource, qty, from, to: dest,
     sentAt: w.turn, state: '送信済み', eta: w.turn + 1 + travelTurns(from, to), delay: 0, reason: null, arrivedOwner: null,
+    toGen: dest.kind === 'facility' ? w.facilities[dest.id].gen : null,
   };
   w.shipments[s.id] = s;
   p.sent += qty;
@@ -444,7 +545,7 @@ function build(w, actor, { kind, at, pledge: pid }) {
   if (kind === '砦' && Object.values(w.facilities).some(f => f.kind === '砦' && f.at === at && f.status !== '奪われた' && f.status !== '壊れた')) return fail('ここにはもう砦がある');
   const short = payCost(w, actor, cost);
   if (short) return fail(`材料が足りない：${short.join('、')}`);
-  const f = { id: nextId(w, 'f'), kind, owner: actor, at, status: '建設中', readyAt: w.turn + BUILD_TURNS[kind], contents: {}, troops: 0 };
+  const f = { id: nextId(w, 'f'), kind, owner: actor, at, status: '建設中', readyAt: w.turn + BUILD_TURNS[kind], contents: {}, troops: 0, gen: 0 };
   w.facilities[f.id] = f;
   if (linked) { linked.status = '発送済み'; linked.sent = 1; }
   log(w, 'build', `${label.who(w, actor)}が${label.place(at)}に${kind}を建て始めた（持ち主：${label.who(w, actor)}。完成：ターン${f.readyAt}）`, { facility: f.id });
@@ -527,12 +628,9 @@ function leaveGoal(w, actor, { goal, reason = '' }) {
   for (const p of mine) p.status = '取り下げ';
   const moving = Object.values(w.shipments).filter(s => s.owner === actor && (s.state === '送信済み' || s.state === '輸送中') && w.pledges[s.pledge]?.goal === goal);
   log(w, 'withdraw', `${label.who(w, actor)}が「${g.title}」から抜けた。未発送の申し出 ${mine.length} 件は取り下げ${moving.length ? `。輸送中の荷 ${moving.length} 台は、そのまま行き先へ届き、受け取った人の物になる` : ''}${reason ? `。理由：${reason}` : ''}`, { goal });
-  if (g.coordinator === actor && g.status === '準備中') {
-    const next = g.cosigners.find(c => c !== actor && w.members[c].present);
-    if (next) {
-      g.coordinator = next;
-      log(w, 'goal', `調整役が${label.who(w, next)}に移った（抜けた人の次に賛同した人）`, { goal });
-    }
+  if (goalIsLive(g)) {
+    g.cosigners = g.cosigners.filter(x => x !== actor);
+    if (g.coordinator === actor) handOver(w, g, actor);
   }
   return ok({ withdrawn: mine.length });
 }
@@ -544,7 +642,7 @@ function leaveGoal(w, actor, { goal, reason = '' }) {
 function amend(w, actor, { goal, deadline, qty = {}, purpose, optional = [], note = '' }) {
   const [g, e] = liveGoal(w, goal);
   if (e) return e;
-  if (g.coordinator !== actor) return fail(`方針を変えられるのは調整役（${label.who(w, g.coordinator)}）だけ。提案者でも、他人の物は動かせない`);
+  if (!g.coordinator || g.coordinator !== actor) return fail(g.coordinator ? `方針を変えられるのは調整役（${label.who(w, g.coordinator)}）だけ。提案者でも、他人の物は動かせない` : '調整役がいない。先に名乗り出る');
   if (deadline != null && !(toInt(deadline) > w.turn)) return fail('期限は今より後のターンにする');
   for (const [nid, v] of Object.entries(qty)) {
     if (!needOf(w, goal, nid)) return fail('その必要はない');
@@ -637,6 +735,7 @@ function takeOver(w, actor, { goal }) {
   const [g, e] = liveGoal(w, goal);
   if (e) return e;
   if (!g.cosigners.includes(actor)) return fail('引き継げるのは賛同した人だけ');
+  if (!g.coordinator) return fail('調整役がいない。名乗り出る');
   if (g.coordinator === actor) return fail('もう調整役');
   if (!coordinatorAbsent(w, g)) return fail(`調整役（${label.who(w, g.coordinator)}）は不在ではない`);
   const prev = g.coordinator;
@@ -650,7 +749,7 @@ export function seemsAbsent(w, id) {
   return !m.present || w.turn - m.lastActive >= ABSENT_TURNS;
 }
 function coordinatorAbsent(w, g) {
-  return !w.members[g.coordinator].present;
+  return !!g.coordinator && !w.members[g.coordinator].present;
 }
 
 /** 目標を閉じる（調整役だけ）。中止しても、届いた物は受け取った人の物のまま。 */
@@ -725,6 +824,14 @@ function step(w) {
       else { w.reserve[m.owner] += m.size; m.state = '戻った'; }
     } else if (m.state === '移動中(封)' && m.eta <= w.turn) {
       m.state = '到着(封)';
+      if (m.kind === 'escort') m.until = w.turn + ESCORT_TURNS;
+    } else if (m.kind === 'escort' && m.state === '到着(封)' && m.until <= w.turn) {
+      m.state = '帰還中(封)';
+      m.backAt = w.turn + travelTurns(m.to, w.members[m.owner].home);
+    } else if (m.kind === 'escort' && m.state === '帰還中(封)' && m.backAt <= w.turn) {
+      m.state = '帰還';
+      w.reserve[m.owner] += m.size;
+      log(w, 'army', '護衛が1件、村に戻った（中身は封）');
     }
   }
   // 偵察
@@ -764,19 +871,22 @@ function step(w) {
   // 採択されない提案は消える
   for (const g of Object.values(w.goals)) {
     if (g.status === '提案中' && w.turn - g.proposedAt >= PROPOSAL_EXPIRES_TURNS) {
-      g.status = '不成立'; log(w, 'goal', `「${g.title}」は賛同が${ADOPT_COSIGNERS}に届かず、不成立になった`, { goal: g.id });
+      g.status = '不成立';
+      for (const p of Object.values(w.pledges)) if (p.goal === g.id && isLive(p)) p.status = '終了';
+      log(w, 'goal', `「${g.title}」は判断する人の賛同が${ADOPT_COSIGNERS}に届かないまま${PROPOSAL_EXPIRES_TURNS}ターンたち、不成立になった。発送済みの荷は行き先へ届き、受け取った人の物になる`, { goal: g.id });
     }
   }
   // 成立と期限
   for (const g of Object.values(w.goals)) {
     if (g.status !== '準備中') continue;
+    if (w.turn < g.deadline) continue;
     const r = readiness(w, g.id);
-    if (r.ready && w.turn <= g.deadline) {
+    if (r.ready) {
       g.status = '成立'; g.readyAt = w.turn;
       g.outcome = { turn: w.turn, kind: '成立' };
       for (const p of Object.values(w.pledges)) if (p.goal === g.id && isLive(p)) p.status = '終了';
-      log(w, 'goal', `「${g.title}」が成立した：必要なものが拠点に実際にそろった。次に軍をどうするかは、それぞれの持ち主が決める（自動では出ない）`, { goal: g.id });
-    } else if (w.turn > g.deadline) {
+      log(w, 'goal', `「${g.title}」が成立した：期限のターンに、条件が実際に使える状態でそろっていた。次に軍をどうするかは、それぞれの持ち主が決める（自動では出ない）`, { goal: g.id });
+    } else {
       g.status = '期限切れ';
       g.outcome = { turn: w.turn, kind: '期限切れ', missing: r.missing };
       for (const p of Object.values(w.pledges)) if (p.goal === g.id && isLive(p)) p.status = '終了';
@@ -794,14 +904,18 @@ function arrive(w, s) {
     return;
   }
   const f = w.facilities[s.to.id];
-  if (!f || f.status === '壊れた') {
+  if (!f || f.status === '壊れた' || (s.toGen != null && f.gen !== s.toGen)) {
     s.state = '失われた'; s.arrivedAt = w.turn;
-    log(w, 'ship', `${label.who(w, s.owner)}の${label.res(s.resource)} ${s.qty} は、行き先の倉がなくなっていたので失われた（S1：行き先がない荷は LOST）`, { shipment: s.id });
+    log(w, 'ship', `${label.who(w, s.owner)}の${label.res(s.resource)} ${s.qty} は失われた。行き先の倉が${f && f.gen !== s.toGen ? '送った後に奪われていた（世代が変わった倉には届かない：S1 契約 1b の GEN）' : 'なくなっていた（行き先がない荷は LOST）'}`, { shipment: s.id });
     return;
   }
-  f.contents[s.resource] = (f.contents[s.resource] ?? 0) + s.qty;
+  const total = Object.values(f.contents).reduce((a, v) => a + v, 0);
+  const room = Math.max(0, VAULT_CAP - total);
+  const put = Math.min(s.qty, room);
+  f.contents[s.resource] = (f.contents[s.resource] ?? 0) + put;
+  s.overflow = s.qty - put;
   s.state = '到着済み'; s.arrivedOwner = f.owner; s.arrivedAt = w.turn;
-  log(w, 'ship', `${label.who(w, s.owner)}の${label.res(s.resource)} ${s.qty} が${label.who(w, f.owner)}の倉（${label.place(f.at)}）に着いた。今から${label.who(w, f.owner)}の物`, { shipment: s.id });
+  log(w, 'ship', `${label.who(w, s.owner)}の${label.res(s.resource)} ${put} が${label.who(w, f.owner)}の倉（${label.place(f.at)}）に着いた。今から${label.who(w, f.owner)}の物${s.overflow ? `。倉の上限を超えた ${s.overflow} は失われた（S1：VAULT_CAP）` : ''}`, { shipment: s.id });
 }
 
 export const stanceName = v => ({ war: '戦争', pass: '通行を許す', ally: '同盟' }[v] ?? v);
@@ -844,6 +958,16 @@ export const EVENTS = {
     detail: 'ユキが「東の砦攻め」を提案し、兵器を求める',
     fact: '試作の台本。兵器の行き先を、持ち主がどちらかに決める',
   },
+  vaultLost: {
+    title: '倉を奪われる',
+    detail: '拠点の倉が北の国に奪われる（中身ごと）',
+    fact: '事実：SeizeVault で持ち主が奪った人になり、中身は倉に残り、世代（GEN）が1増える。向かっていた荷は届かず失われる（S1-1B 契約 3.4・3.6）',
+  },
+  fortLost: {
+    title: '砦を失う',
+    detail: '拠点の砦が落ちて奪われる（守備兵は0）',
+    fact: '事実：守備兵0の砦は「落ちた」になり、SeizeStructure で奪える（S1-1E 契約 2.6）。試作では落ちて奪われるまでを1回で起こす',
+  },
   absent: {
     title: '所有者の不在',
     detail: 'ソウタが不在になる（倉と食料はソウタの物のまま）',
@@ -859,7 +983,7 @@ export const EVENTS = {
 export function inject(w, kind, args = {}) {
   const f = {
     delay: evDelay, txfail: evTxFail, raid: evRaid, withdraw: evWithdraw, facility: evFacility,
-    stance: evStance, rival: evRival, absent: evAbsent, back: evBack,
+    stance: evStance, rival: evRival, absent: evAbsent, back: evBack, vaultLost: evVaultLost, fortLost: evFortLost,
   }[kind];
   if (!f) return fail('知らない出来事');
   return f(w, args);
@@ -897,6 +1021,7 @@ function evRaid(w, { shipment }) {
     : Object.values(w.shipments).find(x => x.state === '輸送中' && x.to.kind === 'facility');
   if (!s || s.state !== '輸送中') return fail('拠点の倉へ向かう荷車がない');
   const escort = Object.values(w.marches).find(m => m.kind === 'escort' && m.to === placeOf(w, s.to) && m.state === '到着(封)' && m.size > 0);
+  // 護衛の判定は仮。待ち構えている護衛がいれば守り、護衛は少し減る
   if (escort) {
     log(w, 'event', `出来事：峠の手前で荷車が襲われたが、待ち構えていた護衛が守った（${label.who(w, s.owner)}の${label.res(s.resource)} ${s.qty} は無事）`);
     escort.size = Math.max(0, escort.size - 10);
@@ -941,9 +1066,28 @@ function evStance(w, {}) {
 function evRival(w, {}) {
   if (w.goals[RIVAL_GOAL.id]) return fail('もう出ている');
   const g = proposeGoal(w, RIVAL_GOAL, 'yuki');
-  g.cosigners.push('rio', 'ren');
-  g.status = '準備中';
-  log(w, 'goal', `「${g.title}」がユキ・リオ・レンの賛同で採択された。兵器を持つ人は、どちらに出すか（出さないか）を選ぶ`, { goal: g.id });
+  cosign(w, 'rio', { goal: g.id });
+  cosign(w, 'ren', { goal: g.id });
+  log(w, 'goal', `「${g.title}」には3村が賛同したが、3村とも同じ運営者が動かす台本なので、判断する人は1と数える（採択されない）。採択されていなくても、申し出と発送はできる。兵器を持つ人は、どちらに出すか（出さないか）を選ぶ`, { goal: g.id });
+  return ok();
+}
+
+function evVaultLost(w, { facility }) {
+  const f = facility ? w.facilities[facility] : Object.values(w.facilities).find(x => x.kind === '倉' && x.at === 'site' && x.status === '稼働' && w.members[x.owner]?.inNation);
+  if (!f || f.kind !== '倉' || f.status !== '稼働' || f.owner === 'enemy') return fail('奪われる倉がない');
+  const was = f.owner;
+  f.owner = 'enemy'; f.gen += 1; f.status = '奪われた';
+  log(w, 'event', `出来事：${label.who(w, was)}の倉（${label.place(f.at)}）が北の国に奪われた。中身（${Object.entries(f.contents).map(([r, v]) => `${label.res(r)} ${v}`).join('・') || 'なし'}）は奪った人の物。向かっている荷は届かず失われる`);
+  return ok();
+}
+
+function evFortLost(w, { facility }) {
+  const f = facility ? w.facilities[facility] : Object.values(w.facilities).find(x => x.kind === '砦' && x.status === '稼働' && w.members[x.owner]?.inNation);
+  if (!f || f.kind !== '砦' || f.status !== '稼働') return fail('失う砦がない');
+  const was = f.owner;
+  const lost = f.troops;
+  f.troops = 0; f.owner = 'enemy'; f.status = '奪われた';
+  log(w, 'event', `出来事：${label.who(w, was)}の砦（${label.place(f.at)}）が落ち、北の国に奪われた。守備兵 ${lost} は失われた`);
   return ok();
 }
 
@@ -1009,8 +1153,21 @@ export function decisionsFor(w, me) {
         }
       }
 
-      if (isCoord && g.status === '準備中' && !(g.conflict && !g.conflict.answered)) {
+      if (isCoord && !(g.conflict && !g.conflict.answered)) {
         out.push(...coordinatorDecisions(w, g, me));
+        const c = cosignCount(w, g);
+        if (g.status === '準備中' && c.controllers < ADOPT_COSIGNERS && !g.belowAck) {
+          out.push({ id: `below-${g.id}`, goal: g.id, title: '賛同が採択の数を下回った', why: `今の賛同は${c.villages}村・判断する人${c.controllers}（採択に${ADOPT_COSIGNERS}）。採択は卓の表示のための仮説で、自動では取り消さない。出した申し出と荷は、それぞれの持ち主のまま`, options: [
+            { label: 'このまま続ける', act: 'ackBelow', args: { goal: g.id }, consequence: '卓には「賛同が足りない目標」として出る', enabled: true },
+            { label: '中止する', act: 'closeGoal', args: { goal: g.id, reason: '賛同が減ったため' }, consequence: '未発送の申し出は終わる。届いた物は受け取った人の物のまま', enabled: true },
+          ] });
+        }
+      }
+      if (goalIsLive(g) && !g.coordinator && !w.members[me].expelled) {
+        out.push({ id: `volunteer-${g.id}`, goal: g.id, title: `「${g.title}」に調整役がいない`, why: '計画の見直しと依頼をする人がいない。名乗り出ても、人の物は動かせない', options: [
+          { label: '調整役に名乗り出る', act: 'volunteer', args: { goal: g.id }, consequence: 'あなたが賛同者にもなり、期限・必要量・依頼を見直せるようになる', enabled: true },
+          waitOption('誰かが名乗り出るのを待つ。申し出と発送はそのまま続けられる'),
+        ] });
       }
       if (g.status === '準備中' && g.cosigners.includes(me) && !isCoord && coordinatorAbsent(w, g)) {
         out.push({ id: `takeover-${g.id}`, goal: g.id, title: `調整役（${label.who(w, g.coordinator)}）が不在`, why: '計画の見直しが止まっている。引き継げるのは計画の編集だけで、不在の人の物は動かせない', options: [
@@ -1134,7 +1291,7 @@ function pledgeDecisions(w, g, p, me) {
   if (p.status === '再確認待ち') {
     out.push({ id: `reconfirm-${p.id}`, goal: g.id, title: `方針が変わった：${describeNeed(w, n)}を続けるか`, why: `「${g.title}」が第${g.version}版になった（${g.history.at(-1)?.changes.join('、')}）。あなたが決めるまで、申し出は数えない`, options: [
       { label: '続ける', act: 'reconfirm', args: { pledge: p.id, keep: true }, consequence: '申し出として数えに戻す', enabled: true },
-      { label: '取り下げる', act: 'reconfirm', args: { pledge: p.id, keep: false }, consequence: '未発送分を手元に残す', enabled: true },
+      { label: '取り下げる', act: 'reconfirm', args: { pledge: p.id, keep: false }, consequence: `未発送分を手元に残す。${p.sent ? `発送済みの ${p.sent} は止まらず、元の行き先へ届く（方針変更は荷を取り消さず、送り先も変えない）` : ''}`, enabled: true },
     ] });
     return out;
   }
@@ -1294,11 +1451,32 @@ ACTIONS.pledgeMore = (w, actor, { goal, need, qty }) => {
   if (!r.ok) return r;
   return dispatch(w, actor, { pledge: r.pledge, qty });
 };
+/** 倉の持ち主が、倉の中身を誰かの村へ送る（使う）。期限の前に出すと、目標の条件が崩れることがある。 */
+ACTIONS.sendFromVault = (w, actor, { facility, resource, qty, to }) => {
+  const f = w.facilities[facility];
+  if (!f || f.kind !== '倉' || f.owner !== actor || f.status !== '稼働') return fail('自分の稼働中の倉ではない');
+  qty = toInt(qty);
+  if (!(qty > 0)) return fail('量を1以上にする');
+  if (!RESOURCES[resource] || (f.contents[resource] ?? 0) < qty) return fail('倉に足りない');
+  if (!w.members[to]) return fail('送り先が正しくない');
+  f.contents[resource] -= qty;
+  const s = { id: nextId(w, 's'), pledge: null, owner: actor, resource, qty, from: f.at, to: { kind: 'village', member: to }, sentAt: w.turn, state: '送信済み',
+    eta: w.turn + 1 + travelTurns(f.at, w.members[to].home), delay: 0, reason: null, why: '倉から送る', arrivedOwner: null, toGen: null };
+  w.shipments[s.id] = s;
+  log(w, 'ship', `${label.who(w, actor)}が自分の倉（${label.place(f.at)}）から${label.who(w, to)}へ${label.res(resource)} ${qty} を送った（着けば${label.who(w, to)}の物）`);
+  return ok({ shipment: s.id });
+};
 ACTIONS.keep = (w, actor, { shipment }) => {
   const s = w.shipments[shipment];
   if (!s || s.arrivedOwner !== actor || s.returned || s.kept) return fail('決める荷ではない');
   s.kept = true;
   log(w, 'ship', `${label.who(w, actor)}は、${label.who(w, s.owner)}から届いた${label.res(s.resource)} ${s.qty} を返さずに使うことにした`);
+  return ok();
+};
+ACTIONS.ackBelow = (w, actor, { goal }) => {
+  const g = w.goals[goal];
+  if (!g || g.coordinator !== actor) return fail('調整役ではない');
+  g.belowAck = true;
   return ok();
 };
 ACTIONS.ack = (w, actor, { shipment }) => {
@@ -1319,6 +1497,7 @@ export function inventory(w, resource) {
     if (s.resource !== resource) continue;
     if (s.state === '送信済み' || s.state === '輸送中') moving += s.qty;
     if (s.state === '失われた' || s.state === '奪われた') gone += s.qty;
+    if (s.overflow) gone += s.overflow;
   }
   return { villages, vaults, moving, gone, total: villages + vaults + moving + gone };
 }

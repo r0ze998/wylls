@@ -111,6 +111,29 @@ try {
     assert.match(await page.textContent('#decisions'), /不在/);
   });
 
+  await step('競合する目標：3村の賛同でも、判断する人1なら採択されないと表示される', async () => {
+    await page.click('[data-ui="reset"]');
+    await page.selectOption('#event', 'rival');
+    await page.click('[data-ui="inject"]');
+    const card = page.locator('.goal', { hasText: '東の砦攻め' });
+    assert.match(await card.textContent(), /3村（台本3）・判断する人 1／3/);
+    assert.match(await card.locator('.pill').first().textContent(), /提案中/);
+  });
+
+  await step('倉を奪われると、拠点の倉の食料は「今ある・使える 0」になり、記録に残る', async () => {
+    await page.click('[data-ui="reset"]');
+    await advance(3);
+    await who('sota');
+    await option('400 を送る');
+    await advance(13);
+    await page.selectOption('#event', 'vaultLost');
+    await page.click('[data-ui="inject"]');
+    const row = page.locator('.needs li', { hasText: '食料 400 拠点の倉へ' });
+    assert.match(await row.textContent(), /今ある・この目標に使える 0 ／ 到着の累計 400/);
+    assert.match(await page.textContent('#log'), /倉（拠点（北の峠の手前））が北の国に奪われた/);
+  });
+  if (shots) await page.screenshot({ path: join(shotDir, '06-vault-lost.jpg'), fullPage: true, type: 'jpeg', quality: 70 });
+
   const phone = await browser.newPage({ viewport: { width: 390, height: 844 } });
   phone.on('pageerror', e => errors.push(String(e)));
   await phone.goto(url);

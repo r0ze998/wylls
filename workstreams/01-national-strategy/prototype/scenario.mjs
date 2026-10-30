@@ -31,13 +31,18 @@ export const ARMS_PER_100_PIKEMEN = 50;
 /** 槍兵（守備兵）1人の訓練に要る食料［仮］。槍兵は兵器を使わない［事実：TRAIN_ARMS_PER_100 の先頭3つは0］。 */
 export const FOOD_PER_SPEARMAN = 1;
 
+/** 倉の上限［事実：caravan.rs VAULT_CAP＝5000（千分の一単位で 5_000*1_000）。上限を超えて届いた分は失われる：S1-1B 契約 3.4］。 */
+export const VAULT_CAP = 5000;
+/** 護衛が待ち構えるターン数。過ぎたら持ち主の村へ戻り始める［仮］。 */
+export const ESCORT_TURNS = 12;
+
 /** 投票［事実：nation.rs QUORUM=3、passes = yes>no && yes>=QUORUM、WINDOW_BELLS=144］。 */
 export const QUORUM = 3;
 export const REAL_VOTE_WINDOW_TURNS = 144;
 /** 試作では締め切りを短くする［仮］。 */
 export const VOTE_WINDOW_TURNS = 6;
 
-/** 推奨案Cの採択：提案者を含む賛同の数［仮。QUORUM にそろえた］。 */
+/** C案（試遊の仮説）の採択に要る、賛同した「判断する人」の数［仮。QUORUM にそろえた］。正式な意思決定ではない。 */
 export const ADOPT_COSIGNERS = 3;
 /** 採択されない提案が消えるまで［仮］。 */
 export const PROPOSAL_EXPIRES_TURNS = 36;
@@ -70,15 +75,20 @@ export function travelTurns(from, to) {
   return TRAVEL[`${from}|${to}`] ?? TRAVEL[`${to}|${from}`] ?? 10;
 }
 
-/** 試作で操作できる人と、台本で動く仲間。 */
+/**
+ * 試作で操作できる人と、台本で動く仲間。
+ * controller は「誰の判断で動くか」。試遊の仮説として、賛同は村の数ではなく controller の数で数える
+ * （同じ人が動かす複数の村や、同じ運営者が動かす台本・AI を、独立した意思として数えないため）。
+ * 本物の S1 では、ウォレットや村の数から controller は分からない。だから採択は正式な意思決定にしない。
+ */
 export const MEMBERS = [
-  { id: 'kei', name: 'ケイ', home: 'v:kei', playable: true, note: '国境の村。北の国の軍が最初に来る場所に住む' },
-  { id: 'mira', name: 'ミラ', home: 'v:mira', playable: true, note: '丘の村。鉱石と工房がある' },
-  { id: 'sota', name: 'ソウタ', home: 'v:sota', playable: true, note: '平地の村。食料が多く、倉と荷車をよく使う' },
-  { id: 'haru', name: 'ハル', home: 'v:haru', playable: true, note: '川の村。工房を持つが、ふだんは自分の村を育てている' },
-  { id: 'yuki', name: 'ユキ', home: 'v:yuki', playable: false, note: '東の港町。北の国との交易を望む（台本で動く）' },
-  { id: 'rio', name: 'リオ', home: 'v:yuki', playable: false, note: 'ユキの近く（台本で動く）' },
-  { id: 'ren', name: 'レン', home: 'v:yuki', playable: false, note: 'ユキの近く（台本で動く）' },
+  { id: 'kei', name: 'ケイ', home: 'v:kei', playable: true, kind: 'human', controller: 'p-kei', note: '国境の村。北の国の軍が最初に来る場所に住む' },
+  { id: 'mira', name: 'ミラ', home: 'v:mira', playable: true, kind: 'human', controller: 'p-mira', note: '丘の村。鉱石と工房がある' },
+  { id: 'sota', name: 'ソウタ', home: 'v:sota', playable: true, kind: 'human', controller: 'p-sota', note: '平地の村。食料が多く、倉と荷車をよく使う' },
+  { id: 'haru', name: 'ハル', home: 'v:haru', playable: true, kind: 'human', controller: 'p-haru', note: '川の村。工房を持つが、ふだんは自分の村を育てている' },
+  { id: 'yuki', name: 'ユキ', home: 'v:yuki', playable: false, kind: 'script', controller: 'operator', note: '東の港町。北の国との交易を望む（台本で動く）' },
+  { id: 'rio', name: 'リオ', home: 'v:yuki', playable: false, kind: 'script', controller: 'operator', note: 'ユキの近く（台本で動く）' },
+  { id: 'ren', name: 'レン', home: 'v:yuki', playable: false, kind: 'script', controller: 'operator', note: 'ユキの近く（台本で動く）' },
 ];
 
 /** 各人の村の在庫［仮］。 */
@@ -114,9 +124,9 @@ export const OUTPOST_GOAL = {
   requiresStance: { north: 'war' },
   needs: [
     { id: 'stone', kind: 'deliver', resource: 'stone', qty: 500, to: { kind: 'village', member: 'kei' },
-      use: '砦の材料。ケイの手持ち300と合わせて、砦の石材800になる', usedBy: 'kei' },
+      use: '砦の材料。ケイの手持ち300と合わせて、砦の石材800になる', usedBy: 'kei', input: true },
     { id: 'arms', kind: 'deliver', resource: 'arms', qty: 50, to: { kind: 'village', member: 'kei' },
-      use: '砦の兵器50', usedBy: 'kei' },
+      use: '砦の兵器50', usedBy: 'kei', input: true },
     { id: 'vault', kind: 'build', building: '倉', at: 'site',
       use: '前線の倉。守備兵の食料をためる' },
     { id: 'food', kind: 'deliver', resource: 'food', qty: 400, to: { kind: 'vault-at', at: 'site' },
@@ -184,7 +194,7 @@ export function initialWorld() {
     stock: structuredClone(STOCK),
     reserve: { ...RESERVE },
     facilities: Object.fromEntries(FACILITIES.map(f => [f.id, {
-      ...f, status: '稼働', contents: {}, troops: 0, readyAt: 0,
+      ...f, status: '稼働', contents: {}, troops: 0, readyAt: 0, gen: 0,
     }])),
     goals: {},
     pledges: {},
