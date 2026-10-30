@@ -6,12 +6,24 @@
 //     ①の提案パッチ（proposals/0002-herald-caravan-ended.patch、④へ渡す）で足す。
 //     `ended` がないヘラルドでは、一覧から消えた隊商は「不明（未検証）」になり、量は数えない。
 //
+// 積荷と実入荷量は別（2026-10-30 の確認）：
+//   - CARAVAN_SETTLED の `cargo` は、隊商が運んだ積荷（経路の塔の目減りの後、整数に切り捨て：caravan.rs cargo_log）で、
+//     宛先に加算された量ではない。
+//   - 村あて（kind 1）：SettleCaravan は Holding::credit で積荷を全部加算する。村の在庫に上限はない
+//     （holding.rs:296-300「may exceed the cap」、:774-783）。だから実入荷量は積荷以上（切り捨ての分だけ多い）で、
+//     記録の数は「実入荷量の下限」として証明できる。
+//   - 倉あて（kind 2）：min(在庫＋積荷, max(上限, 在庫)) まで（caravan.rs の SettleCaravan）。上限で切り捨てた量は記録にない。
+//     加算の前の在庫も記録にないので、実入荷量は記録と規則からは決まらない → 未検証。
+//   - 依頼の届け先は村だけにしている（record.mjs）。倉あての依頼は、実入荷量を証明できないので受け付けない。
+//
 // 契約の形（1本の隊商ごと）：
-//   { requestId, caravanId: {ownerTag, seq}, owner: {ownerTag}, state, verifiedQty, source, note }
+//   { requestId, caravanId: {ownerTag, seq}, owner: {ownerTag}, state, cargo, verifiedQty, qtyKind, basis, source, note }
 //   state: 'moving'（輸送中・送り主の物） | 'delivered'（依頼の届け先に確定） | 'misdelivered'（別の場所に確定）
 //        | 'lost'（行き先がない・世代が違う） | 'raided-taken'（奪われた。J2：奪った人の物） | 'raided-burned'（焼かれた）
 //        | 'unknown'（一覧にも確定の記録にもない：未検証）
-//   verifiedQty: 依頼の資源ごとの、確定の記録の量（経路の塔の目減りの後。依頼の量を上限にしない生の量） | null（未検証）
+//   cargo: 記録の積荷（依頼の資源ごと。目減りの後・切り捨て）| null
+//   verifiedQty: 証明できた実入荷量（依頼の資源ごと）| null（未検証）。qtyKind: 'lower-bound'（村あて：記録の数は下限）
+//   basis: 量を証明した根拠（記録と規則）
 //   source: 'herald-ended' | 'herald-moving' | 'none'
 
 import { RESOURCES } from './record.mjs';
@@ -46,6 +58,14 @@ export function indexFeed(file) {
   return { moving, settled, raided, hasEnded, vaults: file?.vaults ?? [] };
 }
 
+/** 確定の記録と規則から、宛先に加算された量を証明できるか。{qty, qtyKind, basis} か {qty: null, why}。 */
+export function creditedOf(settled) {
+  const kind = Number(settled.dst?.kind);
+  if (kind === 1) return { qty: cargoOf(settled.cargo), qtyKind: 'lower-bound', basis: 'CARAVAN_SETTLED の積荷（切り捨て）＋ Holding::credit は上限なしで全部加算（holding.rs:296-300, 774-783）' };
+  if (kind === 2) return { qty: null, why: '倉あては上限で切り捨てられ、加算された量も加算の前の在庫も記録にない（caravan.rs SettleCaravan）。未検証' };
+  return { qty: null, why: '宛先の種類が分からない。未検証' };
+}
+
 const samePlace = (dst, to) => dst && Number(dst.kind) === 1 && Number(dst.p) === to.p && Number(dst.q) === to.q && Number(dst.at) === to.site && Number(dst.gen) === to.gen;
 
 /** 結び付けた1本の隊商の到着の記録（契約の形）。 */
@@ -59,8 +79,10 @@ export function arrivalOf(request, link, feed) {
   if (raid && raid.choice === 0) return { ...base, owner: { ownerTag: String(raid.raiderTag ?? '') }, state: 'raided-taken', verifiedQty: null, source: 'herald-ended', note: '襲撃で奪われた（J2：荷車ごと奪った人の物）。数えない' };
   if (settled) {
     if (settled.outcome === 1) return { ...base, state: 'lost', verifiedQty: null, source: 'herald-ended', note: '行き先がない・世代が違うので失われた（caravan.rs LOST）' };
-    if (!samePlace(settled.dst, request.to)) return { ...base, state: 'misdelivered', verifiedQty: null, source: 'herald-ended', note: '依頼の届け先とは別の場所に確定した。数えない' };
-    return { ...base, state: 'delivered', verifiedQty: pick(settled.cargo), source: 'herald-ended', note: '確定の記録の量（経路の塔の目減りの後）' };
+    if (!samePlace(settled.dst, request.to)) return { ...base, state: 'misdelivered', cargo: pick(settled.cargo), verifiedQty: null, source: 'herald-ended', note: '依頼の届け先とは別の場所に確定した。数えない' };
+    const c = creditedOf(settled);
+    if (c.qty === null) return { ...base, state: 'delivered', cargo: pick(settled.cargo), verifiedQty: null, source: 'herald-ended', note: c.why };
+    return { ...base, state: 'delivered', cargo: pick(settled.cargo), verifiedQty: pick(c.qty), qtyKind: c.qtyKind, basis: c.basis, source: 'herald-ended', note: '村あて：記録の積荷を実入荷量の下限として数える（ヘラルドの写しを使う。④の確認待ち）' };
   }
   const m = feed.moving.get(k);
   if (m) {

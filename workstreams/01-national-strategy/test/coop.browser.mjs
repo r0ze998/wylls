@@ -11,6 +11,7 @@ import http from 'node:http';
 import assert from 'node:assert/strict';
 import { createBoard, createServer, PAGE } from '../coop/board.mjs';
 import { testSigner, ownerTagOf } from '../coop/record.mjs';
+import { fakeChain } from './coop-chain.mjs';
 import { toHex } from '../../../permutation-server/web/sdk/bytes.mjs';
 import { encode as b58 } from '../../../permutation-server/web/sdk/base58.mjs';
 
@@ -33,7 +34,9 @@ const herald = http.createServer((req, res) => {
 });
 await new Promise(r => herald.listen(0, '127.0.0.1', r));
 const hurl = `http://127.0.0.1:${herald.address().port}`;
-const board = createBoard({ herald: hurl, programId, seasonId: '90', dataDir: fs.mkdtempSync(join(os.tmpdir(), 'ws01-coop-br-')) });
+const chain = fakeChain(programId, '90');   // 国と届け先の村（チェーンの口座の形。偽物）
+chain.citizen(A, 0); chain.citizen(B, 2); chain.holding({ p: 3, q: 0, site: 2, gen: 1 }, A, 0);
+const board = createBoard({ herald: hurl, programId, seasonId: '90', dataDir: fs.mkdtempSync(join(os.tmpdir(), 'ws01-coop-br-')), reader: chain.reader });
 const srv = createServer(board, { herald: hurl });
 await new Promise(r => srv.listen(0, '127.0.0.1', r));
 const url = `http://127.0.0.1:${srv.address().port}${PAGE}?to=3,0,2,1`;
@@ -97,6 +100,10 @@ try {
     assert.equal(await pa.textContent('[data-testid=joint-wood]'), '196');
     assert.equal(await pa.textContent('[data-testid=joint-stone]'), '0');
     assert.equal(await pa.textContent('[data-testid=joint-status]'), '未達成');
+    assert.match(await pa.textContent('[data-testid=joint-why]'), /石材 0／200/);
+    assert.match(await pa.textContent('[data-testid=arrival-qty]'), /木材 196・石材 0（下限）/);
+    assert.match(await pa.textContent('#judgeMeans'), /使って建てた証拠ではない/, '判定の意味を画面に出す');
+    assert.match(await pa.textContent('[data-testid=my-nation]'), /国1（チェーンの Citizen で確かめた）/);
     await refresh(pb);
     await pb.waitForSelector('[data-testid=my-verified]:has-text("木材 196")');
     if (shots) await pa.screenshot({ path: join(here, '..', 'screenshots', '09-coop.jpg'), quality: 70, fullPage: true });

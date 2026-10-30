@@ -3,7 +3,7 @@
 // それ以外の要求はヘラルドへそのまま転送する（127.0.0.1 だけ）。
 //
 //   node workstreams/01-national-strategy/coop/board.mjs --herald http://127.0.0.1:41940 \
-//        --program <program id> --season <id> [--port 41873] [--data <dir>] [--judge arrivals]
+//        --program <program id> --season <id> --rpc http://127.0.0.1:41910 [--port 41873] [--data <dir>] [--judge arrivals]
 //
 //   http://127.0.0.1:41873/frontier/frontier/   … ゲーム（ヘラルドの画面を転送。Dev Wallet はこの入口のもの）
 //   http://127.0.0.1:41873/ws01/                 … 依頼の画面（同じ入口なので、同じ Dev Wallet で署名する）
@@ -19,6 +19,7 @@ import { fileURLToPath } from 'node:url';
 import { fold, recordId, shapeProblem, verifySig, ownerTagOf, CLOCK_SKEW } from './record.mjs';
 import { linkProblem } from './arrival.mjs';
 import { GOALS, JUDGES, coopView } from './goal.mjs';
+import { citizenOf, holdingOf, rpcReader } from './chain.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(here, '../../..');
@@ -27,14 +28,34 @@ const SERVE = [path.join(repo, 'workstreams/01-national-strategy/coop'), path.jo
 export const PAGE = '/ws01/repo/workstreams/01-national-strategy/coop/';
 const TYPES = { '.html': 'text/html; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.wasm': 'application/wasm', '.svg': 'image/svg+xml', '.png': 'image/png' };
 
-/** 板を作る（テストからも使う）。`fetchHerald(path) → {status, json}` を差し替えられる。 */
-export function createBoard({ herald, programId, seasonId, dataDir, judge = 'arrivals', now = () => Math.floor(Date.now() / 1000), fetchHerald = null }) {
+/**
+ * 記録の追記ファイルを読む。壊れた行（書きかけで止まった最後の行など）は飛ばして数える。
+ * 飛ばした行は記録の欠落なので、`damaged` として表示に出す（黙って消さない。ファイルも書き換えない）。
+ */
+export function loadRecords(file) {
+  if (!fs.existsSync(file)) return { records: [], damaged: [] };
+  const records = [], damaged = [];
+  fs.readFileSync(file, 'utf8').split('\n').forEach((l, i) => {
+    if (!l.trim()) return;
+    try { records.push(JSON.parse(l)); } catch { damaged.push({ line: i + 1, head: l.slice(0, 40) }); }
+  });
+  return { records, damaged };
+}
+
+/**
+ * 板を作る（テストからも使う）。`fetchHerald(path) → {status, json}` と、チェーンを読む `reader`（chain.mjs の rpcReader の形）を差し替えられる。
+ * 再起動：記録（records.jsonl）を最初から畳み込み直すので、依頼・応答・結び付け・重複防止（同じ記録・同じ隊商）は戻る。
+ * 観測の時刻（observed.json）が失われると、再起動の後に初めて見た時刻になる（仮B は「到着より後」を確かめられず、達成にならない側に倒れる）。
+ */
+export function createBoard({ herald, programId, seasonId, dataDir, judge = 'arrivals', now = () => Math.floor(Date.now() / 1000), fetchHerald = null, reader = null }) {
   const season = { programId, seasonId: String(seasonId) };
   fs.mkdirSync(dataDir, { recursive: true });
   const recFile = path.join(dataDir, 'records.jsonl');
   const obsFile = path.join(dataDir, 'observed.json');
-  const records = fs.existsSync(recFile) ? fs.readFileSync(recFile, 'utf8').split('\n').filter(Boolean).map(l => JSON.parse(l)) : [];
-  const obs = fs.existsSync(obsFile) ? JSON.parse(fs.readFileSync(obsFile, 'utf8')) : { ended: {}, vaults: {} };
+  const { records, damaged } = loadRecords(recFile);
+  let obs = { ended: {}, vaults: {} };
+  try { if (fs.existsSync(obsFile)) obs = JSON.parse(fs.readFileSync(obsFile, 'utf8')); } catch { obs = { ended: {}, vaults: {} }; }
+  const citizenCache = new Map();   // 確かめられた結果だけを覚える（未検証は毎回やり直す）
   const getHerald = fetchHerald ?? (async p => {
     const r = await fetch(new URL(p, herald));
     return { status: r.status, json: r.ok ? await r.json() : null };
@@ -56,8 +77,13 @@ export function createBoard({ herald, programId, seasonId, dataDir, judge = 'arr
 
   const state = () => fold(records, { goals: GOALS, season });
 
+  // 受け取りは一つずつ、受け取った順に。今は「状態の確かめ → 追記」の間に待ち（await）がないので同時の送信でも二重にはならないが
+  // （テスト「同時の送信」）、確かめに待ちが入っても順番が崩れないように並べておく。
+  let queue = Promise.resolve();
+  const submit = rec => { const r = queue.then(() => submitOne(rec)); queue = r.catch(() => {}); return r; };
+
   /** 記録を一つ受け取る。{ok, id} か {ok:false, why}。 */
-  async function submit(rec) {
+  async function submitOne(rec) {
     const shape = shapeProblem(rec, GOALS);
     if (shape) return { ok: false, why: shape };
     if (!(await verifySig(rec))) return { ok: false, why: '署名が合わない' };
@@ -74,18 +100,42 @@ export function createBoard({ herald, programId, seasonId, dataDir, judge = 'arr
     const id = recordId(rec);
     const bad = after.rejected.find(x => x.id === id);
     if (bad) return { ok: false, why: bad.why };
-    records.push(rec);
+    // 書きかけで止まった最後の行に続けて書かない
+    if (fs.existsSync(recFile)) { const st = fs.statSync(recFile); if (st.size > 0) { const fd = fs.openSync(recFile, 'r'); const b = Buffer.alloc(1); fs.readSync(fd, b, 0, 1, st.size - 1); fs.closeSync(fd); if (b[0] !== 10) fs.appendFileSync(recFile, '\n'); } }
     fs.appendFileSync(recFile, `${JSON.stringify(rec)}\n`);
+    records.push(rec);
     return { ok: true, id };
   }
 
-  async function view({ viewer = null, nation = null, judgeId = judge } = {}) {
-    const file = await caravans();
-    const v = coopView({ state: state(), file, obs, viewer, viewerNation: nation, now: now(), judgeId, season });
-    return { ...v, heraldFeed: file ? { moving: (file.moving ?? []).length, ended: Array.isArray(file.ended) ? file.ended.length : null } : null };
+  async function citizen(wallet) {
+    if (citizenCache.has(wallet)) return citizenCache.get(wallet);
+    const c = await citizenOf(reader, season, wallet);
+    if (c.status === 'verified') citizenCache.set(wallet, c);
+    return c;
   }
 
-  const config = () => ({ season, goals: GOALS, judges: Object.values(JUDGES).map(j => ({ id: j.id, label: j.label })), judge, herald });
+  /** チェーンで確かめる：関わった人の国（Citizen）と、到着のある依頼の届け先の村の持ち主。 */
+  async function checks(st, viewer) {
+    const wallets = new Set(viewer ? [viewer] : []);
+    const holdings = {};
+    for (const q of Object.values(st.requests)) {
+      wallets.add(q.requester);
+      for (const l of q.links) wallets.add(l.responder);
+      if (q.links.length) holdings[q.id] = await holdingOf(reader, season, q.to, q.requester);
+    }
+    const citizens = {};
+    for (const w of wallets) citizens[w] = await citizen(w);
+    return { citizens, holdings };
+  }
+
+  async function view({ viewer = null, judgeId = judge } = {}) {
+    const file = await caravans();
+    const st = state();
+    const v = coopView({ state: st, file, obs, checks: await checks(st, viewer), viewer, now: now(), judgeId, season });
+    return { ...v, heraldFeed: file ? { moving: (file.moving ?? []).length, ended: Array.isArray(file.ended) ? file.ended.length : null } : null, chain: !!reader, damaged };
+  }
+
+  const config = () => ({ season, goals: GOALS, judges: Object.values(JUDGES).map(j => ({ id: j.id, label: j.label, means: j.means })), judge, herald, chain: !!reader, damaged });
   return { submit, view, config, records, caravans, season };
 }
 
@@ -130,8 +180,7 @@ export function createServer(board, { herald }) {
         return send(res, r.ok ? 200 : 400, r);
       }
       if (url.pathname === '/coop/view') {
-        const nation = url.searchParams.get('nation');
-        return send(res, 200, await board.view({ viewer: url.searchParams.get('viewer') || null, nation: nation === null || nation === '' ? null : Number(nation), judgeId: url.searchParams.get('judge') || undefined }));
+        return send(res, 200, await board.view({ viewer: url.searchParams.get('viewer') || null, judgeId: url.searchParams.get('judge') || undefined }));
       }
       if (url.pathname === '/ws01' || url.pathname === '/ws01/') { res.writeHead(302, { location: PAGE }); return res.end(); }
       if (url.pathname.startsWith('/ws01/repo/')) return serveStatic(res, url.pathname.slice('/ws01/repo/'.length));
@@ -171,7 +220,8 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   if (!programId || !seasonId) { console.error('--program と --season が要る（frontier-stack の state.json の program id とシーズン番号）'); process.exit(2); }
   const port = Number(arg('port', '41873'));
   const dataDir = arg('data', path.join(repo, '.local/ws01-coop', `${programId.slice(0, 8)}-${seasonId}`));
-  const board = createBoard({ herald, programId, seasonId, dataDir, judge: arg('judge', 'arrivals') });
+  const rpc = arg('rpc');   // 例：http://127.0.0.1:41910（国と届け先の村をチェーンで確かめる。ないと国籍未検証）
+  const board = createBoard({ herald, programId, seasonId, dataDir, judge: arg('judge', 'arrivals'), reader: rpc ? rpcReader(rpc) : null });
   createServer(board, { herald }).listen(port, '127.0.0.1', () => {
     console.log(`依頼の板：http://127.0.0.1:${port}/ws01/  ゲーム：http://127.0.0.1:${port}/frontier/frontier/  （ヘラルド ${herald}、記録 ${dataDir}）`);
   });

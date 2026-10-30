@@ -57,7 +57,7 @@ node workstreams/01-national-strategy/prototype/serve.mjs --port 8080
 ## テスト
 
 ```sh
-node --test workstreams/01-national-strategy/test/*.test.mjs        # ルール20・条件15・乱数40・回帰12・配置15・供給網18・供給網の回帰11・供給網の乱数30（161件）＋国をまたぐ依頼13件（`coop.test.mjs`）
+node --test workstreams/01-national-strategy/test/*.test.mjs        # ルール20・条件15・乱数40・回帰12・配置15・供給網18・供給網の回帰11・供給網の乱数30（161件）＋国をまたぐ依頼21件（`coop.test.mjs`）
 node workstreams/01-national-strategy/test/browser.smoke.mjs        # ブラウザで押す（14件）。--shots で screenshots/ に保存
 node workstreams/01-national-strategy/test/coop.browser.mjs         # 国をまたぐ依頼をブラウザで押す（8件）
 ```

@@ -7,7 +7,7 @@
 //      物が動くのは、送り主本人がウォレットで署名した S1 の隊商（SendCaravan）だけ。
 //   3. 隊商を依頼に結び付ける（link）のは、その隊商の持ち主だけ（持ち主の印 ownerTag をウォレットから計算して照らす）。
 //   4. 物々交換・加工の貸出・到着時払いは、ここにはない（贈与で保証できるように見せない）。
-//   5. 記録は国籍で参加を強制も禁止もしない。国は申告（未検証）として表示に使うだけ。
+//   5. 記録は国籍で参加を強制も禁止もしない。記録の国は申告で、判定には使わない（国はチェーンの Citizen で確かめる：chain.mjs）。
 
 import { sha256 } from '../../../permutation-server/web/sdk/sha256.mjs';
 import { concat, fromBase64, toBase64, toHex, utf8 } from '../../../permutation-server/web/sdk/bytes.mjs';
@@ -166,7 +166,7 @@ export function fold(records, { goals, season }) {
   const linkedCaravans = new Set();
   const leftOf = (g, w) => (S.left[g] ?? []).includes(w);
   const reject = (rec, why) => S.rejected.push({ id: recordId(rec), kind: rec.kind, signer: rec.signer, why });
-  for (const rec of records) {
+  for (const [n, rec] of records.entries()) {
     const shape = shapeProblem(rec, goals);
     if (shape) { reject(rec, shape); continue; }
     if (rec.season.programId !== season.programId || rec.season.seasonId !== season.seasonId) { reject(rec, '別のシーズンの記録'); continue; }
@@ -219,7 +219,7 @@ export function fold(records, { goals, season }) {
           const key = `${rec.caravan.ownerTag}:${rec.caravan.seq}`;
           if (linkedCaravans.has(key)) return 'この隊商はもう結び付けられている';
           linkedCaravans.add(key);
-          r.links.push({ responder: rec.signer, nation: x.nation, caravan: { ownerTag: String(rec.caravan.ownerTag), seq: rec.caravan.seq }, at: rec.at });
+          r.links.push({ responder: rec.signer, claimedNation: x.nation, caravan: { ownerTag: String(rec.caravan.ownerTag), seq: rec.caravan.seq }, at: rec.at, n });
           return null;
         }
         case 'leave': {

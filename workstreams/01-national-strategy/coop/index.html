@@ -37,7 +37,7 @@
     <button id="connect">Dev Wallet（ローカル）で署名する</button>
     <span id="who" class="note">署名する人：未接続</span>
   </span>
-  <label class="row">自分の国（申告）
+  <label class="row">自分の国（申告。判定には使わない）
     <select id="nation"><option value="0">国1</option><option value="1">国2</option><option value="2">国3</option><option value="3">国4</option><option value="4">国5</option><option value="5">国6</option></select>
   </label>
 </header>
@@ -76,6 +76,7 @@
   <section id="arrivals" style="margin-top:12px">
     <h2>隊商と到着（④の確定の記録）</h2>
     <div class="row">判定（仮）：<select id="judge"></select></div>
+    <ul class="note" id="judgeMeans"></ul>
     <div class="body"></div>
   </section>
 </main>

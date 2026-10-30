@@ -33,7 +33,8 @@ frontier-node/target/release/frontier-stack up --conquest --mode accel --beacon 
   --season-end-at-play-end --bots 0 --personas off --run-id coop-1 --base-port 41900 --season 91
 # 2. ④のパッチ（確定の記録 ended）を当てたヘラルドで動かす：proposals/0002-herald-caravan-ended.patch
 # 3. 板（program id は frontier-node/.local/frontier/coop-1/state.json）
-node workstreams/01-national-strategy/coop/board.mjs --herald http://127.0.0.1:41940 --program <program id> --season 91
+node workstreams/01-national-strategy/coop/board.mjs --herald http://127.0.0.1:41940 --program <program id> --season 91 \
+  --rpc http://127.0.0.1:41910   # 国（Citizen）と届け先の村をチェーンで確かめる。ないと国籍未検証
 # 4. 人ごとに別の入口（Dev Wallet は入口ごと）：http://p1.localhost:41873/frontier/frontier/ と http://p1.localhost:41873/ws01/
 ```
 
@@ -46,10 +47,14 @@ node workstreams/01-national-strategy/coop/board.mjs --herald http://127.0.0.1:4
 | 依頼 ID | 依頼の記録（署名を除く）の sha256、16進 | `record.mjs` `recordId` |
 | 隊商 ID | `{ownerTag: 10進の文字列, seq}`（S1 の Caravan の鍵 `caravan_seed`） | ヘラルドの `moving[].ownerTag/seq` |
 | 所有者 | `ownerTag`：ウォレット → Citizen の口座 → 先頭8バイト（`faddr.mjs` の `citizenTag`）。奪われたら `raiderTag` | 結び付けの時に板が照らす |
+| 届け先の持ち主 | 届け先の Holding の口座の `OWNER_CITIZEN` が依頼した人の Citizen で、`GEN` が依頼と同じ（チェーンを読む。`chain.mjs` `holdingOf`）。確かめられない到着は数えない | 板の `--rpc` |
+| 国 | 対象シーズンの Citizen の口座（住所はウォレットから計算）を読み、シーズン・`WALLET` が合うときだけ `FACTION`。申告は使わない（`chain.mjs` `citizenOf`） | 板の `--rpc` |
 | 到着状態 | `moving` / `delivered` / `misdelivered` / `lost` / `raided-taken` / `raided-burned` / `unknown` | `arrival.mjs` `arrivalOf` |
-| 検証済み量 | 依頼の資源ごとの、CARAVAN_SETTLED（DELIVERED、依頼の届け先）の `cargo`（経路の塔の目減りの後）。それ以外は `null`（未検証・数えない） | ヘラルドの `ended`（パッチ） |
+| 記録の積荷 `cargo` | CARAVAN_SETTLED の積荷（経路の塔の目減りの後、整数に切り捨て：`caravan.rs` `cargo_log`）。**宛先に加算された量ではない** | ヘラルドの `ended`（パッチ） |
+| 検証済み量 `verifiedQty` | **村あて（kind 1）**だけ：積荷を**実入荷量の下限**として（`qtyKind: 'lower-bound'`）。根拠：Holding::credit は上限なしで積荷を全部加算する（`holding.rs:296-300, 774-783`）。**倉あて（kind 2）**：上限で切り捨てられ、加算量も加算前の在庫も記録にないので `null`（未検証）。宛先違い・LOST・襲撃・輸送中・不明も `null` | `arrival.mjs` `creditedOf` |
+| 根拠 `basis` | 量を証明した記録と規則 | 同上 |
 
-**④へのパッチ `proposals/0002-herald-caravan-ended.patch`（未適用）：** ヘラルドの `h/caravans.json` に `ended`（確定と襲撃の記録、新しい512件）を足す。今のヘラルドは確定した隊商を一覧から消すだけで、届いたか・失われたか・どれだけかを出していない。チェックポイントは `ended` のない古い形も読める。パッチを当てたヘラルドのテスト 39件が通る（今の38件＋足した1件。既存の1件に `ended` の確かめを足した）。`ended` のないヘラルドでは、消えた隊商は `unknown`（未検証）になり、量を数えない。
+**④へのパッチ `proposals/0002-herald-caravan-ended.patch`（未適用）：** ヘラルドの `h/caravans.json` に `ended`（確定と襲撃の記録、新しい512件）を足す。`ended` の `cargo` は記録の積荷で加算量ではない、と説明に書いた（2026-10-30 更新）。**④の実入荷量の記録案とは突き合わせていない**（④の資料 `bd415e7` がこの作業の手元にない。突き合わせに要るのは、④の到着の確定の契約と、倉あての加算量をどう記録するかの案）。倉あての加算量を証明するには、(a) プログラムの CARAVAN_SETTLED に加算量を足す（記録の形が変わる。プログラムの版）、(b) ヘラルドが同じ取引の前後の倉の口座を比べる（前の状態を取りこぼさない保証が要る）、のどちらかが要る。今は倉あてを数えない。今のヘラルドは確定した隊商を一覧から消すだけで、届いたか・失われたか・どれだけかを出していない。チェックポイントは `ended` のない古い形も読める。パッチを当てたヘラルドのテスト 39件が通る（今の38件＋足した1件。既存の1件に `ended` の確かめを足した）。`ended` のないヘラルドでは、消えた隊商は `unknown`（未検証）になり、量を数えない。
 
 ## 17-4. 未接続・模擬の部分（明示）
 
@@ -58,16 +63,32 @@ node workstreams/01-national-strategy/coop/board.mjs --herald http://127.0.0.1:4
 | **本物のローカルのチェーンでの一巡** | **未実施。** S1 のプログラムを組み立てる `cargo-build-sbf`（Agave 3.1.9）がこの環境になく、入れる操作（外部のインストーラの実行）は許可されなかった。だから、隊商がチェーンに載ってヘラルドに出る部分は、テストでは偽のヘラルドで模している |
 | 隊商の命令 | 実物のモジュール（`fplay.mjs` の `accountsFor`・`buildShape`）で組み立て、署名者が送り主のウォレットだけであること、隊商の口座が `ownerTag` と番号から決まることを確かめた。チェーンへは送っていない |
 | 到着の確定 | ヘラルドのパッチは Rust のテストで確かめた。そのパッチのヘラルドが書いた形の見本（`test/fixtures/herald-caravans-ended.json`、Rust が書き出したもの）を、既存の画面の解析（`herald.mjs` `parseCaravans`）と①の読み取りの両方が受け付ける。本物の世界の到着では確かめていない |
-| 国 | 記録の国は**申告**（未検証）。ヘラルドの村の陣営で照らすのは未実装 |
-| 施設の観測（仮B） | 板がヘラルドの貯蔵庫の一覧を見た時刻で判定。**届いた物で建てたかは区別できない**（在庫は混ざる） |
+| 国 | **チェーンの Citizen の口座で確かめる**（板に `--rpc`）。読めない・口座がない・ウォレットが合わない → 国籍未検証で、国をまたぐ協力の達成は確定しない。記録の申告の国は表示だけ。偽のチェーン（v2 の配置で書いた口座）でテストし、本物のチェーンでは未確認 |
+| 届け先の持ち主 | 見る時点の Holding の口座で確かめる（確定の時点の持ち主ではない。村が奪われると世代が変わるので、世代の一致で確定の時点とつなぐ） |
+| 判定の意味 | **仮A：** 証明できた入荷量だけ（資源ごと）。届いた物を使ったかは見ない。**仮B：** 仮A＋到着を板が見た後に新しい貯蔵庫が初めて見えた。時刻の前後だけで、**届いた物を使った証拠ではない**（在庫は混ざる。自分の物で建てても同じに見える）。画面の判定の欄に、この説明をそのまま出す |
+| 重複 | 同じ隊商は一つの依頼にだけ結び付けられる（到着の前・後・再読込・署名の再送で断る）。記録が欠けた板が二つ目を受けても、割り当ては記録の順で先の一つだけ（`goal.mjs` `allocate`）。一つの到着が共同・国・個人の三つの表示に出るのは、別々の評価への寄与で、重複割当ではない |
+| 板の再起動 | 記録（`records.jsonl`）を最初から畳み込み直すので、依頼・応答・結び付け・重複防止は戻る。書きかけの最後の行は飛ばして「読めない行」として表示し、次の記録は新しい行に書く。観測の時刻（`observed.json`）が失われると、再起動の後に初めて見た時刻になり、仮B は達成にならない側に倒れる。**記録ファイルそのものが失われると、依頼も重複防止も失われる**（板の記録はチェーンにない） |
 | 板 | 記録の改ざんと別人の名乗りは署名で防ぐ。**板が記録を出さない（隠す）ことは防げない。** 記録はチェーンに載せていない |
 | 一人の判定 | 複数のウォレットは区別しない（本人確認は決めていない） |
 | ⑦の入口 | `proposals/0003-s1-coop-entry.patch`（未適用）：村の引き出し「交易と防備」に「国をまたぐ依頼」を足し、この村を届け先にして依頼の画面を開く。開く先の住所と英語の訳は統合で決める |
 | AI の参加（⑤） | 対象外 |
 
+## 17-4b. 本物のチェーンでの確認に要るもの（承認待ち）
+
+**未実施。** 外部のインストーラを実行する操作は許可されなかったので、回避していない（別の取得方法も試していない）。この環境に、使える SBF の成果物（`permutation_frontier.so`）・`cargo-build-sbf`・platform-tools はない（ファイルシステム全体を探した）。記録にある組み立ての sha256（`docs/frontier/m1/W2-A-NOTES.md`）は M1 の時のコードのもので、今の S1 のコードとは一致を確かめられない。
+
+| 項目 | 中身 |
+|---|---|
+| 入れるもの | Agave 3.1.9（`solana-cargo-build-sbf 3.1.9`。`scripts/build-frontier.sh` がこの版以外を断る） |
+| 取得元 | Anza の配布：`https://release.anza.xyz/v3.1.9/install`（中で GitHub の `anza-xyz/agave` の v3.1.9 のリリース `solana-release-x86_64-unknown-linux-gnu.tar.bz2` を取る）。初めての組み立てで platform-tools v1.52（`anza-xyz/platform-tools` のリリース）が取られる |
+| 変わる場所 | `~/.local/share/solana/install/`（リリースと `active_release`）、`~/.cache/solana/`（platform-tools）。インストーラはシェルの設定に PATH を足すことがある（`build-frontier.sh` は自分で PATH を足すので不要）。リポジトリでは `permutation-frontier/target/`・`frontier-node/target/`・`.local/`（どれも .gitignore） |
+| 承認の後のコマンド | `scripts/build-frontier.sh --features test-beacon`（試験用のビーコン。本番には出せない組み立て）→ `(cd frontier-node && cargo build --locked --release --workspace)` → 別の作業場所でパッチ 0002 を当てたヘラルドを組み立てる → `frontier-stack up --conquest …`（17-2）→ `node coop/board.mjs --herald … --program … --season … --rpc http://127.0.0.1:41910` → 2人の入口で依頼・応答・隊商・結び付け・確定を通す。失敗・取消・略奪・相手の退出も同じ世界で |
+| 確かめること | ヘラルドの `ended` の `cargo` と、村の口座の在庫の増え方が規則どおりか（下限になっているか）、倉あてが未検証になるか、Citizen の口座で国が確かめられるか |
+| 課金・外部 | なし（ローカルのチェーン、試験用のトークン）。push・deploy はしない |
+
 ## 17-5. テスト
 
-- `test/coop.test.mjs`（13件）：一巡（応じても0 → 本物の命令の形 → 輸送中は0 → 確定で目減り後の量 → 資源ごとの判定 → 仮B）、資源を合計しない、取消、失敗（LOST）、略奪（奪う・焼く・確定の記録なしで行き先が変わる）、相手の退出と別の相手、未検証（ended なし）、結び付けの確かめ、記録の確かめ（改ざん・別人・時刻・自分の依頼・依頼にない量・知らない種類）、期限、追記の保存、Rust の見本、HTTP の入口と転送。
+- `test/coop.test.mjs`（21件。2026-10-30 の確認で8件を足した：入荷量（村は下限・倉は未検証・積荷と別）、国籍（チェーンなし・口座なし・別人の口座・申告と違う国・同じ国だけ）、届け先の持ち主と世代、重複（到着の前・後・再読込・署名の再送・同時の送信）、履歴の欠落と記録の復帰、複数の評価への寄与、再起動（書きかけの行）、再起動（観測の時刻の喪失））。それまでの13件：一巡（応じても0 → 本物の命令の形 → 輸送中は0 → 確定で目減り後の量 → 資源ごとの判定 → 仮B）、資源を合計しない、取消、失敗（LOST）、略奪（奪う・焼く・確定の記録なしで行き先が変わる）、相手の退出と別の相手、未検証（ended なし）、結び付けの確かめ、記録の確かめ（改ざん・別人・時刻・自分の依頼・依頼にない量・知らない種類）、期限、追記の保存、Rust の見本、HTTP の入口と転送。
 - `test/coop.browser.mjs`（8件）：2人の Dev Wallet で、依頼 → 応じる（0のまま）→ 結び付け → 確定 → 共同の目的（木材196／200・石材0／200 で未達成）→ 取消（自分で進める）、スマホの幅、ページのエラーなし。
 - ヘラルドのパッチ：当てた状態で `cargo test --locked -p herald --lib`（39件、pass 39）。当てた後は元に戻した。
 

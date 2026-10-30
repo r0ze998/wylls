@@ -1,8 +1,8 @@
 diff --git a/frontier-node/crates/herald/src/caravan.rs b/frontier-node/crates/herald/src/caravan.rs
-index 211ebe1..230bd05 100644
+index 211ebe1..bd98d1e 100644
 --- a/frontier-node/crates/herald/src/caravan.rs
 +++ b/frontier-node/crates/herald/src/caravan.rs
-@@ -35,10 +35,20 @@ pub struct Caravans {
+@@ -35,10 +35,28 @@ pub struct Caravans {
      pub moving: BTreeMap<(u64, u32), Value>,
      /// `(p, q, tile)` → the vault's entry.
      pub vaults: BTreeMap<(i32, i32, u8), Value>,
@@ -11,7 +11,15 @@ index 211ebe1..230bd05 100644
 +    /// cargo as logged) and CARAVAN_RAIDED (`end: "raided"`, take or burn,
 +    /// the raider's tag, the cargo taken). A reader that ties a caravan to
 +    /// something else (a request between players) learns from it whether
-+    /// and what the caravan delivered; `moving` alone only shows it gone.
++    /// it arrived and what it carried; `moving` alone only shows it gone.
++    ///
++    /// `cargo` is the caravan's load as CARAVAN_SETTLED logs it (after the
++    /// towers' wear, whole units rounded down: `cargo_log`), **not** what
++    /// the destination gained. A Holding gains all of it (`Holding::credit`
++    /// has no cap), so for `dst.kind` 1 it is a lower bound of the gain; a
++    /// Vault keeps at most its cap (SettleCaravan), and neither the amount
++    /// it kept nor its stores before are logged, so for `dst.kind` 2 the
++    /// gain is not known from this record.
 +    pub ended: std::collections::VecDeque<Value>,
      /// Changed since the file was last written.
      pub dirty: bool,
@@ -23,7 +31,7 @@ index 211ebe1..230bd05 100644
  fn place(p: &LogPlace) -> Value {
      json!({"kind": p.kind, "p": p.p, "q": p.q, "at": p.at, "gen": p.gen, "tile": p.tile})
  }
-@@ -85,15 +95,28 @@ impl Caravans {
+@@ -85,15 +103,28 @@ impl Caravans {
                          "path": path.to_vec(), "provinces": provinces}),
                  );
              }
@@ -53,7 +61,7 @@ index 211ebe1..230bd05 100644
                  if let Some(m) = self.moving.get_mut(&(*owner_tag, *seq)) {
                      m["raided"] = json!(true);
                      if *choice == frontier_abi::v2::log::raid_choice::BURN {
-@@ -198,12 +221,20 @@ impl Caravans {
+@@ -198,12 +229,20 @@ impl Caravans {
          true
      }
  
@@ -74,7 +82,7 @@ index 211ebe1..230bd05 100644
          })
      }
  
-@@ -228,6 +259,10 @@ impl Caravans {
+@@ -228,6 +267,10 @@ impl Caravans {
              );
              c.vaults.insert(key, x.clone());
          }
@@ -85,7 +93,7 @@ index 211ebe1..230bd05 100644
          Some(c)
      }
  }
-@@ -360,6 +395,38 @@ mod tests {
+@@ -360,6 +403,38 @@ mod tests {
              fee: 0,
          });
          assert!(c.moving.is_empty());

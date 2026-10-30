@@ -63,18 +63,20 @@ function renderJoint() {
     <div class="note">${esc(cfg.goals[goalId].what)}。費用（S1）：${esc(needText(cfg.goals[goalId].cost))}。ほかの人から：${esc(needText(cfg.goals[goalId].fromOthers))}［仮］。報酬はない。</div>
     ${rows.length ? rows.map(j => `
       <div class="req" data-host="${esc(j.host)}">
-        <div><b>${esc(short(j.host))}</b>（${esc(nationName(j.hostNation))}・申告）の貯蔵庫：
+        <div><b>${esc(short(j.host))}</b>（${j.hostNation === null ? `<span class="warn">国籍未検証</span>` : esc(nationName(j.hostNation))}）の貯蔵庫：
           <span class="tag ${j.done ? 'ok' : 'warn'}" data-testid="joint-status">${j.done ? '達成（記録だけ）' : '未達成'}</span></div>
-        <div>${j.progress.map(p => `${esc(RESOURCE_JA[p.resource])} <b data-testid="joint-${p.resource}">${p.verified}</b>／${p.need}`).join('　')}（確定した到着だけ。資源ごと。合計しない）</div>
-        <div class="note">${esc(j.judgeLabel)}：${esc(j.why)}。ほかの国：${j.otherNations.length ? j.otherNations.map(nationName).join('・') : 'なし'}。未検証の隊商 ${j.unverifiedCaravans} 本（量は数えない）</div>
+        <div>${j.progress.map(p => `${esc(RESOURCE_JA[p.resource])} <b data-testid="joint-${p.resource}">${p.verified}</b>／${p.need}`).join('　')}（証明できた入荷量だけ。資源ごと。合計しない）</div>
+        <div class="note" data-testid="joint-why">${esc(j.judgeLabel)}：${esc(j.why)}</div>
+        <div class="note">確かめた他国：${j.otherNations.length ? j.otherNations.map(nationName).join('・') : 'なし'}${j.nationsUnverified.length ? `（<span class="warn" data-testid="nation-unverified">${esc(j.nationsUnverified.join('、'))}</span>）` : ''}。輸送中・不明の隊商 ${j.unverifiedCaravans} 本、届いたが量を証明できない隊商 ${j.unprovenDeliveries} 本（どちらも数えない）</div>
       </div>`).join('') : '<div class="note">まだ依頼はない</div>'}`;
 }
 
 function renderNation() {
   const n = view.nation;
-  $('nationPanel').querySelector('.body').innerHTML = n ? `
-    <div>${esc(nationName(n.nation))}（申告）の依頼 ${n.requests} 件、この国の人が届けた確定の到着 ${n.deliveredFromNation} 本</div>
-    <div class="note">${esc(n.note)}。国は持ち主の物を動かせない。</div>` : '<div class="note">国を選んでください</div>';
+  $('nationPanel').querySelector('.body').innerHTML = !n ? '<div class="note">署名する人を接続すると出る</div>'
+    : n.nation === null ? `<div class="warn" data-testid="my-nation">国籍未検証：${esc(n.why)}</div><div class="note">${esc(n.note)}</div>`
+    : `<div data-testid="my-nation">${esc(nationName(n.nation))}（チェーンの Citizen で確かめた）：依頼 ${n.requests} 件、この国の人が届けた証明できる到着 ${n.deliveredFromNation} 本</div>
+    <div class="note">${esc(n.note)}。国は持ち主の物を動かせない。</div>`;
 }
 
 function renderPersonal() {
@@ -104,7 +106,7 @@ function renderRequests() {
     const others = Object.entries(q.responses).map(([w, x]) => `${short(w)}（${nationName(x.nation)}）：${x.answer === 'accept' ? (x.withdrawn ? '取り下げ' : `送るつもり ${needText(x.offer)}`) : '断った'}`).join(' / ');
     const cands = accepted && open ? myCaravansTo(q) : [];
     return `<div class="req" data-req="${esc(q.id)}">
-      <div><b>${esc(needText(q.need))}</b> → ${esc(short(q.requester))}（${esc(nationName(q.nation))}・申告）の村 (${q.to.p},${q.to.q}) 村${q.to.site}
+      <div><b>${esc(needText(q.need))}</b> → ${esc(short(q.requester))}（${esc(nationName(q.nation))}・申告。判定には使わない）の村 (${q.to.p},${q.to.q}) 村${q.to.site}
         <span class="tag" data-testid="req-state">${esc(REQ_JA[q.stateNow] ?? q.stateNow)}${q.cancel ? `：${esc(CANCEL_JA[q.cancel.reason] ?? q.cancel.reason)}` : ''}</span></div>
       <div class="note">応答：${esc(others || 'まだない')}</div>
       <div class="row">
@@ -122,14 +124,16 @@ function renderArrivals() {
   const a = view.arrivals;
   const feedNote = view.heraldFeed ? (view.heraldFeed.ended === null ? '<div class="warn">このヘラルドは確定の記録（ended）を出していない。到着は未検証のまま（④のパッチ待ち）</div>' : '') : '<div class="bad">ヘラルドの隊商の一覧が読めない</div>';
   $('arrivals').querySelector('.body').innerHTML = `${feedNote}
-    <table><thead><tr><th>依頼</th><th>隊商</th><th>持ち主の印</th><th>状態</th><th>確かめた量</th></tr></thead><tbody>
+    <table><thead><tr><th>依頼</th><th>隊商</th><th>持ち主の印</th><th>状態</th><th>記録の積荷（目減り後）</th><th>証明できた入荷量</th></tr></thead><tbody>
     ${a.map(x => `<tr data-testid="arrival"><td><code>${esc(x.requestId.slice(0, 8))}</code></td><td>${esc(x.caravanId.ownerTag.slice(0, 6))}…#${x.caravanId.seq}</td><td>${esc(x.owner.ownerTag.slice(0, 6))}…</td>
-      <td data-testid="arrival-state">${esc(STATE_JA[x.state] ?? x.state)}</td><td>${x.verifiedQty ? esc(needText(x.verifiedQty)) : '<span class="note">未検証（数えない）</span>'}</td></tr>`).join('') || '<tr><td colspan="5" class="note">結び付けた隊商はまだない</td></tr>'}
-    </tbody></table>`;
+      <td data-testid="arrival-state">${esc(STATE_JA[x.state] ?? x.state)}</td><td>${x.cargo ? esc(needText(x.cargo)) : '—'}</td>
+      <td data-testid="arrival-qty">${x.verifiedQty ? `${esc(needText(x.verifiedQty))}${x.qtyKind === 'lower-bound' ? '（下限）' : ''}` : `<span class="note">未検証（数えない）${x.note ? `：${esc(x.note)}` : ''}</span>`}</td></tr>`).join('') || '<tr><td colspan="6" class="note">結び付けた隊商はまだない</td></tr>'}
+    </tbody></table>
+    <div class="note">積荷は隊商が運んだ量で、宛先に加算された量ではない。村あては上限なしで全部加算される規則なので、記録の積荷を入荷量の下限として数える。倉あては上限で減りうるので数えない。</div>`;
 }
 
 async function refresh() {
-  const v = new URLSearchParams({ nation: String(myNation()), judge: $('judge').value || cfg.judge, ...(signer ? { viewer: signer.address } : {}) });
+  const v = new URLSearchParams({ judge: $('judge').value || cfg.judge, ...(signer ? { viewer: signer.address } : {}) });
   [view, feed] = await Promise.all([api(`/coop/view?${v}`), fetch('/h/caravans.json').then(r => (r.ok ? r.json() : null)).catch(() => null)]);
   renderJoint(); renderNation(); renderPersonal(); renderRequests(); renderArrivals();
 }
@@ -171,6 +175,9 @@ $('judge').addEventListener('change', refresh);
   $('season').textContent = `シーズン ${cfg.season.seasonId}（プログラム ${short(cfg.season.programId)}）`;
   $('goalTitle').textContent = cfg.goals[goalId].title;
   $('judge').innerHTML = cfg.judges.map(j => `<option value="${esc(j.id)}"${j.id === cfg.judge ? ' selected' : ''}>${esc(j.label)}</option>`).join('');
+  $('judgeMeans').innerHTML = cfg.judges.map(j => `<li><b>${esc(j.label)}</b>：${esc(j.means)}</li>`).join('');
+  if (!cfg.chain) say('この板はチェーンを読まない（--rpc なし）。国籍と届け先の村は未検証になり、国をまたぐ協力の達成は確定しない', 'warn');
+  if (cfg.damaged?.length) say(`板の記録に読めない行が ${cfg.damaged.length} 行ある（記録の欠落）`, 'bad');
   const to = new URLSearchParams(location.search).get('to');   // ⑦の入口：?to=p,q,site,gen
   if (to && /^-?\d+,-?\d+,\d+,\d+$/.test(to)) [$('toP').value, $('toQ').value, $('toSite').value, $('toGen').value] = to.split(',');
   await refresh();
