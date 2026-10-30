@@ -25,6 +25,16 @@ use frontier_abi::v2::layout::player::citizen as C2;
 use frontier_agents::obs::Observation;
 use permutation_rules::frontier::geometry::{home_nation, ProvinceCoord};
 
+/// The nation whose first homes a province takes under the season's
+/// placement `(placement, heartland_max_ring, genesis_seed)`
+/// (`geometry::home_nation`); the wedge when the season is not known.
+pub fn home_nation_of(pc: ProvinceCoord, place: Option<(u8, u8, [u8; 32])>) -> Option<u8> {
+    match place {
+        Some((placement, hmr, seed)) => home_nation(pc, placement, hmr, &seed),
+        None => pc.wedge(),
+    }
+}
+
 /// `fjoin.mjs` `hash32`: FNV-1a over the string's UTF-16 code units.
 pub fn hash32(s: &str) -> u32 {
     let mut h: u32 = 0x811c_9dc5;
@@ -52,12 +62,7 @@ pub fn home_sites(
     if ring < 2 || ring >= rings_opened as u32 || max_ring.is_some_and(|m| ring > m as u32) {
         return vec![];
     }
-    // The season's placement (`home_nation`; the wedge when not known).
-    let nation = match place {
-        Some((placement, hmr, seed)) => home_nation(pc, placement, hmr, &seed),
-        None => pc.wedge(),
-    };
-    if nation != Some(faction) {
+    if home_nation_of(pc, place) != Some(faction) {
         return vec![];
     }
     if pv.cohorts.iter().any(|c| !cohort_free(c, now_bell)) {
@@ -128,6 +133,29 @@ mod tests {
     use super::*;
 
     /// The browser's `hash32` values (node: `hash32('abc')`, `hash32('')`).
+    /// Dispersed placement: the province a nation may take is the one
+    /// `home_nation` assigns, also outside its own wedge (the bots read
+    /// candidates by this, not by the wedge).
+    #[test]
+    fn home_nation_of_follows_the_placement() {
+        let seed = [9u8; 32];
+        let ring2 = permutation_rules::frontier::geometry::ring_provinces(2);
+        let mut off_wedge = 0;
+        for pc in ring2 {
+            assert_eq!(home_nation_of(pc, None), pc.wedge());
+            assert_eq!(home_nation_of(pc, Some((0, 3, seed))), pc.wedge());
+            let n = home_nation_of(pc, Some((1, 3, seed)));
+            assert_eq!(n, home_nation(pc, 1, 3, &seed));
+            if n != pc.wedge() {
+                off_wedge += 1;
+            }
+        }
+        assert!(
+            off_wedge > 0,
+            "some ring-2 provinces go to another wedge's nation"
+        );
+    }
+
     #[test]
     fn hash32_is_the_browsers_fnv1a() {
         assert_eq!(hash32(""), 0x811c_9dc5);
