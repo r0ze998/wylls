@@ -6,7 +6,7 @@ import { shapeProblems } from './contract.mjs';
 
 /** The canonical order: bell, then stream, then position, then id. */
 export const byOrder = (a, b) =>
-  a.at - b.at || (a.stream < b.stream ? -1 : a.stream > b.stream ? 1 : 0) || a.seq - b.seq || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+  a.at - b.at || (a.stream < b.stream ? -1 : a.stream > b.stream ? 1 : 0) || a.seq - b.seq || (a.sub ?? 0) - (b.sub ?? 0) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 
 /**
  * `{events, notes, taint}`: the well-formed, unique, conflict-free events in
@@ -40,7 +40,8 @@ export function normalize(events = [], streams = {}) {
   // Two different ids at one position of a stream: the stream contradicts itself.
   const pos = new Map();
   for (const e of list) {
-    const k = `${e.stream}\u0000${e.seq}`;
+    // `sub` numbers several events an adapter derives from one source record (one per resource).
+    const k = `${e.stream}\u0000${e.seq}\u0000${e.sub ?? 0}`;
     if (!pos.has(k)) pos.set(k, []);
     pos.get(k).push(e);
   }

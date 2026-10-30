@@ -9,6 +9,8 @@
 //   seq       its position in that stream; positions are contiguous from
 //             `state.streams[stream].from` (0 when absent) through
 //             `state.streams[stream].through` when the source states it
+//   sub       optional: the n-th event an adapter derived from that one record
+//             (a caravan's cargo becomes one event per resource)
 //   at        the game bell it happened at
 //   kind      one of KINDS below
 //   verified  how its quantities are known (VERIFIED)
@@ -47,6 +49,8 @@ export const KINDS = Object.freeze({
   'nation.goal': ['nation', 'goal'],
   'tower.sighting': ['sighting', 'tower', 'actor'],
   'tower.report.used': ['sighting', 'actor'],
+  // A source record with nothing to judge: it holds its stream position so it is not taken for a gap.
+  'position': [],
 });
 
 /** Reason codes, with the sentence a verdict shows for each. */
@@ -96,6 +100,7 @@ const isQty = v => isInt(v) && v >= 0;
 export function shapeProblems(e) {
   if (!e || typeof e !== 'object') return ['malformed'];
   if (typeof e.id !== 'string' || !e.id || typeof e.stream !== 'string' || !isInt(e.seq) || !isInt(e.at)) return ['malformed'];
+  if (e.sub !== undefined && !(isInt(e.sub) && e.sub >= 0)) return ['malformed'];
   if (!Object.hasOwn(KINDS, e.kind)) return ['unknown_kind'];
   if (!Object.hasOwn(VERIFIED, e.verified ?? '')) return ['malformed'];
   for (const f of KINDS[e.kind]) if (e[f] === undefined || e[f] === null) return ['malformed'];
@@ -105,4 +110,4 @@ export function shapeProblems(e) {
 }
 
 /** The fields of an event other than its envelope. */
-export const payloadOf = ({ id, stream, seq, at, kind, verified, ...rest }) => rest;
+export const payloadOf = ({ id, stream, seq, sub, at, kind, verified, ...rest }) => rest;

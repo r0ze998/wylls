@@ -237,6 +237,7 @@ export function buildWorld({ state, events, taint, closeAt, costs, jointGoals })
         out(e, true, late ? 'after_close' : null);
         break;
       }
+      case 'position': break;
       default: out(e, false, 'unknown_kind');
     }
   }
