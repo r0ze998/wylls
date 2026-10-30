@@ -21,7 +21,7 @@
 //! | [`set_order`] / [`revoke_order`] | the owner | a reservation for a carrier or a user |
 //! | [`spend_ship`] | the owner, or a ship order's carrier | goods leave on a caravan |
 //! | [`consume`] | a use order's user | goods are used up (processing is workstream 9's) |
-//! | [`forfeit`] | anyone, after the vault was seized | goods become the captor's (decision 2026-10-23, stage 2 §5) |
+//! | [`forfeit`] | anyone, after the vault was seized | goods become the captor's (workstream 10's proposal, by analogy with S1 §3.6 and stage 2 §5) |
 //! | [`close`] | the owner or the custodian; anyone once forfeited | the empty lot closes |
 //!
 //! **Two phases.** An order *reserves* goods ([`set_order`]); only a spend
@@ -282,8 +282,8 @@ pub enum Loss {
     /// The destination vault was seized or is gone at arrival (S1 §3.4:
     /// a destination of another generation does not deliver).
     DestinationGone = 4,
-    /// The lot's vault was seized (decision 2026-10-23, stage 2 §5): the
-    /// goods are the captor's.
+    /// The lot's vault was seized: the goods are the captor's (workstream
+    /// 10's proposal, not a decision; see [`forfeit`]).
     Seized = 5,
 }
 
@@ -825,10 +825,13 @@ pub struct Forfeit {
 }
 
 /// ReconcileLot after a seizure: the lot's vault (the same tile, live) is
-/// of a later generation, so it was seized (SeizeVault, `GEN += 1`). Under
-/// the stage 2 rule adopted on 2026-10-23 ("奪われた倉の札は無効、中身は奪
-/// った側"), what the lot holds becomes the vault's general stock, its
-/// current owner's; the lot's quota is released and its orders voided. The
+/// of a later generation, so it was seized (SeizeVault, `GEN += 1`). What
+/// the lot holds becomes the vault's general stock, its current owner's;
+/// the lot's quota is released and its orders voided. **This is workstream
+/// 10's proposal, not a decision**: S1 §3.6 gives a seized vault's goods to
+/// the captor, and the stage 2 rule adopted on 2026-10-23 voids a seized
+/// vault's share and receipt tokens (札); lots are neither, and are treated
+/// alike so a deposit is not safer than the vault's own goods. The
 /// loss is logged (`Seized`), never dropped. Permissionless: the captor is
 /// the one who wants it, and until then the lot is frozen ([`Lot::usable`]
 /// refuses every other move).
