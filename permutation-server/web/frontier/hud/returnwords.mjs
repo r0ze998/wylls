@@ -5,6 +5,7 @@ import { L, fmtNum, lang } from '../../lang.mjs';
 import { RESOURCES, factionName } from '../fi18n.mjs';
 import { RESOURCE_ORDER } from '../resources.mjs';
 import { FIRST_LOOK_BELLS } from './returnsum.mjs';
+import { arrivalView } from './statusview.mjs';
 
 const cargo = c => (c ? c.map((n, i) => (n > 0 ? `${RESOURCES[RESOURCE_ORDER[i]]} ${fmtNum(n)}` : null)).filter(Boolean).join(L`・`) : '');
 const nation = f => (Number.isInteger(f) && f >= 0 && f <= 6 ? factionName(f) : L`他国`);
@@ -23,6 +24,8 @@ export function itemText(i) {
     case 'RAID_OPENED': return i.tone === 'uncertain' ? L`あなたが送った隊商が襲われました（ターン ${fmtNum(i.bell)}）。いまの持ち主があなたかどうかは、読み込んだ記録からはわかりません` : L`隊商が襲われ、相手が奪うか焼くかを決めるところです（ターン ${fmtNum(i.bell)}）`;
     case 'CARAVAN_SETTLED':
       if (i.tone === 'uncertain') return L`あなたが送った隊商の到着が記録されました（ターン ${fmtNum(i.bell)}）。途中で奪われていたなら、受け取ったのは奪った側です（読み込んだ記録からは確かめられません）${c ? L`：${c}` : ''}`;
+      // (a settlement of the viewer's: its arrival in the five states — statussources.mjs —, never "arrived" without the amount verified)
+      if (f.arrival) { const v = arrivalView(f.arrival); return L`隊商が決着しました（ターン ${fmtNum(i.bell)}）。${[v.text, ...v.details].join(L`。`)}`; }
       return f.lost ? L`隊商の行き先がなくなり、積荷が失われました${c ? L`：${c}` : ''}` : L`隊商が着きました${c ? L`：${c}` : ''}`;
     case 'VAULT_SEIZED': case 'STRUCTURE_SEIZED': return i.tone === 'loss' ? L`${what(f.what)}を奪われました（ターン ${fmtNum(i.bell)}）` : L`${what(f.what)}を奪いました（ターン ${fmtNum(i.bell)}）`;
     case 'SIEGE_DECLARED': return L`${nation(f.attacker)}があなたの村の包囲を宣言しました（ターン ${fmtNum(i.bell)}）。陥落には、包囲側がマスを保つターンが ${fmtNum(f.required)} 要ります（夜番の時間と、守り手がいるターンは数えません）`;

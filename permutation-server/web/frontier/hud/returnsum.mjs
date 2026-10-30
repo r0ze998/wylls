@@ -43,6 +43,7 @@
 // A loss is told only from the record that logged it, with the amounts the
 // record carries; nothing is estimated.
 import { TRANSIT_OUTCOMES } from '../flog.mjs';
+import { arrivalSettled } from './statussources.mjs';
 
 
 export const STORE_VERSION = 2;
@@ -225,14 +226,33 @@ export function itemOf({ seq, record: r }, me, book = null) {
  * The items of records read after a summary (between two looks), with the book carried on: → `{items, book}`. The
  * book is not changed in place.
  */
-export function itemsSince(records, me, book) {
-  const b = new Map(book ?? []), items = [];
+export function itemsSince(records, me, book, sent = null) {
+  const b = new Map(book ?? []), sn = new Map(sent ?? []), items = [];
   for (const x of normalizeRecords(records).records) {
-    const it = itemOf(x, me, b);
+    const it = withArrival(itemOf(x, me, b), x.record, sn);
     if (it) items.push(it);
     fold(b, x.record);
+    foldSent(sn, x.record);
   }
-  return { items, book: b };
+  return { items, book: b, sent: sn };
+}
+
+/**
+ * What each caravan was sent with, from CARAVAN_SENT (key → `{cargo, wornBps}`: the cargo after the towers' wear,
+ * caravan.rs send), forgotten at its settlement. Not kept with the mark: a caravan whose send was not read is not
+ * compared, and its arrival stays unverified.
+ */
+function foldSent(sent, r) {
+  const key = caravanKey(r);
+  if (!key) return;
+  if (r.name === 'CARAVAN_SENT') { const c = cargoOf(r.cargo); if (c) sent.set(key, { cargo: c, wornBps: Number(r.worn_bps ?? 0) }); }
+  else if (r.name === 'CARAVAN_SETTLED') sent.delete(key);
+}
+/** A settlement of a caravan the viewer holds (sent and never taken, or taken by the viewer): `facts.arrival`, in the five states of statussources.arrivalSettled. */
+function withArrival(it, r, sent) {
+  if (!it || it.kind !== 'CARAVAN_SETTLED' || it.facts?.holder !== 'me') return it;
+  const a = arrivalSettled({ outcome: r.outcome, dst: r.dst, cargo: it.facts.cargo }, sent.get(caravanKey(r)) ?? null);
+  return { ...it, facts: { ...it.facts, arrival: a } };
 }
 
 /**
@@ -269,11 +289,12 @@ export function summarize({ records: raw, read, marks: given, last, season, wall
   // (a first look that could not reach back to its window's first turn says from which turn it read)
   const windowFrom = !since && from !== null && from > 0n && records.length && bellOf(records[0]) > firstBell ? bellOf(records[0]) : null;
   // who holds each caravan, record by record, from the mark's own book on
-  const book = caravanBook(marks?.caravans ?? {}, []), items = [], want = new Set(inRange);
+  const book = caravanBook(marks?.caravans ?? {}, []), sent = new Map(), items = [], want = new Set(inRange);
   for (const x of records) {
-    const it = want.has(x) ? itemOf(x, me, book) : null;
+    const it = want.has(x) ? withArrival(itemOf(x, me, book), x.record, sent) : null;
     if (it) items.push(it);
     fold(book, x.record);
+    foldSent(sent, x.record);
   }
   const counts = {};
   for (const i of items) counts[i.tone] = (counts[i.tone] ?? 0) + 1;
@@ -289,6 +310,6 @@ export function summarize({ records: raw, read, marks: given, last, season, wall
     read: { after: from === null ? null : String(from), toSeq: lastRead?.seq ?? null, fromBell: bells.length ? Math.min(...bells) : null, toBell: bells.length ? Math.max(...bells) : null, n: inRange.length, dups: norm.dups, reordered: norm.reordered },
     gap, incomplete: read?.complete === false, failed: read?.failed === true,
     items: sorted.slice(0, SUMMARY_MAX), more: Math.max(0, sorted.length - SUMMARY_MAX), counts,
-    book, confirm: confirmOut,
+    book, sent, confirm: confirmOut,
   };
 }

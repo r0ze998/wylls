@@ -2283,7 +2283,7 @@ const awayMe = () => ({ tag: (() => { try { return BigInt(ownTag(FS) ?? 0); } ca
  * gap) and one notice per item; after it, the S1 records read since, with the caravans' holders carried on.
  */
 const awayReader = returnRead.createAwayReader({ events: a => (heraldRef ? heraldRef.events(a) : Promise.resolve({ ok: false })) });
-let awayBusy = false, awayBook = null, awayQueue = [];
+let awayBusy = false, awayBook = null, awaySent = null, awayQueue = [];
 const awayWho = () => ({ season: String(FS.season?.seasonId ?? ''), wallet: FS.wallet?.address ?? '' });
 const awayScopeNow = () => { const { season, wallet } = awayWho(); return season && wallet ? returnRead.awayScope({ herald: String(FS.season?.genesisTs ?? ''), seasonId: season, wallet }) : null; };
 const S1_NEWS = new Set(['CARAVAN_RAIDED', 'RAID_OPENED', 'CARAVAN_SETTLED', 'VAULT_SEIZED', 'STRUCTURE_SEIZED', 'SIEGE_DECLARED', 'CAPTURE_SETTLED', 'NATION_DECIDED', 'NATION_PROPOSED']);
@@ -2307,7 +2307,7 @@ function awayPump() {
       if (r.stale || r.scope !== awayScopeNow()) return;
       const s = returnSum.summarize({ records: r.records, read: { after: r.after, complete: r.complete, failed: r.failed }, marks: returnSum.loadMarks(awayStore(), season, wallet), last: returnSum.loadLast(awayStore()),
         season, wallet, nowBell: FS.nowBell ?? 0, headSeq: head === null ? null : String(head), me: awayMe() });
-      awayBook = s.book;
+      awayBook = s.book; awaySent = s.sent;
       if (!s.items.length && !s.gap && !s.failed && s.windowFrom === null && s.mode !== 'markAhead') return;
       awayQueue.push({ id: `away:${sc}:${s.read.toSeq ?? r.after}`, kind: 'away', scope: sc, bell: FS.nowBell ?? null, text: awayHeadText(s), away: { ok: s.confirm.ok, summary: s } },
         ...s.items.map(i => ({ ...awayItem(i), scope: sc })));
@@ -2315,8 +2315,8 @@ function awayPump() {
   } else {
     awayReader.more().then(r => {
       if (r.stale || r.scope !== awayScopeNow() || awayBook === null) return;
-      const { items, book } = returnSum.itemsSince(r.records, awayMe(), awayBook);
-      awayBook = book;
+      const { items, book, sent } = returnSum.itemsSince(r.records, awayMe(), awayBook, awaySent);
+      awayBook = book; awaySent = sent;
       awayQueue.push(...items.filter(i => S1_NEWS.has(i.kind)).map(i => ({ ...awayItem(i), scope: sc })));
     }).catch(() => {}).finally(() => { awayBusy = false; });
   }

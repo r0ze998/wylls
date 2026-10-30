@@ -30,6 +30,8 @@ import { S1_WORDS, caravanArriveBell, caravanId } from '../map/s1marks.mjs';
 import { cardHead, chip, fold, label } from './parts.mjs';
 import { swatch } from './shell.mjs';
 import { renderCoopSlot } from '../hud/coopentry.mjs';
+import { arrivalView, cancelView, costView, manualView, spendable, renderStatus, cargoText as spendText } from '../hud/statusview.mjs';
+import { arrivalOnRoad, statusFrom } from '../hud/statussources.mjs';
 
 // ------------------------------------------------------------------ the rules the page offers by (structure.rs, caravan.rs, nation.rs)
 /** structure::KIND_*. */
@@ -441,7 +443,16 @@ export function renderS1Village(FS) {
   // (another's village may share a province with the viewer's: its tile tells them apart)
   const placeWord = d => (d.kind === 'vault' ? L`${S1_WORDS.vault()}（${d.p}, ${d.q} · マス ${d.tile}）`
     : d.other || m.destinations.some(x => x.other && x.kind === 'holding' && x.p === d.p && x.q === d.q) ? L`${L`村`}（${d.p}, ${d.q} · マス ${d.tile}）` : L`村（${d.p}, ${d.q}）`);
-  const caravans = m.caravans.length ? html`${label(L`道中の隊商`)}<ul class="list">${m.caravans.map(c => html`<li>${icon('flag')}${c.raided ? S1_WORDS.raided() : S1_WORDS.caravan()} <span class="muted">${c.arriveBell !== null ? (c.arriveBell <= bell ? L`到着済み（決着待ち）` : L`ターン ${fmtNum(c.arriveBell)} に到着`) : ''}</span></li>`)}</ul>` : '';
+  // (workstream 07: under each caravan, its arrival once its turn has come — past the turn is not "arrived": the line
+  // says it is not settled yet; 04's own arrival replaces it when 04 registers one — and 04's cancel when registered:
+  // hud/statussources.mjs, hud/statusview.mjs)
+  const caravanStatus = c => { const a = statusFrom('caravanArrival', FS, c) ?? arrivalOnRoad(c, bell), x = statusFrom('caravanCancel', FS, c); return html`${a ? renderStatus(arrivalView(a)) : ''}${x ? renderStatus(cancelView(x)) : ''}`; };
+  const caravans = m.caravans.length ? html`${label(L`道中の隊商`)}<ul class="list">${m.caravans.map(c => html`<li>${icon('flag')}${c.raided ? S1_WORDS.raided() : S1_WORDS.caravan()} <span class="muted">${c.arriveBell !== null && c.arriveBell > bell ? L`ターン ${fmtNum(c.arriveBell)} に到着` : ''}</span>${caravanStatus(c)}</li>`)}</ul>` : '';
+  // (05's costs of this village and its switch back to manual play, when 05 registers them; nothing otherwise)
+  const costs = statusFrom('villageCosts', FS, m.holding), manual = statusFrom('manualPlay', FS);
+  const free = costs ? spendable(m.have, costs.costs ?? [], { committedInHave: costs.committedInHave }) : null;
+  const spend = costs ? html`${label(L`費用の状態`)}${(costs.costs ?? []).map(x => renderStatus(costView(x)))}${free?.ok ? html`<p class="muted">${free.uncertain ? L`使える量（未確定の費用を最大で引いた見込み）：${spendText(free.free)}` : L`使える量（予約を引いたあと）：${spendText(free.free)}`}</p>` : html`<p class="blocked">${L`使える量を出せません：${free.errors.join(', ')}`}</p>`}` : '';
+  const manualLine = manual ? renderStatus(manualView(manual)) : '';
   const owned = m.vaults.length || m.structures.length ? html`${label(L`あなたの貯蔵庫と建物`)}<ul class="list">${[
     ...m.vaults.map(v => html`<li>${icon('crate')}${S1_WORDS.vault()} <span class="muted">${v.p}, ${v.q} · ${v.tile}</span>${Array.isArray(v.stores)
       ? html` <span class="muted">${v.stores.some(x => Number(x) > 0) ? costLine(v.stores.map(Number)) : L`空`}${v.cap ? L`（上限 ${fmtNum(v.cap)}）` : ''}</span>` : ''}</li>`),
@@ -490,7 +501,7 @@ export function renderS1Village(FS) {
   return html`<section class="vcard vcard-folds s1-card" aria-labelledby="s1-title">
     ${cardHead({ id: 's1-title', ic: 'flag', title: L`交易と防備` })}
     ${m.oreStarved ? html`<p class="blocked">${L`工房が鉱石をすべて使っていて、鉱石が増えていません。兵の訓練にも鉱石が要るので、鉱山を建てるまで訓練できなくなります。`}</p>` : ''}
-    ${caravans}${owned}
+    ${manualLine}${spend}${caravans}${owned}
     ${fold('s1-send', html`${icon('flag')}${L`隊商を送る`}`, send)}
     ${fort ? fold('s1-fort', html`${icon('shield')}${L`要塞に兵を入れる`}`, fort) : ''}
     ${nation ? fold('s1-nation', html`${icon('banner')}${L`国の議会`}`, nation) : ''}
