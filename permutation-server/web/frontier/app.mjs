@@ -47,6 +47,9 @@ import { SEASON_STATUS_TEXT, clientText, factionName, TIERS, BUILDINGS, FATES, u
 import { L, fmtNum, mountLangToggle, onLangChange, lang } from '../lang.mjs';
 import { toHex } from '../sdk/bytes.mjs';
 import { html, setHtml } from '../util.mjs';
+import * as returnSum from './hud/returnsum.mjs';
+import * as returnWords from './hud/returnwords.mjs';
+import * as returnRead from './hud/awayread.mjs';
 import { palisadeHexesOf, marchWearOf } from './s1walk.mjs';
 import { ACTIONS, FORMS, bind, startPlay, wantProvince, wantKeepHistory, wantKeepReach, wantHostReach, refreshConquest, refreshPrize, ackHomeGrant, tolled, syncProto, wantPreview, wantPlaces, composeTick } from './controller.mjs';
 import { mountProtoBoard } from './proto/board-mount.mjs';
@@ -2268,12 +2271,68 @@ function renderSound() {
 
 // ------------------------------------------------------------------ notifications (hud/feed.mjs)
 let feedPrev = null;
+/** The player's own marks on this device (hud/returnsum.mjs): what they said they have seen, per season and wallet. */
+const awayStore = () => { try { return globalThis.localStorage ?? null; } catch { return null; } };
+const awayMe = () => ({ tag: (() => { try { return BigInt(ownTag(FS) ?? 0); } catch { return null; } })(), faction: FS.citizen?.faction, holdings: (FS.holdings ?? []).map(h => ({ p: h.p, q: h.q, site: h.site })),
+  hostOf: id => { try { const h = hostParts(id); return h ? (FS.holdings ?? []).find(o => o.p === h.p && o.q === h.q && o.site === h.site) ?? null : null; } catch { return null; } } });
+/**
+ * The away summary's reading (hud/awayread.mjs): from the player's own mark on this device, or from AWAY_REACH events
+ * behind the season's head on a first look, for one scope (herald, season, wallet). It runs on its own and tickFeed
+ * takes what it found: on the first reading one head notice ("seen" moves the mark over what was read, never over a
+ * gap) and one notice per item; after it, the S1 records read since, with the caravans' holders carried on.
+ */
+const awayReader = returnRead.createAwayReader({ events: a => (heraldRef ? heraldRef.events(a) : Promise.resolve({ ok: false })) });
+let awayBusy = false, awayBook = null, awayQueue = [];
+const awayWho = () => ({ season: String(FS.season?.seasonId ?? ''), wallet: FS.wallet?.address ?? '' });
+const awayScopeNow = () => { const { season, wallet } = awayWho(); return season && wallet ? returnRead.awayScope({ herald: String(FS.season?.genesisTs ?? ''), seasonId: season, wallet }) : null; };
+const S1_NEWS = new Set(['CARAVAN_RAIDED', 'RAID_OPENED', 'CARAVAN_SETTLED', 'VAULT_SEIZED', 'STRUCTURE_SEIZED', 'SIEGE_DECLARED', 'CAPTURE_SETTLED', 'NATION_DECIDED', 'NATION_PROPOSED']);
+/** The away head notice's words: what the summary covers and what "seen" will do (or why it is not offered). */
+const awayHeadText = (s, saved = undefined) => `${returnWords.headText(s)} ${saved === undefined ? returnWords.confirmText(s) : returnWords.confirmedText(saved)}`;
+function awayPump() {
+  if (awayBusy || !heraldRef || !s1On()) return;
+  const sc = awayScopeNow();
+  if (sc === null) { if (awayReader.scope !== null) { awayReader.reset(); awayBook = null; awayQueue = []; } return; }
+  awayBusy = true;
+  if (sc !== awayReader.scope) {
+    // (a new wallet or season, or the first look: what another scope told goes, with its book)
+    FS.feed = (FS.feed ?? []).filter(x => !(x.away || x.awayOf) || x.scope === sc);
+    awayBook = null; awayQueue = [];
+    const { season, wallet } = awayWho(), st = awayStore();
+    const marks = returnSum.loadMarks(st, season, wallet);
+    const head = (() => { try { return FS.record?.headSeq === undefined ? null : BigInt(FS.record.headSeq); } catch { return null; } })();
+    const usable = marks && !(head !== null && BigInt(marks.confirmedSeq) > head);
+    const from = usable ? marks.confirmedSeq : head === null ? '0' : String(head > BigInt(returnRead.AWAY_REACH) ? head - BigInt(returnRead.AWAY_REACH) : 0n);
+    awayReader.start({ scope: sc, from }).then(r => {
+      if (r.stale || r.scope !== awayScopeNow()) return;
+      const s = returnSum.summarize({ records: r.records, read: { after: r.after, complete: r.complete, failed: r.failed }, marks: returnSum.loadMarks(awayStore(), season, wallet), last: returnSum.loadLast(awayStore()),
+        season, wallet, nowBell: FS.nowBell ?? 0, headSeq: head === null ? null : String(head), me: awayMe() });
+      awayBook = s.book;
+      if (!s.items.length && !s.gap && !s.failed && s.windowFrom === null && s.mode !== 'markAhead') return;
+      awayQueue.push({ id: `away:${sc}:${s.read.toSeq ?? r.after}`, kind: 'away', scope: sc, bell: FS.nowBell ?? null, text: awayHeadText(s), away: { ok: s.confirm.ok, summary: s } },
+        ...s.items.map(i => ({ ...awayItem(i), scope: sc })));
+    }).catch(() => {}).finally(() => { awayBusy = false; });
+  } else {
+    awayReader.more().then(r => {
+      if (r.stale || r.scope !== awayScopeNow() || awayBook === null) return;
+      const { items, book } = returnSum.itemsSince(r.records, awayMe(), awayBook);
+      awayBook = book;
+      awayQueue.push(...items.filter(i => S1_NEWS.has(i.kind)).map(i => ({ ...awayItem(i), scope: sc })));
+    }).catch(() => {}).finally(() => { awayBusy = false; });
+  }
+}
+/** What the away reading found since the last tick (and the next reading started). */
+function awayTake() { const out = awayQueue.splice(0); awayPump(); return out; }
+/** One item of the away summary as a notice; `awayOf` keeps the item so that a change of language words it again. */
+const awayItem = i => ({ id: `aw:${i.seq}`, kind: i.battle ? 'battle' : 's1', bell: i.bell, text: returnWords.itemText(i), awayOf: i, ...(i.at ? { p: i.at.p, q: i.at.q, ...(Number.isInteger(i.at.tile) ? { tile: i.at.tile } : {}) } : {}), ...(i.battle ? { battle: i.battle } : {}) });
+/** The away notices in the page's language (they are kept as words; the language may change after they were told). */
+const reword = () => { if (FS.feed?.some(x => x.awayOf || x.away)) FS.feed = FS.feed.map(x => (x.awayOf ? { ...x, text: returnWords.itemText(x.awayOf) } : x.away?.summary ? { ...x, text: awayHeadText(x.away.summary, x.away.saved) } : x)); };
+onLangChange(() => { reword(); try { renderFeed(); } catch { /* before the page is built */ } });
 let feedBell = null;
 /** Compare what the page knows with the last tick's; new changes become notifications; a new bell folds the last one into a summary. */
 function tickFeed() {
   if (FS.mode !== 'play' || !FS.citizen || !FS.chronicle) return;
   const snap = feed.snapshot(FS, undefined, feedPrev);
-  let fresh = feed.diffFeed(feedPrev, snap);
+  let fresh = [...feed.diffFeed(feedPrev, snap), ...(!s1On() ? [] : awayTake())];
   feedPrev = snap;
   // (a battle in the viewer's province that is no march's of this browser: who fought there and on which tile is in
   // the clash's own report, which is read first — clashTold — and the line is told then, by what the report says)
@@ -3098,6 +3157,22 @@ export const HUD_ACTIONS = {
   'turn-go': d => { const x = turnStrip?.items.find(y => y.id === d.id); if (x) goToItem({ p: x.p, q: x.q, tile: Number.isInteger(x.tile) ? x.tile : undefined, tab: 'map' }); },
   'turn-dismiss': () => { if (turnStrip) turnStrip.dismissed = true; renderFeed(); },
   'feed-dismiss': d => { FS.feedDismissed = new Set([...(FS.feedDismissed ?? []), d.id]); renderFeed(); },
+  // the away summary's "seen": the player's own mark moves to the last record it told (closing it with × does not)
+  'away-seen': d => {
+    const x = (FS.feed ?? []).find(y => y.id === d.id);
+    // (only a summary of this scope whose reading has no gap moves the mark: returnsum.confirm; twice is harmless)
+    if (!x?.away?.summary?.confirm?.ok || x.scope !== awayScopeNow()) return;
+    const { season, wallet } = awayWho();
+    const saved = returnSum.confirm(awayStore(), { seasonId: season, wallet, confirm: x.away.summary.confirm, at: FS.chain?.now?.() ?? 0 });
+    if (!saved) {
+      // (storage refused: the notice stays, says so, and the next look starts from the same place)
+      FS.feed = FS.feed.map(y => (y.id === x.id ? { ...y, text: awayHeadText(y.away.summary, null), away: { ...y.away, saved: null } } : y));
+      renderFeed();
+      return;
+    }
+    FS.feedDismissed = new Set([...(FS.feedDismissed ?? []), ...(FS.feed ?? []).filter(y => y.scope === x.scope && (y.kind === 'away' || String(y.id).startsWith('aw:'))).map(y => y.id)]);
+    renderFeed();
+  },
   'feed-filter': d => { FS.feedFilter = feed.FEED_FILTERS.includes(d.f) ? d.f : 'all'; invalidate('panel'); },
   // the status at the map: put a refusal away, or send the refused action once more
   'notice-close': () => { FS.notice = null; renderFeed(); invalidate('panel'); },

@@ -142,3 +142,39 @@ test('the envelope keeps the Province bytes it decoded; the march wear reads the
   } finally { S1.setS1(null); }
   assert.equal(toBase64(parsed.provinceBytes), REC.province_before_b64);
 });
+
+// ---------------------------------------------------------------- the away summary in the feed
+import * as feed from '../../permutation-server/web/frontier/hud/feed.mjs';
+import * as returnSum from '../../permutation-server/web/frontier/hud/returnsum.mjs';
+import { setLang } from '../../permutation-server/web/lang.mjs';
+
+test('the away notice offers "seen" (which moves the player\'s mark) beside its ×, and an S1 notice goes to its place', () => {
+  setLang('ja');
+  const away = String(feed.renderToast({ id: 'away:9', kind: 'away', bell: 610, text: 'x', away: { toSeq: '9', toBell: 610 } }));
+  assert.match(away, /data-act="away-seen"[^>]*data-id="away:9"/);
+  assert.match(away, /留守のあいだ/);
+  assert.match(away, /data-act="feed-dismiss"/, 'closing stays possible, and does not confirm');
+  assert.match(String(feed.renderToast({ id: 'aw:5', kind: 's1', bell: 600, text: 'y', p: 1, q: 0 })), /data-act="feed-go"/);
+  // the web copy of the model is the workstream's (same items from the same records)
+  assert.equal(typeof returnSum.summarize, 'function');
+  assert.equal(returnSum.storeKey('7', 'W'), 'ws07-return:7:W');
+});
+
+test('the away items read the codes as the program numbers them: proposals 1 stance, 2 expulsion, 3 readmission; a march\'s result 1 Stays … 8 BadSeal', async () => {
+  const { decodeRecord, KINDS } = await import('../../permutation-server/web/frontier/flog.mjs');
+  const { LOGS } = await import('../../permutation-server/web/sdk/frontier/abi-v2-logs.mjs');
+  const words = await import('../../permutation-server/web/frontier/hud/returnwords.mjs');
+  const enc = (kind, bell, f, parts) => { const b = new Uint8Array(6 + parts.reduce((a, [, n]) => a + n, 0) + 1), v = new DataView(b.buffer); b[0] = 1; b[1] = kind; v.setUint32(2, bell, true); let o = 6;
+    for (const [name, n] of parts) { const x = f[name]; if (x !== undefined) { if (n === 8) v.setBigUint64(o, BigInt(x), true); else if (n === 4) v.setUint32(o, Number(x), true); else if (n === 2) v.setUint16(o, Number(x), true); else if (n === 1) b[o] = Number(x); } o += n; }
+    return decodeRecord(b); };
+  const spec = LOGS.kinds.find(k => k.name === 'NATION_DECIDED');
+  const decided = kind => enc(spec.kind, 9, { faction: 2, id: 1, passed: 1, kind, target_faction: 4, value: 1, yes: 3, no: 1 }, [...spec.key, ...spec.payload].map(x => [x.name, x.len]));
+  const me = { tag: 5n, faction: 2, holdings: [], hostOf: () => ({ p: 0, q: 0, site: 0 }) };
+  setLang('ja');
+  assert.equal(returnSum.itemOf({ seq: '1', record: decided(1) }, me).facts.proposal, 'stance');
+  assert.equal(returnSum.itemOf({ seq: '1', record: decided(2) }, me).facts.proposal, 'expel');
+  assert.equal(returnSum.itemOf({ seq: '1', record: decided(3) }, me).facts.proposal, 'readmit');
+  assert.match(words.itemText(returnSum.itemOf({ seq: '1', record: decided(1) }, me)), /への方針を「通行」に/);
+  const ts = outcome => returnSum.itemOf({ seq: '2', record: enc(34, 9, { host_id: 77n, outcome, troops: 120_000 }, [...KINDS[34].key, ...KINDS[34].payload]) }, me);
+  assert.deepEqual([ts(1).facts.outcome, ts(1).tone, ts(5).facts.outcome, ts(5).tone, ts(8).facts.outcome], ['Stays', 'result', 'Destroyed', 'loss', 'BadSeal']);
+});
