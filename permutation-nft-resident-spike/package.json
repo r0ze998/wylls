@@ -1,0 +1,14 @@
+{
+  "name": "permutation-nft-resident-spike",
+  "private": true,
+  "type": "module",
+  "description": "Wylls: an isolated prototype of NFT-bound, transferable resident accounts (waitlist = holding the NFT; the current holder operates the resident). Mock chain, no network, no dependencies.",
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "demo": "node demo/run-loop.mjs",
+    "serve": "node src/http.mjs",
+    "manifest": "node archive/manifest.mjs write",
+    "manifest:verify": "node archive/manifest.mjs verify"
+  },
+  "engines": { "node": ">=20" }
+}

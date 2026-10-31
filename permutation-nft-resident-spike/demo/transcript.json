@@ -1,0 +1,153 @@
+{
+  "ranAt": "2026-10-31T00:58:03.044Z",
+  "mock": true,
+  "steps": [
+    {
+      "step": 1,
+      "title": "Setup: a Core-shaped collection on the mock chain (test values; nothing here is a price or a supply decision)",
+      "detail": {
+        "coreProgram": "CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d",
+        "collection": "9KdDgk…LSPn",
+        "walletA": "66FHe3…Ke6D",
+        "walletB": "J4Bafd…axmw"
+      }
+    },
+    {
+      "step": 2,
+      "title": "A acquires the NFT (payment → mint → the chain shows A as holder). Acquisition IS the waitlist entry.",
+      "detail": {
+        "payment": "settled",
+        "assetId": "DMqjbw…TdDC",
+        "residentId": "54650c907b8c26202502c5af705835",
+        "waitlist": [
+          {
+            "holder": "66FHe3…Ke6D",
+            "status": "eligible"
+          }
+        ]
+      }
+    },
+    {
+      "step": 3,
+      "title": "Before publication: the holder is waitlisted, login answers NotPublished with the entitlement",
+      "detail": {
+        "login": {
+          "refused": "NotPublished"
+        },
+        "entitlementA": {
+          "wallet": "66FHe3FoxWBZFWqsZc3Gz73gdNRX1rZX3enhNmdQKe6D",
+          "published": false,
+          "residents": [
+            {
+              "residentId": "54650c907b8c26202502c5af705835",
+              "assetId": "DMqjbwkZPhMMs1kpVKecK9XMbyycBFYjSt7f5JLhTdDC",
+              "epoch": 0
+            }
+          ],
+          "canLogin": false,
+          "onWaitlist": true
+        },
+        "entitlementB": {
+          "wallet": "J4BafdSfwFYYzQxzoe8aNA6rrfqWzzofkMsBFdFJaxmw",
+          "published": false,
+          "residents": [],
+          "canLogin": false,
+          "onWaitlist": false
+        }
+      }
+    },
+    {
+      "step": 4,
+      "title": "Test publish switch: one flag; the resident record is byte-for-byte the same",
+      "detail": {
+        "recordUnchanged": true,
+        "published": true
+      }
+    },
+    {
+      "step": 5,
+      "title": "A logs in (SIWS-shaped challenge, holder read fresh) and acts: harvest, build, a caravan (cost approval), an MCP capability, an AI delegation (relay record + on-chain SetSession)",
+      "detail": {
+        "epoch": 0,
+        "firstOp": "sent",
+        "agentOp": "sent",
+        "village": {
+          "food": 80,
+          "wood": 35,
+          "ore": 0
+        },
+        "caravansInTransit": 1,
+        "approvalWaiting": "ap_demo-A-cv2"
+      }
+    },
+    {
+      "step": 6,
+      "title": "A transfers the NFT to B (A signed one more operation beforehand, not yet sent)",
+      "detail": {
+        "transfer": "5A9yLKV9rxeL",
+        "slot": 1,
+        "registry": "confirmed",
+        "epoch": 1,
+        "holder": "J4Bafd…axmw"
+      }
+    },
+    {
+      "step": 7,
+      "title": "B logs in to the SAME resident (same id, same village, A's history), acts, and the caravan A sent arrives for the resident B now holds",
+      "detail": {
+        "residentId": "54650c907b8c26202502c5af705835",
+        "epoch": 1,
+        "bOp": "sent",
+        "village": {
+          "food": 120,
+          "wood": 35,
+          "ore": 0
+        },
+        "historyLines": 6,
+        "caravansInTransit": 0
+      }
+    },
+    {
+      "step": 8,
+      "title": "A's new operations and A's old delegations are refused everywhere",
+      "detail": {
+        "loginToken": "BadCredential",
+        "mcpCapability": "BadCredential",
+        "aiDelegationViaRelay": "BadCredential",
+        "aiSessionKeyStraightAtChain": {
+          "refused": "NotOwner"
+        },
+        "presignedOpStraightAtChain": {
+          "refused": "NotOwner"
+        },
+        "pendingCostApproval": {
+          "refused": "BadCredential"
+        },
+        "loginAgain": {
+          "refused": "NotHolder"
+        },
+        "villageUnchangedByA": {
+          "food": 120,
+          "wood": 35,
+          "ore": 0
+        }
+      }
+    },
+    {
+      "step": 9,
+      "title": "A look-alike NFT (same name and uri, another collection) held by A gives A nothing",
+      "detail": {
+        "observe": {
+          "refused": "NotInCollection"
+        },
+        "entitlementA": {
+          "wallet": "66FHe3FoxWBZFWqsZc3Gz73gdNRX1rZX3enhNmdQKe6D",
+          "published": true,
+          "residents": [],
+          "canLogin": false,
+          "onWaitlist": false
+        }
+      }
+    }
+  ]
+}

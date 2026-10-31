@@ -1,0 +1,25 @@
+--- a/frontier-abi/src/v2/layout/player.rs	2026-10-31 00:54:57.581792087 +0000
++++ b/frontier-abi/src/v2/layout/player.rs	2026-10-31 00:54:57.603920928 +0000
+@@ -42,8 +42,21 @@
+         EXPELLED_SINCE @ 320 : "i64" = 8;
+         VOTED @ 328 : "[u32;4]" = 16;
+         PROPOSED @ 344 : "u32" = 4;
+-        RSV_348 @ 348 : "rsv" = 36;
++        RESIDENT_ASSET_TAG15 @ 348 : "[u8;15]" = 15;
++        SESSION_SETTER_TAG15 @ 363 : "[u8;15]" = 15;
++        RESIDENT_FLAGS @ 378 : "u8" = 1;
++        RSV_379 @ 379 : "rsv" = 5;
+     );
++    /// `resident_flags` bit 0: this Citizen is bound to an NFT (an MPL Core
++    /// asset of the world's collection). `resident_asset_tag15 =
++    /// sha256("PSF-RES" ‖ asset)[0..15]`; `session_setter_tag15 =
++    /// citizen_tag15(the holder who ran SetSession)`. The player prologue
++    /// then accepts the actor only as the asset's current owner, or as the
++    /// session key when the setter is still the owner (spike INTEGRATION-04
++    /// §2, option B). Unbound Citizens (flag clear, tags zero) keep the wallet rule.
++    pub const RESIDENT_FLAG_BOUND: u8 = 1;
++    /// Domain of the resident asset tag (the spike's `ids.mjs`).
++    pub const RESIDENT_TAG_DOMAIN: &[u8] = b"PSF-RES";
+     pub use crate::layout::player::citizen::{
+         EXPLORES_FLOOR, FLAG_FIRST_HOLDING_FINAL, FLAG_HOME_GRANTED, FLAG_JOINED, FLAG_PROVISIONAL,
+         FLAG_REFUGEE, MAX_HOLDINGS, MAX_SESSION_SECS, MAX_TICKET_SITES, NO_TICKET, TAG_DOMAIN,
