@@ -31,6 +31,8 @@ pub struct FakePort {
     pub statuses: Mutex<HashMap<Signature, Status>>,
     /// `accounts()` fails while set (an RPC that does not answer).
     pub fail_reads: std::sync::atomic::AtomicBool,
+    /// `simulate()` calls (the wire bytes go to the RPC there too).
+    pub simulated: AtomicU64,
 }
 
 impl FakePort {
@@ -75,6 +77,7 @@ impl ChainPort for FakePort {
         Ok(keys.iter().map(|k| m.get(k).cloned()).collect())
     }
     async fn simulate(&self, _: &[u8]) -> PortResult<SimResult> {
+        self.simulated.fetch_add(1, Ordering::SeqCst);
         Ok(SimResult::default())
     }
     async fn send(&self, w: &[u8]) -> PortResult<Signature> {

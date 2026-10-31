@@ -3647,6 +3647,214 @@ mod w6t_tests {
         assert!(e.leaks(&s) >= 1, "after the restarts the Reveal goes");
     }
 
+    // ------------------------------------------------------------ ⑱: the keeper's intake (`/v1/reveal`)
+
+    /// The accept path reads the chain (`clock`, `accounts`) and never
+    /// sends or simulates: on an empty chain, a failing RPC, and a chain
+    /// with the Holding but no anchor, nothing reaches the RPC's write side.
+    #[tokio::test]
+    async fn the_intake_gate_only_reads() {
+        let mut e = env(&["reveal"], 1_008);
+        let mut d = PlayDuty::default();
+        let s = secret(&mut e, &mut d).await;
+        let req = crate::reveal_accept::RevealReq {
+            holding: e.addrs.holding(2, 0, 1),
+            transit_slot: 0,
+            plain: s.plain,
+            salt: s.salt,
+            ct_hash: [7; 32],
+        };
+        let empty = FakePort::default();
+        assert!(crate::reveal_accept::check(&empty, &e.addrs, &req)
+            .await
+            .is_err());
+        empty
+            .fail_reads
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        let r = crate::reveal_accept::check(&empty, &e.addrs, &req).await;
+        assert_eq!(
+            r.unwrap_err().http,
+            503,
+            "an RPC failure is ChainUnavailable"
+        );
+        // The Holding with its transit, no Season account, no anchor.
+        let _ = crate::reveal_accept::check(&e.port, &e.addrs, &req).await;
+        for p in [&empty, &e.port] {
+            assert!(
+                p.sent.lock().unwrap().is_empty(),
+                "the intake sent a transaction"
+            );
+            assert_eq!(p.simulated.load(std::sync::atomic::Ordering::SeqCst), 0);
+        }
+    }
+
+    /// Accepts everything: the duty's own conditions are what is tested.
+    struct AcceptAll;
+    impl crate::reveal_accept::RevealGate for AcceptAll {
+        fn check<'a>(
+            &'a self,
+            req: &'a crate::reveal_accept::RevealReq,
+        ) -> std::pin::Pin<
+            Box<
+                dyn std::future::Future<
+                        Output = Result<
+                            crate::reveal_accept::Accepted,
+                            crate::reveal_accept::Refusal,
+                        >,
+                    > + Send
+                    + 'a,
+            >,
+        > {
+            let p = seal::unpack(&req.plain);
+            Box::pin(async move {
+                Ok(crate::reveal_accept::Accepted {
+                    host_id: p.host_id,
+                    faction: 1,
+                    arrive: p.arrive_bell,
+                    dest: (p.dest_p, p.dest_q),
+                    tile: p.dest_tile,
+                    region: ix::region_of(p.dest_p as i32, p.dest_q as i32),
+                    commit: seal::commit(&req.plain, &req.salt),
+                    close: None,
+                })
+            })
+        }
+    }
+
+    /// The whole keeper path: material posted to `/v1/reveal` (twice, as
+    /// an owner retries), handed to the duty as `Keeper::tick` does, and
+    /// ticked through the arrival bell with no anchor, a failing RPC and a
+    /// restart: nothing reaches the RPC; once THE anchor exists and
+    /// T(arrive) is verified, the Reveal goes.
+    #[tokio::test]
+    async fn intake_to_duty_sends_nothing_before_publication() {
+        let mut e = env(&["reveal"], 1_008);
+        let j = Journal::open(std::path::Path::new(":memory:")).unwrap();
+        let mut d = PlayDuty::default();
+        let mut s = secret(&mut e, &mut d).await;
+        e.shared.reveals.clear(); // the material comes through the API instead
+        let shared = std::sync::Arc::new(std::sync::Mutex::new(Shared::default()));
+        let token = "a-test-token-of-32-characters-xx".to_string();
+        let gate: std::sync::Arc<dyn crate::reveal_accept::RevealGate> =
+            std::sync::Arc::new(AcceptAll);
+        let api = crate::api::serve_with(
+            "127.0.0.1:0".parse().unwrap(),
+            shared.clone(),
+            token.clone(),
+            Some(gate),
+        )
+        .await
+        .unwrap();
+        // A bearer POST to the loopback API (fclient's client has none).
+        let post = |body: Value| {
+            let (addr, token) = (api.addr, token.clone());
+            async move {
+                use tokio::io::{AsyncReadExt, AsyncWriteExt};
+                let mut c = tokio::net::TcpStream::connect(addr).await.unwrap();
+                let b = body.to_string();
+                let head = format!(
+                    "POST /v1/reveal HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer {token}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{b}",
+                    b.len()
+                );
+                c.write_all(head.as_bytes()).await.unwrap();
+                let mut out = vec![];
+                c.read_to_end(&mut out).await.unwrap();
+                String::from_utf8_lossy(&out)[9..12].parse::<u16>().unwrap()
+            }
+        };
+        assert_eq!(post(s.item.clone()).await, 202);
+        assert_eq!(
+            post(s.item.clone()).await,
+            202,
+            "the owner's retry: the same track"
+        );
+        assert_eq!(shared.lock().unwrap().reveals.len(), 1, "queued once");
+        assert!(
+            e.port.sent.lock().unwrap().is_empty(),
+            "the intake sent nothing"
+        );
+        let hand = |e: &mut Env| {
+            let mut sh = shared.lock().unwrap();
+            e.shared.reveals.extend(std::mem::take(&mut sh.reveals));
+        };
+        hand(&mut e);
+        for (k, (slot, now)) in times().into_iter().enumerate() {
+            if k == 2 {
+                e.port
+                    .fail_reads
+                    .store(true, std::sync::atomic::Ordering::SeqCst);
+            }
+            if k == 3 {
+                e.port
+                    .fail_reads
+                    .store(false, std::sync::atomic::Ordering::SeqCst);
+                // A restart from the journal.
+                d = PlayDuty::default();
+                d.index
+                    .departs
+                    .insert((s.host, s.dep), depart(s.host, (2, 0), 5, s.dep, s.arrive));
+            }
+            let _ = e.tick_send(&mut d, &mut s, slot, now, Some(&j)).await;
+            hand(&mut e);
+        }
+        assert_eq!(
+            e.leaks(&s),
+            0,
+            "plaintext reached the RPC before publication"
+        );
+        assert_eq!(
+            e.port.simulated.load(std::sync::atomic::Ordering::SeqCst),
+            0,
+            "nothing simulated either"
+        );
+        e.anchor(s.arrive, s.region);
+        let (slot, now) = after_t();
+        e.tick_send(&mut d, &mut s, slot, now, Some(&j))
+            .await
+            .unwrap();
+        assert!(e.leaks(&s) >= 1, "after publication the Reveal goes");
+        api.stop();
+    }
+
+    /// THE anchor archived (an AnchorArchive instead of a BellAnchor): an
+    /// archive account that does not hold the arrival bell is no anchor and
+    /// nothing is sent; THE anchor known as archived, with T(arrive)
+    /// verified, lets the Reveal go.
+    #[tokio::test]
+    async fn archive_entries_count_only_when_present_for_the_bell() {
+        let mut e = env(&["reveal"], 1_008);
+        let mut d = PlayDuty::default();
+        let mut s = secret(&mut e, &mut d).await;
+        let (slot, now) = after_t();
+        // An archive account of the region's part that does not hold the bell.
+        let part = fclient::addr::archive_part(s.arrive);
+        let key = e.addrs.archive(s.region, part);
+        let mut ar = vec![0u8; fclient::abi::size::ANCHOR_ARCHIVE];
+        testkit::put(&mut ar, 0, fclient::abi::magic::ANCHOR_ARCHIVE);
+        e.port.put(key, testkit::acct(program(), ar));
+        e.tick_send(&mut d, &mut s, slot, now, None).await.unwrap();
+        assert_eq!(e.leaks(&s), 0, "an archive without the bell is no anchor");
+        // THE anchor read from the beacon duty with `archived: true`.
+        e.beacon.insert(
+            (s.arrive, s.region),
+            AnchorInfo {
+                a: G + (s.arrive as i64 + 1) * BELL_SECS + 5,
+                slot: 1,
+                round: 1,
+                rent_to: Address::new_from_array([1; 32]),
+                cache: None,
+                archived: true,
+            },
+        );
+        e.tick_send(&mut d, &mut s, slot + 5, now + 5, None)
+            .await
+            .unwrap();
+        assert!(
+            e.leaks(&s) >= 1,
+            "an archived anchor with T(arrive) verified: the Reveal goes"
+        );
+    }
+
     /// Close waste (w6-s7: 28,655 failed CloseArrivalDay/Slot in the
     /// drain, ≈ 270 per key): a close that ended Dead was planned again at
     /// the next closes tick. Now a Dead close key waits until its account
