@@ -1176,3 +1176,123 @@ fn no_pool_for_a_season_beyond_ring_17() {
         Some(918)
     );
 }
+
+/// Continuing world (the owner's 2026-10-31 correction: the world does not
+/// end). Characterises the current program, decides nothing: the pool's
+/// only exits (Claim, WithdrawOps) need Finalize, and Finalize and Tally
+/// need the game's Season Ended. While the Season runs, every deposit and
+/// the operator's part stay in the vault and no instruction moves them.
+#[test]
+fn while_the_season_runs_deposits_have_no_exit() {
+    let mut w = world();
+    init(&mut w);
+    let (a, ta) = player(&mut w, FEE);
+    let (b, tb) = player(&mut w, FEE);
+    pay(&mut w, &a, &ta).unwrap();
+    pay(&mut w, &b, &tb).unwrap();
+    let holders: Vec<u8> = (0..54).map(|i| (i / 9) as u8).collect();
+    let provinces = set_provinces(&mut w, &holders, [0; 6]);
+    let ca = set_citizen(&mut w, &a.pubkey(), 0);
+    fails(tally(&mut w, &provinces[..18]), E::SeasonNotEnded);
+    fails(finalize(&mut w), E::SeasonNotEnded);
+    let op = w.operator.insecure_clone();
+    fails(
+        set_shares(&mut w, &op, pool::MODE_REFUND, [0; 6], [0; 32]),
+        E::WrongState,
+    );
+    fails(claim(&mut w, &a, &ta, &ca, 0, 0, &[]), E::WrongState);
+    let top = token_account(&mut w.svm, &op, &w.mint, &op.pubkey());
+    let ops = Instruction {
+        program_id: w.prize,
+        accounts: vec![
+            AccountMeta::new_readonly(op.pubkey(), true),
+            AccountMeta::new(w.pool, false),
+            AccountMeta::new(w.vault, false),
+            AccountMeta::new(top, false),
+            AccountMeta::new_readonly(w.mint, false),
+            AccountMeta::new_readonly(TOKEN, false),
+        ],
+        data: vec![tag::WITHDRAW_OPS],
+    };
+    fails(send(&mut w.svm, &[ops], &[&op]), E::WrongState);
+    // Still taking fees: a later payer joins the same locked vault.
+    let (c, tc) = player(&mut w, FEE);
+    pay(&mut w, &c, &tc).unwrap();
+    assert_eq!(balance(&w.svm, &w.vault), 3 * FEE);
+    assert_eq!(balance(&w.svm, &tb), 0);
+}
+
+/// The game's permissionless clean-up after `end + 72 h` (CloseCitizen,
+/// CloseProvince, CloseSeason) against the pool. Characterises the current
+/// program: a shares claim needs the wallet's live Citizen, so once anyone
+/// closes it that wallet's claim right is gone; a refund claim needs only
+/// the Entry; a Season shrunk to its tombstone before Finalize leaves the
+/// pool unable to finalise, its vault locked for good.
+#[test]
+fn the_games_clean_up_after_the_end_against_open_claims() {
+    let mut w = world();
+    init(&mut w);
+    let (a, ta) = player(&mut w, FEE);
+    let (b, tb) = player(&mut w, FEE);
+    pay(&mut w, &a, &ta).unwrap();
+    pay(&mut w, &b, &tb).unwrap();
+    let mut holders: Vec<u8> = (0..54).map(|i| (i / 9) as u8).collect();
+    holders[0] = 1;
+    let provinces = set_provinces(&mut w, &holders, [0; 6]);
+    let ca = set_citizen(&mut w, &a.pubkey(), 1);
+    let cb = set_citizen(&mut w, &b.pubkey(), 1);
+    set_season(&mut w, S::STATUS_ENDED);
+    for c in provinces.chunks(18) {
+        tally(&mut w, c).unwrap();
+    }
+    finalize(&mut w).unwrap();
+    let pk = w.pool.to_bytes();
+    let la = leaf(&pk, &a.pubkey().to_bytes(), 1, 1);
+    let lb = leaf(&pk, &b.pubkey().to_bytes(), 1, 1);
+    let op = w.operator.insecure_clone();
+    set_shares(
+        &mut w,
+        &op,
+        pool::MODE_SHARES,
+        [0, 2, 0, 0, 0, 0],
+        node(&la, &lb),
+    )
+    .unwrap();
+    claim(&mut w, &a, &ta, &ca, 1, 1, &[lb]).unwrap();
+    // CloseCitizen of b (anyone may send it after end + 72 h): the account is gone.
+    w.svm
+        .set_account(
+            cb,
+            Account {
+                lamports: 0,
+                data: vec![],
+                owner: SYSTEM,
+                executable: false,
+                rent_epoch: 0,
+            },
+        )
+        .unwrap();
+    fails(claim(&mut w, &b, &tb, &cb, 1, 1, &[la]), E::BadAccount);
+    let prize = 2 * FEE * 80 / 100;
+    assert_eq!(balance(&w.svm, &w.vault), 2 * FEE - prize / 2);
+
+    // A second pool whose Season was closed to its tombstone before Finalize.
+    let mut w = world();
+    init(&mut w);
+    let (c, tc) = player(&mut w, FEE);
+    pay(&mut w, &c, &tc).unwrap();
+    let holders: Vec<u8> = (0..54).map(|i| (i / 9) as u8).collect();
+    let provinces = set_provinces(&mut w, &holders, [0; 6]);
+    set_season(&mut w, S::STATUS_ENDED);
+    for p in provinces.chunks(18) {
+        tally(&mut w, p).unwrap();
+    }
+    let mut tomb = vec![0u8; S::TOMBSTONE_SIZE];
+    put(&mut tomb, 0, &S::MAGIC);
+    put(&mut tomb, S::SEASON_ID, &SEASON_ID.to_le_bytes());
+    tomb[S::STATUS] = S::STATUS_CLOSED;
+    let k = w.season.to_bytes();
+    game_account(&mut w, k, tomb);
+    fails(finalize(&mut w), E::BadAccount);
+    assert_eq!(balance(&w.svm, &w.vault), FEE);
+}
