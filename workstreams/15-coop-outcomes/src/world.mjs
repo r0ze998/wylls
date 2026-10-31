@@ -60,7 +60,7 @@ export function buildWorld({ state, events, taint = {}, gapFrom = {}, costs, joi
     switch (e.kind) {
       case 'actor.join': {
         const a = W.actors.get(e.actor);
-        if (!W.nations.includes(e.nation)) W.nations = [...W.nations, e.nation].sort();
+        if (!W.nations.includes(e.nation)) { W.nations = [...W.nations, e.nation].sort(); W.nationSince[e.nation] = e.at; }
         if (a) { a.nation = e.nation; a.expelled = false; a.history.push({ at: e.at, nation: e.nation }); }
         else W.actors.set(e.actor, { id: e.actor, nation: e.nation, cluster: e.cluster ?? e.actor, kind: e.actorKind ?? 'human', joinedAt: e.at, expelled: false, history: [{ at: e.at, nation: e.nation }] });
         out(e, true);
@@ -77,8 +77,8 @@ export function buildWorld({ state, events, taint = {}, gapFrom = {}, costs, joi
       }
       case 'lot.produce': {
         // `#` is reserved for lots the evaluator names (arrivals, raids).
-        if (W.lots.has(e.lot) || W.alias.has(e.lot) || W.spentLots.has(e.lot) || e.lot.includes('#')) { out(e, false, 'conflict'); break; }
-        placeLot(W, { id: e.lot, owner: e.owner, resource: e.resource, qty: e.qty, verified: e.verified, origin: { actor: e.owner, nation: nationOf(e.owner) }, path: [e.lot], at: e.at, evidence: [e.id] });
+        if (W.lots.has(e.lot) || W.names.has(e.lot) || W.spentLots.has(e.lot) || e.lot.includes('#')) { out(e, false, 'conflict'); break; }
+        placeLot(W, { id: e.lot, owner: e.owner, resource: e.resource, qty: e.qty, verified: e.verified, origin: { actor: e.owner, nation: nationOf(e.owner) }, path: [e.lot], at: e.at, evidence: [e.id], tainted: tainted(taint, e) });
         flow(e.resource).produced += e.qty;
         out(e, true);
         break;
@@ -179,13 +179,14 @@ export function buildWorld({ state, events, taint = {}, gapFrom = {}, costs, joi
       case 'contribute': {
         const p = W.projects.get(e.project);
         const l = lotOf(W, e.lot);
-        if (p && !l && W.spentLots.has(W.alias.get(e.lot) ?? e.lot)) { out(e, false, 'insufficient'); break; }
+        if (p && !l && W.names.has(e.lot)) { out(e, false, 'insufficient'); break; }
         if (!p || !l) { out(e, false, 'causality'); break; }
         if (l.owner !== e.actor) { out(e, false, 'not_owner'); break; }
         if (!(l.resource in p.requires) || !p.requires[l.resource]) { out(e, false, 'not_required'); break; }
-        if (e.qty > l.qty) { out(e, false, 'insufficient'); break; }
+        if (e.qty > namedLeft(W, e.lot, l)) { out(e, false, 'insufficient'); break; }
         if (p.completed) { out(e, false, 'project_closed'); break; }
         l.qty -= e.qty;
+        useName(W, e.lot, e.qty);
         const a = W.actors.get(e.actor);
         spend(W, l);
         p.inputs.push({ id: e.id, at: e.at, lotAt: l.at, actor: e.actor, nation: a?.nation ?? null, cluster: a?.cluster ?? e.actor, lot: l.id, resource: l.resource, qty: e.qty, verified: worst(l.verified, e.verified), origin: l.origin, path: l.path, evidence: [...(l.evidence ?? []), e.id], tainted: !!l.tainted || tainted(taint, e) });
@@ -269,7 +270,7 @@ function fresh(state) {
     actors: new Map(), lots: new Map(), ships: new Map(), projects: new Map(), structures: new Map(),
     keepHistory: [], territoryHistory: [], nationGoals: [], sightings: new Map(), raids: [], outcomes: [], towerInput: false,
     nations: (state.nations ?? []).map(n => (typeof n === 'string' ? n : n.id)).sort(),
-    settledShips: new Set(), spentLots: new Set(), alias: new Map(), fungible: new Map(),
+    settledShips: new Set(), spentLots: new Set(), names: new Map(), fungible: new Map(), newest: new Map(), nationSince: {},
     flow: Object.fromEntries(RESOURCES.map(r => [r, { initial: 0, produced: 0, sent: 0, arrived: { exact: 0, lowerBound: 0, unverified: 0 }, raidedTaken: 0, burned: 0, lost: 0 }])),
   };
   for (const a of state.actors ?? []) {
@@ -298,15 +299,17 @@ export function snapshotOf(W, at = W.at) {
   for (const k of ['keepHistory', 'territoryHistory', 'nationGoals', 'raids', 'nations', 'flow', 'towerInput']) out[k] = W[k];
   out.settledShips = [...W.settledShips].sort();
   out.spentLots = [...W.spentLots].sort();
-  out.alias = [...W.alias].sort();
+  out.names = [...W.names].sort((a, b) => (a[0] < b[0] ? -1 : 1));
   out.fungible = [...W.fungible].sort();
+  out.newest = [...W.newest].sort();
+  out.nationSince = W.nationSince;
   return structuredClone(out);
 }
 
 function restore(snap) {
   if (snap.version !== 1) throw new Error(`world snapshot version ${snap.version}`);
   const s = structuredClone(snap);
-  const W = { at: s.at, startedAt: s.startedAt, applied: s.applied, outcomes: [], settledShips: new Set(s.settledShips), spentLots: new Set(s.spentLots), alias: new Map(s.alias), fungible: new Map(s.fungible) };
+  const W = { at: s.at, startedAt: s.startedAt, applied: s.applied, outcomes: [], settledShips: new Set(s.settledShips), spentLots: new Set(s.spentLots), names: new Map(s.names), fungible: new Map(s.fungible), newest: new Map(s.newest), nationSince: s.nationSince };
   for (const k of MAPS) W[k] = new Map(s[k].map(x => [x.id, x]));
   for (const k of ['keepHistory', 'territoryHistory', 'nationGoals', 'raids', 'nations', 'flow', 'towerInput']) W[k] = s[k];
   return W;
@@ -318,30 +321,47 @@ function restore(snap) {
  * keeps the live state to what is still under way in a world that never ends.
  */
 function settle(W, s) { W.ships.delete(s.id); W.settledShips.add(s.id); }
-function spend(W, l) { if (l.qty === 0) { W.lots.delete(l.id); W.spentLots.add(l.id); W.fungible.delete(fungibleKey(l)); } }
+function spend(W, l) {
+  if (l.qty !== 0) return;
+  W.lots.delete(l.id);
+  W.spentLots.add(l.id);
+  if (W.fungible.get(fungibleKey(l)) === l.id) W.fungible.delete(fungibleKey(l));
+}
 
 /**
  * Goods are fungible within a holder, a resource, an origin and a level of
- * trust (as a holding's stock is one balance on chain): a new lot joins the
- * existing one of the same kind, and its id becomes an alias of it. Without
- * this the live state would grow with every production and arrival.
+ * trust (as a holding's stock is one balance on chain): a new lot joins an
+ * existing one of the same kind, if that one is the holder's newest lot of
+ * the resource (so first-in-first-out order and origins are unchanged).
+ * Without this the live state would grow with every production and arrival.
+ *
+ * Every lot id stays a name with what is left under it: a draw by name can
+ * take no more than that name was given, merged or not, and an emptied name
+ * is refused as `insufficient`.
  */
 const fungibleKey = l => `${l.owner}|${l.resource}|${l.origin.actor}|${l.origin.nation}|${l.verified}|${l.tainted ? 1 : 0}`;
+const holdingKey = l => `${l.owner}|${l.resource}`;
 function placeLot(W, lot, merge = true) {
   const k = fungibleKey(lot);
-  const into = merge ? W.lots.get(W.fungible.get(k)) : null;
+  const target = merge ? W.lots.get(W.fungible.get(k)) : null;
+  const into = target && W.newest.get(holdingKey(lot)) === target.id ? target : null;
+  W.names.set(lot.id, { to: into ? into.id : lot.id, left: lot.qty });
   if (!into) {
     W.lots.set(lot.id, lot);
     if (merge) W.fungible.set(k, lot.id);
+    W.newest.set(holdingKey(lot), lot.id);
     return lot;
   }
   into.qty += lot.qty;
+  into.at = lot.at;
   into.hops = Math.max(into.hops ?? 0, lot.hops ?? 0);
   into.evidence = [...(into.evidence ?? []), ...(lot.evidence ?? [])].slice(-PATH_KEEP);
-  W.alias.set(lot.id, into.id);
   return into;
 }
-const lotOf = (W, id) => W.lots.get(W.alias.get(id) ?? id);
+const lotOf = (W, id) => W.lots.get(W.names.get(id)?.to ?? id);
+/** What is left under a lot's name (never more than the lot holds). */
+const namedLeft = (W, id, l) => Math.min(W.names.get(id)?.left ?? l.qty, l.qty);
+function useName(W, id, q) { const n = W.names.get(id); if (n) n.left -= q; }
 
 /** Positions applied per stream, as sorted closed ranges `[[from, to], …]` (a contiguous stream stays one range). */
 function hasPos(ranges, x) {
@@ -393,9 +413,11 @@ function draw(W, owner, resource, qty, lotId) {
     : [...W.lots.values()].filter(l => l.owner === owner && l.resource === resource && l.qty > 0).sort((a, b) => a.at - b.at || (a.id < b.id ? -1 : 1));
   if (lotId !== undefined) {
     const l = lots[0];
-    if (!l) return { ok: false, code: W.spentLots.has(W.alias.get(lotId) ?? lotId) ? 'insufficient' : 'causality' };
+    if (!l) return { ok: false, code: W.names.has(lotId) ? 'insufficient' : 'causality' };
     if (l.owner !== owner) return { ok: false, code: 'not_owner' };
     if (l.resource !== resource) return { ok: false, code: 'malformed' };
+    if (qty > namedLeft(W, lotId, l)) return { ok: false, code: 'insufficient' };
+    useName(W, lotId, qty);
   }
   if (lots.reduce((s, l) => s + l.qty, 0) < qty) return { ok: false, code: 'insufficient' };
   const parts = [];

@@ -38,6 +38,7 @@ export function inputHashOf(input) {
  */
 export function windowsOf(input) {
   const ws = input.windows ?? (input.state.period ? [{ id: input.state.period.id, opensAt: input.state.period.opensAt, endsAt: input.state.period.endsAt, optionsAt: input.state.period.optionsAt }] : []);
+  if (new Set(ws.map(w => w.id)).size !== ws.length) throw new Error('evaluation windows: duplicate id');
   const sorted = [...ws].sort((a, b) => a.opensAt - b.opensAt);
   for (let i = 0; i < sorted.length; i++) {
     const w = sorted[i];
@@ -59,7 +60,7 @@ export function evaluate(ruleset, input, { window = null, asOf = null, world = n
   const W = world?.W ?? build(norm.events);
   const ctx = { periodId: w.id, slotBy: ruleset.slotBy };
   const judge = closeAt => {
-    const V = windowView(W, { ...w, closeAt });
+    const V = windowView(W, { ...w, closeAt }, ruleset.carryInputs !== false);
     return { V, joint: ruleset.joint.map(g => judgeJoint(V, g, ctx)) };
   };
   // Variant C (comparison only): a joint achievement closes this evaluation window early.
@@ -95,7 +96,7 @@ export function evaluate(ruleset, input, { window = null, asOf = null, world = n
   // Options are judged on the world as it stood at that bell (later events unseen). The world goes on
   // after a window closes, so options never shrink to waiting.
   const optionsAt = at => {
-    const Wq = windowView(world ? world.worldAt(at, true) : build(norm.events.filter(e => e.at <= at)), { ...w, closeAt: V.closeAt });
+    const Wq = windowView(world ? world.worldAt(at, true) : build(norm.events.filter(e => e.at <= at)), { ...w, closeAt: V.closeAt }, ruleset.carryInputs !== false);
     const jq = ruleset.joint.map(g => judgeJoint(Wq, g, ctx));
     const nq = ruleset.national ? judgeNational(Wq, ruleset.national, jq, ctx) : [];
     return { at, inWindow: at >= w.opensAt && at < V.closeAt, byActor: optionsOf(Wq, ruleset, jq, nq, judgePersonal(Wq, ruleset.personal, jq, ctx), at) };
@@ -174,7 +175,10 @@ export function evaluateSeries(ruleset, input, { restartCheck = 'all' } = {}) {
     }
     verdicts.push(evaluate(ruleset, input, { window: w.id, world: { norm, W, worldAt } }));
   });
-  return { verdicts, boundaries, finalDigest, worldEnds: false };
+  // Spans between windows are judged by no window: an achievement reached there is credited nowhere.
+  // Reported, not filled in (where windows fall is not this evaluator's decision).
+  const uncovered = windows.slice(1).map((w, i) => ({ from: windows[i].endsAt, to: w.opensAt })).filter(g => g.from < g.to);
+  return { verdicts, boundaries, uncovered, finalDigest, worldEnds: false };
 }
 
 /** Keeps per nation at the window's close, and territory bells (the chain's counters, else derived from keep holding). */
@@ -184,8 +188,12 @@ function scoresOf(V) {
   const keeps = {};
   for (const n of V.nations) keeps[n] = 0;
   for (const h of holder.values()) if (h.nation) keeps[h.nation] = (keeps[h.nation] ?? 0) + 1;
-  const counters = {};
-  for (const t of [...V.territoryHistory].filter(t => t.at < V.closeAt).sort((a, b) => a.at - b.at)) counters[t.nation] = t.bells;
+  // The chain's territory counters are cumulative: the window's territory is the counter at the close
+  // less the counter when the window opened.
+  const counterAt = t => { const c = {}; for (const x of [...V.territoryHistory].filter(x => x.at < t).sort((a, b) => a.at - b.at)) c[x.nation] = x.bells; return c; };
+  const atClose = counterAt(V.closeAt);
+  const atOpen = counterAt(V.opensAt);
+  const counters = Object.fromEntries(Object.entries(atClose).map(([n, b]) => [n, b - (atOpen[n] ?? 0)]));
   const derived = !Object.keys(counters).length;
   const territory = derived ? keepBells(V, V.opensAt, V.closeAt) : counters;
   for (const n of V.nations) territory[n] ??= 0;

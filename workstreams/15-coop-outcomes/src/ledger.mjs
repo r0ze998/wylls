@@ -54,6 +54,20 @@ export function normalize(events = [], streams = {}) {
     if (!holes.has(group[0].stream)) holes.set(group[0].stream, new Set());
     holes.get(group[0].stream).add(group[0].seq);
   }
+  // The events derived from one record (its `sub`s) happened at one bell; if they disagree the
+  // record is set aside like a conflict (a restart could otherwise split it).
+  const bySeq = new Map();
+  for (const e of kept) {
+    const k = `${e.stream}\u0000${e.seq}`;
+    if (!bySeq.has(k)) bySeq.set(k, []);
+    bySeq.get(k).push(e);
+  }
+  for (const group of bySeq.values()) {
+    if (new Set(group.map(e => e.at)).size < 2) continue;
+    for (const e of group) { notes.conflicts.push(e.id); kept.splice(kept.indexOf(e), 1); }
+    if (!holes.has(group[0].stream)) holes.set(group[0].stream, new Set());
+    holes.get(group[0].stream).add(group[0].seq);
+  }
   // Gaps per stream (missing positions, and holes left by conflicts). A gap
   // could hide a record from any bell after the last record seen before it:
   // `gapFrom` is that bell (the period's start when nothing precedes it), and

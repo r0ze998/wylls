@@ -39,10 +39,14 @@ const sortBy = (k) => (a, b) => (a[k] < b[k] ? -1 : a[k] > b[k] ? 1 : 0);
  * none). Goods, structures and unfinished projects come from the whole
  * history; only what is decided inside the window is credited to it.
  */
-export const windowView = (W, w) => Object.assign(Object.create(W), { opensAt: w.opensAt, closeAt: w.closeAt, windowId: w.id });
+export const windowView = (W, w, carryInputs = true) => Object.assign(Object.create(W), { opensAt: w.opensAt, closeAt: w.closeAt, windowId: w.id, carryInputs,
+  // Nations that existed before the close (later ones are not part of this window).
+  nations: W.nations.filter(n => (W.nationSince?.[n] ?? -Infinity) < w.closeAt) });
 const inWindow = (V, at) => at >= V.opensAt && at < V.closeAt;
 /** After the window closed, or after the project's own deadline (inclusive). */
 const lateFor = (V, p, at) => at >= V.closeAt || (p.deadline !== null && at > p.deadline);
+
+const withOriginClusters = (W, p) => ({ ...p, inputs: p.inputs.map(i => ({ ...i, origin: { ...i.origin, cluster: W.actors.get(i.origin.actor)?.cluster ?? i.origin.actor } })) });
 
 const share = (have, need) => (need ? Math.min(10_000, Math.floor((have * 10_000) / need)) : 10_000);
 
@@ -62,6 +66,7 @@ export function creditInputs(p, V) {
     let code = null;
     let credited = 0;
     if (lateFor(V, p, i.at)) { t.late += i.qty; code = 'late'; }
+    else if (V.carryInputs === false && i.at < V.opensAt) { t.late += i.qty; code = 'before_window'; }
     else if (kind === 'none') { t.unverified += i.qty; code = 'unverified_qty'; }
     else {
       credited = Math.min(i.qty, need[i.resource]);
@@ -138,7 +143,7 @@ export function judgeJoint(W, g, ctx) {
   return {
     goal: g.id, track: 'joint', label: g.label,
     status: best ? best.status : empty.status,
-    achievedAt: achieved[0]?.achievedAt ?? null,
+    achievedAt: achieved[0]?.achievedAt ?? (best?.status === 'achieved_earlier' ? best.achievedAt : null),
     achievedAtUncertain: whenUncertain,
     project: best?.project ?? null,
     reasons: best ? best.reasons : empty.reasons,
@@ -147,8 +152,8 @@ export function judgeJoint(W, g, ctx) {
 }
 
 function judgeProject(W, g, p, ctx) {
-  // Origin clusters: resolve the origin actor's cluster label.
-  for (const i of p.inputs) i.origin = { ...i.origin, cluster: W.actors.get(i.origin.actor)?.cluster ?? i.origin.actor };
+  // Origin clusters resolved on a copy (judging never changes the world).
+  p = withOriginClusters(W, p);
   const credit = creditInputs(p, W);
   const reasons = [];
   let indeterminate = false;
@@ -241,7 +246,8 @@ export function keepBells(W, from, to) {
 
 /** National goals: one per nation, chosen by the nation's vote (`nation.goal`) or the ruleset's default. */
 export function judgeNational(W, nationalRules, joint, ctx) {
-  const members = membersAt(W, W.closeAt);
+  // Members just before the close (the window is half-open).
+  const members = membersAt(W, W.closeAt - 1);
   const sizes = Object.values(members).map(m => m.length).filter(Boolean);
   const mean = sizes.length ? sizes.reduce((a, b) => a + b, 0) / sizes.length : 1;
   const out = [];
@@ -261,9 +267,10 @@ function judgeNationGoal(W, g, n, scale, size, joint) {
   if (!size) return { status: 'not_achieved', target: null, reasons: [R('not_member', [], '国に人がいない')] };
   if (g.kind === 'build_use') {
     const target = Math.max(1, Math.ceil(g.base * scale));
-    // Structures completed in this window and used by someone else before it closed.
-    const done = [...W.structures.values()].filter(s => s.nation === n && inWindow(W, s.builtAt) && !lateFor(W, W.projects.get(s.project), s.builtAt) &&
-      s.uses.some(u => u.at < W.closeAt && !u.seized && u.cluster !== W.actors.get(s.steward)?.cluster)).sort(sortBy('id'));
+    // A structure counts in the window where it is first used by someone else (built in time for its project).
+    const firstUse = s => s.uses.filter(u => !u.seized && u.cluster !== W.actors.get(s.steward)?.cluster).map(u => u.at).sort((a, b) => a - b)[0];
+    const done = [...W.structures.values()].filter(s => s.nation === n && !lateFor({ closeAt: Infinity }, W.projects.get(s.project), s.builtAt) &&
+      firstUse(s) !== undefined && inWindow(W, firstUse(s))).sort(sortBy('id'));
     const tainted = done.some(s => W.projects.get(s.project).completed.tainted || s.uses.some(u => u.tainted));
     const ok = done.length >= target;
     return { status: tainted ? 'indeterminate' : ok ? 'achieved' : 'not_achieved', target, have: done.length,
@@ -272,7 +279,7 @@ function judgeNationGoal(W, g, n, scale, size, joint) {
   if (g.kind === 'hold_bells') {
     const target = Math.max(1, Math.ceil(g.base * scale));
     const have = keepBells(W, W.opensAt, W.closeAt)[n] ?? 0;
-    const tainted = W.keepHistory.some(h => h.tainted && h.at <= W.closeAt);
+    const tainted = W.keepHistory.some(h => h.tainted && h.at < W.closeAt);
     return { status: tainted ? 'indeterminate' : have >= target ? 'achieved' : 'not_achieved', target, have,
       reasons: [R(have >= target ? 'achieved' : 'hold_short', W.keepHistory.filter(h => h.nation === n && h.id !== 'state').map(h => h.id), { bells: have, target })] };
   }
@@ -294,8 +301,7 @@ export function judgePersonal(W, personalRules, joint, ctx) {
   for (const p of [...W.projects.values()].sort(sortBy('id'))) {
     // Projects completed in this window: an input counts in the window its project was completed in, once.
     if (!p.completed || !inWindow(W, p.completed.at) || lateFor(W, p, p.completed.at)) continue;
-    for (const i of p.inputs) i.origin = { ...i.origin, cluster: W.actors.get(i.origin.actor)?.cluster ?? i.origin.actor };
-    for (const l of creditInputs(p, W).lines) if (l.credited) credited.push({ ...l, project: p.id });
+    for (const l of creditInputs(withOriginClusters(W, p), W).lines) if (l.credited) credited.push({ ...l, project: p.id });
   }
   for (const g of personalRules) {
     if (g.kind === 'scout' && !W.towerInput) {
@@ -359,7 +365,7 @@ function judgePersonalGoal(W, g, a, credited) {
       reasons: [R(hit.length ? 'achieved' : mine.every(r => r.domestic) ? 'domestic' : 'below_min', mine.map(r => r.id), { resources: hit })] };
   }
   if (g.kind === 'scout') {
-    const mine = [...W.sightings.values()].filter(s => s.actor === a.id && s.at <= W.closeAt);
+    const mine = [...W.sightings.values()].filter(s => s.actor === a.id && s.at < W.closeAt);
     if (!mine.length) return null;
     const used = mine.filter(s => s.usedBy.some(u => inWindow(W, u.at) && u.cluster !== a.cluster));
     return { status: tainted([...mine, ...mine.flatMap(s => s.usedBy)]) ? 'indeterminate' : used.length ? 'achieved' : 'not_achieved',
