@@ -13,8 +13,14 @@
 // One action list serves both the AI villages and the human in the clickable
 // prototype (`optionsFor` → `apply`), so a human choice and an AI choice cost
 // the same. Every number is a placeholder in `DEFAULTS` and can be switched.
-// The model only records facts (`sim.facts`); it never decides who won or
-// when the world ends (that is ⑮'s).
+// The model only records facts (`sim.facts`); it never decides who won.
+//
+// The world does not end. `days` is how long an observer watches, not a
+// season: `extend` watches longer, and nothing is reset or closed when it
+// stops. A period boundary (`periodHours`, ⑧/④ not received) is recorded as
+// a fact only; villages, goods, caravans, offers, claims and the tower carry
+// on across it. The whole state is plain data (`snapshot` / `restore`), so a
+// run can be stopped and resumed (a restart) without acting twice.
 import { ringProvinces, ringOf, trip, provinceSteps, RULES } from './geometry.mjs';
 import { placeVillages } from './adapters.mjs';
 
@@ -27,7 +33,8 @@ export const ROLES = Object.freeze(['give', 'pledge', 'carry', 'escort', 'upkeep
 export const DEFAULTS = Object.freeze({
   seed: 1,
   case: 'A',
-  days: 14,                       // one war period (99-decisions: 戦期 2 weeks)
+  days: 14,                       // how long to watch (an observation window, not a season or a period)
+  periodHours: null,              // a period boundary every this many hours (undecided: ⑧/④ not received); recorded as a fact, nothing resets
   nations: [10, 10, 6, 6, 3, 3],  // villages per nation: two large, two middle, two small
   placement: 'compact',           // 'compact': rings 2..3 (S1_LOCAL_14D heartland); 'dispersed': ⑧ placeholder
   lateShare: 0.2, lateDay: 5,     // late joiners
@@ -67,9 +74,10 @@ export const DEFAULTS = Object.freeze({
 });
 
 /** mulberry32: a small seeded generator. */
-export function rng(seed) {
-  let a = seed >>> 0;
-  return () => { a = (a + 0x6d2b79f5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+export function rng(seed) { return rngFrom({ a: seed >>> 0 }); }
+/** The same generator over a state object the snapshot carries (`{a}`). */
+function rngFrom(st) {
+  return () => { st.a = (st.a + 0x6d2b79f5) >>> 0; let t = st.a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
 }
 const CONCORD = Object.freeze({ p: 0, q: 0 });
 const zero = () => ({ food: 0, wood: 0, stone: 0, ore: 0 });
@@ -113,7 +121,7 @@ export function createSim(input = {}) {
     villages.push({
       id, name: `${'甲乙丙丁戊己'[at.nation]}${id}`, nation: at.nation, prov: at.prov, ring: ringOf(at.prov.p, at.prov.q),
       land, poor, late, spd, phase: Math.floor(R() * 24), profile: 'coop', towerWill: R() < P.towerWill,
-      joinTick: late ? P.lateDay * 24 : 0, leaveTick: Infinity, present: !late, left: false,
+      joinTick: late ? P.lateDay * 24 : 0, leaveTick: null, present: !late, left: false,
       store: { food: 30, wood: 30, stone: 30, ore: 10 }, income, level: 0,
       slots: {}, roles: {}, trades: 0, crossTrades: 0, delivered: 0, lostGoods: 0, sends: 0, relayUses: 0, claims: zero(), contributed: zero(),
     });
@@ -126,11 +134,17 @@ export function createSim(input = {}) {
   for (let i = 0; i < nSelfish && k < shuffled.length; i++) villages[shuffled[k++]].profile = 'selfish';
   for (let i = 0; i < P.leavers && k < shuffled.length; i++) { const v = villages[shuffled[k++]]; v.leaveTick = P.leaveDay * 24; v.towerWill = true; v.leaver = true; }
   if (P.monopolist !== null && P.monopolist !== undefined) for (const v of villages) if (v.nation === P.monopolist && v.profile === 'coop') v.towerWill = true;
+  const rngState = { a: ((P.seed * 2654435761) >>> 0) >>> 0 };
   const sim = {
-    P, case: P.case, tick: 0, end: P.days * 24, villages, nationRes,
+    P, case: P.case, tick: 0, until: P.days * 24, villages, nationRes,
+    // live objects: finished ones leave these lists (their history stays in `facts`)
     requests: [], caravans: [], facts: [], raids: [], escorts: [], pledges: [],
-    tower: { stage: 0, stageOpen: P.case === 'C' ? 0 : null, deadline: P.case === 'C' ? P.stageDays * 24 : null, progress: zero(), stock: zero(), ledger: new Map(), offers: [], swapsToday: 0, dormant: false, upkeepPaidDay: -1, completedAt: [], lapses: 0 },
-    traffic: new Map(), rand: rng((P.seed * 2654435761) >>> 0),
+    nextId: { req: 0, offer: 0, pledge: 0, caravan: 0 },
+    tower: { stage: 0, stageOpen: P.case === 'C' ? 0 : null, deadline: P.case === 'C' ? P.stageDays * 24 : null, progress: zero(), stock: zero(), ledger: [], offers: [], swapsToday: 0, dormant: false, completedAt: [], lapses: 0 },
+    traffic: {}, rngState, rand: rngFrom(rngState),
+    // goods ledger: what entered and left the world (checked by `ledgerGap`)
+    flow: { initial: villages.reduce((s, v) => s + sum(v.store), 0), income: 0, grow: 0, build: 0, upkeep: 0, fee: 0, escort: 0, lost: 0, forfeited: 0, dispatched: 0, arrived: 0 },
+    stats: { posted: 0, done: 0 },
     control: null, pending: null,
   };
   fact(sim, 'world.created', null, { case: P.case, villages: villages.length, placement: P.placement });
@@ -181,13 +195,71 @@ export function route(sim, v, from, to, { publicNeed = false } = {}) {
   return { ...tr, line, nearCentre, hours: Math.max(1, Math.ceil(tr.minutes / 60 + waitH)), risk: round2(1 - survive) };
 }
 
-function dispatch(sim, v, from, to, goods, onArrive, opts = {}) {
+/** Sends goods; `arrival` ({kind, ...}) says what happens when they come (see `arrive`): data, not a closure, so a caravan survives a snapshot. */
+function dispatch(sim, v, from, to, goods, arrival, opts = {}) {
   const rt = route(sim, v, from, to, opts);
   v.sends += rt.sends;
-  for (const x of rt.line) { const key = `${x.p},${x.q}`; sim.traffic.set(key, (sim.traffic.get(key) ?? 0) + sum(goods)); }
+  for (const x of rt.line) { const key = `${x.p},${x.q}`; sim.traffic[key] = (sim.traffic[key] ?? 0) + sum(goods); }
   const lost = sim.rand() < rt.risk;
-  sim.caravans.push({ owner: v.id, at: sim.tick + rt.hours, goods, lost, onArrive, toCentre: to.p === 0 && to.q === 0, fromCentre: from.p === 0 && from.q === 0, nearCentre: rt.nearCentre });
+  sim.flow.dispatched++;
+  sim.caravans.push({ id: sim.nextId.caravan++, owner: v.id, at: sim.tick + rt.hours, goods, lost, arrival, toCentre: to.p === 0 && to.q === 0, fromCentre: from.p === 0 && from.q === 0, nearCentre: rt.nearCentre });
   return rt;
+}
+const reqOf = (sim, id) => sim.requests.find(q => q.id === id);
+const offerOf = (sim, id) => sim.tower.offers.find(o => o.id === id);
+const pledgeOf = (sim, id) => sim.pledges.find(p => p.id === id);
+const ledgerOf = (t, id) => t.ledger.find(e => e[0] === id);
+
+/** A caravan arrives (`ok`: it was not lost on the way). */
+function arrive(sim, c) {
+  const ok = !c.lost, a = c.arrival, P = sim.P, t = sim.tower;
+  sim.flow.arrived++;
+  if (!ok) sim.flow.lost += sum(c.goods);
+  switch (a.kind) {
+    case 'help': {
+      const q = reqOf(sim, a.req), v = sim.villages[a.helper], poster = sim.villages[q.poster];
+      if (!ok) { q.state = 'failed'; v.lostGoods += q.amount; fact(sim, 'caravan.lost', v, { req: q.id }); return; }
+      add(poster.store, c.goods);
+      if (q.fake || poster.left) { q.state = 'defaulted'; fact(sim, 'request.defaulted', poster, { req: q.id, helper: v.id }); return; }
+      q.state = 'delivered'; q.payDue = true; return;
+    }
+    case 'pay': {
+      const q = reqOf(sim, a.req), poster = sim.villages[q.poster], helper = sim.villages[q.helper];
+      if (ok && !helper.left) { add(helper.store, c.goods); q.state = 'done'; sim.stats.done++; poster.trades++; helper.trades++; if (poster.nation !== helper.nation) { poster.crossTrades++; helper.crossTrades++; } fact(sim, q.boardedAt !== undefined ? 'tower.board_fulfilled' : 'request.fulfilled', poster, { req: q.id, cross: poster.nation !== helper.nation }); }
+      else { if (ok) sim.flow.lost += sum(c.goods); q.state = 'failed'; poster.lostGoods += sum(c.goods); fact(sim, 'caravan.lost', poster, { req: q.id }); }
+      return;
+    }
+    case 'claim': {
+      const v = sim.villages[c.owner];
+      if (ok) add(v.store, c.goods); else { v.lostGoods += sum(c.goods); fact(sim, 'caravan.lost', v, { claim: true }); }
+      return;
+    }
+    case 'tower': deliverToTower(sim, sim.villages[a.owner], c.goods, ok, a.stageAt, a.carrier === null ? null : sim.villages[a.carrier]); return;
+    case 'offer': {
+      const o = offerOf(sim, a.offer), v = sim.villages[c.owner];
+      if (ok) { o.state = 'open'; fact(sim, 'tower.relay_offer', v, { offer: o.id }); } else { o.state = 'lost'; v.lostGoods += P.tradeAmount; fact(sim, 'caravan.lost', v, { relay: true }); }
+      return;
+    }
+    case 'swapPay': {
+      const o = offerOf(sim, a.offer), v = sim.villages[c.owner], owner = sim.villages[o.owner];
+      if (!ok) { o.state = 'open'; v.lostGoods += o.amount; fact(sim, 'caravan.lost', v, { relay: true }); return; }
+      o.state = 'filled'; o.paid = c.goods; o.taker = v.id;
+      fact(sim, 'tower.relay_swap', v, { offer: o.id, cross: owner.nation !== v.nation, contributor: sum(v.contributed) > 0 });
+      dispatch(sim, v, CONCORD, v.prov, { [o.has]: o.amount }, { kind: 'swapGet', cross: owner.nation !== v.nation, amount: o.amount });
+      return;
+    }
+    case 'swapGet': {
+      const v = sim.villages[c.owner];
+      if (ok) { add(v.store, c.goods); v.trades++; if (a.cross) v.crossTrades++; } else { v.lostGoods += a.amount; fact(sim, 'caravan.lost', v, { relay: true }); }
+      return;
+    }
+    case 'collect': {
+      const v = sim.villages[c.owner];
+      if (ok) { add(v.store, c.goods); v.trades++; if (a.cross) v.crossTrades++; } else { v.lostGoods += a.amount; fact(sim, 'caravan.lost', v, { relay: true }); }
+      return;
+    }
+  }
+  throw new Error(`unknown arrival ${a.kind}`);
 }
 
 // ---------------------------------------------------------------- options (shared by the AI and the human)
@@ -290,37 +362,32 @@ export function apply(sim, v, opt) {
   const P = sim.P, t = sim.tower;
   v.slots[opt.kind] = (v.slots[opt.kind] ?? 0) + 1;
   switch (opt.kind) {
-    case 'grow': spend(v.store, P.growCost); v.level++; fact(sim, 'village.grew', v, { level: v.level }); break;
+    case 'grow': spend(v.store, P.growCost); sim.flow.grow += sum(P.growCost); v.level++; fact(sim, 'village.grew', v, { level: v.level }); break;
     case 'post': {
-      const q = { id: sim.requests.length, poster: v.id, want: opt.want, give: opt.give, amount: P.tradeAmount, tick: sim.tick, scope: P.requestVisibility === 'world' ? 'world' : 'nation', state: 'open', fake: false };
-      sim.requests.push(q); fact(sim, 'request.posted', v, { req: q.id, scope: q.scope }); break;
+      const q = { id: sim.nextId.req++, poster: v.id, want: opt.want, give: opt.give, amount: P.tradeAmount, tick: sim.tick, scope: P.requestVisibility === 'world' ? 'world' : 'nation', state: 'open', fake: false };
+      sim.requests.push(q); sim.stats.posted++; fact(sim, 'request.posted', v, { req: q.id, scope: q.scope }); break;
     }
     case 'fake': {
-      const q = { id: sim.requests.length, poster: v.id, want: 'ore', give: 'food', amount: P.tradeAmount, tick: sim.tick, scope: sim.case === 'B' ? 'world' : (P.requestVisibility === 'world' ? 'world' : 'nation'), state: 'open', fake: true };
+      const q = { id: sim.nextId.req++, poster: v.id, want: 'ore', give: 'food', amount: P.tradeAmount, tick: sim.tick, scope: sim.case === 'B' ? 'world' : (P.requestVisibility === 'world' ? 'world' : 'nation'), state: 'open', fake: true };
       sim.requests.push(q); fact(sim, 'request.posted', v, { req: q.id, scope: q.scope }); break;
     }
     case 'board': {
-      const q = sim.requests[opt.req]; spend(v.store, P.boardFee); q.scope = 'world'; q.boardedAt = sim.tick;
+      const q = reqOf(sim, opt.req); spend(v.store, P.boardFee); sim.flow.fee += sum(P.boardFee); q.scope = 'world'; q.boardedAt = sim.tick;
       fact(sim, 'tower.board_post', v, { req: q.id }); break;
     }
     case 'help': {
-      const q = sim.requests[opt.req], poster = sim.villages[q.poster];
+      const q = reqOf(sim, opt.req), poster = sim.villages[q.poster];
       q.state = 'taken'; q.helper = v.id;
       const goods = { [q.want]: q.amount }; spend(v.store, goods);
       fact(sim, q.boardedAt !== undefined ? 'tower.board_taken' : 'request.taken', v, { req: q.id, cross: poster.nation !== v.nation });
-      dispatch(sim, v, v.prov, poster.prov, goods, (ok) => {
-        if (!ok) { q.state = 'failed'; v.lostGoods += q.amount; fact(sim, 'caravan.lost', v, { req: q.id }); return; }
-        add(poster.store, goods);
-        if (q.fake || poster.left) { q.state = 'defaulted'; fact(sim, 'request.defaulted', poster, { req: q.id, helper: v.id }); return; }
-        q.state = 'delivered'; q.payDue = true;
-      }, { publicNeed: q.scope === 'world' });
+      dispatch(sim, v, v.prov, poster.prov, goods, { kind: 'help', req: q.id, helper: v.id }, { publicNeed: q.scope === 'world' });
       break;
     }
     case 'tower': towerApply(sim, v, opt); break;
     case 'claim': {
       const goods = { ...v.claims }; v.claims = zero();
       fact(sim, 'tower.claim_withdrawn', v, { amount: sum(goods) });
-      dispatch(sim, v, CONCORD, v.prov, goods, ok => { if (ok) add(v.store, goods); else { v.lostGoods += sum(goods); fact(sim, 'caravan.lost', v, { claim: true }); } });
+      dispatch(sim, v, CONCORD, v.prov, goods, { kind: 'claim' });
       break;
     }
     case 'relay': relayApply(sim, v, opt); break;
@@ -339,20 +406,20 @@ function towerApply(sim, v, opt) {
     const r = opt.role === 'upkeep' ? 'food' : opt.res, n = opt.role === 'upkeep' ? P.upkeepFood : P.pledgeAmount;
     const goods = { [r]: n }; spend(v.store, goods);
     const stageAt = t.stage;
-    dispatch(sim, v, v.prov, CONCORD, goods, ok => deliverToTower(sim, v, goods, ok, opt.role === 'upkeep' ? 'upkeep' : stageAt));
+    dispatch(sim, v, v.prov, CONCORD, goods, { kind: 'tower', owner: v.id, stageAt: opt.role === 'upkeep' ? 'upkeep' : stageAt, carrier: null });
     fact(sim, 'tower.sent', v, { role: opt.role, res: r, amount: n });
   } else if (opt.role === 'pledge') {
     const goods = { [opt.res]: P.pledgeAmount }; spend(v.store, goods);
-    sim.pledges.push({ id: sim.pledges.length, from: v.id, goods, state: 'open', tick: sim.tick });
+    sim.pledges.push({ id: sim.nextId.pledge++, from: v.id, goods, state: 'open', tick: sim.tick });
     fact(sim, 'tower.pledged', v, { res: opt.res, amount: P.pledgeAmount });
   } else if (opt.role === 'carry') {
-    const pl = sim.pledges[opt.pledge], from = sim.villages[pl.from];
+    const pl = pledgeOf(sim, opt.pledge), from = sim.villages[pl.from];
     pl.state = 'carried';
     const stageAt = t.stage;
-    dispatch(sim, v, from.prov, CONCORD, pl.goods, ok => deliverToTower(sim, from, pl.goods, ok, stageAt, v));
+    dispatch(sim, v, from.prov, CONCORD, pl.goods, { kind: 'tower', owner: from.id, stageAt, carrier: v.id });
     fact(sim, 'tower.carried', v, { for: from.id, amount: sum(pl.goods) });
   } else if (opt.role === 'escort') {
-    v.store.food -= 4;
+    v.store.food -= 4; sim.flow.escort += 4;
     sim.escorts.push({ by: v.id, until: sim.tick + P.escortHours, only: isMonopolist(sim, v) ? v.nation : null });
     fact(sim, 'tower.escort', v, {});
   }
@@ -366,7 +433,7 @@ function deliverToTower(sim, owner, goods, ok, stageAt, carrier = null) {
   add(owner.contributed, goods);
   if (stageAt === t.stage && t.stageOpen !== null && t.stage < sim.P.stageNeed.length) {
     add(t.progress, goods);
-    const led = t.ledger.get(owner.id) ?? zero(); add(led, goods); t.ledger.set(owner.id, led);
+    let led = ledgerOf(t, owner.id); if (!led) { led = [owner.id, zero()]; t.ledger.push(led); } add(led[1], goods);
   }
   fact(sim, 'tower.contribution', owner, { amount: sum(goods), carrier: carrier ? carrier.id : null, stage: t.stage });
   checkStage(sim);
@@ -377,9 +444,9 @@ function checkStage(sim) {
   if (t.stageOpen === null || t.stage >= P.stageNeed.length) return;
   const need = needOf(sim, t.stage);
   if (RES.every(r => t.progress[r] >= need[r])) {
-    spend(t.stock, need); t.stage++; t.completedAt.push(sim.tick);
-    fact(sim, 'tower.stage_completed', null, { stage: t.stage, contributors: t.ledger.size, nations: [...new Set([...t.ledger.keys()].map(id => sim.villages[id].nation))].length });
-    t.progress = zero(); t.ledger = new Map();
+    spend(t.stock, need); sim.flow.build += sum(need); t.stage++; t.completedAt.push(sim.tick);
+    fact(sim, 'tower.stage_completed', null, { stage: t.stage, contributors: t.ledger.length, nations: new Set(t.ledger.map(e => sim.villages[e[0]].nation)).size });
+    t.progress = zero(); t.ledger = [];
     if (t.stage < P.stageNeed.length) { t.stageOpen = sim.tick; t.deadline = sim.tick + P.stageDays * 24; fact(sim, 'tower.stage_opened', null, { stage: t.stage + 1 }); }
     if (t.dormant) { t.dormant = false; }
   }
@@ -390,25 +457,19 @@ function relayApply(sim, v, opt) {
   if (opt.id.startsWith('offer:')) {
     const [, give, need] = opt.id.split(':');
     const goods = { [give]: P.tradeAmount }; spend(v.store, goods);
-    const o = { id: t.offers.length, owner: v.id, has: give, wants: need, amount: P.tradeAmount, state: 'travelling' };
+    const o = { id: sim.nextId.offer++, owner: v.id, has: give, wants: need, amount: P.tradeAmount, state: 'travelling' };
     t.offers.push(o);
-    dispatch(sim, v, v.prov, CONCORD, goods, ok => { if (ok) { o.state = 'open'; fact(sim, 'tower.relay_offer', v, { offer: o.id }); } else { o.state = 'lost'; v.lostGoods += P.tradeAmount; fact(sim, 'caravan.lost', v, { relay: true }); } });
+    dispatch(sim, v, v.prov, CONCORD, goods, { kind: 'offer', offer: o.id });
   } else if (opt.id.startsWith('swap:')) {
-    const o = t.offers[opt.offer], owner = sim.villages[o.owner];
+    const o = offerOf(sim, opt.offer);
     o.state = 'swapping'; t.swapsToday++;
     const pay = { [o.wants]: o.amount }; spend(v.store, pay);
     v.relayUses++;
-    dispatch(sim, v, v.prov, CONCORD, pay, ok => {
-      if (!ok) { o.state = 'open'; v.lostGoods += o.amount; fact(sim, 'caravan.lost', v, { relay: true }); return; }
-      o.state = 'filled'; o.paid = pay; o.taker = v.id;
-      fact(sim, 'tower.relay_swap', v, { offer: o.id, cross: owner.nation !== v.nation, contributor: sum(v.contributed) > 0 });
-      const got = { [o.has]: o.amount };
-      dispatch(sim, v, CONCORD, v.prov, got, ok2 => { if (ok2) { add(v.store, got); v.trades++; if (owner.nation !== v.nation) v.crossTrades++; } else { v.lostGoods += o.amount; fact(sim, 'caravan.lost', v, { relay: true }); } });
-    });
+    dispatch(sim, v, v.prov, CONCORD, pay, { kind: 'swapPay', offer: o.id });
   } else if (opt.id.startsWith('collect:')) {
-    const o = t.offers[opt.offer]; o.state = 'collected'; v.relayUses++;
+    const o = offerOf(sim, opt.offer); o.state = 'collected'; v.relayUses++;
     const taker = sim.villages[o.taker];
-    dispatch(sim, v, CONCORD, v.prov, o.paid, ok => { if (ok) { add(v.store, o.paid); v.trades++; if (taker.nation !== v.nation) v.crossTrades++; } else { v.lostGoods += o.amount; fact(sim, 'caravan.lost', v, { relay: true }); } });
+    dispatch(sim, v, CONCORD, v.prov, o.paid, { kind: 'collect', cross: taker.nation !== v.nation, amount: o.amount });
   }
 }
 
@@ -435,7 +496,7 @@ export function choose(sim, v, opts) {
   if (helps.length && (v.profile !== 'selfish' || helps[0].rt.sends === 1)) return helps[0];
   const swap = opts.find(o => o.id.startsWith('swap:')); if (swap) return swap;
   const post = by('post')[0]; if (post) return post;
-  const board = by('board').find(o => sim.tick - sim.requests[o.req].tick >= sim.P.boardWaitHours); if (board) return board;
+  const board = by('board').find(o => sim.tick - reqOf(sim, o.req).tick >= sim.P.boardWaitHours); if (board) return board;
   const offer = opts.find(o => o.id.startsWith('offer:'));
   if (offer && sim.requests.some(q => q.poster === v.id && q.state === 'open' && sim.tick - q.tick >= sim.P.boardWaitHours)) return offer;
   if (sim.case === 'C' && v.towerWill && v.profile === 'coop') {
@@ -461,31 +522,30 @@ export function choose(sim, v, opts) {
 export function step(sim) {
   const P = sim.P, t = sim.tower;
   if (sim.pending) return optionsFor(sim, sim.villages[sim.pending.v]);
-  if (sim.tick >= sim.end) return null;
+  if (sim.tick >= sim.until) return null;
+  // a period boundary is a fact; nothing is reset, closed or settled here
+  if (P.periodHours && sim.tick > 0 && sim.tick % P.periodHours === 0) fact(sim, 'period.boundary', null, { index: sim.tick / P.periodHours });
   for (const v of sim.villages) {
     if (!v.present && !v.left && sim.tick >= v.joinTick) { v.present = true; fact(sim, 'village.joined', v, { late: v.late }); }
-    if (v.present && !v.left && sim.tick >= v.leaveTick) leave(sim, v);
-    if (v.present && !v.left) for (const r of RES) v.store[r] += v.income[r];
+    if (v.present && !v.left && v.leaveTick !== null && sim.tick >= v.leaveTick) leave(sim, v);
+    if (v.present && !v.left) for (const r of RES) { v.store[r] += v.income[r]; sim.flow.income += v.income[r]; }
   }
   // arrivals
   const due = sim.caravans.filter(c => c.at <= sim.tick);
   sim.caravans = sim.caravans.filter(c => c.at > sim.tick);
-  for (const c of due) c.onArrive(!c.lost);
+  for (const c of due) arrive(sim, c);
   // barter: the poster pays on arrival (automatic: it was promised)
   for (const q of sim.requests) if (q.payDue) {
     q.payDue = false; const poster = sim.villages[q.poster], helper = sim.villages[q.helper];
     const pay = { [q.give]: Math.min(q.amount, Math.max(0, poster.store[q.give])) }; spend(poster.store, pay);
-    dispatch(sim, poster, poster.prov, helper.prov, pay, ok => {
-      if (ok && !helper.left) { add(helper.store, pay); q.state = 'done'; poster.trades++; helper.trades++; if (poster.nation !== helper.nation) { poster.crossTrades++; helper.crossTrades++; } fact(sim, q.boardedAt !== undefined ? 'tower.board_fulfilled' : 'request.fulfilled', poster, { req: q.id, cross: poster.nation !== helper.nation }); }
-      else { q.state = 'failed'; poster.lostGoods += sum(pay); fact(sim, 'caravan.lost', poster, { req: q.id }); }
-    });
+    dispatch(sim, poster, poster.prov, helper.prov, pay, { kind: 'pay', req: q.id });
   }
   // the tower's day
   if (sim.case === 'C') {
     if (sim.tick % 24 === 0) {
       t.swapsToday = 0;
       if (t.stage > 0) {
-        if (t.stock.food >= P.upkeepFood) { t.stock.food -= P.upkeepFood; if (t.dormant) { t.dormant = false; fact(sim, 'tower.awake', null, {}); } }
+        if (t.stock.food >= P.upkeepFood) { t.stock.food -= P.upkeepFood; sim.flow.upkeep += P.upkeepFood; if (t.dormant) { t.dormant = false; fact(sim, 'tower.awake', null, {}); } }
         else if (!t.dormant) { t.dormant = true; fact(sim, 'tower.dormant', null, { stage: t.stage }); }
       }
     }
@@ -493,6 +553,7 @@ export function step(sim) {
   }
   // requests expire after a day unanswered
   for (const q of sim.requests) if (q.state === 'open' && sim.tick - q.tick > 24) q.state = 'expired';
+  prune(sim);
   // actions
   let mine = null;
   for (const v of sim.villages) {
@@ -516,9 +577,9 @@ export function applyControlled(sim, optId) {
   return null;
 }
 
-/** Run to the end; with `untilControl`, stop at the controlled village's next turn and return its options. */
+/** Run to `sim.until` (the observer stops; the world does not end); with `untilControl`, stop at the controlled village's next turn and return its options. */
 export function run(sim, { untilControl = false } = {}) {
-  while (sim.tick < sim.end || sim.pending) {
+  while (sim.tick < sim.until || sim.pending) {
     const o = step(sim);
     if (!o) continue;
     if (untilControl) return o;
@@ -533,23 +594,74 @@ export function run(sim, { untilControl = false } = {}) {
 function lapse(sim) {
   const t = sim.tower, P = sim.P;
   t.lapses++;
-  fact(sim, 'tower.stage_lapsed', null, { stage: t.stage + 1, fraction: round2(stageFraction(sim)), contributors: t.ledger.size });
+  fact(sim, 'tower.stage_lapsed', null, { stage: t.stage + 1, fraction: round2(stageFraction(sim)), contributors: t.ledger.length });
   for (const [id, goods] of t.ledger) {
     const v = sim.villages[id];
     if (v.left) continue;  // a claim of someone who left stays in the stock
     add(v.claims, goods); spend(t.stock, goods);
     fact(sim, 'tower.refund_claim', v, { amount: sum(goods) });
   }
-  t.progress = zero(); t.ledger = new Map(); t.stageOpen = sim.tick; t.deadline = sim.tick + P.stageDays * 24;
+  t.progress = zero(); t.ledger = []; t.stageOpen = sim.tick; t.deadline = sim.tick + P.stageDays * 24;
   fact(sim, 'tower.stage_opened', null, { stage: t.stage + 1, retry: true });
 }
 
 function leave(sim, v) {
   v.left = true;
   for (const q of sim.requests) if (q.poster === v.id && q.state === 'open') q.state = 'cancelled';
-  for (const p of sim.pledges) if (p.from === v.id && p.state === 'open') p.state = 'void';
+  for (const p of sim.pledges) if (p.from === v.id && p.state === 'open') { p.state = 'void'; sim.flow.forfeited += sum(p.goods); }
   for (const o of sim.tower.offers) if (o.owner === v.id && o.state === 'open') o.state = 'abandoned';
   fact(sim, 'village.left', v, { contributed: sum(v.contributed) });
+}
+
+// ---------------------------------------------------------------- continuity: live state, snapshot, the goods ledger
+
+const DONE_REQ = new Set(['done', 'failed', 'defaulted', 'expired', 'cancelled']);
+const DONE_OFFER = new Set(['lost', 'collected']);
+const DONE_PLEDGE = new Set(['carried', 'void']);
+/** Finished objects leave the live lists, so live state stays bounded however long the world runs. Their history is in `facts`. */
+function prune(sim) {
+  sim.requests = sim.requests.filter(q => !DONE_REQ.has(q.state));
+  sim.tower.offers = sim.tower.offers.filter(o => !DONE_OFFER.has(o.state));
+  sim.pledges = sim.pledges.filter(p => !DONE_PLEDGE.has(p.state));
+  sim.raids = sim.raids.filter(r => r.until > sim.tick);
+  sim.escorts = sim.escorts.filter(e => e.until > sim.tick);
+}
+
+/** Watch `hours` more. The world was never ended, so nothing has to be reopened. */
+export function extend(sim, hours) { sim.until += hours; return sim; }
+
+/** The whole state as text (a restart point). */
+export function snapshot(sim) {
+  const { rand, ...rest } = sim;
+  return JSON.stringify(rest);
+}
+/** A sim from a snapshot: it continues exactly where the snapshot was taken. */
+export function restore(text) {
+  const sim = JSON.parse(text);
+  sim.rand = rngFrom(sim.rngState);
+  return sim;
+}
+
+/** Live object counts (to check that a long-running world does not pile them up). */
+export const liveSizes = sim => ({ requests: sim.requests.length, caravans: sim.caravans.length, offers: sim.tower.offers.length, pledges: sim.pledges.length, raids: sim.raids.length, escorts: sim.escorts.length, ledger: sim.tower.ledger.length });
+
+/** Goods held anywhere now: village stores, the tower's stock and stage progress… */
+export function holdings(sim) {
+  let h = 0;
+  for (const v of sim.villages) h += sum(v.store) + sum(v.claims);
+  h += sum(sim.tower.stock);
+  for (const c of sim.caravans) h += sum(c.goods);
+  for (const p of sim.pledges) if (p.state === 'open') h += sum(p.goods);
+  for (const o of sim.tower.offers) {
+    if (o.state === 'open' || o.state === 'swapping' || o.state === 'abandoned') h += o.amount;
+    else if (o.state === 'filled') h += sum(o.paid);
+  }
+  return h;
+}
+/** initial + income − (everything spent, lost or forfeited) − holdings: 0 when no good was made or lost unseen. */
+export function ledgerGap(sim) {
+  const f = sim.flow;
+  return f.initial + f.income - f.grow - f.build - f.upkeep - f.fee - f.escort - f.lost - f.forfeited - holdings(sim);
 }
 
 // ---------------------------------------------------------------- facts out
@@ -565,7 +677,7 @@ export function summarize(sim) {
   const contributors = V.filter(v => sum(v.contributed) > 0 || towerActs(v) > 0);
   // logistics: share of goods-province traffic in rings 0..1 against their share of the land villages live in
   let all = 0, inner = 0, centre = 0;
-  for (const [k, n] of sim.traffic) { const [p, q] = k.split(',').map(Number); all += n; if (ringOf(p, q) <= 1) inner += n; if (p === 0 && q === 0) centre += n; }
+  for (const [k, n] of Object.entries(sim.traffic)) { const [p, q] = k.split(',').map(Number); all += n; if (ringOf(p, q) <= 1) inner += n; if (p === 0 && q === 0) centre += n; }
   const maxRing = Math.max(...V.map(v => v.ring));
   const innerArea = 7 / (1 + 3 * maxRing * (maxRing + 1));
   // role diversity among tower workers
@@ -582,12 +694,11 @@ export function summarize(sim) {
   const towerTot = sum(V.reduce((a, v) => { add(a, v.contributed); return a; }, zero()));
   for (const b of Object.keys(bands)) bands[b].towerShare = round2(towerTot ? group(v => ringBand(v.ring) === b).reduce((s, v) => s + sum(v.contributed), 0) / towerTot : 0);
   const big = Math.max(...P.nations), small = Math.min(...P.nations);
-  const requests = sim.requests.filter(q => !q.fake);
   return {
     case: sim.case, seed: P.seed, villages: V.length,
     level: { all: lv(V), near: bands.near?.level ?? null, far: bands.far?.level ?? null, bigNation: lv(group(v => P.nations[v.nation] === big)), smallNation: lv(group(v => P.nations[v.nation] === small)), late: lv(group(v => v.late)), poor: lv(group(v => v.poor)), selfish: lv(group(v => v.profile === 'selfish')), nonParticipants: lv(V.filter(v => !participants.includes(v) && v.profile !== 'saboteur')), participants: lv(participants) },
     bands,
-    trades: { done: requests.filter(q => q.state === 'done').length + swaps.length, cross: V.reduce((s, v) => s + v.crossTrades, 0) / 2, requestsPosted: requests.length, requestsDone: requests.filter(q => q.state === 'done').length, boardPosts: sim.facts.filter(f => f.kind === 'tower.board_post').length, boardDone: sim.facts.filter(f => f.kind === 'tower.board_fulfilled').length, defaulted: sim.facts.filter(f => f.kind === 'request.defaulted').length, relaySwaps: swaps.length, relaySwapsCross: swaps.filter(s => s.cross).length, relaySwapsByNonContributors: swaps.filter(s => !s.contributor).length },
+    trades: { done: sim.stats.done + swaps.length, cross: V.reduce((s, v) => s + v.crossTrades, 0) / 2, requestsPosted: sim.stats.posted, requestsDone: sim.stats.done, boardPosts: sim.facts.filter(f => f.kind === 'tower.board_post').length, boardDone: sim.facts.filter(f => f.kind === 'tower.board_fulfilled').length, defaulted: sim.facts.filter(f => f.kind === 'request.defaulted').length, relaySwaps: swaps.length, relaySwapsCross: swaps.filter(s => s.cross).length, relaySwapsByNonContributors: swaps.filter(s => !s.contributor).length },
     logistics: { innerShare: round2(all ? inner / all : 0), innerAreaShare: round2(innerArea), centreShare: round2(all ? centre / all : 0), lostCaravans: sim.facts.filter(f => f.kind === 'caravan.lost').length, lostNearCentre: sim.facts.filter(f => f.kind === 'caravan.lost' && (f.tower || f.relay || f.claim)).length },
     tower: sim.case !== 'C' ? null : { stages: sim.tower.stage, completedDay: sim.tower.completedAt.map(t => round2(t / 24)), lapses: sim.tower.lapses, dormantEvents: sim.facts.filter(f => f.kind === 'tower.dormant').length, contributors: contributors.length, contributorNations: new Set(contributors.map(v => v.nation)).size, contributionByNation: byNation(v => sum(v.contributed)), useByNation: byNation(v => v.relayUses), roles: roleTotals, roleEntropyBits: round2(entropy), roleEntropyMaxBits: round2(Math.log2(ROLES.length)), meanMonotony: round2(monotony), freeRideShare: round2(swaps.length ? swaps.filter(s => !s.contributor).length / swaps.length : 0), raids: sim.facts.filter(f => f.kind === 'centre.raid').length, raidsAtBrink: sim.facts.filter(f => f.kind === 'centre.raid' && f.fraction >= P.sabotageAt).length, claimsLeft: round2(V.reduce((s, v) => s + sum(v.claims), 0)) },
     slots: Object.fromEntries(['grow', 'help', 'post', 'board', 'tower', 'relay', 'claim', 'raid', 'fake', 'idle'].map(k => [k, V.reduce((s, v) => s + (v.slots[k] ?? 0), 0)])),

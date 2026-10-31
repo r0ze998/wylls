@@ -87,7 +87,7 @@ test('the human picks from the same options the AI does, and the hour moves on',
   const s = createSim({ seed: 1, case: 'C' });
   s.control = s.villages.find(v => !v.late).id;
   let turns = 0, opts = null;
-  while (s.tick < s.end && turns < 5) {
+  while (s.tick < s.until && turns < 5) {
     opts = step(s);
     if (!opts) continue;
     turns++;

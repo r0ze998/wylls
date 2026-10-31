@@ -93,7 +93,7 @@ function pick(id) {
 function render() {
   const v = sim.villages[sim.control];
   const day = Math.floor(sim.tick / 24) + 1, hour = sim.tick % 24;
-  $('clock').textContent = sim.tick >= sim.end && !sim.pending ? `終了（${sim.P.days}日）：${CASE_NAMES[caseId]}` : `${day}日目 ${hour}時：${CASE_NAMES[caseId]}`;
+  $('clock').textContent = sim.tick >= sim.until && !sim.pending ? `${Math.floor(sim.until / 24)}日目まで観察（世界は続いています）：${CASE_NAMES[caseId]}` : `${day}日目 ${hour}時：${CASE_NAMES[caseId]}`;
   $('mine').innerHTML = `<div class="chips">${RES.map(r => `<span class="chip">${r} ${Math.floor(v.store[r])}</span>`).join('')}<span class="chip">村の育ち ${v.level}</span><span class="chip">取引 ${v.trades}（他国 ${v.crossTrades}）</span><span class="chip">失った荷 ${Math.round(v.lostGoods)}</span>${v.left ? '<span class="chip warn">去った</span>' : ''}${!v.present ? '<span class="chip warn">まだ参加していない</span>' : ''}</div>`
     + (sim.pending ? `<p class="note">この番の残り行動：${sim.pending.left}</p>` : '');
   $('opts').innerHTML = (sim.pending && opts ? opts : []).map(o => `<button class="opt" data-id="${o.id}">${o.label}${o.detail ? `<small>${o.detail}</small>` : ''}</button>`).join('') || '<p class="note">いまはあなたの番ではありません。</p>';

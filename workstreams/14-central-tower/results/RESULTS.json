@@ -5,6 +5,7 @@
   "seed": 1,
   "case": "A",
   "days": 14,
+  "periodHours": null,
   "nations": [
    10,
    10,
