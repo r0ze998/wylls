@@ -168,3 +168,9 @@
   - **D2**（`e2e-native` の `while_the_world_runs_deposits_have_no_exit`）：Season が動いている間も Pay は入金を受け付ける。一方、Tally と Finalize は SeasonNotEnded、SetShares と WithdrawOps は WrongState、Claim も通らない。**終わらない世界では、入金にも運営分にも出口が無い。**
   - **D3**（`a_closed_citizen_loses_its_shares_claim_but_not_a_refund`）：shares モードの Claim は、勝った国の Citizen の口座を要求する。後始末で Citizen が閉じられると、その人の受取は拒否され、取り分が金庫に残ったままになる。refund モードの Claim は Entry だけで通る。**既存の受取権を守るには、精算と受取の前に CloseCitizen を止めるか、Claim が Citizen を要求しない経路が要る**（program の変更。未適用）。
   - x402 の欄の案（今のコードが返す値）：x402Version 1、scheme exact、`maxAmountRequired = pool.fee`（6 桁の最小単位）、`payTo` は金庫の PDA、取引は 5 命令（Pay＋Join を含む）。公式の x402 との差（network 名、resource の形、Join を含むこと）が⑰から報告されている。registry には、⑰の 0001〜0005 を受け取って照合してから載せる。
+- **⑲（MagicBlock と公開 RPC。ローカル枝 `claude/ecstatic-cannon-d0jfc4`、基点 4cd901de、未受領）**：④の「着地した／していない」の判定と、履歴の取得に効く事実。
+  - fclient は `getTransaction` に `maxSupportedTransactionVersion: 0` を送る（`frontier-node/crates/fclient/src/rpc.rs:157`。④が確認）。そのため、委任プログラムの v1 の取引（解除・commit）が program のアドレスの履歴に現れると、-32015 で findex の取得が毎回止まる（⑲が Agave 4.2.2 と ephemeral-validator 1.1.1 で再現）。
+  - findex の `RpcPoll` は、最後のページが `until` に届いたかを確かめない。ノードが履歴を刈り込んでいると、欠落を黙って保存する（`findex/src/ingest.rs:115-150`。④がコードで確認）。⑲は修正 7b53a87 を持っている（欠落なら `Unavailable("history gap")` で何も保存しない）。
+  - Absent の条件についての⑲の提案は、④の HANDOFF §3 と一致する：finalized で読み、全履歴を探し、ノードの保持範囲が送信の slot 以前で、blockhash が失効済みのときだけ。ER 宛ての送信は、署名の状態からは Absent にせず、対象口座の状態（seq と head の compare-and-set）で判定する。
+  - 委任のセッションは、期間の終わりでは閉じない（閉じるのは commit の予算、検証者の交代、保守のとき）。S1 の既存の口座は、どれも委任の候補にしていない。
+  - 共有コアの変更案（未適用、④の判断待ち）：(a) `maxSupportedTransactionVersion` を 1 以上にする、(b) v1 の取引は解釈できなくても記録する、(c) 委任先の口座のアドレスでも履歴を取る、findex の欠落の検出（7b53a87）。届いたら、隔離した作業コピーで検証する。
