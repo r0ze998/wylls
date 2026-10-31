@@ -337,6 +337,16 @@ impl World {
         }
     }
 
+    /// The ER's storage is wiped: on restart it clones the base copy again
+    /// (measured on the local stack, ephemeral-validator 1.1.1).
+    pub fn er_wipe(&mut self) {
+        self.er.copy = None;
+        self.er.intents.clear();
+        self.er.unacked = None;
+        self.er.log.clear();
+        self.er.up = true;
+    }
+
     pub fn er_crash(&mut self) {
         self.er.up = false;
     }

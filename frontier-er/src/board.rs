@@ -53,14 +53,19 @@ pub const AUTHORITY: usize = 160;
 pub enum WriteErr {
     /// Not a board of this world (wrong size, magic or world id).
     BadAccount,
-    /// The board is at another `seq`; `applied` says whether its last write
-    /// is this very request (a duplicate) or another one.
+    /// The board is not at the version `(expect_seq, expect_head)` the write
+    /// built on; `applied` says whether its last write is this very request
+    /// (a duplicate) or another one.
     StaleSeq { at: u64, applied: bool },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Write {
     pub expect_seq: u64,
+    /// The head of the version the write built on: a write applies only to
+    /// that exact version, not to another history at the same `seq` (an ER
+    /// that lost writes re-reaches a `seq` with other content; measured).
+    pub expect_head: [u8; 32],
     pub req_id: [u8; 32],
     pub payload: [u8; PAYLOAD_LEN],
     pub bell: u32,
@@ -70,8 +75,37 @@ impl Write {
     /// The request id a sender derives before sending: it binds the target,
     /// the version it builds on and the content, so a retry of the same
     /// intent has the same id and a new intent a new one.
-    pub fn request_id(target: &[u8; 32], expect_seq: u64, payload: &[u8; PAYLOAD_LEN]) -> [u8; 32] {
-        hashv(&[b"wylls-er-req", target, &expect_seq.to_le_bytes(), payload])
+    pub fn request_id(
+        target: &[u8; 32],
+        expect_seq: u64,
+        expect_head: &[u8; 32],
+        payload: &[u8; PAYLOAD_LEN],
+    ) -> [u8; 32] {
+        hashv(&[
+            b"wylls-er-req",
+            target,
+            &expect_seq.to_le_bytes(),
+            expect_head,
+            payload,
+        ])
+    }
+
+    /// A write built on the version `copy` holds, or `None` if `copy` is not
+    /// a board.
+    pub fn on(
+        target: &[u8; 32],
+        copy: &[u8],
+        payload: [u8; PAYLOAD_LEN],
+        bell: u32,
+    ) -> Option<Write> {
+        let (seq, head) = header(copy)?;
+        Some(Write {
+            expect_seq: seq,
+            expect_head: head,
+            req_id: Write::request_id(target, seq, &head, &payload),
+            payload,
+            bell,
+        })
     }
 }
 
@@ -154,7 +188,7 @@ pub fn apply_with(
     if world_of(d) != world {
         return Err(WriteErr::BadAccount);
     }
-    if seq != w.expect_seq {
+    if seq != w.expect_seq || head != w.expect_head {
         return Err(WriteErr::StaleSeq {
             at: seq,
             applied: last_req(d) == w.req_id,
@@ -187,20 +221,15 @@ pub fn replay(world: u64, writes: &[Write]) -> Result<Vec<u8>, WriteErr> {
 mod tests {
     use super::*;
 
-    fn w(seq: u64, p: u8) -> Write {
-        let payload = [p; PAYLOAD_LEN];
-        Write {
-            expect_seq: seq,
-            req_id: Write::request_id(&[9; 32], seq, &payload),
-            payload,
-            bell: 7,
-        }
+    fn w(d: &[u8], p: u8) -> Write {
+        Write::on(&[9; 32], d, [p; PAYLOAD_LEN], 7).unwrap()
     }
 
     #[test]
     fn a_duplicate_never_applies_twice() {
         let mut d = new_board(5);
-        let a = w(0, 1);
+        let fresh = d.clone();
+        let a = w(&d, 1);
         assert_eq!(apply(&mut d, 5, &a).map(|x| x.0), Ok(1));
         assert_eq!(
             apply(&mut d, 5, &a),
@@ -209,7 +238,7 @@ mod tests {
                 applied: true
             })
         );
-        let b = w(0, 2); // built on the same version, another content
+        let b = w(&fresh, 2); // built on the same version, another content
         assert_eq!(
             apply(&mut d, 5, &b),
             Err(WriteErr::StaleSeq {
@@ -220,14 +249,37 @@ mod tests {
     }
 
     #[test]
+    fn a_write_applies_only_to_the_exact_version_it_built_on() {
+        // Two histories reach seq 1 with different heads.
+        let mut x = new_board(5);
+        let mut y = new_board(5);
+        let (wx, wy) = (w(&x, 1), w(&y, 2));
+        apply(&mut x, 5, &wx).unwrap();
+        apply(&mut y, 5, &wy).unwrap();
+        let on_x = w(&x, 3);
+        assert!(matches!(
+            apply(&mut y, 5, &on_x),
+            Err(WriteErr::StaleSeq { at: 1, .. })
+        ));
+        assert_eq!(apply(&mut x, 5, &on_x).map(|r| r.0), Ok(2));
+    }
+
+    #[test]
     fn the_head_is_the_replay_of_the_writes() {
-        let ws = [w(0, 1), w(1, 2), w(2, 3)];
-        let d = replay(5, &ws).unwrap();
+        let mut d = new_board(5);
+        let mut ws = vec![];
+        for p in 1..=3 {
+            let x = w(&d, p);
+            apply(&mut d, 5, &x).unwrap();
+            ws.push(x);
+        }
+        let r = replay(5, &ws).unwrap();
         let mut head = [0u8; 32];
         for (i, x) in ws.iter().enumerate() {
             head = next_head(&head, i as u64 + 1, &body(x));
         }
-        assert_eq!(header(&d), Some((3, head)));
+        assert_eq!(header(&r), Some((3, head)));
+        assert_eq!(header(&d), header(&r));
         assert_eq!(
             apply(&mut new_board(6), 5, &ws[0]),
             Err(WriteErr::BadAccount)

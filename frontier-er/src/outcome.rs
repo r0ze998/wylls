@@ -19,7 +19,7 @@
 //! ([`crate::board`]), so "unknown" only ever means "resend the same
 //! request" or "look", never "send a new one".
 
-use crate::board::{self, PAYLOAD_LEN};
+use crate::board::{self, Write, PAYLOAD_LEN};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Landed {
@@ -37,16 +37,24 @@ pub enum Landed {
     /// The copy is older than the version the request built on (a stale
     /// endpoint, or a timeout rollback dropped it): nothing is known.
     Behind { at: u64 },
+    /// The copy is at the request's `seq` with another head: the version it
+    /// built on was lost (a wiped ER re-cloned the base copy and took other
+    /// writes). It can never apply; the sender looks again.
+    Orphaned { at: u64 },
 }
 
-/// Classifies a request `(expect_seq, req_id)` against one copy's bytes.
-pub fn classify(copy: &[u8], expect_seq: u64, req_id: &[u8; 32]) -> Option<Landed> {
-    let (seq, _) = board::header(copy)?;
-    Some(if seq == expect_seq {
+/// Classifies a request `(expect_seq, expect_head, req_id)` against one
+/// copy's bytes.
+pub fn classify(copy: &[u8], w: &Write) -> Option<Landed> {
+    let (seq, head) = board::header(copy)?;
+    Some(if seq == w.expect_seq && head == w.expect_head {
         Landed::NotYet
-    } else if seq < expect_seq {
+    } else if seq < w.expect_seq {
         Landed::Behind { at: seq }
-    } else if seq == expect_seq + 1 && board::last_req(copy) == *req_id {
+    } else if seq == w.expect_seq {
+        // Same seq, another head: the version it built on is gone.
+        Landed::Orphaned { at: seq }
+    } else if seq == w.expect_seq + 1 && board::last_req(copy) == w.req_id {
         Landed::Yes { seq }
     } else {
         Landed::Superseded { at: seq }
@@ -86,8 +94,13 @@ pub fn absent_by_status(r: &StatusRead) -> bool {
 }
 
 /// The request id a sender stores in its journal before sending.
-pub fn journal_entry(target: &[u8; 32], expect_seq: u64, payload: &[u8; PAYLOAD_LEN]) -> [u8; 32] {
-    board::Write::request_id(target, expect_seq, payload)
+pub fn journal_entry(
+    target: &[u8; 32],
+    expect_seq: u64,
+    expect_head: &[u8; 32],
+    payload: &[u8; PAYLOAD_LEN],
+) -> [u8; 32] {
+    Write::request_id(target, expect_seq, expect_head, payload)
 }
 
 #[cfg(test)]

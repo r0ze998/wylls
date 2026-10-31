@@ -116,6 +116,11 @@ pub enum Stop {
     UnknownValidator,
     /// Two copies at the same `seq` with different heads.
     Divergence { seq: u64 },
+    /// The ER serves an older version than one already seen from it in this
+    /// delegation (`seen`): it lost writes it had accepted (a wiped or
+    /// replaced ER ledger re-clones the base copy). Measured on the local
+    /// stack: a storage wipe drops every uncommitted write silently.
+    ErRegressed { seen: u64, now: u64 },
     /// An ER copy is ahead of a program-owned base without a rollback mark:
     /// writes were accepted that never came home, and nothing records why.
     UnexplainedErAhead { er: u64, base: u64 },
@@ -261,10 +266,13 @@ pub fn decide(base: &BaseObs, ers: &[ErObs], p: &Policy) -> Decision {
     }
 }
 
-/// Keeps `last_good_slot` across calls.
+/// Keeps `last_good_slot` and the ER high-water mark across calls.
 #[derive(Clone, Debug)]
 pub struct Guard {
     pub policy: Policy,
+    /// Highest ER version seen during the current delegation; persisted by
+    /// the caller with its journal so a restart keeps it.
+    pub er_high: Option<u64>,
 }
 
 impl Guard {
@@ -276,13 +284,32 @@ impl Guard {
                 escape_after_slots,
                 last_good_slot: now,
             },
+            er_high: None,
         }
     }
 
     pub fn decide(&mut self, base: &BaseObs, ers: &[ErObs]) -> Decision {
         let d = decide(base, ers, &self.policy);
-        if matches!(d, Decision::Er { .. } | Decision::Base { .. }) {
-            self.policy.last_good_slot = base.slot;
+        match &d {
+            Decision::Er { live, .. } => {
+                if let Some(seen) = self.er_high.filter(|s| s > live) {
+                    return Decision::Stop(Stop::ErRegressed { seen, now: *live });
+                }
+                self.er_high = Some(*live);
+                self.policy.last_good_slot = base.slot;
+            }
+            Decision::Base { seq, .. } => {
+                // Home: the session's writes are on the base (or recorded as
+                // lost by a rollback mark); the mark restarts.
+                if let Some(seen) = self.er_high.filter(|s| s > seq) {
+                    if base.rolled_back_at != Some(*seq) {
+                        return Decision::Stop(Stop::ErRegressed { seen, now: *seq });
+                    }
+                }
+                self.er_high = None;
+                self.policy.last_good_slot = base.slot;
+            }
+            _ => {}
         }
         d
     }

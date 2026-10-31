@@ -21,14 +21,14 @@ const TARGET: [u8; 32] = [0x42; 32];
 /// Policy: propose the escape after 750 base slots (~5 min) without an ER.
 const ESCAPE_AFTER: u64 = 750;
 
-fn write(expect_seq: u64, p: u8) -> Write {
-    let payload = [p; PAYLOAD_LEN];
-    Write {
-        expect_seq,
-        req_id: Write::request_id(&TARGET, expect_seq, &payload),
-        payload,
-        bell: 3,
-    }
+/// A write built on the copy writes go to now: the ER's while it has one
+/// for a delegated board, else the base's (which the ER clones).
+fn nx(w: &World, p: u8) -> Write {
+    let copy = match (&w.base.owner, &w.er.copy) {
+        (Owner::Dlp, Some(c)) => c.as_slice(),
+        _ => w.base.data.as_slice(),
+    };
+    Write::on(&TARGET, copy, [p; PAYLOAD_LEN], 3).unwrap()
 }
 
 /// The base as a reader sees it at `finalized` (the model's base state is
@@ -80,8 +80,11 @@ fn drain(w: &mut World) {
 #[test]
 fn the_minimal_path_round_trip() {
     let mut w = World::new(WORLD, VALIDATOR, PAYER);
+    let mut applied = vec![];
     // Base: one write before delegation.
-    w.base_write(&write(0, 1)).unwrap();
+    let x = nx(&w, 1);
+    w.base_write(&x).unwrap();
+    applied.push(x);
     assert!(matches!(
         decide(&base_obs(&w, true), &[], &policy(&w)),
         Decision::Base { seq: 1, .. }
@@ -89,15 +92,17 @@ fn the_minimal_path_round_trip() {
 
     // Delegate. Base writes are refused from now on.
     w.delegate(VALIDATOR, PAYER).unwrap();
-    assert_eq!(w.base_write(&write(1, 2)), Err(SimErr::NotProgramOwned));
+    assert_eq!(w.base_write(&nx(&w, 2)), Err(SimErr::NotProgramOwned));
     // Before the first ER write the ER has no copy.
     assert_eq!(
         decide(&base_obs(&w, true), &[er_obs(&w, "er")], &policy(&w)),
         Decision::Hold(Hold::NotCloned)
     );
     // Writes on the ER (the first one clones the account).
-    for (i, p) in [2u8, 3, 4].iter().enumerate() {
-        w.er_write(&write(1 + i as u64, *p)).unwrap();
+    for p in [2u8, 3, 4] {
+        let x = nx(&w, p);
+        w.er_write(&x).unwrap();
+        applied.push(x);
     }
     match decide(&base_obs(&w, true), &[er_obs(&w, "er")], &policy(&w)) {
         Decision::Er {
@@ -119,9 +124,11 @@ fn the_minimal_path_round_trip() {
     assert_eq!(w.base.owner, Owner::Dlp);
 
     // Commit and undelegate: the ER copy freezes at once.
-    w.er_write(&write(4, 5)).unwrap();
+    let x = nx(&w, 5);
+    w.er_write(&x).unwrap();
+    applied.push(x);
     w.er_schedule(Intent::CommitAndUndelegate).unwrap();
-    assert_eq!(w.er_write(&write(5, 6)), Err(SimErr::ErNotWritable));
+    assert_eq!(w.er_write(&nx(&w, 6)), Err(SimErr::ErNotWritable));
     assert!(matches!(
         decide(&base_obs(&w, true), &[er_obs(&w, "er")], &policy(&w)),
         Decision::Hold(Hold::Undelegating {
@@ -138,13 +145,12 @@ fn the_minimal_path_round_trip() {
         decide(&base_obs(&w, true), &[er_obs(&w, "er")], &policy(&w)),
         Decision::Base { seq: 5, .. }
     ));
-    w.base_write(&write(5, 6)).unwrap();
+    let x = nx(&w, 6);
+    w.base_write(&x).unwrap();
+    applied.push(x);
 
     // Every honest copy is the replay of the writes in order, across layers.
-    let writes: Vec<Write> = (0..6)
-        .map(|i| write(i, [1, 2, 3, 4, 5, 6][i as usize]))
-        .collect();
-    let replay = board::replay(WORLD, &writes).unwrap();
+    let replay = board::replay(WORLD, &applied).unwrap();
     assert_eq!(board::header(&w.base.data), board::header(&replay));
 }
 
@@ -173,7 +179,7 @@ fn a_confirmed_read_is_not_enough_to_act() {
 fn a_committor_crash_between_commit_state_and_finalize_holds_then_completes() {
     let mut w = World::new(WORLD, VALIDATOR, PAYER);
     w.delegate(VALIDATOR, PAYER).unwrap();
-    w.er_write(&write(0, 1)).unwrap();
+    w.er_write(&nx(&w, 1)).unwrap();
     w.er_schedule(Intent::CommitAndUndelegate).unwrap();
     assert!(w.committor_step(CommitFault::AfterCommitState));
     // The validator is down with a pending diff on the base.
@@ -182,7 +188,7 @@ fn a_committor_crash_between_commit_state_and_finalize_holds_then_completes() {
         Decision::Hold(Hold::CommitInFlight)
     );
     // Base writes stay refused: the base never takes over by itself.
-    assert_eq!(w.base_write(&write(1, 2)), Err(SimErr::NotProgramOwned));
+    assert_eq!(w.base_write(&nx(&w, 2)), Err(SimErr::NotProgramOwned));
     w.er_restart();
     drain(&mut w);
     assert_eq!(w.base.owner, Owner::Program);
@@ -193,13 +199,13 @@ fn a_committor_crash_between_commit_state_and_finalize_holds_then_completes() {
 fn a_commit_whose_response_was_lost_is_resent_and_ignored() {
     let mut w = World::new(WORLD, VALIDATOR, PAYER);
     w.delegate(VALIDATOR, PAYER).unwrap();
-    w.er_write(&write(0, 1)).unwrap();
+    w.er_write(&nx(&w, 1)).unwrap();
     w.er_schedule(Intent::Commit).unwrap();
     assert!(w.committor_step(CommitFault::ResponseLost));
     let after_first = w.base.clone();
     // More ER writes, then the validator resends the old commit: the nonce
     // is already finalized, so the base keeps the newer state.
-    w.er_write(&write(1, 2)).unwrap();
+    w.er_write(&nx(&w, 2)).unwrap();
     w.er_schedule(Intent::Commit).unwrap();
     drain(&mut w);
     assert_eq!(w.base.record.as_ref().unwrap().nonce, 2);
@@ -213,7 +219,7 @@ fn an_er_stop_holds_and_the_escape_restores_the_last_finalized_state() {
     let mut w = World::new(WORLD, VALIDATOR, PAYER);
     let mut g = Guard::new(VALIDATOR, ESCAPE_AFTER, w.base.slot);
     w.delegate(VALIDATOR, PAYER).unwrap();
-    w.er_write(&write(0, 1)).unwrap();
+    w.er_write(&nx(&w, 1)).unwrap();
     w.er_schedule(Intent::Commit).unwrap();
     drain(&mut w);
     assert!(matches!(
@@ -225,8 +231,9 @@ fn an_er_stop_holds_and_the_escape_restores_the_last_finalized_state() {
         }
     ));
     // Two writes the base never sees, then the ER stops.
-    w.er_write(&write(1, 2)).unwrap();
-    w.er_write(&write(2, 3)).unwrap();
+    w.er_write(&nx(&w, 2)).unwrap();
+    let lost = nx(&w, 3);
+    w.er_write(&lost).unwrap();
     w.er_crash();
     w.advance(10);
     match g.decide(&base_obs(&w, true), &[er_obs(&w, "er")]) {
@@ -261,9 +268,8 @@ fn an_er_stop_holds_and_the_escape_restores_the_last_finalized_state() {
     assert_eq!(board::header(&w.base.data).unwrap().0, 1);
     assert_eq!(board::rolled_back_at(&w.base.data), Some(1));
     // The two ER writes are lost; a sender sees its request behind the base.
-    let lost = write(2, 3);
     assert_eq!(
-        classify(&w.base.data, lost.expect_seq, &lost.req_id),
+        classify(&w.base.data, &lost),
         Some(Landed::Behind { at: 1 })
     );
     // The ER comes back with its ghost copy: ignored and shown as lost.
@@ -285,14 +291,14 @@ fn an_er_stop_holds_and_the_escape_restores_the_last_finalized_state() {
     drain(&mut w);
     assert_eq!(board::header(&w.base.data).unwrap().0, 1);
     // Base writes resume from the restored version.
-    w.base_write(&write(1, 9)).unwrap();
+    w.base_write(&nx(&w, 9)).unwrap();
 }
 
 #[test]
 fn a_request_while_the_validator_is_up_undelegates_normally() {
     let mut w = World::new(WORLD, VALIDATOR, PAYER);
     w.delegate(VALIDATOR, PAYER).unwrap();
-    w.er_write(&write(0, 1)).unwrap();
+    w.er_write(&nx(&w, 1)).unwrap();
     w.request_undelegation(PAYER).unwrap();
     w.validator_poll();
     drain(&mut w);
@@ -305,13 +311,13 @@ fn a_request_while_the_validator_is_up_undelegates_normally() {
 fn an_rpc_switch_to_a_lagging_or_foreign_endpoint_is_not_followed() {
     let mut w = World::new(WORLD, VALIDATOR, PAYER);
     w.delegate(VALIDATOR, PAYER).unwrap();
-    w.er_write(&write(0, 1)).unwrap();
+    w.er_write(&nx(&w, 1)).unwrap();
     w.er_schedule(Intent::Commit).unwrap();
     drain(&mut w);
     // A replica that stopped following at seq 1.
     let lagging = er_obs(&w, "replica");
-    w.er_write(&write(1, 2)).unwrap();
-    w.er_write(&write(2, 3)).unwrap();
+    w.er_write(&nx(&w, 2)).unwrap();
+    w.er_write(&nx(&w, 3)).unwrap();
     let primary = er_obs(&w, "primary");
     let foreign = ErObs {
         identity: OTHER,
@@ -351,15 +357,14 @@ fn an_rpc_switch_to_a_lagging_or_foreign_endpoint_is_not_followed() {
 fn a_restarted_sender_resends_the_same_request_and_it_applies_once() {
     let mut w = World::new(WORLD, VALIDATOR, PAYER);
     w.delegate(VALIDATOR, PAYER).unwrap();
-    let a = write(0, 1);
-    w.er_write(&a).unwrap(); // landed; the sender crashed before recording it
-                             // After restart the journal has `a` as sent-unknown. It classifies by
-                             // state first…
+    let a = nx(&w, 1);
+    // A rival built on the same version, sent later by someone else.
+    let b = nx(&w, 2);
+    // `a` landed; the sender crashed before recording it. After restart
+    // the journal has `a` as sent-unknown. It classifies by state first…
+    w.er_write(&a).unwrap();
     let copy = w.er.copy.clone().unwrap();
-    assert_eq!(
-        classify(&copy, a.expect_seq, &a.req_id),
-        Some(Landed::Yes { seq: 1 })
-    );
+    assert_eq!(classify(&copy, &a), Some(Landed::Yes { seq: 1 }));
     // …and a blind resend is refused as a duplicate, not applied again.
     assert_eq!(
         w.er_write(&a),
@@ -368,8 +373,7 @@ fn a_restarted_sender_resends_the_same_request_and_it_applies_once() {
             applied: true
         }))
     );
-    // A rival write built on the same version loses.
-    let b = write(0, 2);
+    // The rival built on the same version loses.
     assert_eq!(
         w.er_write(&b),
         Err(SimErr::Board(WriteErr::StaleSeq {
@@ -379,12 +383,9 @@ fn a_restarted_sender_resends_the_same_request_and_it_applies_once() {
     );
     // Once followed by another write, state alone says "superseded"; the
     // ER log decides.
-    w.er_write(&write(1, 3)).unwrap();
+    w.er_write(&nx(&w, 3)).unwrap();
     let copy = w.er.copy.clone().unwrap();
-    assert_eq!(
-        classify(&copy, a.expect_seq, &a.req_id),
-        Some(Landed::Superseded { at: 2 })
-    );
+    assert_eq!(classify(&copy, &a), Some(Landed::Superseded { at: 2 }));
     let log: Vec<(u64, [u8; 32])> = w.er.log.iter().map(|x| (x.expect_seq, x.req_id)).collect();
     assert!(in_log(&log, a.expect_seq, &a.req_id));
     assert!(!in_log(&log, b.expect_seq, &b.req_id));
@@ -394,7 +395,7 @@ fn a_restarted_sender_resends_the_same_request_and_it_applies_once() {
 fn the_same_request_sent_to_both_layers_applies_on_one() {
     let mut w = World::new(WORLD, VALIDATOR, PAYER);
     w.delegate(VALIDATOR, PAYER).unwrap();
-    let a = write(0, 1);
+    let a = nx(&w, 1);
     assert_eq!(w.base_write(&a), Err(SimErr::NotProgramOwned));
     w.er_write(&a).unwrap();
     w.er_schedule(Intent::CommitAndUndelegate).unwrap();
@@ -415,12 +416,12 @@ fn mixed_reads_keep_live_and_committed_apart() {
     let mut w = World::new(WORLD, VALIDATOR, PAYER);
     w.delegate(VALIDATOR, PAYER).unwrap();
     for i in 0..5 {
-        w.er_write(&write(i, i as u8)).unwrap();
+        w.er_write(&nx(&w, i as u8)).unwrap();
     }
     w.er_schedule(Intent::Commit).unwrap();
     drain(&mut w);
     for i in 5..8 {
-        w.er_write(&write(i, i as u8)).unwrap();
+        w.er_write(&nx(&w, i as u8)).unwrap();
     }
     match decide(&base_obs(&w, true), &[er_obs(&w, "er")], &policy(&w)) {
         Decision::Er {
@@ -444,7 +445,7 @@ fn contradictions_stop() {
 
     let mut w = World::new(WORLD, VALIDATOR, PAYER);
     w.delegate(VALIDATOR, PAYER).unwrap();
-    w.er_write(&write(0, 1)).unwrap();
+    w.er_write(&nx(&w, 1)).unwrap();
     w.er_schedule(Intent::Commit).unwrap();
     drain(&mut w);
     // An ER copy at the committed seq with another head.
@@ -456,7 +457,7 @@ fn contradictions_stop() {
     );
     // An ER copy ahead of a program-owned base with no rollback mark.
     let mut w2 = World::new(WORLD, VALIDATOR, PAYER);
-    w2.base_write(&write(0, 1)).unwrap();
+    w2.base_write(&nx(&w2, 1)).unwrap();
     let ahead = ErObs {
         endpoint: "er",
         reachable: true,
@@ -501,11 +502,11 @@ fn the_sponsored_commit_cap_leaves_the_way_home_open() {
     let mut w = World::new(WORLD, VALIDATOR, PAYER);
     w.delegate(VALIDATOR, PAYER).unwrap();
     for i in 0..10u64 {
-        w.er_write(&write(i, i as u8)).unwrap();
+        w.er_write(&nx(&w, i as u8)).unwrap();
         w.er_schedule(Intent::Commit).unwrap();
         drain(&mut w);
     }
-    w.er_write(&write(10, 10)).unwrap();
+    w.er_write(&nx(&w, 10)).unwrap();
     assert_eq!(w.er_schedule(Intent::Commit), Err(SimErr::CommitCap));
     // The final commit-and-undelegate is still allowed.
     w.er_schedule(Intent::CommitAndUndelegate).unwrap();
@@ -522,7 +523,7 @@ fn a_target_left_on_a_stopped_er_is_reported_never_taken_back_automatically() {
     let mut w = World::new(WORLD, VALIDATOR, PAYER);
     let mut g = Guard::new(VALIDATOR, ESCAPE_AFTER, w.base.slot);
     w.delegate(VALIDATOR, PAYER).unwrap();
-    w.er_write(&write(0, 1)).unwrap();
+    w.er_write(&nx(&w, 1)).unwrap();
     w.er_crash();
     w.advance(REQUEST_TIMEOUT_SLOTS);
     assert!(matches!(
@@ -531,5 +532,48 @@ fn a_target_left_on_a_stopped_er_is_reported_never_taken_back_automatically() {
             escape_eligible: true,
             ..
         })
+    ));
+}
+
+#[test]
+fn a_wiped_er_that_lost_writes_stops_instead_of_looking_clean() {
+    let mut w = World::new(WORLD, VALIDATOR, PAYER);
+    let mut g = Guard::new(VALIDATOR, ESCAPE_AFTER, w.base.slot);
+    w.delegate(VALIDATOR, PAYER).unwrap();
+    w.er_write(&nx(&w, 1)).unwrap();
+    w.er_schedule(Intent::Commit).unwrap();
+    drain(&mut w);
+    w.er_write(&nx(&w, 2)).unwrap();
+    let lost = nx(&w, 3);
+    w.er_write(&lost).unwrap();
+    assert!(matches!(
+        g.decide(&base_obs(&w, true), &[er_obs(&w, "er")]),
+        Decision::Er {
+            live: 3,
+            committed: 1,
+            ..
+        }
+    ));
+    // Wiped: the ER re-clones the base copy (seq 1) on the next use, and
+    // another write takes seq 2 with other content.
+    w.er_wipe();
+    w.er_write(&nx(&w, 9)).unwrap();
+    // Without the high-water mark this would read as a clean session at 2.
+    let plain = decide(&base_obs(&w, true), &[er_obs(&w, "er")], &policy(&w));
+    assert!(matches!(plain, Decision::Er { live: 2, .. }));
+    assert_eq!(
+        g.decide(&base_obs(&w, true), &[er_obs(&w, "er")]),
+        Decision::Stop(Stop::ErRegressed { seen: 3, now: 2 })
+    );
+    // The sender of the lost write (built on the old seq 2) sees its
+    // version orphaned: same seq, other head. A resend can never apply.
+    let copy = w.er.copy.clone().unwrap();
+    assert_eq!(classify(&copy, &lost), Some(Landed::Orphaned { at: 2 }));
+    assert!(matches!(
+        w.er_write(&lost),
+        Err(SimErr::Board(WriteErr::StaleSeq {
+            at: 2,
+            applied: false
+        }))
     ));
 }

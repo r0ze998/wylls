@@ -13,7 +13,7 @@
 //! | disc (u64 LE) | instruction | accounts | who |
 //! |---|---|---|---|
 //! | 0 | Init `{world}` | payer s,w · board w · system | the world's authority (stored) |
-//! | 1 | Write `{world, expect_seq, req_id, payload, bell}` | writer s · board w | any signer (who may write is the use's rule, not decided) |
+//! | 1 | Write `{world, expect_seq, expect_head, req_id, payload, bell}` | writer s · board w | any signer (who may write is the use's rule, not decided) |
 //! | 2 | Delegate `{world}` | authority s,w · system · board w · owner program · buffer w · record w · metadata w · DLP · validator | authority (it is the rent payer the escape needs) |
 //! | 3 | Commit `{world}` | payer s · board w · magic program · magic context | anyone, on the ER |
 //! | 4 | CommitAndUndelegate `{world}` | authority s · board w · magic program · magic context | authority, on the ER |
@@ -22,7 +22,8 @@
 //! | `[196,28,41,206,48,37,51,167]` | the DLP's undelegate callback `{seeds}` | board w · buffer s · payer s,w · system | the DLP only (buffer owned by it, signer) |
 //!
 //! Every write follows `frontier_er::board::apply`: compare-and-set on
-//! `seq`, so a duplicate applies at most once whichever layer it reaches.
+//! `(seq, head)`, so a duplicate applies at most once whichever layer it
+//! reaches, and never on another history at the same `seq`.
 
 #![allow(unexpected_cfgs)]
 
@@ -90,7 +91,11 @@ fn hashv(parts: &[&[u8]]) -> [u8; 32] {
 #[cfg(all(target_os = "solana", not(feature = "no-entrypoint")))]
 solana_program::entrypoint!(process_instruction);
 
-pub fn process_instruction(program_id: &Pubkey, accounts: &[AccountInfo], data: &[u8]) -> ProgramResult {
+pub fn process_instruction(
+    program_id: &Pubkey,
+    accounts: &[AccountInfo],
+    data: &[u8],
+) -> ProgramResult {
     if data.len() < 8 {
         return Err(BoardError::BadData.into());
     }
@@ -117,7 +122,10 @@ pub fn process_instruction(program_id: &Pubkey, accounts: &[AccountInfo], data: 
     }
 }
 
-fn account<'a, 'b>(a: &'a [AccountInfo<'b>], i: usize) -> Result<&'a AccountInfo<'b>, ProgramError> {
+fn account<'a, 'b>(
+    a: &'a [AccountInfo<'b>],
+    i: usize,
+) -> Result<&'a AccountInfo<'b>, ProgramError> {
     a.get(i).ok_or(ProgramError::NotEnoughAccountKeys)
 }
 
@@ -169,7 +177,13 @@ fn init(program_id: &Pubkey, a: &[AccountInfo], world: u64) -> ProgramResult {
     }
     let lamports = Rent::get()?.minimum_balance(board::SIZE);
     invoke_signed(
-        &system_instruction::create_account(payer.key, board_ai.key, lamports, board::SIZE as u64, program_id),
+        &system_instruction::create_account(
+            payer.key,
+            board_ai.key,
+            lamports,
+            board::SIZE as u64,
+            program_id,
+        ),
         &[payer.clone(), board_ai.clone(), system.clone()],
         &[&[BOARD_SEED, &world.to_le_bytes(), &[bump]]],
     )?;
@@ -187,22 +201,31 @@ fn write(program_id: &Pubkey, a: &[AccountInfo], world: u64, args: &[u8]) -> Pro
         return Err(ProgramError::MissingRequiredSignature);
     }
     owned_board(program_id, board_ai, world)?;
-    if args.len() != 8 + 32 + 32 + 4 {
+    // expect_seq ‖ expect_head ‖ req_id ‖ payload ‖ bell
+    if args.len() != 8 + 32 + 32 + 32 + 4 {
         return Err(BoardError::BadData.into());
     }
-    let mut w = Write {
-        expect_seq: u64::from_le_bytes(args[..8].try_into().map_err(|_| BoardError::BadData)?),
-        req_id: [0; 32],
-        payload: [0; 32],
-        bell: u32::from_le_bytes(args[72..76].try_into().map_err(|_| BoardError::BadData)?),
+    let arr = |r: std::ops::Range<usize>| -> Result<[u8; 32], ProgramError> {
+        args[r].try_into().map_err(|_| BoardError::BadData.into())
     };
-    w.req_id.copy_from_slice(&args[8..40]);
-    w.payload.copy_from_slice(&args[40..72]);
+    let w = Write {
+        expect_seq: u64::from_le_bytes(args[..8].try_into().map_err(|_| BoardError::BadData)?),
+        expect_head: arr(8..40)?,
+        req_id: arr(40..72)?,
+        payload: arr(72..104)?,
+        bell: u32::from_le_bytes(args[104..108].try_into().map_err(|_| BoardError::BadData)?),
+    };
     let mut d = board_ai.try_borrow_mut_data()?;
     match board::apply_with(&mut d, world, &w, hashv) {
         Ok((seq, head)) => {
             // The record a reader chains: (seq, head, request).
-            solana_program::log::sol_log_data(&[b"ERB", &seq.to_le_bytes(), &head, &w.req_id, &w.payload]);
+            solana_program::log::sol_log_data(&[
+                b"ERB",
+                &seq.to_le_bytes(),
+                &head,
+                &w.req_id,
+                &w.payload,
+            ]);
             Ok(())
         }
         Err(WriteErr::StaleSeq { applied: true, .. }) => Err(BoardError::Duplicate.into()),
@@ -265,20 +288,31 @@ fn commit(program_id: &Pubkey, a: &[AccountInfo], world: u64, undelegate: bool) 
         return Err(BoardError::WrongMagicProgram.into());
     }
     owned_board(program_id, board_ai, world)?;
-    let b = MagicIntentBundleBuilder::new(payer.clone(), magic_context.clone(), magic_program.clone());
+    let b =
+        MagicIntentBundleBuilder::new(payer.clone(), magic_context.clone(), magic_program.clone());
     if undelegate {
         require_authority(board_ai, payer)?;
-        b.commit_and_undelegate(&[board_ai.clone()]).build_and_invoke()?;
+        b.commit_and_undelegate(std::slice::from_ref(board_ai))
+            .build_and_invoke()?;
     } else {
-        b.commit(&[board_ai.clone()]).build_and_invoke()?;
+        b.commit(std::slice::from_ref(board_ai))
+            .build_and_invoke()?;
     }
-    msg!("ERB {} world {}", if undelegate { "undelegate" } else { "commit" }, world);
+    msg!(
+        "ERB {} world {}",
+        if undelegate { "undelegate" } else { "commit" },
+        world
+    );
     Ok(())
 }
 
 /// The DLP hands the board back: only to its own address, with board bytes
 /// of this world.
-fn undelegate_callback(program_id: &Pubkey, a: &[AccountInfo], seeds: Vec<Vec<u8>>) -> ProgramResult {
+fn undelegate_callback(
+    program_id: &Pubkey,
+    a: &[AccountInfo],
+    seeds: Vec<Vec<u8>>,
+) -> ProgramResult {
     let board_ai = account(a, 0)?;
     let buffer = account(a, 1)?;
     let payer = account(a, 2)?;
@@ -407,7 +441,12 @@ fn rollback_after_timeout(program_id: &Pubkey, a: &[AccountInfo], world: u64) ->
         return Err(ProgramError::AccountNotRentExempt);
     }
     let (seq, head) = board::header(&saved).ok_or(BoardError::BadContent)?;
-    solana_program::log::sol_log_data(&[b"ERB_ROLLBACK", &world.to_le_bytes(), &seq.to_le_bytes(), &head]);
+    solana_program::log::sol_log_data(&[
+        b"ERB_ROLLBACK",
+        &world.to_le_bytes(),
+        &seq.to_le_bytes(),
+        &head,
+    ]);
     msg!("ERB world {} rolled back to seq {}", world, seq);
     Ok(())
 }
