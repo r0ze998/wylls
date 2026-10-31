@@ -155,6 +155,11 @@ mod fake_rpc {
         pub fn ignore_before(&self) {
             self.1.store(true, Ordering::SeqCst);
         }
+
+        /// Drops the `n` oldest transactions, as a node pruning its ledger.
+        pub fn prune(&self, n: usize) {
+            self.0.lock().unwrap().drain(..n);
+        }
     }
 
     async fn rpc(State(s): State<Txs>, Json(req): Json<Value>) -> Json<Value> {
@@ -261,6 +266,49 @@ async fn rpc_poll_refuses_a_server_that_ignores_before() {
         matches!(e, fclient::ports::PortError::Unsupported(_)),
         "{e:?}"
     );
+}
+
+/// A node that pruned its history below the archive's last signature:
+/// the pull fails and archives nothing, instead of leaving a silent gap
+/// (or, after a restart, archiving older transactions again).
+#[tokio::test]
+async fn rpc_poll_refuses_a_history_gap() {
+    let txs = fake_rpc::Txs::default();
+    let sig = |i: u8| fclient::ports::Signature::from([i; 64]).to_string();
+    for i in 1..=10u8 {
+        txs.0.lock().unwrap().push((sig(i), i as u64));
+    }
+    let url = fake_rpc::start(txs.clone()).await;
+    let mut poll = RpcPoll::new(url.clone(), Address::new_from_array([1; 32]));
+    poll.page = 4;
+    assert_eq!(findex::Source::pull(&mut poll).await.unwrap().len(), 10);
+    let cur = findex::Source::cursor(&poll);
+    // Continuity holds across later pulls while the node keeps history.
+    for i in 11..=13u8 {
+        txs.0.lock().unwrap().push((sig(i), i as u64));
+    }
+    assert_eq!(findex::Source::pull(&mut poll).await.unwrap().len(), 3);
+    for i in 14..=20u8 {
+        txs.0.lock().unwrap().push((sig(i), i as u64));
+    }
+    // The node forgets everything up to 15: the archive's last (13) and
+    // two transactions after it are gone.
+    txs.prune(15);
+    let e = findex::Source::pull(&mut poll).await.unwrap_err();
+    assert!(
+        matches!(&e, fclient::ports::PortError::Unavailable(m) if m.starts_with("history gap")),
+        "{e:?}"
+    );
+    assert_eq!(
+        findex::Source::cursor(&poll)["rpc_last"],
+        serde_json::json!(sig(13)),
+        "nothing archived past the gap"
+    );
+    // A restarted poller (only the stored cursor) refuses too, instead of
+    // archiving 16..20 after 10.
+    let mut again = RpcPoll::new(url, Address::new_from_array([1; 32]));
+    findex::Source::restore(&mut again, &cur);
+    assert!(findex::Source::pull(&mut again).await.is_err());
 }
 
 /// The local chain node honours `before` since W2-C: RpcPoll pages it in

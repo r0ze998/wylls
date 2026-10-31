@@ -13,7 +13,15 @@
 //!   `until` still terminates; a server that ignores `before` (as the
 //!   W1 local node MVP did; W2-C's node honours it) is detected when it serves a page twice and the pull fails
 //!   with `Unsupported` rather than archive a gap — such a server must be
-//!   polled before one page (≤ 1,000 transactions) fills.
+//!   polled before one page (≤ 1,000 transactions) fills. A public RPC
+//!   prunes its history: once a node no longer holds the last signature
+//!   archived, `until` matches nothing and the node answers with what it
+//!   has. Each pull therefore checks continuity before returning anything:
+//!   the signatures just older than the oldest new one must reach the last
+//!   archived signature through already-archived ones only, else the pull
+//!   fails with `Unavailable("history gap …")` and archives nothing (a
+//!   node with longer history must serve it; see
+//!   `docs/frontier/er-candidate/RECOVERY.ja.md`).
 
 use std::collections::{HashSet, VecDeque};
 use std::future::Future;
@@ -82,6 +90,9 @@ pub struct RpcPoll {
 }
 
 const SEEN_KEEP: usize = 20_000;
+/// Signatures read below the oldest new one to find the last archived one
+/// (same-slot order may differ between nodes).
+const CONTINUITY_PAGE: usize = 64;
 
 impl RpcPoll {
     pub fn new(url: impl Into<String>, program: Address) -> RpcPoll {
@@ -104,6 +115,34 @@ impl RpcPoll {
                 }
             }
         }
+    }
+}
+
+impl RpcPoll {
+    /// The signatures older than `oldest_new` must reach `last` through
+    /// archived ones only (nothing between them was skipped).
+    async fn check_continuity(&self, oldest_new: &Signature) -> PortResult<()> {
+        let Some(last) = self.last else {
+            return Ok(());
+        };
+        let older = self
+            .rpc
+            .get_signatures_for_address(&self.program, Some(oldest_new), None, CONTINUITY_PAGE)
+            .await?;
+        for s in &older {
+            if s.signature == last {
+                return Ok(());
+            }
+            if !self.seen.contains(&s.signature) {
+                return Err(PortError::Unavailable(format!(
+                    "history gap: {} lies between the archive's last signature {last} and the new batch",
+                    s.signature
+                )));
+            }
+        }
+        Err(PortError::Unavailable(format!(
+            "history gap: the node's history no longer reaches the archive's last signature {last}"
+        )))
     }
 }
 
@@ -147,6 +186,9 @@ impl Source for RpcPoll {
                 break;
             }
             before = next;
+        }
+        if let Some(oldest) = newest_first.last() {
+            self.check_continuity(&oldest.signature).await?;
         }
         let mut out = vec![];
         for s in newest_first.into_iter().rev() {
