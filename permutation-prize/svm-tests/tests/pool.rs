@@ -1178,6 +1178,29 @@ fn no_pool_for_a_season_whose_ceiling_passes_ring_17() {
     init_with(&mut w, 0);
 }
 
+/// Continuous world: a season whose conquest block says it never ends gets
+/// no pool (`ContinuousSeason`): it could never reach the Tally. The same
+/// season with the flag cleared takes one as before.
+#[test]
+fn no_pool_for_a_continuous_world() {
+    let mut w = world();
+    let op = w.operator.insecure_clone();
+    let at = frontier_abi::v2::presets::SEASON_CQ_OFFSET
+        + frontier_abi::v2::presets::cq_layout::CONTINUOUS;
+    let with_flag = |w: &mut World, flag: u8| {
+        set_season_with(w, S::STATUS_RUNNING, 16);
+        let k = w.season.to_bytes();
+        let mut d = w.svm.get_account(&w.season).unwrap().data;
+        d[at] = flag;
+        game_account(w, k, d);
+    };
+    with_flag(&mut w, 1);
+    let ix = init_ix(&w, &op.pubkey(), FEE, 2_000, 0);
+    fails(send(&mut w.svm, &[ix], &[&op]), E::ContinuousSeason);
+    with_flag(&mut w, 0);
+    init_with(&mut w, 0);
+}
+
 /// The tally bitmap covers rings 0–17: a season whose map may grow past it
 /// gets no pool.
 #[test]

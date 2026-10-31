@@ -1395,3 +1395,198 @@ fn clone_estate(e: &Estate) -> Estate {
         ..*e
     }
 }
+
+// ------------------------------------------------------------ continuous world
+
+/// Continuous world (migration candidate, conquest `CONTINUOUS` = 1): the
+/// world does not end, so caravans and vaults keep working across the bells
+/// where the 7- and 28-day seasons would have ended (1,008 and 4,032 here
+/// are **test checkpoints**, not rules of a world). For contrast, the same
+/// caravan on a season that ends at 1,008 never settles (the known season
+/// end bug, kept as evidence; seasons that end are unchanged).
+mod continuous_world {
+    use super::*;
+    use frontier_abi::layout::world::season as S;
+    use frontier_abi::presets::NO_END_BELL;
+    use frontier_abi::v2::presets::{cq_layout, SEASON_CQ_OFFSET};
+    use permutation_frontier_svm_tests::ix::season::end_season;
+
+    /// The 7-day season's end bell, used only as a checkpoint here.
+    const B7: u32 = 1_008;
+    /// The 28-day season's end bell, used only as a checkpoint here.
+    const B28: u32 = 4_032;
+
+    /// Makes the cast's season a continuous world, as CreateSeason stores
+    /// one: both end bells `NO_END_BELL` and the conquest flag set.
+    fn continuous(k: &mut Cast) {
+        k.c.edit(&k.w.a.season, |d| {
+            d[S::END_BELL..S::END_BELL + 4].copy_from_slice(&NO_END_BELL.to_le_bytes());
+            d[S::JOIN_CLOSE_BELL..S::JOIN_CLOSE_BELL + 4]
+                .copy_from_slice(&NO_END_BELL.to_le_bytes());
+            d[SEASON_CQ_OFFSET + cq_layout::CONTINUOUS] = 1;
+        });
+    }
+
+    fn ending_at(k: &mut Cast, end: u32) {
+        k.c.edit(&k.w.a.season, |d| {
+            d[S::END_BELL..S::END_BELL + 4].copy_from_slice(&end.to_le_bytes())
+        });
+    }
+
+    /// Sends `cargo` from A's holding late in bell `b − 1`, so the walk
+    /// crosses the start of bell `b`; returns the caravan and its last bell.
+    fn send_across(k: &mut Cast, seq: u32, b: u32, cargo: [u32; 8]) -> (Address, u32) {
+        k.w.to_bell(&mut k.c, b - 1, 500);
+        let x = k.send_args(seq, cargo);
+        expect_lands(k.send(&x), "SendCaravan across the checkpoint");
+        let cv = k.caravan(seq);
+        let last = u32_at(&k.c.data(&cv), CV::LAST_BELL);
+        assert!(last >= b, "the walk crosses bell {b}");
+        (cv, last)
+    }
+
+    /// A caravan crossing bell 1,008 settles once after it: cargo arrives
+    /// exactly once, the fee goes to the settler once, the rent back once,
+    /// one CARAVAN_SETTLED; a second settle has nothing to settle.
+    #[test]
+    fn continuous_caravan_crossing_the_checkpoint_settles_once() {
+        let mut k = Cast::new();
+        continuous(&mut k);
+        expect_lands(k.build_vault(), "BuildVault");
+        let cargo = [0, 100, 0, 0, 0, 30, 0, 0];
+        let (cv, _) = send_across(&mut k, 0, B7, cargo);
+        assert_eq!(i64_at(&k.c.data(&cv), CV::cargo(1)), 100 * MILLI);
+        k.arrive(&cv);
+        let keeper = k.c.funded(b"s1-keeper", 1);
+        let rent = k.c.lamports(&cv) - CARAVAN_FEE;
+        let (kb, ab) = (
+            k.c.lamports(&keeper.pubkey()),
+            k.c.lamports(&k.a.wallet.pubkey()),
+        );
+        let l = expect_lands(
+            k.settle(cv, k.vault(), &keeper),
+            "SettleCaravan after 1,008",
+        );
+        assert!(k.c.is_absent(&cv));
+        assert_eq!(vault_store(&k.c, &k.vault(), 1), 100 * MILLI);
+        assert_eq!(vault_store(&k.c, &k.vault(), 5), 30 * MILLI);
+        assert_eq!(k.c.lamports(&keeper.pubkey()) + l.fee, kb + CARAVAN_FEE);
+        assert_eq!(k.c.lamports(&k.a.wallet.pubkey()), ab + rent);
+        assert_eq!(
+            records::cq_records(&l.logs, CqKind::CARAVAN_SETTLED).len(),
+            1
+        );
+        let ix = fx::settle_caravan(
+            &k.w.a,
+            keeper.pubkey(),
+            cv,
+            k.vault(),
+            keeper.pubkey(),
+            k.a.wallet.pubkey(),
+            &[(k.a.p, k.a.q)],
+        );
+        assert_code(
+            s1_send(&mut k.c, I2::SettleCaravan, ix, &[&keeper]),
+            E::BadAccount,
+        );
+        eprintln!(
+            "CONTINUOUS caravan: cargo 100+30 delivered once, fee {CARAVAN_FEE} once, rent {rent} once"
+        );
+    }
+
+    /// Contrast: on a season that ends at 1,008 the same caravan never
+    /// settles (CaravanEarly; its bells past the end are never resolved).
+    #[test]
+    fn ending_season_caravan_crossing_the_end_is_stuck() {
+        let mut k = Cast::new();
+        expect_lands(k.build_vault(), "BuildVault");
+        ending_at(&mut k, B7);
+        let (cv, _) = send_across(&mut k, 0, B7, [0, 100, 0, 0, 0, 0, 0, 0]);
+        // Every bell of the season resolved: the most any resolve reaches.
+        k.w.set_resolved_next(&mut k.c, &k.a.province, B7);
+        let arrive = i64_at(&k.c.data(&cv), CV::ARRIVE_TS);
+        k.c.set_time(arrive + 1);
+        let keeper = k.c.funded(b"s1-keeper", 1);
+        assert_cq(k.settle(cv, k.vault(), &keeper), Cq::CaravanEarly);
+        assert!(!k.c.is_absent(&cv));
+    }
+
+    /// A vault built before 1,008, filled by a caravan across it, emptied
+    /// by a caravan after 4,032 and closed after that: every amount
+    /// conserved, the vault's rent back to its payer once.
+    #[test]
+    fn continuous_vault_across_both_checkpoints_and_closed_after() {
+        let mut k = Cast::new();
+        continuous(&mut k);
+        expect_lands(k.build_vault(), "BuildVault");
+        let vault_rent = k.c.lamports(&k.vault());
+        let (cv, _) = send_across(&mut k, 0, B7, [0, 0, 200, 0, 0, 0, 0, 0]);
+        k.arrive(&cv);
+        let keeper = k.c.funded(b"s1-keeper", 1);
+        expect_lands(k.settle(cv, k.vault(), &keeper), "deposit after 1,008");
+        assert_eq!(vault_store(&k.c, &k.vault(), 2), 200 * MILLI);
+        // After 4,032: everything back to the holding.
+        k.w.to_bell(&mut k.c, B28 + 5, 5);
+        let (steps, path) = local_path(&k.c, &k.w, &k.a, k.vt, k.a.tile);
+        let x = SendCaravanArgs {
+            seq: 1,
+            src: k.vault_place(1),
+            dst: PlaceRef::Holding {
+                h: k.a.href(),
+                gen: k.a.gen,
+            },
+            steps,
+            path,
+            cargo: [0, 0, 200, 0, 0, 0, 0, 0],
+            fee: CARAVAN_FEE,
+            provinces: vec![(k.a.p, k.a.q)],
+        };
+        expect_lands(k.send(&x), "withdraw after 4,032");
+        assert_eq!(vault_store(&k.c, &k.vault(), 2), 0);
+        let cv = k.caravan(1);
+        let before = store(&k.c, &k.a.holding, 2);
+        k.arrive(&cv);
+        expect_lands(k.settle(cv, k.a.holding, &keeper), "withdrawal settles");
+        assert!(store(&k.c, &k.a.holding, 2) >= before + 200 * MILLI);
+        // Close the empty vault: its rent back once.
+        let rent_to = k.a.wallet.pubkey();
+        let ab = k.c.lamports(&rent_to);
+        let close = |c: &mut Chain, k: &Cast| {
+            let ix = fx::close_vault(&k.w.a, &k.a.player(), (k.a.p, k.a.q, k.vt), rent_to);
+            s1_send(c, I2::CloseVault, ix, &[&k.a.wallet])
+        };
+        let mut c = k.c.fork();
+        let l = expect_lands(close(&mut c, &k), "CloseVault after 4,032");
+        assert!(c.is_absent(&k.vault()));
+        assert_eq!(c.lamports(&rent_to) + l.fee, ab + vault_rent);
+        assert!(close(&mut c, &k).is_err(), "closed once");
+        eprintln!("CONTINUOUS vault: 200 in across 1,008, 200 out after 4,032, rent {vault_rent} back once");
+    }
+
+    /// EndSeason is refused by name in a continuous world, at bells past
+    /// both checkpoints; on a season that ends it lands as before.
+    #[test]
+    fn continuous_world_refuses_end_season() {
+        let mut k = Cast::new();
+        let mut ending = k.c.fork();
+        continuous(&mut k);
+        k.w.to_bell(&mut k.c, B28 + 1, 1);
+        let any = k.c.funded(b"w8-any", 1);
+        assert_cq(
+            k.c.send(&[end_season(&k.w.a, any.pubkey())], &[&any]),
+            Cq::ContinuousWorld,
+        );
+        // A player instruction still lands past both checkpoints.
+        expect_lands(k.build_vault(), "BuildVault after 4,032");
+        // Control: a season that ends at 1,008 ends.
+        ending.edit(&k.w.a.season, |d| {
+            d[S::END_BELL..S::END_BELL + 4].copy_from_slice(&B7.to_le_bytes())
+        });
+        k.w.to_bell(&mut ending, B7, 1);
+        let any = ending.funded(b"w8-any", 1);
+        expect_lands(
+            ending.send(&[end_season(&k.w.a, any.pubkey())], &[&any]),
+            "EndSeason of a season that ends",
+        );
+    }
+}
