@@ -133,6 +133,13 @@ export function localReceiptPort({ view, txState, costs = null }) {
       return out;
     },
     get(runId) { const r = runs.get(runId); return r ? structuredClone(r) : null; },
+    /** Keep the newest `keep` closed receipts (in memory only); an open run is never dropped. Returns how many were dropped. */
+    prune({ keep = 1_000 } = {}) {
+      const closed = [...runs.values()].filter(r => r.state !== 'open');
+      let n = 0;
+      for (const r of closed.slice(0, Math.max(0, closed.length - keep))) { runs.delete(r.runId); n++; }
+      return n;
+    },
     list() { return [...runs.values()].map(r => structuredClone(r)); },
   };
   const must = runId => { const r = runs.get(runId); if (!r) throw Object.assign(new Error(`no run ${runId}`), { code: 'NoRun' }); return r; };

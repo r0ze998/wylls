@@ -28,7 +28,8 @@ const board = () => { const b = northernRequests()[0]; return [1, 2, 3, 4, 5, 6,
 async function setup({ adapter, model, script, world = {}, caps = {}, available = '100000', timeoutMs = 2_000 }) {
   const srv = await startHttpFixture(script);
   const w = await createLocalWorld({ requests: board(), stores: { Food: 5000, Wood: 100, Stone: 100, Ore: 2000, Gold: 1000 }, ...world });
-  const costs = new RunCostMock({ available, caps, now: () => w.state.clock * 1000 });
+  // A total inference cap is required (bounds.mjs): the tests that exercise the cap set their own afterwards.
+  const costs = new RunCostMock({ available, caps: { total: '1000000', ...caps }, now: () => w.state.clock * 1000 });
   const registry = new DecisionRegistry();
   let ap;
   const decider = apiDecider({ adapter, model, transport: loopbackTransport({ baseUrl: srv.url, timeoutMs }), book: FIXTURE_BOOK(), costs, registry, runId: () => ap.currentRun, sleep: async () => {} });

@@ -1,4 +1,4 @@
-# テストの結果（2026-10-30、token の確かめ方の隔離と 0004 の後）
+# テストの結果（2026-10-31、世界が続く前提での変更の後）
 
 **外部通信なし。** モデルの相手は 127.0.0.1 の HTTP fixture だけです。キーは読まず、作らず、設定していません。実資金・課金・push・merge・deploy・追加の取得はしていません。鎖はすべて試験用の偽物（scripted chain）です。
 
@@ -6,7 +6,7 @@
 
 | コマンド | 結果 |
 |---|---|
-| `node --test workstreams/05-ai-participation/model-api/test/*.test.mjs` | **51 件、通過 51、失敗 0、スキップ 0**（3回連続） |
+| `node --test workstreams/05-ai-participation/model-api/test/*.test.mjs` | **56 件、通過 56、失敗 0、スキップ 0**（3回連続） |
 | `node --test workstreams/05-ai-participation/test/*.test.mjs` | **37 件、通過 37、失敗 0**（3回連続） |
 | `node workstreams/05-ai-participation/model-api/demo/run-api-demo.mjs` | 完了。開始の前の確認は、隔離した probe（このツリーだけ）で通った |
 
@@ -32,7 +32,7 @@
 
 `cargo test --locked`：62 件すべて通過。ツールチェーンと crate は前回の取得のまま（`TOOLCHAIN-RECORD.ja.md`）。今回は追加の取得をしていません。
 
-## 内訳（model-api、51 件）
+## 内訳（model-api、56 件）
 
 | ファイル | 件数 |
 |---|---|
@@ -41,6 +41,7 @@
 | `test/autopilot.test.mjs` | 11 |
 | `test/citizen.test.mjs` | 16（追加：本物の中継での probe（冪等の記録が1件・それ以外は増えない・キーの形・同じキーは再生）、冪等の記録の上限で古い要求が2回目の送信になる危険の再現。stub の試験を新しい規則に書き直した） |
 | `test/relay-tree.test.mjs` | 1（新規：試験が名乗る中継のツリーと、ディスク上のツリーが同じか） |
+| `test/continuing.test.mjs` | 5（新規、2026-10-31：権限を有限に保つ、委任の期限を延ばさない、境界と再起動をまたいでも整合、シーズンごとの Citizen が見つからない時、長く動いた時の状態。`CONTINUING-WORLD-5.ja.md` §3） |
 
 ## 実行していないもの
 
@@ -48,3 +49,7 @@
 - ④の Rust の実行器をつないだ試験
 - 本物の LLM・課金 API、本番の利用レポートとの照合
 - 2つ目のプロセスでの実行
+
+## 2026-10-31 追記：統合候補の木での再確認
+
+③ 0005 → ⑤ 0002b → 0001 → 0003 を当てた木（`98f52eb2…`）で、model-api 56 件（`RELAY_TREE=98f52eb2…`）と統合 9 件がすべて通過しました。デモも完了しました（開始の前に、権限の有限さを確かめる）。

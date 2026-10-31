@@ -37,7 +37,16 @@ const RETRY = Object.freeze({ maxAttempts: 3, retryThrottled: false, retryFailed
  * nothing; a concurrent one shares the call in flight. In memory, one process (the first-run scope).
  */
 export class DecisionRegistry {
-  constructor() { this.done = new Map(); this.flying = new Map(); }
+  /**
+   * `maxDone`: finished decisions kept for replay. In a world that does not end the registry would otherwise grow without
+   * bound; the oldest finished ones are dropped first, never one in flight. A dropped key is safe because decision keys
+   * carry the run id and a restarted autopilot continues its journal's run ids: an old key is not asked again.
+   */
+  constructor({ maxDone = 10_000 } = {}) { this.done = new Map(); this.flying = new Map(); this.maxDone = maxDone; }
+  remember(key, r) {
+    this.done.set(key, r);
+    while (this.done.size > this.maxDone) this.done.delete(this.done.keys().next().value);
+  }
 }
 
 /**
@@ -70,7 +79,7 @@ export async function infer({ registry = null, ...o }) {
   const p = inferOnce(o);
   if (!registry) return p;
   registry.flying.set(key, p);
-  try { const r = await p; registry.done.set(key, r); return r; } finally { registry.flying.delete(key); }
+  try { const r = await p; registry.remember(key, r); return r; } finally { registry.flying.delete(key); }
 }
 
 async function inferOnce({ adapter, transport, book, costs, request, retry = {}, sleep = ms => new Promise(r => setTimeout(r, ms)) }) {

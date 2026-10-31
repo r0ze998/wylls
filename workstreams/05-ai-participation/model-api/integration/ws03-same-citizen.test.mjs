@@ -100,7 +100,7 @@ test('with one shared capability (the only way both can act on one agent today):
   });
   try {
     const { world } = fiveOver(L, w, () => shared, {});
-    const costs = new L.RunCostMock({ available: '100000', now: () => L.f.NOW * 1000 });
+    const costs = new L.RunCostMock({ available: '100000', caps: { total: '1000000' }, now: () => L.f.NOW * 1000 });
     let ap;
     const citizen = new L.CitizenBoundary({ ownerQuotaReserve: 1 });
     const decider = L.apiDecider({ adapter: L.anthropicAdapter, model: 'claude-fixture-model', transport: L.loopbackTransport({ baseUrl: srv.url }), book: L.FIXTURE_BOOK(), costs, registry: new L.DecisionRegistry(), runId: () => ap.currentRun, sleep: async () => {}, citizen });

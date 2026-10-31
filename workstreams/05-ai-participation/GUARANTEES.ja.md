@@ -46,6 +46,8 @@
 
 **正しくは：** Citizen（1つのウォレットの1シーズン分の口座）に1つです。
 
+> **2026-10-31 注記：** これは今の共有コードの事実です。世界が続く方針（シーズン制の廃止）では、Citizen と委任の識別子をシーズンから切り離すかを④・⑧が決めます。⑤は、委任の期限（最長30日）と本人による更新を前提に残します（`model-api/CONTINUING-WORLD-5.ja.md`）。
+
 | 根拠 | 中身 |
 |---|---|
 | `frontier-abi/src/v2/layout/player.rs:6-9`、`:24` | Citizen の口座に `SESSION`・`SESSION_EXPIRY` が1組。村（Holding）は `HOLDING @ 168 : HoldingRef x3`（最大3） |

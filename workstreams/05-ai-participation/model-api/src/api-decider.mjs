@@ -80,6 +80,8 @@ export function apiDecider({ adapter, model, transport, book, costs, registry, r
   const d = {
     name: `api:${adapter.provider}:${model}`, free: true, // free to participate(): this decider reserves and settles its own model cost
     records: [],
+    /** The cost ledger this decider reserves from (read by the autopilot's bounds check). */
+    costs,
     needsCall(obs, grant, contract, ctx = {}) { const p = promptFor(obs, autopilotGrant(grant), contract, ctx); return p.names.length > 0 && p.requestIds.length > 0; },
     async plan(obs, grant, contract, ctx = {}) {
       const p = promptFor(obs, autopilotGrant(grant), contract, ctx);

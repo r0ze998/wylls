@@ -14,6 +14,7 @@
 // not detected, so a second process is not safe (its reservations and its decision keys are its own).
 import { participate } from '../../src/participate.mjs';
 import { checkAccess } from './access-check.mjs';
+import { checkBounds } from './bounds.mjs';
 
 const RUNNING = new Map(); // agentId → Autopilot, this process only
 
@@ -84,6 +85,9 @@ export class Autopilot {
     const holder = RUNNING.get(this.w.agentId);
     if (holder && holder !== this) throw Object.assign(new Error('this agent already has an autopilot in this process'), { code: 'AlreadyRunning' });
     if (this.state === 'stopped-by-budget' || this.state === 'stopped-capability') throw Object.assign(new Error(`${this.state}: only the owner resumes`), { code: 'NeedsOwner' });
+    // Bounded authority first (a continuing world does not make a mandate or a budget permanent).
+    const b = checkBounds({ mandate: this.mandate, costs: this.decider.costs ?? null, nowSec: this.w.publicWorld.clockSec() });
+    if (!b.ok) { this.#event({ op: 'start', by, refused: b.reasons[0].code, why: b.reasons[0].detail }); throw Object.assign(new Error(b.reasons.map(r => r.detail).join('; ')), { code: b.reasons[0].code, reasons: b.reasons }); }
     const a = await checkAccess(this.mcp(), { mandate: this.mandate, owner: this.owner, probe: this.tokenCheck?.probe ?? null });
     this.lastAccess = { ok: a.ok, code: a.code ?? null, method: a.method ?? null, sideEffects: a.sideEffects ?? null };
     if (!a.ok) { this.#event({ op: 'start', by, refused: a.code, why: a.detail }); throw Object.assign(new Error(a.detail), { code: a.code === 'NotAuto' || a.code === 'NotDelegated' ? 'NotReady' : a.code, check: a.code }); }

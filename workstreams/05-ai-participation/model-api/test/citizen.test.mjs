@@ -33,7 +33,7 @@ const MCP_HAS_SOURCE = /source = 'mcp'/.test(readFileSync(new URL('../../../../p
 async function setup({ adapter, model, script, citizen = new CitizenBoundary({ ownerQuotaReserve: 1 }), timeoutMs = 2_000 }) {
   const srv = await startHttpFixture(script);
   const w = await createLocalWorld({ requests: board(), stores: { Food: 5000, Wood: 100, Stone: 100, Ore: 2000, Gold: 1000 } });
-  const costs = new RunCostMock({ available: '100000', now: () => w.state.clock * 1000 });
+  const costs = new RunCostMock({ available: '100000', caps: { total: '1000000' }, now: () => w.state.clock * 1000 });
   let ap;
   const decider = apiDecider({ adapter, model, transport: loopbackTransport({ baseUrl: srv.url, timeoutMs }), book: FIXTURE_BOOK(), costs, registry: new DecisionRegistry(), runId: () => ap.currentRun, sleep: async () => {}, citizen });
   const mandate = mandateFor(w, { allowed: ['Train'], limits: { perRequest: { Food: 60, Ore: 20, Gold: 10 }, perDay: { Food: 600, Ore: 200, Gold: 100 }, troopsPerRequest: 100 } });

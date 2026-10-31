@@ -55,7 +55,8 @@ async function flow(name, adapter, model) {
   const stage = (id, title, data) => { stages.push({ stage: id, title, boundary: BOUNDARY[id], ...data }); line(`  [${title}] ${BOUNDARY[id]}`); };
   try {
     const w = await createLocalWorld({ requests: board(), stores: { Food: 5000, Wood: 100, Stone: 100, Ore: 2000, Gold: 1000 } });
-    const costs = new RunCostMock({ available: '200000', caps: {}, now: () => w.state.clock * 1000 });
+    // The owner's inference total cap is required to start; it is tightened after the first quote below.
+    const costs = new RunCostMock({ available: '200000', caps: { total: '200000' }, now: () => w.state.clock * 1000 });
     const registry = new DecisionRegistry();
     let ap;
     const decider = apiDecider({ adapter, model, transport: loopbackTransport({ baseUrl: srv.url, timeoutMs: 80 }), book: FIXTURE_BOOK(), costs, registry, runId: () => ap.currentRun, sleep: async () => {} });
