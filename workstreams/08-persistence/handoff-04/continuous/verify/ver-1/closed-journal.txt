@@ -1,0 +1,44 @@
+{
+  "keeper-a": {
+    "attempts": 2123,
+    "by_kind_status": {
+      "anchor-multi:landed": 63,
+      "beacon-log:landed": 368,
+      "csettle:failed": 2,
+      "fold:landed": 66,
+      "genesis-seed:landed": 1,
+      "open-province:landed": 61,
+      "open-ring:landed": 5,
+      "payer-care:landed": 32,
+      "seed:landed": 304,
+      "settle-explore:landed": 1,
+      "skip:landed": 1220
+    },
+    "landed_more_than_once": {
+      "beacon:12:0": 2,
+      "beacon:12:1": 2,
+      "beacon:12:10": 2,
+      "beacon:12:11": 2,
+      "beacon:12:12": 2,
+      "beacon:12:13": 2,
+      "beacon:12:14": 2,
+      "beacon:12:15": 2,
+      "beacon:12:2": 2,
+      "beacon:12:3": 2,
+      "beacon:12:4": 2,
+      "beacon:12:5": 2,
+      "beacon:12:6": 2,
+      "beacon:12:7": 2,
+      "beacon:12:8": 2,
+      "beacon:12:9": 2
+    }
+  },
+  "keeper-b": {
+    "attempts": 34,
+    "by_kind_status": {
+      "csettle:landed": 2,
+      "payer-care:landed": 32
+    },
+    "landed_more_than_once": {}
+  }
+}

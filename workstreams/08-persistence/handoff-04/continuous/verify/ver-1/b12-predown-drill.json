@@ -1,0 +1,79 @@
+{
+  "bell": 12,
+  "caravans": [
+    {
+      "arrive_ts": 1785638620,
+      "cargo": [
+        100000,
+        50000,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "fee": 50000,
+      "lamports": 2325840,
+      "last_bell": 14,
+      "present": true,
+      "seq": 0,
+      "state": 1
+    }
+  ],
+  "caravans_sent": 1,
+  "citizen": {
+    "faction": 0,
+    "holdings_n": 1,
+    "tag": "9644443297456142827"
+  },
+  "home": {
+    "gen": 1,
+    "lamports": 7152640,
+    "p": 2,
+    "q": 0,
+    "site": 0,
+    "stores_t0": [
+      1785636820,
+      1785636820,
+      1785636820,
+      1785636820,
+      1785636820,
+      1785636820,
+      1785636820,
+      1785636820
+    ],
+    "stores_value": [
+      273111,
+      104833,
+      36555,
+      131072,
+      0,
+      77416,
+      9138,
+      0
+    ],
+    "tile": 27
+  },
+  "now": 1785637456,
+  "operator_lamports": 957846073240,
+  "slot": 2074,
+  "vault": {
+    "gen": 1,
+    "lamports": 3251200,
+    "present": true,
+    "sent": 0,
+    "state": 1,
+    "stores": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ]
+  },
+  "wallet": "DhsfAYdnEsGUNp5ygdTh2i2uETTDcYwKqwG5gczfUehV"
+}

@@ -1,0 +1,136 @@
+{
+ "a": {
+  "bell": 12,
+  "slot": 2074,
+  "accounts": 507,
+  "holdings": 7,
+  "citizens": 7,
+  "lamports": 42705235280,
+  "continuous": true,
+  "end_bell": 4294967295
+ },
+ "b": {
+  "bell": 21,
+  "slot": 3428,
+  "accounts": 793,
+  "holdings": 7,
+  "citizens": 7,
+  "lamports": 43097605120,
+  "continuous": true,
+  "end_bell": 4294967295
+ },
+ "accounts_added": 288,
+ "accounts_missing": 2,
+ "accounts_changed": 82,
+ "kinds_a": {
+  "PSF1ANCH": {
+   "lamports": 265297920,
+   "n": 192
+  },
+  "PSF1BLOG": {
+   "lamports": 20807680,
+   "n": 16
+  },
+  "PSF1CITZ": {
+   "lamports": 18206720,
+   "n": 7
+  },
+  "PSF1CRVN": {
+   "lamports": 2325840,
+   "n": 1
+  },
+  "PSF1DPOL": {
+   "lamports": 20001950720,
+   "n": 1
+  },
+  "PSF1FRNT": {
+   "lamports": 3251200,
+   "n": 1
+  },
+  "PSF1HOLD": {
+   "lamports": 50068480,
+   "n": 7
+  },
+  "PSF1JSHD": {
+   "lamports": 93634560,
+   "n": 48
+  },
+  "PSF1PFND": {
+   "lamports": 19500546560,
+   "n": 6
+  },
+  "PSF1PROV": {
+   "lamports": 1507256320,
+   "n": 61
+  },
+  "PSF1RING": {
+   "lamports": 6502400,
+   "n": 5
+  },
+  "PSF1SEAS": {
+   "lamports": 1011054080,
+   "n": 1
+  },
+  "PSF1SEED": {
+   "lamports": 221081600,
+   "n": 160
+  },
+  "PSF1VALT": {
+   "lamports": 3251200,
+   "n": 1
+  }
+ },
+ "kinds_b": {
+  "PSF1ANCH": {
+   "lamports": 464271360,
+   "n": 336
+  },
+  "PSF1BLOG": {
+   "lamports": 20807680,
+   "n": 16
+  },
+  "PSF1CITZ": {
+   "lamports": 18206720,
+   "n": 7
+  },
+  "PSF1DPOL": {
+   "lamports": 20001950720,
+   "n": 1
+  },
+  "PSF1FRNT": {
+   "lamports": 3251200,
+   "n": 1
+  },
+  "PSF1HOLD": {
+   "lamports": 50068480,
+   "n": 7
+  },
+  "PSF1JSHD": {
+   "lamports": 93634560,
+   "n": 48
+  },
+  "PSF1PFND": {
+   "lamports": 19500546560,
+   "n": 6
+  },
+  "PSF1PROV": {
+   "lamports": 1507256320,
+   "n": 61
+  },
+  "PSF1RING": {
+   "lamports": 6502400,
+   "n": 5
+  },
+  "PSF1SEAS": {
+   "lamports": 1011054080,
+   "n": 1
+  },
+  "PSF1SEED": {
+   "lamports": 420055040,
+   "n": 304
+  }
+ },
+ "failures": [
+  "2 accounts of A missing in B: ['BxtJd1Yt1j56ZciKVfx5fFoyKKLnD9gAzxFFFAukJUex', 'F4a5tvTmdxADMiYWyuH2Mkb3GtUbDLBXoDVv7nnnT7PN']"
+ ]
+}

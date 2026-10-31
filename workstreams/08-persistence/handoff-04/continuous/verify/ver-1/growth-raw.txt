@@ -1,0 +1,57 @@
+bell 21 provinces 61
+herald 38107759 files 3866
+localnet 22083876 files 5
+keeper-a 5038829 files 8
+keeper-b 165285 files 8
+relay 993 files 4
+bots 10292 files 2
+logs 11796 files 7
+--- herald subdirs
+580317	/tmp/claude-0/-home-user-wylls/cba48052-00ba-54bc-95d1-0c72654ae715/scratchpad/runs/ver-1/herald/herald.ckpt
+9418209	/tmp/claude-0/-home-user-wylls/cba48052-00ba-54bc-95d1-0c72654ae715/scratchpad/runs/ver-1/herald/files
+28109233	/tmp/claude-0/-home-user-wylls/cba48052-00ba-54bc-95d1-0c72654ae715/scratchpad/runs/ver-1/herald/findex
+--- herald h subdirs
+38	/tmp/claude-0/-home-user-wylls/cba48052-00ba-54bc-95d1-0c72654ae715/scratchpad/runs/ver-1/herald/files/h/structures.json
+52	/tmp/claude-0/-home-user-wylls/cba48052-00ba-54bc-95d1-0c72654ae715/scratchpad/runs/ver-1/herald/files/h/structures.json.gz
+94	/tmp/claude-0/-home-user-wylls/cba48052-00ba-54bc-95d1-0c72654ae715/scratchpad/runs/ver-1/herald/files/h/nations.json.gz
+151	/tmp/claude-0/-home-user-wylls/cba48052-00ba-54bc-95d1-0c72654ae715/scratchpad/runs/ver-1/herald/files/h/nations.json
+187	/tmp/claude-0/-home-user-wylls/cba48052-00ba-54bc-95d1-0c72654ae715/scratchpad/runs/ver-1/herald/files/h/caravans.json.gz
+207	/tmp/claude-0/-home-user-wylls/cba48052-00ba-54bc-95d1-0c72654ae715/scratchpad/runs/ver-1/herald/files/h/caravans.json
+599	/tmp/claude-0/-home-user-wylls/cba48052-00ba-54bc-95d1-0c72654ae715/scratchpad/runs/ver-1/herald/files/h/call
+1982	/tmp/claude-0/-home-user-wylls/cba48052-00ba-54bc-95d1-0c72654ae715/scratchpad/runs/ver-1/herald/files/h/sieges
+2928	/tmp/claude-0/-home-user-wylls/cba48052-00ba-54bc-95d1-0c72654ae715/scratchpad/runs/ver-1/herald/files/h/standings
+14805	/tmp/claude-0/-home-user-wylls/cba48052-00ba-54bc-95d1-0c72654ae715/scratchpad/runs/ver-1/herald/files/h/keep
+15220	/tmp/claude-0/-home-user-wylls/cba48052-00ba-54bc-95d1-0c72654ae715/scratchpad/runs/ver-1/herald/files/h/control
+44982	/tmp/claude-0/-home-user-wylls/cba48052-00ba-54bc-95d1-0c72654ae715/scratchpad/runs/ver-1/herald/files/h/overview
+69322	/tmp/claude-0/-home-user-wylls/cba48052-00ba-54bc-95d1-0c72654ae715/scratchpad/runs/ver-1/herald/files/h/overview2
+410810	/tmp/claude-0/-home-user-wylls/cba48052-00ba-54bc-95d1-0c72654ae715/scratchpad/runs/ver-1/herald/files/h/bell
+8856832	/tmp/claude-0/-home-user-wylls/cba48052-00ba-54bc-95d1-0c72654ae715/scratchpad/runs/ver-1/herald/files/h/province
+--- localnet
+ 
+4096 .
+4096 ..
+12639591 ledger.wal
+3147015 snap-000000000059.bin
+3148095 snap-000000000086.bin
+3149175 snap-000000000113.bin
+0 writer.lock
+--- findex
+8937472 /tmp/claude-0/-home-user-wylls/cba48052-00ba-54bc-95d1-0c72654ae715/scratchpad/runs/ver-1/herald/findex/index.sqlite
+32768 /tmp/claude-0/-home-user-wylls/cba48052-00ba-54bc-95d1-0c72654ae715/scratchpad/runs/ver-1/herald/findex/index.sqlite-shm
+5026432 /tmp/claude-0/-home-user-wylls/cba48052-00ba-54bc-95d1-0c72654ae715/scratchpad/runs/ver-1/herald/findex/index.sqlite-wal
+archive
+index.sqlite
+index.sqlite-shm
+index.sqlite-wal
+32768	/tmp/claude-0/-home-user-wylls/cba48052-00ba-54bc-95d1-0c72654ae715/scratchpad/runs/ver-1/herald/findex/index.sqlite-shm
+5026432	/tmp/claude-0/-home-user-wylls/cba48052-00ba-54bc-95d1-0c72654ae715/scratchpad/runs/ver-1/herald/findex/index.sqlite-wal
+8937472	/tmp/claude-0/-home-user-wylls/cba48052-00ba-54bc-95d1-0c72654ae715/scratchpad/runs/ver-1/herald/findex/index.sqlite
+14112561	/tmp/claude-0/-home-user-wylls/cba48052-00ba-54bc-95d1-0c72654ae715/scratchpad/runs/ver-1/herald/findex/archive
+findex table meta rows 2 bytes 4096
+findex table tx rows 2266 bytes 376832
+findex table record rows 2866 bytes 458752
+findex table link rows 1869 bytes 184320
+findex table entity rows 83 bytes 12288
+findex table snapshot rows 5084 bytes 7340032
+findex table account rows 844 bytes 57344
+findex table event rows 2866 bytes 36864

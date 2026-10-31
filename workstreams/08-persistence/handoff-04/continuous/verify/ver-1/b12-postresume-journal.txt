@@ -1,0 +1,41 @@
+{
+  "keeper-a": {
+    "attempts": 1245,
+    "by_kind_status": {
+      "anchor-multi:landed": 36,
+      "beacon-log:landed": 224,
+      "fold:landed": 39,
+      "genesis-seed:landed": 1,
+      "open-province:landed": 61,
+      "open-ring:landed": 5,
+      "payer-care:landed": 32,
+      "seed:landed": 176,
+      "skip:landed": 671
+    },
+    "landed_more_than_once": {
+      "beacon:12:0": 2,
+      "beacon:12:1": 2,
+      "beacon:12:10": 2,
+      "beacon:12:11": 2,
+      "beacon:12:12": 2,
+      "beacon:12:13": 2,
+      "beacon:12:14": 2,
+      "beacon:12:15": 2,
+      "beacon:12:2": 2,
+      "beacon:12:3": 2,
+      "beacon:12:4": 2,
+      "beacon:12:5": 2,
+      "beacon:12:6": 2,
+      "beacon:12:7": 2,
+      "beacon:12:8": 2,
+      "beacon:12:9": 2
+    }
+  },
+  "keeper-b": {
+    "attempts": 32,
+    "by_kind_status": {
+      "payer-care:landed": 32
+    },
+    "landed_more_than_once": {}
+  }
+}
