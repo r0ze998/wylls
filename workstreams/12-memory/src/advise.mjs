@@ -1,7 +1,7 @@
 // Workstream 12: the decision-input contract for choosing a trade partner, a deterministic reference policy,
-// and the validator any policy's answer (a fixture, Claude, GPT) must pass. Contract v3.
+// and the validator any policy's answer (a fixture, Claude, GPT) must pass. Contract v4.
 //
-//   decisionInput({k, request, candidates, limits}) -> input   (wylls.memory12.decision-input/v3; plain JSON)
+//   decisionInput({k, request, candidates, limits}) -> input   (wylls.memory12.decision-input/v4; plain JSON)
 //   referencePolicy(input) -> {answer, ranking, explanation}    (no model; same input -> same output)
 //   validateAnswer(input, answer) -> {ok, errors, answer}       (choice exists and is eligible; cites resolve)
 //
@@ -21,7 +21,7 @@ import { WEIGHTS, reliabilityOf } from './fold.mjs';
 import { memoryLines } from './view.mjs';
 import { safeText } from '../../../permutation-gateway/citizens/mind/sanitize.mjs';
 
-export const CONTRACT = 'wylls.memory12.decision-input/v3';
+export const CONTRACT = 'wylls.memory12.decision-input/v4';
 export const DIST_COST = 20;
 export const MAX_MESSAGES = 6;
 export const CAUTION = Object.freeze({ provisional: true, share: 0.1, cap: 2, is_honesty_judgment: false,

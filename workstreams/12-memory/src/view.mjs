@@ -17,7 +17,7 @@ const STATE_WORD = {
   fulfilled: 'delivered in full by the due bell (credited at the promised place)',
   late: 'delivered in full after the due bell (credited at the promised place)',
   partial: 'delivered in part; a sufficient index shows nothing more was sent',
-  not_sent: 'not sent: a sufficient index (world, season, every send route, gapless, finalized) shows no caravan to the promised place',
+  not_sent: 'not sent: a sufficient index (world, registered partition, every send route, gapless, finalized) shows no caravan to the promised place',
   raided: 'the allocated caravan was raided (not counted against the sender)',
   lost: 'the allocated caravan was lost at the destination (not counted)',
   recipient_changed: 'delivered, but the place had another owner at the settle bell (not counted)',

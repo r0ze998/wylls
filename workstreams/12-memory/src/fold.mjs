@@ -1,6 +1,12 @@
-// Workstream 12: what one viewer knows, derived by a pure fold of the journal (fold v3).
+// Workstream 12: what one viewer knows, derived by a pure fold of the journal (fold v4).
 //
-//   knowledge(records, viewer:{tag, nation}, clock, {observedBy = clock, world = null}) -> Knowledge
+//   knowledge(records, viewer:{tag, nation}, clock, {observedBy = clock, world, partitions, legacy}) -> Knowledge
+//
+// v4, a continuing world: `clock` and every `bell` are world bells (workstream 4's clock); nothing here ends,
+// resets or expires with a war period or a Season account. `partitions` is 4's registry of the partitions of this
+// world (today: the Season accounts, {id: {program, season}}); `legacy.partition` names the partition the v3
+// records were written in. Chain tags are per partition, so the fold joins them only through 4's identity_alias
+// and place_alias attestations; without one it says "unverified", never "different" or "failed".
 //
 // Two clocks. `clock` is the game bell at which states are judged (is a due bell past?); `observedBy` bounds what
 // had been OBSERVED (record.created_bell). Normally both are "now". To reassess a past decision with evidence that
@@ -11,7 +17,7 @@
 //
 // What this fold will NOT do (the rules of the second and third reviews):
 //   - treat a missing record as a failure or a lie. A missing record is `unconfirmed`. "Not sent" is verified only
-//     by a SUFFICIENT coverage attestation (coverageSufficiency: the memory's world and season, the sender, the
+//     by a SUFFICIENT coverage attestation (coverageSufficiency: the memory's world and a registered partition, the sender, the
 //     whole window, every send route, a gapless slot range, finalized) and a lie only when a claimed caravan does
 //     not exist in such an index (criteria below). Not sent and not arrived are different: a caravan that left
 //     and has no settle record is unknown, never "not sent";
@@ -39,6 +45,53 @@
 // forgetting; unknowns are listed beside it and never move it. Every weight below is provisional (WEIGHTS).
 import { OUTCOME, PLACE, SEND_ROUTES, caravanKey, canonical, placeKey, visibleTo } from './records.mjs';
 
+/**
+ * Read a v3 record in v4 terms WITHOUT changing the record: the registered legacy partition fills the partition v3
+ * did not carry, a v3 chain tag stands for itself as the principal (the v3 rule), and a v3 coverage's world
+ * {cluster, program, season} must be exactly the registered legacy partition's. The result is marked `legacy: 'v3'`;
+ * its id, signature and stored bytes are untouched.
+ */
+export function normalize(r, ctx = {}) {
+  if (r.v !== 3) return r;
+  const P = ctx.legacy?.partition ?? null;
+  if (!P) return { ...r, legacy: 'v3', unusable: 'legacy_partition_unregistered' };
+  const cv = c => (c ? { partition: P, sender: c.sender, seq: c.seq, legacy_principal: c.sender } : c);
+  const pl = x => (x ? { ...x, partition: P } : x);
+  const out = { ...r, legacy: 'v3' };
+  if (r.type === 'utterance' && r.act) out.act = { ...r.act, ...(r.act.place ? { place: pl(r.act.place) } : {}), ...(r.act.caravan ? { caravan: cv(r.act.caravan) } : {}) };
+  if (r.type === 'allocation') {
+    const reg = ctx.partitions?.[P];
+    const w = r.world;
+    if (!(reg && ctx.world && w.cluster === ctx.world.cluster && w.program === reg.program && w.season === reg.season)) out.unusable = 'legacy_world_not_the_registered_partition';
+    out.caravan = cv(r.caravan);
+  }
+  if (r.type === 'fact') {
+    const d = { ...r.data };
+    if (d.caravan) d.caravan = cv(d.caravan);
+    for (const k of ['dst', 'place']) if (d[k]) d[k] = pl(d[k]);
+    if (r.kind === 'coverage') {
+      const reg = ctx.partitions?.[P];
+      const w = r.data.world;
+      const same = reg && ctx.world && w.cluster === ctx.world.cluster && w.program === reg.program && w.season === reg.season;
+      d.world = same ? { ...ctx.world } : { legacy_mismatch: canonical(w) };
+      d.partition = P;
+      d.legacy_principal = r.data.sender;
+      d.caravans = r.data.caravans.map(cv);
+    }
+    if (r.kind === 'lookup_failed') d.partition = P;
+    out.data = d;
+  }
+  return out;
+}
+
+/** The partitions a fact speaks about (none for a fact that is not partition-scoped). */
+function factPartitions(f) {
+  const d = f.data;
+  if (f.kind === 'place_alias') return [d.a.partition, d.b.partition];
+  const p = d.caravan?.partition ?? d.partition ?? d.place?.partition ?? null;
+  return p ? [p] : [];
+}
+
 export const WEIGHTS = Object.freeze({
   provisional: true,
   grace_bells: 6, // a delivery settled by due + grace is on time
@@ -52,8 +105,8 @@ export const HALF_LIFE_BELLS = WEIGHTS.half_life_bells;
 
 /** What makes a claim FALSE (counted) versus a MISMATCH (shown, not counted as dishonesty). */
 export const CLAIM_CRITERIA = Object.freeze({
-  caravan_absent_in_complete_index: 'false: the named caravan is not among the sender\'s caravans in a sufficient coverage (world, season, every send route, gapless, finalized) from the promise to the claim',
-  no_caravan_to_place_in_complete_index: 'false: a sufficient coverage (world, season, every send route, gapless, finalized) shows no caravan by the sender to the promised place between the promise and the claim',
+  caravan_absent_in_complete_index: 'false: the named caravan is not among the sender\'s caravans in a sufficient coverage (world, registered partition, every send route, gapless, finalized) from the promise to the claim',
+  no_caravan_to_place_in_complete_index: 'false: a sufficient coverage (world, registered partition, every send route, gapless, finalized) shows no caravan by the sender to the promised place between the promise and the claim',
   caravan_of_another: 'mismatch: the named caravan belongs to someone else',
   caravan_to_other_place: 'mismatch: the named caravan went to another place or generation',
   premature: 'mismatch: the record (departure or settle) came after the claim',
@@ -74,11 +127,17 @@ export const CREDIT_RULES = Object.freeze({
     code: ['permutation-frontier/src/proc/caravan.rs settle_caravan (KIND_HOLDING branch, cargo_log)', 'permutation-rules/src/frontier/holding.rs Holding::credit, Store::add'] }),
 });
 
-/** Is a coverage attestation enough to prove "not sent"? Returns the missing conditions (empty = sufficient). */
-export function coverageSufficiency(cov, world) {
+/**
+ * Is a coverage attestation enough to prove "not sent"? Returns the missing conditions (empty = sufficient).
+ * The world is {cluster, world_id}; the partition must be registered for it. A Season account is a partition, so
+ * an attestation from an earlier partition stays valid for the windows it covers.
+ */
+export function coverageSufficiency(cov, { world = null, partitions = {} } = {}) {
   const why = [];
   if (!world) why.push('memory_world_unset');
-  else if (canonical(cov.data.world) !== canonical(world)) why.push('other_world_or_season');
+  else if (cov.data.world?.legacy_mismatch) why.push('legacy_world_not_the_registered_partition');
+  else if (canonical(cov.data.world) !== canonical(world)) why.push('other_world');
+  if (!Object.hasOwn(partitions, cov.data.partition)) why.push(`partition_unregistered:${cov.data.partition}`);
   if (cov.data.finality !== 'finalized') why.push(`not_finalized:${cov.data.finality}`);
   if (!cov.data.completeness.gapless) why.push('slot_range_has_gaps');
   for (const r of SEND_ROUTES) if (!cov.data.routes.includes(r)) why.push(`route_missing:${r}`);
@@ -87,22 +146,31 @@ export function coverageSufficiency(cov, world) {
 
 export const VERIFIED_STATES = Object.freeze(['fulfilled', 'late', 'partial', 'not_sent']);
 export const NEUTRAL_STATES = Object.freeze(['raided', 'lost', 'recipient_changed', 'withdrawn']);
-const PENDING_LINK = new Set(['caravan_unknown', 'lookup_failed', 'in_transit', 'settle_unobserved', 'recipient_unverified', 'recipient_conflict', 'qty_unverified', 'record_conflict']);
+const PENDING_LINK = new Set(['caravan_unknown', 'lookup_failed', 'in_transit', 'settle_unobserved', 'recipient_unverified', 'recipient_conflict', 'qty_unverified', 'record_conflict',
+  'identity_unverified', 'place_identity_unverified']);
 const INVALID_LINK = new Set(['not_debtor_caravan', 'wrong_resource', 'over_allocated', 'not_a_party', 'revoked']);
 
 const round = x => Math.round(x * 1e6) / 1e6;
 const byBellId = (a, b) => a.bell - b.bell || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 const group = (list, key) => { const m = new Map(); for (const x of list) { const k = key(x); (m.get(k) ?? m.set(k, []).get(k)).push(x); } return m; };
 
-export function knowledge(records, viewer, clock, { observedBy = clock, world = null } = {}) {
-  const seen = records.filter(r => r.bell <= clock && (r.created_bell ?? r.bell) <= observedBy && visibleTo(r.visibility, viewer));
-  const ids = new Set(seen.map(r => r.id));
-  const byId = new Map(seen.map(r => [r.id, r]));
+export function knowledge(records, viewer, clock, { observedBy = clock, world = null, partitions = {}, legacy = null } = {}) {
+  const ctx = { world, partitions, legacy };
+  const visible = records.filter(r => r.bell <= clock && (r.created_bell ?? r.bell) <= observedBy && visibleTo(r.visibility, viewer));
+  const ids = new Set(visible.map(r => r.id));
+  const byId = new Map(visible.map(r => [r.id, r]));
+  // v3 records read in v4 terms (the records themselves are not changed); unusable ones are reported, not dropped silently
+  const normalized = visible.map(r => normalize(r, ctx));
+  for (const r of normalized) if (r.type === 'allocation' && !r.legacy && (!world || canonical(r.world) !== canonical(world))) r.unusable = 'other_world';
+  const unusable = normalized.filter(r => r.unusable).map(r => ({ id: r.id, why: r.unusable }));
+  const seen = normalized.filter(r => !r.unusable);
 
-  // ---- facts, minus rolled-back ones
+  // ---- facts, minus rolled-back ones and those of partitions 4 has not registered for this world
   const rolledBack = new Map();
   for (const r of seen) if (r.type === 'fact' && r.kind === 'rollback') rolledBack.set(r.data.fact, r.id);
-  const facts = seen.filter(r => r.type === 'fact' && r.kind !== 'rollback' && !rolledBack.has(r.id)).sort(byBellId);
+  const registered = f => factPartitions(f).every(p => Object.hasOwn(partitions, p));
+  for (const r of seen) if (r.type === 'fact' && !registered(r)) unusable.push({ id: r.id, why: `partition_unregistered:${factPartitions(r).filter(p => !Object.hasOwn(partitions, p)).join(',')}` });
+  const facts = seen.filter(r => r.type === 'fact' && r.kind !== 'rollback' && !rolledBack.has(r.id) && registered(r)).sort(byBellId);
   const ofKind = k => facts.filter(f => f.kind === k);
   const sentBy = group(ofKind('caravan_sent'), f => caravanKey(f.data.caravan));
   const settledBy = group(ofKind('caravan_settled'), f => caravanKey(f.data.caravan));
@@ -111,13 +179,35 @@ export function knowledge(records, viewer, clock, { observedBy = clock, world = 
   const owners = ofKind('place_owner');
   const coverages = ofKind('coverage');
   const lookupFails = ofKind('lookup_failed');
+
+  // ---- continuity: which principal a partition's tag is, and which partition places are the same place
+  const aliasHits = group(ofKind('identity_alias'), f => `${f.data.partition}|${f.data.tag}`);
+  /** principal of a (partition, tag), or null when 4 has not attested it (or attested conflicting principals) */
+  const principalOfTag = (partition, tag, legacyPrincipal = null) => {
+    if (legacyPrincipal) return legacyPrincipal;
+    const ps = [...new Set((aliasHits.get(`${partition}|${tag}`) ?? []).map(f => f.data.principal))];
+    return ps.length === 1 ? ps[0] : null;
+  };
+  const principalOf = c => principalOfTag(c.partition, c.sender, c.legacy_principal);
+  const aliasBasis = c => (aliasHits.get(`${c.partition}|${c.sender}`) ?? []).map(f => f.id);
+  // places joined by place_alias (union-find over place keys)
+  const parent = new Map();
+  const root = k => { while (parent.has(k) && parent.get(k) !== k) k = parent.get(k); return k; };
+  for (const f of ofKind('place_alias')) { const a = root(placeKey(f.data.a)), b = root(placeKey(f.data.b)); if (a !== b) parent.set(a, b); }
+  const rootCache = new Map(); // the aliases are complete here, so roots can be memoised
+  const find = k => { let r = rootCache.get(k); if (r === undefined) { r = root(k); rootCache.set(k, r); } return r; };
+  /** 'same' | 'different' | 'unknown' (other partitions and no alias: 4 has not said whether it is the same place) */
+  const samePlace = (x, y) => {
+    if (placeKey(x) === placeKey(y) || find(placeKey(x)) === find(placeKey(y))) return 'same';
+    return x.partition === y.partition ? 'different' : 'unknown';
+  };
   // one fact per caravan and kind, or a conflict (two different records for the same caravan)
   const one = (map, key) => { const l = map.get(key) ?? []; if (!l.length) return { f: null }; return new Set(l.map(f => f.body_sha)).size > 1 ? { conflict: l } : { f: l[0] }; };
 
   /** The owner of `place` at `bell` per the visible attestations: {owner, basis} | {unverified} | {conflict}. */
+  const ownersByPlace = group(owners, o => find(placeKey(o.data.place)));
   function ownerAt(place, bell) {
-    const k = placeKey(place);
-    const hits = owners.filter(o => placeKey(o.data.place) === k && o.data.from_bell <= bell && bell <= (o.data.to_bell ?? o.bell));
+    const hits = (ownersByPlace.get(find(placeKey(place))) ?? []).filter(o => o.data.from_bell <= bell && bell <= (o.data.to_bell ?? o.bell));
     const who = [...new Set(hits.map(o => o.data.owner))];
     if (!who.length) return { unverified: true };
     if (who.length > 1) return { conflict: true, basis: hits.map(o => o.id) };
@@ -128,11 +218,13 @@ export function knowledge(records, viewer, clock, { observedBy = clock, world = 
    * Is the sender's departure log proven complete over [from, to]? Only sufficient attestations count; contiguous
    * ones are merged. When it is not proven, `insufficient` says what the attestations that exist lack.
    */
-  function covered(sender, from, to) {
-    const mine = coverages.filter(c => c.data.sender === sender);
+  function covered(principal, from, to) {
+    // the principal's coverages in every partition (joined through identity_alias); a coverage whose tag has no
+    // attested principal cannot be counted for anyone
+    const mine = coverages.filter(c => principalOfTag(c.data.partition, c.data.sender, c.data.legacy_principal) === principal);
     const insufficient = [];
     const good = [];
-    for (const c of mine) { const why = coverageSufficiency(c, world); if (why.length) insufficient.push(...why); else good.push(c); }
+    for (const c of mine) { const why = coverageSufficiency(c, ctx); if (why.length) insufficient.push(...why); else good.push(c); }
     const iv = good.sort((a, b) => a.data.from_bell - b.data.from_bell);
     let reach = null; const basis = []; const listed = [];
     for (const c of iv) {
@@ -143,9 +235,9 @@ export function knowledge(records, viewer, clock, { observedBy = clock, world = 
       basis.push(c.id); listed.push(...c.data.caravans);
       if (reach >= to) return { ok: true, basis, listed };
     }
-    const failed = lookupFails.some(l => l.data.query === 'coverage' && l.data.sender === sender);
-    return { ok: false, failed, insufficient: [...new Set(insufficient)].sort(), partial_range: good.length > 0,
-      basis: [...(failed ? lookupFails.filter(l => l.data.query === 'coverage' && l.data.sender === sender).map(l => l.id) : []), ...mine.map(c => c.id)] };
+    const fails = lookupFails.filter(l => l.data.query === 'coverage' && l.data.sender && principalOfTag(l.data.partition, l.data.sender, l.legacy ? l.data.sender : null) === principal);
+    return { ok: false, failed: fails.length > 0, insufficient: [...new Set(insufficient)].sort(), partial_range: good.length > 0,
+      basis: [...fails.map(l => l.id), ...mine.map(c => c.id)] };
   }
 
   // ---- notes: active, corrected, expired
@@ -159,7 +251,8 @@ export function knowledge(records, viewer, clock, { observedBy = clock, world = 
 
   // ---- commitments (request + accept; talk only)
   const utter = seen.filter(r => r.type === 'utterance' && r.act).sort(byBellId);
-  const acts = t => utter.filter(u => u.act.type === t);
+  const actsBy = group(utter, u => u.act.type);
+  const acts = t => actsBy.get(t) ?? [];
   const requests = new Map(acts('request').map(u => [u.id, u]));
   const commitments = [];
   for (const acc of acts('accept')) {
@@ -188,7 +281,8 @@ export function knowledge(records, viewer, clock, { observedBy = clock, world = 
     const prev = inForce.get(key);
     if (!prev || a.nonce > prev.nonce) inForce.set(key, a);
   }
-  const history = key => allocs.filter(a => `${a.by}|${a.commitment}|${caravanKey(a.caravan)}` === key).map(a => a.id);
+  const historyBy = group(allocs, a => `${a.by}|${a.commitment}|${caravanKey(a.caravan)}`);
+  const history = key => (historyBy.get(key) ?? []).map(a => a.id);
   const linkMap = new Map();
   for (const [key, a] of inForce) {
     const c = commitById.get(a.commitment);
@@ -218,13 +312,20 @@ export function knowledge(records, viewer, clock, { observedBy = clock, world = 
     if (sent.conflict) { l.state = 'record_conflict'; continue; }
     if (!sent.f) { l.state = lookupFails.some(x => x.data.query === 'caravan' && x.data.caravan && caravanKey(x.data.caravan) === k) ? 'lookup_failed' : 'caravan_unknown'; continue; }
     l.sent = sent.f.id; l.sources.push(sent.f.id);
-    if (l.caravan.sender !== c.debtor) { l.state = 'not_debtor_caravan'; continue; }
+    // the caravan's sender is a tag of its partition: the debtor only through 4's identity_alias
+    const who = principalOf(l.caravan);
+    l.sources.push(...aliasBasis(l.caravan));
+    if (!who) { l.state = 'identity_unverified'; continue; }
+    if (who !== c.debtor) { l.state = 'not_debtor_caravan'; continue; }
     const cap = sent.f.data.cargo[c.resource] ?? 0;
     if (!cap) { l.state = 'wrong_resource'; continue; }
     const uk = `${k}|${c.resource}`;
     if ((used.get(uk) ?? 0) + l.qty > cap) { l.state = 'over_allocated'; continue; }
     used.set(uk, (used.get(uk) ?? 0) + l.qty);
-    if (placeKey(sent.f.data.dst) !== placeKey(c.place)) { l.state = 'misdirected'; continue; }
+    const sp = samePlace(sent.f.data.dst, c.place);
+    if (sp === 'different') { l.state = 'misdirected'; continue; }
+    if (sp === 'unknown') { l.state = 'place_identity_unverified'; continue; } // another partition, no place_alias
+    l.dst = sent.f.data.dst;
     const raid = one(raidBy, k);
     if (raid.f) { l.state = 'raided'; l.sources.push(raid.f.id); continue; }
     const st = one(settledBy, k);
@@ -236,7 +337,7 @@ export function knowledge(records, viewer, clock, { observedBy = clock, world = 
     l.settled = st.f.id; l.sources.push(st.f.id); l.settle_bell = st.f.bell;
     if (placeKey(st.f.data.dst) !== placeKey(sent.f.data.dst)) { l.state = 'record_conflict'; continue; }
     if (st.f.data.outcome === OUTCOME.LOST) { l.state = 'lost'; continue; }
-    const own = ownerAt(c.place, st.f.bell);
+    const own = ownerAt(st.f.data.dst, st.f.bell);
     if (own.basis) l.sources.push(...own.basis);
     if (own.unverified) { l.state = 'recipient_unverified'; continue; }
     if (own.conflict) { l.state = 'recipient_conflict'; continue; }
@@ -248,10 +349,10 @@ export function knowledge(records, viewer, clock, { observedBy = clock, world = 
   // the credit of each caravan, split over its links; ambiguous splits keep bounds, never a guess
   for (const [k, ls] of group(links.filter(l => l.state === 'awaiting_credit'), l => `${caravanKey(l.caravan)}|${commitById.get(l.commitment).resource}`)) {
     const [ck, res] = k.split('|');
-    const place = commitById.get(ls[0].commitment).place;
+    const place = ls[0].dst; // where it was actually delivered (the promised place or one 4 attests is the same)
     const settle = ls[0].settle_fact;
     const cr = one(creditBy, ck);
-    if (cr.conflict || (cr.f && placeKey(cr.f.data.place) !== placeKey(place))) { for (const l of ls) l.state = 'record_conflict'; continue; }
+    if (cr.conflict || (cr.f && samePlace(cr.f.data.place, place) !== 'same')) { for (const l of ls) l.state = 'record_conflict'; continue; }
     // the basis of the amount: 4's execution record, or for a holding the pinned rule over the settle record
     let x = null, credit = null;
     if (place.kind === PLACE.HOLDING) {
@@ -277,16 +378,23 @@ export function knowledge(records, viewer, clock, { observedBy = clock, world = 
   }
 
   // ---- claims
-  const claimsOf = c => [...acts('claim_sent'), ...acts('claim_delivered')].filter(u => u.speaker === c.debtor && resolveRef(u.act.ref) === c);
+  const claimsBy = group([...acts('claim_sent'), ...acts('claim_delivered')].filter(u => resolveRef(u.act.ref)), u => resolveRef(u.act.ref).id);
+  const claimsOf = c => (claimsBy.get(c.id) ?? []).filter(u => u.speaker === c.debtor);
+  const retractsBy = group(acts('retract').filter(u => resolveRef(u.act.ref)), u => resolveRef(u.act.ref).id);
+  const linksBy = group(links, l => l.commitment);
   function judgeClaim(u, c) {
     const slack = WEIGHTS.claim_slack_bells;
     const out = (status, criterion = null, basis = []) => ({ id: u.id, commitment: c.id, kind: u.act.type, by: u.speaker, bell: u.bell, status, criterion, basis });
     const K = u.act.caravan;
     if (K) {
-      if (K.sender !== u.speaker) return out('mismatch', 'caravan_of_another');
+      const who = principalOf(K);
+      if (!who) return out('unverified', null, aliasBasis(K));
+      if (who !== u.speaker) return out('mismatch', 'caravan_of_another', aliasBasis(K));
       const sent = one(sentBy, caravanKey(K));
       if (sent.f) {
-        if (placeKey(sent.f.data.dst) !== placeKey(c.place)) return out('mismatch', 'caravan_to_other_place', [sent.f.id]);
+        const sp = samePlace(sent.f.data.dst, c.place);
+        if (sp === 'unknown') return out('unverified', null, [sent.f.id]);
+        if (sp === 'different') return out('mismatch', 'caravan_to_other_place', [sent.f.id]);
         if (sent.f.bell > u.bell + slack) return out('mismatch', 'premature', [sent.f.id]);
         if (u.act.type === 'claim_sent') return out('consistent', null, [sent.f.id]);
         if (one(raidBy, caravanKey(K)).f) return out('mismatch', 'not_delivered_by_record', [sent.f.id, one(raidBy, caravanKey(K)).f.id]);
@@ -303,7 +411,9 @@ export function knowledge(records, viewer, clock, { observedBy = clock, world = 
     if (!cov.ok) return out('unverified');
     const listed = cov.listed.map(x => one(sentBy, caravanKey(x)).f);
     if (listed.some(f => !f)) return out('unverified');
-    const toPlace = listed.filter(f => f.bell >= c.made_bell && f.bell <= u.bell + slack && placeKey(f.data.dst) === placeKey(c.place));
+    const inWindow = listed.filter(f => f.bell >= c.made_bell && f.bell <= u.bell + slack);
+    const toPlace = inWindow.filter(f => samePlace(f.data.dst, c.place) === 'same');
+    if (!toPlace.length && inWindow.some(f => samePlace(f.data.dst, c.place) === 'unknown')) return out('unverified');
     if (!toPlace.length) return out('contradicted', 'no_caravan_to_place_in_complete_index', [...cov.basis]);
     if (u.act.type === 'claim_sent') return out('consistent', null, toPlace.map(f => f.id));
     const st = toPlace.map(f => one(settledBy, caravanKey(f.data.caravan)).f).find(s => s && s.data.outcome === OUTCOME.DELIVERED && s.bell <= u.bell + slack);
@@ -314,7 +424,7 @@ export function knowledge(records, viewer, clock, { observedBy = clock, world = 
   const allocatedCaravans = new Set(links.filter(l => !INVALID_LINK.has(l.state)).map(l => caravanKey(l.caravan)));
   const claims = [];
   for (const c of commitments) {
-    const ls = links.filter(l => l.commitment === c.id);
+    const ls = linksBy.get(c.id) ?? [];
     c.links = ls.map(l => ({ caravan: l.caravan, qty: l.qty, by: l.by, disputed: l.disputed, state: l.state, qmin: l.qmin ?? null, qmax: l.qmax ?? null,
       settle_bell: l.settle_bell ?? null, on_time: l.settle_bell !== undefined ? l.settle_bell <= c.due_bell + GRACE_BELLS : null, owner_at_settle: l.owner_at_settle ?? null,
       credit: l.credit ?? null, sources: [...new Set(l.sources)] }));
@@ -332,7 +442,7 @@ export function knowledge(records, viewer, clock, { observedBy = clock, world = 
     c.sources.push(...c.claims.map(x => x.id));
     c.reasons = [];
     c.coverage_gaps = [];
-    const retract = acts('retract').find(u => u.speaker === c.debtor && resolveRef(u.act.ref) === c && u.bell <= c.due_bell);
+    const retract = (retractsBy.get(c.id) ?? []).find(u => u.speaker === c.debtor && u.bell <= c.due_bell);
     const past = clock > c.due_bell + GRACE_BELLS;
     c.resolved_bell = null;
     if (onTime >= c.qty) { c.state = 'fulfilled'; c.resolved_bell = Math.max(...del.filter(l => l.on_time).map(l => l.settle_bell)); }
@@ -354,11 +464,14 @@ export function knowledge(records, viewer, clock, { observedBy = clock, world = 
         c.sources.push(...cov.basis);
         const listed = cov.listed.map(x => ({ x, f: one(sentBy, caravanKey(x)).f }));
         const unknownDst = listed.filter(y => !y.f);
-        const toPlace = listed.filter(y => y.f && y.f.bell >= c.made_bell && placeKey(y.f.data.dst) === placeKey(c.place) && !allocatedCaravans.has(caravanKey(y.x)));
-        if (unknownDst.length || toPlace.length) {
+        const maybe = listed.filter(y => y.f && y.f.bell >= c.made_bell && !allocatedCaravans.has(caravanKey(y.x)));
+        const toPlace = maybe.filter(y => samePlace(y.f.data.dst, c.place) === 'same');
+        const unsure = maybe.filter(y => samePlace(y.f.data.dst, c.place) === 'unknown');
+        if (unknownDst.length || toPlace.length || unsure.length) {
           c.state = 'unconfirmed';
-          c.reasons = [...(unknownDst.length ? ['coverage_caravan_unresolved'] : []), ...(toPlace.length ? ['unassigned_caravan'] : [])];
-          c.unassigned = toPlace.map(y => y.x);
+          c.reasons = [...(unknownDst.length ? ['coverage_caravan_unresolved'] : []), ...(toPlace.length ? ['unassigned_caravan'] : []),
+            ...(unsure.length ? ['place_identity_unverified'] : [])];
+          c.unassigned = [...toPlace, ...unsure].map(y => y.x);
         } else if (c.delivered_min > 0) { c.state = 'partial'; c.resolved_bell = c.due_bell + GRACE_BELLS; }
         else if (neutral.length) { c.state = neutral[0].state; c.resolved_bell = c.due_bell + GRACE_BELLS; }
         else { c.state = 'not_sent'; c.resolved_bell = c.due_bell + GRACE_BELLS; }
@@ -413,7 +526,7 @@ export function knowledge(records, viewer, clock, { observedBy = clock, world = 
   }
   for (const rel of Object.values(reliability)) { rel.r = round(rel.r); rel.s = round(rel.s); rel.E = round((rel.r + 1) / (rel.r + rel.s + 2)); }
 
-  return { viewer: { ...viewer }, clock, observedBy, bell: clock, ids, byId, facts, rolledBack: [...rolledBack.keys()], notes, commitments, links, claims,
+  return { viewer: { ...viewer }, clock, observedBy, bell: clock, ids, byId, facts, unusable, rolledBack: [...rolledBack.keys()], notes, commitments, links, claims,
     declined, unassigned, testimonies, reliability };
 }
 

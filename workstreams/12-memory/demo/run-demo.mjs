@@ -11,7 +11,7 @@ import { canonical, sha256hex } from '../src/records.mjs';
 import { reliabilityOf } from '../src/fold.mjs';
 
 const inputs = {};
-const out = { contract: 'wylls.memory12.demo/v3', policy: 'reference-v3 (deterministic; not a language model)', bell: SECOND_BELL, arms: {} };
+const out = { contract: 'wylls.memory12.demo/v4', policy: 'reference-v4 (deterministic; not a language model)', bell: SECOND_BELL, arms: {} };
 for (const name of Object.keys(ARMS)) {
   const { m, ids, res, reassessed } = await runArm(name);
   const k = m.knowledge(A, SECOND_BELL);

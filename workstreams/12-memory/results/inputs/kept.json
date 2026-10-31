@@ -1,5 +1,5 @@
 {
- "contract": "wylls.memory12.decision-input/v3",
+ "contract": "wylls.memory12.decision-input/v4",
  "self": {
   "tag": "A"
  },
@@ -69,8 +69,8 @@
     "caution_is_honesty_judgment": false
    },
    "memory": [
-    "2dd0d301cd944f2c",
-    "89d8f827bc8e6e8b"
+    "f6053dbb25754692",
+    "631953959584af9d"
    ]
   },
   {
@@ -148,35 +148,36 @@
  ],
  "memory": [
   {
-   "id": "2dd0d301cd944f2c",
+   "id": "f6053dbb25754692",
    "about": "B",
    "epistemic": "verified",
    "text": "B -> A: 100 wood due bell 130: delivered in full by the due bell (credited at the promised place) [credit by execution record, whole_units]",
    "sources": [
-    "df892251c607db1c",
-    "2dd0d301cd944f2c",
-    "45e683e199a5ce27",
-    "e00dd0a5a3e4650c",
-    "96ed64029f02f8cf",
-    "a37db8c541a58c86",
-    "26673f8d1a0d3c65"
+    "402a376887ef51ff",
+    "f6053dbb25754692",
+    "5eb139a0613bcf26",
+    "015109c7af9f6f6a",
+    "08bf63f4338ebbf4",
+    "bd4e05fa39d14b2d",
+    "9fa387ca247546cd",
+    "4c64a0f41681548c"
    ]
   },
   {
-   "id": "89d8f827bc8e6e8b",
+   "id": "631953959584af9d",
    "about": "B",
    "epistemic": "interpreted",
    "text": "own note: B delivered the wood it promised, on time.",
    "sources": [
-    "89d8f827bc8e6e8b",
-    "2dd0d301cd944f2c",
-    "26673f8d1a0d3c65"
+    "631953959584af9d",
+    "f6053dbb25754692",
+    "4c64a0f41681548c"
    ]
   }
  ],
  "untrusted_messages": [
   {
-   "id": "2dd0d301cd944f2c",
+   "id": "f6053dbb25754692",
    "from": "B",
    "bell": 101,
    "trust": "untrusted",

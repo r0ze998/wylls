@@ -1,4 +1,11 @@
-// Workstream 12: the journal records of the memory module and their validation (record v3).
+// Workstream 12: the journal records of the memory module and their validation (record v4).
+//
+// v4 (continuing world): the world does not end. Time (`bell`) is the world clock that workstream 4 defines, not
+// a season-relative bell; a memory belongs to a world {cluster, world_id}; the chain's current Season accounts are
+// PARTITIONS of that world, registered by workstream 4. Chain identifiers that the program derives per Season (a
+// citizen's tag, a caravan's {tag, seq}, a place's address) carry their `partition`, and only 4's attestations
+// (`identity_alias`, `place_alias`) say that two of them are the same principal or the same place. v3 records stay
+// readable and verifiable as they were written (fold.mjs `normalize`); nothing is re-signed or rewritten.
 //
 // Four epistemic kinds are kept apart by TYPE, never by a flag a speaker can set:
 //
@@ -33,7 +40,7 @@ import { safeText } from '../../../permutation-gateway/citizens/mind/sanitize.mj
 
 export { canonical, sha256hex };
 
-export const RECORD_VERSION = 3;
+export const RECORD_VERSION = 4;
 export const TYPES = Object.freeze(['utterance', 'fact', 'note', 'correction', 'allocation', 'decision']);
 export const EPISTEMIC = Object.freeze({ utterance: 'said', fact: 'verified', note: 'interpreted', correction: 'interpreted', allocation: 'said', decision: 'interpreted' });
 
@@ -44,6 +51,7 @@ export const ACTS = Object.freeze(['request', 'accept', 'decline', 'retract', 'c
 export const FACT_KINDS = Object.freeze([
   'caravan_sent', 'caravan_settled', 'caravan_credited', 'caravan_raided', // chain records and 4's per-delivery credit
   'place_owner', 'coverage', 'lookup_failed', // index attestations
+  'identity_alias', 'place_alias', // 4's continuity attestations across partitions
   'march_sent', 'rollback',
 ]);
 export const RESOURCES = Object.freeze(['food', 'wood', 'stone', 'ore', 'horses', 'gold', 'science', 'influence']);
@@ -69,24 +77,32 @@ export class RecordError extends Error {
 const fail = (code, msg) => { throw new RecordError(code, msg); };
 
 const isTag = s => typeof s === 'string' && /^[A-Za-z0-9_-]{1,32}$/.test(s);
+export const isPartition = s => typeof s === 'string' && /^[A-Za-z0-9_.:-]{1,64}$/.test(s);
 const isBell = n => Number.isInteger(n) && n >= 0 && n < 2 ** 32;
 const isQty = n => Number.isInteger(n) && n > 0 && n < 2 ** 32;
 const isI16 = n => Number.isInteger(n) && n >= -32768 && n < 32768;
 const isU8 = n => Number.isInteger(n) && n >= 0 && n < 256;
 
-/** A caravan id: the sender's tag and its per-sender seq (the chain record's `owner_tag`, `seq`). */
+/**
+ * A caravan id: the partition, the sender's tag IN that partition and its per-sender seq (the chain record's
+ * `owner_tag`, `seq`; the program derives the tag from the citizen address, which it derives under the Season
+ * account, so the same wallet has another tag in another partition).
+ */
 export function checkCaravan(c, what = 'caravan') {
-  if (!c || !isTag(c.sender) || !Number.isInteger(c.seq) || c.seq < 0) fail(what, 'caravan id {sender, seq}');
-  return { sender: c.sender, seq: c.seq };
+  // seq is the program's u32 per sender
+  if (!c || !isPartition(c.partition) || !isTag(c.sender) || !Number.isInteger(c.seq) || c.seq < 0 || c.seq >= 2 ** 32) fail(what, 'caravan id {partition, sender, seq u32}');
+  return { partition: c.partition, sender: c.sender, seq: c.seq };
 }
-export const caravanKey = c => `${c.sender}#${c.seq}`;
+export const caravanKey = c => `${c.partition ?? '-'}/${c.sender}#${c.seq}`;
 
-/** A destination with its generation (fclient `LogPlace`: kind, p, q, at = site or tile, gen). */
+/** A destination with its partition and generation (fclient `LogPlace`: kind, p, q, at = site or tile, gen). */
 export function checkPlace(pl, what = 'place') {
-  if (!pl || !PLACE_KINDS.includes(pl.kind) || !isI16(pl.p) || !isI16(pl.q) || !isU8(pl.at) || !isU8(pl.gen)) fail(what, 'place {kind, p, q, at, gen}');
-  return { kind: pl.kind, p: pl.p, q: pl.q, at: pl.at, gen: pl.gen };
+  if (!pl || !isPartition(pl.partition) || !PLACE_KINDS.includes(pl.kind) || !isI16(pl.p) || !isI16(pl.q) || !isU8(pl.at) || !isU8(pl.gen)) {
+    fail(what, 'place {partition, kind, p, q, at, gen}');
+  }
+  return { partition: pl.partition, kind: pl.kind, p: pl.p, q: pl.q, at: pl.at, gen: pl.gen };
 }
-export const placeKey = pl => `${pl.kind}:${pl.p},${pl.q}:${pl.at}:${pl.gen}`;
+export const placeKey = pl => `${pl.partition ?? '-'}/${pl.kind}:${pl.p},${pl.q}:${pl.at}:${pl.gen}`;
 
 /**
  * Visibility: who may see a record.
@@ -146,14 +162,18 @@ function checkAct(act) {
   }
 }
 
-const idOf = (type, body) => sha256hex('wylls-memory12/v3', type, canonical(body)).slice(0, 16);
+const idOf = (type, body) => sha256hex('wylls-memory12/v4', type, canonical(body)).slice(0, 16);
 
-/** The world a memory belongs to: cluster, program id and season. Coverage must name the same world. */
+/**
+ * The world a memory belongs to: {cluster, world_id}, both defined by workstream 4. No season and no end: a war
+ * period or a Season account is not part of the world's identity. (v3 named {cluster, program, season}; such records
+ * are read through the partition registry, fold.mjs `normalize`.)
+ */
 export function checkWorld(w, what = 'world') {
-  if (!w || typeof w.cluster !== 'string' || !w.cluster || typeof w.program !== 'string' || !w.program || !Number.isInteger(w.season) || w.season < 0) {
-    fail(what, 'world {cluster, program, season}');
+  if (!w || typeof w.cluster !== 'string' || !w.cluster || typeof w.world_id !== 'string' || !w.world_id || Object.keys(w).length !== 2) {
+    fail(what, 'world {cluster, world_id}');
   }
-  return { cluster: w.cluster, program: w.program, season: w.season };
+  return { cluster: w.cluster, world_id: w.world_id };
 }
 
 /**
@@ -201,7 +221,9 @@ function checkFactData(kind, d, bell) {
   switch (kind) {
     case 'caravan_sent': // CARAVAN_SENT: the record of departure (not a delivery)
       if (d.eta_bell !== undefined && (!isBell(d.eta_bell) || d.eta_bell < bell)) fail('fact', 'caravan_sent eta');
-      return { caravan: checkCaravan(d.caravan, 'fact'), dst: checkPlace(d.dst, 'fact'), cargo: cargoOf(d.cargo), eta_bell: d.eta_bell ?? null };
+      { const caravan = checkCaravan(d.caravan, 'fact'), dst = checkPlace(d.dst, 'fact');
+        if (dst.partition !== caravan.partition) fail('fact', 'caravan_sent: a caravan is addressed within its own partition');
+        return { caravan, dst, cargo: cargoOf(d.cargo), eta_bell: d.eta_bell ?? null }; }
     case 'caravan_settled': // CARAVAN_SETTLED: outcome and the cargo AS RECORDED (not the amount credited)
       if (!Object.values(OUTCOME).includes(d.outcome)) fail('fact', 'caravan_settled outcome');
       return { caravan: checkCaravan(d.caravan, 'fact'), outcome: d.outcome, dst: checkPlace(d.dst, 'fact'), cargo_recorded: cargoOf(d.cargo_recorded ?? {}) };
@@ -218,25 +240,35 @@ function checkFactData(kind, d, bell) {
     case 'caravan_raided':
       if (!isTag(d.raider)) fail('fact', 'caravan_raided raider');
       return { caravan: checkCaravan(d.caravan, 'fact'), raider: d.raider, taken: cargoOf(d.taken ?? {}) };
-    case 'place_owner': // who held a place of a given generation over [from_bell, to_bell]; to_bell null = through `bell`
+    case 'place_owner': // which PRINCIPAL held a place of a given generation over [from_bell, to_bell]; to_bell null = through `bell`
       if (!isTag(d.owner) || !isBell(d.from_bell) || (d.to_bell !== null && d.to_bell !== undefined && (!isBell(d.to_bell) || d.to_bell < d.from_bell))) fail('fact', 'place_owner');
       return { place: checkPlace(d.place, 'fact'), owner: d.owner, from_bell: d.from_bell, to_bell: d.to_bell ?? null };
     case 'coverage':
       // 4 attests: in `world`, every CARAVAN_SENT of `sender` with a departure bell in [from_bell, to_bell], over the
       // listed `routes`, read from a gapless slot range at the stated finality, is exactly `caravans`. Whether it is
       // SUFFICIENT to prove "not sent" is decided by the fold (fold.mjs coverageSufficiency), not here.
-      if (!isTag(d.sender) || !isBell(d.from_bell) || !isBell(d.to_bell) || d.to_bell < d.from_bell || d.to_bell > bell || !Array.isArray(d.caravans)) fail('fact', 'coverage');
+      // `sender` is the tag in `partition`; the window is in world bells; a window may be covered by attestations
+      // from several partitions (the fold joins them through identity_alias).
+      if (!isPartition(d.partition) || !isTag(d.sender) || !isBell(d.from_bell) || !isBell(d.to_bell) || d.to_bell < d.from_bell || d.to_bell > bell || !Array.isArray(d.caravans)) fail('fact', 'coverage');
       if (!Array.isArray(d.routes) || !d.routes.every(r => typeof r === 'string')) fail('fact', 'coverage routes');
       if (!FINALITY.includes(d.finality)) fail('fact', 'coverage finality');
       if (!d.completeness || typeof d.completeness.gapless !== 'boolean' || !Number.isInteger(d.completeness.from_slot) || !Number.isInteger(d.completeness.to_slot)
         || d.completeness.to_slot < d.completeness.from_slot) fail('fact', 'coverage completeness {gapless, from_slot, to_slot}');
-      return { world: checkWorld(d.world, 'fact'), sender: d.sender, from_bell: d.from_bell, to_bell: d.to_bell, routes: [...new Set(d.routes)].sort(),
-        finality: d.finality, completeness: { gapless: d.completeness.gapless, from_slot: d.completeness.from_slot, to_slot: d.completeness.to_slot },
-        caravans: d.caravans.map(c => checkCaravan(c, 'fact')) };
+      { const caravans = d.caravans.map(c => checkCaravan(c, 'fact'));
+        if (caravans.some(c => c.partition !== d.partition || c.sender !== d.sender)) fail('fact', 'coverage lists only the sender\'s caravans of its partition');
+        return { world: checkWorld(d.world, 'fact'), partition: d.partition, sender: d.sender, from_bell: d.from_bell, to_bell: d.to_bell, routes: [...new Set(d.routes)].sort(),
+          finality: d.finality, completeness: { gapless: d.completeness.gapless, from_slot: d.completeness.from_slot, to_slot: d.completeness.to_slot }, caravans }; }
     case 'lookup_failed': // 4 tried and could not answer: unknown, not "absent"
       if (!['coverage', 'caravan', 'place_owner', 'credit'].includes(d.query) || !d.reason) fail('fact', 'lookup_failed');
-      return { query: d.query, sender: isTag(d.sender) ? d.sender : null, caravan: d.caravan ? checkCaravan(d.caravan, 'fact') : null,
-        reason: safeText(d.reason, { kind: 'trusted', limit: 120 }) };
+      return { query: d.query, partition: isPartition(d.partition) ? d.partition : null, sender: isTag(d.sender) ? d.sender : null,
+        caravan: d.caravan ? checkCaravan(d.caravan, 'fact') : null, reason: safeText(d.reason, { kind: 'trusted', limit: 120 }) };
+    case 'identity_alias': // 4 attests: in `partition`, chain tag `tag` is the citizen of world principal `principal`
+      if (!isPartition(d.partition) || !isTag(d.tag) || !isTag(d.principal)) fail('fact', 'identity_alias {partition, tag, principal}');
+      return { partition: d.partition, tag: d.tag, principal: d.principal };
+    case 'place_alias': // 4 attests: place `a` (one partition) and place `b` (another) are the same place of the world
+      { const a = checkPlace(d.a, 'fact'), b = checkPlace(d.b, 'fact');
+        if (a.partition === b.partition) fail('fact', 'place_alias joins places of two partitions');
+        return { a, b }; }
     case 'march_sent':
       if (!isTag(d.owner)) fail('fact', 'march_sent');
       return { owner: d.owner, host_id: String(d.host_id ?? ''), dest: d.dest ? { p: d.dest.p | 0, q: d.dest.q | 0 } : null, arrive_bell: d.arrive_bell ?? null };
@@ -259,11 +291,16 @@ export function note({ owner, bell, about = null, text, basis = [], by = 'code',
 
 // ------------------------------------------------------------------ allocation (signed)
 
-export const ALLOCATION_DOMAIN = 'wylls-memory12-allocation/v1';
+// v2 (record v4) signs the world {cluster, world_id} and a partitioned caravan; v1 (record v3) signed a world with a
+// season. Each record is verified with the domain of the version it was written in, never re-signed.
+export const ALLOCATION_DOMAIN = 'wylls-memory12-allocation/v2';
+export const ALLOCATION_DOMAINS = Object.freeze({ 3: 'wylls-memory12-allocation/v1', 4: ALLOCATION_DOMAIN });
 
-/** The exact bytes a signer signs: domain, world and the operation, as canonical JSON. */
-export function allocationBytes({ world, by, op, commitment, caravan, qty, nonce, bell, visibility }) {
-  return Buffer.from(canonical({ domain: ALLOCATION_DOMAIN, world, by, op, commitment, caravan, qty, nonce, bell, visibility }), 'utf8');
+/** The exact bytes a signer signs: domain (by record version), world and the operation, as canonical JSON. */
+export function allocationBytes({ v = RECORD_VERSION, world, by, op, commitment, caravan, qty, nonce, bell, visibility }) {
+  const domain = ALLOCATION_DOMAINS[v];
+  if (!domain) throw new RecordError('allocation', `no signing domain for record v${v}`);
+  return Buffer.from(canonical({ domain, world, by, op, commitment, caravan, qty, nonce, bell, visibility }), 'utf8');
 }
 
 /**
@@ -274,7 +311,8 @@ export function allocationBytes({ world, by, op, commitment, caravan, qty, nonce
  */
 export function allocation({ world, by, op, commitment, caravan, qty = 0, nonce, bell, created_bell = bell, visibility, sig }) {
   if (!isTag(by) || !['set', 'revoke'].includes(op) || typeof commitment !== 'string' || !commitment) fail('allocation', 'by / op / commitment');
-  if (!Number.isInteger(nonce) || nonce < 0 || !isBell(bell) || !isBell(created_bell) || created_bell < bell) fail('allocation', 'nonce / bell');
+  // a nonce beyond 2^53 would round onto another one and defeat the reuse check
+  if (!Number.isSafeInteger(nonce) || nonce < 0 || !isBell(bell) || !isBell(created_bell) || created_bell < bell) fail('allocation', 'nonce / bell');
   if (op === 'set' ? !isQty(qty) : qty !== 0) fail('allocation', 'qty (positive for set, 0 for revoke)');
   if (typeof sig !== 'string' || !/^[0-9a-f]{128}$/.test(sig)) fail('allocation', 'sig (ed25519, 64 bytes hex)');
   // visibility is signed too: an allocation names a commitment, so it is shown to whom the signer chose (normally the

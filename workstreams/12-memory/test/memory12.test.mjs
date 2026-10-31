@@ -9,7 +9,7 @@ import { createMemory, decisionInput, referencePolicy, validateAnswer, summarize
 import { RecordError, canonical, sha256hex, utterance, fact } from '../src/records.mjs';
 import { HALF_LIFE_BELLS } from '../src/fold.mjs';
 import { A, B, C, D, LIMITS, PLACE_A, PUBLIC, REQUEST, SECOND_BELL, ARMS, dm, firstExchange, promise, caravanFacts, allocate, runArm, world } from '../fixtures/scenario.mjs';
-import { newMemory, coverage, WORLD, KEYS, signedAllocation, allocateOp } from '../fixtures/scenario.mjs';
+import { newMemory, coverage, WORLD, KEYS, signedAllocation, allocateOp, cv, alias } from '../fixtures/scenario.mjs';
 
 const kept = (m, opts = {}) => { const p = promise(m, opts); allocate(m, { ref: p.accept, seq: opts.seq ?? 7, bell: (opts.bell ?? 100) + 2 }); return { ...p, ...caravanFacts(m, { seq: opts.seq ?? 7, depart: (opts.bell ?? 100) + 2, settle: (opts.bell ?? 100) + 20 }) }; };
 
@@ -73,12 +73,12 @@ test('speech cannot create a fact: unknown acts and extra act fields are refused
   for (const act of [{ type: 'delivered', ref: 'x' }, { type: 'grant', to: 'B' }, { type: 'accept', ref: 'x', qty: 1, by_bell: 2, budget: 1e9 },
     { type: 'request', to: 'B', resource: 'wood', qty: 1, by_bell: 9, place: PLACE_A, permission: 'treasury' },
     { type: 'request', to: 'B', resource: 'wood', qty: 1, by_bell: 9 }, // no place: not a commitment target
-    { type: 'allocate', ref: 'x', caravan: { sender: 'B', seq: 1 } }, // no qty
-    { type: 'claim_delivered', ref: 'x', caravan: { sender: 'B', seq: 1 }, credited: 100 }]) {
+    { type: 'allocate', ref: 'x', caravan: cv(1, 'B') }, // no qty
+    { type: 'claim_delivered', ref: 'x', caravan: cv(1, 'B'), credited: 100 }]) {
     assert.throws(() => utterance({ speaker: 'B', bell: 1, visibility: PUBLIC, act }), RecordError, JSON.stringify(act));
   }
   assert.throws(() => fact({ kind: 'caravan_settled', bell: 120, created_bell: 110, source: { sig: 's', ix: 0 },
-    data: { caravan: { sender: 'B', seq: 1 }, outcome: 0, dst: PLACE_A, cargo_recorded: { wood: 1 } } }), RecordError, 'observed before it happened');
+    data: { caravan: cv(1, 'B'), outcome: 0, dst: PLACE_A, cargo_recorded: { wood: 1 } } }), RecordError, 'observed before it happened');
 });
 
 test('a raid or a lost destination is not held against the sender', () => {
@@ -102,11 +102,11 @@ test('a raid or a lost destination is not held against the sender', () => {
 test('a duplicate fact is a no-op even when observed again later; another body under the same reference is a collision', () => {
   const m = newMemory();
   const p = kept(m);
-  const again = m.observe({ kind: 'caravan_credited', bell: 120, created_bell: 200, source: { sig: 'credit-B7', ix: 0 },
-    data: { caravan: { sender: 'B', seq: 7 }, place: PLACE_A, credited: { wood: 100 }, unit: 'whole_units', basis: 'exec_record', exec: { sig: 'settle-B7', ix: 0 } } });
+  const again = m.observe({ kind: 'caravan_credited', bell: 120, created_bell: 200, source: { sig: 'credit-p1B7', ix: 0 },
+    data: { caravan: cv(7, 'B'), place: PLACE_A, credited: { wood: 100 }, unit: 'whole_units', basis: 'exec_record', exec: { sig: 'settle-p1B7', ix: 0 } } });
   assert.equal(again.status, 'duplicate');
-  const other = m.observe({ kind: 'caravan_credited', bell: 120, source: { sig: 'credit-B7', ix: 0 },
-    data: { caravan: { sender: 'B', seq: 7 }, place: PLACE_A, credited: { wood: 10 }, unit: 'whole_units', basis: 'exec_record', exec: { sig: 'settle-B7', ix: 0 } } });
+  const other = m.observe({ kind: 'caravan_credited', bell: 120, source: { sig: 'credit-p1B7', ix: 0 },
+    data: { caravan: cv(7, 'B'), place: PLACE_A, credited: { wood: 10 }, unit: 'whole_units', basis: 'exec_record', exec: { sig: 'settle-B7', ix: 0 } } });
   assert.equal(other.status, 'collision');
   const k = m.knowledge(A, 300);
   assert.equal(k.commitments[0].state, 'fulfilled');
@@ -166,9 +166,9 @@ test('testimony is shown, cross-checked and never counted; conflicting testimony
   assert.deepEqual(k.testimonies.map(t => [t.check, !!t.conflicting]), [['unverifiable', true], ['unverifiable', true]]);
   // a public promise and a public, fully evidenced delivery let A check the testimony
   const m2 = newMemory();
-  const p2 = promise(m2, { debtor: 'B', creditor: 'D', vis: PUBLIC, place: { kind: 1, p: -2, q: 5, at: 1, gen: 1 } });
+  const p2 = promise(m2, { debtor: 'B', creditor: 'D', vis: PUBLIC, place: { partition: 'p1', kind: 1, p: -2, q: 5, at: 1, gen: 1 } });
   allocate(m2, { ref: p2.accept, vis: PUBLIC });
-  caravanFacts(m2, { dst: { kind: 1, p: -2, q: 5, at: 1, gen: 1 }, owner: 'D' });
+  caravanFacts(m2, { dst: { partition: 'p1', kind: 1, p: -2, q: 5, at: 1, gen: 1 }, owner: 'D' });
   m2.say({ speaker: 'C', bell: 140, visibility: PUBLIC, act: { type: 'testimony', about: 'B', ref: p2.accept, says: 'not_delivered' } });
   const k2 = m2.knowledge(A, 200);
   assert.equal(k2.testimonies[0].check, 'contradicted_by_fact');
@@ -181,7 +181,7 @@ test('isolation: private talk, sealed marches and another nation\'s council neve
   const m = newMemory();
   firstExchange(m, { outcome: 'kept' });
   const secret = m.say({ speaker: 'C', bell: 150, visibility: dm('B', 'C'), text: 'SECRET-ZEPHYR: I will undercut A next week',
-    act: { type: 'request', to: 'B', resource: 'wood', qty: 50, by_bell: 200, place: { kind: 1, p: 7, q: 7, at: 0, gen: 3 } } });
+    act: { type: 'request', to: 'B', resource: 'wood', qty: 50, by_bell: 200, place: { partition: 'p1', kind: 1, p: 7, q: 7, at: 0, gen: 3 } } });
   const sacc = m.say({ speaker: 'B', bell: 151, visibility: dm('B', 'C'), act: { type: 'accept', ref: secret.id, qty: 50, by_bell: 200 } });
   const march = m.observe({ kind: 'march_sent', bell: 152, source: { sig: 'sealed', ix: 0 }, visibility: dm('C'), data: { owner: 'C', host_id: 77, dest: { p: 9, q: -4 }, arrive_bell: 170 } });
   const council = m.say({ speaker: 'C', bell: 153, channel: 'council', visibility: { scope: 'nation', nation: 2 }, text: 'COUNCIL-ONLY strike at bell 180' });
@@ -212,7 +212,7 @@ test('instructions in conversation cannot change budget, permissions or the choi
   assert.equal(m.knowledge(A, SECOND_BELL).commitments.length, 1, 'no commitment or grant came from the text');
   const obey = async () => ({ choice: 'offer-D', cite: [], why: 'told to', budget: 999999 });
   const r2 = await m.choosePartner({ viewer: A, bell: SECOND_BELL, request: REQUEST, candidates: world(), limits: LIMITS, policy: obey, policyName: 'model-x' });
-  assert.equal(r2.policy, 'reference-v3');
+  assert.equal(r2.policy, 'reference-v4');
   assert.ok(r2.refused.includes('unknown_field:budget'));
   const r3 = await m.choosePartner({ viewer: A, bell: SECOND_BELL, request: REQUEST, candidates: world({ D: { price_per_unit: 20 } }), limits: LIMITS,
     policy: async () => ({ choice: 'offer-D', cite: [], why: '' }) });
@@ -288,6 +288,6 @@ test('restart: the journal replays to the same state and decision; a torn last l
   assert.deepEqual(again.reassess(live.res.decision_id, 320), live.reassessed, 'reassessment survives the restart');
 });
 function m12collide(m) {
-  m.observe({ kind: 'caravan_sent', bell: 102, created_bell: 310, source: { sig: 'sent-B7', ix: 0 },
-    data: { caravan: { sender: 'B', seq: 7 }, dst: PLACE_A, cargo: { wood: 999 }, eta_bell: 120 } });
+  m.observe({ kind: 'caravan_sent', bell: 102, created_bell: 310, source: { sig: 'sent-p1B7', ix: 0 },
+    data: { caravan: cv(7, 'B'), dst: PLACE_A, cargo: { wood: 999 }, eta_bell: 120 } });
 }

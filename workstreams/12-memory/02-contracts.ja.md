@@ -1,6 +1,25 @@
-# ⑫ 接続契約 v3（④ 実行・⑤ provider と予算・⑬ 独立住民）
+# ⑫ 接続契約 v4（④ 実行・⑤ provider と予算・⑬ 独立住民）
 
-版：記録 v3、判断入力 `wylls.memory12.decision-input/v3`。初期化は `createMemory({path, world: {cluster, program, season}, keys: {tag: ed25519 公開鍵 hex}})`。⑫は記憶・検索・関係更新の module だけを持つ。**モデル呼出し、scheduler、予算管理、実行は持たない。** 実体は `src/index.mjs`（`createMemory`）。v1 からの変更点は末尾。
+## v4：継続世界（2026-10-31 の方針訂正）で④に求めるもの
+
+⑫は世界・期間・識別子・時計を定義しない。④（横断設計は⑧）から次を受け取る：
+
+| 受け取るもの | 形 | 用途 | 無いとき |
+|---|---|---|---|
+| world | `{cluster, world_id}` | coverage と割当の照合 | 未発送は証明できない（`memory_world_unset`） |
+| partition の登録 | `{id: {program, season}}`（今の Season 口座を世界の partition として登録） | 事実を使うかどうか | 事実は残すが使わない（`partition_unregistered`） |
+| legacy partition | `{partition}`（v3 の記録を書いた partition） | v3 を v4 として読む | v3 の記録は使わない（`legacy_partition_unregistered`） |
+| 世界時計 | すべての事実の `bell` と `created_bell` は世界 bell | 期限・減衰・再評価 | — |
+| `identity_alias` 事実 | `{partition, tag, principal}` | Season ごとの tag を本人に結ぶ | `identity_unverified` |
+| `place_alias` 事実 | `{a: place, b: place}`（別の partition の同じ場所） | 境界をまたぐ配送 | `place_identity_unverified` |
+| coverage | 上記に加えて `partition` と `sender`（その partition の tag） | partition ごとの証明を本人でつなぐ | — |
+
+caravan id は `{partition, sender, seq}`、場所は `{partition, kind, p, q, at, gen}`。割当の署名領域は `wylls-memory12-allocation/v2`（world に season を含めない）。v3 の割当は v1 の領域で検証し、書き換えない。判断入力は `wylls.memory12.decision-input/v4`。過去の判断は当時の入力（v3 なら v3）のまま保持する。
+
+---
+
+
+版：記録 v4、判断入力 `wylls.memory12.decision-input/v4`。初期化は `createMemory({path, world: {cluster, world_id}, partitions, legacy, keys: {principal: ed25519 公開鍵 hex}})`。以下の v3 の記述のうち、world に season を含める部分は v4 で上の表に置き換えた。⑫は記憶・検索・関係更新の module だけを持つ。**モデル呼出し、scheduler、予算管理、実行は持たない。** 実体は `src/index.mjs`（`createMemory`）。v1 からの変更点は末尾。
 
 ## 1. ④（実行）→ ⑫：事実イベント
 

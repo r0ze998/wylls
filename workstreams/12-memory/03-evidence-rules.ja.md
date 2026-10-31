@@ -1,4 +1,6 @@
-# ⑫ 事実認定の規則（fold v3）
+# ⑫ 事実認定の規則（fold v4）
+
+> v4（継続世界）の追加：表の「世界・シーズン」は、v4 では「世界（`{cluster, world_id}`）と④が登録した partition」と読む。tag と場所は partition ごとに異なり、④の `identity_alias`・`place_alias` があるときだけ同じ本人・同じ場所とみなす。無ければ `identity_unverified`・`place_identity_unverified`（未確認）。partition をまたぐ coverage は本人単位でつなぐ。詳細は [04-continuity.ja.md](04-continuity.ja.md)。
 
 二度目・三度目のレビュー（2026-10-30）で指摘された「誤った評価で関係を壊す」経路を塞ぐための規則。実装は `src/fold.mjs`、`src/records.mjs`、`src/store.mjs`、`src/index.mjs`。テストは `test/evidence.test.mjs`（v2）と `test/contract-v3.test.mjs`（v3）。重みはすべて仮設定（`WEIGHTS.provisional: true`、`CAUTION.provisional: true`）で、調整していない。**本番の評判ルールとして採用したものではない。**
 

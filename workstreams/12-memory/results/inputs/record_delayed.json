@@ -1,5 +1,5 @@
 {
- "contract": "wylls.memory12.decision-input/v3",
+ "contract": "wylls.memory12.decision-input/v4",
  "self": {
   "tag": "A"
  },
@@ -69,7 +69,7 @@
     "caution_is_honesty_judgment": false
    },
    "memory": [
-    "2dd0d301cd944f2c"
+    "f6053dbb25754692"
    ]
   },
   {
@@ -147,20 +147,20 @@
  ],
  "memory": [
   {
-   "id": "2dd0d301cd944f2c",
+   "id": "f6053dbb25754692",
    "about": "B",
    "epistemic": "unknown",
    "text": "B -> A: 100 wood due bell 130: past the due bell but not decided (credited 0 of 100 so far; up to 100 still possible) (the allocated caravan has no departure record yet)",
    "sources": [
-    "df892251c607db1c",
-    "2dd0d301cd944f2c",
-    "45e683e199a5ce27"
+    "402a376887ef51ff",
+    "f6053dbb25754692",
+    "5eb139a0613bcf26"
    ]
   }
  ],
  "untrusted_messages": [
   {
-   "id": "2dd0d301cd944f2c",
+   "id": "f6053dbb25754692",
    "from": "B",
    "bell": 101,
    "trust": "untrusted",

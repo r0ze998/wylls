@@ -1,8 +1,13 @@
 // Workstream 12: the memory module's entry point (the API workstreams 13 and 4 call; see 02-contracts.ja.md).
 //
-//   const m = createMemory({path?, world, keys})
-//        world = {cluster, program, season}: the one world this memory is about (coverage must match it)
-//        keys  = {tag: ed25519 public key hex}: the registry allocations are verified against (from the roster)
+//   const m = createMemory({path?, world, partitions, legacy, keys})
+//        world      = {cluster, world_id}: the one, continuing world this memory is about (workstream 4 defines it)
+//        partitions = {id: {program, season}}: 4's registry of this world's partitions (today the Season accounts);
+//                     facts of an unregistered partition are kept in the journal but not used (reported as unusable)
+//        legacy     = {partition}: the partition the v3 records were written in (read as they are, not rewritten)
+//        keys       = {principal: ed25519 public key hex}: the registry allocations are verified against (the roster)
+//   Nothing in this module ends, resets or expires with a war period or a Season: memory and reputation history stay;
+//   decay is a separate, continuous rule over world bells.
 //   m.say({...})          an utterance from the social layer (speaker already authenticated by the caller)
 //   m.observe({...})      a fact from the execution side (workstream 4), with `bell` (happened) and `created_bell` (observed)
 //   m.allocate({...})     a signed allocation operation (verified here; refused without a valid signature)
@@ -29,11 +34,11 @@ import { knowledge } from './fold.mjs';
 import { summarize } from './view.mjs';
 import { decisionInput, referencePolicy, validateAnswer } from './advise.mjs';
 
-export function createMemory({ path = null, world = null, keys = {} } = {}) {
+export function createMemory({ path = null, world = null, partitions = {}, legacy = null, keys = {} } = {}) {
   const journal = Journal.open(path, { keys });
-  const fold = (records, viewer, clock, opts = {}) => knowledge(records, viewer, clock, { ...opts, world });
+  const fold = (records, viewer, clock, opts = {}) => knowledge(records, viewer, clock, { ...opts, world, partitions, legacy });
   const m = {
-    journal, world,
+    journal, world, partitions, legacy,
     say: args => { const r = utterance(args); return { ...journal.append(r), record: r }; },
     observe: args => { const r = fact(args); return { ...journal.append(r), record: r }; },
     allocate: args => { const r = allocation(args); return { ...journal.append(r), record: r }; },
@@ -41,11 +46,11 @@ export function createMemory({ path = null, world = null, keys = {} } = {}) {
     correct: args => { const r = correction(args); return { ...journal.append(r), record: r }; },
     knowledge: (viewer, clock, opts) => fold(journal.records(), viewer, clock, opts),
     summary: (viewer, clock, opts) => summarize(m.knowledge(viewer, clock, opts)),
-    async choosePartner({ viewer, bell, request, candidates, limits = {}, policy = null, policyName = 'reference-v3' }) {
+    async choosePartner({ viewer, bell, request, candidates, limits = {}, policy = null, policyName = 'reference-v4' }) {
       const k = m.knowledge(viewer, bell);
       const input = decisionInput({ k, request, candidates, limits });
       const ref = referencePolicy(input);
-      let used = 'reference-v3', answer = ref.answer, refused = null;
+      let used = 'reference-v4', answer = ref.answer, refused = null;
       if (policy) {
         let raw;
         try { raw = await policy(structuredClone(input)); } catch (e) { raw = null; refused = [`policy_error:${e.message}`.slice(0, 80)]; }

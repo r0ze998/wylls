@@ -1,6 +1,6 @@
 {
- "contract": "wylls.memory12.demo/v3",
- "policy": "reference-v3 (deterministic; not a language model)",
+ "contract": "wylls.memory12.demo/v4",
+ "policy": "reference-v4 (deterministic; not a language model)",
  "bell": 300,
  "arms": {
   "none": {
@@ -75,22 +75,23 @@
    "ineligible": [],
    "memory_block": "",
    "reassessed": null,
-   "decision_input_sha256": "fa978ccbc89097bd96c266a01fef3024d3edf69cd271cd24f8558222645d3708"
+   "decision_input_sha256": "50fa97ad5f1eb0a86e8d25ef6dc1dc0213067eceeb91c14adee17d2bb478a969"
   },
   "kept": {
    "first_exchange": {
-    "request": "df892251c607db1c",
-    "accept": "2dd0d301cd944f2c",
-    "allocate": "45e683e199a5ce27",
-    "sent": "e00dd0a5a3e4650c",
-    "settled": "96ed64029f02f8cf",
-    "credited": "26673f8d1a0d3c65",
-    "owner": "a37db8c541a58c86",
-    "note": "89d8f827bc8e6e8b"
+    "request": "402a376887ef51ff",
+    "accept": "f6053dbb25754692",
+    "allocate": "5eb139a0613bcf26",
+    "alias": "08bf63f4338ebbf4",
+    "sent": "015109c7af9f6f6a",
+    "settled": "bd4e05fa39d14b2d",
+    "credited": "4c64a0f41681548c",
+    "owner": "9fa387ca247546cd",
+    "note": "631953959584af9d"
    },
    "commitments": [
     {
-     "id": "2dd0d301cd944f2c",
+     "id": "f6053dbb25754692",
      "debtor": "B",
      "state": "fulfilled",
      "reasons": [],
@@ -104,10 +105,10 @@
        "basis": "exec_record",
        "unit": "whole_units",
        "inputs": [
-        "26673f8d1a0d3c65"
+        "4c64a0f41681548c"
        ],
        "exec": {
-        "sig": "settle-B7",
+        "sig": "settle-p1B7",
         "ix": 0
        }
       }
@@ -116,13 +117,14 @@
      "authority": false,
      "contract": false,
      "sources": [
-      "df892251c607db1c",
-      "2dd0d301cd944f2c",
-      "45e683e199a5ce27",
-      "e00dd0a5a3e4650c",
-      "96ed64029f02f8cf",
-      "a37db8c541a58c86",
-      "26673f8d1a0d3c65"
+      "402a376887ef51ff",
+      "f6053dbb25754692",
+      "5eb139a0613bcf26",
+      "015109c7af9f6f6a",
+      "08bf63f4338ebbf4",
+      "bd4e05fa39d14b2d",
+      "9fa387ca247546cd",
+      "4c64a0f41681548c"
      ]
     }
    ],
@@ -162,7 +164,7 @@
     }
    },
    "cite": [
-    "2dd0d301cd944f2c"
+    "f6053dbb25754692"
    ],
    "why": "offer-B: lowest expected cost 1476.4976 (goods 1000, travel 40, risk 436.4976 at E=0.636252, caution 0); without memory offer-C",
    "terms": {
@@ -195,20 +197,20 @@
     }
    },
    "ineligible": [],
-   "memory_block": "- [verified] B: verified 1 fulfilled, 0 late, 0 partial, 0 not sent; 0 open or unconfirmed; 0 neutral; claims 0 false, 0 mismatched, 0 unverified; reliability estimate 0.636252 (verified evidence only) {src: 26673f8d1a0d3c65,2dd0d301cd944f2c,45e683e199a5ce27,96ed64029f02f8cf,a37db8c541a58c86,df892251c607db1c,e00dd0a5a3e4650c}\n- [verified] B -> A: 100 wood due bell 130: delivered in full by the due bell (credited at the promised place) [credit by execution record, whole_units] {src: df892251c607db1c,2dd0d301cd944f2c,45e683e199a5ce27,e00dd0a5a3e4650c,96ed64029f02f8cf,a37db8c541a58c86,26673f8d1a0d3c65}\n- [interpreted] own note: B delivered the wood it promised, on time. {src: 89d8f827bc8e6e8b,2dd0d301cd944f2c,26673f8d1a0d3c65}",
+   "memory_block": "- [verified] B: verified 1 fulfilled, 0 late, 0 partial, 0 not sent; 0 open or unconfirmed; 0 neutral; claims 0 false, 0 mismatched, 0 unverified; reliability estimate 0.636252 (verified evidence only) {src: 015109c7af9f6f6a,08bf63f4338ebbf4,402a376887ef51ff,4c64a0f41681548c,5eb139a0613bcf26,9fa387ca247546cd,bd4e05fa39d14b2d,f6053dbb25754692}\n- [verified] B -> A: 100 wood due bell 130: delivered in full by the due bell (credited at the promised place) [credit by execution record, whole_units] {src: 402a376887ef51ff,f6053dbb25754692,5eb139a0613bcf26,015109c7af9f6f6a,08bf63f4338ebbf4,bd4e05fa39d14b2d,9fa387ca247546cd,4c64a0f41681548c}\n- [interpreted] own note: B delivered the wood it promised, on time. {src: 631953959584af9d,f6053dbb25754692,4c64a0f41681548c}",
    "reassessed": null,
-   "decision_input_sha256": "90dfc86494247084c6a8f0b393578ee3a933d4580d2f63aab5d046fe47205901"
+   "decision_input_sha256": "092803a2a331efd7351311bae4c410b074eb4d2e05e15d7acfc93fc9c4ee6bd9"
   },
   "not_sent": {
    "first_exchange": {
-    "request": "df892251c607db1c",
-    "accept": "2dd0d301cd944f2c",
-    "claim": "ba483a219f2d7530",
-    "coverage": "7973040bd9c2585d"
+    "request": "402a376887ef51ff",
+    "accept": "f6053dbb25754692",
+    "claim": "fe3aaf49a6c1bcdf",
+    "coverage": "32261dcb479413a2"
    },
    "commitments": [
     {
-     "id": "2dd0d301cd944f2c",
+     "id": "f6053dbb25754692",
      "debtor": "B",
      "state": "not_sent",
      "reasons": [],
@@ -220,22 +222,22 @@
      "credit": [],
      "claims": [
       {
-       "id": "ba483a219f2d7530",
+       "id": "fe3aaf49a6c1bcdf",
        "kind": "claim_sent",
        "status": "contradicted",
        "criterion": "no_caravan_to_place_in_complete_index",
        "basis": [
-        "7973040bd9c2585d"
+        "32261dcb479413a2"
        ]
       }
      ],
      "authority": false,
      "contract": false,
      "sources": [
-      "df892251c607db1c",
-      "2dd0d301cd944f2c",
-      "ba483a219f2d7530",
-      "7973040bd9c2585d"
+      "402a376887ef51ff",
+      "f6053dbb25754692",
+      "fe3aaf49a6c1bcdf",
+      "32261dcb479413a2"
      ]
     }
    ],
@@ -275,7 +277,7 @@
     }
    },
    "cite": [
-    "2dd0d301cd944f2c"
+    "f6053dbb25754692"
    ],
    "why": "offer-C: lowest expected cost 1540 (goods 900, travel 40, risk 600 at E=0.5, caution 0); memory did not change the choice",
    "terms": {
@@ -308,19 +310,19 @@
     }
    },
    "ineligible": [],
-   "memory_block": "- [verified] B: verified 0 fulfilled, 0 late, 0 partial, 1 not sent; 0 open or unconfirmed; 0 neutral; claims 1 false, 0 mismatched, 0 unverified; reliability estimate 0.317841 (verified evidence only) {src: 2dd0d301cd944f2c,7973040bd9c2585d,ba483a219f2d7530,df892251c607db1c}\n- [verified] B -> A: 100 wood due bell 130: not sent: a sufficient index (world, season, every send route, gapless, finalized) shows no caravan to the promised place; claim sent: contradicted (false: a sufficient coverage (world, season, every send route, gapless, finalized) shows no caravan by the sender to the promised place between the promise and the claim) {src: df892251c607db1c,2dd0d301cd944f2c,ba483a219f2d7530,7973040bd9c2585d}",
+   "memory_block": "- [verified] B: verified 0 fulfilled, 0 late, 0 partial, 1 not sent; 0 open or unconfirmed; 0 neutral; claims 1 false, 0 mismatched, 0 unverified; reliability estimate 0.317841 (verified evidence only) {src: 32261dcb479413a2,402a376887ef51ff,f6053dbb25754692,fe3aaf49a6c1bcdf}\n- [verified] B -> A: 100 wood due bell 130: not sent: a sufficient index (world, registered partition, every send route, gapless, finalized) shows no caravan to the promised place; claim sent: contradicted (false: a sufficient coverage (world, registered partition, every send route, gapless, finalized) shows no caravan by the sender to the promised place between the promise and the claim) {src: 402a376887ef51ff,f6053dbb25754692,fe3aaf49a6c1bcdf,32261dcb479413a2}",
    "reassessed": null,
-   "decision_input_sha256": "bff2febe68ed33d7dc02dd92fb1cff0e750177a1e5c7596867afab6ba0d78745"
+   "decision_input_sha256": "1e762751a335f944a170e7822344c838be2aa200069fd54df7eae5896b3978e9"
   },
   "claim_no_record": {
    "first_exchange": {
-    "request": "df892251c607db1c",
-    "accept": "2dd0d301cd944f2c",
-    "claim": "ba483a219f2d7530"
+    "request": "402a376887ef51ff",
+    "accept": "f6053dbb25754692",
+    "claim": "fe3aaf49a6c1bcdf"
    },
    "commitments": [
     {
-     "id": "2dd0d301cd944f2c",
+     "id": "f6053dbb25754692",
      "debtor": "B",
      "state": "unconfirmed",
      "reasons": [
@@ -334,7 +336,7 @@
      "credit": [],
      "claims": [
       {
-       "id": "ba483a219f2d7530",
+       "id": "fe3aaf49a6c1bcdf",
        "kind": "claim_sent",
        "status": "unverified",
        "criterion": null,
@@ -344,9 +346,9 @@
      "authority": false,
      "contract": false,
      "sources": [
-      "df892251c607db1c",
-      "2dd0d301cd944f2c",
-      "ba483a219f2d7530"
+      "402a376887ef51ff",
+      "f6053dbb25754692",
+      "fe3aaf49a6c1bcdf"
      ]
     }
    ],
@@ -386,7 +388,7 @@
     }
    },
    "cite": [
-    "2dd0d301cd944f2c"
+    "f6053dbb25754692"
    ],
    "why": "offer-C: lowest expected cost 1540 (goods 900, travel 40, risk 600 at E=0.5, caution 0); memory did not change the choice",
    "terms": {
@@ -419,23 +421,24 @@
     }
    },
    "ineligible": [],
-   "memory_block": "- [unknown] B: verified 0 fulfilled, 0 late, 0 partial, 0 not sent; 1 open or unconfirmed; 0 neutral; claims 0 false, 0 mismatched, 1 unverified; reliability estimate 0.5 (verified evidence only) {src: 2dd0d301cd944f2c,ba483a219f2d7530,df892251c607db1c}\n- [unknown] B -> A: 100 wood due bell 130: past the due bell but not decided (no record found); claim sent: unverified {src: df892251c607db1c,2dd0d301cd944f2c,ba483a219f2d7530}",
+   "memory_block": "- [unknown] B: verified 0 fulfilled, 0 late, 0 partial, 0 not sent; 1 open or unconfirmed; 0 neutral; claims 0 false, 0 mismatched, 1 unverified; reliability estimate 0.5 (verified evidence only) {src: 402a376887ef51ff,f6053dbb25754692,fe3aaf49a6c1bcdf}\n- [unknown] B -> A: 100 wood due bell 130: past the due bell but not decided (no record found); claim sent: unverified {src: 402a376887ef51ff,f6053dbb25754692,fe3aaf49a6c1bcdf}",
    "reassessed": null,
-   "decision_input_sha256": "4bec51c0b584008c2ad5a3e7944a8ce730ff4487e5bfb59f1d6b73ed05b27842"
+   "decision_input_sha256": "319e7f780e46becb466492b2f562de29c2c08250c3cb54cad452baee9e2f9dad"
   },
   "record_delayed": {
    "first_exchange": {
-    "request": "df892251c607db1c",
-    "accept": "2dd0d301cd944f2c",
-    "allocate": "45e683e199a5ce27",
-    "sent": "e00dd0a5a3e4650c",
-    "settled": "96ed64029f02f8cf",
-    "credited": "26673f8d1a0d3c65",
-    "owner": "a37db8c541a58c86"
+    "request": "402a376887ef51ff",
+    "accept": "f6053dbb25754692",
+    "allocate": "5eb139a0613bcf26",
+    "alias": "08bf63f4338ebbf4",
+    "sent": "015109c7af9f6f6a",
+    "settled": "bd4e05fa39d14b2d",
+    "credited": "4c64a0f41681548c",
+    "owner": "9fa387ca247546cd"
    },
    "commitments": [
     {
-     "id": "2dd0d301cd944f2c",
+     "id": "f6053dbb25754692",
      "debtor": "B",
      "state": "unconfirmed",
      "reasons": [
@@ -453,9 +456,9 @@
      "authority": false,
      "contract": false,
      "sources": [
-      "df892251c607db1c",
-      "2dd0d301cd944f2c",
-      "45e683e199a5ce27"
+      "402a376887ef51ff",
+      "f6053dbb25754692",
+      "5eb139a0613bcf26"
      ]
     }
    ],
@@ -495,7 +498,7 @@
     }
    },
    "cite": [
-    "2dd0d301cd944f2c"
+    "f6053dbb25754692"
    ],
    "why": "offer-C: lowest expected cost 1540 (goods 900, travel 40, risk 600 at E=0.5, caution 0); memory did not change the choice",
    "terms": {
@@ -528,18 +531,18 @@
     }
    },
    "ineligible": [],
-   "memory_block": "- [unknown] B: verified 0 fulfilled, 0 late, 0 partial, 0 not sent; 1 open or unconfirmed; 0 neutral; claims 0 false, 0 mismatched, 0 unverified; reliability estimate 0.5 (verified evidence only) {src: 2dd0d301cd944f2c,45e683e199a5ce27,df892251c607db1c}\n- [unknown] B -> A: 100 wood due bell 130: past the due bell but not decided (credited 0 of 100 so far; up to 100 still possible) (the allocated caravan has no departure record yet) {src: df892251c607db1c,2dd0d301cd944f2c,45e683e199a5ce27}",
+   "memory_block": "- [unknown] B: verified 0 fulfilled, 0 late, 0 partial, 0 not sent; 1 open or unconfirmed; 0 neutral; claims 0 false, 0 mismatched, 0 unverified; reliability estimate 0.5 (verified evidence only) {src: 402a376887ef51ff,5eb139a0613bcf26,f6053dbb25754692}\n- [unknown] B -> A: 100 wood due bell 130: past the due bell but not decided (credited 0 of 100 so far; up to 100 still possible) (the allocated caravan has no departure record yet) {src: 402a376887ef51ff,f6053dbb25754692,5eb139a0613bcf26}",
    "reassessed": {
-    "decision": "2fd527489b376e59",
+    "decision": "0b975e0f07e62f4d",
     "bell": 300,
     "observed_by": 320,
     "original": {
      "chosen": "offer-C",
-     "policy": "reference-v3",
+     "policy": "reference-v4",
      "cited": [
-      "2dd0d301cd944f2c"
+      "f6053dbb25754692"
      ],
-     "input_sha256": "c6f00a7940e7e9cf1d184f03c9a8cdd8446d91be0fe33d847fc1f5c3914e5809"
+     "input_sha256": "00b7872e22de7830ecd0789b482bcce13b3f59facb44efb186db405b7451839a"
     },
     "then_reproducible": true,
     "reference_then": "offer-C",
@@ -547,7 +550,7 @@
     "would_differ": true,
     "changed_commitments": [
      {
-      "commitment": "2dd0d301cd944f2c",
+      "commitment": "f6053dbb25754692",
       "debtor": "B",
       "then": "unconfirmed",
       "now": "fulfilled"
@@ -555,28 +558,35 @@
     ],
     "late_arrivals": [
      {
-      "id": "e00dd0a5a3e4650c",
+      "id": "08bf63f4338ebbf4",
+      "type": "fact",
+      "kind": "identity_alias",
+      "bell": 102,
+      "created_bell": 310
+     },
+     {
+      "id": "015109c7af9f6f6a",
       "type": "fact",
       "kind": "caravan_sent",
       "bell": 102,
       "created_bell": 310
      },
      {
-      "id": "96ed64029f02f8cf",
+      "id": "bd4e05fa39d14b2d",
       "type": "fact",
       "kind": "caravan_settled",
       "bell": 120,
       "created_bell": 310
      },
      {
-      "id": "26673f8d1a0d3c65",
+      "id": "4c64a0f41681548c",
       "type": "fact",
       "kind": "caravan_credited",
       "bell": 120,
       "created_bell": 310
      },
      {
-      "id": "a37db8c541a58c86",
+      "id": "9fa387ca247546cd",
       "type": "fact",
       "kind": "place_owner",
       "bell": 120,
@@ -644,22 +654,23 @@
      }
     }
    },
-   "decision_input_sha256": "c6f00a7940e7e9cf1d184f03c9a8cdd8446d91be0fe33d847fc1f5c3914e5809"
+   "decision_input_sha256": "00b7872e22de7830ecd0789b482bcce13b3f59facb44efb186db405b7451839a"
   },
   "kept_but_cheaper_C": {
    "first_exchange": {
-    "request": "df892251c607db1c",
-    "accept": "2dd0d301cd944f2c",
-    "allocate": "45e683e199a5ce27",
-    "sent": "e00dd0a5a3e4650c",
-    "settled": "96ed64029f02f8cf",
-    "credited": "26673f8d1a0d3c65",
-    "owner": "a37db8c541a58c86",
-    "note": "89d8f827bc8e6e8b"
+    "request": "402a376887ef51ff",
+    "accept": "f6053dbb25754692",
+    "allocate": "5eb139a0613bcf26",
+    "alias": "08bf63f4338ebbf4",
+    "sent": "015109c7af9f6f6a",
+    "settled": "bd4e05fa39d14b2d",
+    "credited": "4c64a0f41681548c",
+    "owner": "9fa387ca247546cd",
+    "note": "631953959584af9d"
    },
    "commitments": [
     {
-     "id": "2dd0d301cd944f2c",
+     "id": "f6053dbb25754692",
      "debtor": "B",
      "state": "fulfilled",
      "reasons": [],
@@ -673,10 +684,10 @@
        "basis": "exec_record",
        "unit": "whole_units",
        "inputs": [
-        "26673f8d1a0d3c65"
+        "4c64a0f41681548c"
        ],
        "exec": {
-        "sig": "settle-B7",
+        "sig": "settle-p1B7",
         "ix": 0
        }
       }
@@ -685,13 +696,14 @@
      "authority": false,
      "contract": false,
      "sources": [
-      "df892251c607db1c",
-      "2dd0d301cd944f2c",
-      "45e683e199a5ce27",
-      "e00dd0a5a3e4650c",
-      "96ed64029f02f8cf",
-      "a37db8c541a58c86",
-      "26673f8d1a0d3c65"
+      "402a376887ef51ff",
+      "f6053dbb25754692",
+      "5eb139a0613bcf26",
+      "015109c7af9f6f6a",
+      "08bf63f4338ebbf4",
+      "bd4e05fa39d14b2d",
+      "9fa387ca247546cd",
+      "4c64a0f41681548c"
      ]
     }
    ],
@@ -731,7 +743,7 @@
     }
    },
    "cite": [
-    "2dd0d301cd944f2c"
+    "f6053dbb25754692"
    ],
    "why": "offer-C: lowest expected cost 1340 (goods 700, travel 40, risk 600 at E=0.5, caution 0); memory did not change the choice",
    "terms": {
@@ -764,24 +776,25 @@
     }
    },
    "ineligible": [],
-   "memory_block": "- [verified] B: verified 1 fulfilled, 0 late, 0 partial, 0 not sent; 0 open or unconfirmed; 0 neutral; claims 0 false, 0 mismatched, 0 unverified; reliability estimate 0.636252 (verified evidence only) {src: 26673f8d1a0d3c65,2dd0d301cd944f2c,45e683e199a5ce27,96ed64029f02f8cf,a37db8c541a58c86,df892251c607db1c,e00dd0a5a3e4650c}\n- [verified] B -> A: 100 wood due bell 130: delivered in full by the due bell (credited at the promised place) [credit by execution record, whole_units] {src: df892251c607db1c,2dd0d301cd944f2c,45e683e199a5ce27,e00dd0a5a3e4650c,96ed64029f02f8cf,a37db8c541a58c86,26673f8d1a0d3c65}\n- [interpreted] own note: B delivered the wood it promised, on time. {src: 89d8f827bc8e6e8b,2dd0d301cd944f2c,26673f8d1a0d3c65}",
+   "memory_block": "- [verified] B: verified 1 fulfilled, 0 late, 0 partial, 0 not sent; 0 open or unconfirmed; 0 neutral; claims 0 false, 0 mismatched, 0 unverified; reliability estimate 0.636252 (verified evidence only) {src: 015109c7af9f6f6a,08bf63f4338ebbf4,402a376887ef51ff,4c64a0f41681548c,5eb139a0613bcf26,9fa387ca247546cd,bd4e05fa39d14b2d,f6053dbb25754692}\n- [verified] B -> A: 100 wood due bell 130: delivered in full by the due bell (credited at the promised place) [credit by execution record, whole_units] {src: 402a376887ef51ff,f6053dbb25754692,5eb139a0613bcf26,015109c7af9f6f6a,08bf63f4338ebbf4,bd4e05fa39d14b2d,9fa387ca247546cd,4c64a0f41681548c}\n- [interpreted] own note: B delivered the wood it promised, on time. {src: 631953959584af9d,f6053dbb25754692,4c64a0f41681548c}",
    "reassessed": null,
-   "decision_input_sha256": "790976f97ead4586d714c6221e66941948aa45c049a0e20164677dd2da24479f"
+   "decision_input_sha256": "5816e8bc1697f7446d316598c20c1713e8358f6b07fe29293b39e35aa1689fb4"
   },
   "kept_but_no_stock": {
    "first_exchange": {
-    "request": "df892251c607db1c",
-    "accept": "2dd0d301cd944f2c",
-    "allocate": "45e683e199a5ce27",
-    "sent": "e00dd0a5a3e4650c",
-    "settled": "96ed64029f02f8cf",
-    "credited": "26673f8d1a0d3c65",
-    "owner": "a37db8c541a58c86",
-    "note": "89d8f827bc8e6e8b"
+    "request": "402a376887ef51ff",
+    "accept": "f6053dbb25754692",
+    "allocate": "5eb139a0613bcf26",
+    "alias": "08bf63f4338ebbf4",
+    "sent": "015109c7af9f6f6a",
+    "settled": "bd4e05fa39d14b2d",
+    "credited": "4c64a0f41681548c",
+    "owner": "9fa387ca247546cd",
+    "note": "631953959584af9d"
    },
    "commitments": [
     {
-     "id": "2dd0d301cd944f2c",
+     "id": "f6053dbb25754692",
      "debtor": "B",
      "state": "fulfilled",
      "reasons": [],
@@ -795,10 +808,10 @@
        "basis": "exec_record",
        "unit": "whole_units",
        "inputs": [
-        "26673f8d1a0d3c65"
+        "4c64a0f41681548c"
        ],
        "exec": {
-        "sig": "settle-B7",
+        "sig": "settle-p1B7",
         "ix": 0
        }
       }
@@ -807,13 +820,14 @@
      "authority": false,
      "contract": false,
      "sources": [
-      "df892251c607db1c",
-      "2dd0d301cd944f2c",
-      "45e683e199a5ce27",
-      "e00dd0a5a3e4650c",
-      "96ed64029f02f8cf",
-      "a37db8c541a58c86",
-      "26673f8d1a0d3c65"
+      "402a376887ef51ff",
+      "f6053dbb25754692",
+      "5eb139a0613bcf26",
+      "015109c7af9f6f6a",
+      "08bf63f4338ebbf4",
+      "bd4e05fa39d14b2d",
+      "9fa387ca247546cd",
+      "4c64a0f41681548c"
      ]
     }
    ],
@@ -876,9 +890,9 @@
      "reason": "stock_below_qty"
     }
    ],
-   "memory_block": "- [verified] B: verified 1 fulfilled, 0 late, 0 partial, 0 not sent; 0 open or unconfirmed; 0 neutral; claims 0 false, 0 mismatched, 0 unverified; reliability estimate 0.636252 (verified evidence only) {src: 26673f8d1a0d3c65,2dd0d301cd944f2c,45e683e199a5ce27,96ed64029f02f8cf,a37db8c541a58c86,df892251c607db1c,e00dd0a5a3e4650c}\n- [verified] B -> A: 100 wood due bell 130: delivered in full by the due bell (credited at the promised place) [credit by execution record, whole_units] {src: df892251c607db1c,2dd0d301cd944f2c,45e683e199a5ce27,e00dd0a5a3e4650c,96ed64029f02f8cf,a37db8c541a58c86,26673f8d1a0d3c65}\n- [interpreted] own note: B delivered the wood it promised, on time. {src: 89d8f827bc8e6e8b,2dd0d301cd944f2c,26673f8d1a0d3c65}",
+   "memory_block": "- [verified] B: verified 1 fulfilled, 0 late, 0 partial, 0 not sent; 0 open or unconfirmed; 0 neutral; claims 0 false, 0 mismatched, 0 unverified; reliability estimate 0.636252 (verified evidence only) {src: 015109c7af9f6f6a,08bf63f4338ebbf4,402a376887ef51ff,4c64a0f41681548c,5eb139a0613bcf26,9fa387ca247546cd,bd4e05fa39d14b2d,f6053dbb25754692}\n- [verified] B -> A: 100 wood due bell 130: delivered in full by the due bell (credited at the promised place) [credit by execution record, whole_units] {src: 402a376887ef51ff,f6053dbb25754692,5eb139a0613bcf26,015109c7af9f6f6a,08bf63f4338ebbf4,bd4e05fa39d14b2d,9fa387ca247546cd,4c64a0f41681548c}\n- [interpreted] own note: B delivered the wood it promised, on time. {src: 631953959584af9d,f6053dbb25754692,4c64a0f41681548c}",
    "reassessed": null,
-   "decision_input_sha256": "444698be9522d8c99b3b358fad0643b9c97a4b151e3c81ff836a48279245619c"
+   "decision_input_sha256": "f06872d3cfa7abd76a12d54dc63abf061cee0543de53db9c62e20a93406a5944"
   }
  }
 }

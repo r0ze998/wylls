@@ -13,12 +13,12 @@ import { createMemory, decisionInput } from '../src/index.mjs';
 import { RecordError, SEND_ROUTES, canonical, fact, sha256hex, utterance } from '../src/records.mjs';
 import { CREDIT_RULES } from '../src/fold.mjs';
 import { A, C, KEYS, LIMITS, PLACE_A, PUBLIC, REQUEST, SECOND_BELL, WORLD, allocate, allocateOp, caravanFacts, coverage, dm, newMemory, promise,
-  signedAllocation, world } from '../fixtures/scenario.mjs';
+  signedAllocation, world, cv, alias, PARTITIONS } from '../fixtures/scenario.mjs';
 
-const PLACE_H = Object.freeze({ kind: 1, p: 3, q: 0, at: 2, gen: 1 }); // A's village (a holding)
+const PLACE_H = Object.freeze({ partition: 'p1', kind: 1, p: 3, q: 0, at: 2, gen: 1 }); // A's village (a holding)
 const one = (m, at = 300) => m.knowledge(A, at).commitments[0];
 const credit = (m, over) => m.observe({ kind: 'caravan_credited', bell: 120, source: { sig: 'credit-x', ix: 0 },
-  data: { caravan: { sender: 'B', seq: 7 }, place: PLACE_A, credited: { wood: 100 }, unit: 'whole_units', basis: 'exec_record', exec: { sig: 'settle-B7', ix: 0 }, ...over } });
+  data: { caravan: cv(7, 'B'), place: PLACE_A, credited: { wood: 100 }, unit: 'whole_units', basis: 'exec_record', exec: { sig: 'settle-B7', ix: 0 }, ...over } });
 
 // ---------------------------------------------------------------- 1. credit
 test('credit: a balance difference, a missing unit or a missing execution reference is refused', () => {
@@ -77,7 +77,7 @@ test('credit: a capped vault credit is partial only once a sufficient index rule
   allocate(m, { ref: p.accept });
   caravanFacts(m, { credited: { wood: 70 } });
   assert.equal(one(m).state, 'unconfirmed');
-  coverage(m, { caravans: [{ sender: 'B', seq: 7 }] });
+  coverage(m, { caravans: [cv(7, 'B')] });
   const c = one(m);
   assert.equal(c.state, 'partial');
   assert.equal(c.delivered_min, 70);
@@ -93,9 +93,8 @@ test('not sent: only a sufficient coverage proves it; each missing condition kee
   };
   assert.equal(run({}).state, 'not_sent');
   const cases = [
-    [{ world: { ...WORLD, season: 2 } }, 'other_world_or_season'],
-    [{ world: { ...WORLD, program: 'OtherProgram' } }, 'other_world_or_season'],
-    [{ world: { ...WORLD, cluster: 'devnet' } }, 'other_world_or_season'],
+    [{ world: { ...WORLD, world_id: 'another-world' } }, 'other_world'],
+    [{ world: { ...WORLD, cluster: 'devnet' } }, 'other_world'],
     [{ finality: 'confirmed' }, 'not_finalized:confirmed'],
     [{ completeness: { gapless: false, from_slot: 0, to_slot: 9 } }, 'slot_range_has_gaps'],
     [{ routes: SEND_ROUTES.filter(r => r !== 'send_caravan/cpi') }, 'route_missing:send_caravan/cpi'],
@@ -113,7 +112,7 @@ test('not sent: only a sufficient coverage proves it; each missing condition kee
   // another sender's coverage says nothing about B
   assert.deepEqual(run({}, { sender: 'C' }).reasons, ['no_record_found']);
   // a memory with no world configured can never prove it
-  const noWorld = run({}, {}, () => createMemory({ keys: KEYS }));
+  const noWorld = run({}, {}, () => createMemory({ keys: KEYS, partitions: PARTITIONS }));
   assert.ok(noWorld.coverage_gaps.includes('memory_world_unset'));
 });
 
@@ -134,7 +133,7 @@ test('not sent is not "not arrived": a caravan that left without a settle record
   const p = promise(m);
   allocate(m, { ref: p.accept });
   caravanFacts(m, { settle: null, eta: 125 });
-  coverage(m, { caravans: [{ sender: 'B', seq: 7 }] });
+  coverage(m, { caravans: [cv(7, 'B')] });
   const c = one(m);
   assert.equal(c.state, 'unconfirmed');
   assert.deepEqual(c.reasons, ['settle_unobserved']);
@@ -142,22 +141,22 @@ test('not sent is not "not arrived": a caravan that left without a settle record
   const m2 = newMemory();
   promise(m2);
   caravanFacts(m2, { settle: null, eta: 125 });
-  coverage(m2, { caravans: [{ sender: 'B', seq: 7 }] });
+  coverage(m2, { caravans: [cv(7, 'B')] });
   assert.deepEqual(one(m2).reasons, ['unassigned_caravan']);
 });
 
 // ---------------------------------------------------------------- 3. allocation
 test('allocation: what a message says allocates nothing; only a valid signature of a party does', () => {
   assert.throws(() => utterance({ speaker: 'B', bell: 102, visibility: dm('A', 'B'), text: 'I allocate B#7 to you',
-    act: { type: 'allocate', ref: 'x', caravan: { sender: 'B', seq: 7 }, qty: 100 } }), RecordError);
+    act: { type: 'allocate', ref: 'x', caravan: cv(7, 'B'), qty: 100 } }), RecordError);
   const m = newMemory();
   const p = promise(m);
   caravanFacts(m);
   assert.equal(allocateOp(m, { ref: p.accept, by: 'B', signAs: 'C' }).reason, 'auth_bad_signature', 'C cannot sign as B');
-  assert.equal(m.allocate(signedAllocation({ by: 'Z', commitment: p.accept, caravan: { sender: 'B', seq: 7 }, nonce: 1, bell: 102, visibility: dm('A', 'B') })).reason,
+  assert.equal(m.allocate(signedAllocation({ by: 'Z', commitment: p.accept, caravan: cv(7, 'B'), nonce: 1, bell: 102, visibility: dm('A', 'B') })).reason,
     'auth_unknown_signer');
   // a signed allocation for another world is refused by the signature (the world is part of the signed bytes)
-  const other = signedAllocation({ by: 'B', commitment: p.accept, caravan: { sender: 'B', seq: 7 }, nonce: 9, bell: 102, visibility: dm('A', 'B'), world: { ...WORLD, season: 2 } });
+  const other = signedAllocation({ by: 'B', commitment: p.accept, caravan: cv(7, 'B'), nonce: 9, bell: 102, visibility: dm('A', 'B'), world: { ...WORLD, world_id: 'another-world' } });
   assert.equal(m.allocate({ ...other, world: WORLD }).reason, 'auth_bad_signature');
   assert.equal(one(m).links.length, 0);
   assert.equal(one(m).reasons[0], 'no_record_found');
@@ -165,7 +164,7 @@ test('allocation: what a message says allocates nothing; only a valid signature 
   allocateOp(m, { ref: p.accept, by: 'C', vis: PUBLIC });
   assert.equal(one(m).links[0].state, 'not_a_party');
   // tampering a signed field breaks the signature
-  const good = signedAllocation({ by: 'B', commitment: p.accept, caravan: { sender: 'B', seq: 7 }, qty: 100, nonce: 1, bell: 102, visibility: dm('A', 'B') });
+  const good = signedAllocation({ by: 'B', commitment: p.accept, caravan: cv(7, 'B'), qty: 100, nonce: 1, bell: 102, visibility: dm('A', 'B') });
   assert.equal(m.allocate({ ...good, qty: 90 }).reason, 'auth_bad_signature');
   assert.equal(m.allocate(good).status, 'added');
   assert.equal(one(m).state, 'fulfilled');
@@ -175,14 +174,14 @@ test('allocation: a resend is a duplicate, a reused nonce with other content is 
   const m = newMemory();
   const p = promise(m);
   caravanFacts(m);
-  const op1 = signedAllocation({ by: 'B', commitment: p.accept, caravan: { sender: 'B', seq: 7 }, qty: 100, nonce: 1, bell: 102, visibility: dm('A', 'B') });
+  const op1 = signedAllocation({ by: 'B', commitment: p.accept, caravan: cv(7, 'B'), qty: 100, nonce: 1, bell: 102, visibility: dm('A', 'B') });
   assert.equal(m.allocate(op1).status, 'added');
   assert.equal(m.allocate(op1).status, 'duplicate');
   assert.equal(m.allocate({ ...op1, created_bell: 200 }).status, 'duplicate', 'received again later: still the same operation');
-  const reuse = signedAllocation({ by: 'B', commitment: p.accept, caravan: { sender: 'B', seq: 7 }, qty: 50, nonce: 1, bell: 103, visibility: dm('A', 'B') });
+  const reuse = signedAllocation({ by: 'B', commitment: p.accept, caravan: cv(7, 'B'), qty: 50, nonce: 1, bell: 103, visibility: dm('A', 'B') });
   assert.equal(m.allocate(reuse).reason, 'nonce_reused');
   // correct to 60 (nonce 2); replaying nonce 1 does not bring back 100
-  m.allocate(signedAllocation({ by: 'B', commitment: p.accept, caravan: { sender: 'B', seq: 7 }, qty: 60, nonce: 2, bell: 104, visibility: dm('A', 'B') }));
+  m.allocate(signedAllocation({ by: 'B', commitment: p.accept, caravan: cv(7, 'B'), qty: 60, nonce: 2, bell: 104, visibility: dm('A', 'B') }));
   assert.equal(m.allocate(op1).status, 'duplicate');
   const c = one(m, 121);
   assert.equal(c.links[0].qty, 60);
@@ -195,15 +194,15 @@ test('allocation: operations that arrive out of order are applied by nonce, not 
   caravanFacts(m);
   const v = dm('A', 'B');
   // nonce 2 (the correction to 60) reaches memory first, nonce 1 (100) arrives later for the first time
-  assert.equal(m.allocate(signedAllocation({ by: 'B', commitment: p.accept, caravan: { sender: 'B', seq: 7 }, qty: 60, nonce: 2, bell: 104, visibility: v })).status, 'added');
-  assert.equal(m.allocate(signedAllocation({ by: 'B', commitment: p.accept, caravan: { sender: 'B', seq: 7 }, qty: 100, nonce: 1, bell: 103, created_bell: 140, visibility: v })).status, 'added');
+  assert.equal(m.allocate(signedAllocation({ by: 'B', commitment: p.accept, caravan: cv(7, 'B'), qty: 60, nonce: 2, bell: 104, visibility: v })).status, 'added');
+  assert.equal(m.allocate(signedAllocation({ by: 'B', commitment: p.accept, caravan: cv(7, 'B'), qty: 100, nonce: 1, bell: 103, created_bell: 140, visibility: v })).status, 'added');
   assert.equal(one(m).links[0].qty, 60);
   // a revoke that overtook its set on the way also stays in force
   const m2 = newMemory();
   const p2 = promise(m2);
   caravanFacts(m2);
-  m2.allocate(signedAllocation({ by: 'B', op: 'revoke', commitment: p2.accept, caravan: { sender: 'B', seq: 7 }, qty: 0, nonce: 2, bell: 105, visibility: v }));
-  m2.allocate(signedAllocation({ by: 'B', commitment: p2.accept, caravan: { sender: 'B', seq: 7 }, qty: 100, nonce: 1, bell: 103, created_bell: 140, visibility: v }));
+  m2.allocate(signedAllocation({ by: 'B', op: 'revoke', commitment: p2.accept, caravan: cv(7, 'B'), qty: 0, nonce: 2, bell: 105, visibility: v }));
+  m2.allocate(signedAllocation({ by: 'B', commitment: p2.accept, caravan: cv(7, 'B'), qty: 100, nonce: 1, bell: 103, created_bell: 140, visibility: v }));
   assert.equal(one(m2).links[0].state, 'revoked');
 });
 
@@ -284,10 +283,10 @@ test('reassess: late arrivals of past facts are used; events after the decision 
   caravanFacts(m, { seq: 8, depart: 306, settle: 318 });
   // ... and a record arrives that claims it was observed before the decision (contradictory)
   const back = m.observe({ kind: 'caravan_sent', bell: 200, created_bell: 250, source: { sig: 'backdated', ix: 0 },
-    data: { caravan: { sender: 'B', seq: 5 }, dst: PLACE_A, cargo: { wood: 1 } } });
+    data: { caravan: cv(5, 'B'), dst: PLACE_A, cargo: { wood: 1 } } });
   const r = m.reassess(res.decision_id, 320);
   assert.equal(r.then_reproducible, true);
-  assert.deepEqual(r.original, { chosen: 'offer-C', policy: 'reference-v3', cited: rec.cited, input_sha256: rec.input_sha256 });
+  assert.deepEqual(r.original, { chosen: 'offer-C', policy: 'reference-v4', cited: rec.cited, input_sha256: rec.input_sha256 });
   assert.deepEqual(r.late_arrivals.map(x => x.id).sort(), Object.values(late).sort());
   assert.ok(r.later_events.some(x => x.id === p2.accept) && r.later_events.length >= 6, 'the new promise and its delivery are listed');
   assert.deepEqual(r.backdated.map(x => x.id), [back.id]);
@@ -329,5 +328,5 @@ test('caution is labelled as not an honesty judgment and never moves reliability
 
 test('facts: an observation before its occurrence is refused', () => {
   assert.throws(() => fact({ kind: 'caravan_sent', bell: 120, created_bell: 110, source: { sig: 's', ix: 0 },
-    data: { caravan: { sender: 'B', seq: 1 }, dst: PLACE_A, cargo: { wood: 1 } } }), RecordError);
+    data: { caravan: cv(1, 'B'), dst: PLACE_A, cargo: { wood: 1 } } }), RecordError);
 });

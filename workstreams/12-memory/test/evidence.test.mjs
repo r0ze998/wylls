@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { createMemory } from '../src/index.mjs';
 import { CLAIM_CRITERIA, GRACE_BELLS } from '../src/fold.mjs';
 import { A, LIMITS, PLACE_A, PUBLIC, REQUEST, SECOND_BELL, dm, promise, caravanFacts, allocate, world } from '../fixtures/scenario.mjs';
-import { newMemory, coverage, WORLD, KEYS, signedAllocation, allocateOp } from '../fixtures/scenario.mjs';
+import { newMemory, coverage, WORLD, KEYS, signedAllocation, allocateOp, cv, alias } from '../fixtures/scenario.mjs';
 
 const cov = (m, o = {}) => coverage(m, o).id;
 const state = (m, at = 300, opts) => m.knowledge(A, at, opts).commitments.map(c => c.state);
@@ -26,7 +26,8 @@ test('absence: no record at all is unconfirmed, never not-delivered, and does no
 test('absence: a failed lookup and a gap in the index are unknown; only a complete index verifies a shortfall', () => {
   const m = newMemory();
   promise(m);
-  m.observe({ kind: 'lookup_failed', bell: 140, source: { chain: 'index', sig: 'lf', ix: 0 }, data: { query: 'coverage', sender: 'B', reason: 'indexer behind' } });
+  alias(m, 'B'); // whose tag B_p1 is (4's attestation); without it the failure could not be attributed to B
+  m.observe({ kind: 'lookup_failed', bell: 140, source: { chain: 'index', sig: 'lf', ix: 0 }, data: { query: 'coverage', partition: 'p1', sender: 'B_p1', reason: 'indexer behind' } });
   assert.deepEqual(m.knowledge(A, 300).commitments[0].reasons, ['lookup_failed']);
   cov(m, { from: 90, to: 110 }); cov(m, { from: 115, to: 140 }); // a hole at 111..114
   assert.equal(state(m)[0], 'unconfirmed');
@@ -39,7 +40,7 @@ test('absence: in transit, past arrival without a settle, and a departure the in
   const p = promise(m, { due: 200 });
   allocate(m, { ref: p.accept });
   caravanFacts(m, { settle: null, depart: 150, eta: 160 });
-  m.observe({ kind: 'caravan_sent', bell: 150, source: { sig: 'eta', ix: 1 }, data: { caravan: { sender: 'B', seq: 8 }, dst: PLACE_A, cargo: { wood: 100 }, eta_bell: 260 } });
+  m.observe({ kind: 'caravan_sent', bell: 150, source: { sig: 'eta', ix: 1 }, data: { caravan: cv(8, 'B'), dst: PLACE_A, cargo: { wood: 100 }, eta_bell: 260 } });
   allocate(m, { ref: p.accept, seq: 8, qty: 100, bell: 151 }); // over-allocation by the debtor: B#8 has its own capacity
   const k = m.knowledge(A, 180);
   assert.equal(k.commitments[0].state, 'in_progress');
@@ -48,7 +49,7 @@ test('absence: in transit, past arrival without a settle, and a departure the in
   // the index lists a caravan of B whose departure record we do not have
   const m2 = newMemory();
   promise(m2);
-  cov(m2, { caravans: [{ sender: 'B', seq: 3 }] });
+  cov(m2, { caravans: [cv(3, 'B')] });
   assert.deepEqual(m2.knowledge(A, 300).commitments[0].reasons, ['coverage_caravan_unresolved']);
 });
 
@@ -57,8 +58,8 @@ test('absence: "sent" and "delivered" are different claims and neither is a fact
   const p = promise(m);
   allocate(m, { ref: p.accept });
   caravanFacts(m, { settle: 140, depart: 110 });
-  const sent = m.say({ speaker: 'B', bell: 112, visibility: dm('A', 'B'), act: { type: 'claim_sent', ref: p.accept, caravan: { sender: 'B', seq: 7 } } }).id;
-  const got = m.say({ speaker: 'B', bell: 113, visibility: dm('A', 'B'), act: { type: 'claim_delivered', ref: p.accept, caravan: { sender: 'B', seq: 7 } } }).id;
+  const sent = m.say({ speaker: 'B', bell: 112, visibility: dm('A', 'B'), act: { type: 'claim_sent', ref: p.accept, caravan: cv(7, 'B') } }).id;
+  const got = m.say({ speaker: 'B', bell: 113, visibility: dm('A', 'B'), act: { type: 'claim_delivered', ref: p.accept, caravan: cv(7, 'B') } }).id;
   const claims = Object.fromEntries(m.knowledge(A, 120).claims.map(c => [c.id, c.status]));
   assert.equal(claims[sent], 'consistent');
   assert.equal(claims[got], 'unverified', 'not settled yet when looked at');
@@ -79,17 +80,17 @@ test('a claim is false only by a stated criterion; mismatches are shown and not 
     return { claim: k.claims[0], rel: k.reliability.B };
   };
   // named caravan absent from a complete index
-  let r = run(m => cov(m), { caravan: { sender: 'B', seq: 9 } });
+  let r = run(m => cov(m), { caravan: cv(9, 'B') });
   assert.deepEqual([r.claim.status, r.claim.criterion], ['contradicted', 'caravan_absent_in_complete_index']);
   assert.ok(r.claim.basis.length && r.rel.evidence.find(e => e.kind === 'false_claim').rule === CLAIM_CRITERIA.caravan_absent_in_complete_index);
   // no index: unverified, nothing counted
-  r = run(() => {}, { caravan: { sender: 'B', seq: 9 } });
+  r = run(() => {}, { caravan: cv(9, 'B') });
   assert.equal(r.claim.status, 'unverified');
   assert.equal(r.rel.s, 0);
   // someone else's caravan / a caravan to another place or generation: mismatch
-  r = run(() => {}, { caravan: { sender: 'C', seq: 1 } });
+  r = run(m => alias(m, 'C'), { caravan: cv(1, 'C') });
   assert.deepEqual([r.claim.status, r.claim.criterion], ['mismatch', 'caravan_of_another']);
-  r = run(m => caravanFacts(m, { dst: PLACE_A_GEN2 }), { caravan: { sender: 'B', seq: 7 } });
+  r = run(m => caravanFacts(m, { dst: PLACE_A_GEN2 }), { caravan: cv(7, 'B') });
   assert.deepEqual([r.claim.status, r.claim.criterion], ['mismatch', 'caravan_to_other_place']);
   assert.equal(r.rel.claims.contradicted, 0);
   assert.ok(!r.rel.evidence.some(e => e.kind === 'false_claim'));
@@ -100,7 +101,7 @@ test('allocation: a caravan nobody allocated is not paired by guesswork', () => 
   const m = newMemory();
   promise(m);
   caravanFacts(m);
-  cov(m, { caravans: [{ sender: 'B', seq: 7 }] });
+  cov(m, { caravans: [cv(7, 'B')] });
   const k = m.knowledge(A, 300);
   assert.equal(k.commitments[0].state, 'unconfirmed');
   assert.deepEqual(k.commitments[0].reasons, ['unassigned_caravan']);
@@ -148,7 +149,7 @@ test('allocation: a short credit shared by two allocations gives bounds, not a g
   allocate(m, { ref: p1.accept, qty: 50, bell: 104 });
   allocate(m, { ref: p2.accept, qty: 50, bell: 105 });
   caravanFacts(m, { cargo: { wood: 100 }, credited: { wood: 80 } });
-  cov(m, { caravans: [{ sender: 'B', seq: 7 }] });
+  cov(m, { caravans: [cv(7, 'B')] });
   const k = m.knowledge(A, 300);
   for (const c of k.commitments) {
     assert.equal(c.state, 'unconfirmed');
@@ -169,7 +170,7 @@ test('allocation: a third party cannot allocate, and a party disagreement takes 
   allocate(m2, { ref: p2.accept, qty: 100 });
   allocate(m2, { by: 'A', ref: p2.accept, qty: 60, bell: 121 });
   caravanFacts(m2);
-  cov(m2, { caravans: [{ sender: 'B', seq: 7 }] });
+  cov(m2, { caravans: [cv(7, 'B')] });
   const c = m2.knowledge(A, 300).commitments[0];
   assert.equal(c.links[0].disputed, true);
   assert.equal(c.links[0].qty, 60);
@@ -188,10 +189,10 @@ test('quantity: DELIVERED without a measured credit is unverified; the settle re
   assert.deepEqual([c.delivered_min, c.delivered_max], [0, 100]);
   // the storehouse took 60 of the 100 recorded (e.g. capacity): partial only once the index rules out more
   m.observe({ kind: 'caravan_credited', bell: 120, created_bell: 150, source: { sig: 'credit-late', ix: 0 },
-    data: { caravan: { sender: 'B', seq: 7 }, place: PLACE_A, credited: { wood: 60 }, unit: 'whole_units', basis: 'exec_record', exec: { sig: 'settle-B7', ix: 0 } } });
+    data: { caravan: cv(7, 'B'), place: PLACE_A, credited: { wood: 60 }, unit: 'whole_units', basis: 'exec_record', exec: { sig: 'settle-B7', ix: 0 } } });
   c = m.knowledge(A, 300).commitments[0];
   assert.equal(c.state, 'unconfirmed', 'the rest may still come');
-  cov(m, { caravans: [{ sender: 'B', seq: 7 }] });
+  cov(m, { caravans: [cv(7, 'B')] });
   c = m.knowledge(A, 300).commitments[0];
   assert.equal(c.state, 'partial');
   assert.equal(c.delivered_min, 60);
@@ -206,7 +207,7 @@ test('quantity: a partial delivery before the index is complete stays open for t
   let c = m.knowledge(A, 300).commitments[0];
   assert.equal(c.state, 'unconfirmed');
   assert.equal(c.delivered_min, 40);
-  cov(m, { caravans: [{ sender: 'B', seq: 7 }] });
+  cov(m, { caravans: [cv(7, 'B')] });
   c = m.knowledge(A, 300).commitments[0];
   assert.equal(c.state, 'partial');
 });
@@ -247,7 +248,7 @@ test('recipient: a place of another generation is a different place (misdirected
   caravanFacts(m, { dst: PLACE_A_GEN2 });
   assert.equal(m.knowledge(A, 300).commitments[0].links[0].state, 'misdirected');
   assert.equal(state(m)[0], 'unconfirmed', 'without an index, perhaps another caravan is coming');
-  cov(m, { caravans: [{ sender: 'B', seq: 7 }] });
+  cov(m, { caravans: [cv(7, 'B')] });
   assert.equal(state(m)[0], 'not_sent');
   assert.equal(m.knowledge(A, 300).reliability.B.claims.contradicted, 0, 'a wrong delivery is not a lie');
 });

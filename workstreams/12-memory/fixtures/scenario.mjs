@@ -14,19 +14,34 @@
 //   record_delayed    the same delivery as `kept`, but 4's records are observed only at bell 310, after the
 //                     decision at 300; `reassess` at 320 shows the decision would differ
 // plus two arms where the world, not memory, decides: `kept_but_cheaper_C` and `kept_but_no_stock`.
-// Tags are short ASCII handles; a real run uses the citizens' tag hex (persona/names.mjs).
+// Principals are short ASCII handles ('A', 'B', ...). As on chain, a principal's caravans carry a per-partition tag
+// (here `B_p1`, `B_p2`) and only workstream 4's identity_alias says whose it is; places carry their partition.
+// Partition p1 stands for the current Season account, p2 for the next one; the world itself does not end.
 import { createPrivateKey, createPublicKey, sign } from 'node:crypto';
 import { createMemory } from '../src/index.mjs';
 import { allocationBytes, SEND_ROUTES } from '../src/records.mjs';
 
-// The one world of the fixture, and deterministic TEST-ONLY ed25519 keys (seed = sha-like constant per tag).
-// These are fixture keys for a local test, not keys of any real account.
-export const WORLD = Object.freeze({ cluster: 'localnet-fixture', program: 'FrontierFixtureProgram111111111111111111111', season: 1 });
+// The one continuing world of the fixture, 4's (fixture) partition registry, and deterministic TEST-ONLY ed25519
+// keys (seed = a constant per principal). These are fixture keys for a local test, not keys of any real account.
+export const WORLD = Object.freeze({ cluster: 'localnet-fixture', world_id: 'wylls-fixture-world' });
+export const PROGRAM = 'FrontierFixtureProgram111111111111111111111';
+export const PARTITIONS = Object.freeze({ p1: Object.freeze({ program: PROGRAM, season: 1 }), p2: Object.freeze({ program: PROGRAM, season: 2 }) });
+export const LEGACY = Object.freeze({ partition: 'p1' });
+/** The v3 world of the legacy journals (fixtures/legacy-v3), which 4's registry maps to partition p1. */
+export const WORLD_V3 = Object.freeze({ cluster: 'localnet-fixture', program: PROGRAM, season: 1 });
 const seedOf = tag => Buffer.alloc(32, tag.charCodeAt(0));
 const privOf = tag => createPrivateKey({ key: Buffer.concat([Buffer.from('302e020100300506032b657004220420', 'hex'), seedOf(tag)]), format: 'der', type: 'pkcs8' });
 const pubHex = tag => createPublicKey(privOf(tag)).export({ format: 'der', type: 'spki' }).subarray(12).toString('hex');
 export const KEYS = Object.freeze(Object.fromEntries(['A', 'B', 'C', 'D', 'E'].map(t => [t, pubHex(t)])));
-export const newMemory = (opts = {}) => createMemory({ world: WORLD, keys: KEYS, ...opts });
+export const newMemory = (opts = {}) => createMemory({ world: WORLD, partitions: PARTITIONS, legacy: LEGACY, keys: KEYS, ...opts });
+
+/** The tag a principal has in a partition (the program derives it per Season account), and a caravan id. */
+export const tagIn = (principal, partition) => `${principal}_${partition}`;
+export const cv = (seq, principal = 'B', partition = 'p1') => ({ partition, sender: tagIn(principal, partition), seq });
+/** 4's attestation that a partition's tag is a principal (deduplicated by its source). */
+export const alias = (m, principal, partition = 'p1', bell = 0, created = bell) =>
+  m.observe({ kind: 'identity_alias', bell, created_bell: created, source: { chain: 'index', sig: `alias-${partition}-${principal}`, ix: 0 },
+    data: { partition, tag: tagIn(principal, partition), principal } });
 
 /** Sign an allocation operation as `by` (test keys). */
 export function signedAllocation({ by, op = 'set', commitment, caravan, qty = op === 'set' ? 100 : 0, nonce, bell, created_bell = bell, visibility, world: w = WORLD, signAs = by }) {
@@ -39,10 +54,12 @@ const nonces = new WeakMap();
 const nextNonce = (m, by) => { const n = nonces.get(m) ?? new Map(); nonces.set(m, n); const v = (n.get(by) ?? 0) + 1; n.set(by, v); return v; };
 
 /** A full coverage attestation (sufficient by construction); `over` breaks one condition at a time in tests. */
-export const coverage = (m, { sender = 'B', from = 90, to = 140, caravans = [], bell = to, created = bell, sig = `cov-${sender}-${from}-${to}`, over = {} } = {}) =>
-  m.observe({ kind: 'coverage', bell, created_bell: created, source: { chain: 'index', sig, ix: 0 },
-    data: { world: WORLD, sender, from_bell: from, to_bell: to, routes: [...SEND_ROUTES], finality: 'finalized',
+export const coverage = (m, { sender = 'B', partition = 'p1', from = 90, to = 140, caravans = [], bell = to, created = bell, sig = `cov-${partition}-${sender}-${from}-${to}`, over = {}, withAlias = true } = {}) => {
+  if (withAlias) alias(m, sender, partition);
+  return m.observe({ kind: 'coverage', bell, created_bell: created, source: { chain: 'index', sig, ix: 0 },
+    data: { world: WORLD, partition, sender: tagIn(sender, partition), from_bell: from, to_bell: to, routes: [...SEND_ROUTES], finality: 'finalized',
       completeness: { gapless: true, from_slot: from * 1500, to_slot: to * 1500 + 1499 }, caravans, ...over } });
+};
 
 export const A = { tag: 'A', nation: 1 };
 export const B = { tag: 'B', nation: 1 };
@@ -50,8 +67,8 @@ export const C = { tag: 'C', nation: 2 };
 export const D = { tag: 'D', nation: 1 };
 export const dm = (...members) => ({ scope: 'parties', members });
 export const PUBLIC = { scope: 'public' };
-export const PLACE_A = Object.freeze({ kind: 2, p: 3, q: 0, at: 40, gen: 1 });
-export const PLACE_D = Object.freeze({ kind: 1, p: -2, q: 5, at: 1, gen: 1 });
+export const PLACE_A = Object.freeze({ partition: 'p1', kind: 2, p: 3, q: 0, at: 40, gen: 1 });
+export const PLACE_D = Object.freeze({ partition: 'p1', kind: 1, p: -2, q: 5, at: 1, gen: 1 });
 
 export const SECOND_BELL = 300;
 export const LATE_OBSERVED = 310;
@@ -75,32 +92,34 @@ export function promise(m, { bell = 100, debtor = 'B', creditor = 'A', due = 130
 
 /** Workstream 4's facts of one caravan, each observed at `obs` (default: when it happened). */
 export function caravanFacts(m, { sender = 'B', seq = 7, dst = PLACE_A, cargo = { wood: 100 }, depart = 102, settle = 120, eta = settle, credited = cargo, owner = 'A',
-  obs = null, raided = false, lost = false, vis = PUBLIC, sigs = `${sender}${seq}` } = {}) {
+  obs = null, raided = false, lost = false, vis = PUBLIC, sigs = `${dst.partition}${sender}${seq}`, withAlias = true } = {}) {
   const o = b => (obs === null ? b : Math.max(obs, b));
   const ids = {};
+  const caravan = cv(seq, sender, dst.partition);
+  if (withAlias) ids.alias = alias(m, sender, dst.partition, depart, o(depart)).id;
   ids.sent = m.observe({ kind: 'caravan_sent', bell: depart, created_bell: o(depart), source: { sig: `sent-${sigs}`, ix: 0 }, visibility: vis,
-    data: { caravan: { sender, seq }, dst, cargo, ...(eta === null ? {} : { eta_bell: eta }) } }).id;
+    data: { caravan, dst, cargo, ...(eta === null ? {} : { eta_bell: eta }) } }).id;
   if (raided) {
     ids.raided = m.observe({ kind: 'caravan_raided', bell: settle - 5, created_bell: o(settle - 5), source: { sig: `raid-${sigs}`, ix: 0 }, visibility: vis,
-      data: { caravan: { sender, seq }, raider: 'C', taken: cargo } }).id;
+      data: { caravan, raider: tagIn('C', dst.partition), taken: cargo } }).id;
     return ids;
   }
   if (settle === null) return ids;
   ids.settled = m.observe({ kind: 'caravan_settled', bell: settle, created_bell: o(settle), source: { sig: `settle-${sigs}`, ix: 0 }, visibility: vis,
-    data: { caravan: { sender, seq }, outcome: lost ? 1 : 0, dst, cargo_recorded: cargo } }).id;
+    data: { caravan, outcome: lost ? 1 : 0, dst, cargo_recorded: cargo } }).id;
   if (lost) return ids;
   // 4's execution record of what this settle added (required for a vault; optional for a holding, where it must
   // equal the rule-derived credit)
   if (credited) ids.credited = m.observe({ kind: 'caravan_credited', bell: settle, created_bell: o(settle), source: { sig: `credit-${sigs}`, ix: 0 }, visibility: vis,
-    data: { caravan: { sender, seq }, place: dst, credited, unit: 'whole_units', basis: 'exec_record', exec: { sig: `settle-${sigs}`, ix: 0 } } }).id;
+    data: { caravan, place: dst, credited, unit: 'whole_units', basis: 'exec_record', exec: { sig: `settle-${sigs}`, ix: 0 } } }).id;
   if (owner) ids.owner = m.observe({ kind: 'place_owner', bell: settle, created_bell: o(settle), source: { sig: `owner-${sigs}`, ix: 0 }, visibility: vis,
     data: { place: dst, owner, from_bell: 0, to_bell: null } }).id;
   return ids;
 }
 
 /** A signed allocation by a party (nonce counted per signer and memory). Returns the append result. */
-export const allocateOp = (m, { by = 'B', ref, sender = 'B', seq = 7, qty = 100, bell = 102, created_bell = bell, vis = dm('A', 'B'), op = 'set', nonce = null, signAs = by }) =>
-  m.allocate(signedAllocation({ by, op, commitment: ref, caravan: { sender, seq }, qty: op === 'set' ? qty : 0, nonce: nonce ?? nextNonce(m, by), bell, created_bell, visibility: vis, signAs }));
+export const allocateOp = (m, { by = 'B', ref, sender = 'B', seq = 7, partition = 'p1', qty = 100, bell = 102, created_bell = bell, vis = dm('A', 'B'), op = 'set', nonce = null, signAs = by }) =>
+  m.allocate(signedAllocation({ by, op, commitment: ref, caravan: cv(seq, sender, partition), qty: op === 'set' ? qty : 0, nonce: nonce ?? nextNonce(m, by), bell, created_bell, visibility: vis, signAs }));
 export const allocate = (m, opts) => allocateOp(m, opts).id;
 
 export function firstExchange(m, { outcome }) {

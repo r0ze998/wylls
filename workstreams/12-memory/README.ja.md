@@ -1,4 +1,4 @@
-# ⑫ 記憶・会話・関係が AI の次の行動を変える（隔離した試作、v3）
+# ⑫ 記憶・会話・関係が AI の次の行動を変える（隔離した試作、v4：継続世界）
 
 会話を保存するだけでなく、**過去の協力・約束・不履行を根拠付きで覚え、次の取引相手の選択に効かせる**ための module と、決定的な fixture によるデモ・回帰テスト。実 LLM への通信・課金はしない。
 
@@ -7,14 +7,16 @@ v2（2026-10-30 のレビュー対応）では、事実認定を「誤った評�
 - 調査（既存の再利用、関連文書、OSS 比較）：[01-survey.ja.md](01-survey.ja.md)
 - ④⑤⑬ との接続契約（v2）：[02-contracts.ja.md](02-contracts.ja.md)
 - 事実認定の規則：[03-evidence-rules.ja.md](03-evidence-rules.ja.md)
+- **継続世界への移行（v4、2026-10-31 の方針訂正への対応）：[04-continuity.ja.md](04-continuity.ja.md)**。残っていたシーズン依存、変更した挙動、試験で確認したこと、残る判断を 4 点にまとめている。
 
 v3（2026-10-30 の三度目のレビュー対応）では、証拠の意味を詰めた。**加算量は当該配送だけの根拠から**取る：村宛ては⑫が固定の規則で導き、倉宛ては④の実行記録が要り、残高の前後差は使わない。**未発送の証明には**、世界・シーズン・送り主・区間・全送信経路・履歴の完全性・確定性がすべて要る。未発送と未到着は区別する。**割当は署名で認証した入力にした**（再送・訂正・撤回・同時割当てで同じ量を二度使わない）。**再評価では過去の事実の遅着と判断後の新しい行為を分け**、元の判断と入力を保持する。
 
 ## 実行
 
 ```sh
-sh workstreams/12-memory/run.sh     # デモ成果物を再生成し、回帰テスト（52 件）を実行
-sh workstreams/12-memory/tools/mutate.sh    # 防御 44 か所を 1 つずつ壊して、テストが検知することを確認
+sh workstreams/12-memory/run.sh     # デモ成果物を再生成し、回帰テスト（75 件）を実行
+sh workstreams/12-memory/tools/mutate.sh    # 防御 57 か所を 1 つずつ壊して、テストが検知することを確認
+node workstreams/12-memory/tools/longrun.mjs # 長期運用の計測（results/longrun.json。計測環境に依存）
 node workstreams/12-memory/demo/run-demo.mjs     # デモの表示だけ
 ```
 
@@ -62,6 +64,8 @@ A が B に木材 100 を、A の倉（vault。場所・世代を指定）へ届
 | 重複・矛盾した証言・再起動 | fact の id は chain 参照から（再観測は duplicate、中身違いは collision）。testimony は数えない。JSONL 再生 | core「duplicate」「testimony」「restart」 |
 | 記憶があっても状況で他を選ぶ | 価格・距離・在庫・到着・予算が同じ費用式に入る | demo の arm |
 
+v4 では、世界が終わらない前提に合わせた。記憶の世界は `{cluster, world_id}` で、season は含めない。今の Season 口座は④が登録する partition とし、時刻はすべて④の世界時計の bell で数える。tag と場所は partition ごとに異なるので、④の `identity_alias`・`place_alias` だけで同じ相手・同じ場所とみなす。旧版（v3）の journal は書き換えずに読み、同じ判定を再現する。詳細と試験は [04-continuity.ja.md](04-continuity.ja.md)。
+
 ## 限界（未実装・未検証）
 
 1. **本線に未接続（接続前の判断事項）**。既存 AI 市民の契約 v1.3 付録 A.5 は約束・pact を「不活性」に保つと定め（ledger `commitments` は常に空、pact 語を拒否、テストが grep する）、再有効化には契約の新版と所有者の表明が要る。**pact の本線での有効化も、本番の評判ルールも採用していない。** 今回の許可は隔離した記憶試作までで、会話による権限付与や法的・経済的な契約の成立は扱わない（`authority:false`、`contract:false` は常に固定）。
@@ -73,6 +77,7 @@ A が B に木材 100 を、A の倉（vault。場所・世代を指定）へ届
 7. 実 LLM での比較、人の評価、⑤の token 予算に応じた `memory[]` の切り詰め（現状の入力は約 5 KB）は未実施。
 8. journal は単一プロセス・単一ファイル。同時書き込みの排他、容量上限・圧縮はない。fold は毎回全件を走査する（規模の試験はしていない）。判断記録が入力全体を持つので、journal は判断ごとに数 KB 増える。
 9. `reassess` は参照ルールで選び直した場合を示すだけで、当時使われたのが LLM だった場合に LLM が何を選んだかは分からない。
+10. **継続世界の前提は④の未定事項に依存する**：`world_id`、partition の登録、世界時計、`identity_alias`・`place_alias`。fixture では仮の値を使う。既存 AI 記憶のアダプタ（`continuity/`）は移行候補で、どこからも呼ばれていない（04 の「残る点」）。
 
 ## 復元
 

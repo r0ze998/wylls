@@ -1,5 +1,5 @@
 {
- "contract": "wylls.memory12.decision-input/v3",
+ "contract": "wylls.memory12.decision-input/v4",
  "self": {
   "tag": "A"
  },
@@ -69,7 +69,7 @@
     "caution_is_honesty_judgment": false
    },
    "memory": [
-    "2dd0d301cd944f2c"
+    "f6053dbb25754692"
    ]
   },
   {
@@ -147,28 +147,28 @@
  ],
  "memory": [
   {
-   "id": "2dd0d301cd944f2c",
+   "id": "f6053dbb25754692",
    "about": "B",
    "epistemic": "verified",
-   "text": "B -> A: 100 wood due bell 130: not sent: a sufficient index (world, season, every send route, gapless, finalized) shows no caravan to the promised place; claim sent: contradicted (false: a sufficient coverage (world, season, every send route, gapless, finalized) shows no caravan by the sender to the promised place between the promise and the claim)",
+   "text": "B -> A: 100 wood due bell 130: not sent: a sufficient index (world, registered partition, every send route, gapless, finalized) shows no caravan to the promised place; claim sent: contradicted (false: a sufficient coverage (world, registered partition, every send route, gapless, finalized) shows no caravan by the sender to the promised place between the promise and the claim)",
    "sources": [
-    "df892251c607db1c",
-    "2dd0d301cd944f2c",
-    "ba483a219f2d7530",
-    "7973040bd9c2585d"
+    "402a376887ef51ff",
+    "f6053dbb25754692",
+    "fe3aaf49a6c1bcdf",
+    "32261dcb479413a2"
    ]
   }
  ],
  "untrusted_messages": [
   {
-   "id": "ba483a219f2d7530",
+   "id": "fe3aaf49a6c1bcdf",
    "from": "B",
    "bell": 125,
    "trust": "untrusted",
    "text": "The wood is already on its way, I sent it!"
   },
   {
-   "id": "2dd0d301cd944f2c",
+   "id": "f6053dbb25754692",
    "from": "B",
    "bell": 101,
    "trust": "untrusted",
