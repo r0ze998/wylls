@@ -67,9 +67,9 @@
 | `keeper --test play`（ignored を含む 7 件） | 鐘の pipeline、保留下の Reveal、二重 keeper、crash injection（journal の各書込み点で落として再起動、決着 digest 一致） | PASS |
 | `drand-replay --test hostile`（5 件、うち TLS 1 件は `--include-ignored`） | ゴミ、古い round、他鍵、ビット反転、randomness 不一致、500、閉じたポート、425/404 → 次へ、info の差し替え、ローカル TLS（未知 CA → curl 60、名前違い → curl 60、閉ポート → curl 7） | PASS（`not_yet…` は修正前 FAIL） |
 | `fclient --test period_boundary`（3 件） | 戦期境界（鐘 1008）をまたぐ進軍は `T(arrive)` の署名だけで開く。境界で鐘番号を振り直すと code 5、genesis がずれると code 1 で破棄。u32 の鐘全域で `T` は単調・正確 | PASS |
-| `fclient --test live_drand`（`FRONTIER_LIVE_DRAND=1`、公開 drand 4 endpoint） | 未来 round `R = latest + 20` に Rust とブラウザ実装で封印 → 公開前に `HttpDrand` は 425、最新署名・試験鍵の署名・壊れた署名では開かない → 公開後 HTTPS で取得・検証 → 両封印が両実装で開き judge code 0、hint が RFC 9380 と一致 | PASS（2026-10-31 に 2 回：round 33534078 と、最終 commit のコードで round 33535230。後者の署名は別途 curl で drand.cloudflare.com から取り直して一致。ログ `live1.log`・`live-final.log`） |
+| `fclient --test live_drand`（`FRONTIER_LIVE_DRAND=1`、公開 drand 4 endpoint） | 未来 round `R = latest + 20` に Rust とブラウザ実装で封印 → 公開前に `HttpDrand` は 425、最新署名・試験鍵の署名・壊れた署名では開かない → 公開後 HTTPS で取得・検証 → 両封印が両実装で開き judge code 0、hint が RFC 9380 と一致 | PASS（2026-10-31 に 3 回：round 33534078、33535230（署名を別途 curl で drand.cloudflare.com から取り直して一致）、最終コード tree で 33535562。ログ `live1.log`・`live-final.log`） |
 | `verify --test coverage`（5 件） | 未知タグ、データ不足・過多、モデル化外命令、未知版 | PASS（V0 を外すと 4 件 FAIL＝従来は PASS 判定） |
-| `fclient`・`keeper`・`drand-replay`・`verify` の全試験 | 回帰 | PASS（workspace 全体の結果はパッケージの `workspace-test.log`） |
+| `fclient`・`keeper`・`drand-replay`・`verify` の全試験（ignored を含む。公開 drand と `record_*` を除く） | 回帰 | PASS（最終コード tree `fb8dd442`、`final-run.log`。整形前の workspace 全体の実行も PASS、`workspace-test.log`） |
 
 ## 6. 提案（未適用）：ブラウザの自己公開を `T(arrive)` 公開後へ
 
@@ -128,7 +128,8 @@
 
 - オンチェーンの SettleTransit／Reveal（実プログラム）での決着：**未実行**。この環境に Solana SBF ツールチェーン（`cargo-build-sbf`）が無く、`.so` を作れない。導入は未承認のソフト導入にあたるので行っていない。オフチェーンでは検証器と同じ `seal::judge`（stock tlock）とブラウザの開封で code 0 を確認しただけ。
 - ignored の記録用試験 `record_land_program`（`PSF_FRONTIER_SO` の `.so` が要る）は失敗＝未実行扱い。`record_march_synth` は `fixtures/verify/march-synth.json` を書き換えた（封印の鍵が毎回変わるため event head が変わる）。記録済み fixture は変えないので元に戻し、差分だけ保存した（`record_march_synth-rewrote-fixture.diff`）。
-- `cargo fmt --check`・`cargo clippy`：**未実行**。1.95.0 ツールチェーンは最小構成で入り、rustfmt・clippy コンポーネントが無い（追加はツールチェーンのダウンロード）。
+- `cargo fmt --check`：1.95.0 には rustfmt が無いので、W1-F と同じ代替 `cargo +1.89.0 fmt --all -- --check` を実行（1.89.0 はパッケージ作成中に repo 直下で `rustc --version` を実行した際、rustup が直下の `rust-toolchain.toml` に従って**意図せず自動導入**したもの）。今回の変更ファイルだけに差分があったので整形し、整形後は PASS。
+- `cargo clippy`：**未実行**。1.95.0 に clippy が無く、代替の 1.89.0 では依存の `solana-syscalls 4.2.2` がコンパイルできない（`maybe_uninit_write_slice` が不安定機能、`logs/clippy-1.89.log`）。
 - ⑪ の未知命令検証パッチ：**受け取っていない**（remote の枝にも見当たらない）。V0 は独立に作ったので、受領後に照合が要る。
 - 運用ログ・gateway citizens・MCP の全経路の平文漏えい監査：一部のみ（§2）。
 - 長期運用での状態量の測定：未実行。
