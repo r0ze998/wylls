@@ -125,3 +125,22 @@
 - transit の digest は 5 場面とも同じ（`181c0c1a…`）で、restart でも所有者の material は失われていない。戦闘結果の digest は anchor の着地時刻から決まる seed に依存するので、遅延の場面では normal と違う。④の試験は outcome の一致を条件にしていない（`check()` は秘匿と有効性だけ）。この扱いのままにする。
 - ログ（⑱の手元。次のパッケージに入る）：`ws04-base.log` `24114c76…`、`ws04-head.log` `fe403d00…`、`ws04-head-digests.log` `16a7c871…`。
 - ④の判定は、正本と補助 v2 を受け取り、同じ tree で④自身が走らせてからにする。
+
+## 6. 受領待ちの正本の一覧（2026-10-31 18 時台。どれも未受領。各担当の報告の値で、④は未照合。報告に無い値は「未確認」）
+
+| 担当 | ファイル名 | SHA-256 | 完全 HEAD | 前提 | 扱い |
+|---|---|---|---|---|---|
+| ⑧ 本体 | `wylls-08-archive-v4.tar.gz` | `78a2e4db581d5d31d8be568c66aa69f46dbfa31f512410b61213ca97720533ec` | 未確認（候補 `e3d773df` の短縮形だけ） | 未確認 | 適用順 1 |
+| ⑰ 本体 | `wylls-17-package.tgz` | `2dfaf966cd323501f113459a9e50204176ff476aeca9ebb71c65207f150dc257` | `0c80381d431c8f897a873aaae6d6c5427f8460f9`（0001〜0005 を当てた状態） | 未確認（⑰の報告は「main に当てた」。main の commit は未確認） | 0001〜0004 が検証対象、0005 は報告 |
+| ⑰ 補遺 | `wylls-17-addendum.tgz` | `d7dcc779674fd378d77b8e927ca07828964b9cd7192543e7063e000834262b78` | `4c6ef0b05192f015909aa23429990ea36ec84a07`（0007。0006 は `d2b82b6d7bcfa95c2a63dbcff855b45723f930b8`、tree `ee7e8be1…`） | `0c80381d431c8f897a873aaae6d6c5427f8460f9` | 本体の後 |
+| ⑱ 本体 | `r18-package-20261031.tar.gz` | `e75ab1e441750af2c0ac9e4d456f211ef1dbfd64af7259ebbaf04d0b786a8884` | 未確認（`90df6a64` の短縮形だけ） | `4cd901de9f8e0d6c0b2016851d30595c4a70aa46` | 0001〜0009 |
+| ⑱ 補遺 v2 | `r18-package-20261031-addendum-v2.tar.gz` | `395d0f9e62547da43be8eb1313c982df227c0923c77603a79cb5b37159a9e06b` | `41984e99f6ef31c4d3027da1b984221e3ffb36d8`（tree `397c450bd2a8db4755fd1b443be57926af677f85`。コードの最終 `d9e1900b84cb4f411bec23296aa8490e1e866488`、tree `2d3a93cfb76f2ce4576c08233a9ee056af628d6c`） | `90df6a64`（完全形は未確認） | 0010〜0014。基点からの bundle も同梱と報告。補遺 v1（`0272442237b4145a4b39d5e3c51b3a636500c5a5c33818aff740d36d07f6ee90`）は取り下げ |
+| ⑲ 本体 | `package-er19.tar.gz` | `3455ffcfaaed12b6a829957a501315c314f3cbff348cd5b036689ece957e4f24` | `a91b7a4f532b3a6c2e63eeeafd33279f789740c3` | 未確認（⑲は A と D を `921429322d5aecd1a3df0dd8d82c405c87dd985a` に当てて検証したと報告） | A（findex）だけを統合に。B・C は別 |
+| ⑲ 補足 | `package-er19-supp.tar.gz` | `6b724527a1f23257fb5a724010de987efa91f8369ee7d4bd6236ae3a4598d9a8` | `d793ebd4dfded1a4c4fa23796181c55d29874224`（tree `6d205008fc24ef325e957d795f9374f24c8fc183`） | `a91b7a4f532b3a6c2e63eeeafd33279f789740c3` | A の追加の修正（patch `910af799…4327`、完全形は未確認）と D |
+
+### 6.1 ⑯に渡す統合候補を固定する手順（受領の後）
+
+1. 各正本を新しい空の directory に置き、sha256、bundle の前提、HEAD、tree、patch からの復元の一致を確かめる（報告の値と一つでも違えば止めて、その担当に返す）。
+2. ④の統合 HEAD（今は `85382f11…` 以降の最新）から、担当ごとの候補 branch を切り、⑧ → ⑱ → ⑰ → ⑲A の順に一つずつ当てる。各段で ④の 72 件、e2e-native 8 件（エラー番号・registry を含む）、frontier-node の workspace、gateway の `npm test` を走らせる。
+3. ⑱の段では、⑱の `w6t_tests` と、④の r18-check の 5 場面（v3：早期 0、anchor なし 0、必要な Reveal が公開後に Ok で着地、取り残し 0、正常と同じ進軍の集合）を同じ tree で走らせ、retries の内訳（別署名・再送・Ok・Err・手数料）を基準と並べる。
+4. 全段が通った tree を統合候補として固定し、完全 HEAD・tree・適用順・各段の試験結果を新しい名前のパッケージにして⑯へ渡す。個々の担当の成功の報告は、統合の成功とみなさない。
