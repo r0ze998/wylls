@@ -40,7 +40,7 @@ const ctx = { registry: new Registry(), ledger: new Ledger(), adoptions: new Ado
 const rules = () => ({ features: ctx.world.features, today: ctx.world.today });
 let nonce = 0;
 /** The plan's own user asks for one run (signed), naming the batches it spends. */
-const runAs = async (who, plan, batches = {}) => execute(plan, ctx, { request: await requestRun(plan, { batches, nonce: `demo-${++nonce}` }, keys[who]) });
+const runAs = async (who, plan, batches = {}) => execute(plan, ctx, { request: await requestRun(plan, { batches, nonce: `demo-${++nonce}`, day: ctx.world.today }, keys[who]) });
 const runLog = (r) => { r.log.forEach((l) => say(`  ${l}`)); if (!r.ok) say(`  → 止まった：${r.failure.code} ${detail(r.failure)}`); };
 
 head("1. 作者Aが作る → 条件を確認する");

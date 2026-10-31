@@ -14,7 +14,7 @@
  */
 
 import { CanonicalError, contentHash, own, plain } from "./canonical.mjs";
-import { EFFECTS } from "./catalog.mjs";
+import { EFFECTS, confirmedRev, effectRev } from "./catalog.mjs";
 import { finding, hasErrors } from "./codes.mjs";
 import { DOMAIN, signHash, verifyHash } from "./keys.mjs";
 import { verifyEnvelope } from "./registry.mjs";
@@ -23,7 +23,30 @@ import { evalInt, validateDefinition, valueFits } from "./validate.mjs";
 import { afterRefs, stepOrder } from "./manifest.mjs";
 import { balanceOf, batchProblem, candidateLots, citizenOf, freeStock, grantProblem, place, useRunsLeft, workshopRunsLeft } from "./world.mjs";
 
-export const PLAN_FORMAT = "wylls.creation.plan/0";
+export const PLAN_FORMAT = "wylls.creation.plan/1";
+/** Plans signed before effect revisions were recorded (up to 517796dc): still read, as rev 1. */
+export const LEGACY_PLAN_FORMAT = "wylls.creation.plan/0";
+
+/** The effects a manifest's steps use, each with its revision in `world` now. */
+export function effectsOf(m, world) {
+  const out = {};
+  for (const s of m.steps ?? []) if (typeof s?.effect === "string" && EFFECTS[s.effect]) out[s.effect] = effectRev(world, s.effect);
+  return out;
+}
+
+/**
+ * The effects whose meaning changed since the plan was confirmed. The world
+ * goes on across a change of the core: a plan is not ended by it, only held
+ * until its user confirms a plan under the new meaning (EFFECT_REVISED).
+ */
+export function revisedEffects(plan, m, world) {
+  const out = [];
+  for (const [effect, now] of Object.entries(effectsOf(m, world))) {
+    const confirmed = confirmedRev(plan, effect);
+    if (confirmed !== now) out.push({ effect, confirmed, now, legacy: !Object.hasOwn(plan.effects ?? {}, effect) });
+  }
+  return out;
+}
 
 /**
  * Bind a published manifest for `userKey`. Grants the caller did not name
@@ -52,6 +75,7 @@ export async function preparePlan(env, bindings, userKey, { world, today, supers
     actor: userKey.pub,
     bindings: { params: { ...(bindings.params ?? {}) }, grants },
     preparedDay: today ?? world?.today ?? null,
+    effects: effectsOf(m, world),
   };
   if (supersedes) plan.supersedes = supersedes;
   const hash = contentHash(plan);
@@ -108,6 +132,7 @@ export async function preflight(signed, ctx, { inputs } = {}) {
     return done([...F, finding("SHAPE", e.path, { detail: "nested too deep" })]);
   }
   if (!plan?.manifest || !plan.bindings) return done([...F, finding("SHAPE", "$.plan", { detail: "{ manifest, actor, bindings }" })]);
+  if (plan.format !== PLAN_FORMAT && plan.format !== LEGACY_PLAN_FORMAT) return done([...F, finding("SHAPE", "$.plan.format", { detail: `${PLAN_FORMAT} (or ${LEGACY_PLAN_FORMAT}, read as rev 1)` })]);
   const env = registry.getVersion(plan.manifest);
   if (!env?.manifest) return done([finding("DEPENDENCY_UNKNOWN", "$.plan.manifest", { ref: plan.manifest })]);
   if (env.hash !== plan.manifest.hash) add("HASH_MISMATCH", "$.plan.manifest.hash", { pinned: plan.manifest.hash, listed: env.hash });
@@ -124,6 +149,7 @@ export async function preflight(signed, ctx, { inputs } = {}) {
   const m = plain(env.manifest);
   const def = validateDefinition(m, { features: world.features, today });
   F.push(...def.findings.filter((f) => f.severity !== "info"));
+  for (const r of revisedEffects(plan, m, world)) add("EFFECT_REVISED", "$.plan.effects", r);
   for (const f of registry.checkDependencies(m)) {
     if (pinned && (f.code === "DEPENDENCY_SUSPENDED" || f.code === "DEPENDENCY_WITHDRAWN")) add("DEPENDENCY_DELISTED_PINNED", f.path, { was: f.code, ref: f.ref });
     else F.push(f);
