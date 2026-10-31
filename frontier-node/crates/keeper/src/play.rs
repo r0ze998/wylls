@@ -1086,6 +1086,14 @@ impl PlayDuty {
             {
                 continue;
             }
+            // Secrecy before T(arrive) (⑱): no Reveal before THE anchor.
+            // The anchor needs T(arrive)'s signature, and a Reveal sent
+            // earlier is refused `NoAnchor` yet lands (skipPreflight) as a
+            // failed transaction that publishes the plaintext and the salt
+            // before drand publishes the round. The material waits here.
+            if anchor.is_none() {
+                continue;
+            }
             let close = anchor.map(|a| t.clock.reveal_close(arrive, a.a));
             let eps = (REVEAL_EPSILON_SLOTS as f64 * self.slot_secs.max(0.4)).ceil() as i64;
             if let Some(c) = close {
@@ -3129,8 +3137,11 @@ mod w6t_tests {
                 .reveals
                 .push((format!("r{site}"), owner_item(h, &m)));
             keys.push((arrive, format!("reveal:{host}:{dep}")));
+            // THE anchor (a Reveal waits for it, ⑱); none can exist at or
+            // after end_bell, but even one planted there must not be used.
+            e.anchor(arrive, ix::region_of(origin.0 as i32, origin.1 as i32));
         }
-        let now = G + (end as i64 - 1) * BELL_SECS + 30;
+        let now = G + end as i64 * BELL_SECS + 30;
         e.plan(&mut d, 50, now, None, &[]).await;
         for (arrive, k) in keys {
             assert_eq!(
@@ -3139,6 +3150,49 @@ mod w6t_tests {
                 "arrive {arrive} (end_bell {end}): {k}"
             );
         }
+    }
+
+    /// Secrecy before T(arrive) (⑱, 2026-10-31): the owner's material
+    /// reaches the keeper from the arrival bell's start, ≈ 600 s before the
+    /// round T(arrive) is published. A Reveal sent then is refused
+    /// `NoAnchor`, but it is sent with `skipPreflight`, so it lands as a
+    /// failed transaction whose instruction data — the plaintext and the
+    /// salt — is public before drand publishes the round that opens the
+    /// seal. No Reveal write may exist before THE anchor of the arrival
+    /// (which needs T(arrive)'s signature); with it, the Reveal goes.
+    #[tokio::test]
+    async fn no_reveal_before_the_anchor_of_its_arrival() {
+        let mut e = env(&["reveal"], 1_008);
+        let mut d = PlayDuty::default();
+        let origin = (2i16, 0i16);
+        let arrive = 200u32;
+        let host = fclient::addr::host_id(2, 0, 1, 1, 5).unwrap();
+        let m = march(host, arrive, origin, 5);
+        let root = seal::seal_root(&seal::commit(&m.0, &m.1), &m.2);
+        let dep = arrive - 3;
+        d.index
+            .departs
+            .insert((host, dep), depart(host, origin, 5, dep, arrive));
+        let h = e.addrs.holding(2, 0, 1);
+        e.port.put(
+            h,
+            testkit::acct(program(), testkit::holding(1, 0, (1, host, dep, arrive, root)), ),
+        );
+        e.shared.reveals.push(("r1".into(), owner_item(h, &m)));
+        let key = format!("reveal:{host}:{dep}");
+        // 30 s into the arrival bell, and 2 s after its end (T not yet
+        // anchored): material held, nothing planned.
+        for (slot, now) in [
+            (50, G + arrive as i64 * BELL_SECS + 30),
+            (60, G + (arrive as i64 + 1) * BELL_SECS + 2),
+        ] {
+            e.plan(&mut d, slot, now, None, &[]).await;
+            assert!(!e.engine.is_pending(&key), "Reveal planned before THE anchor at {now}");
+        }
+        // THE anchor lands: the Reveal goes.
+        e.anchor(arrive, ix::region_of(origin.0 as i32, origin.1 as i32));
+        e.plan(&mut d, 70, G + (arrive as i64 + 1) * BELL_SECS + 8, None, &[]).await;
+        assert!(e.engine.is_pending(&key), "Reveal planned once the anchor exists");
     }
 
     /// Close waste (w6-s7: 28,655 failed CloseArrivalDay/Slot in the
@@ -3297,7 +3351,9 @@ mod w6t_tests {
             );
         }
         payers.refresh(&e.port, 0).await.unwrap();
-        let now0 = G + arrive as i64 * BELL_SECS + 30;
+        // After T(arrive) and THE anchor (no Reveal before it, ⑱).
+        e.anchor(arrive, ix::region_of(2, 0));
+        let now0 = G + (arrive as i64 + 1) * BELL_SECS + 30;
         let mut by_chain_slot: BTreeMap<u64, usize> = BTreeMap::new();
         for s in 50..54u64 {
             // Every tick runs late: its sends go out in the next slot, and
