@@ -347,7 +347,17 @@ fn set_shares(
     totals: [u64; 6],
     root: [u8; 32],
 ) -> Result<(), String> {
-    let mut d = vec![tag::SET_SHARES, pool::MODE_SHARES];
+    set_mode(w, signer, pool::MODE_SHARES, totals, root)
+}
+
+fn set_mode(
+    w: &mut World,
+    signer: Pubkey,
+    mode: u8,
+    totals: [u64; 6],
+    root: [u8; 32],
+) -> Result<(), String> {
+    let mut d = vec![tag::SET_SHARES, mode];
     for t in totals {
         d.extend_from_slice(&t.to_le_bytes());
     }
@@ -567,4 +577,92 @@ fn unpaid_winner_cannot_claim() {
     let before = (bal(&w, &tb), bal(&w, &w.vault));
     assert!(claim(&mut w, &b, &tb, &cb, 1, 1, &[la]).is_err());
     assert_eq!((bal(&w, &tb), bal(&w, &w.vault)), before, "nothing moved");
+}
+
+/// Workstream 17's D2, on the program's own code: while the season runs
+/// (the world goes on), entry fees keep coming in and nothing can leave
+/// the vault — Tally and Finalize need the Season Ended, SetShares, Claim
+/// and WithdrawOps need Finalize. A continuing world never reaches either.
+#[test]
+fn while_the_world_runs_deposits_have_no_exit() {
+    let mut w = world();
+    init_pool(&mut w).unwrap();
+    let (a, ta) = player(&mut w, 1, FEE);
+    let (b, tb) = player(&mut w, 2, FEE);
+    pay(&mut w, &a, &ta).unwrap();
+    let ca = set_citizen(&mut w, &a, 1);
+    let holders: Vec<u8> = (0..54).map(|i| (i % 6) as u8).collect();
+    let provinces = set_provinces(&mut w, &holders);
+    fails(tally(&mut w, &provinces), E::SeasonNotEnded);
+    fails(finalize(&mut w), E::SeasonNotEnded);
+    let op = w.operator;
+    fails(
+        set_shares(&mut w, op, [0, 1, 0, 0, 0, 0], [0; 32]),
+        E::WrongState,
+    );
+    assert!(claim(&mut w, &a, &ta, &ca, 1, 1, &[]).is_err());
+    let to = token_account(&mut w, &op, 205, &op);
+    fails(withdraw_ops(&mut w, &to), E::WrongState);
+    pay(&mut w, &b, &tb).unwrap();
+    assert_eq!(
+        bal(&w, &w.vault),
+        2 * FEE,
+        "everything paid in stays, with no way out"
+    );
+}
+
+/// Workstream 17's D3: a shares-mode claim needs the winner's Citizen
+/// account (the game's, at its address). Once the game's cleanup has
+/// closed it (CloseCitizen is open to anyone 72 h after the end; here the
+/// account is simply gone), that wallet's claim is refused and its share
+/// stays in the vault for good. A refund-mode claim needs only the Entry.
+#[test]
+fn a_closed_citizen_loses_its_shares_claim_but_not_a_refund() {
+    let mut w = world();
+    init_pool(&mut w).unwrap();
+    let (a, ta) = player(&mut w, 1, FEE);
+    let (b, tb) = player(&mut w, 2, FEE);
+    pay(&mut w, &a, &ta).unwrap();
+    pay(&mut w, &b, &tb).unwrap();
+    let ca = set_citizen(&mut w, &a, 1);
+    let cb = set_citizen(&mut w, &b, 1);
+    let holders: Vec<u8> = (0..54)
+        .map(|i| if i < 20 { 1 } else { (i % 5 + 2) as u8 })
+        .collect();
+    let provinces = set_provinces(&mut w, &holders);
+    set_season(&mut w, S::STATUS_ENDED);
+    tally(&mut w, &provinces).unwrap();
+    finalize(&mut w).unwrap();
+    let pk = w.pool.to_bytes();
+    let la = leaf(&pk, &a.to_bytes(), 1, 1);
+    let lb = leaf(&pk, &b.to_bytes(), 1, 1);
+    let op = w.operator;
+    set_shares(&mut w, op, [0, 2, 0, 0, 0, 0], node(&la, &lb)).unwrap();
+    // [stand-in] the game's cleanup closed b's Citizen.
+    w.h.accounts.remove(&cb);
+    let before = (bal(&w, &tb), bal(&w, &w.vault));
+    assert!(claim(&mut w, &b, &tb, &cb, 1, 1, &[la]).is_err());
+    assert_eq!(
+        (bal(&w, &tb), bal(&w, &w.vault)),
+        before,
+        "b's share is stranded"
+    );
+    claim(&mut w, &a, &ta, &ca, 1, 1, &[lb]).unwrap();
+
+    // Refund mode: no points; the Entry alone gives the claim.
+    let mut w = world();
+    init_pool(&mut w).unwrap();
+    let (c, tc) = player(&mut w, 3, FEE);
+    pay(&mut w, &c, &tc).unwrap();
+    let cc = Pubkey::new_from_array(w.ctx.citizen(&c.to_bytes())); // never written
+    let holders: Vec<u8> = (0..54).map(|i| (i / 9) as u8).collect();
+    let provinces = set_provinces(&mut w, &holders);
+    set_season(&mut w, S::STATUS_ENDED);
+    tally(&mut w, &provinces).unwrap();
+    finalize(&mut w).unwrap();
+    let op = w.operator;
+    set_mode(&mut w, op, pool::MODE_REFUND, [0; 6], [0; 32]).unwrap();
+    let c0 = bal(&w, &tc);
+    claim(&mut w, &c, &tc, &cc, 0, 0, &[]).unwrap();
+    assert!(bal(&w, &tc) > c0, "refunded without a Citizen");
 }

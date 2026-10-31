@@ -164,3 +164,7 @@
   - M3 期をまたぐ同一性：④の案では住所が変わらない。`epoch` と `actorOfTag(tag, epoch)` の写しは、旧版の（終わった）Season の記録を読むときだけに要る。
   - M4 欠落の判定の番号：④は、出来事の識別に記録の位置（`sig ‖ 命令の位置 ‖ log の位置`、CONTRACTS §2）を使い、欠落の判定に port の feed の位置を使っている。herald の `/h/events` の番号は期ごとの畳み込みなので、世界の正本にはしない。未決。
   - M7 履歴の圧縮：未決。④の側では、開いている run だけの index で、毎 tick の処理を履歴の量から切り離した（§2）。記録そのものの保存期間と圧縮の規則は、⑧と決める。
+- **⑰（決済・賞金。⑰の commit 5 件、未受領）**：⑰の D2・D3 を、④が host 実行（permutation-prize の実際のコード）で確認した。
+  - **D2**（`e2e-native` の `while_the_world_runs_deposits_have_no_exit`）：Season が動いている間も Pay は入金を受け付ける。一方、Tally と Finalize は SeasonNotEnded、SetShares と WithdrawOps は WrongState、Claim も通らない。**終わらない世界では、入金にも運営分にも出口が無い。**
+  - **D3**（`a_closed_citizen_loses_its_shares_claim_but_not_a_refund`）：shares モードの Claim は、勝った国の Citizen の口座を要求する。後始末で Citizen が閉じられると、その人の受取は拒否され、取り分が金庫に残ったままになる。refund モードの Claim は Entry だけで通る。**既存の受取権を守るには、精算と受取の前に CloseCitizen を止めるか、Claim が Citizen を要求しない経路が要る**（program の変更。未適用）。
+  - x402 の欄の案（今のコードが返す値）：x402Version 1、scheme exact、`maxAmountRequired = pool.fee`（6 桁の最小単位）、`payTo` は金庫の PDA、取引は 5 命令（Pay＋Join を含む）。公式の x402 との差（network 名、resource の形、Join を含むこと）が⑰から報告されている。registry には、⑰の 0001〜0005 を受け取って照合してから載せる。
