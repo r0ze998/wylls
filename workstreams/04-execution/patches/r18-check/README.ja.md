@@ -2,7 +2,7 @@
 
 **状態**：⑱のパッケージ `r18-package-20261031.tar.gz`（sha256 `e75ab1e4…8884`）は**未受領・未配置**。この文書は、修正を当てる**前**の基準の測定と、修正を当てた後に同じ試験を走らせるための道具を記録する。共有コアへは当てていない（下の patch は提案）。
 
-## 道具（`keeper-play-reveal-before-anchor.patch`、sha256 `28f8b9a21ad21034d676589e786fc2272bf69779aaccc3d5614eebcd764ec67d`、18,266 バイト。2026-10-31 18 時台に、必要な Reveal が出ることと取り残しの判定、送信の内訳を足して更新した。前の版は `eb859fed…3234`（⑱が当てた版）、その前は `52d818e4…ced62`。どの版も `play.rs` の blob 915abb50 に当たる）
+## 道具（`keeper-play-reveal-before-anchor.patch`、sha256 `f841e6aa86a9d8714d866101b9e0ff5ff862b3dc1d558edccdfb4ab086caacd7`、18,877 バイト（v4）。v4 は keeper 自身の手数料の集計とチェーンの課金の比較を足した（報告だけで判定しない）。v3（`28f8b9a2…c67d`）は必要な Reveal が出ることと取り残しの判定、送信の内訳を足した。その前の版は `eb859fed…3234`（⑱が当てた版）、その前は `52d818e4…ced62`。どの版も `play.rs` の blob 915abb50 に当たる）
 
 対象は `frontier-node/crates/keeper/tests/play.rs` だけ（試験のみ。keeper の本体は変えない）。
 
@@ -47,6 +47,8 @@
 | 再試行 | 2 / 7 | 同じ 2 | 7 = 7 | FAIL |
 
 再試行の 27 件の内訳（基準）：27 件すべてが**別の署名**の取引で、同じ取引の再送は 0 件、simulate は 0 件。着地して Ok は 7 件（進軍ごとに 1 件。状態が変わったのはこの 7 件だけ）、着地して Err は 20 件（すべて code 52 `AlreadyDone`。状態は変わらず、手数料だけかかる）、未着地 0 件。Reveal の手数料の合計は 681,118 lamports（正常の場面は 7 件で 103,557）。20 件の Err は、版を上げた 4 進軍に 5 件ずつ。⑱の最終 HEAD での 27 件は⑱の報告だけで、④はまだ同じ内訳を測っていない。
+
+keeper 自身の集計（engine の `KindStats["reveal"]`、v4 で表示）：再試行の場面で writes 7・versions 27・landed 7・failed 0、`fees_charged` 252,137 lamports に対して、チェーンの課金は 681,118 lamports。**428,981 lamports（63%）が keeper の集計に入っていない**。AlreadyDone で着地した 20 版の手数料が数えられていない。⑯の T18-3（`engine.rs` の poll で、書き込みが終わった後の版と orphan の着地に手数料を足さない）と一致する。他の 4 場面は差 0。⑯の修正候補 P12 は未受領・未適用（④の共有コアへの採用は未承認）。
 
 ## 注意（試験の限界）
 

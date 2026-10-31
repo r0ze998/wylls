@@ -1,5 +1,5 @@
 diff --git a/frontier-node/crates/keeper/tests/play.rs b/frontier-node/crates/keeper/tests/play.rs
-index 915abb50..4062e0b9 100644
+index 915abb50..9a12a2d9 100644
 --- a/frontier-node/crates/keeper/tests/play.rs
 +++ b/frontier-node/crates/keeper/tests/play.rs
 @@ -48,7 +48,95 @@ use permutation_rules::hex::{Hex, DIRECTIONS};
@@ -186,7 +186,7 @@ index 915abb50..4062e0b9 100644
          if let (Some((prio, n)), false) = (o.hold_slots, held_slots) {
              let t_arrive = sc.drand.round_time(sc.tlock_round(arrive));
              if w.now() >= t_arrive {
-@@ -1674,3 +1810,229 @@ async fn claim_after_late_reveal() {
+@@ -1674,3 +1810,238 @@ async fn claim_after_late_reveal() {
      assert!(claims.iter().all(|c| c.2 > 0));
      println!("claims: {claims:?}");
  }
@@ -300,6 +300,15 @@ index 915abb50..4062e0b9 100644
 +        all.len(),
 +        matched,
 +        tot_send - tot_sigs
++    );
++    // The keepers' own count of Reveal fees (engine KindStats["reveal"]),
++    // against the chain's: reported, not judged (workstream 16's T18-3).
++    let (kw, kv, kl, kf, kfee) = r.keepers.iter().filter_map(|k| k.engine.stats.get("reveal")).fold((0, 0, 0, 0, 0u64), |a, s| {
++        (a.0 + s.writes, a.1 + s.versions, a.2 + s.landed, a.3 + s.failed, a.4 + s.fees_charged)
++    });
++    println!(
++        "  {name} keeper stats (reveal): writes {kw} versions {kv} landed {kl} failed {kf} fees_charged {kfee} lamports; chain charged {tot_fee}; uncounted {}",
++        tot_fee as i64 - kfee as i64
 +    );
 +    if matched != all.len() {
 +        fails.push(format!("{} Reveal hand-over(s) matched no march", all.len() - matched));
