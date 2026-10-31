@@ -68,6 +68,33 @@ fn render() -> String {
         "prize_pool = {} bytes\n",
         permutation_prize::pool::SIZE
     ));
+    s.push_str(&format!(
+        "prize_entry = {} bytes\n",
+        permutation_prize::entry::SIZE
+    ));
+    s.push_str("\n[prize_program_errors] # custom error code name\n");
+    use permutation_prize::PrizeError as P;
+    for e in [
+        P::BadData,
+        P::BadAccount,
+        P::BadParams,
+        P::NotOperator,
+        P::WrongState,
+        P::AlreadyPaid,
+        P::SeasonNotEnded,
+        P::ProvinceNotFinal,
+        P::NoKeep,
+        P::TallyIncomplete,
+        P::BadShares,
+        P::BadProof,
+        P::NotWinner,
+        P::AlreadyClaimed,
+        P::NothingToPay,
+        P::Overflow,
+        P::WrongExpectedCount,
+    ] {
+        s.push_str(&format!("0x{:x} {e:?}\n", e as u32));
+    }
     s.push_str("\n[units]\n");
     s.push_str(&format!("resource = milli-units i64 on chain (MILLI = {}); logs carry whole units u32, rounded down (cargo_log)\n", permutation_rules::fixed::MILLI));
     s.push_str("test_usdc = 6 decimals (prize pool DECIMALS from the mint)\n");

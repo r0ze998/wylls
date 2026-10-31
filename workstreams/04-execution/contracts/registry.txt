@@ -20,6 +20,26 @@ holding = 1280 bytes
 vault = 512 bytes
 caravan = 320 bytes
 prize_pool = 640 bytes
+prize_entry = 128 bytes
+
+[prize_program_errors] # custom error code name
+0x100 BadData
+0x101 BadAccount
+0x102 BadParams
+0x103 NotOperator
+0x104 WrongState
+0x105 AlreadyPaid
+0x106 SeasonNotEnded
+0x107 ProvinceNotFinal
+0x108 NoKeep
+0x109 TallyIncomplete
+0x10a BadShares
+0x10b BadProof
+0x10c NotWinner
+0x10d AlreadyClaimed
+0x10e NothingToPay
+0x10f Overflow
+0x110 WrongExpectedCount
 
 [units]
 resource = milli-units i64 on chain (MILLI = 1000); logs carry whole units u32, rounded down (cargo_log)
