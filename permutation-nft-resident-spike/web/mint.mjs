@@ -13,9 +13,10 @@
 // * A wallet on another network, a genesis hash that is not the configured
 //   one, a changed price, insufficient SOL: refused before anything is signed
 //   or sent.
-import { compileMessage, wireTransaction, parseTransaction, messageOf } from '/sdk/solana-tx.mjs';
+import { compileMessage, wireTransaction, parseTransaction, messageOf, findProgramAddress } from '/sdk/solana-tx.mjs';
 import { encode as toBase58 } from '/sdk/base58.mjs';
-import { u64le, toBase64, equal, concat } from '/sdk/bytes.mjs';
+import { u64le, toBase64, equal, concat, utf8 } from '/sdk/bytes.mjs';
+import { decode as fromBase58 } from '/sdk/base58.mjs';
 import * as ws from '/web/wallet-standard.mjs';
 
 const $ = sel => document.querySelector(`[data-testid="${sel}"]`);
@@ -37,7 +38,9 @@ const say = (text, kind = '') => { const s = $('status'); s.textContent = text; 
 async function boot() {
   state.config = await api('/mint/config');
   const c = state.config;
-  $('network').textContent = `${c.network} (${c.chainId})`;
+  $('network').textContent = `${c.network} (${c.chainId})${c.mode === 'mock' ? '［模擬チェーン］' : ''}`;
+  // The banner names the network it is really on (devnet; a loopback validator in local verification).
+  if (c.mode !== 'mock' && !/devnet/i.test(c.network)) $('notice').textContent = $('notice').textContent.replace('DEVNET のテストです', 'ローカル検証ネット（実 program、ループバック validator）のテストです');
   $('price').textContent = `${fmtSol(c.price.lamports)} — ${c.price.label}`;
   $('fee').textContent = `約 ${fmtSol(c.estimate.feeLamports)}（署名 2 件）`;
   $('rent').textContent = `約 ${fmtSol(BigInt(c.estimate.rentAssetLamports) + BigInt(c.estimate.rentResidentLamports))}`;
@@ -83,7 +86,7 @@ async function connect(wallet) {
 /** Re-read everything that decides what the page shows: balance, pending transaction, holdings. */
 async function refresh() {
   if (!state.wallet) return;
-  const bal = BigInt((await rpc('getBalance', [state.wallet.address])).value);
+  const bal = BigInt((await rpc('getBalance', [state.wallet.address, { commitment: 'confirmed' }])).value);
   $('balance').textContent = fmtSol(bal);
   const pending = readPending();
   if (pending) { await resolvePending(pending); return; }
@@ -121,10 +124,23 @@ const readPending = () => { try { return JSON.parse(localStorage.getItem(PENDING
 const writePending = p => localStorage.setItem(PENDING(state.wallet.address), JSON.stringify(p));
 const clearPending = () => localStorage.removeItem(PENDING(state.wallet.address));
 
+/**
+ * The status of a signature once it is at least `confirmed` (or failed). A status that is only `processed`
+ * can still be dropped with its fork, so it is not an answer yet: poll a little, then report "not yet".
+ */
+async function settledStatus(signature, tries = 20) {
+  for (let i = 0; i < tries; i++) {
+    const [st] = (await rpc('getSignatureStatuses', [[signature], { searchTransactionHistory: true }])).value;
+    if (st && (st.err || st.confirmationStatus !== 'processed')) return st;
+    await new Promise(r => setTimeout(r, 300));
+  }
+  return null;
+}
+
 async function resolvePending(p) {
   $('mint').disabled = true;
   say(`進行中の取引を照会しています… ${p.signature.slice(0, 12)}…`);
-  const [st] = (await rpc('getSignatureStatuses', [[p.signature]])).value;
+  const st = await settledStatus(p.signature);
   if (st) {
     if (st.err) { clearPending(); say(`前回の取引は失敗しました（${JSON.stringify(st.err)}）。支払いは戻っています。もう一度 mint できます。`, 'err'); $('mint').disabled = !state.networkOk; return; }
     const status = await api(`/mint/status?wallet=${state.wallet.address}&asset=${p.asset}`);
@@ -133,7 +149,7 @@ async function resolvePending(p) {
     say(`取引は確定しましたが保有を確認できません（${status.code ?? (status.isHolder ? 'unbound' : 'not holder')}）。再確認を押してください。`, 'err');
     return;
   }
-  const height = await rpc('getBlockHeight');
+  const height = await rpc('getBlockHeight', [{ commitment: 'confirmed' }]);
   if (height > p.lastValidBlockHeight) {
     // Expired without landing: the chain can never include it now. Not a double charge to try again.
     clearPending(); say('前回の取引は期限切れで、着地していません（課金なし）。もう一度 mint できます。', 'err'); $('mint').disabled = !state.networkOk; return;
@@ -150,15 +166,19 @@ async function mint() {
     // The price the page shows is the price the instruction carries; the program refuses a mismatch.
     const c = state.config = await api('/mint/config');
     const price = BigInt(c.price.lamports);
-    const bal = BigInt((await rpc('getBalance', [state.wallet.address])).value);
+    const bal = BigInt((await rpc('getBalance', [state.wallet.address, { commitment: 'confirmed' }])).value);
     if (bal < total()) throw Object.assign(new Error(`テスト SOL が不足しています（必要 約 ${fmtSol(total())}）`), { code: 'InsufficientSol' });
     say('取引を作成しています…');
-    const { blockhash, lastValidBlockHeight } = (await rpc('getLatestBlockhash')).value;
+    const { blockhash, lastValidBlockHeight } = (await rpc('getLatestBlockhash', [{ commitment: 'confirmed' }])).value;
     // A fresh asset keypair (Core asset accounts sign their own creation); it signs here and is then discarded.
     const assetKey = await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']);
     const assetPub = new Uint8Array(await crypto.subtle.exportKey('raw', assetKey.publicKey));
     const asset = toBase58(assetPub);
     const residentPda = await residentAccountOf(asset);
+    if (c.mode !== 'mock') {
+      const d = derivedPdas();
+      if (d.config !== c.configPda || d.collectionAuthority !== c.collectionAuthorityPda) throw Object.assign(new Error('設定の PDA がページの導出と一致しません'), { code: 'PdaMismatch' });
+    }
     const ix = {
       programId: c.programs.resident,
       keys: [
@@ -186,7 +206,9 @@ async function mint() {
       if (e.code === 'RpcError') {
         // Refused before inclusion (preflight): nothing landed, nothing charged.
         clearPending();
-        const m = /already been processed/.test(e.message) ? '同じ取引が処理済みです' : /Blockhash not found/.test(e.message) ? '取引の期限が切れました。もう一度お試しください' : /insufficient|no record of a prior credit/i.test(e.message) ? 'テスト SOL が不足しています' : /PriceChanged/.test(JSON.stringify(e.data ?? '')) ? '価格が変わりました。画面を再読込してください' : e.message;
+        const pe = programError(e);
+        const m = /already been processed/.test(e.message) ? '同じ取引が処理済みです' : /Blockhash not found/.test(e.message) ? '取引の期限が切れました。もう一度お試しください' : /insufficient|no record of a prior credit|insufficient lamports/i.test(e.message) ? 'テスト SOL が不足しています'
+          : pe === 'PriceChanged' || /PriceChanged/.test(JSON.stringify(e.data ?? '')) ? '価格が変わりました。画面を再読込してください（課金なし）' : pe === 'AlreadyInitialized' ? 'この asset は既に発行済みです（課金なし）' : pe ? `プログラムが拒否しました：${pe}（課金なし）` : e.message;
         throw Object.assign(new Error(m), { code: 'Refused' });
       }
       // No answer (network): the record stays; resolve by signature.
@@ -195,21 +217,34 @@ async function mint() {
       return;
     }
     say('確定を待っています…');
-    for (let i = 0; i < 60; i++) {
-      const [st] = (await rpc('getSignatureStatuses', [[signature]])).value;
-      if (st) break;
-      await new Promise(r => setTimeout(r, 300));
-    }
+    await settledStatus(signature, 60);
     await resolvePending(readPending());
   } finally {
     state.busy = false;
   }
 }
 
-/** The resident account address for an asset, as the mock program derives it (the real program: a PDA; see MINT-FLOW §4). */
+/**
+ * The resident account for an asset. Real program: the PDA `["resident", asset]` of the program, derived here
+ * (and `["config"]`, `["collection-authority"]` likewise), so the page depends on no server derivation.
+ * Mock mode (`config.mode === 'mock'`) keeps the mock chain's derivation through the server.
+ */
 async function residentAccountOf(asset) {
-  const r = await api(`/mint/derive?asset=${asset}`);
-  return r.resident;
+  if (state.config.mode === 'mock') return (await api(`/mint/derive?asset=${asset}`)).resident;
+  return findProgramAddress([utf8('resident'), fromBase58(asset)], state.config.programs.resident)[0];
+}
+function derivedPdas() {
+  const p = state.config.programs.resident;
+  return { config: findProgramAddress([utf8('config')], p)[0], collectionAuthority: findProgramAddress([utf8('collection-authority')], p)[0] };
+}
+/** The resident program's custom error names (program/src/lib.rs ResidentError) out of an RPC error. */
+const RESIDENT_ERRORS = { 1000: 'BadData', 1001: 'BadAddress', 1002: 'Auth', 1003: 'NotOwner', 1004: 'StaleGen', 1005: 'PriceChanged', 1006: 'WrongTreasury', 1007: 'WrongCollection', 1008: 'AlreadyInitialized', 1009: 'NotInitialized', 1010: 'SessionExpiry' };
+function programError(e) {
+  const s = `${e.message} ${JSON.stringify(e.data ?? '')}`;
+  const m = /"Custom":(\d+)/.exec(s) || /custom program error: 0x([0-9a-f]+)/i.exec(s);
+  if (!m) return null;
+  const code = m[0].startsWith('"Custom"') ? Number(m[1]) : parseInt(m[1], 16);
+  return RESIDENT_ERRORS[code] ?? `Custom(${code})`;
 }
 
 boot().catch(e => fail(e));

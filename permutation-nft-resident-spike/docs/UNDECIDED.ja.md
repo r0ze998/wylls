@@ -31,3 +31,6 @@
 | U25 | MINT-FLOW §7 の R1〜R7（導入、プログラム配備、collection、treasury/config、devnet 試験、サイト公開、索引）の承認と、公開先・サイト担当 | 一括提示のみ | 所有者・サイト担当 |
 | U26 | `mpl-core` 0.12.1 を SBF ビルドすると 3 関数でスタック超過の警告（プラグイン一覧の復号経路、本プログラムは呼ばない）。devnet 配備前に修正版の有無を確認するか、CPI ビルダーだけを使う最小依存に切り替えるか | 警告を記録（ENV-RECORD） | ④ |
 | U27 | devnet 配備時のプログラム ID・upgrade authority・config authority の鍵（本環境には置かない方針） | 未決 | 所有者 |
+| U28 | 公開 devnet RPC で `getProgramAccounts` が使えない場合の `/mint/mine` の索引：DAS（提供者のアカウントが要る）か、自前索引（`src/registry.mjs` 系。チェーン読取を正とし索引だけで判定しない） | ローカル validator では gPA＋検証で実施 | 所有者（A7） |
+| U29 | devnet 配備の鍵の置き場と手順：所有者の端末で配備するか、本環境で使い捨て配備鍵を使い配備後に upgrade authority を移すか | 未実行。DEVNET-APPROVALS A1・A2 | 所有者 |
+| U30 | Royalties プラグインを collection 作成時に付けるか（仮値）、付けずに後で足すか。ロイヤリティ率は未決（U1） | 付けていない | 所有者（A3 の前） |

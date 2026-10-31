@@ -5,6 +5,8 @@ import { MockChain } from './mock-chain.mjs';
 import { keypair, sha256, randomAddress } from './crypto.mjs';
 import { MockRpc } from './mint-rpc.mjs';
 import { serveMint } from './mint-server.mjs';
+import { MockAdapter, RpcAdapter } from './adapters.mjs';
+import { localnetAvailable, setupWorld, startValidator, TEST_PROGRAM_ID } from './localnet.mjs';
 
 export function mockMintStack({ port = 0, priceLamports = 100_000_000n } = {}) {
   const chain = new MockChain();
@@ -16,12 +18,29 @@ export function mockMintStack({ port = 0, priceLamports = 100_000_000n } = {}) {
     treasury: randomAddress(), collectionAuthorityPda: randomAddress(), configPda: randomAddress(),
   };
   const rpc = new MockRpc({ chain, collection, config });
-  return { chain, authority, collection, config, rpc, start: () => serveMint({ rpc, chain, collection, config, mode: 'mock', testWallet: true, port }) };
+  const adapter = new MockAdapter({ rpc, chain, collection, config });
+  return { chain, authority, collection, config, rpc, adapter, start: () => serveMint({ adapter, testWallet: true, port }) };
+}
+
+/** The page on a loopback solana-test-validator with the REAL Core binary and the REAL resident program (approved local environment). */
+export async function localnetMintStack({ port = 0, priceLamports = 100_000_000n } = {}) {
+  if (!localnetAvailable()) throw new Error('localnet needs solana-test-validator, .local/programs/mpl_core.so and program/target/deploy/wylls_resident_program.so (docs/ENV-RECORD.ja.md)');
+  const v = await startValidator({ programId: TEST_PROGRAM_ID });
+  const world = await setupWorld({ rpc: v.rpc, programId: v.programId, priceLamports });
+  const adapter = new RpcAdapter({ rpc: v.rpc, world, programId: v.programId });
+  return { validator: v, rpc: v.rpc, world, adapter, programId: v.programId, collection: world.collection, config: { treasury: world.treasury, priceLamports }, start: () => serveMint({ adapter, testWallet: true, port }), stop: () => v.stop() };
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   const portArg = process.argv.indexOf('--port');
-  const stack = mockMintStack({ port: portArg > 0 ? Number(process.argv[portArg + 1]) : 41990 });
-  const { url } = await stack.start();
-  console.log(`mint page (mock chain): ${url}/web/mint.html\n  test knobs: POST ${url}/mock/airdrop {address, lamports} …`);
+  const port = portArg > 0 ? Number(process.argv[portArg + 1]) : 41990;
+  if (process.argv.includes('--localnet')) {
+    const stack = await localnetMintStack({ port });
+    const { url } = await stack.start();
+    console.log(`mint page (REAL program on a loopback validator): ${url}/web/mint.html\n  program ${stack.programId}, collection ${stack.collection}, rpc ${stack.rpc.url}\n  airdrop: POST ${url}/mock/airdrop {address, lamports}`);
+  } else {
+    const stack = mockMintStack({ port });
+    const { url } = await stack.start();
+    console.log(`mint page (mock chain): ${url}/web/mint.html\n  test knobs: POST ${url}/mock/airdrop {address, lamports} …`);
+  }
 }

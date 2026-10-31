@@ -37,9 +37,18 @@
 
 リポジトリの共有コードは変更していない。新規は `permutation-nft-resident-spike/program/`（住民プログラム）と `svm-core/`（LiteSVM テスト）。
 
+### v0.7 の追加（導入物の追加は無し）
+
+| 物 | 内容 | 保存先 | 戻し方 |
+|---|---|---|---|
+| `solana-test-validator` 3.1.9（Agave 3.1.9 の同梱物。#2 の導入に含まれる） | ループバック（`--bind-address 127.0.0.1`、空きポート）で起動。`--bpf-program` で Core（`.local/programs/mpl_core.so`）と住民プログラムを搭載。`--reset`、`--limit-ledger-size 10000` | ledger は `os.tmpdir()/wylls-localnet-*`（約 5 MB）。停止時に削除 | 残っていれば `rm -rf /tmp/wylls-localnet-*` |
+| Playwright の Chromium | 既存（本環境に同梱） | — | — |
+
+ネットワーク：validator は外へ出ない。faucet も 127.0.0.1 のみ。
+
 ## 3. 鍵
 
-LiteSVM 内の使い捨て鍵のみ（`sha256(ラベル)` から導出、テスト本体に平文のラベルがあるだけ）。外部への配備権限・継続アクセスを持つ鍵は作っていない。devnet／mainnet への配備は行っていない。
+LiteSVM 内の使い捨て鍵のみ（`sha256(ラベル)` から導出、テスト本体に平文のラベルがあるだけ）。v0.7 のローカル validator でも同様：初期化鍵は起動ごとの乱数でメモリ内のみ、ブラウザのテストウォレットは localStorage の固定 seed（テスト本体に平文）、資金は validator の faucet。外部への配備権限・継続アクセスを持つ鍵は作っていない。devnet／mainnet への配備は行っていない。
 
 ## 4. 実行コマンド（記録）
 
@@ -47,4 +56,6 @@ LiteSVM 内の使い捨て鍵のみ（`sha256(ラベル)` から導出、テス�
 export PATH="$HOME/.local/share/solana/install/active_release/bin:$PATH"
 cd permutation-nft-resident-spike/program && cargo-build-sbf --manifest-path Cargo.toml      # → target/deploy/wylls_resident_program.so
 cd ../svm-core && cargo +1.95.0 test                                                        # PSF_CORE_SO / WYLLS_RESIDENT_SO で場所を上書き可
+cd .. && node --test test/browser.localnet.test.mjs                                         # v0.7: the page on the real program over a loopback validator
+node demo/mint-screens.mjs --localnet                                                        # v0.7: screens → demo/screens-localnet/
 ```

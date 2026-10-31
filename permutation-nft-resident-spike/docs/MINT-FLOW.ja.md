@@ -1,7 +1,7 @@
-# 初回 mint の一巡：サイト → 利用者のウォレット → devnet の NFT → waitlist 登録（v0.5、2026-10-31）
+# 初回 mint の一巡：サイト → 利用者のウォレット → devnet の NFT → waitlist 登録（v0.5 起草、v0.7 改訂、2026-10-31）
 
 **完成条件**：devnet で、ウェブサイトから利用者が自分のウォレットでテスト SOL を払い、NFT を mint して waitlist 登録が完了する。
-**現状（v0.6）**：画面と処理は模擬チェーン上の実ブラウザ（Chromium）で一巡と必須試験 11 件が通る段階。**実プログラムとの適合は、住民プログラム（`program/`）を実 Core と LiteSVM で検証した範囲まで**（`docs/REAL-CORE-RESULTS.ja.md`）。模擬 RPC の `MintResident` と実プログラムの口座順・データは揃えたが、**ページが実プログラムの取引を組んで devnet で通ることはまだ確認していない**（devnet 配備は未承認）。「devnet 配備を除く全部が完成」「RPC 先を替えるだけで動く」とは言わない。
+**現状（v0.7）**：ページが組む取引が、**実 Core バイナリと実住民プログラムを載せたローカル validator（127.0.0.1）で実 JSON-RPC を通して**確定・口座・エラーまで確認できた（`docs/LOCALNET-RESULTS.ja.md`：L1〜L6）。模擬チェーンの 11 件も同じページで合格。**devnet では未実行**（配備・collection・config・treasury・RPC・公開先が未承認：`docs/DEVNET-APPROVALS.ja.md`）。ローカル validator と devnet の差（RPC の gPA 制限、実ウォレット、配備 ID）は LOCALNET-RESULTS §1・§5 に列挙した。「devnet 配備を除く全部が完成」「RPC 先を替えるだけで動く」とは言わない。
 
 決定事項の反映：**初回 mint の通貨は SOL で決定済み**（USDC・x402 は入口の条件にしない）。本番価格は未決で、devnet・ローカルでは変更可能な試験価格で進める。利用者自身のウォレットが取引を確認・署名する。NFT 取得＝waitlist 登録（別のフォーム無し）。公開後も同じ NFT を住民の操作権に使う。継続世界。devnet の価格は変更可能な試験価格（`TEST PRICE`）で、本番の販売条件ではない。
 
@@ -43,12 +43,12 @@
 
 実行：`node src/mint-demo.mjs --port 41990` → `http://127.0.0.1:41990/web/mint.html`（テストウォレット付き）。`node --test test/browser.mint.test.mjs`。
 
-## 3. 処理の規則（サーバ `src/mint-server.mjs`、RPC `src/mint-rpc.mjs`）
+## 3. 処理の規則（サーバ `src/mint-server.mjs`、裏側 `src/adapters.mjs`：模擬 `MockAdapter`／実 RPC `RpcAdapter`）
 
 - `GET /mint/config`：network、chainId、genesisHash、価格（test: true, changeable: true）、見込み費用、program/collection/treasury/PDA、命令の口座順。
-- `POST /rpc`：JSON-RPC。模擬モードでは模擬チェーン、devnet モードでは設定 RPC へ転送（未実施）。
+- `POST /rpc`：JSON-RPC。模擬モードでは模擬チェーン（`src/mint-rpc.mjs`）、実 RPC モードでは validator／devnet の RPC へ転送（ローカル validator で実施済み、devnet は未実施）。
 - `GET /mint/status?wallet&asset`：サーバ側の読取で `verifyResidentAsset`（Core プログラム所有・`AssetV1`・`Collection(期待値)`）→ 保有者 == wallet → 住民口座の `bound == residentId(asset)`。全部揃って `registered: true`。
-- `GET /mint/mine?wallet`：wallet が保有する住民 asset（模擬は走査。devnet では DAS `getAssetsByOwner` か registry の索引が要る：§7）。
+- `GET /mint/mine?wallet`：wallet が保有する住民 asset（模擬は走査。実 RPC は `getProgramAccounts` ＋ 各件の検証。公開 devnet RPC で gPA が使えない場合は DAS か自前索引：U28）。
 - `/mock/*`：試験ノブ（模擬モードのみ）。
 
 ## 4. `MintResident` 命令（住民プログラムへの提案。模擬 RPC が同じ口座順・データで実行）
@@ -67,23 +67,24 @@ effects (all or nothing):
 - collection の update authority を**プログラム PDA**にすることで、サーバの常時オンライン鍵（hot key）が不要になる。これが「鍵の保管」の中心（§7）。
 - 譲渡時の世代更新（`TransferResident`／`Buy`、CONTRACT §10）はこの asset に対しても働く。**世代更新を迂回できる NFT（ガード無し）は住民アカウントとして完成扱いにしない**。
 
-## 5. devnet モードで必要になる差（未実施）
+## 5. 実 RPC モードの差（ローカル validator で実施済み／devnet で残るもの）
 
-| 項目 | 模擬 | devnet |
-|---|---|---|
-| RPC | 模擬 | 公開 devnet RPC（`https://api.devnet.solana.com`）または運営の RPC。`/rpc` 転送か、ページから直接 |
-| `getGenesisHash` | 設定値 | devnet の genesis（`EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG`、実行時に取得して記録する） |
-| 住民口座の導出 | サーバの `/mint/derive` | PDA をページで導出（seeds `["resident", asset]`、program id） |
-| `/mint/mine` | 走査 | DAS `getAssetsByOwner`（Metaplex DAS 対応 RPC）か、registry の索引（`src/registry.mjs`） |
-| 価格 | 定数 | config PDA の値（運営が devnet 上で変更可） |
-| 手数料・rent の見込み | 定数 | `getFeeForMessage`、`getMinimumBalanceForRentExemption` |
-| explorer | — | `https://explorer.solana.com/address/<asset>?cluster=devnet` |
+| 項目 | 模擬 | ローカル validator（v0.7、実施済み） | devnet（未実施） |
+|---|---|---|---|
+| RPC | 模擬 | `solana-test-validator`（127.0.0.1）へ `/rpc` 転送 | 公開 devnet RPC か提供者の RPC（DEVNET-APPROVALS A7） |
+| `getGenesisHash` | 設定値 | validator の値（起動ごとに変わる）を config で返す | devnet の genesis（実行時に取得して記録） |
+| 住民口座の導出 | サーバの `/mint/derive` | **ページで PDA 導出**（`["resident", asset]`）、config・collection-authority の PDA もページが検算 | 同左 |
+| `/mint/mine` | 走査 | **gPA ＋ 検証** | gPA が拒否されれば DAS か自前索引（U28） |
+| 価格 | 定数 | **config PDA の値**（`SetPrice` で変更可、L2 で検証） | 同左 |
+| 手数料・rent の見込み | 定数 | rent は `getMinimumBalanceForRentExemption`（asset 233 B、住民 133 B）、手数料は署名 2 件 × 5,000 | 同左（優先手数料は未対応） |
+| エラー | 文字列 | **実 preflight の `Custom(n)` を `ResidentError` 名へ** | 同左 |
+| explorer | — | 無し | `https://explorer.solana.com/address/<asset>?cluster=devnet` |
 
 ## 6. 既存サイトへの組み込み（SITE-STATUS.ja.md）
 
 既存サイトのソース（`wylls-site/`）はリポジトリに無く、公開先は `DEPLOYMENT_DISABLED`。別サイトの新設はしない。組み込みは、既存 `index.html` の `#waitlist` 節（メールフォーム）を `web/mint.html` の 4 カードに置き換え、`mint.mjs`・`wallet-standard.mjs`・`/sdk/*` を同じオリジンに置く形。必要なファイルと作業は SITE-STATUS §2・§3。
 
-## 7. 実行前の確認：必要な範囲の一括提示（承認依頼）
+## 7. 実行前の確認：必要な範囲の一括提示（v0.5 時点。**v0.7 の一括提示は `docs/DEVNET-APPROVALS.ja.md`**：R1・R2（MintResident／TransferResident）・R7 は承認済みで実施、他は未承認）
 
 | # | 範囲 | 内容 | 取得元・固定版・変更場所 | 配備対象 | 管理者・更新権限 | devnet SOL | 鍵の保管 | 公開先 |
 |---|---|---|---|---|---|---|---|---|

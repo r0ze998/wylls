@@ -1,6 +1,8 @@
 # permutation-nft-resident-spike：NFT で譲渡できる住民アカウント（隔離試作）
 
-**状態（2026-10-31、v0.6）**：ローカルの模擬のみ。公開発行・実チェーン・実資金・新しい鍵は無し。価格・無料／有料・供給数・公開発行・ロイヤリティは未決（`docs/UNDECIDED.ja.md`）。Metaplex Core は**試作の選定方式**で、本線採用は未決。継続世界は決定済み。依存パッケージ無し（Node 20+ の標準モジュールだけ）。push・merge・deploy はしていない（`docs/PUSH-AUDIT.ja.md`）。
+**状態（2026-10-31、v0.7）**：ローカルのみ（模擬チェーン、LiteSVM、ループバック validator）。公開発行・devnet／mainnet・実資金・新しい鍵は無し。価格・無料／有料・供給数・公開発行・ロイヤリティは未決（`docs/UNDECIDED.ja.md`）。Metaplex Core は**試作の選定方式**で、本線採用は未決。継続世界は決定済み。依存パッケージ無し（Node 20+ の標準モジュールだけ）。push・merge・deploy はしていない（`docs/PUSH-AUDIT.ja.md`）。
+
+**v0.7 の変更**：mint 画面を**実プログラムの命令・口座・エラー**に接続。実 Core バイナリと実住民プログラムを載せた `solana-test-validator`（127.0.0.1）へ実 JSON-RPC で送り、確定・口座・エラーを実物で確認（`docs/LOCALNET-RESULTS.ja.md`、`test/browser.localnet.test.mjs` 6 件：正常系＋再読込、preflight ロールバック `PriceChanged`、応答消失→結果不明、二重クリック、relay 未観測の A→B→A、着地したロールバック）。ページが PDA を導出し、`Custom(n)` を `ResidentError` 名に対応付け、config PDA の価格を読む。companion server の裏側を `MockAdapter`／`RpcAdapter` に分離（`src/adapters.mjs`、`src/rpc-client.mjs`、`src/resident-ix.mjs`、`src/localnet.mjs`）。画面記録 `demo/screens-localnet/`（viewport は実機ではない）。devnet へ進むための承認一覧は `docs/DEVNET-APPROVALS.ja.md`。devnet・サイト公開・push は未実施。
 
 **v0.6 の変更**：承認された R1・R2（MintResident／TransferResident）・R7 を実施。実 Metaplex Core の `.so`（mainnet 配備、program ID で照合、sha256 記録）と自作の住民プログラム（`program/`、SBF ビルド）を LiteSVM で動かし、一括成立・途中失敗の全体ロールバック・譲渡と世代更新と session 失効・relay 未観測の A→B→A・迂回試験・二重実行・競合を検証（`svm-core/`、結果は `docs/REAL-CORE-RESULTS.ja.md`）。実 Core が作った口座バイトで自前 registry を検証（`test/real-bytes.test.mjs`）。導入記録は `docs/ENV-RECORD.ja.md`。devnet 配備・collection 公開・サイト公開は未承認で未実施。
 
@@ -26,9 +28,10 @@ Wylls の住民アカウントを **NFT（Metaplex Core 資産）に紐付け**�
 
 ```sh
 cd permutation-nft-resident-spike
-node --test test/*.test.mjs        # 60 tests (11 in Chromium via Playwright; 3 on real-Core account bytes from svm-core/out; both skip when their inputs are absent)
+node --test test/*.test.mjs        # 66 tests (11 in Chromium on the mock chain; 6 in Chromium on the REAL program over a loopback validator; 3 on real-Core account bytes; each group skips when its inputs are absent)
 (cd svm-core && cargo +1.95.0 test)  # 9 LiteSVM tests against the real Core binary (needs ENV-RECORD §1)
 node src/mint-demo.mjs --port 41990  # the mint page on a mock chain: http://127.0.0.1:41990/web/mint.html
+node src/mint-demo.mjs --localnet --port 41990  # the same page on the REAL program (solana-test-validator with the real Core .so; ENV-RECORD)
 node demo/run-loop.mjs             # the loop, printed; transcript at .local/nft-resident-demo/transcript.json (or --out)
 node archive/manifest.mjs verify   # the package's SHA-256 manifest
 ```
@@ -45,7 +48,8 @@ node archive/manifest.mjs verify   # the package's SHA-256 manifest
 | `src/entry.mjs` | 支払い → 発行 → 資格の 3 記録。冪等・結果不明・送信後クラッシュの復旧 |
 | `src/gateway.mjs` | relay 側の操作入口：認可時と送信直前の保有者読取、費用確認、署名、送信 |
 | `src/sale.mjs` | 専用売買の desk：出品、冪等な購入、送信前の署名記録と応答消失からの復旧（再送しない） |
-| `src/mint-rpc.mjs`、`src/mint-server.mjs`、`src/mint-demo.mjs` | 模擬 JSON-RPC（実取引バイト・署名検証・`MintResident`）、companion server（config・status・mine・rpc）、起動 |
+| `src/mint-rpc.mjs`、`src/mint-server.mjs`、`src/adapters.mjs`、`src/mint-demo.mjs` | 模擬 JSON-RPC（実取引バイト・署名検証・`MintResident`）、companion server（config・status・mine・rpc）と裏側 2 種（模擬／実 RPC）、起動（`--localnet` で validator） |
+| `src/rpc-client.mjs`、`src/resident-ix.mjs`、`src/localnet.mjs` | 実 JSON-RPC クライアント、実プログラムの命令・PDA・レイアウト・エラー表、`solana-test-validator` の起動と世界の初期化 |
 | `web/` | mint 画面、Wallet Standard、テストウォレット（ブラウザ試験用） |
 | `program/` | 住民プログラム（Rust、`solana-program` 3 ＋ `mpl-core` 0.12.1 の CPI）：InitConfig／SetPrice／MintResident／TransferResident／SetSession／Op |
 | `svm-core/` | LiteSVM 検証（実 Core の `.so` ＋ 住民プログラムの SBF ビルド）。`out/` は実 Core が作った口座バイトの書き出し |

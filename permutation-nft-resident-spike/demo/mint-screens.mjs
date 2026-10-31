@@ -1,26 +1,30 @@
 #!/usr/bin/env node
-// Screenshots of the mint page's loop on the mock chain (desktop and a phone
-// viewport), as evidence of what was run. Needs Playwright (preinstalled
-// here, not a dependency). Writes demo/screens/*.jpg and screens/INDEX.md.
+// Screenshots of the mint page's loop (desktop and a phone viewport), as
+// evidence of what was run. Default: the mock chain → demo/screens/.
+// `--localnet`: the REAL program and the REAL Core binary on a loopback
+// solana-test-validator → demo/screens-localnet/. Needs Playwright
+// (preinstalled here, not a dependency). Writes *.jpg and INDEX.md.
+// A phone VIEWPORT in Chromium is not a real device with a real wallet app.
 import { createRequire } from 'node:module';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { mockMintStack } from '../src/mint-demo.mjs';
+import { localnetMintStack, mockMintStack } from '../src/mint-demo.mjs';
 
 const pw = createRequire(import.meta.url)('playwright');
-const out = path.join(path.dirname(fileURLToPath(import.meta.url)), 'screens');
+const localnet = process.argv.includes('--localnet');
+const out = path.join(path.dirname(fileURLToPath(import.meta.url)), localnet ? 'screens-localnet' : 'screens');
 mkdirSync(out, { recursive: true });
-const s = mockMintStack(); const { server, url } = await s.start();
+const s = localnet ? await localnetMintStack({}) : mockMintStack(); const { server, url } = await s.start();
 const browser = await pw.chromium.launch();
 const post = (p, body) => fetch(url + p, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then(r => r.json());
-const lines = ['# mint 画面の記録（模擬チェーン、Chromium）', '', '| ファイル | 場面 |', '|---|---|'];
+const lines = [localnet ? `# mint 画面の記録（実 program ${s.programId} ＋実 Core、ループバック solana-test-validator、Chromium）` : '# mint 画面の記録（模擬チェーン、Chromium）', '', localnet ? '携帯の表示は Chromium の iPhone 15 ビューポートであり、実機＋実ウォレットアプリの試験ではない。' : '', '', '| ファイル | 場面 |', '|---|---|'];
 const shot = async (page, name, caption) => { await page.screenshot({ path: path.join(out, `${name}.jpg`), fullPage: true, type: 'jpeg', quality: 72 }); lines.push(`| \`${name}.jpg\` | ${caption} |`); };
 const waitStatus = (page, re) => page.waitForFunction(re => new RegExp(re).test(document.querySelector('[data-testid="status"]').textContent), re.source, { timeout: 20000 });
 
 for (const [label, device, seed] of [['desktop', null, 'c'.repeat(64)], ['iphone15', 'iPhone 15', 'd'.repeat(64)]]) {
   const ctx = await browser.newContext(device ? { ...pw.devices[device], deviceScaleFactor: 1 } : { viewport: { width: 1200, height: 900 } });
-  await ctx.addInitScript(seed => { try { localStorage.setItem('wylls-testwallet-seed', seed); } catch {} }, seed);
+  await ctx.addInitScript(([seed, chain]) => { try { localStorage.setItem('wylls-testwallet-seed', seed); localStorage.setItem('wylls-testwallet-chain', chain); } catch {} }, [seed, localnet ? 'solana:localnet' : 'solana:devnet']);
   const page = await ctx.newPage();
   await page.goto(`${url}/web/mint.html`);
   await page.waitForFunction(() => globalThis.__testWallet?.address);
@@ -40,6 +44,6 @@ for (const [label, device, seed] of [['desktop', null, 'c'.repeat(64)], ['iphone
   await shot(page, `${label}-4-reloaded`, `${label}：再読込後、チェーンの読取から登録済みを表示`);
   await ctx.close();
 }
-writeFileSync(path.join(out, 'INDEX.md'), `${lines.join('\n')}\n\n全て模擬チェーン上。devnet の実発行は未実施。アドレスは実行ごとに変わる。\n`);
-await browser.close(); server.close();
+writeFileSync(path.join(out, 'INDEX.md'), `${lines.join('\n')}\n\n${localnet ? '全てローカルの solana-test-validator 上（実 program・実 Core バイナリ、実 JSON-RPC）。devnet の実発行は未実施。' : '全て模擬チェーン上。devnet の実発行は未実施。'}アドレスは実行ごとに変わる。\n`);
+await browser.close(); server.close(); if (s.stop) await s.stop();
 console.log(`screens: ${out}`);

@@ -28,3 +28,6 @@
 | D22 | **Core の `.so` の長さ。** v0.4 で「末尾ゼロ除去 810,273 B、sha256 `af40bd11…`」と記録したが、ELF の末尾 15 byte を削っており LiteSVM が拒否。ヘッダから算出した 810,288 B（`515541c8…`）が正しい | LiteSVM `ProgramLoad("Offset or value is out of bounds")`、ELF ヘッダ | 訂正済み（ENV-RECORD、REAL-CORE-RESULTS） |
 | D23 | **凍結中の譲渡のエラー名。** Core 公式は「Frozen Assets cannot be transferred」と書くが、実際の拒否は `Custom(9) InvalidAuthority`（ログには `permanent_freeze_delegate.rs … Reject`）で、`AssetIsFrozen`（10）ではない | `svm-core/out/_bypass-attempts.json` | 実装（エラー名で判定せず、失敗と owner 不変で判定） |
 | D24 | **cargo-build-sbf の自動取得。** 提示した導入物一覧に無かった Criterion v2.3.3 を `cargo-build-sbf` 3.1.9 が自動で取得した（約 2.2 MB、未使用） | `sbf-build.log` | 差分として記録（ENV-RECORD #9） |
+| D25 | **模擬 RPC は commitment を無視**し常に `finalized` を返していたため、ページは既定（finalized）で読んでも通っていた。実 validator では airdrop 直後の残高が finalized で約 13 秒 0 のままで「SOL 不足」になった。模擬が実物より寛容だった例 | `test/browser.localnet.test.mjs` L1 の初回失敗 | 実物：読取を `confirmed` に統一し、`processed` だけの状態は未決として扱う（`web/mint.mjs` `settledStatus`） |
+| D26 | **MINT-FLOW §5（v0.5）は「devnet モードで `/mint/mine` は DAS か索引」**としたが、ローカル validator では `getProgramAccounts` で足りる。公開 RPC での gPA 可否は未確認なので、両方を残した | LOCALNET-RESULTS §1 | §5 を改訂、U28 |
+| D27 | **画面の帯「DEVNET のテストです」**は実 RPC モードでも固定文だったため、ローカル validator 上の記録画面が devnet と読めた | `demo/screens-localnet/*-1-before.jpg`（修正前） | 実 RPC モードで network 名が devnet でない時は帯の文言を置き換える |
