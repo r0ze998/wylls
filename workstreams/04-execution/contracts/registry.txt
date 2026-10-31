@@ -41,6 +41,12 @@ prize_entry = 128 bytes
 0x10f Overflow
 0x110 WrongExpectedCount
 
+[prize_reads_game_accounts] # name size / field offsets (frozen while an old pool can still claim)
+season size 2048 magic PSF1SEAS season_id 8 status 64 end_bell 164 authority 72 r_max 68
+province size 4736 magic PSF1PROV season_id 8 p 64 q 66 opened_bell 76 resolved_next 72 territory_bells 4656 keep 4480 keep.holder 1 keep.tile 0 keep.since_bell 12
+province_fund size 128 magic PSF1PFND season_id 8 wedge 16 provinces_opened 20
+citizen size 384 magic PSF1CITZ season_id 8 wallet 64 faction 136
+
 [units]
 resource = milli-units i64 on chain (MILLI = 1000); logs carry whole units u32, rounded down (cargo_log)
 test_usdc = 6 decimals (prize pool DECIMALS from the mint)

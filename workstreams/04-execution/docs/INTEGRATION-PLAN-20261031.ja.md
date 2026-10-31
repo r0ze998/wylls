@@ -65,3 +65,17 @@
   - Vercel・Netlify・GitBook の連携の範囲を、④の環境から設定で確かめられない。
   - この branch には、未修正の脆弱性（早期 Reveal）の再現と詳細が入っている。公開してよいかの判断を待っている。
 - 統合と試験は、隔離した worktree で push と切り離して進める。
+
+## 5. ⑰から届いた、継続世界と既存の入金・受取権の衝突（C1〜C7。データとして受け取った。⑧の候補は未受領）
+
+| # | 衝突 | ⑰の最小案（新しい規則を決めない部分） | 判断が要る部分（未決） | ④の扱い |
+|---|---|---|---|---|
+| C1 | Season が Ended にならないと、OPEN の pool は出口が無いまま、Pay を受け付け続ける（D2、④で確認済み） | (a) 継続世界の season では pool を作らない（新しい入金を増やさない）。(b) 既存の pool がある旧 season には、Ended に達する経路を残す | (c) 戦期を閉じる口座を Tally が読む、(d) 期限つきの返金 | P-C4 (a) の具体案として記録 |
+| C2 | 終了の 72 時間後の後片付けで、shares の受取権が消える。Finalize の前に CloseSeason が送られると、金庫が恒久的に動かなくなる（D3） | 旧 pool がある season では、精算と受取が済むまで、keeper とツールから Close* を送らない（運用の規則。チェーン上の保証ではない） | (i) CloseCitizen が Entry を見て拒否する、(ii) Claim が leaf の国を信じる | P-C3 の第一段と一致 |
+| C3 | ⑧が Citizen・Season を新しい seed に移すと、旧 pool の Claim が通らない | 旧 season の口座を、旧 address・同じ owner・同じ layout のまま読み取り専用で残す。新しい口座は別の address にする | — | 共通方針 W1（住所を変えない）と一致。⑧の候補で照合する |
+| C4 | `pool.GAME_PROGRAM` が固定。同じ id で upgrade するなら、prize が読む offset を変えられない | prize が読む欄を registry に固定し、照合試験を付ける | — | **実装した**：`contracts/registry.txt` の `[prize_reads_game_accounts]`（`e2e-native/tests/registry.rs` が照合する） |
+| C5 | 継続世界でも `join_close_bell` で Join が WrongStatus になる。Pay と Join は一つの取引なので、支払いは起きない | — | — | P-C2 |
+| C6 | 長く続く世界で RPC が古い履歴を持たないと、0001 の replay の答えが出ない（二重の効果は起きない。応答は 402 AlreadyPaid） | 状態が見つからなければ、Entry と Citizen の存在を「確定済み」とみなして 200 を返す（候補、未適用） | — | ⑰の正本の受領の後に検証する |
+| C7 | 境界の前後と再起動の後の照合 | `prize-settle --accounts`（0002）で不変条件を見る：collected＝Σ Entry、vault＝collected−claimed−opsWithdrawn（差は surplus）、claimed ≤ prize | — | ④の host 実行の試験は、この等式の一部（入金＝支払い＋運営分＋端数）を既に確かめている。0002 は正本の受領の後 |
+
+⑰は、0001 を「④が受領し、適用し、実行した」と記録している。しかし④が検証した 0001 は、message の本文から書き起こしたものである（blob は一致した）。2026-10-31 の指示に従い、正本のパッケージ（`2dfaf966…c257`）を受け取るまでは「正本としては未受領」として扱う。⑰の追加の commit（d2b82b6d7bcfa95c2a63dbcff855b45723f930b8、tree 436a31734ac42a9e382245e9c8e1cac7526a2168）も未受領。

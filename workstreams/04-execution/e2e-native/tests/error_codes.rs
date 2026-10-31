@@ -31,7 +31,9 @@ fn json_pairs(s: &str) -> Vec<(u32, String)> {
             .chars()
             .take_while(|c| c.is_ascii_digit())
             .collect();
-        let Some(j) = rest.find("\"name\"") else { break };
+        let Some(j) = rest.find("\"name\"") else {
+            break;
+        };
         let after = &rest[j + 6..];
         let q1 = after.find('"').unwrap();
         let q2 = after[q1 + 1..].find('"').unwrap();
@@ -80,14 +82,22 @@ fn rust_game() -> Vec<(u32, String)> {
 #[test]
 fn game_error_numbers_are_unique_and_every_copy_agrees() {
     let rust = rust_game();
-    assert!(dups(&rust).is_empty(), "a code used twice in the Rust enums: {:?}", dups(&rust));
+    assert!(
+        dups(&rust).is_empty(),
+        "a code used twice in the Rust enums: {:?}",
+        dups(&rust)
+    );
     for rel in [
         "frontier-abi/vectors/v2/errors.json",
         "permutation-gateway/client/src/frontier/abi-v2-errors.mjs",
         "permutation-server/web/sdk/frontier/abi-v2-errors.mjs",
     ] {
         let mut copy = json_pairs(&read(rel));
-        assert!(dups(&copy).is_empty(), "{rel}: a code used twice: {:?}", dups(&copy));
+        assert!(
+            dups(&copy).is_empty(),
+            "{rel}: a code used twice: {:?}",
+            dups(&copy)
+        );
         copy.sort();
         // Reserved numbers (14) are in the copies only; compare the rest.
         copy.retain(|(c, n)| !(n.starts_with("Reserved") && !rust.iter().any(|(rc, _)| rc == c)));
@@ -126,9 +136,16 @@ fn prize_error_numbers_are_unique_and_every_copy_agrees() {
         "permutation-server/web/sdk/frontier/prize.mjs",
     ] {
         let mut copy = prize_js(&read(rel));
-        assert!(dups(&copy).is_empty(), "{rel}: a code used twice: {:?}", dups(&copy));
+        assert!(
+            dups(&copy).is_empty(),
+            "{rel}: a code used twice: {:?}",
+            dups(&copy)
+        );
         copy.sort();
-        assert_eq!(copy, rust, "{rel} differs from permutation-prize's PrizeError");
+        assert_eq!(
+            copy, rust,
+            "{rel} differs from permutation-prize's PrizeError"
+        );
     }
 }
 
@@ -137,7 +154,18 @@ fn prize_error_numbers_are_unique_and_every_copy_agrees() {
 #[test]
 fn next_free_numbers() {
     let used: Vec<u32> = rust_game().iter().map(|x| x.0).collect();
-    let next: Vec<u32> = (1..=200).filter(|c| !used.contains(c)).filter(|c| *c > 61).take(4).collect();
-    println!("game program: highest in use {:?}; next free above 61: {next:?}", used.iter().filter(|c| **c < 99).max());
-    assert_eq!(next.first(), Some(&94), "the base's next free game code (both ⑧ and ⑩ reported 94)");
+    let next: Vec<u32> = (1..=200)
+        .filter(|c| !used.contains(c))
+        .filter(|c| *c > 61)
+        .take(4)
+        .collect();
+    println!(
+        "game program: highest in use {:?}; next free above 61: {next:?}",
+        used.iter().filter(|c| **c < 99).max()
+    );
+    assert_eq!(
+        next.first(),
+        Some(&94),
+        "the base's next free game code (both ⑧ and ⑩ reported 94)"
+    );
 }

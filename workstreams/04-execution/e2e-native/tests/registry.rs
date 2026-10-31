@@ -95,6 +95,43 @@ fn render() -> String {
     ] {
         s.push_str(&format!("0x{:x} {e:?}\n", e as u32));
     }
+    // The game-account fields the prize program reads (workstream 17's C4):
+    // a pool of an old season keeps reading them; they must not move.
+    {
+        use frontier_abi::layout::world::province_fund as pf;
+        use frontier_abi::v2::layout::province::{keep as k, province as pv};
+        s.push_str("\n[prize_reads_game_accounts] # name size / field offsets (frozen while an old pool can still claim)\n");
+        s.push_str(&format!(
+            "season size {} magic {} season_id {} status {} end_bell {} authority {} r_max {}\n",
+            season::SIZE,
+            String::from_utf8_lossy(&season::MAGIC),
+            season::SEASON_ID,
+            season::STATUS,
+            season::END_BELL,
+            season::AUTHORITY,
+            season::R_MAX
+        ));
+        s.push_str(&format!(
+            "province size {} magic {} season_id {} p {} q {} opened_bell {} resolved_next {} territory_bells {} keep {} keep.holder {} keep.tile {} keep.since_bell {}\n",
+            pv::SIZE, String::from_utf8_lossy(&pv::MAGIC), pv::SEASON_ID, pv::P, pv::Q, pv::OPENED_BELL, pv::RESOLVED_NEXT, pv::TERRITORY_BELLS, pv::KEEP, k::HOLDER, k::TILE, k::SINCE_BELL
+        ));
+        s.push_str(&format!(
+            "province_fund size {} magic {} season_id {} wedge {} provinces_opened {}\n",
+            pf::SIZE,
+            String::from_utf8_lossy(&pf::MAGIC),
+            pf::SEASON_ID,
+            pf::WEDGE,
+            pf::PROVINCES_OPENED
+        ));
+        s.push_str(&format!(
+            "citizen size {} magic {} season_id {} wallet {} faction {}\n",
+            citizen::SIZE,
+            String::from_utf8_lossy(&citizen::MAGIC),
+            citizen::SEASON_ID,
+            citizen::WALLET,
+            citizen::FACTION
+        ));
+    }
     s.push_str("\n[units]\n");
     s.push_str(&format!("resource = milli-units i64 on chain (MILLI = {}); logs carry whole units u32, rounded down (cargo_log)\n", permutation_rules::fixed::MILLI));
     s.push_str("test_usdc = 6 decimals (prize pool DECIMALS from the mint)\n");
