@@ -21,7 +21,7 @@
 
 use crate::sha256::hashv;
 
-pub const SIZE: usize = 160;
+pub const SIZE: usize = 192;
 /// Provisional magic, not registered.
 pub const MAGIC: [u8; 8] = *b"CANDERB0";
 pub const LAYOUT_VERSION: u16 = 2;
@@ -43,6 +43,10 @@ pub const LAST_BELL: usize = 136;
 /// finalized commit are known lost (`seq` at the rollback, plus one so 0
 /// means never).
 pub const ROLLED_BACK_AT: usize = 144;
+/// The key that may delegate, end a session and request the escape (the
+/// operator key the world already has; it is also the delegation's rent
+/// payer, whose signature the escape needs).
+pub const AUTHORITY: usize = 160;
 
 /// A write's outcome on one copy of the board.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -135,6 +139,17 @@ pub fn next_head(head: &[u8; 32], seq: u64, body: &[u8]) -> [u8; 32] {
 /// Applies `w` to one copy of the board (the program's handler, minus the
 /// account checks the runtime does).
 pub fn apply(d: &mut [u8], world: u64, w: &Write) -> Result<(u64, [u8; 32]), WriteErr> {
+    apply_with(d, world, w, hashv)
+}
+
+/// [`apply`] with the hash supplied (the on-chain build passes the
+/// `sol_sha256` syscall; [`hashv`] here is the same function in software).
+pub fn apply_with(
+    d: &mut [u8],
+    world: u64,
+    w: &Write,
+    hash: fn(&[&[u8]]) -> [u8; 32],
+) -> Result<(u64, [u8; 32]), WriteErr> {
     let (seq, head) = header(d).ok_or(WriteErr::BadAccount)?;
     if world_of(d) != world {
         return Err(WriteErr::BadAccount);
@@ -146,7 +161,7 @@ pub fn apply(d: &mut [u8], world: u64, w: &Write) -> Result<(u64, [u8; 32]), Wri
         });
     }
     let seq2 = seq + 1;
-    let head2 = next_head(&head, seq2, &body(w));
+    let head2 = hash(&[&head, &seq2.to_le_bytes(), &body(w)]);
     d[EVENT_SEQ..EVENT_SEQ + 8].copy_from_slice(&seq2.to_le_bytes());
     d[EVENT_HEAD..EVENT_HEAD + 32].copy_from_slice(&head2);
     d[LAST_REQ..LAST_REQ + 32].copy_from_slice(&w.req_id);

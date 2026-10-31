@@ -1,0 +1,30 @@
+[package]
+name = "frontier-er-board"
+version = "0.0.0"
+edition = "2021"
+rust-version = "1.89"
+publish = false
+license = "MIT"
+description = "Candidate only (not adopted, not deployed): a value-free board account that a continuing Wylls world can delegate to a MagicBlock ER, commit, bring home and roll back; a separate program, not the S1 program"
+
+# Its own workspace and lock, outside the root workspace (whose lock is the
+# S1 program's). Pins as the official native-rust counter example and
+# permutation-chain: the SDK and solana-program versions are tested together
+# there.
+[workspace]
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[features]
+no-entrypoint = []
+
+[dependencies]
+borsh = { version = "=1.6.1" }
+ephemeral-rollups-sdk = { version = "=0.16.2" }
+solana-program = "=4.0.0"
+solana-system-interface = { version = "=3.3.0", features = ["bincode"] }
+frontier-er = { path = ".." }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))'] }
