@@ -276,3 +276,29 @@ test('after a transfer the old holder is no longer registered and the new holder
     assert.deepEqual([stB.registered, stB.isHolder], [true, true]);
   } finally { await s.close(); }
 });
+
+test('expired pending record: expiry alone decides nothing; the attempt\'s asset account does. Absent → retry allowed; present (status hidden or lost) → registered, no second mint', { skip }, async () => {
+  const s = await stack();
+  try {
+    const { page, address } = await open(s);
+    await s.post('/mock/airdrop', { address, lamports: '500000000' });
+    await connect(page);
+    await waitStatus(page, /mint できます/);
+    // 1. A record of a transaction that never landed, already past its last valid block: the asset account does not exist → safe to retry.
+    await page.evaluate(() => localStorage.setItem(`wylls-mint-pending:${globalThis.__testWallet.address}`, JSON.stringify({ signature: '1'.repeat(87), asset: '2'.repeat(43), lastValidBlockHeight: 0, at: Date.now() })));
+    await page.reload(); await page.waitForFunction(() => globalThis.__testWallet?.address); await connect(page);
+    await waitStatus(page, /期限切れで、asset の口座も無く/);
+    assert.equal(await t(page, 'mint').isDisabled(), false);
+    // 2. A real mint, then its record is aged (expired) and its signature made unknown to the RPC: the asset account exists → registered, nothing resent.
+    await t(page, 'mint').click();
+    await waitStatus(page, /waitlist 登録完了/);
+    const asset = await t(page, 'asset').textContent();
+    const sent = (await s.state()).sent.length;
+    await page.evaluate(asset => localStorage.setItem(`wylls-mint-pending:${globalThis.__testWallet.address}`, JSON.stringify({ signature: '3'.repeat(87), asset, lastValidBlockHeight: 0, at: Date.now() })), asset);
+    await page.reload(); await page.waitForFunction(() => globalThis.__testWallet?.address); await connect(page);
+    await waitStatus(page, /期限切れ後に口座で確認|登録済み/);
+    assert.equal((await s.state()).sent.length, sent, 'nothing was sent');
+    assert.equal((await s.state()).assets.length, 1);
+    assert.equal(await page.evaluate(() => localStorage.getItem(`wylls-mint-pending:${globalThis.__testWallet.address}`)), null);
+  } finally { await s.close(); }
+});

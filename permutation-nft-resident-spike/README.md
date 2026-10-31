@@ -28,7 +28,7 @@ Wylls の住民アカウントを **NFT（Metaplex Core 資産）に紐付け**�
 
 ```sh
 cd permutation-nft-resident-spike
-node --test test/*.test.mjs        # 66 tests (11 in Chromium on the mock chain; 6 in Chromium on the REAL program over a loopback validator; 3 on real-Core account bytes; each group skips when its inputs are absent)
+node --test test/*.test.mjs        # 67 tests (12 in Chromium on the mock chain; 6 in Chromium on the REAL program over a loopback validator; 3 on real-Core account bytes; each group skips when its inputs are absent)
 (cd svm-core && cargo +1.95.0 test)  # 9 LiteSVM tests against the real Core binary (needs ENV-RECORD §1)
 node src/mint-demo.mjs --port 41990  # the mint page on a mock chain: http://127.0.0.1:41990/web/mint.html
 node src/mint-demo.mjs --localnet --port 41990  # the same page on the REAL program (solana-test-validator with the real Core .so; ENV-RECORD)

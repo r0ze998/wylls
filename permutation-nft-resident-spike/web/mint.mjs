@@ -151,8 +151,18 @@ async function resolvePending(p) {
   }
   const height = await rpc('getBlockHeight', [{ commitment: 'confirmed' }]);
   if (height > p.lastValidBlockHeight) {
-    // Expired without landing: the chain can never include it now. Not a double charge to try again.
-    clearPending(); say('前回の取引は期限切れで、着地していません（課金なし）。もう一度 mint できます。', 'err'); $('mint').disabled = !state.networkOk; return;
+    // Expired: no NEW landing of this signature is possible now. That is not proof it never landed (the RPC may
+    // lack the history, or lag). The attempt's own unique account decides: the asset keypair exists only in this
+    // attempt and nothing else creates that account, so "asset account absent" = not landed, "present" = landed.
+    const acc = (await rpc('getAccountInfo', [p.asset, { encoding: 'base64', commitment: 'confirmed' }])).value;
+    if (acc) {
+      const status = await api(`/mint/status?wallet=${state.wallet.address}&asset=${p.asset}`);
+      showResult(status, p.signature);
+      if (status.registered) { clearPending(); say('取引は確定していました（期限切れ後に口座で確認）：waitlist 登録完了。', 'ok'); renderMine([{ residentId: status.residentId, asset: status.asset }]); return; }
+      say(`asset の口座はありますが保有を確認できません（${status.code ?? (status.isHolder ? 'unbound' : 'not holder')}）。再確認を押してください。再課金・再発行はしません。`, 'err');
+      return;
+    }
+    clearPending(); say('前回の取引は期限切れで、asset の口座も無く、着地していません（課金なし）。もう一度 mint できます。', 'err'); $('mint').disabled = !state.networkOk; return;
   }
   say(`結果がまだ分かりません（有効期限 block ${p.lastValidBlockHeight}、現在 ${height}）。再課金・再発行はしません。しばらくして「保有状態を再確認」を押してください。`);
 }

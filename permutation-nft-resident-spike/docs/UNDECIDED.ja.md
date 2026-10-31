@@ -34,3 +34,4 @@
 | U28 | 公開 devnet RPC で `getProgramAccounts` が使えない場合の `/mint/mine` の索引：DAS（提供者のアカウントが要る）か、自前索引（`src/registry.mjs` 系。チェーン読取を正とし索引だけで判定しない） | ローカル validator では gPA＋検証で実施 | 所有者（A7） |
 | U29 | devnet 配備の鍵の置き場と手順：所有者の端末で配備するか、本環境で使い捨て配備鍵を使い配備後に upgrade authority を移すか | 未実行。DEVNET-APPROVALS A1・A2 | 所有者 |
 | U30 | Royalties プラグインを collection 作成時に付けるか（仮値）、付けずに後で足すか。ロイヤリティ率は未決（U1） | 付けていない | 所有者（A3 の前） |
+| U31 | ウォレット 1 つにつき住民 1 つに限るか（wallet 由来の PDA で on-chain に一意にすると、別 blockhash で作り直した 2 本目も失敗し二重発行・二重課金を構造で防げる。⑰の Entry PDA `["entry", pool, wallet]` と同じ形）。現設計は「複数 NFT・1 ウォレット」を許し、一意性は試行ごとの asset 鍵に置く | 試行ごとの asset 口座の有無で判定（MINT-FLOW §1 期限切れ） | 所有者・④ |

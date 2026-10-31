@@ -15,7 +15,7 @@
 | 確定した取引と正規 collection・asset の保有を確認してから「登録完了」 | `getSignatureStatuses` → `GET /mint/status`（サーバがチェーンを読み、プログラム・collection・保有者・住民口座の紐付けを検査）→ 表示 | B1, B11 |
 | 再読込・再接続でも保有状態を確認できる | 接続時に `GET /mint/mine` → `GET /mint/status`。ページの記憶ではなくチェーンの読取 | B1（reload）, B7 |
 | 応答が消えたら既存の署名を照会し、結果不明のまま再課金・再発行しない | 送信**前**に `{signature, asset, lastValidBlockHeight}` を localStorage に記録。再開時は署名で照会。未決なら mint ボタンを無効化 | B6, B7, B9 |
-| 期限切れ | `getBlockHeight > lastValidBlockHeight` かつ状態なし → 着地不可能と判定し再試行を許す。送信時の `Blockhash not found` も同様 | B8 |
+| 期限切れ | `getBlockHeight > lastValidBlockHeight` かつ状態なし → **期限切れだけでは判定しない**（D28）。その試行だけの asset 口座を読み、無ければ未着地として再試行を許し、有れば発行済みとして保有確認へ。送信時の `Blockhash not found`（送っていない）は再試行可 | B8, B12 |
 | 接続先ネットワーク違い | RPC の `getGenesisHash` ≠ 設定値 → 全操作停止。ウォレットの口座が `solana:devnet` を持たない → 接続拒否 | B4 |
 | SOL 不足 | 残高 < 価格＋手数料＋rent → 署名前に拒否 | B3 |
 | 署名拒否 | ウォレットの拒否 → 何も送らず、記録も残さない | B2 |
@@ -38,6 +38,7 @@
 | B9 | 結果不明が続く → 再 mint 拒否 → 後で解決 | 合格 |
 | B10 | 支払い後の処理失敗 | 合格（preflight で拒否、支払い残らず） |
 | B11 | 譲渡後の旧保有者：登録なし、新保有者：登録あり | 合格（世代 +1） |
+| B12 | 期限切れの pending 記録：asset 口座が無ければ再試行可、有れば（署名が RPC に無くても）発行済みとして扱い再送しない | 合格 |
 
 ユニット側（`node --test test/*.test.mjs`、ブラウザ試験込み）。relay 未観測の A→B→A で旧権限が復活しないことは、模擬では `test/buyback.test.mjs`、**実 Core＋実プログラムでは `svm-core/tests/core.rs`（LiteSVM）**。ブラウザ試験は模擬チェーン上。devnet での同じ試験は未実施。
 

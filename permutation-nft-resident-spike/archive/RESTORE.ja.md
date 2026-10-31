@@ -18,7 +18,7 @@ v0.7 の値は `git rev-parse HEAD`、`git rev-parse HEAD^{tree}`、`git rev-par
 
 ## 2. 基準（この版が満たすこと）
 
-- `node --test test/*.test.mjs`：66 件すべて合格（Playwright が無い環境ではブラウザ試験 17 件が skip；validator・Core `.so`・プログラムのビルドが無い環境では実プログラム上の 6 件が skip；`svm-core/out` が無ければ 3 件が skip）（必須テスト項目との対応は `docs/CONTRACT.ja.md` §7、実プログラム上は `docs/LOCALNET-RESULTS.ja.md` §2）。
+- `node --test test/*.test.mjs`：67 件すべて合格（Playwright が無い環境ではブラウザ試験 18 件が skip；validator・Core `.so`・プログラムのビルドが無い環境では実プログラム上の 6 件が skip；`svm-core/out` が無ければ 3 件が skip）（必須テスト項目との対応は `docs/CONTRACT.ja.md` §7、実プログラム上は `docs/LOCALNET-RESULTS.ja.md` §2）。
 - `node demo/run-loop.mjs`：11 段の一巡が終了コード 0 で終わり、`demo/TRANSCRIPT.txt` と同じ段の構成になる（アドレスは実行ごとに変わる）。
 - `node archive/manifest.mjs verify`：全ファイルの SHA-256 が一致し、未記載のファイルが無い。
 - `patches/*.patch`：リポジトリ root で `git apply --check -p1` が通る。02 は独立作業コピーで `cargo test -p frontier-abi` 全件合格（`patches/README.ja.md`）。
@@ -33,7 +33,7 @@ v0.7 の値は `git rev-parse HEAD`、`git rev-parse HEAD^{tree}`、`git rev-par
 | `program/` | 住民プログラム（Rust、Core への CPI）。ビルド生成物 `target/` は管理外。復元後は `cargo-build-sbf` で再ビルドし、`docs/REAL-CORE-RESULTS.ja.md` の sha256 と比べる |
 | `svm-core/` | LiteSVM 検証（実 Core の `.so` は `.local/programs/` に ENV-RECORD の手順で取得して置く。管理外） |
 | `svm-core/out/` | 実 Core が作った口座バイトの書き出し（公開鍵のみ。`test/real-bytes.test.mjs` が読む） |
-| `test/` | テスト 66 件（`node --test`；うち 17 件は Chromium、その 6 件は実プログラム上） |
+| `test/` | テスト 67 件（`node --test`；うち 18 件は Chromium、その 6 件は実プログラム上） |
 | `demo/` | 一巡のローカルデモ（11 段）と記録、mint 画面の記録（`screens/` 模擬、`screens-localnet/` 実プログラム） |
 | `docs/` | 接続契約（CONTRACT）、データ対応表（DATA-MAP）、方式比較（METHODS）、④ への提案（INTEGRATION-04）、未決定（UNDECIDED）、食い違い（DISCREPANCIES）、push 監査（PUSH-AUDIT）、専用売買経路（SALE-PATH）、市場互換候補（MARKET-COMPAT）、比較と推奨（COMPARISON）、実 Core 試験の可否（REAL-CORE-TEST）、実 Core 検証計画と導入物（REAL-CORE-PLAN）、信頼モデル（TRUST-MODEL）、初回 mint の一巡と承認依頼（MINT-FLOW）、既存サイトの状態（SITE-STATUS）、導入記録（ENV-RECORD）、実 Core＋LiteSVM の結果（REAL-CORE-RESULTS）、実プログラム×ページの接続結果（LOCALNET-RESULTS）、devnet の承認一覧（DEVNET-APPROVALS） |
 | `patches/` | 共有コード向けの独立パッチ 5 本（本ブランチでは**適用していない**）と検証状態 |
