@@ -100,7 +100,7 @@ fn game_error_numbers_are_unique_and_every_copy_agrees() {
         );
         copy.sort();
         // Reserved numbers (14) are in the copies only; compare the rest.
-        copy.retain(|(c, n)| !(n.starts_with("Reserved") && !rust.iter().any(|(rc, _)| rc == c)));
+        copy.retain(|(c, n)| !n.starts_with("Reserved") || rust.iter().any(|(rc, _)| rc == c));
         assert_eq!(copy, rust, "{rel} differs from frontier-abi's enums");
     }
 }
