@@ -21,3 +21,5 @@
 | D15 | **Core の優先順位**：公式ページは Permanent Transfer Delegate を「forceApprove — can transfer even when frozen」と書く。ソース `lifecycle.rs` で `ForceApproved` が `Rejected` に先立って即時 return することを確認。外部プラグイン（Oracle）は `ForceApproved` を返せない | metaplex.com/docs、mpl-core ソース | ソース（資料上の確認、実行未） |
 | D16 | **LifecycleHook**：公式サイトの外部プラグイン一覧は Oracle と AppData のみで、ソースの `plugins/utils.rs` は「LifecycleHook … still in development」として追加を遮断。譲渡時 CPI は Core では**現時点で使えない** | mpl-core ソース | ソース |
 | D17 | **市場対応**：Magic Eden は「Metaplex Core, Token 22 対応」と書くが、アプリ内の Core/cNFT の送付は非対応と別記事に記載。フック付き Token-2022 への言及は無い。Tensor は changelog で Core コレクション対応、mainnet 配備は延期。いずれもフック対応は**不明** | help.magiceden.io、dev.tensor.trade | 一次資料の範囲で「不明」と記録 |
+| D18 | **mpl-core の公開リリースと mainnet 配備の対応。** GitHub のリリース一覧は `release/core@0.15.3`（10/07）が最新と表示されるが、資産（.so・チェックサム）の一覧は取得できず（API 403、HTML は読み込み失敗）。mainnet の programdata（last deployed slot 455005931）がどのリリースかは**未照合** | WebFetch 結果、RPC 読取 | 未照合として記録。REAL-CORE-PLAN で取得時に照合する |
+| D19 | **crates.io の `mpl-core` クレートは 0.12.1（6/16）** で、GitHub の core リリース番号（0.15.x）と系列が違う（クレートはクライアント、リリースはプログラム）。版の対応は未照合 | crates.io API、GitHub | 未照合として記録 |

@@ -25,3 +25,5 @@
 | U19 | 主要 NFT 市場（Magic Eden、Tensor 等）がフック付き Token-2022 NFT の listing・購入・送付を処理するか | 一次資料なし。devnet での実証が要る（新規導入のため承認待ち） | ④・所有者 |
 | U20 | 専用売買経路の価格・通貨（USDC か）・手数料率・返金規則 | 仮値（25 単位、250 bps） | 所有者・⑰・法務 |
 | U21 | 運営（プログラムの upgrade authority）が永続 delegate／フックを通じて全 asset を動かせる立場になることの開示と制限 | 未扱い | 所有者・法務 |
+| U22 | 実 Core＋LiteSVM 検証のための導入（`docs/REAL-CORE-PLAN.ja.md` §1）を承認するか。devnet 実証（MARKET-COMPAT §2.4）を承認するか | 一覧と計画のみ。導入・配備はしていない | 所有者 |
+| U23 | upgrade authority の形（単一鍵／多重署名／遅延／凍結）と、collection authority の保管。供給上限をプログラムで数えるか | TRUST-MODEL §3 の提案のみ | 所有者・法務 |

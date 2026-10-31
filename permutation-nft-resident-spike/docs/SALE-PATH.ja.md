@@ -39,17 +39,34 @@
 | 売買とゲーム操作の競合はチェーンの実行順 | `sale.test.mjs` 7、`transfer-loop.test.mjs` 2・3 |
 | 二重購入・結果不明・応答消失後の再送で二重払い・二重実行なし | `sale.test.mjs` 2・5・6 |
 
-## 4. ⑰（x402・USDC）との境界
+## 4. 最小取引：買い手のウォレットだけで成立する購入（v0.4）
 
-実装していないもの：x402 の 402 応答・`X-PAYMENT` の検査・facilitator の共同署名・USDC の実トークン転送。本試作の `Buy` は模擬トークンで支払い脚を含む。
+売買の検証は、まず **relay も x402 も使わない最小取引**で行う：
 
-⑰ に求める契約（推測で作らない。相手の実装は相手が決める）：
+```
+transaction {
+  fee payer = 買い手ウォレット（唯一の署名者）
+  instructions = [ Buy{asset} ]      // 必要なら ComputeBudget の prefix を前置（CU は実測後）
+}
+```
 
-| 項目 | 本側が提供 | ⑰ 側に必要 |
+`Buy` 1 命令が、トークン転送（買い手→出品者、買い手→運営）・Core への CPI 譲渡（Permanent Transfer Delegate の PDA 署名）・Citizen の `HOLDER_GEN+1`／`SESSION=0`・出品削除を行う。模擬では `buildTx([ixBuy])` の署名者が買い手だけであることをテストで固定した（`sale.test.mjs` 1）。出品者の署名は `List` 時のみ。
+
+実 Core での `Buy` の口座（想定）：買い手、出品者、運営、買い手・出品者・運営のトークン口座、mint、Token program、asset、collection、Core program、Citizen、出品 PDA、プログラム PDA（permanent delegate authority）、System。口座数と CU は LiteSVM で実測する（REAL-CORE-PLAN）。
+
+## 5. ⑰（x402・USDC）との接続：検査規則・スポンサー・署名者の照合（v0.4）
+
+**結論**：現行の `/f/x402/join`（`Pay+Join`）と「利用者署名の取引に relay が署名を足す」という外形は同じだが、**その一致は互換性も原子性も保証しない**。⑰ の実装の検査規則は `Pay+Join` に固く結び付いていて、`Buy` はそのままでは通らない。照合結果：
+
+| ⑰ 側の規則（`permutation-gateway` の実装を読んだ事実） | `Buy` 取引との関係 | 必要になること（⑰が判断） |
 |---|---|---|
-| 取引の形 | `Buy` 1 命令の取引（買い手署名、fee payer は relay）。USDC 転送は命令の中の CPI（`TransferChecked` 相当）で、支払先は出品者と運営 | x402 "exact" の payload として**この取引**を受け取り、既存の検査（「exactly one Register」のような現行規則）を `Buy` 命令の形に合わせること。金額・支払先は命令が固定し、facilitator は署名を足すだけ |
-| 二重払い防止 | 署名を送信前に記録、再送は `AlreadyProcessed`、同じ key は 1 購入 | `X-PAYMENT-RESPONSE` に署名を返す。結果不明のとき署名で照会できること（`GET /f/tx/{sig}` 相当） |
-| 失敗時 | 命令が失敗すれば支払いも戻る（取引の原子性） | 402 で理由（`InsufficientFunds`、`ListingStale`、`NoListing`）を返す |
-| 境界外 | 価格の決め方、通貨、手数料率、返金規則 | — |
+| `classifyPaidJoin`：命令は**ちょうど 5 つ**（ComputeBudget 3 ＋ prize `Pay` ＋ game `Join`）、CU limit／price 0／loaded limit は固定値 | `Buy` は 1 命令（＋prefix）で、`Pay` も `Join` も含まない → **不一致** | `Buy` 用の分類器を別に定義する（命令数、prefix の固定値、`Buy` のタグと口座列） |
+| `Pay` の 9 口座が「この season の pool・vault・mint・wallet の Entry」と一致すること | `Buy` の支払先は出品者と運営で、prize vault ではない | 支払先・金額が**命令側で固定**されることを分類器で確認する（出品 PDA の price・seller を読む） |
+| 署名者は「fee payer（relay のプール鍵）・wallet・join gate」のみ | 最小取引は買い手が fee payer。x402 形にするなら fee payer を relay に替え、署名者は relay ＋買い手 | 署名者集合の定義替え。出品者は署名しない |
+| `sponsor()`：fee payer は relay プールの鍵、`season` 口座が今季のもの、`checkRelayShape` の shape 許可表（`classify`）に `Buy` は**無い** | **不一致** | `shapes.mjs` に `Buy` の shape（口座列・署名者・L(kind)）を追加 |
+| `drainGuard`：fee payer の減少 ≤ fee ＋ `allowanceFor(shape)`。`Buy` の allowance は未定義 | 出品 PDA の閉鎖で家賃が返る方向なら 0 でよいが未定義 | allowance の定義（0 か、Citizen 更新に伴う家賃） |
+| 二重送信：`relayed`（署名の replay cache）と `AlreadyProcessed` | 同じ機構で足りる見込み | — |
+| 応答消失：`landed()` は 60×250 ms 待ち、`SettlementPending`（504）で署名を返す | `Buy` も署名で照会可能 | `GET /f/tx/{sig}` で結果照会（既存） |
+| x402 "exact" の `maxAmountRequired`・`payTo`・`asset` | 出品ごとに price・seller が異なる | 402 応答を出品ごとに生成（price は出品 PDA から） |
 
-現行の `/f/x402/join`（`Pay+Join` の atomic モード）は「利用者署名の取引に relay が署名を足す」形で、同じ型。`Buy` も同型で接続できる見込みだが、⑰ の検査規則に合うかは⑰側で判断する。
+**原子性について**：`Buy` 1 命令の原子性は Solana の取引実行が保証する（命令が失敗すれば取引全体が失敗）。x402 の facilitator が署名を足しても壊れない。ただし「facilitator の検査を通った取引が実際に着地する」ことと「着地の有無を正しく返す」ことは⑰の実装の責務で、本側は保証しない。

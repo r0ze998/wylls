@@ -31,6 +31,9 @@ test('a buy moves the payment, the asset, the generation and the session togethe
   const before = snapshot(s, a.assetId);
   const r = await s.desk2.buy({ idempotencyKey: 'buy-1', assetId: a.assetId, buyer: B });
   assert.deepEqual([r.state, r.gen, r.price, r.fee], ['landed', 1, String(PRICE), String((PRICE * 250n) / 10_000n)]);
+  // The minimal purchase is one transaction signed by the buyer's wallet alone (the buyer is its fee payer); no relay, no x402, no seller signature at buy time.
+  const buyTx = s.chain.buildTx([s.chain.ixBuy({ assetId: a.assetId, buyer: B.publicKey })]);
+  assert.deepEqual(buyTx.signers, [B.publicKey]);
   const after = snapshot(s, a.assetId);
   const fee = (PRICE * 250n) / 10_000n;
   assert.deepEqual([after.owner, after.gen, after.session, after.listed], [B.publicKey, before.gen + 1, null, false]);

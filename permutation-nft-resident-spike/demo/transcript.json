@@ -1,5 +1,5 @@
 {
-  "ranAt": "2026-10-31T02:42:35.132Z",
+  "ranAt": "2026-10-31T02:56:50.241Z",
   "mock": true,
   "steps": [
     {
@@ -7,7 +7,7 @@
       "title": "Setup: a Core-shaped collection on the mock chain (test values; nothing here is a price or a supply decision). Assets are minted guarded: Permanent Freeze + Permanent Transfer Delegate = the resident program",
       "detail": {
         "coreProgram": "CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d",
-        "collection": "749Vhm…vRVX",
+        "collection": "4Ej6Bq…FMLv",
         "walletA": "66FHe3…Ke6D",
         "walletB": "J4Bafd…axmw"
       }
@@ -17,8 +17,8 @@
       "title": "A acquires the NFT (payment → mint → the chain shows A as holder). Acquisition IS the waitlist entry.",
       "detail": {
         "payment": "settled",
-        "assetId": "5a7evR…RMC4",
-        "residentId": "ac6014cd0b056c88f4dfe11ec84a73",
+        "assetId": "EmxPuc…DVTm",
+        "residentId": "91610505070c1d3209cc08ae654b5f",
         "waitlist": [
           {
             "holder": "66FHe3…Ke6D",
@@ -39,8 +39,8 @@
           "published": false,
           "residents": [
             {
-              "residentId": "ac6014cd0b056c88f4dfe11ec84a73",
-              "assetId": "5a7evRiNAyf7zuQoEMHAS2VWckK6JvtFKdisn5SfRMC4",
+              "residentId": "91610505070c1d3209cc08ae654b5f",
+              "assetId": "EmxPuciZmWuTByMX4D1VfhLuhyX4T7tgehcvD2grDVTm",
               "epoch": 0
             }
           ],
@@ -84,7 +84,7 @@
       "step": 6,
       "title": "A transfers the NFT to B (A signed one more operation beforehand, not yet sent)",
       "detail": {
-        "transfer": "2fH7KkAP3SRn",
+        "transfer": "5J86F1L3SRhR",
         "slot": 1,
         "registry": "confirmed",
         "epoch": 1,
@@ -95,7 +95,7 @@
       "step": 7,
       "title": "B logs in to the SAME resident (same id, same village, A's history), acts, and the caravan A sent arrives for the resident B now holds",
       "detail": {
-        "residentId": "ac6014cd0b056c88f4dfe11ec84a73",
+        "residentId": "91610505070c1d3209cc08ae654b5f",
         "epoch": 1,
         "bOp": "sent",
         "village": {
@@ -165,7 +165,7 @@
         },
         "aFreshLogin": {
           "epoch": 2,
-          "residentId": "ac6014cd0b056c88f4dfe11ec84a73"
+          "residentId": "91610505070c1d3209cc08ae654b5f"
         },
         "plainCoreTransferByOwner": {
           "refused": "Frozen"
