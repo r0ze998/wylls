@@ -4,7 +4,7 @@
 
 ## 1. 試験
 
-`workstreams/13-citizens/run.sh` → [results/tests.log](results/tests.log)：**35件すべて通過**（約6秒）。
+`workstreams/13-citizens/run.sh` → [results/tests.log](results/tests.log)：**41件すべて通過**（約1分。うち長期運用が約35秒）。2026-10-30 時点は35件。継続する世界の試験は [07](07-continuous-world.ja.md) §3。
 
 | ファイル | 件数 | 内容 |
 |---|---|---|
@@ -14,6 +14,8 @@
 | `abuse.test.mjs` | 7 | [04](04-safety-limits.ja.md) §3 |
 | `limits.test.mjs` | 7 | 推論の回数・金額、provider の遅延・不正、所有者の停止、運営の停止・maxTurns、再試行、間隔 |
 | `ports.test.mjs` | 5 | ⑤の chat provider の接続、有料 API 鍵の拒否、記憶 adapter の再開と差し替え、④の port の検査 |
+| `continuity.test.mjs` | 5 | 境界の通過（4か所）、境界での再起動・停止、境界をまたぐ一時停止と遅れた返済、判断回数の上限と延長、版1→2の移行 |
+| `longrun.test.mjs` | 1 | 45ゲーム日：現在の状態の上限、差分の読み、履歴の増加、処理時間の横ばい |
 
 共有コードへの影響：`permutation-gateway` の `agent-wallet-*`・`citizens-mind-*`・`citizens-memory-*` 試験は、この作業後も 413 通過・失敗 0（変更していないので当然だが、import による副作用がないことの確認）。
 

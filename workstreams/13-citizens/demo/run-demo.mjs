@@ -39,7 +39,7 @@ export function openAll(root, operator, { provider = 'goal', crash = null } = {}
   return { ...w, asa, ren, ...p, operator };
 }
 
-export async function runDemo({ out, bells = 160, restartAt = null, crash = null, provider = 'goal' }) {
+export async function runDemo({ out, bells = 160, restartAt = null, crash = null, provider = 'goal', boundaries = [] }) {
   assertNoApiKeys(process.env);
   rmSync(out, { recursive: true, force: true });
   mkdirSync(out, { recursive: true });
@@ -75,7 +75,9 @@ export async function runDemo({ out, bells = 160, restartAt = null, crash = null
       }
       timeline.push({ resident: r.id, ...res });
     }
-      all.world.operator.tick();
+    // A boundary marker (test fixture) is public before the bell's actions land, like any event of the bell.
+    if (boundaries.includes(all.world.bell)) all.world.operator.markBoundary(`test-boundary-${all.world.bell}`);
+    all.world.operator.tick();
     all.save();
   }
   const summary = summarise(all, { restarts });

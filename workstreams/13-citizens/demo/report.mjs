@@ -98,6 +98,7 @@ export function transcript(all, summary) {
     if (e.kind === 'CaravanRaided') lines.push({ bell: e.bell, text: `world: caravan ${e.caravan} ${n(e.src)} → ${n(e.dst)} raided` });
     if (e.kind === 'BuildDone') lines.push({ bell: e.bell, text: `world: ${n(e.citizen)} finished building ${e.item}` });
     if (e.kind === 'Failed') lines.push({ bell: e.bell, text: `world: ${n(e.citizen)} ${e.action} failed (${e.code})` });
+    if (e.kind === 'BoundaryMarker') lines.push({ bell: e.bell, text: `world: 境界の印（試験用。規則なし）${e.label}` });
   }
   for (const r of summary.mechanical.restarts) lines.push({ bell: r.bell, text: `restart: ${r.resident ?? 'all'} — ${r.why}` });
   lines.sort((a, b) => a.bell - b.bell);

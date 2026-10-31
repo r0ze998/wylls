@@ -24,6 +24,7 @@ import { wrapMemory, wrapUntrusted } from '../../../permutation-gateway/citizens
 import { BELL_SECS, BELLS_PER_DAY } from '../world/rules.mjs';
 import { buildCandidates } from './candidates.mjs';
 import { GOALS } from './goals.mjs';
+import { GIFT_WINDOW_BELLS } from './safety.mjs';
 import { addressOf, loadOrCreateKey, signRecord } from './keys.mjs';
 import { answerSchema, decideWithin, ProviderRefusal } from './ports/provider.mjs';
 import { JOIN_DOMAIN } from '../world/testworld.mjs';
@@ -51,6 +52,10 @@ export const GENESIS_SECS = 1_799_971_200;
 const TRANSIENT = new Set(['BucketEmpty', 'QuotaExceeded', 'SendFailed', 'Transport']);
 
 const dayOf = bell => Math.floor(bell / BELLS_PER_DAY);
+/** v2: counterparties by wallet address, observation cursors, prunable present state (v1 is migrated on open). */
+export const STATE_VERSION = 2;
+/** The most decisions one owner command may add to the allowance. */
+export const MAX_EXTEND = 1000;
 /** What makes two actions the same action (for the failure hold-off). */
 export const actionSig = a => `${a.name}:${JSON.stringify(a.fields)}`;
 const candidateAction = c => (c.kind === 'build' ? { name: 'Build', fields: { item: c.act.item } } : c.kind === 'accept' ? { name: 'SendCaravan', fields: { to: c.act.to, goods: c.act.goods } } : null);
@@ -99,7 +104,7 @@ export class Resident {
     this.bell = 0;
     this.store = createStateStore(path.join(dir, 'state.json'));
     if (!this.store.load()) {
-      this.store.state = { v: 1, turn: 0, citizen: null, journal: {}, decisions: [], counters: { day: -1 }, cooldown: {}, accepted: {}, returns: {}, lastDecisionBell: -1e9, wakeInterval: this.charter.limits.wakeEveryBells, providerFailures: 0, providerPausedUntil: -1, pendingDecision: null, seen: [], failures: {} };
+      this.store.state = { v: STATE_VERSION, turn: 0, citizen: null, journal: {}, decisions: [], counters: { day: -1 }, cooldown: {}, accepted: {}, returns: {}, lastDecisionBell: -1e9, wakeInterval: this.charter.limits.wakeEveryBells, providerFailures: 0, providerPausedUntil: -1, pendingDecision: null, seen: [], failures: {}, aliases: {}, cursor: { events: 0, board: 0 }, migrations: [] };
     }
     this.ledger = new AgentLedger({ store: this.store, now: () => (GENESIS_SECS + this.bell * BELL_SECS) * 1000 });
     if (!this.ledger.db.agents[this.charter.id]) {
@@ -113,7 +118,7 @@ export class Resident {
     this.store.save();
   }
 
-  get state() { this.store.state.failures ??= {}; return this.store.state; }
+  get state() { return this.store.state; }
   get id() { return this.charter.id; }
   save() { this.store.save(); }
 
@@ -126,16 +131,55 @@ export class Resident {
   /** The funder's deposit for model calls (a mock deposit id; local test units, nothing of value). */
   fund(depositId, amount) { return this.ledger.credit(this.id, depositId, amount); }
 
-  /** An owner command: `mode` (auto|manual) or `goal`. Signed by the owner's key; replays and other signers are refused. */
+  /**
+   * An owner command, signed by the owner's key (replays and other signers are refused):
+   *   mode   {mode: 'auto'|'manual', withdraw?}  manual pauses the resident; nothing is cancelled unless `withdraw`
+   *          asks for it, and even then promises already made (deliveries, returns) stay owed and are listed
+   *   policy {goal?, extendTurns?}               a new goal, or more decisions: the allowance grows by a finite
+   *          step (at most MAX_EXTEND), it is never made endless by the world going on
+   */
   command({ command, signature }, { now = Date.now() } = {}) {
     const op = command?.op;
     if (!['mode', 'policy'].includes(op)) throw new Error('unknown command');
     verifyCommand({ command, signature }, { op, nonces: this.ledger.db.ownerNonces, now });
     if (command.owner !== this.charter.owner.address || command.agentId !== this.id) throw new Error('NotOwner');
-    if (op === 'mode') this.ledger.setMode(this.id, command.params.mode === 'manual' ? 'manual' : 'auto');
-    else if (GOALS[command.params.goal]) { this.charter.goal = command.params.goal; writeFileSync(path.join(this.dir, 'charter.json'), JSON.stringify(this.charter, null, 2)); }
+    const p = command.params ?? {};
+    let withdrawn = [];
+    if (op === 'mode') {
+      this.ledger.setMode(this.id, p.mode === 'manual' ? 'manual' : 'auto');
+      if (p.mode === 'manual' && p.withdraw) withdrawn = this.#withdrawUnsent();
+    } else {
+      if (p.goal !== undefined) { if (!GOALS[p.goal]) throw new Error('unknown goal'); this.charter.goal = p.goal; }
+      if (p.extendTurns !== undefined) {
+        if (!Number.isInteger(p.extendTurns) || p.extendTurns < 1 || p.extendTurns > MAX_EXTEND) throw new Error(`extendTurns must be 1..${MAX_EXTEND}`);
+        this.charter.limits.maxTurns += p.extendTurns;
+      }
+      writeFileSync(path.join(this.dir, 'charter.json'), JSON.stringify(this.charter, null, 2));
+    }
     this.save();
-    return { ok: true, mode: this.ledger.get(this.id).mode, goal: this.charter.goal };
+    return { ok: true, mode: this.ledger.get(this.id).mode, goal: this.charter.goal, maxTurns: this.charter.limits.maxTurns, withdrawn, owed: this.owed() };
+  }
+
+  /**
+   * Promises this resident has made and not yet kept: deliveries and returns on their way or waiting to be sent,
+   * and returns the board says are owed that have not been started (seen at the last step, paused or not).
+   */
+  owed() {
+    const started = Object.values(this.state.journal)
+      .filter(j => ['deliver', 'return'].includes(j.purpose?.type) && ['intended', 'sent'].includes(j.state))
+      .map(j => ({ key: j.key, type: j.purpose.type, request: j.purpose.request, state: j.state }));
+    const waiting = (this.state.debts ?? []).filter(d => !started.some(s => s.request === d.request)).map(d => ({ type: 'return', ...d, state: 'not-started' }));
+    return [...started, ...waiting];
+  }
+
+  /** Trust in a counterparty by address, from the whole memory (old episodes read through the alias table). */
+  trust(address) { return this.#trustIndex().trust(address); }
+
+  #noteDebts(obs) {
+    const me = this.state.citizen;
+    this.state.debts = obs.board.requests
+      .filter(r => r.from === me && r.status === 'fulfilled' && ['due', 'not-returned'].includes(r.returned) && !this.state.returns[r.id])
+      .map(r => ({ request: r.id, to: this.#who(r.by), goods: r.offer, deliveredBell: r.deliveredBell }));
   }
 
   #crashAt(at, turn, key = '') {
@@ -152,40 +196,103 @@ export class Resident {
     return c;
   }
 
+  /**
+   * Why the resident does not decide now. A halt or the owner's stop pauses everything (nothing is sent, nothing
+   * is cancelled: on resume the journal goes on where it was). A used-up allowance of decisions stops only new
+   * decisions: promises already made are still kept, by code.
+   */
   #stopReason() {
-    if (existsSync(this.charter.haltFile)) return 'halted-by-operator';
-    if (this.ledger.get(this.id).mode !== 'auto') return 'stopped-by-owner';
-    if (this.state.turn >= this.charter.limits.maxTurns) return 'max-turns';
+    if (existsSync(this.charter.haltFile)) return { why: 'halted-by-operator', keepPromises: false };
+    if (this.ledger.get(this.id).mode !== 'auto') return { why: 'stopped-by-owner', keepPromises: false };
+    if (this.state.turn >= this.charter.limits.maxTurns) return { why: 'max-turns', keepPromises: true };
     return null;
+  }
+
+  /** The address of a citizen id the resident has seen (the current view, else a recorded alias). */
+  #who(citizen) {
+    if (citizen == null) return null;
+    return this.addr?.get(citizen) ?? this.state.aliases[citizen] ?? citizen;
+  }
+
+  /**
+   * State version 1 named counterparties by world-local citizen id. Version 2 names them by wallet address.
+   * The migration records, once, which id meant which address (from the world's public view at that bell) and
+   * converts the current-state keys (cooldowns); remembered episodes are not rewritten: they are read through
+   * the alias table.
+   */
+  #migrate(obs, bell) {
+    const st = this.state;
+    if (st.v === STATE_VERSION) return;
+    st.aliases ??= {};
+    for (const v of obs.world.villages) st.aliases[v.citizen] ??= v.owner;
+    const cooldown = {};
+    for (const [k, until] of Object.entries(st.cooldown ?? {})) {
+      const [who, res] = k.split('|');
+      cooldown[`${st.aliases[who] ?? who}|${res}`] = until;
+    }
+    st.cooldown = cooldown;
+    st.siblingsNote = 'charter siblings were addresses in v1 already';
+    st.failures ??= {};
+    st.cursor ??= { events: 0, board: 0 };
+    st.migrations = [...(st.migrations ?? []), { from: st.v ?? 1, to: STATE_VERSION, bell, aliases: Object.keys(st.aliases).length }];
+    st.v = STATE_VERSION;
+    this.save();
+  }
+
+  /** Trust by address from the whole memory, once per step (kept +1, returned +1, broken −2; aliases resolved). */
+  #trustIndex() {
+    const t = new Map();
+    const raided = new Map();
+    for (const e of this.ports.memory.all()) {
+      for (const ent of e.entities) {
+        const a = this.state.aliases[ent] ?? ent;
+        if (e.kind === 'kept' || e.kind === 'returned') t.set(a, (t.get(a) ?? 0) + 1);
+        if (e.kind === 'broken') t.set(a, (t.get(a) ?? 0) - 2);
+        if (e.kind === 'raided' && ent.startsWith('route:')) {
+          const to = ent.slice(ent.indexOf('>') + 1);
+          const dst = this.state.aliases[to] ?? to;
+          raided.set(dst, Math.max(raided.get(dst) ?? -Infinity, e.bell));
+        }
+      }
+    }
+    return { trust: a => t.get(a) ?? 0, raided: a => (raided.has(a) ? raided.get(a) : null) };
   }
 
   // ------------------------------------------------------------------ the step
 
   async step() {
-    const obs = await this.ports.observe(this.address);
+    const st = this.state;
+    // Only what changed since the last step (events by sequence, board requests changed since a bell), plus the
+    // gift window, so a long-lived resident reads a bounded amount however long the world has run.
+    const obs = await this.ports.observe(this.address, { events: st.cursor?.events ?? 0, boardBell: Math.max(0, Math.min((st.cursor?.board ?? 0) - 1, (this.bell ?? 0) - GIFT_WINDOW_BELLS)) });
     const bell = obs.world.bell;
     this.bell = bell;
-    const st = this.state;
+    this.addr = new Map(obs.world.villages.map(v => [v.citizen, v.owner]));
+    this.#migrate(obs, bell);
     if (!st.citizen) {
       const mine = obs.world.villages.find(v => v.owner === this.address);
       if (mine) { st.citizen = mine.citizen; this.save(); }
       else {
         const body = { name: this.charter.name, pos: this.charter.pos, key: this.address };
         st.citizen = await this.ports.join({ body, sig: signRecord(JOIN_DOMAIN, body, this.keypair) });
-        this.ports.memory.append({ id: `joined:${st.citizen}`, bell, kind: 'joined', importance: 1, entities: [st.citizen], text: { en: 'joined with the starter kit', ja: '初期資源で参加した' } });
+        this.ports.memory.append({ id: `joined:${st.citizen}`, bell, kind: 'joined', importance: 1, entities: [this.address], text: { en: 'joined with the starter kit', ja: '初期資源で参加した' } });
         this.save();
         return { bell, did: 'joined' };
       }
     }
     const stop = this.#stopReason();
-    if (stop) { const cancelled = await this.#cancelUnsent(); this.save(); return { bell, stopped: stop, cancelled }; }
+    this.#noteDebts(obs);
+    // A paused resident still reads (its cursors do not move, so nothing is missed when it resumes) and reports what it owes.
+    if (stop && !stop.keepPromises) { await this.#reconcile({ send: false }); this.save(); return { bell, stopped: stop.why, owed: this.owed() }; }
 
-    await this.#reconcile();
+    await this.#reconcile({ send: true });
     const learned = this.#learn(obs, bell);
     const duties = await this.#duties(obs, bell);
+    this.#advanceCursor(obs, bell);
+    if (stop) { this.#prune(bell); this.save(); return { bell, stopped: stop.why, duties, owed: this.owed() }; }
     const fresh = this.state.pendingDecision ?? null;
     const wakes = fresh ? ['resume'] : this.#wakes(obs, bell, learned);
-    if (!wakes.length) { this.save(); return { bell, idle: true, duties }; }
+    if (!wakes.length) { this.#prune(bell); this.save(); return { bell, idle: true, duties }; }
 
     let d = fresh;
     if (!d) {
@@ -198,8 +305,9 @@ export class Resident {
     st.turn = d.turn;
     st.lastDecisionBell = bell;
     st.wakeInterval = d.kind === 'wait' ? Math.min(this.charter.limits.idleBackoffMaxBells, st.wakeInterval * 2) : this.charter.limits.wakeEveryBells;
-    st.decisions.push(d);
-    if (st.decisions.length > 50) st.decisions.splice(0, st.decisions.length - 50);
+    // The state keeps a short summary of the latest decisions; the full records are in decisions.jsonl (history).
+    st.decisions.push({ turn: d.turn, bell, kind: d.kind, choice: d.choice, by: d.by });
+    if (st.decisions.length > 10) st.decisions.splice(0, st.decisions.length - 10);
     st.pendingDecision = null;
     this.#prune(bell);
     this.save();
@@ -256,16 +364,34 @@ export class Resident {
     this.state.failures[sig] = f;
   }
 
-  /** Finished journal lines older than a game day are dropped (the world keeps its own record of every key). */
+  /**
+   * The state file holds the present only; history is in the append-only files (episodes, decisions) and the
+   * world's own records. Dropped: finished journal lines and done markers older than a game day, cooldowns and
+   * failure hold-offs that have run out. Nothing unfinished is ever dropped.
+   */
   #prune(bell) {
-    for (const [k, it] of Object.entries(this.state.journal)) {
-      if (!['intended', 'sent'].includes(it.state) && bell - (it.landedBell ?? it.nextBell ?? bell) > BELLS_PER_DAY) delete this.state.journal[k];
+    const st = this.state;
+    for (const [k, it] of Object.entries(st.journal)) {
+      if (!['intended', 'sent'].includes(it.state) && bell - (it.landedBell ?? it.nextBell ?? bell) > BELLS_PER_DAY) delete st.journal[k];
+    }
+    for (const [k, until] of Object.entries(st.cooldown)) if (until <= bell) delete st.cooldown[k];
+    for (const [k, f] of Object.entries(st.failures)) if (f.until + BELLS_PER_DAY <= bell) delete st.failures[k];
+    for (const map of [st.accepted, st.returns]) {
+      for (const [k, v] of Object.entries(map)) {
+        const at = typeof v === 'object' ? v.bell : null;
+        if (at != null && bell - at > BELLS_PER_DAY && !Object.values(st.journal).some(j => j.purpose?.request === k && ['intended', 'sent'].includes(j.state))) delete map[k];
+      }
     }
   }
 
-  async #reconcile() {
+  #advanceCursor(obs, bell) {
+    const last = obs.world.events.at(-1);
+    this.state.cursor = { events: Math.max(this.state.cursor?.events ?? 0, last?.seq ?? 0), board: bell };
+  }
+
+  async #reconcile({ send }) {
     for (const it of Object.values(this.state.journal)) {
-      if (it.state === 'intended') await this.#run(it);
+      if (it.state === 'intended' && send) await this.#run(it);
       if (it.state === 'sent') {
         const s = await this.ports.execution.status(it.sendKey);
         if (s?.fate === 'landed') Object.assign(it, { state: 'landed', landedBell: s.landedBell });
@@ -275,69 +401,72 @@ export class Resident {
     }
   }
 
-  async #cancelUnsent() {
+  /** The owner's explicit withdrawal at a stop: unsent actions that promise nothing to anyone (builds) are dropped. */
+  #withdrawUnsent() {
     const out = [];
     for (const it of Object.values(this.state.journal)) {
-      if (it.state === 'intended') { it.state = 'cancelled'; it.why = 'stopped'; out.push(it.key); }
-      else if (it.state === 'sent') {
-        const c = await this.ports.execution.cancel(it.sendKey);
-        if (c.cancelled) { it.state = 'cancelled'; it.why = 'stopped'; out.push(it.key); }
-      }
+      if (it.state === 'intended' && !['deliver', 'return', 'accept'].includes(it.purpose?.type)) { it.state = 'cancelled'; it.why = 'withdrawn by owner'; out.push(it.key); }
     }
     return out;
   }
 
   // ------------------------------------------------------------------ learning
 
-  /** Episodes from public facts about this resident's dealings (ids are stable, so learning twice adds nothing). */
+  /**
+   * Episodes from public facts about this resident's dealings (ids are stable, so learning twice adds nothing).
+   * Counterparties are recorded by wallet address; the citizen id stays in `facts` as where it was seen.
+   */
   #learn(obs, bell) {
     const me = this.state.citizen;
+    const w = c => this.#who(c);
     const m = this.ports.memory;
     const L = this.charter.limits;
+    const cool = (who, res, wait) => { const k = `${who}|${res}`; this.state.cooldown[k] = Math.max(this.state.cooldown[k] ?? 0, bell + wait); };
     let n = 0;
     const add = ep => { const fresh = m.append({ bell, ...ep }); if (fresh) n++; return fresh; };
     for (const r of obs.board.requests) {
       const res = Object.keys(r.want)[0];
       if (r.from === me) {
-        if (r.status === 'fulfilled') add({ id: `kept:${r.id}`, kind: 'kept', importance: 3, entities: [r.by], facts: { request: r.id, want: r.want, by: r.by }, text: { en: `${r.by} delivered ${JSON.stringify(r.want)}`, ja: `${r.by} が ${JSON.stringify(r.want)} を届けた` } });
-        if (r.status === 'lapsed') { add({ id: `broken:${r.id}`, kind: 'broken', importance: 6, entities: [r.by], facts: { request: r.id, by: r.by }, text: { en: `${r.by} took my request and did not deliver`, ja: `${r.by} は依頼を引き受けたが届けなかった` } }); this.state.cooldown[`${r.by}|${res}`] = Math.max(this.state.cooldown[`${r.by}|${res}`] ?? 0, bell + L.requestCooldownBells); }
-        if (r.status === 'expired' && add({ id: `unanswered:${r.id}`, kind: 'unanswered', importance: 2, entities: r.to ? [r.to] : [], facts: { request: r.id, to: r.to }, text: { en: `${r.to ?? 'nobody'} did not take my request`, ja: `${r.to ?? '誰も'}が依頼を引き受けなかった` } }) && r.to) {
-          this.state.cooldown[`${r.to}|${res}`] = Math.max(this.state.cooldown[`${r.to}|${res}`] ?? 0, bell + L.requestCooldownBells);
-        }
+        if (r.status === 'fulfilled') add({ id: `kept:${r.id}`, kind: 'kept', importance: 3, entities: [w(r.by)], facts: { request: r.id, want: r.want, by: r.by }, text: { en: `${r.by} delivered ${JSON.stringify(r.want)}`, ja: `${r.by} が ${JSON.stringify(r.want)} を届けた` } });
+        if (r.status === 'lapsed' && add({ id: `broken:${r.id}`, kind: 'broken', importance: 6, entities: [w(r.by)], facts: { request: r.id, by: r.by }, text: { en: `${r.by} took my request and did not deliver`, ja: `${r.by} は依頼を引き受けたが届けなかった` } })) cool(w(r.by), res, L.requestCooldownBells);
+        if (r.status === 'expired' && add({ id: `unanswered:${r.id}`, kind: 'unanswered', importance: 2, entities: r.to ? [w(r.to)] : [], facts: { request: r.id, to: r.to }, text: { en: `${r.to ?? 'nobody'} did not take my request`, ja: `${r.to ?? '誰も'}が依頼を引き受けなかった` } }) && r.to) cool(w(r.to), res, L.requestCooldownBells);
         for (const rep of obs.board.replies.filter(p => p.re === r.id && p.decision === 'decline')) {
-          if (add({ id: `declined:${rep.id}`, kind: 'declined', importance: 2, entities: [rep.from], facts: { request: r.id, reason: rep.reason, alternative: rep.alternative, res }, text: { en: `${rep.from} declined (${rep.reason})`, ja: `${rep.from} が断った（${rep.reason}）` } })) {
+          if (add({ id: `declined:${rep.id}`, kind: 'declined', importance: 2, entities: [w(rep.from)], facts: { request: r.id, by: rep.from, reason: rep.reason, alternative: rep.alternative, res }, text: { en: `${rep.from} declined (${rep.reason})`, ja: `${rep.from} が断った（${rep.reason}）` } })) {
             // Each further decline by the same party for the same good doubles the wait before asking it again (up to a game day).
-            const times = m.all().filter(e => e.kind === 'declined' && e.entities.includes(rep.from) && e.facts.res === res).length;
-            const wait = Math.min(BELLS_PER_DAY, L.requestCooldownBells * 2 ** (times - 1));
-            this.state.cooldown[`${rep.from}|${res}`] = Math.max(this.state.cooldown[`${rep.from}|${res}`] ?? 0, bell + wait);
+            const who = w(rep.from);
+            const times = m.all().filter(e => e.kind === 'declined' && e.facts.res === res && e.entities.some(x => (this.state.aliases[x] ?? x) === who)).length;
+            cool(who, res, Math.min(BELLS_PER_DAY, L.requestCooldownBells * 2 ** (times - 1)));
           }
         }
       } else if (r.by === me && r.status === 'fulfilled') {
-        add({ id: `delivered:${r.id}`, kind: 'delivered', importance: 2, entities: [r.from], facts: { request: r.id }, text: { en: `I delivered to ${r.from}`, ja: `${r.from} に届けた` } });
-        if (r.returned === 'returned') add({ id: `returned:${r.id}`, kind: 'returned', importance: 3, entities: [r.from], facts: { request: r.id }, text: { en: `${r.from} paid back`, ja: `${r.from} が約束の品を返した` } });
-        if (r.returned === 'not-returned') add({ id: `broken:${r.id}`, kind: 'broken', importance: 6, entities: [r.from], facts: { request: r.id }, text: { en: `${r.from} did not pay back`, ja: `${r.from} は約束の品を返さなかった` } });
+        add({ id: `delivered:${r.id}`, kind: 'delivered', importance: 2, entities: [w(r.from)], facts: { request: r.id, to: r.from }, text: { en: `I delivered to ${r.from}`, ja: `${r.from} に届けた` } });
+        if (r.returned === 'returned' || r.returned === 'returned-late') add({ id: `returned:${r.id}`, kind: 'returned', importance: 3, entities: [w(r.from)], facts: { request: r.id, late: r.returned === 'returned-late' }, text: { en: `${r.from} paid back${r.returned === 'returned-late' ? ' (late)' : ''}`, ja: `${r.from} が約束の品を返した${r.returned === 'returned-late' ? '（遅れて）' : ''}` } });
+        if (r.returned === 'not-returned') add({ id: `broken:${r.id}`, kind: 'broken', importance: 6, entities: [w(r.from)], facts: { request: r.id }, text: { en: `${r.from} did not pay back`, ja: `${r.from} は約束の品を返さなかった` } });
       } else if (r.by === me && r.status === 'lapsed') {
-        add({ id: `failed:${r.id}`, kind: 'failed', importance: 4, entities: [r.from], facts: { request: r.id }, text: { en: `I did not deliver to ${r.from} in time`, ja: `${r.from} への納期に遅れた` } });
+        add({ id: `failed:${r.id}`, kind: 'failed', importance: 4, entities: [w(r.from)], facts: { request: r.id }, text: { en: `I did not deliver to ${r.from} in time`, ja: `${r.from} への納期に遅れた` } });
       }
     }
     for (const e of obs.world.events) {
-      if (e.kind === 'CaravanRaided' && e.owner === me) add({ id: `raided:${e.caravan}`, kind: 'raided', importance: 5, entities: [e.dst, `route:${e.src}>${e.dst}`], facts: { caravan: e.caravan, goods: e.goods }, text: { en: `my caravan to ${e.dst} was raided`, ja: `${e.dst} への隊商が襲われた` } });
-      if (e.kind === 'Failed' && e.citizen === me) add({ id: `failed:${e.signature}`, kind: 'failed', importance: 3, entities: [me], facts: { code: e.code, action: e.action }, text: { en: `${e.action} failed: ${e.code}`, ja: `${e.action} が失敗した：${e.code}` } });
-      if (e.kind === 'BuildDone' && e.citizen === me) add({ id: `built:${e.seq}`, kind: 'built', importance: 1, entities: [me], facts: { item: e.item }, text: { en: `building ${e.item} finished`, ja: `建物 ${e.item} が完成した` } });
+      if (e.kind === 'CaravanRaided' && e.owner === me) add({ id: `raided:${e.caravan}`, kind: 'raided', importance: 5, entities: [w(e.dst), `route:${this.address}>${w(e.dst)}`], facts: { caravan: e.caravan, goods: e.goods, dst: e.dst }, text: { en: `my caravan to ${e.dst} was raided`, ja: `${e.dst} への隊商が襲われた` } });
+      if (e.kind === 'Failed' && e.citizen === me) add({ id: `failed:${e.signature}`, kind: 'failed', importance: 3, entities: [this.address], facts: { code: e.code, action: e.action }, text: { en: `${e.action} failed: ${e.code}`, ja: `${e.action} が失敗した：${e.code}` } });
+      if (e.kind === 'BuildDone' && e.citizen === me) add({ id: `built:${e.seq}`, kind: 'built', importance: 1, entities: [this.address], facts: { item: e.item }, text: { en: `building ${e.item} finished`, ja: `建物 ${e.item} が完成した` } });
     }
     return n;
   }
 
   // ------------------------------------------------------------------ duties
 
-  /** Promises are kept by code, not by the model: the goods offered for a fulfilled request are sent back. */
+  /**
+   * Promises are kept by code, not by the model: the goods offered for a fulfilled request are sent back, late
+   * if the resident was paused past the window (a debt is not cancelled by time or by a stop).
+   */
   async #duties(obs, bell) {
     const me = this.state.citizen;
     const done = [];
     for (const r of obs.board.requests) {
-      if (r.from !== me || r.status !== 'fulfilled' || r.returned !== 'due' || this.state.returns[r.id]) continue;
+      if (r.from !== me || r.status !== 'fulfilled' || !['due', 'not-returned'].includes(r.returned) || this.state.returns[r.id]) continue;
       const key = `${this.id}:return:${r.id}`;
-      this.state.returns[r.id] = key;
+      this.state.returns[r.id] = { key, bell };
       this.#today(bell).actions += 1;
       this.#intent(key, { port: 'action', turn: this.state.turn, purpose: { type: 'return', request: r.id }, action: { name: 'SendCaravan', fields: { to: r.by, goods: r.offer } } });
       this.save();
@@ -371,7 +500,7 @@ export class Resident {
     const me = this.state.citizen;
     const village = obs.world.villages.find(v => v.citizen === me);
     const goal = GOALS[this.charter.goal];
-    const mem = this.ports.memory.recall({ focus: [me, ...cands.flatMap(c => (c.act.to ? [c.act.to] : []))], bell });
+    const mem = this.ports.memory.recall({ focus: [this.address, ...cands.flatMap(c => (c.act.to ? [this.#who(c.act.to)] : []))], bell });
     const handles = mem.map((_, i) => `M${i + 1}`);
     const inbox = obs.board.requests.filter(r => cands.some(c => c.act.request === r.id));
     const user = [
@@ -397,11 +526,13 @@ export class Resident {
     const st = this.state;
     const turn = st.turn + 1;
     const goal = GOALS[this.charter.goal];
-    const siblings = new Set(obs.world.villages.filter(v => this.charter.siblings.includes(v.owner)).map(v => v.citizen));
+    const siblings = new Set(this.charter.siblings);
+    const ti = this.#trustIndex();
     const today = this.#today(bell);
     const built = buildCandidates({
       me: st.citizen, bell, world: obs.world, board: obs.board, goal, memory: this.ports.memory, limits: this.charter.limits,
       today, siblings, cooldown: st.cooldown, mine: { accepted: new Set(Object.keys(st.accepted)) },
+      who: c => this.#who(c), trust: ti.trust, raided: ti.raided,
     });
     const { excluded, assessment } = built;
     // The same action is never chosen while an earlier one is still on its way, nor straight after it failed.
@@ -449,7 +580,7 @@ export class Resident {
       d.by = 'fallback';
     }
     const c = candidates.find(x => x.id === choice);
-    Object.assign(d, { choice, kind: c.kind, act: c.act, siblingTrade: Boolean(c.act.to && siblings.has(c.act.to)) });
+    Object.assign(d, { choice, kind: c.kind, act: c.act, siblingTrade: Boolean(c.act.to && siblings.has(this.#who(c.act.to))) });
     return d;
   }
 
@@ -473,7 +604,7 @@ export class Resident {
         keys.push(k(1), k(2));
         this.#intent(k(1), { port: 'board', turn: t, purpose: { type: 'accept', request: d.act.request }, body: { kind: 'reply', re: d.act.request, decision: 'accept', note: d.reason ?? '' } });
         this.#intent(k(2), { port: 'action', turn: t, after: k(1), purpose: { type: 'deliver', request: d.act.request }, action: { name: 'SendCaravan', fields: { to: d.act.to, goods: d.act.goods } } });
-        this.state.accepted[d.act.request] = t;
+        this.state.accepted[d.act.request] = { turn: t, bell };
         const units = Object.values(d.act.goods).reduce((s, v) => s + v, 0);
         today.messages += 1; today.actions += 1; today.giveAway += units;
         if (d.act.gift) today.gifts += units;

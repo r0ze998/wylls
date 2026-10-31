@@ -8,7 +8,6 @@
 // earliest deadline that would work is given).
 import { CARAVAN_FEE, caravanBells } from '../world/rules.mjs';
 import { assess } from './goals.mjs';
-import { trustOf } from './ports/memory.mjs';
 import { wouldCloseGiftCycle } from './safety.mjs';
 
 const sum = g => Object.values(g).reduce((s, v) => s + v, 0);
@@ -16,15 +15,20 @@ const sum = g => Object.values(g).reduce((s, v) => s + v, 0);
 const round10 = n => Math.max(40, Math.ceil(n / 10) * 10);
 export const MIN_TRUST = -1;
 
-/** A caravan of mine on the road to `to` was raided recently (twice the request cooldown). */
-export const raidedRoad = (memory, me, to, bell, limits) => memory.all().some(e => e.kind === 'raided' && e.entities.includes(`route:${me}>${to}`) && bell - e.bell < 2 * limits.requestCooldownBells);
-
 /**
- * @param ctx {me, bell, world (view), board (view), goal, memory, limits, today (counters), siblings: Set, cooldown: {[key]: bell}, mine: {accepted: Set}}
+ * Counterparties are named by their wallet address everywhere a resident
+ * remembers them (trust, cooldowns, raided roads, siblings): an address
+ * outlives any world-local id, so nothing a resident learned is tied to the
+ * life of one id space. `ctx.who(citizen)` gives a village's address.
+ *
+ * @param ctx {me, bell, world (view), board (view), goal, limits, today (counters), siblings: Set<address>,
+ *             cooldown: {[address|res]: bell}, mine: {accepted: Set}, who(citizen) → address,
+ *             trust(address) → number, raided(address) → bell of the last raid on my road to it, or null}
  * @returns {{candidates, excluded, assessment}}
  */
 export function buildCandidates(ctx) {
-  const { me, bell, world, board, goal, memory, limits, today, siblings } = ctx;
+  const { me, bell, world, board, goal, limits, today, siblings, who, trust } = ctx;
+  const raidedRoad = to => { const b = ctx.raided(to); return b != null && bell - b < 2 * limits.requestCooldownBells; };
   const village = world.villages.find(v => v.citizen === me);
   const a = assess(village, goal);
   const villages = new Map(world.villages.map(v => [v.citizen, v]));
@@ -54,8 +58,8 @@ export function buildCandidates(ctx) {
     if (growthWhy > 0 || useWhy > 0) {
       // A target: the most trusted holder with the most of it in public stores, not cooling down; else open to all.
       const holders = world.villages
-        .filter(v => v.citizen !== me && v.stores[res] >= want[res] * 2 && trustOf(memory, v.citizen) >= 0 && !(ctx.cooldown[`${v.citizen}|${res}`] > bell))
-        .sort((x, y) => trustOf(memory, y.citizen) - trustOf(memory, x.citizen) || y.stores[res] - x.stores[res] || (x.citizen < y.citizen ? -1 : 1));
+        .filter(v => v.citizen !== me && v.stores[res] >= want[res] * 2 && trust(v.owner) >= 0 && !(ctx.cooldown[`${v.owner}|${res}`] > bell))
+        .sort((x, y) => trust(y.owner) - trust(x.owner) || y.stores[res] - x.stores[res] || (x.owner < y.owner ? -1 : 1));
       const to = holders[0]?.citizen ?? null;
       const travel = to ? caravanBells(villages.get(to).pos, village.pos) : 6;
       const deadlineBell = bell + Math.max(18, travel + 8);
@@ -77,12 +81,12 @@ export function buildCandidates(ctx) {
     const gift = Object.keys(r.offer).length === 0;
     const offerHelps = Object.entries(r.offer).some(([n, v]) => a.shortfall[n] && v > 0);
     const travel = caravanBells(village.pos, from.pos);
-    const sibling = siblings.has(r.from);
+    const sibling = siblings.has(who(r.from));
     let reason = null, why = '';
     if (Object.entries(r.want).some(([n, v]) => (a.idle[n] ?? 0) < v)) { reason = 'goal'; why = 'my own plan needs it'; }
     else if (bell + 1 + travel > r.deadlineBell) { reason = 'deadline'; why = `the road takes ${travel} bells`; }
-    else if (trustOf(memory, r.from) < MIN_TRUST) { reason = 'trust'; why = 'an earlier promise was not kept'; }
-    else if (raidedRoad(memory, me, r.from, bell, limits)) { reason = 'route'; why = 'my last caravan on this road was raided'; }
+    else if (trust(who(r.from)) < MIN_TRUST) { reason = 'trust'; why = 'an earlier promise was not kept'; }
+    else if (raidedRoad(who(r.from))) { reason = 'route'; why = 'my last caravan on this road was raided'; }
     else if (sibling && (gift || sum(r.offer) < want)) { reason = 'terms'; why = 'same owner: only even trades'; }
     else if (sibling && today.sibling + want > limits.siblingPerDay) { reason = 'limit'; why = 'same-owner trade limit for today'; }
     else if (gift && wouldCloseGiftCycle(board.requests, bell, me, r.from)) { reason = 'limit'; why = 'the gift would come back round'; }

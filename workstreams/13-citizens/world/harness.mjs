@@ -25,7 +25,8 @@ export function openWorld(dir) {
 /** The ports a participant gets: nothing but its own key's view, actions and posts. */
 export function portsFor(world, board, keypair) {
   return {
-    observe: async () => ({ world: world.view(addressOf(keypair)), board: board.view() }),
+    // `since`: {events: last event sequence read, boardBell: requests changed since this bell}; without it, everything.
+    observe: async (_, since = {}) => ({ world: world.view(addressOf(keypair), { since: since.events ?? 0 }), board: board.view({ sinceBell: since.boardBell ?? 0 }) }),
     join: async record => world.join(record),
     execution: testWorldExecution(world, keypair),
     board: testWorldBoard(board, keypair),

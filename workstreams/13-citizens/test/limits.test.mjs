@@ -44,30 +44,44 @@ test('a late or invalid provider is charged, refused, and paused after three fai
   }
 });
 
-test('the owner stops it with a signed command; another key or a replay cannot; sent actions are not rolled back, unsent ones are withdrawn', async () => {
+test('the owner stops it with a signed command; another key or a replay cannot; a stop pauses: nothing sent is rolled back, nothing waiting is lost', async () => {
   const env = await one();
-  await run(env, 2);
   const ren = env.rs.ren;
+  // Its first build is refused once for a passing reason, so it waits in the journal to be retried.
+  const real = ren.ports.execution;
+  let refuse = 1;
+  ren.ports.execution = { ...real, submit: async req => (refuse-- > 0 ? { ok: false, status: 'refused', error: { code: 'QuotaExceeded', message: 'test' } } : real.submit(req)) };
+  await run(env, 1);
+  const waiting = Object.values(ren.state.journal).find(j => j.state === 'intended');
+  assert.ok(waiting, 'a build waits for its retry');
   const stranger = newKeypair();
   const bad = modeCmd(stranger, 'manual');
   assert.throws(() => ren.command({ command: bad, signature: signCommand(bad, stranger) }), /NotOwner/);
   const cmd = modeCmd(env.operator.keypair, 'manual');
   const sig = signCommand(cmd, env.operator.keypair);
-  // A sent action that has not landed yet is withdrawn at the stop.
-  const sent = Object.values(ren.state.journal).filter(j => j.state === 'sent');
   ren.command({ command: cmd, signature: sig });
   assert.throws(() => ren.command({ command: cmd, signature: sig }), /already used/);
-  const res = await ren.step();
-  assert.equal(res.stopped, 'stopped-by-owner');
-  for (const j of sent) assert.equal(ren.state.journal[j.key].state, 'cancelled');
   const before = decisionsOf(ren).length;
   await run(env, 20);
+  assert.equal((await ren.step()).stopped, 'stopped-by-owner');
   assert.equal(decisionsOf(ren).length, before, 'no decision while stopped');
-  // The owner starts it again.
+  assert.equal(ren.state.journal[waiting.key].state, 'intended', 'paused, not cancelled, not sent');
+  assert.equal(env.world.s.events.filter(e => e.kind === 'BuildStarted').length, 0);
+  // The owner starts it again: the waiting build goes out, then it decides again.
   const on = modeCmd(env.operator.keypair, 'auto');
   ren.command({ command: on, signature: signCommand(on, env.operator.keypair) });
   await run(env, 10);
+  assert.ok(['sent', 'landed'].includes(ren.state.journal[waiting.key].state));
   assert.ok(decisionsOf(ren).length > before);
+  // An explicit withdrawal at a stop drops unsent work that promises nothing to anyone.
+  refuse = 1;
+  let next = null;
+  for (let i = 0; i < 60 && !next; i++) { await run(env, 1); next = Object.values(ren.state.journal).find(j => j.state === 'intended'); }
+  assert.ok(next, 'a second build waits for its retry');
+  const off = { ...modeCmd(env.operator.keypair, 'manual'), params: { mode: 'manual', withdraw: true } };
+  const out = ren.command({ command: off, signature: signCommand(off, env.operator.keypair) });
+  assert.deepEqual(out.withdrawn, [next.key]);
+  assert.equal(ren.state.journal[next.key].state, 'cancelled');
 });
 
 test('the operator\'s halt file stops it; maxTurns ends it', async () => {

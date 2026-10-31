@@ -17,7 +17,7 @@
     "residents": {
       "asa": {
         "citizen": "c3",
-        "address": "HUQasChBaoYVcJ2RPaZMSafpWfaBmMcB7famYNEbaPbB",
+        "address": "6FQmU2xRj1M27wABABeKA22shTMLwjymtwC4bbhBEkJ8",
         "goal": "village-first",
         "owner": "test-operator",
         "funder": "test-operator",
@@ -66,7 +66,7 @@
       },
       "ren": {
         "citizen": "c4",
-        "address": "AHHj1nWcMhG39eTJwQ2B8HB89G5rQvQE8Yw1aDxZroHJ",
+        "address": "9f9anA5N1GsUQW73A2hR6zLndZ2fQ24WNAiVhMGBEtp8",
         "goal": "surplus-use",
         "owner": "test-operator",
         "funder": "test-operator",
@@ -128,7 +128,7 @@
     "board": {
       "requests": [
         {
-          "id": "93e7c11a2a1c3837",
+          "id": "1a4f728bd961fa1f",
           "from": "Kou",
           "to": "Asa",
           "want": {
@@ -143,7 +143,7 @@
           "reopened": false
         },
         {
-          "id": "7e17592231a57a18",
+          "id": "7e467fc5383c05d2",
           "from": "Ren",
           "to": "Kou",
           "want": {
@@ -158,7 +158,7 @@
           "reopened": false
         },
         {
-          "id": "6931553abd0f17a0",
+          "id": "257c8b5c4e8f0e32",
           "from": "Kou",
           "to": "Ren",
           "want": {
@@ -173,7 +173,7 @@
           "reopened": false
         },
         {
-          "id": "cfbb3452673eed34",
+          "id": "3336c847655fb21d",
           "from": "Ren",
           "to": "Mio",
           "want": {
@@ -188,7 +188,7 @@
           "reopened": false
         },
         {
-          "id": "cfa1f383f96bd8c1",
+          "id": "dfdea075e952b09e",
           "from": "Ren",
           "to": "Asa",
           "want": {
@@ -203,7 +203,7 @@
           "reopened": false
         },
         {
-          "id": "ac65485d84b9e6c9",
+          "id": "5f2d6af4c2027692",
           "from": "Kou",
           "to": "Ren",
           "want": {
@@ -216,7 +216,7 @@
           "reopened": false
         },
         {
-          "id": "e2e6cc5206f741f7",
+          "id": "7ff38ccbd00ba0c5",
           "from": "Asa",
           "to": "Kou",
           "want": {
@@ -231,7 +231,7 @@
           "reopened": false
         },
         {
-          "id": "2c5c1770b1540ded",
+          "id": "68b63b682bf89654",
           "from": "Ren",
           "to": "Kou",
           "want": {
@@ -246,7 +246,7 @@
           "reopened": false
         },
         {
-          "id": "0df53c205468e47a",
+          "id": "96f3997df1b8b281",
           "from": "Asa",
           "to": "Kou",
           "want": {
@@ -261,7 +261,7 @@
           "reopened": false
         },
         {
-          "id": "5b1edfc390c43a29",
+          "id": "8bcdcfcdc08446fb",
           "from": "Ren",
           "to": "Asa",
           "want": {
@@ -285,7 +285,7 @@
       "declines": [
         {
           "bell": 6,
-          "request": "93e7c11a2a1c3837",
+          "request": "1a4f728bd961fa1f",
           "reason": "goal",
           "why": "my own plan needs it",
           "alternative": {
@@ -301,7 +301,7 @@
         },
         {
           "bell": 58,
-          "request": "cfa1f383f96bd8c1",
+          "request": "dfdea075e952b09e",
           "reason": "goal",
           "why": "my own plan needs it",
           "alternative": {
@@ -317,7 +317,7 @@
         },
         {
           "bell": 112,
-          "request": "5b1edfc390c43a29",
+          "request": "8bcdcfcdc08446fb",
           "reason": "goal",
           "why": "my own plan needs it",
           "alternative": {
@@ -335,31 +335,31 @@
       "excludedOffers": [
         {
           "bell": 6,
-          "request": "93e7c11a2a1c3837",
+          "request": "1a4f728bd961fa1f",
           "reason": "goal",
           "why": "my own plan needs it"
         },
         {
           "bell": 15,
-          "request": "6931553abd0f17a0",
+          "request": "257c8b5c4e8f0e32",
           "reason": "deadline",
           "why": "the road takes 2 bells"
         },
         {
           "bell": 55,
-          "request": "cfa1f383f96bd8c1",
+          "request": "dfdea075e952b09e",
           "reason": "goal",
           "why": "my own plan needs it"
         },
         {
           "bell": 64,
-          "request": "ac65485d84b9e6c9",
+          "request": "5f2d6af4c2027692",
           "reason": "budget",
           "why": "a gift of 200 is over what I may give today (150)"
         },
         {
           "bell": 112,
-          "request": "5b1edfc390c43a29",
+          "request": "8bcdcfcdc08446fb",
           "reason": "goal",
           "why": "my own plan needs it"
         }
@@ -384,7 +384,7 @@
       "declines": [
         {
           "bell": 14,
-          "request": "6931553abd0f17a0",
+          "request": "257c8b5c4e8f0e32",
           "reason": "deadline",
           "why": "the road takes 1 bells",
           "alternative": {
@@ -398,7 +398,7 @@
         },
         {
           "bell": 63,
-          "request": "ac65485d84b9e6c9",
+          "request": "5f2d6af4c2027692",
           "reason": "budget",
           "why": "a gift of 200 is over what I may give today (150)",
           "alternative": {
@@ -414,13 +414,13 @@
       "excludedOffers": [
         {
           "bell": 14,
-          "request": "6931553abd0f17a0",
+          "request": "257c8b5c4e8f0e32",
           "reason": "deadline",
           "why": "the road takes 1 bells"
         },
         {
           "bell": 60,
-          "request": "ac65485d84b9e6c9",
+          "request": "5f2d6af4c2027692",
           "reason": "budget",
           "why": "a gift of 200 is over what I may give today (150)"
         }

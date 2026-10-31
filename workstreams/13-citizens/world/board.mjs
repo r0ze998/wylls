@@ -38,9 +38,32 @@ export class Board {
   constructor(world, state = null) {
     this.world = world;
     this.s = state ?? { posts: [], counts: {} };
+    // Indices over the posts and the world's caravan events, rebuilt from the saved posts on open and kept up
+    // incrementally, so reading the board costs what changed, not the whole history.
+    this.ix = { byId: new Map(), replies: new Map(), requests: [], seq: 0, departs: new Map(), arrivals: new Map(), final: new Map() };
+    for (const p of this.s.posts) this.#index(p);
   }
 
   toJSON() { return this.s; }
+
+  #index(p) {
+    this.ix.byId.set(p.id, p);
+    if (p.kind === 'request') this.ix.requests.push(p);
+    else { if (!this.ix.replies.has(p.re)) this.ix.replies.set(p.re, []); this.ix.replies.get(p.re).push(p); }
+  }
+
+  #syncEvents() {
+    const ev = this.world.s.events;
+    // Events are appended with increasing seq; read only the new ones.
+    let i = ev.length;
+    while (i > 0 && ev[i - 1].seq > this.ix.seq) i--;
+    for (; i < ev.length; i++) {
+      const e = ev[i];
+      if (e.kind === 'CaravanDeparted') this.ix.departs.set(e.caravan, e.bell);
+      if (e.kind === 'CaravanArrived') { const k = `${e.src}>${e.dst}`; if (!this.ix.arrivals.has(k)) this.ix.arrivals.set(k, []); this.ix.arrivals.get(k).push(e); }
+      this.ix.seq = e.seq;
+    }
+  }
 
   /** Posts a signed record; returns its id or throws BoardError. */
   post({ body, sig }) {
@@ -49,7 +72,7 @@ export class Board {
     if (!verifyRecord(BOARD_DOMAIN, body, sig, base58decode(body.from))) throw new BoardError('BadSignature', 'not signed by the sender');
     const bell = this.world.bell;
     const id = id16(JSON.stringify([body, sig]));
-    if (this.s.posts.some(p => p.id === id)) return id;
+    if (this.ix.byId.has(id)) return id;
     const c = this.s.counts[citizen] ??= { bell: -1, inBell: 0, day: -1, inDay: 0 };
     if (c.bell !== bell) { c.bell = bell; c.inBell = 0; }
     const day = Math.floor(bell / BELLS_PER_DAY);
@@ -66,10 +89,10 @@ export class Board {
       if (this.requests({ status: 'open' }).filter(r => r.from === citizen).length >= OPEN_PER_SENDER) throw new BoardError('TooManyOpen', 'open request limit');
       rec = { id, kind: 'request', from: citizen, to: body.to ?? null, want: body.want, offer: body.offer ?? {}, deadlineBell: body.deadlineBell, openIfDeclined: body.openIfDeclined !== false, note, bell };
     } else if (body.kind === 'reply') {
-      const req = this.s.posts.find(p => p.kind === 'request' && p.id === body.re);
-      if (!req) throw new BoardError('BadRequest', 'reply to no request');
+      const req = this.ix.byId.get(body.re);
+      if (!req || req.kind !== 'request') throw new BoardError('BadRequest', 'reply to no request');
       if (req.from === citizen) throw new BoardError('BadRequest', 'a reply to one\'s own request');
-      if (this.s.posts.some(p => p.kind === 'reply' && p.re === req.id && p.from === citizen)) throw new BoardError('AlreadyReplied', 'one reply per request');
+      if ((this.ix.replies.get(req.id) ?? []).some(p => p.from === citizen)) throw new BoardError('AlreadyReplied', 'one reply per request');
       const st = this.statusOf(req);
       if (body.decision === 'accept') {
         if (st.status !== 'open') throw new BoardError('NotOpen', `request is ${st.status}`);
@@ -83,6 +106,7 @@ export class Board {
     } else throw new BoardError('BadRequest', 'unknown kind');
     c.inBell += 1; c.inDay += 1;
     this.s.posts.push(rec);
+    this.#index(rec);
     return id;
   }
 
@@ -92,43 +116,55 @@ export class Board {
    * claimant's caravan carrying `want` arrived by the deadline), returned
    * (the offer came back within RETURN_BELLS), lapsed (claimed, not
    * delivered in time), expired (never claimed), declined (addressee said no,
-   * not reopened).
+   * not reopened). `changedBell` is the last bell at which the state moved;
+   * `final` says it never will again (and the answer is kept).
    */
   statusOf(req) {
+    const cached = this.ix.final.get(req.id);
+    if (cached) return cached;
+    this.#syncEvents();
     const bell = this.world.bell;
-    const replies = this.s.posts.filter(p => p.kind === 'reply' && p.re === req.id);
+    const replies = this.ix.replies.get(req.id) ?? [];
+    const lastReply = replies.reduce((b, p) => Math.max(b, p.bell), req.bell);
     const accept = replies.find(p => p.decision === 'accept');
-    const declinedByTo = req.to != null && replies.some(p => p.decision === 'decline' && p.from === req.to);
-    const ev = this.world.s.events;
-    const departs = new Map(ev.filter(e => e.kind === 'CaravanDeparted').map(e => [e.caravan, e]));
-    const arrivals = (from, to, after, until) => ev.filter(e => e.kind === 'CaravanArrived' && e.src === from && e.dst === to && e.bell <= until && (departs.get(e.caravan)?.bell ?? -1) >= after);
+    const decline = req.to != null ? replies.find(p => p.decision === 'decline' && p.from === req.to) : null;
+    const arrivals = (from, to, after, until) => (this.ix.arrivals.get(`${from}>${to}`) ?? []).filter(e => e.bell <= until && (this.ix.departs.get(e.caravan) ?? -1) >= after);
+    const keep = out => { if (out.final) this.ix.final.set(req.id, out); return out; };
     if (accept) {
       const got = arrivals(accept.from, req.from, accept.bell, req.deadlineBell).find(e => covers(e.goods, req.want));
       if (got) {
         const hasOffer = Object.keys(req.offer).length > 0;
-        const back = hasOffer ? arrivals(req.from, accept.from, accept.bell, got.bell + RETURN_BELLS).find(e => covers(e.goods, req.offer)) : null;
-        const returned = !hasOffer ? 'none-promised' : back ? 'returned' : bell > got.bell + RETURN_BELLS ? 'not-returned' : 'due';
-        return { status: 'fulfilled', by: accept.from, claimBell: accept.bell, deliveredBell: got.bell, caravan: got.caravan, returned, openTo: [] };
+        // A return that comes after the window is still a return ('returned-late'): a debt is never closed by time
+        // alone, so 'not-returned' stays open (and visible) until it is paid.
+        const back = hasOffer ? arrivals(req.from, accept.from, accept.bell, Infinity).find(e => covers(e.goods, req.offer)) : null;
+        const inTime = back && back.bell <= got.bell + RETURN_BELLS;
+        const returned = !hasOffer ? 'none-promised' : inTime ? 'returned' : back ? 'returned-late' : bell > got.bell + RETURN_BELLS ? 'not-returned' : 'due';
+        const changedBell = back ? back.bell : returned === 'not-returned' ? got.bell + RETURN_BELLS + 1 : got.bell;
+        return keep({ status: 'fulfilled', by: accept.from, claimBell: accept.bell, deliveredBell: got.bell, caravan: got.caravan, returned, openTo: [], changedBell, final: ['none-promised', 'returned', 'returned-late'].includes(returned) });
       }
-      if (bell > req.deadlineBell) return { status: 'lapsed', by: accept.from, claimBell: accept.bell, openTo: [] };
-      return { status: 'claimed', by: accept.from, claimBell: accept.bell, openTo: [] };
+      if (bell > req.deadlineBell) return keep({ status: 'lapsed', by: accept.from, claimBell: accept.bell, openTo: [], changedBell: req.deadlineBell + 1, final: true });
+      return { status: 'claimed', by: accept.from, claimBell: accept.bell, openTo: [], changedBell: lastReply, final: false };
     }
-    if (bell > req.deadlineBell) return { status: 'expired', openTo: [] };
-    if (req.to == null) return { status: 'open', openTo: ['*'] };
-    if (!declinedByTo) return { status: 'open', openTo: [req.to] };
-    if (req.openIfDeclined) return { status: 'open', openTo: ['*'], reopened: true };
-    return { status: 'declined', openTo: [] };
+    if (bell > req.deadlineBell) return keep({ status: 'expired', openTo: [], changedBell: req.deadlineBell + 1, final: true });
+    if (req.to == null) return { status: 'open', openTo: ['*'], changedBell: lastReply, final: false };
+    if (!decline) return { status: 'open', openTo: [req.to], changedBell: lastReply, final: false };
+    if (req.openIfDeclined) return { status: 'open', openTo: ['*'], reopened: true, changedBell: lastReply, final: false };
+    return keep({ status: 'declined', openTo: [], changedBell: decline.bell, final: true });
   }
 
   /** Every request with its derived state (filter by status), oldest first; public. */
   requests({ status = null } = {}) {
-    return this.s.posts.filter(p => p.kind === 'request').map(r => ({ ...r, ...this.statusOf(r) })).filter(r => !status || r.status === status);
+    return this.ix.requests.map(r => ({ ...r, ...this.statusOf(r) })).filter(r => !status || r.status === status);
   }
 
-  replies(reqId) { return this.s.posts.filter(p => p.kind === 'reply' && p.re === reqId); }
+  replies(reqId) { return [...(this.ix.replies.get(reqId) ?? [])]; }
 
-  /** The board as every participant reads it. */
-  view() {
-    return structuredClone({ requests: this.requests(), replies: this.s.posts.filter(p => p.kind === 'reply') });
+  /**
+   * The board as every participant reads it. With `sinceBell`, only requests still moving or changed since then
+   * (and their replies): the same for every reader, and bounded by recent activity, not by the board's age.
+   */
+  view({ sinceBell = 0 } = {}) {
+    const requests = this.requests().filter(r => !r.final || r.changedBell >= sinceBell || r.bell >= sinceBell);
+    return structuredClone({ requests, replies: requests.flatMap(r => this.ix.replies.get(r.id) ?? []) });
   }
 }

@@ -36,6 +36,10 @@ export class TestWorld {
     this.operator = Object.freeze({
       tick: (n = 1) => { for (let i = 0; i < n; i++) this.#tick(); },
       raidRoute: (fromCitizen, toCitizen, { fromBell = 0, toBell = Infinity } = {}) => this.s.raids.push({ from: fromCitizen, to: toCitizen, fromBell, toBell: toBell === Infinity ? null : toBell }),
+      // A TEST FIXTURE, not a model of war periods: a public marker that a boundary passed, with no rule attached.
+      // How periods are cut and what they count is undecided and belongs to workstreams 4 and 8; this only lets
+      // the tests put a boundary in the middle of running work and show that nothing here depends on it.
+      markBoundary: label => this.#event({ kind: 'BoundaryMarker', label: String(label), fixture: true }),
     });
   }
 
@@ -85,7 +89,8 @@ export class TestWorld {
         buildings: [...v.buildings], building: v.building.map(b => ({ item: b.item, doneBell: b.doneBell })),
       })),
       caravans: this.s.caravans.filter(k => k.state === 'road').map(k => ({ id: k.id, owner: k.owner, src: k.src, dst: k.dst, goods: k.goods, departBell: k.departBell, arriveBell: k.arriveBell })),
-      events: this.s.events.filter(e => e.seq > since),
+      // Events are numbered 1, 2, … in order, so `since` is an index: a reader pays for what is new.
+      events: this.s.events.slice(Math.max(0, Math.min(since, this.s.events.length))),
       me: c ? {
         citizen: c.id, quota: { bucket: this.#bucketNow(c), relayLeft: this.#relayLeft(c), lamportsLeft: SPONSOR_LAMPORTS_PER_DAY - this.#relayNow(c).lamports },
         pending: this.s.queue.filter(q => q.actor === c.id).map(q => ({ key: q.key.slice(q.key.indexOf(':') + 1), name: q.action.name })),
