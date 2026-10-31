@@ -1,1 +1,3 @@
 dist/
+inbox/*.tar.gz
+inbox/*.bundle
