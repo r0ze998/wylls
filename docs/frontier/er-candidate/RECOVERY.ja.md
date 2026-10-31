@@ -1,0 +1,140 @@
+# 障害と復旧（⑲、候補・未採用）
+
+2026-10-31。対象は委任候補の「板」（[DESIGN.ja.md](DESIGN.ja.md)）と、公開 RPC からの取得（findex）です。**原則として、障害時に L1 へ自動で書き始めません。** 判断は調停器（`frontier-er/src/guard.rs`）が出します。判断は 4 つだけです。
+
+- **Base**：base に書く。
+- **Er**：ER に書く。
+- **Hold**：誰も書かず待つ。
+- **Stop**：誰も書かず人が見る。
+
+脱出（RequestUndelegation → 9,000 slot → ロールバック）は、調停器が「可能になった」と知らせるだけです。実行は人が判断します。
+
+## 1. 判断の入力（毎回読み直す）
+
+| 入力 | 読み方 | 理由 |
+|---|---|---|
+| base の板の口座 | `finalized` で読む | `confirmed` は巻き戻りうる。委任の有無が判断の根 |
+| 委任記録 `["delegation", 板]`・メタデータ `["delegation-metadata", 板]`（DLP 所有） | `finalized` | 検証者（記録の 8..40）、解除の要求者（メタデータ 16 バイト目：0 なし、1 検証者、2 所有者） |
+| commit の途中 `["state-diff", 板]`・`["commit-state-record", 板]` | 存在するか | CommitState と Finalize の間かどうか |
+| ER 各エンドポイントの `getIdentity` | 毎回 | RPC の切替で、別の検証者に繋がることがある |
+| ER の `getDelegationStatus(板)` | 毎回 | ER が委任を知るまでに遅れがある（再委任の直後に、書込みが「cannot be written」で拒否された。実測） |
+| ER の板の `(seq, head)` | 毎回 | live の版 |
+| 送った要求の記録（journal：要求 ID、積んだ `(seq, head)`） | 再起動をまたいで保存 | 着地の判定と、ER が後退したことの検出 |
+| ER で見た最大の seq（high-water） | 再起動をまたいで保存 | ER が書込みを失ったことを、状態だけで見抜くため（実測、§2.4） |
+
+## 2. 障害ごとの扱い
+
+### 2.1 委任・解除の途中
+
+| 状況 | 見え方 | 判断 | 手順 |
+|---|---|---|---|
+| Delegate の応答が消えた | base：所有者 DLP、記録あり | Er（または ER が複製する前なら Hold NotCloned） | 再送しない（再送してもプログラムが拒否する：所有者がこのプログラムでない） |
+| CommitAndUndelegate を予約した直後 | ER：書込み拒否（`0x8`、実測）。base：まだ DLP | Hold（Undelegating） | 待つ。所有者がこのプログラムに戻ったら Base |
+| CommitState の後、Finalize の前に検証者が落ちた | commit の途中の PDA がある | Hold（CommitInFlight） | 検証者の再開を待つ。base は書かない |
+| 解除が終わらない（検証者は生きている） | 記録あり、要求者が 1 のまま | Hold（Undelegating） | 一定時間を超えたら、§2.3 の脱出を検討する |
+
+### 2.2 commit の応答消失・二重実行
+
+- **commit の再送。** 検証者が同じ commit を送り直しても、委任プログラムは確定済みの nonce を拒否するので、何も起きません（モデル試験 `a_commit_whose_response_was_lost_is_resent_and_ignored`）。
+- **書込みの二重送信。** 同じ要求は二度は効きません。
+  - 同じ blockhash の窓内なら、ランタイムが拒否する（実測）。
+  - 新しい blockhash で送り直しても、板の compare-and-set が `0x5`（Duplicate）で拒否する（実測）。
+  - 古い版に積んだ書込みは `0x4`（StaleSeq）で拒否される。base で確定済みの内容に積んで ER に送った場合も拒否される（実測）。
+- **着地の判定は状態で行う**（`frontier-er/src/outcome.rs`）。
+
+| 判定 | 板の状態 | 意味 |
+|---|---|---|
+| Yes | 積んだ版の次で、最後の要求がこれ | 着地した |
+| NotYet | 積んだ版のまま | 同じ要求を再送してよい |
+| Superseded | 先に進み、最後の要求は別 | ログで確かめる |
+| Behind | 古い | 古いエンドポイントを読んだか、ロールバックで失われた |
+| Orphaned | 同じ seq で別の head | 積んだ版が失われた。二度と効かない |
+
+- **署名の状態から「着地していない」と言える条件**（`absent_by_status`）は、次がすべてそろったときだけです。
+  - `finalized` で読んだ。
+  - 全履歴を探し、ノードの保持範囲が送信 slot を含む。
+  - blockhash が失効済み。
+- **ER 宛ての送信には、署名の状態による「着地していない」を使いません。** ER の履歴保持期間と blockhash の失効は未確認だからです。
+
+### 2.3 ER の停止
+
+| 状況 | 判断 | 手順 |
+|---|---|---|
+| ER に届かない（実測：停止中、base の書込みはプログラムが `0x8` で拒否） | Hold（ErUnreachable）。方針の待ち時間（既定 750 base slot、約 5 分）を超えると `escape_eligible: true` | ①検証者の運営に問い合わせる。②その間 base には書かない。③再開を待つ。実測：同じストレージで再開すると、commit していない版（seq 13）が残り、そのまま解除まで進んだ |
+| 長時間戻らない | 同上 | 人が判断して脱出する（§3） |
+
+### 2.4 ER が書込みを失った（実測）
+
+- **起きたこと。** ローカルで、ER のストレージを消して起動し直しました。ER は base の最後の commit（seq 13）を複製し直し、受け付け済みの書込み 3 件（14〜16）は**黙って消えました**。識別子は同じでした。
+- **状態だけでは見抜けない。** 状態だけを見ると、「live 13・committed 13」の正常なセッションに見えます。
+- **対応 1：調停器が止める。** 調停器は、このセッションで見た最大の seq（16）を覚えています。それより低い ER は `Stop(ErRegressed { seen: 16, now: 13 })` にします（実測）。
+- **対応 2：書き手は Orphaned を知る。** 書込みは `(seq, head)` の両方で compare-and-set します。失われた版に積んでいた書込みは、後で同じ seq に別の内容が来ても効かず、書き手には Orphaned と見えます。
+- **手順。** 人が見ます。
+  - 失われた書込みの一覧は、書き手の journal と ER のログ（保持されていれば）から作ります。
+  - 書き直すかどうかは、用途の規則で決めます。自動で再送はしません。
+- **注意：`--reset` は台帳だけを消す。** ephemeral-validator 1.1.1 の `--reset` は台帳だけを消し、口座データベースは残します（`accountsdb.reset: false`、実測では seq 16 が残った）。運用で「消した」と思っても、状態が残る場合と消える場合があります。
+
+### 2.5 RPC の切替・古い状態の混在
+
+| 状況 | 判断 |
+|---|---|
+| 別の検証者の ER に繋がった | その応答は無視し、警告 ForeignIdentity |
+| 遅れたレプリカしか答えない | Hold（StaleEndpoints） |
+| 遅れたレプリカと最新が混在する | 最新を使い、遅れた方は警告 StaleEndpoint |
+| base の確定版と ER の live が違う | 異常ではない。表示で live と committed を分ける（`Decision::Er { live, committed }`） |
+| 同じ seq で head が違う | Stop（Divergence） |
+| base がこのプログラム所有なのに ER が先に進み、ロールバックの印がない | Stop（UnexplainedErAhead） |
+
+### 2.6 再起動
+
+- **keeper（計画器）は状態を持ちません。** 毎回 base と ER を読み直して次の一手を決めます（`frontier-er/src/plan.rs`）。
+  - 終了を予約した直後に落ちても、新しい keeper は Hold を見て待つ。
+  - 戻った後に一度だけ再委任する。
+  - 二重に委任しようとしても、プログラムが拒否する（モデル試験と LiteSVM）。
+- **書き手は journal（要求 ID と積んだ版）と ER の high-water を保存します。** 起動直後に状態で判定し、NotYet だけを同じ要求で再送します。
+
+### 2.7 権限の取り残し
+
+| 取り残されるもの | 扱い |
+|---|---|
+| 委任したまま検証者が消えた | §3 の脱出で取り戻す。脱出に必要なのは、委任時の家賃支払者（＝世界の authority）の署名と、このプログラムの PDA 署名。authority 鍵を失うと脱出できない（運用上の最大の前提） |
+| 委任記録・メタデータ・要求の PDA | 解除またはロールバックで閉じ、家賃は支払者に戻る。LiteSVM で、ロールバック後に 3 つが閉じたことを確認した |
+| セッション鍵・予算 | この候補は持たない。S1 の Citizen のセッション鍵（期限 30 日以内）は L1 のまま。世界が続くことを理由に期限を延ばさない（⑤） |
+
+## 3. 脱出（人が判断して実行する）
+
+1. **条件を確かめる。**
+   - 調停器が `Hold(ErUnreachable { escape_eligible: true })`、または解除が終わらない状態であること。
+   - ER の運営から復旧の見込みがないことを確かめたこと。
+2. **失うものを記録する。** 最後の commit 以降の ER の書込みは失われます。
+   - 書き手の journal から、該当する要求を一覧にする。
+   - ER のログが読めるなら保存する。
+3. **RequestUndelegation を送る。** authority（＝家賃支払者）の署名が必要です。委任プログラムが、要求の PDA と期限（現在の slot＋9,000）を作ります。
+4. **検証者の応答を待つ。** 検証者が生きていれば、約 5 分ごとに要求を見て、通常の commit＋解除をします。これは失うもののない経路です（モデル試験 `a_request_while_the_validator_is_up_undelegates_normally`）。
+5. **期限後に RollbackAfterTimeout を送る**（誰でもよい）。
+   - このプログラムは、base にある最後の確定内容を保存してから委任プログラムを呼び、返ってきた空の口座にその内容を書き戻します。
+   - 板に「ロールバック済み・その seq」の印を付け、ログ `ERB_ROLLBACK`（world・seq・head）を出します。
+   - LiteSVM で、実物の委任プログラムのバイナリ 3 種（devnet・mainnet・npm 同梱）で確認しました。期限前は拒否され、期限後は所有者が戻り、印が付き、PDA が閉じ、書込みが再開し、再委任もできました。
+6. **後始末。**
+   - ER が後で戻り、古い内容を出しても、調停器は GhostCopy（失われた件数）として無視します。その committor は、もう commit できません（委任記録がない）。
+   - 失った書込みを書き直すかどうかは、用途の規則で決めます。
+
+## 4. keeper・herald・検証器が参照するもの
+
+| 読み手 | 何を正とするか | 証拠 | 確定していないものの扱い |
+|---|---|---|---|
+| keeper（commit・終了・再委任を送る） | 調停器の判断。base は `finalized`、ER は識別子と委任状態を確かめたもの | 委任記録、ER の `(seq, head)`、high-water | Hold・Stop では何も送らない |
+| herald（表示） | 2 つを分けて出す。**committed**（base の finalized の板）と **live**（ER） | committed は base の取引と口座。live は ER の応答 | live は「確定していない」と表示する。ER が後退すれば警告を出す。findex の post-state は `provenance::post_checks` で区別し、Unverified・Delegated を、その取引直後の状態として出さない |
+| 検証器 | base の確定状態と、取引ログの再生 | committed の `(seq, head)` | ER のログを再生して committed の head と一致すれば、「ER の書込みの記録と一致」とする。ER の履歴が取れなければ「未検証」とし、検証済みに昇格させない |
+| 賞金・所有権（⑰・⑩） | 板を読まない | — | 板の状態は決済・所有の判断に入れない |
+
+## 5. 公開 RPC の取得と復旧（findex）
+
+| 問題 | 扱い（コード） |
+|---|---|
+| 履歴の欠落（ノードが刈り込み、最後に保存した署名に届かない） | pull が `Unavailable("history gap …")` で失敗し、何も保存しない（`findex/src/ingest.rs`）。復旧するには、より長い履歴を持つノードに切り替えて同じカーソルから再開する。欠落を受け入れて先へ進む手段は用意しない（受け入れるかは運用の判断で、別の記録が要る） |
+| 取得の途中で後続の更新が来る | `before` で古い方へページングするので、新しい取引は次の pull で取る。毎回、連続性を確かめる |
+| ページング | 既存の、`before` を無視するサーバの検出に加えて、上の連続性の確認 |
+| 確定性 | 現行は `confirmed` で取り、保存すると取り消さない。fork で消えた取引を保存しうる（未対応。④の判断：`finalized` で取るか、`confirmed` の保存に後から確定の印を付けるか） |
+| minContextSlot の口座 | 「その slot 以降のどこかの状態」。`post_checks` が Exact・Unverified・Unchained・Delegated・Foreign・Absent を返す。Exact は、ヘッダの `(seq, head)` がその取引の記録の作ったものと一致するときだけ |
+| v1 取引（実測） | 委任プログラムの解除は、所有プログラムのアドレスの履歴に v1 取引として現れる。fclient は `maxSupportedTransactionVersion: 0` で要求するので、-32015 になり、RpcPoll が毎回そこで止まる。commit の finalize は、委任された口座のアドレスにしか現れない。④への提案は [CONTINUING-WORLD.ja.md](CONTINUING-WORLD.ja.md) §4 |

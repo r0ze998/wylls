@@ -1,0 +1,25 @@
+{"step":"setup","v":{"authority":"67uGCHFLCf8pESfeWhjf8qhznaJo7vgrqAv8SaJmyHMc","base_write_ms":409,"board":"2RAUiKZcqrSivh1M2n2UkLWqeRAMZGaNuAYEwAKSR1AG","validator":"mAGicPQYBMvcYveUZA5F5UNNwyHvfYh5xkLS2Fr1mev"}}
+{"step":"delegated","v":{"er_sees_delegation_ms":7,"obs":{"base":{"owner":"Dlp","pending_commit":false,"record":true,"seq":1},"decision":"Er { endpoint: \"er\", live: 1, committed: 1, alarms: [] }","er":{"reachable":true,"seq":1}}}}
+{"step":"base_write_while_delegated_refused","v":true}
+{"step":"er_writes","v":{"ms":[134,5,3,3,3],"obs":{"base":{"owner":"Dlp","pending_commit":false,"record":true,"seq":1},"decision":"Er { endpoint: \"er\", live: 6, committed: 1, alarms: [] }","er":{"reachable":true,"seq":6}}}}
+{"step":"er_duplicate","v":{"fresh_blockhash":"{\"code\":-32003,\"message\":\"transaction verification error: Error processing Instruction 0: custom program error: 0x5\"}","same_window":"{\"code\":-32003,\"message\":\"transaction verification error: This transaction has already been processed\"}"}}
+{"step":"committed","v":{"ms_to_base":406,"obs":{"base":{"owner":"Dlp","pending_commit":false,"record":true,"seq":6},"decision":"Er { endpoint: \"er\", live: 6, committed: 6, alarms: [] }","er":{"reachable":true,"seq":6}}}}
+{"step":"er_write_after_undelegate_scheduled","v":"{\"code\":-32003,\"message\":\"transaction verification error: Error processing Instruction 0: custom program error: 0x8\"}"}
+{"step":"home","v":{"ms_to_base":406,"obs":{"base":{"owner":"Program","pending_commit":false,"record":false,"seq":9},"decision":"Base { seq: 9, alarms: [] }","er":{"reachable":true,"seq":9}}}}
+{"step":"base_resumes","v":{"base_write_ms":411,"obs":{"base":{"owner":"Program","pending_commit":false,"record":false,"seq":10},"decision":"Base { seq: 10, alarms: [] }","er":{"reachable":true,"seq":10}}}}
+{"step":"er_sees_delegation_ms","v":101}
+{"step":"er_duplicate_fresh_blockhash","v":"{\"code\":-32003,\"message\":\"transaction verification error: Error processing Instruction 0: custom program error: 0x5\"}"}
+{"step":"er_write_built_on_base_copy","v":"{\"code\":-32003,\"message\":\"transaction verification error: Error processing Instruction 0: custom program error: 0x4\"}"}
+{"step":"open","v":{"base":{"owner":"Dlp","pending_commit":false,"record":true,"seq":10},"decision":"Er { endpoint: \"er\", live: 13, committed: 10, alarms: [] }","er":{"reachable":true,"seq":13}}}
+{"step":"--- ER stopped mid-session ---"}
+{"step":"status","v":{"base":{"owner":"Dlp","pending_commit":false,"record":true,"seq":10},"decision":"Hold(ErUnreachable { since: 25, escape_eligible: false })","er":{"reachable":false,"seq":null}}}
+{"step":"base_write","v":"{\"code\":-32002,\"data\":{\"accounts\":null,\"err\":{\"InstructionError\":[0,{\"Custom\":8}]},\"fee\":5000,\"innerInstructions\":null,\"loadedAccountsDataSize\":242249,\"loadedAddresses\":null,\"logs\":[\"Program GURgmxeLRJ1swjHDtQhQdTjguNB6EZDmxSdGM3GC6Hrt invoke [1]\",\"Program GURgmxeLRJ1swjHDtQhQdTjguNB6EZDmxSdGM3GC6Hrt consumed 3694 of 200000 compute units\",\"Program GURgmxeLRJ1swjHDtQhQdTjguNB6EZDmxSdGM3GC6Hrt failed: custom program error: 0x8\"],\"postBalances\":null,\"postTokenBalances\":null,\"preBalances\":null,\"preTokenBalances\":null,\"replacementBlockhash\":null,\"returnData\":null,\"unitsConsumed\":3694},\"message\":\"Transaction simulation failed: Error processing Instruction 0: custom program error: 0x8\"}"}
+{"step":"--- ER restarted on its storage ---"}
+{"step":"status","v":{"base":{"owner":"Dlp","pending_commit":false,"record":true,"seq":10},"decision":"Er { endpoint: \"er\", live: 13, committed: 10, alarms: [] }","er":{"reachable":true,"seq":13}}}
+{"step":"close","v":{"ms_to_base":508,"obs":{"base":{"owner":"Program","pending_commit":false,"record":false,"seq":13},"decision":"Base { seq: 13, alarms: [] }","er":{"reachable":true,"seq":13}},"seq":13}}
+{"step":"er_sees_delegation_ms","v":101}
+{"step":"er_duplicate_fresh_blockhash","v":"{\"code\":-32003,\"message\":\"transaction verification error: Error processing Instruction 0: custom program error: 0x5\"}"}
+{"step":"er_write_built_on_base_copy","v":"{\"code\":-32003,\"message\":\"transaction verification error: Error processing Instruction 0: custom program error: 0x4\"}"}
+{"step":"open","v":{"base":{"owner":"Dlp","pending_commit":false,"record":true,"seq":13},"decision":"Er { endpoint: \"er\", live: 16, committed: 13, alarms: [] }","er":{"reachable":true,"seq":16}}}
+{"step":"--- ER storage wiped, restarted ---"}
+{"step":"status","v":{"base":{"owner":"Dlp","pending_commit":false,"record":true,"seq":13},"decision":"Stop(ErRegressed { seen: 16, now: 13 })","er":{"reachable":true,"seq":13}}}
