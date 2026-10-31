@@ -31,6 +31,8 @@
 | L5 | **A→B→A（relay 未観測）** | ブラウザのウォレット A と同じ seed の鍵で Node から実プログラムを操作：A の `SetSession`（鍵 K）、A と K の gen 0 署名済み op、`TransferResident` A→B（gen 1、session 0）、B の `SetSession`（K2）と K2 の gen 1 op、`TransferResident` B→A（gen 2）。その後、A の gen 0 op ＝ **StaleGen（1004）**、K の op ＝ **NotOwner（1003）**、K2 の op ＝ **NotOwner**、K の gen 2 新規 op ＝ **NotOwner**。住民口座：gen 2、ops 0、session 0。companion server には何も知らせていないが、`/mint/status` は B 保有時に B を、戻った後は A を gen 2 で返す。ページは再接続で「登録済み」 |
 | L6 | **着地したロールバック**：支払い（System transfer CPI）が実行された後に Core の `CreateV1` が失敗する取引を `skipPreflight` で着地させる | チェーン上は失敗取引として記録。**treasury は増えない、支払者は手数料 10,000 lamports だけ減る、住民口座も asset も作られない**（取引全体が巻き戻る） |
 
+L6 は全 67 件の逐次実行で 1 回失敗し（単独・ファイル単位では毎回合格、失敗時の出力は取れていない）、asset 事前入金の確認を残高の polling から airdrop 署名の確認へ変え、状態照会の待ち時間を延ばした。負荷依存の揺れとして記録する。
+
 模擬チェーンの 11 件（`test/browser.mint.test.mjs`）も同じページ・同じサーバの `MockAdapter` で引き続き合格。実プログラムでは追加で L6 と、`PriceChanged` が**プログラムの**エラーとして返ることを確認した。
 
 画面の記録：`demo/screens-localnet/`（desktop と Chromium の iPhone 15 viewport、各 4 場面）。**viewport は実機・実ウォレットアプリの試験ではない**。

@@ -189,13 +189,17 @@ test('real program, landed rollback: the payment leg executes, the Core create f
   await s.post('/mock/airdrop', { address: P.publicKey, lamports: '1000000000' });
   const asset = keypair();
   // Core's CreateV1 allocates the asset account; an address that already holds lamports makes that fail, after the payment leg ran.
-  await s.rpc.airdrop(asset.publicKey, 1_000_000); for (let i = 0; i < 40 && (await s.rpc.balance(asset.publicKey)) === 0n; i++) await new Promise(r => setTimeout(r, 250));
+  const fund = await s.rpc.airdrop(asset.publicKey, 1_000_000);
+  const fundSt = await s.rpc.confirm(fund, { tries: 240 });
+  assert.equal(fundSt?.err, null, 'the pre-funding of the asset address is confirmed');
+  assert.ok((await s.rpc.balance(asset.publicKey)) > 0n, 'the asset address holds lamports before the mint is sent (so CreateV1 must fail)');
   const treasuryBefore = await s.rpc.balance(s.world.treasury);
   const payerBefore = await s.rpc.balance(P.publicKey);
   const bh = await s.rpc.latestBlockhash();
   const tx = signedTx({ feePayer: P.publicKey, blockhash: bh.blockhash, instructions: [mintResidentIx({ program: TEST_PROGRAM_ID, payer: P.publicKey, treasury: s.world.treasury, asset: asset.publicKey, collection: s.world.collection, price: 100_000_000n })], signers: [P, asset] });
   const sig = await s.rpc.send(tx.wire, { skipPreflight: true });     // no preflight: the failure lands on the chain as a failed transaction
-  const st = await s.rpc.confirm(sig);
+  const st = await s.rpc.confirm(sig, { tries: 240 });
+  assert.ok(st, 'the failed transaction has a status on the chain');
   assert.notEqual(st.err, null, `the transaction failed on chain: ${JSON.stringify(st.err)}`);
   assert.equal(await s.rpc.balance(s.world.treasury), treasuryBefore, 'the payment leg was rolled back');
   assert.equal(payerBefore - (await s.rpc.balance(P.publicKey)), 10_000n, 'only the network fee is gone (two signatures: payer and asset)');
