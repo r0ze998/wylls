@@ -29,3 +29,5 @@
 | U23 | upgrade authority の形（単一鍵／多重署名／遅延／凍結）と、collection authority の保管。供給上限をプログラムで数えるか | TRUST-MODEL §3 の提案のみ | 所有者・法務 |
 | U24 | devnet の試験価格（例 0.1 SOL）と、本番価格・供給数・ロイヤリティ。試験価格は config で変更可とし、本番条件と混同しない | 画面は `TEST PRICE` と明示 | 所有者 |
 | U25 | MINT-FLOW §7 の R1〜R7（導入、プログラム配備、collection、treasury/config、devnet 試験、サイト公開、索引）の承認と、公開先・サイト担当 | 一括提示のみ | 所有者・サイト担当 |
+| U26 | `mpl-core` 0.12.1 を SBF ビルドすると 3 関数でスタック超過の警告（プラグイン一覧の復号経路、本プログラムは呼ばない）。devnet 配備前に修正版の有無を確認するか、CPI ビルダーだけを使う最小依存に切り替えるか | 警告を記録（ENV-RECORD） | ④ |
+| U27 | devnet 配備時のプログラム ID・upgrade authority・config authority の鍵（本環境には置かない方針） | 未決 | 所有者 |

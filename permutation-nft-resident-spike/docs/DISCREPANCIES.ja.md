@@ -25,3 +25,6 @@
 | D19 | **crates.io の `mpl-core` クレートは 0.12.1（6/16）** で、GitHub の core リリース番号（0.15.x）と系列が違う（クレートはクライアント、リリースはプログラム）。版の対応は未照合 | crates.io API、GitHub | 未照合として記録 |
 | D20 | **既存サイトのソースと公開先。** `docs/site-proposal/README.ja.md` は「元のソースは作業フォルダの `wylls-site/`（リポジトリ管理外）」と記し、リポジトリには文言修正版 `index.html` だけ（参照する `app.js`・`style.css`・`media/` は無い）。公開先 `wylls-site.vercel.app` は HTTP 402 `DEPLOYMENT_DISABLED`。SUBMISSION.md はその URL を公式サイトとして載せている | `ls`、`curl -I`、SUBMISSION.md:164 | 事実を記録。復旧作業は SITE-STATUS §3 |
 | D21 | **サイトの waitlist はメールフォーム**（`#waitlist`、kind の自己申告）だが、決定は「NFT 取得＝登録、別フォーム無し」。組み込み時にフォームを撤去し、溜まったメールの扱いを決める必要がある | index.html:176-199 | 決定に従う（MINT-FLOW §6） |
+| D22 | **Core の `.so` の長さ。** v0.4 で「末尾ゼロ除去 810,273 B、sha256 `af40bd11…`」と記録したが、ELF の末尾 15 byte を削っており LiteSVM が拒否。ヘッダから算出した 810,288 B（`515541c8…`）が正しい | LiteSVM `ProgramLoad("Offset or value is out of bounds")`、ELF ヘッダ | 訂正済み（ENV-RECORD、REAL-CORE-RESULTS） |
+| D23 | **凍結中の譲渡のエラー名。** Core 公式は「Frozen Assets cannot be transferred」と書くが、実際の拒否は `Custom(9) InvalidAuthority`（ログには `permanent_freeze_delegate.rs … Reject`）で、`AssetIsFrozen`（10）ではない | `svm-core/out/_bypass-attempts.json` | 実装（エラー名で判定せず、失敗と owner 不変で判定） |
+| D24 | **cargo-build-sbf の自動取得。** 提示した導入物一覧に無かった Criterion v2.3.3 を `cargo-build-sbf` 3.1.9 が自動で取得した（約 2.2 MB、未使用） | `sbf-build.log` | 差分として記録（ENV-RECORD #9） |

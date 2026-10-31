@@ -1,9 +1,9 @@
 # 初回 mint の一巡：サイト → 利用者のウォレット → devnet の NFT → waitlist 登録（v0.5、2026-10-31）
 
 **完成条件**：devnet で、ウェブサイトから利用者が自分のウォレットでテスト SOL を払い、NFT を mint して waitlist 登録が完了する。
-**現状**：画面と処理は書き終え、**模擬チェーン上の実ブラウザ（Chromium）で一巡と必須試験 11 件が通る**。devnet での実発行・実 Core の LiteSVM 検証・サイト公開は**未承認のため未実施**（§7 に必要範囲を一括提示）。
+**現状（v0.6）**：画面と処理は模擬チェーン上の実ブラウザ（Chromium）で一巡と必須試験 11 件が通る段階。**実プログラムとの適合は、住民プログラム（`program/`）を実 Core と LiteSVM で検証した範囲まで**（`docs/REAL-CORE-RESULTS.ja.md`）。模擬 RPC の `MintResident` と実プログラムの口座順・データは揃えたが、**ページが実プログラムの取引を組んで devnet で通ることはまだ確認していない**（devnet 配備は未承認）。「devnet 配備を除く全部が完成」「RPC 先を替えるだけで動く」とは言わない。
 
-決定事項の反映：初回 mint の代金は SOL（USDC・x402 は入口の条件にしない）。利用者自身のウォレットが取引を確認・署名する。NFT 取得＝waitlist 登録（別のフォーム無し）。公開後も同じ NFT を住民の操作権に使う。継続世界。devnet の価格は変更可能な試験価格（`TEST PRICE`）で、本番の販売条件ではない。
+決定事項の反映：**初回 mint の通貨は SOL で決定済み**（USDC・x402 は入口の条件にしない）。本番価格は未決で、devnet・ローカルでは変更可能な試験価格で進める。利用者自身のウォレットが取引を確認・署名する。NFT 取得＝waitlist 登録（別のフォーム無し）。公開後も同じ NFT を住民の操作権に使う。継続世界。devnet の価格は変更可能な試験価格（`TEST PRICE`）で、本番の販売条件ではない。
 
 ## 1. 画面（`web/mint.html`、`web/mint.mjs`）
 
@@ -20,7 +20,8 @@
 | SOL 不足 | 残高 < 価格＋手数料＋rent → 署名前に拒否 | B3 |
 | 署名拒否 | ウォレットの拒否 → 何も送らず、記録も残さない | B2 |
 | 二重クリック | `busy` と pending 記録で 1 取引 | B5 |
-| スマホ | 端末 UA で案内表示。ウォレットアプリへ行って戻る経路は「送信後に離脱 → 別タブ／再読込で再開」として試験 | B7（iPhone 15 viewport） |
+| スマホ（viewport） | 端末 UA で案内表示。ウォレットアプリへ行って戻る経路は「送信後に離脱 → 別タブ／再読込で再開」として **Chromium の iPhone 15 viewport** で試験。これは画面幅と再開経路の試験であって、実機の試験ではない | B7 |
+| スマホ（実機＋実ウォレット） | **未実施**。Phantom／Backpack のアプリ内ブラウザ、または deep link で署名して戻る往復は、devnet 配備と実機が要る（§8） | — |
 
 ## 2. ブラウザ試験（`test/browser.mint.test.mjs`、Playwright の Chromium、模擬チェーン＋実取引バイト）
 
@@ -32,13 +33,13 @@
 | B4 | 接続先違い（ウォレット mainnet／RPC の genesis 不一致） | 合格 |
 | B5 | 二重クリック | 合格（取引 1、asset 1、課金 1） |
 | B6 | 応答消失（送信は着地、応答 504） | 合格（署名で照会、再送なし） |
-| B7 | 途中離脱→戻る／再読込、iPhone 15 viewport | 合格（pending が解決、取引 1） |
+| B7 | 途中離脱→戻る／再読込、Chromium の iPhone 15 viewport（実機ではない） | 合格（pending が解決、取引 1） |
 | B8 | 取引期限切れ | 合格（課金 0、再試行可） |
 | B9 | 結果不明が続く → 再 mint 拒否 → 後で解決 | 合格 |
 | B10 | 支払い後の処理失敗 | 合格（preflight で拒否、支払い残らず） |
 | B11 | 譲渡後の旧保有者：登録なし、新保有者：登録あり | 合格（世代 +1） |
 
-ユニット側（`node --test test/*.test.mjs`、ブラウザ試験込み）：57 件。relay 未観測の A→B→A で旧権限が復活しないことは `test/buyback.test.mjs`（模擬プログラム）。**いずれも模擬チェーン**。実 Core・devnet での同じ試験は未実施。
+ユニット側（`node --test test/*.test.mjs`、ブラウザ試験込み）。relay 未観測の A→B→A で旧権限が復活しないことは、模擬では `test/buyback.test.mjs`、**実 Core＋実プログラムでは `svm-core/tests/core.rs`（LiteSVM）**。ブラウザ試験は模擬チェーン上。devnet での同じ試験は未実施。
 
 実行：`node src/mint-demo.mjs --port 41990` → `http://127.0.0.1:41990/web/mint.html`（テストウォレット付き）。`node --test test/browser.mint.test.mjs`。
 

@@ -1,0 +1,21 @@
+{
+  "asset": {
+    "address": "Bead66hFEGrpqGsVRrGY4ywxiReBZegnVTvQq2BVeiyW",
+    "dataBase64": "Af1nYi7IDr2lMur1wUt8Wjg/5h9+VEgEJueDcnhvMcLiArVwGno/1iXsVmnFwMH6j0jhmvPsfDDf+csy++fD299fFQAAAFd5bGxzIFJlc2lkZW50ICh0ZXN0KSAAAABodHRwczovL3d5bGxzLnRlc3QvcmVzaWRlbnQuanNvbgADjAAAAAAAAAAFAQcEAgAAAAUDTonJTBtz8ozH13YWxroKkxiQhp/0saeX6lnrAhMsKeWJAAAAAAAAAAcDTonJTBtz8ozH13YWxroKkxiQhp/0saeX6lnrAhMsKeWLAAAAAAAAAAAAAAA=",
+    "lamports": 4012560,
+    "owner": "CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d"
+  },
+  "collection": "DDFwQtLXdBQNAD1WPaYPPLviGsYATyaCJWWyLyLQSmx2",
+  "coreProgram": "CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d",
+  "extra": {
+    "gen": 1,
+    "holder": "J4BafdSfwFYYzQxzoe8aNA6rrfqWzzofkMsBFdFJaxmw",
+    "scene": "after transfer A→B"
+  },
+  "resident": {
+    "address": "MY9bw5fCJaRQUfckDbYgaQ8LFkinFMZ8nMsisFUcQjh",
+    "dataBase64": "wp41YD4ewbT8K86OB8Gw8lRO/rAEuFCJqR/k6DLlRqSZcrQdd2idgSk9LXQyZMsLAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAA/Q==",
+    "owner": "5DbTsB5fw1HtGh5KPZY7P4pjyA8zTacf6C9CdtCkcbxV"
+  },
+  "residentProgram": "5DbTsB5fw1HtGh5KPZY7P4pjyA8zTacf6C9CdtCkcbxV"
+}
