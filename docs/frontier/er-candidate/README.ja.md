@@ -31,6 +31,7 @@
 | [OPERATIONS.ja.md](OPERATIONS.ja.md) | 必要な運用設定。再現手順。devnet で試すための承認依頼 |
 | [CONTINUING-WORLD.ja.md](CONTINUING-WORLD.ja.md) | 継続世界：依存・変更・試験・残る判断 |
 | [DIFF-UNKNOWNS.ja.md](DIFF-UNKNOWNS.ja.md) | 旧版との差。未確認事項。文書とコードの食い違い（すべて） |
+| [OPEN-ITEMS.ja.md](OPEN-ITEMS.ja.md) | ④への提示：A の検証手順（`verify-A.sh`）、履歴欠落の検出の限界、残る 5 点の現状・再現・最小変更案・互換性 |
 | [PACKAGE.ja.md](PACKAGE.ja.md) | 保存パッケージ（commit と SHA-256） |
 | `results/` | ローカルの実行記録（JSONL）。findex の live 試験の出力 |
 
