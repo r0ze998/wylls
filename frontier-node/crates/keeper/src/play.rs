@@ -1136,10 +1136,12 @@ impl PlayDuty {
                 continue;
             }
             // Secrecy before T(arrive) (⑱): no Reveal before THE anchor.
-            // The anchor needs T(arrive)'s signature, and a Reveal sent
-            // earlier is refused `NoAnchor` yet lands (skipPreflight) as a
-            // failed transaction that publishes the plaintext and the salt
-            // before drand publishes the round. The material waits here.
+            // The anchor needs T(arrive)'s signature. A Reveal sent earlier
+            // publishes the plaintext and the salt before drand publishes
+            // the round: the program accepts a Reveal whose anchor and
+            // archive are both absent (the window is not open yet,
+            // `proc/reveal.rs` step 4), and one it refuses still lands
+            // (skipPreflight) with its data. The material waits here.
             if anchor.is_none() {
                 continue;
             }
@@ -3227,12 +3229,13 @@ mod w6t_tests {
 
     /// Secrecy before T(arrive) (⑱, 2026-10-31): the owner's material
     /// reaches the keeper from the arrival bell's start, ≈ 600 s before the
-    /// round T(arrive) is published. A Reveal sent then is refused
-    /// `NoAnchor`, but it is sent with `skipPreflight`, so it lands as a
-    /// failed transaction whose instruction data — the plaintext and the
-    /// salt — is public before drand publishes the round that opens the
-    /// seal. No Reveal write may exist before THE anchor of the arrival
-    /// (which needs T(arrive)'s signature); with it, the Reveal goes.
+    /// round T(arrive) is published. A Reveal sent then lands — accepted
+    /// (the program takes a Reveal with no anchor and no archive), or
+    /// refused but recorded (skipPreflight) — and its instruction data, the
+    /// plaintext and the salt, is public before drand publishes the round
+    /// that opens the seal. No Reveal write may exist before THE anchor of
+    /// the arrival (which needs T(arrive)'s signature); with it, the Reveal
+    /// goes.
     #[tokio::test]
     async fn no_reveal_before_the_anchor_of_its_arrival() {
         let mut e = env(&["reveal"], 1_008);

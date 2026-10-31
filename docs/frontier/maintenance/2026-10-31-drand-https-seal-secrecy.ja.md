@@ -51,7 +51,9 @@
 
 ## 4. 見つけた不具合：公開前の平文がオンチェーンに出る
 
-- 事実：ブラウザ（と bots）は到着鐘の開始から reveal material を送る。keeper は anchor の有無を見ずに Reveal を計画・送信していた（`reveal_transient` が `NoAnchor` を「再試行」扱い）。送信は `skipPreflight: true`（`fclient/src/rpc.rs:423`）なので、プログラムが `NoAnchor` で拒否しても**失敗取引として台帳に載り、命令データ（平文 37 B と salt）が公開される**。これは `T(arrive)` の公開（鐘の終わり）より最大約 600 秒早い。
+- 事実：ブラウザ（と bots）は到着鐘の開始から reveal material を送る。keeper は anchor の有無を見ずに Reveal を計画・送信していた（`reveal_transient` が `NoAnchor` を「再試行」扱い）。その Reveal は台帳に載り、**命令データ（平文 37 B と salt）が公開される**。これは `T(arrive)` の公開（鐘の終わり）より最大約 600 秒早い。
+  - **訂正（2026-10-31、④の指摘を `permutation-frontier/src/proc/reveal.rs` で確認）**：当初「プログラムが `NoAnchor` で拒否し、失敗取引として載る」と書いたが不正確。プログラムの Reveal は、BellAnchor も archive も無いときは窓の確認を飛ばして先へ進む（step 4、803〜835 行）。そのため早すぎる Reveal は**成功して着地しうる**。他の理由で拒否された場合も、`skipPreflight: true`（`fclient/src/rpc.rs:423`）なので命令データは載る。いずれにせよ、送らないことだけが対策になる。
+  - program 側で「THE anchor か archive が無ければ Reveal を拒否する」に変えるかどうかは、共有コアの判断（④・利用者）。現行の設計は到着鐘の中での自己公開を受け付けている（`reveal_accept.rs` の「窓がまだ開いていない」で 202）。関係者の公式経路（ブラウザ → relay → keeper）は relay が Reveal の形を拒否して keeper 経由に限るので、keeper の条件で塞がる。自分の取引を直接 RPC に送るプレイヤーが、自分の進軍を早く公開することは防げない（本人の情報）。
 - 再現：`no_reveal_before_the_anchor_of_its_arrival`（keeper `play.rs`）は修正前のコードで失敗した（`Reveal planned before THE anchor at 1800120030`、ログ `reveal-before-anchor.fail.log`）。既存試験 `reveals_skip_arrivals_at_or_after_end_bell` と `reveal_sources_deduped_by_host_arrive` も、anchor 無し・到着鐘の 30 秒時点で Reveal を計画・送信する前提で書かれていた。
 - 修正：anchor が無ければ material を保持して待つ。上の 2 試験は「anchor あり・鐘の終了後」に書き換えた（試験の意図は保持）。
 - 修正で入れた後退と、その修正：material を anchor まで**メモリだけ**で保持したため、所有者の送信から anchor までの間に keeper が落ちると、keeper 自身では開けない封印（所有者だけが公開する不正封印）の進軍が失われた。`crash_injection_every_journal_point`（通常は ignored、Gate W4 で実行）の `reveal/plaintext#1` が決着 digest の不一致で失敗した（基点では成功、ログ `base-crash-injection.log`）。修正前は material がすぐ Reveal の試行として journal に入っていたため起きなかった。`owner_material` 表で journal に残すようにし、同試験は成功（reveal 22 点、`keeper-play-include-ignored.log`）。単体試験 `held_owner_material_survives_a_restart` を追加。
