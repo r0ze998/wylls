@@ -1,14 +1,16 @@
 # 共有コード向けの独立パッチ（未適用）
 
-本ブランチでは**適用していない**。各パッチは `git apply --check -p1` をリポジトリ root で通ることを確認済み（2026-10-31、`main` 由来の `claude/funny-wozniak-cy4n64` HEAD 上）。適用順は任意。適用は ④（統合先）の判断。
+本ブランチでは**適用していない**。適用は ④（統合・実行基盤）の判断。各パッチの「確認した段階」を分けて書く：**適用確認**（`git apply --check -p1` がリポジトリ root で通る）、**実行した試験**（独立した作業コピーで実際に走らせた）、**未実施**。
 
-| パッチ | 対象 | 内容 | 確認したこと |
-|---|---|---|---|
-| `01-relay-resident-holder-hook.patch` | `permutation-gateway/src/frontier/routes/relay.mjs` | `ctx.residents`（任意）の `mayAct({citizen, actor})` を、`requesterCitizen`（settle の請求者）と `sponsor()`（プレイヤー命令の authority）の署名検査の直後に挟む。読取が古い／失敗なら `false` を返す実装とし、`ResidentHolderChanged`（403）で拒否。`ctx.residents` が無ければ挙動不変 | `git apply --check`。relay のテストは未実行（gateway の `npm ci` を本環境で行っていない） |
-| `02-frontier-abi-citizen-v2-resident-fields.patch` | `frontier-abi/src/v2/layout/player.rs` | v2 Citizen の `RSV_348`（36 byte）を `RESIDENT_ASSET_TAG15`(15) `SESSION_SETTER_TAG15`(15) `RESIDENT_FLAGS`(1) `RSV_379`(5) に割る。定数 `RESIDENT_FLAG_BOUND`、`RESIDENT_TAG_DOMAIN` | 一時適用して `cargo check -p frontier-abi` と `cargo test -p frontier-abi`（host）を実行し、元に戻した。結果は本 README 末尾 |
-| `03-agent-gateway-delegation-holder.patch` | `permutation-gateway/src/frontier/agent/gateway.mjs` | `#requireDelegation` に「agent の owner が asset の現保有者であること」を `ctx.residents.mayAct` で追加。譲渡後は `SessionNotDelegated` で何も hold・署名しない | `git apply --check` |
-| `04-web-fsession-resident-holder.patch` | `permutation-server/web/frontier/fsession.mjs` | `matchesCitizen(session, citizen, now, resident?)` に第 4 引数を足し、現保有者が自分のウォレットでなければ `ResidentHolderChanged` を返す（「鍵を作り直す」案内を出さない）。既存呼び出しは不変 | `git apply --check`。`web-frontier-session.test.mjs` は未実行 |
-| `05-ci-run-spike-tests.patch` | `.github/workflows/ci.yml` | browser-smoke ジョブの末尾で試作のテストとマニフェスト検証を実行 | `git apply --check` |
+| パッチ | 対象 | 内容 | 適用確認 | 実行した試験 | 未実施 |
+|---|---|---|---|---|---|
+| `01-relay-resident-holder-hook.patch` | `permutation-gateway/src/frontier/routes/relay.mjs` | 任意の `ctx.residents.mayAct({citizen, actor})` を、`requesterCitizen` と `sponsor()` の署名検査直後に挟む。未確認は `false` → `ResidentHolderChanged`（403）。`ctx.residents` が無ければ挙動不変 | 通る | **なし** | relay の既存テスト（`npm ci` が要る。環境導入は承認されていないため未実行）。実 gateway への接続 |
+| `02-frontier-abi-citizen-v2-resident-fields.patch` | `frontier-abi/src/v2/layout/player.rs`、`frontier-abi/vectors/v2/layouts.json` | v2 Citizen の `RSV_348`（36 byte）を `RESIDENT_ASSET_TAG15`(15) `SESSION_SETTER_TAG15`(15) `RESIDENT_FLAGS`(1) `HOLDER_GEN`(4) `RSV_383`(1) に割る。定数 `RESIDENT_FLAG_BOUND`、`RESIDENT_TAG_DOMAIN`。**再生成した ABI ベクタ（layouts.json）を含む** | 通る | 独立した作業コピー（`git worktree`、detached、`7fc6bd7`）で適用 → `cargo run -p frontier-abi --bin abi-vectors`（17 ファイル書き出し）→ `cargo test -p frontier-abi`：**全部通る**（lib 87、addresses 2、contract 3（`vectors_are_fresh` 含む）、ほか 14/6/4/5/3）。host の rustc 1.89.0 | prologue の規則（別パッチ未作成）。`permutation-gateway/client/src/frontier/abi-v2-layouts.mjs`／`web/sdk/frontier/abi-v2-layouts.mjs` の再生成（`scripts/sync-web-sdk.mjs`）と、それを読む gateway テスト（`frontier-cq-sdk.test.mjs` 等）。LiteSVM（SBF ツール無し） |
+| `03-agent-gateway-delegation-holder.patch` | `permutation-gateway/src/frontier/agent/gateway.mjs` | `#requireDelegation` に「agent の owner が asset の現保有者」を `ctx.residents.mayAct` で追加。譲渡後は `SessionNotDelegated` | 通る | **なし** | agent wallet の既存テスト（同上）。既存 gateway への接続 |
+| `04-web-fsession-resident-holder.patch` | `permutation-server/web/frontier/fsession.mjs` | `matchesCitizen(session, citizen, now, resident?)` に第 4 引数。現保有者 ≠ 自分のウォレットなら `ResidentHolderChanged` | 通る | **なし** | `web-frontier-session.test.mjs`（同上）。⑦ の画面接続 |
+| `05-ci-run-spike-tests.patch` | `.github/workflows/ci.yml` | browser-smoke ジョブの末尾で試作のテストとマニフェスト検証 | 通る | **なし**（CI は push しないと走らない） | — |
+
+**実施していないこと（明記）**：実 NFT（実 Core の mint・transfer・Permanent Delegate の CPI）、Frontier プログラムの prologue 変更、既存 gateway（relay・agent wallet）への接続、gateway/web の既存テストの実行、LiteSVM。これらは環境導入（`npm ci`、SBF ツール、実チェーン）が承認されていないため**未実行**で止めている。
 
 ## `ctx.residents` の契約（01・03 が呼ぶフック）
 
@@ -16,8 +18,8 @@
 // relay の context に任意で付ける。無ければ従来通り。
 ctx.residents = {
   /** citizen: Citizen の address、actor: 署名した鍵（wallet か session 鍵）。
-   *  true = actor は asset の現保有者、または現保有者が設定した未失効の session 鍵。
-   *  読取が古い・失敗・asset が無い・collection 違い → false（未確認は拒否）。 */
+   *  true = actor は asset の現保有者、または現保有者が現在の世代で設定した未失効の session 鍵。
+   *  読取が古い・失敗・asset が無い・collection 違い・世代不一致 → false（未確認は拒否）。 */
   async mayAct({ citizen, actor }) { … },
 };
 ```
@@ -26,18 +28,7 @@ ctx.residents = {
 
 ## 02 に続けて必要になるもの（パッチに含めていない）
 
-1. prologue の規則変更（`frontier-abi/src/prologue.rs` の `player_prologue`、`permutation-frontier/src/proc/citizen.rs` の `player` と `set_session`）：INTEGRATION-04 §2 の 1〜4。asset アカウントを命令の口座列に追加する分、`permutation-frontier/src/prologue.rs` の口座仕様（`Spec`）と `client/src/frontier/shapes.mjs` の shape 許可表も変わる。
-2. `permutation-gateway/client/src/frontier/abi-v2-layouts.mjs` の再生成（`scripts/sync-web-sdk.mjs`）と、ABI ベクタの更新。
-3. LiteSVM テスト（`permutation-frontier/svm-tests`）：本環境には SBF ツール（`cargo-build-sbf` 3.1.9）が無く未実行。
-4. verifier（`frontier-node/crates/verify`）の actor 検査に asset の owner／setter を加える。
-
-## 02 の確認結果（2026-10-31、host の rustc 1.89.0、一時適用の後に元へ戻した）
-
-| コマンド | 結果 |
-|---|---|
-| `cargo check -p frontier-abi` | 通る |
-| `cargo test -p frontier-abi --lib` | 87 passed |
-| `cargo test -p frontier-abi`（統合テスト込み） | `tests/contract.rs::vectors_are_fresh` が **FAILED**：レイアウトを変えたので、コミット済みの ABI ベクタが古い。適用時は `cargo run -p frontier-abi --bin abi-vectors` でベクタを書き直し、`-- --check` で確認する（`frontier-abi/Cargo.toml:13`）。他は通る（addresses 2 passed、contract の残り 2 passed） |
-| LiteSVM（`permutation-frontier/svm-tests/run.sh`） | 未実行（SBF ツール無し） |
-
-つまり 02 は「レイアウト定数の追加として正しく、ベクタの再生成を伴う」。prologue の規則は含まない（上の 1）。
+1. prologue の規則変更（`frontier-abi/src/prologue.rs` の `player_prologue`、`permutation-frontier/src/proc/citizen.rs` の `player`・`set_session`、新命令 `TransferResident`）：INTEGRATION-04 §2 の 1〜5、CONTRACT §10 の D。asset アカウントを命令の口座列に追加する分、`permutation-frontier/src/prologue.rs` の口座仕様（`Spec`）と `client/src/frontier/shapes.mjs` の shape 許可表も変わる。
+2. `abi-v2-layouts.mjs` の再生成（`scripts/sync-web-sdk.mjs`）。
+3. LiteSVM テスト（`permutation-frontier/svm-tests`）。
+4. verifier（⑯、`frontier-node/crates/verify`）の actor 検査に asset の owner／setter／世代を加える。

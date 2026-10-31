@@ -1,6 +1,8 @@
 # 接続契約：NFT で譲渡できる住民アカウント（試作 v0、2026-10-31）
 
-統合先：④（口座・認証の統合）。関連：③（session 鍵・ログイン）、⑤（MCP capability・AI 委任）、⑦⑫⑬⑯（番号の担当範囲はリポジトリに記録が無く、本書では**宛先未特定**。該当しそうな節に印を付けた）、⑰（x402・USDC 決済）。
+統合先：**④＝統合・実行基盤**（Citizen・prologue・relay・verifier の統合）。関連：**③＝MCP**（capability）、**⑤＝AI 参加・予算**（agent wallet・委任・hold）、**⑦＝UI**（waitlist 表示・ログイン・複数 asset の選択・譲渡後の案内）、**⑫＝記憶**（AI の非公開記憶）、**⑬＝AI 住民**（AI が操作する住民の譲渡）、**⑯＝独立検証**（verifier での actor・世代の再判定）、**⑰＝x402・USDC**（支払いと発行の分離）。
+
+**改訂 v0.2（2026-10-31）**：§4 に保有者**世代**（`gen`）の規則、§10 に「何が世代更新を確実に起こすか」と制約を追加。継続世界は決定済み（U11 は移行方法の未決）。Metaplex Core は試作の選定方式で、本線採用は未決（U18）。
 
 この契約は、隔離した試作 `permutation-nft-resident-spike/` が実装し、`test/*.test.mjs` が検査する範囲を書く。**模擬と実物の境界**は §8。価格・発行数・販売方法・ロイヤリティは決めない（UNDECIDED.ja.md）。
 
@@ -11,7 +13,8 @@
 | asset | 住民 1 人に対応する Metaplex Core の資産アカウント（`AssetV1`）。発行元 collection は 1 つに固定 |
 | 住民 ID（residentId） | `hex(sha256("PSF-RES" ‖ asset_id)[0..15])`。asset が存在する限り不変。ウォレットから導出しない |
 | 保有者（holder） | asset の `owner` フィールドの現在値（チェーンから読む） |
-| epoch | 住民ごとの「確認済みの保有者変更の回数」。買い戻しも 1 回と数える |
+| 保有者世代（gen） | 住民プログラムの口座（Citizen）が持つ整数。プログラム経由の譲渡（`TransferResident`）ごとに +1 され、同時に session 鍵が消える。買い戻しも +1 |
+| epoch（relay） | relay が資格情報を束縛する値 = チェーンの `gen` ＋ relay が観測した「世代更新を伴わない保有者変更」（ガード無し asset の迂回。ガード有りでは常に 0） |
 | 公開切替（publish） | 世界を「参加待ち」から「ログイン可」へ切り替える 1 ビット。住民記録・世界を作り直さない |
 | 資格（eligibility） | 保有者であること。別の登録・引換券・支払い記録からは発生しない |
 
@@ -19,7 +22,7 @@
 
 - I1. 住民記録は**チェーン上で検証できた asset**から 1 回だけ作られる。通知・支払い・画面の表示からは作らない。（`registry.test.mjs`）
 - I2. 保有者は常にチェーンの読取値。読取が「最後に確認した変更」より古い（`StaleRead`）か、読めない（`ChainUnavailable`）とき、**何も許可しない**。（`registry.test.mjs`, `auth.test.mjs`）
-- I3. 全ての資格情報（ログイン token、MCP capability、AI 委任の記録、チェーン上の session 鍵）は保有者と epoch に束縛され、保有者変更で失効する。（`auth.test.mjs`, `transfer-loop.test.mjs`）
+- I3. 全ての資格情報（ログイン token、MCP capability、AI 委任の記録、チェーン上の session 鍵、署名済み操作）は保有者と世代に束縛され、保有者変更で失効する。**relay が途中の保有者変更を観測していなくても**、チェーンの世代が進んでいれば失効する。（`auth.test.mjs`, `transfer-loop.test.mjs`, `buyback.test.mjs`）
 - I4. 操作の権限は**操作を認可する時点**と**送信直前**に保有者を読み直し、さらにプログラムの prologue が実行時に確認する。（`gateway.mjs`, `mock-chain.mjs`）
 - I5. 公開切替・譲渡・再起動で住民記録と世界を作り直さない。（`registry.test.mjs`, `restart.test.mjs`）
 - I6. 1 asset = 1 住民。複数 asset を持つウォレットは複数の住民を別々に操作し、片方の資格情報で他方を動かせない。（`transfer-loop.test.mjs`）
@@ -57,25 +60,28 @@
 |---|---|---|
 | (a) 認可時 | relay（`auth.authorize`） | 資格情報の存在・期限 → `holderNow(assetId, {minSlot})` で保有者と epoch を読み直す。不一致なら `OwnerChanged` で**その住民の古い epoch の資格情報を全部失効** |
 | (b) 送信直前 | relay（`gateway.submit` の beforeSend） | もう一度 `holderNow`。変わっていれば送らない（手数料も払わない） |
-| (c) 実行時 | プログラム（`mock-chain.prologue`） | `actor == owner` または `actor == session.key && session.setBy == owner && 未失効`。それ以外は `NotOwner` |
+| (c) 実行時 | プログラム（`mock-chain.prologue`） | `actor == owner`、または `actor == session.key && session.setBy == owner && session.gen == gen && 未失効`。それ以外 `NotOwner`。さらに命令データの `gen` が現在の `gen` と違えば `StaleGen` |
 
 **順序の規則**：
 - **チェーンの実行順が境界**。譲渡 tx の前に実行された操作は成立し、結果は住民へ。後に実行された売り手の操作は (c) で拒否。
 - 署名済み・未送信の売り手の取引は、後から届けば (c) で拒否。blockhash 期限切れは `BlockhashExpired`。**「NFT が移れば署名済み取引も消える」とは仮定しない**：消えないので (c) が必要。
 - relay の (a)(b) は早期拒否のため。(b) と実行の間に譲渡が割り込む場合も (c) が守る（`transfer-loop.test.mjs` の race テスト）。
-- 読取が古い（`StaleRead`）／読めない（`ChainUnavailable`）ときは拒否。「たぶんまだ保有者」とは扱わない。
+- 読取が古い（`StaleRead`）／読めない（`ChainUnavailable`）ときは拒否。「たぶんまだ保有者」とは扱わない。asset と Citizen（世代）は**同じスロット**で読む。
+- **買い戻し（A→B→A）**：保有者は元に戻るが世代は 2 進む。A の旧 token・capability・委任・session 鍵・署名済み操作は全て拒否（`buyback.test.mjs`）。保証の根拠は §10。
 
 ## 5. 継続中の処理（③④⑤ との照合）
 
 | 対象 | 規則 | 試作 | 統合条件 |
 |---|---|---|---|
 | 売り手のログイン状態 | 保有者変更の確認で失効（I3） | `auth.revokeBefore` | ④：relay のセッション層に epoch を持たせる |
-| session 鍵（③） | チェーン：`SetSession` の設定者 ≠ 現保有者なら無効（INTEGRATION-04 案 B）。relay：`requesterCitizen` も同じ規則 | `prologue` の `setBy` | ③④：Citizen v2 に `SESSION_SETTER_TAG15` を追加（patches/02） |
-| MCP capability（⑤） | 保有者の生きたログインの下でだけ発行。epoch 束縛。譲渡で失効 | `issueCapability` | ⑤：`AgentLedger.capabilityHash` に resident/epoch を添える（patches/03） |
-| AI 委任（⑤） | relay 記録＋チェーン session 鍵の両方が epoch/設定者で失効。買い手が改めて委任すれば同じ agent 鍵でも動く | `recordDelegation`, `buildSetSession` | ⑤：`AgentGateway` の delegation 判定に保有者を加える（patches/03） |
+| session 鍵（④） | チェーン：`SetSession` の設定者 ≠ 現保有者、または session の世代 ≠ 現世代なら無効；譲渡で session は消える。relay：`requesterCitizen` も同じ規則 | `prologue` の `setBy`/`gen` | ④：Citizen v2 に `SESSION_SETTER_TAG15`・`HOLDER_GEN` を追加（patches/02） |
+| MCP capability（③） | 保有者の生きたログインの下でだけ発行。世代束縛。譲渡で失効 | `issueCapability` | ③：`AgentLedger.capabilityHash` に resident/世代を添える |
+| AI 委任（⑤⑬） | relay 記録＋チェーン session 鍵の両方が世代/設定者で失効。買い手が改めて委任すれば同じ agent 鍵でも動く | `recordDelegation`, `buildSetSession` | ⑤：`AgentGateway` の delegation 判定に保有者を加える（patches/03） |
 | 署名・送信済みの操作 | チェーンの順序で決まる。relay は取り消さない | race テスト | — |
-| 輸送中の隊商・加工中の注文 | 住民のもの。止めない。結果は住民へ（買い手） | `world.tick` | ⑫⑬（宛先未特定）：S1 の caravan/workshop は `OWNER_CITIZEN` 参照なので住民 ID 化で自動的に従う。要確認 |
-| 費用確認待ち | 売り手の wallet+epoch に束縛。譲渡で void。買い手は改めて確認 | `approvals` | ⑤⑰：agent wallet の `held` hold は owner wallet のもの → 譲渡で `release`、`sending` は結果待ち（U3） |
+| 輸送中の隊商・加工中の注文 | 住民のもの。止めない。結果は住民へ（買い手） | `world.tick` | ④⑯：S1 の caravan/workshop は `OWNER_CITIZEN` 参照なので住民 ID 化で自動的に従う。verifier（⑯）で確認 |
+| 費用確認待ち | 売り手の wallet+世代に束縛。譲渡で void。買い手は改めて確認 | `approvals` | ⑤⑰：agent wallet の `held` hold は owner wallet のもの → 譲渡で `release`、`sending` は結果待ち（U3） |
+| AI 住民の譲渡（⑬⑫） | AI が操作する住民も同じ規則。AI の非公開記憶は自動で移さない（U9） | — | ⑬⑫ |
+| 表示（⑦） | waitlist・ログイン・複数 asset の選択・譲渡後の「もう保有者ではない」案内は読取値のみから描く。表示だけで資格を与えない | `GET /r/status`, `/r/waitlist` | ⑦ |
 | 未確定の支払い・inference の hold（⑰⑤） | ウォレットのもの。住民と混ぜない | — | U3 |
 
 ## 6. waitlist と決済（⑰）
@@ -119,9 +125,25 @@
 
 ## 9. 統合条件（安全に決められない部分）
 
-- C1. Citizen の鍵付けを住民 ID（asset 由来）へ：既存の wallet 由来 Citizen は作り直さず、案 B（INTEGRATION-04）で `RESIDENT_ASSET_TAG15`・`SESSION_SETTER_TAG15` を v2 Citizen の予約領域（36 byte）に追加し、prologue の規則を広げる。LiteSVM テストが必要（本環境では SBF ツール無し）。
+- C1. Citizen の鍵付けを住民 ID（asset 由来）へ：既存の wallet 由来 Citizen は作り直さず、案 B（INTEGRATION-04）で `RESIDENT_ASSET_TAG15`・`SESSION_SETTER_TAG15`・`HOLDER_GEN` を v2 Citizen の予約領域（36 byte）に追加し、prologue の規則を広げる。LiteSVM テストが必要（本環境では SBF ツール無し、未実行）。
 - C2. relay の `requesterCitizen`・agent wallet の delegation 判定に「asset の現保有者」を加える（patches/01, 03）。実 RPC で `StaleRead` の基準（slot/commitment）を決める。
 - C3. 支払い＋発行の 1 取引化は、実署名者・スポンサー条件で実測してから（§6）。
 - C4. 譲渡を一時停止する手段（Core Oracle プラグイン）を使うか（U7）。
 - C5. 私的データ（会話・AI 記憶・封印情報）の扱い（U8〜U10）が決まるまで、買い手へ自動開示しない。
 - C6. プログラム側で asset を読む方法：各プレイヤー命令に asset アカウントを渡し、Core プログラム所有・`AssetV1`・`Collection(期待値)`・`owner` を検査する（本試作の `verifyResidentAsset` と同じ順）。CU 予算への影響は未測定。
+- C7. 譲渡ガード（§10 の D）を実 Core で確かめる：Permanent Freeze Delegate 下で Permanent Transfer Delegate の CPI 譲渡（forceApprove）が通ること、owner の plain transfer が拒否されること、マーケットプレイスの listing/escrow が動かないことの影響（U7）。
+- C8. ⑯：verifier が各命令の actor を「その時点の asset.owner・SESSION_SETTER・HOLDER_GEN」で再判定できるよう、履歴を持つノードから asset と Citizen を命令スロットで読む。
+
+## 10. 何が世代更新を確実に起こすか（買い戻しへの保証と制約）
+
+**問題**：`SESSION_SETTER_TAG15 == tag15(現保有者)` だけでは、A→B→A で保有者が A に戻った瞬間、A が昔設定した session 鍵・A が昔署名した操作が再び通る。relay の epoch も、途中の B を**観測していなければ**進まない。模擬コードが自動で epoch を進めるだけでは保証にならない。
+
+**チェーン上で確実に起こすには**、「譲渡が起きたら必ずプログラムが動く」構造が要る。通常の Core 譲渡（`transferV1`、owner 署名）は asset の `owner` を書き換えるだけで、我々のプログラムもゲームの Citizen も触らない（公式：「Transfer only changes ownership」）。よって**ガード無しでは迂回できる**（`buyback.test.mjs` 最終テストで実証：世代 0 のまま A の旧 session が通る）。
+
+| 候補 | 仕組み（公式資料で確認した範囲） | 保証 | 制約 |
+|---|---|---|---|
+| **D（試作が模擬）** | asset を **Permanent Freeze Delegate**（凍結、authority = プログラム）＋ **Permanent Transfer Delegate**（authority = プログラム）付きで発行。どちらも「作成時のみ追加でき、譲渡後も失効しない」。凍結中は owner の譲渡が拒否される（「Frozen Assets cannot be transferred」）。Permanent Transfer Delegate は「forceApprove — can transfer even when frozen」。プログラムの `TransferResident`（現保有者が署名）が CPI で譲渡し、同じ取引で `HOLDER_GEN += 1`・session 消去 | **構造的**：asset が動く経路がプログラムだけなので、世代更新を伴わない保有者変更は存在しない。relay が何も観測しなくても次の読取で世代が進んでいる | 発行時に付ける（既発行の asset には付けられない）。**マーケットプレイスの通常の listing・escrow 譲渡が動かない**（売買はプログラムが用意する経路か、`TransferResident` を呼ぶ連携が要る）。ウォレットが「frozen」と表示する。Permanent Transfer Delegate が凍結下で本当に通るかは実 Core で未確認（C7） |
+| C | collection または asset に **Oracle 外部プラグイン**。Core は `transfer` 前に Oracle 口座を読み、`Rejected` なら拒否（公式：Oracle は reject のみ）。プログラムが「許可中（宛先 B 用 PDA `["mpl-core", recipient]`、PreconfiguredRecipient）」を書くときだけ譲渡が通り、その書き込み命令で世代を進める | 譲渡の**前**に必ずプログラム命令が要るので世代は進む。宛先ごとの PDA なら 1 回の許可で 1 回の譲渡 | Oracle 口座の作成・家賃・解除の管理。collection レベルの Oracle が全 asset に効くかは公式に明記なし（要確認）。マーケットプレイスの escrow 宛先は事前許可できない（同じ制約） |
+| ガード無し | 通常の Core 譲渡のまま。relay の観測で epoch を進める | **保証なし**。未観測の A→B→A で旧権限が復活（実証済み）。緩和：relay が全譲渡をインデクサで購読し、`bypassed` を検知したら住民の全資格情報を失効させる——しかし取りこぼしは防げない | マーケットプレイスと両立 |
+
+**試作の採用**：D を模擬（`mock-chain.mjs` の `guard`、`TransferResident`、`StaleGen`）。**保証できること**：D または C を採る限り、A→B→A で旧 session・capability・委任・署名済み操作は復活しない（世代が命令データと session 記録に含まれるため）。**保証できないこと**：ガード無しの通常 Core 譲渡では復活を防げない。**決めるべきこと**：U7（D か C か、マーケットプレイス非互換を受け入れるか）。本線で Core を採るかも未決（U18）。

@@ -8,7 +8,7 @@ export const ERR = Object.freeze({
   BAD_SIGNATURE: 'BadSignature', BAD_MESSAGE: 'BadMessage', WRONG_DOMAIN: 'WrongDomain', NONCE_UNKNOWN: 'NonceUnknown', NONCE_USED: 'NonceUsed', EXPIRED: 'Expired', NOT_YET_VALID: 'NotYetValid',
   NOT_PUBLISHED: 'NotPublished', BAD_CREDENTIAL: 'BadCredential', CREDENTIAL_REVOKED: 'CredentialRevoked', SESSION_NOT_SET: 'SessionNotSet',
   // chain / program
-  NOT_OWNER: 'NotOwner', ALREADY_PROCESSED: 'AlreadyProcessed', BLOCKHASH_EXPIRED: 'BlockhashExpired', AUTH: 'Auth', BAD_DATA: 'BadData',
+  NOT_OWNER: 'NotOwner', STALE_GEN: 'StaleGen', UNGUARDED: 'UnguardedTransfer', ALREADY_PROCESSED: 'AlreadyProcessed', BLOCKHASH_EXPIRED: 'BlockhashExpired', AUTH: 'Auth', BAD_DATA: 'BadData',
   // entry desk
   PAYMENT_UNKNOWN: 'PaymentUnknown', PAYMENT_FAILED: 'PaymentFailed', IDEMPOTENCY_CONFLICT: 'IdempotencyConflict', MINT_UNKNOWN: 'MintUnknown', ALREADY_MINTED: 'AlreadyMinted',
   // world

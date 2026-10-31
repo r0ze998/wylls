@@ -1,6 +1,8 @@
---- a/frontier-abi/src/v2/layout/player.rs	2026-10-31 00:54:57.581792087 +0000
-+++ b/frontier-abi/src/v2/layout/player.rs	2026-10-31 00:54:57.603920928 +0000
-@@ -42,8 +42,21 @@
+diff --git a/frontier-abi/src/v2/layout/player.rs b/frontier-abi/src/v2/layout/player.rs
+index 6453bde..b6932d6 100644
+--- a/frontier-abi/src/v2/layout/player.rs
++++ b/frontier-abi/src/v2/layout/player.rs
+@@ -42,8 +42,28 @@ pub mod citizen {
          EXPELLED_SINCE @ 320 : "i64" = 8;
          VOTED @ 328 : "[u32;4]" = 16;
          PROPOSED @ 344 : "u32" = 4;
@@ -8,18 +10,65 @@
 +        RESIDENT_ASSET_TAG15 @ 348 : "[u8;15]" = 15;
 +        SESSION_SETTER_TAG15 @ 363 : "[u8;15]" = 15;
 +        RESIDENT_FLAGS @ 378 : "u8" = 1;
-+        RSV_379 @ 379 : "rsv" = 5;
++        HOLDER_GEN @ 379 : "u32" = 4;
++        RSV_383 @ 383 : "rsv" = 1;
      );
 +    /// `resident_flags` bit 0: this Citizen is bound to an NFT (an MPL Core
 +    /// asset of the world's collection). `resident_asset_tag15 =
 +    /// sha256("PSF-RES" ‖ asset)[0..15]`; `session_setter_tag15 =
-+    /// citizen_tag15(the holder who ran SetSession)`. The player prologue
-+    /// then accepts the actor only as the asset's current owner, or as the
-+    /// session key when the setter is still the owner (spike INTEGRATION-04
-+    /// §2, option B). Unbound Citizens (flag clear, tags zero) keep the wallet rule.
++    /// citizen_tag15(the holder who ran SetSession)`; `holder_gen` is the
++    /// holder generation: bumped by the program's TransferResident (the only
++    /// transfer path of a guarded asset: Permanent Freeze + Permanent Transfer
++    /// Delegate = this program), which also clears the session. The player
++    /// prologue accepts the actor as the asset's current owner, or as the
++    /// session key when the setter is the owner and the session's generation
++    /// is the current one; an instruction built against an earlier
++    /// `holder_gen` is refused (StaleGen). Unbound Citizens (flag clear, tags
++    /// and gen zero) keep the wallet rule. Spike: permutation-nft-resident-spike
++    /// docs/INTEGRATION-04.ja.md §2, docs/CONTRACT.ja.md §10.
 +    pub const RESIDENT_FLAG_BOUND: u8 = 1;
 +    /// Domain of the resident asset tag (the spike's `ids.mjs`).
 +    pub const RESIDENT_TAG_DOMAIN: &[u8] = b"PSF-RES";
      pub use crate::layout::player::citizen::{
          EXPLORES_FLOOR, FLAG_FIRST_HOLDING_FINAL, FLAG_HOME_GRANTED, FLAG_JOINED, FLAG_PROVISIONAL,
          FLAG_REFUGEE, MAX_HOLDINGS, MAX_SESSION_SECS, MAX_TICKET_SITES, NO_TICKET, TAG_DOMAIN,
+diff --git a/frontier-abi/vectors/v2/layouts.json b/frontier-abi/vectors/v2/layouts.json
+index 37caf56..83ed253 100644
+--- a/frontier-abi/vectors/v2/layouts.json
++++ b/frontier-abi/vectors/v2/layouts.json
+@@ -1277,9 +1277,33 @@
+           "ty": "u32"
+         },
+         {
+-          "name": "RSV_348",
++          "name": "RESIDENT_ASSET_TAG15",
+           "off": 348,
+-          "len": 36,
++          "len": 15,
++          "ty": "[u8;15]"
++        },
++        {
++          "name": "SESSION_SETTER_TAG15",
++          "off": 363,
++          "len": 15,
++          "ty": "[u8;15]"
++        },
++        {
++          "name": "RESIDENT_FLAGS",
++          "off": 378,
++          "len": 1,
++          "ty": "u8"
++        },
++        {
++          "name": "HOLDER_GEN",
++          "off": 379,
++          "len": 4,
++          "ty": "u32"
++        },
++        {
++          "name": "RSV_383",
++          "off": 383,
++          "len": 1,
+           "ty": "rsv"
+         }
+       ]

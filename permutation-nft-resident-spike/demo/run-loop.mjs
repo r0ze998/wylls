@@ -17,7 +17,7 @@ const short = s => (typeof s === 'string' && s.length > 12 ? `${s.slice(0, 6)}â€
 
 const s = stack();
 s.gateway.holdAgentKey(AGENT);
-say('Setup: a Core-shaped collection on the mock chain (test values; nothing here is a price or a supply decision)', { coreProgram: s.chain.coreProgram, collection: short(s.collection), walletA: short(A.publicKey), walletB: short(B.publicKey) });
+say('Setup: a Core-shaped collection on the mock chain (test values; nothing here is a price or a supply decision). Assets are minted guarded: Permanent Freeze + Permanent Transfer Delegate = the resident program', { coreProgram: s.chain.coreProgram, collection: short(s.collection), walletA: short(A.publicKey), walletB: short(B.publicKey) });
 
 // 1. A acquires the NFT: the payment, the mint and the eligibility are three records.
 const pay = await s.desk.pay({ wallet: A.publicKey, idempotencyKey: 'demo-pay-A' });
@@ -52,6 +52,7 @@ say('A logs in (SIWS-shaped challenge, holder read fresh) and acts: harvest, bui
 
 // 5. A transfers the NFT to B.
 const presignedByA = signTx(s.chain.buildOp({ assetId, actor: A.publicKey, op: op(residentId, 'Harvest') }), [A]);
+const presignedByA2 = signTx(s.chain.buildOp({ assetId, actor: A.publicKey, op: op(residentId, 'Chop') }), [A]);
 const t = await transfer(s, assetId, A, B);
 say('A transfers the NFT to B (A signed one more operation beforehand, not yet sent)', { transfer: t.signature.slice(0, 12), slot: t.slot, registry: t.ingested.applied, epoch: s.registry.resident(assetId).epoch, holder: short(s.registry.resident(assetId).holder) });
 
@@ -78,6 +79,19 @@ say('A\'s new operations and A\'s old delegations are refused everywhere', {
 // 8. Look-alikes never get in.
 const fake = s.chain.mintLookalike({ kind: 'other-collection', collection: s.collection, to: A.publicKey });
 say('A look-alike NFT (same name and uri, another collection) held by A gives A nothing', { observe: await attempt(() => s.registry.observe(fake)), entitlementA: s.registry.entitlement(A.publicKey) });
+
+// 10. A buys the resident back from B, and the relay sees neither hop.
+const presignedB = signTx(s.chain.buildOp({ assetId, actor: B.publicKey, op: op(residentId, 'Harvest') }), [B]);
+await transfer(s, assetId, B, A, { notify: false });
+say('A buys the NFT back (the relay observed nothing): the chain\'s holder generation moved, so nothing issued earlier works, for A or for B', {
+  chainGen: s.chain.residentOf(assetId).gen, sessionOnChain: s.chain.sessionOf(assetId),
+  aOldLoginToken: (await s.gateway.submit({ credential: ta.token, signer: A, op: op(residentId, 'Harvest'), idempotencyKey: 'demo-A-4' })).code,
+  bLoginToken: (await s.gateway.submit({ credential: tb.token, signer: B, op: op(residentId, 'Harvest'), idempotencyKey: 'demo-B-2' })).code,
+  bPresignedOpStraightAtChain: await attempt(() => s.chain.send(presignedB)),
+  aSecondPresignedOpFromBeforeTheSale: await attempt(() => s.chain.send(presignedByA2)),
+  aFreshLogin: { epoch: (await login(s, A, assetId)).epoch, residentId },
+  plainCoreTransferByOwner: await attempt(() => transfer(s, assetId, A, B, { plain: true })),
+});
 
 mkdirSync(path.dirname(out), { recursive: true });
 writeFileSync(out, JSON.stringify({ ranAt: new Date().toISOString(), mock: true, steps }, null, 2));

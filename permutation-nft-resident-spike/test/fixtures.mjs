@@ -34,8 +34,8 @@ export function stack({ store = new MemoryStore(), chain = null, readerOpts = {}
 }
 
 /** Mint a resident asset for `wallet` and let the registry see it (as the desk would). */
-export async function acquire(s, wallet, { memo = null } = {}) {
-  const r = s.chain.mint({ collection: s.collection, to: wallet.publicKey, authority: s.authority, memo });
+export async function acquire(s, wallet, { memo = null, guard = true } = {}) {
+  const r = s.chain.mint({ collection: s.collection, to: wallet.publicKey, authority: s.authority, memo, guard });
   await s.registry.ingest({ kind: 'mint', assetId: r.assetId, signature: r.signature, slot: r.slot, to: wallet.publicKey });
   return { assetId: r.assetId, residentId: residentIdOf(r.assetId), signature: r.signature };
 }
@@ -46,9 +46,11 @@ export async function login(s, wallet, assetId) {
   return s.auth.login({ address: wallet.publicKey, assetId, nonce: ch.nonce, text: ch.text, signature });
 }
 
-/** Transfer on the mock chain and notify the registry (as an indexer would). */
-export async function transfer(s, assetId, from, to, { notify = true } = {}) {
-  const tx = signTx(s.chain.buildTransfer({ assetId, from: from.publicKey, to: to.publicKey }), [from]);
+/** Transfer on the mock chain (the program's path for a guarded asset, Core's plain transfer otherwise) and notify the registry (as an indexer would). */
+export async function transfer(s, assetId, from, to, { notify = true, plain = false } = {}) {
+  const guarded = s.chain.accounts.get(assetId)?.flags?.permanentTransferDelegate && !plain;
+  const build = guarded ? s.chain.buildTransferResident({ assetId, from: from.publicKey, to: to.publicKey }) : s.chain.buildTransfer({ assetId, from: from.publicKey, to: to.publicKey });
+  const tx = signTx(build, [from]);
   const sent = s.chain.send(tx);
   const ingested = notify ? await s.registry.ingest({ kind: 'transfer', assetId, signature: sent.signature, slot: sent.slot, from: from.publicKey, to: to.publicKey }) : null;
   return { ...sent, ingested };

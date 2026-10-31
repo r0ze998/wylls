@@ -1,6 +1,8 @@
 # permutation-nft-resident-spike：NFT で譲渡できる住民アカウント（隔離試作）
 
-**状態（2026-10-31）**：ローカルの模擬のみ。公開発行・実チェーン・実資金・新しい鍵は無し。価格・発行数・販売方法・ロイヤリティは未決定（`docs/UNDECIDED.ja.md`）。依存パッケージ無し（Node 20+ の標準モジュールだけ）。
+**状態（2026-10-31、v0.2）**：ローカルの模擬のみ。公開発行・実チェーン・実資金・新しい鍵は無し。価格・無料／有料・供給数・公開発行・ロイヤリティは未決（`docs/UNDECIDED.ja.md`）。Metaplex Core は**試作の選定方式**で、本線採用は未決。継続世界は決定済み。依存パッケージ無し（Node 20+ の標準モジュールだけ）。push・merge・deploy はしていない（`docs/PUSH-AUDIT.ja.md`）。
+
+**v0.2 の変更**：買い戻し（A→B→A）で旧権限が復活しないことの検証と、その保証の根拠（チェーン側の保有者世代 `gen` と譲渡ガード、`docs/CONTRACT.ja.md` §10）。ガード無しの通常 Core 譲渡では復活する穴も実証して残した（`test/buyback.test.mjs`）。データ対応表を「決定／現コード／推奨案」に分離。宛先番号を修正。ABI パッチにベクタ再生成を含めた。
 
 ## 何を試したか
 
@@ -16,7 +18,7 @@ Wylls の住民アカウントを **NFT（Metaplex Core 資産）に紐付け**�
 
 ```sh
 cd permutation-nft-resident-spike
-node --test test/*.test.mjs        # 34 tests
+node --test test/*.test.mjs        # 38 tests
 node demo/run-loop.mjs             # the loop, printed; transcript at .local/nft-resident-demo/transcript.json (or --out)
 node archive/manifest.mjs verify   # the package's SHA-256 manifest
 ```
@@ -26,8 +28,8 @@ node archive/manifest.mjs verify   # the package's SHA-256 manifest
 | ファイル | 役割 |
 |---|---|
 | `src/core-asset.mjs` | Core `AssetV1` の Borsh 復号・符号化と、住民資産の判定（`WrongProgram` / `NotAnAsset` / `NotInCollection` / `Malformed` / `NoAccount`）。**実物の判定ロジック** |
-| `src/mock-chain.mjs` | 模擬チェーン：Core 形の口座（実物同形の bytes）、スロットと履歴（遅延 RPC の模擬）、署名検証と実行順、**模擬の住民プログラム**（`SetSession` の設定者を記録し、prologue で「現保有者 or 現保有者が設定した session」だけ通す） |
-| `src/registry.mjs` | 住民 registry：チェーン読取からだけ記録を作る。通知は「読み直せ」の合図。`epoch`（確認済み保有者変更の回数）。waitlist はその投影 |
+| `src/mock-chain.mjs` | 模擬チェーン：Core 形の口座（実物同形の bytes）、スロットと履歴（遅延 RPC の模擬）、署名検証と実行順、**模擬の住民プログラム**（保有者世代 `gen`、`SetSession` の設定者と世代、`TransferResident`、prologue で「現保有者 or 現世代で設定された session」かつ「命令の世代 = 現世代」だけ通す）、**譲渡ガード**（Permanent Freeze＋Permanent Transfer Delegate の模擬） |
+| `src/registry.mjs` | 住民 registry：チェーン読取からだけ記録を作る。通知は「読み直せ」の合図。`epoch` = チェーンの世代 ＋ 観測した迂回（ガード無し asset のみ）。waitlist はその投影 |
 | `src/auth.mjs` | SIWS 形のログイン、ログイン token・MCP capability・AI 委任の記録（全て保有者＋epoch に束縛）。`authorize` は毎回保有者を読み直す |
 | `src/world.mjs` | 最小の村：住民 ID 鍵。輸送中の隊商・加工中の注文・預かり物・債務。ウォレット鍵の未受取報酬と費用確認待ち |
 | `src/entry.mjs` | 支払い → 発行 → 資格の 3 記録。冪等・結果不明・送信後クラッシュの復旧 |
@@ -41,7 +43,7 @@ node archive/manifest.mjs verify   # the package's SHA-256 manifest
 
 - **実物と同じ**：Core の口座レイアウトの判定（プログラム ID、`AssetV1`、`update_authority = Collection`、`owner`）、ed25519 署名検証、SIWS 文面の検証規則、冪等と再起動の規則。
 - **模擬**：チェーン（スロット・実行順・手数料無し）、Core のプラグイン領域（凍結は口座フラグで模擬）、RPC の遅延・欠落、決済レール、発行鍵（relay が持つテスト鍵）、世界。
-- **していないこと**：実チェーンでの発行・譲渡、Frontier プログラムの変更（提案とレイアウトパッチのみ、`cargo check` は通した）、x402 facilitator との接続、ウォレット拡張での署名。
+- **していないこと**：実チェーンでの発行・譲渡（実 Core の Permanent Delegate の挙動を含む）、Frontier プログラムの prologue 変更（提案とレイアウトパッチのみ。パッチは独立作業コピーで `cargo test -p frontier-abi` 全件合格）、既存 gateway・web への接続とその既存テストの実行、x402 facilitator との接続、ウォレット拡張での署名、LiteSVM。
 
 ## 必須テストとの対応
 

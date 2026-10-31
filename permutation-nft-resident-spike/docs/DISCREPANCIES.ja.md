@@ -14,3 +14,8 @@
 | D8 | **MCP 文書の rate limit** は実装と一致（40/2 per address: `app.mjs`；30/1 per agent: `routes/agent.mjs:123`）。食い違いなし（確認済みとして記録） | MCP.md、app.mjs、agent.mjs:123 | — |
 | D9 | **公式ドキュメント URL の移転。** README 等が示す `developers.metaplex.com/*` は `metaplex.com/docs/*` へ 308 リダイレクト。本書の引用は移転先で確認 | WebFetch の結果 | 移転先 |
 | D10 | **x402 ルートの二重存在。** `src/routes/x402.mjs`（旧 V5 プログラムの Register）と `src/frontier/routes/prize.mjs`（現行 Frontier の `Pay+Join`）が並存し、前者のヘッダ注釈は旧プログラム前提。⑰ の対象は後者 | 両ファイルの冒頭注釈 | 後者（現行） |
+| D11 | **番号の宛先。** v0.1 の契約書は ③＝session 鍵、⑤＝MCP と仮定し ⑦⑫⑬⑯ を「宛先未特定」とした。正しくは ④＝統合・実行基盤、③＝MCP、⑤＝AI 参加・予算、⑦＝UI、⑫＝記憶、⑬＝AI 住民、⑯＝独立検証、⑰＝x402・USDC | 所有者の指示（2026-10-31） | 指示。v0.2 で全文書を修正 |
+| D12 | **U11 の表現。** v0.1 は「季節をまたぐ住民の持ち越しが未決」と書いたが、継続世界は決定済み。未決は**移行方法**だけ | 所有者の指示 | 指示。UNDECIDED U11 を修正。期間境界で住民・所有・進行を失わせる案には戻さない |
+| D13 | **買い戻しの穴。** v0.1 の `SESSION_SETTER_TAG15 == tag15(現保有者)` だけでは A→B→A で旧 session が復活し、relay の epoch も未観測なら進まない（`buyback.test.mjs` 最終テストで実証）。v0.2 でチェーン側の世代 `HOLDER_GEN` と譲渡ガード（CONTRACT §10）を追加 | 自分の v0.1 vs 指示の検証要求 | 検証結果。保証できる条件と制約を明記 |
+| D14 | **ABI ベクタ。** v0.1 のパッチ 02 は `vectors_are_fresh` が失敗する状態で「lib 87 件合格」と報告した。v0.2 では独立作業コピーでベクタを再生成し、全テスト合格を確認したうえでベクタをパッチに含めた。gateway/web の生成物（`abi-v2-layouts.mjs`）の再生成とそのテストは未実施 | patches/README | 実行結果 |
+

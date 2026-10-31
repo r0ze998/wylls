@@ -27,15 +27,19 @@ Citizen v2 (384 B)
   RESIDENT_ASSET_TAG15 @ 348 : [u8;15]   sha256("PSF-RES" ‖ asset)[0..15]（全 0 = 旧来のウォレット束縛 Citizen）
   SESSION_SETTER_TAG15 @ 363 : [u8;15]   sha256("PSF-CIT" ‖ SetSession 時点の保有者)[0..15]（既存の citizen_tag15 と同じ関数）
   RESIDENT_FLAGS       @ 378 : u8        bit0 = bound（住民化済み）
-  RSV_379              @ 379 : rsv 5
+  HOLDER_GEN           @ 379 : u32       保有者世代。TransferResident ごとに +1、同時に SESSION を消す
+  RSV_383              @ 383 : rsv 1
 ```
+
+**譲渡ガード（CONTRACT §10 の D）**：住民 asset は Permanent Freeze Delegate（凍結）＋ Permanent Transfer Delegate（authority = Frontier プログラムの PDA）付きで発行し、譲渡は新命令 `TransferResident`（現保有者が署名、プログラムが CPI で Core の transfer を forceApprove）だけで行う。この命令が `HOLDER_GEN += 1` と `SESSION = 0` を同じ取引で行うので、「世代更新を伴わない保有者変更」は構造的に存在しない。マーケットプレイス非互換は U7。
 
 prologue の規則（`RESIDENT_FLAGS.bound` のとき）:
 
 1. 命令は asset アカウントを 1 つ余分に受ける。Core プログラム所有・key byte `AssetV1`・`update_authority == Collection(世界が固定する collection)` を検査し、`residentTag15(asset.key) == RESIDENT_ASSET_TAG15` でこの Citizen の asset であることを確かめる（`BadAddress`/`BadAccount`）。
 2. `holder = asset.owner`。`actor == holder` なら通す。
-3. `session_ok` かつ `actor == SESSION && now < SESSION_EXPIRY && citizen_tag15(holder) == SESSION_SETTER_TAG15` なら通す。**設定者が現保有者でなければ session は無効**（譲渡で自動失効。`SetSession` を買い手が打つまで誰も session で動けない）。
-4. それ以外 `Auth`。
+3. `session_ok` かつ `actor == SESSION && now < SESSION_EXPIRY && citizen_tag15(holder) == SESSION_SETTER_TAG15` なら通す。**設定者が現保有者でなければ session は無効**。さらに `TransferResident` が SESSION を消すので、買い戻し後も旧 session は残らない。
+4. 命令データに `holder_gen` を含め、`Citizen.HOLDER_GEN` と違えば `StaleGen`（新コード）。署名済み・未送信の命令が世代をまたいで届くのを止める（同じウォレットが買い戻した場合も含む）。
+5. それ以外 `Auth`。
 
 `bound` でない Citizen は現行規則のまま（移行を強制しない）。
 
@@ -56,7 +60,7 @@ relay を迂回して RPC へ直送する売り手の鍵・session 鍵を止め�
 | 対象 | 影響 |
 |---|---|
 | 既存の wallet 束縛 Citizen | そのまま動く（`RESIDENT_ASSET = 0`）。bind で住民化できる。bind は 1 回で、別 asset への付け替えは不可（U6） |
-| season ごとの Citizen | 継続世界（23-world-and-periods の C 案）では season の意味が「戦期」へ変わる。Citizen が season PDA 配下に作られる現行の派生は、**住民を戦期をまたいで持ち越す**ために見直しが要る（今回は手を付けない。U11） |
+| season ごとの Citizen | 継続世界は決定済み。現行の Citizen は season PDA 配下に作られるので、**移行方法**（季節を戦期と読み替えて同じアカウントを持ち越すか、世界単位の派生へ移すか）を決める必要がある（U11）。期間境界で住民・所有・進行を失わせる案は取らない |
 | Join | 住民化した世界では「asset を持っていること」が Join の条件。`join_gate`（招待）と `Pay+Join`（x402）の両経路に「asset の保有者署名」を加える形。発行＝waitlist なので Join 時に別の支払いは要らない（⑰ と要調整） |
 
 ### 3.2 委任（session 鍵・agent wallet・MCP）
@@ -79,5 +83,5 @@ relay を迂回して RPC へ直送する売り手の鍵・session 鍵を止め�
 
 ## 4. 試作が示したこと／示していないこと
 
-- 示した：案 B の prologue 規則（`setBy == owner`）で、譲渡後に売り手の session・agent 鍵の直送が落ちること（`transfer-loop.test.mjs`）。relay の 2 段の保有者読取と、読取の鮮度での拒否。
-- 示していない：実プログラムでの CU、LiteSVM、asset アカウントの読取 API（Core の plugin 領域）、戦期をまたぐ Citizen の派生。
+- 示した：案 B の prologue 規則（`setBy == owner`、`gen`）で、譲渡後に売り手の session・agent 鍵・署名済み操作の直送が落ちること（`transfer-loop.test.mjs`）、A→B→A を relay が観測しなくても世代で全て落ちること（`buyback.test.mjs`）、ガード無しでは復活すること（同、最終テスト）。relay の 2 段の保有者読取と、読取の鮮度での拒否。
+- 示していない：実 Core での Permanent Transfer Delegate の凍結下 CPI 譲渡、実プログラムでの CU、LiteSVM、asset アカウントの読取 API（Core の plugin 領域）、継続世界への Citizen の移行（U11）。

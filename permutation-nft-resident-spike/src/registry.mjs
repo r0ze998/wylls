@@ -10,7 +10,12 @@
 // * The holder is whatever the chain reader returns. A notification
 //   (indexer webhook, our own send) only says "look again"; an event that
 //   the chain does not confirm stays `unconfirmed` and changes nothing.
-// * `epoch` counts confirmed holder changes of one resident. Credentials are
+// * `epoch` = the **chain's holder generation** (`gen` in the resident
+//   program's account, bumped by every program-mediated transfer) plus the
+//   holder changes this registry saw that came with no generation bump (a
+//   plain Core transfer of an unguarded asset: `bypassed`). For a guarded
+//   asset the second term is always 0, so an A→B→A the registry never
+//   observed still shows as epoch + 2 on the next read. Credentials are
 //   issued under an epoch; a later epoch refuses them, also when the same
 //   wallet buys the asset back (same resident data, new epoch).
 // * A read older than the last confirmed change (`slot < holderSince.slot`)
@@ -21,6 +26,7 @@
 import { ERR, Refusal, refuse } from './errors.mjs';
 import { verifyResidentAsset } from './core-asset.mjs';
 import { residentIdOf } from './ids.mjs';
+import { decodeResident, residentAccountOf } from './mock-chain.mjs';
 
 export class ResidentRegistry {
   /**
@@ -64,12 +70,15 @@ export class ResidentRegistry {
    */
   async observe(assetId, { minSlot = 0 } = {}) {
     let r;
+    let rr;
     try {
       r = await this.reader.getAccount(assetId);
+      rr = await this.reader.getAccount(residentAccountOf(assetId));
     } catch (e) {
       if (e instanceof Refusal) throw e;
       refuse(ERR.CHAIN_UNAVAILABLE, `chain read failed: ${e.message}`);
     }
+    if (rr.slot !== r.slot) refuse(ERR.STALE_READ, 'the asset and its resident account were read at different slots', { assetSlot: r.slot, residentSlot: rr.slot });
     const existing = this.resident(assetId);
     const floor = Math.max(minSlot, existing?.holderSince?.slot ?? 0);
     if (r.slot < floor) refuse(ERR.STALE_READ, `the chain read (slot ${r.slot}) is older than required (slot ${floor})`, { readSlot: r.slot, minSlot: floor });
@@ -79,26 +88,30 @@ export class ResidentRegistry {
       if (existing && v.code === ERR.NO_ACCOUNT) { existing.gone = { slot: r.slot, at: this.now() }; this.save(); }
       refuse(v.code, `not a resident asset of this collection: ${v.code}`, { assetId, detail: v.detail ?? null });
     }
-    return this.#reconcile(assetId, v, r.slot);
+    return this.#reconcile(assetId, v, r.slot, decodeResident(rr.account) ?? { gen: 0, session: null });
   }
 
-  #reconcile(assetId, v, slot) {
+  #reconcile(assetId, v, slot, program) {
     let rec = this.resident(assetId);
     if (!rec) {
       const residentId = residentIdOf(assetId);
       const taken = this.db.byResidentId[residentId];
       if (taken && taken !== assetId) refuse(ERR.RESIDENT_ID_COLLISION, 'two assets derive the same resident id; refusing to merge', { residentId, assets: [taken, assetId] });
-      rec = { residentId, assetId, holder: v.holder, holderSince: { slot, signature: null }, epoch: 0, firstSeen: { slot, at: this.now() }, display: { name: v.asset.name, uri: v.asset.uri }, frozen: v.frozen, gone: null };
+      rec = { residentId, assetId, holder: v.holder, holderSince: { slot, signature: null }, chainGen: program.gen, observedBypasses: 0, epoch: program.gen, firstSeen: { slot, at: this.now() }, display: { name: v.asset.name, uri: v.asset.uri }, frozen: v.frozen, gone: null };
       this.db.residents[assetId] = rec;
       this.db.byResidentId[residentId] = assetId;
       this.save();
       return { ...rec, readSlot: slot, changed: 'created' };
     }
     let changed = null;
-    if (rec.holder !== v.holder) {
+    const genMoved = program.gen !== (rec.chainGen ?? 0);
+    if (rec.holder !== v.holder || genMoved) {
+      // A holder change with no generation bump means the program was bypassed (an unguarded asset): counted apart, flagged.
+      if (rec.holder !== v.holder && !genMoved) { rec.observedBypasses = (rec.observedBypasses ?? 0) + 1; rec.bypassed = true; }
       rec.holder = v.holder;
       rec.holderSince = { slot, signature: rec.pendingSignature ?? null };
-      rec.epoch += 1;
+      rec.chainGen = program.gen;
+      rec.epoch = program.gen + (rec.observedBypasses ?? 0);
       changed = 'holder';
     }
     if (rec.frozen !== v.frozen) { rec.frozen = v.frozen; changed ??= 'frozen'; }
@@ -118,7 +131,7 @@ export class ResidentRegistry {
    */
   async holderNow(assetId, { minSlot = 0 } = {}) {
     const rec = await this.observe(assetId, { minSlot });
-    return { holder: rec.holder, epoch: rec.epoch, readSlot: rec.readSlot, frozen: rec.frozen, residentId: rec.residentId };
+    return { holder: rec.holder, epoch: rec.epoch, chainGen: rec.chainGen, bypassed: rec.bypassed === true, readSlot: rec.readSlot, frozen: rec.frozen, residentId: rec.residentId };
   }
 
   // ------------------------------------------------------------ notifications

@@ -1,13 +1,13 @@
 {
-  "ranAt": "2026-10-31T00:58:03.044Z",
+  "ranAt": "2026-10-31T02:13:30.373Z",
   "mock": true,
   "steps": [
     {
       "step": 1,
-      "title": "Setup: a Core-shaped collection on the mock chain (test values; nothing here is a price or a supply decision)",
+      "title": "Setup: a Core-shaped collection on the mock chain (test values; nothing here is a price or a supply decision). Assets are minted guarded: Permanent Freeze + Permanent Transfer Delegate = the resident program",
       "detail": {
         "coreProgram": "CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d",
-        "collection": "9KdDgk…LSPn",
+        "collection": "G5Kc1C…HWYC",
         "walletA": "66FHe3…Ke6D",
         "walletB": "J4Bafd…axmw"
       }
@@ -17,8 +17,8 @@
       "title": "A acquires the NFT (payment → mint → the chain shows A as holder). Acquisition IS the waitlist entry.",
       "detail": {
         "payment": "settled",
-        "assetId": "DMqjbw…TdDC",
-        "residentId": "54650c907b8c26202502c5af705835",
+        "assetId": "7SzZA6…5sQr",
+        "residentId": "98acc063677d5c55a86e939f8dadf1",
         "waitlist": [
           {
             "holder": "66FHe3…Ke6D",
@@ -39,8 +39,8 @@
           "published": false,
           "residents": [
             {
-              "residentId": "54650c907b8c26202502c5af705835",
-              "assetId": "DMqjbwkZPhMMs1kpVKecK9XMbyycBFYjSt7f5JLhTdDC",
+              "residentId": "98acc063677d5c55a86e939f8dadf1",
+              "assetId": "7SzZA617G8gV64wMAAswh8gGUTqeBrTe3iBn55mn5sQr",
               "epoch": 0
             }
           ],
@@ -84,7 +84,7 @@
       "step": 6,
       "title": "A transfers the NFT to B (A signed one more operation beforehand, not yet sent)",
       "detail": {
-        "transfer": "5A9yLKV9rxeL",
+        "transfer": "3FSJUkPU2Bop",
         "slot": 1,
         "registry": "confirmed",
         "epoch": 1,
@@ -95,7 +95,7 @@
       "step": 7,
       "title": "B logs in to the SAME resident (same id, same village, A's history), acts, and the caravan A sent arrives for the resident B now holds",
       "detail": {
-        "residentId": "54650c907b8c26202502c5af705835",
+        "residentId": "98acc063677d5c55a86e939f8dadf1",
         "epoch": 1,
         "bOp": "sent",
         "village": {
@@ -146,6 +146,29 @@
           "residents": [],
           "canLogin": false,
           "onWaitlist": false
+        }
+      }
+    },
+    {
+      "step": 10,
+      "title": "A buys the NFT back (the relay observed nothing): the chain's holder generation moved, so nothing issued earlier works, for A or for B",
+      "detail": {
+        "chainGen": 2,
+        "sessionOnChain": null,
+        "aOldLoginToken": "BadCredential",
+        "bLoginToken": "OwnerChanged",
+        "bPresignedOpStraightAtChain": {
+          "refused": "NotOwner"
+        },
+        "aSecondPresignedOpFromBeforeTheSale": {
+          "refused": "StaleGen"
+        },
+        "aFreshLogin": {
+          "epoch": 2,
+          "residentId": "98acc063677d5c55a86e939f8dadf1"
+        },
+        "plainCoreTransferByOwner": {
+          "refused": "Frozen"
         }
       }
     }

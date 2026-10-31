@@ -1,8 +1,10 @@
-# 採用方式の比較：Solana の NFT 方式 3 候補（2026-10-31）
+# 選定方式の比較：Solana の NFT 方式 3 候補（2026-10-31）
 
 対象：「NFT = 住民アカウントの所有権」を、**名前・画像・メタデータの一致ではなく、正しいプログラム・collection・asset ID・現在の保有者**で検証できる方式。公式資料とプログラムのソースで確認した範囲だけを書き、未確認は未確認と記します。価格・発行数・販売方法・ロイヤリティはここでは決めません。
 
-## 0. 結論（試作で採用した方式と、採用しなかった理由）
+## 0. 結論（試作で選定した方式と、選定しなかった理由）
+
+**Metaplex Core は試作の選定方式であり、本線採用は未決（UNDECIDED U18）。**
 
 | 候補 | 試作での扱い |
 |---|---|
@@ -39,7 +41,7 @@
 - phantom/sign-in-with-solana: `domain`, `address`, `statement`, `uri`, `version`, `chainId`, `nonce`（8 文字以上の英数字）, `issuedAt`（±10 分）, `expirationTime`, `notBefore`, `requestId`, `resources`。検証は `verifySignIn`（`@solana/wallet-standard-util`）が「解析 → 入力と照合 → ABNF で再構築 → 署名検証」。
 - Lit Protocol の注意（sol-rpc-conditions）: 「any EDDSA signature that is valid will allow auth」—— 古い取引の署名の流用を防ぐため、domain・nonce・期限を**サーバで**確認する。試作の `auth.mjs` はこの通り、発行した文面と byte 単位で一致する署名だけを受け付け、nonce は 1 回で消費する。
 
-## 2. 認可に使う判定（採用方式 A）
+## 2. 認可に使う判定（選定方式 A）
 
 1. アカウントの `owner`（プログラム）が Core プログラム ID である（`WrongProgram`）。
 2. 先頭 1 byte が `Key::AssetV1 = 1`（`NotAnAsset`）。
@@ -47,7 +49,7 @@
 4. 保有者＝`owner` フィールド。**操作時点で読み直す**（ログイン時だけでは不十分）。読取のスロットが「最後に確認した保有者変更」より古ければ `StaleRead` として拒否。
 5. `name`・`uri`・オフチェーン JSON・collection の名前や画像は認可に使わない（表示のみ）。
 
-Core 側で**住民の譲渡を一時的に止めたい**場合（例：精算中）、Oracle 外部プラグインで `transfer` を拒否する構成が公式に存在する。これは「譲渡と処理中の操作の順序」を**チェーン側で**決める手段の候補であり、試作では模擬していない（UNDECIDED.ja.md U7）。
+**譲渡の経路をプログラムに限る**手段が Core に 2 つある（CONTRACT §10）：Permanent Freeze Delegate＋Permanent Transfer Delegate（公式：作成時のみ追加、譲渡後も失効しない、Permanent Transfer は「forceApprove — can transfer even when frozen」）と、Oracle 外部プラグイン（`transfer` を拒否できる）。試作は前者を模擬した。これが「買い戻しで旧権限が復活しない」保証の根拠で、代わりにマーケットプレイスの通常の譲渡フローと両立しない（U7）。
 
 ## 3. 譲渡と委任の関係（A で確かめた挙動）
 
