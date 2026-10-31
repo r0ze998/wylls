@@ -9,6 +9,13 @@ pub const DUPLICATE_EVENT: &str = "DuplicateEvent";
 pub const UNKNOWN_ENTITY: &str = "UnknownEntity";
 /// A transaction or record that cannot be read (fail closed, K2).
 pub const UNDECODABLE: &str = "Undecodable";
+// V0 coverage (⑱, 2026-10-31)
+/// A successful program instruction with no tag or a tag outside ABI v2.
+pub const UNKNOWN_INSTRUCTION: &str = "UnknownInstruction";
+/// A successful ABI instruction no check of this verifier models (UNVERIFIABLE).
+pub const UNVERIFIED_INSTRUCTION: &str = "UnverifiedInstruction";
+/// A Season of a program version this verifier does not implement (UNVERIFIABLE).
+pub const UNKNOWN_PROGRAM_VERSION: &str = "UnknownProgramVersion";
 // V2 program and rules
 pub const PROGRAM_MISMATCH: &str = "ProgramMismatch";
 pub const RULESET_MISMATCH: &str = "RulesetMismatch";

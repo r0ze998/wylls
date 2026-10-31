@@ -2,6 +2,7 @@
 //! in order over one parsed [`World`] and its [`Facts`], and a `mutate-v<n>`
 //! build leaves check `n` out (the checks of the checks).
 
+pub mod v0_coverage;
 pub mod v11_land;
 pub mod v12_explore;
 pub mod v13_payments;
@@ -122,6 +123,27 @@ impl Ctx<'_> {
             detail.into(),
         );
     }
+    /// The check cannot judge this with what it implements (UNVERIFIABLE
+    /// unless a FAIL exists), under its own code (V0).
+    pub fn unverifiable(
+        &mut self,
+        check: &'static str,
+        code: &str,
+        entity: impl Into<String>,
+        bell: u32,
+        tx: Option<usize>,
+        detail: impl Into<String>,
+    ) {
+        self.push(
+            Severity::Unverifiable,
+            check,
+            code,
+            entity.into(),
+            bell,
+            tx,
+            detail.into(),
+        );
+    }
     /// Data the check needs is absent (UNVERIFIABLE unless a FAIL exists).
     pub fn missing(
         &mut self,
@@ -172,6 +194,10 @@ pub fn run(input: &Input) -> Report {
         cq_replayed: Default::default(),
     };
     let mut ran: Vec<&'static str> = vec![];
+    // What this verifier can judge at all: unknown or unmodelled
+    // instructions and program versions are never a PASS (V0).
+    v0_coverage::run(&mut cx);
+    ran.push("V0");
     macro_rules! check {
         ($feat:literal, $name:literal, $m:ident) => {
             if !cfg!(feature = $feat) {
