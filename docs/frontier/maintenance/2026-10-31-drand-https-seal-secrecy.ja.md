@@ -46,7 +46,7 @@
 4. **`beacon::pin_info`・`pins_for`・`discover_pinned`・`check_served`**：OSS の drand クライアント（drand/drand-client の `isValidInfo`・`verifyBeacon`、thibmeu/drand-rs の `verify_beacon`）と比べ、chain hash・公開鍵の固定、round 一致、署名検証、`randomness = sha256(signature)` を同じ水準で行い、さらに時計（period・genesis）と scheme も比較する。
 5. **`HttpDrand::round`**：最初の endpoint の 425/404 で探索を打ち切っていた点、不正な JSON で即エラーにしていた点を修正。
 6. **keeper**：起動時の info 取得を `discover_pinned` に置換（従来は最初に応答した URL の `/info` を無検証で採用）。`keeper.toml` の `drand` は `https://` か loopback の `http://` のみ。
-7. **keeper の Reveal 計画**：THE anchor が無い到着には Reveal を作らない（§4）。
+7. **keeper の Reveal 計画**：THE anchor が無い到着には Reveal を作らない（§4）。待っている間の所有者の material は journal の新しい表 `owner_material` に書き、再起動後に一度読み戻す（追加のみの schema 変更）。
 8. **検証器 V0（独立パッチ、⑪の試作とは別）**：成功した取引の命令について、タグ無し・ABI v2 に無いタグは FAIL（`UnknownInstruction`）、ABI の長さ範囲外は FAIL（`Undecodable`）、ABI に名前はあるがこの検証器がモデル化していない命令は UNVERIFIABLE（`UnverifiedInstruction`）、CreateSeason の `program_version` が 1..=4 以外は UNVERIFIABLE（`UnknownProgramVersion`）。モデル化していない命令は現時点で **CloseMarch（0xA7）と FastForward（0xC0）**。
 
 ## 4. 見つけた不具合：公開前の平文がオンチェーンに出る
@@ -54,6 +54,8 @@
 - 事実：ブラウザ（と bots）は到着鐘の開始から reveal material を送る。keeper は anchor の有無を見ずに Reveal を計画・送信していた（`reveal_transient` が `NoAnchor` を「再試行」扱い）。送信は `skipPreflight: true`（`fclient/src/rpc.rs:423`）なので、プログラムが `NoAnchor` で拒否しても**失敗取引として台帳に載り、命令データ（平文 37 B と salt）が公開される**。これは `T(arrive)` の公開（鐘の終わり）より最大約 600 秒早い。
 - 再現：`no_reveal_before_the_anchor_of_its_arrival`（keeper `play.rs`）は修正前のコードで失敗した（`Reveal planned before THE anchor at 1800120030`、ログ `reveal-before-anchor.fail.log`）。既存試験 `reveals_skip_arrivals_at_or_after_end_bell` と `reveal_sources_deduped_by_host_arrive` も、anchor 無し・到着鐘の 30 秒時点で Reveal を計画・送信する前提で書かれていた。
 - 修正：anchor が無ければ material を保持して待つ。上の 2 試験は「anchor あり・鐘の終了後」に書き換えた（試験の意図は保持）。
+- 修正で入れた後退と、その修正：material を anchor まで**メモリだけ**で保持したため、所有者の送信から anchor までの間に keeper が落ちると、keeper 自身では開けない封印（所有者だけが公開する不正封印）の進軍が失われた。`crash_injection_every_journal_point`（通常は ignored、Gate W4 で実行）の `reveal/plaintext#1` が決着 digest の不一致で失敗した（基点では成功、ログ `base-crash-injection.log`）。修正前は material がすぐ Reveal の試行として journal に入っていたため起きなかった。`owner_material` 表で journal に残すようにし、同試験は成功（reveal 22 点、`keeper-play-include-ignored.log`）。単体試験 `held_owner_material_survives_a_restart` を追加。
+- material は以前から keeper の journal（Reveal 試行の取引バイト）に公開前から入っていたので、ディスク上の保存は増えていない。運用者を信用する点（I-24）は変わらない。
 - 実チェーンでの確認は未実行（SBF ツールチェーンが無く `.so` を作れない）。
 
 ## 5. 試験（実行したもの）
@@ -61,10 +63,11 @@
 | 試験 | 内容 | 結果 |
 |---|---|---|
 | `fclient` lib：`http::tests` 4 件、`beacon::tests` 4 件追加 | URL 検査、curl 引数に検証無効化が無いこと、trailer の検証、v1/v2 info、pin の全項目、served round の拒否条件、試験鍵の loopback 限定 | PASS |
-| `keeper` lib：`drand_urls_are_https_or_loopback`、`no_reveal_before_the_anchor_of_its_arrival` | 設定の拒否、Reveal の時期 | PASS（後者は修正前 FAIL） |
+| `keeper` lib：`drand_urls_are_https_or_loopback`、`no_reveal_before_the_anchor_of_its_arrival`、`held_owner_material_survives_a_restart` | 設定の拒否、Reveal の時期、待機中の material の再起動耐性 | PASS（2 件目は修正前 FAIL） |
+| `keeper --test play`（ignored を含む 7 件） | 鐘の pipeline、保留下の Reveal、二重 keeper、crash injection（journal の各書込み点で落として再起動、決着 digest 一致） | PASS |
 | `drand-replay --test hostile`（5 件、うち TLS 1 件は `--include-ignored`） | ゴミ、古い round、他鍵、ビット反転、randomness 不一致、500、閉じたポート、425/404 → 次へ、info の差し替え、ローカル TLS（未知 CA → curl 60、名前違い → curl 60、閉ポート → curl 7） | PASS（`not_yet…` は修正前 FAIL） |
 | `fclient --test period_boundary`（3 件） | 戦期境界（鐘 1008）をまたぐ進軍は `T(arrive)` の署名だけで開く。境界で鐘番号を振り直すと code 5、genesis がずれると code 1 で破棄。u32 の鐘全域で `T` は単調・正確 | PASS |
-| `fclient --test live_drand`（`FRONTIER_LIVE_DRAND=1`、公開 drand 4 endpoint） | 未来 round `R = latest + 20` に Rust とブラウザ実装で封印 → 公開前に `HttpDrand` は 425、最新署名・試験鍵の署名・壊れた署名では開かない → 公開後 HTTPS で取得・検証 → 両封印が両実装で開き judge code 0、hint が RFC 9380 と一致 | PASS（2026-10-31、round 33534078、ログ `live1.log`） |
+| `fclient --test live_drand`（`FRONTIER_LIVE_DRAND=1`、公開 drand 4 endpoint） | 未来 round `R = latest + 20` に Rust とブラウザ実装で封印 → 公開前に `HttpDrand` は 425、最新署名・試験鍵の署名・壊れた署名では開かない → 公開後 HTTPS で取得・検証 → 両封印が両実装で開き judge code 0、hint が RFC 9380 と一致 | PASS（2026-10-31 に 2 回：round 33534078 と、最終 commit のコードで round 33535230。後者の署名は別途 curl で drand.cloudflare.com から取り直して一致。ログ `live1.log`・`live-final.log`） |
 | `verify --test coverage`（5 件） | 未知タグ、データ不足・過多、モデル化外命令、未知版 | PASS（V0 を外すと 4 件 FAIL＝従来は PASS 判定） |
 | `fclient`・`keeper`・`drand-replay`・`verify` の全試験 | 回帰 | PASS（workspace 全体の結果はパッケージの `workspace-test.log`） |
 
@@ -101,7 +104,7 @@
 - 境界をまたぐ進軍は、鐘の時計が連続していれば境界の無い進軍と同じく `T(arrive)` の署名だけで開き、隣の round では開かない。
 - 境界で時計を振り直すと（今の「新しい Season」の形）、封印済みの進軍は code 5 か code 1 で破棄される。**戦期の切替で `genesis_ts` や鐘番号を変えてはいけない**、が移行の制約。
 - u32 の鐘（600 秒、約 81,700 年）全域で `T` は単調で正確。範囲の理由で振り直す必要は無い。
-- 長期運用で状態が増え続ける点（anchor・archive の口座、keeper の保持期間）は今回は測っていない。keeper のメモリ保持は既存の上限（`Rounds` 4,096 件、anchor は 48 時間＋余裕）。
+- 長期運用で状態が増え続ける点（anchor・archive の口座、keeper の保持期間）は今回は測っていない。keeper のメモリ保持は既存の上限（`Rounds` 4,096 件、anchor は 48 時間＋余裕）。一方、keeper の `PlayDuty.owner`（所有者 material）と journal の `plaintexts`・`owner_material` 表は**削除の経路が無く、継続世界では増え続ける**（今回の追加も既存の `plaintexts` と同じ扱いに揃えた）。決着後の削除規則は ④・⑧ と決める必要がある。
 
 ### 移行や仕様判断が残る点（④・⑧へ）
 
@@ -124,6 +127,7 @@
 ## 9. 未実行・未確認
 
 - オンチェーンの SettleTransit／Reveal（実プログラム）での決着：**未実行**。この環境に Solana SBF ツールチェーン（`cargo-build-sbf`）が無く、`.so` を作れない。導入は未承認のソフト導入にあたるので行っていない。オフチェーンでは検証器と同じ `seal::judge`（stock tlock）とブラウザの開封で code 0 を確認しただけ。
+- ignored の記録用試験 `record_land_program`（`PSF_FRONTIER_SO` の `.so` が要る）は失敗＝未実行扱い。`record_march_synth` は `fixtures/verify/march-synth.json` を書き換えた（封印の鍵が毎回変わるため event head が変わる）。記録済み fixture は変えないので元に戻し、差分だけ保存した（`record_march_synth-rewrote-fixture.diff`）。
 - `cargo fmt --check`・`cargo clippy`：**未実行**。1.95.0 ツールチェーンは最小構成で入り、rustfmt・clippy コンポーネントが無い（追加はツールチェーンのダウンロード）。
 - ⑪ の未知命令検証パッチ：**受け取っていない**（remote の枝にも見当たらない）。V0 は独立に作ったので、受領後に照合が要る。
 - 運用ログ・gateway citizens・MCP の全経路の平文漏えい監査：一部のみ（§2）。
