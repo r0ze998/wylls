@@ -1,8 +1,8 @@
 diff --git a/frontier-node/crates/keeper/tests/play.rs b/frontier-node/crates/keeper/tests/play.rs
-index 915abb50..9a12a2d9 100644
+index 915abb50..0b291e16 100644
 --- a/frontier-node/crates/keeper/tests/play.rs
 +++ b/frontier-node/crates/keeper/tests/play.rs
-@@ -48,7 +48,95 @@ use permutation_rules::hex::{Hex, DIRECTIONS};
+@@ -48,7 +48,99 @@ use permutation_rules::hex::{Hex, DIRECTIONS};
  
  use common::*;
  
@@ -29,6 +29,10 @@ index 915abb50..9a12a2d9 100644
 +}
 +
 +thread_local! {
++    /// Workstream 04: owner material in Shared right after the POSTs.
++    static API_QUEUED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
++    /// Workstream 04: `(host, HTTP status)` of each owner-material POST.
++    static API_CODES: std::cell::RefCell<Vec<(u64, u16)>> = const { std::cell::RefCell::new(Vec::new()) };
 +    static OUT: std::cell::RefCell<Vec<RevealOut>> = const { std::cell::RefCell::new(Vec::new()) };
 +    /// Reads of this account fail (an RPC error), when set.
 +    static FAIL_READS: std::cell::RefCell<Option<Address>> = const { std::cell::RefCell::new(None) };
@@ -99,7 +103,7 @@ index 915abb50..9a12a2d9 100644
  
  /// Unit-0 troops in every fixture Holding's reserve.
  const RESERVE0: u32 = 10_000;
-@@ -236,6 +324,16 @@ struct Opts {
+@@ -236,6 +328,25 @@ struct Opts {
      /// destination tile its path does not end on: a valid seal whose Reveal
      /// the program refuses (`Path`).
      unrevealable_top: bool,
@@ -113,10 +117,19 @@ index 915abb50..9a12a2d9 100644
 +    /// Workstream 04: the keeper is rebuilt from its journal in the middle
 +    /// of the window.
 +    restart_in_window: bool,
++    /// Workstream 04: owner material goes through the keeper's real
++    /// `/v1/reveal` (HTTP, the chain gate) instead of straight into Shared.
++    owner_via_api: bool,
++    /// Workstream 04: with `owner_via_api`, the keeper is rebuilt from its
++    /// journal right after every 202, before any tick picks the material up.
++    restart_after_202: bool,
++    /// Workstream 04: with `owner_via_api`, the API is given a journal path
++    /// that cannot be opened (a directory).
++    api_journal_broken: bool,
  }
  
  struct Run {
-@@ -288,7 +386,7 @@ fn new_keeper(
+@@ -288,7 +399,7 @@ fn new_keeper(
      cfg.peace_start = peace;
      let mut k = Keeper::new(
          cfg,
@@ -125,7 +138,7 @@ index 915abb50..9a12a2d9 100644
          w.drand.clone(),
          &[0x70 + i as u8; 32],
          journal,
-@@ -327,7 +425,12 @@ async fn tick(
+@@ -327,7 +438,12 @@ async fn tick(
          .await;
      match h {
          Ok((k, r)) => {
@@ -139,19 +152,104 @@ index 915abb50..9a12a2d9 100644
              k
          }
          Err(e) if e.is_panic() => {
-@@ -742,6 +845,11 @@ async fn scenario(o: Opts) -> Option<Run> {
+@@ -349,6 +465,38 @@ async fn tick(
+ 
+ /// `None` when the program under test lacks the play instructions (a
+ /// `PSF_FRONTIER_SO` build before W4-A/W4-B): the run is not applicable.
++/// Workstream 04: one POST /v1/reveal to the keeper's API.
++async fn api_post(addr: std::net::SocketAddr, token: &str, body: &serde_json::Value) -> (u16, serde_json::Value) {
++    use tokio::io::{AsyncReadExt, AsyncWriteExt};
++    let mut s = tokio::net::TcpStream::connect(addr).await.unwrap();
++    let b = body.to_string();
++    let req = format!(
++        "POST /v1/reveal HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer {token}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{b}",
++        b.len()
++    );
++    s.write_all(req.as_bytes()).await.unwrap();
++    let mut out = vec![];
++    s.read_to_end(&mut out).await.unwrap();
++    let text = String::from_utf8_lossy(&out).to_string();
++    let code: u16 = text[9..12].parse().unwrap();
++    let body = text.split("\r\n\r\n").nth(1).unwrap_or("");
++    (code, serde_json::from_str(body).unwrap_or(json!(body)))
++}
++
++/// Workstream 04: the keeper's API with the chain gate, as `frontier-keeper`
++/// starts it. On a tree whose API journals accepted material (workstream
++/// 18's b6c95f2d), this one call is `serve_full(addr, shared, token,
++/// Some(gate), Some(jpath.clone()))` — the line marked WS04-API-ENTRY.
++async fn start_api(w: &World, shared: std::sync::Arc<std::sync::Mutex<keeper_core::Shared>>, token: &str, _jpath: &std::path::Path) -> keeper_core::api::Running {
++    let gate: std::sync::Arc<dyn keeper_core::reveal_accept::RevealGate> = std::sync::Arc::new(keeper_core::reveal_accept::ChainGate {
++        port: w.ip.clone(),
++        addrs: w.addrs.clone(),
++    });
++    keeper_core::api::serve_with("127.0.0.1:0".parse().unwrap(), shared, token.to_string(), Some(gate)) // WS04-API-ENTRY
++        .await
++        .unwrap()
++}
++
+ async fn scenario(o: Opts) -> Option<Run> {
+     let started = std::time::Instant::now();
+     let w = world_with(|p| {
+@@ -742,6 +890,12 @@ async fn scenario(o: Opts) -> Option<Run> {
      };
      let mut owner_pushed = false;
      let mut held_slots = false;
 +    let (mut anchor_held, mut window_from, mut restarted) = (false, 0i64, false);
 +    OUT.with(|o| o.borrow_mut().clear());
++    API_CODES.with(|a| a.borrow_mut().clear());
 +    ANCHOR_SEEN.with(|c| c.set(0));
 +    TICK_ERRORS.with(|c| c.set(0));
 +    FAIL_READS.with(|f| *f.borrow_mut() = None);
      // The destination's resolved ClashInputs (fates), captured before the
      // close after `clash_close_grace`.
      let mut dest_resolved: Vec<u8> = vec![];
-@@ -757,6 +865,34 @@ async fn scenario(o: Opts) -> Option<Run> {
+@@ -749,14 +903,74 @@ async fn scenario(o: Opts) -> Option<Run> {
+     loop {
+         let b = sc.bell_at(w.now()).unwrap();
+         if !owner_pushed && b >= arrive {
+-            for m in marches
+-                .iter()
+-                .filter(|m| matches!(m.kind, MarchKind::OwnerReveal | MarchKind::Garbage))
+-            {
+-                push_owner(&mut ks, m, &players[m.pl]);
++            if o.owner_via_api {
++                // Workstream 04: through the real accept path.
++                let token = "k".repeat(32);
++                let broken = jpath.parent().unwrap().to_path_buf();
++                let srv = start_api(&w, ks[0].shared.clone(), &token, if o.api_journal_broken { &broken } else { &jpath }).await;
++                for m in marches
++                    .iter()
++                    .filter(|m| matches!(m.kind, MarchKind::OwnerReveal | MarchKind::Garbage))
++                {
++                    let p = &players[m.pl];
++                    let body = json!({
++                        "holding": w.addrs.holding(p.home.0 as i32, p.home.1 as i32, p.site).to_string(),
++                        "transit_slot": m.transit_slot,
++                        "plain_b64": base64::engine::general_purpose::STANDARD.encode(m.plain),
++                        "salt_b64": base64::engine::general_purpose::STANDARD.encode(m.salt),
++                        "ct_hash_b64": base64::engine::general_purpose::STANDARD.encode(m.ct_hash),
++                    });
++                    let (c, v) = api_post(srv.addr, &token, &body).await;
++                    println!("  owner material via API: host {} -> {c} {v}", m.host);
++                    API_CODES.with(|a| a.borrow_mut().push((m.host, c)));
++                }
++                srv.stop();
++                API_QUEUED.with(|q| q.set(ks[0].shared.lock().unwrap().reveals.len()));
++                if o.restart_after_202 {
++                    // Restart before any tick takes the material from Shared.
++                    let mut k = new_keeper(&w, 0, Some(&jpath), None, o.peace_start);
++                    inflight += k.start().await.unwrap();
++                    ks[0] = k;
++                    restarted = true;
++                }
++            } else {
++                for m in marches
++                    .iter()
++                    .filter(|m| matches!(m.kind, MarchKind::OwnerReveal | MarchKind::Garbage))
++                {
++                    push_owner(&mut ks, m, &players[m.pl]);
++                }
              }
              owner_pushed = true;
          }
@@ -186,7 +284,7 @@ index 915abb50..9a12a2d9 100644
          if let (Some((prio, n)), false) = (o.hold_slots, held_slots) {
              let t_arrive = sc.drand.round_time(sc.tlock_round(arrive));
              if w.now() >= t_arrive {
-@@ -1674,3 +1810,238 @@ async fn claim_after_late_reveal() {
+@@ -1674,3 +1888,304 @@ async fn claim_after_late_reveal() {
      assert!(claims.iter().all(|c| c.2 > 0));
      println!("claims: {claims:?}");
  }
@@ -271,6 +369,21 @@ index 915abb50..9a12a2d9 100644
 +                    }
 +                }
 +                None => unlanded += 1,
++            }
++        }
++        if sigs.len() > 1 {
++            // The versions' timeline: sent slot, landed slot, effect.
++            let win = sends.iter().filter_map(|x| x.sig.and_then(|s| c.transaction(&s)).filter(|l| l.err.is_none()).map(|l| l.slot)).min();
++            for x in &sends {
++                let l = x.sig.and_then(|s| c.transaction(&s));
++                println!(
++                    "    version sent slot {} landed {:?} {} (winner landed slot {:?}; sent {} the winner landed)",
++                    x.slot,
++                    l.map(|l| l.slot),
++                    l.map_or("unlanded".to_string(), |l| l.code.map_or("Ok".into(), |c| format!("Err {c}"))),
++                    win,
++                    match win { Some(w) if x.slot > w => "after", Some(w) if x.slot == w => "in the slot", _ => "before" }
++                );
 +            }
 +        }
 +        let settled = r.settled.get(&m.host);
@@ -424,4 +537,55 @@ index 915abb50..9a12a2d9 100644
 +    let early = report("retries", &r);
 +    same_marches("retries", &want, &r);
 +    check(&r, &early);
++}
++
++/// Workstream 04: owner material through the real `/v1/reveal`, the keeper
++/// rebuilt from its journal right after the 202s and before any tick takes
++/// it from memory. Every POST is 202, and the same marches are revealed Ok
++/// after publication as in the normal run (plus secrecy and validity).
++#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
++async fn ws04_api_restart_after_202() {
++    let Some(want) = normal_revealed().await else {
++        return;
++    };
++    let Some(r) = scenario(Opts { owner_via_api: true, restart_after_202: true, ..Default::default() }).await else {
++        return;
++    };
++    let codes = API_CODES.with(|a| a.borrow().clone());
++    println!("  API codes: {codes:?}");
++    assert!(!codes.is_empty() && codes.iter().all(|c| c.1 == 202), "{codes:?}");
++    let early = report("API, restart after 202", &r);
++    same_marches("API, restart after 202", &want, &r);
++    check(&r, &early);
++}
++
++/// Workstream 04: the same through the API without a restart (the API
++/// path itself reveals what the direct path does).
++#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
++async fn ws04_api_normal() {
++    let Some(want) = normal_revealed().await else {
++        return;
++    };
++    let Some(r) = scenario(Opts { owner_via_api: true, ..Default::default() }).await else {
++        return;
++    };
++    let codes = API_CODES.with(|a| a.borrow().clone());
++    assert!(!codes.is_empty() && codes.iter().all(|c| c.1 == 202), "{codes:?}");
++    let early = report("API", &r);
++    same_marches("API", &want, &r);
++    check(&r, &early);
++}
++
++/// Workstream 04: an API whose journal cannot be written answers no 202 and
++/// queues nothing (the material is refused, not held in memory only).
++#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
++async fn ws04_api_journal_unwritable_refuses() {
++    let Some(_r) = scenario(Opts { owner_via_api: true, api_journal_broken: true, ..Default::default() }).await else {
++        return;
++    };
++    let codes = API_CODES.with(|a| a.borrow().clone());
++    let queued = API_QUEUED.with(|q| q.get());
++    println!("  API codes with an unwritable journal: {codes:?}; queued {queued}");
++    assert!(!codes.is_empty() && codes.iter().all(|c| c.1 != 202), "{codes:?}");
++    assert_eq!(queued, 0, "nothing queued in memory");
 +}
