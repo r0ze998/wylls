@@ -160,3 +160,14 @@
 
 - P12：再試行の場面で keeper の集計 681,118 = チェーン 681,118（未計上 0）。keeper の既存試験は全部合格。T18-3 は直る。
 - P11：keeper の既存試験は全部合格。ただし④の 5 場面は変わらない（秘匿 2・有効性 7）。早期の 2 件は到着ターンの開始の後、drand の公開の前に出ているので、ターンの開始という下限では止まらない。秘匿と有効性には⑱の条件が必要。P11 の役割は「受付の下限」に限られ、その採否は利用者の判断。
+
+### 5.5 ⑱が④の試験 v3 を走らせた結果と、追加の修正 b6c95f2d（⑱の報告。データとして受け取った。未受領・④は未照合、18:54 UTC）
+
+- ⑱の側で v2 → v3 を当てた play.rs は blob `4062e0b91df081965df4b1ca25c6d97d6c07b9f3`、sha256 `65817498…f5cc` で、④の値と一致。
+- 41984e99（補遺 v2 の先端）：4 場面は PASS、**restart は FAIL**（Reveal が Ok の進軍が 6 / 7、host 140737488355329 が欠ける）。⑱の説明：`/v1/reveal` が 202 を返した後、material はメモリの待ち行列（Shared）にしかなく、tick が journal に書く前に再起動すると失われる。基点にも同じ穴があり、④の基準の restart の結果と同じ現象。
+- ⑱の追加の修正：commit `b6c95f2d4354ec73dab65ecb3e89b1dd2e2eecb3`（tree `df97decd41ba3f61f0e694a431c60b53cf08bcc6`、未 push）。`/v1/reveal` は journal の `owner_material` 表に書いてから 202、書けなければ 503 `JournalUnavailable`。`serve_full`／`router_full` が journal のパスを受け取り、`frontier-keeper` は自分の journal を渡す。`serve_with`／`router_with` は journal なしのまま。⑱は keeper の lib 77 件が通ると報告。**補遺 v3 として届く予定で、未受領**。
+- 試験の仕組みの論点：④の v3 の `push_owner` は API を通さず `Shared` に直接入れる。⑱の修正の後も、このままでは restart は FAIL（本物の keeper には無い「202 の後、メモリにだけある」経路を測る）。⑱は `push_owner` で 202 の前と同じく journal に書く差分（`r18-harness-journal-like-api.diff`、sha256 `296f96dd9125ab00ce9feb3172e219661d9c4939b850ce79a118dd5bbb278168`）を当て、5 場面すべて PASS（restart 7 / 7）と報告。
+  - ④の扱い：この差分は⑱の新しい API（`save_owner_material`、`OwnerRow`）に依存し、基点ではコンパイルできない。④の試験は、正本を受け取った後、⑱の tree が持つ受付の入口を通す形（`router_full` か、同じ journal の書き込み）に直し、「API を通す版」と「Shared に直接入れる版」の両方の結果を並べて報告する。判定は API を通す版で行い、さらに `frontier-keeper` の起動の経路が本当に journal を渡しているかを④がコードで確かめる。
+  - 基準（修正の前）の restart の失敗は、本物の API でも起きる穴（202 の後、journal 前）なので、基準の判定は変えない。
+- 再試行の 27 件（⑱の報告。b6c95f2d と上の差分、41984e99 でも同じ数）：27 件すべて別の署名、同じ取引の再送 0、simulate 0。Ok 7（すべて T(arrive) の公開後、進軍ごとに 1）、Err 20（すべて 52 `AlreadyDone`、4 進軍に 5 件ずつ）、未着地 0。手数料の合計 687,602 lamports（正常の場面 104,213）。④の基準の測定（681,118 / 103,557）と件数・内訳は同じで、金額だけ少し違う（コードが違うため。理由は未確認）。秘匿・有効性の違反は 5 場面とも 0。
+- 判断事項（⑱の提案）：AlreadyDone の 20 件は、ある版が着地した後に escalation の別の版が着地した無駄な手数料。keeper の escalation の打ち切り（一つが着地したら残りの版を出さない・取り消す）を別の課題にする。⑯の P12（数え漏れの修正）は数を正しくするだけで、無駄そのものは減らさない。採否は利用者の判断。
