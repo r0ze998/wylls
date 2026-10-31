@@ -18,6 +18,15 @@ use crate::registry::{Registry, Status};
 
 /// `Citizen.WALLET`, `SESSION`, `SESSION_EXPIRY` (the prologue's rule:
 /// the wallet, or the session key before its expiry).
+///
+/// **Continuing world.** Everything an extension keeps (grants, instances,
+/// escrow, receipts) is keyed by the owner's *stable identity*, the key of
+/// `Host::citizens`, never by an account that a period boundary could
+/// re-create (today's Citizen and Holding addresses are rooted in the
+/// Season PDA). How that identity maps to the core's accounts is the
+/// shared core's decision (workstream 04); Holdings here are found by
+/// their `owner_citizen`, so a Holding re-created under a new address
+/// still receives a refund or an exit.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CitizenKeys {
     pub wallet: Key,
@@ -119,6 +128,18 @@ impl Host {
         Err(ExtError::NoGrant)
     }
 
+    /// A call whose seq the owner's instance has already passed was applied
+    /// (or superseded) before: refused as `SeqMismatch` first, whatever else
+    /// changed since (a pause, an ended grant, new rules), so a runner that
+    /// resends after a restart always gets the same answer and can find its
+    /// receipt at the chain head.
+    fn stale(&self, call: &Call) -> Result<(), ExtError> {
+        match self.instances.get(&(call.manifest_id, call.citizen)) {
+            Some(i) if call.seq < i.seq => Err(ExtError::SeqMismatch),
+            _ => Ok(()),
+        }
+    }
+
     /// One call (contract §5). Every check comes before any write; the
     /// writes are the outcome's, all together.
     pub fn call(&mut self, call: &Call) -> Result<Receipt, ExtError> {
@@ -126,6 +147,7 @@ impl Host {
             .registry
             .get(&call.manifest_id)
             .ok_or(ExtError::NotRegistered)?;
+        self.stale(call)?;
         match reg.status() {
             Status::Active => {}
             Status::Paused => return Err(ExtError::Paused),
@@ -176,6 +198,7 @@ impl Host {
             .registry
             .get(&call.manifest_id)
             .ok_or(ExtError::NotRegistered)?;
+        self.stale(call)?;
         if call.entry != WITHDRAW || !call.args.is_empty() {
             return Err(ExtError::NoEntry);
         }

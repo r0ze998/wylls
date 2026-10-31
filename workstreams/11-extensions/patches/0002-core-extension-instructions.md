@@ -1,5 +1,15 @@
 # 0002 コアに案 B を組み込む場合の命令・口座・記録（案、未適用・未実行）
 
+> **r4（2026-10-31、継続世界への方針訂正を反映）。** 下の表の初版は、拡張の口座を Season PDA から導き（`[season r]`、`create_with_seed(season, …)`）、ExtCall・ExtWithdraw を `player_prologue` に通していた。今のコアでは `player_prologue` が `bell(now) ≥ end_bell` と Running 以外の Season を `WrongStatus` で拒否し（`frontier-abi/src/prologue.rs` 1056–1070、1102–1108 行）、Holding・Citizen は終了の 72 時間後に閉じられる（`permutation-frontier/src/proc/citizen.rs` 2405–2411、2446–2450 行。CloseHolding は未決済の輸送の預かりを含めて Holding を `rent_payer` へ閉じる）。**そのままでは、期間の終わりで拡張の状態が別の Season の下に取り残され、預かりの返却も拒否される。** r4 では次のとおり改める（共有コアの変更は④に集約するので、ここでは要件として書く）:
+>
+> 1. 拡張の口座（登録・Grant・instance・buffer）の根は、期間ごとに変わらない根（④が決める。仮に `world_root` と書く）。Season PDA を根にしない。
+> 2. Grant と instance は所有者の**変わらない識別**（今の試作では wallet に相当する鍵）で引く。期間ごとに作り直される Citizen・Holding の口座アドレスでは引かない。返却先は、その所有者が今所有するどの Holding でもよい。
+> 3. ExtWithdraw は期間の状態（`end_bell`、Running）で拒否しない。開く条件は拡張自身の規則（停止・Grant の終了・コアの版の変更）だけ。預かりの返却義務に期限はない。返却先の Holding が無い間は待つ（`tests/continuity.rs` `c04`）。⑩の「所有者別の引出し義務」と同じ扱いにするかは⑩・④との照合が要る。
+> 4. 拡張の時刻は絶対時刻（`now_ts`）と、そこから求めた鐘 `now_ts / 600` だけを使う。コアの鐘（Season の `genesis_ts` からの相対、u32）は使わない。
+> 5. manifest の `core`（`program_version`、`ruleset_hash`）は「規則の版」であって期間の識別ではない。期間の切替で規則が変わらないなら、拡張はそのまま動く（`c01`）。変わるなら呼出しは止まり出口が開く（`c02`）。
+>
+> 以下の表は初版のまま残す（`[season r]` は r4 の 1. の `world_root` に読み替える）。
+
 **位置づけ。** `ext-kernel` のホスト上の部品を Frontier プログラムに組み込むときの対応表。コード差分ではなく設計案で、共有コア（`frontier-abi`、`permutation-frontier`、`frontier-node/crates/verify`、`permutation-gateway` の relay）は変更していない。採用が決まったら integrator が M1 契約 §3.4 / I-55 の手順で取り込む前提。
 
 ## 1. 命令（タグ 0xD0–0xD5 を予約する案）

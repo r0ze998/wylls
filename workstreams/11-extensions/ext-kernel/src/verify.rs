@@ -112,7 +112,7 @@ pub fn verify(ev: &Evidence) -> Verdict {
         cx.unver(
             None,
             "MissingCoreVersion",
-            "the core version the season ran is not given",
+            "the core version this window ran under is not given",
         );
         return Verdict::Unverifiable(cx.unver);
     };
@@ -498,6 +498,81 @@ pub fn verify(ev: &Evidence) -> Verdict {
         Verdict::Fail(cx.fail)
     } else if !cx.unver.is_empty() {
         Verdict::Unverifiable(cx.unver)
+    } else {
+        Verdict::Pass
+    }
+}
+
+/// A continuing world is verified window by window (an archive per
+/// period, or per day, never one for all time). Each window must verify on
+/// its own, and each must start exactly where the one before ended: the
+/// instances, the Holdings both name, and the grants. A window that does
+/// not say its state is UNVERIFIABLE; one that starts elsewhere is a FAIL
+/// (`WindowGap`). The windows themselves are the caller's (no period is
+/// defined here).
+pub fn verify_windows(windows: &[Evidence]) -> Verdict {
+    let mut fail = Vec::new();
+    let mut unver = Vec::new();
+    for (k, w) in windows.iter().enumerate() {
+        match verify(w) {
+            Verdict::Pass => {}
+            Verdict::Fail(f) => fail.extend(f),
+            Verdict::Unverifiable(f) => unver.extend(f),
+        }
+        let Some(prev) = k.checked_sub(1).map(|j| &windows[j]) else {
+            continue;
+        };
+        let gap = |code, d: &str| Finding {
+            record: None,
+            code,
+            detail: format!("window {k}: {d}"),
+        };
+        match (
+            &prev.instances_after,
+            &prev.grants_after,
+            &prev.holdings_after,
+        ) {
+            (Some(ia), Some(ga), Some(ha)) => {
+                if *ia != w.instances_before {
+                    fail.push(gap(
+                        "WindowGap",
+                        "instances do not start where the last window ended",
+                    ));
+                }
+                if *ga != w.grants_before {
+                    fail.push(gap(
+                        "WindowGap",
+                        "grants do not start where the last window ended",
+                    ));
+                }
+                for (key, h) in &w.holdings_before {
+                    match ha.get(key) {
+                        Some(x) if x.holding == h.holding && x.owner_citizen == h.owner_citizen => {
+                        }
+                        Some(_) => fail.push(gap(
+                            "WindowGap",
+                            "a Holding does not start where the last window ended",
+                        )),
+                        // A Holding the last window did not know (e.g. one
+                        // the core re-created at a boundary): the core
+                        // verifier's to judge, not a pass here.
+                        None => unver.push(gap(
+                            "OutsideExtensions",
+                            "a Holding the last window did not have",
+                        )),
+                    }
+                }
+            }
+            _ => unver.push(gap(
+                "MissingFinalState",
+                "the last window's final state is not given",
+            )),
+        }
+    }
+    if !fail.is_empty() {
+        Verdict::Fail(fail)
+    } else if !unver.is_empty() {
+        Verdict::Unverifiable(unver)
     } else {
         Verdict::Pass
     }

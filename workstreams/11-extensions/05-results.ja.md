@@ -84,3 +84,13 @@
 パッチ後の既存の試験: lib 12、camp_clear 3、fixtures 9、tamper 58、unit 8 と追加の unknown_ix 3、missing_state 2、計 95 件通過。
 
 **開発中に見つかった範囲の不足（記録）:** パッチ 0003 の最初の版（前の状態が無いときだけ報告）は、間の書込の post-state を落とす場合（tx#90）を見逃し、唯一の post-state を落とす場合（tx#89）は Holding と認識できなかった。「書込可の既知の Holding に post-state が無い」検査と、最終状態からの Holding の認識を足した。
+
+## 6. r4 の追加検証（2026-10-31、継続世界）
+
+ext-kernel: **43 件すべて通過**、clippy `-D warnings` 通過（`results/ext-kernel-tests.log`）。追加は `tests/continuity.rs` 6 件、`tests/long_run.rs` 4 件。内容と結果の表は [09](09-continuing-world.ja.md) §3。
+
+**検証で見つかり、直したもの:** 再送の判定順（[09](09-continuing-world.ja.md) E5）。Grant の回数が尽きた後に同じ呼出しを再送すると `GrantCalls` が返り、完了済みの判別ができなかった。古い seq を最初に判定するようにした。
+
+**開発中の試験側の誤り（記録）:** 長期運用の試験で、例の manifest の数の上限（1,000）に 1,001 回目で達し失敗した。これは上限の性質そのもの（`g02` で扱う）なので、長期運用の試験は上限を大きくした manifest で行った。`cargo fmt` が行を折り返した後の文字列置換が当たらず、一度は上限の変更が反映されていなかった（実行時の状態を表示して気づいた）。
+
+既存の再生検証器は r4 で再実行していない（パッチ 0001・0003 は変更なし）。

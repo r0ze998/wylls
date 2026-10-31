@@ -1,6 +1,6 @@
 # ⑪ 拡張方式: 利用者や AI が世界の機能を増やす方法
 
-作業日 2026-10-30（r3 まで）。基準 commit `4cd901de9f8e0d6c0b2016851d30595c4a70aa46`。この担当の成果物はすべてこのディレクトリにあり、共有コア（`permutation-frontier`、`frontier-abi`、`permutation-rules`、`frontier-node`、`permutation-gateway`）は一行も変えていない。
+作業日 2026-10-30〜31（r4 まで）。**r4: 世界は終了・リセットしない（2026-10-31 の方針訂正）。⑪の対応は [09](09-continuing-world.ja.md)。**基準 commit `4cd901de9f8e0d6c0b2016851d30595c4a70aa46`。この担当の成果物はすべてこのディレクトリにあり、共有コア（`permutation-frontier`、`frontier-abi`、`permutation-rules`、`frontier-node`、`permutation-gateway`）は一行も変えていない。
 
 > **これは本番に任意コード実行を開く決定ではない。案 B、Burn、運営の停止権限はいずれも採用していない（2026-10-30）。** 以下の結果はホスト上の試験で、オンチェーンの保証ではない（[08](08-host-vs-onchain.ja.md)）。 比較と試作の許可の範囲で、案を比べ、推奨案をホスト上の隔離した crate で試作した。例の機能（「見張りの誓い」）は例であり、採用したゲームルールではない。
 
@@ -16,6 +16,7 @@
 | 未知・不足を PASS にしない（r3） | 試作の検証器: 1,254 個の改変で PASS 0、知らない・欠けたものは UNVERIFIABLE | [05](05-results.ja.md) §5 |
 | 返却（r3） | 出口は停止・Grant の終了・コアの版の変更で開き、一度だけ。5 手の全 16,807 通りで二重返却も取り出せない預かりもない | [05](05-results.ja.md) §5、[01](01-contract.ja.md) §3 |
 | 分割書込み（r3） | 未完成・欠落・順序逆転・重複・食い違いを扱い、hash の確認前は登録も実行もされない | [01](01-contract.ja.md) §3b |
+| 継続世界（r4） | 拡張の状態・Grant・預かり・返却義務が期間の境界・再起動・30 年の空白をまたいで続き、二重適用も消失もない。期間の終わりで返却を拒否する依存（パッチ 0002 の初版）を除いた | [09](09-continuing-world.ja.md) |
 | 既存の検証器の穴 | 知らないタグの命令、CPI で呼ばれた Frontier、Holding の post-state の欠落を PASS にする（実行で確認）。残る未確認の範囲は [08](08-host-vs-onchain.ja.md) §3 | [patches/0001](patches/0001-verify-unknown-instruction-is-unverifiable.patch)、[0003](patches/0003-verify-v7-missing-holding-state-is-unverifiable.patch) |
 | Solana 上で動くか | **未確認**。SBF ツールチェーンの導入が承認されず、チェーン上の試験と CU の測定はしていない | [00](00-context.ja.md) §4 |
 
@@ -31,6 +32,7 @@
 | [05-results](05-results.ja.md) | 試験結果、測定、未実行 |
 | [06-adoption](06-adoption.ja.md) | 採用前に決めること（オーナーの判断・技術の確認・他担当との照合） |
 | [07-discrepancies](07-discrepancies.ja.md) | 文書とコードの食い違い |
+| [09-continuing-world](09-continuing-world.ja.md) | 継続世界への対応: 残っていたシーズン依存、変えた挙動、境界・再起動・長期運用の試験、残る判断（r4） |
 | [08-host-vs-onchain](08-host-vs-onchain.ja.md) | ホスト試験で確かめた範囲とオンチェーンの保証の区別、CPI・V7 の未確認範囲（r3） |
 | [10-research](10-research.ja.md) | OSS の先例（BOLT、Metaplex Core、Transfer Hook、MUD、Dojo、Swig、Lighthouse）と Solana の一次資料（Agave v3.1.9） |
 | [patches/](patches/) | 共有コアへの変更案（**未適用**） |

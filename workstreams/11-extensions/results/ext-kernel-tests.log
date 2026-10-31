@@ -1,8 +1,8 @@
-# 2026-10-30T23:23:36Z 93f51b69f8ae5bf3012bdc858450e9a54bd7dd52 rustc 1.89.0 (29483883e 2025-08-04)
+# 2026-10-31T00:13:53Z fc61a21fb730d69d117f7a0e070a00d7f22d9bb0 rustc 1.89.0 (29483883e 2025-08-04)
     Checking wylls-ext-kernel v0.1.0 (/home/user/wylls/workstreams/11-extensions/ext-kernel)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.72s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.56s
    Compiling wylls-ext-kernel v0.1.0 (/home/user/wylls/workstreams/11-extensions/ext-kernel)
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.31s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6.11s
      Running unittests src/lib.rs (/home/user/wylls/permutation-chain/target/debug/deps/wylls_ext_kernel-c5b73a01f61d62c2)
 
 running 0 tests
@@ -22,6 +22,19 @@ test b07_bounds_and_ownership_of_a_buffer ... ok
 
 test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
 
+     Running tests/continuity.rs (/home/user/wylls/permutation-chain/target/debug/deps/continuity-ec67168f7207ef27)
+
+running 6 tests
+test c01_the_world_continues_through_a_boundary ... ok
+test c02_new_rules_open_the_exit_and_nothing_is_lost ... ok
+test c03_a_re_created_holding_still_receives_what_is_owed ... ok
+test c04_an_obligation_waits_for_the_owner_however_long ... ok
+test c05_an_extensions_own_deadline_is_not_the_worlds ... ok
+test c06_a_restart_does_not_run_anything_twice ... c06: 40 calls, 14 restarts with a resent call, each applied once
+ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
      Running tests/exit.rs (/home/user/wylls/permutation-chain/target/debug/deps/exit-8784889c6cf54540)
 
 running 6 tests
@@ -33,7 +46,7 @@ test e05_a_replayed_exit_does_not_verify ... ok
 test e06_every_short_history_conserves_and_lets_the_user_out ... e06: 16807 histories, 29032 refused steps, 578 exits and 794 fulfils inside them; all conserved and recoverable
 ok
 
-test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.16s
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.49s
 
      Running tests/flow.rs (/home/user/wylls/permutation-chain/target/debug/deps/flow-14bf58850a2dbe12)
 
@@ -72,6 +85,17 @@ test f03_core_resources_are_conserved_across_calls ... ok
 
 test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 
+     Running tests/long_run.rs (/home/user/wylls/permutation-chain/target/debug/deps/long_run-dd329cb9896ebe64)
+
+running 4 tests
+test g01_twenty_thousand_calls_verify_window_by_window ... g01: 20,000 calls in 841.425464ms, 10 windows of 2,000 records verified in 807.115212ms
+ok
+test g02_a_full_counter_does_not_trap_the_escrow ... ok
+test g03_limits_refuse_instead_of_wrapping ... ok
+test g04_state_is_bounded_by_the_declared_number_of_owners ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.78s
+
      Running tests/never_pass.rs (/home/user/wylls/permutation-chain/target/debug/deps/never_pass-de7dc1bfb5c78fbe)
 
 running 2 tests
@@ -80,7 +104,7 @@ n01 H2: 627 mutations (1 change nothing here), 611 FAIL, 15 UNVERIFIABLE, 0 PASS
 ok
 test n02_unknown_or_missing_is_unverifiable_not_fail ... ok
 
-test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.15s
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.16s
 
      Running tests/refusals.rs (/home/user/wylls/permutation-chain/target/debug/deps/refusals-0c9de124e0bcd772)
 
@@ -107,7 +131,7 @@ test v02_a_completion_that_did_not_happen_fails ... ok
 test v03_what_the_verifier_does_not_know_is_never_a_pass ... ok
 test v04_a_fail_outranks_an_unverifiable ... ok
 
-test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
 
    Doc-tests wylls_ext_kernel
 
