@@ -54,3 +54,8 @@
 - `cargo-build-sbf`（Agave 3.1.9）なし → `permutation-frontier/svm-tests`（LiteSVM）、③ `courier-tests`、`frontier-node/crates/itest` の実チェーン試験は**未実行**。プログラム本体の挙動は Rust ソースの読解と、同じ規則カーネル（`permutation-rules`）・同じ ABI を使う消費側（keeper/herald/verify/web）の実行で裏取りした。
 - Rust 1.89（ルート workspace）と 1.95（`frontier-node`、rustup で取得）、Node 22、LiteSVM なし。
 - ネットワーク送信・push・deploy・有料 API は行っていない。
+
+## 6. 2026-10-31 の再確認
+
+- `git fetch origin` を再実行: 新しい ref なし。④の統合 tree（`2e536b6b`／`967ffc01`）、⑰⑱⑲の成果物はいずれも未着。第 2・3 期も基点 `4cd901de`（= `main`）で検証した。
+- 旧 prototype（`permutation-chain`、gateway `src/crank.mjs`／`src/routes/x402.mjs`）は同じ tree にあり、⑲の MagicBlock 配線はそこにだけ存在する。

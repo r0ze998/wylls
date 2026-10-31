@@ -145,6 +145,26 @@ fn v16_a8_a_cpi_shaped_transaction_leaves_nothing_judged_and_the_run_still_passe
     );
 }
 
+/// The recorded program season with one more landed transaction whose tag
+/// the ABI table KNOWS but no check judges (⑰⑱ phase: "a number that is
+/// known, with no judgement behind it"): SetVigil (0x32) with garbage data,
+/// no logs, no post-states.
+#[test]
+fn v16_x2c_a_landed_instruction_of_a_known_but_unjudged_tag_is_named_in_the_report() {
+    let inp = with_injected_tag(frontier_abi::v2::tags::Ix::SetVigil.tag());
+    let idx = inp.txs.len() - 1;
+    let r = verify_core::verify(&inp);
+    let named = r
+        .findings
+        .iter()
+        .any(|f| f.entity.contains(&format!("tx#{idx}")) || f.detail.contains(&format!("tx#{idx}")));
+    assert!(
+        r.verdict != Verdict::Pass || named,
+        "a landed instruction nobody judges must at least be named in the report (tx#{idx}, tag 0x32); got PASS with:\n{}",
+        show(&r)
+    );
+}
+
 #[test]
 fn v16_x2_control_the_fixture_passes_untouched() {
     let r = verify_core::verify(&march_program());

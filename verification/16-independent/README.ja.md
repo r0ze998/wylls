@@ -17,6 +17,10 @@
 | `permutation-gateway/test/v16-agent-wallet-contention.test.mjs` | B | 本人 MCP と運営 runner が同一ティックに 2 行動を送る（B8、仕様未決定の記録） | 成功（挙動の記録） |
 | `permutation-gateway/test/v16-web-caravan-holder.test.mjs` | A, C | 画面側: TAKE 後の「道中の隊商」と地図の `own`（A1, A1b）、③ courier の session 鍵を「鍵なし」と誤認（A7） | 3 件失敗 |
 | `permutation-gateway/test/v16-web-wallet-switch.test.mjs` | C | ウォレット内のアカウント切替に画面が追従しない（C3、controller の 2 行を**模擬**） | 失敗 |
+| `frontier-node/crates/verify/tests/v16_unknown_tag.rs`（追加 X2c） | 横断 | 番号だけ既知で判定の無いタグ（SetVigil 0x32）の着地命令が報告に出ない | 失敗 |
+| `permutation-gateway/test/v16-x402-settlement.test.mjs` | ⑰（旧経路の互換性） | 一般 x402 クライアント形式は通らない（T17-1、記録）、応答喪失後の同一再送が 409 Duplicate のみ（T17-2）、504 後の再試行が 402 AlreadyPaid（T17-3）、ネットワーク不一致の拒否（T17-4、確認）、Claim 後に Entry を読めないと金額 "0"（T17-5） | T17-2/3/5 失敗 |
+| `permutation-gateway/test/v16-public-ops.test.mjs` | ⑱⑲ | 自己 Reveal がターン開始時点で送られ README の「終了まで秘匿」と食い違う（T18-1）、旧 prototype の MagicBlock 解除順序がプログラムと逆（T19-1） | 2 件失敗 |
+| `frontier-abi/tests/v16_period_boundary.rs` | 継続世界（期間境界） | 境界（end_bell）で通常操作が拒否される（P2）、28 日を超える長さを作れない（P3）、境界直前は通る（P1、確認） | P2・P3 失敗 |
 
 ## 実行
 
@@ -29,6 +33,9 @@ cargo test --locked -p verify --test v16_unknown_tag
 # Node（gateway と Web）
 cd permutation-gateway
 node --test test/v16-*.test.mjs
+
+# Rust（ルート workspace）
+cargo test --locked -p frontier-abi --test v16_period_boundary
 ```
 
 ## 修正候補パッチの検証（隔離コピー）

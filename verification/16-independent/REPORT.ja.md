@@ -1,4 +1,6 @@
-# ⑯ 独立検証 報告書（2026-10-30）
+# ⑯ 独立検証 報告書（2026-10-30、2026-10-31 更新）
+
+> **2026-10-31 の更新**: 第 2 期（⑰決済・⑱秘密の進軍・⑲MagicBlock/公開運用、§8）と、所有者の方針訂正「シーズン制の廃止・世界の継続」を受けた第 3 期（§9、4 点構成）を追記。§0〜§7 は第 1 期（①〜⑮の横断）のまま。
 
 担当: ⑯（①〜⑮とは別の立場）。目的は「個別テストは通るが、組み合わせると壊れる」箇所を、実行可能な再現テストで示し、担当が直せる形で渡すこと。本体・台帳・実行器は作っていない。push・merge・deploy・実資金・有料 API・鍵設定・Agave 導入は行っていない。
 
@@ -130,3 +132,123 @@
 4. A7/C3/P6: 画面。③採用の判断と合わせて。
 5. A3/C1: 記録の表現力。契約の明記か記録の追加を担当①⑦で判断。
 6. B8 ほか仕様未決定: 所有者の決定事項として記録。
+
+
+---
+
+# 第2期（2026-10-31）：⑰ 決済・⑱ 秘密の進軍と検証・⑲ MagicBlock と公開運用
+
+**前提の変更（2026-10-31、所有者）**: シーズン制は廃止し、世界は継続する。「シーズン終了→賞金受取」を完成形とする指示は撤回された。本節の⑰の試験は**旧経路の互換性と既存の受取権の確認**として残し、新しい世界を終了させる根拠にはしない。新しい料金周期・賞金制度は決めない。
+
+## 8.1 通し経路「x402 参加→操作→終了→検証→受取→着金」の実態
+
+- **④が固定した統合 tree は入手できない**（INVENTORY §3）。基点 `4cd901de` の relay/SDK/web と `permutation-prize` のソースで検証した。チェーン側（prize プログラム、SBF）は未実行。
+- **一般の x402 クライアントは通らない。自前 SDK（または同形を作るクライアント）だけが通る。** 402 の要件は公開仕様の形（`scheme exact`, `network`, `asset`=mint, `payTo`=vault, `maxAmountRequired`）だが、支払いは `[compute budget ×3, prize Pay, game Join]` の 5 命令を wallet が署名したものに限られ、仕様どおりの `TransferChecked` 1 命令は 402 `InvalidPayment`（T17-1、記録）。要件の `extra.instruction: 'Pay+Join'` がその旨を示す。
+- **支払い成立後に応答を失う**: 同じ X-PAYMENT の再送は 409 `Duplicate`「新しい取引に署名せよ」だけで、決済済みの取引を教えない（T17-2、失敗）。従って新しい取引で再試行すると prize プログラムが `AlreadyPaid`（0x105）を返し、relay は 402「支払い拒否」と答える（T17-3、失敗）。本人は参加済みなのに拒否と読める。回復手段は `GET /f/prize?wallet=` の Entry 確認だけ。relay の replay cache はメモリのみ（30 分 TTL）で再起動後は空。**修正候補 P7**（同一バイト列は決済済み取引で 200、AlreadyPaid かつ Entry・Citizen 既存なら `mode: settled` で 200）。
+- **二重受取**: Claim は Entry の `CLAIMED` で拒否（`AlreadyClaimed` → 409）。relay 経由の宛先は wallet の ATA に固定。プログラム自体は宛先の所有者を検査しない（mint は SPL が検査）。
+- **誤った mint・宛先・ネットワーク**: ネットワークは 402（T17-4、確認）。mint・vault は `classifyPaidJoin` の口座一致で 402（既存試験）。
+- **偽の支払い証拠**: 署名だけの payload は受理されない（取引本体が必要、relay が simulate→send→status で確認）。
+- **未確定を 0 とする箇所**: `POST /f/prize/claim` は着地後に Entry を読めないと `amount: "0"` と答える（T17-5、失敗。**P8**: `null` + `amountKnown`）。ほか `prices.game[name] ?? '0'`（無料行動、設計）、settled モードの `paid: '0'`（支払い済みの再参加、妥当）。
+- **資金の混在**: 参加費・賞金・運営費はチェーン上の pool（COLLECTED/PRIZE/OPS）、AI 運用費は agent wallet の custody（同じ mint の別口座）と JSON 台帳、手数料は relay の SOL pool。混在なし。
+- **プログラム読解で見つかった重大点（未実行、SBF）**:
+  - **Pay は無条件**（`permutation-prize/src/lib.rs:518-556`）: pool が OPEN で `counted==0` なら、Season の状態や Join と無関係に誰でも Pay できる。招待で無料参加した Citizen が、季の終了後・最初の Tally 前に直接 RPC へ Pay を送れば Entry を得て `paid` 扱いになる（`achievements.mjs scoreLines` は Entry の有無だけ）。`prize-params.json` の適格性の前提と矛盾。
+  - **Finalize の固着**: `counted != keeps` で `WrongExpectedCount`。計上済みの Province が終了後に閉じられると `counted > keeps` となり、OPEN から出る命令が無い（SetShares は FINAL、WithdrawOps は非 OPEN）。参加費が永久に vault に残る。
+  - **返金は 80%**: `refund_amount = prize × paid / collected`、運営の 20% は返金モードでも引き出せる。README の「refunds」は全額返金と読める。
+  - 端数と未受取分は vault に残り、回収命令なし。
+- 継続世界の方針では、この経路（季の終了・Tally・Finalize）は**戦期の集計へ置き換わる候補**であり、ここでは「既存の入金と受取権が壊れないこと」を確認対象とする。受取権の保護に直接関わるのは T17-2/3/5 と上の Pay 無条件・Finalize 固着。
+
+## 8.2 ⑱ 秘密の進軍と検証
+
+- **実装の事実**: 封の round は到着ターン**終了**時刻以降の最初の drand round（`seal.mjs sealRound` = `clock.mjs tlockRound`）。一方、所有者の自己 Reveal は到着ターン**開始**時に送られ（`marchbook.mjs revealStep`、keeper `reveal_accept.rs`「owners submit from the arrival bell's start」、M1 契約の仕様）、プログラムは anchor が無くても Reveal を受ける。従って目的地は決着の最大 1 ターン前に公開される。README:25「到着ターンが終わるまで秘匿」は実装より長く見せている（T18-1、失敗。**P10** 文言案）。
+- **公開済み乱数の誤認**: repo の全 quicknet fixture（32 round、2026-09-26 公開）と出口季の archive は使用時点で公開済み。秘匿性を示す試験は無い。README:90 と offchain.md:539 は明記している。drand-replay の 425（公開前拒否）と test-beacon の `TooEarly` は試験環境の性質であり、protocol の性質ではない。**本物の quicknet で「round 公開前は開けない」を確かめる試験は、live drand への到達（O-M1-12 の承認）が要る**ため未実行。
+- **偽署名・別 round・遅延**: プログラムは round 規則→BLS pairing の順で検査（`WrongRound` 7、`Crypto` 9）。遅延は anchor の着地時刻 A がずれるだけで待機（明示の遅延規則なし）。これらの試験は LiteSVM（未実行）と fclient（実行可能、既存）。
+- **検証器の穴（コード読解）**: V4 は BeaconLog ≥ S(A) による `WindowClosed` を再検査しない。改竄 archive がその条件後の Reveal を示しても検出しない。tamper class 候補。
+- **番号だけ既知の未対応命令**: X2c で再現（SetVigil 0x32 の着地命令が PASS で所見ゼロ）。P1b で WARN `UnjudgedInstruction` を出す（判定の無い 16 タグの一覧をコードに置いた）。
+
+## 8.3 ⑲ MagicBlock と公開運用
+
+- **Frontier 再構築に MagicBlock（委任・commit・解除）の配線は存在しない → 未実装**（`permutation-frontier/src/lib.rs:2`「no MagicBlock」、frontier-node・gateway/src/frontier に該当なし）。「委任・commit・解除の途中停止で L1 と ER が食い違う」は Frontier では検証対象が無い。
+- **旧 prototype**（permutation-chain + gateway crank）には配線がある。crank の解除 intent 順（国→州 1..→州 0）がプログラムの `undelegation_order`（州 1..19→国→州 0）と逆で、最初の intent が `UndelegationOrder` で拒否される（T19-1、失敗。**P9**）。送信と保存の間で停止すると同じ group を再送し続ける（crank は `meta.undelegated` を読み直さない）。復旧命令（request/rollback undelegation）は builder だけで、運用コードから呼ばれない。
+- **公開 RPC**: Frontier の keeper は `RpcPort::localnet` 専用、`fclient/http.rs` は `http://` のみ（TLS なし）、live drand なし → **公開 RPC 追従は未実装**（devnet 草案 G1–G3 と一致）。findex の `RpcPoll` は初回同期で履歴の端（`getFirstAvailableBlock`）を確認せず、`until` 署名の存在も確認しない。keeper の起動時は status 無し＋slot 経過で attempt を expired と記録し履歴範囲を見ない（冪等なので実害は限定）。
+- **snapshot に後続更新が混ざる**: herald の `--source rpc` は Enriched が page 収集後に `getMultipleAccounts(minContextSlot)` で bytes を取るため、同一 page 内の先行取引に後続の状態が付く。per-bell file に混入しうる。防御は `exact_post=false` で不一致を `unchecked` に落とすだけ。RPC 経路の試験は未実行。
+- **再起動・再読込の重複**: relay の replay cache はメモリのみ（チェーンの署名重複拒否が実害を抑える）、citizens watcher の wakes 配送記録はメモリのみ、agent wallet は B1（P4）。keeper は journal adopt と `AlreadyDone` 分類で冪等（既存試験多数）。
+
+## 8.4 必要な承認（まとめ）
+
+| # | 要るもの | 理由 | 無い場合 |
+|---|---|---|---|
+| A1 | Agave 3.1.9（`cargo-build-sbf`）の導入 | LiteSVM 試験（Frontier、prize、③ courier）の実行。Pay 無条件・Finalize 固着・封の偽造拒否・境界をまたぐ隊商決済の**実プログラム**での再現 | 読解と消費側実行のみ（現状） |
+| A2 | live drand（api.drand.sh 等）への読み取り（O-M1-12） | 本物の round で「公開前は開けない」を確かめる唯一の方法（N7） | 秘匿性は未検証のまま |
+| A3 | devnet への読み取り専用アクセス | BLS12-381 syscall・賃料の確認（G6, G7） | 公開運用の前提が未確認 |
+| A4 | TLS クライアント依存（rustls 等）の追加 | keeper/herald が https RPC と drand に届くため（G1） | 公開 RPC 追従は未実装のまま |
+
+いずれも今回は行っていない。
+
+---
+
+# 第3期（2026-10-31）：継続世界 — 期間境界をまたぐ世界と処理
+
+所有者の方針訂正: 世界は終了・リセットしない。戦期の区切り・集計・賞金は別途決める（未決定を採用しない）。⑯の役割は「期間境界をまたいで世界と処理が続くこと」の独立検証。以下、指示の 4 点で報告する。本節の試験は**現行コードの境界 = `end_bell`** に対して書いた。継続世界の境界（戦期）が④⑧で定義されたら、同じ試験を新しい境界に向け直す。
+
+## 9.1 残っていたシーズン依存
+
+### 9.1.1 プログラムと ABI（実行で確認）
+- **全プレイヤー命令の終了拒否**: `frontier-abi/src/prologue.rs:1066-1068` `PlayerStart::finish` 第 4 段 `bell(now) ≥ end_bell → WrongStatus`。収穫・建設・隊商送付・提案など**すべて**が境界で止まる（`v16_period_boundary.rs` P2、失敗）。
+- **長さの上限**: `frontier-abi/src/presets.rs:286` `SeasonParams::validate` が `end_bell ≤ 4_032`（28 日）を要求（P3、失敗）。終了時刻を巨大にする永続化は**不可能**。`MAX_TIMER_BELLS`（30 日）が征服の各タイマーの上限。
+- 終了後に許される命令は settle 系のみ（`relay_settle_shape`: SettleCaravan, DefaultRaid, SettleSiege, SettleCapture, CloseMarch, RetireHost ほか）。終了後の閉鎖命令（CloseHolding, CloseCitizen, CloseVault, CloseStructure, CloseProvince, ArchiveAnchors, CloseSeason）は口座を消し rent を返す。
+- 識別子: Citizen・Holding・Province・Vault・Caravan・Structure・Nation の PDA は **season_id をシードに含む**（`frontier_abi::addr`）。賞金 pool も `["pool", game_program, season_id]`。Web の鍵（`ps-fsession:<cluster>:<program>:<season>:<wallet>`、署名文に `Season:` 行）と marchbook も season ごと。
+- 固定幅: bell `u32`（600 s × 2^32 ≈ 8 万年、十分）、`Citizen.CARAVANS u32`、Province の隊商 slot 5 本（再利用）、archive part = bell/72、`SCAN_BELLS=256`（keeper の anchor 走査窓）、herald `nation.rs DECIDED_MAX` の剪定、agent ledger `HISTORY_MAX 500`/`REQUESTS_MAX 2000`、findex は追記のみで剪定なし（保存量は無限に増える）。
+
+### 9.1.2 各層の依存（読解による棚卸し。引用は file:line）
+
+| 層 | 依存 | 種類 | 世界が続くと／境界をまたぐと |
+|---|---|---|---|
+| プログラム | `EndSeason` は `bell ≥ end_bell` で誰でも送れる（`proc/season.rs:625-658`）。stack が期日に自動送信（`stack/src/up.rs:1644-1661`） | 寿命 | 誰でも世界を終えられる。継続世界では撤去か門が要る |
+| プログラム | Join は `join_close_bell`（長さの 75%）で閉じる（`citizen.rs:349`） | 寿命 | 新規参加が永久に止まる |
+| プログラム | CloseHolding/CloseCitizen/CloseProvince/CloseMarch は Ended+72h か tombstone のみ（`citizen.rs:2397-2470`, `conquest.rs:1748`） | 寿命 | 終わらない世界に離脱者の口座を閉じる道が無い。Vault・Structure・Caravan・Nation には終了後の閉鎖命令自体が無い（終了後は stores と rent が取り残される） |
+| プログラム | **隊商の取り残し**: SendCaravan に到着 bell の上限が無く、SettleCaravan は `RESOLVED_NEXT > last_bell` を要求、`in_season` は `end_bell` 以降を決して解決しない（`caravan.rs:927-958`, `clash.rs:443`） | 寿命 | 境界をまたぐ隊商は永久に `CaravanEarly`（積荷・rent 消失）。**P4 試験で再現（kernel の schedule + 判定の写し）** |
+| プログラム | Depart/Reveal は `arrive ≥ end_bell` を拒否（`host.rs:652`, `reveal.rs:759`）、relay も同じ（`shapes.mjs:57-71`）、keeper も（`reveal_accept.rs:139`） | 寿命 | 封印進軍は境界をまたげない（設計） |
+| プログラム | 包囲の `TooLate`、終了時の RetireHost 強制、前哨の最終日ロック（`conquest.rs:779-796, 1598-1617`, `holding.rs:963`） | 寿命 | 終了前提の「終盤」規則 |
+| プログラム | 休眠解放 `release_after_secs` = 季の長さ（`v2/presets.rs:447`）。ring 開放・盾の「遅参」判定が genesis からの経過時間（`map.rs:350`, `v2/presets.rs:147-149`） | 寿命 | 14 日後に休眠した本拠が解放され始める。7 日以降の新規はすべて「遅参」扱い |
+| プログラム | `MAX_SESSION_SECS` 30 日（`layout/player.rs:54`） | 上限 | session・agent 鍵は 30 日ごとに wallet で更新（委任が途中で切れる） |
+| プログラム | 世代 `gen u8`（site/structure/vault）、`EMPTY_GEN=0xFF`（`citizen.rs:1814`, `structure.rs:473`, `caravan.rs:1792`） | 上限 | 約 254 回の再建で永久に使えない。0xFE→0xFF が空の番兵と衝突 |
+| プログラム | AnchorArchive は region×半日ごとに 6,144 B、CloseSeason 第 9 部でしか閉じない（`layout/beacon.rs:40-64`, `season.rs:1014`） | 上限 | 1 日約 32 口座、rent 約 1.4 SOL/日が永久に拘束（agent の概算、未計測）。DefenceClaim も同様 |
+| プログラム | `r_max ≤ 128`、host_id の ring 128 上限（`presets.rs:282`, `addr.rs:244`） | 上限 | 地図拡張の天井 |
+| keeper | `season` は keeper.toml に 1 つ、journal に season 列なし（`config.rs:5`, `journal.rs:107-122`）。journal・索引は削除なしで増え続ける。再起動は feed を 0 から読む（`lib.rs:739`） | 識別・上限 | season id を変えると別 process・別 journal。長期運用で起動時間と容量が無限に増える |
+| keeper | anchor 計画は `< end_bell`、rest の早送りは「季の終わり」で行う（`beacon.rs:188`, `play.rs:1602-1775`）。終了時の flush（RetireHost, SettleSiege, CloseMarch） | 寿命 | 終わらない世界では rest の追いつきが起きない／flush は死にコード |
+| herald/findex | `--season` と checkpoint の識別 `(program, season)`（`checkpoint.rs:118-125`）。`final.json` は EndSeason 後に一度（`conquest.rs:2303`）。per-bell/day の不変ファイルを剪定なしで書く。`series.bin` は毎時全体を書き直す。findex は追記のみ、`/h/events` の番号は archive ごと | 識別・寿命・上限 | season id を変えると fold をやり直す。保存量は O(日数)。`final.json` の代わりに「戦期の結果」が要る |
+| 検証器 | 入力は 1 季の全取引＋最終口座、season id で口座を選別（`input.rs:280-319`）。V20 の `CompletionAfterEnd`/`SiegeNotSettled`、V5 の `ArrivalAfterEnd`、V14 の `SiegeAfterEndRule`、V22 は `end_bell` 前提。fixture は EndSeason で終わる | 識別・寿命 | 検証は毎回ゼロからの全再生で費用が無限に増える。窓付き検証も checkpoint も無い。終了前提の判定は戦期の意味に置き換えが要る |
+| gateway | `seasonId` 必須（`frontier/config.mjs:22`）。quota は genesis からの日で 7 日以降は半分（`quota.mjs:1-35`）。invite の HMAC に season id。prize pool は `["pool", game, season_id]`、Tally/Finalize は `STATUS_ENDED` 前提（`permutation-prize/lib.rs:611-693`）。agent wallet の予算は UTC 日と生涯合計で季に依存しない（確認） | 識別・寿命 | 1 relay = 1 season。賞金は終了が無いと決して支払われない（戦期の会計が別途要る） |
+| Web | `ps-fsession/ps-fmarch/ps-fui/...:<season>` の保存鍵、署名文に `Season:`（`fsession.mjs:25-34`, `marchbook.mjs:34`） | 識別 | season id が変わると鍵が孤立し、**封印進軍の平文（marchbook）が失われる** |
+| Web | 「シーズンは終わりました」「季節の終わりに…勝者」など約 54 行（`hud/provstrip.mjs:115`, `screens/conquest.mjs:210`, `screens/prize.mjs:34,66`, `fi18n.mjs`, `lang/en-frontier-play.mjs`）。bell を `endBell-1` に clamp、`final.json` を終了後に poll（`controller.mjs:843, 1008`） | 文言・寿命 | ⑦の点検対象。戦期の集計と世界の継続を別表示にする |
+| AI | 住民の commitments は `run_id`+`season_id`（`registrar.mjs:265`）。封じた記録の公開は `season-end.json` が出るまで保留（`audit/season_end.mjs`）。autopilot `season_end` 理由（`mind/gate.mjs:72`）。bots は `end_bell` で走行終了 | 識別・寿命 | 終わらない世界では封じた監査記録が永久に開かない。「戦期の終わり」に置き換える規則が要る |
+| 文書 | DECISIONS T1「季とともにすべて終わる、次の季は新しい地図」、DESIGN §184/239/240/966、DESIGN-OVERVIEW:93,110、GAME-DESIGN.ja §213/785/884/886-903、README:28,64,94、M1-CONTRACT:971-973 | 文言 | 書き換え候補 10 件（⑦⑧） |
+
+## 9.2 変更した挙動
+- 本体コードは変えていない（指示どおり本体への取り込みは④へ）。継続世界に向けた変更案は 9.4 の「試験契約」として提示し、④⑧の移行設計に渡す。
+- 第 1・2 期の修正候補 P1〜P10 は継続世界でも意味を保つ（検証器の未判定命令、feed の持ち主、冪等記録、旧経路の応答回復）。P7 の「settled」判定は Entry と Citizen の存在に依存し、戦期の会計を決めない。
+
+## 9.3 試験で確認したこと
+- P1: 境界直前（bell 1,007）の通常操作は通る（確認）。
+- P2: 境界 bell と 1 日後の通常操作は `WrongStatus`（失敗 = 依存の証拠）。
+- P3: 28 日超の季は作れない（失敗 = 依存の証拠）。
+- P4: 境界直前に送った隊商は、kernel の schedule で最終 bell が境界以降になり、プログラムの決済条件（全 Province の `RESOLVED_NEXT > last_bell`、ただし `end_bell` 以降は決して解決されない）を永久に満たさない（失敗 = **現行コードの取り残し**。積荷と rent が消える）。判定は 2 行の写しで、チェーン上の再現は LiteSVM 待ち。
+- 加工・預かり・未確定取引・封印進軍を**境界にまたがらせる通し試験**は、現行コードでは境界 = 終了のため「またげない」ことしか確かめられない（送付・出陣は境界前に拒否される）。新しい境界の定義（④⑧）を受けて、9.4 の契約で実施する。
+- 長期運用（状態の増加）は上の固定幅と剪定の表で読解のみ。実行試験は未実施。
+
+## 9.4 移行や仕様判断が残る点（⑯が決めない）
+1. 戦期の境界の定義（bell か日付か）、境界で止めるもの（戦闘の集計だけか）と止めないもの（経済・輸送・預かり・加工）。
+2. 識別子: season_id をシードに含む PDA を、世界 id に読み替えるか、一つの season_id を世界として使い続けるか（長さ上限 P3 の撤廃が前提）。旧季の口座・証拠の読取りと再検証の方法（過去の履歴は書き換えない）。
+3. 賞金・参加費の会計を世界の寿命から分離する設計（⑰）。既存の入金・受取権（Entry・Claim）の保護。Pay 無条件と Finalize 固着は旧経路でも先に直す価値がある。
+4. 封印進軍と drand round が戦期をまたぐ場合の扱い（⑱）。現状 round は世界時刻だけに依存し戦期と無関係なので、境界で「決着を打ち切らない」限り問題は無いはず（要確認）。
+5. keeper の anchor 走査窓（256 bell）と herald の保存量の剪定方針（長期運用）。
+
+### ⑯からの試験契約（④⑧へ渡す）
+境界 B の前後と再起動後で、次が一致すること。
+- 隊商: 境界前に送付、境界後に到着。所有者・積荷（損耗後）・決済 1 回・fee 1 回。境界時点の herald feed に持ち主と `wornBps`。
+- 加工: 工房の生産が境界をまたいで連続（`settle_tiered` の時間差分が境界で切れない）。二重生産なし。
+- 預かり: 倉の stores と cap が境界で変わらない。引出し義務（他人の材料）が消えない。
+- 未確定取引: agent wallet の `sending`/`unresolved` hold が境界で解放も課金もされない。relay の quota frame が境界で二重課金しない。
+- 封印進軍: 境界前に出陣、境界後に到着。Reveal と決着が境界で拒否されない。
+- 再起動: keeper/herald/relay の再起動後に上の件数が変わらない。
+- 検証器: 境界をまたぐ archive を一つの run として PASS できる（V20 の end 判定、`ArrivalAfterEnd` 等の扱いを戦期の集計と分ける）。

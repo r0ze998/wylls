@@ -1,0 +1,13 @@
+diff --git a/README.md b/README.md
+index 3db28457..f016ec48 100644
+--- a/README.md
++++ b/README.md
+@@ -22,7 +22,7 @@ The game runs in real time, but the results of fights, marches and scouting are
+ 2. **Get a village.** In a new season, your first village is placed in your nation's free land as soon as you join. The completed M1 season used an older flow: a site request and a lottery, with the village appearing about 11 to 21 minutes later (a model estimate) and staying provisional for up to about 4 hours.
+ 3. **Grow and train.** Build farms, lumber camps and walls, raise the village's tier, train troops and combine them into armies. Resources accrue in real time.
+ 4. **Scout.** Scouts explore the map; the result arrives at the next turn.
+-5. **March under a sealed order.** The departure, the size and the arrival turn are public; the destination is hidden by a time-lock on drand (a public randomness beacon that publishes a value at a fixed time) until the arrival turn has ended. A march needs at least two turns to arrive and cannot be recalled.
++5. **March under a sealed order.** The departure, the size and the arrival turn are public; the destination is hidden by a time-lock on drand (a public randomness beacon that publishes a value at a fixed time); the seal itself can be opened only once the arrival turn has ended, and the owner reveals the destination from the start of the arrival turn (M1 contract §9.3), so it is public for up to one turn before the fight resolves. A march needs at least two turns to arrive and cannot be recalled.
+ 6. **Read the report.** Anyone can replay a battle report, and the web client re-runs the rules code in the browser to check it.
+ 
+ With conquest enabled, armies can contest and capture keeps; a recorded local demo shows Fjordal's keep changing hands. After a season ends, the prize program names the nation holding the most keeps as the winner (ties go to more territory time, then the prize is shared). One local 14-day season with rule bots reached that tally, with refunds instead of a prize because the winning nation had no paid member; a wider nation score (prosperity, knowledge and so on) is still being designed ([section 4](#status)).
