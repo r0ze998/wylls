@@ -18,6 +18,8 @@
 | S6 | 終了に縛られずに閉じられるもの：ClashInputs（決着の後）、ArrivalDay（その日の bell をすべて決着した後）、ArrivalSlot（精算の後）、SeedCache（archive の後）、Vault（空にした後、持ち主）、Structure（持ち主）、Caravan（settle の時） | `proc/clash.rs:1839,1941,2013`、`beacon.rs:729`、`caravan.rs:876,1851`、`structure.rs:553` | そのまま使える |
 | S7 | `end_bell` で止まるもの：beacon・anchor（`bell ≥ end_bell` は BadData）、進軍の到着（`< end_bell`）、包囲の完成、reveal | `proc/beacon.rs:192,240`、`host.rs:652-657`、`conquest.rs:785-793,1006-1012`、`reveal.rs:761` | 戦期の区切りに転用すると、進軍や封印が境界で失われる（⑱の範囲） |
 | S8 | 賞金：Tally は Season が Ended であることを要求する。pool の PDA は `["pool", game, le64(season_id)]`。bitmap は ring 0〜17 まで | `permutation-prize/src/lib.rs`（module doc、`pool_of`） | 賞金が世界の終了に結び付いている。戦期の賞金は未決。今の pool は**旧経路の互換**としてだけ残す |
+| S10 | **終了をまたぐ隊商は永久に精算できない**：SettleCaravan は道中の全 Province が隊商の最後の bell より先まで解決済みであることを要求する（`proc/caravan.rs:955-958`）。end_bell 以降の bell は決して解決されない（`proc/clash.rs:442-448` `in_season`）。SendCaravan には到着の bell の上限が無い。⑯の報告を④が実物で確認した | 境界の直前に送った隊商は、物資を積んだまま道に残る（CaravanEarly のまま）。④の旧経路の試験はこれを写し、run を保留 `SettlementOverdue` にする（§2） |
+| S11 | `SeasonParams::validate` は `end_bell ≤ 4,032`（28 日）を要求する（`frontier-abi/src/presets.rs:285-287`。⑯の報告を④が確認した） | 「end_bell を巨大な値にする」ことは、検証で拒否されて**できない**。program の変更が要る |
 | S9 | 上限：bell は `u32`（600 秒で約 81,000 年）。`R_MAX` は u16 で、preset は 16、web の `R_MAX_HARD` は 128。herald の累計は `u16::MAX` で飽和する | `fclient/src/clock.rs:22-23,103`、`client/frontier/addresses.mjs:150`、`herald/src/standings.rs:85-106` | 時刻は十分に足りる。地図の広さと herald の累計は有限である |
 
 ### 1.2 program の外（読み取り専用の agent による調査。4 点を④が実物で再確認した）
@@ -64,14 +66,15 @@
    - 世界の id（`world`）。
    - 戦期（`period_slots`）：境界は番号を進めるだけで、世界の状態を変えない。
    - 旧経路（`legacy_end_slot`）：今の program の S2 の規則を写す。player の操作は拒否し、精算は続ける。
-5. **賞金の通し試験の位置付け**（`e2e-native/tests/legacy_season_claims.rs`）：完成形ではなく、**旧経路の互換と既存の受取権の確認**とした。
+5. **精算されない隊商（`Reason::SettlementOverdue`）**：到着から `settle_grace`（既定 3,000 slot）を過ぎても道にある隊商は、保留にする。積荷について何も述べない（0 とも、届いたとも書かない）。resume で再確認する。旧版の世界の終了（S10）でも、keeper の遅れでも同じ扱いにする。
+6. **賞金の通し試験の位置付け**（`e2e-native/tests/legacy_season_claims.rs`）：完成形ではなく、**旧経路の互換と既存の受取権の確認**とした。
 
 ## 3. 試験で確認したこと（MOCK と host 実行。実チェーンではない）
 
 | 試験 | 確認したこと |
 |---|---|
 | `continuity::boundaries_and_restarts_change_nothing` | 7 slot ごとに戦期の境界を置き、6 本の run（施設、材料の入荷待ち、村あて、倉あて、途中から始まる run）を境界にまたがらせた。境界ごとに再起動しない／再起動する／別の実行者 id に替わる、の 3 通りを試した。どれも、境界の無い世界と次が一致した：状態・理由・入った量・Receipt・費用の帳簿・各地点の物資・正本の効果の回数（各 1 回まで）。保存の監査（milli 単位）も通った。境界で隊商の積荷を消す変異は検出した |
-| `continuity::legacy_world_end_holds_unstarted_work_and_settles_the_road` | 旧経路で世界が終わっても、道にある隊商は精算され Fulfilled になる。まだ施設を使っていない run は `Reserved` で保留 `WorldClosed` になる：結果は無し、材料は手つかず、効果は 0。再び受け付けるようになると、resume で Fulfilled まで進む。保留を失敗に戻す変異は検出した |
+| `continuity::legacy_world_end_holds_work_and_strands_the_late_road` | 旧経路の世界の終了について、3 つを確かめた。(1) 終了の前に着く隊商は精算され、Fulfilled になる。(2) 終了の後に着く隊商は道に残る（S10）。run は保留 `SettlementOverdue` で、結果は無く、物資は隊商の中にある。(3) まだ施設を使っていない run は、`Reserved` で保留 `WorldClosed` になる：結果は無し、材料は手つかず、効果は 0。世界が再び受け付け、bell を解決するようになると、両方とも resume で Fulfilled まで進む。保留を失敗に戻す変異は検出した。**訂正**：`5a103765` の版のこの試験は、道にある隊商がすべて精算されるとしていたが、program の実物では誤りだった（⑯の指摘） |
 | `continuity::a_store_is_never_applied_to_another_world` | 別の世界の port では、run の版も状態も変わらず、alert が残る。元の世界に戻れば続く |
 | `continuity::finished_runs_do_not_slow_the_due_query` | `due` の実行計画は `runs_open_due` を使い、runs の全表走査をしない（長期の伸びの検証。境界の通過とは別の試験） |
 | `e2e-native/tests/legacy_season_claims.rs`（2 件） | permutation-prize の `process_instruction` を host で実行した（System と SPL Token は④の stub）。テスト USDC → Pay → Tally → Finalize → SetShares → Claim の後、受取額が token の口座の残高の差と一致する。勝たなかった国と、払っていない人は受け取れない。入ったテスト USDC ＝ 支払い＋運営分＋端数 |
@@ -139,3 +142,19 @@
 | ⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲ | 受け取っていない（⑮は予告のみ） | ⑪ `fc61a21`、⑫ `cb7b1fad`、⑬ `19d9f72e`、⑭ `bc949430`、⑯ `2fbc6a21`（各 session の要約より） |
 
 受け取っていない版は、取り込み済みとしない。届いたら、照合済みの版からの差分だけを照合する。
+
+## 5. 他の担当から届いた要件（データとして受け取った。採否は未定）
+
+- **⑪（拡張）**：
+  - 拡張の口座の根を、期間で変わらない根にする。④の案（Season PDA を世界の口座として固定し、二度と変えない）と両立する。
+  - 許可・状態・預かりは、所有者の変わらない識別で引く。
+  - 返却の出口は、期間の状態で拒否しない（今の player の処理の前提を通さない）。
+  - 規則の版と期間の識別を分ける。
+  - 古い seq の呼び出しは、他の検査より先に SeqMismatch とする。
+  - CloseHolding が終了の 72 時間後に預かりごと閉じる経路をどう扱うかは、④⑩の判断。
+- **⑯（独立検証）**：
+  - S10・S11 を確認した（④も実物で再確認した）。
+  - 休眠の解放 `release_after_secs` が季の長さと同じ。ring の開放と盾の「遅参」が genesis からの経過で決まる。
+  - `MAX_SESSION_SECS` が 30 日。`gen` は u8 で、番兵 0xFF と衝突する。
+  - marchbook（封印進軍の平文）が season id の切り替えで孤立する。
+  - これらは program・UI の側の残りとして扱う。④の実行器には影響しない（④の `PlaceRef.gen` は u8 だが、番兵として使っていない）。

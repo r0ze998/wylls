@@ -362,6 +362,9 @@ impl SimWorld {
                 .filter(|(_, c)| {
                     c.arrive_slot <= self.slot
                         && !c.raid_open
+                        // LEGACY: bells at or after end_bell are never
+                        // resolved, so a caravan arriving then never settles.
+                        && self.legacy_end_slot.is_none_or(|e| c.arrive_slot < e)
                         && !self
                             .places
                             .get(&c.dst.slot_key())

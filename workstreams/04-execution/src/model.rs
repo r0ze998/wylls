@@ -321,6 +321,11 @@ pub enum Reason {
     PortUnavailable,
     /// A canonical read contradicted itself (a bug to look at).
     Inconsistent(String),
+    /// The caravan is past its arrival plus a grace and not settled: its
+    /// settlement may be blocked (today's program: bells at or after
+    /// end_bell are never resolved) or the keeper is behind. Held; nothing
+    /// is said about the cargo.
+    SettlementOverdue,
     /// The world refused player actions (WorldClosed): held, not failed —
     /// the inputs or outputs stay where they are, the reservations stay.
     WorldClosed,

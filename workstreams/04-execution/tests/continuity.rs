@@ -152,33 +152,66 @@ fn boundaries_and_restarts_change_nothing() {
     }
 }
 
-/// LEGACY: today's program closes player actions at `end_bell`. A caravan
-/// already on the road still settles and its run completes; a run that has
-/// not used the facility yet is held WorldClosed in Reserved — not failed,
-/// nothing used, its inputs still at stock, nobody blamed. When the world
-/// takes actions again (a migration that keeps the world), it resumes.
+/// LEGACY: today's program closes player actions at `end_bell`, and never
+/// resolves a bell at or after it (proc/clash.rs `in_season`), so a caravan
+/// whose road reaches the end bell can never settle (SettleCaravan needs
+/// every province resolved past its last bell: CaravanEarly forever).
+/// - a caravan arriving before the end settles; its run completes;
+/// - a caravan arriving after it stays on the road: the run is held
+///   SettlementOverdue after the grace, with no outcome (nothing said about
+///   the cargo), the goods still in the caravan;
+/// - a run that has not used the facility yet is held WorldClosed in
+///   Reserved: nothing used, its inputs at stock. When the world takes
+///   actions again (a migration that keeps the world), it resumes.
 #[test]
-fn legacy_world_end_holds_unstarted_work_and_settles_the_road() {
+fn legacy_world_end_holds_work_and_strands_the_late_road() {
     let mut h = H::new("continuity-legacy-end");
+    h.ex.params.settle_grace = 30;
     h.accept(&spec("early", &h.scene));
-    // Drive "early" onto the road.
+    h.accept(&spec("road", &h.scene));
     for _ in 0..40 {
-        if h.run("early").state == RunState::InTransit {
+        if h.run("early").state == RunState::InTransit && h.run("road").state == RunState::InTransit
+        {
             break;
         }
         h.ex.tick().unwrap();
         h.sim.with(|w| w.advance(1));
     }
-    assert_eq!(h.run("early").state, RunState::InTransit);
-    let end = h.sim.with(|w| w.slot);
+    let key = |id: &str, h: &H| CaravanKey {
+        owner: OWNER,
+        seq: h.run(id).detail.ship_seq.unwrap(),
+    };
+    let (ke, kr) = (key("early", &h), key("road", &h));
+    // "early" arrives before the end; "road" is slowed past it.
+    let end = h.sim.with(|w| {
+        let early_at = w.caravans[&(ke.owner, ke.seq)].arrive_slot;
+        w.caravans.get_mut(&(kr.owner, kr.seq)).unwrap().arrive_slot = early_at + 10;
+        early_at + 1
+    });
     h.sim.with(|w| w.legacy_end_slot = Some(end));
-    let stock_before = h.sim.with(|w| w.stores(&h.scene.stock));
-    h.accept(&spec("late", &h.scene));
     assert!(h.drive("early", 80).is_none());
     assert_eq!(
         h.run("early").state,
         RunState::Fulfilled,
-        "the road settles after the end"
+        "arrived before the end: settled"
+    );
+    // Past the end: the world takes no player action any more.
+    h.sim.with(|w| {
+        while w.slot <= end {
+            w.advance(1);
+        }
+        w.deposit(&h.scene.stock, &r(1, 5));
+    });
+    let stock_before = h.sim.with(|w| w.stores(&h.scene.stock));
+    h.accept(&spec("late", &h.scene));
+    assert!(h.drive("road", 200).is_none());
+    let road = h.run("road");
+    assert_eq!(road.state, RunState::InTransit);
+    assert_eq!(road.held.as_deref(), Some("SettlementOverdue"));
+    assert_eq!(road.detail.outcome, None, "nothing is said about the cargo");
+    assert!(
+        h.sim.with(|w| w.caravans.contains_key(&(kr.owner, kr.seq))),
+        "still on the road"
     );
     assert!(h.drive("late", 80).is_none());
     let late = h.run("late");
@@ -191,11 +224,18 @@ fn legacy_world_end_holds_unstarted_work_and_settles_the_road() {
         "inputs untouched"
     );
     assert_eq!(h.sim.with(|w| w.effects("fac:late")), 0);
-    // The world takes actions again: resume completes it.
-    h.sim.with(|w| w.legacy_end_slot = None);
+    // The world takes actions and resolves bells again: both resume.
+    // (the keeper settles the road first, then a person resumes)
+    h.sim.with(|w| {
+        w.legacy_end_slot = None;
+        w.advance(1);
+    });
     assert!(h.ex.store.resume("late").unwrap());
+    assert!(h.ex.store.resume("road").unwrap());
     assert!(h.drive("late", 120).is_none());
+    assert!(h.drive("road", 60).is_none());
     assert_eq!(h.run("late").state, RunState::Fulfilled);
+    assert_eq!(h.run("road").state, RunState::Fulfilled);
     h.audit();
     check_store(&h.ex.store);
 }

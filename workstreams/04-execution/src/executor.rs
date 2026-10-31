@@ -85,6 +85,9 @@ pub struct Params {
     pub max_runs_per_tick: usize,
     /// Slots of margin before the deadline: no attempt is signed closer.
     pub deadline_margin: u64,
+    /// Slots past a caravan's arrival without a settlement before the run
+    /// is held SettlementOverdue (about two 600-s bells at 400-ms slots).
+    pub settle_grace: u64,
 }
 
 impl Default for Params {
@@ -94,6 +97,7 @@ impl Default for Params {
             poll: 2,
             max_runs_per_tick: 64,
             deadline_margin: 0,
+            settle_grace: 3_000,
         }
     }
 }
@@ -1372,6 +1376,13 @@ impl<C: Chain, R: Rights> Executor<C, R> {
                     );
                     c.ops.push(Op::Receipt(raid_receipt(row, &r, &src)));
                     return Ok(Next::Go(c));
+                }
+                // Long past its arrival and still on the road: settlement may
+                // be impossible (today's program never resolves bells at or
+                // after end_bell, so such a caravan stays CaravanEarly) or the
+                // keeper is behind. Hold; conclude nothing about the cargo.
+                if now > v.arrive_slot.saturating_add(self.params.settle_grace) {
+                    return Ok(self.hold(row, now, Reason::SettlementOverdue));
                 }
                 Ok(Next::Wait(
                     v.arrive_slot.max(now + 1).min(now + 4 * self.params.poll),
