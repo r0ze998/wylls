@@ -435,7 +435,10 @@ pub fn pin_info(got: &ChainInfo, want: &ChainInfo) -> Result<(), String> {
     if diff.is_empty() {
         Ok(())
     } else {
-        Err(format!("drand info differs from the pin in {}", diff.join(", ")))
+        Err(format!(
+            "drand info differs from the pin in {}",
+            diff.join(", ")
+        ))
     }
 }
 
@@ -692,7 +695,10 @@ mod tests {
         let r = 33_533_784;
         assert_eq!(check_served(&v, r, &pk).unwrap().round, r);
         // Asked for another round (a replayed or misrouted answer).
-        assert_eq!(check_served(&v, r + 1, &pk), Err(PortError::BadBeacon(r + 1)));
+        assert_eq!(
+            check_served(&v, r + 1, &pk),
+            Err(PortError::BadBeacon(r + 1))
+        );
         // The same round under another key (wrong network, the test key).
         assert!(check_served(&v, r, &TestKey::new().pk96).is_err());
         // A forged signature: the test key's signature of the same round.

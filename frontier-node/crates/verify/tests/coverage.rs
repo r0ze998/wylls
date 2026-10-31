@@ -67,7 +67,11 @@ fn an_unknown_tag_fails() {
     for data in [vec![0xEE, 1, 2, 3], vec![0xA4], vec![0xAF; 9], vec![]] {
         let r = verify_core::verify(&with_ix(march(), data.clone()));
         assert_eq!(r.verdict, Verdict::Fail, "{data:?}: {}", show(&r));
-        assert_eq!(v0(&r), vec![(Severity::Fail, "UnknownInstruction".into())], "{data:?}");
+        assert_eq!(
+            v0(&r),
+            vec![(Severity::Fail, "UnknownInstruction".into())],
+            "{data:?}"
+        );
     }
 }
 
@@ -80,7 +84,11 @@ fn missing_or_extra_data_fails() {
     for data in [short, long] {
         let r = verify_core::verify(&with_ix(march(), data));
         assert_eq!(r.verdict, Verdict::Fail, "{}", show(&r));
-        assert!(v0(&r).contains(&(Severity::Fail, "Undecodable".into())), "{}", show(&r));
+        assert!(
+            v0(&r).contains(&(Severity::Fail, "Undecodable".into())),
+            "{}",
+            show(&r)
+        );
     }
 }
 
@@ -88,7 +96,12 @@ fn missing_or_extra_data_fails() {
 fn an_abi_instruction_no_check_models_is_never_a_pass() {
     // FastForward and CloseMarch are in ABI v2; nothing here replays them.
     // An S1 tag in an M1 season (SendCaravan) is not modelled there either.
-    for ix in [Ix::FastForward, Ix::CloseMarch, Ix::SendCaravan, Ix::DeclareSiege] {
+    for ix in [
+        Ix::FastForward,
+        Ix::CloseMarch,
+        Ix::SendCaravan,
+        Ix::DeclareSiege,
+    ] {
         let (lo, _) = frontier_abi::v2::ix::data_len_range(ix);
         let mut data = vec![0u8; lo.max(1)];
         data[0] = ix.tag();
@@ -111,7 +124,10 @@ fn an_unknown_program_version_is_never_a_pass() {
         .iter()
         .position(|t| {
             let tx = fclient::tx::from_wire(&t.tx).unwrap();
-            tx.message.instructions.iter().any(|c| c.data.first() == Some(&Ix::CreateSeason.tag()))
+            tx.message
+                .instructions
+                .iter()
+                .any(|c| c.data.first() == Some(&Ix::CreateSeason.tag()))
         })
         .expect("CreateSeason recorded");
     let mut tx = fclient::tx::from_wire(&inp.txs[i].tx).unwrap();

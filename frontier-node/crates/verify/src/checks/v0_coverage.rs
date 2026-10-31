@@ -80,17 +80,31 @@ pub fn run(cx: &mut Ctx) {
         }
         for ix in &t.ixs {
             let Some(tag) = ix.tag() else {
-                cx.fail(V, UNKNOWN_INSTRUCTION, format!("tx#{i}"), 0, Some(i), format!(
-                    "instruction {} of the program has no data (no tag) and succeeded",
-                    ix.index
-                ));
+                cx.fail(
+                    V,
+                    UNKNOWN_INSTRUCTION,
+                    format!("tx#{i}"),
+                    0,
+                    Some(i),
+                    format!(
+                        "instruction {} of the program has no data (no tag) and succeeded",
+                        ix.index
+                    ),
+                );
                 continue;
             };
             let Some(known) = Ix::from_tag(tag) else {
-                cx.fail(V, UNKNOWN_INSTRUCTION, format!("tx#{i}"), 0, Some(i), format!(
-                    "instruction {} has tag 0x{tag:02x}, not in ABI v2, and succeeded",
-                    ix.index
-                ));
+                cx.fail(
+                    V,
+                    UNKNOWN_INSTRUCTION,
+                    format!("tx#{i}"),
+                    0,
+                    Some(i),
+                    format!(
+                        "instruction {} has tag 0x{tag:02x}, not in ABI v2, and succeeded",
+                        ix.index
+                    ),
+                );
                 continue;
             };
             // An M1 season's instructions are ABI v1's (CreateSeason is
@@ -100,11 +114,18 @@ pub fn run(cx: &mut Ctx) {
                 _ => data_len_range(known),
             };
             if ix.data.len() < lo || ix.data.len() > hi {
-                cx.fail(V, UNDECODABLE, format!("tx#{i}"), 0, Some(i), format!(
-                    "{} data is {} bytes; the ABI allows {lo}..={hi}",
-                    known.name(),
-                    ix.data.len()
-                ));
+                cx.fail(
+                    V,
+                    UNDECODABLE,
+                    format!("tx#{i}"),
+                    0,
+                    Some(i),
+                    format!(
+                        "{} data is {} bytes; the ABI allows {lo}..={hi}",
+                        known.name(),
+                        ix.data.len()
+                    ),
+                );
                 continue;
             }
             if !supported(known, v3, s1) {

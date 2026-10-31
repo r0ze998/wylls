@@ -36,7 +36,10 @@ const DEFAULT_URLS: [&str; 4] = [
 ];
 
 fn now() -> i64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64
 }
 
 fn log(s: impl AsRef<str>) {
@@ -83,10 +86,17 @@ async fn a_future_quicknet_round_seals_refuses_then_opens() {
     let q = beacon::quicknet_info();
     let pins = beacon::pins_for(&urls);
     assert_eq!(pins, vec![q.clone()], "no test key off loopback");
-    let info = beacon::discover_pinned(&urls, &pins).await.expect("quicknet served");
+    let info = beacon::discover_pinned(&urls, &pins)
+        .await
+        .expect("quicknet served");
     assert_eq!(info, q);
-    log(format!("pinned chain {} served by {urls:?}", hex::encode(info.chain_hash)));
-    let bare = fclient::http::get(&format!("{}/info", urls[0])).await.unwrap();
+    log(format!(
+        "pinned chain {} served by {urls:?}",
+        hex::encode(info.chain_hash)
+    ));
+    let bare = fclient::http::get(&format!("{}/info", urls[0]))
+        .await
+        .unwrap();
     let other = beacon::parse_info_json(&serde_json::from_slice(&bare.body).unwrap());
     match other {
         Some(o) => {
@@ -140,9 +150,18 @@ async fn a_future_quicknet_round_seals_refuses_then_opens() {
     };
     let pt = seal::pack(&plain);
     let rs = seal::seal(&pt, &q.public_key, r).unwrap();
-    let js = node(&["seal", &genesis_ts.to_string(), &arrive.to_string(), &host.to_string()]);
+    let js = node(&[
+        "seal",
+        &genesis_ts.to_string(),
+        &arrive.to_string(),
+        &host.to_string(),
+    ]);
     assert_eq!(js["ok"], true, "{js}");
-    assert_eq!(js["round"].as_u64(), Some(r), "the page seals to T(arrive) = R");
+    assert_eq!(
+        js["round"].as_u64(),
+        Some(r),
+        "the page seals to T(arrive) = R"
+    );
     let js_seal: [u8; seal::SEAL_LEN] = h(&js["seal"]).try_into().unwrap();
     let js_commit: [u8; 32] = h(&js["commit"]).try_into().unwrap();
     let js_plain = h(&js["plain"]);
@@ -167,14 +186,26 @@ async fn a_future_quicknet_round_seals_refuses_then_opens() {
         let (code, p) = seal::judge(&rs.seal, &rs.commit, &sig, host, arrive);
         assert!(code != 0 && p.is_none(), "rust seal, {what}: code {code}");
         let (code, p) = seal::judge(&js_seal, &js_commit, &sig, host, arrive);
-        assert!(code != 0 && p.is_none(), "browser seal, {what}: code {code}");
+        assert!(
+            code != 0 && p.is_none(),
+            "browser seal, {what}: code {code}"
+        );
         let o = node(&["open", &hex::encode(js_seal), &hex::encode(sig)]);
         assert_eq!(o["ok"], false, "browser opener, {what}: {o}");
-        log(format!("before R, {what}: rust code {code}, browser {}", o["code"]));
+        log(format!(
+            "before R, {what}: rust code {code}, browser {}",
+            o["code"]
+        ));
     }
     for s in [&rs.seal[..], &js_seal[..]] {
-        assert!(!s.windows(pt.len()).any(|w| w == pt), "plaintext not in the seal");
-        assert!(!s.windows(8).any(|w| w == host.to_le_bytes()), "host id not in clear");
+        assert!(
+            !s.windows(pt.len()).any(|w| w == pt),
+            "plaintext not in the seal"
+        );
+        assert!(
+            !s.windows(8).any(|w| w == host.to_le_bytes()),
+            "host id not in clear"
+        );
     }
     assert!(q.round_time(r) > now(), "all of step 3 ran before R");
 
@@ -186,7 +217,10 @@ async fn a_future_quicknet_round_seals_refuses_then_opens() {
     for i in 0..60 {
         match d.round(r).await {
             Ok(Some(b)) => {
-                log(format!("R published, fetched after {i} retries: {}", hex::encode(b.sig48)));
+                log(format!(
+                    "R published, fetched after {i} retries: {}",
+                    hex::encode(b.sig48)
+                ));
                 got = Some(b);
                 break;
             }
@@ -204,7 +238,11 @@ async fn a_future_quicknet_round_seals_refuses_then_opens() {
     assert_eq!(seal::pack(&p.unwrap()).to_vec(), js_plain);
     let o = node(&["open", &hex::encode(rs.seal), &hex::encode(b.sig48)]);
     assert_eq!(o["ok"], true, "{o}");
-    assert_eq!(h(&o["plain"]), pt.to_vec(), "browser opener opens the rust seal");
+    assert_eq!(
+        h(&o["plain"]),
+        pt.to_vec(),
+        "browser opener opens the rust seal"
+    );
     assert_eq!(h(&o["commit"]), rs.commit.to_vec());
     assert_eq!(
         beacon::hash_be(r),

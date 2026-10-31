@@ -911,7 +911,10 @@ impl PlayDuty {
         if !self.owner_loaded {
             // Owner material accepted before a restart (⑱).
             self.owner_loaded = true;
-            for r in journal.and_then(|j| j.owner_materials().ok()).unwrap_or_default() {
+            for r in journal
+                .and_then(|j| j.owner_materials().ok())
+                .unwrap_or_default()
+            {
                 let (Ok(plain), Ok(salt), Ok(ct_hash), Ok(holding)) = (
                     <[u8; 37]>::try_from(r.plain),
                     <[u8; 32]>::try_from(r.salt),
@@ -3213,7 +3216,10 @@ mod w6t_tests {
         let h = e.addrs.holding(2, 0, 1);
         e.port.put(
             h,
-            testkit::acct(program(), testkit::holding(1, 0, (1, host, dep, arrive, root)), ),
+            testkit::acct(
+                program(),
+                testkit::holding(1, 0, (1, host, dep, arrive, root)),
+            ),
         );
         e.shared.reveals.push(("r1".into(), owner_item(h, &m)));
         let key = format!("reveal:{host}:{dep}");
@@ -3224,12 +3230,25 @@ mod w6t_tests {
             (60, G + (arrive as i64 + 1) * BELL_SECS + 2),
         ] {
             e.plan(&mut d, slot, now, None, &[]).await;
-            assert!(!e.engine.is_pending(&key), "Reveal planned before THE anchor at {now}");
+            assert!(
+                !e.engine.is_pending(&key),
+                "Reveal planned before THE anchor at {now}"
+            );
         }
         // THE anchor lands: the Reveal goes.
         e.anchor(arrive, ix::region_of(origin.0 as i32, origin.1 as i32));
-        e.plan(&mut d, 70, G + (arrive as i64 + 1) * BELL_SECS + 8, None, &[]).await;
-        assert!(e.engine.is_pending(&key), "Reveal planned once the anchor exists");
+        e.plan(
+            &mut d,
+            70,
+            G + (arrive as i64 + 1) * BELL_SECS + 8,
+            None,
+            &[],
+        )
+        .await;
+        assert!(
+            e.engine.is_pending(&key),
+            "Reveal planned once the anchor exists"
+        );
     }
 
     /// The material held for THE anchor outlives a restart (⑱): accepted
@@ -3248,7 +3267,10 @@ mod w6t_tests {
         let h = e.addrs.holding(2, 0, 1);
         e.port.put(
             h,
-            testkit::acct(program(), testkit::holding(1, 0, (1, host, dep, arrive, root))),
+            testkit::acct(
+                program(),
+                testkit::holding(1, 0, (1, host, dep, arrive, root)),
+            ),
         );
         let key = format!("reveal:{host}:{dep}");
         let mut d = PlayDuty::default();
@@ -3256,17 +3278,38 @@ mod w6t_tests {
             .departs
             .insert((host, dep), depart(host, origin, 5, dep, arrive));
         e.shared.reveals.push(("r1".into(), owner_item(h, &m)));
-        e.plan(&mut d, 50, G + arrive as i64 * BELL_SECS + 30, Some(&j), &[]).await;
+        e.plan(
+            &mut d,
+            50,
+            G + arrive as i64 * BELL_SECS + 30,
+            Some(&j),
+            &[],
+        )
+        .await;
         assert!(!e.engine.is_pending(&key), "held for THE anchor");
-        assert_eq!(j.owner_materials().unwrap().len(), 1, "journalled when accepted");
+        assert_eq!(
+            j.owner_materials().unwrap().len(),
+            1,
+            "journalled when accepted"
+        );
         // Restart: a new duty, nothing queued by the API this time.
         let mut d = PlayDuty::default();
         d.index
             .departs
             .insert((host, dep), depart(host, origin, 5, dep, arrive));
         e.anchor(arrive, ix::region_of(origin.0 as i32, origin.1 as i32));
-        e.plan(&mut d, 70, G + (arrive as i64 + 1) * BELL_SECS + 8, Some(&j), &[]).await;
-        assert!(e.engine.is_pending(&key), "revealed from the journalled material");
+        e.plan(
+            &mut d,
+            70,
+            G + (arrive as i64 + 1) * BELL_SECS + 8,
+            Some(&j),
+            &[],
+        )
+        .await;
+        assert!(
+            e.engine.is_pending(&key),
+            "revealed from the journalled material"
+        );
     }
 
     /// Close waste (w6-s7: 28,655 failed CloseArrivalDay/Slot in the

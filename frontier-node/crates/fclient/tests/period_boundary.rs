@@ -46,14 +46,27 @@ fn a_march_across_a_boundary_opens_only_with_its_round() {
     let k = TestKey::new();
     let d = Drand::QUICKNET;
     let boundary: u32 = 1_008; // e.g. the end of a 7-day war period
-    for (host, depart, arrive) in [(1u64, 1_000u32, 1_007u32), (2, 1_005, 1_008), (3, 1_007, 1_020)] {
+    for (host, depart, arrive) in [
+        (1u64, 1_000u32, 1_007u32),
+        (2, 1_005, 1_008),
+        (3, 1_007, 1_020),
+    ] {
         let r = d.tlock_round(G0, arrive);
         let p = plain(host, arrive);
         let s = seal::seal(&seal::pack(&p), &k.pk96, r).unwrap();
         let crosses = depart < boundary && arrive >= boundary;
         let (code, got) = seal::judge(&s.seal, &s.commit, &k.sign(r), host, arrive);
-        assert_eq!((code, got), (0, Some(p)), "host {host} (crosses: {crosses})");
-        for other in [r - 1, r + 1, d.tlock_round(G0, arrive - 1), d.tlock_round(G0, arrive + 1)] {
+        assert_eq!(
+            (code, got),
+            (0, Some(p)),
+            "host {host} (crosses: {crosses})"
+        );
+        for other in [
+            r - 1,
+            r + 1,
+            d.tlock_round(G0, arrive - 1),
+            d.tlock_round(G0, arrive + 1),
+        ] {
             let (code, _) = seal::judge(&s.seal, &s.commit, &k.sign(other), host, arrive);
             assert_ne!(code, 0, "host {host}: round {other} ≠ R {r} must not open");
         }
@@ -73,7 +86,10 @@ fn re_basing_the_bell_clock_at_a_boundary_would_destroy_sealed_marches() {
     let g1 = G0 + 600 * boundary as i64;
     let arrive_rebased = arrive - boundary;
     let r_rebased = d.tlock_round(g1, arrive_rebased);
-    assert_eq!(r_rebased, r, "same instant, same round: only the numbering moved");
+    assert_eq!(
+        r_rebased, r,
+        "same instant, same round: only the numbering moved"
+    );
     // …but the plaintext still says the old bell number, so the program's
     // Plain::validate (arrive_bell = the transit's) refuses it: code 5.
     let (code, _) = seal::judge(&s.seal, &s.commit, &k.sign(r_rebased), host, arrive_rebased);
@@ -95,7 +111,10 @@ fn the_clock_has_no_range_reason_to_re_base() {
         assert!(r > prev, "T is strictly increasing (bell {b})");
         // T(b) is the first round at or after the bell's end, exactly.
         let end = G0 + 600 * (b as i64 + 1);
-        assert!(d.round_time(r) >= end && d.round_time(r) - end < 3, "bell {b}");
+        assert!(
+            d.round_time(r) >= end && d.round_time(r) - end < 3,
+            "bell {b}"
+        );
         prev = r;
     }
     assert!(prev < u64::MAX / 2);

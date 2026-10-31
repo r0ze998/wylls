@@ -520,8 +520,8 @@ mod tests {
         let ok = with("\"https://api.drand.sh\", \"https://drand.cloudflare.com/\", \"http://127.0.0.1:41020\"").unwrap();
         assert_eq!(ok.drand.len(), 3);
         for bad in [
-            "\"http://api.drand.sh\"",               // plain http off loopback
-            "\"https://127.0.0.1:1@api.drand.sh\"",  // userinfo
+            "\"http://api.drand.sh\"",              // plain http off loopback
+            "\"https://127.0.0.1:1@api.drand.sh\"", // userinfo
             "\"https://api.drand.sh/?x\"",
             "\"ftp://api.drand.sh\"",
             "\"--insecure\"",

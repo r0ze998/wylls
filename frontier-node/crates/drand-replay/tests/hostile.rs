@@ -60,7 +60,11 @@ async fn round_answer(mode: Mode, r: u64) -> Response {
             v["randomness"] = hex::encode([7u8; 32]).into();
             json(v)
         }
-        Mode::Early => (StatusCode::from_u16(425).unwrap(), "Requested future beacon").into_response(),
+        Mode::Early => (
+            StatusCode::from_u16(425).unwrap(),
+            "Requested future beacon",
+        )
+            .into_response(),
         Mode::Missing => StatusCode::NOT_FOUND.into_response(),
         Mode::Err500 => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     }
@@ -146,7 +150,11 @@ async fn a_bad_endpoint_never_ends_the_search() {
         true,
     )
     .await;
-    let b = d.round(R).await.unwrap().expect("the good endpoint serves it");
+    let b = d
+        .round(R)
+        .await
+        .unwrap()
+        .expect("the good endpoint serves it");
     assert_eq!(b, TestKey::new().beacon(R));
     // The same request answered again (a replayed response): same round.
     assert_eq!(d.round(R).await.unwrap(), Some(b));
@@ -161,7 +169,10 @@ async fn not_yet_only_when_no_endpoint_has_it() {
         assert!(d.round(R).await.unwrap().is_some(), "{lag:?} then good");
     }
     assert_eq!(drand(&[Mode::Early], false).await.round(R).await, Ok(None));
-    assert_eq!(drand(&[Mode::Missing], false).await.round(R).await, Ok(None));
+    assert_eq!(
+        drand(&[Mode::Missing], false).await.round(R).await,
+        Ok(None)
+    );
     assert_eq!(
         drand(&[Mode::Early, Mode::Err500, Mode::Garbage], true)
             .await
@@ -212,7 +223,11 @@ impl Drop for Tls {
 
 fn run(cmd: &mut std::process::Command) {
     let out = cmd.output().unwrap();
-    assert!(out.status.success(), "{cmd:?}: {}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "{cmd:?}: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
 }
 
 /// A CA, a server certificate for `name` signed by it, and a python3 HTTPS
@@ -232,13 +247,51 @@ fn tls_server(tag: &str, name: &str) -> Tls {
         c.args(a).current_dir(&dir);
         run(&mut c);
     };
-    o(&["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1", "-subj", "/CN=psf-test-ca",
-        "-keyout", "ca.key", "-out", "ca.pem"]);
-    o(&["req", "-newkey", "rsa:2048", "-nodes", "-subj", &format!("/CN={name}"),
-        "-keyout", "srv.key", "-out", "srv.csr"]);
+    o(&[
+        "req",
+        "-x509",
+        "-newkey",
+        "rsa:2048",
+        "-nodes",
+        "-days",
+        "1",
+        "-subj",
+        "/CN=psf-test-ca",
+        "-keyout",
+        "ca.key",
+        "-out",
+        "ca.pem",
+    ]);
+    o(&[
+        "req",
+        "-newkey",
+        "rsa:2048",
+        "-nodes",
+        "-subj",
+        &format!("/CN={name}"),
+        "-keyout",
+        "srv.key",
+        "-out",
+        "srv.csr",
+    ]);
     std::fs::write(dir.join("ext"), format!("subjectAltName=DNS:{name}\n")).unwrap();
-    o(&["x509", "-req", "-in", "srv.csr", "-CA", "ca.pem", "-CAkey", "ca.key", "-CAcreateserial",
-        "-days", "1", "-extfile", "ext", "-out", "srv.pem"]);
+    o(&[
+        "x509",
+        "-req",
+        "-in",
+        "srv.csr",
+        "-CA",
+        "ca.pem",
+        "-CAkey",
+        "ca.key",
+        "-CAcreateserial",
+        "-days",
+        "1",
+        "-extfile",
+        "ext",
+        "-out",
+        "srv.pem",
+    ]);
     let port = {
         let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         l.local_addr().unwrap().port()
@@ -275,7 +328,9 @@ async fn https_refuses_untrusted_and_misnamed_certificates() {
     let url = format!("https://localhost:{}/{chain}/public/{R}", s.port);
     let ca = s.dir.join("ca.pem");
     // Trusted CA: served, and the round verifies.
-    let ok = fclient::http::curl_get_with(&url, Some(ca.clone())).await.unwrap();
+    let ok = fclient::http::curl_get_with(&url, Some(ca.clone()))
+        .await
+        .unwrap();
     assert_eq!(ok.status, 200);
     let v: serde_json::Value = serde_json::from_slice(&ok.body).unwrap();
     assert!(beacon::check_served(&v, R, &TestKey::new().pk96).is_ok());

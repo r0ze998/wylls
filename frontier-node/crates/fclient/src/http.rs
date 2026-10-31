@@ -449,15 +449,15 @@ mod tests {
             assert!(check_curl_url(ok).is_ok(), "{ok}");
         }
         for bad in [
-            "http://api.drand.sh/info",              // plain http off loopback
+            "http://api.drand.sh/info", // plain http off loopback
             "ftp://api.drand.sh/info",
-            "https://user@api.drand.sh/info",        // userinfo
+            "https://user@api.drand.sh/info", // userinfo
             "https://127.0.0.1:x@api.drand.sh/info",
-            "https://API.drand.sh/info",             // case games
-            "https://api.drand.sh/info?x=1",         // query
+            "https://API.drand.sh/info",     // case games
+            "https://api.drand.sh/info?x=1", // query
             "https://api.drand.sh/a b",
             "https://api.drand.sh/%2e%2e/info",
-            "https://api.drand.sh/{a,b}",            // curl globbing
+            "https://api.drand.sh/{a,b}", // curl globbing
             "https://api.drand.sh/[1-9]",
             "https://-K/info",
             "https://api.drand.sh:44a/info",
@@ -486,21 +486,42 @@ mod tests {
     #[test]
     fn curl_trailer_must_say_verified_https() {
         let ok = parse_curl_output(b"{\"round\":1}\n200 0 HTTPS", true).unwrap();
-        assert_eq!((ok.status, ok.body.as_slice()), (200, &b"{\"round\":1}"[..]));
+        assert_eq!(
+            (ok.status, ok.body.as_slice()),
+            (200, &b"{\"round\":1}"[..])
+        );
         let early = parse_curl_output(b"Requested future beacon\n425 0 HTTPS", true).unwrap();
         assert_eq!(early.status, 425);
-        assert!(parse_curl_output(b"x\n200 19 HTTPS", true).is_err(), "verify failed");
-        assert!(parse_curl_output(b"x\n200 0 HTTP", true).is_err(), "downgraded");
-        assert!(parse_curl_output(b"x\n000 0 HTTPS", true).is_err(), "no status");
+        assert!(
+            parse_curl_output(b"x\n200 19 HTTPS", true).is_err(),
+            "verify failed"
+        );
+        assert!(
+            parse_curl_output(b"x\n200 0 HTTP", true).is_err(),
+            "downgraded"
+        );
+        assert!(
+            parse_curl_output(b"x\n000 0 HTTPS", true).is_err(),
+            "no status"
+        );
         assert!(parse_curl_output(b"no trailer", true).is_err());
-        assert!(parse_curl_output(b"x\n200 0 HTTP", false).is_ok(), "loopback http");
-        let big = [vec![b'a'; HTTPS_MAX_BODY as usize + 1], b"\n200 0 HTTPS".to_vec()].concat();
+        assert!(
+            parse_curl_output(b"x\n200 0 HTTP", false).is_ok(),
+            "loopback http"
+        );
+        let big = [
+            vec![b'a'; HTTPS_MAX_BODY as usize + 1],
+            b"\n200 0 HTTPS".to_vec(),
+        ]
+        .concat();
         assert!(parse_curl_output(&big, true).is_err());
     }
 
     #[test]
     fn https_post_and_headers_are_unsupported() {
-        let rt = tokio::runtime::Builder::new_current_thread().build().unwrap();
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
         rt.block_on(async {
             assert!(matches!(
                 post_json("https://api.drand.sh/x", &serde_json::json!({})).await,
