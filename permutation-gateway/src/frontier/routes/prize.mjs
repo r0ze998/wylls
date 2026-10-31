@@ -105,6 +105,33 @@ async function keepsToCount(ctx) {
   return Math.max(0, funds.reduce((n, d) => n + Buffer.from(d).readUInt32LE(20), 0) - 7);
 }
 
+/**
+ * The chain's result for `tx` as this relay would sign it (the signature is the fee payer's,
+ * over the message the wallet signed): `{signature, err}` once confirmed, null when the chain
+ * has none (never sent, or not landed yet: the replay guard then refuses a second send while
+ * it is in flight).
+ */
+async function priorSettlement(ctx, tx) {
+  const feePayer = tx.signers[0];
+  if (!ctx.pool.has(feePayer)) return null;
+  const signature = base58(signEd25519(tx.message, ctx.pool.keypair(feePayer)));
+  const st = (await ctx.connection.getSignatureStatuses([signature], { searchTransactionHistory: true }))?.value?.[0] ?? null;
+  if (!st || !(st.err || ['confirmed', 'finalized'].includes(st.confirmationStatus))) return null;
+  return { signature, err: st.err ?? null };
+}
+
+/** 200 and X-PAYMENT-RESPONSE for a payment that landed (`replayed`: answered again from the chain). */
+async function paidAnswer(ctx, { signature, mode, shape, pool, network, replayed = false }) {
+  const after = await readPool(ctx);
+  ctx.log?.(`f/x402 join ${shape.authority} (${mode}${replayed ? ', answered again' : ''}) ${signature}: pool ${after.prize} prize, ${after.ops} ops, ${after.entries} entries`);
+  return {
+    headers: { 'X-PAYMENT-RESPONSE': x402Encode({ success: true, transaction: signature, network, payer: shape.authority }) },
+    body: { ok: true, signature, mode, wallet: shape.authority, faction: shape.data.faction, citizen: shape.accounts.citizen,
+      paid: mode === 'atomic' ? String(pool.fee) : '0', pool: { entries: after.entries, collected: String(after.collected), prize: String(after.prize), ops: String(after.ops) },
+      ...(replayed ? { replayed: true } : {}), testAssetsOnly: true },
+  };
+}
+
 export const prizeRoutes = {
   'GET /f/prize': async (ctx, req) => {
     const prize = requirePrize(ctx);
@@ -185,7 +212,6 @@ export const prizeRoutes = {
     const refuse402 = (error, code, extra = {}) => ({ status: 402, body: { x402Version: 1, error, code, ...extra, accepts: [requirements] } });
     const header = req.headers['x-payment'];
     if (!header) return refuse402('X-PAYMENT header is required', 'PaymentRequired');
-    if (pool.state !== POOL_STATE.OPEN || pool.counted) throw new RouteError(409, 'the season\'s pool takes no more entries', 'EntriesClosed');
     let payment;
     let tx;
     let wire;
@@ -215,6 +241,13 @@ export const prizeRoutes = {
     }
     if ((shape.accounts.join_gate ?? null) !== gate) return refuse402('invalid payment: the Join must name the season\'s join gate as its last account', 'InvalidPayment');
     if (!signedBy(tx, shape.authority)) return refuse402('invalid payment: the wallet\'s signature is missing or invalid', 'InvalidPayment');
+    // The same bytes again (the client lost the answer, or the relay restarted): the relay's
+    // signature is deterministic, so the transaction's signature is known before sending. If
+    // the chain has a result for it, answer that result and send nothing.
+    const earlier = await priorSettlement(ctx, tx);
+    if (earlier?.err) return refuse402(`payment refused: the transaction failed on chain: ${JSON.stringify(earlier.err)}`, prizeErrorOf(earlier.err) ?? 'SettlementFailed', { signature: earlier.signature });
+    if (earlier) return paidAnswer(ctx, { signature: earlier.signature, mode, shape, pool, network, replayed: true });
+    if (pool.state !== POOL_STATE.OPEN || pool.counted) throw new RouteError(409, 'the season\'s pool takes no more entries', 'EntriesClosed');
     let sent;
     try {
       sent = await sponsor(ctx, req, { tx, wire, shape, extraSigners: gated ? [ctx.gateKey] : [], limitKind: 'join', lastValidBlockHeight: payment.payload.lastValidBlockHeight, extraAllowance });
@@ -229,13 +262,7 @@ export const prizeRoutes = {
       }
       throw e;
     }
-    const after = await readPool(ctx);
-    ctx.log?.(`f/x402 join ${shape.authority} (${mode}) ${sent.signature}: pool ${after.prize} prize, ${after.ops} ops, ${after.entries} entries`);
-    return {
-      headers: { 'X-PAYMENT-RESPONSE': x402Encode({ success: true, transaction: sent.signature, network, payer: shape.authority }) },
-      body: { ok: true, signature: sent.signature, mode, wallet: shape.authority, faction: shape.data.faction, citizen: shape.accounts.citizen,
-        paid: mode === 'atomic' ? String(pool.fee) : '0', pool: { entries: after.entries, collected: String(after.collected), prize: String(after.prize), ops: String(after.ops) }, testAssetsOnly: true },
-    };
+    return paidAnswer(ctx, { signature: sent.signature, mode, shape, pool, network });
   },
 
   'POST /f/prize/claim': async (ctx, req) => {

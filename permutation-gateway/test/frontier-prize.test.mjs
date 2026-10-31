@@ -3,17 +3,19 @@
 // the paid-Join shape, the x402 handshake of POST /f/x402/join over a
 // scripted chain (atomic and settled payments, refusals that send nothing),
 // the faucet, the sponsored Claim, and the agent helper `joinViaX402`.
+import { writeFileSync } from 'node:fs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { Keypair, PublicKey } from '@solana/web3.js';
+import { ComputeBudgetProgram, Keypair, PublicKey, Transaction, TransactionInstruction } from '@solana/web3.js';
 import { encode as base58 } from '../client/src/base58.mjs';
 import { fromBase64, toBase64, toHex, u64le } from '../client/src/bytes.mjs';
 import { CLOCK_SYSVAR, FrontierAddresses } from '../client/src/frontier/addresses.mjs';
+import { PRESETS as V2_PRESETS } from '../client/src/frontier/abi-v2-presets.mjs';
 import { encodeAccount } from '../client/src/frontier/codec.mjs';
 import { rent } from '../client/src/frontier/fees.mjs';
 import { ata, claimAmount, claimIx, classifyPaidJoin, decodeEntry, decodePool, ENTRY_SIZE, entryAddress, joinViaX402, leafHash, merkleTree, nodeHash, opsPart, paidJoinBudget,
   paidJoinMessage, payIx, POOL_SIZE, prizeAddresses, x402Decode, x402Encode } from '../client/src/frontier/prize.mjs';
-import { shapeMessage } from '../client/src/frontier/shapes.mjs';
+import { frontierIx, shapeMessage } from '../client/src/frontier/shapes.mjs';
 import { compileMessage, parseTransaction, wireTransaction } from '../client/src/solana-tx.mjs';
 import { signTalk, verifyTalk } from '../client/src/talk-node.mjs';
 import { createFrontierApps } from '../src/frontier/app.mjs';
@@ -99,11 +101,13 @@ function fakeChain({ debit = () => 0n, fail = () => null, onSent = () => {} } = 
   return c;
 }
 
-function relay({ chain = fakeChain(), prize = true, gated = true, pool = {}, faucetKey = null, cluster = 'localnet' } = {}) {
+/** `profile`: 1 (M1, the Season of the earlier tests) or 3 (S1: the v2 Season with RULESET_HASH_V3, the current program). */
+function relay({ chain = fakeChain(), prize = true, gated = true, pool = {}, faucetKey = null, cluster = 'localnet', profile = 1 } = {}) {
   const payers = new PayerPool({ masterSeed: Buffer.alloc(32, 7), n: 150 });
   for (const k of payers.publicKeys()) chain.set(k, { lamports: 2_000_000_000 });
+  const s1 = profile === 3 ? { LAYOUT_VERSION: 2, RULESET_HASH: Buffer.from(V2_PRESETS.ruleset_hash_v3, 'hex'), PROGRAM_VERSION: 4 } : {};
   chain.set(A.season, { data: encodeAccount('Season', { SEASON_ID, STATUS: 2, GENESIS_TS: BigInt(GENESIS), MARCH_FEE: 10_000n, SEAL_BOND: 20_000n, MIN_REVEAL_PRIORITY_MILLI: 433,
-    REVEAL_CU_LIMIT: 26_000, REVEAL_LOADED_LIMIT: 1_048_576, JOIN_GATE: gated ? gate.publicKey.toBytes() : new Uint8Array(32) }) });
+    REVEAL_CU_LIMIT: 26_000, REVEAL_LOADED_LIMIT: 1_048_576, JOIN_GATE: gated ? gate.publicKey.toBytes() : new Uint8Array(32), ...s1 }, { profile: profile === 3 ? 2 : 1 }) });
   chain.set(CLOCK_SYSVAR, { data: clockAccount(GENESIS + 3_600) });
   if (prize) chain.set(PRIZE.pool, { data: poolData(pool) });
   const store = { state: {}, save() { store.saves = (store.saves ?? 0) + 1; } };
@@ -223,8 +227,9 @@ test('POST /f/x402/join with Pay and Join in one transaction: the relay adds the
   assert.deepEqual(sent.signers, [q.extra.feePayer, ...[wallet, gate.publicKey.toBase58()].sort((x, y) => sent.signers.indexOf(x) - sent.signers.indexOf(y))]);
   for (const [i, s] of sent.signers.entries()) assert.ok(verifyTalk(sent.message, sent.signatures[i], new PublicKey(s).toBytes()), `${s} signed`);
   assert.deepEqual(sent.instructions.slice(3).map(ix => ix.programId), [PRIZE_PROGRAM, PROGRAM]);
-  // The same bytes again are refused (replay), and nothing more is sent.
-  assert.notEqual((await post(r, payment(signedBy(paidMessage(wallet, q.extra.feePayer), w)))).status, 200);
+  // The same bytes again are not sent again: the relay answers the settled payment from the chain.
+  const again = await post(r, payment(signedBy(paidMessage(wallet, q.extra.feePayer), w)));
+  assert.deepEqual([again.status, again.json.replayed, again.json.signature], [200, true, a.json.signature]);
   assert.equal(chain.sent.length, 1);
 });
 
@@ -349,4 +354,171 @@ test('POST /f/prize/claim sponsors exactly one Claim of the signing wallet for t
   assert.equal(chain.sent.length, 0);
   const ok = await claim({ tx: tx(good, w) });
   assert.deepEqual([ok.status, ok.json.ok, chain.sent.length], [200, true, 1]);
+});
+
+// ------------------------------------------------------------------ x402 failure cases (S1 payment round, ⑰)
+
+test('POST /f/x402/join after a lost answer: the same bytes again get the same settlement back from the chain; nothing is sent twice', async () => {
+  const w = Keypair.generate();
+  const wallet = w.publicKey.toBase58();
+  const chain = fakeChain({ debit: () => rent(384) + rent(ENTRY_SIZE), onSent: (_, c) => c.set(PRIZE.pool, { data: poolData({ entries: 1 }) }) });
+  const r = relay({ chain });
+  const q = await requirements(r);
+  const bytes = signedBy(paidMessage(wallet, q.extra.feePayer), w);
+  const first = await post(r, payment(bytes));
+  assert.equal(first.status, 200, JSON.stringify(first.json));
+  // The answer never reached the client; it sends the very same X-PAYMENT again.
+  const again = await post(r, payment(bytes));
+  assert.equal(again.status, 200, JSON.stringify(again.json));
+  assert.deepEqual([again.json.signature, again.json.wallet, again.json.mode, again.json.replayed], [first.json.signature, wallet, 'atomic', true]);
+  assert.deepEqual(x402Decode(again.headers['X-PAYMENT-RESPONSE']), x402Decode(first.headers['X-PAYMENT-RESPONSE']));
+  assert.equal(chain.sent.length, 1, 'the transaction is sent once');
+  // A relay that restarted (no memory of the first request) answers the same from the chain.
+  const restarted = relay({ chain });
+  const third = await post(restarted, payment(bytes));
+  assert.deepEqual([third.status, third.json.signature, chain.sent.length], [200, first.json.signature, 1]);
+  // Even once the pool has started counting (it takes no new entry), a payment that settled is answered as settled.
+  chain.set(PRIZE.pool, { data: poolData({ entries: 1, counted: 3 }) });
+  const later = await post(restarted, payment(bytes));
+  assert.deepEqual([later.status, later.json.signature, chain.sent.length], [200, first.json.signature, 1]);
+  const w2 = Keypair.generate();
+  const fresh = await post(restarted, payment(signedBy(paidMessage(w2.publicKey.toBase58(), q.extra.feePayer), w2)));
+  assert.deepEqual([fresh.status, fresh.json.code, chain.sent.length], [409, 'EntriesClosed', 1], 'a new payment is refused once the pool counts');
+});
+
+test('POST /f/x402/join: the same bytes after the transaction failed on chain are a refusal, not a second send', async () => {
+  const w = Keypair.generate();
+  const wallet = w.publicKey.toBase58();
+  const chain = fakeChain({ debit: () => rent(384) + rent(ENTRY_SIZE) });
+  chain.sendRawTransaction = async raw => {
+    const tx = parseTransaction(new Uint8Array(raw));
+    chain.sent.push(tx);
+    const sig = base58(tx.signatures[0]);
+    chain.statuses.set(sig, { slot: 78, err: { InstructionError: [3, { Custom: 0x105 }] }, confirmationStatus: 'confirmed' });
+    return sig;
+  };
+  const r = relay({ chain });
+  const q = await requirements(r);
+  const bytes = signedBy(paidMessage(wallet, q.extra.feePayer), w);
+  const first = await post(r, payment(bytes));
+  assert.deepEqual([first.status, first.json.code], [402, 'AlreadyPaid'], JSON.stringify(first.json));
+  const again = await post(r, payment(bytes));
+  assert.deepEqual([again.status, again.json.code], [402, 'AlreadyPaid'], JSON.stringify(again.json));
+  assert.equal(chain.sent.length, 1);
+});
+
+test('POST /f/x402/join refuses another network or scheme, an expired blockhash and a second entry of the same wallet; nothing is sent', async () => {
+  const w = Keypair.generate();
+  const wallet = w.publicKey.toBase58();
+  let failWith = null;
+  const chain = fakeChain({ fail: () => failWith });
+  const r = relay({ chain });
+  const q = await requirements(r);
+  const bytes = signedBy(paidMessage(wallet, q.extra.feePayer), w);
+  for (const [scheme, network] of [['exact', 'solana-devnet'], ['exact', 'solana'], ['exact', 'base-sepolia'], ['upto', 'solana-localnet']]) {
+    const a = await post(r, { 'x-payment': x402Encode({ x402Version: 1, scheme, network, payload: { transaction: toBase64(bytes) } }) });
+    assert.deepEqual([a.status, a.json.code], [402, 'InvalidPayment'], `${scheme}/${network}`);
+  }
+  assert.equal(chain.simulated, 0, 'refused before any simulation');
+  // An expired blockhash: the cluster does not know it any more.
+  failWith = { err: 'BlockhashNotFound', logs: [] };
+  // (the relay's simulation answers 409 BlockhashExpired, without `accepts`: x402 v1 would answer 402 with the requirements)
+  const expired = await post(r, payment(bytes));
+  assert.deepEqual([expired.status, expired.json.code], [409, 'BlockhashExpired'], JSON.stringify(expired.json));
+  // The wallet paid already (its Entry exists): Pay fails with AlreadyPaid, the answer names it.
+  failWith = { err: { InstructionError: [3, { Custom: 0x105 }] }, logs: [`Program ${PRIZE_PROGRAM} invoke [1]`, `Program ${PRIZE_PROGRAM} failed: custom program error: 0x105`] };
+  const fresh = signedBy(paidMessage(wallet, q.extra.feePayer, { joinFields: { ...joinFields, session: Keypair.generate().publicKey.toBytes() } }), w);
+  const twice = await post(r, payment(fresh));
+  assert.deepEqual([twice.status, twice.json.code], [402, 'AlreadyPaid'], JSON.stringify(twice.json));
+  assert.equal(chain.sent.length, 0);
+});
+
+test('POST /f/prize/claim: a second claim of the same wallet is 409 AlreadyClaimed and nothing is sent', async () => {
+  const w = Keypair.generate();
+  const wallet = w.publicKey.toBase58();
+  const chain = fakeChain({ fail: () => ({ err: { InstructionError: [0, { Custom: 0x10d }] }, logs: [`Program ${PRIZE_PROGRAM} failed: custom program error: 0x10d`] }) });
+  const r = relay({ chain });
+  const fp = (await call(r.public, 'GET', '/f/relay')).json.feePayer;
+  const ix = claimIx({ prize: PRIZE, wallet, citizen: A.citizen(wallet), nation: 2, points: 10n, proof: [new Uint8Array(32)] });
+  const tx = toBase64(signedBy(compileMessage({ feePayer: fp, recentBlockhash: BLOCKHASH, instructions: [ix] }), w));
+  const a = await call(r.public, 'POST', '/f/prize/claim', { body: { tx }, ip: '203.0.113.9' });
+  assert.deepEqual([a.status, a.json.code, chain.sent.length], [409, 'AlreadyClaimed', 0], JSON.stringify(a.json));
+});
+
+test('an independent x402 client on an S1 season (web3.js only, from the 402 body and the x402 v1 field meanings) pays and joins; the relay accepts it', async () => {
+  const w = Keypair.generate();
+  const wallet = w.publicKey;
+  const chain = fakeChain({ debit: () => rent(384) + rent(ENTRY_SIZE), onSent: (_, c) => c.set(PRIZE.pool, { data: poolData({ entries: 1 }) }) });
+  const r = relay({ chain, profile: 3 });
+  // 1. The 402: a v1 PaymentRequired body, its required fields present.
+  const first = await post(r);
+  assert.equal(first.status, 402);
+  assert.equal(first.json.x402Version, 1);
+  const req = first.json.accepts[0];
+  for (const k of ['scheme', 'network', 'maxAmountRequired', 'resource', 'description', 'payTo', 'maxTimeoutSeconds', 'asset']) assert.ok(req[k] !== undefined, `v1 field ${k}`);
+  // 2. The transaction, built with web3.js alone: compute budget, Pay into payTo, the game's Join.
+  const x = req.extra;
+  const TOKEN = new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
+  const ATA = new PublicKey('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL');
+  const [walletToken] = PublicKey.findProgramAddressSync([wallet.toBuffer(), TOKEN.toBuffer(), new PublicKey(req.asset).toBuffer()], ATA);
+  const prizeProgram = new PublicKey(x.prizeProgram);
+  const [pool] = PublicKey.findProgramAddressSync([Buffer.from('pool'), new PublicKey(x.programId).toBuffer(), Buffer.from(u64le(BigInt(x.seasonId)))], prizeProgram);
+  const [vault] = PublicKey.findProgramAddressSync([Buffer.from('vault'), pool.toBuffer()], prizeProgram);
+  assert.deepEqual([pool.toBase58(), vault.toBase58()], [x.pool, req.payTo], 'payTo is the pool\'s vault, derived independently');
+  const [entry] = PublicKey.findProgramAddressSync([Buffer.from('entry'), pool.toBuffer(), wallet.toBuffer()], prizeProgram);
+  const feePayer = new PublicKey(x.feePayer);
+  const loaded = Buffer.alloc(5); loaded[0] = 4; loaded.writeUInt32LE(x.budget.loadedLimit, 1); // SetLoadedAccountsDataSizeLimit
+  const pay = new TransactionInstruction({ programId: prizeProgram, data: Buffer.from([1]), keys: [
+    { pubkey: wallet, isSigner: true, isWritable: false }, { pubkey: feePayer, isSigner: true, isWritable: true },
+    { pubkey: pool, isSigner: false, isWritable: true }, { pubkey: entry, isSigner: false, isWritable: true },
+    { pubkey: walletToken, isSigner: false, isWritable: true }, { pubkey: vault, isSigner: false, isWritable: true },
+    { pubkey: new PublicKey(req.asset), isSigner: false, isWritable: false }, { pubkey: TOKEN, isSigner: false, isWritable: false },
+    { pubkey: new PublicKey('11111111111111111111111111111111'), isSigner: false, isWritable: false }] });
+  // (the game's Join instruction is not part of x402: its bytes come from the game's ABI encoder)
+  const join = frontierIx(x.programId, 'Join', { ...joinAccounts(wallet.toBase58()), payer: x.feePayer }, joinFields, x.profile);
+  const tx = new Transaction({ feePayer, recentBlockhash: x.recentBlockhash });
+  tx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: x.budget.cuLimit }), ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 0 }),
+    new TransactionInstruction({ programId: ComputeBudgetProgram.programId, keys: [], data: loaded }), pay,
+    new TransactionInstruction({ programId: new PublicKey(join.programId), data: Buffer.from(join.data), keys: join.keys.map(k => ({ pubkey: new PublicKey(k.pubkey), isSigner: k.isSigner, isWritable: k.isWritable })) }));
+  tx.partialSign(w);
+  const wire = tx.serialize({ requireAllSignatures: false, verifySignatures: false });
+  // 3. X-PAYMENT: base64 JSON {x402Version, scheme, network, payload: {transaction}}.
+  const header = Buffer.from(JSON.stringify({ x402Version: 1, scheme: req.scheme, network: req.network, payload: { transaction: wire.toString('base64') } })).toString('base64');
+  const paid = await post(r, { 'x-payment': header });
+  assert.equal(paid.status, 200, JSON.stringify(paid.json));
+  const response = JSON.parse(Buffer.from(paid.headers['X-PAYMENT-RESPONSE'], 'base64').toString('utf8'));
+  assert.deepEqual([response.success, response.network, response.payer, typeof response.transaction], [true, req.network, wallet.toBase58(), 'string']);
+  assert.equal(chain.sent.length, 1);
+  assert.deepEqual(chain.sent[0].instructions.map(ix => ix.programId).slice(3), [x.prizeProgram, x.programId]);
+  // X402_FIXTURE_OUT=file: the exchange as JSON, for checking against other x402 implementations.
+  if (process.env.X402_FIXTURE_OUT) {
+    writeFileSync(process.env.X402_FIXTURE_OUT, `${JSON.stringify({ note: 'scripted chain, test keys; not a chain record', paymentRequired: first.json,
+      xPayment: JSON.parse(Buffer.from(header, 'base64').toString('utf8')), xPaymentResponse: response, body: paid.json }, null, 2)}\n`);
+  }
+});
+
+test('S1 (profile 3, RULESET_HASH_V3): the 402 names profile 3 and its budget; Pay+Join with the S1 limits lands, the M1 limits are refused', async () => {
+  const w = Keypair.generate();
+  const wallet = w.publicKey.toBase58();
+  const chain = fakeChain({ debit: () => rent(384) + rent(ENTRY_SIZE), onSent: (_, c) => c.set(PRIZE.pool, { data: poolData({ entries: 1 }) }) });
+  const r = relay({ chain, profile: 3 });
+  const q = await requirements(r);
+  assert.equal(q.extra.profile, 3);
+  assert.deepEqual(q.extra.budget, paidJoinBudget(3));
+  assert.notDeepEqual(paidJoinBudget(3), paidJoinBudget(1), 'S1 has its own loaded limit');
+  // A client that built the M1 shape (profile 1 limits) is refused before anything is simulated.
+  const m1 = await post(r, payment(signedBy(paidMessage(wallet, q.extra.feePayer, { profile: 1 }), w)));
+  assert.deepEqual([m1.status, m1.json.code, chain.simulated], [402, 'InvalidPayment', 0], JSON.stringify(m1.json));
+  const ok = await post(r, payment(signedBy(paidMessage(wallet, q.extra.feePayer, { profile: 3 }), w)));
+  assert.equal(ok.status, 200, JSON.stringify(ok.json));
+  assert.deepEqual([ok.json.mode, ok.json.paid, chain.sent.length], ['atomic', '25000000', 1]);
+  // The SDK reads the profile from the 402 and builds the S1 shape on its own.
+  const w2 = Keypair.generate();
+  const viaSdk = await joinViaX402('http://relay', { wallet: w2.publicKey.toBase58(), sign: async m => signTalk(m, w2), faction: 2, session: joinFields.session, sessionExpiry: joinFields.session_expiry,
+    fetch: async (url, init) => {
+      const a = await call(r.public, init.method, new URL(url).pathname, { body: init.body, headers: Object.fromEntries(Object.entries(init.headers).map(([k, v]) => [k.toLowerCase(), v])), ip: '203.0.113.9' });
+      return { status: a.status, headers: { get: k => a.headers[Object.keys(a.headers).find(h => h.toLowerCase() === k.toLowerCase())] ?? null }, json: async () => a.json };
+    } });
+  assert.equal(viaSdk.ok, true);
+  assert.equal(chain.sent.length, 2);
 });
