@@ -511,10 +511,8 @@ impl BeaconDuty {
         let got = port.accounts(&keys, 0).await?;
         let arg = Arc::new(arg);
         for (&r, acct) in self.regions.iter().zip(got) {
-            let behind = acct
-                .and_then(|a| BeaconLog::decode(&a.data).ok())
-                .is_none_or(|l| l.latest_round < latest);
-            if !behind {
+            let log = acct.and_then(|a| BeaconLog::decode(&a.data).ok());
+            if !beacon_log_due(log.as_ref(), latest, b_now, |ts| t.clock.bell_at(ts)) {
                 continue;
             }
             let (a, arg2) = (t.addrs.clone(), arg.clone());
@@ -553,9 +551,59 @@ impl BeaconDuty {
     }
 }
 
+/// Whether a region's BeaconLog takes a post this bell: behind `latest`
+/// and not already posted during bell `b_now`. The second half is read
+/// from the chain (`posted_ts`), so a keeper restarted inside a bell does
+/// not post that bell again (its in-memory `beacon_log_bell` is gone).
+pub fn beacon_log_due(
+    log: Option<&BeaconLog>,
+    latest: u64,
+    b_now: u32,
+    bell_of: impl Fn(i64) -> Option<u32>,
+) -> bool {
+    match log {
+        None => true,
+        Some(l) => l.latest_round < latest && bell_of(l.posted_ts) != Some(b_now),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The restart resend (workstream 08): a BeaconLog already posted
+    /// during bell `b_now` takes no second post, whatever the keeper's
+    /// memory says; behind and posted in an earlier bell, it does.
+    #[test]
+    fn beacon_log_due_reads_the_posted_bell_from_the_chain() {
+        let bell_of = |ts: i64| u32::try_from(ts / 600).ok();
+        let log = |round: u64, posted_ts: i64| BeaconLog {
+            season_id: 1,
+            region: 0,
+            latest_round: round,
+            posted_ts,
+            posted_slot: 0,
+            sig48: [0; 48],
+            beneficiary: Address::default(),
+        };
+        assert!(beacon_log_due(None, 10, 28, bell_of));
+        // Posted earlier in bell 28: no second post in bell 28.
+        assert!(!beacon_log_due(
+            Some(&log(5, 28 * 600 + 10)),
+            10,
+            28,
+            bell_of
+        ));
+        // Posted in bell 27 and behind: the bell-28 post is due.
+        assert!(beacon_log_due(
+            Some(&log(5, 27 * 600 + 10)),
+            10,
+            28,
+            bell_of
+        ));
+        // Already at the latest round: nothing to post.
+        assert!(!beacon_log_due(Some(&log(10, 27 * 600)), 10, 28, bell_of));
+    }
     use crate::config::KeeperConfig;
     use crate::engine::EngineParams;
     use crate::testkit::{self, FakeDrand, FakePort};
