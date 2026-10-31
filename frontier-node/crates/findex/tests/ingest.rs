@@ -311,6 +311,35 @@ async fn rpc_poll_refuses_a_history_gap() {
     assert!(findex::Source::pull(&mut again).await.is_err());
 }
 
+/// Nodes may order one slot's signatures differently. A restored poller
+/// (only its cursor) that meets a node ordering `last`'s slot otherwise
+/// must not report a gap: the cursor keeps that slot's archived signatures.
+#[tokio::test]
+async fn rpc_poll_tolerates_another_order_within_a_slot() {
+    let txs = fake_rpc::Txs::default();
+    let sig = |i: u8| fclient::ports::Signature::from([i; 64]).to_string();
+    for i in 1..=3u8 {
+        txs.0.lock().unwrap().push((sig(i), 5));
+    }
+    let url = fake_rpc::start(txs.clone()).await;
+    let mut poll = RpcPoll::new(url.clone(), Address::new_from_array([1; 32]));
+    assert_eq!(findex::Source::pull(&mut poll).await.unwrap().len(), 3);
+    let cur = findex::Source::cursor(&poll);
+    assert_eq!(cur["rpc_last_slot"], serde_json::json!(5));
+    // Another node: slot 5 ordered 1, 3, 2 (oldest first), then a new one.
+    txs.0.lock().unwrap().swap(1, 2);
+    txs.0.lock().unwrap().push((sig(4), 6));
+    let mut again = RpcPoll::new(url.clone(), Address::new_from_array([1; 32]));
+    findex::Source::restore(&mut again, &cur);
+    let got = findex::Source::pull(&mut again).await.unwrap();
+    assert_eq!(got.iter().map(|r| r.slot).collect::<Vec<_>>(), vec![6]);
+    // A cursor without the slot's signatures (older format) still finds
+    // `last` itself when it is met before any unknown one.
+    let mut old = RpcPoll::new(url, Address::new_from_array([1; 32]));
+    findex::Source::restore(&mut old, &serde_json::json!({"rpc_last": sig(4)}));
+    assert!(findex::Source::pull(&mut old).await.unwrap().is_empty());
+}
+
 /// The local chain node honours `before` since W2-C: RpcPoll pages it in
 /// pages smaller than the history and archives every transaction, oldest
 /// first, the same set the in-process feed gives.

@@ -20,9 +20,10 @@ EP=$!
 trap 'kill -- -$BP -$EP 2>/dev/null || true' EXIT
 for i in $(seq 1 60); do curl -s -m2 -X POST -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"getIdentity"}' $E | grep -q identity && break; sleep 1; done
 X=$HERE/../target/debug/examples/er_e2e
-$X $B $E $W/k setup >/dev/null; $X $B $E $W/k roundtrip > /dev/null
+BOARD=$($X $B $E $W/k setup | python3 -c 'import sys,json; print(json.loads(sys.stdin.readline())["v"]["board"])')
+$X $B $E $W/k roundtrip > /dev/null
 q() { curl -s -X POST -H 'content-type: application/json' -d "$2" $1; }
-BOARD=2RAUiKZcqrSivh1M2n2UkLWqeRAMZGaNuAYEwAKSR1AG; PROG=GURgmxeLRJ1swjHDtQhQdTjguNB6EZDmxSdGM3GC6Hrt
+PROG=GURgmxeLRJ1swjHDtQhQdTjguNB6EZDmxSdGM3GC6Hrt
 for side in $B $E; do
   for addr in $PROG $BOARD; do
     r=$(q $side "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getSignaturesForAddress\",\"params\":[\"$addr\",{\"limit\":100,\"commitment\":\"confirmed\"}]}")

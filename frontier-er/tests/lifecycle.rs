@@ -577,3 +577,73 @@ fn a_wiped_er_that_lost_writes_stops_instead_of_looking_clean() {
         }))
     ));
 }
+
+#[test]
+fn base_writes_resume_after_a_rollback_while_the_ghost_copy_stays() {
+    let mut w = World::new(WORLD, VALIDATOR, PAYER);
+    let mut g = Guard::new(VALIDATOR, ESCAPE_AFTER, w.base.slot);
+    w.delegate(VALIDATOR, PAYER).unwrap();
+    w.er_write(&nx(&w, 1)).unwrap();
+    w.er_schedule(Intent::Commit).unwrap();
+    drain(&mut w);
+    w.er_write(&nx(&w, 2)).unwrap();
+    w.er_write(&nx(&w, 3)).unwrap();
+    // The keeper saw the ER at seq 3 (its high-water mark).
+    assert!(matches!(
+        g.decide(&base_obs(&w, true), &[er_obs(&w, "er")]),
+        Decision::Er { live: 3, .. }
+    ));
+    w.er_crash();
+    let exp = w.request_undelegation(PAYER).unwrap();
+    w.advance(exp - w.base.slot);
+    w.rollback_after_timeout().unwrap();
+    // A base write lands before the keeper looks again.
+    let x = nx(&w, 9);
+    w.base_write(&x).unwrap();
+    w.er_restart();
+    // The ghost (seq 3) outlives any number of base writes, including one
+    // that reaches its seq with other content.
+    for p in 10..15 {
+        match g.decide(&base_obs(&w, true), &[er_obs(&w, "er")]) {
+            Decision::Base { alarms, .. } => {
+                assert_eq!(
+                    alarms,
+                    vec![Alarm::GhostCopy {
+                        endpoint: "er",
+                        lost: 2
+                    }]
+                )
+            }
+            d => panic!("{d:?}"),
+        }
+        let x = nx(&w, p);
+        w.base_write(&x).unwrap();
+    }
+    assert_eq!(board::header(&w.base.data).unwrap().0, 7);
+}
+
+#[test]
+fn an_er_that_answers_but_never_serves_a_usable_copy_becomes_escape_eligible() {
+    let mut w = World::new(WORLD, VALIDATOR, PAYER);
+    let mut g = Guard::new(VALIDATOR, ESCAPE_AFTER, w.base.slot);
+    w.delegate(VALIDATOR, PAYER).unwrap();
+    w.er_write(&nx(&w, 1)).unwrap();
+    w.er_schedule(Intent::Commit).unwrap();
+    drain(&mut w);
+    // From now on the only endpoint serves a stale copy (seq 0).
+    let stale = || ErObs {
+        endpoint: "stale",
+        reachable: true,
+        identity: VALIDATOR,
+        slot: 0,
+        header: Some((0, [0; 32])),
+        writable: true,
+    };
+    let d = g.decide(&base_obs(&w, true), &[stale()]);
+    assert_eq!(d, Decision::Hold(Hold::StaleEndpoints));
+    assert!(!g.escape_eligible(&base_obs(&w, true), &d));
+    w.advance(ESCAPE_AFTER);
+    let d = g.decide(&base_obs(&w, true), &[stale()]);
+    assert_eq!(d, Decision::Hold(Hold::StaleEndpoints));
+    assert!(g.escape_eligible(&base_obs(&w, true), &d));
+}

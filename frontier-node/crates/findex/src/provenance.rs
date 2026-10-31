@@ -46,8 +46,8 @@ pub enum PostCheck {
 }
 
 /// Per written account of `r`, what its archived bytes prove. With
-/// `exact_source` (the local node's feed) every present program account is
-/// [`PostCheck::Exact`].
+/// `exact_source` (the local node's feed) every present program account of
+/// a landed transaction is [`PostCheck::Exact`].
 pub fn post_checks(
     r: &TxRecord,
     program: &Address,
@@ -69,7 +69,12 @@ pub fn post_checks(
         .map(|(k, a)| {
             let c = match a {
                 None => PostCheck::Absent,
-                Some(a) if a.owner == DELEGATION_PROGRAM => PostCheck::Delegated,
+                // A program account handed to the delegation program keeps
+                // its bytes (our magic); the DLP's own record, metadata,
+                // buffer and commit PDAs do not, and are foreign.
+                Some(a) if a.owner == DELEGATION_PROGRAM && is_chained(&a.data) => {
+                    PostCheck::Delegated
+                }
                 Some(a) if a.owner != *program => {
                     if fclient::decode::is_absent(&a.owner, &a.data) {
                         PostCheck::Absent
@@ -77,7 +82,9 @@ pub fn post_checks(
                         PostCheck::Foreign
                     }
                 }
-                Some(_) if exact_source => PostCheck::Exact,
+                // A failed transaction wrote nothing: its post-state is the
+                // state before it, which proves no version of this one.
+                Some(_) if exact_source && r.err.is_none() => PostCheck::Exact,
                 Some(a) if !is_chained(&a.data) => PostCheck::Unchained,
                 Some(a) => match fclient::decode::chained_header(&a.data) {
                     None => PostCheck::Unchained,
@@ -189,7 +196,24 @@ mod tests {
             post_checks(&failed, &program, false)[0].1,
             PostCheck::Unverified { seq: l1.seq }
         );
-        // The local feed's bytes are exact.
+        // The local feed's bytes are exact, for a landed transaction only.
         assert_eq!(post_checks(&r, &program, true)[1].1, PostCheck::Exact);
+        assert_eq!(
+            post_checks(&failed, &program, true)[1].1,
+            PostCheck::Unverified { seq: l1.seq + 1 }
+        );
+        // A DLP-owned account without a program magic (the DLP's own PDAs)
+        // is foreign, not delegated.
+        let dlp_pda = TxRecord {
+            post: vec![(
+                k(7),
+                acct(DELEGATION_PROGRAM, vec![100, 0, 0, 0, 0, 0, 0, 0, 1, 2]),
+            )],
+            ..r.clone()
+        };
+        assert_eq!(
+            post_checks(&dlp_pda, &program, false)[0].1,
+            PostCheck::Foreign
+        );
     }
 }

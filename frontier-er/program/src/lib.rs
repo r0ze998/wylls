@@ -6,20 +6,33 @@
 //! an S1 tag (the integrator's registry, ④, assigns those if it is ever
 //! adopted).
 //!
-//! One board per world: the PDA `["wylls-er-board", le64 world_id]`. It
-//! holds no value (rent only) and no ownership record; nothing the
-//! settlement or the ownership rules read.
+//! One board per world and authority: the PDA
+//! `["wylls-er-board", le64 world_id, authority]`. The authority is part of
+//! the address, so whoever inits first cannot take over the board the
+//! world's configuration names (a squatter only makes another address),
+//! and an address funded in advance still inits. It holds no value (rent
+//! only) and no ownership record; nothing the settlement or the ownership
+//! rules read.
 //!
-//! | disc (u64 LE) | instruction | accounts | who |
+//! Instruction data: `disc u64 ‖ world u64 ‖ authority [32] ‖ args`.
+//!
+//! | disc | instruction | accounts | who |
 //! |---|---|---|---|
-//! | 0 | Init `{world}` | payer s,w · board w · system | the world's authority (stored) |
-//! | 1 | Write `{world, expect_seq, expect_head, req_id, payload, bell}` | writer s · board w | any signer (who may write is the use's rule, not decided) |
-//! | 2 | Delegate `{world}` | authority s,w · system · board w · owner program · buffer w · record w · metadata w · DLP · validator | authority (it is the rent payer the escape needs) |
-//! | 3 | Commit `{world}` | payer s · board w · magic program · magic context | anyone, on the ER |
-//! | 4 | CommitAndUndelegate `{world}` | authority s · board w · magic program · magic context | authority, on the ER |
-//! | 5 | RequestUndelegation `{world}` | authority s,w · board · owner program · request w · record · metadata w · system · DLP | authority, on the base |
-//! | 6 | RollbackAfterTimeout `{world}` | board w · owner program · request w · record w · metadata w · rent payer w · commit state w · commit record w · reimbursement w · DLP | anyone, on the base, after the request expired |
-//! | `[196,28,41,206,48,37,51,167]` | the DLP's undelegate callback `{seeds}` | board w · buffer s · payer s,w · system | the DLP only (buffer owned by it, signer) |
+//! | 0 | Init | authority s,w · board w · system | the authority |
+//! | 1 | Write `{expect_seq, expect_head, req_id, payload, bell}` | writer s · board w | any signer (who may write is the use's rule, not decided; see DESIGN §4) |
+//! | 2 | Delegate | authority s,w · system · board w · owner program · buffer w · record w · metadata w · DLP · validator | authority (it becomes the rent payer the escape needs) |
+//! | 3 | Commit | authority s · board w · magic program · magic context | authority, on the ER (commits spend the session's budget) |
+//! | 4 | CommitAndUndelegate | authority s · board w · magic program · magic context | authority, on the ER |
+//! | 5 | RequestUndelegation | authority s,w · board · owner program · request w · record · metadata w · system · DLP | the DLP checks the signer is the delegation's rent payer |
+//! | 6 | RollbackAfterTimeout | board w · owner program · request w · record w · metadata w · rent payer w · commit state w · commit record w · reimbursement w · DLP · payer s,w · system | anyone, on the base, after the request expired |
+//! | `[196,28,41,206,48,37,51,167]` | the DLP's undelegate callback `{seeds}` | board w · buffer s · payer s,w · system | the DLP only (the SDK checks the buffer is DLP-owned, signs and is this board's) |
+//!
+//! While the board is delegated, its base bytes are whatever the validator
+//! last committed (the DLP does not re-check them). The escape therefore
+//! never depends on them: RequestUndelegation leaves the rent-payer check to
+//! the DLP, and RollbackAfterTimeout restores the saved bytes if they are a
+//! board of this world and authority, else a fresh board, marked either
+//! way, topping rent up from its payer.
 //!
 //! Every write follows `frontier_er::board::apply`: compare-and-set on
 //! `(seq, head)`, so a duplicate applies at most once whichever layer it
@@ -39,7 +52,7 @@ use solana_program::{
     entrypoint::ProgramResult,
     instruction::{AccountMeta, Instruction},
     msg,
-    program::invoke_signed,
+    program::{invoke, invoke_signed},
     program_error::ProgramError,
     pubkey::Pubkey,
     rent::Rent,
@@ -80,8 +93,11 @@ impl From<BoardError> for ProgramError {
     }
 }
 
-pub fn board_address(program: &Pubkey, world: u64) -> (Pubkey, u8) {
-    Pubkey::find_program_address(&[BOARD_SEED, &world.to_le_bytes()], program)
+pub fn board_address(program: &Pubkey, world: u64, authority: &Pubkey) -> (Pubkey, u8) {
+    Pubkey::find_program_address(
+        &[BOARD_SEED, &world.to_le_bytes(), authority.as_ref()],
+        program,
+    )
 }
 
 fn hashv(parts: &[&[u8]]) -> [u8; 32] {
@@ -90,6 +106,23 @@ fn hashv(parts: &[&[u8]]) -> [u8; 32] {
 
 #[cfg(all(target_os = "solana", not(feature = "no-entrypoint")))]
 solana_program::entrypoint!(process_instruction);
+
+/// The board an instruction names: world, authority and the PDA's bump.
+struct Id {
+    world: u64,
+    authority: Pubkey,
+    bump: u8,
+}
+
+impl Id {
+    fn seeds(&self) -> Vec<Vec<u8>> {
+        vec![
+            BOARD_SEED.to_vec(),
+            self.world.to_le_bytes().to_vec(),
+            self.authority.to_bytes().to_vec(),
+        ]
+    }
+}
 
 pub fn process_instruction(
     program_id: &Pubkey,
@@ -105,20 +138,36 @@ pub fn process_instruction(
         return undelegate_callback(program_id, accounts, seeds);
     }
     let disc = u64::from_le_bytes(disc.try_into().map_err(|_| BoardError::BadData)?);
-    if rest.len() < 8 {
+    if rest.len() < 40 {
         return Err(BoardError::BadData.into());
     }
     let world = u64::from_le_bytes(rest[..8].try_into().map_err(|_| BoardError::BadData)?);
-    let args = &rest[8..];
+    let authority =
+        Pubkey::new_from_array(rest[8..40].try_into().map_err(|_| BoardError::BadData)?);
+    let args = &rest[40..];
+    let board_ai = match disc {
+        0 | 1 | 3 | 4 | 5 => account(accounts, 1)?,
+        2 => account(accounts, 2)?,
+        6 => account(accounts, 0)?,
+        _ => return Err(BoardError::BadData.into()),
+    };
+    let (addr, bump) = board_address(program_id, world, &authority);
+    if *board_ai.key != addr {
+        return Err(BoardError::WrongBoard.into());
+    }
+    let id = Id {
+        world,
+        authority,
+        bump,
+    };
     match disc {
-        0 => init(program_id, accounts, world),
-        1 => write(program_id, accounts, world, args),
-        2 => delegate(program_id, accounts, world),
-        3 => commit(program_id, accounts, world, false),
-        4 => commit(program_id, accounts, world, true),
-        5 => request_undelegation(program_id, accounts, world),
-        6 => rollback_after_timeout(program_id, accounts, world),
-        _ => Err(BoardError::BadData.into()),
+        0 => init(program_id, accounts, &id),
+        1 => write(program_id, accounts, &id, args),
+        2 => delegate(program_id, accounts, &id),
+        3 => commit(program_id, accounts, &id, false),
+        4 => commit(program_id, accounts, &id, true),
+        5 => request_undelegation(program_id, accounts, &id),
+        _ => rollback_after_timeout(program_id, accounts, &id),
     }
 }
 
@@ -129,78 +178,81 @@ fn account<'a, 'b>(
     a.get(i).ok_or(ProgramError::NotEnoughAccountKeys)
 }
 
-/// The board of `world` at its address, owned by this program (on the base
-/// while not delegated; on the ER while delegated).
-fn expect_board(program_id: &Pubkey, board: &AccountInfo, world: u64) -> Result<u8, ProgramError> {
-    let (addr, bump) = board_address(program_id, world);
-    if *board.key != addr {
-        return Err(BoardError::WrongBoard.into());
-    }
-    Ok(bump)
+/// Bytes that are a board of this world and authority.
+fn valid_board(d: &[u8], id: &Id) -> bool {
+    board::header(d).is_some()
+        && board::world_of(d) == id.world
+        && d[board::AUTHORITY..board::AUTHORITY + 32] == id.authority.to_bytes()
 }
 
-fn owned_board(program_id: &Pubkey, board: &AccountInfo, world: u64) -> Result<u8, ProgramError> {
-    let bump = expect_board(program_id, board, world)?;
+/// A board of this world owned by this program (on the base while not
+/// delegated; on the ER while delegated).
+fn owned_board(program_id: &Pubkey, board: &AccountInfo, id: &Id) -> ProgramResult {
     if board.owner != program_id {
         return Err(BoardError::NotDelegated.into());
     }
-    let d = board.try_borrow_data()?;
-    if board::header(&d).is_none() || board::world_of(&d) != world {
+    if !valid_board(&board.try_borrow_data()?, id) {
         return Err(BoardError::WrongBoard.into());
     }
-    Ok(bump)
+    Ok(())
 }
 
-fn authority_of(d: &[u8]) -> Pubkey {
-    let mut k = [0u8; 32];
-    k.copy_from_slice(&d[board::AUTHORITY..board::AUTHORITY + 32]);
-    Pubkey::new_from_array(k)
-}
-
-fn require_authority(board: &AccountInfo, who: &AccountInfo) -> ProgramResult {
-    if !who.is_signer || authority_of(&board.try_borrow_data()?) != *who.key {
+fn require_authority(who: &AccountInfo, id: &Id) -> ProgramResult {
+    if !who.is_signer || *who.key != id.authority {
         return Err(BoardError::NotAuthority.into());
     }
     Ok(())
 }
 
-fn init(program_id: &Pubkey, a: &[AccountInfo], world: u64) -> ProgramResult {
-    let payer = account(a, 0)?;
+fn fresh(id: &Id) -> Vec<u8> {
+    let mut d = board::new_board(id.world);
+    d[board::AUTHORITY..board::AUTHORITY + 32].copy_from_slice(id.authority.as_ref());
+    d
+}
+
+/// Init: creates the board, also at an address someone funded in advance
+/// (transfer the shortfall, allocate, assign; `create_account` would fail).
+fn init(program_id: &Pubkey, a: &[AccountInfo], id: &Id) -> ProgramResult {
+    let authority = account(a, 0)?;
     let board_ai = account(a, 1)?;
     let system = account(a, 2)?;
-    if !payer.is_signer {
-        return Err(ProgramError::MissingRequiredSignature);
-    }
-    let bump = expect_board(program_id, board_ai, world)?;
-    if board_ai.lamports() != 0 || !board_ai.data_is_empty() {
+    require_authority(authority, id)?;
+    if board_ai.owner != system.key || !board_ai.data_is_empty() {
         return Err(ProgramError::AccountAlreadyInitialized);
     }
-    let lamports = Rent::get()?.minimum_balance(board::SIZE);
+    let w = id.world.to_le_bytes();
+    let bump = [id.bump];
+    let signer: &[&[u8]] = &[BOARD_SEED, &w, id.authority.as_ref(), &bump];
+    let need = Rent::get()?.minimum_balance(board::SIZE);
+    let short = need.saturating_sub(board_ai.lamports());
+    if short > 0 {
+        invoke(
+            &system_instruction::transfer(authority.key, board_ai.key, short),
+            &[authority.clone(), board_ai.clone(), system.clone()],
+        )?;
+    }
     invoke_signed(
-        &system_instruction::create_account(
-            payer.key,
-            board_ai.key,
-            lamports,
-            board::SIZE as u64,
-            program_id,
-        ),
-        &[payer.clone(), board_ai.clone(), system.clone()],
-        &[&[BOARD_SEED, &world.to_le_bytes(), &[bump]]],
+        &system_instruction::allocate(board_ai.key, board::SIZE as u64),
+        &[board_ai.clone(), system.clone()],
+        &[signer],
     )?;
-    let mut d = board_ai.try_borrow_mut_data()?;
-    d.copy_from_slice(&board::new_board(world));
-    d[board::AUTHORITY..board::AUTHORITY + 32].copy_from_slice(payer.key.as_ref());
-    msg!("ERB init world {}", world);
+    invoke_signed(
+        &system_instruction::assign(board_ai.key, program_id),
+        &[board_ai.clone(), system.clone()],
+        &[signer],
+    )?;
+    board_ai.try_borrow_mut_data()?.copy_from_slice(&fresh(id));
+    msg!("ERB init world {}", id.world);
     Ok(())
 }
 
-fn write(program_id: &Pubkey, a: &[AccountInfo], world: u64, args: &[u8]) -> ProgramResult {
+fn write(program_id: &Pubkey, a: &[AccountInfo], id: &Id, args: &[u8]) -> ProgramResult {
     let writer = account(a, 0)?;
     let board_ai = account(a, 1)?;
     if !writer.is_signer {
         return Err(ProgramError::MissingRequiredSignature);
     }
-    owned_board(program_id, board_ai, world)?;
+    owned_board(program_id, board_ai, id)?;
     // expect_seq ‖ expect_head ‖ req_id ‖ payload ‖ bell
     if args.len() != 8 + 32 + 32 + 32 + 4 {
         return Err(BoardError::BadData.into());
@@ -216,9 +268,9 @@ fn write(program_id: &Pubkey, a: &[AccountInfo], world: u64, args: &[u8]) -> Pro
         bell: u32::from_le_bytes(args[104..108].try_into().map_err(|_| BoardError::BadData)?),
     };
     let mut d = board_ai.try_borrow_mut_data()?;
-    match board::apply_with(&mut d, world, &w, hashv) {
+    match board::apply_with(&mut d, id.world, &w, hashv) {
         Ok((seq, head)) => {
-            // The record a reader chains: (seq, head, request).
+            // The record a reader chains: (seq, head, request, payload).
             solana_program::log::sol_log_data(&[
                 b"ERB",
                 &seq.to_le_bytes(),
@@ -234,7 +286,7 @@ fn write(program_id: &Pubkey, a: &[AccountInfo], world: u64, args: &[u8]) -> Pro
     }
 }
 
-fn delegate(program_id: &Pubkey, a: &[AccountInfo], world: u64) -> ProgramResult {
+fn delegate(program_id: &Pubkey, a: &[AccountInfo], id: &Id) -> ProgramResult {
     let authority = account(a, 0)?;
     let system = account(a, 1)?;
     let board_ai = account(a, 2)?;
@@ -244,15 +296,15 @@ fn delegate(program_id: &Pubkey, a: &[AccountInfo], world: u64) -> ProgramResult
     let metadata = account(a, 6)?;
     let dlp = account(a, 7)?;
     let validator = account(a, 8)?;
-    owned_board(program_id, board_ai, world)?;
-    require_authority(board_ai, authority)?;
+    owned_board(program_id, board_ai, id)?;
+    require_authority(authority, id)?;
     if owner_program.key != program_id {
         return Err(ProgramError::IncorrectProgramId);
     }
     if *dlp.key != DELEGATION_PROGRAM_ID {
         return Err(BoardError::WrongDelegationProgram.into());
     }
-    let id = world.to_le_bytes();
+    let w = id.world.to_le_bytes();
     delegate_account(
         DelegateAccounts {
             payer: authority,
@@ -264,34 +316,32 @@ fn delegate(program_id: &Pubkey, a: &[AccountInfo], world: u64) -> ProgramResult
             delegation_program: dlp,
             system_program: system,
         },
-        &[BOARD_SEED, &id],
+        &[BOARD_SEED, &w, id.authority.as_ref()],
         DelegateConfig {
             commit_frequency_ms: COMMIT_FREQUENCY_MS,
             validator: Some(*validator.key),
         },
     )?;
-    msg!("ERB delegated world {} to {}", world, validator.key);
+    msg!("ERB delegated world {} to {}", id.world, validator.key);
     Ok(())
 }
 
 /// On the ER: schedule a commit, or commit-and-undelegate (the session's
-/// end, authority only: sessions cost fees, so nobody else may churn them).
-fn commit(program_id: &Pubkey, a: &[AccountInfo], world: u64, undelegate: bool) -> ProgramResult {
+/// end). Both are the authority's: commits spend the session's sponsored
+/// budget, so nobody else may spend it or churn sessions.
+fn commit(program_id: &Pubkey, a: &[AccountInfo], id: &Id, undelegate: bool) -> ProgramResult {
     let payer = account(a, 0)?;
     let board_ai = account(a, 1)?;
     let magic_program = account(a, 2)?;
     let magic_context = account(a, 3)?;
-    if !payer.is_signer {
-        return Err(ProgramError::MissingRequiredSignature);
-    }
+    require_authority(payer, id)?;
     if *magic_program.key != MAGIC_PROGRAM_ID || *magic_context.key != MAGIC_CONTEXT_ID {
         return Err(BoardError::WrongMagicProgram.into());
     }
-    owned_board(program_id, board_ai, world)?;
+    owned_board(program_id, board_ai, id)?;
     let b =
         MagicIntentBundleBuilder::new(payer.clone(), magic_context.clone(), magic_program.clone());
     if undelegate {
-        require_authority(board_ai, payer)?;
         b.commit_and_undelegate(std::slice::from_ref(board_ai))
             .build_and_invoke()?;
     } else {
@@ -301,13 +351,14 @@ fn commit(program_id: &Pubkey, a: &[AccountInfo], world: u64, undelegate: bool) 
     msg!(
         "ERB {} world {}",
         if undelegate { "undelegate" } else { "commit" },
-        world
+        id.world
     );
     Ok(())
 }
 
 /// The DLP hands the board back: only to its own address, with board bytes
-/// of this world.
+/// of this world and authority. (A validator that committed other bytes
+/// makes this fail; the escape below does not depend on them.)
 fn undelegate_callback(
     program_id: &Pubkey,
     a: &[AccountInfo],
@@ -320,27 +371,35 @@ fn undelegate_callback(
     if *buffer.owner != DELEGATION_PROGRAM_ID {
         return Err(BoardError::WrongDelegationProgram.into());
     }
-    let world = match seeds.as_slice() {
-        [s, w] if s.as_slice() == BOARD_SEED && w.len() == 8 => {
-            u64::from_le_bytes(w.as_slice().try_into().map_err(|_| BoardError::BadData)?)
-        }
+    let (world, authority) = match seeds.as_slice() {
+        [s, w, k] if s.as_slice() == BOARD_SEED && w.len() == 8 && k.len() == 32 => (
+            u64::from_le_bytes(w.as_slice().try_into().map_err(|_| BoardError::BadData)?),
+            Pubkey::new_from_array(k.as_slice().try_into().map_err(|_| BoardError::BadData)?),
+        ),
         _ => return Err(BoardError::WrongBoard.into()),
     };
-    expect_board(program_id, board_ai, world)?;
-    {
-        let d = buffer.try_borrow_data()?;
-        if board::header(&d).is_none() || board::world_of(&d) != world {
-            return Err(BoardError::BadContent.into());
-        }
+    let (addr, bump) = board_address(program_id, world, &authority);
+    if *board_ai.key != addr {
+        return Err(BoardError::WrongBoard.into());
     }
-    undelegate_account(board_ai, program_id, buffer, payer, system, seeds)?;
+    let id = Id {
+        world,
+        authority,
+        bump,
+    };
+    if !valid_board(&buffer.try_borrow_data()?, &id) {
+        return Err(BoardError::BadContent.into());
+    }
+    undelegate_account(board_ai, program_id, buffer, payer, system, id.seeds())?;
     msg!("ERB undelegated world {}", world);
     Ok(())
 }
 
-/// The escape, first step: the authority (the delegation's rent payer)
-/// asks the DLP to take the board back from an unresponsive validator.
-fn request_undelegation(program_id: &Pubkey, a: &[AccountInfo], world: u64) -> ProgramResult {
+/// The escape, first step: the authority asks the DLP to take the board
+/// back from an unresponsive validator. The DLP checks the signer is the
+/// delegation's rent payer; the board's committed bytes are not read (a
+/// validator controls them).
+fn request_undelegation(program_id: &Pubkey, a: &[AccountInfo], id: &Id) -> ProgramResult {
     let authority = account(a, 0)?;
     let board_ai = account(a, 1)?;
     let owner_program = account(a, 2)?;
@@ -349,16 +408,13 @@ fn request_undelegation(program_id: &Pubkey, a: &[AccountInfo], world: u64) -> P
     let metadata = account(a, 5)?;
     let system = account(a, 6)?;
     let dlp = account(a, 7)?;
-    let bump = expect_board(program_id, board_ai, world)?;
     if *dlp.key != DELEGATION_PROGRAM_ID || *board_ai.owner != DELEGATION_PROGRAM_ID {
         return Err(BoardError::WrongDelegationProgram.into());
     }
     if owner_program.key != program_id {
         return Err(ProgramError::IncorrectProgramId);
     }
-    // While delegated the base copy is the last committed board; its
-    // authority field is the one the session started with.
-    require_authority(board_ai, authority)?;
+    require_authority(authority, id)?;
     let ix = Instruction {
         program_id: DELEGATION_PROGRAM_ID,
         accounts: vec![
@@ -372,6 +428,8 @@ fn request_undelegation(program_id: &Pubkey, a: &[AccountInfo], world: u64) -> P
         ],
         data: DLP_REQUEST_UNDELEGATION.to_le_bytes().to_vec(),
     };
+    let w = id.world.to_le_bytes();
+    let bump = [id.bump];
     invoke_signed(
         &ix,
         &[
@@ -384,21 +442,25 @@ fn request_undelegation(program_id: &Pubkey, a: &[AccountInfo], world: u64) -> P
             system.clone(),
             dlp.clone(),
         ],
-        &[&[BOARD_SEED, &world.to_le_bytes(), &[bump]]],
+        &[&[BOARD_SEED, &w, id.authority.as_ref(), &bump]],
     )?;
-    msg!("ERB undelegation requested world {}", world);
+    msg!("ERB undelegation requested world {}", id.world);
     Ok(())
 }
 
 /// The escape, second step (permissionless once the request expired): the
-/// DLP hands the board back emptied; the base copy saved first (the last
-/// finalized commit) is written back and marked rolled back.
-fn rollback_after_timeout(program_id: &Pubkey, a: &[AccountInfo], world: u64) -> ProgramResult {
+/// DLP hands the board back emptied. The base bytes saved first (the last
+/// finalized commit) are written back if they are a board of this world
+/// and authority; otherwise (a validator committed something else) a fresh
+/// board is written. Either way it is marked rolled back, and a payer tops
+/// the rent up if the committed lamports fell short.
+fn rollback_after_timeout(program_id: &Pubkey, a: &[AccountInfo], id: &Id) -> ProgramResult {
     let board_ai = account(a, 0)?;
     let owner_program = account(a, 1)?;
     let rest: Vec<&AccountInfo> = (2..9).map(|i| account(a, i)).collect::<Result<_, _>>()?;
     let dlp = account(a, 9)?;
-    let bump = expect_board(program_id, board_ai, world)?;
+    let payer = account(a, 10)?;
+    let system = account(a, 11)?;
     if *dlp.key != DELEGATION_PROGRAM_ID || *board_ai.owner != DELEGATION_PROGRAM_ID {
         return Err(BoardError::WrongDelegationProgram.into());
     }
@@ -406,9 +468,7 @@ fn rollback_after_timeout(program_id: &Pubkey, a: &[AccountInfo], world: u64) ->
         return Err(ProgramError::IncorrectProgramId);
     }
     let saved = board_ai.try_borrow_data()?.to_vec();
-    if board::header(&saved).is_none() || board::world_of(&saved) != world {
-        return Err(BoardError::BadContent.into());
-    }
+    let kept = saved.len() == board::SIZE && valid_board(&saved, id);
     let mut metas = vec![
         AccountMeta::new(*board_ai.key, true),
         AccountMeta::new_readonly(*program_id, false),
@@ -417,6 +477,8 @@ fn rollback_after_timeout(program_id: &Pubkey, a: &[AccountInfo], world: u64) ->
     let mut infos = vec![board_ai.clone(), owner_program.clone()];
     infos.extend(rest.iter().map(|x| (*x).clone()));
     infos.push(dlp.clone());
+    let w = id.world.to_le_bytes();
+    let bump = [id.bump];
     invoke_signed(
         &Instruction {
             program_id: DELEGATION_PROGRAM_ID,
@@ -424,29 +486,42 @@ fn rollback_after_timeout(program_id: &Pubkey, a: &[AccountInfo], world: u64) ->
             data: DLP_ROLLBACK_AFTER_TIMEOUT.to_le_bytes().to_vec(),
         },
         &infos,
-        &[&[BOARD_SEED, &world.to_le_bytes(), &[bump]]],
+        &[&[BOARD_SEED, &w, id.authority.as_ref(), &bump]],
     )?;
     if board_ai.owner != program_id {
         return Err(BoardError::NotDelegated.into());
     }
-    board_ai.resize(saved.len())?;
+    let need = Rent::get()?.minimum_balance(board::SIZE);
+    let short = need.saturating_sub(board_ai.lamports());
+    if short > 0 {
+        if !payer.is_signer {
+            return Err(ProgramError::MissingRequiredSignature);
+        }
+        invoke(
+            &system_instruction::transfer(payer.key, board_ai.key, short),
+            &[payer.clone(), board_ai.clone(), system.clone()],
+        )?;
+    }
+    board_ai.resize(board::SIZE)?;
+    let restored = if kept { saved } else { fresh(id) };
     {
         let mut d = board_ai.try_borrow_mut_data()?;
-        d.copy_from_slice(&saved);
+        d.copy_from_slice(&restored);
         board::mark_rolled_back(&mut d);
     }
-    // Rent: the DLP left the lamports; top up only if the resize needs it.
-    let need = Rent::get()?.minimum_balance(board::SIZE);
-    if board_ai.lamports() < need {
-        return Err(ProgramError::AccountNotRentExempt);
-    }
-    let (seq, head) = board::header(&saved).ok_or(BoardError::BadContent)?;
+    let (seq, head) = board::header(&restored).ok_or(BoardError::BadContent)?;
     solana_program::log::sol_log_data(&[
         b"ERB_ROLLBACK",
-        &world.to_le_bytes(),
+        &id.world.to_le_bytes(),
         &seq.to_le_bytes(),
         &head,
+        &[u8::from(kept)],
     ]);
-    msg!("ERB world {} rolled back to seq {}", world, seq);
+    msg!(
+        "ERB world {} rolled back to seq {} (kept {})",
+        id.world,
+        seq,
+        kept
+    );
     Ok(())
 }

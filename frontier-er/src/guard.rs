@@ -174,22 +174,26 @@ pub fn decide(base: &BaseObs, ers: &[ErObs], p: &Policy) -> Decision {
                 let Some((eseq, ehead)) = e.header else {
                     continue;
                 };
+                // After a timeout rollback at `at`, an ER that kept its copy
+                // serves writes past `at` that never came home: a ghost,
+                // whatever the base has written since (alarmed, ignored).
+                if let Some(at) = base.rolled_back_at.filter(|at| *at <= bseq && eseq > *at) {
+                    if !(eseq == bseq && ehead == bhead) {
+                        alarms.push(Alarm::GhostCopy {
+                            endpoint: e.endpoint,
+                            lost: eseq - at,
+                        });
+                        continue;
+                    }
+                }
                 if eseq == bseq && ehead != bhead {
                     return Decision::Stop(Stop::Divergence { seq: eseq });
                 }
                 if eseq > bseq {
-                    match base.rolled_back_at {
-                        Some(at) if at == bseq => alarms.push(Alarm::GhostCopy {
-                            endpoint: e.endpoint,
-                            lost: eseq - bseq,
-                        }),
-                        _ => {
-                            return Decision::Stop(Stop::UnexplainedErAhead {
-                                er: eseq,
-                                base: bseq,
-                            })
-                        }
-                    }
+                    return Decision::Stop(Stop::UnexplainedErAhead {
+                        er: eseq,
+                        base: bseq,
+                    });
                 }
             }
             Decision::Base { seq: bseq, alarms }
@@ -288,6 +292,23 @@ impl Guard {
         }
     }
 
+    /// Whether the escape may be proposed: the board is delegated and no
+    /// usable ER copy (a write could go to) has been seen for the policy's
+    /// wait, whatever the reason (unreachable, never cloned, only stale or
+    /// frozen copies, a stop). A person decides; nothing is sent.
+    pub fn escape_eligible(&self, base: &BaseObs, d: &Decision) -> bool {
+        base.owner == Owner::Dlp
+            && !matches!(
+                d,
+                Decision::Er { .. } | Decision::Base { .. } | Decision::Hold(Hold::BaseNotFinal)
+            )
+            && base.slot
+                >= self
+                    .policy
+                    .last_good_slot
+                    .saturating_add(self.policy.escape_after_slots)
+    }
+
     pub fn decide(&mut self, base: &BaseObs, ers: &[ErObs]) -> Decision {
         let d = decide(base, ers, &self.policy);
         match &d {
@@ -302,7 +323,7 @@ impl Guard {
                 // Home: the session's writes are on the base (or recorded as
                 // lost by a rollback mark); the mark restarts.
                 if let Some(seen) = self.er_high.filter(|s| s > seq) {
-                    if base.rolled_back_at != Some(*seq) {
+                    if !base.rolled_back_at.is_some_and(|at| at <= *seq) {
                         return Decision::Stop(Stop::ErRegressed { seen, now: *seq });
                     }
                 }

@@ -56,8 +56,15 @@ const SYSTEM: Address = Address::new_from_array([0; 32]);
 fn pda(seeds: &[&[u8]], p: &Address) -> Address {
     Address::find_program_address(seeds, p).0
 }
+/// The world's authority (the throwaway local key), set once in `main`.
+static AUTH: std::sync::OnceLock<Address> = std::sync::OnceLock::new();
+
 fn board_addr() -> Address {
-    pda(&[b"wylls-er-board", &WORLD.to_le_bytes()], &erb())
+    let auth = AUTH.get().expect("authority set");
+    pda(
+        &[b"wylls-er-board", &WORLD.to_le_bytes(), auth.as_ref()],
+        &erb(),
+    )
 }
 
 /// Minimal HTTP/1.1 JSON-RPC (local plain http only).
@@ -176,6 +183,7 @@ fn send(url: &str, ixs: &[Instruction], signers: &[&Keypair]) -> Result<String, 
 fn ix(disc: u64, args: &[u8], accounts: Vec<AccountMeta>) -> Instruction {
     let mut data = disc.to_le_bytes().to_vec();
     data.extend_from_slice(&WORLD.to_le_bytes());
+    data.extend_from_slice(AUTH.get().expect("authority set").as_ref());
     data.extend_from_slice(args);
     Instruction {
         program_id: erb(),
@@ -343,6 +351,7 @@ fn main() -> Result<(), String> {
             k
         }
     };
+    AUTH.set(auth.pubkey()).map_err(|_| "authority set twice")?;
     let b = board_addr();
     // The trusted validator: the ER's identity, or (ER unreachable) the one
     // the base's delegation record names.

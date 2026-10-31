@@ -60,7 +60,14 @@ impl Fx {
         for k in [&auth, &other, &validator] {
             svm.airdrop(&k.pubkey(), 10_000_000_000).unwrap();
         }
-        let board = pda(&[b"wylls-er-board", &WORLD.to_le_bytes()], &erb_id());
+        let board = pda(
+            &[
+                b"wylls-er-board",
+                &WORLD.to_le_bytes(),
+                auth.pubkey().as_ref(),
+            ],
+            &erb_id(),
+        );
         Fx {
             svm,
             auth,
@@ -85,6 +92,7 @@ impl Fx {
     fn ix(&self, disc: u64, args: &[u8], accounts: Vec<AccountMeta>) -> Instruction {
         let mut data = disc.to_le_bytes().to_vec();
         data.extend_from_slice(&WORLD.to_le_bytes());
+        data.extend_from_slice(self.auth.pubkey().as_ref());
         data.extend_from_slice(args);
         Instruction {
             program_id: erb_id(),
@@ -185,6 +193,8 @@ impl Fx {
                 AccountMeta::new(pda(&[b"commit-state-record", b.as_ref()], &dlp_id()), false),
                 AccountMeta::new(self.validator.pubkey(), false),
                 AccountMeta::new_readonly(dlp_id(), false),
+                AccountMeta::new(payer.pubkey(), true),
+                AccountMeta::new_readonly(SYSTEM, false),
             ],
         );
         self.send(ix, &[payer])
@@ -294,4 +304,71 @@ fn delegate_then_the_escape_restores_the_last_base_state() {
     // And it can be delegated again (a new session).
     f.delegate(&auth).unwrap();
     assert_eq!(f.board_acct().owner, dlp_id());
+}
+
+#[test]
+fn a_funded_address_still_inits_and_a_squatter_cannot_take_the_board() {
+    let mut f = Fx::new();
+    let other = f.other.insecure_clone();
+    // Someone funds the board's address before init (it is predictable).
+    f.svm.airdrop(&f.board, 1_000_000).unwrap();
+    // Someone else tries to init it: refused (the authority is in the
+    // address and must sign).
+    let squat = f.ix(
+        0,
+        &[],
+        vec![
+            AccountMeta::new(other.pubkey(), true),
+            AccountMeta::new(f.board, false),
+            AccountMeta::new_readonly(SYSTEM, false),
+        ],
+    );
+    assert!(f.send(squat, &[&other]).unwrap_err().contains("Custom(3)"));
+    // The authority still inits the funded address.
+    f.init();
+    let a = f.board_acct();
+    assert_eq!(a.owner, erb_id());
+    assert_eq!(a.data.len(), board::SIZE);
+    assert!(a.lamports >= f.svm.minimum_balance_for_rent_exemption(board::SIZE));
+    assert_eq!(
+        &a.data[board::AUTHORITY..board::AUTHORITY + 32],
+        f.auth.pubkey().as_ref()
+    );
+}
+
+#[test]
+fn a_validator_that_commits_garbage_cannot_block_the_escape() {
+    let mut f = Fx::new();
+    f.init();
+    let auth = f.auth.insecure_clone();
+    let other = f.other.insecure_clone();
+    let w1 = w(&f, 1);
+    f.write(&w1, &other).unwrap();
+    f.delegate(&auth).unwrap();
+    // While delegated, the base bytes are what the validator committed:
+    // here garbage of another length, and lamports below rent.
+    let mut acct = f.board_acct();
+    acct.data = vec![0xEE; 40];
+    acct.lamports = 1;
+    f.svm.set_account(f.board, acct).unwrap();
+    // The request does not read them (the DLP checks the rent payer).
+    f.request(&auth).unwrap();
+    let s = f.slot();
+    f.svm.warp_to_slot(s + UNDELEGATION_TIMEOUT_SLOTS + 1);
+    // Anyone rolls back, paying the rent shortfall; a fresh board of this
+    // world and authority, marked rolled back at seq 0.
+    f.rollback(&other).unwrap();
+    let back = f.board_acct();
+    assert_eq!(back.owner, erb_id());
+    assert_eq!(back.data.len(), board::SIZE);
+    assert_eq!(board::header(&back.data).map(|h| h.0), Some(0));
+    assert_eq!(board::rolled_back_at(&back.data), Some(0));
+    assert_eq!(
+        &back.data[board::AUTHORITY..board::AUTHORITY + 32],
+        auth.pubkey().as_ref()
+    );
+    assert!(back.lamports >= f.svm.minimum_balance_for_rent_exemption(board::SIZE));
+    // Writes resume.
+    let w2 = w(&f, 2);
+    f.write(&w2, &other).unwrap();
 }
