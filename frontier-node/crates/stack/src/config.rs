@@ -1096,6 +1096,7 @@ pub fn apply_flags(c: &mut StackConfig, flags: &[(String, Option<String>)]) -> R
 
 /// Flags that take no value.
 pub const SWITCHES: &[&str] = &[
+    "back",
     "chaos",
     "no-chaos",
     "adversary",

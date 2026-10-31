@@ -21,6 +21,7 @@ pub mod adversary;
 pub mod chain;
 pub mod chaos;
 pub mod config;
+pub mod drill;
 pub mod land;
 pub mod load;
 pub mod ports;

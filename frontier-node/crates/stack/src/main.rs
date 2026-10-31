@@ -177,7 +177,19 @@ fn main() {
             Ok(op) => rt.block_on(frontier_stack::land::land(&run_dir(&flags), op)),
             Err(e) => die(e),
         },
-        "snapshot" => rt.block_on(frontier_stack::snapshot::run(&run_dir(&flags), get(&flags, "out"))),
+        "drill" => match frontier_stack::drill::parse_op(
+            get(&flags, "do"),
+            get(&flags, "at"),
+            get(&flags, "cargo"),
+            has(&flags, "back"),
+        ) {
+            Ok(op) => rt.block_on(frontier_stack::drill::drill(&run_dir(&flags), op)),
+            Err(e) => die(e),
+        },
+        "snapshot" => rt.block_on(frontier_stack::snapshot::run(
+            &run_dir(&flags),
+            get(&flags, "out"),
+        )),
         "-h" | "--help" | "help" => usage(),
         other => die(format!("unknown subcommand `{other}`")),
     };
