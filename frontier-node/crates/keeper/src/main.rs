@@ -199,7 +199,7 @@ async fn main() {
     }
     let running = match api_addr {
         Some(a) => Some(
-            api::serve_with(a, k.shared.clone(), token, Some(gate))
+            api::serve_full(a, k.shared.clone(), token, Some(gate), Some(jpath.clone()))
                 .await
                 .unwrap_or_else(|e| {
                     eprintln!("api: {e}");

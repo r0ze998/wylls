@@ -3816,6 +3816,86 @@ mod w6t_tests {
         api.stop();
     }
 
+    /// Material accepted by `/v1/reveal` is durable before `202` (⑱): the
+    /// keeper restarts before its duty took the material from the API's
+    /// queue (so the queue is lost with the process); the restarted duty
+    /// reads it back from the journal and, once THE anchor exists and
+    /// T(arrive) is verified, the Reveal goes. Without the journal path the
+    /// same restart loses it.
+    #[tokio::test]
+    async fn accepted_material_is_journalled_before_202() {
+        for journalled in [true, false] {
+            let mut e = env(&["reveal"], 1_008);
+            let dir = std::env::temp_dir().join(format!(
+                "psf-r18-intake-{}-{journalled}",
+                std::process::id()
+            ));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            let jpath = dir.join("keeper.journal.sqlite");
+            let j = Journal::open(&jpath).unwrap();
+            let mut d = PlayDuty::default();
+            let mut s = secret(&mut e, &mut d).await;
+            e.shared.reveals.clear();
+            let shared = std::sync::Arc::new(std::sync::Mutex::new(Shared::default()));
+            let token = "a-test-token-of-32-characters-xx".to_string();
+            let gate: std::sync::Arc<dyn crate::reveal_accept::RevealGate> =
+                std::sync::Arc::new(AcceptAll);
+            let api = crate::api::serve_full(
+                "127.0.0.1:0".parse().unwrap(),
+                shared.clone(),
+                token.clone(),
+                Some(gate),
+                journalled.then(|| jpath.clone()),
+            )
+            .await
+            .unwrap();
+            let code = {
+                use tokio::io::{AsyncReadExt, AsyncWriteExt};
+                let mut c = tokio::net::TcpStream::connect(api.addr).await.unwrap();
+                let b = s.item.to_string();
+                let head = format!(
+                    "POST /v1/reveal HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer {token}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{b}",
+                    b.len()
+                );
+                c.write_all(head.as_bytes()).await.unwrap();
+                let mut out = vec![];
+                c.read_to_end(&mut out).await.unwrap();
+                String::from_utf8_lossy(&out)[9..12].parse::<u16>().unwrap()
+            };
+            assert_eq!(code, 202);
+            assert_eq!(
+                j.owner_materials().unwrap().len(),
+                journalled as usize,
+                "journalled before 202 (journalled = {journalled})"
+            );
+            // The process dies before a tick took the queue: a new duty,
+            // nothing handed over from the API's memory.
+            api.stop();
+            drop(shared);
+            let mut d = PlayDuty::default();
+            d.index
+                .departs
+                .insert((s.host, s.dep), depart(s.host, (2, 0), 5, s.dep, s.arrive));
+            let (slot, now) = times()[0];
+            e.tick_send(&mut d, &mut s, slot, now, Some(&j))
+                .await
+                .unwrap();
+            assert_eq!(e.leaks(&s), 0, "nothing before publication");
+            e.anchor(s.arrive, s.region);
+            let (slot, now) = after_t();
+            e.tick_send(&mut d, &mut s, slot, now, Some(&j))
+                .await
+                .unwrap();
+            assert_eq!(
+                e.leaks(&s) >= 1,
+                journalled,
+                "after the restart the Reveal goes only if the material was journalled"
+            );
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+    }
+
     /// THE anchor archived (an AnchorArchive instead of a BellAnchor): an
     /// archive account that does not hold the arrival bell is no anchor and
     /// nothing is sent; THE anchor known as archived, with T(arrive)
