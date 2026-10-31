@@ -801,4 +801,25 @@ mod tests {
         assert_eq!(rd32(&d, P::RESOLVED_NEXT).unwrap(), END);
         assert_eq!(rest_limit(&d, END + 10, &prm).unwrap(), END);
     }
+
+    /// Continuous world (`end_bell = NO_END_BELL`): whether a Province
+    /// rests at all is answered by `t = resolved_next + 1` as by a far `t`
+    /// (the herald's and keeper's bounded call), and a bounded `t` keeps
+    /// the camp-day scan short.
+    #[test]
+    fn rest_in_a_world_without_an_end() {
+        let mut prm = prm();
+        let d = calm();
+        let rn = rd32(&d, P::RESOLVED_NEXT).unwrap();
+        let near = rest_limit(&d, rn + 1, &prm).unwrap();
+        let far = rest_limit(&d, END + 10, &prm).unwrap();
+        assert_eq!(near > rn, far > rn);
+        prm.end_bell = crate::presets::NO_END_BELL;
+        let t0 = std::time::Instant::now();
+        let near_c = rest_limit(&d, rn + 1, &prm).unwrap();
+        let week = rest_limit(&d, rn + 7 * 144, &prm).unwrap();
+        assert!(t0.elapsed() < std::time::Duration::from_secs(2));
+        assert_eq!(near_c > rn, near > rn);
+        assert!(week >= near_c && week <= rn + 7 * 144);
+    }
 }

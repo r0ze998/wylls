@@ -762,7 +762,10 @@ impl PlayDuty {
                             end_bell: t.season.end_bell,
                             cq: *cq,
                         };
-                        frontier_abi::rest_model::rest_limit(&raw, u32::MAX, &prm)
+                        // Never past the clock: a continuous world's end
+                        // (`NO_END_BELL`) would scan camp days to u32::MAX.
+                        let now_b = t.clock.bell_at(t.now).unwrap_or(0);
+                        frontier_abi::rest_model::rest_limit(&raw, now_b.saturating_add(1), &prm)
                             .unwrap_or(pv.resolved_next)
                     }
                     _ => pv.resolved_next,
