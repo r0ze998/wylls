@@ -71,7 +71,8 @@ fn cerr(e: CustodyError) -> Error {
         E::NotEmpty => cq(CqError::LotNotEmpty),
         E::InTransit => cq(CqError::CaravanEarly),
         E::State => FrontierError::AlreadyDone.into(),
-        E::Resource | E::Quantity | E::Order | E::Stale | E::SelfDealing | E::SeasonOver => {
+        E::Overflow => OVERFLOW,
+        E::Resource | E::Quantity | E::Order | E::Stale | E::SelfDealing => {
             FrontierError::BadData.into()
         }
     }
