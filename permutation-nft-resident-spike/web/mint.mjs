@@ -153,16 +153,24 @@ async function resolvePending(p) {
   if (height > p.lastValidBlockHeight) {
     // Expired: no NEW landing of this signature is possible now. That is not proof it never landed (the RPC may
     // lack the history, or lag). The attempt's own unique account decides: the asset keypair exists only in this
-    // attempt and nothing else creates that account, so "asset account absent" = not landed, "present" = landed.
-    const acc = (await rpc('getAccountInfo', [p.asset, { encoding: 'base64', commitment: 'confirmed' }])).value;
-    if (acc) {
+    // attempt and nothing else creates that account, so "present" = landed, "absent" = not landed.
+    // "Present" may be read at confirmed. "Absent" is the ground for a retry, so it is read at FINALIZED, and only
+    // once the finalized height is past the last valid block (every block that could hold the transaction is then
+    // final). An account seen once stays "landed" even if it vanishes later (a burn): the record carries the mark.
+    const seen = (await rpc('getAccountInfo', [p.asset, { encoding: 'base64', commitment: 'confirmed' }])).value;
+    if (seen || p.seen) {
+      if (seen && !p.seen) writePending({ ...p, seen: true });
       const status = await api(`/mint/status?wallet=${state.wallet.address}&asset=${p.asset}`);
       showResult(status, p.signature);
       if (status.registered) { clearPending(); say('取引は確定していました（期限切れ後に口座で確認）：waitlist 登録完了。', 'ok'); renderMine([{ residentId: status.residentId, asset: status.asset }]); return; }
-      say(`asset の口座はありますが保有を確認できません（${status.code ?? (status.isHolder ? 'unbound' : 'not holder')}）。再確認を押してください。再課金・再発行はしません。`, 'err');
+      say(`${seen ? 'asset の口座はありますが' : 'asset の口座を一度観測したため発行済みとして扱いますが、今は'}保有を確認できません（${status.code ?? (status.isHolder ? 'unbound' : 'not holder')}）。再確認を押してください。再課金・再発行はしません。`, 'err');
       return;
     }
-    clearPending(); say('前回の取引は期限切れで、asset の口座も無く、着地していません（課金なし）。もう一度 mint できます。', 'err'); $('mint').disabled = !state.networkOk; return;
+    const finalHeight = await rpc('getBlockHeight', [{ commitment: 'finalized' }]);
+    if (finalHeight <= p.lastValidBlockHeight) { say(`期限は切れましたが、確定済み（finalized）の高さ ${finalHeight} がまだ有効期限 ${p.lastValidBlockHeight} を過ぎていません。再課金・再発行はしません。しばらくして「保有状態を再確認」を押してください。`); return; }
+    const finalAcc = (await rpc('getAccountInfo', [p.asset, { encoding: 'base64', commitment: 'finalized' }])).value;
+    if (finalAcc) { writePending({ ...p, seen: true }); say('asset の口座を finalized で観測しました。再確認を押してください。再課金・再発行はしません。'); return; }
+    clearPending(); say('前回の取引は期限切れで、finalized でも asset の口座が無く、着地していません（課金なし）。もう一度 mint できます。', 'err'); $('mint').disabled = !state.networkOk; return;
   }
   say(`結果がまだ分かりません（有効期限 block ${p.lastValidBlockHeight}、現在 ${height}）。再課金・再発行はしません。しばらくして「保有状態を再確認」を押してください。`);
 }

@@ -287,8 +287,17 @@ test('expired pending record: expiry alone decides nothing; the attempt\'s asset
     // 1. A record of a transaction that never landed, already past its last valid block: the asset account does not exist → safe to retry.
     await page.evaluate(() => localStorage.setItem(`wylls-mint-pending:${globalThis.__testWallet.address}`, JSON.stringify({ signature: '1'.repeat(87), asset: '2'.repeat(43), lastValidBlockHeight: 0, at: Date.now() })));
     await page.reload(); await page.waitForFunction(() => globalThis.__testWallet?.address); await connect(page);
-    await waitStatus(page, /期限切れで、asset の口座も無く/);
+    await waitStatus(page, /期限切れで、finalized でも asset の口座が無く/);
     assert.equal(await t(page, 'mint').isDisabled(), false);
+    // 1b. The same record, but the account was observed once (`seen`): it stays "landed" even though the account is gone → no retry.
+    await page.evaluate(() => localStorage.setItem(`wylls-mint-pending:${globalThis.__testWallet.address}`, JSON.stringify({ signature: '1'.repeat(87), asset: '2'.repeat(43), lastValidBlockHeight: 0, at: Date.now(), seen: true })));
+    await page.reload(); await page.waitForFunction(() => globalThis.__testWallet?.address); await connect(page);
+    await waitStatus(page, /一度観測したため発行済みとして扱います/);
+    assert.equal(await t(page, 'mint').isDisabled(), true);
+    assert.notEqual(await page.evaluate(() => localStorage.getItem(`wylls-mint-pending:${globalThis.__testWallet.address}`)), null, 'the record is kept');
+    await page.evaluate(() => localStorage.removeItem(`wylls-mint-pending:${globalThis.__testWallet.address}`));
+    await page.reload(); await page.waitForFunction(() => globalThis.__testWallet?.address); await connect(page);
+    await waitStatus(page, /mint できます/);
     // 2. A real mint, then its record is aged (expired) and its signature made unknown to the RPC: the asset account exists → registered, nothing resent.
     await t(page, 'mint').click();
     await waitStatus(page, /waitlist 登録完了/);

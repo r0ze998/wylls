@@ -15,7 +15,7 @@
 | 確定した取引と正規 collection・asset の保有を確認してから「登録完了」 | `getSignatureStatuses` → `GET /mint/status`（サーバがチェーンを読み、プログラム・collection・保有者・住民口座の紐付けを検査）→ 表示 | B1, B11 |
 | 再読込・再接続でも保有状態を確認できる | 接続時に `GET /mint/mine` → `GET /mint/status`。ページの記憶ではなくチェーンの読取 | B1（reload）, B7 |
 | 応答が消えたら既存の署名を照会し、結果不明のまま再課金・再発行しない | 送信**前**に `{signature, asset, lastValidBlockHeight}` を localStorage に記録。再開時は署名で照会。未決なら mint ボタンを無効化 | B6, B7, B9 |
-| 期限切れ | `getBlockHeight > lastValidBlockHeight` かつ状態なし → **期限切れだけでは判定しない**（D28）。その試行だけの asset 口座を読み、無ければ未着地として再試行を許し、有れば発行済みとして保有確認へ。送信時の `Blockhash not found`（送っていない）は再試行可 | B8, B12 |
+| 期限切れ | `getBlockHeight > lastValidBlockHeight` かつ状態なし → **期限切れだけでは判定しない**（D28）。その試行だけの asset 口座を読む。「有る」（confirmed）なら発行済みとして保有確認へ、記録に `seen` を付けて以後消えても戻さない。「無い」は finalized の高さが有効期限を過ぎてから finalized で読み、それでも無ければ未着地として再試行を許す。送信時の `Blockhash not found`（送っていない）は再試行可 | B8, B12 |
 | 接続先ネットワーク違い | RPC の `getGenesisHash` ≠ 設定値 → 全操作停止。ウォレットの口座が `solana:devnet` を持たない → 接続拒否 | B4 |
 | SOL 不足 | 残高 < 価格＋手数料＋rent → 署名前に拒否 | B3 |
 | 署名拒否 | ウォレットの拒否 → 何も送らず、記録も残さない | B2 |
