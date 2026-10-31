@@ -184,7 +184,7 @@ export function paintEdge(ctx, segs, scale = 1, { faint = false } = {}) {
 
 /** The map's answer to a tap on a place that is not open land. */
 export const PLACE_NOTE = Object.freeze({
-  outside: () => L`ここはこのシーズンの地図の外です`,
+  outside: () => L`ここはいまの地図の外です`,
   unopened: () => L`まだひらいていない土地です`,
   pending: () => L`この土地は生まれるところです（しばらくお待ちください）`,
   extendable: () => L`ここはまだ地図の外です（このシーズンは、ここまで地図を広げられます）`,
@@ -194,7 +194,7 @@ export const PLACE_NOTE = Object.freeze({
 
 /** The ring as the inspector says it, with what the place is. */
 export function ringText(state, ring) {
-  if (state === PLACE.outside) return L`第${fmtNum(ring)}輪（このシーズンの地図の外）`;
+  if (state === PLACE.outside) return L`第${fmtNum(ring)}輪（いまの地図の外）`;
   if (state === PLACE.unopened) return L`第${fmtNum(ring)}輪（まだひらいていません）`;
   if (state === PLACE.pending) return L`第${fmtNum(ring)}輪（生まれるところです）`;
   if (state === PLACE.extendable) return L`第${fmtNum(ring)}輪（広げられるが、まだ地図の外）`;

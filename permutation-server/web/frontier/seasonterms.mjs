@@ -6,8 +6,14 @@
 // `joinCloseBell` and ends at its `endBell` (Season account); the program
 // refuses a join after the one and every order after the other with
 // WrongStatus, which this page words with its cause.
+//
+// The world is to go on without an end (the project's direction; its shared core is 04's and 08's). This program
+// still has an end turn, so the page says it as what it is — the turn after which THIS program takes no new order,
+// an old-style season's — and never as the world ending; when the owners register that the world goes on
+// (hud/worldclock.mjs), the end turn is not said at all.
 import { L, fmtNum } from '../lang.mjs';
 import { BELL_SECS, bellStart } from './clock.mjs';
+import { worldContinues } from './hud/worldclock.mjs';
 
 let pace = () => 1;
 /** The chain's pace as the page knows it (app.mjs: the accelerated local clock's rate, else 1). */
@@ -40,14 +46,15 @@ export function deadlineLine(FS) {
   const d = deadlines(FS);
   if (!d) return '';
   const join = d.join.closed ? L`参加の受付は第${fmtNum(d.join.bell)}ターンで締め切られました。` : L`参加の受付は第${fmtNum(d.join.bell)}ターンまで（あと約 ${spanWords(d.join.realLeft)}）。`;
-  const end = d.end.ended ? L`シーズンは終わりました。` : L`シーズンは第${fmtNum(d.end.bell)}ターンで終わります（あと約 ${spanWords(d.end.realLeft)}）。`;
+  const end = worldContinues(FS) ? '' : d.end.ended ? L`このプログラム（旧方式のシーズン）は第${fmtNum(d.end.bell)}ターンで新しい命令の受付を終えました。`
+    : L`このプログラム（旧方式のシーズン）が新しい命令を受け付けるのは第${fmtNum(d.end.bell)}ターンまでです（あと約 ${spanWords(d.end.realLeft)}）。`;
   return `${join}${end}`;
 }
 /** WrongStatus said with its cause when the cause is the season's clock; null otherwise (the page's own words stand). */
 export function wrongStatusWhy(FS, action = null) {
   const d = deadlines(FS);
   if (!d) return null;
-  if (d.end.ended) return L`シーズンは第${fmtNum(d.end.bell)}ターンで終わったため、この操作はできません。`;
+  if (d.end.ended && !worldContinues(FS)) return L`このプログラム（旧方式のシーズン）は第${fmtNum(d.end.bell)}ターンで新しい命令の受付を終えたため、この操作は受け付けられません。`;
   if (action === 'join' && d.join.closed) return L`参加の受付は第${fmtNum(d.join.bell)}ターンで締め切られました。`;
   return null;
 }

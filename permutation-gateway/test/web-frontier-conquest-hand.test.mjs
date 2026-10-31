@@ -202,7 +202,7 @@ test('the season-end card stands only when the records say so: the pool final af
   assert.equal(P.seasonEndLine(end), 'Aster holds the most provinces (11)');
   assert.equal(P.seasonEndLine(tie), 'Tied for first: Aster / Borealis (10 each)');
   const card = plain(P.renderSeasonEnd(end));
-  assert.match(card, /The season is over Aster holds the most provinces \(11\)/);
+  assert.match(card, /This conquest \(an old-style season\) is over Aster holds the most provinces \(11\)/);
   assert.match(card, /confirmed on the local test chain/);
   assert.doesNotMatch(card, CJK);
 });

@@ -184,7 +184,8 @@ const setText = (id, text) => { const el = $(id); if (el && el.textContent !== t
 export function chipText(chip) {
   if (!chip || (chip.bell === null && !chip.beforeGenesis)) return L`ターン —`;
   if (chip.beforeGenesis) return L`開始まで ${countdown(chip.secondsLeft)}`;
-  if (chip.ended) return L`ターン ${fmtNum(chip.bell)} · 終了`;
+  // (past the program's end turn: this program takes no new order — said as that, not as the world being over)
+  if (chip.ended) return L`ターン ${fmtNum(chip.bell)} · 受付終了`;
   return L`ターン ${fmtNum(chip.bell)} · 残り ${countdown(chip.secondsLeft)}`;
 }
 
@@ -192,7 +193,7 @@ export function chipText(chip) {
 export function dialParts(chip) {
   if (!chip || (chip.bell === null && !chip.beforeGenesis)) return { label: L`ターン`, num: '—', left: '' };
   if (chip.beforeGenesis) return { label: L`開始まで`, num: countdown(chip.secondsLeft), left: '' };
-  return { label: L`ターン`, num: fmtNum(chip.bell), left: chip.ended ? L`終了` : countdown(chip.secondsLeft) };
+  return { label: L`ターン`, num: fmtNum(chip.bell), left: chip.ended ? L`受付終了` : countdown(chip.secondsLeft) };
 }
 
 /**

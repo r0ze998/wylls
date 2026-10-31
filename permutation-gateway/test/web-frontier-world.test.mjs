@@ -91,23 +91,23 @@ test('the season border: the outward sides of ring rMax, 12·rMax + 6 of them, e
 });
 
 test('the words: each state says itself, in both languages', () => {
-  assert.equal(W.ringText('outside', 7), '第7輪（このシーズンの地図の外）');
+  assert.equal(W.ringText('outside', 7), '第7輪（いまの地図の外）');
   assert.equal(W.ringText('unopened', 6), '第6輪（まだひらいていません）');
   assert.equal(W.ringText('pending', 5), '第5輪（生まれるところです）');
   assert.equal(W.ringText('open', 4), '第4輪');
-  assert.equal(W.PLACE_NOTE.outside(), 'ここはこのシーズンの地図の外です');
+  assert.equal(W.PLACE_NOTE.outside(), 'ここはいまの地図の外です');
   assert.equal(W.PLACE_NOTE.unopened(), 'まだひらいていない土地です');
   setLang('en');
-  assert.equal(W.ringText('outside', 7), 'Ring 7 (outside this season’s map)');
+  assert.equal(W.ringText('outside', 7), 'Ring 7 (outside the map as it is now)');
   assert.equal(W.ringText('pending', 5), 'Ring 5 (being made)');
-  assert.equal(W.PLACE_NOTE.outside(), 'This is outside this season’s map');
+  assert.equal(W.PLACE_NOTE.outside(), 'This is outside the map as it is now');
   assert.equal(W.PLACE_NOTE.pending(), 'This land is being made (a moment, please)');
 });
 
 test('the inspector names the state of the ring under the selection', () => {
   const FS = { record: REC, world: W.worldOf(REC), selected: { p: 7, q: 0 }, mode: 'play' };
   assert.equal(inspect.inspectModel(FS, null).place, 'outside');
-  assert.match(String(inspect.render(FS, null)), /第7輪（このシーズンの地図の外）/);
+  assert.match(String(inspect.render(FS, null)), /第7輪（いまの地図の外）/);
   FS.selected = { p: 6, q: 0 };
   assert.match(String(inspect.render(FS, null)), /第6輪（まだひらいていません）/);
   FS.selected = { p: 5, q: 0 };

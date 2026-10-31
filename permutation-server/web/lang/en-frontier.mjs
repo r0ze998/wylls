@@ -46,7 +46,7 @@ export default {
   // the turn dial (UX design section 6): the HUD clock counts turns; the bell is what tolls when one ends
   'ターン —': 'Turn —',
   'ターン {0} · 残り {1}': 'Turn {0} · {1} left',
-  'ターン {0} · 終了': 'Turn {0} · ended',
+  'ターン {0} · 受付終了': 'Turn {0} · no new orders',
   'ターン': 'Turn',
   '開始まで {0}': 'Starts in {0}',
   '開始まで': 'Starts in',
@@ -484,7 +484,7 @@ export default {
   '賞金の受け取りを送信中です。結果を確認するまで再請求しないでください。': 'The prize claim is being sent. Do not submit another claim before its outcome is known.',
   '賞金の受け取り結果がまだ確認できません。署名の結果を確認するまで再請求しないでください。': 'The prize claim has no verified outcome yet. Check its signature before claiming again.',
   'この鍵は運営が動かす代理人のものです。代理人の操作は代理人の窓口から送ります。': 'This key belongs to an operator-run agent. Its actions go through the agent wallet.',
-  '今日送れる操作の回数を使い切りました。シーズンの日付が変わると、また送れます。': 'You have used up the actions you can send today. You can send more when the season\'s day rolls over.',
+  '今日送れる操作の回数を使い切りました。ゲーム内の日付が変わると、また送れます。': 'You have used up the actions you can send today. You can send more when the game day rolls over.',
   '手数料を立て替える資金が足りません。しばらくしてから試してください。': 'The funds that cover the fees have run short. Try again shortly.',
   '取引の期限が切れました。もう一度送ってください。': 'The transaction expired. Send it again.',
   '送信が速すぎます。少し待ってください。': 'Sending too fast. Wait a moment.',
