@@ -294,3 +294,37 @@
 - 賞金の Entry と受取権は wallet に結び付いている。移すかどうかは⑰と規則の判断である。
 
 **採らない場合**（決めずに⑳を入れた場合）：wallet から決まる住所と NFT の持ち主がずれる。権限の確認が経路ごとにばらばらになり、前の持ち主の session が残る危険がある。
+
+## 8. 番号の衝突（⑧と⑩の 94、位置 80、0x112）：照合の道具と、番号の候補
+
+**状態**：⑧（`wylls-08-archive-v4.tar.gz`）と⑩の資料は**未受領**。下は基準のコードでの事実と、受け取った後に走らせる照合である。
+
+### 8.1 今使われている番号（基準 `4cd901de` 由来、統合 HEAD で確認）
+
+| 種類 | 使用中 | 次に空いている番号 | 定義と写し |
+|---|---|---|---|
+| ゲームの program のエラー | 1〜61（14 は予約）、62〜93（CqError）、99 | **94**、95、96、97 | `frontier-abi/src/error.rs`、`v2/error.rs`。写しは `frontier-abi/vectors/v2/errors.json`、`permutation-gateway/client/src/frontier/abi-v2-errors.mjs`、`permutation-server/web/sdk/frontier/abi-v2-errors.mjs`（生成物）、`fi18n.mjs`（表示の文言） |
+| 賞金の program のエラー | 0x100〜0x110 | 0x111、**0x112**、… | `permutation-prize/src/lib.rs`。写しは 2 つの `prize.mjs` の `PRIZE_ERRORS`（手で保守している） |
+| 命令の番号 | `contracts/registry.txt` の一覧 | — | `frontier-abi/src/v2/tags.rs` |
+| 「80」 | エラー 80 は `VaultLimit`。layout の offset 80 は 8 つの口座にある（Season の params `LATENESS_SLOTS`、Province `RELATIONS`、Frontier `FOLD_BELL` など） | — | ⑧⑩の言う「位置 80」がどれかは、資料が無いので特定できない |
+
+- ⑧と⑩が両方とも 94 を仮に使っているのは、94 が基準の次の空き番号だからである。
+- 0x112 は、0x111 を飛ばしている。0x111 を誰かが使う予定かどうかも確認が要る。
+- **ruleset hash**：kernel の版の表から作られ（`permutation-rules/src/frontier/mod.rs:420-430`）、エラー番号は含まない。エラーを足しても hash は変わらない。⑧が kernel の版（例：frontier の規則の版）を上げると hash が変わる。その場合は、registry・preset・web の pin をそろえて直す必要がある。
+
+### 8.2 照合の道具（`e2e-native/tests/error_codes.rs`）
+
+- 一つの表の中で、同じ番号が二度使われていたら失敗する。
+- Rust の enum と、`errors.json`・2 つの生成済み JS が食い違ったら失敗する。
+- 賞金の Rust と、2 つの `prize.mjs` が食い違ったら失敗する。
+- 確認：生成済みの JS に 94 を二つ書き込むと失敗した（「a code used twice: [94]」）。元に戻すと通る。
+- ⑧⑩のパッチを隔離コピーに順に当てて、この試験と registry の照合（`tests/registry.rs`）を走らせれば、衝突が出る場所が分かる。
+
+### 8.3 番号の候補（**未採用**。最終の採用は別に提示する）
+
+- 衝突を残さない最小の案：先に統合の候補に入る方に 94、もう一方に 95 を割り当てる。⑧（継続世界、共有コア）が先なら、⑧に 94、⑩に 95。
+- 同時に、写し（`errors.json`、2 つの生成済み JS、`fi18n.mjs` の文言）を生成の script（`permutation-gateway/scripts/sync-web-sdk.mjs`）で作り直し、手で直さない。
+- 0x112 は、賞金の program の次の空き（0x111）との関係を確認してから決める。
+- 番号は、一度でもチェーン上で使われたら変えない（`errors.json` の "stable forever"）。仮の番号のまま公開の環境に出さない。
+
+（補足：`errors.json` の説明文には「MC's 62–78」とあり、実際の 62〜93 と合っていない。生成の元の文言が古い。番号そのものは一致している。）
