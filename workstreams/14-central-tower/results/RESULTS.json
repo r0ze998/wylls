@@ -350,77 +350,77 @@
     "seed": 15.5,
     "villages": 38,
     "level": {
-     "all": 13.51,
-     "near": 13.52,
+     "all": 13.63,
+     "near": 13.7,
      "far": null,
-     "bigNation": 13.13,
-     "smallNation": 12.97,
-     "late": 9.2,
-     "poor": 7.58,
-     "selfish": 15.17,
-     "nonParticipants": 13.29,
-     "participants": 14.01
+     "bigNation": 13.27,
+     "smallNation": 13.11,
+     "late": 9.26,
+     "poor": 7.7,
+     "selfish": 15.32,
+     "nonParticipants": 11.38,
+     "participants": 14.19
     },
     "bands": {
      "near": {
       "villages": 16.1,
-      "level": 13.52,
-      "trades": 15.24,
-      "cross": 5.57,
-      "sendsPerTrade": 3.1,
-      "towerShare": 0.43
+      "level": 13.7,
+      "trades": 15.62,
+      "cross": 5.9,
+      "sendsPerTrade": 3.08,
+      "towerShare": 0.44
      },
      "mid": {
       "villages": 21.9,
-      "level": 13.39,
-      "trades": 14.82,
-      "cross": 5.01,
-      "sendsPerTrade": 2.97,
-      "towerShare": 0.57
+      "level": 13.44,
+      "trades": 14.98,
+      "cross": 5.2,
+      "sendsPerTrade": 2.9,
+      "towerShare": 0.56
      }
     },
     "trades": {
-     "done": 301.7,
-     "cross": 100.52,
-     "requestsPosted": 431.7,
+     "done": 307.93,
+     "cross": 105.57,
+     "requestsPosted": 430.7,
      "requestsDone": 186.07,
      "boardPosts": 0,
      "boardDone": 0,
-     "defaulted": 11.1,
-     "relaySwaps": 115.63,
-     "relaySwapsCross": 115.53,
-     "relaySwapsByNonContributors": 68.13
+     "defaulted": 10.63,
+     "relaySwaps": 121.87,
+     "relaySwapsCross": 121.73,
+     "relaySwapsByNonContributors": 72.37
     },
     "logistics": {
      "innerShare": 0.44,
      "innerAreaShare": 0.19,
      "centreShare": 0.22,
-     "lostCaravans": 100.23,
-     "lostNearCentre": 92
+     "lostCaravans": 105.23,
+     "lostNearCentre": 97.03
     },
     "tower": {
      "stages": 2.07,
      "completedDay": null,
-     "lapses": 1.3,
-     "dormantEvents": 0.07,
-     "contributors": 18,
-     "contributorNations": 5.6,
+     "lapses": 1.27,
+     "dormantEvents": 0,
+     "contributors": 17.97,
+     "contributorNations": 5.57,
      "contributionByNation": {
       "shares": [
        0.2,
        0.31,
-       0.16,
-       0.11,
+       0.17,
        0.12,
-       0.1
+       0.11,
+       0.09
       ],
-      "hhi": 0.27
+      "hhi": 0.26
      },
      "useByNation": {
       "shares": [
+       0.22,
+       0.22,
        0.21,
-       0.22,
-       0.22,
        0.14,
        0.09,
        0.1
@@ -428,95 +428,95 @@
       "hhi": 0.21
      },
      "roles": {
-      "give": 191.07,
-      "pledge": 51.67,
-      "carry": 50.17,
-      "escort": 421,
-      "upkeep": 6.23
+      "give": 189.5,
+      "pledge": 51.07,
+      "carry": 49.8,
+      "escort": 419.87,
+      "upkeep": 8.3
      },
-     "roleEntropyBits": 1.53,
+     "roleEntropyBits": 1.54,
      "roleEntropyMaxBits": 2.32,
      "meanMonotony": 0.7,
-     "freeRideShare": 0.57,
-     "raids": 157.53,
-     "raidsAtBrink": 66.73,
+     "freeRideShare": 0.58,
+     "raids": 158.33,
+     "raidsAtBrink": 64.27,
      "claimsLeft": 6.5
     },
     "slots": {
-     "grow": 513.47,
-     "help": 206.9,
-     "post": 431.7,
+     "grow": 518.07,
+     "help": 206.4,
+     "post": 430.7,
      "board": 0,
-     "tower": 720.13,
-     "relay": 404.93,
-     "claim": 14.7,
-     "raid": 157.53,
-     "fake": 17.2,
-     "idle": 1255.97
+     "tower": 718.53,
+     "relay": 424.27,
+     "claim": 14.23,
+     "raid": 158.33,
+     "fake": 16.67,
+     "idle": 1235.33
     },
-    "participants": 33.3,
+    "participants": 33.57,
     "paired": {
-     "nonParticipants": -0.18,
-     "participants": 2.82,
-     "near": 2.31,
-     "mid": 1.99,
+     "nonParticipants": -0.4,
+     "participants": 2.95,
+     "near": 2.48,
+     "mid": 2.04,
      "far": null,
-     "bigNation": 1.74,
-     "smallNation": 1.54,
-     "late": 1.17,
-     "poor": 1.21,
-     "selfish": 3.92
+     "bigNation": 1.87,
+     "smallNation": 1.69,
+     "late": 1.23,
+     "poor": 1.34,
+     "selfish": 4.07
     },
     "ci95": {
      "level": [
-      12.87,
-      14.16
+      13.05,
+      14.22
      ],
      "nonParticipants": [
-      -0.57,
-      0.21
+      -0.93,
+      0.12
      ],
      "participants": [
-      2.29,
-      3.34
+      2.44,
+      3.46
      ],
      "near": [
-      1.67,
-      2.95
+      1.84,
+      3.13
      ],
      "far": null,
      "smallNation": [
-      0.73,
-      2.36
+      0.86,
+      2.52
      ],
      "bigNation": [
-      1.22,
-      2.26
+      1.36,
+      2.38
      ],
      "late": [
-      0.52,
-      1.83
+      0.58,
+      1.88
      ],
      "poor": [
-      0.88,
-      1.55
+      0.94,
+      1.73
      ],
      "selfish": [
-      3.09,
-      4.76
+      3.25,
+      4.9
      ],
      "cross": [
-      83.11,
-      117.93
+      88.4,
+      122.73
      ],
      "lost": [
-      88.32,
-      112.14
+      92.29,
+      118.18
      ]
     },
     "completedStageShare": {
      "one": 0.97,
-     "all": 0.33
+     "all": 0.3
     }
    }
   },
@@ -802,73 +802,73 @@
     "seed": 15.5,
     "villages": 38,
     "level": {
-     "all": 12.91,
-     "near": 13.26,
-     "far": 12.46,
-     "bigNation": 12.72,
-     "smallNation": 12.43,
-     "late": 8.93,
-     "poor": 7.37,
-     "selfish": 14.11,
-     "nonParticipants": 12.16,
-     "participants": 13.28
+     "all": 12.93,
+     "near": 13.28,
+     "far": 12.51,
+     "bigNation": 12.73,
+     "smallNation": 12.39,
+     "late": 8.94,
+     "poor": 7.4,
+     "selfish": 14.18,
+     "nonParticipants": 12.39,
+     "participants": 13.33
     },
     "bands": {
      "near": {
       "villages": 8,
-      "level": 13.26,
-      "trades": 14,
-      "cross": 4.15,
-      "sendsPerTrade": 5.64,
+      "level": 13.28,
+      "trades": 14.06,
+      "cross": 4.19,
+      "sendsPerTrade": 5.51,
       "towerShare": 0.25
      },
      "mid": {
       "villages": 16,
-      "level": 13.12,
-      "trades": 13.79,
-      "cross": 4.19,
-      "sendsPerTrade": 5.08,
+      "level": 13.13,
+      "trades": 13.91,
+      "cross": 4.25,
+      "sendsPerTrade": 5.2,
       "towerShare": 0.42
      },
      "far": {
       "villages": 14,
-      "level": 12.46,
-      "trades": 12.59,
-      "cross": 4.01,
-      "sendsPerTrade": 7.26,
+      "level": 12.51,
+      "trades": 12.66,
+      "cross": 4.08,
+      "sendsPerTrade": 7.05,
       "towerShare": 0.32
      }
     },
     "trades": {
-     "done": 275.73,
-     "cross": 78.17,
-     "requestsPosted": 441.27,
-     "requestsDone": 176.1,
+     "done": 277.83,
+     "cross": 79.33,
+     "requestsPosted": 442.13,
+     "requestsDone": 176.6,
      "boardPosts": 0,
      "boardDone": 0,
-     "defaulted": 14.03,
-     "relaySwaps": 99.63,
-     "relaySwapsCross": 99.5,
-     "relaySwapsByNonContributors": 57.9
+     "defaulted": 13.83,
+     "relaySwaps": 101.23,
+     "relaySwapsCross": 101.03,
+     "relaySwapsByNonContributors": 58.8
     },
     "logistics": {
      "innerShare": 0.29,
      "innerAreaShare": 0.03,
      "centreShare": 0.15,
-     "lostCaravans": 155.47,
-     "lostNearCentre": 142.23
+     "lostCaravans": 156.27,
+     "lostNearCentre": 142.8
     },
     "tower": {
-     "stages": 1.8,
+     "stages": 1.83,
      "completedDay": null,
-     "lapses": 1.3,
-     "dormantEvents": 0.03,
+     "lapses": 1.27,
+     "dormantEvents": 0,
      "contributors": 18.03,
      "contributorNations": 5.6,
      "contributionByNation": {
       "shares": [
        0.21,
-       0.3,
+       0.31,
        0.16,
        0.13,
        0.1,
@@ -888,93 +888,93 @@
       "hhi": 0.21
      },
      "roles": {
-      "give": 103.93,
-      "pledge": 236.77,
-      "carry": 205,
-      "escort": 275.97,
-      "upkeep": 1.57
+      "give": 105.1,
+      "pledge": 235.6,
+      "carry": 204.67,
+      "escort": 274.03,
+      "upkeep": 2.8
      },
-     "roleEntropyBits": 1.79,
+     "roleEntropyBits": 1.8,
      "roleEntropyMaxBits": 2.32,
      "meanMonotony": 0.65,
      "freeRideShare": 0.55,
-     "raids": 149.47,
-     "raidsAtBrink": 54.6,
-     "claimsLeft": 9
+     "raids": 149.87,
+     "raidsAtBrink": 54.53,
+     "claimsLeft": 4.5
     },
     "slots": {
-     "grow": 490.5,
-     "help": 207.07,
-     "post": 441.27,
+     "grow": 491.47,
+     "help": 207.43,
+     "post": 442.13,
      "board": 0,
-     "tower": 823.23,
-     "relay": 378.03,
-     "claim": 15.93,
-     "raid": 149.47,
-     "fake": 21.67,
-     "idle": 1195.37
+     "tower": 822.2,
+     "relay": 381.7,
+     "claim": 15.73,
+     "raid": 149.87,
+     "fake": 21.37,
+     "idle": 1190.63
     },
-    "participants": 32.43,
+    "participants": 32.4,
     "paired": {
-     "nonParticipants": -0.43,
-     "participants": 2.19,
-     "near": 1.58,
-     "mid": 1.44,
-     "far": 1.77,
-     "bigNation": 1.38,
-     "smallNation": 1.02,
-     "late": 0.95,
-     "poor": 0.98,
-     "selfish": 2.89
+     "nonParticipants": -0.33,
+     "participants": 2.22,
+     "near": 1.6,
+     "mid": 1.45,
+     "far": 1.82,
+     "bigNation": 1.39,
+     "smallNation": 0.98,
+     "late": 0.97,
+     "poor": 1.01,
+     "selfish": 2.96
     },
     "ci95": {
      "level": [
-      12.35,
-      13.47
+      12.38,
+      13.49
      ],
      "nonParticipants": [
-      -0.79,
-      -0.07
+      -0.74,
+      0.07
      ],
      "participants": [
-      1.72,
-      2.66
+      1.74,
+      2.69
      ],
      "near": [
-      0.89,
-      2.27
+      0.88,
+      2.31
      ],
      "far": [
-      1.3,
-      2.24
+      1.35,
+      2.3
      ],
      "smallNation": [
-      0.25,
-      1.78
+      0.21,
+      1.76
      ],
      "bigNation": [
-      0.95,
-      1.81
+      0.97,
+      1.82
      ],
      "late": [
-      0.45,
-      1.46
+      0.44,
+      1.49
      ],
      "poor": [
-      0.58,
-      1.39
+      0.59,
+      1.42
      ],
      "selfish": [
-      2.18,
-      3.6
+      2.24,
+      3.67
      ],
      "cross": [
-      60.65,
-      95.68
+      61.8,
+      96.86
      ],
      "lost": [
-      138.04,
-      172.9
+      139.32,
+      173.21
      ]
     },
     "completedStageShare": {
@@ -1243,60 +1243,60 @@
     "seed": 15.5,
     "villages": 38,
     "level": {
-     "all": 10.94,
-     "near": 10.79,
+     "all": 10.91,
+     "near": 10.77,
      "far": null,
-     "bigNation": 10.5,
-     "smallNation": 10.87,
-     "late": 8.27,
-     "poor": 6.74,
-     "selfish": 12.44,
-     "nonParticipants": 8.93,
-     "participants": 11.3
+     "bigNation": 10.44,
+     "smallNation": 10.82,
+     "late": 8.24,
+     "poor": 6.71,
+     "selfish": 12.51,
+     "nonParticipants": 9.33,
+     "participants": 11.33
     },
     "bands": {
      "near": {
       "villages": 16.1,
-      "level": 10.79,
-      "trades": 11.77,
-      "cross": 3.98,
-      "sendsPerTrade": 3.59,
-      "towerShare": 0.42
+      "level": 10.77,
+      "trades": 11.83,
+      "cross": 4.06,
+      "sendsPerTrade": 3.3,
+      "towerShare": 0.41
      },
      "mid": {
       "villages": 21.9,
-      "level": 10.94,
-      "trades": 11.84,
-      "cross": 3.7,
-      "sendsPerTrade": 3.05,
-      "towerShare": 0.58
+      "level": 10.88,
+      "trades": 11.87,
+      "cross": 3.75,
+      "sendsPerTrade": 3.07,
+      "towerShare": 0.59
      }
     },
     "trades": {
-     "done": 237.43,
-     "cross": 73.38,
-     "requestsPosted": 383.03,
-     "requestsDone": 152.8,
+     "done": 237.93,
+     "cross": 74.53,
+     "requestsPosted": 382.9,
+     "requestsDone": 152.67,
      "boardPosts": 0,
      "boardDone": 0,
-     "defaulted": 14.3,
-     "relaySwaps": 84.63,
-     "relaySwapsCross": 84.63,
-     "relaySwapsByNonContributors": 52.37
+     "defaulted": 13,
+     "relaySwaps": 85.27,
+     "relaySwapsCross": 85.13,
+     "relaySwapsByNonContributors": 52.63
     },
     "logistics": {
      "innerShare": 0.44,
      "innerAreaShare": 0.19,
      "centreShare": 0.22,
-     "lostCaravans": 80.3,
-     "lostNearCentre": 73.17
+     "lostCaravans": 79.43,
+     "lostNearCentre": 73
     },
     "tower": {
      "stages": 1.93,
      "completedDay": null,
-     "lapses": 1.57,
-     "dormantEvents": 0.23,
-     "contributors": 18.03,
+     "lapses": 1.47,
+     "dormantEvents": 0,
+     "contributors": 18,
      "contributorNations": 5.6,
      "contributionByNation": {
       "shares": [
@@ -1313,7 +1313,7 @@
       "shares": [
        0.21,
        0.22,
-       0.21,
+       0.22,
        0.14,
        0.09,
        0.1
@@ -1321,95 +1321,95 @@
       "hhi": 0.21
      },
      "roles": {
-      "give": 189.7,
-      "pledge": 55.3,
-      "carry": 54.27,
-      "escort": 378.37,
-      "upkeep": 5.6
+      "give": 186.77,
+      "pledge": 54.8,
+      "carry": 53.9,
+      "escort": 385.7,
+      "upkeep": 7.17
      },
      "roleEntropyBits": 1.57,
      "roleEntropyMaxBits": 2.32,
      "meanMonotony": 0.7,
      "freeRideShare": 0.61,
-     "raids": 133.13,
-     "raidsAtBrink": 53.73,
-     "claimsLeft": 11
+     "raids": 136.47,
+     "raidsAtBrink": 50.6,
+     "claimsLeft": 31
     },
     "slots": {
-     "grow": 415.87,
-     "help": 175.73,
-     "post": 383.03,
+     "grow": 414.7,
+     "help": 173.5,
+     "post": 382.9,
      "board": 0,
-     "tower": 683.23,
-     "relay": 304.5,
-     "claim": 17.13,
-     "raid": 133.13,
-     "fake": 21.2,
-     "idle": 1274.7
+     "tower": 688.33,
+     "relay": 304.17,
+     "claim": 15.53,
+     "raid": 136.47,
+     "fake": 19.63,
+     "idle": 1273.3
     },
-    "participants": 32.77,
+    "participants": 33,
     "paired": {
-     "nonParticipants": -0.21,
+     "nonParticipants": -0.1,
      "participants": 1.93,
-     "near": 1.53,
-     "mid": 1.42,
+     "near": 1.51,
+     "mid": 1.37,
      "far": null,
-     "bigNation": 1.17,
-     "smallNation": 1.11,
-     "late": 1.05,
-     "poor": 0.85,
-     "selfish": 2.89
+     "bigNation": 1.11,
+     "smallNation": 1.05,
+     "late": 1.02,
+     "poor": 0.81,
+     "selfish": 2.96
     },
     "ci95": {
      "level": [
-      10.43,
-      11.46
+      10.4,
+      11.43
      ],
      "nonParticipants": [
-      -0.56,
-      0.13
+      -0.47,
+      0.26
      ],
      "participants": [
-      1.5,
-      2.37
+      1.51,
+      2.35
      ],
      "near": [
-      1.09,
-      1.98
+      1.07,
+      1.95
      ],
      "far": null,
      "smallNation": [
-      0.38,
-      1.83
+      0.34,
+      1.76
      ],
      "bigNation": [
-      0.76,
-      1.58
+      0.68,
+      1.53
      ],
      "late": [
-      0.71,
-      1.39
+      0.67,
+      1.38
      ],
      "poor": [
-      0.56,
-      1.13
+      0.53,
+      1.1
      ],
      "selfish": [
-      2.25,
-      3.53
+      2.3,
+      3.61
      ],
      "cross": [
-      59.38,
-      87.38
+      61.01,
+      88.06
      ],
      "lost": [
-      70.09,
-      90.51
+      70.03,
+      88.84
      ]
     },
     "completedStageShare": {
      "one": 0.97,
-     "all": 0.27
+     "all": 0.3
     }
    }
   },
@@ -1673,65 +1673,65 @@
     "seed": 15.5,
     "villages": 38,
     "level": {
-     "all": 12.79,
-     "near": 12.59,
+     "all": 12.82,
+     "near": 12.67,
      "far": null,
-     "bigNation": 12.8,
-     "smallNation": 12.18,
-     "late": 8.87,
-     "poor": 7.44,
-     "selfish": 13.95,
-     "nonParticipants": 14.2,
-     "participants": 13.01
+     "bigNation": 12.85,
+     "smallNation": 12.12,
+     "late": 9,
+     "poor": 7.4,
+     "selfish": 14.04,
+     "nonParticipants": 12.45,
+     "participants": 13.18
     },
     "bands": {
      "near": {
       "villages": 16.1,
-      "level": 12.59,
-      "trades": 12.74,
-      "cross": 3.35,
-      "sendsPerTrade": 3.04,
+      "level": 12.67,
+      "trades": 12.94,
+      "cross": 3.54,
+      "sendsPerTrade": 2.82,
       "towerShare": 0.43
      },
      "mid": {
       "villages": 21.9,
-      "level": 12.87,
-      "trades": 12.71,
-      "cross": 2.95,
-      "sendsPerTrade": 2.92,
+      "level": 12.88,
+      "trades": 12.87,
+      "cross": 3.07,
+      "sendsPerTrade": 3.02,
       "towerShare": 0.57
      }
     },
     "trades": {
-     "done": 253,
-     "cross": 59.9,
-     "requestsPosted": 436.47,
-     "requestsDone": 182.17,
+     "done": 257.67,
+     "cross": 62.72,
+     "requestsPosted": 435.87,
+     "requestsDone": 183.07,
      "boardPosts": 0,
      "boardDone": 0,
-     "defaulted": 19.5,
-     "relaySwaps": 70.83,
-     "relaySwapsCross": 70.83,
-     "relaySwapsByNonContributors": 51.47
+     "defaulted": 18.1,
+     "relaySwaps": 74.6,
+     "relaySwapsCross": 74.6,
+     "relaySwapsByNonContributors": 52.97
     },
     "logistics": {
      "innerShare": 0.41,
      "innerAreaShare": 0.19,
-     "centreShare": 0.2,
-     "lostCaravans": 87.7,
-     "lostNearCentre": 79.33
+     "centreShare": 0.21,
+     "lostCaravans": 91.1,
+     "lostNearCentre": 83.33
     },
     "tower": {
      "stages": 1.4,
      "completedDay": null,
      "lapses": 1.7,
-     "dormantEvents": 0.27,
+     "dormantEvents": 0,
      "contributors": 11.77,
      "contributorNations": 5.1,
      "contributionByNation": {
       "shares": [
        0.22,
-       0.28,
+       0.29,
        0.16,
        0.15,
        0.11,
@@ -1751,90 +1751,90 @@
       "hhi": 0.21
      },
      "roles": {
-      "give": 183.07,
-      "pledge": 45.33,
-      "carry": 38.07,
-      "escort": 227.03,
-      "upkeep": 4
+      "give": 179.57,
+      "pledge": 43.87,
+      "carry": 36.73,
+      "escort": 228.67,
+      "upkeep": 6.47
      },
-     "roleEntropyBits": 1.59,
+     "roleEntropyBits": 1.61,
      "roleEntropyMaxBits": 2.32,
      "meanMonotony": 0.7,
-     "freeRideShare": 0.69,
-     "raids": 133.4,
-     "raidsAtBrink": 41.6,
+     "freeRideShare": 0.68,
+     "raids": 137.27,
+     "raidsAtBrink": 39.73,
      "claimsLeft": 0
     },
     "slots": {
-     "grow": 485.8,
-     "help": 211.5,
-     "post": 436.47,
+     "grow": 487.3,
+     "help": 210.57,
+     "post": 435.87,
      "board": 0,
-     "tower": 497.5,
-     "relay": 260.83,
-     "claim": 12.6,
-     "raid": 133.4,
-     "fake": 28.33,
-     "idle": 1655.17
+     "tower": 495.3,
+     "relay": 275.7,
+     "claim": 12.4,
+     "raid": 137.27,
+     "fake": 26.4,
+     "idle": 1640.8
     },
-    "participants": 29.37,
+    "participants": 29.53,
     "paired": {
-     "nonParticipants": -0.15,
-     "participants": 1.99,
-     "near": 1.38,
+     "nonParticipants": -0.05,
+     "participants": 2.07,
+     "near": 1.46,
      "mid": 1.36,
      "far": null,
-     "bigNation": 1.25,
-     "smallNation": 1.06,
-     "late": 0.82,
-     "poor": 1.01,
-     "selfish": 2.24
+     "bigNation": 1.31,
+     "smallNation": 1,
+     "late": 0.94,
+     "poor": 0.97,
+     "selfish": 2.34
     },
     "ci95": {
      "level": [
-      12.25,
-      13.32
+      12.27,
+      13.38
      ],
      "nonParticipants": [
-      -0.52,
+      -0.32,
       0.22
      ],
      "participants": [
-      1.55,
-      2.43
+      1.6,
+      2.53
      ],
      "near": [
-      0.91,
-      1.85
+      0.95,
+      1.98
      ],
      "far": null,
      "smallNation": [
-      0.32,
-      1.81
+      0.26,
+      1.74
      ],
      "bigNation": [
-      0.89,
-      1.61
+      0.91,
+      1.7
      ],
      "late": [
-      0.38,
-      1.25
+      0.37,
+      1.51
      ],
      "poor": [
-      0.68,
-      1.34
+      0.64,
+      1.3
      ],
      "selfish": [
-      1.76,
-      2.72
+      1.82,
+      2.85
      ],
      "cross": [
-      45.35,
-      74.45
+      47.26,
+      78.18
      ],
      "lost": [
-      72.38,
-      103.02
+      75.86,
+      106.34
      ]
     },
     "completedStageShare": {
@@ -2103,64 +2103,64 @@
     "seed": 15.5,
     "villages": 38,
     "level": {
-     "all": 13.13,
-     "near": 13.11,
+     "all": 13.07,
+     "near": 13.05,
      "far": null,
-     "bigNation": 12.56,
-     "smallNation": 12.72,
-     "late": 8.9,
-     "poor": 7.25,
-     "selfish": 14.91,
-     "nonParticipants": 9.47,
-     "participants": 13.68
+     "bigNation": 12.47,
+     "smallNation": 12.51,
+     "late": 8.73,
+     "poor": 7.26,
+     "selfish": 14.92,
+     "nonParticipants": 9.6,
+     "participants": 13.65
     },
     "bands": {
      "near": {
       "villages": 16.1,
-      "level": 13.11,
-      "trades": 14.46,
-      "cross": 5.18,
-      "sendsPerTrade": 3.01,
+      "level": 13.05,
+      "trades": 14.5,
+      "cross": 5.31,
+      "sendsPerTrade": 3,
       "towerShare": 0.44
      },
      "mid": {
       "villages": 21.9,
-      "level": 13.04,
-      "trades": 14.27,
-      "cross": 4.83,
-      "sendsPerTrade": 2.96,
+      "level": 12.97,
+      "trades": 14.16,
+      "cross": 4.76,
+      "sendsPerTrade": 3.06,
       "towerShare": 0.56
      }
     },
     "trades": {
-     "done": 289.63,
-     "cross": 95.23,
-     "requestsPosted": 413.33,
-     "requestsDone": 178.57,
+     "done": 289.47,
+     "cross": 95.88,
+     "requestsPosted": 412.07,
+     "requestsDone": 177.5,
      "boardPosts": 0,
      "boardDone": 0,
-     "defaulted": 11.83,
-     "relaySwaps": 111.07,
-     "relaySwapsCross": 110.97,
-     "relaySwapsByNonContributors": 58.87
+     "defaulted": 11.3,
+     "relaySwaps": 111.97,
+     "relaySwapsCross": 111.77,
+     "relaySwapsByNonContributors": 60.17
     },
     "logistics": {
      "innerShare": 0.44,
      "innerAreaShare": 0.19,
      "centreShare": 0.22,
-     "lostCaravans": 115.63,
-     "lostNearCentre": 109.33
+     "lostCaravans": 114.6,
+     "lostNearCentre": 107.17
     },
     "tower": {
-     "stages": 2.03,
+     "stages": 2.07,
      "completedDay": null,
-     "lapses": 1.2,
-     "dormantEvents": 0.13,
-     "contributors": 20.6,
+     "lapses": 1.1,
+     "dormantEvents": 0,
+     "contributors": 20.73,
      "contributorNations": 5.6,
      "contributionByNation": {
       "shares": [
-       0.22,
+       0.21,
        0.32,
        0.16,
        0.1,
@@ -2171,7 +2171,7 @@
      },
      "useByNation": {
       "shares": [
-       0.19,
+       0.2,
        0.22,
        0.22,
        0.15,
@@ -2181,95 +2181,95 @@
       "hhi": 0.21
      },
      "roles": {
-      "give": 197.93,
-      "pledge": 52.1,
-      "carry": 50.5,
-      "escort": 550.37,
-      "upkeep": 6.77
+      "give": 192.67,
+      "pledge": 50.87,
+      "carry": 49.23,
+      "escort": 555.13,
+      "upkeep": 9.5
      },
-     "roleEntropyBits": 1.42,
+     "roleEntropyBits": 1.41,
      "roleEntropyMaxBits": 2.32,
-     "meanMonotony": 0.71,
-     "freeRideShare": 0.51,
-     "raids": 397.9,
-     "raidsAtBrink": 148.07,
-     "claimsLeft": 6.5
+     "meanMonotony": 0.72,
+     "freeRideShare": 0.53,
+     "raids": 397.4,
+     "raidsAtBrink": 151.87,
+     "claimsLeft": 6
     },
     "slots": {
-     "grow": 498.73,
-     "help": 197.93,
-     "post": 413.33,
+     "grow": 496.77,
+     "help": 197.43,
+     "post": 412.07,
      "board": 0,
-     "tower": 857.67,
-     "relay": 392.9,
-     "claim": 15.6,
-     "raid": 397.9,
-     "fake": 18.13,
-     "idle": 930.33
+     "tower": 857.4,
+     "relay": 395.37,
+     "claim": 13.57,
+     "raid": 397.4,
+     "fake": 17.07,
+     "idle": 935.47
     },
-    "participants": 33.63,
+    "participants": 33.87,
     "paired": {
-     "nonParticipants": -1.08,
-     "participants": 2.36,
-     "near": 1.89,
-     "mid": 1.65,
+     "nonParticipants": -0.92,
+     "participants": 2.31,
+     "near": 1.84,
+     "mid": 1.58,
      "far": null,
-     "bigNation": 1.16,
-     "smallNation": 1.3,
-     "late": 0.87,
+     "bigNation": 1.07,
+     "smallNation": 1.09,
+     "late": 0.7,
      "poor": 0.89,
-     "selfish": 3.66
+     "selfish": 3.67
     },
     "ci95": {
      "level": [
-      12.57,
-      13.68
+      12.52,
+      13.63
      ],
      "nonParticipants": [
-      -2.16,
-      0
+      -1.87,
+      0.02
      ],
      "participants": [
-      1.87,
-      2.84
+      1.8,
+      2.82
      ],
      "near": [
-      1.28,
-      2.51
+      1.22,
+      2.46
      ],
      "far": null,
      "smallNation": [
-      0.44,
-      2.15
+      0.24,
+      1.94
      ],
      "bigNation": [
-      0.72,
-      1.6
+      0.61,
+      1.54
      ],
      "late": [
-      0.23,
-      1.51
+      0.05,
+      1.34
      ],
      "poor": [
       0.52,
-      1.25
+      1.26
      ],
      "selfish": [
-      2.89,
-      4.43
+      2.84,
+      4.5
      ],
      "cross": [
-      78.85,
-      111.62
+      78.93,
+      112.84
      ],
      "lost": [
-      102.31,
-      128.96
+      100.57,
+      128.63
      ]
     },
     "completedStageShare": {
      "one": 0.97,
-     "all": 0.33
+     "all": 0.37
     }
    }
   },
@@ -2534,58 +2534,58 @@
     "villages": 38,
     "level": {
      "all": 12.44,
-     "near": 12.46,
+     "near": 12.45,
      "far": null,
      "bigNation": 11.37,
-     "smallNation": 13.53,
-     "late": 8.44,
-     "poor": 7.04,
-     "selfish": 13.94,
-     "nonParticipants": 12.71,
-     "participants": 12.98
+     "smallNation": 13.4,
+     "late": 8.39,
+     "poor": 6.99,
+     "selfish": 13.96,
+     "nonParticipants": 12.08,
+     "participants": 13.04
     },
     "bands": {
      "near": {
       "villages": 16.1,
-      "level": 12.46,
-      "trades": 13.46,
-      "cross": 4.16,
-      "sendsPerTrade": 3.87,
+      "level": 12.45,
+      "trades": 13.45,
+      "cross": 4.12,
+      "sendsPerTrade": 3.28,
       "towerShare": 0.43
      },
      "mid": {
       "villages": 21.9,
-      "level": 12.26,
-      "trades": 12.43,
-      "cross": 3.47,
-      "sendsPerTrade": 3.38,
+      "level": 12.3,
+      "trades": 12.57,
+      "cross": 3.51,
+      "sendsPerTrade": 3.36,
       "towerShare": 0.57
      }
     },
     "trades": {
-     "done": 257.47,
-     "cross": 72.72,
-     "requestsPosted": 427.07,
-     "requestsDone": 173.53,
+     "done": 258.67,
+     "cross": 72.77,
+     "requestsPosted": 426.6,
+     "requestsDone": 174.53,
      "boardPosts": 0,
      "boardDone": 0,
-     "defaulted": 10.93,
-     "relaySwaps": 83.93,
-     "relaySwapsCross": 83.57,
-     "relaySwapsByNonContributors": 49.27
+     "defaulted": 10.63,
+     "relaySwaps": 84.13,
+     "relaySwapsCross": 83.67,
+     "relaySwapsByNonContributors": 49.83
     },
     "logistics": {
      "innerShare": 0.43,
      "innerAreaShare": 0.19,
      "centreShare": 0.21,
-     "lostCaravans": 82.1,
-     "lostNearCentre": 74.03
+     "lostCaravans": 82.93,
+     "lostNearCentre": 75.3
     },
     "tower": {
-     "stages": 2.33,
+     "stages": 2.23,
      "completedDay": null,
-     "lapses": 0.97,
-     "dormantEvents": 0.1,
+     "lapses": 1.03,
+     "dormantEvents": 0,
      "contributors": 18,
      "contributorNations": 5.6,
      "contributionByNation": {
@@ -2611,95 +2611,95 @@
       "hhi": 0.23
      },
      "roles": {
-      "give": 183.5,
-      "pledge": 49.93,
-      "carry": 48.57,
-      "escort": 480.93,
-      "upkeep": 5.9
+      "give": 185.13,
+      "pledge": 50.93,
+      "carry": 49.27,
+      "escort": 480.77,
+      "upkeep": 7.6
      },
-     "roleEntropyBits": 1.45,
+     "roleEntropyBits": 1.47,
      "roleEntropyMaxBits": 2.32,
      "meanMonotony": 0.71,
      "freeRideShare": 0.59,
-     "raids": 157.4,
-     "raidsAtBrink": 86.4,
-     "claimsLeft": 15.5
+     "raids": 158.33,
+     "raidsAtBrink": 81.33,
+     "claimsLeft": 22.5
     },
     "slots": {
-     "grow": 472.63,
-     "help": 194,
-     "post": 427.07,
+     "grow": 472.83,
+     "help": 194.37,
+     "post": 426.6,
      "board": 0,
-     "tower": 768.83,
-     "relay": 313,
-     "claim": 10.67,
-     "raid": 157.4,
-     "fake": 17.17,
-     "idle": 1361.77
+     "tower": 773.7,
+     "relay": 312.9,
+     "claim": 11.6,
+     "raid": 158.33,
+     "fake": 16.67,
+     "idle": 1355.53
     },
-    "participants": 31.6,
+    "participants": 31.53,
     "paired": {
-     "nonParticipants": -0.14,
-     "participants": 1.74,
+     "nonParticipants": -0.07,
+     "participants": 1.75,
      "near": 1.24,
-     "mid": 0.87,
+     "mid": 0.9,
      "far": null,
      "bigNation": -0.03,
-     "smallNation": 2.11,
-     "late": 0.4,
-     "poor": 0.67,
-     "selfish": 2.69
+     "smallNation": 1.98,
+     "late": 0.36,
+     "poor": 0.62,
+     "selfish": 2.71
     },
     "ci95": {
      "level": [
       11.94,
-      12.93
+      12.94
      ],
      "nonParticipants": [
-      -0.46,
-      0.19
+      -0.38,
+      0.25
      ],
      "participants": [
-      1.42,
-      2.05
+      1.43,
+      2.07
      ],
      "near": [
-      0.74,
-      1.74
+      0.76,
+      1.71
      ],
      "far": null,
      "smallNation": [
-      1.22,
-      2.99
+      1.14,
+      2.82
      ],
      "bigNation": [
       -0.34,
       0.28
      ],
      "late": [
-      -0.08,
-      0.89
+      -0.14,
+      0.85
      ],
      "poor": [
-      0.34,
-      1
+      0.29,
+      0.96
      ],
      "selfish": [
       2.14,
-      3.23
+      3.28
      ],
      "cross": [
-      61.16,
-      84.27
+      61.26,
+      84.28
      ],
      "lost": [
-      72.32,
-      91.88
+      73.08,
+      92.78
      ]
     },
     "completedStageShare": {
      "one": 0.97,
-     "all": 0.53
+     "all": 0.43
     }
    }
   },
@@ -2963,56 +2963,56 @@
     "seed": 15.5,
     "villages": 38,
     "level": {
-     "all": 12.62,
-     "near": 12.49,
+     "all": 12.64,
+     "near": 12.56,
      "far": null,
-     "bigNation": 12.38,
-     "smallNation": 11.98,
-     "late": 8.29,
-     "poor": 7.46,
-     "selfish": 14.89,
-     "nonParticipants": 13.15,
-     "participants": 13.66
+     "bigNation": 12.41,
+     "smallNation": 11.96,
+     "late": 8.27,
+     "poor": 7.39,
+     "selfish": 14.91,
+     "nonParticipants": 12.4,
+     "participants": 13.71
     },
     "bands": {
      "near": {
       "villages": 16.1,
-      "level": 12.49,
+      "level": 12.56,
       "trades": 13.91,
-      "cross": 4.77,
-      "sendsPerTrade": 3.15,
-      "towerShare": 0.43
+      "cross": 4.87,
+      "sendsPerTrade": 3.23,
+      "towerShare": 0.44
      },
      "mid": {
       "villages": 21.9,
-      "level": 12.6,
-      "trades": 13.56,
-      "cross": 4.47,
-      "sendsPerTrade": 2.93,
-      "towerShare": 0.57
+      "level": 12.57,
+      "trades": 13.61,
+      "cross": 4.42,
+      "sendsPerTrade": 2.88,
+      "towerShare": 0.56
      }
     },
     "trades": {
-     "done": 276.03,
-     "cross": 88.4,
-     "requestsPosted": 407.17,
-     "requestsDone": 173.37,
+     "done": 276.43,
+     "cross": 88.7,
+     "requestsPosted": 407.87,
+     "requestsDone": 173.73,
      "boardPosts": 0,
      "boardDone": 0,
      "defaulted": 21,
-     "relaySwaps": 102.67,
-     "relaySwapsCross": 102.6,
-     "relaySwapsByNonContributors": 59
+     "relaySwaps": 102.7,
+     "relaySwapsCross": 102.53,
+     "relaySwapsByNonContributors": 58.37
     },
     "logistics": {
      "innerShare": 0.44,
      "innerAreaShare": 0.19,
      "centreShare": 0.22,
-     "lostCaravans": 101.53,
-     "lostNearCentre": 93.97
+     "lostCaravans": 102.93,
+     "lostNearCentre": 95.8
     },
     "tower": {
-     "stages": 2.07,
+     "stages": 2.03,
      "completedDay": null,
      "lapses": 1.2,
      "dormantEvents": 0,
@@ -3023,8 +3023,8 @@
        0.2,
        0.31,
        0.17,
-       0.12,
        0.11,
+       0.12,
        0.09
       ],
       "hhi": 0.26
@@ -3036,95 +3036,95 @@
        0.21,
        0.14,
        0.09,
-       0.1
+       0.11
       ],
       "hhi": 0.22
      },
      "roles": {
-      "give": 192.07,
-      "pledge": 51.3,
-      "carry": 50.4,
-      "escort": 417.7,
-      "upkeep": 5.83
+      "give": 190.53,
+      "pledge": 51.03,
+      "carry": 50.67,
+      "escort": 414.23,
+      "upkeep": 7.47
      },
-     "roleEntropyBits": 1.52,
+     "roleEntropyBits": 1.53,
      "roleEntropyMaxBits": 2.32,
-     "meanMonotony": 0.71,
+     "meanMonotony": 0.7,
      "freeRideShare": 0.57,
      "raids": 326.8,
-     "raidsAtBrink": 129,
-     "claimsLeft": 2.5
+     "raidsAtBrink": 125.13,
+     "claimsLeft": 19.5
     },
     "slots": {
-     "grow": 479.5,
-     "help": 203.63,
-     "post": 407.17,
+     "grow": 480.17,
+     "help": 203.47,
+     "post": 407.87,
      "board": 0,
-     "tower": 717.3,
-     "relay": 366.2,
-     "claim": 12.9,
+     "tower": 713.93,
+     "relay": 368.7,
+     "claim": 12.87,
      "raid": 326.8,
      "fake": 34.9,
-     "idle": 1182.53
+     "idle": 1182.23
     },
-    "participants": 31.83,
+    "participants": 31.97,
     "paired": {
-     "nonParticipants": -0.16,
-     "participants": 2.5,
-     "near": 1.33,
-     "mid": 1.22,
+     "nonParticipants": -0.18,
+     "participants": 2.51,
+     "near": 1.4,
+     "mid": 1.19,
      "far": null,
-     "bigNation": 0.97,
-     "smallNation": 0.87,
-     "late": 0.39,
-     "poor": 0.96,
-     "selfish": 3.32
+     "bigNation": 1,
+     "smallNation": 0.85,
+     "late": 0.37,
+     "poor": 0.88,
+     "selfish": 3.34
     },
     "ci95": {
      "level": [
-      12.09,
-      13.15
+      12.13,
+      13.14
      ],
      "nonParticipants": [
-      -0.82,
-      0.5
+      -0.81,
+      0.44
      ],
      "participants": [
-      2.03,
+      2.06,
       2.96
      ],
      "near": [
-      0.79,
-      1.88
+      0.86,
+      1.94
      ],
      "far": null,
      "smallNation": [
-      0.08,
+      0.03,
       1.67
      ],
      "bigNation": [
-      0.49,
+      0.56,
       1.45
      ],
      "late": [
-      -0.3,
-      1.09
+      -0.34,
+      1.08
      ],
      "poor": [
-      0.58,
-      1.34
+      0.49,
+      1.28
      ],
      "selfish": [
-      2.64,
-      4
+      2.7,
+      3.98
      ],
      "cross": [
-      72.9,
-      103.9
+      74.36,
+      103.04
      ],
      "lost": [
-      86.6,
-      116.47
+      87.98,
+      117.89
      ]
     },
     "completedStageShare": {
@@ -3394,60 +3394,60 @@
     "villages": 38,
     "level": {
      "all": 12.54,
-     "near": 12.4,
+     "near": 12.46,
      "far": null,
-     "bigNation": 12.13,
-     "smallNation": 12.14,
-     "late": 8.19,
-     "poor": 7.11,
-     "selfish": 15.41,
-     "nonParticipants": 9.45,
+     "bigNation": 12.06,
+     "smallNation": 12.12,
+     "late": 8.13,
+     "poor": 7.09,
+     "selfish": 15.43,
+     "nonParticipants": 9.08,
      "participants": 13.12
     },
     "bands": {
      "near": {
       "villages": 16.1,
-      "level": 12.4,
-      "trades": 14.19,
-      "cross": 5.47,
-      "sendsPerTrade": 2.86,
-      "towerShare": 0.44
+      "level": 12.46,
+      "trades": 14.09,
+      "cross": 5.44,
+      "sendsPerTrade": 3.04,
+      "towerShare": 0.43
      },
      "mid": {
       "villages": 21.9,
-      "level": 12.53,
+      "level": 12.48,
       "trades": 13.67,
-      "cross": 5.05,
-      "sendsPerTrade": 3.06,
-      "towerShare": 0.56
+      "cross": 5.09,
+      "sendsPerTrade": 3.02,
+      "towerShare": 0.57
      }
     },
     "trades": {
-     "done": 280.33,
-     "cross": 100.58,
-     "requestsPosted": 393.03,
-     "requestsDone": 164.43,
+     "done": 279.5,
+     "cross": 100.47,
+     "requestsPosted": 392.53,
+     "requestsDone": 163.8,
      "boardPosts": 0,
      "boardDone": 0,
-     "defaulted": 9,
-     "relaySwaps": 115.9,
-     "relaySwapsCross": 115.8,
-     "relaySwapsByNonContributors": 68.33
+     "defaulted": 8.53,
+     "relaySwaps": 115.7,
+     "relaySwapsCross": 115.57,
+     "relaySwapsByNonContributors": 68.23
     },
     "logistics": {
      "innerShare": 0.45,
      "innerAreaShare": 0.19,
      "centreShare": 0.23,
-     "lostCaravans": 94.77,
-     "lostNearCentre": 87.67
+     "lostCaravans": 97.9,
+     "lostNearCentre": 90.7
     },
     "tower": {
-     "stages": 2.1,
+     "stages": 2.03,
      "completedDay": null,
-     "lapses": 1.23,
-     "dormantEvents": 0.1,
-     "contributors": 20.03,
-     "contributorNations": 5.67,
+     "lapses": 1.37,
+     "dormantEvents": 0,
+     "contributors": 20.07,
+     "contributorNations": 5.63,
      "contributionByNation": {
       "shares": [
        0.21,
@@ -3471,95 +3471,95 @@
       "hhi": 0.22
      },
      "roles": {
-      "give": 182.93,
-      "pledge": 45.93,
-      "carry": 45.2,
-      "escort": 434.17,
-      "upkeep": 5.43
+      "give": 189.2,
+      "pledge": 46.5,
+      "carry": 45.73,
+      "escort": 431.43,
+      "upkeep": 7.3
      },
-     "roleEntropyBits": 1.48,
+     "roleEntropyBits": 1.5,
      "roleEntropyMaxBits": 2.32,
      "meanMonotony": 0.71,
      "freeRideShare": 0.6,
-     "raids": 163.33,
-     "raidsAtBrink": 70.73,
-     "claimsLeft": 27
+     "raids": 165.07,
+     "raidsAtBrink": 67.4,
+     "claimsLeft": 12
     },
     "slots": {
-     "grow": 476.63,
-     "help": 181.63,
-     "post": 393.03,
+     "grow": 476.4,
+     "help": 180.53,
+     "post": 392.53,
      "board": 0,
-     "tower": 713.67,
-     "relay": 405.8,
-     "claim": 12.47,
-     "raid": 163.33,
-     "fake": 14.63,
-     "idle": 1103.73
+     "tower": 720.17,
+     "relay": 404.93,
+     "claim": 13.6,
+     "raid": 165.07,
+     "fake": 13.67,
+     "idle": 1098.03
     },
     "participants": 34.33,
     "paired": {
-     "nonParticipants": -0.4,
+     "nonParticipants": -0.35,
      "participants": 2.73,
-     "near": 2.04,
-     "mid": 2.04,
+     "near": 2.1,
+     "mid": 1.99,
      "far": null,
-     "bigNation": 1.69,
-     "smallNation": 1.78,
-     "late": 1.02,
-     "poor": 1.16,
-     "selfish": 4.18
+     "bigNation": 1.62,
+     "smallNation": 1.76,
+     "late": 0.96,
+     "poor": 1.14,
+     "selfish": 4.2
     },
     "ci95": {
      "level": [
-      11.97,
-      13.12
+      11.98,
+      13.1
      ],
      "nonParticipants": [
-      -0.76,
-      -0.03
+      -0.63,
+      -0.06
      ],
      "participants": [
-      2.23,
-      3.22
+      2.28,
+      3.19
      ],
      "near": [
-      1.42,
-      2.67
+      1.48,
+      2.73
      ],
      "far": null,
      "smallNation": [
-      0.91,
-      2.65
+      0.9,
+      2.62
      ],
      "bigNation": [
-      1.17,
-      2.2
+      1.13,
+      2.11
      ],
      "late": [
-      0.37,
-      1.67
+      0.34,
+      1.57
      ],
      "poor": [
-      0.84,
-      1.48
+      0.82,
+      1.46
      ],
      "selfish": [
-      3.31,
-      5.05
+      3.34,
+      5.06
      ],
      "cross": [
-      84.43,
-      116.73
+      85.01,
+      115.92
      ],
      "lost": [
-      85.4,
-      104.13
+      87.29,
+      108.51
      ]
     },
     "completedStageShare": {
      "one": 1,
-     "all": 0.37
+     "all": 0.3
     }
    }
   },
@@ -3823,60 +3823,60 @@
     "seed": 15.5,
     "villages": 38,
     "level": {
-     "all": 12.66,
-     "near": 12.72,
+     "all": 12.59,
+     "near": 12.62,
      "far": null,
-     "bigNation": 12.36,
-     "smallNation": 12.12,
-     "late": 8.73,
-     "poor": 7.08,
-     "selfish": 14.05,
-     "nonParticipants": 12.13,
-     "participants": 13.07
+     "bigNation": 12.35,
+     "smallNation": 12.07,
+     "late": 8.64,
+     "poor": 7.04,
+     "selfish": 13.93,
+     "nonParticipants": 11.51,
+     "participants": 13.04
     },
     "bands": {
      "near": {
       "villages": 16.1,
-      "level": 12.72,
-      "trades": 12.8,
-      "cross": 4.35,
-      "sendsPerTrade": 3.51,
-      "towerShare": 0.45
+      "level": 12.62,
+      "trades": 12.7,
+      "cross": 4.2,
+      "sendsPerTrade": 3.59,
+      "towerShare": 0.44
      },
      "mid": {
       "villages": 21.9,
-      "level": 12.48,
-      "trades": 12.05,
-      "cross": 3.63,
-      "sendsPerTrade": 3.68,
-      "towerShare": 0.55
+      "level": 12.44,
+      "trades": 11.83,
+      "cross": 3.49,
+      "sendsPerTrade": 3.88,
+      "towerShare": 0.56
      }
     },
     "trades": {
-     "done": 260.6,
-     "cross": 75.65,
-     "requestsPosted": 434.33,
-     "requestsDone": 160.93,
+     "done": 256.6,
+     "cross": 72.48,
+     "requestsPosted": 435.7,
+     "requestsDone": 160.33,
      "boardPosts": 0,
      "boardDone": 0,
-     "defaulted": 11.23,
-     "relaySwaps": 99.67,
-     "relaySwapsCross": 99.57,
-     "relaySwapsByNonContributors": 59.63
+     "defaulted": 10.67,
+     "relaySwaps": 96.27,
+     "relaySwapsCross": 96.23,
+     "relaySwapsByNonContributors": 58.4
     },
     "logistics": {
      "innerShare": 0.44,
      "innerAreaShare": 0.19,
      "centreShare": 0.22,
-     "lostCaravans": 214.97,
-     "lostNearCentre": 178.13
+     "lostCaravans": 218.7,
+     "lostNearCentre": 181.43
     },
     "tower": {
-     "stages": 2.07,
+     "stages": 1.97,
      "completedDay": null,
-     "lapses": 1.1,
-     "dormantEvents": 0.1,
-     "contributors": 18,
+     "lapses": 1.27,
+     "dormantEvents": 0,
+     "contributors": 17.97,
      "contributorNations": 5.6,
      "contributionByNation": {
       "shares": [
@@ -3892,104 +3892,104 @@
      "useByNation": {
       "shares": [
        0.22,
+       0.23,
        0.22,
-       0.21,
-       0.14,
+       0.13,
        0.09,
        0.1
       ],
       "hhi": 0.22
      },
      "roles": {
-      "give": 208.87,
-      "pledge": 58.63,
-      "carry": 56.33,
-      "escort": 415.97,
-      "upkeep": 5.5
+      "give": 215.57,
+      "pledge": 60.13,
+      "carry": 57.43,
+      "escort": 408.47,
+      "upkeep": 8.8
      },
-     "roleEntropyBits": 1.56,
+     "roleEntropyBits": 1.6,
      "roleEntropyMaxBits": 2.32,
      "meanMonotony": 0.7,
      "freeRideShare": 0.59,
-     "raids": 153.87,
-     "raidsAtBrink": 66.33,
-     "claimsLeft": 5.5
+     "raids": 155.47,
+     "raidsAtBrink": 64,
+     "claimsLeft": 8.5
     },
     "slots": {
-     "grow": 481.03,
-     "help": 210,
-     "post": 434.33,
+     "grow": 478.23,
+     "help": 209.53,
+     "post": 435.7,
      "board": 0,
-     "tower": 745.3,
-     "relay": 390.3,
-     "claim": 12.7,
-     "raid": 153.87,
-     "fake": 18.8,
-     "idle": 1276.2
+     "tower": 750.4,
+     "relay": 378.7,
+     "claim": 14.83,
+     "raid": 155.47,
+     "fake": 18,
+     "idle": 1281.67
     },
-    "participants": 33.37,
+    "participants": 33.17,
     "paired": {
-     "nonParticipants": -0.27,
-     "participants": 1.99,
-     "near": 1.64,
-     "mid": 1.24,
+     "nonParticipants": -0.62,
+     "participants": 1.97,
+     "near": 1.55,
+     "mid": 1.19,
      "far": null,
-     "bigNation": 1.11,
-     "smallNation": 0.87,
-     "late": 0.8,
-     "poor": 0.74,
-     "selfish": 2.87
+     "bigNation": 1.1,
+     "smallNation": 0.82,
+     "late": 0.71,
+     "poor": 0.71,
+     "selfish": 2.75
     },
     "ci95": {
      "level": [
-      12.16,
-      13.15
+      12.12,
+      13.05
      ],
      "nonParticipants": [
-      -0.7,
-      0.15
+      -1.06,
+      -0.17
      ],
      "participants": [
-      1.61,
-      2.38
+      1.6,
+      2.34
      ],
      "near": [
-      1.16,
-      2.13
+      1.04,
+      2.07
      ],
      "far": null,
      "smallNation": [
-      0.14,
-      1.6
+      0.05,
+      1.58
      ],
      "bigNation": [
-      0.72,
-      1.5
+      0.73,
+      1.47
      ],
      "late": [
-      0.26,
-      1.34
+      0.2,
+      1.22
      ],
      "poor": [
-      0.43,
-      1.06
+      0.36,
+      1.05
      ],
      "selfish": [
-      2.24,
-      3.5
+      2.11,
+      3.4
      ],
      "cross": [
-      61.98,
-      89.32
+      59.64,
+      85.33
      ],
      "lost": [
-      196.13,
-      233.81
+      200.59,
+      236.81
      ]
     },
     "completedStageShare": {
      "one": 0.97,
-     "all": 0.3
+     "all": 0.23
     }
    }
   },
@@ -4680,59 +4680,59 @@
     "seed": 15.5,
     "villages": 38,
     "level": {
-     "all": 13.69,
-     "near": 13.75,
+     "all": 13.81,
+     "near": 13.89,
      "far": null,
-     "bigNation": 13.25,
-     "smallNation": 13.22,
-     "late": 9.33,
-     "poor": 7.58,
-     "selfish": 15.57,
-     "nonParticipants": 11.07,
-     "participants": 14.36
+     "bigNation": 13.39,
+     "smallNation": 13.27,
+     "late": 9.36,
+     "poor": 7.76,
+     "selfish": 15.7,
+     "nonParticipants": 11.51,
+     "participants": 14.48
     },
     "bands": {
      "near": {
       "villages": 16.1,
-      "level": 13.75,
-      "trades": 15.9,
-      "cross": 6.13,
-      "sendsPerTrade": 2.75,
+      "level": 13.89,
+      "trades": 16.22,
+      "cross": 6.42,
+      "sendsPerTrade": 2.65,
       "towerShare": 0.43
      },
      "mid": {
       "villages": 21.9,
-      "level": 13.52,
-      "trades": 15.31,
-      "cross": 5.5,
-      "sendsPerTrade": 2.53,
+      "level": 13.58,
+      "trades": 15.49,
+      "cross": 5.69,
+      "sendsPerTrade": 2.54,
       "towerShare": 0.57
      }
     },
     "trades": {
-     "done": 314.2,
-     "cross": 110.58,
-     "requestsPosted": 427.8,
+     "done": 318.47,
+     "cross": 115.3,
+     "requestsPosted": 426.77,
      "requestsDone": 186.67,
      "boardPosts": 0,
      "boardDone": 0,
-     "defaulted": 7.13,
-     "relaySwaps": 127.53,
-     "relaySwapsCross": 127.5,
-     "relaySwapsByNonContributors": 76.2
+     "defaulted": 6.67,
+     "relaySwaps": 131.8,
+     "relaySwapsCross": 131.6,
+     "relaySwapsByNonContributors": 80.7
     },
     "logistics": {
      "innerShare": 0.43,
      "innerAreaShare": 0.19,
      "centreShare": 0.22,
-     "lostCaravans": 97.3,
-     "lostNearCentre": 88.93
+     "lostCaravans": 98,
+     "lostNearCentre": 89.87
     },
     "tower": {
-     "stages": 2.5,
+     "stages": 2.4,
      "completedDay": null,
      "lapses": 0,
-     "dormantEvents": 0.17,
+     "dormantEvents": 0,
      "contributors": 18,
      "contributorNations": 5.6,
      "contributionByNation": {
@@ -4741,112 +4741,112 @@
        0.3,
        0.18,
        0.11,
-       0.12,
+       0.11,
        0.1
       ],
       "hhi": 0.26
      },
      "useByNation": {
       "shares": [
-       0.22,
+       0.23,
        0.23,
        0.22,
-       0.13,
+       0.14,
        0.09,
        0.1
       ],
       "hhi": 0.22
      },
      "roles": {
-      "give": 146.67,
-      "pledge": 41.27,
-      "carry": 41.17,
-      "escort": 472.07,
-      "upkeep": 5.77
+      "give": 148.3,
+      "pledge": 40.93,
+      "carry": 40.8,
+      "escort": 469.4,
+      "upkeep": 9.17
      },
-     "roleEntropyBits": 1.39,
+     "roleEntropyBits": 1.42,
      "roleEntropyMaxBits": 2.32,
-     "meanMonotony": 0.73,
-     "freeRideShare": 0.6,
-     "raids": 165.53,
-     "raidsAtBrink": 89,
+     "meanMonotony": 0.72,
+     "freeRideShare": 0.62,
+     "raids": 166.6,
+     "raidsAtBrink": 89.27,
      "claimsLeft": 0
     },
     "slots": {
-     "grow": 520.1,
-     "help": 203.6,
-     "post": 427.8,
+     "grow": 524.67,
+     "help": 202.73,
+     "post": 426.77,
      "board": 0,
-     "tower": 706.93,
-     "relay": 444.33,
+     "tower": 708.6,
+     "relay": 457.43,
      "claim": 0,
-     "raid": 165.53,
-     "fake": 12.9,
-     "idle": 1241.33
+     "raid": 166.6,
+     "fake": 12.23,
+     "idle": 1223.5
     },
-    "participants": 34.4,
+    "participants": 34.27,
     "paired": {
-     "nonParticipants": -0.34,
-     "participants": 3.02,
-     "near": 2.53,
-     "mid": 2.12,
+     "nonParticipants": -0.5,
+     "participants": 3.18,
+     "near": 2.68,
+     "mid": 2.19,
      "far": null,
-     "bigNation": 1.86,
-     "smallNation": 1.79,
-     "late": 1.3,
-     "poor": 1.21,
-     "selfish": 4.32
+     "bigNation": 2,
+     "smallNation": 1.84,
+     "late": 1.33,
+     "poor": 1.39,
+     "selfish": 4.45
     },
     "ci95": {
      "level": [
-      13.07,
-      14.3
+      13.24,
+      14.37
      ],
      "nonParticipants": [
-      -1.08,
-      0.41
+      -1.28,
+      0.27
      ],
      "participants": [
-      2.53,
-      3.51
+      2.73,
+      3.62
      ],
      "near": [
-      1.88,
-      3.18
+      2.04,
+      3.32
      ],
      "far": null,
      "smallNation": [
-      0.91,
-      2.67
+      0.97,
+      2.72
      ],
      "bigNation": [
-      1.35,
-      2.37
+      1.49,
+      2.5
      ],
      "late": [
-      0.67,
-      1.93
+      0.68,
+      1.98
      ],
      "poor": [
-      0.87,
-      1.55
+      1,
+      1.79
      ],
      "selfish": [
-      3.55,
-      5.09
+      3.72,
+      5.17
      ],
      "cross": [
-      95.06,
-      126.11
+      100.4,
+      130.2
      ],
      "lost": [
-      87.22,
-      107.38
+      87.46,
+      108.54
      ]
     },
     "completedStageShare": {
      "one": 1,
-     "all": 0.57
+     "all": 0.47
     }
    }
   },
@@ -5111,58 +5111,58 @@
     "villages": 38,
     "level": {
      "all": 11.89,
-     "near": 11.74,
+     "near": 11.79,
      "far": null,
      "bigNation": 11.6,
-     "smallNation": 11.48,
-     "late": 7.91,
-     "poor": 6.49,
-     "selfish": 11.36,
+     "smallNation": 11.53,
+     "late": 7.87,
+     "poor": 6.51,
+     "selfish": 11.37,
      "nonParticipants": 12.04,
-     "participants": 12.66
+     "participants": 12.71
     },
     "bands": {
      "near": {
       "villages": 16.1,
-      "level": 11.74,
-      "trades": 11.9,
-      "cross": 2.63,
-      "sendsPerTrade": 3.17,
+      "level": 11.79,
+      "trades": 11.96,
+      "cross": 2.67,
+      "sendsPerTrade": 2.77,
       "towerShare": 0.43
      },
      "mid": {
       "villages": 21.9,
-      "level": 11.88,
-      "trades": 11.58,
-      "cross": 2.39,
-      "sendsPerTrade": 2.8,
+      "level": 11.84,
+      "trades": 11.67,
+      "cross": 2.44,
+      "sendsPerTrade": 2.74,
       "towerShare": 0.57
      }
     },
     "trades": {
-     "done": 231.3,
-     "cross": 48.02,
-     "requestsPosted": 429.23,
-     "requestsDone": 175.93,
+     "done": 232.8,
+     "cross": 48.92,
+     "requestsPosted": 430.73,
+     "requestsDone": 176.53,
      "boardPosts": 0,
      "boardDone": 0,
-     "defaulted": 11.4,
-     "relaySwaps": 55.37,
-     "relaySwapsCross": 55.27,
+     "defaulted": 10.63,
+     "relaySwaps": 56.27,
+     "relaySwapsCross": 56.17,
      "relaySwapsByNonContributors": 0
     },
     "logistics": {
      "innerShare": 0.41,
      "innerAreaShare": 0.19,
-     "centreShare": 0.21,
-     "lostCaravans": 70,
-     "lostNearCentre": 62.23
+     "centreShare": 0.2,
+     "lostCaravans": 72.03,
+     "lostNearCentre": 63.83
     },
     "tower": {
-     "stages": 1.73,
+     "stages": 1.7,
      "completedDay": null,
      "lapses": 1.53,
-     "dormantEvents": 0.13,
+     "dormantEvents": 0,
      "contributors": 18.03,
      "contributorNations": 5.6,
      "contributionByNation": {
@@ -5179,99 +5179,99 @@
      "useByNation": {
       "shares": [
        0.22,
-       0.24,
-       0.21,
+       0.23,
+       0.22,
        0.12,
-       0.08,
+       0.07,
        0.1
       ],
       "hhi": 0.26
      },
      "roles": {
-      "give": 192.43,
-      "pledge": 46.07,
-      "carry": 45.37,
-      "escort": 425.3,
-      "upkeep": 6.77
+      "give": 188.83,
+      "pledge": 46.83,
+      "carry": 46.3,
+      "escort": 424.07,
+      "upkeep": 8.53
      },
-     "roleEntropyBits": 1.51,
+     "roleEntropyBits": 1.53,
      "roleEntropyMaxBits": 2.32,
-     "meanMonotony": 0.71,
+     "meanMonotony": 0.7,
      "freeRideShare": 0,
-     "raids": 156.47,
-     "raidsAtBrink": 58.27,
-     "claimsLeft": 23.5
+     "raids": 158.33,
+     "raidsAtBrink": 57.67,
+     "claimsLeft": 11.5
     },
     "slots": {
-     "grow": 451.87,
-     "help": 196.37,
-     "post": 429.23,
+     "grow": 451.9,
+     "help": 197.03,
+     "post": 430.73,
      "board": 0,
-     "tower": 715.93,
-     "relay": 197.77,
-     "claim": 17.83,
-     "raid": 156.47,
-     "fake": 17.73,
-     "idle": 1539.33
+     "tower": 714.57,
+     "relay": 200,
+     "claim": 17.87,
+     "raid": 158.33,
+     "fake": 16.67,
+     "idle": 1535.43
     },
     "participants": 18.03,
     "paired": {
-     "nonParticipants": 0.03,
-     "participants": 1.84,
-     "near": 0.53,
-     "mid": 0.49,
+     "nonParticipants": 0.04,
+     "participants": 1.89,
+     "near": 0.58,
+     "mid": 0.45,
      "far": null,
      "bigNation": 0.2,
-     "smallNation": 0.06,
-     "late": -0.12,
-     "poor": 0.13,
-     "selfish": 0.12
+     "smallNation": 0.11,
+     "late": -0.16,
+     "poor": 0.14,
+     "selfish": 0.11
     },
     "ci95": {
      "level": [
-      11.35,
-      12.43
+      11.37,
+      12.42
      ],
      "nonParticipants": [
       -0.1,
       0.17
      ],
      "participants": [
-      1.24,
-      2.43
+      1.31,
+      2.47
      ],
      "near": [
-      0.06,
-      0.99
+      0.13,
+      1.03
      ],
      "far": null,
      "smallNation": [
-      -0.74,
-      0.86
+      -0.72,
+      0.94
      ],
      "bigNation": [
-      -0.11,
-      0.51
+      -0.1,
+      0.5
      ],
      "late": [
-      -0.57,
-      0.33
+      -0.62,
+      0.29
      ],
      "poor": [
-      -0.12,
-      0.37
+      -0.07,
+      0.35
      ],
      "selfish": [
       -0.08,
       0.31
      ],
      "cross": [
-      37.7,
-      58.33
+      38.83,
+      59.01
      ],
      "lost": [
-      60.68,
-      79.32
+      63.86,
+      80.2
      ]
     },
     "completedStageShare": {

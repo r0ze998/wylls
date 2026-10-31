@@ -25,6 +25,22 @@ export const REQUEST_PORT = Object.freeze({
   ],
 });
 
+/**
+ * What ⑭ needs to know about periods (a description). ⑭ keeps no World or
+ * Period of its own: the model's `periodHours` only marks a boundary as a
+ * fact so tests can cross one. The real source is ⑧'s continuing-world
+ * design, collected by ④.
+ */
+export const PERIOD_PORT = Object.freeze({
+  received: false,
+  from: '⑧ → ④',
+  needs: [
+    'whether a period boundary exists for the tower at all, and where its time comes from',
+    'which tower facts a period-scoped evaluation (⑮) reads, without the tower closing',
+    'whether on-chain addresses stay per-season (AddrCtx.season) or move to a world key, and how old ones are read',
+  ],
+});
+
 /** What ⑭ needs from ⑧'s placement (a description). */
 export const PLACEMENT_PORT = Object.freeze({
   received: false,

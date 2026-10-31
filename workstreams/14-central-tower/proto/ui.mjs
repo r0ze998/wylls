@@ -1,7 +1,7 @@
 // The clickable prototype: one village is yours, the rest are AI villages
 // choosing from the same options. Switching the case or the scenario restarts
 // from the same initial state (same seed → same land, people and dice).
-import { createSim, step, applyControlled, run, summarize, choose, optionsFor, stageFraction, relayActive, DEFAULTS, CASES, CASE_NAMES, RES } from './model.mjs';
+import { createSim, step, applyControlled, run, summarize, choose, optionsFor, stageFraction, relayActive, extend, DEFAULTS, CASES, CASE_NAMES, RES } from './model.mjs';
 import { SCENARIOS, runTriple, meanOf } from './compare.mjs';
 import { ringProvinces, sextant } from './geometry.mjs';
 
@@ -21,6 +21,7 @@ const SEL_PARAMS = [
   ['requestVisibility', '依頼の見え方（①未受領）', [['nation', '自国だけ'], ['world', '全国']]],
   ['refund', 'C：期限と返金', [['refund', '期限あり・返金'], ['keep', '期限なし・進捗が残る']]],
   ['access', 'C：中継の倉を使える人', [['open', '誰でも'], ['contributors', '出した人だけ']]],
+  ['periodHours', '期間の区切り（未決定・⑧/④未受領。記録するだけで何も戻さない）', [['', 'なし'], ['168', '7日ごと（仮）'], ['336', '14日ごと（仮）']]],
 ];
 
 let caseId = 'A', sim = null, opts = null;
@@ -29,7 +30,7 @@ function paramsNow() {
   const sc = SCENARIOS.find(s => s.id === $('scenario').value) ?? SCENARIOS[0];
   const P = { ...sc.over, seed: Number($('seed').value) || 1, days: Number($('days').value) || 14, case: caseId };
   for (const [k] of NUM_PARAMS) { const el = $(`p-${k}`); if (el && el.dataset.touched) P[k] = Number(el.value); }
-  for (const [k] of SEL_PARAMS) { const el = $(`p-${k}`); if (el && el.dataset.touched) P[k] = el.value; }
+  for (const [k] of SEL_PARAMS) { const el = $(`p-${k}`); if (el && el.dataset.touched) P[k] = k === 'periodHours' ? (el.value ? Number(el.value) : null) : el.value; }
   return P;
 }
 
@@ -41,13 +42,14 @@ function buildControls() {
   }
   $('scenario').innerHTML = SCENARIOS.map(s => `<option value="${s.id}">${s.name}</option>`).join('');
   $('params').innerHTML = NUM_PARAMS.map(([k, l]) => `<label for="p-${k}">${l}</label><input id="p-${k}" type="number" step="any" value="${DEFAULTS[k]}">`).join('')
-    + SEL_PARAMS.map(([k, l, o]) => `<label for="p-${k}">${l}</label><select id="p-${k}">${o.map(([v, t]) => `<option value="${v}" ${DEFAULTS[k] === v ? 'selected' : ''}>${t}</option>`).join('')}</select>`).join('');
+    + SEL_PARAMS.map(([k, l, o]) => `<label for="p-${k}">${l}</label><select id="p-${k}">${o.map(([v, t]) => `<option value="${v}" ${String(DEFAULTS[k] ?? '') === v ? 'selected' : ''}>${t}</option>`).join('')}</select>`).join('');
   for (const el of $('params').querySelectorAll('input,select')) el.addEventListener('change', () => { el.dataset.touched = '1'; });
   $('scenario').addEventListener('change', reset);
   $('reset').addEventListener('click', reset);
   $('me').addEventListener('change', () => reset(Number($('me').value)));
   $('next').addEventListener('click', nextTurn);
   $('auto').addEventListener('click', () => { finish(); });
+  $('more').addEventListener('click', () => { extend(sim, 7 * 24); nextTurn(); });
   for (const b of document.querySelectorAll('[data-tab]')) b.addEventListener('click', () => {
     document.querySelectorAll('[data-tab]').forEach(x => x.setAttribute('aria-selected', String(x === b)));
     $('tab-play').classList.toggle('hidden', b.dataset.tab !== 'play'); $('tab-compare').classList.toggle('hidden', b.dataset.tab !== 'compare');
@@ -125,7 +127,8 @@ const FACT_TEXT = {
   'tower.relay_swap': f => `中継の倉で交換${f.cross ? '（他国と）' : ''}${f.contributor ? '' : '（建設に加わっていない人）'}`,
   'tower.board_post': () => '依頼が塔に掲げられた', 'tower.board_fulfilled': f => `掲示の依頼が果たされた${f.cross ? '（他国と）' : ''}`,
   'centre.raid': f => `中央付近で襲撃（集まり具合 ${Math.round(f.fraction * 100)}%）`,
-  'village.left': f => `村が去った（塔に出した量 ${Math.round(f.contributed)}）`, 'village.joined': f => (f.late ? '途中参加の村が来た' : null),
+  'village.left': f => `村が去った（塔に出した量 ${Math.round(f.contributed)}）`,
+  'period.boundary': f => `期間の区切り ${f.index}（記録のみ。村・物資・隊商・塔はそのまま続く）`, 'village.joined': f => (f.late ? '途中参加の村が来た' : null),
   'request.defaulted': () => '依頼が払われなかった',
 };
 const OWN_TEXT = {
@@ -153,7 +156,7 @@ function renderMap() {
   const at = (p, q) => ({ x: W / 2 + s * Math.sqrt(3) * (p + q / 2), y: H / 2 + s * 1.5 * q });
   g.clearRect(0, 0, W, H);
   const wedgeCol = k => css.getPropertyValue(`--w${k}`).trim();
-  let maxT = 1; for (const n of sim.traffic.values()) maxT = Math.max(maxT, n);
+  let maxT = 1; for (const n of Object.values(sim.traffic)) maxT = Math.max(maxT, n);
   const heat = css.getPropertyValue('--heat').trim();
   for (let d = 0; d <= maxRing; d++) for (const pv of ringProvinces(d)) {
     const c = at(pv.p, pv.q);
@@ -161,7 +164,7 @@ function renderMap() {
     for (let i = 0; i < 6; i++) { const a = Math.PI / 6 + i * Math.PI / 3; const x = c.x + s * 0.97 * Math.cos(a), y = c.y + s * 0.97 * Math.sin(a); i ? g.lineTo(x, y) : g.moveTo(x, y); }
     g.closePath();
     g.globalAlpha = d === 0 ? 1 : 0.22; g.fillStyle = d === 0 ? css.getPropertyValue('--concord').trim() : wedgeCol(sextant(pv.p, pv.q)); g.fill();
-    const tr = sim.traffic.get(`${pv.p},${pv.q}`) ?? 0;
+    const tr = sim.traffic[`${pv.p},${pv.q}`] ?? 0;
     if (tr) { g.globalAlpha = 0.15 + 0.75 * Math.sqrt(tr / maxT); g.fillStyle = `rgb(${heat})`; g.fill(); }
     g.globalAlpha = 1;
   }

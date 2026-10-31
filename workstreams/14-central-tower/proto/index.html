@@ -67,7 +67,7 @@ th:first-child, td:first-child { text-align: left; white-space: normal; }
 <body>
 <header>
   <h1>中央塔の試作（⑭）：塔の役割を同じ初期状態で比べる</h1>
-  <p class="note">玩具の模型です。結果は人間にとっての面白さの証拠ではありません。数字はすべて仮で、左の欄から切り替えられます。勝敗・終了は決めず、塔の状態と行動の事実だけを出します（評価は⑮）。①の依頼・⑧の分散配置は資料未受領のため仮置きです。</p>
+  <p class="note">玩具の模型です。結果は人間にとっての面白さの証拠ではありません。数字はすべて仮で、左の欄から切り替えられます。世界は終わらず、リセットもしません。勝敗は決めず、塔の状態と行動の事実だけを出します（評価は⑮）。①の依頼・⑧の分散配置は資料未受領のため仮置きです。</p>
 </header>
 <main>
   <div>
@@ -81,7 +81,7 @@ th:first-child, td:first-child { text-align: left; white-space: normal; }
       <select id="scenario"></select>
       <div class="row">
         <div><label for="seed">種</label><input id="seed" type="number" min="1" value="1"></div>
-        <div><label for="days">日数</label><input id="days" type="number" min="2" max="28" value="14"></div>
+        <div><label for="days">観察する日数</label><input id="days" type="number" min="2" max="28" value="14"></div>
       </div>
       <details>
         <summary>仮の数字を切り替える</summary>
@@ -112,7 +112,8 @@ th:first-child, td:first-child { text-align: left; white-space: normal; }
           <h2>あなたの番</h2>
           <div id="mine"></div>
           <div class="opts" id="opts"></div>
-          <p style="display:flex;gap:6px;flex-wrap:wrap"><button id="next">次の自分の番まで進める</button><button class="ghost" id="auto">最後までAIに任せる</button></p>
+          <p style="display:flex;gap:6px;flex-wrap:wrap"><button id="next">次の自分の番まで進める</button><button class="ghost" id="auto">観察の終わりまでAIに任せる</button><button class="ghost" id="more">さらに7日観察する</button></p>
+          <p class="note">世界は終わりません。「日数」は観察する長さで、区切りが来ても村・物資・隊商・塔はそのまま続きます。</p>
         </section>
       </div>
       <div class="grid2">

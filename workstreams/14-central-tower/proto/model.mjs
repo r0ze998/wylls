@@ -428,13 +428,14 @@ function towerApply(sim, v, opt) {
 function deliverToTower(sim, owner, goods, ok, stageAt, carrier = null) {
   const t = sim.tower;
   if (!ok) { owner.lostGoods += sum(goods); fact(sim, 'caravan.lost', carrier ?? owner, { tower: true, for: owner.id }); return; }
-  add(t.stock, goods);
-  if (stageAt === 'upkeep') { fact(sim, 'tower.upkeep_delivered', carrier ?? owner, { amount: sum(goods) }); return; }
+  if (stageAt === 'upkeep') { add(t.stock, goods); fact(sim, 'tower.upkeep_delivered', carrier ?? owner, { amount: sum(goods) }); return; }
   add(owner.contributed, goods);
+  // goods for the open stage are held in `progress`, apart from the stock that pays upkeep (they must not be used twice);
+  // goods for a stage that closed while they travelled go to the stock
   if (stageAt === t.stage && t.stageOpen !== null && t.stage < sim.P.stageNeed.length) {
     add(t.progress, goods);
     let led = ledgerOf(t, owner.id); if (!led) { led = [owner.id, zero()]; t.ledger.push(led); } add(led[1], goods);
-  }
+  } else add(t.stock, goods);
   fact(sim, 'tower.contribution', owner, { amount: sum(goods), carrier: carrier ? carrier.id : null, stage: t.stage });
   checkStage(sim);
 }
@@ -444,7 +445,9 @@ function checkStage(sim) {
   if (t.stageOpen === null || t.stage >= P.stageNeed.length) return;
   const need = needOf(sim, t.stage);
   if (RES.every(r => t.progress[r] >= need[r])) {
-    spend(t.stock, need); sim.flow.build += sum(need); t.stage++; t.completedAt.push(sim.tick);
+    // the stage uses what it needs; what was brought beyond that joins the stock
+    for (const r of RES) t.stock[r] += t.progress[r] - need[r];
+    sim.flow.build += sum(need); t.stage++; t.completedAt.push(sim.tick);
     fact(sim, 'tower.stage_completed', null, { stage: t.stage, contributors: t.ledger.length, nations: new Set(t.ledger.map(e => sim.villages[e[0]].nation)).size });
     t.progress = zero(); t.ledger = [];
     if (t.stage < P.stageNeed.length) { t.stageOpen = sim.tick; t.deadline = sim.tick + P.stageDays * 24; fact(sim, 'tower.stage_opened', null, { stage: t.stage + 1 }); }
@@ -597,8 +600,8 @@ function lapse(sim) {
   fact(sim, 'tower.stage_lapsed', null, { stage: t.stage + 1, fraction: round2(stageFraction(sim)), contributors: t.ledger.length });
   for (const [id, goods] of t.ledger) {
     const v = sim.villages[id];
-    if (v.left) continue;  // a claim of someone who left stays in the stock
-    add(v.claims, goods); spend(t.stock, goods);
+    if (v.left) { add(t.stock, goods); continue; }  // a claim of someone who left stays in the tower, as stock
+    add(v.claims, goods);
     fact(sim, 'tower.refund_claim', v, { amount: sum(goods) });
   }
   t.progress = zero(); t.ledger = []; t.stageOpen = sim.tick; t.deadline = sim.tick + P.stageDays * 24;
@@ -649,7 +652,7 @@ export const liveSizes = sim => ({ requests: sim.requests.length, caravans: sim.
 export function holdings(sim) {
   let h = 0;
   for (const v of sim.villages) h += sum(v.store) + sum(v.claims);
-  h += sum(sim.tower.stock);
+  h += sum(sim.tower.stock) + sum(sim.tower.progress);
   for (const c of sim.caravans) h += sum(c.goods);
   for (const p of sim.pledges) if (p.state === 'open') h += sum(p.goods);
   for (const o of sim.tower.offers) {

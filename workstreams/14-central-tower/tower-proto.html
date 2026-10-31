@@ -67,7 +67,7 @@ th:first-child, td:first-child { text-align: left; white-space: normal; }
 <body>
 <header>
   <h1>中央塔の試作（⑭）：塔の役割を同じ初期状態で比べる</h1>
-  <p class="note">玩具の模型です。結果は人間にとっての面白さの証拠ではありません。数字はすべて仮で、左の欄から切り替えられます。勝敗・終了は決めず、塔の状態と行動の事実だけを出します（評価は⑮）。①の依頼・⑧の分散配置は資料未受領のため仮置きです。</p>
+  <p class="note">玩具の模型です。結果は人間にとっての面白さの証拠ではありません。数字はすべて仮で、左の欄から切り替えられます。世界は終わらず、リセットもしません。勝敗は決めず、塔の状態と行動の事実だけを出します（評価は⑮）。①の依頼・⑧の分散配置は資料未受領のため仮置きです。</p>
 </header>
 <main>
   <div>
@@ -81,7 +81,7 @@ th:first-child, td:first-child { text-align: left; white-space: normal; }
       <select id="scenario"></select>
       <div class="row">
         <div><label for="seed">種</label><input id="seed" type="number" min="1" value="1"></div>
-        <div><label for="days">日数</label><input id="days" type="number" min="2" max="28" value="14"></div>
+        <div><label for="days">観察する日数</label><input id="days" type="number" min="2" max="28" value="14"></div>
       </div>
       <details>
         <summary>仮の数字を切り替える</summary>
@@ -112,7 +112,8 @@ th:first-child, td:first-child { text-align: left; white-space: normal; }
           <h2>あなたの番</h2>
           <div id="mine"></div>
           <div class="opts" id="opts"></div>
-          <p style="display:flex;gap:6px;flex-wrap:wrap"><button id="next">次の自分の番まで進める</button><button class="ghost" id="auto">最後までAIに任せる</button></p>
+          <p style="display:flex;gap:6px;flex-wrap:wrap"><button id="next">次の自分の番まで進める</button><button class="ghost" id="auto">観察の終わりまでAIに任せる</button><button class="ghost" id="more">さらに7日観察する</button></p>
+          <p class="note">世界は終わりません。「日数」は観察する長さで、区切りが来ても村・物資・隊商・塔はそのまま続きます。</p>
         </section>
       </div>
       <div class="grid2">
@@ -227,6 +228,22 @@ const REQUEST_PORT = Object.freeze({
     'what a request promises in return (barter, nothing, a record)',
     'whether dispatch and arrival are separate states (handoff note: do not confuse them)',
     'how a request that is not paid is recorded',
+  ],
+});
+
+/**
+ * What ⑭ needs to know about periods (a description). ⑭ keeps no World or
+ * Period of its own: the model's `periodHours` only marks a boundary as a
+ * fact so tests can cross one. The real source is ⑧'s continuing-world
+ * design, collected by ④.
+ */
+const PERIOD_PORT = Object.freeze({
+  received: false,
+  from: '⑧ → ④',
+  needs: [
+    'whether a period boundary exists for the tower at all, and where its time comes from',
+    'which tower facts a period-scoped evaluation (⑮) reads, without the tower closing',
+    'whether on-chain addresses stay per-season (AddrCtx.season) or move to a world key, and how old ones are read',
   ],
 });
 
@@ -705,13 +722,14 @@ function towerApply(sim, v, opt) {
 function deliverToTower(sim, owner, goods, ok, stageAt, carrier = null) {
   const t = sim.tower;
   if (!ok) { owner.lostGoods += sum(goods); fact(sim, 'caravan.lost', carrier ?? owner, { tower: true, for: owner.id }); return; }
-  add(t.stock, goods);
-  if (stageAt === 'upkeep') { fact(sim, 'tower.upkeep_delivered', carrier ?? owner, { amount: sum(goods) }); return; }
+  if (stageAt === 'upkeep') { add(t.stock, goods); fact(sim, 'tower.upkeep_delivered', carrier ?? owner, { amount: sum(goods) }); return; }
   add(owner.contributed, goods);
+  // goods for the open stage are held in `progress`, apart from the stock that pays upkeep (they must not be used twice);
+  // goods for a stage that closed while they travelled go to the stock
   if (stageAt === t.stage && t.stageOpen !== null && t.stage < sim.P.stageNeed.length) {
     add(t.progress, goods);
     let led = ledgerOf(t, owner.id); if (!led) { led = [owner.id, zero()]; t.ledger.push(led); } add(led[1], goods);
-  }
+  } else add(t.stock, goods);
   fact(sim, 'tower.contribution', owner, { amount: sum(goods), carrier: carrier ? carrier.id : null, stage: t.stage });
   checkStage(sim);
 }
@@ -721,7 +739,9 @@ function checkStage(sim) {
   if (t.stageOpen === null || t.stage >= P.stageNeed.length) return;
   const need = needOf(sim, t.stage);
   if (RES.every(r => t.progress[r] >= need[r])) {
-    spend(t.stock, need); sim.flow.build += sum(need); t.stage++; t.completedAt.push(sim.tick);
+    // the stage uses what it needs; what was brought beyond that joins the stock
+    for (const r of RES) t.stock[r] += t.progress[r] - need[r];
+    sim.flow.build += sum(need); t.stage++; t.completedAt.push(sim.tick);
     fact(sim, 'tower.stage_completed', null, { stage: t.stage, contributors: t.ledger.length, nations: new Set(t.ledger.map(e => sim.villages[e[0]].nation)).size });
     t.progress = zero(); t.ledger = [];
     if (t.stage < P.stageNeed.length) { t.stageOpen = sim.tick; t.deadline = sim.tick + P.stageDays * 24; fact(sim, 'tower.stage_opened', null, { stage: t.stage + 1 }); }
@@ -874,8 +894,8 @@ function lapse(sim) {
   fact(sim, 'tower.stage_lapsed', null, { stage: t.stage + 1, fraction: round2(stageFraction(sim)), contributors: t.ledger.length });
   for (const [id, goods] of t.ledger) {
     const v = sim.villages[id];
-    if (v.left) continue;  // a claim of someone who left stays in the stock
-    add(v.claims, goods); spend(t.stock, goods);
+    if (v.left) { add(t.stock, goods); continue; }  // a claim of someone who left stays in the tower, as stock
+    add(v.claims, goods);
     fact(sim, 'tower.refund_claim', v, { amount: sum(goods) });
   }
   t.progress = zero(); t.ledger = []; t.stageOpen = sim.tick; t.deadline = sim.tick + P.stageDays * 24;
@@ -926,7 +946,7 @@ const liveSizes = sim => ({ requests: sim.requests.length, caravans: sim.caravan
 function holdings(sim) {
   let h = 0;
   for (const v of sim.villages) h += sum(v.store) + sum(v.claims);
-  h += sum(sim.tower.stock);
+  h += sum(sim.tower.stock) + sum(sim.tower.progress);
   for (const c of sim.caravans) h += sum(c.goods);
   for (const p of sim.pledges) if (p.state === 'open') h += sum(p.goods);
   for (const o of sim.tower.offers) {
@@ -1101,6 +1121,7 @@ const SEL_PARAMS = [
   ['requestVisibility', '依頼の見え方（①未受領）', [['nation', '自国だけ'], ['world', '全国']]],
   ['refund', 'C：期限と返金', [['refund', '期限あり・返金'], ['keep', '期限なし・進捗が残る']]],
   ['access', 'C：中継の倉を使える人', [['open', '誰でも'], ['contributors', '出した人だけ']]],
+  ['periodHours', '期間の区切り（未決定・⑧/④未受領。記録するだけで何も戻さない）', [['', 'なし'], ['168', '7日ごと（仮）'], ['336', '14日ごと（仮）']]],
 ];
 
 let caseId = 'A', sim = null, opts = null;
@@ -1109,7 +1130,7 @@ function paramsNow() {
   const sc = SCENARIOS.find(s => s.id === $('scenario').value) ?? SCENARIOS[0];
   const P = { ...sc.over, seed: Number($('seed').value) || 1, days: Number($('days').value) || 14, case: caseId };
   for (const [k] of NUM_PARAMS) { const el = $(`p-${k}`); if (el && el.dataset.touched) P[k] = Number(el.value); }
-  for (const [k] of SEL_PARAMS) { const el = $(`p-${k}`); if (el && el.dataset.touched) P[k] = el.value; }
+  for (const [k] of SEL_PARAMS) { const el = $(`p-${k}`); if (el && el.dataset.touched) P[k] = k === 'periodHours' ? (el.value ? Number(el.value) : null) : el.value; }
   return P;
 }
 
@@ -1121,13 +1142,14 @@ function buildControls() {
   }
   $('scenario').innerHTML = SCENARIOS.map(s => `<option value="${s.id}">${s.name}</option>`).join('');
   $('params').innerHTML = NUM_PARAMS.map(([k, l]) => `<label for="p-${k}">${l}</label><input id="p-${k}" type="number" step="any" value="${DEFAULTS[k]}">`).join('')
-    + SEL_PARAMS.map(([k, l, o]) => `<label for="p-${k}">${l}</label><select id="p-${k}">${o.map(([v, t]) => `<option value="${v}" ${DEFAULTS[k] === v ? 'selected' : ''}>${t}</option>`).join('')}</select>`).join('');
+    + SEL_PARAMS.map(([k, l, o]) => `<label for="p-${k}">${l}</label><select id="p-${k}">${o.map(([v, t]) => `<option value="${v}" ${String(DEFAULTS[k] ?? '') === v ? 'selected' : ''}>${t}</option>`).join('')}</select>`).join('');
   for (const el of $('params').querySelectorAll('input,select')) el.addEventListener('change', () => { el.dataset.touched = '1'; });
   $('scenario').addEventListener('change', reset);
   $('reset').addEventListener('click', reset);
   $('me').addEventListener('change', () => reset(Number($('me').value)));
   $('next').addEventListener('click', nextTurn);
   $('auto').addEventListener('click', () => { finish(); });
+  $('more').addEventListener('click', () => { extend(sim, 7 * 24); nextTurn(); });
   for (const b of document.querySelectorAll('[data-tab]')) b.addEventListener('click', () => {
     document.querySelectorAll('[data-tab]').forEach(x => x.setAttribute('aria-selected', String(x === b)));
     $('tab-play').classList.toggle('hidden', b.dataset.tab !== 'play'); $('tab-compare').classList.toggle('hidden', b.dataset.tab !== 'compare');
@@ -1205,7 +1227,8 @@ const FACT_TEXT = {
   'tower.relay_swap': f => `中継の倉で交換${f.cross ? '（他国と）' : ''}${f.contributor ? '' : '（建設に加わっていない人）'}`,
   'tower.board_post': () => '依頼が塔に掲げられた', 'tower.board_fulfilled': f => `掲示の依頼が果たされた${f.cross ? '（他国と）' : ''}`,
   'centre.raid': f => `中央付近で襲撃（集まり具合 ${Math.round(f.fraction * 100)}%）`,
-  'village.left': f => `村が去った（塔に出した量 ${Math.round(f.contributed)}）`, 'village.joined': f => (f.late ? '途中参加の村が来た' : null),
+  'village.left': f => `村が去った（塔に出した量 ${Math.round(f.contributed)}）`,
+  'period.boundary': f => `期間の区切り ${f.index}（記録のみ。村・物資・隊商・塔はそのまま続く）`, 'village.joined': f => (f.late ? '途中参加の村が来た' : null),
   'request.defaulted': () => '依頼が払われなかった',
 };
 const OWN_TEXT = {
@@ -1233,7 +1256,7 @@ function renderMap() {
   const at = (p, q) => ({ x: W / 2 + s * Math.sqrt(3) * (p + q / 2), y: H / 2 + s * 1.5 * q });
   g.clearRect(0, 0, W, H);
   const wedgeCol = k => css.getPropertyValue(`--w${k}`).trim();
-  let maxT = 1; for (const n of sim.traffic.values()) maxT = Math.max(maxT, n);
+  let maxT = 1; for (const n of Object.values(sim.traffic)) maxT = Math.max(maxT, n);
   const heat = css.getPropertyValue('--heat').trim();
   for (let d = 0; d <= maxRing; d++) for (const pv of ringProvinces(d)) {
     const c = at(pv.p, pv.q);
@@ -1241,7 +1264,7 @@ function renderMap() {
     for (let i = 0; i < 6; i++) { const a = Math.PI / 6 + i * Math.PI / 3; const x = c.x + s * 0.97 * Math.cos(a), y = c.y + s * 0.97 * Math.sin(a); i ? g.lineTo(x, y) : g.moveTo(x, y); }
     g.closePath();
     g.globalAlpha = d === 0 ? 1 : 0.22; g.fillStyle = d === 0 ? css.getPropertyValue('--concord').trim() : wedgeCol(sextant(pv.p, pv.q)); g.fill();
-    const tr = sim.traffic.get(`${pv.p},${pv.q}`) ?? 0;
+    const tr = sim.traffic[`${pv.p},${pv.q}`] ?? 0;
     if (tr) { g.globalAlpha = 0.15 + 0.75 * Math.sqrt(tr / maxT); g.fillStyle = `rgb(${heat})`; g.fill(); }
     g.globalAlpha = 1;
   }
