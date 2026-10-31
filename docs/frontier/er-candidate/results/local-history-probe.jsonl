@@ -1,0 +1,17 @@
+{"side":"http://127.0.0.1:41680","addr":"GURgmxeLRJ1swjHDtQhQdTjguNB6EZDmxSdGM3GC6Hrt","signatures":"5"}
+{"side":"http://127.0.0.1:41680","addr":"CbpwjwfYao82TsnBYSSmsEoqUxeCFJc9BQXo1snH8Luk","signatures":"6"}
+{"side":"http://127.0.0.1:41670","addr":"GURgmxeLRJ1swjHDtQhQdTjguNB6EZDmxSdGM3GC6Hrt","signatures":"13"}
+{"side":"http://127.0.0.1:41670","addr":"CbpwjwfYao82TsnBYSSmsEoqUxeCFJc9BQXo1snH8Luk","signatures":"15"}
+{"sig": "54fMuhZyXWMv", "err": false, "top": ["GURgmxeLRJ1swjHDtQhQdTjguNB6EZDmxSdGM3GC6Hrt"]}
+{"sig": "4HP8b8tnmD2F", "getTransaction_error": {"code": -32015, "message": "Transaction version (1) is not supported by the requesting client. Please try the request again with the following configuration parameter: \"maxSupportedTransactionVersion\": 1"}}
+{"sig": "7Sm44H9sk6CW", "getTransaction_error": {"code": -32015, "message": "Transaction version (1) is not supported by the requesting client. Please try the request again with the following configuration parameter: \"maxSupportedTransactionVersion\": 1"}}
+{"sig": "3HYAKdHNBpd6", "err": false, "top": ["GURgmxeLRJ1swjHDtQhQdTjguNB6EZDmxSdGM3GC6Hrt"]}
+{"sig": "55iDtN7rYvyG", "err": false, "top": ["GURgmxeLRJ1swjHDtQhQdTjguNB6EZDmxSdGM3GC6Hrt"]}
+{"sig": "KHnfDwShjKkE", "err": false, "top": ["GURgmxeLRJ1swjHDtQhQdTjguNB6EZDmxSdGM3GC6Hrt"]}
+{"base_txs_touching_board_by_top_level_programs": {"GURgmxeLRJ1swjHDtQhQdTjguNB6EZDmxSdGM3GC6Hrt": 4}}
+{"program_sig": "54fMuhZyXWMv", "v0": "ok version=legacy", "v1": "ok version=legacy", "top": ["GURgmxeLRJ1swjHDtQhQdTjguNB6EZDmxSdGM3GC6Hrt"]}
+{"program_sig": "4HP8b8tnmD2F", "v0": "error -32015", "v1": "ok version=1", "top": ["DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh"]}
+{"program_sig": "3HYAKdHNBpd6", "v0": "ok version=legacy", "v1": "ok version=legacy", "top": ["GURgmxeLRJ1swjHDtQhQdTjguNB6EZDmxSdGM3GC6Hrt"]}
+{"program_sig": "55iDtN7rYvyG", "v0": "ok version=legacy", "v1": "ok version=legacy", "top": ["GURgmxeLRJ1swjHDtQhQdTjguNB6EZDmxSdGM3GC6Hrt"]}
+{"program_sig": "KHnfDwShjKkE", "v0": "ok version=legacy", "v1": "ok version=legacy", "top": ["GURgmxeLRJ1swjHDtQhQdTjguNB6EZDmxSdGM3GC6Hrt"]}
+{"er_getTransaction": "ok slot 369, 6 log lines"}

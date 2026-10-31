@@ -18,7 +18,7 @@
    - 書込みは `(seq, head)` の compare-and-set です。同じ要求は二度効かず、失われた版の上にも効きません。
    - ER が書込みを失ったら止めます（high-water）。
    - findex は、公開 RPC の履歴欠落で止まり、黙って保存しなくなりました。minContextSlot の読取りには印を付けられます。
-3. **試験で確認したこと**：mock、ローカル（LiteSVM＋実物の委任プログラム 3 種、ローカルの base＋MagicBlock ER で 2 回）、findex。公開 devnet は未実行です。[RESULTS.ja.md](RESULTS.ja.md)。
+3. **試験で確認したこと**：mock、ローカル（LiteSVM＋実物の委任プログラム 3 種、ローカルの base＋MagicBlock ER で 2 回）、findex。公開 devnet は未実行です。独立のコードレビューの 9 件のうち 7 件を直し、1 件（1 つのノードからは見抜けない欠落）は文書に残し、1 件（書き手の規則）は採用前の判断として残しました。[RESULTS.ja.md](RESULTS.ja.md)。
 4. **移行や仕様判断が残る点**：[CONTINUING-WORLD.ja.md](CONTINUING-WORLD.ja.md) §4。
 
 ## 文書

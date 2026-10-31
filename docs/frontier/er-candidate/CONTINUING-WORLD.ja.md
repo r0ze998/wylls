@@ -41,7 +41,7 @@
 
 | 項目 | 判断する人 | 提案 |
 |---|---|---|
-| Season PDA を世界の識別子として使い続けるか | ④・⑧ | ④の案（統合枝 `ws04/integration-20261030`、`docs/CONTINUITY.ja.md`、2026-10-31 に④から受領）では、今の Season PDA を世界の口座として使い続け、すべての住所をそこから導く。この候補の板は、別のプログラムの PDA `["wylls-er-board", le64 world_id]` で、Season PDA とは結び付いていない。S1 のプログラムに取り込むなら、seed を `["wylls-er-board", Season PDA]` にする（委任には PDA であることが必要で、`create_with_seed` の住所は使えない） |
+| Season PDA を世界の識別子として使い続けるか | ④・⑧ | ④の案（統合枝 `ws04/integration-20261030`、`docs/CONTINUITY.ja.md`、2026-10-31 に④から受領）では、今の Season PDA を世界の口座として使い続け、すべての住所をそこから導く。この候補の板は、別のプログラムの PDA `["wylls-er-board", le64 world_id, authority]` で、Season PDA とは結び付いていない。S1 のプログラムに取り込むなら、seed を `["wylls-er-board", Season PDA]` にする（authority の検査は、Season の authority を読む形にする）（委任には PDA であることが必要で、`create_with_seed` の住所は使えない） |
 | 検証器の「最終状態」の意味 | ④・⑯ | 静かな終わりを前提にしない「checkpoint」の比較。(a) 最終状態の head の seq が再生と同じなら一致を要求する。(b) より先なら「保存より先の部分は未検証」と報告し、失敗にしない。(c) 所有者が DLP なら「委任中：最後の commit まで」と報告する。もう 1 つの方法：口座の読取り（context slot）を先に記録し、保存をその slot まで進めてから比べる |
 | findex の取引版と、委任された口座の履歴 | ④（fclient は共有コア） | `maxSupportedTransactionVersion` を 1 以上で要求する。v1 の取引は解釈できなくても記録だけはする。委任対象を持つなら、その口座のアドレスでも履歴を取る（commit の finalize はそこにしか現れない） |
 | findex の確定度 | ④ | `confirmed` で保存し、後から取り消せない。`finalized` で取るか、確定したことの印を後で付ける |
