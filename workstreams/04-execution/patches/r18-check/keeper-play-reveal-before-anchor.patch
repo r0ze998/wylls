@@ -1,8 +1,8 @@
 diff --git a/frontier-node/crates/keeper/tests/play.rs b/frontier-node/crates/keeper/tests/play.rs
-index 915abb50..2d06bcb3 100644
+index 915abb50..4062e0b9 100644
 --- a/frontier-node/crates/keeper/tests/play.rs
 +++ b/frontier-node/crates/keeper/tests/play.rs
-@@ -48,7 +48,93 @@ use permutation_rules::hex::{Hex, DIRECTIONS};
+@@ -48,7 +48,95 @@ use permutation_rules::hex::{Hex, DIRECTIONS};
  
  use common::*;
  
@@ -23,6 +23,8 @@ index 915abb50..2d06bcb3 100644
 +    now: i64,
 +    anchor: Address,
 +    anchor_present: bool,
++    /// The instruction data (to match the march by its ct_hash).
++    data: Vec<u8>,
 +    sig: Option<fclient::ports::Signature>,
 +}
 +
@@ -57,7 +59,7 @@ index 915abb50..2d06bcb3 100644
 +            let anchor = keys[ci.accounts[3] as usize];
 +            let c = self.ip.lock();
 +            let present = c.account(&anchor).is_some_and(|a| a.owner == self.program && !a.data.is_empty());
-+            let r = RevealOut { kind, slot: c.slot(), now: c.unix_timestamp(), anchor, anchor_present: present, sig: t.signatures.first().copied() };
++            let r = RevealOut { kind, slot: c.slot(), now: c.unix_timestamp(), anchor, anchor_present: present, data: ci.data.clone(), sig: t.signatures.first().copied() };
 +            drop(c);
 +            OUT.with(|o| o.borrow_mut().push(r));
 +        }
@@ -97,7 +99,7 @@ index 915abb50..2d06bcb3 100644
  
  /// Unit-0 troops in every fixture Holding's reserve.
  const RESERVE0: u32 = 10_000;
-@@ -236,6 +322,16 @@ struct Opts {
+@@ -236,6 +324,16 @@ struct Opts {
      /// destination tile its path does not end on: a valid seal whose Reveal
      /// the program refuses (`Path`).
      unrevealable_top: bool,
@@ -114,7 +116,7 @@ index 915abb50..2d06bcb3 100644
  }
  
  struct Run {
-@@ -288,7 +384,7 @@ fn new_keeper(
+@@ -288,7 +386,7 @@ fn new_keeper(
      cfg.peace_start = peace;
      let mut k = Keeper::new(
          cfg,
@@ -123,7 +125,7 @@ index 915abb50..2d06bcb3 100644
          w.drand.clone(),
          &[0x70 + i as u8; 32],
          journal,
-@@ -327,7 +423,12 @@ async fn tick(
+@@ -327,7 +425,12 @@ async fn tick(
          .await;
      match h {
          Ok((k, r)) => {
@@ -137,7 +139,7 @@ index 915abb50..2d06bcb3 100644
              k
          }
          Err(e) if e.is_panic() => {
-@@ -742,6 +843,11 @@ async fn scenario(o: Opts) -> Option<Run> {
+@@ -742,6 +845,11 @@ async fn scenario(o: Opts) -> Option<Run> {
      };
      let mut owner_pushed = false;
      let mut held_slots = false;
@@ -149,7 +151,7 @@ index 915abb50..2d06bcb3 100644
      // The destination's resolved ClashInputs (fates), captured before the
      // close after `clash_close_grace`.
      let mut dest_resolved: Vec<u8> = vec![];
-@@ -757,6 +863,34 @@ async fn scenario(o: Opts) -> Option<Run> {
+@@ -757,6 +865,34 @@ async fn scenario(o: Opts) -> Option<Run> {
              }
              owner_pushed = true;
          }
@@ -184,7 +186,7 @@ index 915abb50..2d06bcb3 100644
          if let (Some((prio, n)), false) = (o.hold_slots, held_slots) {
              let t_arrive = sc.drand.round_time(sc.tlock_round(arrive));
              if w.now() >= t_arrive {
-@@ -1674,3 +1808,107 @@ async fn claim_after_late_reveal() {
+@@ -1674,3 +1810,229 @@ async fn claim_after_late_reveal() {
      assert!(claims.iter().all(|c| c.2 > 0));
      println!("claims: {claims:?}");
  }
@@ -234,12 +236,118 @@ index 915abb50..2d06bcb3 100644
 +    early
 +}
 +
++/// Workstream 04: the needed Reveals do go out once publishable, and no
++/// march is left behind. Per march (matched by its ct_hash in the Reveal
++/// data): how many hand-overs (send / simulate), how many distinct
++/// signatures (a re-send of the same transaction vs a new one), which of
++/// them landed, with what effect (Ok changes state; an error changes
++/// nothing but the fee) and what fee. Returns the failures.
++fn audit(name: &str, r: &Run) -> Vec<String> {
++    let all = OUT.with(|o| o.borrow().clone());
++    let sc = fclient::clock::SeasonClock::from_season(&r.w.season());
++    let published = sc.drand.round_time(sc.tlock_round(r.arrive)) + DRAND_DELAY;
++    let c = r.w.ip.lock();
++    let mut fails = vec![];
++    let (mut tot_send, mut tot_sim, mut tot_sigs, mut tot_ok, mut tot_err, mut tot_fee, mut tot_unlanded) = (0, 0, 0, 0, 0, 0u64, 0);
++    let mut matched = 0;
++    for m in &r.marches {
++        let mine: Vec<&RevealOut> = all.iter().filter(|x| x.data.windows(32).any(|w| w == m.ct_hash)).collect();
++        matched += mine.len();
++        let sends: Vec<&&RevealOut> = mine.iter().filter(|x| x.kind == "send").collect();
++        let sims = mine.len() - sends.len();
++        let sigs: BTreeSet<_> = sends.iter().filter_map(|x| x.sig).collect();
++        let (mut ok, mut err, mut fee, mut unlanded, mut ok_after) = (0, vec![], 0u64, 0, 0);
++        for s in &sigs {
++            match c.transaction(s) {
++                Some(l) => {
++                    fee += l.fee;
++                    if l.err.is_none() {
++                        ok += 1;
++                        if l.block_time >= published {
++                            ok_after += 1;
++                        }
++                    } else {
++                        err.push(l.code.map_or_else(|| l.err.clone().unwrap_or_default(), |c| c.to_string()));
++                    }
++                }
++                None => unlanded += 1,
++            }
++        }
++        let settled = r.settled.get(&m.host);
++        println!(
++            "  {name} march host {} : {} send ({} distinct sig, {} re-send of a sig), {} simulate; landed Ok {} (after publication {}), landed Err {} {:?}, not landed {}; fees {} lamports; settled {:?}",
++            m.host, sends.len(), sigs.len(), sends.len() - sigs.len(), sims, ok, ok_after, err.len(), err, unlanded, fee, settled
++        );
++        tot_send += sends.len();
++        tot_sim += sims;
++        tot_sigs += sigs.len();
++        tot_ok += ok;
++        tot_err += err.len();
++        tot_fee += fee;
++        tot_unlanded += unlanded;
++        if settled.is_none() {
++            fails.push(format!("host {} not settled (left behind)", m.host));
++        }
++        if ok > 1 {
++            fails.push(format!("host {} revealed {ok} times", m.host));
++        }
++        if !sends.is_empty() && ok_after == 0 {
++            fails.push(format!("host {}: Reveals went out but none landed Ok after publication", m.host));
++        }
++    }
++    println!(
++        "  {name} total: {} hand-overs ({} matched to a march): send {tot_send} = {tot_sigs} distinct sig + {} re-send; simulate {tot_sim}; landed Ok {tot_ok}, Err {tot_err}, not landed {tot_unlanded}; Reveal fees {tot_fee} lamports",
++        all.len(),
++        matched,
++        tot_send - tot_sigs
++    );
++    if matched != all.len() {
++        fails.push(format!("{} Reveal hand-over(s) matched no march", all.len() - matched));
++    }
++    if r.settled.len() != r.marches.len() {
++        fails.push(format!("settled {} of {} marches", r.settled.len(), r.marches.len()));
++    }
++    fails
++}
++
++/// Workstream 04: the marches with a Reveal that landed Ok in the last run.
++fn revealed_hosts(r: &Run) -> BTreeSet<u64> {
++    let all = OUT.with(|o| o.borrow().clone());
++    let c = r.w.ip.lock();
++    r.marches
++        .iter()
++        .filter(|m| {
++            all.iter().any(|x| {
++                x.kind == "send"
++                    && x.data.windows(32).any(|w| w == m.ct_hash)
++                    && x.sig.and_then(|s| c.transaction(&s)).is_some_and(|l| l.err.is_none())
++            })
++        })
++        .map(|m| m.host)
++        .collect()
++}
++
++/// Workstream 04: a delayed or failing case must reveal the same marches
++/// as the normal run (no march left without its Reveal).
++async fn normal_revealed() -> Option<BTreeSet<u64>> {
++    let r = scenario(Opts::default()).await?;
++    Some(revealed_hosts(&r))
++}
++
++fn same_marches(name: &str, want: &BTreeSet<u64>, r: &Run) {
++    let got = revealed_hosts(r);
++    println!("  {name}: revealed Ok {} march(es), normal run {}", got.len(), want.len());
++    assert_eq!(&got, want, "{name}: marches revealed differ from the normal run (missing: {:?})", want.difference(&got).collect::<Vec<_>>());
++}
++
 +/// Two criteria, judged apart: secrecy (no plaintext before drand
 +/// published T(arrive): before that only the owner can open the seal) and
 +/// validity (THE anchor on chain when the Reveal is handed over: otherwise
 +/// the program skips the window check, proc/reveal.rs:803-835).
 +fn check(r: &Run, early: &[RevealOut]) {
 +    let (_, _, before_t) = reveals_out(r);
++    let fails = audit("audit", r);
++    assert!(fails.is_empty(), "needed Reveals / left behind: {fails:?}");
 +    assert!(
 +        before_t == 0 && early.is_empty(),
 +        "secrecy: {before_t} Reveal(s) before drand published T(arrive); validity: {} before THE anchor was on chain",
@@ -258,37 +366,53 @@ index 915abb50..2d06bcb3 100644
 +
 +#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 +async fn ws04_no_reveal_before_anchor_held_anchor() {
++    let Some(want) = normal_revealed().await else {
++        return;
++    };
 +    let Some(r) = scenario(Opts { hold_dest_anchor: Some(20), ..Default::default() }).await else {
 +        return;
 +    };
 +    let early = report("anchor held", &r);
++    same_marches("anchor held", &want, &r);
 +    check(&r, &early);
 +}
 +
 +#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 +async fn ws04_no_reveal_before_anchor_reads_fail() {
++    let Some(want) = normal_revealed().await else {
++        return;
++    };
 +    let Some(r) = scenario(Opts { fail_anchor_reads: Some(20), ..Default::default() }).await else {
 +        return;
 +    };
 +    let early = report("anchor reads fail", &r);
++    same_marches("anchor reads fail", &want, &r);
 +    check(&r, &early);
 +}
 +
 +#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 +async fn ws04_no_reveal_before_anchor_restart() {
++    let Some(want) = normal_revealed().await else {
++        return;
++    };
 +    let Some(r) = scenario(Opts { hold_dest_anchor: Some(20), restart_in_window: true, ..Default::default() }).await else {
 +        return;
 +    };
 +    let early = report("anchor held, keeper restarted", &r);
++    same_marches("anchor held, keeper restarted", &want, &r);
 +    check(&r, &early);
 +}
 +
 +#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 +async fn ws04_no_reveal_before_anchor_retries() {
++    let Some(want) = normal_revealed().await else {
++        return;
++    };
 +    // Versions escalate (slots held below the cap after T(arrive)).
 +    let Some(r) = scenario(Opts { hold_slots: Some((1_900, 10)), peace_start: Some(0.25), ..Default::default() }).await else {
 +        return;
 +    };
 +    let early = report("retries", &r);
++    same_marches("retries", &want, &r);
 +    check(&r, &early);
 +}
