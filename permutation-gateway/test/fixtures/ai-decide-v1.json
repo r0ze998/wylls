@@ -655,7 +655,8 @@
         "science",
         "influence"
       ],
-      "secs_left": 580700
+      "secs_left": 580700,
+      "world_continues": false
     },
     "v": 1,
     "wake_hints": [
