@@ -24,7 +24,13 @@ fn string(v: &Value, k: &str) -> Result<String, String> {
         .ok_or_else(|| format!("missing saved {k}"))
 }
 fn specs(rd: &RunDir, state: &Value) -> Result<BTreeMap<String, Spec>, String> {
-    if state["config"]["conquest"] != true || state["config"]["bots"].as_u64() != Some(0) {
+    // A continuous world keeps going after a run with bots: resume restarts
+    // the world's services (ORDER) and never the bots, so it is allowed;
+    // an ending season keeps the rule (human CQ worlds with bots=0).
+    let continuous = state["config"]["continuous"] == true;
+    if state["config"]["conquest"] != true
+        || (state["config"]["bots"].as_u64() != Some(0) && !continuous)
+    {
         return Err("resume is for persisted human CQ worlds with bots=0".into());
     }
     if !up::live_components(state).is_empty() {
@@ -253,5 +259,16 @@ mod tests {
         assert!(specs(&rd, &json!({"config":{"conquest":true,"bots":0}}))
             .unwrap_err()
             .contains("setup"));
+        // An ending season run with bots stays refused; a continuous world
+        // run with bots passes the rule (here: then refused for no setup).
+        assert!(specs(&rd, &json!({"config":{"conquest":true,"bots":6}}))
+            .unwrap_err()
+            .contains("human"));
+        assert!(specs(
+            &rd,
+            &json!({"config":{"conquest":true,"bots":6,"continuous":true}})
+        )
+        .unwrap_err()
+        .contains("setup"));
     }
 }
