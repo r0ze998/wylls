@@ -32,6 +32,13 @@ pub fn season_cq(season: &[u8]) -> R<ConquestParams> {
     ConquestParams::of_season(season).ok_or(BAD_ACCOUNT)
 }
 
+/// Whether the season is a continuous world (conquest block `CONTINUOUS`
+/// = 1, migration candidate): it never ends, so EndSeason and the season
+/// end paths are never reached. False for any season without the block.
+pub fn is_continuous(season: &[u8]) -> bool {
+    ConquestParams::of_season(season).is_some_and(|c| c.continuous == 1)
+}
+
 /// The season's holding lifecycle timers (MC §3.9, §3.12) as the holding
 /// kernel's `LifecycleParams`.
 pub fn lifecycle(cq: &ConquestParams) -> permutation_rules::frontier::holding::LifecycleParams {

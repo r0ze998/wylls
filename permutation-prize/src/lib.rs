@@ -189,6 +189,10 @@ pub enum PrizeError {
     /// InitPool: the season's `r_max_ceiling` lets ExtendFrontier grow the
     /// map past [`MAX_RING`] (the tally bitmap's rings 0–17).
     CeilingPastTally = 0x111,
+    /// InitPool: the season is a continuous world (conquest `CONTINUOUS` =
+    /// 1). It never reaches Ended, so a pool tied to the season's end could
+    /// never tally, finalize or pay; prizes of war periods are undecided.
+    ContinuousSeason = 0x112,
 }
 
 impl From<PrizeError> for ProgramError {
@@ -444,6 +448,8 @@ fn init_pool(program: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         if key_at(&sd, S::AUTHORITY)? != *operator.key {
             return Err(E::NotOperator.into());
         }
+        // A world that never ends could never reach the Tally.
+        season_ends(&sd)?;
         // A map that may grow past the bitmap could never be tallied whole.
         season_rings_fit(&sd)?;
         (u64_at(&sd, S::SEASON_ID)?, u32_at(&sd, S::END_BELL)?)
@@ -945,6 +951,18 @@ pub fn process_instruction(program: &Pubkey, a: &[AccountInfo], data: &[u8]) -> 
     }
 }
 
+/// InitPool's end check: a continuous world (conquest `CONTINUOUS` = 1)
+/// never reaches Ended, so its pool could never close (`ContinuousSeason`).
+fn season_ends(sd: &[u8]) -> R<()> {
+    let at = frontier_abi::v2::presets::SEASON_CQ_OFFSET
+        + frontier_abi::v2::presets::cq_layout::CONTINUOUS;
+    match sd.get(at) {
+        Some(1) => Err(E::ContinuousSeason.into()),
+        Some(_) => Ok(()),
+        None => Err(E::BadAccount.into()),
+    }
+}
+
 /// InitPool's map check: the season's `r_max` (`BadParams` past
 /// [`MAX_RING`]) and, map growth, its conquest `r_max_ceiling` (0: no
 /// extension; `CeilingPastTally` past [`MAX_RING`]).
@@ -994,6 +1012,18 @@ mod tests {
         );
         assert_eq!(season_rings_fit(&season(18, 0)), Err(E::BadParams.into()));
         assert_eq!(MAX_RING, 17);
+    }
+
+    /// A continuous world has no end for a pool to wait for: refused by
+    /// name; a season that ends is taken as before.
+    #[test]
+    fn a_continuous_world_has_no_season_pool() {
+        let at = frontier_abi::v2::presets::SEASON_CQ_OFFSET
+            + frontier_abi::v2::presets::cq_layout::CONTINUOUS;
+        let mut d = vec![0u8; S::SIZE];
+        assert_eq!(season_ends(&d), Ok(()));
+        d[at] = 1;
+        assert_eq!(season_ends(&d), Err(E::ContinuousSeason.into()));
     }
 
     #[test]
