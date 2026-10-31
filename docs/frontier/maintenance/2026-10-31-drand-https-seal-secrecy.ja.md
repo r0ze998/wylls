@@ -55,6 +55,17 @@
 - 再現：`no_reveal_before_the_anchor_of_its_arrival`（keeper `play.rs`）は修正前のコードで失敗した（`Reveal planned before THE anchor at 1800120030`、ログ `reveal-before-anchor.fail.log`）。既存試験 `reveals_skip_arrivals_at_or_after_end_bell` と `reveal_sources_deduped_by_host_arrive` も、anchor 無し・到着鐘の 30 秒時点で Reveal を計画・送信する前提で書かれていた。
 - 修正：anchor が無ければ material を保持して待つ。上の 2 試験は「anchor あり・鐘の終了後」に書き換えた（試験の意図は保持）。
 - 修正で入れた後退と、その修正：material を anchor まで**メモリだけ**で保持したため、所有者の送信から anchor までの間に keeper が落ちると、keeper 自身では開けない封印（所有者だけが公開する不正封印）の進軍が失われた。`crash_injection_every_journal_point`（通常は ignored、Gate W4 で実行）の `reveal/plaintext#1` が決着 digest の不一致で失敗した（基点では成功、ログ `base-crash-injection.log`）。修正前は material がすぐ Reveal の試行として journal に入っていたため起きなかった。`owner_material` 表で journal に残すようにし、同試験は成功（reveal 22 点、`keeper-play-include-ignored.log`）。単体試験 `held_owner_material_survives_a_restart` を追加。
+- **追加の条件（2026-10-31、利用者の検証要求を受けて）**：RPC が返す anchor だけに頼らないよう、Reveal を作る前に、keeper 自身が `T(arrive)` の署名を drand から取得して固定鍵で検証できていることも必須にした（`Rounds::get`、通常は開封処理で既に取得済み）。あわせて、チェーンから読んだ BellAnchor は bell・region・season が一致しなければ anchor とみなさない（beacon duty と同じ確認。`play.rs` の読取りには無かった）。
+- **送信されたバイト列で確かめる試験**（keeper `play.rs`、擬似 RPC が受け取った全取引の全命令から、Reveal の tag と平文 37 B・salt 32 B の出現を探す）：
+  - `no_plaintext_reaches_the_rpc_without_an_anchor`：anchor が無い。到着鐘の 30 秒時点から窓の終わりまで、同じ slot での再試行も含めて送信しない。
+  - `rpc_read_failures_send_nothing`：RPC の読取りが失敗する。tick は途中で失敗し、送信しない。
+  - `drand_unreachable_sends_nothing_even_with_an_anchor`：anchor はあるが、drand に届かない（検証済みの `T(arrive)` が無い）。
+  - `a_stale_or_foreign_anchor_read_sends_nothing`：正規の住所に、古い鐘・別 season・別 region・program 以外の持ち主の BellAnchor がある。
+  - `an_anchor_read_before_the_round_sends_nothing`：RPC が `T(arrive)` の公開前に anchor を見せる（虚偽、または先行した読取り）。
+  - `restarts_and_resends_send_nothing_before_and_reveal_after`：所有者の再送と再起動（duty も engine も作り直し、journal は同じ）を繰り返しても送信しない。
+  - いずれも、条件がそろった後（anchor があり、`T(arrive)` が検証済み）には Reveal が送られ、その中に平文が入っていることを確かめる。
+  - 変異試験（`mutations.log`）：anchor の条件を外すと 4 件、drand の条件を外すと 2 件、anchor の項目確認を外すと 1 件、journal 保存を外すと 2 件が失敗する。両方の条件を外す（基点相当）と 7 件が失敗する。`rpc_read_failures_send_nothing` は、読取り失敗で tick 全体が止まる既存の性質（`?`）を確かめるもので、新しい条件を外しても失敗しない。
+  - `skipPreflight` は変えていない。送らないことが対策で、preflight はこの不具合の対策にならない（preflight をしても、拒否される取引の内容は RPC 運用者には届く）。
 - material は以前から keeper の journal（Reveal 試行の取引バイト）に公開前から入っていたので、ディスク上の保存は増えていない。運用者を信用する点（I-24）は変わらない。
 - 実チェーンでの確認は未実行（SBF ツールチェーンが無く `.so` を作れない）。
 
