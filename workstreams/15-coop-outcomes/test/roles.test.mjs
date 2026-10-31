@@ -40,8 +40,9 @@ test('the newcomer\'s only goods (50 food) fit no project, yet they are not left
   assert.ok(o.some(x => x.kind === 'open-project'));
 });
 
-test('after the period has closed only waiting is left (options are per period)', () => {
+test('after a window has closed the world goes on: options do not shrink to waiting', () => {
   const v = evaluate(RULESETS.C, load('coop-north-fort'), { asOf: 200 });
-  assert.equal(v.period.closeAt, 144);
-  assert.ok(Object.values(v.options.byActor).every(o => o.options.length === 1 && o.options[0].kind === 'wait'));
+  assert.equal(v.window.closeAt, 144);
+  assert.equal(v.options.inWindow, false);
+  assert.ok(Object.values(v.options.byActor).every(o => o.independent >= 1));
 });

@@ -82,3 +82,18 @@ test('end to end: the adapted page plus ①\'s board inputs judge the joint fort
   const gap = evaluate(RULESETS.B, { state: baseState(), events: [...board, ...events.filter(e => e.seq !== 4)] });
   assert.equal(gap.achievements.joint[0].status, 'indeterminate');
 });
+
+test('two seasons of records, one world: tags, caravan numbers and bells restart per season, so the adapter needs the epoch', () => {
+  const p = page();
+  // Without an epoch, season 2's records collide with season 1's (same ids, same positions, bells going back).
+  const naive = [...fromS1Records(p, resolve).events, ...fromS1Records(p, resolve).events];
+  const v0 = evaluate(RULESETS.B, { state: baseState(), events: naive });
+  assert.equal(v0.diagnostics.duplicates.length > 0, true, 'the second season reads as a repeat of the first');
+  // With the epoch and each season's bells on the world clock (season 2 starts at world bell 480):
+  const e1 = fromS1Records(p, resolve, { epoch: 1 }).events;
+  const e2 = fromS1Records(p, resolve, { epoch: 2, worldBell: b => 480 + b }).events;
+  assert.equal(new Set([...e1, ...e2].map(e => e.id)).size, e1.length + e2.length);
+  assert.ok(e2.every(e => e.at >= 480));
+  const sends = [...e1, ...e2].filter(e => e.kind === 'ship.send').map(e => e.ship);
+  assert.equal(new Set(sends).size, sends.length, 'caravans of both seasons stay distinct');
+});

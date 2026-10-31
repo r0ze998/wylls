@@ -117,15 +117,17 @@ function verdictCard(k, v) {
   return el('section', { class: 'card', 'data-variant': k },
     el('h3', {}, `${k} ${RULESETS[k].note}`),
     el('dl', {},
-      el('dt', {}, '戦期の終わり'), el('dd', {}, `${v.period.closeAt}（${v.period.closedBy === 'schedule' ? '予定どおり' : '共同達成で区切り'}）`),
-      el('dt', {}, '賞金を受け取る国'), el('dd', { class: 'winners' }, `${v.prize.winners.join('・')}（${v.prize.rule}）`),
+      el('dt', {}, '評価期間の終わり'), el('dd', {}, `${v.window.closeAt}（${v.window.closedBy === 'schedule' ? '与えられた期間どおり' : '共同達成でこの評価期間だけを閉じた'}）`),
+      el('dt', {}, '世界'), el('dd', {}, v.world.ends ? '終わる' : '続く（荷・建物・移動中の隊商・計画は引き継がれる）'),
+      el('dt', {}, 'その時点の先頭'), el('dd', { class: 'winners' }, `${v.scores.leaderAtClose.nations.join('・')}（要塞の規則。賞金ではない）`),
+      el('dt', {}, '賞金'), el('dd', {}, v.prize.status === 'not_decided' ? '未決（この比較では決めない）' : `旧経路の互換確認：${v.prize.winners.join('・')}`),
       el('dt', {}, '共同目標'), el('dd', {}, j ? `${STATUS[j.status]}${j.achievedAt !== null ? `（${j.achievedAt}）` : ''}` : '判定しない'),
       el('dt', {}, 'あなた（と国）の記録'), el('dd', {}, mine.length ? mine.map(a => a.goal).join('、') : 'なし'),
     ),
     j ? el('details', {}, el('summary', {}, '共同目標の理由'), reasonList(j.reasons)) : '',
-    v.period.closedBy !== 'schedule' ? el('details', {}, el('summary', {}, '区切りで終わるもの・続くもの'),
-      el('p', {}, '終わる：'), el('ul', {}, v.period.scope.ends.map(s => el('li', {}, s))),
-      el('p', {}, '続く：'), el('ul', {}, v.period.scope.continues.map(s => el('li', {}, s)))) : '');
+    v.window.closedBy !== 'schedule' ? el('details', {}, el('summary', {}, '評価期間を閉じて終わる判定・続くもの'),
+      el('p', {}, '閉じるもの（判定だけ）：'), el('ul', {}, v.window.scope.ends.map(s => el('li', {}, s))),
+      el('p', {}, '続く：'), el('ul', {}, v.window.scope.continues.map(s => el('li', {}, s)))) : '');
 }
 
 function render() {

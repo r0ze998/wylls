@@ -13,8 +13,8 @@ test('A judges no goal and mixes in no unadopted rule', () => {
   for (const n of names) {
     const { A } = all(load(n));
     assert.deepEqual(A.achievements, { joint: [], national: [], personal: [] }, n);
-    assert.equal(A.period.closedBy, 'schedule');
-    assert.equal(A.period.closeAt, A.period.endsAt);
+    assert.equal(A.window.closedBy, 'schedule');
+    assert.equal(A.window.closeAt, A.window.endsAt);
   }
 });
 
@@ -29,8 +29,8 @@ test('no variant adds money; achievements never feed the prize', () => {
 test('D1: B never changes who the prize names; C does exactly when its close moves', () => {
   for (const n of names) {
     const { A, B, C } = all(load(n));
-    assert.deepEqual(B.prize.winners, A.prize.winners, `B on ${n}`);
-    if (C.period.closedBy === 'schedule') assert.deepEqual(C.prize.winners, A.prize.winners, `C on ${n}`);
+    assert.deepEqual(B.scores.leaderAtClose.nations, A.scores.leaderAtClose.nations, `B on ${n}`);
+    if (C.window.closedBy === 'schedule') assert.deepEqual(C.scores.leaderAtClose.nations, A.scores.leaderAtClose.nations, `C on ${n}`);
   }
 });
 
@@ -46,9 +46,9 @@ test('D6: the cooperative fort is an achievement with reasons in B and C, nothin
 
 test('C names what ends and what continues at its close', () => {
   const { C } = all(load('coop-north-fort'));
-  assert.equal(C.period.closedBy, 'joint:J-north-fort');
-  assert.equal(C.period.closeAt, 120 + 24);
-  assert.ok(C.period.scope.ends.length >= 3);
-  assert.ok(C.period.scope.continues.some(s => s.includes('建物')));
-  assert.equal(C.period.trigger.achievedAt, 120);
+  assert.equal(C.window.closedBy, 'joint:J-north-fort');
+  assert.equal(C.window.closeAt, 120 + 24);
+  assert.ok(C.window.scope.ends.length >= 3);
+  assert.ok(C.window.scope.continues.some(s => s.includes('建物')));
+  assert.equal(C.window.trigger.achievedAt, 120);
 });

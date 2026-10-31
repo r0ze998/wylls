@@ -9,13 +9,15 @@ import { codes, joint, load, project, withEvents, without } from './helpers.mjs'
 
 const coop = load('coop-north-fort');
 
-test('an arrival after the period closes does not count; the reason says late', () => {
+test('an arrival after the window closes does not count for it; the caravan is in transit at the close and carries on', () => {
   const v = evaluate(RULESETS.B, load('late-arrival'));
   assert.equal(joint(v).status, 'not_achieved');
   assert.ok(codes(joint(v).reasons).includes('late'));
   const t = project(v).stages.inputs.perResource.wood;
   assert.deepEqual([t.credited, t.late], [300, 200]);
-  assert.equal(v.resources.wood.arrivedLate, 200);
+  assert.deepEqual(v.world.atClose.inTransit, ['c-n3-wood']);
+  assert.equal(v.world.ends, false);
+  assert.ok(Object.values(v.world.atClose.goods).every(g => g.balanced));
 });
 
 test('unverified arrivals are not credited; a shortfall they could close is indeterminate', () => {
@@ -49,13 +51,13 @@ test('a missing record makes the dependent verdicts indeterminate, not failed', 
   assert.deepEqual(v.records.gaps, [{ stream: 'chain', missing: [String(arrival.seq)] }]);
   assert.equal(joint(v).status, 'indeterminate');
   // The same stream carries keeps: a keep record may be missing too, so the prize is not decided either.
-  assert.equal(v.prize.status, 'indeterminate');
+  assert.equal(v.scores.status, 'indeterminate');
   // A gap in a stream declared to carry only the board's records leaves the prize decided.
   const board = coop.events.find(e => e.stream === 'ws01' && e.kind === 'contribute');
   const streams = { ...coop.state.streams, ws01: { from: 0, kinds: ['project.open', 'contribute'] } };
   const v2 = evaluate(RULESETS.B, { state: { ...coop.state, streams }, events: coop.events.filter(e => e !== board) });
   assert.equal(joint(v2).status, 'indeterminate');
-  assert.equal(v2.prize.status, 'decided');
+  assert.equal(v2.scores.status, 'decided');
   // A trailing gap: the source says it sent through seq 30, the evaluator saw fewer.
   const trailing = evaluate(RULESETS.B, { ...coop, state: { ...coop.state, streams: { ...coop.state.streams, chain: { from: 0, through: 30 } } } });
   assert.equal(trailing.records.gaps[0].stream, 'chain');
@@ -65,7 +67,8 @@ test('a gap in the stream that carries keeps makes the prize indeterminate', () 
   const input = load('chapter-no-sabotage');
   const firstKeep = input.events.find(e => e.kind === 'keep.set');
   const v = evaluate(RULESETS.B, withEvents(input, es => es.filter(e => !(e.stream === 'chain' && e.seq === firstKeep.seq - 1))));
-  assert.equal(v.prize.status, 'indeterminate');
+  assert.equal(v.scores.status, 'indeterminate');
+  assert.equal(evaluate(RULESETS.A, withEvents(input, es => es.filter(e => !(e.stream === 'chain' && e.seq === firstKeep.seq - 1)))).prize.status, 'indeterminate', 'A: the legacy prize reading too');
 });
 
 test('impossible order (an arrival without its send, an input before its lot exists) is refused as causality', () => {

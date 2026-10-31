@@ -28,7 +28,7 @@ test('the verdict names the ruleset version and the input it was made from', () 
   assert.equal(v.ruleset.id, 'B-separate-tracks');
   assert.match(v.ruleset.hash, /^[0-9a-f]{64}$/);
   assert.match(v.inputHash, /^[0-9a-f]{64}$/);
-  const bumped = { ...RULESETS.B, version: 2 };
+  const bumped = { ...RULESETS.B, version: RULESETS.B.version + 1 };
   assert.notEqual(evaluate(bumped, input).ruleset.hash, v.ruleset.hash);
   assert.notEqual(evaluate(bumped, input).verdictHash, v.verdictHash);
   const other = withEvents(input, es => es.filter(e => e.kind !== 'structure.seized'));

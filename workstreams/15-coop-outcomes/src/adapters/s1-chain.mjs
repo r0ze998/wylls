@@ -52,20 +52,32 @@ export function placeOf(v) {
  * page, the positions with nothing to derive, and the records whose actors or
  * places `resolve` did not know (left out, and listed, never guessed).
  */
-export function fromS1Records(page, resolve, { stream = 'chain', trust = DEFAULT_TRUST } = {}) {
+/**
+ * Across seasons (the program's Season is still its address context): every
+ * account address, Citizen tag, caravan `seq` and bell number restarts with
+ * a season. For one continuous world give `epoch` (the season id) and
+ * `worldBell(bell)` (that season's bells on the world's clock); ids and the
+ * stream are then namespaced by epoch, and `resolve.actorOfTag(tag, epoch)`
+ * must map each season's tag to the same participant. Places (keeps,
+ * structures) keep their map coordinates as identity.
+ */
+export function fromS1Records(page, resolve, { stream: streamName = 'chain', trust = DEFAULT_TRUST, epoch = null, worldBell = b => b } = {}) {
+  const stream = epoch === null ? streamName : `${streamName}:${epoch}`;
+  const ns = epoch === null ? '' : `${epoch}:`;
+  const actorOfTag = t => resolve.actorOfTag(t, epoch);
   const events = [];
   const skipped = [];
   const unresolved = [];
   const nationOf = resolve.nationOf ?? (f => `n${f}`);
   for (const { seq, sig, record: r } of page) {
     const before = unresolved.length;
-    const base = { stream, seq: Number(seq), at: Number(r.bell ?? r.logBell) };
+    const base = { stream, seq: Number(seq), at: worldBell(Number(r.bell ?? r.logBell)) };
     let sub = 0;
     const emit = (kind, fields, verified = 'chain') => events.push({ id: `${stream}:${seq}:${sub}`, ...base, sub: sub++, kind, verified, ...fields, src: { sig, kind: r.name } });
-    const ship = (tag, s, res) => `cv:${tag}:${s}:${res}`;
+    const ship = (tag, s, res) => `cv:${ns}${tag}:${s}:${res}`;
     switch (r.name) {
       case 'CARAVAN_SENT': {
-        const from = resolve.actorOfTag(r.owner_tag);
+        const from = actorOfTag(r.owner_tag);
         const dst = resolve.destination(placeOf(r.dst), r.owner_tag, r.seq);
         if (!from || !dst) { unresolved.push({ seq, name: r.name, missing: !from ? 'owner' : 'destination' }); break; }
         cargoOf(r.cargo).forEach((q, i) => {
@@ -86,7 +98,7 @@ export function fromS1Records(page, resolve, { stream = 'chain', trust = DEFAULT
         break;
       }
       case 'CARAVAN_RAIDED': {
-        const raider = resolve.actorOfTag(r.raider_tag);
+        const raider = actorOfTag(r.raider_tag);
         if (!raider) { unresolved.push({ seq, name: r.name, missing: 'raider' }); break; }
         const taken = cargoOf(r.taken);
         const sent = resolve.cargoSent?.(r.owner_tag, r.seq) ?? null;
@@ -107,16 +119,16 @@ export function fromS1Records(page, resolve, { stream = 'chain', trust = DEFAULT
         const kind = STRUCTURE_KINDS[Number(r.kind)];
         const project = resolve.projectOfStructure(r.p, r.q, r.tile);
         if (!kind || !project) { skipped.push({ seq, name: r.name, why: project ? 'kind' : 'no project links this structure' }); break; }
-        emit('build.complete', { project, structure: `st:${r.p},${r.q},${r.tile}`, structureKind: kind, by: resolve.actorOfTag(r.owner_tag) ?? `tag:${r.owner_tag}` });
+        emit('build.complete', { project, structure: `st:${r.p},${r.q},${r.tile}`, structureKind: kind, by: actorOfTag(r.owner_tag) ?? `tag:${r.owner_tag}` });
         break;
       }
       case 'STRUCTURE_SEIZED': {
-        const by = resolve.actorOfTag(r.captor_tag);
+        const by = actorOfTag(r.captor_tag);
         emit('structure.seized', { structure: `st:${r.p},${r.q},${r.tile}`, by: by ?? `tag:${r.captor_tag}` });
         break;
       }
       case 'FORT_GARRISONED': {
-        const actor = resolve.actorOfTag(r.owner_tag);
+        const actor = actorOfTag(r.owner_tag);
         if (!actor) { unresolved.push({ seq, name: r.name, missing: 'owner' }); break; }
         emit('use', { structure: `st:${r.p},${r.q},${r.tile}`, actor, how: 'garrison', qty: Number(r.troops) });
         break;

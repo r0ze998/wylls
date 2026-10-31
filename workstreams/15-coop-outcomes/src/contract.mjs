@@ -58,6 +58,8 @@ export const REASONS = Object.freeze({
   // records
   duplicate: '同じ id・同じ中身の記録がもう一度来た。一度だけ数えた',
   conflict: '同じ id で中身の違う記録がある。どちらも使わない',
+  replayed: 'この記録はもう適用済み（保存した状態からの再開で、同じ記録がもう一度来た）。二度は適用しない',
+  earlier_window: 'これより前の評価期間で達成済み。この期間では数えない（同じ達成を二度数えない）',
   missing_records: 'この記録の流れに欠けた番号がある。欠けた後の記録に頼る判定は断定しない',
   malformed: '必須の欄が欠けているか、型が違う',
   unknown_kind: '契約にない種類の記録',

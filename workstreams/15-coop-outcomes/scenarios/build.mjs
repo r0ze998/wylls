@@ -37,7 +37,7 @@ function coop(s, { n3WoodAt = 40, n3Travel = 15, n3Verified = 'chain', n2StoneVe
 const n1Overtakes = (s, at = 300) => s.add(at, 'keep.set', { keep: 'k0', nation: 'n1' }).add(at, 'keep.set', { keep: 'k1', nation: 'n1' });
 
 const S = {};
-const def = (name, description, state, script) => { S[name] = { name, description, state, events: script.events }; };
+const def = (name, description, state, script, windows) => { S[name] = { name, description, state, events: script.events, ...(windows ? { windows } : {}) }; };
 
 def('coop-north-fort', '協力の基本形。n1 が計画を開き、n2・n3 が隊商で材料を送り、完成後に n1 と n2 の人が守備に入る。要塞の数は動かない',
   baseState(), coop(new Script()));
@@ -200,6 +200,35 @@ def('sybil-labelled', '本人識別（その2）。同じ別アカウントに�
   s.add(55, 'tower.report.used', { sighting: 'sg-1', actor: 'n1-1' }, { stream: 'ws14', verified: 'derived' });
   def('coop-with-tower', '⑭の塔の入力つき。協力の基本形に、n4-0 の塔の目撃と、それを n1-1 が使った記録を足す',
     { ...baseState(), streams: { chain: { from: 0 }, ws01: { from: 0 }, ws14: { from: 0 } } }, s);
+}
+
+{
+  // Two evaluation windows given as input (their length is not a decision of this evaluator).
+  const s = new Script();
+  s.add(100, 'keep.set', { keep: 'k0', nation: 'n1' });
+  s.add(140, 'project.open', { project: 'P-pal', goal: 'own', structure: 'palisade', steward: 'n2-1' }, { stream: 'ws01' });
+  for (const [r, q] of [['wood', 200], ['stone', 100], ['gold', 20]]) s.give(141, 'P-pal', 'n2-1', init('n2-1', r), q);
+  s.add(150, 'build.complete', { project: 'P-pal', structure: 'S-pal' });
+  s.add(160, 'use', { structure: 'S-pal', actor: 'n4-0', how: 'pass' });
+  s.add(200, 'project.open', { project: P, goal: J, structure: 'fort', steward: 'n1-0' }, { stream: 'ws01' });
+  for (const [r, q] of [['wood', 300], ['stone', 300], ['arms', 30], ['gold', 100]]) s.give(205, P, 'n1-0', init('n1-0', r), q);
+  s.ship(210, 'c-n2-stone', 'n2-0', `project:${P}`, 'stone', 300);
+  s.ship(210, 'c-n2-gold', 'n2-0', `project:${P}`, 'gold', 50);
+  // These leave before the boundary (240) and arrive after it.
+  s.ship(230, 'c-n3-wood', 'n3-0', `project:${P}`, 'wood', 200, { travel: 20 });
+  s.ship(230, 'c-n3-stone', 'n3-0', `project:${P}`, 'stone', 200, { travel: 20 });
+  s.ship(230, 'c-n3-arms', 'n3-0', `project:${P}`, 'arms', 20, { travel: 20 });
+  s.ship(230, 'c-n3-gold', 'n3-0', `project:${P}`, 'gold', 50, { travel: 20 });
+  // A caravan sent before the boundary is raided after it; another is still moving at the last bell.
+  s.add(235, 'ship.send', { ship: 'c-n4-food', from: 'n4-0', to: 'n5-0', resource: 'food', qty: 200 });
+  s.add(245, 'ship.raid', { ship: 'c-n4-food', raider: 'n0-2', taken: 150, burned: 50 });
+  s.add(238, 'ship.send', { ship: 'c-n5-ore', from: 'n5-0', to: 'n3-1', resource: 'ore', qty: 100 });
+  s.add(260, 'build.complete', { project: P, structure: 'S-north-fort' });
+  s.add(270, 'use', { structure: 'S-north-fort', actor: 'n1-1', how: 'garrison' });
+  s.add(280, 'use', { structure: 'S-north-fort', actor: 'n2-1', how: 'garrison' });
+  s.add(300, 'keep.set', { keep: 'k1', nation: 'n1' });
+  def('boundary-crossing', '評価期間の境界（240）をまたぐ世界。境界の前に開いた計画と出発した隊商が、境界の後に着き・完成し・使われる。境界の後に襲われる隊商、最後まで移動中の隊商がある',
+    { ...baseState(), period: undefined, at: 0 }, s, [{ id: 'W1', opensAt: 0, endsAt: 240 }, { id: 'W2', opensAt: 240, endsAt: 480 }]);
 }
 
 const dir = dirname(fileURLToPath(import.meta.url));

@@ -11,9 +11,11 @@ export const S1_COSTS = Object.freeze({
   fort: { wood: 500, stone: 800, arms: 50, gold: 200 },
 });
 
-/** What variant A reads: the prize program's decided and provisional rules (permutation-prize lib.rs `provisional::RULES`). */
-const BASELINE_PRIZE = Object.freeze({
-  winner: 'most keeps held when the period closes (decided)',
+/** What variant A reads: the prize program's decided and provisional rules (permutation-prize lib.rs
+ * `provisional::RULES`), as a compatibility check of the legacy season-end path only. */
+const LEGACY_PRIZE = Object.freeze({
+  kind: 'legacy-season-end',
+  winner: 'most keeps held when the season has ended (decided in the code)',
   tie: 'more territory bells; still tied: the tied nations share (provisional)',
   newMoney: 0,
 });
@@ -46,35 +48,38 @@ const PERSONAL = Object.freeze([
   { id: 'P-scout', kind: 'scout', label: '塔で見たことが、他の人に使われた（⑭の塔の入力があるときだけ）' },
 ]);
 
-const KEEPS_RESET = '勝敗の砦（要塞）は中立に、国どうしの戦争の状態は戦争なしに戻る（23 の C 案、提案）';
-const CONTINUES = ['村・建物・倉と中身（荷）', '国の所属と国の設定', '記録と実績', '移動中の隊商（次の戦期に着く）'];
+/** What carries on past any window's close, in every variant: the world has no end. */
+const CONTINUES = ['村・土地・建物・倉と中身（荷）', '移動中の隊商（次の評価期間に着く）', '未完成の計画とそこに入れた材料', '国の所属と国の設定', '記録・実績・履歴'];
+const UNDECIDED = '戦期に何を集計するか、要塞や戦争の状態を戻すか、賞金をどう扱うかは未決定（この評価器は決めない）';
 
 export const RULESETS = Object.freeze({
   A: Object.freeze({
-    id: 'A-baseline-competitive', version: 1, variant: 'A',
-    note: '現行コードの勝ち方だけ。目標は判定しない',
-    costs: S1_COSTS, prize: BASELINE_PRIZE,
+    id: 'A-baseline-competitive', version: 2, variant: 'A', status: 'legacy-compat',
+    note: '現行コードの勝ち方だけ（旧経路の互換確認）。目標は判定しない',
+    costs: S1_COSTS, prize: LEGACY_PRIZE,
     joint: [], national: null, personal: [],
     close: { kind: 'schedule' },
-    scope: { ends: ['要塞の数を数え、賞金の勝者を決める（現行：Season を Ended にして Tally・Finalize）'], continues: ['現行コードではシーズンの後の世界は続かない（23 の C 案は未実装）'] },
+    scope: { ends: ['旧経路の確認として、評価期間の終わりに要塞の数で勝者を読む（現行プログラムは Season を Ended にして Tally・Finalize する。新しい世界を終える根拠にはしない）'], continues: CONTINUES },
     slotBy: 'cluster',
   }),
   B: Object.freeze({
-    id: 'B-separate-tracks', version: 1, variant: 'B',
-    note: '共同・国・個人を別々に判定。共同達成では戦期も世界も終わらない',
-    costs: S1_COSTS, prize: BASELINE_PRIZE,
+    id: 'B-separate-tracks', version: 2, variant: 'B', status: 'comparison-only',
+    note: '共同・国・個人を別々に判定。共同達成では評価期間も世界も閉じない',
+    costs: S1_COSTS, prize: null,
     joint: [JOINT_NORTH_FORT], national: NATIONAL, personal: PERSONAL,
     close: { kind: 'schedule' },
-    scope: { ends: ['予定の時刻に戦期が閉じ、要塞の数で勝者を決める', KEEPS_RESET, 'この戦期の目標の判定'], continues: [...CONTINUES, '未完成の共同計画に入れた材料（次の戦期に持ち越して数えるかは未決）'] },
+    scope: { ends: ['この評価期間の目標の判定（与えられた期間の終わりで）', UNDECIDED], continues: CONTINUES },
     slotBy: 'cluster',
+    carryInputs: true,
   }),
   C: Object.freeze({
-    id: 'C-joint-chapter', version: 1, variant: 'C',
-    note: '共同達成（利用まで）が成立すると、予告の後に戦期を区切る',
-    costs: S1_COSTS, prize: BASELINE_PRIZE,
+    id: 'C-joint-window', version: 2, variant: 'C', status: 'comparison-only',
+    note: '比較案（未採用）：共同達成（利用まで）が成立すると、予告の後にこの評価期間だけを閉じる。世界は閉じない',
+    costs: S1_COSTS, prize: null,
     joint: [JOINT_NORTH_FORT], national: NATIONAL, personal: PERSONAL,
-    close: { kind: 'joint-chapter', goal: 'J-north-fort', noticeBells: 24 },
-    scope: { ends: ['共同達成から予告の鐘数の後（予定の終わりより遅くはならない）に戦期が閉じ、その時点の要塞の数で勝者を決める', KEEPS_RESET, 'この戦期の目標の判定', '共同目標は次の章へ進む（次の章の中身は範囲外）'], continues: [...CONTINUES, '完成した共同の建物'] },
+    close: { kind: 'joint-window', goal: 'J-north-fort', noticeBells: 24 },
+    scope: { ends: ['この評価期間の目標の判定（共同達成から予告の鐘数の後。与えられた期間の終わりより遅くはならない）', '閉じた後、与えられた期間の残りはどの評価期間でも判定しない（報告する）', UNDECIDED], continues: [...CONTINUES, '完成した共同の建物'] },
     slotBy: 'cluster',
+    carryInputs: true,
   }),
 });

@@ -1,6 +1,15 @@
-# イベント・目標・判定結果の契約（版 0、草案）
+# イベント・目標・判定結果の契約（版 1、草案）
 
 ①（依頼）・④（実行と到着の確定）・⑭（塔）と共有するための草案。コードの正本は [src/contract.mjs](../src/contract.mjs)（入力）と [src/evaluate.mjs](../src/evaluate.mjs)（判定結果）。食い違えばコードが正しい。
+
+## 0. 版 1 での変更（2026-10-31、世界は続く）
+
+- 入力は `{state, events, windows}`。`state` は**ある鐘の世界**（`state.at`）で、期間の始まりではない。`events` は一つの続く記録。`windows: [{id, opensAt, endsAt}]` は評価期間で、外から与える（評価器は長さも周期も決めない。重なりは拒否する）。旧形式の `state.period` は、評価期間が一つの入力として読む。
+- 判定は評価期間ごと（`evaluate(ruleset, input, {window})`）、または一連で（`evaluateSeries`）。評価期間 `[opensAt, endsAt)` は半開区間。
+- 判定結果の `period` は `window` に名前を変えた。`window.unevaluated`（C が早く閉じた残り）を足した。`world`（`ends: false`、閉じた時点の収支・移動中・未完成・digest）を足した。`scores.leaderAtClose`・`scores.status` を足した。`prize` は A だけが旧経路として読み、B・C は `not_decided`。
+- 世界の保存と再開：`snapshotOf(W, at)`、`buildWorld({resume})`。流れごとの適用済みの範囲を保存する。再開の後に同じ記録が来れば `replayed`。
+- 理由の符号を足した：`replayed`、`earlier_window`（前の評価期間で達成済み）。共同目標の状態に `achieved_earlier` を足した。
+- 複数のシーズンにまたがるチェーンの記録は、adapter に `epoch`（と S1 では `worldBell`）を渡す。id と流れが期ごとに分かれ、tag は `actorOfTag(tag, epoch)` で同じ参加者に写す。
 
 ## 1. 入力：`{state, events}`
 

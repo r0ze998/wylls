@@ -23,7 +23,10 @@ export const VERIFICATION = Object.freeze({
   KnownZero: 'chain',
 });
 
-export function fromRunReceipts(receipts, map, { stream = 'ws04', ruleDerivedAs = 'chain_lower_bound' } = {}) {
+// Slots are the chain's own clock and do not restart with a season; Citizen tags and caravan
+// numbers do, so for receipts from more than one season give `epoch` (ids are namespaced by it).
+export function fromRunReceipts(receipts, map, { stream = 'ws04', ruleDerivedAs = 'chain_lower_bound', epoch = null } = {}) {
+  const ns = epoch === null ? '' : `${epoch}:`;
   const events = [];
   const skipped = [];
   // ④ removes duplicates by sig ‖ instruction position ‖ log position; its `source` names that.
@@ -44,7 +47,7 @@ export function fromRunReceipts(receipts, map, { stream = 'ws04', ruleDerivedAs 
     const s = seqOf.get(k);
     let sub = 0;
     const emit = (kind, fields, verified) => events.push({ id: `${stream}:${s}:${sub}`, stream, seq: s, sub: sub++, at, kind, verified, ...fields, src: { source: r.source } });
-    const ship = res => `cv:${b.owner_tag}:${b.seq}:${res}`;
+    const ship = res => `cv:${ns}${b.owner_tag}:${b.seq}:${res}`;
     if (r.kind === 'caravan_sent') {
       const from = map.actorOfTag(b.owner_tag);
       const dst = map.destination(b.dst, b.owner_tag, b.seq);

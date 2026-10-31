@@ -69,10 +69,11 @@ test('R5/R6: the founder goal is undecided behind a gap, and own goods passed th
 test('R7: in C, an undecided joint goal leaves the close and the prize undecided', () => {
   const v = evaluate(RULESETS.C, without(load('chapter-no-sabotage'), e => e.id === 'ws01:1'));
   const g = evaluate(RULESETS.C, withEvents(load('chapter-no-sabotage'), es => es.filter(e => e.id !== 'ws01:1')));
-  assert.equal(v.period.status, 'closed', 'without that input (renumbered) the fort is simply short');
+  assert.equal(v.window.status, 'closed', 'without that input (renumbered) the fort is simply short');
   assert.equal(joint(g).status, 'indeterminate');
-  assert.equal(g.period.status, 'close_indeterminate');
-  assert.equal(g.prize.status, 'indeterminate');
+  assert.equal(g.window.status, 'close_indeterminate');
+  assert.equal(g.scores.status, 'indeterminate');
+  assert.equal(g.prize.status, 'not_decided', 'C decides no prize at all');
 });
 
 test('R8: ①\'s first link wins by link time across requests', () => {

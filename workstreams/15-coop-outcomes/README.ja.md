@@ -6,16 +6,23 @@
 
 ## 結論
 
-| | A 現行の競争 | B 別々に判定 | C 共同達成で区切る |
+**2026-10-31 の訂正：世界は続く。** 評価器は世界を終わらせない。評価期間（戦期）は外から与える入力で、閉じるのは判定だけ。
+- 荷・建物・移動中の隊商・未完成の計画・記録は、次の評価期間へ引き継がれる。
+- C は「評価期間だけを閉じる比較案（未採用）」に変えた。
+- B・C は賞金を決めない（未決）。A の賞金は旧経路の互換確認だけ。
+
+変更の詳細は [docs/07-continuity.ja.md](docs/07-continuity.ja.md)。
+
+| | A：現行の競争（旧経路の互換確認） | B：別々に判定 | C：共同達成で評価期間だけを閉じる（比較案） |
 |---|---|---|---|
 | 協力が記録に残る | 残らない | 理由つきで残る | 理由つきで残る |
-| 共同達成が賞金の受取国を変える | — | 変えない（15/15） | 変える（早く閉じた 8 のうち 3） |
+| 世界が終わる | 終わらない | 終わらない | 終わらない |
+| 共同達成が、閉じた時点の要塞の先頭を変える | — | 変えない（16/16） | 変える（早く閉じた 9 のうち 3） |
 | 先行国の早期終了 | — | できない | 一国だけならできない。従う国を使えば、または印のない別アカウントならできる |
-| 不利な国の妨害 | — | 達成が遅れるだけ | 終わりの時刻と受取国が動く |
-| 待つ・従う以外の選択 | ある（目標なし） | ある（目標あり） | ある（区切りまで） |
-| 今のコードで成り立つか | そのまま | 評価器だけで判定できる。「続くもの」は戦期の実装が前提 | プログラムの変更が要る |
+| 不利な国の妨害 | — | 達成が遅れるだけ | 閉じる時刻と先頭が動く |
+| 待つ・従う以外の選択 | ある（目標なし） | ある（目標あり） | ある |
 
-模型の上では、**B が、協力に意味を持たせつつ勝敗を動かさない**。C は区切りの物語を作れる。しかし、終わりの時刻を握ることが勝敗を左右し、早期終了と妨害の動機を生んだ。採否の判断に要る点は [06](docs/06-conflicts-decisions.ja.md) の Q1〜Q8 にある。
+模型の上では、**B が、協力に意味を持たせつつ勝敗を動かさない**。C は評価期間だけを閉じても、閉じる時刻を握ることが先頭を左右し、早期終了と妨害の動機が残った。採否の判断に要る点は [06](docs/06-conflicts-decisions.ja.md) の Q1〜Q8 と [07](docs/07-continuity.ja.md) の M1〜M8 にある。
 
 ## 中身
 
@@ -27,10 +34,11 @@
 | [docs/04-variants.ja.md](docs/04-variants.ja.md) | 3案の定義と得失 |
 | [docs/05-results.ja.md](docs/05-results.ja.md) | 試験の結果と予測の当たり外れ |
 | [docs/06-conflicts-decisions.ja.md](docs/06-conflicts-decisions.ja.md) | 既存ルールとの衝突、採用に必要な判断、文書とコードの食い違い |
+| [docs/07-continuity.ja.md](docs/07-continuity.ja.md) | 世界を終わらせない評価への訂正：残っていたシーズン依存、変えた挙動、試験、残る移行の判断 |
 | `src/` | 評価器：`contract`（入力）・`ledger`（記録の検査と正準の並び）・`world`（荷・隊商・計画・建物）・`goals`（共同・国・個人）・`evaluate`（判定結果・賞金・選択肢）・`rulesets`（A/B/C） |
 | `src/adapters/` | `s1-chain`（S1 の記録）、`ws01`（①の依頼の板）、`ws04`（④の Run Receipt）、`ws14`（⑭の塔、任意） |
-| `scenarios/` | 固定入力 15 件（`build.mjs` で生成、試験で一致を確認） |
-| `test/` | `node --test` の 53 件（独立した見直しで見つけた不具合の再現を含む）、画面の確認 `play.browser.mjs` |
+| `scenarios/` | 固定入力 16 件（`build.mjs` で生成、試験で一致を確認）。`long.mjs` は長期の世界を固定の種で作る |
+| `test/` | `node --test` の 62 件（境界・再開の確認、見直しで見つけた不具合の再現を含む）、画面の確認 `play.browser.mjs`、長期の確認 `long-run.mjs` |
 | `play/` | 手で遊べる比較の画面 |
 | `bin/` | `eval.mjs`（1件を判定）、`compare.mjs`（全件の比較表） |
 | `results/` | 実行ログ、比較表、画面の画像 |
@@ -43,6 +51,7 @@
 node --test workstreams/15-coop-outcomes/test/*.test.mjs
 node workstreams/15-coop-outcomes/bin/eval.mjs workstreams/15-coop-outcomes/scenarios/rush-clients-own.json B C
 node workstreams/15-coop-outcomes/bin/compare.mjs
+node workstreams/15-coop-outcomes/test/long-run.mjs 160   # 長期（数十秒）
 # 画面（127.0.0.1 だけで待ち受ける）
 node workstreams/15-coop-outcomes/play/serve.mjs 8715   # → http://127.0.0.1:8715/workstreams/15-coop-outcomes/play/
 node workstreams/15-coop-outcomes/test/play.browser.mjs # Playwright と Chromium が要る

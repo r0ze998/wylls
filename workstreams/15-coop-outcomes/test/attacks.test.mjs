@@ -13,15 +13,15 @@ test('H3: one leading nation alone cannot end the period early in C', () => {
   const v = all(load('rush-solo'));
   assert.equal(joint(v.C).status, 'not_achieved');
   assert.deepEqual(codes(joint(v.C).reasons), ['diversity']);
-  assert.equal(v.C.period.closedBy, 'schedule');
-  assert.deepEqual(v.C.prize.winners, v.A.prize.winners);
+  assert.equal(v.C.window.closedBy, 'schedule');
+  assert.deepEqual(v.C.scores.leaderAtClose.nations, v.A.scores.leaderAtClose.nations);
 });
 
 test('H4 (shipped goods): goods n0 passes to client nations still count as n0\'s', () => {
   const v = evaluate(RULESETS.C, load('rush-clients-laundered'));
   assert.equal(joint(v).status, 'not_achieved');
   assert.deepEqual(project(v).stages.diversity.qualifying, ['n0']);
-  assert.equal(v.period.closedBy, 'schedule');
+  assert.equal(v.window.closedBy, 'schedule');
   // The same input with holder attribution would let it through: the protection is the origin rule.
   const holder = { ...RULESETS.C, joint: [{ ...RULESETS.C.joint[0], attribution: 'holder' }] };
   const h = evaluate(holder, load('rush-clients-laundered'));
@@ -31,17 +31,17 @@ test('H4 (shipped goods): goods n0 passes to client nations still count as n0\'s
 test('H4 (own goods, paid off in food): C cannot tell, and the leader ends the period while ahead (failure of C, as predicted)', () => {
   const v = all(load('rush-clients-own'));
   assert.equal(joint(v.C).status, 'achieved');
-  assert.equal(v.C.period.closedBy, 'joint:J-north-fort');
-  assert.equal(v.C.period.closeAt, 96);
-  assert.deepEqual(v.C.prize.winners, ['n0']);
-  assert.deepEqual(v.A.prize.winners, ['n1'], 'without the early close n1 overtakes at 300');
-  assert.deepEqual(v.B.prize.winners, ['n1'], 'B: the same cooperation does not move the prize');
+  assert.equal(v.C.window.closedBy, 'joint:J-north-fort');
+  assert.equal(v.C.window.closeAt, 96);
+  assert.deepEqual(v.C.scores.leaderAtClose.nations, ['n0']);
+  assert.deepEqual(v.A.scores.leaderAtClose.nations, ['n1'], 'without the early close n1 overtakes at 300');
+  assert.deepEqual(v.B.scores.leaderAtClose.nations, ['n1'], 'B: the same cooperation does not move the prize');
 });
 
 test('H5: unlabelled alternate accounts pass the diversity check (not preventable on model data alone)', () => {
   const u = all(load('sybil-unlabelled'));
   assert.equal(joint(u.C).status, 'achieved');
-  assert.deepEqual(u.C.prize.winners, ['n0']);
+  assert.deepEqual(u.C.scores.leaderAtClose.nations, ['n0']);
   assert.equal(u.C.identity.productionGuarantee, false);
   const l = evaluate(RULESETS.C, load('sybil-labelled'));
   assert.equal(joint(l).status, 'not_achieved');
@@ -51,11 +51,11 @@ test('H5: unlabelled alternate accounts pass the diversity check (not preventabl
 test('H7: obstruction by the losing nation moves the close (and the prize) in C, only the achievement in B', () => {
   const ok = all(load('chapter-no-sabotage'));
   const sab = all(load('chapter-sabotage'));
-  assert.equal(ok.C.period.closeAt, 144);
-  assert.deepEqual(ok.C.prize.winners, ['n1']);
-  assert.equal(sab.C.period.closeAt, 480);
-  assert.deepEqual(sab.C.prize.winners, ['n0']);
-  assert.deepEqual(ok.B.prize.winners, sab.B.prize.winners, 'B: the prize does not depend on the obstruction');
+  assert.equal(ok.C.window.closeAt, 144);
+  assert.deepEqual(ok.C.scores.leaderAtClose.nations, ['n1']);
+  assert.equal(sab.C.window.closeAt, 480);
+  assert.deepEqual(sab.C.scores.leaderAtClose.nations, ['n0']);
+  assert.deepEqual(ok.B.scores.leaderAtClose.nations, sab.B.scores.leaderAtClose.nations, 'B: the prize does not depend on the obstruction');
   assert.equal(joint(sab.B).status, 'not_achieved');
   assert.ok(codes(joint(sab.B).reasons).includes('seized'));
   // The raid itself is a legitimate path for the raider (non-domestic).

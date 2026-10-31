@@ -1,0 +1,129 @@
+{
+ "note": "Local measurement on this machine (Node, no chain). Time per window should stay of the same order as the history grows (no replay from the start per window). Saved-world size grows with live state and with history (keep changes, empty lots); see the decision list.",
+ "PATH_KEEP": 16,
+ "small": {
+  "windows": 40,
+  "events": 1469,
+  "totalMs": 881,
+  "perWindowMs": 22,
+  "sizes": [
+   {
+    "window": 10,
+    "bytes": 61753,
+    "parts": {
+     "lots": 32871,
+     "projects": 6145,
+     "alias": 8837,
+     "fungible": 6961
+    },
+    "lots": 156,
+    "emptyLots": 0,
+    "ships": 1,
+    "keepHistory": 14,
+    "maxPath": 3
+   },
+   {
+    "window": 20,
+    "bytes": 90918,
+    "parts": {
+     "lots": 43318,
+     "projects": 12829,
+     "alias": 17335,
+     "fungible": 8117
+    },
+    "lots": 186,
+    "emptyLots": 0,
+    "ships": 0,
+    "keepHistory": 16,
+    "maxPath": 3
+   },
+   {
+    "window": 39,
+    "bytes": 148399,
+    "parts": {
+     "lots": 61883,
+     "projects": 27935,
+     "structures": 5521,
+     "alias": 33610,
+     "fungible": 10150
+    },
+    "lots": 238,
+    "emptyLots": 0,
+    "ships": 1,
+    "keepHistory": 21,
+    "maxPath": 3
+   }
+  ],
+  "boundaries": 39,
+  "allBalanced": true,
+  "restartChecked": 3,
+  "restartAllMatch": true,
+  "achievedBuilds": 12
+ },
+ "large": {
+  "windows": 160,
+  "events": 5889,
+  "totalMs": 10056,
+  "perWindowMs": 62.8,
+  "sizes": [
+   {
+    "window": 40,
+    "bytes": 150072,
+    "parts": {
+     "lots": 62504,
+     "projects": 28201,
+     "structures": 5521,
+     "alias": 34473,
+     "fungible": 10189
+    },
+    "lots": 239,
+    "emptyLots": 0,
+    "ships": 0,
+    "keepHistory": 21,
+    "maxPath": 3
+   },
+   {
+    "window": 80,
+    "bytes": 258317,
+    "parts": {
+     "lots": 86403,
+     "projects": 62587,
+     "structures": 11101,
+     "raids": 7370,
+     "alias": 69347,
+     "fungible": 13170
+    },
+    "lots": 314,
+    "emptyLots": 0,
+    "ships": 1,
+    "keepHistory": 36,
+    "maxPath": 3
+   },
+   {
+    "window": 159,
+    "bytes": 454361,
+    "parts": {
+     "lots": 111394,
+     "projects": 132739,
+     "structures": 22317,
+     "keepHistory": 4121,
+     "raids": 17850,
+     "settledShips": 4364,
+     "alias": 141448,
+     "fungible": 16233
+    },
+    "lots": 391,
+    "emptyLots": 0,
+    "ships": 1,
+    "keepHistory": 61,
+    "maxPath": 3
+   }
+  ],
+  "boundaries": 159,
+  "allBalanced": true,
+  "restartChecked": 15,
+  "restartAllMatch": true,
+  "achievedBuilds": 35
+ },
+ "perWindowRatio": 2.85
+}
