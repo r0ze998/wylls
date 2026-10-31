@@ -3,8 +3,8 @@
 //! Loads `keeper.toml` (M1 contract §8.2), takes the process lock of its
 //! journal, reconciles in-flight attempts, then ticks once per slot against
 //! the first RPC URL (the local chain node or a validator) and the drand
-//! URLs (`drand-replay` on loopback; HTTPS endpoints wait for a TLS client,
-//! W1-F request R4). The loopback API serves when `api` is set, with the
+//! URLs (`drand-replay` on loopback over http, or live drand over https
+//! through fclient's verified curl GET; the chain is pinned, see below). The loopback API serves when `api` is set, with the
 //! `/v1/reveal` accept path reading the same RPC (W3-C).
 //! `--init-seed` writes a fresh 32-byte master seed (mode 0600) and exits.
 //! With `FRONTIER_KEEPER_TICK_LOG=1` every tick prints one `TICK` line to
@@ -15,7 +15,7 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use fclient::beacon::{parse_info_json, HttpDrand};
+use fclient::beacon::HttpDrand;
 use fclient::rpc::RpcPort;
 use keeper_core::config::KeeperConfig;
 use keeper_core::journal::{self, Journal};
@@ -136,31 +136,32 @@ async fn main() {
         eprintln!("keeper.toml: `drand` is empty");
         std::process::exit(2)
     }
-    // Chain info from the first drand URL that answers (drand-replay serves
-    // the test key's info in --test-key mode, I-53).
+    // The pinned chain the drand URLs serve: quicknet, or the I-53 test key
+    // when every URL is loopback (drand-replay --test-key). Served info that
+    // differs from the pin in any field is refused (live drand over https
+    // goes through fclient's verified curl GET).
+    let pins = fclient::beacon::pins_for(&cfg.drand);
     let mut info = None;
+    let mut why = String::new();
     for _attempt in 0..40 {
-        for u in &cfg.drand {
-            let url = format!("{}/info", u.trim_end_matches('/'));
-            if let Ok(r) = fclient::http::get(&url).await {
-                if let Some(i) = serde_json::from_slice(&r.body)
-                    .ok()
-                    .and_then(|v| parse_info_json(&v))
-                {
-                    info = Some(i);
-                    break;
-                }
+        match fclient::beacon::discover_pinned(&cfg.drand, &pins).await {
+            Ok(i) => {
+                info = Some(i);
+                break;
             }
-        }
-        if info.is_some() {
-            break;
+            Err(e) => why = e,
         }
         tokio::time::sleep(Duration::from_millis(250)).await;
     }
     let Some(info) = info else {
-        eprintln!("no drand URL answered /info");
+        eprintln!("no drand URL served a pinned chain: {why}");
         std::process::exit(1)
     };
+    eprintln!(
+        "frontier-keeper: drand chain {} ({})",
+        hex::encode(info.chain_hash),
+        info.beacon_id
+    );
     let port = RpcPort::localnet(rpc.clone(), cfg.program);
     // The `/v1/reveal` accept path reads the chain through its own client.
     let gate: std::sync::Arc<dyn keeper_core::reveal_accept::RevealGate> =
