@@ -161,12 +161,12 @@ pub fn world(
     max_units: u32,
     policies: crate::policy::Policies,
 ) -> (
-    crate::ledger::World<crate::custody::MockCustody>,
+    crate::ledger::Harness<crate::custody::MockCustody>,
     crate::model::FacilityId,
 ) {
-    use crate::ledger::{Op, World};
+    use crate::ledger::{Harness, Op};
     use crate::model::GrantId;
-    let mut w = World::new(crate::custody::MockCustody::default());
+    let mut w = Harness::new(crate::custody::MockCustody::default());
     w.add_facility(facility(workshops));
     let f = w.facilities[&SITE_A].id();
     w.apply(

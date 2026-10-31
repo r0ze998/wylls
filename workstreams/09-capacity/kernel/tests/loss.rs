@@ -4,7 +4,7 @@ use permutation_rules::fixed::MILLI;
 use permutation_rules::frontier::arms::ARMS;
 use permutation_rules::frontier::holding::{Resource, HOUR};
 use wylls_capacity::custody::{Custody, MockCustody};
-use wylls_capacity::ledger::{Op, Outcome, Phase, World};
+use wylls_capacity::ledger::{Harness, Op, Outcome, Phase};
 use wylls_capacity::model::{FacilityId, GrantId, JobId, Place};
 use wylls_capacity::policy::{LossPolicy, Policies};
 use wylls_capacity::testkit::*;
@@ -13,7 +13,7 @@ use wylls_capacity::CapError;
 const S: i64 = T0 + HOUR;
 
 /// B's job 1: 2 copies, 20 arms over [S, S + 3 h), fully fed.
-fn running(loss: LossPolicy) -> (World<MockCustody>, FacilityId, JobId) {
+fn running(loss: LossPolicy) -> (Harness<MockCustody>, FacilityId, JobId) {
     let (mut w, f) = world(
         3,
         2,
@@ -61,7 +61,7 @@ fn running(loss: LossPolicy) -> (World<MockCustody>, FacilityId, JobId) {
 }
 
 fn at(
-    w: &World<MockCustody>,
+    w: &Harness<MockCustody>,
     p: Place,
     r: Resource,
 ) -> (Option<wylls_capacity::model::Actor>, i64) {

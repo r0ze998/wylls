@@ -5,7 +5,7 @@ use permutation_rules::frontier::arms::ARMS;
 use permutation_rules::frontier::holding::{Resource, DORMANT_AFTER, HOUR};
 use wylls_capacity::custody::{By, Custody, CustodyError, Key, MockCustody};
 use wylls_capacity::event::Event;
-use wylls_capacity::ledger::{Op, Outcome, Phase, World};
+use wylls_capacity::ledger::{Harness, Op, Outcome, Phase};
 use wylls_capacity::model::{FacilityId, GrantId, JobId, Place};
 use wylls_capacity::policy::{DormancyPolicy, Policies, RevokePolicy};
 use wylls_capacity::testkit::*;
@@ -24,7 +24,7 @@ fn job(f: FacilityId, seq: u32) -> JobId {
 }
 
 fn reserve(
-    w: &mut World<MockCustody>,
+    w: &mut Harness<MockCustody>,
     j: JobId,
     units: u32,
     start: i64,
@@ -45,7 +45,7 @@ fn reserve(
     )
 }
 
-fn deposit(w: &mut World<MockCustody>, j: JobId, ore: i64, wood: i64) {
+fn deposit(w: &mut Harness<MockCustody>, j: JobId, ore: i64, wood: i64) {
     arrived(&mut w.custody, B, 77, ore, wood);
     if ore > 0 {
         w.apply(
@@ -77,7 +77,7 @@ fn deposit(w: &mut World<MockCustody>, j: JobId, ore: i64, wood: i64) {
     }
 }
 
-fn bal(w: &World<MockCustody>, p: Place, r: Resource) -> i64 {
+fn bal(w: &Harness<MockCustody>, p: Place, r: Resource) -> i64 {
     w.custody.balance(p, r).1
 }
 
@@ -385,8 +385,8 @@ fn revocation_can_cancel_booked_jobs_but_never_a_running_one() {
         ..Policies::PROVISIONAL
     };
     let (mut w, f) = world(3, 3, 3, p);
-    let booked = job(f, 1);
-    let running = job(f, 2);
+    let running = job(f, 1);
+    let booked = job(f, 2);
     reserve(&mut w, running, 1, S, S + 3 * HOUR, 10).unwrap();
     reserve(&mut w, booked, 1, S + 2 * HOUR, S + 3 * HOUR, 4).unwrap();
     deposit(&mut w, running, 20, 10);

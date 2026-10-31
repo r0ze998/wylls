@@ -15,7 +15,7 @@ use permutation_rules::fixed::MILLI;
 use permutation_rules::frontier::arms::ARMS;
 use permutation_rules::frontier::holding::{Resource, HOUR};
 use wylls_capacity::custody::{Custody, MockCustody};
-use wylls_capacity::ledger::{Fin, Op, World};
+use wylls_capacity::ledger::{Fin, Harness, Op};
 use wylls_capacity::model::{Actor, FacilityId, GrantId, JobId, Place};
 use wylls_capacity::policy::{LossPolicy, Policies};
 use wylls_capacity::recipe::ARMS_RECIPE;
@@ -34,7 +34,7 @@ impl Rng {
     }
 }
 
-fn check(w: &World<MockCustody>, f: FacilityId, now: i64) {
+fn check(w: &Harness<MockCustody>, f: FacilityId, now: i64) {
     w.custody.check().unwrap();
     let p = w.pool(f).unwrap();
     if p.lost_at.is_none() {
@@ -59,7 +59,9 @@ fn check(w: &World<MockCustody>, f: FacilityId, now: i64) {
             assert!(held <= p.lent, "held {held} > lent {} at {t}", p.lent);
         }
     }
-    let (mut made, mut used_ore) = (0, 0);
+    // Retired jobs' output is kept in their grants' `spent`.
+    let spent: i64 = p.grants.iter().map(|g| g.spent).sum();
+    let (mut made, mut used_ore) = (spent, ARMS_RECIPE.used_for(spent)[0]);
     for j in &p.jobs {
         assert!(j.settled <= j.limit());
         assert!(j.claimed <= j.settled, "no double receipt");
@@ -199,6 +201,7 @@ fn scenario(seed: u64, steps: usize, stats: &mut std::collections::BTreeMap<&'st
                 })
             }
             4 => Some(Op::Cancel { job }),
+            5 if rng.below(3) == 0 => Some(Op::Retire { job }),
             5 | 6 => Some(Op::Settle { job }),
             7 => Some(Op::Claim {
                 job,
@@ -269,6 +272,7 @@ fn scenario(seed: u64, steps: usize, stats: &mut std::collections::BTreeMap<&'st
                 Op::Deposit { .. } => "deposit",
                 Op::Cancel { .. } => "cancel",
                 Op::Settle { .. } => "settle",
+                Op::Retire { .. } => "retire",
                 Op::Claim { .. } => "claim",
                 _ => "other",
             };
@@ -293,7 +297,7 @@ fn scenario(seed: u64, steps: usize, stats: &mut std::collections::BTreeMap<&'st
         // A restart: save, restore, and the restored world is the same.
         if step % 17 == 0 {
             let bytes = borsh::to_vec(&w).unwrap();
-            let back = World::<MockCustody>::try_from_slice(&bytes).unwrap();
+            let back = Harness::<MockCustody>::try_from_slice(&bytes).unwrap();
             assert_eq!(back, w);
             w = back;
         }
@@ -329,6 +333,7 @@ fn random_interleavings_keep_every_invariant() {
         ("capture", 50),
         ("capacity-refused", 100),
         ("already", 100),
+        ("retire", 50),
     ] {
         assert!(
             stats.get(k).copied().unwrap_or(0) >= min,

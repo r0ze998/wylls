@@ -30,6 +30,9 @@ pub enum CapError {
     UnknownPool = 25,
     FacilityLive = 26,
     BadPlace = 27,
+    Retired = 28,
+    GenerationReused = 29,
+    NotRetirable = 30,
 }
 
 impl CapError {

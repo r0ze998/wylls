@@ -90,4 +90,16 @@ pub enum Event {
         at: i64,
         captor: Option<Actor>,
     },
+    /// A finished job's record closed (its output counted in the grant).
+    Retired {
+        job: JobId,
+        uid: u64,
+        output: i64,
+    },
+    GrantRetired {
+        grant: GrantId,
+    },
+    PoolRetired {
+        facility: FacilityId,
+    },
 }

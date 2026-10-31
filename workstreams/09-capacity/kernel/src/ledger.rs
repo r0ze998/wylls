@@ -1,11 +1,18 @@
 //! The capacity state machine (contract §2–§4): pools, grants and jobs,
 //! the operations on them, and a job's output in closed form.
 //!
-//! [`World`] is the harness a program would be: the facility Holdings
+//! [`Harness`] stands where the program would: the facility Holdings
 //! (the core's accounts), the capacity [`Ledger`] (the proposed accounts,
-//! patch 0002) and a [`Custody`] (⑩'s). [`World::apply`] runs one
-//! operation atomically: on an error nothing changes (the world is
-//! restored), like a failed transaction.
+//! patch 0002) and a [`Custody`] (⑩'s). It is a test harness, not a
+//! world or period of its own (those belong to ④ and ⑧): it has no start,
+//! no end and no period. [`Harness::apply`] runs one operation
+//! atomically: on an error nothing changes, like a failed transaction.
+//!
+//! **A world that does not end.** Records are retired once settled
+//! (`Retire`, `RetireGrant`, `RetirePool`), so a facility's tables stay
+//! bounded however long it lends; grant and job numbers only increase, so
+//! a retired record's key is never reused (`Retired`); each job carries a
+//! uid that is never reused and scopes its custody keys.
 //!
 //! **Path independence.** A job's output is a pure function of its fixed
 //! terms (units, window, max output), its hopper (fixed at the start:
@@ -65,11 +72,18 @@ pub struct Grant {
     pub from: i64,
     pub until: i64,
     pub revoked_at: Option<i64>,
+    /// Output of this grant's retired jobs (it still counts against
+    /// `max_output`).
+    pub spent: i64,
+    /// The highest job number reserved under this grant.
+    pub last_job_seq: Option<u32>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct Job {
     pub id: JobId,
+    /// Never reused: scopes the job's custody keys.
+    pub uid: u64,
     pub user: Actor,
     pub recipe: RecipeId,
     pub units: u32,
@@ -173,6 +187,8 @@ pub struct Pool {
     /// The facility was lost at this time (the pool is closed).
     pub lost_at: Option<i64>,
     pub captor: Option<Actor>,
+    /// The highest grant number this pool issued.
+    pub last_grant_seq: Option<u32>,
 }
 
 impl Pool {
@@ -199,33 +215,53 @@ impl Pool {
     }
 
     fn grant(&self, id: GrantId) -> Result<&Grant, CapError> {
-        self.grants
-            .iter()
-            .find(|g| g.id == id)
-            .ok_or(CapError::UnknownGrant)
+        match self.grants.iter().find(|g| g.id == id) {
+            Some(g) => Ok(g),
+            None if self.last_grant_seq.is_some_and(|l| id.seq <= l) => Err(CapError::Retired),
+            None => Err(CapError::UnknownGrant),
+        }
+    }
+
+    /// The job, or why not: a number at or below the grant's highest
+    /// belongs to a retired job (or to a retired grant).
+    fn job(&self, id: JobId) -> Result<&Job, CapError> {
+        if let Some(j) = self.jobs.iter().find(|j| j.id == id) {
+            return Ok(j);
+        }
+        let g = self.grant(id.grant)?;
+        if g.last_job_seq.is_some_and(|l| id.seq <= l) {
+            Err(CapError::Retired)
+        } else {
+            Err(CapError::UnknownJob)
+        }
     }
 
     fn job_mut(&mut self, id: JobId) -> Result<&mut Job, CapError> {
-        self.jobs
-            .iter_mut()
-            .find(|j| j.id == id)
-            .ok_or(CapError::UnknownJob)
+        self.job(id)?;
+        Ok(self.jobs.iter_mut().find(|j| j.id == id).expect("found"))
     }
 
     /// Output a grant's jobs hold of its budget: the final ones what they
     /// made, the open ones their max output.
     fn grant_output(&self, id: GrantId) -> i64 {
-        self.jobs
+        let spent = self
+            .grants
             .iter()
-            .filter(|j| j.id.grant == id)
-            .map(|j| {
-                if j.fin == Fin::Open {
-                    j.max_output
-                } else {
-                    j.settled
-                }
-            })
-            .sum()
+            .find(|g| g.id == id)
+            .map_or(0, |g| g.spent);
+        spent
+            + self
+                .jobs
+                .iter()
+                .filter(|j| j.id.grant == id)
+                .map(|j| {
+                    if j.fin == Fin::Open {
+                        j.max_output
+                    } else {
+                        j.settled
+                    }
+                })
+                .sum::<i64>()
     }
 }
 
@@ -285,6 +321,51 @@ pub enum Op {
     FacilityLost {
         facility: FacilityId,
     },
+    /// Close a finished, fully handed-out job's record.
+    Retire {
+        job: JobId,
+    },
+    /// Close a revoked or expired grant with no job left.
+    RetireGrant {
+        grant: GrantId,
+    },
+    /// Close a lost generation's pool with no job left.
+    RetirePool {
+        facility: FacilityId,
+    },
+}
+
+/// Who may send an operation. ④ maps the classes onto the program's
+/// (player, keeper); a boundary between war periods must not refuse any
+/// of them (contract §10).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Class {
+    /// The facility's owner, by wallet.
+    Owner,
+    /// The grant's user.
+    User,
+    /// Anyone (no signature beyond the fee payer's).
+    Anyone,
+}
+
+impl Op {
+    pub fn class(&self) -> Class {
+        match self {
+            Op::OpenPool { .. }
+            | Op::Lend { .. }
+            | Op::Reclaim { .. }
+            | Op::Grant { .. }
+            | Op::Revoke { .. } => Class::Owner,
+            Op::Reserve { .. } | Op::Deposit { .. } | Op::Cancel { .. } | Op::Claim { .. } => {
+                Class::User
+            }
+            Op::Settle { .. }
+            | Op::FacilityLost { .. }
+            | Op::Retire { .. }
+            | Op::RetireGrant { .. }
+            | Op::RetirePool { .. } => Class::Anyone,
+        }
+    }
 }
 
 /// What an operation did.
@@ -300,11 +381,13 @@ pub enum Outcome {
 #[derive(Clone, Debug, Default, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct Ledger {
     pub pools: BTreeMap<FacilityId, Pool>,
+    /// The next job uid (never reused).
+    pub next_uid: u64,
 }
 
 /// The harness: facilities (core), ledger (proposal), custody (⑩).
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
-pub struct World<C> {
+pub struct Harness<C> {
     pub facilities: BTreeMap<Site, Facility>,
     pub ledger: Ledger,
     pub custody: C,
@@ -326,9 +409,9 @@ const K_REFUND: u8 = 5;
 const K_LOSS_OUT: u8 = 6;
 const K_LOSS_IN: u8 = 7;
 
-impl<C: Custody + Clone> World<C> {
-    pub fn new(custody: C) -> World<C> {
-        World {
+impl<C: Custody + Clone> Harness<C> {
+    pub fn new(custody: C) -> Harness<C> {
+        Harness {
             facilities: BTreeMap::new(),
             ledger: Ledger::default(),
             custody,
@@ -410,7 +493,11 @@ impl<C: Custody + Clone> World<C> {
         match *op {
             Op::OpenPool { facility, policies } => {
                 if let Some(p) = self.ledger.pools.get(&facility) {
-                    return if p.owner == signer && p.policies == policies {
+                    return if p.lost_at.is_some() {
+                        // A wrapped generation number meets a lost pool
+                        // whose records are still open (contract §10).
+                        Err(CapError::GenerationReused)
+                    } else if p.owner == signer && p.policies == policies {
                         Ok(false)
                     } else {
                         Err(CapError::Conflict)
@@ -433,6 +520,7 @@ impl<C: Custody + Clone> World<C> {
                         jobs: Vec::new(),
                         lost_at: None,
                         captor: None,
+                        last_grant_seq: None,
                     },
                 );
                 ev.push(Event::PoolOpened {
@@ -529,10 +617,14 @@ impl<C: Custody + Clone> World<C> {
                     from,
                     until,
                     revoked_at: None,
+                    spent: 0,
+                    last_job_seq: None,
                 };
                 if let Some(old) = p.grants.iter().find(|x| x.id == grant) {
                     return if (Grant {
                         revoked_at: None,
+                        spent: 0,
+                        last_job_seq: None,
                         ..old.clone()
                     }) == g
                     {
@@ -547,10 +639,15 @@ impl<C: Custody + Clone> World<C> {
                 if max_units == 0 || max_output <= 0 || from >= until || until <= now {
                     return Err(CapError::BadWindow);
                 }
+                if p.last_grant_seq.is_some_and(|l| grant.seq <= l) {
+                    return Err(CapError::Retired);
+                }
                 if p.grants.len() >= MAX_GRANTS {
                     return Err(CapError::TooMany);
                 }
-                self.pool_mut(grant.facility).grants.push(g);
+                let pm = self.pool_mut(grant.facility);
+                pm.grants.push(g);
+                pm.last_grant_seq = Some(grant.seq);
                 ev.push(Event::Granted { grant, user });
                 Ok(true)
             }
@@ -605,11 +702,7 @@ impl<C: Custody + Clone> World<C> {
                 from,
             } => {
                 let p = self.pool_live(job.grant.facility)?;
-                let j = p
-                    .jobs
-                    .iter()
-                    .find(|j| j.id == job)
-                    .ok_or(CapError::UnknownJob)?;
+                let j = p.job(job)?;
                 if j.user != signer {
                     return Err(CapError::NotUser);
                 }
@@ -636,10 +729,10 @@ impl<C: Custody + Clone> World<C> {
                 if j.deposits.len() >= MAX_DEPOSITS {
                     return Err(CapError::TooMany);
                 }
-                let user = j.user;
+                let (user, uid) = (j.user, j.uid);
                 self.custody
                     .transfer(
-                        key(job.tag(), K_DEPOSIT, deposit),
+                        key(uid, K_DEPOSIT, deposit),
                         By::Actor(signer),
                         from,
                         Place::Hopper(job),
@@ -661,11 +754,7 @@ impl<C: Custody + Clone> World<C> {
             }
             Op::Cancel { job } => {
                 let p = self.pool_live(job.grant.facility)?;
-                let j = p
-                    .jobs
-                    .iter()
-                    .find(|j| j.id == job)
-                    .ok_or(CapError::UnknownJob)?;
+                let j = p.job(job)?;
                 if j.user != signer {
                     return Err(CapError::NotUser);
                 }
@@ -691,6 +780,69 @@ impl<C: Custody + Clone> World<C> {
             }
             Op::Claim { job, to } => self.claim(now, signer, job, to, ev),
             Op::FacilityLost { facility } => self.lose(facility, ev),
+            Op::Retire { job } => {
+                let p = self
+                    .ledger
+                    .pools
+                    .get(&job.grant.facility)
+                    .ok_or(CapError::UnknownPool)?;
+                let j = match p.job(job) {
+                    Err(CapError::Retired) => return Ok(false),
+                    r => r?.clone(),
+                };
+                let handed_out = j.claimed == j.settled && (j.refunded || j.rest() == [0, 0]);
+                if j.fin == Fin::Open || !handed_out {
+                    return Err(CapError::NotRetirable);
+                }
+                let pm = self.pool_mut(job.grant.facility);
+                pm.jobs.retain(|x| x.id != job);
+                let g = pm
+                    .grants
+                    .iter_mut()
+                    .find(|g| g.id == job.grant)
+                    .expect("a job's grant outlives it");
+                g.spent = g.spent.checked_add(j.settled).ok_or(CapError::Overflow)?;
+                self.custody.forget(j.uid);
+                ev.push(Event::Retired {
+                    job,
+                    uid: j.uid,
+                    output: j.settled,
+                });
+                Ok(true)
+            }
+            Op::RetireGrant { grant } => {
+                let p = self
+                    .ledger
+                    .pools
+                    .get(&grant.facility)
+                    .ok_or(CapError::UnknownPool)?;
+                let g = match p.grant(grant) {
+                    Err(CapError::Retired) => return Ok(false),
+                    r => r?,
+                };
+                let over = g.revoked_at.is_some() || now >= g.until || p.lost_at.is_some();
+                if !over || p.jobs.iter().any(|j| j.id.grant == grant) {
+                    return Err(CapError::NotRetirable);
+                }
+                self.pool_mut(grant.facility)
+                    .grants
+                    .retain(|g| g.id != grant);
+                ev.push(Event::GrantRetired { grant });
+                Ok(true)
+            }
+            Op::RetirePool { facility } => {
+                let p = self
+                    .ledger
+                    .pools
+                    .get(&facility)
+                    .ok_or(CapError::UnknownPool)?;
+                if p.lost_at.is_none() || !p.jobs.is_empty() {
+                    return Err(CapError::NotRetirable);
+                }
+                self.ledger.pools.remove(&facility);
+                ev.push(Event::PoolRetired { facility });
+                Ok(true)
+            }
         }
     }
 
@@ -718,6 +870,9 @@ impl<C: Custody + Clone> World<C> {
             } else {
                 Err(CapError::Conflict)
             };
+        }
+        if g.last_job_seq.is_some_and(|l| job.seq <= l) {
+            return Err(CapError::Retired);
         }
         if g.revoked_at.is_some() {
             return Err(CapError::GrantRevoked);
@@ -747,8 +902,10 @@ impl<C: Custody + Clone> World<C> {
         if p.jobs.len() >= MAX_JOBS {
             return Err(CapError::TooMany);
         }
+        let uid = self.ledger.next_uid;
         let j = Job {
             id: job,
+            uid,
             user: signer,
             recipe: g.recipe,
             units,
@@ -763,7 +920,14 @@ impl<C: Custody + Clone> World<C> {
             claimed: 0,
             refunded: false,
         };
-        self.pool_mut(job.grant.facility).jobs.push(j);
+        self.ledger.next_uid = uid.checked_add(1).ok_or(CapError::Overflow)?;
+        let pm = self.pool_mut(job.grant.facility);
+        pm.jobs.push(j);
+        pm.grants
+            .iter_mut()
+            .find(|g| g.id == job.grant)
+            .expect("checked")
+            .last_job_seq = Some(job.seq);
         ev.push(Event::Reserved {
             job,
             units,
@@ -782,12 +946,7 @@ impl<C: Custody + Clone> World<C> {
             .pools
             .get(&job.grant.facility)
             .ok_or(CapError::UnknownPool)?;
-        let j = p
-            .jobs
-            .iter()
-            .find(|j| j.id == job)
-            .ok_or(CapError::UnknownJob)?
-            .clone();
+        let j = p.job(job)?.clone();
         let r = j.recipe();
         if !j.started_logged && now >= j.start {
             ev.push(Event::Started { job, at: j.start });
@@ -799,7 +958,7 @@ impl<C: Custody + Clone> World<C> {
             for (i, (res, _)) in r.inputs.iter().enumerate() {
                 self.custody
                     .consume(
-                        key(job.tag(), K_USE * 16 + i as u8, out as u64),
+                        key(j.uid, K_USE * 16 + i as u8, out as u64),
                         Place::Hopper(job),
                         *res,
                         used[i],
@@ -808,7 +967,7 @@ impl<C: Custody + Clone> World<C> {
             }
             self.custody
                 .produce(
-                    key(job.tag(), K_MAKE, out as u64),
+                    key(j.uid, K_MAKE, out as u64),
                     Place::Output(job),
                     j.user,
                     r.output,
@@ -852,11 +1011,7 @@ impl<C: Custody + Clone> World<C> {
         if !lost {
             self.pool_live(job.grant.facility)?;
         }
-        let j = p
-            .jobs
-            .iter()
-            .find(|j| j.id == job)
-            .ok_or(CapError::UnknownJob)?;
+        let j = p.job(job)?;
         if j.user != signer {
             return Err(CapError::NotUser);
         }
@@ -883,7 +1038,7 @@ impl<C: Custody + Clone> World<C> {
         if output > 0 {
             self.custody
                 .transfer(
-                    key(job.tag(), K_CLAIM_OUT, j.settled as u64),
+                    key(j.uid, K_CLAIM_OUT, j.settled as u64),
                     By::Kernel,
                     Place::Output(job),
                     to,
@@ -897,7 +1052,7 @@ impl<C: Custody + Clone> World<C> {
             if refund[i] > 0 {
                 self.custody
                     .transfer(
-                        key(job.tag(), K_REFUND * 16 + i as u8, 0),
+                        key(j.uid, K_REFUND * 16 + i as u8, 0),
                         By::Kernel,
                         Place::Hopper(job),
                         to,
@@ -976,7 +1131,7 @@ impl<C: Custody + Clone> World<C> {
                 if output > 0 {
                     self.custody
                         .transfer(
-                            key(id.tag(), K_LOSS_OUT, 0),
+                            key(j.uid, K_LOSS_OUT, 0),
                             By::Kernel,
                             Place::Output(id),
                             to,
@@ -994,7 +1149,7 @@ impl<C: Custody + Clone> World<C> {
                         if refund[i] > 0 {
                             self.custody
                                 .transfer(
-                                    key(id.tag(), K_LOSS_IN * 16 + i as u8, 0),
+                                    key(j.uid, K_LOSS_IN * 16 + i as u8, 0),
                                     By::Kernel,
                                     Place::Hopper(id),
                                     to,

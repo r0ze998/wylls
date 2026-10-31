@@ -1,4 +1,4 @@
-# ⑨ 加工能力の貸し出し：接続契約（版 0.2）
+# ⑨ 加工能力の貸し出し：接続契約（版 0.3）
 
 作業日 2026-10-30。基準 commit `4cd901de9f8e0d6c0b2016851d30595c4a70aa46`（作業開始時の HEAD は `921429322d5aecd1a3df0dd8d82c405c87dd985a` = `main`、未 commit 変更なし。`4cd901de` は文書だけの 6 commit 先で、早送りで合わせた）。
 
@@ -47,6 +47,9 @@ S1 のコードでは、工房は「1日に何回動かす」施設ではなく�
 | `Settle` | 誰でも | job | 純関数で現在までの出力を確定（何度呼んでも同じ） |
 | `Claim` | 利用者 | job, to | 確定した出力と（終わった予約なら）返却材料のうち、未受取分を `to` へ。加工中でも出来た分は受け取れる |
 | `FacilityLost` | 誰でも（コアの観測） | facility | コアが記録した世代の終わり（時刻 `at` と占領者）で全予約を締め、損失方針（§4）で配分 |
+| `Retire` | 誰でも | job | 終わって全部を渡し終えた予約の記録を閉じる。出力は許可の `spent` に残る |
+| `RetireGrant` | 誰でも | grant | 取り消されたか期限が来て、予約が残っていない許可を閉じる |
+| `RetirePool` | 誰でも | facility | 失われた世代で、予約が残っていない貸出枠を閉じる |
 
 再送・再起動の扱い：
 
@@ -127,6 +130,9 @@ end_eff = start + ⌈limit × 3600 / (k × 4000)⌉  （ただし ≤ end）
 | 25 | `UnknownPool` | 貸出枠・施設が無い |
 | 26 | `FacilityLive` | 世代が終わっていない施設に `FacilityLost` |
 | 27 | `BadPlace` | `Claim` の宛先が予約の置き場（`Hopper`／`Output`）。帳簿の外に物が残るのを防ぐ |
+| 28 | `Retired` | 閉じた記録、または最大以下の番号（番号は増えるだけ） |
+| 29 | `GenerationReused` | 世代番号が一周し、古い世代の記録が残っている |
+| 30 | `NotRetirable` | 閉じる条件を満たさない |
 
 ## 4. 未決定の損失配分（仮案。切り替え可能）
 
@@ -162,6 +168,7 @@ end_eff = start + ⌈limit × 3600 / (k × 4000)⌉  （ただし ≤ end）
 | `produce` | key, at（`Output`）, owner, resource, amount | — | レシピの出力を作る（`Kernel` だけ） |
 | `export` | key, by, at, resource, amount | — | 預かりからコアへ出る（Holding への入庫） |
 | `balance` | at, resource | owner, amount | 照会 |
+| `forget` | scope（予約の uid） | — | 閉じた予約の冪等キーを捨てる（版 0.3。継続世界で鍵の記録を有界にする） |
 
 版 0.1 の `lock`／`release` は、`transfer` の二つの向きにまとめた（同じ不変条件で足りるため）。
 
@@ -212,3 +219,12 @@ end_eff = start + ⌈limit × 3600 / (k × 4000)⌉  （ただし ≤ end）
 - `Deposit` に `from`、`Claim` に `to` を足した（場所を明示するため）。`FacilityLost` の `at`・`captor` は引数ではなく、コアの記録から読む（送り手が時刻を偽れないように）。
 - エラー 24–27 を足した。
 - ⑩ への口を `import`/`transfer`/`consume`/`produce`/`export`/`balance` に整理した。
+
+## 10. 継続世界（版 0.3、2026-10-31）
+
+世界は期間で終わらない（[CONTINUITY.ja.md](CONTINUITY.ja.md)）。この契約は次を保証する。
+
+- 開始・終了・期間の概念を持たない。戦期の境界で、どの操作も拒否しない（`Op::class()` は所有者・利用者・誰でも、の 3 種）。
+- 記録は閉じられる（`Retire*`）ので、施設ごとの状態は有界。許可・予約の番号は増えるだけで、閉じた番号は再利用されない（`Retired`）。
+- 予約ごとに再利用しない uid を持ち、預かりの冪等キーの範囲にする。⑩ への口に `forget(scope)` を足した。
+- 許可は必ず有限で、自動延長しない。許可の期限は世界の寿命と別。

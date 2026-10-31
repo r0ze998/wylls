@@ -14,7 +14,7 @@ use permutation_rules::fixed::MILLI;
 use permutation_rules::frontier::arms::ARMS;
 use permutation_rules::frontier::holding::{Resource, HOUR};
 use wylls_capacity::custody::{Custody, MockCustody};
-use wylls_capacity::ledger::{Op, Outcome, Phase, World};
+use wylls_capacity::ledger::{Harness, Op, Outcome, Phase};
 use wylls_capacity::model::{Actor, GrantId, JobId, Place};
 use wylls_capacity::plan::plan;
 use wylls_capacity::policy::Policies;
@@ -44,7 +44,7 @@ fn hm(t: i64) -> String {
 }
 
 struct Demo {
-    w: World<MockCustody>,
+    w: Harness<MockCustody>,
     signers: Vec<(i64, Actor, String)>,
 }
 
@@ -116,7 +116,7 @@ impl Demo {
     }
 }
 
-fn a_line(w: &World<MockCustody>, now: i64) {
+fn a_line(w: &Harness<MockCustody>, now: i64) {
     let f = &w.facilities[&SITE_A];
     let stock = f.holding.stock_at(now);
     println!(
@@ -129,7 +129,7 @@ fn a_line(w: &World<MockCustody>, now: i64) {
 }
 
 fn main() {
-    let mut w = World::new(MockCustody::default());
+    let mut w = Harness::new(MockCustody::default());
     w.add_facility(facility(3));
     let mut d = Demo {
         w,

@@ -25,5 +25,5 @@ pub mod policy;
 pub mod recipe;
 
 pub use error::CapError;
-pub use ledger::{Op, Outcome, World};
+pub use ledger::{Harness, Op, Outcome};
 pub mod testkit;

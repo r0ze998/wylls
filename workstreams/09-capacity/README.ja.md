@@ -1,5 +1,7 @@
 # ⑨ 他人の工房の「加工能力」を借りる
 
+> **2026-10-31 の方針訂正（世界は期間で終わらない）への対応は [CONTINUITY.ja.md](CONTINUITY.ja.md)。** 残っていたシーズン依存、変更した挙動、試験、残る判断をまとめています。
+
 作業日 2026-10-30。ブランチ `claude/elegant-bohr-co2uhr`。この担当の成果物はすべてこのディレクトリにあります。**共通コア（`permutation-rules`、`frontier-abi`、`permutation-frontier`、`frontier-node`）はこの checkout では一行も変えていません**。コアの変更は [patches/](patches/) に独立した差分として置き、一時 worktree に当てて試験しています。
 
 ## 0. 作業開始時の状態（記録）
@@ -50,9 +52,10 @@ cargo run --example demo          # 出力の保存版: results/demo.txt
 
 | パス | 内容 |
 |---|---|
-| [CONTRACT.ja.md](CONTRACT.ja.md) | **接続契約**（実装の前に版 0.1 を commit `9b801368`、実装後に 0.2）。④ へ操作・状態・イベント・エラー、⑩ へ預かりの入出力と不変条件 C1–C7、⑥ へ加工手順 |
+| [CONTINUITY.ja.md](CONTINUITY.ja.md) | 継続世界への対応（シーズン依存、変更、試験、④⑧⑩への要求） |
+| [CONTRACT.ja.md](CONTRACT.ja.md) | **接続契約**（実装の前に版 0.1 を commit `9b801368`、実装後に 0.2、継続世界で 0.3）。④ へ操作・状態・イベント・エラー、⑩ へ預かりの入出力と不変条件 C1–C7、⑥ へ加工手順 |
 | [RESEARCH.ja.md](RESEARCH.ja.md) | 実装の前に調べたオープンソース（Eternum の生産、Star Atlas の crafting、ERC-4907、Cardinal）と採否 |
-| [kernel/](kernel/) | crate `wylls-capacity`（独立 workspace・lock）。`src/`：model, recipe, policy, error, event, custody（trait＋模擬）, facility, ledger, plan, testkit。`examples/demo.rs`。`tests/`：single_user（17）, loss（7）, contention（2、ランダム 300 通り＋精算の頻度の比較 50 通り）, owner_side（3、パッチ有りで 4） |
+| [kernel/](kernel/) | crate `wylls-capacity`（独立 workspace・lock）。`src/`：model, recipe, policy, error, event, custody（trait＋模擬）, facility, ledger, plan, testkit。`examples/demo.rs`。`tests/`：single_user（17）, loss（7）, contention（2、ランダム 300 通り＋精算の頻度の比較 50 通り）, owner_side（3、パッチ有りで 4）, continuity（8、戦期の境界・再起動・長期運用） |
 | [patches/](patches/) | 0001（`Holding.lent_workshops`、適用可能な差分）、0002（命令の案）、README（試した範囲と ④ への判断事項） |
 | [run.sh](run.sh) | fmt・clippy・試験・デモ、そして一時 worktree にパッチ 0001 を当てて rules・ABI・program（ホスト）・カーネル（パッチ有り）を試験 |
 | [results/](results/) | この作業機での記録（下表） |
@@ -61,10 +64,10 @@ cargo run --example demo          # 出力の保存版: results/demo.txt
 
 | 試験 | 結果 | 記録 |
 |---|---|---|
-| カーネル（パッチ無し、模擬の貸し出し）29 件 | 通過 | `results/kernel-tests.log` |
+| カーネル（パッチ無し、模擬の貸し出し）37 件 | 通過 | `results/kernel-tests.log` |
 | ランダムな競合 300 通りの網羅（適用された手の種類と数） | reserve 2,854、deposit 1,501、settle 1,152、claim 803、cancel 386、owner 1,923、占領 234、枠の拒否 533、再送の無変化 5,059 | `results/contention-coverage.log` |
 | デモ | 通過（assert 込み） | `results/demo.txt` |
-| パッチ 0001：rules・ABI・program ホスト・カーネル（パッチ有り 30 件） | 通過 | `results/patch-0001-tests.log` |
+| パッチ 0001：rules・ABI・program ホスト・カーネル（パッチ有り 38 件） | 通過 | `results/patch-0001-tests.log` |
 | パッチ 0001：frontier-verify（Rust 1.95.0） | 通過 | `results/patch-0001-verify.log` |
 | パッチ 0001：svm-tests のコンパイル（Rust 1.95.0） | 通過（**実行はしていない**） | `results/patch-0001-svm-check.log` |
 

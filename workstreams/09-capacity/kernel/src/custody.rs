@@ -97,6 +97,11 @@ pub trait Custody {
     ) -> Result<(), CustodyError>;
     /// The owner and amount at a place (no owner when empty).
     fn balance(&self, at: Place, r: Resource) -> (Option<Actor>, i64);
+    /// Drop the idempotency keys of `scope` (a retired job's uid). Safe
+    /// because the kernel refuses every operation on a retired job before
+    /// it reaches custody; it keeps the key store bounded in a world that
+    /// does not end.
+    fn forget(&mut self, scope: u64);
 }
 
 /// One recorded movement (for the conservation re-check and the demo's
@@ -391,6 +396,10 @@ impl Custody for MockCustody {
         }
         self.record(key, m);
         Ok(())
+    }
+
+    fn forget(&mut self, scope: u64) {
+        self.keys.retain(|k, _| k.scope != scope);
     }
 
     fn balance(&self, at: Place, r: Resource) -> (Option<Actor>, i64) {

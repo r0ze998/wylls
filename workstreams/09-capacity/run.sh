@@ -23,6 +23,7 @@ cargo clippy -q --all-targets -- -D warnings
 cargo test -q 2>&1 | tee "$out/kernel-tests.log" | grep -E "^test result|FAILED|panicked" || true
 grep -q FAILED "$out/kernel-tests.log" && { echo "kernel tests failed" >&2; exit 1; }
 cargo test -q --release --test contention -- --nocapture 2>&1 | grep -E "applied per kind" > "$out/contention-coverage.log" || true
+cargo test -q --release --test continuity a_long_run -- --nocapture 2>&1 | grep -E "long run:" > "$out/continuity-long-run.log" || true
 cargo run -q --example demo > "$out/demo.txt"
 echo "demo: $out/demo.txt ($(wc -l < "$out/demo.txt") lines)"
 
