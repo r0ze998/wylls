@@ -174,3 +174,8 @@
   - Absent の条件についての⑲の提案は、④の HANDOFF §3 と一致する：finalized で読み、全履歴を探し、ノードの保持範囲が送信の slot 以前で、blockhash が失効済みのときだけ。ER 宛ての送信は、署名の状態からは Absent にせず、対象口座の状態（seq と head の compare-and-set）で判定する。
   - 委任のセッションは、期間の終わりでは閉じない（閉じるのは commit の予算、検証者の交代、保守のとき）。S1 の既存の口座は、どれも委任の候補にしていない。
   - 共有コアの変更案（未適用、④の判断待ち）：(a) `maxSupportedTransactionVersion` を 1 以上にする、(b) v1 の取引は解釈できなくても記録する、(c) 委任先の口座のアドレスでも履歴を取る、findex の欠落の検出（7b53a87）。届いたら、隔離した作業コピーで検証する。
+- **⑱（drand・封印進軍・検証。ローカル枝 `claude/brave-bohr-xe4n4p`、コード 853140ef、文書 90df6a64、未受領）**：
+  - 境界の試験（⑱の `fclient/tests/period_boundary.rs`）：bell の時計（genesis_ts と bell の番号）が続いていれば、境界をまたぐ封印進軍は T(arrive) の署名でだけ開く。境界で bell を振り直したり genesis をずらしたりすると、平文と transit が合わず破棄される。**戦期の切り替えで genesis_ts や bell を変えてはいけない**。これは共通方針 1.4（bell を戻さない）と一致する。
+  - **秘匿の漏れ**：THE anchor がまだ投稿されていないとき、keeper は Reveal の作成を止めない（`keeper/src/play.rs:1078-1120`、anchor が `None` でも先へ進む）。また、fclient はすべての取引を `skipPreflight: true` で送る（`fclient/src/rpc.rs:423`）。そのため、早すぎて失敗した Reveal の命令データに平文と salt が載り、T(arrive) の最大約 600 秒前に公開されうる。④がコードを読んで確認した。⑱の修正（anchor の前に Reveal を作らない）は、取り込みの候補（共有コア、未適用）。
+  - 証拠不足の名前：FAIL（`UnknownInstruction`、`Undecodable`）と UNVERIFIABLE（`UnverifiedInstruction`、`UnknownProgramVersion`、`MissingData`）。推測で FAIL にも PASS にもしない、という点は、④の数量契約の「証拠のない 0 や奪取を断定しない」と同じ考え方。名前は registry に載せる候補（未決）。
+  - 残る課題：keeper の journal（plaintexts、owner_material、PlayDuty.owner）に削除の経路が無い。検証器は CreateSeason から全部を読むので、checkpoint の定義が要る。FastForward の検証器のモデルが無い。CloseMarch と V5 ArrivalAfterEnd の見直し（P-C1・P-C3）。
