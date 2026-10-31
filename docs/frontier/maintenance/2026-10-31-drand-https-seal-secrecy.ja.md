@@ -68,6 +68,7 @@
   - いずれも、条件がそろった後（anchor があり、`T(arrive)` が検証済み）には Reveal が送られ、その中に平文が入っていることを確かめる。
   - 変異試験（`mutations.log`）：anchor の条件を外すと 4 件、drand の条件を外すと 2 件、anchor の項目確認を外すと 1 件、journal 保存を外すと 2 件が失敗する。両方の条件を外す（基点相当）と 7 件が失敗する。`rpc_read_failures_send_nothing` は、読取り失敗で tick 全体が止まる既存の性質（`?`）を確かめるもので、新しい条件を外しても失敗しない。
   - `skipPreflight` は変えていない。送らないことが対策で、preflight はこの不具合の対策にならない（preflight をしても、拒否される取引の内容は RPC 運用者には届く）。
+- **追加の修正（④ の記録用試験 v3 で発見）**：API が 202 を返してから duty が待ち行列から取り出すまでの間、material はメモリにしか無く、その間の再起動で失われていた（修正前の基点でも同じ）。`/v1/reveal` は 202 を返す前に journal の `owner_material` へ書き、書けなければ 503 `JournalUnavailable` を返すようにした（`api::serve_full`、試験 `accepted_material_is_journalled_before_202`）。
 - material は以前から keeper の journal（Reveal 試行の取引バイト）に公開前から入っていたので、ディスク上の保存は増えていない。運用者を信用する点（I-24）は変わらない。
 - 実チェーンでの確認は未実行（SBF ツールチェーンが無く `.so` を作れない）。
 
