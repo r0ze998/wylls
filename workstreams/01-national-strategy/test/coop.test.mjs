@@ -308,7 +308,8 @@ test('正本はチェーン：ヘラルドの写しだけの確定は数えず�
   const by = Object.fromEntries(v.arrivals.map(a => [a.responder, a]));
   assert.equal(by[P.b.address].delivered, null, 'ヘラルドの写しだけでは「分からない」');
   assert.equal(by[P.b.address].verification, null);
-  assert.match(by[P.b.address].note, /チェーンの取引の記録に、この隊商の確定・襲撃はまだない/);
+  assert.equal(by[P.b.address].state, 'moving', 'チェーンでは隊商はまだ輸送中（口座がある）');
+  assert.equal(by[P.b.address].heraldDisagrees, 'delivered', 'ヘラルドの写しとの食い違いを示す');
   assert.equal(by[P.c.address].state, 'lost');
   assert.equal(by[P.c.address].heraldDisagrees, 'delivered');
   assert.equal(v.joint[0].progress[0].verified, 0);
@@ -474,8 +475,8 @@ test('入荷量（④の分類）：村あては RuleDerived、倉あては Unve
   H.file.moving = [];
   H.file.ended.push({ ownerTag: tag, seq: 0, end: 'settled', outcome: 0, dst: { kind: 2, p: 3, q: 0, at: 40, gen: 1, tile: 40 }, cargo: [0, 200, 0, 0, 0, 0, 0, 0] });
   const v = await board.view({});
-  assert.equal(v.arrivals[0].state, 'misdelivered');
-  assert.deepEqual(v.arrivals[0].cargoLogged, { wood: 200, stone: 0 });
+  assert.equal(v.arrivals[0].state, 'moving', 'チェーンでは輸送中（ヘラルドの写しだけでは決めない）');
+  assert.equal(v.arrivals[0].heraldDisagrees, 'misdelivered');
   assert.equal(v.arrivals[0].delivered, null, 'ヘラルドの写しだけ（チェーンに記録なし）は分からない');
   assert.equal(v.joint[0].progress[0].verified, 0);
 });

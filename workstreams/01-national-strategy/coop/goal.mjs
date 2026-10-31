@@ -9,8 +9,8 @@
 //   - 同じ隊商の到着は、一つの依頼にだけ割り当てる（重複の割当をしない）。一つの到着が、共同の目的・国の記録・個人の記録の
 //     三つの表示に出るのは、別々の評価に寄与しているだけで、資源の重複割当ではない。
 
-import { RESOURCES, RESOURCE_JA, stateAt, ownerTagOf } from './record.mjs';
-import { arrivalsOf } from './arrival.mjs';
+import { RESOURCES, RESOURCE_JA, stateAt, ownerTagOf, ctxKey } from './record.mjs';
+import { arrivalsOf, caravanKeyOf } from './arrival.mjs';
 import { seasonAddresses } from '../../../permutation-server/web/frontier/faddr.mjs';
 import { PRESETS as V2PRESETS } from '../../../permutation-server/web/sdk/frontier/abi-v2-presets.mjs';
 import { VAULT_COST } from '../../../permutation-server/web/frontier/fcaravan.mjs';
@@ -62,7 +62,7 @@ export const JUDGES = Object.freeze({
 });
 
 const blank = () => Object.fromEntries(RESOURCES.map(r => [r, 0]));
-const caravanKey = c => `${c.ownerTag}:${c.seq}`;
+const caravanKey = caravanKeyOf;
 
 /**
  * 到着を依頼に割り当てる。同じ隊商は、最初に結び付けた（記録の順）依頼にだけ割り当て、二つ目からは `duplicateOf` を付けて数えない。
@@ -144,11 +144,14 @@ function countOf(a, recipient, timing) {
  */
 export function coopView({ state, file, obs = { ended: {}, vaults: {} }, checks = { citizens: {}, holdings: {} }, viewer = null, now, judgeId = 'arrivals', season }) {
   const judge = JUDGES[judgeId] ?? JUDGES.arrivals;
-  const A = season ? seasonAddresses(season.programId, season.seasonId) : null;
-  const arrivals = allocate(arrivalsOf(state, file, checks.caravans), state).map(a => {
+  // season：今の文脈（ヘラルドの一覧・新しい依頼・見ている人の国）。依頼ごとの確かめは、その依頼の文脈（q.ctx）で行う。
+  const ctxOf = q => q.ctx ?? season;
+  const rulesOf = q => (checks.rules && checks.rules.status ? checks.rules : checks.rules?.[ctxKey(ctxOf(q))]);
+  const arrivals = allocate(arrivalsOf(state, file, checks.caravans, season ? ctxKey(season) : null), state).map(a => {
     const q = state.requests[a.requestId];
     const now = checks.holdings?.[a.requestId];
-    const recipient = recipientOf(a, now, A ? A.of('Citizen', { wallet: q.requester }) : null, checks.rules);
+    const c0 = ctxOf(q);
+    const recipient = recipientOf(a, now, c0 ? seasonAddresses(c0.programId, c0.seasonId).of('Citizen', { wallet: q.requester }) : null, rulesOf(q));
     const sent = checks.caravans?.[caravanKey(a.caravanId)]?.sent;
     const resp = q.responses[a.responder];
     const timing = timingOf(sent?.blockTime, checks.times?.[resp?.id] ?? null);
@@ -159,8 +162,9 @@ export function coopView({ state, file, obs = { ended: {}, vaults: {} }, checks 
   for (const a of arrivals) (byReq[a.requestId] ??= []).push(a);
   const requests = Object.values(state.requests).map(q => ({ ...q, stateNow: stateAt(q, now), arrivals: byReq[q.id] ?? [],
     sendings: (q.sendings ?? []).map(z => ({ ...z, outcome: checks.sendings?.[z.walletSig] ?? { status: 'unknown', why: 'まだ確かめていない' } })) }));
-  const citizen = w => checks.citizens?.[w] ?? { status: 'unverified', why: 'まだ確かめていない' };
-  const factionOf = w => (citizen(w).status === 'verified' ? citizen(w).faction : null);
+  // 国は文脈ごとの Citizen の口座で確かめる（checks.citizens の鍵は「文脈|ウォレット」。古い形の「ウォレット」だけの鍵も読む）
+  const citizen = (w, c = season) => checks.citizens?.[`${c ? ctxKey(c) : ''}|${w}`] ?? checks.citizens?.[w] ?? { status: 'unverified', why: 'まだ確かめていない' };
+  const factionOf = (w, c = season) => (citizen(w, c).status === 'verified' ? citizen(w, c).faction : null);
 
   // ---------------------------------------------------------------- 共同（依頼した人＝施設の持ち主ごと）
   const hosts = {};
@@ -172,7 +176,7 @@ export function coopView({ state, file, obs = { ended: {}, vaults: {} }, checks 
         for (const [r, v] of Object.entries(a.counted)) { h.perResource[r] += v; if (v > 0) h.records[r] = (h.records[r] ?? 0) + 1; }
         h.contributors.add(a.responder);
         h.lastArrivalSeen = Math.max(h.lastArrivalSeen, obs.ended?.[caravanKey(a.caravanId)] ?? 0);
-        const hf = factionOf(q.requester), rf = factionOf(a.responder);
+        const hf = factionOf(q.requester, ctxOf(q)), rf = factionOf(a.responder, ctxOf(q));
         if (hf === null) h.unverified.add('依頼した人の国が未検証');
         if (rf === null) h.unverified.add(`届けた人 ${a.responder.slice(0, 4)}… の国が未検証`);
         if (hf !== null && rf !== null && hf !== rf) h.otherNations.add(rf);
@@ -205,8 +209,8 @@ export function coopView({ state, file, obs = { ended: {}, vaults: {} }, checks 
   const nation = !viewer ? null : vf.status !== 'verified' ? { nation: null, why: vf.why, note: '国籍未検証。国の記録は出さない' } : {
     nation: vf.faction,
     note: '国の目標はこの版では設定しない（誰がどう決めるかは未決定）。国の議会の構え・投票は既存の画面にある',
-    requests: requests.filter(q => factionOf(q.requester) === vf.faction).length,
-    deliveredFromNation: arrivals.filter(a => a.counted && factionOf(a.responder) === vf.faction).length,
+    requests: requests.filter(q => factionOf(q.requester, ctxOf(q)) === vf.faction).length,
+    deliveredFromNation: arrivals.filter(a => a.counted && factionOf(a.responder, ctxOf(state.requests[a.requestId])) === vf.faction).length,
   };
 
   // ---------------------------------------------------------------- 個人

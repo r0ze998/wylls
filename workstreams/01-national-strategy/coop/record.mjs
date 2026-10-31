@@ -166,32 +166,53 @@ export function shapeProblem(rec, goals) {
 
 // ------------------------------------------------------------------ 畳み込み
 
+/** チェーンの文脈（どの programId・シーズン ID の口座で確かめるか）の鍵。 */
+export const ctxKey = c => `${c.programId}/${c.seasonId}`;
+const sameCtx = (a, b) => a.programId === b.programId && a.seasonId === b.seasonId;
+
 /**
- * 署名を確かめた記録の列（板が受け取った順）を、依頼の状態に畳み込む。
- * 状態の規則に合わない記録は `rejected` に理由つきで入り、状態を変えない。
- * 返す形：{ requests: {id: {...}}, left: {goalId: [wallet]}, rejected: [{id, kind, why}] }
+ * 記録を一つずつ畳み込む（板は受け取った順に足していく。全体を毎回やり直さない：長く続く世界で記録が増えても重くならない）。
+ *
+ * 世界の継続（2026-10-31 の方針）：依頼の板は、シーズン（チェーンの文脈）が変わっても依頼・応答・結び付け・記録を消さない。
+ *   - `contexts`：読める文脈の一覧（今の文脈と、前の文脈）。一覧にない文脈の記録は断る（知らない口座で確かめられない）。
+ *   - `current`：新しい依頼を出せる文脈。前の文脈の依頼は、自分の期限まで開いたまま（文脈が変わったことでは閉じない）。
+ *   - 依頼に続く記録（応答・取り下げ・取消・送信・結び付け）は、依頼と同じ文脈で確かめる（旧版の証拠を新版の証拠に読み替えない）。
+ *   - 隊商の鍵は文脈ごと（Citizen はシーズンごとの口座で、隊商の番号もその Citizen ごとに 0 から）なので、鍵に文脈を含める。
+ * 文脈を世界の正本として定義するのは④⑧の共通方針で、①は渡された一覧を使うだけ。
  */
-export function fold(records, { goals, season }) {
+export function createFolder({ goals, contexts, current = null }) {
   const S = { requests: {}, left: {}, rejected: [], accepted: [] };
   const seenIds = new Set();
   const linkedCaravans = new Set();
+  let n = -1;
+  const known = c => contexts.some(x => sameCtx(x, c));
   const leftOf = (g, w) => (S.left[g] ?? []).includes(w);
-  const reject = (rec, why) => S.rejected.push({ id: recordId(rec), kind: rec.kind, signer: rec.signer, why });
-  for (const [n, rec] of records.entries()) {
+  let quiet = false, live = false;
+  const reject = (rec, why) => { if (!quiet) S.rejected.push({ id: recordId(rec), kind: rec.kind, signer: rec.signer, why }); return { ok: false, why }; };
+  /**
+   * 一つ足す。断った記録は状態を変えない。`quiet`：断った記録を rejected に残さない（板が受け付けなかった送信。保存しないので）。
+   * `live`：いま受け取る記録（新しい依頼は今の文脈だけ）。保存した記録の読み直しでは、その時に正しかった記録を断らない。
+   */
+  function add(rec, opts = {}) {
+    quiet = !!opts.quiet;
+    live = !!opts.live;
+    n += 1;
     const shape = shapeProblem(rec, goals);
-    if (shape) { reject(rec, shape); continue; }
-    if (rec.season.programId !== season.programId || rec.season.seasonId !== season.seasonId) { reject(rec, '別のシーズンの記録'); continue; }
+    if (shape) return reject(rec, shape);
+    if (!known(rec.season)) return reject(rec, `知らない文脈（${ctxKey(rec.season)}）の記録`);
     const id = recordId(rec);
-    if (seenIds.has(id)) { reject(rec, '同じ記録が二度'); continue; }
-    seenIds.add(id);
+    if (seenIds.has(id)) return reject(rec, '同じ記録が二度');
     const r = rec.request ? S.requests[rec.request] : null;
+    if (r && !sameCtx(r.ctx, rec.season)) return reject(rec, `依頼（${ctxKey(r.ctx)}）と別の文脈の記録。依頼の口座は依頼の文脈で確かめる`);
+    const season = r ? r.ctx : rec.season;
     const openAt = (q, t) => q.state === 'open' && t < q.expiresAt;
     const why = (() => {
       switch (rec.kind) {
         case 'request': {
           if (leftOf(rec.goalId, rec.signer)) return 'この目的から抜けた人は依頼できない';
+          if (live && current && !sameCtx(rec.season, current)) return `新しい依頼は今の文脈（${ctxKey(current)}）で出す`;
           S.requests[id] = {
-            id, goalId: rec.goalId, requester: rec.signer, nation: rec.nation, need: { ...rec.need }, to: { ...rec.to },
+            id, ctx: { programId: rec.season.programId, seasonId: rec.season.seasonId }, goalId: rec.goalId, requester: rec.signer, nation: rec.nation, need: { ...rec.need }, to: { ...rec.to },
             at: rec.at, expiresAt: rec.expiresAt, state: 'open', cancel: null, responses: {}, links: [], sendings: [],
           };
           return null;
@@ -229,7 +250,7 @@ export function fold(records, { goals, season }) {
           if (String(rec.caravan.ownerTag) !== ownerTagOf(season, rec.signer)) return '隊商の鍵がこの署名の人のものではない';
           for (const [k, v] of Object.entries(rec.cargo)) if (!(k in r.need) || v > r.need[k]) return `依頼にない量：${RESOURCE_JA[k] ?? k} ${v}`;
           if (Object.values(S.requests).some(q => q.sendings.some(z => z.walletSig === rec.walletSig))) return '同じ取引の記録が二度';
-          r.sendings.push({ responder: rec.signer, caravan: { ownerTag: String(rec.caravan.ownerTag), seq: rec.caravan.seq }, walletSig: rec.walletSig, blockhash: rec.blockhash,
+          r.sendings.push({ responder: rec.signer, caravan: { ownerTag: String(rec.caravan.ownerTag), seq: rec.caravan.seq, ctx: ctxKey(season) }, walletSig: rec.walletSig, blockhash: rec.blockhash,
             cargo: { ...rec.cargo }, src: { ...rec.src }, at: rec.at, n });
           return null;
         }
@@ -239,10 +260,10 @@ export function fold(records, { goals, season }) {
           if (!x || x.answer !== 'accept' || x.withdrawn) return '応じていない人は隊商を結び付けられない';
           if (!openAt(r, rec.at)) return '依頼が開いていない（取消・期限切れの後は結び付けない。隊商はそのまま届く）';
           if (String(rec.caravan.ownerTag) !== ownerTagOf(season, rec.signer)) return '隊商の持ち主がこの署名の人ではない';
-          const key = `${rec.caravan.ownerTag}:${rec.caravan.seq}`;
+          const key = `${ctxKey(season)}:${rec.caravan.ownerTag}:${rec.caravan.seq}`;
           if (linkedCaravans.has(key)) return 'この隊商はもう結び付けられている';
           linkedCaravans.add(key);
-          r.links.push({ responder: rec.signer, claimedNation: x.nation, caravan: { ownerTag: String(rec.caravan.ownerTag), seq: rec.caravan.seq }, at: rec.at, n });
+          r.links.push({ responder: rec.signer, claimedNation: x.nation, caravan: { ownerTag: String(rec.caravan.ownerTag), seq: rec.caravan.seq, ctx: ctxKey(season) }, at: rec.at, n });
           return null;
         }
         case 'leave': {
@@ -260,10 +281,22 @@ export function fold(records, { goals, season }) {
       }
       return '不明';
     })();
-    if (why) reject(rec, why);
-    else S.accepted.push(id);
+    if (why) return reject(rec, why);
+    seenIds.add(id);
+    S.accepted.push(id);
+    return { ok: true, id };
   }
-  return S;
+  return { add, state: S };
+}
+
+/**
+ * 記録の列をまとめて畳み込む（テストや読み直し用）。`season` 一つを渡す古い呼び方は、その文脈だけを読む。
+ * 返す形：{ requests: {id: {...}}, left: {goalId: [wallet]}, rejected: [{id, kind, why}] }
+ */
+export function fold(records, { goals, season = null, contexts = null, current = null }) {
+  const f = createFolder({ goals, contexts: contexts ?? [season], current });
+  for (const rec of records) f.add(rec);
+  return f.state;
 }
 
 /** 依頼の状態を、時刻 `now` で読む（期限切れを表示に反映。記録は変えない）。 */

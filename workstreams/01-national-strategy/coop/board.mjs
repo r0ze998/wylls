@@ -4,6 +4,7 @@
 //
 //   node workstreams/01-national-strategy/coop/board.mjs --herald http://127.0.0.1:41940 \
 //        --program <program id> --season <id> --rpc http://127.0.0.1:41910 [--port 41873] [--data <dir>] [--judge arrivals]
+//        [--previous <program>:<season> …] [--legacy-data <旧い板のフォルダ> …]
 //
 // 中継（relay）へは、ゲームと同じく同じ入口の /gw を通す（板 → ヘラルドの /gw → 中継）。
 // 中継は CORS の見出しを返さず、OPTIONS にも答えない（permutation-gateway src/frontier/app.mjs：Access-Control-Allow-Origin なし、
@@ -21,7 +22,7 @@ import net from 'node:net';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { fold, recordId, shapeProblem, verifySig, ownerTagOf, CLOCK_SKEW, RESOURCES } from './record.mjs';
+import { createFolder, recordId, shapeProblem, verifySig, ownerTagOf, CLOCK_SKEW, RESOURCES, ctxKey } from './record.mjs';
 import { linkProblem } from './arrival.mjs';
 import { GOALS, JUDGES, coopView, timingOf } from './goal.mjs';
 import { citizenOf, holdingNow, rpcReader, caravanAccount, caravanHistory, sendOutcome, seasonRules } from './chain.mjs';
@@ -58,99 +59,104 @@ export function loadRecords(file) {
  * 再起動：記録（records.jsonl）を最初から畳み込み直すので、依頼・応答・結び付け・重複防止（同じ記録・同じ隊商）は戻る。
  * 観測の時刻（observed.json）が失われると、再起動の後に初めて見た時刻になる（仮B は「到着より後」を確かめられず、達成にならない側に倒れる）。
  */
-export function createBoard({ herald, programId, seasonId, dataDir, judge = 'arrivals', now = () => Math.floor(Date.now() / 1000), fetchHerald = null, reader = null, relay = '/gw', rpc = null }) {
+export function createBoard({ herald, programId, seasonId, dataDir, judge = 'arrivals', now = () => Math.floor(Date.now() / 1000), fetchHerald = null, reader = null, relay = '/gw', rpc = null,
+  previous = [], legacyDirs = [] }) {
+  // 今の文脈（新しい依頼・ヘラルド・見ている人の国）と、前の文脈（読み続ける）。文脈を世界の正本として決めるのは④⑧。①は渡された一覧を使う。
   const season = { programId, seasonId: String(seasonId) };
+  const contexts = [season, ...previous.map(c => ({ programId: c.programId, seasonId: String(c.seasonId) }))];
   fs.mkdirSync(dataDir, { recursive: true });
   const recFile = path.join(dataDir, 'records.jsonl');
   const obsFile = path.join(dataDir, 'observed.json');
-  const { records, damaged, received } = loadRecords(recFile);
-  /** 記録の ID → 板が受け取った時刻（板の時計）。受諾の後の送信かを決めるのに使う（goal.mjs timingOf）。 */
-  const receivedAt = new Map(records.map((r, i) => [recordId(r), received[i]]));
+  // 旧い板の記録（シーズンごとのフォルダ）は読むだけ。書き換えず、こちらへ写しもしない（再起動のたびに読み直す）
+  const loaded = [...legacyDirs.map(d => ({ ...loadRecords(path.join(d, 'records.jsonl')), legacy: d })), { ...loadRecords(recFile), legacy: null }];
+  const records = [], damaged = [], receivedAt = new Map();
+  const folder = createFolder({ goals: GOALS, contexts, current: season });
+  for (const L of loaded) {
+    L.records.forEach((r, i) => { records.push(r); receivedAt.set(recordId(r), L.received[i]); folder.add(r); });
+    damaged.push(...L.damaged.map(d => ({ ...d, file: L.legacy ?? 'records.jsonl' })));
+  }
   const sendCache = new Map();      // 送信の結果（終わったものは変わらないので覚える）
   let obs = { ended: {}, vaults: {} };
   try { if (fs.existsSync(obsFile)) obs = JSON.parse(fs.readFileSync(obsFile, 'utf8')); } catch { obs = { ended: {}, vaults: {} }; }
-  const citizenCache = new Map();   // 確かめられた結果だけを覚える（未検証は毎回やり直す）
+  const citizenCache = new Map();   // 確かめられた結果だけを覚える（未検証は毎回やり直す）。鍵は「文脈|ウォレット」
   const endCache = new Map();       // 隊商の確定・襲撃（チェーンの記録。終わったものは変わらないので覚える）
+  const rulesCache = new Map();     // 文脈ごとの規則の版
   const getHerald = fetchHerald ?? (async p => {
     const r = await fetch(new URL(p, herald));
     return { status: r.status, json: r.ok ? await r.json() : null };
   });
 
-  /** ヘラルドの隊商の一覧を読み、初めて見た確定の記録と貯蔵庫の時刻を残す（施設の観測に使う）。 */
+  /** ヘラルド（今の文脈）の隊商の一覧を読み、初めて見た確定の記録と貯蔵庫の時刻を残す（施設の観測に使う）。 */
   async function caravans() {
     let file = null;
     try { const r = await getHerald('/h/caravans.json'); file = r.status === 200 ? r.json : null; } catch { file = null; }
     if (file) {
       const t = now();
       let changed = false;
-      for (const e of file.ended ?? []) { const k = `${e.ownerTag}:${e.seq}`; if (!(k in obs.ended)) { obs.ended[k] = t; changed = true; } }
+      for (const e of file.ended ?? []) { const k = caravanKeyOf({ ctx: ctxKey(season), ownerTag: e.ownerTag, seq: e.seq }); if (!(k in obs.ended)) { obs.ended[k] = t; changed = true; } }
       for (const v of file.vaults ?? []) { const k = `${v.p},${v.q},${v.tile}`; if (!(k in obs.vaults)) { obs.vaults[k] = t; changed = true; } }
       if (changed) fs.writeFileSync(obsFile, JSON.stringify(obs));
     }
     return file;
   }
 
-  const state = () => fold(records, { goals: GOALS, season });
+  const state = () => folder.state;
 
-  // 受け取りは一つずつ、受け取った順に。今は「状態の確かめ → 追記」の間に待ち（await）がないので同時の送信でも二重にはならないが
-  // （テスト「同時の送信」）、確かめに待ちが入っても順番が崩れないように並べておく。
+  // 受け取りは一つずつ、受け取った順に。
   let queue = Promise.resolve();
   const submit = rec => { const r = queue.then(() => submitOne(rec)); queue = r.catch(() => {}); return r; };
 
-  /** 記録を一つ受け取る。{ok, id} か {ok:false, why}。 */
+  /** 記録を一つ受け取る。{ok, id} か {ok:false, why}。依頼に続く記録は、依頼の文脈の口座で確かめる。 */
   async function submitOne(rec) {
     const shape = shapeProblem(rec, GOALS);
     if (shape) return { ok: false, why: shape };
     if (!(await verifySig(rec))) return { ok: false, why: '署名が合わない' };
     if (Math.abs(rec.at - now()) > CLOCK_SKEW) return { ok: false, why: `時刻が板の時計と ${CLOCK_SKEW} 秒より離れている` };
-    if (rec.kind === 'sending') {
+    const q = rec.request ? state().requests[rec.request] : null;
+    const ctx = q?.ctx ?? rec.season;
+    if (rec.kind === 'sending' && q) {
       // 結果の分からない送信が同じ依頼・同じ人に残っていれば、次の署名・送付を受けない（二重送付を防ぐ）
-      const q = state().requests[rec.request];
-      for (const z of q?.sendings ?? []) {
+      for (const z of q.sendings ?? []) {
         if (z.responder !== rec.signer) continue;
         const o = await sendingStatus(q, z);
         if (o.status === 'unknown') return { ok: false, why: `結果の分からない送信（隊商 #${z.caravan.seq}）が残っている。着地・失敗・期限切れが分かるまで次を送らない`, pending: z.caravan };
       }
     }
     if (rec.kind === 'link') {
-      const q = state().requests[rec.request];
       if (!q) return { ok: false, why: '依頼が見つからない' };
       if (reader) {
         // 元の送り主：隊商の鍵（OWNER_TAG）は送った人の印。奪われると OWNER_CITIZEN は奪った人になるが鍵は変わらない
-        if (String(rec.caravan.ownerTag) !== ownerTagOf(season, rec.signer)) return { ok: false, why: 'この隊商を送った人（隊商の鍵の持ち主の印）ではない' };
-        const me = seasonAddresses(programId, season.seasonId).of('Citizen', { wallet: rec.signer });
+        if (String(rec.caravan.ownerTag) !== ownerTagOf(ctx, rec.signer)) return { ok: false, why: 'この隊商を送った人（隊商の鍵の持ち主の印）ではない' };
+        const me = seasonAddresses(ctx.programId, ctx.seasonId).of('Citizen', { wallet: rec.signer });
         // 正本：チェーンの隊商の口座（輸送中なら口座がある）
-        const c = await caravanAccount(reader, season, rec.caravan);
+        const c = await caravanAccount(reader, ctx, rec.caravan);
         if (c.status === 'found') {
           if (c.ownerCitizen !== me) return { ok: false, why: 'この隊商の今の持ち主（OWNER_CITIZEN）ではない（奪われた）' };
           if (c.state !== 'moving') return { ok: false, why: `隊商は輸送中ではない（${c.state}）` };
           const why = linkProblem(q, rec.caravan, c.ownerTag, { moving: [{ ownerTag: c.ownerTag, seq: c.seq, dst: c.dst, cargo: c.cargo, raided: false }] });
           if (why) return { ok: false, why };
         } else if (c.status === 'absent') {
-          // 結び付ける前に着いた隊商（口座は確定で閉じる）：チェーンの取引の記録の、元の送信（CARAVAN_SENT）で確かめる。
-          // 応じる前に送った隊商を後から結び付けないよう、送信の時刻が応答より後であること。
-          const h = await caravanHistory(reader, season, rec.caravan);
+          // 結び付ける前に着いた隊商（口座は確定で閉じる）：チェーンの元の送信（CARAVAN_SENT）で確かめる。応じる前の送信は断る
+          const h = await caravanHistory(reader, ctx, rec.caravan);
           if (h.status !== 'ok') return { ok: false, why: `隊商の記録を読めない：${h.why}` };
           if (!h.sent) return { ok: false, why: '隊商の口座も、送信の記録もない（まだ載っていない）' };
           if (h.raided) return { ok: false, why: '襲われた隊商は結び付けない' };
           const resp = q.responses[rec.signer];
-          // 応じた後の送信か：送信の blockTime と、板が応答を受け取った時刻を比べる。前と分かれば断る。境界（同じ時刻の近く）と後は受け、
-          // 境界は数えない（goal.mjs timingOf）。
           if (timingOf(h.sent.blockTime, receivedAt.get(resp?.id) ?? null).status === 'before') return { ok: false, why: '応じる前に送った隊商は結び付けない' };
           const why = linkProblem(q, rec.caravan, rec.caravan.ownerTag, { moving: [{ ownerTag: String(rec.caravan.ownerTag), seq: rec.caravan.seq, dst: h.sent.dst, cargo: h.sent.cargo, raided: false }] });
           if (why) return { ok: false, why };
         } else return { ok: false, why: `隊商をチェーンで確かめられない：${c.why}` };
       } else {
+        if (q.ctx && ctxKey(q.ctx) !== ctxKey(season)) return { ok: false, why: '前の文脈の隊商は、チェーンを読む板（--rpc）でしか確かめられない' };
         const file = await caravans();
         if (!file) return { ok: false, why: 'ヘラルドの隊商の一覧が読めないので、隊商を確かめられない' };
-        const why = linkProblem(q, rec.caravan, ownerTagOf(season, rec.signer), file);
+        const why = linkProblem(q, rec.caravan, ownerTagOf(ctx, rec.signer), file);
         if (why) return { ok: false, why };
       }
     }
-    const after = fold([...records, rec], { goals: GOALS, season });
-    const id = recordId(rec);
-    const bad = after.rejected.find(x => x.id === id);
-    if (bad) return { ok: false, why: bad.why };
+    const r = folder.add(rec, { quiet: true, live: true });
+    if (!r.ok) return { ok: false, why: r.why };
+    const id = r.id;
     // 書きかけで止まった最後の行に続けて書かない
     if (fs.existsSync(recFile)) { const st = fs.statSync(recFile); if (st.size > 0) { const fd = fs.openSync(recFile, 'r'); const b = Buffer.alloc(1); fs.readSync(fd, b, 0, 1, st.size - 1); fs.closeSync(fd); if (b[0] !== 10) fs.appendFileSync(recFile, '\n'); } }
     const at = now();
@@ -160,46 +166,70 @@ export function createBoard({ herald, programId, seasonId, dataDir, judge = 'arr
     return { ok: true, id };
   }
 
-  async function citizen(wallet) {
-    if (citizenCache.has(wallet)) return citizenCache.get(wallet);
-    const c = await citizenOf(reader, season, wallet);
-    if (c.status === 'verified') citizenCache.set(wallet, c);
+  async function citizen(wallet, ctx) {
+    const k = `${ctxKey(ctx)}|${wallet}`;
+    if (citizenCache.has(k)) return citizenCache.get(k);
+    const c = await citizenOf(reader, ctx, wallet);
+    if (c.status === 'verified') citizenCache.set(k, c);
     return c;
   }
 
-  /** チェーンで確かめる：関わった人の国（Citizen）と、到着のある依頼の届け先の村の持ち主。 */
-  async function checks(st, viewer) {
-    const wallets = new Set(viewer ? [viewer] : []);
-    const holdings = {};
-    for (const q of Object.values(st.requests)) {
-      wallets.add(q.requester);
-      for (const l of q.links) wallets.add(l.responder);
-      if (q.links.length) holdings[q.id] = await holdingNow(reader, season, q.to);   // 今の口座。到着時の受取人は goal.mjs で世代と合わせて決める
-    }
-    const citizens = {};
-    for (const w of wallets) citizens[w] = await citizen(w);
-    const times = Object.fromEntries(receivedAt);
-    if (!reader) return { citizens, holdings, caravans: undefined, times, rules: { status: 'unverified', why: 'チェーンを読めない（板に --rpc がない）' }, sendings: {} };
-    const ends = {};
-    for (const q of Object.values(st.requests)) for (const l of q.links) {
-      const k = caravanKeyOf(l.caravan);
-      if (endCache.has(k)) { ends[k] = endCache.get(k); continue; }
-      const h = await caravanHistory(reader, season, l.caravan);
-      const e = h.status !== 'ok' ? h : { ...h, status: h.raided ? 'raided' : h.settled ? 'settled' : 'none' };
-      if (e.status === 'settled' || (e.status === 'raided' && e.settled)) endCache.set(k, e);
-      ends[k] = e;
-    }
-    const sendings = {};
-    for (const q of Object.values(st.requests)) for (const z of q.sendings) sendings[z.walletSig] = await sendingStatus(q, z);
-    return { citizens, holdings, caravans: ends, times, rules: await seasonRules(reader, season), sendings };
+  async function rulesOf(ctx) {
+    const k = ctxKey(ctx);
+    if (rulesCache.has(k)) return rulesCache.get(k);
+    const r = await seasonRules(reader, ctx);
+    if (r.status === 'verified') rulesCache.set(k, r);
+    return r;
   }
 
-  /** sending の記録の送信が、いまどうなったか（chain.mjs sendOutcome）。終わったものは覚える。 */
+  /**
+   * チェーンで確かめる（依頼ごとに、その依頼の文脈で）：関わった人の国（Citizen）、確定した隊商の届け先の村の今の口座、
+   * 隊商の終わり方、送信の結果、規則の版。終わったもの（確定・送信の結果・確かめた国・規則）は覚えるので、長く続いても読む量は増えにくい。
+   */
+  async function checks(st, viewer) {
+    const want = new Map([...(viewer ? [[`${ctxKey(season)}|${viewer}`, [viewer, season]]] : [])]);
+    const holdings = {}, ends = {}, sendings = {}, rules = {};
+    const placeNow = new Map();   // 同じ村を一回の表示で何度も読まない
+    for (const q of Object.values(st.requests)) {
+      const ctx = q.ctx ?? season;
+      want.set(`${ctxKey(ctx)}|${q.requester}`, [q.requester, ctx]);
+      for (const l of q.links) want.set(`${ctxKey(ctx)}|${l.responder}`, [l.responder, ctx]);
+      if (!reader) continue;
+      let settledHere = false;
+      for (const l of q.links) {
+        const k = caravanKeyOf(l.caravan);
+        let e = endCache.get(k);
+        if (!e) {
+          const h = await caravanHistory(reader, ctx, l.caravan);
+          e = h.status !== 'ok' ? h : { ...h, status: h.raided ? 'raided' : h.settled ? 'settled' : 'none' };
+          if (e.status === 'settled' || (e.status === 'raided' && e.settled)) endCache.set(k, e);
+          else if (e.status === 'none') e = { ...e, account: await caravanAccount(reader, ctx, l.caravan) };   // 輸送中か（前の文脈はヘラルドに出ない）
+        }
+        ends[k] = e;
+        if (e.settled) settledHere = true;
+      }
+      if (settledHere) {
+        const pk = `${ctxKey(ctx)}|${q.to.p},${q.to.q},${q.to.site}`;
+        if (!placeNow.has(pk)) placeNow.set(pk, await holdingNow(reader, ctx, q.to));   // 今の口座。到着時の受取人は goal.mjs で世代と合わせて決める
+        holdings[q.id] = placeNow.get(pk);
+      }
+      for (const z of q.sendings ?? []) sendings[z.walletSig] = await sendingStatus(q, z);
+      if (!rules[ctxKey(ctx)]) rules[ctxKey(ctx)] = await rulesOf(ctx);
+    }
+    const citizens = {};
+    for (const [k, [w, ctx]] of want) citizens[k] = await citizen(w, ctx);
+    const times = Object.fromEntries(receivedAt);
+    if (!reader) return { citizens, holdings, caravans: undefined, times, rules: { status: 'unverified', why: 'チェーンを読めない（板に --rpc がない）' }, sendings: {} };
+    if (!rules[ctxKey(season)]) rules[ctxKey(season)] = await rulesOf(season);
+    return { citizens, holdings, caravans: ends, times, rules, sendings };
+  }
+
+  /** sending の記録の送信が、いまどうなったか（chain.mjs sendOutcome、依頼の文脈で）。終わったものは覚える。 */
   async function sendingStatus(q, z) {
     if (sendCache.has(z.walletSig)) return sendCache.get(z.walletSig);
     if (!reader) return { status: 'unknown', why: 'チェーンを読めない' };
     const plan = { wallet: z.responder, caravan: z.caravan, src: z.src, dst: q.to, cargo: RESOURCES.map(r => z.cargo[r] ?? 0) };
-    const o = await sendOutcome(reader, season, plan, { walletSig: z.walletSig, blockhash: z.blockhash });
+    const o = await sendOutcome(reader, q.ctx ?? season, plan, { walletSig: z.walletSig, blockhash: z.blockhash });
     if (o.status !== 'unknown') sendCache.set(z.walletSig, o);
     return o;
   }
@@ -208,11 +238,11 @@ export function createBoard({ herald, programId, seasonId, dataDir, judge = 'arr
     const file = await caravans();
     const st = state();
     const v = coopView({ state: st, file, obs, checks: await checks(st, viewer), viewer, now: now(), judgeId, season });
-    return { ...v, heraldFeed: file ? { moving: (file.moving ?? []).length, ended: Array.isArray(file.ended) ? file.ended.length : null } : null, chain: !!reader, damaged };
+    return { ...v, heraldFeed: file ? { moving: (file.moving ?? []).length, ended: Array.isArray(file.ended) ? file.ended.length : null } : null, chain: !!reader, damaged, contexts };
   }
 
-  const config = () => ({ season, goals: GOALS, judges: Object.values(JUDGES).map(j => ({ id: j.id, label: j.label, means: j.means })), judge, herald, chain: !!reader, damaged, relay, rpcProxy: !!rpc });
-  return { submit, view, config, records, caravans, season, rpc };
+  const config = () => ({ season, contexts, goals: GOALS, judges: Object.values(JUDGES).map(j => ({ id: j.id, label: j.label, means: j.means })), judge, herald, chain: !!reader, damaged, relay, rpcProxy: !!rpc });
+  return { submit, view, config, records, caravans, season, contexts, rpc, state };
 }
 
 // ------------------------------------------------------------------ HTTP
@@ -307,9 +337,13 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const programId = arg('program'), seasonId = arg('season');
   if (!programId || !seasonId) { console.error('--program と --season が要る（frontier-stack の state.json の program id とシーズン番号）'); process.exit(2); }
   const port = Number(arg('port', '41873'));
-  const dataDir = arg('data', path.join(repo, '.local/ws01-coop', `${programId.slice(0, 8)}-${seasonId}`));
+  // 記録のフォルダはシーズンで分けない（世界は続く。文脈が変わっても同じ板）。旧い形のシーズンごとのフォルダは --legacy-data で読むだけ
+  const dataDir = arg('data', path.join(repo, '.local/ws01-coop', programId.slice(0, 8)));
+  const all = k => process.argv.flatMap((x, i) => (x === `--${k}` ? [process.argv[i + 1]] : []));
+  const previous = all('previous').map(x => { const [p, s] = x.split(':'); return { programId: p, seasonId: s }; });   // --previous <program>:<season>（読み続ける前の文脈）
+  const legacyDirs = all('legacy-data');
   const rpc = arg('rpc');   // 例：http://127.0.0.1:41910（国と届け先の村をチェーンで確かめる。ないと国籍未検証）
-  const board = createBoard({ herald, programId, seasonId, dataDir, judge: arg('judge', 'arrivals'), reader: rpc ? rpcReader(rpc) : null, rpc });   // 中継は同じ入口の /gw（ヘラルドの --relay が要る）
+  const board = createBoard({ herald, programId, seasonId, dataDir, judge: arg('judge', 'arrivals'), reader: rpc ? rpcReader(rpc) : null, rpc, previous, legacyDirs });   // 中継は同じ入口の /gw（ヘラルドの --relay が要る）
   createServer(board, { herald }).listen(port, '127.0.0.1', () => {
     console.log(`依頼の板：http://127.0.0.1:${port}/ws01/  ゲーム：http://127.0.0.1:${port}/frontier/frontier/  （ヘラルド ${herald}、記録 ${dataDir}）`);
   });

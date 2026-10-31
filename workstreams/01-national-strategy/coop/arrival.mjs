@@ -31,7 +31,10 @@ export const STATE_JA = Object.freeze({
   'raided-taken': '奪われた（奪った人の物）', 'raided-burned': '焼かれた', unknown: '不明（未検証）',
 });
 
-const keyOf = c => `${String(c.ownerTag)}:${Number(c.seq)}`;
+/** ヘラルドの一覧の鍵（ヘラルドは一つの文脈＝シーズンの一覧を出す）。 */
+const feedKey = c => `${String(c.ownerTag)}:${Number(c.seq)}`;
+/** 隊商の鍵：文脈を含む（Citizen はシーズンごとの口座で、隊商の番号もその Citizen ごとに 0 から。文脈が違えば別の隊商）。 */
+const keyOf = c => (c.ctx ? `${c.ctx}:${feedKey(c)}` : feedKey(c));
 const cargoOf = a => (Array.isArray(a) ? a.map(x => Number(x) || 0) : [0, 0, 0, 0, 0, 0, 0, 0]);
 
 /** `ended` の1件を読む（形が違えば null）。提案パッチの形：{ownerTag, seq, end: 'settled'|'raided', outcome?, dst?, cargo?, choice?, raiderTag?, taken?} */
@@ -45,15 +48,15 @@ function endedOf(e) {
 /** ヘラルドのファイルから、隊商の ID ごとの手がかりを引く。 */
 export function indexFeed(file) {
   const moving = new Map(), settled = new Map(), raided = new Map();
-  for (const m of file?.moving ?? []) moving.set(keyOf(m), m);
+  for (const m of file?.moving ?? []) moving.set(feedKey(m), m);
   const hasEnded = Array.isArray(file?.ended);
   for (const raw of file?.ended ?? []) {
     const e = endedOf(raw);
     if (!e) continue;
-    if (e.end === 'settled') settled.set(keyOf(e), e);
-    else raided.set(keyOf(e), e);
+    if (e.end === 'settled') settled.set(feedKey(e), e);
+    else raided.set(feedKey(e), e);
   }
-  return { moving, settled, raided, hasEnded, vaults: file?.vaults ?? [] };
+  return { moving, settled, raided, hasEnded, vaults: file?.vaults ?? [], ctx: file?.ctx ?? null };
 }
 
 /** 確定の記録と規則から、宛先に加算された量（④の delivered・verification）。 */
@@ -80,6 +83,14 @@ export function arrivalOf(request, link, feed, chainEnd) {
     const c = chainArrival(request, link, chainEnd);
     const agree = !['delivered', 'lost', 'misdelivered', 'raided-taken', 'raided-burned'].includes(h.state) || h.state === c.state;
     return agree ? c : { ...c, note: `${c.note}（ヘラルドの写しは「${STATE_JA[h.state] ?? h.state}」で、チェーンの記録と食い違う）`, heraldDisagrees: h.state };
+  }
+  // まだ確定・襲撃の記録がない隊商：チェーンの隊商の口座（輸送中なら口座がある）で状態を出す。前の文脈の隊商は今のヘラルドに出ないので、これが要る
+  const acc = chainEnd?.account;
+  if (chainEnd?.status === 'none' && acc?.status === 'found') {
+    const base = { requestId: request.id, caravanId: { ...link.caravan }, owner: { ownerTag: String(link.caravan.ownerTag) }, responder: link.responder, source: 'chain-account', delivered: null, verification: null };
+    if (!samePlace(acc.dst, request.to)) return { ...base, state: 'raided-taken', note: '隊商の口座の行き先が依頼の届け先と違う（奪われたとみられる）。数えない' };
+    const ended = ['delivered', 'lost', 'misdelivered', 'raided-taken', 'raided-burned'].includes(h.state);
+    return { ...base, state: 'moving', note: `輸送中（チェーンの隊商の口座）。まだ数えない${ended ? `（ヘラルドの写しは「${STATE_JA[h.state] ?? h.state}」で、チェーンと食い違う）` : ''}`, ...(ended ? { heraldDisagrees: h.state } : {}) };
   }
   const why = chainEnd === undefined ? 'チェーンの取引の記録と照合していない（板に --rpc がない）'
     : chainEnd.status === 'none' ? 'チェーンの取引の記録に、この隊商の確定・襲撃はまだない' : chainEnd.why;
@@ -108,7 +119,9 @@ function chainArrival(request, link, end) {
 
 /** ヘラルドの一覧だけから作る到着の記録（表示と突き合わせ用。量は呼び出し側で数えない）。 */
 function heraldArrival(request, link, feed) {
-  const k = keyOf(link.caravan);
+  const k = feedKey(link.caravan);
+  // 別の文脈の隊商は、今のヘラルドの一覧には出ない（ヘラルドはシーズンごと）。チェーンの記録だけで決める
+  if (feed.ctx && link.caravan.ctx && link.caravan.ctx !== feed.ctx) feed = { moving: new Map(), settled: new Map(), raided: new Map(), hasEnded: true };
   const base = { requestId: request.id, caravanId: { ...link.caravan }, owner: { ownerTag: String(link.caravan.ownerTag) }, responder: link.responder };
   const raid = feed.raided.get(k);
   const settled = feed.settled.get(k);
@@ -138,7 +151,7 @@ function heraldArrival(request, link, feed) {
  * 輸送中の一覧にあり、持ち主の印が署名した人のもので、行き先が依頼の届け先で、依頼の資源を一つ以上積んでいること。
  */
 export function linkProblem(request, caravan, ownerTag, file) {
-  const m = indexFeed(file).moving.get(keyOf(caravan));
+  const m = indexFeed(file).moving.get(feedKey(caravan));
   if (!m) return 'この隊商は輸送中の一覧にない（送った直後ならヘラルドの更新を待つ）';
   if (String(m.ownerTag) !== String(ownerTag)) return 'この隊商の持ち主ではない';
   if (m.raided) return '襲われた隊商は結び付けない';
@@ -149,8 +162,8 @@ export function linkProblem(request, caravan, ownerTag, file) {
 }
 
 /** 依頼ごとの到着の記録の一覧。 */
-export function arrivalsOf(state, file, chainEnds = undefined) {
-  const feed = indexFeed(file);
+export function arrivalsOf(state, file, chainEnds = undefined, currentCtx = null) {
+  const feed = indexFeed(file ? { ...file, ctx: currentCtx } : file);
   const out = [];
   for (const q of Object.values(state.requests)) for (const l of q.links) out.push(arrivalOf(q, l, feed, chainEnds === undefined ? undefined : (chainEnds[keyOf(l.caravan)] ?? { status: 'unverified', why: 'まだ読んでいない' })));
   return out;
