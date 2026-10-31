@@ -81,6 +81,52 @@ export class MockChain {
     /** The world the resident program drives (set by `attachWorld`). */
     this.world = null;
     this.collectionAuthorities = new Map();
+    /** Mock token program: `${mint}:${owner}` → bigint balance (test units, no value). */
+    this.tokens = new Map();
+    /** Resident listings on the dedicated sale path: assetId → {seller, price, mint, gen, slot}. */
+    this.listings = new Map();
+    /** Sale fee destination and basis points (TEST VALUES; not a product figure). */
+    this.operator = 'Operator11111111111111111111111111111111111';
+    this.saleFeeBps = 250;
+    /** Failure injection for the atomicity tests: a label the instruction throws at after its payment leg. */
+    this.failInside = null;
+  }
+
+  // ------------------------------------------------------------ mock token program
+
+  /** Test helper: mint `amount` test tokens of `mint` to `owner` (no authority modelled; the faucet). */
+  mintTokens(mint, owner, amount) { this.tokens.set(`${mint}:${owner}`, this.balance(mint, owner) + BigInt(amount)); }
+  balance(mint, owner) { return this.tokens.get(`${mint}:${owner}`) ?? 0n; }
+  #debit(mint, owner, amount) {
+    const have = this.balance(mint, owner);
+    if (have < amount) refuse(ERR.INSUFFICIENT_FUNDS, 'token transfer: insufficient funds', { have: String(have), need: String(amount) });
+    this.tokens.set(`${mint}:${owner}`, have - amount);
+  }
+  #credit(mint, owner, amount) { this.tokens.set(`${mint}:${owner}`, this.balance(mint, owner) + amount); }
+
+  /** Instruction: a plain token transfer signed by `from`. */
+  ixTokenTransfer({ mint, from, to, amount }) { return { kind: 'tokenTransfer', mint, from, to, amount: String(amount), signers: [from] }; }
+  /** Instruction: list a guarded resident asset for sale on the dedicated path (the holder signs). */
+  ixList({ assetId, seller, price, mint }) { return { kind: 'list', assetId, seller, price: String(price), mint, signers: [seller] }; }
+  ixCancelList({ assetId, seller }) { return { kind: 'cancelList', assetId, seller, signers: [seller] }; }
+  /**
+   * Instruction: buy a listed resident. ONE instruction does the payment
+   * (buyer → seller and operator fee), the asset transfer (as permanent
+   * transfer delegate), the generation bump and the session clear, so none
+   * of them can exist without the others.
+   */
+  ixBuy({ assetId, buyer, maxPrice = null }) { return { kind: 'buy', assetId, buyer, maxPrice: maxPrice === null ? null : String(maxPrice), signers: [buyer] }; }
+  /** Instruction: the owner approves an owner-managed Transfer Delegate (Core: revoked after any transfer; cannot move a frozen asset). */
+  ixApproveTransferDelegate({ assetId, owner, delegate }) { return { kind: 'approveTransferDelegate', assetId, owner, delegate, signers: [owner] }; }
+  /** Instruction: a Transfer Delegate moves the asset. */
+  ixTransferByDelegate({ assetId, delegate, to }) { return { kind: 'transferByDelegate', assetId, delegate, to, signers: [delegate] }; }
+  /** Instruction: thaw. `permanent: true` targets the Permanent Freeze Delegate (its authority is the program; no key can sign for it). */
+  ixThaw({ assetId, by, permanent = false }) { return { kind: 'thaw', assetId, by, permanent, signers: [by] }; }
+
+  /** A message of several instructions, executed atomically (all or nothing), as a Solana transaction. */
+  buildTx(instructions, { validUntilSlot = this.slot + TX_LIFETIME_SLOTS } = {}) {
+    const signers = [...new Set(instructions.flatMap(i => i.signers))];
+    return { kind: 'tx', instructions, signers, validUntilSlot, nonce: randomAddress() };
   }
 
   // ------------------------------------------------------------ clock
@@ -232,17 +278,39 @@ export class MockChain {
       const sig = tx.signatures[s] ? Buffer.from(tx.signatures[s], 'base64') : null;
       if (!sig || !verifySignature(bytes, sig, s)) refuse(ERR.BAD_SIGNATURE, `missing or invalid signature of ${s}`, { signature });
     }
-    let result;
+    // All or nothing: every write of the transaction is undone when any instruction fails (as on chain).
+    const snap = this.#snapshot();
     try {
-      result = this.#execute(m, signature);
+      const results = (m.kind === 'tx' ? m.instructions : [m]).map(ix => this.#execute(ix, signature));
+      const result = m.kind === 'tx' ? { results } : results[0];
       this.processed.set(signature, { slot: this.slot, result: 'ok' });
       return { ok: true, signature, slot: this.slot, ...result };
     } catch (e) {
       if (!(e instanceof Refusal)) throw e;
+      this.#restore(snap);
       this.processed.set(signature, { slot: this.slot, result: e.code });
-      this.#event({ kind: 'failed', signature, reason: e.code, assetId: m.assetId, txKind: m.kind });
+      this.#event({ kind: 'failed', signature, reason: e.code, assetId: m.assetId ?? m.instructions?.[0]?.assetId ?? null, txKind: m.kind });
       throw new Refusal(e.code, e.message, { ...e.extra, signature, slot: this.slot });
     }
+  }
+
+  #snapshot() {
+    return {
+      accounts: new Map([...this.accounts].map(([k, v]) => [k, clone(v)])),
+      historyLen: new Map([...this.history].map(([k, v]) => [k, v.length])),
+      tokens: new Map(this.tokens),
+      listings: new Map([...this.listings].map(([k, v]) => [k, { ...v }])),
+      events: this.events.length,
+      world: this.world ? JSON.stringify(this.world.db) : null,
+    };
+  }
+  #restore(snap) {
+    this.accounts = snap.accounts;
+    for (const [k, h] of this.history) { const n = snap.historyLen.get(k); if (n === undefined) this.history.delete(k); else h.length = n; }
+    this.tokens = snap.tokens;
+    this.listings = snap.listings;
+    this.events.length = snap.events;
+    if (this.world && snap.world !== null) Object.assign(this.world.db, JSON.parse(snap.world));
   }
 
   #execute(m, signature) {
@@ -251,6 +319,13 @@ export class MockChain {
       case 'transferResident': return this.#transferResident(m, signature);
       case 'setSession': return this.#setSession(m, signature);
       case 'op': return this.#op(m, signature);
+      case 'tokenTransfer': { this.#debit(m.mint, m.from, BigInt(m.amount)); this.#credit(m.mint, m.to, BigInt(m.amount)); return { moved: m.amount }; }
+      case 'list': return this.#list(m, signature);
+      case 'cancelList': return this.#cancelList(m, signature);
+      case 'buy': return this.#buy(m, signature);
+      case 'approveTransferDelegate': return this.#approveDelegate(m);
+      case 'transferByDelegate': return this.#transferByDelegate(m, signature);
+      case 'thaw': return this.#thaw(m);
       default: refuse(ERR.BAD_DATA, `unknown instruction ${m.kind}`);
     }
   }
@@ -285,13 +360,10 @@ export class MockChain {
     if (!a || a.owner !== this.coreProgram) refuse(ERR.NO_ACCOUNT, 'TransferResident: no such asset');
     const owner = base58(a.data.subarray(1, 33));
     if (owner !== m.from) refuse(ERR.NOT_OWNER, 'TransferResident: the signer is not the current owner', { owner });
-    if (a.flags.permanentTransferDelegate !== this.residentProgram) refuse(ERR.AUTH, 'TransferResident: the program is not this asset\'s permanent transfer delegate (unguarded asset)');
-    if (a.flags.frozen) refuse(ERR.FROZEN, 'TransferResident: the owner-managed freeze is on');
-    this.#move(m.assetId, a, m.to);
-    const st = this.residentOf(m.assetId);
-    this.#writeResident(m.assetId, { gen: st.gen + 1, session: null });
-    this.#event({ kind: 'transfer', assetId: m.assetId, from: m.from, to: m.to, signature, via: 'program', gen: st.gen + 1 });
-    return { from: m.from, to: m.to, gen: st.gen + 1 };
+    const gen = this.#programMove(m.assetId, a, m.to);
+    this.listings.delete(m.assetId); // a gift after listing: the listing is gone (and would be stale by generation anyway)
+    this.#event({ kind: 'transfer', assetId: m.assetId, from: m.from, to: m.to, signature, via: 'program', gen });
+    return { from: m.from, to: m.to, gen };
   }
 
   /**
@@ -314,6 +386,104 @@ export class MockChain {
     }
     if (gen !== null && gen !== st.gen) refuse(ERR.STALE_GEN, 'prologue: the operation was built against an earlier holder generation', { gen, current: st.gen });
     return { owner, bySession, gen: st.gen };
+  }
+
+  /** The asset's current owner change as the program does it (permanent transfer delegate, forceApprove): owner, gen + 1, session cleared. */
+  #programMove(assetId, a, to) {
+    if (a.flags.permanentTransferDelegate !== this.residentProgram) refuse(ERR.AUTH, 'the program is not this asset\'s permanent transfer delegate (unguarded asset)');
+    if (a.flags.frozen) refuse(ERR.FROZEN, 'the owner-managed freeze is on');
+    this.#move(assetId, a, to);
+    const st = this.residentOf(assetId);
+    const gen = st.gen + 1;
+    this.#writeResident(assetId, { gen, session: null });
+    // Core revokes owner-managed delegates on any transfer.
+    const after = this.accounts.get(assetId);
+    if (after.flags.transferDelegate) this.#write(assetId, { ...after, flags: { ...after.flags, transferDelegate: null } });
+    return gen;
+  }
+
+  #list(m, signature) {
+    const a = this.accounts.get(m.assetId);
+    if (!a || a.owner !== this.coreProgram) refuse(ERR.NO_ACCOUNT, 'List: no such asset');
+    if (base58(a.data.subarray(1, 33)) !== m.seller) refuse(ERR.NOT_OWNER, 'List: only the holder lists');
+    if (a.flags.permanentTransferDelegate !== this.residentProgram) refuse(ERR.AUTH, 'List: unguarded asset; the dedicated path cannot move it');
+    if (!(BigInt(m.price) > 0n)) refuse(ERR.BAD_DATA, 'List: price');
+    const st = this.residentOf(m.assetId);
+    this.listings.set(m.assetId, { seller: m.seller, price: m.price, mint: m.mint, gen: st.gen, slot: this.slot });
+    this.#event({ kind: 'listed', assetId: m.assetId, seller: m.seller, price: m.price, mint: m.mint, gen: st.gen, signature });
+    return { listed: true, gen: st.gen };
+  }
+
+  #cancelList(m, signature) {
+    const l = this.listings.get(m.assetId);
+    if (!l) refuse(ERR.NO_LISTING, 'CancelList: not listed');
+    if (l.seller !== m.seller) refuse(ERR.NOT_OWNER, 'CancelList: not the seller');
+    this.listings.delete(m.assetId);
+    this.#event({ kind: 'unlisted', assetId: m.assetId, signature });
+    return { listed: false };
+  }
+
+  /**
+   * Buy: payment, transfer, generation bump and session clear in ONE
+   * instruction. Checks: a listing exists (`NoListing`), its seller is still
+   * the owner and its generation is current (`ListingStale`: a gift or an
+   * earlier sale since listing), the price fits `maxPrice`, the buyer can
+   * pay (`InsufficientFunds`). Then: buyer −price, seller +price−fee,
+   * operator +fee, asset → buyer, gen + 1, session = null, listing removed.
+   * `failInside = 'afterPayment'` throws between the legs (tests): the
+   * transaction's rollback must leave no payment behind.
+   */
+  #buy(m, signature) {
+    const l = this.listings.get(m.assetId);
+    if (!l) refuse(ERR.NO_LISTING, 'Buy: this resident is not listed');
+    const a = this.accounts.get(m.assetId);
+    const owner = a ? base58(a.data.subarray(1, 33)) : null;
+    const st = this.residentOf(m.assetId);
+    if (!a || owner !== l.seller || st.gen !== l.gen) refuse(ERR.LISTING_STALE, 'Buy: the listing is stale (the holder or the generation changed since it was made)', { owner, listing: l, gen: st.gen });
+    if (m.buyer === l.seller) refuse(ERR.BAD_DATA, 'Buy: the seller cannot buy its own listing');
+    const price = BigInt(l.price);
+    if (m.maxPrice !== null && price > BigInt(m.maxPrice)) refuse(ERR.PRICE_CHANGED, 'Buy: the price is above the buyer\'s maximum', { price: l.price });
+    const fee = (price * BigInt(this.saleFeeBps)) / 10_000n;
+    this.#debit(l.mint, m.buyer, price);
+    this.#credit(l.mint, l.seller, price - fee);
+    this.#credit(l.mint, this.operator, fee);
+    if (this.failInside === 'afterPayment') { this.failInside = null; refuse(ERR.BAD_DATA, 'Buy: injected failure after the payment leg'); }
+    const gen = this.#programMove(m.assetId, a, m.buyer);
+    this.listings.delete(m.assetId);
+    this.#event({ kind: 'transfer', assetId: m.assetId, from: l.seller, to: m.buyer, signature, via: 'sale', gen, price: l.price, fee: String(fee) });
+    return { from: l.seller, to: m.buyer, gen, price: l.price, fee: String(fee) };
+  }
+
+  #approveDelegate(m) {
+    const a = this.accounts.get(m.assetId);
+    if (!a || base58(a.data.subarray(1, 33)) !== m.owner) refuse(ERR.NOT_OWNER, 'ApproveTransferDelegate: only the owner');
+    this.#write(m.assetId, { ...a, flags: { ...a.flags, transferDelegate: m.delegate } });
+    return { delegate: m.delegate };
+  }
+
+  #transferByDelegate(m, signature) {
+    const a = this.accounts.get(m.assetId);
+    if (!a) refuse(ERR.NO_ACCOUNT, 'delegate transfer: no such asset');
+    if (a.flags.transferDelegate !== m.delegate) refuse(ERR.AUTH, 'delegate transfer: not the asset\'s transfer delegate');
+    // Core: "Frozen Assets cannot be transferred by delegates" (owner-managed delegates never force-approve).
+    if (a.flags.frozen || a.flags.permanentFrozen) refuse(ERR.FROZEN, 'delegate transfer: the asset is frozen');
+    this.#move(m.assetId, a, m.to);
+    this.#write(m.assetId, { ...this.accounts.get(m.assetId), flags: { ...a.flags, transferDelegate: null } });
+    this.#event({ kind: 'transfer', assetId: m.assetId, from: base58(a.data.subarray(1, 33)), to: m.to, signature, via: 'delegate' });
+    return { to: m.to };
+  }
+
+  #thaw(m) {
+    const a = this.accounts.get(m.assetId);
+    if (!a) refuse(ERR.NO_ACCOUNT, 'thaw: no such asset');
+    if (m.permanent) {
+      // The Permanent Freeze Delegate's authority is the program; it is never revoked and no wallet, not the owner, not the collection authority, can sign for it.
+      refuse(ERR.AUTH, 'thaw: the permanent freeze can only be lifted by its authority, the resident program, which exposes no instruction for it', { by: m.by });
+    }
+    const owner = base58(a.data.subarray(1, 33));
+    if (m.by !== owner) refuse(ERR.AUTH, 'thaw: only the owner (or its freeze delegate) thaws the owner-managed freeze');
+    this.#write(m.assetId, { ...a, flags: { ...a.flags, frozen: false } });
+    return { frozen: false, permanentFrozen: a.flags.permanentFrozen === true };
   }
 
   #setSession(m, signature) {

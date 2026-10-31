@@ -146,4 +146,10 @@
 | C | collection または asset に **Oracle 外部プラグイン**。Core は `transfer` 前に Oracle 口座を読み、`Rejected` なら拒否（公式：Oracle は reject のみ）。プログラムが「許可中（宛先 B 用 PDA `["mpl-core", recipient]`、PreconfiguredRecipient）」を書くときだけ譲渡が通り、その書き込み命令で世代を進める | 譲渡の**前**に必ずプログラム命令が要るので世代は進む。宛先ごとの PDA なら 1 回の許可で 1 回の譲渡 | Oracle 口座の作成・家賃・解除の管理。collection レベルの Oracle が全 asset に効くかは公式に明記なし（要確認）。マーケットプレイスの escrow 宛先は事前許可できない（同じ制約） |
 | ガード無し | 通常の Core 譲渡のまま。relay の観測で epoch を進める | **保証なし**。未観測の A→B→A で旧権限が復活（実証済み）。緩和：relay が全譲渡をインデクサで購読し、`bypassed` を検知したら住民の全資格情報を失効させる——しかし取りこぼしは防げない | マーケットプレイスと両立 |
 
-**試作の採用**：D を模擬（`mock-chain.mjs` の `guard`、`TransferResident`、`StaleGen`）。**保証できること**：D または C を採る限り、A→B→A で旧 session・capability・委任・署名済み操作は復活しない（世代が命令データと session 記録に含まれるため）。**保証できないこと**：ガード無しの通常 Core 譲渡では復活を防げない。**決めるべきこと**：U7（D か C か、マーケットプレイス非互換を受け入れるか）。本線で Core を採るかも未決（U18）。
+**試作での扱い**：D を**候補として**模擬（`mock-chain.mjs` の `guard`、`TransferResident`、`Buy`、`StaleGen`）。D は一般マーケットプレイスと両立しない。これを受け入れる決定はしていない（U7）。市場互換の候補（Token-2022 Transfer Hook）と比較は `docs/MARKET-COMPAT.ja.md`、`docs/COMPARISON.ja.md`。専用売買経路は §11。**保証できること**：D または C を採る限り、A→B→A で旧 session・capability・委任・署名済み操作は復活しない（世代が命令データと session 記録に含まれるため）。**保証できないこと**：ガード無しの通常 Core 譲渡では復活を防げない。**決めるべきこと**：U7（D か C か、マーケットプレイス非互換を受け入れるか）。本線で Core を採るかも未決（U18）。
+
+## 11. 専用売買経路（v0.3、`docs/SALE-PATH.ja.md`）
+
+`List`（保有者）→ `Buy`（買い手、1 命令：支払い・譲渡・`HOLDER_GEN+1`・session 消去・出品削除）。失敗はすべて取引ごと戻る。二重購入は先着のみ、再送は `AlreadyProcessed`、応答消失は送信前に記録した署名で復旧。価格・通貨・手数料は試験用の仮値。⑰ との境界は SALE-PATH §4：⑰ は `Buy` 取引を x402 payload として受け、署名を足し、署名を返す。相手の実装は本側で作らない。
+
+必須の安全確認（指示の 5 項目）とテストの対応は SALE-PATH §3。実 Core／LiteSVM は未実施（`docs/REAL-CORE-TEST.ja.md`）。

@@ -18,4 +18,6 @@
 | D12 | **U11 の表現。** v0.1 は「季節をまたぐ住民の持ち越しが未決」と書いたが、継続世界は決定済み。未決は**移行方法**だけ | 所有者の指示 | 指示。UNDECIDED U11 を修正。期間境界で住民・所有・進行を失わせる案には戻さない |
 | D13 | **買い戻しの穴。** v0.1 の `SESSION_SETTER_TAG15 == tag15(現保有者)` だけでは A→B→A で旧 session が復活し、relay の epoch も未観測なら進まない（`buyback.test.mjs` 最終テストで実証）。v0.2 でチェーン側の世代 `HOLDER_GEN` と譲渡ガード（CONTRACT §10）を追加 | 自分の v0.1 vs 指示の検証要求 | 検証結果。保証できる条件と制約を明記 |
 | D14 | **ABI ベクタ。** v0.1 のパッチ 02 は `vectors_are_fresh` が失敗する状態で「lib 87 件合格」と報告した。v0.2 では独立作業コピーでベクタを再生成し、全テスト合格を確認したうえでベクタをパッチに含めた。gateway/web の生成物（`abi-v2-layouts.mjs`）の再生成とそのテストは未実施 | patches/README | 実行結果 |
-
+| D15 | **Core の優先順位**：公式ページは Permanent Transfer Delegate を「forceApprove — can transfer even when frozen」と書く。ソース `lifecycle.rs` で `ForceApproved` が `Rejected` に先立って即時 return することを確認。外部プラグイン（Oracle）は `ForceApproved` を返せない | metaplex.com/docs、mpl-core ソース | ソース（資料上の確認、実行未） |
+| D16 | **LifecycleHook**：公式サイトの外部プラグイン一覧は Oracle と AppData のみで、ソースの `plugins/utils.rs` は「LifecycleHook … still in development」として追加を遮断。譲渡時 CPI は Core では**現時点で使えない** | mpl-core ソース | ソース |
+| D17 | **市場対応**：Magic Eden は「Metaplex Core, Token 22 対応」と書くが、アプリ内の Core/cNFT の送付は非対応と別記事に記載。フック付き Token-2022 への言及は無い。Tensor は changelog で Core コレクション対応、mainnet 配備は延期。いずれもフック対応は**不明** | help.magiceden.io、dev.tensor.trade | 一次資料の範囲で「不明」と記録 |

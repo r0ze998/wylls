@@ -1,19 +1,19 @@
 
 [1] Setup: a Core-shaped collection on the mock chain (test values; nothing here is a price or a supply decision). Assets are minted guarded: Permanent Freeze + Permanent Transfer Delegate = the resident program
     coreProgram: CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d
-    collection: G5Kc1C…HWYC
+    collection: 749Vhm…vRVX
     walletA: 66FHe3…Ke6D
     walletB: J4Bafd…axmw
 
 [2] A acquires the NFT (payment → mint → the chain shows A as holder). Acquisition IS the waitlist entry.
     payment: settled
-    assetId: 7SzZA6…5sQr
-    residentId: 98acc063677d5c55a86e939f8dadf1
+    assetId: 5a7evR…RMC4
+    residentId: ac6014cd0b056c88f4dfe11ec84a73
     waitlist: [{"holder":"66FHe3…Ke6D","status":"eligible"}]
 
 [3] Before publication: the holder is waitlisted, login answers NotPublished with the entitlement
     login: {"refused":"NotPublished"}
-    entitlementA: {"wallet":"66FHe3FoxWBZFWqsZc3Gz73gdNRX1rZX3enhNmdQKe6D","published":false,"residents":[{"residentId":"98acc063677d5c55a86e939f8dadf1","assetId":"7SzZA617G8gV64wMAAswh8gGUTqeBrTe3iBn55mn5sQr","epoch":0}],"canLogin":false,"onWaitlist":true}
+    entitlementA: {"wallet":"66FHe3FoxWBZFWqsZc3Gz73gdNRX1rZX3enhNmdQKe6D","published":false,"residents":[{"residentId":"ac6014cd0b056c88f4dfe11ec84a73","assetId":"5a7evRiNAyf7zuQoEMHAS2VWckK6JvtFKdisn5SfRMC4","epoch":0}],"canLogin":false,"onWaitlist":true}
     entitlementB: {"wallet":"J4BafdSfwFYYzQxzoe8aNA6rrfqWzzofkMsBFdFJaxmw","published":false,"residents":[],"canLogin":false,"onWaitlist":false}
 
 [4] Test publish switch: one flag; the resident record is byte-for-byte the same
@@ -29,14 +29,14 @@
     approvalWaiting: ap_demo-A-cv2
 
 [6] A transfers the NFT to B (A signed one more operation beforehand, not yet sent)
-    transfer: 3FSJUkPU2Bop
+    transfer: 2fH7KkAP3SRn
     slot: 1
     registry: confirmed
     epoch: 1
     holder: J4Bafd…axmw
 
 [7] B logs in to the SAME resident (same id, same village, A's history), acts, and the caravan A sent arrives for the resident B now holds
-    residentId: 98acc063677d5c55a86e939f8dadf1
+    residentId: ac6014cd0b056c88f4dfe11ec84a73
     epoch: 1
     bOp: sent
     village: {"food":120,"wood":35,"ore":0}
@@ -64,7 +64,17 @@
     bLoginToken: OwnerChanged
     bPresignedOpStraightAtChain: {"refused":"NotOwner"}
     aSecondPresignedOpFromBeforeTheSale: {"refused":"StaleGen"}
-    aFreshLogin: {"epoch":2,"residentId":"98acc063677d5c55a86e939f8dadf1"}
+    aFreshLogin: {"epoch":2,"residentId":"ac6014cd0b056c88f4dfe11ec84a73"}
     plainCoreTransferByOwner: {"refused":"Frozen"}
+
+[11] Dedicated sale path (TEST VALUES: 25 test units, 250 bps fee): an injected failure after the payment leg leaves nothing behind; then C buys and everything moves in one instruction
+    injectedFailure: {"state":"failed","code":"BadData","after":{"owner":"66FHe3…Ke6D","gen":2,"cBalance":"100000000"}}
+    purchase: {"state":"landed","gen":3,"price":"25000000","fee":"625000"}
+    owner: 7tyTXr…TtA3
+    sessionOnChain: null
+    listed: false
+    balances: {"A":"24375000","C":"75000000","operator":"625000"}
+    cLogin: {"epoch":3}
+    aLoginAgain: {"refused":"NotHolder"}
 
 transcript: /home/user/wylls/permutation-nft-resident-spike/demo/transcript.json

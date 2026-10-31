@@ -10,6 +10,8 @@
 | `04-web-fsession-resident-holder.patch` | `permutation-server/web/frontier/fsession.mjs` | `matchesCitizen(session, citizen, now, resident?)` に第 4 引数。現保有者 ≠ 自分のウォレットなら `ResidentHolderChanged` | 通る | **なし** | `web-frontier-session.test.mjs`（同上）。⑦ の画面接続 |
 | `05-ci-run-spike-tests.patch` | `.github/workflows/ci.yml` | browser-smoke ジョブの末尾で試作のテストとマニフェスト検証 | 通る | **なし**（CI は push しないと走らない） | — |
 
+**v0.3 でも未実施のまま（一覧として残す）**：gateway/web 用の ABI 生成物（`permutation-gateway/client/src/frontier/abi-v2-layouts.mjs`、`permutation-server/web/sdk/frontier/abi-v2-layouts.mjs`）の再生成と、それを読む既存テスト（`frontier-cq-sdk.test.mjs`、`agent-wallet-*.test.mjs`、`web-frontier-session.test.mjs` ほか）。専用売買経路の命令（`List`/`Buy`/`TransferResident`）はパッチ化していない（試作のみ）。
+
 **実施していないこと（明記）**：実 NFT（実 Core の mint・transfer・Permanent Delegate の CPI）、Frontier プログラムの prologue 変更、既存 gateway（relay・agent wallet）への接続、gateway/web の既存テストの実行、LiteSVM。これらは環境導入（`npm ci`、SBF ツール、実チェーン）が承認されていないため**未実行**で止めている。
 
 ## `ctx.residents` の契約（01・03 が呼ぶフック）

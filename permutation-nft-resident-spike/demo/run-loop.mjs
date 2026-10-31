@@ -6,7 +6,8 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { utf8 } from '../src/crypto.mjs';
 import { signTx } from '../src/mock-chain.mjs';
-import { A, B, AGENT, acquire, login, op, stack, transfer } from '../test/fixtures.mjs';
+import { A, B, C, AGENT, acquire, login, op, stack, transfer } from '../test/fixtures.mjs';
+import { SaleDesk } from '../src/sale.mjs';
 
 const outArg = process.argv.indexOf('--out');
 const out = outArg > 0 ? process.argv[outArg + 1] : path.resolve(process.cwd(), '.local/nft-resident-demo/transcript.json');
@@ -91,6 +92,23 @@ say('A buys the NFT back (the relay observed nothing): the chain\'s holder gener
   aSecondPresignedOpFromBeforeTheSale: await attempt(() => s.chain.send(presignedByA2)),
   aFreshLogin: { epoch: (await login(s, A, assetId)).epoch, residentId },
   plainCoreTransferByOwner: await attempt(() => transfer(s, assetId, A, B, { plain: true })),
+});
+
+// 11. The dedicated sale path: A (holder again) lists, C buys with test tokens; payment, transfer, generation and session move together.
+const MINT = 'TestUSDC1111111111111111111111111111111111';
+const desk2 = new SaleDesk({ store: s.store, chain: s.chain, registry: s.registry });
+s.chain.mintTokens(MINT, C.publicKey, 100_000_000n);
+desk2.list({ assetId, seller: A, price: 25_000_000n, mint: MINT });
+s.chain.failInside = 'afterPayment';
+const failed = await desk2.buy({ idempotencyKey: 'demo-buy-fail', assetId, buyer: C });
+const stillA = { owner: short(s.chain.ownerOf(assetId)), gen: s.chain.residentOf(assetId).gen, cBalance: String(s.chain.balance(MINT, C.publicKey)) };
+const bought = await desk2.buy({ idempotencyKey: 'demo-buy', assetId, buyer: C });
+say('Dedicated sale path (TEST VALUES: 25 test units, 250 bps fee): an injected failure after the payment leg leaves nothing behind; then C buys and everything moves in one instruction', {
+  injectedFailure: { state: failed.state, code: failed.code, after: stillA },
+  purchase: { state: bought.state, gen: bought.gen, price: bought.price, fee: bought.fee },
+  owner: short(s.chain.ownerOf(assetId)), sessionOnChain: s.chain.sessionOf(assetId), listed: s.chain.listings.has(assetId),
+  balances: { A: String(s.chain.balance(MINT, A.publicKey)), C: String(s.chain.balance(MINT, C.publicKey)), operator: String(s.chain.balance(MINT, s.chain.operator)) },
+  cLogin: { epoch: (await login(s, C, assetId)).epoch }, aLoginAgain: await attempt(() => login(s, A, assetId)),
 });
 
 mkdirSync(path.dirname(out), { recursive: true });

@@ -1,6 +1,8 @@
 # permutation-nft-resident-spike：NFT で譲渡できる住民アカウント（隔離試作）
 
-**状態（2026-10-31、v0.2）**：ローカルの模擬のみ。公開発行・実チェーン・実資金・新しい鍵は無し。価格・無料／有料・供給数・公開発行・ロイヤリティは未決（`docs/UNDECIDED.ja.md`）。Metaplex Core は**試作の選定方式**で、本線採用は未決。継続世界は決定済み。依存パッケージ無し（Node 20+ の標準モジュールだけ）。push・merge・deploy はしていない（`docs/PUSH-AUDIT.ja.md`）。
+**状態（2026-10-31、v0.3）**：ローカルの模擬のみ。公開発行・実チェーン・実資金・新しい鍵は無し。価格・無料／有料・供給数・公開発行・ロイヤリティは未決（`docs/UNDECIDED.ja.md`）。Metaplex Core は**試作の選定方式**で、本線採用は未決。継続世界は決定済み。依存パッケージ無し（Node 20+ の標準モジュールだけ）。push・merge・deploy はしていない（`docs/PUSH-AUDIT.ja.md`）。
+
+**v0.3 の変更**：専用売買経路（`List`/`Buy`：支払い・譲渡・世代更新・session 失効を 1 命令、失敗は取引ごと戻る）と、複数命令の原子的な取引・模擬トークン・delegate／thaw の迂回試験を模擬チェーンに追加（`test/sale.test.mjs` 8 件）。一般市場互換の候補の調査（`docs/MARKET-COMPAT.ja.md`）、比較と推奨（`docs/COMPARISON.ja.md`）、実 Core／LiteSVM の実施可否（`docs/REAL-CORE-TEST.ja.md`：承認済み環境では不可、必要物を列挙）。Permanent Freeze＋Permanent Transfer Delegate は**候補**で、一般市場との非互換を採用決定にしていない。
 
 **v0.2 の変更**：買い戻し（A→B→A）で旧権限が復活しないことの検証と、その保証の根拠（チェーン側の保有者世代 `gen` と譲渡ガード、`docs/CONTRACT.ja.md` §10）。ガード無しの通常 Core 譲渡では復活する穴も実証して残した（`test/buyback.test.mjs`）。データ対応表を「決定／現コード／推奨案」に分離。宛先番号を修正。ABI パッチにベクタ再生成を含めた。
 
@@ -18,7 +20,7 @@ Wylls の住民アカウントを **NFT（Metaplex Core 資産）に紐付け**�
 
 ```sh
 cd permutation-nft-resident-spike
-node --test test/*.test.mjs        # 38 tests
+node --test test/*.test.mjs        # 46 tests
 node demo/run-loop.mjs             # the loop, printed; transcript at .local/nft-resident-demo/transcript.json (or --out)
 node archive/manifest.mjs verify   # the package's SHA-256 manifest
 ```
@@ -34,8 +36,9 @@ node archive/manifest.mjs verify   # the package's SHA-256 manifest
 | `src/world.mjs` | 最小の村：住民 ID 鍵。輸送中の隊商・加工中の注文・預かり物・債務。ウォレット鍵の未受取報酬と費用確認待ち |
 | `src/entry.mjs` | 支払い → 発行 → 資格の 3 記録。冪等・結果不明・送信後クラッシュの復旧 |
 | `src/gateway.mjs` | relay 側の操作入口：認可時と送信直前の保有者読取、費用確認、署名、送信 |
+| `src/sale.mjs` | 専用売買の desk：出品、冪等な購入、送信前の署名記録と応答消失からの復旧（再送しない） |
 | `src/http.mjs` | 契約の HTTP 面（loopback） |
-| `docs/` | 接続契約・データ対応表・方式比較・④ への提案・未決定・食い違い |
+| `docs/` | 接続契約・データ対応表・方式比較・④ への提案・未決定・食い違い・push 監査・専用売買経路・市場互換候補・比較と推奨・実 Core 試験の可否 |
 | `patches/` | 共有コード向けの独立パッチ（未適用） |
 | `archive/` | SHA-256 マニフェストと復元手順 |
 
