@@ -5,7 +5,7 @@
 | 担当 | 正本 | 状態 |
 |---|---|---|
 | ⑧ 継続世界 | `wylls-08-archive-v4.tar.gz`（sha256 `78a2e4db…33ec`、候補 e3d773df） | **未受領**（uploads にも GitHub の branch にも無い） |
-| ⑱ 早期 Reveal の対策 | `r18-package-20261031.tar.gz`（`e75ab1e4…8884`）と補助 `…-addendum.tar.gz`（`02724422…ee90`） | **未受領**（branch `claude/brave-bohr-xe4n4p` も origin に無い） |
+| ⑱ 早期 Reveal の対策 | `r18-package-20261031.tar.gz`（`e75ab1e4…8884`、4cd901de → 90df6a64、0001〜0009）と補助 v2 `r18-package-20261031-addendum-v2.tar.gz`（`395d0f9e…ae06b`、90df6a64 → 41984e99、0010〜0014）。補助 v1（`02724422…ee90`）は⑱が取り下げた | **未受領**（uploads に無く、origin にも 41984e99・d9e1900b・90df6a64 は無い。10:23 時点） |
 | ⑰ 再送・会計の照合 | `wylls-17-package.tgz`（`2dfaf966…c257`） | **未受領**。以前に message の本文から書き起こした 0001 は、正本として扱わない（「報告文からソースを再構成しない」による） |
 | ⑲ 履歴の欠落の検出 | `package-er19.tar.gz`（`3455ffcf…4f24`） | **未受領**（branch `claude/ecstatic-cannon-d0jfc4` も origin に無い） |
 
@@ -89,3 +89,12 @@
   - R2：状態が無くても、Entry（amount ≥ fee）と Citizen があれば settled として 200 を返す（`replayed`、`fromAccounts` を付ける。transaction は空）。既存の settled の経路（plain の Join）と意味をそろえる。
   - R3：説明だけを足す。
 - ④の見方（採否は未決）：R2 が筋がよい。Entry は Pay と Join が一つの取引で着地したときにだけできるので、チェーン上の支払いの証拠になる。署名の履歴に頼らずに済み、x402 の 402 の意味も変えない。ただし、Entry の存在は「この wallet が払った」証拠であって「この要求の取引が着地した」証拠ではない。そのため transaction を空にする扱いは妥当である。R1 は仕様からの逸脱が増える。
+
+### 5.2 ⑱の補助 v2（データとして受け取った。未受領・未適用、10:23 UTC）
+
+- ⑱の報告による固定値：最終 HEAD `41984e99f6ef31c4d3027da1b984221e3ffb36d8`（tree `397c450bd2a8db4755fd1b443be57926af677f85`）、最終コード `d9e1900b84cb4f411bec23296aa8490e1e866488`（tree `2d3a93cfb76f2ce4576c08233a9ee056af628d6c`）。bundle の fetch でも 0001〜0014 の順の `git am` でも同じ tree になる、と⑱は報告している。環境：Rust 1.95.0、Node 22、`npm ci --ignore-scripts`。SBF は不要（実プログラムの試験は未実行）。
+- 受け取ったら確かめること：二つの sha256、基点 4cd901de が統合の祖先にあるか、bundle と `git am` の tree の一致、上の二つの tree。続いて同じ tree で ⑱の `w6t_tests`（17 件）と ④の r18-check の 5 場面を走らせ、通常の Reveal が出て決着することも確かめる。④の基準（修正前）は secrecy 違反 2／validity 違反 7（再起動は 0／6）。
+- ⑱の区分のうち④と利用者が決めるもの：
+  - program 側の拒否（案 A：anchor も archive も無い Reveal を既存の `NoAnchor(8)` で拒否。新しい番号は不要。到着鐘の中の自己公開ができなくなる）。program の拒否は秘匿の対策ではなく、早すぎる公開を無効にする対策にとどまる。
+  - 検証器の警告の code 候補 `RevealBeforePublication`（成功した Reveal の時刻が round_time(T(arrive)) より前）。材料が無ければ UNVERIFIABLE で、PASS にしない。番号は未定。
+- 未修正として⑱が挙げた点：ブラウザと bots が到着鐘の開始時点で material を relay・keeper へ送る（RPC には出ない。運用者を信用する範囲）。提案パッチはあるが未適用。この点を含むので、公開の判断まで push しない。
