@@ -136,6 +136,9 @@ pub fn world_json(f: &Fold) -> Option<Value> {
         "rMaxCeiling": r_max_ceiling(f),
         "prizeMaxRing": PRIZE_MAX_RING,
         "placement": placement(f),
+        // continuous world: the map is not closed at an end (war periods undecided)
+        "continuous": se.continuous(),
+        "worldEnds": se.world_ends(),
         "genesisRing": se.genesis_ring,
         "ringsOpened": rings.len(),
         "provinces": f.provinces.len(),

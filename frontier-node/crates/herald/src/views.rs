@@ -106,6 +106,12 @@ pub fn season_json(f: &Fold, s: &SeasonStatic) -> Option<Value> {
         .as_ref()
         .map_or(Value::Null, |c| json!(c.heartland_max_ring));
     v["genesisSeed"] = json!(hex::encode(se.genesis_seed));
+    // Continuous world (migration candidate): the world does not end; its
+    // `endBell` / `joinCloseBell` are NO_END_BELL and no final file is
+    // written. War periods are undecided (null), not the world's end.
+    v["continuous"] = json!(se.continuous());
+    v["worldEnds"] = json!(se.world_ends());
+    v["warPeriod"] = Value::Null;
     Some(v)
 }
 

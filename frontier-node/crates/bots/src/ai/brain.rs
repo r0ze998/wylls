@@ -1122,13 +1122,24 @@ pub fn situation(inp: &Inputs, quota: (u32, u32)) -> Value {
     } else {
         RESOURCE_NAMES
     };
+    // A continuous world does not end: no end turn and no seconds left
+    // (`null`; the mind then never switches to autopilot for the end).
+    let continues = obs
+        .season
+        .season
+        .as_ref()
+        .is_some_and(|s| s.continuous());
+    let secs_left = (!continues)
+        .then(|| obs.season.genesis_ts + obs.season.end_bell() as i64 * 600 - now);
+    let end_bell = (!continues).then(|| obs.season.end_bell());
     json!({
         "resources": resources,
         "bell": bell,
         "day": bell / BELLS_PER_DAY,
         "bell_in_day": bell % BELLS_PER_DAY,
-        "secs_left": obs.season.genesis_ts + obs.season.end_bell() as i64 * 600 - now,
-        "end_bell": obs.season.end_bell(),
+        "secs_left": secs_left,
+        "end_bell": end_bell,
+        "world_continues": continues,
         "me": {
             "faction": h.faction,
             "doctrine": doctrine.name,

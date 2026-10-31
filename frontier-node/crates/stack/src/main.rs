@@ -16,6 +16,7 @@
 //! frontier-stack down   --run-id ID
 //! frontier-stack resume --run-id ID (persistent human CQ world)
 //! frontier-stack land   --run-id ID [--do status|open-ring|open-province --at P,Q] (local world's land)
+//! frontier-stack snapshot --run-id ID [--out FILE] (local world's on-chain state, JSON)
 //! ```
 //! Every subcommand but `check-ports` also takes `--runs-dir DIR` (default
 //! `frontier-node/.local/frontier`). Exit codes: 0 pass, 1 fail, 2 bad
@@ -33,7 +34,7 @@ fn usage() -> ! {
         include_str!("main.rs")
             .lines()
             .skip(3)
-            .take(15)
+            .take(16)
             .map(|l| l.trim_start_matches("//! "))
             .collect::<Vec<_>>()
             .join("\n")
@@ -176,6 +177,7 @@ fn main() {
             Ok(op) => rt.block_on(frontier_stack::land::land(&run_dir(&flags), op)),
             Err(e) => die(e),
         },
+        "snapshot" => rt.block_on(frontier_stack::snapshot::run(&run_dir(&flags), get(&flags, "out"))),
         "-h" | "--help" | "help" => usage(),
         other => die(format!("unknown subcommand `{other}`")),
     };

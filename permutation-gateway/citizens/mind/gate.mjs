@@ -79,7 +79,8 @@ export function createGate({ gate = {}, budgets = {}, endBellGuard = 2 } = {}) {
     if (bell - last >= cfg.pulse && !all.some((w) => w.code === 'W-PULSE')) all.push({ code: 'W-PULSE', big: false });
     const codes = all.map((w) => w.code);
     const s = score(all);
-    if (Number.isFinite(endBell) && bell >= endBell - endBellGuard) return { mode: 'autopilot', reason: 'season_end', score: s, wake: codes };
+    // a continuous world passes endBell null (no end): never the season_end autopilot
+    if (endBell != null && Number.isFinite(endBell) && bell >= endBell - endBellGuard) return { mode: 'autopilot', reason: 'season_end', score: s, wake: codes };
     if (!ready) return { mode: 'autopilot', reason: 'not_ready', score: s, wake: codes };
     const sessionsLeft = bud.sessions - counters.sessions;
     if (s >= cfg.threshold && sessionsLeft > 0 && (bell - last >= cfg.min_gap || s >= cfg.strong)) {

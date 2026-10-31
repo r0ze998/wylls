@@ -257,6 +257,12 @@ pub struct StackConfig {
     /// `join_close_bell` scaled below it), so a 1- or 2-day run reaches
     /// `end_bell`, EndSeason and the drain (`--season-end-at-play-end`).
     pub season_end_at_play_end: bool,
+    /// Continuous world (`--continuous`, `--conquest` only; migration
+    /// candidate): the season does not end (`end_bell` = `join_close_bell`
+    /// = NO_END_BELL, conquest block `continuous` = 1). `--game-hours` /
+    /// `--days` are then only how long this local run plays: no drain, no
+    /// EndSeason, and `down` / `resume` continue the same world.
+    pub continuous: bool,
     /// Keeper B's `backup_delay_slots` (W6T-2: settles wait this long and
     /// re-read before sending); written only to a keeper that knows the key.
     pub keeper_b_backup_delay_slots: u32,
@@ -354,6 +360,7 @@ impl Default for StackConfig {
             end_season: true,
             runs_dir: None,
             season_end_at_play_end: false,
+            continuous: false,
             keeper_b_backup_delay_slots: 8,
             viewer_think_ms: 5_000,
             viewer_follow_status: true,
@@ -655,6 +662,9 @@ impl StackConfig {
         if let Some(v) = i!("viewers.retry_budget_ms") {
             c.viewer_retry_budget_ms = Some(v as u64);
         }
+        if let Some(v) = b!("continuous") {
+            c.continuous = v;
+        }
         if let Some(v) = b!("season_end_at_play_end") {
             c.season_end_at_play_end = v;
         }
@@ -759,6 +769,20 @@ impl StackConfig {
         }
         if !(800..=2_000).contains(&self.drand_delay_ms) {
             return Err("drand_delay_ms in 800..=2000 (quicknet's publication latency)".into());
+        }
+        if self.continuous {
+            if !self.conquest {
+                return Err("--continuous: a continuous world is an S1 season's (needs --conquest)".into());
+            }
+            if self.season_end_at_play_end {
+                return Err("--continuous: the world does not end (drop --season-end-at-play-end)".into());
+            }
+            if self.prize_so.is_some() {
+                return Err(
+                    "--continuous: the prize pool counts at a season's end; war-period prizes are undecided (drop --prize-so)"
+                        .into(),
+                );
+            }
         }
         if self.season_end_at_play_end {
             let b = self.play_bells();
@@ -865,6 +889,7 @@ impl StackConfig {
         v["keeper_rest"] = json!(self.keeper_rest);
         v["keeper_extend"] = json!(self.keeper_extend);
         v["r_max_ceiling"] = json!(self.r_max_ceiling);
+        v["continuous"] = json!(self.continuous);
         v["placement"] = json!(self.placement);
         v
     }
@@ -1050,6 +1075,7 @@ pub fn apply_flags(c: &mut StackConfig, flags: &[(String, Option<String>)]) -> R
             "no-keeper-b" => c.keeper_b = false,
             "runs-dir" => c.runs_dir = Some(need(k, v)?.into()),
             "season-end-at-play-end" => c.season_end_at_play_end = true,
+            "continuous" => c.continuous = true,
             "keeper-rest" => c.keeper_rest = true,
             "keeper-extend" => c.keeper_extend = true,
             "no-season-end-at-play-end" => c.season_end_at_play_end = false,
@@ -1082,6 +1108,7 @@ pub const SWITCHES: &[&str] = &[
     "eager-bots",
     "no-eager-bots",
     "season-end-at-play-end",
+    "continuous",
     "no-season-end-at-play-end",
     "keeper-rest",
     "keeper-extend",
@@ -1408,5 +1435,20 @@ mod tests {
         assert_eq!(c.to_json()["placement"], json!(1));
         let f = split_flags(&["--placement", "2"].map(String::from)).unwrap();
         assert!(apply_flags(&mut StackConfig::default(), &f).is_err());
+        // --continuous: off by default; needs --conquest; refuses an end at
+        // play end and the prize pool (war-period prizes are undecided).
+        assert!(!StackConfig::default().continuous);
+        let f = split_flags(&["--continuous"].map(String::from)).unwrap();
+        assert!(apply_flags(&mut StackConfig::default(), &f).is_err(), "needs --conquest");
+        let mut k = StackConfig::default();
+        let f = split_flags(&["--conquest", "--continuous"].map(String::from)).unwrap();
+        apply_flags(&mut k, &f).unwrap();
+        assert_eq!(k.to_json()["continuous"], json!(true));
+        assert!(k.check().is_ok());
+        k.season_end_at_play_end = true;
+        assert!(k.check().is_err());
+        k.season_end_at_play_end = false;
+        k.prize_so = Some("x.so".into());
+        assert!(k.check().is_err());
     }
 }

@@ -884,3 +884,42 @@ fn world_and_season_state_growth_and_placement() {
     assert_eq!(s["placement"], 1);
     let _ = std::fs::remove_dir_all(d);
 }
+
+/// Continuous world (migration candidate): `/h/season` and `/h/world` say
+/// the world does not end; an ending season says it does (war periods are
+/// undecided: `warPeriod` null).
+#[test]
+fn world_and_season_state_continuity() {
+    use herald_fold::views::{season_json, SeasonStatic};
+    use herald_fold::world::world_json;
+    let d = tmp("cqworldcontinuous");
+    let mut f = Fold::new(cfg(), Out::new(&d));
+    for tx in cqfixture::mini_season() {
+        f.apply(&tx);
+    }
+    let st = SeasonStatic {
+        cluster: "fixture".into(),
+        drand: fclient::beacon::TestKey::new().info(),
+        quotas: serde_json::json!({}),
+    };
+    let w = world_json(&f).unwrap();
+    assert_eq!(w["continuous"], false);
+    assert_eq!(w["worldEnds"], true);
+    let s = season_json(&f, &st).unwrap();
+    assert_eq!(s["continuous"], false);
+    assert_eq!(s["worldEnds"], true);
+    assert!(s["warPeriod"].is_null());
+    {
+        let se = f.season.as_mut().unwrap();
+        se.conquest.as_mut().unwrap().continuous = 1;
+        se.end_bell = frontier_abi::presets::NO_END_BELL;
+        se.join_close_bell = frontier_abi::presets::NO_END_BELL;
+    }
+    let w = world_json(&f).unwrap();
+    assert_eq!(w["continuous"], true);
+    assert_eq!(w["worldEnds"], false);
+    let s = season_json(&f, &st).unwrap();
+    assert_eq!(s["continuous"], true);
+    assert_eq!(s["worldEnds"], false);
+    assert!(s["warPeriod"].is_null());
+}

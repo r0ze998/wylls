@@ -494,7 +494,14 @@ impl Series {
 pub fn movement(s: &Series, metas: &[ProvMeta], hmr: u8, end_bell: u32) -> crate::cqfmt::Movement {
     use crate::cqfmt::{Movement, Ratio};
     let changes = control::lasting_changes(&s.bells, control::LASTING_MIN_BELLS);
-    let days = end_bell.div_ceil(144).max(1) as usize;
+    // A continuous world has no end (`NO_END_BELL`): count the days the
+    // series covers, never a vector sized by u32::MAX bells.
+    let horizon = if end_bell == frontier_abi::presets::NO_END_BELL {
+        s.bells.last().map_or(1, |(b, _)| b.saturating_add(1))
+    } else {
+        end_bell
+    };
+    let days = horizon.div_ceil(144).max(1) as usize;
     let mut by_day = vec![0u32; days];
     for c in &changes {
         let d = (c.bell / 144) as usize;
@@ -675,6 +682,24 @@ pub fn site_tile(pd: &[u8], s: usize) -> Option<u8> {
 
 #[cfg(test)]
 mod tests {
+    /// A continuous world (`end_bell` = NO_END_BELL): the day figures cover
+    /// the series, not u32::MAX bells.
+    #[test]
+    fn movement_of_a_continuous_world_is_sized_by_the_series() {
+        let mut s = Series {
+            bells: vec![],
+            banners: BTreeMap::new(),
+        };
+        s.bells.push((0, vec![0]));
+        s.bells.push((300, vec![1]));
+        let metas = [ProvMeta {
+            index: 0,
+            ring: 2,
+            first: 0,
+        }];
+        let m = movement(&s, &metas, 1, frontier_abi::presets::NO_END_BELL);
+        assert!(m.lasting_by_day.len() <= 3, "{}", m.lasting_by_day.len());
+    }
     use super::*;
 
     /// 10b counts game days 2..=D and 10d divides by the Marches with an

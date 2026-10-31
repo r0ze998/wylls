@@ -843,7 +843,7 @@ impl World {
         let unit = self.doctrine[faction as usize].unit;
         let src = self.hold(from).prov;
         let (arrive, cost) = self.travel(faction, src, to_prov, b)?;
-        let arrive = arrive.max(arrive_min.min(self.end_bell + 300));
+        let arrive = arrive.max(arrive_min.min(self.end_bell.saturating_add(300)));
         if n_troops < MIN_HOST_TROOPS || self.hold(from).garrison < n_troops {
             return None;
         }

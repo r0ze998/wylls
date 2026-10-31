@@ -1092,6 +1092,7 @@ async fn run_all(st: &mut Stack) -> Result<(), String> {
             r_max: st.cfg.r_max,
             r_max_ceiling: st.cfg.r_max_ceiling,
             placement: st.cfg.placement,
+            continuous: st.cfg.continuous,
         },
         st.prize.as_ref().map(|p| p.gate.pubkey().to_bytes()),
         st.cfg.season_end_bell(),
@@ -1118,7 +1119,13 @@ async fn run_all(st: &mut Stack) -> Result<(), String> {
     let end_bell = season["end_bell"].as_u64().unwrap_or(1_008) as i64;
     let bell_secs = season["bell_secs"].as_i64().unwrap_or(600);
     let play_end = genesis_ts + st.cfg.play_secs().min(end_bell * bell_secs);
-    let end = play_end + st.cfg.drain_bells as i64 * bell_secs;
+    // A continuous world has no drain: this run plays for its hours and the
+    // world goes on (down / resume continue it).
+    let end = if st.cfg.continuous {
+        play_end
+    } else {
+        play_end + st.cfg.drain_bells as i64 * bell_secs
+    };
     st.state["play"] = json!({"genesis_ts": genesis_ts, "play_end": play_end, "end": end,
         "play_bells": (play_end - genesis_ts) / bell_secs, "drain_bells": st.cfg.drain_bells});
     // W6T-4: the archive against the actual genesis (setup may overrun the
@@ -1647,8 +1654,9 @@ async fn supervise(
                 }
             }
         }
-        // EndSeason once the last bell is over.
-        if st.cfg.end_season && !end_season_sent {
+        // EndSeason once the last bell is over (never for a continuous
+        // world: the program refuses it and the world does not end).
+        if st.cfg.end_season && !st.cfg.continuous && !end_season_sent {
             let end_bell = st.state["season"]["end_bell"]
                 .as_i64()
                 .unwrap_or(i64::MAX / 2);
@@ -1698,7 +1706,8 @@ async fn supervise(
         // The drain runs at the drain's scale once the fleet is done (one
         // bell after play; latencies are judged over play only).
         let drain_scale = st.cfg.drain_scale();
-        if now >= play_end + bell_secs
+        if !st.cfg.continuous
+            && now >= play_end + bell_secs
             && (drain_scale - cur_scale).abs() > 1e-9
             && drain_scale_failures < 5
         {
@@ -1750,9 +1759,14 @@ async fn supervise(
             }
             let s = st.chain.status().await?;
             st.state["complete"] = json!({"slot": s.slot, "game": s.now, "paused": s.paused, "crashes": crashes,
-                "wall_ms": run::wall_ms()});
+                "wall_ms": run::wall_ms(), "world_continues": st.cfg.continuous});
             st.run.event(Some(s.now), "phase", json!("complete"));
             st.save("complete");
+            if st.cfg.continuous {
+                log_line(
+                    "this run's play time is over; the world continues (down, then resume to go on)",
+                );
+            }
             log_line(&format!(
                 "complete at slot {} (game {}); services left up{} — run verify/tamper/report, then down",
                 s.slot,

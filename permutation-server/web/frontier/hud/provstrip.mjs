@@ -18,9 +18,11 @@ import { factionName } from '../fi18n.mjs';
 import { scoreRows } from '../screens/conquest.mjs';
 import { prizeModel } from '../fprize.mjs';
 import { icon } from './icons.mjs';
+import { worldContinues } from '../clock.mjs';
 import { crest, conquestOn } from './keephand.mjs';
 
-const ended = FS => (FS.nowBell ?? 0) >= Number(FS.season?.endBell ?? Infinity);
+// A continuous world never ends: no season-end card (war periods are undecided).
+const ended = FS => !worldContinues(FS.season) && (FS.nowBell ?? 0) >= Number(FS.season?.endBell ?? Infinity);
 
 /**
  * The strip's model, or null (no conquest season, or no readable record yet): `{rows: [{faction, provinces, mine,

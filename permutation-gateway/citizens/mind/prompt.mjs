@@ -78,7 +78,10 @@ export function createPromptRenderer({ templatesDir, countTokens = null, speech,
     const me = sit.me ?? {};
     const names = namesOf(sit);
     // `secs_left` on the wire is game seconds to the season end (AC3a fixture), not seconds left in the bell: not shown
-    out.push(`NOW: turn ${sit.bell} (day ${sit.day}, turn ${sit.bell_in_day}/144). Season ends at turn ${sit.end_bell}.`);
+    // a continuous world has no end turn (`end_bell` null, `world_continues`): it is not told an end
+    out.push(sit.world_continues || sit.end_bell == null
+      ? `NOW: turn ${sit.bell} (day ${sit.day}, turn ${sit.bell_in_day}/144). The world goes on; it has no end turn.`
+      : `NOW: turn ${sit.bell} (day ${sit.day}, turn ${sit.bell_in_day}/144). Season ends at turn ${sit.end_bell}.`);
     out.push(`YOU: nation ${me.faction}${me.doctrine ? ` (${me.doctrine})` : ''}.`);
     const h = me.home;
     if (h) {
