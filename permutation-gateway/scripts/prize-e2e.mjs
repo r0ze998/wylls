@@ -1,3 +1,7 @@
+// COMPATIBILITY TEST of the season-end path (test tokens only). Since the owner's correction of 2026-10-31
+// the world does not end; this script checks that the existing season-end → claim path (and the claim rights
+// it created) still work, and is not the target flow for a continuing world.
+//
 // The prize pool end to end on a disposable local stack (test tokens only;
 // conquest-smoke.mjs's flow with paid entry). Through the real browser
 // modules, relay, herald, keepers and programs:
@@ -35,6 +39,7 @@ import { bellAt, seasonClock } from '../../permutation-server/web/frontier/clock
 import { ringProvinces } from '../../permutation-server/web/frontier/fgeo.mjs';
 import { hostsIn } from '../../permutation-server/web/frontier/fland.mjs';
 import { loadKernel } from '../../permutation-server/web/frontier/wasm.mjs';
+import { kernelFile } from '../../permutation-server/web/frontier/fconquest.mjs';
 import { planRoute, earliestBell, plaintextOf, tipOptions, freeTransitSlot } from '../../permutation-server/web/frontier/fmarch.mjs';
 import { sealMarch } from '../../permutation-server/web/frontier/seal.mjs';
 import { claimIx, joinViaX402, withdrawOpsIx, x402Encode, ata } from '../client/src/frontier/prize.mjs';
@@ -121,7 +126,8 @@ async function run() {
   const pool0 = await poolNow();
   const grew = p => ['collected', 'prize', 'ops'].map(k => String(BigInt(p[k]) - BigInt(pool0[k])));
   check('pool-opened', { fee: pool0.fee, opsBps: pool0.opsBps, prize: pool0.prize, ops: pool0.ops, entries: pool0.entries, paramsHash: pool0.paramsHash });
-  kernel = await loadKernel({ url: `${base}/frontier/frontier/wasm/frontier-v2.wasm`, ruleset: toHex(s.season.rulesetHash) });
+  // The season's own rules module (S1, program version 4: frontier-v3.wasm), as the web client picks it.
+  kernel = await loadKernel({ url: `${base}/frontier/frontier/wasm/${kernelFile(s.season)}`, ruleset: toHex(s.season.rulesetHash) });
   const seeds = s.record.rings.map(r => ({ ring: r.d, seed: r.seed }));
 
   // Homes and a target: the nearest enemy keep of the outer ring, two homes of one nation with a route to it.
@@ -185,7 +191,7 @@ async function run() {
     const fields = { faction: other.home.faction, session: Keypair.fromSeed(randomBytes(32)).publicKey.toBytes(), session_expiry: BigInt(s.record.latestUnix) + 86400n };
     const accounts = gate => ({ wallet, season: A.season, frontier: A.frontier, citizen: A.citizen(wallet), joinshard: A.joinShardFor(fields.faction, wallet), ...(gate ? { join_gate: terms.joinGate } : {}) });
     const req = (await api('/f/x402/join', { wallet })).body.accepts[0];
-    const plain = shapeMessage({ programId: pin.programId, name: 'Join', accounts: accounts(true), fields, feePayer: req.extra.feePayer, recentBlockhash: req.extra.recentBlockhash, profile: 2 });
+    const plain = shapeMessage({ programId: pin.programId, name: 'Join', accounts: accounts(true), fields, feePayer: req.extra.feePayer, recentBlockhash: req.extra.recentBlockhash, profile: req.extra.profile });
     const refused = await api('/f/x402/join', { wallet }, { 'X-PAYMENT': x402Encode({ x402Version: 1, scheme: 'exact', network: req.network, payload: { transaction: toBase64(wireTransaction(plain, { [wallet]: signTalk(plain, w) })) } }) });
     assert.equal(refused.status, 402, json(refused));
     const free = await api('/f/join', { tx: toBase64(wireTransaction(plain, { [wallet]: signTalk(plain, w) })) });
@@ -195,7 +201,7 @@ async function run() {
     await eventually('airdrop', async () => (await rpc('getBalance', [payer.publicKey.toBase58()])).value > 0, 30000);
     const direct = [];
     for (const gate of [false, true]) {
-      const msg = shapeMessage({ programId: pin.programId, name: 'Join', accounts: accounts(gate), fields, feePayer: payer.publicKey.toBase58(), recentBlockhash: (await rpc('getLatestBlockhash', [{ commitment: 'confirmed' }])).value.blockhash, profile: 2 });
+      const msg = shapeMessage({ programId: pin.programId, name: 'Join', accounts: accounts(gate), fields, feePayer: payer.publicKey.toBase58(), recentBlockhash: (await rpc('getLatestBlockhash', [{ commitment: 'confirmed' }])).value.blockhash, profile: req.extra.profile });
       // (with the gate named but unsigned the cluster refuses the transaction before it runs: a missing signature)
       const wire = wireTransaction(msg, { [wallet]: signTalk(msg, w), [payer.publicKey.toBase58()]: signTalk(msg, payer) });
       let out;
@@ -317,6 +323,10 @@ async function run() {
     check('claims', { note: 'shares by the PROVISIONAL weights', claims, operator: { wallet: op, signature: ops.signature, testUsdc: String(Buffer.from(opBalance.value.data[0], 'base64').readBigUInt64LE(64)) }, pool: { state: end.state, shares: end.shares, opsWithdrawn: end.opsWithdrawn } });
     assert.equal(claims.filter(c => c.status === 200).reduce((a, c) => a + BigInt(c.received), 0n) <= BigInt(end.prize), true);
     assert.ok(claims.find(c => c.role === 'other-nation').status !== 200, 'a member of a losing nation cannot claim');
+    // The posted shares recomputed from the chain and the published ledger; the pool's money reconciled
+    // against every Entry and the vault (the open claim of the losing nation's payer stays unassigned).
+    runSettle('verify-shares', ['--verify-shares', path.join(outDir, 'shares', 'ledger.json')]);
+    runSettle('accounts', ['--accounts', '--ledger', path.join(outDir, 'shares', 'ledger.json')]);
   }
   report.ok = true;
 }
