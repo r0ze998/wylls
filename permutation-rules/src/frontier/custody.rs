@@ -31,6 +31,12 @@
 //! An expired order's reservation lapses without a keeper (TigerBeetle's
 //! pending-transfer timeout; SPL Token's delegate allowance).
 //!
+//! **No period.** Nothing here knows a season, a war period or an end of
+//! the world: a lot, its orders and its caravans run on bells and on their
+//! own terms (an order's `EXPIRES_BELL` is the right's own expiry, chosen by
+//! the owner, not the world's). A period boundary is not an input of any
+//! move, so it cannot forfeit, freeze or release anything.
+//!
 //! **Conservation** ([`Lot::balanced`]): `IN_TOTAL = HELD + OUT_TOTAL +
 //! CONSUMED + FORFEITED`, in milli-units, at every step. Goods in transit
 //! are a caravan's, and every loss on the way is logged with its cause
@@ -90,8 +96,11 @@ pub enum CustodyError {
     /// The custodian may not keep its own goods as a lot; a carrier or a
     /// user may not be the owner.
     SelfDealing,
-    /// The season no longer runs: player moves are frozen.
-    SeasonOver,
+    /// A running total would leave `i64` (a world that runs for good keeps
+    /// adding to `IN_TOTAL`, `OUT_TOTAL`, `CONSUMED`, `FORFEITED` and the
+    /// vault's stock; the rules crate is built without overflow checks, so
+    /// every such sum is checked here instead of wrapping).
+    Overflow,
 }
 
 pub type CResult<T> = Result<T, CustodyError>;
@@ -532,11 +541,21 @@ pub fn finish_inbound(
     if cargo < 0 || cargo > sent {
         return Err(CustodyError::Quantity);
     }
-    lot.inbound[i] = Inbound::default();
     let here = matches!(v, Some(v) if lot.usable(v).is_ok());
+    let (held, in_total) = if here {
+        (
+            lot.held.checked_add(cargo).ok_or(CustodyError::Overflow)?,
+            lot.in_total
+                .checked_add(cargo)
+                .ok_or(CustodyError::Overflow)?,
+        )
+    } else {
+        (lot.held, lot.in_total)
+    };
+    lot.inbound[i] = Inbound::default();
     let s = if here {
-        lot.held += cargo;
-        lot.in_total += cargo;
+        lot.held = held;
+        lot.in_total = in_total;
         Settlement {
             delivered: cargo,
             burned: sent - cargo,
@@ -781,11 +800,17 @@ pub fn spend_ship(
             if o.kind == ORDER_SHIP && o.id == id && o.dst != dst {
                 return Err(CustodyError::Order);
             }
+            if lot.out_total.checked_add(qty).is_none() {
+                return Err(CustodyError::Overflow);
+            }
             spend_order(lot, actor, slot, id, ORDER_SHIP, qty, bell)?;
         }
     }
+    lot.out_total = lot
+        .out_total
+        .checked_add(qty)
+        .ok_or(CustodyError::Overflow)?;
     lot.held -= qty;
-    lot.out_total += qty;
     Ok(())
 }
 
@@ -808,9 +833,13 @@ pub fn consume(
     if o.kind == ORDER_USE && o.id == id && o.purpose != 0 && o.purpose != purpose {
         return Err(CustodyError::Order);
     }
+    let consumed = lot
+        .consumed
+        .checked_add(qty)
+        .ok_or(CustodyError::Overflow)?;
     spend_order(lot, user, slot, id, ORDER_USE, qty, bell)?;
     lot.held -= qty;
-    lot.consumed += qty;
+    lot.consumed = consumed;
     Ok(())
 }
 
@@ -846,13 +875,18 @@ pub fn forfeit(v: &mut VaultView, lot: &mut Lot) -> CResult<Forfeit> {
     let qty = lot.held;
     // HELD ≤ QUOTA, and the quota leaves the vault's count: STORES stays
     // within CAP.
-    v.stores[r] += qty;
+    let stores = v.stores[r].checked_add(qty).ok_or(CustodyError::Overflow)?;
+    let forfeited = lot
+        .forfeited
+        .checked_add(qty)
+        .ok_or(CustodyError::Overflow)?;
+    v.stores[r] = stores;
     v.quota[r] -= lot.quota;
     v.lots = v.lots.saturating_sub(1);
     let voided = lot.orders.iter().filter(|o| o.kind != ORDER_FREE).count() as u8;
     lot.orders = [Order::default(); MAX_ORDERS];
     lot.held = 0;
-    lot.forfeited += qty;
+    lot.forfeited = forfeited;
     lot.quota = 0;
     lot.state = LOT_FORFEITED;
     Ok(Forfeit {
