@@ -1,0 +1,286 @@
+[
+  {
+    "ok": true,
+    "msg": "index.html pc: スクロール後に全 reveal 要素が表示 (43/43)"
+  },
+  {
+    "ok": true,
+    "msg": "index pc: 横はみ出しなし (scrollWidth<=clientWidth) "
+  },
+  {
+    "ok": true,
+    "msg": "index pc: 12px 未満の本文テキストなし "
+  },
+  {
+    "ok": true,
+    "msg": "index pc: 高さ32px未満の操作要素なし "
+  },
+  {
+    "ok": true,
+    "msg": "index pc: ページ内リンク先が存在 "
+  },
+  {
+    "ok": true,
+    "msg": "index pc: alt のない画像なし"
+  },
+  {
+    "ok": true,
+    "msg": "index pc: link contact.html -> 200"
+  },
+  {
+    "ok": true,
+    "msg": "contact.html pc: スクロール後に全 reveal 要素が表示 (0/0)"
+  },
+  {
+    "ok": true,
+    "msg": "contact pc: 横はみ出しなし (scrollWidth<=clientWidth) "
+  },
+  {
+    "ok": true,
+    "msg": "contact pc: 12px 未満の本文テキストなし "
+  },
+  {
+    "ok": true,
+    "msg": "contact pc: 高さ32px未満の操作要素なし "
+  },
+  {
+    "ok": true,
+    "msg": "contact pc: ページ内リンク先が存在 "
+  },
+  {
+    "ok": true,
+    "msg": "contact pc: alt のない画像なし"
+  },
+  {
+    "ok": true,
+    "msg": "contact pc: link index.html -> 200"
+  },
+  {
+    "ok": true,
+    "msg": "contact pc: link index.html#concerns -> 200"
+  },
+  {
+    "ok": true,
+    "msg": "contact pc: link index.html#service -> 200"
+  },
+  {
+    "ok": true,
+    "msg": "contact pc: link index.html#flow -> 200"
+  },
+  {
+    "ok": true,
+    "msg": "contact pc: link index.html#estimate -> 200"
+  },
+  {
+    "ok": true,
+    "msg": "contact pc: link index.html#faq -> 200"
+  },
+  {
+    "ok": true,
+    "msg": "contact pc: link index.html#company -> 200"
+  },
+  {
+    "ok": true,
+    "msg": "contact pc: link index.html#approach -> 200"
+  },
+  {
+    "ok": true,
+    "msg": "contact pc: link index.html#area -> 200"
+  },
+  {
+    "ok": true,
+    "msg": "pc: 未入力で送信 → エラー要約5件・aria-invalid 5件・確認画面に進まない ({\"summaryVisible\":true,\"count\":5,\"invalid\":5,\"focusInSummary\":true,\"confirmHidden\":true})"
+  },
+  {
+    "ok": true,
+    "msg": "pc: 形式不備（メール・電話・文字数）を個別に表示 (メールアドレスの形式が正しくありません（例：name@example.co.jp）。 / 電話番号は数字とハイフンで入力してください（例：03-0000-0000）。 / ご相談内容は10文字以上でお書きください。)"
+  },
+  {
+    "ok": true,
+    "msg": "pc: 確認画面へ遷移、11行表示、見出しにフォーカス ({\"shown\":true,\"rows\":11,\"company\":\"サンプル株式会社 テスト店\",\"step\":\"02確認\",\"focusOnHeading\":true})"
+  },
+  {
+    "ok": true,
+    "msg": "pc: 「修正する」で入力画面に戻り、値が保持される"
+  },
+  {
+    "ok": true,
+    "msg": "pc: 送信中はボタンが無効化される"
+  },
+  {
+    "ok": true,
+    "msg": "pc: デモ結果画面。「送信は行われていません」を表示し「受付完了」は出さない"
+  },
+  {
+    "ok": true,
+    "msg": "pc: フォーム操作で外部へのリクエストなし "
+  },
+  {
+    "ok": true,
+    "msg": "pc: 最初の Tab でスキップリンクにフォーカス"
+  },
+  {
+    "ok": true,
+    "msg": "pc: Tab でヘッダーのナビとCTAに順に到達 真\n      \n        > 困りごと > サービス・対象設備 > ご相談の流れ > 見積もりに必要な情報 > よくある質問 > 会社概要 > 見積もり・相談 > 見積もり・相談する > 見積もりに必要な情報を見る > 見積もりに必要な情報 > 状況を伝えて相談する"
+  },
+  {
+    "ok": true,
+    "msg": "pc: FAQ の summary を Enter で開ける"
+  },
+  {
+    "ok": true,
+    "msg": "pc: チェックリストのコピーがチェック状態を含む"
+  },
+  {
+    "ok": true,
+    "msg": "pc: コピー後にステータスが表示される"
+  },
+  {
+    "ok": true,
+    "msg": "pc: コンソールエラー・読み込み失敗なし "
+  },
+  {
+    "ok": true,
+    "msg": "index.html sp: スクロール後に全 reveal 要素が表示 (43/43)"
+  },
+  {
+    "ok": true,
+    "msg": "index sp: 横はみ出しなし (scrollWidth<=clientWidth) "
+  },
+  {
+    "ok": true,
+    "msg": "index sp: 12px 未満の本文テキストなし "
+  },
+  {
+    "ok": true,
+    "msg": "index sp: 高さ32px未満の操作要素なし "
+  },
+  {
+    "ok": true,
+    "msg": "index sp: ページ内リンク先が存在 "
+  },
+  {
+    "ok": true,
+    "msg": "index sp: alt のない画像なし"
+  },
+  {
+    "ok": true,
+    "msg": "index sp: link contact.html -> 200"
+  },
+  {
+    "ok": true,
+    "msg": "contact.html sp: スクロール後に全 reveal 要素が表示 (0/0)"
+  },
+  {
+    "ok": true,
+    "msg": "contact sp: 横はみ出しなし (scrollWidth<=clientWidth) "
+  },
+  {
+    "ok": true,
+    "msg": "contact sp: 12px 未満の本文テキストなし "
+  },
+  {
+    "ok": true,
+    "msg": "contact sp: 高さ32px未満の操作要素なし "
+  },
+  {
+    "ok": true,
+    "msg": "contact sp: ページ内リンク先が存在 "
+  },
+  {
+    "ok": true,
+    "msg": "contact sp: alt のない画像なし"
+  },
+  {
+    "ok": true,
+    "msg": "contact sp: link index.html -> 200"
+  },
+  {
+    "ok": true,
+    "msg": "contact sp: link index.html#concerns -> 200"
+  },
+  {
+    "ok": true,
+    "msg": "contact sp: link index.html#service -> 200"
+  },
+  {
+    "ok": true,
+    "msg": "contact sp: link index.html#flow -> 200"
+  },
+  {
+    "ok": true,
+    "msg": "contact sp: link index.html#estimate -> 200"
+  },
+  {
+    "ok": true,
+    "msg": "contact sp: link index.html#faq -> 200"
+  },
+  {
+    "ok": true,
+    "msg": "contact sp: link index.html#company -> 200"
+  },
+  {
+    "ok": true,
+    "msg": "contact sp: link index.html#approach -> 200"
+  },
+  {
+    "ok": true,
+    "msg": "contact sp: link index.html#area -> 200"
+  },
+  {
+    "ok": true,
+    "msg": "sp: メニューが開き、aria-expanded=true、本文が inert"
+  },
+  {
+    "ok": true,
+    "msg": "sp: Escape でメニューが閉じ、inert が外れる"
+  },
+  {
+    "ok": true,
+    "msg": "sp: メニューのリンクで該当セクションへ移動し、メニューが閉じる"
+  },
+  {
+    "ok": true,
+    "msg": "sp: 未入力で送信 → エラー要約5件・aria-invalid 5件・確認画面に進まない ({\"summaryVisible\":true,\"count\":5,\"invalid\":5,\"focusInSummary\":true,\"confirmHidden\":true})"
+  },
+  {
+    "ok": true,
+    "msg": "sp: 形式不備（メール・電話・文字数）を個別に表示 (メールアドレスの形式が正しくありません（例：name@example.co.jp）。 / 電話番号は数字とハイフンで入力してください（例：03-0000-0000）。 / ご相談内容は10文字以上でお書きください。)"
+  },
+  {
+    "ok": true,
+    "msg": "sp: 確認画面へ遷移、11行表示、見出しにフォーカス ({\"shown\":true,\"rows\":11,\"company\":\"サンプル株式会社 テスト店\",\"step\":\"02確認\",\"focusOnHeading\":true})"
+  },
+  {
+    "ok": true,
+    "msg": "sp: 「修正する」で入力画面に戻り、値が保持される"
+  },
+  {
+    "ok": true,
+    "msg": "sp: 送信中はボタンが無効化される"
+  },
+  {
+    "ok": true,
+    "msg": "sp: デモ結果画面。「送信は行われていません」を表示し「受付完了」は出さない"
+  },
+  {
+    "ok": true,
+    "msg": "sp: フォーム操作で外部へのリクエストなし "
+  },
+  {
+    "ok": true,
+    "msg": "sp: コンソールエラー・読み込み失敗なし "
+  },
+  {
+    "ok": true,
+    "msg": "index 768px: 横はみ出しなし・ヘッダーが収まる"
+  },
+  {
+    "ok": true,
+    "msg": "index 1024px: 横はみ出しなし・ヘッダーが収まる"
+  },
+  {
+    "ok": true,
+    "msg": "index 1200px: 横はみ出しなし・ヘッダーが収まる"
+  }
+]

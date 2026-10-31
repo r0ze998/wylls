@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="ja" class="no-js">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>見積もり・ご相談｜真 −SHIN−（法人向けエアコンクリーニング）</title>
+  <meta name="description" content="真 −SHIN− への見積もり・ご相談フォーム。機種や台数が分からない段階でもお送りいただけます。入力内容を確認してから送信する流れです。">
+  <meta name="robots" content="noindex">
+  <meta name="theme-color" content="#15171a">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&family=Noto+Sans+JP:wght@400;500;700&family=Noto+Serif+JP:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/css/style.css">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='8' fill='%2315171a'/%3E%3Ctext x='32' y='44' text-anchor='middle' font-family='serif' font-size='36' font-weight='700' fill='%23f1eee8'%3E真%3C/text%3E%3Ccircle cx='54' cy='10' r='5' fill='%23bf3b2c'/%3E%3C/svg%3E">
+</head>
+<body>
+<a class="skip-link" href="#main">本文へ移動</a>
+
+<header class="site-header">
+  <div class="container">
+    <a class="brand" href="index.html" aria-label="真 −SHIN− トップへ">
+      <span class="brand__mark" aria-hidden="true">真</span>
+      <span class="brand__text">
+        <span class="brand__name">真 −SHIN−</span>
+        <span class="brand__tag">エアコンクリーニング｜法人向け</span>
+      </span>
+    </a>
+    <nav class="site-nav" aria-label="サイト内">
+      <a href="index.html#concerns">困りごと</a>
+      <a href="index.html#service">サービス・対象設備</a>
+      <a href="index.html#flow">ご相談の流れ</a>
+      <a href="index.html#estimate">見積もりに必要な情報</a>
+      <a href="index.html#faq">よくある質問</a>
+      <a href="index.html#company">会社概要</a>
+    </nav>
+    <div class="header-actions">
+      <a class="btn btn--air header-cta" href="#contact-form" aria-current="page">見積もり・相談</a>
+      <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="nav-panel" aria-label="メニューを開く">
+        <span></span><span></span><span></span>
+      </button>
+    </div>
+  </div>
+</header>
+
+<div class="nav-panel" id="nav-panel">
+  <nav aria-label="サイト内（モバイル）">
+    <ul>
+      <li><a href="index.html">トップ</a></li>
+      <li><a href="index.html#concerns">担当者の困りごと <small>01</small></a></li>
+      <li><a href="index.html#service">サービス・対象設備 <small>02</small></a></li>
+      <li><a href="index.html#approach">仕事の姿勢 <small>03</small></a></li>
+      <li><a href="index.html#flow">ご相談から作業までの流れ <small>04</small></a></li>
+      <li><a href="index.html#estimate">見積もりに必要な情報 <small>05</small></a></li>
+      <li><a href="index.html#area">対応エリア <small>06</small></a></li>
+      <li><a href="index.html#faq">よくある質問 <small>07</small></a></li>
+      <li><a href="index.html#company">会社概要 <small>08</small></a></li>
+    </ul>
+    <a class="btn btn--air" href="#contact-form">フォームへ戻る</a>
+  </nav>
+</div>
+
+<main id="main" tabindex="-1">
+  <section class="page-head" aria-labelledby="page-title">
+    <div class="container container--narrow">
+      <p class="eyebrow">Contact</p>
+      <h1 class="page-head__title" id="page-title">見積もり・ご相談</h1>
+      <p class="page-head__lead">機種や台数が分からない段階でも、そのままお送りください。入力内容を確認してから送信する流れです。お問い合わせの時点で作業が確定することはありません。</p>
+      <div class="demo-notice" role="note">
+        <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></svg>
+        <p><strong>このフォームは現在デモとして動作しています。</strong>送信先が未設定のため、入力内容はどこにも送信・保存されません。実在する個人情報は入力せず、サンプルの内容でお試しください。</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="section section--tight" aria-label="相談フォーム">
+    <div class="container container--narrow">
+      <ol class="steps" aria-label="手順">
+        <li aria-current="step"><span class="n">01</span>入力</li>
+        <li><span class="n">02</span>確認</li>
+        <li><span class="n">03</span>送信</li>
+      </ol>
+
+      <div class="form-card">
+        <!-- ===== 入力 ===== -->
+        <div id="view-input">
+          <h2 class="h3" style="margin-bottom:8px">ご相談内容の入力</h2>
+          <p class="note" style="margin-bottom:24px"><span class="req">必須</span> の項目をご入力ください。その他は分かる範囲で構いません。</p>
+
+          <div class="error-summary" id="error-summary" role="alert" tabindex="-1">
+            <h2>入力内容をご確認ください</h2>
+            <ul></ul>
+          </div>
+
+          <form id="contact-form" novalidate autocomplete="on">
+            <div class="form-grid">
+              <div class="field">
+                <label class="field__label" for="f-company">会社名・店舗名 <span class="req">必須</span></label>
+                <input class="input" id="f-company" name="company" type="text" autocomplete="organization" required aria-required="true" aria-describedby="e-company" placeholder="例：株式会社○○ △△店">
+                <p class="field__error" id="e-company"></p>
+              </div>
+              <div class="field">
+                <label class="field__label" for="f-person">ご担当者名 <span class="req">必須</span></label>
+                <input class="input" id="f-person" name="person" type="text" autocomplete="name" required aria-required="true" aria-describedby="e-person" placeholder="例：山田 太郎">
+                <p class="field__error" id="e-person"></p>
+              </div>
+              <div class="field">
+                <label class="field__label" for="f-division">部署・役職 <span class="opt">任意</span></label>
+                <input class="input" id="f-division" name="division" type="text" autocomplete="organization-title" aria-describedby="e-division" placeholder="例：総務部／店長">
+                <p class="field__error" id="e-division"></p>
+              </div>
+              <div class="field">
+                <label class="field__label" for="f-email">メールアドレス <span class="req">必須</span></label>
+                <input class="input" id="f-email" name="email" type="email" inputmode="email" autocomplete="email" required aria-required="true" aria-describedby="h-email e-email" placeholder="例：name@example.co.jp">
+                <p class="field__hint" id="h-email">お見積もりや確認のご連絡に使用します。</p>
+                <p class="field__error" id="e-email"></p>
+              </div>
+              <div class="field">
+                <label class="field__label" for="f-tel">電話番号 <span class="opt">任意</span></label>
+                <input class="input" id="f-tel" name="tel" type="tel" inputmode="tel" autocomplete="tel" aria-describedby="h-tel e-tel" placeholder="例：03-0000-0000">
+                <p class="field__hint" id="h-tel">お急ぎの場合や、日中つながりやすい番号があれば。</p>
+                <p class="field__error" id="e-tel"></p>
+              </div>
+              <div class="field">
+                <label class="field__label" for="f-pref">作業場所の都道府県 <span class="opt">任意</span></label>
+                <select class="select" id="f-pref" name="pref" aria-describedby="e-pref">
+                  <option value="">選択してください</option>
+                  <option>北海道</option><option>青森県</option><option>岩手県</option><option>宮城県</option><option>秋田県</option><option>山形県</option><option>福島県</option>
+                  <option>茨城県</option><option>栃木県</option><option>群馬県</option><option>埼玉県</option><option>千葉県</option><option>東京都</option><option>神奈川県</option>
+                  <option>新潟県</option><option>富山県</option><option>石川県</option><option>福井県</option><option>山梨県</option><option>長野県</option><option>岐阜県</option><option>静岡県</option><option>愛知県</option>
+                  <option>三重県</option><option>滋賀県</option><option>京都府</option><option>大阪府</option><option>兵庫県</option><option>奈良県</option><option>和歌山県</option>
+                  <option>鳥取県</option><option>島根県</option><option>岡山県</option><option>広島県</option><option>山口県</option>
+                  <option>徳島県</option><option>香川県</option><option>愛媛県</option><option>高知県</option>
+                  <option>福岡県</option><option>佐賀県</option><option>長崎県</option><option>熊本県</option><option>大分県</option><option>宮崎県</option><option>鹿児島県</option><option>沖縄県</option>
+                  <option>複数の都道府県にまたがる</option>
+                  <option>未定</option>
+                </select>
+                <p class="field__error" id="e-pref"></p>
+              </div>
+              <div class="field">
+                <label class="field__label" for="f-building">建物の種類 <span class="opt">任意</span></label>
+                <select class="select" id="f-building" name="building" aria-describedby="e-building">
+                  <option value="">選択してください</option>
+                  <option>飲食店</option>
+                  <option>物販店・サービス店舗</option>
+                  <option>オフィス</option>
+                  <option>クリニック・施設</option>
+                  <option>工場・倉庫の事務所</option>
+                  <option>複数の種類が混在</option>
+                  <option>その他</option>
+                </select>
+                <p class="field__error" id="e-building"></p>
+              </div>
+              <div class="field">
+                <label class="field__label" for="f-timing">ご希望の時期 <span class="opt">任意</span></label>
+                <select class="select" id="f-timing" name="timing" aria-describedby="e-timing">
+                  <option value="">選択してください</option>
+                  <option>できるだけ早く</option>
+                  <option>1か月以内</option>
+                  <option>3か月以内</option>
+                  <option>半年以内</option>
+                  <option>時期は未定・まずは情報収集</option>
+                </select>
+                <p class="field__error" id="e-timing"></p>
+              </div>
+              <div class="field field--full">
+                <label class="field__label" for="f-units">台数・機種の目安 <span class="opt">任意</span></label>
+                <input class="input" id="f-units" name="units" type="text" aria-describedby="h-units e-units" placeholder="例：天井埋込形 6台、壁掛形 2台。型番は不明">
+                <p class="field__hint" id="h-units">おおよそで構いません。分からなければ空欄のままお送りください。</p>
+                <p class="field__error" id="e-units"></p>
+              </div>
+              <div class="field field--full">
+                <label class="field__label" for="f-message">ご相談内容 <span class="req">必須</span></label>
+                <textarea class="textarea" id="f-message" name="message" required aria-required="true" aria-describedby="h-message e-message" placeholder="例：店舗の客席エアコンから送風時にニオイがします。営業時間外の作業が可能か、費用の目安を知りたいです。"></textarea>
+                <p class="field__hint" id="h-message">気になっている症状、作業可能な時間帯、社内の決裁に必要なことなど、何でもお書きください。</p>
+                <p class="field__error" id="e-message"></p>
+              </div>
+
+              <div class="field consent">
+                <label>
+                  <input type="checkbox" id="f-consent" name="consent" required aria-required="true" aria-describedby="e-consent">
+                  <span class="text">
+                    入力内容を、お見積もり・ご相談への回答のために利用することに同意します。<span class="req" style="margin-left:6px">必須</span>
+                    <small>プライバシーポリシーの本文は確認中です。公開後、こちらにリンクを掲載します。</small>
+                  </span>
+                </label>
+                <p class="field__error" id="e-consent"></p>
+              </div>
+
+              <!-- ハニーポット：人は触らない。bot が埋めると送信を止める -->
+              <div class="honeypot" aria-hidden="true">
+                <label for="f-website">Website</label>
+                <input id="f-website" name="website" type="text" tabindex="-1" autocomplete="off">
+              </div>
+            </div>
+
+            <div class="form-actions">
+              <a class="btn btn--ghost" href="index.html#estimate">必要な情報を確認する</a>
+              <button class="btn btn--primary" type="submit">
+                入力内容を確認する
+                <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 10h11M11 5l5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </button>
+              <p class="note">この段階では送信されません。次の画面で内容を確認できます。</p>
+            </div>
+          </form>
+        </div>
+
+        <!-- ===== 確認 ===== -->
+        <div id="view-confirm" hidden>
+          <h2 class="h3" style="margin-bottom:8px">入力内容の確認</h2>
+          <p class="note" style="margin-bottom:20px">内容に間違いがなければ「この内容で送信する」を押してください。修正する場合は「修正する」で入力画面に戻れます（入力内容は保持されます）。</p>
+          <table class="confirm-table">
+            <tbody id="confirm-body"></tbody>
+          </table>
+          <div class="form-actions">
+            <button class="btn btn--ghost" type="button" id="btn-back">
+              <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M16 10H5M9 5l-5 5 5 5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              修正する
+            </button>
+            <button class="btn btn--primary" type="button" id="btn-send">この内容で送信する</button>
+            <p class="send-status" id="send-status" role="status" aria-live="polite"></p>
+          </div>
+        </div>
+
+        <!-- ===== 結果 ===== -->
+        <div id="view-result" hidden>
+          <div class="result" id="result-demo" hidden>
+            <p class="result__badge is-demo">デモ動作</p>
+            <h2 class="result__title">送信は行われていません。</h2>
+            <p class="result__text">このフォームは送信先が未設定のため、入力内容はどこにも送信・保存されていません。実際のご相談としては扱われず、受付や予約も発生していません。</p>
+            <div class="result__box">
+              <p><strong>本番環境では、この画面の代わりに次のことが起きます。</strong></p>
+              <ul>
+                <li>入力内容が、設定した送信先（<code>assets/js/site-config.js</code> の <code>form.endpoint</code>）へ POST されます</li>
+                <li>送信先のサーバー処理が、担当者宛てにメールを送ります（必要なら自動返信も）</li>
+                <li>送信が成功（2xx 応答）したときだけ「送信しました」と表示されます</li>
+              </ul>
+            </div>
+            <div class="btn-row">
+              <button class="btn btn--ghost" type="button" id="btn-restart">最初から入力する</button>
+              <a class="btn btn--primary" href="index.html">トップページへ戻る</a>
+            </div>
+          </div>
+          <div class="result" id="result-sent" hidden>
+            <p class="result__badge is-sent">送信済み</p>
+            <h2 class="result__title">送信しました。</h2>
+            <p class="result__text">ご相談ありがとうございます。内容を確認のうえ、ご入力いただいたメールアドレス宛てにご連絡します。数日経っても連絡がない場合は、お手数ですが再度お送りください。</p>
+            <div class="btn-row">
+              <a class="btn btn--primary" href="index.html">トップページへ戻る</a>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <p class="note" style="margin-top:24px">入力内容はこのページの中でだけ保持され、ブラウザの保存領域や外部サービスには保存されません。ページを離れると消えます。</p>
+    </div>
+  </section>
+</main>
+
+<footer class="site-footer">
+  <div class="container">
+    <div>
+      <a class="brand" href="index.html">
+        <span class="brand__mark" aria-hidden="true">真</span>
+        <span class="brand__text">
+          <span class="brand__name">真 −SHIN−</span>
+          <span class="brand__tag">エアコンクリーニング｜法人向け</span>
+        </span>
+      </a>
+      <p class="footer__desc">店舗・オフィスなど法人のお客様向けのエアコンクリーニング。全国からのご相談に対応します。</p>
+    </div>
+    <div>
+      <p class="footer__head">Contents</p>
+      <ul class="footer__links">
+        <li><a href="index.html#concerns">担当者の困りごと</a></li>
+        <li><a href="index.html#service">サービス・対象設備</a></li>
+        <li><a href="index.html#approach">仕事の姿勢</a></li>
+        <li><a href="index.html#flow">ご相談から作業までの流れ</a></li>
+        <li><a href="index.html#estimate">見積もりに必要な情報</a></li>
+        <li><a href="index.html#area">対応エリア</a></li>
+        <li><a href="index.html#faq">よくある質問</a></li>
+        <li><a href="index.html#company">会社概要</a></li>
+      </ul>
+    </div>
+    <div>
+      <p class="footer__head">Contact</p>
+      <ul class="footer__links">
+        <li><a href="#contact-form">見積もり・相談フォーム</a></li>
+      </ul>
+      <p class="note" style="margin-top:14px">電話・メールの窓口、プライバシーポリシーは確認中です。確定次第、こちらに掲載します。</p>
+    </div>
+    <div class="footer__bottom">
+      <p>&copy; 真 −SHIN−</p>
+      <p>掲載のイラストはイメージ図です。実際の施工写真・実績ではありません。</p>
+    </div>
+  </div>
+</footer>
+
+<script src="assets/js/site-config.js"></script>
+<script src="assets/js/main.js"></script>
+<script src="assets/js/contact.js"></script>
+</body>
+</html>
