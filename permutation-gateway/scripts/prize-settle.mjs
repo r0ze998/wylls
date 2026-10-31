@@ -10,6 +10,14 @@
 //        --verify LEDGER.json  re-derive every ledger line from the transactions and accounts it cites
 //        --set-shares --operator-seed-file F
 //                              DEFERRED step: post the shares root and the ledger's sha256 (SetShares; operator only)
+//        --verify-shares LEDGER.json
+//                              after SetShares, by anyone: re-derive every ledger line, recompute members (Entry and
+//                              Citizen accounts), points, totals and the merkle root, and compare them, the ledger's
+//                              sha256 and prize-params.json's sha256 with what the pool holds; sends nothing
+//        --accounts [--ledger LEDGER.json]
+//                              at any time, in any pool state (it does not need the Season Ended): the pool's money as
+//                              accounts (deposits, prize and operator parts, claims, the vault) reconciled against
+//                              every Entry and the vault's balance, and each payer's exit as the program offers it now
 //        --ledger-file F       also write the ledger where the relay serves it (GET /f/prize/ledger)
 //
 // Decided rules: the winner is the nation holding the most provinces at
@@ -25,11 +33,14 @@ import { Keypair } from '@solana/web3.js';
 import { toHex } from '../client/src/bytes.mjs';
 import { FrontierAddresses, ringOf } from '../client/src/frontier/addresses.mjs';
 import { decodeAccount } from '../client/src/frontier/codec.mjs';
-import { claimAmount, decodeEntry, decodePool, ENTRY_SIZE, entryAddress, finalizeIx, leafHash, merkleTree, POOL_STATE, PRIZE_ERRORS, setSharesIx, SHARE_MODE, tallyIx } from '../client/src/frontier/prize.mjs';
+import { claimAmount, decodeEntry, decodePool, decodeTokenAccount, ENTRY_SIZE, entryAddress, finalizeIx, POOL_STATE, PRIZE_ERRORS, setSharesIx, tallyIx } from '../client/src/frontier/prize.mjs';
+import { profileForSeason } from '../client/src/frontier/profile.mjs';
 import { compileMessage, wireTransaction } from '../client/src/solana-tx.mjs';
 import { signTalk } from '../client/src/talk-node.mjs';
 import { createHerald } from '../../permutation-server/web/frontier/herald.mjs';
-import { AREA_NOTE, Deriver, KINDS, PLAYER_KINDS, scoreLines } from '../src/frontier/achievements.mjs';
+import { AREA_NOTE, Deriver, KINDS, PLAYER_KINDS } from '../src/frontier/achievements.mjs';
+import { poolAccounts } from '../src/frontier/prize-accounts.mjs';
+import { checkPostedShares, membersOf, sharesOf } from '../src/frontier/shares.mjs';
 
 const args = process.argv.slice(2);
 const flag = name => args.includes(`--${name}`);
@@ -81,7 +92,9 @@ const prize = info.prize;
 const addresses = new FrontierAddresses({ programId: info.programId, seasonId: BigInt(info.seasonId) });
 const seasonOf = async () => decodeAccount('Season', await account(addresses.season), { seasonId: addresses.seasonId });
 const poolOf = async () => decodePool(await account(prize.pool));
-const profile = 2;
+// The season's own profile (S1: 3); the account layouts read here are the v2 ones for MC and S1 alike. A Season
+// closed to its tombstone (or unreadable) leaves the pool's accounts readable: --accounts needs no Season.
+const profile = await seasonOf().then(profileForSeason, () => 3);
 
 /** Every opened keep Province, read from the chain: `[{address, p, q, province}]` in ring order. */
 async function keepProvinces() {
@@ -165,6 +178,50 @@ if (opt('verify')) {
   process.exit(bad ? 1 : 0);
 }
 
+// ------------------------------------------------------------------ members (shared by settle and --verify-shares)
+
+/** Every Entry of this pool on chain. */
+const entriesOnChain = async () => (await rpc('getProgramAccounts', [prize.program, { encoding: 'base64', filters: [{ dataSize: ENTRY_SIZE }] }]) ?? [])
+  .map(a => decodeEntry(Uint8Array.from(Buffer.from(a.account.data[0], 'base64'))))
+  .filter(e => e && e.pool === prize.pool);
+const entryWallets = async () => (await entriesOnChain()).map(e => e.wallet);
+const hasEntry = async w => !!decodeEntry(await account(entryAddress(prize.program, prize.pool, w)));
+const factionOf = async w => { const c = await account(addresses.citizen(w)); return c ? Number(decodeAccount('Citizen', c, { seasonId: addresses.seasonId, profile }).FACTION) : null; };
+
+// ------------------------------------------------------------------ --accounts
+
+if (flag('accounts')) {
+  const shares = opt('ledger') ? JSON.parse(readFileSync(opt('ledger'), 'utf8')).shares?.members ?? null : null;
+  const r = poolAccounts({ pool: await poolOf(), vault: decodeTokenAccount(await account(prize.vault)).amount, entries: await entriesOnChain(), shares });
+  console.log(`pool ${prize.pool} (${r.state}); test USDC, base units`);
+  for (const [k, v] of Object.entries(r.totals)) console.log(`  ${k.padEnd(17)} ${v}`);
+  for (const c of r.checks) console.log(`${c.ok ? 'ok  ' : 'FAIL'} ${c.name}`);
+  for (const p of r.positions) console.log(`  ${p.wallet} paid ${p.paid} received ${p.received}${p.owed !== undefined ? ` owed ${p.owed}` : ''}: ${p.exit}`);
+  process.exit(r.ok ? 0 : 1);
+}
+
+// ------------------------------------------------------------------ --verify-shares
+
+if (opt('verify-shares')) {
+  const ledgerText = readFileSync(opt('verify-shares'), 'utf8');
+  const ledger = JSON.parse(ledgerText);
+  const pool = await poolOf();
+  // 1. Every line from its transactions and accounts (as --verify).
+  const bad = [];
+  for (const [i, line] of ledger.lines.entries()) { const v = await deriver.verifyLine(line); if (!v.ok) bad.push({ i, problems: v.problems }); }
+  // 2. Members, points, totals, root: recomputed with the rules of the params file the pool is bound to.
+  const extra = opt('members-file') ? JSON.parse(readFileSync(opt('members-file'), 'utf8')) : [];
+  const { members, paid } = await membersOf({ lines: ledger.lines, extraWallets: [...extra, ...await entryWallets()], hasEntry, factionOf });
+  const recomputed = sharesOf({ lines: ledger.lines, params, winners: pool.winners, paid, members, poolAddress: prize.pool });
+  const result = checkPostedShares({ pool, recomputed, ledgerText, paramsText: readFileSync(PARAMS_FILE, 'utf8') });
+  result.checks.unshift({ name: 'every ledger line re-derived from the chain', ok: bad.length === 0, posted: `${ledger.lines.length - bad.length}/${ledger.lines.length}`, recomputed: `${ledger.lines.length}/${ledger.lines.length}` });
+  for (const c of result.checks) console.log(`${c.ok ? 'ok  ' : 'FAIL'} ${c.name}${c.ok ? '' : `: posted ${c.posted}, recomputed ${c.recomputed}`}`);
+  if (bad.length) console.log(json(bad));
+  const ok = result.ok && bad.length === 0;
+  console.log(ok ? '\nthe posted shares follow from the published ledger, the chain and the params file' : '\nthe posted shares do NOT follow from the public inputs');
+  process.exit(ok ? 0 : 1);
+}
+
 // ------------------------------------------------------------------ --check
 
 if (flag('check')) {
@@ -207,37 +264,14 @@ assert.ok(checked.out.poolMatchesChain, 'the pool\'s tally is not the chain\'s')
 // ------------------------------------------------------------------ the achievements ledger
 
 const lines = await deriver.lines(provinces);
-// The players: every Citizen named by a line, and every wallet with an Entry among them.
-const wallets = [...new Set(lines.map(l => l.wallet).filter(Boolean))];
-const paid = new Set();
-const members = [];
-for (const w of wallets) {
-  const e = decodeEntry(await account(entryAddress(prize.program, prize.pool, w)));
-  if (e) paid.add(w);
-  members.push({ wallet: w, nation: lines.find(l => l.wallet === w && l.kind === 'capture')?.detail.ownerNation ?? lines.find(l => l.wallet === w)?.detail.supplierNation, paid: !!e });
-}
+// The players: every Citizen named by a line, and every wallet with an Entry among them. Every paid entry of
+// this pool is a member too, whether or not a line names it: with no capture and no reinforcement in the season
+// (s1-season-2) the lines name nobody, and the equal-split fallback found no paid member and refunded.
 const extra = opt('members-file') ? JSON.parse(readFileSync(opt('members-file'), 'utf8')) : [];
-// Every paid entry of this pool is a member too, whether or not a line names it: with no capture and no
-// reinforcement in the season (s1-season-2) the lines name nobody, and the equal-split fallback found no paid
-// member and refunded.
-const entryWallets = (await rpc('getProgramAccounts', [prize.program, { encoding: 'base64', filters: [{ dataSize: ENTRY_SIZE }] }]) ?? [])
-  .map(a => decodeEntry(Uint8Array.from(Buffer.from(a.account.data[0], 'base64'))))
-  .filter(e => e && e.pool === prize.pool)
-  .map(e => e.wallet);
-for (const w of [...extra, ...entryWallets]) {
-  if (members.some(m => m.wallet === w)) continue;
-  const c = await account(addresses.citizen(w));
-  const e = decodeEntry(await account(entryAddress(prize.program, prize.pool, w)));
-  if (e) paid.add(w);
-  if (c) members.push({ wallet: w, nation: Number(decodeAccount('Citizen', c, { seasonId: addresses.seasonId, profile }).FACTION), paid: !!e });
-}
-const scored = scoreLines(lines, { params, winners: pool.winners, paid, members });
-const totals = Array(NATIONS).fill(0n);
-for (const v of scored.points.values()) totals[v.nation] += BigInt(v.points);
-const shareNations = totals.filter(t => t > 0n).length;
-const leaves = [...scored.points].map(([wallet, v]) => ({ wallet, ...v, leaf: leafHash(prize.pool, wallet, v.nation, BigInt(v.points)) }));
-const tree = merkleTree(leaves.map(l => l.leaf));
-const estimatePool = { ...pool, mode: scored.mode === 'refund' ? SHARE_MODE.REFUND : SHARE_MODE.SHARES, shareNations, totalPoints: totals };
+const { members, paid } = await membersOf({ lines, extraWallets: [...extra, ...await entryWallets()], hasEntry, factionOf });
+const shares = sharesOf({ lines, params, winners: pool.winners, paid, members, poolAddress: prize.pool });
+const { scored, totals, shareNations, leaves, tree } = shares;
+const estimatePool = { ...pool, mode: shares.mode, shareNations, totalPoints: totals };
 const ledger = {
   version: 1, testAssetsOnly: true, token: 'test USDC (a local test mint; no value)',
   provisional: true, provisionalRules: params.provisionalRules, decided: params.decided, paramsFile: 'permutation-gateway/src/frontier/prize-params.json',
@@ -278,7 +312,7 @@ if (flag('set-shares')) {
   const operator = Keypair.fromSeed(Buffer.from(readFileSync(opt('operator-seed-file'), 'utf8').trim(), 'hex'));
   assert.equal(operator.publicKey.toBase58(), pool.operator, 'that key is not the pool\'s operator');
   if (pool.state === POOL_STATE.FINAL) {
-    const signature = await send([setSharesIx({ prize, operator: operator.publicKey.toBase58(), mode: estimatePool.mode, totals, root: scored.mode === 'refund' ? new Uint8Array(32) : tree.root, ledgerHash })], [operator]);
+    const signature = await send([setSharesIx({ prize, operator: operator.publicKey.toBase58(), mode: shares.mode, totals, root: shares.root, ledgerHash })], [operator]);
     step('set-shares', { signature, mode: scored.mode, root: ledger.shares.root, ledgerSha256: ledgerHash.toString('hex') });
   } else step('set-shares', { skipped: `the pool is ${['open', 'final', 'shares'][pool.state]}` });
 }
