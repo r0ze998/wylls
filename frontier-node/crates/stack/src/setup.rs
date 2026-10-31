@@ -111,6 +111,9 @@ pub struct LandOverrides {
     pub r_max_ceiling: Option<u16>,
     /// `--placement`: the conquest block's `placement`.
     pub placement: Option<u8>,
+    /// `--continuous`: the world does not end (conquest block
+    /// `continuous` = 1, `end_bell` = `join_close_bell` = NO_END_BELL).
+    pub continuous: bool,
 }
 
 impl LandOverrides {
@@ -154,6 +157,11 @@ pub async fn run(
         }
         if let Some(v) = land_overrides.placement {
             p.cq.placement = v;
+        }
+        if land_overrides.continuous {
+            p.cq.continuous = 1;
+            p.base.end_bell = frontier_abi::presets::NO_END_BELL;
+            p.base.join_close_bell = frontier_abi::presets::NO_END_BELL;
         }
         if let Some(g) = join_gate {
             p.base.join_gate = g;
@@ -373,6 +381,7 @@ mod short_season_tests {
             r_max: Some(r),
             r_max_ceiling: None,
             placement: None,
+            continuous: false,
         };
         for (r, ok) in [(6u16, true), (128, true), (4, false), (129, false)] {
             let mut p = p0;

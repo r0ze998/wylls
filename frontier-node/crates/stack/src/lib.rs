@@ -30,6 +30,7 @@ pub mod report;
 pub mod resume;
 pub mod run;
 pub mod setup;
+pub mod snapshot;
 pub mod toml;
 pub mod up;
 pub mod verifyrun;

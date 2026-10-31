@@ -299,3 +299,12 @@ test('FB5 F2: render() hands V5 the names it printed (inbox and hall senders tha
   assert.deepEqual(r.names, ['Kestrel the Long Named Wanderer…', 'Ren x'], 'cut to 32 code points, the special token removed: exactly what the wrapper prints');
   assert.ok(r.names.every((n) => r.messages[1].content.includes(`from="${n.normalize('NFKC')} (`)), 'each name is the one printed in a wrapper from= (the wrapper applies NFKC again, as the echo check does)');
 });
+
+test('a continuous world is not told an end turn: "The world goes on; it has no end turn."', async () => {
+  const request = { ...wire.request, situation: { ...wire.request.situation, end_bell: null, secs_left: null, world_continues: true } };
+  const { run } = setup({ request });
+  const r = await run({});
+  const user = r.messages[1].content;
+  assert.match(user, /NOW: turn 40 \(day \d+, turn \d+\/144\)\. The world goes on; it has no end turn\./);
+  assert.doesNotMatch(user, /Season ends at turn/);
+});

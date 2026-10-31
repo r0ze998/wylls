@@ -250,6 +250,19 @@ impl Season {
         })
     }
 
+    /// A continuous world (the conquest block's `continuous` = 1, migration
+    /// candidate): it does not end; `end_bell` and `join_close_bell` are
+    /// `NO_END_BELL` and EndSeason is refused.
+    pub fn continuous(&self) -> bool {
+        self.conquest.as_ref().is_some_and(|c| c.continuous == 1)
+    }
+
+    /// Whether the world ends at `end_bell` (every season before the
+    /// continuous flag). War periods, when decided, are not this.
+    pub fn world_ends(&self) -> bool {
+        !self.continuous()
+    }
+
     /// Effective status at `now` (§5.3: Seeded with `now ≥ genesis_ts` is Running).
     pub fn effective_status(&self, now: i64) -> u8 {
         if self.status == crate::abi::status::SEEDED && now >= self.genesis_ts {

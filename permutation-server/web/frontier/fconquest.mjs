@@ -142,7 +142,7 @@ export function outpostOffer(fs, target) {
   if (rec && Object.values(rec).some(v => (typeof v === 'number' || typeof v === 'bigint') && v != 0)) return no(L`このマスの争奪が確定するまで入植できません。`);
   if (ringOf(target.p,target.q) <= Number(params.heartlandMaxRing ?? 3)) return no(L`保護された本国の外に入植してください。`);
   if (hexDistance(target.p,target.q,home.p,home.q) > Number(params.outpostRange ?? 3)) return no(L`最初の村から3州以内を選んでください。`);
-  if (fs.nowBell >= season.endBell - Number(params.outpostCloseBells ?? 24)) return no(L`今シーズンの入植受付は終了しました。`);
+  if (Number(params.continuous ?? 0) !== 1 && fs.nowBell >= season.endBell - Number(params.outpostCloseBells ?? 24)) return no(L`今シーズンの入植受付は終了しました。`);
   const { mine, total } = provinceWeights(pv, citizen.faction, fs.nowBell);
   if (total && mine*10000 >= total*Number(params.outpostShareBps ?? 5000)) return no(L`自国の村が優勢な州には入植できません。`);
   const open = Number(fs.record?.openSites), occupied = Number(fs.record?.occupiedSites);

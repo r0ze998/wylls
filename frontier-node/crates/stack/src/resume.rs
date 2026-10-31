@@ -177,7 +177,8 @@ async fn run(
                 }
             }
         }
-        if !ended {
+        // A continuous world never ends: no EndSeason (the program refuses it).
+        if !ended && s.world_ends() {
             let clock = chain.status().await?;
             let now = clock.now;
             if !clock.paused && now >= s.genesis_ts + s.end_bell as i64 * s.bell_secs as i64 {
