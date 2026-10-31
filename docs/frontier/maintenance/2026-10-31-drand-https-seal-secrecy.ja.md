@@ -71,12 +71,20 @@
 - material は以前から keeper の journal（Reveal 試行の取引バイト）に公開前から入っていたので、ディスク上の保存は増えていない。運用者を信用する点（I-24）は変わらない。
 - 実チェーンでの確認は未実行（SBF ツールチェーンが無く `.so` を作れない）。
 
+### 試験に使った鍵と、示していること
+
+- **時刻前の秘匿性**の根拠にしているのは、公開 drand の quicknet（秘密鍵は誰も持たない）に対する live 試験（`fclient/tests/live_drand.rs`）と、web 経路の試験（`permutation-gateway/test/frontier-relay.test.mjs` の ⑱ の試験）で封印に quicknet の鍵を使ったものだけ。
+- keeper の送信試験（`play.rs` の w6t_tests）は、秘密鍵が既知の試験ビーコン（I-53）を時刻で配る擬似 drand を使う。これで示しているのは「条件がそろうまで送らない」という**送信の判定**だけで、暗号の秘匿性ではない。
+- 公開可能の条件、アプリ側の防止、program 側の拒否、証拠不足の区分と、未修正の点の詳細は、公開範囲の確認が済むまで repo に置かず、④・⑯ 向けのパッケージ内の文書（`CONDITIONS-for-4.ja.md`）に置く。
+
 ## 5. 試験（実行したもの）
 
 | 試験 | 内容 | 結果 |
 |---|---|---|
 | `fclient` lib：`http::tests` 4 件、`beacon::tests` 4 件追加 | URL 検査、curl 引数に検証無効化が無いこと、trailer の検証、v1/v2 info、pin の全項目、served round の拒否条件、試験鍵の loopback 限定 | PASS |
 | `keeper` lib：`drand_urls_are_https_or_loopback`、`no_reveal_before_the_anchor_of_its_arrival`、`held_owner_material_survives_a_restart` | 設定の拒否、Reveal の時期、待機中の material の再起動耐性 | PASS（2 件目は修正前 FAIL） |
+| `keeper` lib：受付と送信の試験（`the_intake_gate_only_reads`、`intake_to_duty_sends_nothing_before_publication`、`archive_entries_count_only_when_present_for_the_bell` ほか w6t_tests の 17 件） | 受付は読むだけで、送信も simulate もしない。API で受けた material が、anchor 欠落・読取り失敗・古い応答・再送・再起動を通して、条件がそろうまで RPC に出ない | PASS（変異試験 `mutations2.log`） |
+| gateway：`frontier-relay.test.mjs` の ⑱ の試験 | web 経路で、平文や salt を含む取引が RPC に届かない（Reveal は relay が simulate より前に拒否、material は keeper にだけ届く、Depart の wire には平文も salt も無い） | PASS（gateway 全体 2,529/2,530、1 件は既存の skip） |
 | `keeper --test play`（ignored を含む 7 件） | 鐘の pipeline、保留下の Reveal、二重 keeper、crash injection（journal の各書込み点で落として再起動、決着 digest 一致） | PASS |
 | `drand-replay --test hostile`（5 件、うち TLS 1 件は `--include-ignored`） | ゴミ、古い round、他鍵、ビット反転、randomness 不一致、500、閉じたポート、425/404 → 次へ、info の差し替え、ローカル TLS（未知 CA → curl 60、名前違い → curl 60、閉ポート → curl 7） | PASS（`not_yet…` は修正前 FAIL） |
 | `fclient --test period_boundary`（3 件） | 戦期境界（鐘 1008）をまたぐ進軍は `T(arrive)` の署名だけで開く。境界で鐘番号を振り直すと code 5、genesis がずれると code 1 で破棄。u32 の鐘全域で `T` は単調・正確 | PASS |
