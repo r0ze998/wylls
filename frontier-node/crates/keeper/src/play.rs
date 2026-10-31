@@ -196,6 +196,8 @@ pub struct PlayDuty {
     pub provinces: BTreeMap<(i16, i16), ProvState>,
     pub anchors: BTreeMap<(u32, u8), AnchorSeen>,
     anchor_tried: BTreeMap<(u32, u8), u64>,
+    /// The journal's owner material was read back (once per process).
+    owner_loaded: bool,
     /// ArrivalDay bits `(P, Q, day)` → (bits, the Clock `now` of the read).
     days: BTreeMap<(i16, i16, u32), DayRead>,
     /// Province-bells a skip found not quiet: gathered and resolved instead.
@@ -457,7 +459,7 @@ impl PlayDuty {
     }
 
     /// Takes owner material queued by `/v1/reveal` and nudges.
-    fn take_shared(&mut self, shared: &mut Shared) {
+    fn take_shared(&mut self, shared: &mut Shared, journal: Option<&Journal>) {
         for (track, v) in shared.reveals.drain(..) {
             let get = |k: &str, n: usize| -> Option<Vec<u8>> {
                 use base64::Engine as _;
@@ -490,6 +492,19 @@ impl PlayDuty {
                 salt: salt.try_into().expect("32"),
                 ct_hash: ct.try_into().expect("32"),
             };
+            // Journalled before it is held: it waits for THE anchor (⑱).
+            if let Some(j) = journal {
+                let _ = j.save_owner_material(&crate::journal::OwnerRow {
+                    host: p.host_id,
+                    bell: p.arrive_bell,
+                    track: m.track.clone(),
+                    holding: m.holding.to_string(),
+                    transit_slot: m.transit_slot,
+                    plain: m.plain.to_vec(),
+                    salt: m.salt.to_vec(),
+                    ct_hash: m.ct_hash.to_vec(),
+                });
+            }
             self.owner.insert((p.host_id, p.arrive_bell), m);
         }
         for n in shared.nudges.drain(..) {
@@ -893,7 +908,29 @@ impl PlayDuty {
         opened: &[(i32, i32)],
     ) -> PortResult<()> {
         self.observe_clock(t.slot, t.now);
-        self.take_shared(shared);
+        if !self.owner_loaded {
+            // Owner material accepted before a restart (⑱).
+            self.owner_loaded = true;
+            for r in journal.and_then(|j| j.owner_materials().ok()).unwrap_or_default() {
+                let (Ok(plain), Ok(salt), Ok(ct_hash), Ok(holding)) = (
+                    <[u8; 37]>::try_from(r.plain),
+                    <[u8; 32]>::try_from(r.salt),
+                    <[u8; 32]>::try_from(r.ct_hash),
+                    r.holding.parse::<Address>(),
+                ) else {
+                    continue;
+                };
+                self.owner.entry((r.host, r.bell)).or_insert(OwnerMat {
+                    track: r.track,
+                    holding,
+                    transit_slot: r.transit_slot,
+                    plain,
+                    salt,
+                    ct_hash,
+                });
+            }
+        }
+        self.take_shared(shared, journal);
         let eff = t.season.effective_status(t.now);
         if !(eff == status::RUNNING || eff == status::ENDED) {
             return Ok(());
@@ -3193,6 +3230,43 @@ mod w6t_tests {
         e.anchor(arrive, ix::region_of(origin.0 as i32, origin.1 as i32));
         e.plan(&mut d, 70, G + (arrive as i64 + 1) * BELL_SECS + 8, None, &[]).await;
         assert!(e.engine.is_pending(&key), "Reveal planned once the anchor exists");
+    }
+
+    /// The material held for THE anchor outlives a restart (⑱): accepted
+    /// before the anchor, the keeper restarted from its journal, the
+    /// anchor lands, the Reveal goes — with no owner resend.
+    #[tokio::test]
+    async fn held_owner_material_survives_a_restart() {
+        let mut e = env(&["reveal"], 1_008);
+        let j = Journal::open(std::path::Path::new(":memory:")).unwrap();
+        let origin = (2i16, 0i16);
+        let arrive = 200u32;
+        let host = fclient::addr::host_id(2, 0, 1, 1, 5).unwrap();
+        let m = march(host, arrive, origin, 5);
+        let root = seal::seal_root(&seal::commit(&m.0, &m.1), &m.2);
+        let dep = arrive - 3;
+        let h = e.addrs.holding(2, 0, 1);
+        e.port.put(
+            h,
+            testkit::acct(program(), testkit::holding(1, 0, (1, host, dep, arrive, root))),
+        );
+        let key = format!("reveal:{host}:{dep}");
+        let mut d = PlayDuty::default();
+        d.index
+            .departs
+            .insert((host, dep), depart(host, origin, 5, dep, arrive));
+        e.shared.reveals.push(("r1".into(), owner_item(h, &m)));
+        e.plan(&mut d, 50, G + arrive as i64 * BELL_SECS + 30, Some(&j), &[]).await;
+        assert!(!e.engine.is_pending(&key), "held for THE anchor");
+        assert_eq!(j.owner_materials().unwrap().len(), 1, "journalled when accepted");
+        // Restart: a new duty, nothing queued by the API this time.
+        let mut d = PlayDuty::default();
+        d.index
+            .departs
+            .insert((host, dep), depart(host, origin, 5, dep, arrive));
+        e.anchor(arrive, ix::region_of(origin.0 as i32, origin.1 as i32));
+        e.plan(&mut d, 70, G + (arrive as i64 + 1) * BELL_SECS + 8, Some(&j), &[]).await;
+        assert!(e.engine.is_pending(&key), "revealed from the journalled material");
     }
 
     /// Close waste (w6-s7: 28,655 failed CloseArrivalDay/Slot in the
