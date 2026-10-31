@@ -8,12 +8,12 @@
 
 | 項目 | 値 |
 |---|---|
-| きっかけ | `/home/user/wylls` の中で `rustc --version` を実行した（rustup の proxy が `rust-toolchain.toml` の `channel = "1.89.0"` に従った） |
+| きっかけ | リポジトリの中で `rustc --version` を実行した（rustup の proxy が `rust-toolchain.toml` の `channel = "1.89.0"` に従った） |
 | 版 | `rustc 1.89.0 (29483883e 2025-08-04)`、チャネルの更新日 2025-08-07 |
 | 部品 | cargo、clippy、rust-std、rustc、rustfmt（`profile = "minimal"`、`components = ["rustfmt", "clippy"]`） |
 | 取得元 | rustup の既定の配布元（チャネル `1.89.0-x86_64-unknown-linux-gnu`。この環境の proxy を経由） |
-| 置いた場所 | `/root/.rustup/toolchains/1.89.0-x86_64-unknown-linux-gnu`（約 590 MB）。作成 2026-10-30T13:19:30 |
-| 変わっていない物 | 既定のツールチェーン（`stable-x86_64-unknown-linux-gnu`、2026-10-22 から在る）、`/root/.rustup/settings.toml`（既定は stable のまま、override なし）、リポジトリの中のファイル |
+| 置いた場所 | `~/.rustup/toolchains/1.89.0-x86_64-unknown-linux-gnu`（約 590 MB）。作成 2026-10-30T13:19:30 |
+| 変わっていない物 | 既定のツールチェーン（`stable-x86_64-unknown-linux-gnu`、2026-10-22 から在る）、`~/.rustup/settings.toml`（既定は stable のまま、override なし）、リポジトリの中のファイル |
 
 ## 2. crate（`cargo fetch --locked` で取得。これは意図して実行した）
 
@@ -21,7 +21,7 @@
 |---|---|
 | コマンド | 使い捨ての clone（④ `2e536b6b`）の `workstreams/04-execution` で `cargo fetch --locked` |
 | 取得元 | crates.io（`index.crates.io-1949cf8c6b5b557f`）。版は④の `Cargo.lock` の固定どおり |
-| 置いた場所 | `/root/.cargo/registry`（約 101 MB。index は 2026-10-30T13:19:47 に作成。cache の 62 件はすべて当日の物） |
+| 置いた場所 | `~/.cargo/registry`（約 101 MB。index は 2026-10-30T13:19:47 に作成。cache の 62 件はすべて当日の物） |
 | ビルドの出力 | 使い捨ての clone の `workstreams/04-execution/target`（約 747 MB、作業用の一時フォルダの中） |
 
 **取得した 62 件（名前-版）：**
@@ -33,7 +33,7 @@ bitflags-2.13.2, block-buffer-0.10.4, borsh-1.6.1, borsh-derive-1.6.1, bumpalo-3
 
 ```
 rustup toolchain uninstall 1.89.0-x86_64-unknown-linux-gnu    # 約 590 MB
-rm -rf /root/.cargo/registry                                   # 約 101 MB（当日の取得分だけ）
+rm -rf ~/.cargo/registry                                   # 約 101 MB（当日の取得分だけ）
 rm -rf <作業用の一時フォルダ>/recv/repo/workstreams/04-execution/target   # 約 747 MB
 ```
 
