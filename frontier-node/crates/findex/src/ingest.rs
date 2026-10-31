@@ -22,6 +22,15 @@
 //!   fails with `Unavailable("history gap …")` and archives nothing (a
 //!   node with longer history must serve it; see
 //!   `docs/frontier/er-candidate/RECOVERY.ja.md`).
+//!
+//!   **Passing the check does not prove a complete history**, and an
+//!   archive without a record is no evidence that something did not happen.
+//!   It cannot see a gap (i) on the first pull (no cursor), (ii) after a
+//!   cursor that is missing, unreadable or of the older format (without the
+//!   last slot's signatures), or (iii) on a node that still holds the last
+//!   archived signature but lacks a range in the middle (its local ledger and
+//!   long-term storage disagree): one node cannot reveal that. A reader that
+//!   needs completeness compares with another node or a full-history source.
 
 use std::collections::{HashSet, VecDeque};
 use std::future::Future;
@@ -209,7 +218,16 @@ impl Source for RpcPoll {
         }
         let mut out = vec![];
         for s in newest_first.into_iter().rev() {
-            match self.rpc.get_transaction(&s.signature).await? {
+            // The cursor advances with each transaction handed back, so a
+            // failure after some of them returns those (they are archived,
+            // the failing one is retried next pull); returning the error
+            // instead would drop them while the cursor had moved past.
+            let got = match self.rpc.get_transaction(&s.signature).await {
+                Ok(got) => got,
+                Err(e) if out.is_empty() => return Err(e),
+                Err(_) => break,
+            };
+            match got {
                 Some(r) => {
                     self.last = Some(s.signature);
                     if self.last_slot == Some(s.slot) {
