@@ -47,6 +47,16 @@ trap cleanup EXIT
 rpc_ok() { curl -s -m2 -X POST -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"getHealth"}' "$1" | grep -q '"ok"'; }
 ident_ok() { curl -s -m2 -X POST -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"getIdentity"}' "$1" | grep -q identity; }
 wait_for() { for _ in $(seq 1 120); do "$@" && return 0; sleep 1; done; echo "timeout: $*" >&2; return 1; }
+# The ER exits at start-up if the base cannot run the delegation program yet
+# ("Magic fee vault setup failed … Unsupported program id", measured when it
+# started at base slot 1): wait for the program and a few slots.
+base_ready() {
+  curl -s -m2 -X POST -H 'content-type: application/json' \
+    -d '{"jsonrpc":"2.0","id":1,"method":"getAccountInfo","params":["DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh",{"encoding":"base64"}]}' "$BASE" \
+    | grep -q '"executable":true' &&
+  [ "$(curl -s -m2 -X POST -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"getSlot","params":[{"commitment":"finalized"}]}' "$BASE" \
+    | python3 -c 'import sys,json; print(json.load(sys.stdin).get("result",0))')" -ge 5 ]
+}
 
 if rpc_ok "$BASE" || ident_ok "$ER"; then echo "ports 41680/41670 already serve a chain: stop it first" >&2; exit 3; fi
 PATH="$AGAVE_BIN:$PATH" setsid node "$MB_PKG/@magicblock-labs/ephemeral-validator/mbTestValidator.js" \
@@ -54,6 +64,7 @@ PATH="$AGAVE_BIN:$PATH" setsid node "$MB_PKG/@magicblock-labs/ephemeral-validato
   --dynamic-port-range 41700-41740 --ledger "$WORK/ledger" --reset > "$WORK/base.log" 2>&1 &
 pids+=($!)
 wait_for rpc_ok "$BASE"
+wait_for base_ready
 
 ER_BIN="$MB_PKG/@magicblock-labs/ephemeral-validator-linux-x64/bin/ephemeral-validator"
 er_pid=""

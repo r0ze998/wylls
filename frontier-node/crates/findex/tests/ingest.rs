@@ -372,3 +372,38 @@ async fn enriched_poll_archives_post_state() {
     node.stop();
     let _ = std::fs::remove_dir_all(&d);
 }
+
+/// Opt-in, against a live node: one RpcPoll pull of `FINDEX_LIVE_PROGRAM`
+/// from `FINDEX_LIVE_RPC` (local only in this repository's runs). It
+/// records what happens, as the ER candidate's reproduction does
+/// (`docs/frontier/er-candidate/`): a program whose accounts were delegated
+/// to a MagicBlock ER has its undelegation callback in a version-1
+/// transaction, which `getTransaction(maxSupportedTransactionVersion: 0)`
+/// refuses (-32015). Set `FINDEX_LIVE_EXPECT=v1-refused` to assert that.
+#[tokio::test]
+async fn rpc_poll_against_a_live_node() {
+    let (Ok(url), Ok(program)) = (
+        std::env::var("FINDEX_LIVE_RPC"),
+        std::env::var("FINDEX_LIVE_PROGRAM"),
+    ) else {
+        return;
+    };
+    let program: Address = program.parse().expect("FINDEX_LIVE_PROGRAM");
+    let mut poll = RpcPoll::new(url, program);
+    let got = findex::Source::pull(&mut poll).await;
+    match &got {
+        Ok(v) => eprintln!("pulled {} transactions", v.len()),
+        Err(e) => eprintln!("pull failed: {e:?}"),
+    }
+    if std::env::var("FINDEX_LIVE_EXPECT").as_deref() == Ok("v1-refused") {
+        assert!(
+            matches!(
+                &got,
+                Err(fclient::ports::PortError::Rpc { code: -32015, .. })
+            ),
+            "{got:?}"
+        );
+        // The pull archives nothing and stops at the same place each time.
+        assert!(findex::Source::pull(&mut poll).await.is_err());
+    }
+}
