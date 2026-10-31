@@ -1,0 +1,278 @@
+diff --git a/frontier-node/crates/keeper/tests/play.rs b/frontier-node/crates/keeper/tests/play.rs
+index 915abb50..fb8adbab 100644
+--- a/frontier-node/crates/keeper/tests/play.rs
++++ b/frontier-node/crates/keeper/tests/play.rs
+@@ -48,7 +48,93 @@ use permutation_rules::hex::{Hex, DIRECTIONS};
+ 
+ use common::*;
+ 
+-type K = Keeper<localnet::InProcess, Gated>;
++type K = Keeper<Watch, Gated>;
++
++// ------------------------------------------------------------------ the RPC boundary (workstream 04)
++
++/// What left the keeper for the RPC (`send` or `simulate`) carrying a
++/// Reveal (tag 0x51, plaintext and salt in its data), with the chain's
++/// state at that moment: was THE anchor (the instruction's 4th account)
++/// on chain, and what time it was. The check is the chain's, not the
++/// keeper's own view.
++#[derive(Clone, Debug)]
++struct RevealOut {
++    kind: &'static str,
++    slot: u64,
++    now: i64,
++    anchor: Address,
++    anchor_present: bool,
++    sig: Option<fclient::ports::Signature>,
++}
++
++thread_local! {
++    static OUT: std::cell::RefCell<Vec<RevealOut>> = const { std::cell::RefCell::new(Vec::new()) };
++    /// Reads of this account fail (an RPC error), when set.
++    static FAIL_READS: std::cell::RefCell<Option<Address>> = const { std::cell::RefCell::new(None) };
++    /// The slot THE anchor of the destination bell was first seen on chain.
++    static ANCHOR_SEEN: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
++    /// Ticks that ended in a port error while reads were failing (no send).
++    static TICK_ERRORS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
++}
++
++/// The in-process chain behind a recording port (test only).
++#[derive(Clone)]
++struct Watch {
++    ip: localnet::InProcess,
++    program: Address,
++}
++
++impl Watch {
++    fn record(&self, kind: &'static str, wire: &[u8]) {
++        let Ok(t) = fclient::tx::from_wire(wire) else {
++            return;
++        };
++        let keys = &t.message.account_keys;
++        for ci in &t.message.instructions {
++            let prog = keys[ci.program_id_index as usize];
++            if prog != self.program || ci.data.first() != Some(&0x51) {
++                continue;
++            }
++            let anchor = keys[ci.accounts[3] as usize];
++            let c = self.ip.lock();
++            let present = c.account(&anchor).is_some_and(|a| a.owner == self.program && !a.data.is_empty());
++            let r = RevealOut { kind, slot: c.slot(), now: c.unix_timestamp(), anchor, anchor_present: present, sig: t.signatures.first().copied() };
++            drop(c);
++            OUT.with(|o| o.borrow_mut().push(r));
++        }
++    }
++}
++
++impl fclient::ports::ChainPort for Watch {
++    async fn clock(&self) -> fclient::ports::PortResult<fclient::ports::ClockSysvar> {
++        self.ip.clock().await
++    }
++    async fn accounts(&self, keys: &[Address], min_slot: u64) -> fclient::ports::PortResult<Vec<Option<fclient::ports::Account>>> {
++        if let Some(f) = FAIL_READS.with(|x| *x.borrow()) {
++            if keys.contains(&f) {
++                return Err(fclient::ports::PortError::Rpc { code: -32000, message: "injected: read failed".into() });
++            }
++        }
++        self.ip.accounts(keys, min_slot).await
++    }
++    async fn simulate(&self, tx: &[u8]) -> fclient::ports::PortResult<fclient::ports::SimResult> {
++        self.record("simulate", tx);
++        self.ip.simulate(tx).await
++    }
++    async fn send(&self, tx: &[u8]) -> fclient::ports::PortResult<fclient::ports::Signature> {
++        self.record("send", tx);
++        self.ip.send(tx).await
++    }
++    async fn statuses(&self, sigs: &[fclient::ports::Signature]) -> fclient::ports::PortResult<Vec<Option<fclient::ports::Status>>> {
++        self.ip.statuses(sigs).await
++    }
++    async fn feed(&self, after: fclient::ports::Cursor) -> fclient::ports::PortResult<Vec<fclient::ports::TxRecord>> {
++        self.ip.feed(after).await
++    }
++    async fn blockhash(&self) -> fclient::ports::PortResult<(fclient::Hash, u64)> {
++        self.ip.blockhash().await
++    }
++}
+ 
+ /// Unit-0 troops in every fixture Holding's reserve.
+ const RESERVE0: u32 = 10_000;
+@@ -236,6 +322,16 @@ struct Opts {
+     /// destination tile its path does not end on: a valid seal whose Reveal
+     /// the program refuses (`Path`).
+     unrevealable_top: bool,
++    /// Workstream 04: THE anchor of the destination's arrival bell held
++    /// (its write cannot land) from the bell before `arrive` until
++    /// T(arrive) + this many slots.
++    hold_dest_anchor: Option<u64>,
++    /// Workstream 04: reads of that anchor fail (an RPC error) over the
++    /// same window instead.
++    fail_anchor_reads: Option<u64>,
++    /// Workstream 04: the keeper is rebuilt from its journal in the middle
++    /// of the window.
++    restart_in_window: bool,
+ }
+ 
+ struct Run {
+@@ -288,7 +384,7 @@ fn new_keeper(
+     cfg.peace_start = peace;
+     let mut k = Keeper::new(
+         cfg,
+-        w.ip.clone(),
++        Watch { ip: w.ip.clone(), program: w.program },
+         w.drand.clone(),
+         &[0x70 + i as u8; 32],
+         journal,
+@@ -327,7 +423,12 @@ async fn tick(
+         .await;
+     match h {
+         Ok((k, r)) => {
+-            r.unwrap();
++            if let Err(e) = r {
++                // Workstream 04: a tick may fail while reads of THE anchor
++                // are made to fail; that is a refusal to go on, not a crash.
++                assert!(FAIL_READS.with(|f| f.borrow().is_some()), "tick failed: {e:?}");
++                TICK_ERRORS.with(|c| c.set(c.get() + 1));
++            }
+             k
+         }
+         Err(e) if e.is_panic() => {
+@@ -742,6 +843,11 @@ async fn scenario(o: Opts) -> Option<Run> {
+     };
+     let mut owner_pushed = false;
+     let mut held_slots = false;
++    let (mut anchor_held, mut window_from, mut restarted) = (false, 0i64, false);
++    OUT.with(|o| o.borrow_mut().clear());
++    ANCHOR_SEEN.with(|c| c.set(0));
++    TICK_ERRORS.with(|c| c.set(0));
++    FAIL_READS.with(|f| *f.borrow_mut() = None);
+     // The destination's resolved ClashInputs (fates), captured before the
+     // close after `clash_close_grace`.
+     let mut dest_resolved: Vec<u8> = vec![];
+@@ -757,6 +863,34 @@ async fn scenario(o: Opts) -> Option<Run> {
+             }
+             owner_pushed = true;
+         }
++        // Workstream 04: the anchor window (held, or reads failing).
++        {
++            let t_arrive = sc.drand.round_time(sc.tlock_round(arrive));
++            let anchor = w.addrs.anchor(arrive, ix::region_of(dest.0 as i32, dest.1 as i32));
++            let extra = o.hold_dest_anchor.or(o.fail_anchor_reads).unwrap_or(0);
++            if ANCHOR_SEEN.with(|c| c.get()) == 0 && w.ip.lock().account(&anchor).is_some_and(|a| !a.data.is_empty()) {
++                ANCHOR_SEEN.with(|c| c.set(w.slot()));
++            }
++            let in_window = b + 1 >= arrive && w.now() <= t_arrive + extra as i64 * 8;
++            if o.hold_dest_anchor.is_some() && in_window && !anchor_held {
++                let n = ((t_arrive - w.now()).max(0) / 8) as u64 + extra;
++                w.ip.lock().hold(vec![anchor], 10_000_000, n).unwrap();
++                anchor_held = true;
++                window_from = w.now();
++            }
++            if o.fail_anchor_reads.is_some() {
++                FAIL_READS.with(|f| *f.borrow_mut() = in_window.then_some(anchor));
++                if in_window && window_from == 0 {
++                    window_from = w.now();
++                }
++            }
++            if o.restart_in_window && !restarted && window_from > 0 && w.now() >= (window_from + t_arrive) / 2 {
++                let mut k = new_keeper(&w, 0, Some(&jpath), None, o.peace_start);
++                inflight += k.start().await.unwrap();
++                ks[0] = k;
++                restarted = true;
++            }
++        }
+         if let (Some((prio, n)), false) = (o.hold_slots, held_slots) {
+             let t_arrive = sc.drand.round_time(sc.tlock_round(arrive));
+             if w.now() >= t_arrive {
+@@ -1674,3 +1808,91 @@ async fn claim_after_late_reveal() {
+     assert!(claims.iter().all(|c| c.2 > 0));
+     println!("claims: {claims:?}");
+ }
++
++
++// ------------------------------------------------------------------ workstream 04: no plaintext before THE anchor
++
++/// Every Reveal that reached the RPC (send or simulate) in the last run,
++/// split by whether THE anchor was on chain at that moment, and how many
++/// went before T(arrive) of their bell (reported, not judged: when a
++/// self-reveal may go before T(arrive) is a rule still open).
++fn reveals_out(r: &Run) -> (Vec<RevealOut>, Vec<RevealOut>, usize) {
++    let all = OUT.with(|o| o.borrow().clone());
++    let sc = fclient::clock::SeasonClock::from_season(&r.w.season());
++    let t_arrive = sc.drand.round_time(sc.tlock_round(r.arrive));
++    let before_t = all.iter().filter(|x| x.now < t_arrive).count();
++    let (ok, early): (Vec<_>, Vec<_>) = all.into_iter().partition(|x| x.anchor_present);
++    (ok, early, before_t)
++}
++
++fn report(name: &str, r: &Run) -> Vec<RevealOut> {
++    let (ok, early, before_t) = reveals_out(r);
++    println!(
++        "{name}: {} Reveal(s) to the RPC with THE anchor on chain, {} without it; {before_t} before T(arrive)",
++        ok.len(),
++        early.len()
++    );
++    for e in &early {
++        let st = e.sig.and_then(|s| r.w.ip.lock().status(&s));
++        let landed = e.sig.and_then(|s| r.w.ip.lock().transaction(&s).map(|l| (l.slot, l.err.clone())));
++        println!("  without anchor: {} at slot {} ({}) status {:?} landed {:?}", e.kind, e.slot, e.anchor, st.map(|s| (s.slot, s.err)), landed);
++    }
++    let a = r.w.ip.lock().account(&early.first().map(|e| e.anchor).unwrap_or_default()).map(|a| (a.owner, a.data.len()));
++    println!(
++        "  anchor account now: {a:?}; first seen on chain at slot {}; T(arrive) {}; ticks failed on reads {}",
++        ANCHOR_SEEN.with(|c| c.get()),
++        {
++            let sc = fclient::clock::SeasonClock::from_season(&r.w.season());
++            sc.drand.round_time(sc.tlock_round(r.arrive))
++        },
++        TICK_ERRORS.with(|c| c.get())
++    );
++    assert!(!ok.is_empty() || !early.is_empty(), "{name}: no Reveal reached the RPC at all");
++    early
++}
++
++#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
++async fn ws04_no_reveal_before_anchor_normal() {
++    let Some(r) = scenario(Opts::default()).await else {
++        return;
++    };
++    let early = report("normal", &r);
++    assert!(early.is_empty(), "plaintext reached the RPC before THE anchor: {early:?}");
++}
++
++#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
++async fn ws04_no_reveal_before_anchor_held_anchor() {
++    let Some(r) = scenario(Opts { hold_dest_anchor: Some(20), ..Default::default() }).await else {
++        return;
++    };
++    let early = report("anchor held", &r);
++    assert!(early.is_empty(), "plaintext reached the RPC before THE anchor: {early:?}");
++}
++
++#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
++async fn ws04_no_reveal_before_anchor_reads_fail() {
++    let Some(r) = scenario(Opts { fail_anchor_reads: Some(20), ..Default::default() }).await else {
++        return;
++    };
++    let early = report("anchor reads fail", &r);
++    assert!(early.is_empty(), "plaintext reached the RPC before THE anchor: {early:?}");
++}
++
++#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
++async fn ws04_no_reveal_before_anchor_restart() {
++    let Some(r) = scenario(Opts { hold_dest_anchor: Some(20), restart_in_window: true, ..Default::default() }).await else {
++        return;
++    };
++    let early = report("anchor held, keeper restarted", &r);
++    assert!(early.is_empty(), "plaintext reached the RPC before THE anchor: {early:?}");
++}
++
++#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
++async fn ws04_no_reveal_before_anchor_retries() {
++    // Versions escalate (slots held below the cap after T(arrive)).
++    let Some(r) = scenario(Opts { hold_slots: Some((1_900, 10)), peace_start: Some(0.25), ..Default::default() }).await else {
++        return;
++    };
++    let early = report("retries", &r);
++    assert!(early.is_empty(), "plaintext reached the RPC before THE anchor: {early:?}");
++}
