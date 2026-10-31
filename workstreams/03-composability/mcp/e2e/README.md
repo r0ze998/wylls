@@ -30,3 +30,5 @@ frontier-node/target/release/frontier-stack down --run-id <the run id>; git work
 ```
 
 The transcript goes to `workstreams/03-composability/results/mcp-local-stack.json`.
+
+`--season-end-at-play-end` is the existing stack's setting, kept as it is. The play does not depend on the season ending: it finishes well before. The world does not end with a period (docs 16).

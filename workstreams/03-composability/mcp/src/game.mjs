@@ -34,12 +34,42 @@ export class Game {
    * @param {string} o.relay   the relay's base URL (GET /f/agent, /f/season, /f/tx; POST /f/agent/action)
    * @param {string} o.herald  the herald's base URL
    */
-  constructor({ relay, herald, fetch: f = globalThis.fetch }) {
+  /**
+   * @param {number} [o.contextTtlMs]  how long a read of the relay's context (GET /f/season) is reused (default 15 s);
+   *   it is read again after that, so a long-running server follows the world the relay serves instead of pinning
+   *   the first one for its lifetime
+   */
+  constructor({ relay, herald, fetch: f = globalThis.fetch, contextTtlMs = 15_000, now = Date.now }) {
     this.relay = String(relay).replace(/\/+$/, '');
     this.heraldBase = String(herald).replace(/\/+$/, '');
     this.fetch = f;
     this.herald = createHerald({ base: this.heraldBase, fetch: (...a) => f(...a) });
     this.pinned = null;
+    this.contextTtlMs = contextTtlMs;
+    this.now = now;
+    /** The contexts this process has seen replaced (oldest first): `{key, programId, seasonId, since, until}`. */
+    this.contextChanges = [];
+  }
+
+  /**
+   * The context the relay serves now: `{key, programId, seasonId, since}`. This is this server's observation, not a
+   * world registry (④ owns the shared identifiers): the key only says which addresses, records and event index the
+   * reads and writes of this moment belong to. A change re-pins the herald client and is recorded.
+   */
+  async context() {
+    const t = this.now();
+    if (this.pinned && t - this.pinnedAt < this.contextTtlMs) return this.pinned;
+    const s = await this.json('GET', `${this.relay}/f/season`);
+    if (s.transport || s.status !== 200) throw new GameError('RelayUnreachable', 'the relay did not answer GET /f/season', { retryable: true });
+    const key = `${s.json.programId}:${s.json.seasonId}`;
+    if (!this.pinned || this.pinned.key !== key) {
+      if (this.pinned) this.contextChanges.push({ ...this.pinned, until: new Date(t).toISOString() });
+      this.pinned = { key, programId: s.json.programId, seasonId: String(s.json.seasonId), since: new Date(t).toISOString() };
+      this.addresses = seasonAddresses(this.pinned.programId, this.pinned.seasonId);
+      this.herald.pin(this.pinned.seasonId, this.addresses);
+    }
+    this.pinnedAt = t;
+    return this.pinned;
   }
 
   async json(method, url, body) {
@@ -55,13 +85,7 @@ export class Game {
   }
 
   async season() {
-    if (!this.pinned) {
-      const s = await this.json('GET', `${this.relay}/f/season`);
-      if (s.transport || s.status !== 200) throw new GameError('RelayUnreachable', 'the relay did not answer GET /f/season', { retryable: true });
-      this.pinned = { programId: s.json.programId, seasonId: s.json.seasonId };
-      this.addresses = seasonAddresses(this.pinned.programId, this.pinned.seasonId);
-      this.herald.pin(this.pinned.seasonId, this.addresses);
-    }
+    await this.context();
     const r = await this.herald.season();
     if (!r.ok) throw new GameError('HeraldUnavailable', `the herald's season: ${r.code ?? r.error}`, { retryable: true });
     return { record: r.record, season: r.season, now: Number(r.record.latestUnix ?? 0) };

@@ -1,196 +1,208 @@
-# 2026-10-30T23:56:49Z ws03/runreceipt-port @ a361a30f + uncommitted (docs 15); node v22.22.0; WS04_ROOT=④ 2e536b6b restored
+# 2026-10-31T00:26:27Z ws03/runreceipt-port @ b79bf1fd + uncommitted (docs 16); node v22.22.0; WS04_ROOT=④ 2e536b6b restored
 ## gateway: this repository (no patch)
-ok 1 - another route's send with the same caravan number: held (SeqUsedByAnotherSend), never completed by its settle, nothing released # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
-ok 2 - its own signature but not the plan's content (destination): held Inconsistent, not on the road # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
-ok 3 - its own signature but a different cargo with no wear: held Inconsistent # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
-ok 4 - its own record (signature and content, the road wore 3%): on the road; the settle's lower bound, never the plan's 100, and a recorded 0 is not 0 # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
-ok 5 - a raid that takes its own caravan (matching record): KnownZero in ④'s vocabulary; a raid record before the caravan is proven its own counts for nothing # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
-ok 6 - records seen before the signature is known are kept: when the retry brings the signature, the earlier record makes the caravan its own # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
-ok 7 - every ⑤ refusal code named here is one the gateway has, and every gateway code is accounted for
-ok 8 - the budget shown is ⑤'s as reported, nothing computed here
-ok 9 - a refusal by ⑤ reaches the owner with its code and whose decision it was (policy without the transport group)
-ok 10 - redirect profiles: the default is unchanged (ChatGPT and loopback, not hosted Claude); claude is opt-in; an unknown profile is refused at start
-ok 11 - preflight for Claude Code on this machine: discovery, resource, S256, DCR with both loopback forms, the form token endpoint — and what it cannot check
-ok 12 - preflight for hosted Claude and ChatGPT on a loopback server fails where it must (public https, and the default redirects for Claude)
-ok 13 - a connection made for Claude Code (localhost redirect) still sees only its owner's places: a destination outside them is refused (sends to another player need the owner's wallet in S1; this path never makes one)
-ok 14 - the owner's operations without a connection: wallet-signed, once, recent, only their own; the page holds no secret
-ok 15 - consent shows where it sends the owner back, and warns for a loopback client
-ok 16 - a capability sealed under another key: held (CapabilityUnavailable), nothing sent, nothing released; the right key resumes it once # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
-ok 17 - after a revocation: a held request with no attempt fails and gives its hold back; a sent one is reconciled to its end; cancellation goes reconciling → done # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
-ok 18 - the end of transport is not a verified amount: a delivery is quantity unverified with the record's lower bound (a recorded 0 is not 0); a lost caravan of this request's own is none # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
-ok 19 - an outcome that is unknown, then a seal-key mismatch and a revocation: never released for the mismatch or the caravan counter; held until this request's own evidence # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
-ok 20 - the answer was lost after the relay sent, then a seal-key mismatch and a revocation: without its own signature, records under its caravan number decide nothing; nothing is released # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
-ok 21 - the relay's "expired" is not proof of absence: the send stays counted (held) until its own signature is proven absent # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
-ok 22 - reads: the village, the owner's storehouse (not a stranger's), the shortfall and where to fill it
-ok 23 - reads never show another player's march: the Province envelope's ArrivalSlots stay out of every answer
-ok 24 - prepare: only the owner's places; the cargo against the source; a plan sends nothing
-ok 25 - without patch 0005 the relay refuses the caravan (ActionNotAllowed): nothing is sent, the owner is told why
-ok 26 - the whole play: send → accepted → processing (landed, on the road) → completed (delivered); sending is not arriving # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
-ok 27 - raids and lost destinations are outcomes, not server failures: taken, burned, lost # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
-ok 28 - this request's own transaction failed: decided only at finalized (0007 reports the commitment); before that it is held # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
-ok 29 - duplicates: the same requestId (again, concurrently) sends once; a new requestId on a used plan is PlanUsed; a used requestId on another plan conflicts # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
-ok 30 - a lost connection to the relay: requested and retryable; the retry with the same requestId sends once # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
-ok 31 - the relay answered but the MCP server never recorded it (crash): after a restart the retry is the gateway's replay, not a second send # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
-ok 32 - the send left but its answer says failed (no signature): records under its caravan number decide nothing; held, still counted # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
-ok 33 - outcome unknown and no trace: after the window it is held (Indeterminate), never NotSent from the caravan counter; the grant stays counted # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
-ok 34 - a retry after the relay was unreachable re-checks the owner's limits: past the grant's expiry nothing new is sent # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
-ok 35 - a retry while the first attempt is still at the relay joins it: one transaction, no contradictory state # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
-ok 36 - rate limited by the relay on a retry: nothing is decided, the grant hold stays, the next retry sends once # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
-ok 37 - the owner's signed limits (MOCK grant): sends, cargo per send, expiry — enforced by the server # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
-ok 38 - ⑤'s budget decides, not this server: a priced action over the agent's budget is BudgetExceeded, nothing sent # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
-ok 39 - the owner's controls on the agent hold: stopped (manual), the delegation taken back on chain, the capability rotated # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
-ok 40 - another player's village: refused by this server (a tampered plan is stale) and, under it, by the gateway (WrongVillage) # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
-ok 41 - words in the game are data: an injected order in the agent's history is marked untrusted and changes nothing
-ok 42 - secrets: the capability never appears in an answer, a log or the store file; tokens are stored as hashes # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
-ok 43 - consent: a caravan scope without the owner's signed rotate command is refused
-ok 44 - discovery: protected resource and authorization server metadata name this resource, S256 only, DCR
-ok 45 - /mcp without a token: 401 with WWW-Authenticate naming the resource metadata; GET is 405; a foreign Origin is 403; no batches
-ok 46 - initialize negotiates a supported version; tools/list: one operation per tool, every annotation explicit, OAuth schemes
-ok 47 - OAuth: PKCE, code reuse, resource, redirect URIs, and a refresh token used twice revokes the connection
-ok 48 - consent: a statement signed by another key, an agent this relay does not know; the page holds no secret
-ok 49 - consent: an agent that belongs to another owner on the same relay is refused
-ok 50 - the unauthenticated OAuth routes are rate limited per address
-ok 51 - tokens expire; the owner's signed revocation stops the connection; a read-only connection cannot send (insufficient_scope)
-ok 52 - the local adapter passes the RunReceipt port conformance, and labels itself a MOCK
-ok 53 - no adapter for ④'s ledger in this build: asking for one fails at start; a fixture cannot pass as ④'s
-ok 54 - the server answers through the port: the receipts it gives carry the port's contract
-ok 55 - the official MCP SDK client: OAuth discovery, DCR, PKCE, then tools/list and the read path
-ok 56 - the mapped port is a MOCK that passes the port conformance; ④'s real adapter is still not in this build
-ok 57 - states, held reasons and outcomes follow ④'s STATE-MACHINE for a ship-only run
-ok 58 - fees: released only on proven absence of this request's own signature; amounts null unless reported, never 0 for unknown
-ok 59 - cancel phases: StoppingNew → AwaitingSigned (until unknown here) → Completed{effects} / Ineffective
-ok 60 - the vocabulary is ④'s own (against workstreams/04-execution/src at WS04_ROOT)
-# tests 60
-# pass 32
+ok 1 - finished operations move to the archive after the archive delay and stay readable; unfinished ones stay; a retry is still a replay; a restart reads both # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
+ok 2 - the archive survives a torn last line (a crash mid-append) and an operation left in both places (the main copy is read)
+ok 3 - another route's send with the same caravan number: held (SeqUsedByAnotherSend), never completed by its settle, nothing released # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
+ok 4 - its own signature but not the plan's content (destination): held Inconsistent, not on the road # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
+ok 5 - its own signature but a different cargo with no wear: held Inconsistent # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
+ok 6 - its own record (signature and content, the road wore 3%): on the road; the settle's lower bound, never the plan's 100, and a recorded 0 is not 0 # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
+ok 7 - a raid that takes its own caravan (matching record): KnownZero in ④'s vocabulary; a raid record before the caravan is proven its own counts for nothing # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
+ok 8 - records seen before the signature is known are kept: when the retry brings the signature, the earlier record makes the caravan its own # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
+ok 9 - every ⑤ refusal code named here is one the gateway has, and every gateway code is accounted for
+ok 10 - the budget shown is ⑤'s as reported, nothing computed here
+ok 11 - a refusal by ⑤ reaches the owner with its code and whose decision it was (policy without the transport group)
+ok 12 - redirect profiles: the default is unchanged (ChatGPT and loopback, not hosted Claude); claude is opt-in; an unknown profile is refused at start
+ok 13 - preflight for Claude Code on this machine: discovery, resource, S256, DCR with both loopback forms, the form token endpoint — and what it cannot check
+ok 14 - preflight for hosted Claude and ChatGPT on a loopback server fails where it must (public https, and the default redirects for Claude)
+ok 15 - a connection made for Claude Code (localhost redirect) still sees only its owner's places: a destination outside them is refused (sends to another player need the owner's wallet in S1; this path never makes one)
+ok 16 - a context change under a running server: history kept, nothing of the old context read or sent as the new one's, nothing released; a restart keeps it; the old context served again lets tracking go on # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
+ok 17 - an operation stored before contexts were recorded is not assumed to be the current context's
+ok 18 - the owner's operations without a connection: wallet-signed, once, recent, only their own; the page holds no secret
+ok 19 - consent shows where it sends the owner back, and warns for a loopback client
+ok 20 - a capability sealed under another key: held (CapabilityUnavailable), nothing sent, nothing released; the right key resumes it once # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
+ok 21 - after a revocation: a held request with no attempt fails and gives its hold back; a sent one is reconciled to its end; cancellation goes reconciling → done # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
+ok 22 - the end of transport is not a verified amount: a delivery is quantity unverified with the record's lower bound (a recorded 0 is not 0); a lost caravan of this request's own is none # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
+ok 23 - an outcome that is unknown, then a seal-key mismatch and a revocation: never released for the mismatch or the caravan counter; held until this request's own evidence # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
+ok 24 - the answer was lost after the relay sent, then a seal-key mismatch and a revocation: without its own signature, records under its caravan number decide nothing; nothing is released # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
+ok 25 - the relay's "expired" is not proof of absence: the send stays counted (held) until its own signature is proven absent # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
+ok 26 - reads: the village, the owner's storehouse (not a stranger's), the shortfall and where to fill it
+ok 27 - reads never show another player's march: the Province envelope's ArrivalSlots stay out of every answer
+ok 28 - prepare: only the owner's places; the cargo against the source; a plan sends nothing
+ok 29 - without patch 0005 the relay refuses the caravan (ActionNotAllowed): nothing is sent, the owner is told why
+ok 30 - the whole play: send → accepted → processing (landed, on the road) → completed (delivered); sending is not arriving # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
+ok 31 - raids and lost destinations are outcomes, not server failures: taken, burned, lost # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
+ok 32 - this request's own transaction failed: decided only at finalized (0007 reports the commitment); before that it is held # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
+ok 33 - duplicates: the same requestId (again, concurrently) sends once; a new requestId on a used plan is PlanUsed; a used requestId on another plan conflicts # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
+ok 34 - a lost connection to the relay: requested and retryable; the retry with the same requestId sends once # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
+ok 35 - the relay answered but the MCP server never recorded it (crash): after a restart the retry is the gateway's replay, not a second send # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
+ok 36 - the send left but its answer says failed (no signature): records under its caravan number decide nothing; held, still counted # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
+ok 37 - outcome unknown and no trace: after the window it is held (Indeterminate), never NotSent from the caravan counter; the grant stays counted # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
+ok 38 - a retry after the relay was unreachable re-checks the owner's limits: past the grant's expiry nothing new is sent # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
+ok 39 - a retry while the first attempt is still at the relay joins it: one transaction, no contradictory state # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
+ok 40 - rate limited by the relay on a retry: nothing is decided, the grant hold stays, the next retry sends once # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
+ok 41 - the owner's signed limits (MOCK grant): sends, cargo per send, expiry — enforced by the server # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
+ok 42 - ⑤'s budget decides, not this server: a priced action over the agent's budget is BudgetExceeded, nothing sent # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
+ok 43 - the owner's controls on the agent hold: stopped (manual), the delegation taken back on chain, the capability rotated # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
+ok 44 - another player's village: refused by this server (a tampered plan is stale) and, under it, by the gateway (WrongVillage) # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
+ok 45 - words in the game are data: an injected order in the agent's history is marked untrusted and changes nothing
+ok 46 - secrets: the capability never appears in an answer, a log or the store file; tokens are stored as hashes # SKIP needs patch 0005 in the gateway tree (WS03_GATEWAY_ROOT)
+ok 47 - consent: a caravan scope without the owner's signed rotate command is refused
+ok 48 - discovery: protected resource and authorization server metadata name this resource, S256 only, DCR
+ok 49 - /mcp without a token: 401 with WWW-Authenticate naming the resource metadata; GET is 405; a foreign Origin is 403; no batches
+ok 50 - initialize negotiates a supported version; tools/list: one operation per tool, every annotation explicit, OAuth schemes
+ok 51 - OAuth: PKCE, code reuse, resource, redirect URIs, and a refresh token used twice revokes the connection
+ok 52 - consent: a statement signed by another key, an agent this relay does not know; the page holds no secret
+ok 53 - consent: an agent that belongs to another owner on the same relay is refused
+ok 54 - the unauthenticated OAuth routes are rate limited per address
+ok 55 - tokens expire; the owner's signed revocation stops the connection; a read-only connection cannot send (insufficient_scope)
+ok 56 - the local adapter passes the RunReceipt port conformance, and labels itself a MOCK
+ok 57 - no adapter for ④'s ledger in this build: asking for one fails at start; a fixture cannot pass as ④'s
+ok 58 - the server answers through the port: the receipts it gives carry the port's contract
+ok 59 - the official MCP SDK client: OAuth discovery, DCR, PKCE, then tools/list and the read path
+ok 60 - the mapped port is a MOCK that passes the port conformance; ④'s real adapter is still not in this build
+ok 61 - states, held reasons and outcomes follow ④'s STATE-MACHINE for a ship-only run
+ok 62 - fees: released only on proven absence of this request's own signature; amounts null unless reported, never 0 for unknown
+ok 63 - cancel phases: StoppingNew → AwaitingSigned (until unknown here) → Completed{effects} / Ineffective
+ok 64 - the vocabulary is ④'s own (against workstreams/04-execution/src at WS04_ROOT)
+# tests 64
+# pass 34
 # fail 0
-# skipped 28
+# skipped 30
 ## gateway: + ③0005
-ok 1 - another route's send with the same caravan number: held (SeqUsedByAnotherSend), never completed by its settle, nothing released
-ok 2 - its own signature but not the plan's content (destination): held Inconsistent, not on the road
-ok 3 - its own signature but a different cargo with no wear: held Inconsistent
-ok 4 - its own record (signature and content, the road wore 3%): on the road; the settle's lower bound, never the plan's 100, and a recorded 0 is not 0
-ok 5 - a raid that takes its own caravan (matching record): KnownZero in ④'s vocabulary; a raid record before the caravan is proven its own counts for nothing
-ok 6 - records seen before the signature is known are kept: when the retry brings the signature, the earlier record makes the caravan its own
-ok 7 - every ⑤ refusal code named here is one the gateway has, and every gateway code is accounted for
-ok 8 - the budget shown is ⑤'s as reported, nothing computed here
-ok 9 - a refusal by ⑤ reaches the owner with its code and whose decision it was (policy without the transport group)
-ok 10 - redirect profiles: the default is unchanged (ChatGPT and loopback, not hosted Claude); claude is opt-in; an unknown profile is refused at start
-ok 11 - preflight for Claude Code on this machine: discovery, resource, S256, DCR with both loopback forms, the form token endpoint — and what it cannot check
-ok 12 - preflight for hosted Claude and ChatGPT on a loopback server fails where it must (public https, and the default redirects for Claude)
-ok 13 - a connection made for Claude Code (localhost redirect) still sees only its owner's places: a destination outside them is refused (sends to another player need the owner's wallet in S1; this path never makes one)
-ok 14 - the owner's operations without a connection: wallet-signed, once, recent, only their own; the page holds no secret
-ok 15 - consent shows where it sends the owner back, and warns for a loopback client
-ok 16 - a capability sealed under another key: held (CapabilityUnavailable), nothing sent, nothing released; the right key resumes it once
-ok 17 - after a revocation: a held request with no attempt fails and gives its hold back; a sent one is reconciled to its end; cancellation goes reconciling → done
-ok 18 - the end of transport is not a verified amount: a delivery is quantity unverified with the record's lower bound (a recorded 0 is not 0); a lost caravan of this request's own is none
-ok 19 - an outcome that is unknown, then a seal-key mismatch and a revocation: never released for the mismatch or the caravan counter; held until this request's own evidence
-ok 20 - the answer was lost after the relay sent, then a seal-key mismatch and a revocation: without its own signature, records under its caravan number decide nothing; nothing is released
-ok 21 - the relay's "expired" is not proof of absence: the send stays counted (held) until its own signature is proven absent
-ok 22 - reads: the village, the owner's storehouse (not a stranger's), the shortfall and where to fill it
-ok 23 - reads never show another player's march: the Province envelope's ArrivalSlots stay out of every answer
-ok 24 - prepare: only the owner's places; the cargo against the source; a plan sends nothing
-ok 25 - without patch 0005 the relay refuses the caravan (ActionNotAllowed): nothing is sent, the owner is told why # SKIP the gateway tree has patch 0005
-ok 26 - the whole play: send → accepted → processing (landed, on the road) → completed (delivered); sending is not arriving
-ok 27 - raids and lost destinations are outcomes, not server failures: taken, burned, lost
-ok 28 - this request's own transaction failed: decided only at finalized (0007 reports the commitment); before that it is held
-ok 29 - duplicates: the same requestId (again, concurrently) sends once; a new requestId on a used plan is PlanUsed; a used requestId on another plan conflicts
-ok 30 - a lost connection to the relay: requested and retryable; the retry with the same requestId sends once
-ok 31 - the relay answered but the MCP server never recorded it (crash): after a restart the retry is the gateway's replay, not a second send
-ok 32 - the send left but its answer says failed (no signature): records under its caravan number decide nothing; held, still counted
-ok 33 - outcome unknown and no trace: after the window it is held (Indeterminate), never NotSent from the caravan counter; the grant stays counted
-ok 34 - a retry after the relay was unreachable re-checks the owner's limits: past the grant's expiry nothing new is sent
-ok 35 - a retry while the first attempt is still at the relay joins it: one transaction, no contradictory state
-ok 36 - rate limited by the relay on a retry: nothing is decided, the grant hold stays, the next retry sends once
-ok 37 - the owner's signed limits (MOCK grant): sends, cargo per send, expiry — enforced by the server
-ok 38 - ⑤'s budget decides, not this server: a priced action over the agent's budget is BudgetExceeded, nothing sent
-ok 39 - the owner's controls on the agent hold: stopped (manual), the delegation taken back on chain, the capability rotated
-ok 40 - another player's village: refused by this server (a tampered plan is stale) and, under it, by the gateway (WrongVillage)
-ok 41 - words in the game are data: an injected order in the agent's history is marked untrusted and changes nothing
-ok 42 - secrets: the capability never appears in an answer, a log or the store file; tokens are stored as hashes
-ok 43 - consent: a caravan scope without the owner's signed rotate command is refused
-ok 44 - discovery: protected resource and authorization server metadata name this resource, S256 only, DCR
-ok 45 - /mcp without a token: 401 with WWW-Authenticate naming the resource metadata; GET is 405; a foreign Origin is 403; no batches
-ok 46 - initialize negotiates a supported version; tools/list: one operation per tool, every annotation explicit, OAuth schemes
-ok 47 - OAuth: PKCE, code reuse, resource, redirect URIs, and a refresh token used twice revokes the connection
-ok 48 - consent: a statement signed by another key, an agent this relay does not know; the page holds no secret
-ok 49 - consent: an agent that belongs to another owner on the same relay is refused
-ok 50 - the unauthenticated OAuth routes are rate limited per address
-ok 51 - tokens expire; the owner's signed revocation stops the connection; a read-only connection cannot send (insufficient_scope)
-ok 52 - the local adapter passes the RunReceipt port conformance, and labels itself a MOCK
-ok 53 - no adapter for ④'s ledger in this build: asking for one fails at start; a fixture cannot pass as ④'s
-ok 54 - the server answers through the port: the receipts it gives carry the port's contract
-ok 55 - the official MCP SDK client: OAuth discovery, DCR, PKCE, then tools/list and the read path
-ok 56 - the mapped port is a MOCK that passes the port conformance; ④'s real adapter is still not in this build
-ok 57 - states, held reasons and outcomes follow ④'s STATE-MACHINE for a ship-only run
-ok 58 - fees: released only on proven absence of this request's own signature; amounts null unless reported, never 0 for unknown
-ok 59 - cancel phases: StoppingNew → AwaitingSigned (until unknown here) → Completed{effects} / Ineffective
-ok 60 - the vocabulary is ④'s own (against workstreams/04-execution/src at WS04_ROOT)
-# tests 60
-# pass 59
+ok 1 - finished operations move to the archive after the archive delay and stay readable; unfinished ones stay; a retry is still a replay; a restart reads both
+ok 2 - the archive survives a torn last line (a crash mid-append) and an operation left in both places (the main copy is read)
+ok 3 - another route's send with the same caravan number: held (SeqUsedByAnotherSend), never completed by its settle, nothing released
+ok 4 - its own signature but not the plan's content (destination): held Inconsistent, not on the road
+ok 5 - its own signature but a different cargo with no wear: held Inconsistent
+ok 6 - its own record (signature and content, the road wore 3%): on the road; the settle's lower bound, never the plan's 100, and a recorded 0 is not 0
+ok 7 - a raid that takes its own caravan (matching record): KnownZero in ④'s vocabulary; a raid record before the caravan is proven its own counts for nothing
+ok 8 - records seen before the signature is known are kept: when the retry brings the signature, the earlier record makes the caravan its own
+ok 9 - every ⑤ refusal code named here is one the gateway has, and every gateway code is accounted for
+ok 10 - the budget shown is ⑤'s as reported, nothing computed here
+ok 11 - a refusal by ⑤ reaches the owner with its code and whose decision it was (policy without the transport group)
+ok 12 - redirect profiles: the default is unchanged (ChatGPT and loopback, not hosted Claude); claude is opt-in; an unknown profile is refused at start
+ok 13 - preflight for Claude Code on this machine: discovery, resource, S256, DCR with both loopback forms, the form token endpoint — and what it cannot check
+ok 14 - preflight for hosted Claude and ChatGPT on a loopback server fails where it must (public https, and the default redirects for Claude)
+ok 15 - a connection made for Claude Code (localhost redirect) still sees only its owner's places: a destination outside them is refused (sends to another player need the owner's wallet in S1; this path never makes one)
+ok 16 - a context change under a running server: history kept, nothing of the old context read or sent as the new one's, nothing released; a restart keeps it; the old context served again lets tracking go on
+ok 17 - an operation stored before contexts were recorded is not assumed to be the current context's
+ok 18 - the owner's operations without a connection: wallet-signed, once, recent, only their own; the page holds no secret
+ok 19 - consent shows where it sends the owner back, and warns for a loopback client
+ok 20 - a capability sealed under another key: held (CapabilityUnavailable), nothing sent, nothing released; the right key resumes it once
+ok 21 - after a revocation: a held request with no attempt fails and gives its hold back; a sent one is reconciled to its end; cancellation goes reconciling → done
+ok 22 - the end of transport is not a verified amount: a delivery is quantity unverified with the record's lower bound (a recorded 0 is not 0); a lost caravan of this request's own is none
+ok 23 - an outcome that is unknown, then a seal-key mismatch and a revocation: never released for the mismatch or the caravan counter; held until this request's own evidence
+ok 24 - the answer was lost after the relay sent, then a seal-key mismatch and a revocation: without its own signature, records under its caravan number decide nothing; nothing is released
+ok 25 - the relay's "expired" is not proof of absence: the send stays counted (held) until its own signature is proven absent
+ok 26 - reads: the village, the owner's storehouse (not a stranger's), the shortfall and where to fill it
+ok 27 - reads never show another player's march: the Province envelope's ArrivalSlots stay out of every answer
+ok 28 - prepare: only the owner's places; the cargo against the source; a plan sends nothing
+ok 29 - without patch 0005 the relay refuses the caravan (ActionNotAllowed): nothing is sent, the owner is told why # SKIP the gateway tree has patch 0005
+ok 30 - the whole play: send → accepted → processing (landed, on the road) → completed (delivered); sending is not arriving
+ok 31 - raids and lost destinations are outcomes, not server failures: taken, burned, lost
+ok 32 - this request's own transaction failed: decided only at finalized (0007 reports the commitment); before that it is held
+ok 33 - duplicates: the same requestId (again, concurrently) sends once; a new requestId on a used plan is PlanUsed; a used requestId on another plan conflicts
+ok 34 - a lost connection to the relay: requested and retryable; the retry with the same requestId sends once
+ok 35 - the relay answered but the MCP server never recorded it (crash): after a restart the retry is the gateway's replay, not a second send
+ok 36 - the send left but its answer says failed (no signature): records under its caravan number decide nothing; held, still counted
+ok 37 - outcome unknown and no trace: after the window it is held (Indeterminate), never NotSent from the caravan counter; the grant stays counted
+ok 38 - a retry after the relay was unreachable re-checks the owner's limits: past the grant's expiry nothing new is sent
+ok 39 - a retry while the first attempt is still at the relay joins it: one transaction, no contradictory state
+ok 40 - rate limited by the relay on a retry: nothing is decided, the grant hold stays, the next retry sends once
+ok 41 - the owner's signed limits (MOCK grant): sends, cargo per send, expiry — enforced by the server
+ok 42 - ⑤'s budget decides, not this server: a priced action over the agent's budget is BudgetExceeded, nothing sent
+ok 43 - the owner's controls on the agent hold: stopped (manual), the delegation taken back on chain, the capability rotated
+ok 44 - another player's village: refused by this server (a tampered plan is stale) and, under it, by the gateway (WrongVillage)
+ok 45 - words in the game are data: an injected order in the agent's history is marked untrusted and changes nothing
+ok 46 - secrets: the capability never appears in an answer, a log or the store file; tokens are stored as hashes
+ok 47 - consent: a caravan scope without the owner's signed rotate command is refused
+ok 48 - discovery: protected resource and authorization server metadata name this resource, S256 only, DCR
+ok 49 - /mcp without a token: 401 with WWW-Authenticate naming the resource metadata; GET is 405; a foreign Origin is 403; no batches
+ok 50 - initialize negotiates a supported version; tools/list: one operation per tool, every annotation explicit, OAuth schemes
+ok 51 - OAuth: PKCE, code reuse, resource, redirect URIs, and a refresh token used twice revokes the connection
+ok 52 - consent: a statement signed by another key, an agent this relay does not know; the page holds no secret
+ok 53 - consent: an agent that belongs to another owner on the same relay is refused
+ok 54 - the unauthenticated OAuth routes are rate limited per address
+ok 55 - tokens expire; the owner's signed revocation stops the connection; a read-only connection cannot send (insufficient_scope)
+ok 56 - the local adapter passes the RunReceipt port conformance, and labels itself a MOCK
+ok 57 - no adapter for ④'s ledger in this build: asking for one fails at start; a fixture cannot pass as ④'s
+ok 58 - the server answers through the port: the receipts it gives carry the port's contract
+ok 59 - the official MCP SDK client: OAuth discovery, DCR, PKCE, then tools/list and the read path
+ok 60 - the mapped port is a MOCK that passes the port conformance; ④'s real adapter is still not in this build
+ok 61 - states, held reasons and outcomes follow ④'s STATE-MACHINE for a ship-only run
+ok 62 - fees: released only on proven absence of this request's own signature; amounts null unless reported, never 0 for unknown
+ok 63 - cancel phases: StoppingNew → AwaitingSigned (until unknown here) → Completed{effects} / Ineffective
+ok 64 - the vocabulary is ④'s own (against workstreams/04-execution/src at WS04_ROOT)
+# tests 64
+# pass 63
 # fail 0
 # skipped 1
 ## gateway: + ③0005 + ⑤0001 + ③0007
-ok 1 - another route's send with the same caravan number: held (SeqUsedByAnotherSend), never completed by its settle, nothing released
-ok 2 - its own signature but not the plan's content (destination): held Inconsistent, not on the road
-ok 3 - its own signature but a different cargo with no wear: held Inconsistent
-ok 4 - its own record (signature and content, the road wore 3%): on the road; the settle's lower bound, never the plan's 100, and a recorded 0 is not 0
-ok 5 - a raid that takes its own caravan (matching record): KnownZero in ④'s vocabulary; a raid record before the caravan is proven its own counts for nothing
-ok 6 - records seen before the signature is known are kept: when the retry brings the signature, the earlier record makes the caravan its own
-ok 7 - every ⑤ refusal code named here is one the gateway has, and every gateway code is accounted for
-ok 8 - the budget shown is ⑤'s as reported, nothing computed here
-ok 9 - a refusal by ⑤ reaches the owner with its code and whose decision it was (policy without the transport group)
-ok 10 - redirect profiles: the default is unchanged (ChatGPT and loopback, not hosted Claude); claude is opt-in; an unknown profile is refused at start
-ok 11 - preflight for Claude Code on this machine: discovery, resource, S256, DCR with both loopback forms, the form token endpoint — and what it cannot check
-ok 12 - preflight for hosted Claude and ChatGPT on a loopback server fails where it must (public https, and the default redirects for Claude)
-ok 13 - a connection made for Claude Code (localhost redirect) still sees only its owner's places: a destination outside them is refused (sends to another player need the owner's wallet in S1; this path never makes one)
-ok 14 - the owner's operations without a connection: wallet-signed, once, recent, only their own; the page holds no secret
-ok 15 - consent shows where it sends the owner back, and warns for a loopback client
-ok 16 - a capability sealed under another key: held (CapabilityUnavailable), nothing sent, nothing released; the right key resumes it once
-ok 17 - after a revocation: a held request with no attempt fails and gives its hold back; a sent one is reconciled to its end; cancellation goes reconciling → done
-ok 18 - the end of transport is not a verified amount: a delivery is quantity unverified with the record's lower bound (a recorded 0 is not 0); a lost caravan of this request's own is none
-ok 19 - an outcome that is unknown, then a seal-key mismatch and a revocation: never released for the mismatch or the caravan counter; held until this request's own evidence
-ok 20 - the answer was lost after the relay sent, then a seal-key mismatch and a revocation: without its own signature, records under its caravan number decide nothing; nothing is released
-ok 21 - the relay's "expired" is not proof of absence: the send stays counted (held) until its own signature is proven absent
-ok 22 - reads: the village, the owner's storehouse (not a stranger's), the shortfall and where to fill it
-ok 23 - reads never show another player's march: the Province envelope's ArrivalSlots stay out of every answer
-ok 24 - prepare: only the owner's places; the cargo against the source; a plan sends nothing
-ok 25 - without patch 0005 the relay refuses the caravan (ActionNotAllowed): nothing is sent, the owner is told why # SKIP the gateway tree has patch 0005
-ok 26 - the whole play: send → accepted → processing (landed, on the road) → completed (delivered); sending is not arriving
-ok 27 - raids and lost destinations are outcomes, not server failures: taken, burned, lost
-ok 28 - this request's own transaction failed: decided only at finalized (0007 reports the commitment); before that it is held
-ok 29 - duplicates: the same requestId (again, concurrently) sends once; a new requestId on a used plan is PlanUsed; a used requestId on another plan conflicts
-ok 30 - a lost connection to the relay: requested and retryable; the retry with the same requestId sends once
-ok 31 - the relay answered but the MCP server never recorded it (crash): after a restart the retry is the gateway's replay, not a second send
-ok 32 - the send left but its answer says failed (no signature): records under its caravan number decide nothing; held, still counted
-ok 33 - outcome unknown and no trace: after the window it is held (Indeterminate), never NotSent from the caravan counter; the grant stays counted
-ok 34 - a retry after the relay was unreachable re-checks the owner's limits: past the grant's expiry nothing new is sent
-ok 35 - a retry while the first attempt is still at the relay joins it: one transaction, no contradictory state
-ok 36 - rate limited by the relay on a retry: nothing is decided, the grant hold stays, the next retry sends once
-ok 37 - the owner's signed limits (MOCK grant): sends, cargo per send, expiry — enforced by the server
-ok 38 - ⑤'s budget decides, not this server: a priced action over the agent's budget is BudgetExceeded, nothing sent
-ok 39 - the owner's controls on the agent hold: stopped (manual), the delegation taken back on chain, the capability rotated
-ok 40 - another player's village: refused by this server (a tampered plan is stale) and, under it, by the gateway (WrongVillage)
-ok 41 - words in the game are data: an injected order in the agent's history is marked untrusted and changes nothing
-ok 42 - secrets: the capability never appears in an answer, a log or the store file; tokens are stored as hashes
-ok 43 - consent: a caravan scope without the owner's signed rotate command is refused
-ok 44 - discovery: protected resource and authorization server metadata name this resource, S256 only, DCR
-ok 45 - /mcp without a token: 401 with WWW-Authenticate naming the resource metadata; GET is 405; a foreign Origin is 403; no batches
-ok 46 - initialize negotiates a supported version; tools/list: one operation per tool, every annotation explicit, OAuth schemes
-ok 47 - OAuth: PKCE, code reuse, resource, redirect URIs, and a refresh token used twice revokes the connection
-ok 48 - consent: a statement signed by another key, an agent this relay does not know; the page holds no secret
-ok 49 - consent: an agent that belongs to another owner on the same relay is refused
-ok 50 - the unauthenticated OAuth routes are rate limited per address
-ok 51 - tokens expire; the owner's signed revocation stops the connection; a read-only connection cannot send (insufficient_scope)
-ok 52 - the local adapter passes the RunReceipt port conformance, and labels itself a MOCK
-ok 53 - no adapter for ④'s ledger in this build: asking for one fails at start; a fixture cannot pass as ④'s
-ok 54 - the server answers through the port: the receipts it gives carry the port's contract
-ok 55 - the official MCP SDK client: OAuth discovery, DCR, PKCE, then tools/list and the read path
-ok 56 - the mapped port is a MOCK that passes the port conformance; ④'s real adapter is still not in this build
-ok 57 - states, held reasons and outcomes follow ④'s STATE-MACHINE for a ship-only run
-ok 58 - fees: released only on proven absence of this request's own signature; amounts null unless reported, never 0 for unknown
-ok 59 - cancel phases: StoppingNew → AwaitingSigned (until unknown here) → Completed{effects} / Ineffective
-ok 60 - the vocabulary is ④'s own (against workstreams/04-execution/src at WS04_ROOT)
-# tests 60
-# pass 59
+ok 1 - finished operations move to the archive after the archive delay and stay readable; unfinished ones stay; a retry is still a replay; a restart reads both
+ok 2 - the archive survives a torn last line (a crash mid-append) and an operation left in both places (the main copy is read)
+ok 3 - another route's send with the same caravan number: held (SeqUsedByAnotherSend), never completed by its settle, nothing released
+ok 4 - its own signature but not the plan's content (destination): held Inconsistent, not on the road
+ok 5 - its own signature but a different cargo with no wear: held Inconsistent
+ok 6 - its own record (signature and content, the road wore 3%): on the road; the settle's lower bound, never the plan's 100, and a recorded 0 is not 0
+ok 7 - a raid that takes its own caravan (matching record): KnownZero in ④'s vocabulary; a raid record before the caravan is proven its own counts for nothing
+ok 8 - records seen before the signature is known are kept: when the retry brings the signature, the earlier record makes the caravan its own
+ok 9 - every ⑤ refusal code named here is one the gateway has, and every gateway code is accounted for
+ok 10 - the budget shown is ⑤'s as reported, nothing computed here
+ok 11 - a refusal by ⑤ reaches the owner with its code and whose decision it was (policy without the transport group)
+ok 12 - redirect profiles: the default is unchanged (ChatGPT and loopback, not hosted Claude); claude is opt-in; an unknown profile is refused at start
+ok 13 - preflight for Claude Code on this machine: discovery, resource, S256, DCR with both loopback forms, the form token endpoint — and what it cannot check
+ok 14 - preflight for hosted Claude and ChatGPT on a loopback server fails where it must (public https, and the default redirects for Claude)
+ok 15 - a connection made for Claude Code (localhost redirect) still sees only its owner's places: a destination outside them is refused (sends to another player need the owner's wallet in S1; this path never makes one)
+ok 16 - a context change under a running server: history kept, nothing of the old context read or sent as the new one's, nothing released; a restart keeps it; the old context served again lets tracking go on
+ok 17 - an operation stored before contexts were recorded is not assumed to be the current context's
+ok 18 - the owner's operations without a connection: wallet-signed, once, recent, only their own; the page holds no secret
+ok 19 - consent shows where it sends the owner back, and warns for a loopback client
+ok 20 - a capability sealed under another key: held (CapabilityUnavailable), nothing sent, nothing released; the right key resumes it once
+ok 21 - after a revocation: a held request with no attempt fails and gives its hold back; a sent one is reconciled to its end; cancellation goes reconciling → done
+ok 22 - the end of transport is not a verified amount: a delivery is quantity unverified with the record's lower bound (a recorded 0 is not 0); a lost caravan of this request's own is none
+ok 23 - an outcome that is unknown, then a seal-key mismatch and a revocation: never released for the mismatch or the caravan counter; held until this request's own evidence
+ok 24 - the answer was lost after the relay sent, then a seal-key mismatch and a revocation: without its own signature, records under its caravan number decide nothing; nothing is released
+ok 25 - the relay's "expired" is not proof of absence: the send stays counted (held) until its own signature is proven absent
+ok 26 - reads: the village, the owner's storehouse (not a stranger's), the shortfall and where to fill it
+ok 27 - reads never show another player's march: the Province envelope's ArrivalSlots stay out of every answer
+ok 28 - prepare: only the owner's places; the cargo against the source; a plan sends nothing
+ok 29 - without patch 0005 the relay refuses the caravan (ActionNotAllowed): nothing is sent, the owner is told why # SKIP the gateway tree has patch 0005
+ok 30 - the whole play: send → accepted → processing (landed, on the road) → completed (delivered); sending is not arriving
+ok 31 - raids and lost destinations are outcomes, not server failures: taken, burned, lost
+ok 32 - this request's own transaction failed: decided only at finalized (0007 reports the commitment); before that it is held
+ok 33 - duplicates: the same requestId (again, concurrently) sends once; a new requestId on a used plan is PlanUsed; a used requestId on another plan conflicts
+ok 34 - a lost connection to the relay: requested and retryable; the retry with the same requestId sends once
+ok 35 - the relay answered but the MCP server never recorded it (crash): after a restart the retry is the gateway's replay, not a second send
+ok 36 - the send left but its answer says failed (no signature): records under its caravan number decide nothing; held, still counted
+ok 37 - outcome unknown and no trace: after the window it is held (Indeterminate), never NotSent from the caravan counter; the grant stays counted
+ok 38 - a retry after the relay was unreachable re-checks the owner's limits: past the grant's expiry nothing new is sent
+ok 39 - a retry while the first attempt is still at the relay joins it: one transaction, no contradictory state
+ok 40 - rate limited by the relay on a retry: nothing is decided, the grant hold stays, the next retry sends once
+ok 41 - the owner's signed limits (MOCK grant): sends, cargo per send, expiry — enforced by the server
+ok 42 - ⑤'s budget decides, not this server: a priced action over the agent's budget is BudgetExceeded, nothing sent
+ok 43 - the owner's controls on the agent hold: stopped (manual), the delegation taken back on chain, the capability rotated
+ok 44 - another player's village: refused by this server (a tampered plan is stale) and, under it, by the gateway (WrongVillage)
+ok 45 - words in the game are data: an injected order in the agent's history is marked untrusted and changes nothing
+ok 46 - secrets: the capability never appears in an answer, a log or the store file; tokens are stored as hashes
+ok 47 - consent: a caravan scope without the owner's signed rotate command is refused
+ok 48 - discovery: protected resource and authorization server metadata name this resource, S256 only, DCR
+ok 49 - /mcp without a token: 401 with WWW-Authenticate naming the resource metadata; GET is 405; a foreign Origin is 403; no batches
+ok 50 - initialize negotiates a supported version; tools/list: one operation per tool, every annotation explicit, OAuth schemes
+ok 51 - OAuth: PKCE, code reuse, resource, redirect URIs, and a refresh token used twice revokes the connection
+ok 52 - consent: a statement signed by another key, an agent this relay does not know; the page holds no secret
+ok 53 - consent: an agent that belongs to another owner on the same relay is refused
+ok 54 - the unauthenticated OAuth routes are rate limited per address
+ok 55 - tokens expire; the owner's signed revocation stops the connection; a read-only connection cannot send (insufficient_scope)
+ok 56 - the local adapter passes the RunReceipt port conformance, and labels itself a MOCK
+ok 57 - no adapter for ④'s ledger in this build: asking for one fails at start; a fixture cannot pass as ④'s
+ok 58 - the server answers through the port: the receipts it gives carry the port's contract
+ok 59 - the official MCP SDK client: OAuth discovery, DCR, PKCE, then tools/list and the read path
+ok 60 - the mapped port is a MOCK that passes the port conformance; ④'s real adapter is still not in this build
+ok 61 - states, held reasons and outcomes follow ④'s STATE-MACHINE for a ship-only run
+ok 62 - fees: released only on proven absence of this request's own signature; amounts null unless reported, never 0 for unknown
+ok 63 - cancel phases: StoppingNew → AwaitingSigned (until unknown here) → Completed{effects} / Ineffective
+ok 64 - the vocabulary is ④'s own (against workstreams/04-execution/src at WS04_ROOT)
+# tests 64
+# pass 63
 # fail 0
 # skipped 1

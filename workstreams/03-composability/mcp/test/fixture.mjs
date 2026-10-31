@@ -80,8 +80,9 @@ export async function world({ allowed = PATCHED ? ['transport'] : ['economy'], b
   const citizen = W.of('Citizen', { wallet: o });
   const tag = citizenTag(citizen);
   const stranger = keypair().publicKey.toBase58();
-  const v2 = (kind, values) => encodeAccount(kind, { SEASON_ID: fx.SEASON_ID, LAYOUT_VERSION: 2, ...values }, { profile: 2 });
+  const v2 = (kind, values) => encodeAccount(kind, { SEASON_ID: state.seasonId, LAYOUT_VERSION: 2, ...values }, { profile: 2 });
   const state = {
+    seasonId: fx.SEASON_ID, // switchContext(id) moves the relay's /f/season answer and the herald's records to another
     caravans: 0,
     stores: villageStores,
     vault: vaultStores,
@@ -90,7 +91,7 @@ export async function world({ allowed = PATCHED ? ['transport'] : ['economy'], b
     fail: null, // a path → status to fail
   };
   const page = {
-    season: () => ({ v: 1, season: String(fx.SEASON_ID), bytes_b64: b64(v2('Season', { RULESET_HASH: hex(V2.ruleset_hash_v3), PROGRAM_VERSION: 4, GENESIS_TS: BigInt(fx.GENESIS), STATUS: 2 })), latestUnix: NOW }),
+    season: () => ({ v: 1, season: String(state.seasonId), bytes_b64: b64(v2('Season', { RULESET_HASH: hex(V2.ruleset_hash_v3), PROGRAM_VERSION: 4, GENESIS_TS: BigInt(fx.GENESIS), STATUS: 2 })), latestUnix: NOW }),
     me: () => ({ v: 1, citizen: { bytes_b64: b64(v2('Citizen', { WALLET: keyBytes(o), FACTION: 2, HOLDINGS_N: 1, CARAVANS: state.caravans, CITIZEN_TAG: tag,
       HOLDING: [{ P, Q, SITE, GEN: 1 }, { P: 0, Q: 0, SITE: 0, GEN: 255 }, { P: 0, Q: 0, SITE: 0, GEN: 255 }] })) },
     holdings: [{ bytes_b64: b64(v2('Holding', { P, Q, SITE, GEN: 1, TILE: VILLAGE_TILE, STATE: 2, OWNER_CITIZEN: keyBytes(citizen), FACTION: 2, ORDER: 1, STORES: state.stores.map(accrual) })) }] }),
@@ -112,6 +113,9 @@ export async function world({ allowed = PATCHED ? ['transport'] : ['economy'], b
     if (state.intercept) { const x = await state.intercept(u, init); if (x) return x; }
     if (u.origin === RELAY) {
       const res = await fx.call(r.public, init.method ?? 'GET', u.pathname + u.search, { body: init.body === undefined ? undefined : JSON.parse(init.body) });
+      // After switchContext: the relay answers for the other context (only /f/season is rewritten; the scripted
+      // relay's own addresses stay the first context's, so tests must not send new plans after a switch).
+      if (u.pathname === '/f/season' && res.status === 200 && state.seasonId !== fx.SEASON_ID) return { status: 200, json: async () => ({ ...res.json, seasonId: String(state.seasonId) }) };
       return { status: res.status, json: async () => res.json };
     }
     const json = data => ({ status: 200, ok: true, json: async () => data });
@@ -125,14 +129,15 @@ export async function world({ allowed = PATCHED ? ['transport'] : ['economy'], b
     if (p === '/h/events') return json(page.events(u.searchParams.get('after') ?? '0'));
     return { status: 404, ok: false, json: async () => ({ error: 'NotFound' }) };
   };
-  return { r, fx, owner, o, agent: made, citizen, tag, stranger, state, fetch, calls, W, P, Q, SITE };
+  const switchContext = id => { state.seasonId = BigInt(id); };
+  return { r, fx, owner, o, agent: made, citizen, tag, stranger, state, fetch, calls, W, P, Q, SITE, switchContext };
 }
 
 /** The MCP server over the world, on a loopback port; `clock` is the server's `now` (ms). */
-export async function server(w, { storeFile = null, clock = { t: Date.now() }, sealKey = null, uncertainWindowMs, rateLimit = { burst: 10_000, everySecs: 2 }, redirectProfiles } = {}) {
+export async function server(w, { storeFile = null, clock = { t: Date.now() }, sealKey = null, uncertainWindowMs, archiveAfterMs, rateLimit = { burst: 10_000, everySecs: 2 }, redirectProfiles } = {}) {
   const now = () => clock.t;
   const store = new JsonStore(storeFile);
-  const game = new Game({ relay: RELAY, herald: HERALD, fetch: w.fetch });
+  const game = new Game({ relay: RELAY, herald: HERALD, fetch: w.fetch, contextTtlMs: 0 });
   const logs = [];
   const log = m => logs.push(m);
   const sealer = new Sealer(sealKey);
@@ -140,7 +145,7 @@ export async function server(w, { storeFile = null, clock = { t: Date.now() }, s
   const srv = await listen(async (req, res) => handler(req, res));
   const issuer = `http://127.0.0.1:${srv.address().port}`;
   auth = new Auth({ issuer, resource: `${issuer}/mcp`, store, sealer, game, now, log, ...(redirectProfiles ? { redirectProfiles } : {}) });
-  const mcp = createWyllsMcp({ auth, game, store, now, log, ...(uncertainWindowMs !== undefined ? { uncertainWindowMs } : {}) });
+  const mcp = createWyllsMcp({ auth, game, store, now, log, ...(uncertainWindowMs !== undefined ? { uncertainWindowMs } : {}), ...(archiveAfterMs !== undefined ? { archiveAfterMs } : {}) });
   const handler = createHandler({ auth, mcp, log, rateLimit });
   return { srv, issuer, auth, mcp, store, game, logs, clock, close: () => new Promise(r => srv.close(r)) };
 }

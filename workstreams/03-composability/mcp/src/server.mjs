@@ -20,6 +20,9 @@ export const PLAN_TTL_MS = 5 * 60_000;
 const EVENT_PAGES_PER_CHECK = 10;
 /** How long an attempt with an unknown outcome waits for a trace before it counts as not sent (a blockhash lives about 60–90 s). */
 export const UNCERTAIN_WINDOW_MS = 5 * 60_000;
+/** A finished operation stays in the main store this long (answers to its retries stay fast), then moves to the archive. */
+export const ARCHIVE_AFTER_MS = 60 * 60_000;
+const ARCHIVE_PER_CALL = 200;
 
 const text = obj => [{ type: 'text', text: JSON.stringify(obj) }];
 const ok = obj => ({ content: text(obj), structuredContent: obj, isError: false });
@@ -34,7 +37,7 @@ const cargoArray = c => RESOURCE_NAMES.map(r => (Number.isInteger(c?.[r]) ? c[r]
  * @param {Game} o.game
  * @param {JsonStore} o.store
  */
-export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => {}, grants = new MockGrantPort({ now }), receipts = new LocalReceiptPort(), uncertainWindowMs = UNCERTAIN_WINDOW_MS }) {
+export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => {}, grants = new MockGrantPort({ now }), receipts = new LocalReceiptPort(), uncertainWindowMs = UNCERTAIN_WINDOW_MS, archiveAfterMs = ARCHIVE_AFTER_MS }) {
   assertReceiptPort(receipts);
   const receiptOf = op => receipts.receipt(op);
   const db = store.state;
@@ -68,7 +71,12 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
 
   async function connection(principal) {
     const link = auth.link(principal.linkId);
+    let context = null;
+    try { context = await game.context(); } catch { context = null; }
     return ok({ owner: principal.owner, agentId: principal.agentId, scopes: principal.scopes, write: principal.scopes.includes(SCOPES.CARAVAN),
+      // The world context the relay serves now, and the ones this server saw it replace: the connection, the owner's
+      // identity and the operation history carry over; plans and in-flight tracking stay bound to their own context.
+      context: { current: context, changes: game.contextChanges ?? [] },
       grant: grants.view(link), connectionExpiresAt: new Date(link.expiresAt).toISOString(), tokenExpiresAt: new Date(principal.tokenExpiresAt).toISOString(),
       notes: ['The grant is a MOCK of workstream 02\'s Grant (wylls.mock-grant/0): the limits the owner signed when connecting, enforced by this server.'] });
   }
@@ -104,7 +112,7 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
     } catch (e) { return gameFail(e); }
     const id = `pln_${sha(`${principal.linkId}\n${now()}\n${Math.random()}`).slice(0, 20)}`;
     const a = v.agent;
-    db.plans[id] = { id, linkId: principal.linkId, createdAt: now(), expiresAt: now() + PLAN_TTL_MS, usedBy: null,
+    db.plans[id] = { id, linkId: principal.linkId, createdAt: now(), expiresAt: now() + PLAN_TTL_MS, usedBy: null, context: game.pinned?.key ?? null,
       policyVersion: a.policy?.version, modeEpoch: a.modeEpoch, seq: plan.seq, holding: plan.holding, fields: plan.fields, route: plan.route, cargo: plan.cargo,
       summary: { from: plan.from, to: plan.to, cargo: plan.cargoNamed, steps: plan.steps, estimatedMinutes: Math.round(plan.estimatedSecs / 60), seq: plan.seq } };
     for (const [k, p] of Object.entries(db.plans)) if (p.expiresAt + PLAN_TTL_MS < now() && !p.usedBy) delete db.plans[k];
@@ -145,7 +153,7 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
     const opId = opIdOf(principal, requestId);
     return single(opId, async () => {
       // A retry of a decision already taken: the same operation, never a second send.
-      const prior = db.operations[opId];
+      const prior = store.operation(opId);
       if (prior) {
         if (prior.planId !== planId) return fail('IdempotencyConflict', 'this requestId was used for another plan: use a new requestId', { operationId: opId });
         if (prior.state === STATES.REQUESTED) return joined(await resume(principal, prior));
@@ -158,10 +166,12 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
       if (!plan || plan.linkId !== principal.linkId) return fail('PlanUnknown', 'no such plan for this connection: prepare_caravan first');
       if (plan.usedBy) return fail('PlanUsed', 'this plan was already sent', { operationId: plan.usedBy });
       if (plan.expiresAt <= now()) return fail('PlanExpired', 'the plan has expired: prepare again');
+      if (plan.context && plan.context !== game.pinned?.key) return fail('PlanStale', 'the relay now serves another world context than the plan\'s: its addresses and caravan number belong to that context; prepare again', { planContext: plan.context, context: game.pinned?.key ?? null });
       if (Number(v.citizen?.caravans ?? -1) !== plan.seq || v.agent.village.some((x, i) => x !== plan.holding[i])) return fail('PlanStale', 'the village changed since the plan (another caravan was sent): prepare again');
       const link = auth.link(principal.linkId);
       const op = { id: opId, requestId, planId, linkId: principal.linkId, kind: 'caravan.send', state: null, createdAt: new Date(now()).toISOString(), updatedAt: null, steps: [],
-        planSummary: plan.summary, caravan: { seq: plan.seq, ownerTag: v.citizenTag, arriveAt: null, outcome: null }, eventsCursor: '0', attempts: 0, unknownSince: null, grant: 'none' };
+        planSummary: plan.summary, caravan: { seq: plan.seq, ownerTag: v.citizenTag, arriveAt: null, outcome: null }, eventsCursor: '0', attempts: 0, unknownSince: null, grant: 'none',
+        context: plan.context ?? null };
       const g = grants.reserve(link, { name: 'SendCaravan', cargo: plan.cargo }, opId);
       if (!g.ok) {
         step(op, STATES.REQUESTED);
@@ -219,6 +229,16 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
         store.save();
         return fail('CapabilityUnavailable', op.error.message, { operationId: op.id, receipt: receiptOf(op) });
       }
+    }
+    let current = null;
+    try { current = (await game.context()).key; } catch { current = null; }
+    if (op.context && current && op.context !== current) {
+      // The plan's accounts and caravan number belong to the context it was made in: a new attempt now would sign
+      // them against another. Nothing new is sent; an attempt already made is followed by its own signature.
+      if (op.attempts === 0) definite(op, link, 'ContextChanged', `no send: the relay now serves another world context (${current}) than the plan's (${op.context})`);
+      else { uncertain(op, link, `no new attempt: the relay now serves another world context (${current}) than the plan's (${op.context})`); hold(op, 'ContextChanged', 'an earlier attempt may have been sent in the plan\'s context: only its own signature can decide', { from: op.context, to: current }); }
+      store.save();
+      return answer(op);
     }
     const stop = late ?? (capability ? null : 'NoCapability');
     if (stop) {
@@ -396,6 +416,16 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
         else if (tx?.state === 'expired' && !op.unknownSince) { op.unknownSince = now(); op.uncertain = true; step(op, STATES.ACCEPTED, 'the relay reports the blockhash expired with no status seen: not proof that nothing landed'); }
       } else op.chain = { state: tx?.state ?? 'unknown' };
     }
+    let current = null;
+    try { current = (await game.context()).key; } catch { current = null; }
+    if (!TERMINAL.includes(op.state) && op.context && current && op.context !== current) {
+      // The herald now serves another context's records and event numbering: this operation's cursor and caravan
+      // number mean nothing there. Its own signature (above) still decides; otherwise it is held, its history kept,
+      // nothing released.
+      hold(op, 'ContextChanged', 'the relay and herald now serve another world context: this operation\'s records are not read there; its own signature can still decide', { from: op.context, to: current });
+      store.save();
+      return op;
+    }
     if (!TERMINAL.includes(op.state)) {
       const mine = await evidence(op);
       if (mine && op.hold?.code === 'Indeterminate') { delete op.hold; op.steps.push({ state: op.state, at: new Date(now()).toISOString(), detail: 'no longer held: the caravan is proven this request\'s own' }); }
@@ -412,6 +442,24 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
   const mineOp = (principal, op) => op && op.linkId === principal.linkId;
 
   /**
+   * Moves finished operations older than `archiveAfterMs` to the store's append-only archive (a bounded number per
+   * call), with the plans they used. Nothing unfinished moves: holds, reservations and tracking stay in the main
+   * store. History is not changed: the archived record is the operation's last state, read back as it was.
+   */
+  function archiveFinished() {
+    let moved = 0;
+    for (const op of Object.values(db.operations)) {
+      if (moved >= ARCHIVE_PER_CALL) break;
+      if (!TERMINAL.includes(op.state) || inflight.has(op.id) || now() - Date.parse(op.updatedAt ?? op.createdAt) < archiveAfterMs) continue;
+      store.archive(op);
+      if (db.plans[op.planId]?.usedBy === op.id) delete db.plans[op.planId];
+      moved++;
+    }
+    if (moved) store.save();
+    return moved;
+  }
+
+  /**
    * The owner's operations across all their connections, revoked ones included: for an owner whose signed query
    * auth.ownerQuery verified (http: POST /owner/operations). Reads only. A revoked connection's operations are
    * reconciled here: one with no recorded attempt is failed and its hold given back (the attempt counter is
@@ -420,7 +468,7 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
   async function ownerOperations(owner) {
     const links = Object.values(db.links).filter(l => l.owner === owner);
     const ids = new Set(links.map(l => l.linkId));
-    const ops = Object.values(db.operations).filter(op => ids.has(op.linkId)).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))).slice(0, 50);
+    const ops = store.operationsOf([...ids], 50);
     for (const op of ops) {
       if (TERMINAL.includes(op.state) || inflight.has(op.id)) continue;
       const link = auth.link(op.linkId);
@@ -438,15 +486,15 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
 
   async function opStatus(principal, args) {
     let op = null;
-    if (typeof args?.operationId === 'string') op = db.operations[args.operationId];
-    else if (typeof args?.requestId === 'string' && REQUEST_ID.test(args.requestId)) op = db.operations[opIdOf(principal, args.requestId)];
+    if (typeof args?.operationId === 'string') op = store.operation(args.operationId);
+    else if (typeof args?.requestId === 'string' && REQUEST_ID.test(args.requestId)) op = store.operation(opIdOf(principal, args.requestId));
     else return fail('BadRequest', 'operationId or requestId is required');
     if (!mineOp(principal, op)) return fail('UnknownOperation', 'no such operation for this connection');
     return answer(await track(op, principal));
   }
 
   async function listOps(principal) {
-    const mine = Object.values(db.operations).filter(op => mineOp(principal, op)).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))).slice(0, 20);
+    const mine = store.operationsOf([principal.linkId], 20);
     return ok({ operations: mine.map(op => ({ operationId: op.id, requestId: op.requestId, state: op.state, outcome: op.outcome ?? null, createdAt: op.createdAt, updatedAt: op.updatedAt, summary: op.planSummary })) });
   }
 
@@ -472,11 +520,14 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
         if (!fn) return error(-32602, `unknown tool ${String(name).slice(0, 40)}`);
         if (!principal) return reply(fail('Unauthenticated', 'connect with OAuth first'));
         if (limited(principal)) return reply(fail('RateLimited', 'too many calls: wait a few seconds'));
-        try { return reply(await fn(principal, msg.params?.arguments ?? {})); } catch (e) { log(`mcp: ${name} threw ${scrub(e?.message)}`); return reply(fail('InternalError', 'internal error')); }
+        let out;
+        try { out = reply(await fn(principal, msg.params?.arguments ?? {})); } catch (e) { log(`mcp: ${name} threw ${scrub(e?.message)}`); return reply(fail('InternalError', 'internal error')); }
+        try { archiveFinished(); } catch (e) { log(`mcp: archive failed (nothing moved): ${scrub(e?.message)}`); }
+        return out;
       }
       default: return notification ? null : error(-32601, `method not found: ${msg.method.slice(0, 40)}`);
     }
   }
 
-  return { handle, tools: Object.keys(tools), track, ownerOperations, receipts: { contract: receipts.contract, real: receipts.real } };
+  return { handle, tools: Object.keys(tools), track, ownerOperations, archiveFinished, receipts: { contract: receipts.contract, real: receipts.real } };
 }

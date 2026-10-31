@@ -120,6 +120,9 @@ export function receiptOf(op) {
     gateway: op.gateway ?? null,
     chain: op.chain ?? null,
     caravan: op.caravan ?? null,
+    // The world context the operation was made in (null: made before contexts were recorded; never assumed to be the
+    // current one).
+    context: op.context ?? null, contextRecorded: op.context !== undefined,
     ...(op.arrival ? { arrival: op.arrival } : {}),
     ...(op.hold ? { hold: op.hold } : {}),
     ...(op.error ? { error: op.error } : {}),
