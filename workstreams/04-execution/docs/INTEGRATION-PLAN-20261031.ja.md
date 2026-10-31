@@ -7,7 +7,7 @@
 | ⑧ 継続世界 | `wylls-08-archive-v4.tar.gz`（sha256 `78a2e4db…33ec`、候補 e3d773df） | **未受領**（uploads にも GitHub の branch にも無い） |
 | ⑱ 早期 Reveal の対策 | `r18-package-20261031.tar.gz`（`e75ab1e4…8884`、4cd901de → 90df6a64、0001〜0009）と補助 v2 `r18-package-20261031-addendum-v2.tar.gz`（`395d0f9e…ae06b`、90df6a64 → 41984e99、0010〜0014）。補助 v1（`02724422…ee90`）は⑱が取り下げた | **未受領**（uploads に無く、origin にも 41984e99・d9e1900b・90df6a64 は無い。10:23 時点） |
 | ⑰ 再送・会計の照合 | `wylls-17-package.tgz`（`2dfaf966…c257`） | **未受領**。以前に message の本文から書き起こした 0001 は、正本として扱わない（「報告文からソースを再構成しない」による） |
-| ⑲ 履歴の欠落の検出 | `package-er19.tar.gz`（`3455ffcf…4f24`） | **未受領**（branch `claude/ecstatic-cannon-d0jfc4` も origin に無い） |
+| ⑲ 履歴の欠落の検出 | `package-er19.tar.gz`（`3455ffcf…4f24`、HEAD a91b7a4f）と補助 `package-er19-supp.tar.gz`（`6b724527…d9a8`、HEAD d793ebd4、tree 6d205008） | **未受領**（uploads に無く、origin にも a91b7a4f・d793ebd4 は無い。10:28 時点） |
 
 受け取ったら、次を確認する：sha256、bundle の前提の commit・HEAD・tree、patch から復元した tree の一致。そのうえで、最新の統合 HEAD から分けた候補の branch に、一つずつ当てる。
 
@@ -98,3 +98,12 @@
   - program 側の拒否（案 A：anchor も archive も無い Reveal を既存の `NoAnchor(8)` で拒否。新しい番号は不要。到着鐘の中の自己公開ができなくなる）。program の拒否は秘匿の対策ではなく、早すぎる公開を無効にする対策にとどまる。
   - 検証器の警告の code 候補 `RevealBeforePublication`（成功した Reveal の時刻が round_time(T(arrive)) より前）。材料が無ければ UNVERIFIABLE で、PASS にしない。番号は未定。
 - 未修正として⑱が挙げた点：ブラウザと bots が到着鐘の開始時点で material を relay・keeper へ送る（RPC には出ない。運用者を信用する範囲）。提案パッチはあるが未適用。この点を含むので、公開の判断まで push しない。
+
+### 5.3 ⑲の補助パッケージ（データとして受け取った。未受領・未適用、10:28 UTC）
+
+- `package-er19-supp.tar.gz`（sha256 `6b724527a1f23257fb5a724010de987efa91f8369ee7d4bd6236ae3a4598d9a8`）。正本 a91b7a4f の上に 3 commit。HEAD `d793ebd4dfded1a4c4fa23796181c55d29874224`、tree `6d205008fc24ef325e957d795f9374f24c8fc183`。
+- A の追加の修正（⑲の報告）：取引の束の途中で getTransaction が失敗すると、それより前の取引を保存せずに cursor だけ進み、次の pull で黙って抜ける。基点 4cd901de でも再現。A の patch の sha256 は `910af799…4327`。⑲は origin/main 92142932 に A と D を当て、frontier-node の workspace で 741 合格・0 失敗と報告。手順は `docs/frontier/er-candidate/verify-A.sh <worktree> <patches>`。
+- D は再現の試験だけ（A に依存。仕様は未決）：findex の v1 取引で止まる・fork から外れた confirmed の記録が残る・archive のバイト数、verify の前半だけの再生と委任プログラムの最終状態がどちらも HeadMismatch。
+- 検出の限界（⑲）：初回の取得、cursor が無い・読めない・古い形式、途中だけ欠けたノードでは検出できない。findex に「無い」ことを「起きていない」根拠にしない（⑫・⑮にも伝える）。
+- B（S1 とは別のプログラム）と C（文書）は別扱いのまま。S1 の口座の委任、公開 devnet、実際の ER での脱出は未決定・未確認。
+- 受け取ったら：二つの sha256、a91b7a4f と d793ebd4 の祖先関係と tree、A だけを ④の統合 HEAD から分けた候補 branch に当て、frontier-node の workspace 全体、④の 72 件、e2e-native を走らせる。
