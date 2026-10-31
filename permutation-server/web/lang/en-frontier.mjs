@@ -701,6 +701,7 @@ export default {
   '国の議題がいっぱいです。決着を待ってから出してください': 'Your nation has no free proposal slot: wait for one to be decided.',
   'まだ投票や提案はできません（参加から2日たっていないか、国を追放されています）': 'You cannot propose or vote yet (you joined less than two days ago, or you are expelled from your nation).',
   'この議題には今それはできません（受付が終わった、まだ締め切り前、または対象が条件を満たしません）': 'Not possible on this proposal now (voting has closed, it has not closed yet, or its target does not qualify).',
+  'この世界は終わりません。終わりを前提にした操作はできません': 'This world does not end; an action that needs it to end is not possible.',
   'この包囲の先導者だけが行える操作です': 'Only the siege leader can perform this action.',
   // The village handed to the owner's agent (frontier/fdelegation.mjs).
   '代理人に任せています': 'Handed to your agent',
