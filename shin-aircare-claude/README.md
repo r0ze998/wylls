@@ -20,6 +20,16 @@ python3 -m http.server 8080
 Node を使う場合: `npx serve .` でも同じです。`file://` で直接開いても表示はできますが、
 Google Fonts の読み込みとクリップボード API はサーバー経由（http/https）で確認してください。
 
+### claude.ai の Artifact として公開する場合
+
+```bash
+python3 scripts/build-artifact.py <出力ディレクトリ>
+```
+
+Artifact はページ規約（`<head>` 等を持てない、CSS/JS は埋め込み、`window.print()` が動かない）があるため、
+ソースを変換した `index.html` と `contact.html` を出力します。ソース自体は変更しません。
+公開版では印刷ボタンを外しています（ビューア内で印刷ダイアログが開けないため）。
+
 ### 表示検証スクリプト（任意）
 
 Playwright がインストールされた環境で、PC（1440px）／スマホ（390px）／中間幅（768・1024・1200px）の
