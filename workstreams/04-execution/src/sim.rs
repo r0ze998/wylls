@@ -154,6 +154,17 @@ pub struct SimWorld {
     pub fee: u64,
     /// Counts `prepare` calls (signatures differ per attempt).
     nonce: u64,
+    /// The world's identity (program and world account): every key in it
+    /// means something only here.
+    pub world: String,
+    /// War periods of this many slots (`None`: no periods). A boundary
+    /// changes nothing in the world: it only numbers the periods. What a
+    /// period counts and pays is undecided and not modelled.
+    pub period_slots: Option<u64>,
+    /// LEGACY (today's program): from this slot the world takes no player
+    /// action (the player prologue's `Running` and `bell < end_bell`);
+    /// settlement of what is on the road goes on.
+    pub legacy_end_slot: Option<u64>,
 }
 
 impl SimWorld {
@@ -174,7 +185,15 @@ impl SimWorld {
             validity: 10,
             fee: 5_000,
             nonce: 0,
+            world: "sim-world-1".into(),
+            period_slots: None,
+            legacy_end_slot: None,
         }
+    }
+
+    /// The war period of `slot` (0 without periods).
+    pub fn period_of(&self, slot: u64) -> u64 {
+        self.period_slots.map_or(0, |n| slot / n.max(1))
     }
 
     pub fn add_place(&mut self, p: PlaceRef, owner: u64, stores: Res, cap: Option<u64>) {
@@ -407,6 +426,9 @@ impl SimWorld {
 
     /// The canonical effect of a request, atomically, or a refusal.
     fn execute(&mut self, req: &Request, sig: &str) -> Result<(), Reject> {
+        if self.legacy_end_slot.is_some_and(|e| self.slot >= e) {
+            return Err(Reject::WorldClosed);
+        }
         match req {
             Request::UseFacility {
                 key,
@@ -644,6 +666,10 @@ fn down(w: &SimWorld) -> PortResult<()> {
 }
 
 impl Chain for Sim {
+    fn world(&self) -> Option<String> {
+        Some(self.0.lock().unwrap().world.clone())
+    }
+
     fn slot(&self) -> PortResult<u64> {
         let w = self.0.lock().unwrap();
         if w.faults.down {

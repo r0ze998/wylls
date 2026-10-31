@@ -216,6 +216,10 @@ pub enum Reject {
     /// Refused before anything was signed (an agent gateway's policy,
     /// stop or limit refusal): no bytes exist, so it can never land.
     Refused(String),
+    /// The world does not take player actions now (today's program: the
+    /// Season's effective status is not Running, or `bell ≥ end_bell`, in
+    /// the player prologue). Nothing took effect; it is not a loss.
+    WorldClosed,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -275,6 +279,13 @@ pub trait Chain {
     /// gateway reported, once known (`None`: not known yet).
     fn chain_sig(&self, handle: &str) -> Option<String> {
         Some(handle.to_string())
+    }
+    /// The world this port reads and writes (program id and world account,
+    /// e.g. the Season PDA). Every account address derives from it, so runs
+    /// of one world must never be applied to another. `None`: the port does
+    /// not name one (the store is then not bound).
+    fn world(&self) -> Option<String> {
+        None
     }
 }
 

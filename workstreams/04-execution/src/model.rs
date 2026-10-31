@@ -321,6 +321,9 @@ pub enum Reason {
     PortUnavailable,
     /// A canonical read contradicted itself (a bug to look at).
     Inconsistent(String),
+    /// The world refused player actions (WorldClosed): held, not failed —
+    /// the inputs or outputs stay where they are, the reservations stay.
+    WorldClosed,
     /// The caravan settled at a place other than the spec's destination and
     /// no raid record for it was found: the cause is unconfirmed. Not
     /// evidence against anyone (no raider is named or blamed), and no

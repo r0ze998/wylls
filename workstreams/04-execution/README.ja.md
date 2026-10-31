@@ -8,6 +8,8 @@
 
 第3回の受領物（① `3f3c8478`、⑤ `45cba41e`）との照合は [docs/RECONCILE-20261030c.ja.md](docs/RECONCILE-20261030c.ja.md)。`RuleDerived` は正確な量ではなく整数の下限、と直した（動作は不変）。共有パッチの採否は未確定で、この branch に新しい共有パッチは当てていない。
 
+**世界は終わらない（2026-10-31 の方針）。** シーズン依存の洗い出し、④の変更、共通方針の案は [docs/CONTINUITY.ja.md](docs/CONTINUITY.ja.md)。認可と送信経路の案は [docs/AUTH-ROUTES.ja.md](docs/AUTH-ROUTES.ja.md)。命令番号・版・hash・単位の登録表は [contracts/registry.txt](contracts/registry.txt)（コードから生成し、`e2e-native` の試験で照合する）。賞金の host 実行の通し試験（`e2e-native/`）は、旧経路の互換と既存の受取権の確認だけに使う。
+
 **数量の正本は [docs/QUANTITY-CONTRACT.ja.md](docs/QUANTITY-CONTRACT.ja.md)。** 記録の cargo が 0 なだけでは「0 と分かっている」とせず、この隊商の burn の記録があるときだけ 0 と断定する。別の宛先での決着は、take の記録が無ければ「原因未確認」で保留にし、誰も名指ししない（RECONCILE-20261030c §5）。
 
 ## いまの到達点（④ 0.2、統合判断待ち）

@@ -252,9 +252,16 @@ impl Store {
              CREATE TABLE IF NOT EXISTS receipts(id TEXT PRIMARY KEY, run_id TEXT NOT NULL, kind TEXT NOT NULL,
                  subject TEXT NOT NULL, source TEXT NOT NULL, slot INTEGER NOT NULL, body TEXT NOT NULL);
              CREATE TABLE IF NOT EXISTS cursor(name TEXT PRIMARY KEY, value INTEGER NOT NULL);
+             CREATE TABLE IF NOT EXISTS meta(name TEXT PRIMARY KEY, value TEXT NOT NULL);
              CREATE TABLE IF NOT EXISTS alerts(id INTEGER PRIMARY KEY AUTOINCREMENT, slot INTEGER NOT NULL,
                  run_id TEXT, kind TEXT NOT NULL, detail TEXT NOT NULL);",
         ))?;
+        // Open, unheld runs only: what `due` reads every tick.
+        sql(conn.execute_batch(&format!(
+            "CREATE INDEX IF NOT EXISTS runs_open_due ON runs(next_check, run_id)
+             WHERE {} AND held_reason IS NULL;",
+            Self::open_condition()
+        )))?;
         Ok(Store { conn })
     }
 
@@ -341,18 +348,38 @@ impl Store {
 
     /// Runs an executor should look at: open, not held, due.
     pub fn due(&self, now: u64, limit: usize) -> Result<Vec<String>, String> {
+        let mut st = sql(self.conn.prepare(&Self::due_sql()))?;
+        let rows = sql(st.query_map(params![now as i64, limit as i64], |r| r.get(0)))?;
+        sql(rows.collect())
+    }
+
+    /// `state NOT IN (terminal…)`, the condition of the open-runs index.
+    fn open_condition() -> String {
         let terminal: Vec<String> = RunState::ALL
             .iter()
             .filter(|s| s.terminal())
             .map(|s| format!("'{}'", s.name()))
             .collect();
-        let mut st = sql(self.conn.prepare(&format!(
-            "SELECT run_id FROM runs WHERE state NOT IN ({}) AND held_reason IS NULL
-             AND (next_check <= ?1 OR cancel_requested = 1) ORDER BY next_check, run_id LIMIT ?2",
-            terminal.join(",")
-        )))?;
-        let rows = sql(st.query_map(params![now as i64, limit as i64], |r| r.get(0)))?;
-        sql(rows.collect())
+        format!("state NOT IN ({})", terminal.join(","))
+    }
+
+    /// Reads the partial index over open, unheld runs (`runs_open_due`), so
+    /// finished runs piling up over a world's life are never scanned.
+    fn due_sql() -> String {
+        format!(
+            "SELECT run_id FROM runs INDEXED BY runs_open_due WHERE {} AND held_reason IS NULL
+             AND next_check <= ?1 ORDER BY next_check, run_id LIMIT ?2",
+            Self::open_condition()
+        )
+    }
+
+    /// The due query's plan (a growth check).
+    pub fn explain_due(&self) -> Result<String, String> {
+        let mut st = sql(self
+            .conn
+            .prepare(&format!("EXPLAIN QUERY PLAN {}", Self::due_sql())))?;
+        let rows = sql(st.query_map(params![0i64, 1i64], |r| r.get::<_, String>(3)))?;
+        Ok(sql(rows.collect::<Result<Vec<_>, _>>())?.join("; "))
     }
 
     /// Takes (or extends) the lease of a run. A take-over from another
@@ -777,6 +804,32 @@ impl Store {
             ],
         ))?;
         Ok(n == 1)
+    }
+
+    /// Binds the store to a world (program and world account) on first use;
+    /// a later different world is refused: every run, key and seq in this
+    /// store means something only in its own world.
+    pub fn bind_world(&self, world: &str) -> Result<(), String> {
+        sql(self.conn.execute(
+            "INSERT OR IGNORE INTO meta(name, value) VALUES('world', ?1)",
+            params![world],
+        ))?;
+        match self.world()? {
+            Some(w) if w == world => Ok(()),
+            Some(w) => Err(format!("this store belongs to world {w}, not {world}")),
+            None => Err("world binding not recorded".into()),
+        }
+    }
+
+    pub fn world(&self) -> Result<Option<String>, String> {
+        let mut st = sql(self
+            .conn
+            .prepare("SELECT value FROM meta WHERE name = 'world'"))?;
+        let mut rows = sql(st.query_map([], |r| r.get::<_, String>(0)))?;
+        match rows.next() {
+            Some(r) => sql(r).map(Some),
+            None => Ok(None),
+        }
     }
 
     pub fn alert(

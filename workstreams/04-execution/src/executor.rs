@@ -120,6 +120,8 @@ pub struct Executor<C: Chain, R: Rights> {
     /// Test hook, called at named points between a check and the write it
     /// guards (`ship.before_pin`), to interleave another executor there.
     pub hook: Option<Box<dyn FnMut(&'static str)>>,
+    /// The store is bound to the chain port's world (checked once).
+    world_ok: bool,
 }
 
 /// What a step decided: a state change, or nothing (wait).
@@ -216,6 +218,7 @@ fn reason_of(step: Step, r: &Reject) -> Option<Reason> {
         (_, Reject::WalletRequired) => Reason::WalletRequired,
         (_, Reject::Other(e)) => Reason::FacilityRejected(e.clone()),
         (_, Reject::Refused(code)) => Reason::GatewayRefused(code.clone()),
+        (_, Reject::WorldClosed) => Reason::WorldClosed,
     })
 }
 
@@ -240,6 +243,7 @@ impl<C: Chain, R: Rights> Executor<C, R> {
             params: Params::default(),
             crash: None,
             hook: None,
+            world_ok: false,
         }
     }
 
@@ -280,6 +284,20 @@ impl<C: Chain, R: Rights> Executor<C, R> {
             Err(_) => return Ok(rep),
         };
         rep.slot = now;
+        // A store holds the runs of one world: never apply them to another.
+        if !self.world_ok {
+            if let Some(w) = self.chain.world() {
+                match self.store.bind_world(&w) {
+                    Ok(()) => self.world_ok = true,
+                    Err(e) => {
+                        let _ = self.store.alert(now, None, "world_mismatch", &e);
+                        return Ok(rep);
+                    }
+                }
+            } else {
+                self.world_ok = true;
+            }
+        }
         self.ingest(now, &mut rep)?;
         for id in self.store.due(now, self.params.max_runs_per_tick)? {
             if !self.store.claim(&id, &self.id, now, self.params.lease)? {
@@ -943,6 +961,16 @@ impl<C: Chain, R: Rights> Executor<C, R> {
                 let why = reject
                     .and_then(|r| reason_of(Step::Facility, &r))
                     .or(row.detail.pending.clone());
+                if why == Some(Reason::WorldClosed) {
+                    // Not a failure: nothing was used; the reservations stay
+                    // and a person resumes once the world takes actions.
+                    let mut d = row.detail.clone();
+                    d.pending = None;
+                    let mut c = change(RunState::Reserved, d, now, "hold: WorldClosed");
+                    c.hold = Some(format!("{:?}", Reason::WorldClosed));
+                    c.ops = ops;
+                    return Ok(Next::Go(c));
+                }
                 if let Some(why) = why {
                     let Next::Go(mut c) = self.fail(row, now, why)? else {
                         unreachable!()
@@ -1264,7 +1292,9 @@ impl<C: Chain, R: Rights> Executor<C, R> {
             amount: row.spec.ship.cargo,
         };
         match why {
-            Some(why @ (Reason::WalletRequired | Reason::GatewayRefused(_))) => {
+            Some(
+                why @ (Reason::WalletRequired | Reason::GatewayRefused(_) | Reason::WorldClosed),
+            ) => {
                 // Back to FacilityConfirmed so the owner's seq is free for
                 // their other runs; a person signs, changes the agent's
                 // policy or mode, or cancels this one.
