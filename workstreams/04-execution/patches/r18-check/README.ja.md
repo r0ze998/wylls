@@ -43,3 +43,16 @@
 2. 統合 HEAD の隔離コピーに、⑱の keeper・fclient の修正と、この patch を当てる。
 3. `cargo test -p keeper --test play -- --test-threads=1`（ws04_* の 5 件と既存の 6 件）、frontier-node の workspace の試験、④の 72 件と 5 件を走らせる。
 4. 正常な場面で Reveal が実際に出て、settle まで進むこと（公開できる場合を塞いでいないこと）も合わせて見る。
+
+## ⑱から届いた修正の条件（2026-10-31、データとして受け取った。未受領・未検証）
+
+- 正本：`r18-package-20261031.tar.gz`（sha256 `e75ab1e4…8884`、commit 90df6a64 まで）。補助：`r18-package-20261031-addendum.tar.gz`（sha256 `0272442237b4145a4b39d5e3c51b3a636500c5a5c33818aff740d36d07f6ee90`）。branch `claude/brave-bohr-xe4n4p`、HEAD `2d3351c8ce4579d4ce70203c6500390d066b8399`（tree `0ba555476f8c28b50c6e7a953691eef393e406a3`）、コードの最終 commit は `3ec952358f133412ee8b69c75c9327f2fbc7ea87`（tree `c985148149adf67a111c5d28524e8a396a689cf1`）。どちらも④の環境には未着。
+- ⑱の判定の条件（④の問いへの答え）：THE anchor がチェーンにあり、かつ keeper 自身が drand から取った T(arrive) の署名を固定の鍵で検証できたときだけ Reveal を作る。RPC の読み取りだけには頼らない。BellAnchor は、bell・region・season が一致したときだけ anchor とみなす。
+- ⑱の報告する試験：擬似 RPC が受け取った全取引の全命令から、Reveal の tag と平文・salt のバイト列を探す。次の場合はどれも送信 0 件で、条件がそろった後は Reveal が出る（`play.rs` の `w6t_tests`、`testkit.rs` の `FakePort.fail_reads`・`FakeDrand.down`、`mutations.log`）。
+  - anchor が無い
+  - 読み取りが失敗する
+  - drand に届かない
+  - 古い bell・別 season・別 region・別 owner の anchor
+  - drand の公開前の anchor
+  - 所有者の再送と再起動
+- 受け取ったら：⑱の試験と、この文書の 5 場面（in-process の chain で、RPC の境界で判定する）を、同じ tree で走らせる。正常な場面で Reveal が出て settle まで進むかも見る。⑱の条件は「T(arrive) の署名の検証」を含むので、基準で T(arrive) より前に出た 2 件（owner material）も 0 になるはずである。
