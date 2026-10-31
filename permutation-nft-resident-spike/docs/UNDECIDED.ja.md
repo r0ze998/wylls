@@ -27,3 +27,5 @@
 | U21 | 運営（プログラムの upgrade authority）が永続 delegate／フックを通じて全 asset を動かせる立場になることの開示と制限 | 未扱い | 所有者・法務 |
 | U22 | 実 Core＋LiteSVM 検証のための導入（`docs/REAL-CORE-PLAN.ja.md` §1）を承認するか。devnet 実証（MARKET-COMPAT §2.4）を承認するか | 一覧と計画のみ。導入・配備はしていない | 所有者 |
 | U23 | upgrade authority の形（単一鍵／多重署名／遅延／凍結）と、collection authority の保管。供給上限をプログラムで数えるか | TRUST-MODEL §3 の提案のみ | 所有者・法務 |
+| U24 | devnet の試験価格（例 0.1 SOL）と、本番価格・供給数・ロイヤリティ。試験価格は config で変更可とし、本番条件と混同しない | 画面は `TEST PRICE` と明示 | 所有者 |
+| U25 | MINT-FLOW §7 の R1〜R7（導入、プログラム配備、collection、treasury/config、devnet 試験、サイト公開、索引）の承認と、公開先・サイト担当 | 一括提示のみ | 所有者・サイト担当 |

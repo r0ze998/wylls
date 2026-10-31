@@ -23,3 +23,5 @@
 | D17 | **市場対応**：Magic Eden は「Metaplex Core, Token 22 対応」と書くが、アプリ内の Core/cNFT の送付は非対応と別記事に記載。フック付き Token-2022 への言及は無い。Tensor は changelog で Core コレクション対応、mainnet 配備は延期。いずれもフック対応は**不明** | help.magiceden.io、dev.tensor.trade | 一次資料の範囲で「不明」と記録 |
 | D18 | **mpl-core の公開リリースと mainnet 配備の対応。** GitHub のリリース一覧は `release/core@0.15.3`（10/07）が最新と表示されるが、資産（.so・チェックサム）の一覧は取得できず（API 403、HTML は読み込み失敗）。mainnet の programdata（last deployed slot 455005931）がどのリリースかは**未照合** | WebFetch 結果、RPC 読取 | 未照合として記録。REAL-CORE-PLAN で取得時に照合する |
 | D19 | **crates.io の `mpl-core` クレートは 0.12.1（6/16）** で、GitHub の core リリース番号（0.15.x）と系列が違う（クレートはクライアント、リリースはプログラム）。版の対応は未照合 | crates.io API、GitHub | 未照合として記録 |
+| D20 | **既存サイトのソースと公開先。** `docs/site-proposal/README.ja.md` は「元のソースは作業フォルダの `wylls-site/`（リポジトリ管理外）」と記し、リポジトリには文言修正版 `index.html` だけ（参照する `app.js`・`style.css`・`media/` は無い）。公開先 `wylls-site.vercel.app` は HTTP 402 `DEPLOYMENT_DISABLED`。SUBMISSION.md はその URL を公式サイトとして載せている | `ls`、`curl -I`、SUBMISSION.md:164 | 事実を記録。復旧作業は SITE-STATUS §3 |
+| D21 | **サイトの waitlist はメールフォーム**（`#waitlist`、kind の自己申告）だが、決定は「NFT 取得＝登録、別フォーム無し」。組み込み時にフォームを撤去し、溜まったメールの扱いを決める必要がある | index.html:176-199 | 決定に従う（MINT-FLOW §6） |

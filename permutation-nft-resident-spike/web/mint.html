@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wylls 住民 NFT — devnet テスト mint</title>
+<style>
+  :root { color-scheme: light dark; --ink: #1d1d1b; --paper: #f6f4ee; --red: #c0392b; --ok: #1f7a3a; --muted: #6b6b66; --line: #d9d6cc; }
+  @media (prefers-color-scheme: dark) { :root { --ink: #ece9df; --paper: #16160f; --muted: #a09d93; --line: #3a3a33; } }
+  body { margin: 0; font: 16px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--ink); background: var(--paper); }
+  main { max-width: 640px; margin: 0 auto; padding: 16px; }
+  .banner { border: 2px solid var(--red); color: var(--red); padding: 10px 12px; border-radius: 8px; font-weight: 600; }
+  .card { border: 1px solid var(--line); border-radius: 10px; padding: 14px; margin-top: 14px; }
+  dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; margin: 0; }
+  dt { color: var(--muted); } dd { margin: 0; word-break: break-all; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 14px; }
+  button { font: inherit; padding: 10px 16px; border-radius: 8px; border: 1px solid var(--ink); background: var(--ink); color: var(--paper); cursor: pointer; }
+  button[disabled] { opacity: .45; cursor: not-allowed; }
+  button.ghost { background: transparent; color: var(--ink); }
+  .status { margin-top: 10px; padding: 10px 12px; border-radius: 8px; background: rgba(127,127,127,.08); min-height: 1.4em; }
+  .status.ok { border: 1px solid var(--ok); } .status.err { border: 1px solid var(--red); }
+  .small { color: var(--muted); font-size: 14px; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  a { color: inherit; }
+</style>
+</head>
+<body>
+<main>
+  <div class="banner" data-testid="notice">DEVNET のテストです。本番の参加権や金銭的価値を保証しません。テスト用 SOL だけを使ってください。</div>
+
+  <section class="card" aria-labelledby="h-terms">
+    <h2 id="h-terms" style="margin:0 0 8px;font-size:18px">接続先と費用の見込み</h2>
+    <dl>
+      <dt>ネットワーク</dt><dd data-testid="network">—</dd>
+      <dt>試験価格（変更可）</dt><dd data-testid="price">—</dd>
+      <dt>ネットワーク手数料</dt><dd data-testid="fee">—</dd>
+      <dt>口座作成費（NFT＋住民）</dt><dd data-testid="rent">—</dd>
+      <dt>合計の見込み</dt><dd data-testid="total">—</dd>
+      <dt>collection</dt><dd data-testid="collection">—</dd>
+    </dl>
+    <p class="small">価格はテスト用で、本番の販売条件ではありません。費用は見込みで、確定値は取引で決まります。</p>
+  </section>
+
+  <section class="card" aria-labelledby="h-wallet">
+    <h2 id="h-wallet" style="margin:0 0 8px;font-size:18px">ウォレット</h2>
+    <div class="row" data-testid="wallets"></div>
+    <dl style="margin-top:10px">
+      <dt>接続中</dt><dd data-testid="address">—</dd>
+      <dt>残高</dt><dd data-testid="balance">—</dd>
+    </dl>
+    <p class="small" data-testid="mobile-hint" hidden>スマホの場合：ウォレットアプリ内のブラウザでこのページを開くか、アプリで署名してこのページへ戻ってください。戻った後、進行中の取引は自動で照会します。</p>
+  </section>
+
+  <section class="card" aria-labelledby="h-mint">
+    <h2 id="h-mint" style="margin:0 0 8px;font-size:18px">NFT を mint して waitlist に登録する</h2>
+    <p class="small">NFT の取得がそのまま waitlist 登録です。別の登録フォームはありません。支払い・NFT 発行・住民 ID への紐付けは 1 つの取引で成立し、途中で失敗すれば支払いも戻ります（ネットワーク手数料を除く）。</p>
+    <div class="row">
+      <button type="button" data-testid="mint" disabled>テスト SOL で mint する</button>
+      <button type="button" class="ghost" data-testid="recheck">保有状態を再確認</button>
+    </div>
+    <div class="status" data-testid="status">準備中…</div>
+    <dl style="margin-top:10px" data-testid="result" hidden>
+      <dt>住民 ID</dt><dd data-testid="resident-id">—</dd>
+      <dt>asset</dt><dd data-testid="asset">—</dd>
+      <dt>取引署名</dt><dd data-testid="signature">—</dd>
+      <dt>保有者</dt><dd data-testid="holder">—</dd>
+    </dl>
+  </section>
+
+  <section class="card">
+    <h2 style="margin:0 0 8px;font-size:18px">あなたの住民（チェーンの読取結果）</h2>
+    <ul data-testid="mine" class="small"></ul>
+  </section>
+</main>
+<script type="module" src="/web/mint.mjs"></script>
+</body>
+</html>

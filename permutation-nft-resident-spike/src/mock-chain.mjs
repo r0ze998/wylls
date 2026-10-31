@@ -25,8 +25,8 @@ import { encodeAssetV1, encodeCollectionV1, MPL_CORE_PROGRAM } from './core-asse
 import { ERR, Refusal, refuse } from './errors.mjs';
 import { residentIdOf } from './ids.mjs';
 
-/** The mock resident program's id (a stand-in for the Frontier program). */
-export const RESIDENT_PROGRAM = 'ResidentProgram111111111111111111111111111';
+/** The mock resident program's id (a stand-in for the Frontier program): a real 32-byte key, so the browser can put it in a transaction. */
+export const RESIDENT_PROGRAM = base58(sha256('wylls-mock-resident-program-v1'));
 /** The resident program's account for an asset (a stand-in for the Citizen at its derived address). */
 export const residentAccountOf = assetId => base58(sha256('wylls-mock-resident', assetId));
 /** Decode the mock resident account (`{gen, session}`); null for no account. */
@@ -514,6 +514,11 @@ export class MockChain {
   sessionOf(assetId) { return this.residentOf(assetId).session; }
 
   attachWorld(world) { this.world = world; return this; }
+
+  /** The authority keypair object a mint needs, by collection (the chain only stores the public key; `mint` compares it). */
+  collectionAuthorityOf(collection) { return { publicKey: this.collectionAuthorities.get(collection) }; }
+  /** Write the resident program's account for an asset (the MintResident path of the mock RPC). */
+  writeResidentPublic(assetId, st) { this.#writeResident(assetId, st); }
 
   // ------------------------------------------------------------ events (what an indexer / webhook would deliver)
 
