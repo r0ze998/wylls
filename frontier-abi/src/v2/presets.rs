@@ -57,7 +57,8 @@ pub mod cq_layout {
         FLAGS @ 76 : "u8" = 1;
         PLACEMENT @ 77 : "u8" = 1;
         R_MAX_CEILING @ 78 : "u16" = 2;
-        RSV @ 80 : "rsv" = 48;
+        CONTINUOUS @ 80 : "u8" = 1;
+        RSV @ 81 : "rsv" = 47;
     );
 }
 
@@ -168,6 +169,10 @@ pub struct ConquestParams {
     /// Map growth: the outermost ring ExtendFrontier may raise the season
     /// to (0 = no extension: `r_max` is final).
     pub r_max_ceiling: u16,
+    /// Continuous world (migration candidate): 1 = the world does not end
+    /// (`end_bell` = `join_close_bell` = `NO_END_BELL`, EndSeason refused,
+    /// no prize pool); 0 = a season that ends (every season before).
+    pub continuous: u8,
 }
 
 /// `placement` 0: the wedge rule (every season before the field existed).
@@ -232,7 +237,8 @@ impl ConquestParams {
             & wr_u8(&mut d, L::RELATIONS, self.relations)
             & wr_u8(&mut d, L::FLAGS, self.flags)
             & wr_u8(&mut d, L::PLACEMENT, self.placement)
-            & wr_u16(&mut d, L::R_MAX_CEILING, self.r_max_ceiling);
+            & wr_u16(&mut d, L::R_MAX_CEILING, self.r_max_ceiling)
+            & wr_u8(&mut d, L::CONTINUOUS, self.continuous);
         d
     }
 
@@ -276,6 +282,7 @@ impl ConquestParams {
             flags: rd_u8(d, L::FLAGS)?,
             placement: rd_u8(d, L::PLACEMENT)?,
             r_max_ceiling: rd_u16(d, L::R_MAX_CEILING)?,
+            continuous: rd_u8(d, L::CONTINUOUS)?,
         })
     }
 
@@ -405,7 +412,10 @@ impl SeasonParamsV2 {
     /// the block's ranges and the dormancy timers agreeing in both parts.
     /// The program refuses a version other than its own.
     pub fn validate(&self) -> Result<(), &'static str> {
-        self.base.validate()?;
+        if self.cq.continuous > 1 {
+            return Err("continuous");
+        }
+        self.base.validate_world(self.cq.continuous == 1)?;
         if self.base.program_version != PROGRAM_VERSION_V2
             && self.base.program_version != PROGRAM_VERSION_S1
         {
@@ -488,6 +498,7 @@ pub const FRONTIER_7: ConquestParams = ConquestParams {
     flags: 0,
     placement: PLACEMENT_WEDGE,
     r_max_ceiling: 0,
+    continuous: 0,
 };
 
 /// Frontier-28's conquest block (§3.12).
@@ -737,8 +748,39 @@ mod tests {
             assert_eq!(ConquestParams::from_bytes(&b), Some(p.cq));
             assert_eq!(
                 base.cq.to_bytes()[cq_layout::PLACEMENT..cq_layout::RSV],
-                [0u8; 3]
+                [0u8; 4]
             );
+        }
+        // Continuous world: both end bells NO_END_BELL, else refused; a
+        // season that ends keeps the 28-day rule; the flag is 0 or 1.
+        {
+            use crate::presets::NO_END_BELL;
+            let cont = |f: &dyn Fn(&mut SeasonParamsV2)| {
+                let mut p = base;
+                p.cq.continuous = 1;
+                p.base.end_bell = NO_END_BELL;
+                p.base.join_close_bell = NO_END_BELL;
+                f(&mut p);
+                p.validate()
+            };
+            assert_eq!(cont(&|_| {}), Ok(()));
+            assert_eq!(
+                cont(&|p| p.base.end_bell = 4_032),
+                Err("join_close_bell/end_bell")
+            );
+            assert_eq!(
+                cont(&|p| p.base.join_close_bell = 756),
+                Err("join_close_bell/end_bell")
+            );
+            assert_eq!(cont(&|p| p.cq.continuous = 2), Err("continuous"));
+            assert_eq!(
+                bad(|p| p.base.end_bell = NO_END_BELL),
+                Err("join_close_bell/end_bell")
+            );
+            let mut p = base;
+            p.cq.continuous = 1;
+            assert_eq!(ConquestParams::from_bytes(&p.cq.to_bytes()), Some(p.cq));
+            assert_eq!(p.cq.to_bytes()[cq_layout::CONTINUOUS], 1);
         }
         assert_eq!(
             bad(|p| p.cq.heartland_max_ring = 1),

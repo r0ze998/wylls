@@ -3999,9 +3999,15 @@
           "ty": "u16"
         },
         {
-          "name": "RSV",
+          "name": "CONTINUOUS",
           "off": 80,
-          "len": 48,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "RSV",
+          "off": 81,
+          "len": 47,
           "ty": "rsv"
         }
       ]

@@ -109,6 +109,11 @@ pub const INCINERATOR: &str = "1nc1nerator11111111111111111111111111111111";
 /// Rules version of the Frontier kernels stored in the Season.
 pub const RULES_VERSION: u16 = permutation_rules::frontier::RULES_VERSION_FRONTIER;
 
+/// `end_bell` / `join_close_bell` of a world that does not end (continuous
+/// world, migration candidate): never reached by `bell_at` (u32 bells of
+/// 600 s), so every `bell < end_bell` rule holds and EndSeason is refused.
+pub const NO_END_BELL: u32 = u32::MAX;
+
 /// CreateSeason's parameters.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SeasonParams {
@@ -274,7 +279,20 @@ impl SeasonParams {
     /// network assume (600-s bells, quicknet, no postures). `Err` names the
     /// first failing field; the program maps it to `BadData`.
     pub fn validate(&self) -> Result<(), &'static str> {
+        self.validate_world(false)
+    }
+
+    /// [`SeasonParams::validate`] for a world that does not end
+    /// (`continuous`, the v2 conquest block's `CONTINUOUS`): `end_bell`
+    /// and `join_close_bell` are both [`NO_END_BELL`] (the program never
+    /// reaches them, EndSeason is refused); otherwise the 28-day rule.
+    pub fn validate_world(&self, continuous: bool) -> Result<(), &'static str> {
         let p = self;
+        let end_ok = if continuous {
+            p.end_bell == NO_END_BELL && p.join_close_bell == NO_END_BELL
+        } else {
+            p.join_close_bell < p.end_bell && p.end_bell <= 4_032
+        };
         let checks: [(bool, &'static str); 27] = [
             (p.regions == 16, "regions"),
             (p.genesis_ring <= 4, "genesis_ring"),
@@ -282,10 +300,7 @@ impl SeasonParams {
             (p.office_terms_per_wallet == 1, "office_terms_per_wallet"),
             (p.postures_enabled == 0, "postures_enabled"),
             (p.bell_secs == 600, "bell_secs"),
-            (
-                p.join_close_bell < p.end_bell && p.end_bell <= 4_032,
-                "join_close_bell/end_bell",
-            ),
+            (end_ok, "join_close_bell/end_bell"),
             // Quicknet's schedule is fixed (§5.3; the test beacon of I-53
             // replays rounds on the same schedule with its own key).
             (p.drand_period == QUICKNET_PERIOD, "drand_period"),
