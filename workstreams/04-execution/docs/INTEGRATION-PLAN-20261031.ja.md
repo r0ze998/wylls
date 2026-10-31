@@ -107,3 +107,21 @@
 - 検出の限界（⑲）：初回の取得、cursor が無い・読めない・古い形式、途中だけ欠けたノードでは検出できない。findex に「無い」ことを「起きていない」根拠にしない（⑫・⑮にも伝える）。
 - B（S1 とは別のプログラム）と C（文書）は別扱いのまま。S1 の口座の委任、公開 devnet、実際の ER での脱出は未決定・未確認。
 - 受け取ったら：二つの sha256、a91b7a4f と d793ebd4 の祖先関係と tree、A だけを ④の統合 HEAD から分けた候補 branch に当て、frontier-node の workspace 全体、④の 72 件、e2e-native を走らせる。
+
+### 5.4 ⑱の側で④の記録用 patch を走らせた結果（⑱の報告。データとして受け取った。④は未照合、10:40 UTC）
+
+- ⑱は本文から書き写した patch が sha256 `eb859fed…3234`（12,760 バイト）で一致したと報告。前提の `play.rs`（blob 915abb50）は 4cd901de と 41984e99 の両方にあり、そのまま当たった。⑱のブランチには commit していない。
+- 5 場面（`--test-threads 1`）：
+
+| 場面 | 4cd901de（修正前）秘匿／有効性 | 41984e99（⑱の最終）秘匿／有効性 |
+|---|---|---|
+| normal | 2 / 7 FAIL | 0 / 0、Reveal 7 件 PASS |
+| held_anchor | 2 / 7 FAIL | 0 / 0、7 件 PASS |
+| reads_fail | 2 / 7 FAIL | 0 / 0、7 件 PASS |
+| restart | 0 / 6 FAIL | 0 / 0、6 件 PASS |
+| retries | 2 / 7 FAIL（anchor あり 20 件） | 0 / 0、27 件 PASS |
+
+- 修正前の数字は④の測定と同じ。修正後も Reveal は出て、すべて THE anchor がチェーンにあり drand の公開後だった、と⑱は報告。
+- transit の digest は 5 場面とも同じ（`181c0c1a…`）で、restart でも所有者の material は失われていない。戦闘結果の digest は anchor の着地時刻から決まる seed に依存するので、遅延の場面では normal と違う。④の試験は outcome の一致を条件にしていない（`check()` は秘匿と有効性だけ）。この扱いのままにする。
+- ログ（⑱の手元。次のパッケージに入る）：`ws04-base.log` `24114c76…`、`ws04-head.log` `fe403d00…`、`ws04-head-digests.log` `16a7c871…`。
+- ④の判定は、正本と補助 v2 を受け取り、同じ tree で④自身が走らせてからにする。
