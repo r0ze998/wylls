@@ -252,3 +252,22 @@
 - 封印進軍: 境界前に出陣、境界後に到着。Reveal と決着が境界で拒否されない。
 - 再起動: keeper/herald/relay の再起動後に上の件数が変わらない。
 - 検証器: 境界をまたぐ archive を一つの run として PASS できる（V20 の end 判定、`ArrivalAfterEnd` 等の扱いを戦期の集計と分ける）。
+
+
+---
+
+# 第4期（2026-10-31）：正本待ちの間に基点で進めた ⑱⑰ のホスト試験
+
+正本（④ `wylls-ws04-continuity-20261031b.tar.gz`、⑧ `wylls-08-archive-v4.tar.gz`）は未受領。④の報告 commit `eccb833d38604f00d35987bebe710219b6ede6ef`（tree `82bf0762…`、⑱側の試験結果を記録した版）は手元から取得できず、検証していない。新しく現れたリモートブランチ `claude/nice-edison-3boh5r`（`087277477282…`）は別案件で無関係。以下はすべて基点 `4cd901de`（= `main` `92142932`、⑯ブランチ HEAD `c77198759e15c33ff685ed9b11d3d5ff007f132a`、tree `efa7bd6ed34fdb95e7a30bd8c42a73930563b917`）の実コード。
+
+| ID | 再現入力 | 期待結果 | 実結果（基点） | 原因 | 最小修正候補 | 修正後 |
+|---|---|---|---|---|---|---|
+| T18-2 早期平文 | keeper `/v1/reveal` に、到着ターン開始の 2,993 秒前（出陣直後、到着 bell 7、現在 bell 2）に正しい平文・salt・ct_hash を提出（`keeper/tests/v16_early_reveal.rs`、localnet in-process、program はネイティブ代役） | 到着ターン開始前は拒否、キューに入らない（keeper 自身の表 `play.rs:6`「from the bell start」、M1 契約 §9.3） | `202 accepted`、Reveal 担当のキューに 1 件。Reveal 書込みの `not_before_slot` は `t.slot + jitter` のみ | `reveal_accept.rs judge` に時刻の下限なし、`play.rs reveals()` にも下限なし。既存試験 `reveal_accept_over_localnet` 自体が到着 2 ターン前の `202` を固定している | **P11**: `judge` で `now < bell_start(arrive)` を `425 TooEarly`、`reveals()` で到着ターン開始前を送らない、既存試験を「早期は 425、開始後に 202」に調整 | keeper 全試験通過（`logs/patched-keeper-p11.log`） |
+| T18-3 再送と手数料 | 1 件の Reveal（class W）を 27 スロット未応答で保留し、その後に最新版を着地、それ以前の 26 版を `AlreadyDone`（code 52）で着地させる（`keeper/tests/v16_reveal_versions_fees.rs`。送信器は実コード、チェーンと AlreadyDone は台本の代役） | (1) 書込みは 1 回で終わる、(2) 余分な手数料は `per_write_cap` 以下、(3) keeper の `fees_charged` がチェーンの課金と一致 | (1) 1 回（送信器側の二重効果なし。チェーン側の二重効果防止はプログラムの AlreadyDone で、ここでは未実行）、(2) 27 版、チェーン課金 1,459,427 lamports（勝者 57,052、余分 1,402,375）、上限 20,000,000 以下、(3) **keeper の集計は 14,312**（最初に判定された 1 版分だけ） | `engine.rs poll`: 書込みが終わった巡回で後から判定された版（`ended` 分岐）と、その後に解決する `orphans` は journal に状態を書くだけで手数料を数えない。最初に判定された `AlreadyDone` 版が `Landed` として記録される | **P12**: 終了後の版と orphan の着地時に、その版の手数料を `fees_charged` に加算（`orphan_fees` で duty 種別と手数料を保持、期限切れで破棄） | keeper 全試験通過 81 件（`logs/patched-keeper-p12.log`） |
+
+区別:
+- **早期漏えい（T18-2）と再送の手数料（T18-3）は別の問題**。⑱が報告した「retries 27 件」は、class W の 1 スロット 1 版の再送で生じうる件数であり、各版が平文を含む。T18-2 が直らない限り、27 版すべてが到着ターン前に平文を RPC へ流しうる。
+- **二重の状態変更**: 送信器の側では 1 回で終わる（実測）。チェーン上の二重効果防止はプログラムの Reveal の `AlreadyDone`／slot 存在の検査で、LiteSVM 未実行のため未検証。
+- **余分な手数料**: 設計上の上限（`per_write_cap` 0.02 SOL）以内だが、keeper の集計が実課金の約 1% しか数えず、⑰の費用照合に使えない（P12）。
+
+未実行: プログラム本体（SBF）での Reveal の二重効果防止、提供 `.so` での LiteSVM（受領物なし）、④⑧の正本 tree での再実行。

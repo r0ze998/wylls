@@ -15,6 +15,9 @@
 | `P9-prototype-crank-undelegation-order.patch` | `permutation-gateway/src/crank.mjs`（⑲、**旧 prototype**。Frontier 再構築に MagicBlock の配線は無い） | T19-1: 解除 intent の順序（国→州）がプログラムの `undelegation_order`（州 1..19→国→州 0）と逆で、最初の intent が `UndelegationOrder` で拒否される | `v16-public-ops.test.mjs`（T19-1 が通る） | `crank.test.mjs` の期待値を更新（同梱） | 旧 prototype の保守に限る。再起動時の `meta.undelegated` 再同期は別途（未修正） |
 | `P10-docs-reveal-timing-wording.patch` | `README.md`（⑦⑱） | T18-1: 「到着ターンが終わるまで秘匿」は実装（所有者は到着ターン開始時に自己 Reveal、M1 契約の仕様）と食い違う | 文書のみ。T18-1 は挙動の記録として残る | なし | 文言案。所有者の確認が要る |
 
+| `P11-keeper-no-reveal-before-arrival-turn.patch` | `frontier-node/crates/keeper`（⑱、keeper の受付と Reveal 担当）＋既存試験 1 件 | T18-2: 到着ターン開始前の所有者平文を `202` で受理し、Reveal 書込みに時刻の下限が無い | `keeper/tests/v16_early_reveal.rs`（通る） | `reveal_accept_over_localnet` を「早期は 425 TooEarly、開始後に 202」に調整（同梱）。keeper 全試験通過 | 「公開可能時刻」をターン開始とした（keeper 自身の表と M1 契約の値）。⑱が round 公開時刻を採るなら下限をそこへ移す |
+| `P12-keeper-count-every-landed-version-fee.patch` | `frontier-node/crates/keeper/src/engine.rs`（④共有コア、⑰の費用照合） | T18-3: 書込み終了後に着地した版（AlreadyDone 含む）の手数料を `fees_charged` に数えない | `keeper/tests/v16_reveal_versions_fees.rs`（通る） | keeper 全試験 81 件通過 | 勝者でなく先に判定された AlreadyDone 版が `Landed` に記録される点（journal の正確さ）は未修正 |
+
 適用順は任意（互いに独立）。P2 と P3 は組で意味を持つ（feed に holderTag が無ければ P3 は何も変えない）。
 
 ## 適用していない理由

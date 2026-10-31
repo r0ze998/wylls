@@ -1,0 +1,91 @@
+diff --git a/frontier-node/crates/keeper/src/engine.rs b/frontier-node/crates/keeper/src/engine.rs
+index 18926536..5b53961c 100644
+--- a/frontier-node/crates/keeper/src/engine.rs
++++ b/frontier-node/crates/keeper/src/engine.rs
+@@ -259,6 +259,10 @@ pub struct Engine {
+     /// Versions whose write is gone (cancelled, adopted after a restart):
+     /// polled until resolved so the journal is complete.
+     orphans: Vec<(Signature, u64)>,
++    /// ⑯ P12: the duty kind and fee of every orphan version, charged to
++    /// `KindStats.fees_charged` when its status shows it landed (a version
++    /// that lands pays its fee, `AlreadyDone` or not).
++    orphan_fees: HashMap<Signature, (&'static str, u64)>,
+     adopted: HashMap<String, Vec<Version>>,
+     pub budgets: Budgets,
+     pub params: EngineParams,
+@@ -303,6 +307,7 @@ impl Engine {
+             backoff: HashMap::new(),
+             failures: HashMap::new(),
+             orphans: vec![],
++            orphan_fees: HashMap::new(),
+             adopted: HashMap::new(),
+             budgets,
+             params,
+@@ -415,6 +420,9 @@ impl Engine {
+     /// already sent are kept as orphans for the journal.
+     pub fn cancel(&mut self, key: &str) {
+         if let Some(p) = self.pending.remove(key) {
++            for v in &p.versions {
++                self.orphan_fees.insert(v.sig, (p.spec.kind, v.fee));
++            }
+             self.orphans
+                 .extend(p.versions.iter().map(|v| (v.sig, v.sent_slot)));
+         }
+@@ -610,6 +618,10 @@ impl Engine {
+                     let s = if st.err.is_none() { "landed" } else { "failed" };
+                     let _ = j.set_status(&v.sig.to_string(), s, Some(st.slot), st.code);
+                 }
++                // ⑯ P12: it landed, so it paid.
++                if let Some(p) = self.pending.get(k) {
++                    self.stats.entry(p.spec.kind).or_default().fees_charged += v.fee;
++                }
+                 continue;
+             }
+             if let Some(o) = self.classify(k, st, v, journal, &mut report) {
+@@ -639,6 +651,9 @@ impl Engine {
+                     }
+                     Outcome::Dead { .. } => s.dead += 1,
+                 }
++                for v in p.versions.iter().filter(|v| !resolved.contains(&v.sig)) {
++                    self.orphan_fees.insert(v.sig, (p.spec.kind, v.fee));
++                }
+                 self.orphans.extend(
+                     p.versions
+                         .iter()
+@@ -664,11 +679,16 @@ impl Engine {
+                             let s = if st.err.is_none() { "landed" } else { "failed" };
+                             let _ = j.set_status(&o.0.to_string(), s, Some(st.slot), st.code);
+                         }
++                        // ⑯ P12: a landed orphan paid its fee.
++                        if let Some((kind, fee)) = self.orphan_fees.remove(&o.0) {
++                            self.stats.entry(kind).or_default().fees_charged += fee;
++                        }
+                     }
+                     None if slot > o.1 + EXPIRY_SLOTS => {
+                         if let Some(j) = journal {
+                             let _ = j.set_status(&o.0.to_string(), "expired", None, None);
+                         }
++                        self.orphan_fees.remove(&o.0);
+                     }
+                     None => keep.push(*o),
+                 }
+@@ -722,6 +742,9 @@ impl Engine {
+             }
+             if p.spec.deadline_slot.is_some_and(|d| slot >= d) {
+                 let p = self.pending.remove(&k).expect("pending");
++                for v in &p.versions {
++                    self.orphan_fees.insert(v.sig, (p.spec.kind, v.fee));
++                }
+                 self.orphans
+                     .extend(p.versions.iter().map(|v| (v.sig, v.sent_slot)));
+                 self.stats.entry(p.spec.kind).or_default().dead += 1;
+@@ -745,6 +768,9 @@ impl Engine {
+                 && p.versions.iter().all(|v| slot > v.sent_slot + EXPIRY_SLOTS)
+             {
+                 let p = self.pending.remove(&k).expect("pending");
++                for v in p.versions.iter().filter(|v| !p.settled.contains(&v.sig)) {
++                    self.orphan_fees.insert(v.sig, (p.spec.kind, v.fee));
++                }
+                 self.orphans.extend(
+                     p.versions
+                         .iter()
