@@ -2,7 +2,7 @@
 
 **状態**：⑱のパッケージ `r18-package-20261031.tar.gz`（sha256 `e75ab1e4…8884`）は**未受領・未配置**。この文書は、修正を当てる**前**の基準の測定と、修正を当てた後に同じ試験を走らせるための道具を記録する。共有コアへは当てていない（下の patch は提案）。
 
-## 道具（`keeper-play-reveal-before-anchor.patch`、sha256 `52d818e4fd2927ff65134a83255753179429b048f6cfa17a273901eec90ced62`）
+## 道具（`keeper-play-reveal-before-anchor.patch`、sha256 `eb859fedd25e2f62502300b997167042558819b8c4092ae6667b655efd0d3234`。2026-10-31 に、drand の公開の判定を足して更新した。前の版は `52d818e4…ced62`）
 
 対象は `frontier-node/crates/keeper/tests/play.rs` だけ（試験のみ。keeper の本体は変えない）。
 
@@ -13,11 +13,13 @@
   3. THE anchor の読み取りが失敗する：RPC のエラーを注入する
   4. 保留の途中で keeper を journal から作り直す（再起動）
   5. 再試行：slot を保留し、版を上げていく
-- **判定**：THE anchor がチェーンに載る前に RPC へ出た Reveal が 0 件であること。T(arrive) より前に出た件数は、別に数えるだけで判定しない（本人の自己公開をいつ許すかは未決の規則）。
+- **判定**：二つを分けて判定する（⑱の提案で、⑱と同じ物差しにした）。
+  - **秘匿**：drand が T(arrive) を公開する前（round の時刻＋公開の遅れより前）に、平文を含む Reveal が RPC へ出ないこと。それより前に封を開けられるのは本人だけである。
+  - **有効性**：THE anchor がチェーンに載る前に、Reveal が RPC へ出ないこと。載っていないと、program は窓の確認を飛ばす。
 
 ## 基準での結果（修正の前。HEAD `bc09689a7d888958a9cbfa61a7db2f58598e9d27`、tree `ed2921f496be05b3f6326e84b71558625a1ac5c1` に、この patch を当てたもの）
 
-| 場面 | THE anchor が載る前に RPC へ出た Reveal | 載った後 | T(arrive) より前 | THE anchor が初めて載った slot |
+| 場面 | THE anchor が載る前に RPC へ出た Reveal（有効性） | 載った後 | drand が T(arrive) を公開する前（秘匿） | THE anchor が初めて載った slot |
 |---|---|---|---|---|
 | 正常 | 7 | 0 | 2 | 703 |
 | anchor の保留 | 7 | 0 | 2 | 722 |
@@ -56,3 +58,11 @@
   - drand の公開前の anchor
   - 所有者の再送と再起動
 - 受け取ったら：⑱の試験と、この文書の 5 場面（in-process の chain で、RPC の境界で判定する）を、同じ tree で走らせる。正常な場面で Reveal が出て settle まで進むかも見る。⑱の条件は「T(arrive) の署名の検証」を含むので、基準で T(arrive) より前に出た 2 件（owner material）も 0 になるはずである。
+
+## ⑱の訂正と回答（2026-10-31）
+
+- ⑱は、「NoAnchor で拒否され、失敗取引として載る」という記述を訂正した（commit `5c1649b901abf7d47dfe3203035b96aac7d6048a`、tree `4d4f71b29802d1fc842d998453af5264f1dc65c8`。挙動の変更なし）。
+- ⑱の修正は、Reveal を作る前に、次の二つが両方そろうことを要求する：(1) THE anchor をチェーンの読み取りで確認した（bell・region・season が一致する。自分で送っただけでは数えない）、(2) keeper 自身が T(arrive) の署名を drand から取り、固定の鍵で検証した。秘匿を決めるのは (2) で、(1) は有効性だけに関わる。
+- 再起動で owner material が失われる件は、⑱の commit `983fbf88`（journal の owner_material 表）で直したとのこと。
+- 「anchor も archive も無い Reveal を program 側で拒否する」かは、共有コアの設計の判断（未決）。今の設計は、到着の bell の中での自己公開を受け付ける。
+- 基準で再測定（drand の公開の判定を足した版）：秘匿は正常・保留・読み取りの失敗・再試行で各 2 件の違反（再起動は 0 件だが、owner material を失ったため）。有効性は 5 つの場面すべてで 6〜7 件の違反。既存の play の試験 6 件は通る。

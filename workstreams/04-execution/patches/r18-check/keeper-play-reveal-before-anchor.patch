@@ -1,5 +1,5 @@
 diff --git a/frontier-node/crates/keeper/tests/play.rs b/frontier-node/crates/keeper/tests/play.rs
-index 915abb50..fb8adbab 100644
+index 915abb50..2d06bcb3 100644
 --- a/frontier-node/crates/keeper/tests/play.rs
 +++ b/frontier-node/crates/keeper/tests/play.rs
 @@ -48,7 +48,93 @@ use permutation_rules::hex::{Hex, DIRECTIONS};
@@ -184,7 +184,7 @@ index 915abb50..fb8adbab 100644
          if let (Some((prio, n)), false) = (o.hold_slots, held_slots) {
              let t_arrive = sc.drand.round_time(sc.tlock_round(arrive));
              if w.now() >= t_arrive {
-@@ -1674,3 +1808,91 @@ async fn claim_after_late_reveal() {
+@@ -1674,3 +1808,107 @@ async fn claim_after_late_reveal() {
      assert!(claims.iter().all(|c| c.2 > 0));
      println!("claims: {claims:?}");
  }
@@ -199,8 +199,11 @@ index 915abb50..fb8adbab 100644
 +fn reveals_out(r: &Run) -> (Vec<RevealOut>, Vec<RevealOut>, usize) {
 +    let all = OUT.with(|o| o.borrow().clone());
 +    let sc = fclient::clock::SeasonClock::from_season(&r.w.season());
-+    let t_arrive = sc.drand.round_time(sc.tlock_round(r.arrive));
-+    let before_t = all.iter().filter(|x| x.now < t_arrive).count();
++    // drand publishes T(arrive) at its round time plus the publication
++    // delay (the test key's gate, `Gated`): before that, nobody but the
++    // owner can open the seal, so plaintext must not leave.
++    let published = sc.drand.round_time(sc.tlock_round(r.arrive)) + DRAND_DELAY;
++    let before_t = all.iter().filter(|x| x.now < published).count();
 +    let (ok, early): (Vec<_>, Vec<_>) = all.into_iter().partition(|x| x.anchor_present);
 +    (ok, early, before_t)
 +}
@@ -208,7 +211,7 @@ index 915abb50..fb8adbab 100644
 +fn report(name: &str, r: &Run) -> Vec<RevealOut> {
 +    let (ok, early, before_t) = reveals_out(r);
 +    println!(
-+        "{name}: {} Reveal(s) to the RPC with THE anchor on chain, {} without it; {before_t} before T(arrive)",
++        "{name}: {} Reveal(s) to the RPC with THE anchor on chain, {} without it; {before_t} before drand published T(arrive)",
 +        ok.len(),
 +        early.len()
 +    );
@@ -231,13 +234,26 @@ index 915abb50..fb8adbab 100644
 +    early
 +}
 +
++/// Two criteria, judged apart: secrecy (no plaintext before drand
++/// published T(arrive): before that only the owner can open the seal) and
++/// validity (THE anchor on chain when the Reveal is handed over: otherwise
++/// the program skips the window check, proc/reveal.rs:803-835).
++fn check(r: &Run, early: &[RevealOut]) {
++    let (_, _, before_t) = reveals_out(r);
++    assert!(
++        before_t == 0 && early.is_empty(),
++        "secrecy: {before_t} Reveal(s) before drand published T(arrive); validity: {} before THE anchor was on chain",
++        early.len()
++    );
++}
++
 +#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 +async fn ws04_no_reveal_before_anchor_normal() {
 +    let Some(r) = scenario(Opts::default()).await else {
 +        return;
 +    };
 +    let early = report("normal", &r);
-+    assert!(early.is_empty(), "plaintext reached the RPC before THE anchor: {early:?}");
++    check(&r, &early);
 +}
 +
 +#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -246,7 +262,7 @@ index 915abb50..fb8adbab 100644
 +        return;
 +    };
 +    let early = report("anchor held", &r);
-+    assert!(early.is_empty(), "plaintext reached the RPC before THE anchor: {early:?}");
++    check(&r, &early);
 +}
 +
 +#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -255,7 +271,7 @@ index 915abb50..fb8adbab 100644
 +        return;
 +    };
 +    let early = report("anchor reads fail", &r);
-+    assert!(early.is_empty(), "plaintext reached the RPC before THE anchor: {early:?}");
++    check(&r, &early);
 +}
 +
 +#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -264,7 +280,7 @@ index 915abb50..fb8adbab 100644
 +        return;
 +    };
 +    let early = report("anchor held, keeper restarted", &r);
-+    assert!(early.is_empty(), "plaintext reached the RPC before THE anchor: {early:?}");
++    check(&r, &early);
 +}
 +
 +#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -274,5 +290,5 @@ index 915abb50..fb8adbab 100644
 +        return;
 +    };
 +    let early = report("retries", &r);
-+    assert!(early.is_empty(), "plaintext reached the RPC before THE anchor: {early:?}");
++    check(&r, &early);
 +}
