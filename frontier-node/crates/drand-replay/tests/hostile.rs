@@ -190,7 +190,7 @@ async fn discovery_takes_only_the_pinned_chain() {
     let foreign = serve(Mode::ForeignInfo).await;
     let pins = beacon::pins_for(&[good.clone(), foreign.clone()]);
     assert_eq!(pins.len(), 2, "loopback: quicknet and the test key");
-    let e = beacon::discover_pinned(&[foreign.clone()], &pins)
+    let e = beacon::discover_pinned(std::slice::from_ref(&foreign), &pins)
         .await
         .unwrap_err();
     assert!(e.contains("differs from the pin"), "{e}");
