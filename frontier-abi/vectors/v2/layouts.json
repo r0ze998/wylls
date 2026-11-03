@@ -3987,9 +3987,21 @@
           "ty": "u8"
         },
         {
-          "name": "RSV",
+          "name": "RSV_PRE_CONTINUOUS",
           "off": 77,
-          "len": 51,
+          "len": 3,
+          "ty": "rsv"
+        },
+        {
+          "name": "CONTINUOUS",
+          "off": 80,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "RSV",
+          "off": 81,
+          "len": 47,
           "ty": "rsv"
         }
       ]

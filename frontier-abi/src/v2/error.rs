@@ -82,10 +82,12 @@ pub enum CqError {
     /// vote on a closed one, a settle of an open one, a second open
     /// proposal of the proposer, a target that does not qualify).
     ProposalState = 93,
+    /// A continuous world cannot be ended by EndSeason.
+    ContinuousWorld = 94,
 }
 
 impl CqError {
-    pub const ALL: [CqError; 32] = {
+    pub const ALL: [CqError; 33] = {
         use CqError::*;
         [
             CapturePending,
@@ -120,6 +122,7 @@ impl CqError {
             ProposalsFull,
             NotVoter,
             ProposalState,
+            ContinuousWorld,
         ]
     };
 
@@ -166,6 +169,7 @@ impl CqError {
             ProposalsFull => "ProposalsFull",
             NotVoter => "NotVoter",
             ProposalState => "ProposalState",
+            ContinuousWorld => "ContinuousWorld",
         }
     }
 
@@ -260,7 +264,8 @@ mod tests {
         }
         assert_eq!(CqError::NotLead.code(), 78);
         let all: std::vec::Vec<u32> = all_codes().map(|c| c.code()).collect();
-        assert_eq!(all.len(), 62 + 32);
+        assert_eq!(all.len(), 62 + 33);
+        assert_eq!(CqError::ContinuousWorld.code(), 94);
         assert_eq!(CqError::ProposalState.code(), 93);
         assert_eq!(CqError::NotOnTile.code(), 86);
         assert_eq!(CqError::StructureFull.code(), 89);
@@ -276,7 +281,11 @@ mod tests {
         assert_eq!(Code::from_code(79), Some(Code::Cq(CqError::VaultSite)));
         assert_eq!(Code::from_code(87), Some(Code::Cq(CqError::StructureSite)));
         assert_eq!(Code::from_code(91), Some(Code::Cq(CqError::ProposalsFull)));
-        assert_eq!(Code::from_code(94), None);
+        assert_eq!(
+            Code::from_code(94),
+            Some(Code::Cq(CqError::ContinuousWorld))
+        );
+        assert_eq!(Code::from_code(95), None);
         assert_eq!(
             Code::Cq(CqError::FoldTooEarly).keeper_action(),
             KeeperAction::Wait

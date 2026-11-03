@@ -32,6 +32,35 @@ pub fn season_cq(season: &[u8]) -> R<ConquestParams> {
     ConquestParams::of_season(season).ok_or(BAD_ACCOUNT)
 }
 
+/// The flag at conquest-block byte 80 on an already-existing world. Older
+/// finite worlds have zero in this formerly reserved byte. An unknown
+/// nonzero value must not let EndSeason pass through as a finite world.
+pub fn is_continuous(season: &[u8]) -> R<bool> {
+    let at = SEASON_CQ_OFFSET + cq_params::CONTINUOUS;
+    match season.get(at) {
+        Some(0) => Ok(false),
+        Some(1) => Ok(true),
+        _ => Err(BAD_ACCOUNT),
+    }
+}
+
+#[cfg(test)]
+mod continuous_tests {
+    use super::*;
+
+    #[test]
+    fn old_finite_accounts_end_but_unknown_flags_fail_closed() {
+        let at = SEASON_CQ_OFFSET + cq_params::CONTINUOUS;
+        let mut season = vec![0u8; season2::SIZE];
+        assert_eq!(is_continuous(&season), Ok(false));
+        season[at] = 1;
+        assert_eq!(is_continuous(&season), Ok(true));
+        season[at] = 2;
+        assert_eq!(is_continuous(&season), Err(BAD_ACCOUNT));
+        assert_eq!(is_continuous(&season[..at]), Err(BAD_ACCOUNT));
+    }
+}
+
 /// The season's holding lifecycle timers (MC §3.9, §3.12) as the holding
 /// kernel's `LifecycleParams`.
 pub fn lifecycle(cq: &ConquestParams) -> permutation_rules::frontier::holding::LifecycleParams {

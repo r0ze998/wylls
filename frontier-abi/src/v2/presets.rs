@@ -55,7 +55,12 @@ pub mod cq_layout {
         RETIRE_HOSTS @ 74 : "u8" = 1;
         RELATIONS @ 75 : "u8" = 1;
         FLAGS @ 76 : "u8" = 1;
-        RSV @ 77 : "rsv" = 51;
+        // 8's placement and map-growth fields at 77..79 are not in this
+        // isolated candidate. Preserve their reserved bytes, but pin the
+        // continuous-world flag to the same byte 80 as 8's source ABI.
+        RSV_PRE_CONTINUOUS @ 77 : "rsv" = 3;
+        CONTINUOUS @ 80 : "u8" = 1;
+        RSV @ 81 : "rsv" = 47;
     );
 }
 
@@ -158,6 +163,9 @@ pub struct ConquestParams {
     pub retire_hosts: u8,
     pub relations: u8,
     pub flags: u8,
+    /// Byte 80 of the conquest block. This isolated candidate decodes the
+    /// flag but does not enable creating a continuous world.
+    pub continuous: u8,
 }
 
 impl ConquestParams {
@@ -215,14 +223,21 @@ impl ConquestParams {
             & wr_u16(&mut d, L::OUTPOST_CLOSE_BELLS, self.outpost_close_bells)
             & wr_u8(&mut d, L::RETIRE_HOSTS, self.retire_hosts)
             & wr_u8(&mut d, L::RELATIONS, self.relations)
-            & wr_u8(&mut d, L::FLAGS, self.flags);
+            & wr_u8(&mut d, L::FLAGS, self.flags)
+            & wr_u8(&mut d, L::CONTINUOUS, self.continuous);
         d
     }
 
     /// Decodes the 128-B block; `None` if short or a reserved byte is set.
     pub fn from_bytes(d: &[u8]) -> Option<ConquestParams> {
         use cq_layout as L;
-        if d.len() < CONQUEST_PARAMS_LEN || d[L::RSV..CONQUEST_PARAMS_LEN].iter().any(|b| *b != 0) {
+        if d.len() < CONQUEST_PARAMS_LEN
+            || d[L::RSV_PRE_CONTINUOUS..L::CONTINUOUS]
+                .iter()
+                .any(|b| *b != 0)
+            || d[L::CONTINUOUS] > 1
+            || d[L::RSV..CONQUEST_PARAMS_LEN].iter().any(|b| *b != 0)
+        {
             return None;
         }
         Some(ConquestParams {
@@ -257,6 +272,7 @@ impl ConquestParams {
             retire_hosts: rd_u8(d, L::RETIRE_HOSTS)?,
             relations: rd_u8(d, L::RELATIONS)?,
             flags: rd_u8(d, L::FLAGS)?,
+            continuous: rd_u8(d, L::CONTINUOUS)?,
         })
     }
 
@@ -385,6 +401,12 @@ impl SeasonParamsV2 {
     /// the block's ranges and the dormancy timers agreeing in both parts.
     /// The program refuses a version other than its own.
     pub fn validate(&self) -> Result<(), &'static str> {
+        // The existing 8 proposal couples creation to an indefinitely open
+        // join gate. That game rule remains undecided. Decode legacy and
+        // already-created worlds, but do not create new continuous accounts.
+        if self.cq.continuous != 0 {
+            return Err("continuous creation not enabled");
+        }
         self.base.validate()?;
         if self.base.program_version != PROGRAM_VERSION_V2
             && self.base.program_version != PROGRAM_VERSION_S1
@@ -457,6 +479,7 @@ pub const FRONTIER_7: ConquestParams = ConquestParams {
     retire_hosts: 1,
     relations: 0,
     flags: 0,
+    continuous: 0,
 };
 
 /// Frontier-28's conquest block (§3.12).
@@ -724,6 +747,18 @@ mod tests {
             Err("dormancy timers differ")
         );
         assert_eq!(bad(|p| p.cq.conquest_version = 2), Err("conquest_version"));
+        assert_eq!(
+            bad(|p| p.cq.continuous = 1),
+            Err("continuous creation not enabled")
+        );
+        let mut existing = base.cq.to_bytes();
+        existing[cq_layout::CONTINUOUS] = 1;
+        assert_eq!(ConquestParams::from_bytes(&existing).unwrap().continuous, 1);
+        existing[cq_layout::RSV_PRE_CONTINUOUS] = 1;
+        assert_eq!(ConquestParams::from_bytes(&existing), None);
+        existing[cq_layout::RSV_PRE_CONTINUOUS] = 0;
+        existing[cq_layout::CONTINUOUS] = 2;
+        assert_eq!(ConquestParams::from_bytes(&existing), None);
         let mut d = base.to_bytes();
         d[SEASON_PARAMS_LEN + cq_layout::RSV] = 1;
         assert_eq!(SeasonParamsV2::from_bytes(&d), None);

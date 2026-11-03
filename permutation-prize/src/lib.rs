@@ -182,6 +182,9 @@ pub enum PrizeError {
     NothingToPay = 0x10E,
     Overflow = 0x10F,
     WrongExpectedCount = 0x110,
+    /// InitPool: an existing continuous world never reaches Season Ended,
+    /// so the old end-dependent prize pool has no safe settlement path.
+    ContinuousSeason = 0x112,
 }
 
 impl From<PrizeError> for ProgramError {
@@ -437,6 +440,7 @@ fn init_pool(program: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         if key_at(&sd, S::AUTHORITY)? != *operator.key {
             return Err(E::NotOperator.into());
         }
+        season_ends(&sd)?;
         // A map that may grow past the bitmap could never be tallied whole.
         if u16_at(&sd, S::R_MAX)? > MAX_RING {
             return Err(E::BadParams.into());
@@ -940,12 +944,37 @@ pub fn process_instruction(program: &Pubkey, a: &[AccountInfo], data: &[u8]) -> 
     }
 }
 
+/// Refuse creating the old end-dependent pool for a continuous world. This
+/// does not change Pay, Tally, Finalize, Claim or Refund on existing pools.
+fn season_ends(sd: &[u8]) -> R<()> {
+    let at = frontier_abi::v2::presets::SEASON_CQ_OFFSET
+        + frontier_abi::v2::presets::cq_layout::CONTINUOUS;
+    match sd.get(at) {
+        Some(0) => Ok(()),
+        Some(1) => Err(E::ContinuousSeason.into()),
+        _ => Err(E::BadAccount.into()),
+    }
+}
+
 #[cfg(not(feature = "no-entrypoint"))]
 solana_program::entrypoint!(process_instruction);
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn continuous_world_refuses_old_pool_creation() {
+        let at = frontier_abi::v2::presets::SEASON_CQ_OFFSET
+            + frontier_abi::v2::presets::cq_layout::CONTINUOUS;
+        let mut season = vec![0u8; S::SIZE];
+        assert_eq!(season_ends(&season), Ok(()));
+        season[at] = 1;
+        assert_eq!(season_ends(&season), Err(E::ContinuousSeason.into()));
+        season[at] = 2;
+        assert_eq!(season_ends(&season), Err(E::BadAccount.into()));
+        assert_eq!(season_ends(&season[..at]), Err(E::BadAccount.into()));
+    }
 
     #[test]
     fn fee_split_is_80_20() {
