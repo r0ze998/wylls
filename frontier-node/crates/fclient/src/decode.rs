@@ -201,20 +201,23 @@ impl Season {
         use l::season as s;
         let b = check(d, magic::SEASON, s::END)?;
         let version = b.u16(s::PROGRAM_VERSION);
-        if version >= crate::abi::PROGRAM_VERSION_V2 {
-            use frontier_abi::v2::presets::{cq_layout, SEASON_CQ_OFFSET};
-            let at = SEASON_CQ_OFFSET + cq_layout::CONTINUOUS;
-            let mode = *d.get(at).ok_or(DecodeError::Short {
-                want: at + 1,
-                got: d.len(),
-            })?;
-            if mode > 1
-                || (mode == 1
-                    && (b.u32(s::END_BELL) != u32::MAX || ConquestParams::of_season(d).is_none()))
-            {
+        let conquest = if version >= crate::abi::PROGRAM_VERSION_V2 {
+            use frontier_abi::v2::presets::{CONQUEST_PARAMS_LEN, SEASON_CQ_OFFSET};
+            let want = SEASON_CQ_OFFSET + CONQUEST_PARAMS_LEN;
+            if d.len() < want {
+                return Err(DecodeError::Short { want, got: d.len() });
+            }
+            // The v2 block is present in every full v2 Season. Parse it even
+            // for a finite world so nonzero reserved bytes cannot silently
+            // turn a malformed account into a Season with no conquest data.
+            let cq = ConquestParams::of_season(d).ok_or(DecodeError::InvalidSeasonMode)?;
+            if cq.continuous == 1 && b.u32(s::END_BELL) != u32::MAX {
                 return Err(DecodeError::InvalidSeasonMode);
             }
-        }
+            Some(cq)
+        } else {
+            None
+        };
         Ok(Season {
             h: header(b),
             status: b.u8(s::STATUS),
@@ -272,9 +275,7 @@ impl Season {
             dpool_initial: b.u64(s::DPOOL_INITIAL),
             reveal_loaded_limit: b.u32(s::REVEAL_LOADED_LIMIT),
             join_gate: b.key(s::JOIN_GATE),
-            conquest: (b.u16(s::PROGRAM_VERSION) >= crate::abi::PROGRAM_VERSION_V2)
-                .then(|| ConquestParams::of_season(d))
-                .flatten(),
+            conquest,
         })
     }
 
@@ -1833,6 +1834,48 @@ mod tests {
         raw[SEASON_CQ_OFFSET + cq_layout::RSV_PRE_CONTINUOUS] = 0;
         put(&mut raw, l::season::PROGRAM_VERSION, &1u16.to_le_bytes());
         assert!(!Season::decode(&raw).unwrap().world_continues());
+    }
+
+    #[test]
+    fn v2_finite_world_rejects_corrupt_reserved_conquest_bytes() {
+        use frontier_abi::v2::presets::{cq_layout, CONQUEST_PARAMS_LEN, SEASON_CQ_OFFSET};
+        let mut raw = vec![0u8; size::SEASON];
+        put(&mut raw, 0, magic::SEASON);
+        put(
+            &mut raw,
+            l::season::PROGRAM_VERSION,
+            &crate::abi::PROGRAM_VERSION_V2.to_le_bytes(),
+        );
+        raw[SEASON_CQ_OFFSET..SEASON_CQ_OFFSET + CONQUEST_PARAMS_LEN]
+            .copy_from_slice(&frontier_abi::v2::presets::MC_TEST.cq.to_bytes());
+        put(&mut raw, l::season::END_BELL, &1008u32.to_le_bytes());
+        assert!(Season::decode(&raw).unwrap().conquest.is_some());
+
+        for at in [cq_layout::RSV_PRE_CONTINUOUS, cq_layout::RSV] {
+            raw[SEASON_CQ_OFFSET + at] = 1;
+            assert_eq!(Season::decode(&raw), Err(DecodeError::InvalidSeasonMode));
+            raw[SEASON_CQ_OFFSET + at] = 0;
+        }
+
+        let short = &raw[..SEASON_CQ_OFFSET + CONQUEST_PARAMS_LEN - 1];
+        assert_eq!(
+            Season::decode(short),
+            Err(DecodeError::Short {
+                want: SEASON_CQ_OFFSET + CONQUEST_PARAMS_LEN,
+                got: short.len(),
+            })
+        );
+
+        put(
+            &mut raw,
+            l::season::PROGRAM_VERSION,
+            &crate::abi::PROGRAM_VERSION_S1.to_le_bytes(),
+        );
+        assert!(Season::decode(&raw).unwrap().conquest.is_some());
+        raw[SEASON_CQ_OFFSET + cq_layout::RSV_PRE_CONTINUOUS] = 1;
+        assert_eq!(Season::decode(&raw), Err(DecodeError::InvalidSeasonMode));
+        put(&mut raw, l::season::PROGRAM_VERSION, &1u16.to_le_bytes());
+        assert!(Season::decode(&raw).unwrap().conquest.is_none());
     }
 
     #[test]
