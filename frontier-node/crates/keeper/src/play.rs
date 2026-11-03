@@ -29,7 +29,7 @@ use fclient::decode::{
 use fclient::ix::v2 as ix2;
 use fclient::ix::{self, AnchorSource, HoldingRef, RevealArgs, SettleTransitArgs};
 use fclient::play::{self, Opened, Target};
-use fclient::ports::{Account, ChainPort, DrandPort, PortResult};
+use fclient::ports::{Account, ChainPort, DrandPort, PortError, PortResult};
 use fclient::seal;
 use permutation_rules::frontier::clash::SlotEntry;
 
@@ -43,6 +43,9 @@ use crate::{Shared, Tick};
 
 /// Slots before `A + W` after which no Reveal version is sent (§8.2: ε = 2 slots).
 pub const REVEAL_EPSILON_SLOTS: i64 = 2;
+/// `Keeper::tick` currently returns a string. This marker distinguishes a
+/// lost/corrupt Reveal journal from transient RPC errors at the binary loop.
+pub const FATAL_JOURNAL_MARKER: &str = "FatalRevealJournal:";
 /// `SlotMoved` retries per arrival (§8.2).
 pub const SLOT_MOVED_RETRIES: u8 = 4;
 /// Slots between two reads of a province with nothing due.
@@ -287,6 +290,65 @@ fn present(a: &Option<Account>, program: &Address) -> bool {
 }
 
 impl PlayDuty {
+    /// Restore every accepted owner Reveal before planning any work. A
+    /// partially readable journal is not an empty journal: failing closed
+    /// lets the caller stop the keeper instead of forgetting a Reveal.
+    fn load_owner_materials(&mut self, journal: Option<&Journal>) -> PortResult<()> {
+        if self.owner_loaded {
+            return Ok(());
+        }
+        let rows = match journal {
+            Some(j) => j.owner_materials().map_err(|e| {
+                PortError::Io(format!(
+                    "{FATAL_JOURNAL_MARKER} owner material read failed: {e}"
+                ))
+            })?,
+            None => Vec::new(),
+        };
+        let restored = rows
+            .into_iter()
+            .map(|r| {
+                let plain: [u8; 37] = r.plain.try_into().map_err(|_| {
+                    PortError::Decode(format!(
+                        "{FATAL_JOURNAL_MARKER} invalid owner plaintext length"
+                    ))
+                })?;
+                let salt: [u8; 32] = r.salt.try_into().map_err(|_| {
+                    PortError::Decode(format!("{FATAL_JOURNAL_MARKER} invalid owner salt length"))
+                })?;
+                let ct_hash: [u8; 32] = r.ct_hash.try_into().map_err(|_| {
+                    PortError::Decode(format!(
+                        "{FATAL_JOURNAL_MARKER} invalid owner ciphertext hash length"
+                    ))
+                })?;
+                let holding = r.holding.parse::<Address>().map_err(|_| {
+                    PortError::Decode(format!("{FATAL_JOURNAL_MARKER} invalid owner holding"))
+                })?;
+                seal::validate(&seal::unpack(&plain), r.host, r.bell).map_err(|_| {
+                    PortError::Decode(format!(
+                        "{FATAL_JOURNAL_MARKER} invalid owner plaintext identity"
+                    ))
+                })?;
+                Ok((
+                    (r.host, r.bell),
+                    OwnerMat {
+                        track: r.track,
+                        holding,
+                        transit_slot: r.transit_slot,
+                        plain,
+                        salt,
+                        ct_hash,
+                    },
+                ))
+            })
+            .collect::<PortResult<Vec<_>>>()?;
+        for (key, material) in restored {
+            self.owner.entry(key).or_insert(material);
+        }
+        self.owner_loaded = true;
+        Ok(())
+    }
+
     /// Routes the engine's outcomes of play writes (before planning).
     pub fn on_outcome(&mut self, key: &str, o: &Outcome) -> Vec<(String, Value)> {
         let mut tracks: Vec<(String, Value)> = vec![];
@@ -916,31 +978,7 @@ impl PlayDuty {
         opened: &[(i32, i32)],
     ) -> PortResult<()> {
         self.observe_clock(t.slot, t.now);
-        if !self.owner_loaded {
-            // Owner material accepted before a restart (⑱).
-            self.owner_loaded = true;
-            for r in journal
-                .and_then(|j| j.owner_materials().ok())
-                .unwrap_or_default()
-            {
-                let (Ok(plain), Ok(salt), Ok(ct_hash), Ok(holding)) = (
-                    <[u8; 37]>::try_from(r.plain),
-                    <[u8; 32]>::try_from(r.salt),
-                    <[u8; 32]>::try_from(r.ct_hash),
-                    r.holding.parse::<Address>(),
-                ) else {
-                    continue;
-                };
-                self.owner.entry((r.host, r.bell)).or_insert(OwnerMat {
-                    track: r.track,
-                    holding,
-                    transit_slot: r.transit_slot,
-                    plain,
-                    salt,
-                    ct_hash,
-                });
-            }
-        }
+        self.load_owner_materials(journal)?;
         self.take_shared(shared, journal);
         let eff = t.season.effective_status(t.now);
         if !(eff == status::RUNNING || eff == status::ENDED) {
@@ -957,7 +995,7 @@ impl PlayDuty {
         self.conquest.refresh_captured(t, port).await?;
         self.read_holdings(t, port).await?;
         if t.cfg.has_role("reveal") || t.cfg.has_role("settle") {
-            self.decrypt(t, drand, rounds, journal).await;
+            self.decrypt(t, drand, rounds, journal).await?;
         }
         if t.cfg.has_role("reveal") {
             self.reveals(t, port, drand, rounds, engine, beacon, shared)
@@ -1007,7 +1045,7 @@ impl PlayDuty {
         drand: &D,
         rounds: &mut Rounds,
         journal: Option<&Journal>,
-    ) {
+    ) -> PortResult<()> {
         let keys: Vec<(u64, u32)> = self
             .index
             .departs
@@ -1019,20 +1057,30 @@ impl PlayDuty {
         for k in keys {
             let d = self.index.departs[&k].clone();
             // The journal's cache (a restart does not re-open what it opened).
-            if let Some((p, s)) = journal
-                .and_then(|j| j.plaintext(d.host, d.arrive).ok().flatten())
-                .and_then(|(p, s)| {
-                    Some((<[u8; 37]>::try_from(p).ok()?, <[u8; 32]>::try_from(s).ok()?))
-                })
-            {
-                if seal::commit(&p, &s) == d.commit {
-                    self.transits.entry(k).or_default().opened = Some(Opened {
-                        code: abi::seal_code::VALID,
-                        plain: Some(p),
-                        salt: Some(s),
-                    });
-                    continue;
+            let cached = match journal {
+                Some(j) => j.plaintext(d.host, d.arrive).map_err(|e| {
+                    PortError::Io(format!("{FATAL_JOURNAL_MARKER} plaintext read failed: {e}"))
+                })?,
+                None => None,
+            };
+            if let Some((p, s)) = cached {
+                let p: [u8; 37] = p.try_into().map_err(|_| {
+                    PortError::Decode(format!("{FATAL_JOURNAL_MARKER} invalid plaintext length"))
+                })?;
+                let s: [u8; 32] = s.try_into().map_err(|_| {
+                    PortError::Decode(format!("{FATAL_JOURNAL_MARKER} invalid salt length"))
+                })?;
+                if seal::commit(&p, &s) != d.commit {
+                    return Err(PortError::Decode(format!(
+                        "{FATAL_JOURNAL_MARKER} plaintext commitment mismatch"
+                    )));
                 }
+                self.transits.entry(k).or_default().opened = Some(Opened {
+                    code: abi::seal_code::VALID,
+                    plain: Some(p),
+                    salt: Some(s),
+                });
+                continue;
             }
             let r = t.clock.tlock_round(d.arrive);
             if t.clock.drand.round_time(r) > t.now {
@@ -1051,10 +1099,15 @@ impl PlayDuty {
                 .entry(d.arrive)
                 .or_insert((t.slot, 0));
             if let (Some(j), Some(p), Some(s)) = (journal, o.plain, o.salt) {
-                let _ = j.save_plaintext(d.host, d.arrive, &p, &s);
+                j.save_plaintext(d.host, d.arrive, &p, &s).map_err(|e| {
+                    PortError::Io(format!(
+                        "{FATAL_JOURNAL_MARKER} plaintext write failed: {e}"
+                    ))
+                })?;
             }
             self.transits.entry(k).or_default().opened = Some(o);
         }
+        Ok(())
     }
 
     /// The reveal material of a transit: owner submission first, else the
@@ -3349,6 +3402,101 @@ mod w6t_tests {
             e.engine.is_pending(&key),
             "revealed from the journalled material"
         );
+    }
+
+    #[test]
+    fn damaged_owner_journal_refuses_restore_without_marking_it_loaded() {
+        let dir = std::env::temp_dir().join(format!(
+            "keeper-owner-restore-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("journal.sqlite");
+        let j = Journal::open(&path).unwrap();
+        let host = fclient::addr::host_id(2, 0, 1, 1, 5).unwrap();
+        let arrive = 200;
+        let m = march(host, arrive, (2, 0), 5);
+        let holding = Address::new_from_array([3; 32]);
+        let mut row = crate::journal::OwnerRow {
+            host,
+            bell: arrive,
+            track: "r1".into(),
+            holding: holding.to_string(),
+            transit_slot: 1,
+            plain: vec![0],
+            salt: m.1.to_vec(),
+            ct_hash: m.2.to_vec(),
+        };
+        j.save_owner_material(&row).unwrap();
+        let mut duty = PlayDuty::default();
+        assert!(matches!(
+            duty.load_owner_materials(Some(&j)),
+            Err(PortError::Decode(_))
+        ));
+        assert!(!duty.owner_loaded);
+        assert!(duty.owner.is_empty());
+        row.plain = m.0.to_vec();
+        j.save_owner_material(&row).unwrap();
+        duty.load_owner_materials(Some(&j)).unwrap();
+        assert!(duty.owner_loaded);
+        assert_eq!(duty.owner.len(), 1);
+
+        let sql = rusqlite::Connection::open(&path).unwrap();
+        sql.execute_batch("DROP TABLE owner_material").unwrap();
+        let mut restarted = PlayDuty::default();
+        assert!(matches!(
+            restarted.load_owner_materials(Some(&j)),
+            Err(PortError::Io(_))
+        ));
+        assert!(!restarted.owner_loaded);
+        assert!(restarted.owner.is_empty());
+        drop(sql);
+        drop(j);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn unreadable_plaintext_cache_refuses_decrypt_before_planning() {
+        let mut e = env(&["reveal"], 1_008);
+        let dir = std::env::temp_dir().join(format!(
+            "keeper-plaintext-restore-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("journal.sqlite");
+        let j = Journal::open(&path).unwrap();
+        let sql = rusqlite::Connection::open(&path).unwrap();
+        sql.execute_batch("DROP TABLE plaintexts").unwrap();
+        let host = fclient::addr::host_id(2, 0, 1, 1, 5).unwrap();
+        let dep = 197;
+        let mut duty = PlayDuty::default();
+        duty.index
+            .departs
+            .insert((host, dep), depart(host, (2, 0), 5, dep, 200));
+        let t = Tick {
+            slot: 50,
+            now: G + 200 * BELL_SECS,
+            season: &e.season,
+            clock: SeasonClock::from_season(&e.season),
+            addrs: &e.addrs,
+            cfg: &e.cfg,
+        };
+        assert!(matches!(
+            duty.decrypt(&t, &e.drand, &mut e.rounds, Some(&j)).await,
+            Err(PortError::Io(_))
+        ));
+        assert!(duty.transits.is_empty());
+        drop(sql);
+        drop(j);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     // ------------------------------------------------------------ ⑱: no plaintext to the RPC before publication

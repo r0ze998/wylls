@@ -28,6 +28,10 @@ fn usage() -> ! {
     std::process::exit(2);
 }
 
+fn fatal_tick_error(error: &str) -> bool {
+    error.contains(keeper_core::play::FATAL_JOURNAL_MARKER)
+}
+
 fn read_seed(p: &PathBuf) -> Result<[u8; 32], String> {
     let raw = std::fs::read(p).map_err(|e| format!("{}: {e}", p.display()))?;
     let text = String::from_utf8_lossy(&raw);
@@ -239,6 +243,10 @@ async fn main() {
                         eprintln!("IDLE{}", &r.line(t0.elapsed().as_millis() as u64)[4..]);
                     }
                     Ok(_) => {}
+                    Err(e) if fatal_tick_error(&e) => {
+                        eprintln!("tick: {e}; stopping keeper to preserve accepted Reveal material");
+                        std::process::exit(1);
+                    }
                     Err(e) => eprintln!("tick: {e}"),
                 }
             }
@@ -247,5 +255,19 @@ async fn main() {
     }
     if let Some(r) = running {
         r.stop();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reveal_journal_failure_stops_keeper_but_transient_tick_error_does_not() {
+        assert!(fatal_tick_error(&format!(
+            "Io(\"{} owner material read failed\")",
+            keeper_core::play::FATAL_JOURNAL_MARKER
+        )));
+        assert!(!fatal_tick_error("Io(\"temporary RPC timeout\")"));
     }
 }
