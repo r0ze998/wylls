@@ -2,7 +2,7 @@
 //
 //   GET /f/season              {programId, season, seasonId, cluster, relayPool, quotas, heraldUrl, joinGate, inviteRequired, tipMin, tipPresets, marchFee, sealBond}
 //   GET /f/quota?citizen=      {left, resetsAt, lamportsLeft}   (citizen: the Citizen account's address)
-//   GET /f/tx/{signature}      {state: "landed|failed|expired|unknown", slot?, code?}
+//   GET /f/tx/{signature}      {state: "landed|failed|unknown", slot?, code?}
 import { encode as base58, decode as fromBase58 } from '../../../client/src/base58.mjs';
 import { programError } from '../../../client/src/frontier/codec.mjs';
 import { seasonTipMin, tipPresets } from '../../../client/src/frontier/fees.mjs';
@@ -59,19 +59,14 @@ export const seasonRoutes = {
       throw e;
     }
     const st = r?.value?.[0] ?? null;
-    // A non-final status can still roll back. A client-supplied block-height
-    // hint cannot prove non-landing, so an unresolved durable send stays
-    // unknown even after that hint passes.
-    if (durableAttempt && st?.confirmationStatus !== 'finalized') return { body: { state: 'unknown' } };
-    if (st) {
-      if (st.err) {
-        const pe = programError(st.err);
-        return { body: { state: 'failed', slot: st.slot, code: pe?.name ?? (typeof st.err === 'string' ? st.err : 'TransactionFailed'), programCode: pe?.code } };
-      }
-      if (st.confirmationStatus === 'confirmed' || st.confirmationStatus === 'finalized') return { body: { state: 'landed', slot: st.slot } };
+    // A confirmed status can still roll back, including for a signature that
+    // this process did not send. Nor does a block-height hint prove that an
+    // absent transaction never landed: RPC history can be incomplete.
+    if (st?.confirmationStatus !== 'finalized') return { body: { state: 'unknown' } };
+    if (st.err) {
+      const pe = programError(st.err);
+      return { body: { state: 'failed', slot: st.slot, code: pe?.name ?? (typeof st.err === 'string' ? st.err : 'TransactionFailed'), programCode: pe?.code } };
     }
-    if (durableAttempt) return { body: { state: 'unknown' } };
-    if (known?.lastValidBlockHeight && (await ctx.connection.getBlockHeight('confirmed')) > known.lastValidBlockHeight) return { body: { state: 'expired' } };
-    return { body: { state: 'unknown' } };
+    return { body: { state: 'landed', slot: st.slot } };
   },
 };

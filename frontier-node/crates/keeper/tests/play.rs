@@ -2125,8 +2125,8 @@ fn audit(name: &str, r: &Run) -> Vec<String> {
         matched,
         tot_send - tot_sigs
     );
-    // The keepers' own count of Reveal fees (engine KindStats["reveal"]),
-    // against the chain's: reported, not judged (workstream 16's T18-3).
+    // The keepers' own count of Reveal fees (engine KindStats["reveal"])
+    // against the chain's; the retry test below also asserts equality.
     let (kw, kv, kl, kf, kfee) = r
         .keepers
         .iter()
@@ -2269,6 +2269,8 @@ async fn ws04_no_reveal_before_anchor_restart() {
     let Some(r) = scenario(Opts {
         hold_dest_anchor: Some(20),
         restart_in_window: true,
+        // Acknowledged owner material must be journalled before the restart.
+        owner_via_api: true,
         ..Default::default()
     })
     .await
@@ -2298,6 +2300,25 @@ async fn ws04_no_reveal_before_anchor_retries() {
     let early = report("retries", &r);
     same_marches("retries", &want, &r);
     check(&r, &early);
+    let sent: BTreeSet<_> = OUT.with(|o| {
+        o.borrow()
+            .iter()
+            .filter(|x| x.kind == "send")
+            .filter_map(|x| x.sig)
+            .collect()
+    });
+    let chain = r.w.ip.lock();
+    let chain_fee: u64 = sent
+        .iter()
+        .filter_map(|sig| chain.transaction(sig).map(|tx| tx.fee))
+        .sum();
+    let keeper_fee: u64 = r
+        .keepers
+        .iter()
+        .filter_map(|k| k.engine.stats.get("reveal"))
+        .map(|s| s.fees_charged)
+        .sum();
+    assert_eq!(keeper_fee, chain_fee, "every landed retry pays its fee");
 }
 
 /// Workstream 04: owner material through the real `/v1/reveal`, the keeper

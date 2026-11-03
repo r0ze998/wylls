@@ -453,6 +453,7 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
                     Some(st) => {
                         let s = if st.err.is_none() { "landed" } else { "failed" };
                         j.set_status(&a.sig, s, Some(st.slot), st.code)?;
+                        self.engine.charge_recovered(a);
                     }
                     None if clock.slot.saturating_sub(a.first_valid_slot) > 151 => {
                         j.set_status(&a.sig, "expired", None, None)?;
@@ -1114,13 +1115,13 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
 
     /// The status JSON (`GET /v1/status`).
     pub fn status_json(&self, slot: u64, now: i64, bell: Option<u32>) -> Value {
-        let kinds: BTreeMap<&str, Value> = self
+        let kinds: BTreeMap<String, Value> = self
             .engine
             .stats
             .iter()
             .map(|(k, s)| {
                 (
-                    *k,
+                    k.clone(),
                     json!({
                         "writes": s.writes, "versions": s.versions, "landed": s.landed, "failed": s.failed,
                         "dead": s.dead, "fees_charged": s.fees_charged,
@@ -1367,6 +1368,40 @@ mod tests {
         let pairs: Vec<_> = recovery_statuses(&attempts, vec![None]).unwrap().collect();
         assert_eq!(pairs.len(), 1);
         assert_eq!(pairs[0].0.sig, attempts[0].sig);
+    }
+
+    #[tokio::test]
+    async fn restart_accounts_for_an_attempt_that_landed_before_adoption() {
+        let program = Address::new_from_array([0x5f; 32]);
+        let cfg = KeeperConfig::new(program, 7, Address::new_from_array([0xbe; 32]));
+        let journal = Journal::open(std::path::Path::new(":memory:")).unwrap();
+        let sig = Signature::default();
+        let attempt = recovery_attempt(sig.to_string());
+        journal.record_attempt(&attempt).unwrap();
+        let port = crate::testkit::FakePort::default();
+        port.set_clock(12, 1_000);
+        port.statuses.lock().unwrap().insert(
+            sig,
+            Status {
+                slot: 11,
+                err: Some("AlreadyDone".into()),
+                code: Some(52),
+            },
+        );
+        let mut k = Keeper::new(
+            cfg,
+            port,
+            crate::testkit::FakeDrand::new(),
+            &[1; 32],
+            Some(journal),
+        )
+        .unwrap();
+        assert_eq!(k.start().await.unwrap(), 0);
+        assert_eq!(k.engine.stats["anchor"].fees_charged, attempt.fee);
+        assert!(k.journal.as_ref().unwrap().in_flight().unwrap().is_empty());
+        // Re-reading startup cannot charge the settled journal row again.
+        assert_eq!(k.start().await.unwrap(), 0);
+        assert_eq!(k.engine.stats["anchor"].fees_charged, attempt.fee);
     }
 
     /// W6-C (W5-B F1): payer care runs on a game-time cadence as well as a

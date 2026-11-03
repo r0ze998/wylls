@@ -13,7 +13,7 @@
 //  - no Reveal is ever a transaction: the material goes to POST /f/reveal
 //    with no signature; a non-preset tip is refused (TipNotPreset);
 //  - program errors come back by name and number and map to text; GET /f/tx
-//    reports landed, failed (by program error) and expired.
+//    reports finalized landing or failure and keeps uncertain expiry unknown.
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
@@ -89,7 +89,15 @@ function fakeChain() {
       const post = BigInt(c.accounts.get(payer)?.lamports ?? 0) - 5_000n * BigInt(tx.signers.length) - debitOf(tx, c);
       return { value: { err: null, logs: [], unitsConsumed: 9_000, accounts: cfg.accounts.addresses.map(a => (a === payer ? { lamports: Number(post), data: ['', 'base64'] } : null)) } };
     },
-    sendRawTransaction: async raw => { const tx = parseTransaction(new Uint8Array(raw)); c.sent.push(tx); return base58(tx.signatures[0]); },
+    sendRawTransaction: async raw => {
+      const tx = parseTransaction(new Uint8Array(raw));
+      const sig = base58(tx.signatures[0]);
+      c.sent.push(tx);
+      // The shape tests send many transactions through one durable relay.
+      // Give each one a finalized outcome before the next write.
+      c.statuses.set(sig, { slot: 77, confirmationStatus: 'finalized', err: null });
+      return sig;
+    },
     getSignatureStatuses: async sigs => ({ value: sigs.map(s => c.statuses.get(s) ?? null) }),
   };
   return c;
@@ -338,7 +346,7 @@ test('a relay that answers with anything but the fee payer\'s signature of the s
   io.setPin({ programId: PROGRAM, cluster: 'localnet', seasonId: SEASON_ID });
 });
 
-test('program refusals come back by name and number; GET /f/tx reports landed, failed and expired', async () => {
+test('program refusals come back by name and number; GET /f/tx requires finality', async () => {
   R.chain.fail = tx => (decodeIxData(tx.instructions.at(-1).data).name === 'Dissolve' ? { InstructionError: [3, { Custom: 58 }] } : null);
   try {
     const r = await fplay.submit({ name: 'Dissolve', accounts: fplay.accountsFor('Dissolve', v({ holding: HOLD })), fields: { host_id: 5n }, signer: { session } });
@@ -353,14 +361,19 @@ test('program refusals come back by name and number; GET /f/tx reports landed, f
   }
   const { r } = await send('Harvest', { extra: { holding: HOLD } });
   const quick = { tries: 3, every: 1, wait: async () => {} };
+  R.chain.statuses.delete(r.signature);
   assert.deepEqual(await fplay.track(r.signature, quick), { ok: false, state: 'unknown', code: 'Unconfirmed' });
   R.chain.statuses.set(r.signature, { slot: 88, confirmationStatus: 'confirmed', err: null });
+  assert.deepEqual(await fplay.track(r.signature, quick), { ok: false, state: 'unknown', code: 'Unconfirmed' });
+  R.chain.statuses.set(r.signature, { slot: 88, confirmationStatus: 'finalized', err: null });
   assert.deepEqual(await fplay.track(r.signature, quick), { ok: true, state: 'landed', slot: 88 });
   R.chain.statuses.set(r.signature, { slot: 89, confirmationStatus: 'confirmed', err: { InstructionError: [3, { Custom: 51 }] } });
+  assert.deepEqual(await fplay.track(r.signature, quick), { ok: false, state: 'unknown', code: 'Unconfirmed' });
+  R.chain.statuses.set(r.signature, { slot: 89, confirmationStatus: 'finalized', err: { InstructionError: [3, { Custom: 51 }] } });
   const failed = await fplay.track(r.signature, quick);
   assert.deepEqual([failed.state, failed.code, failed.programCode], ['failed', 'TipTooLow', 51]);
   R.chain.statuses.delete(r.signature);
   R.chain.height = 1_000;
-  assert.equal((await fplay.track(r.signature, quick)).code, 'Expired');
+  assert.equal((await fplay.track(r.signature, quick)).code, 'Unconfirmed');
   R.chain.height = 100;
 });

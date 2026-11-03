@@ -267,6 +267,24 @@ fn err_string(err: &Value) -> Option<String> {
     (!err.is_null()).then(|| err.to_string())
 }
 
+/// `ChainPort::statuses` is used to end durable writes. A confirmed fork can
+/// still disappear, so only a status explicitly marked finalized is a result.
+fn parse_finalized_status(s: &Value) -> Option<Status> {
+    if s.get("confirmationStatus").and_then(Value::as_str) != Some("finalized") {
+        return None;
+    }
+    let slot = s.get("slot").and_then(Value::as_u64)?;
+    let err = s.get("err")?;
+    if !(err.is_null() || err.is_string() || err.is_object()) {
+        return None;
+    }
+    Some(Status {
+        slot,
+        code: code_of(err),
+        err: err_string(err),
+    })
+}
+
 /// `ChainPort` over JSON-RPC.
 pub struct RpcPort {
     pub rpc: RpcClient,
@@ -444,16 +462,7 @@ impl ChainPort for RpcPort {
                 .and_then(|x| x.as_array())
                 .ok_or_else(|| PortError::Decode("value".into()))?
             {
-                if s.is_null() {
-                    out.push(None);
-                    continue;
-                }
-                let err = s.get("err").cloned().unwrap_or(Value::Null);
-                out.push(Some(Status {
-                    slot: s.get("slot").and_then(|x| x.as_u64()).unwrap_or(0),
-                    code: code_of(&err),
-                    err: err_string(&err),
-                }));
+                out.push(parse_finalized_status(s));
             }
         }
         Ok(out)
@@ -520,5 +529,57 @@ mod tests {
         };
         assert_eq!(parse_account(&account_json(&a)).unwrap(), Some(a));
         assert_eq!(parse_account(&Value::Null).unwrap(), None);
+    }
+
+    #[test]
+    fn only_finalized_signature_statuses_end_durable_writes() {
+        let failed = json!({"slot": 9, "confirmationStatus": "confirmed", "err": {"InstructionError": [3, {"Custom": 52}]}});
+        assert_eq!(parse_finalized_status(&Value::Null), None);
+        assert_eq!(parse_finalized_status(&failed), None);
+        assert_eq!(
+            parse_finalized_status(&json!({"slot": 9, "err": null})),
+            None
+        );
+        let success = json!({"slot": 10, "confirmationStatus": "finalized", "err": null});
+        assert_eq!(
+            parse_finalized_status(&success),
+            Some(Status {
+                slot: 10,
+                err: None,
+                code: None
+            })
+        );
+        assert_eq!(
+            parse_finalized_status(&json!({"confirmationStatus": "finalized", "err": null})),
+            None,
+            "missing slot is not slot zero"
+        );
+        assert_eq!(
+            parse_finalized_status(&json!({"slot": 10, "confirmationStatus": "finalized"})),
+            None,
+            "missing error field is not proof of success"
+        );
+        assert_eq!(
+            parse_finalized_status(
+                &json!({"slot": -1, "confirmationStatus": "finalized", "err": null})
+            ),
+            None
+        );
+        assert_eq!(
+            parse_finalized_status(
+                &json!({"slot": 10, "confirmationStatus": "finalized", "err": 42})
+            ),
+            None
+        );
+        let mut finalized_failure = failed;
+        finalized_failure["confirmationStatus"] = json!("finalized");
+        assert_eq!(
+            parse_finalized_status(&finalized_failure),
+            Some(Status {
+                slot: 9,
+                err: Some("{\"InstructionError\":[3,{\"Custom\":52}]}".into()),
+                code: Some(52),
+            })
+        );
     }
 }

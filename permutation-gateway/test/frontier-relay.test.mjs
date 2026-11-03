@@ -736,8 +736,8 @@ test('GET /f/tx treats faucet, claim, and agent-deposit journals as durable send
   const sig = base58(new Uint8Array(64).fill(7));
   r.chain.statuses.set(sig, { slot: 8, confirmationStatus: 'confirmed', err: null });
   const status = async () => (await call(r.public, 'GET', `/f/tx/${sig}`, { ip: '203.0.113.9' })).json.state;
-  // Without a durable journal, the old read route reports confirmed.
-  assert.equal(await status(), 'landed');
+  // Even an unknown signature needs finality; a confirmed fork can vanish.
+  assert.equal(await status(), 'unknown');
   r.store.state.faucet = { [wallet.publicKey.toBase58()]: { signature: sig } };
   assert.equal(await status(), 'unknown');
   delete r.store.state.faucet;
@@ -755,6 +755,19 @@ test('GET /f/tx treats faucet, claim, and agent-deposit journals as durable send
   r.chain.getSignatureStatuses = statuses;
   r.chain.statuses.set(sig, { slot: 8, confirmationStatus: 'finalized', err: null });
   assert.equal(await status(), 'landed');
+});
+
+test('GET /f/tx does not infer expiry or failure from incomplete non-durable history', async () => {
+  const r = relay();
+  const sig = base58(new Uint8Array(64).fill(8));
+  r.ctx.sent.set(sig, { lastValidBlockHeight: 100, kind: 'Harvest' });
+  r.chain.height = 151;
+  const status = async () => (await call(r.public, 'GET', `/f/tx/${sig}`, { ip: '203.0.113.9' })).json;
+  assert.deepEqual(await status(), { state: 'unknown' });
+  r.chain.statuses.set(sig, { slot: 8, confirmationStatus: 'confirmed', err: { InstructionError: [3, { Custom: 58 }] } });
+  assert.deepEqual(await status(), { state: 'unknown' });
+  r.chain.statuses.set(sig, { slot: 8, confirmationStatus: 'finalized', err: { InstructionError: [3, { Custom: 58 }] } });
+  assert.deepEqual(await status(), { state: 'failed', slot: 8, code: 'HostInTransit', programCode: 58 });
 });
 
 test('the funds breaker: sponsored routes pause while the pool is below its minimum', async () => {

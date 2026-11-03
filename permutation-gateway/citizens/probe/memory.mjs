@@ -577,11 +577,11 @@ async function completeRaw(url, text, deadlineMs) {
   }
   return out;
 }
-// the targeted mode is not awaited at the top level: target.mjs imports this module, which must finish evaluating first
-if (isMain() && args(process.argv.slice(2)).target) {
-  targetMain(args(process.argv.slice(2))).then(() => process.exit(0), (e) => { console.error(String(e?.message ?? e)); process.exit(1); });
-} else if (isMain()) {
-  const a = args(process.argv.slice(2));
+// Neither CLI path may use top-level await: target.mjs imports this module,
+// so a dynamic import of target.mjs must wait until this module has finished
+// evaluating. An await in even the other branch makes that import cycle wait
+// on itself.
+async function standardMain(a) {
   if (!a.requests) { console.error('probe: --requests DIR is required'); process.exit(2); }
   const ids = a.ids ? a.ids.split(',').filter(Boolean) : null;
   const requests = loadRequests(a.requests, ids);
@@ -608,4 +608,9 @@ if (isMain() && args(process.argv.slice(2)).target) {
   const text = JSON.stringify(report, null, 2);
   if (a.out) fs.writeFileSync(a.out, text + '\n');
   console.log(text);
+}
+if (isMain()) {
+  const a = args(process.argv.slice(2));
+  if (a.target) targetMain(a).then(() => process.exit(0), (e) => { console.error(String(e?.message ?? e)); process.exit(1); });
+  else standardMain(a).catch((e) => { console.error(e); process.exitCode = 1; });
 }

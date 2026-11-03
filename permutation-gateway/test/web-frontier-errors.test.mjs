@@ -107,6 +107,19 @@ test('every code the relay can answer has a text (read from its sources)', () =>
   for (const c of ['CommitMismatch', 'WindowClosed', 'BadPlaintext']) assert.ok(hasText(c).ok, c);
 });
 
+test('an unresolved send never tells the player to retry before checking its outcome', () => {
+  for (const code of ['SendOutcomeUnknown', 'FaucetOutcomeUnknown', 'ClaimInFlight', 'ClaimOutcomeUnknown', 'RelayPending', 'RelayOutcomeUnknown']) {
+    setLang('ja');
+    const ja = fi18n.failureText({ code });
+    assert.match(ja, /確認/, `${code}: check the outcome`);
+    assert.doesNotMatch(ja, /もう一度試|再送してください|再請求してください/, `${code}: no blind retry`);
+    setLang('en');
+    const en = fi18n.failureText({ code });
+    assert.match(en, /check|known/i, `${code}: check the outcome`);
+    assert.doesNotMatch(en, /try again|send it again\.|request it again\./i, `${code}: no blind retry`);
+  }
+});
+
 test('every code the page\'s own modules return has a text', () => {
   const web = join(REPO, 'permutation-server/web');
   const files = [...walk(join(web, 'frontier')).filter(f => f.endsWith('.mjs')), join(web, 'wallet.mjs')];

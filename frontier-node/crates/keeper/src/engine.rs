@@ -262,7 +262,11 @@ pub struct Engine {
     adopted: HashMap<String, Vec<Version>>,
     pub budgets: Budgets,
     pub params: EngineParams,
-    pub stats: BTreeMap<&'static str, KindStats>,
+    pub stats: BTreeMap<String, KindStats>,
+    /// Signed versions whose fee has not yet been accounted for. A version
+    /// can be visible both as an adopted write and as an orphan after a
+    /// restart; removing by signature makes either observation charge once.
+    uncounted_fees: HashMap<Signature, (String, u64)>,
     /// The keeper reads the transaction feed, which gives a failed
     /// version's units and logs (W6T-2).
     pub expect_tx_meta: bool,
@@ -307,6 +311,7 @@ impl Engine {
             budgets,
             params,
             stats: BTreeMap::new(),
+            uncounted_fees: HashMap::new(),
             expect_tx_meta: false,
             tx_meta: HashMap::new(),
             meta_wait: HashMap::new(),
@@ -377,7 +382,7 @@ impl Engine {
         self.backoff.remove(&spec.key);
         let b = self.budgets.get(spec.tag);
         let adopted = self.adopted.remove(&spec.key).unwrap_or_default();
-        self.stats.entry(spec.kind).or_default().writes += 1;
+        self.stats.entry(spec.kind.into()).or_default().writes += 1;
         self.pending.insert(
             spec.key.clone(),
             Pending {
@@ -415,9 +420,30 @@ impl Engine {
     /// already sent are kept as orphans for the journal.
     pub fn cancel(&mut self, key: &str) {
         if let Some(p) = self.pending.remove(key) {
-            self.orphans
-                .extend(p.versions.iter().map(|v| (v.sig, v.sent_slot)));
+            self.orphans.extend(
+                p.versions
+                    .iter()
+                    .filter(|v| !p.settled.contains(&v.sig))
+                    .map(|v| (v.sig, v.sent_slot)),
+            );
         }
+    }
+
+    /// Count a version only after its chain status is known. A failed
+    /// transaction still pays its fee, including `AlreadyDone` versions.
+    fn charge_fee(&mut self, sig: Signature) {
+        if let Some((kind, fee)) = self.uncounted_fees.remove(&sig) {
+            self.stats.entry(kind).or_default().fees_charged += fee;
+        }
+    }
+
+    /// Startup reconciles already-landed journal attempts before adoption.
+    /// These will not pass through [`Self::poll`] in the new process.
+    pub fn charge_recovered(&mut self, attempt: &Attempt) {
+        self.stats
+            .entry(attempt.kind.clone())
+            .or_default()
+            .fees_charged += attempt.fee;
     }
 
     /// Adopts in-flight attempts from the journal after a restart: the next
@@ -439,6 +465,7 @@ impl Engine {
             .collect::<Result<_, _>>()?;
         for (a, sig, payer) in parsed {
             self.orphans.push((sig, a.sent_slot));
+            self.uncounted_fees.insert(sig, (a.kind.clone(), a.fee));
             self.adopted
                 .entry(a.object_key.clone())
                 .or_default()
@@ -468,9 +495,8 @@ impl Engine {
         let cu_meter = self.cu_meter(&e, v);
         self.tx_meta.remove(&v.sig);
         self.meta_wait.remove(&v.sig);
+        self.charge_fee(v.sig);
         let p = self.pending.get_mut(key)?;
-        let s = self.stats.entry(p.spec.kind).or_default();
-        s.fees_charged += v.fee;
         let status = |x: &str| {
             if let Some(j) = journal {
                 let _ = j.set_status(&v.sig.to_string(), x, Some(st.slot), st.code);
@@ -617,6 +643,7 @@ impl Engine {
                 p.settled.insert(v.sig);
             }
             if ended.iter().any(|(e, _)| e == k) {
+                self.charge_fee(v.sig);
                 if let Some(j) = journal {
                     let s = if st.err.is_none() { "landed" } else { "failed" };
                     let _ = j.set_status(&v.sig.to_string(), s, Some(st.slot), st.code);
@@ -629,7 +656,7 @@ impl Engine {
         }
         for (k, o) in ended {
             if let Some(p) = self.pending.remove(&k) {
-                let s = self.stats.entry(p.spec.kind).or_default();
+                let s = self.stats.entry(p.spec.kind.into()).or_default();
                 match &o {
                     Outcome::Landed {
                         slot: ls,
@@ -661,27 +688,29 @@ impl Engine {
         }
         // Orphans: record their outcome, drop them once expired.
         if !self.orphans.is_empty() {
-            let os: Vec<Signature> = self.orphans.iter().map(|o| o.0).collect();
+            let orphans = std::mem::take(&mut self.orphans);
+            let os: Vec<Signature> = orphans.iter().map(|o| o.0).collect();
             let sts = port.statuses(&os).await.unwrap_or_default();
             let mut keep = vec![];
-            for (o, st) in self
-                .orphans
-                .iter()
+            for (o, st) in orphans
+                .into_iter()
                 .zip(sts.iter().chain(std::iter::repeat(&None)))
             {
                 match st {
                     Some(st) => {
+                        self.charge_fee(o.0);
                         if let Some(j) = journal {
                             let s = if st.err.is_none() { "landed" } else { "failed" };
                             let _ = j.set_status(&o.0.to_string(), s, Some(st.slot), st.code);
                         }
                     }
                     None if slot > o.1 + EXPIRY_SLOTS => {
+                        self.uncounted_fees.remove(&o.0);
                         if let Some(j) = journal {
                             let _ = j.set_status(&o.0.to_string(), "expired", None, None);
                         }
                     }
-                    None => keep.push(*o),
+                    None => keep.push(o),
                 }
             }
             self.orphans = keep;
@@ -733,9 +762,13 @@ impl Engine {
             }
             if p.spec.deadline_slot.is_some_and(|d| slot >= d) {
                 let p = self.pending.remove(&k).expect("pending");
-                self.orphans
-                    .extend(p.versions.iter().map(|v| (v.sig, v.sent_slot)));
-                self.stats.entry(p.spec.kind).or_default().dead += 1;
+                self.orphans.extend(
+                    p.versions
+                        .iter()
+                        .filter(|v| !p.settled.contains(&v.sig))
+                        .map(|v| (v.sig, v.sent_slot)),
+                );
+                self.stats.entry(p.spec.kind.into()).or_default().dead += 1;
                 report.outcomes.push((
                     k,
                     Outcome::Dead {
@@ -762,7 +795,7 @@ impl Engine {
                         .filter(|v| !p.settled.contains(&v.sig))
                         .map(|v| (v.sig, v.sent_slot)),
                 );
-                self.stats.entry(p.spec.kind).or_default().failed += 1;
+                self.stats.entry(p.spec.kind.into()).or_default().failed += 1;
                 let n = self.failures.entry(k.clone()).or_default();
                 *n = n.saturating_add(1);
                 let wait = BACKOFF_SLOTS << (*n - 1).min(9);
@@ -927,8 +960,9 @@ impl Engine {
                 fee,
             };
             p.versions.push(v);
+            self.uncounted_fees.insert(sig, (p.spec.kind.into(), fee));
             self.last_send_chain_slot = Some(chain_slot.unwrap_or(slot).max(slot));
-            self.stats.entry(p.spec.kind).or_default().versions += 1;
+            self.stats.entry(p.spec.kind.into()).or_default().versions += 1;
             match send_result {
                 Ok(_) => report.sent += 1,
                 Err(e) => report
@@ -1185,6 +1219,161 @@ mod tests {
         assert!(Engine::new(Budgets::placeholder(), EngineParams::default())
             .adopt(&bad)
             .is_err());
+    }
+
+    #[tokio::test]
+    async fn every_landed_version_is_charged_once_after_a_write_ends() {
+        let port = Script::default();
+        let mut payers = payers();
+        payers.refresh(&port, 0).await.unwrap();
+        let mut e = Engine::new(Budgets::placeholder(), EngineParams::default());
+        e.ensure(spec("fees", Class::W, abi::tag::REVEAL), 10);
+        for slot in 10..13 {
+            assert_eq!(e.step(&port, &mut payers, None, slot).await.sent, 1);
+        }
+        let versions = e.pending["fees"].versions.clone();
+        assert_eq!(versions.len(), 3);
+        {
+            let mut statuses = port.statuses.lock().unwrap();
+            statuses.insert(
+                versions[0].sig,
+                Status {
+                    slot: 13,
+                    err: None,
+                    code: None,
+                },
+            );
+            statuses.insert(
+                versions[1].sig,
+                Status {
+                    slot: 13,
+                    err: Some("AlreadyDone".into()),
+                    code: Some(52),
+                },
+            );
+            statuses.insert(
+                versions[2].sig,
+                Status {
+                    slot: 13,
+                    err: Some("OutOfOrder".into()),
+                    code: Some(8),
+                },
+            );
+        }
+        assert_eq!(e.poll(&port, None, 13).await.outcomes.len(), 1);
+        let want: u64 = versions.iter().map(|v| v.fee).sum();
+        assert_eq!(e.stats["test"].fees_charged, want);
+        e.poll(&port, None, 14).await;
+        assert_eq!(e.stats["test"].fees_charged, want);
+    }
+
+    #[tokio::test]
+    async fn late_orphan_and_cancelled_write_fees_are_charged_once() {
+        let port = Script::default();
+        let mut payers = payers();
+        payers.refresh(&port, 0).await.unwrap();
+        let mut e = Engine::new(Budgets::placeholder(), EngineParams::default());
+        e.ensure(spec("first", Class::W, abi::tag::REVEAL), 10);
+        for slot in 10..12 {
+            e.step(&port, &mut payers, None, slot).await;
+        }
+        let versions = e.pending["first"].versions.clone();
+        port.statuses.lock().unwrap().insert(
+            versions[0].sig,
+            Status {
+                slot: 12,
+                err: None,
+                code: None,
+            },
+        );
+        e.poll(&port, None, 12).await;
+        assert_eq!(e.stats["test"].fees_charged, versions[0].fee);
+        port.statuses.lock().unwrap().insert(
+            versions[1].sig,
+            Status {
+                slot: 13,
+                err: Some("AlreadyDone".into()),
+                code: Some(52),
+            },
+        );
+        e.poll(&port, None, 13).await;
+        let want = versions[0].fee + versions[1].fee;
+        assert_eq!(e.stats["test"].fees_charged, want);
+        e.poll(&port, None, 14).await;
+        assert_eq!(e.stats["test"].fees_charged, want);
+
+        e.ensure(spec("cancelled", Class::D, abi::tag::POST_SEED), 15);
+        e.step(&port, &mut payers, None, 15).await;
+        let cancelled = e.pending["cancelled"].versions[0].clone();
+        e.cancel("cancelled");
+        port.statuses.lock().unwrap().insert(
+            cancelled.sig,
+            Status {
+                slot: 16,
+                err: Some("OutOfOrder".into()),
+                code: Some(8),
+            },
+        );
+        e.poll(&port, None, 16).await;
+        assert_eq!(e.stats["test"].fees_charged, want + cancelled.fee);
+    }
+
+    #[tokio::test]
+    async fn adopted_attempts_are_not_double_charged_as_orphans() {
+        let port = Script::default();
+        let mut payers = payers();
+        payers.refresh(&port, 0).await.unwrap();
+        let journal = Journal::open(std::path::Path::new(":memory:")).unwrap();
+        let mut before = Engine::new(Budgets::placeholder(), EngineParams::default());
+        before.ensure(spec("restarted", Class::W, abi::tag::REVEAL), 10);
+        for slot in 10..12 {
+            before.step(&port, &mut payers, Some(&journal), slot).await;
+        }
+        let attempts = journal.in_flight().unwrap();
+        assert_eq!(attempts.len(), 2);
+        let mut after = Engine::new(Budgets::placeholder(), EngineParams::default());
+        after.adopt(&attempts).unwrap();
+        after.ensure(spec("restarted", Class::W, abi::tag::REVEAL), 12);
+        let versions = after.pending["restarted"].versions.clone();
+        port.statuses.lock().unwrap().insert(
+            versions[0].sig,
+            Status {
+                slot: 12,
+                err: None,
+                code: None,
+            },
+        );
+        after.poll(&port, Some(&journal), 12).await;
+        assert_eq!(after.stats["test"].fees_charged, versions[0].fee);
+        port.statuses.lock().unwrap().insert(
+            versions[1].sig,
+            Status {
+                slot: 13,
+                err: Some("AlreadyDone".into()),
+                code: Some(52),
+            },
+        );
+        after.poll(&port, Some(&journal), 13).await;
+        let want = versions[0].fee + versions[1].fee;
+        assert_eq!(after.stats["test"].fees_charged, want);
+        after.poll(&port, Some(&journal), 14).await;
+        assert_eq!(after.stats["test"].fees_charged, want);
+
+        // Keeper polls before its duties call ensure. An adopted signature
+        // may therefore be observed as an orphan first, then as a write.
+        let mut orphan_first = Engine::new(Budgets::placeholder(), EngineParams::default());
+        orphan_first.adopt(&attempts).unwrap();
+        orphan_first.poll(&port, None, 14).await;
+        assert_eq!(orphan_first.stats["test"].fees_charged, want);
+        orphan_first.ensure(spec("restarted", Class::W, abi::tag::REVEAL), 15);
+        orphan_first.poll(&port, None, 15).await;
+        assert_eq!(orphan_first.stats["test"].fees_charged, want);
+
+        // A status found during Keeper::start is resolved before adoption.
+        // It still belongs in this process's fee total.
+        let mut startup = Engine::new(Budgets::placeholder(), EngineParams::default());
+        startup.charge_recovered(&attempts[0]);
+        assert_eq!(startup.stats["test"].fees_charged, attempts[0].fee);
     }
 
     #[test]
