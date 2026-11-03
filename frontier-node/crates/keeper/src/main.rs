@@ -1,4 +1,4 @@
-//! `frontier-keeper --config keeper.toml [--dev] [--peace-start f] [--init-seed]`
+//! `frontier-keeper --config keeper.toml [--dev] [--peace-start f] [--init-seed] [--require-existing-journal]`
 //!
 //! Loads `keeper.toml` (M1 contract §8.2), takes the process lock of its
 //! journal, reconciles in-flight attempts, then ticks once per slot against
@@ -23,7 +23,7 @@ use keeper_core::{api, Keeper};
 
 fn usage() -> ! {
     eprintln!(
-        "usage: frontier-keeper --config <keeper.toml> [--dev] [--peace-start <fraction>] [--init-seed]"
+        "usage: frontier-keeper --config <keeper.toml> [--dev] [--peace-start <fraction>] [--init-seed] [--require-existing-journal]"
     );
     std::process::exit(2);
 }
@@ -59,7 +59,7 @@ fn write_seed(p: &PathBuf) -> Result<(), String> {
 async fn main() {
     let args: Vec<String> = std::env::args().collect();
     let mut cfg_path = None;
-    let (mut dev, mut init) = (false, false);
+    let (mut dev, mut init, mut require_existing_journal) = (false, false, false);
     let mut peace: Option<f64> = None;
     let mut i = 1;
     while i < args.len() {
@@ -79,11 +79,15 @@ async fn main() {
                 i += 1;
             }
             "--init-seed" => init = true,
+            "--require-existing-journal" => require_existing_journal = true,
             _ => usage(),
         }
         i += 1;
     }
     let Some(cfg_path) = cfg_path else { usage() };
+    if init && require_existing_journal {
+        usage();
+    }
     let text = std::fs::read_to_string(&cfg_path).unwrap_or_else(|e| {
         eprintln!("{cfg_path}: {e}");
         std::process::exit(2)
@@ -124,7 +128,12 @@ async fn main() {
         eprintln!("{e}");
         std::process::exit(1)
     });
-    let journal = Journal::open(&jpath).unwrap_or_else(|e| {
+    let journal = (if require_existing_journal {
+        Journal::open_existing(&jpath)
+    } else {
+        Journal::open(&jpath)
+    })
+    .unwrap_or_else(|e| {
         eprintln!("{}: {e}", jpath.display());
         std::process::exit(1)
     });

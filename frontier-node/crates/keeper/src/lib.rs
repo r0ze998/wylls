@@ -70,7 +70,7 @@ use fclient::budgets::Budgets;
 use fclient::clock::SeasonClock;
 use fclient::decode::Season;
 use fclient::fees;
-use fclient::ports::{ChainPort, DrandPort};
+use fclient::ports::{ChainPort, DrandPort, Signature, Status};
 
 use crate::archive::ArchiveDuty;
 use crate::beacon::BeaconDuty;
@@ -80,7 +80,7 @@ use crate::explore::ExploreDuty;
 use crate::fold::FoldDuty;
 use crate::genesis::GenesisDuty;
 use crate::holdings::HoldingDuty;
-use crate::journal::Journal;
+use crate::journal::{Attempt, Journal};
 use crate::landindex::LandIndex;
 use crate::play::PlayDuty;
 use crate::pools::Payers;
@@ -307,6 +307,30 @@ pub fn care_due(
         || (low && planned > 0 && slot >= s0 + CARE_LOW_GAP_SLOTS)
 }
 
+/// Refuse a logically invalid journal before asking RPC to resolve it. A
+/// filtered signature list would shift later responses onto the wrong rows.
+fn recovery_signatures(attempts: &[Attempt]) -> Result<Vec<Signature>, String> {
+    attempts
+        .iter()
+        .map(|a| {
+            a.sig
+                .parse()
+                .map_err(|_| "invalid signature in keeper journal; refusing restart".into())
+        })
+        .collect()
+}
+
+/// A partial RPC reply must not drop an undecided attempt from adoption.
+fn recovery_statuses(
+    attempts: &[Attempt],
+    statuses: Vec<Option<Status>>,
+) -> Result<impl Iterator<Item = (&Attempt, Option<Status>)>, String> {
+    if attempts.len() != statuses.len() {
+        return Err("incomplete keeper signature statuses; refusing restart".into());
+    }
+    Ok(attempts.iter().zip(statuses))
+}
+
 impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
     /// A keeper over `port` and `drand` with payers derived from `master`.
     pub fn new(
@@ -421,24 +445,23 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
         let mut adopted = 0;
         if let Some(j) = &self.journal {
             let inflight = j.in_flight()?;
-            let sigs: Vec<fclient::ports::Signature> =
-                inflight.iter().filter_map(|a| a.sig.parse().ok()).collect();
+            let sigs = recovery_signatures(&inflight)?;
             let sts = self.port.statuses(&sigs).await.map_err(|e| e.to_string())?;
             let mut keep = vec![];
-            for (a, st) in inflight.iter().zip(sts) {
+            for (a, st) in recovery_statuses(&inflight, sts)? {
                 match st {
                     Some(st) => {
                         let s = if st.err.is_none() { "landed" } else { "failed" };
                         j.set_status(&a.sig, s, Some(st.slot), st.code)?;
                     }
-                    None if clock.slot > a.first_valid_slot + 151 => {
+                    None if clock.slot.saturating_sub(a.first_valid_slot) > 151 => {
                         j.set_status(&a.sig, "expired", None, None)?;
                     }
                     None => keep.push(a.clone()),
                 }
             }
             adopted = keep.len();
-            self.engine.adopt(&keep);
+            self.engine.adopt(&keep)?;
         }
         self.payers
             .refresh(&self.port, clock.slot)
@@ -1307,6 +1330,44 @@ pub const W2F_TAGS: [u8; 9] = [
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn recovery_attempt(sig: String) -> Attempt {
+        Attempt {
+            sig,
+            kind: "anchor".into(),
+            object_key: "anchor:5:3".into(),
+            bell: Some(5),
+            region: Some(3),
+            class: "D".into(),
+            payer: "P".into(),
+            bid_milli: 100,
+            fee: 5_000,
+            cu_limit: 345_000,
+            heap: None,
+            first_valid_slot: 10,
+            sent_slot: 10,
+            landed_slot: None,
+            status: "sent".into(),
+            code: None,
+        }
+    }
+
+    #[test]
+    fn restart_rejects_invalid_journal_signature_before_status_lookup() {
+        let valid = recovery_attempt(Signature::default().to_string());
+        let invalid = recovery_attempt("not a signature".into());
+        assert!(recovery_signatures(&[valid, invalid]).is_err());
+    }
+
+    #[test]
+    fn restart_rejects_incomplete_or_excess_status_reply_before_reconciliation() {
+        let attempts = [recovery_attempt(Signature::default().to_string())];
+        assert!(recovery_statuses(&attempts, vec![]).is_err());
+        assert!(recovery_statuses(&attempts, vec![None, None]).is_err());
+        let pairs: Vec<_> = recovery_statuses(&attempts, vec![None]).unwrap().collect();
+        assert_eq!(pairs.len(), 1);
+        assert_eq!(pairs[0].0.sig, attempts[0].sig);
+    }
 
     /// W6-C (W5-B F1): payer care runs on a game-time cadence as well as a
     /// slot one, at once (after a block) when a pool is below its minimum

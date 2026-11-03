@@ -17,7 +17,7 @@
 use std::fs::{File, OpenOptions};
 use std::path::Path;
 
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
 
 /// One transaction version as sent.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -30,6 +30,9 @@ pub struct Attempt {
     pub class: String,
     pub payer: String,
     pub bid_milli: u64,
+    /// Predicted fee of this signed version. Old rows without it cannot be
+    /// safely adopted because the resend cap needs their spend.
+    pub fee: u64,
     pub cu_limit: u32,
     pub heap: Option<u32>,
     pub first_valid_slot: u64,
@@ -92,6 +95,11 @@ fn sql<T>(r: rusqlite::Result<T>) -> Result<T, String> {
     r.map_err(|e| e.to_string())
 }
 
+fn nonnegative_u64(r: &rusqlite::Row<'_>, index: usize) -> rusqlite::Result<u64> {
+    let value: i64 = r.get(index)?;
+    u64::try_from(value).map_err(|_| rusqlite::Error::IntegralValueOutOfRange(index, value))
+}
+
 /// Takes the process lock of a keeper identity (`<path>.lock`).
 pub fn lock(journal: &Path) -> Result<File, String> {
     let p = journal.with_extension("lock");
@@ -111,6 +119,54 @@ pub fn lock(journal: &Path) -> Result<File, String> {
 }
 
 impl Journal {
+    /// Resume an existing journal without allowing SQLite to create an empty
+    /// database or silently rebuild a missing table. The stack also checks
+    /// it before starting localnet; this closes the gap before keeper start.
+    pub fn open_existing(path: &Path) -> Result<Journal, String> {
+        let conn = sql(Connection::open_with_flags(
+            path,
+            OpenFlags::SQLITE_OPEN_READ_WRITE,
+        ))?;
+        let integrity: String = sql(conn.query_row("PRAGMA quick_check(1)", [], |r| r.get(0)))?;
+        if integrity != "ok" {
+            return Err("keeper journal failed SQLite integrity check".into());
+        }
+        for query in [
+            "SELECT sig, object_key, status, fee FROM attempts LIMIT 0",
+            "SELECT host, bell, plain, salt FROM plaintexts LIMIT 0",
+            "SELECT host, bell, ct_hash FROM owner_material LIMIT 0",
+            "SELECT name, value FROM cursor LIMIT 0",
+            "SELECT slot_key, state FROM claims LIMIT 0",
+            "SELECT pool, i, address FROM payers LIMIT 0",
+            "SELECT slot, kind FROM alerts LIMIT 0",
+            "SELECT slot, event FROM conquest LIMIT 0",
+        ] {
+            sql(conn.prepare(query))?;
+        }
+        Self::check_known_fees(&conn)?;
+        sql(conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;"))?;
+        let journal = Journal { conn, crash: None };
+        journal.in_flight()?;
+        Ok(journal)
+    }
+
+    fn check_known_fees(conn: &Connection) -> Result<(), String> {
+        let invalid: i64 = sql(conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM attempts WHERE fee IS NULL OR fee <= 0
+             OR typeof(fee) != 'integer' OR typeof(bid_milli) != 'integer'
+             OR typeof(first_valid_slot) != 'integer' OR typeof(sent_slot) != 'integer'
+             OR (landed_slot IS NOT NULL AND typeof(landed_slot) != 'integer')
+             OR bid_milli < 0 OR first_valid_slot < 0 OR sent_slot < 0
+             OR landed_slot < 0 LIMIT 1)",
+            [],
+            |r| r.get(0),
+        ))?;
+        if invalid != 0 {
+            return Err("keeper journal has attempts without fee or invalid numeric fields; refusing unsafe resume".into());
+        }
+        Ok(())
+    }
+
     /// Opens (or creates) the journal (`":memory:"` for tests).
     pub fn open(path: &Path) -> Result<Journal, String> {
         let conn = sql(Connection::open(path))?;
@@ -120,7 +176,7 @@ impl Journal {
              CREATE TABLE IF NOT EXISTS attempts(sig TEXT PRIMARY KEY, kind TEXT NOT NULL, object_key TEXT NOT NULL,
                  bell INTEGER, region INTEGER, class TEXT NOT NULL, payer TEXT NOT NULL, bid_milli INTEGER NOT NULL,
                  cu_limit INTEGER NOT NULL, heap INTEGER, first_valid_slot INTEGER NOT NULL, sent_slot INTEGER NOT NULL,
-                 landed_slot INTEGER, status TEXT NOT NULL, code INTEGER);
+                 landed_slot INTEGER, status TEXT NOT NULL, code INTEGER, fee INTEGER);
              CREATE INDEX IF NOT EXISTS attempts_status ON attempts(status);
              CREATE INDEX IF NOT EXISTS attempts_object ON attempts(object_key);
              CREATE TABLE IF NOT EXISTS plaintexts(host INTEGER NOT NULL, bell INTEGER NOT NULL, plain BLOB NOT NULL,
@@ -139,6 +195,20 @@ impl Journal {
                  bell INTEGER, event TEXT NOT NULL, object TEXT NOT NULL, detail TEXT NOT NULL);
              CREATE INDEX IF NOT EXISTS conquest_event ON conquest(event);",
         ))?;
+        // An older journal has no fee column. Preserve it, but never turn an
+        // unknown old fee into zero: resuming such a journal requires a
+        // reviewed migration of its in-flight and historical attempts.
+        let has_fee = {
+            let mut st = sql(conn.prepare("PRAGMA table_info(attempts)"))?;
+            let rows = sql(st.query_map([], |r| r.get::<_, String>(1)))?;
+            sql(rows.collect::<rusqlite::Result<Vec<_>>>())?
+                .iter()
+                .any(|name| name == "fee")
+        };
+        if !has_fee {
+            sql(conn.execute("ALTER TABLE attempts ADD COLUMN fee INTEGER", []))?;
+        }
+        Self::check_known_fees(&conn)?;
         Ok(Journal { conn, crash: None })
     }
 
@@ -156,10 +226,21 @@ impl Journal {
 
     pub fn record_attempt(&self, a: &Attempt) -> Result<(), String> {
         self.maybe_crash("attempt", &a.kind);
+        let fee = i64::try_from(a.fee).map_err(|_| "predicted fee overflows SQLite integer")?;
+        let bid = i64::try_from(a.bid_milli).map_err(|_| "bid overflows SQLite integer")?;
+        let first_valid_slot = i64::try_from(a.first_valid_slot)
+            .map_err(|_| "first valid slot overflows SQLite integer")?;
+        let sent_slot =
+            i64::try_from(a.sent_slot).map_err(|_| "sent slot overflows SQLite integer")?;
+        let landed_slot = a
+            .landed_slot
+            .map(i64::try_from)
+            .transpose()
+            .map_err(|_| "landed slot overflows SQLite integer")?;
         sql(self.conn.execute(
-            "INSERT OR REPLACE INTO attempts(sig, kind, object_key, bell, region, class, payer, bid_milli, cu_limit,
-                 heap, first_valid_slot, sent_slot, landed_slot, status, code)
-             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+            "INSERT INTO attempts(sig, kind, object_key, bell, region, class, payer, bid_milli, cu_limit,
+                 heap, first_valid_slot, sent_slot, landed_slot, status, code, fee)
+             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
             params![
                 a.sig,
                 a.kind,
@@ -168,14 +249,15 @@ impl Journal {
                 a.region,
                 a.class,
                 a.payer,
-                a.bid_milli as i64,
+                bid,
                 a.cu_limit,
                 a.heap,
-                a.first_valid_slot as i64,
-                a.sent_slot as i64,
-                a.landed_slot.map(|s| s as i64),
+                first_valid_slot,
+                sent_slot,
+                landed_slot,
                 a.status,
-                a.code
+                a.code,
+                fee
             ],
         ))
         .map(|_| ())
@@ -189,6 +271,10 @@ impl Journal {
         landed_slot: Option<u64>,
         code: Option<u32>,
     ) -> Result<(), String> {
+        let landed_slot = landed_slot
+            .map(i64::try_from)
+            .transpose()
+            .map_err(|_| "landed slot overflows SQLite integer")?;
         if self.crash.is_some() {
             let kind: Option<String> = self
                 .conn
@@ -203,7 +289,7 @@ impl Journal {
         }
         sql(self.conn.execute(
             "UPDATE attempts SET status = ?2, landed_slot = ?3, code = ?4 WHERE sig = ?1",
-            params![sig, status, landed_slot.map(|s| s as i64), code],
+            params![sig, status, landed_slot, code],
         ))
         .map(|_| ())
     }
@@ -217,20 +303,26 @@ impl Journal {
             region: r.get(4)?,
             class: r.get(5)?,
             payer: r.get(6)?,
-            bid_milli: r.get::<_, i64>(7)? as u64,
+            bid_milli: nonnegative_u64(r, 7)?,
             cu_limit: r.get(8)?,
             heap: r.get(9)?,
-            first_valid_slot: r.get::<_, i64>(10)? as u64,
-            sent_slot: r.get::<_, i64>(11)? as u64,
-            landed_slot: r.get::<_, Option<i64>>(12)?.map(|s| s as u64),
+            first_valid_slot: nonnegative_u64(r, 10)?,
+            sent_slot: nonnegative_u64(r, 11)?,
+            landed_slot: r
+                .get::<_, Option<i64>>(12)?
+                .map(|v| {
+                    u64::try_from(v).map_err(|_| rusqlite::Error::IntegralValueOutOfRange(12, v))
+                })
+                .transpose()?,
             status: r.get(13)?,
             code: r.get(14)?,
+            fee: nonnegative_u64(r, 15)?,
         })
     }
 
     const COLS: &'static str =
         "sig, kind, object_key, bell, region, class, payer, bid_milli, cu_limit, heap,
-         first_valid_slot, sent_slot, landed_slot, status, code";
+         first_valid_slot, sent_slot, landed_slot, status, code, fee";
 
     /// Attempts still marked `sent` (in flight at a crash).
     pub fn in_flight(&self) -> Result<Vec<Attempt>, String> {
@@ -485,6 +577,7 @@ mod tests {
             class: "D".into(),
             payer: "P".into(),
             bid_milli: 100,
+            fee: 5_000,
             cu_limit: 345_000,
             heap: None,
             first_valid_slot: 10,
@@ -526,6 +619,143 @@ mod tests {
         assert!(lock(&p).is_ok(), "released with the file");
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn unknown_old_fee_refuses_reopen_and_duplicate_signature_is_not_replaced() {
+        let dir = std::env::temp_dir().join(format!(
+            "keeper-journal-fee-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("journal.sqlite");
+        let j = Journal::open(&path).unwrap();
+        j.record_attempt(&a("s1", "sent")).unwrap();
+        assert!(j.record_attempt(&a("s1", "sent")).is_err());
+        assert_eq!(j.attempts_of("anchor:5:3").unwrap()[0].fee, 5_000);
+        j.conn
+            .execute("UPDATE attempts SET fee = NULL WHERE sig = 's1'", [])
+            .unwrap();
+        drop(j);
+        assert!(matches!(Journal::open(&path), Err(e) if e.contains("attempts without fee")));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn open_existing_never_creates_an_empty_journal() {
+        let dir = std::env::temp_dir().join(format!(
+            "keeper-existing-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("journal.sqlite");
+        assert!(Journal::open_existing(&path).is_err());
+        assert!(!path.exists(), "resume must not create an empty database");
+        let j = Journal::open(&path).unwrap();
+        j.record_attempt(&a("s1", "sent")).unwrap();
+        drop(j);
+        let j = Journal::open_existing(&path).unwrap();
+        assert_eq!(j.in_flight().unwrap().len(), 1);
+        j.conn.execute_batch("DROP TABLE owner_material").unwrap();
+        drop(j);
+        assert!(
+            Journal::open_existing(&path).is_err(),
+            "missing schema must refuse"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn invalid_attempt_numbers_are_rejected_instead_of_wrapping() {
+        let j = Journal::open(Path::new(":memory:")).unwrap();
+        j.record_attempt(&a("s1", "sent")).unwrap();
+        for field in [
+            "bid_milli",
+            "first_valid_slot",
+            "sent_slot",
+            "landed_slot",
+            "fee",
+        ] {
+            j.conn
+                .execute(
+                    &format!("UPDATE attempts SET {field} = -1 WHERE sig = 's1'"),
+                    [],
+                )
+                .unwrap();
+            assert!(
+                j.in_flight().is_err(),
+                "negative {field} must refuse reading"
+            );
+            assert!(
+                Journal::check_known_fees(&j.conn).is_err(),
+                "negative {field} must refuse resume"
+            );
+            let original = if field == "landed_slot" {
+                "NULL"
+            } else if field == "fee" {
+                "5000"
+            } else if field == "bid_milli" {
+                "100"
+            } else {
+                "10"
+            };
+            j.conn
+                .execute(
+                    &format!("UPDATE attempts SET {field} = {original} WHERE sig = 's1'"),
+                    [],
+                )
+                .unwrap();
+        }
+        assert_eq!(j.in_flight().unwrap().len(), 1);
+        let mut too_large = a("s2", "sent");
+        too_large.sent_slot = i64::MAX as u64 + 1;
+        assert!(j.record_attempt(&too_large).is_err());
+        too_large.sent_slot = 10;
+        too_large.bid_milli = i64::MAX as u64 + 1;
+        assert!(j.record_attempt(&too_large).is_err());
+        assert!(j
+            .set_status("s1", "landed", Some(i64::MAX as u64 + 1), None)
+            .is_err());
+        assert_eq!(j.in_flight().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn open_existing_rejects_out_of_range_sqlite_values() {
+        let dir = std::env::temp_dir().join(format!(
+            "keeper-journal-range-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("journal.sqlite");
+        let j = Journal::open(&path).unwrap();
+        j.record_attempt(&a("s1", "sent")).unwrap();
+        j.conn
+            .execute("UPDATE attempts SET sent_slot = -1 WHERE sig = 's1'", [])
+            .unwrap();
+        drop(j);
+        assert!(Journal::open_existing(&path).is_err());
+
+        let conn = Connection::open(&path).unwrap();
+        conn.execute(
+            "UPDATE attempts SET sent_slot = 10, fee = 9223372036854775808 WHERE sig = 's1'",
+            [],
+        )
+        .unwrap();
+        drop(conn);
+        assert!(Journal::open_existing(&path).is_err());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 }
 
 #[cfg(test)]
@@ -553,6 +783,7 @@ mod prefix_tests {
                 class: "D".into(),
                 payer: "P".into(),
                 bid_milli: 100,
+                fee: 5_000,
                 cu_limit: 1,
                 heap: None,
                 first_valid_slot: 1,

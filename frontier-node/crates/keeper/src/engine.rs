@@ -423,11 +423,21 @@ impl Engine {
     /// Adopts in-flight attempts from the journal after a restart: the next
     /// `ensure` of the same object continues from them (their landing ends
     /// the write) instead of starting over.
-    pub fn adopt(&mut self, attempts: &[Attempt]) {
-        for a in attempts {
-            let (Ok(sig), Ok(payer)) = (a.sig.parse(), a.payer.parse()) else {
-                continue;
-            };
+    pub fn adopt(&mut self, attempts: &[Attempt]) -> Result<(), String> {
+        // Validate the whole batch before changing the engine. A malformed
+        // journal entry must not be silently dropped and then resent.
+        let parsed: Vec<_> = attempts
+            .iter()
+            .map(|a| {
+                let sig = a.sig.parse().map_err(|_| "invalid journal signature")?;
+                let payer = a.payer.parse().map_err(|_| "invalid journal payer")?;
+                if a.fee == 0 {
+                    return Err("journal attempt has no predicted fee");
+                }
+                Ok((a, sig, payer))
+            })
+            .collect::<Result<_, _>>()?;
+        for (a, sig, payer) in parsed {
             self.orphans.push((sig, a.sent_slot));
             self.adopted
                 .entry(a.object_key.clone())
@@ -440,9 +450,10 @@ impl Engine {
                     heap: a.heap,
                     sent_slot: a.sent_slot,
                     chain_slot: a.sent_slot,
-                    fee: 0,
+                    fee: a.fee,
                 });
         }
+        Ok(())
     }
 
     fn classify(
@@ -868,10 +879,38 @@ impl Engine {
             };
             let wire = tx::wire(&t);
             let sig = tx::signature(&t);
-            if let Err(e) = port.send(&wire).await {
-                report.send_errors.push((k.clone(), e.to_string()));
-                continue;
+            // Persist the signed version before calling RPC. A send error
+            // can mean the network received it but the reply was lost, so
+            // the signature must already be available for reconciliation.
+            if let Some(j) = journal {
+                let p = self.pending.get(&k).expect("pending");
+                if let Err(e) = j.record_attempt(&Attempt {
+                    sig: sig.to_string(),
+                    kind: p.spec.kind.into(),
+                    object_key: k.clone(),
+                    bell: p.spec.bell,
+                    region: p.spec.region,
+                    class: p.spec.class.letter().into(),
+                    payer: ctx.payer.to_string(),
+                    bid_milli: bid,
+                    fee,
+                    cu_limit: budget.cu_limit,
+                    heap: budget.heap,
+                    first_valid_slot: slot,
+                    sent_slot: slot,
+                    landed_slot: None,
+                    status: "sent".into(),
+                    code: None,
+                }) {
+                    report
+                        .send_errors
+                        .push((k.clone(), format!("journal before send: {e}")));
+                    continue;
+                }
             }
+            let send_result = port.send(&wire).await;
+            // Reserve the fee even if RPC returned an error: the chain may
+            // have received the exact signature, and it can still land.
             payers.note_spend(&ctx.payer, fee);
             let p = self.pending.get_mut(&k).expect("pending");
             if p.first_slot.is_none() {
@@ -887,29 +926,15 @@ impl Engine {
                 chain_slot: chain_slot.unwrap_or(slot).max(slot),
                 fee,
             };
-            if let Some(j) = journal {
-                let _ = j.record_attempt(&Attempt {
-                    sig: sig.to_string(),
-                    kind: p.spec.kind.into(),
-                    object_key: k.clone(),
-                    bell: p.spec.bell,
-                    region: p.spec.region,
-                    class: p.spec.class.letter().into(),
-                    payer: ctx.payer.to_string(),
-                    bid_milli: bid,
-                    cu_limit: budget.cu_limit,
-                    heap: budget.heap,
-                    first_valid_slot: slot,
-                    sent_slot: slot,
-                    landed_slot: None,
-                    status: "sent".into(),
-                    code: None,
-                });
-            }
             p.versions.push(v);
             self.last_send_chain_slot = Some(chain_slot.unwrap_or(slot).max(slot));
             self.stats.entry(p.spec.kind).or_default().versions += 1;
-            report.sent += 1;
+            match send_result {
+                Ok(_) => report.sent += 1,
+                Err(e) => report
+                    .send_errors
+                    .push((k.clone(), format!("send outcome unknown: {e}"))),
+            }
             self.mark_contested(&k, slot, journal, report);
         }
     }
@@ -983,7 +1008,9 @@ impl Engine {
 mod tests {
     use super::*;
     use crate::config::KeeperConfig;
-    use fclient::ports::{Account, ClockSysvar, Cursor, PortResult, SimResult, TxRecord};
+    use fclient::ports::{
+        Account, ClockSysvar, Cursor, PortError, PortResult, SimResult, TxRecord,
+    };
     use std::sync::Mutex;
 
     type Answer = Box<dyn FnMut(&fclient::Transaction) -> Option<Status> + Send>;
@@ -996,6 +1023,8 @@ mod tests {
         statuses: Mutex<HashMap<Signature, Status>>,
         /// The Clock's slot (`send` reads it; 0 by default).
         clock_slot: std::sync::atomic::AtomicU64,
+        /// Simulates a timeout after the transaction reached the chain.
+        fail_after_send: std::sync::atomic::AtomicBool,
     }
 
     impl Default for Script {
@@ -1005,6 +1034,7 @@ mod tests {
                 answer: Mutex::new(Box::new(|_| None)),
                 statuses: Mutex::new(HashMap::new()),
                 clock_slot: std::sync::atomic::AtomicU64::new(0),
+                fail_after_send: std::sync::atomic::AtomicBool::new(false),
             }
         }
     }
@@ -1039,6 +1069,12 @@ mod tests {
                 self.statuses.lock().unwrap().insert(sig, st);
             }
             self.sent.lock().unwrap().push(t);
+            if self
+                .fail_after_send
+                .load(std::sync::atomic::Ordering::SeqCst)
+            {
+                return Err(PortError::Io("reply lost after send".into()));
+            }
             Ok(sig)
         }
         async fn statuses(&self, sigs: &[Signature]) -> PortResult<Vec<Option<Status>>> {
@@ -1087,6 +1123,68 @@ mod tests {
 
     fn priority_of(t: &fclient::Transaction) -> u64 {
         tx::priority(&t.message).0
+    }
+
+    #[tokio::test]
+    async fn journal_failure_prevents_send_and_ambiguous_rpc_keeps_fee() {
+        let port = Script::default();
+        let mut payers = payers();
+        payers.refresh(&port, 0).await.unwrap();
+        let mut e = Engine::new(Budgets::placeholder(), EngineParams::default());
+        e.ensure(spec("durable", Class::D, abi::tag::POST_ANCHOR), 10);
+        let j = Journal::open(std::path::Path::new(":memory:")).unwrap();
+        j.conn.execute_batch("DROP TABLE attempts").unwrap();
+        let r = e.step(&port, &mut payers, Some(&j), 10).await;
+        assert_eq!(r.sent, 0);
+        assert!(r.send_errors[0].1.contains("journal before send"));
+        assert!(
+            port.sent.lock().unwrap().is_empty(),
+            "no RPC before a durable record"
+        );
+        assert!(e.pending["durable"].versions.is_empty());
+
+        // A second journal is healthy. The RPC sees the signed wire but its
+        // reply is lost; the version and its fee remain in both memories.
+        let j = Journal::open(std::path::Path::new(":memory:")).unwrap();
+        port.fail_after_send
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        let r = e.step(&port, &mut payers, Some(&j), 11).await;
+        assert_eq!(r.sent, 0, "RPC did not confirm the send");
+        assert!(r.send_errors[0].1.contains("outcome unknown"));
+        assert_eq!(port.sent.lock().unwrap().len(), 1);
+        let inflight = j.in_flight().unwrap();
+        assert_eq!(inflight.len(), 1);
+        assert!(inflight[0].fee > 0);
+        assert_eq!(e.pending["durable"].versions[0].fee, inflight[0].fee);
+
+        let mut restarted = Engine::new(Budgets::placeholder(), EngineParams::default());
+        restarted.adopt(&inflight).unwrap();
+        restarted.ensure(spec("durable", Class::D, abi::tag::POST_ANCHOR), 12);
+        assert_eq!(
+            restarted.pending["durable"].versions[0].fee,
+            inflight[0].fee
+        );
+        let mut capped = Engine::new(
+            Budgets::placeholder(),
+            EngineParams {
+                per_write_cap: inflight[0].fee,
+                ..EngineParams::default()
+            },
+        );
+        capped.adopt(&inflight).unwrap();
+        capped.ensure(spec("durable", Class::D, abi::tag::POST_ANCHOR), 12);
+        let sends = port.sent.lock().unwrap().len();
+        assert_eq!(capped.step(&port, &mut payers, Some(&j), 13).await.sent, 0);
+        assert_eq!(
+            port.sent.lock().unwrap().len(),
+            sends,
+            "restored fee counts against the cap"
+        );
+        let mut bad = inflight;
+        bad[0].fee = 0;
+        assert!(Engine::new(Budgets::placeholder(), EngineParams::default())
+            .adopt(&bad)
+            .is_err());
     }
 
     #[test]
