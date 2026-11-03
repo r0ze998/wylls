@@ -32,6 +32,7 @@ pub const PARAMS_FILE: &str = "permutation-gateway/src/frontier/prize-params.jso
 pub struct Prize {
     pub so: PathBuf,
     pub so_len: usize,
+    pub so_sha256: [u8; 32],
     pub program: Address,
     pub gate: Keypair,
     pub faucet: Keypair,
@@ -191,6 +192,7 @@ impl Prize {
         Ok(Some(Prize {
             so: pinned,
             so_len: bytes.len(),
+            so_sha256: Sha256::digest(&bytes).into(),
             program,
             gate,
             faucet,
@@ -335,6 +337,7 @@ impl Prize {
     pub fn to_json(&self, cfg: &StackConfig) -> Value {
         json!({
             "test_assets_only": true,
+            "so_sha256": hex::encode(self.so_sha256),
             "program": self.program.to_string(), "pool": self.pool.to_string(), "vault": self.vault.to_string(),
             "mint": self.mint.pubkey().to_string(), "decimals": DECIMALS,
             "entry_fee": cfg.entry_fee, "ops_bps": cfg.prize_ops_bps, "expected_keeps": cfg.prize_keeps,
