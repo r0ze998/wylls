@@ -23,6 +23,9 @@ import { KeeperLink } from '../src/frontier/keeperlink.mjs';
 import { PayerPool } from '../src/frontier/payers.mjs';
 import { QUOTA } from '../src/frontier/quota.mjs';
 import { call } from './gateway-fixtures.mjs';
+import { sealRequest } from '../../permutation-server/web/frontier/seal-worker.mjs';
+import { sealRound } from '../../permutation-server/web/frontier/seal.mjs';
+import { QUICKNET } from '../../permutation-server/web/frontier/abi.mjs';
 
 const PROGRAM = Keypair.generate().publicKey.toBase58();
 const SEASON_ID = 5n;
@@ -599,4 +602,67 @@ test('the funds breaker: sponsored routes pause while the pool is below its mini
   assert.equal(r.chain.sent.length, 0);
   // Reads go on.
   assert.equal((await call(r.public, 'GET', '/f/season', { ip: '203.0.113.9' })).status, 200);
+});
+
+// ⑱ (2026-10-31): on the web's path (browser → relay → RPC), no transaction carrying a march's plaintext or salt
+// reaches the RPC, before publication or ever: the web never builds a Reveal (fchainio); the relay refuses one
+// (UseRevealRoute) before it simulates or sends; the reveal material goes to the keeper's API only; and the Depart
+// the relay sends carries the seal and the commitment, not the plaintext. The march is sealed by the page's own
+// sealing code to quicknet's key (whose secret is not known), not the test beacon.
+
+test('⑱: no plaintext or salt reaches the RPC on the web\'s path (material to the keeper only; Reveal refused before simulate; Depart carries the seal)', async () => {
+  const seen = [];
+  const keeper = http.createServer((req, res) => {
+    let body = '';
+    req.on('data', c => { body += c; });
+    req.on('end', () => { seen.push({ url: req.url, body: JSON.parse(body) }); res.writeHead(202, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ accepted: true, track: 't1' })); });
+  });
+  await new Promise(r => keeper.listen(0, '127.0.0.1', r));
+  try {
+    const tip = tipPresets(TIP_MIN)[0];
+    const chain = fakeChain({ debit: tx => (tx.instructions[3].data[0] === 0x50 ? tip + MARCH_FEE + SEAL_BOND : 0n) });
+    const wires = [];
+    const sim = chain.simulateTransaction, send = chain.sendRawTransaction;
+    chain.simulateTransaction = async (vtx, cfg) => { wires.push(Buffer.from(vtx.serialize())); return sim(vtx, cfg); };
+    chain.sendRawTransaction = async raw => { wires.push(Buffer.from(raw)); return send(raw); };
+    const r = relay({ chain, keeper: new KeeperLink({ url: `http://127.0.0.1:${keeper.address().port}`, token: 'kpr' }) });
+    // The page seals a march to T(arrive) of the season clock, with quicknet's key.
+    const host = hostId(...HOLD, 0, 1), arriveBell = 147;
+    const p = encodePath([0, 1]);
+    const plain = pack({ hostId: host, arriveBell, destP: -2, destQ: 7, destTile: 30, stance: 1, retreatBps: 0, pathLen: p.pathLen, path: p.path });
+    const clock = { genesisTs: GENESIS, drand: { genesis: QUICKNET.genesis, period: QUICKNET.period } };
+    const s = sealRequest({ plain, round: sealRound(clock, arriveBell), publicKey: QUICKNET.publicKey, hostId: host, arriveBell, clock });
+    assert.equal(s.ok, true, JSON.stringify(s));
+    const has = (buf, needle) => Buffer.from(buf).indexOf(Buffer.from(needle)) >= 0;
+    assert.ok(!has(s.seal, plain), 'the seal does not carry the plaintext in clear');
+    // Depart through the relay: simulated and sent; neither the plaintext nor the salt is in the wire bytes.
+    const fp = await feePayerOf(r);
+    const fields = { host_id: host, commit: s.commit, seal: s.seal, arrive_bell: arriveBell, tip, transit_slot: 1 };
+    const d = await call(r.public, 'POST', '/f/relay', { body: { tx: playerTx({ name: 'Depart', feePayer: fp, fields }) }, ip: '203.0.113.9' });
+    assert.equal(d.json.ok, true, JSON.stringify(d.json));
+    assert.ok(wires.length >= 2, 'the Depart was simulated and sent');
+    for (const w of wires) assert.ok(!has(w, plain) && !has(w, s.salt), 'a plaintext or salt in a wire the RPC received');
+    // A Reveal carrying the plaintext, posted as a transaction: refused before any simulation or send.
+    const n0 = wires.length, sim0 = chain.simulated, sent0 = chain.sent.length;
+    const fp2 = await feePayerOf(r);
+    const dep = parseTransaction(Buffer.from(playerTx({ name: 'Depart', feePayer: fp2, fields }), 'base64'));
+    const rev = Buffer.from(playerTx({ name: 'Depart', feePayer: fp2, fields }), 'base64');
+    // the Depart tag byte inside the message → Reveal (0x51), and the plaintext and salt in its data
+    const at = rev.indexOf(Buffer.from(dep.instructions[3].data));
+    assert.ok(at > 0);
+    rev[at] = 0x51;
+    Buffer.from(plain).copy(rev, at + 1);
+    Buffer.from(s.salt).copy(rev, at + 1 + plain.length);
+    const rv = await call(r.public, 'POST', '/f/relay', { body: { tx: rev.toString('base64') }, ip: '203.0.113.9' });
+    assert.equal(rv.json.code, 'UseRevealRoute', JSON.stringify(rv.json));
+    assert.deepEqual([wires.length, chain.simulated, chain.sent.length], [n0, sim0, sent0], 'nothing simulated or sent');
+    // The reveal material: to the keeper's API, and nothing to the RPC.
+    const body = revealMaterial({ holding: A.holding(...HOLD), transitSlot: 1, plain, salt: s.salt, seal: s.seal });
+    const ok = await call(r.public, 'POST', '/f/reveal', { body, ip: '203.0.113.9' });
+    assert.equal(ok.status, 202);
+    assert.deepEqual(seen.map(x => x.url), ['/v1/reveal']);
+    assert.deepEqual([wires.length, chain.simulated, chain.sent.length], [n0, sim0, sent0], 'the material went to the keeper only');
+  } finally {
+    await new Promise(r => keeper.close(r));
+  }
 });

@@ -11,6 +11,7 @@
 //!
 //! | module | check |
 //! |---|---|
+//! | [`checks::v0_coverage`] | V0 the instructions and program versions this verifier can judge (an unknown or unmodelled one is never a PASS) |
 //! | [`checks::v1_chains`] | V1 entity chains, final heads, duplicates, K4 state |
 //! | [`checks::v2_program`] | V2 program id, `.so` hash, ruleset hash, announce → create |
 //! | [`checks::v3_random`] | V3 anchors, caches, beacons, genesis and ring rounds (blstrs) |

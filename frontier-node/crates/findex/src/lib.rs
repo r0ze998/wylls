@@ -3,6 +3,7 @@
 //! | module | what |
 //! |---|---|
 //! | [`ingest`] | sources: [`ingest::LocalnetFeed`] (any `ChainPort`'s ordered feed), [`ingest::RpcPoll`] (`getSignaturesForAddress` + `getTransaction`) and [`ingest::Enriched`] (post-state fetched for a source without it, before archiving) |
+//! | [`provenance`] | what an archived post-state proves: the exact bytes, a later version (public RPC), the last committed bytes of a delegated account |
 //! | [`archive`] | append-only segment files with a manifest (sha256 per sealed segment, the source cursor) |
 //! | [`index`] | the SQLite entity index: transactions, PS2 records, chain links and heads, account snapshots, event numbering; [`index::Reader`] for a second (read-only) connection |
 //!
@@ -15,6 +16,7 @@
 pub mod archive;
 pub mod index;
 pub mod ingest;
+pub mod provenance;
 
 use std::path::{Path, PathBuf};
 

@@ -196,6 +196,8 @@ pub struct PlayDuty {
     pub provinces: BTreeMap<(i16, i16), ProvState>,
     pub anchors: BTreeMap<(u32, u8), AnchorSeen>,
     anchor_tried: BTreeMap<(u32, u8), u64>,
+    /// The journal's owner material was read back (once per process).
+    owner_loaded: bool,
     /// ArrivalDay bits `(P, Q, day)` → (bits, the Clock `now` of the read).
     days: BTreeMap<(i16, i16, u32), DayRead>,
     /// Province-bells a skip found not quiet: gathered and resolved instead.
@@ -457,7 +459,7 @@ impl PlayDuty {
     }
 
     /// Takes owner material queued by `/v1/reveal` and nudges.
-    fn take_shared(&mut self, shared: &mut Shared) {
+    fn take_shared(&mut self, shared: &mut Shared, journal: Option<&Journal>) {
         for (track, v) in shared.reveals.drain(..) {
             let get = |k: &str, n: usize| -> Option<Vec<u8>> {
                 use base64::Engine as _;
@@ -490,6 +492,19 @@ impl PlayDuty {
                 salt: salt.try_into().expect("32"),
                 ct_hash: ct.try_into().expect("32"),
             };
+            // Journalled before it is held: it waits for THE anchor (⑱).
+            if let Some(j) = journal {
+                let _ = j.save_owner_material(&crate::journal::OwnerRow {
+                    host: p.host_id,
+                    bell: p.arrive_bell,
+                    track: m.track.clone(),
+                    holding: m.holding.to_string(),
+                    transit_slot: m.transit_slot,
+                    plain: m.plain.to_vec(),
+                    salt: m.salt.to_vec(),
+                    ct_hash: m.ct_hash.to_vec(),
+                });
+            }
             self.owner.insert((p.host_id, p.arrive_bell), m);
         }
         for n in shared.nudges.drain(..) {
@@ -565,10 +580,15 @@ impl PlayDuty {
                 0,
             )
             .await?;
+        // THE anchor of this season, bell and region only: a stale or
+        // wrong read is no anchor (⑱; the beacon duty checks the same).
         if let Some(an) = got[0]
             .as_ref()
             .filter(|a| a.owner == t.addrs.program)
             .and_then(|a| BellAnchor::decode(&a.data).ok())
+            .filter(|an| {
+                an.bell == bell && an.region == region && an.season_id == t.addrs.season_id
+            })
         {
             let s = AnchorSeen {
                 a: an.a,
@@ -893,7 +913,32 @@ impl PlayDuty {
         opened: &[(i32, i32)],
     ) -> PortResult<()> {
         self.observe_clock(t.slot, t.now);
-        self.take_shared(shared);
+        if !self.owner_loaded {
+            // Owner material accepted before a restart (⑱).
+            self.owner_loaded = true;
+            for r in journal
+                .and_then(|j| j.owner_materials().ok())
+                .unwrap_or_default()
+            {
+                let (Ok(plain), Ok(salt), Ok(ct_hash), Ok(holding)) = (
+                    <[u8; 37]>::try_from(r.plain),
+                    <[u8; 32]>::try_from(r.salt),
+                    <[u8; 32]>::try_from(r.ct_hash),
+                    r.holding.parse::<Address>(),
+                ) else {
+                    continue;
+                };
+                self.owner.entry((r.host, r.bell)).or_insert(OwnerMat {
+                    track: r.track,
+                    holding,
+                    transit_slot: r.transit_slot,
+                    plain,
+                    salt,
+                    ct_hash,
+                });
+            }
+        }
+        self.take_shared(shared, journal);
         let eff = t.season.effective_status(t.now);
         if !(eff == status::RUNNING || eff == status::ENDED) {
             return Ok(());
@@ -912,7 +957,8 @@ impl PlayDuty {
             self.decrypt(t, drand, rounds, journal).await;
         }
         if t.cfg.has_role("reveal") {
-            self.reveals(t, port, engine, beacon, shared).await?;
+            self.reveals(t, port, drand, rounds, engine, beacon, shared)
+                .await?;
         }
         if t.cfg.has_role("settle-departure") {
             self.settle_departures(t, port, engine).await?;
@@ -1023,10 +1069,13 @@ impl PlayDuty {
 
     // ------------------------------------------------------------ reveals
 
-    async fn reveals<P: ChainPort>(
+    #[allow(clippy::too_many_arguments)]
+    async fn reveals<P: ChainPort, D: DrandPort>(
         &mut self,
         t: &Tick<'_>,
         port: &P,
+        drand: &D,
+        rounds: &mut Rounds,
         engine: &mut Engine,
         beacon: &BTreeMap<(u32, u8), AnchorInfo>,
         shared: &mut Shared,
@@ -1083,6 +1132,27 @@ impl PlayDuty {
             if members
                 .iter()
                 .any(|k| engine.is_pending(&format!("reveal:{}", rkey(*k))))
+            {
+                continue;
+            }
+            // Secrecy before T(arrive) (⑱): no Reveal before THE anchor.
+            // The anchor needs T(arrive)'s signature. A Reveal sent earlier
+            // publishes the plaintext and the salt before drand publishes
+            // the round: the program accepts a Reveal whose anchor and
+            // archive are both absent (the window is not open yet,
+            // `proc/reveal.rs` step 4), and one it refuses still lands
+            // (skipPreflight) with its data. The material waits here.
+            if anchor.is_none() {
+                continue;
+            }
+            // …and not before this keeper holds T(arrive)'s signature,
+            // verified against the pinned key: publication proven by drand
+            // itself, whatever the RPC said about the anchor (a stale or
+            // lying read). Usually cached already by `decrypt`.
+            if rounds
+                .get(drand, t.clock.tlock_round(arrive), t.slot)
+                .await
+                .is_none()
             {
                 continue;
             }
@@ -2938,15 +3008,19 @@ mod w6t_tests {
     }
 
     impl Env {
-        async fn plan(
+        async fn try_plan(
             &mut self,
             d: &mut PlayDuty,
             slot: u64,
             now: i64,
             journal: Option<&Journal>,
             opened: &[(i32, i32)],
-        ) {
+        ) -> PortResult<()> {
             self.port.set_clock(slot, now);
+            // drand publishes by the same clock (a round at its time).
+            self.drand
+                .now
+                .store(now, std::sync::atomic::Ordering::SeqCst);
             let t = Tick {
                 slot,
                 now,
@@ -2968,7 +3042,16 @@ mod w6t_tests {
                 opened,
             )
             .await
-            .unwrap();
+        }
+        async fn plan(
+            &mut self,
+            d: &mut PlayDuty,
+            slot: u64,
+            now: i64,
+            journal: Option<&Journal>,
+            opened: &[(i32, i32)],
+        ) {
+            self.try_plan(d, slot, now, journal, opened).await.unwrap();
         }
         fn anchor(&mut self, bell: u32, region: u8) {
             self.beacon.insert(
@@ -3129,8 +3212,11 @@ mod w6t_tests {
                 .reveals
                 .push((format!("r{site}"), owner_item(h, &m)));
             keys.push((arrive, format!("reveal:{host}:{dep}")));
+            // THE anchor (a Reveal waits for it, ⑱); none can exist at or
+            // after end_bell, but even one planted there must not be used.
+            e.anchor(arrive, ix::region_of(origin.0 as i32, origin.1 as i32));
         }
-        let now = G + (end as i64 - 1) * BELL_SECS + 30;
+        let now = G + end as i64 * BELL_SECS + 30;
         e.plan(&mut d, 50, now, None, &[]).await;
         for (arrive, k) in keys {
             assert_eq!(
@@ -3139,6 +3225,714 @@ mod w6t_tests {
                 "arrive {arrive} (end_bell {end}): {k}"
             );
         }
+    }
+
+    /// Secrecy before T(arrive) (⑱, 2026-10-31): the owner's material
+    /// reaches the keeper from the arrival bell's start, ≈ 600 s before the
+    /// round T(arrive) is published. A Reveal sent then lands — accepted
+    /// (the program takes a Reveal with no anchor and no archive), or
+    /// refused but recorded (skipPreflight) — and its instruction data, the
+    /// plaintext and the salt, is public before drand publishes the round
+    /// that opens the seal. No Reveal write may exist before THE anchor of
+    /// the arrival (which needs T(arrive)'s signature); with it, the Reveal
+    /// goes.
+    #[tokio::test]
+    async fn no_reveal_before_the_anchor_of_its_arrival() {
+        let mut e = env(&["reveal"], 1_008);
+        let mut d = PlayDuty::default();
+        let origin = (2i16, 0i16);
+        let arrive = 200u32;
+        let host = fclient::addr::host_id(2, 0, 1, 1, 5).unwrap();
+        let m = march(host, arrive, origin, 5);
+        let root = seal::seal_root(&seal::commit(&m.0, &m.1), &m.2);
+        let dep = arrive - 3;
+        d.index
+            .departs
+            .insert((host, dep), depart(host, origin, 5, dep, arrive));
+        let h = e.addrs.holding(2, 0, 1);
+        e.port.put(
+            h,
+            testkit::acct(
+                program(),
+                testkit::holding(1, 0, (1, host, dep, arrive, root)),
+            ),
+        );
+        e.shared.reveals.push(("r1".into(), owner_item(h, &m)));
+        let key = format!("reveal:{host}:{dep}");
+        // 30 s into the arrival bell, and 2 s after its end (T not yet
+        // anchored): material held, nothing planned.
+        for (slot, now) in [
+            (50, G + arrive as i64 * BELL_SECS + 30),
+            (60, G + (arrive as i64 + 1) * BELL_SECS + 2),
+        ] {
+            e.plan(&mut d, slot, now, None, &[]).await;
+            assert!(
+                !e.engine.is_pending(&key),
+                "Reveal planned before THE anchor at {now}"
+            );
+        }
+        // THE anchor lands: the Reveal goes.
+        e.anchor(arrive, ix::region_of(origin.0 as i32, origin.1 as i32));
+        e.plan(
+            &mut d,
+            70,
+            G + (arrive as i64 + 1) * BELL_SECS + 8,
+            None,
+            &[],
+        )
+        .await;
+        assert!(
+            e.engine.is_pending(&key),
+            "Reveal planned once the anchor exists"
+        );
+    }
+
+    /// The material held for THE anchor outlives a restart (⑱): accepted
+    /// before the anchor, the keeper restarted from its journal, the
+    /// anchor lands, the Reveal goes — with no owner resend.
+    #[tokio::test]
+    async fn held_owner_material_survives_a_restart() {
+        let mut e = env(&["reveal"], 1_008);
+        let j = Journal::open(std::path::Path::new(":memory:")).unwrap();
+        let origin = (2i16, 0i16);
+        let arrive = 200u32;
+        let host = fclient::addr::host_id(2, 0, 1, 1, 5).unwrap();
+        let m = march(host, arrive, origin, 5);
+        let root = seal::seal_root(&seal::commit(&m.0, &m.1), &m.2);
+        let dep = arrive - 3;
+        let h = e.addrs.holding(2, 0, 1);
+        e.port.put(
+            h,
+            testkit::acct(
+                program(),
+                testkit::holding(1, 0, (1, host, dep, arrive, root)),
+            ),
+        );
+        let key = format!("reveal:{host}:{dep}");
+        let mut d = PlayDuty::default();
+        d.index
+            .departs
+            .insert((host, dep), depart(host, origin, 5, dep, arrive));
+        e.shared.reveals.push(("r1".into(), owner_item(h, &m)));
+        e.plan(
+            &mut d,
+            50,
+            G + arrive as i64 * BELL_SECS + 30,
+            Some(&j),
+            &[],
+        )
+        .await;
+        assert!(!e.engine.is_pending(&key), "held for THE anchor");
+        assert_eq!(
+            j.owner_materials().unwrap().len(),
+            1,
+            "journalled when accepted"
+        );
+        // Restart: a new duty, nothing queued by the API this time.
+        let mut d = PlayDuty::default();
+        d.index
+            .departs
+            .insert((host, dep), depart(host, origin, 5, dep, arrive));
+        e.anchor(arrive, ix::region_of(origin.0 as i32, origin.1 as i32));
+        e.plan(
+            &mut d,
+            70,
+            G + (arrive as i64 + 1) * BELL_SECS + 8,
+            Some(&j),
+            &[],
+        )
+        .await;
+        assert!(
+            e.engine.is_pending(&key),
+            "revealed from the journalled material"
+        );
+    }
+
+    // ------------------------------------------------------------ ⑱: no plaintext to the RPC before publication
+
+    /// One march whose owner material the keeper holds, and what the RPC
+    /// received: every sent transaction is searched for a Reveal and for
+    /// the plaintext's and the salt's bytes anywhere in any instruction.
+    struct Secret {
+        host: u64,
+        dep: u32,
+        arrive: u32,
+        region: u8,
+        plain: [u8; 37],
+        salt: [u8; 32],
+        item: Value,
+        payers: Payers,
+    }
+
+    const ARRIVE: u32 = 200;
+
+    async fn secret(e: &mut Env, d: &mut PlayDuty) -> Secret {
+        let origin = (2i16, 0i16);
+        let host = fclient::addr::host_id(2, 0, 1, 1, 5).unwrap();
+        let p = seal::Plain {
+            version: 1,
+            host_id: host,
+            arrive_bell: ARRIVE,
+            dest_p: origin.0,
+            dest_q: origin.1,
+            dest_tile: 5,
+            stance: 1,
+            ..Default::default()
+        };
+        let plain = seal::pack(&p);
+        let salt: [u8; 32] = std::array::from_fn(|i| (i as u8).wrapping_mul(37).wrapping_add(11));
+        let ct = [7u8; 32];
+        let root = seal::seal_root(&seal::commit(&plain, &salt), &ct);
+        let dep = ARRIVE - 3;
+        d.index
+            .departs
+            .insert((host, dep), depart(host, origin, 5, dep, ARRIVE));
+        let h = e.addrs.holding(2, 0, 1);
+        e.port.put(
+            h,
+            testkit::acct(
+                program(),
+                testkit::holding(1, 0, (1, host, dep, ARRIVE, root)),
+            ),
+        );
+        let item = owner_item(h, &(plain, salt, ct));
+        e.shared.reveals.push(("r1".into(), item.clone()));
+        let c = e.cfg.clone();
+        let mut payers = Payers::new(&[9u8; 32], &c).unwrap();
+        for a in payers.all_addresses() {
+            e.port.put(
+                a,
+                Account {
+                    lamports: 10_000_000_000,
+                    data: vec![],
+                    owner: fclient::addr::system_program(),
+                    executable: false,
+                },
+            );
+        }
+        payers.refresh(&e.port, 0).await.unwrap();
+        Secret {
+            host,
+            dep,
+            arrive: ARRIVE,
+            region: ix::region_of(origin.0 as i32, origin.1 as i32),
+            plain,
+            salt,
+            item,
+            payers,
+        }
+    }
+
+    impl Env {
+        /// A tick as the keeper runs it: plan (an RPC failure ends the
+        /// plan, as `tick` does) and send whatever the engine holds.
+        async fn tick_send(
+            &mut self,
+            d: &mut PlayDuty,
+            s: &mut Secret,
+            slot: u64,
+            now: i64,
+            j: Option<&Journal>,
+        ) -> PortResult<()> {
+            let r = self.try_plan(d, slot, now, j, &[]).await;
+            let mut rep = StepReport::default();
+            self.engine
+                .send(&self.port, &mut s.payers, None, slot, &mut rep)
+                .await;
+            r
+        }
+        /// Sent transactions carrying a Reveal, or the plaintext or the
+        /// salt anywhere in their instructions.
+        fn leaks(&self, s: &Secret) -> usize {
+            let has = |d: &[u8], n: &[u8]| d.len() >= n.len() && d.windows(n.len()).any(|w| w == n);
+            self.port
+                .sent
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|t| {
+                    t.message.instructions.iter().any(|c| {
+                        let prog = t.message.account_keys[c.program_id_index as usize];
+                        (prog == self.addrs.program && c.data.first() == Some(&tag::REVEAL))
+                            || has(&c.data, &s.plain)
+                            || has(&c.data, &s.salt)
+                    })
+                })
+                .count()
+        }
+        /// A BellAnchor at the canonical address, as an RPC returns it.
+        fn chain_anchor(&self, s: &Secret, season: u64, bell: u32, region: u8, owner: Address) {
+            let a = G + (s.arrive as i64 + 1) * BELL_SECS + 5;
+            let round = SeasonClock::from_season(&self.season).tlock_round(bell);
+            self.port.put(
+                self.addrs.anchor(s.arrive, s.region),
+                testkit::acct(owner, testkit::bell_anchor(season, bell, region, a, round)),
+            );
+        }
+    }
+
+    /// The tick times: the arrival bell's start + 30 s, its last second,
+    /// just after its end (T(arrive) published), and on through the window.
+    fn times() -> Vec<(u64, i64)> {
+        let start = G + ARRIVE as i64 * BELL_SECS;
+        [30, 300, 599, 600, 602, 610, 660, 900, 1_150]
+            .iter()
+            .enumerate()
+            .map(|(i, dt)| (100 + 4 * i as u64, start + dt))
+            .collect()
+    }
+
+    fn after_t() -> (u64, i64) {
+        (500, G + (ARRIVE as i64 + 1) * BELL_SECS + 20)
+    }
+
+    #[tokio::test]
+    async fn no_plaintext_reaches_the_rpc_without_an_anchor() {
+        let mut e = env(&["reveal"], 1_008);
+        let mut d = PlayDuty::default();
+        let mut s = secret(&mut e, &mut d).await;
+        for (slot, now) in times() {
+            e.tick_send(&mut d, &mut s, slot, now, None).await.unwrap();
+            // The idle ticks of the same slot (the in-slot retry).
+            e.tick_send(&mut d, &mut s, slot, now + 1, None)
+                .await
+                .unwrap();
+        }
+        assert_eq!(e.leaks(&s), 0, "plaintext sent with no anchor");
+        // Conditions met: THE anchor exists and T(arrive) is published.
+        e.chain_anchor(&s, 7, s.arrive, s.region, program());
+        let (slot, now) = after_t();
+        e.tick_send(&mut d, &mut s, slot + 3, now, None)
+            .await
+            .unwrap();
+        assert!(e.leaks(&s) >= 1, "the Reveal goes once both hold");
+    }
+
+    #[tokio::test]
+    async fn rpc_read_failures_send_nothing() {
+        let mut e = env(&["reveal"], 1_008);
+        let mut d = PlayDuty::default();
+        let mut s = secret(&mut e, &mut d).await;
+        e.chain_anchor(&s, 7, s.arrive, s.region, program());
+        e.port
+            .fail_reads
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        for (slot, now) in times() {
+            assert!(e.tick_send(&mut d, &mut s, slot, now, None).await.is_err());
+        }
+        assert_eq!(e.leaks(&s), 0, "plaintext sent while the RPC failed");
+        e.port
+            .fail_reads
+            .store(false, std::sync::atomic::Ordering::SeqCst);
+        let (slot, now) = after_t();
+        e.tick_send(&mut d, &mut s, slot, now, None).await.unwrap();
+        assert!(e.leaks(&s) >= 1, "the Reveal goes once the RPC answers");
+    }
+
+    #[tokio::test]
+    async fn drand_unreachable_sends_nothing_even_with_an_anchor() {
+        let mut e = env(&["reveal"], 1_008);
+        let mut d = PlayDuty::default();
+        let mut s = secret(&mut e, &mut d).await;
+        e.anchor(s.arrive, s.region);
+        e.drand
+            .down
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        for (slot, now) in times() {
+            e.tick_send(&mut d, &mut s, slot, now, None).await.unwrap();
+        }
+        assert_eq!(e.leaks(&s), 0, "plaintext sent with no verified T(arrive)");
+        e.drand
+            .down
+            .store(false, std::sync::atomic::Ordering::SeqCst);
+        let (slot, now) = after_t();
+        e.tick_send(&mut d, &mut s, slot, now, None).await.unwrap();
+        assert!(e.leaks(&s) >= 1, "the Reveal goes once drand answers");
+    }
+
+    #[tokio::test]
+    async fn a_stale_or_foreign_anchor_read_sends_nothing() {
+        let other = Address::new_from_array([0x0F; 32]);
+        let mut e = env(&["reveal"], 1_008);
+        let mut d = PlayDuty::default();
+        let mut s = secret(&mut e, &mut d).await;
+        let (slot0, now) = after_t();
+        let r = s.region;
+        let cases = [
+            (7u64, s.arrive - 1, r, program(), "an older bell's anchor"),
+            (6, s.arrive, r, program(), "another season's anchor"),
+            (
+                7,
+                s.arrive,
+                r.wrapping_add(1),
+                program(),
+                "another region's anchor",
+            ),
+            (7, s.arrive, r, other, "not the program's account"),
+        ];
+        for (i, (season, bell, region, owner, what)) in cases.into_iter().enumerate() {
+            e.chain_anchor(&s, season, bell, region, owner);
+            // A fresh read each time (the anchor read is retried every 2 slots).
+            e.tick_send(&mut d, &mut s, slot0 + 10 * i as u64, now + i as i64, None)
+                .await
+                .unwrap();
+            assert_eq!(e.leaks(&s), 0, "plaintext sent on {what}");
+        }
+        e.chain_anchor(&s, 7, s.arrive, s.region, program());
+        e.tick_send(&mut d, &mut s, slot0 + 100, now + 30, None)
+            .await
+            .unwrap();
+        assert!(e.leaks(&s) >= 1, "THE anchor: the Reveal goes");
+    }
+
+    #[tokio::test]
+    async fn an_anchor_read_before_the_round_sends_nothing() {
+        // An RPC that shows THE anchor before drand published T(arrive)
+        // (lying, or ahead of this keeper's drand): the anchor alone is not
+        // enough; the keeper's own verified signature of T(arrive) is.
+        let mut e = env(&["reveal"], 1_008);
+        let mut d = PlayDuty::default();
+        let mut s = secret(&mut e, &mut d).await;
+        e.chain_anchor(&s, 7, s.arrive, s.region, program());
+        e.anchor(s.arrive, s.region);
+        for (slot, now) in times().into_iter().take(3) {
+            e.tick_send(&mut d, &mut s, slot, now, None).await.unwrap();
+        }
+        assert_eq!(
+            e.leaks(&s),
+            0,
+            "plaintext sent before T(arrive) was published"
+        );
+        let (slot, now) = after_t();
+        e.tick_send(&mut d, &mut s, slot, now, None).await.unwrap();
+        assert!(e.leaks(&s) >= 1, "published: the Reveal goes");
+    }
+
+    #[tokio::test]
+    async fn restarts_and_resends_send_nothing_before_and_reveal_after() {
+        let mut e = env(&["reveal"], 1_008);
+        let j = Journal::open(std::path::Path::new(":memory:")).unwrap();
+        let mut d = PlayDuty::default();
+        let mut s = secret(&mut e, &mut d).await;
+        for (k, (slot, now)) in times().into_iter().take(4).enumerate() {
+            // The owner sends the same material again (its own retry).
+            e.shared.reveals.push((format!("r{k}"), s.item.clone()));
+            e.tick_send(&mut d, &mut s, slot, now, Some(&j))
+                .await
+                .unwrap();
+            // A restart: a new duty and a new engine, the same journal.
+            d = PlayDuty::default();
+            d.index
+                .departs
+                .insert((s.host, s.dep), depart(s.host, (2, 0), 5, s.dep, s.arrive));
+            let budgets =
+                Budgets::from_json(&serde_json::from_str(crate::CANONICAL_BUDGETS).unwrap())
+                    .unwrap();
+            e.engine = Engine::new(budgets, EngineParams::default());
+            e.tick_send(&mut d, &mut s, slot + 1, now + 1, Some(&j))
+                .await
+                .unwrap();
+        }
+        assert_eq!(e.leaks(&s), 0, "plaintext sent across restarts and resends");
+        assert_eq!(
+            j.owner_materials().unwrap().len(),
+            1,
+            "one journalled material"
+        );
+        e.anchor(s.arrive, s.region);
+        let (slot, now) = after_t();
+        e.tick_send(&mut d, &mut s, slot, now, Some(&j))
+            .await
+            .unwrap();
+        assert!(e.leaks(&s) >= 1, "after the restarts the Reveal goes");
+    }
+
+    // ------------------------------------------------------------ ⑱: the keeper's intake (`/v1/reveal`)
+
+    /// The accept path reads the chain (`clock`, `accounts`) and never
+    /// sends or simulates: on an empty chain, a failing RPC, and a chain
+    /// with the Holding but no anchor, nothing reaches the RPC's write side.
+    #[tokio::test]
+    async fn the_intake_gate_only_reads() {
+        let mut e = env(&["reveal"], 1_008);
+        let mut d = PlayDuty::default();
+        let s = secret(&mut e, &mut d).await;
+        let req = crate::reveal_accept::RevealReq {
+            holding: e.addrs.holding(2, 0, 1),
+            transit_slot: 0,
+            plain: s.plain,
+            salt: s.salt,
+            ct_hash: [7; 32],
+        };
+        let empty = FakePort::default();
+        assert!(crate::reveal_accept::check(&empty, &e.addrs, &req)
+            .await
+            .is_err());
+        empty
+            .fail_reads
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        let r = crate::reveal_accept::check(&empty, &e.addrs, &req).await;
+        assert_eq!(
+            r.unwrap_err().http,
+            503,
+            "an RPC failure is ChainUnavailable"
+        );
+        // The Holding with its transit, no Season account, no anchor.
+        let _ = crate::reveal_accept::check(&e.port, &e.addrs, &req).await;
+        for p in [&empty, &e.port] {
+            assert!(
+                p.sent.lock().unwrap().is_empty(),
+                "the intake sent a transaction"
+            );
+            assert_eq!(p.simulated.load(std::sync::atomic::Ordering::SeqCst), 0);
+        }
+    }
+
+    /// Accepts everything: the duty's own conditions are what is tested.
+    struct AcceptAll;
+    impl crate::reveal_accept::RevealGate for AcceptAll {
+        fn check<'a>(
+            &'a self,
+            req: &'a crate::reveal_accept::RevealReq,
+        ) -> std::pin::Pin<
+            Box<
+                dyn std::future::Future<
+                        Output = Result<
+                            crate::reveal_accept::Accepted,
+                            crate::reveal_accept::Refusal,
+                        >,
+                    > + Send
+                    + 'a,
+            >,
+        > {
+            let p = seal::unpack(&req.plain);
+            Box::pin(async move {
+                Ok(crate::reveal_accept::Accepted {
+                    host_id: p.host_id,
+                    faction: 1,
+                    arrive: p.arrive_bell,
+                    dest: (p.dest_p, p.dest_q),
+                    tile: p.dest_tile,
+                    region: ix::region_of(p.dest_p as i32, p.dest_q as i32),
+                    commit: seal::commit(&req.plain, &req.salt),
+                    close: None,
+                })
+            })
+        }
+    }
+
+    /// The whole keeper path: material posted to `/v1/reveal` (twice, as
+    /// an owner retries), handed to the duty as `Keeper::tick` does, and
+    /// ticked through the arrival bell with no anchor, a failing RPC and a
+    /// restart: nothing reaches the RPC; once THE anchor exists and
+    /// T(arrive) is verified, the Reveal goes.
+    #[tokio::test]
+    async fn intake_to_duty_sends_nothing_before_publication() {
+        let mut e = env(&["reveal"], 1_008);
+        let j = Journal::open(std::path::Path::new(":memory:")).unwrap();
+        let mut d = PlayDuty::default();
+        let mut s = secret(&mut e, &mut d).await;
+        e.shared.reveals.clear(); // the material comes through the API instead
+        let shared = std::sync::Arc::new(std::sync::Mutex::new(Shared::default()));
+        let token = "a-test-token-of-32-characters-xx".to_string();
+        let gate: std::sync::Arc<dyn crate::reveal_accept::RevealGate> =
+            std::sync::Arc::new(AcceptAll);
+        let api = crate::api::serve_with(
+            "127.0.0.1:0".parse().unwrap(),
+            shared.clone(),
+            token.clone(),
+            Some(gate),
+        )
+        .await
+        .unwrap();
+        // A bearer POST to the loopback API (fclient's client has none).
+        let post = |body: Value| {
+            let (addr, token) = (api.addr, token.clone());
+            async move {
+                use tokio::io::{AsyncReadExt, AsyncWriteExt};
+                let mut c = tokio::net::TcpStream::connect(addr).await.unwrap();
+                let b = body.to_string();
+                let head = format!(
+                    "POST /v1/reveal HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer {token}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{b}",
+                    b.len()
+                );
+                c.write_all(head.as_bytes()).await.unwrap();
+                let mut out = vec![];
+                c.read_to_end(&mut out).await.unwrap();
+                String::from_utf8_lossy(&out)[9..12].parse::<u16>().unwrap()
+            }
+        };
+        assert_eq!(post(s.item.clone()).await, 202);
+        assert_eq!(
+            post(s.item.clone()).await,
+            202,
+            "the owner's retry: the same track"
+        );
+        assert_eq!(shared.lock().unwrap().reveals.len(), 1, "queued once");
+        assert!(
+            e.port.sent.lock().unwrap().is_empty(),
+            "the intake sent nothing"
+        );
+        let hand = |e: &mut Env| {
+            let mut sh = shared.lock().unwrap();
+            e.shared.reveals.extend(std::mem::take(&mut sh.reveals));
+        };
+        hand(&mut e);
+        for (k, (slot, now)) in times().into_iter().enumerate() {
+            if k == 2 {
+                e.port
+                    .fail_reads
+                    .store(true, std::sync::atomic::Ordering::SeqCst);
+            }
+            if k == 3 {
+                e.port
+                    .fail_reads
+                    .store(false, std::sync::atomic::Ordering::SeqCst);
+                // A restart from the journal.
+                d = PlayDuty::default();
+                d.index
+                    .departs
+                    .insert((s.host, s.dep), depart(s.host, (2, 0), 5, s.dep, s.arrive));
+            }
+            let _ = e.tick_send(&mut d, &mut s, slot, now, Some(&j)).await;
+            hand(&mut e);
+        }
+        assert_eq!(
+            e.leaks(&s),
+            0,
+            "plaintext reached the RPC before publication"
+        );
+        assert_eq!(
+            e.port.simulated.load(std::sync::atomic::Ordering::SeqCst),
+            0,
+            "nothing simulated either"
+        );
+        e.anchor(s.arrive, s.region);
+        let (slot, now) = after_t();
+        e.tick_send(&mut d, &mut s, slot, now, Some(&j))
+            .await
+            .unwrap();
+        assert!(e.leaks(&s) >= 1, "after publication the Reveal goes");
+        api.stop();
+    }
+
+    /// Material accepted by `/v1/reveal` is durable before `202` (⑱): the
+    /// keeper restarts before its duty took the material from the API's
+    /// queue (so the queue is lost with the process); the restarted duty
+    /// reads it back from the journal and, once THE anchor exists and
+    /// T(arrive) is verified, the Reveal goes. Without the journal path the
+    /// same restart loses it.
+    #[tokio::test]
+    async fn accepted_material_is_journalled_before_202() {
+        for journalled in [true, false] {
+            let mut e = env(&["reveal"], 1_008);
+            let dir = std::env::temp_dir().join(format!(
+                "psf-r18-intake-{}-{journalled}",
+                std::process::id()
+            ));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            let jpath = dir.join("keeper.journal.sqlite");
+            let j = Journal::open(&jpath).unwrap();
+            let mut d = PlayDuty::default();
+            let mut s = secret(&mut e, &mut d).await;
+            e.shared.reveals.clear();
+            let shared = std::sync::Arc::new(std::sync::Mutex::new(Shared::default()));
+            let token = "a-test-token-of-32-characters-xx".to_string();
+            let gate: std::sync::Arc<dyn crate::reveal_accept::RevealGate> =
+                std::sync::Arc::new(AcceptAll);
+            let api = crate::api::serve_full(
+                "127.0.0.1:0".parse().unwrap(),
+                shared.clone(),
+                token.clone(),
+                Some(gate),
+                journalled.then(|| jpath.clone()),
+            )
+            .await
+            .unwrap();
+            let code = {
+                use tokio::io::{AsyncReadExt, AsyncWriteExt};
+                let mut c = tokio::net::TcpStream::connect(api.addr).await.unwrap();
+                let b = s.item.to_string();
+                let head = format!(
+                    "POST /v1/reveal HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer {token}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{b}",
+                    b.len()
+                );
+                c.write_all(head.as_bytes()).await.unwrap();
+                let mut out = vec![];
+                c.read_to_end(&mut out).await.unwrap();
+                String::from_utf8_lossy(&out)[9..12].parse::<u16>().unwrap()
+            };
+            assert_eq!(code, 202);
+            assert_eq!(
+                j.owner_materials().unwrap().len(),
+                journalled as usize,
+                "journalled before 202 (journalled = {journalled})"
+            );
+            // The process dies before a tick took the queue: a new duty,
+            // nothing handed over from the API's memory.
+            api.stop();
+            drop(shared);
+            let mut d = PlayDuty::default();
+            d.index
+                .departs
+                .insert((s.host, s.dep), depart(s.host, (2, 0), 5, s.dep, s.arrive));
+            let (slot, now) = times()[0];
+            e.tick_send(&mut d, &mut s, slot, now, Some(&j))
+                .await
+                .unwrap();
+            assert_eq!(e.leaks(&s), 0, "nothing before publication");
+            e.anchor(s.arrive, s.region);
+            let (slot, now) = after_t();
+            e.tick_send(&mut d, &mut s, slot, now, Some(&j))
+                .await
+                .unwrap();
+            assert_eq!(
+                e.leaks(&s) >= 1,
+                journalled,
+                "after the restart the Reveal goes only if the material was journalled"
+            );
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+    }
+
+    /// THE anchor archived (an AnchorArchive instead of a BellAnchor): an
+    /// archive account that does not hold the arrival bell is no anchor and
+    /// nothing is sent; THE anchor known as archived, with T(arrive)
+    /// verified, lets the Reveal go.
+    #[tokio::test]
+    async fn archive_entries_count_only_when_present_for_the_bell() {
+        let mut e = env(&["reveal"], 1_008);
+        let mut d = PlayDuty::default();
+        let mut s = secret(&mut e, &mut d).await;
+        let (slot, now) = after_t();
+        // An archive account of the region's part that does not hold the bell.
+        let part = fclient::addr::archive_part(s.arrive);
+        let key = e.addrs.archive(s.region, part);
+        let mut ar = vec![0u8; fclient::abi::size::ANCHOR_ARCHIVE];
+        testkit::put(&mut ar, 0, fclient::abi::magic::ANCHOR_ARCHIVE);
+        e.port.put(key, testkit::acct(program(), ar));
+        e.tick_send(&mut d, &mut s, slot, now, None).await.unwrap();
+        assert_eq!(e.leaks(&s), 0, "an archive without the bell is no anchor");
+        // THE anchor read from the beacon duty with `archived: true`.
+        e.beacon.insert(
+            (s.arrive, s.region),
+            AnchorInfo {
+                a: G + (s.arrive as i64 + 1) * BELL_SECS + 5,
+                slot: 1,
+                round: 1,
+                rent_to: Address::new_from_array([1; 32]),
+                cache: None,
+                archived: true,
+            },
+        );
+        e.tick_send(&mut d, &mut s, slot + 5, now + 5, None)
+            .await
+            .unwrap();
+        assert!(
+            e.leaks(&s) >= 1,
+            "an archived anchor with T(arrive) verified: the Reveal goes"
+        );
     }
 
     /// Close waste (w6-s7: 28,655 failed CloseArrivalDay/Slot in the
@@ -3297,7 +4091,9 @@ mod w6t_tests {
             );
         }
         payers.refresh(&e.port, 0).await.unwrap();
-        let now0 = G + arrive as i64 * BELL_SECS + 30;
+        // After T(arrive) and THE anchor (no Reveal before it, ⑱).
+        e.anchor(arrive, ix::region_of(2, 0));
+        let now0 = G + (arrive as i64 + 1) * BELL_SECS + 30;
         let mut by_chain_slot: BTreeMap<u64, usize> = BTreeMap::new();
         for s in 50..54u64 {
             // Every tick runs late: its sends go out in the next slot, and

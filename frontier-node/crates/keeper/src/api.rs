@@ -35,6 +35,10 @@ struct ApiState {
     /// The accept path against chain (W3-C); `None` queues after the shape
     /// checks only (unit tests of the routes).
     gate: Option<Arc<dyn RevealGate>>,
+    /// The keeper's journal (⑱): accepted material is written there before
+    /// `202` is answered, so a restart before the play duty takes it from
+    /// the queue loses nothing. `None` keeps it in memory (unit tests).
+    journal: Option<Arc<std::path::PathBuf>>,
 }
 
 fn lock(s: &Mutex<Shared>) -> std::sync::MutexGuard<'_, Shared> {
@@ -188,6 +192,27 @@ async fn reveal(State(st): State<ApiState>, h: HeaderMap, Json(v): Json<Value>) 
     }
     s.next_track += 1;
     let id = format!("r{}", s.next_track);
+    if let Some(path) = &st.journal {
+        // Durable before it is acknowledged (⑱): the material waits for
+        // THE anchor and T(arrive), possibly across a restart.
+        let p = fclient::seal::unpack(&req.plain);
+        let row = crate::journal::OwnerRow {
+            host: p.host_id,
+            bell: p.arrive_bell,
+            track: id.clone(),
+            holding: req.holding.to_string(),
+            transit_slot: req.transit_slot,
+            plain: req.plain.to_vec(),
+            salt: req.salt.to_vec(),
+            ct_hash: req.ct_hash.to_vec(),
+        };
+        if let Err(e) =
+            crate::journal::Journal::open(path).and_then(|j| j.save_owner_material(&row))
+        {
+            s.next_track -= 1;
+            return err(StatusCode::SERVICE_UNAVAILABLE, "JournalUnavailable", &e);
+        }
+    }
     s.tracks.insert(id.clone(), json!({"state": "queued"}));
     s.reveal_keys.insert(dedupe, id.clone());
     s.reveals.push((id.clone(), item));
@@ -246,10 +271,21 @@ pub fn router_with(
     token: String,
     gate: Option<Arc<dyn RevealGate>>,
 ) -> Router {
+    router_full(shared, token, gate, None)
+}
+
+/// [`router_with`] that journals accepted reveal material before `202`.
+pub fn router_full(
+    shared: Arc<Mutex<Shared>>,
+    token: String,
+    gate: Option<Arc<dyn RevealGate>>,
+    journal: Option<std::path::PathBuf>,
+) -> Router {
     let st = ApiState {
         shared,
         token: Arc::new(token),
         gate,
+        journal: journal.map(Arc::new),
     };
     Router::new()
         .route("/v1/status", get(status))
@@ -288,6 +324,18 @@ pub async fn serve_with(
     token: String,
     gate: Option<Arc<dyn RevealGate>>,
 ) -> Result<Running, String> {
+    serve_full(addr, shared, token, gate, None).await
+}
+
+/// [`serve_with`] with the keeper's journal: accepted reveal material is
+/// journalled before `202` (⑱).
+pub async fn serve_full(
+    addr: SocketAddr,
+    shared: Arc<Mutex<Shared>>,
+    token: String,
+    gate: Option<Arc<dyn RevealGate>>,
+    journal: Option<std::path::PathBuf>,
+) -> Result<Running, String> {
     if !addr.ip().is_loopback() {
         return Err(format!("the keeper API binds loopback only, not {addr}"));
     }
@@ -298,7 +346,7 @@ pub async fn serve_with(
         .await
         .map_err(|e| format!("bind {addr}: {e}"))?;
     let addr = l.local_addr().map_err(|e| e.to_string())?;
-    let app = router_with(shared, token, gate);
+    let app = router_full(shared, token, gate, journal);
     let task = tokio::spawn(async move {
         let _ = axum::serve(l, app).await;
     });

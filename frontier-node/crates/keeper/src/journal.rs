@@ -72,6 +72,19 @@ impl CrashAt {
 /// A journalled `(plaintext, salt)`.
 pub type PlainSalt = (Vec<u8>, Vec<u8>);
 
+/// A journalled owner reveal material (`owner_material`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OwnerRow {
+    pub host: u64,
+    pub bell: u32,
+    pub track: String,
+    pub holding: String,
+    pub transit_slot: u8,
+    pub plain: Vec<u8>,
+    pub salt: Vec<u8>,
+    pub ct_hash: Vec<u8>,
+}
+
 /// The panic message of an injected crash.
 pub const INJECTED_CRASH: &str = "injected crash";
 
@@ -112,6 +125,9 @@ impl Journal {
              CREATE INDEX IF NOT EXISTS attempts_object ON attempts(object_key);
              CREATE TABLE IF NOT EXISTS plaintexts(host INTEGER NOT NULL, bell INTEGER NOT NULL, plain BLOB NOT NULL,
                  salt BLOB NOT NULL, PRIMARY KEY(host, bell));
+             CREATE TABLE IF NOT EXISTS owner_material(host INTEGER NOT NULL, bell INTEGER NOT NULL, track TEXT NOT NULL,
+                 holding TEXT NOT NULL, transit_slot INTEGER NOT NULL, plain BLOB NOT NULL, salt BLOB NOT NULL,
+                 ct_hash BLOB NOT NULL, PRIMARY KEY(host, bell));
              CREATE TABLE IF NOT EXISTS cursor(name TEXT PRIMARY KEY, value TEXT NOT NULL);
              CREATE TABLE IF NOT EXISTS claims(slot_key TEXT PRIMARY KEY, bell INTEGER NOT NULL, region INTEGER NOT NULL,
                  ev_slot INTEGER, ev_price INTEGER, ev_limit INTEGER, state TEXT NOT NULL);
@@ -328,6 +344,47 @@ impl Journal {
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )
             .optional())
+    }
+
+    /// Owner reveal material accepted by `/v1/reveal` (⑱): it waits for
+    /// THE anchor of its arrival, so it must outlive a restart (before, it
+    /// became a journalled Reveal attempt at once).
+    pub fn save_owner_material(&self, m: &OwnerRow) -> Result<(), String> {
+        sql(self.conn.execute(
+            "INSERT OR REPLACE INTO owner_material(host, bell, track, holding, transit_slot, plain, salt, ct_hash)
+             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![
+                m.host as i64,
+                m.bell,
+                m.track,
+                m.holding,
+                m.transit_slot,
+                m.plain,
+                m.salt,
+                m.ct_hash
+            ],
+        ))
+        .map(|_| ())
+    }
+
+    /// Every journalled owner material.
+    pub fn owner_materials(&self) -> Result<Vec<OwnerRow>, String> {
+        let mut st = sql(self.conn.prepare(
+            "SELECT host, bell, track, holding, transit_slot, plain, salt, ct_hash FROM owner_material",
+        ))?;
+        let rows = sql(st.query_map([], |r| {
+            Ok(OwnerRow {
+                host: r.get::<_, i64>(0)? as u64,
+                bell: r.get(1)?,
+                track: r.get(2)?,
+                holding: r.get(3)?,
+                transit_slot: r.get(4)?,
+                plain: r.get(5)?,
+                salt: r.get(6)?,
+                ct_hash: r.get(7)?,
+            })
+        }))?;
+        rows.map(sql).collect()
     }
 
     pub fn note_payer(
