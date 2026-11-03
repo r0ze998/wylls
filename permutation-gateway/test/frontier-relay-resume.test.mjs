@@ -1,11 +1,11 @@
 // Restart preflight is exercised without HTTP, a wallet, or a generated key.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createStateStore } from '../src/config.mjs';
-import { loadFrontierConfig, persistInitialRelayState, requireExistingRelayFiles } from '../src/frontier/config.mjs';
+import { loadFrontierConfig, persistInitialRelayState, requireExistingRelayFiles, validateRelayRecords } from '../src/frontier/config.mjs';
 
 function fixture(t, extra = []) {
   const dir = mkdtempSync(path.join(tmpdir(), 'relay-resume-'));
@@ -36,13 +36,41 @@ test('resume flag and first-run state are explicit; an unused relay still has a 
   assert.equal(store.state.runIdentity.seasonId, String(cfg.seasonId));
   assert.doesNotThrow(() => requireExistingRelayFiles(resume));
   store.state.quota['citizen:test'] = { day: 2, left: 3, lamports: 14 };
-  store.state.invitesUsed['test-nonce'] = 123;
+  store.state.invitesUsed['11'.repeat(12)] = 123;
   store.save();
   const reloaded = createStateStore(cfg.stateFile);
   reloaded.load();
   assert.equal(reloaded.state.quota['citizen:test'].left, 3);
-  assert.equal(reloaded.state.invitesUsed['test-nonce'], 123);
+  assert.equal(reloaded.state.invitesUsed['11'.repeat(12)], 123);
   assert.doesNotThrow(() => requireExistingRelayFiles(resume));
+  assert.deepEqual(readdirSync(path.dirname(cfg.stateFile)).filter(name => name.endsWith('.tmp')), []);
+  assert.equal(statSync(cfg.stateFile).mode & 0o777, 0o600);
+});
+
+test('resume rejects malformed budget, used-invite and faucet values while accepting valid records', t => {
+  const { resume, store } = fixture(t, ['--prize-program', 'test-prize', '--prize-mint', 'test-mint']);
+  const good = structuredClone(store.state);
+  good.quota['citizen:valid'] = { day: 2, left: 3, lamports: 14 };
+  good.invitesUsed['ab'.repeat(12)] = 123;
+  good.faucet['11111111111111111111111111111111'] = { amount: '100000000', signature: 'saved-signature', at: 123 };
+  assert.doesNotThrow(() => validateRelayRecords(good, { prize: true }));
+  const bad = [
+    s => { s.quota['citizen:valid'].left = -1; },
+    s => { s.quota['citizen:valid'].left = Number.MAX_SAFE_INTEGER; },
+    s => { s.quota['citizen:valid'].lamports = -2; },
+    s => { s.quota['citizen:valid'].day = 1.5; },
+    s => { s.invitesUsed['not-a-nonce'] = 123; },
+    s => { s.invitesUsed['ab'.repeat(12)] = 'yesterday'; },
+    s => { s.faucet['11111111111111111111111111111111'].amount = '-1'; },
+    s => { s.faucet['11111111111111111111111111111111'].amount = '18446744073709551616'; },
+    s => { s.faucet['11111111111111111111111111111111'].at = null; },
+  ];
+  for (const mutate of bad) {
+    const state = structuredClone(good);
+    mutate(state);
+    writeFileSync(resume.stateFile, JSON.stringify(state));
+    assert.throws(() => requireExistingRelayFiles(resume), /invalid; refusing resume/);
+  }
 });
 
 test('resume rejects a missing, malformed, or wrong-run relay state without creating a replacement', t => {

@@ -6,7 +6,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { Keypair } from '@solana/web3.js';
+import { Keypair, PublicKey } from '@solana/web3.js';
 import { LOCAL_DIR } from '../config.mjs';
 
 export const FRONTIER_DIR = path.join(LOCAL_DIR, 'frontier');
@@ -224,7 +224,45 @@ export function secretFile(file, { create = true } = {}) {
 }
 
 const isObject = v => v !== null && typeof v === 'object' && !Array.isArray(v);
+const nonnegative = v => Number.isSafeInteger(v) && v >= 0;
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
+// Match quota.mjs's burst calculation without importing its HTTP route
+// dependencies during a file-only resume preflight.
+const dailyOverride = Number(process.env.FRONTIER_RELAY_TXS_PER_DAY) || 0;
+const quotaBurst = dailyOverride > 0 ? Math.max(60, dailyOverride * 2) : 60;
+
+/** Reject malformed persisted budgets and one-time grants before a resumed listener opens. */
+export function validateRelayRecords(state, { prize = false } = {}) {
+  if (!Number.isSafeInteger(quotaBurst) || !isObject(state) || !isObject(state.quota) || !isObject(state.invitesUsed)
+      || (prize && !isObject(state.faucet))
+      || (state.faucet != null && !isObject(state.faucet))) {
+    throw new Error('relay quota/invite/faucet records are invalid; refusing resume');
+  }
+  for (const [key, record] of Object.entries(state.quota)) {
+    if (!/^(citizen|addr):.{1,256}$/.test(key) || !isObject(record)
+        || !nonnegative(record.day) || !nonnegative(record.left) || record.left > quotaBurst
+        || !nonnegative(record.lamports)) {
+      throw new Error('relay quota record is invalid; refusing resume');
+    }
+  }
+  for (const [nonce, usedAt] of Object.entries(state.invitesUsed)) {
+    if (!/^[0-9a-f]{24}$/.test(nonce) || !nonnegative(usedAt)) {
+      throw new Error('relay used-invite record is invalid; refusing resume');
+    }
+  }
+  for (const [wallet, grant] of Object.entries(state.faucet ?? {})) {
+    let canonicalWallet = false;
+    try { canonicalWallet = new PublicKey(wallet).toBase58() === wallet; } catch { /* invalid key */ }
+    if (!canonicalWallet || !isObject(grant)
+        || typeof grant.amount !== 'string' || grant.amount.length > 20
+        || !/^[1-9][0-9]*$/.test(grant.amount)
+        || BigInt(grant.amount) > 0xffff_ffff_ffff_ffffn
+        || typeof grant.signature !== 'string' || grant.signature.length < 1 || grant.signature.length > 128
+        || !nonnegative(grant.at)) {
+      throw new Error('relay faucet record is invalid; refusing resume');
+    }
+  }
+}
 export const runIdentity = cfg => ({
   programId: String(cfg.programId), seasonId: String(cfg.seasonId),
   prizeProgram: cfg.prizeProgram ?? null, prizeMint: cfg.prizeMint ?? null,
@@ -253,10 +291,10 @@ export function existingKeypair(file, name) {
 export function requireExistingRelayFiles(cfg) {
   if (!cfg.requireExistingState) return;
   const state = existingObject(cfg.stateFile, 'relay state');
-  if (!sameRun(state.runIdentity, cfg) || !isObject(state.quota) || !isObject(state.invitesUsed)
-      || (cfg.prizeProgram && !isObject(state.faucet))) {
+  if (!sameRun(state.runIdentity, cfg)) {
     throw new Error('relay state identity or quota/invite/faucet records are invalid; refusing resume');
   }
+  validateRelayRecords(state, { prize: !!cfg.prizeProgram });
   const masterSeed = secretFile(cfg.masterSeedFile, { create: false });
   const inviteSecret = secretFile(cfg.inviteSecretFile, { create: false });
   if (state.runIdentity.masterSeedSha256 !== sha256(masterSeed)
