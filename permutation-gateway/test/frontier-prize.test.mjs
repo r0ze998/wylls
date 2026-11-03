@@ -377,7 +377,10 @@ test('faucet persists the signed intent before RPC and holds an unknown outcome 
   let savedAtSend = null;
   r.chain.sendRawTransaction = async wire => {
     savedAtSend = structuredClone(r.store.state.faucet[wallet]);
-    await originalSend(wire); // The chain received it, but RPC lost its reply.
+    const signature = await originalSend(wire); // The chain received it, but RPC lost its reply.
+    // fakeChain finalizes sends immediately by default. This case needs a
+    // landed transaction whose final outcome is not known to the relay yet.
+    r.chain.statuses.set(signature, { slot: 78, err: null, confirmationStatus: 'confirmed' });
     throw new Error('reply lost after send');
   };
   assert.equal((await request(r)).status, 500);
@@ -394,6 +397,16 @@ test('faucet persists the signed intent before RPC and holds an unknown outcome 
   const reconciled = await request(r);
   assert.deepEqual([reconciled.status, reconciled.json.already, r.store.state.faucet[wallet].status], [200, true, 'landed']);
   assert.equal(r.chain.sent.length, 1, 'reconciliation only reads the original signature');
+
+  const finalizedBeforeRetry = relay({ faucetKey });
+  const sendFinal = finalizedBeforeRetry.chain.sendRawTransaction;
+  finalizedBeforeRetry.chain.sendRawTransaction = async wire => {
+    await sendFinal(wire); // This fake chain retains its immediate finalized status.
+    throw new Error('reply lost after finalized send');
+  };
+  assert.equal((await request(finalizedBeforeRetry)).status, 500);
+  const alreadyFinal = await request(finalizedBeforeRetry);
+  assert.deepEqual([alreadyFinal.status, alreadyFinal.json.already, finalizedBeforeRetry.chain.sent.length], [200, true, 1]);
 });
 
 test('a confirmed faucet grant that finalizes as failed is never reported as minted', async () => {
