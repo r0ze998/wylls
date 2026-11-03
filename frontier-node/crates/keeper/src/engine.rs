@@ -179,6 +179,9 @@ pub struct Version {
     pub cu_limit: u32,
     pub heap: Option<u32>,
     pub sent_slot: u64,
+    /// Last valid block height of the signed blockhash. Old journal rows
+    /// have no height, so `None` gives no expiry evidence.
+    pub last_valid_block_height: Option<u64>,
     /// The chain's slot when the version actually went out (a Clock read
     /// in the same `send`; ≥ `sent_slot`, the tick's slot, when the tick ran
     /// late). The resend cadence counts from it (W6-C).
@@ -516,6 +519,7 @@ impl Engine {
                     cu_limit: a.cu_limit,
                     heap: a.heap,
                     sent_slot: a.sent_slot,
+                    last_valid_block_height: a.last_valid_block_height,
                     chain_slot: a.sent_slot,
                     fee: a.fee,
                 });
@@ -800,6 +804,7 @@ impl Engine {
             .map(|(k, _)| k.clone())
             .collect();
         let mut blockhash: Option<Hash> = None;
+        let mut last_valid_block_height: Option<u64> = None;
         let mut chain_slot: Option<u64> = None;
         for k in keys {
             let Some(p) = self.pending.get(&k) else {
@@ -954,7 +959,16 @@ impl Engine {
                     chain_slot = port.clock().await.ok().map(|c| c.slot);
                 }
                 match port.blockhash().await {
-                    Ok((h, _)) => blockhash = Some(h),
+                    Ok((h, height)) if height > 0 => {
+                        blockhash = Some(h);
+                        last_valid_block_height = Some(height);
+                    }
+                    Ok((_, _)) => {
+                        report
+                            .send_errors
+                            .push((k.clone(), "blockhash: no last valid block height".into()));
+                        return;
+                    }
                     Err(e) => {
                         report
                             .send_errors
@@ -1010,6 +1024,7 @@ impl Engine {
                     heap: budget.heap,
                     first_valid_slot: slot,
                     sent_slot: slot,
+                    last_valid_block_height,
                     landed_slot: None,
                     status: "sent".into(),
                     code: None,
@@ -1035,6 +1050,7 @@ impl Engine {
                 cu_limit: budget.cu_limit,
                 heap: budget.heap,
                 sent_slot: slot,
+                last_valid_block_height,
                 chain_slot: chain_slot.unwrap_or(slot).max(slot),
                 fee,
             };
@@ -1136,6 +1152,7 @@ mod tests {
         statuses: Mutex<HashMap<Signature, Status>>,
         /// The Clock's slot (`send` reads it; 0 by default).
         clock_slot: std::sync::atomic::AtomicU64,
+        blockhash_height: std::sync::atomic::AtomicU64,
         /// Simulates a timeout after the transaction reached the chain.
         fail_after_send: std::sync::atomic::AtomicBool,
         /// Simulates a status RPC failure after the transaction was sent.
@@ -1149,6 +1166,7 @@ mod tests {
                 answer: Mutex::new(Box::new(|_| None)),
                 statuses: Mutex::new(HashMap::new()),
                 clock_slot: std::sync::atomic::AtomicU64::new(0),
+                blockhash_height: std::sync::atomic::AtomicU64::new(150),
                 fail_after_send: std::sync::atomic::AtomicBool::new(false),
                 fail_status_lookup: std::sync::atomic::AtomicBool::new(false),
             }
@@ -1207,7 +1225,11 @@ mod tests {
             Ok(vec![])
         }
         async fn blockhash(&self) -> PortResult<(Hash, u64)> {
-            Ok((Hash::new_from_array([3; 32]), 150))
+            Ok((
+                Hash::new_from_array([3; 32]),
+                self.blockhash_height
+                    .load(std::sync::atomic::Ordering::SeqCst),
+            ))
         }
     }
 
@@ -1319,6 +1341,7 @@ mod tests {
             heap: None,
             first_valid_slot: 1,
             sent_slot: 1,
+            last_valid_block_height: None,
             landed_slot: None,
             status: "sent".into(),
             code: None,
@@ -1375,7 +1398,12 @@ mod tests {
         let inflight = j.in_flight().unwrap();
         assert_eq!(inflight.len(), 1);
         assert!(inflight[0].fee > 0);
+        assert_eq!(inflight[0].last_valid_block_height, Some(150));
         assert_eq!(e.pending["durable"].versions[0].fee, inflight[0].fee);
+        assert_eq!(
+            e.pending["durable"].versions[0].last_valid_block_height,
+            inflight[0].last_valid_block_height
+        );
 
         let mut restarted = Engine::new(Budgets::placeholder(), EngineParams::default());
         restarted.adopt(&inflight).unwrap();
@@ -1383,6 +1411,10 @@ mod tests {
         assert_eq!(
             restarted.pending["durable"].versions[0].fee,
             inflight[0].fee
+        );
+        assert_eq!(
+            restarted.pending["durable"].versions[0].last_valid_block_height,
+            Some(150)
         );
         let mut capped = Engine::new(
             Budgets::placeholder(),
@@ -1405,6 +1437,27 @@ mod tests {
         assert!(Engine::new(Budgets::placeholder(), EngineParams::default())
             .adopt(&bad)
             .is_err());
+    }
+
+    #[tokio::test]
+    async fn missing_blockhash_validity_height_prevents_send() {
+        let port = Script::default();
+        port.blockhash_height
+            .store(0, std::sync::atomic::Ordering::SeqCst);
+        let mut payers = payers();
+        payers.refresh(&port, 0).await.unwrap();
+        let journal = Journal::open(std::path::Path::new(":memory:")).unwrap();
+        let mut engine = Engine::new(Budgets::placeholder(), EngineParams::default());
+        engine.ensure(spec("unknown-height", Class::D, abi::tag::POST_SEED), 10);
+
+        let report = engine.step(&port, &mut payers, Some(&journal), 10).await;
+        assert_eq!(report.sent, 0);
+        assert!(report.send_errors[0]
+            .1
+            .contains("no last valid block height"));
+        assert!(port.sent.lock().unwrap().is_empty());
+        assert!(journal.in_flight().unwrap().is_empty());
+        assert!(engine.pending["unknown-height"].versions.is_empty());
     }
 
     #[tokio::test]

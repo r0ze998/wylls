@@ -37,6 +37,9 @@ pub struct Attempt {
     pub heap: Option<u32>,
     pub first_valid_slot: u64,
     pub sent_slot: u64,
+    /// Last block height at which the signed blockhash is valid. Legacy
+    /// attempts have no recorded height; `None` must never imply expiry.
+    pub last_valid_block_height: Option<u64>,
     pub landed_slot: Option<u64>,
     /// `sent`, `landed`, `failed`, `expired`, `superseded`.
     pub status: String,
@@ -143,6 +146,7 @@ impl Journal {
         ] {
             sql(conn.prepare(query))?;
         }
+        Self::ensure_expiry_height_column(&conn)?;
         Self::check_known_fees(&conn)?;
         sql(conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;"))?;
         let journal = Journal { conn, crash: None };
@@ -155,6 +159,8 @@ impl Journal {
             "SELECT EXISTS(SELECT 1 FROM attempts WHERE fee IS NULL OR fee <= 0
              OR typeof(fee) != 'integer' OR typeof(bid_milli) != 'integer'
              OR typeof(first_valid_slot) != 'integer' OR typeof(sent_slot) != 'integer'
+             OR (last_valid_block_height IS NOT NULL
+                 AND (typeof(last_valid_block_height) != 'integer' OR last_valid_block_height <= 0))
              OR (landed_slot IS NOT NULL AND typeof(landed_slot) != 'integer')
              OR bid_milli < 0 OR first_valid_slot < 0 OR sent_slot < 0
              OR landed_slot < 0 LIMIT 1)",
@@ -163,6 +169,23 @@ impl Journal {
         ))?;
         if invalid != 0 {
             return Err("keeper journal has attempts without fee or invalid numeric fields; refusing unsafe resume".into());
+        }
+        Ok(())
+    }
+
+    fn ensure_expiry_height_column(conn: &Connection) -> Result<(), String> {
+        let has_height = {
+            let mut st = sql(conn.prepare("PRAGMA table_info(attempts)"))?;
+            let rows = sql(st.query_map([], |r| r.get::<_, String>(1)))?;
+            sql(rows.collect::<rusqlite::Result<Vec<_>>>())?
+                .iter()
+                .any(|name| name == "last_valid_block_height")
+        };
+        if !has_height {
+            sql(conn.execute(
+                "ALTER TABLE attempts ADD COLUMN last_valid_block_height INTEGER",
+                [],
+            ))?;
         }
         Ok(())
     }
@@ -176,7 +199,8 @@ impl Journal {
              CREATE TABLE IF NOT EXISTS attempts(sig TEXT PRIMARY KEY, kind TEXT NOT NULL, object_key TEXT NOT NULL,
                  bell INTEGER, region INTEGER, class TEXT NOT NULL, payer TEXT NOT NULL, bid_milli INTEGER NOT NULL,
                  cu_limit INTEGER NOT NULL, heap INTEGER, first_valid_slot INTEGER NOT NULL, sent_slot INTEGER NOT NULL,
-                 landed_slot INTEGER, status TEXT NOT NULL, code INTEGER, fee INTEGER);
+                 landed_slot INTEGER, status TEXT NOT NULL, code INTEGER, fee INTEGER,
+                 last_valid_block_height INTEGER);
              CREATE INDEX IF NOT EXISTS attempts_status ON attempts(status);
              CREATE INDEX IF NOT EXISTS attempts_object ON attempts(object_key);
              CREATE TABLE IF NOT EXISTS plaintexts(host INTEGER NOT NULL, bell INTEGER NOT NULL, plain BLOB NOT NULL,
@@ -208,6 +232,7 @@ impl Journal {
         if !has_fee {
             sql(conn.execute("ALTER TABLE attempts ADD COLUMN fee INTEGER", []))?;
         }
+        Self::ensure_expiry_height_column(&conn)?;
         Self::check_known_fees(&conn)?;
         Ok(Journal { conn, crash: None })
     }
@@ -237,10 +262,19 @@ impl Journal {
             .map(i64::try_from)
             .transpose()
             .map_err(|_| "landed slot overflows SQLite integer")?;
+        let last_valid_block_height = a
+            .last_valid_block_height
+            .map(i64::try_from)
+            .transpose()
+            .map_err(|_| "last valid block height overflows SQLite integer")?;
+        if last_valid_block_height == Some(0) {
+            return Err("last valid block height must be positive".into());
+        }
         sql(self.conn.execute(
             "INSERT INTO attempts(sig, kind, object_key, bell, region, class, payer, bid_milli, cu_limit,
-                 heap, first_valid_slot, sent_slot, landed_slot, status, code, fee)
-             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+                 heap, first_valid_slot, sent_slot, landed_slot, status, code, fee,
+                 last_valid_block_height)
+             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
             params![
                 a.sig,
                 a.kind,
@@ -257,7 +291,8 @@ impl Journal {
                 landed_slot,
                 a.status,
                 a.code,
-                fee
+                fee,
+                last_valid_block_height
             ],
         ))
         .map(|_| ())
@@ -308,6 +343,12 @@ impl Journal {
             heap: r.get(9)?,
             first_valid_slot: nonnegative_u64(r, 10)?,
             sent_slot: nonnegative_u64(r, 11)?,
+            last_valid_block_height: r
+                .get::<_, Option<i64>>(16)?
+                .map(|v| {
+                    u64::try_from(v).map_err(|_| rusqlite::Error::IntegralValueOutOfRange(16, v))
+                })
+                .transpose()?,
             landed_slot: r
                 .get::<_, Option<i64>>(12)?
                 .map(|v| {
@@ -322,7 +363,7 @@ impl Journal {
 
     const COLS: &'static str =
         "sig, kind, object_key, bell, region, class, payer, bid_milli, cu_limit, heap,
-         first_valid_slot, sent_slot, landed_slot, status, code, fee";
+         first_valid_slot, sent_slot, landed_slot, status, code, fee, last_valid_block_height";
 
     /// Attempts still marked `sent` (in flight at a crash).
     pub fn in_flight(&self) -> Result<Vec<Attempt>, String> {
@@ -616,6 +657,7 @@ mod tests {
             heap: None,
             first_valid_slot: 10,
             sent_slot: 10,
+            last_valid_block_height: None,
             landed_slot: None,
             status: status.into(),
             code: None,
@@ -652,6 +694,50 @@ mod tests {
         drop(l1);
         assert!(lock(&p).is_ok(), "released with the file");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn old_journal_migrates_expiry_height_without_inventing_evidence() {
+        let dir = std::env::temp_dir().join(format!(
+            "keeper-expiry-height-migration-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("journal.sqlite");
+        let journal = Journal::open(&path).unwrap();
+        journal.record_attempt(&a("old", "sent")).unwrap();
+        drop(journal);
+
+        // Reproduce the previous attempts schema while retaining the other
+        // journal tables. The migration must leave this row's height unknown.
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE attempts_legacy AS SELECT sig, kind, object_key, bell, region, class,
+                 payer, bid_milli, cu_limit, heap, first_valid_slot, sent_slot, landed_slot,
+                 status, code, fee FROM attempts;
+             DROP TABLE attempts;
+             ALTER TABLE attempts_legacy RENAME TO attempts;",
+        )
+        .unwrap();
+        drop(conn);
+
+        let journal = Journal::open_existing(&path).unwrap();
+        let old = journal.in_flight().unwrap();
+        assert_eq!(old.len(), 1);
+        assert_eq!(old[0].last_valid_block_height, None);
+        let mut new = a("new", "sent");
+        new.last_valid_block_height = Some(345);
+        journal.record_attempt(&new).unwrap();
+        assert_eq!(
+            journal.in_flight().unwrap()[1].last_valid_block_height,
+            Some(345)
+        );
+        drop(journal);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
@@ -714,6 +800,7 @@ mod tests {
             "bid_milli",
             "first_valid_slot",
             "sent_slot",
+            "last_valid_block_height",
             "landed_slot",
             "fee",
         ] {
@@ -731,7 +818,7 @@ mod tests {
                 Journal::check_known_fees(&j.conn).is_err(),
                 "negative {field} must refuse resume"
             );
-            let original = if field == "landed_slot" {
+            let original = if field == "landed_slot" || field == "last_valid_block_height" {
                 "NULL"
             } else if field == "fee" {
                 "5000"
@@ -753,6 +840,11 @@ mod tests {
         assert!(j.record_attempt(&too_large).is_err());
         too_large.sent_slot = 10;
         too_large.bid_milli = i64::MAX as u64 + 1;
+        assert!(j.record_attempt(&too_large).is_err());
+        too_large.bid_milli = 100;
+        too_large.last_valid_block_height = Some(0);
+        assert!(j.record_attempt(&too_large).is_err());
+        too_large.last_valid_block_height = Some(i64::MAX as u64 + 1);
         assert!(j.record_attempt(&too_large).is_err());
         assert!(j
             .set_status("s1", "landed", Some(i64::MAX as u64 + 1), None)
@@ -822,6 +914,7 @@ mod prefix_tests {
                 heap: None,
                 first_valid_slot: 1,
                 sent_slot: 1,
+                last_valid_block_height: None,
                 landed_slot: None,
                 status: "landed".into(),
                 code: None,

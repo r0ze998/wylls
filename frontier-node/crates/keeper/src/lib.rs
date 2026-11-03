@@ -1390,6 +1390,7 @@ mod tests {
             heap: None,
             first_valid_slot: 10,
             sent_slot: 10,
+            last_valid_block_height: None,
             landed_slot: None,
             status: "sent".into(),
             code: None,
