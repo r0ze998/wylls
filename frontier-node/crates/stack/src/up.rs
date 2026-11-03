@@ -1052,7 +1052,25 @@ pub async fn up(cfg: StackConfig) -> i32 {
     code
 }
 
+fn automatic_restart_allowed(continuous: bool, component: &str, cause: &str) -> Result<(), String> {
+    if continuous {
+        Err(format!(
+            "continuous world: {component} {cause}; automatic restart is unsafe"
+        ))
+    } else {
+        Ok(())
+    }
+}
+
 async fn run_all(st: &mut Stack) -> Result<(), String> {
+    // A kill-and-restart exercise assumes all participants can recover their
+    // pending decisions. That is not yet true for a continuous world.
+    if st.cfg.continuous && (st.cfg.chaos || !st.cfg.chaos_force.is_empty()) {
+        return Err(
+            "continuous world cannot run chaos until every component has a verified restart path"
+                .into(),
+        );
+    }
     // Keeper configs and seeds.
     for w in ['a', 'b'] {
         if w == 'b' && !st.cfg.keeper_b {
@@ -1333,7 +1351,7 @@ async fn supervise(
     let mut chain_down_since: Option<Instant> = None;
     loop {
         tokio::time::sleep(Duration::from_millis(400)).await;
-        // Exits (reap; unexpected ones are crashes and restart).
+        // Exits (reap; an unexpected continuous-world exit stops the run).
         let names: Vec<String> = st.procs.keys().cloned().collect();
         for n in &names {
             let p = st.procs.get_mut(n).expect("proc");
@@ -1348,6 +1366,11 @@ async fn supervise(
                     crashes += 1;
                     st.run
                         .event(Some(last.now), "crash", json!({"component": n, "exit": d}));
+                    automatic_restart_allowed(
+                        st.cfg.continuous,
+                        n,
+                        &format!("exited unexpectedly ({d})"),
+                    )?;
                     log_line(&format!("{n} exited unexpectedly ({d}); restarting"));
                     p.restart_at = Some(Instant::now() + Duration::from_secs(2));
                 }
@@ -1360,6 +1383,7 @@ async fn supervise(
                 !p.running() && !p.done && p.restart_at.is_some_and(|t| Instant::now() >= t)
             };
             if due {
+                automatic_restart_allowed(st.cfg.continuous, n, "has a pending restart")?;
                 if n == "bots" {
                     // A restarted fleet keeps the run's play end (its
                     // --game-hours counts from the herald's time at start),
@@ -1979,11 +2003,35 @@ pub fn append(p: &Path, v: &Value) {
 }
 
 /// `down`: stops the supervisor (if still running) and every component.
+fn can_seal_stopped_world(state: &Value, initially_live: &[String]) -> bool {
+    if !matches!(state["phase"].as_str(), Some("running" | "complete")) {
+        return false;
+    }
+    let mut required = vec!["localnet", "keeper-a", "relay", "herald"];
+    if state["components"]["keeper-b"]["spec"].is_object() {
+        required.push("keeper-b");
+    }
+    required
+        .iter()
+        .all(|name| initially_live.iter().any(|live| live == name))
+}
+
 pub fn down(rd: &RunDir) -> i32 {
     let Ok(mut stv) = rd.load_state() else {
         eprintln!("frontier-stack: no run at {}", rd.root.display());
         return 2;
     };
+    // A second `down` must not replace a clean-stop witness with a newer
+    // inventory of files that may have changed after the first stop.
+    if stv["phase"] == "down"
+        && live_components(&stv).is_empty()
+        && crate::recovery_seal::has_seal(rd)
+    {
+        println!("down: already stopped with an existing recovery seal");
+        return 0;
+    }
+    let initially_live = live_components(&stv);
+    let can_seal = can_seal_stopped_world(&stv, &initially_live);
     if let Some(sp) = stv["supervisor_pid"]
         .as_u64()
         .and_then(|v| u32::try_from(v).ok())
@@ -2039,7 +2087,10 @@ pub fn down(rd: &RunDir) -> i32 {
     stv["phase"] = json!("down");
     stv["phase_before_down"] = json!(prev);
     stv["down_wall_ms"] = json!(run::wall_ms());
-    let _ = rd.save_state(&stv);
+    if let Err(e) = rd.save_state(&stv) {
+        eprintln!("frontier-stack: cannot save stopped run: {e}");
+        return 1;
+    }
     rd.event(None, "phase", json!({"down": stopped}));
     println!(
         "down: stopped {}",
@@ -2050,16 +2101,54 @@ pub fn down(rd: &RunDir) -> i32 {
         }
     );
     let left = live_components(&stv);
-    if left.is_empty() {
-        0
-    } else {
-        1
+    if !left.is_empty() {
+        return 1;
     }
+    if stv["config"]["conquest"] == true && rd.path("localnet/ledger.wal").is_file() {
+        if !can_seal {
+            eprintln!(
+                "frontier-stack: stopped but cannot seal an incomplete or previously failed run"
+            );
+            return 1;
+        }
+        if let Err(e) = crate::recovery_seal::seal_clean_down(rd, &stv) {
+            eprintln!("frontier-stack: cannot seal stopped run: {e}");
+            return 1;
+        }
+    }
+    0
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn seal_requires_live_writers_before_stopping_a_completed_or_running_world() {
+        let state = json!({"phase":"running", "components":{"keeper-b":{"spec":null}}});
+        let live = ["localnet", "keeper-a", "relay", "herald"]
+            .map(str::to_owned)
+            .to_vec();
+        assert!(can_seal_stopped_world(&state, &live));
+        assert!(!can_seal_stopped_world(&state, &live[..3]));
+        let mut failed = state.clone();
+        failed["phase"] = json!("failed");
+        assert!(!can_seal_stopped_world(&failed, &live));
+        let mut with_backup = state;
+        with_backup["components"]["keeper-b"]["spec"] = json!({});
+        assert!(!can_seal_stopped_world(&with_backup, &live));
+    }
+
+    #[test]
+    fn continuous_world_refuses_component_restart_while_finite_world_keeps_it() {
+        for component in ["localnet", "keeper-a", "relay", "bots", "herald"] {
+            let err = automatic_restart_allowed(true, component, "exited unexpectedly")
+                .expect_err("lost state must stop a continuous world");
+            assert!(err.contains(component));
+            assert!(automatic_restart_allowed(false, component, "exited unexpectedly").is_ok());
+        }
+        assert!(automatic_restart_allowed(true, "localnet", "has a pending restart").is_err());
+    }
 
     #[test]
     fn prize_wait_budget_tracks_the_live_clock_and_low_scale() {

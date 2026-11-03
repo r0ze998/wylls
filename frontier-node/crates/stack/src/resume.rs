@@ -24,6 +24,24 @@ const ORDER: [&str; 6] = [
     "relay",
     "herald",
 ];
+
+/// A component that exits after the one-time resume preflight cannot be
+/// restarted from memory: its persisted state may have fallen behind the
+/// chain or another service. The caller stops the other components on error.
+fn require_resumed_component_running(
+    name: &str,
+    exit: Option<&str>,
+    running: bool,
+) -> Result<(), String> {
+    if exit.is_none() && running {
+        return Ok(());
+    }
+    Err(format!(
+        "resumed {name} stopped ({}); refusing automatic restart without a new recovery preflight",
+        exit.unwrap_or("no child process")
+    ))
+}
+
 fn string(v: &Value, k: &str) -> Result<String, String> {
     v[k].as_str()
         .map(str::to_owned)
@@ -1002,15 +1020,8 @@ async fn run(
             let Some(p) = procs.get_mut(name) else {
                 continue;
             };
-            if p.poll_exit().is_some() {
-                p.start()?;
-                if name == "localnet" {
-                    chain.wait_healthy(Duration::from_secs(180)).await?;
-                    if !start_paused {
-                        chain.resume().await?;
-                    }
-                }
-            }
+            let exit = p.poll_exit();
+            require_resumed_component_running(name, exit.as_deref(), p.running())?;
         }
         if !ended {
             let clock = chain.status().await?;
@@ -1040,6 +1051,17 @@ pub async fn resume(rd: &RunDir, start_paused: bool) -> i32 {
             return 2;
         }
     };
+    // A stopped file set is usable once only. Verify and durably consume its
+    // seal before opening SQLite or starting localnet. This never enables
+    // continuous worlds or bot fleets, whose in-memory history is incomplete.
+    if state["config"]["continuous"] == true || state["config"]["bots"].as_u64() != Some(0) {
+        eprintln!("frontier-stack: continuous or bot world recovery is not verified");
+        return 2;
+    }
+    if let Err(e) = crate::recovery_seal::verify_and_consume(rd, &state) {
+        eprintln!("frontier-stack: {e}");
+        return 2;
+    }
     let saved = match specs(rd, &state) {
         Ok(s) => s,
         Err(e) => {
@@ -1078,6 +1100,22 @@ pub async fn resume(rd: &RunDir, start_paused: bool) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn resumed_services_never_restart_after_an_exit_or_missing_child() {
+        for name in ORDER {
+            assert!(require_resumed_component_running(name, None, true).is_ok());
+            for (exit, running) in [
+                (Some("exit 1"), false),
+                (Some("exit 0"), false),
+                (None, false),
+            ] {
+                let error = require_resumed_component_running(name, exit, running).unwrap_err();
+                assert!(error.contains(name));
+                assert!(error.contains("refusing automatic restart"));
+            }
+        }
+    }
 
     #[test]
     fn relay_resume_requires_both_script_and_config_support() {
