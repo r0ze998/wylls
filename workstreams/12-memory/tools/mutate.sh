@@ -67,3 +67,7 @@ mut src/fold.mjs "  if (!P) return { ...r, legacy: 'v3', unusable: 'legacy_parti
 mut src/records.mjs "export const ALLOCATION_DOMAINS = Object.freeze({ 3: 'wylls-memory12-allocation/v1', 4: ALLOCATION_DOMAIN });" "export const ALLOCATION_DOMAINS = Object.freeze({ 3: ALLOCATION_DOMAIN, 4: ALLOCATION_DOMAIN });" "legacy allocations verified with the new domain"
 mut src/records.mjs "  if (!Number.isSafeInteger(nonce) || nonce < 0" "  if (!Number.isInteger(nonce) || nonce < 0" "unsafe nonce accepted"
 mut src/records.mjs " || c.seq >= 2 ** 32) fail" ") fail" "seq beyond u32 accepted"
+echo "# v4.1 guards (sub-unit fractions; workstream 4 QUANTITY-CONTRACT)"
+mut src/fold.mjs "    const slack = ls2 => ls2.filter(l => l.at_bound).length;" "    const slack = ls2 => 0;" "sub-unit fractions ignored"
+mut src/fold.mjs "    else if (onTime + late >= c.qty && onTime + nOn <= c.qty) {" "    else if (onTime + late >= c.qty) {" "late without proving the on-time part short"
+mut src/fold.mjs "        else if (del.length) { c.state = 'partial';" "        else if (c.delivered_min > 0) { c.state = 'partial';" "partial only when b > 0"

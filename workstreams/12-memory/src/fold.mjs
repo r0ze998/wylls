@@ -373,6 +373,7 @@ export function knowledge(records, viewer, clock, { observedBy = clock, world = 
       l.sources.push(...credit.inputs);
       l.credit = credit;
       l.state = 'delivered';
+      l.at_bound = x <= total; // the caravan's whole-unit credit is all allocated: its sub-unit fraction cannot be ruled out
       if (x >= total) { l.qmin = l.qmax = l.qty; } else if (ls.length === 1) { l.qmin = l.qmax = x; } else { l.qmin = Math.max(0, x - (total - l.qty)); l.qmax = Math.min(l.qty, x); }
     }
   }
@@ -425,7 +426,7 @@ export function knowledge(records, viewer, clock, { observedBy = clock, world = 
   const claims = [];
   for (const c of commitments) {
     const ls = linksBy.get(c.id) ?? [];
-    c.links = ls.map(l => ({ caravan: l.caravan, qty: l.qty, by: l.by, disputed: l.disputed, state: l.state, qmin: l.qmin ?? null, qmax: l.qmax ?? null,
+    c.links = ls.map(l => ({ caravan: l.caravan, qty: l.qty, by: l.by, disputed: l.disputed, state: l.state, qmin: l.qmin ?? null, qmax: l.qmax ?? null, at_bound: l.at_bound ?? null,
       settle_bell: l.settle_bell ?? null, on_time: l.settle_bell !== undefined ? l.settle_bell <= c.due_bell + GRACE_BELLS : null, owner_at_settle: l.owner_at_settle ?? null,
       credit: l.credit ?? null, sources: [...new Set(l.sources)] }));
     for (const l of ls) c.sources.push(...l.sources);
@@ -435,6 +436,12 @@ export function knowledge(records, viewer, clock, { observedBy = clock, world = 
     const ambiguous = del.reduce((s, l) => s + (l.qmax - l.qmin), 0);
     const pending = c.links.filter(l => PENDING_LINK.has(l.state));
     const neutral = c.links.filter(l => ['raided', 'lost', 'recipient_changed'].includes(l.state));
+    // Each credit is a whole number b from floor(milli / 1000) (the log), so a link credited below its allocation may
+    // hold up to one more unit than b: the true total lies in [sum b, sum b + n). A shortfall (or "not by the due
+    // bell") is proven only when sum b + n <= qty, and b = 0 is not zero (workstream 4 QUANTITY-CONTRACT §3-§4).
+    const slack = ls2 => ls2.filter(l => l.at_bound).length;
+    const nOn = slack(del.filter(l => l.on_time)), nAll = slack(del);
+    c.sub_unit_slack = nAll;
     c.delivered_min = Math.min(c.qty, onTime + late);
     c.delivered_max = Math.min(c.qty, onTime + late + ambiguous + pending.reduce((s, l) => s + l.qty, 0));
     c.claims = claimsOf(c).map(u => judgeClaim(u, c));
@@ -446,7 +453,8 @@ export function knowledge(records, viewer, clock, { observedBy = clock, world = 
     const past = clock > c.due_bell + GRACE_BELLS;
     c.resolved_bell = null;
     if (onTime >= c.qty) { c.state = 'fulfilled'; c.resolved_bell = Math.max(...del.filter(l => l.on_time).map(l => l.settle_bell)); }
-    else if (onTime + late >= c.qty) { c.state = 'late'; c.resolved_bell = Math.max(...del.map(l => l.settle_bell)); }
+    else if (onTime + late >= c.qty && onTime + nOn <= c.qty) { c.state = 'late'; c.resolved_bell = Math.max(...del.map(l => l.settle_bell)); }
+    else if (onTime + late >= c.qty) { c.state = 'unconfirmed'; c.reasons = ['qty_sub_unit_uncertain']; } // delivered; on time not decidable
     else if (retract && !del.length) { c.state = 'withdrawn'; c.sources.push(retract.id); c.resolved_bell = retract.bell; }
     else if (!past) c.state = ls.length ? 'in_progress' : c.claims.length ? 'claimed_unverified' : 'promised';
     else if (pending.length || ambiguous > 0) { c.state = 'unconfirmed'; c.reasons = [...new Set([...pending.map(l => l.state), ...(ambiguous > 0 ? ['qty_split_ambiguous'] : [])])]; }
@@ -472,7 +480,8 @@ export function knowledge(records, viewer, clock, { observedBy = clock, world = 
           c.reasons = [...(unknownDst.length ? ['coverage_caravan_unresolved'] : []), ...(toPlace.length ? ['unassigned_caravan'] : []),
             ...(unsure.length ? ['place_identity_unverified'] : [])];
           c.unassigned = [...toPlace, ...unsure].map(y => y.x);
-        } else if (c.delivered_min > 0) { c.state = 'partial'; c.resolved_bell = c.due_bell + GRACE_BELLS; }
+        } else if (del.length && onTime + late + nAll > c.qty) { c.state = 'unconfirmed'; c.reasons = ['qty_sub_unit_uncertain']; }
+        else if (del.length) { c.state = 'partial'; c.resolved_bell = c.due_bell + GRACE_BELLS; } // delivered something, proven short (b = 0 included)
         else if (neutral.length) { c.state = neutral[0].state; c.resolved_bell = c.due_bell + GRACE_BELLS; }
         else { c.state = 'not_sent'; c.resolved_bell = c.due_bell + GRACE_BELLS; }
       }

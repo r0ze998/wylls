@@ -34,6 +34,7 @@ const REASON_WORD = {
   qty_split_ambiguous: 'a short credit shared by several allocations', coverage_caravan_unresolved: 'the index lists a caravan without its departure record',
   unassigned_caravan: 'a caravan to the place exists but nobody allocated it',
   coverage_insufficient: 'the index attestation does not prove the sender sent nothing',
+  qty_sub_unit_uncertain: 'credited amounts are whole units rounded down; the fractions could reach the promised amount',
 };
 
 export function epistemicOf(state) {
