@@ -33,6 +33,15 @@ export const revealClose = (a, w) => a + w;
 /** S(b, r) = first round at or after A + W + Δ. */
 export const seedRound = (drand, close, margin) => firstRoundFrom(drand.genesis, drand.period, close + margin);
 
+/**
+ * A continuous world is shown only when its chain-derived flag and end bell
+ * agree. A missing field or an inconsistent record must not imply that a
+ * season can no longer end. War-period rules remain undecided.
+ */
+const NO_END_BELL = 4294967295;
+export const worldContinues = season => Number(season?.endBell) === NO_END_BELL
+  && (Number(season?.conquestParams?.continuous ?? 0) === 1 || season?.continuous === true);
+
 /** The clock parameters of a decoded Season (numbers, not BigInts). */
 export function seasonClock(season) {
   return {
@@ -41,6 +50,7 @@ export function seasonClock(season) {
     margin: Number(season.seedMargin),
     window: b => Number(windowAt(season, b)),
     endBell: Number(season.endBell),
+    continuous: worldContinues(season),
   };
 }
 
@@ -156,7 +166,7 @@ export function bellChip(clock, now) {
   if (now === null || now === undefined) return { bell: null, secondsLeft: null, beforeGenesis: false, ended: false };
   const b = bellAt(clock.genesisTs, now);
   if (b === null) return { bell: null, secondsLeft: Math.ceil(clock.genesisTs - now), beforeGenesis: true, ended: false };
-  return { bell: b, secondsLeft: Math.ceil(bellEnd(clock.genesisTs, b) - now), beforeGenesis: false, ended: b >= clock.endBell };
+  return { bell: b, secondsLeft: Math.ceil(bellEnd(clock.genesisTs, b) - now), beforeGenesis: false, ended: !clock.continuous && b >= clock.endBell };
 }
 
 // ------------------------------------------------------------------ the bell pipeline (§6.2)

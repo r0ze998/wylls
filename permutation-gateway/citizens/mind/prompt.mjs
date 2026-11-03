@@ -78,7 +78,14 @@ export function createPromptRenderer({ templatesDir, countTokens = null, speech,
     const me = sit.me ?? {};
     const names = namesOf(sit);
     // `secs_left` on the wire is game seconds to the season end (AC3a fixture), not seconds left in the bell: not shown
-    out.push(`NOW: turn ${sit.bell} (day ${sit.day}, turn ${sit.bell_in_day}/144). Season ends at turn ${sit.end_bell}.`);
+    // Only the chain-derived flag says that this world continues. Missing
+    // end data alone cannot establish the world's lifetime.
+    const now = `NOW: turn ${sit.bell} (day ${sit.day}, turn ${sit.bell_in_day}/144).`;
+    out.push(sit.world_continues === true && sit.end_bell == null
+      ? `${now} The world goes on; it has no end turn.`
+      : sit.end_bell != null && Number.isFinite(Number(sit.end_bell))
+        ? `${now} Season ends at turn ${sit.end_bell}.`
+        : `${now} End time unavailable.`);
     out.push(`YOU: nation ${me.faction}${me.doctrine ? ` (${me.doctrine})` : ''}.`);
     const h = me.home;
     if (h) {
