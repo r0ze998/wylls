@@ -27,6 +27,7 @@ pub mod bot;
 pub mod conquest;
 pub mod control;
 pub mod cqtx;
+pub mod decision_ledger;
 pub mod fleet;
 pub mod home;
 pub mod journal;

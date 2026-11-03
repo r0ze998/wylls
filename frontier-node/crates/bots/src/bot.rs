@@ -32,6 +32,7 @@ use permutation_rules::frontier::geometry::ProvinceCoord;
 use serde_json::{json, Value};
 
 use crate::conquest::{Conquest, CqMem};
+use crate::decision_ledger::{ActionId, DecisionLedger};
 use crate::journal::Journal;
 use crate::ports::{Answer, DirectPort, HeraldPort, RelayPort};
 use crate::report::{Outcome, Report};
@@ -189,6 +190,9 @@ pub struct Shared<H, R, D> {
     pub relay: R,
     pub direct: Option<D>,
     pub journal: Option<Journal>,
+    /// Experimental, local-only M1 policy decision log. It does not enable
+    /// restoring a bot or a continuous world after a process restart.
+    pub decision_ledger: Option<DecisionLedger>,
     pub pool: SealPool,
     pub cfg: Config,
     pub clock: ClockSource,
@@ -213,6 +217,7 @@ impl<H: HeraldPort, R: RelayPort, D: DirectPort> Shared<H, R, D> {
             relay,
             direct,
             journal: None,
+            decision_ledger: None,
             pool: SealPool::default_size(),
             cfg,
             clock,
@@ -245,6 +250,13 @@ impl<H: HeraldPort, R: RelayPort, D: DirectPort> Shared<H, R, D> {
 
     pub fn with_journal(mut self, j: Journal) -> Self {
         self.journal = Some(j);
+        self
+    }
+
+    /// Enables the experimental fail-closed M1 decision log for an isolated
+    /// run. Existing CLI runs leave it disabled.
+    pub fn with_decision_ledger(mut self, ledger: DecisionLedger) -> Self {
+        self.decision_ledger = Some(ledger);
         self
     }
 
@@ -348,6 +360,8 @@ pub struct Bot {
     /// A write has an unknown outcome or a marchbook write failed. Stop this
     /// bot's later sends until its external state is reconciled.
     safety_halted: AtomicBool,
+    /// One M1 policy intent selected by `step`; never used by AI or CQ.
+    active_action: Option<ActionId>,
     // AI hook
     /// The AI citizen's brain state (`on` only for slots `kind:"ai"`).
     pub ai: crate::ai::BotAi,
@@ -409,6 +423,7 @@ impl Bot {
             last_direct_code: None,
             last_direct_send_attempted: false,
             safety_halted: AtomicBool::new(false),
+            active_action: None,
             // AI hook
             ai: Default::default(),
             // AI hook end
@@ -588,6 +603,15 @@ impl Bot {
         if self.safety_halted.load(Ordering::SeqCst) {
             return 0;
         }
+        self.active_action = None;
+        // The optional ledger below covers only M1 policy writes through
+        // sponsored()/settle(). AI, CQ and direct writes have additional
+        // side effects and must not run under a partial safety claim.
+        if sh.decision_ledger.is_some() && (sh.conquest.is_some() || sh.ai.is_some()) {
+            sh.error("decision ledger does not cover AI or conquest bots");
+            self.safety_halted.store(true, Ordering::SeqCst);
+            return 0;
+        }
         self.nudged = false;
         let obs = match self.observe(sh).await {
             Ok(o) => o,
@@ -620,11 +644,41 @@ impl Bot {
             return crate::ai::brain::step_ai(self, sh, obs, intents, session).await;
         }
         // AI hook end
+        let decision = if let Some(ledger) = &sh.decision_ledger {
+            let world_id = format!("{}:{}", obs.season.program, obs.season.season_id);
+            if ledger
+                .header()
+                .map_or(true, |header| header.world_id != world_id)
+            {
+                sh.error("decision ledger world identity mismatch");
+                self.safety_halted.store(true, Ordering::SeqCst);
+                return 0;
+            }
+            let context = json!({
+                "session": session,
+                "now": obs.now,
+                "season": obs.season.season_id.to_string(),
+                "program": obs.season.program.to_string(),
+                // This representation is scoped to the ledger's source
+                // digest, not a cross-version canonical intent encoding.
+                "intents_debug": format!("{intents:?}"),
+            });
+            match ledger.begin_decision(self.spec.index, obs.bell(), context) {
+                Ok(id) => Some(id),
+                Err(_) => {
+                    sh.error("decision ledger begin failed");
+                    self.safety_halted.store(true, Ordering::SeqCst);
+                    return 0;
+                }
+            }
+        } else {
+            None
+        };
         // The herald's quota figure is fresh for this step; count what this
         // step spends on top of it.
         self.spent = 0;
         let mut sent = 0;
-        for it in intents {
+        for (ordinal, it) in intents.into_iter().enumerate() {
             if self.safety_halted.load(Ordering::SeqCst) {
                 break;
             }
@@ -641,9 +695,35 @@ impl Bot {
             {
                 continue;
             }
+            if let (Some(ledger), Some(id)) = (&sh.decision_ledger, &decision) {
+                let Ok(ordinal) = u32::try_from(ordinal) else {
+                    sh.error("decision ledger intent ordinal overflow");
+                    self.safety_halted.store(true, Ordering::SeqCst);
+                    break;
+                };
+                let intent_debug = format!("{it:?}");
+                let action = match ledger.record_intent(id, ordinal, intent_debug.as_bytes()) {
+                    Ok(action) => action,
+                    Err(_) => {
+                        sh.error("decision ledger intent failed");
+                        self.safety_halted.store(true, Ordering::SeqCst);
+                        break;
+                    }
+                };
+                // Other policy paths (direct transfers, airdrops, holds,
+                // keeper reveal, nudge and multi-send spam) have no complete
+                // pre-send receipt yet. Do not execute them in ledger mode.
+                if !ledger_covers(&it) {
+                    sh.error("decision ledger does not cover this policy write");
+                    self.safety_halted.store(true, Ordering::SeqCst);
+                    break;
+                }
+                self.active_action = Some(action);
+            }
             sent += self.act(sh, &obs, it).await;
+            self.active_action = None;
         }
-        if !self.safety_halted.load(Ordering::SeqCst) {
+        if sh.decision_ledger.is_none() && !self.safety_halted.load(Ordering::SeqCst) {
             sent += self.cq_layer(sh, &obs).await;
         }
         sh.report.lock().expect("report").steps += 1;
@@ -798,6 +878,65 @@ impl Bot {
         RelayInfo::from_answer(&a)
     }
 
+    /// Persist the exact relay request before a covered M1 policy write.
+    /// This local log is a forensic receipt, not proof of finality or a
+    /// general cross-service idempotency key.
+    fn ledger_before_relay<H, R, D>(
+        &self,
+        sh: &Shared<H, R, D>,
+        path: &str,
+        body: &Value,
+    ) -> Result<(), Answer> {
+        let Some(ledger) = &sh.decision_ledger else {
+            return Ok(());
+        };
+        let Some(action) = &self.active_action else {
+            sh.error("decision ledger write has no active action");
+            self.safety_halted.store(true, Ordering::SeqCst);
+            return Err(Answer::new(0, json!({"code": "BotHalted"})));
+        };
+        let payload = match serde_json::to_vec(body) {
+            Ok(payload) => payload,
+            Err(_) => {
+                sh.error("decision ledger request encoding failed");
+                self.safety_halted.store(true, Ordering::SeqCst);
+                return Err(Answer::new(0, json!({"code": "BotHalted"})));
+            }
+        };
+        if ledger.prepare_wire(action, path, &payload).is_err()
+            || ledger.mark_may_have_sent(action).is_err()
+        {
+            sh.error("decision ledger pre-send write failed");
+            self.safety_halted.store(true, Ordering::SeqCst);
+            return Err(Answer::new(0, json!({"code": "BotHalted"})));
+        }
+        Ok(())
+    }
+
+    /// An HTTP acknowledgement is not a finalized chain receipt. Preserve
+    /// the signature for later reconciliation; all other replies remain
+    /// unknown in this deliberately conservative experimental mode.
+    fn ledger_after_relay<H, R, D>(&self, sh: &Shared<H, R, D>, a: &Answer) {
+        let Some(ledger) = &sh.decision_ledger else {
+            return;
+        };
+        let Some(action) = &self.active_action else {
+            sh.error("decision ledger reply has no active action");
+            self.safety_halted.store(true, Ordering::SeqCst);
+            return;
+        };
+        let signature = a.signature();
+        let recorded = if a.ok() && signature.is_some() {
+            ledger.note_ack(action, signature.as_deref())
+        } else {
+            ledger.note_unknown(action)
+        };
+        if recorded.is_err() || !a.ok() || signature.is_none() {
+            sh.error("decision ledger relay outcome requires reconciliation");
+            self.safety_halted.store(true, Ordering::SeqCst);
+        }
+    }
+
     /// A sponsored player instruction through `/f/relay` (or `/f/join`).
     pub(crate) async fn sponsored<H, R: RelayPort, D>(
         &mut self,
@@ -830,6 +969,9 @@ impl Bot {
         } else {
             "/f/relay"
         };
+        if let Err(a) = self.ledger_before_relay(sh, path, &body) {
+            return a;
+        }
         let a = match sh.relay.post(path, &body).await {
             Ok(a) => a,
             Err(e) => Answer::new(
@@ -839,6 +981,7 @@ impl Bot {
                 json!({"code": "RelayOutcomeUnknown", "error": e.to_string()}),
             ),
         };
+        self.ledger_after_relay(sh, &a);
         if write_outcome_unknown(&a, true) {
             self.safety_halted.store(true, Ordering::SeqCst);
         }
@@ -881,6 +1024,9 @@ impl Bot {
             "citizen": a0.citizen(&self.wallet.pubkey()).to_string(),
             "lastValidBlockHeight": info.last_valid_block_height,
         });
+        if let Err(a) = self.ledger_before_relay(sh, "/f/relay", &body) {
+            return a;
+        }
         let a = match sh.relay.post("/f/relay", &body).await {
             Ok(a) => a,
             Err(e) => Answer::new(
@@ -888,6 +1034,7 @@ impl Bot {
                 json!({"code": "RelayOutcomeUnknown", "error": e.to_string()}),
             ),
         };
+        self.ledger_after_relay(sh, &a);
         if write_outcome_unknown(&a, true) {
             self.safety_halted.store(true, Ordering::SeqCst);
         }
@@ -899,6 +1046,11 @@ impl Bot {
     }
 
     async fn ensure_funded<H, R, D: DirectPort>(&mut self, sh: &Shared<H, R, D>) -> bool {
+        if sh.decision_ledger.is_some() {
+            sh.error("decision ledger does not cover direct airdrops");
+            self.safety_halted.store(true, Ordering::SeqCst);
+            return false;
+        }
         let Some(d) = &sh.direct else {
             return false;
         };
@@ -926,6 +1078,11 @@ impl Bot {
         others: &[&Keypair],
     ) -> bool {
         if self.safety_halted.load(Ordering::SeqCst) {
+            return false;
+        }
+        if sh.decision_ledger.is_some() {
+            sh.error("decision ledger does not cover direct transactions");
+            self.safety_halted.store(true, Ordering::SeqCst);
             return false;
         }
         self.last_direct_code = None;
@@ -1045,6 +1202,11 @@ impl Bot {
         it: Intent,
     ) -> usize {
         if self.safety_halted.load(Ordering::SeqCst) {
+            return 0;
+        }
+        if sh.decision_ledger.is_some() && (self.active_action.is_none() || !ledger_covers(&it)) {
+            sh.error("decision ledger cannot cover this policy write");
+            self.safety_halted.store(true, Ordering::SeqCst);
             return 0;
         }
         let a = Self::addresses(obs);
@@ -1634,6 +1796,25 @@ impl Bot {
     }
 }
 
+/// Only single sponsored writes in M1 have a pre-send request receipt in the
+/// optional decision ledger. All other side-effect routes stay disabled while
+/// it is enabled; they need their own durable receipt protocol.
+fn ledger_covers(it: &Intent) -> bool {
+    matches!(
+        it,
+        Intent::Join { .. }
+            | Intent::FileTicket { .. }
+            | Intent::Harvest { .. }
+            | Intent::Build { .. }
+            | Intent::Train { .. }
+            | Intent::Muster { .. }
+            | Intent::Explore { .. }
+            | Intent::SettleExplore { .. }
+            | Intent::SettleTransit { .. }
+            | Intent::Redepart { .. }
+    )
+}
+
 /// Whether an intent spends a sponsored transaction.
 fn sponsored_kind(it: &Intent) -> bool {
     match it {
@@ -1650,6 +1831,7 @@ fn sponsored_kind(it: &Intent) -> bool {
 #[cfg(test)]
 mod depart_unknown_tests {
     use super::*;
+    use crate::decision_ledger::Header;
     use std::sync::atomic::AtomicUsize;
 
     use fclient::ports::{PortError, SimResult};
@@ -1665,6 +1847,84 @@ mod depart_unknown_tests {
     }
 
     struct LostDirect;
+
+    struct PanicHoldDirect;
+
+    impl DirectPort for PanicHoldDirect {
+        async fn blockhash(&self) -> Result<Hash, PortError> {
+            LostDirect.blockhash().await
+        }
+        async fn simulate(&self, wire: &[u8]) -> Result<SimResult, PortError> {
+            LostDirect.simulate(wire).await
+        }
+        async fn send(&self, wire: &[u8]) -> Result<String, PortError> {
+            LostDirect.send(wire).await
+        }
+        async fn airdrop(&self, key: &Address, lamports: u64) -> Result<(), PortError> {
+            LostDirect.airdrop(key, lamports).await
+        }
+        async fn balance(&self, key: &Address) -> Result<u64, PortError> {
+            LostDirect.balance(key).await
+        }
+        async fn hold(&self, _: &[Address], _: u32, _: u64) -> Result<(), PortError> {
+            panic!("unsupported hold reached the direct port")
+        }
+    }
+
+    /// The relay sees only requests whose ledger has already fsynced an
+    /// intent, signed request body, and may-have-sent marker.
+    struct LedgerInspectRelay {
+        inner: LostReplyRelay,
+        ledger_path: std::path::PathBuf,
+    }
+
+    struct QuotaZeroHerald {
+        inner: DirHerald,
+    }
+
+    impl HeraldPort for QuotaZeroHerald {
+        async fn get(&self, path: &str) -> Result<Option<Vec<u8>>, PortError> {
+            if let Some(wallet) = path.strip_prefix("/h/me/") {
+                return Ok(Some(
+                    serde_json::to_vec(&json!({
+                        "v": 1,
+                        "wallet": wallet,
+                        "citizen": null,
+                        "holdings": [],
+                        "quota": {"left": 0},
+                    }))
+                    .unwrap(),
+                ));
+            }
+            self.inner.get(path).await
+        }
+    }
+
+    impl RelayPort for LedgerInspectRelay {
+        async fn get(&self, path: &str) -> Result<Answer, PortError> {
+            self.inner.get(path).await
+        }
+
+        async fn post(&self, path: &str, body: &Value) -> Result<Answer, PortError> {
+            let ledger = std::fs::read_to_string(&self.ledger_path).unwrap();
+            let events: Vec<Value> = ledger
+                .lines()
+                .map(|line| serde_json::from_str::<Value>(line).unwrap()["event"].clone())
+                .collect();
+            let index_of =
+                |name: &str| events.iter().position(|event| event["ev"] == name).unwrap();
+            let intent = index_of("intent");
+            let prepared = index_of("prepared");
+            let sent = index_of("may_have_sent");
+            assert!(intent < prepared && prepared < sent);
+            assert_eq!(events[prepared]["route"], path);
+            let recorded = hex::decode(events[prepared]["wire_hex"].as_str().unwrap()).unwrap();
+            assert_eq!(recorded, serde_json::to_vec(body).unwrap());
+            assert_eq!(path, "/f/relay");
+            assert!(body.get("tx").is_some());
+            self.inner.post(path, body).await
+        }
+    }
 
     impl DirectPort for LostDirect {
         async fn blockhash(&self) -> Result<Hash, PortError> {
@@ -1846,6 +2106,254 @@ mod depart_unknown_tests {
             .await;
         assert_eq!(second.code().as_deref(), Some("BotHalted"));
         assert_eq!(sh.relay.posts.load(Ordering::SeqCst), 1);
+    }
+
+    fn new_ledger(path: &std::path::Path) -> DecisionLedger {
+        DecisionLedger::create_new(
+            path,
+            Header {
+                run_id: "isolated-bot-test".into(),
+                world_id: format!("{}:{}", fixture::program(), fixture::SEASON_ID),
+                source_digest: "11".repeat(32),
+                roster_digest: "22".repeat(32),
+            },
+        )
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn ledger_records_signed_request_before_relay_and_halts_after_lost_reply() {
+        let dir = std::env::temp_dir().join(format!(
+            "bots-decision-ledger-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("decision-ledger.jsonl");
+        let sh = Shared::new(
+            DirHerald::new(fixture::dir()),
+            LedgerInspectRelay {
+                inner: LostReplyRelay {
+                    payer: Keypair::new_from_array([0xfe; 32]),
+                    posts: AtomicUsize::new(0),
+                },
+                ledger_path: path.clone(),
+            },
+            None::<NoDirect>,
+            Config::new(fixture::SEED),
+            ClockSource::fixed(fixture::NOW),
+        )
+        .with_decision_ledger(new_ledger(&path));
+        let spec = AgentSpec {
+            index: fixture::FINAL,
+            arch: Arch::VerySkilled,
+            faction: 0,
+            join_day: 0,
+            join_bell: 5,
+            persona: None,
+        };
+        let mut bot = Bot::new(spec, fixture::SEED);
+        let obs = bot.observe(&sh).await.unwrap();
+        let decision = sh
+            .decision_ledger
+            .as_ref()
+            .unwrap()
+            .begin_decision(spec.index, obs.bell(), json!({"fixture": "harvest"}))
+            .unwrap();
+        bot.active_action = Some(
+            sh.decision_ledger
+                .as_ref()
+                .unwrap()
+                .record_intent(&decision, 2, b"Harvest fixture")
+                .unwrap(),
+        );
+        let a = Bot::addresses(&obs);
+        let (p, q) = fixture::world().home;
+        let h = ix::HoldingRef { p, q, site: 0 };
+        let first = bot
+            .sponsored(&sh, "harvest", None, |player| ix::harvest(&a, player, h))
+            .await;
+        assert_eq!(first.code().as_deref(), Some("RelayOutcomeUnknown"));
+        assert_eq!(sh.relay.inner.posts.load(Ordering::SeqCst), 1);
+        assert!(bot.safety_halted.load(Ordering::SeqCst));
+        let audit = DecisionLedger::inspect(&path).unwrap();
+        assert_eq!(audit.decisions, 1);
+        assert_eq!(audit.actions, 1);
+        assert_eq!(audit.unresolved_actions, 1);
+        assert!(std::fs::read_to_string(&path)
+            .unwrap()
+            .contains("\"ev\":\"unknown\""));
+        let second = bot
+            .sponsored(&sh, "harvest", None, |player| ix::harvest(&a, player, h))
+            .await;
+        assert_eq!(second.code().as_deref(), Some("BotHalted"));
+        assert_eq!(sh.relay.inner.posts.load(Ordering::SeqCst), 1);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn ledger_enabled_rejects_unsupported_hold_before_direct_port() {
+        let dir = std::env::temp_dir().join(format!(
+            "bots-unsupported-ledger-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("decision-ledger.jsonl");
+        let sh = Shared::new(
+            DirHerald::new(fixture::dir()),
+            LostReplyRelay {
+                payer: Keypair::new_from_array([0xfe; 32]),
+                posts: AtomicUsize::new(0),
+            },
+            Some(PanicHoldDirect),
+            Config::new(fixture::SEED),
+            ClockSource::fixed(fixture::NOW),
+        )
+        .with_decision_ledger(new_ledger(&path));
+        let spec = AgentSpec {
+            index: fixture::FINAL,
+            arch: Arch::VerySkilled,
+            faction: 0,
+            join_day: 0,
+            join_bell: 5,
+            persona: None,
+        };
+        let mut bot = Bot::new(spec, fixture::SEED);
+        let obs = bot.observe(&sh).await.unwrap();
+        let decision = sh
+            .decision_ledger
+            .as_ref()
+            .unwrap()
+            .begin_decision(spec.index, obs.bell(), json!({"fixture": "hold"}))
+            .unwrap();
+        bot.active_action = Some(
+            sh.decision_ledger
+                .as_ref()
+                .unwrap()
+                .record_intent(&decision, 0, b"Hold fixture")
+                .unwrap(),
+        );
+        assert_eq!(
+            bot.act(
+                &sh,
+                &obs,
+                Intent::Hold {
+                    keys: vec![bot.wallet.pubkey()],
+                    priority_milli: 1,
+                    bells: 1,
+                },
+            )
+            .await,
+            0
+        );
+        assert!(bot.safety_halted.load(Ordering::SeqCst));
+        assert_eq!(sh.relay.posts.load(Ordering::SeqCst), 0);
+        assert_eq!(DecisionLedger::inspect(&path).unwrap().actions, 1);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn ledger_keeps_decision_but_no_action_when_quota_skips_join() {
+        let dir = std::env::temp_dir().join(format!(
+            "bots-skipped-ledger-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("decision-ledger.jsonl");
+        let sh = Shared::new(
+            QuotaZeroHerald {
+                inner: DirHerald::new(fixture::dir()),
+            },
+            LostReplyRelay {
+                payer: Keypair::new_from_array([0xfe; 32]),
+                posts: AtomicUsize::new(0),
+            },
+            None::<NoDirect>,
+            Config::new(fixture::SEED),
+            ClockSource::fixed(fixture::NOW),
+        )
+        .with_decision_ledger(new_ledger(&path));
+        let spec = AgentSpec {
+            index: fixture::UNJOINED,
+            arch: Arch::VerySkilled,
+            faction: 0,
+            join_day: 0,
+            join_bell: 0,
+            persona: None,
+        };
+        let mut bot = Bot::new(spec, fixture::SEED);
+        let obs = bot.observe(&sh).await.unwrap();
+        assert!(obs.season.join_close_bell() > obs.bell());
+        assert_eq!(obs.me.quota_left, Some(0));
+        assert_eq!(bot.step(&sh, true).await, 0);
+        assert_eq!(sh.relay.posts.load(Ordering::SeqCst), 0);
+        let audit = DecisionLedger::inspect(&path).unwrap();
+        assert_eq!(audit.decisions, 1);
+        assert_eq!(audit.actions, 0);
+        assert!(std::fs::read_to_string(&path).unwrap().contains("Join"));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn ledger_world_mismatch_stops_before_any_decision_or_send() {
+        let dir = std::env::temp_dir().join(format!(
+            "bots-world-mismatch-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("decision-ledger.jsonl");
+        let ledger = DecisionLedger::create_new(
+            &path,
+            Header {
+                run_id: "isolated-bot-test".into(),
+                world_id: "wrong-world".into(),
+                source_digest: "11".repeat(32),
+                roster_digest: "22".repeat(32),
+            },
+        )
+        .unwrap();
+        let sh = Shared::new(
+            QuotaZeroHerald {
+                inner: DirHerald::new(fixture::dir()),
+            },
+            LostReplyRelay {
+                payer: Keypair::new_from_array([0xfe; 32]),
+                posts: AtomicUsize::new(0),
+            },
+            None::<NoDirect>,
+            Config::new(fixture::SEED),
+            ClockSource::fixed(fixture::NOW),
+        )
+        .with_decision_ledger(ledger);
+        let spec = AgentSpec {
+            index: fixture::UNJOINED,
+            arch: Arch::VerySkilled,
+            faction: 0,
+            join_day: 0,
+            join_bell: 0,
+            persona: None,
+        };
+        let mut bot = Bot::new(spec, fixture::SEED);
+        assert_eq!(bot.step(&sh, true).await, 0);
+        assert!(bot.safety_halted.load(Ordering::SeqCst));
+        assert_eq!(sh.relay.posts.load(Ordering::SeqCst), 0);
+        assert_eq!(DecisionLedger::inspect(&path).unwrap().decisions, 0);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

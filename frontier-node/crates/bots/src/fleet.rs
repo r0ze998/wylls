@@ -162,6 +162,12 @@ where
             shared.error("run: a fixed clock (use step_all)");
             return shared.report.lock().expect("report").clone();
         }
+        // follow_wake can submit an AI/council action before Bot::step sees
+        // the bot. The experimental M1 ledger does not cover that path.
+        if shared.decision_ledger.is_some() && (shared.ai.is_some() || shared.conquest.is_some()) {
+            shared.error("decision ledger does not cover AI or conquest fleet");
+            return shared.report.lock().expect("report").clone();
+        }
         let mut tasks = tokio::task::JoinSet::new();
         for bot in bots {
             let sh = shared.clone();
