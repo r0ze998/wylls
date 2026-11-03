@@ -89,13 +89,14 @@ fn init_pool(prize: Address, mint: Address, w: &World) -> Instruction {
 }
 
 fn prize_refuses(c: &mut Chain, prize: Address, mint: Address, w: &World, code: u32) {
-    let (pool, _) = pool_addresses(prize, w);
+    let (pool, vault) = pool_addresses(prize, w);
     let failed = c
         .send(&[init_pool(prize, mint, w)], &[&w.authority])
         .expect_err("Prize InitPool must refuse");
     assert_eq!(failed.code, Some(code), "{}", failed.logs.join("\n"));
     assert!(failed.failed_in(&prize), "{}", failed.logs.join("\n"));
     assert!(c.is_absent(&pool), "refusal must not create a pool");
+    assert!(c.is_absent(&vault), "refusal must not create a vault");
 }
 
 #[test]
