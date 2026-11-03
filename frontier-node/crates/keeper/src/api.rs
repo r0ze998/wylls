@@ -614,6 +614,52 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn audit_chain_unavailable_rpc_message_in_response() {
+        let port = crate::testkit::FakePort::default();
+        *port.rpc_error.lock().unwrap() =
+            Some("RPC_PRIVATE_SENTINEL /internal/rpc/endpoint".into());
+        let gate = crate::reveal_accept::ChainGate {
+            port,
+            addrs: fclient::addr::Addresses::new(
+                solana_address::Address::new_from_array([1; 32]),
+                1,
+            ),
+        };
+        let shared: Arc<Mutex<Shared>> = Default::default();
+        let tok = "t".repeat(32);
+        let r = serve_with(
+            "127.0.0.1:0".parse().unwrap(),
+            shared.clone(),
+            tok.clone(),
+            Some(Arc::new(gate)),
+        )
+        .await
+        .unwrap();
+        let p = fclient::seal::Plain {
+            version: 1,
+            host_id: 42,
+            arrive_bell: 9,
+            stance: 1,
+            ..Default::default()
+        };
+        let body = json!({
+            "holding": solana_address::Address::new_from_array([3; 32]).to_string(),
+            "transit_slot": 1,
+            "plain_b64": B64.encode(fclient::seal::pack(&p)),
+            "salt_b64": B64.encode([1u8; 32]),
+            "ct_hash_b64": B64.encode([2u8; 32]),
+        });
+        let (status, response) = call(r.addr, "POST", "/v1/reveal", Some(&tok), Some(body)).await;
+        assert_eq!(status, 503);
+        assert_eq!(response["code"], "ChainUnavailable");
+        assert_eq!(response["detail"], "chain state unavailable");
+        assert!(!response.to_string().contains("RPC_PRIVATE_SENTINEL"));
+        assert!(!response.to_string().contains("/internal/rpc/endpoint"));
+        assert!(lock(&shared).reveals.is_empty());
+        r.stop();
+    }
+
     /// W6T-2: a refusal names its code as `error` (the relay passes the
     /// body through: `409 {"error":"Shielded"}`, `{"error":"ArrivalBell"}`).
     #[tokio::test]

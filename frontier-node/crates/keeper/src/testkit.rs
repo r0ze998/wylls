@@ -31,6 +31,8 @@ pub struct FakePort {
     pub statuses: Mutex<HashMap<Signature, Status>>,
     /// `accounts()` fails while set (an RPC that does not answer).
     pub fail_reads: std::sync::atomic::AtomicBool,
+    /// An explicit JSON-RPC error for API error-detail tests.
+    pub rpc_error: Mutex<Option<String>>,
     /// `simulate()` calls (the wire bytes go to the RPC there too).
     pub simulated: AtomicU64,
 }
@@ -70,6 +72,12 @@ impl ChainPort for FakePort {
     }
     async fn accounts(&self, keys: &[Address], _: u64) -> PortResult<Vec<Option<Account>>> {
         self.calls.lock().unwrap().push(keys.to_vec());
+        if let Some(message) = self.rpc_error.lock().unwrap().clone() {
+            return Err(PortError::Rpc {
+                code: -32000,
+                message,
+            });
+        }
         if self.fail_reads.load(Ordering::SeqCst) {
             return Err(PortError::Io("injected: RPC down".into()));
         }
