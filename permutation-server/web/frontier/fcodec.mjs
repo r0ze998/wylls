@@ -12,6 +12,8 @@ import { LAYOUTS as V2 } from '../sdk/frontier/abi-v2-layouts.mjs';
 const fields = xs => xs.map(x => [x.name, x.off, x.len, x.ty]);
 const ACCOUNTS_V2 = Object.fromEntries(V2.accounts.map(x => [x.kind, { ...x, fields: fields(x.fields) }]));
 const RECORDS_V2 = { ...RECORDS, ...Object.fromEntries(V2.records.map(x => [x.name, { ...x, fields: fields(x.fields) }])) };
+const SEASON_CQ_V2 = ACCOUNTS_V2.Season.fields.find(f => f[0] === 'CONQUEST_PARAMS');
+const CQ_V2 = RECORDS_V2.ConquestParams;
 
 /** 'GENESIS_TS' → 'genesisTs'. */
 export const camel = name => name.toLowerCase().replace(/_([a-z0-9])/g, (_, c) => c.toUpperCase());
@@ -58,6 +60,22 @@ function readRecord(bytes, dv, base, layout, records) {
   return out;
 }
 
+/** A malformed world flag must not make a continuous account look finite. */
+function checkWorldMode(bytes, season) {
+  const mode = season.conquestParams?.continuous;
+  if (mode !== 0 && mode !== 1) throw new CodecError('BadWorldMode', 'unknown continuous-world flag');
+  const base = SEASON_CQ_V2?.[1];
+  if (base === undefined || !CQ_V2) throw new CodecError('BadLayout', 'missing conquest block');
+  for (const [, off, len, ty] of CQ_V2.fields) {
+    if (ty === 'rsv' && bytes.subarray(base + off, base + off + len).some(b => b !== 0)) {
+      throw new CodecError('BadWorldMode', 'reserved conquest bytes are nonzero');
+    }
+  }
+  if (mode === 1 && season.endBell !== 0xffffffff) {
+    throw new CodecError('BadWorldMode', 'continuous world has an end bell');
+  }
+}
+
 const text = b => String.fromCharCode(...b);
 
 /**
@@ -81,6 +99,7 @@ export function decode(kind, bytes, { seasonId, profile } = {}) {
     if (f[3] === 'rsv' || f[1] + f[2] > b.length) continue;
     out[camel(f[0])] = readField(b, dv, 0, f, records);
   }
+  if (kind === 'Season' && profile >= 2 && b.length === layout.size) checkWorldMode(b, out);
   if (seasonId !== undefined && seasonId !== null && out.seasonId !== BigInt(String(seasonId))) {
     throw new CodecError('WrongSeason', `${kind}: season ${out.seasonId}, expected ${seasonId}`);
   }

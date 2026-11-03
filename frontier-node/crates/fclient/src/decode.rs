@@ -17,6 +17,8 @@ pub enum DecodeError {
     Short { want: usize, got: usize },
     /// Magic does not match the expected kind.
     Magic { want: [u8; 8], got: [u8; 8] },
+    /// The v2 continuous flag is unknown or disagrees with the end bell.
+    InvalidSeasonMode,
 }
 
 /// Little-endian reads at fixed offsets.
@@ -184,9 +186,35 @@ impl Season {
         self.program_version >= crate::abi::PROGRAM_VERSION_V2
     }
 
+    /// True only when the chain's v2 conquest flag and the end bell agree.
+    /// A missing or malformed conquest block never implies an endless world.
+    /// This reads an existing account; it does not enable continuous creation.
+    pub fn world_continues(&self) -> bool {
+        self.end_bell == u32::MAX
+            && self
+                .conquest
+                .as_ref()
+                .is_some_and(|params| params.continuous == 1)
+    }
+
     pub fn decode(d: &[u8]) -> Result<Season, DecodeError> {
         use l::season as s;
         let b = check(d, magic::SEASON, s::END)?;
+        let version = b.u16(s::PROGRAM_VERSION);
+        if version >= crate::abi::PROGRAM_VERSION_V2 {
+            use frontier_abi::v2::presets::{cq_layout, SEASON_CQ_OFFSET};
+            let at = SEASON_CQ_OFFSET + cq_layout::CONTINUOUS;
+            let mode = *d.get(at).ok_or(DecodeError::Short {
+                want: at + 1,
+                got: d.len(),
+            })?;
+            if mode > 1
+                || (mode == 1
+                    && (b.u32(s::END_BELL) != u32::MAX || ConquestParams::of_season(d).is_none()))
+            {
+                return Err(DecodeError::InvalidSeasonMode);
+            }
+        }
         Ok(Season {
             h: header(b),
             status: b.u8(s::STATUS),
@@ -1771,6 +1799,40 @@ mod tests {
         let mut h1 = vec![0u8; size::HOLDING];
         put(&mut h1, 0, magic::HOLDING);
         assert!(Holding::decode(&h1).unwrap().cq.is_none());
+    }
+
+    #[test]
+    fn world_continuity_comes_from_the_chain_bytes_and_end_bell() {
+        use frontier_abi::v2::presets::{cq_layout, SEASON_CQ_OFFSET};
+        let mut raw = vec![0u8; size::SEASON];
+        put(&mut raw, 0, magic::SEASON);
+        put(
+            &mut raw,
+            l::season::PROGRAM_VERSION,
+            &crate::abi::PROGRAM_VERSION_V2.to_le_bytes(),
+        );
+        let cq = frontier_abi::v2::presets::MC_TEST.cq.to_bytes();
+        raw[SEASON_CQ_OFFSET..SEASON_CQ_OFFSET + cq.len()].copy_from_slice(&cq);
+        put(&mut raw, l::season::END_BELL, &1008u32.to_le_bytes());
+        assert!(!Season::decode(&raw).unwrap().world_continues());
+        put(&mut raw, l::season::END_BELL, &u32::MAX.to_le_bytes());
+        assert!(!Season::decode(&raw).unwrap().world_continues()); // end alone is not the flag
+        put(&mut raw, l::season::END_BELL, &1008u32.to_le_bytes());
+
+        let flag = SEASON_CQ_OFFSET + cq_layout::CONTINUOUS;
+        raw[flag] = 1;
+        assert_eq!(Season::decode(&raw), Err(DecodeError::InvalidSeasonMode));
+        put(&mut raw, l::season::END_BELL, &u32::MAX.to_le_bytes());
+        assert!(Season::decode(&raw).unwrap().world_continues());
+
+        raw[flag] = 2;
+        assert_eq!(Season::decode(&raw), Err(DecodeError::InvalidSeasonMode));
+        raw[flag] = 1;
+        raw[SEASON_CQ_OFFSET + cq_layout::RSV_PRE_CONTINUOUS] = 1;
+        assert_eq!(Season::decode(&raw), Err(DecodeError::InvalidSeasonMode));
+        raw[SEASON_CQ_OFFSET + cq_layout::RSV_PRE_CONTINUOUS] = 0;
+        put(&mut raw, l::season::PROGRAM_VERSION, &1u16.to_le_bytes());
+        assert!(!Season::decode(&raw).unwrap().world_continues());
     }
 
     #[test]

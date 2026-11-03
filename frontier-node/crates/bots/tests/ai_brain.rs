@@ -62,6 +62,43 @@ fn day0() -> DayState {
 }
 
 #[tokio::test]
+async fn situation_only_uses_a_matching_chain_flag_for_continuity() {
+    let r = rig(None, &[(FINAL, "ai")]);
+    let bot = ai_bot();
+    let mut obs = observe(&r, &bot).await;
+    let finite = with_inputs(&obs, &day0(), |inp| brain::situation(inp, (1, 1)));
+    assert_eq!(finite["world_continues"], false);
+    assert!(finite["end_bell"].is_number());
+    assert!(finite["secs_left"].is_number());
+
+    let chain = obs.season.season.as_mut().expect("account bytes");
+    chain.program_version = fclient::abi::PROGRAM_VERSION_V2;
+    chain.conquest = Some(frontier_abi::v2::presets::MC_TEST.cq);
+    chain.conquest.as_mut().unwrap().continuous = 1;
+    chain.end_bell = u32::MAX;
+    let ongoing = with_inputs(&obs, &day0(), |inp| brain::situation(inp, (1, 1)));
+    assert_eq!(ongoing["world_continues"], true);
+    assert!(ongoing["end_bell"].is_null());
+    assert!(ongoing["secs_left"].is_null());
+
+    obs.season.season.as_mut().unwrap().end_bell = 1008;
+    let inconsistent = with_inputs(&obs, &day0(), |inp| brain::situation(inp, (1, 1)));
+    assert_eq!(inconsistent["world_continues"], false);
+    assert!(inconsistent["end_bell"].is_number());
+    obs.season.season.as_mut().unwrap().end_bell = u32::MAX;
+    obs.season
+        .season
+        .as_mut()
+        .unwrap()
+        .conquest
+        .as_mut()
+        .unwrap()
+        .continuous = 2;
+    let unknown = with_inputs(&obs, &day0(), |inp| brain::situation(inp, (1, 1)));
+    assert_eq!(unknown["world_continues"], false);
+}
+
+#[tokio::test]
 async fn candidates_are_deterministic_ordered_and_capped() {
     let r = rig(None, &[(FINAL, "ai")]);
     let bot = ai_bot();
