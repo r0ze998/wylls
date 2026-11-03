@@ -300,6 +300,7 @@ fn parse_latest_blockhash_result(v: &Value) -> PortResult<(Hash, u64)> {
     let last_valid_block_height = val
         .get("lastValidBlockHeight")
         .and_then(Value::as_u64)
+        .filter(|height| *height > 0)
         .ok_or_else(|| PortError::Decode("lastValidBlockHeight".into()))?;
     Ok((hash, last_valid_block_height))
 }
@@ -602,6 +603,7 @@ mod tests {
             json!({"value": {"blockhash": hash.to_string(), "lastValidBlockHeight": null}}),
             json!({"value": {"blockhash": hash.to_string(), "lastValidBlockHeight": "123"}}),
             json!({"value": {"blockhash": hash.to_string(), "lastValidBlockHeight": -1}}),
+            json!({"value": {"blockhash": hash.to_string(), "lastValidBlockHeight": 0}}),
         ] {
             assert_eq!(
                 parse_latest_blockhash_result(&invalid),
