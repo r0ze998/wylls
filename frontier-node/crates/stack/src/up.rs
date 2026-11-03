@@ -53,6 +53,28 @@ pub const SOL: u64 = 1_000_000_000;
 /// R99, §8.2) and near the band's middle, so payer care neither tops up
 /// nor sweeps at once.
 pub const REVEAL_PAYER_LAMPORTS: u64 = 350_000_000;
+/// Genesis may still be 600 game seconds away after CreateSeason. At a low
+/// valid scale that is more than five wall minutes; allow the projected
+/// wall time plus keeper/RPC slack. Cap pathological scales to keep a
+/// representable, finite Tokio timer.
+const PRIZE_START_SLACK_SECS: u64 = 300;
+const MAX_PRIZE_START_WAIT_SECS: u64 = 365 * 24 * 60 * 60;
+
+fn prize_start_wait_limit(now: i64, genesis_ts: i64, scale: f64) -> Duration {
+    let game_left = (i128::from(genesis_ts) - i128::from(now)).max(0) as f64;
+    let wall_left = game_left / scale;
+    let max_wall = (MAX_PRIZE_START_WAIT_SECS - PRIZE_START_SLACK_SECS) as f64;
+    let wall_secs = if wall_left.is_finite() {
+        wall_left.ceil().clamp(0.0, max_wall) as u64
+    } else {
+        MAX_PRIZE_START_WAIT_SECS - PRIZE_START_SLACK_SECS
+    };
+    Duration::from_secs(
+        wall_secs
+            .saturating_add(PRIZE_START_SLACK_SECS)
+            .min(MAX_PRIZE_START_WAIT_SECS),
+    )
+}
 
 /// The program id of a run (any 32 bytes deploy on localnet).
 pub fn program_id(run_id: &str) -> Address {
@@ -1100,17 +1122,10 @@ async fn run_all(st: &mut Stack) -> Result<(), String> {
     .await?;
     st.state["season"] = season.clone();
     if let Some(p) = &st.prize {
-        let v = p
-            .setup(&st.chain, &st.addrs, &st.keys.authority, &st.cfg)
-            .await?;
-        st.run.event(None, "prize", v.clone());
-        log_line(&format!(
-            "prize pool {} (test mint {}, entry fee {} base units)",
-            p.pool,
-            p.mint.pubkey(),
-            st.cfg.entry_fee
-        ));
-        st.state["prize"] = v;
+        p.create_mint(&st.chain, &st.keys.authority).await?;
+        st.state["prize_mint"] = json!({"mint": p.mint.pubkey().to_string(), "created": true});
+        st.run
+            .event(None, "prize-mint", st.state["prize_mint"].clone());
     }
     let genesis_ts = season["genesis_ts"].as_i64().ok_or("genesis_ts")?;
     let end_bell = season["end_bell"].as_u64().unwrap_or(1_008) as i64;
@@ -1163,6 +1178,22 @@ async fn run_all(st: &mut Stack) -> Result<(), String> {
         Duration::from_secs(60),
     )
     .await?;
+    if let Some(p) = &st.prize {
+        let now = st.chain.status().await?.now;
+        let limit = prize_start_wait_limit(now, genesis_ts, st.cfg.scale);
+        crate::prize::Prize::wait_until_running(&st.chain, &st.addrs, limit).await?;
+        let v = p
+            .init_pool(&st.chain, &st.addrs, &st.keys.authority, &st.cfg)
+            .await?;
+        st.run.event(None, "prize", v.clone());
+        log_line(&format!(
+            "prize pool {} (test mint {}, entry fee {} base units)",
+            p.pool,
+            p.mint.pubkey(),
+            st.cfg.entry_fee
+        ));
+        st.state["prize"] = v;
+    }
     if st.cfg.keeper_b {
         st.start(specs["keeper-b"].clone())?;
         chain::wait_http(
@@ -2029,6 +2060,18 @@ pub fn down(rd: &RunDir) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn prize_wait_budget_tracks_the_live_clock_and_low_scale() {
+        assert_eq!(prize_start_wait_limit(1_000, 1_600, 100.0).as_secs(), 306);
+        assert_eq!(prize_start_wait_limit(1_000, 1_600, 0.1).as_secs(), 6_300);
+        assert_eq!(prize_start_wait_limit(1_600, 1_600, 0.1).as_secs(), 300);
+        assert_eq!(prize_start_wait_limit(1_700, 1_600, 0.1).as_secs(), 300);
+        assert_eq!(
+            prize_start_wait_limit(i64::MIN, i64::MAX, f64::MIN_POSITIVE).as_secs(),
+            MAX_PRIZE_START_WAIT_SECS
+        );
+    }
 
     #[test]
     fn s1_runs_pass_s1_to_the_bots_once() {
