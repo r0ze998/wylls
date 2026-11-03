@@ -834,12 +834,22 @@ impl Engine {
                 ));
                 continue;
             }
-            // Every version passed its retry window. Remove the pending
-            // write so unrelated duties can continue, but hold this key's
-            // fee budget if any old signature still lacks a final status.
-            // A known failure can use the usual backoff and re-planning.
+            // After a long tick gap, an older version may be beyond the
+            // retry horizon while this write still has room under its own
+            // version and fee caps. Let the normal send path retry within
+            // that same budget; re-planning would discard the old exposure.
+            // Once the cap is exhausted, remove the pending write so
+            // unrelated duties can continue, but hold this key until all
+            // old signatures have a final status.
             if !p.versions.is_empty()
                 && p.versions.iter().all(|v| slot > v.sent_slot + EXPIRY_SLOTS)
+                && (p.versions.len() as u32 >= self.params.max_versions
+                    || p.versions
+                        .iter()
+                        .map(|v| v.fee)
+                        .sum::<u64>()
+                        .saturating_add(fees::LAMPORTS_PER_SIGNATURE)
+                        > self.params.per_write_cap)
             {
                 let p = self.pending.remove(&k).expect("pending");
                 let unresolved: HashSet<_> = p
@@ -1565,7 +1575,13 @@ mod tests {
         assert_eq!(attempts.len(), 1);
 
         let late = 10 + EXPIRY_SLOTS + 1;
-        let mut after = Engine::new(Budgets::placeholder(), EngineParams::default());
+        let mut after = Engine::new(
+            Budgets::placeholder(),
+            EngineParams {
+                max_versions: 1,
+                ..EngineParams::default()
+            },
+        );
         after.adopt(&attempts).unwrap();
         assert!(after.ensure(spec("old", Class::D, abi::tag::POST_SEED), late));
         let report = after.step(&port, &mut payers, Some(&journal), late).await;
@@ -1893,6 +1909,63 @@ mod tests {
             (95..=105).contains(&last),
             "a fresh escalation starts low: {last}"
         );
+    }
+
+    /// A keeper may miss many slots while still below its existing spend
+    /// and version caps. Slot age alone must not strand this idempotent
+    /// program write or open a fresh budget: it can send another version
+    /// in the same Pending after it resumes.
+    #[tokio::test]
+    async fn old_unknown_write_retries_within_its_existing_budget() {
+        let port = Script::default();
+        let mut payers = payers();
+        payers.refresh(&port, 0).await.unwrap();
+        let mut e = Engine::new(
+            Budgets::placeholder(),
+            EngineParams {
+                max_versions: 3,
+                ..EngineParams::default()
+            },
+        );
+        let j = Journal::open(std::path::Path::new(":memory:")).unwrap();
+        assert!(e.ensure(spec("gap", Class::D, abi::tag::POST_ANCHOR), 0));
+        assert_eq!(e.step(&port, &mut payers, Some(&j), 0).await.sent, 1);
+        let first_fee = e.pending["gap"].versions[0].fee;
+
+        let later = e.step(&port, &mut payers, Some(&j), EXPIRY_SLOTS + 2).await;
+        assert_eq!(later.sent, 1, "remaining budget permits another version");
+        assert!(later.outcomes.is_empty());
+        assert_eq!(e.pending["gap"].versions.len(), 2);
+        assert_eq!(e.pending["gap"].versions[0].fee, first_fee);
+        assert!(
+            e.pending["gap"].versions.iter().map(|v| v.fee).sum::<u64>() <= e.params.per_write_cap
+        );
+        assert_eq!(j.in_flight().unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn old_unknown_write_does_not_retry_when_fee_budget_is_used() {
+        let port = Script::default();
+        let mut payers = payers();
+        payers.refresh(&port, 0).await.unwrap();
+        let mut e = Engine::new(Budgets::placeholder(), EngineParams::default());
+        let j = Journal::open(std::path::Path::new(":memory:")).unwrap();
+        assert!(e.ensure(spec("capped", Class::D, abi::tag::POST_ANCHOR), 0));
+        assert_eq!(e.step(&port, &mut payers, Some(&j), 0).await.sent, 1);
+        e.params.per_write_cap = e.pending["capped"].versions[0].fee;
+
+        let later = e.step(&port, &mut payers, Some(&j), EXPIRY_SLOTS + 2).await;
+        assert_eq!(later.sent, 0);
+        assert!(matches!(
+            later.outcomes.as_slice(),
+            [(_, Outcome::Unresolved { .. })]
+        ));
+        assert_eq!(e.stats["test"].versions, 1);
+        assert!(!e.ensure(
+            spec("capped", Class::D, abi::tag::POST_ANCHOR),
+            EXPIRY_SLOTS + 3
+        ));
+        assert_eq!(j.in_flight().unwrap().len(), 1);
     }
 
     /// W6-C (W5-B F4): a D write whose version is in flight gets the next
