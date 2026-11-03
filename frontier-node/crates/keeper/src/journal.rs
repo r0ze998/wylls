@@ -334,6 +334,40 @@ impl Journal {
         sql(rows.collect())
     }
 
+    /// A previous keeper could mark a care transfer "expired" using slot
+    /// age alone. That is not evidence that its System transfer did not
+    /// land, so a newer keeper must not silently top up the same account.
+    pub fn has_expired_attempt(&self, kind: &str) -> Result<bool, String> {
+        let found: i64 = sql(self.conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM attempts WHERE kind = ?1 AND status = 'expired')",
+            params![kind],
+            |r| r.get(0),
+        ))?;
+        Ok(found != 0)
+    }
+
+    /// Legacy slot-age "expiry" rows still need signature reconciliation.
+    pub fn expired_attempts_of_kind(&self, kind: &str) -> Result<Vec<Attempt>, String> {
+        let mut st = sql(self.conn.prepare(&format!(
+            "SELECT {} FROM attempts WHERE kind = ?1 AND status = 'expired' ORDER BY sent_slot",
+            Self::COLS
+        )))?;
+        let rows = sql(st.query_map(params![kind], Self::row))?;
+        sql(rows.collect())
+    }
+
+    /// Highest finalized success or failure recorded for a kind, including
+    /// attempts resolved before a crash. Even a failed transfer pays a fee.
+    pub fn latest_settled_slot(&self, kind: &str) -> Result<Option<u64>, String> {
+        let slot: Option<i64> = sql(self.conn.query_row(
+            "SELECT MAX(landed_slot) FROM attempts WHERE kind = ?1 AND status IN ('landed', 'failed')",
+            params![kind],
+            |r| r.get(0),
+        ))?;
+        slot.map(|v| u64::try_from(v).map_err(|_| "negative landed slot".into()))
+            .transpose()
+    }
+
     /// Every attempt of an object.
     pub fn attempts_of(&self, object_key: &str) -> Result<Vec<Attempt>, String> {
         let mut st = sql(self.conn.prepare(&format!(

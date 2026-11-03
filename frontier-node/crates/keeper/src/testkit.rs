@@ -25,6 +25,10 @@ pub struct FakePort {
     pub clock: Mutex<ClockSysvar>,
     /// `accounts()` calls and the keys each asked for.
     pub calls: Mutex<Vec<Vec<Address>>>,
+    /// Requested minimum account context slots (care freshness tests).
+    pub min_context_slots: Mutex<Vec<u64>>,
+    /// If nonzero, reject a read whose minimum context is newer than this.
+    pub max_context_slot: AtomicU64,
     pub sent: Mutex<Vec<fclient::Transaction>>,
     /// The chain slot `send` observes (a tick that runs late), when set.
     pub send_slot: AtomicU64,
@@ -70,8 +74,13 @@ impl ChainPort for FakePort {
         }
         Ok(c)
     }
-    async fn accounts(&self, keys: &[Address], _: u64) -> PortResult<Vec<Option<Account>>> {
+    async fn accounts(&self, keys: &[Address], min_slot: u64) -> PortResult<Vec<Option<Account>>> {
         self.calls.lock().unwrap().push(keys.to_vec());
+        self.min_context_slots.lock().unwrap().push(min_slot);
+        let max = self.max_context_slot.load(Ordering::SeqCst);
+        if max != 0 && min_slot > max {
+            return Err(PortError::Io("account context too old".into()));
+        }
         if let Some(message) = self.rpc_error.lock().unwrap().clone() {
             return Err(PortError::Rpc {
                 code: -32000,

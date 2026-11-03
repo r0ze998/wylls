@@ -283,6 +283,9 @@ pub struct Engine {
     meta_wait: HashMap<Signature, u64>,
     /// The chain's slot at the last `send` that sent a version.
     pub last_send_chain_slot: Option<u64>,
+    /// Finalized care attempt whose balance effects every later care plan
+    /// must observe. A confirmed account snapshot may lag this slot.
+    care_settled_slot: Option<u64>,
 }
 
 /// Slots a `ProgramFailedToComplete` waits for the feed's meta before it
@@ -306,6 +309,9 @@ const BACKOFF_SLOTS: u64 = 2;
 /// Slot-based retry horizon for a sent version. Passing it does not prove
 /// non-landing (blockhash validity is measured in block heights).
 pub const EXPIRY_SLOTS: u64 = 151;
+/// Payer care uses plain System transfers. Unlike Frontier program writes,
+/// two separately signed versions can both succeed and move funds twice.
+pub const PAYER_CARE_KIND: &str = "payer-care";
 
 impl Engine {
     pub fn new(budgets: Budgets, params: EngineParams) -> Engine {
@@ -324,7 +330,28 @@ impl Engine {
             tx_meta: HashMap::new(),
             meta_wait: HashMap::new(),
             last_send_chain_slot: None,
+            care_settled_slot: None,
         }
+    }
+
+    /// An undecided care transfer blocks every new top-up and sweep. This
+    /// includes attempts adopted as orphans on restart, not just pending keys.
+    pub fn care_unresolved(&self) -> bool {
+        self.pending
+            .values()
+            .any(|p| p.spec.kind == PAYER_CARE_KIND)
+            || self
+                .uncounted_fees
+                .values()
+                .any(|(kind, _)| kind == PAYER_CARE_KIND)
+    }
+
+    pub fn care_settled_slot(&self) -> Option<u64> {
+        self.care_settled_slot
+    }
+
+    pub fn note_care_settled(&mut self, slot: u64) {
+        self.care_settled_slot = Some(self.care_settled_slot.unwrap_or(0).max(slot));
     }
 
     pub fn is_pending(&self, key: &str) -> bool {
@@ -504,6 +531,13 @@ impl Engine {
         journal: Option<&Journal>,
         report: &mut StepReport,
     ) -> Option<Outcome> {
+        if self
+            .pending
+            .get(key)
+            .is_some_and(|p| p.spec.kind == PAYER_CARE_KIND)
+        {
+            self.note_care_settled(st.slot);
+        }
         let e = st.err.clone().unwrap_or_default();
         let cu_meter = self.cu_meter(&e, v);
         self.tx_meta.remove(&v.sig);
@@ -713,6 +747,13 @@ impl Engine {
             {
                 match st {
                     Some(st) => {
+                        if self
+                            .uncounted_fees
+                            .get(&o.0)
+                            .is_some_and(|(kind, _)| kind == PAYER_CARE_KIND)
+                        {
+                            self.note_care_settled(st.slot);
+                        }
                         self.charge_fee(o.0);
                         if let Some(j) = journal {
                             let s = if st.err.is_none() { "landed" } else { "failed" };
@@ -767,6 +808,12 @@ impl Engine {
             if slot < p.spec.not_before_slot
                 || p.versions.last().is_some_and(|v| v.sent_slot >= slot)
             {
+                continue;
+            }
+            // A System transfer has no on-chain idempotency key. Even when
+            // the status is still None after many slots, a second signed
+            // version could also land. Keep the first one for reconciliation.
+            if p.spec.kind == PAYER_CARE_KIND && !p.versions.is_empty() {
                 continue;
             }
             if p.spec.deadline_slot.is_some_and(|d| slot >= d) {
@@ -1188,6 +1235,104 @@ mod tests {
 
     fn priority_of(t: &fclient::Transaction) -> u64 {
         tx::priority(&t.message).0
+    }
+
+    #[tokio::test]
+    async fn care_transfer_sends_one_version_while_program_n_keeps_its_cadence() {
+        let port = Script::default();
+        let mut payers = payers();
+        payers.refresh(&port, 0).await.unwrap();
+        let from = payers.delay.keys[0].pubkey();
+        let to = payers.delay.keys[1].pubkey();
+        let mut care = spec("care:from:to:1", Class::N, 0);
+        care.kind = PAYER_CARE_KIND;
+        care.fixed_payer = Some(from);
+        care.build = Arc::new(move |_| vec![tx::transfer(from, to, 100_000)]);
+        let mut e = Engine::new(Budgets::placeholder(), EngineParams::default());
+        let j = Journal::open(std::path::Path::new(":memory:")).unwrap();
+        e.ensure(care, 1);
+        assert_eq!(e.step(&port, &mut payers, Some(&j), 1).await.sent, 1);
+        for slot in 2..190 {
+            assert_eq!(e.step(&port, &mut payers, Some(&j), slot).await.sent, 0);
+        }
+        assert_eq!(port.sent.lock().unwrap().len(), 1);
+        assert!(e.care_unresolved());
+        assert!(e.is_pending("care:from:to:1"));
+        assert_eq!(j.in_flight().unwrap().len(), 1);
+
+        let sig = tx::signature(&port.sent.lock().unwrap()[0]);
+        port.statuses.lock().unwrap().insert(
+            sig,
+            Status {
+                slot: 190,
+                err: None,
+                code: None,
+            },
+        );
+        e.step(&port, &mut payers, Some(&j), 190).await;
+        assert_eq!(e.care_settled_slot(), Some(190));
+        assert!(!e.care_unresolved());
+        assert_eq!(
+            e.stats[PAYER_CARE_KIND].fees_charged,
+            j.attempts_of("care:from:to:1").unwrap()[0].fee
+        );
+
+        let normal = Script::default();
+        let mut e = Engine::new(Budgets::placeholder(), EngineParams::default());
+        e.ensure(spec("normal-n", Class::N, abi::tag::CLOSE_ARRIVAL_DAY), 1);
+        for slot in 1..=18 {
+            e.step(&normal, &mut payers, None, slot).await;
+        }
+        assert!(
+            normal.sent.lock().unwrap().len() >= 2,
+            "normal N still resends"
+        );
+    }
+
+    #[tokio::test]
+    async fn adopted_unknown_care_is_not_discarded_by_slot_age() {
+        let port = Script::default();
+        let sig = Signature::default();
+        let fee = 5_123;
+        let j = Journal::open(std::path::Path::new(":memory:")).unwrap();
+        j.record_attempt(&Attempt {
+            sig: sig.to_string(),
+            kind: PAYER_CARE_KIND.into(),
+            object_key: "care:old:transfer:1".into(),
+            bell: None,
+            region: None,
+            class: "N".into(),
+            payer: payers().delay.keys[0].pubkey().to_string(),
+            bid_milli: 100,
+            fee,
+            cu_limit: 2_000,
+            heap: None,
+            first_valid_slot: 1,
+            sent_slot: 1,
+            landed_slot: None,
+            status: "sent".into(),
+            code: None,
+        })
+        .unwrap();
+        let mut e = Engine::new(Budgets::placeholder(), EngineParams::default());
+        e.adopt(&j.in_flight().unwrap()).unwrap();
+        e.poll(&port, Some(&j), 200).await;
+        assert!(e.care_unresolved());
+        assert_eq!(j.in_flight().unwrap().len(), 1);
+        port.statuses.lock().unwrap().insert(
+            sig,
+            Status {
+                slot: 201,
+                err: None,
+                code: None,
+            },
+        );
+        e.poll(&port, Some(&j), 202).await;
+        assert!(!e.care_unresolved());
+        assert_eq!(e.care_settled_slot(), Some(201));
+        assert_eq!(e.stats[PAYER_CARE_KIND].fees_charged, fee);
+        e.poll(&port, Some(&j), 203).await;
+        assert_eq!(e.stats[PAYER_CARE_KIND].fees_charged, fee);
     }
 
     #[tokio::test]
