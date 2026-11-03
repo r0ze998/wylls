@@ -99,7 +99,14 @@ export function decode(kind, bytes, { seasonId, profile } = {}) {
     if (f[3] === 'rsv' || f[1] + f[2] > b.length) continue;
     out[camel(f[0])] = readField(b, dv, 0, f, records);
   }
-  if (kind === 'Season' && profile >= 2 && b.length === layout.size) checkWorldMode(b, out);
+  if (kind === 'Season' && b.length === layout.size) {
+    const layoutV2 = out.layoutVersion >= 2;
+    const programV2 = out.programVersion >= 3;
+    if (layoutV2 !== programV2 || layoutV2 !== (profile >= 2)) {
+      throw new CodecError('BadWorldMode', 'Season layout and program versions disagree');
+    }
+    if (layoutV2) checkWorldMode(b, out);
+  }
   if (seasonId !== undefined && seasonId !== null && out.seasonId !== BigInt(String(seasonId))) {
     throw new CodecError('WrongSeason', `${kind}: season ${out.seasonId}, expected ${seasonId}`);
   }

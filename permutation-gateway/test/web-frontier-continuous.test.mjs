@@ -25,6 +25,7 @@ const rawSeason = (continuous, endBell) => {
   const dv = new DataView(raw.buffer);
   dv.setBigUint64(8, 1n, true);
   dv.setUint16(16, 2, true);
+  dv.setUint16(138, 3, true);
   dv.setUint32(164, endBell, true);
   raw[896 + 80] = continuous;
   return raw;
@@ -65,6 +66,19 @@ test('invalid world flags, end bells and reserved bytes fail before the page see
     cases.push(raw);
   }
   for (const raw of cases) {
+    assert.throws(() => decode('Season', raw), e => e.code === 'BadWorldMode');
+    const received = await receiveSeason(raw);
+    assert.equal(received.ok, false);
+    assert.equal(received.code, 'BadWorldMode');
+  }
+});
+
+test('a mismatched Season header and program version is refused before display', async () => {
+  for (const [layout, program] of [[2, 2], [2, 0], [1, 3]]) {
+    const raw = rawSeason(0, 96);
+    const dv = new DataView(raw.buffer);
+    dv.setUint16(16, layout, true);
+    dv.setUint16(138, program, true);
     assert.throws(() => decode('Season', raw), e => e.code === 'BadWorldMode');
     const received = await receiveSeason(raw);
     assert.equal(received.ok, false);
