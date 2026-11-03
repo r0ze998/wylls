@@ -285,6 +285,25 @@ fn parse_finalized_status(s: &Value) -> Option<Status> {
     })
 }
 
+/// Preserve the block-height expiry bound from `getLatestBlockhash`.
+/// A missing bound is not height zero: callers must not journal a signed
+/// transaction without knowing the bound needed for later reconciliation.
+fn parse_latest_blockhash_result(v: &Value) -> PortResult<(Hash, u64)> {
+    let val = v
+        .get("value")
+        .ok_or_else(|| PortError::Decode("value".into()))?;
+    let hash = val
+        .get("blockhash")
+        .and_then(Value::as_str)
+        .and_then(|s| s.parse().ok())
+        .ok_or_else(|| PortError::Decode("blockhash".into()))?;
+    let last_valid_block_height = val
+        .get("lastValidBlockHeight")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| PortError::Decode("lastValidBlockHeight".into()))?;
+    Ok((hash, last_valid_block_height))
+}
+
 /// `ChainPort` over JSON-RPC.
 pub struct RpcPort {
     pub rpc: RpcClient,
@@ -493,20 +512,7 @@ impl ChainPort for RpcPort {
             .rpc
             .call("getLatestBlockhash", json!([{"commitment": "confirmed"}]))
             .await?;
-        let val = v
-            .get("value")
-            .ok_or_else(|| PortError::Decode("value".into()))?;
-        let h: Hash = val
-            .get("blockhash")
-            .and_then(|x| x.as_str())
-            .and_then(|s| s.parse().ok())
-            .ok_or_else(|| PortError::Decode("blockhash".into()))?;
-        Ok((
-            h,
-            val.get("lastValidBlockHeight")
-                .and_then(|x| x.as_u64())
-                .unwrap_or(0),
-        ))
+        parse_latest_blockhash_result(&v)
     }
 }
 
@@ -581,5 +587,26 @@ mod tests {
                 code: Some(52),
             })
         );
+    }
+
+    #[test]
+    fn latest_blockhash_requires_a_valid_block_height_bound() {
+        let hash = Hash::new_from_array([7; 32]);
+        let valid = json!({"value": {"blockhash": hash.to_string(), "lastValidBlockHeight": 123}});
+        assert_eq!(
+            parse_latest_blockhash_result(&valid),
+            Ok((hash.clone(), 123))
+        );
+        for invalid in [
+            json!({"value": {"blockhash": hash.to_string()}}),
+            json!({"value": {"blockhash": hash.to_string(), "lastValidBlockHeight": null}}),
+            json!({"value": {"blockhash": hash.to_string(), "lastValidBlockHeight": "123"}}),
+            json!({"value": {"blockhash": hash.to_string(), "lastValidBlockHeight": -1}}),
+        ] {
+            assert_eq!(
+                parse_latest_blockhash_result(&invalid),
+                Err(PortError::Decode("lastValidBlockHeight".into()))
+            );
+        }
     }
 }
