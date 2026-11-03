@@ -9,7 +9,7 @@
 //! quota on every day, so the quota binds first.
 
 use std::collections::BTreeMap;
-use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
@@ -342,6 +342,12 @@ pub struct Bot {
     /// The refusal code of the last direct transaction (W6T-3: a Reveal's
     /// last refusal, for the report's unrevealed marches).
     last_direct_code: Option<String>,
+    /// A direct send was attempted, so a simulation refusal is not proof
+    /// that a Depart failed on chain.
+    last_direct_send_attempted: bool,
+    /// A write has an unknown outcome or a marchbook write failed. Stop this
+    /// bot's later sends until its external state is reconciled.
+    safety_halted: AtomicBool,
     // AI hook
     /// The AI citizen's brain state (`on` only for slots `kind:"ai"`).
     pub ai: crate::ai::BotAi,
@@ -375,6 +381,18 @@ fn outcome(
     }
 }
 
+/// Once a write request reached a remote endpoint, a missing response or a
+/// server/proxy failure cannot prove that no transaction was accepted.
+fn write_outcome_unknown(a: &Answer, signature_required: bool) -> bool {
+    a.status == 0
+        || a.status >= 500
+        || matches!(
+            a.code().as_deref(),
+            Some("RelayOutcomeUnknown" | "Duplicate")
+        )
+        || (signature_required && (200..300).contains(&a.status) && a.signature().is_none())
+}
+
 impl Bot {
     pub fn new(spec: AgentSpec, seed: u64) -> Bot {
         Bot {
@@ -389,6 +407,8 @@ impl Bot {
             nudged: false,
             nudge_retries: 0,
             last_direct_code: None,
+            last_direct_send_attempted: false,
+            safety_halted: AtomicBool::new(false),
             // AI hook
             ai: Default::default(),
             // AI hook end
@@ -565,6 +585,9 @@ impl Bot {
         sh: &Shared<H, R, D>,
         session: bool,
     ) -> usize {
+        if self.safety_halted.load(Ordering::SeqCst) {
+            return 0;
+        }
         self.nudged = false;
         let obs = match self.observe(sh).await {
             Ok(o) => o,
@@ -575,6 +598,9 @@ impl Bot {
         };
         self.citizen = obs.me.citizen.as_ref().map(|c| c.0);
         self.reconcile(sh, &obs);
+        if self.safety_halted.load(Ordering::SeqCst) {
+            return 0;
+        }
         let intents = {
             let cx = Ctx {
                 spec: &self.spec,
@@ -599,6 +625,9 @@ impl Bot {
         self.spent = 0;
         let mut sent = 0;
         for it in intents {
+            if self.safety_halted.load(Ordering::SeqCst) {
+                break;
+            }
             if self.quota_left(&obs) == 0 && sponsored_kind(&it) && !self.is(Persona::Spammer) {
                 continue;
             }
@@ -614,7 +643,9 @@ impl Bot {
             }
             sent += self.act(sh, &obs, it).await;
         }
-        sent += self.cq_layer(sh, &obs).await;
+        if !self.safety_halted.load(Ordering::SeqCst) {
+            sent += self.cq_layer(sh, &obs).await;
+        }
         sh.report.lock().expect("report").steps += 1;
         sent
     }
@@ -775,6 +806,9 @@ impl Bot {
         tag: Option<&'static str>,
         build: impl FnOnce(&Player) -> Instruction,
     ) -> Answer {
+        if self.safety_halted.load(Ordering::SeqCst) {
+            return Answer::new(0, json!({"code": "BotHalted"}));
+        }
         let info = match self.relay_info(sh).await {
             Ok(i) => i,
             Err(e) => return Answer::new(0, json!({"code": "RelayUnavailable", "error": e})),
@@ -800,9 +834,14 @@ impl Bot {
             Ok(a) => a,
             Err(e) => Answer::new(
                 0,
-                json!({"code": "RelayUnavailable", "error": e.to_string()}),
+                // The relay may have accepted the transaction before the
+                // response was lost. Keep this distinct from a failed GET.
+                json!({"code": "RelayOutcomeUnknown", "error": e.to_string()}),
             ),
         };
+        if write_outcome_unknown(&a, true) {
+            self.safety_halted.store(true, Ordering::SeqCst);
+        }
         if a.ok() {
             self.spent += 1;
             if is_join {
@@ -823,6 +862,9 @@ impl Bot {
         tag: Option<&'static str>,
         build: impl FnOnce(Address) -> Instruction,
     ) -> Answer {
+        if self.safety_halted.load(Ordering::SeqCst) {
+            return Answer::new(0, json!({"code": "BotHalted"}));
+        }
         let info = match self.relay_info(sh).await {
             Ok(i) => i,
             Err(e) => return Answer::new(0, json!({"code": "RelayUnavailable", "error": e})),
@@ -843,9 +885,12 @@ impl Bot {
             Ok(a) => a,
             Err(e) => Answer::new(
                 0,
-                json!({"code": "RelayUnavailable", "error": e.to_string()}),
+                json!({"code": "RelayOutcomeUnknown", "error": e.to_string()}),
             ),
         };
+        if write_outcome_unknown(&a, true) {
+            self.safety_halted.store(true, Ordering::SeqCst);
+        }
         if a.ok() {
             self.spent += 1;
         }
@@ -880,6 +925,11 @@ impl Bot {
         cu_price: u64,
         others: &[&Keypair],
     ) -> bool {
+        if self.safety_halted.load(Ordering::SeqCst) {
+            return false;
+        }
+        self.last_direct_code = None;
+        self.last_direct_send_attempted = false;
         let fail = |bot: &Bot, code: &str| Outcome {
             bot: bot.spec.index,
             arch: bot.spec.arch,
@@ -910,8 +960,17 @@ impl Bot {
         };
         let wire = fclient::tx::wire(&t);
         let sim = d.simulate(&wire).await;
-        let sig = d.send(&wire).await.ok();
-        let (ok, code) = match sim {
+        self.last_direct_send_attempted = true;
+        let sent = d.send(&wire).await;
+        // The fully signed direct transaction has an addressable signature
+        // even when the RPC reply is lost; keep it for later reconciliation.
+        let sig = Some(
+            sent.as_ref()
+                .ok()
+                .cloned()
+                .unwrap_or_else(|| fclient::tx::signature(&t).to_string()),
+        );
+        let (sim_ok, sim_code) = match sim {
             Ok(s) if s.err.is_none() => (true, None),
             Ok(s) => (
                 false,
@@ -924,6 +983,17 @@ impl Bot {
             ),
             Err(e) => (false, Some(format!("{e}"))),
         };
+        // Simulation is a prediction, never proof that the send succeeded.
+        let (ok, code) = if sent.is_err() {
+            (false, Some("SendOutcomeUnknown".to_string()))
+        } else {
+            (sim_ok, sim_code)
+        };
+        if !ok {
+            // Even a simulated refusal is not a final chain receipt after
+            // `send` was attempted. Do not re-decide and submit again.
+            self.safety_halted.store(true, Ordering::SeqCst);
+        }
         self.last_direct_code = code.clone();
         sh.record(Outcome {
             bot: self.spec.index,
@@ -953,6 +1023,7 @@ impl Bot {
                 .is_err()
             {
                 sh.error("journal write");
+                self.safety_halted.store(true, Ordering::SeqCst);
             }
         }
     }
@@ -961,6 +1032,7 @@ impl Bot {
         if let Some(j) = &sh.journal {
             if j.state(self.spec.index, key, state).is_err() {
                 sh.error("journal write");
+                self.safety_halted.store(true, Ordering::SeqCst);
             }
         }
     }
@@ -972,6 +1044,9 @@ impl Bot {
         obs: &Observation,
         it: Intent,
     ) -> usize {
+        if self.safety_halted.load(Ordering::SeqCst) {
+            return 0;
+        }
         let a = Self::addresses(obs);
         let bell = obs.bell();
         match it {
@@ -1206,6 +1281,9 @@ impl Bot {
                 let slots =
                     ((bells as f64 * obs.season.bell_secs as f64) / slot_secs).ceil() as u64;
                 let r = d.hold(&keys, priority_milli, slots).await;
+                if r.is_err() {
+                    self.safety_halted.store(true, Ordering::SeqCst);
+                }
                 sh.record(Outcome {
                     bot: self.spec.index,
                     arch: self.spec.arch,
@@ -1235,6 +1313,9 @@ impl Bot {
                 self.nudged = true;
                 let body = serde_json::json!({"province": [province.0, province.1], "bell": bell});
                 let r = sh.relay.post("/f/nudge", &body).await;
+                if r.as_ref().map_or(true, |a| write_outcome_unknown(a, false)) {
+                    self.safety_halted.store(true, Ordering::SeqCst);
+                }
                 let mut rep = sh.report.lock().expect("report");
                 *rep.nudges
                     .entry(if r.is_ok() { "sent" } else { "failed" })
@@ -1259,7 +1340,7 @@ impl Bot {
                             r.code().as_deref(),
                             Some("QuotaExceeded" | "RateLimited" | "Bucket")
                         );
-                    if stop {
+                    if stop || self.safety_halted.load(Ordering::SeqCst) {
                         break;
                     }
                 }
@@ -1312,6 +1393,19 @@ impl Bot {
         obs: &Observation,
         plan: DepartPlan,
     ) -> usize {
+        // A sealed-only row survives a crash between sealing and sending;
+        // `send_unknown` survives a lost relay/RPC response. Either may be
+        // the same on-chain march, so do not automatically depart again from
+        // this host, even at a later bell.
+        if self
+            .mem
+            .marches
+            .iter()
+            .any(|m| m.key.0 == plan.host_id && !m.sent && !m.settled)
+        {
+            sh.error("depart outcome unresolved; reconcile host before retry");
+            return 0;
+        }
         let a = Self::addresses(obs);
         let arrive = plan.plain.arrive_bell;
         let round = obs.season.tlock_round(arrive);
@@ -1354,9 +1448,11 @@ impl Bot {
         if let Some(j) = &sh.journal {
             if j.sealed(self.spec.index, &memo, &sealed).is_err() {
                 sh.error("journal write");
+                self.safety_halted.store(true, Ordering::SeqCst);
                 return 0;
             }
         }
+        self.mem.marches.push(memo.clone());
         let args = DepartArgs {
             host_id: plan.host_id,
             commit: sealed.commit,
@@ -1366,17 +1462,20 @@ impl Bot {
             transit_slot: plan.transit_slot,
         };
         let tag = (plan.tip == 0).then_some("zero_tip");
-        let ok = match plan.route {
-            Route::Relay => self
-                .sponsored(sh, "depart", tag, |p| {
-                    if sh.conquest.is_some() {
-                        ix::v2::depart(&a, p, plan.h, plan.host_at, &args)
-                    } else {
-                        ix::depart(&a, p, plan.h, plan.host_at, &args)
-                    }
-                })
-                .await
-                .ok(),
+        let (ok, unknown) = match plan.route {
+            Route::Relay => {
+                let answer = self
+                    .sponsored(sh, "depart", tag, |p| {
+                        if sh.conquest.is_some() {
+                            ix::v2::depart(&a, p, plan.h, plan.host_at, &args)
+                        } else {
+                            ix::depart(&a, p, plan.h, plan.host_at, &args)
+                        }
+                    })
+                    .await;
+                let unknown = write_outcome_unknown(&answer, true);
+                (answer.ok(), unknown)
+            }
             Route::Direct => {
                 let depart = if sh.conquest.is_some() {
                     ix::v2::depart
@@ -1391,22 +1490,37 @@ impl Bot {
                     &args,
                 );
                 let session = keys::session(sh.cfg.seed, self.spec.index);
-                self.direct_tx(sh, "depart", tag, vec![i], 0, &[&session])
-                    .await
+                let ok = self
+                    .direct_tx(sh, "depart", tag, vec![i], 0, &[&session])
+                    .await;
+                (ok, !ok && self.last_direct_send_attempted)
             }
         };
-        if ok {
+        let state = if unknown {
+            "send_unknown"
+        } else if ok {
+            "sent"
+        } else {
+            "failed"
+        };
+        if let Some(j) = &sh.journal {
+            if j.state(self.spec.index, key, state).is_err() {
+                sh.error("journal write");
+                self.safety_halted.store(true, Ordering::SeqCst);
+                return 1;
+            }
+        }
+        if ok && !unknown {
             {
                 let mut r = sh.report.lock().expect("report");
                 if r.cq.enabled {
                     r.cq.day(obs.bell() / BELLS_PER_DAY).departs += 1;
                 }
             }
-            self.journal_state(sh, key, "sent");
             self.mem.marches.retain(|m| m.key != key);
             self.mem.marches.push(MarchMemo { sent: true, ..memo });
-        } else {
-            self.journal_state(sh, key, "failed");
+        } else if !unknown {
+            self.mem.marches.retain(|m| m.key != key);
         }
         if plan.tip == 0 {
             self.mem.zero_tip_days.insert(obs.bell() / BELLS_PER_DAY);
@@ -1450,9 +1564,12 @@ impl Bot {
                     Ok(r) => r,
                     Err(e) => Answer::new(
                         0,
-                        json!({"code": "RelayUnavailable", "error": e.to_string()}),
+                        json!({"code": "RelayOutcomeUnknown", "error": e.to_string()}),
                     ),
                 };
+                if write_outcome_unknown(&r, false) {
+                    self.safety_halted.store(true, Ordering::SeqCst);
+                }
                 sh.record(outcome(self, "reveal", "keeper", &r, tag));
                 (
                     r.ok(),
@@ -1527,5 +1644,223 @@ fn sponsored_kind(it: &Intent) -> bool {
         | Intent::Hold { .. }
         | Intent::Nudge { .. } => false,
         _ => true,
+    }
+}
+
+#[cfg(test)]
+mod depart_unknown_tests {
+    use super::*;
+    use std::sync::atomic::AtomicUsize;
+
+    use fclient::ports::{PortError, SimResult};
+    use fclient::Hash;
+    use frontier_agents::fixture;
+    use frontier_agents::profile::{AgentSpec, Arch};
+
+    use crate::ports::{DirHerald, NoDirect};
+
+    struct LostReplyRelay {
+        payer: Keypair,
+        posts: AtomicUsize,
+    }
+
+    struct LostDirect;
+
+    impl DirectPort for LostDirect {
+        async fn blockhash(&self) -> Result<Hash, PortError> {
+            Ok(Hash::new_from_array([8; 32]))
+        }
+
+        async fn simulate(&self, _: &[u8]) -> Result<SimResult, PortError> {
+            Ok(SimResult::default())
+        }
+
+        async fn send(&self, _: &[u8]) -> Result<String, PortError> {
+            Err(PortError::Io("RPC reply lost".into()))
+        }
+
+        async fn airdrop(&self, _: &Address, _: u64) -> Result<(), PortError> {
+            Ok(())
+        }
+
+        async fn balance(&self, _: &Address) -> Result<u64, PortError> {
+            Ok(DIRECT_FUNDS)
+        }
+
+        async fn hold(&self, _: &[Address], _: u32, _: u64) -> Result<(), PortError> {
+            Ok(())
+        }
+    }
+
+    impl RelayPort for LostReplyRelay {
+        async fn get(&self, _: &str) -> Result<Answer, PortError> {
+            Ok(Answer::new(
+                200,
+                json!({
+                    "feePayer": self.payer.pubkey().to_string(),
+                    "blockhash": Hash::new_from_array([7; 32]).to_string(),
+                    "lastValidBlockHeight": 1000,
+                    "programId": fixture::program().to_string(),
+                }),
+            ))
+        }
+
+        async fn post(&self, _: &str, _: &Value) -> Result<Answer, PortError> {
+            self.posts.fetch_add(1, Ordering::SeqCst);
+            Err(PortError::Io("reply lost after possible acceptance".into()))
+        }
+    }
+
+    #[tokio::test]
+    async fn lost_depart_reply_keeps_seal_and_blocks_same_host_after_restore() {
+        let dir = std::env::temp_dir().join(format!(
+            "bots-unknown-depart-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("marchbook.jsonl");
+        let spec = AgentSpec {
+            index: fixture::FINAL,
+            arch: Arch::VerySkilled,
+            faction: 0,
+            join_day: 0,
+            join_bell: 5,
+            persona: Some(Persona::MinTip),
+        };
+        let sh = Shared::new(
+            DirHerald::new(fixture::dir()),
+            LostReplyRelay {
+                payer: Keypair::new_from_array([0xfe; 32]),
+                posts: AtomicUsize::new(0),
+            },
+            None::<NoDirect>,
+            Config::new(fixture::SEED),
+            ClockSource::fixed(fixture::NOW),
+        )
+        .with_journal(Journal::open(&path).unwrap());
+        let mut bot = Bot::new(spec, fixture::SEED);
+        let obs = bot.observe(&sh).await.unwrap();
+        let cx = Ctx {
+            spec: &bot.spec,
+            seed: sh.cfg.seed,
+            wallet: bot.wallet.pubkey(),
+            mem: &bot.mem,
+            reveal_loaded_limit: sh.cfg.reveal_loaded_limit(),
+            direct: false,
+            session: true,
+        };
+        let plan = policy::decide_with(&obs, &cx, true)
+            .into_iter()
+            .find_map(|it| match it {
+                Intent::Depart(p) => Some(*p),
+                _ => None,
+            })
+            .expect("fixture produces a Depart");
+
+        assert_eq!(bot.depart(&sh, &obs, plan.clone()).await, 1);
+        assert_eq!(sh.relay.posts.load(Ordering::SeqCst), 1);
+        assert_eq!(bot.mem.marches.len(), 1);
+        assert!(!bot.mem.marches[0].sent);
+        assert_eq!(bot.depart(&sh, &obs, plan.clone()).await, 0);
+        assert_eq!(sh.relay.posts.load(Ordering::SeqCst), 1);
+
+        let lines = std::fs::read_to_string(&path).unwrap();
+        assert!(lines.contains("\"ev\":\"send_unknown\""));
+        assert!(!lines.contains("\"ev\":\"failed\""));
+        let restored = Journal::load(&path).unwrap();
+        let mut restarted = Bot::new(spec, fixture::SEED);
+        restarted.mem.marches = restored[&spec.index].clone();
+        assert_eq!(restarted.depart(&sh, &obs, plan).await, 0);
+        assert_eq!(sh.relay.posts.load(Ordering::SeqCst), 1);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn direct_send_error_overrides_successful_simulation() {
+        let sh = Shared::new(
+            DirHerald::new(fixture::dir()),
+            LostReplyRelay {
+                payer: Keypair::new_from_array([0xfe; 32]),
+                posts: AtomicUsize::new(0),
+            },
+            Some(LostDirect),
+            Config::new(fixture::SEED),
+            ClockSource::fixed(fixture::NOW),
+        );
+        let spec = AgentSpec {
+            index: fixture::FINAL,
+            arch: Arch::VerySkilled,
+            faction: 0,
+            join_day: 0,
+            join_bell: 5,
+            persona: Some(Persona::MinTip),
+        };
+        let mut bot = Bot::new(spec, fixture::SEED);
+        let ix = Instruction {
+            program_id: fixture::program(),
+            accounts: vec![],
+            data: vec![tag::DEPART],
+        };
+        assert!(!bot.direct_tx(&sh, "depart", None, vec![ix], 0, &[]).await);
+        assert_eq!(bot.last_direct_code.as_deref(), Some("SendOutcomeUnknown"));
+        assert!(bot.last_direct_send_attempted);
+        assert!(bot.safety_halted.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn lost_sponsored_write_stops_later_bot_sends() {
+        let sh = Shared::new(
+            DirHerald::new(fixture::dir()),
+            LostReplyRelay {
+                payer: Keypair::new_from_array([0xfe; 32]),
+                posts: AtomicUsize::new(0),
+            },
+            None::<NoDirect>,
+            Config::new(fixture::SEED),
+            ClockSource::fixed(fixture::NOW),
+        );
+        let spec = AgentSpec {
+            index: fixture::FINAL,
+            arch: Arch::VerySkilled,
+            faction: 0,
+            join_day: 0,
+            join_bell: 5,
+            persona: None,
+        };
+        let mut bot = Bot::new(spec, fixture::SEED);
+        let obs = bot.observe(&sh).await.unwrap();
+        let a = Bot::addresses(&obs);
+        let (p, q) = fixture::world().home;
+        let h = ix::HoldingRef { p, q, site: 0 };
+        let first = bot
+            .sponsored(&sh, "harvest", None, |player| ix::harvest(&a, player, h))
+            .await;
+        assert_eq!(first.code().as_deref(), Some("RelayOutcomeUnknown"));
+        assert!(bot.safety_halted.load(Ordering::SeqCst));
+        let second = bot
+            .sponsored(&sh, "harvest", None, |player| ix::harvest(&a, player, h))
+            .await;
+        assert_eq!(second.code().as_deref(), Some("BotHalted"));
+        assert_eq!(sh.relay.posts.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn a_duplicate_or_unsigned_success_is_unresolved_but_quota_refusal_is_not() {
+        assert!(write_outcome_unknown(
+            &Answer::new(409, json!({"code": "Duplicate"})),
+            true
+        ));
+        assert!(write_outcome_unknown(
+            &Answer::new(200, json!({"ok": true})),
+            true
+        ));
+        assert!(!write_outcome_unknown(
+            &Answer::new(429, json!({"code": "QuotaExceeded"})),
+            true
+        ));
     }
 }

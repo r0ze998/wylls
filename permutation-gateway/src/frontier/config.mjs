@@ -8,6 +8,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { Keypair, PublicKey } from '@solana/web3.js';
 import { LOCAL_DIR } from '../config.mjs';
+import { decode as fromBase58 } from '../../client/src/base58.mjs';
 
 export const FRONTIER_DIR = path.join(LOCAL_DIR, 'frontier');
 
@@ -225,6 +226,9 @@ export function secretFile(file, { create = true } = {}) {
 
 const isObject = v => v !== null && typeof v === 'object' && !Array.isArray(v);
 const nonnegative = v => Number.isSafeInteger(v) && v >= 0;
+const signature64 = v => {
+  try { return typeof v === 'string' && v.length <= 128 && fromBase58(v).length === 64; } catch { return false; }
+};
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
 // Match quota.mjs's burst calculation without importing its HTTP route
 // dependencies during a file-only resume preflight.
@@ -234,9 +238,27 @@ const quotaBurst = dailyOverride > 0 ? Math.max(60, dailyOverride * 2) : 60;
 /** Reject malformed persisted budgets and one-time grants before a resumed listener opens. */
 export function validateRelayRecords(state, { prize = false } = {}) {
   if (!Number.isSafeInteger(quotaBurst) || !isObject(state) || !isObject(state.quota) || !isObject(state.invitesUsed)
-      || (prize && !isObject(state.faucet))
-      || (state.faucet != null && !isObject(state.faucet))) {
-    throw new Error('relay quota/invite/faucet records are invalid; refusing resume');
+      || !isObject(state.relayPending)
+      || (prize && (!isObject(state.faucet) || !isObject(state.claimPending)))
+      || (state.faucet != null && !isObject(state.faucet))
+      || (state.claimPending != null && !isObject(state.claimPending))) {
+    throw new Error('relay quota/invite/faucet records or claim records are invalid; refusing resume');
+  }
+  for (const [key, attempt] of Object.entries(state.relayPending)) {
+    const validReplayKey = key.startsWith('sig:') ? signature64(key.slice(4)) : /^msg:[0-9a-f]{64}$/.test(key);
+    if (!validReplayKey || !isObject(attempt)
+        || !['unknown', 'submitted', 'finalized'].includes(attempt.status)
+        || (attempt.status === 'finalized' && !['landed', 'failed'].includes(attempt.outcome))
+        || (attempt.outcome !== undefined && (attempt.status !== 'finalized' || !['landed', 'failed'].includes(attempt.outcome)))
+        || !signature64(attempt.signature)
+        || !nonnegative(attempt.lastValidBlockHeight)
+        || typeof attempt.kind !== 'string' || !/^[A-Za-z0-9_]{1,64}$/.test(attempt.kind)
+        || typeof attempt.quotaKey !== 'string' || attempt.quotaKey.length < 1 || attempt.quotaKey.length > 300
+        || !nonnegative(attempt.day)
+        || typeof attempt.moved !== 'string' || attempt.moved.length > 20 || !/^(0|[1-9][0-9]*)$/.test(attempt.moved)
+        || BigInt(attempt.moved) > 0xffff_ffff_ffff_ffffn) {
+      throw new Error('relay signed-attempt record is invalid; refusing resume');
+    }
   }
   for (const [key, record] of Object.entries(state.quota)) {
     if (!/^(citizen|addr):.{1,256}$/.test(key) || !isObject(record)
@@ -254,12 +276,46 @@ export function validateRelayRecords(state, { prize = false } = {}) {
     let canonicalWallet = false;
     try { canonicalWallet = new PublicKey(wallet).toBase58() === wallet; } catch { /* invalid key */ }
     if (!canonicalWallet || !isObject(grant)
+        || !['pending', 'landed'].includes(grant.status)
         || typeof grant.amount !== 'string' || grant.amount.length > 20
         || !/^[1-9][0-9]*$/.test(grant.amount)
         || BigInt(grant.amount) > 0xffff_ffff_ffff_ffffn
-        || typeof grant.signature !== 'string' || grant.signature.length < 1 || grant.signature.length > 128
+        || !signature64(grant.signature)
         || !nonnegative(grant.at)) {
       throw new Error('relay faucet record is invalid; refusing resume');
+    }
+  }
+  for (const [wallet, claim] of Object.entries(state.claimPending ?? {})) {
+    let canonicalWallet = false;
+    try { canonicalWallet = new PublicKey(wallet).toBase58() === wallet; } catch { /* invalid key */ }
+    if (!canonicalWallet || !isObject(claim)
+        || !['pending', 'landed'].includes(claim.status)
+        || !signature64(claim.signature)
+        || !nonnegative(claim.at)) {
+      throw new Error('relay claim record is invalid; refusing resume');
+    }
+  }
+}
+
+/** A missing signed-deposit journal is unsafe to treat as an empty one after restart. */
+export function validateAgentDepositSends(wallet) {
+  if (!isObject(wallet?.depositSends) || !isObject(wallet.agents)
+      || !isObject(wallet.deposits) || !isObject(wallet.ownerNonces)) {
+    throw new Error('agent wallet signed-deposit records are invalid; refusing resume');
+  }
+  for (const [signature, send] of Object.entries(wallet.depositSends)) {
+    if (!signature64(signature) || !isObject(send) || send.signature !== signature
+        || typeof send.agentId !== 'string' || !Object.hasOwn(wallet.agents, send.agentId)
+        || !signature64(send.ownerSignature)
+        || typeof send.amount !== 'string' || send.amount.length > 20 || !/^[1-9][0-9]*$/.test(send.amount)
+        || BigInt(send.amount) > 0xffff_ffff_ffff_ffffn
+        || (send.lastValidBlockHeight !== null && !nonnegative(send.lastValidBlockHeight))
+        || (send.slotFloor !== null && !nonnegative(send.slotFloor))
+        || !['pending', 'landed', 'failed', 'expired'].includes(send.state)
+        || !nonnegative(send.at)
+        || (send.decidedAt !== undefined && !nonnegative(send.decidedAt))
+        || (send.state === 'pending' && send.decidedAt !== undefined)) {
+      throw new Error('agent wallet signed-deposit record is invalid; refusing resume');
     }
   }
 }
@@ -315,6 +371,7 @@ export function requireExistingRelayFiles(cfg) {
       || !isObject(agent.agentWallet.ownerNonces)) {
     throw new Error('agent wallet state identity or records are invalid; refusing resume');
   }
+  validateAgentDepositSends(agent.agentWallet);
   const custody = existingKeypair(cfg.agentCustodyKeyFile, 'agent custody key');
   if (agent.runIdentity.custody !== custody.publicKey.toBase58()) {
     throw new Error('agent wallet state and custody key disagree; refusing resume');
@@ -341,7 +398,11 @@ export function persistInitialRelayState(store, cfg, { masterSeed, inviteSecret,
   store.state ??= {};
   store.state.quota ??= {};
   store.state.invitesUsed ??= {};
-  if (cfg.prizeProgram) store.state.faucet ??= {};
+  store.state.relayPending ??= {};
+  if (cfg.prizeProgram) {
+    store.state.faucet ??= {};
+    store.state.claimPending ??= {};
+  }
   store.state.runIdentity = {
     ...runIdentity(cfg), gate, faucet,
     masterSeedSha256: sha256(masterSeed), inviteSecretSha256: sha256(inviteSecret),

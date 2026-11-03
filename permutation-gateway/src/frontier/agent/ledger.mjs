@@ -51,8 +51,29 @@ export class AgentLedger {
     this.store = store;
     this.now = now;
     this.store.state ??= {};
+    const existing = this.store.state.agentWallet;
+    if (existing && (!existing.depositSends || typeof existing.depositSends !== 'object' || Array.isArray(existing.depositSends)) &&
+      (Object.keys(existing.agents ?? {}).length || Object.keys(existing.deposits ?? {}).length)) {
+      throw new Error('existing agent wallet has no sponsored deposit send journal; audit and migrate it before restart');
+    }
     this.store.state.agentWallet ??= { agents: {}, deposits: {}, ownerNonces: {} };
     this.store.state.agentWallet.operatorCosts ??= [];
+    // A signed sponsored deposit is recorded before sendRawTransaction. An RPC
+    // error cannot prove that the bytes were not accepted by the chain.
+    this.store.state.agentWallet.depositSends ??= {};
+    if (typeof this.db.depositSends !== 'object' || Array.isArray(this.db.depositSends)) throw new Error('invalid sponsored deposit send journal');
+    for (const [signature, send] of Object.entries(this.db.depositSends)) {
+      if (!send || typeof send !== 'object' || Array.isArray(send) ||
+        send.signature !== signature || typeof signature !== 'string' || signature.length < 64 || signature.length > 128 ||
+        typeof send.agentId !== 'string' || !Object.hasOwn(this.db.agents ?? {}, send.agentId) ||
+        typeof send.ownerSignature !== 'string' || send.ownerSignature.length < 64 || send.ownerSignature.length > 128 ||
+        typeof send.amount !== 'string' || !/^\d+$/.test(send.amount) || BigInt(send.amount) <= 0n ||
+        !['pending', 'landed', 'failed', 'expired'].includes(send.state) ||
+        (send.lastValidBlockHeight !== null && send.lastValidBlockHeight !== undefined && (!Number.isSafeInteger(send.lastValidBlockHeight) || send.lastValidBlockHeight <= 0)) ||
+        (send.slotFloor !== null && send.slotFloor !== undefined && (!Number.isSafeInteger(send.slotFloor) || send.slotFloor < 0))) {
+        throw new Error('invalid sponsored deposit send journal entry; audit state before restart');
+      }
+    }
   }
 
   get db() { return this.store.state.agentWallet; }
@@ -133,6 +154,34 @@ export class AgentLedger {
     this.note(rec, { type: 'deposit', amount: str(a), signature });
     this.save();
     return { credited: true, agentId, amount: str(a) };
+  }
+
+  /** The unresolved sponsored send for this agent, if any (also after a restart). */
+  pendingDepositSend(agentId) {
+    return Object.values(this.db.depositSends).find(s => s.agentId === agentId && s.state === 'pending') ?? null;
+  }
+
+  /** Persist the signed transaction ID before any bytes can leave this process. */
+  recordDepositSend(agentId, { signature, ownerSignature, amount, lastValidBlockHeight = null, slotFloor = null }) {
+    this.get(agentId);
+    if (this.db.depositSends[signature]) throw new AgentError(ERR.DEPOSIT_PENDING, 'this signed deposit was submitted already', 409, { signature });
+    const pending = this.pendingDepositSend(agentId);
+    if (pending) throw new AgentError(ERR.DEPOSIT_PENDING, 'a sponsored deposit still has an unknown outcome', 409, { signature: pending.signature });
+    const send = { agentId, signature, ownerSignature, amount: String(amount), lastValidBlockHeight, slotFloor, state: 'pending', at: this.now() };
+    this.db.depositSends[signature] = send;
+    this.save(); // A failure here MUST prevent the send; a pending in-memory record is safe.
+    return send;
+  }
+
+  /** Only a proved chain outcome may clear the pending gate. Keep the signature as a durable replay tombstone. */
+  finishDepositSend(signature, fate) {
+    if (!['landed', 'failed', 'expired'].includes(fate)) throw new Error('a sponsored deposit needs a proved chain outcome');
+    const send = this.db.depositSends[signature];
+    if (!send || send.state !== 'pending') return false;
+    send.state = fate;
+    send.decidedAt = this.now();
+    this.save();
+    return true;
   }
 
   // ------------------------------------------------------------ spending

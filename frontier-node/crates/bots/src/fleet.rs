@@ -105,6 +105,15 @@ where
     /// Restores every bot's marches from the marchbook (after a restart).
     pub fn restore(&mut self, path: &std::path::Path) -> std::io::Result<usize> {
         let mut by_bot = Journal::load(path)?;
+        if let Some(unknown) = by_bot
+            .keys()
+            .find(|id| !self.bots.iter().any(|b| b.spec.index == **id))
+        {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("marchbook contains bot {unknown} outside the current roster"),
+            ));
+        }
         let mut n = 0;
         for b in &mut self.bots {
             if let Some(ms) = by_bot.remove(&b.spec.index) {

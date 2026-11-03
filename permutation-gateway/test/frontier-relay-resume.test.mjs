@@ -5,7 +5,7 @@ import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, w
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createStateStore } from '../src/config.mjs';
-import { loadFrontierConfig, persistInitialRelayState, requireExistingRelayFiles, validateRelayRecords } from '../src/frontier/config.mjs';
+import { loadFrontierConfig, persistInitialRelayState, requireExistingRelayFiles, validateAgentDepositSends, validateRelayRecords } from '../src/frontier/config.mjs';
 
 function fixture(t, extra = []) {
   const dir = mkdtempSync(path.join(tmpdir(), 'relay-resume-'));
@@ -50,9 +50,13 @@ test('resume flag and first-run state are explicit; an unused relay still has a 
 test('resume rejects malformed budget, used-invite and faucet values while accepting valid records', t => {
   const { resume, store } = fixture(t, ['--prize-program', 'test-prize', '--prize-mint', 'test-mint']);
   const good = structuredClone(store.state);
+  const signature = '1'.repeat(64); // fixed 64-byte test value
   good.quota['citizen:valid'] = { day: 2, left: 3, lamports: 14 };
   good.invitesUsed['ab'.repeat(12)] = 123;
-  good.faucet['11111111111111111111111111111111'] = { amount: '100000000', signature: 'saved-signature', at: 123 };
+  good.faucet['11111111111111111111111111111111'] = { status: 'pending', amount: '100000000', signature, at: 123 };
+  good.claimPending['11111111111111111111111111111111'] = { status: 'pending', signature, at: 123 };
+  good.relayPending['msg:' + 'ab'.repeat(32)] = { status: 'unknown', signature, lastValidBlockHeight: 123,
+    kind: 'Harvest', quotaKey: 'citizen:valid', day: 2, moved: '1000' };
   assert.doesNotThrow(() => validateRelayRecords(good, { prize: true }));
   const bad = [
     s => { s.quota['citizen:valid'].left = -1; },
@@ -64,12 +68,38 @@ test('resume rejects malformed budget, used-invite and faucet values while accep
     s => { s.faucet['11111111111111111111111111111111'].amount = '-1'; },
     s => { s.faucet['11111111111111111111111111111111'].amount = '18446744073709551616'; },
     s => { s.faucet['11111111111111111111111111111111'].at = null; },
+    s => { s.faucet['11111111111111111111111111111111'].status = 'cleared'; },
+    s => { s.claimPending['11111111111111111111111111111111'].status = 'cleared'; },
+    s => { s.relayPending['msg:' + 'ab'.repeat(32)].status = 'cleared'; },
+    s => { s.relayPending['msg:' + 'ab'.repeat(32)].moved = '-1'; },
   ];
   for (const mutate of bad) {
     const state = structuredClone(good);
     mutate(state);
     writeFileSync(resume.stateFile, JSON.stringify(state));
     assert.throws(() => requireExistingRelayFiles(resume), /invalid; refusing resume/);
+  }
+});
+
+test('agent resume refuses a missing or malformed signed-deposit journal', () => {
+  const signature = '1'.repeat(64); // fixed test bytes, not a generated key
+  const good = { agents: { agent1: {} }, deposits: {}, ownerNonces: {}, depositSends: { [signature]: {
+    agentId: 'agent1', signature, ownerSignature: signature, amount: '123', lastValidBlockHeight: 150,
+    slotFloor: 9, state: 'pending', at: 123,
+  } } };
+  assert.doesNotThrow(() => validateAgentDepositSends(good));
+  assert.throws(() => validateAgentDepositSends({ agents: good.agents }), /signed-deposit records/);
+  for (const mutate of [
+    s => { s.depositSends[signature].signature = 'wrong'; },
+    s => { s.depositSends[signature].ownerSignature = 'wrong'; },
+    s => { s.depositSends[signature].amount = '-1'; },
+    s => { s.depositSends[signature].agentId = 'missing'; },
+    s => { s.depositSends[signature].state = 'cleared'; },
+    s => { s.depositSends[signature].lastValidBlockHeight = -1; },
+  ]) {
+    const state = structuredClone(good);
+    mutate(state);
+    assert.throws(() => validateAgentDepositSends(state), /signed-deposit record/);
   }
 });
 
@@ -119,4 +149,23 @@ test('a prize relay saves empty faucet history; resume rejects its loss and miss
   const agentCfg = { ...resume, agentWallet: true, agentStateFile: path.join(path.dirname(resume.stateFile), 'agent-wallet.json') };
   assert.throws(() => requireExistingRelayFiles(agentCfg), /agent wallet state is missing/);
   assert.equal(existsSync(agentCfg.agentStateFile), false);
+});
+
+test('normal startup refuses old relay and agent journals before a listener or replacement key is created', async t => {
+  const { cfg, store, dir } = fixture(t);
+  const { startFrontierRelay, startAgentWallet } = await import('../src/frontier/server.mjs');
+  const oldRelay = structuredClone(store.state);
+  delete oldRelay.relayPending;
+  writeFileSync(cfg.stateFile, JSON.stringify(oldRelay));
+  await assert.rejects(startFrontierRelay(cfg, { connection: {} }), /records are invalid; refusing resume/);
+  assert.equal(readFileSync(cfg.stateFile, 'utf8'), JSON.stringify(oldRelay));
+
+  const agentStateFile = path.join(dir, 'agent-wallet.json');
+  const agentCfg = { ...cfg, agentWallet: true, agentStateFile, agentCustodyKeyFile: path.join(dir, 'missing-custody.key') };
+  writeFileSync(agentStateFile, JSON.stringify({ runIdentity: {
+    programId: cfg.programId, seasonId: String(cfg.seasonId), prizeProgram: null, prizeMint: null,
+  }, agentWallet: { agents: {}, deposits: {}, ownerNonces: {} } }));
+  assert.throws(() => startAgentWallet(agentCfg, {}, { connection: {}, pool: {} }), /signed-deposit records are invalid; refusing resume/);
+  assert.equal(existsSync(agentCfg.agentCustodyKeyFile), false);
+  assert.equal(existsSync(`${agentStateFile}.lock`), false);
 });

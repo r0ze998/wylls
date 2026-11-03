@@ -9,7 +9,7 @@
 
 use std::collections::BTreeMap;
 use std::fs::{File, OpenOptions};
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -33,21 +33,58 @@ fn kind_name(k: SealKind) -> &'static str {
     }
 }
 
-fn kind_of(s: &str) -> SealKind {
+fn kind_of(s: &str) -> Result<SealKind, String> {
     match s {
-        "garbage" => SealKind::Garbage,
-        "bad_plaintext" => SealKind::BadPlaintext,
-        _ => SealKind::Honest,
+        "honest" => Ok(SealKind::Honest),
+        "garbage" => Ok(SealKind::Garbage),
+        "bad_plaintext" => Ok(SealKind::BadPlaintext),
+        _ => Err(format!("unknown seal kind {s}")),
     }
 }
 
 impl Journal {
+    /// Start a fresh bot run without appending to an older marchbook. Its
+    /// march rows alone cannot restore pace, joins or AI decisions.
+    pub fn create_new(path: impl AsRef<Path>) -> std::io::Result<Journal> {
+        let path = path.as_ref().to_path_buf();
+        if let Some(d) = path.parent() {
+            std::fs::create_dir_all(d)?;
+        }
+        let file = OpenOptions::new()
+            .create_new(true)
+            .append(true)
+            .open(&path)?;
+        Ok(Journal {
+            path,
+            file: Mutex::new(file),
+        })
+    }
+
     pub fn open(path: impl AsRef<Path>) -> std::io::Result<Journal> {
         let path = path.as_ref().to_path_buf();
         if let Some(d) = path.parent() {
             std::fs::create_dir_all(d)?;
         }
         let file = OpenOptions::new().create(true).append(true).open(&path)?;
+        Ok(Journal {
+            path,
+            file: Mutex::new(file),
+        })
+    }
+
+    /// Open an already existing marchbook without creating an empty
+    /// replacement. This checks its recorded rows before any bot can run;
+    /// it does not restore AI decisions outside the marchbook.
+    pub fn open_existing(path: impl AsRef<Path>) -> std::io::Result<Journal> {
+        let path = path.as_ref().to_path_buf();
+        if !std::fs::symlink_metadata(&path)?.file_type().is_file() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "marchbook is not a regular file",
+            ));
+        }
+        Self::load(&path)?;
+        let file = OpenOptions::new().append(true).open(&path)?;
         Ok(Journal {
             path,
             file: Mutex::new(file),
@@ -125,20 +162,36 @@ impl Journal {
     /// Folds the journal back into per-bot marches.
     pub fn load(path: impl AsRef<Path>) -> std::io::Result<BTreeMap<u32, Vec<MarchMemo>>> {
         let mut out: BTreeMap<u32, Vec<MarchMemo>> = BTreeMap::new();
-        let f = match File::open(path) {
-            Ok(f) => f,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(out),
-            Err(e) => return Err(e),
-        };
-        for line in BufReader::new(f).lines() {
+        let mut f = File::open(path)?;
+        if f.metadata()?.len() > 0 {
+            f.seek(SeekFrom::End(-1))?;
+            let mut last = [0];
+            f.read_exact(&mut last)?;
+            if last[0] != b'\n' {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "marchbook ends without a complete line",
+                ));
+            }
+            f.seek(SeekFrom::Start(0))?;
+        }
+        for (index, line) in BufReader::new(f).lines().enumerate() {
             let line = line?;
-            // A torn last line (crash mid-write) is skipped.
-            let Ok(v) = serde_json::from_str::<Value>(&line) else {
-                continue;
-            };
-            // A state line for an unknown march (its sealed line torn) is
-            // ignored.
-            let _ = apply(&mut out, &v);
+            // A torn final line may be harmless, but the journal cannot
+            // prove that it preceded an external send. Refuse rather than
+            // silently erase a pending reveal or a sent state.
+            let v = serde_json::from_str::<Value>(&line).map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("marchbook line {}: {e}", index + 1),
+                )
+            })?;
+            apply(&mut out, &v).map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("marchbook line {}: {e}", index + 1),
+                )
+            })?;
         }
         Ok(out)
     }
@@ -159,38 +212,103 @@ fn arr<const N: usize>(v: &Value, k: &str, hexed: bool) -> Option<[u8; N]> {
     b.try_into().ok()
 }
 
-fn apply(out: &mut BTreeMap<u32, Vec<MarchMemo>>, v: &Value) -> Option<()> {
-    let bot = get_u64(v, "bot")? as u32;
-    let key = (get_u64(v, "host")?, get_u64(v, "depart_bell")? as u32);
-    let ev = v.get("ev")?.as_str()?;
+fn required_u64(v: &Value, field: &str) -> Result<u64, String> {
+    get_u64(v, field).ok_or_else(|| format!("invalid {field}"))
+}
+
+fn required_number<T: TryFrom<u64>>(v: &Value, field: &str) -> Result<T, String> {
+    required_u64(v, field)?
+        .try_into()
+        .map_err(|_| format!("out-of-range {field}"))
+}
+
+fn required_unsigned<T: TryFrom<u64>>(v: &Value, field: &str) -> Result<T, String> {
+    v.as_u64()
+        .ok_or_else(|| format!("invalid {field}"))?
+        .try_into()
+        .map_err(|_| format!("out-of-range {field}"))
+}
+
+fn required_signed<T: TryFrom<i64>>(v: &Value, field: &str) -> Result<T, String> {
+    v.as_i64()
+        .ok_or_else(|| format!("invalid {field}"))?
+        .try_into()
+        .map_err(|_| format!("out-of-range {field}"))
+}
+
+fn required_array<'a>(v: &'a Value, field: &str, length: usize) -> Result<&'a [Value], String> {
+    let values = v
+        .get(field)
+        .and_then(Value::as_array)
+        .ok_or_else(|| format!("invalid {field}"))?;
+    if values.len() != length {
+        return Err(format!("invalid {field} length"));
+    }
+    Ok(values)
+}
+
+fn required_bytes<const N: usize>(v: &Value, field: &str, hexed: bool) -> Result<[u8; N], String> {
+    arr(v, field, hexed).ok_or_else(|| format!("invalid {field}"))
+}
+
+fn apply(out: &mut BTreeMap<u32, Vec<MarchMemo>>, v: &Value) -> Result<(), String> {
+    let bot: u32 = required_number(v, "bot")?;
+    let key = (required_u64(v, "host")?, required_number(v, "depart_bell")?);
+    let ev = v.get("ev").and_then(Value::as_str).ok_or("invalid ev")?;
     let list = out.entry(bot).or_default();
     if ev == "sealed" {
-        let h = v.get("holding")?.as_array()?;
-        let d = v.get("dest")?.as_array()?;
-        let seal = b64(v.get("seal_b64")?.as_str()?).ok()?;
+        let h = required_array(v, "holding", 3)?;
+        let d = required_array(v, "dest", 2)?;
+        let _: u64 = required_number(v, "round")?;
+        let seal = b64(v
+            .get("seal_b64")
+            .and_then(Value::as_str)
+            .ok_or("invalid seal_b64")?)
+        .map_err(|_| "invalid seal_b64")?;
+        if seal.len() != fclient::seal::SEAL_LEN {
+            return Err("invalid seal_b64 length".into());
+        }
+        let path_others = v
+            .get("path_others")
+            .and_then(Value::as_array)
+            .ok_or("invalid path_others")?
+            .iter()
+            .map(|p| {
+                let pair = p.as_array().ok_or("invalid path_others coordinate")?;
+                if pair.len() != 2 {
+                    return Err("invalid path_others coordinate length".into());
+                }
+                Ok((
+                    required_signed(&pair[0], "path_others p")?,
+                    required_signed(&pair[1], "path_others q")?,
+                ))
+            })
+            .collect::<Result<Vec<(i32, i32)>, String>>()?;
         let memo = MarchMemo {
             key,
             h: HoldingRef {
-                p: h.first()?.as_i64()? as i16,
-                q: h.get(1)?.as_i64()? as i16,
-                site: h.get(2)?.as_u64()? as u8,
+                p: required_signed(&h[0], "holding p")?,
+                q: required_signed(&h[1], "holding q")?,
+                site: required_unsigned(&h[2], "holding site")?,
             },
-            transit_slot: get_u64(v, "transit_slot")? as u8,
-            arrive_bell: get_u64(v, "arrive_bell")? as u32,
-            dest: (d.first()?.as_i64()? as i32, d.get(1)?.as_i64()? as i32),
-            path_others: v
-                .get("path_others")?
-                .as_array()?
-                .iter()
-                .filter_map(|p| Some((p.get(0)?.as_i64()? as i32, p.get(1)?.as_i64()? as i32)))
-                .collect(),
-            plain: arr(v, "plain_b64", false)?,
-            salt: arr(v, "salt_b64", false)?,
-            commit: arr(v, "commit_hex", true)?,
+            transit_slot: required_number(v, "transit_slot")?,
+            arrive_bell: required_number(v, "arrive_bell")?,
+            dest: (
+                required_signed(&d[0], "dest p")?,
+                required_signed(&d[1], "dest q")?,
+            ),
+            path_others,
+            plain: required_bytes(v, "plain_b64", false)?,
+            salt: required_bytes(v, "salt_b64", false)?,
+            commit: required_bytes(v, "commit_hex", true)?,
             seal,
-            ct_hash: arr(v, "ct_hash_hex", true)?,
-            tip: get_u64(v, "tip")?,
-            kind: kind_of(v.get("kind")?.as_str()?),
+            ct_hash: required_bytes(v, "ct_hash_hex", true)?,
+            tip: required_u64(v, "tip")?,
+            kind: kind_of(
+                v.get("kind")
+                    .and_then(Value::as_str)
+                    .ok_or("invalid kind")?,
+            )?,
             sent: false,
             reveal_tries: 0,
             revealed: false,
@@ -200,12 +318,20 @@ fn apply(out: &mut BTreeMap<u32, Vec<MarchMemo>>, v: &Value) -> Option<()> {
             settled: false,
             redeparted: false,
         };
-        list.retain(|m| m.key != key);
+        if list.iter().any(|m| m.key == key) {
+            return Err("duplicate sealed march".into());
+        }
         list.push(memo);
-        return Some(());
+        return Ok(());
     }
-    let m = list.iter_mut().find(|m| m.key == key)?;
+    let m = list
+        .iter_mut()
+        .find(|m| m.key == key)
+        .ok_or("state for unknown march")?;
     match ev {
+        // The signed Depart may have reached the relay. Keep the sealed
+        // memo unresolved; `sent` requires chain evidence, not a timeout.
+        "send_unknown" => {}
         "sent" => m.sent = true,
         "failed" => {
             list.retain(|m| m.key != key);
@@ -217,9 +343,9 @@ fn apply(out: &mut BTreeMap<u32, Vec<MarchMemo>>, v: &Value) -> Option<()> {
         "late_done" => m.late_done = true,
         "settled" => m.settled = true,
         "redeparted" => m.redeparted = true,
-        _ => {}
+        _ => return Err(format!("unknown march state {ev}")),
     }
-    Some(())
+    Ok(())
 }
 
 #[cfg(test)]
@@ -272,11 +398,18 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         let p = dir.join("marchbook.jsonl");
         let j = Journal::open(&p).unwrap();
+        assert_eq!(
+            Journal::create_new(&p).err().unwrap().kind(),
+            std::io::ErrorKind::AlreadyExists
+        );
         let (m, s) = memo();
         j.sealed(5, &m, &s).unwrap();
         // Nothing but the sealed line: the march is known, not sent.
         let got = Journal::load(&p).unwrap();
         assert_eq!(got[&5], vec![m.clone()]);
+        j.state(5, m.key, "send_unknown").unwrap();
+        let got = Journal::load(&p).unwrap();
+        assert_eq!(got[&5], vec![m.clone()], "unknown is not a landed Depart");
         j.state(5, m.key, "sent").unwrap();
         j.state(5, m.key, "reveal_try").unwrap();
         j.state_with(5, m.key, "reveal_refused", "keeper", Some("Shielded"))
@@ -288,13 +421,6 @@ mod tests {
         m2.key.1 = 41;
         j.sealed(5, &m2, &s).unwrap();
         j.state(5, m2.key, "failed").unwrap();
-        // A torn line is skipped.
-        std::fs::OpenOptions::new()
-            .append(true)
-            .open(&p)
-            .unwrap()
-            .write_all(b"{\"ev\":\"sen")
-            .unwrap();
         let got = Journal::load(&p).unwrap();
         let want = MarchMemo {
             sent: true,
@@ -305,6 +431,80 @@ mod tests {
             ..m
         };
         assert_eq!(got[&5], vec![want]);
+        let original = std::fs::read_to_string(&p).unwrap();
+        // The final state may have been lost after an external send, so a
+        // torn line cannot be silently skipped during recovery.
+        std::fs::OpenOptions::new()
+            .append(true)
+            .open(&p)
+            .unwrap()
+            .write_all(b"{\"ev\":\"sen")
+            .unwrap();
+        assert_eq!(
+            Journal::load(&p).unwrap_err().kind(),
+            std::io::ErrorKind::InvalidData
+        );
+        // A complete JSON object with only its final newline torn off is
+        // still an incomplete append, even if a parser can read the object.
+        std::fs::write(&p, original.trim_end_matches('\n')).unwrap();
+        assert_eq!(
+            Journal::load(&p).unwrap_err().kind(),
+            std::io::ErrorKind::InvalidData
+        );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn existing_marchbook_refuses_missing_torn_unknown_and_out_of_range_rows() {
+        let dir = std::env::temp_dir().join(format!("bots-strict-journal-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("marchbook.jsonl");
+        assert_eq!(
+            Journal::open_existing(&p).err().unwrap().kind(),
+            std::io::ErrorKind::NotFound
+        );
+        let j = Journal::open(&p).unwrap();
+        let (m, s) = memo();
+        j.sealed(5, &m, &s).unwrap();
+        let original = std::fs::read_to_string(&p).unwrap();
+        let base: Value = serde_json::from_str(original.trim()).unwrap();
+        assert!(Journal::open_existing(&p).is_ok());
+
+        for (field, bad) in [
+            ("bot", json!(u64::from(u32::MAX) + 1)),
+            ("depart_bell", json!(u64::from(u32::MAX) + 1)),
+            ("kind", json!("unknown")),
+            ("round", json!("not-a-round")),
+            ("holding", json!([i64::from(i16::MAX) + 1, 0, 0])),
+            ("path_others", json!([[0, 0], [i64::from(i32::MAX) + 1, 0]])),
+        ] {
+            let mut row = base.clone();
+            row[field] = bad;
+            std::fs::write(&p, format!("{row}\n")).unwrap();
+            assert_eq!(
+                Journal::load(&p).unwrap_err().kind(),
+                std::io::ErrorKind::InvalidData,
+                "{field}"
+            );
+        }
+        let unknown_state =
+            json!({"ev":"not-a-state", "bot":5, "host":m.key.0.to_string(), "depart_bell":m.key.1});
+        std::fs::write(&p, format!("{original}{unknown_state}\n")).unwrap();
+        assert_eq!(
+            Journal::load(&p).unwrap_err().kind(),
+            std::io::ErrorKind::InvalidData
+        );
+        let lost_sealed =
+            json!({"ev":"sent", "bot":5, "host":m.key.0.to_string(), "depart_bell":m.key.1});
+        std::fs::write(&p, format!("{lost_sealed}\n")).unwrap();
+        assert_eq!(
+            Journal::load(&p).unwrap_err().kind(),
+            std::io::ErrorKind::InvalidData
+        );
+        std::fs::write(&p, original).unwrap();
+        assert!(Journal::open_existing(&p).is_ok());
+        drop(j);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

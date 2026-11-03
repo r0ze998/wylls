@@ -39,7 +39,6 @@ import { parseTransaction, wireTransaction } from '../../../client/src/solana-tx
 import { signatureOf, signedBy } from '../../cosign.mjs';
 import { simulateWatching } from '../chain.mjs';
 import { drainGuard } from '../shapes.mjs';
-import { landed } from '../routes/prize.mjs';
 import { citizenQuota, signAs } from '../routes/relay.mjs';
 import { PublicKey } from '@solana/web3.js';
 import { RouteError } from '../../routes/errors.mjs';
@@ -154,6 +153,8 @@ export class AgentGateway {
     this.log = log;
     /** In-flight submits by `agentId\nkey` → {hash, promise}: a concurrent repeat shares the promise. */
     this.inflight = new Map();
+    /** One sponsored deposit per agent until its earlier send has a proved outcome. */
+    this.depositInFlight = new Set();
     this.recover();
   }
 
@@ -266,9 +267,13 @@ export class AgentGateway {
     if (!this.custody) throw new AgentError(ERR.DISABLED, 'deposits are not enabled on this relay', 503);
     const rec = this.ledger.get(agentId);
     if (typeof signature !== 'string' || signature.length < 64 || signature.length > 128) throw new AgentError(ERR.BAD_REQUEST, 'signature must be a transaction signature (base58)');
+    const sponsored = this.ledger.db.depositSends[signature];
+    if (sponsored && sponsored.agentId !== agentId) throw new AgentError(ERR.DEPOSIT_INVALID, 'this sponsored deposit belongs to another agent', 409);
     const prior = this.ledger.db.deposits[signature];
     if (prior) return { credited: false, already: true, agentId: prior.agentId, amount: prior.amount, balance: this.ledger.balance(agentId) };
-    const amount = await this.custody.verifyDeposit(signature, rec.owner);
+    // A confirmed transfer can still roll back. The agent's spendable ledger
+    // balance changes only after the transaction metadata is finalized.
+    const amount = await this.custody.verifyDeposit(signature, rec.owner, { commitment: 'finalized' });
     const r = this.ledger.credit(agentId, signature, amount.toString());
     if (r.credited) this.log(`agent wallet: ${agentId} +${r.amount} (deposit ${signature})`);
     return { ...r, already: !r.credited, balance: this.ledger.balance(agentId) };
@@ -281,7 +286,7 @@ export class AgentGateway {
    * from the chain's own record of the transaction (verifyDeposit), so
    * both deposit paths credit through the same check, once per signature.
    */
-  async sponsorDeposit(agentId, { tx, wire, lastValidBlockHeight }) {
+  async sponsorDeposit(agentId, { tx }) {
     if (!this.custody) throw new AgentError(ERR.DISABLED, 'deposits are not enabled on this relay', 503);
     const rec = this.ledger.get(agentId);
     const { ctx } = this;
@@ -289,23 +294,62 @@ export class AgentGateway {
     if (!signedBy(tx, rec.owner)) throw new AgentError(ERR.BAD_OWNER_SIGNATURE, 'the owner\'s signature on the deposit is missing or invalid', 401);
     const replayKey = `agent-deposit:${base58(tx.signatures[1])}`;
     ctx.relayed.refuseRepeat(replayKey, 'deposit');
-    ctx.relayed.add(replayKey);
-    let signature;
+    if (this.depositInFlight.has(agentId)) throw new AgentError(ERR.DEPOSIT_PENDING, 'a sponsored deposit is already in progress', 409);
+    this.depositInFlight.add(agentId);
     try {
-      const signed = signAs(tx, [ctx.pool.keypair(shape.feePayer)]);
-      const before = BigInt(await ctx.connection.getBalance(new PublicKey(shape.feePayer), 'confirmed'));
-      const sim = await simulateWatching(ctx.connection, signed, [shape.feePayer], ctx.programId);
-      drainGuard({ pre: before, post: sim.post[0], fee: shape.fee, allowance: shape.allowance });
-      const expiry = await ctx.blockhashes.expiryOf(tx.recentBlockhash, lastValidBlockHeight);
-      signature = await ctx.connection.sendRawTransaction(signed, { skipPreflight: true, maxRetries: 5 });
-      ctx.sent.set(signature, { lastValidBlockHeight: expiry, kind: 'AgentDeposit' });
-    } catch (e) {
-      ctx.relayed.seen.delete(replayKey);
-      throw e;
+      const pending = this.ledger.pendingDepositSend(agentId);
+      if (pending) {
+        await this.#reconcileDepositSend(pending);
+        if (this.ledger.pendingDepositSend(agentId)) throw new AgentError(ERR.DEPOSIT_PENDING, 'the previous sponsored deposit has no proved outcome yet', 409, { signature: pending.signature });
+      }
+      ctx.relayed.add(replayKey);
+      let recorded = false;
+      try {
+        const signed = signAs(tx, [ctx.pool.keypair(shape.feePayer)]);
+        const signature = signatureOf(signed);
+        const before = BigInt(await ctx.connection.getBalance(new PublicKey(shape.feePayer), 'confirmed'));
+        const sim = await simulateWatching(ctx.connection, signed, [shape.feePayer], ctx.programId);
+        drainGuard({ pre: before, post: sim.post[0], fee: shape.fee, allowance: shape.allowance });
+        // A client-supplied expiry hint can shorten the real lifetime. Only
+        // a blockhash observed by this relay is safe for non-landing proof.
+        const knownExpiry = ctx.blockhashes.known?.get(tx.recentBlockhash);
+        const expiry = Number.isSafeInteger(knownExpiry) ? knownExpiry : null;
+        const slotFloor = await slotFloorOf(ctx.connection);
+        this.ledger.recordDepositSend(agentId, { signature, ownerSignature: base58(tx.signatures[1]), amount: shape.amount, lastValidBlockHeight: expiry, slotFloor });
+        recorded = true;
+        // GET /f/tx has no history-coverage proof for its own expiry label;
+        // keep that public status unknown rather than claiming expiration.
+        ctx.sent.set(signature, { lastValidBlockHeight: null, kind: 'AgentDeposit' });
+        let reported;
+        try { reported = await ctx.connection.sendRawTransaction(signed, { skipPreflight: true, maxRetries: 5 }); }
+        catch { throw new RouteError(503, 'the deposit send result is unknown; check the recorded signature before trying another', 'SendOutcomeUnknown', { signature }); }
+        if (reported !== signature) throw new RouteError(503, 'RPC returned a different signature; the deposit outcome is unknown', 'SendOutcomeUnknown', { signature });
+        this.log(`agent wallet: deposit ${signature} of ${shape.amount} for ${agentId} sent (fee payer ${shape.feePayer})`);
+        await this.#await(signature, expiry, this.waits.deposit, slotFloor);
+        const result = await this.#reconcileDepositSend(this.ledger.db.depositSends[signature]);
+        if (result.fate === 'landed') return { ...result.credit, signature, sponsored: true };
+        if (result.fate === 'failed' || result.fate === 'expired') throw new AgentError(ERR.DEPOSIT_INVALID, 'the sponsored deposit did not land', 409, { signature });
+        throw new AgentError(ERR.DEPOSIT_PENDING, 'the sponsored deposit has no finalized result yet', 409, { signature });
+      } catch (e) {
+        if (!recorded) ctx.relayed.seen.delete(replayKey); // definitely no send
+        throw e; // once recorded, even a thrown RPC call may have sent it
+      }
+    } finally {
+      this.depositInFlight.delete(agentId);
     }
-    this.log(`agent wallet: deposit ${signature} of ${shape.amount} for ${agentId} sent (fee payer ${shape.feePayer})`);
-    await landed(ctx, signature, this.waits.deposit);
-    return { ...(await this.deposit(agentId, signature)), signature, sponsored: true };
+  }
+
+  /** Reconcile a signed deposit only from a finalized fate or a proved expiry. */
+  async #reconcileDepositSend(send) {
+    const { fate } = await this.custody.fate(send.signature, send.lastValidBlockHeight, send.slotFloor);
+    if (fate === 'landed') {
+      const credit = await this.deposit(send.agentId, send.signature); // idempotent; final metadata may still be unavailable
+      this.ledger.finishDepositSend(send.signature, fate);
+      return { fate, credit };
+    } else if (fate === 'failed' || fate === 'expired') {
+      this.ledger.finishDepositSend(send.signature, fate);
+    }
+    return { fate };
   }
 
   /** The owner's agents, briefly (public by address, as the view is public by id). */
@@ -584,7 +628,7 @@ export class AgentGateway {
    * withdrawals. Expired `held` holds come back too. Returns the counts.
    */
   async reconcile() {
-    const out = { settled: 0, released: 0, withdrawn: 0, withdrawalsFailed: 0, pending: 0, undecided: 0, expired: this.ledger.expire(), autoReleased: this.unresolvedReleaseMs ? this.ledger.releaseUnresolvedOlderThan(this.unresolvedReleaseMs) : 0 };
+    const out = { settled: 0, released: 0, withdrawn: 0, withdrawalsFailed: 0, depositLanded: 0, depositFailed: 0, depositPending: 0, pending: 0, undecided: 0, expired: this.ledger.expire(), autoReleased: this.unresolvedReleaseMs ? this.ledger.releaseUnresolvedOlderThan(this.unresolvedReleaseMs) : 0 };
     // One rule for both (fate.mjs): with a Custody its own reading, otherwise the relay's connection.
     const fate = x => (this.custody ? this.custody.fate(x.signature, x.lastValidBlockHeight, x.slotFloor ?? null) : fateOf(this.ctx.connection, { signature: x.signature, lastValidBlockHeight: x.lastValidBlockHeight, slotFloor: x.slotFloor ?? null }, { fullHistory: this.fullHistory }));
     for (const rec of this.ledger.agents()) {
@@ -605,6 +649,20 @@ export class AgentGateway {
         else if (done === 'failed') out.withdrawalsFailed++;
         else if (done === 'undecided' || done === 'unknown') out.undecided++;
         else out.pending++;
+      }
+    }
+    for (const send of Object.values(this.ledger.db.depositSends)) {
+      if (send.state !== 'pending') continue;
+      try {
+        const result = await this.#reconcileDepositSend(send);
+        if (result.fate === 'landed') out.depositLanded++;
+        else if (result.fate === 'failed' || result.fate === 'expired') out.depositFailed++;
+        else out.depositPending++;
+      } catch {
+        // A finalized status without readable transfer metadata is not a
+        // credit, and a transient RPC failure is not a failed deposit.
+        this.log(`agent wallet: deposit ${send.signature} remains pending (final verification unavailable)`);
+        out.depositPending++;
       }
     }
     return out;

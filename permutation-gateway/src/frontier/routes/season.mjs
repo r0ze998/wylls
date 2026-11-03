@@ -45,8 +45,24 @@ export const seasonRoutes = {
   'GET /f/tx/': async (ctx, req) => {
     const sig = req.url.pathname.slice('/f/tx/'.length);
     if (!isKey(sig, 64)) throw new RouteError(400, 'a transaction signature (base58, 64 bytes) is required', 'BadRequest');
-    const r = await ctx.connection.getSignatureStatuses([sig], { searchTransactionHistory: true });
+    const state = ctx.store.state ?? {};
+    const known = ctx.sent.get(sig);
+    const durableAttempt = Object.values(state.relayPending ?? {}).some(attempt => attempt.signature === sig)
+      || Object.values(state.faucet ?? {}).some(grant => grant.signature === sig)
+      || Object.values(state.claimPending ?? {}).some(claim => claim.signature === sig)
+      || !!ctx.agents?.ledger?.db?.depositSends?.[sig]
+      || known?.kind === 'AgentDeposit';
+    let r;
+    try { r = await ctx.connection.getSignatureStatuses([sig], { searchTransactionHistory: true }); }
+    catch (e) {
+      if (durableAttempt) return { body: { state: 'unknown' } };
+      throw e;
+    }
     const st = r?.value?.[0] ?? null;
+    // A non-final status can still roll back. A client-supplied block-height
+    // hint cannot prove non-landing, so an unresolved durable send stays
+    // unknown even after that hint passes.
+    if (durableAttempt && st?.confirmationStatus !== 'finalized') return { body: { state: 'unknown' } };
     if (st) {
       if (st.err) {
         const pe = programError(st.err);
@@ -54,7 +70,7 @@ export const seasonRoutes = {
       }
       if (st.confirmationStatus === 'confirmed' || st.confirmationStatus === 'finalized') return { body: { state: 'landed', slot: st.slot } };
     }
-    const known = ctx.sent.get(sig);
+    if (durableAttempt) return { body: { state: 'unknown' } };
     if (known?.lastValidBlockHeight && (await ctx.connection.getBlockHeight('confirmed')) > known.lastValidBlockHeight) return { body: { state: 'expired' } };
     return { body: { state: 'unknown' } };
   },

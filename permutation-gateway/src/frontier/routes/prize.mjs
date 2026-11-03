@@ -57,25 +57,38 @@ async function readPool(ctx) {
 }
 
 /** A relay transaction of its own: `ixs(payer)` paid by a pool key, signed by it and `signers`; waits for the result. */
-async function sendOwn(ctx, ixs, signers = []) {
+async function sendOwn(ctx, ixs, signers = [], beforeSend = () => {}) {
   const payer = ctx.pool.draw();
   const { blockhash } = await ctx.blockhashes.latest();
   const message = compileMessage({ feePayer: payer.publicKey.toBase58(), recentBlockhash: blockhash, instructions: ixs(payer.publicKey.toBase58()) });
   const wire = wireTransaction(message, Object.fromEntries([payer, ...signers].map(k => [k.publicKey.toBase58(), signEd25519(message, k)])));
-  const signature = await ctx.connection.sendRawTransaction(wire, { skipPreflight: true, maxRetries: 5 });
+  // The first signature is the fee payer's and is fixed by the signed wire.
+  // Persist it before RPC: an exception can mean the transaction was sent
+  // but the response was lost.
+  const signature = base58(parseTransaction(wire).signatures[0]);
+  await beforeSend(signature);
+  const reported = await ctx.connection.sendRawTransaction(wire, { skipPreflight: true, maxRetries: 5 });
+  if (reported !== signature) throw new RouteError(503, 'RPC returned a different signature; outcome unknown', 'SendOutcomeUnknown', { signature });
   await landed(ctx, signature);
   return signature;
 }
 
-/** Waits until `signature` has a result; throws 402-able RouteErrors for a failure, 504 for none in time. */
+/** Waits for a finalized result; confirmed transactions can still roll back. */
 export async function landed(ctx, signature, { tries = 60, every = 250 } = {}) {
   for (let i = 0; i < tries; i++) {
-    const st = (await ctx.connection.getSignatureStatuses([signature]))?.value?.[0] ?? null;
-    if (st?.err) throw new RouteError(400, `the transaction failed on chain: ${JSON.stringify(st.err)}`, prizeErrorOf(st.err) ?? 'SettlementFailed', { signature });
-    if (st && (st.confirmationStatus === 'confirmed' || st.confirmationStatus === 'finalized')) return st;
+    let st;
+    try {
+      st = (await ctx.connection.getSignatureStatuses([signature], { searchTransactionHistory: true }))?.value?.[0] ?? null;
+    } catch {
+      throw new RouteError(504, 'the transaction was sent but its final outcome cannot be read yet', 'SettlementPending', { signature });
+    }
+    if (st?.confirmationStatus === 'finalized') {
+      if (st.err) throw new RouteError(400, `the transaction failed on chain: ${JSON.stringify(st.err)}`, prizeErrorOf(st.err) ?? 'SettlementFailed', { signature });
+      return st;
+    }
     await sleep(every);
   }
-  throw new RouteError(504, 'the transaction was sent but has no result yet (GET /f/tx/{signature})', 'SettlementPending', { signature });
+  throw new RouteError(504, 'the transaction was sent but has no finalized result yet (GET /f/tx/{signature})', 'SettlementPending', { signature });
 }
 
 /** permutation-prize's error name in a transaction error (`{InstructionError: [i, {Custom: n}]}`), or null. */
@@ -138,7 +151,18 @@ export const prizeRoutes = {
     ctx.faucetSending ??= new Map();
     const tokenAccount = ata(wallet, prize.mint);
     const done = state.faucet[wallet];
-    if (done) return { body: { ok: true, already: true, amount: '0', tokenAccount, signature: done.signature, testAssetsOnly: true } };
+    if (done) {
+      let status;
+      try { status = (await ctx.connection.getSignatureStatuses([done.signature], { searchTransactionHistory: true }))?.value?.[0] ?? null; } catch { /* keep the grant pending */ }
+      if (status?.err == null && status?.confirmationStatus === 'finalized') {
+        if (done.status !== 'landed') {
+          state.faucet[wallet] = { ...done, status: 'landed' };
+          ctx.store.save();
+        }
+        return { body: { ok: true, already: true, amount: '0', tokenAccount, signature: done.signature, testAssetsOnly: true } };
+      }
+      throw new RouteError(409, 'the prior faucet transaction has no final outcome; inspect its signature before retrying', 'FaucetOutcomeUnknown', { signature: done.signature });
+    }
     if (ctx.faucetSending.has(wallet)) throw new RouteError(409, 'a grant for this wallet is being sent', 'FaucetInFlight');
     const amount = BigInt(ctx.cfg.faucetAmount);
     const data = new Uint8Array(9);
@@ -148,11 +172,14 @@ export const prizeRoutes = {
       createAtaIdempotentIx({ payer, owner: wallet, mint: prize.mint }),
       { programId: TOKEN_PROGRAM, data, keys: [{ pubkey: prize.mint, isSigner: false, isWritable: true }, { pubkey: tokenAccount, isSigner: false, isWritable: true },
         { pubkey: ctx.faucetKey.publicKey.toBase58(), isSigner: true, isWritable: false }] },
-    ], [ctx.faucetKey]);
+    ], [ctx.faucetKey], signature => {
+      state.faucet[wallet] = { status: 'pending', amount: String(amount), signature, at: ctx.now() };
+      ctx.store.save();
+    });
     ctx.faucetSending.set(wallet, run);
     try {
       const signature = await run;
-      state.faucet[wallet] = { amount: String(amount), signature, at: ctx.now() };
+      state.faucet[wallet] = { status: 'landed', amount: String(amount), signature, at: ctx.now() };
       ctx.store.save();
       ctx.log?.(`f/faucet ${wallet} +${amount} test tokens (${signature})`);
       return { body: { ok: true, already: false, amount: String(amount), tokenAccount, signature, testAssetsOnly: true } };
@@ -207,7 +234,11 @@ export const prizeRoutes = {
     } else {
       const plain = classify(tx, { programId: ctx.programId, wireBytes: wire.length, profile });
       if (!plain.ok || plain.tag !== JOIN_TAG) return refuse402(`invalid payment: ${paid.problem}`, 'InvalidPayment');
-      const entry = decodeEntry(await account(ctx, entryAddress(prize.program, prize.pool, plain.authority)));
+      // A confirmed Pay can still roll back. The gate may co-sign an unpaid
+      // Join only after the prior Entry is finalized on this chain.
+      const paidEntry = await ctx.connection.getAccountInfo(
+        new PublicKey(entryAddress(prize.program, prize.pool, plain.authority)), 'finalized');
+      const entry = decodeEntry(paidEntry?.data ?? null);
       if (!entry || entry.wallet !== plain.authority || entry.pool !== prize.pool || entry.amount < pool.fee) {
         return refuse402('the Join carries no payment and this wallet has no confirmed entry in the pool', 'PaymentRequired');
       }
@@ -253,22 +284,89 @@ export const prizeRoutes = {
     if (ix.keys.length !== want.keys.length || want.keys.some((k, i) => k.pubkey !== ix.keys[i].pubkey)) throw bad('Claim must name this season\'s pool, the wallet\'s entry, citizen and token account');
     if (tx.accountKeys.length !== new Set([feePayer, prize.program, ...want.keys.map(k => k.pubkey)]).size) throw bad('the message names account keys the Claim does not use');
     if (!signedBy(tx, wallet)) throw new RouteError(400, 'the wallet\'s signature is missing or invalid', 'BadSignature');
-    ctx.limiter.check(`f-claim:${wallet}`, { burst: 3, perSecond: 0.05 }, 'claims for this wallet');
-    const signed = signAs(tx, [ctx.pool.keypair(feePayer)]);
-    const before = BigInt(await ctx.connection.getBalance(new PublicKey(feePayer), 'confirmed'));
-    let sim;
+    ctx.claimSending ??= new Set();
+    if (ctx.claimSending.has(wallet)) throw new RouteError(409, 'a claim for this wallet is in flight', 'ClaimInFlight');
+    ctx.claimSending.add(wallet);
     try {
-      sim = await simulateWatching(ctx.connection, signed, [feePayer], ctx.programId);
-    } catch (e) {
-      const code = PRIZE_ERRORS[Number(/custom program error: (0x1[0-9a-f]{2})\b/i.exec((e.extra?.logs ?? []).join('\n'))?.[1])];
-      if (e instanceof RouteError && code) throw new RouteError(code === 'AlreadyClaimed' ? 409 : 400, `the claim would fail: ${code}`, code, e.extra);
-      throw e;
+      const state = ctx.store.state;
+      state.claimPending ??= {};
+      const prior = state.claimPending[wallet];
+      if (prior) {
+        // A missing RPC reply is not evidence that the claim failed. Read the
+        // finalized Entry as well as the original signature before deciding
+        // whether a new signed transaction may be sent.
+        let status;
+        let entry;
+        try {
+          [status, entry] = await Promise.all([
+            ctx.connection.getSignatureStatuses([prior.signature], { searchTransactionHistory: true }).then(s => s?.value?.[0] ?? null),
+            ctx.connection.getAccountInfo(new PublicKey(entryAddress(prize.program, prize.pool, wallet)), 'finalized').then(a => decodeEntry(a?.data ?? null)),
+          ]);
+        } catch {
+          throw new RouteError(409, 'the prior claim has no verified final outcome; inspect its signature before retrying', 'ClaimOutcomeUnknown', { signature: prior.signature });
+        }
+        if (status?.confirmationStatus === 'finalized' && !status.err
+            && entry?.wallet === wallet && entry.pool === prize.pool && entry.claimed) {
+          if (prior.status !== 'landed') {
+            state.claimPending[wallet] = { ...prior, status: 'landed' };
+            ctx.store.save();
+          }
+          return { body: { ok: true, already: true, signature: prior.signature, amount: String(entry.claimAmount), testAssetsOnly: true } };
+        }
+        if (status?.confirmationStatus === 'finalized' && status.err) {
+          // This signature is conclusively failed, and the finalized Entry is
+          // unclaimed. Persist its release before preparing another attempt.
+          delete state.claimPending[wallet];
+          ctx.store.save();
+        } else {
+          throw new RouteError(409, 'the prior claim has no verified final outcome; inspect its signature before retrying', 'ClaimOutcomeUnknown', { signature: prior.signature });
+        }
+      }
+      ctx.limiter.check(`f-claim:${wallet}`, { burst: 3, perSecond: 0.05 }, 'claims for this wallet');
+      const signed = signAs(tx, [ctx.pool.keypair(feePayer)]);
+      const before = BigInt(await ctx.connection.getBalance(new PublicKey(feePayer), 'confirmed'));
+      let sim;
+      try {
+        sim = await simulateWatching(ctx.connection, signed, [feePayer], ctx.programId);
+      } catch (e) {
+        const code = PRIZE_ERRORS[Number(/custom program error: (0x1[0-9a-f]{2})\b/i.exec((e.extra?.logs ?? []).join('\n'))?.[1])];
+        if (e instanceof RouteError && code) throw new RouteError(code === 'AlreadyClaimed' ? 409 : 400, `the claim would fail: ${code}`, code, e.extra);
+        throw e;
+      }
+      if (sim.post[0] === null || before - sim.post[0] > baseFee(2)) throw bad('the fee payer would lose more than the fee');
+      const signature = base58(parseTransaction(signed).signatures[0]);
+      state.claimPending[wallet] = { status: 'pending', signature, at: ctx.now() };
+      ctx.store.save();
+      try {
+        const reported = await ctx.connection.sendRawTransaction(signed, { skipPreflight: true, maxRetries: 5 });
+        if (reported !== signature) throw new Error('RPC returned a different signature');
+        await landed(ctx, signature);
+      } catch {
+        // The transaction may have reached the chain despite any RPC error.
+        // Keep the saved signature for reconciliation; never retry blindly.
+        throw new RouteError(504, 'the claim was sent or its outcome is unknown; inspect its signature before retrying', 'ClaimOutcomeUnknown', { signature });
+      }
+      let entry;
+      try {
+        entry = decodeEntry((await ctx.connection.getAccountInfo(new PublicKey(entryAddress(prize.program, prize.pool, wallet)), 'finalized'))?.data ?? null);
+      } catch {
+        throw new RouteError(504, 'the finalized Entry cannot be read yet; inspect the signed claim before retrying', 'ClaimOutcomeUnknown', { signature });
+      }
+      if (entry?.wallet !== wallet || entry.pool !== prize.pool || !entry.claimed) {
+        throw new RouteError(504, 'the claim has no finalized Entry result yet; inspect its signature before retrying', 'ClaimOutcomeUnknown', { signature });
+      }
+      // A later request still rechecks the finalized signature and Entry
+      // before reporting `already`, even if this save worked.
+      const pending = state.claimPending[wallet];
+      state.claimPending[wallet] = { ...pending, status: 'landed' };
+      try { ctx.store.save(); } catch {
+        state.claimPending[wallet] = pending;
+        throw new RouteError(503, 'cannot durably record the observed claim; inspect its signature before retrying', 'ClaimOutcomeUnknown', { signature });
+      }
+      ctx.log?.(`f/prize claim ${wallet} ${signature}: ${entry.claimAmount} test tokens`);
+      return { body: { ok: true, signature, amount: String(entry.claimAmount), testAssetsOnly: true } };
+    } finally {
+      ctx.claimSending.delete(wallet);
     }
-    if (sim.post[0] === null || before - sim.post[0] > baseFee(2)) throw bad('the fee payer would lose more than the fee');
-    const signature = await ctx.connection.sendRawTransaction(signed, { skipPreflight: true, maxRetries: 5 });
-    await landed(ctx, signature);
-    const entry = decodeEntry(await account(ctx, entryAddress(prize.program, prize.pool, wallet)));
-    ctx.log?.(`f/prize claim ${wallet} ${signature}: ${entry?.claimAmount ?? '?'} test tokens`);
-    return { body: { ok: true, signature, amount: String(entry?.claimAmount ?? 0n), testAssetsOnly: true } };
   },
 };

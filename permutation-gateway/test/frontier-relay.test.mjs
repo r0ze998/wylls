@@ -55,7 +55,7 @@ function clockAccount(unix) {
  * plus `debit(tx)` and reports its post-balance; `fail(tx)` makes a
  * simulation fail with that error.
  */
-function fakeChain({ debit = () => 0n, fail = () => null } = {}) {
+function fakeChain({ debit = () => 0n, fail = () => null, finalizeOnSend = true } = {}) {
   const c = {
     accounts: new Map(), sent: [], simulated: 0, statuses: new Map(), height: 100,
     set(key, v) { c.accounts.set(String(key), { lamports: v.lamports ?? 1_000_000_000, data: Buffer.from(v.data ?? []) }); },
@@ -84,7 +84,11 @@ function fakeChain({ debit = () => 0n, fail = () => null } = {}) {
     sendRawTransaction: async raw => {
       const tx = parseTransaction(new Uint8Array(raw));
       c.sent.push(tx);
-      return base58(tx.signatures[0]);
+      const signature = base58(tx.signatures[0]);
+      // Most scripted requests model a local chain that finalizes before the
+      // next request. Explicit uncertainty tests turn this off.
+      if (finalizeOnSend) c.statuses.set(signature, { slot: 77, confirmationStatus: 'finalized', err: null });
+      return signature;
     },
     getSignatureStatuses: async sigs => ({ value: sigs.map(s => c.statuses.get(s) ?? null) }),
   };
@@ -391,18 +395,129 @@ test('identical concurrent submissions: one is sent and charged, the rest are Du
   assert.equal((await call(r.public, 'GET', `/f/quota?citizen=${A.citizen(wallet.publicKey.toBase58())}`, { ip: '203.0.113.9' })).json.left, 39);
 });
 
-test('a send that throws charges nothing and the same bytes may be sent again', async () => {
-  const chain = fakeChain();
+test('a lost RPC response retains the signed attempt and quota across restart; fresh writes wait for finality', async () => {
+  const chain = fakeChain({ finalizeOnSend: false });
   const send = chain.sendRawTransaction;
-  chain.sendRawTransaction = async () => { throw new Error('node down'); };
+  chain.sendRawTransaction = async raw => { await send(raw); throw new Error('response lost'); };
   const r = relay({ chain });
+  let saved;
+  const save = r.store.save;
+  r.store.save = () => { save(); saved = structuredClone(r.store.state); };
   const feePayer = await feePayerOf(r);
   const tx = playerTx({ name: 'Harvest', feePayer });
   const res = await call(r.public, 'POST', '/f/relay', { body: { tx }, ip: '203.0.113.9' });
-  assert.notEqual(res.json.ok, true);
-  assert.equal((await call(r.public, 'GET', `/f/quota?citizen=${A.citizen(wallet.publicKey.toBase58())}`, { ip: '203.0.113.9' })).json.left, 40, 'not charged');
+  assert.equal(res.status, 504, JSON.stringify(res.json));
+  assert.equal(res.json.code, 'RelayOutcomeUnknown');
+  assert.equal(res.json.signature, base58(chain.sent[0].signatures[0]));
+  assert.equal(chain.sent.length, 1, 'the chain received the bytes before its response disappeared');
+  assert.equal(Object.values(saved.relayPending)[0].status, 'unknown');
+  assert.equal((await call(r.public, 'GET', `/f/quota?citizen=${A.citizen(wallet.publicKey.toBase58())}`, { ip: '203.0.113.9' })).json.left, 39, 'quota stays charged');
+  chain.height = 999;
+  assert.deepEqual((await call(r.public, 'GET', `/f/tx/${res.json.signature}`, { ip: '203.0.113.9' })).json, { state: 'unknown' }, 'a block-height hint is not proof of non-landing');
+  const fresh = playerTx({ name: 'Harvest', feePayer, recentBlockhash: Keypair.generate().publicKey.toBase58() });
+  assert.equal((await call(r.public, 'POST', '/f/relay', { body: { tx: fresh }, ip: '203.0.113.9' })).json.code, 'RelayPending');
+  // A new process has no ReplayCache or sent map, but the saved receipt still blocks semantic resends.
+  const resumed = relay({ chain });
+  resumed.store.state = structuredClone(saved);
+  assert.equal((await call(resumed.public, 'POST', '/f/relay', { body: { tx: fresh }, ip: '203.0.113.9' })).json.code, 'RelayPending');
+  assert.equal(chain.sent.length, 1);
+  chain.statuses.set(res.json.signature, { slot: 9, confirmationStatus: 'finalized', err: null });
+  chain.height = 100;
   chain.sendRawTransaction = send;
-  assert.equal((await call(r.public, 'POST', '/f/relay', { body: { tx }, ip: '203.0.113.9' })).json.ok, true, 'not a Duplicate');
+  const freshSent = await call(resumed.public, 'POST', '/f/relay', { body: { tx: fresh }, ip: '203.0.113.9' });
+  assert.equal(freshSent.json.ok, true, 'finalized proof allows a fresh transaction');
+  assert.equal(Object.values(resumed.store.state.relayPending).find(x => x.signature === res.json.signature).outcome, 'landed');
+  chain.statuses.set(freshSent.json.signature, { slot: 10, confirmationStatus: 'finalized', err: null });
+  assert.equal((await call(resumed.public, 'POST', '/f/relay', { body: { tx }, ip: '203.0.113.9' })).json.code, 'Duplicate', 'the exact old signature remains blocked');
+  assert.equal(chain.sent.length, 2);
+});
+
+test('an acknowledged submission also pauses fresh writes until finalized', async () => {
+  const chain = fakeChain({ finalizeOnSend: false });
+  const r = relay({ chain });
+  const feePayer = await feePayerOf(r);
+  const first = await call(r.public, 'POST', '/f/relay', { body: { tx: playerTx({ name: 'Harvest', feePayer }) }, ip: '203.0.113.9' });
+  assert.equal(first.json.ok, true);
+  assert.equal(Object.values(r.store.state.relayPending)[0].status, 'submitted');
+  const fresh = playerTx({ name: 'Harvest', feePayer, recentBlockhash: Keypair.generate().publicKey.toBase58() });
+  assert.equal((await call(r.public, 'POST', '/f/relay', { body: { tx: fresh }, ip: '203.0.113.9' })).json.code, 'RelayPending');
+  chain.statuses.set(first.json.signature, { slot: 9, confirmationStatus: 'confirmed', err: null });
+  assert.equal((await call(r.public, 'POST', '/f/relay', { body: { tx: fresh }, ip: '203.0.113.9' })).json.code, 'RelayPending');
+  chain.statuses.set(first.json.signature, { slot: 9, confirmationStatus: 'finalized', err: null });
+  assert.equal((await call(r.public, 'POST', '/f/relay', { body: { tx: fresh }, ip: '203.0.113.9' })).json.ok, true);
+  assert.equal(chain.sent.length, 2);
+});
+
+test('a durable-attempt save failure never calls RPC and pauses new writes in this process', async () => {
+  const chain = fakeChain();
+  const r = relay({ chain });
+  const save = r.store.save;
+  r.store.save = () => {
+    if (Object.values(r.store.state.relayPending ?? {}).some(x => x.status === 'unknown')) throw new Error('disk unavailable');
+    save();
+  };
+  const feePayer = await feePayerOf(r);
+  const tx = playerTx({ name: 'Harvest', feePayer });
+  const first = await call(r.public, 'POST', '/f/relay', { body: { tx }, ip: '203.0.113.9' });
+  assert.equal(first.status, 503, JSON.stringify(first.json));
+  assert.equal(first.json.code, 'RelayPending');
+  assert.equal(chain.sent.length, 0);
+  assert.equal(Object.values(r.store.state.relayPending)[0].status, 'unknown');
+  assert.equal((await call(r.public, 'GET', `/f/quota?citizen=${A.citizen(wallet.publicKey.toBase58())}`, { ip: '203.0.113.9' })).json.left, 39, 'the process conservatively retains its charge');
+  const fresh = playerTx({ name: 'Harvest', feePayer, recentBlockhash: Keypair.generate().publicKey.toBase58() });
+  assert.equal((await call(r.public, 'POST', '/f/relay', { body: { tx: fresh }, ip: '203.0.113.9' })).json.code, 'RelayPending');
+  assert.equal(chain.sent.length, 0);
+});
+
+test('a pre-send blockhash failure refunds quota and permits the same bytes later', async () => {
+  const r = relay();
+  const feePayer = await feePayerOf(r);
+  const tx = playerTx({ name: 'Harvest', feePayer });
+  const expiryOf = r.ctx.blockhashes.expiryOf;
+  r.ctx.blockhashes.expiryOf = async () => { throw new Error('pre-send blockhash lookup failed'); };
+  const refused = await call(r.public, 'POST', '/f/relay', { body: { tx }, ip: '203.0.113.9' });
+  assert.notEqual(refused.json.ok, true);
+  assert.equal(r.chain.sent.length, 0);
+  assert.deepEqual(r.store.state.relayPending, {});
+  assert.equal((await call(r.public, 'GET', `/f/quota?citizen=${A.citizen(wallet.publicKey.toBase58())}`, { ip: '203.0.113.9' })).json.left, 40);
+  r.ctx.blockhashes.expiryOf = expiryOf;
+  assert.equal((await call(r.public, 'POST', '/f/relay', { body: { tx }, ip: '203.0.113.9' })).json.ok, true);
+});
+
+test('a finalized failed signature resolves the pause without refunding the uncertain send', async () => {
+  const chain = fakeChain();
+  chain.sendRawTransaction = async () => { throw new Error('RPC timeout'); };
+  const r = relay({ chain });
+  const feePayer = await feePayerOf(r);
+  const tx = playerTx({ name: 'Harvest', feePayer });
+  const unknown = await call(r.public, 'POST', '/f/relay', { body: { tx }, ip: '203.0.113.9' });
+  assert.equal(unknown.json.code, 'RelayOutcomeUnknown');
+  chain.statuses.set(unknown.json.signature, { slot: 12, confirmationStatus: 'finalized', err: { InstructionError: [3, { Custom: 58 }] } });
+  const fresh = playerTx({ name: 'Harvest', feePayer, recentBlockhash: Keypair.generate().publicKey.toBase58() });
+  chain.sendRawTransaction = async raw => base58(parseTransaction(new Uint8Array(raw)).signatures[0]);
+  assert.equal((await call(r.public, 'POST', '/f/relay', { body: { tx: fresh }, ip: '203.0.113.9' })).json.ok, true);
+  assert.equal(Object.values(r.store.state.relayPending).find(x => x.signature === unknown.json.signature).outcome, 'failed');
+  assert.equal((await call(r.public, 'GET', `/f/quota?citizen=${A.citizen(wallet.publicKey.toBase58())}`, { ip: '203.0.113.9' })).json.left, 38, 'the old charge is retained for explicit reconciliation');
+});
+
+test('an in-flight signed send stops a different concurrent sponsor before it reaches RPC', async () => {
+  const chain = fakeChain();
+  let entered;
+  const called = new Promise(resolve => { entered = resolve; });
+  let fail;
+  const stalled = new Promise((_, reject) => { fail = reject; });
+  chain.sendRawTransaction = async () => { entered(); return stalled; };
+  const r = relay({ chain });
+  const feePayer = await feePayerOf(r);
+  const tx1 = playerTx({ name: 'Harvest', feePayer });
+  const tx2 = playerTx({ name: 'Harvest', feePayer, recentBlockhash: Keypair.generate().publicKey.toBase58() });
+  const first = call(r.public, 'POST', '/f/relay', { body: { tx: tx1 }, ip: '203.0.113.9' });
+  await called;
+  const second = await call(r.public, 'POST', '/f/relay', { body: { tx: tx2 }, ip: '203.0.113.9' });
+  assert.equal(second.json.code, 'RelayPending', JSON.stringify(second.json));
+  assert.equal(Object.keys(r.store.state.relayPending).length, 1);
+  fail(new Error('response lost'));
+  assert.equal((await first).json.code, 'RelayOutcomeUnknown');
 });
 
 test('POST /f/join: open seasons sponsor the Join; gated seasons need a one-time invite and the relay co-signs with the gate key', async () => {
@@ -452,6 +567,28 @@ test('POST /f/join: open seasons sponsor the Join; gated seasons need a one-time
   const keyless = relay({ season: { JOIN_GATE: gate.publicKey.toBytes() } });
   const fp4 = await feePayerOf(keyless);
   assert.equal((await call(keyless.public, 'POST', '/f/join', { body: { tx: joinTx(fp4, gate.publicKey.toBase58()), invite: inv.json.invites[1] }, ip: '203.0.113.9' })).json.code, 'GateUnavailable');
+});
+
+test('a gated Join consumes its invite before an ambiguous RPC send', async () => {
+  const gate = Keypair.generate();
+  const chain = fakeChain({ debit: () => rent(384), finalizeOnSend: false });
+  const send = chain.sendRawTransaction;
+  chain.sendRawTransaction = async raw => { await send(raw); throw new Error('response lost'); };
+  const r = relay({ chain, gateKey: gate, season: { JOIN_GATE: gate.publicKey.toBytes() } });
+  const issued = await call(r.operator, 'POST', '/f/operator/invites', { body: { count: 1 }, headers: { authorization: `Bearer ${OPERATOR}` } });
+  const invite = issued.json.invites[0];
+  const join = feePayer => playerTx({ name: 'Join', signer: wallet, feePayer,
+    accounts: { wallet: wallet.publicKey.toBase58(), citizen: A.citizen(wallet.publicKey.toBase58()), joinshard: A.joinShardFor(2, wallet.publicKey.toBase58()), join_gate: gate.publicKey.toBase58() },
+    fields: { faction: 2, session: session.publicKey.toBytes(), session_expiry: BigInt(GENESIS + 86_400) } });
+  const feePayer = await feePayerOf(r);
+  const res = await call(r.public, 'POST', '/f/join', { body: { tx: join(feePayer), invite }, ip: '203.0.113.9' });
+  assert.equal(res.json.code, 'RelayOutcomeUnknown', JSON.stringify(res.json));
+  assert.equal(chain.sent.length, 1);
+  assert.equal(r.invites.used(r.invites.verify(invite)), true);
+  assert.equal(Object.values(r.store.state.relayPending)[0].status, 'unknown');
+  const retry = await call(r.public, 'POST', '/f/join', { body: { tx: join(feePayer), invite }, ip: '203.0.113.9' });
+  assert.equal(retry.json.code, 'InviteRequired');
+  assert.equal(chain.sent.length, 1);
 });
 
 test('POST /f/reveal and /f/nudge go to the keeper\'s loopback API with its token; answers pass through; a silent keeper is 502', async () => {
@@ -573,23 +710,51 @@ test('X-Forwarded-For is trusted only from the herald\'s peer; loopback clients 
   assert.equal(bots.filter(c => c === 'RateLimited').length, 0);
 });
 
-test('GET /f/tx/{signature}: landed, failed with the program error, expired, unknown', async () => {
-  const r = relay();
+test('GET /f/tx/{signature}: durable sends need finalized proof; failed errors retain their program code', async () => {
+  const r = relay({ chain: fakeChain({ finalizeOnSend: false }) });
   const fp = await feePayerOf(r);
   const res = await call(r.public, 'POST', '/f/relay', { body: { tx: playerTx({ name: 'Harvest', feePayer: fp }) }, ip: '203.0.113.9' });
   const sig = res.json.signature;
   assert.deepEqual((await call(r.public, 'GET', `/f/tx/${sig}`, { ip: '203.0.113.9' })).json, { state: 'unknown' });
   r.chain.height = 151;
-  assert.deepEqual((await call(r.public, 'GET', `/f/tx/${sig}`, { ip: '203.0.113.9' })).json, { state: 'expired' });
+  assert.deepEqual((await call(r.public, 'GET', `/f/tx/${sig}`, { ip: '203.0.113.9' })).json, { state: 'unknown' }, 'the client expiry hint is not finality proof');
   r.chain.statuses.set(sig, { slot: 9, confirmationStatus: 'confirmed', err: null });
+  assert.deepEqual((await call(r.public, 'GET', `/f/tx/${sig}`, { ip: '203.0.113.9' })).json, { state: 'unknown' }, 'a confirmed status may roll back');
+  r.chain.statuses.set(sig, { slot: 9, confirmationStatus: 'finalized', err: null });
   assert.deepEqual((await call(r.public, 'GET', `/f/tx/${sig}`, { ip: '203.0.113.9' })).json, { state: 'landed', slot: 9 });
-  r.chain.statuses.set(sig, { slot: 9, confirmationStatus: 'confirmed', err: { InstructionError: [3, { Custom: 58 }] } });
+  r.chain.statuses.set(sig, { slot: 9, confirmationStatus: 'finalized', err: { InstructionError: [3, { Custom: 58 }] } });
   assert.deepEqual((await call(r.public, 'GET', `/f/tx/${sig}`, { ip: '203.0.113.9' })).json, { state: 'failed', slot: 9, code: 'HostInTransit', programCode: 58 });
   assert.equal((await call(r.public, 'GET', '/f/tx/nope', { ip: '203.0.113.9' })).status, 400);
   assert.equal((await call(r.public, 'GET', '/f/operator/pool', { ip: '203.0.113.9' })).status, 404);
   const pool = await call(r.operator, 'GET', '/f/operator/pool', { headers: { authorization: `Bearer ${OPERATOR}` } });
   assert.equal(pool.json.size, 150);
   assert.equal(pool.json.payers.length, 150);
+});
+
+test('GET /f/tx treats faucet, claim, and agent-deposit journals as durable sends', async () => {
+  const r = relay();
+  const sig = base58(new Uint8Array(64).fill(7));
+  r.chain.statuses.set(sig, { slot: 8, confirmationStatus: 'confirmed', err: null });
+  const status = async () => (await call(r.public, 'GET', `/f/tx/${sig}`, { ip: '203.0.113.9' })).json.state;
+  // Without a durable journal, the old read route reports confirmed.
+  assert.equal(await status(), 'landed');
+  r.store.state.faucet = { [wallet.publicKey.toBase58()]: { signature: sig } };
+  assert.equal(await status(), 'unknown');
+  delete r.store.state.faucet;
+  r.store.state.claimPending = { [wallet.publicKey.toBase58()]: { signature: sig } };
+  assert.equal(await status(), 'unknown');
+  delete r.store.state.claimPending;
+  r.ctx.agents = { ledger: { db: { depositSends: { [sig]: {} } } } };
+  assert.equal(await status(), 'unknown');
+  r.ctx.agents = null;
+  r.ctx.sent.set(sig, { lastValidBlockHeight: null, kind: 'AgentDeposit' });
+  assert.equal(await status(), 'unknown', 'a missing agent context does not turn an in-memory deposit into finality');
+  const statuses = r.chain.getSignatureStatuses;
+  r.chain.getSignatureStatuses = async () => { throw new Error('RPC unavailable'); };
+  assert.equal(await status(), 'unknown', 'a status-read failure cannot establish finality');
+  r.chain.getSignatureStatuses = statuses;
+  r.chain.statuses.set(sig, { slot: 8, confirmationStatus: 'finalized', err: null });
+  assert.equal(await status(), 'landed');
 });
 
 test('the funds breaker: sponsored routes pause while the pool is below its minimum', async () => {

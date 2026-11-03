@@ -7,12 +7,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Keypair } from '@solana/web3.js';
+import { parseWire } from '../src/cosign.mjs';
 import { ata } from '../client/src/frontier/prize.mjs';
 import { ERR } from '../src/frontier/agent/contract.mjs';
 import { INFERENCE_HOLD_TTL_MS } from '../src/frontier/agent/gateway.mjs';
+import { AgentLedger } from '../src/frontier/agent/ledger.mjs';
 import { llmDecider, runOnce } from '../src/frontier/agent/runner.mjs';
 import { transferCheckedIx } from '../src/frontier/agent/custody.mjs';
-import { call, createAgent, delegate, deposit, fakeChain, MINT, OPERATOR, ownerCommand, policy, relay, sound, sponsoredDeposit } from './agent-wallet-fixtures.mjs';
+import { call, createAgent, delegate, deposit, depositTx, fakeChain, MINT, OPERATOR, ownerCommand, policy, relay, sound, sponsoredDeposit } from './agent-wallet-fixtures.mjs';
 
 const IP = '127.0.0.1';
 const post = (r, path, body) => call(r.public, 'POST', path, { body, ip: IP });
@@ -211,6 +213,85 @@ test('sponsored deposit: the owner signs, a pool key pays, the relay co-signs an
   const mine = await call(r.public, 'GET', `/f/agent/by-owner?owner=${o}`, { ip: IP });
   assert.equal(mine.json.agents.length, 1);
   assert.equal(mine.json.agents[0].balance.available, '2500107');
+  sound(r);
+});
+
+test('sponsored deposit keeps a signed, durable pending record when RPC may have accepted the bytes', async () => {
+  const r = relay({ chain: fakeChain({ confirm: false }) });
+  const owner = Keypair.generate();
+  const o = owner.publicKey.toBase58();
+  const { agentId } = await createAgent(r, owner);
+  const feePayer = (await call(r.public, 'GET', '/f/relay', { ip: IP })).json.feePayer;
+  const first = sponsoredDeposit(r, owner, 99n, { feePayer });
+  const send = r.chain.sendRawTransaction;
+  r.chain.sendRawTransaction = async raw => { await send(raw); throw new Error('RPC reply lost after acceptance'); };
+  const uncertain = await post(r, '/f/agent/deposit', { agentId, tx: first.wire });
+  assert.equal(uncertain.json.code, 'SendOutcomeUnknown', JSON.stringify(uncertain.json));
+  const [attempt] = Object.values(r.gateway.ledger.db.depositSends);
+  assert.equal(attempt.state, 'pending');
+  assert.equal(uncertain.json.signature, attempt.signature);
+  assert.equal(JSON.parse(r.agentStore.json).agentWallet.depositSends[attempt.signature].state, 'pending', 'record saved before the RPC call');
+  assert.equal(r.chain.sent.length, 1);
+  const another = sponsoredDeposit(r, owner, 7n, { feePayer, createAta: false });
+  const blocked = await post(r, '/f/agent/deposit', { agentId, tx: another.wire });
+  assert.equal(blocked.json.code, ERR.DEPOSIT_PENDING);
+  assert.equal(r.chain.sent.length, 1, 'a different signature must not bypass an unknown send');
+  assert.equal(r.gateway.view(agentId).balance.deposited, '0', 'an unknown send is not credited');
+  const restarted = restart(r);
+  restarted.gateway.custody = r.custody; // the fixture creates a new key; a real restart reloads the old custody key
+  await assert.rejects(restarted.gateway.sponsorDeposit(agentId, { tx: parseWire(another.wire).tx }), e => e.code === ERR.DEPOSIT_PENDING);
+  assert.equal(r.chain.sent.length, 1, 'the pending send survives a new gateway process');
+  // A finalized transfer gives the first signature one credit, then clears
+  // the gate. The same transaction remains a replay even after settlement.
+  r.chain.statuses.set(attempt.signature, { slot: 78, err: null, confirmationStatus: 'finalized' });
+  r.chain.transactions.set(attempt.signature, depositTx({ owner: o, custody: r.custody, amount: 99n }));
+  assert.equal((await r.gateway.reconcile()).depositLanded, 1);
+  assert.equal(r.gateway.view(agentId).balance.deposited, '99');
+  assert.equal((await r.gateway.reconcile()).depositLanded, 0);
+  assert.equal(r.gateway.view(agentId).balance.deposited, '99');
+  assert.equal((await post(r, '/f/agent/deposit', { agentId, tx: first.wire })).json.code, 'Duplicate');
+  sound(r);
+});
+
+test('sponsored deposit never sends when its pre-send ledger save fails', async () => {
+  const r = relay();
+  const owner = Keypair.generate();
+  const { agentId } = await createAgent(r, owner);
+  const feePayer = (await call(r.public, 'GET', '/f/relay', { ip: IP })).json.feePayer;
+  const { tx } = parseWire(sponsoredDeposit(r, owner, 3n, { feePayer }).wire);
+  r.agentStore.save = () => { throw new Error('state disk unavailable'); };
+  await assert.rejects(r.gateway.sponsorDeposit(agentId, { tx }), /state disk unavailable/);
+  assert.equal(r.chain.sent.length, 0);
+});
+
+test('a confirmed sponsored deposit is not spendable until finalized, and a legacy wallet without a send journal cannot restart silently', async () => {
+  const r = relay({ chain: fakeChain({ confirm: false }) });
+  r.gateway.waits.deposit = { tries: 1, every: 1 };
+  const owner = Keypair.generate();
+  const o = owner.publicKey.toBase58();
+  const { agentId } = await createAgent(r, owner);
+  const feePayer = (await call(r.public, 'GET', '/f/relay', { ip: IP })).json.feePayer;
+  const { wire } = sponsoredDeposit(r, owner, 13n, { feePayer });
+  const send = r.chain.sendRawTransaction;
+  r.chain.sendRawTransaction = async raw => {
+    const signature = await send(raw);
+    r.chain.statuses.set(signature, { slot: 78, err: null, confirmationStatus: 'confirmed' });
+    r.chain.transactions.set(signature, depositTx({ owner: o, custody: r.custody, amount: 13n }));
+    return signature;
+  };
+  const pending = await post(r, '/f/agent/deposit', { agentId, tx: wire });
+  assert.equal(pending.json.code, ERR.DEPOSIT_PENDING);
+  assert.equal(r.gateway.view(agentId).balance.available, '0');
+  const signature = Object.keys(r.gateway.ledger.db.depositSends)[0];
+  r.chain.statuses.set(signature, { slot: 78, err: null, confirmationStatus: 'finalized' });
+  assert.equal((await r.gateway.reconcile()).depositLanded, 1);
+  assert.equal(r.gateway.view(agentId).balance.available, '13');
+  const old = JSON.parse(JSON.stringify(r.agentStore.state));
+  delete old.agentWallet.depositSends;
+  assert.throws(() => new AgentLedger({ store: { state: old, save() {} } }), /no sponsored deposit send journal/);
+  const malformed = JSON.parse(JSON.stringify(r.agentStore.state));
+  malformed.agentWallet.depositSends[signature].state = 'unreadable';
+  assert.throws(() => new AgentLedger({ store: { state: malformed, save() {} } }), /invalid sponsored deposit send journal entry/);
   sound(r);
 });
 
