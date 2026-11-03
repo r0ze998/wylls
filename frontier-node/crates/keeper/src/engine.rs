@@ -57,7 +57,7 @@
 //! a keeper tick that ran past its slot sent a second version of writes
 //! whose first landed one slot later (3 `OutOfOrder` in the smoke).
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
 use solana_address::Address;
@@ -206,6 +206,9 @@ pub enum Outcome {
         err: String,
         slot: u64,
     },
+    /// The retry window ended, but an old signature still has no definitive
+    /// status. Its fee remains reserved and this key cannot re-plan yet.
+    Unresolved { err: String, slot: u64 },
     /// Nothing more to do: window closed, not implemented, deadline passed.
     Dead { reason: String, code: Option<u32> },
 }
@@ -259,6 +262,10 @@ pub struct Engine {
     /// Versions whose write is gone (cancelled, adopted after a restart):
     /// polled until resolved so the journal is complete.
     orphans: Vec<(Signature, u64)>,
+    /// A retry window may end with signatures still unresolved. Keep only
+    /// those keys from starting a fresh fee budget until every old signature
+    /// has a definitive status. Other writes continue normally.
+    held_replans: HashMap<String, HashSet<Signature>>,
     adopted: HashMap<String, Vec<Version>>,
     pub budgets: Budgets,
     pub params: EngineParams,
@@ -296,8 +303,8 @@ pub fn is_heap_fault(e: &str) -> bool {
 }
 
 const BACKOFF_SLOTS: u64 = 2;
-/// Slots after its send at which a version's blockhash has expired (150
-/// valid blockhashes, one slot of margin).
+/// Slot-based retry horizon for a sent version. Passing it does not prove
+/// non-landing (blockhash validity is measured in block heights).
 pub const EXPIRY_SLOTS: u64 = 151;
 
 impl Engine {
@@ -307,6 +314,7 @@ impl Engine {
             backoff: HashMap::new(),
             failures: HashMap::new(),
             orphans: vec![],
+            held_replans: HashMap::new(),
             adopted: HashMap::new(),
             budgets,
             params,
@@ -376,6 +384,7 @@ impl Engine {
     pub fn ensure(&mut self, spec: WriteSpec, slot: u64) -> bool {
         if self.pending.contains_key(&spec.key)
             || self.backoff.get(&spec.key).is_some_and(|&s| slot < s)
+            || self.held_replans.contains_key(&spec.key)
         {
             return false;
         }
@@ -435,6 +444,10 @@ impl Engine {
         if let Some((kind, fee)) = self.uncounted_fees.remove(&sig) {
             self.stats.entry(kind).or_default().fees_charged += fee;
         }
+        self.held_replans.retain(|_, sigs| {
+            sigs.remove(&sig);
+            !sigs.is_empty()
+        });
     }
 
     /// Startup reconciles already-landed journal attempts before adoption.
@@ -675,6 +688,7 @@ impl Engine {
                         let wait = BACKOFF_SLOTS << (*n - 1).min(9);
                         self.backoff.insert(k.clone(), slot + wait);
                     }
+                    Outcome::Unresolved { .. } => {}
                     Outcome::Dead { .. } => s.dead += 1,
                 }
                 self.orphans.extend(
@@ -686,7 +700,8 @@ impl Engine {
                 report.outcomes.push((k, o));
             }
         }
-        // Orphans: record their outcome, drop them once expired.
+        // Orphans: retain unknown outcomes and predicted fees until a
+        // definitive status arrives, even after the retry window.
         if !self.orphans.is_empty() {
             let orphans = std::mem::take(&mut self.orphans);
             let os: Vec<Signature> = orphans.iter().map(|o| o.0).collect();
@@ -702,12 +717,6 @@ impl Engine {
                         if let Some(j) = journal {
                             let s = if st.err.is_none() { "landed" } else { "failed" };
                             let _ = j.set_status(&o.0.to_string(), s, Some(st.slot), st.code);
-                        }
-                    }
-                    None if slot > o.1 + EXPIRY_SLOTS => {
-                        self.uncounted_fees.remove(&o.0);
-                        if let Some(j) = journal {
-                            let _ = j.set_status(&o.0.to_string(), "expired", None, None);
                         }
                     }
                     None => keep.push(o),
@@ -778,45 +787,58 @@ impl Engine {
                 ));
                 continue;
             }
-            // Every version expired unlanded: the write is at its version or
-            // spend cap (otherwise a new version went out each slot) or its
-            // sends fail. End it with a backoff so the duty re-plans a fresh
-            // escalation; a write that can never send again must not stay
-            // pending (integ-W2 review of W2-F: a hold longer than 64
-            // versions + expiry parked it, and the anchor scan window with
-            // it, until a restart).
+            // Every version passed its retry window. Remove the pending
+            // write so unrelated duties can continue, but hold this key's
+            // fee budget if any old signature still lacks a final status.
+            // A known failure can use the usual backoff and re-planning.
             if !p.versions.is_empty()
                 && p.versions.iter().all(|v| slot > v.sent_slot + EXPIRY_SLOTS)
             {
                 let p = self.pending.remove(&k).expect("pending");
+                let unresolved: HashSet<_> = p
+                    .versions
+                    .iter()
+                    .filter(|v| !p.settled.contains(&v.sig))
+                    .map(|v| v.sig)
+                    .collect();
+                let unknown = !unresolved.is_empty();
+                if unknown {
+                    self.held_replans.insert(k.clone(), unresolved);
+                }
                 self.orphans.extend(
                     p.versions
                         .iter()
                         .filter(|v| !p.settled.contains(&v.sig))
                         .map(|v| (v.sig, v.sent_slot)),
                 );
-                self.stats.entry(p.spec.kind.into()).or_default().failed += 1;
-                let n = self.failures.entry(k.clone()).or_default();
-                *n = n.saturating_add(1);
-                let wait = BACKOFF_SLOTS << (*n - 1).min(9);
-                self.backoff.insert(k.clone(), slot + wait);
+                if !unknown {
+                    self.stats.entry(p.spec.kind.into()).or_default().failed += 1;
+                    let n = self.failures.entry(k.clone()).or_default();
+                    *n = n.saturating_add(1);
+                    let wait = BACKOFF_SLOTS << (*n - 1).min(9);
+                    self.backoff.insert(k.clone(), slot + wait);
+                }
                 let err = format!(
-                    "{} versions expired unlanded (cap {} versions, {} lamports)",
+                    "{} versions unresolved after retry window (cap {} versions, {} lamports)",
                     p.versions.len(),
                     self.params.max_versions,
                     self.params.per_write_cap
                 );
                 if let Some(j) = journal {
+                    // Keep the existing alert code consumed by itest/operator
+                    // checks; its detail now says what is actually known.
                     let _ = j.alert(slot, "write-expired", &format!("{k}: {err}"));
                 }
-                report.outcomes.push((
-                    k,
+                let outcome = if !unknown {
                     Outcome::Failed {
                         code: None,
                         err,
                         slot,
-                    },
-                ));
+                    }
+                } else {
+                    Outcome::Unresolved { err, slot }
+                };
+                report.outcomes.push((k, outcome));
                 continue;
             }
             // One version per chain slot: a W write whose last version went
@@ -1059,6 +1081,8 @@ mod tests {
         clock_slot: std::sync::atomic::AtomicU64,
         /// Simulates a timeout after the transaction reached the chain.
         fail_after_send: std::sync::atomic::AtomicBool,
+        /// Simulates a status RPC failure after the transaction was sent.
+        fail_status_lookup: std::sync::atomic::AtomicBool,
     }
 
     impl Default for Script {
@@ -1069,6 +1093,7 @@ mod tests {
                 statuses: Mutex::new(HashMap::new()),
                 clock_slot: std::sync::atomic::AtomicU64::new(0),
                 fail_after_send: std::sync::atomic::AtomicBool::new(false),
+                fail_status_lookup: std::sync::atomic::AtomicBool::new(false),
             }
         }
     }
@@ -1112,6 +1137,12 @@ mod tests {
             Ok(sig)
         }
         async fn statuses(&self, sigs: &[Signature]) -> PortResult<Vec<Option<Status>>> {
+            if self
+                .fail_status_lookup
+                .load(std::sync::atomic::Ordering::SeqCst)
+            {
+                return Err(PortError::Io("injected: status RPC down".into()));
+            }
             let m = self.statuses.lock().unwrap();
             Ok(sigs.iter().map(|s| m.get(s).cloned()).collect())
         }
@@ -1316,6 +1347,92 @@ mod tests {
         );
         e.poll(&port, None, 16).await;
         assert_eq!(e.stats["test"].fees_charged, want + cancelled.fee);
+    }
+
+    #[tokio::test]
+    async fn old_unknown_orphan_keeps_predicted_fee_until_finalized() {
+        let port = Script::default();
+        let mut payers = payers();
+        payers.refresh(&port, 0).await.unwrap();
+        let journal = Journal::open(std::path::Path::new(":memory:")).unwrap();
+        let mut engine = Engine::new(Budgets::placeholder(), EngineParams::default());
+        engine.ensure(spec("old", Class::D, abi::tag::POST_SEED), 10);
+        engine.step(&port, &mut payers, Some(&journal), 10).await;
+        let version = engine.pending["old"].versions[0].clone();
+        engine.cancel("old");
+
+        let late = 10 + EXPIRY_SLOTS + 1;
+        engine.poll(&port, Some(&journal), late).await;
+        assert_eq!(engine.orphans.len(), 1);
+        assert!(engine.uncounted_fees.contains_key(&version.sig));
+        assert_eq!(journal.in_flight().unwrap().len(), 1);
+        assert_eq!(engine.stats["test"].fees_charged, 0);
+
+        port.statuses.lock().unwrap().insert(
+            version.sig,
+            Status {
+                slot: 11,
+                err: None,
+                code: None,
+            },
+        );
+        engine.poll(&port, Some(&journal), late + 1).await;
+        engine.poll(&port, Some(&journal), late + 2).await;
+        assert!(engine.orphans.is_empty());
+        assert!(engine.uncounted_fees.is_empty());
+        assert!(journal.in_flight().unwrap().is_empty());
+        assert_eq!(engine.stats["test"].fees_charged, version.fee);
+    }
+
+    #[tokio::test]
+    async fn status_rpc_error_does_not_discard_old_orphan_fee() {
+        let port = Script::default();
+        let mut payers = payers();
+        payers.refresh(&port, 0).await.unwrap();
+        let journal = Journal::open(std::path::Path::new(":memory:")).unwrap();
+        let mut engine = Engine::new(Budgets::placeholder(), EngineParams::default());
+        engine.ensure(spec("rpc-error", Class::D, abi::tag::POST_SEED), 10);
+        engine.step(&port, &mut payers, Some(&journal), 10).await;
+        let version = engine.pending["rpc-error"].versions[0].clone();
+        engine.cancel("rpc-error");
+        port.fail_status_lookup
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+
+        engine
+            .poll(&port, Some(&journal), 10 + EXPIRY_SLOTS + 1)
+            .await;
+        assert_eq!(engine.orphans.len(), 1);
+        assert!(engine.uncounted_fees.contains_key(&version.sig));
+        assert_eq!(journal.in_flight().unwrap().len(), 1);
+        assert_eq!(engine.stats["test"].fees_charged, 0);
+    }
+
+    #[tokio::test]
+    async fn adopted_old_unknown_version_cannot_start_a_new_fee_budget() {
+        let port = Script::default();
+        let mut payers = payers();
+        payers.refresh(&port, 0).await.unwrap();
+        let journal = Journal::open(std::path::Path::new(":memory:")).unwrap();
+        let mut before = Engine::new(Budgets::placeholder(), EngineParams::default());
+        before.ensure(spec("old", Class::D, abi::tag::POST_SEED), 10);
+        before.step(&port, &mut payers, Some(&journal), 10).await;
+        let attempts = journal.in_flight().unwrap();
+        assert_eq!(attempts.len(), 1);
+
+        let late = 10 + EXPIRY_SLOTS + 1;
+        let mut after = Engine::new(Budgets::placeholder(), EngineParams::default());
+        after.adopt(&attempts).unwrap();
+        assert!(after.ensure(spec("old", Class::D, abi::tag::POST_SEED), late));
+        let report = after.step(&port, &mut payers, Some(&journal), late).await;
+        assert_eq!(report.sent, 0);
+        assert!(matches!(
+            report.outcomes.as_slice(),
+            [(key, Outcome::Unresolved { .. })] if key == "old"
+        ));
+        assert!(after.held_replans.contains_key("old"));
+        assert!(!after.ensure(spec("old", Class::D, abi::tag::POST_SEED), late + 1));
+        assert!(after.ensure(spec("other", Class::D, abi::tag::POST_SEED), late + 1));
+        assert_eq!(journal.in_flight().unwrap().len(), 1);
     }
 
     #[tokio::test]
@@ -1547,10 +1664,9 @@ mod tests {
         );
     }
 
-    /// A write held past its version cap and blockhash expiry ends (Failed,
-    /// with a backoff) instead of staying pending; the re-planned write
-    /// starts a fresh escalation and lands once the hold ends (integ-W2
-    /// review of W2-F: `long_hold`).
+    /// A write held past its version cap leaves the pending queue, but an
+    /// unknown old signature must keep its fee budget from being reset.
+    /// Once all old outcomes become known, the key may re-plan.
     #[tokio::test]
     async fn capped_write_whose_versions_expired_ends_and_restarts() {
         let port = Script::default();
@@ -1579,16 +1695,37 @@ mod tests {
         }
         assert_eq!(sent, 3, "the version cap");
         // D versions at slots 0, 2 and 4 (the resend cadence, W6-C).
-        assert_eq!(
-            end_slot,
-            4 + EXPIRY_SLOTS + 1,
-            "ends once the last version expired"
-        );
-        assert!(matches!(ended, Some(Outcome::Failed { code: None, .. })));
+        assert_eq!(end_slot, 4 + EXPIRY_SLOTS + 1, "retry window ends");
+        assert!(matches!(ended, Some(Outcome::Unresolved { .. })));
+        assert_eq!(e.stats["test"].failed, 0);
         assert!(!e.is_pending("a"));
         assert!(
             !e.ensure(spec("a", Class::D, abi::tag::POST_ANCHOR), end_slot),
-            "backoff"
+            "unresolved old signatures hold this key"
+        );
+        assert!(e.held_replans.contains_key("a"));
+        assert!(
+            !e.ensure(spec("a", Class::D, abi::tag::POST_ANCHOR), end_slot + 2),
+            "unknown old versions must not reset the fee cap"
+        );
+        let old = j.in_flight().unwrap();
+        assert_eq!(old.len(), 3);
+        for attempt in &old {
+            port.statuses.lock().unwrap().insert(
+                attempt.sig.parse().unwrap(),
+                Status {
+                    slot: end_slot + 2,
+                    err: Some("OutOfOrder".into()),
+                    code: Some(8),
+                },
+            );
+        }
+        e.poll(&port, Some(&j), end_slot + 2).await;
+        assert!(!e.held_replans.contains_key("a"));
+        assert!(j.in_flight().unwrap().is_empty());
+        assert_eq!(
+            e.stats["test"].fees_charged,
+            old.iter().map(|a| a.fee).sum::<u64>()
         );
         // The hold ends: the next version lands, and the escalation restarts.
         *port.answer.lock().unwrap() = Box::new(|_| {
@@ -1812,6 +1949,7 @@ mod tests {
                     assert!(e.ensure(spec("x", Class::D, abi::tag::POST_SEED), 4));
                     "failed"
                 }
+                Outcome::Unresolved { .. } => panic!("a known refusal is not unresolved"),
             };
             assert_eq!(got, want, "code {code}");
         }

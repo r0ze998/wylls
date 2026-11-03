@@ -370,6 +370,7 @@ impl PlayDuty {
                     self.dead_closes.insert(key.to_string(), None);
                 }
                 Outcome::Failed { .. } => {}
+                Outcome::Unresolved { .. } => {}
             }
         }
         match (kind, o) {

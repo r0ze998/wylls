@@ -455,9 +455,8 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
                         j.set_status(&a.sig, s, Some(st.slot), st.code)?;
                         self.engine.charge_recovered(a);
                     }
-                    None if clock.slot.saturating_sub(a.first_valid_slot) > 151 => {
-                        j.set_status(&a.sig, "expired", None, None)?;
-                    }
+                    // Slot age is not proof that this signature never landed:
+                    // a null status can also mean RPC history is unavailable.
                     None => keep.push(a.clone()),
                 }
             }
@@ -652,6 +651,11 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
             .poll(&self.port, self.journal.as_ref(), slot)
             .await;
         for (k, o) in &r.outcomes {
+            // A retry window ending without a definitive chain status is
+            // not a program refusal. Do not trigger duty failure handlers.
+            if matches!(o, Outcome::Unresolved { .. }) {
+                continue;
+            }
             if let Outcome::Landed { .. } = o {
                 self.archive.on_landed(k, &mut self.beacon.anchors);
                 self.fold.on_landed(k);
@@ -1047,6 +1051,7 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
                     }
                 }
                 Outcome::Landed { .. } => {}
+                Outcome::Unresolved { .. } => {}
                 Outcome::Failed { code, err, .. } => {
                     // Expected refusals of a re-planned write: an anchor or
                     // seed not there yet, a fold part of an older bell, a
@@ -1402,6 +1407,62 @@ mod tests {
         // Re-reading startup cannot charge the settled journal row again.
         assert_eq!(k.start().await.unwrap(), 0);
         assert_eq!(k.engine.stats["anchor"].fees_charged, attempt.fee);
+    }
+
+    #[tokio::test]
+    async fn restart_adopts_old_unknown_attempt_and_later_counts_its_fee_once() {
+        let program = Address::new_from_array([0x5f; 32]);
+        let cfg = KeeperConfig::new(program, 7, Address::new_from_array([0xbe; 32]));
+        let journal = Journal::open(std::path::Path::new(":memory:")).unwrap();
+        let sig = Signature::default();
+        let mut attempt = recovery_attempt(sig.to_string());
+        attempt.payer = Address::new_from_array([1; 32]).to_string();
+        journal.record_attempt(&attempt).unwrap();
+        let port = crate::testkit::FakePort::default();
+        let late = attempt.first_valid_slot + crate::engine::EXPIRY_SLOTS + 1;
+        port.set_clock(late, 1_000);
+        let mut keeper = Keeper::new(
+            cfg,
+            port,
+            crate::testkit::FakeDrand::new(),
+            &[1; 32],
+            Some(journal),
+        )
+        .unwrap();
+
+        assert_eq!(keeper.start().await.unwrap(), 1);
+        assert_eq!(
+            keeper.journal.as_ref().unwrap().in_flight().unwrap().len(),
+            1
+        );
+        assert_eq!(
+            keeper.engine.stats.get("anchor").map(|s| s.fees_charged),
+            None
+        );
+        keeper.port.statuses.lock().unwrap().insert(
+            sig,
+            Status {
+                slot: late,
+                err: None,
+                code: None,
+            },
+        );
+        keeper
+            .engine
+            .poll(&keeper.port, keeper.journal.as_ref(), late + 1)
+            .await;
+        keeper
+            .engine
+            .poll(&keeper.port, keeper.journal.as_ref(), late + 2)
+            .await;
+        assert!(keeper
+            .journal
+            .as_ref()
+            .unwrap()
+            .in_flight()
+            .unwrap()
+            .is_empty());
+        assert_eq!(keeper.engine.stats["anchor"].fees_charged, attempt.fee);
     }
 
     /// W6-C (W5-B F1): payer care runs on a game-time cadence as well as a

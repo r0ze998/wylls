@@ -376,6 +376,7 @@ impl ConquestDuty {
                 }
                 let _ = code;
             }
+            Outcome::Unresolved { .. } => {}
             Outcome::Dead { code, .. } => {
                 if *code == Some(abi::err::NOT_IMPLEMENTED) {
                     self.unsupported.insert(kind);
