@@ -84,3 +84,55 @@ S1 の既存口座を ER に委任する決定はしていません。
 - 9,000 slot 後の脱出：LiteSVM で確認した。**実際の ER では未確認**。
 - 書き手の規則と板の用途は未決。
 - 公開 devnet への配備、新しい鍵、他担当の環境への導入（Agave 4.2.2 を含む）は、それぞれ別に確認が要る。
+
+## 7. 保存した履歴と後続の履歴・再起動・保存失敗の整合（2026-11-03 追記）
+
+既存のローカル fixture で独立に検証しました。fixture は、偽の JSON-RPC ノード、herald の `mini_season`、ディスクの書込み拒否（次の区切りファイルの位置にディレクトリを置く）です。自動 rollback、checkpoint の正本、S1 口座の委任は扱っていません。
+
+### 既に解決済み（既存の試験）
+
+| 場合 | 試験 |
+|---|---|
+| group commit の途中で落ちて再起動する。同じファイルができ、索引は 0 からではなく巻き戻る | `herald/tests/fold.rs` の `ingest_restart_and_crash_give_the_same_files`、`a_crash_inside_a_group_commit_re_ingests_and_gives_the_same_files`、`a_crash_inside_a_group_commit_rolls_the_index_back_not_from_zero` |
+| checkpoint から再起動する（conquest を含む） | `herald/tests/cq_fold.rs` の `cq_fold_restarts_from_checkpoints` |
+| 取得の途中で失敗する（以前に修正済み） | `findex/tests/open_items.rs` の `a_failure_mid_batch_loses_nothing` |
+| confirmed の記録が fork から外れる | `findex/tests/open_items.rs` の `a_confirmed_transaction_dropped_from_its_fork_stays_archived` |
+
+### 今回見つけて直した不具合（独立 patch：commit 0be5f9f、`findex/src/lib.rs`・`ingest.rs`）
+
+1. **保存に失敗したのに、取り込みを続けていた。** pull でカーソルが進んだ後に、archive（または索引）の保存が失敗すると、`Findex::ingest` はエラーを返します。しかし herald の取り込みループは、次の呼び出しでそのまま先を取ります。その結果、保存できなかった取引を飛ばして、後の取引が保存されていました。
+   - 最小再現：取引 1・2 を保存した後、3 の保存だけを失敗させる。ディスクが戻った直後に同じプロセスで続けると、archive は `[1, 2, 4]` になる。
+   - 修正：保存に一度失敗したら、store を開き直すまで取り込みをすべて拒否する。開き直すと、永続化されたカーソルから再開する。
+2. **同じポーラーで再開すると、再び飛ばしていた。** `RpcPoll::restore` は、取得したが保存していない署名を「見た」状態のまま残していました。同じポーラーで再開すると、そこでページングが止まり、同じ取引を再び飛ばしていました。
+   - 最小再現：上の再現で、開き直した後も同じポーラーを使うと `[1, 2, 4]`。
+   - 修正：カーソルが示すものだけを既知とする。
+
+修正後は、どちらも `[1, 2, 3, 4]` になります。
+
+### 追加した試験（commit 1e577a8）
+
+| 試験 | 確かめること | 区分 |
+|---|---|---|
+| `findex/tests/consistency.rs` の `a_failed_save_stops_until_reopened_then_resumes_without_a_gap` | 保存に失敗したら止まる（以後の取り込みは "reopen" のエラー）。開き直すと抜けも重複もなく再開する | 検出・停止・復旧 |
+| `a_crash_inside_a_group_commit_re_pulls_the_tail_from_the_node` | RPC を取得元にして group commit の途中で落ちると、永続化されていない末尾をノードから取り直す | 復旧 |
+| `a_restart_then_a_disagreeing_history_stops` | 再起動したとき、archive の最後の取引がノードの履歴にもうなければ、"history gap" で止まる。archive の記録は取り消さない（自動 rollback はしない） | 検出・停止 |
+| `limit_a_middle_transaction_that_leaves_history_is_not_noticed` | archive の途中の取引が後で履歴から消えても、気付かない（現状の挙動として固定） | 証明できない |
+| `limit_the_first_pull_cannot_see_pruned_history` | 初回の取得では、刈り込まれた古い履歴が欠けていても気付かない（現状の挙動として固定） | 証明できない |
+| `herald/tests/consistency.rs` の `a_checkpoint_ahead_of_the_archive_is_discarded_and_the_fold_redone` | archive を古い写しに戻すと、それより先を覆う checkpoint は捨てられ、archive から fold し直す。最後は一度に fold した場合と同じファイルになる | 検出・復旧 |
+
+### 検出・停止・復旧できる範囲
+
+| 区分 | 範囲 |
+|---|---|
+| 検出して停止する | archive の最後の取引に、後続の履歴がつながらない（刈り込み、fork から外れた、再起動中に変わった）。保存の失敗（archive・索引）。v1 の取引（毎回そこで止まる） |
+| 自動で復旧する | group commit の途中で落ちる（再起動すると、ノードから末尾を取り直す）。checkpoint が archive より先にある（fold し直す）。取得の途中の失敗（取れた分を保存し、次の pull で再試行する） |
+| 人が復旧する | 保存の失敗（原因を直して store を開き直す）。履歴が食い違う（長い履歴を持つノードに切り替えるか、archive の扱いを決める。自動 rollback は採用していない） |
+| 証明できない（検出されない） | 初回の取得、またはカーソルがない・読めない・古い形式のとき。archive の途中の取引が後で履歴から消えたとき。ノードが最後の署名を持ったまま途中だけ欠けているとき。同じ署名の取引の中身がノードによって違うとき（同じ署名は取り直さない） |
+
+findex の記録に「ない」ことも、「ある」ことも、完全な履歴の証明にはなりません。
+
+### 残件
+
+- herald は、findex が止まったことを標準エラーにしか出さない（読み手向けの状態表示はない。④の判断）。
+- 索引の保存が失敗する場合は、archive の失敗と同じ経路で止めた。ただし、索引の失敗だけを起こす試験はない（SQLite に失敗させる手段がない）。
+- §1〜§5 の 5 点は変わらない。
