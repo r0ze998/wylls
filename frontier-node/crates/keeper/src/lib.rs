@@ -1383,12 +1383,12 @@ mod tests {
     }
 
     /// R-22 (MC §5.1, §5.4): the keeper's budgets follow the season's
-    /// ABI. An MC season (program_version 2) takes the v2 table (`L(kind)`
+    /// ABI. An MC season (program_version 3) takes the v2 table (`L(kind)`
     /// for the new kinds), an M1 season keeps v1's; the status carries the
     /// `conquest` block and `/metrics` the `fk_` lines (§8.2).
     #[tokio::test]
     async fn cq_keeper_follows_the_season_abi() {
-        use fclient::abi::layout::season as ls;
+        use fclient::abi::layout::{h, season as ls};
         let program = Address::new_from_array([0x5F; 32]);
         let mut cfg = KeeperConfig::new(program, 7, Address::new_from_array([0xBE; 32]));
         cfg.roles = vec![];
@@ -1398,6 +1398,12 @@ mod tests {
         let season_bytes = |version: u16| {
             let mut d = vec![0u8; fclient::abi::size::SEASON];
             crate::testkit::put(&mut d, 0, fclient::abi::magic::SEASON);
+            let layout = if version >= abi::PROGRAM_VERSION_V2 {
+                abi::LAYOUT_VERSION_V2
+            } else {
+                1
+            };
+            crate::testkit::put(&mut d, h::LAYOUT_VERSION, &layout.to_le_bytes());
             d[ls::STATUS] = status::SEEDED;
             crate::testkit::put(&mut d, ls::PROGRAM_VERSION, &version.to_le_bytes());
             crate::testkit::put(&mut d, ls::END_BELL, &1_008u32.to_le_bytes());
