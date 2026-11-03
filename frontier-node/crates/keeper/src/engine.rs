@@ -1597,6 +1597,44 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn adopted_old_unknown_version_retries_within_original_budget() {
+        let port = Script::default();
+        let mut payers = payers();
+        payers.refresh(&port, 0).await.unwrap();
+        let journal = Journal::open(std::path::Path::new(":memory:")).unwrap();
+        let mut before = Engine::new(Budgets::placeholder(), EngineParams::default());
+        before.ensure(spec("resume", Class::D, abi::tag::POST_SEED), 10);
+        assert_eq!(
+            before
+                .step(&port, &mut payers, Some(&journal), 10)
+                .await
+                .sent,
+            1
+        );
+        let attempts = journal.in_flight().unwrap();
+        let first_fee = attempts[0].fee;
+
+        let mut after = Engine::new(Budgets::placeholder(), EngineParams::default());
+        after.adopt(&attempts).unwrap();
+        let late = 10 + EXPIRY_SLOTS + 1;
+        assert!(after.ensure(spec("resume", Class::D, abi::tag::POST_SEED), late));
+        let result = after.step(&port, &mut payers, Some(&journal), late).await;
+        assert_eq!(result.sent, 1);
+        assert!(result.outcomes.is_empty());
+        assert_eq!(after.pending["resume"].versions.len(), 2);
+        assert_eq!(after.pending["resume"].versions[0].fee, first_fee);
+        assert!(
+            after.pending["resume"]
+                .versions
+                .iter()
+                .map(|v| v.fee)
+                .sum::<u64>()
+                <= after.params.per_write_cap
+        );
+        assert_eq!(journal.in_flight().unwrap().len(), 2);
+    }
+
+    #[tokio::test]
     async fn adopted_attempts_are_not_double_charged_as_orphans() {
         let port = Script::default();
         let mut payers = payers();
