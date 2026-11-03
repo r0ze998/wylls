@@ -163,8 +163,8 @@ pub struct ConquestParams {
     pub retire_hosts: u8,
     pub relations: u8,
     pub flags: u8,
-    /// Byte 80 of the conquest block. This isolated candidate decodes the
-    /// flag but does not enable creating a continuous world.
+    /// Byte 80 of the conquest block. A new continuous world keeps both its
+    /// end and join deadline absent.
     pub continuous: u8,
 }
 
@@ -401,13 +401,10 @@ impl SeasonParamsV2 {
     /// the block's ranges and the dormancy timers agreeing in both parts.
     /// The program refuses a version other than its own.
     pub fn validate(&self) -> Result<(), &'static str> {
-        // The existing 8 proposal couples creation to an indefinitely open
-        // join gate. That game rule remains undecided. Decode legacy and
-        // already-created worlds, but do not create new continuous accounts.
-        if self.cq.continuous != 0 {
-            return Err("continuous creation not enabled");
+        if self.cq.continuous > 1 {
+            return Err("continuous");
         }
-        self.base.validate()?;
+        self.base.validate_world(self.cq.continuous == 1)?;
         if self.base.program_version != PROGRAM_VERSION_V2
             && self.base.program_version != PROGRAM_VERSION_S1
         {
@@ -749,8 +746,9 @@ mod tests {
         assert_eq!(bad(|p| p.cq.conquest_version = 2), Err("conquest_version"));
         assert_eq!(
             bad(|p| p.cq.continuous = 1),
-            Err("continuous creation not enabled")
+            Err("join_close_bell/end_bell")
         );
+        assert_eq!(bad(|p| p.cq.continuous = 2), Err("continuous"));
         let mut existing = base.cq.to_bytes();
         existing[cq_layout::CONTINUOUS] = 1;
         assert_eq!(ConquestParams::from_bytes(&existing).unwrap().continuous, 1);
@@ -763,6 +761,46 @@ mod tests {
         d[SEASON_PARAMS_LEN + cq_layout::RSV] = 1;
         assert_eq!(SeasonParamsV2::from_bytes(&d), None);
         assert_eq!(MAX_GUARD_TROOPS, 30_000);
+    }
+
+    #[test]
+    fn continuous_creation_keeps_join_open_and_map_fixed() {
+        let finite = MC_LOCAL_7D;
+        let finite_bytes = finite.to_bytes();
+        let payout = permutation_rules::frontier::payout::PayoutParams::REV3.to_borsh();
+        assert_eq!(
+            params_hash_v2(&finite_bytes, &payout),
+            [
+                0xfc, 0xa9, 0x50, 0xc6, 0x19, 0xbf, 0x18, 0x45, 0x93, 0x0d, 0x4e, 0x3d, 0x3f, 0x19,
+                0x78, 0xb8, 0xe2, 0x2c, 0x3d, 0xe6, 0xc0, 0x0c, 0x89, 0x96, 0x83, 0x49, 0xfe, 0x74,
+                0xe5, 0x0c, 0x73, 0x9b,
+            ]
+        );
+
+        let mut continuous = finite;
+        continuous.cq.continuous = 1;
+        continuous.base.end_bell = crate::presets::NO_END_BELL;
+        continuous.base.join_close_bell = crate::presets::NO_END_BELL;
+        assert_eq!(continuous.validate(), Ok(()));
+        let raw = continuous.to_bytes();
+        assert_eq!(
+            raw[SEASON_PARAMS_LEN + cq_layout::RSV_PRE_CONTINUOUS
+                ..SEASON_PARAMS_LEN + cq_layout::CONTINUOUS],
+            [0; 3]
+        );
+        assert_eq!(SeasonParamsV2::from_bytes(&raw), Some(continuous));
+        assert_ne!(
+            params_hash_v2(&raw, &payout),
+            params_hash_v2(&finite_bytes, &payout)
+        );
+        continuous.base.join_close_bell = 0;
+        assert_eq!(continuous.validate(), Err("join_close_bell/end_bell"));
+        continuous.base.join_close_bell = 756;
+        assert_eq!(continuous.validate(), Err("join_close_bell/end_bell"));
+        continuous.base.join_close_bell = crate::presets::NO_END_BELL;
+        continuous.base.end_bell = finite.base.end_bell;
+        assert_eq!(continuous.validate(), Err("join_close_bell/end_bell"));
+        assert_eq!(finite.to_bytes(), finite_bytes);
     }
 
     #[test]

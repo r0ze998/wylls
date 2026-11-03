@@ -104,6 +104,9 @@ pub const MIN_ANNOUNCE_LEAD_SECS: i64 = 86_400;
 pub const CREATE_WINDOW_SECS: i64 = 7 * 86_400;
 /// Closes after the end wait 72 h.
 pub const END_GRACE_SECS: i64 = 72 * 3_600;
+/// Sentinel for a continuous world's absent end. It does not remove the
+/// finite range of the stored bell counter.
+pub const NO_END_BELL: u32 = u32::MAX;
 /// Incinerator (bond burn on a post-round pre-join abort, CL-24).
 pub const INCINERATOR: &str = "1nc1nerator11111111111111111111111111111111";
 /// Rules version of the Frontier kernels stored in the Season.
@@ -274,7 +277,19 @@ impl SeasonParams {
     /// network assume (600-s bells, quicknet, no postures). `Err` names the
     /// first failing field; the program maps it to `BadData`.
     pub fn validate(&self) -> Result<(), &'static str> {
+        self.validate_world(false)
+    }
+
+    /// The same ranges with an explicit continuous-world end condition.
+    /// Only the v2 conquest flag can select this path. Both the world end
+    /// and the join deadline are absent, allowing future players to join.
+    pub(crate) fn validate_world(&self, continuous: bool) -> Result<(), &'static str> {
         let p = self;
+        let end_ok = if continuous {
+            p.end_bell == NO_END_BELL && p.join_close_bell == NO_END_BELL
+        } else {
+            p.join_close_bell < p.end_bell && p.end_bell <= 4_032
+        };
         let checks: [(bool, &'static str); 27] = [
             (p.regions == 16, "regions"),
             (p.genesis_ring <= 4, "genesis_ring"),
@@ -282,10 +297,7 @@ impl SeasonParams {
             (p.office_terms_per_wallet == 1, "office_terms_per_wallet"),
             (p.postures_enabled == 0, "postures_enabled"),
             (p.bell_secs == 600, "bell_secs"),
-            (
-                p.join_close_bell < p.end_bell && p.end_bell <= 4_032,
-                "join_close_bell/end_bell",
-            ),
+            (end_ok, "join_close_bell/end_bell"),
             // Quicknet's schedule is fixed (§5.3; the test beacon of I-53
             // replays rounds on the same schedule with its own key).
             (p.drand_period == QUICKNET_PERIOD, "drand_period"),
@@ -493,6 +505,26 @@ mod tests {
         let mut d = base.to_bytes();
         d[layout::RSV] = 1;
         assert_eq!(SeasonParams::from_bytes(&d), None);
+    }
+
+    #[test]
+    fn continuous_end_does_not_change_finite_validation() {
+        let mut p = M1_LOCAL_7D;
+        let finite_bytes = p.to_bytes();
+        assert_eq!(p.validate(), Ok(()));
+        p.end_bell = NO_END_BELL;
+        p.join_close_bell = NO_END_BELL;
+        assert_eq!(p.validate(), Err("join_close_bell/end_bell"));
+        assert_eq!(p.validate_world(true), Ok(()));
+        p.join_close_bell = 756;
+        assert_eq!(p.validate_world(true), Err("join_close_bell/end_bell"));
+        p.join_close_bell = 0;
+        assert_eq!(p.validate_world(true), Err("join_close_bell/end_bell"));
+        p.join_close_bell = 4_033;
+        assert_eq!(p.validate_world(true), Err("join_close_bell/end_bell"));
+        p.join_close_bell = 756;
+        p.end_bell = 1_008;
+        assert_eq!(p.to_bytes(), finite_bytes);
     }
 
     #[test]

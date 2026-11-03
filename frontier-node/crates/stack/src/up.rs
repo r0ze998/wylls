@@ -417,6 +417,7 @@ impl Stack {
     /// Checks everything that can be checked before a process starts.
     pub fn prepare(cfg: StackConfig) -> Result<Stack, Refusal> {
         let bad = Refusal::Bad;
+        cfg.check().map_err(bad)?;
         if cfg.mode == Mode::Realtime {
             return Err(Refusal::PendingOwner(
                 "Mode R needs Agave >= 4.0 (O-M1-12 item 4, not approved); Mode A is the exit run (I-25)".into(),
@@ -436,8 +437,11 @@ impl Stack {
         }
         if cfg.beacon == Beacon::Archive {
             let dir = run::resolve(&repo, cfg.archive_dir.as_deref().unwrap_or(Path::new("")));
-            let until =
-                cfg.g0 + setup::LEAD_SECS + cfg.play_secs() + cfg.drain_bells as i64 * 600 + 3_600;
+            let until = cfg.g0
+                + setup::LEAD_SECS
+                + cfg.play_secs()
+                + cfg.run_drain_bells() as i64 * 600
+                + 3_600;
             check_archive(&dir, cfg.g0, until)?;
         }
         let so = run::resolve(&repo, cfg.so_path());
@@ -1085,6 +1089,7 @@ async fn run_all(st: &mut Stack) -> Result<(), String> {
         setup::LandOverrides {
             ring_theta_bps: st.cfg.ring_theta_bps,
             r_max: st.cfg.r_max,
+            continuous: st.cfg.continuous,
         },
         st.prize.as_ref().map(|p| p.gate.pubkey().to_bytes()),
         st.cfg.season_end_bell(),
@@ -1111,9 +1116,10 @@ async fn run_all(st: &mut Stack) -> Result<(), String> {
     let end_bell = season["end_bell"].as_u64().unwrap_or(1_008) as i64;
     let bell_secs = season["bell_secs"].as_i64().unwrap_or(600);
     let play_end = genesis_ts + st.cfg.play_secs().min(end_bell * bell_secs);
-    let end = play_end + st.cfg.drain_bells as i64 * bell_secs;
+    let end = play_end + st.cfg.run_drain_bells() as i64 * bell_secs;
     st.state["play"] = json!({"genesis_ts": genesis_ts, "play_end": play_end, "end": end,
-        "play_bells": (play_end - genesis_ts) / bell_secs, "drain_bells": st.cfg.drain_bells});
+        "play_bells": (play_end - genesis_ts) / bell_secs,
+        "drain_bells": st.cfg.run_drain_bells()});
     // W6T-4: the archive against the actual genesis (setup may overrun the
     // planned LEAD_SECS: w6-s7 by 1,452 s), before anything else starts.
     if st.cfg.beacon == Beacon::Archive {
@@ -1126,10 +1132,10 @@ async fn run_all(st: &mut Stack) -> Result<(), String> {
             st.cfg.g0,
             genesis_ts,
             play_end,
-            st.cfg.drain_bells,
+            st.cfg.run_drain_bells(),
             bell_secs,
         );
-        let until = archive_until(genesis_ts, play_end, st.cfg.drain_bells, bell_secs);
+        let until = archive_until(genesis_ts, play_end, st.cfg.run_drain_bells(), bell_secs);
         match guard {
             Ok(r) => {
                 st.state["archive_guard"] = json!({"ok": true, "until": until, "last_round": r.last,
@@ -1144,8 +1150,9 @@ async fn run_all(st: &mut Stack) -> Result<(), String> {
         }
     }
     log_line(&format!(
-        "season {} created (genesis {genesis_ts}); play until {play_end}, drain until {end}",
-        st.cfg.season_id
+        "season {} created (genesis {genesis_ts}); play until {play_end}, run end {end}; world continues: {}",
+        st.cfg.season_id,
+        st.cfg.continuous
     ));
     // 4. Payers, keepers, relay.
     let funded = st.fund().await?;
@@ -1641,7 +1648,7 @@ async fn supervise(
             }
         }
         // EndSeason once the last bell is over.
-        if st.cfg.end_season && !end_season_sent {
+        if !st.cfg.continuous && st.cfg.end_season && !end_season_sent {
             let end_bell = st.state["season"]["end_bell"]
                 .as_i64()
                 .unwrap_or(i64::MAX / 2);
@@ -1691,7 +1698,8 @@ async fn supervise(
         // The drain runs at the drain's scale once the fleet is done (one
         // bell after play; latencies are judged over play only).
         let drain_scale = st.cfg.drain_scale();
-        if now >= play_end + bell_secs
+        if !st.cfg.continuous
+            && now >= play_end + bell_secs
             && (drain_scale - cur_scale).abs() > 1e-9
             && drain_scale_failures < 5
         {
@@ -1743,6 +1751,7 @@ async fn supervise(
             }
             let s = st.chain.status().await?;
             st.state["complete"] = json!({"slot": s.slot, "game": s.now, "paused": s.paused, "crashes": crashes,
+                "world_continues": st.cfg.continuous,
                 "wall_ms": run::wall_ms()});
             st.run.event(Some(s.now), "phase", json!("complete"));
             st.save("complete");

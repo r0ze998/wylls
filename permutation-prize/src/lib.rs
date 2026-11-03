@@ -440,7 +440,7 @@ fn init_pool(program: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         if key_at(&sd, S::AUTHORITY)? != *operator.key {
             return Err(E::NotOperator.into());
         }
-        season_ends(&sd)?;
+        season_ends(&sd, solana_program::clock::Clock::get()?.unix_timestamp)?;
         // A map that may grow past the bitmap could never be tallied whole.
         if u16_at(&sd, S::R_MAX)? > MAX_RING {
             return Err(E::BadParams.into());
@@ -944,16 +944,37 @@ pub fn process_instruction(program: &Pubkey, a: &[AccountInfo], data: &[u8]) -> 
     }
 }
 
-/// Refuse creating the old end-dependent pool for a continuous world. This
-/// does not change Pay, Tally, Finalize, Claim or Refund on existing pools.
-fn season_ends(sd: &[u8]) -> R<()> {
+/// Open an end-dependent pool only while a finite world is running.
+/// An Announced Season already has its final PDA but not its final parameters;
+/// Created and pre-genesis Seeded seasons can still be aborted. Opening a
+/// payable pool in any of those states could strand its fees.
+/// This does not change Pay, Tally, Finalize, Claim or Refund on existing pools.
+fn season_ends(sd: &[u8], now_ts: i64) -> R<()> {
     let at = frontier_abi::v2::presets::SEASON_CQ_OFFSET
         + frontier_abi::v2::presets::cq_layout::CONTINUOUS;
     match sd.get(at) {
-        Some(0) => Ok(()),
-        Some(1) => Err(E::ContinuousSeason.into()),
-        _ => Err(E::BadAccount.into()),
+        Some(0) => {}
+        Some(1) => return Err(E::ContinuousSeason.into()),
+        _ => return Err(E::BadAccount.into()),
     }
+    let status = *sd.get(S::STATUS).ok_or(E::BadAccount)?;
+    let genesis_ts = i64::from_le_bytes(rd(sd, S::GENESIS_TS)?);
+    if !matches!(status, S::STATUS_SEEDED | S::STATUS_RUNNING) || now_ts < genesis_ts {
+        return Err(E::WrongState.into());
+    }
+    let join_close_bell = u32_at(sd, S::JOIN_CLOSE_BELL)?;
+    let end_bell = u32_at(sd, S::END_BELL)?;
+    let bell_secs = u32_at(sd, S::BELL_SECS)?;
+    if join_close_bell >= end_bell || end_bell > 4_032 || bell_secs == 0 {
+        return Err(E::BadParams.into());
+    }
+    let end_ts = genesis_ts
+        .checked_add(i64::from(end_bell) * i64::from(bell_secs))
+        .ok_or(E::BadParams)?;
+    if now_ts >= end_ts {
+        return Err(E::WrongState.into());
+    }
+    Ok(())
 }
 
 #[cfg(not(feature = "no-entrypoint"))]
@@ -964,16 +985,42 @@ mod tests {
     use super::*;
 
     #[test]
-    fn continuous_world_refuses_old_pool_creation() {
+    fn old_pool_needs_a_running_finite_world() {
         let at = frontier_abi::v2::presets::SEASON_CQ_OFFSET
             + frontier_abi::v2::presets::cq_layout::CONTINUOUS;
         let mut season = vec![0u8; S::SIZE];
-        assert_eq!(season_ends(&season), Ok(()));
+        assert_eq!(season_ends(&season, 0), Err(E::WrongState.into()));
+        season[S::STATUS] = S::STATUS_CREATED;
+        assert_eq!(season_ends(&season, 0), Err(E::WrongState.into()));
+        season[S::STATUS] = S::STATUS_SEEDED;
+        season[S::GENESIS_TS..S::GENESIS_TS + 8].copy_from_slice(&10i64.to_le_bytes());
+        assert_eq!(season_ends(&season, 0), Err(E::WrongState.into()));
+        season[S::GENESIS_TS..S::GENESIS_TS + 8].copy_from_slice(&0i64.to_le_bytes());
+        assert_eq!(season_ends(&season, 0), Err(E::BadParams.into()));
+        season[S::JOIN_CLOSE_BELL..S::JOIN_CLOSE_BELL + 4].copy_from_slice(&324u32.to_le_bytes());
+        season[S::END_BELL..S::END_BELL + 4].copy_from_slice(&432u32.to_le_bytes());
+        season[S::BELL_SECS..S::BELL_SECS + 4].copy_from_slice(&600u32.to_le_bytes());
+        for status in [S::STATUS_SEEDED, S::STATUS_RUNNING] {
+            season[S::STATUS] = status;
+            assert_eq!(season_ends(&season, 0), Ok(()));
+        }
+        assert_eq!(season_ends(&season, 432 * 600), Err(E::WrongState.into()));
+        // A zero join deadline is legal for an already-created finite world.
+        season[S::JOIN_CLOSE_BELL..S::JOIN_CLOSE_BELL + 4].copy_from_slice(&0u32.to_le_bytes());
+        assert_eq!(season_ends(&season, 0), Ok(()));
         season[at] = 1;
-        assert_eq!(season_ends(&season), Err(E::ContinuousSeason.into()));
+        assert_eq!(season_ends(&season, 0), Err(E::ContinuousSeason.into()));
         season[at] = 2;
-        assert_eq!(season_ends(&season), Err(E::BadAccount.into()));
-        assert_eq!(season_ends(&season[..at]), Err(E::BadAccount.into()));
+        assert_eq!(season_ends(&season, 0), Err(E::BadAccount.into()));
+        assert_eq!(season_ends(&season[..at], 0), Err(E::BadAccount.into()));
+        season[at] = 0;
+        season[S::STATUS] = S::STATUS_ENDED;
+        assert_eq!(season_ends(&season, 0), Err(E::WrongState.into()));
+        season[S::STATUS] = 255;
+        assert_eq!(season_ends(&season, 0), Err(E::WrongState.into()));
+        season[S::STATUS] = S::STATUS_RUNNING;
+        season[S::END_BELL..S::END_BELL + 4].copy_from_slice(&u32::MAX.to_le_bytes());
+        assert_eq!(season_ends(&season, 0), Err(E::BadParams.into()));
     }
 
     #[test]

@@ -24,6 +24,9 @@ fn string(v: &Value, k: &str) -> Result<String, String> {
         .ok_or_else(|| format!("missing saved {k}"))
 }
 fn specs(rd: &RunDir, state: &Value) -> Result<BTreeMap<String, Spec>, String> {
+    if state["config"]["continuous"] == true {
+        return Err("resume of continuous worlds is not supported until saved bots and the chain flag are verified".into());
+    }
     if state["config"]["conquest"] != true || state["config"]["bots"].as_u64() != Some(0) {
         return Err("resume is for persisted human CQ worlds with bots=0".into());
     }
@@ -246,6 +249,12 @@ mod tests {
     #[test]
     fn resume_refuses_nonhuman_and_incomplete_worlds() {
         let rd = RunDir::new(std::path::Path::new("/definitely/no/world"), "test");
+        assert!(specs(
+            &rd,
+            &json!({"config":{"continuous":true,"conquest":true,"bots":0}})
+        )
+        .unwrap_err()
+        .contains("continuous"));
         assert!(specs(&rd, &json!({"config":{"conquest":false,"bots":0}}))
             .unwrap_err()
             .contains("human"));
