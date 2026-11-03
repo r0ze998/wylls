@@ -206,11 +206,18 @@ async fn reveal(State(st): State<ApiState>, h: HeaderMap, Json(v): Json<Value>) 
             salt: req.salt.to_vec(),
             ct_hash: req.ct_hash.to_vec(),
         };
-        if let Err(e) =
-            crate::journal::Journal::open(path).and_then(|j| j.save_owner_material(&row))
+        if crate::journal::Journal::open(path)
+            .and_then(|j| j.save_owner_material(&row))
+            .is_err()
         {
             s.next_track -= 1;
-            return err(StatusCode::SERVICE_UNAVAILABLE, "JournalUnavailable", &e);
+            // Journal errors can include local filesystem paths. Refuse the
+            // request without exposing those details to the API caller.
+            return err(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "JournalUnavailable",
+                "owner material could not be stored",
+            );
         }
     }
     s.tracks.insert(id.clone(), json!({"state": "queued"}));
@@ -467,6 +474,62 @@ mod tests {
             call(a, "GET", "/v1/track/nope", Some(&tok), None).await.0,
             404
         );
+        r.stop();
+    }
+
+    #[tokio::test]
+    async fn journal_failure_refuses_without_leaking_or_queueing() {
+        let shared: Arc<Mutex<Shared>> = Default::default();
+        let tok = "t".repeat(32);
+        // An existing directory cannot be opened as the SQLite journal file.
+        let journal_dir = std::env::temp_dir();
+        let r = serve_full(
+            "127.0.0.1:0".parse().unwrap(),
+            shared.clone(),
+            tok.clone(),
+            None,
+            Some(journal_dir.clone()),
+        )
+        .await
+        .unwrap();
+        let p = fclient::seal::Plain {
+            version: 1,
+            host_id: 42,
+            arrive_bell: 9,
+            stance: 1,
+            ..Default::default()
+        };
+        let body = json!({
+            "holding": solana_address::Address::new_from_array([3; 32]).to_string(),
+            "transit_slot": 1,
+            "plain_b64": B64.encode(fclient::seal::pack(&p)),
+            "salt_b64": B64.encode([1u8; 32]),
+            "ct_hash_b64": B64.encode([2u8; 32]),
+        });
+
+        // Repeating the same request must not turn a failed write into a
+        // deduplicated 202 or leave an in-memory track behind.
+        for _ in 0..2 {
+            let (status, response) =
+                call(r.addr, "POST", "/v1/reveal", Some(&tok), Some(body.clone())).await;
+            assert_eq!(status, 503);
+            assert_eq!(
+                response,
+                json!({
+                    "error": "JournalUnavailable",
+                    "code": "JournalUnavailable",
+                    "detail": "owner material could not be stored",
+                })
+            );
+            assert!(!response
+                .to_string()
+                .contains(&journal_dir.to_string_lossy().to_string()));
+            let state = lock(&shared);
+            assert_eq!(state.next_track, 0);
+            assert!(state.reveals.is_empty());
+            assert!(state.reveal_keys.is_empty());
+            assert!(state.tracks.is_empty());
+        }
         r.stop();
     }
 
