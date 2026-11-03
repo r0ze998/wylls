@@ -253,6 +253,10 @@ impl Source for RpcPoll {
         })
     }
     fn restore(&mut self, v: &Value) {
+        // Only what the cursor names is known to be archived: signatures
+        // seen since (pulled but not saved) must be fetched again.
+        self.seen.clear();
+        self.seen_order.clear();
         self.last = v
             .get("rpc_last")
             .and_then(|x| x.as_str())

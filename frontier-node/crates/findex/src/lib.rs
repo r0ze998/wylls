@@ -59,6 +59,11 @@ pub struct Findex {
     pub dir: PathBuf,
     pub archive: Archive,
     pub index: Index,
+    /// Set by a failed save: the source had already moved past what could
+    /// not be archived (or indexed), so pulling on would skip it. Every
+    /// later ingest fails until the store is reopened, which resumes from
+    /// the durable cursor and lets the index catch up from the archive.
+    stopped: Option<String>,
 }
 
 impl Findex {
@@ -104,6 +109,7 @@ impl Findex {
             dir: dir.into(),
             archive,
             index,
+            stopped: None,
         })
     }
 
@@ -120,18 +126,37 @@ impl Findex {
         src.restore(self.archive.cursor());
     }
 
-    /// One pull: archive, then index. Returns the archived records.
+    /// One pull: archive, then index. Returns the archived records. After
+    /// a failed save every call fails (see [`Findex::stopped`]).
     pub async fn ingest<S: Source>(&mut self, src: &mut S) -> Result<Vec<TxRecord>, IngestError> {
+        if let Some(why) = &self.stopped {
+            return Err(IngestError::Store(why.clone()));
+        }
         let got = src.pull().await.map_err(IngestError::Port)?;
         if got.is_empty() {
             return Ok(vec![]);
         }
-        let stored = self
-            .archive
-            .append(&got, src.cursor())
-            .map_err(|e| IngestError::Store(e.to_string()))?;
-        self.index.add(&stored).map_err(IngestError::Store)?;
+        let stored = match self.archive.append(&got, src.cursor()) {
+            Ok(stored) => stored,
+            Err(e) => return Err(self.stop("archive", e.to_string())),
+        };
+        if let Err(e) = self.index.add(&stored) {
+            return Err(self.stop("index", e));
+        }
         Ok(stored)
+    }
+
+    /// Why ingest is stopped, if a save failed.
+    pub fn stopped(&self) -> Option<&str> {
+        self.stopped.as_deref()
+    }
+
+    fn stop(&mut self, what: &str, e: String) -> IngestError {
+        let why = format!(
+            "{what} save failed ({e}); stopped: reopen the store to resume from its durable cursor"
+        );
+        self.stopped = Some(why.clone());
+        IngestError::Store(why)
     }
 }
 
