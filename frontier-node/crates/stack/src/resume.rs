@@ -5,7 +5,7 @@ use crate::{
     run::{self, RunDir},
     up,
 };
-use fclient::{addr::Addresses, decode::Season, Address, Keypair, Signer};
+use fclient::{addr::Addresses, decode::Season, ports::Account, Address, Keypair, Signer};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, path::PathBuf, time::Duration};
@@ -136,6 +136,47 @@ fn check_saved_chain(
         || saved_u64(&state["season"]["end_bell"], "end bell")? != u64::from(chain.end_bell)
     {
         return Err("saved and on-chain Season parameters disagree".into());
+    }
+    Ok(())
+}
+
+/// The localnet records a LoaderV3 Program as tag 2 + its derived
+/// ProgramData address, and ProgramData as a 45-byte header followed by
+/// the exact deployed ELF and zero padding to max_len. Refuse any unknown
+/// layout or nonzero padding instead of guessing the executable length.
+fn check_loader_program(
+    program: Address,
+    pd_address: Address,
+    expected_authority: Address,
+    program_account: &Account,
+    pd_account: &Account,
+    saved_so: &[u8],
+) -> Result<(), String> {
+    let bad = || "saved .so and on-chain LoaderV3 ProgramData disagree".to_string();
+    let loader = fclient::addr::address(fclient::abi::LOADER_V3);
+    let expected_pd = fclient::addr::programdata(&program);
+    if pd_address != expected_pd
+        || program_account.owner != loader
+        || !program_account.executable
+        || program_account.data.len() != 36
+        || program_account.data[..4] != [2, 0, 0, 0]
+        || program_account.data[4..36] != expected_pd.as_ref()[..]
+        || pd_account.owner != loader
+        || pd_account.executable
+        || pd_account.data.len() < 45
+        || pd_account.data[..4] != [3, 0, 0, 0]
+        || saved_so.get(..6) != Some(b"\x7fELF\x02\x01".as_slice())
+    {
+        return Err(bad());
+    }
+    if pd_account.data[12] != 1 || pd_account.data[13..45] != expected_authority.as_ref()[..] {
+        return Err(bad());
+    }
+    let end = 45usize.checked_add(saved_so.len()).ok_or_else(bad)?;
+    if pd_account.data.get(45..end) != Some(saved_so)
+        || !pd_account.data[end..].iter().all(|b| *b == 0)
+    {
+        return Err(bad());
     }
     Ok(())
 }
@@ -273,6 +314,29 @@ async fn run(
                 .map_err(|e| format!("persisted Season cannot be decoded: {e:?}"))?;
             let stamp = ChainSeasonStamp::from_season(&season_account)?;
             check_saved_chain(state, stamp, season, authority.pubkey())?;
+            let saved_so = std::fs::read(string(&state["so"], "path")?)
+                .map_err(|e| format!("saved program: {e}"))?;
+            if hex::encode(Sha256::digest(&saved_so)) != string(&state["so"], "sha256")? {
+                return Err("saved program changed before ProgramData check".into());
+            }
+            let pd_address = fclient::addr::programdata(&program);
+            let mut deployed = chain.accounts(&[program, pd_address]).await?.into_iter();
+            let program_account = deployed
+                .next()
+                .flatten()
+                .ok_or("deployed program account is missing")?;
+            let pd_account = deployed
+                .next()
+                .flatten()
+                .ok_or("deployed ProgramData account is missing")?;
+            check_loader_program(
+                program,
+                pd_address,
+                authority.pubkey(),
+                &program_account,
+                &pd_account,
+                &saved_so,
+            )?;
             checked_season = Some(season_account);
         }
         save(rd, state, procs, "resuming");
@@ -373,6 +437,75 @@ pub async fn resume(rd: &RunDir, start_paused: bool) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn loader_program_preflight_checks_exact_elf_and_zero_padding() {
+        let program = Address::new_from_array([7; 32]);
+        let pd_address = fclient::addr::programdata(&program);
+        let authority = Address::new_from_array([5; 32]);
+        let loader = fclient::addr::address(fclient::abi::LOADER_V3);
+        let so = [b"\x7fELF\x02\x01".as_slice(), &[4; 58]].concat();
+        let mut program_data = vec![0; 36];
+        program_data[..4].copy_from_slice(&2u32.to_le_bytes());
+        program_data[4..36].copy_from_slice(pd_address.as_ref());
+        let program_account = Account {
+            lamports: 1,
+            data: program_data,
+            owner: loader,
+            executable: true,
+        };
+        let mut pd_data = vec![0; 45 + so.len() + 16];
+        pd_data[..4].copy_from_slice(&3u32.to_le_bytes());
+        pd_data[4..12].copy_from_slice(&42u64.to_le_bytes());
+        pd_data[12] = 1;
+        pd_data[13..45].copy_from_slice(authority.as_ref());
+        pd_data[45..45 + so.len()].copy_from_slice(&so);
+        let pd_account = Account {
+            lamports: 1,
+            data: pd_data,
+            owner: loader,
+            executable: false,
+        };
+        let check = |pa: &Account, pd: &Account| {
+            check_loader_program(program, pd_address, authority, pa, pd, &so)
+        };
+        assert!(check(&program_account, &pd_account).is_ok());
+
+        let mut wrong = program_account.clone();
+        wrong.data[4] ^= 1;
+        assert!(check(&wrong, &pd_account).is_err());
+        let mut wrong = program_account.clone();
+        wrong.executable = false;
+        assert!(check(&wrong, &pd_account).is_err());
+        let mut wrong = pd_account.clone();
+        wrong.data[0] = 9;
+        assert!(check(&program_account, &wrong).is_err());
+        let mut wrong = pd_account.clone();
+        wrong.data[45] ^= 1;
+        assert!(check(&program_account, &wrong).is_err());
+        let mut wrong = pd_account.clone();
+        wrong.data[45 + so.len()] = 1;
+        assert!(check(&program_account, &wrong).is_err());
+        let mut wrong = pd_account.clone();
+        wrong.data[12] = 2;
+        assert!(check(&program_account, &wrong).is_err());
+        let mut wrong = pd_account.clone();
+        wrong.data[12] = 0;
+        wrong.data[13..45].fill(0);
+        assert!(check(&program_account, &wrong).is_err());
+        let mut wrong = pd_account.clone();
+        wrong.data[13] ^= 1;
+        assert!(check(&program_account, &wrong).is_err());
+        assert!(check_loader_program(
+            program,
+            Address::new_from_array([8; 32]),
+            authority,
+            &program_account,
+            &pd_account,
+            &so
+        )
+        .is_err());
+    }
 
     #[test]
     fn saved_season_preflight_refuses_mode_identity_and_old_state_mismatch() {
