@@ -223,6 +223,11 @@ struct Pending {
     /// Versions whose status is known (failed ones stay in `versions` for
     /// the spend bound).
     settled: std::collections::HashSet<Signature>,
+    /// A terminal refusal is provisional while another signed version can
+    /// still land. No new version is sent until that cohort is resolved.
+    /// This is in-memory only; restart needs a durable cohort and outcome
+    /// delivery record before it can recover the same duty notification.
+    provisional: Option<Outcome>,
     cu_limit: u32,
     heap: Option<u32>,
     contested: bool,
@@ -428,6 +433,7 @@ impl Engine {
                 first_slot: adopted.first().map(|v| v.sent_slot),
                 versions: adopted,
                 settled: Default::default(),
+                provisional: None,
                 cu_limit: b.cu_limit,
                 heap: None,
                 contested: false,
@@ -721,11 +727,32 @@ impl Engine {
             if let Some(p) = self.pending.get_mut(k) {
                 p.settled.insert(v.sig);
             }
-            if ended.iter().any(|(e, _)| e == k) {
-                self.charge_fee(v.sig);
-                if let Some(j) = journal {
-                    let s = if st.err.is_none() { "landed" } else { "failed" };
-                    let _ = j.set_status(&v.sig.to_string(), s, Some(st.slot), st.code);
+            if let Some((_, previous)) = ended.iter_mut().find(|(e, _)| e == k) {
+                // Statuses for siblings can arrive in either order in one
+                // RPC reply. A definitive success wins over an earlier
+                // failure of another version of the same write.
+                let success = st.err.is_none()
+                    || st.code.is_some_and(|code| {
+                        self.pending
+                            .get(k)
+                            .is_some_and(|p| err::is_done(p.spec.tag, code))
+                    });
+                if success && !matches!(previous, Outcome::Landed { .. }) {
+                    if let Some(landed) = self.classify(k, st, v, journal, &mut report) {
+                        *previous = landed;
+                    }
+                } else {
+                    self.charge_fee(v.sig);
+                    if let Some(j) = journal {
+                        let s = if st.err.is_none() {
+                            "landed"
+                        } else if success {
+                            "done"
+                        } else {
+                            "failed"
+                        };
+                        let _ = j.set_status(&v.sig.to_string(), s, Some(st.slot), st.code);
+                    }
                 }
                 continue;
             }
@@ -733,7 +760,39 @@ impl Engine {
                 ended.push((k.clone(), o));
             }
         }
+        let mut finished = Vec::new();
         for (k, o) in ended {
+            let Some(p) = self.pending.get_mut(&k) else {
+                continue;
+            };
+            if matches!(o, Outcome::Landed { .. }) {
+                finished.push((k, o));
+            } else {
+                // A failed variant does not prove the write failed while a
+                // sibling is still unknown. Keep duty state intact so a
+                // later success can be delivered exactly once.
+                if p.provisional.is_none() {
+                    p.provisional = Some(o);
+                }
+                if p.versions.iter().all(|v| p.settled.contains(&v.sig)) {
+                    finished.push((k, p.provisional.take().expect("provisional outcome")));
+                }
+            }
+        }
+        // A provisional write may finish on a status that does not produce
+        // a new terminal outcome (for example a CU-ladder failure).
+        for (k, p) in &mut self.pending {
+            if p.provisional.is_some()
+                && p.versions.iter().all(|v| p.settled.contains(&v.sig))
+                && !finished.iter().any(|(done, _)| done == k)
+            {
+                finished.push((
+                    k.clone(),
+                    p.provisional.take().expect("provisional outcome"),
+                ));
+            }
+        }
+        for (k, o) in finished {
             if let Some(p) = self.pending.remove(&k) {
                 let s = self.stats.entry(p.spec.kind.into()).or_default();
                 match &o {
@@ -854,6 +913,9 @@ impl Engine {
             let Some(p) = self.pending.get(&k) else {
                 continue;
             };
+            if p.provisional.is_some() {
+                continue;
+            }
             if slot < p.spec.not_before_slot
                 || p.versions.last().is_some_and(|v| v.sent_slot >= slot)
             {
@@ -866,8 +928,21 @@ impl Engine {
                 continue;
             }
             if p.spec.deadline_slot.is_some_and(|d| slot >= d) {
+                if p.versions.iter().any(|v| !p.settled.contains(&v.sig)) {
+                    self.pending.get_mut(&k).expect("pending").provisional = Some(Outcome::Dead {
+                        reason: "deadline".into(),
+                        code: None,
+                    });
+                    report.outcomes.push((
+                        k,
+                        Outcome::Unresolved {
+                            err: "deadline passed with an unknown signature".into(),
+                            slot,
+                        },
+                    ));
+                    continue;
+                }
                 let p = self.pending.remove(&k).expect("pending");
-                self.hold_unsettled(&k, &p);
                 self.stats.entry(p.spec.kind.into()).or_default().dead += 1;
                 report.outcomes.push((
                     k,
@@ -895,36 +970,42 @@ impl Engine {
                         .saturating_add(fees::LAMPORTS_PER_SIGNATURE)
                         > self.params.per_write_cap)
             {
-                let p = self.pending.remove(&k).expect("pending");
-                let unknown = self.hold_unsettled(&k, &p);
-                if !unknown {
-                    self.stats.entry(p.spec.kind.into()).or_default().failed += 1;
-                    let n = self.failures.entry(k.clone()).or_default();
-                    *n = n.saturating_add(1);
-                    let wait = BACKOFF_SLOTS << (*n - 1).min(9);
-                    self.backoff.insert(k.clone(), slot + wait);
-                }
                 let err = format!(
                     "{} versions unresolved after retry window (cap {} versions, {} lamports)",
                     p.versions.len(),
                     self.params.max_versions,
                     self.params.per_write_cap
                 );
+                let unknown = p.versions.iter().any(|v| !p.settled.contains(&v.sig));
                 if let Some(j) = journal {
                     // Keep the existing alert code consumed by itest/operator
                     // checks; its detail now says what is actually known.
                     let _ = j.alert(slot, "write-expired", &format!("{k}: {err}"));
                 }
-                let outcome = if !unknown {
-                    Outcome::Failed {
-                        code: None,
-                        err,
-                        slot,
-                    }
+                if unknown {
+                    self.pending.get_mut(&k).expect("pending").provisional =
+                        Some(Outcome::Failed {
+                            code: None,
+                            err: err.clone(),
+                            slot,
+                        });
+                    report.outcomes.push((k, Outcome::Unresolved { err, slot }));
                 } else {
-                    Outcome::Unresolved { err, slot }
-                };
-                report.outcomes.push((k, outcome));
+                    let p = self.pending.remove(&k).expect("pending");
+                    self.stats.entry(p.spec.kind.into()).or_default().failed += 1;
+                    let n = self.failures.entry(k.clone()).or_default();
+                    *n = n.saturating_add(1);
+                    let wait = BACKOFF_SLOTS << (*n - 1).min(9);
+                    self.backoff.insert(k.clone(), slot + wait);
+                    report.outcomes.push((
+                        k,
+                        Outcome::Failed {
+                            code: None,
+                            err,
+                            slot,
+                        },
+                    ));
+                }
                 continue;
             }
             // One version per chain slot: a W write whose last version went
@@ -1531,6 +1612,234 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn same_batch_success_wins_regardless_of_sibling_status_order() {
+        for success_first in [false, true] {
+            let port = Script::default();
+            let mut payers = payers();
+            payers.refresh(&port, 0).await.unwrap();
+            let journal = Journal::open(std::path::Path::new(":memory:")).unwrap();
+            let mut engine = Engine::new(Budgets::placeholder(), EngineParams::default());
+            assert!(engine.ensure(spec("race", Class::D, abi::tag::POST_SEED), 10));
+            assert_eq!(
+                engine
+                    .step(&port, &mut payers, Some(&journal), 10)
+                    .await
+                    .sent,
+                1
+            );
+            assert_eq!(
+                engine
+                    .step(&port, &mut payers, Some(&journal), 12)
+                    .await
+                    .sent,
+                1
+            );
+            let versions = engine.pending["race"].versions.clone();
+            let success_sig = versions[usize::from(!success_first)].sig;
+            for (i, version) in versions.iter().enumerate() {
+                let success = i == usize::from(!success_first);
+                port.statuses.lock().unwrap().insert(
+                    version.sig,
+                    Status {
+                        slot: 13,
+                        err: (!success).then(|| "program rejected".into()),
+                        code: (!success).then_some(8),
+                    },
+                );
+            }
+            let result = engine.poll(&port, Some(&journal), 13).await;
+            assert!(matches!(
+                result.outcomes.as_slice(),
+                [(key, Outcome::Landed { sig, .. })] if key == "race" && *sig == success_sig
+            ));
+            assert_eq!(engine.stats["test"].landed, 1);
+            assert_eq!(engine.stats["test"].failed, 0);
+            assert_eq!(
+                engine.stats["test"].fees_charged,
+                versions.iter().map(|v| v.fee).sum::<u64>()
+            );
+            assert!(journal.in_flight().unwrap().is_empty());
+        }
+    }
+
+    #[tokio::test]
+    async fn same_batch_already_done_sibling_is_recorded_as_done_once() {
+        let port = Script::default();
+        let mut payers = payers();
+        payers.refresh(&port, 0).await.unwrap();
+        let journal = Journal::open(std::path::Path::new(":memory:")).unwrap();
+        let mut engine = Engine::new(Budgets::placeholder(), EngineParams::default());
+        assert!(engine.ensure(spec("done-pair", Class::D, abi::tag::POST_SEED), 10));
+        assert_eq!(
+            engine
+                .step(&port, &mut payers, Some(&journal), 10)
+                .await
+                .sent,
+            1
+        );
+        assert_eq!(
+            engine
+                .step(&port, &mut payers, Some(&journal), 12)
+                .await
+                .sent,
+            1
+        );
+        let versions = engine.pending["done-pair"].versions.clone();
+        port.statuses.lock().unwrap().insert(
+            versions[0].sig,
+            Status {
+                slot: 13,
+                err: None,
+                code: None,
+            },
+        );
+        port.statuses.lock().unwrap().insert(
+            versions[1].sig,
+            Status {
+                slot: 13,
+                err: Some("AlreadyDone".into()),
+                code: Some(err::ALREADY_DONE),
+            },
+        );
+        let result = engine.poll(&port, Some(&journal), 13).await;
+        assert!(
+            matches!(result.outcomes.as_slice(), [(key, Outcome::Landed { .. })]
+            if key == "done-pair")
+        );
+        assert_eq!(engine.stats["test"].landed, 1);
+        let attempts = journal.attempts_of("done-pair").unwrap();
+        assert_eq!(
+            attempts
+                .iter()
+                .map(|a| a.status.as_str())
+                .collect::<Vec<_>>(),
+            vec!["landed", "done"]
+        );
+    }
+
+    #[tokio::test]
+    async fn failed_variant_waits_for_late_sibling_success_before_notifying_duty() {
+        let port = Script::default();
+        let mut payers = payers();
+        payers.refresh(&port, 0).await.unwrap();
+        let journal = Journal::open(std::path::Path::new(":memory:")).unwrap();
+        let mut engine = Engine::new(Budgets::placeholder(), EngineParams::default());
+        assert!(engine.ensure(spec("late", Class::D, abi::tag::POST_SEED), 10));
+        assert_eq!(
+            engine
+                .step(&port, &mut payers, Some(&journal), 10)
+                .await
+                .sent,
+            1
+        );
+        assert_eq!(
+            engine
+                .step(&port, &mut payers, Some(&journal), 12)
+                .await
+                .sent,
+            1
+        );
+        let versions = engine.pending["late"].versions.clone();
+        port.statuses.lock().unwrap().insert(
+            versions[0].sig,
+            Status {
+                slot: 13,
+                err: Some("rejected".into()),
+                code: Some(8),
+            },
+        );
+        let first = engine.poll(&port, Some(&journal), 13).await;
+        assert!(first.outcomes.is_empty(), "failure remains provisional");
+        assert!(engine.is_pending("late"));
+        assert!(!engine.ensure(spec("late", Class::D, abi::tag::POST_SEED), 15));
+        assert_eq!(
+            engine
+                .step(&port, &mut payers, Some(&journal), 15)
+                .await
+                .sent,
+            0
+        );
+
+        port.statuses.lock().unwrap().insert(
+            versions[1].sig,
+            Status {
+                slot: 16,
+                err: None,
+                code: None,
+            },
+        );
+        let late = engine.poll(&port, Some(&journal), 16).await;
+        assert!(
+            matches!(late.outcomes.as_slice(), [(key, Outcome::Landed { sig, .. })]
+            if key == "late" && *sig == versions[1].sig)
+        );
+        assert!(engine
+            .poll(&port, Some(&journal), 17)
+            .await
+            .outcomes
+            .is_empty());
+        assert_eq!(engine.stats["test"].landed, 1);
+        assert_eq!(engine.stats["test"].failed, 0);
+        assert_eq!(
+            engine.stats["test"].fees_charged,
+            versions.iter().map(|v| v.fee).sum::<u64>()
+        );
+        assert!(journal.in_flight().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn deadline_and_retry_cap_wait_for_possible_late_success() {
+        for deadline_case in [true, false] {
+            let port = Script::default();
+            let mut payers = payers();
+            payers.refresh(&port, 0).await.unwrap();
+            let mut params = EngineParams::default();
+            if !deadline_case {
+                params.max_versions = 1;
+            }
+            let mut engine = Engine::new(Budgets::placeholder(), params);
+            let mut write = spec("window", Class::D, abi::tag::POST_SEED);
+            if deadline_case {
+                write.deadline_slot = Some(12);
+            }
+            assert!(engine.ensure(write, 10));
+            assert_eq!(engine.step(&port, &mut payers, None, 10).await.sent, 1);
+            let sig = engine.pending["window"].versions[0].sig;
+            let stop = if deadline_case {
+                12
+            } else {
+                10 + EXPIRY_SLOTS + 1
+            };
+            let stopped = engine.step(&port, &mut payers, None, stop).await;
+            assert!(
+                matches!(stopped.outcomes.as_slice(), [(key, Outcome::Unresolved { .. })]
+                if key == "window")
+            );
+            assert!(engine.is_pending("window"));
+            assert_eq!(
+                engine.step(&port, &mut payers, None, stop + 1).await.sent,
+                0
+            );
+            port.statuses.lock().unwrap().insert(
+                sig,
+                Status {
+                    slot: stop + 2,
+                    err: None,
+                    code: None,
+                },
+            );
+            let result = engine.poll(&port, None, stop + 2).await;
+            assert!(
+                matches!(result.outcomes.as_slice(), [(key, Outcome::Landed { .. })]
+                if key == "window")
+            );
+            assert_eq!(engine.stats["test"].landed, 1);
+            assert_eq!(engine.stats["test"].failed, 0);
+            assert_eq!(engine.stats["test"].dead, 0);
+        }
+    }
+
+    #[tokio::test]
     async fn late_orphan_and_cancelled_write_fees_are_charged_once() {
         let port = Script::default();
         let mut payers = payers();
@@ -1648,9 +1957,7 @@ mod tests {
             },
         );
         let outcome = engine.poll(&port, Some(&journal), 13).await;
-        assert!(
-            matches!(outcome.outcomes.as_slice(), [(key, Outcome::Failed { .. })] if key == "same")
-        );
+        assert!(outcome.outcomes.is_empty(), "failure remains provisional");
         assert_eq!(journal.in_flight().unwrap().len(), 1);
         assert!(!engine.ensure(spec("same", Class::D, abi::tag::POST_SEED), 15));
         let mut other = spec("other", Class::D, abi::tag::POST_SEED);
@@ -1678,12 +1985,17 @@ mod tests {
                 code: Some(8),
             },
         );
-        engine.poll(&port, Some(&journal), 16).await;
+        let final_result = engine.poll(&port, Some(&journal), 16).await;
+        assert!(
+            matches!(final_result.outcomes.as_slice(), [(key, Outcome::Failed { .. })]
+            if key == "same")
+        );
         assert_eq!(
             engine.stats["test"].fees_charged,
             versions[0].fee + versions[1].fee
         );
-        assert!(engine.ensure(spec("same", Class::D, abi::tag::POST_SEED), 16));
+        assert!(!engine.ensure(spec("same", Class::D, abi::tag::POST_SEED), 16));
+        assert!(engine.ensure(spec("same", Class::D, abi::tag::POST_SEED), 18));
     }
 
     #[tokio::test]
@@ -1705,7 +2017,8 @@ mod tests {
         let late = engine.pending["deadline"].versions[0].sig;
         let result = engine.step(&port, &mut payers, None, 12).await;
         assert!(
-            matches!(result.outcomes.as_slice(), [(key, Outcome::Dead { .. })] if key == "deadline")
+            matches!(result.outcomes.as_slice(), [(key, Outcome::Unresolved { .. })]
+            if key == "deadline")
         );
         assert!(!engine.ensure(spec("deadline", Class::D, abi::tag::POST_SEED), 13));
 
@@ -1721,7 +2034,11 @@ mod tests {
             );
         }
         drop(statuses);
-        engine.poll(&port, None, 14).await;
+        let settled = engine.poll(&port, None, 14).await;
+        assert!(
+            matches!(settled.outcomes.as_slice(), [(key, Outcome::Dead { .. })]
+            if key == "deadline")
+        );
         assert!(engine.ensure(spec("cancel", Class::D, abi::tag::POST_SEED), 14));
         assert!(engine.ensure(spec("deadline", Class::D, abi::tag::POST_SEED), 14));
     }
@@ -1777,7 +2094,10 @@ mod tests {
             report.outcomes.as_slice(),
             [(key, Outcome::Unresolved { .. })] if key == "old"
         ));
-        assert!(after.held_replans.contains_key("old"));
+        assert!(
+            after.is_pending("old"),
+            "the sealed write retains its budget"
+        );
         assert!(!after.ensure(spec("old", Class::D, abi::tag::POST_SEED), late + 1));
         assert!(after.ensure(spec("other", Class::D, abi::tag::POST_SEED), late + 1));
         assert_eq!(journal.in_flight().unwrap().len(), 1);
@@ -2101,8 +2421,8 @@ mod tests {
         );
     }
 
-    /// A write held past its version cap leaves the pending queue, but an
-    /// unknown old signature must keep its fee budget from being reset.
+    /// A write held past its version cap stays sealed in the pending queue;
+    /// an unknown old signature must keep its fee budget from being reset.
     /// Once all old outcomes become known, the key may re-plan.
     #[tokio::test]
     async fn capped_write_whose_versions_expired_ends_and_restarts() {
@@ -2135,12 +2455,12 @@ mod tests {
         assert_eq!(end_slot, 4 + EXPIRY_SLOTS + 1, "retry window ends");
         assert!(matches!(ended, Some(Outcome::Unresolved { .. })));
         assert_eq!(e.stats["test"].failed, 0);
-        assert!(!e.is_pending("a"));
+        assert!(e.is_pending("a"));
         assert!(
             !e.ensure(spec("a", Class::D, abi::tag::POST_ANCHOR), end_slot),
             "unresolved old signatures hold this key"
         );
-        assert!(e.held_replans.contains_key("a"));
+        assert!(e.pending["a"].provisional.is_some());
         assert!(
             !e.ensure(spec("a", Class::D, abi::tag::POST_ANCHOR), end_slot + 2),
             "unknown old versions must not reset the fee cap"
@@ -2157,8 +2477,12 @@ mod tests {
                 },
             );
         }
-        e.poll(&port, Some(&j), end_slot + 2).await;
-        assert!(!e.held_replans.contains_key("a"));
+        let final_result = e.poll(&port, Some(&j), end_slot + 2).await;
+        assert!(
+            matches!(final_result.outcomes.as_slice(), [(key, Outcome::Failed { .. })]
+            if key == "a")
+        );
+        assert!(!e.is_pending("a"));
         assert!(j.in_flight().unwrap().is_empty());
         assert_eq!(
             e.stats["test"].fees_charged,
@@ -2172,9 +2496,9 @@ mod tests {
                 code: None,
             })
         });
-        assert!(e.ensure(spec("a", Class::D, abi::tag::POST_ANCHOR), end_slot + 2));
+        assert!(e.ensure(spec("a", Class::D, abi::tag::POST_ANCHOR), end_slot + 4));
         let mut landed = false;
-        for s in end_slot + 2..end_slot + 6 {
+        for s in end_slot + 4..end_slot + 8 {
             for (_, o) in e.step(&port, &mut payers, Some(&j), s).await.outcomes {
                 landed |= matches!(o, Outcome::Landed { versions: 1, .. });
             }
