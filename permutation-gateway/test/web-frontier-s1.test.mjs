@@ -130,7 +130,8 @@ const code = fn => { try { fn(); return null; } catch (e) { return e.code; } };
 
 test('the caravans feed is read as herald/src/caravan.rs writes it', () => {
   const c = parseCaravans(JSON.stringify(CARAVANS));
-  assert.deepEqual(c, { ...CARAVANS, moving: [{ ...CARAVANS.moving[0], provinces: [{ p: 3, q: 0 }, { p: 4, q: 0 }] }], vaults: CARAVANS.vaults.map(v => ({ ...v, ownerCitizen: null })) });
+  // ⑯ P3: a holder (a take's raider) and the send's wear are read when the herald writes them, null from an older herald
+  assert.deepEqual(c, { ...CARAVANS, moving: [{ ...CARAVANS.moving[0], provinces: [{ p: 3, q: 0 }, { p: 4, q: 0 }], holderTag: null, wornBps: null }], vaults: CARAVANS.vaults.map(v => ({ ...v, ownerCitizen: null })) });
   // once the herald read the vault's bytes: its stores and cap (whole units) and its owner's address
   const read = clone(CARAVANS);
   Object.assign(read.vaults[0], { stores: [0, 100, 0, 0, 0, 5, 0, 0], cap: 5000, ownerCitizen: '11111111111111111111111111111112' });
