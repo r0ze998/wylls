@@ -117,3 +117,18 @@ test('a lost book: keepers reveal; the book stays bounded', () => {
   assert.equal(book.length, mb.MAX_ENTRIES);
   assert.equal(book.at(-1).arriveBell, 999);
 });
+
+test('self-reveal never before T(arrive) is published (⑱): notBefore holds the material in the browser', () => {
+  const start = 1_800_060_000, tPub = start + 600 + 1 + mb.REVEAL_PUBLISH_MARGIN;
+  let e = { ...mb.entryOf(sealed(), () => 0.5), state: 'landed' };
+  const d = e.revealDelay;
+  for (const now of [start, start + d, start + 300, tPub - 1, tPub + d - 1]) {
+    assert.deepEqual(mb.revealStep(e, { now, bellStart: start, notBefore: tPub }), { action: 'wait', at: tPub + d }, `now ${now}`);
+  }
+  assert.deepEqual(mb.revealStep(e, { now: tPub + d, bellStart: start, notBefore: tPub }), { action: 'send' });
+  // The retry keeps the same floor and its 60 s.
+  const book = mb.recordAttempt([e], e, { t: tPub + d, route: 'self', result: 'accepted' });
+  assert.deepEqual(mb.revealStep(book[0], { now: tPub + d + 59, bellStart: start, notBefore: tPub }), { action: 'wait', at: tPub + d + 60 });
+  // Without notBefore the old timing (bell start) is unchanged.
+  assert.deepEqual(mb.revealStep(e, { now: start + d, bellStart: start }), { action: 'send' });
+});

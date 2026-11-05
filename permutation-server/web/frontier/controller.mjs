@@ -25,7 +25,7 @@ import { planTicket } from './fjoin.mjs';
 import { toggleTile } from './screens/explore.mjs';
 import { composerArrival, composerMarch } from './screens/march.mjs';
 import { sealMarch, unpack, ctHash as ctHashOf, sealRoot as sealRootOf } from './seal.mjs';
-import { bellAt, bellStart, pipeline, archivePartOf, pollCap } from './clock.mjs';
+import { bellAt, bellStart, pipeline, archivePartOf, pollCap, roundTime, tlockRound } from './clock.mjs';
 import { regionOf, ringOf, ringProvinces, wedgeOf, hexDistance } from './fgeo.mjs';
 import { hostParts, hostId } from './faddr.mjs';
 import { decodePage } from './flog.mjs';
@@ -728,7 +728,9 @@ async function readMarches() {
     // (the entry as the book holds it NOW, after the waits above: its attempts decide whether a reveal goes out)
     let e = book.loadBook(store, key).find(x => sameMarch(x, first)) ?? first;
     // Self-reveal (§9.1): at the arrival bell's start + the drawn delay; once more after 60 s if no slot and the window is open.
-    const step = book.revealStep(e, { now: now(), bellStart: bellStart(FS.clock.genesisTs, e.arriveBell), windowOpen: pl.state === 'open' || pl.state === 'awaitingBeacon' || pl.state === 'revealing', slotPresent: seen });
+    // ⑱: never before T(arrive) is published (+ REVEAL_PUBLISH_MARGIN): until then the material stays in this browser.
+    const tPub = roundTime(FS.clock.drand.genesis, FS.clock.drand.period, tlockRound(FS.clock.drand, FS.clock.genesisTs, e.arriveBell)) + book.REVEAL_PUBLISH_MARGIN;
+    const step = book.revealStep(e, { now: now(), bellStart: bellStart(FS.clock.genesisTs, e.arriveBell), notBefore: tPub, windowOpen: pl.state === 'open' || pl.state === 'awaitingBeacon' || pl.state === 'revealing', slotPresent: seen });
     if (step.action === 'send') {
       const r = await io.reveal(book.revealMaterial(e));
       // (the attempt goes into the book as it stands now: a march sealed while the keeper answered is kept)
