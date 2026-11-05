@@ -38,3 +38,7 @@
 ## v0.9（2026-11-06）
 
 文書だけの変更（`docs/FRONTIER-HOLDER.ja.md` ほか）。v0.8 と同じ根拠（公開リポジトリ、Vercel・Netlify の status 無し、push で走るのは `ci.yml` だけ）で担当ブランチに通常 push する。merge・deploy はしない。
+
+## v0.10（2026-11-06）
+
+候補 20 の取り込みと、その上の ABI・program・文書の変更。v0.8 と同じ根拠で担当ブランチに通常 push する。push で走るのはこのリポジトリの CI だけ。merge・deploy はしない。push の前に、CI と同じ `cargo fmt --check`・`clippy -D warnings` を変更した crate で通した。
