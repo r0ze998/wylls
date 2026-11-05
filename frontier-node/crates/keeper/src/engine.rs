@@ -1653,7 +1653,15 @@ mod tests {
         );
         assert_eq!(journal.in_flight().unwrap().len(), 1);
         assert!(!engine.ensure(spec("same", Class::D, abi::tag::POST_SEED), 15));
-        assert!(engine.ensure(spec("other", Class::D, abi::tag::POST_SEED), 15));
+        let mut other = spec("other", Class::D, abi::tag::POST_SEED);
+        other.build = Arc::new(|c: &BuildCtx| {
+            vec![Instruction {
+                program_id: Address::new_from_array([7; 32]),
+                accounts: vec![solana_instruction::AccountMeta::new(c.payer, true)],
+                data: vec![99, c.version as u8],
+            }]
+        });
+        assert!(engine.ensure(other, 15));
         assert_eq!(
             engine
                 .step(&port, &mut payers, Some(&journal), 15)
