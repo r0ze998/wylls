@@ -158,6 +158,10 @@ pub const FAIL_CODES: &[&str] = &[
     STRUCTURE_MISMATCH,
     TOWER_WEAR_MISMATCH,
     NATION_MISMATCH,
+    CUSTODY_IN_PROGRAM_WITHOUT_IT,
+    CUSTODY_LOT_BROKEN,
+    CUSTODY_OVER_CAPACITY,
+    CUSTODY_VAULT_COUNTS,
 ];
 
 /// Warning codes (PASS with a warning).
@@ -177,3 +181,17 @@ pub const CUSTODY_IN_PROGRAM_WITHOUT_IT: &str = "CustodyInProgramWithoutIt";
 /// A custody trace in a custody season (`RULESET_HASH_V4`): V26 does not
 /// exist, so the history cannot be verified (never PASS).
 pub const CUSTODY_UNVERIFIED: &str = "CustodyUnverified";
+/// V26 state audit (custody seasons): a Lot or Vault account breaks a law
+/// the custody kernel checks before every write (a lot's totals, its order
+/// and inbound slots, its state), so the custody program did not write it.
+pub const CUSTODY_LOT_BROKEN: &str = "CustodyLotBroken";
+/// V26 state audit: a lot holds and expects more than its quota, or a live
+/// vault's general stock and custody quota exceed its CAP.
+pub const CUSTODY_OVER_CAPACITY: &str = "CustodyOverCapacity";
+/// V26 state audit: a vault's custody counts are below the open lots
+/// visible in it at the pinned slot, or a lot is of a later generation than
+/// its vault.
+pub const CUSTODY_VAULT_COUNTS: &str = "CustodyVaultCounts";
+/// V26 state audit: a lot a rule that is not decided applies to (a
+/// forfeited lot; an open lot in a seized vault). UNVERIFIABLE, not FAIL.
+pub const CUSTODY_RULE_UNDECIDED: &str = "CustodyRuleUndecided";
