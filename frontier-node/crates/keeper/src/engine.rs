@@ -132,6 +132,13 @@ pub struct EngineParams {
     /// D and N writes with a version in flight: slots between versions at
     /// the class cap.
     pub cap_resend_slots: u64,
+    /// W writes: at most this many versions whose status is unknown and
+    /// whose blockhash can still land at once (⑱, owner decision
+    /// 2026-11-05). Versions of one write are alternatives: once one
+    /// lands, every other that lands later pays its fee for an
+    /// `AlreadyDone`. A new version waits until an older one settles or
+    /// expires. `0` keeps the old every-slot ladder.
+    pub max_unknown_w_versions: u32,
 }
 
 impl Default for EngineParams {
@@ -148,8 +155,21 @@ impl Default for EngineParams {
             max_versions: 64,
             d_resend_slots: 2,
             cap_resend_slots: 16,
+            // Off here (the engine's own tests keep the every-slot ladder);
+            // the keeper sets it from `keeper.toml` (default 2).
+            max_unknown_w_versions: 0,
         }
     }
+}
+
+/// Versions that can still land: status unknown and sent within the
+/// blockhash validity (`EXPIRY_SLOTS`) of `slot`. `versions` gives each
+/// version's `sent_slot` and whether its status is known.
+pub fn live_unknown_versions(versions: impl IntoIterator<Item = (u64, bool)>, slot: u64) -> usize {
+    versions
+        .into_iter()
+        .filter(|&(sent, settled)| !settled && slot <= sent.saturating_add(EXPIRY_SLOTS))
+        .count()
 }
 
 impl EngineParams {
@@ -1137,6 +1157,21 @@ impl Engine {
                 self.mark_contested(&k, slot, journal, report);
                 continue;
             }
+            // ⑱: no new W version while `max_unknown_w_versions` older ones
+            // can still land (each would end `AlreadyDone`, fee paid).
+            let cap = self.params.max_unknown_w_versions;
+            if p.spec.class == Class::W
+                && cap > 0
+                && live_unknown_versions(
+                    p.versions
+                        .iter()
+                        .map(|v| (v.sent_slot, p.settled.contains(&v.sig))),
+                    slot,
+                ) >= cap as usize
+            {
+                self.mark_contested(&k, slot, journal, report);
+                continue;
+            }
             let slots_waiting = p.first_slot.map_or(0, |f| slot.saturating_sub(f));
             let bid = self.params.bid(p.spec.class, slots_waiting) + p.bonus_milli;
             if self.resend_waits(p, bid, slot) {
@@ -1361,6 +1396,30 @@ mod tests {
         Account, ClockSysvar, Cursor, PortError, PortResult, SimResult, TxRecord,
     };
     use std::sync::Mutex;
+
+    /// ⑱: the cap counts versions that can still land: status unknown and
+    /// within the blockhash validity. Pure data, no key and no signature.
+    #[test]
+    fn live_unknown_versions_counts_only_what_can_still_land() {
+        let at = 1_000u64;
+        assert_eq!(live_unknown_versions([], at), 0);
+        // Two unknown, recent: both can land.
+        assert_eq!(live_unknown_versions([(990, false), (999, false)], at), 2);
+        // A settled version never counts.
+        assert_eq!(live_unknown_versions([(990, true), (999, false)], at), 1);
+        // At the edge of validity it still counts; one slot past, it does not.
+        assert_eq!(live_unknown_versions([(at - EXPIRY_SLOTS, false)], at), 1);
+        assert_eq!(
+            live_unknown_versions([(at - EXPIRY_SLOTS - 1, false)], at),
+            0
+        );
+        // The keeper's default cap is 2 (`KeeperConfig`): two live unknown
+        // versions block a third. The engine's own default is off.
+        assert_eq!(EngineParams::default().max_unknown_w_versions, 0);
+        let cap = 2usize;
+        assert!(live_unknown_versions([(998, false), (999, false)], at) >= cap);
+        assert!(live_unknown_versions([(998, false), (999, true)], at) < cap);
+    }
 
     type Answer = Box<dyn FnMut(&fclient::Transaction) -> Option<Status> + Send>;
 
