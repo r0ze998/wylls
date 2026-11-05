@@ -459,13 +459,30 @@ impl Engine {
     /// already sent are kept as orphans for the journal.
     pub fn cancel(&mut self, key: &str) {
         if let Some(p) = self.pending.remove(key) {
-            self.orphans.extend(
-                p.versions
-                    .iter()
-                    .filter(|v| !p.settled.contains(&v.sig))
-                    .map(|v| (v.sig, v.sent_slot)),
-            );
+            self.hold_unsettled(key, &p);
         }
+    }
+
+    /// Keep the old fee exposure when a write leaves the pending queue with
+    /// signatures whose outcomes are still unknown. The orphan poll closes
+    /// their journal rows; `charge_fee` releases the key only after all of
+    /// those signatures have definitive statuses.
+    fn hold_unsettled(&mut self, key: &str, p: &Pending) -> bool {
+        let unknown: Vec<_> = p
+            .versions
+            .iter()
+            .filter(|v| !p.settled.contains(&v.sig))
+            .map(|v| (v.sig, v.sent_slot))
+            .collect();
+        if unknown.is_empty() {
+            return false;
+        }
+        self.held_replans
+            .entry(key.into())
+            .or_default()
+            .extend(unknown.iter().map(|(sig, _)| *sig));
+        self.orphans.extend(unknown);
+        true
     }
 
     /// Count a version only after its chain status is known. A failed
@@ -525,6 +542,19 @@ impl Engine {
                 });
         }
         Ok(())
+    }
+
+    /// A restarted write with a still-unknown signature and a settled
+    /// sibling cannot reconstruct its original fee cap from the in-flight
+    /// journal rows alone. Keep polling the unknown signatures as orphans,
+    /// but do not adopt them into a newly planned write with a fresh cap.
+    pub fn hold_adopted_until_known(&mut self, key: &str) {
+        if let Some(versions) = self.adopted.remove(key) {
+            self.held_replans
+                .entry(key.into())
+                .or_default()
+                .extend(versions.iter().map(|v| v.sig));
+        }
     }
 
     fn classify(
@@ -672,7 +702,6 @@ impl Engine {
             port.statuses(&flat).await.unwrap_or_default()
         };
         let mut ended: Vec<(String, Outcome)> = vec![];
-        let mut resolved: Vec<Signature> = vec![];
         for ((k, v), st) in sigs.iter().zip(sts.iter()) {
             let Some(st) = st else { continue };
             // A ProgramFailedToComplete waits a little for the feed to say
@@ -689,7 +718,6 @@ impl Engine {
                     continue;
                 }
             }
-            resolved.push(v.sig);
             if let Some(p) = self.pending.get_mut(k) {
                 p.settled.insert(v.sig);
             }
@@ -729,12 +757,7 @@ impl Engine {
                     Outcome::Unresolved { .. } => {}
                     Outcome::Dead { .. } => s.dead += 1,
                 }
-                self.orphans.extend(
-                    p.versions
-                        .iter()
-                        .filter(|v| !resolved.contains(&v.sig))
-                        .map(|v| (v.sig, v.sent_slot)),
-                );
+                self.hold_unsettled(&k, &p);
                 report.outcomes.push((k, o));
             }
         }
@@ -823,12 +846,7 @@ impl Engine {
             }
             if p.spec.deadline_slot.is_some_and(|d| slot >= d) {
                 let p = self.pending.remove(&k).expect("pending");
-                self.orphans.extend(
-                    p.versions
-                        .iter()
-                        .filter(|v| !p.settled.contains(&v.sig))
-                        .map(|v| (v.sig, v.sent_slot)),
-                );
+                self.hold_unsettled(&k, &p);
                 self.stats.entry(p.spec.kind.into()).or_default().dead += 1;
                 report.outcomes.push((
                     k,
@@ -857,22 +875,7 @@ impl Engine {
                         > self.params.per_write_cap)
             {
                 let p = self.pending.remove(&k).expect("pending");
-                let unresolved: HashSet<_> = p
-                    .versions
-                    .iter()
-                    .filter(|v| !p.settled.contains(&v.sig))
-                    .map(|v| v.sig)
-                    .collect();
-                let unknown = !unresolved.is_empty();
-                if unknown {
-                    self.held_replans.insert(k.clone(), unresolved);
-                }
-                self.orphans.extend(
-                    p.versions
-                        .iter()
-                        .filter(|v| !p.settled.contains(&v.sig))
-                        .map(|v| (v.sig, v.sent_slot)),
-                );
+                let unknown = self.hold_unsettled(&k, &p);
                 if !unknown {
                     self.stats.entry(p.spec.kind.into()).or_default().failed += 1;
                     let n = self.failures.entry(k.clone()).or_default();
@@ -1590,6 +1593,108 @@ mod tests {
         assert!(engine.uncounted_fees.is_empty());
         assert!(journal.in_flight().unwrap().is_empty());
         assert_eq!(engine.stats["test"].fees_charged, version.fee);
+    }
+
+    #[tokio::test]
+    async fn failed_sibling_holds_old_fee_exposure_until_other_signature_settles() {
+        let port = Script::default();
+        let mut payers = payers();
+        payers.refresh(&port, 0).await.unwrap();
+        let journal = Journal::open(std::path::Path::new(":memory:")).unwrap();
+        let mut engine = Engine::new(Budgets::placeholder(), EngineParams::default());
+        assert!(engine.ensure(spec("same", Class::D, abi::tag::POST_SEED), 10));
+        assert_eq!(
+            engine
+                .step(&port, &mut payers, Some(&journal), 10)
+                .await
+                .sent,
+            1
+        );
+        assert_eq!(
+            engine
+                .step(&port, &mut payers, Some(&journal), 12)
+                .await
+                .sent,
+            1
+        );
+        let versions = engine.pending["same"].versions.clone();
+        port.statuses.lock().unwrap().insert(
+            versions[0].sig,
+            Status {
+                slot: 13,
+                err: Some("program rejected".into()),
+                code: Some(8),
+            },
+        );
+        let outcome = engine.poll(&port, Some(&journal), 13).await;
+        assert!(
+            matches!(outcome.outcomes.as_slice(), [(key, Outcome::Failed { .. })] if key == "same")
+        );
+        assert_eq!(journal.in_flight().unwrap().len(), 1);
+        assert!(!engine.ensure(spec("same", Class::D, abi::tag::POST_SEED), 15));
+        assert!(engine.ensure(spec("other", Class::D, abi::tag::POST_SEED), 15));
+        assert_eq!(
+            engine
+                .step(&port, &mut payers, Some(&journal), 15)
+                .await
+                .sent,
+            1
+        );
+
+        port.statuses.lock().unwrap().insert(
+            versions[1].sig,
+            Status {
+                slot: 16,
+                err: Some("program rejected".into()),
+                code: Some(8),
+            },
+        );
+        engine.poll(&port, Some(&journal), 16).await;
+        assert_eq!(
+            engine.stats["test"].fees_charged,
+            versions[0].fee + versions[1].fee
+        );
+        assert!(engine.ensure(spec("same", Class::D, abi::tag::POST_SEED), 16));
+    }
+
+    #[tokio::test]
+    async fn cancelled_and_deadline_writes_hold_unknown_signatures() {
+        let port = Script::default();
+        let mut payers = payers();
+        payers.refresh(&port, 0).await.unwrap();
+        let mut engine = Engine::new(Budgets::placeholder(), EngineParams::default());
+        assert!(engine.ensure(spec("cancel", Class::D, abi::tag::POST_SEED), 10));
+        engine.step(&port, &mut payers, None, 10).await;
+        let cancelled = engine.pending["cancel"].versions[0].sig;
+        engine.cancel("cancel");
+        assert!(!engine.ensure(spec("cancel", Class::D, abi::tag::POST_SEED), 11));
+
+        let mut deadline = spec("deadline", Class::D, abi::tag::POST_SEED);
+        deadline.deadline_slot = Some(12);
+        assert!(engine.ensure(deadline, 10));
+        engine.step(&port, &mut payers, None, 10).await;
+        let late = engine.pending["deadline"].versions[0].sig;
+        let result = engine.step(&port, &mut payers, None, 12).await;
+        assert!(
+            matches!(result.outcomes.as_slice(), [(key, Outcome::Dead { .. })] if key == "deadline")
+        );
+        assert!(!engine.ensure(spec("deadline", Class::D, abi::tag::POST_SEED), 13));
+
+        let mut statuses = port.statuses.lock().unwrap();
+        for sig in [cancelled, late] {
+            statuses.insert(
+                sig,
+                Status {
+                    slot: 14,
+                    err: Some("rejected".into()),
+                    code: Some(8),
+                },
+            );
+        }
+        drop(statuses);
+        engine.poll(&port, None, 14).await;
+        assert!(engine.ensure(spec("cancel", Class::D, abi::tag::POST_SEED), 14));
+        assert!(engine.ensure(spec("deadline", Class::D, abi::tag::POST_SEED), 14));
     }
 
     #[tokio::test]

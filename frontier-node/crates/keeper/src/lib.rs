@@ -470,6 +470,17 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
             }
             adopted = keep.len();
             self.engine.adopt(&keep)?;
+            // The journal has no write-group ID. If a sibling already paid
+            // its fee, the remaining unknown signature must resolve before
+            // this object can receive a fresh per-write cap.
+            let mut checked = BTreeSet::new();
+            for a in &keep {
+                if checked.insert(a.object_key.clone())
+                    && j.has_settled_attempt_of(&a.object_key)?
+                {
+                    self.engine.hold_adopted_until_known(&a.object_key);
+                }
+            }
             // Older keepers labelled care attempts "expired" from 151 slots
             // alone. Query their signatures again; only a finalized result
             // may clear that ambiguous status.
@@ -1446,6 +1457,65 @@ mod tests {
         // Re-reading startup cannot charge the settled journal row again.
         assert_eq!(k.start().await.unwrap(), 0);
         assert_eq!(k.engine.stats["anchor"].fees_charged, attempt.fee);
+    }
+
+    #[tokio::test]
+    async fn restart_holds_unknown_signature_when_sibling_already_settled() {
+        let program = Address::new_from_array([0x5f; 32]);
+        let cfg = KeeperConfig::new(program, 7, Address::new_from_array([0xbe; 32]));
+        let journal = Journal::open(std::path::Path::new(":memory:")).unwrap();
+        let mut failed = recovery_attempt(Signature::default().to_string());
+        failed.status = "failed".into();
+        let sig = Signature::from([2u8; 64]);
+        let mut unknown = recovery_attempt(sig.to_string());
+        unknown.payer = Address::new_from_array([1; 32]).to_string();
+        journal.record_attempt(&failed).unwrap();
+        journal.record_attempt(&unknown).unwrap();
+        let port = crate::testkit::FakePort::default();
+        port.set_clock(12, 1_000);
+        let mut keeper = Keeper::new(
+            cfg,
+            port,
+            crate::testkit::FakeDrand::new(),
+            &[1; 32],
+            Some(journal),
+        )
+        .unwrap();
+        assert_eq!(keeper.start().await.unwrap(), 1);
+        let make_spec = |key: &str| WriteSpec {
+            key: key.into(),
+            kind: "anchor",
+            tag: tag::POST_ANCHOR,
+            class: Class::D,
+            bell: Some(5),
+            region: Some(3),
+            build: Arc::new(|_| vec![]),
+            deadline_slot: None,
+            not_before_slot: 0,
+            fixed_payer: None,
+        };
+        assert!(!keeper.engine.ensure(make_spec("anchor:5:3"), 12));
+        assert!(keeper.engine.ensure(make_spec("anchor:5:4"), 12));
+        keeper.port.statuses.lock().unwrap().insert(
+            sig,
+            Status {
+                slot: 13,
+                err: Some("rejected".into()),
+                code: Some(8),
+            },
+        );
+        keeper
+            .engine
+            .poll(&keeper.port, keeper.journal.as_ref(), 13)
+            .await;
+        assert!(keeper.engine.ensure(make_spec("anchor:5:3"), 14));
+        assert!(keeper
+            .journal
+            .as_ref()
+            .unwrap()
+            .in_flight()
+            .unwrap()
+            .is_empty());
     }
 
     #[tokio::test]

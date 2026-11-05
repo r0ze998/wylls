@@ -419,6 +419,18 @@ impl Journal {
         sql(rows.collect())
     }
 
+    /// A settled sibling means a still-sent attempt cannot be given a new
+    /// per-write fee cap after restart. This is deliberately conservative:
+    /// the old journal does not identify which attempts shared a write cap.
+    pub fn has_settled_attempt_of(&self, object_key: &str) -> Result<bool, String> {
+        let found: i64 = sql(self.conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM attempts WHERE object_key = ?1 AND status != 'sent')",
+            params![object_key],
+            |r| r.get(0),
+        ))?;
+        Ok(found != 0)
+    }
+
     /// Distinct object keys starting with `prefix`: a range on the
     /// `attempts_object` index, `prefix ≤ key < succ(prefix)` (W6T-2; the
     /// `substr` form scanned the whole table, 4.5 ms a call at 112k
@@ -694,6 +706,19 @@ mod tests {
         drop(l1);
         assert!(lock(&p).is_ok(), "released with the file");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn settled_sibling_query_is_scoped_to_object_key() {
+        let j = Journal::open(std::path::Path::new(":memory:")).unwrap();
+        j.record_attempt(&a("pending", "sent")).unwrap();
+        assert!(!j.has_settled_attempt_of("anchor:5:3").unwrap());
+        let mut other = a("other", "failed");
+        other.object_key = "anchor:5:4".into();
+        j.record_attempt(&other).unwrap();
+        assert!(!j.has_settled_attempt_of("anchor:5:3").unwrap());
+        j.record_attempt(&a("settled", "failed")).unwrap();
+        assert!(j.has_settled_attempt_of("anchor:5:3").unwrap());
     }
 
     #[test]
