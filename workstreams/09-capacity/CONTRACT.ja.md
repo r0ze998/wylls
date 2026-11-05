@@ -47,6 +47,7 @@ S1 のコードでは、工房は「1日に何回動かす」施設ではなく�
 | `Settle` | 誰でも | job | 純関数で現在までの出力を確定（何度呼んでも同じ） |
 | `Claim` | 利用者 | job, to | 確定した出力と（終わった予約なら）返却材料のうち、未受取分を `to` へ。加工中でも出来た分は受け取れる |
 | `FacilityLost` | 誰でも（コアの観測） | facility | コアが記録した世代の終わり（時刻 `at` と占領者）で全予約を締め、損失方針（§4）で配分 |
+| `ClaimSplit` | 利用者 | job, output_to, refund_to[鉱石, 木材], remainder_to | `Claim` と同じだが、成果物・材料ごとの返却（整数単位）・1,000 milli 未満の端数を別々の宛先へ（⑩ の区画は整数単位で一種類の資源だけを受けるため。CONNECT-10 §5） |
 | `Retire` | 誰でも | job | 終わって全部を渡し終えた予約の記録を閉じる。出力は許可の `spent` に残る |
 | `RetireGrant` | 誰でも | grant | 取り消されたか期限が来て、予約が残っていない許可を閉じる |
 | `RetirePool` | 誰でも | facility | 失われた世代で、予約が残っていない貸出枠を閉じる |
@@ -133,6 +134,10 @@ end_eff = start + ⌈limit × 3600 / (k × 4000)⌉  （ただし ≤ end）
 | 28 | `Retired` | 閉じた記録、または最大以下の番号（番号は増えるだけ） |
 | 29 | `GenerationReused` | `u8` 世代番号が一周し、同じ施設 ID の終了履歴がある。2026-11-05 の隔離統合候補では退役後も同じ ID の新規貸出を拒否する |
 | 30 | `NotRetirable` | 閉じる条件を満たさない |
+
+預かりが拒否したときの理由は `Harness::apply_detailed` の `Refusal.custody` で受け取れる（`apply` はこれまでどおり `Custody` だけを返す）。預かりは自分のコードを `CustodyError::Refused(u16)` で返してよい。
+
+予約ごとの口座（`Job::accounts()`）は ⑩ の区画と同じ式 `IN_TOTAL = HELD + OUT_TOTAL + CONSUMED + FORFEITED` を材料 2 つと成果物で持ち、記録を閉じるときに `Event::Receipt` として残る。
 
 ## 4. 未決定の損失配分（仮案。切り替え可能）
 

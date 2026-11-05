@@ -29,21 +29,27 @@
 //!   from a lot keeps its products and leftovers until that is decided;
 //!   [`Release::ToUser`] (09's existing behaviour) is a comparison case.
 //!
-//! The vault and lot here are stand-ins for 10's accounts, run by 10's own
-//! kernel functions; 09's hopper and output custody is still 09's mock.
+//! 09's custody (the job's hopper and output, places, the user's own lots)
+//! is workstream 10's adapter, `wylls_custody_adapter_09::LotCustody`
+//! (10's lot kernel behind 09's `Custody` trait): a user's own lot is a
+//! vault place there, with room reserved for the goods' return. The lots
+//! used under another owner's use order are kept here, beside it, and run
+//! by 10's kernel functions, because the adapter has no use order yet
+//! (10's request R6); the two sets of lots are to be one (CONNECT-10 §5.4).
 
 use std::collections::BTreeMap;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use permutation_rules::fixed::MILLI;
 use permutation_rules::frontier::holding::{Resource, RESOURCES};
-use wylls_capacity::custody::{Custody, Key, MockCustody};
+use wylls_capacity::custody::{Custody, Key};
 use wylls_capacity::ledger::{Harness, Op, Outcome};
 use wylls_capacity::model::{Actor, JobId, Place};
 use wylls_capacity::recipe::recipe;
 use wylls_capacity::CapError;
 use wylls_custody::layout::lot as LOT;
 use wylls_custody::{consume, CustodyError, Lot, VaultView};
+use wylls_custody_adapter_09::LotCustody;
 
 /// The use-order purpose 09's workshop jobs present to 10 (10's contract
 /// §7: "PURPOSE の番号は⑨が決める"). **Proposal**, not an assigned number:
@@ -129,7 +135,7 @@ pub enum BridgeError {
 /// its custody) and 10's vaults and lots.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Bridge {
-    pub cap: Harness<MockCustody>,
+    pub cap: Harness<LotCustody>,
     pub vaults: BTreeMap<(i16, i16, u8), VaultView>,
     pub lots: BTreeMap<LotId, Lot>,
     pub links: BTreeMap<(JobId, u64), Link>,
@@ -153,13 +159,16 @@ pub fn tag_of(a: Actor) -> u64 {
 }
 
 /// The transient place a lot's ore passes through on its way into a job
-/// (one per job; empty after every step).
+/// (one per job; empty after every step). Not a vault: in 10's adapter a
+/// vault place is lots.
 pub fn release_place(uid: u64) -> Place {
-    Place::Vault(0xF10A_0000_0000_0000 | (uid & 0x0000_FFFF_FFFF_FFFF))
+    Place::Caravan(RELEASE_MARK | (uid & 0x0000_FFFF_FFFF_FFFF))
 }
 
+const RELEASE_MARK: u64 = 0xF10A_0000_0000_0000;
+
 impl Bridge {
-    pub fn new(cap: Harness<MockCustody>, genesis: i64) -> Bridge {
+    pub fn new(cap: Harness<LotCustody>, genesis: i64) -> Bridge {
         Bridge {
             cap,
             vaults: BTreeMap::new(),
@@ -307,7 +316,7 @@ impl Bridge {
     /// Any of 09's operations. A claim of a job fed from a lot is held
     /// under [`Release::Hold`]; everything else passes to 09 unchanged.
     pub fn apply(&mut self, now: i64, signer: Actor, op: &Op) -> Result<Outcome, BridgeError> {
-        if let Op::Claim { job, .. } = op {
+        if let Op::Claim { job, .. } | Op::ClaimSplit { job, .. } = op {
             if self.release == Release::Hold && self.lot_fed(*job) {
                 return Err(BridgeError::OwnershipUndecided);
             }
@@ -342,10 +351,18 @@ impl Bridge {
             }
         }
         self.cap.custody.check()?;
-        for ((place, _), (_, a)) in &self.cap.custody.lots {
-            if let Place::Vault(x) = place {
-                if x >> 48 == 0xF10A && *a != 0 {
-                    return Err(format!("ore left in a release place {place:?}"));
+        for (job, _) in self.links.keys() {
+            if let Some(j) = self.cap.job(*job) {
+                let at = release_place(j.uid);
+                if self.cap.custody.balance(at, Resource::Ore).1 != 0 {
+                    return Err(format!("ore left in a release place {at:?}"));
+                }
+            }
+        }
+        for p in self.cap.ledger.pools.values() {
+            for j in &p.jobs {
+                if !j.accounts().balanced() {
+                    return Err(format!("job {:?}: accounts do not balance", j.id));
                 }
             }
         }

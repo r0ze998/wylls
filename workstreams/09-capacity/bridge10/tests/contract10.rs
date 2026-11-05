@@ -17,6 +17,26 @@ use wylls_custody::{
     begin_inbound, finish_inbound, open, set_order, CustodyError, OrderSpec, PlaceRef, VaultView,
     ORDER_USE,
 };
+use wylls_custody_adapter_09::LotCustody;
+
+/// `user`'s caravan `id` arrives at the facility with `ore` and `wood`
+/// (units), in any custody.
+pub fn arrive(cu: &mut impl Custody, user: Actor, id: u64, ore: i64, wood: i64) {
+    for (i, (r, a)) in [(Resource::Ore, ore), (Resource::Wood, wood)]
+        .into_iter()
+        .enumerate()
+    {
+        if a > 0 {
+            let k = wylls_capacity::custody::Key {
+                scope: id,
+                kind: 100,
+                n: i as u64,
+            };
+            cu.import(k, Place::Caravan(id), user, r, a * MILLI)
+                .unwrap();
+        }
+    }
+}
 
 /// The custodian of the vault and the lot's owner (neither is A, B or C).
 const V: Actor = Actor::test(0xD4);
@@ -58,7 +78,7 @@ fn vault() -> VaultView {
 /// V's vault with a use order of 60 for B (purpose: workshop arms); B's
 /// job: 2 copies, 20 arms over [S, S + 3 h); 20 wood of B's own arrived.
 fn fx(release: Release) -> Fx {
-    let (w, f) = world(3, 2, 2, Policies::PROVISIONAL);
+    let (w, f) = world_with(LotCustody::new(), 3, 2, 2, Policies::PROVISIONAL);
     let mut b = Bridge::new(w, T0);
     b.release = release;
     let bell = b.bell(T0);
@@ -107,7 +127,7 @@ fn fx(release: Release) -> Fx {
         },
     )
     .unwrap();
-    arrived(&mut b.cap.custody, B, 77, 0, 20);
+    arrive(&mut b.cap.custody, B, 77, 0, 20);
     Fx {
         b,
         f,
@@ -538,7 +558,7 @@ fn goods_from_a_lot_are_held_until_ownership_is_decided() {
         },
     )
     .unwrap();
-    arrived(&mut x.b.cap.custody, B, 79, 8, 4);
+    arrive(&mut x.b.cap.custody, B, 79, 8, 4);
     for (n, r, a) in [(1, Resource::Ore, 8), (2, Resource::Wood, 4)] {
         x.b.apply(
             S + 3 * HOUR,

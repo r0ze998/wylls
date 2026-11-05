@@ -96,6 +96,22 @@ pub enum Event {
         uid: u64,
         output: i64,
     },
+    /// A claim split by `Op::ClaimSplit`: the refund's whole units and its
+    /// sub-unit rest, per recipe input, and where each went.
+    Refunded {
+        job: JobId,
+        whole: [i64; 2],
+        remainder: [i64; 2],
+        refund_to: [Place; 2],
+        remainder_to: Place,
+    },
+    /// The job's accounts when its record closes (`Retire`): what came in,
+    /// was used, made, handed back or forfeited, in workstream 10's terms.
+    Receipt {
+        job: JobId,
+        uid: u64,
+        accounts: crate::ledger::Accounts,
+    },
     GrantRetired {
         grant: GrantId,
     },

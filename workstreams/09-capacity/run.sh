@@ -30,16 +30,20 @@ cargo test -q --release --test continuity a_long_run -- --nocapture 2>&1 | grep 
 cargo run -q --example demo > "$out/demo.txt"
 echo "demo: $out/demo.txt ($(wc -l < "$out/demo.txt") lines)"
 
-echo "== bridge10 (09 <-> 10, against workstream 10's pinned kernel) =="
-# Workstream 10's crate is not in this branch. It is checked out from the
-# commit that staged it on the integration branch, and its tree is checked.
-pin10=9f3ac2f82f0ed739b696673e71eaf7f88c5dfa92
+echo "== bridge10 (09 <-> 10, against workstream 10's pinned crates) =="
+# Workstream 10's crates are not in this branch. They are checked out from
+# the integration branch's commit that added its adapter for 09, and their
+# trees are checked (custody: the kernel; adapter-09: 09's Custody trait on
+# 10's lots). The custody tree is the one 9f3ac2f8 staged first.
+pin10=52a43745b4c06ba184c26634cc9489211c0cc48e
 tree10=f11af9190144abd185c68b2d50a33c786f24340f
+tree10a=f5784e40049b43b5b091807534c08fb85694cb38
 if ! git -C "$root" cat-file -e "$pin10^{commit}" 2>/dev/null; then
   git -C "$root" fetch -q origin integration/ws09-13-v16-d0949fd4 || true
 fi
-if [ "$(git -C "$root" rev-parse "$pin10:workstreams/10-custody/custody" 2>/dev/null)" != "$tree10" ]; then
-  echo "workstream 10 pin $pin10 not available (tree $tree10)" >&2
+if [ "$(git -C "$root" rev-parse "$pin10:workstreams/10-custody/custody" 2>/dev/null)" != "$tree10" ] ||
+   [ "$(git -C "$root" rev-parse "$pin10:workstreams/10-custody/adapter-09" 2>/dev/null)" != "$tree10a" ]; then
+  echo "workstream 10 pin $pin10 not available (trees $tree10, $tree10a)" >&2
   exit 1
 fi
 btmp="$(mktemp -d "${TMPDIR:-/tmp}/wylls-09b-XXXXXX")"
@@ -47,7 +51,7 @@ bclean() { rm -rf "$btmp"; }
 trap bclean EXIT
 mkdir -p "$btmp/w/workstreams/09-capacity"
 git -C "$root" archive HEAD permutation-rules frontier-abi rust-toolchain.toml | tar -x -C "$btmp/w"
-git -C "$root" archive "$pin10" workstreams/10-custody/custody | tar -x -C "$btmp/w"
+git -C "$root" archive "$pin10" workstreams/10-custody/custody workstreams/10-custody/adapter-09 | tar -x -C "$btmp/w"
 cp -r "$here/kernel" "$here/bridge10" "$btmp/w/workstreams/09-capacity/"
 rm -rf "$btmp/w/workstreams/09-capacity/kernel/target" "$btmp/w/workstreams/09-capacity/bridge10/target"
 (
@@ -58,7 +62,16 @@ rm -rf "$btmp/w/workstreams/09-capacity/kernel/target" "$btmp/w/workstreams/09-c
   cargo test -q -- --nocapture 2>&1 | grep -E "^test result|FAILED|panicked|random:"
 ) | tee "$out/bridge10-tests.log"
 grep -q FAILED "$out/bridge10-tests.log" && { echo "bridge10 tests failed" >&2; exit 1; }
-echo "# workstream 10 pin $pin10, tree $tree10" >> "$out/bridge10-tests.log"
+echo "# workstream 10 pin $pin10, trees custody $tree10 adapter-09 $tree10a" >> "$out/bridge10-tests.log"
+# Workstream 10's own adapter tests against this kernel: the shared changes
+# (ClaimSplit, apply_detailed, Refused, accounts) must not break them.
+(
+  cd "$btmp/w/workstreams/10-custody/adapter-09"
+  export CARGO_TARGET_DIR="$here/bridge10/target"
+  cargo test -q --release 2>&1 | grep -E "^test result|FAILED|panicked"
+) | tee "$out/w10-adapter-on-this-kernel.log"
+grep -q FAILED "$out/w10-adapter-on-this-kernel.log" && { echo "workstream 10 adapter tests failed" >&2; exit 1; }
+echo "# workstream 10 adapter-09 (tree $tree10a) against this branch's kernel" >> "$out/w10-adapter-on-this-kernel.log"
 bclean
 trap - EXIT
 

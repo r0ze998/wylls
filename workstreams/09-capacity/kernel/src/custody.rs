@@ -42,6 +42,11 @@ pub enum CustodyError {
     /// C6: the key was used for a different call.
     KeyReused,
     Negative,
+    /// The custody's own reason, as its code (⑩'s request R5: an
+    /// implementation that knows more than the variants above, such as "no
+    /// room", "frozen" or "not whole units", reports it here; the kernel
+    /// passes it to the caller through `Harness::apply_detailed`).
+    Refused(u16),
 }
 
 /// The calls the kernel makes (contract §6). Every call is atomic: an

@@ -300,6 +300,7 @@ dependencies = [
  "permutation-rules",
  "wylls-capacity",
  "wylls-custody",
+ "wylls-custody-adapter-09",
 ]
 
 [[package]]
@@ -307,4 +308,14 @@ name = "wylls-custody"
 version = "0.1.0"
 dependencies = [
  "permutation-rules",
+]
+
+[[package]]
+name = "wylls-custody-adapter-09"
+version = "0.1.0"
+dependencies = [
+ "borsh",
+ "permutation-rules",
+ "wylls-capacity",
+ "wylls-custody",
 ]

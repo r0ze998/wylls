@@ -1,5 +1,7 @@
 # ⑨ 他人の工房の「加工能力」を借りる
 
+> **2026-11-06：⑩ の adapter-09 の上で動かし、⑩ の要求 R1–R6 に答えた（`ClaimSplit`、`apply_detailed`、予約の口座と受領書）。** [CONNECT-10.ja.md](CONNECT-10.ja.md) §5。共有の kernel 変更は [patches/0003](patches/0003-kernel-claimsplit-accounts-refusal.patch)。
+
 > **2026-11-05：⑩ との接続（工房・加工側のアダプターと契約試験）は [CONNECT-10.ja.md](CONNECT-10.ja.md)。**
 
 > **2026-11-05 の隔離統合候補では、世代番号の再利用を安全側で拒否する修正があります。** [INTEGRATION-20261105.ja.md](INTEGRATION-20261105.ja.md) を参照してください。下記の元担当の試験記録は、その修正より前の記録です。
