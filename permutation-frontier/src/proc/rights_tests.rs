@@ -56,6 +56,8 @@ struct World {
     season: Pubkey,
     sid: u64,
     accts: BTreeMap<[u8; 32], AccountInfo<'static>>,
+    /// The PS2 bodies the last successful instruction logged.
+    records: Vec<Vec<u8>>,
 }
 
 fn leak<T>(v: T) -> &'static mut T {
@@ -80,6 +82,7 @@ impl World {
         let program = pk([0x77; 32]);
         host_test::PROGRAM.with(|p| p.set(program));
         host_test::set_now(NOW);
+        host_test::capture_logs();
         let bump = 254;
         let season = addr::season_pda(sid, bump, &program.to_bytes());
         let mut w = World {
@@ -87,6 +90,7 @@ impl World {
             season: pk(season),
             sid,
             accts: BTreeMap::new(),
+            records: Vec::new(),
         };
         let mut d = std::vec![0u8; SE::SIZE];
         assert!(write_header(&mut d, K2::Season, sid));
@@ -169,9 +173,22 @@ impl World {
                 i
             })
             .collect();
+        let _ = host_test::take_logs();
         let r = crate::dispatch(&self.program, &infos, data);
+        let logs = host_test::take_logs();
         if r.is_ok() {
             self.runtime_rules(&snap, metas);
+            // Every `sol_log_data` of the program is `[b"PS2", body]`.
+            self.records = logs
+                .into_iter()
+                .map(|f| {
+                    assert_eq!(f.len(), 2, "a PS2 log line has two fields");
+                    assert_eq!(f[0], frontier_abi::log::PREFIX, "the PS2 prefix");
+                    f[1].clone()
+                })
+                .collect();
+        } else {
+            self.records.clear();
         }
         if r.is_err() {
             for (k, d, l, o) in snap {
@@ -1545,4 +1562,186 @@ fn a_grantee_session_also_acts_on_the_grantees_other_assets() {
             .unwrap(),
     );
     assert_eq!(last, NOW);
+}
+
+// ------------------------------------------------------------ round 3: PS2 records
+
+/// The single record the last instruction logged, checked against the
+/// shared ABI (`frontier_abi::v2::log`): its kind and bell, the key naming
+/// grant `nonce` of A, and every link — its entity in `chains_of` order,
+/// resolved to the account that entity names, whose chain header now
+/// equals the link. Returns the payload and the linked accounts in order.
+fn the_record(sc: &Sc, kind: CqKind, nonce: u32, bell: u32) -> (Vec<u8>, Vec<[u8; 32]>) {
+    use frontier_abi::log::{CitizenRef, EntityRef};
+    use frontier_abi::v2::log::{self as l2, AnyKind, EntityRefV2};
+    assert_eq!(sc.w.records.len(), 1, "one record per instruction");
+    let body = &sc.w.records[0];
+    let r = l2::decode(body).expect("the record decodes with the ABI decoder");
+    assert_eq!(r.kind, AnyKind::Cq(kind));
+    assert_eq!(r.bell, bell);
+    let tag = addr::citizen_tag(&sc.a_c);
+    assert_eq!(r.key, &rec::key(tag, nonce)[..]);
+    let expect = l2::chains_of(r.kind, r.key, r.payload).expect("an entity table");
+    let links: Vec<_> = r.links.iter().take(r.n_links).flatten().copied().collect();
+    assert_eq!(
+        links.len(),
+        expect.iter().count(),
+        "one link per expected entity"
+    );
+    let citizens = [sc.a_c, sc.b_c, sc.c_c];
+    let mut linked = vec![];
+    for (e, l) in expect.iter().zip(&links) {
+        assert_eq!(e.entity, l.entity);
+        assert!(!e.optional, "no optional links in a Grant record");
+        let k = match e.who {
+            EntityRefV2::Base(EntityRef::Citizen(CitizenRef::Tag8(t))) => *citizens
+                .iter()
+                .find(|c| addr::citizen_tag(c) == t)
+                .expect("a citizen of the scene"),
+            EntityRefV2::Base(EntityRef::Holding { p, q, site }) => sc.w.ctx().holding(p, q, site),
+            ref w => panic!("unexpected entity {w:?}"),
+        };
+        let d = sc.w.data(&k);
+        assert_eq!(
+            crate::layout::chain_of(&d).unwrap(),
+            (l.seq, l.head),
+            "the account's chain header is the link"
+        );
+        linked.push(k);
+    }
+    (r.payload.to_vec(), linked)
+}
+
+/// The bell of `NOW` (genesis `T0`, 600-second bells).
+const BELL: u32 = ((NOW - T0) / 600) as u32;
+
+use frontier_abi::v2::log::CqKind;
+use frontier_abi::v2::rights::record as rec;
+
+#[test]
+fn every_grant_instruction_logs_its_record() {
+    let mut sc = scene();
+    let g = sc.issue(0);
+    let (pl, linked) = the_record(&sc, rec::ISSUED, 0, BELL);
+    let x = rec::Issued::from_bytes(&pl).unwrap();
+    assert_eq!(x.grantee_tag, addr::citizen_tag(&sc.b_c));
+    assert_eq!((x.p, x.q), (PQ.0 as i32, PQ.1 as i32));
+    assert_eq!((x.facility_site, x.station_site), (0, 1));
+    assert_eq!((x.facility_gen, x.station_gen), (1, 1));
+    assert_eq!((x.max_swaps, x.max_units), (3, 30));
+    // The rent-exempt minimum the Grant needs (the harness pre-funds every
+    // address it creates, so the account may hold more).
+    assert_eq!(x.rent, frontier_abi::layout::rent(G::SIZE));
+    assert!(sc.w.lamports(&g) >= x.rent);
+    assert_eq!(linked, vec![sc.a_c]);
+
+    let (f0, s0) = (sc.w.stock(&sc.f, NOW), sc.w.stock(&sc.s, NOW));
+    sc.reserve(sc.b, sc.b_c, g, 10).unwrap();
+    let (pl, linked) = the_record(&sc, rec::RESERVED, 0, BELL);
+    let x = rec::Swap::from_bytes(&pl).unwrap();
+    let (f1, s1) = (sc.w.stock(&sc.f, NOW), sc.w.stock(&sc.s, NOW));
+    assert_eq!((x.seq, x.units), (0, 10));
+    assert_eq!(x.grantee_tag, addr::citizen_tag(&sc.b_c));
+    // The amounts are exactly what left the holdings.
+    assert_eq!(x.ore, s0[ORE] - s1[ORE]);
+    assert_eq!(x.wood, s0[WOOD] - s1[WOOD]);
+    assert_eq!(x.arms, f0[ARMS] - f1[ARMS]);
+    assert_eq!(linked, vec![sc.b_c, sc.s, sc.f]);
+
+    sc.execute(sc.b, sc.b_c, g).unwrap();
+    let (pl, linked) = the_record(&sc, rec::EXECUTED, 0, BELL);
+    let y = rec::Swap::from_bytes(&pl).unwrap();
+    let (f2, s2) = (sc.w.stock(&sc.f, NOW), sc.w.stock(&sc.s, NOW));
+    assert_eq!(
+        (y.seq, y.units, y.ore, y.wood, y.arms),
+        (0, 10, x.ore, x.wood, x.arms)
+    );
+    assert_eq!(y.arms, s2[ARMS] - s1[ARMS]);
+    assert_eq!((y.ore, y.wood), (f2[ORE] - f1[ORE], f2[WOOD] - f1[WOOD]));
+    assert_eq!(linked, vec![sc.b_c, sc.s, sc.f]);
+
+    sc.reserve(sc.b, sc.b_c, g, 4).unwrap();
+    let (pl, _) = the_record(&sc, rec::RESERVED, 0, BELL);
+    assert_eq!(rec::Swap::from_bytes(&pl).unwrap().seq, 1);
+    sc.release(sc.b, g).unwrap();
+    let (pl, linked) = the_record(&sc, rec::RELEASED, 0, BELL);
+    let u = rec::Undo::from_bytes(&pl).unwrap();
+    assert_eq!(u.by, rec::by::GRANTEE);
+    assert_eq!(u.returned, [units(8), units(4), units(4)]);
+    assert_eq!(u.kept, [0; 3]);
+    assert_eq!(linked, vec![sc.s, sc.f]);
+
+    // A revoke with nothing escrowed chains the issuer alone.
+    sc.revoke(sc.a, sc.a_c, g).unwrap();
+    let (pl, linked) = the_record(&sc, rec::REVOKED, 0, BELL);
+    let u = rec::Undo::from_bytes(&pl).unwrap();
+    assert_eq!(
+        (u.by, u.returned, u.kept),
+        (rec::by::ISSUER, [0; 3], [0; 3])
+    );
+    assert_eq!(linked, vec![sc.a_c]);
+
+    let rent = sc.w.lamports(&g);
+    let rent_to = sc.a;
+    sc.close(sc.c, g, rent_to).unwrap();
+    let (pl, linked) = the_record(&sc, rec::CLOSED, 0, BELL);
+    let c = rec::Closed::from_bytes(&pl).unwrap();
+    assert_eq!((c.rent, c.rent_to8), (rent, rec::tag8(&rent_to)));
+    assert!(linked.is_empty());
+}
+
+#[test]
+fn undo_records_name_only_what_went_back() {
+    let mut sc = scene();
+    let g = sc.issue(0);
+    sc.reserve(sc.b, sc.b_c, g, 5).unwrap();
+    // S closed: the revoke returns the arms only and keeps the inputs.
+    sc.w.close_account(&sc.s);
+    sc.revoke(sc.a, sc.a_c, g).unwrap();
+    let (pl, linked) = the_record(&sc, rec::REVOKED, 0, BELL);
+    let u = rec::Undo::from_bytes(&pl).unwrap();
+    assert_eq!(u.returned, [0, 0, units(5)]);
+    assert_eq!(u.kept, [units(10), units(5), 0]);
+    assert_eq!(linked, vec![sc.a_c, sc.f]);
+    // Nothing more can go back: refused, and no record survives.
+    assert_eq!(sc.release(sc.c, g), rerr(E::ReturnBlocked));
+    assert!(sc.w.records.is_empty());
+}
+
+#[test]
+fn releases_say_who_undid_them() {
+    // After the expiry, by anyone.
+    let mut sc = scene();
+    let g = sc.issue(0);
+    sc.reserve(sc.b, sc.b_c, g, 2).unwrap();
+    let later = NOW + 86_400;
+    host_test::set_now(later);
+    sc.release(sc.c, g).unwrap();
+    let bell = ((later - T0) / 600) as u32;
+    let (pl, _) = the_record(&sc, rec::RELEASED, 0, bell);
+    assert_eq!(
+        rec::Undo::from_bytes(&pl).unwrap().by,
+        rec::by::AFTER_EXPIRY
+    );
+    // After a capture, by anyone: the facility side goes to F as it stands.
+    let mut sc = scene();
+    let g = sc.issue(0);
+    sc.reserve(sc.b, sc.b_c, g, 2).unwrap();
+    let (f, prov, c_c) = (sc.f, sc.prov, sc.c_c);
+    sc.w.capture(&f, &prov, 0, &c_c);
+    sc.release(sc.c, g).unwrap();
+    let (pl, linked) = the_record(&sc, rec::RELEASED, 0, BELL);
+    let u = rec::Undo::from_bytes(&pl).unwrap();
+    assert_eq!(u.by, rec::by::STALE_HOLDING);
+    assert_eq!(linked, vec![sc.s, sc.f]);
+}
+
+#[test]
+fn a_refused_instruction_leaves_no_record() {
+    let mut sc = scene();
+    let g = sc.issue(0);
+    assert_eq!(sc.reserve(sc.b, sc.b_c, g, 31), rerr(E::QuotaExceeded));
+    assert!(sc.w.records.is_empty());
+    assert_eq!(sc.execute(sc.b, sc.b_c, g), rerr(E::NoReservation));
+    assert!(sc.w.records.is_empty());
 }

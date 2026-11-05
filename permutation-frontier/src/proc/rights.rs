@@ -34,10 +34,13 @@
 //!   burned; ReleaseSwap that can return nothing is `ReturnBlocked`, and
 //!   CloseGrant waits (`StillLive`). A store above its cap keeps a return
 //!   (`Accrual::add` may exceed the cap; settle never lowers it).
-//! - **No log record yet.** The PS2 log has no kind for these (contract
-//!   §8): the handlers write holdings without a chained record, and the
-//!   verifier's holding continuity (V7) reports such a write as
-//!   `HoldingReplayMismatch` (reproduced in `workstreams/02-rights`).
+//! - **Records (candidate, provisional kinds 200–205).** Every instruction
+//!   logs one PS2 record (`frontier_abi::v2::rights::record`): GRANT_ISSUED
+//!   chains the issuer's Citizen; SWAP_RESERVED and SWAP_EXECUTED the
+//!   grantee's Citizen, the station and the facility; SWAP_RELEASED the
+//!   holdings it credited; GRANT_REVOKED the issuer's Citizen and the
+//!   holdings it credited; GRANT_CLOSED nothing. The amounts are the ones
+//!   the holdings moved, so a replay rebuilds every write from the record.
 
 use solana_program::{account_info::AccountInfo, pubkey::Pubkey};
 
@@ -53,10 +56,13 @@ use super::conquest::cq;
 use super::holding::{self as hold, Player};
 use crate::addr;
 use crate::error::{BAD_ACCOUNT, OVERFLOW};
+use crate::events::{emit_v2, ChainedV2};
 use crate::init::{self, SeasonSigner, Sink};
 use crate::layout::{citizen as C, holding as H, Ro, Rw};
 use crate::prologue::{self, expect_key, key, present_v2, view};
 use crate::{FrontierError, R};
+use frontier_abi::v2::log::EntityKind as E2;
+use frontier_abi::v2::rights::record as rec;
 
 /// Routes one rights instruction (tags 0xD0–0xD5).
 pub fn dispatch(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
@@ -92,6 +98,10 @@ struct Grant {
     state: u8,
     p: i16,
     q: i16,
+    issuer_tag: u64,
+    nonce: u32,
+    facility_site: u8,
+    station_site: u8,
     issuer: [u8; 32],
     grantee: [u8; 32],
     facility: [u8; 32],
@@ -134,6 +144,10 @@ fn load_grant(p: &Pubkey, ctx: &AddrCtx, sid: u64, ai: &AccountInfo) -> R<Grant>
         state: r.u8(G::STATE)?,
         p: r.i16(G::P)?,
         q: r.i16(G::Q)?,
+        issuer_tag: r.u64(G::ISSUER_TAG)?,
+        nonce: r.u32(G::NONCE)?,
+        facility_site: r.u8(G::FACILITY_SITE)?,
+        station_site: r.u8(G::STATION_SITE)?,
         issuer: r.arr(G::ISSUER_CITIZEN)?,
         grantee: r.arr(G::GRANTEE_CITIZEN)?,
         facility: r.arr(G::FACILITY)?,
@@ -177,6 +191,120 @@ fn escrow_of(units: u32) -> R<[i64; 3]> {
         m(arms::WOOD_PER_ARM).ok_or(OVERFLOW)?,
         m(1).ok_or(OVERFLOW)?,
     ])
+}
+
+// ------------------------------------------------------------ records
+
+/// Logs one Grant record (provisional kind) chaining `chained`.
+fn emit(
+    kind: rec_kind,
+    bell: u32,
+    g: &Grant,
+    payload: &[u8],
+    chained: &mut [ChainedV2<'_>],
+) -> R<()> {
+    emit_v2(
+        kind as u8,
+        bell,
+        &rec::key(g.issuer_tag, g.nonce),
+        payload,
+        chained,
+    )
+}
+
+#[allow(non_camel_case_types)]
+type rec_kind = frontier_abi::v2::log::CqKind;
+
+/// The swap payload of RESERVED and EXECUTED.
+fn swap_payload(g: &Grant, grantee_tag: u64, seq: u16, units: u32, e: [i64; 3]) -> rec::Swap {
+    rec::Swap {
+        grantee_tag,
+        p: g.p as i32,
+        q: g.q as i32,
+        facility_site: g.facility_site,
+        station_site: g.station_site,
+        seq,
+        units,
+        ore: e[0],
+        wood: e[1],
+        arms: e[2],
+    }
+}
+
+/// What an undo did: amounts returned and kept, per side.
+struct Undone {
+    returned: [i64; 3],
+    kept: [i64; 3],
+}
+
+impl Undone {
+    fn payload(&self, g: &Grant, by: u8) -> rec::Undo {
+        rec::Undo {
+            by,
+            p: g.p as i32,
+            q: g.q as i32,
+            facility_site: g.facility_site,
+            station_site: g.station_site,
+            returned: self.returned,
+            kept: self.kept,
+        }
+    }
+    fn station_back(&self) -> bool {
+        self.returned[0] > 0 || self.returned[1] > 0
+    }
+    fn facility_back(&self) -> bool {
+        self.returned[2] > 0
+    }
+}
+
+/// Logs an undo record chaining `first` (the issuer's Citizen for a
+/// revoke) and exactly the holdings it credited, station then facility.
+#[allow(clippy::too_many_arguments)]
+fn emit_undo(
+    kind: rec_kind,
+    bell: u32,
+    g: &Grant,
+    by: u8,
+    u: &Undone,
+    first: Option<&AccountInfo>,
+    station: &AccountInfo,
+    facility: &AccountInfo,
+) -> R<()> {
+    let payload = u.payload(g, by).to_bytes();
+    let mut cd = match first {
+        Some(c) => Some(c.try_borrow_mut_data()?),
+        None => None,
+    };
+    let mut sd = if u.station_back() {
+        Some(station.try_borrow_mut_data()?)
+    } else {
+        None
+    };
+    let mut fd = if u.facility_back() {
+        Some(facility.try_borrow_mut_data()?)
+    } else {
+        None
+    };
+    let mut chained: alloc::vec::Vec<ChainedV2<'_>> = alloc::vec::Vec::with_capacity(3);
+    if let Some(d) = cd.as_mut() {
+        chained.push(ChainedV2 {
+            entity: E2::Citizen,
+            data: d,
+        });
+    }
+    if let Some(d) = sd.as_mut() {
+        chained.push(ChainedV2 {
+            entity: E2::Holding,
+            data: d,
+        });
+    }
+    if let Some(d) = fd.as_mut() {
+        chained.push(ChainedV2 {
+            entity: E2::Holding,
+            data: d,
+        });
+    }
+    emit(kind, bell, g, &payload, &mut chained)
 }
 
 fn cost(ore: i64, wood: i64, arms_: i64) -> [i64; RESOURCES] {
@@ -301,8 +429,7 @@ fn place_now(
 /// capture (redesign 20 §5, adopted: a captured store's contents are the
 /// captor's). A side whose holding is gone (closed, released) is **kept
 /// in the Grant**, not burned. A capture not yet settled waits
-/// (`CapturePending`). Returns whether anything went back (or nothing was
-/// escrowed).
+/// (`CapturePending`). Returns what went back and what stays.
 #[allow(clippy::too_many_arguments)]
 fn unwind(
     p: &Pubkey,
@@ -314,9 +441,12 @@ fn unwind(
     facility: &AccountInfo,
     station: &AccountInfo,
     province: &AccountInfo,
-) -> R<bool> {
+) -> R<Undone> {
     if g.open_units == 0 {
-        return Ok(true);
+        return Ok(Undone {
+            returned: [0; 3],
+            kept: [0; 3],
+        });
     }
     let st = place_now(p, sid, station, &g.station)?;
     let fa = place_now(p, sid, facility, &g.facility)?;
@@ -328,17 +458,21 @@ fn unwind(
         [st_back, fa_back].into_iter().flatten().collect();
     province_unlocked(p, ctx, sid, g, province, &live)?;
     let mut kept = g.open;
+    let mut returned = [0i64; 3];
     if st_back.is_some() {
         credit(
             station,
             now,
             &[(Resource::Ore, g.open[0]), (Resource::Wood, g.open[1])],
         )?;
+        returned[0] = g.open[0];
+        returned[1] = g.open[1];
         kept[0] = 0;
         kept[1] = 0;
     }
     if fa_back.is_some() {
         credit(facility, now, &[(arms::ARMS, g.open[2])])?;
+        returned[2] = g.open[2];
         kept[2] = 0;
     }
     if kept == [0; 3] {
@@ -346,7 +480,7 @@ fn unwind(
     } else {
         write_open(grant, g.open_units, g.open_ts, kept)?;
     }
-    Ok(st_back.is_some() || fa_back.is_some())
+    Ok(Undone { returned, kept })
 }
 
 // ------------------------------------------------------------ 0xD0 IssueGrant
@@ -441,7 +575,32 @@ pub fn issue_grant(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     w.set_u16(G::MAX_SWAPS, x.max_swaps)?;
     w.set_u32(G::MAX_UNITS, x.max_units)?;
     w.set_arr(G::RENT_TO, payer.key.as_ref())?;
-    Ok(())
+    drop(gd);
+    let payload = rec::Issued {
+        grantee_tag: addr::citizen_tag(&key(grantee)),
+        p: fh.p as i32,
+        q: fh.q as i32,
+        facility_site: fh.site,
+        facility_gen: fh.gen,
+        station_site: sh.site,
+        station_gen: sh.gen,
+        max_swaps: x.max_swaps,
+        max_units: x.max_units,
+        expires_ts: x.expires_ts,
+        rent,
+    }
+    .to_bytes();
+    let mut cd = citizen.try_borrow_mut_data()?;
+    emit_v2(
+        rec::ISSUED as u8,
+        pl.pc.now_bell,
+        &rec::key(tag, x.nonce),
+        &payload,
+        &mut [ChainedV2 {
+            entity: E2::Citizen,
+            data: &mut cd,
+        }],
+    )
 }
 
 // ------------------------------------------------------------ swap
@@ -451,7 +610,10 @@ pub fn issue_grant(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
 /// both holdings pinned and unlocked.
 struct Swap<'x, 'a> {
     now: i64,
+    bell: u32,
+    grantee_tag: u64,
     g: Grant,
+    citizen: &'x AccountInfo<'a>,
     grant: &'x AccountInfo<'a>,
     facility: &'x AccountInfo<'a>,
     station: &'x AccountInfo<'a>,
@@ -481,11 +643,45 @@ fn swap_prologue<'x, 'a>(p: &Pubkey, a: &'x [AccountInfo<'a>]) -> R<Swap<'x, 'a>
     province_unlocked(p, &pl.ctx, sid, &g, province, &[&fh, &sh])?;
     Ok(Swap {
         now: pl.now.ts,
+        bell: pl.pc.now_bell,
+        grantee_tag: pl.pc.citizen_tag,
         g,
+        citizen,
         grant,
         facility,
         station,
     })
+}
+
+impl Swap<'_, '_> {
+    /// Logs RESERVED or EXECUTED: the grantee's Citizen, the station, the
+    /// facility.
+    fn emit(&self, kind: rec_kind, seq: u16, units: u32, e: [i64; 3]) -> R<()> {
+        let payload = swap_payload(&self.g, self.grantee_tag, seq, units, e).to_bytes();
+        let mut cd = self.citizen.try_borrow_mut_data()?;
+        let mut sd = self.station.try_borrow_mut_data()?;
+        let mut fd = self.facility.try_borrow_mut_data()?;
+        emit(
+            kind,
+            self.bell,
+            &self.g,
+            &payload,
+            &mut [
+                ChainedV2 {
+                    entity: E2::Citizen,
+                    data: &mut cd,
+                },
+                ChainedV2 {
+                    entity: E2::Holding,
+                    data: &mut sd,
+                },
+                ChainedV2 {
+                    entity: E2::Holding,
+                    data: &mut fd,
+                },
+            ],
+        )
+    }
 }
 
 /// 0xD1 ReserveSwap(units): the station's ore and wood and the facility's
@@ -511,7 +707,8 @@ pub fn reserve_swap(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         .map_err(hold::holding_err)?;
     store(u.station, &sh, u.now)?;
     store(u.facility, &fh, u.now)?;
-    write_open(u.grant, x.units, u.now, e)
+    write_open(u.grant, x.units, u.now, e)?;
+    u.emit(rec::RESERVED, x.seq, x.units, e)
 }
 
 /// 0xD2 ExecuteSwap: the escrowed arms to the station, the escrowed ore and
@@ -540,20 +737,22 @@ pub fn execute_swap(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         w.set_u16(G::SWAPS, swaps)?;
         w.set_u32(G::UNITS_SWAPPED, units)?;
     }
-    write_open(u.grant, 0, 0, [0; 3])
+    write_open(u.grant, 0, 0, [0; 3])?;
+    u.emit(rec::EXECUTED, x.seq, g.open_units, g.open)
 }
 
 // ------------------------------------------------------------ 0xD3 ReleaseSwap
 
 /// The Season at its PDA in any status (Release and Close run after the
 /// season's end too).
-fn season_any(p: &Pubkey, season_ai: &AccountInfo, now: i64) -> R<(u64, AddrCtx)> {
+fn season_any(p: &Pubkey, season_ai: &AccountInfo, now: i64) -> R<(u64, AddrCtx, u32)> {
     let sd = season_ai.try_borrow_data()?;
     let s = frontier_abi::prologue::read_season(&view(season_ai, &sd), p.as_array(), now)?;
     if addr::season_pda(s.id, s.bump, p.as_array()) != key(season_ai) {
         return Err(FrontierError::BadAddress.into());
     }
-    Ok((s.id, addr::ctx(&key(season_ai), &p.to_bytes())))
+    let bell = s.bell(now).unwrap_or(frontier_abi::log::NO_BELL);
+    Ok((s.id, addr::ctx(&key(season_ai), &p.to_bytes()), bell))
 }
 
 /// 0xD3 ReleaseSwap: `[actor s] [season r] [grantee_citizen r] [grant w]
@@ -571,7 +770,7 @@ pub fn release_swap(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         writable(ai)?;
     }
     let now = prologue::now()?.ts;
-    let (sid, ctx) = season_any(p, season_ai, now)?;
+    let (sid, ctx, bell) = season_any(p, season_ai, now)?;
     let g = load_grant(p, &ctx, sid, grant)?;
     if g.open_units == 0 {
         return Err(err(RightsError::NoReservation));
@@ -589,6 +788,7 @@ pub fn release_swap(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
                 && k != [0u8; 32]
                 && now < r.i64(C::SESSION_EXPIRY)?)
     };
+    let mut by = rec::by::GRANTEE;
     if !by_grantee {
         let stale = |ai: &AccountInfo, want: &[u8; 32], gen: u8, owner: &[u8; 32]| {
             matches!(
@@ -596,18 +796,21 @@ pub fn release_swap(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
                 Err(e) if e == err(RightsError::StaleHolding)
             )
         };
-        let crank = now >= g.expires_ts
-            || stale(station, &g.station, g.station_gen, &g.grantee)
-            || stale(facility, &g.facility, g.facility_gen, &g.issuer);
-        if !crank {
+        by = if now >= g.expires_ts {
+            rec::by::AFTER_EXPIRY
+        } else if stale(station, &g.station, g.station_gen, &g.grantee)
+            || stale(facility, &g.facility, g.facility_gen, &g.issuer)
+        {
+            rec::by::STALE_HOLDING
+        } else {
             return Err(err(RightsError::NotGrantee));
-        }
+        };
     }
-    if unwind(p, &ctx, sid, now, &g, grant, facility, station, province)? {
-        Ok(())
-    } else {
-        Err(err(RightsError::ReturnBlocked))
+    let u = unwind(p, &ctx, sid, now, &g, grant, facility, station, province)?;
+    if !u.station_back() && !u.facility_back() {
+        return Err(err(RightsError::ReturnBlocked));
     }
+    emit_undo(rec::RELEASED, bell, &g, by, &u, None, station, facility)
 }
 
 // ------------------------------------------------------------ 0xD4 RevokeGrant
@@ -633,14 +836,25 @@ pub fn revoke_grant(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     if g.state != rt::STATE_ACTIVE {
         return Err(err(RightsError::Revoked));
     }
-    let _ = unwind(
+    let u = unwind(
         p, &pl.ctx, sid, pl.now.ts, &g, grant, facility, station, province,
     )?;
-    let mut gd = grant.try_borrow_mut_data()?;
-    let mut w = Rw(&mut gd);
-    w.set_u8(G::STATE, rt::STATE_REVOKED)?;
-    w.set_i64(G::REVOKED_TS, pl.now.ts)?;
-    Ok(())
+    {
+        let mut gd = grant.try_borrow_mut_data()?;
+        let mut w = Rw(&mut gd);
+        w.set_u8(G::STATE, rt::STATE_REVOKED)?;
+        w.set_i64(G::REVOKED_TS, pl.now.ts)?;
+    }
+    emit_undo(
+        rec::REVOKED,
+        pl.pc.now_bell,
+        &g,
+        rec::by::ISSUER,
+        &u,
+        Some(citizen),
+        station,
+        facility,
+    )
 }
 
 // ------------------------------------------------------------ 0xD5 CloseGrant
@@ -659,7 +873,7 @@ pub fn close_grant(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     writable(grant)?;
     writable(rent_to)?;
     let now = prologue::now()?.ts;
-    let (sid, ctx) = season_any(p, season_ai, now)?;
+    let (sid, ctx, bell) = season_any(p, season_ai, now)?;
     let g = load_grant(p, &ctx, sid, grant)?;
     if key(rent_to) != g.rent_to {
         return Err(err(RightsError::BadGrant));
@@ -669,6 +883,12 @@ pub fn close_grant(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     if g.open_units != 0 || !done {
         return Err(err(RightsError::StillLive));
     }
+    let payload = rec::Closed {
+        rent: grant.lamports(),
+        rent_to8: rec::tag8(&key(rent_to)),
+    }
+    .to_bytes();
+    emit(rec::CLOSED, bell, &g, &payload, &mut [])?;
     init::close_to(p, grant, rent_to, &Sink::Never, 0)?;
     Ok(())
 }

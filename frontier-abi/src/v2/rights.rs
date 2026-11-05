@@ -284,6 +284,249 @@ ix_rights! {
     CloseGrant = tag::CLOSE_GRANT {}
 }
 
+// ------------------------------------------------------------ PS2 records
+
+/// The Grant's PS2 records (kinds `GRANT_ISSUED` … `GRANT_CLOSED` of
+/// [`crate::v2::log::CqKind`], **provisional codes 200–205**): one shared
+/// encoding for the program that logs them and the verifier that replays
+/// them. Every record is keyed by the Grant (`issuer_tag ‖ nonce`).
+pub mod record {
+    use crate::bytes::{rd_i32, rd_i64, rd_u16, rd_u32, rd_u64, rd_u8};
+    use crate::v2::log::CqKind;
+
+    pub const ISSUED: CqKind = CqKind::GRANT_ISSUED;
+    pub const RESERVED: CqKind = CqKind::SWAP_RESERVED;
+    pub const EXECUTED: CqKind = CqKind::SWAP_EXECUTED;
+    pub const RELEASED: CqKind = CqKind::SWAP_RELEASED;
+    pub const REVOKED: CqKind = CqKind::GRANT_REVOKED;
+    pub const CLOSED: CqKind = CqKind::GRANT_CLOSED;
+
+    /// Who undid an escrow (`by` of RELEASED and REVOKED).
+    pub mod by {
+        pub const GRANTEE: u8 = 0;
+        pub const AFTER_EXPIRY: u8 = 1;
+        pub const STALE_HOLDING: u8 = 2;
+        pub const ISSUER: u8 = 3;
+    }
+
+    /// Whether `k` is one of the Grant's record kinds.
+    pub fn is_rights(k: CqKind) -> bool {
+        matches!(
+            k,
+            CqKind::GRANT_ISSUED
+                | CqKind::SWAP_RESERVED
+                | CqKind::SWAP_EXECUTED
+                | CqKind::SWAP_RELEASED
+                | CqKind::GRANT_REVOKED
+                | CqKind::GRANT_CLOSED
+        )
+    }
+
+    /// The record key: the Grant's issuer tag and nonce.
+    pub fn key(issuer_tag: u64, nonce: u32) -> [u8; 12] {
+        let mut k = [0u8; 12];
+        k[..8].copy_from_slice(&issuer_tag.to_le_bytes());
+        k[8..].copy_from_slice(&nonce.to_le_bytes());
+        k
+    }
+
+    /// `(issuer_tag, nonce)` of a record key.
+    pub fn of_key(k: &[u8]) -> Option<(u64, u32)> {
+        Some((rd_u64(k, 0)?, rd_u32(k, 8)?))
+    }
+
+    /// GRANT_ISSUED's payload (42 B).
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub struct Issued {
+        pub grantee_tag: u64,
+        pub p: i32,
+        pub q: i32,
+        pub facility_site: u8,
+        pub facility_gen: u8,
+        pub station_site: u8,
+        pub station_gen: u8,
+        pub max_swaps: u16,
+        pub max_units: u32,
+        pub expires_ts: i64,
+        pub rent: u64,
+    }
+
+    impl Issued {
+        pub const LEN: usize = 42;
+        pub fn to_bytes(&self) -> [u8; Self::LEN] {
+            let mut b = [0u8; Self::LEN];
+            b[0..8].copy_from_slice(&self.grantee_tag.to_le_bytes());
+            b[8..12].copy_from_slice(&self.p.to_le_bytes());
+            b[12..16].copy_from_slice(&self.q.to_le_bytes());
+            b[16] = self.facility_site;
+            b[17] = self.facility_gen;
+            b[18] = self.station_site;
+            b[19] = self.station_gen;
+            b[20..22].copy_from_slice(&self.max_swaps.to_le_bytes());
+            b[22..26].copy_from_slice(&self.max_units.to_le_bytes());
+            b[26..34].copy_from_slice(&self.expires_ts.to_le_bytes());
+            b[34..42].copy_from_slice(&self.rent.to_le_bytes());
+            b
+        }
+        pub fn from_bytes(b: &[u8]) -> Option<Issued> {
+            if b.len() != Self::LEN {
+                return None;
+            }
+            Some(Issued {
+                grantee_tag: rd_u64(b, 0)?,
+                p: rd_i32(b, 8)?,
+                q: rd_i32(b, 12)?,
+                facility_site: rd_u8(b, 16)?,
+                facility_gen: rd_u8(b, 17)?,
+                station_site: rd_u8(b, 18)?,
+                station_gen: rd_u8(b, 19)?,
+                max_swaps: rd_u16(b, 20)?,
+                max_units: rd_u32(b, 22)?,
+                expires_ts: rd_i64(b, 26)?,
+                rent: rd_u64(b, 34)?,
+            })
+        }
+    }
+
+    /// SWAP_RESERVED's and SWAP_EXECUTED's payload (48 B): what moved.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub struct Swap {
+        pub grantee_tag: u64,
+        pub p: i32,
+        pub q: i32,
+        pub facility_site: u8,
+        pub station_site: u8,
+        pub seq: u16,
+        pub units: u32,
+        /// Milli-units: the station's ore and wood, the facility's arms.
+        pub ore: i64,
+        pub wood: i64,
+        pub arms: i64,
+    }
+
+    impl Swap {
+        pub const LEN: usize = 48;
+        pub fn to_bytes(&self) -> [u8; Self::LEN] {
+            let mut b = [0u8; Self::LEN];
+            b[0..8].copy_from_slice(&self.grantee_tag.to_le_bytes());
+            b[8..12].copy_from_slice(&self.p.to_le_bytes());
+            b[12..16].copy_from_slice(&self.q.to_le_bytes());
+            b[16] = self.facility_site;
+            b[17] = self.station_site;
+            b[18..20].copy_from_slice(&self.seq.to_le_bytes());
+            b[20..24].copy_from_slice(&self.units.to_le_bytes());
+            b[24..32].copy_from_slice(&self.ore.to_le_bytes());
+            b[32..40].copy_from_slice(&self.wood.to_le_bytes());
+            b[40..48].copy_from_slice(&self.arms.to_le_bytes());
+            b
+        }
+        pub fn from_bytes(b: &[u8]) -> Option<Swap> {
+            if b.len() != Self::LEN {
+                return None;
+            }
+            Some(Swap {
+                grantee_tag: rd_u64(b, 0)?,
+                p: rd_i32(b, 8)?,
+                q: rd_i32(b, 12)?,
+                facility_site: rd_u8(b, 16)?,
+                station_site: rd_u8(b, 17)?,
+                seq: rd_u16(b, 18)?,
+                units: rd_u32(b, 20)?,
+                ore: rd_i64(b, 24)?,
+                wood: rd_i64(b, 32)?,
+                arms: rd_i64(b, 40)?,
+            })
+        }
+    }
+
+    /// SWAP_RELEASED's and GRANT_REVOKED's payload (59 B): what went back
+    /// and what stays in the Grant.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub struct Undo {
+        pub by: u8,
+        pub p: i32,
+        pub q: i32,
+        pub facility_site: u8,
+        pub station_site: u8,
+        /// Milli-units returned: ore and wood to the station, arms to the
+        /// facility.
+        pub returned: [i64; 3],
+        /// Milli-units still escrowed (no live holding to go back to).
+        pub kept: [i64; 3],
+    }
+
+    impl Undo {
+        pub const LEN: usize = 59;
+        pub fn to_bytes(&self) -> [u8; Self::LEN] {
+            let mut b = [0u8; Self::LEN];
+            b[0] = self.by;
+            b[1..5].copy_from_slice(&self.p.to_le_bytes());
+            b[5..9].copy_from_slice(&self.q.to_le_bytes());
+            b[9] = self.facility_site;
+            b[10] = self.station_site;
+            for i in 0..3 {
+                b[11 + 8 * i..19 + 8 * i].copy_from_slice(&self.returned[i].to_le_bytes());
+                b[35 + 8 * i..43 + 8 * i].copy_from_slice(&self.kept[i].to_le_bytes());
+            }
+            b
+        }
+        pub fn from_bytes(b: &[u8]) -> Option<Undo> {
+            if b.len() != Self::LEN {
+                return None;
+            }
+            let mut returned = [0i64; 3];
+            let mut kept = [0i64; 3];
+            for i in 0..3 {
+                returned[i] = rd_i64(b, 11 + 8 * i)?;
+                kept[i] = rd_i64(b, 35 + 8 * i)?;
+            }
+            Some(Undo {
+                by: rd_u8(b, 0)?,
+                p: rd_i32(b, 1)?,
+                q: rd_i32(b, 5)?,
+                facility_site: rd_u8(b, 9)?,
+                station_site: rd_u8(b, 10)?,
+                returned,
+                kept,
+            })
+        }
+    }
+
+    /// GRANT_CLOSED's payload (16 B): the rent and the first 8 bytes of
+    /// its recipient.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub struct Closed {
+        pub rent: u64,
+        pub rent_to8: u64,
+    }
+
+    impl Closed {
+        pub const LEN: usize = 16;
+        pub fn to_bytes(&self) -> [u8; Self::LEN] {
+            let mut b = [0u8; Self::LEN];
+            b[..8].copy_from_slice(&self.rent.to_le_bytes());
+            b[8..].copy_from_slice(&self.rent_to8.to_le_bytes());
+            b
+        }
+        pub fn from_bytes(b: &[u8]) -> Option<Closed> {
+            if b.len() != Self::LEN {
+                return None;
+            }
+            Some(Closed {
+                rent: rd_u64(b, 0)?,
+                rent_to8: rd_u64(b, 8)?,
+            })
+        }
+    }
+
+    /// The first 8 bytes of a key as a little-endian tag.
+    pub fn tag8(k: &[u8; 32]) -> u64 {
+        let mut b = [0u8; 8];
+        b.copy_from_slice(&k[..8]);
+        u64::from_le_bytes(b)
+    }
+}
+
 // ------------------------------------------------------------ pure rules
 
 /// The quota check of ReserveSwap: `units` in `1..=MAX_UNITS_PER_SWAP`,
@@ -366,6 +609,55 @@ mod tests {
         assert_eq!(ReserveSwap::decode(&r.to_bytes()), Ok(r));
         assert_eq!(ReserveSwap::LEN, 1 + 4 + 2);
         assert!(ReserveSwap::decode(&ExecuteSwap { seq: 2 }.to_bytes()).is_err());
+    }
+
+    #[test]
+    fn record_payloads_match_the_log_table() {
+        use crate::v2::log::AnyKind;
+        let len = |k| AnyKind::Cq(k).payload_len();
+        assert_eq!(len(record::ISSUED), record::Issued::LEN);
+        assert_eq!(len(record::RESERVED), record::Swap::LEN);
+        assert_eq!(len(record::EXECUTED), record::Swap::LEN);
+        assert_eq!(len(record::RELEASED), record::Undo::LEN);
+        assert_eq!(len(record::REVOKED), record::Undo::LEN);
+        assert_eq!(len(record::CLOSED), record::Closed::LEN);
+        for k in [
+            record::ISSUED,
+            record::RESERVED,
+            record::EXECUTED,
+            record::RELEASED,
+            record::REVOKED,
+            record::CLOSED,
+        ] {
+            assert_eq!(AnyKind::Cq(k).key_len(), 12);
+            assert!(record::is_rights(k));
+            // Provisional codes: outside every other proposal (8: 104,
+            // 10: 104–112) and the base table (up to 103).
+            assert!((200..=205).contains(&(k as u8)));
+        }
+        let s = record::Swap {
+            grantee_tag: 7,
+            p: -3,
+            q: 9,
+            facility_site: 1,
+            station_site: 2,
+            seq: 4,
+            units: 5,
+            ore: 10_000,
+            wood: 5_000,
+            arms: 5_000,
+        };
+        assert_eq!(record::Swap::from_bytes(&s.to_bytes()), Some(s));
+        let u = record::Undo {
+            by: record::by::ISSUER,
+            p: 1,
+            q: 2,
+            facility_site: 0,
+            station_site: 3,
+            returned: [1, 2, 3],
+            kept: [4, 5, 6],
+        };
+        assert_eq!(record::Undo::from_bytes(&u.to_bytes()), Some(u));
     }
 
     #[test]

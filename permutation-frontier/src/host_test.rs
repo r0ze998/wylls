@@ -172,3 +172,38 @@ std::thread_local! {
     /// The program id the harness runs (the caller of every CPI).
     pub static PROGRAM: Cell<Pubkey> = const { Cell::new(Pubkey::new_from_array([0; 32])) };
 }
+
+// ------------------------------------------------------------ log capture
+
+std::thread_local! {
+    /// `sol_log_data` calls of this thread, field by field.
+    static LOGS: core::cell::RefCell<std::vec::Vec<std::vec::Vec<std::vec::Vec<u8>>>> =
+        const { core::cell::RefCell::new(std::vec::Vec::new()) };
+}
+
+/// Syscall stubs that keep each thread's `sol_log_data` (the PS2 records)
+/// and drop text logs. Every other stub is the default.
+struct Capture;
+
+impl solana_program::program_stubs::SyscallStubs for Capture {
+    fn sol_log(&self, _message: &str) {}
+    fn sol_log_data(&self, fields: &[&[u8]]) {
+        LOGS.with(|l| {
+            l.borrow_mut()
+                .push(fields.iter().map(|f| f.to_vec()).collect())
+        });
+    }
+}
+
+/// Installs the capturing stubs (once per process).
+pub fn capture_logs() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        let _ = solana_program::program_stubs::set_syscall_stubs(Box::new(Capture));
+    });
+}
+
+/// This thread's captured `sol_log_data` calls since the last take.
+pub fn take_logs() -> std::vec::Vec<std::vec::Vec<std::vec::Vec<u8>>> {
+    LOGS.with(|l| core::mem::take(&mut *l.borrow_mut()))
+}
