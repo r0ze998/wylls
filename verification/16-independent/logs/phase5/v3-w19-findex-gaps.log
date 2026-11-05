@@ -1,0 +1,27 @@
+### w19-findex-gaps  HEAD d793ebd4dfded1a4c4fa23796181c55d29874224  env CARGO_TARGET_DIR=/home/user/wylls/frontier-node/target cargo test --locked -p findex --no-fail-fast --test v16_history_gaps
+### local additions:
+?? ../frontier-abi/tests/v16_period_boundary.rs
+?? crates/findex/tests/v16_history_gaps.rs
+?? crates/herald/tests/v16_caravan_holder.rs
+?? crates/keeper/tests/v16_early_reveal.rs
+?? crates/keeper/tests/v16_reveal_versions_fees.rs
+?? crates/verify/tests/v16_unknown_tag.rs
+?? ../permutation-gateway/node_modules
+?? ../permutation-gateway/test/v16-agent-wallet-contention.test.mjs
+?? ../permutation-gateway/test/v16-agent-wallet-replay.test.mjs
+?? ../permutation-gateway/test/v16-public-ops.test.mjs
+?? ../permutation-gateway/test/v16-web-caravan-holder.test.mjs
+?? ../permutation-gateway/test/v16-web-wallet-switch.test.mjs
+?? ../permutation-gateway/test/v16-x402-settlement.test.mjs
+   Compiling findex v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v2-w19/frontier-node/crates/findex)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.93s
+     Running tests/v16_history_gaps.rs (/home/user/wylls/frontier-node/target/debug/deps/v16_history_gaps-e6768908321f94b6)
+
+running 3 tests
+test v16_g2_losing_the_last_archived_signature_stops_the_pull ... ok
+test v16_g1_first_pull_on_a_pruned_node_archives_without_any_gap_signal ... ok
+test v16_g3_a_gap_in_the_middle_behind_a_kept_last_signature_is_not_seen ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+exit=0

@@ -1,0 +1,212 @@
+### w17-node-v16  (0c80381d431c8f897a873aaae6d6c5427f8460f9)  node --test test/v16-x402-settlement.test.mjs test/frontier-prize.test.mjs test/frontier-prize-accounts.test.mjs test/frontier-prize-shares.test.mjs
+TAP version 13
+# Subtest: an open pool while the world goes on: every deposit is accounted for and held in the vault; no payer has an exit yet
+ok 1 - an open pool while the world goes on: every deposit is accounted for and held in the vault; no payer has an exit yet
+  ---
+  duration_ms: 74.224611
+  type: 'test'
+  ...
+# Subtest: the vault short of what the counters say, an Entry missing, or the counters out of step: reported, not hidden
+ok 2 - the vault short of what the counters say, an Entry missing, or the counters out of step: reported, not hidden
+  ---
+  duration_ms: 1.369573
+  type: 'test'
+  ...
+# Subtest: S1 as played, after SetShares (equal split, 3 + 1 members of two winning nations), three claims and WithdrawOps: vault, claims and the open claim reconcile to the base unit
+ok 3 - S1 as played, after SetShares (equal split, 3 + 1 members of two winning nations), three claims and WithdrawOps: vault, claims and the open claim reconcile to the base unit
+  ---
+  duration_ms: 2.603746
+  type: 'test'
+  ...
+# Subtest: refund mode: each open refund is 80% of the fee and needs only the Entry; the vault keeps the operator's part until WithdrawOps
+ok 4 - refund mode: each open refund is 80% of the fee and needs only the Entry; the vault keeps the operator's part until WithdrawOps
+  ---
+  duration_ms: 1.156507
+  type: 'test'
+  ...
+# Subtest: S1 as played (six-way tie, no capture or reinforcement line): equal split among the paid members; amounts, dust and the vault reconcile
+ok 5 - S1 as played (six-way tie, no capture or reinforcement line): equal split among the paid members; amounts, dust and the vault reconcile
+  ---
+  duration_ms: 9.240881
+  type: 'test'
+  ...
+# Subtest: a capture and reinforcements: points by the provisional weights; the posted root and totals are the recomputed ones
+ok 6 - a capture and reinforcements: points by the provisional weights; the posted root and totals are the recomputed ones
+  ---
+  duration_ms: 3.958152
+  type: 'test'
+  ...
+# Subtest: what an operator could post and the program would accept is caught by the recomputation: inflated points, wrong totals, another ledger or params file
+ok 7 - what an operator could post and the program would accept is caught by the recomputation: inflated points, wrong totals, another ledger or params file
+  ---
+  duration_ms: 6.187808
+  type: 'test'
+  ...
+# Subtest: no paid member in the winning nation: refund mode, no root; each payer gets 80% of its fee back and the vault keeps the operator's 20% until WithdrawOps
+ok 8 - no paid member in the winning nation: refund mode, no root; each payer gets 80% of its fee back and the vault keeps the operator's 20% until WithdrawOps
+  ---
+  duration_ms: 2.302851
+  type: 'test'
+  ...
+# Subtest: prize SDK: the pool, vault and entry are PDAs of the prize program; decoders read the program's layouts
+ok 9 - prize SDK: the pool, vault and entry are PDAs of the prize program; decoders read the program's layouts
+  ---
+  duration_ms: 15.847019
+  type: 'test'
+  ...
+# Subtest: prize SDK: share hashes are permutation-prize's (its unit test pins the same vectors); the tree proves every leaf
+ok 10 - prize SDK: share hashes are permutation-prize's (its unit test pins the same vectors); the tree proves every leaf
+  ---
+  duration_ms: 3.399883
+  type: 'test'
+  ...
+# Subtest: prize SDK: the paid Join is exactly [limit, price 0, loaded, Pay, Join]; anything else is refused
+ok 11 - prize SDK: the paid Join is exactly [limit, price 0, loaded, Pay, Join]; anything else is refused
+  ---
+  duration_ms: 19.510322
+  type: 'test'
+  ...
+# Subtest: POST /f/x402/join without a payment: 402 with the price (25 test USDC to the vault, in the test mint)
+ok 12 - POST /f/x402/join without a payment: 402 with the price (25 test USDC to the vault, in the test mint)
+  ---
+  duration_ms: 155.941862
+  type: 'test'
+  ...
+# Subtest: POST /f/x402/join with Pay and Join in one transaction: the relay adds the fee payer and the gate, sends, answers X-PAYMENT-RESPONSE
+ok 13 - POST /f/x402/join with Pay and Join in one transaction: the relay adds the fee payer and the gate, sends, answers X-PAYMENT-RESPONSE
+  ---
+  duration_ms: 78.260511
+  type: 'test'
+  ...
+# Subtest: POST /f/x402/join never signs the gate for an unpaid Join; a wallet whose entry is confirmed on chain may join with a plain Join
+ok 14 - POST /f/x402/join never signs the gate for an unpaid Join; a wallet whose entry is confirmed on chain may join with a plain Join
+  ---
+  duration_ms: 65.371058
+  type: 'test'
+  ...
+# Subtest: POST /f/x402/join refuses a payment to another vault or mint, a forged wallet, a failing transfer, and a closed pool; nothing is sent
+ok 15 - POST /f/x402/join refuses a payment to another vault or mint, a forged wallet, a failing transfer, and a closed pool; nothing is sent
+  ---
+  duration_ms: 109.020146
+  type: 'test'
+  ...
+# Subtest: joinViaX402: one request, the 402, the paid retry; it refuses requirements that are not this season's or above the caller's limit
+ok 16 - joinViaX402: one request, the 402, the paid retry; it refuses requirements that are not this season's or above the caller's limit
+  ---
+  duration_ms: 59.887426
+  type: 'test'
+  ...
+# Subtest: GET /f/prize reads the pool from the chain; POST /f/faucet gives a wallet test tokens once, on localnet only
+ok 17 - GET /f/prize reads the pool from the chain; POST /f/faucet gives a wallet test tokens once, on localnet only
+  ---
+  duration_ms: 88.466513
+  type: 'test'
+  ...
+# Subtest: POST /f/prize/claim sponsors exactly one Claim of the signing wallet for this season's pool
+ok 18 - POST /f/prize/claim sponsors exactly one Claim of the signing wallet for this season's pool
+  ---
+  duration_ms: 61.446545
+  type: 'test'
+  ...
+# Subtest: POST /f/x402/join after a lost answer: the same bytes again get the same settlement back from the chain; nothing is sent twice
+ok 19 - POST /f/x402/join after a lost answer: the same bytes again get the same settlement back from the chain; nothing is sent twice
+  ---
+  duration_ms: 111.788859
+  type: 'test'
+  ...
+# Subtest: POST /f/x402/join: the same bytes after the transaction failed on chain are a refusal, not a second send
+ok 20 - POST /f/x402/join: the same bytes after the transaction failed on chain are a refusal, not a second send
+  ---
+  duration_ms: 55.092905
+  type: 'test'
+  ...
+# Subtest: POST /f/x402/join refuses another network or scheme, an expired blockhash and a second entry of the same wallet; nothing is sent
+ok 21 - POST /f/x402/join refuses another network or scheme, an expired blockhash and a second entry of the same wallet; nothing is sent
+  ---
+  duration_ms: 61.522674
+  type: 'test'
+  ...
+# Subtest: POST /f/prize/claim: a second claim of the same wallet is 409 AlreadyClaimed and nothing is sent
+ok 22 - POST /f/prize/claim: a second claim of the same wallet is 409 AlreadyClaimed and nothing is sent
+  ---
+  duration_ms: 30.272843
+  type: 'test'
+  ...
+# Subtest: an independent x402 client on an S1 season (web3.js only, from the 402 body and the x402 v1 field meanings) pays and joins; the relay accepts it
+ok 23 - an independent x402 client on an S1 season (web3.js only, from the 402 body and the x402 v1 field meanings) pays and joins; the relay accepts it
+  ---
+  duration_ms: 59.210928
+  type: 'test'
+  ...
+# Subtest: S1 (profile 3, RULESET_HASH_V3): the 402 names profile 3 and its budget; Pay+Join with the S1 limits lands, the M1 limits are refused
+ok 24 - S1 (profile 3, RULESET_HASH_V3): the 402 names profile 3 and its budget; Pay+Join with the S1 limits lands, the M1 limits are refused
+  ---
+  duration_ms: 58.712675
+  type: 'test'
+  ...
+# Subtest: T17-1: a generic x402 "exact" Solana payment (one TransferChecked of maxAmountRequired to payTo) is refused; only this repo's [prefix, Pay, Join] shape pays
+ok 25 - T17-1: a generic x402 "exact" Solana payment (one TransferChecked of maxAmountRequired to payTo) is refused; only this repo's [prefix, Pay, Join] shape pays
+  ---
+  duration_ms: 96.696676
+  type: 'test'
+  ...
+# Subtest: T17-2: the 200 was lost; resending the same X-PAYMENT must tell the client the payment settled (the transaction), not only "duplicate"
+ok 26 - T17-2: the 200 was lost; resending the same X-PAYMENT must tell the client the payment settled (the transaction), not only "duplicate"
+  ---
+  duration_ms: 59.827898
+  type: 'test'
+  ...
+# Subtest: T17-3: after a 504 SettlementPending the transaction landed; a retry with a fresh transaction is told AlreadyPaid instead of "you are in"
+not ok 27 - T17-3: after a 504 SettlementPending the transaction landed; a retry with a fresh transaction is told AlreadyPaid instead of "you are in"
+  ---
+  duration_ms: 15101.656906
+  type: 'test'
+  location: '/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v2-w17/permutation-gateway/test/v16-x402-settlement.test.mjs:162:1'
+  failureType: 'testCodeFailure'
+  error: 'a paid member retrying must not read as a refused payment; got 402 {"code":"AlreadyPaid","error":"payment refused: the transaction would fail in HmCAhBSS9Zhr3169cE1c9951ZZgwca8YgKr3Pb7nkhRY: custom program error: 0x105"}'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: true
+  actual: false
+  operator: '=='
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v2-w17/permutation-gateway/test/v16-x402-settlement.test.mjs:188:10)
+    process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: T17-4: a payment whose network is another cluster's is refused with the requirements (confirmation)
+ok 28 - T17-4: a payment whose network is another cluster's is refused with the requirements (confirmation)
+  ---
+  duration_ms: 45.172151
+  type: 'test'
+  ...
+# Subtest: T17-5: a Claim that landed but whose Entry cannot be read back is reported with amount "0" (an unknown amount shown as zero)
+not ok 29 - T17-5: a Claim that landed but whose Entry cannot be read back is reported with amount "0" (an unknown amount shown as zero)
+  ---
+  duration_ms: 47.12578
+  type: 'test'
+  location: '/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v2-w17/permutation-gateway/test/v16-x402-settlement.test.mjs:201:1'
+  failureType: 'testCodeFailure'
+  error: 'the claim landed but its amount is unknown; the answer says {"ok":true,"signature":"F8wbmgji8auzgdrr1tGkGnDei3fCHwybDvbTCuvWqaPKpgSY7WmASDAXkuryBHDiRSXwRJWey1rVARWHpUvdAmu","amount":"0","testAssetsOnly":true}'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: '0'
+  actual: '0'
+  operator: 'notStrictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v2-w17/permutation-gateway/test/v16-x402-settlement.test.mjs:219:10)
+    process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+1..29
+# tests 29
+# suites 0
+# pass 27
+# fail 2
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 16141.830925
+exit=1

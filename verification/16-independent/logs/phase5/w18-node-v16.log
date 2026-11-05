@@ -1,0 +1,133 @@
+### w18-node-v16  (0bba3f310085639732b038085211f7cb3af5a462)  node --test test/v16-public-ops.test.mjs
+TAP version 13
+# Subtest: T18-1: a march stays sealed until its arrival turn has ended (README.md:25); the self-reveal is not due before that
+not ok 1 - T18-1: a march stays sealed until its arrival turn has ended (README.md:25); the self-reveal is not due before that
+  ---
+  duration_ms: 1.788579
+  type: 'test'
+  location: '/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v2-w18/permutation-gateway/test/v16-public-ops.test.mjs:26:1'
+  failureType: 'testCodeFailure'
+  error: "the destination must not be sent in clear before the arrival turn has ended; the self-reveal is due at bell start + 0 s, 600 s before the seal's round 35734812 (send)"
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: true
+  actual: false
+  operator: '=='
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v2-w18/permutation-gateway/test/v16-public-ops.test.mjs:38:10)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.start (node:internal/test_runner/test:944:17)
+    startSubtestAfterBootstrap (node:internal/test_runner/harness:296:17)
+  ...
+# Subtest: T19-1: the prototype crank undelegates in the order the program requires (chunks 1..19, nations, chunk 0)
+not ok 2 - T19-1: the prototype crank undelegates in the order the program requires (chunks 1..19, nations, chunk 0)
+  ---
+  duration_ms: 2.244488
+  type: 'test'
+  location: '/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v2-w18/permutation-gateway/test/v16-public-ops.test.mjs:42:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    the crank's first intent is [1000,1001,1002]; the program takes world chunk 1 first and refuses anything else with UndelegationOrder
+    + actual - expected
+    ... Skipped lines
+    
+      [
+    +   1000,
+    +   1001,
+    +   1002,
+    +   1003,
+    +   1004,
+    +   1005,
+        1,
+        2,
+        3,
+        4,
+        5,
+    ...
+        19,
+    -   1000,
+    -   1001,
+    -   1002,
+    -   1003,
+    -   1004,
+    -   1005,
+        0
+      ]
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+    0: 1
+    1: 2
+    2: 3
+    3: 4
+    4: 5
+    5: 6
+    6: 7
+    7: 8
+    8: 9
+    9: 10
+    10: 11
+    11: 12
+    12: 13
+    13: 14
+    14: 15
+    15: 16
+    16: 17
+    17: 18
+    18: 19
+    19: 1000
+    20: 1001
+    21: 1002
+    22: 1003
+    23: 1004
+    24: 1005
+    25: 0
+  actual:
+    0: 1000
+    1: 1001
+    2: 1002
+    3: 1003
+    4: 1004
+    5: 1005
+    6: 1
+    7: 2
+    8: 3
+    9: 4
+    10: 5
+    11: 6
+    12: 7
+    13: 8
+    14: 9
+    15: 10
+    16: 11
+    17: 12
+    18: 13
+    19: 14
+    20: 15
+    21: 16
+    22: 17
+    23: 18
+    24: 19
+    25: 0
+  operator: 'deepStrictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v2-w18/permutation-gateway/test/v16-public-ops.test.mjs:46:10)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+1..2
+# tests 2
+# suites 0
+# pass 0
+# fail 2
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 369.673284
+exit=1

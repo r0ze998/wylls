@@ -1,0 +1,68 @@
+### int-early-api  HEAD d0949fd417180b11704de5690ab0dfb6e5ef3148  env CARGO_TARGET_DIR=/home/user/wylls/frontier-node/target cargo test --locked -p keeper --no-fail-fast --test play -- --nocapture v16_api_owner_material_right_after_departure ws04_api_normal
+### local additions:
+ M crates/keeper/tests/play.rs
+?? ../frontier-abi/tests/v16_period_boundary.rs
+?? crates/findex/tests/v16_history_gaps.rs
+?? crates/herald/tests/v16_caravan_holder.rs
+?? crates/keeper/tests/v16_beacon_restart.rs
+?? crates/keeper/tests/v16_early_reveal.rs
+?? crates/keeper/tests/v16_reveal_versions_fees.rs
+?? crates/verify/tests/v16_unknown_tag.rs
+?? ../permutation-gateway/node_modules
+?? ../permutation-gateway/test/v16-agent-wallet-contention.test.mjs
+?? ../permutation-gateway/test/v16-agent-wallet-replay.test.mjs
+?? ../permutation-gateway/test/v16-public-ops.test.mjs
+?? ../permutation-gateway/test/v16-web-caravan-holder.test.mjs
+?? ../permutation-gateway/test/v16-web-wallet-switch.test.mjs
+?? ../permutation-gateway/test/v16-x402-settlement.test.mjs
+   Compiling agents v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v2-int/frontier-node/crates/agents)
+   Compiling keeper v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v2-int/frontier-node/crates/keeper)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 9.58s
+     Running tests/play.rs (/home/user/wylls/frontier-node/target/debug/deps/play-691c2b772f5d761c)
+
+running 2 tests
+  owner material posted at 1785633736 (arrival bell starts at 1785633729, T(arrive) round time 1785634329)
+  owner material posted at 1785633736 (arrival bell starts at 1785633729, T(arrive) round time 1785634329)
+  owner material posted at 1785632640 (arrival bell starts at 1785633729, T(arrive) round time 1785634329)
+  owner material via API: host 140737488355329 -> 202 {"accepted":true,"track":"r1"}
+  owner material via API: host 1 -> 202 {"accepted":true,"track":"r2"}
+  owner material posted at 1785633736 (arrival bell starts at 1785633729, T(arrive) round time 1785634329)
+  owner material via API: host 140737488355329 -> 202 {"accepted":true,"track":"r1"}
+  owner material via API: host 1 -> 202 {"accepted":true,"track":"r2"}
+API: 7 Reveal(s) to the RPC with THE anchor on chain, 0 without it; 0 before drand published T(arrive)
+  anchor account now: Some((NativeLoader1111111111111111111111111111111, 21)); first seen on chain at slot 703; T(arrive) 1785634329; ticks failed on reads 0
+  API: revealed Ok 7 march(es), normal run 7
+  audit march host 334251534843905 : 1 send (1 distinct sig, 0 re-send of a sig), 0 simulate; landed Ok 1 (after publication 1), landed Err 0 [], not landed 0; fees 14973 lamports; settled Some((1, 0))
+  audit march host 335351046471681 : 1 send (1 distinct sig, 0 re-send of a sig), 0 simulate; landed Ok 1 (after publication 1), landed Err 0 [], not landed 0; fees 14944 lamports; settled Some((1, 0))
+  audit march host 633318697598977 : 1 send (1 distinct sig, 0 re-send of a sig), 0 simulate; landed Ok 1 (after publication 1), landed Err 0 [], not landed 0; fees 14916 lamports; settled Some((1, 0))
+  audit march host 634418209226753 : 1 send (1 distinct sig, 0 re-send of a sig), 0 simulate; landed Ok 1 (after publication 1), landed Err 0 [], not landed 0; fees 14887 lamports; settled Some((1, 0))
+  audit march host 316659348799489 : 0 send (0 distinct sig, 0 re-send of a sig), 0 simulate; landed Ok 0 (after publication 0), landed Err 0 [], not landed 0; fees 0 lamports; settled Some((6, 0))
+  audit march host 334251534843906 : 0 send (0 distinct sig, 0 re-send of a sig), 0 simulate; landed Ok 0 (after publication 0), landed Err 0 [], not landed 0; fees 0 lamports; settled Some((6, 0))
+  audit march host 17592186044417 : 1 send (1 distinct sig, 0 re-send of a sig), 0 simulate; landed Ok 1 (after publication 1), landed Err 0 [], not landed 0; fees 14831 lamports; settled Some((5, 0))
+  audit march host 140737488355329 : 1 send (1 distinct sig, 0 re-send of a sig), 0 simulate; landed Ok 1 (after publication 1), landed Err 0 [], not landed 0; fees 14831 lamports; settled Some((8, 2))
+  audit march host 351843720888321 : 0 send (0 distinct sig, 0 re-send of a sig), 0 simulate; landed Ok 0 (after publication 0), landed Err 0 [], not landed 0; fees 0 lamports; settled Some((8, 5))
+  audit march host 1 : 1 send (1 distinct sig, 0 re-send of a sig), 0 simulate; landed Ok 1 (after publication 1), landed Err 0 [], not landed 0; fees 14831 lamports; settled Some((5, 0))
+  audit total: 7 hand-overs (7 matched to a march): send 7 = 7 distinct sig + 0 re-send; simulate 0; landed Ok 7, Err 0, not landed 0; Reveal fees 104213 lamports
+  audit keeper stats (reveal): writes 7 versions 7 landed 7 failed 0 fees_charged 104213 lamports; chain charged 104213; uncounted 0
+test ws04_api_normal ... ok
+v16 early API codes: [(140737488355329, 202), (1, 202)]
+v16-early-API: 7 Reveal(s) to the RPC with THE anchor on chain, 0 without it; 0 before drand published T(arrive)
+  anchor account now: Some((NativeLoader1111111111111111111111111111111, 21)); first seen on chain at slot 703; T(arrive) 1785634329; ticks failed on reads 0
+  v16-early-API: revealed Ok 7 march(es), normal run 7
+  audit march host 334251534843905 : 1 send (1 distinct sig, 0 re-send of a sig), 0 simulate; landed Ok 1 (after publication 1), landed Err 0 [], not landed 0; fees 14973 lamports; settled Some((1, 0))
+  audit march host 335351046471681 : 1 send (1 distinct sig, 0 re-send of a sig), 0 simulate; landed Ok 1 (after publication 1), landed Err 0 [], not landed 0; fees 14944 lamports; settled Some((1, 0))
+  audit march host 633318697598977 : 1 send (1 distinct sig, 0 re-send of a sig), 0 simulate; landed Ok 1 (after publication 1), landed Err 0 [], not landed 0; fees 14916 lamports; settled Some((1, 0))
+  audit march host 634418209226753 : 1 send (1 distinct sig, 0 re-send of a sig), 0 simulate; landed Ok 1 (after publication 1), landed Err 0 [], not landed 0; fees 14887 lamports; settled Some((1, 0))
+  audit march host 316659348799489 : 0 send (0 distinct sig, 0 re-send of a sig), 0 simulate; landed Ok 0 (after publication 0), landed Err 0 [], not landed 0; fees 0 lamports; settled Some((6, 0))
+  audit march host 334251534843906 : 0 send (0 distinct sig, 0 re-send of a sig), 0 simulate; landed Ok 0 (after publication 0), landed Err 0 [], not landed 0; fees 0 lamports; settled Some((6, 0))
+  audit march host 17592186044417 : 1 send (1 distinct sig, 0 re-send of a sig), 0 simulate; landed Ok 1 (after publication 1), landed Err 0 [], not landed 0; fees 14831 lamports; settled Some((5, 0))
+  audit march host 140737488355329 : 1 send (1 distinct sig, 0 re-send of a sig), 0 simulate; landed Ok 1 (after publication 1), landed Err 0 [], not landed 0; fees 14831 lamports; settled Some((8, 2))
+  audit march host 351843720888321 : 0 send (0 distinct sig, 0 re-send of a sig), 0 simulate; landed Ok 0 (after publication 0), landed Err 0 [], not landed 0; fees 0 lamports; settled Some((8, 5))
+  audit march host 1 : 1 send (1 distinct sig, 0 re-send of a sig), 0 simulate; landed Ok 1 (after publication 1), landed Err 0 [], not landed 0; fees 14831 lamports; settled Some((5, 0))
+  audit total: 7 hand-overs (7 matched to a march): send 7 = 7 distinct sig + 0 re-send; simulate 0; landed Ok 7, Err 0, not landed 0; Reveal fees 104213 lamports
+  audit keeper stats (reveal): writes 7 versions 7 landed 7 failed 0 fees_charged 104213 lamports; chain charged 104213; uncounted 0
+test v16_api_owner_material_right_after_departure ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 14 filtered out; finished in 11.13s
+
+exit=0

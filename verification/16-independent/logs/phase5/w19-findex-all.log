@@ -1,0 +1,52 @@
+### w19-findex-all  (d793ebd4dfded1a4c4fa23796181c55d29874224)  env CARGO_TARGET_DIR=/home/user/wylls/frontier-node/target cargo test --locked -p findex --no-fail-fast
+   Compiling permutation-rules v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v2-w19/permutation-rules)
+   Compiling frontier-abi v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v2-w19/frontier-abi)
+   Compiling fclient v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v2-w19/frontier-node/crates/fclient)
+   Compiling localnet v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v2-w19/frontier-node/crates/localnet)
+   Compiling findex v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v2-w19/frontier-node/crates/findex)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 32.90s
+     Running unittests src/lib.rs (/home/user/wylls/frontier-node/target/debug/deps/findex-5b9e1261651129c6)
+
+running 8 tests
+test archive::tests::a_torn_tail_is_truncated_and_tampering_is_caught ... ok
+test index::tests::garbage_and_foreign_records_are_skipped ... ok
+test index::tests::records_links_heads_and_snapshots ... ok
+test provenance::tests::only_a_header_the_records_made_is_the_post_state ... ok
+test tests::splits_ps2_records_out_of_logs_with_the_abi_lengths ... ok
+test archive::tests::appends_rolls_seals_and_verifies ... ok
+test archive::tests::group_commit_is_durable_only_at_commits ... ok
+test archive::tests::a_crash_across_a_segment_roll_reopens_clean ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.46s
+
+     Running tests/ingest.rs (/home/user/wylls/frontier-node/target/debug/deps/ingest-a312cafe8e962347)
+
+running 8 tests
+test rpc_poll_against_a_live_node ... ok
+test rpc_poll_pages_back_to_the_last_signature ... ok
+test rpc_poll_refuses_a_history_gap ... ok
+test rpc_poll_refuses_a_server_that_ignores_before ... ok
+test rpc_poll_tolerates_another_order_within_a_slot ... ok
+test rpc_poll_pages_the_local_node ... ok
+test enriched_poll_archives_post_state ... ok
+test feed_and_rpc_poll_archive_the_same_transactions_and_resume ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+
+     Running tests/open_items.rs (/home/user/wylls/frontier-node/target/debug/deps/open_items-65a9b12d491ccdf7)
+
+running 4 tests
+test a_version_1_transaction_stops_every_pull ... ok
+test a_failure_mid_batch_loses_nothing ... ok
+test a_confirmed_transaction_dropped_from_its_fork_stays_archived ... ok
+test archive_bytes_per_transaction ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.15s
+
+   Doc-tests findex
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+exit=0

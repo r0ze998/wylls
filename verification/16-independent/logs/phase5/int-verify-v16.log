@@ -1,0 +1,51 @@
+### int-verify-v16  (d0949fd417180b11704de5690ab0dfb6e5ef3148)  env CARGO_TARGET_DIR=/home/user/wylls/frontier-node/target cargo test --locked -p verify --no-fail-fast --test v16_unknown_tag
+   Compiling verify v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v2-int/frontier-node/crates/verify)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 9.99s
+     Running tests/v16_unknown_tag.rs (/home/user/wylls/frontier-node/target/debug/deps/v16_unknown_tag-78e6ea1b3c32abc5)
+
+running 5 tests
+test v16_x2b_a_landed_instruction_of_an_unknown_future_tag_is_not_a_pass ... ok
+test v16_x2_control_the_fixture_passes_untouched ... ok
+test v16_x2_a_landed_instruction_of_a_reserved_tag_is_not_a_pass ... ok
+test v16_a8_a_cpi_shaped_transaction_leaves_nothing_judged_and_the_run_still_passes ... FAILED
+test v16_x2c_a_landed_instruction_of_a_known_but_unjudged_tag_is_named_in_the_report ... ok
+
+failures:
+
+---- v16_a8_a_cpi_shaped_transaction_leaves_nothing_judged_and_the_run_still_passes stdout ----
+
+thread 'v16_a8_a_cpi_shaped_transaction_leaves_nothing_judged_and_the_run_still_passes' (25296) panicked at crates/verify/tests/v16_unknown_tag.rs:140:5:
+assertion `left != right` failed: a transaction that reached the program only by CPI must not pass unjudged:
+Warn V2 ProgramMismatch bell 0 tx#8857: an archived transaction does not invoke the program
+Warn V9 PrefundedAddress bell 0 accounts: 5 accounts hold more than their rent (pre-funded or escrow; informational)
+  left: Pass
+ right: Pass
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/core/src/panicking.rs:80:14
+   2: core::panicking::assert_failed_inner
+             at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/core/src/panicking.rs:434:23
+   3: core::panicking::assert_failed
+             at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/core/src/panicking.rs:394:5
+   4: v16_unknown_tag::v16_a8_a_cpi_shaped_transaction_leaves_nothing_judged_and_the_run_still_passes
+             at ./tests/v16_unknown_tag.rs:140:5
+   5: v16_unknown_tag::v16_a8_a_cpi_shaped_transaction_leaves_nothing_judged_and_the_run_still_passes::{{closure}}
+             at ./tests/v16_unknown_tag.rs:136:84
+   6: core::ops::function::FnOnce::call_once
+             at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/core/src/ops/function.rs:250:5
+   7: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+
+failures:
+    v16_a8_a_cpi_shaped_transaction_leaves_nothing_judged_and_the_run_still_passes
+
+test result: FAILED. 4 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.37s
+
+error: test failed, to rerun pass `-p verify --test v16_unknown_tag`
+error: 1 target failed:
+    `-p verify --test v16_unknown_tag`
+exit=101

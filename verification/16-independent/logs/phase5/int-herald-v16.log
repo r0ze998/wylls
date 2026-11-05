@@ -1,0 +1,14 @@
+### int-herald-v16  (d0949fd417180b11704de5690ab0dfb6e5ef3148)  env CARGO_TARGET_DIR=/home/user/wylls/frontier-node/target cargo test --locked -p herald --no-fail-fast --test v16_caravan_holder
+   Compiling herald v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v2-int/frontier-node/crates/herald)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 15.49s
+     Running tests/v16_caravan_holder.rs (/home/user/wylls/frontier-node/target/debug/deps/v16_caravan_holder-246430a87be4e163)
+
+running 4 tests
+test v16_a1_feed_names_the_raider_as_the_holder_after_a_take ... ok
+test v16_a2_two_sent_records_of_one_key_stay_one_caravan ... ok
+test v16_c2_feed_keeps_the_tower_wear_of_a_send ... ok
+test v16_a1c_a_take_does_not_leave_the_caravan_marked_as_a_plain_cart_of_the_victim ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+exit=0

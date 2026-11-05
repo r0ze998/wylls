@@ -1,0 +1,82 @@
+### int-beacon-restart  HEAD d0949fd417180b11704de5690ab0dfb6e5ef3148  env CARGO_TARGET_DIR=/home/user/wylls/frontier-node/target cargo test --locked -p keeper --no-fail-fast --test v16_beacon_restart -- --nocapture
+### local additions:
+ M crates/keeper/tests/play.rs
+?? ../frontier-abi/tests/v16_period_boundary.rs
+?? crates/findex/tests/v16_history_gaps.rs
+?? crates/herald/tests/v16_caravan_holder.rs
+?? crates/keeper/tests/v16_beacon_restart.rs
+?? crates/keeper/tests/v16_early_reveal.rs
+?? crates/keeper/tests/v16_reveal_versions_fees.rs
+?? crates/verify/tests/v16_unknown_tag.rs
+?? ../permutation-gateway/node_modules
+?? ../permutation-gateway/test/v16-agent-wallet-contention.test.mjs
+?? ../permutation-gateway/test/v16-agent-wallet-replay.test.mjs
+?? ../permutation-gateway/test/v16-public-ops.test.mjs
+?? ../permutation-gateway/test/v16-web-caravan-holder.test.mjs
+?? ../permutation-gateway/test/v16-web-wallet-switch.test.mjs
+?? ../permutation-gateway/test/v16-x402-settlement.test.mjs
+   Compiling agents v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v2-int/frontier-node/crates/agents)
+   Compiling keeper v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v2-int/frontier-node/crates/keeper)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 11.72s
+     Running tests/v16_beacon_restart.rs (/home/user/wylls/frontier-node/target/debug/deps/v16_beacon_restart-ab2e9c20135a638f)
+
+running 1 test
+program: native model (tests/model)
+control: posts per (bell, region) where > 1: []
+program: native model (tests/model)
+restart: restart at bell 3 + 300 s (slot 439), 0 adopted
+restart: posts per (bell, region) where > 1: [((3, 0), 2), ((3, 1), 2), ((3, 2), 2), ((3, 3), 2), ((3, 4), 2), ((3, 5), 2), ((3, 6), 2), ((3, 7), 2), ((3, 8), 2), ((3, 9), 2), ((3, 10), 2), ((3, 11), 2), ((3, 12), 2), ((3, 13), 2), ((3, 14), 2), ((3, 15), 2)]
+
+thread 'v16_r1_beaconlog_posts_once_per_bell_and_region_across_a_restart' (16669) panicked at crates/keeper/tests/v16_beacon_restart.rs:93:5:
+a restart inside bell 3 posted BeaconLog again in the same bell: 32 posts for 16 regions (16 extra PostBeacon fees, no state duplicated); per (bell, region) > 1: [((3, 0), 2), ((3, 1), 2), ((3, 2), 2), ((3, 3), 2), ((3, 4), 2), ((3, 5), 2), ((3, 6), 2), ((3, 7), 2), ((3, 8), 2), ((3, 9), 2), ((3, 10), 2), ((3, 11), 2), ((3, 12), 2), ((3, 13), 2), ((3, 14), 2), ((3, 15), 2)]
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/core/src/panicking.rs:80:14
+   2: v16_beacon_restart::v16_r1_beaconlog_posts_once_per_bell_and_region_across_a_restart::{{closure}}
+             at ./tests/v16_beacon_restart.rs:93:5
+   3: <core::pin::Pin<P> as core::future::future::Future>::poll
+             at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/core/src/future/future.rs:133:9
+   4: tokio::runtime::park::CachedParkThread::block_on::{{closure}}
+             at /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.53.1/src/runtime/park.rs:284:71
+   5: tokio::task::coop::with_budget
+             at /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.53.1/src/task/coop/mod.rs:167:5
+   6: tokio::task::coop::budget
+             at /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.53.1/src/task/coop/mod.rs:133:5
+   7: tokio::runtime::park::CachedParkThread::block_on
+             at /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.53.1/src/runtime/park.rs:284:31
+   8: tokio::runtime::context::blocking::BlockingRegionGuard::block_on
+             at /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.53.1/src/runtime/context/blocking.rs:66:14
+   9: tokio::runtime::scheduler::multi_thread::MultiThread::block_on::{{closure}}
+             at /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.53.1/src/runtime/scheduler/multi_thread/mod.rs:92:22
+  10: tokio::runtime::context::runtime::enter_runtime
+             at /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.53.1/src/runtime/context/runtime.rs:65:16
+  11: tokio::runtime::scheduler::multi_thread::MultiThread::block_on
+             at /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.53.1/src/runtime/scheduler/multi_thread/mod.rs:91:9
+  12: tokio::runtime::runtime::Runtime::block_on_inner
+             at /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.53.1/src/runtime/runtime.rs:376:50
+  13: tokio::runtime::runtime::Runtime::block_on
+             at /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.53.1/src/runtime/runtime.rs:343:18
+  14: v16_beacon_restart::v16_r1_beaconlog_posts_once_per_bell_and_region_across_a_restart
+             at ./tests/v16_beacon_restart.rs:97:6
+  15: v16_beacon_restart::v16_r1_beaconlog_posts_once_per_bell_and_region_across_a_restart::{{closure}}
+             at ./tests/v16_beacon_restart.rs:82:76
+  16: core::ops::function::FnOnce::call_once
+             at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/core/src/ops/function.rs:250:5
+  17: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+test v16_r1_beaconlog_posts_once_per_bell_and_region_across_a_restart ... FAILED
+
+failures:
+
+failures:
+    v16_r1_beaconlog_posts_once_per_bell_and_region_across_a_restart
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.93s
+
+error: test failed, to rerun pass `-p keeper --test v16_beacon_restart`
+error: 1 target failed:
+    `-p keeper --test v16_beacon_restart`
+exit=101

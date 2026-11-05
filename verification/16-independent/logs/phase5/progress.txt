@@ -1,0 +1,17 @@
+12:52:54 done int-keeper-v16 exit=101
+12:53:30 done w18-keeper-v16 exit=101
+12:54:17 done int-node-v16 exit=1
+12:54:18 done w18-node-v16 exit=1
+12:54:34 done w17-node-v16 exit=1
+12:54:34 done w08-node exit=1
+12:58:22 done int-keeper-all exit=101
+13:01:58 done w18-keeper-all exit=101
+13:06:10 done w08-keeper-all exit=101
+13:06:14 done int-findex-all exit=0
+13:06:48 done w19-findex-all exit=0
+13:07:04 done int-herald-v16 exit=0
+13:07:19 done int-verify-v16 exit=101
+13:07:20 done int-abi-v16 exit=101
+13:07:35 done w08-abi-all exit=101
+13:09:52 done int-node-all exit=1
+ALL DONE

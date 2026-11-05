@@ -1,0 +1,326 @@
+### int-node-v16  (d0949fd417180b11704de5690ab0dfb6e5ef3148)  node --test test/v16-public-ops.test.mjs test/v16-x402-settlement.test.mjs test/v16-agent-wallet-replay.test.mjs test/v16-agent-wallet-contention.test.mjs test/v16-web-caravan-holder.test.mjs test/v16-web-wallet-switch.test.mjs
+TAP version 13
+# Subtest: V16-B8: MCP and the runner both send for one agent in the same tick (no per-agent, per-turn serialisation)
+not ok 1 - V16-B8: MCP and the runner both send for one agent in the same tick (no per-agent, per-turn serialisation)
+  ---
+  duration_ms: 138.259022
+  type: 'test'
+  location: '/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v2-int/permutation-gateway/test/v16-agent-wallet-contention.test.mjs:17:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    {"agentId":"ec98778a-f666-49a7-8d18-71327d430c56","decided":"Train","charged":"0","by":"test-model","reason":null,"result":{"ok":false,"requestId":"ec98778a-f666-49a7-8d18-71327d430c56:1:1000","agentId":"ec98778a-f666-49a7-8d18-71327d430c56","status":"refused","policyVersion":1,"modeEpoch":1,"charges":[],"error":{"code":"RelayPending","message":"a prior relay send has no finalized outcome; new writes are paused","signature":"6QnNbYN8nCPRDPiDt1uHqmpYE9NmAotqYB1nUnyZyzxh9DPyC8utk42P7f5vt4M27EzT5myo4qPdTVq9fHpgw9M"},"balance":{"available":"0","reserved":"0","unresolved":"0","pendingWithdraw":"0","withdrawn":"0","deposited":"0","spent":{"inference":"0","network":"0","game":"0"}}}}
+    
+    'refused' !== 'sent'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'sent'
+  actual: 'refused'
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v2-int/permutation-gateway/test/v16-agent-wallet-contention.test.mjs:29:10)
+    process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+# Subtest: V16-B1: a sent request key is still a replay after 2,000 later requests (invariant of DESIGN.md §6.6)
+not ok 2 - V16-B1: a sent request key is still a replay after 2,000 later requests (invariant of DESIGN.md §6.6)
+  ---
+  duration_ms: 3390.204076
+  type: 'test'
+  location: '/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v2-int/permutation-gateway/test/v16-agent-wallet-replay.test.mjs:29:1'
+  failureType: 'testCodeFailure'
+  error: 'action request journal is full; refusing new results'
+  code: 'SendFailed'
+  stack: |-
+    AgentLedger.remember (file:///tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v2-int/permutation-gateway/src/frontier/agent/ledger.mjs:578:75)
+    #run (file:///tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v2-int/permutation-gateway/src/frontier/agent/gateway.mjs:517:19)
+    AgentGateway.submit (file:///tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v2-int/permutation-gateway/src/frontier/agent/gateway.mjs:473:30)
+    Object.act (file:///tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v2-int/permutation-gateway/test/v16-agent-wallet-replay.test.mjs:26:61)
+    TestContext.<anonymous> (file:///tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v2-int/permutation-gateway/test/v16-agent-wallet-replay.test.mjs:38:25)
+    process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+# Subtest: V16-B7: MCP requestIds are namespaced per agent (two agents, the same requestId, both act)
+ok 3 - V16-B7: MCP requestIds are namespaced per agent (two agents, the same requestId, both act)
+  ---
+  duration_ms: 70.913314
+  type: 'test'
+  ...
+# Subtest: T18-1: a march stays sealed until its arrival turn has ended (README.md:25); the self-reveal is not due before that
+not ok 4 - T18-1: a march stays sealed until its arrival turn has ended (README.md:25); the self-reveal is not due before that
+  ---
+  duration_ms: 2.310063
+  type: 'test'
+  location: '/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v2-int/permutation-gateway/test/v16-public-ops.test.mjs:26:1'
+  failureType: 'testCodeFailure'
+  error: "the destination must not be sent in clear before the arrival turn has ended; the self-reveal is due at bell start + 0 s, 600 s before the seal's round 35734812 (send)"
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: true
+  actual: false
+  operator: '=='
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v2-int/permutation-gateway/test/v16-public-ops.test.mjs:38:10)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.start (node:internal/test_runner/test:944:17)
+    startSubtestAfterBootstrap (node:internal/test_runner/harness:296:17)
+  ...
+# Subtest: T19-1: the prototype crank undelegates in the order the program requires (chunks 1..19, nations, chunk 0)
+not ok 5 - T19-1: the prototype crank undelegates in the order the program requires (chunks 1..19, nations, chunk 0)
+  ---
+  duration_ms: 2.723672
+  type: 'test'
+  location: '/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v2-int/permutation-gateway/test/v16-public-ops.test.mjs:42:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    the crank's first intent is [1000,1001,1002]; the program takes world chunk 1 first and refuses anything else with UndelegationOrder
+    + actual - expected
+    ... Skipped lines
+    
+      [
+    +   1000,
+    +   1001,
+    +   1002,
+    +   1003,
+    +   1004,
+    +   1005,
+        1,
+        2,
+        3,
+        4,
+        5,
+    ...
+        19,
+    -   1000,
+    -   1001,
+    -   1002,
+    -   1003,
+    -   1004,
+    -   1005,
+        0
+      ]
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+    0: 1
+    1: 2
+    2: 3
+    3: 4
+    4: 5
+    5: 6
+    6: 7
+    7: 8
+    8: 9
+    9: 10
+    10: 11
+    11: 12
+    12: 13
+    13: 14
+    14: 15
+    15: 16
+    16: 17
+    17: 18
+    18: 19
+    19: 1000
+    20: 1001
+    21: 1002
+    22: 1003
+    23: 1004
+    24: 1005
+    25: 0
+  actual:
+    0: 1000
+    1: 1001
+    2: 1002
+    3: 1003
+    4: 1004
+    5: 1005
+    6: 1
+    7: 2
+    8: 3
+    9: 4
+    10: 5
+    11: 6
+    12: 7
+    13: 8
+    14: 9
+    15: 10
+    16: 11
+    17: 12
+    18: 13
+    19: 14
+    20: 15
+    21: 16
+    22: 17
+    23: 18
+    24: 19
+    25: 0
+  operator: 'deepStrictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v2-int/permutation-gateway/test/v16-public-ops.test.mjs:46:10)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+# Subtest: V16-A1: after a raid takes the caravan, the raider sees it among their caravans and the victim no longer does (S1-1B §3.5)
+ok 6 - V16-A1: after a raid takes the caravan, the raider sees it among their caravans and the victim no longer does (S1-1B §3.5)
+  ---
+  duration_ms: 2.671333
+  type: 'test'
+  ...
+# Subtest: V16-A1b: the map marks the taken caravan as the raider's own, not the victim's
+ok 7 - V16-A1b: the map marks the taken caravan as the raider's own, not the victim's
+  ---
+  duration_ms: 0.70717
+  type: 'test'
+  ...
+# Subtest: V16-A7: a Citizen whose session key is a third program's PDA (③ courier mandate) is not mistaken for "no key on this device"
+not ok 8 - V16-A7: a Citizen whose session key is a third program's PDA (③ courier mandate) is not mistaken for "no key on this device"
+  ---
+  duration_ms: 0.828342
+  type: 'test'
+  location: '/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v2-int/permutation-gateway/test/v16-web-caravan-holder.test.mjs:66:1'
+  failureType: 'testCodeFailure'
+  error: 'a foreign session key must be told apart from a missing key (got null: the page offers "鍵を作り直す", which takes the key back without saying so)'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: ~
+  actual: ~
+  operator: 'notStrictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v2-int/permutation-gateway/test/v16-web-caravan-holder.test.mjs:72:10)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: V16-C3: after the user switches accounts in the wallet, the page acts as the new account (model of controller.mjs startPlay)
+not ok 9 - V16-C3: after the user switches accounts in the wallet, the page acts as the new account (model of controller.mjs startPlay)
+  ---
+  duration_ms: 79.563223
+  type: 'test'
+  location: '/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v2-int/permutation-gateway/test/v16-web-wallet-switch.test.mjs:37:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    the page must follow too; it still acts as the previous account
+    + actual - expected
+    
+    + 'GMdNsnh6Bz6j9LSSGdNQ7sS7YaprxTewt5bmaD8zj1nW'
+    - 'AA5R8R5UiWwbMTYd92EvmZpbScMhBR214VJYcnZt41kU'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'AA5R8R5UiWwbMTYd92EvmZpbScMhBR214VJYcnZt41kU'
+  actual: 'GMdNsnh6Bz6j9LSSGdNQ7sS7YaprxTewt5bmaD8zj1nW'
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v2-int/permutation-gateway/test/v16-web-wallet-switch.test.mjs:50:10)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+# Subtest: T17-1: a generic x402 "exact" Solana payment (one TransferChecked of maxAmountRequired to payTo) is refused; only this repo's [prefix, Pay, Join] shape pays
+ok 10 - T17-1: a generic x402 "exact" Solana payment (one TransferChecked of maxAmountRequired to payTo) is refused; only this repo's [prefix, Pay, Join] shape pays
+  ---
+  duration_ms: 80.499574
+  type: 'test'
+  ...
+# Subtest: T17-2: the 200 was lost; resending the same X-PAYMENT must tell the client the payment settled (the transaction), not only "duplicate"
+not ok 11 - T17-2: the 200 was lost; resending the same X-PAYMENT must tell the client the payment settled (the transaction), not only "duplicate"
+  ---
+  duration_ms: 15086.733934
+  type: 'test'
+  location: '/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v2-int/permutation-gateway/test/v16-x402-settlement.test.mjs:145:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    {"error":"the transaction was sent but has no finalized result yet (GET /f/tx/{signature})","code":"SettlementPending","signature":"2dWZepnmZqNssmpSQ62AKtNVt6X9T3DCZ5wNj73gEmd9CvWDLyU6K2AmufF7F6ZujhAhtJzeiFAeLEtuVTj5EQtx"}
+    
+    504 !== 200
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 200
+  actual: 504
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v2-int/permutation-gateway/test/v16-x402-settlement.test.mjs:153:10)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: T17-3: after a 504 SettlementPending the transaction landed; a retry with a fresh transaction is told AlreadyPaid instead of "you are in"
+not ok 12 - T17-3: after a 504 SettlementPending the transaction landed; a retry with a fresh transaction is told AlreadyPaid instead of "you are in"
+  ---
+  duration_ms: 15096.164131
+  type: 'test'
+  location: '/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v2-int/permutation-gateway/test/v16-x402-settlement.test.mjs:162:1'
+  failureType: 'testCodeFailure'
+  error: 'a paid member retrying must not read as a refused payment; got 503 {"code":"RelayPending","error":"a prior relay send has no finalized outcome; new writes are paused"}'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: true
+  actual: false
+  operator: '=='
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v2-int/permutation-gateway/test/v16-x402-settlement.test.mjs:188:10)
+    process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: T17-4: a payment whose network is another cluster's is refused with the requirements (confirmation)
+ok 13 - T17-4: a payment whose network is another cluster's is refused with the requirements (confirmation)
+  ---
+  duration_ms: 68.450731
+  type: 'test'
+  ...
+# Subtest: T17-5: a Claim that landed but whose Entry cannot be read back is reported with amount "0" (an unknown amount shown as zero)
+not ok 14 - T17-5: a Claim that landed but whose Entry cannot be read back is reported with amount "0" (an unknown amount shown as zero)
+  ---
+  duration_ms: 15091.431308
+  type: 'test'
+  location: '/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v2-int/permutation-gateway/test/v16-x402-settlement.test.mjs:201:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly deep-equal:
+    + actual - expected
+    
+      [
+    +   504,
+    +   undefined,
+    -   200,
+    -   true,
+        1
+      ]
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+    0: 200
+    1: true
+    2: 1
+  actual:
+    0: 504
+    2: 1
+  operator: 'deepStrictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v2-int/permutation-gateway/test/v16-x402-settlement.test.mjs:217:10)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+1..14
+# tests 14
+# suites 0
+# pass 5
+# fail 9
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 47351.257152
+exit=1

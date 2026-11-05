@@ -1,0 +1,293 @@
+### int-keeper-all  (d0949fd417180b11704de5690ab0dfb6e5ef3148)  env CARGO_TARGET_DIR=/home/user/wylls/frontier-node/target cargo test --locked -p keeper --no-fail-fast
+   Compiling agents v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v2-int/frontier-node/crates/agents)
+   Compiling keeper v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v2-int/frontier-node/crates/keeper)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 32.00s
+     Running unittests src/lib.rs (/home/user/wylls/frontier-node/target/debug/deps/keeper_core-0ad61ebc70566fbc)
+
+running 133 tests
+test api::tests::refusal_bodies_name_the_error ... ok
+test api::tests::audit_chain_unavailable_rpc_message_in_response ... ok
+test api::tests::journal_failure_refuses_without_leaking_or_queueing ... ok
+test archive::tests::archive_batches_by_region_day_with_the_creating_payer ... ok
+test config::tests::drand_urls_are_https_or_loopback ... ok
+test config::tests::parses_the_documented_file ... ok
+test conquest::tests::cq_close_march_after_end_plus_72h ... ok
+test api::tests::routes_need_the_token_and_check_shapes ... ok
+test conquest::tests::cq_close_march_does_not_need_the_fold_role ... ok
+test conquest::tests::cq_fold_march_folds_ready_hours_and_skips_laggards ... ok
+test conquest::tests::cq_horn_watcher_fronts_counts_and_alerts ... ok
+test conquest::tests::cq_keep_contest_resolves_every_bell_then_idles ... ok
+test conquest::tests::cq_land_index_takes_a_free_city_capture ... ok
+test conquest::tests::cq_m1_season_plans_no_conquest_write ... ok
+test conquest::tests::cq_return_of_a_retire_leave_names_the_home_holding ... ok
+test conquest::tests::cq_season_end_retires_previous_generation_hosts ... ok
+test conquest::tests::cq_season_end_retires_waiting_leaves_and_waits_for_the_last_resolve ... ok
+test conquest::tests::cq_season_end_skips_a_capture_without_prev_home ... ok
+test conquest::tests::cq_settle_capture_names_captor_and_victim ... ok
+test conquest::tests::cq_settle_siege_stakes_slots_and_season_end ... ok
+test conquest::tests::cq_settle_transit_of_a_previous_generation_host_names_prev_home ... ok
+test conquest::tests::rest_writes_nothing_until_something_wakes_it ... ok
+test conquest::tests::cq_horn_replay_after_a_restart_is_not_journalled_twice ... ok
+test conquest::tests::s1_caravan_settles_and_default_raids ... ok
+test conquest::tests::s1_sends_no_fold_and_wakes_nothing_for_one ... ok
+test engine::tests::a_known_failure_is_followed_at_once ... ok
+test engine::tests::adopted_attempts_are_not_double_charged_as_orphans ... ok
+test engine::tests::adopted_different_write_ids_cannot_share_one_retry_budget ... ok
+test engine::tests::adopted_old_unknown_version_cannot_start_a_new_fee_budget ... ok
+test engine::tests::adopted_old_unknown_version_retries_within_original_budget ... ok
+test engine::tests::bids_double_per_slot_to_the_class_cap ... ok
+test engine::tests::adopted_unknown_care_is_not_discarded_by_slot_age ... ok
+test engine::tests::cancelled_and_deadline_writes_hold_unknown_signatures ... ok
+test engine::tests::cancelled_landing_waits_for_durable_status_before_alert_or_fee_release ... ok
+test engine::tests::capped_write_whose_versions_expired_ends_and_restarts ... ok
+test engine::tests::care_transfer_sends_one_version_while_program_n_keeps_its_cadence ... ok
+test engine::tests::chain_observed_and_failed_cancellations_do_not_emit_late_success ... ok
+test engine::tests::cu_and_heap_retry_ladder ... ok
+test engine::tests::codes_end_writes_as_the_keeper_mapping_says ... ok
+test engine::tests::cu_meter_pftc_climbs_cu_not_heap ... ok
+test beacon::tests::anchors_plan_stops_at_end_bell ... ok
+test engine::tests::d_and_n_writes_resend_on_their_cadence ... ok
+test engine::tests::deadline_and_retry_cap_wait_for_possible_late_success ... ok
+test engine::tests::every_landed_version_is_charged_once_after_a_write_ends ... ok
+test engine::tests::failed_journal_status_keeps_fee_and_write_pending_without_resend ... ok
+test engine::tests::failed_sibling_holds_old_fee_exposure_until_other_signature_settles ... ok
+test engine::tests::failed_variant_waits_for_late_sibling_success_before_notifying_duty ... ok
+test engine::tests::definitive_dead_sibling_wins_over_failed_in_either_order ... ok
+test engine::tests::late_orphan_and_cancelled_write_fees_are_charged_once ... ok
+test engine::tests::journal_failure_prevents_send_and_ambiguous_rpc_keeps_fee ... ok
+test engine::tests::missing_blockhash_validity_height_prevents_send ... ok
+test engine::tests::late_success_after_local_cancellation_is_not_a_duty_landing ... ok
+test engine::tests::old_unknown_orphan_keeps_predicted_fee_until_finalized ... ok
+test engine::tests::old_unknown_write_does_not_retry_when_fee_budget_is_used ... ok
+test engine::tests::old_unknown_write_retries_within_its_existing_budget ... ok
+test engine::tests::orphan_status_before_first_plan_cannot_re_adopt_a_settled_signature ... ok
+test engine::tests::reveal_cutoff_keeps_unknown_signature_until_late_success ... ok
+test engine::tests::same_batch_already_done_sibling_is_recorded_as_done_once ... ok
+test engine::tests::skip_quiet_out_of_cu_is_not_quiet ... ok
+test engine::tests::status_rpc_error_does_not_discard_old_orphan_fee ... ok
+test engine::tests::same_batch_success_wins_regardless_of_sibling_status_order ... ok
+test fold::tests::parts_follow_the_frontier ... ok
+test engine::tests::the_cadence_counts_from_the_slot_the_version_went_out_in ... ok
+test engine::tests::unlanded_w_write_escalates_with_new_payers ... ok
+test journal::tests::invalid_attempt_numbers_are_rejected_instead_of_wrapping ... ok
+test journal::tests::attempts_survive_reopen_and_the_lock_is_exclusive ... ok
+test api::tests::journal_write_failure_refuses_without_leaking_or_queueing ... ok
+test journal::tests::open_existing_never_creates_an_empty_journal ... ok
+test journal::tests::old_journal_migrates_expiry_height_without_inventing_evidence ... ok
+test journal::tests::recovered_finality_sql_failure_is_atomic_and_legacy_care_can_resolve ... ok
+test journal::tests::settled_sibling_query_is_scoped_to_object_key ... ok
+test journal::tests::open_existing_rejects_out_of_range_sqlite_values ... ok
+test journal::tests::settled_sibling_query_uses_exact_write_id_for_new_attempts ... ok
+test journal::tests::status_update_requires_an_attempt_and_preserves_settled_evidence ... ok
+test journal::tests::tag_roundtrips_and_invalid_sqlite_values_refuse_resume ... ok
+test landindex::tests::records_feed_the_index ... ok
+test nations::tests::due_proposals_and_their_holdings ... ok
+test play::review_tests::gather_waits_only_on_a_departed_transit ... ok
+test play::review_tests::nudges_taken_are_published_for_two_days ... ok
+test play::review_tests::reveal_refusals_are_final_but_three ... ok
+test play::review_tests::skips_wait_for_the_target_bell ... ok
+test play::w6t_tests::a_stale_or_foreign_anchor_read_sends_nothing ... ok
+test journal::tests::unknown_old_fee_refuses_reopen_and_duplicate_signature_is_not_replaced ... ok
+test play::w6t_tests::an_anchor_read_before_the_round_sends_nothing ... ok
+test play::w6t_tests::archive_entries_count_only_when_present_for_the_bell ... ok
+test play::w6t_tests::backup_delay_rereads_before_settle ... ok
+test play::w6t_tests::accepted_material_is_journalled_before_202 ... ok
+test play::w6t_tests::damaged_owner_journal_refuses_restore_without_marking_it_loaded ... ok
+test play::w6t_tests::dead_close_key_not_replanned ... ok
+test play::w6t_tests::deferred_dead_reveal_marks_missed_once ... ok
+test play::w6t_tests::drand_unreachable_sends_nothing_even_with_an_anchor ... ok
+test play::w6t_tests::held_owner_material_survives_a_restart ... ok
+test play::w6t_tests::idle_day_with_pending_ops_is_one_batch_per_24_bells ... ok
+test play::w6t_tests::intake_to_duty_sends_nothing_before_publication ... ok
+test play::w6t_tests::landed_reveal_latches_transit_before_slot_feed_catches_up ... ok
+test play::w6t_tests::no_plaintext_reaches_the_rpc_without_an_anchor ... ok
+test play::w6t_tests::no_reveal_before_the_anchor_of_its_arrival ... ok
+test play::w6t_tests::restarts_and_resends_send_nothing_before_and_reveal_after ... ok
+test play::w6t_tests::reveal_sources_deduped_by_host_arrive ... ok
+test play::w6t_tests::reveals_skip_arrivals_at_or_after_end_bell ... ok
+test play::w6t_tests::closes_do_not_reread_inputs_inside_grace ... ok
+test play::w6t_tests::the_intake_gate_only_reads ... ok
+test play::w6t_tests::rpc_read_failures_send_nothing ... ok
+test journal::tests::recovered_finality_crash_rolls_back_then_reopens_with_one_notice ... ok
+test play::w6t_tests::unreadable_plaintext_cache_refuses_decrypt_before_planning ... ok
+test pools::tests::reveal_floor_is_priced_at_the_requested_reveal ... ok
+test reveal_accept::tests::reveal_accept_refuses_arrival_at_end_bell ... ok
+test reveal_accept::tests::reveal_accept_refuses_own_shield_war_target ... ok
+test reveal_accept::tests::the_accept_path_answers_like_the_program ... ok
+test rings::tests::crowding_rings_wait_for_the_previous_ring_and_a_later_fold ... ok
+test pools::tests::pool_minimums_hold_unless_dev ... ok
+test tests::escalation_by_class ... ok
+test tests::finalized_failed_care_requires_fresh_fee_balance_at_restart ... ok
+test tests::land_writes_have_their_contract_class_and_a_budget ... ok
+test tests::cq_keeper_follows_the_season_abi ... ok
+test tests::legacy_expired_care_requires_finalized_reconciliation ... ok
+test tests::payer_care_cadence_follows_game_time_and_low_pools ... ok
+test tests::play_writes_have_their_contract_class_and_a_budget ... ok
+test tests::quantiles_and_classes_of_the_w2f_writes ... ok
+test tests::locally_cancelled_landing_creates_distinct_alert ... ok
+test tests::restart_accounts_for_an_attempt_that_landed_before_adoption ... ok
+test tests::restart_adopts_old_unknown_attempt_and_later_counts_its_fee_once ... ok
+test tests::restart_holds_even_a_single_unknown_signature_until_chain_reconciliation ... ok
+test tests::restart_holds_unknown_signature_when_sibling_already_settled ... ok
+test tests::restart_keeps_unknown_care_and_blocks_a_new_plan_after_151_slots ... ok
+test tests::restart_rejects_incomplete_or_excess_status_reply_before_reconciliation ... ok
+test tests::restart_rejects_invalid_journal_signature_before_status_lookup ... ok
+test tickets::tests::lottery_order_is_score_desc_then_tag ... ok
+test tickets::tests::overlap_hold_waits_for_a_better_mover ... ok
+test tickets::tests::settle_order_puts_the_oldest_cohort_first ... ok
+test tests::restart_records_tag_specific_already_done_as_done_without_replaying_duty ... ok
+test pools::tests::delay_pool_draws_are_uniform_and_skip_the_broke ... ok
+test journal::prefix_tests::object_keys_with_prefix_matches_scan ... ok
+
+test result: ok. 133 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.10s
+
+     Running unittests src/main.rs (/home/user/wylls/frontier-node/target/debug/deps/frontier_keeper-f583d69591dff3cc)
+
+running 1 test
+test tests::reveal_journal_failure_stops_keeper_but_transient_tick_error_does_not ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/archive_returns_rent.rs (/home/user/wylls/frontier-node/target/debug/deps/archive_returns_rent-684b613782fb1353)
+
+running 1 test
+test archive_closes_anchors_to_the_payer_that_paid has been running for over 60 seconds
+test archive_closes_anchors_to_the_payer_that_paid ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 111.77s
+
+     Running tests/held_accounts.rs (/home/user/wylls/frontier-node/target/debug/deps/held_accounts-36f5c54d453283ca)
+
+running 2 tests
+test held_anchor_falls_back_and_held_cache_switches_nonce ... ok
+test anchor_held_past_the_version_cap_lands_after_the_hold ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.68s
+
+     Running tests/land.rs (/home/user/wylls/frontier-node/target/debug/deps/land-dcaa747fabccab45)
+
+running 3 tests
+test overlapping_fallbacks_never_displace ... ok
+test a_restart_mid_cohort_rebuilds_and_settles_the_rest ... ok
+test land_season ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.21s
+
+     Running tests/latency.rs (/home/user/wylls/frontier-node/target/debug/deps/latency-f5d48b416397b6ea)
+
+running 2 tests
+test round_425_in_publication_slot_still_anchors_in_slot ... ok
+test status_answers_during_a_long_tick ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 9.12s
+
+     Running tests/one_day_beacons.rs (/home/user/wylls/frontier-node/target/debug/deps/one_day_beacons-454e325bd1e83e50)
+
+running 1 test
+test one_day_beacons ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 30.08s
+
+     Running tests/play.rs (/home/user/wylls/frontier-node/target/debug/deps/play-691c2b772f5d761c)
+
+running 15 tests
+test crash_injection_every_journal_point ... ignored, 60 scenario runs (Gate W4 runs it with --include-ignored crash_injection)
+test play_bell_pipeline ... ok
+test reveal_group_survives_an_unrevealable_top ... ok
+test claim_after_late_reveal ... ok
+test ws04_api_journal_unwritable_refuses ... ok
+test lag_gate_in_process ... ok
+test reveals_stop_at_close_under_hold ... ok
+test duplicate_keepers_race ... ok
+test ws04_api_normal ... ok
+test ws04_api_restart_after_202 ... ok
+test ws04_no_reveal_before_anchor_held_anchor ... ok
+test ws04_no_reveal_before_anchor_normal ... ok
+test ws04_no_reveal_before_anchor_reads_fail ... ok
+test ws04_no_reveal_before_anchor_restart ... ok
+test ws04_no_reveal_before_anchor_retries ... ok
+
+test result: ok. 14 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 31.01s
+
+     Running tests/reveal_accept.rs (/home/user/wylls/frontier-node/target/debug/deps/reveal_accept-460bf2e1810d55c0)
+
+running 1 test
+test reveal_accept_over_localnet ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.93s
+
+     Running tests/v16_early_reveal.rs (/home/user/wylls/frontier-node/target/debug/deps/v16_early_reveal-9f3a8807a9cf3b8f)
+
+running 1 test
+test v16_t18_2_owner_material_before_the_arrival_turn_is_not_accepted ... FAILED
+
+failures:
+
+---- v16_t18_2_owner_material_before_the_arrival_turn_is_not_accepted stdout ----
+program: native model (tests/model)
+now 1785631336 (bell 2); arrival bell 7 starts at 1785634329; the seal's round 30943855
+
+thread 'v16_t18_2_owner_material_before_the_arrival_turn_is_not_accepted' (12296) panicked at crates/keeper/tests/v16_early_reveal.rs:149:5:
+owner plaintext submitted 2993 s before the arrival turn starts was accepted (202 {"accepted":true,"track":"r1"}) and queued (1) for the Reveal duty, whose write has no not-before bound
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/core/src/panicking.rs:80:14
+   2: v16_early_reveal::v16_t18_2_owner_material_before_the_arrival_turn_is_not_accepted::{{closure}}
+             at ./tests/v16_early_reveal.rs:149:5
+   3: <core::pin::Pin<P> as core::future::future::Future>::poll
+             at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/core/src/future/future.rs:133:9
+   4: tokio::runtime::park::CachedParkThread::block_on::{{closure}}
+             at /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.53.1/src/runtime/park.rs:284:71
+   5: tokio::task::coop::with_budget
+             at /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.53.1/src/task/coop/mod.rs:167:5
+   6: tokio::task::coop::budget
+             at /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.53.1/src/task/coop/mod.rs:133:5
+   7: tokio::runtime::park::CachedParkThread::block_on
+             at /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.53.1/src/runtime/park.rs:284:31
+   8: tokio::runtime::context::blocking::BlockingRegionGuard::block_on
+             at /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.53.1/src/runtime/context/blocking.rs:66:14
+   9: tokio::runtime::scheduler::multi_thread::MultiThread::block_on::{{closure}}
+             at /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.53.1/src/runtime/scheduler/multi_thread/mod.rs:92:22
+  10: tokio::runtime::context::runtime::enter_runtime
+             at /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.53.1/src/runtime/context/runtime.rs:65:16
+  11: tokio::runtime::scheduler::multi_thread::MultiThread::block_on
+             at /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.53.1/src/runtime/scheduler/multi_thread/mod.rs:91:9
+  12: tokio::runtime::runtime::Runtime::block_on_inner
+             at /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.53.1/src/runtime/runtime.rs:376:50
+  13: tokio::runtime::runtime::Runtime::block_on
+             at /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.53.1/src/runtime/runtime.rs:343:18
+  14: v16_early_reveal::v16_t18_2_owner_material_before_the_arrival_turn_is_not_accepted
+             at ./tests/v16_early_reveal.rs:153:6
+  15: v16_early_reveal::v16_t18_2_owner_material_before_the_arrival_turn_is_not_accepted::{{closure}}
+             at ./tests/v16_early_reveal.rs:59:76
+  16: core::ops::function::FnOnce::call_once
+             at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/core/src/ops/function.rs:250:5
+  17: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+
+failures:
+    v16_t18_2_owner_material_before_the_arrival_turn_is_not_accepted
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.53s
+
+error: test failed, to rerun pass `-p keeper --test v16_early_reveal`
+     Running tests/v16_reveal_versions_fees.rs (/home/user/wylls/frontier-node/target/debug/deps/v16_reveal_versions_fees-bf2ca9efa8a87d67)
+
+running 1 test
+test v16_t18_3_one_reveal_held_27_slots_sends_versions_and_counts_every_landed_fee ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+   Doc-tests keeper_core
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: 1 target failed:
+    `-p keeper --test v16_early_reveal`
+exit=101

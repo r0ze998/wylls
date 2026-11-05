@@ -1,0 +1,53 @@
+diff --git a/frontier-node/crates/keeper/tests/play.rs b/frontier-node/crates/keeper/tests/play.rs
+index 6eb750d9..c7ed2d8b 100644
+--- a/frontier-node/crates/keeper/tests/play.rs
++++ b/frontier-node/crates/keeper/tests/play.rs
+@@ -370,6 +370,8 @@ struct Opts {
+     /// Workstream 04: with `owner_via_api`, the API is given a journal path
+     /// that cannot be opened (a directory).
+     api_journal_broken: bool,
++    /// ⑯: owner material is posted right after departure (bell b0), not at the arrival bell.
++    owner_early: bool,
+ }
+ 
+ struct Run {
+@@ -947,7 +949,8 @@ async fn scenario(o: Opts) -> Option<Run> {
+     let end_by = sc.genesis_ts + (arrive as i64 + 14) * 600;
+     loop {
+         let b = sc.bell_at(w.now()).unwrap();
+-        if !owner_pushed && b >= arrive {
++        if !owner_pushed && (b >= arrive || (o.owner_early && b >= b0)) {
++            println!("  owner material posted at {} (arrival bell starts at {}, T(arrive) round time {})", w.now(), sc.genesis_ts + arrive as i64 * 600, sc.drand.round_time(sc.tlock_round(arrive)));
+             if o.owner_via_api {
+                 // Workstream 04: through the real accept path.
+                 let token = "k".repeat(32);
+@@ -2397,3 +2400,29 @@ async fn ws04_api_journal_unwritable_refuses() {
+     );
+     assert_eq!(queued, 0, "nothing queued in memory");
+ }
++
++/// ⑯ independent: owner material through the real `/v1/reveal` right
++/// after departure, about two bells before the arrival turn starts (an SDK
++/// or MCP client; the page waits for the bell start). Judged with ④'s own
++/// criteria: no Reveal before drand published T(arrive), none before THE
++/// anchor, and the marches are still revealed.
++#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
++async fn v16_api_owner_material_right_after_departure() {
++    let Some(want) = normal_revealed().await else {
++        return;
++    };
++    let Some(r) = scenario(Opts {
++        owner_via_api: true,
++        owner_early: true,
++        ..Default::default()
++    })
++    .await
++    else {
++        return;
++    };
++    let codes = API_CODES.with(|a| a.borrow().clone());
++    println!("v16 early API codes: {codes:?}");
++    let early = report("v16-early-API", &r);
++    same_marches("v16-early-API", &want, &r);
++    check(&r, &early);
++}

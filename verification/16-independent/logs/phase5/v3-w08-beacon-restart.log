@@ -1,0 +1,32 @@
+### w08-beacon-restart  HEAD b519cd18e203a75ec7921f01aef46b29f8f202ea  env CARGO_TARGET_DIR=/home/user/wylls/frontier-node/target cargo test --locked -p keeper --no-fail-fast --test v16_beacon_restart -- --nocapture
+### local additions:
+?? ../frontier-abi/tests/v16_continuous_boundary.rs
+?? ../frontier-abi/tests/v16_period_boundary.rs
+?? crates/herald/tests/v16_caravan_holder.rs
+?? crates/keeper/tests/v16_beacon_restart.rs
+?? crates/keeper/tests/v16_early_reveal.rs
+?? crates/keeper/tests/v16_reveal_versions_fees.rs
+?? crates/verify/tests/v16_unknown_tag.rs
+?? ../permutation-gateway/node_modules
+?? ../permutation-gateway/test/v16-agent-wallet-contention.test.mjs
+?? ../permutation-gateway/test/v16-agent-wallet-replay.test.mjs
+?? ../permutation-gateway/test/v16-public-ops.test.mjs
+?? ../permutation-gateway/test/v16-web-caravan-holder.test.mjs
+?? ../permutation-gateway/test/v16-web-wallet-switch.test.mjs
+?? ../permutation-gateway/test/v16-x402-settlement.test.mjs
+   Compiling agents v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v2-w08/frontier-node/crates/agents)
+   Compiling keeper v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v2-w08/frontier-node/crates/keeper)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 13.54s
+     Running tests/v16_beacon_restart.rs (/home/user/wylls/frontier-node/target/debug/deps/v16_beacon_restart-3f104dda23f7aa27)
+
+running 1 test
+program: native model (tests/model)
+control: posts per (bell, region) where > 1: []
+program: native model (tests/model)
+restart: restart at bell 3 + 300 s (slot 439), 0 adopted
+restart: posts per (bell, region) where > 1: []
+test v16_r1_beaconlog_posts_once_per_bell_and_region_across_a_restart ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.93s
+
+exit=0

@@ -1,0 +1,289 @@
+### w08-abi-all  (b519cd18e203a75ec7921f01aef46b29f8f202ea)  env CARGO_TARGET_DIR=/home/user/wylls/target cargo test --locked -p frontier-abi --no-fail-fast
+   Compiling frontier-abi v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v2-w08/frontier-abi)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.51s
+     Running unittests src/lib.rs (/home/user/wylls/target/debug/deps/frontier_abi-7af819055859a764)
+
+running 88 tests
+test addr::tests::seeds_parse_back ... ok
+test addr::tests::seed_lengths_are_the_contract_table ... ok
+test addr::tests::host_ids_round_trip_at_the_extremes ... ok
+test addr::tests::tags_are_the_kernels ... ok
+test budgets::tests::close_float_caps ... ok
+test budgets::tests::locks_within_limit ... ok
+test budgets::tests::multi_anchor_fits ... ok
+test budgets::tests::loaded_limits_are_32k_multiples_and_cover_the_need ... ok
+test budgets::tests::placeholder_max_len ... ok
+test budgets::tests::transaction_sizes_fit_the_table ... ok
+test bytes::tests::out_of_range_is_none_not_panic ... ok
+test conquest_model::tests::cq_cached_masks_and_active_count ... ok
+test entry::tests::host_round_trips_with_every_op ... ok
+test budgets::tests::table_covers_every_instruction_once ... ok
+test entry::tests::program_ops_and_refusals ... ok
+test entry::tests::province_helpers_find_entries ... ok
+test error::tests::codes_are_the_contract_table ... ok
+test ix::tests::round_trips_and_refusals ... ok
+test layout::clash::arrival_slot::tests::evidence_reads_the_created_day_flag ... ok
+test ix::tests::lengths_match_the_contract ... ok
+test layout::tests::layouts_tile_exactly ... ok
+test layout::tests::sizes_and_rent_are_the_contract_table ... ok
+test layout::tests::magics_are_distinct_and_named ... ok
+test log::tests::encode_decode_and_heads ... ok
+test log::tests::fates_pack_round_trip ... ok
+test log::tests::chains_follow_the_table ... ok
+test log::tests::settle_displace_admits_one_shared_join_shard ... ok
+test log::tests::specs_cover_every_kind_once_and_bodies_fit ... ok
+test presets::tests::params_hash_commits_to_both_parts ... ok
+test presets::tests::presets_validate_and_round_trip ... ok
+test presets::tests::quicknet_pk_hash_is_the_hash_of_the_key ... ok
+test presets::tests::reveal_cu_limit_is_the_budgets_limit ... ok
+test presets::tests::reveal_loaded_limit_is_the_budgets_l_reveal ... ok
+test layout::tests::rent_is_the_sysvar_formula ... ok
+test presets::tests::ruleset_hash_is_the_kernels ... ok
+test prologue::tests::cohorts_transit_and_finality ... ok
+test prologue::tests::bucket_refills_and_refuses ... ok
+test prologue::tests::counts_from_len_resolves_single_varying_group ... ok
+test prologue::tests::every_instruction_has_a_consistent_table ... ok
+test prologue::tests::keeper_prologue_checks_status_then_ruleset ... ok
+test prologue::tests::player_prologue_checks_in_order ... ok
+test rest_model::tests::activity_ends_or_bounds_the_rest ... ok
+test rest_model::tests::quiet_through_stops_at_the_evidence ... ok
+test rest_model::tests::rest_in_a_world_without_an_end ... ok
+test tags::tests::fifty_tags_unique_and_not_reserved ... ok
+test v2::addr::tests::march_seed_is_new_and_fits ... ok
+test v2::budgets::tests::rows_cover_every_v2_instruction ... ok
+test presets::tests::validation_refuses_each_range ... ok
+test v2::entry::tests::cq_lead_host_ranks_troops_then_id ... ok
+test v2::error::tests::names_are_unique_across_both_spaces ... ok
+test v2::error::tests::codes_are_the_contract_table ... ok
+test v2::ix::tests::lengths_and_round_trips ... ok
+test v2::kernel::tests::cq_heartland_param ... ok
+test v2::kernel::tests::cq_keep_contest_breaks_and_takes ... ok
+test v2::kernel::tests::cq_keep_handoff_is_capped ... ok
+test v2::kernel::tests::cq_keep_small_donor_joins_entirely ... ok
+test v2::kernel::tests::cq_siege_v3_and_bounds ... ok
+test v2::kernel::tests::cq_train_v2_and_the_knight_bound ... ok
+test v2::layout::player::tests::slots_follow_k25 ... ok
+test v2::layout::player::tests::v2_keeps_every_m1_field ... ok
+test v2::layout::province::tests::conquest_block_offsets_are_the_contract_table ... ok
+test v2::layout::province::tests::site_mirror_keeps_m1_offsets ... ok
+test v2::layout::province::tests::v1_prefix_is_m1 ... ok
+test v2::layout::tests::codes_extend_m1 ... ok
+test v2::layout::tests::header_is_version_2 ... ok
+test v2::layout::tests::layouts_tile_exactly ... ok
+test v2::layout::tests::rents_are_the_contract_table ... ok
+test v2::layout::world::tests::march_state_is_the_contract_table ... ok
+test v2::layout::world::tests::season_and_shard_keep_m1_fields ... ok
+test v2::kernel::tests::cq_controller_is_strict ... ok
+test v2::log::tests::chains_are_sorted_and_cover_every_kind ... ok
+test v2::log::tests::conquest_payload_round_trips ... ok
+test v2::log::tests::decode_reads_both_versions_and_march_links ... ok
+test v2::log::tests::s1_close_chains_the_closed_account ... ok
+test v2::log::tests::specs_cover_every_kind_once_and_bodies_fit ... ok
+test v2::presets::tests::params_hash_v2_commits_to_both_parts ... ok
+test v2::presets::tests::presets_validate_and_round_trip ... ok
+test v2::presets::tests::reveal_profile_matches_v2_budgets ... ok
+test rest_model::tests::rest_to_the_season_end ... ok
+test v2::presets::tests::ruleset_hash_v2_is_the_kernels ... ok
+test v2::presets::tests::ruleset_hash_v3_is_the_kernels ... ok
+test v2::presets::tests::standard_season_dormancy_matches_the_economic_kernel ... ok
+test v2::prologue::tests::every_v2_instruction_has_a_consistent_table ... ok
+test v2::presets::tests::validation_refuses_each_range ... ok
+test v2::prologue::tests::present_v2_refuses_m1_accounts ... ok
+test v2::tags::tests::new_classes_are_the_contract_table ... ok
+test v2::tags::tests::v2_extends_m1 ... ok
+test rest_model::tests::project_equals_bell_by_bell ... ok
+
+test result: ok. 88 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 9.24s
+
+     Running unittests src/bin/abi-vectors.rs (/home/user/wylls/target/debug/deps/abi_vectors-65b46a529c2ec72b)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/addresses.rs (/home/user/wylls/target/debug/deps/addresses-6ed7030e3c66903f)
+
+running 2 tests
+test with_seed_is_sha256_of_base_seed_owner ... ok
+test seeds_match_sp_v2_byte_for_byte ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running tests/contract.rs (/home/user/wylls/target/debug/deps/contract-944b0ddf0b283e23)
+
+running 3 tests
+test offsets_match_the_contract_text ... ok
+test vectors_are_fresh ... ok
+test decoders_never_panic_on_arbitrary_bytes ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.70s
+
+     Running tests/cq_conquest_model.rs (/home/user/wylls/target/debug/deps/cq_conquest_model-6653656e1132e27e)
+
+running 14 tests
+test cq_control_weights_count_provisional_holdings ... ok
+test cq_conquest_payload_pins_the_state ... ok
+test cq_deserted_siege_grants_nothing ... ok
+test cq_build_v2_garrisons_and_digest ... ok
+test cq_keep_contest_broken_by_a_defender ... ok
+test cq_free_city_siege_completes_into_the_reserved_slot ... ok
+test cq_occupation_expires_with_respite ... ok
+test cq_keep_taken_after_72_bells_resolve_equals_skip ... ok
+test cq_owner_liberation_gives_respite_against_the_occupier_only ... ok
+test cq_siege_broken_by_defender_owes_stake_slot_and_immunity ... ok
+test cq_snapshots_and_the_march_fold ... ok
+test cq_twelve_sites_and_the_keep_drop_the_camp_and_write_the_keep ... ok
+test cq_occupation_and_liberation ... ok
+test cq_heartland_keep_never_counts ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/cq_kernel_vectors.rs (/home/user/wylls/target/debug/deps/cq_kernel_vectors-73706c0cdffc0ca8)
+
+running 6 tests
+test cq_dominion_lead_equals_controller_vectors ... ok
+test cq_control_weights_equal_site_weight_centi_vectors ... ok
+test cq_keep_codec_round_trips_every_vector_state ... ok
+test cq_keep_quiet_vector_replays_bell_by_bell ... ok
+test cq_keep_tile_and_free_city_site_vectors_through_the_bridge ... ok
+test cq_keep_scenarios_replay_through_the_step ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/cq_v2_contract.rs (/home/user/wylls/target/debug/deps/cq_v2_contract-c8c7b617e1533490)
+
+running 4 tests
+test cq_v1_names_keep_their_values ... ok
+test cq_offsets_match_the_contract_text ... ok
+test cq_random_quiet_rosters_resolve_equals_skip ... ok
+test cq_v2_decoders_never_panic_on_arbitrary_bytes ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.43s
+
+     Running tests/s1_caravan_clash.rs (/home/user/wylls/target/debug/deps/s1_caravan_clash-fae11ade9e6aee09)
+
+running 5 tests
+test a_friendly_tile_is_quiet ... ok
+test a_caravan_on_a_taken_tile_is_sheltered ... ok
+test an_escort_that_holds_keeps_the_caravan ... ok
+test a_waiting_host_raids_an_unescorted_caravan ... ok
+test digests_see_the_slots_only_when_used ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/territory_time.rs (/home/user/wylls/target/debug/deps/territory_time-02ded3ed0f909b9e)
+
+running 3 tests
+test neutral_provinces_never_score_and_equal_land_time_has_equal_value ... ok
+test actual_keep_capture_changes_score_owner_on_following_bell ... ok
+test opened_time_retries_gaps_and_season_end_are_exact ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/v16_continuous_boundary.rs (/home/user/wylls/target/debug/deps/v16_continuous_boundary-b546cbebe7337630)
+
+running 4 tests
+test v16_c2_routine_actions_continue_at_and_far_beyond_the_old_end_bell ... ok
+test v16_c5_the_worlds_time_horizon_is_set_by_the_citizen_bucket_clock_not_by_end_bell ... ok
+test v16_c3_a_continuous_world_is_creatable_and_a_finite_one_keeps_the_28_day_rule ... ok
+test v16_c4_a_caravan_on_the_road_across_the_old_end_bell_can_be_settled ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/v16_period_boundary.rs (/home/user/wylls/target/debug/deps/v16_period_boundary-426a4c57adfb365d)
+
+running 4 tests
+test v16_p1_a_routine_action_in_the_last_bell_before_the_boundary_is_accepted_today ... ok
+test v16_p2_a_routine_action_at_the_period_boundary_is_still_accepted ... FAILED
+test v16_p3_the_worlds_length_is_not_capped_by_a_season_parameter ... FAILED
+test v16_p4_a_caravan_sent_before_the_boundary_can_still_be_settled_after_it ... FAILED
+
+failures:
+
+---- v16_p2_a_routine_action_at_the_period_boundary_is_still_accepted stdout ----
+
+thread 'v16_p2_a_routine_action_at_the_period_boundary_is_still_accepted' panicked at frontier-abi/tests/v16_period_boundary.rs:60:5:
+assertion `left == right` failed: a player instruction at the boundary bell must be accepted; today step 4 of the player prologue answers WrongStatus
+  left: Err(WrongStatus)
+ right: Ok(1008)
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/std/src/panicking.rs:697:5
+   1: core::panicking::panic_fmt
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/panicking.rs:75:14
+   2: core::panicking::assert_failed_inner
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/panicking.rs:427:23
+   3: core::panicking::assert_failed
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/panicking.rs:387:5
+   4: v16_period_boundary::v16_p2_a_routine_action_at_the_period_boundary_is_still_accepted
+             at ./tests/v16_period_boundary.rs:60:5
+   5: v16_period_boundary::v16_p2_a_routine_action_at_the_period_boundary_is_still_accepted::{{closure}}
+             at ./tests/v16_period_boundary.rs:57:70
+   6: core::ops::function::FnOnce::call_once
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/ops/function.rs:250:5
+   7: core::ops::function::FnOnce::call_once
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- v16_p3_the_worlds_length_is_not_capped_by_a_season_parameter stdout ----
+
+thread 'v16_p3_the_worlds_length_is_not_capped_by_a_season_parameter' panicked at frontier-abi/tests/v16_period_boundary.rs:74:5:
+assertion `left == right` failed: a season longer than 28 days must be creatable for a world that does not end; today validate() refuses it
+  left: Err("join_close_bell/end_bell")
+ right: Ok(())
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/std/src/panicking.rs:697:5
+   1: core::panicking::panic_fmt
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/panicking.rs:75:14
+   2: core::panicking::assert_failed_inner
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/panicking.rs:427:23
+   3: core::panicking::assert_failed
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/panicking.rs:387:5
+   4: v16_period_boundary::v16_p3_the_worlds_length_is_not_capped_by_a_season_parameter
+             at ./tests/v16_period_boundary.rs:74:5
+   5: v16_period_boundary::v16_p3_the_worlds_length_is_not_capped_by_a_season_parameter::{{closure}}
+             at ./tests/v16_period_boundary.rs:69:66
+   6: core::ops::function::FnOnce::call_once
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/ops/function.rs:250:5
+   7: core::ops::function::FnOnce::call_once
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- v16_p4_a_caravan_sent_before_the_boundary_can_still_be_settled_after_it stdout ----
+
+thread 'v16_p4_a_caravan_sent_before_the_boundary_can_still_be_settled_after_it' panicked at frontier-abi/tests/v16_period_boundary.rs:112:5:
+a caravan sent before the boundary must be settleable after it; today it waits for bell 1009 to resolve, which never happens (CaravanEarly for ever: cargo and rent stuck)
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/std/src/panicking.rs:697:5
+   1: core::panicking::panic_fmt
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/panicking.rs:75:14
+   2: v16_period_boundary::v16_p4_a_caravan_sent_before_the_boundary_can_still_be_settled_after_it
+             at ./tests/v16_period_boundary.rs:112:5
+   3: v16_period_boundary::v16_p4_a_caravan_sent_before_the_boundary_can_still_be_settled_after_it::{{closure}}
+             at ./tests/v16_period_boundary.rs:92:77
+   4: core::ops::function::FnOnce::call_once
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/ops/function.rs:250:5
+   5: core::ops::function::FnOnce::call_once
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+
+failures:
+    v16_p2_a_routine_action_at_the_period_boundary_is_still_accepted
+    v16_p3_the_worlds_length_is_not_capped_by_a_season_parameter
+    v16_p4_a_caravan_sent_before_the_boundary_can_still_be_settled_after_it
+
+test result: FAILED. 1 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+
+error: test failed, to rerun pass `-p frontier-abi --test v16_period_boundary`
+   Doc-tests frontier_abi
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: 1 target failed:
+    `-p frontier-abi --test v16_period_boundary`
+exit=101

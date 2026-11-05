@@ -1,0 +1,156 @@
+### w18-keeper-v16  (0bba3f310085639732b038085211f7cb3af5a462)  env CARGO_TARGET_DIR=/home/user/wylls/frontier-node/target cargo test --locked -p keeper --no-fail-fast --test v16_early_reveal --test v16_reveal_versions_fees
+   Compiling permutation-rules v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v2-w18/permutation-rules)
+   Compiling agents v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v2-w18/frontier-node/crates/agents)
+   Compiling frontier-abi v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v2-w18/frontier-abi)
+   Compiling fclient v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v2-w18/frontier-node/crates/fclient)
+   Compiling keeper v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v2-w18/frontier-node/crates/keeper)
+   Compiling localnet v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v2-w18/frontier-node/crates/localnet)
+   Compiling findex v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v2-w18/frontier-node/crates/findex)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 35.03s
+     Running tests/v16_early_reveal.rs (/home/user/wylls/frontier-node/target/debug/deps/v16_early_reveal-3d0cdaa02090a65e)
+
+running 1 test
+test v16_t18_2_owner_material_before_the_arrival_turn_is_not_accepted ... FAILED
+
+failures:
+
+---- v16_t18_2_owner_material_before_the_arrival_turn_is_not_accepted stdout ----
+program: native model (tests/model)
+now 1785631336 (bell 2); arrival bell 7 starts at 1785634329; the seal's round 30943855
+
+thread 'v16_t18_2_owner_material_before_the_arrival_turn_is_not_accepted' (8046) panicked at crates/keeper/tests/v16_early_reveal.rs:149:5:
+owner plaintext submitted 2993 s before the arrival turn starts was accepted (202 {"accepted":true,"track":"r1"}) and queued (1) for the Reveal duty, whose write has no not-before bound
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/core/src/panicking.rs:80:14
+   2: v16_early_reveal::v16_t18_2_owner_material_before_the_arrival_turn_is_not_accepted::{{closure}}
+             at ./tests/v16_early_reveal.rs:149:5
+   3: <core::pin::Pin<P> as core::future::future::Future>::poll
+             at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/core/src/future/future.rs:133:9
+   4: tokio::runtime::park::CachedParkThread::block_on::{{closure}}
+             at /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.53.1/src/runtime/park.rs:284:71
+   5: tokio::task::coop::with_budget
+             at /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.53.1/src/task/coop/mod.rs:167:5
+   6: tokio::task::coop::budget
+             at /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.53.1/src/task/coop/mod.rs:133:5
+   7: tokio::runtime::park::CachedParkThread::block_on
+             at /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.53.1/src/runtime/park.rs:284:31
+   8: tokio::runtime::context::blocking::BlockingRegionGuard::block_on
+             at /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.53.1/src/runtime/context/blocking.rs:66:14
+   9: tokio::runtime::scheduler::multi_thread::MultiThread::block_on::{{closure}}
+             at /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.53.1/src/runtime/scheduler/multi_thread/mod.rs:92:22
+  10: tokio::runtime::context::runtime::enter_runtime
+             at /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.53.1/src/runtime/context/runtime.rs:65:16
+  11: tokio::runtime::scheduler::multi_thread::MultiThread::block_on
+             at /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.53.1/src/runtime/scheduler/multi_thread/mod.rs:91:9
+  12: tokio::runtime::runtime::Runtime::block_on_inner
+             at /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.53.1/src/runtime/runtime.rs:376:50
+  13: tokio::runtime::runtime::Runtime::block_on
+             at /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.53.1/src/runtime/runtime.rs:343:18
+  14: v16_early_reveal::v16_t18_2_owner_material_before_the_arrival_turn_is_not_accepted
+             at ./tests/v16_early_reveal.rs:153:6
+  15: v16_early_reveal::v16_t18_2_owner_material_before_the_arrival_turn_is_not_accepted::{{closure}}
+             at ./tests/v16_early_reveal.rs:59:76
+  16: core::ops::function::FnOnce::call_once
+             at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/core/src/ops/function.rs:250:5
+  17: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+
+failures:
+    v16_t18_2_owner_material_before_the_arrival_turn_is_not_accepted
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.50s
+
+error: test failed, to rerun pass `-p keeper --test v16_early_reveal`
+     Running tests/v16_reveal_versions_fees.rs (/home/user/wylls/frontier-node/target/debug/deps/v16_reveal_versions_fees-3406aa3a77fdb726)
+
+running 1 test
+test v16_t18_3_one_reveal_held_27_slots_sends_versions_and_counts_every_landed_fee ... FAILED
+
+failures:
+
+---- v16_t18_3_one_reveal_held_27_slots_sends_versions_and_counts_every_landed_fee stdout ----
+versions sent 27 over 27 slots; write outcomes Landed ×1; fees: on chain 1459427 lamports (winner 57052, extra 1402375); counted by the keeper 14312; per_write_cap 20000000
+
+thread 'v16_t18_3_one_reveal_held_27_slots_sends_versions_and_counts_every_landed_fee' (8050) panicked at crates/keeper/tests/v16_reveal_versions_fees.rs:133:5:
+assertion `left == right` failed: the keeper counts 14312 lamports for this Reveal but the chain charged 1459427 (27 versions landed)
+  left: 14312
+ right: 1459427
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/core/src/panicking.rs:80:14
+   2: core::panicking::assert_failed_inner
+             at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/core/src/panicking.rs:434:23
+   3: core::panicking::assert_failed::<u64, u64>
+             at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/core/src/panicking.rs:394:5
+   4: v16_reveal_versions_fees::v16_t18_3_one_reveal_held_27_slots_sends_versions_and_counts_every_landed_fee::{{closure}}
+             at ./tests/v16_reveal_versions_fees.rs:133:5
+   5: <core::pin::Pin<P> as core::future::future::Future>::poll
+             at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/core/src/future/future.rs:133:9
+   6: <core::pin::Pin<P> as core::future::future::Future>::poll
+             at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/core/src/future/future.rs:133:9
+   7: tokio::runtime::scheduler::current_thread::CoreGuard::block_on::{{closure}}::{{closure}}::{{closure}}
+             at /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.53.1/src/runtime/scheduler/current_thread/mod.rs:830:70
+   8: tokio::task::coop::with_budget
+             at /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.53.1/src/task/coop/mod.rs:167:5
+   9: tokio::task::coop::budget
+             at /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.53.1/src/task/coop/mod.rs:133:5
+  10: tokio::runtime::scheduler::current_thread::CoreGuard::block_on::{{closure}}::{{closure}}
+             at /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.53.1/src/runtime/scheduler/current_thread/mod.rs:830:25
+  11: tokio::runtime::scheduler::current_thread::Context::enter
+             at /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.53.1/src/runtime/scheduler/current_thread/mod.rs:488:19
+  12: tokio::runtime::scheduler::current_thread::CoreGuard::block_on::{{closure}}
+             at /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.53.1/src/runtime/scheduler/current_thread/mod.rs:829:44
+  13: tokio::runtime::scheduler::current_thread::CoreGuard::enter::{{closure}}
+             at /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.53.1/src/runtime/scheduler/current_thread/mod.rs:906:68
+  14: tokio::runtime::context::scoped::Scoped<T>::set
+             at /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.53.1/src/runtime/context/scoped.rs:40:9
+  15: tokio::runtime::context::set_scheduler::{{closure}}
+             at /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.53.1/src/runtime/context.rs:187:38
+  16: std::thread::local::LocalKey<T>::try_with
+             at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/std/src/thread/local.rs:513:12
+  17: std::thread::local::LocalKey<T>::with
+             at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/std/src/thread/local.rs:477:20
+  18: tokio::runtime::context::set_scheduler
+             at /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.53.1/src/runtime/context.rs:187:17
+  19: tokio::runtime::scheduler::current_thread::CoreGuard::enter
+             at /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.53.1/src/runtime/scheduler/current_thread/mod.rs:906:27
+  20: tokio::runtime::scheduler::current_thread::CoreGuard::block_on
+             at /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.53.1/src/runtime/scheduler/current_thread/mod.rs:817:24
+  21: tokio::runtime::scheduler::current_thread::CurrentThread::block_on::{{closure}}
+             at /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.53.1/src/runtime/scheduler/current_thread/mod.rs:218:33
+  22: tokio::runtime::context::runtime::enter_runtime
+             at /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.53.1/src/runtime/context/runtime.rs:65:16
+  23: tokio::runtime::scheduler::current_thread::CurrentThread::block_on
+             at /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.53.1/src/runtime/scheduler/current_thread/mod.rs:206:9
+  24: tokio::runtime::runtime::Runtime::block_on_inner
+             at /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.53.1/src/runtime/runtime.rs:374:52
+  25: tokio::runtime::runtime::Runtime::block_on
+             at /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.53.1/src/runtime/runtime.rs:343:18
+  26: v16_reveal_versions_fees::v16_t18_3_one_reveal_held_27_slots_sends_versions_and_counts_every_landed_fee
+             at ./tests/v16_reveal_versions_fees.rs:137:6
+  27: v16_reveal_versions_fees::v16_t18_3_one_reveal_held_27_slots_sends_versions_and_counts_every_landed_fee::{{closure}}
+             at ./tests/v16_reveal_versions_fees.rs:88:89
+  28: core::ops::function::FnOnce::call_once
+             at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/core/src/ops/function.rs:250:5
+  29: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+
+failures:
+    v16_t18_3_one_reveal_held_27_slots_sends_versions_and_counts_every_landed_fee
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s
+
+error: test failed, to rerun pass `-p keeper --test v16_reveal_versions_fees`
+error: 2 targets failed:
+    `-p keeper --test v16_early_reveal`
+    `-p keeper --test v16_reveal_versions_fees`
+exit=101
