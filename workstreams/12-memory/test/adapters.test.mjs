@@ -24,7 +24,7 @@ const P = W.partition;
 const OWNER_HEX = '0000000000000077'; // the runs' owner in 4's vectors (owner 119)
 const newMem = (opts = {}) => createMemory({ world: W.world, partitions: W.partitions, keys: KEYS, ...opts });
 const resolveOwner = hex => (hex === OWNER_HEX ? { principal: DEBTOR, source: 'fixture:with_seed(world, citizen_seed(wallet))' } : null);
-const bellOfSlot = clockFromGenesis({ genesisTs: 1_000_000, blockTimeOfSlot: slot => 1_000_000 + (100 + slot) * 600 }); // slot s -> bell 100 + s
+const bellOfSlot = clockFromGenesis({ genesisTs: 1_000_000, bellSecs: 600, blockTimeOfSlot: slot => 1_000_000 + (100 + slot) * 600 }); // slot s -> bell 100 + s
 
 const vectors = name => {
   const v = JSON.parse(readFileSync(new URL(`../fixtures/ws04-receipts/${name}.json`, import.meta.url), 'utf8'));
@@ -56,8 +56,11 @@ test('ws08: a continuous world account gives one world and one partition; a non-
   assert.deepEqual(old.reasons, ['world_not_continuous']);
   assert.throws(() => worldConfig({ cluster: 'x', program: 'not base58 0OIl', worldAccount: ACCOUNT, seasonId: 1, continuous: true }));
   // the Season bell, from block time (null when unknown or before genesis: the caller holds the record)
-  const clk = clockFromGenesis({ genesisTs: 600, blockTimeOfSlot: s => (s < 0 ? null : 600 + s * 10) });
+  const clk = clockFromGenesis({ genesisTs: 600, bellSecs: 600, blockTimeOfSlot: s => (s < 0 ? null : 600 + s * 10) });
   assert.deepEqual([clk(0), clk(59), clk(60), clk(-1)], [0, 0, 1, null]);
+  const clk300 = clockFromGenesis({ genesisTs: 600, bellSecs: 300, blockTimeOfSlot: s => 600 + s * 10 });
+  assert.deepEqual([clk300(29), clk300(30)], [0, 1], 'the bell length is the herald\'s bellSecs');
+  assert.throws(() => clockFromGenesis({ genesisTs: 0, blockTimeOfSlot: () => 0 }), /bellSecs/);
 });
 
 // ---------------------------------------------------------------- 4: receipts (real vectors)
@@ -205,7 +208,7 @@ test('ws04/ws08: records on both sides of a war-period mark are one continuing m
   const m = newMem();
   promiseAndAllocate(m, { due: 130 });
   // the same receipts mapped so that the settle falls after a period mark at bell 120: nothing in 12 marks periods
-  const clk = clockFromGenesis({ genesisTs: 0, blockTimeOfSlot: s => (s < 20 ? (100 + s) * 600 : (110 + s) * 600) });
+  const clk = clockFromGenesis({ genesisTs: 0, bellSecs: 600, blockTimeOfSlot: s => (s < 20 ? (100 + s) * 600 : (110 + s) * 600) });
   ingestReceipts(m, receipts, ctx(runSpecs, { bellOfSlot: clk }));
   m.observe({ kind: 'place_owner', bell: 134, source: { chain: 'index', sig: 'owner-fixture', ix: 0 }, data: { place: DST, owner: CREDITOR, from_bell: 0, to_bell: null } });
   assert.equal(one(m).state, 'fulfilled');

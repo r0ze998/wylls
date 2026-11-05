@@ -4,7 +4,8 @@
 // Season account kept for good, marked continuous (conquest block byte 80 `CONTINUOUS`, `end_bell = join_close_bell =
 // NO_END_BELL = u32::MAX`; EndSeason refuses it, error 94 `ContinuousWorld`). There is no separate world-id type: the
 // world is the program plus that account (workstream 4's `Chain::world()` says the same). Its bell is the Season bell,
-// `bell_at(genesis_ts, t) = floor((t - genesis_ts) / 600)` (frontier-abi prologue.rs), which no longer restarts.
+// `bell_at(genesis_ts, t) = floor((t - genesis_ts) / bell_secs)` (frontier-abi prologue.rs; the herald publishes
+// `bellSecs` in /h/season — 600 today, but taken from there, not assumed here), which no longer restarts.
 //
 // So for workstream 12: one world {cluster, world_id = <program>/<world account>}, ONE registered partition (the world
 // account), and world bell = Season bell. This module derives only that; it defines no World or Period of its own. An
@@ -31,13 +32,14 @@ export function worldConfig({ cluster, program, worldAccount, seasonId, continuo
  * RPC's getBlockTime (unix seconds, or null when not known). Returns null when the time is unknown or before genesis:
  * the caller holds the record instead of guessing a bell.
  */
-export function clockFromGenesis({ genesisTs, blockTimeOfSlot }) {
+export function clockFromGenesis({ genesisTs, bellSecs, blockTimeOfSlot }) {
   if (!Number.isSafeInteger(genesisTs)) throw new TypeError('genesisTs');
+  if (!Number.isSafeInteger(bellSecs) || bellSecs <= 0) throw new TypeError('bellSecs (from /h/season; not assumed)');
   if (typeof blockTimeOfSlot !== 'function') throw new TypeError('blockTimeOfSlot');
   return slot => {
     const t = blockTimeOfSlot(slot);
     if (!Number.isSafeInteger(t) || t < genesisTs) return null;
-    const bell = Math.floor((t - genesisTs) / 600);
+    const bell = Math.floor((t - genesisTs) / bellSecs);
     return bell < 2 ** 32 ? bell : null;
   };
 }

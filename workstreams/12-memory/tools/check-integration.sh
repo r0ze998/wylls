@@ -3,9 +3,10 @@
 # a temporary worktree of REF, this tree's workstreams/12-memory copied over it, then
 #   - 12's tests (the real-13 tests run there instead of skipping; the full resident run needs 13's npm
 #     dependencies and skips with the reason when they are not installed),
-#   - 13's own test of the 12->13 public-evidence sidecar, against this 12,
+#   - 13's own tests of the 12->13 sidecar and adapter (where REF has them), against this 12,
 #   - with --regen-ws04: build 4's runexec, rerun its demo scenarios and diff the receipt vectors in
-#     fixtures/ws04-receipts (needs cargo; the vectors' provenance names the commit they came from).
+#     fixtures/ws04-receipts, and read each real store with adapters/canonical.mjs (needs cargo; the
+#     vectors' provenance names the commit they came from).
 #   sh workstreams/12-memory/tools/check-integration.sh [REF] [--regen-ws04]
 set -eu
 here=$(cd "$(dirname "$0")/.." && pwd)
@@ -20,8 +21,12 @@ cp -R "$here/." "$wt/workstreams/12-memory/"
 cd "$wt"
 echo "== 12's tests on the integration tree"
 node --test workstreams/12-memory/test/*.test.mjs 2>&1 | grep -E "^# (tests|pass|fail|skipped)|^not ok|# SKIP" || true
-echo "== 13's ws12-public-evidence test against this 12"
-node --test workstreams/13-citizens/test/ws12-public-evidence.test.mjs 2>&1 | grep -E "^# (tests|pass|fail)|^not ok" || true
+echo "== 13's own ws12 tests against this 12 (those present at REF)"
+for t in workstreams/13-citizens/test/ws12-public-evidence.test.mjs workstreams/13-citizens/test/ws12-adapter.test.mjs; do
+  [ -f "$t" ] || { echo "$t: not at this ref"; continue; }
+  echo "-- $t"
+  node --test "$t" 2>&1 | grep -E "^# (tests|pass|fail|skipped)|^not ok|# SKIP|ERR_MODULE_NOT_FOUND" || true
+done
 if [ "$regen" = "--regen-ws04" ]; then
   echo "== 4's receipt vectors"
   (cd workstreams/04-execution && cargo build -q --release --bin runexec)
@@ -36,5 +41,6 @@ now = [dict(run_id=r[0], kind=r[1], subject=r[2], source=r[3], slot=r[4], body_j
 was = json.load(open(fixture))['receipts']
 print(sc, 'receipts identical' if now == was else 'RECEIPTS DIFFER')
 PY
+    WS04_DB="$out/$sc.db" WS04_SCENARIO="$sc" node --test --test-name-pattern="real store" workstreams/12-memory/test/adapters-canonical.test.mjs 2>&1 | grep -E "^(not )?ok" || true
   done
 fi
