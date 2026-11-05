@@ -41,7 +41,7 @@ async function ready(r, { balance = 0n, p = policy(['economy']), auto = true, de
 const rpc = (server, method, params, id = 1) => server.handle({ jsonrpc: '2.0', id, method, params });
 const tool = async (server, name, args = {}) => (await rpc(server, 'tools/call', { name, arguments: args })).result;
 
-test('MCP: initialize and tools/list expose reads and agent_act only, never an owner command', async () => {
+test('MCP: initialize and tools/list expose reads (agent_whoami included) and agent_act only, never an owner command', async () => {
   const r = relay();
   const a = await ready(r);
   const s = createAgentMcp({ relay: RELAY, agentId: a.agentId, capability: a.capability, fetch: fetchOver(r) });
@@ -50,7 +50,7 @@ test('MCP: initialize and tools/list expose reads and agent_act only, never an o
   assert.deepEqual(init.result.capabilities, { tools: { listChanged: false } });
   assert.equal(await s.handle({ jsonrpc: '2.0', method: 'notifications/initialized' }), null);
   const list = (await rpc(s, 'tools/list')).result.tools.map(t => t.name);
-  assert.deepEqual(list.sort(), ['agent_act', 'agent_terms', 'agent_view', 'world_read']);
+  assert.deepEqual(list.sort(), ['agent_act', 'agent_terms', 'agent_view', 'agent_whoami', 'world_read']);
   for (const forbidden of ['create', 'policy', 'mode', 'withdraw', 'rotate', 'deposit', 'settle', 'stop']) {
     assert.equal(list.some(n => n.includes(forbidden)), false, forbidden);
     const res = await rpc(s, 'tools/call', { name: `agent_${forbidden}`, arguments: {} });
@@ -188,7 +188,7 @@ test('MCP: the stdio transport is one JSON-RPC message per line', async () => {
   assert.equal(msgs.length, 3, 'no answer to the notification');
   assert.equal(msgs.find(m => m.id === 7).result.serverInfo.name, 'wylls-agent-wallet');
   assert.equal(msgs.find(m => m.id === null).error.code, -32700);
-  assert.equal(msgs.find(m => m.id === 8).result.tools.length, 4);
+  assert.equal(msgs.find(m => m.id === 8).result.tools.length, 5);
 });
 
 test('an MCP server can declare who acts through it: source ai keeps an autopilot apart from a person\'s MCP client on the same agent', async () => {

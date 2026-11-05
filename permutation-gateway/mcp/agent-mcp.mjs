@@ -43,6 +43,11 @@ export const TOOLS = Object.freeze([
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   },
   {
+    name: 'agent_whoami',
+    description: 'Read only: whether this server\'s capability is the agent\'s current one, for which agent and owner, and what the policy allows now. Records nothing.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+  },
+  {
     name: 'agent_act',
     description: 'Ask for one game action for the agent\'s own village. The relay checks it like any other caller (mode, policy version, mode epoch, allowed action, village, budget, on-chain delegation, game rules). Pass the policyVersion and modeEpoch you read with agent_view: a stop or a policy change since then refuses the request. requestId is your retry key: reuse it to retry the same decision (it is never sent twice), use a new one for a new decision.',
     inputSchema: {
@@ -157,7 +162,14 @@ export function createAgentMcp({ relay, agentId, capability, herald = null, fetc
     return ok(r.json);
   }
 
-  const tools = { agent_view: view, agent_terms: terms, agent_act: act, world_read: world };
+  async function whoami() {
+    const r = await http('POST', `${base}/f/agent/whoami`, { agentId, capability });
+    if (r.transport) return fail(r.error.code, r.error.message);
+    if (r.status !== 200) return fail(r.json?.code ?? 'RelayError', scrub(r.json?.error ?? `HTTP ${r.status}`));
+    return ok(r.json);
+  }
+
+  const tools = { agent_view: view, agent_terms: terms, agent_whoami: whoami, agent_act: act, world_read: world };
 
   /** One JSON-RPC message → the response object (or null for a notification). */
   async function handle(msg) {
