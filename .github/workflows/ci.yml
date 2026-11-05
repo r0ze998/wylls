@@ -220,12 +220,18 @@ jobs:
       - name: SBF v2 build, twice
         if: hashFiles('scripts/build-frontier.sh') != ''
         run: scripts/build-frontier.sh --twice
+      # The cross-program Frontier tests load the isolated Prize binary in
+      # the same job. The prize-program job's artefact is not shared here.
+      - name: Prize SBF v2 build for cross-program tests
+        if: hashFiles('permutation-frontier/svm-tests/tests/prize_creation_cross_program.rs') != ''
+        run: scripts/build-prize.sh
       - name: LiteSVM suite (G1-G13 against the SBF build)
         if: hashFiles('permutation-frontier/svm-tests/run.sh') != ''
         working-directory: permutation-frontier/svm-tests
         run: ./run.sh --release
         env:
           RELEASE_CHECK: ${{ (startsWith(github.ref, 'refs/tags/') || startsWith(github.ref, 'refs/heads/release/')) && '1' || '' }}
+          PRIZE_SO: ${{ github.workspace }}/permutation-prize/target/deploy/permutation_prize.so
 
   frontier-node:
     name: Frontier M1 off-chain workspace (keeper, herald, verifier, localnet)
