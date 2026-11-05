@@ -75,3 +75,30 @@ frontier-node の 1.95.0 には clippy がない（`rust-toolchain.toml` の注�
 ## 6. 版と番号
 
 0010 は ABI の番号も版も変えない（検証器の所見コードの文字列を 4 つ足すだけ：`CustodyLotBroken`・`CustodyOverCapacity`・`CustodyVaultCounts`・`CustodyRuleUndecided`）。`custody_season` の判定（`RULESET_HASH_V4` か版 5 以上）は⑩の仮の版のままで、④が版を割り当て直したら合わせる。
+
+## 7. 2026-11-06 の追加（core `5bb79786` を起点に 0011）
+
+起点：⑩の core の最新は `5bb79786`（担当ブランチ先端 `a88e5552` の**第 2 親**として保存しただけで、先端のファイルには適用されていない）。今回の core の変更はこの `5bb79786` の上に 1 コミット足した（ブランチ `workstream/10-custody-core-v26` → `2f20cef51c456b702a916b9486cdb8abd979df5f`、tree `2f2cfd5c978bbd94342d020536121a487c36a2f4`）。差分は `patches/0011-*.patch`。0001–0011 を `4cd901de` に順に当てるとこの tree になる（確認した）。
+
+| 変更 | 内容 |
+|---|---|
+| ⑱と組み合わせたときのコンパイル不能を解消 | 0006 が `Ctx` に足していた `unverifiable`（⑱の V0 と同名・同引数）と 0010 の `fail_or_unverifiable` を `Ctx` から外し、`v26_custody.rs` の中の関数（`Ctx::push` を呼ぶ）にした。custody は `Ctx` に何も足さない |
+| 再判定を 2 つ追加 | `CONSUMED > 0` なのに `NONCE = 0`（注文が一度も出ていない区画から使われた。消費は利用注文の受け手だけができ、注文を出すたびに `NONCE` が進む。⑨の工房の投入はこの利用）→ FAIL。開いた区画に `FORFEITED > 0`（没収だけが記録し、没収した区画は開いたままにならない）→ FAIL |
+
+### 7.1 ⑱の先端 `0bba3f31` との組み合わせ（今回はビルドした）
+
+0001–0011 を `git am -3` で当てるとすべて当たり、`unverifiable` は⑱の 1 つだけになる。`cargo test -p verify` のうち次を実行した（Rust 1.95.0、`--offline --locked`）。
+
+| 試験 | 結果 |
+|---|---|
+| `tests/custody.rs`（ガード 6 件）、`tests/custody_state.rs`（再判定 7 件） | 通過 |
+| ⑱の単体試験 `every_abi_tag_has_a_coverage_answer` | **失敗**：⑱は「モデルのない命令」を `[CloseMarch, FastForward]` に固定している。⑩の ABI が入ると custody の 11 命令もモデルのない命令に加わる。挙動としては正しい（V0 が UnverifiedInstruction にし、PASS にならない）。直すのは⑱の試験の期待値で、⑱のファイルなので⑩は変えていない。**統合する④（または⑱）が期待値に 11 命令を足す必要がある** |
+| ⑱の `tests/coverage.rs`（5 件） | 一度実行し通過したが、**この試験は固定バイトから鍵を作り取引に署名する**。今回の指示（鍵の生成・導出・署名を伴う試験は行わない）に反して実行してしまったので、根拠には数えない。以後は名前で選んだ試験だけを実行した |
+
+frontier-node の verify 全体（`tamper.rs`・`record.rs` など鍵・署名を使うもの）は今回は実行していない。前回（2026-11-05）の全体 103 件通過は 0010 までの結果。
+
+### 7.2 証拠不足を PASS にしないこと（今回の確認）
+
+- custody のシーズンは、再判定がすべて通っても `CustodyUnverified` が残り PASS にならない（`what_the_kernel_writes_…`）。
+- ⑱の V0 と組み合わせても同じ（版 5 は⑱の `UnknownProgramVersion`、custody 命令は⑱の `UnverifiedInstruction`）。
+- ⑨の工房の投入（⑨の命令が⑩の消費を呼ぶ形、⑨ D8）は ABI にまだないので、着地すれば⑱の V0 が `UnknownInstruction`（FAIL）にする。

@@ -8,6 +8,8 @@
 
 > **2026-11-05 ⑨との接続と V26 の再判定**：[08-adapter-09.ja.md](08-adapter-09.ja.md)（⑨の `Custody` を⑩の区画で実装したアダプター `adapter-09/` と、⑨自身の `Harness` を動かす契約試験。⑨と⑩本体のコードは変えていない）と [09-v26-state.ja.md](09-v26-state.ja.md)（core 差分 0010：custody シーズンの口座の再判定。証拠不足は PASS にしない）。本体 `3aef9673`・core `96fe6abf` はそのまま保持し、このブランチ `workstream/10-custody-adapter` は④の統合候補 `d0949fd4` を基点にしている。
 
+> **2026-11-06**：⑨の `992f4ba5`（bridge10）との照合と揃え [10-adapter-bridge.ja.md](10-adapter-bridge.ja.md)（自分の区画と他人の区画の利用注文を一つの区画の置き場に、bridge10 との差分試験）、V26 の続き（core `5bb79786` を起点に 0011、⑱と組み合わせてビルド）[09](09-v26-state.ja.md) §7、④への ABI 番号の依頼 [11-abi-request-04.ja.md](11-abi-request-04.ja.md)。
+
 > **読み方。** 「確認した」は実行して確かめたこと、「コードを読んだ」は未実行、「提案」は判断待ち。[04-results.ja.md](04-results.ja.md) に実行したもの・していないものを分けて書いています。
 
 ## 結論
@@ -43,6 +45,8 @@
 | [04-results.ja.md](04-results.ja.md) | 実行した試験・していない試験、変異試験、測っていないもの |
 | [08-adapter-09.ja.md](08-adapter-09.ja.md) | **⑨との接続（2026-11-05）**：アダプター、双方の入出力、食い違い、試験 |
 | [09-v26-state.ja.md](09-v26-state.ja.md) | **V26 の再判定（2026-11-05）**：口座だけで決まる法則の再判定、⑱の V0 との関係、回帰試験 |
+| [10-adapter-bridge.ja.md](10-adapter-bridge.ja.md) | **⑨ bridge10 との照合（2026-11-06）**：揃えた点・合わなかった点、差分試験、所有と押収の問い |
+| [11-abi-request-04.ja.md](11-abi-request-04.ja.md) | **④への依頼（2026-11-06）**：ABI 番号と版の衝突（統合候補でエラー 94 が埋まった）と決めてほしいこと |
 | [adapter-09/](adapter-09/) | crate `wylls-custody-adapter-09`（独立 workspace）：⑨の `Custody` の実装と契約試験 |
 | [07-handoff-status.ja.md](07-handoff-status.ja.md) | **引き渡しの現状（2026-11-03）**：ABI 番号の衝突一覧（⑧と tag 0xC1・記録 104・error 94）、V4・V26・⑨接続の修正済み／未解決／仕様判断待ち |
 | [06-continuity.ja.md](06-continuity.ja.md) | **世界の継続**：残っていたシーズン依存、変更した挙動、境界・長期の試験、④・⑧への論点 |

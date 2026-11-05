@@ -16,8 +16,9 @@
 | **0008** | `permutation-rules` | カーネルの説明の訂正：区画の没収は⑩の提案（採用済み決定は段階2の札が対象）。コードは不変、ハッシュも不変 | test |
 | **0009** | `permutation-rules`、プログラム | 世界の継続（[../06-continuity.ja.md](../06-continuity.ja.md)）：カーネルの累計を検査つきに（`Overflow`）、期間の語彙 `SeasonOver` を削除。表は不変で `RULESET_HASH_V4` も不変 | 既定・preview の両ビルドで test・clippy |
 | **0010** | `frontier-node/crates/verify` | V26 の再判定（[../09-v26-state.ja.md](../09-v26-state.ja.md)）：custody シーズンで区画・倉の口座だけで決まる法則を再判定（破れていれば FAIL、未決の規則は UNVERIFIABLE、シーズンは PASS にならない）。`tests/custody_state.rs` | verify 103 件通過、変異 6 件検出、stable clippy `-D warnings` |
+| **0011** | `frontier-node/crates/verify` | ⑱と組み合わせてもコンパイルできるよう `Ctx::unverifiable` を足さない（V26 の中の関数に）。再判定を 2 つ追加（注文なしの消費、開いた区画の没収量）（[../09-v26-state.ja.md](../09-v26-state.ja.md) §7） | custody 試験 13 件。⑱の先端に当ててビルド、custody 13 件通過（⑱の期待値の試験 1 件は⑱側の更新が要る） |
 
-前回渡した `823bb71d`（0001–0004）は、custody を v3 を名乗るバイナリで実行し、ハーネスのコンパイルと JS の生成物を壊し、検証器は custody の痕跡を PASS にしていた。0005–0007 がそれを直し、0008 は押収の扱いの説明を直し、0009 は終わらない世界での累計を扱い、0010（2026-11-05）は V26 の再判定を足す。0001–0010 を 4cd901de に順に当てると tree `3d80c5b1e6bdfe968898007bb9c3077c3d49a20f`（ブランチ `workstream/10-custody-core-v26` @ `5bb79786efccdf29e9c9d79749ba4694a37c7488`）。
+前回渡した `823bb71d`（0001–0004）は、custody を v3 を名乗るバイナリで実行し、ハーネスのコンパイルと JS の生成物を壊し、検証器は custody の痕跡を PASS にしていた。0005–0007 がそれを直し、0008 は押収の扱いの説明を直し、0009 は終わらない世界での累計を扱い、0010（2026-11-05）は V26 の再判定を足す。0001–0010 を 4cd901de に順に当てると tree `3d80c5b1e6bdfe968898007bb9c3077c3d49a20f`（`5bb79786efccdf29e9c9d79749ba4694a37c7488`）。2026-11-06 の 0011 まで当てると tree `2f2cfd5c978bbd94342d020536121a487c36a2f4`（ブランチ `workstream/10-custody-core-v26` @ `2f20cef51c456b702a916b9486cdb8abd979df5f`）。
 
 ## 適用と確認
 

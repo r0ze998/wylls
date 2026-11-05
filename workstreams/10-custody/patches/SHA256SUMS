@@ -8,3 +8,4 @@ f7c8e2c724036beaa0941747eb77810dad722e1090b1fd9772de21f4fee8754a  0006-Verifier-
 96b62339660005eafa0a8dbd60158767b2f5eefe7979a974f61c691be2db13a0  0008-Custody-kernel-docs-the-lot-forfeiture-is-workstream.patch
 fac316b6fd327d158638365cdfe143c89f2462099a0e8ee4395a611d34f19618  0009-Custody-kernel-running-totals-checked-no-period-in-t.patch
 efe275a0f4bfaa98b8366d93403bd496d540d3086df10d8745dcf3f43ff74fdc  0010-Verifier-V26-re-judge-what-custody-accounts-alone-se.patch
+a0102b82ae130ef923522c8e90b756c8afaa7c14e770d1bf8994211f9e5c231d  0011-Verifier-V26-no-Ctx-helper-of-its-own-two-more-settl.patch
