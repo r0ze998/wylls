@@ -47,7 +47,8 @@ pub trait Source: Send {
     fn pull(&mut self) -> impl Future<Output = PortResult<Vec<TxRecord>>> + Send;
     /// The cursor to store with the archived batch.
     fn cursor(&self) -> Value;
-    /// Resumes from a stored cursor.
+    /// Replaces the current cursor with a stored one. A wrapper may restore
+    /// its previous cursor when a pull fails before the batch is archived.
     fn restore(&mut self, v: &Value);
 }
 
@@ -258,6 +259,11 @@ impl Source for RpcPoll {
         })
     }
     fn restore(&mut self, v: &Value) {
+        // Replacing an in-memory cursor must also forget signatures observed
+        // after it. Otherwise a failed enrichment can rewind `last` while
+        // `seen` still hides transactions that were never archived.
+        self.seen.clear();
+        self.seen_order.clear();
         self.last = v
             .get("rpc_last")
             .and_then(|x| x.as_str())
@@ -323,7 +329,14 @@ impl<S: Source> Enriched<S> {
 
 impl<S: Source> Source for Enriched<S> {
     async fn pull(&mut self) -> PortResult<Vec<TxRecord>> {
-        let mut got = self.inner.pull().await?;
+        let before = self.inner.cursor();
+        let mut got = match self.inner.pull().await {
+            Ok(got) => got,
+            Err(e) => {
+                self.inner.restore(&before);
+                return Err(e);
+            }
+        };
         for r in got.iter_mut() {
             if r.err.is_some() || !r.post.is_empty() {
                 continue;
@@ -332,10 +345,19 @@ impl<S: Source> Source for Enriched<S> {
             if keys.is_empty() {
                 continue;
             }
-            let accts = self
+            let accts = match self
                 .rpc
                 .get_finalized_multiple_accounts(&keys, r.slot)
-                .await?;
+                .await
+            {
+                Ok(accts) => accts,
+                Err(e) => {
+                    // `inner.pull` may already have moved past the entire
+                    // batch, but none of it has reached the archive yet.
+                    self.inner.restore(&before);
+                    return Err(e);
+                }
+            };
             r.post = keys.into_iter().zip(accts).collect();
         }
         Ok(got)
