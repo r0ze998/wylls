@@ -466,6 +466,13 @@ impl<C: Custody + Clone> Harness<C> {
         if fac.gen != f.gen {
             return Err(CapError::WrongGeneration);
         }
+        // The core's u8 generation can wrap. A matching old loss record
+        // means the same FacilityId no longer identifies one incarnation.
+        // Refuse live operations until the core supplies a non-reused id;
+        // loss, claim and retirement still use the old pool's records.
+        if fac.ended.iter().any(|(gen, _, _)| *gen == f.gen) {
+            return Err(CapError::GenerationReused);
+        }
         Ok(fac)
     }
 
@@ -493,11 +500,13 @@ impl<C: Custody + Clone> Harness<C> {
         match *op {
             Op::OpenPool { facility, policies } => {
                 if let Some(p) = self.ledger.pools.get(&facility) {
-                    return if p.lost_at.is_some() {
+                    if p.lost_at.is_some() {
                         // A wrapped generation number meets a lost pool
                         // whose records are still open (contract §10).
-                        Err(CapError::GenerationReused)
-                    } else if p.owner == signer && p.policies == policies {
+                        return Err(CapError::GenerationReused);
+                    }
+                    self.live(facility)?;
+                    return if p.owner == signer && p.policies == policies {
                         Ok(false)
                     } else {
                         Err(CapError::Conflict)

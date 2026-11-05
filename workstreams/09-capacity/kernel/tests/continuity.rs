@@ -389,7 +389,7 @@ fn retirement_keeps_budgets_and_refuses_stale_keys() {
 }
 
 #[test]
-fn a_wrapped_generation_waits_for_the_old_records() {
+fn a_wrapped_generation_never_reuses_an_ambiguous_facility_id() {
     // 256 captures bring the u8 generation back to the same number.
     let p = Policies {
         loss: LossPolicy::UserKeepsAll,
@@ -440,11 +440,30 @@ fn a_wrapped_generation_waits_for_the_old_records() {
     }
     let fac = w.facilities[&SITE_A].clone();
     assert_eq!(fac.gen, f.gen, "the u8 generation wrapped");
-    w.apply(t, X, &Op::FacilityLost { facility: f }).unwrap();
+    // Equality of the wrapped u8 number cannot make the old pool live.
+    assert_eq!(
+        w.apply(
+            t,
+            fac.owner,
+            &Op::Lend {
+                facility: f,
+                units: 1,
+                seq: 1,
+            },
+        ),
+        Err(CapError::GenerationReused)
+    );
     let open = Op::OpenPool {
         facility: f,
         policies: Policies::PROVISIONAL,
     };
+    assert_eq!(
+        w.apply(t, fac.owner, &open),
+        Err(CapError::GenerationReused)
+    );
+    w.apply(t, X, &Op::FacilityLost { facility: f }).unwrap();
+    // The old pool must use its first loss, not a later matching u8 epoch.
+    assert_eq!(w.pool(f).unwrap().lost_at, Some(T0 + 3));
     assert_eq!(
         w.apply(t, fac.owner, &open),
         Err(CapError::GenerationReused)
@@ -465,9 +484,13 @@ fn a_wrapped_generation_waits_for_the_old_records() {
     );
     w.apply(t + 2, X, &Op::Retire { job: j }).unwrap();
     w.apply(t + 3, X, &Op::RetirePool { facility: f }).unwrap();
-    w.apply(t + 4, fac.owner, &open).unwrap();
-    // The new pool starts empty; the old grant's number is a new grant.
-    assert!(w.pool(f).unwrap().grants.is_empty());
+    // Retiring the old pool does not make its identifier safe to reuse:
+    // stale signed operations and custody keys could otherwise target it.
+    assert_eq!(
+        w.apply(t + 4, fac.owner, &open),
+        Err(CapError::GenerationReused)
+    );
+    assert!(w.pool(f).is_none());
     w.custody.check().unwrap();
 }
 

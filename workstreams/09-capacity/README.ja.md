@@ -1,5 +1,7 @@
 # ⑨ 他人の工房の「加工能力」を借りる
 
+> **2026-11-05 の隔離統合候補では、世代番号の再利用を安全側で拒否する修正があります。** [INTEGRATION-20261105.ja.md](INTEGRATION-20261105.ja.md) を参照してください。下記の元担当の試験記録は、その修正より前の記録です。
+
 > **2026-10-31 の方針訂正（世界は期間で終わらない）への対応は [CONTINUITY.ja.md](CONTINUITY.ja.md)。** 残っていたシーズン依存、変更した挙動、試験、残る判断をまとめています。
 
 作業日 2026-10-30。ブランチ `claude/elegant-bohr-co2uhr`。この担当の成果物はすべてこのディレクトリにあります。**共通コア（`permutation-rules`、`frontier-abi`、`permutation-frontier`、`frontier-node`）はこの checkout では一行も変えていません**。コアの変更は [patches/](patches/) に独立した差分として置き、一時 worktree に当てて試験しています。

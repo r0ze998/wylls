@@ -131,7 +131,7 @@ end_eff = start + ⌈limit × 3600 / (k × 4000)⌉  （ただし ≤ end）
 | 26 | `FacilityLive` | 世代が終わっていない施設に `FacilityLost` |
 | 27 | `BadPlace` | `Claim` の宛先が予約の置き場（`Hopper`／`Output`）。帳簿の外に物が残るのを防ぐ |
 | 28 | `Retired` | 閉じた記録、または最大以下の番号（番号は増えるだけ） |
-| 29 | `GenerationReused` | 世代番号が一周し、古い世代の記録が残っている |
+| 29 | `GenerationReused` | `u8` 世代番号が一周し、同じ施設 ID の終了履歴がある。2026-11-05 の隔離統合候補では退役後も同じ ID の新規貸出を拒否する |
 | 30 | `NotRetirable` | 閉じる条件を満たさない |
 
 ## 4. 未決定の損失配分（仮案。切り替え可能）
