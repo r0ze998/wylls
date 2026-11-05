@@ -295,6 +295,18 @@ impl Ingest {
         Ok(got.len())
     }
 
+    /// Records the last pull's outcome for `/h/status` (`None`: it
+    /// succeeded; `Some((error, store failed))`: it failed).
+    pub fn note_ingest(&self, failed: Option<(&str, bool)>) {
+        if let Ok(mut f) = self.fold.write() {
+            match failed {
+                None if f.ingest.failures > 0 => f.ingest.ok(),
+                None => {}
+                Some((e, stopped)) => f.ingest.failed(e, unix_ms(), stopped),
+            }
+        }
+    }
+
     /// Records the chain's latest slot and Clock for the live views.
     pub fn observe_clock(&self, slot: u64, unix: i64) {
         if let Ok(mut f) = self.fold.write() {
@@ -318,9 +330,14 @@ pub async fn run<S: Source, P: fclient::ports::ChainPort>(
             break;
         }
         let n = match ing.step(&mut src).await {
-            Ok(n) => n,
+            Ok(n) => {
+                ing.note_ingest(None);
+                n
+            }
             Err(e) => {
-                if ing.findex.is_poisoned() {
+                let poisoned = ing.findex.is_poisoned();
+                ing.note_ingest(Some((&e, poisoned)));
+                if poisoned {
                     // The in-memory archive may contain an incomplete batch.
                     // Checkpointing or pulling again could make a gap durable;
                     // only reopening from its durable manifest is safe.

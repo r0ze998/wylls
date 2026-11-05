@@ -308,6 +308,7 @@ async fn status(State(app): State<Shared>) -> Response {
             "provinces": f.provinces.len(), "rings": f.rings.keys().collect::<Vec<_>>(),
             "alarms": {"rewrites": a.rewrites, "badRecords": a.bad_records, "clashMismatch": a.clash_mismatch,
                 "clashUnchecked": a.clash_unchecked, "writeErrors": a.write_errors},
+            "ingest": f.ingest.json(),
             "ws": {"open": app.ws_stats.open.load(std::sync::atomic::Ordering::SeqCst),
                 "total": app.ws_stats.total.load(std::sync::atomic::Ordering::SeqCst),
                 "droppedSlow": app.ws_stats.dropped_slow.load(std::sync::atomic::Ordering::SeqCst)},

@@ -71,6 +71,47 @@ pub struct FoldCfg {
     pub exact_post: bool,
 }
 
+/// Whether the ingest loop is keeping up (`/h/status`). A pull that keeps
+/// failing (a history gap, a transaction the client cannot read, an RPC
+/// error) leaves the published views where they were: readers must be able
+/// to see that they are not current.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct IngestHealth {
+    /// The last failed pull's error while pulls keep failing; `None` once a
+    /// pull succeeds.
+    pub error: Option<String>,
+    /// Consecutive failed pulls.
+    pub failures: u64,
+    /// Unix milliseconds of the first failure of this run of failures.
+    pub since_ms: u64,
+    /// The store failed (findex poisoned): ingest has stopped until the
+    /// herald reopens it.
+    pub stopped: bool,
+}
+
+impl IngestHealth {
+    pub fn ok(&mut self) {
+        *self = IngestHealth::default();
+    }
+
+    pub fn failed(&mut self, e: &str, now_ms: u64, stopped: bool) {
+        if self.failures == 0 {
+            self.since_ms = now_ms;
+        }
+        self.failures += 1;
+        self.error = Some(e.to_string());
+        self.stopped |= stopped;
+    }
+
+    pub fn json(&self) -> Value {
+        json!({
+            "state": if self.stopped { "stopped" } else if self.error.is_some() { "failing" } else { "ok" },
+            "error": self.error, "failures": self.failures,
+            "sinceMs": (self.failures > 0).then_some(self.since_ms),
+        })
+    }
+}
+
 /// One account's bytes as written by the transaction at archive `tx`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Capture {
@@ -235,6 +276,9 @@ pub struct Fold {
     /// The chain's latest `(slot, Clock unix time)` as last observed by the
     /// ingest loop (live views only; never folded into files).
     pub live: Option<(u64, i64)>,
+    /// The ingest loop's health as last observed (live views only; never
+    /// folded into files or checkpoints).
+    pub ingest: IngestHealth,
     // MC hook: the conquest state (CONQUEST-CONTRACT §4.5, §8.4)
     pub cq: crate::conquest::Cq,
     // MC hook end
@@ -277,6 +321,7 @@ impl Fold {
             diffs: vec![],
             version: 0,
             live: None,
+            ingest: IngestHealth::default(),
             // MC hook: the conquest state
             cq: Default::default(),
             // MC hook end
