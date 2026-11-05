@@ -82,8 +82,11 @@ const fail = (code, message, extra = {}) => { const e = { ok: false, error: { co
  * @param {string} [o.herald]    the herald's base URL for world_read
  * @param {Function} [o.fetch]
  */
-export function createAgentMcp({ relay, agentId, capability, herald = null, fetch: f = globalThis.fetch, log = () => {} }) {
+export function createAgentMcp({ relay, agentId, capability, herald = null, fetch: f = globalThis.fetch, log = () => {}, source = 'mcp' }) {
   if (!relay || !agentId || !capability) throw new Error('relay, agentId and capability are required');
+  // Who acts through this server, as the relay records it: 'mcp' (a person's MCP client, the default) or 'ai' (an
+  // operator-run autopilot). Two clients on one agent stay apart in its history and their idempotency keys never meet.
+  if (source !== 'mcp' && source !== 'ai') throw new Error('source must be mcp or ai');
   const base = String(relay).replace(/\/+$/, '');
   const scrub = s => String(s ?? '').split(capability).join('[capability]');
 
@@ -118,9 +121,9 @@ export function createAgentMcp({ relay, agentId, capability, herald = null, fetc
     if (v.transport) return fail(v.error.code, v.error.message, { retrySameRequestId: true });
     if (v.status !== 200) return fail(v.json?.code ?? 'RelayError', scrub(v.json?.error ?? `HTTP ${v.status}`));
     const request = {
-      agentId, source: 'mcp',
+      agentId, source,
       // Deterministic: the same requestId is the same idempotency key across retries and restarts of this server.
-      idempotencyKey: `mcp:${args.requestId}`,
+      idempotencyKey: `${source}:${args.requestId}`,
       policyVersion: args.policyVersion, modeEpoch: args.modeEpoch,
       ...(typeof args.reason === 'string' ? { reason: args.reason.slice(0, 200) } : {}),
       action: { name: args.action.name, holding: v.json.village, fields: args.action.fields ?? {} },
