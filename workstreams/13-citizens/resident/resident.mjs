@@ -57,6 +57,13 @@ const dayOf = bell => Math.floor(bell / BELLS_PER_DAY);
 export const STATE_VERSION = 2;
 /** The most decisions one owner command may add to the allowance. */
 export const MAX_EXTEND = 1000;
+/**
+ * Journal states of work that is not finished. `unresolved`: the world gave no definite answer for a game day; the
+ * line is kept, reported and still blocks the same action, and a definite answer later still settles it.
+ */
+export const OPEN_STATES = Object.freeze(['intended', 'sent', 'unresolved']);
+/** Answers of "no record of this key" before a send whose reply was lost is re-sent under the same key. */
+export const UNCLEAR_BEFORE_RESUBMIT = 3;
 /** What makes two actions the same action (for the failure hold-off). */
 export const actionSig = a => `${a.name}:${JSON.stringify(a.fields)}`;
 const candidateAction = c => (c.kind === 'build' ? { name: 'Build', fields: { item: c.act.item } } : c.kind === 'accept' ? { name: 'SendCaravan', fields: { to: c.act.to, goods: c.act.goods } } : null);
@@ -167,7 +174,7 @@ export class Resident {
    */
   owed() {
     const started = Object.values(this.state.journal)
-      .filter(j => ['deliver', 'return'].includes(j.purpose?.type) && ['intended', 'sent'].includes(j.state))
+      .filter(j => ['deliver', 'return'].includes(j.purpose?.type) && OPEN_STATES.includes(j.state))
       .map(j => ({ key: j.key, type: j.purpose.type, request: j.purpose.request, state: j.state }));
     const waiting = (this.state.debts ?? []).filter(d => !started.some(s => s.request === d.request)).map(d => ({ type: 'return', ...d, state: 'not-started' }));
     return [...started, ...waiting];
@@ -343,6 +350,7 @@ export class Resident {
     // A key already known to the world (a send made before a restart) is never sent twice: its recorded answer is taken.
     let res = await this.ports.execution.status(sendKey);
     if (!res) {
+      it.submittedBell = this.bell;
       try { res = await this.ports.execution.submit({ agentId: this.id, source: 'resident', idempotencyKey: sendKey, policyVersion: 1, modeEpoch: this.ledger.get(this.id).modeEpoch, action: it.action }); }
       // The world may have accepted the send before its reply was lost. A transport error
       // is not proof of failure, so retain this key and reconcile it instead of trying #a2.
@@ -357,7 +365,7 @@ export class Resident {
     const ambiguous = res.status === 'unknown' || (res.error?.code === 'Transport' && res.fate !== 'failed');
     const recordedBefore = Number.isInteger(res.landedBell) && Number.isInteger(it.createdBell) && res.landedBell < it.createdBell;
     if ((res.status === 'sent' || ambiguous) && !recordedBefore) this.#countAction(it);
-    if (res.status === 'sent') Object.assign(it, { state: 'sent', signature: res.signature });
+    if (res.status === 'sent') { Object.assign(it, { state: 'sent', signature: res.signature }); delete it.lastError; }
     else if (ambiguous) Object.assign(it, { state: 'sent', lastError: 'Transport' });
     else this.#retryOrFail(it, res.error?.code ?? 'Unknown');
     return it;
@@ -392,7 +400,7 @@ export class Resident {
   #prune(bell) {
     const st = this.state;
     for (const [k, it] of Object.entries(st.journal)) {
-      if (!['intended', 'sent'].includes(it.state) && bell - (it.landedBell ?? it.nextBell ?? bell) > BELLS_PER_DAY) delete st.journal[k];
+      if (!OPEN_STATES.includes(it.state) && bell - (it.settledBell ?? it.landedBell ?? it.nextBell ?? bell) > BELLS_PER_DAY) delete st.journal[k];
     }
     for (const [k, until] of Object.entries(st.cooldown)) if (until <= bell) delete st.cooldown[k];
     for (const [k, f] of Object.entries(st.failures)) if (f.until + BELLS_PER_DAY <= bell) delete st.failures[k];
@@ -401,7 +409,7 @@ export class Resident {
     // journal line is pruned); #settleReturns drops it when the board shows the debt settled or gone.
     for (const [k, v] of Object.entries(st.accepted)) {
       const at = typeof v === 'object' ? v.bell : null;
-      if (at != null && bell - at > BELLS_PER_DAY && !Object.values(st.journal).some(j => j.purpose?.request === k && ['intended', 'sent'].includes(j.state))) delete st.accepted[k];
+      if (at != null && bell - at > BELLS_PER_DAY && !Object.values(st.journal).some(j => j.purpose?.request === k && OPEN_STATES.includes(j.state))) delete st.accepted[k];
     }
   }
 
@@ -423,16 +431,48 @@ export class Resident {
     this.state.cursor = { events: Math.max(this.state.cursor?.events ?? 0, last?.seq ?? 0), board: bell };
   }
 
+  /**
+   * Finishes or re-reads unfinished journal lines. A definite answer (landed, failed, cancelled) settles a line,
+   * also an `unresolved` one. Without one ("no record of this key", the port's `unknown`, or no answer at all):
+   *   - re-queries back off (1, 2, 4 … bells, at most the pulse), so an unclear line costs few reads;
+   *   - a send whose reply was lost (f637c7a keeps it `sent` under its key) is re-sent under the SAME key once the
+   *     port has said "no record" UNCLEAR_BEFORE_RESUBMIT times: within the port's retention a key never executes
+   *     twice, so this either replays the earlier answer or sends the action once. Never under a new key, never
+   *     after the retention window (the key may have been forgotten), never for the port's `unknown`;
+   *   - after a game day without a definite answer the line becomes `unresolved` and is reported (owed()).
+   */
   async #reconcile({ send }) {
     for (const it of Object.values(this.state.journal)) {
       if (it.state === 'intended' && send) await this.#run(it);
-      if (it.state === 'sent') {
-        const s = await this.ports.execution.status(it.sendKey);
-        if (s?.fate === 'landed') Object.assign(it, { state: 'landed', landedBell: s.landedBell });
-        else if (s?.fate === 'failed') this.#retryOrFail(it, s.fateError);
-        else if (s?.fate === 'cancelled') it.state = 'cancelled';
+      if (!['sent', 'unresolved'].includes(it.state) || (it.nextQueryBell ?? 0) > this.bell) continue;
+      let s;
+      try { s = await this.ports.execution.status(it.sendKey); } catch { s = { fate: 'unknown', unavailable: true }; }
+      if (s?.fate === 'landed') { Object.assign(it, { state: 'landed', landedBell: s.landedBell }); this.#clearUnclear(it); continue; }
+      if (s?.fate === 'failed') { this.#clearUnclear(it); this.#retryOrFail(it, s.fateError); continue; }
+      if (s?.fate === 'cancelled') { it.state = 'cancelled'; this.#clearUnclear(it); continue; }
+      if (s?.fate === 'pending') continue; // accepted and on its way: lands at the next bell
+      // No definite answer.
+      it.unclear = (it.unclear ?? 0) + 1;
+      it.firstUnclearBell ??= this.bell;
+      it.nextQueryBell = this.bell + Math.min(this.charter.limits.pulseBells, 2 ** Math.min(it.unclear - 1, 6));
+      const retention = this.ports.execution.retentionBells ?? 0;
+      const withinRetention = Number.isInteger(it.submittedBell) && this.bell - it.submittedBell < retention;
+      if (send && s === null && it.lastError === 'Transport' && it.unclear >= UNCLEAR_BEFORE_RESUBMIT && withinRetention && (it.resubmits ?? 0) < this.charter.limits.maxRetries) {
+        it.resubmits = (it.resubmits ?? 0) + 1;
+        it.state = 'intended';
+        await this.#run(it);
+        continue;
+      }
+      if (it.state === 'sent' && this.bell - it.firstUnclearBell >= BELLS_PER_DAY) {
+        Object.assign(it, { state: 'unresolved', unresolvedBell: this.bell, why: s === null ? 'no record of the key' : 'the port reports the result as unknown' });
       }
     }
+  }
+
+  /** A line that had no definite answer and now has one; `settledBell` keeps it in the journal for a day from now. */
+  #clearUnclear(it) {
+    if (it.unclear != null || it.unresolvedBell != null) it.settledBell = this.bell;
+    delete it.unclear; delete it.firstUnclearBell; delete it.nextQueryBell;
   }
 
   /** The owner's explicit withdrawal at a stop: unsent actions that promise nothing to anyone (builds) are dropped. */
@@ -569,7 +609,7 @@ export class Resident {
     });
     const { excluded, assessment } = built;
     // The same action is never chosen while an earlier one is still on its way, nor straight after it failed.
-    const inFlight = new Set(Object.values(st.journal).filter(j => j.action && ['intended', 'sent'].includes(j.state)).map(j => actionSig(j.action)));
+    const inFlight = new Set(Object.values(st.journal).filter(j => j.action && OPEN_STATES.includes(j.state)).map(j => actionSig(j.action)));
     const held = c => {
       const a = candidateAction(c);
       if (!a) return null;
