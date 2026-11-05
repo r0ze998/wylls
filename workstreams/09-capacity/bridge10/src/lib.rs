@@ -94,11 +94,17 @@ impl LotId {
 /// What a job fed from a lot may hand out (the open ownership question).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub enum Release {
-    /// [default] Nothing: products and leftovers stay in the job's places
-    /// until the owner of goods made from another's lot is decided.
+    /// [default; the owner's decisions of 2026-11-06] The products go to
+    /// the job's user; the ore left unused goes back into the lot it came
+    /// from (whole units through 10's inbound functions; the sub-unit rest
+    /// is owed to the lot and credited once it makes whole units). If the
+    /// lot cannot take it (frozen, no room), all of it stays owed.
+    Decided,
+    /// Nothing: products and leftovers stay in the job's places (the rule
+    /// before the decision; kept for comparison).
     Hold,
-    /// The job's user claims them, as for its own materials (09's existing
-    /// rule). A comparison case, not a decision.
+    /// Everything to the job's user, leftovers included (09's rule for its
+    /// own materials; kept for comparison).
     ToUser,
 }
 
@@ -129,6 +135,14 @@ pub enum BridgeError {
     OwnershipUndecided,
     /// A job's place used for lot ore was not empty after the move.
     Internal,
+    /// The lot's vault is not in the facility's province (the owner's
+    /// decision of 2026-11-06: same province is direct use; farther goods
+    /// travel by caravan first).
+    TooFar,
+    /// The job already takes this resource from another source (the user's
+    /// own goods or another lot): a job takes each resource from one
+    /// source, so whose ore is left over is never ambiguous.
+    MixedSource,
 }
 
 /// The two kernels side by side: 09's harness (facilities, pools, jobs,
@@ -140,6 +154,13 @@ pub struct Bridge {
     pub lots: BTreeMap<LotId, Lot>,
     pub links: BTreeMap<(JobId, u64), Link>,
     pub release: Release,
+    /// Ore given back into each lot, whole units (milli).
+    pub returned: BTreeMap<LotId, i64>,
+    /// Ore owed to each lot and not yet credited: sub-unit rests, and
+    /// whole units the lot could not take (milli).
+    pub owed: BTreeMap<LotId, i64>,
+    /// Return caravans' sequence numbers (10's inbound slots need one).
+    pub return_seq: u32,
     /// The clock's origin for bells.
     pub genesis: i64,
 }
@@ -166,6 +187,9 @@ pub fn release_place(uid: u64) -> Place {
 }
 
 const RELEASE_MARK: u64 = 0xF10A_0000_0000_0000;
+/// Tag of the bridge's return caravans into a lot (top bit set, like 10's
+/// adapter's `RETURN_TAG`, so never an S1 caravan's).
+const RETURN_MARK: u64 = 1 << 63;
 
 impl Bridge {
     pub fn new(cap: Harness<LotCustody>, genesis: i64) -> Bridge {
@@ -174,7 +198,10 @@ impl Bridge {
             vaults: BTreeMap::new(),
             lots: BTreeMap::new(),
             links: BTreeMap::new(),
-            release: Release::Hold,
+            release: Release::Decided,
+            returned: BTreeMap::new(),
+            owed: BTreeMap::new(),
+            return_seq: 0,
             genesis,
         }
     }
@@ -241,8 +268,20 @@ impl Bridge {
             .copied()
             .ok_or(BridgeError::Resource)?;
         let r = recipe(j.recipe).ok_or(BridgeError::Resource)?;
-        if r.input_index(res).is_none() {
-            return Err(BridgeError::Resource);
+        let i = r.input_index(res).ok_or(BridgeError::Resource)?;
+        let at = job.grant.facility.at;
+        if (lot.p, lot.q) != (at.p, at.q) {
+            return Err(BridgeError::TooFar);
+        }
+        // One source per resource: no other lot, no own goods before.
+        let mine = self.lot_qty(job);
+        if self
+            .links
+            .iter()
+            .any(|((x, _), k)| *x == job && k.lot != lot)
+            || j.hopper[i] != mine
+        {
+            return Err(BridgeError::MixedSource);
         }
         let bell = self.bell(now);
         // 10: the use order's grantee consumes from the lot.
@@ -313,21 +352,190 @@ impl Bridge {
         Ok(out)
     }
 
-    /// Any of 09's operations. A claim of a job fed from a lot is held
-    /// under [`Release::Hold`]; everything else passes to 09 unchanged.
+    /// Ore a job took from lots (milli).
+    pub fn lot_qty(&self, job: JobId) -> i64 {
+        self.links
+            .iter()
+            .filter(|((x, _), _)| *x == job)
+            .map(|(_, k)| k.qty)
+            .sum()
+    }
+
+    /// The lot a job took ore from, if any (one per job).
+    pub fn lot_of(&self, job: JobId) -> Option<LotId> {
+        self.links
+            .iter()
+            .find(|((x, _), _)| *x == job)
+            .map(|(_, k)| k.lot)
+    }
+
+    /// Any of 09's operations. A deposit of the user's own ore into a job
+    /// fed from a lot is refused (one source per resource). A claim of a
+    /// job fed from a lot follows [`Release`]; everything else passes to 09
+    /// unchanged.
     pub fn apply(&mut self, now: i64, signer: Actor, op: &Op) -> Result<Outcome, BridgeError> {
-        if let Op::Claim { job, .. } | Op::ClaimSplit { job, .. } = op {
-            if self.release == Release::Hold && self.lot_fed(*job) {
-                return Err(BridgeError::OwnershipUndecided);
+        // Own ore into a job fed from a lot (a lot's ore never comes this
+        // way: it enters by `deposit_from_lot`). A replay of a deposit the
+        // job already holds is 09's to answer.
+        if let Op::Deposit {
+            job,
+            deposit,
+            resource: Resource::Ore,
+            ..
+        } = *op
+        {
+            let held = self
+                .cap
+                .job(job)
+                .is_some_and(|j| j.deposits.iter().any(|d| d.0 == deposit));
+            if self.lot_fed(job) && !held {
+                return Err(BridgeError::MixedSource);
             }
         }
-        self.cap
-            .apply(now, signer, op)
-            .map_err(BridgeError::Capacity)
+        let (job, output_to, wood_to, wood_rest_to) = match *op {
+            Op::Claim { job, to } => (job, to, to, to),
+            Op::ClaimSplit {
+                job,
+                output_to,
+                refund_to,
+                remainder_to,
+            } => (job, output_to, refund_to[1], remainder_to),
+            _ => {
+                return self
+                    .cap
+                    .apply(now, signer, op)
+                    .map_err(BridgeError::Capacity)
+            }
+        };
+        if !self.lot_fed(job) {
+            return self
+                .cap
+                .apply(now, signer, op)
+                .map_err(BridgeError::Capacity);
+        }
+        match self.release {
+            Release::Hold => Err(BridgeError::OwnershipUndecided),
+            Release::ToUser => self
+                .cap
+                .apply(now, signer, op)
+                .map_err(BridgeError::Capacity),
+            Release::Decided => {
+                let saved = self.clone();
+                let r = self.claim_decided(now, signer, job, output_to, wood_to, wood_rest_to);
+                if r.is_err() {
+                    *self = saved;
+                }
+                r
+            }
+        }
+    }
+
+    /// The decided claim of a job fed from a lot: products to the user,
+    /// wood (the user's own) to the user's places, the ore left unused
+    /// back to its lot.
+    fn claim_decided(
+        &mut self,
+        now: i64,
+        user: Actor,
+        job: JobId,
+        output_to: Place,
+        wood_to: Place,
+        wood_rest_to: Place,
+    ) -> Result<Outcome, BridgeError> {
+        let j = self
+            .cap
+            .job(job)
+            .ok_or(BridgeError::Capacity(CapError::UnknownJob))?
+            .clone();
+        let t = release_place(j.uid);
+        let op = Op::ClaimSplit {
+            job,
+            output_to,
+            refund_to: [t, wood_to],
+            remainder_to: t,
+        };
+        let out = self
+            .cap
+            .apply(now, user, &op)
+            .map_err(BridgeError::Capacity)?;
+        // The wood's sub-unit rest is the user's: on to where it asked.
+        let wood = self.cap.custody.balance(t, Resource::Wood).1;
+        if wood > 0 {
+            self.cap
+                .custody
+                .transfer(
+                    Key {
+                        scope: j.uid,
+                        kind: K_FROM_LOT + 1,
+                        n: 0,
+                    },
+                    wylls_capacity::custody::By::Actor(user),
+                    t,
+                    wood_rest_to,
+                    Resource::Wood,
+                    wood,
+                    user,
+                )
+                .map_err(|_| BridgeError::Internal)?;
+        }
+        // The ore leaves 09's custody for its lot.
+        let ore = self.cap.custody.balance(t, Resource::Ore).1;
+        if ore > 0 {
+            let lot = self.lot_of(job).ok_or(BridgeError::Internal)?;
+            self.cap
+                .custody
+                .export(
+                    Key {
+                        scope: j.uid,
+                        kind: K_FROM_LOT + 2,
+                        n: 0,
+                    },
+                    wylls_capacity::custody::By::Actor(user),
+                    t,
+                    Resource::Ore,
+                    ore,
+                )
+                .map_err(|_| BridgeError::Internal)?;
+            *self.owed.entry(lot).or_default() += ore;
+            self.pay_owed(lot)?;
+        }
+        Ok(out)
+    }
+
+    /// Credit the whole units owed to `lot`, if it can take them (10's
+    /// `begin_inbound` then `finish_inbound`, as a return caravan that
+    /// arrives at once: the decided rule puts the vault in the facility's
+    /// province). Whatever it cannot take stays owed.
+    pub fn pay_owed(&mut self, lot: LotId) -> Result<(), BridgeError> {
+        let due = self.owed.get(&lot).copied().unwrap_or(0) / MILLI * MILLI;
+        if due == 0 {
+            return Ok(());
+        }
+        let v = *self
+            .vaults
+            .get(&(lot.p, lot.q, lot.tile))
+            .ok_or(BridgeError::UnknownVault)?;
+        let l = self.lots.get_mut(&lot).ok_or(BridgeError::UnknownLot)?;
+        let mut trial = *l;
+        let caravan = (RETURN_MARK | lot.owner_tag >> 16, self.return_seq);
+        let paid = wylls_custody::begin_inbound(&v, &mut trial, caravan, due)
+            .and_then(|_| wylls_custody::finish_inbound(Some(&v), &mut trial, caravan, due));
+        match paid {
+            Ok(s) if s.delivered == due => {
+                *l = trial;
+                self.return_seq = self.return_seq.wrapping_add(1);
+                *self.owed.get_mut(&lot).expect("owed") -= due;
+                *self.returned.entry(lot).or_default() += due;
+                Ok(())
+            }
+            // Frozen, full or no slot: it stays owed (nothing is lost).
+            _ => Ok(()),
+        }
     }
 
     /// The connection's invariants (each `Err` names the broken one):
-    /// every lot balances (10's law); every lot's `CONSUMED` equals the
+    /// every lot balances (10's law); what went back to a lot or is owed to
+    /// it never exceeds what was taken; every lot's `CONSUMED` equals the
     /// ore the bridge took from it; 09's custody balances; no ore waits in
     /// a release place; a job holds at least the lot ore it took and has
     /// not used.
@@ -343,6 +551,13 @@ impl Bridge {
                 .filter(|k| k.lot == *id)
                 .map(|k| k.qty)
                 .sum();
+            let back = self.returned.get(id).copied().unwrap_or(0)
+                + self.owed.get(id).copied().unwrap_or(0);
+            if back < 0 || back > taken {
+                return Err(format!(
+                    "lot {id:?}: returned and owed {back} > taken {taken}"
+                ));
+            }
             if l.consumed != taken {
                 return Err(format!(
                     "lot {id:?}: CONSUMED {} != taken by jobs {taken}",
@@ -409,6 +624,9 @@ impl Bridge {
             links: self.links.iter().map(|(k, v)| (*k, *v)).collect(),
             release: self.release,
             genesis: self.genesis,
+            returned: self.returned.iter().map(|(k, v)| (*k, *v)).collect(),
+            owed: self.owed.iter().map(|(k, v)| (*k, *v)).collect(),
+            return_seq: self.return_seq,
         };
         borsh::to_vec(&s).expect("borsh")
     }
@@ -433,6 +651,9 @@ impl Bridge {
             links: s.links.into_iter().collect(),
             release: s.release,
             genesis: s.genesis,
+            returned: s.returned.into_iter().collect(),
+            owed: s.owed.into_iter().collect(),
+            return_seq: s.return_seq,
         })
     }
 }
@@ -445,6 +666,9 @@ struct Saved {
     links: Vec<((JobId, u64), Link)>,
     release: Release,
     genesis: i64,
+    returned: Vec<(LotId, i64)>,
+    owed: Vec<(LotId, i64)>,
+    return_seq: u32,
 }
 
 /// The vault fields 10's kernel reads (its account is the core's).

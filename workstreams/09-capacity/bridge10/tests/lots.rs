@@ -237,14 +237,14 @@ fn the_receipt_agrees_with_10s_notes() {
     b.check(S + 3 * HOUR).unwrap();
 }
 
-/// M's lot of 100 ore in V's vault in the next province, with a use order
+/// M's lot of 100 ore in V's vault on tile 6 of the facility's province, with a use order
 /// of 60 for B (the bridge's path for another owner's goods).
 fn add_m_lot(b: &mut Bridge) -> (LotId, u32) {
     let bell = b.bell(T0);
     let mut v = VaultView {
-        p: 1,
-        q: -1,
-        tile: 5,
+        p: 0,
+        q: 0,
+        tile: 6,
         gen: 1,
         live: true,
         owner: V.0,
@@ -283,32 +283,35 @@ fn add_m_lot(b: &mut Bridge) -> (LotId, u32) {
 }
 
 #[test]
-fn a_job_can_mix_its_own_lot_with_anothers() {
-    let (mut b, j) = setup(Release::Hold);
+fn a_job_takes_its_ore_from_one_source_only() {
+    // Own ore first, then another's lot: refused, nothing consumed.
+    let (mut b, j) = setup(Release::Decided);
     let (m_lot, order) = add_m_lot(&mut b);
     deposit(&mut b, j, 1, Resource::Ore, 20, LOT).unwrap();
-    b.deposit_from_lot(T0 + 20, B, j, 2, m_lot, 0, order, 20)
+    let before = b.lots[&m_lot];
+    assert_eq!(
+        b.deposit_from_lot(T0 + 20, B, j, 2, m_lot, 0, order, 20),
+        Err(BridgeError::MixedSource)
+    );
+    assert_eq!(b.lots[&m_lot], before);
+    // Another's lot first, then own ore (from a lot or a caravan): refused.
+    let (mut b, j) = setup(Release::Decided);
+    let (m_lot, order) = add_m_lot(&mut b);
+    b.deposit_from_lot(T0 + 20, B, j, 1, m_lot, 0, order, 20)
         .unwrap();
-    deposit(&mut b, j, 3, Resource::Wood, 20, Place::Caravan(77)).unwrap();
-    assert_eq!(b.cap.job(j).unwrap().hopper, [40 * MILLI, 20 * MILLI]);
     assert_eq!(
-        (lot_held(&b), b.lots[&m_lot].consumed),
-        (80 * MILLI, 20 * MILLI)
+        deposit(&mut b, j, 2, Resource::Ore, 20, LOT),
+        Err(BridgeError::MixedSource)
     );
-    b.apply(S + 3 * HOUR, X, &Op::Settle { job: j }).unwrap();
-    // M's ore fed it: held until the owner of the arms is decided.
-    let claim = Op::ClaimSplit {
-        job: j,
-        output_to: Place::Caravan(78),
-        refund_to: [LOT, Place::Caravan(78)],
-        remainder_to: Place::Caravan(78),
-    };
+    caravan(&mut b.cap.custody, B, 90, Resource::Ore, 5);
     assert_eq!(
-        b.apply(S + 3 * HOUR, B, &claim),
-        Err(BridgeError::OwnershipUndecided)
+        deposit(&mut b, j, 3, Resource::Ore, 5, Place::Caravan(90)),
+        Err(BridgeError::MixedSource)
     );
-    assert_eq!(b.cap.job(j).unwrap().accounts().output.held, 20 * MILLI);
-    b.check(S + 3 * HOUR).unwrap();
+    // Wood is the user's own in any case.
+    deposit(&mut b, j, 4, Resource::Wood, 20, Place::Caravan(77)).unwrap();
+    assert_eq!(b.cap.job(j).unwrap().hopper, [20 * MILLI, 20 * MILLI]);
+    b.check(T0 + 20).unwrap();
 }
 
 #[test]

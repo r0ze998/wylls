@@ -60,8 +60,8 @@ struct Fx {
 
 fn vault() -> VaultView {
     VaultView {
-        p: 1,
-        q: -1,
+        p: 0,
+        q: 0,
         tile: 5,
         gen: 1,
         live: true,
@@ -444,7 +444,7 @@ fn custody_refusals_leave_capacity_untouched() {
         (
             "the vault was seized",
             Box::new(|x| {
-                x.b.vaults.get_mut(&(1, -1, 5)).unwrap().gen = 2;
+                x.b.vaults.get_mut(&(0, 0, 5)).unwrap().gen = 2;
                 ore(x, T0 + 20, 1, 10)
             }),
             BridgeError::Custody(CustodyError::Forfeited),
@@ -469,7 +469,7 @@ fn a_purpose_of_another_kind_is_refused() {
     // M's order names another purpose: 10 refuses the workshop's.
     let mut x = fx(Release::Hold);
     let bell = x.b.bell(T0);
-    let v = x.b.vaults[&(1, -1, 5)];
+    let v = x.b.vaults[&(0, 0, 5)];
     let l = x.b.lots.get_mut(&x.lot).unwrap();
     let spec = OrderSpec {
         kind: ORDER_USE,
@@ -647,15 +647,19 @@ fn random_interleavings_never_consume_twice() {
     }
     let mut applied = 0;
     let mut replays = 0;
-    for seed in 1..=200u64 {
+    let mut claims = 0;
+    for (release, seed) in [Release::ToUser, Release::Decided]
+        .into_iter()
+        .flat_map(|r| (1..=200u64).map(move |s| (r, s)))
+    {
         let mut rng = Rng(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1);
-        let mut x = fx(Release::ToUser);
+        let mut x = fx(release);
         let mut now = T0 + 20;
         let mut done: Vec<(JobId, u64, u32)> = Vec::new();
         let mut next_job = 2u32;
         for _ in 0..60 {
             now += rng.below(1_200) as i64;
-            match rng.below(6) {
+            match rng.below(7) {
                 0 => {
                     let start = now + 60 + rng.below(4 * HOUR as u64) as i64;
                     let j = JobId {
@@ -719,6 +723,28 @@ fn random_interleavings_never_consume_twice() {
                         },
                     );
                 }
+                5 => {
+                    // Cancel or claim a job (the decided rule returns its
+                    // unused lot ore to the lot).
+                    let seq = 1 + rng.below(next_job as u64) as u32;
+                    let job = JobId {
+                        grant: x.job.grant,
+                        seq,
+                    };
+                    let op = if rng.below(2) == 0 {
+                        Op::Cancel { job }
+                    } else {
+                        Op::Claim {
+                            job,
+                            to: Place::Caravan(9_000),
+                        }
+                    };
+                    if let (Op::Claim { .. }, Ok(Outcome::Applied(_))) =
+                        (&op, x.b.apply(now, B, &op))
+                    {
+                        claims += 1;
+                    }
+                }
                 _ => x.b = Bridge::load(&x.b.save()).unwrap(),
             }
             x.b.check(now).unwrap();
@@ -727,9 +753,11 @@ fn random_interleavings_never_consume_twice() {
             assert!(lot(&x).consumed <= 60 * MILLI, "within the use order");
         }
     }
-    eprintln!("random: {applied} lot deposits applied, {replays} replays answered without 10");
+    eprintln!(
+        "random: {applied} lot deposits applied, {replays} replays answered without 10, {claims} claims"
+    );
     assert!(
-        applied > 300 && replays > 100,
-        "applied {applied}, replays {replays}"
+        applied > 600 && replays > 200 && claims > 100,
+        "applied {applied}, replays {replays}, claims {claims}"
     );
 }
