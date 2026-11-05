@@ -1,0 +1,5 @@
+watch-vow       438 B  id 67e2e82e3ff03e72ca18b2883dbcb4db226f08e06bcedc761694c1e033bd7ecb
+watch-vow-2     440 B  id b0fb1e6e0894ad9d18aa7dc55f412833cc980f35d0a93d90f82bb00840b9b78e
+wood-offering   172 B  id 8570a292b5977792607c4f2f2a27452b13f64773d474511270ba1e9576147cc1
+instance account 240 B, rent-exempt 2561280 lamports
+1,024 B manifest account (+64 B header) rent-exempt 8463360 lamports
