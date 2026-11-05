@@ -29,6 +29,13 @@ use wylls_e2e_native::{rent_exempt, spl, token_balance, Acct, Host, SYSTEM, TOKE
 
 const SEASON_ID: u64 = 7;
 const END_BELL: u32 = 432;
+/// The finite world's clock (the host's `unix_timestamp` is 1,800,000,000):
+/// begun one bell ago, ten-minute bells, joins closed at bell 12. InitPool
+/// opens an end-dependent pool only while a finite world is running
+/// (permutation-prize `season_ends`, integration 2c29496f / c5750a20).
+const BELL_SECS: u32 = 600;
+const GENESIS_TS: i64 = 1_800_000_000 - 600;
+const JOIN_CLOSE_BELL: u32 = 12;
 /// 25 test USDC (6 decimals): the fixed test fee.
 const FEE: u64 = 25_000_000;
 const SOL: u64 = 1_000_000_000;
@@ -90,6 +97,10 @@ fn set_season(w: &mut World, status: u8) {
     put(&mut d, S::R_MAX, &16u16.to_le_bytes());
     put(&mut d, S::AUTHORITY, w.operator.as_ref());
     put(&mut d, S::END_BELL, &END_BELL.to_le_bytes());
+    put(&mut d, S::BELL_SECS, &BELL_SECS.to_le_bytes());
+    put(&mut d, S::GENESIS_TS, &GENESIS_TS.to_le_bytes());
+    put(&mut d, S::JOIN_CLOSE_BELL, &JOIN_CLOSE_BELL.to_le_bytes());
+    // The continuous-world flag (SEASON_CQ_OFFSET + CONTINUOUS) stays 0: finite.
     let k = w.season.to_bytes();
     game_account(w, k, d);
 }

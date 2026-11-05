@@ -9,7 +9,9 @@
 //! - [`executor`]: the state machine's steps.
 //! - [`sim`]: **MOCK** canonical world with fault injection.
 //! - [`policy`]: what may run without a person.
+//! - [`acts`]: agent acts (workstreams 03, 05) registered under a run id, with one receipt.
 
+pub mod acts;
 pub mod executor;
 pub mod gateway;
 pub mod model;

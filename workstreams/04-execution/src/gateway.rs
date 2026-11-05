@@ -22,14 +22,29 @@
 //!   when the answer was lost, from the agent's public history
 //!   (`GET /f/agent?id=`, read-only). [`Chain::chain_sig`] names it; until
 //!   then the executor attributes nothing to the attempt.
-//! - The gateway's answer carries no lifetime (`lastValidBlockHeight`, the
-//!   slot read before building), so this port can never prove an attempt
-//!   absent (HANDOFF §3): a sent attempt that has not landed reads
-//!   `Unavailable`, not `Absent`. A refusal *before signing* is the one
-//!   definite "never lands" (`Reject::Refused`).
-//! - A send that failed after the gateway signed (`status: failed`) carries
-//!   no signature: the attempt can never be attributed and reads
-//!   `Unavailable` (the run holds as indeterminate).
+//! - Since workstream 04's gateway change (2026-11-06) every answer says
+//!   whether signed bytes left (`sent`), and a signed one carries its
+//!   `signature`, `lastValidBlockHeight`, `slotFloor` and `signedAt`, also
+//!   when the send failed after signing (`status: failed, sent: true`). The
+//!   port follows such an attempt by the gateway's read-only
+//!   `GET /f/agent/fate?id=&key=` (the bridge's `GET /fate?key=`), which
+//!   decides only at finalized and proves expiry the way the agent wallet's
+//!   reconcile does. Its states map onto the run's:
+//!
+//!   | gateway `state` | run | meaning |
+//!   |---|---|---|
+//!   | `landed` | `Landed` | finalized without error |
+//!   | `failed` | `Failed` | finalized with an error (fee paid, no effect) |
+//!   | `expired` | `Absent` | proved never to land (lifetime past, history covers it) |
+//!   | `not-sent` | `Absent` | no bytes left the gateway |
+//!   | `pending` | `Pending` | not final; `commitment` says how far it got |
+//!   | `unknown` | `Unavailable` | result unknown: past its lifetime, cannot be proved absent |
+//!   | `unqueryable` | `Err(PortError::Unavailable)` | the node or the record could not be read |
+//!
+//!   [`GatewayPort::facts`] gives the same answer with its signature,
+//!   lifetime, signing time and commitment, for receipts.
+//! - An older gateway (no `sent` field) is read as before: a failure after
+//!   signing has no signature and holds the run as indeterminate.
 
 use std::collections::{HashMap, VecDeque};
 use std::io::{Read, Write};
@@ -68,20 +83,88 @@ fn http(port: u16, method: &str, path: &str, body: Option<&Value>) -> Result<(u1
     Ok((code, v))
 }
 
+/// The facts of a signed attempt, fixed when its bytes left the gateway.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Signed {
+    pub signature: String,
+    /// The last block height its blockhash is valid at (`None`: not reported).
+    pub last_valid_block_height: Option<u64>,
+    /// The finalized slot read before it was built (history coverage).
+    pub slot_floor: Option<u64>,
+    /// The gateway's clock when it signed (unix ms).
+    pub signed_at: Option<u64>,
+}
+
+/// `GET path` on the loopback gateway or bridge (for [`crate::acts`]).
+pub fn http_get(port: u16, path: &str) -> Result<(u16, Value), String> {
+    http(port, "GET", path, None)
+}
+
 /// What the gateway said about one idempotency key.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum GatewayResult {
-    Sent {
-        signature: String,
-    },
+    Sent(Signed),
     /// Refused before anything was signed.
     Refused {
         code: String,
     },
-    /// Failed after signing; the signature is not reported.
+    /// Failed. `signed`: the bytes left signed and may still land (a newer
+    /// gateway reports them); `None`: nothing left, or an older gateway that
+    /// did not say (`sent_known: false`).
     Failed {
         code: String,
+        signed: Option<Signed>,
+        sent_known: bool,
     },
+}
+
+impl GatewayResult {
+    fn signed(&self) -> Option<&Signed> {
+        match self {
+            GatewayResult::Sent(s) => Some(s),
+            GatewayResult::Failed { signed, .. } => signed.as_ref(),
+            GatewayResult::Refused { .. } => None,
+        }
+    }
+}
+
+/// One attempt as the gateway's fate read sees it (receipts).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AttemptFacts {
+    /// `not-sent`, `landed`, `failed`, `expired`, `pending`, `unknown` or
+    /// `unqueryable`.
+    pub state: String,
+    pub signed: Option<Signed>,
+    /// `processed`, `confirmed`, `finalized`, or `None` (no status seen).
+    pub commitment: Option<String>,
+    pub why: String,
+}
+
+fn u64_of(v: &Value) -> Option<u64> {
+    v.as_u64()
+}
+
+/// The signing facts in an answer or history entry (`None` without a signature).
+fn signed_of(v: &Value) -> Option<Signed> {
+    Some(Signed {
+        signature: v["signature"].as_str()?.to_string(),
+        last_valid_block_height: u64_of(&v["lastValidBlockHeight"]),
+        slot_floor: u64_of(&v["slotFloor"]),
+        signed_at: u64_of(&v["signedAt"]),
+    })
+}
+
+/// A `failed` answer or entry.
+fn failed_of(v: &Value, code: String) -> GatewayResult {
+    GatewayResult::Failed {
+        code,
+        signed: if v["sent"] == json!(true) {
+            signed_of(v)
+        } else {
+            None
+        },
+        sent_known: v["sent"].is_boolean(),
+    }
 }
 
 /// The agent the run's owner handed its village to.
@@ -222,14 +305,64 @@ impl GatewayPort {
     }
 
     fn remember(&self, key: &str, r: GatewayResult) {
-        if let GatewayResult::Sent { signature } = &r {
-            if let Err(e) = self.land(signature) {
+        if let GatewayResult::Sent(s) = &r {
+            if let Err(e) = self.land(&s.signature) {
                 // Recorded as a send we cannot place: the run will not
                 // attribute it (content check) and holds.
                 eprintln!("gateway port: {e}");
             }
         }
         self.results.lock().unwrap().insert(key.to_string(), r);
+    }
+
+    /// The gateway's fate read for `key` (`GET /fate?key=` on the bridge,
+    /// `GET /f/agent/fate?id=&key=` on the gateway). `Err`: the read itself
+    /// failed (the gateway could not be reached).
+    fn fate(&self, key: &str) -> Result<AttemptFacts, PortError> {
+        let (code, v) = http(self.port, "GET", &format!("/fate?key={key}"), None)
+            .map_err(PortError::Unavailable)?;
+        if code != 200 || !v["state"].is_string() {
+            return Err(PortError::Unavailable(format!(
+                "fate read answered {code}: {v}"
+            )));
+        }
+        Ok(AttemptFacts {
+            state: v["state"].as_str().unwrap_or_default().to_string(),
+            signed: signed_of(&v),
+            commitment: v["commitment"].as_str().map(str::to_string),
+            why: v["why"].as_str().unwrap_or_default().to_string(),
+        })
+    }
+
+    /// One attempt's facts for a receipt: what the gateway said when it
+    /// answered, then the chain's word by the gateway's fate read. `None`:
+    /// the handle is not a gateway attempt.
+    pub fn facts(&self, handle: &str) -> Option<AttemptFacts> {
+        let (_, key) = parse_handle(handle)?;
+        let known = self.result_of(key).ok().flatten();
+        match known {
+            None => Some(AttemptFacts {
+                state: "unqueryable".into(),
+                signed: None,
+                commitment: None,
+                why: "the gateway has no answer under this key yet".into(),
+            }),
+            Some(GatewayResult::Refused { code }) => Some(AttemptFacts {
+                state: "not-sent".into(),
+                signed: None,
+                commitment: None,
+                why: format!("refused before signing ({code})"),
+            }),
+            Some(r) => Some(match self.fate(key) {
+                Ok(f) => f,
+                Err(PortError::Unavailable(e)) => AttemptFacts {
+                    state: "unqueryable".into(),
+                    signed: r.signed().cloned(),
+                    commitment: None,
+                    why: e,
+                },
+            }),
+        }
     }
 
     /// The gateway's answer for `key`, from this process's memory, else
@@ -248,16 +381,12 @@ impl GatewayPort {
             .iter()
             .rev()
             .find(|e| e["key"] == json!(key) && e["status"].is_string())
-            .map(|e| match (e["status"].as_str(), e["signature"].as_str()) {
-                (Some("sent"), Some(s)) => GatewayResult::Sent {
-                    signature: s.to_string(),
-                },
+            .map(|e| match (e["status"].as_str(), signed_of(e)) {
+                (Some("sent"), Some(s)) => GatewayResult::Sent(s),
                 (Some("refused"), _) => GatewayResult::Refused {
                     code: e["code"].as_str().unwrap_or("refused").to_string(),
                 },
-                (_, _) => GatewayResult::Failed {
-                    code: e["code"].as_str().unwrap_or("failed").to_string(),
-                },
+                (_, _) => failed_of(e, e["code"].as_str().unwrap_or("failed").to_string()),
             });
         if let Some(r) = &found {
             self.remember(key, r.clone());
@@ -349,14 +478,9 @@ impl Chain for GatewayPort {
             return SendResult::Unknown(format!("gateway answered {code}"));
         }
         match v["status"].as_str() {
-            Some("sent") => match v["signature"].as_str() {
+            Some("sent") => match signed_of(&v) {
                 Some(s) => {
-                    self.remember(
-                        key,
-                        GatewayResult::Sent {
-                            signature: s.to_string(),
-                        },
-                    );
+                    self.remember(key, GatewayResult::Sent(s));
                     SendResult::Accepted
                 }
                 None => SendResult::Unknown("sent without a signature".into()),
@@ -368,8 +492,28 @@ impl Chain for GatewayPort {
             }
             Some("failed") => {
                 let c = v["error"]["code"].as_str().unwrap_or("failed").to_string();
-                self.remember(key, GatewayResult::Failed { code: c.clone() });
-                SendResult::Unknown(format!("gateway: failed ({c}), signature not reported"))
+                let r = failed_of(&v, c.clone());
+                let out = match &r {
+                    // Nothing left the gateway (a fault on the way, e.g. the
+                    // RPC down): not a refusal of the request. The status read
+                    // answers Absent, and the executor may try a new attempt.
+                    GatewayResult::Failed {
+                        signed: None,
+                        sent_known: true,
+                        ..
+                    } => SendResult::Unknown(format!("gateway: failed ({c}) before sending")),
+                    GatewayResult::Failed {
+                        signed: Some(s), ..
+                    } => SendResult::Unknown(format!(
+                        "gateway: failed ({c}) after signing {}; the chain decides",
+                        s.signature
+                    )),
+                    _ => SendResult::Unknown(format!(
+                        "gateway: failed ({c}), signature not reported"
+                    )),
+                };
+                self.remember(key, r);
+                out
             }
             _ => SendResult::Unknown(format!("unexpected answer: {v}")),
         }
@@ -380,20 +524,46 @@ impl Chain for GatewayPort {
             return self.sim.status(sig, valid_until);
         };
         Ok(match self.result_of(key)? {
-            Some(GatewayResult::Sent { signature }) => {
-                match self.sim.status(&signature, u64::MAX)? {
-                    SigStatus::Landed { slot, .. } => SigStatus::Landed { slot, fee: Some(0) },
-                    SigStatus::Failed { slot, reject, .. } => SigStatus::Failed {
-                        slot,
-                        fee: Some(0),
-                        reject,
-                    },
-                    // No lifetime from the gateway: absence cannot be proven.
-                    _ => SigStatus::Unavailable,
+            Some(GatewayResult::Refused { .. }) => SigStatus::Absent,
+            Some(GatewayResult::Failed {
+                signed: None,
+                sent_known: true,
+                ..
+            }) => SigStatus::Absent,
+            // An older gateway: a failure without a signature cannot be followed.
+            Some(GatewayResult::Failed { signed: None, .. }) => SigStatus::Unavailable,
+            Some(r) => {
+                let s = r.signed().cloned().unwrap_or_default();
+                let f = self.fate(key)?;
+                match f.state.as_str() {
+                    "landed" | "failed" => {
+                        // The chain's effect, in the simulated world (idempotent).
+                        let _ = self.land(&s.signature);
+                        match self.sim.status(&s.signature, u64::MAX)? {
+                            SigStatus::Landed { slot, .. } if f.state == "landed" => {
+                                SigStatus::Landed { slot, fee: Some(0) }
+                            }
+                            SigStatus::Failed { slot, reject, .. } => SigStatus::Failed {
+                                slot,
+                                fee: Some(0),
+                                reject,
+                            },
+                            _ if f.state == "failed" => SigStatus::Failed {
+                                slot: self.sim.slot()?,
+                                fee: Some(0),
+                                reject: Reject::Other(f.why.clone()),
+                            },
+                            // Finalized landed on the chain, not placeable here: hold.
+                            _ => SigStatus::Unavailable,
+                        }
+                    }
+                    "expired" | "not-sent" => SigStatus::Absent,
+                    "pending" => SigStatus::Pending,
+                    "unknown" => SigStatus::Unavailable,
+                    // `unqueryable` and anything new: the read told us nothing.
+                    _ => return Err(PortError::Unavailable(format!("{}: {}", f.state, f.why))),
                 }
             }
-            Some(GatewayResult::Refused { .. }) => SigStatus::Absent,
-            Some(GatewayResult::Failed { .. }) => SigStatus::Unavailable,
             None if self.sim.slot()? <= prepared_at + self.lookup_grace => SigStatus::Pending,
             None => SigStatus::Unavailable,
         })
@@ -404,7 +574,7 @@ impl Chain for GatewayPort {
             return Some(handle.to_string());
         };
         match self.result_of(key) {
-            Ok(Some(GatewayResult::Sent { signature })) => Some(signature),
+            Ok(Some(r)) => r.signed().map(|s| s.signature.clone()),
             _ => None,
         }
     }
