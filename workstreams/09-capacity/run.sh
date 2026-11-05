@@ -5,6 +5,9 @@
 #   workstreams/09-capacity/run.sh            # everything
 #   workstreams/09-capacity/run.sh --no-patch # skip the patched worktree
 #
+# The bridge10 stage needs workstream 10's pinned commit (fetched from the
+# integration branch when missing).
+#
 # Writes results/*.log and results/demo.txt. Needs only the Rust toolchain
 # of the root rust-toolchain.toml (1.89.0); no network after the crates are
 # fetched, no Solana tools, no deploy.
@@ -26,6 +29,38 @@ cargo test -q --release --test contention -- --nocapture 2>&1 | grep -E "applied
 cargo test -q --release --test continuity a_long_run -- --nocapture 2>&1 | grep -E "long run:" > "$out/continuity-long-run.log" || true
 cargo run -q --example demo > "$out/demo.txt"
 echo "demo: $out/demo.txt ($(wc -l < "$out/demo.txt") lines)"
+
+echo "== bridge10 (09 <-> 10, against workstream 10's pinned kernel) =="
+# Workstream 10's crate is not in this branch. It is checked out from the
+# commit that staged it on the integration branch, and its tree is checked.
+pin10=9f3ac2f82f0ed739b696673e71eaf7f88c5dfa92
+tree10=f11af9190144abd185c68b2d50a33c786f24340f
+if ! git -C "$root" cat-file -e "$pin10^{commit}" 2>/dev/null; then
+  git -C "$root" fetch -q origin integration/ws09-13-v16-d0949fd4 || true
+fi
+if [ "$(git -C "$root" rev-parse "$pin10:workstreams/10-custody/custody" 2>/dev/null)" != "$tree10" ]; then
+  echo "workstream 10 pin $pin10 not available (tree $tree10)" >&2
+  exit 1
+fi
+btmp="$(mktemp -d "${TMPDIR:-/tmp}/wylls-09b-XXXXXX")"
+bclean() { rm -rf "$btmp"; }
+trap bclean EXIT
+mkdir -p "$btmp/w/workstreams/09-capacity"
+git -C "$root" archive HEAD permutation-rules frontier-abi rust-toolchain.toml | tar -x -C "$btmp/w"
+git -C "$root" archive "$pin10" workstreams/10-custody/custody | tar -x -C "$btmp/w"
+cp -r "$here/kernel" "$here/bridge10" "$btmp/w/workstreams/09-capacity/"
+rm -rf "$btmp/w/workstreams/09-capacity/kernel/target" "$btmp/w/workstreams/09-capacity/bridge10/target"
+(
+  cd "$btmp/w/workstreams/09-capacity/bridge10"
+  export CARGO_TARGET_DIR="$here/bridge10/target"
+  cargo fmt -- --check
+  cargo clippy -q --all-targets -- -D warnings
+  cargo test -q -- --nocapture 2>&1 | grep -E "^test result|FAILED|panicked|random:"
+) | tee "$out/bridge10-tests.log"
+grep -q FAILED "$out/bridge10-tests.log" && { echo "bridge10 tests failed" >&2; exit 1; }
+echo "# workstream 10 pin $pin10, tree $tree10" >> "$out/bridge10-tests.log"
+bclean
+trap - EXIT
 
 [ "$patch_too" = 1 ] || exit 0
 
