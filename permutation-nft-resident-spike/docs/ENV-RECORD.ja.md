@@ -46,6 +46,14 @@
 
 ネットワーク：validator は外へ出ない。faucet も 127.0.0.1 のみ。
 
+### v0.8 の追加（2026-11-05）
+
+| 物 | 内容 | 保存先 | 戻し方 |
+|---|---|---|---|
+| `permutation-gateway` の依存（`npm ci`、リポジトリの `package-lock.json` どおり、59 パッケージ） | 既存 gateway の試験と、接続試験に必要 | `permutation-gateway/node_modules/`（`.gitignore` 済み） | ディレクトリ削除 |
+
+新しい鍵・外部アカウント・API キーは無い。接続試験の鍵は固定ラベル由来の使い捨て（`test-gateway/worlds.mjs`）。
+
 ## 3. 鍵
 
 LiteSVM 内の使い捨て鍵のみ（`sha256(ラベル)` から導出、テスト本体に平文のラベルがあるだけ）。v0.7 のローカル validator でも同様：初期化鍵は起動ごとの乱数でメモリ内のみ、ブラウザのテストウォレットは localStorage の固定 seed（テスト本体に平文）、資金は validator の faucet。外部への配備権限・継続アクセスを持つ鍵は作っていない。devnet／mainnet への配備は行っていない。

@@ -35,3 +35,7 @@
 | U29 | devnet 配備の鍵の置き場と手順：所有者の端末で配備するか、本環境で使い捨て配備鍵を使い配備後に upgrade authority を移すか | 未実行。DEVNET-APPROVALS A1・A2 | 所有者 |
 | U30 | Royalties プラグインを collection 作成時に付けるか（仮値）、付けずに後で足すか。ロイヤリティ率は未決（U1） | 付けていない | 所有者（A3 の前） |
 | U31 | ウォレット 1 つにつき住民 1 つに限るか（wallet 由来の PDA で on-chain に一意にすると、別 blockhash で作り直した 2 本目も失敗し二重発行・二重課金を構造で防げる。⑰の Entry PDA `["entry", pool, wallet]` と同じ形）。現設計は「複数 NFT・1 ウォレット」を許し、一意性は試行ごとの asset 鍵に置く | 試行ごとの asset 口座の有無で判定（MINT-FLOW §1 期限切れ） | 所有者・④ |
+| U32 | Frontier の Citizen と住民（Core asset）の対応を、誰がいつ書くか。Citizen は財布で決まるため、発行時・参加時・公開時のどこで結ぶか、一度結んだら変えないか | 試験では手で書いた（`ResidentBindings`、JSON ファイル、変更不可） | ④・所有者 |
+| U33 | 委任を 2 か所（Frontier の SetSession と住民プログラムの SetSession）に要する形を、1 回で済ませるか。relay が住民プログラムの取引を中継するか | 保有者が自分の手数料で住民側を出す | ④ |
+| U34 | Frontier program に保有者の世代と入口の検査を入れるか（旧パッチ 02 の欄＋検査）。入れない限り、relay を迂回した旧保有者の直接送信と、譲渡前に送った取引の着地は止まらず、買い手 B は A の Citizen を操作できない | 未着手（GATEWAY-CONNECTION §5） | ④・所有者 |
+| U35 | 住民に紐付かない Citizen を、公開後も通すか（`requireBinding`） | 既定は通す（従来どおり） | 所有者 |

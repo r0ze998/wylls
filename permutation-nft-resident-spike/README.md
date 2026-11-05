@@ -1,6 +1,8 @@
 # permutation-nft-resident-spike：NFT で譲渡できる住民アカウント（隔離試作）
 
-**状態（2026-10-31、v0.7）**：ローカルのみ（模擬チェーン、LiteSVM、ループバック validator）。公開発行・devnet／mainnet・実資金・新しい鍵は無し。価格・無料／有料・供給数・公開発行・ロイヤリティは未決（`docs/UNDECIDED.ja.md`）。Metaplex Core は**試作の選定方式**で、本線採用は未決。継続世界は決定済み。依存パッケージ無し（Node 20+ の標準モジュールだけ）。push・merge・deploy はしていない（`docs/PUSH-AUDIT.ja.md`）。
+**状態（2026-11-05、v0.8）**：ローカルのみ（模擬チェーン、LiteSVM、ループバック validator）。公開発行・devnet／mainnet・実資金・新しい鍵は無し。価格・無料／有料・供給数・公開発行・ロイヤリティは未決（`docs/UNDECIDED.ja.md`）。Metaplex Core は**試作の選定方式**で、本線採用は未決。継続世界は決定済み。依存パッケージ無し（Node 20+ の標準モジュールだけ。`test-gateway/` だけは `permutation-gateway` の依存を使う）。v0.8 で担当ブランチへ通常 push（根拠は `docs/PUSH-AUDIT.ja.md`）。merge・deploy はしていない。
+
+**v0.8 の変更**：既存 gateway（relay・agent wallet・画面の session 判定）への接続。旧パッチ 01・03・04 を現行コードと照合し、作り直した共有コアの差分 3 つを独立したコミットにした（`patches/v2/`）。旧 03 は A→B→A で旧 agent を復活させていた（D29）。保有者・世代・session の確認アダプター `src/resident-gate.mjs` と回帰試験 `test-gateway/`（mock 9 件、**実 Core＋実住民プログラム 6 件**）。既存 gateway の全試験は差分の前後で同じ結果。結果と限界は `docs/GATEWAY-CONNECTION.ja.md`。Frontier program の変更（世代の検査）は未着手で、relay を迂回した直接送信は止まらない。
 
 **v0.7 の変更**：mint 画面を**実プログラムの命令・口座・エラー**に接続。実 Core バイナリと実住民プログラムを載せた `solana-test-validator`（127.0.0.1）へ実 JSON-RPC で送り、確定・口座・エラーを実物で確認（`docs/LOCALNET-RESULTS.ja.md`、`test/browser.localnet.test.mjs` 6 件：正常系＋再読込、preflight ロールバック `PriceChanged`、応答消失→結果不明、二重クリック、relay 未観測の A→B→A、着地したロールバック）。ページが PDA を導出し、`Custom(n)` を `ResidentError` 名に対応付け、config PDA の価格を読む。companion server の裏側を `MockAdapter`／`RpcAdapter` に分離（`src/adapters.mjs`、`src/rpc-client.mjs`、`src/resident-ix.mjs`、`src/localnet.mjs`）。画面記録 `demo/screens-localnet/`（viewport は実機ではない）。devnet へ進むための承認一覧は `docs/DEVNET-APPROVALS.ja.md`。devnet・サイト公開・push は未実施。
 
@@ -30,6 +32,7 @@ Wylls の住民アカウントを **NFT（Metaplex Core 資産）に紐付け**�
 cd permutation-nft-resident-spike
 node --test test/*.test.mjs        # 67 tests (12 in Chromium on the mock chain; 6 in Chromium on the REAL program over a loopback validator; 3 on real-Core account bytes; each group skips when its inputs are absent)
 (cd svm-core && cargo +1.95.0 test)  # 9 LiteSVM tests against the real Core binary (needs ENV-RECORD §1)
+node --test test-gateway/*.test.mjs  # 15 tests: the existing relay and agent wallet with the resident gate (needs npm ci in permutation-gateway; 6 of them on the REAL program over a loopback validator)
 node src/mint-demo.mjs --port 41990  # the mint page on a mock chain: http://127.0.0.1:41990/web/mint.html
 node src/mint-demo.mjs --localnet --port 41990  # the same page on the REAL program (solana-test-validator with the real Core .so; ENV-RECORD)
 node demo/run-loop.mjs             # the loop, printed; transcript at .local/nft-resident-demo/transcript.json (or --out)
