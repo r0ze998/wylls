@@ -82,10 +82,31 @@ impl RpcClient {
         keys: &[Address],
         min_slot: u64,
     ) -> PortResult<Vec<Option<Account>>> {
+        self.get_multiple_accounts_at(keys, min_slot, "confirmed")
+            .await
+    }
+
+    /// Account post-state for archival ingestion. Live chain reads continue
+    /// to use `confirmed` through `get_multiple_accounts`.
+    pub async fn get_finalized_multiple_accounts(
+        &self,
+        keys: &[Address],
+        min_slot: u64,
+    ) -> PortResult<Vec<Option<Account>>> {
+        self.get_multiple_accounts_at(keys, min_slot, "finalized")
+            .await
+    }
+
+    async fn get_multiple_accounts_at(
+        &self,
+        keys: &[Address],
+        min_slot: u64,
+        commitment: &str,
+    ) -> PortResult<Vec<Option<Account>>> {
         let mut out = Vec::with_capacity(keys.len());
         for chunk in keys.chunks(100) {
             let ks: Vec<String> = chunk.iter().map(|k| k.to_string()).collect();
-            let mut cfg = json!({"encoding": "base64", "commitment": "confirmed"});
+            let mut cfg = json!({"encoding": "base64", "commitment": commitment});
             if min_slot > 0 {
                 cfg["minContextSlot"] = json!(min_slot);
             }
@@ -112,8 +133,7 @@ pub struct SigInfo {
 }
 
 impl RpcClient {
-    /// `getSignaturesForAddress(address, {before?, until?, limit})`, newest
-    /// first (W2-F: the pager of `findex`'s RpcPoll ingest).
+    /// `getSignaturesForAddress` at confirmed commitment, newest first.
     pub async fn get_signatures_for_address(
         &self,
         address: &Address,
@@ -121,7 +141,32 @@ impl RpcClient {
         until: Option<&Signature>,
         limit: usize,
     ) -> PortResult<Vec<SigInfo>> {
-        let mut cfg = json!({"limit": limit.clamp(1, 1_000), "commitment": "confirmed"});
+        self.get_signatures_for_address_at(address, before, until, limit, "confirmed")
+            .await
+    }
+
+    /// Finalized signatures for `findex`'s durable RpcPoll cursor. A
+    /// confirmed fork must not enter an append-only archive.
+    pub async fn get_finalized_signatures_for_address(
+        &self,
+        address: &Address,
+        before: Option<&Signature>,
+        until: Option<&Signature>,
+        limit: usize,
+    ) -> PortResult<Vec<SigInfo>> {
+        self.get_signatures_for_address_at(address, before, until, limit, "finalized")
+            .await
+    }
+
+    async fn get_signatures_for_address_at(
+        &self,
+        address: &Address,
+        before: Option<&Signature>,
+        until: Option<&Signature>,
+        limit: usize,
+        commitment: &str,
+    ) -> PortResult<Vec<SigInfo>> {
+        let mut cfg = json!({"limit": limit.clamp(1, 1_000), "commitment": commitment});
         if let Some(b) = before {
             cfg["before"] = json!(b.to_string());
         }
@@ -148,13 +193,26 @@ impl RpcClient {
             .collect()
     }
 
-    /// `getTransaction(sig, base64)` as a [`TxRecord`] with `seq = 0` (the
-    /// caller numbers its feed) and no post-state (a public RPC has none).
+    /// `getTransaction(sig, base64)` at confirmed commitment as a [`TxRecord`]
+    /// with `seq = 0` (the caller numbers its feed) and no post-state.
     pub async fn get_transaction(&self, sig: &Signature) -> PortResult<Option<TxRecord>> {
+        self.get_transaction_at(sig, "confirmed").await
+    }
+
+    /// Finalized transaction bytes and logs for `findex`'s archive.
+    pub async fn get_finalized_transaction(&self, sig: &Signature) -> PortResult<Option<TxRecord>> {
+        self.get_transaction_at(sig, "finalized").await
+    }
+
+    async fn get_transaction_at(
+        &self,
+        sig: &Signature,
+        commitment: &str,
+    ) -> PortResult<Option<TxRecord>> {
         let v = self
             .call(
                 "getTransaction",
-                json!([sig.to_string(), {"encoding": "base64", "commitment": "confirmed", "maxSupportedTransactionVersion": 0}]),
+                json!([sig.to_string(), {"encoding": "base64", "commitment": commitment, "maxSupportedTransactionVersion": 0}]),
             )
             .await?;
         if v.is_null() {

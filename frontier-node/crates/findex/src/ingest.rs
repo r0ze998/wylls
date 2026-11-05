@@ -150,7 +150,12 @@ impl RpcPoll {
         };
         let older = self
             .rpc
-            .get_signatures_for_address(&self.program, Some(oldest_new), None, CONTINUITY_PAGE)
+            .get_finalized_signatures_for_address(
+                &self.program,
+                Some(oldest_new),
+                None,
+                CONTINUITY_PAGE,
+            )
             .await?;
         for s in &older {
             if s.signature == last {
@@ -181,7 +186,7 @@ impl Source for RpcPoll {
         loop {
             let page = self
                 .rpc
-                .get_signatures_for_address(
+                .get_finalized_signatures_for_address(
                     &self.program,
                     before.as_ref(),
                     self.last.as_ref(),
@@ -222,7 +227,7 @@ impl Source for RpcPoll {
             // failure after some of them returns those (they are archived,
             // the failing one is retried next pull); returning the error
             // instead would drop them while the cursor had moved past.
-            let got = match self.rpc.get_transaction(&s.signature).await {
+            let got = match self.rpc.get_finalized_transaction(&s.signature).await {
                 Ok(got) => got,
                 Err(e) if out.is_empty() => return Err(e),
                 Err(_) => break,
@@ -277,7 +282,7 @@ impl Source for RpcPoll {
 /// A source whose transactions lack post-state (a public RPC) with the
 /// written accounts fetched **before archiving** (offchain design §8.2
 /// step 2, W3-D): for each landed transaction without post-state, the
-/// message's writable accounts are read with `getMultipleAccounts
+/// message's writable accounts are read with finalized `getMultipleAccounts
 /// (minContextSlot = the transaction's slot)`. The bytes are "state at a
 /// slot ≥ s" (a later write can show through); each chained account's
 /// `(event seq, head)` says which version it is. Because the fetched
@@ -327,7 +332,10 @@ impl<S: Source> Source for Enriched<S> {
             if keys.is_empty() {
                 continue;
             }
-            let accts = self.rpc.get_multiple_accounts(&keys, r.slot).await?;
+            let accts = self
+                .rpc
+                .get_finalized_multiple_accounts(&keys, r.slot)
+                .await?;
             r.post = keys.into_iter().zip(accts).collect();
         }
         Ok(got)

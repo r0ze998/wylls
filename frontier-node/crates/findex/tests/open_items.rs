@@ -1,14 +1,14 @@
 //! Reproductions of the open items the ER candidate reported to the
 //! integrator (④): what findex does today, on a JSON-RPC stand-in that can
-//! refuse a transaction, drop one from its fork, or fail once. These tests
-//! describe current behaviour (they decide no specification); the fixes
-//! they motivate are proposals in `docs/frontier/er-candidate/OPEN-ITEMS.ja.md`.
+//! refuse a transaction, drop one from its fork, or fail once. The fork
+//! regression verifies that only finalized history enters the archive.
+//! Other open items remain proposals in `docs/frontier/er-candidate/OPEN-ITEMS.ja.md`.
 //!
 //! The one bug fixed alongside (a transaction lost when a later one of the
 //! same batch failed) is asserted as fixed in
 //! `a_failure_mid_batch_loses_nothing`.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
 use axum::{extract::State, routing::post, Json, Router};
@@ -24,6 +24,8 @@ use solana_address::Address;
 struct Node {
     txs: Arc<Mutex<Vec<(String, u64)>>>,
     errors: Arc<Mutex<HashMap<String, (i64, u32)>>>,
+    confirmed_only: Arc<Mutex<HashSet<String>>>,
+    requests: Arc<Mutex<Vec<(String, Value)>>>,
 }
 
 async fn rpc(State(n): State<Node>, Json(req): Json<Value>) -> Json<Value> {
@@ -31,6 +33,12 @@ async fn rpc(State(n): State<Node>, Json(req): Json<Value>) -> Json<Value> {
     let p = req.get("params").cloned().unwrap_or(json!([]));
     let all = n.txs.lock().unwrap().clone();
     let method = req.get("method").and_then(|m| m.as_str()).unwrap_or("");
+    n.requests.lock().unwrap().push((method.into(), p.clone()));
+    let commitment = p
+        .get(1)
+        .and_then(|x| x.get("commitment"))
+        .and_then(Value::as_str);
+    let confirmed_only = n.confirmed_only.lock().unwrap().clone();
     if method == "getTransaction" {
         let sig = p.get(0).and_then(|x| x.as_str()).unwrap_or("").to_string();
         let mut errs = n.errors.lock().unwrap();
@@ -45,7 +53,9 @@ async fn rpc(State(n): State<Node>, Json(req): Json<Value>) -> Json<Value> {
                 json!({"jsonrpc": "2.0", "id": id, "error": {"code": code, "message": "refused"}}),
             );
         }
-        let result = match all.iter().find(|(s, _)| *s == sig) {
+        let result = match all.iter().find(|(s, _)| {
+            *s == sig && (commitment != Some("finalized") || !confirmed_only.contains(s))
+        }) {
             None => Value::Null,
             Some((_, slot)) => json!({"slot": slot, "blockTime": 7,
                 "transaction": [base64::engine::general_purpose::STANDARD.encode([1u8, 2, 3]), "base64"],
@@ -56,7 +66,11 @@ async fn rpc(State(n): State<Node>, Json(req): Json<Value>) -> Json<Value> {
     let result = if method == "getSignaturesForAddress" {
         let cfg = p.get(1).cloned().unwrap_or(json!({}));
         let limit = cfg.get("limit").and_then(|x| x.as_u64()).unwrap_or(1000) as usize;
-        let mut newest: Vec<&(String, u64)> = all.iter().rev().collect();
+        let mut newest: Vec<&(String, u64)> = all
+            .iter()
+            .rev()
+            .filter(|(s, _)| commitment != Some("finalized") || !confirmed_only.contains(s))
+            .collect();
         if let Some(b) = cfg.get("before").and_then(|x| x.as_str()) {
             let i = newest
                 .iter()
@@ -74,6 +88,8 @@ async fn rpc(State(n): State<Node>, Json(req): Json<Value>) -> Json<Value> {
             .take(limit)
             .map(|(s, slot)| json!({"signature": s, "slot": slot, "err": null, "blockTime": 0}))
             .collect::<Vec<_>>())
+    } else if method == "getMultipleAccounts" {
+        json!({"context": {"slot": 100}, "value": vec![Value::Null; p.get(0).and_then(Value::as_array).map_or(0, Vec::len)]})
     } else {
         Value::Null
     };
@@ -166,23 +182,22 @@ async fn a_version_1_transaction_stops_every_pull() {
     assert!(errors >= 3, "and fails there on every later pull");
 }
 
-/// Open item 3 (confirmed records cannot be withdrawn): a transaction
-/// archived at `confirmed` that then leaves the node's history (its fork
-/// was dropped) stays in the archive. With the history-continuity check
-/// the next pull stops ("history gap": the archive's last signature is
-/// gone) instead of archiving past it; nothing marks the archived one as
-/// withdrawn.
+/// A transaction visible only on a confirmed fork never enters the durable
+/// archive. After that fork disappears, the finalized cursor can advance
+/// across the surviving fork, including after a restart.
 #[tokio::test]
-async fn a_confirmed_transaction_dropped_from_its_fork_stays_archived() {
+async fn dropped_confirmed_fork_is_not_archived() {
     let n = Node::default();
     for i in 1..=2u8 {
         n.txs.lock().unwrap().push((sig(i), i as u64));
     }
+    n.confirmed_only.lock().unwrap().insert(sig(2));
     let url = start(n.clone()).await;
     let dir = tmp("fork");
     let mut f = Findex::open(&dir, program(), None, 1 << 20).unwrap();
-    let mut poll = RpcPoll::new(url, program());
-    assert_eq!(f.ingest(&mut poll).await.unwrap().len(), 2);
+    let mut poll = RpcPoll::new(url.clone(), program());
+    let initial = f.ingest(&mut poll).await.unwrap();
+    assert_eq!(initial.iter().map(|r| r.slot).collect::<Vec<_>>(), vec![1]);
     f.commit().unwrap();
     // The fork holding 2 is dropped; 3 lands on the surviving fork.
     {
@@ -190,11 +205,12 @@ async fn a_confirmed_transaction_dropped_from_its_fork_stays_archived() {
         t.retain(|(s, _)| *s != sig(2));
         t.push((sig(3), 3));
     }
-    let e = f.ingest(&mut poll).await.unwrap_err();
-    assert!(
-        matches!(&e, findex::IngestError::Port(PortError::Unavailable(m)) if m.starts_with("history gap")),
-        "{e}"
-    );
+    drop(f);
+    let mut f = Findex::open(&dir, program(), None, 1 << 20).unwrap();
+    let mut poll = RpcPoll::new(url, program());
+    f.resume(&mut poll);
+    let next = f.ingest(&mut poll).await.unwrap();
+    assert_eq!(next.iter().map(|r| r.slot).collect::<Vec<_>>(), vec![3]);
     let kept: Vec<u64> = f
         .archive
         .read_after(0)
@@ -204,9 +220,69 @@ async fn a_confirmed_transaction_dropped_from_its_fork_stays_archived() {
         .collect();
     assert_eq!(
         kept,
-        vec![1, 2],
-        "the dropped transaction is still archived"
+        vec![1, 3],
+        "the dropped confirmed transaction must never be archived"
     );
+    let requests = n.requests.lock().unwrap();
+    for (method, params) in requests.iter() {
+        if method == "getSignaturesForAddress" || method == "getTransaction" {
+            assert_eq!(params[1]["commitment"], "finalized", "{method}: {params}");
+        }
+    }
+    assert!(requests
+        .iter()
+        .any(|(method, _)| method == "getTransaction"));
+}
+
+/// Archival signatures, transactions, and post-state use finalized RPC
+/// reads while the existing client methods retain confirmed commitment.
+#[tokio::test]
+async fn finalized_archive_reads_do_not_change_confirmed_client_reads() {
+    let n = Node::default();
+    n.txs.lock().unwrap().push((sig(1), 1));
+    let rpc = fclient::rpc::RpcClient::new(start(n.clone()).await);
+    let signature = fclient::ports::Signature::from([1; 64]);
+    rpc.get_signatures_for_address(&program(), None, None, 10)
+        .await
+        .unwrap();
+    rpc.get_finalized_signatures_for_address(&program(), None, None, 10)
+        .await
+        .unwrap();
+    rpc.get_transaction(&signature).await.unwrap();
+    rpc.get_finalized_transaction(&signature).await.unwrap();
+    assert_eq!(
+        rpc.get_finalized_multiple_accounts(&[program()], 1)
+            .await
+            .unwrap(),
+        vec![None]
+    );
+    assert_eq!(
+        rpc.get_multiple_accounts(&[program()], 1).await.unwrap(),
+        vec![None]
+    );
+    let requests = n.requests.lock().unwrap();
+    let commitments = |method: &str| {
+        requests
+            .iter()
+            .filter(|(name, _)| name == method)
+            .map(|(_, params)| params[1]["commitment"].as_str().unwrap())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        commitments("getSignaturesForAddress"),
+        ["confirmed", "finalized"]
+    );
+    assert_eq!(commitments("getTransaction"), ["confirmed", "finalized"]);
+    let account_calls: Vec<_> = requests
+        .iter()
+        .filter(|(method, _)| method == "getMultipleAccounts")
+        .collect();
+    assert_eq!(account_calls.len(), 2);
+    assert_eq!(account_calls[0].1[1]["commitment"], "finalized");
+    assert_eq!(account_calls[1].1[1]["commitment"], "confirmed");
+    assert!(account_calls
+        .iter()
+        .all(|(_, params)| params[1]["minContextSlot"] == 1));
 }
 
 /// Open item 5 (archive growth): bytes the archive takes per transaction,
