@@ -88,12 +88,14 @@ const failed = r => {
 let agentsReadAt = -Infinity;
 async function refreshDelegation() {
   if (!FS.wallet?.address) { FS.delegation = null; return; }
+  const address = FS.wallet.address;
   const mismatch = FS.sessionProblem === 'SessionMismatch';
   if (!mismatch) { if (FS.delegation) { FS.delegation = null; invalidate('panel'); } if (FS.agentWallet !== undefined) return; }
   const t = Date.now();
   if (FS.agentWallet !== undefined && t - agentsReadAt < AGENTS_REFRESH_MS) return;
   agentsReadAt = t;
-  const { enabled, agents } = await loadAgents(FS.wallet.address);
+  const { enabled, agents } = await loadAgents(address);
+  if (FS.wallet?.address !== address) return;
   const was = FS.delegation?.mode ?? null;
   FS.agentWallet = enabled;
   FS.delegation = delegatedTo({ sessionProblem: FS.sessionProblem, citizen: FS.citizen, agents });
@@ -123,11 +125,14 @@ let prizeReadAt = 0;
 export async function refreshPrize({ force = false, at = Date.now() } = {}) {
   if (!io.relay() || (!force && at - prizeReadAt < PRIZE_REFRESH_MS)) return;
   prizeReadAt = at;
-  const r = await prizeIo.loadPrize(FS.wallet?.address ?? null);
+  const address = FS.wallet?.address ?? null;
+  const r = await prizeIo.loadPrize(address);
+  if ((FS.wallet?.address ?? null) !== address) return;
   if (!r.ok) return;
   FS.prize = r.pool;
   if (r.pool && r.pool.state !== 'open') {
     const g = await prizeIo.loadLedger();
+    if ((FS.wallet?.address ?? null) !== address) return;
     if (g.ok) FS.prizeLedger = g.ledger;
   }
   invalidate('panel');
@@ -410,10 +415,78 @@ export const inviteRequired = season => !!season?.joinGate?.some?.(x => x !== 0)
 // ------------------------------------------------------------------ refresh
 const Buffer2hex = b => Array.from(b, x => x.toString(16).padStart(2, '0')).join('');
 let herald = null, refreshTimer = null, cursor = 0, conquestRefresh = 0, homesRefresh = 0, viewerRefresh = 0;
+let walletSyncEpoch = 0, connectingWallet = false;
 
 function refreshSoon(ms = 1500) {
   clearTimeout(refreshTimer);
   refreshTimer = setTimeout(() => refresh().catch(e => console.error('frontier refresh:', e)), ms);
+}
+
+/** A wallet event changes the viewer immediately; old /h/me replies may not restore the former owner. */
+export function adoptConnectedWallet(next = wallet.connected()) {
+  const address = next?.address ?? null;
+  if (address === (FS.wallet?.address ?? null)) { FS.wallet = next; return false; }
+  ++walletSyncEpoch;
+  ++viewerRefresh;
+  ++homesRefresh;
+  agentsReadAt = -Infinity;
+  prizeReadAt = 0;
+  FS.wallet = next;
+  FS.session = null;
+  FS.sessionProblem = null;
+  FS.citizen = null;
+  FS.holdings = [];
+  FS.activeHolding = 0;
+  FS.land = landState(null);
+  FS.landRec = null;
+  FS.quota = null;
+  FS.book = [];
+  FS.marches = [];
+  FS.bellItems = [];
+  FS.orders = [];
+  FS.departed = null;
+  mySlots = [];
+  FS.delegation = null;
+  FS.agentWallet = undefined;
+  FS.homeChoice = null;
+  FS.homeGrant = null;
+  FS.homeFocus = null;
+  FS.joinDraft = null;
+  FS.compose = null;
+  FS.explore = null;
+  FS.exploreSeedReady = false;
+  FS.autoTicket = null;
+  FS.autoFull = new Map();
+  FS.autoForceAt = 0;
+  FS.autoNudgeBell = null;
+  FS.incoming = [];
+  FS.isMine = () => false;
+  FS.prize = null;
+  FS.prizePayment = null;
+  FS.notice = null;
+  FS.meStatus = next ? 'loading' : 'ready';
+  FS.meError = null;
+  invalidate('panel', 'tabs', 'chips', 'map');
+  return true;
+}
+
+async function syncConnectedWallet({ refreshUnchanged = false } = {}) {
+  const next = wallet.connected();
+  if (!adoptConnectedWallet(next)) {
+    if (refreshUnchanged) await refresh();
+    return;
+  }
+  const address = next?.address ?? null;
+  const epoch = walletSyncEpoch;
+  if (address) {
+    try {
+      const sc = scope();
+      const restored = sc ? await fsession.restore(sc, address) : null;
+      if (epoch !== walletSyncEpoch) return;
+      FS.session = restored;
+    } catch (e) { console.error('frontier session restore:', e); }
+  }
+  if (epoch === walletSyncEpoch) await refresh();
 }
 
 /** A slower response must not roll a province back to an earlier generation. */
@@ -682,6 +755,7 @@ async function readMarches() {
   // landed was then written off as settled: never revealed by this device, its card left to "the keepers")
   const entries = book.reconcile(held, { transits, revealedHosts: revealed, complete: !!holding })
     .map((e, i) => (e.state === 'settled' && held[i].state !== 'settled' && !(b > e.arriveBell) ? held[i] : e));
+  if (key !== bookKey()) return;
   book.saveBook(store, key, entries);
   FS.book = entries;
   FS.marches = marches;
@@ -794,15 +868,16 @@ export async function refresh() {
   syncProto();
   if (FS.wallet) {
     const address = FS.wallet.address;
+    const currentViewer = () => request === viewerRefresh && FS.wallet?.address === address;
     const me = await herald.me(address).catch(e => ({ ok: false, code: e?.code ?? 'Unavailable' }));
     // A previous poll or wallet must not replace the viewer selected by a newer refresh.
-    if (request !== viewerRefresh || FS.wallet?.address !== address) return;
+    if (!currentViewer()) return;
     if (FS.proto) await refreshProto(me.ok ? me.record : undefined);
-    if (request !== viewerRefresh || FS.wallet?.address !== address) return;
+    if (!currentViewer()) return;
     if (applyMeResult(me) === 'error') return;
     const h = activeHolding(FS);
     // every holding's province (the rail can switch between them), the active one first
-    for (const o of [h, ...(FS.holdings ?? []).filter(x => x !== h)]) if (o) await loadEnvelope(o.p, o.q);
+    for (const o of [h, ...(FS.holdings ?? []).filter(x => x !== h)]) if (o) { await loadEnvelope(o.p, o.q); if (!currentViewer()) return; }
     const home = h ? FS.provinces.get(`${h.p},${h.q}`)?.province ?? null : null;
     if (shouldAutoNudge({ holding: h, province: home, nowBell: FS.nowBell, lastBell: FS.autoNudgeBell ?? null, hidden: !!globalThis.document?.hidden })) {
       FS.autoNudgeBell = FS.nowBell;
@@ -810,19 +885,22 @@ export async function refresh() {
     }
     // (the prototype rule "banners": the provinces of the viewer's own wedge in ring 2, where a banner of another nation
     // may be about to rise: their land records are read with the viewer's own, whether or not the map shows them)
-    if (FS.proto && Number.isInteger(FS.citizen?.faction)) for (const pq of ringProvinces(2)) { if (wedgeOf(pq.p, pq.q) === FS.citizen.faction && !(h && h.p === pq.p && h.q === pq.q)) await loadEnvelope(pq.p, pq.q); }
+    if (FS.proto && Number.isInteger(FS.citizen?.faction)) for (const pq of ringProvinces(2)) { if (wedgeOf(pq.p, pq.q) === FS.citizen.faction && !(h && h.p === pq.p && h.q === pq.q)) { await loadEnvelope(pq.p, pq.q); if (!currentViewer()) return; } }
     // Hosts standing in other provinces (after a march that Stays): their
     // envelopes too, so the Hosts tab can show and command them.
-    if (me.ok) for (const pq of hostProvinces(me.record, h ? { p: h.p, q: h.q } : null)) await loadEnvelope(pq.p, pq.q);
+    if (me.ok) for (const pq of hostProvinces(me.record, h ? { p: h.p, q: h.q } : null)) { await loadEnvelope(pq.p, pq.q); if (!currentViewer()) return; }
     // SettleExplore is offered once the explore bell's seed is readable.
     FS.exploreSeedReady = false;
     if (h?.explore?.state && nowBell() >= h.explore.bell) {
       const r = await herald.bellRegion(h.explore.bell, regionOf(h.explore.p, h.explore.q));
+      if (!currentViewer()) return;
       FS.exploreSeedReady = r.ok && !!seedSourceOf(r.record);
     }
     await refreshMarches();
+    if (!currentViewer()) return;
     if (FS.citizen && io.pinned()) {
       const q = await io.quota(io.pinned().addresses.of('Citizen', { wallet: FS.wallet.address }));
+      if (!currentViewer()) return;
       if (q.ok) FS.quota = q;
     }
   } else { FS.meStatus = 'ready'; FS.meError = null; }
@@ -1655,13 +1733,12 @@ export const ACTIONS = {
   tab: d => { FS.tab = d.tab; FS.notice = FS.notice?.busy ? FS.notice : null; saveUiPatch({ tab: d.tab }); invalidate('panel', 'tabs'); },
   connect: async d => {
     const entry = (FS.walletList ?? [])[num(d.i)];
+    connectingWallet = true;
     try {
       await wallet.connect(entry, { chain: wallet.chainOf(io.pinned()?.cluster ?? 'localnet') });
     } catch (e) { return failed({ code: e.code ?? 'WalletError', text: e.message }); }
-    FS.wallet = wallet.connected();
-    FS.meStatus = 'loading'; FS.meError = null; FS.homeGrant = null;
-    FS.session = await fsession.restore(scope(), FS.wallet.address);
-    await refresh();
+    finally { connectingWallet = false; }
+    await syncConnectedWallet({ refreshUnchanged: true });
   },
   'pick-faction': d => { FS.joinDraft = { ...(FS.joinDraft ?? {}), faction: num(d.f) }; invalidate('panel'); if (needsHomeChoice()) return refreshHomes({ force: true }); },
   join: async () => {
@@ -1879,7 +1956,12 @@ export async function startPlay({ herald: h, cfg }) {
   FS.tab = FS.ui.tab;
   wallet.discover();
   if (cfg.dev && pin?.cluster === 'localnet') await wallet.enableDevWallet({ cluster: 'localnet', allowed: true }).catch(() => false);
-  const listWallets = () => { FS.walletList = wallet.list(wallet.chainOf(pin?.cluster ?? 'localnet')); invalidate('panel'); };
+  let walletEventsReady = false;
+  const listWallets = () => {
+    FS.walletList = wallet.list(wallet.chainOf(pin?.cluster ?? 'localnet'));
+    invalidate('panel');
+    if (walletEventsReady && !connectingWallet) syncConnectedWallet().catch(e => console.error('frontier wallet change:', e));
+  };
   wallet.onChange(listWallets);
   listWallets();
   // A silent reconnect of the wallet used last time (no popup; nothing if it does not trust this page).
@@ -1887,12 +1969,19 @@ export async function startPlay({ herald: h, cfg }) {
   const entry = last && (FS.walletList ?? []).find(w => w.name === last && !w.why);
   if (entry) {
     const c = await wallet.connect(entry, { chain: wallet.chainOf(pin?.cluster ?? 'localnet'), silent: true }).catch(() => null);
-    if (c) { FS.wallet = wallet.connected(); FS.session = await fsession.restore(scope(), FS.wallet.address); }
+    if (c) {
+      adoptConnectedWallet(c);
+      const restored = await fsession.restore(scope(), c.address);
+      if (FS.wallet?.address === c.address && wallet.connected()?.address === c.address) FS.session = restored;
+    }
   }
   // The rules module once (the incoming warnings need it too); a missing
   // frontier.wasm is tolerated (the page says what needs it).
   await kernelOrNull();
+  if ((wallet.connected()?.address ?? null) !== (FS.wallet?.address ?? null)) await syncConnectedWallet();
   await refresh();
+  walletEventsReady = true;
+  if ((wallet.connected()?.address ?? null) !== (FS.wallet?.address ?? null)) await syncConnectedWallet();
   let errors = 0;
   const hidden = () => !!globalThis.document?.hidden;
   const loop = async () => {

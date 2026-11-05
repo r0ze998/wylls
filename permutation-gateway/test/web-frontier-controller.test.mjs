@@ -10,6 +10,7 @@ import { test } from 'node:test';
 import { readFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import * as C from '../../permutation-server/web/frontier/controller.mjs';
+import * as wallet from '../../permutation-server/web/wallet.mjs';
 import * as march from '../../permutation-server/web/frontier/fmarch.mjs';
 import * as book from '../../permutation-server/web/frontier/marchbook.mjs';
 import * as W from '../../permutation-server/web/frontier/wasm.mjs';
@@ -271,6 +272,100 @@ test('an older /h/me answer cannot replace the current wallet viewer', async () 
     assert.equal(FS.citizen, null);
     assert.equal(FS.land.stage, 'none');
   } finally {
+    C.useHerald(null);
+    Object.assign(FS, saved);
+  }
+});
+
+test('a wallet account switch clears the former owner before the next herald read', () => {
+  const saved = { ...FS };
+  try {
+    Object.assign(FS, {
+      wallet: { address: 'W1' }, session: { wallet: 'W1' }, citizen: { faction: 1 },
+      holdings: [{ p: 2, q: 0 }], land: { stage: 'final' }, landRec: { lastTicketBell: 4 },
+      quota: { remaining: 2 }, book: [{ host: '1' }], marches: [{ entry: { host: '1' } }],
+      delegation: { mode: 'other' }, agentWallet: true, homeChoice: { selected: { p: 2 } },
+      prize: { wallet: { balance: '100' } }, meStatus: 'ready', isMine: () => true,
+    });
+    assert.equal(C.adoptConnectedWallet({ address: 'W2' }), true);
+    assert.equal(FS.wallet.address, 'W2');
+    assert.equal(FS.session, null);
+    assert.equal(FS.citizen, null);
+    assert.deepEqual(FS.holdings, []);
+    assert.deepEqual(FS.book, []);
+    assert.equal(FS.quota, null);
+    assert.equal(FS.delegation, null);
+    assert.equal(FS.prize, null);
+    assert.equal(FS.meStatus, 'loading');
+    assert.equal(FS.isMine({ host_id: 1n }), false);
+    assert.equal(C.adoptConnectedWallet({ address: 'W2' }), false);
+    assert.equal(C.adoptConnectedWallet(null), true);
+    assert.equal(FS.wallet, null);
+    assert.equal(FS.meStatus, 'ready');
+  } finally { Object.assign(FS, saved); }
+});
+
+test('an old viewer refresh cannot restore a former owner after an account switch during province read', async () => {
+  const saved = { ...FS };
+  let readProvince;
+  const citizen = { ticketEscrow: 0n, holding: [{ p: 2, q: 0, site: 0, gen: 1 }], ticketBell: 0xFFFF_FFFF, flags: 0, faction: 1 };
+  try {
+    Object.assign(FS, {
+      clock: { genesisTs: 0 }, chain: { now: () => 6000 }, wallet: { address: 'W1' },
+      season: {}, record: {}, session: null, proto: null, agentWallet: false,
+      provinces: new Map(), overviews: new Map(), chronicle: [], landRec: null,
+      citizen: null, holdings: [], meStatus: 'loading', meError: null,
+    });
+    C.useHerald({
+      me: async () => ({ ok: true, citizen, holdings: [{ p: 2, q: 0, site: 0, state: 2 }], record: { hosts: [] } }),
+      province: () => new Promise(resolve => { readProvince = resolve; }),
+    });
+    const old = C.refresh();
+    for (let i = 0; !readProvince && i < 20; i++) await Promise.resolve();
+    assert.ok(readProvince);
+    C.adoptConnectedWallet({ address: 'W2' });
+    readProvince({ ok: true, seq: '1', bell: 1, province: { p: 2, q: 0 } });
+    await old;
+    assert.equal(FS.wallet.address, 'W2');
+    assert.equal(FS.citizen, null);
+    assert.deepEqual(FS.holdings, []);
+    assert.equal(FS.meStatus, 'loading');
+  } finally { C.useHerald(null); Object.assign(FS, saved); }
+});
+
+test('the Wallet Standard account-change event updates the play viewer and clears the former session', async () => {
+  const saved = { ...FS };
+  const oldSetTimeout = globalThis.setTimeout;
+  const callbacks = [];
+  const account = address => ({ address, chains: ['solana:localnet'], features: ['solana:signTransaction', 'solana:signMessage'] });
+  const w = {
+    name: 'Switchable', chains: ['solana:localnet'], accounts: [account('W1')], features: {
+      'standard:connect': { connect: async () => ({ accounts: w.accounts }) },
+      'standard:events': { on: (_name, callback) => { callbacks.push(callback); return () => {}; } },
+      'solana:signTransaction': { supportedTransactionVersions: ['legacy'], signTransaction: async () => [] },
+      'solana:signMessage': { signMessage: async () => [] },
+    },
+  };
+  try {
+    Object.assign(FS, { wallet: null, clock: null, kernel: {}, citizen: null, session: null });
+    // startPlay installs its wallet observer; the poll timer is irrelevant to this event test.
+    globalThis.setTimeout = () => 0;
+    await C.startPlay({ herald: null, cfg: { dev: false } });
+    globalThis.setTimeout = oldSetTimeout;
+    await wallet.connect(w, { chain: 'solana:localnet' });
+    assert.equal(FS.wallet?.address, 'W1');
+    FS.session = { wallet: 'W1' };
+    FS.citizen = { faction: 1 };
+    w.accounts = [account('W2')];
+    callbacks[0]({ accounts: w.accounts });
+    assert.equal(FS.wallet?.address, 'W2');
+    assert.equal(FS.session, null);
+    assert.equal(FS.citizen, null);
+    await wallet.disconnect();
+    assert.equal(FS.wallet, null);
+  } finally {
+    globalThis.setTimeout = oldSetTimeout;
+    await wallet.disconnect();
     C.useHerald(null);
     Object.assign(FS, saved);
   }
