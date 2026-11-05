@@ -118,7 +118,15 @@ const keeper = {
 
 async function startRelay({ season = {}, gateKey = null } = {}) {
   const chain = fakeChain();
-  const pool = new PayerPool({ masterSeed: Buffer.alloc(32, 7), n: 150 });
+  // The scripted chain uses one blockhash for the whole suite. Pick a new
+  // payer for each shape so a second identical action has a fresh signed
+  // message instead of randomly hitting the relay's real replay guard.
+  let payerDraw = 0;
+  const pool = new PayerPool({ masterSeed: Buffer.alloc(32, 7), n: 150,
+    randomIndex: eligibleCount => {
+      assert.ok(payerDraw < eligibleCount, 'the fixture needs more distinct fee payers');
+      return payerDraw++;
+    } });
   for (const k of pool.publicKeys()) chain.set(k, { lamports: 2_000_000_000 });
   chain.set(A.season, { data: seasonAccount(season) });
   chain.set(CLOCK_SYSVAR, { data: clockAccount(CLOCK_UNIX) });
@@ -360,6 +368,8 @@ test('program refusals come back by name and number; GET /f/tx requires finality
     R.chain.fail = () => null;
   }
   const { r } = await send('Harvest', { extra: { holding: HOLD } });
+  const firstHarvest = R.chain.sent.find(tx => decodeIxData(tx.instructions.at(-1).data).name === 'Harvest');
+  assert.notEqual(r.feePayer, firstHarvest.signers[0], 'the repeated shape gets a distinct scripted payer');
   const quick = { tries: 3, every: 1, wait: async () => {} };
   R.chain.statuses.delete(r.signature);
   assert.deepEqual(await fplay.track(r.signature, quick), { ok: false, state: 'unknown', code: 'Unconfirmed' });
