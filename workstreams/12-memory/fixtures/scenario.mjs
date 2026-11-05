@@ -33,6 +33,8 @@ const seedOf = tag => Buffer.alloc(32, tag.charCodeAt(0));
 const privOf = tag => createPrivateKey({ key: Buffer.concat([Buffer.from('302e020100300506032b657004220420', 'hex'), seedOf(tag)]), format: 'der', type: 'pkcs8' });
 const pubHex = tag => createPublicKey(privOf(tag)).export({ format: 'der', type: 'spki' }).subarray(12).toString('hex');
 export const KEYS = Object.freeze(Object.fromEntries(['A', 'B', 'C', 'D', 'E'].map(t => [t, pubHex(t)])));
+/** Test-only keys for any principals (e.g. wallet-style addresses), same derivation as KEYS. */
+export const keysFor = principals => Object.freeze(Object.fromEntries(principals.map(t => [t, pubHex(t)])));
 export const newMemory = (opts = {}) => createMemory({ world: WORLD, partitions: PARTITIONS, legacy: LEGACY, keys: KEYS, ...opts });
 
 /** The tag a principal has in a partition (the program derives it per Season account), and a caravan id. */

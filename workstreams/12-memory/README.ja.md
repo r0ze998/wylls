@@ -7,6 +7,7 @@ v2（2026-10-30 のレビュー対応）では、事実認定を「誤った評�
 - 調査（既存の再利用、関連文書、OSS 比較）：[01-survey.ja.md](01-survey.ja.md)
 - ④⑤⑬ との接続契約（v2）：[02-contracts.ja.md](02-contracts.ja.md)
 - 事実認定の規則：[03-evidence-rules.ja.md](03-evidence-rules.ja.md)
+- **④・⑧・⑬への接続（2026-11-05）：[06-connection.ja.md](06-connection.ja.md)**。④の実際の Receipt（runexec の出力）と⑧の継続世界・⑬の MemoryPort に合わせたアダプタ（`adapters/`）、契約試験、照合で見つかった食い違い、実接続の残件。
 - **統合への引渡し（2026-11-03）：[05-handoff.ja.md](05-handoff.ja.md)**。④からの受領状況（受け取ったものは無く、すべて fixture か仮契約）、④の数量契約との照合と端数の修正、指定の 4 点と試験の対応、残件。
 - **継続世界への移行（v4、2026-10-31 の方針訂正への対応）：[04-continuity.ja.md](04-continuity.ja.md)**。残っていたシーズン依存、変更した挙動、試験で確認したこと、残る判断を 4 点にまとめている。
 
@@ -15,8 +16,9 @@ v3（2026-10-30 の三度目のレビュー対応）では、証拠の意味を�
 ## 実行
 
 ```sh
-sh workstreams/12-memory/run.sh     # デモ成果物を再生成し、回帰テスト（82 件）を実行
-sh workstreams/12-memory/tools/mutate.sh    # 防御 60 か所を 1 つずつ壊して、テストが検知することを確認
+sh workstreams/12-memory/run.sh     # デモ成果物を再生成し、回帰テスト（100 件。⑬の実コードが無い木では 3 件 skip）を実行
+sh workstreams/12-memory/tools/mutate.sh    # 防御 67 か所を 1 つずつ壊して、テストが検知することを確認
+sh workstreams/12-memory/tools/check-integration.sh [REF] [--regen-ws04]   # 統合候補の実コード（④⑧⑬）と照合
 node workstreams/12-memory/tools/longrun.mjs # 長期運用の計測（results/longrun.json。計測環境に依存）
 node workstreams/12-memory/demo/run-demo.mjs     # デモの表示だけ
 ```
