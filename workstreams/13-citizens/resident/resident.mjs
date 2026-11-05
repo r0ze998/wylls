@@ -576,6 +576,7 @@ export class Resident {
     const mem = this.ports.memory.recall({ focus: [this.address, ...cands.flatMap(c => (c.act.to ? [this.#who(c.act.to)] : []))], bell });
     const handles = mem.map((_, i) => `M${i + 1}`);
     const inbox = obs.board.requests.filter(r => cands.some(c => c.act.request === r.id));
+    const evidence = this.#publicEvidence(cands, bell);
     const user = [
       `Turn ${bell}. Woken by: ${wakes.join(', ')}.`,
       `My village ${me}: ${Object.entries(village.stores).filter(([, v]) => v).map(([k, v]) => `${k} ${v}`).join(', ')}; buildings ${village.buildings.join(',') || 'none'}.`,
@@ -583,6 +584,7 @@ export class Resident {
       ...inbox.map(r => `- ${r.id} from ${r.from}: wants ${JSON.stringify(r.want)}, offers ${JSON.stringify(r.offer)}, by turn ${r.deadlineBell}. ${wrapUntrusted(r.note, { from: r.from, ch: 'board', bell: r.bell })}`),
       'Remembered:',
       ...mem.map((e, i) => wrapMemory(`turn ${e.bell}, ${e.kind}: ${e.text.en}`, { kind: 'episode', id: handles[i] })),
+      ...(evidence.lines.length ? ['Public records (workstream 12; evidence, not a verdict):', ...evidence.lines] : []),
       'Choose one:',
       ...cands.map(c => `- ${c.id}: ${c.summary}`),
     ].join('\n');
@@ -592,7 +594,35 @@ export class Resident {
       candidates: cands.map(c => ({ id: c.id, kind: c.kind, summary: c.summary, score: c.score })),
       handles, schema: answerSchema(cands.map(c => c.id), handles),
       limits: { maxOutputTokens: this.charter.limits.maxOutputTokens, deadlineMs: this.charter.limits.providerDeadlineMs },
+      evidence: evidence.summary,
     };
+  }
+
+  /**
+   * Public evidence about the counterparties of this decision, read through workstream 12's read-only sidecar
+   * (`ports.evidence`, resident/ports/ws12-public-evidence.mjs from the integration branch). It is shown to the
+   * provider as marked, untrusted text with its epistemic state and sources, and recorded in the decision; it does
+   * NOT change trust, candidates, scores, limits or sends, and nothing is ever written to workstream 12's memory.
+   * Without the port, or when the sidecar withholds (world or identity unverified) or fails, nothing is shown.
+   * The port is handed this resident's own bell; mapping it to workstream 12's world bell, and a wallet address
+   * to a workstream 12 principal, is the port's job (workstreams 4/8 must supply both; tests use fixtures).
+   */
+  #publicEvidence(cands, bell) {
+    const port = this.ports.evidence;
+    if (!port || typeof port.read !== 'function') return { lines: [], summary: null };
+    const counterparties = [...new Set(cands.flatMap(c => (c.act.to ? [this.#who(c.act.to)] : [])))].slice(0, 3);
+    const lines = [];
+    const summary = [];
+    for (const counterparty of counterparties) {
+      let r;
+      try { r = port.read({ counterparty, worldBell: bell }); } catch (e) { summary.push({ counterparty, status: 'error', error: String(e.message).slice(0, 80) }); continue; }
+      summary.push({ counterparty, status: r.status, lines: r.lines.length, epistemic: [...new Set(r.lines.map(l => l.epistemic))] });
+      if (r.status !== 'ok') continue;
+      for (const l of r.lines.slice(0, 3)) {
+        lines.push(`- about ${counterparty.slice(0, 8)} [${l.epistemic}; sources ${l.sources.slice(0, 2).join(', ')}]: ${wrapUntrusted(l.text, { from: 'workstream-12', ch: 'public-record', bell })}`);
+      }
+    }
+    return { lines, summary };
   }
 
   async #decide(obs, bell, wakes) {
@@ -631,6 +661,7 @@ export class Resident {
       if (hold) {
         this.ledger.markRunning(this.id, hold.id);
         const req = this.#request(obs, bell, turn, candidates, wakes);
+        if (req.evidence?.length) d.evidence = req.evidence;
         try {
           const ans = await decideWithin(this.ports.provider, req);
           choice = ans.choice;
