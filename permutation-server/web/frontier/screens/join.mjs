@@ -105,6 +105,13 @@ export function renderNations(FS) {
 }
 
 function renderSessionFix(FS) {
+  // A different registered key can belong to another app or device. SetSession
+  // replaces that key on chain; never describe this as merely restoring a
+  // missing local key when it can revoke an existing delegation.
+  if (FS.sessionProblem === 'SessionMismatch' && FS.citizen?.session) return html`<section class="vcard" aria-labelledby="join-key">${cardHead({ id: 'join-key', ic: 'lock', title: L`ゲーム内の鍵` })}
+    <p>${L`登録されている鍵は、この端末のゲーム内の鍵と異なります。別のアプリや端末に操作を任せている可能性があります。`}</p>
+    <p>${L`自分で操作するために鍵を変更すると、現在登録されている鍵は使えなくなります。`}</p>
+    <div class="actions"><button type="button" class="btn primary" data-act="session">${L`登録鍵を変更して自分で操作する`}</button></div></section>`;
   return html`<section class="vcard" aria-labelledby="join-key">${cardHead({ id: 'join-key', ic: 'lock', title: L`ゲーム内の鍵` })}
     <p>${L`この端末にはこのシーズンのゲーム内の鍵がありません。ウォレットで同じ文面に署名すると、同じ鍵を作り直せます。`}</p>
     <div class="actions"><button type="button" class="btn primary" data-act="session">${L`鍵を作り直す`}</button></div></section>`;
