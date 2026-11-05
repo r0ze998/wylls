@@ -149,22 +149,6 @@ impl Ctx<'_> {
             detail.into(),
         );
     }
-    /// A FAIL when `fail`, else UNVERIFIABLE (V26's state audit).
-    pub fn fail_or_unverifiable(
-        &mut self,
-        check: &'static str,
-        code: &str,
-        fail: bool,
-        entity: impl Into<String>,
-        tx: Option<usize>,
-        detail: impl Into<String>,
-    ) {
-        if fail {
-            self.fail(check, code, entity, u32::MAX, tx, detail);
-        } else {
-            self.unverifiable(check, code, entity, u32::MAX, tx, detail);
-        }
-    }
     /// Data the check needs is absent (UNVERIFIABLE unless a FAIL exists).
     pub fn missing(
         &mut self,

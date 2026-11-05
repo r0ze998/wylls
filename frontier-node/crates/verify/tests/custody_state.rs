@@ -174,7 +174,7 @@ fn a_lot_the_kernel_cannot_write_fails() {
     let mut v = view();
     let good = kernel_lot(&mut v);
     type Forge = fn(&mut K::Lot);
-    let cases: [(&str, Forge, &str); 12] = [
+    let cases: [(&str, Forge, &str); 14] = [
         (
             "goods from nowhere",
             |l| l.held += MILLI,
@@ -233,6 +233,22 @@ fn a_lot_the_kernel_cannot_write_fails() {
             CUSTODY_OVER_CAPACITY,
         ),
         ("an unknown state", |l| l.state = 9, CUSTODY_LOT_BROKEN),
+        (
+            "used with no order ever set",
+            |l| {
+                l.nonce = 0;
+                l.orders = [K::Order::default(); 4];
+            },
+            CUSTODY_LOT_BROKEN,
+        ),
+        (
+            "an open lot with goods forfeited",
+            |l| {
+                l.forfeited = MILLI;
+                l.held -= MILLI;
+            },
+            CUSTODY_LOT_BROKEN,
+        ),
     ];
     for (name, forge, code) in cases {
         let mut l = good;
