@@ -149,6 +149,22 @@ impl Ctx<'_> {
             detail.into(),
         );
     }
+    /// A FAIL when `fail`, else UNVERIFIABLE (V26's state audit).
+    pub fn fail_or_unverifiable(
+        &mut self,
+        check: &'static str,
+        code: &str,
+        fail: bool,
+        entity: impl Into<String>,
+        tx: Option<usize>,
+        detail: impl Into<String>,
+    ) {
+        if fail {
+            self.fail(check, code, entity, u32::MAX, tx, detail);
+        } else {
+            self.unverifiable(check, code, entity, u32::MAX, tx, detail);
+        }
+    }
     /// Data the check needs is absent (UNVERIFIABLE unless a FAIL exists).
     pub fn missing(
         &mut self,
@@ -291,6 +307,9 @@ pub fn run(input: &Input) -> Report {
     // PASS (every season: a season without custody FAILs on it).
     v26_custody::run(&mut cx);
     ran.push("V26:custody-guard");
+    if v26_custody::custody_season(&cx) {
+        ran.push("V26:custody-state");
+    }
     ran.push("V10");
     counts(&mut cx);
     let verdict = if cx.findings.iter().any(|x| x.severity == Severity::Fail) {
