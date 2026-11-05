@@ -15,6 +15,8 @@ const LINK_SEED: &[u8] = b"nft-citizen-link";
 const CITIZEN_SEED: &[u8] = b"nft-citizen";
 const RESIDENT_SEED: &[u8] = b"resident";
 const POLICY_SEED: &[u8] = b"nft-resident-policy";
+/// The resident program's collection-authority seed (permutation-nft-resident-spike/program).
+const GUARD_SEED: &[u8] = b"collection-authority";
 
 /// Only a canonical, program-owned, initialized policy is accepted. The
 /// policy is still experimental: no instruction calls its creation helper,
@@ -47,6 +49,14 @@ pub fn create_policy<'a>(
             != authority.key.to_bytes()
     {
         return Err(crate::FrontierError::Auth.into());
+    }
+    // The guard authority must be the resident program's collection-authority
+    // address: the only authority whose permanent delegates make every change
+    // of holder go through TransferResident (frontier_abi::resident_guard).
+    let resident_program = Pubkey::new_from_array(policy.resident_program);
+    let (guard, _) = Pubkey::find_program_address(&[GUARD_SEED], &resident_program);
+    if guard.to_bytes() != policy.guard_authority {
+        return Err(crate::FrontierError::BadData.into());
     }
     let mut encoded = [0u8; resident_policy::LEN];
     if !resident_policy::write_once(&mut encoded, policy) {
@@ -151,6 +161,7 @@ fn check_actor(
 /// Citizen must already exist at the asset-derived address. This function does
 /// not create either account; it requires the current asset owner, not a
 /// delegated session. The supplied generation must come from signed data.
+#[allow(clippy::too_many_arguments)]
 pub fn initialize(
     program: &Pubkey,
     config: &AccountInfo<'_>,
@@ -185,6 +196,7 @@ pub fn initialize(
 /// owner and payer are checked separately; the Citizen must already exist at
 /// its proposed canonical address. A second creation is refused as present.
 /// No instruction dispatches to this helper yet.
+#[allow(clippy::too_many_arguments)]
 pub fn create_and_initialize<'a>(
     program: &Pubkey,
     config: &AccountInfo<'a>,
@@ -231,6 +243,7 @@ pub fn create_and_initialize<'a>(
 /// Register an NFT before its game Citizen exists. The future Citizen address
 /// is deterministic; the link's creation and initial write happen together.
 /// This does not create a playable Citizen or change the old player prologue.
+#[allow(clippy::too_many_arguments)]
 pub fn register_new<'a>(
     program: &Pubkey,
     config: &AccountInfo<'a>,
@@ -278,6 +291,7 @@ pub fn register_new<'a>(
 
 /// Verify the immutable canonical link and current owner/session at the same
 /// runtime invocation. The signed instruction must include `generation`.
+#[allow(clippy::too_many_arguments)]
 pub fn authorize(
     program: &Pubkey,
     config: &AccountInfo<'_>,

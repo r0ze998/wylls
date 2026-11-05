@@ -657,13 +657,19 @@ pub fn harvest(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     check_accounts(V2Ix::Harvest, a, None)?;
     aix::Harvest::decode(d)?;
     let pl = player(p, a)?;
+    harvest_body(p, &pl, a)
+}
+
+/// Harvest after its prologue (wallet or NFT): `a` is exactly the six
+/// Harvest accounts.
+fn harvest_body(p: &Pubkey, pl: &Player, a: &[AccountInfo]) -> R<()> {
     let [_, _, _, citizen, holding, province] = a else {
         return Err(FrontierError::TooManyAccounts.into());
     };
-    let hh = owned_holding(p, &pl, holding, citizen)?;
+    let hh = owned_holding(p, pl, holding, citizen)?;
     live(&hh)?;
-    own_province_unlocked(p, &pl, &hh, province)?;
-    finality(&pl, &hh, holding, citizen, province)?;
+    own_province_unlocked(p, pl, &hh, province)?;
+    finality(pl, &hh, holding, citizen, province)?;
     let h = load_touched(holding, pl.now.ts)?;
     let digest = {
         let mut hd = holding.try_borrow_mut_data()?;
@@ -682,29 +688,44 @@ pub fn harvest(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     )
 }
 
-/// Experimental NFT-authorized Harvest. The legacy Harvest remains unchanged.
-/// The caller has already decoded the exact experimental instruction data;
-/// this route is only reachable in an `nft-experimental` build. The registered
-/// NFT Citizen creation and verifier support are not yet implemented.
+/// The player prologue of an NFT Citizen (experimental): the counterpart of
+/// [`player`] for a Citizen bound to a resident asset. `a` is the
+/// instruction's own accounts (`[actor, payer, season, citizen, ..]`, their
+/// flags already checked by the caller's `check_accounts`) followed by exactly
+/// four proof accounts `[policy, link, asset, resident]`, none writable;
+/// `legacy_len` is where the proof starts. Instead of `Citizen.WALLET` /
+/// `Citizen.SESSION` it reads, in this invocation, the asset's current Core
+/// owner, the transfer guard and the resident program's holder generation
+/// and session (`crate::resident_binding::authorize`), and requires the
+/// generation the actor signed in the instruction data. `by_session` is true
+/// when the actor is the holder's session key rather than the holder, so the
+/// owner-only checks downstream (`WalletRequired`) keep their meaning.
 #[cfg(feature = "nft-experimental")]
-pub(crate) fn harvest_nft(p: &Pubkey, a: &[AccountInfo], generation: u32) -> R<()> {
-    let [actor, _payer, season, citizen, holding, province, config, link, asset, resident] = a
-    else {
+pub(crate) fn player_nft(
+    p: &Pubkey,
+    a: &[AccountInfo],
+    legacy_len: usize,
+    generation: u32,
+    session_ok: bool,
+) -> R<Player> {
+    if a.len() != legacy_len + 4 || legacy_len < 4 {
+        return Err(FrontierError::TooManyAccounts.into());
+    }
+    let [actor, _payer, season, citizen, ..] = a else {
         return Err(FrontierError::TooManyAccounts.into());
     };
-    // Reuse the legacy Harvest account flags on its six game accounts; the
-    // four additional proof accounts may not introduce writable locks.
-    check_accounts(V2Ix::Harvest, &a[..6], None)?;
+    let [config, link, asset, resident] = &a[legacy_len..] else {
+        return Err(FrontierError::TooManyAccounts.into());
+    };
     if config.is_writable || link.is_writable || asset.is_writable || resident.is_writable {
         return Err(BAD_ACCOUNT);
     }
     let now = prologue::now()?;
     let hdr = prologue::season(season, p, Some(&RULESET_HASH), &[S::STATUS_RUNNING], now.ts)?;
     crate::resident_binding::authorize(
-        p, config, link, citizen, asset, resident, actor, generation, now.ts, true, hdr.id,
+        p, config, link, citizen, asset, resident, actor, generation, now.ts, session_ok, hdr.id,
     )?;
-    // Authorization checked AssetV1's layout.  Record whether the current
-    // owner or its current session acted without trusting instruction data.
+    // Authorization checked the AssetV1 layout: the owner is at 1..33.
     let by_session = {
         let data = asset.try_borrow_data()?;
         data.get(1..33).ok_or(BAD_ACCOUNT)? != actor.key.as_ref()
@@ -720,31 +741,24 @@ pub(crate) fn harvest_nft(p: &Pubkey, a: &[AccountInfo], generation: u32) -> R<(
         Rw(&mut cd).set_i64(C::LAST_ACTION_TS, now.ts)?;
         pc
     };
-    let pl = Player {
+    Ok(Player {
         now,
         ctx: addr::ctx(&key(season), &p.to_bytes()),
         pc,
-    };
-    let hh = owned_holding(p, &pl, holding, citizen)?;
-    live(&hh)?;
-    own_province_unlocked(p, &pl, &hh, province)?;
-    finality(&pl, &hh, holding, citizen, province)?;
-    let h = load_touched(holding, pl.now.ts)?;
-    let digest = {
-        let mut hd = holding.try_borrow_mut_data()?;
-        write_holding(&mut hd, &h, pl.now.ts)?;
-        stores_digest(&hd)?
-    };
-    let record_key = pqs_key(hh.p, hh.q, hh.site)?;
-    emit3(
-        Kind::HARVEST,
-        pl.pc.now_bell,
-        &record_key,
-        &digest,
-        citizen,
-        holding,
-        None,
-    )
+    })
+}
+
+/// Experimental NFT-authorized Harvest: the Harvest accounts followed by the
+/// four proof accounts of [`player_nft`]; the same body as the wallet
+/// Harvest. Reachable only in an `nft-experimental` build.
+#[cfg(feature = "nft-experimental")]
+pub(crate) fn harvest_nft(p: &Pubkey, a: &[AccountInfo], generation: u32) -> R<()> {
+    if a.len() != 10 {
+        return Err(FrontierError::TooManyAccounts.into());
+    }
+    check_accounts(V2Ix::Harvest, &a[..6], None)?;
+    let pl = player_nft(p, a, 6, generation, true)?;
+    harvest_body(p, &pl, &a[..6])
 }
 
 /// 0x41 Build(item): P + `[holding w] [province r|w]` (MC §5.6: the
