@@ -21,6 +21,7 @@
 //                                            the relay co-signs, simulates, sends, waits and credits (the browser's path)
 //   POST /f/agent/action  {capability, request}  an ActionRequest with the agent's capability token (source 'ai' or 'mcp')
 //                                                → ActionResult (always 200: `ok`, `status`, `error.code` say what happened)
+//   POST /f/agent/whoami   {agentId, capability} read only: is this the agent's current capability (records nothing)
 //   POST /f/agent/reconcile                      operator only: settle sent holds and withdrawals by the chain's answer
 //   GET  /f/agent/unresolved                     operator only: model calls whose outcome was unknown, and the operator's cost record
 //   POST /f/agent/settle {agentId, holdId, outcome: charge|refund, note?, by?, evidence?}   operator only: decide one unresolved call (audited:
@@ -130,6 +131,15 @@ export const agentRoutes = {
     if (!SOURCES.includes(source) || source === 'browser') throw new RouteError(400, 'request.source must be ai or mcp (browser requests are owner commands)', 'BadRequest');
     if (typeof r.agentId === 'string') ctx.limiter.check(`f-agent-action:${r.agentId}`, { burst: 30, perSecond: 1 }, 'actions for this agent');
     return { body: await g.submit({ ...r, source }, { capability: b.capability }) };
+  },
+
+  // Read-only: is this capability the agent's current one? Nothing is recorded (agent wallet AgentGateway.whoami).
+  'POST /f/agent/whoami': async (ctx, req) => {
+    const g = agents(ctx);
+    const b = await req.json();
+    const agentId = str(b.agentId, 'agentId');
+    ctx.limiter.check(`f-agent-whoami:${agentId}`, { burst: 10, perSecond: 1 }, 'capability checks for this agent');
+    return { body: { ok: true, ...g.whoami(agentId, { capability: b.capability }) } };
   },
 
   'POST /f/agent/reconcile': async (ctx, req) => {

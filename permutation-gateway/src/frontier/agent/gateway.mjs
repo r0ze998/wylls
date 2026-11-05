@@ -512,6 +512,17 @@ export class AgentGateway {
     return promise;
   }
 
+  /**
+   * Read-only: whether `credential` is this agent's current capability, and what it may ask for. Authenticates exactly as
+   * submit does, and writes nothing (no idempotency record, no history, no hold). A refusal throws as submit's would.
+   */
+  whoami(agentId, credential = {}) {
+    const rec = this.ledger.get(agentId);
+    this.#authenticate(rec, credential);
+    return { agentId: rec.agentId, owner: rec.owner, capabilityVersion: rec.capabilityVersion ?? null, mode: rec.mode, modeEpoch: rec.modeEpoch,
+      policyVersion: rec.policy.version, allowed: [...rec.policy.allowed], village: [...rec.village] };
+  }
+
   #authenticate(rec, credential) {
     if (credential.runner === true) return;
     if (typeof credential.owner === 'string') {
