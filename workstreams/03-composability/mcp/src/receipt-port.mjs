@@ -120,9 +120,13 @@ export function ws04CancelPhase(op) {
   if (op.state === 'processing') return { phase: 'Ineffective', at: 'InTransit' };
   if (op.state === 'completed') return { phase: 'Completed', effects: [`caravan_sent ${cvSubject(op)}`, `caravan_settled ${cvSubject(op)}`] };
   if (op.state === 'failed') return { phase: 'Completed', effects: [] };
-  // Signed or possibly signed, not yet decided: ④ wants `until` (the last slot it can land in). The agent wallet
-  // does not return it to this server, so it is null here: a gap to close in ⑤'s ActionResult (docs 14).
-  if (op.attempts > 0 || op.gateway?.signature) return { phase: 'AwaitingSigned', until: null };
+  // Signed or possibly signed, not yet decided: ④ wants `until`. Known only once this server has the signature and
+  // the relay's recorded lifetime (patch 0007): then it is that signature's last valid block height (a block height,
+  // not a slot). Without them (no 0007, or the signature unknown) it is null: ⑤'s ActionResult does not carry it (④ G-1).
+  if (op.attempts > 0 || op.gateway?.signature) {
+    const h = op.gateway?.signature ? op.lifetime?.lastValidBlockHeight ?? null : null;
+    return { phase: 'AwaitingSigned', until: h == null ? null : { lastValidBlockHeight: h, unit: 'block height', signature: op.gateway.signature, source: op.lifetime.source } };
+  }
   return { phase: 'StoppingNew' };
 }
 

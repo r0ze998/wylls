@@ -265,6 +265,9 @@ test('the answer was lost after the relay sent, then a seal-key mismatch and a r
   try {
     s2.auth.issuer = s1.issuer; s2.auth.resource = `${s1.issuer}/mcp`;
     const m2 = client(s2, c.access_token);
+    // The agent wallet's view no longer shows this key (rolled out of its last 50 lines): its own signature stays
+    // unknown here. (With the line still in the view, the signature is read without re-sending: lost-answer.test.)
+    w.state.intercept = async (u, init) => { if (u.pathname !== '/f/agent' || (init.method ?? 'GET') !== 'GET') return null; const real = await w.fx.call(w.r.public, 'GET', u.pathname + u.search, {}); return { status: 200, json: async () => ({ ...real.json, history: real.json.history.filter(h => !String(h.key ?? '').startsWith('ws03:')), holds: [] }) }; };
     assert.equal((await m2.tool('send_caravan', { planId: p.planId, requestId: 'req-lost-0001' })).structuredContent.error.code, 'CapabilityUnavailable');
     const link = () => s2.auth.link(Object.keys(s2.auth.db.links)[0]);
     await revoke(s2, w, link().linkId);

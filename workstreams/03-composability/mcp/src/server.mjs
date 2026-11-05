@@ -156,7 +156,12 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
       const prior = store.operation(opId);
       if (prior) {
         if (prior.planId !== planId) return fail('IdempotencyConflict', 'this requestId was used for another plan: use a new requestId', { operationId: opId });
-        if (prior.state === STATES.REQUESTED) return joined(await resume(principal, prior));
+        if (prior.state === STATES.REQUESTED) {
+          // An attempt whose answer was lost: ask the agent wallet's record first; re-send (its replay) only if it cannot tell.
+          await recover(prior);
+          if (prior.state !== STATES.REQUESTED) { store.save(); return joined(answer(await track(prior, principal))); }
+          return joined(await resume(principal, prior));
+        }
         return joined(answer(await track(prior, principal)));
       }
       // Async reads first (the owner's village as it is now), then every decision synchronously.
@@ -350,7 +355,7 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
       const ref = { kind: x.name, signature: x.signature, slot: x.slot, event: x.event };
       if (x.kind === KINDS.CARAVAN_SENT) {
         if (op.caravan.mine?.event === x.event) continue;
-        if (!ours) { hold(op, 'Indeterminate', 'a send with this caravan number is recorded, but this server does not know its own signature (the answer was lost): it cannot tell whether the send is its own. Retrying with the same requestId lets the agent wallet answer from its record.', { evidence: ref }); continue; }
+        if (!ours) { hold(op, 'Indeterminate', 'a send with this caravan number is recorded, but this server does not know its own signature (the answer was lost): it cannot tell whether the send is its own. Each status query reads the agent wallet\'s record for this key (without re-sending); once it shows the signature, the send is proven or not.', { evidence: ref }); continue; }
         if (x.signature !== ours) { if (!op.caravan.mine) hold(op, 'SeqUsedByAnotherSend', 'another signature sent a caravan with this number: not this request\'s send; this request\'s own outcome is not decided by it', { evidence: ref }); continue; }
         const bad = contentMismatch(op, x.payload);
         if (bad) { hold(op, 'Inconsistent', bad, { evidence: ref }); continue; }
@@ -392,15 +397,52 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
    * "expired", the caravan counter, or a record under another signature decide nothing; past the window an
    * operation without its own evidence is held (Indeterminate), its grant still counted.
    */
+  /**
+   * A lost answer, asked again without sending anything: the agent wallet's own record for this request's key, read
+   * from its public view (Game.agentRecord). Only what that record shows is taken: a signature (then this request's
+   * own signature decides, as for an answer received), or a refusal before signing (nothing was ever sent under the
+   * key). Not finding the key, or a failure without a signature, decides nothing and releases nothing.
+   */
+  async function recover(op) {
+    if (op.gateway?.signature || op.attempts === 0) return;
+    if (op.unknownSince === null && op.gateway?.status !== 'failed') return;
+    const link = auth.link(op.linkId);
+    if (!link?.agentId) return;
+    const rec = await game.agentRecord(link.agentId, link.owner, `ws03:${op.linkId}:${op.requestId}`);
+    const at = new Date(now()).toISOString();
+    if (!rec) { op.agentRecord = { at, read: false, found: false }; return; }
+    const sig = rec.entry?.signature ?? rec.hold?.signature ?? null;
+    op.agentRecord = { at, read: true, found: Boolean(rec.entry || rec.hold), status: rec.entry?.status ?? null, signature: sig, ...(rec.hold ? { hold: rec.hold } : {}),
+      window: rec.window, ...(rec.entry || rec.hold ? {} : { note: 'not in the view: proves nothing (the view keeps 50 lines; a stop between the send and its line leaves none)' }),
+      ...(rec.entry?.status === 'failed' && !sig ? { note: 'failed with no signature in the agent wallet\'s record (its failed result carries none; ④ G-2): whether it was signed is unknown' } : {}) };
+    if (sig) {
+      op.gateway = { ...(op.gateway ?? { charges: [], replayed: false, code: null }), status: rec.entry?.status ?? op.gateway?.status ?? null, signature: sig,
+        recoveredFrom: rec.entry?.signature ? 'agent wallet history (GET /f/agent, read only)' : 'agent wallet hold (GET /f/agent, read only)' };
+      if (op.error?.code === 'RelayUnreachable') delete op.error;
+      if (op.state === STATES.REQUESTED) { grantConsume(link, op); step(op, STATES.ACCEPTED, 'the agent wallet\'s record shows this request\'s signature (read without re-sending)'); }
+      else op.steps.push({ state: op.state, at, detail: 'this request\'s signature read from the agent wallet\'s record (without re-sending)' });
+      return;
+    }
+    if (rec.entry?.status === 'refused') {
+      op.gateway = { ...(op.gateway ?? { charges: [], replayed: false }), status: 'refused', signature: null, code: rec.entry.code, recoveredFrom: 'agent wallet history (GET /f/agent, read only)' };
+      definite(op, link, rec.entry.code ?? 'Refused', 'the agent wallet\'s record for this key: refused before signing, nothing sent under it', 'agent wallet gateway (its record, read without re-sending)');
+      op.error.boundary = refusalOf(op.error.code);
+    }
+  }
+
   async function track(op, principal = null) {
     if (TERMINAL.includes(op.state)) return op;
     // A request that never reached the relay has nothing to look for (unless an attempt's outcome is unknown).
     if (op.state === STATES.REQUESTED && op.unknownSince === null) return op;
     const link = auth.link(op.linkId);
+    await recover(op);
+    if (TERMINAL.includes(op.state)) { store.save(); return op; }
     if (op.state === STATES.ACCEPTED && op.gateway?.signature) {
       const tx = await game.txStatus(op.gateway.signature);
       const d = tx?.detail ?? null;
       const finality = d?.commitment ?? 'not reported';
+      // The lifetime the relay recorded when it signed (patch 0007): the last block height this signature can land at.
+      if (d?.lastValidBlockHeight != null) op.lifetime = { lastValidBlockHeight: d.lastValidBlockHeight, unit: 'block height', source: 'relay GET /f/tx?detail=1 (patch 0007)' };
       if (tx?.state === 'landed') {
         op.chain = { state: 'landed', slot: tx.slot ?? null, commitment: finality, fee: d?.fee ?? null };
         op.caravan.mine ??= { by: 'this request\'s own signature landed (relay status)', signature: op.gateway.signature, slot: tx.slot ?? null };
@@ -432,7 +474,7 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
       if (!mine && op.unknownSince !== null && op.state !== STATES.PROCESSING && now() - op.unknownSince >= uncertainWindowMs) {
         hold(op, 'Indeterminate', op.gateway?.signature
           ? 'no evidence for this request\'s own signature, and its absence is not proven (the relay cannot show finalized history over its lifetime): not decided; the grant stays counted'
-          : 'this server does not know its own signature (the answer was lost) and the caravan number alone proves nothing: not decided; retrying with the same requestId lets the agent wallet answer from its record');
+          : 'this server does not know its own signature (the answer was lost) and the caravan number alone proves nothing: not decided; each status query reads the agent wallet\'s record for this key (without re-sending), and its signature, once shown there, decides');
       }
     }
     store.save();

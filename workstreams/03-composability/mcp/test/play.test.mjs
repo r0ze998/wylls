@@ -218,7 +218,7 @@ test('a lost connection to the relay: requested and retryable; the retry with th
   } finally { await s.close(); }
 });
 
-test('the relay answered but the MCP server never recorded it (crash): after a restart the retry is the gateway\'s replay, not a second send', { skip: needsPatch }, async () => {
+test('the relay answered but the MCP server never recorded it (crash): after a restart the retry is answered from the agent wallet\'s record, not a second send', { skip: needsPatch }, async () => {
   const dir = mkdtempSync(path.join(tmpdir(), 'wylls-mcp-'));
   const storeFile = path.join(dir, 'store.json');
   const sealKey = randomBytes(32).toString('base64url');
@@ -248,9 +248,11 @@ test('the relay answered but the MCP server never recorded it (crash): after a r
     const m2 = client(s2, c.access_token);
     const listed = (await m2.tool('list_operations')).structuredContent.operations;
     assert.deepEqual(listed.map(o => o.state), ['requested'], 'the operation survived the restart');
+    const posts = w.calls.filter(x => x.endsWith('/f/agent/action')).length;
     const again = (await m2.tool('send_caravan', { planId: plan.planId, requestId: 'req-restart-01' })).structuredContent;
-    assert.equal(again.state, 'accepted');
-    assert.equal(again.gateway.replayed, true, 'the gateway answered from its record');
+    assert.ok(['accepted', 'processing'].includes(again.state), again.state);
+    assert.match(again.gateway.recoveredFrom, /read only/, 'answered from the agent wallet\'s record (GET /f/agent)');
+    assert.equal(w.calls.filter(x => x.endsWith('/f/agent/action')).length, posts, 'nothing re-sent');
     assert.equal(w.r.chain.sent.length, 1, 'one transaction');
     const op = (await m2.tool('get_operation_status', { operationId: again.operationId })).structuredContent;
     settle(w, op, 0);

@@ -100,6 +100,31 @@ export class Game {
     return r.json;
   }
 
+  /**
+   * What the agent wallet recorded for one idempotency key, read from its public view (`GET /f/agent?id=`, the same
+   * read-only view ④'s gateway port reads for a lost answer). Sends nothing and needs no capability, so it works
+   * after a connection is revoked. Null when the relay did not answer or the agent is not `owner`'s.
+   *
+   * What the view carries (⑤'s gateway as it is, no patch): the last 50 history lines (`{type: 'action', key,
+   * status, signature?, code?}`; a send that failed after signing has no signature there) and the open holds (a
+   * priced action's hold keeps its signature from just before the bytes left). It carries no lifetime
+   * (`lastValidBlockHeight`, `slotFloor`): ④ G-1. A key not found proves nothing: the line may have rolled out of
+   * the 50, or the process may have stopped between the send and the line.
+   */
+  async agentRecord(agentId, owner, key) {
+    const r = await this.json('GET', `${this.relay}/f/agent?id=${encodeURIComponent(agentId)}`);
+    if (r.transport || r.status !== 200 || !r.json || r.json.owner !== owner) return null;
+    const v = r.json;
+    const history = Array.isArray(v.history) ? v.history : [];
+    const e = [...history].reverse().find(h => h?.type === 'action' && h.key === key) ?? null;
+    const h = (Array.isArray(v.holds) ? v.holds : []).find(x => x?.key === key) ?? null;
+    return {
+      entry: e && { status: e.status ?? null, signature: e.signature ?? null, code: e.code ?? null, seq: e.seq ?? null, at: e.at ?? null },
+      hold: h && { state: h.state ?? null, signature: h.signature ?? null, ...(h.undecided ? { undecided: h.undecided } : {}) },
+      window: { lines: history.length, oldestSeq: history[0]?.seq ?? null, historySeq: v.historySeq ?? null },
+    };
+  }
+
   async province(p, q) {
     const r = await this.herald.province(p, q);
     if (!r.ok) throw new GameError('HeraldUnavailable', `Province ${p},${q}: ${r.code ?? r.error}`, { retryable: true });

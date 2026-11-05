@@ -107,12 +107,15 @@ test('records seen before the signature is known are kept: when the retry brings
     w.state.intercept = async (u, init) => { if (u.pathname !== '/f/agent/action') return null; w.state.intercept = null; await w.fetch(u.toString(), init); throw new Error('lost (scripted)'); };
     assert.equal((await m.tool('send_caravan', { planId: p.planId, requestId: 'req-late-sig-1' })).structuredContent.error.code, 'RelayUnreachable');
     const sig = base58(w.r.chain.sent[0].signatures[0]);
+    // The agent wallet's view no longer shows this key's line (rolled out of its last 50): the signature stays unknown here.
+    w.state.intercept = async (u, init) => { if (u.pathname !== '/f/agent' || (init.method ?? 'GET') !== 'GET') return null; const real = await w.fx.call(w.r.public, 'GET', u.pathname + u.search, {}); return { status: 200, json: async () => ({ ...real.json, history: real.json.history.filter(h => !String(h.key ?? '').startsWith('ws03:')), holds: [] }) }; };
     const op = Object.values(s.store.state.operations)[0];
     row(w, 'CARAVAN_SENT', 91, sig, op, { dst: placeLog({ kind: 1, p: w.P, q: w.Q, at: w.SITE }), cargo: cargo([0, 0, 100, 0, 0, 0, 0, 0]) });
     const held = (await m.tool('get_operation_status', { requestId: 'req-late-sig-1' })).structuredContent;
     assert.equal(held.state, 'requested');
     // The retry: the agent wallet answers from its record (same key, no second send) and gives the signature.
     const again = (await m.tool('send_caravan', { planId: p.planId, requestId: 'req-late-sig-1' })).structuredContent;
+    assert.equal(again.agentRecord.found, false, 'the record was read first and did not show the key');
     assert.equal(again.gateway.replayed, true);
     assert.equal(w.r.chain.sent.length, 1);
     const o = (await m.tool('get_operation_status', { requestId: 'req-late-sig-1' })).structuredContent;

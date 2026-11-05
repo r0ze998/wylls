@@ -119,6 +119,10 @@ export function receiptOf(op) {
     plan: op.planSummary,
     gateway: op.gateway ?? null,
     chain: op.chain ?? null,
+    // The signature's lifetime as the relay recorded it (patch 0007), and the agent wallet's own record for this
+    // request's key when the answer was lost (read without re-sending).
+    ...(op.lifetime ? { lifetime: op.lifetime } : {}),
+    ...(op.agentRecord ? { agentRecord: op.agentRecord } : {}),
     caravan: op.caravan ?? null,
     // The world context the operation was made in (null: made before contexts were recorded; never assumed to be the
     // current one).
