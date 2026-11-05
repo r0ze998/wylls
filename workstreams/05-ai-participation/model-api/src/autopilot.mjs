@@ -64,7 +64,7 @@ export class Autopilot {
    * @param {object} [o.citizen]   CitizenBoundary (the owner's own client on the same Citizen goes first)
    * @param {object} [o.receipts]  a RunReceipt port (run-receipt.mjs); the local adapter until ④'s is received
    */
-  constructor({ world, mandate, decider, journal, citizen = null, receipts = null, mcp = null, mcpFor = null, owner = null, tokenCheck = null }) {
+  constructor({ world, mandate, decider, journal, citizen = null, receipts = null, mcp = null, mcpFor = null, owner = null, tokenCheck = null, lease = null }) {
     Object.assign(this, { w: world, mandate, decider, journal, citizen, receipts, state: 'idle', records: [], events: [] });
     /** The MCP server the autopilot acts through: by default the world's; pass one created with source 'ai' (patch 0003). */
     this.mcp = mcp ?? (() => world.mcp());
@@ -74,6 +74,8 @@ export class Autopilot {
     this.owner = owner;
     /** How the token is checked before start and resume (access-check.mjs): {probe: {enabled, relayTree, budget}}; none → unverifiable → no start. */
     this.tokenCheck = tokenCheck;
+    /** process-lease.mjs ProcessLease: one autopilot per agent ACROSS processes (without it: this process only). */
+    this.lease = lease;
     // A restarted process continues the run ids of its journal: tick n+1, never a second "t1" with a different decision.
     this.ticks = lastTickOf(journal, world.agentId);
     this.scope = 'one process: a second Autopilot in this process is refused; a second process is NOT detected (not safe)';
@@ -92,6 +94,13 @@ export class Autopilot {
     this.lastAccess = { ok: a.ok, code: a.code ?? null, method: a.method ?? null, sideEffects: a.sideEffects ?? null };
     if (!a.ok) { this.#event({ op: 'start', by, refused: a.code, why: a.detail }); throw Object.assign(new Error(a.detail), { code: a.code === 'NotAuto' || a.code === 'NotDelegated' ? 'NotReady' : a.code, check: a.code }); }
     this.owner ??= a.owner;
+    if (this.lease) {
+      // Another process's live autopilot for this agent refuses the start (AlreadyRunning); a dead or hung one is taken over.
+      const l = this.lease.acquire();
+      // Its unfinished reservations get the restart rule: calling → undecided (never released), reserved → released.
+      const recovered = this.decider.costs?.recoverStale ? this.decider.costs.recoverStale({ ttlMs: this.lease.ttlMs }) : null;
+      this.#event({ op: 'lease', epoch: l.epoch, takenOver: l.takenOver ? { pid: l.takenOver.pid, epoch: l.takenOver.epoch } : null, recovered });
+    }
     RUNNING.set(this.w.agentId, this);
     this.state = 'running';
     this.#event({ op: 'start', by });
@@ -100,10 +109,19 @@ export class Autopilot {
 
   async tick() {
     if (this.state !== 'running') return { skipped: true, state: this.state };
+    if (this.lease) {
+      try { this.lease.renew(); } catch (e) {
+        if (e.code !== 'LeaseLost') throw e;
+        // Another process took this agent over: this one decides, reserves and sends nothing more.
+        this.state = 'stopped-lease-lost'; this.stoppedBy = 'LeaseLost'; RUNNING.delete(this.w.agentId);
+        this.#event({ op: 'stop', by: 'lease', code: 'LeaseLost' });
+        return { skipped: true, state: this.state };
+      }
+    }
     const runId = `${runPrefix(this.w.agentId)}${++this.ticks}`;
     this.currentRun = runId;
     if (this.receipts) await this.receipts.open({ runId });
-    const report = await participate({ mcp: this.mcp(), world: this.w.publicWorld, txState: this.w.txState, meter: null, mandate: this.mandate, decider: this.decider, journal: this.journal, runId, boundary: this.citizen });
+    const report = await participate({ mcp: this.mcp(), world: this.w.publicWorld, txState: this.w.txState, meter: null, mandate: this.mandate, decider: this.decider, journal: this.journal, runId, boundary: this.#actFence() });
     const rec = decisionRecord(report);
     if (this.receipts) {
       this.receipts.attachInference(runId, report.inference ?? null);
@@ -124,9 +142,20 @@ export class Autopilot {
     return rec;
   }
 
+  /**
+   * The check right before each act: the lease is still this process's (a takeover in the middle of a long tick stops
+   * the act, not only the next reservation), then the same Citizen's boundary (③ goes first).
+   */
+  #actFence() {
+    if (!this.lease) return this.citizen;
+    const lease = this.lease, citizen = this.citizen;
+    return { beforeAct: (observed, now, o) => (lease.check() ? (citizen ? citizen.beforeAct(observed, now, o) : { ok: true }) : { ok: false, code: 'LeaseLost', detail: 'another process took this agent over during the run' }) };
+  }
+
   stop({ by }) {
     if (this.state === 'running') this.state = 'stopped';
     RUNNING.delete(this.w.agentId);
+    if (this.lease && this.state !== 'stopped-lease-lost') { try { this.lease.release(); } catch { /* the lease file is gone or another process holds it */ } }
     this.#event({ op: 'stop', by });
     return this.status();
   }
@@ -156,5 +185,5 @@ export class Autopilot {
     return this.start({ by });
   }
 
-  status() { return { state: this.state, stoppedBy: this.stoppedBy ?? null, ticks: this.ticks, scope: this.scope, executionPath: EXECUTION_PATH }; }
+  status() { return { state: this.state, stoppedBy: this.stoppedBy ?? null, ticks: this.ticks, scope: this.lease ? 'one per agent across processes on this machine (process lease); other machines are not seen' : this.scope, executionPath: EXECUTION_PATH }; }
 }

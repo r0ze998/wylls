@@ -176,15 +176,18 @@ export class RunCostMock {
       archive: { byDay: structuredClone(this.archive.byDay), keys: [...this.archive.keys] }, overruns: [...this.overruns] };
   }
 
-  /** A new process from a snapshot: then the restart rule (calling → undecided, reserved before calling → released). */
-  static fromJSON(snap, { now = () => Date.now() } = {}) {
+  /**
+   * A new process from a snapshot: then the restart rule (calling → undecided, reserved before calling → released).
+   * `applyRestart: false` only re-reads a ledger shared with live processes (cost-store.mjs), whose calls are not over.
+   */
+  static fromJSON(snap, { now = () => Date.now(), applyRestart = true } = {}) {
     if (snap?.v !== 1) throw Object.assign(new Error('unknown cost snapshot version'), { code: 'BadSnapshot' });
     const c = new RunCostMock({ available: snap.available, caps: snap.caps, now });
     c.gameReserve = big(snap.gameReserve);
     for (const i of snap.items) c.items.set(i.key, { ...i });
     c.archive = { byDay: structuredClone(snap.archive.byDay), keys: new Map(snap.archive.keys) };
     c.overruns = [...snap.overruns];
-    c.restart();
+    if (applyRestart) c.restart();
     return c;
   }
 
