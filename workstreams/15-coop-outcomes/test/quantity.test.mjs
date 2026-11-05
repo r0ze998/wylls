@@ -70,3 +70,19 @@ test('through the world: a zero arrival creates no goods; an unknown one is neve
   const l = palisade([[200, 'lower_bound', 'chain_lower_bound']]);
   assert.equal(l.sup.status, 'achieved');
 });
+
+test('a lower-bound lot put in over several inputs carries its fraction once, not once per input', () => {
+  const ev = [];
+  let seq = 0;
+  const add = (at, kind, f, verified = 'chain') => ev.push({ id: `c:${seq}`, stream: 'c', seq: seq++, at, kind, verified, ...f });
+  add(1, 'project.open', { project: 'P', goal: 'own', structure: 'palisade', steward: 'n2-0' });
+  add(2, 'ship.send', { ship: 'w', from: 'n3-0', to: 'n2-0', resource: 'wood', qty: 199, fromOutside: true });
+  add(3, 'ship.arrive', { ship: 'w', qty: 199, qtyKind: 'lower_bound' }, 'chain_lower_bound');
+  add(4, 'contribute', { project: 'P', actor: 'n2-0', lot: 'w#0', qty: 100 });
+  add(4, 'contribute', { project: 'P', actor: 'n2-0', lot: 'w#0', qty: 99 });
+  const state = { ...baseState(), lots: baseState().lots.filter(l => !(l.owner === 'n2-0' && l.resource === 'wood')) };
+  const v = evaluate({ ...RULESETS.B, joint: [{ ...RULESETS.B.joint[0], id: 'J-pal', structure: 'palisade', requires: { wood: 200 } }] },
+    { state, events: ev.map(e => (e.kind === 'project.open' ? { ...e, goal: 'J-pal' } : e)) });
+  const t = v.achievements.joint[0].projects[0].stages.inputs.perResource.wood;
+  assert.deepEqual([t.lo, t.hi, t.hiOpen, t.status], [199, 200, true, 'short'], 'real < 199 + 1 = 200: provably short');
+});

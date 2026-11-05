@@ -124,7 +124,11 @@ export function buildWorld({ state, events, taint = {}, gapFrom = {}, costs, joi
           const q = Math.min(left, p.qty);
           left -= q;
           // Goods arriving for a project are put in at once; others join the holder's goods of the same kind.
-          if (q > 0) placeLot(W, { id: `${s.id}#${i}`, owner: s.to, resource: s.resource, qty: q, verified: worst(v, p.verified), qtyKind: worstQty(worstQty(qk, p.qtyKind ?? 'exact'), qtyOfTrust(worst(v, p.verified))), origin: p.origin, path: extend(p.path, s.id), hops: (p.hops ?? 0) + 1, at: e.at, ship: s.id, evidence: [...s.evidence], tainted: s.tainted || tainted(taint, e) }, !s.project);
+          // The fraction a lower bound or unknown amount may hide (< 1 unit per arrival, ④ §3) rides with the
+          // goods as `slack`, once per arrival (on its first part) plus what the sent goods already carried.
+          const lotKind = worstQty(worstQty(qk, p.qtyKind ?? 'exact'), qtyOfTrust(worst(v, p.verified)));
+          const slack = (p.slack ?? 0) + (i === 0 && lotKind !== 'exact' ? 1 : 0);
+          if (q > 0) placeLot(W, { id: `${s.id}#${i}`, owner: s.to, resource: s.resource, qty: q, verified: worst(v, p.verified), qtyKind: lotKind, slack, origin: p.origin, path: extend(p.path, s.id), hops: (p.hops ?? 0) + 1, at: e.at, ship: s.id, evidence: [...s.evidence], tainted: s.tainted || tainted(taint, e) }, !s.project);
         });
         const p = s.project ? W.projects.get(s.project) : null;
         if (p && !p.completed) {
@@ -132,7 +136,7 @@ export function buildWorld({ state, events, taint = {}, gapFrom = {}, costs, joi
           s.parts.forEach((part, i) => {
             const l = W.lots.get(`${s.id}#${i}`);
             if (!l || !(l.resource in p.requires) || !p.requires[l.resource]) return;
-            p.inputs.push({ id: `${e.id}/${i}`, at: e.at, lotAt: l.at, actor: s.from, nation: s.fromNation, cluster: a?.cluster ?? s.from, lot: l.id, resource: l.resource, qty: l.qty, verified: l.verified, qtyKind: l.qtyKind ?? 'exact', origin: l.origin, path: l.path, evidence: [...l.evidence], tainted: !!l.tainted });
+            p.inputs.push({ id: `${e.id}/${i}`, at: e.at, lotAt: l.at, actor: s.from, nation: s.fromNation, cluster: a?.cluster ?? s.from, lot: l.id, resource: l.resource, qty: l.qty, verified: l.verified, qtyKind: l.qtyKind ?? 'exact', slack: l.slack ?? 0, origin: l.origin, path: l.path, evidence: [...l.evidence], tainted: !!l.tainted });
             l.qty = 0;
             spend(W, l);
           });
@@ -157,7 +161,7 @@ export function buildWorld({ state, events, taint = {}, gapFrom = {}, costs, joi
           const q = Math.min(left, p.qty);
           left -= q;
           // Taken goods keep their origin: a raid cannot launder another nation's goods into one's own.
-          if (q > 0) placeLot(W, { id: `${s.id}#raid${i}`, owner: e.raider, resource: s.resource, qty: q, verified: worst(worst(s.verified, e.verified), p.verified), origin: p.origin, path: extend(p.path, s.id, 'raid'), hops: (p.hops ?? 0) + 1, at: e.at, ship: s.id, raided: true, evidence: [...s.evidence, e.id], tainted: s.tainted || tainted(taint, e) });
+          if (q > 0) placeLot(W, { id: `${s.id}#raid${i}`, owner: e.raider, resource: s.resource, qty: q, verified: worst(worst(s.verified, e.verified), p.verified), qtyKind: p.qtyKind ?? 'exact', slack: p.slack ?? 0, origin: p.origin, path: extend(p.path, s.id, 'raid'), hops: (p.hops ?? 0) + 1, at: e.at, ship: s.id, raided: true, evidence: [...s.evidence, e.id], tainted: s.tainted || tainted(taint, e) });
         });
         W.raids.push({ id: e.id, ship: s.id, raider: e.raider, raiderNation, victim: s.from, victimNation, resource: s.resource, taken: e.taken, burned: e.burned, at: e.at, domestic: raiderNation !== null && raiderNation === victimNation, tainted: tainted(taint, e) });
         settle(W, s);
@@ -202,8 +206,11 @@ export function buildWorld({ state, events, taint = {}, gapFrom = {}, costs, joi
         l.qty -= e.qty;
         useName(W, e.lot, e.qty);
         const a = W.actors.get(e.actor);
+        // A lot's slack goes with its first draw, so splitting it never multiplies the fraction.
+        const slack = l.slack ?? 0;
+        l.slack = 0;
         spend(W, l);
-        p.inputs.push({ id: e.id, at: e.at, lotAt: l.at, actor: e.actor, nation: a?.nation ?? null, cluster: a?.cluster ?? e.actor, lot: l.id, resource: l.resource, qty: e.qty, verified: worst(l.verified, e.verified), qtyKind: worstQty(l.qtyKind ?? 'exact', qtyOfTrust(worst(l.verified, e.verified))), origin: l.origin, path: l.path, evidence: [...(l.evidence ?? []), e.id], tainted: !!l.tainted || tainted(taint, e) });
+        p.inputs.push({ id: e.id, slack, at: e.at, lotAt: l.at, actor: e.actor, nation: a?.nation ?? null, cluster: a?.cluster ?? e.actor, lot: l.id, resource: l.resource, qty: e.qty, verified: worst(l.verified, e.verified), qtyKind: worstQty(l.qtyKind ?? 'exact', qtyOfTrust(worst(l.verified, e.verified))), origin: l.origin, path: l.path, evidence: [...(l.evidence ?? []), e.id], tainted: !!l.tainted || tainted(taint, e) });
         out(e, true);
         break;
       }
@@ -386,6 +393,7 @@ function placeLot(W, lot, merge = true) {
     return lot;
   }
   into.qty += lot.qty;
+  into.slack = (into.slack ?? 0) + (lot.slack ?? 0);
   into.at = lot.at;
   into.hops = Math.max(into.hops ?? 0, lot.hops ?? 0);
   into.evidence = [...(into.evidence ?? []), ...(lot.evidence ?? [])].slice(-PATH_KEEP);
@@ -460,7 +468,8 @@ function draw(W, owner, resource, qty, lotId) {
     const q = Math.min(left, l.qty);
     l.qty -= q;
     left -= q;
-    parts.push({ lot: l.id, qty: q, origin: l.origin, path: l.path, hops: l.hops ?? 0, verified: l.verified, qtyKind: l.qtyKind ?? 'exact' });
+    parts.push({ lot: l.id, qty: q, origin: l.origin, path: l.path, hops: l.hops ?? 0, verified: l.verified, qtyKind: l.qtyKind ?? 'exact', slack: l.slack ?? 0 });
+    l.slack = 0;
     spend(W, l);
   }
   return { ok: true, parts };

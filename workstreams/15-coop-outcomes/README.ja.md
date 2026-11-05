@@ -39,7 +39,7 @@
 | `src/` | 評価器：`contract`（入力）・`ledger`（記録の検査と正準の並び）・`world`（荷・隊商・計画・建物）・`goals`（共同・国・個人）・`evaluate`（判定結果・賞金・選択肢）・`rulesets`（A/B/C） |
 | `src/adapters/` | `s1-chain`（S1 の記録）、`ws01`（①の依頼の板）、`ws04`（④の Run Receipt）、`ws14`（⑭の塔、任意） |
 | `scenarios/` | 固定入力 16 件、`fixtures/` に①・④・⑭の出力（作り方と出どころの commit つき）。（`build.mjs` で生成、試験で一致を確認）。`long.mjs` は長期の世界を固定の種で作る |
-| `test/` | `node --test` の 94 件（①・④・⑭の実出力に対する契約試験を含む）。もとの 70 件（境界・再開の確認、見直しで見つけた不具合の再現を含む）、画面の確認 `play.browser.mjs`、長期の確認 `long-run.mjs` |
+| `test/` | `node --test` の 96 件（①・④・⑭の実出力に対する契約試験を含む）。もとの 70 件（境界・再開の確認、見直しで見つけた不具合の再現を含む）、画面の確認 `play.browser.mjs`、長期の確認 `long-run.mjs` |
 | `play/` | 手で遊べる比較の画面 |
 | `bin/` | `eval.mjs`（1件を判定）、`compare.mjs`（全件の比較表） |
 | `results/` | 実行ログ、比較表、画面の画像 |

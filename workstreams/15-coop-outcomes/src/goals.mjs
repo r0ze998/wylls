@@ -69,11 +69,13 @@ export function creditInputs(p, V) {
     let credited = 0;
     if (lateFor(V, p, i.at)) { t.late += i.qty; code = 'late'; }
     else if (V.carryInputs === false && i.at < V.opensAt) { t.late += i.qty; code = 'before_window'; }
-    else if (kind === 'none') { t.unverified += i.qty; t.hi += i.qty + 1; t.hiOpen = true; code = 'unverified_qty'; }
+    else if (kind === 'none') { const sl = i.slack ?? 1; t.unverified += i.qty; t.hi += i.qty + sl; t.hiOpen ||= sl > 0; code = 'unverified_qty'; }
     else {
+      // `slack`: the fraction the goods may hide, carried once per arrival (a split lot does not repeat it).
+      const sl = kind === 'lower_bound' ? i.slack ?? 1 : i.slack ?? 0;
       t.lo += i.qty;
-      t.hi += i.qty + (kind === 'lower_bound' ? 1 : 0);
-      if (kind === 'lower_bound') t.hiOpen = true;
+      t.hi += i.qty + sl;
+      if (sl > 0) t.hiOpen = true;
       credited = Math.min(i.qty, need[i.resource]);
       need[i.resource] -= credited;
       t.credited += credited;
