@@ -28,6 +28,7 @@ import { fromBase64, toHex } from '../../../client/src/bytes.mjs';
 import { createAtaIdempotentIx } from '../../../client/src/player.mjs';
 import { baseFee, rent } from '../../../client/src/frontier/fees.mjs';
 import { profileForSeason } from '../../../client/src/frontier/profile.mjs';
+import { decodeAccount } from '../../../client/src/frontier/codec.mjs';
 import { ata, claimIx, classifyPaidJoin, decodeEntry, decodePool, decodeTokenAccount, ENTRY_SIZE, entryAddress, paidJoinBudget, POOL_STATE, PRIZE_ERRORS,
   TOKEN_PROGRAM, x402Encode, x402Network } from '../../../client/src/frontier/prize.mjs';
 import { classify, JOIN_TAG } from '../../../client/src/frontier/shapes.mjs';
@@ -54,6 +55,21 @@ async function readPool(ctx) {
   const pool = decodePool(await account(ctx, requirePrize(ctx).pool));
   if (!pool) throw new RouteError(503, 'the prize pool account does not exist (yet)', 'PrizeUnavailable');
   return pool;
+}
+
+/** A prior Pay and Join must both be final before the relay tells a retry it is already in. */
+async function finalizedJoin(ctx, prize, wallet, fee) {
+  try {
+    const [entryAccount, citizenAccount] = await Promise.all([
+      ctx.connection.getAccountInfo(new PublicKey(entryAddress(prize.program, prize.pool, wallet)), 'finalized'),
+      ctx.connection.getAccountInfo(new PublicKey(ctx.addresses.citizen(wallet)), 'finalized'),
+    ]);
+    const entry = decodeEntry(entryAccount?.data ?? null);
+    const citizen = citizenAccount?.data && decodeAccount('Citizen', citizenAccount.data, { seasonId: ctx.addresses.seasonId });
+    return entry?.wallet === wallet && entry.pool === prize.pool && entry.amount >= fee && citizen && base58(citizen.WALLET) === wallet;
+  } catch {
+    return false;
+  }
 }
 
 /** A relay transaction of its own: `ixs(payer)` paid by a pool key, signed by it and `signers`; waits for the result. */
@@ -256,6 +272,14 @@ export const prizeRoutes = {
         const logs = e.extra?.logs ?? [];
         const code = logs.some(l => /insufficient funds|custom program error: 0x1\b/i.test(l)) && logs.some(l => l.includes(TOKEN_PROGRAM)) ? 'InsufficientFunds'
           : PRIZE_ERRORS[Number(/custom program error: (0x1[0-9a-f]{2})\b/i.exec(logs.join('\n'))?.[1])] ?? e.code;
+        if (code === 'AlreadyPaid' && mode === 'atomic') {
+          const joined = await finalizedJoin(ctx, prize, shape.authority, pool.fee);
+          return { status: 409, body: { code: joined ? 'AlreadyJoined' : 'AlreadyPaid',
+            error: joined
+              ? 'this wallet already has a finalized payment and Citizen; refresh membership instead of paying again'
+              : 'the pool reports an existing payment; verify the finalized Entry, Citizen and original transaction before retrying',
+            wallet: shape.authority, testAssetsOnly: true } };
+        }
         return refuse402(`payment refused: ${e.message}`, code, { logs: logs.slice(-6), signature: e.extra?.signature });
       }
       throw e;

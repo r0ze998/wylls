@@ -309,6 +309,35 @@ test('POST /f/x402/join refuses a payment to another vault or mint, a forged wal
   assert.equal((await post(closed, payment(signedBy(paidMessage(wallet, q2.extra.feePayer), w)))).json.code, 'EntriesClosed');
 });
 
+test('a repeated Pay reports finalized membership without asking for another payment', async () => {
+  const w = Keypair.generate();
+  const wallet = w.publicKey.toBase58();
+  const chain = fakeChain({ fail: () => ({ err: { InstructionError: [3, { Custom: 0x105 }] },
+    logs: [`Program ${PRIZE_PROGRAM} failed: custom program error: 0x105`] }) });
+  const r = relay({ chain });
+  const q = await requirements(r);
+  const header = payment(signedBy(paidMessage(wallet, q.extra.feePayer), w));
+
+  const unknown = await post(r, header);
+  assert.deepEqual([unknown.status, unknown.json.code], [409, 'AlreadyPaid']);
+  assert.equal(unknown.json.accepts, undefined, 'an existing payment must not request a new one');
+  assert.equal(chain.sent.length, 0);
+
+  chain.set(PRIZE.pool, { data: poolData({ entries: 1 }) });
+  chain.set(entryAddress(PRIZE_PROGRAM, PRIZE.pool, wallet), { data: entryData(wallet) });
+  chain.set(A.citizen(wallet), { data: encodeAccount('Citizen', { SEASON_ID, WALLET: w.publicKey.toBytes(), FACTION: 2 }) });
+  const joined = await post(r, header);
+  assert.deepEqual([joined.status, joined.json.code], [409, 'AlreadyJoined']);
+  assert.equal(joined.json.wallet, wallet);
+  assert.equal(joined.json.accepts, undefined);
+  assert.equal(chain.sent.length, 0, 'the retry only reads finalized records');
+
+  chain.confirmedOnly.add(A.citizen(wallet));
+  const notFinal = await post(r, header);
+  assert.deepEqual([notFinal.status, notFinal.json.code], [409, 'AlreadyPaid']);
+  assert.equal(chain.sent.length, 0);
+});
+
 test('joinViaX402: one request, the 402, the paid retry; it refuses requirements that are not this season\'s or above the caller\'s limit', async () => {
   const w = Keypair.generate();
   const wallet = w.publicKey.toBase58();
