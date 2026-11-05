@@ -48,7 +48,122 @@ use permutation_rules::hex::{Hex, DIRECTIONS};
 
 use common::*;
 
-type K = Keeper<localnet::InProcess, Gated>;
+type K = Keeper<Watch, Gated>;
+
+// ------------------------------------------------------------------ the RPC boundary (workstream 04)
+
+/// What left the keeper for the RPC (`send` or `simulate`) carrying a
+/// Reveal (tag 0x51, plaintext and salt in its data), with the chain's
+/// state at that moment: was THE anchor (the instruction's 4th account)
+/// on chain, and what time it was. The check is the chain's, not the
+/// keeper's own view.
+#[derive(Clone, Debug)]
+struct RevealOut {
+    kind: &'static str,
+    slot: u64,
+    now: i64,
+    anchor: Address,
+    anchor_present: bool,
+    /// The instruction data (to match the march by its ct_hash).
+    data: Vec<u8>,
+    sig: Option<fclient::ports::Signature>,
+}
+
+thread_local! {
+    /// Workstream 04: owner material in Shared right after the POSTs.
+    static API_QUEUED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    /// Workstream 04: `(host, HTTP status)` of each owner-material POST.
+    static API_CODES: std::cell::RefCell<Vec<(u64, u16)>> = const { std::cell::RefCell::new(Vec::new()) };
+    static OUT: std::cell::RefCell<Vec<RevealOut>> = const { std::cell::RefCell::new(Vec::new()) };
+    /// Reads of this account fail (an RPC error), when set.
+    static FAIL_READS: std::cell::RefCell<Option<Address>> = const { std::cell::RefCell::new(None) };
+    /// The slot THE anchor of the destination bell was first seen on chain.
+    static ANCHOR_SEEN: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    /// Ticks that ended in a port error while reads were failing (no send).
+    static TICK_ERRORS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// The in-process chain behind a recording port (test only).
+#[derive(Clone)]
+struct Watch {
+    ip: localnet::InProcess,
+    program: Address,
+}
+
+impl Watch {
+    fn record(&self, kind: &'static str, wire: &[u8]) {
+        let Ok(t) = fclient::tx::from_wire(wire) else {
+            return;
+        };
+        let keys = &t.message.account_keys;
+        for ci in &t.message.instructions {
+            let prog = keys[ci.program_id_index as usize];
+            if prog != self.program || ci.data.first() != Some(&0x51) {
+                continue;
+            }
+            let anchor = keys[ci.accounts[3] as usize];
+            let c = self.ip.lock();
+            let present = c
+                .account(&anchor)
+                .is_some_and(|a| a.owner == self.program && !a.data.is_empty());
+            let r = RevealOut {
+                kind,
+                slot: c.slot(),
+                now: c.unix_timestamp(),
+                anchor,
+                anchor_present: present,
+                data: ci.data.clone(),
+                sig: t.signatures.first().copied(),
+            };
+            drop(c);
+            OUT.with(|o| o.borrow_mut().push(r));
+        }
+    }
+}
+
+impl fclient::ports::ChainPort for Watch {
+    async fn clock(&self) -> fclient::ports::PortResult<fclient::ports::ClockSysvar> {
+        self.ip.clock().await
+    }
+    async fn accounts(
+        &self,
+        keys: &[Address],
+        min_slot: u64,
+    ) -> fclient::ports::PortResult<Vec<Option<fclient::ports::Account>>> {
+        if let Some(f) = FAIL_READS.with(|x| *x.borrow()) {
+            if keys.contains(&f) {
+                return Err(fclient::ports::PortError::Rpc {
+                    code: -32000,
+                    message: "injected: read failed".into(),
+                });
+            }
+        }
+        self.ip.accounts(keys, min_slot).await
+    }
+    async fn simulate(&self, tx: &[u8]) -> fclient::ports::PortResult<fclient::ports::SimResult> {
+        self.record("simulate", tx);
+        self.ip.simulate(tx).await
+    }
+    async fn send(&self, tx: &[u8]) -> fclient::ports::PortResult<fclient::ports::Signature> {
+        self.record("send", tx);
+        self.ip.send(tx).await
+    }
+    async fn statuses(
+        &self,
+        sigs: &[fclient::ports::Signature],
+    ) -> fclient::ports::PortResult<Vec<Option<fclient::ports::Status>>> {
+        self.ip.statuses(sigs).await
+    }
+    async fn feed(
+        &self,
+        after: fclient::ports::Cursor,
+    ) -> fclient::ports::PortResult<Vec<fclient::ports::TxRecord>> {
+        self.ip.feed(after).await
+    }
+    async fn blockhash(&self) -> fclient::ports::PortResult<(fclient::Hash, u64)> {
+        self.ip.blockhash().await
+    }
+}
 
 /// Unit-0 troops in every fixture Holding's reserve.
 const RESERVE0: u32 = 10_000;
@@ -236,6 +351,25 @@ struct Opts {
     /// destination tile its path does not end on: a valid seal whose Reveal
     /// the program refuses (`Path`).
     unrevealable_top: bool,
+    /// Workstream 04: THE anchor of the destination's arrival bell held
+    /// (its write cannot land) from the bell before `arrive` until
+    /// T(arrive) + this many slots.
+    hold_dest_anchor: Option<u64>,
+    /// Workstream 04: reads of that anchor fail (an RPC error) over the
+    /// same window instead.
+    fail_anchor_reads: Option<u64>,
+    /// Workstream 04: the keeper is rebuilt from its journal in the middle
+    /// of the window.
+    restart_in_window: bool,
+    /// Workstream 04: owner material goes through the keeper's real
+    /// `/v1/reveal` (HTTP, the chain gate) instead of straight into Shared.
+    owner_via_api: bool,
+    /// Workstream 04: with `owner_via_api`, the keeper is rebuilt from its
+    /// journal right after every 202, before any tick picks the material up.
+    restart_after_202: bool,
+    /// Workstream 04: with `owner_via_api`, the API is given a journal path
+    /// that cannot be opened (a directory).
+    api_journal_broken: bool,
 }
 
 struct Run {
@@ -288,7 +422,10 @@ fn new_keeper(
     cfg.peace_start = peace;
     let mut k = Keeper::new(
         cfg,
-        w.ip.clone(),
+        Watch {
+            ip: w.ip.clone(),
+            program: w.program,
+        },
         w.drand.clone(),
         &[0x70 + i as u8; 32],
         journal,
@@ -327,7 +464,15 @@ async fn tick(
         .await;
     match h {
         Ok((k, r)) => {
-            r.unwrap();
+            if let Err(e) = r {
+                // Workstream 04: a tick may fail while reads of THE anchor
+                // are made to fail; that is a refusal to go on, not a crash.
+                assert!(
+                    FAIL_READS.with(|f| f.borrow().is_some()),
+                    "tick failed: {e:?}"
+                );
+                TICK_ERRORS.with(|c| c.set(c.get() + 1));
+            }
             k
         }
         Err(e) if e.is_panic() => {
@@ -349,6 +494,54 @@ async fn tick(
 
 /// `None` when the program under test lacks the play instructions (a
 /// `PSF_FRONTIER_SO` build before W4-A/W4-B): the run is not applicable.
+/// Workstream 04: one POST /v1/reveal to the keeper's API.
+async fn api_post(
+    addr: std::net::SocketAddr,
+    token: &str,
+    body: &serde_json::Value,
+) -> (u16, serde_json::Value) {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let mut s = tokio::net::TcpStream::connect(addr).await.unwrap();
+    let b = body.to_string();
+    let req = format!(
+        "POST /v1/reveal HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer {token}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{b}",
+        b.len()
+    );
+    s.write_all(req.as_bytes()).await.unwrap();
+    let mut out = vec![];
+    s.read_to_end(&mut out).await.unwrap();
+    let text = String::from_utf8_lossy(&out).to_string();
+    let code: u16 = text[9..12].parse().unwrap();
+    let body = text.split("\r\n\r\n").nth(1).unwrap_or("");
+    (code, serde_json::from_str(body).unwrap_or(json!(body)))
+}
+
+/// Workstream 04: the keeper's API with the chain gate, as `frontier-keeper`
+/// starts it. On a tree whose API journals accepted material (workstream
+/// 18's b6c95f2d), this one call is `serve_full(addr, shared, token,
+/// Some(gate), Some(jpath.clone()))` — the line marked WS04-API-ENTRY.
+async fn start_api(
+    w: &World,
+    shared: std::sync::Arc<std::sync::Mutex<keeper_core::Shared>>,
+    token: &str,
+    jpath: &std::path::Path,
+) -> keeper_core::api::Running {
+    let gate: std::sync::Arc<dyn keeper_core::reveal_accept::RevealGate> =
+        std::sync::Arc::new(keeper_core::reveal_accept::ChainGate {
+            port: w.ip.clone(),
+            addrs: w.addrs.clone(),
+        });
+    keeper_core::api::serve_full(
+        "127.0.0.1:0".parse().unwrap(),
+        shared,
+        token.to_string(),
+        Some(gate),
+        Some(jpath.to_path_buf()),
+    ) // WS04-API-ENTRY
+    .await
+    .unwrap()
+}
+
 async fn scenario(o: Opts) -> Option<Run> {
     let started = std::time::Instant::now();
     let w = world_with(|p| {
@@ -742,6 +935,12 @@ async fn scenario(o: Opts) -> Option<Run> {
     };
     let mut owner_pushed = false;
     let mut held_slots = false;
+    let (mut anchor_held, mut window_from, mut restarted) = (false, 0i64, false);
+    OUT.with(|o| o.borrow_mut().clear());
+    API_CODES.with(|a| a.borrow_mut().clear());
+    ANCHOR_SEEN.with(|c| c.set(0));
+    TICK_ERRORS.with(|c| c.set(0));
+    FAIL_READS.with(|f| *f.borrow_mut() = None);
     // The destination's resolved ClashInputs (fates), captured before the
     // close after `clash_close_grace`.
     let mut dest_resolved: Vec<u8> = vec![];
@@ -749,13 +948,94 @@ async fn scenario(o: Opts) -> Option<Run> {
     loop {
         let b = sc.bell_at(w.now()).unwrap();
         if !owner_pushed && b >= arrive {
-            for m in marches
-                .iter()
-                .filter(|m| matches!(m.kind, MarchKind::OwnerReveal | MarchKind::Garbage))
-            {
-                push_owner(&mut ks, m, &players[m.pl]);
+            if o.owner_via_api {
+                // Workstream 04: through the real accept path.
+                let token = "k".repeat(32);
+                let broken = jpath.parent().unwrap().to_path_buf();
+                let srv = start_api(
+                    &w,
+                    ks[0].shared.clone(),
+                    &token,
+                    if o.api_journal_broken {
+                        &broken
+                    } else {
+                        &jpath
+                    },
+                )
+                .await;
+                for m in marches
+                    .iter()
+                    .filter(|m| matches!(m.kind, MarchKind::OwnerReveal | MarchKind::Garbage))
+                {
+                    let p = &players[m.pl];
+                    let body = json!({
+                        "holding": w.addrs.holding(p.home.0 as i32, p.home.1 as i32, p.site).to_string(),
+                        "transit_slot": m.transit_slot,
+                        "plain_b64": base64::engine::general_purpose::STANDARD.encode(m.plain),
+                        "salt_b64": base64::engine::general_purpose::STANDARD.encode(m.salt),
+                        "ct_hash_b64": base64::engine::general_purpose::STANDARD.encode(m.ct_hash),
+                    });
+                    let (c, v) = api_post(srv.addr, &token, &body).await;
+                    println!("  owner material via API: host {} -> {c} {v}", m.host);
+                    API_CODES.with(|a| a.borrow_mut().push((m.host, c)));
+                }
+                srv.stop();
+                API_QUEUED.with(|q| q.set(ks[0].shared.lock().unwrap().reveals.len()));
+                if o.restart_after_202 {
+                    // Restart before any tick takes the material from Shared.
+                    let mut k = new_keeper(&w, 0, Some(&jpath), None, o.peace_start);
+                    inflight += k.start().await.unwrap();
+                    ks[0] = k;
+                    restarted = true;
+                }
+            } else {
+                for m in marches
+                    .iter()
+                    .filter(|m| matches!(m.kind, MarchKind::OwnerReveal | MarchKind::Garbage))
+                {
+                    push_owner(&mut ks, m, &players[m.pl]);
+                }
             }
             owner_pushed = true;
+        }
+        // Workstream 04: the anchor window (held, or reads failing).
+        {
+            let t_arrive = sc.drand.round_time(sc.tlock_round(arrive));
+            let anchor = w
+                .addrs
+                .anchor(arrive, ix::region_of(dest.0 as i32, dest.1 as i32));
+            let extra = o.hold_dest_anchor.or(o.fail_anchor_reads).unwrap_or(0);
+            if ANCHOR_SEEN.with(|c| c.get()) == 0
+                && w.ip
+                    .lock()
+                    .account(&anchor)
+                    .is_some_and(|a| !a.data.is_empty())
+            {
+                ANCHOR_SEEN.with(|c| c.set(w.slot()));
+            }
+            let in_window = b + 1 >= arrive && w.now() <= t_arrive + extra as i64 * 8;
+            if o.hold_dest_anchor.is_some() && in_window && !anchor_held {
+                let n = ((t_arrive - w.now()).max(0) / 8) as u64 + extra;
+                w.ip.lock().hold(vec![anchor], 10_000_000, n).unwrap();
+                anchor_held = true;
+                window_from = w.now();
+            }
+            if o.fail_anchor_reads.is_some() {
+                FAIL_READS.with(|f| *f.borrow_mut() = in_window.then_some(anchor));
+                if in_window && window_from == 0 {
+                    window_from = w.now();
+                }
+            }
+            if o.restart_in_window
+                && !restarted
+                && window_from > 0
+                && w.now() >= (window_from + t_arrive) / 2
+            {
+                let mut k = new_keeper(&w, 0, Some(&jpath), None, o.peace_start);
+                inflight += k.start().await.unwrap();
+                ks[0] = k;
+                restarted = true;
+            }
         }
         if let (Some((prio, n)), false) = (o.hold_slots, held_slots) {
             let t_arrive = sc.drand.round_time(sc.tlock_round(arrive));
@@ -1673,4 +1953,447 @@ async fn claim_after_late_reveal() {
     }
     assert!(claims.iter().all(|c| c.2 > 0));
     println!("claims: {claims:?}");
+}
+
+// ------------------------------------------------------------------ workstream 04: no plaintext before THE anchor
+
+/// Every Reveal that reached the RPC (send or simulate) in the last run,
+/// split by whether THE anchor was on chain at that moment, and how many
+/// went before T(arrive) of their bell (reported, not judged: when a
+/// self-reveal may go before T(arrive) is a rule still open).
+fn reveals_out(r: &Run) -> (Vec<RevealOut>, Vec<RevealOut>, usize) {
+    let all = OUT.with(|o| o.borrow().clone());
+    let sc = fclient::clock::SeasonClock::from_season(&r.w.season());
+    // drand publishes T(arrive) at its round time plus the publication
+    // delay (the test key's gate, `Gated`): before that, nobody but the
+    // owner can open the seal, so plaintext must not leave.
+    let published = sc.drand.round_time(sc.tlock_round(r.arrive)) + DRAND_DELAY;
+    let before_t = all.iter().filter(|x| x.now < published).count();
+    let (ok, early): (Vec<_>, Vec<_>) = all.into_iter().partition(|x| x.anchor_present);
+    (ok, early, before_t)
+}
+
+fn report(name: &str, r: &Run) -> Vec<RevealOut> {
+    let (ok, early, before_t) = reveals_out(r);
+    println!(
+        "{name}: {} Reveal(s) to the RPC with THE anchor on chain, {} without it; {before_t} before drand published T(arrive)",
+        ok.len(),
+        early.len()
+    );
+    for e in &early {
+        let st = e.sig.and_then(|s| r.w.ip.lock().status(&s));
+        let landed = e.sig.and_then(|s| {
+            r.w.ip
+                .lock()
+                .transaction(&s)
+                .map(|l| (l.slot, l.err.clone()))
+        });
+        println!(
+            "  without anchor: {} at slot {} ({}) status {:?} landed {:?}",
+            e.kind,
+            e.slot,
+            e.anchor,
+            st.map(|s| (s.slot, s.err)),
+            landed
+        );
+    }
+    let a =
+        r.w.ip
+            .lock()
+            .account(&early.first().map(|e| e.anchor).unwrap_or_default())
+            .map(|a| (a.owner, a.data.len()));
+    println!(
+        "  anchor account now: {a:?}; first seen on chain at slot {}; T(arrive) {}; ticks failed on reads {}",
+        ANCHOR_SEEN.with(|c| c.get()),
+        {
+            let sc = fclient::clock::SeasonClock::from_season(&r.w.season());
+            sc.drand.round_time(sc.tlock_round(r.arrive))
+        },
+        TICK_ERRORS.with(|c| c.get())
+    );
+    assert!(
+        !ok.is_empty() || !early.is_empty(),
+        "{name}: no Reveal reached the RPC at all"
+    );
+    early
+}
+
+/// Workstream 04: the needed Reveals do go out once publishable, and no
+/// march is left behind. Per march (matched by its ct_hash in the Reveal
+/// data): how many hand-overs (send / simulate), how many distinct
+/// signatures (a re-send of the same transaction vs a new one), which of
+/// them landed, with what effect (Ok changes state; an error changes
+/// nothing but the fee) and what fee. Returns the failures.
+fn audit(name: &str, r: &Run) -> Vec<String> {
+    let all = OUT.with(|o| o.borrow().clone());
+    let sc = fclient::clock::SeasonClock::from_season(&r.w.season());
+    let published = sc.drand.round_time(sc.tlock_round(r.arrive)) + DRAND_DELAY;
+    let c = r.w.ip.lock();
+    let mut fails = vec![];
+    let (
+        mut tot_send,
+        mut tot_sim,
+        mut tot_sigs,
+        mut tot_ok,
+        mut tot_err,
+        mut tot_fee,
+        mut tot_unlanded,
+    ) = (0, 0, 0, 0, 0, 0u64, 0);
+    let mut matched = 0;
+    for m in &r.marches {
+        let mine: Vec<&RevealOut> = all
+            .iter()
+            .filter(|x| x.data.windows(32).any(|w| w == m.ct_hash))
+            .collect();
+        matched += mine.len();
+        let sends: Vec<&&RevealOut> = mine.iter().filter(|x| x.kind == "send").collect();
+        let sims = mine.len() - sends.len();
+        let sigs: BTreeSet<_> = sends.iter().filter_map(|x| x.sig).collect();
+        let (mut ok, mut err, mut fee, mut unlanded, mut ok_after) = (0, vec![], 0u64, 0, 0);
+        for s in &sigs {
+            match c.transaction(s) {
+                Some(l) => {
+                    fee += l.fee;
+                    if l.err.is_none() {
+                        ok += 1;
+                        if l.block_time >= published {
+                            ok_after += 1;
+                        }
+                    } else {
+                        err.push(
+                            l.code.map_or_else(
+                                || l.err.clone().unwrap_or_default(),
+                                |c| c.to_string(),
+                            ),
+                        );
+                    }
+                }
+                None => unlanded += 1,
+            }
+        }
+        if sigs.len() > 1 {
+            // The versions' timeline: sent slot, landed slot, effect.
+            let win = sends
+                .iter()
+                .filter_map(|x| {
+                    x.sig
+                        .and_then(|s| c.transaction(&s))
+                        .filter(|l| l.err.is_none())
+                        .map(|l| l.slot)
+                })
+                .min();
+            for x in &sends {
+                let l = x.sig.and_then(|s| c.transaction(&s));
+                println!(
+                    "    version sent slot {} landed {:?} {} (winner landed slot {:?}; sent {} the winner landed)",
+                    x.slot,
+                    l.map(|l| l.slot),
+                    l.map_or("unlanded".to_string(), |l| l.code.map_or("Ok".into(), |c| format!("Err {c}"))),
+                    win,
+                    match win { Some(w) if x.slot > w => "after", Some(w) if x.slot == w => "in the slot", _ => "before" }
+                );
+            }
+        }
+        let settled = r.settled.get(&m.host);
+        println!(
+            "  {name} march host {} : {} send ({} distinct sig, {} re-send of a sig), {} simulate; landed Ok {} (after publication {}), landed Err {} {:?}, not landed {}; fees {} lamports; settled {:?}",
+            m.host, sends.len(), sigs.len(), sends.len() - sigs.len(), sims, ok, ok_after, err.len(), err, unlanded, fee, settled
+        );
+        tot_send += sends.len();
+        tot_sim += sims;
+        tot_sigs += sigs.len();
+        tot_ok += ok;
+        tot_err += err.len();
+        tot_fee += fee;
+        tot_unlanded += unlanded;
+        if settled.is_none() {
+            fails.push(format!("host {} not settled (left behind)", m.host));
+        }
+        if ok > 1 {
+            fails.push(format!("host {} revealed {ok} times", m.host));
+        }
+        if !sends.is_empty() && ok_after == 0 {
+            fails.push(format!(
+                "host {}: Reveals went out but none landed Ok after publication",
+                m.host
+            ));
+        }
+    }
+    println!(
+        "  {name} total: {} hand-overs ({} matched to a march): send {tot_send} = {tot_sigs} distinct sig + {} re-send; simulate {tot_sim}; landed Ok {tot_ok}, Err {tot_err}, not landed {tot_unlanded}; Reveal fees {tot_fee} lamports",
+        all.len(),
+        matched,
+        tot_send - tot_sigs
+    );
+    // The keepers' own count of Reveal fees (engine KindStats["reveal"])
+    // against the chain's; the retry test below also asserts equality.
+    let (kw, kv, kl, kf, kfee) = r
+        .keepers
+        .iter()
+        .filter_map(|k| k.engine.stats.get("reveal"))
+        .fold((0, 0, 0, 0, 0u64), |a, s| {
+            (
+                a.0 + s.writes,
+                a.1 + s.versions,
+                a.2 + s.landed,
+                a.3 + s.failed,
+                a.4 + s.fees_charged,
+            )
+        });
+    println!(
+        "  {name} keeper stats (reveal): writes {kw} versions {kv} landed {kl} failed {kf} fees_charged {kfee} lamports; chain charged {tot_fee}; uncounted {}",
+        tot_fee as i64 - kfee as i64
+    );
+    if matched != all.len() {
+        fails.push(format!(
+            "{} Reveal hand-over(s) matched no march",
+            all.len() - matched
+        ));
+    }
+    if r.settled.len() != r.marches.len() {
+        fails.push(format!(
+            "settled {} of {} marches",
+            r.settled.len(),
+            r.marches.len()
+        ));
+    }
+    fails
+}
+
+/// Workstream 04: the marches with a Reveal that landed Ok in the last run.
+fn revealed_hosts(r: &Run) -> BTreeSet<u64> {
+    let all = OUT.with(|o| o.borrow().clone());
+    let c = r.w.ip.lock();
+    r.marches
+        .iter()
+        .filter(|m| {
+            all.iter().any(|x| {
+                x.kind == "send"
+                    && x.data.windows(32).any(|w| w == m.ct_hash)
+                    && x.sig
+                        .and_then(|s| c.transaction(&s))
+                        .is_some_and(|l| l.err.is_none())
+            })
+        })
+        .map(|m| m.host)
+        .collect()
+}
+
+/// Workstream 04: a delayed or failing case must reveal the same marches
+/// as the normal run (no march left without its Reveal).
+async fn normal_revealed() -> Option<BTreeSet<u64>> {
+    let r = scenario(Opts::default()).await?;
+    Some(revealed_hosts(&r))
+}
+
+fn same_marches(name: &str, want: &BTreeSet<u64>, r: &Run) {
+    let got = revealed_hosts(r);
+    println!(
+        "  {name}: revealed Ok {} march(es), normal run {}",
+        got.len(),
+        want.len()
+    );
+    assert_eq!(
+        &got,
+        want,
+        "{name}: marches revealed differ from the normal run (missing: {:?})",
+        want.difference(&got).collect::<Vec<_>>()
+    );
+}
+
+/// Two criteria, judged apart: secrecy (no plaintext before drand
+/// published T(arrive): before that only the owner can open the seal) and
+/// validity (THE anchor on chain when the Reveal is handed over: otherwise
+/// the program skips the window check, proc/reveal.rs:803-835).
+fn check(r: &Run, early: &[RevealOut]) {
+    let (_, _, before_t) = reveals_out(r);
+    let fails = audit("audit", r);
+    assert!(fails.is_empty(), "needed Reveals / left behind: {fails:?}");
+    assert!(
+        before_t == 0 && early.is_empty(),
+        "secrecy: {before_t} Reveal(s) before drand published T(arrive); validity: {} before THE anchor was on chain",
+        early.len()
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn ws04_no_reveal_before_anchor_normal() {
+    let Some(r) = scenario(Opts::default()).await else {
+        return;
+    };
+    let early = report("normal", &r);
+    check(&r, &early);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn ws04_no_reveal_before_anchor_held_anchor() {
+    let Some(want) = normal_revealed().await else {
+        return;
+    };
+    let Some(r) = scenario(Opts {
+        hold_dest_anchor: Some(20),
+        ..Default::default()
+    })
+    .await
+    else {
+        return;
+    };
+    let early = report("anchor held", &r);
+    same_marches("anchor held", &want, &r);
+    check(&r, &early);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn ws04_no_reveal_before_anchor_reads_fail() {
+    let Some(want) = normal_revealed().await else {
+        return;
+    };
+    let Some(r) = scenario(Opts {
+        fail_anchor_reads: Some(20),
+        ..Default::default()
+    })
+    .await
+    else {
+        return;
+    };
+    let early = report("anchor reads fail", &r);
+    same_marches("anchor reads fail", &want, &r);
+    check(&r, &early);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn ws04_no_reveal_before_anchor_restart() {
+    let Some(want) = normal_revealed().await else {
+        return;
+    };
+    let Some(r) = scenario(Opts {
+        hold_dest_anchor: Some(20),
+        restart_in_window: true,
+        // Acknowledged owner material must be journalled before the restart.
+        owner_via_api: true,
+        ..Default::default()
+    })
+    .await
+    else {
+        return;
+    };
+    let early = report("anchor held, keeper restarted", &r);
+    same_marches("anchor held, keeper restarted", &want, &r);
+    check(&r, &early);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn ws04_no_reveal_before_anchor_retries() {
+    let Some(want) = normal_revealed().await else {
+        return;
+    };
+    // Versions escalate (slots held below the cap after T(arrive)).
+    let Some(r) = scenario(Opts {
+        hold_slots: Some((1_900, 10)),
+        peace_start: Some(0.25),
+        ..Default::default()
+    })
+    .await
+    else {
+        return;
+    };
+    let early = report("retries", &r);
+    same_marches("retries", &want, &r);
+    check(&r, &early);
+    let sent: BTreeSet<_> = OUT.with(|o| {
+        o.borrow()
+            .iter()
+            .filter(|x| x.kind == "send")
+            .filter_map(|x| x.sig)
+            .collect()
+    });
+    let chain = r.w.ip.lock();
+    let chain_fee: u64 = sent
+        .iter()
+        .filter_map(|sig| chain.transaction(sig).map(|tx| tx.fee))
+        .sum();
+    let keeper_fee: u64 = r
+        .keepers
+        .iter()
+        .filter_map(|k| k.engine.stats.get("reveal"))
+        .map(|s| s.fees_charged)
+        .sum();
+    assert_eq!(keeper_fee, chain_fee, "every landed retry pays its fee");
+}
+
+/// Workstream 04: owner material through the real `/v1/reveal`, the keeper
+/// rebuilt from its journal right after the 202s and before any tick takes
+/// it from memory. Every POST is 202, and the same marches are revealed Ok
+/// after publication as in the normal run (plus secrecy and validity).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn ws04_api_restart_after_202() {
+    let Some(want) = normal_revealed().await else {
+        return;
+    };
+    let Some(r) = scenario(Opts {
+        owner_via_api: true,
+        restart_after_202: true,
+        ..Default::default()
+    })
+    .await
+    else {
+        return;
+    };
+    let codes = API_CODES.with(|a| a.borrow().clone());
+    println!("  API codes: {codes:?}");
+    assert!(
+        !codes.is_empty() && codes.iter().all(|c| c.1 == 202),
+        "{codes:?}"
+    );
+    let early = report("API, restart after 202", &r);
+    same_marches("API, restart after 202", &want, &r);
+    check(&r, &early);
+}
+
+/// Workstream 04: the same through the API without a restart (the API
+/// path itself reveals what the direct path does).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn ws04_api_normal() {
+    let Some(want) = normal_revealed().await else {
+        return;
+    };
+    let Some(r) = scenario(Opts {
+        owner_via_api: true,
+        ..Default::default()
+    })
+    .await
+    else {
+        return;
+    };
+    let codes = API_CODES.with(|a| a.borrow().clone());
+    assert!(
+        !codes.is_empty() && codes.iter().all(|c| c.1 == 202),
+        "{codes:?}"
+    );
+    let early = report("API", &r);
+    same_marches("API", &want, &r);
+    check(&r, &early);
+}
+
+/// Workstream 04: an API whose journal cannot be written answers no 202 and
+/// queues nothing (the material is refused, not held in memory only).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn ws04_api_journal_unwritable_refuses() {
+    let Some(_r) = scenario(Opts {
+        owner_via_api: true,
+        api_journal_broken: true,
+        ..Default::default()
+    })
+    .await
+    else {
+        return;
+    };
+    let codes = API_CODES.with(|a| a.borrow().clone());
+    let queued = API_QUEUED.with(|q| q.get());
+    println!("  API codes with an unwritable journal: {codes:?}; queued {queued}");
+    assert!(
+        !codes.is_empty() && codes.iter().all(|c| c.1 != 202),
+        "{codes:?}"
+    );
+    assert_eq!(queued, 0, "nothing queued in memory");
 }

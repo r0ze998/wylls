@@ -1,0 +1,9 @@
+3ce121a64db2022ba2bf1abda45888f5fe195690871f83169271f04523560022  0001-Custody-kernel-in-the-rules-workstream-10.patch
+10ac29958d8b3c316d9345f79708d3f1c39fd3dc5d1b957d80dec9c06465822b  0002-ABI-v2-custody-accounts-instructions-records-and-err.patch
+85ab7bb46113045b4f6614a4bca8219f069b8c7b3044d2f313364d048a3797f2  0003-Program-custody-instructions-and-the-S1-amendments-t.patch
+d2c03d92d46c5bca0e7eefa470fc9b0140aab073e7ac02b3147d7332665c5cc9  0004-Off-chain-custody-record-kinds-are-not-conquest-even.patch
+8b53d5afe23ebc3c3d49042489a028b035cf5661c8b71483e56e47829a94b0c8  0005-Custody-is-another-program-custody-preview-build-V4-.patch
+f7c8e2c724036beaa0941747eb77810dad722e1090b1fd9772de21f4fee8754a  0006-Verifier-a-custody-trace-is-never-a-PASS-V26-guard.patch
+8fc8cd39cd26ae138ad1b437de8e8b57b6e74d73dc478c63fc8ae1d9399b7e44  0007-Fix-the-custody-ABI-s-consumers-harness-registry-gen.patch
+96b62339660005eafa0a8dbd60158767b2f5eefe7979a974f61c691be2db13a0  0008-Custody-kernel-docs-the-lot-forfeiture-is-workstream.patch
+fac316b6fd327d158638365cdfe143c89f2462099a0e8ee4395a611d34f19618  0009-Custody-kernel-running-totals-checked-no-period-in-t.patch

@@ -277,7 +277,8 @@ pub async fn check<P: ChainPort>(
     addrs: &Addresses,
     req: &RevealReq,
 ) -> Result<Accepted, Refusal> {
-    let io = |e: fclient::ports::PortError| refuse(503, "ChainUnavailable", e.to_string());
+    let io =
+        |_: fclient::ports::PortError| refuse(503, "ChainUnavailable", "chain state unavailable");
     let clock = port.clock().await.map_err(io)?;
     let own = |a: Option<Account>| a.filter(|x| x.owner == addrs.program && !x.data.is_empty());
     let got = port

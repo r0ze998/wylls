@@ -14,7 +14,7 @@ import { activeHolding } from '../fstate.mjs';
 import { actionBlocks, UNIT_ORDER, SCOUT, SETTLER } from '../fland.mjs';
 import { DEPART_STAMINA } from '../fmarch.mjs';
 import { hostRows } from './host.mjs';
-import { countdown } from '../clock.mjs';
+import { countdown, worldContinues } from '../clock.mjs';
 import { icon } from '../hud/icons.mjs';
 import { crest, sigChip, hostWaits, renderWaits, hostsOnTile, holdingHereText } from '../hud/keephand.mjs';
 
@@ -129,7 +129,7 @@ export function renderKeep(FS, keep) {
   const m = keepModel(FS, keep);
   if (!m) return html`<section class="conquest-keep hpanel"><h4>${L`この州の砦`}</h4><p class="muted">${L`砦の情報を確認しています。`}</p></section>`;
   const owner = m.holder < 6 ? factionName(m.holder) : L`中立`;
-  const ended = (FS.nowBell ?? 0) >= Number(FS.season?.endBell ?? Infinity);
+  const ended = (!worldContinues(FS.season) && (FS.nowBell ?? 0) >= Number(FS.season?.endBell ?? Infinity));
   const hist = keepHistory(FS.conquest?.history?.get?.(`${m.p},${m.q}`));
   // (no host can depart this moment: the ones on their way to being ready say so, with the turn; hud/keephand.mjs)
   // (and beside the ones that can: a host mustered a moment ago is named with the turn from which it can depart)
@@ -157,7 +157,7 @@ export function renderKeep(FS, keep) {
       ${hist?.last ? html`<div class="row"><dt>${L`前の支配国`}</dt><dd>${factionName(hist.last.from)} · ${L`第${fmtNum(hist.last.bell)}ターンに交代`}</dd></div>` : ''}
       ${Number.isInteger(m.asOfBell) ? html`<div class="row"><dt>${L`最終確認`}</dt><dd>${L`第${fmtNum(m.asOfBell)}ターン`}</dd></div>` : ''}</dl>
     ${m.heartland ? html`<p class="kp-state kp-state-safe">${icon('shield')}<span>${L`本国の中核地です。この砦は奪取されません。`}</span></p>` : m.protectedFor > 0 ? html`<p class="kp-state kp-state-safe">${icon('shield')}<span>${L`占領後の保護中です。あと${span(m.protectedFor * bellSeconds(FS))}（ゲーム内）で再び争奪できます。`}</span></p>`
-      : html`<p class="kp-state">${hold !== null && !m.mine ? html`<strong>${L`敵の軍勢が砦のマスを ${fmtNum(hold)} ターン続けて保つと、州はその国のものになります。`}</strong> ` : ''}${L`砦を保持する国がこの州を支配します。シーズンの終わりに支配する州が最も多い国が勝ちます。`}</p>`}
+      : html`<p class="kp-state">${hold !== null && !m.mine ? html`<strong>${L`敵の軍勢が砦のマスを ${fmtNum(hold)} ターン続けて保つと、州はその国のものになります。`}</strong> ` : ''}${worldContinues(FS.season) ? L`砦を保持する国がこの州を支配します。この世界は続きます。戦期の勝敗と集計は未決定です。` : L`砦を保持する国がこの州を支配します。シーズンの終わりに支配する州が最も多い国が勝ちます。`}</p>`}
     ${!m.heartland && !m.mine && !m.protectionKnown ? html`<p class="muted">${L`この砦の保護状態を確認しています。`}</p>` : ''}
     ${m.contender !== null ? html`<div class="conquest-progress kp-contest kh-n${m.contender}"><p class="kp-contest-head">${crest(m.contender, 28)}<strong>${L`${factionName(m.contender)}が争奪中`}</strong><span class="kp-count num">${Number.isFinite(m.required) ? L`${fmtNum(m.progress)} / ${fmtNum(m.required)}ターン` : L`進捗を確認中`}</span></p>
       ${Number.isFinite(m.required) && m.required > 0 ? html`<progress max="${m.required}" value="${Math.min(m.progress, m.required)}" aria-label="${L`砦の争奪状況`}"></progress>` : ''}
@@ -170,7 +170,7 @@ export function renderOutpost(FS, site) {
   if (!conquestEnabled(FS) || FS.mode !== 'play' || !site || !activeHolding(FS)) return '';
   const o = FS.conquest?.outpost;
   if (!o) return html`<p class="muted">${L`前哨を築ける条件を確認しています。`}</p>`;
-  const ended = (FS.nowBell ?? 0) >= Number(FS.season?.endBell ?? Infinity);
+  const ended = (!worldContinues(FS.season) && (FS.nowBell ?? 0) >= Number(FS.season?.endBell ?? Infinity));
   const targetMatches = !o.target || (o.target.p === site.p && o.target.q === site.q && o.target.site === site.site);
   return html`<section class="conquest-outpost"><h4>${L`前哨を築く`}</h4><p>${L`前哨は、現在の村から領土を広げる足場になります。申請後に場所が確定します。`}</p>
     ${o.cost ? html`<p>${o.cost.map((v, i) => v ? `${RESOURCES[RESOURCE_ORDER[i]]} ${fmtNum(v)}` : '').filter(Boolean).join(' · ')}</p>` : ''}
@@ -183,7 +183,7 @@ export function renderOutpost(FS, site) {
 /** The keeps of other nations a march of the viewer can reach now, nearest first. */
 export function renderReach(FS) {
   if (!conquestEnabled(FS) || FS.mode !== 'play' || !activeHolding(FS) || !Number.isInteger(FS.citizen?.faction)) return '';
-  if ((FS.nowBell ?? 0) >= Number(FS.season?.endBell ?? Infinity)) return '';
+  if ((!worldContinues(FS.season) && (FS.nowBell ?? 0) >= Number(FS.season?.endBell ?? Infinity))) return '';
   const r = FS.conquest?.reach;
   const row = x => html`<li class="kr-row kh-n${x.holder}">${crest(x.holder, 24)}<span class="kr-main"><strong>${L`州 ${x.p},${x.q}`}</strong> · ${factionName(x.holder)}${Number.isFinite(x.troops) ? html` · ${L`守備兵 ${fmtNum(x.troops)}`}` : ''} · ${routeLine(x.route)}${x.origin?.host ? html` <span class="muted">${UNITS[UNIT_ORDER[x.origin.unit]]} ${fmtNum(x.origin.troops)}</span>` : ''}</span>
     <button type="button" class="btn small" data-act="goto" data-p="${x.p}" data-q="${x.q}">${L`そこへ移動`}</button></li>`;
@@ -199,17 +199,17 @@ export function renderReach(FS) {
 
 export function renderStandings(FS) {
   if (!conquestEnabled(FS)) return '';
-  const cq = FS.conquest, ended = (FS.nowBell ?? 0) >= Number(FS.season?.endBell ?? Infinity);
+  const cq = FS.conquest, continuous = worldContinues(FS.season), ended = (!continuous && (FS.nowBell ?? 0) >= Number(FS.season?.endBell ?? Infinity));
   const record = ended && cq?.final ? cq.final : cq?.standings;
   const rows = scoreRows(record);
   const isFinal = ended && record === cq?.final && !!rows;
   const seconds = bellSeconds(FS);
   const winners = isFinal ? rows.filter(r => r.rank === 1).map(r => factionName(r.faction)) : [];
-  return html`<section class="conquest-standings hpanel" aria-labelledby="conquest-standings-title"><h3 id="conquest-standings-title">${isFinal ? L`シーズンの結果` : L`国の領土と得点`}</h3>
-    <p>${L`シーズンの終わりに、支配する州が最も多い国が勝ちます。州・時間は、州を保った時間の記録です（1州を1時間で1州・時間）。`}</p>
-    ${ended ? html`<p class="${isFinal ? 'conquest-result' : 'muted'}">${isFinal ? winners.length === 1 ? L`${winners[0]}の勝利` : L`同点首位：${winners.join(' / ')}` : L`シーズンは終了しました。最後の戦いと得点の確定を待っています。`}</p>` : html`<p class="conquest-season-clock">${L`シーズン終了まで ${span(Math.max(0, Number(FS.season?.endBell ?? 0) - (FS.nowBell ?? 0)) * seconds)}（ゲーム内）`}</p>`}
-    ${rows ? html`<table class="stores conquest-scores"><thead><tr><th>${L`順位`}</th><th>${L`国`}</th><th>${L`支配する州`}</th><th>${L`州・時間`}</th></tr></thead><tbody>${rows.map(r => html`<tr class="${r.faction === FS.citizen?.faction ? 'is-mine' : ''}"><td>${fmtNum(r.rank)}</td><th scope="row"><span class="cs-nation kh-n${r.faction}">${crest(r.faction, 22)}<span>${factionName(r.faction)}</span></span>${r.faction === FS.citizen?.faction ? html` <span class="tag">${L`あなたの国`}</span>` : ''}</th><td>${fmtNum(r.provinces)}</td><td>${fmtNum(Math.round(Number(r.score) * seconds / 360) / 10)}</td></tr>`)}</tbody></table>
-      <p class="muted">${L`第${fmtNum(record.bell)}ターンまでの確定した得点`}</p>` : html`<p class="muted">${cq?.status === 'error' ? L`得点を読み込めませんでした。再取得してください。` : L`確定した得点を読み込んでいます。`}</p>`}
+  return html`<section class="conquest-standings hpanel" aria-labelledby="conquest-standings-title"><h3 id="conquest-standings-title">${isFinal ? L`シーズンの結果` : continuous ? L`国の領土と支配記録` : L`国の領土と得点`}</h3>
+    <p>${worldContinues(FS.season) ? L`この世界は続きます。戦期の区切り・勝敗・集計は未決定です。州・時間は、州を保った時間の記録です（1州を1時間で1州・時間）。` : L`シーズンの終わりに、支配する州が最も多い国が勝ちます。州・時間は、州を保った時間の記録です（1州を1時間で1州・時間）。`}</p>
+    ${ended ? html`<p class="${isFinal ? 'conquest-result' : 'muted'}">${isFinal ? winners.length === 1 ? L`${winners[0]}の勝利` : L`同点首位：${winners.join(' / ')}` : L`シーズンは終了しました。最後の戦いと得点の確定を待っています。`}</p>` : worldContinues(FS.season) ? html`<p class="conquest-season-clock">${L`この世界は続きます（終わりの時刻はありません）。戦期は未決定です。`}</p>` : html`<p class="conquest-season-clock">${L`シーズン終了まで ${span(Math.max(0, Number(FS.season?.endBell ?? 0) - (FS.nowBell ?? 0)) * seconds)}（ゲーム内）`}</p>`}
+    ${rows ? html`<table class="stores conquest-scores"><thead><tr><th>${continuous ? L`記録順` : L`順位`}</th><th>${L`国`}</th><th>${L`支配する州`}</th><th>${L`州・時間`}</th></tr></thead><tbody>${rows.map(r => html`<tr class="${r.faction === FS.citizen?.faction ? 'is-mine' : ''}"><td>${fmtNum(r.rank)}</td><th scope="row"><span class="cs-nation kh-n${r.faction}">${crest(r.faction, 22)}<span>${factionName(r.faction)}</span></span>${r.faction === FS.citizen?.faction ? html` <span class="tag">${L`あなたの国`}</span>` : ''}</th><td>${fmtNum(r.provinces)}</td><td>${fmtNum(Math.round(Number(r.score) * seconds / 360) / 10)}</td></tr>`)}</tbody></table>
+      <p class="muted">${continuous ? L`第${fmtNum(record.bell)}ターンまでの州・時間の参考記録。賞金の成果基準は未決定です。` : L`第${fmtNum(record.bell)}ターンまでの確定した得点`}</p>` : html`<p class="muted">${cq?.status === 'error' ? continuous ? L`記録を読み込めませんでした。再取得してください。` : L`得点を読み込めませんでした。再取得してください。` : continuous ? L`州・時間の記録を読み込んでいます。` : L`確定した得点を読み込んでいます。`}</p>`}
     ${!isFinal ? html`<button type="button" class="btn small" data-act="cq-refresh" ${raw(busy(FS) || cq?.status === 'loading' ? 'disabled' : '')}>${L`世界の状況を更新する`}</button>` : ''}
   </section>`;
 }

@@ -340,11 +340,15 @@ export class Resident {
     let res = await this.ports.execution.status(sendKey);
     if (!res) {
       try { res = await this.ports.execution.submit({ agentId: this.id, source: 'resident', idempotencyKey: sendKey, policyVersion: 1, modeEpoch: this.ledger.get(this.id).modeEpoch, action: it.action }); }
-      catch (e) { res = { ok: false, status: 'failed', error: { code: 'Transport', message: String(e.message) } }; }
+      // The world may have accepted the send before its reply was lost. A transport error
+      // is not proof of failure, so retain this key and reconcile it instead of trying #a2.
+      catch (e) { res = { ok: false, status: 'unknown', error: { code: 'Transport', message: String(e.message) } }; }
       this.#crashAt('after-submit', it.turn, it.key);
     }
     it.sendKey = sendKey;
     if (res.status === 'sent') Object.assign(it, { state: 'sent', signature: res.signature });
+    else if (res.status === 'unknown' || (res.error?.code === 'Transport' && res.fate !== 'failed'))
+      Object.assign(it, { state: 'sent', lastError: 'Transport' });
     else this.#retryOrFail(it, res.error?.code ?? 'Unknown');
     return it;
   }

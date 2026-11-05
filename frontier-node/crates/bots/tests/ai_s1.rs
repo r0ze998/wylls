@@ -34,6 +34,7 @@ fn season(program_version: u16) -> SeasonView {
     let mut sj: Value = serde_json::from_slice(&m1.files["h/season.json"]).unwrap();
     let mut sb = b64(sj["bytes_b64"].as_str().unwrap()).unwrap();
     sb[8..16].copy_from_slice(&cqfixture::SEASON_ID.to_le_bytes());
+    sb[16..18].copy_from_slice(&fclient::abi::LAYOUT_VERSION_V2.to_le_bytes());
     sb[s::PROGRAM_VERSION..s::PROGRAM_VERSION + 2].copy_from_slice(&program_version.to_le_bytes());
     sb[s::GENESIS_TS..s::GENESIS_TS + 8].copy_from_slice(&GENESIS_TS.to_le_bytes());
     sb[s::END_BELL..s::END_BELL + 4].copy_from_slice(&END_BELL.to_le_bytes());

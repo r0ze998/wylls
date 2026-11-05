@@ -70,17 +70,17 @@ use fclient::budgets::Budgets;
 use fclient::clock::SeasonClock;
 use fclient::decode::Season;
 use fclient::fees;
-use fclient::ports::{ChainPort, DrandPort};
+use fclient::ports::{ChainPort, DrandPort, Signature, Status};
 
 use crate::archive::ArchiveDuty;
 use crate::beacon::BeaconDuty;
 use crate::config::KeeperConfig;
-use crate::engine::{BuildCtx, Engine, EngineParams, Outcome, WriteSpec};
+use crate::engine::{BuildCtx, Engine, EngineParams, Outcome, WriteSpec, PAYER_CARE_KIND};
 use crate::explore::ExploreDuty;
 use crate::fold::FoldDuty;
 use crate::genesis::GenesisDuty;
 use crate::holdings::HoldingDuty;
-use crate::journal::Journal;
+use crate::journal::{Attempt, Journal};
 use crate::landindex::LandIndex;
 use crate::play::PlayDuty;
 use crate::pools::Payers;
@@ -270,6 +270,10 @@ pub struct Keeper<P: ChainPort, D: DrandPort> {
     wrong_key_alerted: bool,
     /// The last payer care: `(slot, Clock now, transfers planned)`.
     care_last: Option<(u64, i64, usize)>,
+    /// Older keepers recorded care attempts as "expired" from slot age,
+    /// without proving that the transfer never landed. Requires an operator
+    /// reconciliation before care can safely resume.
+    care_legacy_unknown: bool,
     /// The season's ABI the engine's budgets follow (R-22: an MC season
     /// takes `frontier-abi/vectors/v2/budgets.json` unless `budgets_file`
     /// overrides it).
@@ -305,6 +309,30 @@ pub fn care_due(
     slot >= s0 + cfg.care_every_slots.max(1)
         || now >= n0 + cfg.care_every_game_secs.max(1) as i64
         || (low && planned > 0 && slot >= s0 + CARE_LOW_GAP_SLOTS)
+}
+
+/// Refuse a logically invalid journal before asking RPC to resolve it. A
+/// filtered signature list would shift later responses onto the wrong rows.
+fn recovery_signatures(attempts: &[Attempt]) -> Result<Vec<Signature>, String> {
+    attempts
+        .iter()
+        .map(|a| {
+            a.sig
+                .parse()
+                .map_err(|_| "invalid signature in keeper journal; refusing restart".into())
+        })
+        .collect()
+}
+
+/// A partial RPC reply must not drop an undecided attempt from adoption.
+fn recovery_statuses(
+    attempts: &[Attempt],
+    statuses: Vec<Option<Status>>,
+) -> Result<impl Iterator<Item = (&Attempt, Option<Status>)>, String> {
+    if attempts.len() != statuses.len() {
+        return Err("incomplete keeper signature statuses; refusing restart".into());
+    }
+    Ok(attempts.iter().zip(statuses))
 }
 
 impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
@@ -380,6 +408,7 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
             season_read_slot: None,
             wrong_key_alerted: false,
             care_last: None,
+            care_legacy_unknown: false,
             budgets_version: abi::PROGRAM_VERSION_V1,
             cfg,
             port,
@@ -421,27 +450,82 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
         let mut adopted = 0;
         if let Some(j) = &self.journal {
             let inflight = j.in_flight()?;
-            let sigs: Vec<fclient::ports::Signature> =
-                inflight.iter().filter_map(|a| a.sig.parse().ok()).collect();
+            let sigs = recovery_signatures(&inflight)?;
             let sts = self.port.statuses(&sigs).await.map_err(|e| e.to_string())?;
             let mut keep = vec![];
-            for (a, st) in inflight.iter().zip(sts) {
+            for (a, st) in recovery_statuses(&inflight, sts)? {
                 match st {
                     Some(st) => {
-                        let s = if st.err.is_none() { "landed" } else { "failed" };
-                        j.set_status(&a.sig, s, Some(st.slot), st.code)?;
+                        let s = if st.err.is_none() {
+                            "landed"
+                        } else if a
+                            .tag
+                            .zip(st.code)
+                            .is_some_and(|(tag, code)| abi::err::is_done(tag, code))
+                        {
+                            "done"
+                        } else {
+                            "failed"
+                        };
+                        j.record_recovered_finality(a, s, st.slot, st.code)?;
+                        self.engine.charge_recovered(a);
+                        if a.kind == PAYER_CARE_KIND {
+                            self.engine.note_care_settled(st.slot);
+                        }
                     }
-                    None if clock.slot > a.first_valid_slot + 151 => {
-                        j.set_status(&a.sig, "expired", None, None)?;
-                    }
+                    // Slot age is not proof that this signature never landed:
+                    // a null status can also mean RPC history is unavailable.
                     None => keep.push(a.clone()),
                 }
             }
             adopted = keep.len();
-            self.engine.adopt(&keep);
+            self.engine.adopt(&keep)?;
+            // A restarted process has the signatures but not the original
+            // retry ladder, fee cap and duty plan. Never spend another fee
+            // against an old write by re-planning it with current settings.
+            // Keep observing every unknown signature and unblock this key
+            // only after they all have a definitive result. New rows carry
+            // a write ID so observations can be matched to their generation;
+            // legacy rows remain ungrouped and are held just as strictly.
+            let mut checked = BTreeSet::new();
+            for a in &keep {
+                if checked.insert(a.object_key.clone()) {
+                    self.engine.hold_adopted_until_known(&a.object_key);
+                }
+            }
+            // Older keepers labelled care attempts "expired" from 151 slots
+            // alone. Query their signatures again; only a finalized result
+            // may clear that ambiguous status.
+            let legacy = j.expired_attempts_of_kind(PAYER_CARE_KIND)?;
+            let sigs = recovery_signatures(&legacy)?;
+            let statuses = self.port.statuses(&sigs).await.map_err(|e| e.to_string())?;
+            for (a, st) in recovery_statuses(&legacy, statuses)? {
+                if let Some(st) = st {
+                    let s = if st.err.is_none() { "landed" } else { "failed" };
+                    j.record_recovered_finality(a, s, st.slot, st.code)?;
+                    self.engine.charge_recovered(a);
+                    self.engine.note_care_settled(st.slot);
+                }
+            }
+            if let Some(slot) = j.latest_settled_slot(PAYER_CARE_KIND)? {
+                self.engine.note_care_settled(slot);
+            }
+            self.care_legacy_unknown = j.has_expired_attempt(PAYER_CARE_KIND)?;
+        }
+        if self.care_legacy_unknown {
+            self.alert(
+                clock.slot,
+                "care-unknown-legacy",
+                "old payer-care 'expired' attempts need reconciliation before another transfer"
+                    .into(),
+            );
         }
         self.payers
-            .refresh(&self.port, clock.slot)
+            .refresh_at_least(
+                &self.port,
+                clock.slot,
+                self.engine.care_settled_slot().unwrap_or(0),
+            )
             .await
             .map_err(|e| e.to_string())?;
         Ok(adopted)
@@ -588,14 +672,14 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
             < fclient::payers::MIN_REVEAL.min(self.payers.reveal.keys.len())
             || self.payers.effective_n(Class::D)
                 < fclient::payers::MIN_DELAY.min(self.payers.delay.keys.len());
-        let care_pending = self
-            .engine
-            .pending_keys()
-            .iter()
-            .any(|k| k.starts_with("care:"));
+        let care_pending = self.care_legacy_unknown || self.engine.care_unresolved();
         if care_due(&self.cfg, self.care_last, slot, now, low, care_pending) {
             self.payers
-                .refresh(&self.port, slot)
+                .refresh_at_least(
+                    &self.port,
+                    slot,
+                    self.engine.care_settled_slot().unwrap_or(0),
+                )
                 .await
                 .map_err(|e| e.to_string())?;
             let planned = self.plan_care(slot);
@@ -628,6 +712,11 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
             .poll(&self.port, self.journal.as_ref(), slot)
             .await;
         for (k, o) in &r.outcomes {
+            // A retry window ending without a definitive chain status is
+            // not a program refusal. Do not trigger duty failure handlers.
+            if matches!(o, Outcome::Unresolved { .. }) {
+                continue;
+            }
             if let Outcome::Landed { .. } = o {
                 self.archive.on_landed(k, &mut self.beacon.anchors);
                 self.fold.on_landed(k);
@@ -999,6 +1088,16 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
     /// Alerts and duty reactions for what a step reported: dead and
     /// failed writes, contested bells, retry-ladder rungs.
     fn note_step(&mut self, slot: u64, r: &crate::engine::StepReport) {
+        for event in &r.cancelled_landed {
+            self.alert(
+                slot,
+                "cancelled-late-landed",
+                format!(
+                    "{}: signature {} landed in slot {} after {:?} cancellation; reconcile chain state before re-planning",
+                    event.key, event.sig, event.slot, event.reason
+                ),
+            );
+        }
         for (k, o) in &r.outcomes {
             match o {
                 Outcome::Dead { code, reason } => {
@@ -1023,6 +1122,7 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
                     }
                 }
                 Outcome::Landed { .. } => {}
+                Outcome::Unresolved { .. } => {}
                 Outcome::Failed { code, err, .. } => {
                     // Expected refusals of a re-planned write: an anchor or
                     // seed not there yet, a fold part of an older bell, a
@@ -1073,7 +1173,7 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
             self.engine.ensure(
                 WriteSpec {
                     key: format!("care:{}:{}:{slot}", tr.from, tr.to),
-                    kind: "payer-care",
+                    kind: PAYER_CARE_KIND,
                     tag: 0,
                     class: Class::N,
                     bell: None,
@@ -1091,13 +1191,13 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
 
     /// The status JSON (`GET /v1/status`).
     pub fn status_json(&self, slot: u64, now: i64, bell: Option<u32>) -> Value {
-        let kinds: BTreeMap<&str, Value> = self
+        let kinds: BTreeMap<String, Value> = self
             .engine
             .stats
             .iter()
             .map(|(k, s)| {
                 (
-                    *k,
+                    k.clone(),
                     json!({
                         "writes": s.writes, "versions": s.versions, "landed": s.landed, "failed": s.failed,
                         "dead": s.dead, "fees_charged": s.fees_charged,
@@ -1308,6 +1408,476 @@ pub const W2F_TAGS: [u8; 9] = [
 mod tests {
     use super::*;
 
+    #[test]
+    fn locally_cancelled_landing_creates_distinct_alert() {
+        let cfg = KeeperConfig::new(
+            Address::new_from_array([0x5f; 32]),
+            7,
+            Address::new_from_array([0xbe; 32]),
+        );
+        let journal = Journal::open(std::path::Path::new(":memory:")).unwrap();
+        let mut keeper = Keeper::new(
+            cfg,
+            crate::testkit::FakePort::default(),
+            crate::testkit::FakeDrand::new(),
+            &[1; 32],
+            Some(journal),
+        )
+        .unwrap();
+        let mut report = crate::engine::StepReport::default();
+        report
+            .cancelled_landed
+            .push(crate::engine::CancelledLanding {
+                key: "seed:5:3:42".into(),
+                sig: Signature::default(),
+                slot: 12,
+                reason: crate::engine::CancelReason::SupersededNonce,
+            });
+        keeper.note_step(13, &report);
+        assert_eq!(keeper.alerts.len(), 1);
+        assert_eq!(keeper.alerts[0].1, "cancelled-late-landed");
+        assert!(keeper
+            .journal
+            .as_ref()
+            .unwrap()
+            .alerts("cancelled-late-landed")
+            .unwrap()[0]
+            .1
+            .contains("SupersededNonce"));
+        assert!(report.outcomes.is_empty());
+    }
+
+    fn recovery_attempt(sig: String) -> Attempt {
+        Attempt {
+            sig,
+            write_id: None,
+            tag: None,
+            kind: "anchor".into(),
+            object_key: "anchor:5:3".into(),
+            bell: Some(5),
+            region: Some(3),
+            class: "D".into(),
+            payer: "P".into(),
+            bid_milli: 100,
+            fee: 5_000,
+            cu_limit: 345_000,
+            heap: None,
+            first_valid_slot: 10,
+            sent_slot: 10,
+            last_valid_block_height: None,
+            landed_slot: None,
+            status: "sent".into(),
+            code: None,
+        }
+    }
+
+    #[test]
+    fn restart_rejects_invalid_journal_signature_before_status_lookup() {
+        let valid = recovery_attempt(Signature::default().to_string());
+        let invalid = recovery_attempt("not a signature".into());
+        assert!(recovery_signatures(&[valid, invalid]).is_err());
+    }
+
+    #[test]
+    fn restart_rejects_incomplete_or_excess_status_reply_before_reconciliation() {
+        let attempts = [recovery_attempt(Signature::default().to_string())];
+        assert!(recovery_statuses(&attempts, vec![]).is_err());
+        assert!(recovery_statuses(&attempts, vec![None, None]).is_err());
+        let pairs: Vec<_> = recovery_statuses(&attempts, vec![None]).unwrap().collect();
+        assert_eq!(pairs.len(), 1);
+        assert_eq!(pairs[0].0.sig, attempts[0].sig);
+    }
+
+    #[tokio::test]
+    async fn restart_accounts_for_an_attempt_that_landed_before_adoption() {
+        let program = Address::new_from_array([0x5f; 32]);
+        let cfg = KeeperConfig::new(program, 7, Address::new_from_array([0xbe; 32]));
+        let journal = Journal::open(std::path::Path::new(":memory:")).unwrap();
+        let sig = Signature::default();
+        let attempt = recovery_attempt(sig.to_string());
+        journal.record_attempt(&attempt).unwrap();
+        let port = crate::testkit::FakePort::default();
+        port.set_clock(12, 1_000);
+        port.statuses.lock().unwrap().insert(
+            sig,
+            Status {
+                slot: 11,
+                err: Some("AlreadyDone".into()),
+                code: Some(52),
+            },
+        );
+        let mut k = Keeper::new(
+            cfg,
+            port,
+            crate::testkit::FakeDrand::new(),
+            &[1; 32],
+            Some(journal),
+        )
+        .unwrap();
+        assert_eq!(k.start().await.unwrap(), 0);
+        assert_eq!(k.engine.stats["anchor"].fees_charged, attempt.fee);
+        assert!(k.journal.as_ref().unwrap().in_flight().unwrap().is_empty());
+        // Re-reading startup cannot charge the settled journal row again.
+        assert_eq!(k.start().await.unwrap(), 0);
+        assert_eq!(k.engine.stats["anchor"].fees_charged, attempt.fee);
+    }
+
+    #[tokio::test]
+    async fn restart_records_tag_specific_already_done_as_done_without_replaying_duty() {
+        let program = Address::new_from_array([0x5f; 32]);
+        let cfg = KeeperConfig::new(program, 7, Address::new_from_array([0xbe; 32]));
+        let journal = Journal::open(std::path::Path::new(":memory:")).unwrap();
+        let sig = Signature::from([4u8; 64]);
+        let mut attempt = recovery_attempt(sig.to_string());
+        attempt.write_id = Some(sig.to_string());
+        attempt.tag = Some(tag::POST_ANCHOR);
+        journal.record_attempt(&attempt).unwrap();
+        let port = crate::testkit::FakePort::default();
+        port.set_clock(12, 1_000);
+        port.statuses.lock().unwrap().insert(
+            sig,
+            Status {
+                slot: 11,
+                err: Some("AlreadyDone".into()),
+                code: Some(abi::err::ALREADY_DONE),
+            },
+        );
+        let mut keeper = Keeper::new(
+            cfg,
+            port,
+            crate::testkit::FakeDrand::new(),
+            &[1; 32],
+            Some(journal),
+        )
+        .unwrap();
+        assert_eq!(keeper.start().await.unwrap(), 0);
+        let recovered = keeper
+            .journal
+            .as_ref()
+            .unwrap()
+            .attempts_of("anchor:5:3")
+            .unwrap();
+        assert_eq!(recovered[0].status, "done");
+        assert_eq!(keeper.engine.stats["anchor"].fees_charged, attempt.fee);
+        assert_eq!(keeper.engine.stats["anchor"].landed, 0);
+    }
+
+    #[tokio::test]
+    async fn restart_holds_unknown_signature_when_sibling_already_settled() {
+        let program = Address::new_from_array([0x5f; 32]);
+        let cfg = KeeperConfig::new(program, 7, Address::new_from_array([0xbe; 32]));
+        let journal = Journal::open(std::path::Path::new(":memory:")).unwrap();
+        let mut failed = recovery_attempt(Signature::default().to_string());
+        failed.status = "failed".into();
+        let sig = Signature::from([2u8; 64]);
+        let mut unknown = recovery_attempt(sig.to_string());
+        unknown.payer = Address::new_from_array([1; 32]).to_string();
+        journal.record_attempt(&failed).unwrap();
+        journal.record_attempt(&unknown).unwrap();
+        let port = crate::testkit::FakePort::default();
+        port.set_clock(12, 1_000);
+        let mut keeper = Keeper::new(
+            cfg,
+            port,
+            crate::testkit::FakeDrand::new(),
+            &[1; 32],
+            Some(journal),
+        )
+        .unwrap();
+        assert_eq!(keeper.start().await.unwrap(), 1);
+        let make_spec = |key: &str| WriteSpec {
+            key: key.into(),
+            kind: "anchor",
+            tag: tag::POST_ANCHOR,
+            class: Class::D,
+            bell: Some(5),
+            region: Some(3),
+            build: Arc::new(|_| vec![]),
+            deadline_slot: None,
+            not_before_slot: 0,
+            fixed_payer: None,
+        };
+        assert!(!keeper.engine.ensure(make_spec("anchor:5:3"), 12));
+        assert!(keeper.engine.ensure(make_spec("anchor:5:4"), 12));
+        keeper.port.statuses.lock().unwrap().insert(
+            sig,
+            Status {
+                slot: 13,
+                err: Some("rejected".into()),
+                code: Some(8),
+            },
+        );
+        keeper
+            .engine
+            .poll(&keeper.port, keeper.journal.as_ref(), 13)
+            .await;
+        assert!(keeper.engine.ensure(make_spec("anchor:5:3"), 14));
+        assert!(keeper
+            .journal
+            .as_ref()
+            .unwrap()
+            .in_flight()
+            .unwrap()
+            .is_empty());
+    }
+
+    #[tokio::test]
+    async fn restart_holds_even_a_single_unknown_signature_until_chain_reconciliation() {
+        let program = Address::new_from_array([0x5f; 32]);
+        let cfg = KeeperConfig::new(program, 7, Address::new_from_array([0xbe; 32]));
+        let journal = Journal::open(std::path::Path::new(":memory:")).unwrap();
+        let sig = Signature::from([3u8; 64]);
+        let mut unknown = recovery_attempt(sig.to_string());
+        unknown.write_id = Some(sig.to_string());
+        unknown.payer = Address::new_from_array([1; 32]).to_string();
+        journal.record_attempt(&unknown).unwrap();
+        let port = crate::testkit::FakePort::default();
+        port.set_clock(200, 1_000);
+        let mut keeper = Keeper::new(
+            cfg,
+            port,
+            crate::testkit::FakeDrand::new(),
+            &[1; 32],
+            Some(journal),
+        )
+        .unwrap();
+        assert_eq!(keeper.start().await.unwrap(), 1);
+        let spec = || WriteSpec {
+            key: "anchor:5:3".into(),
+            kind: "anchor",
+            tag: tag::POST_ANCHOR,
+            class: Class::D,
+            bell: Some(5),
+            region: Some(3),
+            build: Arc::new(|_| vec![]),
+            deadline_slot: None,
+            not_before_slot: 0,
+            fixed_payer: None,
+        };
+        assert!(!keeper.engine.ensure(spec(), 200));
+        keeper.port.statuses.lock().unwrap().insert(
+            sig,
+            Status {
+                slot: 201,
+                err: None,
+                code: None,
+            },
+        );
+        let report = keeper
+            .engine
+            .poll(&keeper.port, keeper.journal.as_ref(), 202)
+            .await;
+        assert!(
+            report.outcomes.is_empty(),
+            "a recovered signature is observation only"
+        );
+        assert!(keeper.engine.ensure(spec(), 203));
+        let attempts = keeper
+            .journal
+            .as_ref()
+            .unwrap()
+            .attempts_of("anchor:5:3")
+            .unwrap();
+        assert_eq!(
+            attempts[0].write_id.as_deref(),
+            Some(sig.to_string().as_str())
+        );
+        assert_eq!(attempts[0].status, "landed");
+    }
+
+    #[tokio::test]
+    async fn restart_adopts_old_unknown_attempt_and_later_counts_its_fee_once() {
+        let program = Address::new_from_array([0x5f; 32]);
+        let cfg = KeeperConfig::new(program, 7, Address::new_from_array([0xbe; 32]));
+        let journal = Journal::open(std::path::Path::new(":memory:")).unwrap();
+        let sig = Signature::default();
+        let mut attempt = recovery_attempt(sig.to_string());
+        attempt.payer = Address::new_from_array([1; 32]).to_string();
+        journal.record_attempt(&attempt).unwrap();
+        let port = crate::testkit::FakePort::default();
+        let late = attempt.first_valid_slot + crate::engine::EXPIRY_SLOTS + 1;
+        port.set_clock(late, 1_000);
+        let mut keeper = Keeper::new(
+            cfg,
+            port,
+            crate::testkit::FakeDrand::new(),
+            &[1; 32],
+            Some(journal),
+        )
+        .unwrap();
+
+        assert_eq!(keeper.start().await.unwrap(), 1);
+        assert_eq!(
+            keeper.journal.as_ref().unwrap().in_flight().unwrap().len(),
+            1
+        );
+        assert_eq!(
+            keeper.engine.stats.get("anchor").map(|s| s.fees_charged),
+            None
+        );
+        keeper.port.statuses.lock().unwrap().insert(
+            sig,
+            Status {
+                slot: late,
+                err: None,
+                code: None,
+            },
+        );
+        keeper
+            .engine
+            .poll(&keeper.port, keeper.journal.as_ref(), late + 1)
+            .await;
+        keeper
+            .engine
+            .poll(&keeper.port, keeper.journal.as_ref(), late + 2)
+            .await;
+        assert!(keeper
+            .journal
+            .as_ref()
+            .unwrap()
+            .in_flight()
+            .unwrap()
+            .is_empty());
+        assert_eq!(keeper.engine.stats["anchor"].fees_charged, attempt.fee);
+    }
+
+    #[tokio::test]
+    async fn restart_keeps_unknown_care_and_blocks_a_new_plan_after_151_slots() {
+        let program = Address::new_from_array([0x5f; 32]);
+        let mut cfg = KeeperConfig::new(program, 7, Address::new_from_array([0xbe; 32]));
+        cfg.roles.clear();
+        let journal = Journal::open(std::path::Path::new(":memory:")).unwrap();
+        let mut attempt = recovery_attempt(Signature::default().to_string());
+        attempt.kind = PAYER_CARE_KIND.into();
+        attempt.object_key = "care:old:transfer:1".into();
+        attempt.payer = Address::new_from_array([1; 32]).to_string();
+        journal.record_attempt(&attempt).unwrap();
+        let port = crate::testkit::FakePort::default();
+        port.set_clock(200, 1_000);
+        let mut k = Keeper::new(
+            cfg,
+            port,
+            crate::testkit::FakeDrand::new(),
+            &[1; 32],
+            Some(journal),
+        )
+        .unwrap();
+        assert_eq!(k.start().await.unwrap(), 1);
+        assert!(k.engine.care_unresolved());
+        k.tick().await.unwrap();
+        assert!(
+            k.care_last.is_none(),
+            "adopted unknown care prevents a new plan"
+        );
+        assert!(k.port.sent.lock().unwrap().is_empty());
+        assert_eq!(k.journal.as_ref().unwrap().in_flight().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn legacy_expired_care_requires_finalized_reconciliation() {
+        let program = Address::new_from_array([0x5f; 32]);
+        let mut cfg = KeeperConfig::new(program, 7, Address::new_from_array([0xbe; 32]));
+        cfg.roles.clear();
+        let journal = Journal::open(std::path::Path::new(":memory:")).unwrap();
+        let sig = Signature::default();
+        let mut attempt = recovery_attempt(sig.to_string());
+        attempt.kind = PAYER_CARE_KIND.into();
+        attempt.object_key = "care:old:transfer:1".into();
+        attempt.status = "expired".into();
+        journal.record_attempt(&attempt).unwrap();
+        let port = crate::testkit::FakePort::default();
+        port.set_clock(200, 1_000);
+        let mut k = Keeper::new(
+            cfg,
+            port,
+            crate::testkit::FakeDrand::new(),
+            &[1; 32],
+            Some(journal),
+        )
+        .unwrap();
+        k.start().await.unwrap();
+        assert!(k.care_legacy_unknown);
+        k.tick().await.unwrap();
+        assert!(k.care_last.is_none());
+        assert!(k
+            .journal
+            .as_ref()
+            .unwrap()
+            .has_expired_attempt(PAYER_CARE_KIND)
+            .unwrap());
+
+        // A later finalized result can reconcile the old row. The next
+        // balance read must include the transfer's actual landing slot.
+        k.port.statuses.lock().unwrap().insert(
+            sig,
+            Status {
+                slot: 199,
+                err: None,
+                code: None,
+            },
+        );
+        k.start().await.unwrap();
+        assert!(!k.care_legacy_unknown);
+        assert!(!k
+            .journal
+            .as_ref()
+            .unwrap()
+            .has_expired_attempt(PAYER_CARE_KIND)
+            .unwrap());
+        assert_eq!(k.engine.care_settled_slot(), Some(199));
+        assert_eq!(k.port.min_context_slots.lock().unwrap().last(), Some(&199));
+    }
+
+    #[tokio::test]
+    async fn finalized_failed_care_requires_fresh_fee_balance_at_restart() {
+        use std::sync::atomic::Ordering;
+
+        let program = Address::new_from_array([0x5f; 32]);
+        let cfg = KeeperConfig::new(program, 7, Address::new_from_array([0xbe; 32]));
+        let journal = Journal::open(std::path::Path::new(":memory:")).unwrap();
+        let sig = Signature::default();
+        let mut attempt = recovery_attempt(sig.to_string());
+        attempt.kind = PAYER_CARE_KIND.into();
+        attempt.object_key = "care:old:transfer:1".into();
+        journal.record_attempt(&attempt).unwrap();
+        let port = crate::testkit::FakePort::default();
+        port.set_clock(101, 1_000);
+        port.max_context_slot.store(94, Ordering::SeqCst);
+        port.statuses.lock().unwrap().insert(
+            sig,
+            Status {
+                slot: 95,
+                err: Some("insufficient funds".into()),
+                code: None,
+            },
+        );
+        let mut k = Keeper::new(
+            cfg,
+            port,
+            crate::testkit::FakeDrand::new(),
+            &[1; 32],
+            Some(journal),
+        )
+        .unwrap();
+        assert!(k
+            .start()
+            .await
+            .unwrap_err()
+            .contains("account context too old"));
+        assert_eq!(k.engine.care_settled_slot(), Some(95));
+        k.port.max_context_slot.store(101, Ordering::SeqCst);
+        assert_eq!(k.start().await.unwrap(), 0);
+        assert_eq!(k.port.min_context_slots.lock().unwrap().last(), Some(&95));
+        assert_eq!(
+            k.journal
+                .as_ref()
+                .unwrap()
+                .latest_settled_slot(PAYER_CARE_KIND)
+                .unwrap(),
+            Some(95)
+        );
+    }
+
     /// W6-C (W5-B F1): payer care runs on a game-time cadence as well as a
     /// slot one, at once (after a block) when a pool is below its minimum
     /// and the last care planned top-ups, and never over pending transfers.
@@ -1383,12 +1953,12 @@ mod tests {
     }
 
     /// R-22 (MC §5.1, §5.4): the keeper's budgets follow the season's
-    /// ABI. An MC season (program_version 2) takes the v2 table (`L(kind)`
+    /// ABI. An MC season (program_version 3) takes the v2 table (`L(kind)`
     /// for the new kinds), an M1 season keeps v1's; the status carries the
     /// `conquest` block and `/metrics` the `fk_` lines (§8.2).
     #[tokio::test]
     async fn cq_keeper_follows_the_season_abi() {
-        use fclient::abi::layout::season as ls;
+        use fclient::abi::layout::{h, season as ls};
         let program = Address::new_from_array([0x5F; 32]);
         let mut cfg = KeeperConfig::new(program, 7, Address::new_from_array([0xBE; 32]));
         cfg.roles = vec![];
@@ -1398,6 +1968,12 @@ mod tests {
         let season_bytes = |version: u16| {
             let mut d = vec![0u8; fclient::abi::size::SEASON];
             crate::testkit::put(&mut d, 0, fclient::abi::magic::SEASON);
+            let layout = if version >= abi::PROGRAM_VERSION_V2 {
+                abi::LAYOUT_VERSION_V2
+            } else {
+                1
+            };
+            crate::testkit::put(&mut d, h::LAYOUT_VERSION, &layout.to_le_bytes());
             d[ls::STATUS] = status::SEEDED;
             crate::testkit::put(&mut d, ls::PROGRAM_VERSION, &version.to_le_bytes());
             crate::testkit::put(&mut d, ls::END_BELL, &1_008u32.to_le_bytes());

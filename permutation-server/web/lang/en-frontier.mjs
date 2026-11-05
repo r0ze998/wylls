@@ -474,6 +474,11 @@ export default {
   'シーズンの記録の宛先が、プログラムから導いたものと一致しません': 'The season record\'s address does not match the one derived from the program.',
   '中継サーバーが署名前の取引を書き換えました': 'The relay changed the transaction before signing.',
   '中継サーバーがこの取引の形を受け付けませんでした': 'The relay does not accept a transaction of this shape.',
+  '前の取引の結果が確定していません。署名の結果を確認するまで、新しい操作を送れません。': 'The previous transaction has no final outcome. Check its signature before sending another action.',
+  '取引が送られた可能性があります。署名の結果を確認するまで再送しないでください。': 'The transaction may have been sent. Check its signature before sending it again.',
+  'テストUSDCの配布結果がまだ確認できません。署名の結果を確認するまで再請求しないでください。': 'The test USDC grant has no verified outcome yet. Check its signature before requesting it again.',
+  '賞金の受け取りを送信中です。結果を確認するまで再請求しないでください。': 'The prize claim is being sent. Do not submit another claim before its outcome is known.',
+  '賞金の受け取り結果がまだ確認できません。署名の結果を確認するまで再請求しないでください。': 'The prize claim has no verified outcome yet. Check its signature before claiming again.',
   'この鍵は運営が動かす代理人のものです。代理人の操作は代理人の窓口から送ります。': 'This key belongs to an operator-run agent. Its actions go through the agent wallet.',
   '今日送れる操作の回数を使い切りました。シーズンの日付が変わると、また送れます。': 'You have used up the actions you can send today. You can send more when the season\'s day rolls over.',
   '手数料を立て替える資金が足りません。しばらくしてから試してください。': 'The funds that cover the fees have run short. Try again shortly.',
@@ -500,6 +505,7 @@ export default {
   '記録の種類が違います': 'The record is of another kind.',
   '記録の大きさが違います': 'The record has the wrong size.',
   '記録の形の表が壊れています': 'The table of record layouts is damaged.',
+  'この記録の世界設定と版を確認できません。操作を止めて記録を確認してください。': 'This record’s world mode and version cannot be verified. Stop and check the record before acting.',
   // ---- the shell
   '表示が {0} 秒遅れています。最新の状態が必要な操作の前に再読み込みしてください。': 'This view is {0} s behind. Reload before doing anything that needs the latest state.',
   '送れる操作 残り {0} 回': n => plural(n, '{0} action left to send', '{0} actions left to send'),
@@ -701,6 +707,7 @@ export default {
   '国の議題がいっぱいです。決着を待ってから出してください': 'Your nation has no free proposal slot: wait for one to be decided.',
   'まだ投票や提案はできません（参加から2日たっていないか、国を追放されています）': 'You cannot propose or vote yet (you joined less than two days ago, or you are expelled from your nation).',
   'この議題には今それはできません（受付が終わった、まだ締め切り前、または対象が条件を満たしません）': 'Not possible on this proposal now (voting has closed, it has not closed yet, or its target does not qualify).',
+  'この世界は終わりません。終わりを前提にした操作はできません': 'This world does not end; an action that needs it to end is not possible.',
   'この包囲の先導者だけが行える操作です': 'Only the siege leader can perform this action.',
   // The village handed to the owner's agent (frontier/fdelegation.mjs).
   '代理人に任せています': 'Handed to your agent',

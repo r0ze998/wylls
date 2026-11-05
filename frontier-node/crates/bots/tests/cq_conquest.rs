@@ -125,6 +125,7 @@ fn herald_files(f: &CqFixture, seed: u64, victim_at: (i16, i16, u8)) -> BTreeMap
     use fclient::abi::layout::season as s;
     // The chained header's season id (offset 8, every account).
     sb[8..16].copy_from_slice(&cqfixture::SEASON_ID.to_le_bytes());
+    sb[16..18].copy_from_slice(&fclient::abi::LAYOUT_VERSION_V2.to_le_bytes());
     sb[s::PROGRAM_VERSION..s::PROGRAM_VERSION + 2]
         .copy_from_slice(&fclient::abi::PROGRAM_VERSION_V2.to_le_bytes());
     sb[s::GENESIS_TS..s::GENESIS_TS + 8].copy_from_slice(&GENESIS_TS.to_le_bytes());

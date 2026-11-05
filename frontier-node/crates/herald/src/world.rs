@@ -93,6 +93,7 @@ pub fn world_json(f: &Fold) -> Option<Value> {
     Some(json!({
         "v": 1,
         "season": f.cfg.season_id.to_string(),
+        "continuous": se.world_continues(),
         "rMax": se.r_max,
         "rMaxHard": R_MAX_HARD,
         "genesisRing": se.genesis_ring,

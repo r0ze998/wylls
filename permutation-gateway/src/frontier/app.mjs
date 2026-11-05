@@ -137,7 +137,7 @@ export function createFrontierContext({ cfg, connection, pool, keeper = null, in
     relayed: new ReplayCache({ now }),
     blockhashes: blockhashes ?? new BlockhashBook(connection, { now }),
     funds: funds ?? FundsGuard.forSol({ read: () => pool.refresh(connection), minSol: cfg.minPoolSol, now, log }),
-    /** Signatures this relay sent → {lastValidBlockHeight, kind} (GET /f/tx expiry); the oldest forgotten past 10,000. */
+    /** Signatures this relay sent → {lastValidBlockHeight, kind}; the oldest forgotten past 10,000. */
     sent: boundedMap(10_000),
   };
 }

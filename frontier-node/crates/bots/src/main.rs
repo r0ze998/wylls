@@ -5,11 +5,17 @@
 //!               [--rpc http://127.0.0.1:41010]   (personas' own transactions, frontier-localnet)
 //!               [--seed 1] [--bots 1000] [--first-index 0] [--days 7]
 //!               [--personas default|off|<n per persona>]
-//!               [--journal DIR] [--report FILE] [--invites FILE]
+//!               [--journal DIR] [--validate-existing-journal] [--report FILE] [--invites FILE]
 //!               [--game-hours H] [--scale S] [--control 127.0.0.1:41070]
 //!               [--day0-share F] [--eager-personas]
 //!               [--conquest] [--conquest-personas N] [--s1]
 //! ```
+//!
+//! `--validate-existing-journal` checks a saved marchbook and recorded bot
+//! IDs, then exits without running bots or contacting services. It cannot
+//! restore pace, join, AI, or conquest decisions for a full process resume.
+//! Normal bot startup creates a new marchbook and refuses an existing one;
+//! replaying only the saved marches could repeat earlier decisions.
 //!
 //! `--conquest` (MC §8.6, CQ2-F) turns the conquest layer on: the faction
 //! campaign planner once per game hour from the herald's files, march
@@ -55,6 +61,8 @@ struct Args {
     days: u32,
     personas: Option<u32>,
     journal: Option<PathBuf>,
+    /// Validate a saved marchbook and exit without starting bots.
+    validate_existing_journal: bool,
     report: Option<PathBuf>,
     invites: Option<PathBuf>,
     game_hours: Option<f64>,
@@ -100,12 +108,53 @@ fn mix_of(a: &Args) -> Mix {
 const CONQUEST_BOT_SHARE: f64 = 0.99;
 
 fn usage(e: &str) -> ! {
-    eprintln!("frontier-bots: {e}\nusage: frontier-bots --herald URL --relay URL [--rpc URL] [--seed N] [--bots N] [--first-index N] [--days N] [--personas default|off|N] [--journal DIR] [--report FILE] [--invites FILE] [--game-hours H] [--scale S] [--control 127.0.0.1:PORT] [--day0-share F] [--eager-personas] [--conquest] [--conquest-personas N] [--s1] [--bot-share F] [--join-by-bell N]");
+    eprintln!("frontier-bots: {e}\nusage: frontier-bots --herald URL --relay URL [--rpc URL] [--seed N] [--bots N] [--first-index N] [--days N] [--personas default|off|N] [--journal DIR] [--validate-existing-journal] [--report FILE] [--invites FILE] [--game-hours H] [--scale S] [--control 127.0.0.1:PORT] [--day0-share F] [--eager-personas] [--conquest] [--conquest-personas N] [--s1] [--bot-share F] [--join-by-bell N]");
     std::process::exit(2);
 }
 
 fn parse() -> Args {
     parse_from(std::env::args().skip(1))
+}
+
+fn journal_validation_supported(a: &Args) -> bool {
+    !a.conquest
+        && a.ai.brain.is_none()
+        && a.ai.token_file.is_none()
+        && a.ai.slots.is_none()
+        && !a.ai.follow_council
+        && a.ai.export_seat_key.is_none()
+}
+
+/// Inspect the saved marchbook for this roster without starting a fleet or
+/// contacting the herald. A valid marchbook is not a complete bot checkpoint:
+/// pace, joining, AI and conquest decisions are not recovered by this check.
+fn validate_existing_journal(a: &Args) -> std::io::Result<usize> {
+    let dir = a.journal.as_ref().ok_or_else(|| {
+        std::io::Error::new(std::io::ErrorKind::InvalidInput, "--journal is required")
+    })?;
+    let path = dir.join(format!("marchbook-{}-{}.jsonl", a.seed, a.first_index));
+    let journal = Journal::open_existing(&path)?;
+    let by_bot = Journal::load(journal.path())?;
+    let mix = mix_of(a);
+    let mut current = roster(a.bots, a.seed, &mix);
+    for spec in &mut current {
+        spec.index = spec.index.checked_add(a.first_index).ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "bot roster index overflow",
+            )
+        })?;
+    }
+    if let Some(unknown) = by_bot
+        .keys()
+        .find(|id| !current.iter().any(|spec| spec.index == **id))
+    {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("marchbook contains bot {unknown} outside the current roster"),
+        ));
+    }
+    Ok(by_bot.values().map(Vec::len).sum())
 }
 
 fn parse_from(args: impl Iterator<Item = String>) -> Args {
@@ -119,6 +168,7 @@ fn parse_from(args: impl Iterator<Item = String>) -> Args {
         days: 7,
         personas: None,
         journal: None,
+        validate_existing_journal: false,
         report: None,
         invites: None,
         game_hours: None,
@@ -164,6 +214,7 @@ fn parse_from(args: impl Iterator<Item = String>) -> Args {
                 }
             }
             "--journal" => a.journal = Some(v().into()),
+            "--validate-existing-journal" => a.validate_existing_journal = true,
             "--report" => a.report = Some(v().into()),
             "--invites" => a.invites = Some(v().into()),
             "--game-hours" => {
@@ -229,16 +280,24 @@ fn parse_from(args: impl Iterator<Item = String>) -> Args {
     if a.conquest_personas.is_some() && !a.conquest {
         usage("--conquest-personas needs --conquest");
     }
-    for (n, u) in [("--herald", &a.herald), ("--relay", &a.relay)] {
-        if u.is_empty() {
-            usage(&format!("{n} is required"));
+    if a.validate_existing_journal && a.journal.is_none() {
+        usage("--validate-existing-journal needs --journal DIR");
+    }
+    if a.validate_existing_journal && !journal_validation_supported(&a) {
+        usage("--validate-existing-journal does not validate AI or conquest decision state");
+    }
+    if !a.validate_existing_journal {
+        for (n, u) in [("--herald", &a.herald), ("--relay", &a.relay)] {
+            if u.is_empty() {
+                usage(&format!("{n} is required"));
+            }
         }
     }
     for u in [Some(&a.herald), Some(&a.relay), a.rpc.as_ref()]
         .into_iter()
         .flatten()
     {
-        if !is_loopback_url(u) {
+        if !(a.validate_existing_journal && u.is_empty()) && !is_loopback_url(u) {
             usage(&format!("{u}: loopback http:// URLs only"));
         }
     }
@@ -335,10 +394,17 @@ async fn go<D: frontier_bots::ports::DirectPort + 'static>(a: Args, direct: Opti
         .as_ref()
         .map(|d| d.join(format!("marchbook-{}-{}.jsonl", a.seed, a.first_index)));
     if let Some(p) = &journal_path {
-        match Journal::open(p) {
+        match Journal::create_new(p) {
             Ok(j) => shared = shared.with_journal(j),
             Err(e) => {
-                eprintln!("frontier-bots: {}: {e}", p.display());
+                if e.kind() == std::io::ErrorKind::AlreadyExists {
+                    eprintln!(
+                        "frontier-bots: {} already exists; saved marches cannot restore bot decisions; use --validate-existing-journal to inspect without starting bots",
+                        p.display()
+                    );
+                } else {
+                    eprintln!("frontier-bots: {}: {e}", p.display());
+                }
                 return 1;
             }
         }
@@ -433,7 +499,13 @@ async fn go<D: frontier_bots::ports::DirectPort + 'static>(a: Args, direct: Opti
         match fleet.restore(p) {
             Ok(n) if n > 0 => eprintln!("frontier-bots: restored {n} marches from {}", p.display()),
             Ok(_) => {}
-            Err(e) => eprintln!("frontier-bots: journal {}: {e}", p.display()),
+            Err(e) => {
+                eprintln!(
+                    "frontier-bots: journal {}: {e}; refusing to start bots",
+                    p.display()
+                );
+                return 1;
+            }
         }
     }
     eprintln!(
@@ -500,6 +572,18 @@ async fn go<D: frontier_bots::ports::DirectPort + 'static>(a: Args, direct: Opti
 #[tokio::main]
 async fn main() {
     let a = parse();
+    if a.validate_existing_journal {
+        std::process::exit(match validate_existing_journal(&a) {
+            Ok(n) => {
+                eprintln!("frontier-bots: validated {n} saved marches; bots were not started");
+                0
+            }
+            Err(e) => {
+                eprintln!("frontier-bots: marchbook validation failed: {e}");
+                1
+            }
+        });
+    }
     let code = match a.rpc.clone() {
         Some(url) => {
             // The program id comes from the herald's season file.
@@ -535,7 +619,56 @@ async fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_loopback_url, keep_previous_report, mix_of, parse_from, Args};
+    use super::{
+        is_loopback_url, journal_validation_supported, keep_previous_report, mix_of, parse_from,
+        validate_existing_journal, Args,
+    };
+
+    #[test]
+    fn marchbook_validation_never_claims_ai_or_conquest_decisions() {
+        let base = ["--journal", "/tmp/marchbook", "--validate-existing-journal"];
+        let args = |v: &[&str]| parse_from(v.iter().map(|s| s.to_string()));
+        let mut plain = args(&base);
+        assert!(plain.herald.is_empty() && plain.relay.is_empty());
+        assert!(journal_validation_supported(&plain));
+        plain.conquest = true;
+        assert!(!journal_validation_supported(&plain));
+        plain.conquest = false;
+        plain.ai.follow_council = true;
+        assert!(!journal_validation_supported(&plain));
+        plain.ai.follow_council = false;
+        plain.ai.slots = Some("slots.json".into());
+        assert!(!journal_validation_supported(&plain));
+    }
+
+    #[test]
+    fn journal_validation_only_reads_and_requires_an_existing_file() {
+        let dir = std::env::temp_dir().join(format!(
+            "bots-validate-existing-journal-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let a = parse_from(
+            [
+                "--journal",
+                dir.to_str().unwrap(),
+                "--validate-existing-journal",
+                "--bots",
+                "1",
+            ]
+            .into_iter()
+            .map(str::to_string),
+        );
+        assert_eq!(
+            validate_existing_journal(&a).unwrap_err().kind(),
+            std::io::ErrorKind::NotFound
+        );
+        let path = dir.join("marchbook-1-0.jsonl");
+        std::fs::write(&path, b"").unwrap();
+        assert_eq!(validate_existing_journal(&a).unwrap(), 0);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 
     /// integ-W6t review: a restarted fleet keeps the killed lifetime's
     /// report (`report-life-<n>.json`) instead of overwriting it.

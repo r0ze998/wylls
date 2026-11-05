@@ -320,6 +320,12 @@ pub async fn run<S: Source, P: fclient::ports::ChainPort>(
         let n = match ing.step(&mut src).await {
             Ok(n) => n,
             Err(e) => {
+                if ing.findex.is_poisoned() {
+                    // The in-memory archive may contain an incomplete batch.
+                    // Checkpointing or pulling again could make a gap durable;
+                    // only reopening from its durable manifest is safe.
+                    return Err(format!("herald: ingest store failed; reopen required: {e}"));
+                }
                 eprintln!("herald: ingest: {e}");
                 0
             }

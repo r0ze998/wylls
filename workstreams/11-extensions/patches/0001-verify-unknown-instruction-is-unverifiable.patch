@@ -1,0 +1,208 @@
+diff --git a/frontier-node/crates/verify/src/checks/v2_program.rs b/frontier-node/crates/verify/src/checks/v2_program.rs
+index d117c998..34a88b4d 100644
+--- a/frontier-node/crates/verify/src/checks/v2_program.rs
++++ b/frontier-node/crates/verify/src/checks/v2_program.rs
+@@ -11,6 +11,11 @@
+ //!   params hash of CreateSeason's data (`presets::params_hash`) equals
+ //!   both records'; creation at or after `t_create_min` and inside the
+ //!   creation window; the created program version is the binary's.
++//! - **Known instructions:** every instruction of the program in a
++//!   successful transaction has a v2 tag; another tag is UNVERIFIABLE
++//!   (`MissingData`: no check can judge what it did). So is a call of the
++//!   program from inside another program (a CPI in the logs): the archive
++//!   has no inner instructions.
+ //!
+ //! Codes: `ProgramMismatch`, `RulesetMismatch`, `AnnounceMismatch`.
+ 
+@@ -76,6 +81,52 @@ pub fn run(cx: &mut Ctx) {
+                 "an archived transaction does not invoke the program",
+             );
+         }
++        // Workstream 11 (patch 0001): the program ran inside another
++        // program (a CPI, `invoke [n]` with n > 1 in the logs). The archive
++        // keeps top-level instructions only, so no check judges what that
++        // inner call did: UNVERIFIABLE until inner instructions are
++        // archived (workstream 03, patch 0002).
++        if t.ok {
++            let me = format!("Program {} invoke [", cx.cfg.program);
++            let nested = cx.input.txs.get(i).map_or(0, |r| {
++                r.logs
++                    .iter()
++                    .filter(|l| l.starts_with(&me) && !l.ends_with("[1]"))
++                    .count()
++            });
++            if nested > 0 {
++                cx.missing(
++                    V,
++                    format!("tx#{i}"),
++                    0,
++                    Some(i),
++                    format!(
++                        "the program ran inside another program {nested} time(s); the archive has no inner instructions to judge"
++                    ),
++                );
++            }
++        }
++        // Workstream 11 (patch 0001): an instruction of the program with a
++        // tag this verifier does not know ran in a successful transaction
++        // (a later program's operation): no check judges it, so its effects
++        // are unjudged. UNVERIFIABLE, not a silent PASS.
++        if t.ok {
++            for ix in &t.ixs {
++                if ix.tag().and_then(frontier_abi::v2::Ix::from_tag).is_none() {
++                    cx.missing(
++                        V,
++                        format!("tx#{i}"),
++                        0,
++                        Some(i),
++                        format!(
++                            "instruction {} of the program has a tag this verifier does not know ({:?})",
++                            ix.index,
++                            ix.tag()
++                        ),
++                    );
++                }
++            }
++        }
+     }
+     if let Some(want) = cx.cfg.program_hash {
+         if cx.input.program_hashes.is_empty() {
+diff --git a/frontier-node/crates/verify/tests/unknown_ix.rs b/frontier-node/crates/verify/tests/unknown_ix.rs
+new file mode 100644
+index 00000000..246225c5
+--- /dev/null
++++ b/frontier-node/crates/verify/tests/unknown_ix.rs
+@@ -0,0 +1,133 @@
++//! Workstream 11, patch 0001: a successful transaction whose Frontier
++//! instruction carries a tag this verifier does not know (an operation a
++//! later program may have, e.g. an extension call) is UNVERIFIABLE, not a
++//! silent PASS: no check judges it, so its effects are unjudged. The same
++//! for the program run from inside another program (a CPI): the archive
++//! keeps top-level instructions only.
++
++mod common;
++
++use common::*;
++use verify_core::Verdict;
++
++/// The land fixture with one more Frontier instruction (`tag`, no
++/// accounts) appended to its first successful Frontier transaction.
++fn with_extra_ix(tag: u8) -> verify_core::input::Input {
++    let mut inp = land();
++    let program = inp.cfg.program;
++    let t = inp
++        .txs
++        .iter()
++        .position(|r| {
++            r.err.is_none()
++                && fclient::tx::from_wire(&r.tx).is_ok_and(|tx| {
++                    let keys = &tx.message.account_keys;
++                    tx.message
++                        .instructions
++                        .iter()
++                        .any(|c| keys[c.program_id_index as usize] == program)
++                })
++        })
++        .expect("a successful Frontier transaction");
++    let mut tx = fclient::tx::from_wire(&inp.txs[t].tx).expect("tx");
++    let keys = tx.message.account_keys.clone();
++    let mut extra = tx
++        .message
++        .instructions
++        .iter()
++        .find(|c| keys[c.program_id_index as usize] == program)
++        .cloned()
++        .expect("a Frontier instruction");
++    extra.data = vec![tag];
++    extra.accounts.clear();
++    tx.message.instructions.push(extra);
++    inp.txs[t].tx = fclient::tx::wire(&tx);
++    inp
++}
++
++#[test]
++fn the_fixture_passes_unchanged() {
++    let r = verify_core::verify(&land());
++    assert_eq!(r.verdict, Verdict::Pass, "{}", show(&r));
++}
++
++#[test]
++fn an_unknown_instruction_is_not_a_pass() {
++    assert!(frontier_abi::v2::Ix::from_tag(0xD4).is_none());
++    let r = verify_core::verify(&with_extra_ix(0xD4));
++    println!("verdict with an unknown tag 0xD4: {:?}\n{}", r.verdict, show(&r));
++    assert_ne!(r.verdict, Verdict::Pass, "{}", show(&r));
++    // With patch 0001: UNVERIFIABLE, and only for that reason.
++    assert_eq!(r.verdict, Verdict::Unverifiable, "{}", show(&r));
++    assert!(r
++        .findings
++        .iter()
++        .any(|f| f.check == "V2" && f.code == "MissingData"));
++}
++
++/// The land fixture with one successful transaction's Frontier
++/// instructions moved under another program of the message, the logs
++/// nesting the Frontier frame one level down as a CPI's do.
++pub fn cpi_shaped(inp: &verify_core::input::Input, t: usize) -> Option<verify_core::input::Input> {
++    let program = inp.cfg.program;
++    let mut tx = fclient::tx::from_wire(&inp.txs[t].tx).ok()?;
++    let keys = tx.message.account_keys.clone();
++    let other = tx
++        .message
++        .instructions
++        .iter()
++        .map(|c| c.program_id_index as usize)
++        .find(|&i| keys[i] != program)?;
++    let mut moved = false;
++    for c in tx.message.instructions.iter_mut() {
++        let cpi_ok = c
++            .data
++            .first()
++            .and_then(|t| frontier_abi::v2::Ix::from_tag(*t))
++            .is_some_and(|ix| !ix.top_level_only());
++        if keys[c.program_id_index as usize] == program && cpi_ok {
++            c.program_id_index = other as u8;
++            moved = true;
++        }
++    }
++    if !moved {
++        return None;
++    }
++    let mut out = inp.clone();
++    out.txs[t].tx = fclient::tx::wire(&tx);
++    let wrapper = keys[other];
++    let top = format!("Program {program} invoke [1]");
++    let mut logs = vec![format!("Program {wrapper} invoke [1]")];
++    logs.extend(out.txs[t].logs.iter().map(|l| {
++        if *l == top {
++            format!("Program {program} invoke [2]")
++        } else {
++            l.clone()
++        }
++    }));
++    logs.push(format!("Program {wrapper} success"));
++    out.txs[t].logs = logs;
++    Some(out)
++}
++
++#[test]
++fn an_instruction_run_by_cpi_is_not_a_pass() {
++    let base = land();
++    let mut n = 0;
++    for t in 0..base.txs.len() {
++        if base.txs[t].err.is_some() {
++            continue;
++        }
++        let Some(inp) = cpi_shaped(&base, t) else { continue };
++        let r = verify_core::verify(&inp);
++        assert_ne!(r.verdict, Verdict::Pass, "tx#{t}: {}", show(&r));
++        assert!(
++            r.findings.iter().any(|f| f.check == "V2" && f.code == "MissingData"),
++            "tx#{t}: {}",
++            show(&r)
++        );
++        n += 1;
++    }
++    println!("{n} transactions, each run by CPI alone: none is a PASS");
++    assert!(n > 100);
++}

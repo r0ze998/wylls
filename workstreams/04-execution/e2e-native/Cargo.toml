@@ -1,0 +1,22 @@
+[package]
+name = "wylls-e2e-native"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.89"
+publish = false
+license = "MIT"
+description = "Workstream 04: one-world end-to-end path of the S1 prize season run natively on the host (the permutation-prize program's own process_instruction; System and SPL Token are host stubs, MOCK)"
+
+# Its own workspace and lock (seeded from permutation-prize's lock, so the
+# program is built with the versions it pins). No SBPF build, no LiteSVM.
+[workspace]
+
+[dependencies]
+permutation-prize = { path = "../../../permutation-prize", features = ["no-entrypoint"] }
+frontier-abi = { path = "../../../frontier-abi" }
+permutation-rules = { path = "../../../permutation-rules" }
+solana-program = "=4.0.0"
+solana-get-sysvar = "=1.0.0"
+
+[patch.crates-io]
+solana-get-sysvar = { path = "vendor/solana-get-sysvar" }

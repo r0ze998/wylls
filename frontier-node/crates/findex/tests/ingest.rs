@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use fclient::ports::ChainPort;
-use fclient::{tx, Address, Keypair, Signer};
+use fclient::{tx, Address, Hash, Keypair, Signer};
 use findex::{Findex, LocalnetFeed, RpcPoll};
 use localnet::{server, Config, InProcess};
 
@@ -141,6 +141,7 @@ mod fake_rpc {
     //! public RPC does) over a fixed list of transactions; with
     //! `ignore_before` set it serves the newest page whatever `before` says
     //! (the W1 local node MVP's behaviour).
+    use std::collections::HashMap;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Arc, Mutex};
 
@@ -149,19 +150,38 @@ mod fake_rpc {
     use serde_json::{json, Value};
 
     #[derive(Clone, Default)]
-    pub struct Txs(pub Arc<Mutex<Vec<(String, u64)>>>, pub Arc<AtomicBool>);
+    pub struct Txs(
+        pub Arc<Mutex<Vec<(String, u64)>>>,
+        pub Arc<AtomicBool>,
+        pub Arc<Mutex<HashMap<String, Vec<u8>>>>,
+        pub Arc<AtomicBool>,
+    );
 
     impl Txs {
         pub fn ignore_before(&self) {
             self.1.store(true, Ordering::SeqCst);
+        }
+
+        /// Drops the `n` oldest transactions, as a node pruning its ledger.
+        pub fn prune(&self, n: usize) {
+            self.0.lock().unwrap().drain(..n);
+        }
+
+        pub fn fail_accounts_once(&self) {
+            self.3.store(true, Ordering::SeqCst);
         }
     }
 
     async fn rpc(State(s): State<Txs>, Json(req): Json<Value>) -> Json<Value> {
         let id = req.get("id").cloned().unwrap_or(json!(1));
         let p = req.get("params").cloned().unwrap_or(json!([]));
+        let method = req.get("method").and_then(|m| m.as_str()).unwrap_or("");
+        if method == "getMultipleAccounts" && s.3.swap(false, Ordering::SeqCst) {
+            return Json(json!({"jsonrpc": "2.0", "id": id,
+                "error": {"code": -32000, "message": "temporary account read failure"}}));
+        }
         let all = s.0.lock().unwrap().clone();
-        let result = match req.get("method").and_then(|m| m.as_str()).unwrap_or("") {
+        let result = match method {
             "getSignaturesForAddress" => {
                 let cfg = p.get(1).cloned().unwrap_or(json!({}));
                 let limit = cfg.get("limit").and_then(|x| x.as_u64()).unwrap_or(1000) as usize;
@@ -189,10 +209,28 @@ mod fake_rpc {
                 let sig = p.get(0).and_then(|x| x.as_str()).unwrap_or("");
                 match all.iter().find(|(s, _)| s == sig) {
                     None => Value::Null,
-                    Some((_, slot)) => json!({"slot": slot, "blockTime": 7,
-                        "transaction": [base64::engine::general_purpose::STANDARD.encode([1u8, 2, 3]), "base64"],
-                        "meta": {"err": null, "fee": 5000, "logMessages": [], "computeUnitsConsumed": 9}}),
+                    Some((_, slot)) => {
+                        let wire =
+                            s.2.lock()
+                                .unwrap()
+                                .get(sig)
+                                .cloned()
+                                .unwrap_or_else(|| vec![1, 2, 3]);
+                        json!({"slot": slot, "blockTime": 7,
+                            "transaction": [base64::engine::general_purpose::STANDARD.encode(wire), "base64"],
+                            "meta": {"err": null, "fee": 5000, "logMessages": [], "computeUnitsConsumed": 9}})
+                    }
                 }
+            }
+            "getMultipleAccounts" => {
+                let keys = p
+                    .get(0)
+                    .and_then(|x| x.as_array())
+                    .cloned()
+                    .unwrap_or_default();
+                let account = json!({"data": ["", "base64"], "lamports": 1_000_000,
+                    "owner": fclient::addr::system_program().to_string(), "executable": false});
+                json!({"context": {"slot": 20}, "value": keys.iter().map(|_| account.clone()).collect::<Vec<_>>()})
             }
             _ => Value::Null,
         };
@@ -263,6 +301,78 @@ async fn rpc_poll_refuses_a_server_that_ignores_before() {
     );
 }
 
+/// A node that pruned its history below the archive's last signature:
+/// the pull fails and archives nothing, instead of leaving a silent gap
+/// (or, after a restart, archiving older transactions again).
+#[tokio::test]
+async fn rpc_poll_refuses_a_history_gap() {
+    let txs = fake_rpc::Txs::default();
+    let sig = |i: u8| fclient::ports::Signature::from([i; 64]).to_string();
+    for i in 1..=10u8 {
+        txs.0.lock().unwrap().push((sig(i), i as u64));
+    }
+    let url = fake_rpc::start(txs.clone()).await;
+    let mut poll = RpcPoll::new(url.clone(), Address::new_from_array([1; 32]));
+    poll.page = 4;
+    assert_eq!(findex::Source::pull(&mut poll).await.unwrap().len(), 10);
+    let cur = findex::Source::cursor(&poll);
+    // Continuity holds across later pulls while the node keeps history.
+    for i in 11..=13u8 {
+        txs.0.lock().unwrap().push((sig(i), i as u64));
+    }
+    assert_eq!(findex::Source::pull(&mut poll).await.unwrap().len(), 3);
+    for i in 14..=20u8 {
+        txs.0.lock().unwrap().push((sig(i), i as u64));
+    }
+    // The node forgets everything up to 15: the archive's last (13) and
+    // two transactions after it are gone.
+    txs.prune(15);
+    let e = findex::Source::pull(&mut poll).await.unwrap_err();
+    assert!(
+        matches!(&e, fclient::ports::PortError::Unavailable(m) if m.starts_with("history gap")),
+        "{e:?}"
+    );
+    assert_eq!(
+        findex::Source::cursor(&poll)["rpc_last"],
+        serde_json::json!(sig(13)),
+        "nothing archived past the gap"
+    );
+    // A restarted poller (only the stored cursor) refuses too, instead of
+    // archiving 16..20 after 10.
+    let mut again = RpcPoll::new(url, Address::new_from_array([1; 32]));
+    findex::Source::restore(&mut again, &cur);
+    assert!(findex::Source::pull(&mut again).await.is_err());
+}
+
+/// Nodes may order one slot's signatures differently. A restored poller
+/// (only its cursor) that meets a node ordering `last`'s slot otherwise
+/// must not report a gap: the cursor keeps that slot's archived signatures.
+#[tokio::test]
+async fn rpc_poll_tolerates_another_order_within_a_slot() {
+    let txs = fake_rpc::Txs::default();
+    let sig = |i: u8| fclient::ports::Signature::from([i; 64]).to_string();
+    for i in 1..=3u8 {
+        txs.0.lock().unwrap().push((sig(i), 5));
+    }
+    let url = fake_rpc::start(txs.clone()).await;
+    let mut poll = RpcPoll::new(url.clone(), Address::new_from_array([1; 32]));
+    assert_eq!(findex::Source::pull(&mut poll).await.unwrap().len(), 3);
+    let cur = findex::Source::cursor(&poll);
+    assert_eq!(cur["rpc_last_slot"], serde_json::json!(5));
+    // Another node: slot 5 ordered 1, 3, 2 (oldest first), then a new one.
+    txs.0.lock().unwrap().swap(1, 2);
+    txs.0.lock().unwrap().push((sig(4), 6));
+    let mut again = RpcPoll::new(url.clone(), Address::new_from_array([1; 32]));
+    findex::Source::restore(&mut again, &cur);
+    let got = findex::Source::pull(&mut again).await.unwrap();
+    assert_eq!(got.iter().map(|r| r.slot).collect::<Vec<_>>(), vec![6]);
+    // A cursor without the slot's signatures (older format) still finds
+    // `last` itself when it is met before any unknown one.
+    let mut old = RpcPoll::new(url, Address::new_from_array([1; 32]));
+    findex::Source::restore(&mut old, &serde_json::json!({"rpc_last": sig(4)}));
+    assert!(findex::Source::pull(&mut old).await.unwrap().is_empty());
+}
+
 /// The local chain node honours `before` since W2-C: RpcPoll pages it in
 /// pages smaller than the history and archives every transaction, oldest
 /// first, the same set the in-process feed gives.
@@ -323,4 +433,96 @@ async fn enriched_poll_archives_post_state() {
     assert_eq!(back.iter().map(|r| r.post.len()).sum::<usize>(), 2);
     node.stop();
     let _ = std::fs::remove_dir_all(&d);
+}
+
+/// A finalized account read can fail after RpcPoll has advanced past the
+/// whole batch. Retrying the same Source must fetch every unarchived
+/// signature again, including those in its in-memory `seen` cache.
+#[tokio::test]
+async fn enriched_poll_retries_the_entire_batch_after_account_read_failure() {
+    let txs = fake_rpc::Txs::default();
+    let payer = Keypair::new_from_array([47; 32]);
+    let recipient = Address::new_from_array([48; 32]);
+    let bh = Hash::new_from_array([49; 32]);
+    let add = |slot: u64, lamports: u64| {
+        let t = tx::build(
+            &[tx::transfer(payer.pubkey(), recipient, lamports)],
+            &budget(),
+            &[&payer],
+            &bh,
+        )
+        .unwrap();
+        let sig = tx::signature(&t).to_string();
+        txs.0.lock().unwrap().push((sig.clone(), slot));
+        txs.2.lock().unwrap().insert(sig, tx::wire(&t));
+    };
+    add(1, 1_000);
+    add(2, 2_000);
+    let url = fake_rpc::start(txs.clone()).await;
+    let d = tmp("enriched-retry");
+    let mut fx = Findex::open(&d, fclient::addr::system_program(), None, 1 << 20).unwrap();
+    let mut src = findex::Enriched::new(
+        RpcPoll::new(url.clone(), recipient),
+        url,
+        fclient::addr::system_program(),
+    );
+
+    txs.fail_accounts_once();
+    assert!(fx.ingest(&mut src).await.is_err());
+    assert!(findex::Source::cursor(&src)["rpc_last"].is_null());
+    assert_eq!(fx.archive.last_seq(), 0, "failed batch is not archived");
+    assert_eq!(fx.index.last_seq().unwrap(), 0);
+
+    let got = fx.ingest(&mut src).await.unwrap();
+    assert_eq!(got.iter().map(|r| r.slot).collect::<Vec<_>>(), vec![1, 2]);
+    assert!(got.iter().all(|r| r.post.len() == 1));
+    fx.commit().unwrap();
+    assert_eq!(fx.archive.verify(), Ok(2));
+    assert!(fx.ingest(&mut src).await.unwrap().is_empty());
+
+    add(3, 3_000);
+    let next = fx.ingest(&mut src).await.unwrap();
+    assert_eq!(
+        next.iter().map(|r| (r.seq, r.slot)).collect::<Vec<_>>(),
+        vec![(3, 3)]
+    );
+    fx.commit().unwrap();
+    assert_eq!(fx.archive.verify(), Ok(3));
+    assert_eq!(fx.index.tx_count().unwrap(), (3, 0));
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// Opt-in, against a live node: one RpcPoll pull of `FINDEX_LIVE_PROGRAM`
+/// from `FINDEX_LIVE_RPC` (local only in this repository's runs). It
+/// records what happens, as the ER candidate's reproduction does
+/// (`docs/frontier/er-candidate/`): a program whose accounts were delegated
+/// to a MagicBlock ER has its undelegation callback in a version-1
+/// transaction, which `getTransaction(maxSupportedTransactionVersion: 0)`
+/// refuses (-32015). Set `FINDEX_LIVE_EXPECT=v1-refused` to assert that.
+#[tokio::test]
+async fn rpc_poll_against_a_live_node() {
+    let (Ok(url), Ok(program)) = (
+        std::env::var("FINDEX_LIVE_RPC"),
+        std::env::var("FINDEX_LIVE_PROGRAM"),
+    ) else {
+        return;
+    };
+    let program: Address = program.parse().expect("FINDEX_LIVE_PROGRAM");
+    let mut poll = RpcPoll::new(url, program);
+    let got = findex::Source::pull(&mut poll).await;
+    match &got {
+        Ok(v) => eprintln!("pulled {} transactions", v.len()),
+        Err(e) => eprintln!("pull failed: {e:?}"),
+    }
+    if std::env::var("FINDEX_LIVE_EXPECT").as_deref() == Ok("v1-refused") {
+        assert!(
+            matches!(
+                &got,
+                Err(fclient::ports::PortError::Rpc { code: -32015, .. })
+            ),
+            "{got:?}"
+        );
+        // The pull archives nothing and stops at the same place each time.
+        assert!(findex::Source::pull(&mut poll).await.is_err());
+    }
 }

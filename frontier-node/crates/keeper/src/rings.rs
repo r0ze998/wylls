@@ -28,7 +28,7 @@ use fclient::land::{ring_open_check, RingWait};
 use fclient::ports::{ChainPort, DrandPort, PortResult};
 use permutation_rules::frontier::geometry::ring_provinces;
 
-use crate::engine::{BuildCtx, Engine, WriteSpec};
+use crate::engine::{BuildCtx, CancelReason, Engine, WriteSpec};
 use crate::rounds::Rounds;
 use crate::Tick;
 
@@ -209,7 +209,7 @@ impl RingDuty {
                     if self.seen_seeded.insert(d) {
                         self.seeded_at.push((d, t.slot));
                     }
-                    engine.cancel(&ring_seed_key(d));
+                    engine.cancel(&ring_seed_key(d), CancelReason::ChainStateObserved);
                     want.extend(
                         ring_provinces(d as u32)
                             .into_iter()
@@ -237,7 +237,7 @@ impl RingDuty {
             for (&(d, p, q), acct) in want.iter().zip(got) {
                 if acct.is_some_and(|a| a.owner == t.addrs.program && !a.data.is_empty()) {
                     self.opened.insert((p, q));
-                    engine.cancel(&province_key(p, q));
+                    engine.cancel(&province_key(p, q), CancelReason::ChainStateObserved);
                     continue;
                 }
                 missing.insert(d);

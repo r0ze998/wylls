@@ -1,0 +1,21 @@
+[package]
+name = "wylls-custody"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.89"
+publish = false
+license = "MIT"
+description = "Workstream 10: custody of goods without a change of owner (lots in another's vault, carriers, bounded use), the pure kernel and a model of the program's accounts"
+
+# Own workspace and lock: nothing in the core's workspace changes. The kernel
+# (`lot`, `layout`) is no_std + alloc so it can move into permutation-rules
+# unchanged (patches/0001); the `model` module needs std.
+[workspace]
+
+[features]
+default = ["model"]
+model = ["dep:frontier-abi"]
+
+[dependencies]
+permutation-rules = { path = "../../../permutation-rules" }
+frontier-abi = { path = "../../../frontier-abi", optional = true }

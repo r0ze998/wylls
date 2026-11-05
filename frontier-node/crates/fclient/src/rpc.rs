@@ -82,10 +82,31 @@ impl RpcClient {
         keys: &[Address],
         min_slot: u64,
     ) -> PortResult<Vec<Option<Account>>> {
+        self.get_multiple_accounts_at(keys, min_slot, "confirmed")
+            .await
+    }
+
+    /// Account post-state for archival ingestion. Live chain reads continue
+    /// to use `confirmed` through `get_multiple_accounts`.
+    pub async fn get_finalized_multiple_accounts(
+        &self,
+        keys: &[Address],
+        min_slot: u64,
+    ) -> PortResult<Vec<Option<Account>>> {
+        self.get_multiple_accounts_at(keys, min_slot, "finalized")
+            .await
+    }
+
+    async fn get_multiple_accounts_at(
+        &self,
+        keys: &[Address],
+        min_slot: u64,
+        commitment: &str,
+    ) -> PortResult<Vec<Option<Account>>> {
         let mut out = Vec::with_capacity(keys.len());
         for chunk in keys.chunks(100) {
             let ks: Vec<String> = chunk.iter().map(|k| k.to_string()).collect();
-            let mut cfg = json!({"encoding": "base64", "commitment": "confirmed"});
+            let mut cfg = json!({"encoding": "base64", "commitment": commitment});
             if min_slot > 0 {
                 cfg["minContextSlot"] = json!(min_slot);
             }
@@ -112,8 +133,7 @@ pub struct SigInfo {
 }
 
 impl RpcClient {
-    /// `getSignaturesForAddress(address, {before?, until?, limit})`, newest
-    /// first (W2-F: the pager of `findex`'s RpcPoll ingest).
+    /// `getSignaturesForAddress` at confirmed commitment, newest first.
     pub async fn get_signatures_for_address(
         &self,
         address: &Address,
@@ -121,7 +141,32 @@ impl RpcClient {
         until: Option<&Signature>,
         limit: usize,
     ) -> PortResult<Vec<SigInfo>> {
-        let mut cfg = json!({"limit": limit.clamp(1, 1_000), "commitment": "confirmed"});
+        self.get_signatures_for_address_at(address, before, until, limit, "confirmed")
+            .await
+    }
+
+    /// Finalized signatures for `findex`'s durable RpcPoll cursor. A
+    /// confirmed fork must not enter an append-only archive.
+    pub async fn get_finalized_signatures_for_address(
+        &self,
+        address: &Address,
+        before: Option<&Signature>,
+        until: Option<&Signature>,
+        limit: usize,
+    ) -> PortResult<Vec<SigInfo>> {
+        self.get_signatures_for_address_at(address, before, until, limit, "finalized")
+            .await
+    }
+
+    async fn get_signatures_for_address_at(
+        &self,
+        address: &Address,
+        before: Option<&Signature>,
+        until: Option<&Signature>,
+        limit: usize,
+        commitment: &str,
+    ) -> PortResult<Vec<SigInfo>> {
+        let mut cfg = json!({"limit": limit.clamp(1, 1_000), "commitment": commitment});
         if let Some(b) = before {
             cfg["before"] = json!(b.to_string());
         }
@@ -148,13 +193,26 @@ impl RpcClient {
             .collect()
     }
 
-    /// `getTransaction(sig, base64)` as a [`TxRecord`] with `seq = 0` (the
-    /// caller numbers its feed) and no post-state (a public RPC has none).
+    /// `getTransaction(sig, base64)` at confirmed commitment as a [`TxRecord`]
+    /// with `seq = 0` (the caller numbers its feed) and no post-state.
     pub async fn get_transaction(&self, sig: &Signature) -> PortResult<Option<TxRecord>> {
+        self.get_transaction_at(sig, "confirmed").await
+    }
+
+    /// Finalized transaction bytes and logs for `findex`'s archive.
+    pub async fn get_finalized_transaction(&self, sig: &Signature) -> PortResult<Option<TxRecord>> {
+        self.get_transaction_at(sig, "finalized").await
+    }
+
+    async fn get_transaction_at(
+        &self,
+        sig: &Signature,
+        commitment: &str,
+    ) -> PortResult<Option<TxRecord>> {
         let v = self
             .call(
                 "getTransaction",
-                json!([sig.to_string(), {"encoding": "base64", "commitment": "confirmed", "maxSupportedTransactionVersion": 0}]),
+                json!([sig.to_string(), {"encoding": "base64", "commitment": commitment, "maxSupportedTransactionVersion": 0}]),
             )
             .await?;
         if v.is_null() {
@@ -265,6 +323,44 @@ pub fn code_of(err: &Value) -> Option<u32> {
 
 fn err_string(err: &Value) -> Option<String> {
     (!err.is_null()).then(|| err.to_string())
+}
+
+/// `ChainPort::statuses` is used to end durable writes. A confirmed fork can
+/// still disappear, so only a status explicitly marked finalized is a result.
+fn parse_finalized_status(s: &Value) -> Option<Status> {
+    if s.get("confirmationStatus").and_then(Value::as_str) != Some("finalized") {
+        return None;
+    }
+    let slot = s.get("slot").and_then(Value::as_u64)?;
+    let err = s.get("err")?;
+    if !(err.is_null() || err.is_string() || err.is_object()) {
+        return None;
+    }
+    Some(Status {
+        slot,
+        code: code_of(err),
+        err: err_string(err),
+    })
+}
+
+/// Preserve the block-height expiry bound from `getLatestBlockhash`.
+/// A missing bound is not height zero: callers must not journal a signed
+/// transaction without knowing the bound needed for later reconciliation.
+fn parse_latest_blockhash_result(v: &Value) -> PortResult<(Hash, u64)> {
+    let val = v
+        .get("value")
+        .ok_or_else(|| PortError::Decode("value".into()))?;
+    let hash = val
+        .get("blockhash")
+        .and_then(Value::as_str)
+        .and_then(|s| s.parse().ok())
+        .ok_or_else(|| PortError::Decode("blockhash".into()))?;
+    let last_valid_block_height = val
+        .get("lastValidBlockHeight")
+        .and_then(Value::as_u64)
+        .filter(|height| *height > 0)
+        .ok_or_else(|| PortError::Decode("lastValidBlockHeight".into()))?;
+    Ok((hash, last_valid_block_height))
 }
 
 /// `ChainPort` over JSON-RPC.
@@ -444,16 +540,7 @@ impl ChainPort for RpcPort {
                 .and_then(|x| x.as_array())
                 .ok_or_else(|| PortError::Decode("value".into()))?
             {
-                if s.is_null() {
-                    out.push(None);
-                    continue;
-                }
-                let err = s.get("err").cloned().unwrap_or(Value::Null);
-                out.push(Some(Status {
-                    slot: s.get("slot").and_then(|x| x.as_u64()).unwrap_or(0),
-                    code: code_of(&err),
-                    err: err_string(&err),
-                }));
+                out.push(parse_finalized_status(s));
             }
         }
         Ok(out)
@@ -484,20 +571,7 @@ impl ChainPort for RpcPort {
             .rpc
             .call("getLatestBlockhash", json!([{"commitment": "confirmed"}]))
             .await?;
-        let val = v
-            .get("value")
-            .ok_or_else(|| PortError::Decode("value".into()))?;
-        let h: Hash = val
-            .get("blockhash")
-            .and_then(|x| x.as_str())
-            .and_then(|s| s.parse().ok())
-            .ok_or_else(|| PortError::Decode("blockhash".into()))?;
-        Ok((
-            h,
-            val.get("lastValidBlockHeight")
-                .and_then(|x| x.as_u64())
-                .unwrap_or(0),
-        ))
+        parse_latest_blockhash_result(&v)
     }
 }
 
@@ -520,5 +594,79 @@ mod tests {
         };
         assert_eq!(parse_account(&account_json(&a)).unwrap(), Some(a));
         assert_eq!(parse_account(&Value::Null).unwrap(), None);
+    }
+
+    #[test]
+    fn only_finalized_signature_statuses_end_durable_writes() {
+        let failed = json!({"slot": 9, "confirmationStatus": "confirmed", "err": {"InstructionError": [3, {"Custom": 52}]}});
+        assert_eq!(parse_finalized_status(&Value::Null), None);
+        assert_eq!(parse_finalized_status(&failed), None);
+        assert_eq!(
+            parse_finalized_status(&json!({"slot": 9, "err": null})),
+            None
+        );
+        let success = json!({"slot": 10, "confirmationStatus": "finalized", "err": null});
+        assert_eq!(
+            parse_finalized_status(&success),
+            Some(Status {
+                slot: 10,
+                err: None,
+                code: None
+            })
+        );
+        assert_eq!(
+            parse_finalized_status(&json!({"confirmationStatus": "finalized", "err": null})),
+            None,
+            "missing slot is not slot zero"
+        );
+        assert_eq!(
+            parse_finalized_status(&json!({"slot": 10, "confirmationStatus": "finalized"})),
+            None,
+            "missing error field is not proof of success"
+        );
+        assert_eq!(
+            parse_finalized_status(
+                &json!({"slot": -1, "confirmationStatus": "finalized", "err": null})
+            ),
+            None
+        );
+        assert_eq!(
+            parse_finalized_status(
+                &json!({"slot": 10, "confirmationStatus": "finalized", "err": 42})
+            ),
+            None
+        );
+        let mut finalized_failure = failed;
+        finalized_failure["confirmationStatus"] = json!("finalized");
+        assert_eq!(
+            parse_finalized_status(&finalized_failure),
+            Some(Status {
+                slot: 9,
+                err: Some("{\"InstructionError\":[3,{\"Custom\":52}]}".into()),
+                code: Some(52),
+            })
+        );
+    }
+
+    #[test]
+    fn latest_blockhash_requires_a_valid_block_height_bound() {
+        let hash = Hash::new_from_array([7; 32]);
+        let valid = json!({"value": {"blockhash": hash.to_string(), "lastValidBlockHeight": 123}});
+        assert_eq!(
+            parse_latest_blockhash_result(&valid),
+            Ok((hash.clone(), 123))
+        );
+        for invalid in [
+            json!({"value": {"blockhash": hash.to_string()}}),
+            json!({"value": {"blockhash": hash.to_string(), "lastValidBlockHeight": null}}),
+            json!({"value": {"blockhash": hash.to_string(), "lastValidBlockHeight": "123"}}),
+            json!({"value": {"blockhash": hash.to_string(), "lastValidBlockHeight": -1}}),
+            json!({"value": {"blockhash": hash.to_string(), "lastValidBlockHeight": 0}}),
+        ] {
+            assert_eq!(
+                parse_latest_blockhash_result(&invalid),
+                Err(PortError::Decode("lastValidBlockHeight".into()))
+            );
+        }
     }
 }

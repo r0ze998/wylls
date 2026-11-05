@@ -1,0 +1,9 @@
+# base 4cd901de, verifier WITHOUT patch 0001, test file of patch 0001 added
+test the_fixture_passes_unchanged ... ok
+verdict with an unknown tag 0xD4: Pass
+thread 'an_unknown_instruction_is_not_a_pass' (17664) panicked at crates/verify/tests/unknown_ix.rs:57:5:
+assertion `left != right` failed: Warn V9 PrefundedAddress bell 0 accounts: 1 accounts hold more than their rent (pre-funded or escrow; informational)
+  left: Pass
+ right: Pass
+test an_unknown_instruction_is_not_a_pass ... FAILED
+test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.56s

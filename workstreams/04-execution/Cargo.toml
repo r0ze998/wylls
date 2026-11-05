@@ -1,0 +1,32 @@
+# Workstream ④: the run executor (受付 → 予約 → 施設 → 発送 → 到着 → 履行).
+# Its own workspace and lock, outside the root workspace and frontier-node,
+# so nothing shared is touched (patches to shared code are proposals under
+# patches/). The kernels it reuses come by path, read-only.
+[workspace]
+
+[package]
+name = "wylls-runexec"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.89"
+publish = false
+license = "MIT"
+description = "Durable, lease-fenced executor for multi-turn logistics runs (workstream 04), with a simulated canonical world for fault injection"
+
+[lib]
+name = "runexec"
+
+[[bin]]
+name = "runexec"
+path = "src/main.rs"
+
+[dependencies]
+# Reused kernels: caravan ids and raid constants, the PS2 outcome codes.
+permutation-rules = { path = "../../permutation-rules", features = ["std"] }
+frontier-abi = { path = "../../frontier-abi" }
+# The same pins as frontier-node's keeper journal.
+rusqlite = { version = "=0.40.2", features = ["bundled"] }
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.151"
+sha2 = "=0.10.9"
+hex = "=0.4.3"

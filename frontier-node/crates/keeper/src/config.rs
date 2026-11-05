@@ -353,6 +353,12 @@ impl KeeperConfig {
         }
         if let Some(v) = take("drand") {
             c.drand = strs(v, "drand")?;
+            // https anywhere (verified TLS through curl), plain http only to
+            // loopback (drand-replay); nothing curl could misread.
+            for u in &c.drand {
+                fclient::http::check_curl_url(u.trim_end_matches('/'))
+                    .map_err(|e| format!("`drand` URL {u}: {e}"))?;
+            }
         }
         if let Some(v) = take("roles") {
             c.roles = strs(v, "roles")?;
@@ -500,5 +506,27 @@ mod tests {
         assert!(!c.rest && !KeeperConfig::new(p, 1, b).rest);
         let rest = KeeperConfig::from_toml(&format!("{text}\nrest = true\n")).unwrap();
         assert!(rest.rest);
+    }
+
+    #[test]
+    fn drand_urls_are_https_or_loopback() {
+        let p = Address::new_from_array([5; 32]);
+        let b = Address::new_from_array([6; 32]);
+        let with = |d: &str| {
+            KeeperConfig::from_toml(&format!(
+                "program = \"{p}\"\nseason = 1\nbeneficiary = \"{b}\"\ndrand = [{d}]\n"
+            ))
+        };
+        let ok = with("\"https://api.drand.sh\", \"https://drand.cloudflare.com/\", \"http://127.0.0.1:41020\"").unwrap();
+        assert_eq!(ok.drand.len(), 3);
+        for bad in [
+            "\"http://api.drand.sh\"",              // plain http off loopback
+            "\"https://127.0.0.1:1@api.drand.sh\"", // userinfo
+            "\"https://api.drand.sh/?x\"",
+            "\"ftp://api.drand.sh\"",
+            "\"--insecure\"",
+        ] {
+            assert!(with(bad).is_err(), "{bad}");
+        }
     }
 }

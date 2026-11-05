@@ -190,6 +190,7 @@ const ERROR_TEXT = {
   ProposalOpen: () => L`あなたの提案がまだ投票中です。締め切りのあとで次の提案を出せます`,
   NotVoter: () => L`まだ投票や提案はできません（参加から2日たっていないか、国を追放されています）`,
   ProposalState: () => L`この議題には今それはできません（受付が終わった、まだ締め切り前、または対象が条件を満たしません）`,
+  ContinuousWorld: () => L`この世界は終わりません。終わりを前提にした操作はできません`,
   NotImplemented: () => L`まだ実装されていません`,
 };
 
@@ -218,6 +219,9 @@ const CLIENT_TEXT = {
   RelayMessageChanged: () => L`中継サーバーが署名前の取引を書き換えました`,
   // ---- the relay's refusals (permutation-gateway src/frontier, §8.3; W3-F)
   RelayRejected: () => L`中継サーバーがこの取引の形を受け付けませんでした`,
+  RelayPending: () => L`前の取引の結果が確定していません。署名の結果を確認するまで、新しい操作を送れません。`,
+  RelayOutcomeUnknown: () => L`取引が送られた可能性があります。署名の結果を確認するまで再送しないでください。`,
+  SendOutcomeUnknown: () => L`取引が送られた可能性があります。署名の結果を確認するまで再送しないでください。`,
   UseRevealRoute: () => L`開封は取引ではなく開封の材料として送ります`,
   QuotaExceeded: () => L`今日送れる操作の回数を使い切りました。シーズンの日付が変わると、また送れます。`,
   InviteRequired: () => L`このシーズンに参加するには招待が必要です`,
@@ -244,6 +248,9 @@ const CLIENT_TEXT = {
   LedgerNotPublished: () => L`功績の記録はまだ公開されていません。`,
   NoFaucet: () => L`テストUSDCの配布はローカルのテスト用チェーンだけです`,
   FaucetInFlight: () => L`テストUSDCを送っているところです`,
+  FaucetOutcomeUnknown: () => L`テストUSDCの配布結果がまだ確認できません。署名の結果を確認するまで再請求しないでください。`,
+  ClaimInFlight: () => L`賞金の受け取りを送信中です。結果を確認するまで再請求しないでください。`,
+  ClaimOutcomeUnknown: () => L`賞金の受け取り結果がまだ確認できません。署名の結果を確認するまで再請求しないでください。`,
   EntriesClosed: () => L`この季節の参加費の受付は終わりました。`,
   InvalidPayment: () => L`支払いの取引がこの季節の参加費の形と一致しません`,
   PaymentRequired: () => L`参加には参加費（テストUSDC）の支払いが必要です`,
@@ -313,6 +320,7 @@ const CLIENT_TEXT = {
   WrongSize: () => L`記録の大きさが違います`,
   WrongKind: () => L`記録の種類が違います`,
   BadLayout: () => L`記録の形の表が壊れています`,
+  BadWorldMode: () => L`この記録の世界設定と版を確認できません。操作を止めて記録を確認してください。`,
   BadBackup: () => L`鍵のバックアップを読めませんでした`,
   WalletBadSignature: () => L`ウォレットの署名を確認できませんでした`,
   WalletUnsupported: () => L`このウォレットは使えません`,

@@ -3,6 +3,7 @@
 //! | module | what |
 //! |---|---|
 //! | [`ingest`] | sources: [`ingest::LocalnetFeed`] (any `ChainPort`'s ordered feed), [`ingest::RpcPoll`] (`getSignaturesForAddress` + `getTransaction`) and [`ingest::Enriched`] (post-state fetched for a source without it, before archiving) |
+//! | [`provenance`] | what an archived post-state proves: the exact bytes, a later version (public RPC), the last committed bytes of a delegated account |
 //! | [`archive`] | append-only segment files with a manifest (sha256 per sealed segment, the source cursor) |
 //! | [`index`] | the SQLite entity index: transactions, PS2 records, chain links and heads, account snapshots, event numbering; [`index::Reader`] for a second (read-only) connection |
 //!
@@ -15,6 +16,7 @@
 pub mod archive;
 pub mod index;
 pub mod ingest;
+pub mod provenance;
 
 use std::path::{Path, PathBuf};
 
@@ -57,6 +59,9 @@ pub struct Findex {
     pub dir: PathBuf,
     pub archive: Archive,
     pub index: Index,
+    /// A failed archive or index write leaves the in-memory archive state
+    /// unsuitable for another append. Reopen from the durable manifest.
+    poisoned: bool,
 }
 
 impl Findex {
@@ -102,15 +107,28 @@ impl Findex {
             dir: dir.into(),
             archive,
             index,
+            poisoned: false,
         })
+    }
+
+    /// Whether a failed store write requires dropping and reopening this
+    /// instance before another pull or checkpoint.
+    pub fn is_poisoned(&self) -> bool {
+        self.poisoned
     }
 
     /// Makes every archived record durable (group commit, see
     /// [`archive`]); a no-op when nothing is pending.
     pub fn commit(&mut self) -> Result<(), IngestError> {
-        self.archive
-            .commit()
-            .map_err(|e| IngestError::Store(e.to_string()))
+        if self.poisoned {
+            return Err(IngestError::Store(
+                "findex store failed; reopen required".into(),
+            ));
+        }
+        self.archive.commit().map_err(|e| {
+            self.poisoned = true;
+            IngestError::Store(e.to_string())
+        })
     }
 
     /// Resumes `src` from the archived cursor.
@@ -120,15 +138,23 @@ impl Findex {
 
     /// One pull: archive, then index. Returns the archived records.
     pub async fn ingest<S: Source>(&mut self, src: &mut S) -> Result<Vec<TxRecord>, IngestError> {
+        if self.poisoned {
+            return Err(IngestError::Store(
+                "findex store failed; reopen required".into(),
+            ));
+        }
         let got = src.pull().await.map_err(IngestError::Port)?;
         if got.is_empty() {
             return Ok(vec![]);
         }
-        let stored = self
-            .archive
-            .append(&got, src.cursor())
-            .map_err(|e| IngestError::Store(e.to_string()))?;
-        self.index.add(&stored).map_err(IngestError::Store)?;
+        let stored = self.archive.append(&got, src.cursor()).map_err(|e| {
+            self.poisoned = true;
+            IngestError::Store(e.to_string())
+        })?;
+        self.index.add(&stored).map_err(|e| {
+            self.poisoned = true;
+            IngestError::Store(e)
+        })?;
         Ok(stored)
     }
 }

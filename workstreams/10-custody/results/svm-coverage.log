@@ -1,0 +1,6 @@
+test g13_coverage_exempt_codes_are_reserved_ones ... ok
+test g13_coverage_registry_names_real_tests_that_assert_their_codes ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+exit=0
