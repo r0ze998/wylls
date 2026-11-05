@@ -84,6 +84,19 @@ impl CrashAt {
 /// A journalled `(plaintext, salt)`.
 pub type PlainSalt = (Vec<u8>, Vec<u8>);
 
+/// Finality fields read from the current attempt. The slot is nullable until landing.
+type AttemptFinalityRow = (
+    String,
+    String,
+    Option<String>,
+    String,
+    Option<i64>,
+    Option<i64>,
+);
+
+/// Finality fields read from an already recorded recovery notice.
+type RecoveredFinalityRow = (String, String, Option<String>, String, i64, Option<i64>);
+
 /// A journalled owner reveal material (`owner_material`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OwnerRow {
@@ -428,14 +441,7 @@ impl Journal {
         let slot_i64 = i64::try_from(slot).map_err(|_| "landed slot overflows SQLite integer")?;
         let code_i64 = code.map(i64::from);
         let tx = sql(self.conn.unchecked_transaction())?;
-        let row: Option<(
-            String,
-            String,
-            Option<String>,
-            String,
-            Option<i64>,
-            Option<i64>,
-        )> = sql(tx
+        let row: Option<AttemptFinalityRow> = sql(tx
             .query_row(
                 "SELECT kind, object_key, write_id, status, landed_slot, code
                      FROM attempts WHERE sig = ?1",
@@ -461,7 +467,7 @@ impl Journal {
                 attempt.sig
             ));
         }
-        let notice: Option<(String, String, Option<String>, String, i64, Option<i64>)> = sql(tx
+        let notice: Option<RecoveredFinalityRow> = sql(tx
             .query_row(
                 "SELECT kind, object_key, write_id, status, slot, code
                      FROM recovered_finality WHERE sig = ?1",

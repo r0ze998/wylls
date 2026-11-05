@@ -2381,18 +2381,19 @@ mod tests {
         );
         assert!(!engine.ensure(spec("deadline", Class::D, abi::tag::POST_SEED), 13));
 
-        let mut statuses = port.statuses.lock().unwrap();
-        for sig in [cancelled, late] {
-            statuses.insert(
-                sig,
-                Status {
-                    slot: 14,
-                    err: Some("rejected".into()),
-                    code: Some(8),
-                },
-            );
+        {
+            let mut statuses = port.statuses.lock().unwrap();
+            for sig in [cancelled, late] {
+                statuses.insert(
+                    sig,
+                    Status {
+                        slot: 14,
+                        err: Some("rejected".into()),
+                        code: Some(8),
+                    },
+                );
+            }
         }
-        drop(statuses);
         let settled = engine.poll(&port, None, 14).await;
         assert!(
             matches!(settled.outcomes.as_slice(), [(key, Outcome::Dead { .. })]

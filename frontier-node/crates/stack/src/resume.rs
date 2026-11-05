@@ -330,9 +330,7 @@ fn check_prize_accounts(
     season: Address,
     authority: Address,
     end_bell: u32,
-    pool: &Account,
-    vault: &Account,
-    mint: &Account,
+    [pool, vault, mint]: [&Account; 3],
 ) -> Result<(), String> {
     use prize_pool as p;
     let bad = || "saved prize and on-chain pool/vault/mint disagree; refusing resume".to_string();
@@ -991,9 +989,7 @@ async fn run(
                     addrs.season,
                     authority.pubkey(),
                     season_account.end_bell,
-                    &pool,
-                    &vault,
-                    &mint,
+                    [&pool, &vault, &mint],
                 )?;
             }
             checked_season = Some(season_account);
@@ -1349,7 +1345,13 @@ mod tests {
         };
         let check = |pool: &Account, vault: &Account, mint: &Account| {
             check_prize_accounts(
-                &saved, game, season_id, season, authority, 100, pool, vault, mint,
+                &saved,
+                game,
+                season_id,
+                season,
+                authority,
+                100,
+                [pool, vault, mint],
             )
         };
         assert!(check(&pool, &vault, &mint).is_ok());

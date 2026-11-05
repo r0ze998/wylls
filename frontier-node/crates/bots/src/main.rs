@@ -297,7 +297,7 @@ fn parse_from(args: impl Iterator<Item = String>) -> Args {
         .into_iter()
         .flatten()
     {
-        if !(a.validate_existing_journal && u.is_empty()) && !is_loopback_url(u) {
+        if !(is_loopback_url(u) || a.validate_existing_journal && u.is_empty()) {
             usage(&format!("{u}: loopback http:// URLs only"));
         }
     }

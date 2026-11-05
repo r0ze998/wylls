@@ -58,7 +58,10 @@ impl Schedule {
         // stopped active bots too, which is incompatible with a continuing
         // world. Keep the no-session case finite without imposing a world
         // age limit on active profiles.
-        if day_secs <= 0 || p.sessions == 0 || !(p.day_p > 0.0) {
+        if day_secs <= 0
+            || p.sessions == 0
+            || p.day_p.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater)
+        {
             return i64::MAX;
         }
         loop {

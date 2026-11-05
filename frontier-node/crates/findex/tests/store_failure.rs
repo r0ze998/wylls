@@ -2,7 +2,7 @@
 //! unarchived batch. Recovery starts from the durable manifest, not the
 //! partially advanced in-memory Archive.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use fclient::ports::{PortResult, Signature, TxRecord};
@@ -77,7 +77,7 @@ fn tmp(name: &str) -> PathBuf {
     ))
 }
 
-fn open(dir: &PathBuf, segment_bytes: u64) -> Findex {
+fn open(dir: &Path, segment_bytes: u64) -> Findex {
     Findex::open(dir, Address::new_from_array([23; 32]), None, segment_bytes).unwrap()
 }
 

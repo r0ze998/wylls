@@ -654,7 +654,7 @@ mod tests {
         let valid = json!({"value": {"blockhash": hash.to_string(), "lastValidBlockHeight": 123}});
         assert_eq!(
             parse_latest_blockhash_result(&valid),
-            Ok((hash.clone(), 123))
+            Ok((Hash::new_from_array([7; 32]), 123))
         );
         for invalid in [
             json!({"value": {"blockhash": hash.to_string()}}),
