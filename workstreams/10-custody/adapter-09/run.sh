@@ -72,5 +72,47 @@ mutate "a user's move takes the fullest lot in the vault" $L "        let mut lo
         let mut lot = self.lot(v, owner, r).ok_or(CustodyError::Insufficient)?;
         L::spend_ship("
 mutate "a lot reachable from any facility" $L "        if (vault.p, vault.q) != (at.p, at.q) {" "        if false && (vault.p, vault.q) != (at.p, at.q) {"
+mutate "a use order releases twice for one deposit" $L "        if let Some(l) = self.uses.get(&(job, deposit)) {
+            let same" "        if let Some(l) = self.uses.get(&(job, deposit)).filter(|_| false) {
+            let same"
+mutate "a lot-fed job's claim is not held" $L "                if self.release == Release::Hold && self.w.custody.lot_fed(*job) {" "                if false && self.release == Release::Hold && self.w.custody.lot_fed(*job) {"
+mutate "no rollback when ⑨ refuses after ⑩ accepted" $L "            if r.is_err() {
+                *self = saved;
+            }" "            let _ = saved;"
 mutate "an actor's move may change the owner" $L "            By::Actor(a) if a != owner => return Err(CustodyError::Forbidden.into())," "            By::Actor(a) if a != owner && false => return Err(CustodyError::Forbidden.into()),"
+
+# ⑨'s bridge10 at the pinned commit, beside this adapter, in a temporary
+# tree (⑨'s code is not copied into this branch): same steps, same results.
+echo "== differential: ⑨ bridge10 (992f4ba5) vs this adapter" | tee "$out/diff-bridge10.log"
+pin9=992f4ba5c2a19c3e8d19909677064bb8e1461a15
+tree9=58971113c6c191c7a50f3f25a51b2650a803e481
+root="$(git -C "$here" rev-parse --show-toplevel)"
+git -C "$root" cat-file -e "$pin9^{commit}" 2>/dev/null || git -C "$root" fetch -q origin claude/elegant-bohr-co2uhr
+[ "$(git -C "$root" rev-parse "$pin9:workstreams/09-capacity/bridge10")" = "$tree9" ] || { echo "bridge10 tree mismatch" | tee -a "$out/diff-bridge10.log"; exit 1; }
+dt="$(mktemp -d)"
+trap 'rm -rf "${dt:?}"' EXIT
+git -C "$root" archive HEAD permutation-rules workstreams/09-capacity/kernel workstreams/10-custody/custody | tar -x -C "$dt"
+git -C "$root" archive "$pin9" workstreams/09-capacity/bridge10 | tar -x -C "$dt"
+mkdir -p "$dt/workstreams/10-custody/adapter-09"
+cp -r "$here/Cargo.toml" "$here/Cargo.lock" "$here/rust-toolchain.toml" "$here/src" "$here/diff-bridge10" "$dt/workstreams/10-custody/adapter-09/"
+tgt="$(cargo metadata --offline --format-version 1 --no-deps | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')"
+(cd "$dt/workstreams/10-custody/adapter-09/diff-bridge10" && CARGO_TARGET_DIR="$tgt" DIFF_SEEDS="${DIFF_SEEDS:-1000}" cargo test --offline --release -- --nocapture 2>&1 \
+  | grep -E "^seeds|test result: .* 1 passed|FAILED|panicked" | tee -a "$out/diff-bridge10.log")
+grep -q "1 passed" "$out/diff-bridge10.log" || exit 1
+# The differential catches a broken rollback in the adapter's use path.
+python3 - "$dt/workstreams/10-custody/adapter-09/src/lib.rs" <<'EOF2'
+import sys
+p = sys.argv[1]; s = open(p).read()
+o = """            if r.is_err() {
+                *self = saved;
+            }"""
+assert s.count(o) == 1
+open(p, "w").write(s.replace(o, "            let _ = saved;"))
+EOF2
+mres="$(cd "$dt/workstreams/10-custody/adapter-09/diff-bridge10" && CARGO_TARGET_DIR="$tgt" cargo test --offline --release 2>&1 || true)"
+if grep -q FAILED <<<"$mres"; then
+  echo "caught   no rollback after ⑨ refuses (differential)" | tee -a "$out/diff-bridge10.log"
+else
+  echo "MISSED   no rollback after ⑨ refuses (differential)" | tee -a "$out/diff-bridge10.log"; exit 1
+fi
 echo "ok"

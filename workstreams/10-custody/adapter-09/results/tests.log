@@ -1,21 +1,31 @@
 == tests
-     Running unittests src/lib.rs (/home/user/wylls-10-adapter/permutation-chain/target/release/deps/wylls_custody_adapter_09-2a31cf997041b7be)
+     Running unittests src/lib.rs (/home/user/wylls/permutation-chain/target/release/deps/wylls_custody_adapter_09-61b5e4e7dae36f1d)
 test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
-     Running tests/contract.rs (/home/user/wylls-10-adapter/permutation-chain/target/release/deps/contract-cf6e19ff36834ab3)
+     Running tests/contract.rs (/home/user/wylls/permutation-chain/target/release/deps/contract-7cbf69d3d8942cf5)
 test a_cancelled_job_returns_its_materials_into_the_lot_through_the_reservation ... ok
 test a_fractional_refund_cannot_enter_a_lot_and_goes_elsewhere_without_a_leak ... ok
 test a_facility_loss_ends_each_reservation_exactly_once ... ok
 test a_restart_at_every_step_gives_the_same_world ... ok
 test a_seized_vault_freezes_the_lot_and_the_return_goes_elsewhere ... ok
 test a_retired_job_cannot_be_replayed_into_custody ... ok
-test every_notification_twice_changes_nothing_the_second_time ... ok
 test materials_from_a_lot_keep_their_return_room_until_used_up ... ok
+test every_notification_twice_changes_nothing_the_second_time ... ok
 test nobody_but_the_owner_reaches_a_lot ... ok
 test return_room_holds_against_arrivals_and_quota_cuts ... ok
 test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
-     Running tests/interleave.rs (/home/user/wylls-10-adapter/permutation-chain/target/release/deps/interleave-155c00874c294eeb)
+     Running tests/interleave.rs (/home/user/wylls/permutation-chain/target/release/deps/interleave-e4de7136a26a5f79)
 test random_interleavings_keep_every_reservation_exact ... ok
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.48s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.42s
+     Running tests/use_orders.rs (/home/user/wylls/permutation-chain/target/release/deps/use_orders-b4eb71fa25dfb27d)
+test a_replayed_deposit_calls_ten_no_more ... ok
+test a_cancel_holds_the_mixed_hopper_and_its_return_room ... ok
+test another_owners_lot_feeds_the_job_once_in_whole_units ... ok
+test a_refusal_by_nine_after_ten_accepted_restores_both ... ok
+test own_lot_and_anothers_lot_in_one_job_on_one_store ... ok
+test tens_side_releases_once_per_deposit_even_when_called_directly ... ok
+test tens_refusals_leave_both_unchanged ... ok
+test random_runs_with_both_paths_keep_every_invariant ... ok
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.28s
 test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 seeds 2000: applied 105780 refused 415478 dups 189001 restarts 100611 reserved 7412 returned 2363 released(emptied) 4171 released(forgotten) 0 contended 7015
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.85s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.40s
