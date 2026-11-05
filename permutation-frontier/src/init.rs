@@ -164,6 +164,47 @@ pub fn init_pda<'a>(
     Ok(())
 }
 
+/// Experimental non-Season PDA allocation for NFT records. The caller must
+/// authorize the operation and supply fixed, program-defined seeds. Like the
+/// existing allocator this permits prefunding and never uses CreateAccount.
+/// No current instruction calls this function.
+pub(crate) fn init_nft_pda<'a>(
+    payer: &AccountInfo<'a>,
+    target: &AccountInfo<'a>,
+    seeds: &[&[u8]],
+    space: usize,
+    program: &Pubkey,
+) -> R<()> {
+    if !payer.is_signer || !payer.is_writable || !target.is_writable || !is_absent(target) {
+        return Err(BAD_ACCOUNT);
+    }
+    let (expected, bump) = Pubkey::try_find_program_address(seeds, program).ok_or(BAD_ACCOUNT)?;
+    if target.key != &expected {
+        return Err(FrontierError::BadAddress.into());
+    }
+    top_up(payer, target, rent(space)?)?;
+    let bump_seed = [bump];
+    let mut signer = seeds.to_vec();
+    signer.push(&bump_seed);
+    let mut d = Vec::with_capacity(12);
+    d.extend_from_slice(&sys_ix::ALLOCATE.to_le_bytes());
+    d.extend_from_slice(&(space as u64).to_le_bytes());
+    invoke_signed(
+        &system_ix(vec![AccountMeta::new(*target.key, true)], d),
+        core::slice::from_ref(target),
+        &[&signer],
+    )?;
+    let mut d = Vec::with_capacity(36);
+    d.extend_from_slice(&sys_ix::ASSIGN.to_le_bytes());
+    d.extend_from_slice(program.as_ref());
+    invoke_signed(
+        &system_ix(vec![AccountMeta::new(*target.key, true)], d),
+        core::slice::from_ref(target),
+        &[&signer],
+    )?;
+    Ok(())
+}
+
 fn allocate_with_seed<'a>(
     target: &AccountInfo<'a>,
     season: &AccountInfo<'a>,

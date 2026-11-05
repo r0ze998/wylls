@@ -35,6 +35,8 @@ oracle = []
 # `drand-replay --test-key` and its own QUICKNET_PK_HASH; marker
 # PSF_TEST_BEACON_BUILD, never deployable.
 test-beacon = []
+# Local development only: unallocated wire tag, no deployment or stable ABI.
+nft-experimental = ["program"]
 
 # Dependency sections: owned by the integrator (M1 contract §3.4, I-55); the
 # set below is the one listed in docs/frontier/m1/W2-A-NOTES.md.

@@ -682,6 +682,71 @@ pub fn harvest(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     )
 }
 
+/// Experimental NFT-authorized Harvest. The legacy Harvest remains unchanged.
+/// The caller has already decoded the exact experimental instruction data;
+/// this route is only reachable in an `nft-experimental` build. The registered
+/// NFT Citizen creation and verifier support are not yet implemented.
+#[cfg(feature = "nft-experimental")]
+pub(crate) fn harvest_nft(p: &Pubkey, a: &[AccountInfo], generation: u32) -> R<()> {
+    let [actor, _payer, season, citizen, holding, province, config, link, asset, resident] = a
+    else {
+        return Err(FrontierError::TooManyAccounts.into());
+    };
+    // Reuse the legacy Harvest account flags on its six game accounts; the
+    // four additional proof accounts may not introduce writable locks.
+    check_accounts(V2Ix::Harvest, &a[..6], None)?;
+    if config.is_writable || link.is_writable || asset.is_writable || resident.is_writable {
+        return Err(BAD_ACCOUNT);
+    }
+    let now = prologue::now()?;
+    let hdr = prologue::season(season, p, Some(&RULESET_HASH), &[S::STATUS_RUNNING], now.ts)?;
+    crate::resident_binding::authorize(
+        p, config, link, citizen, asset, resident, actor, generation, now.ts, true, hdr.id,
+    )?;
+    // Authorization checked AssetV1's layout.  Record whether the current
+    // owner or its current session acted without trusting instruction data.
+    let by_session = {
+        let data = asset.try_borrow_data()?;
+        data.get(1..33).ok_or(BAD_ACCOUNT)? != actor.key.as_ref()
+    };
+    let start = ap::PlayerStart {
+        season: hdr,
+        by_session,
+        citizen_tag: addr::citizen_tag(citizen.key.as_array()),
+    };
+    let pc = {
+        let mut cd = citizen.try_borrow_mut_data()?;
+        let pc = start.finish(&mut cd, now.ts)?;
+        Rw(&mut cd).set_i64(C::LAST_ACTION_TS, now.ts)?;
+        pc
+    };
+    let pl = Player {
+        now,
+        ctx: addr::ctx(&key(season), &p.to_bytes()),
+        pc,
+    };
+    let hh = owned_holding(p, &pl, holding, citizen)?;
+    live(&hh)?;
+    own_province_unlocked(p, &pl, &hh, province)?;
+    finality(&pl, &hh, holding, citizen, province)?;
+    let h = load_touched(holding, pl.now.ts)?;
+    let digest = {
+        let mut hd = holding.try_borrow_mut_data()?;
+        write_holding(&mut hd, &h, pl.now.ts)?;
+        stores_digest(&hd)?
+    };
+    let record_key = pqs_key(hh.p, hh.q, hh.site)?;
+    emit3(
+        Kind::HARVEST,
+        pl.pc.now_bell,
+        &record_key,
+        &digest,
+        citizen,
+        holding,
+        None,
+    )
+}
+
 /// 0x41 Build(item): P + `[holding w] [province r|w]` (MC §5.6: the
 /// holding's own Province, always listed for the capture lock; writable
 /// for walls and the tier-up, which write its site mirror, `BadAccount`

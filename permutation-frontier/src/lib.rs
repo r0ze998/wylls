@@ -59,10 +59,14 @@ pub mod markers;
 
 #[cfg(feature = "program")]
 pub mod init;
+#[cfg(feature = "nft-experimental")]
+mod nft_registration;
 #[cfg(feature = "program")]
 pub mod proc;
 #[cfg(feature = "program")]
 pub mod prologue;
+#[cfg(feature = "program")]
+pub mod resident_binding;
 
 pub use error::{CqError, Error, FrontierError, R};
 
@@ -114,6 +118,10 @@ pub fn dispatch(
     accounts: &[solana_program::account_info::AccountInfo],
     data: &[u8],
 ) -> R<()> {
+    #[cfg(feature = "nft-experimental")]
+    if data.first() == Some(&frontier_abi::resident_wire::EXPERIMENTAL_TAG) {
+        return nft_registration::dispatch(program_id, accounts, data);
+    }
     use frontier_abi::v2::Ix;
     use proc::*;
     markers::touch();

@@ -39,14 +39,24 @@ export const GATE_REFUSALS = Object.freeze({
 export class ResidentBindings {
   constructor({ file = null, entries = {} } = {}) {
     this.file = file;
+    this.writeFailed = false;
     this.map = new Map(Object.entries(file && existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : entries));
   }
-  assetOf(citizen) { return this.map.get(citizen) ?? null; }
+  assetOf(citizen) {
+    if (this.writeFailed) throw new Error('resident bindings unavailable after a failed write');
+    return this.map.get(citizen) ?? null;
+  }
   bind(citizen, asset) {
+    if (this.writeFailed) throw new Error('resident bindings unavailable after a failed write');
     const had = this.map.get(citizen);
     if (had && had !== asset) throw new Error(`citizen ${citizen} is bound to ${had}; a binding never moves`);
-    this.map.set(citizen, asset);
-    if (this.file) { writeFileSync(`${this.file}.tmp`, JSON.stringify(Object.fromEntries(this.map), null, 1)); renameSync(`${this.file}.tmp`, this.file); }
+    const next = new Map(this.map);
+    next.set(citizen, asset);
+    if (this.file) {
+      try { writeFileSync(`${this.file}.tmp`, JSON.stringify(Object.fromEntries(next), null, 1)); renameSync(`${this.file}.tmp`, this.file); }
+      catch (e) { this.writeFailed = true; throw e; }
+    }
+    this.map = next;
   }
 }
 

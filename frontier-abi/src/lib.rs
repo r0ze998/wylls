@@ -47,6 +47,11 @@ pub mod log;
 pub mod presets;
 pub mod prologue;
 pub mod rest_model;
+pub mod resident_auth;
+pub mod resident_binding;
+pub mod resident_join_candidate;
+pub mod resident_policy;
+pub mod resident_wire;
 pub mod tags;
 pub mod v2;
 
