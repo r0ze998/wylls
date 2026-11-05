@@ -35,9 +35,21 @@ const keyOf = (agentId, requestId, name, mandateVersion) => `${agentId}|${reques
  * Any other code is not known to be a refusal, so it is treated as an unknown outcome and retried later.
  */
 const REFUSAL_CODES = new Set([...Object.values(ERR), 'RateLimited']);
-/** An agent_act answer as {status, code, signature, replayed}; status null when the outcome is not known. */
-const resultOf = s => (s?.status ? { status: s.status, code: s.error?.code ?? null, signature: s.signature ?? null, replayed: s.replayed === true }
-  : { status: REFUSAL_CODES.has(s?.error?.code) ? OUTCOME.REFUSED : null, code: s?.error?.code ?? 'NoAnswer', signature: null, replayed: false });
+/**
+ * An agent_act answer as {status, code, signature, replayed, sent, facts}; status null when the outcome is not known.
+ * `sent` is the relay's own word (④ 0a5473af: whether signed bytes left); null when the relay predates it. `facts` are
+ * the signing facts fixed when the bytes left (signature, lastValidBlockHeight, slotFloor, signedAt).
+ */
+const resultOf = s => (s?.status ? { status: s.status, code: s.error?.code ?? null, signature: s.signature ?? null, replayed: s.replayed === true, sent: typeof s.sent === 'boolean' ? s.sent : null,
+  facts: s.sent === true ? { lastValidBlockHeight: s.lastValidBlockHeight ?? null, slotFloor: s.slotFloor ?? null, signedAt: s.signedAt ?? null } : null }
+  : { status: REFUSAL_CODES.has(s?.error?.code) ? OUTCOME.REFUSED : null, code: s?.error?.code ?? 'NoAnswer', signature: null, replayed: false, sent: false, facts: null });
+/**
+ * A `failed` answer that may have left the relay signed: the relay says `sent: true` (it then gives the signature), or
+ * it is an older relay that does not say (④ actionFateView reads such a record as result unknown). It is followed
+ * like a sent act — held, counted, never answered with a new requestId — until the chain proves it had no effect.
+ * Only `failed` with `sent: false` is "nothing left" (a new attempt may follow).
+ */
+export const mayHaveLeft = a => a.status === OUTCOME.FAILED && a.sent !== false;
 const LIVE = new Set([OUTCOME.SENT, OUTCOME.LANDED, OUTCOME.CONTRIBUTED, OUTCOME.UNKNOWN, OUTCOME.ACTING]);
 /** The last journal entry of `step` for a contribution. */
 const lastOf = (journal, key, step, pred = () => true) => journal.entries.findLast(e => e.key === key && e.step === step && pred(e)) ?? null;
@@ -76,8 +88,16 @@ export async function verifyPending({ journal, txState, world, guard = null }) {
     const sent = lastOf(journal, key, 'act-result', e => !!e.signature);
     if (!sent) continue;
     let tx;
-    try { tx = await txState(sent.signature); } catch (e) { tx = { state: 'unknown', why: String(e?.message ?? e) }; }
-    const base = { step: 'verify', key, requestId: begin?.requestId, signature: sent.signature, tx: tx.state, ...(tx.code ? { txCode: tx.code } : {}) };
+    // The requestId lets a fate-based txState (model-api/src/fate-reader.mjs) read GET /f/agent/fate by key.
+    try { tx = await txState(sent.signature, { requestId: begin?.attemptId ?? sent.attemptId }); } catch (e) { tx = { state: 'unknown', fateState: 'unqueryable', why: String(e?.message ?? e) }; }
+    const base = { step: 'verify', key, requestId: begin?.requestId, signature: sent.signature, tx: tx.state, ...(tx.code ? { txCode: tx.code } : {}), ...(tx.fateState ? { fateState: tx.fateState } : {}), ...(tx.relayState ? { relayTx: tx.relayState } : {}), ...(tx.source ? { readBy: tx.source } : {}) };
+    // An end that frees the act for a new attempt must be proved. GET /f/tx's own `expired` is not (④ EXECUTION-CONTRACT
+    // §2: confirmed height only, no history check): it is held as unknown, never re-sent on its word.
+    if (tx.state === 'expired' && tx.proved !== true) {
+      journal.append({ ...base, tx: 'unknown', relayTx: 'expired', outcome: OUTCOME.UNKNOWN, why: 'GET /f/tx says expired, which is not a proof that it never landed; held' });
+      out.push({ key, outcome: OUTCOME.UNKNOWN, fateState: tx.fateState ?? 'unknown' });
+      continue;
+    }
     if (tx.state === 'failed' || tx.state === 'expired') {
       // Nothing moved: the executor's game reservation comes back (the relay's own hold is released by its reconcile).
       guard?.release(`game:${begin?.attemptId}`);
@@ -86,7 +106,13 @@ export async function verifyPending({ journal, txState, world, guard = null }) {
       out.push({ key, outcome: tx.state });
       continue;
     }
-    if (tx.state !== 'landed') { journal.append({ ...base, outcome: OUTCOME.UNKNOWN, why: 'the chain has no answer yet; not counted as done' }); out.push({ key, outcome: OUTCOME.UNKNOWN }); continue; }
+    if (tx.state !== 'landed') {
+      // pending, result unknown and could-not-ask are all "not decided", recorded apart (fateState) and all held.
+      const why = tx.fateState === 'unqueryable' ? 'the chain could not be asked; says nothing about the transaction' : tx.fateState === 'unknown' ? 'result unknown: past its lifetime, absence not provable; held' : 'the chain has no final answer yet; not counted as done';
+      journal.append({ ...base, outcome: OUTCOME.UNKNOWN, why });
+      out.push({ key, outcome: OUTCOME.UNKNOWN, fateState: tx.fateState ?? 'unknown' });
+      continue;
+    }
     // Landed. The effect, from the public world: the reserve of that unit grew by the troops sent since the baseline.
     const f = begin?.args?.action?.fields ?? {};
     const effect = begin?.args?.action?.name === 'Train' ? (() => {
@@ -162,8 +188,9 @@ export async function participate({ mcp, world, txState, meter = null, mandate, 
     if (unreachable) { J({ step: 'act-error', key: b.key, requestId: b.requestId, attemptId: b.args.requestId, outcome: OUTCOME.UNKNOWN, code: 'RelayUnreachable', resumed: true }); report.resumed.push({ key: b.key, outcome: OUTCOME.UNKNOWN }); continue; }
     const a = resultOf(r.structuredContent);
     if (!a.status) { J({ step: 'act-error', key: b.key, requestId: b.requestId, attemptId: b.args.requestId, outcome: OUTCOME.UNKNOWN, code: a.code, resumed: true }); report.resumed.push({ key: b.key, outcome: OUTCOME.UNKNOWN, code: a.code }); continue; }
-    J({ step: 'act-result', key: b.key, requestId: b.requestId, attemptId: b.args.requestId, outcome: a.status, code: a.code, signature: a.signature, replayed: a.replayed, cost: b.cost, worldSec: b.worldSec, resumed: true });
-    report.resumed.push({ key: b.key, outcome: a.status, replayed: a.replayed });
+    const left = mayHaveLeft(a);
+    J({ step: 'act-result', key: b.key, requestId: b.requestId, attemptId: b.args.requestId, outcome: left ? OUTCOME.SENT : a.status, ...(left ? { relayStatus: OUTCOME.FAILED } : {}), sent: a.sent, code: a.code, signature: a.signature, ...(a.facts ?? {}), replayed: a.replayed, cost: b.cost, worldSec: b.worldSec, resumed: true });
+    report.resumed.push({ key: b.key, outcome: left ? OUTCOME.UNKNOWN : a.status, replayed: a.replayed, ...(left ? { code: a.code, why: 'failed after the bytes may have left: followed, not re-sent' } : {}) });
   }
 
   if (!grant.ok) {
@@ -299,10 +326,20 @@ export async function participate({ mcp, world, txState, meter = null, mandate, 
       Object.assign(item, { outcome: OUTCOME.UNKNOWN, code: a.code, reason: `中継の答え（${a.code}）からは、送られたか分からない。次の回に同じ requestId で確かめる` });
       continue;
     }
+    const left = mayHaveLeft(a);
+    if (left) {
+      // The relay failed after the bytes may have left: it can still land. Held and counted like a sent act; the chain
+      // decides (verifyPending), never a new requestId on the next run.
+      commit();
+      J({ step: 'act-result', key, requestId: p.requestId, attemptId: args.requestId, outcome: OUTCOME.SENT, relayStatus: OUTCOME.FAILED, sent: a.sent, code: a.code, signature: a.signature, ...(a.facts ?? {}), replayed: a.replayed, cost: g.cost, worldSec: nowSec, attempts });
+      Object.assign(item, { outcome: OUTCOME.UNKNOWN, code: a.code, signature: a.signature, command: g.command, attempts,
+        reason: a.signature ? `中継は失敗と答えたが（${a.code}）、署名済みで送られている。着地するかを鎖で確かめるまで、送り直さない` : `中継は失敗と答えたが（${a.code}）、送られたかを示していない（古い中継）。送り直さず保留する` });
+      continue;
+    }
     if (a.status !== 'sent') S?.guard.release(`game:${args.requestId}`);
-    J({ step: 'act-result', key, requestId: p.requestId, attemptId: args.requestId, outcome: a.status, code: a.code, signature: a.signature, replayed: a.replayed, cost: g.cost, worldSec: nowSec, attempts });
+    J({ step: 'act-result', key, requestId: p.requestId, attemptId: args.requestId, outcome: a.status, sent: a.sent, code: a.code, signature: a.signature, ...(a.facts ?? {}), replayed: a.replayed, cost: g.cost, worldSec: nowSec, attempts });
     Object.assign(item, { outcome: a.status, code: a.code, signature: a.signature, command: g.command, attempts,
-      reason: a.status === 'sent' ? '中継が受け付けて送った。着地と効果は次の確認で見る' : `中継が断った（${a.code}）。何も送られず、何も請求されない`,
+      reason: a.status === 'sent' ? '中継が受け付けて送った。着地と効果は次の確認で見る' : a.status === OUTCOME.FAILED ? `中継が送る前に失敗した（${a.code}）。何も送られていない` : `中継が断った（${a.code}）。何も送られず、何も請求されない`,
       ...(a.status !== 'sent' ? { ownerDecision: ['AgentStopped', 'StaleMode', 'StalePolicy', 'SessionNotDelegated', 'BadCapability'].includes(a.code) ? '本人の停止・方針・委任・接続トークンの変更による。続けるかは本人が決める' : null } : {}) });
     if (a.status === 'sent') commit();
     // A refusal for a stale version, a stop or a revoked token means nothing else in this run can go either.

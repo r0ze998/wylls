@@ -26,8 +26,8 @@ export const RECEIPT_FIELDS = Object.freeze({
   'acts[].status':          { local: 'agent_act answer (sent | refused | failed | unknown)', from4: false },
   'acts[].code':            { local: 'agent_act error code', from4: false },
   'acts[].signature':       { local: 'agent_act answer', from4: false },
-  'acts[].signedAt':        { local: null, from4: true, why: 'when the agent key signed (the relay does not expose it)' },
-  'acts[].fate':            { local: 'GET /f/tx/{signature}: landed | failed | expired | unknown', from4: false },
+  'acts[].signedAt':        { local: 'GET /f/agent/fate (④ 0a5473af gateway) when a fate reader is given; else null', from4: true, why: 'when the agent key signed: fixed by the gateway as the bytes left' },
+  'acts[].fate':            { local: 'GET /f/agent/fate: ④\'s seven states; without a reader GET /f/tx, whose `expired` is read as unknown (not a proof)', from4: false },
   'acts[].gameCharge':      { local: 'agent_view.holds by idempotency key (reserved); settled/released only via history', from4: false },
   'acts[].cancellable':     { local: null, from4: true, why: 'whether a signed, unsent request can still be dropped' },
   'inference.status':       { local: 'api-decider record', from4: false },
@@ -48,7 +48,7 @@ const STAGES = Object.freeze(['before-sign', 'signed-unsent', 'sent']);
  * @param {Function} o.txState   async signature → {state}
  * @param {object}   [o.costs]   RunCostMock (inference)
  */
-export function localReceiptPort({ view, txState, costs = null }) {
+export function localReceiptPort({ view, txState, costs = null, fate = null }) {
   const runs = new Map();
   const port = {
     kind: 'local adapter (④ RunReceipt not received)',
@@ -100,7 +100,20 @@ export function localReceiptPort({ view, txState, costs = null }) {
     /** The chain's answer for every signature of the run (read only). */
     async refreshFates(runId) {
       const r = must(runId);
-      for (const a of r.acts) if (a.signature) { const t = await txState(a.signature); a.fate = t?.state ?? 'unknown'; }
+      for (const a of r.acts) {
+        if (fate && a.idempotencyKey) {
+          // ④'s seven states, and the signing facts the gateway fixed (signedAt, the lifetime as cancel.until).
+          const f = await fate(r.agentId, a.idempotencyKey);
+          a.fate = f.state;
+          if (f.signature) Object.assign(a, { signature: a.signature ?? f.signature, signedAt: f.signedAt ?? null, lastValidBlockHeight: f.lastValidBlockHeight ?? null });
+          continue;
+        }
+        if (!a.signature) continue;
+        let t = null;
+        try { t = await txState(a.signature); } catch { t = null; }
+        // GET /f/tx's `expired` is by the confirmed height only: not ④'s proof, so not a final fate here.
+        a.fate = t?.state === 'expired' ? 'unknown' : (t?.state ?? 'unknown');
+      }
       if (r.cancel?.result === 'stopped') port.cancelPhase(runId);
       return structuredClone(r);
     },
@@ -110,7 +123,7 @@ export function localReceiptPort({ view, txState, costs = null }) {
       if (!STAGES.includes(stage)) throw Object.assign(new Error(`stage: ${STAGES.join(' | ')}`), { code: 'BadStage' });
       if (stage === 'sent') { r.cancel = { stage, result: 'Irrevocable', phase: null, until: null }; return r.cancel; }
       if (stage === 'signed-unsent') { r.cancel = { stage, result: 'NotSupported', why: 'needs ④: the relay signs and sends in one step today', phase: null, until: null }; return r.cancel; }
-      r.cancel = { stage, result: 'stopped', phase: 'StoppingNew', until: null, basis: 'the relay\'s agent_act answers and GET /f/tx fates read by ⑤ (not ④\'s run store)' };
+      r.cancel = { stage, result: 'stopped', phase: 'StoppingNew', until: null, basis: 'the relay\'s agent_act answers and fates read by ⑤ (GET /f/agent/fate, else GET /f/tx; not ④\'s run store)' };
       if (r.state === 'open') r.state = 'cancelled';
       return r.cancel;
     },
@@ -123,11 +136,14 @@ export function localReceiptPort({ view, txState, costs = null }) {
       const r = must(runId);
       if (!r.cancel) return null;
       // Which record the phase rests on: NOT ④'s run store or attempt table (not connected).
-      const basis = 'the relay\'s agent_act answers and GET /f/tx fates read by ⑤ (not ④\'s run store)';
+      const basis = 'the relay\'s agent_act answers and fates read by ⑤ (GET /f/agent/fate, else GET /f/tx; not ④\'s run store)';
       if (r.state === 'cancelled' && r.acts.length === 0) { r.cancel.phase = 'Completed'; return { phase: 'Completed', effects: [], basis }; }
       const open = r.acts.filter(a => a.status === 'sent' && !['landed', 'failed', 'expired'].includes(a.fate));
-      // `until` stays null: the relay does not expose valid_until, and ⑤ does not guess it from the clock.
-      const out = open.length ? { phase: 'AwaitingSigned', until: null, waitingOn: open.map(a => a.signature), why: 'until is ④\'s (valid_until): not exposed by the relay', basis }
+      // `until`: the latest lifetime among the open acts, as the gateway fixed it (a BLOCK HEIGHT); null when any is
+      // unknown — ⑤ does not guess it from the clock.
+      const lives = open.map(a => a.lastValidBlockHeight ?? null);
+      const until = lives.length && lives.every(Number.isSafeInteger) ? { lastValidBlockHeight: Math.max(...lives) } : null;
+      const out = open.length ? { phase: 'AwaitingSigned', until, waitingOn: open.map(a => a.signature), why: until ? 'until: the gateway\'s lastValidBlockHeight (GET /f/agent/fate)' : 'until unknown: no fate reader, or an act without a recorded lifetime', basis }
         : { phase: 'Completed', effects: r.acts.filter(a => a.fate === 'landed').map(a => ({ requestId: a.requestId, action: a.action, signature: a.signature })), basis };
       r.cancel.phase = out.phase;
       return out;

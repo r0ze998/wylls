@@ -3,6 +3,7 @@
 import { FileCostLedger } from '../../src/cost-store.mjs';
 import { ProcessLease } from '../../src/process-lease.mjs';
 import { sleepSync } from '../../src/file-mutex.mjs';
+import { FileActsRegistry } from '../../src/acts-registry.mjs';
 
 const [mode, dir, agentId, ...rest] = process.argv.slice(2);
 const out = o => process.stdout.write(JSON.stringify({ pid: process.pid, ...o }) + '\n');
@@ -41,4 +42,14 @@ if (mode === 'race') {
   sleepSync(Number(rest[1]));
   try { ledger.reserve('zombie#0', '100'); out({ reserved: true }); } catch (e) { out({ reserved: false, code: e.code }); }
   try { lease.renew(); out({ renewed: true }); } catch (e) { out({ renewed: false, code: e.code }); }
+}
+else if (mode === 'acts') {
+  // Register the same acts as fast as possible (④'s registry contract, shared directory): ids, and refusals by code.
+  const [runId, count] = [rest[0], Number(rest[1])];
+  const reg = new FileActsRegistry({ dir });
+  const ids = [], refused = [];
+  for (let i = 0; i < count; i++) {
+    try { ids.push(reg.register({ agentId, key: `ai:p05.k${i}`, source: 'ai', runId })); } catch (e) { refused.push(e.code ?? e.message); }
+  }
+  out({ ids, refused });
 }

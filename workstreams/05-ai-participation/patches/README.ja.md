@@ -77,3 +77,7 @@
 - 確かめたこと：0004 だけで、`permutation-gateway` 全体が 2,532 件、通過 2,531、失敗 0、スキップ 1。状態ファイルの保存回数・冪等の記録・履歴が増えないことを試験で確かめた。
 - 当てる順：**0003 の後**（0004 → 0003 は当たらない）。組み合わせとツリーは `model-api/CONTRACT-DIFF-4.ja.md` §9。
 - 説明：`model-api/WHOAMI-PROPOSAL-4.ja.md`。採るかは④が決める。
+
+## ④ `77c5cbe2` の上に当てる場合（2026-11-05）
+
+④の `claude/gallant-ride-cunptv` `77c5cbe2` には 0001 がもう入っている。0002b と 0004 は④の変更（署名の事実・`GET /f/agent/fate`）とぶつかるので、作り直した物を `on-ws04-77c5cbe2/` に置いた（`git am` で 0002c → 0003 → 0004b の順）。当てた後の `permutation-gateway` の木は `f30edf74b3198634e6b13b92840b0405f0c2e539`。詳しくは `model-api/FATE-ACTS-5.ja.md` §4。
