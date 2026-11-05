@@ -16,6 +16,28 @@
 //! - [`registry`]: 06's registry export, checked, and pinned references.
 //! - [`map`]: the fields that mean the same thing on both sides, and the
 //!   ones that do not (refused, never approximated).
+//!
+//! The two statuses do not convert, in either direction (a contract test:
+//! the blocks after this one must not compile; this one, with the same
+//! imports, must, so their failure is the missing conversion):
+//!
+//! ```
+//! use wylls_creation_bridge::registry::PublicationStatus;
+//! use wylls_ext_kernel::registry::Status;
+//! let _both = (PublicationStatus::Withdrawn, Status::Paused);
+//! ```
+//!
+//! ```compile_fail
+//! use wylls_creation_bridge::registry::PublicationStatus;
+//! use wylls_ext_kernel::registry::Status;
+//! let s: Status = PublicationStatus::Withdrawn.into();
+//! ```
+//!
+//! ```compile_fail
+//! use wylls_creation_bridge::registry::PublicationStatus;
+//! use wylls_ext_kernel::registry::Status;
+//! let p: PublicationStatus = Status::Paused.into();
+//! ```
 
 pub mod canonical;
 pub mod envelope;

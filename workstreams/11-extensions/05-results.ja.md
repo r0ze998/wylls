@@ -107,3 +107,9 @@ ext-kernel: **43 件すべて通過**、clippy `-D warnings` 通過（`results/e
 - V0E の最初の版は、記録済みの `march-program` を UNVERIFIABLE にした（⑱の試験 `the_fixtures_have_nothing_for_v0` が失敗）。原因は、口座を閉じるだけの取引（CloseArrivalDay 24、CloseArrivalSlot 66）が post-state なしで記録されていること。post-state が一つも無い取引は、命令がすべて `Close…` なら報告しないようにした。
 - 切れたログの 71 件が、切れた位置がプログラムの呼出しの行より前だったため `MissingLogs` と報告されていた（PASS ではないが理由が違う）。`Log truncated` があれば `TruncatedLogs` とするようにした。
 - 探索の試験（`results/ws11_probe2.rs.txt`）は 30 分の上限で止まった（land は全部、march-program は一部）。修正前後の比較は、同じ試験ファイルで V0E を外した build と入れた build を比べて行った。
+
+## 8. r6 の追加検証（2026-11-06）
+
+[13](13-verifier-r6.ja.md) §4。要点: 検証器（統合候補 `ef63544c`＋0004＋0005）45 件、creation-bridge（署名を検証しない試験）6 件＋doctest 3 件、ext-kernel 43 件、すべて通過。鍵の生成・導出・署名を伴う試験（`tamper`、`coverage`、`record`、`march_fixture_is_fresh`）と、⑥の署名を検証する `k03`–`k07` は今回実行していない。
+
+**開発中の試験側の誤り（記録）:** 印なしの末尾欠落の試験は、最初はプログラムの最後の `success` 行で切っていたため記録が一つも失われず、修正前も「PASS が正しい」入力だった（345 件すべて PASS）。最後の `Program data:` 行で切り、記録が少なくとも一つ失われる入力に直した（修正前 338 件中 134 件が PASS）。テキスト置換が `cargo fmt` 後の文面に当たらず、一度は直す前の試験を再実行していた。

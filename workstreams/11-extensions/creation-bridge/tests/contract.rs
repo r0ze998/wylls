@@ -323,3 +323,27 @@ fn k10_no_eleven_manifest_becomes_a_06_definition() {
         Err(BridgeError::NotMappable { .. })
     ));
 }
+
+#[test]
+fn k11_publication_and_execution_status_stay_apart() {
+    use wylls_ext_kernel::registry::Status;
+    // 06's three publication states, 11's three execution states: two
+    // types, each exhaustive here, so a fourth state on either side breaks
+    // this test instead of slipping into the other's meaning.
+    let publication = |s: PublicationStatus| match s {
+        PublicationStatus::Listed => "listed",
+        PublicationStatus::Suspended => "suspended",
+        PublicationStatus::Withdrawn => "withdrawn",
+    };
+    let execution = |s: Status| match s {
+        Status::Active => "Active",
+        Status::Paused => "Paused",
+        Status::Revoked => "Revoked",
+    };
+    assert_eq!(publication(PublicationStatus::Withdrawn), "withdrawn");
+    assert_eq!(execution(Status::Paused), "Paused");
+    assert_ne!(
+        std::any::type_name::<PublicationStatus>(),
+        std::any::type_name::<Status>()
+    );
+}
