@@ -83,7 +83,12 @@ fn cq_offsets_match_the_contract_text() {
         ("retire_hosts", L::RETIRE_HOSTS, 74),
         ("relations", L::RELATIONS, 75),
         ("flags", L::FLAGS, 76),
-        ("rsv", L::RSV, 77),
+        // The historical MC contract has `77 rsv 51`. This isolated
+        // continuing-world candidate uses byte 80 for its mode while
+        // retaining zero-reserved bytes on both sides of it.
+        ("rsv_pre_continuous", L::RSV_PRE_CONTINUOUS, 77),
+        ("continuous", L::CONTINUOUS, 80),
+        ("rsv_tail", L::RSV, 81),
     ];
     for (name, got, want) in cq {
         assert_eq!(got, want, "conquest block {name}");
