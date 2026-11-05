@@ -3,7 +3,7 @@
   "scenario": "boundary-crossing",
   "description": "評価期間の境界（240）をまたぐ世界。境界の前に開いた計画と出発した隊商が、境界の後に着き・完成し・使われる。境界の後に襲われる隊商、最後まで移動中の隊商がある",
   "A": {
-   "verdictHash": "6290875f8760285a63adce380dbe5af8dbaec0c0888e448fa195bbf7438477c1",
+   "verdictHash": "df6fec1f3a9d2a87bb2947d9a4881dee9435e2d28cbfd4c7f2d5ee1d1d03e395",
    "closeAt": 480,
    "closedBy": "schedule",
    "winners": [
@@ -18,7 +18,7 @@
    "optionsAt": 360
   },
   "B": {
-   "verdictHash": "fced6dfe43a98dc7b82ebac68aa2e4b32552aa385e6237586c4a832a79a18498",
+   "verdictHash": "a78e4344234c46c1f2e34903ad23c839698a3543f456a3ccede6193a167569fc",
    "closeAt": 480,
    "closedBy": "schedule",
    "winners": [
@@ -39,7 +39,7 @@
    "optionsAt": 360
   },
   "C": {
-   "verdictHash": "c5a0df197c9cb67dd7ea849011bfda796bc4ec8887480b500d75edffd238a096",
+   "verdictHash": "8914183272e007abb37aa4e1783188ec3ae216bd9c3aed1cfc31ccb330e65bb7",
    "closeAt": 304,
    "closedBy": "joint:J-north-fort",
    "winners": [
@@ -64,7 +64,7 @@
   "scenario": "chapter-no-sabotage",
   "description": "妨害の比較の基準。協力の基本形に、要塞の動き（50 で n1 が逆転、300 で n0 が再逆転）を足す",
   "A": {
-   "verdictHash": "994ae1a9a468afd621201257d96f0c7a9676f443db760ef668c970edc3efaa6b",
+   "verdictHash": "7fdfc416da68af46e111c25e0243abefe51b6cf9d6c8d9aec2945df1b28cfe9a",
    "closeAt": 480,
    "closedBy": "schedule",
    "winners": [
@@ -79,7 +79,7 @@
    "optionsAt": 240
   },
   "B": {
-   "verdictHash": "01c15225b367b81b3e89d749154844ea3d2c43341ff30659d7c740483b284c2e",
+   "verdictHash": "7c8edbfd33015d84e37811063e1b0fa37c04a2ff06ffafce59d21802859c8335",
    "closeAt": 480,
    "closedBy": "schedule",
    "winners": [
@@ -100,7 +100,7 @@
    "optionsAt": 240
   },
   "C": {
-   "verdictHash": "7a670165cd5175f33340217994f05a40f35cc101358e113f2ac28731d5523501",
+   "verdictHash": "8def165478f4fb979e546619dbf0d9c3ea15cf9b3c5e59c78c46fc26094ba356",
    "closeAt": 144,
    "closedBy": "joint:J-north-fort",
    "winners": [
@@ -125,7 +125,7 @@
   "scenario": "chapter-sabotage",
   "description": "不利な国の妨害。50 の時点で負けている n0 が、n2 の石材の隊商を奪い（n1 が補う）、完成した砦を利用の前に奪う",
   "A": {
-   "verdictHash": "6ef05c824e38e06e1a4f7e808cdf479b7bee1e0664e7737c257acdb2303b87d1",
+   "verdictHash": "fd0566f2afd7f6562163b6cdf0e31fd2bc2b73dafab5ce6d44d53d68ba33d2e4",
    "closeAt": 480,
    "closedBy": "schedule",
    "winners": [
@@ -140,7 +140,7 @@
    "optionsAt": 240
   },
   "B": {
-   "verdictHash": "d34a22b5d1c92321a61d7a26df2276cd4944a2bd903d4988490fc480ae130430",
+   "verdictHash": "50d0c928f95a493827eda45b16a2e718e48d48e0576f591a8cd0cdd344d4b453",
    "closeAt": 480,
    "closedBy": "schedule",
    "winners": [
@@ -163,7 +163,7 @@
    "optionsAt": 240
   },
   "C": {
-   "verdictHash": "48f66a01413773cdea2a42e9bb9efc6cdfebbee17ec310d46a103584a3602b89",
+   "verdictHash": "84461d455a72450330093ebdec2f485b670bb5ad9a952e3be6be8eea7afa5b65",
    "closeAt": 480,
    "closedBy": "schedule",
    "winners": [
@@ -190,7 +190,7 @@
   "scenario": "coalition-exclusion",
   "description": "固定連合の排除。n0・n1・n2 の連合が先に要求量を満たす。n3 の石材は余り、n4 の木材は完成後に着く",
   "A": {
-   "verdictHash": "efd2ba89ecf83b5e84747d7246343c35e22de2a17f3a80c3657ef2803aee288e",
+   "verdictHash": "d89bdddfcb73ec787c6c026679b2229442222d7b404f4490a5ef981af48678c2",
    "closeAt": 480,
    "closedBy": "schedule",
    "winners": [
@@ -205,7 +205,7 @@
    "optionsAt": 100
   },
   "B": {
-   "verdictHash": "6740fe8bb491b361333b044c4e9b60c5dac4ce535c89e41d10f208eae16366f9",
+   "verdictHash": "65a4b702919c7f414e6f7a14ae6d699b51e98edf6210d349d03cd4391996362b",
    "closeAt": 480,
    "closedBy": "schedule",
    "winners": [
@@ -226,7 +226,7 @@
    "optionsAt": 100
   },
   "C": {
-   "verdictHash": "c1d23113ad4916d94195020b1481b5b599dabf54b61b8bc63a2910ed13f1c2c9",
+   "verdictHash": "3536a21084a522d1debf91e6604fd2cb2d9b007202f96ffd2eb95ce6796d0690",
    "closeAt": 109,
    "closedBy": "joint:J-north-fort",
    "winners": [
@@ -251,7 +251,7 @@
   "scenario": "coop-north-fort",
   "description": "協力の基本形。n1 が計画を開き、n2・n3 が隊商で材料を送り、完成後に n1 と n2 の人が守備に入る。要塞の数は動かない",
   "A": {
-   "verdictHash": "f57d9c524dcd50f92460e641243cd128f94dcd02b2036eb2bbd3e9445825b0c8",
+   "verdictHash": "4f35033a27aa7b6288f5ba4872db21db9ee1968683b3047248d4f2228f4f909d",
    "closeAt": 480,
    "closedBy": "schedule",
    "winners": [
@@ -266,7 +266,7 @@
    "optionsAt": 240
   },
   "B": {
-   "verdictHash": "499ac4d5ad2e6d6173c3118d53a04e545895d2687e733d763617f55c79948026",
+   "verdictHash": "9f5fe72fb347c3ed830651e60b7cc2ae3f39e4d4d3065a330fdd30464ba705ed",
    "closeAt": 480,
    "closedBy": "schedule",
    "winners": [
@@ -287,7 +287,7 @@
    "optionsAt": 240
   },
   "C": {
-   "verdictHash": "bcd3d32004ee8a52de7cc29a7c0aac3e5ae071668dcd4300ca2149f715515ac7",
+   "verdictHash": "d8d9b3b1170e45379bb332c9e0c46de4faf34856f7b14599c2870e665bbe10fe",
    "closeAt": 144,
    "closedBy": "joint:J-north-fort",
    "winners": [
@@ -309,10 +309,10 @@
   }
  },
  {
-  "scenario": "coop-with-tower",
-  "description": "⑭の塔の入力つき。協力の基本形に、n4-0 の塔の目撃と、それを n1-1 が使った記録を足す",
+  "scenario": "coop-with-sighting",
+  "description": "仮の目撃の入力つき（出どころは未定：S1 の物見櫓は目撃を記録せず、⑭の中央塔に目撃の働きはない）。協力の基本形に、n4-0 の目撃と、それを n1-1 が使った記録を足す",
   "A": {
-   "verdictHash": "b85ec025f290bcd6dd8a20f5f5c38ba02ca05cd5d2133a13dc69a77fd5da6cc7",
+   "verdictHash": "78a41e705112e478903f0304555b20035f47c478358804d32c0163be89d53b83",
    "closeAt": 480,
    "closedBy": "schedule",
    "winners": [
@@ -327,7 +327,7 @@
    "optionsAt": 240
   },
   "B": {
-   "verdictHash": "4fc6316f8f474bb83ead6bc7e42021b49c19c7d3341c37ad2b4f3ca0e45775d4",
+   "verdictHash": "c4cb28c5da6aabd16ca4ff98b3af517b6b26f218e2f6e376f49c3bb4c4ccbd0c",
    "closeAt": 480,
    "closedBy": "schedule",
    "winners": [
@@ -348,7 +348,7 @@
    "optionsAt": 240
   },
   "C": {
-   "verdictHash": "dc333662502ae784fa9279dd2f981a0e2476794e0e92b97d85f1029fbb56a1cc",
+   "verdictHash": "2f17b8ca23351e5e93ab244770c0945b950135f1b551378f28ca9ae3b7c93d95",
    "closeAt": 144,
    "closedBy": "joint:J-north-fort",
    "winners": [
@@ -373,7 +373,7 @@
   "scenario": "double-spend",
   "description": "同じ荷の二重消費。n1-0 の木材400のうち300は砦に入った。残り100を超えて別の計画に入れる・送ることは拒否される",
   "A": {
-   "verdictHash": "a6a41627f9c272e047cbed62d6291e3d949f6842416492acba5d4fd0b31a2d83",
+   "verdictHash": "b0297162a1a8fc3789db9e91c0bff7554c15b85d86dbfd94a926d18dd8943c46",
    "closeAt": 480,
    "closedBy": "schedule",
    "winners": [
@@ -388,7 +388,7 @@
    "optionsAt": 240
   },
   "B": {
-   "verdictHash": "070df3b1271cfdb72149fa8bab186160dd1376a96259f119e5b422541011a39c",
+   "verdictHash": "bdf7d34b4e531bc58ccab62e628a07707af89d9a5d740e5696c10a1d04162c34",
    "closeAt": 480,
    "closedBy": "schedule",
    "winners": [
@@ -409,7 +409,7 @@
    "optionsAt": 240
   },
   "C": {
-   "verdictHash": "b6e7fe2e31a47840776ca53cb0e5dde43f99dd0b7f54a70ebd6f6c3f8f12b735",
+   "verdictHash": "0bc74fd04f50802e5053f1061cec1c1cbfa48e38cebb3c32e5d36a08a0210149",
    "closeAt": 144,
    "closedBy": "joint:J-north-fort",
    "winners": [
@@ -434,7 +434,7 @@
   "scenario": "late-arrival",
   "description": "期限後の到着。n3 の木材が戦期の終わり（480）より後に着く。完成もその後",
   "A": {
-   "verdictHash": "229e715e06efcfc463498d7d5fbfb9599c84126496173672ecf68155420a6c39",
+   "verdictHash": "573f6c8286915165942a499bd58658b681a598138b7de8087d68803cb925ed41",
    "closeAt": 480,
    "closedBy": "schedule",
    "winners": [
@@ -449,7 +449,7 @@
    "optionsAt": 240
   },
   "B": {
-   "verdictHash": "6d53cd90726e9779acc13f394e2b714a797831227a08a22353218e383319c0d5",
+   "verdictHash": "2fc85e2ab3c49abb051f266d511be2ddd0aa6191f6907a32d0f481ec9a11542a",
    "closeAt": 480,
    "closedBy": "schedule",
    "winners": [
@@ -475,7 +475,7 @@
    "optionsAt": 240
   },
   "C": {
-   "verdictHash": "57e635bed78a87d83eb06a26b5f0c8f1d8e3c0cf82f5432a8296c8e25371f12f",
+   "verdictHash": "fa1e5ea9fcba43aed9c3e57829fb867127abafcea30ed84e43cfe87c3efa0517",
    "closeAt": 480,
    "closedBy": "schedule",
    "winners": [
@@ -505,7 +505,7 @@
   "scenario": "roles-midway",
   "description": "新規参加者・小国・敗者・協力しない人の選択肢。80 で new-0 が n5 に入る。85 に砦が完成し、まだ誰も使っていない。90 の時点の選択肢を見る",
   "A": {
-   "verdictHash": "77379f939f6c34af08c4d6d025550096ec9cb912c27213355bbfbcd159d4c931",
+   "verdictHash": "ce40289819e1a4fbc08ab9966e5121b9fcbbd08f4ed6813311e58466a9135f50",
    "closeAt": 480,
    "closedBy": "schedule",
    "winners": [
@@ -520,7 +520,7 @@
    "optionsAt": 90
   },
   "B": {
-   "verdictHash": "b501bc163d575e521e4d5bc8f80c010b7190f28d8ac111544d2bc3fd667a459c",
+   "verdictHash": "21306b974fc0c1d72ea94869ce05364e699932a587d1844a524394e0d231176c",
    "closeAt": 480,
    "closedBy": "schedule",
    "winners": [
@@ -541,7 +541,7 @@
    "optionsAt": 90
   },
   "C": {
-   "verdictHash": "38a26ae9b0657bc572892ecae9dad5a096ed5ba0e3030723edf99d881c8f225b",
+   "verdictHash": "535effa15d4552d3a17bde9de117fdbf55c9c07535713f7e700df9700cca32d3",
    "closeAt": 480,
    "closedBy": "schedule",
    "winners": [
@@ -566,7 +566,7 @@
   "scenario": "round-trip-wash",
   "description": "往復取引と自己取引。n2-2 と n3-2 が木材100を5往復（取引10件、配送1,000）、n2-2 は自分の別アカウントとも往復した後、100だけを国の柵に入れる",
   "A": {
-   "verdictHash": "1851e2e7f49647b431e89d8e9dc8201d089fa1539e174d4effaac75623b19792",
+   "verdictHash": "6170f8137033f8ef45bdb9c4a2abffe51e3bd8aeebab4f2ada6438e4d9f9f81b",
    "closeAt": 480,
    "closedBy": "schedule",
    "winners": [
@@ -581,7 +581,7 @@
    "optionsAt": 240
   },
   "B": {
-   "verdictHash": "459ecd79afccdd5b3a340e9a7c52a419742a5d7bf678c8cd5ff934e1eaaa60fc",
+   "verdictHash": "c8de7eeb16f34f8d2b9022c6f06b8502e67eca77a847279d1a8803e4f56ce284",
    "closeAt": 480,
    "closedBy": "schedule",
    "winners": [
@@ -602,7 +602,7 @@
    "optionsAt": 240
   },
   "C": {
-   "verdictHash": "c07d7bc98c6fe71500f628768c09fed5801d9c5a6b291a9e536df8f1637ba392",
+   "verdictHash": "af286a58dfa83ce06d94251851ff2990786d9086da8c489fda6b24999c0ff086",
    "closeAt": 144,
    "closedBy": "joint:J-north-fort",
    "winners": [
@@ -627,7 +627,7 @@
   "scenario": "rush-clients-laundered",
   "description": "従う2国を使った早期終了（その1）。n0 が自国の材料を n4・n5 に送り、それを砦に入れさせる",
   "A": {
-   "verdictHash": "5f6f28e5f494e31093a47e42f8f45f1a2259ac13953494025702907fc16cd027",
+   "verdictHash": "9c1d1094952a79977685e2e69be6f63c8b032bd67ede6a1e8d7929af7259adb1",
    "closeAt": 480,
    "closedBy": "schedule",
    "winners": [
@@ -642,7 +642,7 @@
    "optionsAt": 240
   },
   "B": {
-   "verdictHash": "d43765e7464df3321c919da4eb596494faeebb984505a984fbc9e35dadabf03d",
+   "verdictHash": "1efd5098b3d3ac7846b4fd6828c32671fbdf1df8bb406b40906b1ec8242b157b",
    "closeAt": 480,
    "closedBy": "schedule",
    "winners": [
@@ -663,7 +663,7 @@
    "optionsAt": 240
   },
   "C": {
-   "verdictHash": "d6de8491b678ca26b34c5e71253ab8be8537a32b280c2fc7c55e731017c08584",
+   "verdictHash": "3afd929673c243800ff9e22fd37dd1ef99ac5dc36e8fb89bdd7aabe7d0b5d15a",
    "closeAt": 480,
    "closedBy": "schedule",
    "winners": [
@@ -688,7 +688,7 @@
   "scenario": "rush-clients-own",
   "description": "従う2国を使った早期終了（その2）。n4・n5 は自分の材料を入れ、n0 は見返りに食料を送る",
   "A": {
-   "verdictHash": "226e9d111f2858c5bd8edd0c6c2c5ddcb9b6dd1e7b3bc7cf0ef8397d794b511e",
+   "verdictHash": "dfb58307507cd983db446611e538df48d6adcda53d5d02142d6cbdbe111df51e",
    "closeAt": 480,
    "closedBy": "schedule",
    "winners": [
@@ -703,7 +703,7 @@
    "optionsAt": 240
   },
   "B": {
-   "verdictHash": "ed0bdc6704f4bcddb9b89e961d1e4c965514727d3e95d2f8c8323931d9c79e24",
+   "verdictHash": "976aa5d1302ff79f39952925ed9e37abc5399e2b4fb20a4a151a18d273997673",
    "closeAt": 480,
    "closedBy": "schedule",
    "winners": [
@@ -724,7 +724,7 @@
    "optionsAt": 240
   },
   "C": {
-   "verdictHash": "498b714c4c0ebbc131806b7836e2735307b18694c7a424698d6ee6ddb6446869",
+   "verdictHash": "a6e1ebd18f2153d1a9ba4696d9f815a447e50a8779f40c6556f788119ac3a4b3",
    "closeAt": 96,
    "closedBy": "joint:J-north-fort",
    "winners": [
@@ -749,7 +749,7 @@
   "scenario": "rush-solo",
   "description": "優勢な国の単独の早期終了。要塞で先行する n0 が、自国だけの材料で砦を急いで建て、n5 の一人に使わせる。n1 は 300 で逆転する",
   "A": {
-   "verdictHash": "229d26709690a7b2a6f3b49b08e45916b26a050472e6a24bc8f721e51d7052cc",
+   "verdictHash": "072a96491e16d8b0ed485c00d4f502dc8be38a2da8a34091c98345ac0d646d36",
    "closeAt": 480,
    "closedBy": "schedule",
    "winners": [
@@ -764,7 +764,7 @@
    "optionsAt": 240
   },
   "B": {
-   "verdictHash": "a7b196e6140b06ef8c8e0545060d610b3bb0d9dacd158f511f0cd94d21b74af2",
+   "verdictHash": "a28f5f239b245b882013fa462985b6d1b2c3a2d6438a09b493f256d30b042ea9",
    "closeAt": 480,
    "closedBy": "schedule",
    "winners": [
@@ -785,7 +785,7 @@
    "optionsAt": 240
   },
   "C": {
-   "verdictHash": "05c68c95afa8eef5f1958ef66bddd2c825ce6d3b477227e940b37fb3d614ad74",
+   "verdictHash": "42a9d2efbfd813ba68b1bf78f32a2a4e4d215168ac5742359e9dd14770af5781",
    "closeAt": 480,
    "closedBy": "schedule",
    "winners": [
@@ -810,7 +810,7 @@
   "scenario": "sybil-labelled",
   "description": "本人識別（その2）。同じ別アカウントに、模型が同一人物の印（cluster）を付けている",
   "A": {
-   "verdictHash": "d4e38fb0ac5dc495482fb73fcc3289ff6f7ff34419dd23fdc9e0876db55abf23",
+   "verdictHash": "3be9296fde423bf7182cfe64cf508fbf0ae1bf20f90287aa15462f97ee2e3d6a",
    "closeAt": 480,
    "closedBy": "schedule",
    "winners": [
@@ -825,7 +825,7 @@
    "optionsAt": 240
   },
   "B": {
-   "verdictHash": "f37827793329bbc16beb55cadc9e6e1a8b3ea0847490664ef0ed66c796999ff2",
+   "verdictHash": "6ee87900fc54a91fd8e53b495c8b7ee3f4f47b3d57478e13ea9e3784ebc9758c",
    "closeAt": 480,
    "closedBy": "schedule",
    "winners": [
@@ -846,7 +846,7 @@
    "optionsAt": 240
   },
   "C": {
-   "verdictHash": "2c89e691d6fb4e0b724741ae531c9715b6238b7ebf6f2144619b4c8f3a37e8f7",
+   "verdictHash": "fad716bf4d6f25886cc12b2ebf19b3360036856f15fb82e2dfa2249b3c9a93a7",
    "closeAt": 480,
    "closedBy": "schedule",
    "winners": [
@@ -871,7 +871,7 @@
   "scenario": "sybil-unlabelled",
   "description": "本人識別（その1）。n0-0 が n4・n5 に作った別アカウントで材料を入れる。模型に同一人物の印がない",
   "A": {
-   "verdictHash": "05ed49b718b7c8af238c2395c03b360cad745969506843bf639ed6f828835b9c",
+   "verdictHash": "cf6fdb2d095965c79b251a65e93a889e55107d7bae9db5f7bd34574be4c7237e",
    "closeAt": 480,
    "closedBy": "schedule",
    "winners": [
@@ -886,7 +886,7 @@
    "optionsAt": 240
   },
   "B": {
-   "verdictHash": "fe226c0b5d0a9a79878d9c5de94214c0a5decdb2098255f1daf7c84fc25238b5",
+   "verdictHash": "02d238ff13fc519137a59e03a78dd8d943a8fb8ee5eb3775d09fa27acb425eee",
    "closeAt": 480,
    "closedBy": "schedule",
    "winners": [
@@ -907,7 +907,7 @@
    "optionsAt": 240
   },
   "C": {
-   "verdictHash": "96b906e63f9b35773b540a5ba987b397115bae64ef620205ec90d6b6de83c781",
+   "verdictHash": "4a01c6cefcdbe37ffa7d5828e702d744ca830ce89fb99d4925afaa03bde3887e",
    "closeAt": 96,
    "closedBy": "joint:J-north-fort",
    "winners": [
@@ -932,7 +932,7 @@
   "scenario": "unverified-storehouse",
   "description": "未検証量。n3 の木材は倉あてで、着いた量がチェーンで確かめられない（①：倉あては未検証）。n2 の石材は村あてで、積荷を下限として数える",
   "A": {
-   "verdictHash": "5bb4c8214806bb49243fd99f828f702c1b0ce6c99c757a006aadf0051eeaa6d7",
+   "verdictHash": "1a01075ab58347bda010a4514444c6c4345be91227b0111928c4b03c498f31f1",
    "closeAt": 480,
    "closedBy": "schedule",
    "winners": [
@@ -947,7 +947,7 @@
    "optionsAt": 240
   },
   "B": {
-   "verdictHash": "2649862030c1987213bfe94cef04d36f146fc7414df5e1f498b90d7092e7e31c",
+   "verdictHash": "d95f55858758bd213d82b4f15b9556b54c65636b4c179e0ca215c0fe0e55fb36",
    "closeAt": 480,
    "closedBy": "schedule",
    "winners": [
@@ -969,7 +969,7 @@
    "optionsAt": 240
   },
   "C": {
-   "verdictHash": "26d8c93d70dd95e9d93669c2fc903e475082c8ecd47cb7aa6cb36ca7815cb782",
+   "verdictHash": "a79058d01cd424d27f24386f436f3195c55468e940da1afd1043c6182916b1b3",
    "closeAt": 480,
    "closedBy": "schedule",
    "winners": [

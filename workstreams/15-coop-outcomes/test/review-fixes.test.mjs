@@ -89,8 +89,8 @@ test('R8: ①\'s first link wins by link time across requests', () => {
 test('R9: ④ receipts with one key and different content become a conflict, in either order', () => {
   const r = v => ({ run_id: v, kind: 'caravan_settled', subject: 'cv:21:1', source: 'sig:c', slot: 40, body: { owner_tag: 21, seq: 1, cargo: [0, 0, 300, 0, 0, 0, 0, 0], verification: v } });
   const map = { bellOfSlot: s => s, actorOfTag: () => 'n2-0', destination: () => ({ actor: 'n1-0' }), cargoSent: () => null };
-  const a = fromRunReceipts([r('Recorded'), r('Unverifiable')], map).events;
-  const b = fromRunReceipts([r('Unverifiable'), r('Recorded')], map).events;
+  const a = fromRunReceipts([r('Recorded'), r('Unverifiable')], {}, map).events;
+  const b = fromRunReceipts([r('Unverifiable'), r('Recorded')], {}, map).events;
   assert.deepEqual(a, b);
   assert.equal(new Set(a.map(e => e.id)).size, 1, 'both under one id: the record check sets them aside');
 });

@@ -198,7 +198,7 @@ def('sybil-labelled', '本人識別（その2）。同じ別アカウントに�
   const s = coop(new Script());
   s.add(50, 'tower.sighting', { sighting: 'sg-1', tower: 'T-east', actor: 'n4-0', target: 'march near P-north' }, { stream: 'ws14', verified: 'derived' });
   s.add(55, 'tower.report.used', { sighting: 'sg-1', actor: 'n1-1' }, { stream: 'ws14', verified: 'derived' });
-  def('coop-with-tower', '⑭の塔の入力つき。協力の基本形に、n4-0 の塔の目撃と、それを n1-1 が使った記録を足す',
+  def('coop-with-sighting', '仮の目撃の入力つき（出どころは未定：S1 の物見櫓は目撃を記録せず、⑭の中央塔に目撃の働きはない）。協力の基本形に、n4-0 の目撃と、それを n1-1 が使った記録を足す',
     { ...baseState(), streams: { chain: { from: 0 }, ws01: { from: 0 }, ws14: { from: 0 } } }, s);
 }
 

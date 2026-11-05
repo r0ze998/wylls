@@ -10,7 +10,7 @@ const STORIES = {
   'coop-north-fort': '協力の基本形（n1 が砦を開き、n2・n3 が送る）',
   'chapter-no-sabotage': '要塞が動く戦期（50 で n1 が逆転、300 で n0 が再逆転）',
   'rush-clients-own': '先行する n0 が、従う2国と砦を急ぐ',
-  'coop-with-tower': '⑭の塔の入力つき',
+  'coop-with-sighting': '仮の目撃の入力つき（出どころ未定）',
 };
 const STOPS = [30, 60, 90, 130];
 const LABEL = {

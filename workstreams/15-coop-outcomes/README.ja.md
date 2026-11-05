@@ -34,11 +34,12 @@
 | [docs/04-variants.ja.md](docs/04-variants.ja.md) | 3案の定義と得失 |
 | [docs/05-results.ja.md](docs/05-results.ja.md) | 試験の結果と予測の当たり外れ |
 | [docs/06-conflicts-decisions.ja.md](docs/06-conflicts-decisions.ja.md) | 既存ルールとの衝突、採用に必要な判断、文書とコードの食い違い |
+| [docs/08-peer-contracts.ja.md](docs/08-peer-contracts.ja.md) | ①・④・⑭の実出力との照合：⑭の t・req・cross と掲示・引受の意味、模型の事実を数えないこと、到着量の下限・ゼロ・不明、評価期間の境界 |
 | [docs/07-continuity.ja.md](docs/07-continuity.ja.md) | 世界を終わらせない評価への訂正：残っていたシーズン依存、変えた挙動、試験、残る移行の判断 |
 | `src/` | 評価器：`contract`（入力）・`ledger`（記録の検査と正準の並び）・`world`（荷・隊商・計画・建物）・`goals`（共同・国・個人）・`evaluate`（判定結果・賞金・選択肢）・`rulesets`（A/B/C） |
 | `src/adapters/` | `s1-chain`（S1 の記録）、`ws01`（①の依頼の板）、`ws04`（④の Run Receipt）、`ws14`（⑭の塔、任意） |
-| `scenarios/` | 固定入力 16 件（`build.mjs` で生成、試験で一致を確認）。`long.mjs` は長期の世界を固定の種で作る |
-| `test/` | `node --test` の 70 件（境界・再開の確認、見直しで見つけた不具合の再現を含む）、画面の確認 `play.browser.mjs`、長期の確認 `long-run.mjs` |
+| `scenarios/` | 固定入力 16 件、`fixtures/` に①・④・⑭の出力（作り方と出どころの commit つき）。（`build.mjs` で生成、試験で一致を確認）。`long.mjs` は長期の世界を固定の種で作る |
+| `test/` | `node --test` の 94 件（①・④・⑭の実出力に対する契約試験を含む）。もとの 70 件（境界・再開の確認、見直しで見つけた不具合の再現を含む）、画面の確認 `play.browser.mjs`、長期の確認 `long-run.mjs` |
 | `play/` | 手で遊べる比較の画面 |
 | `bin/` | `eval.mjs`（1件を判定）、`compare.mjs`（全件の比較表） |
 | `results/` | 実行ログ、比較表、画面の画像 |
