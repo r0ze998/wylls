@@ -598,6 +598,14 @@ pub fn parse(body: &[u8]) -> Option<CqLog> {
             pend: u("pend")? as u16,
             holding_key: u("holding_key")?,
         },
+        // 02-rights (proposal): the Grant's records are not conquest
+        // events; the verifier reads them with `frontier_abi::v2::rights`.
+        CqKind::GRANT_ISSUED
+        | CqKind::SWAP_RESERVED
+        | CqKind::SWAP_EXECUTED
+        | CqKind::SWAP_RELEASED
+        | CqKind::GRANT_REVOKED
+        | CqKind::GRANT_CLOSED => return None,
         CqKind::REST => CqEvent::Rest {
             p: i("p")?,
             q: i("q")?,

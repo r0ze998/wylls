@@ -994,6 +994,12 @@ fn continuity(cx: &mut Ctx) {
                     // S1 1b/1d: BuildVault, BuildStructure and a caravan's holding source pay
                     // after an owner touch; a delivery settles and credits.
                     (what, want)
+                } else if let Some((what, want)) =
+                    super::vr_rights::holding_write(w, f, t, k, before)
+                {
+                    // 02-rights (candidate): a Grant instruction settles
+                    // without a touch and moves exactly its records' amounts.
+                    (what, want)
                 } else if conquest_settlement_writes(tx, k) {
                     // SettleSiege (the stake returned), SettleCapture (the
                     // captured Holding and the stake) and RetireHost write
