@@ -204,6 +204,12 @@ pub struct PlayDuty {
     anchor_tried: BTreeMap<(u32, u8), u64>,
     /// The journal's owner material was read back (once per process).
     owner_loaded: bool,
+    /// Owner material read back from the journal whose track the API of
+    /// this process has not been told about yet (⑱).
+    owner_restored: Vec<(u64, u32)>,
+    /// Owner marches whose track already says `landed` (from an engine
+    /// outcome or from the chain), so it is never written twice (⑱).
+    owner_landed: BTreeSet<(u64, u32)>,
     /// ArrivalDay bits `(P, Q, day)` → (bits, the Clock `now` of the read).
     days: BTreeMap<(i16, i16, u32), DayRead>,
     /// Province-bells a skip found not quiet: gathered and resolved instead.
@@ -346,10 +352,50 @@ impl PlayDuty {
             })
             .collect::<PortResult<Vec<_>>>()?;
         for (key, material) in restored {
+            if !self.owner.contains_key(&key) {
+                self.owner_restored.push(key);
+            }
             self.owner.entry(key).or_insert(material);
         }
         self.owner_loaded = true;
         Ok(())
+    }
+
+    /// Owner tracks the chain settles, whoever sent the Reveal (⑱): an
+    /// owner's track says `landed` once the play index holds the REVEAL of
+    /// its `(host, arrive)`, also when the landing signature was adopted at
+    /// a restart and resolved as an orphan (no duty outcome), or when
+    /// another keeper revealed the march first. A track restored from the
+    /// journal at a restart is put back as `queued` first, so `/v1/track`
+    /// answers it again instead of 404. An engine `landed` (with its
+    /// signature) is never overwritten.
+    pub fn owner_tracks_from_chain(&mut self, shared: &mut Shared) {
+        for key in std::mem::take(&mut self.owner_restored) {
+            if let Some(m) = self.owner.get(&key) {
+                shared
+                    .tracks
+                    .entry(m.track.clone())
+                    .or_insert_with(|| json!({"state": "queued", "restored": true}));
+            }
+        }
+        let seen: Vec<((u64, u32), u64)> = self
+            .index
+            .slots
+            .values()
+            .filter(|r| {
+                self.owner.contains_key(&(r.host, r.arrive))
+                    && !self.owner_landed.contains(&(r.host, r.arrive))
+            })
+            .map(|r| ((r.host, r.arrive), r.slot))
+            .collect();
+        for (key, slot) in seen {
+            self.owner_landed.insert(key);
+            let m = &self.owner[&key];
+            shared.tracks.insert(
+                m.track.clone(),
+                json!({"state": "landed", "slot": slot, "source": "chain"}),
+            );
+        }
     }
 
     /// Routes the engine's outcomes of play writes (before planning).
@@ -388,6 +434,7 @@ impl PlayDuty {
                     let e = self.stats.reveal_latency.entry(ok.1).or_insert((0, 0));
                     e.1 = e.1.max(*slot);
                     if let Some(m) = self.owner.get(&ok) {
+                        self.owner_landed.insert(ok);
                         tracks.push((
                             m.track.clone(),
                             json!({"state": "landed", "signature": sig.to_string(), "slot": slot}),
@@ -999,6 +1046,7 @@ impl PlayDuty {
         if !std::mem::take(&mut self.feed_read) {
             self.index.pull(port, t.addrs).await?;
         }
+        self.owner_tracks_from_chain(shared);
         for (slot, log) in std::mem::take(&mut self.index.cq_logs) {
             self.conquest.on_log(&log, slot, journal);
         }
@@ -4378,5 +4426,195 @@ mod w6t_tests {
         }
         let day: Vec<_> = batches.iter().filter(|b| b.0 < day0 + 144).collect();
         assert_eq!(day.len(), 6, "one SkipQuiet per 24 bells: {day:?}");
+    }
+}
+
+/// ⑱: owner tracks settled from the chain. No key is generated, derived
+/// or used here (no `env()`, no `FakeDrand`, no payer pool, no signing):
+/// a `PlayDuty`, JSON material, an in-memory journal and a zero signature.
+#[cfg(test)]
+mod owner_track_tests {
+    use super::*;
+    use crate::playindex::{DepartRec, RevealRec};
+    use base64::Engine as _;
+
+    const ARRIVE: u32 = 200;
+
+    fn host() -> u64 {
+        fclient::addr::host_id(2, 0, 1, 1, 5).unwrap()
+    }
+
+    fn material() -> ([u8; 37], [u8; 32], [u8; 32]) {
+        let p = seal::Plain {
+            version: 1,
+            host_id: host(),
+            arrive_bell: ARRIVE,
+            dest_p: 2,
+            dest_q: 0,
+            dest_tile: 5,
+            stance: 1,
+            ..Default::default()
+        };
+        (seal::pack(&p), [0x5a; 32], [7; 32])
+    }
+
+    /// The duty holding the owner's material (track `r1`) for a departed march.
+    fn duty() -> PlayDuty {
+        let mut d = PlayDuty::default();
+        let (plain, salt, ct) = material();
+        let b = base64::engine::general_purpose::STANDARD;
+        let mut shared = Shared::default();
+        shared.reveals.push((
+            "r1".into(),
+            json!({
+                "holding": Address::new_from_array([3; 32]).to_string(), "transit_slot": 0,
+                "plain_b64": b.encode(plain), "salt_b64": b.encode(salt), "ct_hash_b64": b.encode(ct),
+            }),
+        ));
+        d.take_shared(&mut shared, None);
+        d.index.departs.insert(
+            (host(), ARRIVE - 3),
+            DepartRec {
+                host: host(),
+                origin: (2, 0),
+                origin_tile: 5,
+                depart_bell: ARRIVE - 3,
+                arrive: ARRIVE,
+                dep_mass: 10,
+                tip: 0,
+                seal_root: [0; 32],
+                commit: [0; 32],
+                seal: [0; 165],
+                slot: 1,
+            },
+        );
+        d
+    }
+
+    fn reveal_on_chain(d: &mut PlayDuty, host: u64, slot: u64) {
+        d.index.slots.insert(
+            (2, 0, ARRIVE, 1, 0),
+            RevealRec {
+                dest: (2, 0),
+                arrive: ARRIVE,
+                faction: 1,
+                i: 0,
+                host,
+                displaced: None,
+                beneficiary: Address::new_from_array([4; 32]),
+                slot,
+                created_day: false,
+            },
+        );
+    }
+
+    fn key() -> String {
+        format!("reveal:{}:{}", host(), ARRIVE - 3)
+    }
+
+    #[test]
+    fn a_landing_seen_on_chain_after_expired_says_landed() {
+        let mut d = duty();
+        let mut shared = Shared::default();
+        // The engine gave up (cutoff, deadline): the owner was told expired.
+        for (id, v) in d.on_outcome(
+            &key(),
+            &Outcome::Dead {
+                reason: "reveal cutoff".into(),
+                code: None,
+            },
+        ) {
+            shared.tracks.insert(id, v);
+        }
+        assert_eq!(shared.tracks["r1"]["state"], "expired");
+        d.owner_tracks_from_chain(&mut shared);
+        assert_eq!(
+            shared.tracks["r1"]["state"], "expired",
+            "nothing on chain yet"
+        );
+        // A signature resolved later (or another keeper's Reveal) landed.
+        reveal_on_chain(&mut d, host(), 777);
+        d.owner_tracks_from_chain(&mut shared);
+        assert_eq!(
+            shared.tracks["r1"],
+            json!({"state": "landed", "slot": 777, "source": "chain"})
+        );
+        // Written once: a later pass changes nothing.
+        shared.tracks.insert("r1".into(), json!({"marker": true}));
+        d.owner_tracks_from_chain(&mut shared);
+        assert_eq!(shared.tracks["r1"], json!({"marker": true}));
+    }
+
+    #[test]
+    fn an_engine_landing_is_not_overwritten_by_the_chain() {
+        let mut d = duty();
+        let mut shared = Shared::default();
+        let sig = fclient::ports::Signature::default();
+        for (id, v) in d.on_outcome(
+            &key(),
+            &Outcome::Landed {
+                slot: 700,
+                sig,
+                payer: Address::new_from_array([9; 32]),
+                versions: 1,
+                first_slot: 699,
+                already_done: false,
+            },
+        ) {
+            shared.tracks.insert(id, v);
+        }
+        let engine_track = shared.tracks["r1"].clone();
+        assert_eq!(engine_track["state"], "landed");
+        reveal_on_chain(&mut d, host(), 700);
+        d.owner_tracks_from_chain(&mut shared);
+        assert_eq!(
+            shared.tracks["r1"], engine_track,
+            "the engine's landing keeps its signature"
+        );
+    }
+
+    #[test]
+    fn a_restored_track_answers_again_then_lands_from_the_chain() {
+        let j = Journal::open(std::path::Path::new(":memory:")).unwrap();
+        let (plain, salt, ct) = material();
+        j.save_owner_material(&crate::journal::OwnerRow {
+            host: host(),
+            bell: ARRIVE,
+            track: "r7".into(),
+            holding: Address::new_from_array([3; 32]).to_string(),
+            transit_slot: 0,
+            plain: plain.to_vec(),
+            salt: salt.to_vec(),
+            ct_hash: ct.to_vec(),
+        })
+        .unwrap();
+        // A new process: the API's tracks are empty.
+        let mut d = PlayDuty::default();
+        d.load_owner_materials(Some(&j)).unwrap();
+        let mut shared = Shared::default();
+        d.owner_tracks_from_chain(&mut shared);
+        assert_eq!(
+            shared.tracks["r7"],
+            json!({"state": "queued", "restored": true})
+        );
+        // Told once: a second pass does not reset a newer state.
+        shared.tracks.insert("r7".into(), json!({"state": "sent"}));
+        d.owner_tracks_from_chain(&mut shared);
+        assert_eq!(shared.tracks["r7"]["state"], "sent");
+        reveal_on_chain(&mut d, host(), 801);
+        d.owner_tracks_from_chain(&mut shared);
+        assert_eq!(
+            shared.tracks["r7"],
+            json!({"state": "landed", "slot": 801, "source": "chain"})
+        );
+    }
+
+    #[test]
+    fn another_march_on_chain_leaves_the_track_alone() {
+        let mut d = duty();
+        let mut shared = Shared::default();
+        reveal_on_chain(&mut d, host() + 1, 900);
+        d.owner_tracks_from_chain(&mut shared);
+        assert!(shared.tracks.is_empty());
     }
 }
