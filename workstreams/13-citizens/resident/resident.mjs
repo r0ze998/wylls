@@ -349,7 +349,9 @@ export class Resident {
       return it;
     }
     // A key already known to the world (a send made before a restart) is never sent twice: its recorded answer is taken.
-    let res = await this.ports.execution.status(sendKey);
+    // When the port cannot answer, going on to submit is safe: the same key never executes twice (08, R1/R2).
+    let res;
+    try { res = await this.ports.execution.status(sendKey); } catch { res = null; }
     if (!res) {
       it.submittedBell = this.bell;
       try { res = await this.ports.execution.submit({ agentId: this.id, source: 'resident', idempotencyKey: sendKey, policyVersion: 1, modeEpoch: this.ledger.get(this.id).modeEpoch, action: it.action }); }
