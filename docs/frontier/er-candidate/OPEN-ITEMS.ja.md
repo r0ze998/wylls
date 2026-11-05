@@ -136,3 +136,42 @@ findex の記録に「ない」ことも、「ある」ことも、完全な履�
 - herald は、findex が止まったことを標準エラーにしか出さない（読み手向けの状態表示はない。④の判断）。
 - 索引の保存が失敗する場合は、archive の失敗と同じ経路で止めた。ただし、索引の失敗だけを起こす試験はない（SQLite に失敗させる手段がない）。
 - §1〜§5 の 5 点は変わらない。
+
+## 8. ④の最新候補との照合と追加（2026-11-05）
+
+### 照合した候補（完全 SHA で固定）
+
+| 項目 | 値 |
+|---|---|
+| ④の統合候補 | `d0949fd417180b11704de5690ab0dfb6e5ef3148`（tree `7198d7d962b35044fd0ace7e3ba7604061c1c66c`、2026-11-05）。GitHub の `integration/ws09-13-v16-d0949fd4`、`claude/great-babbage-3ogkqu`、`claude/eager-cerf-k74z5s` の共通の祖先 |
+| ⑲の A＋D の取込み | `6b670edb`「integrate locally: 18 v3 fix and 19 A+D on 4.g」 |
+| 保存失敗で止める（⑲の E と同じ目的） | `e11bf897`（④）。archive・索引・commit の失敗で poison し、開き直しが必要になる。herald はループを終える（終了コード 2）。索引だけの失敗の試験（`store_failure.rs` の `index_failure_requires_reopen_and_catches_up_from_the_archive`）もある |
+| restore で「見た」署名を忘れる | 候補の `ingest.rs` にある（⑲の E と同じ） |
+| 保存は finalized の履歴だけにする（残件 3） | `69c572b6`（④）。fork から外れた confirmed の取引は保存されない（`dropped_confirmed_fork_is_not_archived`） |
+
+**⑲の E（`0be5f9f`）は、候補では e11bf897 に置き換わっています。候補に E を当てないでください（二重適用）。** E・F・G は、⑲のブランチ（`38c056e5`）にそのまま残しています。
+
+### 候補の上に加えたもの（ブランチ `ws19/on-d0949fd4`、ローカル）
+
+| commit | 内容 | 再現・試験 |
+|---|---|---|
+| `b4d4c5f5…`（findex） | **archive の区切りの中の記録が壊れていると、黙って短く読まれていた不具合を直した。** `for_each_after`（herald の再起動の追いつきと、索引の作り直しが使う）は、封印した区切りの中の記録が壊れていると、そこで読むのをやめて次の区切りへ進んでいた。修正後は、区切りが manifest どおりのバイト数・件数・連続した seq を返さなければ、区切りの名前を挙げてエラーにする | 最小再現：10 件のうち、最初の区切りの 2 件目のバイトを 1 つ変えると、修正前は `[1, 3, 4, …, 10]` が返る。`findex/tests/no_hidden_gap.rs` の 4 件（壊れた記録、なくなった区切り、1 件抜けて整った区切り、索引の作り直し）。修正前は 3 件失敗、修正後は全件成功 |
+| `e6fb0ee1…`（herald） | **`/h/status` に `ingest` を足した。** 状態（`ok` / `failing` / `stopped`）、最後のエラー、連続失敗の数、いつから、を返す。履歴欠落や v1 取引で pull が失敗し続けても、これまでは標準エラーにしか出ず、画面は古いまま正常に見えていた。成功した pull で消える。checkpoint には入れない。store が壊れた（poison）ときは `stopped` とし、これまでどおりループを終える | `herald/tests/ingest_health.rs` の 2 件。`tests/server.rs` で `ingest.state == "ok"` も確かめる |
+| `0d0730b4…`（試験） | ⑲の F（`1e577a8`）の試験を変更なしで移した | 候補の poison の実装の上でも、5＋1 件が成功する |
+
+frontier-node の workspace 全体（候補＋上の 3 commit）：**883 件成功、失敗 0**（2026-11-05）。これは⑲の側の結果で、④が統合版で再実行するまでは統合の成功ではありません。
+
+### 欠落を隠さないという契約（圧縮・封印・checkpoint）
+
+- **archive を読むとき：** 区切りが manifest どおりに読めなければエラーにする（上の修正）。なくなった区切りもエラーになる（既存の挙動を試験で固定）。`verify()` は、長さ・sha256・記録・seq の連続を確かめる（既存）。
+- **checkpoint：** archive の commit の後でしか取らない（既存）。保存されている archive より先を覆う checkpoint は捨てて、fold をやり直す（F で試験）。
+- **圧縮：** 候補の archive には、圧縮・保持期限・外部保管がまだない。後で入れるときも、上の 2 つを守ること。つまり、区切りごとに manifest の範囲（`first_seq`・`last_seq`・件数）と hash を持ち、読み手は範囲の全件かエラーかのどちらかしか受け取らない。試験 `no_hidden_gap.rs` がこの契約を固定する。
+
+### 残件（④の判断。変わっていないもの）
+
+- v1 取引：候補の fclient も `maxSupportedTransactionVersion: 0` のまま。
+- 委任した口座の commit を追う索引の対象：未対応（S1 は委任していない）。
+- 継続世界の checkpoint 検証：候補の検証器も、最終状態との完全一致を要求したまま。
+- archive の増大：未対応。
+- 証明できない条件：初回の取得、カーソルがない・読めない・古い形式、途中の取引が後で消える、途中だけ欠けたノード。§7 と同じで、変わっていない。
+- 候補に以前からある clippy の警告：`findex/tests/store_failure.rs:80`（`&PathBuf`）、`keeper/src/journal.rs:431`（型が複雑）。⑲は手を入れていない。
