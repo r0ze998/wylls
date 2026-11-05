@@ -469,6 +469,24 @@ impl Engine {
         }
     }
 
+    /// At a reveal cutoff, stop sending but keep a signed cohort until its
+    /// unknown signatures settle. `false` means the duty must defer its
+    /// missed notification; a late success still wins. A write with no
+    /// unknown signature can be cancelled immediately.
+    pub fn cancel_at_cutoff(&mut self, key: &str) -> bool {
+        if let Some(p) = self.pending.get_mut(key) {
+            if p.versions.iter().any(|v| !p.settled.contains(&v.sig)) {
+                p.provisional = Some(Outcome::Dead {
+                    reason: "reveal cutoff".into(),
+                    code: None,
+                });
+                return false;
+            }
+        }
+        self.cancel(key);
+        true
+    }
+
     /// Keep the old fee exposure when a write leaves the pending queue with
     /// signatures whose outcomes are still unknown. The orphan poll closes
     /// their journal rows; `charge_fee` releases the key only after all of
@@ -737,11 +755,7 @@ impl Engine {
                             .get(k)
                             .is_some_and(|p| err::is_done(p.spec.tag, code))
                     });
-                if success && !matches!(previous, Outcome::Landed { .. }) {
-                    if let Some(landed) = self.classify(k, st, v, journal, &mut report) {
-                        *previous = landed;
-                    }
-                } else {
+                if matches!(previous, Outcome::Landed { .. }) {
                     self.charge_fee(v.sig);
                     if let Some(j) = journal {
                         let s = if st.err.is_none() {
@@ -752,6 +766,13 @@ impl Engine {
                             "failed"
                         };
                         let _ = j.set_status(&v.sig.to_string(), s, Some(st.slot), st.code);
+                    }
+                } else if let Some(current) = self.classify(k, st, v, journal, &mut report) {
+                    if matches!(current, Outcome::Landed { .. })
+                        || (matches!(previous, Outcome::Failed { .. })
+                            && matches!(current, Outcome::Dead { .. }))
+                    {
+                        *previous = current;
                     }
                 }
                 continue;
@@ -771,7 +792,10 @@ impl Engine {
                 // A failed variant does not prove the write failed while a
                 // sibling is still unknown. Keep duty state intact so a
                 // later success can be delivered exactly once.
-                if p.provisional.is_none() {
+                if p.provisional.is_none()
+                    || (matches!(p.provisional, Some(Outcome::Failed { .. }))
+                        && matches!(o, Outcome::Dead { .. }))
+                {
                     p.provisional = Some(o);
                 }
                 if p.versions.iter().all(|v| p.settled.contains(&v.sig)) {
@@ -1836,6 +1860,80 @@ mod tests {
             assert_eq!(engine.stats["test"].landed, 1);
             assert_eq!(engine.stats["test"].failed, 0);
             assert_eq!(engine.stats["test"].dead, 0);
+        }
+    }
+
+    #[tokio::test]
+    async fn reveal_cutoff_keeps_unknown_signature_until_late_success() {
+        let port = Script::default();
+        let mut payers = payers();
+        payers.refresh(&port, 0).await.unwrap();
+        let mut engine = Engine::new(Budgets::placeholder(), EngineParams::default());
+        assert!(engine.ensure(spec("reveal:8:105", Class::W, abi::tag::REVEAL), 10));
+        assert_eq!(engine.step(&port, &mut payers, None, 10).await.sent, 1);
+        let sig = engine.pending["reveal:8:105"].versions[0].sig;
+        assert!(!engine.cancel_at_cutoff("reveal:8:105"));
+        assert!(engine.is_pending("reveal:8:105"));
+        assert_eq!(engine.step(&port, &mut payers, None, 11).await.sent, 0);
+        port.statuses.lock().unwrap().insert(
+            sig,
+            Status {
+                slot: 12,
+                err: None,
+                code: None,
+            },
+        );
+        let result = engine.poll(&port, None, 12).await;
+        assert!(
+            matches!(result.outcomes.as_slice(), [(key, Outcome::Landed { .. })]
+            if key == "reveal:8:105")
+        );
+        assert_eq!(engine.stats["test"].dead, 0);
+    }
+
+    #[tokio::test]
+    async fn definitive_dead_sibling_wins_over_failed_in_either_order() {
+        for dead_first in [false, true] {
+            for same_batch in [false, true] {
+                let port = Script::default();
+                let mut payers = payers();
+                payers.refresh(&port, 0).await.unwrap();
+                let mut engine = Engine::new(Budgets::placeholder(), EngineParams::default());
+                assert!(engine.ensure(spec("priority", Class::D, abi::tag::POST_SEED), 10));
+                assert_eq!(engine.step(&port, &mut payers, None, 10).await.sent, 1);
+                assert_eq!(engine.step(&port, &mut payers, None, 12).await.sent, 1);
+                let versions = engine.pending["priority"].versions.clone();
+                let mk_status = |dead: bool, slot| Status {
+                    slot,
+                    err: Some("refused".into()),
+                    code: Some(if dead { err::NOT_IMPLEMENTED } else { 8 }),
+                };
+                port.statuses
+                    .lock()
+                    .unwrap()
+                    .insert(versions[0].sig, mk_status(dead_first, 13));
+                if same_batch {
+                    port.statuses
+                        .lock()
+                        .unwrap()
+                        .insert(versions[1].sig, mk_status(!dead_first, 13));
+                } else {
+                    assert!(engine.poll(&port, None, 13).await.outcomes.is_empty());
+                    port.statuses
+                        .lock()
+                        .unwrap()
+                        .insert(versions[1].sig, mk_status(!dead_first, 14));
+                }
+                let result = engine
+                    .poll(&port, None, if same_batch { 13 } else { 14 })
+                    .await;
+                assert!(
+                    matches!(result.outcomes.as_slice(), [(key, Outcome::Dead { .. })]
+                    if key == "priority")
+                );
+                assert_eq!(engine.stats["test"].dead, 1);
+                assert_eq!(engine.stats["test"].failed, 0);
+            }
         }
     }
 

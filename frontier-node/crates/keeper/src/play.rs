@@ -82,6 +82,9 @@ pub struct TransitState {
     pub outranked: bool,
     /// The window passed with the arrival unrevealed (liveness finding).
     pub missed: bool,
+    /// A finalized Reveal status may arrive before the slot feed catches up.
+    /// Do not mark that march missed or plan another Reveal in the gap.
+    pub reveal_done: bool,
     pub slot_moved: u8,
     /// From the last Holding read: transit slot index, state, faction,
     /// citizen tag, rent payer.
@@ -376,6 +379,11 @@ impl PlayDuty {
         match (kind, o) {
             ("reveal", Outcome::Landed { slot, sig, .. }) => {
                 self.stats.reveals_landed += 1;
+                if let Some(k) = k {
+                    if let Some(ts) = self.transits.get_mut(&k) {
+                        ts.reveal_done = true;
+                    }
+                }
                 if let Some(ok) = ok {
                     let e = self.stats.reveal_latency.entry(ok.1).or_insert((0, 0));
                     e.1 = e.1.max(*slot);
@@ -438,7 +446,10 @@ impl PlayDuty {
             ("reveal", Outcome::Dead { code, .. }) => {
                 let Some(k) = k else { return tracks };
                 if let Some(ts) = self.transits.get_mut(&k) {
-                    ts.missed = true;
+                    if !ts.missed {
+                        ts.missed = true;
+                        self.stats.reveals_missed += 1;
+                    }
                 }
                 if let Some(m) = ok.and_then(|ok| self.owner.get(&ok)) {
                     let c = code.and_then(abi::error_name).unwrap_or("WindowClosed");
@@ -1156,7 +1167,11 @@ impl PlayDuty {
             let Some(st) = self.transits.get(k) else {
                 continue;
             };
-            if st.refused || st.missed || !(1..=3).contains(&st.tstate) || st.transit_slot.is_none()
+            if st.refused
+                || st.missed
+                || st.reveal_done
+                || !(1..=3).contains(&st.tstate)
+                || st.transit_slot.is_none()
             {
                 continue;
             }
@@ -1433,7 +1448,11 @@ impl PlayDuty {
             let region = ix::region_of(p.dest_p as i32, p.dest_q as i32);
             if let Some(a) = self.anchors.get(&(d.arrive, region)) {
                 if t.now + eps >= t.clock.reveal_close(d.arrive, a.a) {
-                    engine.cancel(&key);
+                    if !engine.cancel_at_cutoff(&key) {
+                        // The old signature can still land. The engine will
+                        // deliver Landed or Dead after it is definitive.
+                        continue;
+                    }
                     if let Some(st) = self.transits.get_mut(&(h, b)) {
                         st.missed = true;
                     }
@@ -4085,6 +4104,40 @@ mod w6t_tests {
             e.leaks(&s) >= 1,
             "an archived anchor with T(arrive) verified: the Reveal goes"
         );
+    }
+
+    #[test]
+    fn deferred_dead_reveal_marks_missed_once() {
+        let mut duty = PlayDuty::default();
+        duty.transits.insert((8, 105), TransitState::default());
+        let dead = Outcome::Dead {
+            reason: "reveal cutoff".into(),
+            code: None,
+        };
+        duty.on_outcome("reveal:8:105", &dead);
+        duty.on_outcome("reveal:8:105", &dead);
+        assert!(duty.transits[&(8, 105)].missed);
+        assert_eq!(duty.stats.reveals_missed, 1);
+    }
+
+    #[test]
+    fn landed_reveal_latches_transit_before_slot_feed_catches_up() {
+        let mut duty = PlayDuty::default();
+        duty.transits.insert((8, 105), TransitState::default());
+        duty.on_outcome(
+            "reveal:8:105",
+            &Outcome::Landed {
+                slot: 13,
+                sig: fclient::ports::Signature::default(),
+                payer: Address::new_from_array([1; 32]),
+                versions: 1,
+                first_slot: 10,
+                already_done: false,
+            },
+        );
+        assert!(duty.transits[&(8, 105)].reveal_done);
+        assert!(!duty.transits[&(8, 105)].missed);
+        assert_eq!(duty.stats.reveals_landed, 1);
     }
 
     /// Close waste (w6-s7: 28,655 failed CloseArrivalDay/Slot in the
