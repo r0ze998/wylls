@@ -6,7 +6,7 @@ import { createSim, run, summarize, CASES } from './model.mjs';
 
 /** The situations the brief asks to try (all numbers provisional). */
 export const SCENARIOS = Object.freeze([
-  { id: 'base', name: '基本（大国2・中国2・小国2、途中参加2割、資源の少ない人2割5分、協力しない人2割、妨害2、退出3）', over: {} },
+  { id: 'base', name: '基本（依頼は自国だけに見える前提＝①の「国の卓」Q8案(a)。大国2・中国2・小国2、途中参加2割、資源の少ない人2割5分、協力しない人2割、妨害2、退出3）', over: {} },
   { id: 'dispersed', name: '分散配置（⑧の仮置き：輪2〜8）＝近くの人と遠くの人', over: { placement: 'dispersed' } },
   { id: 'late_poor', name: '途中参加と資源の少ない人が多い（各4割）', over: { lateShare: 0.4, poorShare: 0.4 } },
   { id: 'no_coop', name: '協力しない人が半分', over: { selfishShare: 0.5 } },
@@ -15,7 +15,7 @@ export const SCENARIOS = Object.freeze([
   { id: 'brink', name: '達成目前の妨害（妨害者4、達成8割から襲う）', over: { saboteurs: 4, sabotage: 'brink' } },
   { id: 'leavers', name: '参加者の退出（8村が7日目に去る）', over: { leavers: 8 } },
   { id: 'transport', name: '輸送の失敗が多い（1州あたり5%）', over: { lossPerProvince: 0.05 } },
-  { id: 'world_visible', name: '①の依頼がもともと全国に見える場合', over: { requestVisibility: 'world' } },
+  { id: 'world_visible', name: '依頼が全国に見える前提＝①の現行の依頼の板（3f3c8478 の coop/：国で絞らず全件を返す）', over: { requestVisibility: 'world' } },
   { id: 'keep', name: 'C：期限なし・返金なし（進捗が残る）', over: { refund: 'keep' } },
   { id: 'members', name: 'C：中継の倉は出した人だけが使える', over: { access: 'contributors' } },
 ]);
