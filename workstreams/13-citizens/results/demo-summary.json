@@ -1,0 +1,471 @@
+{
+  "stage": {
+    "world": "MOCK local test world (world/testworld.mjs), not the Frontier program",
+    "provider": "fixture (no model, no network)",
+    "memory": "local adapter (stand-in for workstream 12)",
+    "execution": "test-world adapter (stand-in for workstream 4)",
+    "board": "MOCK off-chain board"
+  },
+  "bells": 200,
+  "names": {
+    "c1": "Kou",
+    "c2": "Mio",
+    "c3": "Asa",
+    "c4": "Ren"
+  },
+  "mechanical": {
+    "residents": {
+      "asa": {
+        "citizen": "c3",
+        "address": "6FQmU2xRj1M27wABABeKA22shTMLwjymtwC4bbhBEkJ8",
+        "goal": "village-first",
+        "owner": "test-operator",
+        "funder": "test-operator",
+        "stoppedBy": [
+          "the owner: a signed mode command (manual) — owner-auth.mjs, the agent wallet's owner commands",
+          "the operator of the world: the halt file, and the world's own refusals (bucket, quota)",
+          "its own limits: maxTurns, the budget, the provider failure pause"
+        ],
+        "decisions": 45,
+        "by": {
+          "provider": 26,
+          "code": 19
+        },
+        "kinds": {
+          "build": 18,
+          "wait": 22,
+          "decline": 3,
+          "request": 2
+        },
+        "providerRefusals": {},
+        "journalLastDay": {
+          "action:landed": 12,
+          "board:posted": 4,
+          "action:sent": 1
+        },
+        "duplicateSignatures": 0,
+        "caravansPerLandedIntent": [
+          1
+        ],
+        "actionsPerGameDay": {
+          "0": 6,
+          "1": 7
+        },
+        "actionsPerDayLimit": 12,
+        "ledger": {
+          "mode": "auto",
+          "deposited": "400000",
+          "available": "140000",
+          "spentInference": "260000",
+          "reserved": "0",
+          "callsToday": 7,
+          "check": [],
+          "unresolved": 0
+        },
+        "episodes": 23
+      },
+      "ren": {
+        "citizen": "c4",
+        "address": "9f9anA5N1GsUQW73A2hR6zLndZ2fQ24WNAiVhMGBEtp8",
+        "goal": "surplus-use",
+        "owner": "test-operator",
+        "funder": "test-operator",
+        "stoppedBy": [
+          "the owner: a signed mode command (manual) — owner-auth.mjs, the agent wallet's owner commands",
+          "the operator of the world: the halt file, and the world's own refusals (bucket, quota)",
+          "its own limits: maxTurns, the budget, the provider failure pause"
+        ],
+        "decisions": 49,
+        "by": {
+          "provider": 26,
+          "code": 23
+        },
+        "kinds": {
+          "build": 18,
+          "wait": 23,
+          "accept": 1,
+          "request": 5,
+          "decline": 2
+        },
+        "providerRefusals": {},
+        "journalLastDay": {
+          "action:landed": 13,
+          "board:posted": 3
+        },
+        "duplicateSignatures": 0,
+        "caravansPerLandedIntent": [],
+        "actionsPerGameDay": {
+          "0": 6,
+          "1": 7
+        },
+        "actionsPerDayLimit": 12,
+        "ledger": {
+          "mode": "auto",
+          "deposited": "400000",
+          "available": "140000",
+          "spentInference": "260000",
+          "reserved": "0",
+          "callsToday": 7,
+          "check": [],
+          "unresolved": 0
+        },
+        "episodes": 29
+      }
+    },
+    "world": {
+      "caravans": {
+        "arrived": 4
+      },
+      "events": {
+        "Joined": 4,
+        "BuildStarted": 37,
+        "CaravanDeparted": 4,
+        "BuildDone": 35,
+        "CaravanArrived": 4
+      },
+      "wasteUnits": {}
+    },
+    "board": {
+      "requests": [
+        {
+          "id": "1a4f728bd961fa1f",
+          "from": "Kou",
+          "to": "Asa",
+          "want": {
+            "Wood": 150
+          },
+          "offer": {
+            "Gold": 20
+          },
+          "status": "fulfilled",
+          "by": "Ren",
+          "returned": "returned",
+          "reopened": false
+        },
+        {
+          "id": "7e467fc5383c05d2",
+          "from": "Ren",
+          "to": "Kou",
+          "want": {
+            "Wood": 40
+          },
+          "offer": {
+            "Food": 40
+          },
+          "status": "expired",
+          "by": null,
+          "returned": null,
+          "reopened": false
+        },
+        {
+          "id": "257c8b5c4e8f0e32",
+          "from": "Kou",
+          "to": "Ren",
+          "want": {
+            "Food": 60
+          },
+          "offer": {
+            "Ore": 20
+          },
+          "status": "expired",
+          "by": null,
+          "returned": null,
+          "reopened": false
+        },
+        {
+          "id": "3336c847655fb21d",
+          "from": "Ren",
+          "to": "Mio",
+          "want": {
+            "Wood": 40
+          },
+          "offer": {
+            "Food": 40
+          },
+          "status": "lapsed",
+          "by": "Mio",
+          "returned": null,
+          "reopened": false
+        },
+        {
+          "id": "dfdea075e952b09e",
+          "from": "Ren",
+          "to": "Asa",
+          "want": {
+            "Wood": 40
+          },
+          "offer": {
+            "Food": 40
+          },
+          "status": "expired",
+          "by": null,
+          "returned": null,
+          "reopened": false
+        },
+        {
+          "id": "5f2d6af4c2027692",
+          "from": "Kou",
+          "to": "Ren",
+          "want": {
+            "Food": 200
+          },
+          "offer": {},
+          "status": "expired",
+          "by": null,
+          "returned": null,
+          "reopened": false
+        },
+        {
+          "id": "7ff38ccbd00ba0c5",
+          "from": "Asa",
+          "to": "Kou",
+          "want": {
+            "Wood": 50
+          },
+          "offer": {
+            "Ore": 50
+          },
+          "status": "fulfilled",
+          "by": "Kou",
+          "returned": "returned",
+          "reopened": false
+        },
+        {
+          "id": "68b63b682bf89654",
+          "from": "Ren",
+          "to": "Kou",
+          "want": {
+            "Wood": 60
+          },
+          "offer": {
+            "Food": 60
+          },
+          "status": "expired",
+          "by": null,
+          "returned": null,
+          "reopened": false
+        },
+        {
+          "id": "96f3997df1b8b281",
+          "from": "Asa",
+          "to": "Kou",
+          "want": {
+            "Wood": 50
+          },
+          "offer": {
+            "Gold": 50
+          },
+          "status": "expired",
+          "by": null,
+          "returned": null,
+          "reopened": false
+        },
+        {
+          "id": "8bcdcfcdc08446fb",
+          "from": "Ren",
+          "to": "Asa",
+          "want": {
+            "Wood": 40
+          },
+          "offer": {
+            "Food": 40
+          },
+          "status": "expired",
+          "by": null,
+          "returned": null,
+          "reopened": false
+        }
+      ]
+    },
+    "audit": [],
+    "restarts": []
+  },
+  "observed": {
+    "asa": {
+      "declines": [
+        {
+          "bell": 6,
+          "request": "1a4f728bd961fa1f",
+          "reason": "goal",
+          "why": "my own plan needs it",
+          "alternative": {
+            "reopens": true,
+            "holder": {
+              "citizen": "c2",
+              "has": 330
+            },
+            "canSpare": {
+              "Wood": 50
+            }
+          }
+        },
+        {
+          "bell": 58,
+          "request": "dfdea075e952b09e",
+          "reason": "goal",
+          "why": "my own plan needs it",
+          "alternative": {
+            "reopens": true,
+            "holder": {
+              "citizen": "c1",
+              "has": 660
+            },
+            "canSpare": {
+              "Wood": 0
+            }
+          }
+        },
+        {
+          "bell": 112,
+          "request": "8bcdcfcdc08446fb",
+          "reason": "goal",
+          "why": "my own plan needs it",
+          "alternative": {
+            "reopens": true,
+            "holder": {
+              "citizen": "c1",
+              "has": 880
+            },
+            "canSpare": {
+              "Wood": 26
+            }
+          }
+        }
+      ],
+      "excludedOffers": [
+        {
+          "bell": 6,
+          "request": "1a4f728bd961fa1f",
+          "reason": "goal",
+          "why": "my own plan needs it"
+        },
+        {
+          "bell": 15,
+          "request": "257c8b5c4e8f0e32",
+          "reason": "deadline",
+          "why": "the road takes 2 bells"
+        },
+        {
+          "bell": 55,
+          "request": "dfdea075e952b09e",
+          "reason": "goal",
+          "why": "my own plan needs it"
+        },
+        {
+          "bell": 64,
+          "request": "5f2d6af4c2027692",
+          "reason": "budget",
+          "why": "a gift of 200 is over what I may give today (150)"
+        },
+        {
+          "bell": 112,
+          "request": "8bcdcfcdc08446fb",
+          "reason": "goal",
+          "why": "my own plan needs it"
+        }
+      ],
+      "outcomesLearned": {
+        "joined": 1,
+        "refused-by-me": 3,
+        "built": 17,
+        "kept": 1,
+        "unanswered": 1
+      },
+      "requestTargetChanges": [],
+      "idleShare": 0.49,
+      "distinctKinds": [
+        "build",
+        "wait",
+        "decline",
+        "request"
+      ]
+    },
+    "ren": {
+      "declines": [
+        {
+          "bell": 14,
+          "request": "257c8b5c4e8f0e32",
+          "reason": "deadline",
+          "why": "the road takes 1 bells",
+          "alternative": {
+            "reopens": true,
+            "holder": {
+              "citizen": "c2",
+              "has": 393
+            },
+            "earliestDeadlineBell": 16
+          }
+        },
+        {
+          "bell": 63,
+          "request": "5f2d6af4c2027692",
+          "reason": "budget",
+          "why": "a gift of 200 is over what I may give today (150)",
+          "alternative": {
+            "reopens": true,
+            "holder": {
+              "citizen": "c2",
+              "has": 719
+            },
+            "canSendToday": 150
+          }
+        }
+      ],
+      "excludedOffers": [
+        {
+          "bell": 14,
+          "request": "257c8b5c4e8f0e32",
+          "reason": "deadline",
+          "why": "the road takes 1 bells"
+        },
+        {
+          "bell": 60,
+          "request": "5f2d6af4c2027692",
+          "reason": "budget",
+          "why": "a gift of 200 is over what I may give today (150)"
+        }
+      ],
+      "outcomesLearned": {
+        "joined": 1,
+        "built": 17,
+        "delivered": 1,
+        "returned": 1,
+        "refused-by-me": 2,
+        "unanswered": 4,
+        "broken": 1,
+        "declined": 2
+      },
+      "requestTargetChanges": [
+        {
+          "turn": 11,
+          "from": "c1",
+          "to": "c2"
+        },
+        {
+          "turn": 16,
+          "from": "c2",
+          "to": "c3"
+        },
+        {
+          "turn": 22,
+          "from": "c3",
+          "to": "c1"
+        },
+        {
+          "turn": 30,
+          "from": "c1",
+          "to": "c3"
+        }
+      ],
+      "idleShare": 0.47,
+      "distinctKinds": [
+        "build",
+        "wait",
+        "accept",
+        "request",
+        "decline"
+      ]
+    }
+  },
+  "notAnEvaluation": "The observed part lists facts a human rater needs. It does not score personality, autonomy or fun (06-evaluation.ja.md)."
+}
