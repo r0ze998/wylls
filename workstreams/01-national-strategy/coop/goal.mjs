@@ -11,6 +11,7 @@
 
 import { RESOURCES, RESOURCE_JA, stateAt, ownerTagOf, ctxKey } from './record.mjs';
 import { arrivalsOf, caravanKeyOf } from './arrival.mjs';
+import { toWs04Terminal, fulfilmentOf, pickNeed } from './ws04.mjs';
 import { seasonAddresses } from '../../../permutation-server/web/frontier/faddr.mjs';
 import { PRESETS as V2PRESETS } from '../../../permutation-server/web/sdk/frontier/abi-v2-presets.mjs';
 import { VAULT_COST } from '../../../permutation-server/web/frontier/fcaravan.mjs';
@@ -156,11 +157,14 @@ export function coopView({ state, file, obs = { ended: {}, vaults: {} }, checks 
     const resp = q.responses[a.responder];
     const timing = timingOf(sent?.blockTime, checks.times?.[resp?.id] ?? null);
     const c = countOf(a, recipient, timing);
-    return { ...a, recipient, timing, currentOwner: now?.status === 'found' ? { gen: now.gen, ownerCitizen: now.ownerCitizen } : null, counted: c.counted, notCountedWhy: c.why };
+    // 送った荷（チェーンの最初の CARAVAN_SENT、整数単位、依頼の資源だけ）。④の Fulfilled／Partial は隊商ごとにこれと比べる
+    const shipped = sent?.cargo ? pickNeed(sent.cargo, q.need) : null;
+    return { ...a, recipient, timing, currentOwner: now?.status === 'found' ? { gen: now.gen, ownerCitizen: now.ownerCitizen } : null, counted: c.counted, notCountedWhy: c.why,
+      shipped, terminal: toWs04Terminal(a, shipped) };
   });
   const byReq = {};
   for (const a of arrivals) (byReq[a.requestId] ??= []).push(a);
-  const requests = Object.values(state.requests).map(q => ({ ...q, stateNow: stateAt(q, now), arrivals: byReq[q.id] ?? [],
+  const requests = Object.values(state.requests).map(q => ({ ...q, stateNow: stateAt(q, now), arrivals: byReq[q.id] ?? [], fulfilment: fulfilmentOf(q, byReq[q.id] ?? []),
     sendings: (q.sendings ?? []).map(z => ({ ...z, outcome: checks.sendings?.[z.walletSig] ?? { status: 'unknown', why: 'まだ確かめていない' } })) }));
   // 国は文脈ごとの Citizen の口座で確かめる（checks.citizens の鍵は「文脈|ウォレット」。古い形の「ウォレット」だけの鍵も読む）
   const citizen = (w, c = season) => checks.citizens?.[`${c ? ctxKey(c) : ''}|${w}`] ?? checks.citizens?.[w] ?? { status: 'unverified', why: 'まだ確かめていない' };
@@ -217,7 +221,7 @@ export function coopView({ state, file, obs = { ended: {}, vaults: {} }, checks 
   const personal = viewer === null ? null : {
     viewer,
     nation: vf.status === 'verified' ? vf.faction : null, nationWhy: vf.status === 'verified' ? null : vf.why,
-    myRequests: requests.filter(q => q.requester === viewer).map(q => ({ id: q.id, state: q.stateNow, need: q.need, responses: q.responses, arrivals: q.arrivals })),
+    myRequests: requests.filter(q => q.requester === viewer).map(q => ({ id: q.id, state: q.stateNow, need: q.need, responses: q.responses, arrivals: q.arrivals, fulfilment: q.fulfilment })),
     myResponses: requests.filter(q => q.responses[viewer]).map(q => ({ id: q.id, requester: q.requester, response: q.responses[viewer], arrivals: q.arrivals.filter(a => a.responder === viewer) })),
     myVerified: (() => {
       const t = blank();

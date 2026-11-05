@@ -142,3 +142,14 @@ node workstreams/01-national-strategy/test/browser.smoke.mjs --shots  # 11 件�
 - この作業のブランチは `9214293` の子孫で、`9214293` → PR #22 の 6 commit（`4cd901d` まで、すでに GitHub の `integrate/claude-consolidation-20261029` にある）→ ①の commit。だから、指定ブランチへ送る場合は**新しいブランチを作るだけで、既存の履歴を上書きしない**（force は不要）。
 - PR #22 の先頭 `a4fc78c` は `4cd901d` の次の 1 commit（handoff 文書の更新）で、①のブランチには入っていない。
 - ローカルの git bundle を作り、別の場所に復元して中身が一致することを確かめた（作業の報告を参照）。2026-10-30 の整合確認の後、bundle・patch・文書・試作・テスト結果・復元の手順・SHA256 をまとめた保存パッケージ（中の `RESTORE.ja.md` と `INDEX.ja.md`）を作り、チャットの添付として渡した。**同じコンテナの中の bundle だけでは、コンテナが消えると一緒に消えるので、消失対策は完了していない。**
+
+## 9-3j. 到着量の言い方・依頼の充足・再起動の後の送信・記録の区間（2026-11-05）
+
+鍵の生成・導出・署名を伴う試験は実行していない（21章 21-6）。
+
+| 試験 | 結果 |
+|---|---|
+| `node --test` 試作8ファイル＋`coop.contract04`＋`coop.nokey` | 177／177 通過 |
+| `browser.smoke.mjs`（国の卓） | 14／14 通過 |
+| ヘラルド `cargo test --offline -p herald --lib caravan`（統合 `ef63544c` に 0002b を当てた使い捨ての worktree） | 4／4 通過 |
+| `coop.test`・`coop.send.test`・`coop.continuity.test`・`coop.longrun.test`・`coop.browser`・`coop.realrelay` | 実行していない（鍵・署名・住所の導出） |

@@ -85,7 +85,9 @@ test('単位：記録はミリ単位を1件ずつ切り捨てた整数。複数�
 
 test('状態の対応：①の到着の状態と、④の実行器の終わりの状態', () => {
   const t = (state, verification) => toWs04Terminal({ state, verification });
-  assert.equal(t('delivered', 'RuleDerived'), 'Delivered(Fulfilled|Partial)');
+  assert.equal(t('delivered', 'RuleDerived'), 'Delivered', '量も送った荷も無いときは Fulfilled／Partial を決めない');
+  assert.equal(toWs04Terminal({ state: 'delivered', verification: 'RuleDerived', delivered: { wood: 196 } }, { wood: 200 }), 'Partial');
+  assert.equal(toWs04Terminal({ state: 'delivered', verification: 'RuleDerived', delivered: { wood: 200 } }, { wood: 200 }), 'Fulfilled');
   assert.equal(t('delivered', 'Unverifiable'), 'DeliveredUnverified');
   for (const s of ['lost', 'misdelivered', 'raided-taken', 'raided-burned']) assert.equal(t(s, 'KnownZero'), 'Failed');
   assert.equal(t('moving', null), 'InTransit');

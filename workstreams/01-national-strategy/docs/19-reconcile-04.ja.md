@@ -59,7 +59,7 @@
 | D1 | ④の `CaravanSettled` の event は `slot`・`credited/lost`（P1）を持つ。①の提案パッチ 0002（ヘラルドの `ended`）は `slot`・取引の署名を持たない（ヘラルドの fold には bell・署名が渡らない） | ①は量をヘラルドの `ended` から数えない（チェーンの取引の記録だけ）。0002 は表示用。④の findex の event を使えるなら、①はそちらに合わせる |
 | D2 | 単位 | **解決**：④のコード（`src/model.rs`：`pub type Res = [u64; RESOURCES]`「Whole units per resource (the PS2 logs' unit for cargo)」、`executor.rs:1432-1437` で RuleDerived の delivered は記録の cargo）も整数単位。①と④は同じ数（契約テスト「村あて」「単位」） |
 | D3 | ④の状態名（Fulfilled・Partial・DeliveredUnverified など、15 の状態）は④の実行器の状態。①は依頼の板で、到着ごとに `state`（moving・delivered・lost・misdelivered・raided-*・unknown）と `verification` を持つ | 対応表：delivered＋RuleDerived ≒ Fulfilled/Partial、delivered＋Unverifiable ≒ DeliveredUnverified、lost・raided-*・misdelivered ≒ Failed（KnownZero） |
-| D4 | ④は「依頼量以上なら Fulfilled、少なければ Partial」。①は依頼の量で到着を切らず、共同の目的の判定は資源ごとの合計 | 依頼ごとの充足の表示は①では作らない（今回は増やさない） |
+| D4 | ④は「依頼量以上なら Fulfilled、少なければ Partial」。①は依頼の量で到着を切らず、共同の目的の判定は資源ごとの合計 | **2026-11-05 に解いた（21章 21-2）：** 隊商ごとに送った荷と比べて Fulfilled／Partial／Failed／DeliveredUnverified を出し、依頼ごとの充足は数えた量を依頼量と比べる。共同の目的の判定は変えない |
 | D5 | MANIFEST・SHA256SUMS が完全な bundle を載せるが、このアーカイブにない | 照合には影響しない（増分の bundle とパッチで同じ tree） |
 | D6 | ①の 18章の「村あては下限」という書き方 | 今回④の言葉（RuleDerived）に直した。量は同じ |
 

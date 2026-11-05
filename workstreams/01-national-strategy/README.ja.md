@@ -36,6 +36,7 @@ WYLLS の「国のチーム戦略」を、実装に渡せるゲーム設計と�
 | [docs/18-handoff-04.ja.md](docs/18-handoff-04.ja.md) | ④への引き渡し：到着量の正本（チェーンの取引の記録）と契約、共有コードのパッチ 0002・0004、④から受け取りたいもの |
 | [docs/19-reconcile-04.ja.md](docs/19-reconcile-04.ja.md) | ④の受領版（2e536b6b）との到着量の照合、到着時の受取人と今の持ち主、まだ合っていない点 |
 | [docs/20-world-continuity.ja.md](docs/20-world-continuity.ja.md) | **世界の継続（2026-10-31）**：①に残っていたシーズン依存、変えた挙動、境界と長期運用の試験、④⑧に残る移行の判断 |
+| [docs/21-display-fulfil-restart-segments.ja.md](docs/21-display-fulfil-restart-segments.ja.md) | **到着量の言い方・依頼の充足・再起動の後の送信・記録の区間（2026-11-05）**：④ HANDOFF §2 の言い方、Fulfilled／Partial、着地したのに結び付けていない送信、追記ファイルの区間、提案 0002〜0004 と統合の最新版の照合、実行しなかった鍵の試験 |
 | `coop/` | 国をまたぐ依頼の板と画面（`node coop/board.mjs --herald … --program … --season …`） |
 | `prototype/supply.html` | 国際供給網の最小デモ（配置は固定。交換は②を模したもの） |
 | [proposals/](proposals/README.ja.md) | 接続の差分の提案（未適用） |

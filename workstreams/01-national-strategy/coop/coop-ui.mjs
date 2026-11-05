@@ -1,6 +1,8 @@
 // 依頼の画面。署名はゲームと同じウォレット（同じ入口の Dev Wallet）で行う。物を動かすのはゲームの隊商だけ。
 
 import { RESOURCE_JA, signRecord, ownerTagOf, RESOURCES } from './record.mjs';
+import { pendingSendOf } from './pending.mjs';
+import { deliveredText, FULFILMENT_JA } from './ws04.mjs';
 import { STATE_JA } from './arrival.mjs';
 import * as W from '../../../permutation-server/web/wallet.mjs';
 import { equal } from '../../../permutation-server/web/sdk/bytes.mjs';
@@ -75,7 +77,7 @@ function renderJoint() {
         <div>${j.progress.map(p => `${esc(RESOURCE_JA[p.resource])} <b data-testid="joint-${p.resource}">${p.verified}</b>／${p.need}`).join('　')}（数えた入荷量だけ。資源ごと。合計しない）</div>
         <div class="note" data-testid="joint-precision">整数単位。記録は到着1件ごとにミリ単位を切り捨てた値なので、本当の量は表示より ${j.progress.map(p => `${esc(RESOURCE_JA[p.resource])} ${p.underBy} 未満`).join('・')} 多いことがある（件数ぶん）</div>
         <div class="note" data-testid="joint-why">${esc(j.judgeLabel)}：${esc(j.why)}</div>
-        <div class="note">確かめた他国：${j.otherNations.length ? j.otherNations.map(nationName).join('・') : 'なし'}${j.nationsUnverified.length ? `（<span class="warn" data-testid="nation-unverified">${esc(j.nationsUnverified.join('、'))}</span>）` : ''}。輸送中・不明の隊商 ${j.unverifiedCaravans} 本、届いたが量を証明できない隊商 ${j.unprovenDeliveries} 本（どちらも数えない）</div>
+        <div class="note">確かめた他国：${j.otherNations.length ? j.otherNations.map(nationName).join('・') : 'なし'}${j.nationsUnverified.length ? `（<span class="warn" data-testid="nation-unverified">${esc(j.nationsUnverified.join('、'))}</span>）` : ''}。輸送中・不明の隊商 ${j.unverifiedCaravans} 本、到着したが数えられない隊商（入った量を確認できない・受取人や時刻が未検証）${j.unprovenDeliveries} 本（どちらも数えない。0 個とは言わない）</div>
       </div>`).join('') : '<div class="note">まだ依頼はない</div>'}`;
 }
 
@@ -117,13 +119,16 @@ function renderRequests() {
       <div><b>${esc(needText(q.need))}</b> → ${esc(short(q.requester))}（${esc(nationName(q.nation))}・申告。判定には使わない）の村 (${q.to.p},${q.to.q}) 村${q.to.site}
         <span class="tag" data-testid="req-state">${esc(REQ_JA[q.stateNow] ?? q.stateNow)}${q.cancel ? `：${esc(CANCEL_JA[q.cancel.reason] ?? q.cancel.reason)}` : ''}</span></div>
       <div class="note">応答：${esc(others || 'まだない')}</div>
+      <div class="note" data-testid="req-fulfilment" data-status="${esc(q.fulfilment?.status ?? '')}">依頼の充足：${esc(FULFILMENT_JA[q.fulfilment?.status] ?? '—')}${q.fulfilment && q.fulfilment.status !== 'none' ? `。数えた量 ${esc(needText(q.fulfilment.counted))}${Object.keys(q.fulfilment.shortBy).length ? `、不足 ${esc(needText(q.fulfilment.shortBy))}` : ''}${q.fulfilment.open ? `、結果待ち ${q.fulfilment.open} 本` : ''}${q.fulfilment.unproven ? `、到着したが数えられない ${q.fulfilment.unproven} 本` : ''}${q.fulfilment.knownZero ? `、届かなかった ${q.fulfilment.knownZero} 本` : ''}` : ''}</div>
       <div class="row">
         ${mine && open ? `<button data-act="cancel-self" data-id="${esc(q.id)}">取り消す（自分で進める）</button><button data-act="cancel-other" data-id="${esc(q.id)}">取り消す（ほかの理由）</button>` : ''}
         ${!mine && open && !accepted ? `<button data-act="accept" data-id="${esc(q.id)}">応じる（送るつもり。義務はない）</button><button data-act="decline" data-id="${esc(q.id)}">断る</button>` : ''}
         ${!mine && accepted && open ? `<button data-act="withdraw" data-id="${esc(q.id)}">取り下げる（別の相手を選ぶ）</button>` : ''}
       </div>
-      ${!mine && accepted && open && cfg.relay && cfg.rpcProxy ? (unresolved(q).length
-        ? `<div class="row"><button data-act="send" data-id="${esc(q.id)}" data-testid="pending-send">前の送信（隊商 #${unresolved(q)[0].caravan.seq}）の結果を確かめる</button><span class="warn">結果が分かるまで次は署名・送付しない</span></div>`
+      ${!mine && accepted && open && cfg.relay && cfg.rpcProxy ? (blocking(q)
+        ? (blocking(q).kind === 'landed-unlinked'
+          ? `<div class="row"><button data-act="link" data-id="${esc(q.id)}" data-tag="${esc(blocking(q).sending.caravan.ownerTag)}" data-seq="${blocking(q).sending.caravan.seq}" data-testid="pending-link">着地した隊商 #${blocking(q).sending.caravan.seq} をこの依頼に結び付ける</button><span class="warn">結び付けるまで次は署名・送付しない（同じ物を二度送らない）</span></div>`
+          : `<div class="row"><button data-act="send" data-id="${esc(q.id)}" data-testid="pending-send">前の送信（隊商 #${blocking(q).sending.caravan.seq}）の結果を確かめる</button><span class="warn">結果が分かるまで次は署名・送付しない</span></div>`)
         : `<div class="row"><button data-act="send" data-id="${esc(q.id)}">この画面から送る（${esc(needText(resp.offer))}。ウォレットで署名）</button></div>`) : ''}
       ${!mine && accepted && open ? `<div class="note">ゲームの村の引き出し「交易と防備」からも送れる：行き先 (${q.to.p},${q.to.q}) 村${q.to.site}、荷 ${esc(needText(resp.offer))}。他の人の村へ送る隊商は、ウォレットで署名します。</div>
         <div class="row">${cands.length ? cands.map(m => `<button data-act="link" data-id="${esc(q.id)}" data-tag="${esc(m.ownerTag)}" data-seq="${m.seq}">隊商 #${m.seq}（${esc(needText(Object.fromEntries(RESOURCES.map((r, i) => [r, m.cargo[i]]).filter(([, v]) => v > 0))))}）をこの依頼に結び付ける</button>`).join('') : '<span class="note">この届け先へ向かう自分の隊商はまだ見えない</span>'}</div>` : ''}
@@ -135,16 +140,17 @@ function renderArrivals() {
   const a = view.arrivals;
   const feedNote = view.heraldFeed ? (view.heraldFeed.ended === null ? '<div class="warn">このヘラルドは確定の記録（ended）を出していない。到着は未検証のまま（④のパッチ待ち）</div>' : '') : '<div class="bad">ヘラルドの隊商の一覧が読めない</div>';
   $('arrivals').querySelector('.body').innerHTML = `${feedNote}
-    <table><thead><tr><th>依頼</th><th>隊商</th><th>状態</th><th>到着量（④の分類）</th><th>記録の cargo（上限）</th><th>到着時の受取人</th><th>今の持ち主</th><th>数えた量</th></tr></thead><tbody>
+    <table><thead><tr><th>依頼</th><th>隊商</th><th>状態</th><th>到着量（④の分類）</th><th>④の終わり（隊商ごと）</th><th>記録の cargo（上限）</th><th>到着時の受取人</th><th>今の持ち主</th><th>数えた量</th></tr></thead><tbody>
     ${a.map(x => `<tr data-testid="arrival"><td><code>${esc(x.requestId.slice(0, 8))}</code></td><td>${esc(x.caravanId.ownerTag.slice(0, 6))}…#${x.caravanId.seq}</td>
       <td data-testid="arrival-state">${esc(STATE_JA[x.state] ?? x.state)}</td>
-      <td data-testid="arrival-qty">${x.delivered ? `${esc(needText(x.delivered))}（${esc(VERIFICATION_JA[x.verification] ?? x.verification)}）` : `<span class="note">分からない${x.verification ? `（${esc(VERIFICATION_JA[x.verification] ?? x.verification)}）` : ''}</span>`}</td>
+      <td data-testid="arrival-qty" data-kind="${esc(deliveredText(x, RESOURCE_JA, x.shipped).kind)}">${esc(deliveredText(x, RESOURCE_JA, x.shipped).text)}${x.verification ? `<span class="note">（${esc(VERIFICATION_JA[x.verification] ?? x.verification)}）</span>` : ''}</td>
+      <td data-testid="arrival-terminal">${x.terminal ? esc(x.terminal) : '—'}${x.terminal === 'Delivered' ? '<span class="note">（送った荷が分からないので Fulfilled／Partial を決めない）</span>' : ''}</td>
       <td>${x.cargoLogged ? esc(needText(x.cargoLogged)) : '—'}</td>
       <td data-testid="arrival-recipient">${!x.recipient ? '—' : x.recipient.status === 'verified' ? (x.recipient.isRequester ? '依頼した人（世代 ' + x.recipient.gen + '）' : '<span class="warn">依頼した人ではない</span>') : `<span class="warn">未検証：${esc(x.recipient.why)}</span>`}</td>
       <td>${x.currentOwner ? `世代 ${x.currentOwner.gen}・${esc(String(x.currentOwner.ownerCitizen).slice(0, 4))}…` : '—'}</td>
-      <td data-testid="arrival-counted">${x.counted ? esc(needText(x.counted)) : `<span class="note">0（${esc(x.notCountedWhy ?? '')}）</span>`}</td></tr>`).join('') || '<tr><td colspan="8" class="note">結び付けた隊商はまだない</td></tr>'}
+      <td data-testid="arrival-counted">${x.counted ? esc(needText(x.counted)) : `<span class="note">算入 0（${esc(x.notCountedWhy ?? '')}）</span>`}</td></tr>`).join('') || '<tr><td colspan="9" class="note">結び付けた隊商はまだない</td></tr>'}
     </tbody></table>
-    <div class="note">到着量の分類は④の契約に合わせた。村あては規則から（RuleDerived：記録の cargo を整数単位の入荷量とする）、倉あては credited が記録にないので分からない（Unverifiable）、届かなかったものは 0 と分かっている（KnownZero）。記録の cargo は上限で、数えない。到着時の受取人は、村の世代が到着の記録と同じときだけ今の口座から決まる（世代が変わったら未検証）。</div>`;
+    <div class="note">到着量の分類は④の契約に合わせた。村あては規則から（RuleDerived：記録の cargo を整数単位の入荷量とする）、倉あては credited が記録にないので分からない（Unverifiable）、届かなかったものは 0 と分かっている（KnownZero）。記録の cargo は上限で、数えない。量を確認できない到着は「0 個」「失敗」ではなく、数えた量（算入量）が 0 なだけ。④の終わりは隊商ごとに送った荷と比べ（以上 Fulfilled・未満 Partial・0 Failed）、依頼の充足は数えた量を依頼量と比べる。到着時の受取人は、村の世代が到着の記録と同じときだけ今の口座から決まる（世代が変わったら未検証）。</div>`;
 }
 
 async function refresh() {
@@ -176,14 +182,15 @@ document.addEventListener('click', e => {
  * この画面から送る：ゲームと同じコード（send.mjs → fplay.submit）で SendCaravan を組み立て、接続したウォレットで署名して中継へ送る。
  * チェーンに隊商の口座が見えたら、結び付けの記録に署名して板へ出す。
  */
-/** この依頼への自分の送信のうち、結果の分からないもの（板の sending の記録から。再読込・板の再起動の後も残る）。 */
-const unresolved = q => (q.sendings ?? []).filter(z => z.responder === signer?.address && z.outcome?.status === 'unknown');
+/** この依頼への自分の送信のうち、次の送付を止めるもの（結果が分からない・着地したのに結び付けていない。板の sending の記録から。再読込・板の再起動の後も残る）。 */
+const blocking = q => (signer ? pendingSendOf(q, signer.address, z => z.outcome) : null);
 
 async function sendFor(q) {
   const c = W.connected();
   if (!c || !signer) return say('先に署名する人を接続してください', 'warn');
-  const open = unresolved(q);
-  if (open.length) return followSend(q, open[0]);
+  const b = blocking(q);
+  if (b?.kind === 'unknown') return followSend(q, b.sending);
+  if (b?.kind === 'landed-unlinked') return post({ kind: 'link', request: q.id, caravan: { ownerTag: b.sending.caravan.ownerTag, seq: b.sending.caravan.seq } }, `着地していた隊商 #${b.sending.caravan.seq} をこの依頼に結び付けた`);
   const resp = q.responses[signer.address];
   const reader = rpcReader('/coop/rpc');
   say('送り元・道・番号をチェーンから読んでいます…');
@@ -258,6 +265,7 @@ $('judge').addEventListener('change', refresh);
   $('judgeMeans').innerHTML = cfg.judges.map(j => `<li><b>${esc(j.label)}</b>：${esc(j.means)}</li>`).join('');
   if (!cfg.chain) say('この板はチェーンを読まない（--rpc なし）。国籍と届け先の村は未検証になり、国をまたぐ協力の達成は確定しない', 'warn');
   if (cfg.damaged?.length) say(`板の記録に読めない行が ${cfg.damaged.length} 行ある（記録の欠落）`, 'bad');
+  if (cfg.store?.problems?.length) say(`板の記録の区間に問題がある：${cfg.store.problems.join('、')}`, 'bad');
   const to = new URLSearchParams(location.search).get('to');   // ⑦の入口：?to=p,q,site,gen
   if (to && /^-?\d+,-?\d+,\d+,\d+$/.test(to)) [$('toP').value, $('toQ').value, $('toSite').value, $('toGen').value] = to.split(',');
   await refresh();

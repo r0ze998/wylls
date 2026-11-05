@@ -4,7 +4,7 @@
 //
 //   node workstreams/01-national-strategy/coop/board.mjs --herald http://127.0.0.1:41940 \
 //        --program <program id> --season <id> --rpc http://127.0.0.1:41910 [--port 41873] [--data <dir>] [--judge arrivals]
-//        [--previous <program>:<season> …] [--legacy-data <旧い板のフォルダ> …]
+//        [--previous <program>:<season> …] [--legacy-data <旧い板のフォルダ> …] [--segment-mb 64]
 //
 // 中継（relay）へは、ゲームと同じく同じ入口の /gw を通す（板 → ヘラルドの /gw → 中継）。
 // 中継は CORS の見出しを返さず、OPTIONS にも答えない（permutation-gateway src/frontier/app.mjs：Access-Control-Allow-Origin なし、
@@ -27,6 +27,8 @@ import { linkProblem } from './arrival.mjs';
 import { GOALS, JUDGES, coopView, timingOf } from './goal.mjs';
 import { citizenOf, holdingNow, rpcReader, caravanAccount, caravanHistory, sendOutcome, seasonRules } from './chain.mjs';
 import { caravanKeyOf } from './arrival.mjs';
+import { pendingSendOf } from './pending.mjs';
+import { openStore, loadStore, readLines, DEFAULT_SEGMENT_BYTES } from './store.mjs';
 import { seasonAddresses } from '../../../permutation-server/web/frontier/faddr.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -41,17 +43,8 @@ const TYPES = { '.html': 'text/html; charset=utf-8', '.mjs': 'text/javascript; c
  * 飛ばした行は記録の欠落なので、`damaged` として表示に出す（黙って消さない。ファイルも書き換えない）。
  */
 export function loadRecords(file) {
-  if (!fs.existsSync(file)) return { records: [], damaged: [], received: [] };
-  const records = [], damaged = [], received = [];
-  fs.readFileSync(file, 'utf8').split('\n').forEach((l, i) => {
-    if (!l.trim()) return;
-    let x;
-    try { x = JSON.parse(l); } catch { damaged.push({ line: i + 1, head: l.slice(0, 40) }); return; }
-    // 新しい形：{rec, receivedAt}（板が受け取った時刻。署名の外）。古い形：記録そのもの（受け取った時刻は分からない）
-    if (x && x.rec && typeof x.rec === 'object') { records.push(x.rec); received.push(Number.isInteger(x.receivedAt) ? x.receivedAt : null); }
-    else { records.push(x); received.push(null); }
-  });
-  return { records, damaged, received };
+  const r = readLines(file);
+  return { records: r.entries.map(e => e.rec), damaged: r.damaged, received: r.entries.map(e => e.receivedAt) };
 }
 
 /**
@@ -60,20 +53,23 @@ export function loadRecords(file) {
  * 観測の時刻（observed.json）が失われると、再起動の後に初めて見た時刻になる（仮B は「到着より後」を確かめられず、達成にならない側に倒れる）。
  */
 export function createBoard({ herald, programId, seasonId, dataDir, judge = 'arrivals', now = () => Math.floor(Date.now() / 1000), fetchHerald = null, reader = null, relay = '/gw', rpc = null,
-  previous = [], legacyDirs = [] }) {
+  previous = [], legacyDirs = [], segmentBytes = DEFAULT_SEGMENT_BYTES }) {
   // 今の文脈（新しい依頼・ヘラルド・見ている人の国）と、前の文脈（読み続ける）。文脈を世界の正本として決めるのは④⑧。①は渡された一覧を使う。
   const season = { programId, seasonId: String(seasonId) };
   const contexts = [season, ...previous.map(c => ({ programId: c.programId, seasonId: String(c.seasonId) }))];
   fs.mkdirSync(dataDir, { recursive: true });
-  const recFile = path.join(dataDir, 'records.jsonl');
   const obsFile = path.join(dataDir, 'observed.json');
+  // 記録は区間に分けて保存する（store.mjs）。閉じた区間は読むだけ（名前を変えるだけで中身は変えない）。
+  const store = openStore(dataDir, { segmentBytes });
   // 旧い板の記録（シーズンごとのフォルダ）は読むだけ。書き換えず、こちらへ写しもしない（再起動のたびに読み直す）
-  const loaded = [...legacyDirs.map(d => ({ ...loadRecords(path.join(d, 'records.jsonl')), legacy: d })), { ...loadRecords(recFile), legacy: null }];
-  const records = [], damaged = [], receivedAt = new Map();
+  const loaded = [...legacyDirs.map(d => ({ ...loadStore(d), legacy: d })), { ...store.load(), legacy: null }];
+  const records = [], damaged = [], receivedAt = new Map(), segments = [], storeProblems = [];
   const folder = createFolder({ goals: GOALS, contexts, current: season });
   for (const L of loaded) {
-    L.records.forEach((r, i) => { records.push(r); receivedAt.set(recordId(r), L.received[i]); folder.add(r); });
-    damaged.push(...L.damaged.map(d => ({ ...d, file: L.legacy ?? 'records.jsonl' })));
+    for (const e of L.entries) { records.push(e.rec); receivedAt.set(recordId(e.rec), e.receivedAt); folder.add(e.rec); }
+    damaged.push(...L.damaged.map(d => ({ ...d, file: L.legacy ? path.join(L.legacy, d.file) : d.file })));
+    segments.push(...L.segments.map(x => ({ ...x, legacy: L.legacy })));
+    storeProblems.push(...L.problems.map(x => (L.legacy ? `${L.legacy}：${x}` : x)));
   }
   const sendCache = new Map();      // 送信の結果（終わったものは変わらないので覚える）
   let obs = { ended: {}, vaults: {} };
@@ -116,11 +112,11 @@ export function createBoard({ herald, programId, seasonId, dataDir, judge = 'arr
     const ctx = q?.ctx ?? rec.season;
     if (rec.kind === 'sending' && q) {
       // 結果の分からない送信が同じ依頼・同じ人に残っていれば、次の署名・送付を受けない（二重送付を防ぐ）
-      for (const z of q.sendings ?? []) {
-        if (z.responder !== rec.signer) continue;
-        const o = await sendingStatus(q, z);
-        if (o.status === 'unknown') return { ok: false, why: `結果の分からない送信（隊商 #${z.caravan.seq}）が残っている。着地・失敗・期限切れが分かるまで次を送らない`, pending: z.caravan };
-      }
+      // 着地したのに結び付けていない送信も止める（再起動・画面を閉じた後に同じ物を二度送らない。pending.mjs）
+      const outs = new Map();
+      for (const z of q.sendings ?? []) if (z.responder === rec.signer) outs.set(z.walletSig, await sendingStatus(q, z));
+      const p = pendingSendOf(q, rec.signer, z => outs.get(z.walletSig));
+      if (p) return { ok: false, why: p.why, pending: p.sending.caravan, pendingKind: p.kind };
     }
     if (rec.kind === 'link') {
       if (!q) return { ok: false, why: '依頼が見つからない' };
@@ -157,10 +153,9 @@ export function createBoard({ herald, programId, seasonId, dataDir, judge = 'arr
     const r = folder.add(rec, { quiet: true, live: true });
     if (!r.ok) return { ok: false, why: r.why };
     const id = r.id;
-    // 書きかけで止まった最後の行に続けて書かない
-    if (fs.existsSync(recFile)) { const st = fs.statSync(recFile); if (st.size > 0) { const fd = fs.openSync(recFile, 'r'); const b = Buffer.alloc(1); fs.readSync(fd, b, 0, 1, st.size - 1); fs.closeSync(fd); if (b[0] !== 10) fs.appendFileSync(recFile, '\n'); } }
     const at = now();
-    fs.appendFileSync(recFile, `${JSON.stringify({ rec, receivedAt: at })}\n`);
+    const sealed = store.append(rec, at);   // 書きかけの最後の行には続けない。大きくなったら区間を閉じる
+    if (sealed) segments.push({ ...sealed, status: 'ok', legacy: null });
     records.push(rec);
     receivedAt.set(id, at);
     return { ok: true, id };
@@ -238,10 +233,10 @@ export function createBoard({ herald, programId, seasonId, dataDir, judge = 'arr
     const file = await caravans();
     const st = state();
     const v = coopView({ state: st, file, obs, checks: await checks(st, viewer), viewer, now: now(), judgeId, season });
-    return { ...v, heraldFeed: file ? { moving: (file.moving ?? []).length, ended: Array.isArray(file.ended) ? file.ended.length : null } : null, chain: !!reader, damaged, contexts };
+    return { ...v, heraldFeed: file ? { moving: (file.moving ?? []).length, ended: Array.isArray(file.ended) ? file.ended.length : null } : null, chain: !!reader, damaged, contexts, store: { segments: segments.length, problems: storeProblems } };
   }
 
-  const config = () => ({ season, contexts, goals: GOALS, judges: Object.values(JUDGES).map(j => ({ id: j.id, label: j.label, means: j.means })), judge, herald, chain: !!reader, damaged, relay, rpcProxy: !!rpc });
+  const config = () => ({ season, contexts, goals: GOALS, judges: Object.values(JUDGES).map(j => ({ id: j.id, label: j.label, means: j.means })), judge, herald, chain: !!reader, damaged, relay, rpcProxy: !!rpc, store: { segments, problems: storeProblems } });
   return { submit, view, config, records, caravans, season, contexts, rpc, state };
 }
 
@@ -342,8 +337,9 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const all = k => process.argv.flatMap((x, i) => (x === `--${k}` ? [process.argv[i + 1]] : []));
   const previous = all('previous').map(x => { const [p, s] = x.split(':'); return { programId: p, seasonId: s }; });   // --previous <program>:<season>（読み続ける前の文脈）
   const legacyDirs = all('legacy-data');
+  const segmentBytes = Math.round(Number(arg('segment-mb', String(DEFAULT_SEGMENT_BYTES / 1048576))) * 1048576);   // 記録の区間の大きさ（MB）
   const rpc = arg('rpc');   // 例：http://127.0.0.1:41910（国と届け先の村をチェーンで確かめる。ないと国籍未検証）
-  const board = createBoard({ herald, programId, seasonId, dataDir, judge: arg('judge', 'arrivals'), reader: rpc ? rpcReader(rpc) : null, rpc, previous, legacyDirs });   // 中継は同じ入口の /gw（ヘラルドの --relay が要る）
+  const board = createBoard({ herald, programId, seasonId, dataDir, judge: arg('judge', 'arrivals'), reader: rpc ? rpcReader(rpc) : null, rpc, previous, legacyDirs, segmentBytes });   // 中継は同じ入口の /gw（ヘラルドの --relay が要る）
   createServer(board, { herald }).listen(port, '127.0.0.1', () => {
     console.log(`依頼の板：http://127.0.0.1:${port}/ws01/  ゲーム：http://127.0.0.1:${port}/frontier/frontier/  （ヘラルド ${herald}、記録 ${dataDir}）`);
   });
