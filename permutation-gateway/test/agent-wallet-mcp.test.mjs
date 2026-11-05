@@ -190,3 +190,25 @@ test('MCP: the stdio transport is one JSON-RPC message per line', async () => {
   assert.equal(msgs.find(m => m.id === null).error.code, -32700);
   assert.equal(msgs.find(m => m.id === 8).result.tools.length, 4);
 });
+
+test('an MCP server can declare who acts through it: source ai keeps an autopilot apart from a person\'s MCP client on the same agent', async () => {
+  const { relay: mkRelay, createAgent: mk, call: callR, ownerCommand: oc, delegate: dg, policy: pol } = await import('./agent-wallet-fixtures.mjs');
+  const { Keypair: KP } = await import('@solana/web3.js');
+  const { createAgentMcp: create } = await import('../mcp/agent-mcp.mjs');
+  const r = mkRelay();
+  const owner = KP.generate();
+  const { agentId, agentKey, capability } = await mk(r, owner, { policy: pol(['economy']) });
+  await callR(r.public, 'POST', '/f/agent/command', { body: oc(owner, 'mode', { agentId, params: { mode: 'auto' } }), ip: '127.0.0.1' });
+  dg(r, owner.publicKey.toBase58(), agentKey);
+  const fetch = async (url, init = {}) => { const u = new URL(url); const res = await callR(r.public, init.method ?? 'GET', u.pathname + u.search, { body: init.body === undefined ? undefined : JSON.parse(init.body) }); return { status: res.status, json: async () => res.json }; };
+  assert.throws(() => create({ relay: 'http://relay.test', agentId, capability, fetch, source: 'browser' }), /source must be mcp or ai/);
+  const person = create({ relay: 'http://relay.test', agentId, capability, fetch });
+  const auto = create({ relay: 'http://relay.test', agentId, capability, fetch, source: 'ai' });
+  const v = r.gateway.view(agentId);
+  const args = id => ({ requestId: id, policyVersion: v.policy.version, modeEpoch: v.modeEpoch, action: { name: 'Harvest', fields: {} } });
+  const callTool = (m, name, a) => m.handle({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: a } });
+  await callTool(person, 'agent_act', args('same-id-0001'));
+  await callTool(auto, 'agent_act', args('same-id-0001'));
+  const acts = r.gateway.view(agentId).history.filter(h => h.type === 'action');
+  assert.deepEqual(acts.map(h => [h.source, h.key]).sort(), [['ai', 'ai:same-id-0001'], ['mcp', 'mcp:same-id-0001']]);
+});
