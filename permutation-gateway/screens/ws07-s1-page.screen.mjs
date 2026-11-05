@@ -127,9 +127,9 @@ for (const size of SIZES) {
     assert.equal(await s1On(page), true, 'the page plays the S1 rules');
     const feedText = await page.evaluate(async () => { const { FS } = await import('/frontier/fstate.mjs'); return (FS.feed ?? []).filter(x => x.away || x.awayOf).map(x => x.text).join('\n'); });
     assert.match(feedText, /直近 144 ターン/);
-    assert.match(feedText, /送付記録の数量に対して一部が入りました：食料 352。送付記録の数量：食料 400。比べた基準は送付記録の数量です/, 'to a village: verified against the send record, said so');
-    assert.match(feedText, /決着しました。入った量はまだ確かめられていません。倉庫は上限を超えた分を切り捨てます/, 'to a storehouse: not verified');
-    assert.doesNotMatch(feedText, /全量が入りました：木材 300|村に入った量：木材 300|隊商が着きました：木材 300/);
+    assert.match(feedText, /送付記録の数量に対して一部が入りました：食料 352 以上。送付記録の数量：食料 400。比べた基準は送付記録の数量です/, 'to a village: verified against the send record, said so');
+    assert.match(feedText, /到着しましたが、入った量は確認できません（[^）]*最大 [0-9,]*）。倉庫は上限を超えた分を切り捨てます/, 'to a storehouse: not verified');
+    assert.doesNotMatch(feedText, /全量が入りました：木材 300|村に入った量：木材 300|全量が入りました：木材 300 以上|村に入った量：木材 300 以上|隊商が着きました：木材 300/);
     await shot(page, `ws07-s1-page-away-${size.name}`);
     // (a phone shows one notice over the map, the newest — here the turn's card —: the away summary waits under it, and
     // a line under the strip says there is something not yet seen and opens the summary in the list under その他 —
@@ -177,7 +177,7 @@ for (const size of SIZES) {
     const card = page.locator('.s1-card');
     await card.waitFor({ state: 'attached', timeout: 15000 });
     assert.equal(await card.locator('[data-key="arrival:overdue"]').count(), 1);
-    assert.match(await card.innerText(), /到着予定のターン \d+ を過ぎました。まだ決着していません/);
+    assert.match(await card.innerText(), /到着予定のターン \d+ を過ぎました。読み込んだ時点では、まだ決着していません/);
     assert.doesNotMatch(await card.innerText(), /到着済み/, 'past the turn is not arrived');
     assert.equal(await card.locator('[data-key^="cancel:"], [data-key^="cost:"], [data-key="manual"], [data-act="coop-open"]').count(), 0, 'nothing registered: nothing added');
     await card.scrollIntoViewIfNeeded();

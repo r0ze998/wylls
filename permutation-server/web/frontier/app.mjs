@@ -51,6 +51,7 @@ import { html, setHtml } from '../util.mjs';
 import * as returnSum from './hud/returnsum.mjs';
 import * as returnWords from './hud/returnwords.mjs';
 import * as returnRead from './hud/awayread.mjs';
+import { caravanWatchOf } from './screens/s1.mjs';
 import { palisadeHexesOf, marchWearOf } from './s1walk.mjs';
 import { ACTIONS, FORMS, bind, startPlay, wantProvince, wantKeepHistory, wantKeepReach, wantHostReach, refreshConquest, refreshPrize, ackHomeGrant, tolled, syncProto, wantPreview, wantPlaces, composeTick } from './controller.mjs';
 import { mountProtoBoard } from './proto/board-mount.mjs';
@@ -2288,17 +2289,19 @@ let awayBusy = false, awayBook = null, awaySent = null, awayQueue = [];
 const awayWho = () => ({ season: String(FS.season?.seasonId ?? ''), wallet: FS.wallet?.address ?? '' });
 const awayScopeNow = () => { const { season, wallet } = awayWho(); return season && wallet ? returnRead.awayScope({ herald: String(FS.season?.genesisTs ?? ''), seasonId: season, wallet }) : null; };
 const S1_NEWS = new Set(['CARAVAN_RAIDED', 'RAID_OPENED', 'CARAVAN_SETTLED', 'VAULT_SEIZED', 'STRUCTURE_SEIZED', 'SIEGE_DECLARED', 'CAPTURE_SETTLED', 'NATION_DECIDED', 'NATION_PROPOSED']);
+/** The ends of caravans the away reader read: a caravan gone from the road's list is no longer "state unknown" once read. */
+const awayEnds = records => { for (const x of records ?? []) if (x.record?.name === 'CARAVAN_SETTLED' || x.record?.name === 'CARAVAN_RAIDED') { const k = returnSum.caravanKey(x.record); if (k) caravanWatchOf(FS).ended(k); } };
 /** The away head notice's words: what the summary covers and what "seen" will do (or why it is not offered). */
 const awayHeadText = (s, saved = undefined) => `${returnWords.headText(s)} ${saved === undefined ? returnWords.confirmText(s) : returnWords.confirmedText(saved)}`;
 function awayPump() {
   if (awayBusy || !heraldRef || !s1On()) return;
   const sc = awayScopeNow();
-  if (sc === null) { if (awayReader.scope !== null) { awayReader.reset(); awayBook = null; awayQueue = []; } return; }
+  if (sc === null) { if (awayReader.scope !== null) { awayReader.reset(); awayBook = null; awayQueue = []; caravanWatchOf(FS).reset(); } return; }
   awayBusy = true;
   if (sc !== awayReader.scope) {
     // (a new wallet or season, or the first look: what another scope told goes, with its book)
     FS.feed = (FS.feed ?? []).filter(x => !(x.away || x.awayOf) || x.scope === sc);
-    awayBook = null; awayQueue = [];
+    awayBook = null; awayQueue = []; caravanWatchOf(FS).reset();
     const { season, wallet } = awayWho(), st = awayStore();
     const marks = returnSum.loadMarks(st, season, wallet);
     const head = (() => { try { return FS.record?.headSeq === undefined ? null : BigInt(FS.record.headSeq); } catch { return null; } })();
@@ -2306,6 +2309,7 @@ function awayPump() {
     const from = usable ? marks.confirmedSeq : head === null ? '0' : String(head > BigInt(returnRead.AWAY_REACH) ? head - BigInt(returnRead.AWAY_REACH) : 0n);
     awayReader.start({ scope: sc, from }).then(r => {
       if (r.stale || r.scope !== awayScopeNow()) return;
+      awayEnds(r.records);
       const s = returnSum.summarize({ records: r.records, read: { after: r.after, complete: r.complete, failed: r.failed }, marks: returnSum.loadMarks(awayStore(), season, wallet), last: returnSum.loadLast(awayStore()),
         season, wallet, nowBell: FS.nowBell ?? 0, headSeq: head === null ? null : String(head), me: awayMe(), rules: { programVersion: FS.season?.programVersion } });
       awayBook = s.book; awaySent = s.sent;
@@ -2316,6 +2320,7 @@ function awayPump() {
   } else {
     awayReader.more().then(r => {
       if (r.stale || r.scope !== awayScopeNow() || awayBook === null) return;
+      awayEnds(r.records);
       const { items, book, sent } = returnSum.itemsSince(r.records, awayMe(), awayBook, awaySent, { programVersion: FS.season?.programVersion });
       awayBook = book; awaySent = sent;
       awayQueue.push(...items.filter(i => S1_NEWS.has(i.kind)).map(i => ({ ...awayItem(i), scope: sc })));

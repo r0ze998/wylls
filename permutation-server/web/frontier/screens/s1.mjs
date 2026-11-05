@@ -31,7 +31,7 @@ import { cardHead, chip, fold, label } from './parts.mjs';
 import { swatch } from './shell.mjs';
 import { renderCoopSlot } from '../hud/coopentry.mjs';
 import { arrivalView, cancelView, costView, manualView, spendable, renderStatus, cargoText as spendText } from '../hud/statusview.mjs';
-import { arrivalOnRoad, statusFrom } from '../hud/statussources.mjs';
+import { arrivalOnRoad, createCaravanWatch, statusFrom } from '../hud/statussources.mjs';
 
 // ------------------------------------------------------------------ the rules the page offers by (structure.rs, caravan.rs, nation.rs)
 /** structure::KIND_*. */
@@ -436,6 +436,13 @@ export function renderS1Tile(FS, sel) {
 }
 
 /** The village's S1 card (screens/holding.mjs). */
+/**
+ * (workstream 07) The viewer's caravans that left the road's list while this page was open, with no end read yet
+ * (hud/statussources.mjs createCaravanWatch), one watch per page state. app.mjs tells it the ends it reads (the away
+ * reader's settlements and raids) and resets it with the away reader's scope.
+ */
+const watches = new WeakMap();
+export const caravanWatchOf = FS => { let w = watches.get(FS); if (!w) { w = createCaravanWatch(); watches.set(FS, w); } return w; };
 export function renderS1Village(FS) {
   const m = s1VillageModel(FS);
   if (!m.holding) return '';
@@ -447,7 +454,9 @@ export function renderS1Village(FS) {
   // says it is not settled yet; 04's own arrival replaces it when 04 registers one — and 04's cancel when registered:
   // hud/statussources.mjs, hud/statusview.mjs)
   const caravanStatus = c => { const a = statusFrom('caravanArrival', FS, c) ?? arrivalOnRoad(c, bell), x = statusFrom('caravanCancel', FS, c); return html`${a ? renderStatus(arrivalView(a)) : ''}${x ? renderStatus(cancelView(x)) : ''}`; };
-  const caravans = m.caravans.length ? html`${label(L`道中の隊商`)}<ul class="list">${m.caravans.map(c => html`<li>${icon('flag')}${c.raided ? S1_WORDS.raided() : S1_WORDS.caravan()} <span class="muted">${c.arriveBell !== null && c.arriveBell > bell ? L`ターン ${fmtNum(c.arriveBell)} に到着` : ''}</span>${caravanStatus(c)}</li>`)}</ul>` : '';
+  // (a caravan gone from the list is not said to have arrived: until its end is read, its state is unknown)
+  const gone = Array.isArray(FS.s1?.caravans?.moving) ? caravanWatchOf(FS).observe(m.caravans).filter(g => isMine(g.ownerTag, viewerTag(FS))) : [];
+  const caravans = m.caravans.length || gone.length ? html`${label(L`道中の隊商`)}<ul class="list">${m.caravans.map(c => html`<li>${icon('flag')}${c.raided ? S1_WORDS.raided() : S1_WORDS.caravan()} <span class="muted">${c.arriveBell !== null && c.arriveBell > bell ? L`ターン ${fmtNum(c.arriveBell)} に到着` : ''}</span>${caravanStatus(c)}</li>`)}${gone.map(() => html`<li>${icon('flag')}${S1_WORDS.caravan()}${renderStatus(arrivalView({ state: 'unread' }))}</li>`)}</ul>` : '';
   // (05's costs of this village and its switch back to manual play, when 05 registers them; nothing otherwise)
   const costs = statusFrom('villageCosts', FS, m.holding), manual = statusFrom('manualPlay', FS);
   const free = costs ? spendable(m.have, costs.costs ?? [], { committedInHave: costs.committedInHave }) : null;

@@ -238,14 +238,16 @@ export function itemsSince(records, me, book, sent = null, rules = {}) {
 }
 
 /**
- * What each caravan was sent with, from CARAVAN_SENT (key → `{cargo, wornBps, dst}`: the cargo after the towers' wear,
- * caravan.rs send), forgotten at its settlement. Not kept with the mark: a caravan whose send was not read is not
+ * What each caravan was sent with, from CARAVAN_SENT (key → `{cargo, wornBps, dst, taken?}`: the cargo after the towers'
+ * wear, caravan.rs send; `taken` once a take of it is read), forgotten at its settlement. Not kept with the mark: a caravan whose send was not read is not
  * compared, and its arrival stays unverified.
  */
 function foldSent(sent, r) {
   const key = caravanKey(r);
   if (!key) return;
   if (r.name === 'CARAVAN_SENT') { const c = cargoOf(r.cargo); if (c) sent.set(key, { cargo: c, wornBps: Number(r.worn_bps ?? 0), dst: r.dst ?? null }); }
+  // (a take read after the send: the raider holds it and may name another place — told apart from a misdelivery)
+  else if (r.name === 'CARAVAN_RAIDED' && r.choice !== 1 && sent.has(key)) sent.set(key, { ...sent.get(key), taken: true });
   else if (r.name === 'CARAVAN_SETTLED') sent.delete(key);
 }
 /**

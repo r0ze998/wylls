@@ -32,9 +32,35 @@ test('a caravan past its arrival turn and not settled yet: "overdue, not settled
   assert.match(before, /ターン 292 に到着/);
   assert.doesNotMatch(before, /data-key="arrival:/);
   const after = card(world(300));
-  assert.match(after, /role="status" data-key="arrival:overdue"[\s\S]*到着予定のターン 292 を過ぎました。まだ決着していません/);
+  assert.match(after, /role="status" data-key="arrival:overdue"[\s\S]*到着予定のターン 292 を過ぎました。読み込んだ時点では、まだ決着していません/);
   assert.doesNotMatch(after, /到着済み|着きました|入りました/, 'past the turn is not arrived');
   assert.deepEqual([SRC.arrivalOnRoad({ arriveBell: 292 }, 291), SRC.arrivalOnRoad({ arriveBell: 292 }, 292), SRC.arrivalOnRoad({ arriveBell: null }, 999)], [null, { state: 'overdue', bell: 292 }, null]);
+});
+
+test('a caravan gone from the road\'s list with no end read: "state unknown", never arrived or lost; its end read clears it; a reload (a new page state) says nothing of it', () => {
+  setLang('ja');
+  const fs = world(300);
+  assert.doesNotMatch(card(fs), /data-key="arrival:unread"/, 'on the road: no unknown line');
+  fs.s1 = { ...fs.s1, caravans: { ...fs.s1.caravans, moving: [] } };
+  const gone = card(fs);
+  assert.match(gone, /role="status" data-key="arrival:unread"[\s\S]*状態不明：道中の一覧から外れましたが、終わりの記録をまだ読んでいません/);
+  assert.doesNotMatch(gone, /着きました|入りました|失われました|奪われました/, 'no state asserted without a record');
+  assert.match(card(fs), /data-key="arrival:unread"/, 'it stays while no end is read');
+  SCR.caravanWatchOf(fs).ended(RS.caravanKey({ owner_tag: 5, seq: 2 }));
+  assert.doesNotMatch(card(fs), /data-key="arrival:unread"/, 'its settlement read: the away summary says how it ended');
+  // a list not read (null) is not "gone"
+  const fs2 = world(300); card(fs2); fs2.s1 = { ...fs2.s1, caravans: null };
+  assert.doesNotMatch(card(fs2), /data-key="arrival:unread"/);
+  // a reload: a new page state never saw it, so nothing is said (memory only)
+  const fresh = world(300); fresh.s1 = { ...fresh.s1, caravans: { ...fresh.s1.caravans, moving: [] } };
+  assert.doesNotMatch(card(fresh), /data-key="arrival:unread"/);
+});
+
+test('a take read after the send marks the caravan taken: its settlement elsewhere is the raider\'s, not a misdelivery', () => {
+  const sn = RS.itemsSince([sent(101, F400), rec(102, 'CARAVAN_RAIDED', 290, { owner_tag: 5, seq: 2, p: 0, q: 0, bell: 289, choice: 0, by: 0, raider_tag: 0x77, taken: cargo(F400) })], me, new Map(), null, S1_RULES).sent;
+  assert.equal(sn.get(RS.caravanKey({ owner_tag: 5, seq: 2 })).taken, true);
+  assert.deepEqual(SRC.arrivalSettled({ outcome: 0, dst: at(1, 3), cargo: F400 }, sn.get('5:2'), S1_RULES), { state: 'verifiedIntake', intake: F400, compare: 'dstChanged' });
+  assert.deepEqual(SRC.arrivalSettled({ outcome: 0, dst: at(1, 3), cargo: F400 }, { ...sn.get('5:2'), taken: undefined }, S1_RULES), { state: 'misdelivered', recorded: F400 });
 });
 
 test('04\'s own arrival, when 04 registers it, replaces the page\'s', () => {
@@ -102,22 +128,26 @@ test('to a village (Holding::credit adds the record\'s cargo whole): the intake 
   const full = arrivalOf([sent(101, F400, 120), settled(102, at(1), F400)]);
   assert.deepEqual(full, { state: 'verifiedFull', basis: 'sentRecord', sent: F400, arrived: F400, wornBps: 120 });
   const fullText = RW.itemText(sum([sent(101, F400, 120), settled(102, at(1), F400)]).items.find(i => i.kind === 'CARAVAN_SETTLED'));
-  assert.match(fullText, /送付記録の数量に対して全量が入りました：食料 400/);
+  assert.match(fullText, /送付記録の数量に対して全量が入りました：食料 400 以上/);
   assert.match(fullText, /比べた基準は送付記録の数量です。送付記録の数量は経路の減少を引いたあとの量で、最初に積んだ量と経路の損失は、この記録からは確定しません/);
   assert.match(fullText, /送付記録には経路の減少率 1\.2% が記されています/);
-  assert.match(fullText, /数量は記録の単位です（1 未満は切り捨て）/);
+  assert.match(fullText, /記録の数は、入った量の下限です/);
   assert.doesNotMatch(fullText, /(?<!送付記録の数量に対して)全量が入りました|全部入りました|無損失/, 'never "all arrived" without its basis');
   const part = arrivalOf([sent(101, F400), settled(102, at(1), F352)]);
   assert.deepEqual(part, { state: 'verifiedPartial', basis: 'sentRecord', sent: F400, arrived: F352, wornBps: 0 });
-  assert.match(RW.itemText(sum([sent(101, F400), settled(102, at(1), F352)]).items.find(i => i.kind === 'CARAVAN_SETTLED')), /送付記録の数量に対して一部が入りました：食料 352。送付記録の数量：食料 400/);
+  assert.match(RW.itemText(sum([sent(101, F400), settled(102, at(1), F352)]).items.find(i => i.kind === 'CARAVAN_SETTLED')), /送付記録の数量に対して一部が入りました：食料 352 以上。送付記録の数量：食料 400/);
 });
 
 test('the intake known and the comparison possible are two judgements: no send read → intake only; a send to another place or generation → intake only', () => {
   setLang('ja');
   assert.deepEqual(heldSince([settled(102, at(1), F352)]), { state: 'verifiedIntake', intake: F352, compare: 'sentUnknown' });
-  assert.match(RW.itemText(heldSince.item([settled(102, at(1), F352)])), /村に入った量：食料 352。送付記録を読めていないため、送った量の全部か一部かは比べられません/);
-  // the village's generation changed between the send and the settlement (another village on that site): not compared
-  assert.deepEqual(arrivalOf([sent(101, F400, 0, at(1, 1)), settled(102, at(1, 2), F400)]), { state: 'verifiedIntake', intake: F400, compare: 'dstChanged' });
+  assert.match(RW.itemText(heldSince.item([settled(102, at(1), F352)])), /村に入った量：食料 352 以上。送付記録を読めていないため、送った量の全部か一部かは比べられません/);
+  // the village's generation changed between the send and the settlement, with no take read: the cause is not known from
+  // the records — another place, nothing counted, no raid named (04 DestinationMismatch)
+  assert.deepEqual(arrivalOf([sent(101, F400, 0, at(1, 1)), settled(102, at(1, 2), F400)]), { state: 'misdelivered', recorded: F400 });
+  const mt = RW.itemText(sum([sent(101, F400, 0, at(1, 1)), settled(102, at(1, 2), F400)]).items.find(i => i.kind === 'CARAVAN_SETTLED'));
+  assert.match(mt, /^隊商（ターン 292）：別の場所に着きました（原因を確認中）/);
+  assert.doesNotMatch(mt, /奪|村に入った量|全量|一部が入りました/);
   // neither the send nor a mark that holds it: who holds it is unknown, so no arrival is told as the viewer's at all
   assert.equal(arrivalOf([settled(102, at(1), F352)]), undefined);
   assert.equal(sum([settled(102, at(1), F352)]).items.find(i => i.kind === 'CARAVAN_SETTLED').tone, 'uncertain');
@@ -134,8 +164,8 @@ test('to a storehouse (settle_caravan cuts at the vault\'s cap, the record keeps
   setLang('ja');
   assert.deepEqual(arrivalOf([sent(101, F400, 0, at(2)), settled(102, at(2), F400)]), { state: 'settledUnverified', why: 'vault', recorded: F400 });
   const t = RW.itemText(sum([sent(101, F400, 0, at(2)), settled(102, at(2), F400)]).items.find(i => i.kind === 'CARAVAN_SETTLED'));
-  assert.match(t, /^隊商（ターン 292）：決着しました。入った量はまだ確かめられていません。倉庫は上限を超えた分を切り捨てます/);
-  assert.equal(t.split('決着しました').length - 1, 1, 'said once, not twice');
+  assert.match(t, /^隊商（ターン 292）：到着しましたが、入った量は確認できません（食料 最大 400）。倉庫は上限を超えた分を切り捨てます/);
+  assert.equal(t.split('到着しました').length - 1, 1, 'said once, not twice');
   assert.doesNotMatch(t, /全量|一部が入りました|村に入った量/);
   assert.deepEqual(heldSince([settled(102, 0n, F400)]), { state: 'settledUnverified', why: 'dstUnknown', recorded: F400 });
 });
@@ -173,7 +203,7 @@ test('English words for the connected states', () => {
   const off = SRC.registerStatusSource('villageCosts', () => ({ costs: [{ phase: 'reserved', amounts: [100, 0, 0, 0, 0, 0, 0, 0] }], committedInHave: true }));
   try {
     const html = card(world(300)).replace(/<[^>]+>/g, ' ');
-    assert.match(html, /Its arrival turn 292 has passed\. Its journey is not concluded yet/);
+    assert.match(html, /Its arrival turn 292 has passed\. When last read, its journey was not concluded yet/);
     assert.match(html, /Usable \(after reservations\): Food 900/);
   } finally { off(); setLang('ja'); }
 });

@@ -291,3 +291,27 @@ test('the page reads the away summary from its own reader, per scope, and "seen"
   assert.match(seen, /confirm: x\.away\.summary\.confirm/);
   assert.match(seen, /x\.scope !== awayScopeNow\(\)/);
 });
+
+// ---------------------------------------------------------------- the phone's entry line after a reload (app.mjs awayPump, renderAwayEntry)
+test('after "seen" a reload queues no head notice, so the phone\'s entry line is not drawn again; after only ×, the same events come back', () => {
+  setLang('ja');
+  const app = readFileSync(new URL('../../permutation-server/web/frontier/app.mjs', import.meta.url), 'utf8');
+  // the reading queues a head notice (which the entry line is drawn from) unless there is nothing to tell
+  assert.match(app, /if \(!s\.items\.length && !s\.gap && !s\.failed && s\.windowFrom === null && s\.mode !== 'markAhead'\) return;/);
+  const quiet = s => !s.items.length && !s.gap && !s.failed && s.windowFrom === null && s.mode !== 'markAhead';
+  const st = storage();
+  RS.confirm(st, { seasonId: '7', wallet: 'W', confirm: { ok: true, toSeq: '100', toBell: 299, horizonBell: null, caravans: {} }, at: 1 });
+  const first = sum({ records: R, read: { after: '100', complete: true }, marks: RS.loadMarks(st, '7', 'W') });
+  assert.ok(first.items.length > 0 && !quiet(first), 'unseen events: the line is drawn');
+  // × only (no "seen"): nothing is saved; a reload reads the same events again and the line comes back
+  const again = sum({ records: R, read: { after: '100', complete: true }, marks: RS.loadMarks(st, '7', 'W') });
+  assert.deepEqual(again.items.map(i => i.seq), first.items.map(i => i.seq));
+  // "seen": the mark is saved on the device; a reload (the marks read back from storage) reads from it and finds nothing
+  RS.confirm(st, { seasonId: '7', wallet: 'W', confirm: first.confirm, at: 2 });
+  const reloaded = storage(); for (const [k, v] of st.m) reloaded.setItem(k, v); // (a new page: only what the device kept)
+  const back = RS.loadMarks(reloaded, '7', 'W');
+  assert.equal(back.confirmedSeq, first.confirm.toSeq);
+  const after = sum({ records: [], read: { after: back.confirmedSeq, complete: true }, marks: back });
+  assert.ok(quiet(after), 'nothing new after the mark: no head notice, no line');
+  assert.deepEqual(after.confirm, { ok: false, why: 'nothing' });
+});

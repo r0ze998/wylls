@@ -54,7 +54,7 @@ for (const size of SIZES) {
     assert.doesNotMatch(text, /到着済み|着きました/, 'past the turn is not arrived');
     assert.match(text, /ターン 306 に到着/);
     assert.equal(await page.locator('#card [data-key="arrival:overdue"]').count(), 1, 'one caravan is past its turn, one is still on the road');
-    assert.match(await rows.filter({ hasText: '到着予定のターン' }).innerText(), /到着予定のターン 292 を過ぎました。まだ決着していません/);
+    assert.match(await rows.filter({ hasText: '到着予定のターン' }).innerText(), /到着予定のターン 292 を過ぎました。読み込んだ時点では、まだ決着していません/);
     assert.equal(await page.locator('#card [data-key^="cancel:"], #card [data-key^="cost:"], #card [data-key="manual"], #card [data-act="coop-open"]').count(), 0, 'nothing registered: as before');
     assert.ok(await noSideScroll(page));
     await shot(page, `ws07-s1-card-plain-${size.name}`);

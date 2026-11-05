@@ -32,7 +32,7 @@ export const CANCEL_STAGES = Object.freeze(['stopNew', 'awaitSigned', 'cancelled
  * What is known of a caravan's arrival (workstream 07's five states; 04's own contract was not received, so its names
  * are to be matched against these: REQUESTS.ja.md ④-4). Being past the arrival turn is never "arrived".
  */
-export const ARRIVAL_STATES = Object.freeze(['overdue', 'settledUnverified', 'verifiedIntake', 'verifiedPartial', 'verifiedFull', 'lost']);
+export const ARRIVAL_STATES = Object.freeze(['overdue', 'settledUnverified', 'misdelivered', 'unread', 'verifiedIntake', 'verifiedPartial', 'verifiedFull', 'lost']);
 /**
  * Why a settled arrival's intake is not verified: a storehouse (it cuts what is over its cap, and the record keeps the
  * whole cargo), the destination not readable, a season whose program's rules were not checked, an outcome not read.
@@ -46,6 +46,14 @@ export const COST_PHASES = Object.freeze(['reserved', 'committed', 'unsettled', 
 const count = n => (Number.isInteger(n) && n >= 0 ? n : null);
 const isCargo = c => Array.isArray(c) && c.length === 8 && c.every(n => Number.isFinite(n) && n >= 0);
 /** Eight whole amounts in the page's resource order, in words ("食料 400・木材 50", or "なし"). */
+/**
+ * A village's intake in words, as 04's and 01's contracts say it: the record's whole amounts are its LOWER bound
+ * (cargo_log drops what is under one, and Holding::credit adds the cargo whole), so each is "n 以上"; all zero is
+ * "0 以上", never "なし" (which would say nothing went in).
+ */
+export const atLeastText = c => c.map((n, i) => (n > 0 ? L`${RESOURCES[RESOURCE_ORDER[i]]} ${fmtNum(Math.floor(n))} 以上` : null)).filter(Boolean).join(L`・`) || L`0 以上`;
+/** A storehouse's intake bound in words: at most the record's whole amounts (settle_caravan cuts at the cap, never adds more). */
+export const atMostText = c => c.map((n, i) => (n > 0 ? L`${RESOURCES[RESOURCE_ORDER[i]]} 最大 ${fmtNum(Math.floor(n))}` : null)).filter(Boolean).join(L`・`) || L`最大 0`;
 export const cargoText = c => c.map((n, i) => (n > 0 ? `${RESOURCES[RESOURCE_ORDER[i]]} ${fmtNum(Math.floor(n))}` : null)).filter(Boolean).join(L`・`) || L`なし`;
 const notReceived = (key, errors) => ({ ok: false, key, symbol: '?', text: L`状態を受け取れていません`, details: [], tone: 'unknown', errors });
 
@@ -79,6 +87,8 @@ export function cancelView(x) {
  * A caravan's arrival. `x`:
  *   {state: 'overdue', bell}                                    past turn `bell`, not concluded
  *   {state: 'settledUnverified', why, recorded?}                concluded; what went in is not verified
+ *   {state: 'misdelivered', recorded?}                          concluded at another place than the send named, no take read
+ *   {state: 'unread'}                                           gone from the road's list; no end record read yet
  *   {state: 'verifiedIntake', intake, compare}                  what went in is known; not compared with the send
  *   {state: 'verifiedPartial', basis, sent, arrived, wornBps?}  a part of the SEND RECORD's amount went in
  *   {state: 'verifiedFull', basis, sent, arrived, wornBps?}     all of the SEND RECORD's amount went in
@@ -89,13 +99,13 @@ export function cancelView(x) {
  */
 export function arrivalView(x) {
   if (!x || !ARRIVAL_STATES.includes(x.state)) return notReceived('arrival', [`state: ${x?.state ?? 'missing'}`]);
-  const units = L`数量は記録の単位です（1 未満は切り捨て）`;
+  const units = L`記録の数は、入った量の下限です（記録は 1 未満を切り捨てるので、資源ごとに 1 未満多く入っていることがあります）`;
   const basis = [L`比べた基準は送付記録の数量です。送付記録の数量は経路の減少を引いたあとの量で、最初に積んだ量と経路の損失は、この記録からは確定しません`,
     ...(Number(x.wornBps) > 0 ? [L`送付記録には経路の減少率 ${fmtNum(Number(x.wornBps) / 100)}% が記されています`] : [])];
   if (x.state === 'overdue') {
     if (!Number.isFinite(x.bell)) return notReceived('arrival', ['bell: missing']);
     return { ok: true, key: 'arrival:overdue', symbol: '…', tone: 'unknown', errors: [],
-      text: L`到着予定のターン ${fmtNum(x.bell)} を過ぎました。まだ決着していません`,
+      text: L`到着予定のターン ${fmtNum(x.bell)} を過ぎました。読み込んだ時点では、まだ決着していません`,
       details: [L`着いたかどうかは、決着の記録が出るまでわかりません`] };
   }
   if (x.state === 'settledUnverified') {
@@ -107,27 +117,45 @@ export function arrivalView(x) {
       rulesUnknown: [L`このシーズンのプログラムの版では、入った量の確かめ方を確認していません`],
       outcomeUnknown: [L`決着の結果を記録から読めないため、入った量は確かめられません`],
     }[x.why];
-    return { ok: true, key: `arrival:settledUnverified:${x.why}`, symbol: '?', tone: 'unknown', errors: [], text: L`決着しました。入った量はまだ確かめられていません`, details };
+    // (a storehouse took the caravan in — it was delivered — and took at most the record's cargo: said with that bound,
+    // never as 0, a loss or a failure. 04 HANDOFF §2 DeliveredUnverified)
+    const text = x.why === 'vault' ? (isCargo(x.recorded) ? L`到着しましたが、入った量は確認できません（${atMostText(x.recorded)}）` : L`到着しましたが、入った量は確認できません`)
+      : L`決着しました。入った量はまだ確かめられていません`;
+    return { ok: true, key: `arrival:settledUnverified:${x.why}`, symbol: '?', tone: 'unknown', errors: [], text, details };
   }
   if (x.state === 'lost') {
     const rec = isCargo(x.recorded) ? cargoText(x.recorded) : null;
     return { ok: true, key: 'arrival:lost', symbol: '✕', tone: 'loss', errors: [], text: rec ? L`積荷は失われました：${rec}` : L`積荷は失われました`, details: [L`行き先が無くなっていたため、どこにも入っていません（確定）`] };
   }
+  if (x.state === 'unread') {
+    // (the caravan left the road's list while this page watched, and no record of its end has been read: whether it
+    // arrived, was lost or was taken is not said until a record says it)
+    return { ok: true, key: 'arrival:unread', symbol: '?', tone: 'unknown', errors: [],
+      text: L`状態不明：道中の一覧から外れましたが、終わりの記録をまだ読んでいません`,
+      details: [L`着いたか、失われたか、奪われたかは、記録を読むまで言いません`] };
+  }
+  if (x.state === 'misdelivered') {
+    // (settled at another place than its send named, with no take read: the cause is not known, so no raid and no other
+    // party is named, and nothing is counted as this caravan's arrival. 04 HANDOFF §2 DestinationMismatch)
+    return { ok: true, key: 'arrival:misdelivered', symbol: '→', tone: 'unknown', errors: [],
+      text: L`別の場所に着きました（原因を確認中）`,
+      details: [L`送付記録の行き先と違う場所で決着しました。この隊商の到着としては、入った量を数えません`] };
+  }
   if (x.state === 'verifiedIntake') {
     if (!isCargo(x.intake) || !COMPARE_WHY.includes(x.compare)) return notReceived('arrival', [...(isCargo(x.intake) ? [] : ['intake: missing']), ...(COMPARE_WHY.includes(x.compare) ? [] : [`compare: ${x.compare ?? 'missing'}`])]);
     return { ok: true, key: `arrival:verifiedIntake:${x.compare}`, symbol: '○', tone: 'result', errors: [],
-      text: L`村に入った量：${cargoText(x.intake)}`,
-      details: [x.compare === 'sentUnknown' ? L`送付記録を読めていないため、送った量の全部か一部かは比べられません` : L`送付記録の行き先と決着の行き先が違うため（途中で奪われた隊商など）、送付記録とは比べません`, units] };
+      text: L`村に入った量：${atLeastText(x.intake)}`,
+      details: [x.compare === 'sentUnknown' ? L`送付記録を読めていないため、送った量の全部か一部かは比べられません` : L`送付記録とは行き先が違うため、送付記録とは比べません`, units] };
   }
   const errors = [...(isCargo(x.arrived) ? [] : ['arrived: missing']), ...(isCargo(x.sent) ? [] : ['sent: missing']), ...(x.basis === 'sentRecord' ? [] : [`basis: ${x.basis ?? 'missing'}`])];
   if (errors.length) return notReceived('arrival', errors);
   if (x.state === 'verifiedPartial') {
     return { ok: true, key: 'arrival:verifiedPartial', symbol: '◐', tone: 'loss', errors: [],
-      text: L`送付記録の数量に対して一部が入りました：${cargoText(x.arrived)}`,
+      text: L`送付記録の数量に対して一部が入りました：${atLeastText(x.arrived)}`,
       details: [L`送付記録の数量：${cargoText(x.sent)}`, ...basis, L`差の理由は、記録で確かめるまで決めません`, units] };
   }
   return { ok: true, key: 'arrival:verifiedFull', symbol: '●', tone: 'result', errors: [],
-    text: L`送付記録の数量に対して全量が入りました：${cargoText(x.arrived)}`, details: [...basis, units] };
+    text: L`送付記録の数量に対して全量が入りました：${atLeastText(x.arrived)}`, details: [...basis, units] };
 }
 
 /** 05's cost. `x`: `{phase, amounts?: cargo}`; an unsettled cost may have no amount yet. */

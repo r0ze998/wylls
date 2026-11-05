@@ -66,6 +66,31 @@ const DELIVERED = 0, LOST = 1;
  */
 export const S1_PROGRAM_VERSION = 4;
 
+/**
+ * The viewer's caravans that left the road's list (the caravans feed) while this page watched it, before any record of
+ * their end was read. Kept in memory only: a reload starts with nothing, and says nothing of caravans it never saw.
+ * `observe(moving)` takes the list as read (skip it when the list was not read) → the gone ones, `[{key, ownerTag, seq,
+ * arriveBell}]`, oldest first; `ended(key)` drops one once its settlement or a raid on it is read (returnsum.caravanKey
+ * form: "<owner tag>:<seq>"); `reset()` forgets all (another wallet or season).
+ */
+export function createCaravanWatch() {
+  const seen = new Map(), gone = new Map(), done = new Set();
+  const keyOf = c => { try { return `${BigInt(c.ownerTag)}:${c.seq}`; } catch { return null; } };
+  return {
+    observe(moving) {
+      const now = new Map();
+      for (const c of moving ?? []) { const k = keyOf(c); if (k !== null) now.set(k, c); }
+      for (const [k, c] of seen) if (!now.has(k) && !done.has(k)) gone.set(k, { key: k, ownerTag: c.ownerTag, seq: c.seq, arriveBell: c.arriveBell ?? null });
+      for (const k of now.keys()) gone.delete(k);
+      seen.clear();
+      for (const [k, c] of now) seen.set(k, c);
+      return [...gone.values()];
+    },
+    ended(key) { done.add(String(key)); gone.delete(String(key)); seen.delete(String(key)); },
+    reset() { seen.clear(); gone.clear(); done.clear(); },
+  };
+}
+
 /** A caravan still on the road (the caravans feed): overdue once its arrival turn has come — not arrived —, else nothing yet. */
 export function arrivalOnRoad(c, nowBell) {
   const at = c?.arriveBell;
@@ -86,6 +111,10 @@ export function arrivalOnRoad(c, nowBell) {
  *             settlement names. The send's cargo is AFTER the towers' wear —
  *             the first loaded amount and the road's loss are not in it, and
  *             nothing is worked out for them.
+ * A settlement at another place than the send named: when a take of the caravan was read after its send (`sent.taken`),
+ * the holder is the raider, who chose the new place — the intake is told, not compared (dstChanged). With no take read,
+ * the cause is not known from these records: it is `misdelivered`, nothing is counted as this caravan's arrival, and no
+ * cause (a raid or anything else) is named. (04 HANDOFF §2 DestinationMismatch)
  */
 export function arrivalSettled(settled, sent, { programVersion } = {}) {
   const ok = c => Array.isArray(c) && c.length === 8;
@@ -98,7 +127,7 @@ export function arrivalSettled(settled, sent, { programVersion } = {}) {
   if (Number(programVersion) !== S1_PROGRAM_VERSION) return { state: 'settledUnverified', why: 'rulesUnknown', recorded };
   if (!ok(sent?.cargo)) return { state: 'verifiedIntake', intake: recorded, compare: 'sentUnknown' };
   const samePlace = (() => { try { return sent.dst !== undefined && sent.dst !== null && BigInt(sent.dst) === BigInt(settled.dst); } catch { return false; } })();
-  if (!samePlace) return { state: 'verifiedIntake', intake: recorded, compare: 'dstChanged' };
+  if (!samePlace) return sent.taken === true ? { state: 'verifiedIntake', intake: recorded, compare: 'dstChanged' } : { state: 'misdelivered', recorded };
   const full = recorded.every((n, i) => n >= sent.cargo[i]);
   const base = { basis: 'sentRecord', sent: sent.cargo, arrived: recorded, wornBps: sent.wornBps ?? 0 };
   return full ? { state: 'verifiedFull', ...base } : { state: 'verifiedPartial', ...base };

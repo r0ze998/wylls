@@ -31,21 +31,43 @@ test('a caravan\'s arrival in its states: overdue is not arrived, settled-unveri
   setLang('ja');
   const o = SV.arrivalView({ state: 'overdue', bell: 292 });
   assert.deepEqual([o.key, o.symbol], ['arrival:overdue', '…']);
-  assert.match(o.text, /到着予定のターン 292 を過ぎました。まだ決着していません/);
+  assert.match(o.text, /到着予定のターン 292 を過ぎました。読み込んだ時点では、まだ決着していません/);
   assert.doesNotMatch([o.text, ...o.details].join(), /着きました|入りました/, 'past the turn is not arrived');
   const v = SV.arrivalView({ state: 'settledUnverified', why: 'vault', recorded: C(400) });
   assert.deepEqual([v.key, v.symbol], ['arrival:settledUnverified:vault', '?']);
-  assert.match(v.text, /決着しました。入った量はまだ確かめられていません/);
+  assert.equal(v.text, '到着しましたが、入った量は確認できません（食料 最大 400）', 'a storehouse: arrived, the intake unknown, at most the record (04 DeliveredUnverified)');
   assert.match(v.details.join(), /倉庫は上限を超えた分を切り捨てます。決着の記録には元の積荷（食料 400）が載る/);
+  assert.doesNotMatch([v.text, ...v.details].join(), /失われ|入りませんでした|0 以上/, 'never said lost or nothing');
+  assert.equal(SV.arrivalView({ state: 'settledUnverified', why: 'vault' }).text, '到着しましたが、入った量は確認できません', 'no record: no bound is made up');
+  assert.match(SV.arrivalView({ state: 'settledUnverified', why: 'dstUnknown', recorded: C(400) }).text, /決着しました。入った量はまだ確かめられていません/);
   assert.match(SV.arrivalView({ state: 'settledUnverified', why: 'rulesUnknown', recorded: C(352) }).details.join(), /このシーズンのプログラムの版では、入った量の確かめ方を確認していません/);
   const k = SV.arrivalView({ state: 'verifiedIntake', intake: C(352), compare: 'sentUnknown' });
   assert.deepEqual([k.key, k.symbol], ['arrival:verifiedIntake:sentUnknown', '○']);
-  assert.match([k.text, ...k.details].join(), /村に入った量：食料 352.*送付記録を読めていないため、送った量の全部か一部かは比べられません.*数量は記録の単位です/);
+  assert.match([k.text, ...k.details].join(), /村に入った量：食料 352 以上.*送付記録を読めていないため、送った量の全部か一部かは比べられません.*記録の数は、入った量の下限です/);
+  // a village's record is the LOWER bound of its intake (04, 01): all zero is "0 以上", never "なし" or a bare 0
+  const z = SV.arrivalView({ state: 'verifiedIntake', intake: C(0), compare: 'sentUnknown' });
+  assert.equal(z.text, '村に入った量：0 以上');
+  assert.doesNotMatch([z.text, ...z.details].join(), /なし|：0(?! 以上)/);
+  assert.equal(SV.arrivalView({ state: 'verifiedFull', basis: 'sentRecord', sent: C(0), arrived: C(0) }).text, '送付記録の数量に対して全量が入りました：0 以上');
+  assert.match(SV.atLeastText(C(352, 0, 7)), /^食料 352 以上・\S+ 7 以上$/, 'each resource its own lower bound; a zero resource is left out');
+  // the destination differs and no take was read: another place, the cause being checked — no raid, nothing counted (04 DestinationMismatch)
+  const md = SV.arrivalView({ state: 'misdelivered', recorded: C(400) });
+  assert.deepEqual([md.key, md.symbol, md.text], ['arrival:misdelivered', '→', '別の場所に着きました（原因を確認中）']);
+  assert.doesNotMatch([md.text, ...md.details].join(), /奪|略奪|入りました|食料 400/);
+  // a raider's arrival at its own place: told with no example of a cause
+  const dc = SV.arrivalView({ state: 'verifiedIntake', intake: C(400), compare: 'dstChanged' });
+  assert.doesNotMatch([dc.text, ...dc.details].join(), /奪われた隊商など|途中で奪/);
+  assert.match(dc.details.join(), /送付記録とは行き先が違うため、送付記録とは比べません/);
+  // gone from the road's list, no end read: the state is not asserted
+  const u = SV.arrivalView({ state: 'unread' });
+  assert.deepEqual([u.key, u.symbol], ['arrival:unread', '?']);
+  assert.match(u.text, /^状態不明：/);
+  assert.doesNotMatch([u.text, ...u.details].join(), /着きました|失われました|奪われました/);
   assert.equal(SV.arrivalView({ state: 'verifiedIntake', intake: C(1) }).ok, false, 'an intake says why it is not compared');
   assert.equal(SV.arrivalView({ state: 'settledUnverified' }).ok, false, 'an unverified arrival says why');
   const p = SV.arrivalView({ state: 'verifiedPartial', basis: 'sentRecord', sent: C(400), arrived: C(100) });
   assert.deepEqual([p.key, p.symbol], ['arrival:verifiedPartial', '◐']);
-  assert.match(p.text, /送付記録の数量に対して一部が入りました：食料 100/);
+  assert.match(p.text, /送付記録の数量に対して一部が入りました：食料 100 以上/);
   assert.match(p.details.join(), /送付記録の数量：食料 400.*差の理由は、記録で確かめるまで決めません/);
   assert.equal(SV.arrivalView({ state: 'verifiedPartial', basis: 'sentRecord', arrived: C(100) }).ok, false, 'a partial arrival needs what was sent');
   assert.equal(SV.arrivalView({ state: 'verifiedFull', sent: C(1), arrived: C(1) }).ok, false, 'full or partial only with its basis named');
@@ -92,9 +114,9 @@ test('a status line says its state with a symbol and words (role=status), and ha
   setLang('ja');
   const out = String(SV.renderStatus(SV.arrivalView({ state: 'settledUnverified', why: 'vault' })));
   assert.match(out, /role="status"/);
-  assert.match(out, /aria-hidden="true">\?<\/span> <strong>決着しました。入った量はまだ確かめられていません/);
+  assert.match(out, /aria-hidden="true">\?<\/span> <strong>到着しましたが、入った量は確認できません/);
   setLang('en');
-  const all = [SV.cancelView({ stage: 'stopNew' }), SV.cancelView({ stage: 'awaitSigned', signedPending: 1 }), SV.cancelView({ stage: 'cancelled', settled: [] }), SV.arrivalView({ state: 'overdue', bell: 3 }),
+  const all = [SV.cancelView({ stage: 'stopNew' }), SV.cancelView({ stage: 'awaitSigned', signedPending: 1 }), SV.cancelView({ stage: 'cancelled', settled: [] }), SV.arrivalView({ state: 'overdue', bell: 3 }), SV.arrivalView({ state: 'misdelivered', recorded: C(2) }), SV.arrivalView({ state: 'unread' }), SV.arrivalView({ state: 'verifiedIntake', intake: C(0), compare: 'sentUnknown' }),
     ...SV.UNVERIFIED_WHY.map(why => SV.arrivalView({ state: 'settledUnverified', why, recorded: C(2) })), SV.arrivalView({ state: 'lost', recorded: C(2) }),
     SV.arrivalView({ state: 'verifiedPartial', basis: 'sentRecord', sent: C(4), arrived: C(1), wornBps: 100 }), SV.arrivalView({ state: 'verifiedFull', basis: 'sentRecord', sent: C(4), arrived: C(4) }), ...SV.COMPARE_WHY.map(compare => SV.arrivalView({ state: 'verifiedIntake', intake: C(2), compare })), ...SV.COST_PHASES.map(phase => SV.costView({ phase, amounts: C(1) })), SV.costView({ phase: 'unsettled' }),
     SV.manualView({ signedPending: 2 }), SV.manualView({}), SV.manualView({ signedPending: 0 }), SV.cancelView({})];
