@@ -28,6 +28,7 @@ import { GIFT_WINDOW_BELLS } from './safety.mjs';
 import { addressOf, loadOrCreateKey, signRecord } from './keys.mjs';
 import { answerSchema, decideWithin, ProviderRefusal } from './ports/provider.mjs';
 import { assertPort } from './ports/execution.mjs';
+import { flatCost } from './ports/cost.mjs';
 import { JOIN_DOMAIN } from '../world/testworld.mjs';
 
 export const DEFAULT_LIMITS = Object.freeze({
@@ -655,26 +656,42 @@ export class Resident {
     else if (st.providerPausedUntil > bell) { d.refusal = 'ProviderPaused'; }
     else {
       const b = this.charter.budget;
+      // What the call is reserved at, and later charged: ports/cost.mjs (flat by default; workstream 5's price book
+      // when the owner configures one).
+      const cost = this.ports.cost ?? flatCost(b.pricePerCall);
+      const req = this.#request(obs, bell, turn, candidates, wakes);
+      const quote = cost.quote(req);
       let hold = null;
-      try { hold = this.ledger.hold(this.id, { category: 'inference', amount: b.pricePerCall, key: `${this.id}:t${turn}:infer`, policyVersion: 1, modeEpoch: this.ledger.get(this.id).modeEpoch }); }
+      try { hold = this.ledger.hold(this.id, { category: 'inference', amount: quote, key: `${this.id}:t${turn}:infer`, policyVersion: 1, modeEpoch: this.ledger.get(this.id).modeEpoch }); }
       catch (e) { d.refusal = e.code ?? 'BudgetRefused'; }
       if (hold) {
         this.ledger.markRunning(this.id, hold.id);
-        const req = this.#request(obs, bell, turn, candidates, wakes);
         if (req.evidence?.length) d.evidence = req.evidence;
+        let outcome = 'answered', usage = null;
         try {
           const ans = await decideWithin(this.ports.provider, req);
           choice = ans.choice;
           Object.assign(d, { by: 'provider', reason: ans.reason, mem: ans.mem, provider: ans.provider, model: ans.model, usage: ans.usage, promptChars: req.system.length + req.user.length });
+          usage = ans.rawUsage ?? ans.usage;
           st.providerFailures = 0;
         } catch (e) {
           d.refusal = e instanceof ProviderRefusal ? e.code : 'ProviderError';
+          outcome = e?.outcome ?? 'unknown';
+          usage = e?.usage ?? null;
           d.refusalDetail = String(e.message).slice(0, 120);
           st.providerFailures += 1;
           if (st.providerFailures >= this.charter.limits.providerFailuresBeforePause) { st.providerPausedUntil = bell + this.charter.limits.pulseBells; st.providerFailures = 0; }
         } finally {
-          // A call made is a call charged, answered or not (the agent wallet owner's decision of 2026-10-17).
-          this.ledger.settle(this.id, hold.id, b.pricePerCall, { kind: 'inference', turn });
+          // Flat: a call made is a call charged, answered or not (the agent wallet owner's decision of 2026-10-17).
+          // Price book: the measured usage, at most the quote; an unknown outcome stays undecided (unresolved hold).
+          const out = cost.settle({ outcome, usage, quote });
+          if (out.undecided) {
+            this.ledger.markUnresolved(this.id, hold.id, `inference ${out.reason}`);
+            d.cost = { kind: cost.kind, quote, undecided: out.reason };
+          } else {
+            this.ledger.settle(this.id, hold.id, out.charge, { kind: 'inference', turn });
+            d.cost = { kind: cost.kind, quote, charge: out.charge, ...(out.overrun ? { overrun: out.overrun } : {}) };
+          }
         }
       }
     }
