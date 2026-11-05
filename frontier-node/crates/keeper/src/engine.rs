@@ -768,12 +768,14 @@ impl Engine {
             let os: Vec<Signature> = orphans.iter().map(|o| o.0).collect();
             let sts = port.statuses(&os).await.unwrap_or_default();
             let mut keep = vec![];
+            let mut resolved = HashSet::new();
             for (o, st) in orphans
                 .into_iter()
                 .zip(sts.iter().chain(std::iter::repeat(&None)))
             {
                 match st {
                     Some(st) => {
+                        resolved.insert(o.0);
                         if self
                             .uncounted_fees
                             .get(&o.0)
@@ -791,6 +793,25 @@ impl Engine {
                 }
             }
             self.orphans = keep;
+            // An in-flight write adopted at restart is also watched as an
+            // orphan. If a version resolves before the duty calls `ensure`,
+            // it must not be adopted again as an unsettled version. If a
+            // sibling remains unknown, its old fee exposure blocks re-plan.
+            let changed: Vec<_> = self
+                .adopted
+                .iter()
+                .filter(|(_, versions)| versions.iter().any(|v| resolved.contains(&v.sig)))
+                .map(|(key, _)| key.clone())
+                .collect();
+            for key in changed {
+                let versions = self.adopted.get_mut(&key).expect("adopted key");
+                versions.retain(|v| !resolved.contains(&v.sig));
+                if versions.is_empty() {
+                    self.adopted.remove(&key);
+                } else {
+                    self.hold_adopted_until_known(&key);
+                }
+            }
         }
         report
     }
@@ -1790,6 +1811,57 @@ mod tests {
                 <= after.params.per_write_cap
         );
         assert_eq!(journal.in_flight().unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn orphan_status_before_first_plan_cannot_re_adopt_a_settled_signature() {
+        let port = Script::default();
+        let mut payers = payers();
+        payers.refresh(&port, 0).await.unwrap();
+        let journal = Journal::open(std::path::Path::new(":memory:")).unwrap();
+        let mut before = Engine::new(Budgets::placeholder(), EngineParams::default());
+        before.ensure(spec("restart", Class::W, abi::tag::REVEAL), 10);
+        for slot in 10..12 {
+            assert_eq!(
+                before
+                    .step(&port, &mut payers, Some(&journal), slot)
+                    .await
+                    .sent,
+                1
+            );
+        }
+        let versions = before.pending["restart"].versions.clone();
+        let mut after = Engine::new(Budgets::placeholder(), EngineParams::default());
+        after.adopt(&journal.in_flight().unwrap()).unwrap();
+
+        port.statuses.lock().unwrap().insert(
+            versions[0].sig,
+            Status {
+                slot: 12,
+                err: Some("rejected".into()),
+                code: Some(8),
+            },
+        );
+        after.poll(&port, Some(&journal), 12).await;
+        assert!(!after.ensure(spec("restart", Class::W, abi::tag::REVEAL), 12));
+        assert!(after.held_replans.contains_key("restart"));
+
+        port.statuses.lock().unwrap().insert(
+            versions[1].sig,
+            Status {
+                slot: 13,
+                err: Some("rejected".into()),
+                code: Some(8),
+            },
+        );
+        after.poll(&port, Some(&journal), 13).await;
+        assert!(!after.held_replans.contains_key("restart"));
+        assert!(after.ensure(spec("restart", Class::W, abi::tag::REVEAL), 13));
+        assert!(after.pending["restart"].versions.is_empty());
+        assert_eq!(
+            after.stats["test"].fees_charged,
+            versions.iter().map(|v| v.fee).sum::<u64>()
+        );
     }
 
     #[tokio::test]
