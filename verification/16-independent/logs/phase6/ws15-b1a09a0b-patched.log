@@ -1,0 +1,474 @@
+### b1a09a0b + 15-separate.patch; local:  M src/adapters/s1-chain.mjs ?? ../../permutation-gateway/node_modules ?? test/s1-exact-source-no-keys.test.mjs ?? test/v16-ws15-exact-source.test.mjs 
+TAP version 13
+# Subtest: ①: requests open one project; a caravan linked twice counts for the first request only
+ok 1 - ①: requests open one project; a caravan linked twice counts for the first request only
+  ---
+  duration_ms: 3.025617
+  type: 'test'
+  ...
+# Subtest: ④: receipts become caravans; a repeated receipt is dropped; RuleDerived is the caller's choice
+ok 2 - ④: receipts become caravans; a repeated receipt is dropped; RuleDerived is the caller's choice
+  ---
+  duration_ms: 37.396678
+  type: 'test'
+  ...
+# Subtest: ⑭: tower facts are optional; a wrong schema is refused, posts used by others open the scout goal
+ok 3 - ⑭: tower facts are optional; a wrong schema is refused, posts used by others open the scout goal
+  ---
+  duration_ms: 9.887083
+  type: 'test'
+  ...
+# Subtest: logged places decode (kind, signed p and q, tile)
+ok 4 - logged places decode (kind, signed p and q, tile)
+  ---
+  duration_ms: 3.148308
+  type: 'test'
+  ...
+# Subtest: records → events: one ship per resource, arrivals to a village as lower bounds, unmapped kinds hold their position
+ok 5 - records → events: one ship per resource, arrivals to a village as lower bounds, unmapped kinds hold their position
+  ---
+  duration_ms: 2.376025
+  type: 'test'
+  ...
+# Subtest: end to end: the adapted page plus ①'s board inputs judge the joint fort
+ok 6 - end to end: the adapted page plus ①'s board inputs judge the joint fort
+  ---
+  duration_ms: 49.819398
+  type: 'test'
+  ...
+# Subtest: two seasons of records, one world: tags, caravan numbers and bells restart per season, so the adapter needs the epoch
+ok 7 - two seasons of records, one world: tags, caravan numbers and bells restart per season, so the adapter needs the epoch
+  ---
+  duration_ms: 15.628771
+  type: 'test'
+  ...
+# Subtest: H3: one leading nation alone cannot end the period early in C
+ok 8 - H3: one leading nation alone cannot end the period early in C
+  ---
+  duration_ms: 45.79414
+  type: 'test'
+  ...
+# Subtest: H4 (shipped goods): goods n0 passes to client nations still count as n0's
+ok 9 - H4 (shipped goods): goods n0 passes to client nations still count as n0's
+  ---
+  duration_ms: 33.05271
+  type: 'test'
+  ...
+# Subtest: H4 (own goods, paid off in food): C cannot tell, and the leader ends the period while ahead (failure of C, as predicted)
+ok 10 - H4 (own goods, paid off in food): C cannot tell, and the leader ends the period while ahead (failure of C, as predicted)
+  ---
+  duration_ms: 31.914248
+  type: 'test'
+  ...
+# Subtest: H5: unlabelled alternate accounts pass the diversity check (not preventable on model data alone)
+ok 11 - H5: unlabelled alternate accounts pass the diversity check (not preventable on model data alone)
+  ---
+  duration_ms: 37.023509
+  type: 'test'
+  ...
+# Subtest: H7: obstruction by the losing nation moves the close (and the prize) in C, only the achievement in B
+ok 12 - H7: obstruction by the losing nation moves the close (and the prize) in C, only the achievement in B
+  ---
+  duration_ms: 53.347169
+  type: 'test'
+  ...
+# Subtest: fixed coalition: outsiders' late goods are surplus or arrive after completion; outsiders keep independent options
+ok 13 - fixed coalition: outsiders' late goods are surplus or arrive after completion; outsiders keep independent options
+  ---
+  duration_ms: 5.440543
+  type: 'test'
+  ...
+# Subtest: V1: sub-events of one record at different bells are set aside (a restart could split them)
+ok 14 - V1: sub-events of one record at different bells are set aside (a restart could split them)
+  ---
+  duration_ms: 2.91798
+  type: 'test'
+  ...
+# Subtest: V2: a structure built in W1 and first used by someone else in W2 counts for the nation in W2
+ok 15 - V2: a structure built in W1 and first used by someone else in W2 counts for the nation in W2
+  ---
+  duration_ms: 60.503607
+  type: 'test'
+  ...
+# Subtest: V3: merging goods does not reorder first-in-first-out or change origins
+ok 16 - V3: merging goods does not reorder first-in-first-out or change origins
+  ---
+  duration_ms: 1.230107
+  type: 'test'
+  ...
+# Subtest: V3b: a lot name can never spend more than was put under it, merged or not
+ok 17 - V3b: a lot name can never spend more than was put under it, merged or not
+  ---
+  duration_ms: 0.444554
+  type: 'test'
+  ...
+# Subtest: V4: events at exactly the close belong to the next window
+ok 18 - V4: events at exactly the close belong to the next window
+  ---
+  duration_ms: 21.228028
+  type: 'test'
+  ...
+# Subtest: V5: spans between windows are reported; an achievement reached in one is not hidden
+ok 19 - V5: spans between windows are reported; an achievement reached in one is not hidden
+  ---
+  duration_ms: 17.369392
+  type: 'test'
+  ...
+# Subtest: V6: duplicate window ids are refused
+ok 20 - V6: duplicate window ids are refused
+  ---
+  duration_ms: 1.048645
+  type: 'test'
+  ...
+# Subtest: judging does not change the world; later nations are not part of an earlier window; carryInputs is honoured
+ok 21 - judging does not change the world; later nations are not part of an earlier window; carryInputs is honoured
+  ---
+  duration_ms: 34.079118
+  type: 'test'
+  ...
+# Subtest: at the boundary: caravans in transit, the open project and all goods carry on; nothing is lost or made
+ok 22 - at the boundary: caravans in transit, the open project and all goods carry on; nothing is lost or made
+  ---
+  duration_ms: 49.906909
+  type: 'test'
+  ...
+# Subtest: a project begun in W1 and finished in W2 is achieved in W2, with W1's inputs, and only once
+ok 23 - a project begun in W1 and finished in W2 is achieved in W2, with W1's inputs, and only once
+  ---
+  duration_ms: 34.465967
+  type: 'test'
+  ...
+# Subtest: a later window does not re-award what an earlier one achieved
+ok 24 - a later window does not re-award what an earlier one achieved
+  ---
+  duration_ms: 34.066439
+  type: 'test'
+  ...
+# Subtest: the world does not depend on where windows fall; only the window an achievement is credited to does
+ok 25 - the world does not depend on where windows fall; only the window an achievement is credited to does
+  ---
+  duration_ms: 39.005839
+  type: 'test'
+  ...
+# Subtest: a series verdict equals the same window judged alone (no hidden state between windows)
+ok 26 - a series verdict equals the same window judged alone (no hidden state between windows)
+  ---
+  duration_ms: 29.653809
+  type: 'test'
+  ...
+# Subtest: restart at the boundary: resume from a saved snapshot, then the rest of the log, equals the full replay
+ok 27 - restart at the boundary: resume from a saved snapshot, then the rest of the log, equals the full replay
+  ---
+  duration_ms: 13.798307
+  type: 'test'
+  ...
+# Subtest: C closes only the evaluation window, never the world; the rest of the window is reported, not filled in
+ok 28 - C closes only the evaluation window, never the world; the rest of the window is reported, not filled in
+  ---
+  duration_ms: 42.789842
+  type: 'test'
+  ...
+# Subtest: the raid after the boundary on a caravan sent before it is credited to W2, once
+ok 29 - the raid after the boundary on a caravan sent before it is credited to W2, once
+  ---
+  duration_ms: 19.903291
+  type: 'test'
+  ...
+# Subtest: round trips and self-trades: 12 trades and 1,600 wood delivered, 100 credited
+ok 30 - round trips and self-trades: 12 trades and 1,600 wood delivered, 100 credited
+  ---
+  duration_ms: 43.478323
+  type: 'test'
+  ...
+# Subtest: delivering is not contributing: a caravan that arrives but is never built into anything credits nothing
+ok 31 - delivering is not contributing: a caravan that arrives but is never built into anything credits nothing
+  ---
+  duration_ms: 10.593603
+  type: 'test'
+  ...
+# Subtest: resources are kept apart: surplus wood does not make up for missing stone
+ok 32 - resources are kept apart: surplus wood does not make up for missing stone
+  ---
+  duration_ms: 5.445574
+  type: 'test'
+  ...
+# Subtest: three stages are judged apart: inputs met, built, then used
+ok 33 - three stages are judged apart: inputs met, built, then used
+  ---
+  duration_ms: 8.884237
+  type: 'test'
+  ...
+# Subtest: every committed scenario equals its builder's output
+ok 34 - every committed scenario equals its builder's output
+  ---
+  duration_ms: 19.698183
+  type: 'test'
+  ...
+# Subtest: the same lot cannot be put in or sent twice
+ok 35 - the same lot cannot be put in or sent twice
+  ---
+  duration_ms: 24.552823
+  type: 'test'
+  ...
+# Subtest: one input counts for the joint goal, the nation and the person (legitimate), each once
+ok 36 - one input counts for the joint goal, the nation and the person (legitimate), each once
+  ---
+  duration_ms: 26.395567
+  type: 'test'
+  ...
+# Subtest: a second claim on one slot is refused; claims on different slots of one fact are not
+ok 37 - a second claim on one slot is refused; claims on different slots of one fact are not
+  ---
+  duration_ms: 8.527639
+  type: 'test'
+  ...
+# Subtest: one person with labelled alternate accounts gets one personal slot, not three
+ok 38 - one person with labelled alternate accounts gets one personal slot, not three
+  ---
+  duration_ms: 5.896309
+  type: 'test'
+  ...
+# Subtest: an arrival after the window closes does not count for it; the caravan is in transit at the close and carries on
+ok 39 - an arrival after the window closes does not count for it; the caravan is in transit at the close and carries on
+  ---
+  duration_ms: 25.629454
+  type: 'test'
+  ...
+# Subtest: unverified arrivals are not credited; a shortfall they could close is indeterminate
+ok 40 - unverified arrivals are not credited; a shortfall they could close is indeterminate
+  ---
+  duration_ms: 30.460915
+  type: 'test'
+  ...
+# Subtest: a record repeated with the same content is counted once; with other content, neither is used
+ok 41 - a record repeated with the same content is counted once; with other content, neither is used
+  ---
+  duration_ms: 14.516389
+  type: 'test'
+  ...
+# Subtest: a missing record makes the dependent verdicts indeterminate, not failed
+ok 42 - a missing record makes the dependent verdicts indeterminate, not failed
+  ---
+  duration_ms: 16.985144
+  type: 'test'
+  ...
+# Subtest: a gap in the stream that carries keeps makes the prize indeterminate
+ok 43 - a gap in the stream that carries keeps makes the prize indeterminate
+  ---
+  duration_ms: 16.73411
+  type: 'test'
+  ...
+# Subtest: impossible order (an arrival without its send, an input before its lot exists) is refused as causality
+ok 44 - impossible order (an arrival without its send, an input before its lot exists) is refused as causality
+  ---
+  duration_ms: 10.838236
+  type: 'test'
+  ...
+# Subtest: reordered and repeated input gives the same verdict hash, for each ruleset
+ok 45 - reordered and repeated input gives the same verdict hash, for each ruleset
+  ---
+  duration_ms: 127.424868
+  type: 'test'
+  ...
+# Subtest: the verdict names the ruleset version and the input it was made from
+ok 46 - the verdict names the ruleset version and the input it was made from
+  ---
+  duration_ms: 24.332099
+  type: 'test'
+  ...
+# Subtest: a replay of the stored verdict is byte-identical (no clock, no randomness)
+ok 47 - a replay of the stored verdict is byte-identical (no clock, no randomness)
+  ---
+  duration_ms: 11.170797
+  type: 'test'
+  ...
+# Subtest: R1: the missing record is the deciding one (the second use): indeterminate, not not_achieved
+ok 48 - R1: the missing record is the deciding one (the second use): indeterminate, not not_achieved
+  ---
+  duration_ms: 44.015088
+  type: 'test'
+  ...
+# Subtest: R2: a conflict at a sub-position leaves a gap even when a sibling survives
+ok 49 - R2: a conflict at a sub-position leaves a gap even when a sibling survives
+  ---
+  duration_ms: 11.753443
+  type: 'test'
+  ...
+# Subtest: R3: rejected records do not change the hash by repetition or order
+ok 50 - R3: rejected records do not change the hash by repetition or order
+  ---
+  duration_ms: 24.26089
+  type: 'test'
+  ...
+# Subtest: R4: an input recorded as unverified is not credited, whatever the lot
+ok 51 - R4: an input recorded as unverified is not credited, whatever the lot
+  ---
+  duration_ms: 6.811653
+  type: 'test'
+  ...
+# Subtest: R5/R6: the founder goal is undecided behind a gap, and own goods passed through others do not count
+ok 52 - R5/R6: the founder goal is undecided behind a gap, and own goods passed through others do not count
+  ---
+  duration_ms: 13.546107
+  type: 'test'
+  ...
+# Subtest: R7: in C, an undecided joint goal leaves the close and the prize undecided
+ok 53 - R7: in C, an undecided joint goal leaves the close and the prize undecided
+  ---
+  duration_ms: 11.863247
+  type: 'test'
+  ...
+# Subtest: R8: ①'s first link wins by link time across requests
+ok 54 - R8: ①'s first link wins by link time across requests
+  ---
+  duration_ms: 0.556929
+  type: 'test'
+  ...
+# Subtest: R9: ④ receipts with one key and different content become a conflict, in either order
+ok 55 - R9: ④ receipts with one key and different content become a conflict, in either order
+  ---
+  duration_ms: 0.617022
+  type: 'test'
+  ...
+# Subtest: R10: a completion of another kind of structure is refused
+ok 56 - R10: a completion of another kind of structure is refused
+  ---
+  duration_ms: 6.828277
+  type: 'test'
+  ...
+# Subtest: joint award slots are per participant (cluster), as personal ones
+ok 57 - joint award slots are per participant (cluster), as personal ones
+  ---
+  duration_ms: 19.675783
+  type: 'test'
+  ...
+# Subtest: A: every role has an independent option at bell 90
+ok 58 - A: every role has an independent option at bell 90
+  ---
+  duration_ms: 19.547209
+  type: 'test'
+  ...
+# Subtest: B: every role has an independent option at bell 90
+ok 59 - B: every role has an independent option at bell 90
+  ---
+  duration_ms: 21.564727
+  type: 'test'
+  ...
+# Subtest: C: every role has an independent option at bell 90
+ok 60 - C: every role has an independent option at bell 90
+  ---
+  duration_ms: 11.46658
+  type: 'test'
+  ...
+# Subtest: A has no goal behind any option (cooperation earns nothing there): the difference D6
+ok 61 - A has no goal behind any option (cooperation earns nothing there): the difference D6
+  ---
+  duration_ms: 6.153729
+  type: 'test'
+  ...
+# Subtest: the newcomer's only goods (50 food) fit no project, yet they are not left with wait
+ok 62 - the newcomer's only goods (50 food) fit no project, yet they are not left with wait
+  ---
+  duration_ms: 6.989512
+  type: 'test'
+  ...
+# Subtest: after a window has closed the world goes on: options do not shrink to waiting
+ok 63 - after a window has closed the world goes on: options do not shrink to waiting
+  ---
+  duration_ms: 7.480243
+  type: 'test'
+  ...
+# Subtest: S1 source positions, packed places and bytes remain exact
+not ok 64 - S1 source positions, packed places and bytes remain exact
+  ---
+  duration_ms: 2.259639
+  type: 'test'
+  location: '/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v5-w15/workstreams/15-coop-outcomes/test/s1-exact-source-no-keys.test.mjs:7:1'
+  failureType: 'testCodeFailure'
+  error: 'cargo: invalid bytes'
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    cargoOf (file:///tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v5-w15/workstreams/15-coop-outcomes/src/adapters/s1-chain.mjs:50:135)
+    fromS1Records (file:///tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v5-w15/workstreams/15-coop-outcomes/src/adapters/s1-chain.mjs:113:9)
+    TestContext.<anonymous> (file:///tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v5-w15/workstreams/15-coop-outcomes/test/s1-exact-source-no-keys.test.mjs:25:22)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.start (node:internal/test_runner/test:944:17)
+    startSubtestAfterBootstrap (node:internal/test_runner/harness:296:17)
+  ...
+# Subtest: without the tower: the scout goal is not offered, and no option mentions it
+ok 65 - without the tower: the scout goal is not offered, and no option mentions it
+  ---
+  duration_ms: 25.680483
+  type: 'test'
+  ...
+# Subtest: with the tower: the scout goal opens; the other verdicts are the same
+ok 66 - with the tower: the scout goal opens; the other verdicts are the same
+  ---
+  duration_ms: 18.544123
+  type: 'test'
+  ...
+# Subtest: V16-15a: the largest exact position is kept; one above, a fraction or a bigint above 2^53-1 is refused
+ok 67 - V16-15a: the largest exact position is kept; one above, a fraction or a bigint above 2^53-1 is refused
+  ---
+  duration_ms: 1.383352
+  type: 'test'
+  ...
+# Subtest: V16-15b: an event id names the position the event carries (no two spellings of one position)
+ok 68 - V16-15b: an event id names the position the event carries (no two spellings of one position)
+  ---
+  duration_ms: 0.942918
+  type: 'test'
+  ...
+# Subtest: V16-15c: bell is a u32: 0 and 2^32-1 pass the range check, logBell is used when bell is absent, a non-integer is refused
+ok 69 - V16-15c: bell is a u32: 0 and 2^32-1 pass the range check, logBell is used when bell is absent, a non-integer is refused
+  ---
+  duration_ms: 1.357598
+  type: 'test'
+  ...
+# Subtest: V16-15d: place and cargo stay exact at their limits
+ok 70 - V16-15d: place and cargo stay exact at their limits
+  ---
+  duration_ms: 0.505883
+  type: 'test'
+  ...
+# Subtest: A judges no goal and mixes in no unadopted rule
+ok 71 - A judges no goal and mixes in no unadopted rule
+  ---
+  duration_ms: 263.855992
+  type: 'test'
+  ...
+# Subtest: no variant adds money; achievements never feed the prize
+ok 72 - no variant adds money; achievements never feed the prize
+  ---
+  duration_ms: 223.452285
+  type: 'test'
+  ...
+# Subtest: D1: B never changes who the prize names; C does exactly when its close moves
+ok 73 - D1: B never changes who the prize names; C does exactly when its close moves
+  ---
+  duration_ms: 198.156415
+  type: 'test'
+  ...
+# Subtest: D6: the cooperative fort is an achievement with reasons in B and C, nothing in A
+ok 74 - D6: the cooperative fort is an achievement with reasons in B and C, nothing in A
+  ---
+  duration_ms: 10.714878
+  type: 'test'
+  ...
+# Subtest: C names what ends and what continues at its close
+ok 75 - C names what ends and what continues at its close
+  ---
+  duration_ms: 12.317084
+  type: 'test'
+  ...
+1..75
+# tests 75
+# suites 0
+# pass 74
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1527.744285
+exit=1

@@ -484,3 +484,44 @@ ef63544c からの差分は agent wallet だけ（`permutation-gateway/src/front
 ④が報告した試験（ws04 85 通過・9 無効、e2e-native 8、agent-wallet-run-facts 4）は④の結果で、⑯は再実行していない（⑯の結果に数えない）。
 
 実 SBF・実チェーンでの実行はなし。ログは `logs/phase6/77c5-*.log`。
+
+## 11.7 添付の差分パッケージ（⑮向け）と 1913625d の照合
+
+受領物: `wylls-candidates-clean-patches-20261105.tar.gz`（sha256 `d16b812d5cec881a7997bb0e696f62754e11ff99dcf843a48034d9b502ece7be`、43,931 バイト、10 ファイル）。同梱の `SHA256SUMS` は 9 ファイルすべて OK。MANIFEST の `source_archive_sha256` は `ffe109bd…4bd`（元のアーカイブで、⑯は受け取っていない）。commit オブジェクトと履歴は含まれていない（README の記載どおり）。MANIFEST と SHA256SUMS の写しは `inbox/` に置いた。
+
+### 1913625d の正体（MANIFEST による）
+
+⑮が照合を求めた `1913625d` は、⑮の修正の commit ではなく、**`13-15-integrated` の当て先（`required_base_commit`）`1913625de7f3b1361d509c05982410dccb27718d`** だった。修正後の候補は `refs/heads/fix/ws13-review-integrity-20261105` の `9905c6863e20c9c6db4debfff12022ec6eb3beb9`（期待 tree `93c2263f74ef5c7e0fadd4a2e1b8dda67062b01a`）。⑮だけの系列 `15-separate` は、基点 `32ad894dfe4659e716421c711d8170c7c86e50d4`、候補 `refs/heads/fix/ws15-exact-source-identity-20261105` の `33d8c9fd88448f8dc783f9050c1421cf93cb1861`、期待 tree `d64b3f36401970f8bd59430e3075728a0431ab8c`。
+
+### 一致した点（実行した照合）
+
+- `13-15-integrated.patch` の⑮部分（`workstreams/15-coop-outcomes/src/adapters/s1-chain.mjs` と `test/s1-exact-source-no-keys.test.mjs`）と `15-separate.patch` は、ファイルごとの差分本文が**完全に同じ**。index 行も同じ（`s1-chain.mjs` `fd015ddc…` → `bca55303…`、試験 新規 → `50f8b477…`）。README の「15-separate は 13-15-integrated に含まれる 15 修正の別系列、二重適用しない」と合う。
+- MANIFEST の `changed_files` は各パッチ内のファイルと一致する（⑮関係の 2 ファイル）。
+- パッチの内容は README の説明（不正な整数・位置・bytes の拒否）と合う。鍵・署名・導出の操作はない（「derive」は数値の導出の意味だけ）。
+
+### 一致しない／確かめられない点
+
+1. **基点が手元にも GitHub にもない**: `1913625d`、`32ad894d`、候補の `9905c686`、`33d8c9fd` はどれも、ローカルのオブジェクトにも `git ls-remote origin` にもない（⑮の公開ブランチは `preserve/ws15-b1a09a0b` だけ）。このため README の手順（基点に当てて `git write-tree` を `expected_tree` と比べる）は**実行できず、expected_tree は未照合**。
+2. **基点と⑮の公開版の中身が違う**: パッチの前の状態の `s1-chain.mjs`（blob `fd015ddc…`）は、ローカルのどの commit にもない。⑮の公開版 `b1a09a0b` の同じファイルは blob `9d8da975…`。パッチは `b1a09a0b` にも当たる（3 つの hunk がすべて 1 行ずれで成功）が、結果の blob は `9c4d8764…` で、期待の `bca55303…` と違う。
+3. **⑮自身の新しい試験が b1a09a0b では通らない**: `b1a09a0b` に当てると、⑮の 70 件の既存試験は通るが、新しい試験 `S1 source positions, packed places and bytes remain exact` が `cargo: invalid bytes` で失敗した。試験の最後の検査は、荷の無い `CARAVAN_SETTLED` を「`verified exact cargo evidence` が無い」として保留する動作を前提にしている。この動作（文字列を含む）は `b1a09a0b` にも GitHub のどの ref にもない。**基点 1913625d／32ad894d には、⑮の公開版に無い⑮の変更（荷の証拠を確かめる経路）が含まれている**と判断した。その変更自体はこのパッケージに入っていない。
+
+### ⑯の独立試験（鍵なし、ホスト）
+
+`probes/v16-ws15-exact-source.test.mjs`（リテラル入力だけ）。`b1a09a0b` で、パッチ無しとパッチ有りを比べた。
+
+| 試験 | パッチ無し | パッチ有り |
+|---|---|---|
+| V16-15a 位置の上限（2^53−1 は通る、それを超える数・小数・bigint は拒否） | 失敗 | 通過 |
+| V16-15b 同じ位置の表記ゆれ（'7'、7、7n）で event id が同じ | 通過 | 通過 |
+| V16-15c bell は u32（0 と logBell は通る、負・小数・2^32 は拒否） | 失敗 | 通過 |
+| V16-15d place と cargo の境界 | 失敗 | 通過 |
+| ⑮の既存試験 70 件 | 全通過 | 全通過 |
+| ⑮の新しい試験 | （無い） | **失敗**（上の 3） |
+
+ログ: `logs/phase6/ws15-b1a09a0b-{patched,unpatched}.log`。
+
+### 未検証
+
+- 基点 `1913625d`／`32ad894d` に当てたときの tree（`93c2263f…`／`d64b3f36…`）。基点の bundle か、基点を含むブランチが要る。
+- `13-15-integrated` の⑬部分（⑬の照合記録・請求申告）。今回の依頼の範囲外で、試験もしていない。
+- 08・13-retention・18・20 のパッチ。今回は対象外。

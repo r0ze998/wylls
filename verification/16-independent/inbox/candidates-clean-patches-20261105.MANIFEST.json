@@ -1,0 +1,151 @@
+{
+  "format": "Wylls candidate source patches v1",
+  "source_archive_sha256": "ffe109bd414c7fbbfe6f7e5f157dc0af90c773d084de553e8ea263cf11ead4bd",
+  "candidates": [
+    {
+      "candidate": "08-map",
+      "patch": "08-map.patch",
+      "patch_sha256": "0034f4ae5b5fbadc7f44a841c57f378a2a23ee4e26aca28e6303ea87632cd137",
+      "patch_size_bytes": 10612,
+      "required_base_commit": "58c5ef64545c27a64650a0bb8b86537c1c50d613",
+      "original_candidate_ref": "refs/heads/fix/ws08-map-followup-20261105",
+      "original_candidate_commit": "5523004d26825f20f657b586f6dcf4fad77f0dc9",
+      "expected_tree": "bd24dc3b9d772fda4208f487c9f70757f1bfec97",
+      "original_bundle_prerequisite": "4cd901de9f8e0d6c0b2016851d30595c4a70aa46",
+      "original_bundle_sha256": "1eecb77b7fd53fb4a082cf04e5ae799ed63d0717b51f406ed15c90dea9e45673",
+      "verification": "git apply --cached --check passed; applying to the exact base produced the original candidate tree",
+      "changed_files": [
+        "permutation-gateway/test/web-frontier-placement.test.mjs",
+        "permutation-server/web/frontier/fgeo.mjs",
+        "permutation-server/web/frontier/home.mjs",
+        "workstreams/08-persistence/map-verify/LATE-JOIN-PLACEMENT-20261105.ja.md"
+      ]
+    },
+    {
+      "candidate": "08-continuous",
+      "patch": "08-continuous.patch",
+      "patch_sha256": "5c3ee9c96aab7a2624cbbb534cb76ef624f79a3a4a26510bc73ee21e04f47762",
+      "patch_size_bytes": 6430,
+      "required_base_commit": "99b6c5fca61045fe4d188892706def72b2598b5a",
+      "original_candidate_ref": "refs/heads/fix/ws08-build-boundary-20261105",
+      "original_candidate_commit": "02013235fa40c03dc3df845749f458dcb7cecf6f",
+      "expected_tree": "95454c7156ec9831d837f58deea30644527f4c7e",
+      "original_bundle_prerequisite": "4cd901de9f8e0d6c0b2016851d30595c4a70aa46",
+      "original_bundle_sha256": "b28418b30514ec50da36ed6562c2f138156a46fb760e71f7c70091a1dbbfca28",
+      "verification": "git apply --cached --check passed; applying to the exact base produced the original candidate tree",
+      "changed_files": [
+        "permutation-frontier/src/proc/holding.rs",
+        "permutation-rules/src/frontier/holding.rs",
+        "permutation-rules/tests/continuous_build_boundary.rs"
+      ]
+    },
+    {
+      "candidate": "13-15-integrated",
+      "patch": "13-15-integrated.patch",
+      "patch_sha256": "a795d4c3bf71fd08fbba22893a321750d72d108120ea2f7dc151f4c58b0c0c63",
+      "patch_size_bytes": 14785,
+      "required_base_commit": "1913625de7f3b1361d509c05982410dccb27718d",
+      "original_candidate_ref": "refs/heads/fix/ws13-review-integrity-20261105",
+      "original_candidate_commit": "9905c6863e20c9c6db4debfff12022ec6eb3beb9",
+      "expected_tree": "93c2263f74ef5c7e0fadd4a2e1b8dda67062b01a",
+      "original_bundle_prerequisite": "4cd901de9f8e0d6c0b2016851d30595c4a70aa46",
+      "original_bundle_sha256": "9cd9b74feb4416c51fea6c6949bc976b3a8bcc8328ec6346fc246d654be9784d",
+      "verification": "git apply --cached --check passed; applying to the exact base produced the original candidate tree",
+      "changed_files": [
+        "workstreams/13-citizens/resident/ports/inference-evidence.mjs",
+        "workstreams/13-citizens/resident/ports/review-integrity.mjs",
+        "workstreams/13-citizens/test/review-integration-no-keys.test.mjs",
+        "workstreams/13-citizens/test/review-integrity-no-keys.test.mjs",
+        "workstreams/15-coop-outcomes/src/adapters/s1-chain.mjs",
+        "workstreams/15-coop-outcomes/test/s1-exact-source-no-keys.test.mjs"
+      ]
+    },
+    {
+      "candidate": "13-retention",
+      "patch": "13-retention.patch",
+      "patch_sha256": "19dd79d8c2919dda5c6d870a82a2b648dd98acea811db1f5ac20e8c45dde768a",
+      "patch_size_bytes": 14759,
+      "required_base_commit": "f40ac0d19abe2c9ae15a2b18216152c5a072bd06",
+      "original_candidate_ref": "refs/heads/fix/ws13-retention-anchor-20261105",
+      "original_candidate_commit": "4863961fea993c04c60994f7a3765b2a0c447315",
+      "expected_tree": "5315de81cfe097e7f4a0f227f97dab2d5a520c8a",
+      "original_bundle_prerequisite": "4cd901de9f8e0d6c0b2016851d30595c4a70aa46",
+      "original_bundle_sha256": "74d638fe2c7e19e51ba70ae813438a3281dc366627c8bdbf7dc6d51bb7f4acdf",
+      "verification": "git apply --cached --check passed; applying to the exact base produced the original candidate tree",
+      "changed_files": [
+        "workstreams/13-citizens/docs/RETENTION-ANCHOR-20261105.ja.md",
+        "workstreams/13-citizens/resident/ports/retention-window.mjs",
+        "workstreams/13-citizens/resident/resident.mjs",
+        "workstreams/13-citizens/test/retention-resident-no-keys.test.mjs",
+        "workstreams/13-citizens/test/retention-window-no-keys.test.mjs"
+      ]
+    },
+    {
+      "candidate": "15-separate",
+      "patch": "15-separate.patch",
+      "patch_sha256": "7439d018f7068d723c86a65e6dd9894219b4379fefdeb6b788a9e2cc97385515",
+      "patch_size_bytes": 5448,
+      "required_base_commit": "32ad894dfe4659e716421c711d8170c7c86e50d4",
+      "original_candidate_ref": "refs/heads/fix/ws15-exact-source-identity-20261105",
+      "original_candidate_commit": "33d8c9fd88448f8dc783f9050c1421cf93cb1861",
+      "expected_tree": "d64b3f36401970f8bd59430e3075728a0431ab8c",
+      "original_bundle_prerequisite": "4cd901de9f8e0d6c0b2016851d30595c4a70aa46",
+      "original_bundle_sha256": "3cd46b368652f1a03399c1c6c3dcfa70cc72c0aabd74485aec089b310548e65f",
+      "verification": "git apply --cached --check passed; applying to the exact base produced the original candidate tree",
+      "changed_files": [
+        "workstreams/15-coop-outcomes/src/adapters/s1-chain.mjs",
+        "workstreams/15-coop-outcomes/test/s1-exact-source-no-keys.test.mjs"
+      ]
+    },
+    {
+      "candidate": "18-journal",
+      "patch": "18-journal.patch",
+      "patch_sha256": "74d7784481d4125318ea76d8e73f8b920869638672551b1f49a01dae84d4c6c0",
+      "patch_size_bytes": 7991,
+      "required_base_commit": "1913625de7f3b1361d509c05982410dccb27718d",
+      "original_candidate_ref": "refs/heads/fix/ws18-journal-diagnostic-20261105",
+      "original_candidate_commit": "d8c407038bf9bb2c6e4d6090abe6301fc222c212",
+      "expected_tree": "f85d5a8cb806a186e5212f6707d25a447b81920a",
+      "original_bundle_prerequisite": "4cd901de9f8e0d6c0b2016851d30595c4a70aa46",
+      "original_bundle_sha256": "17ab0e5d5ac476788316bf335379972770e4ddadea5dd3e6d23538cc789a84e1",
+      "verification": "git apply --cached --check passed; applying to the exact base produced the original candidate tree",
+      "changed_files": [
+        "frontier-node/crates/keeper/src/api.rs"
+      ]
+    },
+    {
+      "candidate": "20-nft-index",
+      "patch": "20-nft-index.patch",
+      "patch_sha256": "2a3f10d763045b9bd3785ef3bf18c10d21514c2ab2d0bf20c8adc9b6afbd86b5",
+      "patch_size_bytes": 79247,
+      "required_base_commit": "445585e757810388e9ddabbdbfcde8e9a793341b",
+      "original_candidate_ref": "refs/heads/feature/ws20-index-unknown-20261105",
+      "original_candidate_commit": "a0b80384f8063abce79c9c98a5e39a89c35a19f4",
+      "expected_tree": "1c6baa6fd16007c97c30874c75f11182790cc721",
+      "original_bundle_prerequisite": "445585e757810388e9ddabbdbfcde8e9a793341b",
+      "original_bundle_sha256": "965dcb18934c3a3b8d7a57e3d366a84ed5429eaf8c51a4b219682e5ea21ecb49",
+      "verification": "git apply --cached --check passed; applying to the exact base produced the original candidate tree",
+      "changed_files": [
+        "frontier-abi/src/lib.rs",
+        "frontier-abi/src/resident_auth.rs",
+        "frontier-abi/src/resident_binding.rs",
+        "frontier-abi/src/resident_join_candidate.rs",
+        "frontier-abi/src/resident_policy.rs",
+        "frontier-abi/src/resident_wire.rs",
+        "frontier-node/crates/findex/src/index.rs",
+        "frontier-node/crates/findex/src/lib.rs",
+        "permutation-frontier/Cargo.toml",
+        "permutation-frontier/src/init.rs",
+        "permutation-frontier/src/lib.rs",
+        "permutation-frontier/src/nft_registration.rs",
+        "permutation-frontier/src/proc/holding.rs",
+        "permutation-frontier/src/proc/season.rs",
+        "permutation-frontier/src/resident_binding.rs",
+        "permutation-nft-resident-spike/docs/NFT-INDEX-STRICT-CANDIDATE-20261105.ja.md",
+        "permutation-nft-resident-spike/docs/NFT-JOIN-LOG-CANDIDATE-20261105.ja.md",
+        "permutation-nft-resident-spike/src/resident-gate.mjs",
+        "permutation-nft-resident-spike/test/bindings-atomic-no-keys.test.mjs"
+      ]
+    }
+  ]
+}
