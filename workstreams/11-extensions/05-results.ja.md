@@ -94,3 +94,16 @@ ext-kernel: **43 件すべて通過**、clippy `-D warnings` 通過（`results/e
 **開発中の試験側の誤り（記録）:** 長期運用の試験で、例の manifest の数の上限（1,000）に 1,001 回目で達し失敗した。これは上限の性質そのもの（`g02` で扱う）なので、長期運用の試験は上限を大きくした manifest で行った。`cargo fmt` が行を折り返した後の文字列置換が当たらず、一度は上限の変更が反映されていなかった（実行時の状態を表示して気づいた）。
 
 既存の再生検証器は r4 で再実行していない（パッチ 0001・0003 は変更なし）。
+
+## 7. r5 の追加検証（2026-11-05）
+
+| 対象 | 結果 | ログ |
+|---|---|---|
+| ext-kernel（`describe` の資源名を S1 の意味に合わせた: 枠 4 は `Arms`） | 43 件通過、fmt・clippy `-D warnings` 通過 | `results/ext-kernel-tests.log` |
+| creation-bridge（⑥との契約試験。期待値は⑥の `517796dc` のコードで生成） | **10 件通過**、fmt・clippy `-D warnings` 通過。依存は frontier-node の lock にある版（serde_json 1.0.151、ed25519-dalek 2.2.0、sha2 0.10.9）だけで、オフラインでビルド | `results/creation-bridge-tests.log` |
+| 既存の検証器 + パッチ 0004（統合の先端 `d0949fd4`） | **106 件通過**。証拠の欠けた 902 件で PASS 0（修正前は 452 件が PASS） | `results/verify-evidence-before-r5.log`、`results/verify-evidence-after-r5.log` |
+
+**開発中に見つかり、直したもの（記録）:**
+- V0E の最初の版は、記録済みの `march-program` を UNVERIFIABLE にした（⑱の試験 `the_fixtures_have_nothing_for_v0` が失敗）。原因は、口座を閉じるだけの取引（CloseArrivalDay 24、CloseArrivalSlot 66）が post-state なしで記録されていること。post-state が一つも無い取引は、命令がすべて `Close…` なら報告しないようにした。
+- 切れたログの 71 件が、切れた位置がプログラムの呼出しの行より前だったため `MissingLogs` と報告されていた（PASS ではないが理由が違う）。`Log truncated` があれば `TruncatedLogs` とするようにした。
+- 探索の試験（`results/ws11_probe2.rs.txt`）は 30 分の上限で止まった（land は全部、march-program は一部）。修正前後の比較は、同じ試験ファイルで V0E を外した build と入れた build を比べて行った。
