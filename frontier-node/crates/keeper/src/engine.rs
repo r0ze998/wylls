@@ -218,11 +218,17 @@ pub enum Outcome {
 
 struct Pending {
     spec: WriteSpec,
+    /// Stable identity of this signed write across fee-bid variants. The
+    /// first signature supplies the ID; it is persisted before the RPC send.
+    write_id: Option<String>,
     first_slot: Option<u64>,
     versions: Vec<Version>,
     /// Versions whose status is known (failed ones stay in `versions` for
     /// the spend bound).
     settled: std::collections::HashSet<Signature>,
+    /// Finality was observed but its journal write failed. Sending is
+    /// stopped until the same signature can be durably reconciled.
+    journal_blocked: std::collections::HashSet<Signature>,
     /// A terminal refusal is provisional while another signed version can
     /// still land. No new version is sent until that cohort is resolved.
     /// This is in-memory only; restart needs a durable cohort and outcome
@@ -275,6 +281,7 @@ pub struct Engine {
     /// has a definitive status. Other writes continue normally.
     held_replans: HashMap<String, HashSet<Signature>>,
     adopted: HashMap<String, Vec<Version>>,
+    adopted_write_ids: HashMap<String, Option<String>>,
     pub budgets: Budgets,
     pub params: EngineParams,
     pub stats: BTreeMap<String, KindStats>,
@@ -330,6 +337,7 @@ impl Engine {
             orphans: vec![],
             held_replans: HashMap::new(),
             adopted: HashMap::new(),
+            adopted_write_ids: HashMap::new(),
             budgets,
             params,
             stats: BTreeMap::new(),
@@ -426,13 +434,16 @@ impl Engine {
         self.backoff.remove(&spec.key);
         let b = self.budgets.get(spec.tag);
         let adopted = self.adopted.remove(&spec.key).unwrap_or_default();
+        let write_id = self.adopted_write_ids.remove(&spec.key).flatten();
         self.stats.entry(spec.kind.into()).or_default().writes += 1;
         self.pending.insert(
             spec.key.clone(),
             Pending {
+                write_id,
                 first_slot: adopted.first().map(|v| v.sent_slot),
                 versions: adopted,
                 settled: Default::default(),
+                journal_blocked: Default::default(),
                 provisional: None,
                 cu_limit: b.cu_limit,
                 heap: None,
@@ -550,6 +561,14 @@ impl Engine {
         for (a, sig, payer) in parsed {
             self.orphans.push((sig, a.sent_slot));
             self.uncounted_fees.insert(sig, (a.kind.clone(), a.fee));
+            self.adopted_write_ids
+                .entry(a.object_key.clone())
+                .and_modify(|id| {
+                    if *id != a.write_id {
+                        *id = None;
+                    }
+                })
+                .or_insert_with(|| a.write_id.clone());
             self.adopted
                 .entry(a.object_key.clone())
                 .or_default()
@@ -573,6 +592,7 @@ impl Engine {
     /// journal rows alone. Keep polling the unknown signatures as orphans,
     /// but do not adopt them into a newly planned write with a fresh cap.
     pub fn hold_adopted_until_known(&mut self, key: &str) {
+        self.adopted_write_ids.remove(key);
         if let Some(versions) = self.adopted.remove(key) {
             self.held_replans
                 .entry(key.into())
@@ -602,14 +622,8 @@ impl Engine {
         self.meta_wait.remove(&v.sig);
         self.charge_fee(v.sig);
         let p = self.pending.get_mut(key)?;
-        let status = |x: &str| {
-            if let Some(j) = journal {
-                let _ = j.set_status(&v.sig.to_string(), x, Some(st.slot), st.code);
-            }
-        };
         let first = p.first_slot.unwrap_or(st.slot);
         if st.err.is_none() || st.code.is_some_and(|c| err::is_done(p.spec.tag, c)) {
-            status(if st.err.is_none() { "landed" } else { "done" });
             return Some(Outcome::Landed {
                 slot: st.slot,
                 sig: v.sig,
@@ -619,7 +633,6 @@ impl Engine {
                 already_done: st.err.is_some(),
             });
         }
-        status("failed");
         if cu_meter && p.spec.tag == abi::tag::SKIP_QUIET {
             // v1.7 (wave-4 review): SkipQuiet within its gate formula
             // always finishes a quiet run (G1 rows, the kernel quiet test
@@ -742,31 +755,41 @@ impl Engine {
                     continue;
                 }
             }
+            // Persist finality before releasing fee holds, changing duty
+            // state or emitting an outcome. A failed journal write is not a
+            // successful reconciliation: keep the signature pending and
+            // seal this write against another send until persistence works.
+            if let Some(j) = journal {
+                let success = self.pending.get(k).is_some_and(|p| {
+                    st.err.is_none() || st.code.is_some_and(|code| err::is_done(p.spec.tag, code))
+                });
+                let status = if st.err.is_none() {
+                    "landed"
+                } else if success {
+                    "done"
+                } else {
+                    "failed"
+                };
+                if let Err(e) = j.set_status(&v.sig.to_string(), status, Some(st.slot), st.code) {
+                    report
+                        .send_errors
+                        .push((k.clone(), format!("journal status: {e}")));
+                    if let Some(p) = self.pending.get_mut(k) {
+                        p.journal_blocked.insert(v.sig);
+                    }
+                    continue;
+                }
+            }
             if let Some(p) = self.pending.get_mut(k) {
+                p.journal_blocked.remove(&v.sig);
                 p.settled.insert(v.sig);
             }
             if let Some((_, previous)) = ended.iter_mut().find(|(e, _)| e == k) {
                 // Statuses for siblings can arrive in either order in one
                 // RPC reply. A definitive success wins over an earlier
                 // failure of another version of the same write.
-                let success = st.err.is_none()
-                    || st.code.is_some_and(|code| {
-                        self.pending
-                            .get(k)
-                            .is_some_and(|p| err::is_done(p.spec.tag, code))
-                    });
                 if matches!(previous, Outcome::Landed { .. }) {
                     self.charge_fee(v.sig);
-                    if let Some(j) = journal {
-                        let s = if st.err.is_none() {
-                            "landed"
-                        } else if success {
-                            "done"
-                        } else {
-                            "failed"
-                        };
-                        let _ = j.set_status(&v.sig.to_string(), s, Some(st.slot), st.code);
-                    }
                 } else if let Some(current) = self.classify(k, st, v, journal, &mut report) {
                     if matches!(current, Outcome::Landed { .. })
                         || (matches!(previous, Outcome::Failed { .. })
@@ -858,6 +881,23 @@ impl Engine {
             {
                 match st {
                     Some(st) => {
+                        // An adopted signature may also have been settled
+                        // above as part of a newly planned pending write.
+                        // Its tag-aware status (including `done`) is already
+                        // durable and its fee already charged in that case.
+                        if let Some(j) = journal.filter(|_| self.uncounted_fees.contains_key(&o.0))
+                        {
+                            let s = if st.err.is_none() { "landed" } else { "failed" };
+                            if let Err(e) =
+                                j.set_status(&o.0.to_string(), s, Some(st.slot), st.code)
+                            {
+                                report
+                                    .send_errors
+                                    .push((o.0.to_string(), format!("journal orphan status: {e}")));
+                                keep.push(o);
+                                continue;
+                            }
+                        }
                         resolved.insert(o.0);
                         if self
                             .uncounted_fees
@@ -867,10 +907,6 @@ impl Engine {
                             self.note_care_settled(st.slot);
                         }
                         self.charge_fee(o.0);
-                        if let Some(j) = journal {
-                            let s = if st.err.is_none() { "landed" } else { "failed" };
-                            let _ = j.set_status(&o.0.to_string(), s, Some(st.slot), st.code);
-                        }
                     }
                     None => keep.push(o),
                 }
@@ -937,7 +973,7 @@ impl Engine {
             let Some(p) = self.pending.get(&k) else {
                 continue;
             };
-            if p.provisional.is_some() {
+            if p.provisional.is_some() || !p.journal_blocked.is_empty() {
                 continue;
             }
             if slot < p.spec.not_before_slot
@@ -1134,6 +1170,7 @@ impl Engine {
             };
             let wire = tx::wire(&t);
             let sig = tx::signature(&t);
+            let write_id = p.write_id.clone().unwrap_or_else(|| sig.to_string());
             // Persist the signed version before calling RPC. A send error
             // can mean the network received it but the reply was lost, so
             // the signature must already be available for reconciliation.
@@ -1141,6 +1178,7 @@ impl Engine {
                 let p = self.pending.get(&k).expect("pending");
                 if let Err(e) = j.record_attempt(&Attempt {
                     sig: sig.to_string(),
+                    write_id: Some(write_id.clone()),
                     kind: p.spec.kind.into(),
                     object_key: k.clone(),
                     bell: p.spec.bell,
@@ -1169,6 +1207,7 @@ impl Engine {
             // have received the exact signature, and it can still land.
             payers.note_spend(&ctx.payer, fee);
             let p = self.pending.get_mut(&k).expect("pending");
+            p.write_id = Some(write_id);
             if p.first_slot.is_none() {
                 p.first_slot = Some(slot);
             }
@@ -1458,6 +1497,7 @@ mod tests {
         let j = Journal::open(std::path::Path::new(":memory:")).unwrap();
         j.record_attempt(&Attempt {
             sig: sig.to_string(),
+            write_id: None,
             kind: PAYER_CARE_KIND.into(),
             object_key: "care:old:transfer:1".into(),
             bell: None,
@@ -1733,12 +1773,58 @@ mod tests {
         assert_eq!(engine.stats["test"].landed, 1);
         let attempts = journal.attempts_of("done-pair").unwrap();
         assert_eq!(
+            attempts[0].write_id.as_deref(),
+            Some(attempts[0].sig.as_str())
+        );
+        assert_eq!(attempts[1].write_id, attempts[0].write_id);
+        assert_eq!(
             attempts
                 .iter()
                 .map(|a| a.status.as_str())
                 .collect::<Vec<_>>(),
             vec!["landed", "done"]
         );
+    }
+
+    #[tokio::test]
+    async fn failed_journal_status_keeps_fee_and_write_pending_without_resend() {
+        let port = Script::default();
+        let mut payers = payers();
+        payers.refresh(&port, 0).await.unwrap();
+        let journal = Journal::open(std::path::Path::new(":memory:")).unwrap();
+        let mut engine = Engine::new(Budgets::placeholder(), EngineParams::default());
+        assert!(engine.ensure(spec("status-write-fail", Class::D, abi::tag::POST_SEED), 10));
+        assert_eq!(
+            engine
+                .step(&port, &mut payers, Some(&journal), 10)
+                .await
+                .sent,
+            1
+        );
+        let sig = engine.pending["status-write-fail"].versions[0].sig;
+        // A missing row is a deterministic stand-in for a failed journal
+        // status write. The keeper must not emit Landed or reuse the cap.
+        journal
+            .conn
+            .execute("DELETE FROM attempts WHERE sig = ?1", [sig.to_string()])
+            .unwrap();
+        port.statuses.lock().unwrap().insert(
+            sig,
+            Status {
+                slot: 11,
+                err: None,
+                code: None,
+            },
+        );
+        let observed = engine.poll(&port, Some(&journal), 11).await;
+        assert!(observed.outcomes.is_empty());
+        assert_eq!(observed.send_errors.len(), 1);
+        assert!(engine.is_pending("status-write-fail"));
+        assert_eq!(engine.stats["test"].fees_charged, 0);
+        let next = engine.step(&port, &mut payers, Some(&journal), 12).await;
+        assert_eq!(next.sent, 0);
+        assert!(next.outcomes.is_empty());
+        assert!(engine.is_pending("status-write-fail"));
     }
 
     #[tokio::test]

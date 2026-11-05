@@ -470,14 +470,16 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
             }
             adopted = keep.len();
             self.engine.adopt(&keep)?;
-            // The journal has no write-group ID. If a sibling already paid
-            // its fee, the remaining unknown signature must resolve before
-            // this object can receive a fresh per-write cap.
+            // A restarted process has the signatures but not the original
+            // retry ladder, fee cap and duty plan. Never spend another fee
+            // against an old write by re-planning it with current settings.
+            // Keep observing every unknown signature and unblock this key
+            // only after they all have a definitive result. New rows carry
+            // a write ID so observations can be matched to their generation;
+            // legacy rows remain ungrouped and are held just as strictly.
             let mut checked = BTreeSet::new();
             for a in &keep {
-                if checked.insert(a.object_key.clone())
-                    && j.has_settled_attempt_of(&a.object_key)?
-                {
+                if checked.insert(a.object_key.clone()) {
                     self.engine.hold_adopted_until_known(&a.object_key);
                 }
             }
@@ -1389,6 +1391,7 @@ mod tests {
     fn recovery_attempt(sig: String) -> Attempt {
         Attempt {
             sig,
+            write_id: None,
             kind: "anchor".into(),
             object_key: "anchor:5:3".into(),
             bell: Some(5),
@@ -1516,6 +1519,70 @@ mod tests {
             .in_flight()
             .unwrap()
             .is_empty());
+    }
+
+    #[tokio::test]
+    async fn restart_holds_even_a_single_unknown_signature_until_chain_reconciliation() {
+        let program = Address::new_from_array([0x5f; 32]);
+        let cfg = KeeperConfig::new(program, 7, Address::new_from_array([0xbe; 32]));
+        let journal = Journal::open(std::path::Path::new(":memory:")).unwrap();
+        let sig = Signature::from([3u8; 64]);
+        let mut unknown = recovery_attempt(sig.to_string());
+        unknown.write_id = Some(sig.to_string());
+        unknown.payer = Address::new_from_array([1; 32]).to_string();
+        journal.record_attempt(&unknown).unwrap();
+        let port = crate::testkit::FakePort::default();
+        port.set_clock(200, 1_000);
+        let mut keeper = Keeper::new(
+            cfg,
+            port,
+            crate::testkit::FakeDrand::new(),
+            &[1; 32],
+            Some(journal),
+        )
+        .unwrap();
+        assert_eq!(keeper.start().await.unwrap(), 1);
+        let spec = || WriteSpec {
+            key: "anchor:5:3".into(),
+            kind: "anchor",
+            tag: tag::POST_ANCHOR,
+            class: Class::D,
+            bell: Some(5),
+            region: Some(3),
+            build: Arc::new(|_| vec![]),
+            deadline_slot: None,
+            not_before_slot: 0,
+            fixed_payer: None,
+        };
+        assert!(!keeper.engine.ensure(spec(), 200));
+        keeper.port.statuses.lock().unwrap().insert(
+            sig,
+            Status {
+                slot: 201,
+                err: None,
+                code: None,
+            },
+        );
+        let report = keeper
+            .engine
+            .poll(&keeper.port, keeper.journal.as_ref(), 202)
+            .await;
+        assert!(
+            report.outcomes.is_empty(),
+            "a recovered signature is observation only"
+        );
+        assert!(keeper.engine.ensure(spec(), 203));
+        let attempts = keeper
+            .journal
+            .as_ref()
+            .unwrap()
+            .attempts_of("anchor:5:3")
+            .unwrap();
+        assert_eq!(
+            attempts[0].write_id.as_deref(),
+            Some(sig.to_string().as_str())
+        );
+        assert_eq!(attempts[0].status, "landed");
     }
 
     #[tokio::test]

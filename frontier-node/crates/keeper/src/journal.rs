@@ -25,6 +25,9 @@ pub struct Attempt {
     pub sig: String,
     pub kind: String,
     pub object_key: String,
+    /// Identifies the write whose signed variants share one fee cap. Legacy
+    /// attempts have no recorded ID and retain conservative key-wide checks.
+    pub write_id: Option<String>,
     pub bell: Option<u32>,
     pub region: Option<u8>,
     pub class: String,
@@ -147,6 +150,7 @@ impl Journal {
             sql(conn.prepare(query))?;
         }
         Self::ensure_expiry_height_column(&conn)?;
+        Self::ensure_write_id_column(&conn)?;
         Self::check_known_fees(&conn)?;
         sql(conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;"))?;
         let journal = Journal { conn, crash: None };
@@ -162,13 +166,18 @@ impl Journal {
              OR (last_valid_block_height IS NOT NULL
                  AND (typeof(last_valid_block_height) != 'integer' OR last_valid_block_height <= 0))
              OR (landed_slot IS NOT NULL AND typeof(landed_slot) != 'integer')
+             OR (write_id IS NOT NULL
+                 AND (typeof(write_id) != 'text' OR length(trim(write_id)) = 0))
              OR bid_milli < 0 OR first_valid_slot < 0 OR sent_slot < 0
              OR landed_slot < 0 LIMIT 1)",
             [],
             |r| r.get(0),
         ))?;
         if invalid != 0 {
-            return Err("keeper journal has attempts without fee or invalid numeric fields; refusing unsafe resume".into());
+            return Err(
+                "keeper journal has attempts without fee or invalid fields; refusing unsafe resume"
+                    .into(),
+            );
         }
         Ok(())
     }
@@ -190,6 +199,24 @@ impl Journal {
         Ok(())
     }
 
+    fn ensure_write_id_column(conn: &Connection) -> Result<(), String> {
+        let has_write_id = {
+            let mut st = sql(conn.prepare("PRAGMA table_info(attempts)"))?;
+            let rows = sql(st.query_map([], |r| r.get::<_, String>(1)))?;
+            sql(rows.collect::<rusqlite::Result<Vec<_>>>())?
+                .iter()
+                .any(|name| name == "write_id")
+        };
+        if !has_write_id {
+            sql(conn.execute("ALTER TABLE attempts ADD COLUMN write_id TEXT", []))?;
+        }
+        sql(conn.execute(
+            "CREATE INDEX IF NOT EXISTS attempts_write_id ON attempts(write_id)",
+            [],
+        ))?;
+        Ok(())
+    }
+
     /// Opens (or creates) the journal (`":memory:"` for tests).
     pub fn open(path: &Path) -> Result<Journal, String> {
         let conn = sql(Connection::open(path))?;
@@ -200,7 +227,7 @@ impl Journal {
                  bell INTEGER, region INTEGER, class TEXT NOT NULL, payer TEXT NOT NULL, bid_milli INTEGER NOT NULL,
                  cu_limit INTEGER NOT NULL, heap INTEGER, first_valid_slot INTEGER NOT NULL, sent_slot INTEGER NOT NULL,
                  landed_slot INTEGER, status TEXT NOT NULL, code INTEGER, fee INTEGER,
-                 last_valid_block_height INTEGER);
+                 last_valid_block_height INTEGER, write_id TEXT);
              CREATE INDEX IF NOT EXISTS attempts_status ON attempts(status);
              CREATE INDEX IF NOT EXISTS attempts_object ON attempts(object_key);
              CREATE TABLE IF NOT EXISTS plaintexts(host INTEGER NOT NULL, bell INTEGER NOT NULL, plain BLOB NOT NULL,
@@ -233,6 +260,7 @@ impl Journal {
             sql(conn.execute("ALTER TABLE attempts ADD COLUMN fee INTEGER", []))?;
         }
         Self::ensure_expiry_height_column(&conn)?;
+        Self::ensure_write_id_column(&conn)?;
         Self::check_known_fees(&conn)?;
         Ok(Journal { conn, crash: None })
     }
@@ -251,6 +279,9 @@ impl Journal {
 
     pub fn record_attempt(&self, a: &Attempt) -> Result<(), String> {
         self.maybe_crash("attempt", &a.kind);
+        if a.write_id.as_ref().is_some_and(|id| id.trim().is_empty()) {
+            return Err("write ID must be nonempty".into());
+        }
         let fee = i64::try_from(a.fee).map_err(|_| "predicted fee overflows SQLite integer")?;
         let bid = i64::try_from(a.bid_milli).map_err(|_| "bid overflows SQLite integer")?;
         let first_valid_slot = i64::try_from(a.first_valid_slot)
@@ -273,8 +304,8 @@ impl Journal {
         sql(self.conn.execute(
             "INSERT INTO attempts(sig, kind, object_key, bell, region, class, payer, bid_milli, cu_limit,
                  heap, first_valid_slot, sent_slot, landed_slot, status, code, fee,
-                 last_valid_block_height)
-             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+                 last_valid_block_height, write_id)
+             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
             params![
                 a.sig,
                 a.kind,
@@ -292,7 +323,8 @@ impl Journal {
                 a.status,
                 a.code,
                 fee,
-                last_valid_block_height
+                last_valid_block_height,
+                a.write_id
             ],
         ))
         .map(|_| ())
@@ -322,11 +354,22 @@ impl Journal {
                 .unwrap_or(None);
             self.maybe_crash("status", kind.as_deref().unwrap_or(""));
         }
-        sql(self.conn.execute(
-            "UPDATE attempts SET status = ?2, landed_slot = ?3, code = ?4 WHERE sig = ?1",
+        // A settled row is durable evidence. Do not overwrite it with a
+        // different RPC result; an exact repeated observation is harmless.
+        // Legacy slot-age "expired" and "superseded" are not chain evidence
+        // and can still be corrected by a finalized signature status.
+        let updated = sql(self.conn.execute(
+            "UPDATE attempts SET status = ?2, landed_slot = ?3, code = ?4
+             WHERE sig = ?1 AND (status IN ('sent', 'expired', 'superseded')
+                 OR (status = ?2 AND landed_slot IS ?3 AND code IS ?4))",
             params![sig, status, landed_slot, code],
-        ))
-        .map(|_| ())
+        ))?;
+        if updated == 0 {
+            return Err(format!(
+                "attempt {sig} is missing or has a conflicting settled status"
+            ));
+        }
+        Ok(())
     }
 
     fn row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Attempt> {
@@ -334,6 +377,7 @@ impl Journal {
             sig: r.get(0)?,
             kind: r.get(1)?,
             object_key: r.get(2)?,
+            write_id: r.get(17)?,
             bell: r.get(3)?,
             region: r.get(4)?,
             class: r.get(5)?,
@@ -363,7 +407,7 @@ impl Journal {
 
     const COLS: &'static str =
         "sig, kind, object_key, bell, region, class, payer, bid_milli, cu_limit, heap,
-         first_valid_slot, sent_slot, landed_slot, status, code, fee, last_valid_block_height";
+         first_valid_slot, sent_slot, landed_slot, status, code, fee, last_valid_block_height, write_id";
 
     /// Attempts still marked `sent` (in flight at a crash).
     pub fn in_flight(&self) -> Result<Vec<Attempt>, String> {
@@ -426,6 +470,21 @@ impl Journal {
         let found: i64 = sql(self.conn.query_row(
             "SELECT EXISTS(SELECT 1 FROM attempts WHERE object_key = ?1 AND status != 'sent')",
             params![object_key],
+            |r| r.get(0),
+        ))?;
+        Ok(found != 0)
+    }
+
+    /// A settled variant in this write keeps its fee reservation on restart.
+    /// Old rows have no cohort identity, so they use the conservative object
+    /// key scope instead of guessing which prior attempts shared the cap.
+    pub fn has_settled_attempt_in_write(&self, attempt: &Attempt) -> Result<bool, String> {
+        let Some(write_id) = attempt.write_id.as_deref() else {
+            return self.has_settled_attempt_of(&attempt.object_key);
+        };
+        let found: i64 = sql(self.conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM attempts WHERE write_id = ?1 AND status != 'sent')",
+            params![write_id],
             |r| r.get(0),
         ))?;
         Ok(found != 0)
@@ -659,6 +718,7 @@ mod tests {
             sig: sig.into(),
             kind: "anchor".into(),
             object_key: "anchor:5:3".into(),
+            write_id: None,
             bell: Some(5),
             region: Some(3),
             class: "D".into(),
@@ -722,6 +782,59 @@ mod tests {
     }
 
     #[test]
+    fn settled_sibling_query_uses_exact_write_id_for_new_attempts() {
+        let j = Journal::open(Path::new(":memory:")).unwrap();
+        let mut pending = a("pending", "sent");
+        pending.write_id = Some("write-b".into());
+        j.record_attempt(&pending).unwrap();
+
+        let mut prior_write = a("prior", "failed");
+        prior_write.write_id = Some("write-a".into());
+        j.record_attempt(&prior_write).unwrap();
+        assert!(!j.has_settled_attempt_in_write(&pending).unwrap());
+
+        let mut sibling = a("sibling", "failed");
+        sibling.write_id = pending.write_id.clone();
+        j.record_attempt(&sibling).unwrap();
+        assert!(j.has_settled_attempt_in_write(&pending).unwrap());
+        assert_eq!(j.in_flight().unwrap()[0].write_id, pending.write_id);
+
+        let legacy = a("legacy", "sent");
+        assert!(j.has_settled_attempt_in_write(&legacy).unwrap());
+        let mut invalid = a("invalid", "sent");
+        invalid.write_id = Some("  ".into());
+        assert!(j.record_attempt(&invalid).is_err());
+    }
+
+    #[test]
+    fn status_update_requires_an_attempt_and_preserves_settled_evidence() {
+        let j = Journal::open(Path::new(":memory:")).unwrap();
+        assert!(j.set_status("missing", "landed", Some(11), None).is_err());
+        j.record_attempt(&a("sig", "sent")).unwrap();
+        j.set_status("sig", "failed", Some(11), Some(7)).unwrap();
+        j.set_status("sig", "failed", Some(11), Some(7)).unwrap();
+        assert!(j.set_status("sig", "landed", Some(12), None).is_err());
+        assert!(j.set_status("sig", "failed", Some(12), Some(7)).is_err());
+        assert!(j.set_status("sig", "failed", Some(11), None).is_err());
+        let attempt = &j.attempts_of("anchor:5:3").unwrap()[0];
+        assert_eq!(attempt.status, "failed");
+        assert_eq!(attempt.landed_slot, Some(11));
+        assert_eq!(attempt.code, Some(7));
+
+        j.record_attempt(&a("legacy", "expired")).unwrap();
+        j.set_status("legacy", "landed", Some(13), None).unwrap();
+        assert_eq!(
+            j.attempts_of("anchor:5:3")
+                .unwrap()
+                .into_iter()
+                .find(|a| a.sig == "legacy")
+                .unwrap()
+                .status,
+            "landed"
+        );
+    }
+
+    #[test]
     fn old_journal_migrates_expiry_height_without_inventing_evidence() {
         let dir = std::env::temp_dir().join(format!(
             "keeper-expiry-height-migration-{}-{}",
@@ -738,7 +851,8 @@ mod tests {
         drop(journal);
 
         // Reproduce the previous attempts schema while retaining the other
-        // journal tables. The migration must leave this row's height unknown.
+        // journal tables. The migration must leave this row's height and
+        // write identity unknown.
         let conn = Connection::open(&path).unwrap();
         conn.execute_batch(
             "CREATE TABLE attempts_legacy AS SELECT sig, kind, object_key, bell, region, class,
@@ -754,14 +868,21 @@ mod tests {
         let old = journal.in_flight().unwrap();
         assert_eq!(old.len(), 1);
         assert_eq!(old[0].last_valid_block_height, None);
+        assert_eq!(old[0].write_id, None);
         let mut new = a("new", "sent");
         new.last_valid_block_height = Some(345);
+        new.write_id = Some("write-new".into());
         journal.record_attempt(&new).unwrap();
         assert_eq!(
             journal.in_flight().unwrap()[1].last_valid_block_height,
             Some(345)
         );
+        assert_eq!(journal.in_flight().unwrap()[1].write_id, new.write_id);
         drop(journal);
+        let reopened = Journal::open(&path).unwrap();
+        assert_eq!(reopened.in_flight().unwrap()[0].write_id, None);
+        assert_eq!(reopened.in_flight().unwrap()[1].write_id, new.write_id);
+        drop(reopened);
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -929,6 +1050,7 @@ mod prefix_tests {
                 sig: format!("s{n}"),
                 kind: kind.into(),
                 object_key: key,
+                write_id: None,
                 bell: None,
                 region: None,
                 class: "D".into(),
