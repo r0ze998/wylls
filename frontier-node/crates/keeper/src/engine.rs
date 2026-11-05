@@ -216,6 +216,25 @@ pub enum Outcome {
     Dead { reason: String, code: Option<u32> },
 }
 
+/// Why a duty stopped watching a pending write. Only `ChainStateObserved`
+/// means the duty has independently seen the object on chain.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CancelReason {
+    ChainStateObserved,
+    SupersededNonce,
+    StaleBell,
+}
+
+/// A signature from a locally abandoned write later succeeded on chain.
+/// This is an observation for the operator, never a duty `Outcome::Landed`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CancelledLanding {
+    pub key: String,
+    pub sig: Signature,
+    pub slot: u64,
+    pub reason: CancelReason,
+}
+
 struct Pending {
     spec: WriteSpec,
     /// Stable identity of this signed write across fee-bid variants. The
@@ -246,6 +265,7 @@ struct Pending {
 #[derive(Default, Debug)]
 pub struct StepReport {
     pub outcomes: Vec<(String, Outcome)>,
+    pub cancelled_landed: Vec<CancelledLanding>,
     pub sent: usize,
     /// Newly contested `(bell, region, key)`.
     pub contested: Vec<(Option<u32>, Option<u8>, String)>,
@@ -276,12 +296,18 @@ pub struct Engine {
     /// Versions whose write is gone (cancelled, adopted after a restart):
     /// polled until resolved so the journal is complete.
     orphans: Vec<(Signature, u64)>,
+    /// In-memory reason for an abandoned signature. The journal still owns
+    /// its fee/status; durable notification recovery is a separate concern.
+    cancelled_orphans: HashMap<Signature, (String, CancelReason)>,
     /// A retry window may end with signatures still unresolved. Keep only
     /// those keys from starting a fresh fee budget until every old signature
     /// has a definitive status. Other writes continue normally.
     held_replans: HashMap<String, HashSet<Signature>>,
     adopted: HashMap<String, Vec<Version>>,
     adopted_write_ids: HashMap<String, Option<String>>,
+    /// Multiple recovered write generations share one object key. They
+    /// cannot be folded into one retry budget, even by a direct Engine user.
+    adopted_ambiguous: HashSet<String>,
     pub budgets: Budgets,
     pub params: EngineParams,
     pub stats: BTreeMap<String, KindStats>,
@@ -335,9 +361,11 @@ impl Engine {
             backoff: HashMap::new(),
             failures: HashMap::new(),
             orphans: vec![],
+            cancelled_orphans: HashMap::new(),
             held_replans: HashMap::new(),
             adopted: HashMap::new(),
             adopted_write_ids: HashMap::new(),
+            adopted_ambiguous: HashSet::new(),
             budgets,
             params,
             stats: BTreeMap::new(),
@@ -428,6 +456,7 @@ impl Engine {
         if self.pending.contains_key(&spec.key)
             || self.backoff.get(&spec.key).is_some_and(|&s| slot < s)
             || self.held_replans.contains_key(&spec.key)
+            || self.adopted_ambiguous.contains(&spec.key)
         {
             return false;
         }
@@ -472,10 +501,16 @@ impl Engine {
         }
     }
 
-    /// Stops a write (its object is done on chain by another path). Versions
-    /// already sent are kept as orphans for the journal.
-    pub fn cancel(&mut self, key: &str) {
+    /// Stops a write for an explicit reason. Signed, unsettled versions are
+    /// still polled for fees and journal status. A late success of a locally
+    /// abandoned write is reported separately from a duty landing.
+    pub fn cancel(&mut self, key: &str, reason: CancelReason) {
         if let Some(p) = self.pending.remove(key) {
+            if reason != CancelReason::ChainStateObserved {
+                for v in p.versions.iter().filter(|v| !p.settled.contains(&v.sig)) {
+                    self.cancelled_orphans.insert(v.sig, (key.into(), reason));
+                }
+            }
             self.hold_unsettled(key, &p);
         }
     }
@@ -494,7 +529,7 @@ impl Engine {
                 return false;
             }
         }
-        self.cancel(key);
+        self.cancel(key, CancelReason::StaleBell);
         true
     }
 
@@ -561,14 +596,17 @@ impl Engine {
         for (a, sig, payer) in parsed {
             self.orphans.push((sig, a.sent_slot));
             self.uncounted_fees.insert(sig, (a.kind.clone(), a.fee));
-            self.adopted_write_ids
-                .entry(a.object_key.clone())
-                .and_modify(|id| {
-                    if *id != a.write_id {
-                        *id = None;
+            match self.adopted_write_ids.entry(a.object_key.clone()) {
+                std::collections::hash_map::Entry::Occupied(mut existing) => {
+                    if *existing.get() != a.write_id {
+                        self.adopted_ambiguous.insert(a.object_key.clone());
+                        existing.insert(None);
                     }
-                })
-                .or_insert_with(|| a.write_id.clone());
+                }
+                std::collections::hash_map::Entry::Vacant(empty) => {
+                    empty.insert(a.write_id.clone());
+                }
+            }
             self.adopted
                 .entry(a.object_key.clone())
                 .or_default()
@@ -593,6 +631,7 @@ impl Engine {
     /// but do not adopt them into a newly planned write with a fresh cap.
     pub fn hold_adopted_until_known(&mut self, key: &str) {
         self.adopted_write_ids.remove(key);
+        self.adopted_ambiguous.remove(key);
         if let Some(versions) = self.adopted.remove(key) {
             self.held_replans
                 .entry(key.into())
@@ -899,6 +938,16 @@ impl Engine {
                             }
                         }
                         resolved.insert(o.0);
+                        if let Some((key, reason)) = self.cancelled_orphans.remove(&o.0) {
+                            if st.err.is_none() {
+                                report.cancelled_landed.push(CancelledLanding {
+                                    key,
+                                    sig: o.0,
+                                    slot: st.slot,
+                                    reason,
+                                });
+                            }
+                        }
                         if self
                             .uncounted_fees
                             .get(&o.0)
@@ -927,6 +976,8 @@ impl Engine {
                 versions.retain(|v| !resolved.contains(&v.sig));
                 if versions.is_empty() {
                     self.adopted.remove(&key);
+                    self.adopted_write_ids.remove(&key);
+                    self.adopted_ambiguous.remove(&key);
                 } else {
                     self.hold_adopted_until_known(&key);
                 }
@@ -1179,6 +1230,7 @@ impl Engine {
                 if let Err(e) = j.record_attempt(&Attempt {
                     sig: sig.to_string(),
                     write_id: Some(write_id.clone()),
+                    tag: Some(p.spec.tag),
                     kind: p.spec.kind.into(),
                     object_key: k.clone(),
                     bell: p.spec.bell,
@@ -1498,6 +1550,7 @@ mod tests {
         j.record_attempt(&Attempt {
             sig: sig.to_string(),
             write_id: None,
+            tag: None,
             kind: PAYER_CARE_KIND.into(),
             object_key: "care:old:transfer:1".into(),
             bell: None,
@@ -2061,7 +2114,7 @@ mod tests {
         e.ensure(spec("cancelled", Class::D, abi::tag::POST_SEED), 15);
         e.step(&port, &mut payers, None, 15).await;
         let cancelled = e.pending["cancelled"].versions[0].clone();
-        e.cancel("cancelled");
+        e.cancel("cancelled", CancelReason::ChainStateObserved);
         port.statuses.lock().unwrap().insert(
             cancelled.sig,
             Status {
@@ -2075,6 +2128,128 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn late_success_after_local_cancellation_is_not_a_duty_landing() {
+        for reason in [CancelReason::SupersededNonce, CancelReason::StaleBell] {
+            let port = Script::default();
+            let mut payers = payers();
+            payers.refresh(&port, 0).await.unwrap();
+            let mut engine = Engine::new(Budgets::placeholder(), EngineParams::default());
+            assert!(engine.ensure(spec("abandoned", Class::D, abi::tag::POST_SEED), 10));
+            engine.step(&port, &mut payers, None, 10).await;
+            let version = engine.pending["abandoned"].versions[0].clone();
+            engine.cancel("abandoned", reason);
+            port.statuses.lock().unwrap().insert(
+                version.sig,
+                Status {
+                    slot: 11,
+                    err: None,
+                    code: None,
+                },
+            );
+
+            let report = engine.poll(&port, None, 12).await;
+            assert!(report.outcomes.is_empty());
+            assert_eq!(
+                report.cancelled_landed,
+                vec![CancelledLanding {
+                    key: "abandoned".into(),
+                    sig: version.sig,
+                    slot: 11,
+                    reason,
+                }]
+            );
+            assert_eq!(engine.stats["test"].landed, 0);
+            assert_eq!(engine.stats["test"].fees_charged, version.fee);
+            assert!(engine
+                .poll(&port, None, 13)
+                .await
+                .cancelled_landed
+                .is_empty());
+        }
+    }
+
+    #[tokio::test]
+    async fn cancelled_landing_waits_for_durable_status_before_alert_or_fee_release() {
+        let port = Script::default();
+        let mut payers = payers();
+        payers.refresh(&port, 0).await.unwrap();
+        let journal = Journal::open(std::path::Path::new(":memory:")).unwrap();
+        let mut engine = Engine::new(Budgets::placeholder(), EngineParams::default());
+        assert!(engine.ensure(spec("abandoned", Class::D, abi::tag::POST_SEED), 10));
+        assert_eq!(
+            engine
+                .step(&port, &mut payers, Some(&journal), 10)
+                .await
+                .sent,
+            1
+        );
+        let attempt = journal.attempts_of("abandoned").unwrap().remove(0);
+        let sig: Signature = attempt.sig.parse().unwrap();
+        engine.cancel("abandoned", CancelReason::StaleBell);
+        journal
+            .conn
+            .execute("DELETE FROM attempts WHERE sig = ?1", [&attempt.sig])
+            .unwrap();
+        port.statuses.lock().unwrap().insert(
+            sig,
+            Status {
+                slot: 11,
+                err: None,
+                code: None,
+            },
+        );
+        let failed = engine.poll(&port, Some(&journal), 12).await;
+        assert!(failed.cancelled_landed.is_empty());
+        assert_eq!(failed.send_errors.len(), 1);
+        assert_eq!(engine.orphans.len(), 1);
+        assert_eq!(engine.stats["test"].fees_charged, 0);
+        assert!(!engine.ensure(spec("abandoned", Class::D, abi::tag::POST_SEED), 12));
+
+        journal.record_attempt(&attempt).unwrap();
+        let repaired = engine.poll(&port, Some(&journal), 13).await;
+        assert!(repaired.outcomes.is_empty());
+        assert_eq!(repaired.cancelled_landed.len(), 1);
+        assert_eq!(engine.stats["test"].fees_charged, attempt.fee);
+        assert!(engine
+            .poll(&port, Some(&journal), 14)
+            .await
+            .cancelled_landed
+            .is_empty());
+        assert_eq!(
+            journal.attempts_of("abandoned").unwrap()[0].status,
+            "landed"
+        );
+    }
+
+    #[tokio::test]
+    async fn chain_observed_and_failed_cancellations_do_not_emit_late_success() {
+        for (reason, success) in [
+            (CancelReason::ChainStateObserved, true),
+            (CancelReason::StaleBell, false),
+        ] {
+            let port = Script::default();
+            let mut payers = payers();
+            payers.refresh(&port, 0).await.unwrap();
+            let mut engine = Engine::new(Budgets::placeholder(), EngineParams::default());
+            engine.ensure(spec("cancelled", Class::D, abi::tag::POST_SEED), 10);
+            engine.step(&port, &mut payers, None, 10).await;
+            let sig = engine.pending["cancelled"].versions[0].sig;
+            engine.cancel("cancelled", reason);
+            port.statuses.lock().unwrap().insert(
+                sig,
+                Status {
+                    slot: 11,
+                    err: (!success).then(|| "OutOfOrder".into()),
+                    code: (!success).then_some(8),
+                },
+            );
+            let report = engine.poll(&port, None, 12).await;
+            assert!(report.outcomes.is_empty());
+            assert!(report.cancelled_landed.is_empty());
+        }
+    }
+
+    #[tokio::test]
     async fn old_unknown_orphan_keeps_predicted_fee_until_finalized() {
         let port = Script::default();
         let mut payers = payers();
@@ -2084,7 +2259,7 @@ mod tests {
         engine.ensure(spec("old", Class::D, abi::tag::POST_SEED), 10);
         engine.step(&port, &mut payers, Some(&journal), 10).await;
         let version = engine.pending["old"].versions[0].clone();
-        engine.cancel("old");
+        engine.cancel("old", CancelReason::ChainStateObserved);
 
         let late = 10 + EXPIRY_SLOTS + 1;
         engine.poll(&port, Some(&journal), late).await;
@@ -2191,7 +2366,7 @@ mod tests {
         assert!(engine.ensure(spec("cancel", Class::D, abi::tag::POST_SEED), 10));
         engine.step(&port, &mut payers, None, 10).await;
         let cancelled = engine.pending["cancel"].versions[0].sig;
-        engine.cancel("cancel");
+        engine.cancel("cancel", CancelReason::ChainStateObserved);
         assert!(!engine.ensure(spec("cancel", Class::D, abi::tag::POST_SEED), 11));
 
         let mut deadline = spec("deadline", Class::D, abi::tag::POST_SEED);
@@ -2237,7 +2412,7 @@ mod tests {
         engine.ensure(spec("rpc-error", Class::D, abi::tag::POST_SEED), 10);
         engine.step(&port, &mut payers, Some(&journal), 10).await;
         let version = engine.pending["rpc-error"].versions[0].clone();
-        engine.cancel("rpc-error");
+        engine.cancel("rpc-error", CancelReason::ChainStateObserved);
         port.fail_status_lookup
             .store(true, std::sync::atomic::Ordering::SeqCst);
 
@@ -2285,6 +2460,37 @@ mod tests {
         assert!(!after.ensure(spec("old", Class::D, abi::tag::POST_SEED), late + 1));
         assert!(after.ensure(spec("other", Class::D, abi::tag::POST_SEED), late + 1));
         assert_eq!(journal.in_flight().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn adopted_different_write_ids_cannot_share_one_retry_budget() {
+        let port = Script::default();
+        let mut payers = payers();
+        payers.refresh(&port, 0).await.unwrap();
+        let journal = Journal::open(std::path::Path::new(":memory:")).unwrap();
+        let mut before = Engine::new(Budgets::placeholder(), EngineParams::default());
+        before.ensure(spec("same-key", Class::D, abi::tag::POST_SEED), 10);
+        assert_eq!(
+            before
+                .step(&port, &mut payers, Some(&journal), 10)
+                .await
+                .sent,
+            1
+        );
+        assert_eq!(
+            before
+                .step(&port, &mut payers, Some(&journal), 12)
+                .await
+                .sent,
+            1
+        );
+        let mut attempts = journal.in_flight().unwrap();
+        assert_eq!(attempts.len(), 2);
+        attempts[1].write_id = Some("another-write".into());
+        let mut after = Engine::new(Budgets::placeholder(), EngineParams::default());
+        after.adopt(&attempts).unwrap();
+        assert!(!after.ensure(spec("same-key", Class::D, abi::tag::POST_SEED), 13));
+        assert!(after.ensure(spec("different-key", Class::D, abi::tag::POST_SEED), 13));
     }
 
     #[tokio::test]

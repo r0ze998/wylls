@@ -4163,7 +4163,8 @@ mod w6t_tests {
         assert!(e.engine.is_pending(&key), "planned once");
         assert!(d.provinces.contains_key(&pq));
         // Every rung failed: the engine ends it Dead.
-        e.engine.cancel(&key);
+        e.engine
+            .cancel(&key, crate::engine::CancelReason::ChainStateObserved);
         d.on_outcome(
             &key,
             &Outcome::Dead {

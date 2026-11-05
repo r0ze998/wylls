@@ -34,7 +34,7 @@ use fclient::decode::{BeaconLog, BellAnchor, SeedCache};
 use fclient::ix;
 use fclient::ports::{ChainPort, DrandPort, PortResult};
 
-use crate::engine::{BuildCtx, Engine, WriteSpec};
+use crate::engine::{BuildCtx, CancelReason, Engine, WriteSpec};
 use crate::journal::Journal;
 use crate::rounds::Rounds;
 use crate::Tick;
@@ -229,7 +229,7 @@ impl BeaconDuty {
                 self.anchor_latency.push(an.slot.saturating_sub(*f));
             }
             // Present: its fallback (if any) has nothing left to do.
-            engine.cancel(&anchor_key(b, r));
+            engine.cancel(&anchor_key(b, r), CancelReason::ChainStateObserved);
             self.anchors.insert(
                 (b, r),
                 AnchorInfo {
@@ -253,7 +253,7 @@ impl BeaconDuty {
                 .collect();
             for (i, c) in chunks.iter().enumerate() {
                 if c.iter().all(|r| !missing.contains(r)) {
-                    engine.cancel(&multi_key(b, i));
+                    engine.cancel(&multi_key(b, i), CancelReason::ChainStateObserved);
                 }
             }
             if missing.is_empty() {
@@ -412,7 +412,7 @@ impl BeaconDuty {
                 }
                 if let Some(s) = self.seeds.remove(&(b, r)) {
                     for m in &s.nonces[..=s.idx] {
-                        engine.cancel(&seed_key(b, r, *m));
+                        engine.cancel(&seed_key(b, r, *m), CancelReason::ChainStateObserved);
                     }
                 }
             }
@@ -448,7 +448,7 @@ impl BeaconDuty {
                 }
                 // Not landed within the switch time: a held cache address
                 // must not stall the seed; the next random nonce goes out.
-                engine.cancel(&key);
+                engine.cancel(&key, CancelReason::SupersededNonce);
                 track.idx += 1;
             } else if engine.is_pending(&key) {
                 continue;

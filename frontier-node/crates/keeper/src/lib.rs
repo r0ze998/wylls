@@ -456,8 +456,18 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
             for (a, st) in recovery_statuses(&inflight, sts)? {
                 match st {
                     Some(st) => {
-                        let s = if st.err.is_none() { "landed" } else { "failed" };
-                        j.set_status(&a.sig, s, Some(st.slot), st.code)?;
+                        let s = if st.err.is_none() {
+                            "landed"
+                        } else if a
+                            .tag
+                            .zip(st.code)
+                            .is_some_and(|(tag, code)| abi::err::is_done(tag, code))
+                        {
+                            "done"
+                        } else {
+                            "failed"
+                        };
+                        j.record_recovered_finality(a, s, st.slot, st.code)?;
                         self.engine.charge_recovered(a);
                         if a.kind == PAYER_CARE_KIND {
                             self.engine.note_care_settled(st.slot);
@@ -492,7 +502,7 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
             for (a, st) in recovery_statuses(&legacy, statuses)? {
                 if let Some(st) = st {
                     let s = if st.err.is_none() { "landed" } else { "failed" };
-                    j.set_status(&a.sig, s, Some(st.slot), st.code)?;
+                    j.record_recovered_finality(a, s, st.slot, st.code)?;
                     self.engine.charge_recovered(a);
                     self.engine.note_care_settled(st.slot);
                 }
@@ -1078,6 +1088,16 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
     /// Alerts and duty reactions for what a step reported: dead and
     /// failed writes, contested bells, retry-ladder rungs.
     fn note_step(&mut self, slot: u64, r: &crate::engine::StepReport) {
+        for event in &r.cancelled_landed {
+            self.alert(
+                slot,
+                "cancelled-late-landed",
+                format!(
+                    "{}: signature {} landed in slot {} after {:?} cancellation; reconcile chain state before re-planning",
+                    event.key, event.sig, event.slot, event.reason
+                ),
+            );
+        }
         for (k, o) in &r.outcomes {
             match o {
                 Outcome::Dead { code, reason } => {
@@ -1388,10 +1408,50 @@ pub const W2F_TAGS: [u8; 9] = [
 mod tests {
     use super::*;
 
+    #[test]
+    fn locally_cancelled_landing_creates_distinct_alert() {
+        let cfg = KeeperConfig::new(
+            Address::new_from_array([0x5f; 32]),
+            7,
+            Address::new_from_array([0xbe; 32]),
+        );
+        let journal = Journal::open(std::path::Path::new(":memory:")).unwrap();
+        let mut keeper = Keeper::new(
+            cfg,
+            crate::testkit::FakePort::default(),
+            crate::testkit::FakeDrand::new(),
+            &[1; 32],
+            Some(journal),
+        )
+        .unwrap();
+        let mut report = crate::engine::StepReport::default();
+        report
+            .cancelled_landed
+            .push(crate::engine::CancelledLanding {
+                key: "seed:5:3:42".into(),
+                sig: Signature::default(),
+                slot: 12,
+                reason: crate::engine::CancelReason::SupersededNonce,
+            });
+        keeper.note_step(13, &report);
+        assert_eq!(keeper.alerts.len(), 1);
+        assert_eq!(keeper.alerts[0].1, "cancelled-late-landed");
+        assert!(keeper
+            .journal
+            .as_ref()
+            .unwrap()
+            .alerts("cancelled-late-landed")
+            .unwrap()[0]
+            .1
+            .contains("SupersededNonce"));
+        assert!(report.outcomes.is_empty());
+    }
+
     fn recovery_attempt(sig: String) -> Attempt {
         Attempt {
             sig,
             write_id: None,
+            tag: None,
             kind: "anchor".into(),
             object_key: "anchor:5:3".into(),
             bell: Some(5),
@@ -1460,6 +1520,46 @@ mod tests {
         // Re-reading startup cannot charge the settled journal row again.
         assert_eq!(k.start().await.unwrap(), 0);
         assert_eq!(k.engine.stats["anchor"].fees_charged, attempt.fee);
+    }
+
+    #[tokio::test]
+    async fn restart_records_tag_specific_already_done_as_done_without_replaying_duty() {
+        let program = Address::new_from_array([0x5f; 32]);
+        let cfg = KeeperConfig::new(program, 7, Address::new_from_array([0xbe; 32]));
+        let journal = Journal::open(std::path::Path::new(":memory:")).unwrap();
+        let sig = Signature::from([4u8; 64]);
+        let mut attempt = recovery_attempt(sig.to_string());
+        attempt.write_id = Some(sig.to_string());
+        attempt.tag = Some(tag::POST_ANCHOR);
+        journal.record_attempt(&attempt).unwrap();
+        let port = crate::testkit::FakePort::default();
+        port.set_clock(12, 1_000);
+        port.statuses.lock().unwrap().insert(
+            sig,
+            Status {
+                slot: 11,
+                err: Some("AlreadyDone".into()),
+                code: Some(abi::err::ALREADY_DONE),
+            },
+        );
+        let mut keeper = Keeper::new(
+            cfg,
+            port,
+            crate::testkit::FakeDrand::new(),
+            &[1; 32],
+            Some(journal),
+        )
+        .unwrap();
+        assert_eq!(keeper.start().await.unwrap(), 0);
+        let recovered = keeper
+            .journal
+            .as_ref()
+            .unwrap()
+            .attempts_of("anchor:5:3")
+            .unwrap();
+        assert_eq!(recovered[0].status, "done");
+        assert_eq!(keeper.engine.stats["anchor"].fees_charged, attempt.fee);
+        assert_eq!(keeper.engine.stats["anchor"].landed, 0);
     }
 
     #[tokio::test]
