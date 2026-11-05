@@ -27,6 +27,7 @@ import { GOALS } from './goals.mjs';
 import { GIFT_WINDOW_BELLS } from './safety.mjs';
 import { addressOf, loadOrCreateKey, signRecord } from './keys.mjs';
 import { answerSchema, decideWithin, ProviderRefusal } from './ports/provider.mjs';
+import { assertPort } from './ports/execution.mjs';
 import { JOIN_DOMAIN } from '../world/testworld.mjs';
 
 export const DEFAULT_LIMITS = Object.freeze({
@@ -262,6 +263,8 @@ export class Resident {
 
   async step() {
     const st = this.state;
+    // The execution port must promise to keep keys long enough (08-retention-contract.ja.md); checked once.
+    if (this.portsChecked !== this.ports.execution) { assertPort('execution', this.ports.execution); this.portsChecked = this.ports.execution; }
     // Only what changed since the last step (events by sequence, board requests changed since a bell), plus the
     // gift window, so a long-lived resident reads a bounded amount however long the world has run.
     const obs = await this.ports.observe(this.address, { events: st.cursor?.events ?? 0, boardBell: Math.max(0, Math.min((st.cursor?.board ?? 0) - 1, (this.bell ?? 0) - GIFT_WINDOW_BELLS)) });
@@ -281,6 +284,7 @@ export class Resident {
       }
     }
     const stop = this.#stopReason();
+    this.#settleReturns(obs);
     this.#noteDebts(obs);
     // A paused resident still reads (its cursors do not move, so nothing is missed when it resumes) and reports what it owes.
     if (stop && !stop.keepPromises) { await this.#reconcile({ send: false }); this.save(); return { bell, stopped: stop.why, owed: this.owed() }; }
@@ -319,7 +323,7 @@ export class Resident {
 
   #intent(key, spec) {
     const j = this.state.journal;
-    if (!j[key]) j[key] = { key, state: 'intended', attempts: 1, nextBell: this.bell, ...spec };
+    if (!j[key]) j[key] = { key, state: 'intended', attempts: 1, nextBell: this.bell, createdBell: this.bell, ...spec };
     return j[key];
   }
 
@@ -346,11 +350,23 @@ export class Resident {
       this.#crashAt('after-submit', it.turn, it.key);
     }
     it.sendKey = sendKey;
+    // An action counts against the day's allowance once per key, the first time this journal line sees the world
+    // accept it (or maybe accept it: an ambiguous reply), also when that is read back after a crash. A send the
+    // world recorded before this line existed was not sent by it and is not counted (the phantom of a re-created
+    // obligation).
+    const ambiguous = res.status === 'unknown' || (res.error?.code === 'Transport' && res.fate !== 'failed');
+    const recordedBefore = Number.isInteger(res.landedBell) && Number.isInteger(it.createdBell) && res.landedBell < it.createdBell;
+    if ((res.status === 'sent' || ambiguous) && !recordedBefore) this.#countAction(it);
     if (res.status === 'sent') Object.assign(it, { state: 'sent', signature: res.signature });
-    else if (res.status === 'unknown' || (res.error?.code === 'Transport' && res.fate !== 'failed'))
-      Object.assign(it, { state: 'sent', lastError: 'Transport' });
+    else if (ambiguous) Object.assign(it, { state: 'sent', lastError: 'Transport' });
     else this.#retryOrFail(it, res.error?.code ?? 'Unknown');
     return it;
+  }
+
+  #countAction(it) {
+    if (it.counted?.includes(it.sendKey)) return;
+    it.counted = [...(it.counted ?? []), it.sendKey];
+    this.#today(this.bell).actions += 1;
   }
 
   #retryOrFail(it, code) {
@@ -380,11 +396,25 @@ export class Resident {
     }
     for (const [k, until] of Object.entries(st.cooldown)) if (until <= bell) delete st.cooldown[k];
     for (const [k, f] of Object.entries(st.failures)) if (f.until + BELLS_PER_DAY <= bell) delete st.failures[k];
-    for (const map of [st.accepted, st.returns]) {
-      for (const [k, v] of Object.entries(map)) {
-        const at = typeof v === 'object' ? v.bell : null;
-        if (at != null && bell - at > BELLS_PER_DAY && !Object.values(st.journal).some(j => j.purpose?.request === k && ['intended', 'sent'].includes(j.state))) delete map[k];
-      }
+    // An accept marker may go after a day: the board itself refuses a second reply to the same request.
+    // A return marker may NOT go by age (it is what stops a paid return from being created again once its
+    // journal line is pruned); #settleReturns drops it when the board shows the debt settled or gone.
+    for (const [k, v] of Object.entries(st.accepted)) {
+      const at = typeof v === 'object' ? v.bell : null;
+      if (at != null && bell - at > BELLS_PER_DAY && !Object.values(st.journal).some(j => j.purpose?.request === k && ['intended', 'sent'].includes(j.state))) delete st.accepted[k];
+    }
+  }
+
+  /**
+   * Return markers are dropped only when the board says the request no longer owes anything (returned, returned
+   * late, nothing promised) or no longer lists it (the board lists every request that can still move, so an
+   * absent one is settled). A marker for a return the board still counts as unpaid (a raided return) stays.
+   */
+  #settleReturns(obs) {
+    const seen = new Map(obs.board.requests.map(r => [r.id, r]));
+    for (const id of Object.keys(this.state.returns)) {
+      const r = seen.get(id);
+      if (!r || (r.status === 'fulfilled' && ['returned', 'returned-late', 'none-promised'].includes(r.returned))) delete this.state.returns[id];
     }
   }
 
@@ -471,7 +501,6 @@ export class Resident {
       if (r.from !== me || r.status !== 'fulfilled' || !['due', 'not-returned'].includes(r.returned) || this.state.returns[r.id]) continue;
       const key = `${this.id}:return:${r.id}`;
       this.state.returns[r.id] = { key, bell };
-      this.#today(bell).actions += 1;
       this.#intent(key, { port: 'action', turn: this.state.turn, purpose: { type: 'return', request: r.id }, action: { name: 'SendCaravan', fields: { to: r.by, goods: r.offer } } });
       this.save();
       await this.#run(this.state.journal[key]);
@@ -599,7 +628,6 @@ export class Resident {
       if (d.kind === 'build') {
         keys.push(k(1));
         this.#intent(k(1), { port: 'action', turn: t, purpose: { type: 'build' }, action: { name: 'Build', fields: { item: d.act.item } } });
-        today.actions += 1;
       } else if (d.kind === 'request') {
         keys.push(k(1));
         this.#intent(k(1), { port: 'board', turn: t, purpose: { type: 'request' }, body: { kind: 'request', to: d.act.to, want: d.act.want, offer: d.act.offer, deadlineBell: d.act.deadlineBell, note: d.reason ?? '', nonce: k(1) } });
@@ -610,7 +638,7 @@ export class Resident {
         this.#intent(k(2), { port: 'action', turn: t, after: k(1), purpose: { type: 'deliver', request: d.act.request }, action: { name: 'SendCaravan', fields: { to: d.act.to, goods: d.act.goods } } });
         this.state.accepted[d.act.request] = { turn: t, bell };
         const units = Object.values(d.act.goods).reduce((s, v) => s + v, 0);
-        today.messages += 1; today.actions += 1; today.giveAway += units;
+        today.messages += 1; today.giveAway += units;
         if (d.act.gift) today.gifts += units;
         if (d.siblingTrade) today.sibling += units;
       } else if (d.kind === 'decline') {
