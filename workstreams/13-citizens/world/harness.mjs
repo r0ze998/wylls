@@ -26,18 +26,25 @@ export function openWorld(dir) {
 export function portsFor(world, board, keypair) {
   return {
     // `since`: {events: last event sequence read, boardBell: requests changed since this bell}; without it, everything.
-    observe: async (_, since = {}) => ({ world: world.view(addressOf(keypair), { since: since.events ?? 0 }), board: board.view({ sinceBell: since.boardBell ?? 0 }) }),
+    observe: Object.assign(async (_, since = {}) => ({ world: world.view(addressOf(keypair), { since: since.events ?? 0 }), board: board.view({ sinceBell: since.boardBell ?? 0 }) }),
+      // Whose clock `world.bell` is: the test world's own turn counter, not the game's Season bell (08/09).
+      { clock: 'mock-world' }),
     join: async record => world.join(record),
     execution: testWorldExecution(world, keypair),
     board: testWorldBoard(board, keypair),
   };
 }
 
-/** A resident with its own memory file and the given provider. */
-export function openResident(dir, { world, board, provider, crash = null, fallback = safeFallback }) {
+/**
+ * A resident with its own memory file and the given provider. `wrapMemory(port, resident)` may wrap the memory port
+ * each time the resident is (re)opened (workstream 12's mirror: adapters/ws13-resident.mjs `mirrorMemoryPort`); it
+ * must answer what the port answers.
+ */
+export function openResident(dir, { world, board, provider, crash = null, fallback = safeFallback, wrapMemory = null }) {
   // The resident makes or reads its own key; its ports are bound to that key.
   const r = new Resident({ dir, ports: {}, crash });
   r.ports = { ...portsFor(world, board, r.keypair), provider, memory: localMemory(path.join(dir, 'episodes.jsonl')), fallback };
+  if (wrapMemory) r.ports.memory = wrapMemory(r.ports.memory, r);
   return r;
 }
 

@@ -614,6 +614,9 @@ export class Resident {
     const port = this.ports.evidence;
     if (!port || typeof port.read !== 'function') return { lines: [], summary: null };
     const counterparties = [...new Set(cands.flatMap(c => (c.act.to ? [this.#who(c.act.to)] : [])))].slice(0, 3);
+    // Evidence on another clock than this resident's bell is not read: a bell of one clock is not a bell of the other.
+    const mine = this.ports.observe?.clock ?? null, theirs = port.clock ?? null;
+    if (mine && theirs && mine !== theirs) return { lines: [], summary: counterparties.map(counterparty => ({ counterparty, status: 'clock_mismatch', clocks: [mine, theirs] })) };
     const lines = [];
     const summary = [];
     for (const counterparty of counterparties) {
