@@ -1,0 +1,38 @@
+### d0949 HEAD d0949fd417180b11704de5690ab0dfb6e5ef3148
+TAP version 13
+# Subtest: V16-C3b: switching to another account leaves none of the previous account's identity, session, Citizen or holdings
+not ok 1 - V16-C3b: switching to another account leaves none of the previous account's identity, session, Citizen or holdings
+  ---
+  duration_ms: 1.493196
+  type: 'test'
+  location: '/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v2-int/permutation-gateway/test/v16-web-wallet-switch-adopt.test.mjs:15:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    this tree has no adoptConnectedWallet (C3 not fixed here)
+    + actual - expected
+    
+    + 'undefined'
+    - 'function'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'function'
+  actual: 'undefined'
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v2-int/permutation-gateway/test/v16-web-wallet-switch-adopt.test.mjs:16:10)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.start (node:internal/test_runner/test:944:17)
+    startSubtestAfterBootstrap (node:internal/test_runner/harness:296:17)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 870.521831
+exit=1

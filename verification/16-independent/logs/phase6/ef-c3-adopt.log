@@ -1,0 +1,18 @@
+### ef HEAD ef63544c727490fc6801d30affd11c5b7106c480
+TAP version 13
+# Subtest: V16-C3b: switching to another account leaves none of the previous account's identity, session, Citizen or holdings
+ok 1 - V16-C3b: switching to another account leaves none of the previous account's identity, session, Citizen or holdings
+  ---
+  duration_ms: 2.521701
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 128.479788
+exit=0

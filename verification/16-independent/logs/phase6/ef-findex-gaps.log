@@ -1,0 +1,23 @@
+### findex HEAD ef63544c727490fc6801d30affd11c5b7106c480 tree aa0493bec03dfc0275829ea89f10003acb54cfd2
+?? frontier-abi/tests/v16_period_boundary.rs
+?? frontier-node/crates/findex/tests/v16_history_gaps.rs
+?? frontier-node/crates/herald/tests/v16_caravan_holder.rs
+?? permutation-gateway/node_modules
+?? permutation-gateway/test/v16-public-ops.test.mjs
+?? permutation-gateway/test/v16-web-caravan-holder.test.mjs
+   Compiling permutation-rules v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v3-int/permutation-rules)
+   Compiling frontier-abi v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v3-int/frontier-abi)
+   Compiling fclient v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v3-int/frontier-node/crates/fclient)
+   Compiling localnet v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v3-int/frontier-node/crates/localnet)
+   Compiling findex v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v3-int/frontier-node/crates/findex)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 47s
+     Running tests/v16_history_gaps.rs (/home/user/wylls/frontier-node/target/debug/deps/v16_history_gaps-397390569d09c8ea)
+
+running 3 tests
+test v16_g2_losing_the_last_archived_signature_stops_the_pull ... ok
+test v16_g1_first_pull_on_a_pruned_node_archives_without_any_gap_signal ... ok
+test v16_g3_a_gap_in_the_middle_behind_a_kept_last_signature_is_not_seen ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+exit=0
