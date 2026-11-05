@@ -13,11 +13,12 @@ pub enum Command {
 /// Exact lengths only. No defaults, trailing fields or unknown commands.
 pub fn decode(bytes: &[u8]) -> Option<Command> {
     match bytes {
-        [EXPERIMENTAL_TAG, 0, rest @ ..] if rest.len() == 96 => {
+        [EXPERIMENTAL_TAG, 0, rest @ ..] if rest.len() == 128 => {
             Some(Command::CreatePolicy(Policy {
                 core_program: rest[0..32].try_into().ok()?,
                 resident_program: rest[32..64].try_into().ok()?,
                 collection: rest[64..96].try_into().ok()?,
+                guard_authority: rest[96..128].try_into().ok()?,
             }))
         }
         [EXPERIMENTAL_TAG, 1, a, b, c, d] => Some(Command::Register {
@@ -54,20 +55,26 @@ mod tests {
             })
         ));
         assert!(decode(&[0xff, 2, 4, 3, 2, 1, 0]).is_none());
-        let mut p = [0u8; 98];
+        let mut p = [0u8; 130];
         p[0] = 0xff;
         p[1] = 0;
         p[2..34].fill(1);
         p[34..66].fill(2);
         p[66..98].fill(3);
+        p[98..130].fill(4);
         match decode(&p) {
             Some(Command::CreatePolicy(p)) => {
                 assert_eq!(p.core_program, [1; 32]);
                 assert_eq!(p.resident_program, [2; 32]);
                 assert_eq!(p.collection, [3; 32]);
+                assert_eq!(p.guard_authority, [4; 32]);
             }
             _ => panic!("policy must decode"),
         }
-        assert!(decode(&p[..97]).is_none());
+        assert!(decode(&p[..129]).is_none());
+        assert!(
+            decode(&p[..98]).is_none(),
+            "the v1 length is no longer a policy"
+        );
     }
 }

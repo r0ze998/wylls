@@ -18,6 +18,11 @@ pub struct Policy {
     pub core_program: [u8; 32],
     pub resident_program: [u8; 32],
     pub collection: [u8; 32],
+    /// The resident program's collection-authority address: the authority of
+    /// the asset's Permanent Freeze and Permanent Transfer delegates
+    /// (`resident_guard`). The program checks it against `resident_program`
+    /// when the policy is created.
+    pub guard_authority: [u8; 32],
 }
 
 pub struct Account<'a> {
@@ -31,6 +36,9 @@ pub enum Refusal {
     NotSigned,
     Asset,
     Resident,
+    /// The asset lacks the transfer guard: it could move without the
+    /// resident program bumping the generation (`resident_guard`).
+    Unguarded,
     StaleGeneration,
     NotCurrentAuthority,
 }
@@ -67,6 +75,7 @@ fn valid_asset_tail(data: &[u8]) -> bool {
 /// runtime invocation. `expected_generation` MUST be signed instruction data,
 /// not a value copied from the resident by the caller after signing.
 /// `session_allowed` is false for operations that require the owner directly.
+#[allow(clippy::too_many_arguments)]
 pub fn authorize(
     binding: &Binding,
     policy: &Policy,
@@ -92,6 +101,11 @@ pub fn authorize(
         || !valid_asset_tail(a)
     {
         return Err(Refusal::Asset);
+    }
+    // Only a guarded asset makes the generation follow every change of
+    // holder; without the guard a buy-back would bring old signatures back.
+    if crate::resident_guard::check(a, &policy.guard_authority).is_err() {
+        return Err(Refusal::Unguarded);
     }
     // The binding stores the exact resident account. Its program-owned fixed
     // layout stores this asset again, preventing cross-resident substitution.
@@ -129,6 +143,27 @@ pub fn authorize(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::vec;
+    use std::vec::Vec;
+
+    /// `PluginHeaderV1` + data + `PluginRegistryV1` for a frozen Permanent
+    /// Freeze Delegate and a Permanent Transfer Delegate of `guard`, after an
+    /// AssetV1 base ending at `base`.
+    fn guarded_tail(base: usize, guard: &[u8; 32]) -> Vec<u8> {
+        let (freeze_at, transfer_at, registry_at) = (base + 9, base + 11, base + 12);
+        let mut t = vec![3u8];
+        t.extend_from_slice(&(registry_at as u64).to_le_bytes());
+        t.extend_from_slice(&[5, 1, 7]);
+        t.push(4);
+        t.extend_from_slice(&2u32.to_le_bytes());
+        for (kind, at) in [(5u8, freeze_at), (7u8, transfer_at)] {
+            t.extend_from_slice(&[kind, 3]);
+            t.extend_from_slice(guard);
+            t.extend_from_slice(&(at as u64).to_le_bytes());
+        }
+        t.extend_from_slice(&0u32.to_le_bytes());
+        t
+    }
 
     // Fixed bytes only: no key creation, derivation, signatures, I/O or setup.
     #[test]
@@ -141,15 +176,20 @@ mod tests {
             core_program: [3; 32],
             resident_program: [4; 32],
             collection: [5; 32],
+            guard_authority: [10; 32],
         };
         let a = [6; 32];
         let b = [7; 32];
         let session = [8; 32];
-        let mut asset_data = [0u8; 75];
+        let mut asset_data = vec![0u8; 75];
         asset_data[0] = 1;
         asset_data[1..33].copy_from_slice(&a);
         asset_data[33] = 2;
         asset_data[34..66].copy_from_slice(&policy.collection);
+        let bare = asset_data.clone();
+        // The two permanent delegates of the guard authority, laid out as the
+        // real Core binary writes them (resident_guard's tests read real bytes).
+        asset_data.extend_from_slice(&guarded_tail(75, &policy.guard_authority));
         let mut resident_data = [0u8; 133];
         resident_data[0] = 0xc2;
         resident_data[1..33].copy_from_slice(&binding.asset);
@@ -274,6 +314,18 @@ mod tests {
         assert_eq!(
             check(&asset_data, &resident_data, &session, true, 2, 99, true),
             Err(Refusal::NotCurrentAuthority)
+        );
+        // A complete AssetV1 base without the guard plugins: refused, the
+        // generation would not follow a plain Core transfer of it.
+        assert_eq!(
+            check(&bare, &resident_data, &a, true, 2, 99, true),
+            Err(Refusal::Unguarded)
+        );
+        let mut other_guard = asset_data.clone();
+        other_guard[75 + 9 + 3 + 5 + 2] ^= 1;
+        assert_eq!(
+            check(&other_guard, &resident_data, &a, true, 2, 99, true),
+            Err(Refusal::Unguarded)
         );
         assert_eq!(
             check(&asset_data[..74], &resident_data, &a, true, 2, 99, true),
