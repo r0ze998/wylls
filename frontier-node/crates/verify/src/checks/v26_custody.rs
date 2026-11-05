@@ -32,8 +32,52 @@ use crate::codes::{
     CUSTODY_IN_PROGRAM_WITHOUT_IT, CUSTODY_LOT_BROKEN, CUSTODY_OVER_CAPACITY,
     CUSTODY_RULE_UNDECIDED, CUSTODY_UNVERIFIED, CUSTODY_VAULT_COUNTS,
 };
+use crate::Severity;
 
 const V: &str = "V26";
+
+// V26's own UNVERIFIABLE helpers, kept here rather than on `Ctx`:
+// workstream 18's V0 adds `Ctx::unverifiable` with the same signature, and
+// two definitions would not compile when both are integrated.
+
+/// What V26 found cannot be verified by this build (UNVERIFIABLE unless a
+/// FAIL exists), under its own code.
+fn unverifiable(
+    cx: &mut Ctx,
+    check: &'static str,
+    code: &str,
+    entity: impl Into<String>,
+    bell: u32,
+    tx: Option<usize>,
+    detail: impl Into<String>,
+) {
+    cx.push(
+        Severity::Unverifiable,
+        check,
+        code,
+        entity.into(),
+        bell,
+        tx,
+        detail.into(),
+    );
+}
+
+/// A FAIL when `fail`, else UNVERIFIABLE (the state audit).
+fn fail_or_unverifiable(
+    cx: &mut Ctx,
+    check: &'static str,
+    code: &str,
+    fail: bool,
+    entity: impl Into<String>,
+    tx: Option<usize>,
+    detail: impl Into<String>,
+) {
+    if fail {
+        cx.fail(check, code, entity, u32::MAX, tx, detail);
+    } else {
+        unverifiable(cx, check, code, entity, u32::MAX, tx, detail);
+    }
+}
 /// Findings listed one by one before the rest is counted in one line.
 const LISTED: usize = 16;
 
@@ -154,7 +198,7 @@ pub fn run(cx: &mut Ctx) {
         if i == LISTED {
             let rest = format!("{} more custody traces", n - LISTED);
             if custody {
-                cx.unverifiable(V, CUSTODY_UNVERIFIED, "season", u32::MAX, None, rest);
+                unverifiable(cx, V, CUSTODY_UNVERIFIED, "season", u32::MAX, None, rest);
             } else {
                 cx.fail(
                     V,
@@ -168,7 +212,8 @@ pub fn run(cx: &mut Ctx) {
             break;
         }
         if custody {
-            cx.unverifiable(
+            unverifiable(
+                cx,
                 V,
                 CUSTODY_UNVERIFIED,
                 entity,
@@ -240,6 +285,21 @@ pub fn lot_findings(d: &[u8]) -> Vec<Found> {
             "IN_TOTAL {} != HELD {} + OUT_TOTAL {} + CONSUMED {} + FORFEITED {}",
             l.in_total, l.held, l.out_total, l.consumed, l.forfeited
         ));
+    }
+    // Only a use order's grantee consumes (`consume` spends an order), and
+    // every order is set at the lot's NONCE, which `set_order` then moves
+    // on: goods used from a lot that never had an order were not used by
+    // the program (workstream 9's workshop deposit is such a use).
+    if l.consumed > 0 && l.nonce == 0 {
+        broken(format!(
+            "CONSUMED {} with no order ever set (NONCE 0)",
+            l.consumed
+        ));
+    }
+    // Only `forfeit` books FORFEITED, and it leaves the lot forfeited (or
+    // closed after): an open lot cannot carry it.
+    if l.forfeited > 0 && l.state == K::LOT_OPEN {
+        broken(format!("an open lot with FORFEITED {}", l.forfeited));
     }
     if (l.resource as usize) >= permutation_rules::frontier::holding::RESOURCES
         || K::ENABLED_RESOURCES & (1 << l.resource) == 0
@@ -492,7 +552,8 @@ pub fn audit(cx: &mut Ctx) {
     let n = found.len();
     for (i, (entity, tx, (code, fail, what))) in found.into_iter().enumerate() {
         if i == LISTED {
-            cx.fail_or_unverifiable(
+            fail_or_unverifiable(
+                cx,
                 V,
                 code,
                 fail,
@@ -502,6 +563,6 @@ pub fn audit(cx: &mut Ctx) {
             );
             break;
         }
-        cx.fail_or_unverifiable(V, code, fail, entity, tx, what);
+        fail_or_unverifiable(cx, V, code, fail, entity, tx, what);
     }
 }
