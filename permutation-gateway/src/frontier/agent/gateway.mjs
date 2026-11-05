@@ -59,6 +59,8 @@ export const ITEM_WALLS = 6;
 export const ACTION_HOLD_TTL_MS = 120_000;
 /** A model call's hold: long enough for a slow local model. */
 export const INFERENCE_HOLD_TTL_MS = 10 * 60_000;
+/** How many times an action is built again after its bytes collided with another request's (Duplicate before sending). */
+export const DUPLICATE_REBUILDS = 2;
 /** Default per-call test price of one model call (base units; 0.01 test USDC). TEST VALUE. */
 export const DEFAULT_INFERENCE_PRICE = '10000';
 
@@ -558,19 +560,33 @@ export class AgentGateway {
     let signed = null;
     let res;
     try {
-      const { shape, tx, wire, lastValidBlockHeight, slotFloor } = await this.#build(rec, r);
-      const sent = await sponsor(this.ctx, { ip: '127.0.0.1', surface: 'agent' }, {
-        tx, wire, shape, lastValidBlockHeight, viaAgent: true,
-        beforeSend: ({ signature, lastValidBlockHeight: lvbh }) => {
-          // Synchronous, right before the bytes leave: a stop or a new policy in the meantime refuses.
-          if (rec.mode !== MODES.AUTO || rec.modeEpoch !== epoch) throw new AgentError(ERR.AGENT_STOPPED, 'the agent was stopped while this action was being prepared', 409);
-          if (rec.policy.version !== r.policyVersion) throw new AgentError(ERR.STALE_POLICY, 'the policy changed while this action was being prepared', 409);
-          this.ledger.markSending(rec.agentId, hold.id, signature, lvbh, slotFloor);
-          signed = { signature, lastValidBlockHeight: Number.isSafeInteger(lvbh) ? lvbh : null, slotFloor: Number.isSafeInteger(slotFloor) ? slotFloor : null, signedAt: this.ledger.now() };
-          sending = true;
-        },
-        onSent: ({ signature, moved }) => this.ledger.recordNetwork(rec.agentId, { lamports: feeOf(shape) + BigInt(moved ?? 0), signature, key }),
-      });
+      // Two different requests for the same action, built with the same blockhash (the book shares one read between
+      // concurrent callers and caches it) and the same randomly drawn fee payer, are the same bytes: the relay's replay
+      // guard refuses the second as Duplicate. This request's key is new (checked above), so that Duplicate is another
+      // request's transaction, nothing of this one was sent: build it again with another fee payer.
+      const avoid = new Set();
+      let sent;
+      for (let attempt = 0; ; attempt++) {
+        const { shape, tx, wire, lastValidBlockHeight, slotFloor } = await this.#build(rec, r, avoid);
+        try {
+          sent = await sponsor(this.ctx, { ip: '127.0.0.1', surface: 'agent' }, {
+            tx, wire, shape, lastValidBlockHeight, viaAgent: true,
+            beforeSend: ({ signature, lastValidBlockHeight: lvbh }) => {
+              // Synchronous, right before the bytes leave: a stop or a new policy in the meantime refuses.
+              if (rec.mode !== MODES.AUTO || rec.modeEpoch !== epoch) throw new AgentError(ERR.AGENT_STOPPED, 'the agent was stopped while this action was being prepared', 409);
+              if (rec.policy.version !== r.policyVersion) throw new AgentError(ERR.STALE_POLICY, 'the policy changed while this action was being prepared', 409);
+              this.ledger.markSending(rec.agentId, hold.id, signature, lvbh, slotFloor);
+              signed = { signature, lastValidBlockHeight: Number.isSafeInteger(lvbh) ? lvbh : null, slotFloor: Number.isSafeInteger(slotFloor) ? slotFloor : null, signedAt: this.ledger.now() };
+              sending = true;
+            },
+            onSent: ({ signature, moved }) => this.ledger.recordNetwork(rec.agentId, { lamports: feeOf(shape) + BigInt(moved ?? 0), signature, key }),
+          });
+        } catch (e) {
+          if (!sending && e instanceof RouteError && e.code === 'Duplicate' && attempt < DUPLICATE_REBUILDS) { avoid.add(shape.feePayer); continue; }
+          throw e;
+        }
+        break;
+      }
       // Sent. A priced action stays reserved until the chain's answer (reconcile); a free one has nothing to settle.
       if (big(hold.amount) === 0n) this.ledger.release(rec.agentId, hold.id, 'free');
       const facts = { ...sendFacts(signed), signature: sent.signature };
@@ -598,7 +614,7 @@ export class AgentGateway {
   }
 
   /** The signed transaction of an action, after the chain says the agent's key is the Citizen's live session key. */
-  async #build(rec, r) {
+  async #build(rec, r, avoid = new Set()) {
     const { ctx } = this;
     const [season, clock, citizen] = await Promise.all([ctx.chain.season(), ctx.chain.clock(), ctx.chain.citizen(ctx.addresses.citizen(rec.owner))]);
     if (!citizen) throw new AgentError(ERR.SESSION_NOT_DELEGATED, 'the owner has no Citizen this season', 409);
@@ -611,7 +627,8 @@ export class AgentGateway {
     const profile = profileForSeason(season);
     const fields = normaliseFields(r.action.name, r.action.fields, profile);
     const accounts = accountsFor(r.action.name, { addresses: ctx.addresses, actor: rec.agentKey, owner: rec.owner, holding: r.action.holding, fields, route: r.action.route ?? null, profile });
-    const feePayer = ctx.pool.draw().publicKey.toBase58();
+    let feePayer = ctx.pool.draw().publicKey.toBase58();
+    for (let i = 0; i < 8 && avoid.has(feePayer); i++) feePayer = ctx.pool.draw().publicKey.toBase58();
     // Read before the blockhash: at or below any slot this transaction can land in (fate.mjs history coverage).
     const slotFloor = await slotFloorOf(ctx.connection);
     const { blockhash, lastValidBlockHeight } = await ctx.blockhashes.latest();
