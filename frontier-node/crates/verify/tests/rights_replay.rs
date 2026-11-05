@@ -622,7 +622,9 @@ fn honest(b: &Base) -> (Flow, Key) {
             swap_accts(b.issuer_w, b.issuer_c),
         ),
         vec![body],
-        &[b.issuer_c, grant],
+        // A recording lists every writable account: the holdings too,
+        // unchanged (nothing was escrowed).
+        &[b.issuer_c, grant, b.facility, b.station],
         t,
     );
     // 7. CloseGrant: the rent to the issuer's wallet (RENT_TO), the Grant gone.
