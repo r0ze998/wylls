@@ -34,3 +34,7 @@
 | GitBook | 設定は読めない。GitBook の Git 同期は設定された 1 本のブランチだけを追うため、まだリモートに無い本ブランチが同期先である可能性は無いと判断した |
 
 判断：自動配備・課金の可能性は「不明」ではなく、上の証拠から無いと判断して push する。push で走るのはこのリポジトリの CI（`ci.yml`、`on: push`）だけ。force push・履歴の書き換え・merge・deploy はしない。
+
+## v0.9（2026-11-06）
+
+文書だけの変更（`docs/FRONTIER-HOLDER.ja.md` ほか）。v0.8 と同じ根拠（公開リポジトリ、Vercel・Netlify の status 無し、push で走るのは `ci.yml` だけ）で担当ブランチに通常 push する。merge・deploy はしない。

@@ -1,6 +1,8 @@
 # permutation-nft-resident-spike：NFT で譲渡できる住民アカウント（隔離試作）
 
-**状態（2026-11-05、v0.8）**：ローカルのみ（模擬チェーン、LiteSVM、ループバック validator）。公開発行・devnet／mainnet・実資金・新しい鍵は無し。価格・無料／有料・供給数・公開発行・ロイヤリティは未決（`docs/UNDECIDED.ja.md`）。Metaplex Core は**試作の選定方式**で、本線採用は未決。継続世界は決定済み。依存パッケージ無し（Node 20+ の標準モジュールだけ。`test-gateway/` だけは `permutation-gateway` の依存を使う）。v0.8 で担当ブランチへ通常 push（根拠は `docs/PUSH-AUDIT.ja.md`）。merge・deploy はしていない。
+**状態（2026-11-06、v0.9）**：ローカルのみ（模擬チェーン、LiteSVM、ループバック validator）。公開発行・devnet／mainnet・実資金・新しい鍵は無し。価格・無料／有料・供給数・公開発行・ロイヤリティは未決（`docs/UNDECIDED.ja.md`）。Metaplex Core は**試作の選定方式**で、本線採用は未決。継続世界は決定済み。依存パッケージ無し（Node 20+ の標準モジュールだけ。`test-gateway/` だけは `permutation-gateway` の依存を使う）。v0.8 で担当ブランチへ通常 push（根拠は `docs/PUSH-AUDIT.ja.md`）。merge・deploy はしていない。
+
+**v0.9 の変更**：確定仕様（最初に NFT でログイン、1 NFT につき 1 アカウント、譲渡で操作権が新所有者へ、旧所有者は操作不可）に向けて、Frontier program の操作者の判定箇所を棚卸しし、仕様案を書いた（`docs/FRONTIER-HOLDER.ja.md`）。program の実装は、別作業の認証・一対一登録・命令接続・検証器対応の候補を受け取るまで止めている（GitHub に見当たらない）。固定 seed を含む鍵の試験の禁止に従い、今回は鍵を使う試験を実行していない。
 
 **v0.8 の変更**：既存 gateway（relay・agent wallet・画面の session 判定）への接続。旧パッチ 01・03・04 を現行コードと照合し、作り直した共有コアの差分 3 つを独立したコミットにした（`patches/v2/`）。旧 03 は A→B→A で旧 agent を復活させていた（D29）。保有者・世代・session の確認アダプター `src/resident-gate.mjs` と回帰試験 `test-gateway/`（mock 9 件、**実 Core＋実住民プログラム 6 件**）。既存 gateway の全試験は差分の前後で同じ結果。結果と限界は `docs/GATEWAY-CONNECTION.ja.md`。Frontier program の変更（世代の検査）は未着手で、relay を迂回した直接送信は止まらない。
 
