@@ -59,6 +59,9 @@ pub struct Findex {
     pub dir: PathBuf,
     pub archive: Archive,
     pub index: Index,
+    /// A failed archive or index write leaves the in-memory archive state
+    /// unsuitable for another append. Reopen from the durable manifest.
+    poisoned: bool,
 }
 
 impl Findex {
@@ -104,15 +107,28 @@ impl Findex {
             dir: dir.into(),
             archive,
             index,
+            poisoned: false,
         })
+    }
+
+    /// Whether a failed store write requires dropping and reopening this
+    /// instance before another pull or checkpoint.
+    pub fn is_poisoned(&self) -> bool {
+        self.poisoned
     }
 
     /// Makes every archived record durable (group commit, see
     /// [`archive`]); a no-op when nothing is pending.
     pub fn commit(&mut self) -> Result<(), IngestError> {
-        self.archive
-            .commit()
-            .map_err(|e| IngestError::Store(e.to_string()))
+        if self.poisoned {
+            return Err(IngestError::Store(
+                "findex store failed; reopen required".into(),
+            ));
+        }
+        self.archive.commit().map_err(|e| {
+            self.poisoned = true;
+            IngestError::Store(e.to_string())
+        })
     }
 
     /// Resumes `src` from the archived cursor.
@@ -122,15 +138,23 @@ impl Findex {
 
     /// One pull: archive, then index. Returns the archived records.
     pub async fn ingest<S: Source>(&mut self, src: &mut S) -> Result<Vec<TxRecord>, IngestError> {
+        if self.poisoned {
+            return Err(IngestError::Store(
+                "findex store failed; reopen required".into(),
+            ));
+        }
         let got = src.pull().await.map_err(IngestError::Port)?;
         if got.is_empty() {
             return Ok(vec![]);
         }
-        let stored = self
-            .archive
-            .append(&got, src.cursor())
-            .map_err(|e| IngestError::Store(e.to_string()))?;
-        self.index.add(&stored).map_err(IngestError::Store)?;
+        let stored = self.archive.append(&got, src.cursor()).map_err(|e| {
+            self.poisoned = true;
+            IngestError::Store(e.to_string())
+        })?;
+        self.index.add(&stored).map_err(|e| {
+            self.poisoned = true;
+            IngestError::Store(e)
+        })?;
         Ok(stored)
     }
 }
