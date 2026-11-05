@@ -15,8 +15,9 @@
 | **0007** | LiteSVM ハーネス、JS クライアント | 0002/0003 が壊していた2点の修正：ハーネスの網羅 registry（custody は `Pending`）、`frontier-abi/vectors` から生成される JS の ABI ファイル（リポジトリのスクリプトで再生成） | harness `cargo check --tests` と coverage 試験、`sync-web-sdk.mjs --check`、gateway の JS 試験が基準と同一結果 |
 | **0008** | `permutation-rules` | カーネルの説明の訂正：区画の没収は⑩の提案（採用済み決定は段階2の札が対象）。コードは不変、ハッシュも不変 | test |
 | **0009** | `permutation-rules`、プログラム | 世界の継続（[../06-continuity.ja.md](../06-continuity.ja.md)）：カーネルの累計を検査つきに（`Overflow`）、期間の語彙 `SeasonOver` を削除。表は不変で `RULESET_HASH_V4` も不変 | 既定・preview の両ビルドで test・clippy |
+| **0010** | `frontier-node/crates/verify` | V26 の再判定（[../09-v26-state.ja.md](../09-v26-state.ja.md)）：custody シーズンで区画・倉の口座だけで決まる法則を再判定（破れていれば FAIL、未決の規則は UNVERIFIABLE、シーズンは PASS にならない）。`tests/custody_state.rs` | verify 103 件通過、変異 6 件検出、stable clippy `-D warnings` |
 
-前回渡した `823bb71d`（0001–0004）は、custody を v3 を名乗るバイナリで実行し、ハーネスのコンパイルと JS の生成物を壊し、検証器は custody の痕跡を PASS にしていた。0005–0007 がそれを直し、0008 は押収の扱いの説明を直し、0009 は終わらない世界での累計を扱う。
+前回渡した `823bb71d`（0001–0004）は、custody を v3 を名乗るバイナリで実行し、ハーネスのコンパイルと JS の生成物を壊し、検証器は custody の痕跡を PASS にしていた。0005–0007 がそれを直し、0008 は押収の扱いの説明を直し、0009 は終わらない世界での累計を扱い、0010（2026-11-05）は V26 の再判定を足す。0001–0010 を 4cd901de に順に当てると tree `3d80c5b1e6bdfe968898007bb9c3077c3d49a20f`（ブランチ `workstream/10-custody-core-v26` @ `5bb79786efccdf29e9c9d79749ba4694a37c7488`）。
 
 ## 適用と確認
 

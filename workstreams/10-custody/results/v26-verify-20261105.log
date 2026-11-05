@@ -1,0 +1,22 @@
+# core 0010 (workstream/10-custody-core-v26 @ 5bb79786efccdf29e9c9d79749ba4694a37c7488), frontier-node, Rust 1.95.0, --offline --locked
+## cargo test -p verify
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.66s
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.16s
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.13s
+test result: ok. 0 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 58 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 125.74s
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.27s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+## mutations of V26:custody-state (tests/custody_state.rs)
+caught   no lot conservation law (7)
+caught   vault counts judged in both directions (3)
+caught   undecided rules made FAIL (3)
+caught   no lot quota bound (3)
+caught   no vault cap bound (3)
+caught   audit never runs (11)
+## cargo +stable (1.97.0) clippy -p verify --all-targets -- -D warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 4m 30s
+
