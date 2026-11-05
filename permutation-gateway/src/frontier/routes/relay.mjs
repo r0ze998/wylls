@@ -13,7 +13,9 @@ import { profileForSeason } from '../../../client/src/frontier/profile.mjs';
 // season is this one → the authority's signature → replay and the signer's
 // rate limit → the quota (checked, not spent) → co-sign → simulate with
 // signatures, reading the fee payer's post-balance → the drain guard →
-// charge the quota → send. A failed simulation charges nothing and sends
+// charge the quota → send. With `ctx.residents` (NFT-bound residents), the
+// signing key must act for the resident's current holder, checked after the
+// replay claim and again right before the send. A failed simulation charges nothing and sends
 // nothing. The answer does not wait for confirmation: GET /f/tx/{signature}
 // reports it.
 import { createHash } from 'node:crypto';
@@ -69,11 +71,32 @@ async function requesterCitizen(ctx, requester, citizenAddr) {
   if (!c) return null;
   const wallet = base58(c.WALLET);
   if (ctx.addresses.citizen(wallet) !== citizenAddr) return null;
+  // A resident's Citizen counts only for its current holder or that holder's current session.
+  if (await residentRefusal(ctx, citizenAddr, requester)) return null;
   if (wallet === requester) return citizenAddr;
   const clock = await ctx.chain.clock();
   const sessionLive = base58(c.SESSION) === requester && BigInt(c.SESSION_EXPIRY) > BigInt(clock.unixTimestamp);
   return sessionLive ? citizenAddr : null;
 }
+
+/**
+ * NFT-bound residents (optional `ctx.residents`, permutation-nft-resident-spike
+ * src/resident-gate.mjs): the refusal code when `actor` may not act for
+ * `citizen` now, else null. Without `ctx.residents`, or for a Citizen that is
+ * no resident, nothing changes. The gate reads the chain on every call; a
+ * gate that fails is a refusal (ResidentUnverified), never a pass.
+ */
+export async function residentRefusal(ctx, citizen, actor) {
+  if (!ctx.residents || !citizen || !actor) return null;
+  try {
+    const r = ctx.residents.check ? await ctx.residents.check({ citizen, actor }) : { ok: await ctx.residents.mayAct({ citizen, actor }) };
+    return r.ok ? null : (r.code ?? 'ResidentHolderChanged');
+  } catch {
+    return 'ResidentUnverified';
+  }
+}
+
+const residentRouteError = code => new RouteError(403, `relay refused: this key does not act for the resident's current holder now (${code})`, code);
 
 /** A Citizen's sponsored transactions left today (`{left, resetsAt}`): the agent wallet reads it before a paid model call. */
 export async function citizenQuota(ctx, citizen) {
@@ -118,7 +141,11 @@ export async function sponsor(ctx, req, { tx, wire, shape, requester = null, req
   let frame;
   let key;
   let allowance;
+  // NFT-bound residents: the key that signs for a Citizen must act for its resident's holder now.
+  const residentCitizen = shape.authority ? shape.accounts?.citizen ?? null : null;
   try {
+    const refusal = await residentRefusal(ctx, residentCitizen, shape.authority);
+    if (refusal) throw residentRouteError(refusal);
     // A settle's requester counts only once verified on chain (its citizen).
     const settleCitizen = shape.kind === 'settle' ? await requesterCitizen(ctx, requester, requesterCitizenAddr) : null;
     const signerKey = shape.authority ?? (settleCitizen ? `citizen:${settleCitizen}` : null);
@@ -160,6 +187,9 @@ export async function sponsor(ctx, req, { tx, wire, shape, requester = null, req
   let expiry;
   let signature;
   try {
+    // Read again right before the bytes leave: a transfer that landed while this request was simulated refuses it.
+    const late = await residentRefusal(ctx, residentCitizen, shape.authority);
+    if (late) throw residentRouteError(late);
     expiry = await blockhashes.expiryOf(tx.recentBlockhash, lastValidBlockHeight);
     beforeSend?.({ signature: signatureOf(signed), lastValidBlockHeight: expiry });
     signature = await connection.sendRawTransaction(signed, { skipPreflight: true, maxRetries: 5 });
