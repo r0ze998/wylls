@@ -1,0 +1,31 @@
+### v27gate HEAD 6984acfa4c0f9919c8c424a9bd5f2d59193d1639 tree b38d2d8bb3a223be53f3da08a300256b48f32b7a
+?? frontier-abi/tests/v16_period_boundary.rs
+?? frontier-node/crates/agents/tests/v16_owner_reveal_open.rs
+?? frontier-node/crates/findex/tests/v16_history_gaps.rs
+?? frontier-node/crates/herald/tests/v16_caravan_holder.rs
+?? frontier-node/crates/keeper/tests/v16_version_cap.rs
+?? frontier-node/crates/verify/tests/v16_cpi_keyfree.rs
+?? frontier-node/crates/verify/tests/v16_v27_gate.rs
+?? permutation-gateway/test/v16-agent-fate-view.test.mjs
+?? permutation-gateway/test/v16-public-ops.test.mjs
+?? permutation-gateway/test/v16-web-caravan-holder.test.mjs
+?? permutation-gateway/test/v16-web-reveal-not-before.test.mjs
+?? permutation-gateway/test/v16-web-wallet-switch-adopt.test.mjs
+?? workstreams/04-execution/e2e-native/tests/v16_prize_claim_rights.rs
+?? workstreams/04-execution/e2e-native/tests/v16_record_nation.rs
+   Compiling verify v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v12-int/frontier-node/crates/verify)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 10s
+     Running tests/v16_v27_gate.rs (/home/user/wylls/frontier-node/target/debug/deps/v16_v27_gate-7c2feefcaf44323a)
+
+running 3 tests
+pv None s1 true: Some((Fail, "UnknownInstruction", "tag 0xe1 is allocated to workstream 20 (NFT residents), and program version (unknown) does not run it, yet it succeeded"))
+pv None s1 false: Some((Fail, "UnknownInstruction", "tag 0xe1 is allocated to workstream 20 (NFT residents), and program version (unknown) does not run it, yet it succeeded"))
+pv Some(4) s1 true: Some((Fail, "UnknownInstruction", "tag 0xe1 is allocated to workstream 20 (NFT residents), and program version 4 does not run it, yet it succeeded"))
+pv Some(4) s1 false: Some((Fail, "UnknownInstruction", "tag 0xe1 is allocated to workstream 20 (NFT residents), and program version 4 does not run it, yet it succeeded"))
+test v16_j1_an_honest_join_is_left_to_v27_only_when_v27_runs ... ok
+test v16_j2_a_malformed_join_is_never_left_unjudged_even_when_v27_runs ... ok
+test v16_j3_measured_a_join_under_a_program_version_without_nft ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+exit=0

@@ -952,3 +952,40 @@ A8 の旧試験（`v16_unknown_tag.rs` の v16_a8）は固定 seed の鍵で署�
 - 一連の場面を誰が書くか（④は「Rust 側の JoinResident → 荷車の Run → 賞金を e2e-native に足すところから」と提案。⑯が独立に書くことも可能）。言語の境界（Rust と Node）をまたぐ部分は、どちらが書いても記録ファイルの受け渡しになる。
 - NFT 住民を賞金の受取の対象にするか、譲渡後の受取権を誰に属させるか。
 - 未着の成果物（③・⑤・⑰・⑱・⑲・⑮・②・⑦・⑧）を④へ渡すこと。
+
+
+# 第11期（2026-11-06）：PDA の算出も禁止（新しい基準）
+
+利用者の指示（2026-11-06）: 鍵の生成・**導出（PDA を含む）**・署名を伴う試験は、CI とセットアップを含めて行わない。fixture、未実行、鍵なしのホスト実行、実チェーンを区別する。以後⑯は、試験が呼ぶコードの経路に `find_program_address`／`create_program_address`／`create_with_seed`（アドレスの導出）が無いことを、読解で確かめてから流す。
+
+## 16.1 これまでの結果の扱い（新しい基準）
+
+第8期〜第10期で⑯が実行した次の試験は、**PDA の算出を伴う**（⑯は第8期で「公開アドレスの算出は鍵の導出に当たらない」と判断して実行し、その判断を明記していた）。新しい基準では、**⑯の有効な結果に数えず、再実行もしない**。
+
+| 試験 | PDA の算出の場所 |
+|---|---|
+| ⑯ 賞金 P1〜P6・F1〜F6、④の `legacy_season_claims`・`claims_vs_closes`（e2e-native） | 補助関数の `find_program_address`（Season・pool・vault・entry）、賞金プログラム自身の `entry_address`、ゲームの CloseCitizen・CloseProvince の `AddrCtx` |
+| ⑳ NFT の runtime 試験 | 補助関数の `pda()`、プログラムの `find_program_address`・`with_seed` |
+| 検証器を動かす試験すべて（⑯ A8 の K0〜K5、⑪ evidence・new_bands、⑯ X2・A8 の旧試験） | `verify()` の中の `Facts::build` → `findex::addr_ctx` → `season_pda` |
+
+これらの結果は「PDA の算出を伴うホスト実行（旧基準）」として記録に残す。完成の判定には使わない。
+
+**PDA を通らないことを確かめた試験**（このまま有効）: findex の `store_failure`・`v16_history_gaps`（`Findex::open(..., None, ...)` でシーズンを指定しないため `addr_ctx` を通らない、取引は空の本体と固定の署名欄）、`judge_outside_v2` の純関数の試験（下）。その他（herald、ABI、Web、⑫、⑮）の PDA の有無は**未監査**で、監査するまで有効な結果に数えない。
+
+## 16.2 6984acfa での確認（ホスト、鍵なし、PDA なし）
+
+対象: `claude/gallant-ride-cunptv` の `6984acfa4c0f9919c8c424a9bd5f2d59193d1639`（tree `b38d2d8bb3a223be53f3da08a300256b48f32b7a`）。
+
+| 確認 | 方法 | 結果 |
+|---|---|---|
+| findex の停止・復旧 | `store_failure` 5 件（索引・manifest・checkpoint・roll の書き込み失敗で止まり、開き直すと archive から追いつく）、⑯ G1〜G3 | 5/5、3/3（G1・G3 は見逃しのまま） |
+| V27 が動かないとき JoinResident を PASS にしない | ⑯ `verify/tests/v16_v27_gate.rs`（`judge_outside_v2` の純関数だけ。`verify()` は動かさない） | 3/3。NFT の版で V27 が動く（s1）ときだけ判定を V27 に任せ（None）、動かないときは Unverifiable。形の崩れた JoinResident は s1 の有無にかかわらず判定される。NFT でない版では Fail（UnknownInstruction） |
+| V27 が動く条件と V0 の条件が同じ | 読解：`checks/mod.rs:269-276`（V27 は `cx.s1` のときだけ）、V0 は同じ `cx.s1` を渡す | 一致 |
+
+**未確認**: V27 自体が JoinResident を正しく判定すること（`verify()` を動かす必要があり、PDA を算出するため実行不可）。
+
+ログ: `logs/phase11/6984-findex.log`、`6984-v27gate.log`。
+
+## 16.3 一連の操作の検証への影響
+
+ゲームのプログラム（NFT 参加、荷車、閉鎖）、賞金プログラム（Pay・Claim・RecordNation）、検証器は、どれも実行の中で PDA を算出する。したがって新しい基準では、④が作る通しの場面（e2e-native の `Host::with_game` など）を⑯が**実行することはできない**。⑯ができるのは、(1) その場面のコードと fixture の読解、(2) PDA を通らない部品（findex、純関数、アドレスを入力として受け取る JS の部分）の実行、(3) ④の実行記録（④の結果）との突き合わせ、に限られる。通しの成立の**実行による**確認は、実行できない最終確認に入る。
