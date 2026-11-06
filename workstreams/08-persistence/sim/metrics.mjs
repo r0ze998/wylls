@@ -1,0 +1,359 @@
+// Per-run measurements. Each function reads a finished world and returns
+// plain numbers; aggregation across seeds happens in run.mjs.
+
+import { gini, hhi, topShare, mean } from './stats.mjs';
+import { wealth } from './world.mjs';
+
+const DAY = 24;
+
+function cohort(w, name) {
+  return w.agents.filter((a) => a.cohort === name);
+}
+
+function firstAfter(times, t0) {
+  for (const t of times) if (t >= t0) return t;
+  return null;
+}
+
+function contribIn(a, fromT, toT) {
+  let s = 0;
+  for (const [day, v] of a.contribByDay) {
+    const t = day * DAY;
+    if (t >= fromT && t < toT) s += v;
+  }
+  return s;
+}
+
+/** Newcomers: from the hour they wanted to join. */
+export function newcomers(w, name) {
+  const out = [];
+  for (const a of cohort(w, name)) {
+    const t0 = a.plannedJoinT;
+    const first = firstAfter(a.contribTimes, t0);
+    out.push({
+      firstOpH: first === null ? Infinity : first - t0,
+      waitToFoundH: a.joinT === null ? Infinity : a.joinT - t0,
+      kinds24: a.snapshots['kinds@24'] ?? 0,
+      kinds72: a.snapshots['kinds@72'] ?? 0,
+      contrib7d: contribIn(a, t0, t0 + 7 * DAY),
+    });
+  }
+  return out;
+}
+
+/** Reference: what a day-1 player contributes per 7 days in the same window. */
+export function day1Contrib7d(w, fromT) {
+  // people still playing when the window opens (someone who left and has not come back is not a reference)
+  const playing = (a) => a.quitT === null || a.quitT >= fromT || (a.returnT !== null && a.returnT <= fromT);
+  const xs = cohort(w, 'day1')
+    .filter((a) => a.baseSessions === 2)
+    .filter(playing)
+    .map((a) => contribIn(a, fromT, fromT + 7 * DAY));
+  return mean(xs);
+}
+
+export function concentration(w) {
+  const per = w.periodResults;
+  const units = per.slice(0, w.P.periods); // the last snapshot repeats the final unit
+  const rows = units.map((r) => ({
+    giniWealth: gini(r.wealth),
+    top10: top10(r.wealth),
+    militaryHHI: hhi(r.military),
+    fortHHI: hhi(r.fortHours),
+    winner: r.winner,
+    winnerShare: topShare(r.fortHours),
+  }));
+  let repeats = 0;
+  for (let i = 1; i < rows.length; i++) if (rows[i].winner !== null && rows[i].winner === rows[i - 1].winner) repeats++;
+  const firstWinner = rows[0].winner;
+  const laterShares = units.slice(1).map((r) => {
+    const tot = r.fortHours.reduce((s, x) => s + x, 0);
+    return tot > 0 && firstWinner !== null ? r.fortHours[firstWinner] / tot : NaN;
+  });
+  // the last-placed nation of a unit: its fort share in the next unit (1/6 = back to even)
+  const bottomNext = [];
+  const winners = new Set();
+  for (let i = 0; i < units.length; i++) {
+    if (rows[i].winner !== null) winners.add(rows[i].winner);
+    if (i + 1 >= units.length) continue;
+    const f = units[i].fortHours;
+    const last = f.indexOf(Math.min(...f));
+    const tot = units[i + 1].fortHours.reduce((s, x) => s + x, 0);
+    if (tot > 0) bottomNext.push(units[i + 1].fortHours[last] / tot);
+  }
+  return {
+    lastGini: rows[rows.length - 1].giniWealth,
+    lastTop10: rows[rows.length - 1].top10,
+    meanMilitaryHHI: mean(rows.map((r) => r.militaryHHI)),
+    meanFortHHI: mean(rows.map((r) => r.fortHHI)),
+    meanWinnerShare: mean(rows.map((r) => r.winnerShare)),
+    winnerRepeat: repeats / Math.max(1, rows.length - 1),
+    firstWinnerLaterShare: mean(laterShares.filter((x) => Number.isFinite(x))),
+    bottomNextShare: mean(bottomNext),
+    distinctWinners: winners.size,
+    lastMilitaryTop: topShare(units[units.length - 1].military),
+  };
+}
+
+function top10(xs) {
+  const s = [...xs].sort((a, b) => b - a);
+  const k = Math.max(1, Math.round(s.length / 10));
+  const tot = s.reduce((a, b) => a + b, 0);
+  return tot > 0 ? s.slice(0, k).reduce((a, b) => a + b, 0) / tot : NaN;
+}
+
+export function nationShare(w, n) {
+  const units = w.periodResults.slice(0, w.P.periods);
+  return mean(
+    units.map((r) => {
+      const tot = r.fortHours.reduce((s, x) => s + x, 0);
+      return tot > 0 ? r.fortHours[n] / tot : 0;
+    }),
+  );
+}
+
+/** Defeat probes and every other defeat in the run. */
+export function defeats(w, name = 'defeated') {
+  const out = [];
+  for (const a of cohort(w, name)) {
+    const d = a.defeats.find((x) => x.cause === 'forced');
+    if (!d) continue;
+    out.push({
+      lostFrac: d.wealth > 0 ? (d.wealth - (d.after ?? 0)) / d.wealth : NaN,
+      toContribH: d.contribT === null ? Infinity : d.contribT - d.t,
+      to50H: d.recoveredT === null ? Infinity : d.recoveredT - d.t,
+    });
+  }
+  return out;
+}
+
+export function organicDefeats(w) {
+  let n = 0;
+  for (const a of w.agents) n += a.defeats.filter((d) => d.cause === 'occupied').length;
+  return n;
+}
+
+export function returners(w) {
+  const out = [];
+  for (const a of cohort(w, 'returner')) {
+    const s0 = a.snapshots.absenceStart;
+    const s1 = a.snapshots.absenceEnd;
+    if (!s0 || !s1) continue;
+    const back = firstAfter(a.contribTimes, a.absence[1]);
+    out.push({
+      lossFrac: s0.wealth > 0 ? Math.max(0, (s0.wealth - s1.wealth) / s0.wealth) : NaN,
+      farmsKept: s0.farms > 0 ? s1.farms / s0.farms : NaN,
+      defeatedWhileAway: s1.defeatsDuring > 0 ? 1 : 0,
+      toContribH: back === null ? Infinity : back - a.absence[1],
+    });
+  }
+  return out;
+}
+
+/** Contribution per day by sessions/day among day-1 humans, relative to always-on AI. */
+export function connection(w) {
+  const groups = new Map();
+  const days = w.horizon / DAY;
+  for (const a of w.agents) {
+    if (a.cohort !== 'day1' && a.cohort !== 'ai') continue;
+    const key = a.kind === 'ai' ? 'ai' : String(a.baseSessions);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push({ perDay: a.contribValue / days, raided: a.raidedLoss / days });
+  }
+  // relative to the most connected humans (12 sessions/day); the AI figure is shown separately
+  const ref = mean(groups.get('12')?.map((x) => x.perDay) ?? []);
+  const out = {};
+  for (const [k, xs] of groups) out[k] = { perDay: mean(xs.map((x) => x.perDay)), rel: mean(xs.map((x) => x.perDay)) / ref, raidedPerDay: mean(xs.map((x) => x.raided)) };
+  return out;
+}
+
+export function rights(w) {
+  const b = w.boundaryRights;
+  const sum = (k) => b.reduce((s, r) => s + r[k], 0);
+  return {
+    boundaries: b.length,
+    caravanValue: sum('caravanValue'),
+    troopsInFlight: sum('troopsInFlight'),
+    fortSupply: sum('fortSupply'),
+    garrisons: sum('garrisons'),
+    openOps: sum('openOps'),
+    voided: sum('voided'),
+    returned: sum('returned'),
+  };
+}
+
+/** Wealth of everything an owner controls at the end of unit k (0-based). */
+export function ownerWealth(w, cohortName, k) {
+  const r = w.periodResults[k];
+  const owners = new Map();
+  for (const a of w.agents) {
+    if (a.cohort !== cohortName) continue;
+    owners.set(a.id, 0);
+  }
+  for (const a of w.agents) {
+    if (owners.has(a.owner)) owners.set(a.owner, owners.get(a.owner) + (r.wealthById[a.id] || 0));
+  }
+  return [...owners.values()];
+}
+
+export function churners(w) {
+  return cohort(w, 'churner').map((a) => ({ kits: a.starterKits, protH: a.protectionHours, contrib: a.contribValue, endWealth: a.active ? wealth(w, a) : 0 }));
+}
+
+export function fed(w) {
+  const a = cohort(w, 'fed')[0];
+  const r = w.periodResults[w.P.periods - 1];
+  const all = Object.entries(r.wealthById).map(([id, v]) => v);
+  const rank = all.filter((v) => v > r.wealthById[a.id]).length + 1;
+  return { wealth: r.wealthById[a.id], rank, n: all.length, farms: a.farms };
+}
+
+/** Exposure: how often a person was online during their nation's commitment window, and what they gave per exposure. */
+export function exposure(w) {
+  const groups = new Map();
+  for (const a of w.agents) {
+    if (a.cohort !== 'day1') continue;
+    const k = String(a.baseSessions);
+    if (!groups.has(k)) groups.set(k, { seen: 0, exposed: 0, value: 0 });
+    const g = groups.get(k);
+    g.seen += a.opsSeen;
+    g.exposed += a.opsExposed;
+    g.value += a.contribValue;
+  }
+  const out = {};
+  for (const [k, g] of groups) out[k] = { rate: g.seen ? g.exposed / g.seen : NaN, perExposed: g.exposed ? g.value / g.exposed : NaN };
+  return out;
+}
+
+/** People who joined and are still playing at the end. */
+export function retention(w) {
+  const humans = w.agents.filter((a) => a.kind === 'human' && a.joinT !== null && Object.keys(a.flags).length === 0);
+  const stay = (xs) => (xs.length ? xs.filter((a) => !a.quit).length / xs.length : NaN);
+  const newcomers = humans.filter((a) => a.cohort === 'mid' || a.cohort === 'late');
+  const playing = w.nations.map((n) => humans.filter((a) => !a.quit && a.nation === n.id).length);
+  const total = playing.reduce((x, y) => x + y, 0);
+  const everLeft = humans.filter((a) => a.quits > 0);
+  return {
+    humans: stay(humans),
+    newcomers: stay(newcomers),
+    day1: stay(humans.filter((a) => a.cohort === 'day1')),
+    defeated: stay(humans.filter((a) => a.cohort === 'defeated')),
+    everLeft: humans.length ? everLeft.length / humans.length : NaN,
+    cameBack: everLeft.length ? everLeft.filter((a) => a.returns > 0).length / everLeft.length : NaN,
+    topNationPlayers: total > 0 ? Math.max(...playing) / total : NaN,
+  };
+}
+
+/** Disbanding at the cut: who lost how much of their army. */
+export function demobImpact(w) {
+  if (!w.demob.length) return { affected: 0, lostFrac: NaN, lostFracCoop: NaN, lostFracRaider: NaN, troopsCut: 0 };
+  let affected = 0;
+  let active = 0;
+  let cut = 0;
+  const fr = { all: [], coop: [], raider: [], turtle: [] };
+  for (const d of w.demob) {
+    active += d.activeCount;
+    for (const v of d.byAgent.values()) {
+      affected++;
+      cut += v.cut;
+      const f = v.cut / v.before;
+      fr.all.push(f);
+      fr[v.behaviour].push(f);
+    }
+  }
+  const m = (xs) => (xs.length ? xs.reduce((x, y) => x + y, 0) / xs.length : NaN);
+  return { affected: active ? affected / active : NaN, lostFrac: m(fr.all), lostFracCoop: m(fr.coop), lostFracRaider: m(fr.raider), troopsCut: cut };
+}
+
+/** Always-on proxies: contribution per day of proxied people vs others with the same sessions. */
+export function proxies(w) {
+  const days = w.horizon / DAY;
+  const per = (xs) => (xs.length ? xs.reduce((s, a) => s + a.contribValue, 0) / xs.length / days : NaN);
+  const ref = per(w.agents.filter((a) => a.cohort === 'day1' && a.sessions === 12));
+  const out = {};
+  for (const k of [1, 2]) {
+    out[`proxied${k}`] = per(w.agents.filter((a) => a.cohort === 'proxied' && a.sessions === k)) / ref;
+    out[`plain${k}`] = per(w.agents.filter((a) => a.cohort === 'day1' && a.sessions === k)) / ref;
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------- placement study (geo runs only)
+
+function pearson(xs, ys) {
+  const n = xs.length;
+  if (n < 3) return NaN;
+  const mx = xs.reduce((a, b) => a + b, 0) / n;
+  const my = ys.reduce((a, b) => a + b, 0) / n;
+  let sxy = 0;
+  let sxx = 0;
+  let syy = 0;
+  for (let i = 0; i < n; i++) {
+    sxy += (xs[i] - mx) * (ys[i] - my);
+    sxx += (xs[i] - mx) ** 2;
+    syy += (ys[i] - my) ** 2;
+  }
+  return sxx > 0 && syy > 0 ? sxy / Math.sqrt(sxx * syy) : NaN;
+}
+
+function sd(xs) {
+  if (xs.length < 2) return NaN;
+  const m = xs.reduce((a, b) => a + b, 0) / xs.length;
+  return Math.sqrt(xs.reduce((s, x) => s + (x - m) ** 2, 0) / (xs.length - 1));
+}
+
+/**
+ * Placement measures. Initial conditions are taken where each village was first placed (all
+ * villages that founded in that hour already on the map). `cap` stands for "no ally anywhere".
+ */
+export function placement(w) {
+  const days = w.horizon / DAY;
+  const placed = w.agents.filter((a) => a.snapshots.spawn);
+  const humans = placed.filter((a) => a.kind === 'human' && Object.keys(a.flags).length === 0);
+  const sp = (xs, k) => xs.map((a) => a.snapshots.spawn[k]);
+  const cap = (x) => (Number.isFinite(x) ? x : 10);
+  const d1 = humans.filter((a) => a.cohort === 'day1');
+  const contrib = d1.map((a) => a.contribValue / days);
+  const fortD = sp(d1, 'fortDist');
+  const allies = sp(d1, 'allies1');
+  // contribution of the third of day-1 people with the best and the worst spawn (by objective distance)
+  const order = d1.map((a, i) => i).sort((i, j) => fortD[i] - fortD[j]);
+  const k = Math.max(1, Math.floor(order.length / 3));
+  const meanOf = (idx) => idx.reduce((s, i) => s + contrib[i], 0) / idx.length;
+  const near = meanOf(order.slice(0, k));
+  const far = meanOf(order.slice(-k));
+  const aidDays = humans.filter((a) => a.firstAidT !== undefined && a.joinT !== null).map((a) => (a.firstAidT - a.joinT) / 24);
+  const reachSeen = humans.reduce((s, a) => s + (a.opsReachSeen || 0), 0);
+  const reach = humans.reduce((s, a) => s + (a.opsReach || 0), 0);
+  const st = w.supplyStats || { sent: 0, lost: 0, n: 0, hours: 0 };
+  // fort share by nation over all units, and its spread (does geography favour some nations?)
+  const units = w.periodResults.slice(0, w.P.periods);
+  const share = w.nations.map((n) => mean(units.map((r) => {
+    const t = r.fortHours.reduce((x, y) => x + y, 0);
+    return t > 0 ? r.fortHours[n.id] / t : 0;
+  })));
+  return {
+    nearestAlly: mean(sp(humans, 'nearestAlly').map(cap)),
+    isolated1: mean(sp(humans, 'allies1').map((x) => (x === 0 ? 1 : 0))),
+    isolated2: mean(sp(humans, 'nearestAlly').map((x) => (x > 2 ? 1 : 0))),
+    allies1: mean(sp(humans, 'allies1')),
+    enemies1: mean(sp(humans, 'enemies1')),
+    otherNations1: mean(sp(humans, 'otherNations1')),
+    fortDist: mean(sp(humans, 'fortDist')),
+    fortDistSD: sd(sp(humans, 'fortDist')),
+    fortRoute: mean(sp(humans, 'fortRoute')),
+    centre: mean(sp(humans, 'centre')),
+    centreSD: sd(sp(humans, 'centre')),
+    corrFortContrib: pearson(fortD, contrib),
+    corrAlliesContrib: pearson(allies, contrib),
+    nearFarRatio: far > 0 ? near / far : NaN,
+    contribGini: gini(contrib),
+    firstAidDays: aidDays.length ? aidDays.sort((x, y) => x - y)[Math.floor(aidDays.length / 2)] : Infinity,
+    aidShare: humans.length ? aidDays.length / humans.length : NaN,
+    reachRate: reachSeen ? reach / reachSeen : NaN,
+    supplyHours: st.n ? st.hours / st.n : NaN,
+    supplyLossRate: st.sent ? st.lost / st.sent : NaN,
+    nationShareSD: sd(share),
+    nationShareMin: Math.min(...share),
+  };
+}
