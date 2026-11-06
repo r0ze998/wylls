@@ -7,7 +7,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { small, run } from './helpers.mjs';
 import { ws12PublicEvidence } from '../resident/ports/ws12-public-evidence.mjs';
-import { newMemory, promise, coverage, PUBLIC } from '../../12-memory/fixtures/scenario.mjs';
+import { NEEDS_KEYS } from '../world/identity.mjs';
+const NEEDS_FIXTURE = NEEDS_KEYS ? 'keyless run: workstream 12\'s fixture derives keys from fixed seeds when imported' : false;
+// Workstream 12's fixture derives test keys from fixed seeds when imported: not in keyless runs.
+const { newMemory, promise, coverage, PUBLIC } = NEEDS_KEYS ? {} : await import('../../12-memory/fixtures/scenario.mjs');
 import { decisionsOf } from '../demo/report.mjs';
 
 /** Workstream 12's memory, read-only: any method other than knowledge() throws (and is counted). */
@@ -45,7 +48,7 @@ const kouSidecar = (m, { mapped = true } = {}) => env => {
   return { read: q => sc.read({ ...q, worldBell: 300 }) };
 };
 
-test('public evidence reaches the provider, marked and untrusted, with its state and sources; nothing else changes', async () => {
+test('public evidence reaches the provider, marked and untrusted, with its state and sources; nothing else changes', { skip: NEEDS_FIXTURE }, async () => {
   const m = newMemory();
   promise(m, { vis: PUBLIC });
   coverage(m); // a verified public shortfall in the fixture
@@ -67,7 +70,7 @@ test('public evidence reaches the provider, marked and untrusted, with its state
   assert.deepEqual(writes, [], 'workstream 12 memory was never written');
 });
 
-test('an unknown public record stays "unknown" in the prompt; no broken episode, no trust change', async () => {
+test('an unknown public record stays "unknown" in the prompt; no broken episode, no trust change', { skip: NEEDS_FIXTURE }, async () => {
   const m = newMemory();
   promise(m, { vis: PUBLIC }); // a promise with no execution evidence at all
   const p = capture();
@@ -78,7 +81,7 @@ test('an unknown public record stays "unknown" in the prompt; no broken episode,
   assert.equal(env.rs.ren.trust(env.ps.Kou.address), 0);
 });
 
-test('without a sourced identity mapping nothing is shown, and the withholding is recorded', async () => {
+test('without a sourced identity mapping nothing is shown, and the withholding is recorded', { skip: NEEDS_FIXTURE }, async () => {
   const m = newMemory();
   promise(m, { vis: PUBLIC });
   const p = capture();

@@ -9,7 +9,7 @@ import { runDemo } from '../demo/run-demo.mjs';
 import { decisionsOf } from '../demo/report.mjs';
 import { small, run, tmp } from './helpers.mjs';
 import { signCommand } from '../../../permutation-gateway/src/frontier/agent/owner-auth.mjs';
-import { addressOf } from '../resident/keys.mjs';
+import { NEEDS_KEYS } from '../world/identity.mjs';
 import { MAX_EXTEND, STATE_VERSION } from '../resident/resident.mjs';
 
 const BELLS = 200;
@@ -82,7 +82,7 @@ async function owingRen(extra = {}) {
   return { env, ren, req: req.id };
 }
 
-test('a pause across a boundary keeps the debt: it is reported while paused and repaid on resume', async () => {
+test('a pause across a boundary keeps the debt: it is reported while paused and repaid on resume', { skip: NEEDS_KEYS }, async () => {
   const { env, ren, req } = await owingRen();
   await run(env, 1); // Kou accepts and sends
   ren.command(cmd(env, 'mode', { mode: 'manual' }));
@@ -101,7 +101,7 @@ test('a pause across a boundary keeps the debt: it is reported while paused and 
   assert.equal(env.world.s.caravans.filter(k => k.src === ren.state.citizen).length, 1, 'exactly one return');
 });
 
-test('the decision allowance ends new decisions only: promises are still kept; the owner extends it by a finite step', async () => {
+test('the decision allowance ends new decisions only: promises are still kept; the owner extends it by a finite step', { skip: NEEDS_KEYS }, async () => {
   const { env, ren, req } = await owingRen({ limits: { maxTurns: 1 } });
   await run(env, 12);
   assert.equal(decisionsOf(ren).length, 1);
@@ -135,8 +135,8 @@ test('a version-1 resident (counterparties by citizen id) opens as version 2 wit
   await again.step();
   assert.equal(again.state.v, STATE_VERSION);
   assert.deepEqual(again.state.migrations.map(m => [m.from, m.to]), [[1, 2]]);
-  assert.equal(again.state.aliases[mio.citizen], addressOf(mio.keypair));
-  assert.deepEqual(Object.keys(again.state.cooldown), [`${addressOf(mio.keypair)}|Wood`]);
-  assert.equal(again.trust(addressOf(mio.keypair)), -2, 'the old episode is read through the alias');
+  assert.equal(again.state.aliases[mio.citizen], mio.address);
+  assert.deepEqual(Object.keys(again.state.cooldown), [`${mio.address}|Wood`]);
+  assert.equal(again.trust(mio.address), -2, 'the old episode is read through the alias');
   assert.ok(readFileSync(ef, 'utf8').startsWith(historyBefore), 'history is appended to, never rewritten');
 });

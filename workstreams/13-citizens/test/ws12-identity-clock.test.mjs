@@ -11,7 +11,7 @@ import path from 'node:path';
 import { runDemo } from '../demo/run-demo.mjs';
 import { small, run, tmp } from './helpers.mjs';
 import { walletPrincipal, ws12PublicEvidence } from '../resident/ports/ws12-public-evidence.mjs';
-import { newMemory, promise, PUBLIC } from '../../12-memory/fixtures/scenario.mjs';
+import { createMemory } from '../../12-memory/src/index.mjs';
 import { decisionsOf } from '../demo/report.mjs';
 
 const norm = s => s.replace(/[0-9a-f]{16}/g, 'ID').replace(/- ターン \d+: restart.*\n/g, '');
@@ -53,8 +53,8 @@ test('the test world declares its clock; evidence on another clock is not read, 
 });
 
 test('the sidecar keeps its clock declaration; a wallet-address principal (44 characters) is accepted', () => {
-  const m = newMemory();
-  promise(m, { vis: PUBLIC });
+  // Workstream 12's memory with a world and no records (no fixture: the fixture derives keys when imported).
+  const m = createMemory({ world: { cluster: 'localnet-fixture', world_id: 'wylls-fixture-world' } });
   const wallet = 'E5Hgk3x7Qm3nPz6v1VhC2r8tYw9aB4cD5eF6gH7iJ8kL';
   assert.equal(wallet.length, 44);
   const sc = ws12PublicEvidence(m, { resolvePrincipal: walletPrincipal({ source: 'fixture: 4/8 identity_alias by wallet' }), clock: 'season-bell' });

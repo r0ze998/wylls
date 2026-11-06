@@ -21,7 +21,7 @@
 //                   resident that was stopped or down for a day still reads its last results). A port that forgets
 //                   a key must refuse a later submit under it (KeyExpired), never execute it again.
 //   A port that declares less than REQUIRED_KEY_RETENTION_BELLS is refused by the resident.
-import { addressOf, signRecord } from '../keys.mjs';
+import { toIdentity } from '../keys.mjs';
 import { ACTION_DOMAIN } from '../../world/testworld.mjs';
 import { BOARD_DOMAIN } from '../../world/board.mjs';
 import { BELLS_PER_DAY } from '../../world/rules.mjs';
@@ -29,28 +29,30 @@ import { BELLS_PER_DAY } from '../../world/rules.mjs';
 export const REQUIRED_KEY_RETENTION_BELLS = BELLS_PER_DAY;
 
 /** The test world's adapter: signs each request with the resident's own key; the world checks the signature. */
-export function testWorldExecution(world, keypair) {
-  const actor = addressOf(keypair);
+export function testWorldExecution(world, who) {
+  const id = toIdentity(who);
+  const actor = id.address;
   return {
     kind: 'test-world (mock)',
     // The test world never forgets a key.
     retentionBells: Infinity,
     async submit(req) {
       const body = { key: req.idempotencyKey, actor, action: req.action };
-      return world.submit({ body, sig: signRecord(ACTION_DOMAIN, body, keypair) });
+      return world.submit({ body, sig: id.sign(ACTION_DOMAIN, body) });
     },
     async status(key) { return world.status(key, actor); },
     async cancel(key) { return world.cancel(key, actor); },
   };
 }
 
-export function testWorldBoard(board, keypair) {
-  const from = addressOf(keypair);
+export function testWorldBoard(board, who) {
+  const id = toIdentity(who);
+  const from = id.address;
   return {
     kind: 'test-world board (mock)',
     async post(body) {
       const b = { ...body, from };
-      try { return { ok: true, id: board.post({ body: b, sig: signRecord(BOARD_DOMAIN, b, keypair) }) }; }
+      try { return { ok: true, id: board.post({ body: b, sig: id.sign(BOARD_DOMAIN, b) }) }; }
       catch (e) { return { ok: false, error: { code: e.code ?? 'Error', message: e.message } }; }
     },
   };

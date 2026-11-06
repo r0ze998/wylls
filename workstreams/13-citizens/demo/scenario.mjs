@@ -10,15 +10,16 @@
 //   Mio  (person)                   claims a resident's request and never delivers (the resident learns from it)
 import path from 'node:path';
 import { createCharter } from '../resident/resident.mjs';
-import { addressOf, newKeypair } from '../resident/keys.mjs';
+import { identityFor } from '../world/identity.mjs';
 import { Person } from '../world/harness.mjs';
 
 export const POSITIONS = Object.freeze({ asa: { q: 0, r: 0 }, ren: { q: 5, r: -2 }, kou: { q: 3, r: 1 }, mio: { q: -6, r: 2 } });
 
 /** The operator who owns and funds both residents (a test key; the owner's secret stays with the harness, not the residents). */
 export function makeOperator() {
-  const keypair = newKeypair();
-  return { keypair, address: addressOf(keypair), name: 'test-operator' };
+  // Keyless runs: an operator with an address and no key (it cannot sign owner commands; those tests skip).
+  const id = identityFor('operator');
+  return { keypair: id.keypair, address: id.address, name: 'test-operator' };
 }
 
 export function writeCharters(root, operator, { limits = {}, budget = {} } = {}) {

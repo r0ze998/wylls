@@ -25,7 +25,7 @@ import { BELL_SECS, BELLS_PER_DAY } from '../world/rules.mjs';
 import { buildCandidates } from './candidates.mjs';
 import { GOALS } from './goals.mjs';
 import { GIFT_WINDOW_BELLS } from './safety.mjs';
-import { addressOf, loadOrCreateKey, signRecord } from './keys.mjs';
+import { keyIdentity, loadOrCreateKey } from './keys.mjs';
 import { answerSchema, decideWithin, ProviderRefusal } from './ports/provider.mjs';
 import { assertPort } from './ports/execution.mjs';
 import { flatCost } from './ports/cost.mjs';
@@ -102,11 +102,13 @@ export class Resident {
    * provider (ProviderPort); memory (MemoryPort); fallback(candidates) → candidate id (the seam for workstream 5's autopilot).
    * crash: test hook {at: 'after-decision'|'after-intent'|'after-submit', turn?, key?} throws there once.
    */
-  constructor({ dir, ports, crash = null, log = () => {} }) {
+  constructor({ dir, ports, crash = null, log = () => {}, identity = null }) {
     this.dir = dir;
     this.charter = JSON.parse(readFileSync(path.join(dir, 'charter.json'), 'utf8'));
-    this.keypair = loadOrCreateKey(path.join(dir, 'resident.key'));
-    this.address = addressOf(this.keypair);
+    // Its own key, made on first start (resident.key, 0600), unless the harness hands a keyless test identity.
+    this.identity = identity ?? keyIdentity(loadOrCreateKey(path.join(dir, 'resident.key')));
+    this.keypair = this.identity.keypair;
+    this.address = this.identity.address;
     this.ports = ports;
     this.crash = crash;
     this.log = log;
@@ -285,7 +287,7 @@ export class Resident {
       if (mine) { st.citizen = mine.citizen; this.save(); }
       else {
         const body = { name: this.charter.name, pos: this.charter.pos, key: this.address };
-        st.citizen = await this.ports.join({ body, sig: signRecord(JOIN_DOMAIN, body, this.keypair) });
+        st.citizen = await this.ports.join({ body, sig: this.identity.sign(JOIN_DOMAIN, body) });
         this.ports.memory.append({ id: `joined:${st.citizen}`, bell, kind: 'joined', importance: 1, entities: [this.address], text: { en: 'joined with the starter kit', ja: '初期資源で参加した' } });
         this.save();
         return { bell, did: 'joined' };

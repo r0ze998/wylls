@@ -7,6 +7,7 @@ import { fixtureProvider } from '../resident/ports/provider.mjs';
 import { signCommand } from '../../../permutation-gateway/src/frontier/agent/owner-auth.mjs';
 import { newKeypair, addressOf } from '../resident/keys.mjs';
 import { decisionsOf } from '../demo/report.mjs';
+import { NEEDS_KEYS } from '../world/identity.mjs';
 
 const one = (extra = {}) => small({ residents: [{ id: 'ren', goal: 'village-first', pos: { q: 0, r: 0 }, ...extra }] });
 const modeCmd = (owner, mode, nonce = Math.random().toString(36).slice(2, 12)) => ({ op: 'mode', owner: addressOf(owner), agentId: 'ren', nonce, expiresAt: Date.now() + 60_000, params: { mode } });
@@ -44,7 +45,7 @@ test('a late or invalid provider is charged, refused, and paused after three fai
   }
 });
 
-test('the owner stops it with a signed command; another key or a replay cannot; a stop pauses: nothing sent is rolled back, nothing waiting is lost', async () => {
+test('the owner stops it with a signed command; another key or a replay cannot; a stop pauses: nothing sent is rolled back, nothing waiting is lost', { skip: NEEDS_KEYS }, async () => {
   const env = await one();
   const ren = env.rs.ren;
   // Its first build is refused once for a passing reason, so it waits in the journal to be retried.
