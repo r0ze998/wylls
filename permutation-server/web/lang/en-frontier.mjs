@@ -27,6 +27,7 @@ export default {
   '{0}（あなたの国と敵対）': '{0} (hostile to your nation)',
   '次の段階まで {0}（{1} ごろ）': 'next step in {0} (around {1})',
   'この国の土地には、村を置ける場所があと約 {0} あります。': 'This nation\'s land has room for about {0} more villages.',
+  'この国の土地に村を置ける場所の数は、いまは分かりません。': 'How much room this nation\'s land has for villages is not known yet.',
   '約 {0} 分': 'about {0} min',
   '「{0}」': '“{0}”',
   // ---- (end of the wave 3 block)

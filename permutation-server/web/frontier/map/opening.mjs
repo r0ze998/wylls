@@ -16,9 +16,9 @@
 // with ?at= and a battle the page focuses both place the camera themselves,
 // which counts as moved.
 import { project } from '../../map.mjs';
-import { ringProvinces, tileHex, wedgeOf } from '../fgeo.mjs';
-import { homeWedge } from '../fland.mjs';
-import { provincePixel, PROVINCE_CIRCUMRADIUS, FLATTEN } from './layers.mjs';
+import { tileHex } from '../fgeo.mjs';
+import { provincePixel, FLATTEN } from './layers.mjs';
+import { dispersedPlace, homeBox, homeLook } from './homeland.mjs';
 import { FAR_CAP, centreOn, fitView, freeBox } from './camera.mjs';
 import { RADIUS } from '../../map.mjs';
 import { TOWER } from './belltower.mjs';
@@ -50,14 +50,13 @@ export const ENGINE_VIEW = Object.freeze({ share: 0.78, min: 0.62, max: 1.3, mid
  * picture holds the bell and the wedge's near edge with a few tiles of its lit land).
  */
 export const LOOK = Object.freeze({ max: 1.15, reach: 0.72 });
-/** The point of nation `faction`'s home wedge the camera turns to from the bell (world px; the wedge's name stands there), or null. */
-export function lookPoint(faction, ringsOpen) {
-  void ringsOpen;
-  const w = homeWedge(faction);
-  const first = ringProvinces(1).find(pr => wedgeOf(pr.p, pr.q) === w);
-  if (!first) return null;
-  const c = provincePixel(first.p, first.q);
-  return { x: c.x * LOOK.reach, y: c.y * LOOK.reach };
+/**
+ * The point of nation `faction`'s home region the camera turns to from the bell (world px; the region's name stands
+ * there), or null. `place`: the season's placement (home.mjs seasonPlace). The wedge: `reach` of the way to its
+ * ring-1 province; a dispersed region: its anchor province (map/homeland.mjs homeLook); no readable placement: null.
+ */
+export function lookPoint(faction, ringsOpen, place = undefined) {
+  return homeLook(faction, ringsOpen, place, { near: true, reach: LOOK.reach });
 }
 /**
  * Candidate sites are never framed from further out than this (the far bitmaps still show their painted discs, and a
@@ -91,28 +90,26 @@ export function placePoint(o) {
   return h ? project(h.q, h.r) : provincePixel(o.p, o.q);
 }
 
-/** The box (world px) around the provinces of `faction`'s home wedge in the open rings. */
-export function wedgeBox(faction, ringsOpen) {
-  const w = homeWedge(faction);
-  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
-  for (let d = 1; d < Math.max(2, ringsOpen); d++) for (const pr of ringProvinces(d)) {
-    if (wedgeOf(pr.p, pr.q) !== w) continue;
-    const c = provincePixel(pr.p, pr.q);
-    x0 = Math.min(x0, c.x - PROVINCE_CIRCUMRADIUS); x1 = Math.max(x1, c.x + PROVINCE_CIRCUMRADIUS);
-    y0 = Math.min(y0, c.y - PROVINCE_CIRCUMRADIUS * FLATTEN); y1 = Math.max(y1, c.y + PROVINCE_CIRCUMRADIUS * FLATTEN);
-  }
-  return Number.isFinite(x0) ? { x: (x0 + x1) / 2, y: (y0 + y1) / 2, width: x1 - x0, height: y1 - y0 } : null;
+/**
+ * The box (world px) around the provinces of `faction`'s home region in the open rings (map/homeland.mjs homeBox:
+ * the wedge, or the dispersed provinces under that placement), or null (none in the open rings, or no readable
+ * placement). `place`: the season's placement (home.mjs seasonPlace).
+ */
+export function wedgeBox(faction, ringsOpen, place = undefined) {
+  return homeBox(faction, ringsOpen, place);
 }
 
 /**
  * The opening for this viewer: `{kind, view, at, rank}`, or null while the
- * viewer is not known yet. `src` is the map's source (own, ringsOpen);
- * `size` the canvas in CSS px; `inset` what the page's sheets cover.
+ * viewer is not known yet. `src` is the map's source (own, ringsOpen, and
+ * `place`, the season's placement: home.mjs seasonPlace; without a readable
+ * one no home region is framed, never the wedge); `size` the canvas in CSS
+ * px; `inset` what the page's sheets cover.
  */
 export function openingPlan(hint, src, size, { inset = null, dpr = 1 } = {}) {
   const h = hint ?? { ready: true };
   if (h.ready === false) return null;
-  const rings = Math.max(1, src?.ringsOpen ?? 1);
+  const rings = Math.max(1, src?.ringsOpen ?? 1), place = src?.place;
   const free = freeBox(size, inset);
   const hero = heroZoom(dpr);
   const plan = (kind, at, zoom) => ({ kind, at, rank: RANK[kind], view: centreOn(at, zoom, size, inset) });
@@ -131,7 +128,7 @@ export function openingPlan(hint, src, size, { inset = null, dpr = 1 } = {}) {
     return plan('candidates', { x: (cb.x0 + cb.x1) / 2, y: (cb.y0 + cb.y1) / 2 }, zoom);
   }
   if (Number.isInteger(h.faction) && ['joined', 'ticket', 'refugee'].includes(h.stage)) {
-    const box = wedgeBox(h.faction, rings);
+    const box = wedgeBox(h.faction, rings, place);
     if (box) {
       // (UX brief §13.6: the wedge with room about it, WEDGE_VIEW.fill of the free part, and the camera a little to
       // its outer side, so the cloud sea beyond it, the sheet's edge and, where the picture is wide enough, the
@@ -156,7 +153,14 @@ export function openingPlan(hint, src, size, { inset = null, dpr = 1 } = {}) {
     // cloud ring and table, and the bell became a toy): the camera stays close on the bell and turns toward that
     // nation's home wedge, the only land that lights. In the picture: the tower, whole, and the near part of the
     // wedge (`lookPoint`); the rest of the wedge runs out of the picture, as the chart does
-    const P = Number.isInteger(frame.nation) ? lookPoint(frame.nation, rings) : null;
+    // (a dispersed region has no near side: its provinces stand round the whole heartland ring. The camera does not
+    // turn from the bell toward one of them, it frames all of them, as the wait does, with the bell among them)
+    const scattered = Number.isInteger(frame.nation) && dispersedPlace(place) ? wedgeBox(frame.nation, rings, place) : null;
+    if (scattered) {
+      const zoom = Math.max(0.16, Math.min(0.8, WEDGE_VIEW.fill * Math.min(free.width / scattered.width, room / scattered.height)));
+      return plan('frame', { x: scattered.x, y: scattered.y - lift / zoom }, zoom);
+    }
+    const P = Number.isInteger(frame.nation) ? lookPoint(frame.nation, rings, place) : null;
     if (P) {
       const x0 = Math.min(P.x - RADIUS * 2.6, -TOWER.plinth * RADIUS), x1 = Math.max(P.x + RADIUS * 2.6, TOWER.plinth * RADIUS);
       const y0 = Math.min(P.y - RADIUS * 1.9, -tall), y1 = Math.max(P.y + RADIUS * 1.9, RADIUS);

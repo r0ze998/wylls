@@ -50,6 +50,7 @@ import { L2, L3, openSurvey } from './survey.mjs';
 import { edgeNear, edgeSegments, paintEdge } from './world.mjs';
 import { CHART, YOURS, fxNow, paintCandidates, paintWedge } from './chart.mjs';
 import { wedgeBox } from './opening.mjs';
+import { homeLook, placeKey } from './homeland.mjs';
 import { STANDARD_AT, STANDARD_UNIT, landShape, landTiles, landingAt, paintBeacon, paintOwnBreath, paintOwnLand, paintOwnOutline, paintProvisionalTag, paintStandard, standardUnit, villageKey } from './ownland.mjs';
 import { reachSteps } from '../hud/reach.mjs';
 import { NOTE_MS, reachText, reachTop, actionPalette, actorText, arrivalText, blockText, paintActionGround, paintActionPulse, paintActionTop, paintReachDim, paintLandLens, reachBox, rolledOut, paintHoverGround, paintHoverTop, paintRefusal, paintRibbon, paintSelectionGround, paintSelectionTop, paintTag } from './actions.mjs';
@@ -2379,13 +2380,17 @@ export class FrontierMap {
     if (lod !== 'tile' || !tileOpts) { ctx.setTransform(...world); sea(ctx, null); }
     // the marks of the viewer's stage, on the land: the home wedge while there is no village yet; the rim of the village's own land
     const waiting = limited && Number.isInteger(survey.faction) && ['joined', 'ticket', 'refugee'].includes(survey.stage);
-    // the wait for the village (map/waitview.mjs): the nation's standard stands in its home wedge; what the countdown says
-    const homeAt = waiting ? this.wedgeHome(survey.faction, ringsOpen) : null;
+    // the season's first-home placement (home.mjs seasonPlace, in the source as `place`): the home region the map
+    // lights, frames and marks is read from it (map/homeland.mjs), the wedge or the dispersed provinces; without a
+    // readable placement there is no region on the map at all
+    const place = src.place;
+    // the wait for the village (map/waitview.mjs): the nation's standard stands in its home region; what the countdown says
+    const homeAt = waiting ? this.wedgeHome(survey.faction, ringsOpen, place) : null;
     // (the page's wait view says the same time while it stands open: then the map does not say it a second time)
     const waitSay = waiting && !src.wait?.said ? waitLine(src.wait ?? null) : null;
-    // (with no request out, or one refused: the surveyors' marks, a station mark on every free site of the wedge,
+    // (with no request out, or one refused: the surveyors' marks, a station mark on every free site of the region,
     // where a village may be placed; with a request out its own candidate sites are what is looked at)
-    const waitSites = homeAt && !survey.candidates?.length ? wedgeSites(survey.faction, ringsOpen, recs, terrainOf) : null;
+    const waitSites = homeAt && !survey.candidates?.length ? wedgeSites(survey.faction, ringsOpen, recs, terrainOf, place) : null;
     // the nation choice (UX brief §7.2): the home wedge of the nation that is looked at is lit on the chart
     const looked = !waiting && limited && Number.isInteger(src.focusNation) ? src.focusNation : null;
     // from afar: the viewer's land in its colour, and on the world chart its village as a gold beacon with its name
@@ -2394,15 +2399,17 @@ export class FrontierMap {
     let realm = null;
     if (lod === 'world' && (artCells.length || names.length)) {
       const nations = artCells.length > 0 && (src.lens ?? 'realm') !== 'land';
-      const box = waiting ? wedgeBox(survey.faction, ringsOpen) : looked !== null ? wedgeBox(looked, ringsOpen) : null;
+      // (the nation's name stands where its region is looked at: the wedge's middle, or a dispersed region's anchor province)
+      const at = !waiting && looked !== null ? homeLook(looked, ringsOpen, place) : null;
       // (while the viewer waits for a village the standard's own tag names the nation in its wedge: no second name there)
-      realm = o => paintRealmLabels(o, recs, z, src.realmName ?? null, { extra: names, nations, territoryOf: src.territoryEnabled ? src.territoryOf : null, seenTile: (r, i) => survey.levelOf(r.p, r.q, i) === L3, controlSeen: r => Number.isInteger(r.keepTile) && survey.levelOf(r.p, r.q, r.keepTile) === L3, ...(limited ? { min: 3, home: box && !waiting ? { faction: looked, x: box.x, y: box.y } : null,
+      realm = o => paintRealmLabels(o, recs, z, src.realmName ?? null, { extra: names, nations, territoryOf: src.territoryEnabled ? src.territoryOf : null, seenTile: (r, i) => survey.levelOf(r.p, r.q, i) === L3, controlSeen: r => Number.isInteger(r.keepTile) && survey.levelOf(r.p, r.q, r.keepTile) === L3, ...(limited ? { min: 3, home: at ? { faction: looked, x: at.x, y: at.y } : null,
         seen: (r, j) => { if (survey.province(r.p, r.q).max < L2) return false; const t = terrainOf?.(r.p, r.q), idx = t?.sites?.[j]; return Number.isInteger(idx) && survey.levelOf(r.p, r.q, idx) >= L2; } } : {}) });
     }
     // (nearer than the world chart the wedge that is looked at, or waited in, still carries its nation's name)
     else if (lod !== 'world' && looked !== null) {
-      // (close on the bell the wedge runs out of the picture: its name stands where the camera looks, `lookPoint`)
-      const f = looked, box = lod === 'tile' ? lookPoint(f, ringsOpen) : wedgeBox(f, ringsOpen);
+      // (close on the bell the wedge runs out of the picture: its name stands where the camera looks, `lookPoint`;
+      // a dispersed region's name stands on its anchor province at every zoom: map/homeland.mjs homeLook)
+      const f = looked, box = lod === 'tile' ? lookPoint(f, ringsOpen, place) : homeLook(f, ringsOpen, place);
       if (box) realm = o => paintRealmLabels(o, recs, z, src.realmName ?? null, { nations: false, extra: [{ text: src.realmName?.(f) ?? String(f), x: box.x, y: box.y, below: -14, size: 24, fill: '#fff6e2' }] });
     }
     if (tileOpts) {
@@ -2424,9 +2431,9 @@ export class FrontierMap {
     ctx.setTransform(...world);
     // (waited in: lit softly from the standard, not an outline on bare chart: UX brief §13.6)
     // (with candidate sites out, their painted land is what is looked at: the wedge keeps its quiet outline there)
-    if (waiting) { const wb = homeAt && !survey.candidates?.length ? wedgeBox(survey.faction, ringsOpen) : null; paintWedge(ctx, survey.faction, ringsOpen, z, { wait: wb ? { x: homeAt.x, y: homeAt.y, r: Math.max(wb.width, wb.height / FLATTEN) * 0.5 } : null }); }
+    if (waiting) { const wb = homeAt && !survey.candidates?.length ? wedgeBox(survey.faction, ringsOpen, place) : null; paintWedge(ctx, survey.faction, ringsOpen, z, { place, wait: wb ? { x: homeAt.x, y: homeAt.y, r: Math.max(wb.width, wb.height / FLATTEN) * 0.5 } : null }); }
     if (waitSites?.length && lod !== 'world') paintSiteMarks(ctx, homeAt, waitSites, { zoom: z });
-    if (looked !== null) paintWedge(ctx, looked, ringsOpen, z, { lit: true });
+    if (looked !== null) paintWedge(ctx, looked, ringsOpen, z, { lit: true, place });
     // (a keep's place and holder are the season's public record: its fortress stands on unsurveyed land too, so the keep the
     // reach list sends the player to can be found on the board. With the art it stands between the props and the people,
     // `stand`; on plain tiles it is drawn here)
@@ -2566,21 +2573,26 @@ export class FrontierMap {
   waitSpot() {
     const src = this.source?.() ?? {}, sv = src.survey ?? null;
     if (!sv || sv.showAll || !Number.isInteger(sv.faction) || !['joined', 'ticket', 'refugee'].includes(sv.stage)) return null;
-    const at = this.wedgeHome(sv.faction, Math.max(1, src.ringsOpen ?? 1));
+    const at = this.wedgeHome(sv.faction, Math.max(1, src.ringsOpen ?? 1), src.place);
     if (!at) return null;
     const z = this.cam.drawn.zoom, s = waitSpotAt(at, z), k = this.standAt(s.x, s.y)?.k ?? 1;
     const [q, r] = inverseHex(s.x, s.y).split(',').map(Number), l = locate(q, r);
     return { faction: sv.faction, world: { x: s.x, y: s.y }, tile: { p: l.p, q: l.q, idx: l.idx }, client: this.project(s.x, s.y), height: s.box.h * z * k, scale: k };
   }
 
-  /** Where the nation's standard stands in its home wedge while the viewer has no village: the middle of a tile near the wedge's own middle (world px), or null. */
-  wedgeHome(faction, ringsOpen) {
-    const key = `${faction}|${ringsOpen}`;
+  /**
+   * Where the nation's standard stands in its home region while the viewer has no village: the middle of a tile
+   * near the wedge's own middle, or under the dispersed placement the middle of the nation's anchor province
+   * (map/homeland.mjs homeLook); null without a readable placement (world px). `place`: home.mjs seasonPlace.
+   * Kept per nation, rings open, placement and seed.
+   */
+  wedgeHome(faction, ringsOpen, place = undefined) {
+    const key = `${faction}|${ringsOpen}|${placeKey(place)}`;
     if (this.homeKey !== key) {
       this.homeKey = key;
-      const box = wedgeBox(faction, ringsOpen);
-      if (!box) this.homeNow = null;
-      else { const [q, r] = inverseHex(box.x, box.y).split(',').map(Number); this.homeNow = project(q, r); }
+      const at = homeLook(faction, ringsOpen, place);
+      if (!at) this.homeNow = null;
+      else { const [q, r] = inverseHex(at.x, at.y).split(',').map(Number); this.homeNow = project(q, r); }
     }
     return this.homeNow;
   }

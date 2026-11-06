@@ -6,7 +6,7 @@ import { html, raw } from '../../util.mjs';
 import { L, fmtNum, lang } from '../../lang.mjs';
 import { factionName, DOCTRINE_NAMES, TIERS } from '../fi18n.mjs';
 import { hostParts } from '../faddr.mjs';
-import { wedgeOf } from '../fgeo.mjs';
+import { homeNation } from '../fgeo.mjs';
 import { decode as fromBase58 } from '../../sdk/base58.mjs';
 import { identityOf, displayName, tagOf, placeName, withProfile } from './identity.mjs';
 import { playerFace } from './faces.mjs';
@@ -91,8 +91,10 @@ export function leaderCard(f, { size = 96 } = {}) {
  * `[{bell, kind, faction, identity, text}]` — departures (with the arrival
  * turn only: the destination is sealed), new villages, explores, clashes.
  * A place is said by its village's name, a province in words (`where`).
+ * `place`: the season's first-home placement (home.mjs seasonPlace), which
+ * says whose a first home's province is; without one the wedge rule.
  */
-export function highlights(chronicle, overviews, roster, { limit = 8, faction = null, bell = null, where = (p, q) => L`州 ${p},${q}` } = {}) {
+export function highlights(chronicle, overviews, roster, { limit = 8, faction = null, bell = null, where = (p, q) => L`州 ${p},${q}`, place = undefined } = {}) {
   const out = [];
   const list = chronicle ?? [];
   // the spectator's filters (UI plan G3): one faction (a clash counts for the factions holding land in its province), one bell
@@ -111,9 +113,10 @@ export function highlights(chronicle, overviews, roster, { limit = 8, faction = 
         text: r.name === 'DEPART' ? L`${factionName(faction)}の${who}が出陣（ターン ${fmtNum(Number(r.arrive_bell))} に到着）` : L`${factionName(faction)}の${who}が${where(Number(r.p), Number(r.q))}を探索` });
     } else if (r.name === 'HOME_PLACED' || (r.name === 'SETTLE' && (Number(r.outcome) === 0 || Number(r.outcome) === 1))) {
       const p = Number(r.p), q = Number(r.q), site = Number(r.site);
-      // PlaceHome requires the citizen's home wedge. Its event remains about
-      // that founder even when the current owner or overview has changed.
-      const faction = r.name === 'HOME_PLACED' ? wedgeOf(p, q) : ownerFaction(overviews, p, q, site);
+      // PlaceHome requires the citizen's home region (fgeo homeNation under the season's placement: the wedge, or
+      // the dispersed provinces). Its event remains about that founder even when the current owner or overview has
+      // changed. (A placement whose seed the page does not have names no nation: the line is left out, never guessed.)
+      const faction = r.name === 'HOME_PLACED' ? homeNation(p, q, place) : ownerFaction(overviews, p, q, site);
       const id = identityOf(tagOf(BigInt(String(r.citizen_tag))));
       if (faction === null) continue;
       push({ bell, kind: 'settle', faction, identity: id, p, q, text: L`${factionName(faction)}の${displayName(id)}が${placeName(p, q, site)[lang() === 'en' ? 'en' : 'ja']}に村を置いた` });

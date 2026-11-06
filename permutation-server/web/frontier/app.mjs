@@ -157,7 +157,7 @@ import * as pins from './hud/pins.mjs';
 import { battleScene, startBattle, battleLive, BATTLE_SPEEDS, PHASE } from './people/battle.mjs';
 import { decode as decodeAccount } from './fcodec.mjs';
 import { fromBase64 } from '../sdk/bytes.mjs';
-import { tileHex, ringProvinces, wedgeOf } from './fgeo.mjs';
+import { tileHex, ringProvinces, homeNation } from './fgeo.mjs';
 import { project, RADIUS } from '../map.mjs';
 import { identityOf, displayName, withProfile, tagKey } from './people/identity.mjs';
 import { lifeAt, lordLine } from './people/life.mjs';
@@ -1713,10 +1713,11 @@ async function composeTo(row, to) {
     if (!pm.ownArrivalAt(FS, to, b, row.id)) { c.protoShift = { from: c.arriveBell, to: b }; c.arriveBell = b; invalidate('panel', 'map'); }
   }
 }
-/** The province the guide's march goes to: the other province of the viewer's own wedge in ring 2 (the one whose land record is on the page, when one is), or null. */
+/** The province the guide's march goes to: the other province of the viewer's own nation in ring 2 (fgeo homeNation under the season's placement; the one whose land record is on the page, when one is), or null. */
 function marchProvince(row) {
   if (!Number.isInteger(FS.citizen?.faction)) return null;
-  const near = ringProvinces(2).filter(pq => wedgeOf(pq.p, pq.q) === FS.citizen.faction && !(pq.p === row.p && pq.q === row.q));
+  const place = seasonPlace(FS.season);
+  const near = ringProvinces(2).filter(pq => homeNation(pq.p, pq.q, place) === FS.citizen.faction && !(pq.p === row.p && pq.q === row.q));
   return near.find(pq => FS.proto?.lands?.has(`${pq.p},${pq.q}`)) ?? near[0] ?? null;
 }
 /**
@@ -3576,8 +3577,11 @@ export async function boot() {
           viewerFaction: FS.citizen?.faction ?? null,
           // who is looking, for the opening view (map/opening.mjs)
           open: openHint(FS, { ready: viewerKnown, title: titleUp(), frame: stageFrame() }),
-          // the nation that is looked at in the nation choice: its home wedge is lit on the chart (map/chart.mjs paintWedge)
+          // the nation that is looked at in the nation choice: its home region is lit on the chart (map/chart.mjs paintWedge)
           focusNation: stageFrame()?.nation ?? null,
+          // the season's first-home placement (home.mjs seasonPlace: the rule the home planner reads): the map lights,
+          // frames and marks a nation's home region from it (map/homeland.mjs); without a readable one it shows none
+          place: seasonPlace(FS.season),
           demoRoads: ART_ROADS,
           engineStage: ART_ENGINE,
           demoSpecials: ART_RELICS,

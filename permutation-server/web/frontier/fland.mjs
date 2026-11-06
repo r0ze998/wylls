@@ -134,6 +134,30 @@ export function freeByWedge(overviews) {
   return out;
 }
 
+/**
+ * Free sites per nation from the ring overviews, under the season's first-home placement (home.mjs seasonPlace;
+ * fgeo homeNation, the rule the home planner reads): what the nation choice shows a player. Without a placement, or
+ * under placement 0, the same six numbers as `freeByWedge` (the wedge is the nation's land). Under the dispersed
+ * placement a province counts for the nation whose first homes it takes, so a nation's number is its scattered
+ * provinces', not its wedge's. A placement the page cannot read (placement 1 without its 32-byte seed, or one the
+ * page does not know) gives null: the count is unavailable, never zero and never the wedge's. The same upper bound
+ * as `freeByWedge`; `freeByWedge` itself stays the program's per-wedge accounting (the §5.9 overflow rule).
+ */
+export function freeByNation(overviews, place = undefined) {
+  if (place == null || Number(place.placement) === 0) return freeByWedge(overviews);
+  if (Number(place.placement) !== 1 || !place.genesisSeed || typeof place.genesisSeed === 'string' || place.genesisSeed.length !== 32) return null;
+  const out = [0, 0, 0, 0, 0, 0];
+  for (const ov of overviews.values()) {
+    if (!ov?.provinces || ov.ring < FIRST_TICKET_RING) continue;
+    for (const pr of ov.provinces) {
+      const f = homeNation(pr.p, pr.q, place);
+      if (f === null) continue;
+      out[f] += pr.sites.filter((s, i) => (s === 0 || s === 3) && pr.owners[i] === 7).length;
+    }
+  }
+  return out;
+}
+
 /** Provinces of the home wedge worth opening in the site picker (open rings ≥ 2, some free site), nearest ring first. */
 export function candidateProvinces(overviews, faction, place = undefined) {
   const w = homeWedge(faction), out = [];
