@@ -1,0 +1,147 @@
+### 95686606 unpatched; local: ?? frontier-node/crates/verify/tests/v16_cpi_keyfree.rs 
+   Compiling permutation-rules v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v6-p11/permutation-rules)
+   Compiling solana-zk-sdk v5.0.1
+   Compiling solana-zk-elgamal-proof-program v4.2.2
+   Compiling frontier-abi v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v6-p11/frontier-abi)
+   Compiling solana-builtins v4.2.2
+   Compiling fclient v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v6-p11/frontier-node/crates/fclient)
+   Compiling litesvm v0.16.0
+   Compiling findex v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v6-p11/frontier-node/crates/findex)
+   Compiling localnet v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v6-p11/frontier-node/crates/localnet)
+   Compiling verify v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v6-p11/frontier-node/crates/verify)
+   Compiling keeper v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v6-p11/frontier-node/crates/keeper)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 47s
+     Running tests/v16_cpi_keyfree.rs (/home/user/wylls/frontier-node/target/debug/deps/v16_cpi_keyfree-f928dd5ae24c5bbd)
+
+running 6 tests
+test v16_k0_control_the_fixture_passes ... ok
+test v16_k1_a_nested_invocation_of_the_program_is_not_a_pass ... FAILED
+test v16_k2_a_transaction_naming_the_program_with_no_logs_is_not_a_pass ... FAILED
+test v16_k3_truncated_logs_of_a_transaction_naming_the_program_are_not_a_pass ... FAILED
+test v16_k4_measured_complete_logs_showing_the_program_never_ran ... ok
+test v16_k5_a_successful_call_whose_log_tail_was_lost_is_not_a_pass ... FAILED
+
+failures:
+
+---- v16_k1_a_nested_invocation_of_the_program_is_not_a_pass stdout ----
+k1: Pass
+Warn V2 ProgramMismatch bell 0 tx#8857: an archived transaction does not invoke the program
+Warn V9 PrefundedAddress bell 0 accounts: 5 accounts hold more than their rent (pre-funded or escrow; informational)
+
+thread 'v16_k1_a_nested_invocation_of_the_program_is_not_a_pass' (1285) panicked at crates/verify/tests/v16_cpi_keyfree.rs:77:5:
+assertion `left != right` failed: the program ran inside another program; its records are not judged
+  left: Pass
+ right: Pass
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/core/src/panicking.rs:80:14
+   2: core::panicking::assert_failed_inner
+             at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/core/src/panicking.rs:434:23
+   3: core::panicking::assert_failed
+             at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/core/src/panicking.rs:394:5
+   4: v16_cpi_keyfree::v16_k1_a_nested_invocation_of_the_program_is_not_a_pass
+             at ./tests/v16_cpi_keyfree.rs:77:5
+   5: v16_cpi_keyfree::v16_k1_a_nested_invocation_of_the_program_is_not_a_pass::{{closure}}
+             at ./tests/v16_cpi_keyfree.rs:68:61
+   6: core::ops::function::FnOnce::call_once
+             at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/core/src/ops/function.rs:250:5
+   7: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- v16_k2_a_transaction_naming_the_program_with_no_logs_is_not_a_pass stdout ----
+k2: Pass
+Warn V2 ProgramMismatch bell 0 tx#8857: an archived transaction does not invoke the program
+Warn V9 PrefundedAddress bell 0 accounts: 5 accounts hold more than their rent (pre-funded or escrow; informational)
+
+thread 'v16_k2_a_transaction_naming_the_program_with_no_logs_is_not_a_pass' (1286) panicked at crates/verify/tests/v16_cpi_keyfree.rs:83:5:
+assertion `left != right` failed: no logs: nothing shows whether the program ran
+  left: Pass
+ right: Pass
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/core/src/panicking.rs:80:14
+   2: core::panicking::assert_failed_inner
+             at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/core/src/panicking.rs:434:23
+   3: core::panicking::assert_failed
+             at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/core/src/panicking.rs:394:5
+   4: v16_cpi_keyfree::v16_k2_a_transaction_naming_the_program_with_no_logs_is_not_a_pass
+             at ./tests/v16_cpi_keyfree.rs:83:5
+   5: v16_cpi_keyfree::v16_k2_a_transaction_naming_the_program_with_no_logs_is_not_a_pass::{{closure}}
+             at ./tests/v16_cpi_keyfree.rs:81:72
+   6: core::ops::function::FnOnce::call_once
+             at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/core/src/ops/function.rs:250:5
+   7: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- v16_k3_truncated_logs_of_a_transaction_naming_the_program_are_not_a_pass stdout ----
+k3: Pass
+Warn V2 ProgramMismatch bell 0 tx#8857: an archived transaction does not invoke the program
+Warn V9 PrefundedAddress bell 0 accounts: 5 accounts hold more than their rent (pre-funded or escrow; informational)
+
+thread 'v16_k3_truncated_logs_of_a_transaction_naming_the_program_are_not_a_pass' (1287) panicked at crates/verify/tests/v16_cpi_keyfree.rs:89:5:
+assertion `left != right` failed: the runtime cut the logs
+  left: Pass
+ right: Pass
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/core/src/panicking.rs:80:14
+   2: core::panicking::assert_failed_inner
+             at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/core/src/panicking.rs:434:23
+   3: core::panicking::assert_failed
+             at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/core/src/panicking.rs:394:5
+   4: v16_cpi_keyfree::v16_k3_truncated_logs_of_a_transaction_naming_the_program_are_not_a_pass
+             at ./tests/v16_cpi_keyfree.rs:89:5
+   5: v16_cpi_keyfree::v16_k3_truncated_logs_of_a_transaction_naming_the_program_are_not_a_pass::{{closure}}
+             at ./tests/v16_cpi_keyfree.rs:87:78
+   6: core::ops::function::FnOnce::call_once
+             at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/core/src/ops/function.rs:250:5
+   7: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- v16_k5_a_successful_call_whose_log_tail_was_lost_is_not_a_pass stdout ----
+k5: Pass
+Warn V9 PrefundedAddress bell 0 accounts: 5 accounts hold more than their rent (pre-funded or escrow; informational)
+
+thread 'v16_k5_a_successful_call_whose_log_tail_was_lost_is_not_a_pass' (1289) panicked at crates/verify/tests/v16_cpi_keyfree.rs:115:5:
+assertion `left != right` failed: tx #8856: the archive lost the end of its logs without a marker
+  left: Pass
+ right: Pass
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/core/src/panicking.rs:80:14
+   2: core::panicking::assert_failed_inner
+             at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/core/src/panicking.rs:434:23
+   3: core::panicking::assert_failed
+             at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/core/src/panicking.rs:394:5
+   4: v16_cpi_keyfree::v16_k5_a_successful_call_whose_log_tail_was_lost_is_not_a_pass
+             at ./tests/v16_cpi_keyfree.rs:115:5
+   5: v16_cpi_keyfree::v16_k5_a_successful_call_whose_log_tail_was_lost_is_not_a_pass::{{closure}}
+             at ./tests/v16_cpi_keyfree.rs:103:68
+   6: core::ops::function::FnOnce::call_once
+             at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/core/src/ops/function.rs:250:5
+   7: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+
+failures:
+    v16_k1_a_nested_invocation_of_the_program_is_not_a_pass
+    v16_k2_a_transaction_naming_the_program_with_no_logs_is_not_a_pass
+    v16_k3_truncated_logs_of_a_transaction_naming_the_program_are_not_a_pass
+    v16_k5_a_successful_call_whose_log_tail_was_lost_is_not_a_pass
+
+test result: FAILED. 2 passed; 4 failed; 0 ignored; 0 measured; 0 filtered out; finished in 15.47s
+
+error: test failed, to rerun pass `-p verify --test v16_cpi_keyfree`
+exit=101

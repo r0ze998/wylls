@@ -1,0 +1,30 @@
+### 95686606 + ⑪ 0004 + 0005 (patched tree 7d48ee2d…); local:  M frontier-node/crates/verify/src/checks/mod.rs  M frontier-node/crates/verify/src/codes.rs ?? frontier-node/crates/verify/src/checks/v0_evidence.rs ?? frontier-node/crates/verify/tests/evidence.rs ?? frontier-node/crates/verify/tests/v16_cpi_keyfree.rs 
+   Compiling verify v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v6-p11/frontier-node/crates/verify)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.98s
+     Running tests/evidence.rs (/home/user/wylls/frontier-node/target/debug/deps/evidence-2068653d32248759)
+
+running 8 tests
+test a_call_without_logs_is_not_a_pass ... ok
+test a_cpi_only_transaction_without_logs_is_not_a_pass ... ok
+test a_mention_whose_logs_show_no_run_is_not_reported ... ok
+test a_written_account_without_its_post_state_is_not_a_pass ... ok
+test logs_that_lose_their_tail_are_not_a_pass ... ok
+test logs_the_runtime_cut_are_not_a_pass ... ok
+test the_fixtures_have_nothing_for_v0e ... ok
+test the_program_run_by_another_program_is_not_a_pass ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 342.12s
+
+     Running tests/v16_cpi_keyfree.rs (/home/user/wylls/frontier-node/target/debug/deps/v16_cpi_keyfree-f928dd5ae24c5bbd)
+
+running 6 tests
+test v16_k0_control_the_fixture_passes ... ok
+test v16_k1_a_nested_invocation_of_the_program_is_not_a_pass ... ok
+test v16_k2_a_transaction_naming_the_program_with_no_logs_is_not_a_pass ... ok
+test v16_k3_truncated_logs_of_a_transaction_naming_the_program_are_not_a_pass ... ok
+test v16_k4_measured_complete_logs_showing_the_program_never_ran ... ok
+test v16_k5_a_successful_call_whose_log_tail_was_lost_is_not_a_pass ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 14.82s
+
+exit=0

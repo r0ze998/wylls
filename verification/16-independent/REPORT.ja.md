@@ -531,3 +531,72 @@ ef63544c からの差分は agent wallet だけ（`permutation-gateway/src/front
 ④の新しい現在版は `claude/gallant-ride-cunptv` の `9568660675ad5464dcd2ce1a0f266f5a7dfb39cb`（tree `09d14584a6e03da5e1699883bd1fc390d55f7cb1`、文書だけ）。コードはその親の `b82fafa8f8095f83f157fcf80d2f15943982ebc4`（tree `39a95c7a171c2d536b0cf647cecc035a9cc1dc44`）で、さらにその親が `77c5cbe2`。⑯が GitHub から取得して、SHA・tree・祖先関係を確かめた。
 
 77c5cbe2 からの差分は `workstreams/04-execution/` の中だけ（`runexec act` の入口、`clients/acts.mjs`、chunked 応答の読み取りの修正、その試験）。優先項目のコード（検証器、keeper、`permutation-gateway/src` 全体、agent wallet、`prize.mjs`、findex、ABI、Web、herald）は、77c5cbe2 と tree・blob の SHA が同じ。**したがって 11.6 節の判定は 95686606 でもそのまま当てはまる（コード同一による引き継ぎで、95686606 での再実行はしていない）。** ④の `runexec` と `clients/acts` は⑯の検証対象に入れておらず、④が報告した試験（ws04 91 通過・9 無効、act_cli 5、acts 4、e2e-native 8）は④の結果。
+
+
+# 第7期（2026-11-06）：④ 77c5cbe2／95686606、⑪ c8d694bd、⑮・⑱・⑲ の新しい版
+
+鍵の生成・導出・署名を伴う試験は行わない（第6期と同じ制約）。実 SBF・実チェーンでの実行はない。すべてホスト上の実行かコード読解。
+
+## 12.1 固定した版と取得状況
+
+| 担当 | 版（完全な SHA） | tree | 取得 |
+|---|---|---|---|
+| ④ | `9568660675ad5464dcd2ce1a0f266f5a7dfb39cb`（コードは `b82fafa8f8095f83f157fcf80d2f15943982ebc4`、その前が `77c5cbe2398c89559417f8cf18d4065b51455ee6`） | `09d14584a6e03da5e1699883bd1fc390d55f7cb1` | GitHub `claude/gallant-ride-cunptv` |
+| ⑪ | `c8d694bd2b3ac4a08e3ad5633bf1d8b623be32f8` | `2be2e7deda9eaf827223871bb7ca482a47d82b96` | GitHub `claude/kind-fermat-earbxe` |
+| ⑪の候補を当てた検証用 tree | ④ `95686606` ＋ ⑪ `0004` ＋ `0005`（⑯の試験ファイルを除く） | `7d48ee2d9c8128fb6aa8ae9879028434f7bb2ceb` | ⑯が作成（隔離 worktree、未 commit） |
+| ⑮ | `b295ca3eac6767ab0b2f47f5e09c608163c6d732` | `72b885182371907a3da242a4a38441fca9165ccb`（⑮の申告） | **未取得**（bundle 待ち） |
+| ⑱ | `b71b8197190ff05e9e999eff45a2ddea6b2b8d1f` | `ff7b7fccb6d8b2eb331dec9b4601527cf4dee05b`（⑱の申告） | **未取得**（bundle 待ち） |
+| ⑲ | `6b5f06210642d935a3e1b588b99511fb1666a47a` | `103d7f70e74ff464c8c235066dc42e491ab36c3d`（⑲の申告） | **未取得**（bundle 待ち） |
+
+⑪のパッチの照合: `c8d694bd` の `workstreams/11-extensions/patches/` から取り出した `0004-verify-v0e-evidence-is-unverifiable.patch` の sha256 `258ad75901a637c97f4df06655b2d01b4f744a255eff8bbeacfb6ff22dd21660`、`0005-verify-v0e-cpi-only-and-lost-tail.patch` の `09beb7bce149c3628f516f1b6285c090e9f159ea1b7fb916fcd0e304f4067639` は、⑪の README の値と一致した。README の指定どおり 0004 → 0005 の順に、`ef63544c` と検証器のコードが同じ④の `95686606` に当てた（`git apply --check` 成功）。変更は `frontier-node/crates/verify` の `checks/mod.rs`、`checks/v0_evidence.rs`（新規）、`codes.rs`、`tests/evidence.rs`（新規）だけ。
+
+### 必要な bundle（利用者経由で受け取る。どれも前提の commit は⑯の手元にある）
+
+| 担当 | ファイル名 | sha256（申告） | 前提 | 中の ref → HEAD |
+|---|---|---|---|---|
+| ⑮ | `ws15-b1a09a0b-to-b295ca3e.bundle`（99,362 バイト） | `8194af20c446c4ab97241a5f8afc8b9672ffd52203ae0f9cc1a18f979959777f` | `b1a09a0b15dd44f587b1158fc40dd3f17577fcca` | `refs/heads/ws/15-coop-outcomes` → `b295ca3e…` |
+| ⑱ | `r18-on-integration.bundle` | `a1d0c8b63fd264cdd5c730cc14e0e5f900f7681ea51c8405e728a6b899bcdd69` | `ef63544c727490fc6801d30affd11c5b7106c480` | `refs/heads/r18/on-integration-ws09-13-v16` → `b71b8197…` |
+| ⑲ | `ws19-on-77c5cbe2.bundle` | `5aecee6ceb174267655ac229d49d3b2d137ca60b21fb2a14e1c3ecb7e78a12d7` | `77c5cbe2398c89559417f8cf18d4065b51455ee6` | `ws19/on-77c5cbe2` → `6b5f0621…` |
+
+⑲の旧 bundle `ws19-20261105.bundle`（sha256 `a6614bc9…0963`、前提 `d793ebd4` と `d0949fd4`）は、⑲自身が `ws19-on-77c5cbe2` を正としているため不要。
+
+## 12.2 ⑪：CPI の誤 PASS とログ欠落（A8）を、鍵なしの新しい試験で
+
+A8 の旧試験（`v16_unknown_tag.rs` の v16_a8）は固定 seed の鍵で署名するので使わない。代わりに `frontier-node/crates/verify/tests/v16_cpi_keyfree.rs` を書いた。記録済みの fixture（データ）に、署名のない取引（`Transaction::new_unsigned`、署名欄はゼロ）を固定のアドレスで足すか、記録済みの取引のログを削るだけ。PDA の導出もしない。
+
+| 試験 | ④ 95686606（パッチなし） | ＋⑪ 0004＋0005 |
+|---|---|---|
+| K0 対照: fixture はそのまま PASS | 通過 | 通過 |
+| K1 別のプログラムの中で Frontier が動いた（`invoke [2]`） | **PASS になる（再現）** | 非 PASS（修正確認） |
+| K2 Frontier を口座に挙げ、ログがない | **PASS（再現）** | 非 PASS（修正確認） |
+| K3 Frontier を口座に挙げ、ログが切れている | **PASS（再現）** | 非 PASS（修正確認） |
+| K4 完全なログが、Frontier が動いていないことを示す（挙動の記録） | FAIL ではない | FAIL ではない |
+| K5 成功した Frontier の取引の、ログの末尾（最後の `success` 以降）が印なしに消えた | **PASS（再現）** | 非 PASS（修正確認） |
+
+⑪自身の `tests/evidence.rs`（8 件、鍵の操作なしを確認）もパッチ後に全通過。ログ: `logs/phase7/a8-95686606-unpatched.log`、`a8-95686606-p0004-p0005.log`。
+
+注意: 第5期の A8 の再現試験は、Courier だけのログ（Frontier が動いていないと読めるログ）を付けていた。これは K4 に当たり、0004＋0005 の後でも PASS のままでよい形だった。今回の K1〜K3・K5 が、A8 の正しい形の再現。0004＋0005 は④の現在版に**未適用**（候補）。
+
+## 12.3 古い版の問題と、現在も残る問題
+
+| 項目 | 古い版で再現（版） | ④の現在版 95686606 | 後続の候補 |
+|---|---|---|---|
+| A8 CPI の誤 PASS・ログ欠落 | d0949fd4（第5期） | **残る**（K1〜K3・K5 を実行で再現） | ⑪ 0004＋0005 で修正を確認（未適用） |
+| BeaconLog の再起動後の再投稿 | d0949fd4 | 残る（コード同一。未実行） | ⑧ `5366f7c5`（未取り込み） |
+| B1 保持上限を超えた再送 | d0949fd4 | 残る（コード読解） | なし |
+| B8 同じ tick の二重行動 | d0949fd4 | 残る（コード読解、仕様未決） | なし |
+| T17-2 / T17-5 | d0949fd4 | 残る（コード読解） | ⑰ 0c80381d で T17-2 は修正（未取り込み） |
+| T17-3 | d0949fd4 | 修正（コード読解のみ） | — |
+| C3 アカウント切替 | d0949fd4 | 修正（実行） | — |
+| A7 委任中の「鍵がない」 | d0949fd4 | 一部修正（表示だけ） | — |
+| T18-1 Web の自己公開が到着ターン開始時 | d0949fd4・0bba3f31 | 残る（実行） | ⑱ `b71b8197` が「T(arrive) 公開＋5 秒以降」にすると申告。**未検証**（bundle 待ち） |
+| T18-3 Reveal 再送の手数料 | 0bba3f31（⑱の旧版） | 修正済み（d0949fd4 以降） | ⑱ `b71b8197` は「まだ着地しうる W 版を N=2 件まで」と申告。未検証 |
+| ⑲ G1・G3（初回・途中の欠落を見逃す） | d793ebd4・d0949fd4 | 残る（実行） | ⑲ `6b5f0621` は RpcPoll の検出を変えていないと申告。未検証 |
+| ⑮ 荷の証拠の経路 | b1a09a0b ＋ 15-separate で⑮自身の試験が失敗 | — | ⑮ `b295ca3e` が経路を書き直したと申告。未検証 |
+| P2〜P4 有限シーズンの境界 | 全版 | 残る（実行） | — |
+
+## 12.4 未確認
+
+- ⑮ `b295ca3e`、⑱ `b71b8197`、⑲ `6b5f0621`: bundle を受け取っていない（12.1 の表）。
+- ⑪ 0004＋0005 を当てた状態での、検証器の既存の試験のうち鍵や World を使うもの（`record.rs` など）。実行していない。
+- 実 SBF・実チェーン・LiteSVM: 実行なし。
