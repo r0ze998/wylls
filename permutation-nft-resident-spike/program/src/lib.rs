@@ -12,7 +12,16 @@
 //!        only the program's upgrade authority (LoaderV3 ProgramData) may write the config: otherwise anyone could
 //!        initialise it first after a deployment and set their own treasury and collection.
 //!   0x02 SetPrice    { price u64 }                                          [authority s] [config w]
-//!   0x50 MintResident{ price u64 }   [payer s,w] [treasury w] [asset s,w] [collection w] [coll_auth] [resident w] [config] [core] [system]
+//!   0x03 SetTerms    { max_supply u64, sale_start i64, sale_end i64, per_wallet u16, open u8 }  [authority s] [config w]
+//!   0x04 SetTreasury { treasury [u8;32] }                                   [authority s] [config w]
+//!   0x05 SetMetadata { name_len u8, name, uri_len u8, uri }                 [authority s] [config w]
+//!   0x06 ProposeAuthority { new [u8;32] } [authority s] [config w];  0x07 AcceptAuthority {} [new s] [config w]
+//!        Every sale value (price, supply, treasury, window, per-wallet limit, the NFT's name and URI) is the
+//!        config authority's setting: none is fixed here. The sale starts closed (open = 0, max_supply = 0)
+//!        and MintResident refuses until the authority opens it.
+//!   0x50 MintResident{ price u64 }   [payer s,w] [treasury w] [asset s,w] [collection w] [coll_auth] [resident w] [config w] [core] [system] [minter w]
+//!        the sale must be open, inside its window, below max_supply and (per_wallet > 0) below the payer's limit
+//!        (`minter` = `["minted-by", payer]`, created on the payer's first mint when a limit is set);
 //!        payer → treasury (price), Core CreateV1 into the collection (owner = payer, Permanent Freeze frozen=true and
 //!        Permanent Transfer Delegate, both with authority = coll_auth), resident created at gen 0. One instruction:
 //!        a failure anywhere undoes all of it (the runtime's atomicity).
@@ -54,15 +63,28 @@ pub const RESIDENT_TAG_DOMAIN: &[u8] = b"PSF-RES";
 
 pub const TAG_INIT_CONFIG: u8 = 0x01;
 pub const TAG_SET_PRICE: u8 = 0x02;
+pub const TAG_SET_TERMS: u8 = 0x03;
+pub const TAG_SET_TREASURY: u8 = 0x04;
+pub const TAG_SET_METADATA: u8 = 0x05;
+pub const TAG_PROPOSE_AUTHORITY: u8 = 0x06;
+pub const TAG_ACCEPT_AUTHORITY: u8 = 0x07;
+pub const MINTER_SEED: &[u8] = b"minted-by";
+/// minter: magic 1 ‖ wallet 32 ‖ minted u16 ‖ bump 1
+pub const MINTER_MAGIC: u8 = 0xC4;
+pub const MINTER_LEN: usize = 1 + 32 + 2 + 1;
+pub const NAME_MAX: usize = 32;
+pub const URI_MAX: usize = 200;
 pub const TAG_MINT_RESIDENT: u8 = 0x50;
 pub const TAG_TRANSFER_RESIDENT: u8 = 0x51;
 pub const TAG_SET_SESSION: u8 = 0x52;
 pub const TAG_OP: u8 = 0x53;
 
-pub const CONFIG_MAGIC: u8 = 0xC1;
+/// Config layout v2 (sale terms, metadata, authority hand-over); v1 was 0xC1.
+pub const CONFIG_MAGIC: u8 = 0xC3;
 pub const RESIDENT_MAGIC: u8 = 0xC2;
-/// config: magic 1 ‖ authority 32 ‖ treasury 32 ‖ collection 32 ‖ price 8 ‖ bump 1
-pub const CONFIG_LEN: usize = 1 + 32 + 32 + 32 + 8 + 1;
+/// config: magic 1 ‖ authority 32 ‖ treasury 32 ‖ collection 32 ‖ price 8 ‖ bump 1 ‖ pending_authority 32 ‖
+/// max_supply 8 ‖ minted 8 ‖ sale_start 8 ‖ sale_end 8 ‖ per_wallet 2 ‖ open 1 ‖ name_len 1 ‖ name 32 ‖ uri_len 1 ‖ uri 200
+pub const CONFIG_LEN: usize = 1 + 32 + 32 + 32 + 8 + 1 + 32 + 8 + 8 + 8 + 8 + 2 + 1 + 1 + NAME_MAX + 1 + URI_MAX;
 /// resident: magic 1 ‖ asset 32 ‖ tag15 15 ‖ gen 4 ‖ session 32 ‖ expiry 8 ‖ session_gen 4 ‖ setter 32 ‖ ops 4 ‖ bump 1
 pub const RESIDENT_LEN: usize = 1 + 32 + 15 + 4 + 32 + 8 + 4 + 32 + 4 + 1;
 pub mod resident {
@@ -84,6 +106,83 @@ pub mod config {
     pub const COLLECTION: usize = 65;
     pub const PRICE: usize = 97;
     pub const BUMP: usize = 105;
+    pub const PENDING: usize = 106;
+    pub const MAX_SUPPLY: usize = 138;
+    pub const MINTED: usize = 146;
+    pub const SALE_START: usize = 154;
+    pub const SALE_END: usize = 162;
+    pub const PER_WALLET: usize = 170;
+    pub const OPEN: usize = 172;
+    pub const NAME_LEN: usize = 173;
+    pub const NAME: usize = 174;
+    pub const URI_LEN: usize = 206;
+    pub const URI: usize = 207;
+}
+const _: () = assert!(config::URI + URI_MAX == CONFIG_LEN);
+
+/// The sale terms the config authority set (no value is fixed by the program).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Terms {
+    pub price: u64,
+    pub max_supply: u64,
+    pub minted: u64,
+    pub sale_start: i64,
+    pub sale_end: i64,
+    pub per_wallet: u16,
+    pub open: bool,
+}
+
+impl Terms {
+    pub fn read(c: &[u8]) -> Result<Terms, ProgramError> {
+        Ok(Terms {
+            price: rd_u64(c, config::PRICE)?,
+            max_supply: rd_u64(c, config::MAX_SUPPLY)?,
+            minted: rd_u64(c, config::MINTED)?,
+            sale_start: rd_i64(c, config::SALE_START)?,
+            sale_end: rd_i64(c, config::SALE_END)?,
+            per_wallet: u16::from_le_bytes(c.get(config::PER_WALLET..config::PER_WALLET + 2).ok_or(ResidentError::BadData)?.try_into().unwrap()),
+            open: *c.get(config::OPEN).ok_or(ResidentError::BadData)? == 1,
+        })
+    }
+}
+
+/// Whether one more NFT may be minted now by a wallet that has minted
+/// `wallet_minted` (counted only when `per_wallet > 0`).
+pub fn sale_check(t: &Terms, now: i64, wallet_minted: u16) -> Result<(), ResidentError> {
+    if !t.open {
+        return Err(ResidentError::SaleClosed);
+    }
+    if t.max_supply == 0 {
+        return Err(ResidentError::SupplyNotSet);
+    }
+    if t.minted >= t.max_supply {
+        return Err(ResidentError::SoldOut);
+    }
+    if t.sale_start != 0 && now < t.sale_start {
+        return Err(ResidentError::SaleNotStarted);
+    }
+    if t.sale_end != 0 && now >= t.sale_end {
+        return Err(ResidentError::SaleEnded);
+    }
+    if t.per_wallet > 0 && wallet_minted >= t.per_wallet {
+        return Err(ResidentError::WalletLimit);
+    }
+    Ok(())
+}
+
+/// Whether new terms are consistent: the supply never below what is minted,
+/// the window ordered, and an open sale with a supply and the NFT's name and URI set.
+pub fn terms_check(t: &Terms, name_len: u8, uri_len: u8) -> Result<(), ResidentError> {
+    if t.max_supply < t.minted {
+        return Err(ResidentError::BadTerms);
+    }
+    if t.sale_end != 0 && t.sale_end <= t.sale_start {
+        return Err(ResidentError::BadTerms);
+    }
+    if t.open && (t.max_supply == 0 || name_len == 0 || uri_len == 0) {
+        return Err(ResidentError::MetadataNotSet);
+    }
+    Ok(())
 }
 /// Longest session from its setting (30 days, as the Frontier Citizen).
 pub const MAX_SESSION_SECS: i64 = 30 * 86_400;
@@ -105,6 +204,19 @@ pub enum ResidentError {
     SessionExpiry = 1010,
     /// InitConfig signed by a key that is not the program's upgrade authority (or the program is immutable).
     NotUpgradeAuthority = 1011,
+    /// The sale is not open (the authority has not opened it, or closed it).
+    SaleClosed = 1012,
+    /// No supply is set (max_supply = 0).
+    SupplyNotSet = 1013,
+    SoldOut = 1014,
+    SaleNotStarted = 1015,
+    SaleEnded = 1016,
+    /// The payer reached the per-wallet limit.
+    WalletLimit = 1017,
+    /// Inconsistent terms (supply below minted, window out of order) or metadata too long.
+    BadTerms = 1018,
+    /// Opening a sale needs a supply and the NFT's name and URI.
+    MetadataNotSet = 1019,
 }
 impl From<ResidentError> for ProgramError {
     fn from(e: ResidentError) -> Self {
@@ -117,6 +229,10 @@ pub fn config_address(program: &Pubkey) -> (Pubkey, u8) {
 }
 pub fn collection_authority_address(program: &Pubkey) -> (Pubkey, u8) {
     Pubkey::find_program_address(&[COLLECTION_AUTHORITY_SEED], program)
+}
+/// The per-wallet mint count of `wallet` (`["minted-by", wallet]`).
+pub fn minter_address(program: &Pubkey, wallet: &Pubkey) -> (Pubkey, u8) {
+    Pubkey::find_program_address(&[MINTER_SEED, wallet.as_ref()], program)
 }
 pub fn resident_address(program: &Pubkey, asset: &Pubkey) -> (Pubkey, u8) {
     Pubkey::find_program_address(&[RESIDENT_SEED, asset.as_ref()], program)
@@ -150,6 +266,11 @@ pub fn process_instruction(program_id: &Pubkey, accounts: &[AccountInfo], data: 
     match tag {
         TAG_INIT_CONFIG => init_config(program_id, accounts, rest),
         TAG_SET_PRICE => set_price(program_id, accounts, rest),
+        TAG_SET_TERMS => set_terms(program_id, accounts, rest),
+        TAG_SET_TREASURY => set_treasury(program_id, accounts, rest),
+        TAG_SET_METADATA => set_metadata(program_id, accounts, rest),
+        TAG_PROPOSE_AUTHORITY => propose_authority(program_id, accounts, rest),
+        TAG_ACCEPT_AUTHORITY => accept_authority(program_id, accounts),
         TAG_MINT_RESIDENT => mint_resident(program_id, accounts, rest),
         TAG_TRANSFER_RESIDENT => transfer_resident(program_id, accounts),
         TAG_SET_SESSION => set_session(program_id, accounts, rest),
@@ -259,6 +380,103 @@ fn set_price(program_id: &Pubkey, accounts: &[AccountInfo], d: &[u8]) -> Program
     Ok(())
 }
 
+/// The config, writable, and its authority's signature.
+fn authority_config<'a, 'b>(program_id: &Pubkey, accounts: &'a [AccountInfo<'b>]) -> Result<&'a AccountInfo<'b>, ProgramError> {
+    let it = &mut accounts.iter();
+    let authority = next_account_info(it)?;
+    let cfg = next_account_info(it)?;
+    check_config(program_id, cfg)?;
+    if !authority.is_signer || rd_key(&cfg.try_borrow_data()?, config::AUTHORITY)? != *authority.key {
+        return Err(ResidentError::Auth.into());
+    }
+    Ok(cfg)
+}
+
+fn set_terms(program_id: &Pubkey, accounts: &[AccountInfo], d: &[u8]) -> ProgramResult {
+    let cfg = authority_config(program_id, accounts)?;
+    if d.len() != 8 + 8 + 8 + 2 + 1 || d[26] > 1 {
+        return Err(ResidentError::BadData.into());
+    }
+    let mut c = cfg.try_borrow_mut_data()?;
+    let mut t = Terms::read(&c)?;
+    t.max_supply = rd_u64(d, 0)?;
+    t.sale_start = rd_i64(d, 8)?;
+    t.sale_end = rd_i64(d, 16)?;
+    t.per_wallet = u16::from_le_bytes([d[24], d[25]]);
+    t.open = d[26] == 1;
+    terms_check(&t, c[config::NAME_LEN], c[config::URI_LEN])?;
+    wr(&mut c, config::MAX_SUPPLY, &t.max_supply.to_le_bytes());
+    wr(&mut c, config::SALE_START, &t.sale_start.to_le_bytes());
+    wr(&mut c, config::SALE_END, &t.sale_end.to_le_bytes());
+    wr(&mut c, config::PER_WALLET, &t.per_wallet.to_le_bytes());
+    c[config::OPEN] = t.open as u8;
+    Ok(())
+}
+
+fn set_treasury(program_id: &Pubkey, accounts: &[AccountInfo], d: &[u8]) -> ProgramResult {
+    let cfg = authority_config(program_id, accounts)?;
+    let treasury = rd_key(d, 0)?;
+    if d.len() != 32 || treasury == Pubkey::default() {
+        return Err(ResidentError::BadData.into());
+    }
+    wr(&mut cfg.try_borrow_mut_data()?, config::TREASURY, treasury.as_ref());
+    Ok(())
+}
+
+/// `name_len u8 ‖ name ‖ uri_len u8 ‖ uri` (UTF-8, at most NAME_MAX and URI_MAX bytes).
+pub fn parse_metadata(d: &[u8]) -> Result<(&[u8], &[u8]), ResidentError> {
+    let n = *d.first().ok_or(ResidentError::BadData)? as usize;
+    let name = d.get(1..1 + n).ok_or(ResidentError::BadData)?;
+    let u = *d.get(1 + n).ok_or(ResidentError::BadData)? as usize;
+    let uri = d.get(2 + n..2 + n + u).ok_or(ResidentError::BadData)?;
+    if d.len() != 2 + n + u || n > NAME_MAX || u > URI_MAX || core::str::from_utf8(name).is_err() || core::str::from_utf8(uri).is_err() {
+        return Err(ResidentError::BadTerms);
+    }
+    Ok((name, uri))
+}
+
+fn set_metadata(program_id: &Pubkey, accounts: &[AccountInfo], d: &[u8]) -> ProgramResult {
+    let cfg = authority_config(program_id, accounts)?;
+    let (name, uri) = parse_metadata(d)?;
+    let mut c = cfg.try_borrow_mut_data()?;
+    // An open sale keeps a name and a URI.
+    if c[config::OPEN] == 1 && (name.is_empty() || uri.is_empty()) {
+        return Err(ResidentError::MetadataNotSet.into());
+    }
+    c[config::NAME..config::NAME + NAME_MAX].fill(0);
+    c[config::URI..config::URI + URI_MAX].fill(0);
+    c[config::NAME_LEN] = name.len() as u8;
+    wr(&mut c, config::NAME, name);
+    c[config::URI_LEN] = uri.len() as u8;
+    wr(&mut c, config::URI, uri);
+    Ok(())
+}
+
+/// Two steps: the authority names a successor, the successor accepts (a typo never loses the config).
+fn propose_authority(program_id: &Pubkey, accounts: &[AccountInfo], d: &[u8]) -> ProgramResult {
+    let cfg = authority_config(program_id, accounts)?;
+    if d.len() != 32 {
+        return Err(ResidentError::BadData.into());
+    }
+    wr(&mut cfg.try_borrow_mut_data()?, config::PENDING, &d[..32]);
+    Ok(())
+}
+
+fn accept_authority(program_id: &Pubkey, accounts: &[AccountInfo]) -> ProgramResult {
+    let it = &mut accounts.iter();
+    let new = next_account_info(it)?;
+    let cfg = next_account_info(it)?;
+    check_config(program_id, cfg)?;
+    let mut c = cfg.try_borrow_mut_data()?;
+    let pending = rd_key(&c, config::PENDING)?;
+    if !new.is_signer || pending == Pubkey::default() || pending != *new.key {
+        return Err(ResidentError::Auth.into());
+    }
+    wr(&mut c, config::AUTHORITY, new.key.as_ref());
+    c[config::PENDING..config::PENDING + 32].fill(0);
+    Ok(())
+}
+
 fn check_config(program_id: &Pubkey, cfg: &AccountInfo) -> ProgramResult {
     if *cfg.key != config_address(program_id).0 {
         return Err(ResidentError::BadAddress.into());
@@ -300,14 +518,38 @@ fn mint_resident(program_id: &Pubkey, accounts: &[AccountInfo], d: &[u8]) -> Pro
     let cfg = next_account_info(it)?;
     let core = next_account_info(it)?;
     let system = next_account_info(it)?;
+    let minter = next_account_info(it)?;
     if !payer.is_signer || !asset.is_signer {
         return Err(ResidentError::Auth.into());
     }
     check_config(program_id, cfg)?;
-    let (price_cfg, treasury_cfg, collection_cfg) = {
+    let (terms, treasury_cfg, collection_cfg, name, uri) = {
         let c = cfg.try_borrow_data()?;
-        (rd_u64(&c, config::PRICE)?, rd_key(&c, config::TREASURY)?, rd_key(&c, config::COLLECTION)?)
+        let nl = c[config::NAME_LEN] as usize;
+        let ul = c[config::URI_LEN] as usize;
+        let name = String::from_utf8(c[config::NAME..config::NAME + nl].to_vec()).map_err(|_| ResidentError::BadData)?;
+        let uri = String::from_utf8(c[config::URI..config::URI + ul].to_vec()).map_err(|_| ResidentError::BadData)?;
+        (Terms::read(&c)?, rd_key(&c, config::TREASURY)?, rd_key(&c, config::COLLECTION)?, name, uri)
     };
+    let price_cfg = terms.price;
+    // The sale terms (all set by the config authority; the sale starts closed).
+    let (ma, m_bump) = minter_address(program_id, payer.key);
+    if *minter.key != ma {
+        return Err(ResidentError::BadAddress.into());
+    }
+    let wallet_minted = if terms.per_wallet > 0 && !minter.data_is_empty() {
+        let m = minter.try_borrow_data()?;
+        if minter.owner != program_id || m.len() != MINTER_LEN || m[0] != MINTER_MAGIC {
+            return Err(ResidentError::NotInitialized.into());
+        }
+        u16::from_le_bytes([m[33], m[34]])
+    } else {
+        0
+    };
+    sale_check(&terms, Clock::get()?.unix_timestamp, wallet_minted)?;
+    if name.is_empty() || uri.is_empty() {
+        return Err(ResidentError::MetadataNotSet.into());
+    }
     if rd_u64(d, 0)? != price_cfg {
         return Err(ResidentError::PriceChanged.into());
     }
@@ -328,8 +570,10 @@ fn mint_resident(program_id: &Pubkey, accounts: &[AccountInfo], d: &[u8]) -> Pro
     if !resident.data_is_empty() {
         return Err(ResidentError::AlreadyInitialized.into());
     }
-    // 1. the payment
-    invoke(&system_instruction::transfer(payer.key, treasury.key, price_cfg), &[payer.clone(), treasury.clone(), system.clone()])?;
+    // 1. the payment (none when the authority set the price to 0)
+    if price_cfg > 0 {
+        invoke(&system_instruction::transfer(payer.key, treasury.key, price_cfg), &[payer.clone(), treasury.clone(), system.clone()])?;
+    }
     // 2. the Core asset, guarded: both permanent plugins with this program's PDA as authority (creation-only, never revoked)
     let ca_seeds: &[&[u8]] = &[COLLECTION_AUTHORITY_SEED, &[ca_bump]];
     CreateV1CpiBuilder::new(core)
@@ -342,8 +586,8 @@ fn mint_resident(program_id: &Pubkey, accounts: &[AccountInfo], d: &[u8]) -> Pro
         .system_program(system)
         .log_wrapper(None)
         .data_state(DataState::AccountState)
-        .name(String::from("Wylls Resident (test)"))
-        .uri(String::from("https://wylls.test/resident.json"))
+        .name(name)
+        .uri(uri)
         .plugins(vec![
             PluginAuthorityPair { plugin: Plugin::PermanentFreezeDelegate(PermanentFreezeDelegate { frozen: true }), authority: Some(PluginAuthority::Address { address: ca }) },
             PluginAuthorityPair { plugin: Plugin::PermanentTransferDelegate(PermanentTransferDelegate {}), authority: Some(PluginAuthority::Address { address: ca }) },
@@ -357,6 +601,25 @@ fn mint_resident(program_id: &Pubkey, accounts: &[AccountInfo], d: &[u8]) -> Pro
     wr(&mut r, resident::TAG15, &resident_tag15(asset.key));
     wr(&mut r, resident::GEN, &0u32.to_le_bytes());
     r[resident::BUMP] = r_bump;
+    drop(r);
+    // 4. the counts: the collection's, and the payer's when a per-wallet limit is set
+    {
+        let mut c = cfg.try_borrow_mut_data()?;
+        let minted = terms.minted.checked_add(1).ok_or(ResidentError::BadData)?;
+        wr(&mut c, config::MINTED, &minted.to_le_bytes());
+    }
+    if terms.per_wallet > 0 {
+        if minter.data_is_empty() {
+            create_pda(payer, minter, system, program_id, &[MINTER_SEED, payer.key.as_ref()], m_bump, MINTER_LEN)?;
+            let mut m = minter.try_borrow_mut_data()?;
+            m[0] = MINTER_MAGIC;
+            wr(&mut m, 1, payer.key.as_ref());
+            m[MINTER_LEN - 1] = m_bump;
+        }
+        let mut m = minter.try_borrow_mut_data()?;
+        let n = wallet_minted.checked_add(1).ok_or(ResidentError::BadData)?;
+        wr(&mut m, 33, &n.to_le_bytes());
+    }
     Ok(())
 }
 
@@ -496,6 +759,76 @@ mod tests {
         // Immutable program: no authority, so InitConfig is refused.
         let none = upgrade_authority(&P, &P, &LOADER_V3, &program_bytes(&PD), &PD, &LOADER_V3, &programdata_bytes(None));
         assert_eq!(none, Ok(None));
+    }
+
+    fn open_terms() -> Terms {
+        Terms { price: 7, max_supply: 3, minted: 0, sale_start: 0, sale_end: 0, per_wallet: 0, open: true }
+    }
+
+    #[test]
+    fn the_sale_starts_closed_and_refuses_until_the_authority_opens_it() {
+        // InitConfig's state: closed, no supply (no value is fixed by the program).
+        let closed = Terms { price: 0, max_supply: 0, minted: 0, sale_start: 0, sale_end: 0, per_wallet: 0, open: false };
+        assert_eq!(sale_check(&closed, 100, 0), Err(ResidentError::SaleClosed));
+        assert_eq!(sale_check(&Terms { open: true, ..closed }, 100, 0), Err(ResidentError::SupplyNotSet));
+        assert_eq!(sale_check(&open_terms(), 100, 0), Ok(()));
+    }
+
+    #[test]
+    fn supply_window_and_per_wallet_limits_are_the_configured_ones() {
+        let t = open_terms();
+        assert_eq!(sale_check(&Terms { minted: 3, ..t }, 100, 0), Err(ResidentError::SoldOut));
+        assert_eq!(sale_check(&Terms { minted: 2, ..t }, 100, 0), Ok(()));
+        let w = Terms { sale_start: 50, sale_end: 60, ..t };
+        assert_eq!(sale_check(&w, 49, 0), Err(ResidentError::SaleNotStarted));
+        assert_eq!(sale_check(&w, 50, 0), Ok(()));
+        assert_eq!(sale_check(&w, 60, 0), Err(ResidentError::SaleEnded));
+        let p = Terms { per_wallet: 2, ..t };
+        assert_eq!(sale_check(&p, 100, 1), Ok(()));
+        assert_eq!(sale_check(&p, 100, 2), Err(ResidentError::WalletLimit));
+        // No per-wallet limit: the count is not read.
+        assert_eq!(sale_check(&t, 100, u16::MAX), Ok(()));
+    }
+
+    #[test]
+    fn terms_are_consistent_before_they_are_stored() {
+        let t = open_terms();
+        assert_eq!(terms_check(&t, 4, 9), Ok(()));
+        assert_eq!(terms_check(&Terms { max_supply: 1, minted: 2, ..t }, 4, 9), Err(ResidentError::BadTerms));
+        assert_eq!(terms_check(&Terms { sale_start: 9, sale_end: 9, ..t }, 4, 9), Err(ResidentError::BadTerms));
+        // Opening needs a supply, a name and a URI; a closed sale may be prepared without them.
+        assert_eq!(terms_check(&t, 0, 9), Err(ResidentError::MetadataNotSet));
+        assert_eq!(terms_check(&Terms { max_supply: 0, ..t }, 4, 9), Err(ResidentError::MetadataNotSet));
+        assert_eq!(terms_check(&Terms { open: false, max_supply: 0, ..t }, 0, 0), Ok(()));
+    }
+
+    #[test]
+    fn metadata_is_bounded_utf8() {
+        let mut d = vec![3u8];
+        d.extend_from_slice(b"abc");
+        d.push(2);
+        d.extend_from_slice(b"xy");
+        assert_eq!(parse_metadata(&d), Ok((&b"abc"[..], &b"xy"[..])));
+        let mut long = vec![(NAME_MAX + 1) as u8];
+        long.extend(std::iter::repeat(b'a').take(NAME_MAX + 1));
+        long.push(0);
+        assert_eq!(parse_metadata(&long), Err(ResidentError::BadTerms));
+        assert_eq!(parse_metadata(&[1, 0xff, 0]), Err(ResidentError::BadTerms));
+        assert_eq!(parse_metadata(&[3, b'a']), Err(ResidentError::BadData));
+    }
+
+    #[test]
+    fn the_config_layout_reads_back() {
+        let mut c = vec![0u8; CONFIG_LEN];
+        wr(&mut c, config::PRICE, &5u64.to_le_bytes());
+        wr(&mut c, config::MAX_SUPPLY, &9u64.to_le_bytes());
+        wr(&mut c, config::MINTED, &2u64.to_le_bytes());
+        wr(&mut c, config::SALE_START, &(-1i64).to_le_bytes());
+        wr(&mut c, config::PER_WALLET, &1u16.to_le_bytes());
+        c[config::OPEN] = 1;
+        let t = Terms::read(&c).unwrap();
+        assert_eq!(t, Terms { price: 5, max_supply: 9, minted: 2, sale_start: -1, sale_end: 0, per_wallet: 1, open: true });
+        assert_eq!(CONFIG_LEN, 407);
     }
 
     #[test]

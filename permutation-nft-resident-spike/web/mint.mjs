@@ -18,6 +18,7 @@ import { encode as toBase58 } from '/sdk/base58.mjs';
 import { u64le, toBase64, equal, concat, utf8 } from '/sdk/bytes.mjs';
 import { decode as fromBase58 } from '/sdk/base58.mjs';
 import * as ws from '/web/wallet-standard.mjs';
+import { saleState, SALE_TEXT } from '/web/sale.mjs';
 
 const $ = sel => document.querySelector(`[data-testid="${sel}"]`);
 const fmtSol = l => `${(Number(l) / 1e9).toFixed(6)} SOL (${l} lamports)`;
@@ -41,7 +42,10 @@ async function boot() {
   $('network').textContent = `${c.network} (${c.chainId})${c.mode === 'mock' ? '［模擬チェーン］' : ''}`;
   // The banner names the network it is really on (devnet; a loopback validator in local verification).
   if (c.mode !== 'mock' && !/devnet/i.test(c.network)) $('notice').textContent = $('notice').textContent.replace('DEVNET のテストです', 'ローカル検証ネット（実 program、ループバック validator）のテストです');
-  $('price').textContent = `${fmtSol(c.price.lamports)} — ${c.price.label}`;
+  $('price').textContent = `${fmtSol(c.price.lamports)}${c.price.label ? ` — ${c.price.label}` : ''}`;
+  // A deployment's own notice (the operator's text); the devnet banner otherwise.
+  if (c.notice) $('notice').textContent = c.notice;
+  renderTerms();
   $('fee').textContent = `約 ${fmtSol(c.estimate.feeLamports)}（署名 2 件）`;
   $('rent').textContent = `約 ${fmtSol(BigInt(c.estimate.rentAssetLamports) + BigInt(c.estimate.rentResidentLamports))}`;
   $('total').textContent = `約 ${fmtSol(total())}`;
@@ -60,6 +64,19 @@ async function boot() {
   if (state.networkOk) say('ウォレットを接続してください。');
   $('mint').addEventListener('click', () => mint().catch(e => fail(e)));
   $('recheck').addEventListener('click', () => refresh().catch(e => fail(e)));
+}
+/** The sale terms as the program's config holds them (supply, window, per-wallet limit): the page only shows them. */
+function renderTerms(walletMinted = 0) {
+  const t = state.config.terms;
+  const s = saleState(t, Math.floor(Date.now() / 1000), walletMinted);
+  state.sale = s;
+  if ($('supply')) $('supply').textContent = !t || BigInt(t.maxSupply) === 0n ? '未設定' : `${t.minted} / ${t.maxSupply}（残り ${s.remaining}）`;
+  if ($('sale')) {
+    const when = v => (BigInt(v) === 0n ? null : new Date(Number(v) * 1000).toLocaleString());
+    const win = t ? [when(t.saleStart) && `開始 ${when(t.saleStart)}`, when(t.saleEnd) && `終了 ${when(t.saleEnd)}`, Number(t.perWallet) > 0 && `1 ウォレット ${t.perWallet} 枚まで`].filter(Boolean).join('、') : '';
+    $('sale').textContent = s.open ? `販売中${win ? `（${win}）` : ''}` : `${SALE_TEXT[s.code] ?? s.code}${win ? `（${win}）` : ''}`;
+  }
+  return s;
 }
 const total = () => BigInt(state.config.price.lamports) + BigInt(state.config.estimate.feeLamports) + BigInt(state.config.estimate.rentAssetLamports) + BigInt(state.config.estimate.rentResidentLamports);
 
@@ -100,7 +117,7 @@ async function refresh() {
     return;
   }
   $('result').hidden = true;
-  $('mint').disabled = !state.networkOk || state.busy;
+  $('mint').disabled = !state.networkOk || state.busy || !state.sale?.open;
   say(bal < total() ? `テスト SOL が不足しています（必要 約 ${fmtSol(total())}、残高 ${fmtSol(bal)}）。devnet の faucet で補充してください。` : 'mint できます。ボタンを押すとウォレットで取引を確認・署名します。', bal < total() ? 'err' : '');
   $('mint').disabled = $('mint').disabled || bal < total();
 }
@@ -184,6 +201,12 @@ async function mint() {
     // The price the page shows is the price the instruction carries; the program refuses a mismatch.
     const c = state.config = await api('/mint/config');
     const price = BigInt(c.price.lamports);
+    // The sale terms, fresh (the authority may have changed them), with this wallet's count when a limit is set.
+    const minterPda = await minterAccountOf(state.wallet.address);
+    const minterAcc = Number(c.terms?.perWallet ?? 0) > 0 && minterPda !== 'mock' ? (await rpc('getAccountInfo', [minterPda, { encoding: 'base64', commitment: 'confirmed' }])).value : null;
+    const minted = minterAcc ? new DataView(Uint8Array.from(atob(minterAcc.data[0]), ch => ch.charCodeAt(0)).buffer).getUint16(33, true) : 0;
+    const sale = renderTerms(minted);
+    if (!sale.open) throw Object.assign(new Error(SALE_TEXT[sale.code] ?? sale.code), { code: sale.code });
     const bal = BigInt((await rpc('getBalance', [state.wallet.address, { commitment: 'confirmed' }])).value);
     if (bal < total()) throw Object.assign(new Error(`テスト SOL が不足しています（必要 約 ${fmtSol(total())}）`), { code: 'InsufficientSol' });
     say('取引を作成しています…');
@@ -203,7 +226,8 @@ async function mint() {
         { pubkey: state.wallet.address, isSigner: true, isWritable: true }, { pubkey: c.treasury, isSigner: false, isWritable: true },
         { pubkey: asset, isSigner: true, isWritable: true }, { pubkey: c.collection, isSigner: false, isWritable: true },
         { pubkey: c.collectionAuthorityPda, isSigner: false, isWritable: false }, { pubkey: residentPda, isSigner: false, isWritable: true },
-        { pubkey: c.configPda, isSigner: false, isWritable: false }, { pubkey: c.programs.core, isSigner: false, isWritable: false }, { pubkey: c.programs.system, isSigner: false, isWritable: false },
+        { pubkey: c.configPda, isSigner: false, isWritable: true }, { pubkey: c.programs.core, isSigner: false, isWritable: false }, { pubkey: c.programs.system, isSigner: false, isWritable: false },
+        { pubkey: minterPda === 'mock' ? c.configPda : minterPda, isSigner: false, isWritable: true },
       ],
       data: concat([c.instruction.tag], u64le(price)),
     };
@@ -226,7 +250,7 @@ async function mint() {
         clearPending();
         const pe = programError(e);
         const m = /already been processed/.test(e.message) ? '同じ取引が処理済みです' : /Blockhash not found/.test(e.message) ? '取引の期限が切れました。もう一度お試しください' : /insufficient|no record of a prior credit|insufficient lamports/i.test(e.message) ? 'テスト SOL が不足しています'
-          : pe === 'PriceChanged' || /PriceChanged/.test(JSON.stringify(e.data ?? '')) ? '価格が変わりました。画面を再読込してください（課金なし）' : pe === 'AlreadyInitialized' ? 'この asset は既に発行済みです（課金なし）' : pe ? `プログラムが拒否しました：${pe}（課金なし）` : e.message;
+          : SALE_TEXT[pe] ? `${SALE_TEXT[pe]}（課金なし）` : pe === 'PriceChanged' || /PriceChanged/.test(JSON.stringify(e.data ?? '')) ? '価格が変わりました。画面を再読込してください（課金なし）' : pe === 'AlreadyInitialized' ? 'この asset は既に発行済みです（課金なし）' : pe ? `プログラムが拒否しました：${pe}（課金なし）` : e.message;
         throw Object.assign(new Error(m), { code: 'Refused' });
       }
       // No answer (network): the record stays; resolve by signature.
@@ -251,12 +275,18 @@ async function residentAccountOf(asset) {
   if (state.config.mode === 'mock') return (await api(`/mint/derive?asset=${asset}`)).resident;
   return findProgramAddress([utf8('resident'), fromBase58(asset)], state.config.programs.resident)[0];
 }
+/** The wallet's per-wallet count account `["minted-by", wallet]` (the mock chain does not model it). */
+async function minterAccountOf(wallet) {
+  if (state.config.mode === 'mock') return 'mock';
+  return findProgramAddress([utf8('minted-by'), fromBase58(wallet)], state.config.programs.resident)[0];
+}
 function derivedPdas() {
   const p = state.config.programs.resident;
   return { config: findProgramAddress([utf8('config')], p)[0], collectionAuthority: findProgramAddress([utf8('collection-authority')], p)[0] };
 }
 /** The resident program's custom error names (program/src/lib.rs ResidentError) out of an RPC error. */
-const RESIDENT_ERRORS = { 1000: 'BadData', 1001: 'BadAddress', 1002: 'Auth', 1003: 'NotOwner', 1004: 'StaleGen', 1005: 'PriceChanged', 1006: 'WrongTreasury', 1007: 'WrongCollection', 1008: 'AlreadyInitialized', 1009: 'NotInitialized', 1010: 'SessionExpiry' };
+const RESIDENT_ERRORS = { 1000: 'BadData', 1001: 'BadAddress', 1002: 'Auth', 1003: 'NotOwner', 1004: 'StaleGen', 1005: 'PriceChanged', 1006: 'WrongTreasury', 1007: 'WrongCollection', 1008: 'AlreadyInitialized', 1009: 'NotInitialized', 1010: 'SessionExpiry',
+  1011: 'NotUpgradeAuthority', 1012: 'SaleClosed', 1013: 'SupplyNotSet', 1014: 'SoldOut', 1015: 'SaleNotStarted', 1016: 'SaleEnded', 1017: 'WalletLimit', 1018: 'BadTerms', 1019: 'MetadataNotSet' };
 function programError(e) {
   const s = `${e.message} ${JSON.stringify(e.data ?? '')}`;
   const m = /"Custom":(\d+)/.exec(s) || /custom program error: 0x([0-9a-f]+)/i.exec(s);

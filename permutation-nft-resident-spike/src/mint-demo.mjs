@@ -16,6 +16,8 @@ export function mockMintStack({ port = 0, priceLamports = 100_000_000n } = {}) {
     network: 'devnet (mock)', chainId: 'solana:devnet', genesisHash: 'MockGenesis11111111111111111111111111111111',
     explorer: 'https://explorer.solana.com', priceLamports, priceLabel: 'TEST PRICE — 試験用の仮値、本番価格ではない',
     treasury: randomAddress(), collectionAuthorityPda: randomAddress(), configPda: randomAddress(),
+    // A TEST fixture for the mock chain only (not product terms): an open sale with a large supply.
+    terms: { open: true, maxSupply: 1_000_000n, minted: 0n, saleStart: 0n, saleEnd: 0n, perWallet: 0, name: 'Wylls Resident (mock)', uri: 'local://resident.json' },
   };
   const rpc = new MockRpc({ chain, collection, config });
   const adapter = new MockAdapter({ rpc, chain, collection, config });

@@ -12,6 +12,7 @@
 // program (its instruction layout below is the proposal for ④). What is
 // real: the transaction bytes, the signature checks, the account layout the
 // page decodes (AssetV1), the JSON-RPC shapes.
+import { saleState } from '../web/sale.mjs';
 import { parseTransaction } from '../../permutation-gateway/client/src/solana-tx.mjs';
 import { verifySignature, base58, pubkeyBytes, sha256, randomAddress } from './crypto.mjs';
 import { encodeAssetV1, MPL_CORE_PROGRAM } from './core-asset.mjs';
@@ -30,7 +31,7 @@ export const RESIDENT_BYTES = 384;                   // the Citizen v2 size
 /** MintResident instruction: tag 0x50 ‖ price lamports u64 LE (the price the client saw; the program refuses a mismatch). */
 export const MINT_RESIDENT_TAG = 0x50;
 /** Account order of MintResident (proposal for ④): payer s/w, treasury w, asset s/w, collection w, collection authority PDA, resident PDA w, config, Core program, System program. */
-export const MINT_RESIDENT_ACCOUNTS = Object.freeze(['payer', 'treasury', 'asset', 'collection', 'collectionAuthority', 'resident', 'config', 'coreProgram', 'systemProgram']);
+export const MINT_RESIDENT_ACCOUNTS = Object.freeze(['payer', 'treasury', 'asset', 'collection', 'collectionAuthority', 'resident', 'config', 'coreProgram', 'systemProgram', 'minter']);
 
 export class MockRpc {
   /**
@@ -213,6 +214,13 @@ export class MockRpc {
     if (!tx.signers.includes(k.payer) || !tx.signers.includes(k.asset)) throw new Refusal(ERR.AUTH, 'MintResident: payer and asset must sign');
     if (k.resident !== residentAccountOf(k.asset)) throw new Refusal(ERR.BAD_DATA, 'MintResident: resident PDA does not match the asset');
     if (this.chain.accounts.has(k.asset)) throw new Refusal(ERR.ALREADY_PROCESSED, 'MintResident: asset exists');
+    // The sale terms (the config authority's; the mock's are a test fixture): the program's order of checks.
+    const terms = this.config.terms;
+    this.minters ??= new Map();
+    if (terms) {
+      const s = saleState(terms, Math.floor(this.now() / 1000), this.minters.get(k.payer) ?? 0);
+      if (!s.open) throw new Refusal(ERR.BAD_DATA, `MintResident: ${s.code}`, { sale: s.code });
+    }
     const rent = rentFor(ASSET_BYTES) + rentFor(RESIDENT_BYTES);
     const need = price + rent;
     if (this.balance(k.payer) < need) throw new Refusal(ERR.INSUFFICIENT_FUNDS, `MintResident: insufficient lamports (need ${need})`);
@@ -227,6 +235,11 @@ export class MockRpc {
     // 3. resident account (generation 0), bound to the asset
     this.chain.writeResidentPublic(k.asset, { gen: 0, session: null, bound: residentIdOf(k.asset) });
     logs.push(`Program log: resident ${residentIdOf(k.asset)} created for ${k.asset}`);
+    // 4. the counts
+    if (terms) {
+      terms.minted = BigInt(terms.minted ?? 0) + 1n;
+      if (Number(terms.perWallet ?? 0) > 0) this.minters.set(k.payer, (this.minters.get(k.payer) ?? 0) + 1);
+    }
   }
 }
 
