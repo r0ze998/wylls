@@ -118,6 +118,10 @@
 
 ## 5. 未解決・判断待ち
 
+- **72 h の起点**（⑯の指摘 (4)、コードで確認）：起点は予定の終了時刻（`bell_start(genesis, end_bell)`）で、EndSeason を送った時刻ではない。EndSeason が予定の終了＋72 h より遅れると、Ended になった瞬間から CloseCitizen・CloseProvince が通る。そのため、Tally・Finalize・記録の猶予は 0 になりうる。RecordNation は Ended を待たずに Join の直後から送れるので、この競争を避けられる。
+- **⑰の Attest との一本化**：⑰も同じ tag 7 に別の候補 Attest を作った（Ended の後だけ記録でき、Entry の byte 104–105 を使う。⑰の bundle は④には未受領）。上の理由で「Ended を要求しない」ことを⑰に提案し、program 本体は⑰に任せる案で調整中。合意できれば、④の RecordNation は revert で取り下げる。
+- ⑯の probe（`claude/dreamy-ramanujan-ijj8qj` `32b367b741b57bc69cfa92cb312bc6aa6441ee8f` の `verification/16-independent/probes/v16_prize_claim_rights.rs`）は、f43eb4eb の上で 6/6 合格した（一時的に置いて流しただけで、commit はしていない）。記録のない Entry の動きは変えていないので、修正の後も同じく通る。
+
 - ⑰の照合結果（送付済み・返事待ち）。
 - RecordNation の番号（tag 7）と Entry の byte 10–11 は、**仮**です。
   - 2026-11-06 に取得済みの remote 130 ref では、賞金 program に tag や Entry 欄を足すものはありませんでした（`tools/prize_tags.sh <repo>` で読むだけ）。
