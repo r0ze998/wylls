@@ -286,14 +286,15 @@ mod tests {
 
     #[test]
     fn codes_are_the_contract_table() {
-        // 62–93 contiguous, then ⑳'s 170–175 (workstream 4's allocation).
-        let want = (62u32..=93).chain(170..=175);
+        // 62–94 contiguous (94 ContinuousWorld), then ⑳'s 170–175
+        // (workstream 4's allocation).
+        let want = (62u32..=94).chain(170..=175);
         for (e, expect) in CqError::ALL.into_iter().zip(want) {
             assert_eq!(e.code(), expect, "{}", e.name());
             assert_eq!(CqError::from_code(expect), Some(e));
             assert_eq!(FrontierError::from_code(expect), None, "no M1 collision");
         }
-        assert_eq!(CqError::ALL.len(), 32 + 6);
+        assert_eq!(CqError::ALL.len(), 33 + 6);
         assert_eq!(CqError::NotLead.code(), 78);
         let all: std::vec::Vec<u32> = all_codes().map(|c| c.code()).collect();
         assert_eq!(all.len(), 62 + 33 + 6);
@@ -306,7 +307,7 @@ mod tests {
         assert_eq!(all[61], 62);
         assert_eq!(all[all.len() - 7], 99);
         assert_eq!(*all.last().unwrap(), 175);
-        for c in (94..=98).chain(100..=169).chain(176..=179) {
+        for c in (95..=98).chain(100..=169).chain(176..=179) {
             assert_eq!(Code::from_code(c), None, "{c} is not allocated here");
         }
         assert_eq!(
