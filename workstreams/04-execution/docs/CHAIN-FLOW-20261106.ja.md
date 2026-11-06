@@ -112,3 +112,16 @@ game program、prize、⑫、⑮、⑳ のファイルは変えていません�
 
 - **基点**：公開線 `ws04/int-20261106-pub` の 6984acfa4c0f9919c8c424a9bd5f2d59193d1639。
 - **この commit**：ローカルのみ。SHA と tree は、受渡しの bundle に添えます。
+
+## 7. PDA の算出について（追記）
+
+- **段 A・B は PDA を算出します**。対象は Season、link、policy、Citizen の with-seed です。
+  - ④は、利用者の回答（「鍵ペアと署名」が禁止の範囲）に従って、2026-11-06 に一度だけ実行しました。
+- **⑯と⑲の連絡**：利用者の新しい指示で、PDA の算出も対象外になった、とのことです。
+  - ④は、範囲を利用者に確かめるまで、PDA を算出する段（A・B）を再び実行しません。
+- **PDA なしで照合する方法**：その実行の各段の入出力を、固定のファイルとして残しました（`tools/chain-flow/fixtures-20261106/`）。
+  - `a-join.json` から `e-prize.json` まで。`b-store-dump.json` は store の receipts、runs、world を JSON にしたものです。
+  - `node --import ./scripts/ci/no-keys-guard.mjs workstreams/04-execution/tools/chain-flow/check-fixtures.mjs` で、段の間の整合を PDA なしで確かめられます。
+    - 確かめる内容：citizen_tag と Citizen の address の関係、記録の key、receipt の owner（u64 で正確に）、⑫ の sender、⑮ の event。
+    - 結果：22/22 が整合しました。
+  - **限界**：address そのものは、段 A で program が計算した値をそのまま使います。この照合は段どうしが一致することを示すだけで、address が正しいことは示しません。

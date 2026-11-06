@@ -1,0 +1,28 @@
+{
+  "stage": "E",
+  "status": "not run: the owner's CC implements the NFT prize (no overlapping implementation here)",
+  "inputs_available": {
+    "season": "0279b161f9d6c5d680144a7198e1b2023184d3bd11916180a86effd069821be8",
+    "season_id": 7,
+    "citizen": "51131d2e35af611b6ec091b9699ac0ec8654b67f5ec846c15611b5f2e8e09487",
+    "citizen_tag": "1973050754706772817",
+    "asset": "5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a",
+    "nation_stand_in": "faction-2",
+    "outcome_events": 2,
+    "owner_now": "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+    "generation": 1
+  },
+  "policy_given": "every player holds an NFT pass; unclaimed prizes from before a transfer move with the pass to the new owner",
+  "what_the_chain_shows": [
+    "the Citizen (and its tag, which the caravan, memory and outcome key on) stays with the pass across the transfer",
+    "the old owner is refused at once (stale generation, not current authority); the new owner acts with the new generation"
+  ],
+  "for_the_prize_step": [
+    "Claim's authority for an NFT Citizen: the pass's current owner at the current generation (as ResidentAct), not the wallet that joined",
+    "Entry/RecordNation: keyed by the Citizen, so a claim recorded before the transfer is the new owner's to take"
+  ],
+  "undecided": [
+    "refunds",
+    "moving other assets or history"
+  ]
+}
