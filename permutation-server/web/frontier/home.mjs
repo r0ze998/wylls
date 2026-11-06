@@ -24,11 +24,11 @@ export function saveHome(storage, key, patch) {
   storage.set(key, JSON.stringify(v));
   return loadHome(storage, key);
 }
-/** The season's placement for `homeNation`, or undefined (the wedge rule) when the record does not carry it. */
+/** The season's placement for `homeNation`, or undefined for explicit legacy placement. Missing dispersed evidence never falls back. */
 export function seasonPlace(season) {
   const cq = season?.conquestParams ?? season ?? {};
   const placement = Number(cq.placement ?? 0), seed = season?.genesisSeed ?? cq.genesisSeed;
-  if (placement === 0 || !seed || seed.length !== 32) return undefined;
+  if (placement === 0) return undefined;
   return { placement, heartlandMaxRing: Number(cq.heartlandMaxRing ?? 3), genesisSeed: seed };
 }
 export const grantId = h => `${h.p},${h.q},${h.site},${h.gen}`;
@@ -45,6 +45,7 @@ export function homeSites(province, { faction = null, nowBell = 0, ringsOpen = I
 
 /** At most 24 reads, different nations before joining, different places after. */
 export async function planHomes({ overviews, read, faction = null, nowBell = 0, ringsOpen = Infinity, seed = '', rotation = 0, max = 3, place = undefined }) {
+  if (place && (Number(place.placement) !== 1 || !place.genesisSeed || place.genesisSeed.length !== 32)) return { candidates: [], error: 'Unavailable', reads: 0 };
   const factions = faction === null ? Array.from({ length: 6 }, (_, i) => (i + rotation) % 6) : [faction];
   const lists = factions.map(f => candidateProvinces(overviews, f, place).sort((a, b) => a.ring - b.ring || hash32(`${seed}|${a.p},${a.q}`) - hash32(`${seed}|${b.p},${b.q}`)));
   const candidates = [];

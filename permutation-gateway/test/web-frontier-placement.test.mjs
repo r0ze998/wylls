@@ -47,9 +47,22 @@ test('homeSites and planHomes follow the placement: a joined player is offered o
   }
 });
 
-test('seasonPlace: absent fields keep the wedge rule', () => {
+test('seasonPlace: legacy fields keep the wedge rule but dispersed evidence is retained', () => {
   assert.equal(seasonPlace(null), undefined);
-  assert.equal(seasonPlace({ conquestParams: { placement: 1 } }), undefined); // no genesis seed known
+  assert.equal(seasonPlace({ conquestParams: { placement: 1 } }).placement, 1); // missing seed is retained as unavailable, not legacy
   assert.equal(seasonPlace({ conquestParams: { placement: 0 }, genesisSeed: seed(1) }), undefined);
   assert.deepEqual(seasonPlace({ conquestParams: { placement: 1, heartlandMaxRing: 3 }, genesisSeed: seed(1) }), place);
+});
+
+
+test('missing dispersed seed and unknown modes never offer wedge fallback homes', async () => {
+  for (const fields of [{placement: 1}, {placement: 1, genesisSeed: [1]}, {placement: 2, genesisSeed: seed(1)}]) {
+    const place = seasonPlace({conquestParams: fields});
+    assert.notEqual(place, undefined);
+    assert.equal(homeNation(2, 0, place), null);
+    let reads = 0;
+    const result = await planHomes({overviews: new Map(), place, read: async () => { reads++; return null; }});
+    assert.deepEqual(result, {candidates: [], error: 'Unavailable', reads: 0});
+    assert.equal(reads, 0);
+  }
 });

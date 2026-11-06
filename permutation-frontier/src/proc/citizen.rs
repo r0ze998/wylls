@@ -412,8 +412,7 @@ pub fn join(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         let occupied = r.u32(FR::OCCUPIED_SITES)? as u64;
         let rings = r.u16(FR::RINGS_OPENED)?;
         let r_max = r_max.max(r.u16(FR::R_MAX_EXT)?);
-        let free_ok = open.saturating_sub(occupied) * 10_000 >= reserve_bps as u64 * open;
-        if !free_ok && rings > r_max {
+        if !super::map::join_capacity_available(open, occupied, reserve_bps, rings, r_max) {
             return Err(FrontierError::Capacity.into());
         }
     }

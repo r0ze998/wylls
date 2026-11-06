@@ -1094,9 +1094,49 @@ pub fn close_province(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     w.set_u32(PF::PROVINCES_OPENED, n.saturating_sub(1))
 }
 
+/// Shared admission predicate for wallet Join and NFT JoinResident.
+/// `r_max` includes both the configured ceiling and the on-chain extension.
+pub(super) fn join_capacity_available(
+    open: u64,
+    occupied: u64,
+    reserve_bps: u16,
+    rings: u16,
+    r_max: u16,
+) -> bool {
+    open.saturating_sub(occupied) * 10_000 >= u64::from(reserve_bps) * open || rings <= r_max
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn join_capacity_growth_boundary_is_shared_without_keys() {
+        assert!(
+            !join_capacity_available(100, 100, 1000, 7, 5),
+            "old base rejects a full frontier"
+        );
+        assert!(
+            join_capacity_available(100, 100, 1000, 7, 8),
+            "configured growth leaves capacity"
+        );
+        assert!(
+            join_capacity_available(100, 100, 1000, 7, 7),
+            "on-chain extension leaves a ring to open"
+        );
+        assert!(
+            !join_capacity_available(100, 100, 1000, 9, 8),
+            "full ceiling rejects"
+        );
+        assert!(
+            join_capacity_available(100, 90, 1000, 9, 8),
+            "exact reserve is sufficient"
+        );
+        assert!(
+            !join_capacity_available(100, 91, 1000, 9, 8),
+            "below reserve is not sufficient"
+        );
+    }
 
     #[test]
     fn terrain_block_round_trips_the_kernel() {

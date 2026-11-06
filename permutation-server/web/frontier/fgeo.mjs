@@ -125,7 +125,10 @@ const PLACEMENT_DOMAIN = utf8('PSF-PLACEMENT-v1');
 export function homeNation(p, q, { placement = PLACEMENT_WEDGE, heartlandMaxRing = 3, genesisSeed = null } = {}) {
   const r = ringOf(p, q);
   if (r === 0) return null;
-  if (Number(placement) !== PLACEMENT_DISPERSED || r < 2 || r > Number(heartlandMaxRing) || !genesisSeed) return wedgeOf(p, q);
+  if (![PLACEMENT_WEDGE, PLACEMENT_DISPERSED].includes(Number(placement))) return null;
+  if (Number(placement) === PLACEMENT_WEDGE) return wedgeOf(p, q);
+  if (!genesisSeed || genesisSeed.length !== 32) return null;
+  if (r < 2 || r > Number(heartlandMaxRing)) return wedgeOf(p, q);
   const i = provinceIndex(p, q) - provincesWithin(r - 1);
   const h = sha256(PLACEMENT_DOMAIN, Uint8Array.from(genesisSeed), Uint8Array.of(r & 255, r >> 8));
   const o = Number(new DataView(h.buffer, h.byteOffset, 8).getBigUint64(0, true) % 6n);

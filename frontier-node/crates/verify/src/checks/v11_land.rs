@@ -601,6 +601,8 @@ fn placed_home(cx: &mut Ctx, r: &crate::world::Rec) {
         let held = ca.holding[0];
         let now_bell = frontier_abi::prologue::bell_at(f.genesis_ts, tx.time).unwrap_or(0);
         let shield_bell = ((h.shield_until.saturating_sub(f.genesis_ts).max(0) + 599) / 600) as u32;
+        let home_nation =
+            home_nation_of(f, coord).ok_or("missing or unsupported placement evidence")?;
         Ok(ix.accounts.len() == 9
             && (arg.p as i32, arg.q as i32, arg.site) == (p, q, site)
             && ix.key(2) == Some(f.ctx.season)
@@ -611,7 +613,7 @@ fn placed_home(cx: &mut Ctx, r: &crate::world::Rec) {
             && season.program_version >= 2
             && coord.ring() >= 2
             && coord.ring() < frontier.rings_opened as u32
-            && home_nation_of(f, coord) == Some(cb.faction)
+            && home_nation == cb.faction
             && cb.flags
                 & (C::FLAG_HOME_GRANTED
                     | C::FLAG_FIRST_HOLDING_FINAL
@@ -674,19 +676,21 @@ fn placed_home(cx: &mut Ctx, r: &crate::world::Rec) {
 }
 
 /// The program's PlaceHome nation test (`geometry::home_nation` with the
-/// season's conquest `placement`; the wedge when the season or its genesis
-/// seed is not known).
+/// season's conquest `placement`). Missing evidence is never a wedge fallback.
 fn home_nation_of(
     f: &crate::facts::Facts,
     coord: permutation_rules::frontier::geometry::ProvinceCoord,
 ) -> Option<u8> {
     match (f.cq.as_ref(), f.genesis_seed.as_ref()) {
-        (Some(cq), Some(seed)) => permutation_rules::frontier::geometry::home_nation(
-            coord,
-            cq.placement,
-            cq.heartland_max_ring,
-            seed,
-        ),
-        _ => coord.wedge(),
+        (Some(cq), _) if cq.placement == 0 => coord.wedge(),
+        (Some(cq), Some(seed)) if cq.placement == 1 => {
+            permutation_rules::frontier::geometry::home_nation(
+                coord,
+                cq.placement,
+                cq.heartland_max_ring,
+                seed,
+            )
+        }
+        _ => None,
     }
 }

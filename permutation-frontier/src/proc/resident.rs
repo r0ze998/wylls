@@ -249,7 +249,10 @@ pub(crate) fn join(p: &Pubkey, accounts: &[AccountInfo], generation: u32, factio
         (
             r.arr::<32>(S::JOIN_GATE)?,
             r.u16(S::RESERVE_BPS)?,
-            r.u16(S::R_MAX)?,
+            r.u16(S::R_MAX)?.max(
+                frontier_abi::v2::presets::ConquestParams::of_season(&sd)
+                    .map_or(0, |c| c.r_max_ceiling),
+            ),
         )
     };
     match gate {
@@ -271,8 +274,8 @@ pub(crate) fn join(p: &Pubkey, accounts: &[AccountInfo], generation: u32, factio
         let open = r.u32(FR::OPEN_SITES)? as u64;
         let occupied = r.u32(FR::OCCUPIED_SITES)? as u64;
         let rings = r.u16(FR::RINGS_OPENED)?;
-        let free_ok = open.saturating_sub(occupied) * 10_000 >= reserve_bps as u64 * open;
-        if !free_ok && rings > r_max {
+        let r_max = r_max.max(r.u16(FR::R_MAX_EXT)?);
+        if !super::map::join_capacity_available(open, occupied, reserve_bps, rings, r_max) {
             return Err(FrontierError::Capacity.into());
         }
     }
