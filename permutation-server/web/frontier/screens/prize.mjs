@@ -7,11 +7,45 @@
 // season without a pool.
 import { html } from '../../util.mjs';
 import { L, fmtNum } from '../../lang.mjs';
-import { factionName } from '../fi18n.mjs';
-import { prizeModel, ledgerModel } from '../fprize.mjs';
+import { factionName, failureText } from '../fi18n.mjs';
+import { prizeModel, ledgerModel, passClaimModel } from '../fprize.mjs';
 import { crest, sigChip } from '../hud/keephand.mjs';
 
 const short = s => (s ? `${String(s).slice(0, 6)}…${String(s).slice(-4)}` : '—');
+
+/**
+ * NFT pass (experimental): the pass played (FS.resident), its entry and what
+ * it may claim now (fprize.passClaimModel). The claim button appears only
+ * in the one state the program could accept — shares posted, a share in the
+ * ledger, the pass still in this wallet — and the signature it leads to
+ * carries the generation read again right before sending. A pass's refund
+ * is undecided: the panel says so and offers nothing. Empty without a pass,
+ * so a wallet player's panel is as before.
+ */
+export function renderPass(FS) {
+  const m = passClaimModel({ prize: FS.prize, prizeLedger: FS.prizeLedger, resident: FS.resident, prizePass: FS.prizePass, wallet: FS.wallet });
+  if (!m) return '';
+  const gen = m.generation === null ? '—' : fmtNum(m.generation);
+  const entry = m.entry ? html`<p>${L`参加費 ${m.entry.paid} テストUSDC は支払い済みです（支払ったウォレット ${short(m.entry.paidBy)}）。賞金の権利はこのNFTのもので、受け取れるのはいまの持ち主だけです。`}</p>` : '';
+  // A failed attempt is said as failed; an unknown outcome is never called failed or unsent (it is the pending state below).
+  const prior = m.pending && m.pending.state === 'failed'
+    ? html`<p class="notice error" role="alert">${L`前回の受け取りは届きませんでした：${failureText({ code: m.pending.code ?? 'TransactionFailed' })}`}</p>` : '';
+  const body = {
+    unpaid: () => html`<p class="muted">${L`この住民NFTには参加費の記録がありません。参加費は、NFTでこの季節に参加するときに支払います。`}</p>`,
+    claimed: () => html`<p class="callout"><strong>${L`受け取り済みです：${m.entry.claimAmount} テストUSDC`}</strong><span>${L`受け取ったウォレット ${short(m.entry.claimedBy)}。賞金は一度だけ受け取れます。譲渡しても二度目はありません。`}</span></p>`,
+    pending: () => (m.pending?.state === 'unknown'
+      ? html`<p class="notice" role="status">${L`賞金の受け取りの結果がまだ確認できません。署名の結果を確認するまで、再び受け取らないでください。`} <code>${m.pending.signature ?? ''}</code></p>`
+      : html`<p role="status">${L`賞金の受け取りを送信しました。結果を確認しています…`} <code>${m.pending?.signature ?? ''}</code></p>`),
+    notPosted: () => html`<p class="muted">${L`季節の結果が確定し、分配がチェーンに登録されると、そのときの持ち主が受け取れます。`}</p>`,
+    refund: () => html`<p class="callout pz-est"><strong>${L`住民NFTの参加費は、いまは受け取れません`}</strong><span>${L`この季節は該当者なしのため返金になりました。住民NFTの参加費の返金先（支払ったウォレットか、いまの持ち主か）は未決定のため、プログラムはNFTの返金を受け付けません。ウォレットで参加した人の返金は従来どおりです。`}</span></p>`,
+    noShare: () => html`<p class="muted">${L`この住民NFTに配点はありません（勝った国のメンバーでないか、功績の記録に載っていません）。`}</p>`,
+    notHeld: () => html`<p class="notice error" role="alert">${L`この住民NFTは、いまこのウォレットにありません。受け取れるのはいまの持ち主だけです。`}</p>`,
+    claimable: () => html`<p class="callout pz-est"><strong>${L`受け取れる試算：${m.offer.amount ?? '—'} テストUSDC`}</strong><span>${L`${m.offer.points} 点、${factionName(m.offer.nation)}。受け取り先はこのウォレットのテストUSDC口座です。`}</span></p>
+      <p class="muted">${L`署名には住民の記録のいまの世代（${gen}）が入ります。送る直前にもう一度読み直し、NFTが譲渡されていれば送りません。`}</p>
+      <p><button type="button" class="btn primary" data-act="prize-claim-pass" ${FS.inFlight > 0 ? 'disabled' : ''}>${L`このNFTの賞金を受け取る`}</button></p>`,
+  };
+  return html`<section class="pz-pass" aria-labelledby="prize-pass-title"><h4 id="prize-pass-title">${L`住民NFT ${short(m.asset)} の賞金`}</h4>${entry}${prior}${(body[m.state] ?? body.notPosted)()}</section>`;
+}
 
 /** The join screen's block: what joining costs and where the fee goes. Empty without a pool. */
 export function renderJoinTerms(FS) {
@@ -47,7 +81,9 @@ function lineRows(lines) {
 export function render(FS) {
   const m = prizeModel(FS.prize);
   if (!m) return '';
-  const g = ledgerModel(FS.prizeLedger, { wallet: FS.wallet?.address ?? null, decimals: FS.prize.decimals });
+  // The viewer in the ledger: the pass played (`pass:<asset>`), else the wallet.
+  const me = FS.resident ? `pass:${FS.resident.asset}` : FS.wallet?.address ?? null;
+  const g = ledgerModel(FS.prizeLedger, { wallet: me, decimals: FS.prize.decimals });
   const head = html`<header class="pz-head"><h3 id="prize-title">${L`賞金（テストUSDC）`}</h3>
       <div class="pz-pool"><strong>${m.prize}</strong><span>${L`賞金プール · テストUSDC`}</span></div>
       <p class="pz-chain">${L`ローカルのテスト用チェーンのテスト通貨です。価値はありません。`}</p></header>
@@ -57,7 +93,7 @@ export function render(FS) {
       <div><dt>${L`参加者`}</dt><dd>${fmtNum(m.entries)}</dd></div>
       <div><dt>${L`賞金プール（${fmtNum(m.prizePct)}%）`}</dt><dd>${m.prize}</dd></div>
       <div><dt>${L`運営（${fmtNum(m.opsPct)}%）`}</dt><dd>${m.ops}</dd></div>
-    </dl>`;
+    </dl>${FS.resident ? renderPass(FS) : ''}`;
   const top = m.area ? Math.max(1, ...m.area.map(a => a.provinces)) : 1;
   const area = m.area ? html`<h4>${L`国ごとの州の数（チェーンの集計）`}</h4>
     <ol class="pz-area prize-area">${m.area.map(a => html`<li class="kh-n${a.faction}${a.winner ? ' pz-win winner' : ''}">${crest(a.faction, 20)}<span>${factionName(a.faction)}</span><span class="pz-bar" aria-hidden="true"><i class="w${Math.round(10 * a.provinces / top)}"></i></span><strong>${fmtNum(a.provinces)}</strong>${a.winner ? html`<span class="pz-tag">${L`勝者`}</span>` : html`<span></span>`}</li>`)}</ol>

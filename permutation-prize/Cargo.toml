@@ -16,6 +16,16 @@ crate-type = ["cdylib", "lib"]
 
 [features]
 no-entrypoint = []
+# NFT pass entries and claims (tags 8–10, errors 0x113–0x11A; provisional
+# numbers, NFT-PRIZE.md). The pass's current owner is read from the game
+# program's resident policy, the Core asset and the resident program's record
+# (workstream 20's `nft-experimental` accounts). Off by default: without it the
+# tags are `BadData` (fail closed), and nothing else changes.
+# NOT DEPLOYABLE (NFT-PRIZE.md §8.3): a pool that settles in refund mode holds
+# the passes' fees with no exit until the refund rule is decided.
+# scripts/build-prize.sh refuses an artefact built with it; never add it to
+# `default`.
+nft-experimental = []
 
 [dependencies]
 solana-program = "=4.0.0"

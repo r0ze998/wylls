@@ -31,7 +31,7 @@
 
 **権限の検査が無い命令（接続不要）**：Citizen の署名者を持たず、keeper か誰でも呼べる。SettleTicket、ReleaseDormant、CloseHolding、CloseCitizen、SettleExplore、DisbandStranded、SettleDeparture、Reveal（keeper）、SettleTransit、SweepPoolOwed、GatherClash、ResolveFromInputs、SkipQuiet、CloseClashInputs、CloseArrivalDay、CloseArrivalSlot、ClaimDefence、SettleSiege、SettleCapture、CloseMarch、SettleCaravan、DefaultRaid、SettleProposal、FastForward、季節の管理と地図の命令。
 
-**接続していない**：財布の Join はそのまま（NFT Citizen とは別の Citizen を作る）。賞金 program（Entry は財布で決まる）。
+**接続していない**：財布の Join はそのまま（NFT Citizen とは別の Citizen を作る）。賞金 program（Entry は財布で決まる）。→ 2026-11-07：賞金 program に、パスの今の持ち主が払う・受け取る経路（`nft-experimental`、tag 8–10、NFT Entry `["entry-nft", pool, asset]`）を別途実装した。`permutation-prize/NFT-PRIZE.md`。refund の行き先と旧 Entry の移行は未決のまま。
 
 ## 3. 財布から決まる住所・財布の欄を前提にする箇所（洗い出し）
 

@@ -7,34 +7,54 @@
 //               (one atomic transaction: budget prefix, Pay, the game's Join)
 //   shares      the merkle tree over (wallet, nation, points) the program checks
 //   x402        `joinViaX402`: one request, a 402 with the price, the paid retry
+//   NFT pass    (experimental, permutation-prize `nft-experimental`, tags 8–10; permutation-prize/NFT-PRIZE.md)
+//               the pass's Entry `["entry-nft", pool, asset]` (192 B), its leaf `sha256(0x02 ‖ pool ‖ asset ‖ nation ‖ points)`,
+//               PayResident / ClaimResident / RecordResidentNation, the paid JoinResident `[prefix, PayResident, JoinResident]`
+//               and its classifier. The pass's CURRENT owner signs with the resident program's generation; the program
+//               reads the owner from the live Core asset, never from these builders.
 //
 // Layouts and tags are permutation-prize/src/lib.rs's (`tag`, `pool`,
-// `entry`); test/frontier-prize.test.mjs checks the hashes against vectors
-// computed by that crate.
+// `entry`, `entry_resident`); test/frontier-prize.test.mjs checks the hashes
+// against vectors computed by that crate.
 import { decode as fromBase58, encode as toBase58 } from '../base58.mjs';
-import { concat, fromBase64, toBase64, u64le, utf8 } from '../bytes.mjs';
+import { concat, fromBase64, toBase64, u32le, u64le, utf8 } from '../bytes.mjs';
 import { ata, TOKEN_PROGRAM } from '../player.mjs';
 import { sha256 } from '../sha256.mjs';
 import { compileMessage, findProgramAddress, parseTransaction, pubkeyBytes, wireTransaction } from '../solana-tx.mjs';
 import { SYSTEM_PROGRAM } from './addresses.mjs';
 import { budgetOf, budgetPrefix, parseComputeBudgetIx, setComputeUnitLimit, setComputeUnitPrice, setLoadedAccountsDataSizeLimit } from './budgets.mjs';
+import { JOIN_RESIDENT_TAG, joinResidentIx, linkAddress, policyAddress, residentAddress, residentBudget, residentCitizen } from './resident.mjs';
 import { classify, frontierIx, JOIN_TAG } from './shapes.mjs';
 
 export { ata, TOKEN_PROGRAM };
 
-export const PRIZE_TAG = Object.freeze({ INIT_POOL: 0, PAY: 1, TALLY: 2, FINALIZE: 3, SET_SHARES: 4, CLAIM: 5, WITHDRAW_OPS: 6 });
+export const PRIZE_TAG = Object.freeze({ INIT_POOL: 0, PAY: 1, TALLY: 2, FINALIZE: 3, SET_SHARES: 4, CLAIM: 5, WITHDRAW_OPS: 6, RECORD_NATION: 7,
+  /** NFT pass (experimental, provisional numbers): run by the program only with `nft-experimental`, BadData otherwise. */
+  PAY_RESIDENT: 8, CLAIM_RESIDENT: 9, RECORD_RESIDENT_NATION: 10 });
 export const POOL_SIZE = 640;
 export const ENTRY_SIZE = 128;
+/** The NFT pass's Entry (`["entry-nft", pool, asset]`, magic WYPRNFTE): never a wallet Entry's size. */
+export const ENTRY_RESIDENT_SIZE = 192;
 export const POOL_STATE = Object.freeze({ OPEN: 0, FINAL: 1, SHARES: 2 });
 export const SHARE_MODE = Object.freeze({ SHARES: 1, REFUND: 2 });
 export const FACTIONS = 6;
-/** permutation-prize's errors (`Custom(code)`). */
+/** permutation-prize's errors (`Custom(code)`); 0x113–0x11A are the NFT pass's (experimental). */
 export const PRIZE_ERRORS = Object.freeze({ 0x100: 'BadData', 0x101: 'BadAccount', 0x102: 'BadParams', 0x103: 'NotOperator', 0x104: 'WrongState', 0x105: 'AlreadyPaid',
   0x106: 'SeasonNotEnded', 0x107: 'ProvinceNotFinal', 0x108: 'NoKeep', 0x109: 'TallyIncomplete', 0x10A: 'BadShares', 0x10B: 'BadProof', 0x10C: 'NotWinner',
-  0x10D: 'AlreadyClaimed', 0x10E: 'NothingToPay', 0x10F: 'Overflow', 0x110: 'WrongExpectedCount', 0x112: 'ContinuousSeason' });
+  0x10D: 'AlreadyClaimed', 0x10E: 'NothingToPay', 0x10F: 'Overflow', 0x110: 'WrongExpectedCount', 0x112: 'ContinuousSeason',
+  0x113: 'ResidentNotSigned', 0x114: 'ResidentAsset', 0x115: 'ResidentAccount', 0x116: 'ResidentUnguarded', 0x117: 'ResidentStaleGeneration',
+  0x118: 'ResidentNotCurrentAuthority', 0x119: 'ResidentPolicy', 0x11A: 'ResidentRefundUndecided' });
 /** What Pay adds to a Join's compute-unit and loaded-data limits (the prize and token programs, five more accounts). */
 export const PAID_JOIN_EXTRA_CU = 80_000;
 export const PAID_JOIN_EXTRA_LOADED = 524_288;
+/**
+ * What PayResident adds to a JoinResident's limits: Pay's, plus the resident
+ * authority check (the policy, the asset's plugin registry and the resident
+ * record are read once more). NOT measured on the SBF build (provisional
+ * ceilings; the relay's simulation checks the real cost before sending).
+ */
+export const PAID_JOIN_RESIDENT_EXTRA_CU = PAID_JOIN_EXTRA_CU + 20_000;
+export const PAID_JOIN_RESIDENT_EXTRA_LOADED = PAID_JOIN_EXTRA_LOADED;
 /** The x402 network name of a cluster. */
 export const x402Network = cluster => (cluster === 'devnet' ? 'solana-devnet' : cluster === 'mainnet' ? 'solana' : 'solana-localnet');
 
@@ -50,6 +70,8 @@ const magic = (d, text) => utf8(text).every((b, i) => d[i] === b);
 export const poolAddress = (prizeProgram, gameProgram, seasonId) => findProgramAddress([utf8('pool'), pubkeyBytes(gameProgram), u64le(seasonId)], prizeProgram)[0];
 export const vaultAddress = (prizeProgram, pool) => findProgramAddress([utf8('vault'), pubkeyBytes(pool)], prizeProgram)[0];
 export const entryAddress = (prizeProgram, pool, wallet) => findProgramAddress([utf8('entry'), pubkeyBytes(pool), pubkeyBytes(wallet)], prizeProgram)[0];
+/** The NFT pass's Entry (experimental): `["entry-nft", pool, asset]`, never a wallet's. */
+export const entryResidentAddress = (prizeProgram, pool, asset) => findProgramAddress([utf8('entry-nft'), pubkeyBytes(pool), pubkeyBytes(asset)], prizeProgram)[0];
 
 /** Everything a client needs to name a season's pool: `{program, pool, vault, mint}` (base58). */
 export function prizeAddresses({ prizeProgram, gameProgram, seasonId, mint }) {
@@ -75,11 +97,22 @@ export function decodePool(data) {
   };
 }
 
-/** An Entry account's data, decoded, or null. */
+/** An Entry account's data, decoded, or null (`nation`: the RecordNation record, or null). */
 export function decodeEntry(data) {
   const d = Uint8Array.from(data ?? []);
   if (d.length !== ENTRY_SIZE || !magic(d, 'WYPRENTR')) return null;
-  return { claimed: d[9] !== 0, pool: key(d, 16), wallet: key(d, 48), amount: rdU64(d, 80), paidSlot: rdU64(d, 88), claimAmount: rdU64(d, 96) };
+  return { claimed: d[9] !== 0, nationRecorded: d[10] === 1, nation: d[10] === 1 ? d[11] : null,
+    pool: key(d, 16), wallet: key(d, 48), amount: rdU64(d, 80), paidSlot: rdU64(d, 88), claimAmount: rdU64(d, 96) };
+}
+
+/** An NFT pass's Entry (experimental, 192 B), decoded, or null: the asset it names, who paid and who claimed, at which generation. */
+export function decodeEntryResident(data) {
+  const d = Uint8Array.from(data ?? []);
+  if (d.length !== ENTRY_RESIDENT_SIZE || !magic(d, 'WYPRNFTE')) return null;
+  const claimed = d[9] !== 0;
+  return { claimed, nationRecorded: d[10] === 1, nation: d[10] === 1 ? d[11] : null, payGeneration: rdU(d, 12, 4),
+    pool: key(d, 16), asset: key(d, 48), amount: rdU64(d, 80), paidSlot: rdU64(d, 88), claimAmount: rdU64(d, 96),
+    paidBy: key(d, 104), claimedBy: claimed ? key(d, 136) : null, claimGeneration: claimed ? rdU(d, 168, 4) : null };
 }
 
 /** The amount of an SPL token account (0n for an absent or foreign account), and its mint and owner. */
@@ -103,6 +136,8 @@ export function claimAmount(pool, { points = 0n, nation = 0, paid = 0n }) {
 // ------------------------------------------------------------------ shares
 
 export const leafHash = (pool, wallet, nation, points) => sha256([0], pubkeyBytes(pool), pubkeyBytes(wallet), [nation], u64le(points));
+/** An NFT pass's leaf (experimental): its own domain byte 0x02, so a pass leaf is never a wallet leaf (0x00) or a node (0x01) of the same bytes. */
+export const leafResidentHash = (pool, asset, nation, points) => sha256([2], pubkeyBytes(pool), pubkeyBytes(asset), [nation], u64le(points));
 const less = (a, b) => { for (let i = 0; i < 32; i++) if (a[i] !== b[i]) return a[i] < b[i]; return true; };
 export const nodeHash = (a, b) => (less(a, b) ? sha256([1], a, b) : sha256([1], b, a));
 
@@ -168,6 +203,113 @@ export function claimIx({ prize, wallet, citizen, nation = 0, points = 0n, proof
 
 export const withdrawOpsIx = ({ prize, operator, dest = null }) => ({ programId: prize.program, data: Uint8Array.of(PRIZE_TAG.WITHDRAW_OPS),
   keys: [R(operator, true), W(prize.pool), W(prize.vault), W(dest ?? ata(operator, prize.mint)), R(prize.mint), R(TOKEN_PROGRAM)] });
+
+/** RecordNation (anyone, no signer): copy the wallet's live Citizen's nation into its Entry (before the game's cleanup may close the Citizen). */
+export const recordNationIx = ({ prize, wallet, citizen }) => ({ programId: prize.program, data: Uint8Array.of(PRIZE_TAG.RECORD_NATION),
+  keys: [R(prize.pool), W(entryAddress(prize.program, prize.pool, wallet)), R(citizen)] });
+
+// ------------------------------------------------------------------ NFT pass (experimental)
+
+/**
+ * PayResident: the pass's current `owner` pays the fee from `ownerToken`
+ * (its ATA by default) at the resident program's `generation` it signs;
+ * `payer` pays the NFT Entry's rent. `policy`, `asset`, `resident` are the
+ * JoinResident's proof accounts (resident.mjs `proofAccounts`, less the
+ * link); the program re-derives the policy from the pool's game program and
+ * the resident record from the policy, and reads the owner from the asset.
+ */
+export function payResidentIx({ prize, owner, payer, asset, policy, resident, generation, ownerToken = null }) {
+  return { programId: prize.program, data: concat([PRIZE_TAG.PAY_RESIDENT], u32le(generation)),
+    keys: [R(owner, true), W(payer, true), W(prize.pool), W(entryResidentAddress(prize.program, prize.pool, asset)), W(ownerToken ?? ata(owner, prize.mint)),
+      W(prize.vault), R(prize.mint), R(TOKEN_PROGRAM), R(SYSTEM_PROGRAM), R(policy), R(asset), R(resident)] };
+}
+
+/**
+ * ClaimResident: the pass's current `owner` takes the pass's share at the
+ * `generation` it signs (shares mode only; the program refuses refund mode
+ * for a pass, ResidentRefundUndecided). `citizen` is the pass's NFT Citizen
+ * of this season (resident.mjs `residentCitizen`), `link` its link
+ * (`linkAddress`); `nation`, `points`, `proof` against `leafResidentHash`.
+ */
+export function claimResidentIx({ prize, owner, asset, citizen, link, policy, resident, generation, nation = 0, points = 0n, proof = [], dest = null }) {
+  return { programId: prize.program, data: concat([PRIZE_TAG.CLAIM_RESIDENT], u32le(generation), [nation], u64le(points), [proof.length], ...proof),
+    keys: [R(owner, true), W(prize.pool), W(entryResidentAddress(prize.program, prize.pool, asset)), R(citizen), R(link), W(prize.vault),
+      W(dest ?? ata(owner, prize.mint)), R(prize.mint), R(TOKEN_PROGRAM), R(policy), R(asset), R(resident)] };
+}
+
+/** RecordResidentNation (anyone, no signer): copy the pass's live NFT Citizen's nation into the pass's Entry. */
+export const recordResidentNationIx = ({ prize, asset, citizen }) => ({ programId: prize.program, data: Uint8Array.of(PRIZE_TAG.RECORD_RESIDENT_NATION),
+  keys: [R(prize.pool), W(entryResidentAddress(prize.program, prize.pool, asset)), R(citizen)] });
+
+/** The compute-budget limits of a paid JoinResident (`[limit, price 0, loaded, PayResident, JoinResident]`). */
+export function paidJoinResidentBudget(profile = 1) {
+  const b = residentBudget('JoinResident', profile);
+  return { cuLimit: b.cuLimit + PAID_JOIN_RESIDENT_EXTRA_CU, loadedLimit: b.loadedLimit + PAID_JOIN_RESIDENT_EXTRA_LOADED };
+}
+
+/**
+ * The message of a paid JoinResident: `[limit, price 0, loaded, PayResident,
+ * JoinResident]`, fee payer the relay's (it pays both rents). `join` is the
+ * JoinResident's fields (resident.mjs `joinResidentIx`, without `payer`):
+ * owner, season, frontier, citizen, policy, link, asset, resident, joinGate,
+ * generation, faction. PayResident takes the owner, the pass and the
+ * generation from it.
+ */
+export function paidJoinResidentMessage({ programId, prize, feePayer, recentBlockhash, join, profile = 1, ownerToken = null }) {
+  const b = paidJoinResidentBudget(profile);
+  return compileMessage({ feePayer, recentBlockhash, instructions: [
+    setComputeUnitLimit(b.cuLimit), setComputeUnitPrice(0n), setLoadedAccountsDataSizeLimit(b.loadedLimit),
+    payResidentIx({ prize, owner: join.owner, payer: feePayer, asset: join.asset, policy: join.policy, resident: join.resident, generation: join.generation, ownerToken }),
+    joinResidentIx({ programId, ...join, payer: feePayer }),
+  ] });
+}
+
+/**
+ * Check a parsed transaction against the paid-JoinResident shape: exactly
+ * `[limit, price 0, loaded, PayResident, JoinResident]` with the
+ * paid-JoinResident limits; the JoinResident a valid sponsored JoinResident
+ * on its own (shapes.mjs `classify`); PayResident for this pool, vault and
+ * mint, its payer the fee payer, its owner, pass accounts and generation the
+ * JoinResident's; the signers exactly the fee payer, the owner and the
+ * JoinResident's gate; no key beyond the two instructions'. Returns
+ * `{ok: true, owner, asset, ownerToken, join}` (`join`: the JoinResident's
+ * classified shape) or `{ok: false, problem}`.
+ */
+export function classifyPaidResidentJoin(tx, { programId, prize, profile = 1 }) {
+  const ixs = tx.instructions;
+  if (ixs.length !== 5) return refuse('exactly five instructions: the compute-budget prefix, the prize program\'s PayResident and the game\'s JoinResident');
+  const cb = ixs.slice(0, 3).map(parseComputeBudgetIx);
+  const b = paidJoinResidentBudget(profile);
+  if (cb.some(x => !x) || cb[0].kind !== 'limit' || cb[1].kind !== 'price' || cb[2].kind !== 'loaded') return refuse('the prefix must be SetComputeUnitLimit, SetComputeUnitPrice, SetLoadedAccountsDataSizeLimit');
+  if (cb[0].value !== b.cuLimit || cb[1].value !== 0n || cb[2].value !== b.loadedLimit) return refuse(`the prefix must be limit ${b.cuLimit}, price 0, loaded data ${b.loadedLimit}`);
+  const [pay, join] = [ixs[3], ixs[4]];
+  if (pay.programId !== prize.program || pay.data.length !== 5 || pay.data[0] !== PRIZE_TAG.PAY_RESIDENT) return refuse('the fourth instruction must be the prize program\'s PayResident');
+  if (join.programId !== programId || join.data[0] !== JOIN_RESIDENT_TAG) return refuse('the fifth instruction must be the game\'s JoinResident');
+  const feePayer = tx.signers[0];
+  // The JoinResident alone, as the sponsored shape it would be: it names the owner, the pass and the generation.
+  const rb = residentBudget('JoinResident', profile);
+  const alone = parseTransaction(wireTransaction(compileMessage({ feePayer, recentBlockhash: tx.recentBlockhash,
+    instructions: [...budgetPrefix('Join', { profile, cuLimit: rb.cuLimit, loadedLimit: rb.loadedLimit }), { programId: join.programId, keys: join.keys, data: join.data }] })));
+  const shape = classify(alone, { programId, profile });
+  if (!shape.ok) return refuse(`the JoinResident is not a sponsored JoinResident: ${shape.problem}`);
+  if (shape.wrapper !== 'JoinResident') return refuse('the fifth instruction must be the game\'s JoinResident');
+  const owner = shape.authority;
+  const { policy, asset, resident, generation } = shape.resident;
+  if (owner === feePayer) return refuse('the fee payer never pays the entry fee');
+  const want = payResidentIx({ prize, owner, payer: feePayer, asset, policy, resident, generation, ownerToken: pay.keys[4]?.pubkey ?? owner });
+  if (pay.keys.length !== want.keys.length) return refuse('PayResident takes twelve accounts');
+  for (let i = 0; i < want.keys.length; i++) {
+    const [w, h] = [want.keys[i], pay.keys[i]];
+    if (w.pubkey !== h.pubkey) return refuse(`PayResident account ${i} is not this season's pool, vault, mint, the pass's entry, or the JoinResident's owner and pass accounts`);
+    if (w.isSigner && !h.isSigner) return refuse(`PayResident account ${i} must sign`);
+  }
+  if (want.data.some((x, i) => x !== pay.data[i])) return refuse('PayResident must carry the JoinResident\'s generation');
+  const signers = [feePayer, owner, ...(shape.accounts.join_gate ? [shape.accounts.join_gate] : [])];
+  if (tx.signers.length !== signers.length || signers.some(k => !tx.signers.includes(k))) return refuse('the fee payer, the owner and the join gate sign, nobody else');
+  const used = new Set([feePayer, ...pay.keys.map(k => k.pubkey), ...join.keys.map(k => k.pubkey), pay.programId, join.programId, ixs[0].programId]);
+  if (tx.accountKeys.some(k => !used.has(k))) return refuse('the message names account keys no instruction uses');
+  return { ok: true, owner, asset, ownerToken: pay.keys[4].pubkey, join: { ...shape, signers: tx.signers } };
+}
 
 // ------------------------------------------------------------------ the paid Join
 
@@ -288,6 +430,47 @@ export async function joinViaX402(relay, { wallet, sign, signTransaction, factio
       joinshard: addresses.joinShard(faction, joinShardOf(wallet)), ...(x.joinGate ? { join_gate: x.joinGate } : {}) },
     joinFields: { faction, session, session_expiry: BigInt(sessionExpiry) } });
   const wire = signTransaction ? await signTransaction(wireTransaction(message)) : wireTransaction(message, { [wallet]: await sign(message) });
+  const payment = { x402Version: 1, scheme: 'exact', network: req.network, payload: { transaction: toBase64(wire) } };
+  const second = await post({ 'X-PAYMENT': b64json(payment) });
+  if (second.status !== 200) throw new X402Error(second.body.code ?? 'X402Refused', second.body.error ?? `the relay answered ${second.status}`, { status: second.status, body: second.body });
+  const header = second.headers.get?.('x-payment-response');
+  return { ok: true, signature: second.body.signature, requirements: req, paymentResponse: header ? fromB64json(header) : null, body: second.body };
+}
+
+/**
+ * NFT pass (experimental): join a season with a pass by paying its entry fee
+ * over HTTP 402, as `joinViaX402` does for a wallet, with
+ * `[budget prefix, PayResident, JoinResident]` signed by the pass's current
+ * owner (`owner`) for the resident program's `generation` it holds now.
+ * The pass's accounts (its NFT Citizen, the policy, the link, the resident
+ * record of `residentProgram`) are derived here from the 402's season,
+ * never taken from the relay's answer or the caller. The relay must offer
+ * the pass path (`extra.resident`); a relay without it is refused
+ * (`X402NoPass`), and the program refuses an owner that is not the asset's
+ * now or a stale generation.
+ */
+export async function joinResidentViaX402(relay, { owner, asset, generation, faction, residentProgram, sign, signTransaction, maxFee = null, fetch: f = (...a) => globalThis.fetch(...a) }) {
+  const { FrontierAddresses } = await import('./addresses.mjs');
+  const url = `${String(relay).replace(/\/+$/, '')}/f/x402/join`;
+  const post = async headers => {
+    const r = await f(url, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify({ wallet: owner, asset, faction }) });
+    return { status: r.status, headers: r.headers, body: await r.json().catch(() => ({})) };
+  };
+  const first = await post({});
+  if (first.status !== 402) throw new X402Error(first.body.code ?? 'X402Unavailable', first.body.error ?? `the relay answered ${first.status}, not 402`, { status: first.status });
+  const req = first.body.accepts?.[0];
+  if (!req || req.scheme !== 'exact') throw new X402Error('X402Scheme', 'the relay did not offer the "exact" scheme');
+  const x = req.extra;
+  if (!x?.resident) throw new X402Error('X402NoPass', 'the relay does not take NFT pass payments');
+  if (maxFee !== null && BigInt(req.maxAmountRequired) > BigInt(maxFee)) throw new X402Error('X402TooExpensive', `the entry fee ${req.maxAmountRequired} is above the limit ${maxFee}`);
+  // Never sign for another pool, vault or season than the ones derived here.
+  const addresses = new FrontierAddresses({ programId: x.programId, seasonId: BigInt(x.seasonId) });
+  const prize = prizeAddresses({ prizeProgram: x.prizeProgram, gameProgram: x.programId, seasonId: BigInt(x.seasonId), mint: req.asset });
+  if (addresses.season !== x.season || prize.pool !== x.pool || prize.vault !== req.payTo) throw new X402Error('X402Mismatch', 'the payment requirements do not match the season\'s addresses');
+  const message = paidJoinResidentMessage({ programId: x.programId, prize, feePayer: x.feePayer, recentBlockhash: x.recentBlockhash, profile: x.profile,
+    join: { owner, season: addresses.season, frontier: addresses.frontier, citizen: residentCitizen(addresses, asset), policy: policyAddress(x.programId),
+      link: linkAddress(x.programId, addresses.season, asset), asset, resident: residentAddress(residentProgram, asset), ...(x.joinGate ? { joinGate: x.joinGate } : {}), generation, faction } });
+  const wire = signTransaction ? await signTransaction(wireTransaction(message)) : wireTransaction(message, { [owner]: await sign(message) });
   const payment = { x402Version: 1, scheme: 'exact', network: req.network, payload: { transaction: toBase64(wire) } };
   const second = await post({ 'X-PAYMENT': b64json(payment) });
   if (second.status !== 200) throw new X402Error(second.body.code ?? 'X402Refused', second.body.error ?? `the relay answered ${second.status}`, { status: second.status, body: second.body });

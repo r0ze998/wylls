@@ -19,7 +19,32 @@ import { encode as base58 } from '../../client/src/base58.mjs';
 import { fromBase64 } from '../../client/src/bytes.mjs';
 import { hostParts } from '../../client/src/frontier/addresses.mjs';
 import { decodeAccount } from '../../client/src/frontier/codec.mjs';
+import { residentCitizen } from '../../client/src/frontier/resident.mjs';
 import { decodeRecord } from '../../../permutation-server/web/frontier/flog.mjs';
+
+/** A ledger player id of an NFT pass (experimental): `pass:<asset>`; a wallet's is its address. */
+export const PASS_PREFIX = 'pass:';
+export const passOf = id => (typeof id === 'string' && id.startsWith(PASS_PREFIX) ? id.slice(PASS_PREFIX.length) : null);
+
+/**
+ * The player a Citizen account belongs to, from its bytes: `{wallet,
+ * asset: null}` for a wallet Citizen at that wallet's address; `{wallet:
+ * 'pass:<asset>', asset}` for an NFT pass's Citizen (zero wallet, the
+ * resident mark at byte 380 and the asset at 348–380, frontier-abi
+ * `resident_citizen`) at the pass's address of this season; null for any
+ * other account (a Citizen elsewhere than its address stands for nobody).
+ */
+export function playerOfCitizen(addresses, citizen, bytes, C) {
+  const d = Uint8Array.from(bytes ?? []);
+  const zeroWallet = Array.from(C.WALLET).every(b => b === 0);
+  if (d.length >= 384 && (d[380] & 1) === 1) {
+    if (!zeroWallet) return null;
+    const asset = base58(d.subarray(348, 380));
+    return residentCitizen(addresses, asset) === citizen ? { wallet: PASS_PREFIX + asset, asset } : null;
+  }
+  const wallet = base58(C.WALLET);
+  return !zeroWallet && addresses.citizen(wallet) === citizen ? { wallet, asset: null } : null;
+}
 
 /** CONQUEST event code of a keep changing holder; the keep's pseudo-site. */
 export const KEEP_TAKEN = 9;
@@ -106,9 +131,11 @@ export class Deriver {
         const H = decodeAccount('Holding', hd, { seasonId: this.addresses.seasonId, profile: this.profile });
         if (Number(H.GEN) === h.gen) {
           const citizen = base58(H.OWNER_CITIZEN);
-          const C = decodeAccount('Citizen', await this.io.account(citizen), { seasonId: this.addresses.seasonId, profile: this.profile });
-          const wallet = base58(C.WALLET);
-          if (this.addresses.citizen(wallet) === citizen) out = { wallet, citizen, nation: Number(C.FACTION), holding };
+          const cd = await this.io.account(citizen);
+          const C = decodeAccount('Citizen', cd, { seasonId: this.addresses.seasonId, profile: this.profile });
+          // The wallet, or the NFT pass (`pass:<asset>`) whose Citizen this is.
+          const player = playerOfCitizen(this.addresses, citizen, cd, C);
+          if (player) out = { wallet: player.wallet, asset: player.asset, citizen, nation: Number(C.FACTION), holding };
         }
       } catch { out = null; }
     }

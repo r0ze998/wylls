@@ -51,6 +51,28 @@
 //! | 5 | Claim(nation u8, points u64, n u8, proof 32×n) | `[wallet s] [pool w] [entry w] [citizen] [vault w] [wallet token w] [mint] [token]` |
 //! | 6 | WithdrawOps | `[operator s] [pool w] [vault w] [operator token w] [mint] [token]` |
 //! | 7 | RecordNation (candidate, workstream 04) | `[pool] [entry w] [citizen]` |
+//! | 8 | PayResident(generation u32) (experimental, `nft-experimental`) | `[owner s] [payer s,w] [pool w] [entry w] [owner token w] [vault w] [mint] [token] [system] [policy] [asset] [resident]` |
+//! | 9 | ClaimResident(generation u32, nation u8, points u64, n u8, proof 32×n) (experimental) | `[owner s] [pool w] [entry w] [citizen] [link] [vault w] [owner token w] [mint] [token] [policy] [asset] [resident]` |
+//! | 10 | RecordResidentNation (experimental) | `[pool] [entry w] [citizen]` |
+//!
+//! **NFT pass entries (experimental, feature `nft-experimental`; NFT-PRIZE.md).**
+//! A player of the `nft-experimental` game holds an NFT pass (a Metaplex Core
+//! asset of the resident program's collection, workstream 20): its entry and
+//! its unclaimed prize rights belong to the pass, so they follow it to its
+//! **current** owner, whoever paid. Every pass instruction reads, in the same
+//! invocation and never from the caller: the game program's resident policy
+//! (its own PDA, program-owned, write-once), the Core asset (owner, collection,
+//! transfer guard) and the resident program's record (holder generation,
+//! session) — `frontier_abi::resident_auth`, exactly the game's check — and
+//! refuses a session key, an owner that moved on, or a signature from before
+//! a transfer (the signed generation). The NFT Entry is its own account kind
+//! (`["entry-nft", pool, asset]`, 192 B, magic `WYPRNFTE`), so a wallet Claim
+//! never pays it and a pass Claim never pays a wallet Entry; its share leaf is
+//! `sha256(0x02 ‖ pool ‖ asset ‖ nation ‖ points)` (a wallet leaf starts with
+//! 0x00, a node with 0x01), under the one shares root. Everything the legacy
+//! wallet path does is unchanged. Undecided and therefore refused (fail
+//! closed): a pass claim in refund mode (`ResidentRefundUndecided`: whom a
+//! refund follows is not decided); nothing about legacy-to-NFT migration.
 //!
 //! **RecordNation** (candidate, 2026-11-06; changes no rule and no amount).
 //! A shares claim needs the wallet's nation, which the game keeps in its
@@ -89,6 +111,8 @@ pub const SYSTEM_PROGRAM: Pubkey = Pubkey::new_from_array([0u8; 32]);
 pub const POOL_SEED: &[u8] = b"pool";
 pub const VAULT_SEED: &[u8] = b"vault";
 pub const ENTRY_SEED: &[u8] = b"entry";
+/// The NFT Entry's seed (experimental): never a wallet Entry's address.
+pub const ENTRY_RESIDENT_SEED: &[u8] = b"entry-nft";
 pub const FACTIONS: usize = 6;
 /// Most basis points of a fee the operator may keep.
 pub const MAX_OPS_BPS: u16 = 10_000;
@@ -111,6 +135,14 @@ pub mod tag {
     pub const WITHDRAW_OPS: u8 = 6;
     /// Candidate (workstream 04): copy the Citizen's nation into the Entry.
     pub const RECORD_NATION: u8 = 7;
+    /// NFT pass (experimental, provisional numbers; dispatched only with the
+    /// `nft-experimental` feature, `BadData` otherwise): the pass's current
+    /// owner pays the fee; the NFT Entry names the pass, not a wallet.
+    pub const PAY_RESIDENT: u8 = 8;
+    /// NFT pass: the pass's current owner claims its share (shares mode only).
+    pub const CLAIM_RESIDENT: u8 = 9;
+    /// NFT pass: copy the NFT Citizen's nation into the NFT Entry (anyone).
+    pub const RECORD_RESIDENT_NATION: u8 = 10;
 }
 
 /// Pool account (640 B, PDA `["pool", game program, le64(season id)]`).
@@ -185,6 +217,36 @@ pub mod entry {
     pub const CLAIM_AMOUNT: usize = 96;
 }
 
+/// NFT Entry account (192 B, PDA `["entry-nft", pool, asset]`; experimental,
+/// `nft-experimental`): proof that the pass `asset` paid. Its first 104 bytes
+/// sit where the wallet Entry's do, with the asset where the wallet is, so a
+/// reader can share offsets; its size and magic differ, so neither kind is
+/// ever read as the other. Bytes 172–191 are reserved (zero).
+pub mod entry_resident {
+    pub const MAGIC: [u8; 8] = *b"WYPRNFTE";
+    pub const SIZE: usize = 192;
+    pub const HDR_MAGIC: usize = 0;
+    pub const BUMP: usize = 8;
+    pub const CLAIMED: usize = 9;
+    /// 1 once [`super::tag::RECORD_RESIDENT_NATION`] copied the NFT
+    /// Citizen's nation; 0 before.
+    pub const NATION_RECORDED: usize = 10;
+    pub const NATION: usize = 11;
+    /// The holder generation the payer signed (informational).
+    pub const PAY_GENERATION: usize = 12;
+    pub const POOL: usize = 16;
+    pub const ASSET: usize = 48;
+    pub const AMOUNT: usize = 80;
+    pub const PAID_SLOT: usize = 88;
+    pub const CLAIM_AMOUNT: usize = 96;
+    /// The owner that paid (informational: the right follows the pass).
+    pub const PAID_BY: usize = 104;
+    /// The owner that claimed (zero until claimed).
+    pub const CLAIMED_BY: usize = 136;
+    /// The holder generation the claimant signed.
+    pub const CLAIM_GENERATION: usize = 168;
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u32)]
 pub enum PrizeError {
@@ -211,6 +273,29 @@ pub enum PrizeError {
     /// InitPool: the season's `r_max_ceiling` lets ExtendFrontier grow the
     /// map past [`MAX_RING`] (the tally bitmap's rings 0–17).
     CeilingPastTally = 0x111,
+    // NFT pass (experimental; provisional numbers, 0x111 is ⑧'s
+    // CeilingPastTally): the six refusals of
+    // `frontier_abi::resident_auth`, in this program's number space.
+    /// The pass's owner did not sign.
+    ResidentNotSigned = 0x113,
+    /// The asset account is not a Core asset of the policy's collection.
+    ResidentAsset = 0x114,
+    /// The resident record is not the asset's, or not at its address.
+    ResidentAccount = 0x115,
+    /// The asset lacks the transfer guard (it could move without the
+    /// generation changing).
+    ResidentUnguarded = 0x116,
+    /// The signed generation is not the current one: the pass moved since.
+    ResidentStaleGeneration = 0x117,
+    /// The signer is not the pass's current owner (a session key never
+    /// claims or pays).
+    ResidentNotCurrentAuthority = 0x118,
+    /// The game program's resident policy is absent, not the game's, or not
+    /// at its address: no pass can be judged.
+    ResidentPolicy = 0x119,
+    /// A pass claim in refund mode: whom a refund follows (the payer or the
+    /// holder) is undecided, so it is refused and nothing moves.
+    ResidentRefundUndecided = 0x11A,
 }
 
 impl From<PrizeError> for ProgramError {
@@ -264,6 +349,13 @@ pub fn vault_address(program: &Pubkey, pool: &Pubkey) -> (Pubkey, u8) {
 pub fn entry_address(program: &Pubkey, pool: &Pubkey, wallet: &Pubkey) -> (Pubkey, u8) {
     Pubkey::find_program_address(&[ENTRY_SEED, pool.as_ref(), wallet.as_ref()], program)
 }
+/// An NFT pass's Entry (experimental).
+pub fn entry_resident_address(program: &Pubkey, pool: &Pubkey, asset: &Pubkey) -> (Pubkey, u8) {
+    Pubkey::find_program_address(
+        &[ENTRY_RESIDENT_SEED, pool.as_ref(), asset.as_ref()],
+        program,
+    )
+}
 
 /// The operator's part of one fee: `fee × ops_bps / 10,000`, rounded down
 /// (the prize takes the remainder).
@@ -274,6 +366,12 @@ pub fn ops_part(fee: u64, ops_bps: u16) -> u64 {
 /// The shares leaf of `(wallet, nation, points)` in `pool`.
 pub fn leaf(pool: &[u8; 32], wallet: &[u8; 32], nation: u8, points: u64) -> [u8; 32] {
     sha256(&[&[0u8], pool, wallet, &[nation], &points.to_le_bytes()])
+}
+/// The shares leaf of an NFT pass `(asset, nation, points)` in `pool`
+/// (experimental): its own domain byte, so a pass leaf is never a wallet
+/// leaf (0x00) or a node (0x01) of the same bytes. One root holds both kinds.
+pub fn leaf_resident(pool: &[u8; 32], asset: &[u8; 32], nation: u8, points: u64) -> [u8; 32] {
+    sha256(&[&[2u8], pool, asset, &[nation], &points.to_le_bytes()])
 }
 /// The parent of two nodes (sorted pair).
 pub fn node(a: &[u8; 32], b: &[u8; 32]) -> [u8; 32] {
@@ -599,6 +697,21 @@ fn pay(program: &Pubkey, a: &[AccountInfo]) -> R<()> {
         let slot = solana_program::clock::Clock::get()?.slot;
         put(&mut ed, entry::PAID_SLOT, &slot.to_le_bytes())?;
     }
+    let ops = credit_fee(pool_ai, fee, ops_bps)?;
+    msg!(
+        "PRIZE pay wallet={} fee={} prize+={} ops+={}",
+        wallet.key,
+        fee,
+        fee - ops,
+        ops
+    );
+    Ok(())
+}
+
+/// Books one paid fee into the pool: one more entry, `fee` collected, the
+/// prize's and the operator's parts ([`ops_part`]). Returns the operator's
+/// part. (Pay's own bookkeeping, unchanged; PayResident shares it.)
+fn credit_fee(pool_ai: &AccountInfo, fee: u64, ops_bps: u16) -> R<u64> {
     let ops = ops_part(fee, ops_bps);
     let mut pd = pool_ai.try_borrow_mut_data()?;
     let n = u32_at(&pd, pool::ENTRIES)?
@@ -611,14 +724,7 @@ fn pay(program: &Pubkey, a: &[AccountInfo]) -> R<()> {
     put(&mut pd, pool::PRIZE, &v.to_le_bytes())?;
     let v = add(u64_at(&pd, pool::OPS)?, ops)?;
     put(&mut pd, pool::OPS, &v.to_le_bytes())?;
-    msg!(
-        "PRIZE pay wallet={} fee={} prize+={} ops+={}",
-        wallet.key,
-        fee,
-        fee - ops,
-        ops
-    );
-    Ok(())
+    Ok(ops)
 }
 
 fn tally(program: &Pubkey, a: &[AccountInfo]) -> R<()> {
@@ -1025,6 +1131,435 @@ fn withdraw_ops(program: &Pubkey, a: &[AccountInfo]) -> R<()> {
     Ok(())
 }
 
+/// NFT pass entries and claims (experimental, feature `nft-experimental`;
+/// NFT-PRIZE.md). The pass's current owner is judged from three live
+/// accounts the caller cannot forge: the game program's resident policy (its
+/// PDA, owned by the game, write-once), the Core asset (owned by the policy's
+/// Core program, in the policy's collection, frozen with the resident
+/// program's permanent transfer delegate) and the resident program's record
+/// (owned by the policy's resident program, at `["resident", asset]`), with
+/// the generation the owner signed — `frontier_abi::resident_auth::authorize`,
+/// the game's own check, with `session_allowed = false`. The pass's Citizen
+/// is this world's, at `citizen_by_tag15(resident id)` of the pool's season,
+/// marked with the asset, and its link `["nft-citizen-link", season, asset]`
+/// names asset, resident and Citizen.
+#[cfg(feature = "nft-experimental")]
+mod resident {
+    use super::*;
+    use frontier_abi::resident_auth::{self, Refusal};
+    use frontier_abi::{resident_binding, resident_citizen, resident_policy};
+
+    /// The game program's policy PDA (`permutation-frontier`
+    /// `resident_binding::POLICY_SEED`).
+    pub const POLICY_SEED: &[u8] = b"nft-resident-policy";
+    /// The game's per-world link (`resident_binding::LINK_SEED`).
+    pub const LINK_SEED: &[u8] = b"nft-citizen-link";
+    /// The resident program's record of an asset (`resident_binding::RESIDENT_SEED`).
+    pub const RESIDENT_SEED: &[u8] = b"resident";
+
+    fn refusal(r: Refusal) -> ProgramError {
+        let e = match r {
+            Refusal::NotSigned => E::ResidentNotSigned,
+            Refusal::Asset => E::ResidentAsset,
+            Refusal::Resident => E::ResidentAccount,
+            Refusal::Unguarded => E::ResidentUnguarded,
+            Refusal::StaleGeneration => E::ResidentStaleGeneration,
+            Refusal::NotCurrentAuthority => E::ResidentNotCurrentAuthority,
+        };
+        e.into()
+    }
+
+    /// The game program's resident policy, from its own account: at the
+    /// policy PDA of `game`, owned by `game`, read-only, a complete
+    /// `PSFNP002` record (`ResidentPolicy` otherwise). The caller never names
+    /// the Core program, the resident program or the collection.
+    fn game_policy(game: &Pubkey, policy: &AccountInfo) -> R<resident_auth::Policy> {
+        let expected = Pubkey::find_program_address(&[POLICY_SEED], game).0;
+        if *policy.key != expected || *policy.owner != *game || policy.is_writable {
+            return Err(E::ResidentPolicy.into());
+        }
+        let d = policy.try_borrow_data()?;
+        resident_policy::read(&d).ok_or(ProgramError::from(E::ResidentPolicy))
+    }
+
+    /// `owner` holds the pass `asset` now: it signed; the asset is a guarded
+    /// Core asset of the policy's collection whose live owner is `owner` (no
+    /// session); `resident` is the asset's record at its address under the
+    /// policy's resident program; `generation` (signed instruction data) is
+    /// the record's current one. Read in this invocation, cached nowhere.
+    fn current_owner(
+        policy: &resident_auth::Policy,
+        asset: &AccountInfo,
+        resident: &AccountInfo,
+        owner: &AccountInfo,
+        generation: u32,
+        now: i64,
+    ) -> R<()> {
+        if asset.is_writable || resident.is_writable {
+            return Err(E::BadAccount.into());
+        }
+        let resident_program = Pubkey::new_from_array(policy.resident_program);
+        let expected =
+            Pubkey::find_program_address(&[RESIDENT_SEED, asset.key.as_ref()], &resident_program).0;
+        if *resident.key != expected {
+            return Err(E::ResidentAccount.into());
+        }
+        let a = asset.try_borrow_data()?;
+        let r = resident.try_borrow_data()?;
+        resident_auth::authorize(
+            &resident_auth::Binding {
+                asset: asset.key.to_bytes(),
+                resident: resident.key.to_bytes(),
+            },
+            policy,
+            &resident_auth::Account {
+                key: asset.key.to_bytes(),
+                owner: asset.owner.to_bytes(),
+                data: &a,
+            },
+            &resident_auth::Account {
+                key: resident.key.to_bytes(),
+                owner: resident.owner.to_bytes(),
+                data: &r,
+            },
+            owner.key.as_array(),
+            owner.is_signer,
+            generation,
+            now,
+            false,
+        )
+        .map_err(refusal)
+    }
+
+    /// This world's NFT Citizen of `asset`: at `citizen_by_tag15(resident id)`
+    /// of the pool's season (`BadAccount` otherwise).
+    fn expect_citizen_address(ctx: &AddrCtx, asset: &Pubkey, citizen: &AccountInfo) -> R<()> {
+        let tag15 = resident_citizen::resident_tag15(asset.as_array());
+        if ctx.citizen_by_tag15(&tag15) != citizen.key.to_bytes() {
+            return Err(E::BadAccount.into());
+        }
+        Ok(())
+    }
+
+    /// The nation of the live NFT Citizen `citizen` of `asset`: the game's
+    /// account of this season, marked with exactly this asset.
+    fn citizen_nation(citizen: &AccountInfo, game: &Pubkey, sid: u64, asset: &Pubkey) -> R<u8> {
+        game_account(citizen, game, &C::MAGIC, C::SIZE, sid)?;
+        let cd = citizen.try_borrow_data()?;
+        if resident_citizen::resident_asset(&cd) != Some(asset.to_bytes()) {
+            return Err(E::BadAccount.into());
+        }
+        Ok(cd[C::FACTION])
+    }
+
+    /// 8 PayResident: the pass's current owner pays the fee from its own
+    /// token account; the NFT Entry names the pass. As Pay: while the pool is
+    /// Open and nothing is tallied, once per pass (`AlreadyPaid`).
+    pub fn pay_resident(program: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+        let [owner, payer, pool_ai, entry_ai, from, vault, mint, token, system, policy_ai, asset, resident] =
+            a
+        else {
+            return Err(ProgramError::NotEnoughAccountKeys);
+        };
+        if d.len() != 4 {
+            return Err(E::BadData.into());
+        }
+        let generation = u32::from_le_bytes(rd(d, 0)?);
+        pool_of(program, pool_ai)?;
+        if !owner.is_signer
+            || !payer.is_signer
+            || *token.key != TOKEN_PROGRAM
+            || *system.key != SYSTEM_PROGRAM
+        {
+            return Err(E::BadAccount.into());
+        }
+        let (fee, ops_bps, decimals, game) = {
+            let pd = pool_ai.try_borrow_data()?;
+            if pd[pool::STATE] != pool::STATE_OPEN || u16_at(&pd, pool::COUNTED)? != 0 {
+                return Err(E::WrongState.into());
+            }
+            if key_at(&pd, pool::VAULT)? != *vault.key || key_at(&pd, pool::MINT)? != *mint.key {
+                return Err(E::BadAccount.into());
+            }
+            (
+                u64_at(&pd, pool::FEE)?,
+                u16_at(&pd, pool::OPS_BPS)?,
+                pd[pool::DECIMALS],
+                key_at(&pd, pool::GAME_PROGRAM)?,
+            )
+        };
+        let clock = solana_program::clock::Clock::get()?;
+        let policy = game_policy(&game, policy_ai)?;
+        current_owner(
+            &policy,
+            asset,
+            resident,
+            owner,
+            generation,
+            clock.unix_timestamp,
+        )?;
+        let (entry_key, bump) = entry_resident_address(program, pool_ai.key, asset.key);
+        if entry_key != *entry_ai.key {
+            return Err(E::BadAccount.into());
+        }
+        if !entry_ai.data_is_empty() {
+            return Err(E::AlreadyPaid.into());
+        }
+        token_transfer(from, mint, vault, owner, fee, decimals, None)?;
+        create(
+            payer,
+            entry_ai,
+            entry_resident::SIZE,
+            program,
+            &[
+                ENTRY_RESIDENT_SEED,
+                pool_ai.key.as_ref(),
+                asset.key.as_ref(),
+                &[bump],
+            ],
+        )?;
+        {
+            use entry_resident as N;
+            let mut ed = entry_ai.try_borrow_mut_data()?;
+            put(&mut ed, N::HDR_MAGIC, &N::MAGIC)?;
+            ed[N::BUMP] = bump;
+            put(&mut ed, N::PAY_GENERATION, &generation.to_le_bytes())?;
+            put(&mut ed, N::POOL, pool_ai.key.as_ref())?;
+            put(&mut ed, N::ASSET, asset.key.as_ref())?;
+            put(&mut ed, N::AMOUNT, &fee.to_le_bytes())?;
+            put(&mut ed, N::PAID_SLOT, &clock.slot.to_le_bytes())?;
+            put(&mut ed, N::PAID_BY, owner.key.as_ref())?;
+        }
+        let ops = credit_fee(pool_ai, fee, ops_bps)?;
+        msg!(
+            "PRIZE pay-nft asset={} owner={} gen={} fee={} prize+={} ops+={}",
+            asset.key,
+            owner.key,
+            generation,
+            fee,
+            fee - ops,
+            ops
+        );
+        Ok(())
+    }
+
+    /// 9 ClaimResident: the pass's current owner takes the pass's share, once
+    /// (shares mode only; refund mode is `ResidentRefundUndecided`), into its
+    /// own token account of the pool's mint (`[owner token w]` must be owned
+    /// by the signer; `BadAccount` otherwise). The amount, the proof and the
+    /// winning-nation rule are the wallet Claim's; the leaf is the pass's
+    /// ([`leaf_resident`]). The nation comes from the live NFT Citizen, or,
+    /// only when its address is empty, from the Entry's record
+    /// (RecordResidentNation).
+    pub fn claim_resident(program: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+        use entry_resident as N;
+        let [owner, pool_ai, entry_ai, citizen, link, vault, to, mint, token, policy_ai, asset, resident] =
+            a
+        else {
+            return Err(ProgramError::NotEnoughAccountKeys);
+        };
+        pool_of(program, pool_ai)?;
+        if !owner.is_signer || *token.key != TOKEN_PROGRAM {
+            return Err(E::BadAccount.into());
+        }
+        // generation u32 ‖ nation u8 ‖ points u64 ‖ n u8 ‖ proof 32×n
+        if d.len() < 14 || d.len() != 14 + 32 * d[13] as usize || d[13] as usize > MAX_PROOF {
+            return Err(E::BadData.into());
+        }
+        let generation = u32::from_le_bytes(rd(d, 0)?);
+        let nation = d[4];
+        let points = u64_at(d, 5)?;
+        let n = d[13] as usize;
+        let (entry_key, _) = entry_resident_address(program, pool_ai.key, asset.key);
+        if entry_key != *entry_ai.key || entry_ai.owner != program {
+            return Err(E::BadAccount.into());
+        }
+        let mut ed = entry_ai.try_borrow_mut_data()?;
+        if ed.len() != N::SIZE
+            || ed[..8] != N::MAGIC
+            || key_at(&ed, N::POOL)? != *pool_ai.key
+            || key_at(&ed, N::ASSET)? != *asset.key
+        {
+            return Err(E::BadAccount.into());
+        }
+        if ed[N::CLAIMED] != 0 {
+            return Err(E::AlreadyClaimed.into());
+        }
+        let mut pd = pool_ai.try_borrow_mut_data()?;
+        if pd[pool::STATE] != pool::STATE_SHARES {
+            return Err(E::WrongState.into());
+        }
+        if key_at(&pd, pool::VAULT)? != *vault.key || key_at(&pd, pool::MINT)? != *mint.key {
+            return Err(E::BadAccount.into());
+        }
+        // The share goes to the signer's own token account of the pool's mint
+        // only: an SPL token account whose mint is the pool's and whose owner
+        // field is the signer (the wallet Claim leaves its destination to the
+        // signer; a pass claim binds it, so a later owner is paid to itself).
+        {
+            let td = to.try_borrow_data()?;
+            if *to.owner != TOKEN_PROGRAM
+                || td.len() != 165
+                || key_at(&td, 0)? != *mint.key
+                || key_at(&td, 32)? != *owner.key
+            {
+                return Err(E::BadAccount.into());
+            }
+        }
+        let game = key_at(&pd, pool::GAME_PROGRAM)?;
+        let sid = u64_at(&pd, pool::SEASON_ID)?;
+        let season: [u8; 32] = rd(&pd, pool::SEASON)?;
+        // Who holds the pass now, from the live Core asset and resident
+        // record: never the payer, never a session, never a stale signature.
+        let policy = game_policy(&game, policy_ai)?;
+        current_owner(
+            &policy,
+            asset,
+            resident,
+            owner,
+            generation,
+            solana_program::clock::Clock::get()?.unix_timestamp,
+        )?;
+        if pd[pool::MODE] == pool::MODE_REFUND {
+            return Err(E::ResidentRefundUndecided.into());
+        }
+        // This world's NFT Citizen and link of the pass.
+        let ctx = AddrCtx {
+            season,
+            program: game.to_bytes(),
+        };
+        expect_citizen_address(&ctx, asset.key, citizen)?;
+        let link_key =
+            Pubkey::find_program_address(&[LINK_SEED, season.as_ref(), asset.key.as_ref()], &game)
+                .0;
+        if *link.key != link_key || *link.owner != game {
+            return Err(E::BadAccount.into());
+        }
+        {
+            let ld = link.try_borrow_data()?;
+            let rec = resident_binding::read(&ld).ok_or(E::BadAccount)?;
+            if !resident_binding::matches(
+                &rec,
+                asset.key.as_array(),
+                resident.key.as_array(),
+                citizen.key.as_array(),
+            ) {
+                return Err(E::BadAccount.into());
+            }
+        }
+        let faction = if is_empty(citizen) {
+            if ed[N::NATION_RECORDED] != 1 {
+                return Err(E::BadAccount.into());
+            }
+            ed[N::NATION]
+        } else {
+            citizen_nation(citizen, &game, sid, asset.key)?
+        };
+        if nation as usize >= FACTIONS
+            || faction != nation
+            || pd[pool::WINNERS] & (1 << nation) == 0
+        {
+            return Err(E::NotWinner.into());
+        }
+        let mut h = leaf_resident(
+            &pool_ai.key.to_bytes(),
+            asset.key.as_array(),
+            nation,
+            points,
+        );
+        for i in 0..n {
+            h = node(&h, &rd(d, 14 + 32 * i)?);
+        }
+        if h != rd::<32>(&pd, pool::SHARES_ROOT)? {
+            return Err(E::BadProof.into());
+        }
+        let prize = u64_at(&pd, pool::PRIZE)?;
+        let total = u64_at(&pd, pool::TOTAL_POINTS + 8 * nation as usize)?;
+        let amount =
+            share_amount(prize, pd[pool::SHARE_NATIONS], points, total).ok_or(E::BadShares)?;
+        let claimed = add(u64_at(&pd, pool::CLAIMED)?, amount)?;
+        if claimed > prize {
+            return Err(E::Overflow.into());
+        }
+        put(&mut pd, pool::CLAIMED, &claimed.to_le_bytes())?;
+        let c = u32_at(&pd, pool::CLAIMS)?
+            .checked_add(1)
+            .ok_or(E::Overflow)?;
+        put(&mut pd, pool::CLAIMS, &c.to_le_bytes())?;
+        ed[N::CLAIMED] = 1;
+        put(&mut ed, N::CLAIM_AMOUNT, &amount.to_le_bytes())?;
+        put(&mut ed, N::CLAIMED_BY, owner.key.as_ref())?;
+        put(&mut ed, N::CLAIM_GENERATION, &generation.to_le_bytes())?;
+        let sid_le = sid.to_le_bytes();
+        let (bump, decimals) = (pd[pool::BUMP], pd[pool::DECIMALS]);
+        drop(pd);
+        drop(ed);
+        if amount > 0 {
+            token_transfer(
+                vault,
+                mint,
+                to,
+                pool_ai,
+                amount,
+                decimals,
+                Some(&[POOL_SEED, game.as_ref(), &sid_le, &[bump]]),
+            )?;
+        }
+        msg!(
+            "PRIZE claim-nft asset={} owner={} gen={} points={} amount={}",
+            asset.key,
+            owner.key,
+            generation,
+            points,
+            amount
+        );
+        Ok(())
+    }
+
+    /// 10 RecordResidentNation: `[pool] [entry w] [citizen]`, no signer —
+    /// RecordNation for an NFT Entry: anyone copies the nation of the pass's
+    /// live NFT Citizen (at its address, of the pool's game and season,
+    /// marked with the Entry's asset) into the Entry. A repeat is a no-op; a
+    /// different nation is refused. It moves nothing.
+    pub fn record_resident_nation(program: &Pubkey, a: &[AccountInfo]) -> R<()> {
+        use entry_resident as N;
+        let [pool_ai, entry_ai, citizen] = a else {
+            return Err(ProgramError::NotEnoughAccountKeys);
+        };
+        pool_of(program, pool_ai)?;
+        if entry_ai.owner != program {
+            return Err(E::BadAccount.into());
+        }
+        let pd = pool_ai.try_borrow_data()?;
+        let mut ed = entry_ai.try_borrow_mut_data()?;
+        if ed.len() != N::SIZE || ed[..8] != N::MAGIC || key_at(&ed, N::POOL)? != *pool_ai.key {
+            return Err(E::BadAccount.into());
+        }
+        let asset = key_at(&ed, N::ASSET)?;
+        if entry_resident_address(program, pool_ai.key, &asset).0 != *entry_ai.key {
+            return Err(E::BadAccount.into());
+        }
+        let game = key_at(&pd, pool::GAME_PROGRAM)?;
+        let sid = u64_at(&pd, pool::SEASON_ID)?;
+        let ctx = AddrCtx {
+            season: rd(&pd, pool::SEASON)?,
+            program: game.to_bytes(),
+        };
+        expect_citizen_address(&ctx, &asset, citizen)?;
+        let faction = citizen_nation(citizen, &game, sid, &asset)?;
+        match ed[N::NATION_RECORDED] {
+            0 => {
+                ed[N::NATION_RECORDED] = 1;
+                ed[N::NATION] = faction;
+            }
+            1 if ed[N::NATION] == faction => {}
+            _ => return Err(E::BadAccount.into()),
+        }
+        msg!("PRIZE nation-nft asset={} nation={}", asset, faction);
+        Ok(())
+    }
+}
+
 pub fn process_instruction(program: &Pubkey, a: &[AccountInfo], data: &[u8]) -> ProgramResult {
     let (t, d) = data.split_first().ok_or(E::BadData)?;
     match *t {
@@ -1036,6 +1571,13 @@ pub fn process_instruction(program: &Pubkey, a: &[AccountInfo], data: &[u8]) -> 
         tag::CLAIM => claim(program, a, d),
         tag::WITHDRAW_OPS if d.is_empty() => withdraw_ops(program, a),
         tag::RECORD_NATION if d.is_empty() => record_nation(program, a),
+        // NFT pass (experimental): only with the feature; `BadData` otherwise.
+        #[cfg(feature = "nft-experimental")]
+        tag::PAY_RESIDENT => resident::pay_resident(program, a, d),
+        #[cfg(feature = "nft-experimental")]
+        tag::CLAIM_RESIDENT => resident::claim_resident(program, a, d),
+        #[cfg(feature = "nft-experimental")]
+        tag::RECORD_RESIDENT_NATION if d.is_empty() => resident::record_resident_nation(program, a),
         _ => Err(E::BadData.into()),
     }
 }
@@ -1212,6 +1754,102 @@ mod tests {
             Some(8_000_000)
         );
         assert_eq!(refund_amount(1, 1, 0), None);
+    }
+
+    // NFT pass (experimental): literal bytes only, no key, no I/O.
+    #[test]
+    fn nft_entry_fields_fit_and_share_the_wallet_entrys_offsets() {
+        use entry_resident as N;
+        let mut fields = [
+            (N::HDR_MAGIC, 8),
+            (N::BUMP, 1),
+            (N::CLAIMED, 1),
+            (N::NATION_RECORDED, 1),
+            (N::NATION, 1),
+            (N::PAY_GENERATION, 4),
+            (N::POOL, 32),
+            (N::ASSET, 32),
+            (N::AMOUNT, 8),
+            (N::PAID_SLOT, 8),
+            (N::CLAIM_AMOUNT, 8),
+            (N::PAID_BY, 32),
+            (N::CLAIMED_BY, 32),
+            (N::CLAIM_GENERATION, 4),
+        ];
+        fields.sort();
+        for w in fields.windows(2) {
+            assert!(w[0].0 + w[0].1 <= w[1].0, "{:?} overlaps {:?}", w[0], w[1]);
+        }
+        let last = *fields.last().unwrap();
+        assert!(last.0 + last.1 <= N::SIZE);
+        // The shared offsets (a reader's convenience), the separating size and magic.
+        assert_eq!(
+            [N::BUMP, N::CLAIMED, N::NATION_RECORDED, N::NATION],
+            [
+                entry::BUMP,
+                entry::CLAIMED,
+                entry::NATION_RECORDED,
+                entry::NATION
+            ]
+        );
+        assert_eq!(
+            [N::POOL, N::ASSET, N::AMOUNT, N::PAID_SLOT, N::CLAIM_AMOUNT],
+            [
+                entry::POOL,
+                entry::WALLET,
+                entry::AMOUNT,
+                entry::PAID_SLOT,
+                entry::CLAIM_AMOUNT
+            ]
+        );
+        assert_ne!(N::SIZE, entry::SIZE);
+        assert_ne!(N::MAGIC, entry::MAGIC);
+        assert_ne!(N::MAGIC, pool::MAGIC);
+        assert_ne!(ENTRY_RESIDENT_SEED, ENTRY_SEED);
+    }
+
+    #[test]
+    fn a_pass_leaf_is_never_a_wallet_leaf_or_a_node() {
+        let p = [7u8; 32];
+        let k = [1u8; 32];
+        let l = leaf_resident(&p, &k, 2, 10);
+        assert_ne!(l, leaf(&p, &k, 2, 10), "same bytes, different domain");
+        assert_ne!(l, leaf_resident(&p, &k, 3, 10));
+        assert_ne!(l, leaf_resident(&p, &k, 2, 11));
+        assert_ne!(l, leaf_resident(&p, &[2; 32], 2, 10));
+        assert_ne!(l, leaf_resident(&[8; 32], &k, 2, 10));
+        // A proof step over a wallet leaf and a pass leaf is the same node
+        // either way (one root holds both kinds).
+        let w = leaf(&p, &[3; 32], 2, 4);
+        assert_eq!(node(&l, &w), node(&w, &l));
+        assert_ne!(node(&l, &w), l);
+    }
+
+    #[test]
+    fn the_pass_error_numbers_are_the_allocated_band() {
+        let band = [
+            PrizeError::ResidentNotSigned,
+            PrizeError::ResidentAsset,
+            PrizeError::ResidentAccount,
+            PrizeError::ResidentUnguarded,
+            PrizeError::ResidentStaleGeneration,
+            PrizeError::ResidentNotCurrentAuthority,
+            PrizeError::ResidentPolicy,
+            PrizeError::ResidentRefundUndecided,
+        ];
+        for (e, code) in band.iter().zip(0x113u32..) {
+            assert_eq!(*e as u32, code, "{e:?}");
+        }
+        // 0x111 stays free (⑧'s proposal); 0x112 is ContinuousSeason.
+        assert_eq!(PrizeError::ContinuousSeason as u32, 0x112);
+        assert_eq!(
+            [
+                tag::PAY_RESIDENT,
+                tag::CLAIM_RESIDENT,
+                tag::RECORD_RESIDENT_NATION
+            ],
+            [8, 9, 10]
+        );
     }
 
     #[test]

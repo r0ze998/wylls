@@ -11,8 +11,9 @@ import { fromBase64, toBase64, toHex, u64le } from '../client/src/bytes.mjs';
 import { CLOCK_SYSVAR, FrontierAddresses } from '../client/src/frontier/addresses.mjs';
 import { encodeAccount } from '../client/src/frontier/codec.mjs';
 import { rent } from '../client/src/frontier/fees.mjs';
-import { ata, claimAmount, claimIx, classifyPaidJoin, decodeEntry, decodePool, ENTRY_SIZE, entryAddress, joinViaX402, leafHash, merkleTree, nodeHash, opsPart, paidJoinBudget,
-  paidJoinMessage, payIx, POOL_SIZE, prizeAddresses, x402Decode, x402Encode } from '../client/src/frontier/prize.mjs';
+import { ata, claimAmount, claimIx, claimResidentIx, classifyPaidJoin, decodeEntry, decodePool, ENTRY_RESIDENT_SIZE, ENTRY_SIZE, entryAddress, entryResidentAddress, joinViaX402,
+  leafHash, merkleTree, nodeHash, opsPart, paidJoinBudget, paidJoinMessage, paidJoinResidentMessage, payIx, POOL_SIZE, PRIZE_TAG, prizeAddresses, x402Decode, x402Encode } from '../client/src/frontier/prize.mjs';
+import { linkAddress, policyAddress, residentAddress, residentCitizen } from '../client/src/frontier/resident.mjs';
 import { shapeMessage } from '../client/src/frontier/shapes.mjs';
 import { compileMessage, parseTransaction, wireTransaction } from '../client/src/solana-tx.mjs';
 import { signTalk, verifyTalk } from '../client/src/talk-node.mjs';
@@ -556,4 +557,86 @@ test('claim persists its exact signed signature before RPC and holds a lost repl
   const rolledBack = await makeRequest(rollback);
   assert.deepEqual([rolledBack.status, rolledBack.json.code, rollback.store.state.claimPending[wallet].status], [504, 'ClaimOutcomeUnknown', 'pending']);
   assert.equal(rollback.chain.sent.length, 1);
+});
+
+// ------------------------------------------------------------------ NFT pass (experimental)
+//
+// The pass's accounts are literal addresses and program addresses; the
+// owner is a test keypair because the relay checks its signature. The game
+// and prize programs do not run here: the relay pins the accounts and the
+// scripted chain accepts what it is given.
+
+const RESIDENT_PROGRAM = base58(new Uint8Array(32).fill(0x33));
+const ASSET = base58(new Uint8Array(32).fill(0x5a));
+function policyData() {
+  const d = new Uint8Array(136);
+  put(d, 0, new TextEncoder().encode('PSFNP002'));
+  d.fill(0x44, 8, 40); put(d, 40, new PublicKey(RESIDENT_PROGRAM).toBytes()); d.fill(0x55, 72, 104); d.fill(0x66, 104, 136);
+  return d;
+}
+function entryResidentData(asset, { amount = FEE, claimed = false, nation = null } = {}) {
+  const d = new Uint8Array(ENTRY_RESIDENT_SIZE);
+  put(d, 0, new TextEncoder().encode('WYPRNFTE'));
+  d[9] = claimed ? 1 : 0;
+  if (nation !== null) { d[10] = 1; d[11] = nation; }
+  put(d, 16, new PublicKey(PRIZE.pool).toBytes()); put(d, 48, new PublicKey(asset).toBytes()); put(d, 80, u64le(amount));
+  return d;
+}
+const passAccounts = asset => ({ citizen: residentCitizen(A, asset), link: linkAddress(PROGRAM, A.season, asset), policy: policyAddress(PROGRAM), resident: residentAddress(RESIDENT_PROGRAM, asset) });
+
+test('GET /f/prize?asset= reads a pass\'s NFT Entry and NFT Citizen; a pass without an entry is not paid', async () => {
+  const chain = fakeChain();
+  const r = relay({ chain, pool: { entries: 1 } });
+  const none = (await call(r.public, 'GET', `/f/prize?asset=${ASSET}`)).json;
+  assert.deepEqual(none.pass, { asset: ASSET, citizen: residentCitizen(A, ASSET), faction: null, entry: null });
+  chain.set(entryResidentAddress(PRIZE_PROGRAM, PRIZE.pool, ASSET), { data: entryResidentData(ASSET, { nation: 2 }) });
+  const some = (await call(r.public, 'GET', `/f/prize?asset=${ASSET}`)).json;
+  assert.deepEqual([some.pass.entry.paid, some.pass.entry.claimed, some.pass.entry.nation, some.pass.faction], ['25000000', false, 2, null]);
+  assert.equal((await call(r.public, 'GET', '/f/prize?asset=x')).status, 400);
+});
+
+test('POST /f/x402/join takes [prefix, PayResident, JoinResident] of a pass: the relay adds the fee payer and the gate and sends', async () => {
+  const w = Keypair.generate();
+  const owner = w.publicKey.toBase58();
+  const chain = fakeChain({ debit: () => rent(384) + rent(104) + rent(ENTRY_RESIDENT_SIZE), onSent: (_, c) => c.set(PRIZE.pool, { data: poolData({ entries: 1 }) }) });
+  const r = relay({ chain });
+  const q = await requirements(r);
+  assert.deepEqual([q.extra.resident.instruction, q.extra.resident.entrySeed], ['PayResident+JoinResident', 'entry-nft']);
+  const join = { owner, season: A.season, frontier: A.frontier, ...passAccounts(ASSET), asset: ASSET, joinGate: gate.publicKey.toBase58(), generation: 0, faction: 2 };
+  const message = paidJoinResidentMessage({ programId: PROGRAM, prize: PRIZE, feePayer: q.extra.feePayer, recentBlockhash: BLOCKHASH, profile: q.extra.profile, join });
+  const a = await post(r, payment(signedBy(message, w)));
+  assert.equal(a.status, 200, JSON.stringify(a.json));
+  assert.deepEqual([a.json.mode, a.json.wallet, a.json.asset, a.json.paid, a.json.citizen], ['atomic-pass', owner, ASSET, '25000000', residentCitizen(A, ASSET)]);
+  const sent = chain.sent[0];
+  assert.ok(sent.signers.includes(gate.publicKey.toBase58()) && sent.signers.includes(owner));
+  assert.deepEqual(sent.instructions.slice(3).map(ix => [ix.programId, ix.data[0]]), [[PRIZE_PROGRAM, PRIZE_TAG.PAY_RESIDENT], [PROGRAM, 0xe1]]);
+  // Unsigned by the owner: refused, nothing sent.
+  assert.notEqual((await post(r, payment(wireTransaction(message)))).status, 200);
+  assert.equal(chain.sent.length, 1);
+});
+
+test('POST /f/prize/claim sponsors a ClaimResident whose accounts are this season\'s pool, the pass\'s entry, Citizen, link, policy and resident record', async () => {
+  const w = Keypair.generate();
+  const owner = w.publicKey.toBase58();
+  const chain = fakeChain();
+  const r = relay({ chain });
+  chain.set(entryResidentAddress(PRIZE_PROGRAM, PRIZE.pool, ASSET), { data: entryResidentData(ASSET, { claimed: true }) });
+  const fp = (await call(r.public, 'GET', '/f/relay')).json.feePayer;
+  const tx = (ix, ...keys) => toBase64(signedBy(compileMessage({ feePayer: fp, recentBlockhash: BLOCKHASH, instructions: [ix] }), ...keys));
+  const good = claimResidentIx({ prize: PRIZE, owner, asset: ASSET, ...passAccounts(ASSET), generation: 1, nation: 2, points: 10n, proof: [new Uint8Array(32)] });
+  const claim = body => call(r.public, 'POST', '/f/prize/claim', { body, ip: '203.0.113.9' });
+  // No policy on chain: no pass can claim.
+  assert.equal((await claim({ tx: tx(good, w) })).json.code, 'NoResidentPolicy');
+  chain.set(policyAddress(PROGRAM), { data: policyData() });
+  // Another link, another resident record, another citizen: refused.
+  for (const i of [3, 4, 11]) {
+    const forged = { ...good, keys: good.keys.map((k, j) => (j === i ? { ...k, pubkey: Keypair.generate().publicKey.toBase58() } : k)) };
+    assert.equal((await claim({ tx: tx(forged, w) })).json.code, 'RelayRejected', `account ${i}`);
+  }
+  assert.equal((await claim({ tx: tx(good) })).json.code, 'BadSignature');
+  assert.equal(chain.sent.length, 0);
+  const ok = await claim({ tx: tx(good, w) });
+  assert.deepEqual([ok.status, ok.json.ok, chain.sent.length], [200, true, 1]);
+  assert.equal(r.store.state.claimPending[`pass:${ASSET}`].status, 'landed');
+  assert.equal(r.store.state.claimPending[owner], undefined, 'the pass, not the signer, is the claim\'s subject');
 });

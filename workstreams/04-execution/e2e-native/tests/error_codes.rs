@@ -126,6 +126,15 @@ fn prize_error_numbers_are_unique_and_every_copy_agrees() {
         P::Overflow,
         P::WrongExpectedCount,
         P::ContinuousSeason,
+        // NFT pass (nft-experimental; provisional 2026-11-07)
+        P::ResidentNotSigned,
+        P::ResidentAsset,
+        P::ResidentAccount,
+        P::ResidentUnguarded,
+        P::ResidentStaleGeneration,
+        P::ResidentNotCurrentAuthority,
+        P::ResidentPolicy,
+        P::ResidentRefundUndecided,
     ]
     .iter()
     .map(|e| (*e as u32, format!("{e:?}")))

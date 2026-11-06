@@ -72,6 +72,10 @@ fn render() -> String {
         "prize_entry = {} bytes\n",
         permutation_prize::entry::SIZE
     ));
+    s.push_str(&format!(
+        "prize_entry_resident = {} bytes\n",
+        permutation_prize::entry_resident::SIZE
+    ));
     s.push_str("\n[prize_program_errors] # custom error code name\n");
     use permutation_prize::PrizeError as P;
     for e in [
@@ -92,6 +96,16 @@ fn render() -> String {
         P::NothingToPay,
         P::Overflow,
         P::WrongExpectedCount,
+        P::ContinuousSeason,
+        // NFT pass (nft-experimental; provisional 2026-11-07; 0x111 left free)
+        P::ResidentNotSigned,
+        P::ResidentAsset,
+        P::ResidentAccount,
+        P::ResidentUnguarded,
+        P::ResidentStaleGeneration,
+        P::ResidentNotCurrentAuthority,
+        P::ResidentPolicy,
+        P::ResidentRefundUndecided,
     ] {
         s.push_str(&format!("0x{:x} {e:?}\n", e as u32));
     }
@@ -160,6 +174,18 @@ fn render() -> String {
             "RecordNation (provisional, ws04/ws17 2026-11-06)",
             t::RECORD_NATION,
         ),
+        (
+            "PayResident (nft-experimental only; provisional 2026-11-07)",
+            t::PAY_RESIDENT,
+        ),
+        (
+            "ClaimResident (nft-experimental only; provisional 2026-11-07)",
+            t::CLAIM_RESIDENT,
+        ),
+        (
+            "RecordResidentNation (nft-experimental only; provisional 2026-11-07)",
+            t::RECORD_RESIDENT_NATION,
+        ),
     ] {
         s.push_str(&format!("{v} {n}\n"));
     }
@@ -176,6 +202,26 @@ fn render() -> String {
         ("amount", en::AMOUNT),
         ("paid_slot", en::PAID_SLOT),
         ("claim_amount", en::CLAIM_AMOUNT),
+    ] {
+        s.push_str(&format!("{v} {n}\n"));
+    }
+    s.push_str("\n[prize_entry_resident_fields] # offset name (192 B NFT Entry, PDA [\"entry-nft\", pool, asset], magic WYPRNFTE; nft-experimental, provisional 2026-11-07)\n");
+    use permutation_prize::entry_resident as er;
+    for (n, v) in [
+        ("magic", er::HDR_MAGIC),
+        ("bump", er::BUMP),
+        ("claimed", er::CLAIMED),
+        ("nation_recorded", er::NATION_RECORDED),
+        ("nation", er::NATION),
+        ("pay_generation", er::PAY_GENERATION),
+        ("pool", er::POOL),
+        ("asset", er::ASSET),
+        ("amount", er::AMOUNT),
+        ("paid_slot", er::PAID_SLOT),
+        ("claim_amount", er::CLAIM_AMOUNT),
+        ("paid_by", er::PAID_BY),
+        ("claimed_by", er::CLAIMED_BY),
+        ("claim_generation", er::CLAIM_GENERATION),
     ] {
         s.push_str(&format!("{v} {n}\n"));
     }

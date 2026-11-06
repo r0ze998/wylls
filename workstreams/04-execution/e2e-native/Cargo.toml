@@ -17,7 +17,9 @@ description = "Workstream 04: one-world end-to-end path of the S1 prize season r
 nft = ["permutation-frontier/nft-experimental"]
 
 [dependencies]
-permutation-prize = { path = "../../../permutation-prize", features = ["no-entrypoint"] }
+# `nft-experimental`: the NFT pass tags (8–10) run in tests/nft_pass_prize.rs;
+# the legacy tags and tests are unchanged by the feature.
+permutation-prize = { path = "../../../permutation-prize", features = ["no-entrypoint", "nft-experimental"] }
 # The game program itself (host build, no entrypoint): CloseCitizen and CloseProvince
 # run as the real code in the claims-versus-closes reproduction.
 permutation-frontier = { path = "../../../permutation-frontier", default-features = false, features = ["program", "no-entrypoint"] }

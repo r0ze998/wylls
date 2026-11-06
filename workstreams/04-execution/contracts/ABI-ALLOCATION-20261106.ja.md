@@ -220,6 +220,19 @@ prize の program（`PrizeError`、0x100 から）：基準は 0x100–0x110 と
 | プログラムの版 | `custody-preview` の build は版 5（`RULESET_HASH_V4`）のまま。未統合の S2 stage 2e も 5 を名乗るが、S2 は割り当てていないので、統合するときに S2 側を動かす |
 | 検証器の検査番号 | **V26 は ⑩（custody-history）**。V0E は ⑪（0004・0005 で統合候補に入った）。V18・V21 は空き。今の統合候補で使用中の番号は V0–V17、V19、V20、V22–V25、V0E |
 
+## rev 6（2026-11-07、NFT パスの賞金。**仮**、④の確定待ち）
+
+賞金 program（`permutation-prize`、feature `nft-experimental` の内側。無しでは `BadData`）。`permutation-prize/NFT-PRIZE.md`。
+
+| 空間 | 番号 | 内容 |
+|---|---|---|
+| 賞金の命令 tag | 8 PayResident、9 ClaimResident、10 RecordResidentNation | パスの今の持ち主が払う・受け取る。国の記録は誰でも |
+| 賞金のエラー | 0x113–0x118（`resident_auth` の 6 つの拒否を賞金の番号で）、0x119 ResidentPolicy、0x11A ResidentRefundUndecided | 0x111 は⑧の CeilingPastTally のために空けたまま |
+| 賞金の口座 | NFT Entry：PDA `["entry-nft", pool, asset]`、192 B、magic `WYPRNFTE` | 財布の Entry（128 B、`WYPRENTR`）とは大きさも magic も違う。欄は registry.txt `[prize_entry_resident_fields]` |
+| shares の leaf | `sha256(0x02 ‖ pool ‖ asset ‖ nation ‖ points)` | 財布の leaf は 0x00、node は 0x01。同じ root に両方を入れる |
+
+読む側の口座（ゲーム program のもの。番号の追加なし）：policy PDA `["nft-resident-policy"]`（`PSFNP002`）、link `["nft-citizen-link", season, asset]`（`PSFNR001`）、NFT Citizen（`RESIDENT_ASSET` @348、`RESIDENT_FLAGS` @380）、Core の asset、住民 program の `["resident", asset]`。決めていないこと：refund の行き先（払った人か今の持ち主か。NFT の Entry の refund は拒否）、旧い財布の Entry から NFT への移行、世界間の引き継ぎ（U11）。
+
 ## rev 5（2026-11-06 夜）
 
 | 項目 | 割当（仮、統合で確定） |

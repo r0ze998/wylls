@@ -21,6 +21,7 @@ vault = 512 bytes
 caravan = 320 bytes
 prize_pool = 640 bytes
 prize_entry = 128 bytes
+prize_entry_resident = 192 bytes
 
 [prize_program_errors] # custom error code name
 0x100 BadData
@@ -40,6 +41,15 @@ prize_entry = 128 bytes
 0x10e NothingToPay
 0x10f Overflow
 0x110 WrongExpectedCount
+0x112 ContinuousSeason
+0x113 ResidentNotSigned
+0x114 ResidentAsset
+0x115 ResidentAccount
+0x116 ResidentUnguarded
+0x117 ResidentStaleGeneration
+0x118 ResidentNotCurrentAuthority
+0x119 ResidentPolicy
+0x11a ResidentRefundUndecided
 
 [prize_reads_game_accounts] # name size / field offsets (frozen while an old pool can still claim)
 season size 2048 magic PSF1SEAS season_id 8 status 64 end_bell 164 authority 72 r_max 68
@@ -149,6 +159,9 @@ bell = u32 index of bell_secs seconds since genesis_ts
 5 Claim
 6 WithdrawOps
 7 RecordNation (provisional, ws04/ws17 2026-11-06)
+8 PayResident (nft-experimental only; provisional 2026-11-07)
+9 ClaimResident (nft-experimental only; provisional 2026-11-07)
+10 RecordResidentNation (nft-experimental only; provisional 2026-11-07)
 
 [prize_entry_fields] # offset name (128 B Entry; 10-11 provisional)
 0 magic
@@ -161,3 +174,19 @@ bell = u32 index of bell_secs seconds since genesis_ts
 80 amount
 88 paid_slot
 96 claim_amount
+
+[prize_entry_resident_fields] # offset name (192 B NFT Entry, PDA ["entry-nft", pool, asset], magic WYPRNFTE; nft-experimental, provisional 2026-11-07)
+0 magic
+8 bump
+9 claimed
+10 nation_recorded
+11 nation
+12 pay_generation
+16 pool
+48 asset
+80 amount
+88 paid_slot
+96 claim_amount
+104 paid_by
+136 claimed_by
+168 claim_generation

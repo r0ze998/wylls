@@ -25,11 +25,13 @@ import { Keypair } from '@solana/web3.js';
 import { toHex } from '../client/src/bytes.mjs';
 import { FrontierAddresses, ringOf } from '../client/src/frontier/addresses.mjs';
 import { decodeAccount } from '../client/src/frontier/codec.mjs';
-import { claimAmount, decodeEntry, decodePool, ENTRY_SIZE, entryAddress, finalizeIx, leafHash, merkleTree, POOL_STATE, PRIZE_ERRORS, setSharesIx, SHARE_MODE, tallyIx } from '../client/src/frontier/prize.mjs';
+import { claimAmount, decodeEntry, decodeEntryResident, decodePool, ENTRY_RESIDENT_SIZE, ENTRY_SIZE, entryAddress, entryResidentAddress, finalizeIx, leafHash, leafResidentHash,
+  merkleTree, POOL_STATE, PRIZE_ERRORS, setSharesIx, SHARE_MODE, tallyIx } from '../client/src/frontier/prize.mjs';
+import { residentCitizen } from '../client/src/frontier/resident.mjs';
 import { compileMessage, wireTransaction } from '../client/src/solana-tx.mjs';
 import { signTalk } from '../client/src/talk-node.mjs';
 import { createHerald } from '../../permutation-server/web/frontier/herald.mjs';
-import { AREA_NOTE, Deriver, KINDS, PLAYER_KINDS, scoreLines } from '../src/frontier/achievements.mjs';
+import { AREA_NOTE, Deriver, KINDS, PASS_PREFIX, passOf, PLAYER_KINDS, scoreLines } from '../src/frontier/achievements.mjs';
 
 const args = process.argv.slice(2);
 const flag = name => args.includes(`--${name}`);
@@ -210,35 +212,46 @@ assert.ok(checked.out.poolMatchesChain, 'the pool\'s tally is not the chain\'s')
 // ------------------------------------------------------------------ the achievements ledger
 
 const lines = await deriver.lines(provinces);
-// The players: every Citizen named by a line, and every wallet with an Entry among them.
+// The players: every Citizen named by a line (a wallet, or an NFT pass as
+// `pass:<asset>`), and every one with an Entry among them. A pass's Entry is
+// its own kind (`["entry-nft", pool, asset]`, 192 B); its leaf is
+// `leafResidentHash`, under the same root. The nation comes from the live
+// Citizen, else from the Entry's record (RecordNation / RecordResidentNation).
+const entryOf = async id => {
+  const asset = passOf(id);
+  return asset ? decodeEntryResident(await account(entryResidentAddress(prize.program, prize.pool, asset))) : decodeEntry(await account(entryAddress(prize.program, prize.pool, id)));
+};
+const citizenOf = id => { const asset = passOf(id); return asset ? residentCitizen(addresses, asset) : addresses.citizen(id); };
 const wallets = [...new Set(lines.map(l => l.wallet).filter(Boolean))];
 const paid = new Set();
 const members = [];
 for (const w of wallets) {
-  const e = decodeEntry(await account(entryAddress(prize.program, prize.pool, w)));
+  const e = await entryOf(w);
   if (e) paid.add(w);
-  members.push({ wallet: w, nation: lines.find(l => l.wallet === w && l.kind === 'capture')?.detail.ownerNation ?? lines.find(l => l.wallet === w)?.detail.supplierNation, paid: !!e });
+  members.push({ wallet: w, asset: passOf(w), nation: lines.find(l => l.wallet === w && l.kind === 'capture')?.detail.ownerNation ?? lines.find(l => l.wallet === w)?.detail.supplierNation, paid: !!e });
 }
 const extra = opt('members-file') ? JSON.parse(readFileSync(opt('members-file'), 'utf8')) : [];
 // Every paid entry of this pool is a member too, whether or not a line names it: with no capture and no
 // reinforcement in the season (s1-season-2) the lines name nobody, and the equal-split fallback found no paid
 // member and refunded.
-const entryWallets = (await rpc('getProgramAccounts', [prize.program, { encoding: 'base64', filters: [{ dataSize: ENTRY_SIZE }] }]) ?? [])
-  .map(a => decodeEntry(Uint8Array.from(Buffer.from(a.account.data[0], 'base64'))))
-  .filter(e => e && e.pool === prize.pool)
-  .map(e => e.wallet);
-for (const w of [...extra, ...entryWallets]) {
+const programAccounts = async size => (await rpc('getProgramAccounts', [prize.program, { encoding: 'base64', filters: [{ dataSize: size }] }]) ?? [])
+  .map(a => Uint8Array.from(Buffer.from(a.account.data[0], 'base64')));
+const entryWallets = (await programAccounts(ENTRY_SIZE)).map(decodeEntry).filter(e => e && e.pool === prize.pool).map(e => e.wallet);
+const entryPasses = (await programAccounts(ENTRY_RESIDENT_SIZE)).map(decodeEntryResident).filter(e => e && e.pool === prize.pool).map(e => PASS_PREFIX + e.asset);
+for (const w of [...extra, ...entryWallets, ...entryPasses]) {
   if (members.some(m => m.wallet === w)) continue;
-  const c = await account(addresses.citizen(w));
-  const e = decodeEntry(await account(entryAddress(prize.program, prize.pool, w)));
+  const c = await account(citizenOf(w));
+  const e = await entryOf(w);
   if (e) paid.add(w);
-  if (c) members.push({ wallet: w, nation: Number(decodeAccount('Citizen', c, { seasonId: addresses.seasonId, profile }).FACTION), paid: !!e });
+  const nation = c ? Number(decodeAccount('Citizen', c, { seasonId: addresses.seasonId, profile }).FACTION) : e?.nation ?? null;
+  if (nation !== null) members.push({ wallet: w, asset: passOf(w), nation, paid: !!e });
 }
 const scored = scoreLines(lines, { params, winners: pool.winners, paid, members });
 const totals = Array(NATIONS).fill(0n);
 for (const v of scored.points.values()) totals[v.nation] += BigInt(v.points);
 const shareNations = totals.filter(t => t > 0n).length;
-const leaves = [...scored.points].map(([wallet, v]) => ({ wallet, ...v, leaf: leafHash(prize.pool, wallet, v.nation, BigInt(v.points)) }));
+const leafOf = (id, nation, points) => (passOf(id) ? leafResidentHash(prize.pool, passOf(id), nation, BigInt(points)) : leafHash(prize.pool, id, nation, BigInt(points)));
+const leaves = [...scored.points].map(([wallet, v]) => ({ wallet, asset: passOf(wallet), ...v, leaf: leafOf(wallet, v.nation, v.points) }));
 const tree = merkleTree(leaves.map(l => l.leaf));
 const estimatePool = { ...pool, mode: scored.mode === 'refund' ? SHARE_MODE.REFUND : SHARE_MODE.SHARES, shareNations, totalPoints: totals };
 const ledger = {
@@ -249,12 +262,13 @@ const ledger = {
   result: { area: pool.area, territoryBells: pool.bells.map(String), winners: pool.winners, state: ['open', 'final', 'shares'][pool.state] },
   kinds: KINDS, weights: params.contribution,
   playerKinds: PLAYER_KINDS, notes: [AREA_NOTE],
-  players: members.map(m => ({ wallet: m.wallet, nation: m.nation, kind: m.paid ? 'paid' : 'operatorInvited', prizeEligible: !!m.paid && pool.winners.includes(m.nation) })),
+  players: members.map(m => ({ wallet: m.wallet, asset: m.asset ?? null, nation: m.nation, kind: m.paid ? 'paid' : 'operatorInvited', prizeEligible: !!m.paid && pool.winners.includes(m.nation) })),
   lines: scored.lines,
   shares: { mode: scored.mode, totalPoints: totals.map(String), root: toHex(tree.root),
-    members: leaves.map(l => ({ wallet: l.wallet, nation: l.nation, points: l.points, proof: tree.proof(l.leaf).map(toHex) })) },
+    leafDomains: { wallet: '0x00 ‖ pool ‖ wallet ‖ nation ‖ points', pass: '0x02 ‖ pool ‖ asset ‖ nation ‖ points (NFT pass, experimental; claimed by the pass\'s current owner)' },
+    members: leaves.map(l => ({ wallet: l.wallet, asset: l.asset, nation: l.nation, points: l.points, proof: tree.proof(l.leaf).map(toHex) })) },
   estimate: { label: 'ESTIMATE (試算): not a completed transfer; the weights and fallbacks are provisional', prize: String(pool.prize), ops: String(pool.ops),
-    split: leaves.map(l => ({ wallet: l.wallet, nation: l.nation, points: l.points, amount: String(claimAmount(estimatePool, { points: BigInt(l.points), nation: l.nation }) ?? 0n) })) },
+    split: leaves.map(l => ({ wallet: l.wallet, asset: l.asset, nation: l.nation, points: l.points, amount: String(claimAmount(estimatePool, { points: BigInt(l.points), nation: l.nation }) ?? 0n) })) },
 };
 const ledgerText = `${json(ledger)}\n`;
 const ledgerHash = createHash('sha256').update(ledgerText).digest();
