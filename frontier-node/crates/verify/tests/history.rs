@@ -601,7 +601,7 @@ async fn histories() -> Vec<(&'static str, History)> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_verifier_never_passes_an_unproven_history() {
     let hs = histories().await;
-    // The dispersed-placement integration deliberately rejects the old
+    // The current dispersed-placement integration rejects the old
     // synthetic march tickets. Keep that known failure visible: it must
     // not invalidate the history boundary test or be silently made PASS.
     // The recorded land fixture remains the positive PASS control.
@@ -613,10 +613,11 @@ async fn the_verifier_never_passes_an_unproven_history() {
         let r = verify_core::verify(&inp);
         assert_eq!(r.verdict, expected, "{name} as given:\n{}", show(&r));
         if name == "march-synth.json" {
-            assert!(r
-                .findings
+            let failures: Vec<_> = r.findings.iter().filter(|f| f.fail()).collect();
+            assert_eq!(failures.len(), 6, "unexpected legacy fixture failure count");
+            assert!(failures
                 .iter()
-                .any(|f| f.fail() && f.check == "V11" && f.code == "TicketPlacementMismatch"));
+                .all(|f| f.check == "V11" && f.code == "TicketPlacementMismatch"));
         }
         assert_eq!(r.json()["history"]["basis"], "as_given");
         let mut feed = inp.clone();
