@@ -798,3 +798,31 @@ A8 の旧試験（`v16_unknown_tag.rs` の v16_a8）は固定 seed の鍵で署�
 - 本物のゲームのプログラムの EndSeason と、時刻の経過を含む通しの流れ（SBF か、ゲームの全命令のホスト実行が要る）。
 - 鍵を使う試験（gateway のサンプル世界、keeper の World、⑰の shares・accounts の試験など）。
 - 実配備と実害。
+
+## 14.5 ⑮ cb87e30c（ws15-cb87e30c-restore.tar.gz、受領後）
+
+受領物: `ws15-cb87e30c-restore.tar.gz`（2,040,499 バイト、sha256 `af2e5fbe775689bff1bf57f10328e5f1e2e5960147c99f9e42d512530c98c0bb`、申告と一致）。同梱の `SHA256SUMS` は 17 ファイルすべて OK。ただし `SHA256SUMS` に載る `ws15-full.bundle`（別添付、138 MB、sha256 `1838d39d…57d6`）は tar に入っておらず、照合できない（未受領）。
+
+**復元**: `b1a09a0b15dd44f587b1158fc40dd3f17577fcca` だけを入れた空のリポジトリに、薄型 bundle `ws15-from-b1a09a0b.bundle`（前提 `b1a09a0b` の 1 つ）から `refs/heads/ws/15-coop-outcomes` を取り込んだ。HEAD `cb87e30ceace7b959657d43b3c07cd4873aae9c7`、tree `1e423b210b389b98559435577393c3b4e41255b7` で申告と一致。親は `b295ca3eac6767ab0b2f47f5e09c608163c6d732`、履歴は `b1a09a0b → 5753626c → b295ca3e → cb87e30c`。`git fsck` は問題なし。同梱の `patches/0001〜0010` と `ws15-from-4cd901de.bundle` は使っていない（二重適用を避けた）。
+
+**二重適用の確認**: ⑮の `check-not-double-applied.sh` で、2026-11-05 の候補パッチ `15-separate.patch` と `13-15-integrated.patch`（⑮部分）はどちらも `ALREADY-APPLIED`。⑯は当て直していない。4cd901de からの差分は `workstreams/15-coop-outcomes/` の外に 0 件。
+
+**⑭との関係**: ⑭の `ws14/ws14-bde8d1c1.bundle`（前提 GitHub の `preserve/ws14-7d7f2143`）を復元し、`bde8d1c1a92b5766b79bf0af7aae69052ca8ea34`（tree `99b73ee4d29dd897754c9bebf2080d3f13188b88`）を確認。cb87e30c の祖先ではない（⑭のコードは⑮に入っていない）。⑭の tree に固定データのファイルは無いため、⑭の模型（`proto/model.mjs`・`contract.mjs`、鍵なし）で種 1・21 日・168 時間ごとの区切りの A・B・C を作り直した。`JSON.stringify(facts, null, 1)` ＋改行の sha256 が、⑮の `ws14-v1-bde8d1c1-case{A,B,C}.json`（`90fbd117…`、`59d692bb…`、`ab90c2ad…`）と**バイト単位で一致**。⑭の `checkFacts` は 3 件とも誤り 0。
+
+**実行（ホスト、鍵なし）**
+
+| 試験 | 結果 | 判定 |
+|---|---|---|
+| ⑮の `node --test`（99 件） | 全通過 | ⑮の試験を⑯が実行 |
+| ⑮の `s1-exact-source-no-keys`（b1a09a0b に 15-separate を当てたときは `cargo: invalid bytes` で失敗、11.7） | 通過 | **修正確認**（荷の証拠の経路が b295ca3e で入った） |
+| ⑯ `v16-ws15-exact-source`（V16-15a〜d） | 4/4 | 修正確認（b1a09a0b ではパッチ無しで 3 件失敗、11.7） |
+| ⑭の `check-ws15.mjs`（⑭の実出力 B を⑮の adapter に通す） | v1 は 1,802 件すべて読む。v0 と偽ると 0 件 | 偽装は読まれない。ただし `refused: null` で「拒否」としては報告されない（黙って読まない） |
+| ⑯ `v16-ws15-model-facts`（V16-15m、3 規則 × 3 ケース）: ⑭の事実を入れても入れなくても、賞（awards）と賞金の判定が同じ、⑭の事実だけで `achieved` になる目標が無い | 9/9 | 確認。対照で、規則 B・C のケース B では⑭の事実により 29 件が `model_only` になり、評価に効いていることを確かめた |
+
+**限界**: この入力にはゲームの事実が無く、賞は⑭の事実の有無にかかわらず 0 件。ゲームの事実で賞が出る場面に⑭の事実を足しても賞が増えないことは、この試験では確かめていない（**未確認**）。規則 A（旧経路の互換）は賞金を `decided` と出すが、⑭の事実の有無で変わらない。
+
+ログ: `logs/phase9/ws15-cb87e30c.log`、`ws15-model-facts.log`、`ws15-model-control.log`、`ws14-check-ws15-on-cb87e30c.log`。作り直しと対照のスクリプト: `phase5-scripts/gen-ws14-facts.mjs`、`ws15-model-control.mjs`。
+
+**後続版 bf7f43fc**: `bf7f43fca3f4425160ab8a4c318fb45073261955`（tree `109be0c7f5ce9be402c1a844067d0f33e7087d6c`、親 cb87e30c。⑮の申告では ①の fold() と④の runexec の書き出しへの接続、記録の残し方が入力の順に依存する不具合の修正、試験 113 件）。bundle `ws15-cb87e30c-to-bf7f43fc.bundle`（23,249 B、sha256 `7793cf404094c536def537470ba6d9dcdda87a73e7acd355c42092de01cfb8cb`、前提 cb87e30c）は**未受領**で、検証していない。cb87e30c は⑯の手元に復元済みなので、bundle が届けば復元できる。
+
+**未確認**: bf7f43fc、`ws15-full.bundle`、④の実際の JSON 出力（⑮の `fixtures/ws04-types-a967f5f1.json` は型定義から書いたもので実行の出力ではない、と⑮が明記）、①の実物の fold()。

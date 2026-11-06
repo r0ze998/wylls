@@ -1,0 +1,27 @@
+{
+ "ws14": {
+  "schema": "wylls.ws14.tower-facts/1",
+  "events": 1802,
+  "kinds": {
+   "centre.raid": 49,
+   "tower.board_post": 631,
+   "tower.board_taken": 597,
+   "tower.board_fulfilled": 523,
+   "period.boundary": 2
+  }
+ },
+ "ws15_with_v1": {
+  "refused": null,
+  "events": 1802
+ },
+ "ws15_if_relabelled_v0": {
+  "refused": null,
+  "kinds": {},
+  "verified": {},
+  "atUndefined": 0,
+  "sightingIdsUndefined": 0,
+  "boardPostsAsSightings": 0,
+  "boundariesPassed": 0
+ }
+}
+exit=0
