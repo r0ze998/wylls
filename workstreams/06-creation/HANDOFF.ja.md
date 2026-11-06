@@ -114,3 +114,14 @@
   - ③ `acdcd0bf`・④ `d0e96d53` を checkout し、④に P06-4a を当てて `runexec` をビルドする。
   - `node --test test/connect.test.mjs test/connect-live.test.mjs` と、④の `cargo test --test ship_only` ほかを走らせる。
 - **CI：** 旧 `ci.diff` は取り下げ（署名する試験を含む）。`ci-keyfree.diff` は④の候補への提案で、未適用。
+
+## 10. 実行 id の固定と二重登録・二重送信の防止（2026-11-06）
+
+詳しくは [docs/11](docs/11-connection.ja.md) §10。
+
+- ⑥の提案 P06-4a は取り下げた。④が `30a3fd2e` で荷車だけの Run を実装し、受付・照会の CLI も④で作成中のため。
+- **`src/connect/dispatch.mjs`：** 計画から実行 id を固定し、呼ぶ前に控えへ書く。応答消失・再起動のときは照会してから、同じ呼び出しだけを繰り返す。
+- **確かめたこと：**
+  - ⑥の JSON は④ `6984acfa` の荷車だけの Run で、2段とも Fulfilled まで動いた（scratch の確認）。
+  - 応答消失・再起動で、受付も送信も1回だけだった（偽物の④③で）。
+- **依存待ち：** ④の受付・照会の CLI。③ `b76b0a57`（GitHub に無い）。

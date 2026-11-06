@@ -17,9 +17,10 @@
  *       (first read at 8e96f24d) the act registry (`runexec act`,
  *       clients/acts.mjs) and the seven send fates
  *       (docs/EXECUTION-CONTRACT-20261106). RunSpec still needs a facility
- *       there; 06's proposal P06-4a (handoff/patches) makes it optional and
- *       adds `runexec run accept|view`, so a caravan-only run (and a second
- *       one waiting for it as its inbound) is ④'s run end to end.
+ *       there; ④ 30a3fd2e makes it optional (a cargo-only run), so a
+ *       caravan-only run (and a second one waiting for it as its inbound)
+ *       is ④'s run end to end. ④'s accept/view command is being written
+ *       in ④ (not arrived).
  *   Two routes, both here: the act route (06 plan → ③ prepare_caravan /
  *       send_caravan → the agent wallet → ④ `act register --run <06 run
  *       id>`), which knows the send only; and the run route (06 plan → ④
@@ -145,7 +146,7 @@ const placeRef = (p) => ({ kind: p.kind, p: p.p, q: p.q, at: p.at, gen: p.gen })
  * a placeholder facility.
  */
 export function toRunSpecs({ plan, planHash, env, nonce, places, ownerTag, deadlineSlot, budget, effectRevs }) {
-  // see the doc above: with ④'s caravan-only run (06's proposal P06-4a) the spec is accepted as is
+  // see the doc above: ④ 30a3fd2e and later accept the spec as is (cargo-only run)
   const findings = [];
   const m = env.manifest;
   if (plan.manifest?.hash !== env.hash || plan.manifest?.version !== m.version || plan.manifest?.name !== m.name || plan.manifest?.author !== m.author) {
@@ -199,9 +200,9 @@ export function toRunSpecs({ plan, planHash, env, nonce, places, ownerTag, deadl
   if (findings.length) return { ok: false, findings };
   return {
     ok: true, findings: [], runs,
-    // ④ d0e96d53 `pub facility: FacilityRef` refuses `null`; with 06's proposal P06-4a (`Option<FacilityRef>`) it is accepted
-    needs4: "P06-4a",
-    gaps: ["④の RunSpec.facility は d0e96d53 でも必須。⑥の提案パッチ P06-4a（Option にし、荷車だけの Run は Accepted から FacilityConfirmed へ）が入るまで、④はこの spec を受け付けない。仮の施設では埋めない"],
+    // ④ 30a3fd2e and later take `facility: null` (a cargo-only run); checked against 6984acfa
+    needs4: "30a3fd2e",
+    gaps: ["④の受付・照会の CLI は④で作成中（未着）。⑥は RunSpec の JSON と実行 id を渡す側まで"],
   };
 }
 
@@ -232,8 +233,11 @@ function readRunView(view) {
 }
 
 /**
- * 06's result from ④'s run view (`runexec run view`, `p04-run/0.1`, from
- * 06's proposal P06-4a): the same reading as `resultOf`, from ④'s own JSON.
+ * 06's result from a ④ run view: the same reading as `resultOf`. PROVISIONAL
+ * shape (`p04-run/0.1`: runId, state, held, cancel, detail.outcome,
+ * detail.ship_seq, spec) — 06's guess, used by the dispatch tests; ④'s
+ * accept/view command, being written in ④, defines the real one, and this
+ * reader follows it when it arrives.
  */
 export function resultOfRun4(view) {
   const v = readRunView(view);

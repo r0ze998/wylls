@@ -66,8 +66,8 @@ test("an adopted caravan definition becomes ④ run specs: places, cargo[8] in t
   assert.equal(s.rights_units, 0);
   assert.equal(r.runs[0].walletRequired, false);
   assert.deepEqual(r.runs[0].pin.manifest, a.plan.manifest);
-  assert.ok(r.gaps.some((g) => g.includes("facility")));
-  assert.equal(r.needs4, "P06-4a", "④'s RunSpec takes a null facility only with the proposal");
+  assert.ok(r.gaps.some((g) => g.includes("CLI")), "④'s accept/view command is still awaited");
+  assert.equal(r.needs4, "30a3fd2e", "④ takes a null facility from 30a3fd2e on");
   assert.ok(r.runs[0].leftToExecutor.some((x) => x.startsWith("seq")), "the seq is ④'s to fix");
   // the same request gives the same run id; another nonce another one
   assert.equal(spec(a).runs[0].spec.run_id, s.run_id);
@@ -207,7 +207,9 @@ test("④ act receipts: a send is never complete or counted; unknown holds; only
   assert.equal(resultOfAct({ ...act("landed"), receiptVersion: "p04-acts/9" }).ok, false);
 });
 
-// ④'s run views (`runexec run view`, p04-run/0.1), written by ④'s proposal test P06-4a on the specs below
+// run views in 06's provisional p04-run/0.1 shape, written by ④'s executor on the specs below (in a scratch
+// checkout with 06's withdrawn proposal P06-4a; ④ 30a3fd2e gives the same states on the same specs, the
+// shape of ④'s own accept/view command is not known yet)
 const VIEW4 = (name) => JSON.parse(readFileSync(new URL(`../fixtures/connect/run4-view-${name}.json`, import.meta.url), "utf8"));
 
 test("a two-caravan plan becomes two ④ runs; the second waits for the first (its caravan as inbound)", () => {

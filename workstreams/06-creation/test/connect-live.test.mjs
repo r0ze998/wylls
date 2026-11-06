@@ -106,7 +106,7 @@ test("④'s gateway accepts the action ③ would build from 06's call; the key f
   assert.throws(() => parseActionRequest({ ...request, source: "ws06" }), (e) => e.code === "BadRequest");
 });
 
-/** Whether this ④ has 06's proposal P06-4a (a caravan-only RunSpec and `runexec run accept|view`). */
+/** Whether this ④ takes a caravan-only RunSpec (`facility: Option<FacilityRef>`, ④ 30a3fd2e and later). */
 function has4a() {
   const model = readFileSync(join(WS04_ROOT, "workstreams/04-execution/src/model.rs"), "utf8");
   const spec = model.slice(model.indexOf("pub struct RunSpec"), model.indexOf("}", model.indexOf("pub struct RunSpec")));
@@ -115,14 +115,20 @@ function has4a() {
   return false;
 }
 
-test("④'s RunSpec: a required facility (as published) or 06's caravan-only proposal (P06-4a applied)", { skip }, (t) => {
-  t.diagnostic(has4a() ? "④ with P06-4a: facility is Option" : "④ as published: facility is required; 06's specs need P06-4a");
+test("④'s RunSpec: a required facility (before 30a3fd2e) or a cargo-only run (30a3fd2e and later)", { skip }, (t) => {
+  t.diagnostic(has4a() ? "④ with a cargo-only RunSpec (facility is Option; ④ 30a3fd2e and later)" : "④ before 30a3fd2e: facility is required");
 });
 
-test("④ with P06-4a: runexec takes 06's RunSpec JSON and gives the run back by its id", { skip }, (t) => {
-  if (!has4a()) return t.skip("④ without P06-4a (handoff/patches/P06-4a-ws04-caravan-only-run.patch)");
+/** Whether this runexec has an accept/view command for RunSpec JSON (④ is writing it; 06 does not). */
+function hasRunCli() {
+  try { execFileSync(RUNEXEC_BIN, ["run", "view", "--db", join(mkdtempSync(join(tmpdir(), "ws06-probe-")), "p.db"), "--run", "probe"], { encoding: "utf8", stdio: "pipe" }); return true; }
+  catch (e) { try { return JSON.parse(String(e.stdout).trim().split("\n").at(-1)).error === "NoRecord"; } catch { return false; } }
+}
+
+test("④ accept/view: runexec takes 06's RunSpec JSON and gives the run back by its id", { skip }, (t) => {
+  if (!has4a()) return t.skip("④ without a cargo-only RunSpec");
+  if (!hasRunCli()) return t.skip("④'s accept/view command has not arrived (being written in ④); the shape here is 06's provisional p04-run/0.1");
   const fixture = readFileSync(new URL("../fixtures/connect/ws06-runspecs.json", import.meta.url), "utf8");
-  assert.equal(readFileSync(join(WS04_ROOT, "workstreams/04-execution/tests/fixtures/ws06-runspecs.json"), "utf8"), fixture, "④'s test reads the specs 06 writes");
   const dir = mkdtempSync(join(tmpdir(), "ws06-run4-"));
   const db = join(dir, "runs.db");
   const [haul] = JSON.parse(fixture);

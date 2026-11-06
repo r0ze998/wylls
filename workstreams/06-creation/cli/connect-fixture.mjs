@@ -2,8 +2,8 @@
 /**
  * Writes the RunSpec JSON 06 hands to ④ for one adopted two-caravan plan
  * (the second caravan waits for the first), on the places of ④'s test
- * harness (tests/common/mod.rs `scene`). ④'s proposal test P06-4a reads
- * this file; test/connect-live.test.mjs checks the two copies are equal.
+ * harness (tests/common/mod.rs `scene`). Checked on ④'s own cargo-only
+ * runs (30a3fd2e and later) by a scratch test (handoff/ws04-check/).
  *
  *   node cli/connect-fixture.mjs            # print
  *   node cli/connect-fixture.mjs --write    # write fixtures/connect/ws06-runspecs.json
@@ -50,7 +50,8 @@ export function relayManifest(author = "ab".repeat(32)) {
   };
 }
 
-export function relaySpecs() {
+/** The adopted plan, its hash and the pinned definition behind relaySpecs (no key: content and hashes). */
+export function relayRequest() {
   const m = relayManifest();
   const env = { manifest: m, hash: contentHash(m) };
   const plan = {
@@ -61,11 +62,15 @@ export function relaySpecs() {
     preparedDay: 12,
     effects: { "caravan.send": 1 },
   };
-  return toRunSpecs({
+  return {
     plan, planHash: contentHash(plan), env, nonce: "r1",
     places: (id) => PLACES[id] ?? null, ownerTag: OWNER_TAG,
     deadlineSlot: 400, budget: { max_attempts: 3, max_fee: 200_000, max_port_errors: 5 },
-  });
+  };
+}
+
+export function relaySpecs() {
+  return toRunSpecs(relayRequest());
 }
 
 /** The file's text: one spec per line is not JSON; an array of the two specs, in step order. */

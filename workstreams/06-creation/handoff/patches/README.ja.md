@@ -4,10 +4,10 @@
 
 | ID | 宛先 | 基点 | ファイル | 状態 |
 |---|---|---|---|---|
-| P06-4a | ④ 実行 | `claude/gallant-ride-cunptv` `d0e96d53` | [P06-4a-ws04-caravan-only-run.patch](P06-4a-ws04-caravan-only-run.patch) | ⑥の scratch の checkout で当て、④の鍵なし試験を通した（下） |
+| P06-4a | ④ 実行 | `d0e96d53` | （削除） | **取り下げ（2026-11-06）。** ④が `30a3fd2e` で荷車だけの Run を実装し、受付・照会の CLI も④で作成中。⑥は重ねない |
 | P06-3a | ③ 外部接続 | ③の最新 `7923f900`（GitHub に無く未受領） | なし（契約だけ。下） | 依存待ち |
 
-## P06-4a：④の荷車だけの Run と、Run の受け渡し口
+## P06-4a：④の荷車だけの Run と、Run の受け渡し口（取り下げ。以下は記録）
 
 **中身**
 - `RunSpec.facility` を `Option<FacilityRef>` にする。保存済みの spec（施設あり）は `Some` として読める。
