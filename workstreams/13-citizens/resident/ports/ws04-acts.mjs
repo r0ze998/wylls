@@ -36,15 +36,15 @@ export function fateOfReceipt(r) {
   };
 }
 
+/** ④'s registry limits (workstreams/04-execution/src/acts.rs): agent id up to 64 characters, key up to 128. */
+export const AGENT_ID_MAX = 64, KEY_MAX = 128;
+
 /**
  * @param acts     workstream 4's acts client (register, status), or anything with those methods
  * @param agentId  the resident's agent id in the registry
  * @param send     (req) → ActionResult: the actual send, under req.idempotencyKey
  * @param runId    the caller's run id the acts are listed under (optional)
  */
-/** ④'s registry limits (workstreams/04-execution/src/acts.rs): agent id up to 64 characters, key up to 128. */
-export const AGENT_ID_MAX = 64, KEY_MAX = 128;
-
 export function ws04ActsPort(acts, { agentId, send, runId = null }) {
   if (typeof agentId !== 'string' || !agentId || agentId.length > AGENT_ID_MAX) throw new TypeError(`agentId: 1..${AGENT_ID_MAX} characters (workstream 4)`);
   if (typeof acts?.register !== 'function' || typeof acts?.status !== 'function') throw new TypeError('workstream 4 acts client with register() and status()');

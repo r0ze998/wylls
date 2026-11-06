@@ -41,13 +41,15 @@ export function portsFor(world, board, who) {
 /**
  * A resident with its own memory file and the given provider. `wrapMemory(port, resident)` may wrap the memory port
  * each time the resident is (re)opened (workstream 12's mirror: adapters/ws13-resident.mjs `mirrorMemoryPort`); it
- * must answer what the port answers.
+ * must answer what the port answers. `costFor(resident)` may give the cost port the same way.
  */
-export function openResident(dir, { world, board, provider, crash = null, fallback = safeFallback, wrapMemory = null }) {
+export function openResident(dir, { world, board, provider, crash = null, fallback = safeFallback, wrapMemory = null, costFor = null }) {
   // The resident makes or reads its own key; its ports are bound to that key.
   const r = new Resident({ dir, ports: {}, crash, identity: KEYLESS ? identityFor(path.basename(dir)) : null });
   r.ports = { ...portsFor(world, board, r.identity), provider, memory: localMemory(path.join(dir, 'episodes.jsonl')), fallback };
   if (wrapMemory) r.ports.memory = wrapMemory(r.ports.memory, r);
+  // `costFor(resident)`: the cost port at every (re)open (workstream 5's ledger: ports/ws05-cost.mjs); none: flat.
+  if (costFor) r.ports.cost = costFor(r);
   return r;
 }
 

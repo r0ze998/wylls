@@ -110,7 +110,7 @@ export class Resident {
   /**
    * ports: observe() → {world, board}; join(record) → citizen; execution (ExecutionPort); board (BoardPort);
    * provider (ProviderPort); memory (MemoryPort); fallback(candidates) → candidate id (the seam for workstream 5's autopilot).
-   * crash: test hook {at: 'after-decision'|'after-intent'|'after-submit', turn?, key?} throws there once.
+   * crash: test hook {at: 'after-decision'|'after-intent'|'after-submit'|'during-inference', turn?, key?} throws there once.
    */
   constructor({ dir, ports, crash = null, log = () => {}, identity = null }) {
     this.dir = dir;
@@ -137,6 +137,22 @@ export class Resident {
     const rec = this.ledger.get(this.charter.id);
     for (const h of Object.values(rec.holds)) if (h.state === 'running') this.ledger.markUnresolved(this.charter.id, h.id, 'restart');
     this.store.save();
+  }
+
+  /**
+   * Calls the cost port's own ledger still holds as reserved or calling when this process starts were cut off by a
+   * stop: a call that was calling may have reached the provider (undecided: never released, never 0); one only
+   * reserved was not made (released). Told once, at the first step after the restart, when the ports are in place.
+   */
+  #costRestart() {
+    const open = this.state.costCalls;
+    if (!open || this.costRestartDone) return;
+    this.costRestartDone = true;
+    const cost = this.ports.cost;
+    for (const [callKey, c] of Object.entries(open)) {
+      cost?.restarted?.(callKey, c.phase);
+      delete open[callKey];
+    }
   }
 
   get state() { return this.store.state; }
@@ -285,6 +301,7 @@ export class Resident {
     const st = this.state;
     // The execution port must promise to keep keys long enough (08-retention-contract.ja.md); checked once.
     if (this.portsChecked !== this.ports.execution) { assertPort('execution', this.ports.execution); this.portsChecked = this.ports.execution; }
+    this.#costRestart();
     // Only what changed since the last step (events by sequence, board requests changed since a bell), plus the
     // gift window, so a long-lived resident reads a bounded amount however long the world has run.
     const obs = await this.ports.observe(this.address, { events: st.cursor?.events ?? 0, boardBell: Math.max(0, Math.min((st.cursor?.board ?? 0) - 1, (this.bell ?? 0) - GIFT_WINDOW_BELLS)) });
@@ -687,8 +704,18 @@ export class Resident {
       let hold = null;
       try { hold = this.ledger.hold(this.id, { category: 'inference', amount: quote, key: `${this.id}:t${turn}:infer`, policyVersion: 1, modeEpoch: this.ledger.get(this.id).modeEpoch }); }
       catch (e) { d.refusal = e.code ?? 'BudgetRefused'; }
+      // A cost port with a ledger of its own (workstream 5's, ports/ws05-cost.mjs) reserves the same call under its
+      // own key, one per hold, before the call; its refusal (a cap, a lost process lease) means no call.
+      const callKey = hold ? `${this.id}:t${turn}:infer:${hold.id}` : null;
+      if (hold && typeof cost.reserve === 'function') {
+        try { cost.reserve(callKey, quote); (st.costCalls ??= {})[callKey] = { holdId: hold.id, phase: 'reserved', bell }; }
+        catch (e) { this.ledger.release(this.id, hold.id, `cost ledger refused: ${e.code ?? 'refused'}`); d.refusal = e.code ?? 'CostRefused'; d.cost = { kind: cost.kind, quote, refused: e.code ?? 'refused' }; hold = null; }
+      }
       if (hold) {
         this.ledger.markRunning(this.id, hold.id);
+        if (st.costCalls?.[callKey]) { cost.calling?.(callKey); st.costCalls[callKey].phase = 'calling'; }
+        this.save();
+        this.#crashAt('during-inference', turn);
         if (req.evidence?.length) d.evidence = req.evidence;
         let outcome = 'answered', usage = null;
         try {
@@ -708,6 +735,7 @@ export class Resident {
           // Flat: a call made is a call charged, answered or not (the agent wallet owner's decision of 2026-10-17).
           // Price book: the measured usage, at most the quote; an unknown outcome stays undecided (unresolved hold).
           const out = cost.settle({ outcome, usage, quote });
+          if (st.costCalls?.[callKey]) { cost.close?.(callKey, { ...out, outcome }); delete st.costCalls[callKey]; }
           if (out.undecided) {
             this.ledger.markUnresolved(this.id, hold.id, `inference ${out.reason}`);
             d.cost = { kind: cost.kind, quote, undecided: out.reason };
