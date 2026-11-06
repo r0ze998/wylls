@@ -43,3 +43,11 @@ rm -rf <作業用の一時フォルダ>/recv/repo/workstreams/04-execution/targe
 
 - npm・pip の依存（③の `@modelcontextprotocol/sdk` は入れていない。そのため③の `sdk-client.test.mjs` は未実行の扱い）
 - `.rustup/settings.toml` の変更、override、環境変数
+
+## 5. 2026-11-06：④ `95686606` の `runexec` のビルド（取得なし）
+
+- ④の `Cargo.lock` と `rust-toolchain.toml` は `2e536b6b` と同じでした（`git diff` で確かめた）。そのため、§1・§2 で手元にある物だけで、ビルドできました。
+- コマンド：`RUSTUP_AUTO_INSTALL=0 CARGO_NET_OFFLINE=true cargo build --release --offline --locked --bin runexec`（作業用の一時フォルダの中の、④の木の使い捨ての worktree で実行）。
+- 新しい取得はありません：ツールチェーン・crate・ネットワークのどれも使っていません。
+- 出力は一時フォルダの `target` の中だけです。`runexec` の sha256 は `0b5a13e73dbe6ea876028fecc073d219b6fc3d7433626e2d19ed3b69af0bbf11`（2回のビルドで同じ値）。
+- ④の提案パッチを確かめるために、同じ方法でもう一度ビルドし、`cargo test --offline --locked --test acts --test act_cli` を実行しました。その後、④の木に戻して、元のバイナリを作り直しました。

@@ -5,6 +5,7 @@
 // JavaScript process cannot write into ④'s store. Until ④ opens one, this is the LOCAL ADAPTER of the same contract:
 //   run4Id      `act-` + the first 16 hex of sha256(agentId ‖ 0x00 ‖ idempotencyKey)  (the same id ④ computes)
 //   register    idempotent for the same (agent, key, source, runId); another source or runId under a key is REFUSED
+//               (errors in ④'s codes: BadRequest | Conflict | NoRecord)
 //   refresh     one GET /f/agent/fate read, recorded:
 //                 - a failed read: `unqueryable` beside the facts already known (a final state is not touched)
 //                 - a final state (landed, failed, expired, not-sent) never changes; a contradicting read is kept as
@@ -46,12 +47,14 @@ export class FileActsRegistry {
   #tx(fn) { return withFileMutex(this.lock, () => { const s = this.#load(); const out = fn(s); if (out?.write !== false) writeDurable(this.file, JSON.stringify(s)); return out?.value; }); }
 
   register({ agentId, key, source, runId = null }) {
-    if (!agentId || !key || !source) throw err('BadAct', 'agent id, idempotency key and source are required');
+    // ④'s limits (acts.rs register, b82fafa8): agent id ≤ 64, key ≤ 128, a known source.
+    if (!agentId || !key || String(agentId).length > 64 || String(key).length > 128) throw err('BadRequest', 'agent id (<= 64) and idempotency key (<= 128) are required');
+    if (!['ai', 'mcp', 'browser', 'resident'].includes(source)) throw err('BadRequest', 'source must be one of ai, mcp, browser, resident');
     const id = run4IdOf(agentId, key);
     return this.#tx(s => {
       const r = s.acts[id];
       if (r) {
-        if (r.source !== source || r.runId !== runId) throw err('ActConflict', `${id} is registered for source ${r.source} run ${r.runId}, not ${source} ${runId}`);
+        if (r.source !== source || r.runId !== runId) throw err('Conflict', `${id} is registered for source ${r.source} run ${r.runId}, not ${source} ${runId}`);
         return { value: id, write: false };
       }
       s.acts[id] = { run4Id: id, agentId, key, source, runId, registeredSlot: null, registeredAt: this.now(), state: 'registered', facts: {} };
@@ -59,6 +62,7 @@ export class FileActsRegistry {
     });
   }
 
+  idOf(agentId, key) { return run4IdOf(agentId, key); }
   get(id) { const r = this.#load().acts[id]; return r ? structuredClone(r) : null; }
   byRun(runId) { return Object.values(this.#load().acts).filter(r => r.runId === runId).sort((a, b) => a.registeredAt - b.registeredAt || (a.run4Id < b.run4Id ? -1 : 1)); }
   open() { return Object.values(this.#load().acts).filter(r => !FINAL_STATES.includes(r.state)); }
@@ -69,7 +73,7 @@ export class FileActsRegistry {
    */
   async refresh(id, read) {
     const row = this.get(id);
-    if (!row) throw err('NoAct', `no act ${id}`);
+    if (!row) throw err('NoRecord', `no act ${id} is registered`);
     let v = null, readError = null;
     try { v = await read(row.agentId, row.key); } catch (e) { readError = String(e?.message ?? e); }
     if (v && v.state === 'unqueryable' && v.readError) readError = v.why ?? v.readError;
@@ -99,7 +103,7 @@ export class FileActsRegistry {
   /** ④'s receipt (`p04-acts/0.1`) for one act, plus `provenance`. */
   receipt(id) {
     const r = this.get(id);
-    if (!r) throw err('NoAct', `no act ${id}`);
+    if (!r) throw err('NoRecord', `no act ${id} is registered`);
     const f = r.facts ?? {};
     const fin = FINAL_STATES.includes(r.state);
     const sent = r.state !== 'not-sent' && (f.sent === true || typeof f.signature === 'string');

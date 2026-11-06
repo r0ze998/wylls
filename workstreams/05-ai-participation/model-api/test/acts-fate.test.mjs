@@ -74,8 +74,8 @@ test('A3 the registry by ④\'s acts.rs rules', async () => {
     // acts.rs registration_is_idempotent_and_never_merged
     const a = reg.register({ agentId: 'agent1', key: 'ai:p05.r1', source: 'ai', runId: 'p05-run-1' });
     assert.equal(a, reg.register({ agentId: 'agent1', key: 'ai:p05.r1', source: 'ai', runId: 'p05-run-1' }));
-    assert.throws(() => reg.register({ agentId: 'agent1', key: 'ai:p05.r1', source: 'mcp', runId: 'p05-run-1' }), { code: 'ActConflict' });
-    assert.throws(() => reg.register({ agentId: 'agent1', key: 'ai:p05.r1', source: 'ai', runId: 'other-run' }), { code: 'ActConflict' });
+    assert.throws(() => reg.register({ agentId: 'agent1', key: 'ai:p05.r1', source: 'mcp', runId: 'p05-run-1' }), { code: 'Conflict' });
+    assert.throws(() => reg.register({ agentId: 'agent1', key: 'ai:p05.r1', source: 'ai', runId: 'other-run' }), { code: 'Conflict' });
     const a2 = reg.register({ agentId: 'agent2', key: 'ai:p05.r1', source: 'ai', runId: 'p05-run-1' });
     assert.notEqual(a, a2);
     assert.equal(reg.byRun('p05-run-1').length, 2);
@@ -134,7 +134,7 @@ test('A4 the registry across processes: four processes register the same 30 acts
     const reg = new FileActsRegistry({ dir });
     assert.equal(reg.byRun('p05-run-7').length, 30, 'one row per act, none lost or doubled');
     const other = await run(['acts', dir, 'agent-x', 'p05-run-8', '3']);
-    assert.deepEqual(other.lines[0].refused, ['ActConflict', 'ActConflict', 'ActConflict']);
+    assert.deepEqual(other.lines[0].refused, ['Conflict', 'Conflict', 'Conflict']);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 

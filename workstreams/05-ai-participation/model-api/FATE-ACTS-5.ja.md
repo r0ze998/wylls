@@ -1,5 +1,7 @@
 # ⑤：④の登録簿（acts）と `GET /f/agent/fate` への接続（2026-11-05）
 
+（続き：④ `95686606` の実物の登録簿への接続は `ACTS-REAL-5.ja.md`。）
+
 起点は ⑤ `2c10626f`。④は GitHub の `claude/gallant-ride-cunptv` の `77c5cbe2398c89559417f8cf18d4065b51455ee6` を読んだ。④の新しい物は `0a5473af`（コード）と `77c5cbe2`（`docs/EXECUTION-CONTRACT-20261106.ja.md`）。
 
 ## 1. ④で増えた物（読んだ物）

@@ -15,11 +15,9 @@
 import { participate } from '../../src/participate.mjs';
 import { checkAccess } from './access-check.mjs';
 import { checkBounds } from './bounds.mjs';
-import { idempotencyKeyOf, txStateFromFate, txStateFromTx } from './fate-reader.mjs';
+import { idempotencyKeyOf, txStateFromTx } from './fate-reader.mjs';
+import { registerBeforeSend, txStateFromActs } from './acts-port.mjs';
 import { statusOf } from './status-query.mjs';
-
-/** How many open acts one tick re-reads (GET /f/agent/fate is rate-limited by the relay: 20 burst, 2/s per IP). */
-export const ACT_REFRESH_PER_TICK = 8;
 
 const RUNNING = new Map(); // agentId → Autopilot, this process only
 
@@ -38,9 +36,9 @@ export { checkAccess } from './access-check.mjs';
 export const EXECUTION_PATH = Object.freeze({
   via: 'existing MCP agent_act → relay POST /f/agent/action (AgentGateway), as in this repository',
   fourIntegrated: false,
-  notIntegrated: Object.freeze(['④ Run (the execution unit)', '④ cancel / stop contract', '④ reconcile of signed requests and their costs', '④ acts registry store (no external entry: ⑤ keeps the same contract locally, acts-registry.mjs)']),
-  why: '④ 77c5cbe2: the acts registry and GET /f/agent/fate exist; the registry is a Rust library with no entry for another process',
-  withActs: 'with `acts` and `fate`: every act that reached the relay is registered under ④\'s run4Id and followed by GET /f/agent/fate (acts-registry.mjs, fate-reader.mjs)',
+  notIntegrated: Object.freeze(['④ Run (the execution unit) for caravans', '④ cancel / stop contract', '④ reconcile of signed requests and their costs']),
+  why: '④ 95686606: agent acts go to ④\'s act registry through `runexec act` (acts-port.mjs fourActsPort: REAL) or ⑤\'s file copy of its contract (localActsPort: SUBSTITUTE); every receipt says which',
+  withActs: 'with `acts` (an acts port): each act is registered BEFORE it is sent (no record, no send), and followed by the registry\'s status (one GET /f/agent/fate read, recorded); only not-sent / expired allow a new attempt',
 });
 
 /** One record per tick, the inference and the game apart: which failed, and who refused. */
@@ -71,14 +69,13 @@ export class Autopilot {
    * @param {object} [o.receipts]  a RunReceipt port (run-receipt.mjs); the local adapter until ④'s is received
    */
   /**
-   * @param {object} [o.acts]       acts-registry.mjs FileActsRegistry (④'s act-run contract, local adapter)
-   * @param {Function} [o.fate]     fate-reader.mjs fateReader(...): GET /f/agent/fate
+   * @param {object} [o.acts]       an acts port (acts-port.mjs): fourActsPort (REAL, ④'s runexec) or localActsPort (SUBSTITUTE)
    * @param {string} [o.actSource]  how the MCP server keys acts: 'mcp' (unpatched) or 'ai' (patch 0003, source 'ai')
    */
-  constructor({ world, mandate, decider, journal, citizen = null, receipts = null, mcp = null, mcpFor = null, owner = null, tokenCheck = null, lease = null, acts = null, fate = null, actSource = null }) {
-    if ((acts || fate) && !['mcp', 'ai'].includes(actSource)) throw Object.assign(new Error('acts/fate need actSource: mcp or ai (the MCP server\'s key prefix)'), { code: 'BadActSource' });
-    /** ④'s registry contract and the fate read: without them, the older GET /f/tx path (expired is not taken as proof). */
-    Object.assign(this, { acts, fate, actSource });
+  constructor({ world, mandate, decider, journal, citizen = null, receipts = null, mcp = null, mcpFor = null, owner = null, tokenCheck = null, lease = null, acts = null, actSource = null }) {
+    if (acts && !['mcp', 'ai'].includes(actSource)) throw Object.assign(new Error('acts need actSource: mcp or ai (the MCP server\'s key prefix)'), { code: 'BadActSource' });
+    /** ④'s act registry (real or substitute): without it, the older GET /f/tx path (expired is not taken as proof). */
+    Object.assign(this, { acts, actSource });
     Object.assign(this, { w: world, mandate, decider, journal, citizen, receipts, state: 'idle', records: [], events: [] });
     /** The MCP server the autopilot acts through: by default the world's; pass one created with source 'ai' (patch 0003). */
     this.mcp = mcp ?? (() => world.mcp());
@@ -135,13 +132,13 @@ export class Autopilot {
     const runId = `${runPrefix(this.w.agentId)}${++this.ticks}`;
     this.currentRun = runId;
     if (this.receipts) await this.receipts.open({ runId });
-    // Acts still open from earlier ticks (pending, result unknown, could not ask): read again, bounded.
-    const followed = this.acts && this.fate ? await this.#refreshOpenActs() : null;
-    const txState = this.fate ? txStateFromFate(this.fate, { agentId: this.w.agentId, source: this.actSource }) : txStateFromTx(this.w.txState);
-    const report = await participate({ mcp: this.mcp(), world: this.w.publicWorld, txState, meter: null, mandate: this.mandate, decider: this.decider, journal: this.journal, runId, boundary: this.#actFence() });
+    // Earlier acts are followed through the registry's status (verifyPending: one read per open act, recorded there).
+    const who = { agentId: this.w.agentId, source: this.actSource };
+    const txState = this.acts ? txStateFromActs(this.acts, who) : txStateFromTx(this.w.txState);
+    const registerAct = this.acts ? registerBeforeSend(this.acts, who) : null;
+    const report = await participate({ mcp: this.mcp(), world: this.w.publicWorld, txState, meter: null, mandate: this.mandate, decider: this.decider, journal: this.journal, runId, boundary: this.#actFence(), registerAct });
     const rec = decisionRecord(report);
-    if (this.acts) rec.acts = await this.#registerActs(runId, report);
-    if (followed) rec.followed = followed;
+    if (this.acts) rec.acts = await this.#readActs(runId, report);
     if (this.receipts) {
       this.receipts.attachInference(runId, report.inference ?? null);
       // Every item that reached agent_act: its requestId is in the journal's act-begin of this run.
@@ -171,36 +168,23 @@ export class Autopilot {
     return { beforeAct: (observed, now, o) => (lease.check() ? (citizen ? citizen.beforeAct(observed, now, o) : { ok: true }) : { ok: false, code: 'LeaseLost', detail: 'another process took this agent over during the run' }) };
   }
 
-  /**
-   * Every act of this run that reached the relay (act-begin in the journal): registered under ④'s run4Id, then one
-   * fate read when a reader is given. A registry refusal (another source or run under the key) is recorded, not hidden.
-   */
-  async #registerActs(runId, report) {
+  /** This run's acts after sending: one status read each (recorded in the registry), and the registry's id on the item. */
+  async #readActs(runId, report) {
     const out = [];
-    const begun = this.journal.entries.filter(e => e.runId === runId && e.step === 'act-begin');
-    for (const b of begun) {
+    for (const b of this.journal.entries.filter(e => e.runId === runId && e.step === 'act-begin')) {
       const key = idempotencyKeyOf(this.actSource, b.attemptId);
-      let run4Id;
-      try { run4Id = this.acts.register({ agentId: this.w.agentId, key, source: this.actSource, runId }); } catch (e) { out.push({ requestId: b.attemptId, key, error: e.code ?? 'RegisterFailed', why: e.message }); continue; }
-      const r = this.fate ? await this.acts.refresh(run4Id, this.fate) : this.acts.receipt(run4Id);
-      out.push({ requestId: b.attemptId, run4Id, state: r.state, final: r.final, signature: r.signature, validUntil: r.lastValidBlockHeight, signedAt: r.signedAt });
+      let r;
+      try { r = await this.acts.status({ agentId: this.w.agentId, key }); } catch (e) { out.push({ requestId: b.attemptId, key, error: e.code ?? 'StatusFailed', why: e.message }); continue; }
+      out.push({ requestId: b.attemptId, run4Id: r.run4Id, state: r.state, next: r.next, newAttemptAllowed: r.newAttemptAllowed, connection: r.connection, signature: r.signature ?? null, validUntil: r.lastValidBlockHeight ?? null, signedAt: r.signedAt ?? null });
       const item = (report.items ?? []).find(it => it.requestId === b.requestId);
-      if (item) Object.assign(item, { run4Id, fateState: r.state });
+      if (item) Object.assign(item, { run4Id: r.run4Id, fateState: r.state, registry: r.connection });
     }
-    return out;
-  }
-
-  /** Re-read acts not yet final (oldest first, at most ACT_REFRESH_PER_TICK per tick). */
-  async #refreshOpenActs() {
-    const mine = this.acts.open().filter(r => r.agentId === this.w.agentId).sort((a, b) => a.registeredAt - b.registeredAt).slice(0, ACT_REFRESH_PER_TICK);
-    const out = [];
-    for (const r of mine) { const x = await this.acts.refresh(r.run4Id, this.fate); out.push({ run4Id: x.run4Id, state: x.state, final: x.final }); }
     return out;
   }
 
   /** ③'s status question for one act, in ④'s states when a fate reader is given (status-query.mjs). */
   actStatus(requestId) {
-    return statusOf({ journal: this.journal, txState: this.w.txState, fate: this.fate, agentId: this.w.agentId, source: this.actSource }, requestId);
+    return statusOf({ journal: this.journal, txState: this.w.txState, acts: this.acts, agentId: this.w.agentId, source: this.actSource }, requestId);
   }
 
   stop({ by }) {

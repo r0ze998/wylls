@@ -154,13 +154,16 @@ async function act(mcp, args, retries) {
  * @param {string} o.runId
  * @param {number} [o.maxObsAgeSec]  an observation older than this (world clock) is not acted on
  * @param {Function} [o.crash]  test hook: called with a step name; throwing there is a process dying at that step
+ * @param {Function} [o.registerAct] async ({requestId, key, runId}) → {ok, run4Id?, code?, detail?}: records the act in
+ *                              ④'s act registry (model-api/src/acts-port.mjs) BEFORE agent_act; when it fails, the act
+ *                              is not sent (nothing goes out without its record)
  * @param {object} [o.boundary] model-api/src/citizen-boundary.mjs CitizenBoundary: the owner's own client on the same Citizen
  *                              acts first (any of its actions since the observation, or a history gap, skips this act)
  * @param {object} [o.staking]  the AI-staking executor's layer (src/staking): {guard: BudgetGuard, priceBook, modelCfg, identity,
  *                              gamePrices: the relay's game price table (agent_terms), onBudgetLimit: 'stop'|'rules', modelRetries}.
  *                              Absent: the participation demo's behaviour (a refused model call falls back to the free rules).
  */
-export async function participate({ mcp, world, txState, meter = null, mandate, decider, fallback = ruleDecider(), contract = new CommandContract(), journal, runId, maxObsAgeSec = 300, retries = 2, crash = () => {}, staking = null, boundary = null }) {
+export async function participate({ mcp, world, txState, meter = null, mandate, decider, fallback = ruleDecider(), contract = new CommandContract(), journal, runId, maxObsAgeSec = 300, retries = 2, crash = () => {}, staking = null, boundary = null, registerAct = null }) {
   const S = staking;
   const report = { runId, version: PARTICIPATION_VERSION, decider: decider.name, resumed: [], verified: [], items: [], notes: [], charged: '0', status: 'done' };
   const J = e => journal.append({ runId, ...e });
@@ -307,7 +310,17 @@ export async function participate({ mcp, world, txState, meter = null, mandate, 
         continue;
       }
     }
-    J({ step: 'act-begin', key, requestId: p.requestId, attemptId: args.requestId, outcome: OUTCOME.ACTING, args, cost: g.cost, gamePrice, worldSec: nowSec, unitName, baseline: unitName ? (obs.village?.reserve_troops?.[unitName] ?? 0) + (sentUnits[unitName] ?? 0) : null });
+    let reg = null;
+    if (registerAct) {
+      reg = await registerAct({ requestId: args.requestId, key, runId });
+      if (!reg?.ok) {
+        S?.guard.release(`game:${args.requestId}`);
+        J({ step: 'guard', key, requestId: p.requestId, attemptId: args.requestId, verdict: 'refused', code: reg?.code ?? 'ActsUnavailable', reason: reg?.detail ?? 'the act registry did not record it' });
+        Object.assign(item, { outcome: OUTCOME.SKIPPED, code: reg?.code ?? 'ActsUnavailable', reason: `行動の記録（④の登録簿）ができなかった（${reg?.detail ?? '理由不明'}）。記録の無い送信はしない。次の回に同じ requestId で登録からやり直す` });
+        continue;
+      }
+    }
+    J({ step: 'act-begin', key, requestId: p.requestId, attemptId: args.requestId, outcome: OUTCOME.ACTING, args, cost: g.cost, gamePrice, worldSec: nowSec, unitName, baseline: unitName ? (obs.village?.reserve_troops?.[unitName] ?? 0) + (sentUnits[unitName] ?? 0) : null, ...(reg ? { run4Id: reg.run4Id, registry: reg.connection } : {}) });
     await crash('act-begin');
     const { r, unreachable, attempts } = await act(mcp, args, retries);
     await crash('act-sent');

@@ -81,3 +81,9 @@
 ## ④ `77c5cbe2` の上に当てる場合（2026-11-05）
 
 ④の `claude/gallant-ride-cunptv` `77c5cbe2` には 0001 がもう入っている。0002b と 0004 は④の変更（署名の事実・`GET /f/agent/fate`）とぶつかるので、作り直した物を `on-ws04-77c5cbe2/` に置いた（`git am` で 0002c → 0003 → 0004b の順）。当てた後の `permutation-gateway` の木は `f30edf74b3198634e6b13b92840b0405f0c2e539`。詳しくは `model-api/FATE-ACTS-5.ja.md` §4。
+
+## ④への提案：`for-ws04-95686606/`（2026-11-06）
+
+- `0001-ws04-acts-register-atomically-…patch`：④の `acts.rs` の `register` を、同じ新しいキーの同時の登録に対して1つの取引にする提案。⑤は当てていません。
+- 確かめたこと：⑤の手元で当てて試し、元に戻しました。詳しくは `model-api/ACTS-REAL-5.ja.md` §3。
+- ⑤の共有パッチ（`on-ws04-77c5cbe2/`）は、④の `95686606` にもそのまま当たります（`permutation-gateway` は 77c5cbe2 から変わっていない）。

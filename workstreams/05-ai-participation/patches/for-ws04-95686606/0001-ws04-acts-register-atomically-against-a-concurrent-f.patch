@@ -1,0 +1,48 @@
+From 4d7ebdc03db07dec0ca07e4fcb261c0d8e81e07d Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 6 Nov 2026 00:17:43 +0000
+Subject: [PATCH] ws04 acts: register atomically against a concurrent first
+ registration of the same key
+
+Proposal from workstream 05 (not applied by 05). runexec 95686606's
+register reads and then inserts; two processes registering the same new
+key at once make the loser fail with BadRequest "UNIQUE constraint
+failed". INSERT ... ON CONFLICT DO NOTHING, then compare the row that
+won like an existing one (same id, or Conflict).
+
+Checked by 05 (no key, nothing signed): 4 processes x 15 keys at once,
+5 rounds, 0 failures (unpatched: 3 of 60 in the first round); ws04
+tests acts (6) and act_cli (5) pass with it.
+---
+ workstreams/04-execution/src/acts.rs | 11 ++++++++++-
+ 1 file changed, 10 insertions(+), 1 deletion(-)
+
+diff --git a/workstreams/04-execution/src/acts.rs b/workstreams/04-execution/src/acts.rs
+index ba1a2fbb..37fb6fc2 100644
+--- a/workstreams/04-execution/src/acts.rs
++++ b/workstreams/04-execution/src/acts.rs
+@@ -114,11 +114,20 @@ pub fn register(
+         }
+         return Ok(id);
+     }
++    // Atomic against another process registering the same new key at the same moment: the loser's insert does
++    // nothing, and the row that won is compared like an existing one (same answer, or a Conflict), never an error.
+     sql(store.conn.execute(
+         "INSERT INTO act_runs(run4_id, agent_id, idem_key, source, ext_run, registered_slot, state, facts)
+-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'registered', '{}')",
++         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'registered', '{}') ON CONFLICT DO NOTHING",
+         params![id, agent_id, key, source, ext_run, slot as i64],
+     ))?;
++    let r = get(store, &id)?.ok_or_else(|| format!("{id} was not recorded"))?;
++    if r.source != source || r.ext_run.as_deref() != ext_run {
++        return Err(format!(
++            "{id} is registered for source {} run {:?}, not {source} {ext_run:?}",
++            r.source, r.ext_run
++        ));
++    }
+     Ok(id)
+ }
+ 
+-- 
+2.43.0
+
