@@ -119,7 +119,7 @@ export function resolverFromIdentity(entries) {
   const conflicts = [...byTag].filter(([, l]) => new Set(l.map(e => e.principal)).size > 1).map(([t]) => t);
   const resolve = tag => { const l = byTag.get(tag); return l && new Set(l.map(e => e.principal)).size === 1 ? { principal: l[0].principal, source: l[0].source } : null; };
   const wallets = new Map();
-  for (const [, l] of byTag) if (new Set(l.map(e => e.principal)).size === 1) wallets.set(l[0].principal, { tag: l[0].tag, source: l[0].source });
+  for (const [, l] of byTag) if (new Set(l.map(e => e.principal)).size === 1) wallets.set(l[0].principal, { tag: l[0].tag, partition: l[0].partition, source: l[0].source });
   return { resolve, conflicts, walletKnown: w => wallets.get(w) ?? null };
 }
 
@@ -174,6 +174,15 @@ export function connectCanonical(memory, { season, events, me = [], store, bindi
   const fin = finalizedSlotFrom(finality, world.world);
   const observedBell = currentBellFromSeason(season);
   const holdAll = why => ({ ...out, status: 'held', reasons: [...out.reasons, why], held: (store?.receipts ?? []).map(r => ({ receipt: `${r.run_id}|${r.kind}|${r.subject}|${r.source}`, why })) });
+  // A valid upstream world declaration is not permission to write another
+  // memory's world. Check both cluster and account identity before any append.
+  if (!world.world || !memory.world || memory.world.cluster !== world.world.cluster ||
+      memory.world.world_id !== world.world.world_id) return holdAll('memory_world_mismatch');
+  const registered = memory.partitions?.[world.partition];
+  const expected = world.partitions[world.partition];
+  if (!registered || registered.program !== expected.program || registered.season !== expected.season) {
+    return holdAll('memory_partition_mismatch');
+  }
   if (mm) return holdAll(mm);
   if (fin.why) return holdAll(fin.why);
   if (observedBell === null) return holdAll('observed_bell_unknown');
@@ -214,7 +223,8 @@ export function ws12EvidencePort(memory, { identity = null, worldBellOf = null }
       if (typeof memory.world?.cluster !== 'string' || typeof memory.world?.world_id !== 'string') return { status: 'world_unverified', lines: [] };
       if (typeof counterparty !== 'string' || !ADDRESS.test(counterparty)) return { status: 'identity_unverified', lines: [] };
       const known = identity?.walletKnown?.(counterparty) ?? null;
-      if (!known) return { status: 'identity_unverified', lines: [] };
+      if (!known || typeof known.partition !== 'string' ||
+          !Object.hasOwn(memory.partitions ?? {}, known.partition)) return { status: 'identity_unverified', lines: [] };
       const bell = typeof worldBellOf === 'function' ? worldBellOf(worldBell) : null;
       if (!Number.isSafeInteger(bell) || bell < 0) return { status: 'clock_unverified', lines: [] };
       const k = memory.knowledge(PUBLIC_VIEWER, bell, { observedBy: bell });
