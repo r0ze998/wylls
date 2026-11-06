@@ -1035,10 +1035,15 @@ pub(crate) fn file_ticket_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &sup
             r.u32(FR::WEDGE_OCCUPIED + 4 * faction as usize)?,
         )
     };
-    let r_max = {
+    let (r_max, placement, heartland_max_ring, genesis_seed) = {
         let sd = season_ai.try_borrow_data()?;
-        // Map growth: the effective outermost ring.
-        super::map::effective_r_max(&sd, &frontier.try_borrow_data()?)?
+        let cq = season_cq(&sd)?;
+        (
+            super::map::effective_r_max(&sd, &frontier.try_borrow_data()?)?,
+            cq.placement,
+            cq.heartland_max_ring,
+            Ro(&sd).arr::<32>(S::GENESIS_SEED)?,
+        )
     };
     let n = x.n as usize;
     let mut sites = [(0i16, 0i16, 0u8); 3];
@@ -1053,7 +1058,14 @@ pub(crate) fn file_ticket_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &sup
             return Err(FrontierError::BadData.into());
         }
         let w = c.wedge().ok_or(FrontierError::BadData)?;
-        if !wedge_allowed(faction, w, ring, own_open, own_occ, rings_opened) {
+        if !ticket_nation_allowed(
+            c,
+            faction,
+            placement,
+            heartland_max_ring,
+            &genesis_seed,
+            wedge_allowed(faction, w, ring, own_open, own_occ, rings_opened),
+        ) {
             return Err(FrontierError::BadData.into());
         }
         let e = (s.p, s.q, s.site);
@@ -2589,9 +2601,58 @@ pub fn close_citizen(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     Ok(())
 }
 
+/// Inside dispersed heartland, tickets use the same nation assignment as PlaceHome.
+/// Outside heartland the existing ticket/overflow rule remains unchanged.
+fn ticket_nation_allowed(
+    coord: ProvinceCoord,
+    faction: u8,
+    placement: u8,
+    heartland_max_ring: u8,
+    seed: &[u8; 32],
+    legacy_allowed: bool,
+) -> bool {
+    if placement == geometry::PLACEMENT_DISPERSED
+        && coord.ring() >= 2
+        && coord.ring() <= u32::from(heartland_max_ring)
+    {
+        geometry::home_nation(coord, placement, heartland_max_ring, seed) == Some(faction)
+    } else {
+        legacy_allowed
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dispersed_tickets_match_home_nation_but_preserve_external_overflow() {
+        let seed = [1u8; 32];
+        for p in -3..=3 {
+            for q in -3..=3 {
+                let c = ProvinceCoord::new(p, q);
+                if c.ring() < 2 || c.ring() > 3 {
+                    continue;
+                }
+                let n = geometry::home_nation(c, 1, 3, &seed).unwrap();
+                for f in 0..6 {
+                    assert_eq!(ticket_nation_allowed(c, f, 1, 3, &seed, true), n == f);
+                    assert_eq!(ticket_nation_allowed(c, f, 1, 3, &seed, false), n == f);
+                }
+            }
+        }
+        let outside = ProvinceCoord::new(4, 0);
+        for allowed in [false, true] {
+            assert_eq!(
+                ticket_nation_allowed(outside, 2, 1, 3, &seed, allowed),
+                allowed
+            );
+            assert_eq!(
+                ticket_nation_allowed(ProvinceCoord::new(2, 0), 2, 0, 3, &seed, allowed),
+                allowed
+            );
+        }
+    }
 
     #[test]
     fn displacement_order_is_score_then_lower_tag() {

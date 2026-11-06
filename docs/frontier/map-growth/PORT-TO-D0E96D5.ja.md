@@ -35,3 +35,9 @@
 - JoinResidentの容量が初期R_MAXのみだった不一致を修正。通常Joinと同じmax(初期半径、設定上限、Frontier拡張値)を使い、共通の純粋容量述語へ接続。境界試験1/1、nft-experimental付きhost compile成功。実NFT参加取引の通し確認ではない。
 - V11は分散配置のseed/設定欠落を旧扇形に推定せずmissingとして返す。Webも欠落seed/未知modeでは候補をUnavailableにする。Web回帰24/24。V11のcompile・実行は承認不成立のnode確認と同じ範囲であり、再試行していない。
 - 最新④統合後の再試験：Web24、幾何7、ABI契約4、presets9が通過。v9未受領・上限128・実チェーン未確認という限界は変わらない。
+
+## 追加レビュー：FileTicket と分散本国の整合
+
+FileTicket は本国範囲（ring 2..heartlandMaxRing）だけ PlaceHome と同じ home_nation で申請者の国を判定するようにした。外側の難民・隣扇形 overflow、および旧 placement 0 の許可条件は変更していない。Web の planTicket と autoTicket も同じ配置情報を渡し、本国範囲で別国を候補にしない。seed 不足は readfail とし推定しない。
+
+純粋 Rust の dispersed_tickets_match_home_nation_but_preserve_external_overflow は 1/1。NFT feature の cargo check は成功。鍵禁止ガード付き placement/live-map/continuous の限定 Web 試験は 25/25。FileTicket の実チェーン実行、署名付き自動申請試験は未実施。旧8が残していた逃げ道を全域で禁止する変更ではない。

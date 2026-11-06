@@ -1298,7 +1298,7 @@ export async function autoTicket({ force = false } = {}) {
   try {
     await refreshOverviews(b);
     for (const [k, at] of FS.autoFull ?? []) if (b - at >= AUTO_FULL_BELLS) FS.autoFull.delete(k);
-    const plan = await planTicket({ overviews: FS.overviews ?? new Map(), faction: FS.citizen.faction, ringsOpen: FS.record?.rings?.length ?? 1,
+    const plan = await planTicket({ overviews: FS.overviews ?? new Map(), place: seasonPlace(FS.season), faction: FS.citizen.faction, ringsOpen: FS.record?.rings?.length ?? 1,
       seed: `${FS.wallet?.address ?? ''}|${b}`, nowBell: b, read: (p, q) => readProvinceOnce(p, q, b), skip: new Set((FS.autoFull ?? new Map()).keys()),
       homeFull: homeWedgeFull(FS.record, FS.citizen.faction) });
     FS.autoFull ??= new Map();

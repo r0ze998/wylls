@@ -66,3 +66,17 @@ test('missing dispersed seed and unknown modes never offer wedge fallback homes'
     assert.equal(reads, 0);
   }
 });
+
+test('legacy ticket planning agrees inside dispersed heartland and preserves external overflow', async () => {
+  const { planTicket, overflowCandidates } = await import('../../permutation-server/web/frontier/fjoin.mjs');
+  for (let faction = 0; faction < 6; faction++) {
+    const result = await planTicket({overviews: overviews(), faction, ringsOpen: 4, seed: 'fixture', nowBell: 1, read: async (p,q) => province(p,q), place});
+    assert.equal(result.ok, true);
+    assert.ok(result.sites.every(s => homeNation(s.p,s.q,place) === faction));
+    assert.ok(overflowCandidates(overviews(),faction,4,place).every(s => homeNation(s.p,s.q,place) === faction));
+    const outer = new Map([[4,{ring:4,provinces:ringProvinces(4)}]]);
+    assert.deepEqual(overflowCandidates(outer,faction,5,place),overflowCandidates(outer,faction,5));
+  }
+  const unavailable = await planTicket({place:{placement:1},read:async()=>{throw Error('must not read');}});
+  assert.deepEqual(unavailable,{ok:false,why:'readfail',reads:0,full:[]});
+});
