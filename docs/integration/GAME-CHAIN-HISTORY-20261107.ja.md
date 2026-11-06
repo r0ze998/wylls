@@ -24,3 +24,19 @@
 - V28の両プログラム共有履歴、観測範囲と取引の一対一照合、古いlocal feed控えの検出は残件です。
 
 保全用ブランチであり、mainや本番の完成版ではありません。pushする場合は署名試験を起動しないよう最終commitに[skip ci]を付け、GitHub上の正確なSHAとActionsを確認します。
+
+## 11 の0011を追加（2026-11-07）
+
+GitHubの11の枝 `0b57e973cda633ac03c7d80f119a6b00337bbb4b` から0011を取得し、SHA-256 `f59e1ab5c870d8adb9147611481f19152d1e843d2df464767dd37425073f253c` の一致を確認して適用しました。実装の追加はV27の1ファイルだけです（commit 3c6d2b6b）。V28を不完全履歴で確定FAILとする変更はしていません。
+
+この統合木で実行した結果:
+
+- V27: 7/7、V26: 5/5、V28: 5/5。
+- new_bands: 7/7（約294秒）。
+- history: 初回15/16。旧 `march-synth.json` をPASSとする前提が、現在のマップV11では `TicketPlacementMismatch` 6件になりました。実処理をPASSに変える修正はしていません。
+- history試験を、land-programのPASSを正の対照として保ちつつ、旧synthetic fixtureの上記6件だけを明示的に期待する形へ調整しました。他のFAILが加われば失敗します。RPC等の不完全履歴では引き続きUNVERIFIABLEを要求します。**調整後のhistory再実行は未完了**で、16/16成功とは報告しません。
+- `cargo check --offline -p verify --tests` と `cargo clippy --offline -p verify --tests -- -D warnings`: 成功。試験実行とは別です。
+
+PDA/with_seedの公開アドレス計算を使いました。鍵ペア生成・導出・署名は実行していません。固定seedから鍵を作る試験、record/coverageの署名fixture生成、実チェーン取引は実行していません。
+
+4のr3/r4 bundleは未受領です。r3で修正したと報告されている `e-prize-run.json` の独立照合（31項目）は、この枝にはまだありません。旧24項目照合ではその別ファイルだけの改ざんを検出できないことが16から報告されています。r4全体を統合済みとは扱いません。
