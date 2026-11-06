@@ -140,7 +140,10 @@ pub(crate) struct Player {
 /// (`frontier_abi::prologue::player_prologue`); the action bucket and the
 /// end bell (`PlayerStart::finish`, which writes the Citizen). The account
 /// flags were checked by `check_accounts` before this runs.
-pub(crate) fn player(program: &Pubkey, a: &[AccountInfo]) -> R<Player> {
+/// Under `auth`: the wallet prologue, or for an NFT resident's Citizen the
+/// resident checks (`super::resident`) in place of the wallet and Frontier
+/// session; the rest is the same.
+pub(crate) fn player_as(program: &Pubkey, a: &[AccountInfo], auth: &super::Auth) -> R<Player> {
     let [_, _, season_ai, ..] = a else {
         return Err(FrontierError::TooManyAccounts.into());
     };
@@ -148,7 +151,7 @@ pub(crate) fn player(program: &Pubkey, a: &[AccountInfo]) -> R<Player> {
     // One Season check (structure and PDA, then status and ruleset inside
     // the kernel prologue): the lean path W3-A's instructions take
     // (wave-3 review, W3-B CU budgets).
-    let pc = super::citizen::player(program, a, now.ts, true)?;
+    let pc = super::citizen::player_as(program, a, now.ts, true, auth)?;
     Ok(Player {
         now,
         ctx: addr::ctx(&key(season_ai), &program.to_bytes()),
@@ -654,9 +657,15 @@ pub(crate) fn emit3(
 /// and the owner touch. Allowed while provisional (I-29); the lazy
 /// finality flip runs.
 pub fn harvest(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+    harvest_as(p, a, d, &super::Auth::Wallet)
+}
+
+/// [`harvest`] for the Citizen's wallet or, through `Act`, an NFT
+/// resident's Citizen ([`super::Auth`]).
+pub(crate) fn harvest_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &super::Auth) -> R<()> {
     check_accounts(V2Ix::Harvest, a, None)?;
     aix::Harvest::decode(d)?;
-    let pl = player(p, a)?;
+    let pl = player_as(p, a, auth)?;
     harvest_body(p, &pl, a)
 }
 
@@ -688,84 +697,17 @@ fn harvest_body(p: &Pubkey, pl: &Player, a: &[AccountInfo]) -> R<()> {
     )
 }
 
-/// The player prologue of an NFT Citizen (experimental): the counterpart of
-/// [`player`] for a Citizen bound to a resident asset. `a` is the
-/// instruction's own accounts (`[actor, payer, season, citizen, ..]`, their
-/// flags already checked by the caller's `check_accounts`) followed by exactly
-/// four proof accounts `[policy, link, asset, resident]`, none writable;
-/// `legacy_len` is where the proof starts. Instead of `Citizen.WALLET` /
-/// `Citizen.SESSION` it reads, in this invocation, the asset's current Core
-/// owner, the transfer guard and the resident program's holder generation
-/// and session (`crate::resident_binding::authorize`), and requires the
-/// generation the actor signed in the instruction data. `by_session` is true
-/// when the actor is the holder's session key rather than the holder, so the
-/// owner-only checks downstream (`WalletRequired`) keep their meaning.
-#[cfg(feature = "nft-experimental")]
-pub(crate) fn player_nft(
-    p: &Pubkey,
-    a: &[AccountInfo],
-    legacy_len: usize,
-    generation: u32,
-    session_ok: bool,
-) -> R<Player> {
-    if a.len() != legacy_len + 4 || legacy_len < 4 {
-        return Err(FrontierError::TooManyAccounts.into());
-    }
-    let [actor, _payer, season, citizen, ..] = a else {
-        return Err(FrontierError::TooManyAccounts.into());
-    };
-    let [config, link, asset, resident] = &a[legacy_len..] else {
-        return Err(FrontierError::TooManyAccounts.into());
-    };
-    if config.is_writable || link.is_writable || asset.is_writable || resident.is_writable {
-        return Err(BAD_ACCOUNT);
-    }
-    let now = prologue::now()?;
-    let hdr = prologue::season(season, p, Some(&RULESET_HASH), &[S::STATUS_RUNNING], now.ts)?;
-    crate::resident_binding::authorize(
-        p, config, link, citizen, asset, resident, actor, generation, now.ts, session_ok, hdr.id,
-    )?;
-    // Authorization checked the AssetV1 layout: the owner is at 1..33.
-    let by_session = {
-        let data = asset.try_borrow_data()?;
-        data.get(1..33).ok_or(BAD_ACCOUNT)? != actor.key.as_ref()
-    };
-    let start = ap::PlayerStart {
-        season: hdr,
-        by_session,
-        citizen_tag: addr::citizen_tag(citizen.key.as_array()),
-    };
-    let pc = {
-        let mut cd = citizen.try_borrow_mut_data()?;
-        let pc = start.finish(&mut cd, now.ts)?;
-        Rw(&mut cd).set_i64(C::LAST_ACTION_TS, now.ts)?;
-        pc
-    };
-    Ok(Player {
-        now,
-        ctx: addr::ctx(&key(season), &p.to_bytes()),
-        pc,
-    })
-}
-
-/// Experimental NFT-authorized Harvest: the Harvest accounts followed by the
-/// four proof accounts of [`player_nft`]; the same body as the wallet
-/// Harvest. Reachable only in an `nft-experimental` build.
-#[cfg(feature = "nft-experimental")]
-pub(crate) fn harvest_nft(p: &Pubkey, a: &[AccountInfo], generation: u32) -> R<()> {
-    if a.len() != 10 {
-        return Err(FrontierError::TooManyAccounts.into());
-    }
-    check_accounts(V2Ix::Harvest, &a[..6], None)?;
-    let pl = player_nft(p, a, 6, generation, true)?;
-    harvest_body(p, &pl, &a[..6])
-}
-
 /// 0x41 Build(item): P + `[holding w] [province r|w]` (MC §5.6: the
 /// holding's own Province, always listed for the capture lock; writable
 /// for walls and the tier-up, which write its site mirror, `BadAccount`
 /// otherwise). Items: module note.
 pub fn build(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+    build_as(p, a, d, &super::Auth::Wallet)
+}
+
+/// [`build`] for the Citizen's wallet or, through `Act`, an NFT
+/// resident's Citizen ([`super::Auth`]).
+pub(crate) fn build_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &super::Auth) -> R<()> {
     let x = aix::Build::decode(d)?;
     check_accounts(V2Ix::Build, a, None)?;
     if x.item > ITEM_TIER_UP && x.item != arms::ITEM_WORKSHOP {
@@ -773,7 +715,7 @@ pub fn build(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     }
     let walls = x.item == catalog::ITEM_WALLS;
     let tier_up = x.item == ITEM_TIER_UP;
-    let pl = player(p, a)?;
+    let pl = player_as(p, a, auth)?;
     let [_, _, _, citizen, holding, province] = a else {
         return Err(FrontierError::TooManyAccounts.into());
     };
@@ -946,9 +888,15 @@ pub(crate) fn site_of(province: &[u8], hh: &HoldingHdr) -> R<usize> {
 /// once, `reserve[unit] += n` (whole troops, immediate, I-56); the lazy
 /// finality flip runs.
 pub fn train(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+    train_as(p, a, d, &super::Auth::Wallet)
+}
+
+/// [`train`] for the Citizen's wallet or, through `Act`, an NFT
+/// resident's Citizen ([`super::Auth`]).
+pub(crate) fn train_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &super::Auth) -> R<()> {
     check_accounts(V2Ix::Train, a, None)?;
     let x = aix::Train::decode(d)?;
-    let pl = player(p, a)?;
+    let pl = player_as(p, a, auth)?;
     let [_, _, _, citizen, holding, province] = a else {
         return Err(FrontierError::TooManyAccounts.into());
     };
@@ -1005,9 +953,15 @@ pub fn within_one(from: u8, t: u8) -> bool {
 /// (`BadData`) and not yet explored (`Explored`); the holding's explore
 /// record is free (`HostBusy`).
 pub fn explore(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+    explore_as(p, a, d, &super::Auth::Wallet)
+}
+
+/// [`explore`] for the Citizen's wallet or, through `Act`, an NFT
+/// resident's Citizen ([`super::Auth`]).
+pub(crate) fn explore_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &super::Auth) -> R<()> {
     check_accounts(frontier_abi::v2::Ix::Explore, a, None)?;
     let x = aix::Explore::decode(d)?;
-    let pl = player(p, a)?;
+    let pl = player_as(p, a, auth)?;
     let [_, _, _, citizen, holding, province, holding_province] = a else {
         return Err(FrontierError::TooManyAccounts.into());
     };

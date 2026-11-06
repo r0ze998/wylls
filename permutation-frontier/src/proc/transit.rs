@@ -828,13 +828,13 @@ pub fn settle_transit(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     let camp_citizen = if camp_works {
         let c = camp_citizen.ok_or(BAD_ACCOUNT)?;
         if prev_path {
-            // The victim's Citizen (canonical from its wallet, its tag the
-            // Holding's `prev_owner_tag`).
+            // The victim's Citizen (canonical from its wallet, or from its
+            // asset for an NFT resident's Citizen; its tag the Holding's
+            // `prev_owner_tag`).
             prologue::present(c, p, AccountKind::Citizen, hdr.id)?;
             let cd = c.try_borrow_data()?;
             let r = Ro(&cd);
-            let wallet: [u8; 32] = r.arr(crate::layout::citizen::WALLET)?;
-            expect_key(c, &ctx.citizen_by_tag15(&addr::citizen_tag15(&wallet)))?;
+            super::resident::expect_citizen_address(p, &ctx, c, &cd)?;
             if r.u64(crate::layout::citizen::CITIZEN_TAG)? != prev_owner_tag {
                 return Err(FrontierError::BadAddress.into());
             }

@@ -43,8 +43,12 @@ pub fn dispatch(program: &Pubkey, accounts: &[AccountInfo<'_>], data: &[u8]) -> 
                 program, config, payer, link, citizen, asset, resident, actor, generation, now,
             )
         }
-        Command::Harvest { generation } => {
-            crate::proc::holding::harvest_nft(program, accounts, generation)
+        Command::Act { generation, inner } => {
+            crate::proc::resident::act(program, accounts, generation, inner)
         }
+        Command::Join {
+            generation,
+            faction,
+        } => crate::proc::resident::join(program, accounts, generation, faction),
     }
 }

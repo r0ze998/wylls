@@ -77,6 +77,11 @@ pub fn create_policy<'a>(
     Ok(())
 }
 
+/// The program address of `asset`'s NFT Citizen, `["nft-citizen", asset]`.
+pub(crate) fn citizen_address(program: &Pubkey, asset: &Pubkey) -> Pubkey {
+    Pubkey::find_program_address(&[CITIZEN_SEED, asset.as_ref()], program).0
+}
+
 fn canonical(
     program: &Pubkey,
     resident_program: &Pubkey,
@@ -325,5 +330,83 @@ pub fn authorize(
         generation,
         now,
         session_allowed,
+    )
+}
+
+/// The first login of an NFT resident (`Join`, experimental): with the
+/// policy, the link, the future Citizen and the resident at the asset's
+/// canonical addresses, the Citizen absent, and the actor the asset's
+/// current owner (no session) at the signed generation with the transfer
+/// guard in place, create the link if it is absent (an existing link must
+/// name exactly this asset, resident and Citizen: `Register` may have made
+/// it first), then allocate the Citizen at `["nft-citizen", asset]` with
+/// `space` bytes, owned by this program. The caller writes the Citizen.
+/// One NFT has one link and one Citizen address, so a second Join of the
+/// same NFT finds the Citizen present and is refused.
+#[cfg(feature = "nft-experimental")]
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn join_accounts<'a>(
+    program: &Pubkey,
+    config: &AccountInfo<'a>,
+    payer: &AccountInfo<'a>,
+    link: &AccountInfo<'a>,
+    citizen: &AccountInfo<'a>,
+    asset: &AccountInfo<'a>,
+    resident: &AccountInfo<'a>,
+    actor: &AccountInfo<'a>,
+    generation: u32,
+    now: i64,
+    space: usize,
+) -> crate::R<()> {
+    let policy = read_policy(program, config)?;
+    let resident_program = Pubkey::new_from_array(policy.resident_program);
+    let (expected_link, expected_citizen, expected_resident) =
+        canonical(program, &resident_program, asset.key);
+    if link.key != &expected_link
+        || citizen.key != &expected_citizen
+        || resident.key != &expected_resident
+    {
+        return Err(crate::FrontierError::BadAddress.into());
+    }
+    if !link.is_writable || !citizen.is_writable {
+        return Err(crate::error::BAD_ACCOUNT);
+    }
+    if !crate::init::is_absent(citizen) {
+        return Err(crate::FrontierError::AlreadyDone.into());
+    }
+    check_actor(&policy, asset, resident, actor, generation, now, false)?;
+    let record = resident_binding::Record {
+        asset: asset.key.to_bytes(),
+        resident: resident.key.to_bytes(),
+        citizen: citizen.key.to_bytes(),
+    };
+    if crate::init::is_absent(link) {
+        crate::init::init_nft_pda(
+            payer,
+            link,
+            &[LINK_SEED, asset.key.as_ref()],
+            resident_binding::LEN,
+            program,
+        )?;
+        let mut data = link.try_borrow_mut_data()?;
+        if !resident_binding::write_once(&mut data, &record) {
+            return Err(crate::error::BAD_ACCOUNT);
+        }
+    } else {
+        if link.owner != program {
+            return Err(crate::error::BAD_ACCOUNT);
+        }
+        let data = link.try_borrow_data()?;
+        let found = resident_binding::read(&data).ok_or(crate::error::BAD_ACCOUNT)?;
+        if found != record {
+            return Err(crate::error::BAD_ACCOUNT);
+        }
+    }
+    crate::init::init_nft_pda(
+        payer,
+        citizen,
+        &[CITIZEN_SEED, asset.key.as_ref()],
+        space,
+        program,
     )
 }

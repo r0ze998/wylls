@@ -44,7 +44,7 @@
 
 use solana_program::{account_info::AccountInfo, pubkey::Pubkey};
 
-use frontier_abi::addr::{citizen_tag, citizen_tag15, day_of, host_id, split_host_id, AddrCtx};
+use frontier_abi::addr::{citizen_tag, day_of, host_id, split_host_id, AddrCtx};
 use frontier_abi::conquest_model::Record;
 use frontier_abi::entry::read_entry;
 use frontier_abi::log::{divert_reason, NO_BELL};
@@ -210,12 +210,22 @@ fn cq_u32(sd: &[u8], off: usize) -> R<u32> {
 /// The player prologue (§5.6) of an MC instruction over `[actor, payer,
 /// season, citizen, …]`: as M1's (`citizen::player`) with the v2 ruleset,
 /// and the Citizen a v2 account.
-pub(crate) fn player_v2(p: &Pubkey, a: &[AccountInfo]) -> R<Player> {
+/// Under `auth`: the wallet prologue, or for an NFT resident's Citizen the
+/// resident checks (`super::resident`) in place of the wallet and Frontier
+/// session; the rest is the same.
+pub(crate) fn player_v2_as(p: &Pubkey, a: &[AccountInfo], auth: &super::Auth) -> R<Player> {
     let [actor, payer, season_ai, citizen, ..] = a else {
         return Err(FrontierError::TooManyAccounts.into());
     };
     let now = prologue::now()?;
-    let start = {
+    let start = if let Some((proof, generation)) = super::resident::proof_of(auth) {
+        let st = super::resident::start(p, a, proof, generation, true, now.ts)?;
+        let sd = season_ai.try_borrow_data()?;
+        if !is_mc_season(&sd)? {
+            return Err(FrontierError::RulesetMismatch.into());
+        }
+        st
+    } else {
         let sd = season_ai.try_borrow_data()?;
         let sv = view(season_ai, &sd);
         let s = ap::read_season(&sv, p.as_array(), now.ts)?;
@@ -260,8 +270,7 @@ fn citizen_v2(p: &Pubkey, ctx: &AddrCtx, sid: u64, ai: &AccountInfo) -> R<(u64, 
     present_v2(ai, p, K2::Citizen, sid)?;
     let d = ai.try_borrow_data()?;
     let r = Ro(&d);
-    let wallet: [u8; 32] = r.arr(C::WALLET)?;
-    expect_key(ai, &ctx.citizen_by_tag15(&citizen_tag15(&wallet)))?;
+    super::resident::expect_citizen_address(p, ctx, ai, &d)?;
     let tag = r.u64(C::CITIZEN_TAG)?;
     if tag != citizen_tag(ai.key.as_array()) {
         return Err(BAD_ACCOUNT);
@@ -548,10 +557,21 @@ fn refusal(r: SiegeRefusal) -> crate::Error {
 
 /// 0xA0 DeclareSiege(site, entry, nearby_site): P (§3.4, §5.5).
 pub fn declare_siege(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+    declare_siege_as(p, a, d, &super::Auth::Wallet)
+}
+
+/// [`declare_siege`] for the Citizen's wallet or, through `Act`, an NFT
+/// resident's Citizen ([`super::Auth`]).
+pub(crate) fn declare_siege_as(
+    p: &Pubkey,
+    a: &[AccountInfo],
+    d: &[u8],
+    auth: &super::Auth,
+) -> R<()> {
     check_accounts_v2(Ix2::DeclareSiege, a, None)?;
     let x = ix2::DeclareSiege::decode(d)?;
     // 1. Running, now_bell < end_bell (the player prologue).
-    let pl = player_v2(p, a)?;
+    let pl = player_v2_as(p, a, auth)?;
     let [_, payer, season_ai, citizen, src, province, target_h, owner_c, nearby, _system, holding_province] =
         a
     else {
@@ -1597,6 +1617,12 @@ pub const fn home_ref(home_key: u64) -> u32 {
 /// 0xA6 RetireHost(entry): P (the victim) during the season, N after
 /// `end_bell` (K-27, §5.5).
 pub fn retire_host(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+    retire_host_as(p, a, d, &super::Auth::Wallet)
+}
+
+/// [`retire_host`] for the Citizen's wallet or, through `Act`, an NFT
+/// resident's Citizen ([`super::Auth`]).
+pub(crate) fn retire_host_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &super::Auth) -> R<()> {
     check_accounts_v2(Ix2::RetireHost, a, None)?;
     let x = ix2::RetireHost::decode(d)?;
     let now = prologue::now()?;
@@ -1632,29 +1658,54 @@ pub fn retire_host(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         )
     };
     expect_key(captured, &ctx.holding(cp as i32, cq_ as i32, csite))?;
-    // During the season only the victim (wallet or live session) retires.
+    // During the season only the victim (wallet or live session; for an NFT
+    // resident's Citizen, its current owner or the owner's current session)
+    // retires.
     if in_season {
-        let (tag, _, _) = citizen_v2(p, &ctx, sid, victim_c)?;
-        let (wallet, session, expiry) = {
-            let cd = victim_c.try_borrow_data()?;
-            let r = Ro(&cd);
-            (
-                r.arr::<32>(C::WALLET)?,
-                r.arr::<32>(C::SESSION)?,
-                r.i64(C::SESSION_EXPIRY)?,
-            )
-        };
-        let k = actor.key.to_bytes();
-        let by_session = k != wallet;
-        if by_session && (session == [0u8; 32] || k != session) {
-            return Err(FrontierError::Auth.into());
+        if let Some((proof, generation)) = super::resident::proof_of(auth) {
+            if !actor.is_signer {
+                return Err(FrontierError::Auth.into());
+            }
+            super::resident::check(p, actor, victim_c, proof, generation, now.ts, true, sid)?;
+            // The resident checks put the Citizen at its asset's canonical
+            // address; its tag is still the one derived from that address.
+            let tag = {
+                let cd = victim_c.try_borrow_data()?;
+                Ro(&cd).u64(C::CITIZEN_TAG)?
+            };
+            if tag != citizen_tag(victim_c.key.as_array()) {
+                return Err(BAD_ACCOUNT);
+            }
+            if tag != prev_owner {
+                return Err(cq(CqError::NotLead));
+            }
+        } else {
+            let (tag, _, _) = citizen_v2(p, &ctx, sid, victim_c)?;
+            let (wallet, session, expiry) = {
+                let cd = victim_c.try_borrow_data()?;
+                let r = Ro(&cd);
+                (
+                    r.arr::<32>(C::WALLET)?,
+                    r.arr::<32>(C::SESSION)?,
+                    r.i64(C::SESSION_EXPIRY)?,
+                )
+            };
+            let k = actor.key.to_bytes();
+            let by_session = k != wallet;
+            if by_session && (session == [0u8; 32] || k != session) {
+                return Err(FrontierError::Auth.into());
+            }
+            if by_session && now.ts >= expiry {
+                return Err(FrontierError::SessionExpired.into());
+            }
+            if tag != prev_owner {
+                return Err(cq(CqError::NotLead));
+            }
         }
-        if by_session && now.ts >= expiry {
-            return Err(FrontierError::SessionExpired.into());
-        }
-        if tag != prev_owner {
-            return Err(cq(CqError::NotLead));
-        }
+    } else if super::resident::proof_of(auth).is_some() {
+        // After the season RetireHost is anyone's (class N); the resident
+        // proof belongs to the in-season path only.
+        return Err(FrontierError::TooManyAccounts.into());
     }
     if flags & H::CAPTURE_FLAG_CAPTURED == 0 || prev_home == 0 {
         return Err(FrontierError::NotOwner.into());
