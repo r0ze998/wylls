@@ -87,25 +87,67 @@ fn valid_asset_tail(data: &[u8]) -> bool {
     }
 }
 
-/// Check a signed action against the bound asset and resident on the same
-/// runtime invocation. `expected_generation` MUST be signed instruction data,
-/// not a value copied from the resident by the caller after signing.
-/// `session_allowed` is false for operations that require the owner directly.
-#[allow(clippy::too_many_arguments)]
-pub fn authorize(
+/// The resident program's account (`permutation-nft-resident-spike/program`
+/// `resident`): magic 0xC2 ‖ asset 32 ‖ tag15 15 ‖ generation 4 ‖ session 32 ‖
+/// expiry i64 ‖ session generation 4 ‖ session setter 32 ‖ ops 4 ‖ bump 1.
+pub mod resident_account {
+    pub const LEN: usize = 133;
+    pub const MAGIC_VALUE: u8 = 0xc2;
+    pub const ASSET: usize = 1;
+    pub const GENERATION: usize = 48;
+    pub const SESSION: usize = 52;
+    pub const SESSION_EXPIRY: usize = 84;
+    pub const SESSION_GENERATION: usize = 92;
+    pub const SESSION_SETTER: usize = 96;
+}
+
+/// A delegate the owner set in the resident program.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Session {
+    pub key: [u8; 32],
+    /// Unix seconds; the session acts while `now < expiry`.
+    pub expiry: i64,
+}
+
+/// Who holds the pass now: **the one definition** the game (this module's
+/// [`authorize`]), the verifier (V28) and the prize (an NFT Citizen's
+/// unclaimed prize follows the pass) read. It is read from the bound asset
+/// and resident accounts at the moment of use, never stored.
+///
+/// - `owner`: the asset's current Core owner;
+/// - `generation`: the resident program's holder generation. Every change of
+///   holder (`TransferResident`; the guard makes it the only way the asset
+///   moves) adds one and clears the session, so a buy-back (A to B to A) is a
+///   new generation;
+/// - `session`: the owner's delegate, only while it was set by this owner in
+///   this generation (otherwise `None`; its expiry is checked at use).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Holder {
+    pub asset: [u8; 32],
+    pub owner: [u8; 32],
+    pub generation: u32,
+    pub session: Option<Session>,
+}
+
+/// How an actor holds authority for the pass.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Authority {
+    Owner,
+    Session,
+}
+
+/// The current holder of the bound pass, from the asset and resident account
+/// bytes the runtime loaded (no signer is involved). Refusals, in this order:
+/// `Asset` (not the bound asset, not Core, not an AssetV1 of the collection),
+/// `Unguarded` (no transfer guard of the policy's authority), `Resident` (not
+/// the bound resident account or not of this asset).
+pub fn holder(
     binding: &Binding,
     policy: &Policy,
     asset: &Account<'_>,
     resident: &Account<'_>,
-    actor: &[u8; 32],
-    actor_signed: bool,
-    expected_generation: u32,
-    now: i64,
-    session_allowed: bool,
-) -> Result<(), Refusal> {
-    if !actor_signed {
-        return Err(Refusal::NotSigned);
-    }
+) -> Result<Holder, Refusal> {
+    use resident_account as R;
     // Core AssetV1: discriminator, owner, Collection discriminator/address.
     let a = asset.data;
     if asset.key != binding.asset
@@ -128,32 +170,85 @@ pub fn authorize(
     let r = resident.data;
     if resident.key != binding.resident
         || resident.owner != policy.resident_program
-        || r.len() != 133
-        || r[0] != 0xc2
-        || r[1..33] != binding.asset
+        || r.len() != R::LEN
+        || r[0] != R::MAGIC_VALUE
+        || r[R::ASSET..R::ASSET + 32] != binding.asset
     {
         return Err(Refusal::Resident);
     }
-    let generation = u32::from_le_bytes(r[48..52].try_into().unwrap());
-    if generation != expected_generation {
-        return Err(Refusal::StaleGeneration);
+    let u32_at = |o: usize| u32::from_le_bytes(r[o..o + 4].try_into().unwrap());
+    let owner: [u8; 32] = a[1..33].try_into().unwrap();
+    let generation = u32_at(R::GENERATION);
+    let key: [u8; 32] = r[R::SESSION..R::SESSION + 32].try_into().unwrap();
+    let live = key != [0; 32]
+        && r[R::SESSION_SETTER..R::SESSION_SETTER + 32] == owner
+        && u32_at(R::SESSION_GENERATION) == generation;
+    Ok(Holder {
+        asset: binding.asset,
+        owner,
+        generation,
+        session: live.then(|| Session {
+            key,
+            expiry: i64::from_le_bytes(
+                r[R::SESSION_EXPIRY..R::SESSION_EXPIRY + 8]
+                    .try_into()
+                    .unwrap(),
+            ),
+        }),
+    })
+}
+
+impl Holder {
+    /// Whether `actor`, having signed `expected_generation`, holds authority
+    /// at `now`: `StaleGeneration` when the signed generation is not the
+    /// current one (a signature made before a transfer), then the owner, then
+    /// (when `session_allowed`) the live, unexpired session; otherwise
+    /// `NotCurrentAuthority` (a previous owner, a previous owner's session).
+    pub fn authority(
+        &self,
+        actor: &[u8; 32],
+        expected_generation: u32,
+        now: i64,
+        session_allowed: bool,
+    ) -> Result<Authority, Refusal> {
+        if self.generation != expected_generation {
+            return Err(Refusal::StaleGeneration);
+        }
+        if *actor == self.owner {
+            return Ok(Authority::Owner);
+        }
+        match self.session {
+            Some(s) if session_allowed && *actor == s.key && now < s.expiry => {
+                Ok(Authority::Session)
+            }
+            _ => Err(Refusal::NotCurrentAuthority),
+        }
     }
-    let owner = &a[1..33];
-    if actor == owner {
-        return Ok(());
+}
+
+/// Check a signed action against the bound asset and resident on the same
+/// runtime invocation: [`holder`], then [`Holder::authority`].
+/// `expected_generation` MUST be signed instruction data, not a value copied
+/// from the resident by the caller after signing. `session_allowed` is false
+/// for operations that require the owner directly.
+#[allow(clippy::too_many_arguments)]
+pub fn authorize(
+    binding: &Binding,
+    policy: &Policy,
+    asset: &Account<'_>,
+    resident: &Account<'_>,
+    actor: &[u8; 32],
+    actor_signed: bool,
+    expected_generation: u32,
+    now: i64,
+    session_allowed: bool,
+) -> Result<(), Refusal> {
+    if !actor_signed {
+        return Err(Refusal::NotSigned);
     }
-    let session_generation = u32::from_le_bytes(r[92..96].try_into().unwrap());
-    let session_expiry = i64::from_le_bytes(r[84..92].try_into().unwrap());
-    if session_allowed
-        && r[52..84] != [0; 32]
-        && actor == &r[52..84]
-        && r[96..128] == *owner
-        && session_generation == generation
-        && now < session_expiry
-    {
-        return Ok(());
-    }
-    Err(Refusal::NotCurrentAuthority)
+    holder(binding, policy, asset, resident)?
+        .authority(actor, expected_generation, now, session_allowed)
+        .map(|_| ())
 }
 
 #[cfg(test)]
@@ -372,5 +467,132 @@ mod tests {
             check(&asset_data, &resident_data, &a, true, 2, 99, true),
             Err(Refusal::Asset)
         );
+    }
+
+    // Literal bytes only (no key, no PDA or seeded address, no signature):
+    // the holder the game, the verifier and the prize read.
+    #[test]
+    fn the_holder_follows_the_pass_and_its_session_only_its_owner_and_generation() {
+        let binding = Binding {
+            asset: [1; 32],
+            resident: [2; 32],
+        };
+        let policy = Policy {
+            core_program: [3; 32],
+            resident_program: [4; 32],
+            collection: [5; 32],
+            guard_authority: [10; 32],
+        };
+        let (a, b, sa, sb) = ([6; 32], [7; 32], [8; 32], [9; 32]);
+        let mut asset = vec![0u8; 75];
+        asset[0] = 1;
+        asset[33] = 2;
+        asset[34..66].copy_from_slice(&policy.collection);
+        asset.extend_from_slice(&guarded_tail(75, &policy.guard_authority));
+        let mut res = [0u8; 133];
+        res[0] = 0xc2;
+        res[1..33].copy_from_slice(&binding.asset);
+        // `(owner, generation, session key, setter, session generation)`.
+        let state = |asset: &mut Vec<u8>,
+                     res: &mut [u8; 133],
+                     o: [u8; 32],
+                     g: u32,
+                     s: [u8; 32],
+                     set: [u8; 32],
+                     sg: u32| {
+            asset[1..33].copy_from_slice(&o);
+            res[48..52].copy_from_slice(&g.to_le_bytes());
+            res[52..84].copy_from_slice(&s);
+            res[84..92].copy_from_slice(&100i64.to_le_bytes());
+            res[92..96].copy_from_slice(&sg.to_le_bytes());
+            res[96..128].copy_from_slice(&set);
+        };
+        let read = |asset: &[u8], res: &[u8]| {
+            holder(
+                &binding,
+                &policy,
+                &Account {
+                    key: binding.asset,
+                    owner: policy.core_program,
+                    data: asset,
+                },
+                &Account {
+                    key: binding.resident,
+                    owner: policy.resident_program,
+                    data: res,
+                },
+            )
+        };
+        // A holds at generation 0 with its session.
+        state(&mut asset, &mut res, a, 0, sa, a, 0);
+        let h = read(&asset, &res).unwrap();
+        assert_eq!((h.owner, h.generation, h.asset), (a, 0, binding.asset));
+        assert_eq!(
+            h.session,
+            Some(Session {
+                key: sa,
+                expiry: 100
+            })
+        );
+        assert_eq!(h.authority(&a, 0, 99, false), Ok(Authority::Owner));
+        assert_eq!(h.authority(&sa, 0, 99, true), Ok(Authority::Session));
+        assert_eq!(
+            h.authority(&sa, 0, 99, false),
+            Err(Refusal::NotCurrentAuthority),
+            "owner-only use"
+        );
+        assert_eq!(
+            h.authority(&sa, 0, 100, true),
+            Err(Refusal::NotCurrentAuthority),
+            "expired"
+        );
+        // To B: generation 1, A's session cleared (the program clears it; a
+        // session left behind with A as setter or the old generation is not live).
+        state(&mut asset, &mut res, b, 1, sa, a, 0);
+        let h = read(&asset, &res).unwrap();
+        assert_eq!((h.owner, h.generation, h.session), (b, 1, None));
+        assert_eq!(
+            h.authority(&a, 1, 99, true),
+            Err(Refusal::NotCurrentAuthority),
+            "old owner"
+        );
+        assert_eq!(
+            h.authority(&sa, 1, 99, true),
+            Err(Refusal::NotCurrentAuthority),
+            "old session"
+        );
+        assert_eq!(
+            h.authority(&a, 0, 99, true),
+            Err(Refusal::StaleGeneration),
+            "signed before the transfer"
+        );
+        assert_eq!(h.authority(&b, 1, 99, false), Ok(Authority::Owner));
+        state(&mut asset, &mut res, b, 1, sb, b, 1);
+        assert_eq!(
+            read(&asset, &res).unwrap().authority(&sb, 1, 99, true),
+            Ok(Authority::Session)
+        );
+        // Back to A: generation 2; B's session and A's generation-0 signature refused.
+        state(&mut asset, &mut res, a, 2, sb, b, 1);
+        let h = read(&asset, &res).unwrap();
+        assert_eq!((h.owner, h.generation, h.session), (a, 2, None));
+        assert_eq!(
+            h.authority(&sb, 2, 99, true),
+            Err(Refusal::NotCurrentAuthority)
+        );
+        assert_eq!(
+            h.authority(&b, 2, 99, true),
+            Err(Refusal::NotCurrentAuthority)
+        );
+        assert_eq!(h.authority(&a, 0, 99, true), Err(Refusal::StaleGeneration));
+        assert_eq!(h.authority(&a, 2, 99, true), Ok(Authority::Owner));
+        // A session of the right key but another generation or setter is not live.
+        state(&mut asset, &mut res, a, 2, sa, a, 1);
+        assert_eq!(read(&asset, &res).unwrap().session, None);
+        state(&mut asset, &mut res, a, 2, sa, b, 2);
+        assert_eq!(read(&asset, &res).unwrap().session, None);
+        // The holder is read only from the bound, guarded accounts.
+        assert_eq!(read(&asset[..75], &res), Err(Refusal::Unguarded));
+        assert_eq!(read(&asset, &res[..132]), Err(Refusal::Resident));
     }
 }

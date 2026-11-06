@@ -23,6 +23,48 @@ pub const fn is_resident_tag(t: u8) -> bool {
     t >= 0xE0 && t <= 0xE7
 }
 
+/// The inner instructions `ResidentAct` runs for an NFT Citizen
+/// (`permutation-frontier` `proc::resident::act`; its static test keeps the
+/// two lists equal). Every other inner tag is refused (`BadData`), and
+/// SetSession, though dispatched, always is (`Auth`): an NFT Citizen's
+/// session is the resident program's. The verifier (V28) reads this list.
+pub const ACT_RUNS: [crate::v2::Ix; 26] = {
+    use crate::v2::Ix::*;
+    [
+        Harvest,
+        Build,
+        Train,
+        Explore,
+        Muster,
+        Dissolve,
+        Garrison,
+        Depart,
+        BuildStructure,
+        SeizeStructure,
+        CloseStructure,
+        FortGarrison,
+        Propose,
+        Vote,
+        BuildVault,
+        SendCaravan,
+        RaidCaravan,
+        RaidDomestic,
+        SeizeVault,
+        CloseVault,
+        SetVigil,
+        FileOutpost,
+        FileTicket,
+        PlaceHome,
+        DeclareSiege,
+        RetireHost,
+    ]
+};
+
+/// Whether a successful `ResidentAct` can carry the inner instruction `tag`.
+pub fn act_runs(tag: u8) -> bool {
+    crate::v2::Ix::from_tag(tag).is_some_and(|ix| ACT_RUNS.contains(&ix))
+}
+
 pub enum Command<'a> {
     CreatePolicy(Policy),
     Act { generation: u32, inner: &'a [u8] },
@@ -132,5 +174,20 @@ mod tests {
         ));
         assert!(decode(&[0xE1, 1, 0, 0, 0]).is_none());
         assert!(decode(&[0xE1, 1, 0, 0, 0, 5, 0]).is_none());
+    }
+
+    #[test]
+    fn act_runs_the_listed_player_instructions_only() {
+        use crate::v2::Ix;
+        assert_eq!(ACT_RUNS.len(), 26);
+        for ix in ACT_RUNS {
+            assert!(act_runs(ix as u8), "{ix:?}");
+        }
+        assert!(
+            !act_runs(Ix::SetSession as u8),
+            "an NFT Citizen's session is the resident program's"
+        );
+        assert!(!act_runs(Ix::Join as u8));
+        assert!(!act_runs(RESIDENT_ACT) && !act_runs(0xff));
     }
 }
