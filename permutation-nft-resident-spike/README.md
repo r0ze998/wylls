@@ -1,6 +1,8 @@
 # permutation-nft-resident-spike：NFT で譲渡できる住民アカウント（隔離試作）
 
-**状態（2026-11-06、v0.10）**：ローカルのみ（模擬チェーン、LiteSVM、ループバック validator）。公開発行・devnet／mainnet・実資金・新しい鍵は無し。価格・無料／有料・供給数・公開発行・ロイヤリティは未決（`docs/UNDECIDED.ja.md`）。Metaplex Core は**試作の選定方式**で、本線採用は未決。継続世界は決定済み。依存パッケージ無し（Node 20+ の標準モジュールだけ。`test-gateway/` だけは `permutation-gateway` の依存を使う）。v0.8 で担当ブランチへ通常 push（根拠は `docs/PUSH-AUDIT.ja.md`）。merge・deploy はしていない。
+**状態（2026-11-06、v0.11）**：ローカルのみ（模擬チェーン、LiteSVM、ループバック validator）。公開発行・devnet／mainnet・実資金・新しい鍵は無し。価格・無料／有料・供給数・公開発行・ロイヤリティは未決（`docs/UNDECIDED.ja.md`）。Metaplex Core は**試作の選定方式**で、本線採用は未決。継続世界は決定済み。依存パッケージ無し（Node 20+ の標準モジュールだけ。`test-gateway/` だけは `permutation-gateway` の依存を使う）。v0.8 で担当ブランチへ通常 push（根拠は `docs/PUSH-AUDIT.ja.md`）。merge・deploy はしていない。
+
+**v0.11 の変更**：NFT 住民の初回アカウント作成（`Join`：1 NFT につき 1 Citizen）と、Citizen の権限を持つ 27 命令すべてへの NFT の権限検査の接続（`Act`）。財布の経路と本体を共有し、複製は無い。財布から決まる住所を前提にしていた keeper 向けの精算 5 か所を、NFT Citizen でも動くようにした。program の外の未対応箇所を洗い出した（`docs/NFT-ACCOUNT-WIRING.ja.md`）。命令 tag・記録・`WALLET` 欄は仮で ④ と調整中。実行時の試験は未実施。
 
 **v0.10 の変更**：候補 20（NFT と Citizen の認証・一対一登録・試験用 Harvest・厳格な索引、`a0b80384`）を受け取り、そのまま取り込んだうえで確認した（`docs/CANDIDATE-20-REVIEW.ja.md`）。transfer guard の未確認（A→B→A で古い署名が戻りうる）を直し、実 Core のバイトで試験した。NFT Citizen 用の共通の入口を作り、Harvest の本体を財布の経路と共通にした。CI の fmt・clippy に通るようにした。NFT Citizen の作成命令と、Harvest 以外の命令の接続は未着手。鍵を使う試験は実行していない。
 

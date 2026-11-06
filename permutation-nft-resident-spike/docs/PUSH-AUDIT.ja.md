@@ -42,3 +42,7 @@
 ## v0.10（2026-11-06）
 
 候補 20 の取り込みと、その上の ABI・program・文書の変更。v0.8 と同じ根拠で担当ブランチに通常 push する。push で走るのはこのリポジトリの CI だけ。merge・deploy はしない。push の前に、CI と同じ `cargo fmt --check`・`clippy -D warnings` を変更した crate で通した。
+
+## v0.11（2026-11-06）
+
+program・ABI・文書の変更。v0.8 と同じ根拠で担当ブランチに通常 push する。push の前に CI と同じ `cargo fmt --check`・`clippy -D warnings` を通した。merge・deploy はしない。
