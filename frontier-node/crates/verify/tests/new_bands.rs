@@ -330,9 +330,14 @@ fn tags_outside_abi_v2_are_told_apart() {
     let s1 = Some(4u16);
     let unknown = Some(9u16);
     let join = [0xE1, 3, 0, 0, 0, 4];
-    let j = |tag: u8, data: &[u8], pv| judge_outside_v2(tag, data, pv).map(|x| (x.0, x.1));
+    let j = |tag: u8, data: &[u8], pv| judge_outside_v2(tag, data, pv, true).map(|x| (x.0, x.1));
     // ⑳ in its own program's season.
     assert_eq!(j(0xE1, &join, nft), None);
+    // ⑱: the same join where the S1 checks (V27) did not run is Unverifiable.
+    assert_eq!(
+        judge_outside_v2(0xE1, &join, nft, false).map(|x| (x.0, x.1)),
+        Some((Unverifiable, "UnverifiedInstruction"))
+    );
     assert_eq!(j(0xE1, &join[..5], nft), Some((Fail, "Undecodable")));
     assert_eq!(
         j(0xE2, &[0xE2, 0, 0, 0, 0, 0x01], nft),
@@ -343,14 +348,14 @@ fn tags_outside_abi_v2_are_told_apart() {
         Some((Unverifiable, "UnverifiedInstruction"))
     );
     // ⑳ under S1's program, which refuses it.
-    let r = judge_outside_v2(0xE1, &join, s1).unwrap();
+    let r = judge_outside_v2(0xE1, &join, s1, true).unwrap();
     assert_eq!((r.0, r.1), (Fail, "UnknownInstruction"));
     assert!(r.2.contains("workstream 20"), "{}", r.2);
     // ②'s Grant: refused by every known program (FAIL, named), possibly
     // legitimate under a version this verifier does not know.
     for tag in 0xD0..=0xD5u8 {
         for pv in [s1, nft] {
-            let r = judge_outside_v2(tag, &[tag, 0, 0], pv).unwrap();
+            let r = judge_outside_v2(tag, &[tag, 0, 0], pv, true).unwrap();
             assert_eq!((r.0, r.1), (Fail, "UnknownInstruction"));
             assert!(r.2.contains("workstream 2 "), "{}", r.2);
         }

@@ -68,12 +68,16 @@ pub fn allocated_band(tag: u8) -> Option<&'static str> {
 }
 
 /// V0's judgement of a tag outside ABI v2 under program version `pv`:
-/// `None` when a check models it (JoinResident in an NFT season), else the
-/// severity, code and detail.
+/// `None` when a check models it (JoinResident in an NFT season whose S1
+/// checks run: V27 runs only with `s1`), else the severity, code and detail.
+/// `s1` is `Ctx::s1` (`conquest::s1_applies`, read from the final Season
+/// account or the configured ruleset): when it is false, V27 does not run,
+/// so a JoinResident is `Unverifiable`, never left unjudged (⑱, 2026-11-06).
 pub fn judge_outside_v2(
     tag: u8,
     data: &[u8],
     pv: Option<u16>,
+    s1: bool,
 ) -> Option<(crate::Severity, &'static str, String)> {
     use crate::Severity::{Fail, Unverifiable};
     use frontier_abi::resident_wire::{self as rw, Command};
@@ -85,7 +89,12 @@ pub fn judge_outside_v2(
                 UNDECODABLE,
                 format!("resident tag 0x{tag:02x} with {} bytes does not decode", data.len()),
             )),
-            Some(Command::Join { .. }) => None,
+            Some(Command::Join { .. }) if s1 => None,
+            Some(Command::Join { .. }) => Some((
+                Unverifiable,
+                UNVERIFIED_INSTRUCTION,
+                "JoinResident in a season whose S1 checks did not run (V27 did not judge it)".into(),
+            )),
             Some(_) => Some((
                 Unverifiable,
                 UNVERIFIED_INSTRUCTION,
@@ -180,7 +189,7 @@ pub fn run(cx: &mut Ctx) {
             };
             let Some(known) = Ix::from_tag(tag) else {
                 let pv = cx.f.params.as_ref().map(|p| p.program_version);
-                if let Some((sev, code, d)) = judge_outside_v2(tag, &ix.data, pv) {
+                if let Some((sev, code, d)) = judge_outside_v2(tag, &ix.data, pv, cx.s1) {
                     let d = format!("instruction {}: {d}", ix.index);
                     match sev {
                         crate::Severity::Fail => cx.fail(V, code, format!("tx#{i}"), 0, Some(i), d),

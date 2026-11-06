@@ -457,9 +457,15 @@ mod tests {
         // V0 judges the instruction itself as modelled in an NFT season.
         let pv = Some(super::super::v0_coverage::PROGRAM_VERSION_NFT_S1);
         assert_eq!(
-            super::super::v0_coverage::judge_outside_v2(0xE1, &w.txs[0].ixs[0].data, pv),
+            super::super::v0_coverage::judge_outside_v2(0xE1, &w.txs[0].ixs[0].data, pv, true),
             None
         );
+        // ⑱: when the S1 checks (and so V27) do not run, the same join is
+        // Unverifiable, never left unjudged.
+        assert!(matches!(
+            super::super::v0_coverage::judge_outside_v2(0xE1, &w.txs[0].ixs[0].data, pv, false),
+            Some((Severity::Unverifiable, _, _))
+        ));
     }
 
     #[test]
