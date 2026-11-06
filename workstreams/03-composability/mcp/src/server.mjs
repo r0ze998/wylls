@@ -321,6 +321,15 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
       delete op.error;
       grantConsume(link, op);
       step(op, STATES.ACCEPTED, 'the relay sent the transaction');
+    } else if (r.status === 200 && res.status === 'failed' && res.error?.code === 'Duplicate') {
+      // ⑤: the same bytes were already sent by an earlier request (`duplicateOf`); this one was not rebuilt. That send
+      // is not proven this request's own, nor proven absent: counted, held, never re-sent. Only a proven end of that
+      // transaction (failed at finalized, or proven never to land) decides; its landing alone does not make it ours.
+      op.gateway.signature = null;
+      op.gateway.duplicateOf = res.duplicateOf ?? res.signature ?? null;
+      delete op.lifetime;
+      uncertain(op, link, 'the relay answered Duplicate: the same transaction was already sent by an earlier request');
+      hold(op, 'Duplicate', 'the same transaction was already sent by an earlier request: not proven this request\'s own, not proven absent; held, counted, not re-sent', { evidence: { duplicateOf: op.gateway.duplicateOf } });
     } else if (r.status === 200 && res.status === 'failed' && res.sent === false && !res.signature) {
       // The wallet's own record: nothing left the relay under this key (failed before sending). Same key = its replay.
       definite(op, link, code, res.error?.message ?? 'failed before anything was sent', 'agent wallet gateway (sent: false)');
@@ -455,7 +464,7 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
    * key). Not finding the key, or a failure without a signature, decides nothing and releases nothing.
    */
   async function recover(op) {
-    if (op.gateway?.signature || op.attempts === 0) return;
+    if (op.gateway?.signature || op.gateway?.duplicateOf || op.attempts === 0) return;
     if (op.unknownSince === null && op.gateway?.status !== 'failed') return;
     const link = auth.link(op.linkId);
     if (!link?.agentId) return;
@@ -492,6 +501,13 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
     op.fate = { state: f.state, retained: f.retained ?? null, signature: f.signature ?? null, commitment: f.commitment ?? null, queryFailed: f.queryFailed === true,
       why: f.why ?? null, source: f.source, at, ...(f.code ? { code: f.code } : {}) };
     if (TERMINAL.includes(op.state)) return;
+    if (op.gateway?.duplicateOf) {
+      // A Duplicate: the wallet's record may name the earlier send's signature; it is never adopted as this request's.
+      const same = !f.signature || f.signature === op.gateway.duplicateOf;
+      if (same && f.state === 'failed') { op.chain = { state: 'failed', of: 'duplicateOf', source: f.source }; definite(op, link, 'TransactionFailed', 'the identical transaction failed at finalized: nothing moved', 'program'); }
+      else if (same && f.state === 'expired') { op.chain = { state: 'expired', of: 'duplicateOf', absenceProven: true, source: f.source }; definite(op, link, 'NotLanded', 'the identical transaction is proven never to land'); }
+      return;
+    }
     if (f.signature && op.gateway?.signature && f.signature !== op.gateway.signature) {
       hold(op, 'Inconsistent', 'the agent wallet\'s record for this key names another signature than the answer this server received: nothing is decided', { evidence: { recorded: f.signature, answered: op.gateway.signature } });
       return;
@@ -596,6 +612,7 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
       store.save();
       return op;
     }
+    if (!TERMINAL.includes(op.state) && op.gateway?.duplicateOf) { store.save(); return op; } // held as Duplicate: only its fate decides (applyFate)
     if (!TERMINAL.includes(op.state)) {
       const mine = await evidence(op);
       if (mine && op.hold?.code === 'Indeterminate') { delete op.hold; op.steps.push({ state: op.state, at: new Date(now()).toISOString(), detail: 'no longer held: the caravan is proven this request\'s own' }); }

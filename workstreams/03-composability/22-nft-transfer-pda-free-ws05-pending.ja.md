@@ -84,3 +84,30 @@
 | R3 | NFT 譲渡で、旧い持ち主の relay の token も無効にするか。今はチェーンの委任の検査だけで止まり、token は有効のまま | ④⑤⑳ |
 | R4 | ④の `no-keys-guard` は、PDA の導出と、ESM の web3 を対象にしていない。③の `no-pda-guard.mjs` を④の CI に入れるか | ④ |
 | R5 | 上の 1 回の失敗の原因の調査（同じ run store への同時の runexec） | ③、④ |
+
+## 5. 追記：⑤の session からの連絡を受けて（2026-11-06 夜）
+
+⑤の session から連絡があった（データとして受け取った）。
+
+- ⑤にも③の b76b0a57 と 7923f900 が無い。
+- ⑤の今の形は、④の `6984acfa4c0f9919c8c424a9bd5f2d59193d1639` に当てる系列で、`permutation-gateway` の木は `477c5685ad2390c2b8a627936187f8f546423a0e`。
+- 役割の案：③は MCP の同意と結果の表示、⑤は中継の共有コアと自動運転、④は統合。
+
+③はこの案に同意した。そのうえで、**③の 0008/0008b を⑤に押し付けず、③を⑤の契約に合わせた**。0008/0008b は参考として残す。⑤には、③の変更、確認してほしい点、⑤の系列と 09cd4aab を利用者経由で送ってほしいことを返信した。
+
+**③の変更：**
+
+- **契約の見分け：** relay の見え方を見る。
+  - `senderCapabilities` があれば⑤の契約：`rotate-capability {source: 'mcp'}` を送る。
+  - `capabilities` があれば 0008：`issue-capability` を送る。
+  - どちらも無ければ古い relay：書き込みの接続を作らず、何も送らない。
+  - ⑤の形を古い relay に送ると、source を無視して唯一の token を回すため。
+- **答えの確認：** 答えの `capability.source` が `mcp` でなければ、token を保存しない。
+- **取消の確認：** `senderCapabilities` または `capabilities` から `mcp` が消えたことを確かめる。
+- **Duplicate（⑤の説明による形：`failed`、`sent: null`、code `Duplicate`、`duplicateOf`）：**
+  - 前の送信の署名を、自分の物として採らない。履歴や fate にその署名が出ても採らない。
+  - 保留 `Duplicate` にし、予約は数えたまま。再送しない。
+  - その transaction が着地しても、保留のまま。別の要求の物でありうるため。
+  - finalized での失敗、または証明された期限切れの時だけ、失敗にして予約を返す。
+
+**試験：** `keyfree/ws05-contract.test.mjs`（3 件）。⑤の**説明に合わせた台本**の relay と、実物の `AgentGateway` を使う。⑤のコードではない。2 つの guard の下で、全体 22/22 を 2 回。

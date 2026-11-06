@@ -53,6 +53,18 @@ const sha = s => createHash('sha256').update(s).digest('hex');
 const token = () => randomBytes(32).toString('base64url');
 const b64urlSha = s => createHash('sha256').update(s).digest('base64url');
 
+/**
+ * Which per-sender capability contract a relay's agent view shows: 'ws05' (⑤'s `senderCapabilities`), '0008' (③'s
+ * proposal, `capabilities`), or null (one capability per agent: an older relay, where a sender's request would
+ * rotate the only token).
+ */
+export function senderCapabilityKind(view) {
+  const isMap = x => typeof x === 'object' && x !== null && !Array.isArray(x);
+  if (isMap(view?.senderCapabilities)) return 'ws05';
+  if (isMap(view?.capabilities)) return '0008';
+  return null;
+}
+
 export class OAuthError extends Error {
   constructor(status, error, description, extra = {}) { super(description); this.status = status; this.error = error; this.extra = extra; }
   body() { return { error: this.error, error_description: this.message }; }
@@ -190,8 +202,10 @@ export class Auth {
   async capabilityCommandFor(owner, agentId, nonce, expiresAt) {
     const v = await this.game.json('GET', `${this.game.relay}/f/agent?id=${encodeURIComponent(String(agentId))}`);
     if (v.transport || v.status >= 500) throw new OAuthError(503, 'temporarily_unavailable', 'the relay did not answer');
-    const perSource = v.status === 200 && v.json && typeof v.json.capabilities === 'object' && v.json.capabilities !== null;
-    if (perSource) return { op: 'issue-capability', owner, agentId, nonce, expiresAt, params: { source: 'mcp' } };
+    const kind = v.status === 200 ? senderCapabilityKind(v.json) : null;
+    // ⑤'s relay (`senderCapabilities`): rotate-capability {source}. ③'s 0008 relay (`capabilities`): issue-capability.
+    if (kind === 'ws05') return { op: 'rotate-capability', owner, agentId, nonce, expiresAt, params: { source: 'mcp' } };
+    if (kind === '0008') return { op: 'issue-capability', owner, agentId, nonce, expiresAt, params: { source: 'mcp' } };
     // An older relay has one capability per agent: rotating it stops every other holder (⑤'s autopilot). Stopped here,
     // with the reason, unless the operator opted in. A read-only connection needs no capability and is not affected.
     if (!this.allowGlobalRotate) throw new OAuthError(409, 'capability_separation_unavailable', 'this relay has one capability per agent (no per-sender capabilities, patch 0008): a write connection would rotate it and stop the agent\'s other senders, such as the autopilot. Connect read-only, or update the relay.');
@@ -206,9 +220,12 @@ export class Auth {
    * opted in. Returns the sealed token and what it is.
    */
   async capabilityFromRelay({ owner, agentId, view, command: c, signature }) {
-    const perSource = typeof view?.capabilities === 'object' && view.capabilities !== null;
+    const kind = senderCapabilityKind(view);
+    const perSource = kind !== null;
     if (!perSource && !this.allowGlobalRotate) throw new OAuthError(409, 'capability_separation_unavailable', 'this relay has one capability per agent: a write connection would stop the agent\'s other senders. Connect read-only, or update the relay.');
-    const okOp = c && (perSource ? c.op === 'issue-capability' && c.params?.source === 'mcp' : c.op === 'rotate-capability');
+    const okOp = c && (kind === 'ws05' ? c.op === 'rotate-capability' && c.params?.source === 'mcp'
+      : kind === '0008' ? c.op === 'issue-capability' && c.params?.source === 'mcp'
+        : c.op === 'rotate-capability' && c.params?.source === undefined);
     // A relay that issues per-sender capabilities never gets the global rotation from this server: it would stop ⑤'s.
     if (!okOp || c.owner !== owner || c.agentId !== agentId) throw new OAuthError(400, 'invalid_request', perSource ? 'a caravan grant needs the owner\'s signed issue-capability command (source mcp) for this agent' : 'a caravan grant needs the owner\'s signed rotate-capability command for this agent');
     const r = await this.game.ownerCommand({ command: c, signature });
@@ -235,7 +252,7 @@ export class Auth {
       link.relayRevoke = { at, confirmed: false, why: `the relay did not take the command (${r.json?.code ?? r.status ?? 'unreachable'})` };
     } else {
       const v = await this.game.json('GET', `${this.game.relay}/f/agent?id=${encodeURIComponent(link.agentId)}`);
-      const listed = v.json?.capabilities?.mcp ?? null;
+      const listed = v.json?.senderCapabilities?.mcp ?? v.json?.capabilities?.mcp ?? null;
       link.relayRevoke = v.status === 200 && listed === null ? { at, confirmed: true, by: 'the relay\'s agent view lists no mcp capability' }
         : { at, confirmed: false, why: v.status === 200 ? `the relay still lists an mcp capability (version ${listed?.version})` : 'the relay\'s agent view could not be read' };
     }

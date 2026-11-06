@@ -151,6 +151,15 @@ export async function keyfreeWorld({ relay = 'current' } = {}) {
     if (mode === 'unreachable') return { transport: true };
     const facts = { sent: true, signature: `sig-${++script.n}`, lastValidBlockHeight: 150, slotFloor: 70, signedAt: NOW * 1000 };
     let res;
+    // ⑤'s Duplicate AS DESCRIBED: not rebuilt; failed, sent: null, code Duplicate, the earlier send's signature.
+    if (mode === 'duplicate') {
+      const earlier = `sig-dup-${script.n}`;
+      res = { ok: false, requestId: r.idempotencyKey, agentId, status: 'failed', sent: null, charges: [], duplicateOf: earlier, signature: earlier, lastValidBlockHeight: 150, slotFloor: 70,
+        error: { code: 'Duplicate', message: 'the same transaction was already sent by an earlier request (scripted)' } };
+      script.sends.set(r.idempotencyKey, res);
+      history.push({ type: 'action', name: r.action.name, key: r.idempotencyKey, source: r.source, status: 'failed', code: 'Duplicate', signature: earlier, lastValidBlockHeight: 150, slotFloor: 70 });
+      return { status: 200, json: res };
+    }
     if (mode === 'failed-unsent') res = { ok: false, requestId: r.idempotencyKey, agentId, status: 'failed', sent: false, charges: [], error: { code: 'SendFailed', message: 'RPC down before sending (scripted)' } };
     else if (mode === 'failed-signed') { script.chainSent++; res = { ok: false, requestId: r.idempotencyKey, agentId, status: 'failed', ...facts, charges: [], error: { code: 'SendFailed', message: 'the call failed after the bytes left (scripted)' } }; }
     else { script.chainSent++; res = { ok: true, requestId: r.idempotencyKey, agentId, status: 'sent', ...facts, charges: [] }; }
@@ -172,6 +181,9 @@ export async function keyfreeWorld({ relay = 'current' } = {}) {
         if (id !== agentId) return json(404, { error: 'no such agent', code: 'UnknownAgent' });
         const v = { ...g.view(id), history: history.slice(-50) };
         if (relay === 'old') delete v.capabilities;
+        // `relay: 'ws05'`: ⑤'s contract AS ⑤ DESCRIBED IT (message 2026-11-06, not ⑤'s code): the view lists
+        // `senderCapabilities`; rotate-capability {source} issues a sender's token; issue-capability does not exist.
+        if (relay === 'ws05') { v.senderCapabilities = v.capabilities; delete v.capabilities; }
         return json(200, v);
       }
       if (p === '/f/agent/command' && init.method === 'POST') {
@@ -183,6 +195,7 @@ export async function keyfreeWorld({ relay = 'current' } = {}) {
             return json(400, { error: 'unknown op', code: 'BadRequest' });
           }
           // `relay: 'unbound'`: a relay that lists capabilities but answers a sender's request with the agent's one token.
+          if (relay === 'ws05' && c.op === 'issue-capability') return json(400, { error: 'unknown op', code: 'BadRequest' });
           if (c.op === 'issue-capability' && relay === 'unbound') return json(200, { ok: true, ...g.rotateCapability(c.agentId, c.owner) });
           if (c.op === 'issue-capability') return json(200, { ok: true, ...g.issueSourceCapability(c.agentId, c.owner, c.params?.source) });
           if (c.op === 'revoke-capability') return json(200, { ok: true, ...g.revokeSourceCapability(c.agentId, c.owner, c.params?.source) });
