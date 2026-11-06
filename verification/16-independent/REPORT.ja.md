@@ -525,3 +525,9 @@ ef63544c からの差分は agent wallet だけ（`permutation-gateway/src/front
 - 基点 `1913625d`／`32ad894d` に当てたときの tree（`93c2263f…`／`d64b3f36…`）。基点の bundle か、基点を含むブランチが要る。
 - `13-15-integrated` の⑬部分（⑬の照合記録・請求申告）。今回の依頼の範囲外で、試験もしていない。
 - 08・13-retention・18・20 のパッチ。今回は対象外。
+
+## 11.8 ④の更新 95686606（2026-11-06T00:04Z の連絡）
+
+④の新しい現在版は `claude/gallant-ride-cunptv` の `9568660675ad5464dcd2ce1a0f266f5a7dfb39cb`（tree `09d14584a6e03da5e1699883bd1fc390d55f7cb1`、文書だけ）。コードはその親の `b82fafa8f8095f83f157fcf80d2f15943982ebc4`（tree `39a95c7a171c2d536b0cf647cecc035a9cc1dc44`）で、さらにその親が `77c5cbe2`。⑯が GitHub から取得して、SHA・tree・祖先関係を確かめた。
+
+77c5cbe2 からの差分は `workstreams/04-execution/` の中だけ（`runexec act` の入口、`clients/acts.mjs`、chunked 応答の読み取りの修正、その試験）。優先項目のコード（検証器、keeper、`permutation-gateway/src` 全体、agent wallet、`prize.mjs`、findex、ABI、Web、herald）は、77c5cbe2 と tree・blob の SHA が同じ。**したがって 11.6 節の判定は 95686606 でもそのまま当てはまる（コード同一による引き継ぎで、95686606 での再実行はしていない）。** ④の `runexec` と `clients/acts` は⑯の検証対象に入れておらず、④が報告した試験（ws04 91 通過・9 無効、act_cli 5、acts 4、e2e-native 8）は④の結果。
