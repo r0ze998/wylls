@@ -63,9 +63,7 @@ fn m_lot(b: &mut Bridge, p: i16, q: i16) -> (LotId, u32) {
     };
     let nonce = lot.nonce;
     let order = set_order(&v, &mut lot, &actor10(M), 0, nonce, &spec, bell).unwrap();
-    let id = LotId::of(&lot);
-    b.vaults.insert((v.p, v.q, v.tile), v);
-    b.lots.insert(id, lot);
+    let id = b.add_lot(v, lot);
     (id, order)
 }
 
@@ -155,10 +153,15 @@ fn products_go_to_the_user_and_unused_ore_back_to_the_lot() {
         "no ore to B"
     );
     // M's lot: 34 whole units back; 0.668 owed.
-    let l = b.lots[&lot];
-    assert_eq!((l.held, l.consumed), (94 * MILLI, 40 * MILLI));
-    assert_eq!(b.returned[&lot], 34 * MILLI);
-    assert_eq!(b.owed[&lot], 668);
+    let l = b.lot(lot).unwrap();
+    // Un-consumed, not counted in again: CONSUMED 40 − 34 = 6 (5.332
+    // used, 0.668 owed), IN_TOTAL unchanged.
+    assert_eq!(
+        (l.held, l.consumed, l.in_total),
+        (94 * MILLI, 6 * MILLI, 100 * MILLI)
+    );
+    assert_eq!(b.returned(lot), 34 * MILLI);
+    assert_eq!(b.owed(lot), 668);
     assert!(
         l.inbound.iter().all(|i| !i.live),
         "no reservation left behind"
@@ -169,7 +172,7 @@ fn products_go_to_the_user_and_unused_ore_back_to_the_lot() {
         b.apply(S + 1_400, B, &Op::Claim { job: j, to: HOME }),
         Ok(Outcome::AlreadyApplied)
     );
-    assert_eq!(b.lots[&lot], l);
+    assert_eq!(b.lot(lot).unwrap(), l);
 }
 
 #[test]
@@ -186,9 +189,9 @@ fn rests_owed_to_a_lot_add_up_to_whole_units() {
             .unwrap();
     }
     // 2 × 34.668 = 69.336: 69 whole units back, 0.336 owed.
-    assert_eq!(b.returned[&lot], 69 * MILLI);
-    assert_eq!(b.owed[&lot], 336);
-    assert_eq!(b.lots[&lot].held, (100 - 80 + 69) * MILLI);
+    assert_eq!(b.returned(lot), 69 * MILLI);
+    assert_eq!(b.owed(lot), 336);
+    assert_eq!(b.lot(lot).unwrap().held, (100 - 80 + 69) * MILLI);
     b.check(S + 6 * HOUR).unwrap();
 }
 
@@ -217,7 +220,7 @@ fn a_split_claim_sends_the_users_goods_where_asked_and_the_ore_to_its_lot() {
         b.cap.custody.balance(Place::Caravan(84), Resource::Ore).1,
         0
     );
-    assert_eq!(b.returned[&lot], 34 * MILLI);
+    assert_eq!(b.returned(lot), 34 * MILLI);
     b.check(S + 1_300).unwrap();
 }
 
@@ -226,12 +229,12 @@ fn a_lot_outside_the_facilitys_province_is_too_far() {
     let (mut b, g) = setup();
     let (lot, order) = m_lot(&mut b, 1, -1);
     let j = job(&mut b, g, 1, S);
-    let before = b.lots[&lot];
+    let before = b.lot(lot).unwrap();
     assert_eq!(
         b.deposit_from_lot(T0 + 20, B, j, 1, lot, 0, order, 40),
         Err(BridgeError::TooFar)
     );
-    assert_eq!(b.lots[&lot], before);
+    assert_eq!(b.lot(lot).unwrap(), before);
     assert_eq!(b.cap.job(j).unwrap().hopper, [0, 0]);
 }
 
@@ -272,8 +275,12 @@ fn a_captor_takes_what_is_at_the_facility_and_nothing_returns() {
         b.apply(cap + 1, B, &Op::Claim { job: j, to: HOME }),
         Ok(Outcome::AlreadyApplied)
     );
-    assert_eq!(b.lots[&lot].held, 60 * MILLI, "100 less the 40 taken");
-    assert!(b.returned.is_empty() && b.owed.values().all(|x| *x == 0));
+    assert_eq!(
+        b.lot(lot).unwrap().held,
+        60 * MILLI,
+        "100 less the 40 taken"
+    );
+    assert!(b.returned(lot) == 0 && b.owed(lot) == 0);
     b.check(cap + 1).unwrap();
 }
 
@@ -287,8 +294,8 @@ fn a_frozen_lot_keeps_its_ore_owed_until_it_can_take_it() {
     wood(&mut b, j, 2, T0 + 20);
     b.apply(S + 1_200, B, &Op::Cancel { job: j }).unwrap();
     // M's vault is seized: the lot is frozen (10 refuses every move).
-    b.vaults.get_mut(&(0, 0, 6)).unwrap().gen = 2;
-    let held = b.lots[&lot].held;
+    b.vault_mut(lot).unwrap().gen = 2;
+    let held = b.lot(lot).unwrap().held;
     b.apply(S + 1_300, B, &Op::Claim { job: j, to: HOME })
         .unwrap();
     assert_eq!(
@@ -296,8 +303,8 @@ fn a_frozen_lot_keeps_its_ore_owed_until_it_can_take_it() {
         2_666,
         "the user's products still go out"
     );
-    assert_eq!(b.lots[&lot].held, held);
-    assert_eq!(b.owed[&lot], 34_668, "all of it owed, nothing lost");
+    assert_eq!(b.lot(lot).unwrap().held, held);
+    assert_eq!(b.owed(lot), 34_668, "all of it owed, nothing lost");
     b.check(S + 1_300).unwrap();
 }
 
@@ -325,4 +332,26 @@ fn a_restart_between_claim_steps_changes_nothing() {
     let (once, again) = (run(false), run(true));
     assert_eq!(once, again);
     once.check(S + HOUR + 120).unwrap();
+}
+
+#[test]
+fn own_lots_and_lots_used_under_an_order_are_one_table() {
+    // 10's custody holds M's lot (used under B's order) beside every other
+    // lot; the bridge has no lot table of its own.
+    let (mut b, g) = setup();
+    let (lot, order) = m_lot(&mut b, 0, 0);
+    let v = wylls_custody_adapter_09::vault_id(lot.p, lot.q, lot.tile);
+    let (owner, _) = b
+        .cap
+        .custody
+        .find_lot(v, lot.owner_tag, lot.resource)
+        .expect("M's lot is in 10's table");
+    assert!(b.cap.custody.lots.contains_key(&(v, owner, lot.resource)));
+    let j = job(&mut b, g, 1, S);
+    b.deposit_from_lot(T0 + 20, B, j, 1, lot, 0, order, 40)
+        .unwrap();
+    // The use is in 10's own record (once per deposit) and its CONSUMED.
+    assert_eq!(b.cap.custody.uses.len(), 1);
+    assert_eq!(b.lot(lot).unwrap().consumed, 40 * MILLI);
+    b.check(T0 + 20).unwrap();
 }

@@ -32,14 +32,15 @@ echo "demo: $out/demo.txt ($(wc -l < "$out/demo.txt") lines)"
 
 echo "== bridge10 (09 <-> 10, against workstream 10's pinned crates) =="
 # Workstream 10's crates are not in this branch. They are checked out from
-# the integration branch's commit that added its adapter for 09, and their
-# trees are checked (custody: the kernel; adapter-09: 09's Custody trait on
-# 10's lots). The custody tree is the one 9f3ac2f8 staged first.
-pin10=52a43745b4c06ba184c26634cc9489211c0cc48e
-tree10=f11af9190144abd185c68b2d50a33c786f24340f
-tree10a=f5784e40049b43b5b091807534c08fb85694cb38
+# workstream 10's branch at the commit that puts own lots and lots used
+# under an order in one table (return_unused, owed rests), and their trees
+# are checked (custody: the kernel; adapter-09: 09's Custody trait on 10's
+# lots).
+pin10=b237b581c7068f0f4b36bf9869c304205369a226
+tree10=b91cbfdd0da956148cbbecc1f7d639a03999a58c
+tree10a=b8b5984c06d91b6a6000e5eeb07c9871e64e0627
 if ! git -C "$root" cat-file -e "$pin10^{commit}" 2>/dev/null; then
-  git -C "$root" fetch -q origin integration/ws09-13-v16-d0949fd4 || true
+  git -C "$root" fetch -q origin claude/great-babbage-3ogkqu || true
 fi
 if [ "$(git -C "$root" rev-parse "$pin10:workstreams/10-custody/custody" 2>/dev/null)" != "$tree10" ] ||
    [ "$(git -C "$root" rev-parse "$pin10:workstreams/10-custody/adapter-09" 2>/dev/null)" != "$tree10a" ]; then
@@ -68,7 +69,7 @@ echo "# workstream 10 pin $pin10, trees custody $tree10 adapter-09 $tree10a" >> 
 (
   cd "$btmp/w/workstreams/10-custody/adapter-09"
   export CARGO_TARGET_DIR="$here/bridge10/target"
-  cargo test -q --release 2>&1 | grep -E "^test result|FAILED|panicked"
+  cargo test -q --release --features nine-refused 2>&1 | grep -E "^test result|FAILED|panicked"
 ) | tee "$out/w10-adapter-on-this-kernel.log"
 grep -q FAILED "$out/w10-adapter-on-this-kernel.log" && { echo "workstream 10 adapter tests failed" >&2; exit 1; }
 echo "# workstream 10 adapter-09 (tree $tree10a) against this branch's kernel" >> "$out/w10-adapter-on-this-kernel.log"

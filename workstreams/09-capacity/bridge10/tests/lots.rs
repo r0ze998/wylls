@@ -276,9 +276,7 @@ fn add_m_lot(b: &mut Bridge) -> (LotId, u32) {
     };
     let nonce = lot.nonce;
     let order = set_order(&v, &mut lot, &actor10(M), 0, nonce, &spec, bell).unwrap();
-    let id = LotId::of(&lot);
-    b.vaults.insert((v.p, v.q, v.tile), v);
-    b.lots.insert(id, lot);
+    let id = b.add_lot(v, lot);
     (id, order)
 }
 
@@ -288,12 +286,12 @@ fn a_job_takes_its_ore_from_one_source_only() {
     let (mut b, j) = setup(Release::Decided);
     let (m_lot, order) = add_m_lot(&mut b);
     deposit(&mut b, j, 1, Resource::Ore, 20, LOT).unwrap();
-    let before = b.lots[&m_lot];
+    let before = b.lot(m_lot).unwrap();
     assert_eq!(
         b.deposit_from_lot(T0 + 20, B, j, 2, m_lot, 0, order, 20),
         Err(BridgeError::MixedSource)
     );
-    assert_eq!(b.lots[&m_lot], before);
+    assert_eq!(b.lot(m_lot).unwrap(), before);
     // Another's lot first, then own ore (from a lot or a caravan): refused.
     let (mut b, j) = setup(Release::Decided);
     let (m_lot, order) = add_m_lot(&mut b);

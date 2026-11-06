@@ -33,23 +33,24 @@
 //! is workstream 10's adapter, `wylls_custody_adapter_09::LotCustody`
 //! (10's lot kernel behind 09's `Custody` trait): a user's own lot is a
 //! vault place there, with room reserved for the goods' return. The lots
-//! used under another owner's use order are kept here, beside it, and run
-//! by 10's kernel functions, because the adapter has no use order yet
-//! (10's request R6); the two sets of lots are to be one (CONNECT-10 §5.4).
+//! used under another owner's use order are the same lots, in the same
+//! table (10's `release_by_order` and `try_return_unused`; CONNECT-10 §5.4
+//! T1, T3, T4): a use takes from the lot once (`CONSUMED`), unused ore goes
+//! back un-consumed (not counted in again), and a sub-unit rest is owed in
+//! 10's custody until it makes whole units.
 
 use std::collections::BTreeMap;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use permutation_rules::fixed::MILLI;
-use permutation_rules::frontier::holding::{Resource, RESOURCES};
+use permutation_rules::frontier::holding::Resource;
 use wylls_capacity::custody::{Custody, Key};
 use wylls_capacity::ledger::{Harness, Op, Outcome};
 use wylls_capacity::model::{Actor, JobId, Place};
 use wylls_capacity::recipe::recipe;
 use wylls_capacity::CapError;
-use wylls_custody::layout::lot as LOT;
-use wylls_custody::{consume, CustodyError, Lot, VaultView};
-use wylls_custody_adapter_09::LotCustody;
+use wylls_custody::{CustodyError, Lot, VaultView};
+use wylls_custody_adapter_09::{use_place, vault_id, LotCustody, Refusal, UseLink};
 
 /// The use-order purpose 09's workshop jobs present to 10 (10's contract
 /// §7: "PURPOSE の番号は⑨が決める"). **Proposal**, not an assigned number:
@@ -149,18 +150,11 @@ pub enum BridgeError {
 /// its custody) and 10's vaults and lots.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Bridge {
+    /// 09's harness over 10's custody: every lot (own or used under an
+    /// order), what went back to each and what is owed to it are there.
     pub cap: Harness<LotCustody>,
-    pub vaults: BTreeMap<(i16, i16, u8), VaultView>,
-    pub lots: BTreeMap<LotId, Lot>,
     pub links: BTreeMap<(JobId, u64), Link>,
     pub release: Release,
-    /// Ore given back into each lot, whole units (milli).
-    pub returned: BTreeMap<LotId, i64>,
-    /// Ore owed to each lot and not yet credited: sub-unit rests, and
-    /// whole units the lot could not take (milli).
-    pub owed: BTreeMap<LotId, i64>,
-    /// Return caravans' sequence numbers (10's inbound slots need one).
-    pub return_seq: u32,
     /// The clock's origin for bells.
     pub genesis: i64,
 }
@@ -187,23 +181,70 @@ pub fn release_place(uid: u64) -> Place {
 }
 
 const RELEASE_MARK: u64 = 0xF10A_0000_0000_0000;
-/// Tag of the bridge's return caravans into a lot (top bit set, like 10's
-/// adapter's `RETURN_TAG`, so never an S1 caravan's).
-const RETURN_MARK: u64 = 1 << 63;
 
 impl Bridge {
     pub fn new(cap: Harness<LotCustody>, genesis: i64) -> Bridge {
         Bridge {
             cap,
-            vaults: BTreeMap::new(),
-            lots: BTreeMap::new(),
             links: BTreeMap::new(),
             release: Release::Decided,
-            returned: BTreeMap::new(),
-            owed: BTreeMap::new(),
-            return_seq: 0,
             genesis,
         }
+    }
+
+    /// Puts a vault and a lot built by 10's kernel functions into 10's
+    /// custody (its one lot table).
+    pub fn add_lot(&mut self, v: VaultView, lot: Lot) -> LotId {
+        self.cap.custody.adopt_lot(&v, &lot).expect("a new lot");
+        LotId::of(&lot)
+    }
+
+    /// 10's key of a lot: its vault and its owner.
+    fn key10(&self, lot: LotId) -> Option<(u64, Actor)> {
+        let v = vault_id(lot.p, lot.q, lot.tile);
+        self.cap
+            .custody
+            .find_lot(v, lot.owner_tag, lot.resource)
+            .map(|(o, _)| (v, o))
+    }
+
+    /// The lot as 10 holds it.
+    pub fn lot(&self, lot: LotId) -> Option<Lot> {
+        let (v, o) = self.key10(lot)?;
+        self.cap.custody.lot(v, o, lot.resource)
+    }
+
+    /// The lot's vault in 10's custody.
+    pub fn vault_mut(&mut self, lot: LotId) -> Option<&mut wylls_custody_adapter_09::Vault> {
+        self.cap
+            .custody
+            .vaults
+            .get_mut(&vault_id(lot.p, lot.q, lot.tile))
+    }
+
+    /// Runs `f` on the lot as 10 holds it (10's kernel functions on the
+    /// account, written back).
+    pub fn edit_lot<T>(
+        &mut self,
+        lot: LotId,
+        f: impl FnOnce(&VaultView, &mut Lot) -> T,
+    ) -> Option<T> {
+        let (v, o) = self.key10(lot)?;
+        self.cap.custody.with_lot(v, o, lot.resource, f)
+    }
+
+    /// Ore given back into the lot (whole units, un-consumed).
+    pub fn returned(&self, lot: LotId) -> i64 {
+        self.key10(lot)
+            .and_then(|k| self.cap.custody.returned_total.get(&k).copied())
+            .unwrap_or(0)
+    }
+
+    /// Ore owed to the lot and not yet in it.
+    pub fn owed(&self, lot: LotId) -> i64 {
+        self.key10(lot)
+            .and_then(|k| self.cap.custody.owed.get(&k).copied())
+            .unwrap_or(0)
     }
 
     pub fn bell(&self, now: i64) -> u32 {
@@ -284,40 +325,26 @@ impl Bridge {
             return Err(BridgeError::MixedSource);
         }
         let bell = self.bell(now);
-        // 10: the use order's grantee consumes from the lot.
-        let l = self.lots.get_mut(&lot).ok_or(BridgeError::UnknownLot)?;
-        let v = self
-            .vaults
-            .get(&(lot.p, lot.q, lot.tile))
-            .ok_or(BridgeError::UnknownVault)?;
-        consume(
-            v,
-            l,
-            &actor10(user),
+        // 10: the use order's grantee consumes from the lot, and the ore
+        // waits as the user's in 10's transit place for the job.
+        let (v, owner) = self.key10(lot).ok_or(BridgeError::UnknownLot)?;
+        let link10 = UseLink {
+            vault: v,
+            owner,
+            grantee: user,
             slot,
             order,
             qty,
-            PURPOSE_WORKSHOP_ARMS,
             bell,
-        )
-        .map_err(BridgeError::Custody)?;
-        // 09: the released ore enters custody as the user's, then the job's
-        // hopper by 09's own Deposit (which checks job, user, start, keys).
-        let place = release_place(j.uid);
+        };
         self.cap
             .custody
-            .import(
-                Key {
-                    scope: j.uid,
-                    kind: K_FROM_LOT,
-                    n: deposit,
-                },
-                place,
-                user,
-                res,
-                qty,
-            )
-            .map_err(|_| BridgeError::Internal)?;
+            .release_by_order(job, j.uid, deposit, link10, PURPOSE_WORKSHOP_ARMS)
+            .map_err(|e| match e {
+                Refusal::Lot(e) => BridgeError::Custody(e),
+                Refusal::Nine(_) => BridgeError::Conflict,
+            })?;
+        let place = use_place(j.uid);
         let out = self
             .cap
             .apply(
@@ -478,59 +505,36 @@ impl Bridge {
                 )
                 .map_err(|_| BridgeError::Internal)?;
         }
-        // The ore leaves 09's custody for its lot.
+        // The ore goes back to its lot: whole units un-consumed, the rest
+        // owed in 10's custody until it makes whole units.
         let ore = self.cap.custody.balance(t, Resource::Ore).1;
         if ore > 0 {
             let lot = self.lot_of(job).ok_or(BridgeError::Internal)?;
+            let (v, owner) = self.key10(lot).ok_or(BridgeError::UnknownLot)?;
             self.cap
                 .custody
-                .export(
+                .try_return_unused(
                     Key {
                         scope: j.uid,
                         kind: K_FROM_LOT + 2,
                         n: 0,
                     },
-                    wylls_capacity::custody::By::Actor(user),
                     t,
-                    Resource::Ore,
+                    v,
+                    owner,
                     ore,
                 )
                 .map_err(|_| BridgeError::Internal)?;
-            *self.owed.entry(lot).or_default() += ore;
-            self.pay_owed(lot)?;
         }
         Ok(out)
     }
 
-    /// Credit the whole units owed to `lot`, if it can take them (10's
-    /// `begin_inbound` then `finish_inbound`, as a return caravan that
-    /// arrives at once: the decided rule puts the vault in the facility's
-    /// province). Whatever it cannot take stays owed.
+    /// Credit the whole units owed to `lot`, if it can take them now
+    /// (10's `pay_owed`). Whatever it cannot take stays owed.
     pub fn pay_owed(&mut self, lot: LotId) -> Result<(), BridgeError> {
-        let due = self.owed.get(&lot).copied().unwrap_or(0) / MILLI * MILLI;
-        if due == 0 {
-            return Ok(());
-        }
-        let v = *self
-            .vaults
-            .get(&(lot.p, lot.q, lot.tile))
-            .ok_or(BridgeError::UnknownVault)?;
-        let l = self.lots.get_mut(&lot).ok_or(BridgeError::UnknownLot)?;
-        let mut trial = *l;
-        let caravan = (RETURN_MARK | lot.owner_tag >> 16, self.return_seq);
-        let paid = wylls_custody::begin_inbound(&v, &mut trial, caravan, due)
-            .and_then(|_| wylls_custody::finish_inbound(Some(&v), &mut trial, caravan, due));
-        match paid {
-            Ok(s) if s.delivered == due => {
-                *l = trial;
-                self.return_seq = self.return_seq.wrapping_add(1);
-                *self.owed.get_mut(&lot).expect("owed") -= due;
-                *self.returned.entry(lot).or_default() += due;
-                Ok(())
-            }
-            // Frozen, full or no slot: it stays owed (nothing is lost).
-            _ => Ok(()),
-        }
+        let (v, owner) = self.key10(lot).ok_or(BridgeError::UnknownLot)?;
+        self.cap.custody.pay_owed(v, owner);
+        Ok(())
     }
 
     /// The connection's invariants (each `Err` names the broken one):
@@ -540,28 +544,22 @@ impl Bridge {
     /// a release place; a job holds at least the lot ore it took and has
     /// not used.
     pub fn check(&self, now: i64) -> Result<(), String> {
-        let bell = self.bell(now);
-        for (id, l) in &self.lots {
-            if !l.balanced(bell) {
-                return Err(format!("10: lot {id:?} does not balance"));
-            }
+        let _ = now;
+        // Each lot's law, CONSUMED = taken − returned, returned + owed ≤
+        // taken: 10's custody checks them on its one table.
+        for id in self.links.values().map(|k| k.lot) {
             let taken: i64 = self
                 .links
                 .values()
-                .filter(|k| k.lot == *id)
+                .filter(|k| k.lot == id)
                 .map(|k| k.qty)
                 .sum();
-            let back = self.returned.get(id).copied().unwrap_or(0)
-                + self.owed.get(id).copied().unwrap_or(0);
-            if back < 0 || back > taken {
+            let l = self.lot(id).ok_or("a linked lot is gone")?;
+            if l.consumed != taken - self.returned(id) {
                 return Err(format!(
-                    "lot {id:?}: returned and owed {back} > taken {taken}"
-                ));
-            }
-            if l.consumed != taken {
-                return Err(format!(
-                    "lot {id:?}: CONSUMED {} != taken by jobs {taken}",
-                    l.consumed
+                    "lot {id:?}: CONSUMED {} != taken {taken} - returned {}",
+                    l.consumed,
+                    self.returned(id)
                 ));
             }
         }
@@ -603,57 +601,25 @@ impl Bridge {
         Ok(())
     }
 
-    /// Bytes to restart from: 09's state by Borsh, every lot in 10's own
-    /// account layout (576 B, 10's `Lot::encode`), the vaults' fields.
+    /// Bytes to restart from: 09's state and 10's custody (lots in 10's
+    /// own 576-byte account layout) by Borsh, and the links.
     pub fn save(&self) -> Vec<u8> {
-        let lots: Vec<(LotId, Vec<u8>)> = self
-            .lots
-            .iter()
-            .map(|(id, l)| {
-                let mut d = vec![0u8; LOT::SIZE];
-                d[..8].copy_from_slice(&LOT::MAGIC);
-                l.encode(&mut d).expect("576 bytes");
-                (*id, d)
-            })
-            .collect();
-        let vaults: Vec<VaultRec> = self.vaults.values().map(VaultRec::of).collect();
         let s = Saved {
             cap: borsh::to_vec(&self.cap).expect("borsh"),
-            lots,
-            vaults,
             links: self.links.iter().map(|(k, v)| (*k, *v)).collect(),
             release: self.release,
             genesis: self.genesis,
-            returned: self.returned.iter().map(|(k, v)| (*k, *v)).collect(),
-            owed: self.owed.iter().map(|(k, v)| (*k, *v)).collect(),
-            return_seq: self.return_seq,
         };
         borsh::to_vec(&s).expect("borsh")
     }
 
     pub fn load(bytes: &[u8]) -> Option<Bridge> {
         let s = Saved::try_from_slice(bytes).ok()?;
-        let mut lots = BTreeMap::new();
-        for (id, d) in s.lots {
-            lots.insert(id, Lot::decode(&d)?);
-        }
         Some(Bridge {
             cap: Harness::try_from_slice(&s.cap).ok()?,
-            vaults: s
-                .vaults
-                .into_iter()
-                .map(|v| {
-                    let v = v.view();
-                    ((v.p, v.q, v.tile), v)
-                })
-                .collect(),
-            lots,
             links: s.links.into_iter().collect(),
             release: s.release,
             genesis: s.genesis,
-            returned: s.returned.into_iter().collect(),
-            owed: s.owed.into_iter().collect(),
-            return_seq: s.return_seq,
         })
     }
 }
@@ -661,62 +627,7 @@ impl Bridge {
 #[derive(BorshSerialize, BorshDeserialize)]
 struct Saved {
     cap: Vec<u8>,
-    lots: Vec<(LotId, Vec<u8>)>,
-    vaults: Vec<VaultRec>,
     links: Vec<((JobId, u64), Link)>,
     release: Release,
     genesis: i64,
-    returned: Vec<(LotId, i64)>,
-    owed: Vec<(LotId, i64)>,
-    return_seq: u32,
-}
-
-/// The vault fields 10's kernel reads (its account is the core's).
-#[derive(BorshSerialize, BorshDeserialize)]
-struct VaultRec {
-    p: i16,
-    q: i16,
-    tile: u8,
-    gen: u8,
-    live: bool,
-    owner: [u8; 32],
-    owner_tag: u64,
-    stores: [i64; RESOURCES],
-    cap: i64,
-    quota: [i64; RESOURCES],
-    lots: u16,
-}
-
-impl VaultRec {
-    fn of(v: &VaultView) -> VaultRec {
-        VaultRec {
-            p: v.p,
-            q: v.q,
-            tile: v.tile,
-            gen: v.gen,
-            live: v.live,
-            owner: v.owner,
-            owner_tag: v.owner_tag,
-            stores: v.stores,
-            cap: v.cap,
-            quota: v.quota,
-            lots: v.lots,
-        }
-    }
-
-    fn view(&self) -> VaultView {
-        VaultView {
-            p: self.p,
-            q: self.q,
-            tile: self.tile,
-            gen: self.gen,
-            live: self.live,
-            owner: self.owner,
-            owner_tag: self.owner_tag,
-            stores: self.stores,
-            cap: self.cap,
-            quota: self.quota,
-            lots: self.lots,
-        }
-    }
 }

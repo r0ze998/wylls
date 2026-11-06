@@ -105,9 +105,7 @@ fn fx(release: Release) -> Fx {
     };
     let nonce = lot.nonce;
     let order = set_order(&v, &mut lot, &actor10(M), 0, nonce, &spec, bell).unwrap();
-    let id = LotId::of(&lot);
-    b.vaults.insert((v.p, v.q, v.tile), v);
-    b.lots.insert(id, lot);
+    let id = b.add_lot(v, lot);
     let job = JobId {
         grant: GrantId {
             facility: f,
@@ -158,7 +156,7 @@ fn ore(x: &mut Fx, now: i64, deposit: u64, units: u32) -> Result<Outcome, Bridge
 }
 
 fn lot(x: &Fx) -> wylls_custody::Lot {
-    x.b.lots[&x.lot]
+    x.b.lot(x.lot).unwrap()
 }
 
 fn lot_bytes(x: &Fx) -> Vec<u8> {
@@ -444,7 +442,7 @@ fn custody_refusals_leave_capacity_untouched() {
         (
             "the vault was seized",
             Box::new(|x| {
-                x.b.vaults.get_mut(&(0, 0, 5)).unwrap().gen = 2;
+                x.b.vault_mut(x.lot).unwrap().gen = 2;
                 ore(x, T0 + 20, 1, 10)
             }),
             BridgeError::Custody(CustodyError::Forfeited),
@@ -469,8 +467,6 @@ fn a_purpose_of_another_kind_is_refused() {
     // M's order names another purpose: 10 refuses the workshop's.
     let mut x = fx(Release::Hold);
     let bell = x.b.bell(T0);
-    let v = x.b.vaults[&(0, 0, 5)];
-    let l = x.b.lots.get_mut(&x.lot).unwrap();
     let spec = OrderSpec {
         kind: ORDER_USE,
         grantee: B.0,
@@ -479,8 +475,12 @@ fn a_purpose_of_another_kind_is_refused() {
         dst: PlaceRef::default(),
         purpose: 0x0777,
     };
-    let nonce = l.nonce;
-    let other = set_order(&v, l, &actor10(M), 1, nonce, &spec, bell).unwrap();
+    let other =
+        x.b.edit_lot(x.lot, |v, l| {
+            let nonce = l.nonce;
+            set_order(v, l, &actor10(M), 1, nonce, &spec, bell).unwrap()
+        })
+        .unwrap();
     let (j, id) = (x.job, x.lot);
     assert_eq!(
         x.b.deposit_from_lot(T0 + 20, B, j, 1, id, 1, other, 5),
@@ -749,7 +749,17 @@ fn random_interleavings_never_consume_twice() {
             }
             x.b.check(now).unwrap();
             let taken: i64 = done.iter().map(|(_, _, u)| *u as i64 * MILLI).sum();
-            assert_eq!(lot(&x).consumed, taken);
+            // Unused ore that went back un-consumes (10's return_unused):
+            // CONSUMED is what was taken less what came back, never a
+            // second count of the same ore as arrived.
+            let back = x.b.returned(x.lot);
+            assert_eq!(lot(&x).consumed, taken - back);
+            assert!(back + x.b.owed(x.lot) <= taken);
+            assert_eq!(
+                lot(&x).in_total,
+                100 * MILLI,
+                "IN_TOTAL never moves on a return"
+            );
             assert!(lot(&x).consumed <= 60 * MILLI, "within the use order");
         }
     }
