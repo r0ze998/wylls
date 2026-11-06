@@ -237,6 +237,30 @@ struct Sent {
     source: String,
 }
 
+/// What acceptance checks of a spec before anything is stored: an empty
+/// cargo is refused, a send's two places differ, a cargo-only run carries
+/// no making parts, and the attempt budget is bounded. One function for
+/// [`Executor::accept`] and the `runexec run accept` command, so a spec the
+/// command takes is exactly one the executor takes (same digest, no
+/// conflict when the executor later sees it).
+pub fn validate_spec(spec: &RunSpec) -> Result<(), String> {
+    if res_is_zero(&spec.ship.cargo) {
+        return Err("empty cargo".into());
+    }
+    if spec.ship.dst.slot_key() == spec.stock.slot_key() {
+        return Err("a send's two places never share a tile".into());
+    }
+    if spec.cargo_only()
+        && (!res_is_zero(&spec.inputs) || !res_is_zero(&spec.outputs) || spec.rights_units != 0)
+    {
+        return Err("a cargo-only run has no inputs, outputs or right units".into());
+    }
+    if spec.budget.max_attempts == 0 || spec.budget.max_attempts > 16 {
+        return Err("max_attempts must be 1..=16".into());
+    }
+    Ok(())
+}
+
 impl<C: Chain, R: Rights> Executor<C, R> {
     pub fn new(id: &str, store: Store, chain: C, rights: R) -> Self {
         Executor {
@@ -266,20 +290,7 @@ impl<C: Chain, R: Rights> Executor<C, R> {
     /// Accepts a run (validated first: no step outside the allow-list can
     /// be expressed, and an empty cargo is refused).
     pub fn accept(&self, spec: &RunSpec) -> Result<crate::store::Accept, String> {
-        if res_is_zero(&spec.ship.cargo) {
-            return Err("empty cargo".into());
-        }
-        if spec.ship.dst.slot_key() == spec.stock.slot_key() {
-            return Err("a send's two places never share a tile".into());
-        }
-        if spec.cargo_only()
-            && (!res_is_zero(&spec.inputs) || !res_is_zero(&spec.outputs) || spec.rights_units != 0)
-        {
-            return Err("a cargo-only run has no inputs, outputs or right units".into());
-        }
-        if spec.budget.max_attempts == 0 || spec.budget.max_attempts > 16 {
-            return Err("max_attempts must be 1..=16".into());
-        }
+        validate_spec(spec)?;
         let now = self.chain.slot().map_err(|e| format!("{e:?}"))?;
         self.store.accept(spec, now)
     }
