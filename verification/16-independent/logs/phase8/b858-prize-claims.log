@@ -1,0 +1,190 @@
+### b858e40d HEAD b858e40d954cdc2ebbcac5a7edb8a251fb701730 tree 5658edc054884d4937b20e40e778db5bed6fa85e; local: ?? workstreams/04-execution/e2e-native/tests/v16_prize_claim_rights.rs 
+   Compiling proc-macro2 v1.0.107
+   Compiling unicode-ident v1.0.26
+   Compiling quote v1.0.47
+   Compiling zeroize v1.8.2
+   Compiling version_check v0.9.5
+   Compiling typenum v1.20.1
+   Compiling generic-array v0.14.7
+   Compiling subtle v2.6.1
+   Compiling const-oid v0.9.6
+   Compiling cfg-if v1.0.5
+   Compiling winnow v1.0.4
+   Compiling hashbrown v0.16.1
+   Compiling block-buffer v0.10.4
+   Compiling crypto-common v0.1.7
+   Compiling equivalent v1.0.2
+   Compiling syn v3.0.6
+   Compiling syn v2.0.119
+   Compiling indexmap v2.13.1
+   Compiling toml_parser v1.0.10+spec-1.1.0
+   Compiling digest v0.10.7
+   Compiling toml_datetime v1.0.1+spec-1.1.0
+   Compiling serde_core v1.0.229
+   Compiling toml_edit v0.25.5+spec-1.1.0
+   Compiling serde v1.0.229
+   Compiling libc v0.2.189
+   Compiling cfg_aliases v0.2.2
+   Compiling borsh v1.6.1
+   Compiling proc-macro-crate v3.5.0
+   Compiling serde_derive v1.0.229
+   Compiling once_cell v1.21.4
+   Compiling borsh-derive v1.6.1
+   Compiling getrandom v0.2.17
+   Compiling rand_core v0.6.4
+   Compiling cpufeatures v0.2.17
+   Compiling five8_core v0.1.2
+   Compiling sha2 v0.10.9
+   Compiling five8 v1.0.0
+   Compiling bytemuck_derive v1.12.1
+   Compiling bytemuck v1.25.2
+   Compiling semver v1.0.28
+   Compiling rustc_version v0.4.1
+   Compiling curve25519-dalek v4.1.3
+   Compiling curve25519-dalek-derive v0.1.1
+   Compiling five8_const v1.0.0
+   Compiling solana-sanitize v3.0.1
+   Compiling sha2-const-stable v0.1.0
+   Compiling solana-atomic-u64 v3.0.1
+   Compiling autocfg v1.5.1
+   Compiling bincode v1.3.3
+   Compiling solana-hash v4.6.0
+   Compiling solana-program-error v3.0.1
+   Compiling solana-sha256-hasher v3.1.0
+   Compiling num-traits v0.2.19
+   Compiling bs58 v0.5.1
+   Compiling der v0.7.10
+   Compiling solana-sdk-macro v3.0.1
+   Compiling ff v0.13.1
+   Compiling solana-instruction-error v2.5.0
+   Compiling find-msvc-tools v0.1.13
+   Compiling solana-address v2.7.0
+   Compiling spki v0.7.3
+   Compiling solana-sdk-ids v3.1.0
+   Compiling solana-sysvar-id v3.1.0
+   Compiling solana-pubkey v4.3.0
+   Compiling solana-get-sysvar v1.0.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v8-w04/workstreams/04-execution/e2e-native/vendor/solana-get-sysvar)
+   Compiling solana-instruction v4.0.0
+   Compiling feature-probe v0.1.1
+   Compiling solana-program-memory v3.1.0
+   Compiling solana-instruction v3.5.1
+   Compiling base16ct v0.2.0
+   Compiling shlex v2.0.1
+   Compiling bv v0.11.1
+   Compiling solana-account-info v3.1.1
+   Compiling cc v1.4.7
+   Compiling sec1 v0.7.3
+   Compiling pkcs8 v0.10.2
+   Compiling group v0.13.0
+   Compiling crypto-bigint v0.5.5
+   Compiling hmac v0.12.1
+   Compiling log v0.4.34
+   Compiling thiserror v2.0.20
+   Compiling solana-fee-calculator v3.3.0
+   Compiling rfc6979 v0.4.0
+   Compiling solana-clock v4.0.0
+   Compiling signature v2.2.0
+   Compiling thiserror-impl v2.0.20
+   Compiling solana-clock v3.2.1
+   Compiling elliptic-curve v0.13.8
+   Compiling blake3 v1.5.5
+   Compiling num-integer v0.1.47
+   Compiling ecdsa v0.16.9
+   Compiling memoffset v0.9.1
+   Compiling arrayvec v0.7.8
+   Compiling keccak v0.1.6
+   Compiling solana-define-syscall v4.0.1
+   Compiling solana-msg v3.1.0
+   Compiling constant_time_eq v0.3.1
+   Compiling arrayref v0.3.9
+   Compiling sha3 v0.10.9
+   Compiling solana-system-interface v3.3.0
+   Compiling k256 v0.13.4
+   Compiling solana-program-entrypoint v3.1.1
+   Compiling num-bigint v0.4.8
+   Compiling solana-slot-history v3.2.0
+   Compiling solana-stake-history v1.1.0
+   Compiling solana-nonce v3.3.0
+   Compiling solana-rent v4.4.0
+   Compiling solana-slot-hashes v3.2.0
+   Compiling solana-last-restart-slot v3.2.0
+   Compiling solana-epoch-rewards v3.2.0
+   Compiling solana-epoch-schedule v3.3.0
+   Compiling solana-serialize-utils v3.1.2
+   Compiling bitflags v2.13.2
+   Compiling base64 v0.22.1
+   Compiling lazy_static v1.5.0
+   Compiling solana-example-mocks v4.0.0
+   Compiling solana-instructions-sysvar v3.0.1
+   Compiling solana-sysvar v4.3.0
+   Compiling solana-secp256k1-recover v3.3.0
+   Compiling solana-blake3-hasher v3.1.0
+   Compiling solana-big-mod-exp v3.0.0
+   Compiling solana-keccak-hasher v3.1.0
+   Compiling solana-cpi v3.1.0
+   Compiling solana-stable-layout v3.0.1
+   Compiling solana-epoch-stake v3.0.1
+   Compiling solana-program-pack v3.1.0
+   Compiling solana-borsh v3.0.2
+   Compiling permutation-rules v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v8-w04/permutation-rules)
+   Compiling solana-serde-varint v3.0.1
+   Compiling solana-program-option v3.1.0
+   Compiling solana-native-token v3.0.0
+   Compiling solana-short-vec v3.3.0
+   Compiling solana-program v4.0.0
+   Compiling frontier-abi v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v8-w04/frontier-abi)
+   Compiling permutation-prize v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v8-w04/permutation-prize)
+   Compiling wylls-e2e-native v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v8-w04/workstreams/04-execution/e2e-native)
+warning: unused import: `share_amount`
+  --> tests/v16_prize_claim_rights.rs:30:43
+   |
+30 | use permutation_prize::{leaf, node, pool, share_amount, tag, PrizeError as E};
+   |                                           ^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `spl`
+  --> tests/v16_prize_claim_rights.rs:33:37
+   |
+33 | use wylls_e2e_native::{rent_exempt, spl, token_balance, Acct, Host, SYSTEM, TOKEN};
+   |                                     ^^^
+
+warning: function `u64_at` is never used
+  --> tests/v16_prize_claim_rights.rs:67:4
+   |
+67 | fn u64_at(d: &[u8], o: usize) -> u64 {
+   |    ^^^^^^
+   |
+   = note: `#[warn(dead_code)]` on by default
+
+warning: function `u16_at` is never used
+  --> tests/v16_prize_claim_rights.rs:71:4
+   |
+71 | fn u16_at(d: &[u8], o: usize) -> u16 {
+   |    ^^^^^^
+
+warning: `wylls-e2e-native` (test "v16_prize_claim_rights") generated 4 warnings (run `cargo fix --test "v16_prize_claim_rights"` to apply 2 suggestions)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 37.17s
+     Running tests/legacy_season_claims.rs (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/target-e2e/debug/deps/legacy_season_claims-2ac71b89ee6da5ff)
+
+running 4 tests
+test a_closed_citizen_loses_its_shares_claim_but_not_a_refund ... ok
+test legacy_paid_entry_claim_pays_out_exactly ... ok
+test unpaid_winner_cannot_claim ... ok
+test while_the_world_runs_deposits_have_no_exit ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+
+     Running tests/v16_prize_claim_rights.rs (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/target-e2e/debug/deps/v16_prize_claim_rights-e277f4feb90d2039)
+
+running 6 tests
+test v16_p1_a_closed_winner_citizen_strands_its_share_for_good ... ok
+test v16_p2_a_tallied_province_closed_before_finalize_locks_every_fee ... ok
+test v16_p3_closing_untallied_keeps_before_finalize_changes_the_winner ... ok
+test v16_p4_pay_after_the_end_lands_until_the_first_tally ... ok
+test v16_p5_an_aborted_season_locks_every_fee ... ok
+test v16_p6_refund_mode_needs_no_citizen ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+
+exit=0

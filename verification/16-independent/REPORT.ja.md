@@ -640,3 +640,64 @@ A8 の旧試験（`v16_unknown_tag.rs` の v16_a8）は固定 seed の鍵で署�
 - keeper の `tests/play.rs` の場面と④の Reveal 試験（N=2 で送信件数・手数料・crash injection の件数が変わる見込み）。
 - ⑯の T18-2（World）、T18-3（engine の送信）、BeaconLog の再起動試験。
 - `cargo clippy`（1.95）は実行していない。
+
+
+# 第8期（2026-11-06）：賞金の受取権と、終了後の命令の順序
+
+対象: ④ `claude/gallant-ride-cunptv` の `b858e40d954cdc2ebbcac5a7edb8a251fb701730`（tree `5658edc054884d4937b20e40e778db5bed6fa85e`、GitHub から取得）。95686606 からの差分は ABI の割当表と `workstreams/04-execution/` だけで、`permutation-frontier`・`permutation-prize`・`frontier-abi/src`・keeper は 95686606 と同じ。実配備・実害は**未確認**（調べていない）。
+
+鍵の生成・導出・署名は、共通セットアップを含めて行っていない。実行は④の `e2e-native`（賞金プログラムの `process_instruction` をホストで動かす。System と SPL Token はホストの模型、署名は「署名したと扱う鍵の一覧」で ed25519 なし）。口座は固定のアドレス。プログラム自身と補助関数は program-derived **address**（`find_program_address`、公開のアドレスで秘密鍵は無い）を計算する。これは鍵の導出に当たらないと判断した（判断が違えば、この期の実行結果はすべて「未実行」に読み替える）。ゲームのプログラム（`permutation-frontier`）は実行していない。その CloseCitizen・CloseProvince は、ゲームのコードと同じ結果を与える代役（口座を消す、ProvinceFund の `provinces_opened` を 1 減らす）。実 SBF・LiteSVM・実チェーンは未実行。
+
+## 13.1 コード読解（b858e40d）
+
+| 項目 | 箇所 | 内容 |
+|---|---|---|
+| CloseCitizen の条件 | `permutation-frontier/src/proc/citizen.rs:2447-2510`、`proc/map.rs season_end_close` | 先頭の口座は `[any s]`（誰の署名でもよい）。Season が Ended で `now ≥ bell_start(end_bell) + 72 h`（`END_GRACE_SECS`）、または Aborted ならすぐ、または tombstone。賞金の Entry・未請求の有無は見ない。残高は Citizen の `rent_payer`（作成時の支払者）へ戻り、呼んだ第三者には何も渡らない（得はなく、妨害だけができる） |
+| 72 時間の起点 | `map.rs season_end_ts` | `bell_start(end_bell)`＝**予定の終了時刻**。EndSeason が実際に呼ばれた時刻ではない。EndSeason が予定より 72 時間以上遅れると、Ended になった瞬間に CloseCitizen・CloseProvince が開く |
+| shares 方式の Claim | `permutation-prize/src/lib.rs:779-860` | 勝った国の Citizen（ゲームのプログラムが持ち、そのアドレスにある口座）を要求する。期限は無い。Citizen が閉じられた後は `BadAccount` で拒否。Join は終了後に作り直せない |
+| refund 方式の Claim | 同 `:811-816` | Citizen を読まない。Entry だけで通る。CloseCitizen の影響を受けない |
+| SetShares の時期 | 同 `:736-777` | Finalize の後に一度だけ。期限は無い。72 時間を過ぎてから SetShares すると、その前に勝者の Citizen を閉じられうる |
+| CloseProvince | `proc/map.rs:910-970` | `[any s]`、条件は CloseCitizen と同じ。Province を閉じ、その wedge の ProvinceFund の `provinces_opened` を 1 減らす |
+| Finalize の照合 | `lib.rs:679-734` | 「Tally で数えた数」と「6 つの ProvinceFund の `provinces_opened` の合計 − 7」が等しいことを要求する。CloseProvince で後者が減る |
+| Pay | `lib.rs:522-598` | Season の状態も時刻も見ない。pool が OPEN で `counted == 0` なら通る |
+| Tally／Finalize | `lib.rs:600-734` | Season が Ended のときだけ。Aborted では通らない |
+| WithdrawOps | `lib.rs:890-931` | OPEN 以外。運営の 20% だけを出す |
+
+賞金の文書（`docs/frontier/map-growth/prize-finalize.ja.md:32,44`）は「Tally と Finalize は Ended から 72 時間のうちに行う必要がある」と書くが、プログラムはそれを強制しない。
+
+## 13.2 実行した場面（ホスト、b858e40d）
+
+`probes/v16_prize_claim_rights.rs`（④の `e2e-native/tests/` に置いて実行。補助関数は④の `legacy_season_claims.rs` を写したもの、場面は⑯）。**どれも「今の挙動」を確かめる試験で、通過＝問題の再現**。修正が入れば P1〜P5 は失敗に変わるはず。
+
+| 場面 | 結果 | 判定 |
+|---|---|---|
+| P1 勝者 b の Citizen を閉じた後（代役）: b の Claim は `BadAccount`、a は受け取れる、WithdrawOps の後も金庫に b の取り分（賞金の半分）が残り、SetShares をやり直せない（`WrongState`） | 通過 | **再現**（shares の受取権が消え、取り分は永久に動かない） |
+| P2 Tally を終えた後に Province を 1 つ閉じる（代役）: Finalize は `WrongExpectedCount`、SetShares・WithdrawOps は `WrongState`、参加費は全額金庫に残る | 通過 | **再現**（第2期 8.1 の「Finalize の固着」を、読解からプログラムの実行に格上げ） |
+| P3 まだ数えていない、首位の国（12 州）の州を 2 つ閉じてから残りを Tally: Finalize が通り、勝者が国 1 から国 2（11 州）に変わる。対照（全部数える）では国 1 | 通過 | **新規・再現**（72 時間後に誰でも、未集計の州を選んで閉じることで勝者を変えうる） |
+| P4 Season が Ended の後、最初の Tally の前の Pay は通る。Tally を 1 回した後は `WrongState` | 通過 | **再現**（第2期 8.1 の「Pay は無条件」を実行で確認） |
+| P5 Aborted の Season: Tally・Finalize は `SeasonNotEnded`、WithdrawOps は `WrongState`、参加費は全額金庫に残る | 通過 | **新規・再現**（中止された季の参加費に出口が無い） |
+| P6（対照）refund 方式は Citizen を閉じた後も Entry だけで 80% を受け取れる | 通過 | refund 方式は影響を受けない |
+| ④の `legacy_season_claims.rs` 4 件（D3 を含む） | 全通過 | ④の試験を⑯が実行（④の結果と一致） |
+
+ログ: `logs/phase8/b858-prize-claims.log`。
+
+## 13.3 既存の報告との重複の整理
+
+| 問題 | 初出 | 今回 |
+|---|---|---|
+| CloseCitizen で shares の受取権が消える | ④ `CONTINUITY.ja.md` D3、`INTEGRATION-PLAN-20261031.ja.md` C2、④の試験 | ⑯の P1 で独立に再現。72 時間の起点が予定の終了時刻であること、誰でも呼べること、SetShares に期限が無いことを読解で追加 |
+| Pay は終了後も最初の Tally まで通る | ⑯ 第2期 8.1（読解） | P4 で実行 |
+| Tally 後の州の閉鎖で Finalize が固着 | ⑯ 第2期 8.1（読解）、④ C2（CloseSeason の場合） | P2 で実行 |
+| 未集計の州の閉鎖で勝者が変わる | 新規 | P3 |
+| Aborted の季の参加費に出口が無い | 新規 | P5 |
+| 継続世界では pool が終わらない | ④・⑰ D2（`while_the_world_runs_deposits_have_no_exit`） | ④の試験を実行して確認（重複のため⑯の場面は作らない） |
+
+## 13.4 修正候補の照合
+
+④と⑰の修正候補は**まだ届いていない**（GitHub の `claude/gallant-ride-cunptv` は b858e40d まで、⑰は `preserve/ws17-0c80381d` まで）。届いたら、同じ `v16_prize_claim_rights.rs` を修正前（b858e40d）と修正後で流し、P1〜P5 の変化を比べる。必要なもの: 修正後の完全な commit SHA と tree、GitHub にない場合は bundle（ファイル名・sha256・前提の commit）。
+
+## 13.5 未確認
+
+- ゲームのプログラムの CloseCitizen・CloseProvince・EndSeason を実際に動かすこと（時刻の条件、誰でも呼べること）。SBF か、ゲームのプログラムのホスト実行が要る。
+- 実配備されているプログラムで同じ条件が成り立つか、実害があったか。
+- 賞金の運用（Tally・Finalize・SetShares を 72 時間以内に行う規則）が実際に守られているか。
