@@ -1,0 +1,6 @@
+8e96f24d ws04 docs: U45 final — 20's per-Season link dc55f159 checked (seed,  -> PASS
+1a61caa4 Import candidate 20 (NFT/Citizen auth, one-to-one link, test Harvest,  -> SKIP-compile
+739618ae Integrate workstream 20 (NFT residents, per-Season link) dc55f159 into -> FAIL
+232a5aa7 ws04 docs: integration 2026-11-06b — units with SHA/tree, repro step -> FAIL
+9e6b0c01 findex: enumerate() for the record index (clippy explicit_counter_loop -> SKIP-compile
+213fa655 Integrate workstream 20 9e6b0c01 (findex: enumerate for the record ind -> FAIL

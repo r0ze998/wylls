@@ -878,3 +878,18 @@ A8 の旧試験（`v16_unknown_tag.rs` の v16_a8）は固定 seed の鍵で署�
 その他（賞金、Web、ABI、findex、herald）は 232a5aa7・12c054f9 からコードが変わらないので、14.7・14.8 の結果のまま（コード同一による引き継ぎ。d0e96d53 では未実行）。**この版は個別の試験の結果であり、統合版から一連の操作が成立することの確認ではない**（次節の完成候補の検証で行う）。
 
 **d0e96d53 時点で残るもの**: 事前記録の無い Citizen の閉鎖、州の閉鎖と集計（固着・勝者の入れ替わり）、終了後の Pay、中止時の資金、NFT 住民と shares の賞金、履歴欠落の見逃し（G1・G3）、有限シーズンの境界（P2〜P4）、A7。⑱の修正、⑰の RecordNation 対応、⑲・⑮の新しい版は④に未着で、この版に入っていない。
+
+## 14.10 findex の退行（⑲の指摘を⑯が再現）
+
+⑲の連絡（2026-11-06T15:10Z）: 「変更を加えていない d0e96d53 でも findex の `store_failure` の `index_failure_requires_reopen_and_catches_up_from_the_archive` が失敗する」。⑯が d0e96d53 で実行して**再現**（4/5、`assertion failed: fx.is_poisoned()`、`tests/store_failure.rs:205`）。この試験は鍵の操作なし。⑯の第5期（d0949fd4）では 5/5 通過していた。
+
+④の統合の流れで要所の commit を直接試した（`phase5-scripts/points-store-failure.sh`、ログ `logs/phase9-232a/store-failure-points.log`）:
+
+| commit | 結果 |
+|---|---|
+| `8e96f24d`（④、⑳の取り込み前） | 通過 |
+| `1a61caa4`（⑳ の候補の取り込み） | コンパイル不可（判定できない） |
+| `739618ae`（④が⑳ dc55f159 を統合） | **失敗** |
+| `232a5aa7`、`213fa655`（⑳ 9e6b0c01 の統合後） | 失敗 |
+
+**原因の見当（読解のみ）**: ⑳の変更で `frontier-node/crates/findex/src/index.rs`・`lib.rs` に「厳格な索引」の印（`strict_ps2_v1`、`strict_ps2_blocked`、`mark_incomplete`／`mark_complete`、`require_readable`）が入った。試験は索引を `PRAGMA query_only=ON` で書き込み不可にしてから取り込む。取り込みの最初の印の書き込みで先に失敗し、ストアを `poisoned` にする経路を通らずにエラーを返していると読める。そうなら、**索引の書き込みに失敗した後も findex が止まらず、次の取り込みや読み取りを受け付けうる**（第5期の「失敗の後は開き直すまで止める」の性質が失われる）。実害の確認はしていない。④・⑳に送った。
