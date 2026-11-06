@@ -1,5 +1,7 @@
 # 付録E 更新時の再確認と、GitBook との同期
 
+2026-11-06 の文書更新でも、既存の同期ブランチとProject directoryを維持します。公開サイトは https://zhu-yuan-da-zhispersonal-organiz.gitbook.io/wylls-she-ji-shu です。GitHubへの反映と、公開ページへの反映は別々に確認します。
+
 ## E.1 最新の作業ツリーで照合するときのコマンド
 
 読み取りだけのコマンドです。作業ツリーを変えません。

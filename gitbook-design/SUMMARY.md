@@ -21,7 +21,7 @@
 ## 判断と開発
 
 * [第10章 現在の実装と、目指す設計の差](10-gap.md)
-* [第11章 試作と検証、開発順序](11-verification-and-plan.md)
+* [第11章 公開までの作業と、試作・検証](11-verification-and-plan.md)
 * [第12章 未決定事項と食い違い](12-open-questions.md)
 
 ## 付録
@@ -31,3 +31,5 @@
 * [付録C 開発者向け整理](appendix/c-developer-spec.md)
 * [付録D 出典と根拠の対応表](appendix/d-sources.md)
 * [付録E 更新時の再確認と GitBook との同期](appendix/e-maintenance.md)
+
+* [付録F 2026-11-06 更新の根拠と範囲](appendix/f-update-20261106.md)
