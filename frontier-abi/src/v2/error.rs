@@ -1,5 +1,5 @@
 //! ABI v2 error codes (MC contract §5.3), **stable forever**: 62–78 (MC)
-//! and 79–86 (S1, 1b), beside
+//! and 79–93 (S1), and ⑳'s provisional 170–175 (NFT residents), beside
 //! M1's 1–61 and 99 ([`crate::error::FrontierError`], unchanged).
 //!
 //! The program returns `ProgramError::Custom(code)` for either enum;
@@ -82,10 +82,27 @@ pub enum CqError {
     /// vote on a closed one, a settle of an open one, a second open
     /// proposal of the proposer, a target that does not qualify).
     ProposalState = 93,
+    /// ⑳ (provisional, `nft-experimental` programs; workstream 4's
+    /// allocation 170–179): the six `resident_auth::Refusal`s.
+    /// The caller of an NFT-resident act did not sign.
+    ResidentNotSigned = 170,
+    /// The Core asset account is not the bound asset, or not a valid asset.
+    ResidentAsset = 171,
+    /// The resident account is not the asset's, or not valid.
+    ResidentAccount = 172,
+    /// The asset lacks the transfer guard (frozen + permanent transfer
+    /// delegate held by the resident program).
+    ResidentUnguarded = 173,
+    /// The signed generation is not the resident's current one (the NFT
+    /// moved since the instruction was signed).
+    ResidentStaleGeneration = 174,
+    /// The signer is neither the asset's current owner nor its current
+    /// session.
+    ResidentNotCurrentAuthority = 175,
 }
 
 impl CqError {
-    pub const ALL: [CqError; 32] = {
+    pub const ALL: [CqError; 38] = {
         use CqError::*;
         [
             CapturePending,
@@ -120,6 +137,12 @@ impl CqError {
             ProposalsFull,
             NotVoter,
             ProposalState,
+            ResidentNotSigned,
+            ResidentAsset,
+            ResidentAccount,
+            ResidentUnguarded,
+            ResidentStaleGeneration,
+            ResidentNotCurrentAuthority,
         ]
     };
 
@@ -166,6 +189,12 @@ impl CqError {
             ProposalsFull => "ProposalsFull",
             NotVoter => "NotVoter",
             ProposalState => "ProposalState",
+            ResidentNotSigned => "ResidentNotSigned",
+            ResidentAsset => "ResidentAsset",
+            ResidentAccount => "ResidentAccount",
+            ResidentUnguarded => "ResidentUnguarded",
+            ResidentStaleGeneration => "ResidentStaleGeneration",
+            ResidentNotCurrentAuthority => "ResidentNotCurrentAuthority",
         }
     }
 
@@ -223,15 +252,17 @@ impl Code {
     }
 }
 
-/// Every v2 code in code order (M1's 1–61, MC's 62–78, S1's 79–90,
-/// then 99).
+/// Every v2 code in code order (M1's 1–61, MC's 62–78, S1's 79–93,
+/// then 99, then ⑳'s 170–175).
 pub fn all_codes() -> impl Iterator<Item = Code> {
     let v1 = FrontierError::ALL.iter().copied();
+    let cq = CqError::ALL.iter().copied();
     v1.clone()
         .filter(|e| e.code() < 99)
         .map(Code::V1)
-        .chain(CqError::ALL.iter().copied().map(Code::Cq))
+        .chain(cq.clone().filter(|e| e.code() < 99).map(Code::Cq))
         .chain(v1.filter(|e| e.code() >= 99).map(Code::V1))
+        .chain(cq.filter(|e| e.code() >= 99).map(Code::Cq))
 }
 
 #[cfg(test)]
@@ -251,23 +282,32 @@ mod tests {
 
     #[test]
     fn codes_are_the_contract_table() {
-        let mut expect = 62u32;
-        for e in CqError::ALL {
+        // 62–93 contiguous, then ⑳'s 170–175 (workstream 4's allocation).
+        let want = (62u32..=93).chain(170..=175);
+        for (e, expect) in CqError::ALL.into_iter().zip(want) {
             assert_eq!(e.code(), expect, "{}", e.name());
             assert_eq!(CqError::from_code(expect), Some(e));
             assert_eq!(FrontierError::from_code(expect), None, "no M1 collision");
-            expect += 1;
         }
+        assert_eq!(CqError::ALL.len(), 32 + 6);
         assert_eq!(CqError::NotLead.code(), 78);
         let all: std::vec::Vec<u32> = all_codes().map(|c| c.code()).collect();
-        assert_eq!(all.len(), 62 + 32);
+        assert_eq!(all.len(), 62 + 32 + 6);
         assert_eq!(CqError::ProposalState.code(), 93);
         assert_eq!(CqError::NotOnTile.code(), 86);
         assert_eq!(CqError::StructureFull.code(), 89);
         assert!(all.windows(2).all(|w| w[0] < w[1]), "code order");
         assert_eq!(all[60], 61);
         assert_eq!(all[61], 62);
-        assert_eq!(*all.last().unwrap(), 99);
+        assert_eq!(all[all.len() - 7], 99);
+        assert_eq!(*all.last().unwrap(), 175);
+        for c in (94..=98).chain(100..=169).chain(176..=179) {
+            assert_eq!(Code::from_code(c), None, "{c} is not allocated here");
+        }
+        assert_eq!(
+            Code::from_code(174),
+            Some(Code::Cq(CqError::ResidentStaleGeneration))
+        );
         assert_eq!(Code::from_code(66), Some(Code::Cq(CqError::SiegeCap)));
         assert_eq!(
             Code::from_code(52),

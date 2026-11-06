@@ -706,6 +706,13 @@ export default {
   'まだ投票や提案はできません（参加から2日たっていないか、国を追放されています）': 'You cannot propose or vote yet (you joined less than two days ago, or you are expelled from your nation).',
   'この議題には今それはできません（受付が終わった、まだ締め切り前、または対象が条件を満たしません）': 'Not possible on this proposal now (voting has closed, it has not closed yet, or its target does not qualify).',
   'この包囲の先導者だけが行える操作です': 'Only the siege leader can perform this action.',
+  // ⑳ (provisional): NFT residents' refusals (codes 170–175).
+  '住民NFTの持ち主（またはその接続）の署名がありません': 'The resident NFT\'s owner (or its session) did not sign.',
+  'この住民NFTは、この住民のものではないか、正しいNFTではありません': 'This resident NFT is not this resident\'s, or is not a valid NFT.',
+  '住民の記録が、このNFTのものではないか、正しくありません': 'The resident record is not this NFT\'s, or is not valid.',
+  'この住民NFTには譲渡の保護がないため、操作できません': 'This resident NFT lacks its transfer guard, so it cannot act.',
+  '住民NFTが署名のあとに譲渡されました。今の持ち主として操作し直してください': 'The resident NFT moved after this was signed. Act again as its current owner.',
+  'いまの住民NFTの持ち主（またはその接続）だけが操作できます': 'Only the resident NFT\'s current owner (or its session) can act.',
   // The village handed to the owner's agent (frontier/fdelegation.mjs).
   '代理人に任せています': 'Handed to your agent',
   'この村の操作は、いま代理人（自動）が行っています。この端末のゲーム内の鍵では送れません。': 'Your agent (auto) is playing this village now. This device\'s game key cannot send for it.',

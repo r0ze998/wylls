@@ -78,6 +78,23 @@
 | program の版 | 本番の値は統合時に ④ が決める。試験 build は別の値（`0x8000 | S1`） | `permutation-frontier/src/lib.rs` |
 | JoinShard の人数 | 数えない（記録が無いまま数えると、財布のプレイヤーの shard の記録が壊れる） | `proc/resident.rs` |
 
+### エラー番号（④ の割り当て 170–175、2026-11-06、統合まで仮）
+
+`resident_auth::Refusal` の 6 つを、これまでの `InvalidAccountData`（区別できない）から、ゲームの program のエラー番号に変えた。古い持ち主・古い世代・保護の無い NFT が、取引の失敗理由として区別できる。
+
+| 番号 | 名前 | 意味 |
+|---|---|---|
+| 170 | `ResidentNotSigned` | 署名が無い |
+| 171 | `ResidentAsset` | NFT がこの住民のものでない、または正しくない |
+| 172 | `ResidentAccount` | 住民の記録がこの NFT のものでない、または正しくない |
+| 173 | `ResidentUnguarded` | 譲渡の保護（凍結＋恒久の譲渡委任）が無い |
+| 174 | `ResidentStaleGeneration` | 署名のあとに譲渡された（古い世代） |
+| 175 | `ResidentNotCurrentAuthority` | 今の持ち主でも今の接続でもない |
+
+名前は `Resident` を前に付けた（M1 の `NotResident`＝26 などと紛れないため）。176–179 は予備。変えた所：`frontier-abi/src/v2/error.rs`（`CqError`、`all_codes` の順）、`resident_auth::Refusal::error`、program の `resident_binding::check_actor`、生成物（`vectors/v2/errors.json`、JS の表 2 つ）、web の日本語・英語の文。読み手・keeper は番号で拒否として扱う（`refused`）。
+
+未確認：program がこの番号を実際に返すこと（実行時の試験は鍵の生成と署名を伴うため未承認）。`RELEASE_CHECK=1` の svm 網羅試験は、この 6 つを「どの試験も確かめていない番号」として落とす（release の時だけ。通常の CI は通る）。
+
 ## 5. 試験（2026-11-06）
 
 実行：ABI の 11 件（すべて固定のバイト列、名前で 1 件ずつ）。新規は、住民 ID が実際の住民プログラムの値と一致すること、財布と NFT の Citizen の区別と記録の key、偽の印の拒否、0xE0–0xE7 が v2 の命令表で空いていること、`CreateResidentPolicy`・`JoinResident`・`ResidentAct` の符号。build・静的検査：`cargo clippy -D warnings`（frontier-abi、permutation-frontier の既定と `nft-experimental`、全 target）、`cargo fmt --check`（workspace 全体）すべて通過。

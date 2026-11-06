@@ -162,7 +162,7 @@ fn check_actor(
         now,
         session_allowed,
     )
-    .map_err(|_| ProgramError::InvalidAccountData)
+    .map_err(|e| ProgramError::Custom(e.error().code()))
 }
 
 /// Verify the immutable canonical link and current owner/session at the same

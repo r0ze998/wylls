@@ -190,6 +190,13 @@ const ERROR_TEXT = {
   ProposalOpen: () => L`あなたの提案がまだ投票中です。締め切りのあとで次の提案を出せます`,
   NotVoter: () => L`まだ投票や提案はできません（参加から2日たっていないか、国を追放されています）`,
   ProposalState: () => L`この議題には今それはできません（受付が終わった、まだ締め切り前、または対象が条件を満たしません）`,
+  // ⑳ (provisional, NFT residents; codes 170–175)
+  ResidentNotSigned: () => L`住民NFTの持ち主（またはその接続）の署名がありません`,
+  ResidentAsset: () => L`この住民NFTは、この住民のものではないか、正しいNFTではありません`,
+  ResidentAccount: () => L`住民の記録が、このNFTのものではないか、正しくありません`,
+  ResidentUnguarded: () => L`この住民NFTには譲渡の保護がないため、操作できません`,
+  ResidentStaleGeneration: () => L`住民NFTが署名のあとに譲渡されました。今の持ち主として操作し直してください`,
+  ResidentNotCurrentAuthority: () => L`いまの住民NFTの持ち主（またはその接続）だけが操作できます`,
   NotImplemented: () => L`まだ実装されていません`,
 };
 

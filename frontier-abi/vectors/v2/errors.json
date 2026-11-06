@@ -661,6 +661,48 @@
       "program": false,
       "mc": false,
       "keeper": "refused"
+    },
+    {
+      "code": 170,
+      "name": "ResidentNotSigned",
+      "program": true,
+      "mc": true,
+      "keeper": "refused"
+    },
+    {
+      "code": 171,
+      "name": "ResidentAsset",
+      "program": true,
+      "mc": true,
+      "keeper": "refused"
+    },
+    {
+      "code": 172,
+      "name": "ResidentAccount",
+      "program": true,
+      "mc": true,
+      "keeper": "refused"
+    },
+    {
+      "code": 173,
+      "name": "ResidentUnguarded",
+      "program": true,
+      "mc": true,
+      "keeper": "refused"
+    },
+    {
+      "code": 174,
+      "name": "ResidentStaleGeneration",
+      "program": true,
+      "mc": true,
+      "keeper": "refused"
+    },
+    {
+      "code": 175,
+      "name": "ResidentNotCurrentAuthority",
+      "program": true,
+      "mc": true,
+      "keeper": "refused"
     }
   ]
 }

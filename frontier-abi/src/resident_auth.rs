@@ -43,6 +43,22 @@ pub enum Refusal {
     NotCurrentAuthority,
 }
 
+impl Refusal {
+    /// The program's error for the refusal (⑳'s 170–175, workstream 4's
+    /// allocation; provisional until integration).
+    pub const fn error(&self) -> crate::v2::error::CqError {
+        use crate::v2::error::CqError as E;
+        match self {
+            Refusal::NotSigned => E::ResidentNotSigned,
+            Refusal::Asset => E::ResidentAsset,
+            Refusal::Resident => E::ResidentAccount,
+            Refusal::Unguarded => E::ResidentUnguarded,
+            Refusal::StaleGeneration => E::ResidentStaleGeneration,
+            Refusal::NotCurrentAuthority => E::ResidentNotCurrentAuthority,
+        }
+    }
+}
+
 // Check the complete AssetV1 base (name, URI and optional sequence). Plugin
 // bytes may follow it; this is not a plugin or transfer-guard verification.
 fn valid_asset_tail(data: &[u8]) -> bool {
@@ -166,6 +182,21 @@ mod tests {
     }
 
     // Fixed bytes only: no key creation, derivation, signatures, I/O or setup.
+    #[test]
+    fn refusals_map_to_the_six_allocated_codes() {
+        let all = [
+            Refusal::NotSigned,
+            Refusal::Asset,
+            Refusal::Resident,
+            Refusal::Unguarded,
+            Refusal::StaleGeneration,
+            Refusal::NotCurrentAuthority,
+        ];
+        for (r, code) in all.iter().zip(170u32..) {
+            assert_eq!(r.error().code(), code, "{r:?}");
+        }
+    }
+
     #[test]
     fn owner_session_transfer_and_substitution_checks() {
         let binding = Binding {
