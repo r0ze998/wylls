@@ -26,6 +26,7 @@
 //
 // The relay starts no chain and sends no transaction of its own; it only
 // co-signs what players built, after the checks in routes/relay.mjs.
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
@@ -40,7 +41,8 @@ import { AgentKeyring } from './agent/keyring.mjs';
 import { AgentObserver, AgentScheduler, llmDecider, ruleDecider } from './agent/runner.mjs';
 import { createLlm } from '../../citizens/mind/llm.mjs';
 import { createFrontierApps } from './app.mjs';
-import { FRONTIER_DIR, loadFrontierConfig, secretFile } from './config.mjs';
+import { FRONTIER_DIR, existingKeypair, loadFrontierConfig, persistInitialRelayState, requireExistingRelayFiles, runIdentity, sameRun, secretFile,
+  validateAgentDepositSends, validateRelayRecords } from './config.mjs';
 import { InviteBook } from './invites.mjs';
 import { KeeperLink } from './keeperlink.mjs';
 import { PayerPool, RELAY_POOL_ID } from './payers.mjs';
@@ -52,16 +54,47 @@ const listen = (server, port, host) => new Promise((resolve, reject) => {
 
 /** Build and start the relay; returns `{ctx, servers, ports, close()}`. */
 export async function startFrontierRelay(cfg, { connection = new Connection(cfg.rpc, 'confirmed'), log = console.log } = {}) {
+  requireExistingRelayFiles(cfg);
   const store = createStateStore(cfg.stateFile);
-  store.load();
+  const savedState = store.load();
   store.state ??= {};
-  const pool = new PayerPool({ masterSeed: secretFile(cfg.masterSeedFile), n: cfg.poolSize, poolId: RELAY_POOL_ID, dev: cfg.dev, minLamports: cfg.minPayerLamports });
-  const gateKey = cfg.gateKeyFile ? loadOrCreateKeypairSync(cfg.gateKeyFile) : null;
-  const faucetKey = cfg.prizeProgram && cfg.faucetKeyFile ? loadOrCreateKeypairSync(cfg.faucetKeyFile) : null;
+  if (savedState !== null) {
+    if (!sameRun(savedState.runIdentity, cfg)) throw new Error('relay state belongs to another run or has no run identity');
+    // A normal restart must not fill missing signed-send journals with an
+    // empty object and forget transactions that might already have landed.
+    validateRelayRecords(savedState, { prize: !!cfg.prizeProgram });
+  }
+  const createSecrets = savedState === null && !cfg.requireExistingState;
+  const masterSeed = secretFile(cfg.masterSeedFile, { create: createSecrets });
+  const inviteSecret = secretFile(cfg.inviteSecretFile, { create: createSecrets });
+  if (savedState !== null) {
+    const hash = bytes => createHash('sha256').update(bytes).digest('hex');
+    if (savedState.runIdentity.masterSeedSha256 !== hash(masterSeed)
+        || savedState.runIdentity.inviteSecretSha256 !== hash(inviteSecret)) {
+      throw new Error('relay state and saved secrets disagree; refusing resume');
+    }
+  }
+  const pool = new PayerPool({ masterSeed, n: cfg.poolSize, poolId: RELAY_POOL_ID, dev: cfg.dev, minLamports: cfg.minPayerLamports });
+  const gateKey = cfg.gateKeyFile ? (!createSecrets ? existingKeypair(cfg.gateKeyFile, 'join gate key') : loadOrCreateKeypairSync(cfg.gateKeyFile)) : null;
+  const faucetKey = cfg.prizeProgram && cfg.faucetKeyFile ? (!createSecrets ? existingKeypair(cfg.faucetKeyFile, 'faucet key') : loadOrCreateKeypairSync(cfg.faucetKeyFile)) : null;
+  if (savedState !== null && (savedState.runIdentity.gate !== (gateKey?.publicKey.toBase58() ?? null)
+      || savedState.runIdentity.faucet !== (faucetKey?.publicKey.toBase58() ?? null))) {
+    throw new Error('relay state and saved keys disagree; refusing resume');
+  }
   cfg.prizeLedgerFile ??= cfg.prizeProgram ? path.join(path.dirname(cfg.stateFile), 'prize-ledger.json') : null;
-  const invites = new InviteBook({ secret: secretFile(cfg.inviteSecretFile), seasonId: cfg.seasonId, store });
+  const invites = new InviteBook({ secret: inviteSecret, seasonId: cfg.seasonId, store });
   const keeper = cfg.keeperUrl ? new KeeperLink({ url: cfg.keeperUrl, tokenFile: cfg.keeperTokenFile }) : null;
   const apps = createFrontierApps({ cfg, connection, pool, keeper, invites, gateKey, faucetKey, store, log });
+  // Persist an empty first-run ledger before listening, so a later resume can
+  // distinguish a never-used quota/invite/faucet book from a lost file. Do
+  // this before an agent wallet can begin any background reconciliation.
+  if (savedState === null) {
+    persistInitialRelayState(store, cfg, {
+      masterSeed, inviteSecret,
+      gate: gateKey?.publicKey.toBase58() ?? null,
+      faucet: faucetKey?.publicKey.toBase58() ?? null,
+    });
+  }
   const agents = cfg.agentWallet ? startAgentWallet(cfg, apps.ctx, { connection, pool, log }) : null;
   const operator = http.createServer(apps.operator);
   const pub = cfg.publicPort ? http.createServer(apps.public) : null;
@@ -87,9 +120,29 @@ export function startAgentWallet(cfg, ctx, { connection, pool, log = console.log
   // One writer per state file: a second relay process on it could spend the same balance twice (lock.mjs).
   const lock = lockStateFile(store.file);
   process.once('exit', () => lock.release());
-  store.load();
+  let savedState;
+  try {
+    savedState = store.load();
+    if (savedState !== null) {
+      if (!sameRun(savedState.runIdentity, cfg)) throw new Error('agent wallet state belongs to another run or has no run identity');
+      validateAgentDepositSends(savedState.agentWallet);
+    }
+  } catch (e) {
+    lock.release();
+    throw e;
+  }
   store.state ??= {};
-  const custodyKey = loadOrCreateKeypairSync(cfg.agentCustodyKeyFile);
+  let custodyKey;
+  try {
+    custodyKey = savedState !== null || cfg.requireExistingState
+      ? existingKeypair(cfg.agentCustodyKeyFile, 'agent custody key') : loadOrCreateKeypairSync(cfg.agentCustodyKeyFile);
+    if (savedState !== null && savedState.runIdentity.custody !== custodyKey.publicKey.toBase58()) {
+      throw new Error('agent wallet state and custody key disagree; refusing resume');
+    }
+  } catch (e) {
+    lock.release();
+    throw e;
+  }
   // Localnet (the only cluster the config allows) reports no token balances; anywhere else they are required.
   // The in-process local chain keeps every transaction, so a missing one past its lifetime never landed; any other
   // node must prove its history covers the transaction before a sent withdrawal or hold is given back (fate.mjs).
@@ -97,6 +150,10 @@ export function startAgentWallet(cfg, ctx, { connection, pool, log = console.log
   const custody = new Custody({ connection, keypair: custodyKey, mint: cfg.prizeMint, pool, blockhashes: ctx.blockhashes, strictBalances: cfg.cluster !== 'localnet', fullHistory });
   const game = cfg.agentGamePricesFile ? JSON.parse(readFileSync(cfg.agentGamePricesFile, 'utf8')) : {};
   const gateway = attachAgentWallet(ctx, { store, keyring: new AgentKeyring({ dir: cfg.agentKeysDir }), custody, prices: { inference: String(cfg.agentInferencePrice), game }, unresolvedReleaseMs: cfg.agentUnresolvedReleaseMs ?? null, fullHistory, log });
+  if (savedState === null) {
+    store.state.runIdentity = { ...runIdentity(cfg), custody: custodyKey.publicKey.toBase58() };
+    store.save();
+  }
   const reconcile = setInterval(() => gateway.reconcile().catch(e => log(`agent wallet: reconcile failed: ${e.message}`)), cfg.agentReconcileMs);
   reconcile.unref();
   gateway.reconcile().catch(e => log(`agent wallet: reconcile at start failed: ${e.message}`));

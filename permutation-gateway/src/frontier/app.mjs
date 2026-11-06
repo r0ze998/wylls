@@ -41,7 +41,7 @@ export const FRONTIER_PUBLIC_ROUTES = Object.freeze([
   'POST /f/relay', 'POST /f/join', 'POST /f/reveal', 'POST /f/nudge',
   'GET /f/prize', 'GET /f/prize/ledger', 'POST /f/faucet', 'POST /f/x402/join', 'POST /f/prize/claim',
   // The agent wallet (404 AgentWalletDisabled unless --agent-wallet); the operator's reconcile is not public.
-  'GET /f/agent', 'GET /f/agent/terms', 'GET /f/agent/session-terms', 'GET /f/agent/by-owner', 'POST /f/agent/command', 'POST /f/agent/deposit', 'POST /f/agent/action',
+  'GET /f/agent', 'GET /f/agent/terms', 'GET /f/agent/session-terms', 'GET /f/agent/fate', 'GET /f/agent/by-owner', 'POST /f/agent/command', 'POST /f/agent/deposit', 'POST /f/agent/action',
   // ⑳ (provisional): the NFT choice of the first login.
   'GET /f/residents',
 ]);
@@ -72,6 +72,7 @@ export const FRONTIER_IP_LIMITS = Object.freeze({
   'GET /f/agent': { burst: 40, perSecond: 3 },
   'GET /f/agent/terms': { burst: 20, perSecond: 2 },
   'GET /f/agent/session-terms': { burst: 20, perSecond: 2 },
+  'GET /f/agent/fate': { burst: 20, perSecond: 2 },
   'GET /f/agent/by-owner': { burst: 20, perSecond: 2 },
 });
 
@@ -142,7 +143,7 @@ export function createFrontierContext({ cfg, connection, pool, keeper = null, in
     relayed: new ReplayCache({ now }),
     blockhashes: blockhashes ?? new BlockhashBook(connection, { now }),
     funds: funds ?? FundsGuard.forSol({ read: () => pool.refresh(connection), minSol: cfg.minPoolSol, now, log }),
-    /** Signatures this relay sent → {lastValidBlockHeight, kind} (GET /f/tx expiry); the oldest forgotten past 10,000. */
+    /** Signatures this relay sent → {lastValidBlockHeight, kind}; the oldest forgotten past 10,000. */
     sent: boundedMap(10_000),
   };
 }

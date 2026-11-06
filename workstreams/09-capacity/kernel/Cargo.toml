@@ -1,0 +1,25 @@
+[package]
+name = "wylls-capacity"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.89"
+publish = false
+license = "MIT"
+description = "Workstream 09: lending a workshop's processing capacity to another player (owner A lends, user B brings materials, the workshop's real rate and time make B's goods, B claims them). A rules-side state machine over permutation-rules' real Holding; no on-chain instruction yet."
+
+# Its own workspace and lock, outside the root workspace (like workstream
+# 03's crates): the kernel links the rules crate by path and nothing else.
+[workspace]
+
+[features]
+# Use `Holding::lend_workshops` from patches/0001 (apply the patch first;
+# run.sh does it in a temporary worktree). Without it the owner side
+# emulates lending on the unpatched Holding (exact rates, see facility.rs).
+core-patch-0001 = []
+# Workstream 09's numbers as workstream 4 allocated them (provisional,
+# src/abi.rs): kept behind a feature until 4 fixes them.
+abi-04-provisional = []
+
+[dependencies]
+permutation-rules = { path = "../../../permutation-rules", features = ["std"] }
+borsh = { version = "=1.6.1", features = ["derive"] }

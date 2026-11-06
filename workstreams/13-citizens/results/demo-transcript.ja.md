@@ -1,0 +1,110 @@
+# 試験世界の経過（模擬世界・fixture provider）
+
+機械的な結果は summary.json の `mechanical`、人格・自律性・面白さの判断材料は `observed`（評価ではない）。
+
+- ターン 1: Asa（provider）: build the Ore building (item 3)
+- ターン 1: Ren（provider）: build the Ore building (item 3)
+- ターン 6: Asa（provider）: decline c1's request (goal: my own plan needs it)
+- ターン 6: board: Kou → Asa: wants {"Wood":150} offers {"Gold":20} by 40
+- ターン 6: board: Asa declines 5d8e1420faeb66e7 (goal) alt {"reopens":true,"holder":{"citizen":"c2","has":330},"canSpare":{"Wood":50}}
+- ターン 7: Ren（provider）: send {"Wood":150} to c1 for {"Gold":20}
+- ターン 7: board: Ren accepts 5d8e1420faeb66e7
+- ターン 8: world: Asa finished building 3
+- ターン 8: world: Ren finished building 3
+- ターン 9: Asa（provider）: build the Gold building (item 4)
+- ターン 9: world: caravan k1 Ren → Kou arrived with {"Wood":150}
+- ターン 10: Ren（provider）: build the Gold building (item 4)
+- ターン 11: world: caravan k2 Kou → Ren arrived with {"Gold":20}
+- ターン 13: Ren（provider）: ask c1 for 40 Wood, offering 40 Food
+- ターン 13: board: Ren → Kou: wants {"Wood":40} offers {"Food":40} by 31
+- ターン 14: Ren（provider）: decline c1's request (deadline: the road takes 1 bells)
+- ターン 14: board: Kou → Ren: wants {"Food":60} offers {"Ore":20} by 15
+- ターン 14: board: Ren declines 1455562ae970ab4d (deadline) alt {"reopens":true,"holder":{"citizen":"c2","has":393},"earliestDeadlineBell":16}
+- ターン 16: world: Asa finished building 4
+- ターン 17: Ren（provider）: build the Stone building (item 2)
+- ターン 17: world: Ren finished building 4
+- ターン 19: world: Kou finished building 0
+- ターン 24: world: Ren finished building 2
+- ターン 27: Asa（provider）: build the Stone building (item 2)
+- ターン 32: Ren（provider）: build the Ore building (item 3)
+- ターン 34: Asa（provider）: build the Ore building (item 3)
+- ターン 34: world: Asa finished building 2
+- ターン 35: Ren（provider）: ask c2 for 40 Wood, offering 40 Food
+- ターン 35: board: Ren → Mio: wants {"Wood":40} offers {"Food":40} by 53
+- ターン 36: board: Mio accepts 410dd4d386e1473d
+- ターン 39: world: Ren finished building 3
+- ターン 41: Asa（provider）: build the Gold building (item 4)
+- ターン 41: world: Asa finished building 3
+- ターン 44: Ren（provider）: build the Gold building (item 4)
+- ターン 48: Asa（provider）: build the Ore building (item 3)
+- ターン 48: world: Asa finished building 4
+- ターン 51: world: Ren finished building 4
+- ターン 54: Ren（provider）: ask c3 for 40 Wood, offering 40 Food
+- ターン 54: board: Ren → Asa: wants {"Wood":40} offers {"Food":40} by 72
+- ターン 55: Asa（provider）: build the Gold building (item 4)
+- ターン 55: world: Asa finished building 3
+- ターン 58: Asa（provider）: decline c4's request (goal: my own plan needs it)
+- ターン 58: board: Asa declines 0ca6db413f184afb (goal) alt {"reopens":true,"holder":{"citizen":"c1","has":660},"canSpare":{"Wood":0}}
+- ターン 60: Ren（provider）: build the Ore building (item 3)
+- ターン 60: board: Kou → Ren: wants {"Food":200} offers {} by 100
+- ターン 62: world: Asa finished building 4
+- ターン 63: Ren（provider）: decline c1's request (budget: a gift of 200 is over what I may give today (150))
+- ターン 63: board: Ren declines 5d9349226157bcca (budget) alt {"reopens":true,"holder":{"citizen":"c2","has":719},"canSendToday":150}
+- ターン 64: Asa（provider）: build the Stone building (item 2)
+- ターン 67: world: Ren finished building 3
+- ターン 71: Asa（provider）: build the Wood building (item 1)
+- ターン 71: world: Asa finished building 2
+- ターン 72: Ren（provider）: build the Gold building (item 4)
+- ターン 74: Asa（provider）: ask c1 for 50 Wood, offering 50 Ore
+- ターン 74: board: Asa → Kou: wants {"Wood":50} offers {"Ore":50} by 92
+- ターン 75: Ren（provider）: ask c1 for 60 Wood, offering 60 Food
+- ターン 75: board: Kou accepts c9a395d0f5efdf0c
+- ターン 75: board: Ren → Kou: wants {"Wood":60} offers {"Food":60} by 93
+- ターン 78: world: Asa finished building 1
+- ターン 78: world: caravan k3 Kou → Asa arrived with {"Wood":50}
+- ターン 79: world: Ren finished building 4
+- ターン 81: world: caravan k4 Asa → Kou arrived with {"Ore":50}
+- ターン 83: Asa（provider）: build the Ore building (item 3)
+- ターン 90: Asa（provider）: build the Gold building (item 4)
+- ターン 90: world: Asa finished building 3
+- ターン 93: Asa（provider）: ask c1 for 50 Wood, offering 50 Gold
+- ターン 93: board: Asa → Kou: wants {"Wood":50} offers {"Gold":50} by 111
+- ターン 94: Ren（provider）: build the Stone building (item 2)
+- ターン 97: world: Asa finished building 4
+- ターン 101: Ren（provider）: build the Wood building (item 1)
+- ターン 101: world: Ren finished building 2
+- ターン 108: Ren（provider）: build the Ore building (item 3)
+- ターン 108: world: Ren finished building 1
+- ターン 111: Ren（provider）: ask c3 for 40 Wood, offering 40 Food
+- ターン 111: board: Ren → Asa: wants {"Wood":40} offers {"Food":40} by 129
+- ターン 112: Asa（provider）: decline c4's request (goal: my own plan needs it)
+- ターン 112: board: Asa declines fbe501344f5b6029 (goal) alt {"reopens":true,"holder":{"citizen":"c1","has":880},"canSpare":{"Wood":26}}
+- ターン 115: world: Ren finished building 3
+- ターン 120: Ren（provider）: build the Gold building (item 4)
+- ターン 127: world: Ren finished building 4
+- ターン 154: Ren（provider）: build the Stone building (item 2)
+- ターン 157: Asa（provider）: build the Stone building (item 2)
+- ターン 161: Ren（provider）: build the Ore building (item 3)
+- ターン 161: world: Ren finished building 2
+- ターン 164: Asa（provider）: build the Ore building (item 3)
+- ターン 164: world: Asa finished building 2
+- ターン 168: Ren（provider）: build the Gold building (item 4)
+- ターン 168: world: Ren finished building 3
+- ターン 171: Asa（provider）: build the Gold building (item 4)
+- ターン 171: world: Asa finished building 3
+- ターン 175: Ren（provider）: build the Food building (item 0)
+- ターン 175: world: Ren finished building 4
+- ターン 178: Asa（provider）: build the Food building (item 0)
+- ターン 178: world: Asa finished building 4
+- ターン 182: Ren（provider）: build the Wood building (item 1)
+- ターン 182: world: Ren finished building 0
+- ターン 185: Asa（provider）: build the Wood building (item 1)
+- ターン 185: world: Asa finished building 0
+- ターン 189: Ren（provider）: build the Stone building (item 2)
+- ターン 189: world: Ren finished building 1
+- ターン 192: Asa（provider）: build the Stone building (item 2)
+- ターン 192: world: Asa finished building 1
+- ターン 196: Ren（provider）: build the Ore building (item 3)
+- ターン 196: world: Ren finished building 2
+- ターン 199: Asa（provider）: build the Ore building (item 3)
+- ターン 199: world: Asa finished building 2

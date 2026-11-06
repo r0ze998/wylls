@@ -9,6 +9,27 @@ pub const DUPLICATE_EVENT: &str = "DuplicateEvent";
 pub const UNKNOWN_ENTITY: &str = "UnknownEntity";
 /// A transaction or record that cannot be read (fail closed, K2).
 pub const UNDECODABLE: &str = "Undecodable";
+// V0 coverage (⑱, 2026-10-31)
+/// A successful program instruction with no tag or a tag outside ABI v2.
+pub const UNKNOWN_INSTRUCTION: &str = "UnknownInstruction";
+/// A successful ABI instruction no check of this verifier models (UNVERIFIABLE).
+pub const UNVERIFIED_INSTRUCTION: &str = "UnverifiedInstruction";
+/// A Season of a program version this verifier does not implement (UNVERIFIABLE).
+pub const UNKNOWN_PROGRAM_VERSION: &str = "UnknownProgramVersion";
+/// A successful program call whose logs are absent (UNVERIFIABLE, V0E).
+pub const MISSING_LOGS: &str = "MissingLogs";
+/// A successful program call whose logs the runtime cut (UNVERIFIABLE, V0E).
+pub const TRUNCATED_LOGS: &str = "TruncatedLogs";
+/// A program invocation of a successful transaction without its `success` line (UNVERIFIABLE, V0E).
+pub const INCOMPLETE_LOGS: &str = "IncompleteLogs";
+/// The program run inside another program; no inner instruction archived (UNVERIFIABLE, V0E).
+pub const UNVERIFIED_INNER_INSTRUCTION: &str = "UnverifiedInnerInstruction";
+/// A written program account with no post-state in the archive (UNVERIFIABLE, V0E).
+pub const MISSING_POST_STATE: &str = "MissingPostState";
+/// A record no check judges where it stands (UNVERIFIABLE, V0E).
+pub const UNVERIFIED_RECORD: &str = "UnverifiedRecord";
+/// A JoinResident and the Citizen, record or link it left disagree (FAIL, V27).
+pub const RESIDENT_JOIN_MISMATCH: &str = "ResidentJoinMismatch";
 // V2 program and rules
 pub const PROGRAM_MISMATCH: &str = "ProgramMismatch";
 pub const RULESET_MISMATCH: &str = "RulesetMismatch";

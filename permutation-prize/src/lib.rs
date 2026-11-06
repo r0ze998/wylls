@@ -46,6 +46,18 @@
 //! | 4 | SetShares(mode u8, total_points [u64;6], root 32, ledger_hash 32) | `[operator s] [pool w]` |
 //! | 5 | Claim(nation u8, points u64, n u8, proof 32×n) | `[wallet s] [pool w] [entry w] [citizen] [vault w] [wallet token w] [mint] [token]` |
 //! | 6 | WithdrawOps | `[operator s] [pool w] [vault w] [operator token w] [mint] [token]` |
+//! | 7 | RecordNation (candidate, workstream 04) | `[pool] [entry w] [citizen]` |
+//!
+//! **RecordNation** (candidate, 2026-11-06; changes no rule and no amount).
+//! A shares claim needs the wallet's nation, which the game keeps in its
+//! Citizen (written once, at Join, never changed). The game's cleanup may
+//! close that Citizen (CloseCitizen, anyone, `end + 72 h`) whether or not
+//! its wallet has claimed, and the claim would then be refused for good.
+//! RecordNation lets anyone copy the nation from the live Citizen into the
+//! wallet's own Entry (bytes 10–11, unused before); a later Claim reads the
+//! live Citizen as before and, only when that Citizen's address is empty,
+//! the recorded nation. Who may claim, how much and until when are
+//! unchanged. Entries without a record behave exactly as before.
 
 use solana_program::{
     account_info::AccountInfo,
@@ -93,6 +105,8 @@ pub mod tag {
     pub const SET_SHARES: u8 = 4;
     pub const CLAIM: u8 = 5;
     pub const WITHDRAW_OPS: u8 = 6;
+    /// Candidate (workstream 04): copy the Citizen's nation into the Entry.
+    pub const RECORD_NATION: u8 = 7;
 }
 
 /// Pool account (640 B, PDA `["pool", game program, le64(season id)]`).
@@ -155,6 +169,11 @@ pub mod entry {
     pub const HDR_MAGIC: usize = 0;
     pub const BUMP: usize = 8;
     pub const CLAIMED: usize = 9;
+    /// 1 once [`super::record_nation`] has copied the Citizen's nation; 0
+    /// on every Entry before it (Pay leaves bytes 10–15 zero).
+    pub const NATION_RECORDED: usize = 10;
+    /// The recorded nation (meaningful only when `NATION_RECORDED == 1`).
+    pub const NATION: usize = 11;
     pub const POOL: usize = 16;
     pub const WALLET: usize = 48;
     pub const AMOUNT: usize = 80;
@@ -182,6 +201,9 @@ pub enum PrizeError {
     NothingToPay = 0x10E,
     Overflow = 0x10F,
     WrongExpectedCount = 0x110,
+    /// InitPool: an existing continuous world never reaches Season Ended,
+    /// so the old end-dependent prize pool has no safe settlement path.
+    ContinuousSeason = 0x112,
 }
 
 impl From<PrizeError> for ProgramError {
@@ -437,6 +459,7 @@ fn init_pool(program: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         if key_at(&sd, S::AUTHORITY)? != *operator.key {
             return Err(E::NotOperator.into());
         }
+        season_ends(&sd, solana_program::clock::Clock::get()?.unix_timestamp)?;
         // A map that may grow past the bitmap could never be tallied whole.
         if u16_at(&sd, S::R_MAX)? > MAX_RING {
             return Err(E::BadParams.into());
@@ -811,22 +834,33 @@ fn claim(program: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
             u64_at(&pd, pool::COLLECTED)?,
         )
     } else {
-        // The wallet's Citizen of the game, in a winning nation.
+        // The wallet's Citizen of the game, in a winning nation: the live
+        // Citizen as before; only when its address is empty (closed by the
+        // game's cleanup), the nation recorded from it into the Entry.
         let game = key_at(&pd, pool::GAME_PROGRAM)?;
         let sid = u64_at(&pd, pool::SEASON_ID)?;
-        game_account(citizen, &game, &C::MAGIC, C::SIZE, sid)?;
         let ctx = AddrCtx {
             season: rd(&pd, pool::SEASON)?,
             program: game.to_bytes(),
         };
-        let cd = citizen.try_borrow_data()?;
-        if ctx.citizen(&wallet.key.to_bytes()) != citizen.key.to_bytes()
-            || key_at(&cd, C::WALLET)? != *wallet.key
-        {
+        if ctx.citizen(&wallet.key.to_bytes()) != citizen.key.to_bytes() {
             return Err(E::BadAccount.into());
         }
+        let faction = if is_empty(citizen) {
+            if ed[entry::NATION_RECORDED] != 1 {
+                return Err(E::BadAccount.into());
+            }
+            ed[entry::NATION]
+        } else {
+            game_account(citizen, &game, &C::MAGIC, C::SIZE, sid)?;
+            let cd = citizen.try_borrow_data()?;
+            if key_at(&cd, C::WALLET)? != *wallet.key {
+                return Err(E::BadAccount.into());
+            }
+            cd[C::FACTION]
+        };
         if nation as usize >= FACTIONS
-            || cd[C::FACTION] != nation
+            || faction != nation
             || pd[pool::WINNERS] & (1 << nation) == 0
         {
             return Err(E::NotWinner.into());
@@ -883,6 +917,66 @@ fn claim(program: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     Ok(())
 }
 
+/// An address with nothing at it: no data, and owned by the System program
+/// or holding no lamports (a closed account).
+fn is_empty(ai: &AccountInfo) -> bool {
+    ai.data_is_empty() && (*ai.owner == SYSTEM_PROGRAM || ai.lamports() == 0)
+}
+
+/// 7 RecordNation (candidate): `[pool] [entry w] [citizen]`, no signer —
+/// anyone may run it, for any Entry, in any pool state. It copies the
+/// nation of the Entry's wallet from that wallet's live game Citizen (at
+/// its address, of the pool's game and season) into the Entry. The game
+/// writes a Citizen's nation once, at Join, so the copy is the value a
+/// Claim would read from the Citizen. Repeating it is a no-op; a different
+/// nation is refused (`BadAccount`). It moves no token and no lamport.
+fn record_nation(program: &Pubkey, a: &[AccountInfo]) -> R<()> {
+    let [pool_ai, entry_ai, citizen] = a else {
+        return Err(ProgramError::NotEnoughAccountKeys);
+    };
+    pool_of(program, pool_ai)?;
+    if entry_ai.owner != program {
+        return Err(E::BadAccount.into());
+    }
+    let pd = pool_ai.try_borrow_data()?;
+    let mut ed = entry_ai.try_borrow_mut_data()?;
+    if ed.len() != entry::SIZE
+        || ed[..8] != entry::MAGIC
+        || key_at(&ed, entry::POOL)? != *pool_ai.key
+    {
+        return Err(E::BadAccount.into());
+    }
+    let wallet = key_at(&ed, entry::WALLET)?;
+    if entry_address(program, pool_ai.key, &wallet).0 != *entry_ai.key {
+        return Err(E::BadAccount.into());
+    }
+    let game = key_at(&pd, pool::GAME_PROGRAM)?;
+    let sid = u64_at(&pd, pool::SEASON_ID)?;
+    let ctx = AddrCtx {
+        season: rd(&pd, pool::SEASON)?,
+        program: game.to_bytes(),
+    };
+    if ctx.citizen(&wallet.to_bytes()) != citizen.key.to_bytes() {
+        return Err(E::BadAccount.into());
+    }
+    game_account(citizen, &game, &C::MAGIC, C::SIZE, sid)?;
+    let cd = citizen.try_borrow_data()?;
+    if key_at(&cd, C::WALLET)? != wallet {
+        return Err(E::BadAccount.into());
+    }
+    let faction = cd[C::FACTION];
+    match ed[entry::NATION_RECORDED] {
+        0 => {
+            ed[entry::NATION_RECORDED] = 1;
+            ed[entry::NATION] = faction;
+        }
+        1 if ed[entry::NATION] == faction => {}
+        _ => return Err(E::BadAccount.into()),
+    }
+    msg!("PRIZE nation wallet={} nation={}", wallet, faction);
+    Ok(())
+}
+
 fn withdraw_ops(program: &Pubkey, a: &[AccountInfo]) -> R<()> {
     let [operator, pool_ai, vault, to, mint, token] = a else {
         return Err(ProgramError::NotEnoughAccountKeys);
@@ -936,8 +1030,42 @@ pub fn process_instruction(program: &Pubkey, a: &[AccountInfo], data: &[u8]) -> 
         tag::SET_SHARES => set_shares(program, a, d),
         tag::CLAIM => claim(program, a, d),
         tag::WITHDRAW_OPS if d.is_empty() => withdraw_ops(program, a),
+        tag::RECORD_NATION if d.is_empty() => record_nation(program, a),
         _ => Err(E::BadData.into()),
     }
+}
+
+/// Open an end-dependent pool only while a finite world is running.
+/// An Announced Season already has its final PDA but not its final parameters;
+/// Created and pre-genesis Seeded seasons can still be aborted. Opening a
+/// payable pool in any of those states could strand its fees.
+/// This does not change Pay, Tally, Finalize, Claim or Refund on existing pools.
+fn season_ends(sd: &[u8], now_ts: i64) -> R<()> {
+    let at = frontier_abi::v2::presets::SEASON_CQ_OFFSET
+        + frontier_abi::v2::presets::cq_layout::CONTINUOUS;
+    match sd.get(at) {
+        Some(0) => {}
+        Some(1) => return Err(E::ContinuousSeason.into()),
+        _ => return Err(E::BadAccount.into()),
+    }
+    let status = *sd.get(S::STATUS).ok_or(E::BadAccount)?;
+    let genesis_ts = i64::from_le_bytes(rd(sd, S::GENESIS_TS)?);
+    if !matches!(status, S::STATUS_SEEDED | S::STATUS_RUNNING) || now_ts < genesis_ts {
+        return Err(E::WrongState.into());
+    }
+    let join_close_bell = u32_at(sd, S::JOIN_CLOSE_BELL)?;
+    let end_bell = u32_at(sd, S::END_BELL)?;
+    let bell_secs = u32_at(sd, S::BELL_SECS)?;
+    if join_close_bell >= end_bell || end_bell > 4_032 || bell_secs == 0 {
+        return Err(E::BadParams.into());
+    }
+    let end_ts = genesis_ts
+        .checked_add(i64::from(end_bell) * i64::from(bell_secs))
+        .ok_or(E::BadParams)?;
+    if now_ts >= end_ts {
+        return Err(E::WrongState.into());
+    }
+    Ok(())
 }
 
 #[cfg(not(feature = "no-entrypoint"))]
@@ -946,6 +1074,45 @@ solana_program::entrypoint!(process_instruction);
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn old_pool_needs_a_running_finite_world() {
+        let at = frontier_abi::v2::presets::SEASON_CQ_OFFSET
+            + frontier_abi::v2::presets::cq_layout::CONTINUOUS;
+        let mut season = vec![0u8; S::SIZE];
+        assert_eq!(season_ends(&season, 0), Err(E::WrongState.into()));
+        season[S::STATUS] = S::STATUS_CREATED;
+        assert_eq!(season_ends(&season, 0), Err(E::WrongState.into()));
+        season[S::STATUS] = S::STATUS_SEEDED;
+        season[S::GENESIS_TS..S::GENESIS_TS + 8].copy_from_slice(&10i64.to_le_bytes());
+        assert_eq!(season_ends(&season, 0), Err(E::WrongState.into()));
+        season[S::GENESIS_TS..S::GENESIS_TS + 8].copy_from_slice(&0i64.to_le_bytes());
+        assert_eq!(season_ends(&season, 0), Err(E::BadParams.into()));
+        season[S::JOIN_CLOSE_BELL..S::JOIN_CLOSE_BELL + 4].copy_from_slice(&324u32.to_le_bytes());
+        season[S::END_BELL..S::END_BELL + 4].copy_from_slice(&432u32.to_le_bytes());
+        season[S::BELL_SECS..S::BELL_SECS + 4].copy_from_slice(&600u32.to_le_bytes());
+        for status in [S::STATUS_SEEDED, S::STATUS_RUNNING] {
+            season[S::STATUS] = status;
+            assert_eq!(season_ends(&season, 0), Ok(()));
+        }
+        assert_eq!(season_ends(&season, 432 * 600), Err(E::WrongState.into()));
+        // A zero join deadline is legal for an already-created finite world.
+        season[S::JOIN_CLOSE_BELL..S::JOIN_CLOSE_BELL + 4].copy_from_slice(&0u32.to_le_bytes());
+        assert_eq!(season_ends(&season, 0), Ok(()));
+        season[at] = 1;
+        assert_eq!(season_ends(&season, 0), Err(E::ContinuousSeason.into()));
+        season[at] = 2;
+        assert_eq!(season_ends(&season, 0), Err(E::BadAccount.into()));
+        assert_eq!(season_ends(&season[..at], 0), Err(E::BadAccount.into()));
+        season[at] = 0;
+        season[S::STATUS] = S::STATUS_ENDED;
+        assert_eq!(season_ends(&season, 0), Err(E::WrongState.into()));
+        season[S::STATUS] = 255;
+        assert_eq!(season_ends(&season, 0), Err(E::WrongState.into()));
+        season[S::STATUS] = S::STATUS_RUNNING;
+        season[S::END_BELL..S::END_BELL + 4].copy_from_slice(&u32::MAX.to_le_bytes());
+        assert_eq!(season_ends(&season, 0), Err(E::BadParams.into()));
+    }
 
     #[test]
     fn fee_split_is_80_20() {

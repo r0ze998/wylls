@@ -1,0 +1,182 @@
+{
+  "ended": [
+    {
+      "cargo": [
+        0,
+        114,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "dst": {
+        "at": 2,
+        "gen": 1,
+        "kind": 1,
+        "p": 3,
+        "q": 0,
+        "tile": 20
+      },
+      "end": "settled",
+      "outcome": 0,
+      "ownerTag": "88",
+      "seq": 0
+    },
+    {
+      "choice": 0,
+      "end": "raided",
+      "ownerTag": "88",
+      "raiderTag": "99",
+      "seq": 2,
+      "taken": [
+        0,
+        50,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ],
+  "moving": [
+    {
+      "arriveTs": 1790000000,
+      "cargo": [
+        0,
+        0,
+        80,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "dst": {
+        "at": 2,
+        "gen": 1,
+        "kind": 1,
+        "p": 3,
+        "q": 0,
+        "tile": 20
+      },
+      "faction": 2,
+      "ownerTag": "88",
+      "path": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "provinces": [
+        [
+          4,
+          0
+        ]
+      ],
+      "raided": false,
+      "runs": [
+        {
+          "firstBell": 10,
+          "n": 2,
+          "p": 4,
+          "q": 0
+        }
+      ],
+      "seq": 1,
+      "src": {
+        "at": 5,
+        "gen": 1,
+        "kind": 1,
+        "p": 4,
+        "q": 0,
+        "tile": 11
+      },
+      "steps": 3
+    },
+    {
+      "arriveTs": 1790000000,
+      "cargo": [
+        0,
+        50,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "dst": {
+        "at": 2,
+        "gen": 1,
+        "kind": 1,
+        "p": 3,
+        "q": 0,
+        "tile": 20
+      },
+      "faction": 2,
+      "ownerTag": "88",
+      "path": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "provinces": [
+        [
+          4,
+          0
+        ]
+      ],
+      "raided": true,
+      "runs": [
+        {
+          "firstBell": 10,
+          "n": 2,
+          "p": 4,
+          "q": 0
+        }
+      ],
+      "seq": 2,
+      "src": {
+        "at": 5,
+        "gen": 1,
+        "kind": 1,
+        "p": 4,
+        "q": 0,
+        "tile": 11
+      },
+      "steps": 3
+    }
+  ],
+  "v": 1,
+  "vaults": [
+    {
+      "faction": 1,
+      "gen": 1,
+      "ownerTag": "77",
+      "p": 3,
+      "q": 0,
+      "tile": 40
+    }
+  ]
+}

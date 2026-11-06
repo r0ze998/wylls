@@ -21,10 +21,12 @@ use crate::decode::{Citizen, Cohort, Frontier, Holding, Season};
 pub const TICKET_COHORT_BELLS: u32 = 24;
 /// `Citizen.ticket_bell` when no ticket is open.
 pub const NO_TICKET: u32 = u32::MAX;
-/// Rent of a Province (`(128 + 4,096) × 5,080`, §4.2).
-pub const PROVINCE_RENT: u64 = (128 + 4_096) * 5_080;
+/// Rent of an M1 Province (4,096 data bytes, §4.2).
+pub const PROVINCE_RENT: u64 = frontier_abi::layout::rent(crate::abi::size::PROVINCE);
+/// Rent of an MC/S1 Province (4,736 data bytes, MC §5.2.1).
+pub const PROVINCE_RENT_V2: u64 = frontier_abi::layout::rent(crate::abi::size::PROVINCE_V2);
 /// Rent of a ProvinceFund (`(128 + 128) × 5,080`).
-pub const FUND_RENT: u64 = (128 + 128) * 5_080;
+pub const FUND_RENT: u64 = frontier_abi::layout::rent(crate::abi::size::PROVINCE_FUND);
 
 /// `rng::rand(S, "site", P ‖ Q ‖ site ‖ citizen_tag)`.
 pub fn ticket_score(seed: &[u8; 32], p: i32, q: i32, site: u8, citizen_tag: u64) -> u64 {
@@ -186,8 +188,13 @@ pub fn ring_open_check(
     if !crowded {
         return Err(RingWait::NotCrowded);
     }
+    let province_rent = if s.is_v2() {
+        PROVINCE_RENT_V2
+    } else {
+        PROVINCE_RENT
+    };
     for (w, &l) in fund_lamports.iter().enumerate() {
-        if l.saturating_sub(FUND_RENT) < d as u64 * PROVINCE_RENT {
+        if l.saturating_sub(FUND_RENT) < d as u64 * province_rent {
             return Err(RingWait::Fund(w as u8));
         }
     }
@@ -367,6 +374,23 @@ mod tests {
         assert_eq!(ring_open_check(&s, &fr, &poor, now), Err(RingWait::Fund(5)));
         poor[5] += 1;
         assert_eq!(ring_open_check(&s, &fr, &poor, now), Ok(()));
+        // MC/S1 writes the larger Province2 account. A fund that sufficed
+        // for M1 must not be reported ready before OpenRing can pay its rent.
+        let mut s2 = s.clone();
+        s2.program_version = crate::abi::PROGRAM_VERSION_V2;
+        assert_eq!(PROVINCE_RENT, frontier_abi::layout::rent(4_096));
+        assert_eq!(PROVINCE_RENT_V2, frontier_abi::layout::rent(4_736));
+        assert_eq!(
+            ring_open_check(&s2, &fr, &poor, now),
+            Err(RingWait::Fund(5))
+        );
+        poor[5] = FUND_RENT + 4 * PROVINCE_RENT_V2 - 1;
+        assert_eq!(
+            ring_open_check(&s2, &fr, &poor, now),
+            Err(RingWait::Fund(5))
+        );
+        poor[5] += 1;
+        assert_eq!(ring_open_check(&s2, &fr, &poor, now), Ok(()));
         assert_eq!(
             ring_open_check(&s, &fr, &rich, g - 1),
             Err(RingWait::NotRunning)

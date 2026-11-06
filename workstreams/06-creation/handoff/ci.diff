@@ -1,0 +1,13 @@
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -40,6 +40,10 @@
+         run: node --test permutation-state-prototype/world/core.test.mjs
+       - name: Run civilization strategy simulation tests
+         run: node --test permutation-state-prototype/civilization/*.test.mjs
++      - name: Creation manifests (workstream 06, local prototype)
++        run: |
++          node workstreams/06-creation/cli/fixtures.mjs --check
++          node --test workstreams/06-creation/test/*.test.mjs
+       - name: Validate recorded proof result
+         run: python3 -m json.tool permutation-state-prototype/proof/qa-proof-result.json >/dev/null
+ 

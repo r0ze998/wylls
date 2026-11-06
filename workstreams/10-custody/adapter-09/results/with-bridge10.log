@@ -1,0 +1,13 @@
+== ⑨ bridge10 (06c817cc) on this adapter
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test rests_add_up_and_a_full_lot_is_paid_later ... ok
+test every_step_replayed_changes_nothing ... ok
+test returns_and_rests_on_the_one_table ... ok
+test a_restart_at_every_step_gives_the_same_bytes ... ok
+seeds 1000: lot deposits 3388, claims returning ore 907, deposit replays 6813, restarts 7163
+test random_runs_on_one_table_never_count_twice ... ok
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.66s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+caught   a return is booked as a new arrival (through ⑨'s bridge)
+caught   the rest is paid as if whole (through ⑨'s bridge)
+caught   a payment is not booked as returned (through ⑨'s bridge)

@@ -89,6 +89,8 @@ export { caravanId };
 /** The viewer's citizen tag (bigint) or null (people/ui.mjs ownTag). */
 export const viewerTag = FS => ownTag(FS);
 const isMine = (tag, mine) => mine !== null && mine !== undefined && BigInt(tag) === BigInt(mine);
+/** ⑯ P3: whose a caravan is now: the holder a raid named (herald `holderTag`), else its sender. */
+const holderOf = c => c.holderTag ?? c.ownerTag;
 
 /** Whole units the village in hand holds now, by resource. */
 function haveOf(FS, h) {
@@ -271,7 +273,7 @@ export function raidOffers(FS) {
 export function s1VillageModel(FS) {
   const s1 = FS.s1 ?? {}, mine = viewerTag(FS), h = activeHolding(FS);
   const vaults = (s1.caravans?.vaults ?? []).filter(v => isMine(v.ownerTag, mine));
-  const caravans = (s1.caravans?.moving ?? []).filter(c => isMine(c.ownerTag, mine)).map(c => ({ ...c, arriveBell: caravanArriveBell(c) }));
+  const caravans = (s1.caravans?.moving ?? []).filter(c => isMine(holderOf(c), mine)).map(c => ({ ...c, arriveBell: caravanArriveBell(c) }));
   const structures = (s1.structures?.structures ?? []).filter(s => isMine(s.ownerTag, mine)).map(s => ({ ...s, name: KIND_NAME[s.kind] }));
   // where a caravan may leave from: the village in hand (its stores now) or one of the viewer's storehouses (the stores
   // the herald read from its account; a storehouse whose stores are not known yet offers nothing to send)

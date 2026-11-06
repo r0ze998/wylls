@@ -1,0 +1,23 @@
+[package]
+name = "wylls-custody-adapter-09"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.89"
+publish = false
+license = "MIT"
+description = "Workstream 10: workstream 9's Custody trait implemented on workstream 10's lot kernel (owner-separated vault lots, return-room reservations for goods in a job's hopper), with contract tests that drive workstream 9's own Harness"
+
+# Own workspace and lock, like ⑨'s kernel and ⑩'s custody crate: nothing in
+# the core workspace changes, and ⑨'s and ⑩'s crates are used unmodified.
+[workspace]
+
+[features]
+# Workstream 9's kernel from 004836e2 has CustodyError::Refused(u16): map
+# 10's reasons onto it (this branch's copy of 9's kernel predates it).
+nine-refused = []
+
+[dependencies]
+wylls-capacity = { path = "../../09-capacity/kernel" }
+wylls-custody = { path = "../custody", default-features = false }
+permutation-rules = { path = "../../../permutation-rules", features = ["std"] }
+borsh = { version = "=1.6.1", features = ["derive"] }

@@ -2,6 +2,8 @@
 //! in order over one parsed [`World`] and its [`Facts`], and a `mutate-v<n>`
 //! build leaves check `n` out (the checks of the checks).
 
+pub mod v0_coverage;
+pub mod v0_evidence;
 pub mod v11_land;
 pub mod v12_explore;
 pub mod v13_payments;
@@ -16,6 +18,7 @@ pub mod v22_outposts;
 pub mod v23_caravans;
 pub mod v24_structures;
 pub mod v25_nations;
+pub mod v27_residents;
 pub mod v2_program;
 pub mod v3_random;
 pub mod v4_windows;
@@ -122,6 +125,27 @@ impl Ctx<'_> {
             detail.into(),
         );
     }
+    /// The check cannot judge this with what it implements (UNVERIFIABLE
+    /// unless a FAIL exists), under its own code (V0).
+    pub fn unverifiable(
+        &mut self,
+        check: &'static str,
+        code: &str,
+        entity: impl Into<String>,
+        bell: u32,
+        tx: Option<usize>,
+        detail: impl Into<String>,
+    ) {
+        self.push(
+            Severity::Unverifiable,
+            check,
+            code,
+            entity.into(),
+            bell,
+            tx,
+            detail.into(),
+        );
+    }
     /// Data the check needs is absent (UNVERIFIABLE unless a FAIL exists).
     pub fn missing(
         &mut self,
@@ -172,6 +196,15 @@ pub fn run(input: &Input) -> Report {
         cq_replayed: Default::default(),
     };
     let mut ran: Vec<&'static str> = vec![];
+    // What this verifier can judge at all: unknown or unmodelled
+    // instructions and program versions are never a PASS (V0).
+    v0_coverage::run(&mut cx);
+    ran.push("V0");
+    // The evidence those judgements need: logs present and whole, no
+    // program call the archive does not show, post-states of what was
+    // written (V0E, ⑪).
+    v0_evidence::run(&mut cx);
+    ran.push("V0E");
     macro_rules! check {
         ($feat:literal, $name:literal, $m:ident) => {
             if !cfg!(feature = $feat) {
@@ -240,6 +273,8 @@ pub fn run(input: &Input) -> Report {
         ran.push("V24:structures");
         v25_nations::run(&mut cx);
         ran.push("V25:nations");
+        v27_residents::run(&mut cx);
+        ran.push("V27:residents");
     }
     ran.push("V10");
     counts(&mut cx);

@@ -1,0 +1,18 @@
+# integration tip d0949fd4 WITHOUT V0E (the call disabled); tests of V0E
+test the_fixtures_have_nothing_for_v0e ... ok
+cpi: 140 cases, 137 PASS ["land tx#0", "land tx#2", "land tx#3", "land tx#4", "land tx#5"], 0 without the code
+thread 'the_program_run_by_another_program_is_not_a_pass' (14495) panicked at crates/verify/tests/evidence.rs:72:9:
+test the_program_run_by_another_program_is_not_a_pass ... FAILED
+dropped post-states: 72 cases, 33 PASS ["land tx#0 5FSxqqqr7URvtLB4iu62BBdnBGUpnmA8UrMTwTStRMre", "land tx#1 AHKhm3V5oAXuacgBT3UVBDn2kRsu35mdYtrwjoEXhgmj", "land tx#3 8JLXvujwpp4A3dsHJbGr2jqsK4Xa49N38mjqjj9jtf4N", "land tx#4 6qUfr7jv4AVJedLwq2xYMN9pNSVpDKManeWeoKKvfyJ5", "land tx#5 8cSWBzdsvyUFAPCVRtm98vV488kXrH3ptNbxf5feu72z"], 0 without the code
+thread 'a_written_account_without_its_post_state_is_not_a_pass' (14492) panicked at crates/verify/tests/evidence.rs:72:9:
+test a_written_account_without_its_post_state_is_not_a_pass ... FAILED
+test a_call_without_logs_is_not_a_pass has been running for over 60 seconds
+test logs_the_runtime_cut_are_not_a_pass has been running for over 60 seconds
+truncated logs: 345 cases, 141 PASS ["land tx#2", "land tx#3", "land tx#4", "land tx#5", "land tx#6"], 3 without the code
+thread 'logs_the_runtime_cut_are_not_a_pass' (14493) panicked at crates/verify/tests/evidence.rs:72:9:
+test logs_the_runtime_cut_are_not_a_pass ... FAILED
+no logs: 345 cases, 141 PASS ["land tx#2", "land tx#3", "land tx#4", "land tx#5", "land tx#6"], 3 without the code
+thread 'a_call_without_logs_is_not_a_pass' (14491) panicked at crates/verify/tests/evidence.rs:72:9:
+test a_call_without_logs_is_not_a_pass ... FAILED
+test result: FAILED. 1 passed; 4 failed; 0 ignored; 0 measured; 0 filtered out; finished in 124.86s
+error: test failed, to rerun pass `-p verify --test evidence`

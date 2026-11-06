@@ -1,0 +1,90 @@
+== Phase 1: one facility, one recipe, one user ==
+Recipe (permutation_rules arms): Recipe { id: RecipeId(1), inputs: [(Ore, 2), (Wood, 1)], output: Horses, rate: 4000 }
+Caravan B→A (caravan::walk, open land): 1620 s
+  A's facility: 3 workshops, 0 lent; A's own arms rate 12/h; A's arms stock 0
+
+-- A signs three times, then is away --
+  T0+0h01m A     OpenPool     ok, 1 event(s)
+      · PoolOpened { facility: F(0,0/0 g1), owner: Actor(a1a1…) }
+  T0+0h01m A     Lend         ok, 1 event(s)
+      · Lent { facility: F(0,0/0 g1), units: 2, lent: 2, at: 1793491260 }
+  A's facility: 3 workshops, 2 lent; A's own arms rate 4/h; A's arms stock 0.200
+  T0+0h01m A     Grant        ok, 1 event(s)
+      · Granted { grant: F(0,0/0 g1).G1, user: Actor(b2b2…) }
+
+-- B ships materials and reserves --
+  plan: RunPlan { output: 30000, inputs: [60000, 30000], run_secs: 13500, start: 1793493420, end: 1793506920 }
+  T0+0h10m B     caravan 0xb001 leaves B's village with ore 60 wood 30 (B's Holding paid them)
+  T0+0h10m B     Reserve      ok, 1 event(s)
+      · Reserved { job: F(0,0/0 g1).G1.J1, units: 2, start: 1793493420, end: 1793506920, max_output: 30000 }
+  (B's wallet retries the same Reserve)
+  T0+0h10m B     Reserve      already applied (no change)
+
+-- the caravan arrives; B deposits --
+  T0+0h36m B     Deposit      ok, 1 event(s)
+      · Deposited { job: F(0,0/0 g1).G1.J1, deposit: 1, resource: Ore, amount: 60000 }
+  T0+0h36m B     Deposit      ok, 1 event(s)
+      · Deposited { job: F(0,0/0 g1).G1.J1, deposit: 2, resource: Wood, amount: 30000 }
+  T0+0h36m B     Deposit      already applied (no change)
+  [before start] where things are, and whose:
+      Hopper(F(0,0/0 g1).G1.J1 Ore         60  owner B
+      Hopper(F(0,0/0 g1).G1.J1 Wood        30  owner B
+      consumed ore 0 wood 0 / produced arms 0 / custody check Ok(())
+
+-- time passes; anyone may settle (A is away) --
+  T0+2h29m crank Settle       ok, 2 event(s)
+      · Started { job: F(0,0/0 g1).G1.J1, at: 1793493420 }
+      · Settled { job: F(0,0/0 g1).G1.J1, out: 15000, used: [30000, 15000], total: 15000 }
+  T0+2h29m crank Settle       already applied (no change)
+  phase at T0+2h29m: Running
+  [mid-run] where things are, and whose:
+      Hopper(F(0,0/0 g1).G1.J1 Ore         30  owner B
+      Hopper(F(0,0/0 g1).G1.J1 Wood        15  owner B
+      Output(F(0,0/0 g1).G1.J1 Horses       15  owner B
+      consumed ore 30 wood 15 / produced arms 15 / custody check Ok(())
+  A's facility: 3 workshops, 2 lent; A's own arms rate 4/h; A's arms stock 10.100
+  T0+4h23m crank Settle       ok, 2 event(s)
+      · Settled { job: F(0,0/0 g1).G1.J1, out: 15000, used: [30000, 15000], total: 30000 }
+      · Completed { job: F(0,0/0 g1).G1.J1, at: 1793506920, out: 30000 }
+  phase at T0+4h23m: Completed(1793506920)
+
+-- B claims into a return caravan; it arrives home --
+  T0+4h23m B     Claim        ok, 1 event(s)
+      · Claimed { job: F(0,0/0 g1).G1.J1, output: 30000, refund: [0, 0], to: Caravan(45058) }
+  T0+4h23m B     Claim        already applied (no change)
+  [claimed] where things are, and whose:
+      Caravan(45058)           Horses       30  owner B
+      consumed ore 60 wood 30 / produced arms 30 / custody check Ok(())
+  T0+4h50m B's village receives 30 arms
+
+  During B's run (13500 s): A's own arms 15 + B's arms 30 = 45 ≤ 3 copies' capacity 45
+  Without lending A would have made 45; the difference 30 is the 2 lent copies' capacity 30
+  A's signatures after the grant: 0
+
+== Phase 2: two users compete for the same lent capacity ==
+  T0+4h25m A     Grant        ok, 1 event(s)
+      · Granted { grant: F(0,0/0 g1).G2, user: Actor(c3c3…) }
+  T0+4h25m B     Reserve      ok, 1 event(s)
+      · Reserved { job: F(0,0/0 g1).G1.J2, units: 1, start: 1793510700, end: 1793517900, max_output: 8000 }
+  (C asks for 2 copies while B holds 1 of the 2 lent)
+  T0+4h25m C     Reserve      refused: CapacityExceeded (6)
+  T0+4h25m C     Reserve      ok, 1 event(s)
+      · Reserved { job: F(0,0/0 g1).G2.J1, units: 1, start: 1793514300, end: 1793521500, max_output: 8000 }
+  (C wants a second copy for the same hours: B's booking still holds it)
+  T0+4h25m C     Reserve      refused: CapacityExceeded (6)
+  (A tries to take a copy back while both are booked)
+  T0+4h25m A     Reclaim      refused: ReclaimBlocked (7)
+  (B never brought materials for its job 2: at its start it ends at once and frees its copy)
+  T0+5h25m crank Settle       ok, 2 event(s)
+      · Started { job: F(0,0/0 g1).G1.J2, at: 1793510700 }
+      · Completed { job: F(0,0/0 g1).G1.J2, at: 1793510700, out: 0 }
+  phase of B's job 2: Some(Completed(1793510700))
+  T0+5h25m C     Reserve      ok, 1 event(s)
+      · Reserved { job: F(0,0/0 g1).G2.J2, units: 1, start: 1793514300, end: 1793521500, max_output: 8000 }
+  occupied at T0+5h25m: 0 of 2 lent
+  occupied at T0+6h25m: 2 of 2 lent
+  occupied at T0+7h25m: 2 of 2 lent
+  occupied at T0+8h25m: 0 of 2 lent
+  occupied at T0+9h25m: 0 of 2 lent
+
+Final custody check: Ok(())

@@ -13,11 +13,13 @@ import { profileForSeason } from '../../../client/src/frontier/profile.mjs';
 // season is this one → the authority's signature → replay and the signer's
 // rate limit → the quota (checked, not spent) → co-sign → simulate with
 // signatures, reading the fee payer's post-balance → the drain guard →
-// charge the quota → send. With `ctx.residents` (NFT-bound residents), the
-// signing key must act for the resident's current holder, checked after the
-// replay claim and again right before the send. A failed simulation charges nothing and sends
-// nothing. The answer does not wait for confirmation: GET /f/tx/{signature}
-// reports it.
+// charge the quota → durably record the signed attempt → send. With
+// `ctx.residents` (NFT-bound residents), the signing key must act for the
+// resident's current holder, checked after the replay claim and again right
+// before the send. A failed simulation charges nothing and sends nothing.
+// Once sendRawTransaction is called, an RPC error does not prove that nothing
+// landed; the charged quota and signed signature remain for reconciliation.
+// GET /f/tx/{signature} reports the chain status.
 import { createHash } from 'node:crypto';
 import { PublicKey } from '@solana/web3.js';
 import { encode as base58 } from '../../../client/src/base58.mjs';
@@ -105,6 +107,33 @@ export async function citizenQuota(ctx, citizen) {
   return { left, resetsAt };
 }
 
+/** RPC acknowledgement is submission, not finality. Block another sponsor
+ * write until every signed attempt has a finalized chain outcome. */
+async function requireNoUnfinalizedRelaySend(ctx) {
+  const attempts = ctx.store.state.relayPending ??= {};
+  for (const attempt of Object.values(attempts)) {
+    if (attempt.status === 'finalized') continue;
+    let status = null;
+    try {
+      status = (await ctx.connection.getSignatureStatuses([attempt.signature], { searchTransactionHistory: true }))?.value?.[0] ?? null;
+    } catch { /* a failed status lookup is not proof that nothing was sent */ }
+    if (status?.confirmationStatus !== 'finalized') {
+      throw new RouteError(503, 'a prior relay send has no finalized outcome; new writes are paused', 'RelayPending', { signature: attempt.signature });
+    }
+    attempt.status = 'finalized';
+    attempt.outcome = status.err ? 'failed' : 'landed';
+    try { ctx.store.save(); } catch {
+      attempt.status = 'unknown';
+      delete attempt.outcome;
+      throw new RouteError(503, 'cannot durably record the final relay outcome', 'RelayPending', { signature: attempt.signature });
+    }
+  }
+}
+
+function unfinalizedRelaySend(attempts) {
+  return Object.values(attempts).find(attempt => attempt.status !== 'finalized') ?? null;
+}
+
 /** The game day and the lamport cap for quotas, from the chain. */
 async function quotaFrame(ctx) {
   const season = await ctx.chain.season();
@@ -116,12 +145,14 @@ async function quotaFrame(ctx) {
  * The common sponsoring path of POST /f/relay and POST /f/join, from the
  * classified `shape` on: returns the answer body. `extraSigners`: relay
  * keys that sign besides the fee payer (the join gate); `onSent({signature, moved})`:
- * after the send (consumes an invite); `extraAllowance`: lamports the fee payer
+ * after the RPC acknowledges submission; `extraAllowance`: lamports the fee payer
  * may move beyond the kind's own (a paid Join: the prize Entry's rent);
  * `beforeSend({signature, lastValidBlockHeight})`: a synchronous last check
  * right before the bytes leave (the agent wallet re-checks its mode and
  * records the signature) whose throw refuses the transaction, charging
- * nothing; `viaAgent`: the agent gateway's own path (see AgentKeyDirect).
+ * nothing. A callback may consume a one-time permission before sending;
+ * such a permission remains used if the RPC outcome is ambiguous.
+ * `viaAgent`: the agent gateway's own path (see AgentKeyDirect).
  */
 export async function sponsor(ctx, req, { tx, wire, shape, requester = null, requesterCitizenAddr = null, extraSigners = [], limitKind = 'relay', lastValidBlockHeight, onSent, beforeSend, extraAllowance = 0n, viaAgent = false }) {
   const { pool, connection, chain, quota, relayed, limiter, blockhashes } = ctx;
@@ -133,6 +164,11 @@ export async function sponsor(ctx, req, { tx, wire, shape, requester = null, req
   // Signature first: a forged transaction naming someone's key costs that key nothing.
   if (shape.authority && !signedBy(tx, shape.authority)) throw new RouteError(400, 'the authority\'s signature is missing or invalid', 'BadSignature');
   const replayKey = shape.authority ? `sig:${base58(tx.signatures[tx.signers.indexOf(shape.authority)])}` : `msg:${createHash('sha256').update(tx.message).digest('hex')}`;
+  await requireNoUnfinalizedRelaySend(ctx);
+  const attempts = ctx.store.state.relayPending;
+  if (Object.hasOwn(attempts, replayKey)) {
+    throw new RouteError(409, 'this exact transaction was already submitted or remains unresolved', 'Duplicate', { signature: attempts[replayKey].signature });
+  }
   // Claimed before any await: identical concurrent submissions cannot all
   // pass (integ-W2 review of W2-D); released on every refusal below.
   relayed.refuseRepeat(replayKey);
@@ -185,22 +221,45 @@ export async function sponsor(ctx, req, { tx, wire, shape, requester = null, req
   quota.refund(key, { day: frame.day, lamports: allowance - moved, txs: 0 });
   if (post !== null) pool.note(shape.feePayer, post);
   let expiry;
-  let signature;
+  const signedSignature = signatureOf(signed);
   try {
     // Read again right before the bytes leave: a transfer that landed while this request was simulated refuses it.
     const late = await residentRefusal(ctx, residentCitizen, shape.authority);
     if (late) throw residentRouteError(late);
     expiry = await blockhashes.expiryOf(tx.recentBlockhash, lastValidBlockHeight);
-    beforeSend?.({ signature: signatureOf(signed), lastValidBlockHeight: expiry });
-    signature = await connection.sendRawTransaction(signed, { skipPreflight: true, maxRetries: 5 });
+    // Another request may have reached sendRawTransaction while this one
+    // simulated. Check again immediately before the durable attempt write.
+    const pending = unfinalizedRelaySend(attempts);
+    if (pending) throw new RouteError(503, 'a prior relay send has no finalized outcome; new writes are paused', 'RelayPending', { signature: pending.signature });
+    beforeSend?.({ signature: signedSignature, lastValidBlockHeight: expiry });
   } catch (e) {
-    // Nothing was sent: nothing is charged, the bytes may be sent again
-    // (and a Join's invite is not consumed; the caller releases it).
+    // Every failure above is before the RPC call; these bytes were not sent.
     quota.refund(key, { day: frame.day, lamports: moved });
     release();
     throw e;
   }
-  ctx.sent.set(signature, { lastValidBlockHeight: expiry, kind: shape.name });
+  // Store the signed signature before RPC. A timeout cannot establish that
+  // the transaction was not sent; the quota and replay lock remain held.
+  attempts[replayKey] = { status: 'unknown', signature: signedSignature, lastValidBlockHeight: expiry,
+    kind: shape.name, quotaKey: key, day: frame.day, moved: String(moved) };
+  try { ctx.store.save(); } catch {
+    throw new RouteError(503, 'cannot durably record a signed relay attempt', 'RelayPending', { signature: signedSignature });
+  }
+  ctx.sent.set(signedSignature, { lastValidBlockHeight: expiry, kind: shape.name });
+  let signature;
+  try {
+    signature = await connection.sendRawTransaction(signed, { skipPreflight: true, maxRetries: 5 });
+  } catch {
+    throw new RouteError(504, 'relay send outcome is unknown; inspect the signed signature before another write', 'RelayOutcomeUnknown', { signature: signedSignature });
+  }
+  if (signature !== signedSignature) {
+    throw new RouteError(504, 'RPC returned a different signature; relay send outcome is unknown', 'RelayOutcomeUnknown', { signature: signedSignature });
+  }
+  attempts[replayKey].status = 'submitted';
+  try { ctx.store.save(); } catch {
+    attempts[replayKey].status = 'unknown';
+    throw new RouteError(503, 'cannot durably record relay submission', 'RelayPending', { signature: signedSignature });
+  }
   onSent?.({ signature, moved });
   ctx.log?.(`f/relay ${shape.name} ${signature} (fee payer ${shape.feePayer}, quota ${key}, moved ${moved})`);
   return { ok: true, signature };
@@ -258,7 +317,7 @@ export const relayRoutes = {
     if (!nonce) throw new RouteError(403, 'this season needs a valid, unused invite to join', 'InviteRequired');
     try {
       return { body: await sponsor(ctx, req, { tx, wire, shape, extraSigners: [ctx.gateKey], limitKind: 'join', lastValidBlockHeight: b.lastValidBlockHeight,
-        onSent: () => ctx.invites.consume(nonce) }) };
+        beforeSend: () => ctx.invites.consume(nonce) }) };
     } finally {
       ctx.invites.release(nonce);
     }

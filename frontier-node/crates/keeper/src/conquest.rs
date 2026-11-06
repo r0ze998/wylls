@@ -376,6 +376,7 @@ impl ConquestDuty {
                 }
                 let _ = code;
             }
+            Outcome::Unresolved { .. } => {}
             Outcome::Dead { code, .. } => {
                 if *code == Some(abi::err::NOT_IMPLEMENTED) {
                     self.unsupported.insert(kind);
@@ -1307,7 +1308,8 @@ mod tests {
             assert!(d.conquest.hot((p, q)));
             // The chain: GatherClash and ResolveFromInputs land; the step
             // of bell b is the native model's.
-            e.engine.cancel(&gather);
+            e.engine
+                .cancel(&gather, crate::engine::CancelReason::ChainStateObserved);
             let rep = cm::report_quiet(&pd, b).unwrap();
             let out = cm::step(&mut pd, b, &rep, &prm).unwrap();
             if out.keep_taken.is_some() {
@@ -1403,7 +1405,8 @@ mod tests {
         assert_eq!((x.to, x.days, n), (b0 + 27, 1, 3 + 1 + 27));
         assert!(e.keys("skip:").is_empty());
         // it landed: the Province is at b0 + 27; the next one reaches the arrival
-        e.engine.cancel(&first);
+        e.engine
+            .cancel(&first, crate::engine::CancelReason::ChainStateObserved);
         testkit::set_resolved_next(&mut pd, b0 + 27);
         e.put(e.addrs.province(3, 0), pd.clone());
         d.on_outcome(
@@ -1664,7 +1667,10 @@ mod tests {
             .lock()
             .unwrap()
             .remove(&e.addrs.holding(2, 0, 4));
-        e.engine.cancel("capture:3,0:6:290");
+        e.engine.cancel(
+            "capture:3,0:6:290",
+            crate::engine::CancelReason::ChainStateObserved,
+        );
         let mut c2 = ConquestDuty::default();
         c2.on_log(&due_log, 5, None);
         c2.observe((3, 0), &pd, 300, 0, 1);
@@ -1691,7 +1697,10 @@ mod tests {
             .await;
         assert!(e.engine.is_pending("capture:3,0:6:290"));
         // Landed: counted, latency from the first plan, not planned again.
-        e.engine.cancel("capture:3,0:6:290");
+        e.engine.cancel(
+            "capture:3,0:6:290",
+            crate::engine::CancelReason::ChainStateObserved,
+        );
         c2.on_outcome(
             "capture:3,0:6:290",
             &Outcome::Landed {
@@ -1811,8 +1820,10 @@ mod tests {
         // After end_bell the lapsed siege settles to src with its slot, but
         // only once the Province is resolved through end_bell - 1: a
         // siege may still complete at bell 1,007 (CQ2-D review, §5.9).
-        e.engine.cancel(&k1[0]);
-        e.engine.cancel(&k2[0]);
+        e.engine
+            .cancel(&k1[0], crate::engine::CancelReason::ChainStateObserved);
+        e.engine
+            .cancel(&k2[0], crate::engine::CancelReason::ChainStateObserved);
         e.conquest(
             &mut c,
             30,
@@ -1906,7 +1917,8 @@ mod tests {
         assert_eq!(ix[0].accounts[2].pubkey, e.addrs.march_state(m, n));
         assert!(c.fold_urgent.is_empty());
         // Landed: next_hour 5; hour 5 waits for b (resolved through 24).
-        e.engine.cancel(&k);
+        e.engine
+            .cancel(&k, crate::engine::CancelReason::ChainStateObserved);
         c.on_outcome(
             &k,
             &Outcome::Landed {

@@ -4,6 +4,8 @@
 //   GET  /f/agent/terms                      prices, mint, custody account, sources
 //   GET  /f/agent?id=                        the agent's public view (keys are public, balances, policy, history)
 //   GET  /f/agent/session-terms?id=          what the owner puts in SetSession (the agent's key)
+//   GET  /f/agent/fate?id=&key=              one action by its idempotency key: signature, lifetime, signedAt, the chain's
+//                                            fate by fate.mjs's rule, its commitment, and whether the node could be asked (read-only)
 //   POST /f/agent/command {command, signature}
 //        an owner command signed by the owner's wallet (owner-auth.mjs):
 //          op create             params {village: [p, q, site], policy}        → {agent, capability (shown once), sessionTerms}
@@ -68,6 +70,12 @@ export const agentRoutes = {
   },
 
   'GET /f/agent/session-terms': async (ctx, req) => ({ body: agents(ctx).sessionTerms(idOf(req)) }),
+
+  'GET /f/agent/fate': async (ctx, req) => {
+    const key = req.url.searchParams.get('key');
+    if (!key || key.length > 128) throw new RouteError(400, 'key (the idempotency key) is required', 'BadRequest');
+    return { body: await agents(ctx).actionFate(idOf(req), key) };
+  },
 
   'GET /f/agent/by-owner': async (ctx, req) => {
     const owner = req.url.searchParams.get('owner');

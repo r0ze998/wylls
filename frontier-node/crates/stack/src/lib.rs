@@ -26,6 +26,7 @@ pub mod load;
 pub mod ports;
 pub mod prize;
 pub mod procs;
+pub mod recovery_seal;
 pub mod report;
 pub mod resume;
 pub mod run;

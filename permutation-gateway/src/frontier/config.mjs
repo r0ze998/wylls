@@ -3,10 +3,12 @@
 // follows — ports in 41000–41999, never one of the owner's reserved ports,
 // and the public listener on loopback only (the herald proxies it as
 // `/gw/*`, I-51).
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { Keypair, PublicKey } from '@solana/web3.js';
 import { LOCAL_DIR } from '../config.mjs';
+import { decode as fromBase58 } from '../../client/src/base58.mjs';
 
 export const FRONTIER_DIR = path.join(LOCAL_DIR, 'frontier');
 
@@ -45,6 +47,8 @@ export const FRONTIER_DEFAULTS = Object.freeze({
   prizeLedgerFile: null,
   inviteSecretFile: path.join(FRONTIER_DIR, 'invite.secret'),
   stateFile: path.join(FRONTIER_DIR, 'relay-state.json'),
+  /** Explicit restart mode: require the existing state and keys, never create replacements. */
+  requireExistingState: false,
   /** Public co-signing pauses (503 OperatorLowFunds) below this pool total. */
   minPoolSol: 1,
   /** A payer below this is not drawn for GET /f/relay. */
@@ -93,7 +97,7 @@ export function portProblem(port, what = 'port') {
 const LOOPBACK = new Set(['127.0.0.1', '::1', 'localhost']);
 
 /** Flags that take no value. */
-const BOOLEAN_FLAGS = Object.freeze({ dev: 'dev', 'agent-wallet': 'agentWallet', 'agent-runner': 'agentRunner', 'agent-llm-strict-schema': 'agentLlmStrictSchema' });
+const BOOLEAN_FLAGS = Object.freeze({ dev: 'dev', 'agent-wallet': 'agentWallet', 'agent-runner': 'agentRunner', 'agent-llm-strict-schema': 'agentLlmStrictSchema', 'require-existing-state': 'requireExistingState' });
 
 /**
  * The relay's configuration from flags (`--rpc URL --program ID --season N
@@ -143,6 +147,7 @@ export function loadFrontierConfig(argv = [], env = {}) {
     prizeLedgerFile: pick('prize-ledger-file', 'FRONTIER_PRIZE_LEDGER_FILE', d.prizeLedgerFile),
     inviteSecretFile: pick('invite-secret-file', 'FRONTIER_INVITE_SECRET_FILE', d.inviteSecretFile),
     stateFile: pick('state-file', 'FRONTIER_RELAY_STATE', d.stateFile),
+    requireExistingState: flags.requireExistingState === true,
     minPoolSol: Number(pick('min-pool-sol', 'FRONTIER_MIN_POOL_SOL', d.minPoolSol)),
     minPayerLamports: int(pick('min-payer-lamports', 'FRONTIER_MIN_PAYER_LAMPORTS', d.minPayerLamports), '--min-payer-lamports'),
     dev: !!(flags.dev ?? (env.FRONTIER_DEV === '1' || d.dev)),
@@ -217,4 +222,190 @@ export function secretFile(file, { create = true } = {}) {
   const b = randomBytes(32);
   writeFileSync(file, `${b.toString('hex')}\n`, { mode: 0o600 });
   return b;
+}
+
+const isObject = v => v !== null && typeof v === 'object' && !Array.isArray(v);
+const nonnegative = v => Number.isSafeInteger(v) && v >= 0;
+const signature64 = v => {
+  try { return typeof v === 'string' && v.length <= 128 && fromBase58(v).length === 64; } catch { return false; }
+};
+const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
+// Match quota.mjs's burst calculation without importing its HTTP route
+// dependencies during a file-only resume preflight.
+const dailyOverride = Number(process.env.FRONTIER_RELAY_TXS_PER_DAY) || 0;
+const quotaBurst = dailyOverride > 0 ? Math.max(60, dailyOverride * 2) : 60;
+
+/** Reject malformed persisted budgets and one-time grants before a resumed listener opens. */
+export function validateRelayRecords(state, { prize = false } = {}) {
+  if (!Number.isSafeInteger(quotaBurst) || !isObject(state) || !isObject(state.quota) || !isObject(state.invitesUsed)
+      || !isObject(state.relayPending)
+      || (prize && (!isObject(state.faucet) || !isObject(state.claimPending)))
+      || (state.faucet != null && !isObject(state.faucet))
+      || (state.claimPending != null && !isObject(state.claimPending))) {
+    throw new Error('relay quota/invite/faucet records or claim records are invalid; refusing resume');
+  }
+  for (const [key, attempt] of Object.entries(state.relayPending)) {
+    const validReplayKey = key.startsWith('sig:') ? signature64(key.slice(4)) : /^msg:[0-9a-f]{64}$/.test(key);
+    if (!validReplayKey || !isObject(attempt)
+        || !['unknown', 'submitted', 'finalized'].includes(attempt.status)
+        || (attempt.status === 'finalized' && !['landed', 'failed'].includes(attempt.outcome))
+        || (attempt.outcome !== undefined && (attempt.status !== 'finalized' || !['landed', 'failed'].includes(attempt.outcome)))
+        || !signature64(attempt.signature)
+        || !nonnegative(attempt.lastValidBlockHeight)
+        || typeof attempt.kind !== 'string' || !/^[A-Za-z0-9_]{1,64}$/.test(attempt.kind)
+        || typeof attempt.quotaKey !== 'string' || attempt.quotaKey.length < 1 || attempt.quotaKey.length > 300
+        || !nonnegative(attempt.day)
+        || typeof attempt.moved !== 'string' || attempt.moved.length > 20 || !/^(0|[1-9][0-9]*)$/.test(attempt.moved)
+        || BigInt(attempt.moved) > 0xffff_ffff_ffff_ffffn) {
+      throw new Error('relay signed-attempt record is invalid; refusing resume');
+    }
+  }
+  for (const [key, record] of Object.entries(state.quota)) {
+    if (!/^(citizen|addr):.{1,256}$/.test(key) || !isObject(record)
+        || !nonnegative(record.day) || !nonnegative(record.left) || record.left > quotaBurst
+        || !nonnegative(record.lamports)) {
+      throw new Error('relay quota record is invalid; refusing resume');
+    }
+  }
+  for (const [nonce, usedAt] of Object.entries(state.invitesUsed)) {
+    if (!/^[0-9a-f]{24}$/.test(nonce) || !nonnegative(usedAt)) {
+      throw new Error('relay used-invite record is invalid; refusing resume');
+    }
+  }
+  for (const [wallet, grant] of Object.entries(state.faucet ?? {})) {
+    let canonicalWallet = false;
+    try { canonicalWallet = new PublicKey(wallet).toBase58() === wallet; } catch { /* invalid key */ }
+    if (!canonicalWallet || !isObject(grant)
+        || !['pending', 'landed'].includes(grant.status)
+        || typeof grant.amount !== 'string' || grant.amount.length > 20
+        || !/^[1-9][0-9]*$/.test(grant.amount)
+        || BigInt(grant.amount) > 0xffff_ffff_ffff_ffffn
+        || !signature64(grant.signature)
+        || !nonnegative(grant.at)) {
+      throw new Error('relay faucet record is invalid; refusing resume');
+    }
+  }
+  for (const [wallet, claim] of Object.entries(state.claimPending ?? {})) {
+    let canonicalWallet = false;
+    try { canonicalWallet = new PublicKey(wallet).toBase58() === wallet; } catch { /* invalid key */ }
+    if (!canonicalWallet || !isObject(claim)
+        || !['pending', 'landed'].includes(claim.status)
+        || !signature64(claim.signature)
+        || !nonnegative(claim.at)) {
+      throw new Error('relay claim record is invalid; refusing resume');
+    }
+  }
+}
+
+/** A missing signed-deposit journal is unsafe to treat as an empty one after restart. */
+export function validateAgentDepositSends(wallet) {
+  if (!isObject(wallet?.depositSends) || !isObject(wallet.agents)
+      || !isObject(wallet.deposits) || !isObject(wallet.ownerNonces)) {
+    throw new Error('agent wallet signed-deposit records are invalid; refusing resume');
+  }
+  for (const [signature, send] of Object.entries(wallet.depositSends)) {
+    if (!signature64(signature) || !isObject(send) || send.signature !== signature
+        || typeof send.agentId !== 'string' || !Object.hasOwn(wallet.agents, send.agentId)
+        || !signature64(send.ownerSignature)
+        || typeof send.amount !== 'string' || send.amount.length > 20 || !/^[1-9][0-9]*$/.test(send.amount)
+        || BigInt(send.amount) > 0xffff_ffff_ffff_ffffn
+        || (send.lastValidBlockHeight !== null && !nonnegative(send.lastValidBlockHeight))
+        || (send.slotFloor !== null && !nonnegative(send.slotFloor))
+        || !['pending', 'landed', 'failed', 'expired'].includes(send.state)
+        || !nonnegative(send.at)
+        || (send.decidedAt !== undefined && !nonnegative(send.decidedAt))
+        || (send.state === 'pending' && send.decidedAt !== undefined)) {
+      throw new Error('agent wallet signed-deposit record is invalid; refusing resume');
+    }
+  }
+}
+export const runIdentity = cfg => ({
+  programId: String(cfg.programId), seasonId: String(cfg.seasonId),
+  prizeProgram: cfg.prizeProgram ?? null, prizeMint: cfg.prizeMint ?? null,
+});
+export const sameRun = (saved, cfg) => isObject(saved)
+  && Object.entries(runIdentity(cfg)).every(([key, value]) => saved[key] === value);
+
+function existingObject(file, name) {
+  if (!file || !existsSync(file)) throw new Error(`${name} is missing; refusing relay resume`);
+  const value = JSON.parse(readFileSync(file, 'utf8'));
+  if (!isObject(value)) throw new Error(`${name} is invalid; refusing relay resume`);
+  return value;
+}
+
+/** Read a saved keypair without the create-on-miss behavior used by a new run. */
+export function existingKeypair(file, name) {
+  if (!file || !existsSync(file)) throw new Error(`${name} is missing; refusing relay resume`);
+  const bytes = JSON.parse(readFileSync(file, 'utf8'));
+  if (!Array.isArray(bytes) || bytes.length !== 64 || bytes.some(b => !Number.isInteger(b) || b < 0 || b > 255)) {
+    throw new Error(`${name} is invalid; refusing relay resume`);
+  }
+  return Keypair.fromSecretKey(Uint8Array.from(bytes));
+}
+
+/** Fail before any listener, new key, or state store is created on an explicit resume. */
+export function requireExistingRelayFiles(cfg) {
+  if (!cfg.requireExistingState) return;
+  const state = existingObject(cfg.stateFile, 'relay state');
+  if (!sameRun(state.runIdentity, cfg)) {
+    throw new Error('relay state identity or quota/invite/faucet records are invalid; refusing resume');
+  }
+  validateRelayRecords(state, { prize: !!cfg.prizeProgram });
+  const masterSeed = secretFile(cfg.masterSeedFile, { create: false });
+  const inviteSecret = secretFile(cfg.inviteSecretFile, { create: false });
+  if (state.runIdentity.masterSeedSha256 !== sha256(masterSeed)
+      || state.runIdentity.inviteSecretSha256 !== sha256(inviteSecret)) {
+    throw new Error('relay state and saved secrets disagree; refusing resume');
+  }
+  const gate = cfg.gateKeyFile ? existingKeypair(cfg.gateKeyFile, 'join gate key') : null;
+  const faucet = cfg.faucetKeyFile ? existingKeypair(cfg.faucetKeyFile, 'faucet key') : null;
+  if (state.runIdentity.gate !== (gate?.publicKey.toBase58() ?? null)
+      || state.runIdentity.faucet !== (faucet?.publicKey.toBase58() ?? null)) {
+    throw new Error('relay state and saved keys disagree; refusing resume');
+  }
+  if (!cfg.agentWallet) return;
+  const agentFile = cfg.agentStateFile ?? path.join(path.dirname(cfg.stateFile), 'agent-wallet.json');
+  const agent = existingObject(agentFile, 'agent wallet state');
+  if (!sameRun(agent.runIdentity, cfg) || !isObject(agent.agentWallet)
+      || !isObject(agent.agentWallet.agents) || !isObject(agent.agentWallet.deposits)
+      || !isObject(agent.agentWallet.ownerNonces)) {
+    throw new Error('agent wallet state identity or records are invalid; refusing resume');
+  }
+  validateAgentDepositSends(agent.agentWallet);
+  const custody = existingKeypair(cfg.agentCustodyKeyFile, 'agent custody key');
+  if (agent.runIdentity.custody !== custody.publicKey.toBase58()) {
+    throw new Error('agent wallet state and custody key disagree; refusing resume');
+  }
+  for (const [id, record] of Object.entries(agent.agentWallet.agents)) {
+    if (!/^[A-Za-z0-9-]{1,64}$/.test(id) || !isObject(record)) {
+      throw new Error('agent wallet has an invalid agent record; refusing resume');
+    }
+    const file = path.join(cfg.agentKeysDir, `${id}.key`);
+    if (!existsSync(file)) throw new Error('an agent signing key is missing; refusing resume');
+    const seed = readFileSync(file, 'utf8').trim();
+    if (!/^[0-9a-f]{64}$/.test(seed)
+        || Keypair.fromSeed(Buffer.from(seed, 'hex')).publicKey.toBase58() !== record.agentKey) {
+      throw new Error('an agent signing key disagrees with saved state; refusing resume');
+    }
+  }
+  // Reconciliation currently reports startup failure only to the log. Do
+  // not start a runner or accept commands with an unproved restored budget.
+  throw new Error('agent wallet resume is not supported until initial reconciliation is required');
+}
+
+/** First-run marker, written before opening a listener or accepting a sponsor request. */
+export function persistInitialRelayState(store, cfg, { masterSeed, inviteSecret, gate = null, faucet = null }) {
+  store.state ??= {};
+  store.state.quota ??= {};
+  store.state.invitesUsed ??= {};
+  store.state.relayPending ??= {};
+  if (cfg.prizeProgram) {
+    store.state.faucet ??= {};
+    store.state.claimPending ??= {};
+  }
+  store.state.runIdentity = {
+    ...runIdentity(cfg), gate, faucet,
+    masterSeedSha256: sha256(masterSeed), inviteSecretSha256: sha256(inviteSecret),
+  };
+  store.save();
 }

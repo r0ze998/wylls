@@ -125,8 +125,20 @@ impl Payers {
 
     /// Re-reads every balance.
     pub async fn refresh<P: ChainPort>(&mut self, port: &P, slot: u64) -> PortResult<()> {
+        self.refresh_at_least(port, slot, 0).await
+    }
+
+    /// Re-reads balances from a context that includes a finalized care
+    /// transfer. This is required before planning the next System transfer;
+    /// a stale confirmed snapshot could otherwise repeat the same top-up.
+    pub async fn refresh_at_least<P: ChainPort>(
+        &mut self,
+        port: &P,
+        slot: u64,
+        min_context_slot: u64,
+    ) -> PortResult<()> {
         let keys = self.all_addresses();
-        let got = port.accounts(&keys, 0).await?;
+        let got = port.accounts(&keys, min_context_slot).await?;
         for (k, a) in keys.iter().zip(got) {
             self.balances.insert(*k, a.map(|a| a.lamports).unwrap_or(0));
         }

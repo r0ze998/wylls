@@ -30,13 +30,17 @@ import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypt
 import { encode as base58 } from '../../../client/src/base58.mjs';
 import { fromBase64 } from '../../../client/src/bytes.mjs';
 import { ixOf } from '../../../client/src/frontier/codec.mjs';
+import { citizenTag, seed } from '../../../client/src/frontier/addresses.mjs';
+import { LAYOUTS as LAYOUTS_V2 } from '../../../client/src/frontier/abi-v2-layouts.mjs';
+
+/** The S1 seed tags (the v2 layout table): Vault and Caravan for SendCaravan (workstream 03 patch 0005). */
+const S1_TAG = Object.fromEntries(LAYOUTS_V2.accounts.filter(a => ['Vault', 'Caravan'].includes(a.kind) && a.seed_tag).map(a => [a.kind, a.seed_tag]));
 import { isV2, profileForSeason } from '../../../client/src/frontier/profile.mjs';
 import { classify, shapeMessage } from '../../../client/src/frontier/shapes.mjs';
 import { parseTransaction, wireTransaction } from '../../../client/src/solana-tx.mjs';
 import { signatureOf, signedBy } from '../../cosign.mjs';
 import { simulateWatching } from '../chain.mjs';
 import { drainGuard } from '../shapes.mjs';
-import { landed } from '../routes/prize.mjs';
 import { citizenQuota, residentRefusal, signAs } from '../routes/relay.mjs';
 import { PublicKey } from '@solana/web3.js';
 import { RouteError } from '../../routes/errors.mjs';
@@ -66,7 +70,7 @@ const big = v => BigInt(v ?? 0);
  * season's addresses (the mirror of the web client's fplay.accountsFor for
  * the delegable actions; the fee payer is added by shapeMessage).
  */
-export function accountsFor(name, { addresses: A, actor, owner, holding: [p, q, site], fields = {}, profile = 1 }) {
+export function accountsFor(name, { addresses: A, actor, owner, holding: [p, q, site], fields = {}, route = null, profile = 1 }) {
   // The conquest layouts (profile 2, MC) and S1 (profile 3, every MC rule kept) name the same accounts.
   const cq = isV2(profile);
   const base = { actor, season: A.season, citizen: A.citizen(owner) };
@@ -78,6 +82,21 @@ export function accountsFor(name, { addresses: A, actor, owner, holding: [p, q, 
     case 'Build': return { ...base, holding, ...(cq || Number(fields.item) === ITEM_WALLS ? { province } : {}) };
     case 'Muster': case 'Garrison': return { ...base, holding, province };
     case 'Dissolve': case 'Explore': case 'Depart': return { ...base, holding, province, ...(cq ? { holding_province: province } : {}) };
+    case 'SendCaravan': {
+      // Workstream 03 patch 0005 (S1 only): from the agent's village to `route.dst`; the program re-checks the
+      // owner, the places, the path and the session rule (a send to another player needs the wallet).
+      if (profile < 3) throw new AgentError(ERR.ACTION_NOT_ALLOWED, 'SendCaravan exists in S1 seasons only', 403);
+      if (!route) throw new AgentError(ERR.BAD_REQUEST, 'SendCaravan needs action.route');
+      const d = route.dst;
+      const named = { dst_kind: d.kind === 'vault' ? 2 : 1, dst_p: d.p, dst_q: d.q, dst_at: d.kind === 'vault' ? d.tile : d.site };
+      for (const [k, v] of Object.entries(named)) if (Number(fields[k]) !== v) throw new AgentError(ERR.BAD_REQUEST, `SendCaravan: ${k} does not match action.route.dst`);
+      const from = route.src ?? { p, q };
+      if (route.provinces[0].p !== from.p || route.provinces[0].q !== from.q) throw new AgentError(ERR.BAD_REQUEST, 'SendCaravan: the first path Province is the source\'s');
+      const le = (v, n) => Array.from({ length: n }, (_, i) => Number((BigInt.asUintN(8 * n, BigInt(v)) >> BigInt(8 * i)) & 0xffn));
+      const place = x => (x.kind === 'vault' ? A.of(seed(S1_TAG.Vault, [...le(x.p, 4), ...le(x.q, 4), x.tile])) : A.holding(x.p, x.q, x.site));
+      const caravan = A.of(seed(S1_TAG.Caravan, [...le(citizenTag(base.citizen), 8), ...le(fields.seq, 4)]));
+      return { ...base, src: route.src ? place(route.src) : holding, dst: place(d), caravan, path_province: route.provinces.map(v => A.province(v.p, v.q)) };
+    }
     default: throw new AgentError(ERR.ACTION_NOT_ALLOWED, `${name} is not an action an agent sends`, 403);
   }
 }
@@ -109,6 +128,39 @@ const resultOf = (rec, key, status, extra = {}) => ({
   ok: status === RESULT_STATUS.SENT, requestId: key, agentId: rec.agentId, status, policyVersion: rec.policy.version, modeEpoch: rec.modeEpoch, charges: [], ...extra,
 });
 
+/**
+ * What a caller needs to follow a signed transaction itself (workstream 04's
+ * run executor, workstream 05's RunReceipt): the signature and its lifetime,
+ * fixed when the bytes left (`beforeSend`). `sent: false` says no bytes left
+ * this process. Additive fields; older entries lack them (see actionFate).
+ */
+const sendFacts = signed => (signed
+  ? { sent: true, signature: signed.signature, lastValidBlockHeight: signed.lastValidBlockHeight, slotFloor: signed.slotFloor, signedAt: signed.signedAt }
+  : { sent: false });
+
+/**
+ * One state for a caller to act on, from an action's record and fate.mjs's
+ * answer (workstream 04):
+ *   not-sent     nothing left this process (refused, or failed before sending)
+ *   landed | failed | expired   final (fate.mjs: finalized, or proved never to land)
+ *   pending      not final yet (commitment says how far it got)
+ *   unknown      past its lifetime and this node cannot show it never landed (result unknown)
+ *   unqueryable  the node could not be asked (queryFailed), or the record is not retained
+ * Exported for tests; pure.
+ */
+export function actionFateView(entry, f = null) {
+  if (!entry) return { state: 'unqueryable', retained: false, why: 'no action under this key is retained here (never received, or dropped from the kept history)' };
+  const base = { retained: true, key: entry.key, status: entry.status, ...(entry.code ? { code: entry.code } : {}) };
+  if (!entry.signature) {
+    // Before workstream 04's change a failure after signing kept no signature: such an old entry proves nothing.
+    if (entry.status === RESULT_STATUS.FAILED && entry.sent !== false) return { ...base, state: 'unknown', why: 'failed without a recorded signature (an older record): it may have been sent' };
+    return { ...base, state: 'not-sent', sent: false, why: entry.status === RESULT_STATUS.REFUSED ? 'refused before signing' : 'failed before anything was sent' };
+  }
+  const facts = { sent: true, signature: entry.signature, lastValidBlockHeight: entry.lastValidBlockHeight ?? null, slotFloor: entry.slotFloor ?? null, signedAt: entry.signedAt ?? null };
+  if (!f) return { ...base, ...facts, state: 'unqueryable', why: 'no chain reading' };
+  return { ...base, ...facts, state: f.queryFailed ? 'unqueryable' : f.fate, fate: f.fate, commitment: f.commitment ?? null, queryFailed: f.queryFailed === true, why: f.why };
+}
+
 export class AgentGateway {
   /**
    * @param {object} o
@@ -136,6 +188,8 @@ export class AgentGateway {
     this.log = log;
     /** In-flight submits by `agentId\nkey` → {hash, promise}: a concurrent repeat shares the promise. */
     this.inflight = new Map();
+    /** One sponsored deposit per agent until its earlier send has a proved outcome. */
+    this.depositInFlight = new Set();
     this.recover();
   }
 
@@ -152,14 +206,24 @@ export class AgentGateway {
   recover() {
     let released = 0;
     let unresolved = 0;
+    let unsentWithdrawals = 0;
     for (const rec of this.ledger.agents()) {
+      for (const w of Object.values(rec.withdrawals)) {
+        if (w.state !== 'pending') continue;
+        // Custody calls withdrawSending (and saves its signature) before it
+        // calls sendRawTransaction. A persisted pending withdrawal without
+        // a signature therefore cannot have left this process.
+        if (w.signature) throw new Error('pending withdrawal has a signature; audit wallet state before restart');
+        this.ledger.failWithdraw(rec.agentId, w.id, 'restart-before-send');
+        unsentWithdrawals++;
+      }
       for (const h of Object.values(rec.holds)) {
         if (h.state === 'held') { this.ledger.release(rec.agentId, h.id, 'restart'); released++; }
         else if (h.state === 'running' && this.ledger.markUnresolved(rec.agentId, h.id, 'restart')) unresolved++;
       }
     }
-    if (released || unresolved) this.log(`agent wallet: after a restart, ${released} hold(s) released and ${unresolved} model call(s) left unresolved`);
-    return { released, unresolved };
+    if (released || unresolved || unsentWithdrawals) this.log(`agent wallet: after a restart, ${released} hold(s) released, ${unsentWithdrawals} unsent withdrawal(s) returned and ${unresolved} model call(s) left unresolved`);
+    return { released, unresolved, unsentWithdrawals };
   }
 
   /**
@@ -198,6 +262,7 @@ export class AgentGateway {
 
   /** A new agent for `owner` on `village` with `policy`: its key, its record and its capability token (returned once). */
   createAgent({ owner, village, policy }) {
+    this.ledger.assertWritable();
     if (!isPubkey(owner)) throw new AgentError(ERR.BAD_REQUEST, 'owner must be a base58 wallet address');
     if (!Array.isArray(village) || village.length !== 3 || !village.every(Number.isInteger)) throw new AgentError(ERR.BAD_REQUEST, 'village must be [p, q, site]');
     const pol = normalisePolicy(policy);
@@ -245,12 +310,17 @@ export class AgentGateway {
 
   /** Credits a confirmed deposit transaction (signed by the agent's owner, to the custody account) once. */
   async deposit(agentId, signature) {
+    this.ledger.assertWritable();
     if (!this.custody) throw new AgentError(ERR.DISABLED, 'deposits are not enabled on this relay', 503);
     const rec = this.ledger.get(agentId);
     if (typeof signature !== 'string' || signature.length < 64 || signature.length > 128) throw new AgentError(ERR.BAD_REQUEST, 'signature must be a transaction signature (base58)');
+    const sponsored = this.ledger.db.depositSends[signature];
+    if (sponsored && sponsored.agentId !== agentId) throw new AgentError(ERR.DEPOSIT_INVALID, 'this sponsored deposit belongs to another agent', 409);
     const prior = this.ledger.db.deposits[signature];
     if (prior) return { credited: false, already: true, agentId: prior.agentId, amount: prior.amount, balance: this.ledger.balance(agentId) };
-    const amount = await this.custody.verifyDeposit(signature, rec.owner);
+    // A confirmed transfer can still roll back. The agent's spendable ledger
+    // balance changes only after the transaction metadata is finalized.
+    const amount = await this.custody.verifyDeposit(signature, rec.owner, { commitment: 'finalized' });
     const r = this.ledger.credit(agentId, signature, amount.toString());
     if (r.credited) this.log(`agent wallet: ${agentId} +${r.amount} (deposit ${signature})`);
     return { ...r, already: !r.credited, balance: this.ledger.balance(agentId) };
@@ -263,7 +333,8 @@ export class AgentGateway {
    * from the chain's own record of the transaction (verifyDeposit), so
    * both deposit paths credit through the same check, once per signature.
    */
-  async sponsorDeposit(agentId, { tx, wire, lastValidBlockHeight }) {
+  async sponsorDeposit(agentId, { tx }) {
+    this.ledger.assertWritable();
     if (!this.custody) throw new AgentError(ERR.DISABLED, 'deposits are not enabled on this relay', 503);
     const rec = this.ledger.get(agentId);
     const { ctx } = this;
@@ -271,23 +342,62 @@ export class AgentGateway {
     if (!signedBy(tx, rec.owner)) throw new AgentError(ERR.BAD_OWNER_SIGNATURE, 'the owner\'s signature on the deposit is missing or invalid', 401);
     const replayKey = `agent-deposit:${base58(tx.signatures[1])}`;
     ctx.relayed.refuseRepeat(replayKey, 'deposit');
-    ctx.relayed.add(replayKey);
-    let signature;
+    if (this.depositInFlight.has(agentId)) throw new AgentError(ERR.DEPOSIT_PENDING, 'a sponsored deposit is already in progress', 409);
+    this.depositInFlight.add(agentId);
     try {
-      const signed = signAs(tx, [ctx.pool.keypair(shape.feePayer)]);
-      const before = BigInt(await ctx.connection.getBalance(new PublicKey(shape.feePayer), 'confirmed'));
-      const sim = await simulateWatching(ctx.connection, signed, [shape.feePayer], ctx.programId);
-      drainGuard({ pre: before, post: sim.post[0], fee: shape.fee, allowance: shape.allowance });
-      const expiry = await ctx.blockhashes.expiryOf(tx.recentBlockhash, lastValidBlockHeight);
-      signature = await ctx.connection.sendRawTransaction(signed, { skipPreflight: true, maxRetries: 5 });
-      ctx.sent.set(signature, { lastValidBlockHeight: expiry, kind: 'AgentDeposit' });
-    } catch (e) {
-      ctx.relayed.seen.delete(replayKey);
-      throw e;
+      const pending = this.ledger.pendingDepositSend(agentId);
+      if (pending) {
+        await this.#reconcileDepositSend(pending);
+        if (this.ledger.pendingDepositSend(agentId)) throw new AgentError(ERR.DEPOSIT_PENDING, 'the previous sponsored deposit has no proved outcome yet', 409, { signature: pending.signature });
+      }
+      ctx.relayed.add(replayKey);
+      let recorded = false;
+      try {
+        const signed = signAs(tx, [ctx.pool.keypair(shape.feePayer)]);
+        const signature = signatureOf(signed);
+        const before = BigInt(await ctx.connection.getBalance(new PublicKey(shape.feePayer), 'confirmed'));
+        const sim = await simulateWatching(ctx.connection, signed, [shape.feePayer], ctx.programId);
+        drainGuard({ pre: before, post: sim.post[0], fee: shape.fee, allowance: shape.allowance });
+        // A client-supplied expiry hint can shorten the real lifetime. Only
+        // a blockhash observed by this relay is safe for non-landing proof.
+        const knownExpiry = ctx.blockhashes.known?.get(tx.recentBlockhash);
+        const expiry = Number.isSafeInteger(knownExpiry) ? knownExpiry : null;
+        const slotFloor = await slotFloorOf(ctx.connection);
+        this.ledger.recordDepositSend(agentId, { signature, ownerSignature: base58(tx.signatures[1]), amount: shape.amount, lastValidBlockHeight: expiry, slotFloor });
+        recorded = true;
+        // GET /f/tx has no history-coverage proof for its own expiry label;
+        // keep that public status unknown rather than claiming expiration.
+        ctx.sent.set(signature, { lastValidBlockHeight: null, kind: 'AgentDeposit' });
+        let reported;
+        try { reported = await ctx.connection.sendRawTransaction(signed, { skipPreflight: true, maxRetries: 5 }); }
+        catch { throw new RouteError(503, 'the deposit send result is unknown; check the recorded signature before trying another', 'SendOutcomeUnknown', { signature }); }
+        if (reported !== signature) throw new RouteError(503, 'RPC returned a different signature; the deposit outcome is unknown', 'SendOutcomeUnknown', { signature });
+        this.log(`agent wallet: deposit ${signature} of ${shape.amount} for ${agentId} sent (fee payer ${shape.feePayer})`);
+        await this.#await(signature, expiry, this.waits.deposit, slotFloor);
+        const result = await this.#reconcileDepositSend(this.ledger.db.depositSends[signature]);
+        if (result.fate === 'landed') return { ...result.credit, signature, sponsored: true };
+        if (result.fate === 'failed' || result.fate === 'expired') throw new AgentError(ERR.DEPOSIT_INVALID, 'the sponsored deposit did not land', 409, { signature });
+        throw new AgentError(ERR.DEPOSIT_PENDING, 'the sponsored deposit has no finalized result yet', 409, { signature });
+      } catch (e) {
+        if (!recorded) ctx.relayed.seen.delete(replayKey); // definitely no send
+        throw e; // once recorded, even a thrown RPC call may have sent it
+      }
+    } finally {
+      this.depositInFlight.delete(agentId);
     }
-    this.log(`agent wallet: deposit ${signature} of ${shape.amount} for ${agentId} sent (fee payer ${shape.feePayer})`);
-    await landed(ctx, signature, this.waits.deposit);
-    return { ...(await this.deposit(agentId, signature)), signature, sponsored: true };
+  }
+
+  /** Reconcile a signed deposit only from a finalized fate or a proved expiry. */
+  async #reconcileDepositSend(send) {
+    const { fate } = await this.custody.fate(send.signature, send.lastValidBlockHeight, send.slotFloor);
+    if (fate === 'landed') {
+      const credit = await this.deposit(send.agentId, send.signature); // idempotent; final metadata may still be unavailable
+      this.ledger.finishDepositSend(send.signature, fate);
+      return { fate, credit };
+    } else if (fate === 'failed' || fate === 'expired') {
+      this.ledger.finishDepositSend(send.signature, fate);
+    }
+    return { fate };
   }
 
   /** The owner's agents, briefly (public by address, as the view is public by id). */
@@ -306,6 +416,7 @@ export class AgentGateway {
    * 'sending', which `reconcile` finishes.
    */
   async withdraw(agentId, owner, { amount, all = false }) {
+    this.ledger.assertWritable();
     if (!this.custody) throw new AgentError(ERR.DISABLED, 'withdrawals are not enabled on this relay', 503);
     const rec = this.#own(agentId, owner);
     if (!all && !isAmount(amount)) throw new AgentError(ERR.BAD_REQUEST, 'amount must be a base-unit amount string, or all: true');
@@ -322,6 +433,7 @@ export class AgentGateway {
       const fate = await this.#await(sent.signature, sent.lastValidBlockHeight, this.waits.withdraw, sent.slotFloor ?? null);
       await this.#finishWithdrawal(rec, w.id, fate);
     } catch (e) {
+      if (this.ledger.actionWritesFailed) throw e;
       if (!signed) {
         this.ledger.failWithdraw(agentId, w.id, e.message);
         throw new AgentError(ERR.WITHDRAW_FAILED, `the withdrawal could not be built or signed: ${e.message}`, 502);
@@ -379,16 +491,19 @@ export class AgentGateway {
     const rec = this.ledger.get(r.agentId);
     this.#authenticate(rec, credential);
     const hash = sha256hex(canonical({ action: r.action, policyVersion: r.policyVersion, modeEpoch: r.modeEpoch ?? null, source: r.source }));
-    const prior = this.ledger.request(rec.agentId, r.idempotencyKey);
-    if (prior) {
-      if (prior.hash !== hash) throw new AgentError(ERR.IDEMPOTENCY_CONFLICT, 'this idempotency key was used for a different request', 409);
-      return { ...prior.result, replayed: true, balance: this.ledger.balance(rec.agentId) };
-    }
+    if (this.ledger.actionWritesFailed) throw new AgentError(ERR.SEND_FAILED, 'action state could not be saved; restart and audit before another send', 503);
     const flightKey = `${rec.agentId}\n${r.idempotencyKey}`;
     const flying = this.inflight.get(flightKey);
     if (flying) {
       if (flying.hash !== hash) throw new AgentError(ERR.IDEMPOTENCY_CONFLICT, 'this idempotency key is in use for a different request', 409);
       return flying.promise.then(res => ({ ...res, replayed: true }));
+    }
+    const prior = this.ledger.request(rec.agentId, r.idempotencyKey);
+    if (prior) {
+      if (!prior.hash) throw new AgentError(ERR.SEND_FAILED, 'this older action key has an unverified send; audit it before retrying', 409, { signature: prior.signature ?? null });
+      if (prior.hash !== hash) throw new AgentError(ERR.IDEMPOTENCY_CONFLICT, 'this idempotency key was used for a different request', 409);
+      if (!prior.result) throw new AgentError(ERR.SEND_FAILED, 'this action key has a saved request without a final response; inspect its prior signature', 409, { signature: prior.signature ?? null });
+      return { ...prior.result, replayed: true, balance: this.ledger.balance(rec.agentId) };
     }
     const promise = this.#run(rec, r, hash).finally(() => this.inflight.delete(flightKey));
     this.inflight.set(flightKey, { hash, promise });
@@ -411,6 +526,7 @@ export class AgentGateway {
   /** The synchronous gate every action passes before money moves; throws the refusal. */
   #gate(rec, r) {
     if (rec.mode !== MODES.AUTO) throw new AgentError(ERR.AGENT_STOPPED, 'the agent is stopped (manual mode); the owner must switch it to auto', 409, { mode: rec.mode, modeEpoch: rec.modeEpoch });
+    this.#unexpired(rec);
     if (r.policyVersion !== rec.policy.version) throw new AgentError(ERR.STALE_POLICY, `the request was decided under policy ${r.policyVersion}; the current one is ${rec.policy.version}`, 409, { policyVersion: rec.policy.version });
     if (r.modeEpoch !== undefined && r.modeEpoch !== rec.modeEpoch) throw new AgentError(ERR.STALE_MODE, `the request began in mode epoch ${r.modeEpoch}; the current one is ${rec.modeEpoch}`, 409, { modeEpoch: rec.modeEpoch });
     checkAllowed(rec.policy, r.action.name);
@@ -419,18 +535,19 @@ export class AgentGateway {
 
   async #run(rec, r, hash) {
     const key = r.idempotencyKey;
-    const refused = (e, status = RESULT_STATUS.REFUSED, charges = []) => {
+    const refused = (e, status = RESULT_STATUS.REFUSED, charges = [], facts = {}) => {
       const err = e instanceof RouteError ? { code: e.code, message: e.message, ...(e.extra ?? {}) } : { code: ERR.SEND_FAILED, message: String(e?.message ?? e) };
-      const res = resultOf(rec, key, status, { error: err, charges });
-      if (status !== RESULT_STATUS.REFUSED || charges.length) this.ledger.recordAction(rec.agentId, { name: r.action.name, key, source: r.source, status, code: err.code });
+      const res = resultOf(rec, key, status, { error: err, charges, ...facts });
+      if (status !== RESULT_STATUS.REFUSED || charges.length) this.ledger.recordAction(rec.agentId, { name: r.action.name, key, source: r.source, status, code: err.code, ...facts });
       return res;
     };
     let hold = null;
     try {
       this.#gate(rec, r);
       // Every check above and this hold are synchronous: a concurrent request cannot slip between them.
-      hold = this.ledger.hold(rec.agentId, { category: CATEGORIES.GAME, amount: this.prices.game[r.action.name] ?? '0', key, ttlMs: ACTION_HOLD_TTL_MS, policyVersion: r.policyVersion, modeEpoch: rec.modeEpoch });
+      hold = this.ledger.hold(rec.agentId, { category: CATEGORIES.GAME, amount: this.prices.game[r.action.name] ?? '0', key, ttlMs: ACTION_HOLD_TTL_MS, policyVersion: r.policyVersion, modeEpoch: rec.modeEpoch, requestHash: hash });
     } catch (e) {
+      if (this.ledger.actionWritesFailed) throw e;
       const res = refused(e);
       this.ledger.remember(rec.agentId, key, hash, res);
       return { ...res, balance: this.ledger.balance(rec.agentId) };
@@ -438,6 +555,7 @@ export class AgentGateway {
     const epoch = rec.modeEpoch;
     const charge = state => (big(hold.amount) > 0n ? [{ category: CATEGORIES.GAME, amount: hold.amount, state }] : []);
     let sending = false;
+    let signed = null;
     let res;
     try {
       const { shape, tx, wire, lastValidBlockHeight, slotFloor } = await this.#build(rec, r);
@@ -448,26 +566,30 @@ export class AgentGateway {
           if (rec.mode !== MODES.AUTO || rec.modeEpoch !== epoch) throw new AgentError(ERR.AGENT_STOPPED, 'the agent was stopped while this action was being prepared', 409);
           if (rec.policy.version !== r.policyVersion) throw new AgentError(ERR.STALE_POLICY, 'the policy changed while this action was being prepared', 409);
           this.ledger.markSending(rec.agentId, hold.id, signature, lvbh, slotFloor);
+          signed = { signature, lastValidBlockHeight: Number.isSafeInteger(lvbh) ? lvbh : null, slotFloor: Number.isSafeInteger(slotFloor) ? slotFloor : null, signedAt: this.ledger.now() };
           sending = true;
         },
         onSent: ({ signature, moved }) => this.ledger.recordNetwork(rec.agentId, { lamports: feeOf(shape) + BigInt(moved ?? 0), signature, key }),
       });
       // Sent. A priced action stays reserved until the chain's answer (reconcile); a free one has nothing to settle.
       if (big(hold.amount) === 0n) this.ledger.release(rec.agentId, hold.id, 'free');
-      this.ledger.recordAction(rec.agentId, { name: r.action.name, key, source: r.source, status: RESULT_STATUS.SENT, signature: sent.signature, holdId: big(hold.amount) > 0n ? hold.id : undefined, ...(r.reason ? { reason: r.reason } : {}) });
-      res = resultOf(rec, key, RESULT_STATUS.SENT, { signature: sent.signature, charges: charge('reserved') });
+      const facts = { ...sendFacts(signed), signature: sent.signature };
+      this.ledger.recordAction(rec.agentId, { name: r.action.name, key, source: r.source, status: RESULT_STATUS.SENT, ...facts, holdId: big(hold.amount) > 0n ? hold.id : undefined, ...(r.reason ? { reason: r.reason } : {}) });
+      res = resultOf(rec, key, RESULT_STATUS.SENT, { ...facts, charges: charge('reserved') });
       this.log(`agent wallet: ${rec.agentId} ${r.action.name} sent ${sent.signature} (${r.source}, key ${key})`);
     } catch (e) {
+      if (this.ledger.actionWritesFailed) throw e;
       if (!sending) {
         // Nothing left this process: the hold comes back whole.
         this.ledger.release(rec.agentId, hold.id, 'refused');
         // A refusal of the gateway's or the relay's (a RouteError) is 'refused'; an exception on the way (RPC down) is 'failed'.
-        res = refused(e, e instanceof RouteError ? RESULT_STATUS.REFUSED : RESULT_STATUS.FAILED);
+        res = refused(e, e instanceof RouteError ? RESULT_STATUS.REFUSED : RESULT_STATUS.FAILED, [], sendFacts(null));
         if (!(e instanceof RouteError)) this.log(`agent wallet: ${rec.agentId} ${r.action.name} failed before sending: ${e.message}`);
       } else {
         // The send threw after the signature was recorded: the outcome is the chain's (reconcile), the hold stays.
         if (big(hold.amount) === 0n) this.ledger.release(rec.agentId, hold.id, 'free');
-        res = refused(e, RESULT_STATUS.FAILED, charge('reserved'));
+        // The signature and its lifetime go back with the failure: the caller can follow the chain's answer (actionFate).
+        res = refused(e, RESULT_STATUS.FAILED, charge('reserved'), sendFacts(signed));
         this.log(`agent wallet: ${rec.agentId} ${r.action.name} send uncertain (${e.message}); reconcile decides`);
       }
     }
@@ -488,7 +610,7 @@ export class AgentGateway {
     if (resident) throw new AgentError(ERR.SESSION_NOT_DELEGATED, `the agent's key is not the current session of the resident's holder (${resident}); the holder delegates again`, 409, { agentKey: rec.agentKey, resident });
     const profile = profileForSeason(season);
     const fields = normaliseFields(r.action.name, r.action.fields, profile);
-    const accounts = accountsFor(r.action.name, { addresses: ctx.addresses, actor: rec.agentKey, owner: rec.owner, holding: r.action.holding, fields, profile });
+    const accounts = accountsFor(r.action.name, { addresses: ctx.addresses, actor: rec.agentKey, owner: rec.owner, holding: r.action.holding, fields, route: r.action.route ?? null, profile });
     const feePayer = ctx.pool.draw().publicKey.toBase58();
     // Read before the blockhash: at or below any slot this transaction can land in (fate.mjs history coverage).
     const slotFloor = await slotFloorOf(ctx.connection);
@@ -515,14 +637,27 @@ export class AgentGateway {
    * held before the call, so a call the agent cannot pay for is never
    * made. Returns `{ok, charged, result | error, tokens}`.
    */
-  async meterInference(agentId, fn, { key = randomUUID(), free = false, model = null } = {}) {
+  /** The owner's permission has an end (policy.expiresAt): past it nothing is acted or called, as after a stop. */
+  #unexpired(rec) {
+    if (Number.isSafeInteger(rec.policy.expiresAt) && this.now() >= rec.policy.expiresAt) throw new AgentError(ERR.POLICY_EXPIRED, 'the owner\'s permission for this agent has expired', 409, { expiresAt: rec.policy.expiresAt });
+  }
+
+  /**
+   * `price` (optional): this call's hold instead of the fixed test price — the most it can cost (a token ceiling × a
+   * price). `actual(result, error)` (optional): what it did cost, settled ≤ the hold (the rest comes back). Without
+   * them the call is held and settled at the fixed price, as before. `served(result)` (optional): the model the server
+   * says answered, recorded next to the configured `model`.
+   */
+  async meterInference(agentId, fn, { key = randomUUID(), free = false, model = null, price = null, actual = null, served = null } = {}) {
     const rec = this.ledger.get(agentId);
     if (rec.mode !== MODES.AUTO) throw new AgentError(ERR.AGENT_STOPPED, 'the agent is stopped', 409);
+    this.#unexpired(rec);
+    if (price !== null && !isAmount(String(price))) throw new AgentError(ERR.BAD_REQUEST, 'price must be a base-unit amount');
     if (free) {
       const result = await fn();
       return { ok: true, charged: '0', result };
     }
-    const hold = this.ledger.hold(agentId, { category: CATEGORIES.INFERENCE, amount: this.prices.inference, key, ttlMs: INFERENCE_HOLD_TTL_MS, policyVersion: rec.policy.version, modeEpoch: rec.modeEpoch });
+    const hold = this.ledger.hold(agentId, { category: CATEGORIES.INFERENCE, amount: price !== null ? String(price) : this.prices.inference, key, ttlMs: INFERENCE_HOLD_TTL_MS, policyVersion: rec.policy.version, modeEpoch: rec.modeEpoch });
     // Running: a stop while the model works does not give the hold back; the call is paid for when it returns.
     this.ledger.markRunning(agentId, hold.id);
     let result;
@@ -531,13 +666,19 @@ export class AgentGateway {
     const tokens = result?.tokens ?? null;
     // The outcome is known now: settle, also when the hold had become unresolved (past its TTL) in the meantime.
     const late = rec.holds[hold.id]?.state === 'unresolved';
-    const settled = this.ledger.settle(agentId, hold.id, undefined, { model, tokens, ok: !error, ...(late ? { late: true } : {}) });
+    let spent;
+    if (typeof actual === 'function') {
+      try { const a = BigInt(actual(result, error)); spent = String(a < 0n ? 0n : a > BigInt(hold.amount) ? BigInt(hold.amount) : a); } catch { spent = undefined; }
+    }
+    let servedModel = null;
+    if (typeof served === 'function') { try { servedModel = served(result) ?? null; } catch { servedModel = null; } }
+    const settled = this.ledger.settle(agentId, hold.id, spent, { model, tokens, ok: !error, ...(servedModel ? { servedModel: String(servedModel).slice(0, 120) } : {}), ...(spent !== undefined ? { metered: true } : {}), ...(late ? { late: true } : {}) });
     if (!settled) {
       // The hold is gone (the operator refunded it): the owner is not billed twice; the operator's record keeps the late result.
       this.ledger.recordOperatorCost({ agentId, kind: 'late-result', holdId: hold.id, key, amount: hold.amount, model, ok: !error });
       this.log(`agent wallet: ${agentId} model call ${key} returned after its hold was refunded: not charged, recorded`);
     }
-    const charged = settled ? hold.amount : '0';
+    const charged = settled ? (spent ?? hold.amount) : '0';
     if (error) return { ok: false, charged, error: { code: ERR.INFERENCE_FAILED, message: String(error?.message ?? error) }, tokens };
     return { ok: true, charged, result, tokens };
   }
@@ -545,12 +686,29 @@ export class AgentGateway {
   // ------------------------------------------------------------ reconcile
 
   /**
+   * One action's state by its idempotency key (workstream 04, read-only):
+   * the kept history entry, and for a signed one the chain's answer by the
+   * same rule reconcile uses (fate.mjs). See actionFateView for the states.
+   * The history keeps the latest entries only: an answer `retained: false`
+   * is "not known here", never "not sent".
+   */
+  async actionFate(agentId, key) {
+    const rec = this.ledger.get(agentId);
+    const entry = [...rec.history].reverse().find(e => e.type === 'action' && e.key === key) ?? null;
+    if (!entry?.signature) return { agentId, ...actionFateView(entry) };
+    const x = { signature: entry.signature, lastValidBlockHeight: entry.lastValidBlockHeight ?? null, slotFloor: entry.slotFloor ?? null };
+    const f = this.custody ? await this.custody.fate(x.signature, x.lastValidBlockHeight, x.slotFloor) : await fateOf(this.ctx.connection, x, { fullHistory: this.fullHistory });
+    return { agentId, ...actionFateView(entry, f) };
+  }
+
+  /**
    * Settles what the chain has decided: a `sending` hold whose transaction
    * landed is spent, one that failed or expired comes back; the same for
    * withdrawals. Expired `held` holds come back too. Returns the counts.
    */
   async reconcile() {
-    const out = { settled: 0, released: 0, withdrawn: 0, withdrawalsFailed: 0, pending: 0, undecided: 0, expired: this.ledger.expire(), autoReleased: this.unresolvedReleaseMs ? this.ledger.releaseUnresolvedOlderThan(this.unresolvedReleaseMs) : 0 };
+    this.ledger.assertWritable();
+    const out = { settled: 0, released: 0, withdrawn: 0, withdrawalsFailed: 0, depositLanded: 0, depositFailed: 0, depositPending: 0, pending: 0, undecided: 0, expired: this.ledger.expire(), autoReleased: this.unresolvedReleaseMs ? this.ledger.releaseUnresolvedOlderThan(this.unresolvedReleaseMs) : 0 };
     // One rule for both (fate.mjs): with a Custody its own reading, otherwise the relay's connection.
     const fate = x => (this.custody ? this.custody.fate(x.signature, x.lastValidBlockHeight, x.slotFloor ?? null) : fateOf(this.ctx.connection, { signature: x.signature, lastValidBlockHeight: x.lastValidBlockHeight, slotFloor: x.slotFloor ?? null }, { fullHistory: this.fullHistory }));
     for (const rec of this.ledger.agents()) {
@@ -571,6 +729,20 @@ export class AgentGateway {
         else if (done === 'failed') out.withdrawalsFailed++;
         else if (done === 'undecided' || done === 'unknown') out.undecided++;
         else out.pending++;
+      }
+    }
+    for (const send of Object.values(this.ledger.db.depositSends)) {
+      if (send.state !== 'pending') continue;
+      try {
+        const result = await this.#reconcileDepositSend(send);
+        if (result.fate === 'landed') out.depositLanded++;
+        else if (result.fate === 'failed' || result.fate === 'expired') out.depositFailed++;
+        else out.depositPending++;
+      } catch {
+        // A finalized status without readable transfer metadata is not a
+        // credit, and a transient RPC failure is not a failed deposit.
+        this.log(`agent wallet: deposit ${send.signature} remains pending (final verification unavailable)`);
+        out.depositPending++;
       }
     }
     return out;

@@ -6,7 +6,7 @@
 //! | `record` | PS2 record of a **successful** transaction (a failed transaction's state is rolled back, so its logged records are not events) |
 //! | `link` | chain link of a record's tail, with the entity's address |
 //! | `entity` | chained entity: its latest `(seq, head)` from the logs |
-//! | `snapshot` | post-transaction state of a program-owned (or closed) account the transaction wrote |
+//! | `snapshot` | the archived bytes of a program-owned (or closed) account the transaction wrote: its exact post-state from the local feed, the state at a slot ≥ the transaction's from a public RPC ([`crate::provenance`]) |
 //! | `account` | latest snapshot per address |
 //! | `event` | PS2 record of a successful transaction, numbered 1, 2, … in archive order (`ev`): the herald's `/h/events?after=` pages (W3-D) |
 //! | `meta` | `last_seq` (the archive sequence indexed through), `schema` |

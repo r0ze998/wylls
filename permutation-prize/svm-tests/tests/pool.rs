@@ -160,6 +160,8 @@ fn set_season_with(w: &mut World, status: u8, r_max: u16) {
     d[S::STATUS] = status;
     put(&mut d, S::R_MAX, &r_max.to_le_bytes());
     put(&mut d, S::AUTHORITY, w.operator.pubkey().as_ref());
+    put(&mut d, S::BELL_SECS, &600u32.to_le_bytes());
+    put(&mut d, S::JOIN_CLOSE_BELL, &(END_BELL - 108).to_le_bytes());
     put(&mut d, S::END_BELL, &END_BELL.to_le_bytes());
     let k = w.season.to_bytes();
     game_account(w, k, d);
@@ -1175,4 +1177,54 @@ fn no_pool_for_a_season_beyond_ring_17() {
             .max(),
         Some(918)
     );
+}
+
+/// AnnounceSeason reserves the final Season PDA but has not chosen finite or
+/// continuous rules yet. Created and pre-genesis Seeded may still be aborted.
+/// The old payable pool must not take that PDA in any of these states.
+#[test]
+fn init_pool_requires_running_finite_season() {
+    let mut w = world();
+    let op = w.operator.insecure_clone();
+    let mut announced = vec![0u8; S::SIZE];
+    put(&mut announced, 0, &S::MAGIC);
+    put(&mut announced, S::SEASON_ID, &SEASON_ID.to_le_bytes());
+    put(&mut announced, S::AUTHORITY, op.pubkey().as_ref());
+    let season = w.season.to_bytes();
+    game_account(&mut w, season, announced);
+    let ix = init_ix(&w, &op.pubkey(), FEE, 2_000, 0);
+    fails(send(&mut w.svm, &[ix], &[&op]), E::WrongState);
+    assert!(w.svm.get_account(&w.pool).is_none());
+
+    set_season(&mut w, S::STATUS_CREATED);
+    let ix = init_ix(&w, &op.pubkey(), FEE, 2_000, 0);
+    fails(send(&mut w.svm, &[ix], &[&op]), E::WrongState);
+    set_season(&mut w, S::STATUS_SEEDED);
+    let mut pre_genesis = w.svm.get_account(&w.season).unwrap().data;
+    put(&mut pre_genesis, S::GENESIS_TS, &1i64.to_le_bytes());
+    game_account(&mut w, season, pre_genesis);
+    let ix = init_ix(&w, &op.pubkey(), FEE, 2_000, 0);
+    fails(send(&mut w.svm, &[ix], &[&op]), E::WrongState);
+    set_season(&mut w, S::STATUS_ABORTED);
+    let ix = init_ix(&w, &op.pubkey(), FEE, 2_000, 0);
+    fails(send(&mut w.svm, &[ix], &[&op]), E::WrongState);
+    assert!(w.svm.get_account(&w.pool).is_none());
+
+    for status in [S::STATUS_SEEDED, S::STATUS_RUNNING] {
+        let mut w = world();
+        set_season(&mut w, status);
+        init_with(&mut w, 0);
+    }
+
+    let mut w = world();
+    let at = frontier_abi::v2::presets::SEASON_CQ_OFFSET
+        + frontier_abi::v2::presets::cq_layout::CONTINUOUS;
+    let mut continuous = w.svm.get_account(&w.season).unwrap().data;
+    continuous[at] = 1;
+    let season = w.season.to_bytes();
+    game_account(&mut w, season, continuous);
+    let op = w.operator.insecure_clone();
+    let ix = init_ix(&w, &op.pubkey(), FEE, 2_000, 0);
+    fails(send(&mut w.svm, &[ix], &[&op]), E::ContinuousSeason);
+    assert!(w.svm.get_account(&w.pool).is_none());
 }

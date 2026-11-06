@@ -1,0 +1,413 @@
+diff --git a/frontier-node/crates/verify/src/checks/mod.rs b/frontier-node/crates/verify/src/checks/mod.rs
+index 0e70889f..6cdc8bcf 100644
+--- a/frontier-node/crates/verify/src/checks/mod.rs
++++ b/frontier-node/crates/verify/src/checks/mod.rs
+@@ -3,6 +3,7 @@
+ //! build leaves check `n` out (the checks of the checks).
+ 
+ pub mod v0_coverage;
++pub mod v0_evidence;
+ pub mod v11_land;
+ pub mod v12_explore;
+ pub mod v13_payments;
+@@ -198,6 +199,11 @@ pub fn run(input: &Input) -> Report {
+     // instructions and program versions are never a PASS (V0).
+     v0_coverage::run(&mut cx);
+     ran.push("V0");
++    // The evidence those judgements need: logs present and whole, no
++    // program call the archive does not show, post-states of what was
++    // written (V0E, ⑪).
++    v0_evidence::run(&mut cx);
++    ran.push("V0E");
+     macro_rules! check {
+         ($feat:literal, $name:literal, $m:ident) => {
+             if !cfg!(feature = $feat) {
+diff --git a/frontier-node/crates/verify/src/checks/v0_evidence.rs b/frontier-node/crates/verify/src/checks/v0_evidence.rs
+new file mode 100644
+index 00000000..85cb8944
+--- /dev/null
++++ b/frontier-node/crates/verify/src/checks/v0_evidence.rs
+@@ -0,0 +1,132 @@
++//! V0E — evidence a successful transaction must leave for the other checks
++//! to judge it (⑪, 2026-11-05; beside ⑱'s V0, which judges the
++//! instructions themselves). The checks read the program's records from the
++//! logs and the accounts from the post-states; when those are missing, cut
++//! short, or produced by a call the archive does not show, nothing judges
++//! what happened, and the report used to say PASS. So, for every
++//! **successful** transaction, each of these is `Unverifiable` (never a
++//! PASS, never a FAIL: the program may well have run correctly):
++//!
++//! - `MissingLogs`: it calls the program at top level, and its logs show no
++//!   invocation of the program at all (an archive without logs);
++//! - `TruncatedLogs`: the runtime cut its logs (`Log truncated`), so
++//!   records after the cut are absent;
++//! - `UnverifiedInnerInstruction`: the program ran inside another program
++//!   (`Program <id> invoke [n]`, n > 1). The archive keeps top-level
++//!   instructions only; V0 never sees these;
++//! - `MissingPostState` (archives with post-states only): it held writable
++//!   an account of the program the archive knows (a post-state or final
++//!   state of a program kind other than Holding, which V7 covers), and its
++//!   post-states do not include it. A transaction with **no** post-state at
++//!   all is reported only when one of its program instructions is not a
++//!   `Close…` one: the recorded archives keep no post-state for a
++//!   transaction that only closes accounts (CloseArrivalDay and
++//!   CloseArrivalSlot in `march-program`), and V1 judges a closed chain by
++//!   its tombstone.
++
++use std::collections::BTreeSet;
++
++use frontier_abi::layout::AccountKind;
++
++use super::Ctx;
++use crate::codes::*;
++use crate::world::Key;
++
++const V: &str = "V0E";
++
++/// The line the runtime appends when a transaction's logs exceed the limit.
++pub const LOG_TRUNCATED: &str = "Log truncated";
++
++fn program_kind(data: &[u8]) -> Option<AccountKind> {
++    AccountKind::from_magic(data.get(..8)?.try_into().ok()?)
++}
++
++pub fn run(cx: &mut Ctx) {
++    let w = cx.w;
++    let program = cx.cfg.program.to_string();
++    let invoke = format!("Program {program} invoke [");
++    // Program accounts the archive knows (by a post-state or a final
++    // state of a program kind), Holdings excepted (V7).
++    let known: BTreeSet<Key> = w
++        .txs
++        .iter()
++        .flat_map(|t| t.post.iter())
++        .chain(w.finals.iter())
++        .filter(|(_, a)| {
++            a.as_ref().is_some_and(|a| {
++                a.owner.to_bytes() == w.program
++                    && program_kind(&a.data).is_some_and(|k| k != AccountKind::Holding)
++            })
++        })
++        .map(|(k, _)| *k)
++        .collect();
++    for (i, t) in w.txs.iter().enumerate() {
++        if !t.ok {
++            continue;
++        }
++        let logs = cx
++            .input
++            .txs
++            .get(i)
++            .map(|r| r.logs.as_slice())
++            .unwrap_or(&[]);
++        let top = logs.iter().filter(|l| **l == format!("{invoke}1]")).count();
++        let nested = logs
++            .iter()
++            .filter(|l| l.starts_with(&invoke) && !l.ends_with("[1]"))
++            .count();
++        let truncated = logs.iter().any(|l| l == LOG_TRUNCATED);
++        // Cut before the program's first line: the cut, not an absent log.
++        if !t.ixs.is_empty() && top == 0 && nested == 0 && !truncated {
++            cx.unverifiable(
++                V,
++                MISSING_LOGS,
++                format!("tx#{i}"),
++                0,
++                Some(i),
++                "it calls the program and its logs show no invocation of it: its records are not in the archive",
++            );
++        }
++        if (!t.ixs.is_empty() || top > 0 || nested > 0) && truncated {
++            cx.unverifiable(
++                V,
++                TRUNCATED_LOGS,
++                format!("tx#{i}"),
++                0,
++                Some(i),
++                "the runtime cut its logs: records after the cut are not in the archive",
++            );
++        }
++        if nested > 0 {
++            cx.unverifiable(
++                V,
++                UNVERIFIED_INNER_INSTRUCTION,
++                format!("tx#{i}"),
++                0,
++                Some(i),
++                format!(
++                    "the program ran inside another program {nested} time(s); the archive has no inner instruction to judge"
++                ),
++            );
++        }
++        let only_closes = t.ixs.iter().all(|ix| {
++            ix.tag()
++                .and_then(frontier_abi::v2::Ix::from_tag)
++                .is_some_and(|x| x.name().starts_with("Close"))
++        });
++        if w.has_post && !(t.post.is_empty() && only_closes) {
++            for (k, writable) in &t.keys {
++                if *writable && known.contains(k) && !t.post.contains_key(k) {
++                    cx.unverifiable(
++                        V,
++                        MISSING_POST_STATE,
++                        format!("tx#{i}"),
++                        0,
++                        Some(i),
++                        "it held a program account writable and the archive has no post-state of it",
++                    );
++                }
++            }
++        }
++    }
++}
+diff --git a/frontier-node/crates/verify/src/codes.rs b/frontier-node/crates/verify/src/codes.rs
+index a4e64d36..0c5084cc 100644
+--- a/frontier-node/crates/verify/src/codes.rs
++++ b/frontier-node/crates/verify/src/codes.rs
+@@ -16,6 +16,14 @@ pub const UNKNOWN_INSTRUCTION: &str = "UnknownInstruction";
+ pub const UNVERIFIED_INSTRUCTION: &str = "UnverifiedInstruction";
+ /// A Season of a program version this verifier does not implement (UNVERIFIABLE).
+ pub const UNKNOWN_PROGRAM_VERSION: &str = "UnknownProgramVersion";
++/// A successful program call whose logs are absent (UNVERIFIABLE, V0E).
++pub const MISSING_LOGS: &str = "MissingLogs";
++/// A successful program call whose logs the runtime cut (UNVERIFIABLE, V0E).
++pub const TRUNCATED_LOGS: &str = "TruncatedLogs";
++/// The program run inside another program; no inner instruction archived (UNVERIFIABLE, V0E).
++pub const UNVERIFIED_INNER_INSTRUCTION: &str = "UnverifiedInnerInstruction";
++/// A written program account with no post-state in the archive (UNVERIFIABLE, V0E).
++pub const MISSING_POST_STATE: &str = "MissingPostState";
+ // V2 program and rules
+ pub const PROGRAM_MISMATCH: &str = "ProgramMismatch";
+ pub const RULESET_MISMATCH: &str = "RulesetMismatch";
+diff --git a/frontier-node/crates/verify/tests/evidence.rs b/frontier-node/crates/verify/tests/evidence.rs
+new file mode 100644
+index 00000000..dbd61aa2
+--- /dev/null
++++ b/frontier-node/crates/verify/tests/evidence.rs
+@@ -0,0 +1,226 @@
++//! V0E (⑪): a successful transaction whose evidence is missing, cut short
++//! or produced by a call the archive does not show is never a PASS. Each
++//! case changes one transaction (or one post-state) of a recorded fixture
++//! that PASSes. Before V0E, every case here except a few that broke an
++//! event chain was a PASS (workstream 11, r5 probe).
++
++mod common;
++
++use common::*;
++use verify_core::input::Input;
++use verify_core::{Severity, Verdict};
++
++fn v0e(r: &verify_core::Report) -> Vec<String> {
++    r.findings
++        .iter()
++        .filter(|f| f.check == "V0E")
++        .map(|f| {
++            assert_eq!(f.severity, Severity::Unverifiable, "{}", f.code);
++            f.code.clone()
++        })
++        .collect()
++}
++
++/// Successful transactions that call the program at top level.
++fn calls(inp: &Input) -> Vec<usize> {
++    let p = inp.cfg.program;
++    (0..inp.txs.len())
++        .filter(|&t| {
++            inp.txs[t].err.is_none()
++                && fclient::tx::from_wire(&inp.txs[t].tx).is_ok_and(|tx| {
++                    let k = &tx.message.account_keys;
++                    tx.message
++                        .instructions
++                        .iter()
++                        .any(|c| k[c.program_id_index as usize] == p)
++                })
++        })
++        .collect()
++}
++
++/// Counts the cases, and the ones that come out a PASS (printed, so the
++/// same file measures a verifier without V0E too).
++#[derive(Default)]
++struct Count {
++    cases: usize,
++    passed: Vec<String>,
++    /// Not a PASS, but neither a FAIL nor the expected V0E code.
++    uncoded: Vec<String>,
++}
++
++impl Count {
++    fn check(&mut self, inp: &Input, code: &str, what: &str) {
++        self.cases += 1;
++        let r = verify_core::verify(inp);
++        if r.verdict == Verdict::Pass {
++            self.passed.push(what.to_string());
++            return;
++        }
++        if !(v0e(&r).iter().any(|c| c == code) || r.verdict == Verdict::Fail) {
++            self.uncoded.push(format!("{what}: want {code} or a FAIL"));
++        }
++    }
++    fn done(self, name: &str) {
++        println!(
++            "{name}: {} cases, {} PASS {:?}, {} without the code",
++            self.cases,
++            self.passed.len(),
++            self.passed.iter().take(5).collect::<Vec<_>>(),
++            self.uncoded.len()
++        );
++        assert!(self.cases > 0, "{name}: no case");
++        assert!(
++            self.passed.is_empty(),
++            "{name}: {} of {} cases PASS",
++            self.passed.len(),
++            self.cases
++        );
++        assert!(
++            self.uncoded.is_empty(),
++            "{name}: {:?}",
++            self.uncoded.first()
++        );
++    }
++}
++
++/// At most `n` evenly spread items (the march fixture is long).
++fn spread(v: Vec<usize>, n: usize) -> Vec<usize> {
++    if v.len() <= n {
++        return v;
++    }
++    (0..n).map(|i| v[i * v.len() / n]).collect()
++}
++
++fn fixtures() -> Vec<(&'static str, Input, usize)> {
++    vec![
++        ("land", land(), usize::MAX),
++        ("march_program", march_program(), 12),
++    ]
++}
++
++#[test]
++fn the_fixtures_have_nothing_for_v0e() {
++    for inp in [land(), march(), march_program()] {
++        let r = verify_core::verify(&inp);
++        assert_eq!(v0e(&r), Vec::<String>::new(), "{}", show(&r));
++        assert_eq!(r.verdict, Verdict::Pass);
++    }
++}
++
++#[test]
++fn a_call_without_logs_is_not_a_pass() {
++    let mut c = Count::default();
++    for (fx, base, n) in fixtures() {
++        for t in spread(calls(&base), n) {
++            let mut inp = base.clone();
++            inp.txs[t].logs.clear();
++            c.check(&inp, "MissingLogs", &format!("{fx} tx#{t}"));
++        }
++    }
++    c.done("no logs");
++}
++
++#[test]
++fn logs_the_runtime_cut_are_not_a_pass() {
++    let mut c = Count::default();
++    for (fx, base, n) in fixtures() {
++        for t in spread(calls(&base), n) {
++            let mut inp = base.clone();
++            let keep = inp.txs[t].logs.len() / 2;
++            inp.txs[t].logs.truncate(keep.max(1));
++            inp.txs[t].logs.push("Log truncated".into());
++            c.check(&inp, "TruncatedLogs", &format!("{fx} tx#{t}"));
++        }
++    }
++    c.done("truncated logs");
++}
++
++/// The transaction's program instructions moved under another program of
++/// the message, the logs nesting the program one level down (a CPI).
++fn cpi_shaped(base: &Input, t: usize) -> Option<Input> {
++    let program = base.cfg.program;
++    let mut tx = fclient::tx::from_wire(&base.txs[t].tx).ok()?;
++    let keys = tx.message.account_keys.clone();
++    let other = tx
++        .message
++        .instructions
++        .iter()
++        .map(|c| c.program_id_index as usize)
++        .find(|&i| keys[i] != program)?;
++    let mut moved = false;
++    for c in tx.message.instructions.iter_mut() {
++        let cpi_ok = c
++            .data
++            .first()
++            .and_then(|x| frontier_abi::v2::Ix::from_tag(*x))
++            .is_some_and(|ix| !ix.top_level_only());
++        if keys[c.program_id_index as usize] == program && cpi_ok {
++            c.program_id_index = other as u8;
++            moved = true;
++        }
++    }
++    if !moved {
++        return None;
++    }
++    let mut inp = base.clone();
++    inp.txs[t].tx = fclient::tx::wire(&tx);
++    let wrapper = keys[other];
++    let top = format!("Program {program} invoke [1]");
++    let mut logs = vec![format!("Program {wrapper} invoke [1]")];
++    logs.extend(inp.txs[t].logs.iter().map(|l| {
++        if *l == top {
++            format!("Program {program} invoke [2]")
++        } else {
++            l.clone()
++        }
++    }));
++    logs.push(format!("Program {wrapper} success"));
++    inp.txs[t].logs = logs;
++    Some(inp)
++}
++
++#[test]
++fn the_program_run_by_another_program_is_not_a_pass() {
++    let mut c = Count::default();
++    for (fx, base, n) in fixtures() {
++        for t in spread(calls(&base), n) {
++            let Some(inp) = cpi_shaped(&base, t) else {
++                continue;
++            };
++            c.check(&inp, "UnverifiedInnerInstruction", &format!("{fx} tx#{t}"));
++        }
++    }
++    c.done("cpi");
++}
++
++const HOLD: &[u8; 8] = b"PSF1HOLD";
++
++#[test]
++fn a_written_account_without_its_post_state_is_not_a_pass() {
++    let mut c = Count::default();
++    for (fx, base, n) in fixtures() {
++        let program = base.cfg.program;
++        let mut drops = Vec::new();
++        for t in 0..base.txs.len() {
++            for (k, a) in &base.txs[t].post {
++                if a.as_ref()
++                    .is_some_and(|a| a.owner == program && !a.data.starts_with(HOLD))
++                {
++                    drops.push((t, *k));
++                }
++            }
++        }
++        let picks = spread(
++            (0..drops.len()).collect(),
++            if n == usize::MAX { 60 } else { n },
++        );
++        for i in picks {
++            let (t, k) = drops[i];
++            let mut inp = base.clone();
++            inp.txs[t].post.retain(|(x, _)| *x != k);
++            // Either the chain checks already FAIL it, or V0E says so.
++            c.check(&inp, "MissingPostState", &format!("{fx} tx#{t} {k}"));
++        }
++    }
++    c.done("dropped post-states");
++}

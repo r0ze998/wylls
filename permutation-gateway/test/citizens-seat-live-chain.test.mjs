@@ -54,7 +54,7 @@ function fakeChain() {
       const post = BigInt(c.accounts.get(payer)?.lamports ?? 0) - 5_000n * BigInt(tx.signers.length);
       return { value: { err: null, logs: [], unitsConsumed: 9_000, accounts: cfg.accounts.addresses.map(a => (a === payer ? { lamports: Number(post), data: ['', 'base64'] } : null)) } };
     },
-    sendRawTransaction: async raw => { const tx = parseTransaction(new Uint8Array(raw)); c.sent.push(tx); const sig = base58(tx.signatures[0]); if (c.landAll) c.statuses.set(sig, { slot: 88, confirmationStatus: 'confirmed', err: null }); return sig; },
+    sendRawTransaction: async raw => { const tx = parseTransaction(new Uint8Array(raw)); c.sent.push(tx); const sig = base58(tx.signatures[0]); if (c.landAll) c.statuses.set(sig, { slot: 88, confirmationStatus: 'finalized', err: null }); return sig; },
     getSignatureStatuses: async sigs => ({ value: sigs.map(s => c.statuses.get(s) ?? null) }),
   };
   return c;

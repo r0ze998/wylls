@@ -25,10 +25,20 @@ pub struct FakePort {
     pub clock: Mutex<ClockSysvar>,
     /// `accounts()` calls and the keys each asked for.
     pub calls: Mutex<Vec<Vec<Address>>>,
+    /// Requested minimum account context slots (care freshness tests).
+    pub min_context_slots: Mutex<Vec<u64>>,
+    /// If nonzero, reject a read whose minimum context is newer than this.
+    pub max_context_slot: AtomicU64,
     pub sent: Mutex<Vec<fclient::Transaction>>,
     /// The chain slot `send` observes (a tick that runs late), when set.
     pub send_slot: AtomicU64,
     pub statuses: Mutex<HashMap<Signature, Status>>,
+    /// `accounts()` fails while set (an RPC that does not answer).
+    pub fail_reads: std::sync::atomic::AtomicBool,
+    /// An explicit JSON-RPC error for API error-detail tests.
+    pub rpc_error: Mutex<Option<String>>,
+    /// `simulate()` calls (the wire bytes go to the RPC there too).
+    pub simulated: AtomicU64,
 }
 
 impl FakePort {
@@ -64,12 +74,27 @@ impl ChainPort for FakePort {
         }
         Ok(c)
     }
-    async fn accounts(&self, keys: &[Address], _: u64) -> PortResult<Vec<Option<Account>>> {
+    async fn accounts(&self, keys: &[Address], min_slot: u64) -> PortResult<Vec<Option<Account>>> {
         self.calls.lock().unwrap().push(keys.to_vec());
+        self.min_context_slots.lock().unwrap().push(min_slot);
+        let max = self.max_context_slot.load(Ordering::SeqCst);
+        if max != 0 && min_slot > max {
+            return Err(PortError::Io("account context too old".into()));
+        }
+        if let Some(message) = self.rpc_error.lock().unwrap().clone() {
+            return Err(PortError::Rpc {
+                code: -32000,
+                message,
+            });
+        }
+        if self.fail_reads.load(Ordering::SeqCst) {
+            return Err(PortError::Io("injected: RPC down".into()));
+        }
         let m = self.accounts.lock().unwrap();
         Ok(keys.iter().map(|k| m.get(k).cloned()).collect())
     }
     async fn simulate(&self, _: &[u8]) -> PortResult<SimResult> {
+        self.simulated.fetch_add(1, Ordering::SeqCst);
         Ok(SimResult::default())
     }
     async fn send(&self, w: &[u8]) -> PortResult<Signature> {
@@ -95,6 +120,8 @@ impl ChainPort for FakePort {
 pub struct FakeDrand {
     pub key: Arc<TestKey>,
     pub now: Arc<AtomicI64>,
+    /// Every request fails while set (drand unreachable).
+    pub down: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl FakeDrand {
@@ -102,6 +129,7 @@ impl FakeDrand {
         FakeDrand {
             key: Arc::new(TestKey::new()),
             now: Arc::new(AtomicI64::new(0)),
+            down: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }
     }
 }
@@ -111,9 +139,15 @@ impl DrandPort for FakeDrand {
         &self,
         r: u64,
     ) -> impl std::future::Future<Output = Result<Option<Beacon>, PortError>> + Send {
+        let down = self.down.load(Ordering::SeqCst);
         let ok = self.key.info().round_time(r) <= self.now.load(Ordering::SeqCst);
         let b = ok.then(|| self.key.beacon(r));
-        async move { Ok(b) }
+        async move {
+            if down {
+                return Err(PortError::Io("injected: drand down".into()));
+            }
+            Ok(b)
+        }
     }
     fn info(&self) -> ChainInfo {
         self.key.info()
@@ -122,6 +156,24 @@ impl DrandPort for FakeDrand {
 
 pub fn put(d: &mut [u8], o: usize, v: &[u8]) {
     d[o..o + v.len()].copy_from_slice(v);
+}
+
+/// A BellAnchor of `(season_id, bell, region)` with THE anchor time `a`
+/// and the round it carries.
+pub fn bell_anchor(season_id: u64, bell: u32, region: u8, a: i64, round: u64) -> Vec<u8> {
+    use fclient::abi::layout::bell_anchor as l;
+    let mut d = vec![0u8; size::BELL_ANCHOR];
+    put(&mut d, 0, magic::BELL_ANCHOR);
+    put(
+        &mut d,
+        fclient::abi::layout::sh::SEASON_ID,
+        &season_id.to_le_bytes(),
+    );
+    put(&mut d, l::BELL, &bell.to_le_bytes());
+    put(&mut d, l::REGION, &[region]);
+    put(&mut d, l::ROUND, &round.to_le_bytes());
+    put(&mut d, l::A, &a.to_le_bytes());
+    d
 }
 
 /// An account of `program` with `data`.

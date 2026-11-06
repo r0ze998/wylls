@@ -54,13 +54,33 @@ impl Schedule {
     /// The next session time ≥ `now` (planning day by day).
     fn next_session(&mut self, spec: &AgentSpec, genesis: i64, day_secs: i64, now: i64) -> i64 {
         let p = spec.profile();
+        // Idle profiles have no session to find. The old day-400 escape
+        // stopped active bots too, which is incompatible with a continuing
+        // world. Keep the no-session case finite without imposing a world
+        // age limit on active profiles.
+        if day_secs <= 0
+            || p.sessions == 0
+            || p.day_p.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater)
+        {
+            return i64::MAX;
+        }
         loop {
             if let Some(&t) = self.sessions.iter().find(|&&t| t >= now) {
                 return t;
             }
             let d = match self.day {
-                None => ((now - genesis).max(0) / day_secs) as u32,
-                Some(d) => d + 1,
+                None => {
+                    let elapsed = (i128::from(now) - i128::from(genesis)).max(0);
+                    let days = elapsed / i128::from(day_secs);
+                    let Ok(days) = u32::try_from(days) else {
+                        return i64::MAX;
+                    };
+                    days
+                }
+                Some(d) => match d.checked_add(1) {
+                    Some(next) => next,
+                    None => return i64::MAX,
+                },
             };
             self.day = Some(d);
             self.sessions.clear();
@@ -68,14 +88,58 @@ impl Schedule {
                 let gap = day_secs / p.sessions as i64;
                 for k in 0..p.sessions as i64 {
                     let off = self.rng.below(gap.max(1) as u64) as i64;
-                    self.sessions
-                        .push(genesis + d as i64 * day_secs + k * gap + off);
+                    let t = i128::from(genesis)
+                        + i128::from(d) * i128::from(day_secs)
+                        + i128::from(k) * i128::from(gap)
+                        + i128::from(off);
+                    if let Ok(t) = i64::try_from(t) {
+                        self.sessions.push(t);
+                    }
                 }
             }
-            if d > 400 {
+            if i128::from(genesis) + i128::from(d) * i128::from(day_secs) > i128::from(i64::MAX) {
                 return i64::MAX;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod schedule_tests {
+    use super::Schedule;
+    use frontier_agents::profile::{AgentSpec, Arch};
+
+    fn spec(arch: Arch) -> AgentSpec {
+        AgentSpec {
+            index: 7,
+            arch,
+            faction: 0,
+            join_day: 0,
+            join_bell: 0,
+            persona: None,
+        }
+    }
+
+    #[test]
+    fn active_bot_sessions_continue_past_day_400() {
+        let day_secs = 86_400;
+        let now = 401 * day_secs;
+        let mut schedule = Schedule::new(17, 7);
+        let next = schedule.next_session(&spec(Arch::Bot), 0, day_secs, now);
+        assert!(next >= now && next < now + day_secs);
+        assert_ne!(next, i64::MAX);
+    }
+
+    #[test]
+    fn idle_and_unrepresentable_times_have_no_session() {
+        let mut idle = Schedule::new(17, 7);
+        assert_eq!(idle.next_session(&spec(Arch::Idle), 0, 86_400, 0), i64::MAX);
+        let mut active = Schedule::new(17, 7);
+        assert_eq!(
+            active.next_session(&spec(Arch::Bot), 0, 86_400, i64::MAX),
+            i64::MAX
+        );
+        assert_eq!(active.next_session(&spec(Arch::Bot), 0, 0, 0), i64::MAX);
     }
 }
 
@@ -105,6 +169,15 @@ where
     /// Restores every bot's marches from the marchbook (after a restart).
     pub fn restore(&mut self, path: &std::path::Path) -> std::io::Result<usize> {
         let mut by_bot = Journal::load(path)?;
+        if let Some(unknown) = by_bot
+            .keys()
+            .find(|id| !self.bots.iter().any(|b| b.spec.index == **id))
+        {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("marchbook contains bot {unknown} outside the current roster"),
+            ));
+        }
         let mut n = 0;
         for b in &mut self.bots {
             if let Some(ms) = by_bot.remove(&b.spec.index) {
@@ -151,6 +224,12 @@ where
         let Fleet { shared, bots, .. } = self;
         if matches!(shared.clock, ClockSource::Fixed(_)) {
             shared.error("run: a fixed clock (use step_all)");
+            return shared.report.lock().expect("report").clone();
+        }
+        // follow_wake can submit an AI/council action before Bot::step sees
+        // the bot. The experimental M1 ledger does not cover that path.
+        if shared.decision_ledger.is_some() && (shared.ai.is_some() || shared.conquest.is_some()) {
+            shared.error("decision ledger does not cover AI or conquest fleet");
             return shared.report.lock().expect("report").clone();
         }
         let mut tasks = tokio::task::JoinSet::new();

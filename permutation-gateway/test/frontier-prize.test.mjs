@@ -62,12 +62,16 @@ function clockAccount(unix) {
   return b;
 }
 
-/** A scripted chain (as test/frontier-relay.test.mjs): simulate checks every signature and debits the fee payer; a sent transaction is confirmed at once. */
+/** A scripted chain (as test/frontier-relay.test.mjs): simulate checks every signature and debits the fee payer; a sent transaction is finalized at once. */
 function fakeChain({ debit = () => 0n, fail = () => null, onSent = () => {} } = {}) {
   const c = {
-    accounts: new Map(), sent: [], simulated: 0, statuses: new Map(), height: 100,
+    accounts: new Map(), confirmedOnly: new Set(), sent: [], simulated: 0, statuses: new Map(), height: 100,
     set(key, v) { c.accounts.set(String(key), { lamports: v.lamports ?? 1_000_000_000, data: Buffer.from(v.data ?? []) }); },
-    getAccountInfo: async key => c.accounts.get(new PublicKey(key).toBase58()) ?? null,
+    getAccountInfo: async (key, commitment) => {
+      const address = new PublicKey(key).toBase58();
+      if (commitment === 'finalized' && c.confirmedOnly.has(address)) return null;
+      return c.accounts.get(address) ?? null;
+    },
     getMultipleAccountsInfo: async keys => keys.map(k => c.accounts.get(new PublicKey(k).toBase58()) ?? null),
     getBalance: async key => c.accounts.get(new PublicKey(key).toBase58())?.lamports ?? 0,
     getLatestBlockhash: async () => ({ blockhash: BLOCKHASH, lastValidBlockHeight: 150 }),
@@ -90,7 +94,7 @@ function fakeChain({ debit = () => 0n, fail = () => null, onSent = () => {} } = 
       const tx = parseTransaction(new Uint8Array(raw));
       c.sent.push(tx);
       const sig = base58(tx.signatures[0]);
-      c.statuses.set(sig, { slot: 78, err: null, confirmationStatus: 'confirmed' });
+      c.statuses.set(sig, { slot: 78, err: null, confirmationStatus: 'finalized' });
       onSent(tx, c);
       return sig;
     },
@@ -228,7 +232,26 @@ test('POST /f/x402/join with Pay and Join in one transaction: the relay adds the
   assert.equal(chain.sent.length, 1);
 });
 
-test('POST /f/x402/join never signs the gate for an unpaid Join; a wallet whose entry is confirmed on chain may join with a plain Join', async () => {
+test('x402 Join does not report payment success from a confirmed transaction that later fails', async () => {
+  const w = Keypair.fromSeed(Uint8Array.from({ length: 32 }, () => 26));
+  const wallet = w.publicKey.toBase58();
+  const chain = fakeChain({ debit: () => rent(384) + rent(ENTRY_SIZE) });
+  const status = chain.getSignatureStatuses;
+  let reads = 0;
+  chain.getSignatureStatuses = async sigs => {
+    const result = await status(sigs);
+    if (!result.value[0]) return result;
+    return { value: [{ ...result.value[0], confirmationStatus: ++reads === 1 ? 'confirmed' : 'finalized', err: reads === 1 ? null : 'RolledBack' }] };
+  };
+  const r = relay({ chain });
+  const q = await requirements(r);
+  const result = await post(r, payment(signedBy(paidMessage(wallet, q.extra.feePayer), w)));
+  assert.equal(result.status, 402);
+  assert.equal(result.headers['X-PAYMENT-RESPONSE'], undefined);
+  assert.equal(chain.sent.length, 1);
+});
+
+test('POST /f/x402/join never signs the gate for an unpaid Join; a finalized paid entry may join with a plain Join', async () => {
   const w = Keypair.generate();
   const wallet = w.publicKey.toBase58();
   const chain = fakeChain({ debit: () => rent(384) });
@@ -244,7 +267,12 @@ test('POST /f/x402/join never signs the gate for an unpaid Join; a wallet whose 
   // The free route does not open the gate either: it needs an operator invite.
   assert.equal((await call(r.public, 'POST', '/f/join', { body: { tx: toBase64(plain()) }, ip: '203.0.113.9' })).json.code, 'InviteRequired');
   assert.deepEqual([chain.sent.length, chain.simulated], [0, 0]);
-  chain.set(entryAddress(PRIZE_PROGRAM, PRIZE.pool, wallet), { data: entryData(wallet) });
+  const entryAddressForWallet = entryAddress(PRIZE_PROGRAM, PRIZE.pool, wallet);
+  chain.set(entryAddressForWallet, { data: entryData(wallet) });
+  chain.confirmedOnly.add(entryAddressForWallet);
+  assert.equal((await post(r, payment(plain()))).json.code, 'PaymentRequired', 'confirmed payment is not finalized');
+  assert.equal(chain.sent.length, 0, 'the gate did not sign an unfinalized payment');
+  chain.confirmedOnly.delete(entryAddressForWallet);
   const ok = await post(r, payment(plain()));
   assert.deepEqual([ok.status, ok.json.mode, ok.json.paid], [200, 'settled', '0']);
   assert.ok(chain.sent[0].signers.includes(gate.publicKey.toBase58()));
@@ -279,6 +307,35 @@ test('POST /f/x402/join refuses a payment to another vault or mint, a forged wal
   const closed = relay({ pool: { counted: 3 } });
   const q2 = await requirements(closed);
   assert.equal((await post(closed, payment(signedBy(paidMessage(wallet, q2.extra.feePayer), w)))).json.code, 'EntriesClosed');
+});
+
+test('a repeated Pay reports finalized membership without asking for another payment', async () => {
+  const w = Keypair.generate();
+  const wallet = w.publicKey.toBase58();
+  const chain = fakeChain({ fail: () => ({ err: { InstructionError: [3, { Custom: 0x105 }] },
+    logs: [`Program ${PRIZE_PROGRAM} failed: custom program error: 0x105`] }) });
+  const r = relay({ chain });
+  const q = await requirements(r);
+  const header = payment(signedBy(paidMessage(wallet, q.extra.feePayer), w));
+
+  const unknown = await post(r, header);
+  assert.deepEqual([unknown.status, unknown.json.code], [409, 'AlreadyPaid']);
+  assert.equal(unknown.json.accepts, undefined, 'an existing payment must not request a new one');
+  assert.equal(chain.sent.length, 0);
+
+  chain.set(PRIZE.pool, { data: poolData({ entries: 1 }) });
+  chain.set(entryAddress(PRIZE_PROGRAM, PRIZE.pool, wallet), { data: entryData(wallet) });
+  chain.set(A.citizen(wallet), { data: encodeAccount('Citizen', { SEASON_ID, WALLET: w.publicKey.toBytes(), FACTION: 2 }) });
+  const joined = await post(r, header);
+  assert.deepEqual([joined.status, joined.json.code], [409, 'AlreadyJoined']);
+  assert.equal(joined.json.wallet, wallet);
+  assert.equal(joined.json.accepts, undefined);
+  assert.equal(chain.sent.length, 0, 'the retry only reads finalized records');
+
+  chain.confirmedOnly.add(A.citizen(wallet));
+  const notFinal = await post(r, header);
+  assert.deepEqual([notFinal.status, notFinal.json.code], [409, 'AlreadyPaid']);
+  assert.equal(chain.sent.length, 0);
 });
 
 test('joinViaX402: one request, the 402, the paid retry; it refuses requirements that are not this season\'s or above the caller\'s limit', async () => {
@@ -322,6 +379,7 @@ test('GET /f/prize reads the pool from the chain; POST /f/faucet gives a wallet 
   assert.deepEqual(v.wallet, { address: w, tokenAccount: ata(w, MINT), balance: '0', faction: null, entry: null });
   const f = await call(r.public, 'POST', '/f/faucet', { body: { wallet: w }, ip: '203.0.113.9' });
   assert.deepEqual([f.status, f.json.already, f.json.amount, f.json.tokenAccount], [200, false, '100000000', ata(w, MINT)]);
+  assert.equal(r.store.state.faucet[w].status, 'landed');
   const sent = chain.sent[0];
   assert.ok(sent.signers.includes(faucetKey.publicKey.toBase58()) && r.payers.has(sent.signers[0]));
   assert.equal(sent.instructions.at(-1).data[0], 7, 'MintTo');
@@ -331,6 +389,74 @@ test('GET /f/prize reads the pool from the chain; POST /f/faucet gives a wallet 
   const none = relay({ pool: {} });
   assert.equal((await call(none.public, 'POST', '/f/faucet', { body: { wallet: w } })).json.code, 'NoFaucet');
   assert.equal((await call(r.public, 'GET', '/f/prize/ledger')).json.code, 'LedgerNotPublished');
+});
+
+test('faucet persists the signed intent before RPC and holds an unknown outcome across retries', async () => {
+  const faucetKey = Keypair.fromSeed(Uint8Array.from({ length: 32 }, () => 21));
+  const wallet = Keypair.fromSeed(Uint8Array.from({ length: 32 }, () => 22)).publicKey.toBase58();
+  const request = r => call(r.public, 'POST', '/f/faucet', { body: { wallet }, ip: '203.0.113.40' });
+
+  const unsaved = relay({ faucetKey });
+  unsaved.store.save = () => { throw new Error('disk unavailable'); };
+  assert.equal((await request(unsaved)).status, 500);
+  assert.equal(unsaved.chain.sent.length, 0, 'an intent that was not saved must never be sent');
+
+  const r = relay({ faucetKey });
+  const originalSend = r.chain.sendRawTransaction;
+  let savedAtSend = null;
+  r.chain.sendRawTransaction = async wire => {
+    savedAtSend = structuredClone(r.store.state.faucet[wallet]);
+    const signature = await originalSend(wire); // The chain received it, but RPC lost its reply.
+    // fakeChain finalizes sends immediately by default. This case needs a
+    // landed transaction whose final outcome is not known to the relay yet.
+    r.chain.statuses.set(signature, { slot: 78, err: null, confirmationStatus: 'confirmed' });
+    throw new Error('reply lost after send');
+  };
+  assert.equal((await request(r)).status, 500);
+  assert.equal(r.chain.sent.length, 1);
+  const pending = r.store.state.faucet[wallet];
+  assert.deepEqual(savedAtSend, pending, 'the exact signature was saved before RPC');
+  assert.equal(pending.status, 'pending');
+  assert.equal(pending.signature, base58(r.chain.sent[0].signatures[0]));
+  assert.ok(r.store.saves >= 1);
+  const retry = await request(r);
+  assert.deepEqual([retry.status, retry.json.code, retry.json.signature], [409, 'FaucetOutcomeUnknown', pending.signature]);
+  assert.equal(r.chain.sent.length, 1, 'an unknown outcome never mints again');
+  r.chain.statuses.set(pending.signature, { slot: 78, err: null, confirmationStatus: 'finalized' });
+  const reconciled = await request(r);
+  assert.deepEqual([reconciled.status, reconciled.json.already, r.store.state.faucet[wallet].status], [200, true, 'landed']);
+  assert.equal(r.chain.sent.length, 1, 'reconciliation only reads the original signature');
+
+  const finalizedBeforeRetry = relay({ faucetKey });
+  const sendFinal = finalizedBeforeRetry.chain.sendRawTransaction;
+  finalizedBeforeRetry.chain.sendRawTransaction = async wire => {
+    await sendFinal(wire); // This fake chain retains its immediate finalized status.
+    throw new Error('reply lost after finalized send');
+  };
+  assert.equal((await request(finalizedBeforeRetry)).status, 500);
+  const alreadyFinal = await request(finalizedBeforeRetry);
+  assert.deepEqual([alreadyFinal.status, alreadyFinal.json.already, finalizedBeforeRetry.chain.sent.length], [200, true, 1]);
+});
+
+test('a confirmed faucet grant that finalizes as failed is never reported as minted', async () => {
+  const faucetKey = Keypair.fromSeed(Uint8Array.from({ length: 32 }, () => 24));
+  const wallet = Keypair.fromSeed(Uint8Array.from({ length: 32 }, () => 25)).publicKey.toBase58();
+  const chain = fakeChain();
+  const status = chain.getSignatureStatuses;
+  let reads = 0;
+  chain.getSignatureStatuses = async sigs => {
+    const result = await status(sigs);
+    if (!result.value[0]) return result;
+    return { value: [{ ...result.value[0], confirmationStatus: ++reads === 1 ? 'confirmed' : 'finalized', err: reads === 1 ? null : 'RolledBack' }] };
+  };
+  const r = relay({ chain, faucetKey });
+  const request = () => call(r.public, 'POST', '/f/faucet', { body: { wallet }, ip: '203.0.113.42' });
+  const first = await request();
+  assert.notEqual(first.status, 200, 'confirmed is not a successful grant');
+  assert.equal(r.store.state.faucet[wallet].status, 'pending');
+  const retry = await request();
+  assert.deepEqual([retry.status, retry.json.code], [409, 'FaucetOutcomeUnknown']);
+  assert.equal(chain.sent.length, 1);
 });
 
 test('POST /f/prize/claim sponsors exactly one Claim of the signing wallet for this season\'s pool', async () => {
@@ -349,4 +475,85 @@ test('POST /f/prize/claim sponsors exactly one Claim of the signing wallet for t
   assert.equal(chain.sent.length, 0);
   const ok = await claim({ tx: tx(good, w) });
   assert.deepEqual([ok.status, ok.json.ok, chain.sent.length], [200, true, 1]);
+  assert.equal(r.store.state.claimPending[wallet].status, 'landed');
+});
+
+test('claim persists its exact signed signature before RPC and holds a lost reply until final Entry reconciliation', async () => {
+  const w = Keypair.fromSeed(Uint8Array.from({ length: 32 }, () => 23));
+  const wallet = w.publicKey.toBase58();
+  const entryAddressForWallet = entryAddress(PRIZE_PROGRAM, PRIZE.pool, wallet);
+  const makeRequest = async r => {
+    const fp = (await call(r.public, 'GET', '/f/relay')).json.feePayer;
+    const ix = claimIx({ prize: PRIZE, wallet, citizen: A.citizen(wallet), nation: 2, points: 10n, proof: [new Uint8Array(32)] });
+    const message = compileMessage({ feePayer: fp, recentBlockhash: BLOCKHASH, instructions: [ix] });
+    return call(r.public, 'POST', '/f/prize/claim', { body: { tx: toBase64(signedBy(message, w)) }, ip: '203.0.113.41' });
+  };
+
+  const unsaved = relay();
+  unsaved.chain.set(entryAddressForWallet, { data: entryData(wallet) });
+  unsaved.store.save = () => { throw new Error('disk unavailable'); };
+  assert.equal((await makeRequest(unsaved)).status, 500);
+  assert.equal(unsaved.chain.sent.length, 0, 'a claim that was not saved must never be sent');
+
+  const r = relay();
+  r.chain.set(entryAddressForWallet, { data: entryData(wallet) });
+  const originalSend = r.chain.sendRawTransaction;
+  let savedAtSend = null;
+  r.chain.sendRawTransaction = async wire => {
+    savedAtSend = structuredClone(r.store.state.claimPending[wallet]);
+    await originalSend(wire); // The chain received it, but RPC lost its reply.
+    throw new Error('reply lost after send');
+  };
+  const first = await makeRequest(r);
+  const pending = r.store.state.claimPending[wallet];
+  assert.deepEqual([first.status, first.json.code, first.json.signature], [504, 'ClaimOutcomeUnknown', pending.signature]);
+  assert.deepEqual(savedAtSend, pending, 'the exact signature was saved before RPC');
+  assert.equal(pending.status, 'pending');
+  assert.equal(pending.signature, base58(r.chain.sent[0].signatures[0]));
+  const retry = await makeRequest(r);
+  assert.deepEqual([retry.status, retry.json.code, retry.json.signature], [409, 'ClaimOutcomeUnknown', pending.signature]);
+  assert.equal(r.chain.sent.length, 1, 'an unknown outcome never sends another claim');
+
+  r.chain.set(entryAddressForWallet, { data: entryData(wallet, { claimed: true }) });
+  r.chain.statuses.set(pending.signature, { slot: 78, err: null, confirmationStatus: 'finalized' });
+  const reconciled = await makeRequest(r);
+  assert.deepEqual([reconciled.status, reconciled.json.already, r.store.state.claimPending[wallet].status], [200, true, 'landed']);
+  assert.equal(r.chain.sent.length, 1, 'reconciliation only reads the original claim');
+
+  const saveFailsAfterSend = relay();
+  saveFailsAfterSend.chain.set(entryAddressForWallet, { data: entryData(wallet, { claimed: true }) });
+  const save = saveFailsAfterSend.store.save.bind(saveFailsAfterSend.store);
+  let saves = 0;
+  saveFailsAfterSend.store.save = () => {
+    if (++saves === 2) throw new Error('disk unavailable after send');
+    save();
+  };
+  const notRecorded = await makeRequest(saveFailsAfterSend);
+  assert.deepEqual([notRecorded.status, notRecorded.json.code, saveFailsAfterSend.store.state.claimPending[wallet].status], [503, 'ClaimOutcomeUnknown', 'pending']);
+  assert.equal(saveFailsAfterSend.chain.sent.length, 1, 'a failed landed save must not send again');
+  const originalSignature = saveFailsAfterSend.store.state.claimPending[wallet].signature;
+  saveFailsAfterSend.chain.statuses.set(originalSignature, { slot: 78, err: null, confirmationStatus: 'finalized' });
+  const already = await makeRequest(saveFailsAfterSend);
+  assert.deepEqual([already.status, already.json.already, saveFailsAfterSend.store.state.claimPending[wallet].status], [200, true, 'landed']);
+  assert.equal(saveFailsAfterSend.chain.sent.length, 1);
+
+  const noFinalEntry = relay();
+  noFinalEntry.chain.set(entryAddressForWallet, { data: entryData(wallet) });
+  const noEffect = await makeRequest(noFinalEntry);
+  assert.deepEqual([noEffect.status, noEffect.json.code, noFinalEntry.store.state.claimPending[wallet].status], [504, 'ClaimOutcomeUnknown', 'pending']);
+  assert.equal(noFinalEntry.chain.sent.length, 1, 'finalized signature alone is not proof that the Entry is claimed');
+
+  const rollbackChain = fakeChain();
+  const status = rollbackChain.getSignatureStatuses;
+  let reads = 0;
+  rollbackChain.getSignatureStatuses = async sigs => {
+    const result = await status(sigs);
+    if (!result.value[0]) return result;
+    return { value: [{ ...result.value[0], confirmationStatus: ++reads === 1 ? 'confirmed' : 'finalized', err: reads === 1 ? null : 'RolledBack' }] };
+  };
+  const rollback = relay({ chain: rollbackChain });
+  rollback.chain.set(entryAddressForWallet, { data: entryData(wallet) });
+  const rolledBack = await makeRequest(rollback);
+  assert.deepEqual([rolledBack.status, rolledBack.json.code, rollback.store.state.claimPending[wallet].status], [504, 'ClaimOutcomeUnknown', 'pending']);
+  assert.equal(rollback.chain.sent.length, 1);
 });

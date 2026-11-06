@@ -92,6 +92,9 @@ pub fn season_json(f: &Fold, s: &SeasonStatic) -> Option<Value> {
     let states = crate::world::ring_states(f);
     v["ringsOpened"] = json!(states.len());
     v["ringProvinces"] = json!(states.iter().map(|r| r.provinces).collect::<Vec<_>>());
+    // Read from the captured Season bytes; an absent or inconsistent flag
+    // never changes the page into a continuous-world view.
+    v["continuous"] = json!(se.world_continues());
     Some(v)
 }
 

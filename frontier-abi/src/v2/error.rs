@@ -82,6 +82,8 @@ pub enum CqError {
     /// vote on a closed one, a settle of an open one, a second open
     /// proposal of the proposer, a target that does not qualify).
     ProposalState = 93,
+    /// A continuous world cannot be ended by EndSeason.
+    ContinuousWorld = 94,
     /// ⑳ (provisional, `nft-experimental` programs; workstream 4's
     /// allocation 170–179): the six `resident_auth::Refusal`s.
     /// The caller of an NFT-resident act did not sign.
@@ -102,7 +104,7 @@ pub enum CqError {
 }
 
 impl CqError {
-    pub const ALL: [CqError; 38] = {
+    pub const ALL: [CqError; 39] = {
         use CqError::*;
         [
             CapturePending,
@@ -137,6 +139,7 @@ impl CqError {
             ProposalsFull,
             NotVoter,
             ProposalState,
+            ContinuousWorld,
             ResidentNotSigned,
             ResidentAsset,
             ResidentAccount,
@@ -189,6 +192,7 @@ impl CqError {
             ProposalsFull => "ProposalsFull",
             NotVoter => "NotVoter",
             ProposalState => "ProposalState",
+            ContinuousWorld => "ContinuousWorld",
             ResidentNotSigned => "ResidentNotSigned",
             ResidentAsset => "ResidentAsset",
             ResidentAccount => "ResidentAccount",
@@ -282,17 +286,19 @@ mod tests {
 
     #[test]
     fn codes_are_the_contract_table() {
-        // 62–93 contiguous, then ⑳'s 170–175 (workstream 4's allocation).
-        let want = (62u32..=93).chain(170..=175);
+        // 62–94 contiguous (94 ContinuousWorld), then ⑳'s 170–175
+        // (workstream 4's allocation).
+        let want = (62u32..=94).chain(170..=175);
         for (e, expect) in CqError::ALL.into_iter().zip(want) {
             assert_eq!(e.code(), expect, "{}", e.name());
             assert_eq!(CqError::from_code(expect), Some(e));
             assert_eq!(FrontierError::from_code(expect), None, "no M1 collision");
         }
-        assert_eq!(CqError::ALL.len(), 32 + 6);
+        assert_eq!(CqError::ALL.len(), 33 + 6);
         assert_eq!(CqError::NotLead.code(), 78);
         let all: std::vec::Vec<u32> = all_codes().map(|c| c.code()).collect();
-        assert_eq!(all.len(), 62 + 32 + 6);
+        assert_eq!(all.len(), 62 + 33 + 6);
+        assert_eq!(CqError::ContinuousWorld.code(), 94);
         assert_eq!(CqError::ProposalState.code(), 93);
         assert_eq!(CqError::NotOnTile.code(), 86);
         assert_eq!(CqError::StructureFull.code(), 89);
@@ -301,7 +307,7 @@ mod tests {
         assert_eq!(all[61], 62);
         assert_eq!(all[all.len() - 7], 99);
         assert_eq!(*all.last().unwrap(), 175);
-        for c in (94..=98).chain(100..=169).chain(176..=179) {
+        for c in (95..=98).chain(100..=169).chain(176..=179) {
             assert_eq!(Code::from_code(c), None, "{c} is not allocated here");
         }
         assert_eq!(
@@ -316,7 +322,11 @@ mod tests {
         assert_eq!(Code::from_code(79), Some(Code::Cq(CqError::VaultSite)));
         assert_eq!(Code::from_code(87), Some(Code::Cq(CqError::StructureSite)));
         assert_eq!(Code::from_code(91), Some(Code::Cq(CqError::ProposalsFull)));
-        assert_eq!(Code::from_code(94), None);
+        assert_eq!(
+            Code::from_code(94),
+            Some(Code::Cq(CqError::ContinuousWorld))
+        );
+        assert_eq!(Code::from_code(95), None);
         assert_eq!(
             Code::Cq(CqError::FoldTooEarly).keeper_action(),
             KeeperAction::Wait

@@ -53,6 +53,28 @@ pub const SOL: u64 = 1_000_000_000;
 /// R99, §8.2) and near the band's middle, so payer care neither tops up
 /// nor sweeps at once.
 pub const REVEAL_PAYER_LAMPORTS: u64 = 350_000_000;
+/// Genesis may still be 600 game seconds away after CreateSeason. At a low
+/// valid scale that is more than five wall minutes; allow the projected
+/// wall time plus keeper/RPC slack. Cap pathological scales to keep a
+/// representable, finite Tokio timer.
+const PRIZE_START_SLACK_SECS: u64 = 300;
+const MAX_PRIZE_START_WAIT_SECS: u64 = 365 * 24 * 60 * 60;
+
+fn prize_start_wait_limit(now: i64, genesis_ts: i64, scale: f64) -> Duration {
+    let game_left = (i128::from(genesis_ts) - i128::from(now)).max(0) as f64;
+    let wall_left = game_left / scale;
+    let max_wall = (MAX_PRIZE_START_WAIT_SECS - PRIZE_START_SLACK_SECS) as f64;
+    let wall_secs = if wall_left.is_finite() {
+        wall_left.ceil().clamp(0.0, max_wall) as u64
+    } else {
+        MAX_PRIZE_START_WAIT_SECS - PRIZE_START_SLACK_SECS
+    };
+    Duration::from_secs(
+        wall_secs
+            .saturating_add(PRIZE_START_SLACK_SECS)
+            .min(MAX_PRIZE_START_WAIT_SECS),
+    )
+}
 
 /// The program id of a run (any 32 bytes deploy on localnet).
 pub fn program_id(run_id: &str) -> Address {
@@ -417,6 +439,7 @@ impl Stack {
     /// Checks everything that can be checked before a process starts.
     pub fn prepare(cfg: StackConfig) -> Result<Stack, Refusal> {
         let bad = Refusal::Bad;
+        cfg.check().map_err(bad)?;
         if cfg.mode == Mode::Realtime {
             return Err(Refusal::PendingOwner(
                 "Mode R needs Agave >= 4.0 (O-M1-12 item 4, not approved); Mode A is the exit run (I-25)".into(),
@@ -436,8 +459,11 @@ impl Stack {
         }
         if cfg.beacon == Beacon::Archive {
             let dir = run::resolve(&repo, cfg.archive_dir.as_deref().unwrap_or(Path::new("")));
-            let until =
-                cfg.g0 + setup::LEAD_SECS + cfg.play_secs() + cfg.drain_bells as i64 * 600 + 3_600;
+            let until = cfg.g0
+                + setup::LEAD_SECS
+                + cfg.play_secs()
+                + cfg.run_drain_bells() as i64 * 600
+                + 3_600;
             check_archive(&dir, cfg.g0, until)?;
         }
         let so = run::resolve(&repo, cfg.so_path());
@@ -1026,7 +1052,25 @@ pub async fn up(cfg: StackConfig) -> i32 {
     code
 }
 
+fn automatic_restart_allowed(continuous: bool, component: &str, cause: &str) -> Result<(), String> {
+    if continuous {
+        Err(format!(
+            "continuous world: {component} {cause}; automatic restart is unsafe"
+        ))
+    } else {
+        Ok(())
+    }
+}
+
 async fn run_all(st: &mut Stack) -> Result<(), String> {
+    // A kill-and-restart exercise assumes all participants can recover their
+    // pending decisions. That is not yet true for a continuous world.
+    if st.cfg.continuous && (st.cfg.chaos || !st.cfg.chaos_force.is_empty()) {
+        return Err(
+            "continuous world cannot run chaos until every component has a verified restart path"
+                .into(),
+        );
+    }
     // Keeper configs and seeds.
     for w in ['a', 'b'] {
         if w == 'b' && !st.cfg.keeper_b {
@@ -1085,6 +1129,7 @@ async fn run_all(st: &mut Stack) -> Result<(), String> {
         setup::LandOverrides {
             ring_theta_bps: st.cfg.ring_theta_bps,
             r_max: st.cfg.r_max,
+            continuous: st.cfg.continuous,
         },
         st.prize.as_ref().map(|p| p.gate.pubkey().to_bytes()),
         st.cfg.season_end_bell(),
@@ -1095,25 +1140,19 @@ async fn run_all(st: &mut Stack) -> Result<(), String> {
     .await?;
     st.state["season"] = season.clone();
     if let Some(p) = &st.prize {
-        let v = p
-            .setup(&st.chain, &st.addrs, &st.keys.authority, &st.cfg)
-            .await?;
-        st.run.event(None, "prize", v.clone());
-        log_line(&format!(
-            "prize pool {} (test mint {}, entry fee {} base units)",
-            p.pool,
-            p.mint.pubkey(),
-            st.cfg.entry_fee
-        ));
-        st.state["prize"] = v;
+        p.create_mint(&st.chain, &st.keys.authority).await?;
+        st.state["prize_mint"] = json!({"mint": p.mint.pubkey().to_string(), "created": true});
+        st.run
+            .event(None, "prize-mint", st.state["prize_mint"].clone());
     }
     let genesis_ts = season["genesis_ts"].as_i64().ok_or("genesis_ts")?;
     let end_bell = season["end_bell"].as_u64().unwrap_or(1_008) as i64;
     let bell_secs = season["bell_secs"].as_i64().unwrap_or(600);
     let play_end = genesis_ts + st.cfg.play_secs().min(end_bell * bell_secs);
-    let end = play_end + st.cfg.drain_bells as i64 * bell_secs;
+    let end = play_end + st.cfg.run_drain_bells() as i64 * bell_secs;
     st.state["play"] = json!({"genesis_ts": genesis_ts, "play_end": play_end, "end": end,
-        "play_bells": (play_end - genesis_ts) / bell_secs, "drain_bells": st.cfg.drain_bells});
+        "play_bells": (play_end - genesis_ts) / bell_secs,
+        "drain_bells": st.cfg.run_drain_bells()});
     // W6T-4: the archive against the actual genesis (setup may overrun the
     // planned LEAD_SECS: w6-s7 by 1,452 s), before anything else starts.
     if st.cfg.beacon == Beacon::Archive {
@@ -1126,10 +1165,10 @@ async fn run_all(st: &mut Stack) -> Result<(), String> {
             st.cfg.g0,
             genesis_ts,
             play_end,
-            st.cfg.drain_bells,
+            st.cfg.run_drain_bells(),
             bell_secs,
         );
-        let until = archive_until(genesis_ts, play_end, st.cfg.drain_bells, bell_secs);
+        let until = archive_until(genesis_ts, play_end, st.cfg.run_drain_bells(), bell_secs);
         match guard {
             Ok(r) => {
                 st.state["archive_guard"] = json!({"ok": true, "until": until, "last_round": r.last,
@@ -1144,8 +1183,9 @@ async fn run_all(st: &mut Stack) -> Result<(), String> {
         }
     }
     log_line(&format!(
-        "season {} created (genesis {genesis_ts}); play until {play_end}, drain until {end}",
-        st.cfg.season_id
+        "season {} created (genesis {genesis_ts}); play until {play_end}, run end {end}; world continues: {}",
+        st.cfg.season_id,
+        st.cfg.continuous
     ));
     // 4. Payers, keepers, relay.
     let funded = st.fund().await?;
@@ -1156,6 +1196,22 @@ async fn run_all(st: &mut Stack) -> Result<(), String> {
         Duration::from_secs(60),
     )
     .await?;
+    if let Some(p) = &st.prize {
+        let now = st.chain.status().await?.now;
+        let limit = prize_start_wait_limit(now, genesis_ts, st.cfg.scale);
+        crate::prize::Prize::wait_until_running(&st.chain, &st.addrs, limit).await?;
+        let v = p
+            .init_pool(&st.chain, &st.addrs, &st.keys.authority, &st.cfg)
+            .await?;
+        st.run.event(None, "prize", v.clone());
+        log_line(&format!(
+            "prize pool {} (test mint {}, entry fee {} base units)",
+            p.pool,
+            p.mint.pubkey(),
+            st.cfg.entry_fee
+        ));
+        st.state["prize"] = v;
+    }
     if st.cfg.keeper_b {
         st.start(specs["keeper-b"].clone())?;
         chain::wait_http(
@@ -1295,7 +1351,7 @@ async fn supervise(
     let mut chain_down_since: Option<Instant> = None;
     loop {
         tokio::time::sleep(Duration::from_millis(400)).await;
-        // Exits (reap; unexpected ones are crashes and restart).
+        // Exits (reap; an unexpected continuous-world exit stops the run).
         let names: Vec<String> = st.procs.keys().cloned().collect();
         for n in &names {
             let p = st.procs.get_mut(n).expect("proc");
@@ -1310,6 +1366,11 @@ async fn supervise(
                     crashes += 1;
                     st.run
                         .event(Some(last.now), "crash", json!({"component": n, "exit": d}));
+                    automatic_restart_allowed(
+                        st.cfg.continuous,
+                        n,
+                        &format!("exited unexpectedly ({d})"),
+                    )?;
                     log_line(&format!("{n} exited unexpectedly ({d}); restarting"));
                     p.restart_at = Some(Instant::now() + Duration::from_secs(2));
                 }
@@ -1322,6 +1383,7 @@ async fn supervise(
                 !p.running() && !p.done && p.restart_at.is_some_and(|t| Instant::now() >= t)
             };
             if due {
+                automatic_restart_allowed(st.cfg.continuous, n, "has a pending restart")?;
                 if n == "bots" {
                     // A restarted fleet keeps the run's play end (its
                     // --game-hours counts from the herald's time at start),
@@ -1641,7 +1703,7 @@ async fn supervise(
             }
         }
         // EndSeason once the last bell is over.
-        if st.cfg.end_season && !end_season_sent {
+        if !st.cfg.continuous && st.cfg.end_season && !end_season_sent {
             let end_bell = st.state["season"]["end_bell"]
                 .as_i64()
                 .unwrap_or(i64::MAX / 2);
@@ -1691,7 +1753,8 @@ async fn supervise(
         // The drain runs at the drain's scale once the fleet is done (one
         // bell after play; latencies are judged over play only).
         let drain_scale = st.cfg.drain_scale();
-        if now >= play_end + bell_secs
+        if !st.cfg.continuous
+            && now >= play_end + bell_secs
             && (drain_scale - cur_scale).abs() > 1e-9
             && drain_scale_failures < 5
         {
@@ -1743,6 +1806,7 @@ async fn supervise(
             }
             let s = st.chain.status().await?;
             st.state["complete"] = json!({"slot": s.slot, "game": s.now, "paused": s.paused, "crashes": crashes,
+                "world_continues": st.cfg.continuous,
                 "wall_ms": run::wall_ms()});
             st.run.event(Some(s.now), "phase", json!("complete"));
             st.save("complete");
@@ -1939,11 +2003,35 @@ pub fn append(p: &Path, v: &Value) {
 }
 
 /// `down`: stops the supervisor (if still running) and every component.
+fn can_seal_stopped_world(state: &Value, initially_live: &[String]) -> bool {
+    if !matches!(state["phase"].as_str(), Some("running" | "complete")) {
+        return false;
+    }
+    let mut required = vec!["localnet", "keeper-a", "relay", "herald"];
+    if state["components"]["keeper-b"]["spec"].is_object() {
+        required.push("keeper-b");
+    }
+    required
+        .iter()
+        .all(|name| initially_live.iter().any(|live| live == name))
+}
+
 pub fn down(rd: &RunDir) -> i32 {
     let Ok(mut stv) = rd.load_state() else {
         eprintln!("frontier-stack: no run at {}", rd.root.display());
         return 2;
     };
+    // A second `down` must not replace a clean-stop witness with a newer
+    // inventory of files that may have changed after the first stop.
+    if stv["phase"] == "down"
+        && live_components(&stv).is_empty()
+        && crate::recovery_seal::has_seal(rd)
+    {
+        println!("down: already stopped with an existing recovery seal");
+        return 0;
+    }
+    let initially_live = live_components(&stv);
+    let can_seal = can_seal_stopped_world(&stv, &initially_live);
     if let Some(sp) = stv["supervisor_pid"]
         .as_u64()
         .and_then(|v| u32::try_from(v).ok())
@@ -1999,7 +2087,10 @@ pub fn down(rd: &RunDir) -> i32 {
     stv["phase"] = json!("down");
     stv["phase_before_down"] = json!(prev);
     stv["down_wall_ms"] = json!(run::wall_ms());
-    let _ = rd.save_state(&stv);
+    if let Err(e) = rd.save_state(&stv) {
+        eprintln!("frontier-stack: cannot save stopped run: {e}");
+        return 1;
+    }
     rd.event(None, "phase", json!({"down": stopped}));
     println!(
         "down: stopped {}",
@@ -2010,16 +2101,66 @@ pub fn down(rd: &RunDir) -> i32 {
         }
     );
     let left = live_components(&stv);
-    if left.is_empty() {
-        0
-    } else {
-        1
+    if !left.is_empty() {
+        return 1;
     }
+    if stv["config"]["conquest"] == true && rd.path("localnet/ledger.wal").is_file() {
+        if !can_seal {
+            eprintln!(
+                "frontier-stack: stopped but cannot seal an incomplete or previously failed run"
+            );
+            return 1;
+        }
+        if let Err(e) = crate::recovery_seal::seal_clean_down(rd, &stv) {
+            eprintln!("frontier-stack: cannot seal stopped run: {e}");
+            return 1;
+        }
+    }
+    0
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn seal_requires_live_writers_before_stopping_a_completed_or_running_world() {
+        let state = json!({"phase":"running", "components":{"keeper-b":{"spec":null}}});
+        let live = ["localnet", "keeper-a", "relay", "herald"]
+            .map(str::to_owned)
+            .to_vec();
+        assert!(can_seal_stopped_world(&state, &live));
+        assert!(!can_seal_stopped_world(&state, &live[..3]));
+        let mut failed = state.clone();
+        failed["phase"] = json!("failed");
+        assert!(!can_seal_stopped_world(&failed, &live));
+        let mut with_backup = state;
+        with_backup["components"]["keeper-b"]["spec"] = json!({});
+        assert!(!can_seal_stopped_world(&with_backup, &live));
+    }
+
+    #[test]
+    fn continuous_world_refuses_component_restart_while_finite_world_keeps_it() {
+        for component in ["localnet", "keeper-a", "relay", "bots", "herald"] {
+            let err = automatic_restart_allowed(true, component, "exited unexpectedly")
+                .expect_err("lost state must stop a continuous world");
+            assert!(err.contains(component));
+            assert!(automatic_restart_allowed(false, component, "exited unexpectedly").is_ok());
+        }
+        assert!(automatic_restart_allowed(true, "localnet", "has a pending restart").is_err());
+    }
+
+    #[test]
+    fn prize_wait_budget_tracks_the_live_clock_and_low_scale() {
+        assert_eq!(prize_start_wait_limit(1_000, 1_600, 100.0).as_secs(), 306);
+        assert_eq!(prize_start_wait_limit(1_000, 1_600, 0.1).as_secs(), 6_300);
+        assert_eq!(prize_start_wait_limit(1_600, 1_600, 0.1).as_secs(), 300);
+        assert_eq!(prize_start_wait_limit(1_700, 1_600, 0.1).as_secs(), 300);
+        assert_eq!(
+            prize_start_wait_limit(i64::MIN, i64::MAX, f64::MIN_POSITIVE).as_secs(),
+            MAX_PRIZE_START_WAIT_SECS
+        );
+    }
 
     #[test]
     fn s1_runs_pass_s1_to_the_bots_once() {

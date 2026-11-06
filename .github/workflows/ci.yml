@@ -1,8 +1,26 @@
 name: CI
 
+# Key-free by default (owner rule, 2026-11-06): no job started by a push or a
+# pull request generates, derives or signs with any key, test keys and common
+# setup included. Every check that does — the LiteSVM suites, the SBF builds
+# (cargo-build-sbf writes a program keypair when none exists: not yet ruled
+# out, so treated as key generation), the frontier-node workspace tests (test
+# payers, test-beacon key) and the Node tests listed in
+# scripts/ci/node-key-tests.txt — is kept unchanged in the `key-tests` job at
+# the end, which runs only by hand (Actions → CI → Run workflow) with
+# key_tests set to "approved". Nothing in it runs until the owner allows it.
+# What runs and what does not: docs/ci/KEY-FREE-CI.ja.md.
 on:
   push:
   pull_request:
+  workflow_dispatch:
+    inputs:
+      key_tests:
+        description: 'Run the key-using tests (LiteSVM, SBF builds, frontier-node workspace, listed Node tests). Only "approved" runs them.'
+        required: true
+        default: 'no'
+        type: choice
+        options: ['no', 'approved']
 
 permissions:
   contents: read
@@ -42,6 +60,10 @@ jobs:
         run: node --test permutation-state-prototype/civilization/*.test.mjs
       - name: Validate recorded proof result
         run: python3 -m json.tool permutation-state-prototype/proof/qa-proof-result.json >/dev/null
+      - name: CI stays key-free on push and pull request
+        run: |
+          python3 -c 'import yaml' 2>/dev/null || pip install --user pyyaml==6.0.2
+          python3 scripts/ci/check-ci-keyfree.py .github/workflows/ci.yml
 
   receipt-tests:
     name: Solana receipt scaffold tests
@@ -66,8 +88,11 @@ jobs:
           cargo test --locked
       - name: Install JavaScript dependencies
         run: npm ci --ignore-scripts
-      - name: Run adapter tests
-        run: npm test
+      # Key-free subset under the runtime guard; the listed files that use
+      # keys run only in the key-tests job.
+      - name: Run adapter tests (key-free)
+        working-directory: .
+        run: scripts/ci/node-keyfree.sh permutation-state-solana-receipt-spike 'client/*.test.mjs' 'server/*.test.mjs'
       - name: Audit JavaScript dependencies
         run: npm audit --audit-level=moderate
 
@@ -90,10 +115,6 @@ jobs:
             permutation-server/target
             permutation-chain/svm-tests/target
           key: program-${{ hashFiles('**/Cargo.lock', '**/rust-toolchain.toml') }}
-      - name: Install Agave 3.1.9 (cargo-build-sbf, platform-tools v1.52)
-        run: |
-          sh -c "$(curl -sSfL https://release.anza.xyz/v3.1.9/install)"
-          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
       - name: Rules
         run: cargo test --locked --release -p permutation-rules
       - name: Program host tests
@@ -104,10 +125,7 @@ jobs:
         run: cd permutation-server && cargo test --locked --release
       - name: Server binaries (verify, play, replay) outside cargo test
         run: cd permutation-server && cargo build --locked --release --bins
-      - name: Program tests against the SBF build (builds it with scripts/build-program.sh)
-        run: permutation-chain/svm-tests/run.sh
-        env:
-          RELEASE_CHECK: ${{ (startsWith(github.ref, 'refs/tags/') || startsWith(github.ref, 'refs/heads/release/')) && '1' || '' }}
+      # Moved to key-tests: permutation-chain/svm-tests/run.sh (SBF build + LiteSVM).
 
   frontier-sim:
     name: Frontier simulator (conservation, replay, doctrine balance gate)
@@ -158,7 +176,11 @@ jobs:
           cache: npm
           cache-dependency-path: permutation-gateway/package-lock.json
       - run: npm ci --ignore-scripts
-      - run: npm test
+      # Key-free subset under the runtime guard (scripts/ci/no-keys-guard.mjs);
+      # the files listed in scripts/ci/node-key-tests.txt run only in the key-tests job.
+      - name: Gateway and web tests (key-free)
+        working-directory: .
+        run: scripts/ci/node-keyfree.sh permutation-gateway 'test/*.test.mjs' 'screens/logic.screen.mjs'
 
   # ------------------------------------------------------------------ M1
   # Frontier M1 (docs/frontier/m1/M1-CONTRACT.md §3.2, §12; CL-36). The
@@ -210,22 +232,8 @@ jobs:
           cargo clippy --locked -p permutation-frontier --all-targets -- -D warnings
           cargo test --locked -p permutation-frontier
           cargo test --locked -p permutation-frontier --no-default-features
-      - name: Install Agave 3.1.9 (cargo-build-sbf, platform-tools v1.52)
-        if: hashFiles('scripts/build-frontier.sh') != ''
-        run: |
-          sh -c "$(curl -sSfL https://release.anza.xyz/v3.1.9/install)"
-          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
-      # Reproducible SBPF v2 build: e_flags == 2, overflow checks present,
-      # no oracle/trace/test-beacon markers, two builds with equal hashes.
-      - name: SBF v2 build, twice
-        if: hashFiles('scripts/build-frontier.sh') != ''
-        run: scripts/build-frontier.sh --twice
-      - name: LiteSVM suite (G1-G13 against the SBF build)
-        if: hashFiles('permutation-frontier/svm-tests/run.sh') != ''
-        working-directory: permutation-frontier/svm-tests
-        run: ./run.sh --release
-        env:
-          RELEASE_CHECK: ${{ (startsWith(github.ref, 'refs/tags/') || startsWith(github.ref, 'refs/heads/release/')) && '1' || '' }}
+      # Moved to key-tests: the SBF v2 builds (twice; Prize for cross-program
+      # tests) and the LiteSVM suite G1-G13.
 
   frontier-node:
     name: Frontier M1 off-chain workspace (keeper, herald, verifier, localnet)
@@ -243,14 +251,18 @@ jobs:
           key: frontier-node-${{ hashFiles('frontier-node/Cargo.lock', 'frontier-node/rust-toolchain.toml') }}
       # In-process tests bind 127.0.0.1:0 and use the test-beacon key
       # (drand-replay --test-key, I-53); no network, no fixed ports.
-      - name: Format, lints and tests
+      # Format and lints compile every target but run none. The tests run only
+      # for the library crates with no key use (findex, herald); the workspace
+      # tests (test payers derived from a seed, the test-beacon key, signed
+      # transactions) are in key-tests.
+      - name: Format, lints and key-free tests
         if: hashFiles('frontier-node/Cargo.toml') != ''
         working-directory: frontier-node
         run: |
           cargo fmt --all -- --check
           cargo clippy --locked --workspace --all-targets -- -D warnings
-          cargo test --locked --workspace
-          cargo test --locked --release --workspace
+          cargo test --locked -p findex --lib
+          cargo test --locked -p herald --lib
 
   frontier-wasm:
     name: Frontier M1 web kernels (WASM build and hash)
@@ -294,15 +306,81 @@ jobs:
           cargo fmt --all -- --check
           cargo clippy --locked --all-targets -- -D warnings
           cargo test --locked
+      # Moved to key-tests: the Prize SBF v2 build and the LiteSVM tests.
+
+  # Workstream 04's host runs of the real prize and game programs (no keys:
+  # fixed keys and program addresses only; System, SPL Token and sysvars are
+  # host stubs).
+  exec-native:
+    name: Execution host E2E (prize + game programs, key-free)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Rust toolchain
+        run: rustup toolchain install 1.89.0 1.95.0 --profile minimal --component rustfmt,clippy
+      - name: Format, lints and tests
+        if: hashFiles('workstreams/04-execution/e2e-native/Cargo.toml') != ''
+        working-directory: workstreams/04-execution/e2e-native
+        run: |
+          cargo fmt -- --check
+          cargo test --locked
+
+  # ------------------------------------------------------------ key tests
+  # Every check that generates, derives or signs with a key, unchanged from
+  # the jobs above. Never started by a push or a pull request.
+  key-tests:
+    name: Key-using tests (manual, owner-approved only)
+    if: github.event_name == 'workflow_dispatch' && inputs.key_tests == 'approved'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Rust toolchains
+        run: rustup toolchain install 1.89.0 1.95.0 --profile minimal --component rustfmt,clippy
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 20
       - name: Install Agave 3.1.9 (cargo-build-sbf, platform-tools v1.52)
         run: |
           sh -c "$(curl -sSfL https://release.anza.xyz/v3.1.9/install)"
           echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
-      - name: Prize pool SBF v2 build
+      - name: Program tests against the SBF build (builds it with scripts/build-program.sh)
+        run: permutation-chain/svm-tests/run.sh
+        env:
+          RELEASE_CHECK: ${{ (startsWith(github.ref, 'refs/tags/') || startsWith(github.ref, 'refs/heads/release/')) && '1' || '' }}
+      - name: Frontier SBF v2 build, twice
+        if: hashFiles('scripts/build-frontier.sh') != ''
+        run: scripts/build-frontier.sh --twice
+      - name: Prize SBF v2 build
         run: scripts/build-prize.sh
+      - name: Frontier LiteSVM suite (G1-G13 against the SBF build)
+        if: hashFiles('permutation-frontier/svm-tests/run.sh') != ''
+        working-directory: permutation-frontier/svm-tests
+        run: ./run.sh --release
+        env:
+          RELEASE_CHECK: ${{ (startsWith(github.ref, 'refs/tags/') || startsWith(github.ref, 'refs/heads/release/')) && '1' || '' }}
+          PRIZE_SO: ${{ github.workspace }}/permutation-prize/target/deploy/permutation_prize.so
       - name: Prize pool LiteSVM format, lints and tests
         working-directory: permutation-prize/svm-tests
         run: |
           cargo fmt --all -- --check
           cargo clippy --locked --all-targets -- -D warnings
           cargo test --locked --release
+      - name: frontier-node workspace tests
+        if: hashFiles('frontier-node/Cargo.toml') != ''
+        working-directory: frontier-node
+        run: |
+          rustup toolchain install 1.95.0 --profile minimal
+          cargo test --locked --workspace
+          cargo test --locked --release --workspace
+      - name: Gateway and web tests (all, including the listed key tests)
+        working-directory: permutation-gateway
+        run: |
+          npm ci --ignore-scripts
+          npm test
+      - name: Receipt adapter tests (all)
+        working-directory: permutation-state-solana-receipt-spike
+        run: |
+          npm ci --ignore-scripts
+          npm test

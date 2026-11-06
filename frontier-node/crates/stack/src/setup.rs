@@ -107,6 +107,7 @@ pub fn with_ring_theta(p: &mut frontier_abi::presets::SeasonParams, bps: u16) {
 pub struct LandOverrides {
     pub ring_theta_bps: Option<u16>,
     pub r_max: Option<u16>,
+    pub continuous: bool,
 }
 
 impl LandOverrides {
@@ -117,6 +118,17 @@ impl LandOverrides {
         }
         if let Some(r) = self.r_max {
             p.r_max = r;
+        }
+    }
+
+    /// Mark a newly created S1 world as continuous. Only this explicit flag
+    /// uses the no-end sentinel; finite worlds retain their preset bytes.
+    pub fn apply_conquest(&self, p: &mut frontier_abi::v2::presets::SeasonParamsV2) {
+        self.apply(&mut p.base);
+        if self.continuous {
+            p.cq.continuous = 1;
+            p.base.end_bell = frontier_abi::presets::NO_END_BELL;
+            p.base.join_close_bell = frontier_abi::presets::NO_END_BELL;
         }
     }
 }
@@ -137,6 +149,12 @@ pub async fn run(
     scale: f64,
     log: &dyn Fn(&str, Value),
 ) -> Result<Value, String> {
+    if land_overrides.continuous && !conquest {
+        return Err("continuous world requires conquest (S1) params".into());
+    }
+    if land_overrides.continuous && (end_bell.is_some() || join_gate.is_some()) {
+        return Err("continuous world cannot use a season end or legacy prize join gate".into());
+    }
     let land = Duration::from_secs(60);
     let payout = permutation_rules::frontier::payout::PayoutParams::REV3.to_borsh();
     let (sp, ph) = if conquest {
@@ -144,7 +162,7 @@ pub async fn run(
         if let Some(k) = keep_bells {
             p.cq.keep_bells = k;
         }
-        land_overrides.apply(&mut p.base);
+        land_overrides.apply_conquest(&mut p);
         if let Some(g) = join_gate {
             p.base.join_gate = g;
         }
@@ -240,6 +258,7 @@ pub async fn run(
         "join_close_bell": s.join_close_bell, "bell_secs": s.bell_secs,
         "quicknet_pk_hash": hex::encode(s.quicknet_pk_hash), "params_hash": hex::encode(ph),
         "season_end_at_play_end": end_bell.is_some(),
+        "continuous": land_overrides.continuous,
         "conquest": conquest, "program_version": s.program_version, "ruleset_hash": hex::encode(s.ruleset_hash),
     });
     log("created", v.clone());
@@ -330,6 +349,29 @@ mod short_season_tests {
     use super::*;
 
     #[test]
+    fn continuous_conquest_keeps_join_open_and_finite_bytes_unchanged() {
+        let finite = conquest_params(Beacon::TestKey, None);
+        let mut unchanged = finite;
+        LandOverrides::default().apply_conquest(&mut unchanged);
+        assert_eq!(unchanged.to_bytes(), finite.to_bytes());
+        assert_eq!(unchanged.validate(), Ok(()));
+
+        let mut ongoing = finite;
+        LandOverrides {
+            continuous: true,
+            ..Default::default()
+        }
+        .apply_conquest(&mut ongoing);
+        assert_eq!(ongoing.cq.continuous, 1);
+        assert_eq!(ongoing.base.end_bell, frontier_abi::presets::NO_END_BELL);
+        assert_eq!(
+            ongoing.base.join_close_bell,
+            frontier_abi::presets::NO_END_BELL
+        );
+        assert_eq!(ongoing.validate(), Ok(()));
+    }
+
+    #[test]
     fn a_short_conquest_season_validates() {
         for end in [60u32, 96, 144, 432] {
             let p = conquest_params(Beacon::TestKey, Some(end));
@@ -361,6 +403,7 @@ mod short_season_tests {
         let land = |r| LandOverrides {
             ring_theta_bps: None,
             r_max: Some(r),
+            continuous: false,
         };
         for (r, ok) in [(6u16, true), (128, true), (4, false), (129, false)] {
             let mut p = p0;

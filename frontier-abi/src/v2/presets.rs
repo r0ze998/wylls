@@ -55,7 +55,12 @@ pub mod cq_layout {
         RETIRE_HOSTS @ 74 : "u8" = 1;
         RELATIONS @ 75 : "u8" = 1;
         FLAGS @ 76 : "u8" = 1;
-        RSV @ 77 : "rsv" = 51;
+        // 8's placement and map-growth fields at 77..79 are not in this
+        // isolated candidate. Preserve their reserved bytes, but pin the
+        // continuous-world flag to the same byte 80 as 8's source ABI.
+        RSV_PRE_CONTINUOUS @ 77 : "rsv" = 3;
+        CONTINUOUS @ 80 : "u8" = 1;
+        RSV @ 81 : "rsv" = 47;
     );
 }
 
@@ -158,6 +163,9 @@ pub struct ConquestParams {
     pub retire_hosts: u8,
     pub relations: u8,
     pub flags: u8,
+    /// Byte 80 of the conquest block. A new continuous world keeps both its
+    /// end and join deadline absent.
+    pub continuous: u8,
 }
 
 impl ConquestParams {
@@ -215,14 +223,21 @@ impl ConquestParams {
             & wr_u16(&mut d, L::OUTPOST_CLOSE_BELLS, self.outpost_close_bells)
             & wr_u8(&mut d, L::RETIRE_HOSTS, self.retire_hosts)
             & wr_u8(&mut d, L::RELATIONS, self.relations)
-            & wr_u8(&mut d, L::FLAGS, self.flags);
+            & wr_u8(&mut d, L::FLAGS, self.flags)
+            & wr_u8(&mut d, L::CONTINUOUS, self.continuous);
         d
     }
 
     /// Decodes the 128-B block; `None` if short or a reserved byte is set.
     pub fn from_bytes(d: &[u8]) -> Option<ConquestParams> {
         use cq_layout as L;
-        if d.len() < CONQUEST_PARAMS_LEN || d[L::RSV..CONQUEST_PARAMS_LEN].iter().any(|b| *b != 0) {
+        if d.len() < CONQUEST_PARAMS_LEN
+            || d[L::RSV_PRE_CONTINUOUS..L::CONTINUOUS]
+                .iter()
+                .any(|b| *b != 0)
+            || d[L::CONTINUOUS] > 1
+            || d[L::RSV..CONQUEST_PARAMS_LEN].iter().any(|b| *b != 0)
+        {
             return None;
         }
         Some(ConquestParams {
@@ -257,6 +272,7 @@ impl ConquestParams {
             retire_hosts: rd_u8(d, L::RETIRE_HOSTS)?,
             relations: rd_u8(d, L::RELATIONS)?,
             flags: rd_u8(d, L::FLAGS)?,
+            continuous: rd_u8(d, L::CONTINUOUS)?,
         })
     }
 
@@ -385,7 +401,10 @@ impl SeasonParamsV2 {
     /// the block's ranges and the dormancy timers agreeing in both parts.
     /// The program refuses a version other than its own.
     pub fn validate(&self) -> Result<(), &'static str> {
-        self.base.validate()?;
+        if self.cq.continuous > 1 {
+            return Err("continuous");
+        }
+        self.base.validate_world(self.cq.continuous == 1)?;
         if self.base.program_version != PROGRAM_VERSION_V2
             && self.base.program_version != PROGRAM_VERSION_S1
         {
@@ -457,6 +476,7 @@ pub const FRONTIER_7: ConquestParams = ConquestParams {
     retire_hosts: 1,
     relations: 0,
     flags: 0,
+    continuous: 0,
 };
 
 /// Frontier-28's conquest block (§3.12).
@@ -724,10 +744,63 @@ mod tests {
             Err("dormancy timers differ")
         );
         assert_eq!(bad(|p| p.cq.conquest_version = 2), Err("conquest_version"));
+        assert_eq!(
+            bad(|p| p.cq.continuous = 1),
+            Err("join_close_bell/end_bell")
+        );
+        assert_eq!(bad(|p| p.cq.continuous = 2), Err("continuous"));
+        let mut existing = base.cq.to_bytes();
+        existing[cq_layout::CONTINUOUS] = 1;
+        assert_eq!(ConquestParams::from_bytes(&existing).unwrap().continuous, 1);
+        existing[cq_layout::RSV_PRE_CONTINUOUS] = 1;
+        assert_eq!(ConquestParams::from_bytes(&existing), None);
+        existing[cq_layout::RSV_PRE_CONTINUOUS] = 0;
+        existing[cq_layout::CONTINUOUS] = 2;
+        assert_eq!(ConquestParams::from_bytes(&existing), None);
         let mut d = base.to_bytes();
         d[SEASON_PARAMS_LEN + cq_layout::RSV] = 1;
         assert_eq!(SeasonParamsV2::from_bytes(&d), None);
         assert_eq!(MAX_GUARD_TROOPS, 30_000);
+    }
+
+    #[test]
+    fn continuous_creation_keeps_join_open_and_map_fixed() {
+        let finite = MC_LOCAL_7D;
+        let finite_bytes = finite.to_bytes();
+        let payout = permutation_rules::frontier::payout::PayoutParams::REV3.to_borsh();
+        assert_eq!(
+            params_hash_v2(&finite_bytes, &payout),
+            [
+                0xfc, 0xa9, 0x50, 0xc6, 0x19, 0xbf, 0x18, 0x45, 0x93, 0x0d, 0x4e, 0x3d, 0x3f, 0x19,
+                0x78, 0xb8, 0xe2, 0x2c, 0x3d, 0xe6, 0xc0, 0x0c, 0x89, 0x96, 0x83, 0x49, 0xfe, 0x74,
+                0xe5, 0x0c, 0x73, 0x9b,
+            ]
+        );
+
+        let mut continuous = finite;
+        continuous.cq.continuous = 1;
+        continuous.base.end_bell = crate::presets::NO_END_BELL;
+        continuous.base.join_close_bell = crate::presets::NO_END_BELL;
+        assert_eq!(continuous.validate(), Ok(()));
+        let raw = continuous.to_bytes();
+        assert_eq!(
+            raw[SEASON_PARAMS_LEN + cq_layout::RSV_PRE_CONTINUOUS
+                ..SEASON_PARAMS_LEN + cq_layout::CONTINUOUS],
+            [0; 3]
+        );
+        assert_eq!(SeasonParamsV2::from_bytes(&raw), Some(continuous));
+        assert_ne!(
+            params_hash_v2(&raw, &payout),
+            params_hash_v2(&finite_bytes, &payout)
+        );
+        continuous.base.join_close_bell = 0;
+        assert_eq!(continuous.validate(), Err("join_close_bell/end_bell"));
+        continuous.base.join_close_bell = 756;
+        assert_eq!(continuous.validate(), Err("join_close_bell/end_bell"));
+        continuous.base.join_close_bell = crate::presets::NO_END_BELL;
+        continuous.base.end_bell = finite.base.end_bell;
+        assert_eq!(continuous.validate(), Err("join_close_bell/end_bell"));
+        assert_eq!(finite.to_bytes(), finite_bytes);
     }
 
     #[test]

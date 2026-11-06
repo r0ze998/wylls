@@ -24,6 +24,7 @@ use frontier_bots::fleet::Fleet;
 use frontier_bots::journal::Journal;
 use frontier_bots::ports::{Answer, DirHerald, DirectPort, NoDirect, RelayPort};
 use frontier_bots::report::Verdict;
+use frontier_bots::seal::SealedMarch;
 use serde_json::{json, Value};
 
 /// What the mock relay saw.
@@ -451,6 +452,31 @@ fn memo_for(arrive: u32, kind: SealKind, landed_host: bool) -> MarchMemo {
     }
 }
 
+#[test]
+fn restart_rejects_marches_outside_the_saved_bot_roster() {
+    let dir = tmp("wrong-roster");
+    let jp = dir.join("marchbook.jsonl");
+    let journal = Journal::open(&jp).unwrap();
+    let memo = memo_for(fixture::BELL, SealKind::Honest, false);
+    let sealed = SealedMarch {
+        plain: memo.plain,
+        salt: memo.salt,
+        commit: memo.commit,
+        seal: memo.seal.clone().try_into().unwrap(),
+        ct_hash: memo.ct_hash,
+        seal_root: [0; 32],
+        round: 99,
+    };
+    journal.sealed(99_999, &memo, &sealed).unwrap();
+    let sh = shared::<NoDirect>(MockRelay::new(presets()), None);
+    let mut fleet = Fleet::new(sh, &[spec(FINAL, Arch::Daily, None)]);
+    let error = fleet.restore(&jp).unwrap_err();
+    assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+    assert!(fleet.bots[0].mem.marches.is_empty());
+    drop(journal);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
 #[tokio::test]
 async fn owners_reveal_through_the_keeper_link() {
     let sh = shared::<NoDirect>(MockRelay::new(presets()), None);
@@ -538,7 +564,11 @@ async fn personas_meet_the_refusals_they_expect() {
         "{zs:?}"
     );
     assert!(zs.contains(&("direct", Some("TipTooLow".into()))), "{zs:?}");
-    assert_eq!(z.mem.marches.len(), 0, "a refused march is not remembered");
+    // The mock direct port returns an RPC signature even when simulation
+    // predicts TipTooLow. Submission may still have reached the chain, so
+    // retain the sealed march instead of allowing a second Depart.
+    assert_eq!(z.mem.marches.len(), 1);
+    assert!(!z.mem.marches[0].sent);
     let holds = sh.direct.as_ref().unwrap().holds.lock().unwrap().clone();
     assert_eq!(holds.len(), 1);
     let (hp, hq) = fixture::world().home;

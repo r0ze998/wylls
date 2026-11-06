@@ -621,7 +621,8 @@ fn emit_status(season_ai: &AccountInfo, id: u64, bell: u32, old: u8, new: u8, bo
 /// 0x04 EndSeason: `[any s] [season w]`, class N (§5.7). Effective status
 /// Running and `bell(now) ≥ end_bell` (`TooEarly` before); an Ended season
 /// is `AlreadyDone` (keeper idempotency). Status Ended; `SEASON_STATUS`
-/// (old 3 Running, new 4).
+/// (old 3 Running, new 4). An existing continuous world refuses this
+/// instruction without changing its state.
 pub fn end_season(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     check_accounts(Ix::EndSeason, a, None)?;
     aix::EndSeason::decode(d)?;
@@ -638,6 +639,11 @@ pub fn end_season(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     )?;
     if hdr.status == S::STATUS_ENDED {
         return Err(FrontierError::AlreadyDone.into());
+    }
+    if crate::layout::conquest::is_continuous(&season_ai.try_borrow_data()?)? {
+        return Err(super::conquest::cq(
+            frontier_abi::v2::error::CqError::ContinuousWorld,
+        ));
     }
     let bell = hdr.bell(now.ts).ok_or(FrontierError::WrongStatus)?;
     if bell < hdr.end_bell {

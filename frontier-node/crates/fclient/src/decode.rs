@@ -17,6 +17,8 @@ pub enum DecodeError {
     Short { want: usize, got: usize },
     /// Magic does not match the expected kind.
     Magic { want: [u8; 8], got: [u8; 8] },
+    /// The Season layout/program pairing or v2 continuous flag is invalid.
+    InvalidSeasonMode,
 }
 
 /// Little-endian reads at fixed offsets.
@@ -184,9 +186,45 @@ impl Season {
         self.program_version >= crate::abi::PROGRAM_VERSION_V2
     }
 
+    /// True only when the chain's v2 conquest flag and the end bell agree.
+    /// A missing or malformed conquest block never implies an endless world.
+    /// This reads an existing account; it does not enable continuous creation.
+    pub fn world_continues(&self) -> bool {
+        self.end_bell == u32::MAX
+            && self
+                .conquest
+                .as_ref()
+                .is_some_and(|params| params.continuous == 1)
+    }
+
     pub fn decode(d: &[u8]) -> Result<Season, DecodeError> {
         use l::season as s;
         let b = check(d, magic::SEASON, s::END)?;
+        let version = b.u16(s::PROGRAM_VERSION);
+        // M1 used layout 1 with program 1 or 2; MC/S1 use layout 2 with
+        // program 3 or 4. A crossed pair would make JS and Rust disagree on
+        // whether byte 80 is a continuous-world flag.
+        let layout_v2 = b.u16(l::h::LAYOUT_VERSION) >= crate::abi::LAYOUT_VERSION_V2;
+        if layout_v2 != (version >= crate::abi::PROGRAM_VERSION_V2) {
+            return Err(DecodeError::InvalidSeasonMode);
+        }
+        let conquest = if version >= crate::abi::PROGRAM_VERSION_V2 {
+            use frontier_abi::v2::presets::{CONQUEST_PARAMS_LEN, SEASON_CQ_OFFSET};
+            let want = SEASON_CQ_OFFSET + CONQUEST_PARAMS_LEN;
+            if d.len() < want {
+                return Err(DecodeError::Short { want, got: d.len() });
+            }
+            // The v2 block is present in every full v2 Season. Parse it even
+            // for a finite world so nonzero reserved bytes cannot silently
+            // turn a malformed account into a Season with no conquest data.
+            let cq = ConquestParams::of_season(d).ok_or(DecodeError::InvalidSeasonMode)?;
+            if cq.continuous == 1 && b.u32(s::END_BELL) != u32::MAX {
+                return Err(DecodeError::InvalidSeasonMode);
+            }
+            Some(cq)
+        } else {
+            None
+        };
         Ok(Season {
             h: header(b),
             status: b.u8(s::STATUS),
@@ -244,9 +282,7 @@ impl Season {
             dpool_initial: b.u64(s::DPOOL_INITIAL),
             reveal_loaded_limit: b.u32(s::REVEAL_LOADED_LIMIT),
             join_gate: b.key(s::JOIN_GATE),
-            conquest: (b.u16(s::PROGRAM_VERSION) >= crate::abi::PROGRAM_VERSION_V2)
-                .then(|| ConquestParams::of_season(d))
-                .flatten(),
+            conquest,
         })
     }
 
@@ -1733,11 +1769,17 @@ mod tests {
         let p = frontier_abi::v2::presets::MC_TEST;
         let mut s = vec![0u8; size::SEASON];
         put(&mut s, 0, magic::SEASON);
+        put(&mut s, l::h::LAYOUT_VERSION, &1u16.to_le_bytes());
         let cq = p.cq.to_bytes();
         let o = frontier_abi::v2::presets::SEASON_CQ_OFFSET;
         s[o..o + cq.len()].copy_from_slice(&cq);
         put(&mut s, l::season::PROGRAM_VERSION, &1u16.to_le_bytes());
         assert!(Season::decode(&s).unwrap().conquest.is_none());
+        put(
+            &mut s,
+            l::h::LAYOUT_VERSION,
+            &crate::abi::LAYOUT_VERSION_V2.to_le_bytes(),
+        );
         put(
             &mut s,
             l::season::PROGRAM_VERSION,
@@ -1785,6 +1827,134 @@ mod tests {
         let mut h1 = vec![0u8; size::HOLDING];
         put(&mut h1, 0, magic::HOLDING);
         assert!(Holding::decode(&h1).unwrap().cq.is_none());
+    }
+
+    #[test]
+    fn world_continuity_comes_from_the_chain_bytes_and_end_bell() {
+        use frontier_abi::v2::presets::{cq_layout, SEASON_CQ_OFFSET};
+        let mut raw = vec![0u8; size::SEASON];
+        put(&mut raw, 0, magic::SEASON);
+        put(
+            &mut raw,
+            l::h::LAYOUT_VERSION,
+            &crate::abi::LAYOUT_VERSION_V2.to_le_bytes(),
+        );
+        put(
+            &mut raw,
+            l::season::PROGRAM_VERSION,
+            &crate::abi::PROGRAM_VERSION_V2.to_le_bytes(),
+        );
+        let cq = frontier_abi::v2::presets::MC_TEST.cq.to_bytes();
+        raw[SEASON_CQ_OFFSET..SEASON_CQ_OFFSET + cq.len()].copy_from_slice(&cq);
+        put(&mut raw, l::season::END_BELL, &1008u32.to_le_bytes());
+        assert!(!Season::decode(&raw).unwrap().world_continues());
+        put(&mut raw, l::season::END_BELL, &u32::MAX.to_le_bytes());
+        assert!(!Season::decode(&raw).unwrap().world_continues()); // end alone is not the flag
+        put(&mut raw, l::season::END_BELL, &1008u32.to_le_bytes());
+
+        let flag = SEASON_CQ_OFFSET + cq_layout::CONTINUOUS;
+        raw[flag] = 1;
+        assert_eq!(Season::decode(&raw), Err(DecodeError::InvalidSeasonMode));
+        put(&mut raw, l::season::END_BELL, &u32::MAX.to_le_bytes());
+        assert!(Season::decode(&raw).unwrap().world_continues());
+
+        raw[flag] = 2;
+        assert_eq!(Season::decode(&raw), Err(DecodeError::InvalidSeasonMode));
+        raw[flag] = 1;
+        raw[SEASON_CQ_OFFSET + cq_layout::RSV_PRE_CONTINUOUS] = 1;
+        assert_eq!(Season::decode(&raw), Err(DecodeError::InvalidSeasonMode));
+        raw[SEASON_CQ_OFFSET + cq_layout::RSV_PRE_CONTINUOUS] = 0;
+        put(&mut raw, l::season::PROGRAM_VERSION, &1u16.to_le_bytes());
+        put(&mut raw, l::h::LAYOUT_VERSION, &1u16.to_le_bytes());
+        assert!(!Season::decode(&raw).unwrap().world_continues());
+    }
+
+    #[test]
+    fn v2_finite_world_rejects_corrupt_reserved_conquest_bytes() {
+        use frontier_abi::v2::presets::{cq_layout, CONQUEST_PARAMS_LEN, SEASON_CQ_OFFSET};
+        let mut raw = vec![0u8; size::SEASON];
+        put(&mut raw, 0, magic::SEASON);
+        put(
+            &mut raw,
+            l::h::LAYOUT_VERSION,
+            &crate::abi::LAYOUT_VERSION_V2.to_le_bytes(),
+        );
+        put(
+            &mut raw,
+            l::season::PROGRAM_VERSION,
+            &crate::abi::PROGRAM_VERSION_V2.to_le_bytes(),
+        );
+        raw[SEASON_CQ_OFFSET..SEASON_CQ_OFFSET + CONQUEST_PARAMS_LEN]
+            .copy_from_slice(&frontier_abi::v2::presets::MC_TEST.cq.to_bytes());
+        put(&mut raw, l::season::END_BELL, &1008u32.to_le_bytes());
+        assert!(Season::decode(&raw).unwrap().conquest.is_some());
+
+        for at in [cq_layout::RSV_PRE_CONTINUOUS, cq_layout::RSV] {
+            raw[SEASON_CQ_OFFSET + at] = 1;
+            assert_eq!(Season::decode(&raw), Err(DecodeError::InvalidSeasonMode));
+            raw[SEASON_CQ_OFFSET + at] = 0;
+        }
+
+        let short = &raw[..SEASON_CQ_OFFSET + CONQUEST_PARAMS_LEN - 1];
+        assert_eq!(
+            Season::decode(short),
+            Err(DecodeError::Short {
+                want: SEASON_CQ_OFFSET + CONQUEST_PARAMS_LEN,
+                got: short.len(),
+            })
+        );
+
+        put(
+            &mut raw,
+            l::season::PROGRAM_VERSION,
+            &crate::abi::PROGRAM_VERSION_S1.to_le_bytes(),
+        );
+        assert!(Season::decode(&raw).unwrap().conquest.is_some());
+        raw[SEASON_CQ_OFFSET + cq_layout::RSV_PRE_CONTINUOUS] = 1;
+        assert_eq!(Season::decode(&raw), Err(DecodeError::InvalidSeasonMode));
+        put(&mut raw, l::season::PROGRAM_VERSION, &1u16.to_le_bytes());
+        put(&mut raw, l::h::LAYOUT_VERSION, &1u16.to_le_bytes());
+        assert!(Season::decode(&raw).unwrap().conquest.is_none());
+    }
+
+    #[test]
+    fn season_layout_and_program_versions_must_agree() {
+        use frontier_abi::v2::presets::{CONQUEST_PARAMS_LEN, SEASON_CQ_OFFSET};
+        let mut raw = vec![0u8; size::SEASON];
+        put(&mut raw, 0, magic::SEASON);
+        put(
+            &mut raw,
+            l::h::LAYOUT_VERSION,
+            &crate::abi::LAYOUT_VERSION_V2.to_le_bytes(),
+        );
+        put(
+            &mut raw,
+            l::season::PROGRAM_VERSION,
+            &crate::abi::PROGRAM_VERSION_V2.to_le_bytes(),
+        );
+        raw[SEASON_CQ_OFFSET..SEASON_CQ_OFFSET + CONQUEST_PARAMS_LEN]
+            .copy_from_slice(&frontier_abi::v2::presets::MC_TEST.cq.to_bytes());
+        assert!(Season::decode(&raw).unwrap().conquest.is_some());
+
+        for program in [0u16, 2] {
+            put(&mut raw, l::season::PROGRAM_VERSION, &program.to_le_bytes());
+            assert_eq!(Season::decode(&raw), Err(DecodeError::InvalidSeasonMode));
+        }
+        put(
+            &mut raw,
+            l::season::PROGRAM_VERSION,
+            &crate::abi::PROGRAM_VERSION_V2.to_le_bytes(),
+        );
+        put(&mut raw, l::h::LAYOUT_VERSION, &1u16.to_le_bytes());
+        assert_eq!(Season::decode(&raw), Err(DecodeError::InvalidSeasonMode));
+
+        // M1 used the v1 layout with program version 2. Its conquest area
+        // was reserved and is not interpreted as a continuous-world flag.
+        raw[SEASON_CQ_OFFSET..SEASON_CQ_OFFSET + CONQUEST_PARAMS_LEN].fill(0);
+        put(&mut raw, l::season::PROGRAM_VERSION, &2u16.to_le_bytes());
+        assert!(Season::decode(&raw).unwrap().conquest.is_none());
+        put(&mut raw, l::season::PROGRAM_VERSION, &1u16.to_le_bytes());
+        assert!(Season::decode(&raw).unwrap().conquest.is_none());
     }
 
     #[test]

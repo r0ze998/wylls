@@ -1,0 +1,35 @@
+# 2026-11-05T13:51:14Z 3a55a518799e7f243b4f5abad50f279c87158bcc rustc 1.89.0 (29483883e 2025-08-04)
+    Checking wylls-ext-kernel v0.1.0 (/home/user/wylls/workstreams/11-extensions/ext-kernel)
+    Checking wylls-creation-bridge v0.1.0 (/home/user/wylls/workstreams/11-extensions/creation-bridge)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.51s
+   Compiling wylls-ext-kernel v0.1.0 (/home/user/wylls/workstreams/11-extensions/ext-kernel)
+   Compiling wylls-creation-bridge v0.1.0 (/home/user/wylls/workstreams/11-extensions/creation-bridge)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.37s
+     Running unittests src/lib.rs (/home/user/wylls/permutation-chain/target/debug/deps/wylls_creation_bridge-2b6b9a303cf99770)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/contract.rs (/home/user/wylls/permutation-chain/target/debug/deps/contract-904d04598d340763)
+
+running 10 tests
+test k01_the_vectors_are_06s_at_517796dc ... ok
+test k02_canonical_form_and_hash_match_06 ... ok
+test k03_envelopes_verify_and_tampering_does_not ... ok
+test k04_the_registry_reads_as_06_left_it ... ok
+test k05_a_pin_resolves_with_06s_meaning_of_status ... ok
+test k06_an_inconsistent_export_is_refused ... ok
+test k07_status_signatures_verify_only_as_signed ... ok
+test k08_only_same_meaning_fields_map ... ok
+test k09_goods_follow_the_cores_slots_and_units ... ok
+test k10_no_eleven_manifest_becomes_a_06_definition ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.40s
+
+   Doc-tests wylls_creation_bridge
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

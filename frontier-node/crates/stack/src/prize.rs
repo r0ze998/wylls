@@ -17,6 +17,7 @@ use sha2::{Digest, Sha256};
 use crate::chain::Chain;
 use crate::config::StackConfig;
 use crate::run::{self, RunDir};
+use fclient::abi::status;
 
 pub const TOKEN_PROGRAM: &str = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
 /// Decimals of the test mint.
@@ -31,6 +32,7 @@ pub const PARAMS_FILE: &str = "permutation-gateway/src/frontier/prize-params.jso
 pub struct Prize {
     pub so: PathBuf,
     pub so_len: usize,
+    pub so_sha256: [u8; 32],
     pub program: Address,
     pub gate: Keypair,
     pub faucet: Keypair,
@@ -190,6 +192,7 @@ impl Prize {
         Ok(Some(Prize {
             so: pinned,
             so_len: bytes.len(),
+            so_sha256: Sha256::digest(&bytes).into(),
             program,
             gate,
             faucet,
@@ -226,15 +229,9 @@ impl Prize {
         ]
     }
 
-    /// After CreateSeason: the test mint (authority: the relay's faucet
-    /// key) and the season's pool (operator: the season authority).
-    pub async fn setup(
-        &self,
-        chain: &Chain,
-        addrs: &Addresses,
-        authority: &Keypair,
-        cfg: &StackConfig,
-    ) -> Result<Value, String> {
+    /// Create the test mint at the original post-CreateSeason point. Pool
+    /// initialization waits until the keeper has seeded the season.
+    pub async fn create_mint(&self, chain: &Chain, authority: &Keypair) -> Result<(), String> {
         let land = Duration::from_secs(60);
         let token: Address = TOKEN_PROGRAM.parse().map_err(|_| "token program id")?;
         let auth = authority.pubkey();
@@ -271,6 +268,44 @@ impl Prize {
                 land,
             )
             .await?;
+        Ok(())
+    }
+
+    /// Wait for the actual on-chain season and chain clock to permit a
+    /// payable pool. The stored status remains Seeded while time advances
+    /// into Running. Never loop forever if the keeper cannot seed it.
+    pub async fn wait_until_running(
+        chain: &Chain,
+        addrs: &Addresses,
+        limit: Duration,
+    ) -> Result<(), String> {
+        tokio::time::timeout(limit, async {
+            loop {
+                if pool_ready_now(chain, addrs).await? {
+                    return Ok(());
+                }
+                tokio::time::sleep(Duration::from_millis(250)).await;
+            }
+        })
+        .await
+        .map_err(|_| format!("season did not reach Running before InitPool in {limit:?}"))?
+    }
+
+    /// Initialize the legacy finite-season pool only after the Season is
+    /// effectively Running, before starting the relay that accepts fees.
+    pub async fn init_pool(
+        &self,
+        chain: &Chain,
+        addrs: &Addresses,
+        authority: &Keypair,
+        cfg: &StackConfig,
+    ) -> Result<Value, String> {
+        if !pool_ready_now(chain, addrs).await? {
+            return Err("season is not Running before InitPool".into());
+        }
+        let land = Duration::from_secs(60);
+        let token: Address = TOKEN_PROGRAM.parse().map_err(|_| "token program id")?;
+        let auth = authority.pubkey();
         let mut d = vec![0u8]; // permutation-prize InitPool
         d.extend_from_slice(&cfg.entry_fee.to_le_bytes());
         d.extend_from_slice(&cfg.prize_ops_bps.to_le_bytes());
@@ -302,6 +337,7 @@ impl Prize {
     pub fn to_json(&self, cfg: &StackConfig) -> Value {
         json!({
             "test_assets_only": true,
+            "so_sha256": hex::encode(self.so_sha256),
             "program": self.program.to_string(), "pool": self.pool.to_string(), "vault": self.vault.to_string(),
             "mint": self.mint.pubkey().to_string(), "decimals": DECIMALS,
             "entry_fee": cfg.entry_fee, "ops_bps": cfg.prize_ops_bps, "expected_keeps": cfg.prize_keeps,
@@ -311,9 +347,64 @@ impl Prize {
     }
 }
 
+/// `Running` is effective, not necessarily stored. A Created season cannot
+/// hold a payable pool, and a terminal state must fail rather than wait.
+fn pool_ready(
+    stored_status: u8,
+    genesis_ts: i64,
+    end_bell: u32,
+    bell_secs: u32,
+    now: i64,
+) -> Result<bool, String> {
+    if end_bell > 4_032 || bell_secs == 0 {
+        return Err("InitPool requires a finite season".into());
+    }
+    let end = genesis_ts
+        .checked_add(i64::from(end_bell) * i64::from(bell_secs))
+        .ok_or("season end time overflows before InitPool")?;
+    if now >= end {
+        return Err("season already ended before InitPool".into());
+    }
+    match stored_status {
+        status::CREATED => Ok(false),
+        status::SEEDED | status::RUNNING => Ok(now >= genesis_ts),
+        other => Err(format!(
+            "season status {other} cannot initialize a prize pool"
+        )),
+    }
+}
+
+async fn pool_ready_now(chain: &Chain, addrs: &Addresses) -> Result<bool, String> {
+    let season = chain
+        .season(addrs)
+        .await?
+        .ok_or("season missing before InitPool")?;
+    let now = chain.status().await?.now;
+    pool_ready(
+        season.status,
+        season.genesis_ts,
+        season.end_bell,
+        season.bell_secs,
+        now,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pool_requires_effective_running_and_refuses_terminal_states() {
+        let ready = |status, now| pool_ready(status, 100, 10, 600, now);
+        assert_eq!(ready(status::CREATED, 101), Ok(false));
+        assert_eq!(ready(status::SEEDED, 99), Ok(false));
+        assert_eq!(ready(status::SEEDED, 100), Ok(true));
+        assert_eq!(ready(status::RUNNING, 100), Ok(true));
+        assert!(ready(status::ENDED, 101).is_err());
+        assert!(ready(status::ABORTED, 101).is_err());
+        assert!(ready(status::SEEDED, 6_100).is_err());
+        assert!(pool_ready(status::SEEDED, 100, u32::MAX, 600, 100).is_err());
+    }
 
     /// The relay's own token for the same secret, season and nonce
     /// (permutation-gateway `InviteBook`, computed there).

@@ -862,6 +862,9 @@ function caravanOf(v, at) {
       return { p: intOf(ro, 'p', -COORD, COORD, a), q: intOf(ro, 'q', -COORD, COORD, a), firstBell: intOf(ro, 'firstBell', 0, U32, a), n: intOf(ro, 'n', 0, 255, a) };
     }),
     raided,
+    // ⑯ P3: the holder a raid named (a take, herald caravan.rs) and the send's tower wear; older heralds write neither
+    holderTag: Object.hasOwn(o, 'holderTag') ? decOf(o, 'holderTag', at) : null,
+    wornBps: Object.hasOwn(o, 'wornBps') ? intOf(o, 'wornBps', 0, 10000, at) : null,
     // the packed walk and the Provinces it enters, the origin's first (a checkpoint older than them has neither)
     path: Object.hasOwn(o, 'path') ? (() => { const a = arrOf(o, 'path', at); check(a.length === 12, 'BadSchema', `${at}: path is not 12 bytes`); return a.map((_, i) => intOf(a, i, 0, 255, `${at}.path`)); })() : null,
     provinces: Object.hasOwn(o, 'provinces') ? arrOf(o, 'provinces', at).map((x, i) => {

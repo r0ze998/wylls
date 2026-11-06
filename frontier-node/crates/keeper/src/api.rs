@@ -35,6 +35,10 @@ struct ApiState {
     /// The accept path against chain (W3-C); `None` queues after the shape
     /// checks only (unit tests of the routes).
     gate: Option<Arc<dyn RevealGate>>,
+    /// The keeper's journal (⑱): accepted material is written there before
+    /// `202` is answered, so a restart before the play duty takes it from
+    /// the queue loses nothing. `None` keeps it in memory (unit tests).
+    journal: Option<Arc<std::path::PathBuf>>,
 }
 
 fn lock(s: &Mutex<Shared>) -> std::sync::MutexGuard<'_, Shared> {
@@ -188,6 +192,34 @@ async fn reveal(State(st): State<ApiState>, h: HeaderMap, Json(v): Json<Value>) 
     }
     s.next_track += 1;
     let id = format!("r{}", s.next_track);
+    if let Some(path) = &st.journal {
+        // Durable before it is acknowledged (⑱): the material waits for
+        // THE anchor and T(arrive), possibly across a restart.
+        let p = fclient::seal::unpack(&req.plain);
+        let row = crate::journal::OwnerRow {
+            host: p.host_id,
+            bell: p.arrive_bell,
+            track: id.clone(),
+            holding: req.holding.to_string(),
+            transit_slot: req.transit_slot,
+            plain: req.plain.to_vec(),
+            salt: req.salt.to_vec(),
+            ct_hash: req.ct_hash.to_vec(),
+        };
+        if crate::journal::Journal::open(path)
+            .and_then(|j| j.save_owner_material(&row))
+            .is_err()
+        {
+            s.next_track -= 1;
+            // Journal errors can include local filesystem paths. Refuse the
+            // request without exposing those details to the API caller.
+            return err(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "JournalUnavailable",
+                "owner material could not be stored",
+            );
+        }
+    }
     s.tracks.insert(id.clone(), json!({"state": "queued"}));
     s.reveal_keys.insert(dedupe, id.clone());
     s.reveals.push((id.clone(), item));
@@ -246,10 +278,21 @@ pub fn router_with(
     token: String,
     gate: Option<Arc<dyn RevealGate>>,
 ) -> Router {
+    router_full(shared, token, gate, None)
+}
+
+/// [`router_with`] that journals accepted reveal material before `202`.
+pub fn router_full(
+    shared: Arc<Mutex<Shared>>,
+    token: String,
+    gate: Option<Arc<dyn RevealGate>>,
+    journal: Option<std::path::PathBuf>,
+) -> Router {
     let st = ApiState {
         shared,
         token: Arc::new(token),
         gate,
+        journal: journal.map(Arc::new),
     };
     Router::new()
         .route("/v1/status", get(status))
@@ -288,6 +331,18 @@ pub async fn serve_with(
     token: String,
     gate: Option<Arc<dyn RevealGate>>,
 ) -> Result<Running, String> {
+    serve_full(addr, shared, token, gate, None).await
+}
+
+/// [`serve_with`] with the keeper's journal: accepted reveal material is
+/// journalled before `202` (⑱).
+pub async fn serve_full(
+    addr: SocketAddr,
+    shared: Arc<Mutex<Shared>>,
+    token: String,
+    gate: Option<Arc<dyn RevealGate>>,
+    journal: Option<std::path::PathBuf>,
+) -> Result<Running, String> {
     if !addr.ip().is_loopback() {
         return Err(format!("the keeper API binds loopback only, not {addr}"));
     }
@@ -298,7 +353,7 @@ pub async fn serve_with(
         .await
         .map_err(|e| format!("bind {addr}: {e}"))?;
     let addr = l.local_addr().map_err(|e| e.to_string())?;
-    let app = router_with(shared, token, gate);
+    let app = router_full(shared, token, gate, journal);
     let task = tokio::spawn(async move {
         let _ = axum::serve(l, app).await;
     });
@@ -419,6 +474,189 @@ mod tests {
             call(a, "GET", "/v1/track/nope", Some(&tok), None).await.0,
             404
         );
+        r.stop();
+    }
+
+    #[tokio::test]
+    async fn journal_failure_refuses_without_leaking_or_queueing() {
+        let shared: Arc<Mutex<Shared>> = Default::default();
+        let tok = "t".repeat(32);
+        // An existing directory cannot be opened as the SQLite journal file.
+        let journal_dir = std::env::temp_dir();
+        let r = serve_full(
+            "127.0.0.1:0".parse().unwrap(),
+            shared.clone(),
+            tok.clone(),
+            None,
+            Some(journal_dir.clone()),
+        )
+        .await
+        .unwrap();
+        let p = fclient::seal::Plain {
+            version: 1,
+            host_id: 42,
+            arrive_bell: 9,
+            stance: 1,
+            ..Default::default()
+        };
+        let body = json!({
+            "holding": solana_address::Address::new_from_array([3; 32]).to_string(),
+            "transit_slot": 1,
+            "plain_b64": B64.encode(fclient::seal::pack(&p)),
+            "salt_b64": B64.encode([1u8; 32]),
+            "ct_hash_b64": B64.encode([2u8; 32]),
+        });
+
+        // Repeating the same request must not turn a failed write into a
+        // deduplicated 202 or leave an in-memory track behind.
+        for _ in 0..2 {
+            let (status, response) =
+                call(r.addr, "POST", "/v1/reveal", Some(&tok), Some(body.clone())).await;
+            assert_eq!(status, 503);
+            assert_eq!(
+                response,
+                json!({
+                    "error": "JournalUnavailable",
+                    "code": "JournalUnavailable",
+                    "detail": "owner material could not be stored",
+                })
+            );
+            assert!(!response
+                .to_string()
+                .contains(&journal_dir.to_string_lossy().to_string()));
+            let state = lock(&shared);
+            assert_eq!(state.next_track, 0);
+            assert!(state.reveals.is_empty());
+            assert!(state.reveal_keys.is_empty());
+            assert!(state.tracks.is_empty());
+        }
+        r.stop();
+    }
+
+    #[tokio::test]
+    async fn journal_write_failure_refuses_without_leaking_or_queueing() {
+        let journal_path = std::env::temp_dir().join(format!(
+            "wylls-journal-write-fail-{}-{}.db",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        // Opening and initializing the journal succeeds. Only the later
+        // owner-material INSERT fails, with a diagnostic that must stay local.
+        crate::journal::Journal::open(&journal_path).unwrap();
+        {
+            let conn = rusqlite::Connection::open(&journal_path).unwrap();
+            conn.execute_batch(
+                "CREATE TRIGGER fail_owner_material BEFORE INSERT ON owner_material
+                 BEGIN SELECT RAISE(ABORT, 'journal-private-sentinel'); END;",
+            )
+            .unwrap();
+        }
+        crate::journal::Journal::open(&journal_path).unwrap();
+
+        let shared: Arc<Mutex<Shared>> = Default::default();
+        let tok = "t".repeat(32);
+        let r = serve_full(
+            "127.0.0.1:0".parse().unwrap(),
+            shared.clone(),
+            tok.clone(),
+            None,
+            Some(journal_path.clone()),
+        )
+        .await
+        .unwrap();
+        let p = fclient::seal::Plain {
+            version: 1,
+            host_id: 43,
+            arrive_bell: 9,
+            stance: 1,
+            ..Default::default()
+        };
+        let body = json!({
+            "holding": solana_address::Address::new_from_array([3; 32]).to_string(),
+            "transit_slot": 1,
+            "plain_b64": B64.encode(fclient::seal::pack(&p)),
+            "salt_b64": B64.encode([1u8; 32]),
+            "ct_hash_b64": B64.encode([2u8; 32]),
+        });
+        for _ in 0..2 {
+            let (status, response) =
+                call(r.addr, "POST", "/v1/reveal", Some(&tok), Some(body.clone())).await;
+            assert_eq!(status, 503);
+            assert_eq!(
+                response,
+                json!({
+                    "error": "JournalUnavailable",
+                    "code": "JournalUnavailable",
+                    "detail": "owner material could not be stored",
+                })
+            );
+            let text = response.to_string();
+            assert!(!text.contains("journal-private-sentinel"));
+            assert!(!text.contains(&journal_path.to_string_lossy().to_string()));
+            let state = lock(&shared);
+            assert_eq!(state.next_track, 0);
+            assert!(state.reveals.is_empty());
+            assert!(state.reveal_keys.is_empty());
+            assert!(state.tracks.is_empty());
+        }
+        r.stop();
+        let conn = rusqlite::Connection::open(&journal_path).unwrap();
+        let rows: i64 = conn
+            .query_row("SELECT COUNT(*) FROM owner_material", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(rows, 0);
+        drop(conn);
+        for suffix in ["", "-wal", "-shm"] {
+            let _ = std::fs::remove_file(format!("{}{suffix}", journal_path.display()));
+        }
+    }
+
+    #[tokio::test]
+    async fn audit_chain_unavailable_rpc_message_in_response() {
+        let port = crate::testkit::FakePort::default();
+        *port.rpc_error.lock().unwrap() =
+            Some("RPC_PRIVATE_SENTINEL /internal/rpc/endpoint".into());
+        let gate = crate::reveal_accept::ChainGate {
+            port,
+            addrs: fclient::addr::Addresses::new(
+                solana_address::Address::new_from_array([1; 32]),
+                1,
+            ),
+        };
+        let shared: Arc<Mutex<Shared>> = Default::default();
+        let tok = "t".repeat(32);
+        let r = serve_with(
+            "127.0.0.1:0".parse().unwrap(),
+            shared.clone(),
+            tok.clone(),
+            Some(Arc::new(gate)),
+        )
+        .await
+        .unwrap();
+        let p = fclient::seal::Plain {
+            version: 1,
+            host_id: 42,
+            arrive_bell: 9,
+            stance: 1,
+            ..Default::default()
+        };
+        let body = json!({
+            "holding": solana_address::Address::new_from_array([3; 32]).to_string(),
+            "transit_slot": 1,
+            "plain_b64": B64.encode(fclient::seal::pack(&p)),
+            "salt_b64": B64.encode([1u8; 32]),
+            "ct_hash_b64": B64.encode([2u8; 32]),
+        });
+        let (status, response) = call(r.addr, "POST", "/v1/reveal", Some(&tok), Some(body)).await;
+        assert_eq!(status, 503);
+        assert_eq!(response["code"], "ChainUnavailable");
+        assert_eq!(response["detail"], "chain state unavailable");
+        assert!(!response.to_string().contains("RPC_PRIVATE_SENTINEL"));
+        assert!(!response.to_string().contains("/internal/rpc/endpoint"));
+        assert!(lock(&shared).reveals.is_empty());
         r.stop();
     }
 

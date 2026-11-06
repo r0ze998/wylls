@@ -39,6 +39,9 @@ const ZERO = '0';
 const big = v => BigInt(v ?? 0);
 const str = v => v.toString();
 const HISTORY_MAX = 500;
+// Temporary fail-closed operational limit: a continuing-world agent cannot
+// send more than this many distinct action keys until durable tombstones and
+// bounded response cache have separate storage.
 const REQUESTS_MAX = 2_000;
 const OPERATOR_COSTS_MAX = 2_000;
 
@@ -50,17 +53,49 @@ export class AgentLedger {
   constructor({ store = { state: {}, save() {} }, now = Date.now } = {}) {
     this.store = store;
     this.now = now;
+    // A failed state write can leave memory and disk on different sides of an
+    // atomic rename. Never send another action in this process after one.
+    this.actionWritesFailed = false;
     this.store.state ??= {};
+    const existing = this.store.state.agentWallet;
+    if (existing && (!existing.depositSends || typeof existing.depositSends !== 'object' || Array.isArray(existing.depositSends)) &&
+      (Object.keys(existing.agents ?? {}).length || Object.keys(existing.deposits ?? {}).length)) {
+      throw new Error('existing agent wallet has no sponsored deposit send journal; audit and migrate it before restart');
+    }
     this.store.state.agentWallet ??= { agents: {}, deposits: {}, ownerNonces: {} };
     this.store.state.agentWallet.operatorCosts ??= [];
+    // A signed sponsored deposit is recorded before sendRawTransaction. An RPC
+    // error cannot prove that the bytes were not accepted by the chain.
+    this.store.state.agentWallet.depositSends ??= {};
+    if (typeof this.db.depositSends !== 'object' || Array.isArray(this.db.depositSends)) throw new Error('invalid sponsored deposit send journal');
+    for (const [signature, send] of Object.entries(this.db.depositSends)) {
+      if (!send || typeof send !== 'object' || Array.isArray(send) ||
+        send.signature !== signature || typeof signature !== 'string' || signature.length < 64 || signature.length > 128 ||
+        typeof send.agentId !== 'string' || !Object.hasOwn(this.db.agents ?? {}, send.agentId) ||
+        typeof send.ownerSignature !== 'string' || send.ownerSignature.length < 64 || send.ownerSignature.length > 128 ||
+        typeof send.amount !== 'string' || !/^\d+$/.test(send.amount) || BigInt(send.amount) <= 0n ||
+        !['pending', 'landed', 'failed', 'expired'].includes(send.state) ||
+        (send.lastValidBlockHeight !== null && send.lastValidBlockHeight !== undefined && (!Number.isSafeInteger(send.lastValidBlockHeight) || send.lastValidBlockHeight <= 0)) ||
+        (send.slotFloor !== null && send.slotFloor !== undefined && (!Number.isSafeInteger(send.slotFloor) || send.slotFloor < 0))) {
+        throw new Error('invalid sponsored deposit send journal entry; audit state before restart');
+      }
+    }
   }
 
   get db() { return this.store.state.agentWallet; }
-  save() { this.store.save(); }
+  assertWritable() {
+    if (this.actionWritesFailed) throw new AgentError(ERR.SEND_FAILED, 'wallet state could not be saved; restart and audit before another change', 503);
+  }
+  save() {
+    this.assertWritable();
+    try { this.store.save(); }
+    catch (e) { this.actionWritesFailed = true; throw e; }
+  }
 
   // ------------------------------------------------------------ agents
 
   create({ agentId = randomUUID(), owner, agentKey, village, policy }) {
+    this.assertWritable();
     if (this.db.agents[agentId]) throw new AgentError(ERR.BAD_REQUEST, 'agent id taken', 409);
     const rec = {
       agentId, owner, payout: owner, agentKey, village: [...village], createdAt: this.now(),
@@ -99,6 +134,7 @@ export class AgentLedger {
 
   /** A new policy (owner command only): its version is the old one + 1, so requests decided under the old one are refused. */
   setPolicy(agentId, policy) {
+    this.assertWritable();
     const rec = this.get(agentId);
     rec.policy = { ...policy, version: rec.policy.version + 1 };
     this.note(rec, { type: 'policy', version: rec.policy.version });
@@ -108,6 +144,7 @@ export class AgentLedger {
 
   /** Mode change (owner command only): bumps the epoch, so work started in the old mode cannot send. Manual releases every `held` hold. */
   setMode(agentId, mode) {
+    this.assertWritable();
     const rec = this.get(agentId);
     if (rec.mode === mode) return rec;
     rec.mode = mode;
@@ -122,6 +159,7 @@ export class AgentLedger {
 
   /** Credits a verified deposit once per transaction signature (across all agents). */
   credit(agentId, signature, amount) {
+    this.assertWritable();
     const rec = this.get(agentId);
     const prior = this.db.deposits[signature];
     if (prior) return { credited: false, agentId: prior.agentId, amount: prior.amount };
@@ -135,12 +173,43 @@ export class AgentLedger {
     return { credited: true, agentId, amount: str(a) };
   }
 
+  /** The unresolved sponsored send for this agent, if any (also after a restart). */
+  pendingDepositSend(agentId) {
+    return Object.values(this.db.depositSends).find(s => s.agentId === agentId && s.state === 'pending') ?? null;
+  }
+
+  /** Persist the signed transaction ID before any bytes can leave this process. */
+  recordDepositSend(agentId, { signature, ownerSignature, amount, lastValidBlockHeight = null, slotFloor = null }) {
+    this.assertWritable();
+    this.get(agentId);
+    if (this.db.depositSends[signature]) throw new AgentError(ERR.DEPOSIT_PENDING, 'this signed deposit was submitted already', 409, { signature });
+    const pending = this.pendingDepositSend(agentId);
+    if (pending) throw new AgentError(ERR.DEPOSIT_PENDING, 'a sponsored deposit still has an unknown outcome', 409, { signature: pending.signature });
+    const send = { agentId, signature, ownerSignature, amount: String(amount), lastValidBlockHeight, slotFloor, state: 'pending', at: this.now() };
+    this.db.depositSends[signature] = send;
+    this.save(); // A failure here MUST prevent the send; a pending in-memory record is safe.
+    return send;
+  }
+
+  /** Only a proved chain outcome may clear the pending gate. Keep the signature as a durable replay tombstone. */
+  finishDepositSend(signature, fate) {
+    this.assertWritable();
+    if (!['landed', 'failed', 'expired'].includes(fate)) throw new Error('a sponsored deposit needs a proved chain outcome');
+    const send = this.db.depositSends[signature];
+    if (!send || send.state !== 'pending') return false;
+    send.state = fate;
+    send.decidedAt = this.now();
+    this.save();
+    return true;
+  }
+
   // ------------------------------------------------------------ spending
 
   #rollDay(rec) {
     const key = budgetDay(this.now());
     if (rec.day.key !== key) rec.day = { key, spent: ZERO, calls: 0 };
     rec.day.calls ??= 0;
+    rec.day.byCategory ??= {};
   }
 
   #heldTotal(rec, filter = () => true) {
@@ -156,9 +225,15 @@ export class AgentLedger {
    * settled + held) or DailyLimitReached (policy.budget.perDay over today's
    * settled + held). A zero amount makes a hold that only records.
    */
-  hold(agentId, { category, amount, key, ttlMs = 120_000, policyVersion, modeEpoch }) {
+  hold(agentId, { category, amount, key, ttlMs = 120_000, policyVersion, modeEpoch, requestHash = null }) {
+    this.assertWritable();
     const rec = this.get(agentId);
     if (!Object.values(CATEGORIES).includes(category)) throw new AgentError(ERR.BAD_REQUEST, `unknown category ${category}`);
+    if (requestHash !== null) {
+      if (category !== CATEGORIES.GAME || !/^[0-9a-f]{64}$/.test(requestHash)) throw new AgentError(ERR.BAD_REQUEST, 'invalid action request hash');
+      if (this.request(agentId, key)) throw new AgentError(ERR.IDEMPOTENCY_CONFLICT, 'this action key already has a saved request', 409);
+      if (Object.keys(rec.requests).length >= REQUESTS_MAX) throw new AgentError(ERR.SEND_FAILED, 'action request journal is full; refusing new sends', 503);
+    }
     const a = big(amount);
     if (a < 0n) throw new AgentError(ERR.BAD_REQUEST, 'negative amount');
     this.#rollDay(rec);
@@ -170,6 +245,16 @@ export class AgentLedger {
       const perDay = big(rec.policy.budget.perDay);
       const today = big(rec.day.spent) + this.#heldTotal(rec);
       if (today + a > perDay) throw new AgentError(ERR.DAILY_LIMIT, `daily limit ${perDay} would be exceeded`, 402, { perDay: str(perDay), today: str(today) });
+      // The owner's optional finer caps: one hold's most, and each category's total and day apart from the whole.
+      const b = rec.policy.budget;
+      if (b.perCall !== undefined && a > big(b.perCall)) throw new AgentError(ERR.PER_CALL_LIMIT, `one ${category} hold of ${a} is over the per-call cap ${b.perCall}`, 402, { perCall: b.perCall, needed: str(a), category });
+      const cap = b.byCategory?.[category];
+      if (cap) {
+        const heldCat = this.#heldTotal(rec, h => h.category === category);
+        if (cap.total !== undefined && big(rec.bal.spent[category]) + heldCat + a > big(cap.total)) throw new AgentError(ERR.CATEGORY_LIMIT, `the ${category} budget ${cap.total} would be exceeded`, 402, { category, cap: cap.total, used: str(big(rec.bal.spent[category]) + heldCat) });
+        const todayCat = big(rec.day.byCategory[category] ?? ZERO) + heldCat;
+        if (cap.perDay !== undefined && todayCat + a > big(cap.perDay)) throw new AgentError(ERR.CATEGORY_LIMIT, `the ${category} daily limit ${cap.perDay} would be exceeded`, 402, { category, perDay: cap.perDay, today: str(todayCat) });
+      }
     }
     if (category === CATEGORIES.INFERENCE) {
       // A model call counts whether or not it is priced: the owner's callsPerDay is a count, next to the money.
@@ -177,16 +262,22 @@ export class AgentLedger {
       if (Number.isInteger(cap) && rec.day.calls >= cap) throw new AgentError(ERR.CALL_LIMIT, `the policy allows ${cap} model call(s) a day; today's are used`, 402, { callsPerDay: cap, today: rec.day.calls });
       rec.day.calls += 1;
     }
-    const h = { id: randomUUID(), category, amount: str(a), key, state: 'held', createdAt: this.now(), expiresAt: this.now() + ttlMs, policyVersion, modeEpoch };
+    const h = { id: randomUUID(), category, amount: str(a), key, state: 'held', createdAt: this.now(), expiresAt: this.now() + ttlMs, policyVersion, modeEpoch,
+      ...(requestHash ? { requestHash } : {}) };
     rec.holds[h.id] = h;
     rec.bal.available = str(big(rec.bal.available) - a);
     rec.bal.reserved = str(big(rec.bal.reserved) + a);
+    // Reserve the idempotency key in the same durable state write as the
+    // hold, before building or sending a transaction. A crash before the
+    // final result cannot turn this key into a fresh send.
+    if (requestHash) rec.requests[key] = { hash: requestHash, result: null, holdId: h.id, at: this.now() };
     this.save();
     return { ...h };
   }
 
   /** The hold's model call is running: a stop no longer releases it; its return settles it (`expire` past its TTL is the only other way out). */
   markRunning(agentId, holdId) {
+    this.assertWritable();
     const h = this.get(agentId).holds[holdId];
     if (!h) throw new AgentError(ERR.BAD_REQUEST, 'no such hold');
     h.state = 'running';
@@ -200,6 +291,7 @@ export class AgentLedger {
    * nothing). Returns whether anything changed.
    */
   markUnresolved(agentId, holdId, reason, { model = null } = {}) {
+    this.assertWritable();
     const rec = this.get(agentId);
     const h = rec.holds[holdId];
     if (!h || h.state !== 'running') return false;
@@ -214,6 +306,7 @@ export class AgentLedger {
 
   /** The operator's own record (never the owner's bill): calls whose outcome was unknown, refunds the operator absorbed, results that came too late. */
   recordOperatorCost(entry) {
+    this.assertWritable();
     const list = this.db.operatorCosts;
     list.push({ at: this.now(), ...entry });
     if (list.length > OPERATOR_COSTS_MAX) list.splice(0, list.length - OPERATOR_COSTS_MAX);
@@ -228,6 +321,7 @@ export class AgentLedger {
    * the call. Returns how many were released.
    */
   releaseUnresolvedOlderThan(ms) {
+    this.assertWritable();
     let n = 0;
     for (const rec of this.agents()) {
       for (const h of Object.values(rec.holds)) {
@@ -243,6 +337,7 @@ export class AgentLedger {
 
   /** The operator's decisions, in order (who, when, which call, what, why, on what evidence). */
   recordSettlement(entry) {
+    this.assertWritable();
     const list = (this.db.settlements ??= []);
     list.push({ at: this.now(), ...entry });
     if (list.length > OPERATOR_COSTS_MAX) list.splice(0, list.length - OPERATOR_COSTS_MAX);
@@ -258,8 +353,16 @@ export class AgentLedger {
 
   /** The hold's transaction is about to be sent: from here only its outcome (`lastValidBlockHeight` bounds it) settles or releases it. */
   markSending(agentId, holdId, signature, lastValidBlockHeight = null, slotFloor = null) {
-    const h = this.get(agentId).holds[holdId];
+    this.assertWritable();
+    const rec = this.get(agentId);
+    const h = rec.holds[holdId];
     if (!h) throw new AgentError(ERR.BAD_REQUEST, 'no such hold');
+    if (h.state !== 'held') throw new Error('action hold was already sent or changed; refusing another send');
+    if (h.requestHash) {
+      const request = rec.requests[h.key];
+      if (!request || request.hash !== h.requestHash || request.holdId !== h.id || request.result !== null) throw new Error('action request receipt is missing or mismatched; refusing send');
+      request.signature = signature;
+    }
     h.state = 'sending';
     h.signature = signature;
     h.lastValidBlockHeight = lastValidBlockHeight;
@@ -269,23 +372,27 @@ export class AgentLedger {
 
   /** Spends `spent` (≤ held) of a hold; the rest goes back to available. */
   settle(agentId, holdId, spent, ref = {}) {
+    this.assertWritable();
     const rec = this.get(agentId);
     const h = rec.holds[holdId];
     if (!h) return false; // settled or released already: idempotent
     const s = spent === undefined ? big(h.amount) : big(spent);
     if (s < 0n || s > big(h.amount)) throw new AgentError(ERR.BAD_REQUEST, `settle ${s} outside 0..${h.amount}`);
+    this.#preserveActionKey(rec, h);
     this.#rollDay(rec);
     delete rec.holds[holdId];
     rec.bal.reserved = str(big(rec.bal.reserved) - big(h.amount));
     rec.bal.available = str(big(rec.bal.available) + big(h.amount) - s);
     rec.bal.spent[h.category] = str(big(rec.bal.spent[h.category]) + s);
     rec.day.spent = str(big(rec.day.spent) + s);
+    rec.day.byCategory[h.category] = str(big(rec.day.byCategory[h.category] ?? ZERO) + s);
     this.note(rec, { type: 'spend', category: h.category, amount: str(s), key: h.key, ...ref });
     this.save();
     return true;
   }
 
   #release(rec, h, reason) {
+    this.#preserveActionKey(rec, h);
     delete rec.holds[h.id];
     rec.bal.reserved = str(big(rec.bal.reserved) - big(h.amount));
     rec.bal.available = str(big(rec.bal.available) + big(h.amount));
@@ -294,6 +401,7 @@ export class AgentLedger {
 
   /** Gives a whole hold back (nothing was spent). Idempotent. */
   release(agentId, holdId, reason = 'released') {
+    this.assertWritable();
     const rec = this.get(agentId);
     const h = rec.holds[holdId];
     if (!h) return false;
@@ -309,6 +417,7 @@ export class AgentLedger {
    * touched. Returns how many changed.
    */
   expire() {
+    this.assertWritable();
     let n = 0;
     for (const rec of Object.values(this.db.agents)) {
       for (const h of Object.values(rec.holds)) {
@@ -323,6 +432,7 @@ export class AgentLedger {
 
   /** A network fee the relay paid in SOL for this agent's transaction: history only (no USDC moves; DESIGN.md §6). */
   recordNetwork(agentId, { lamports, signature, key }) {
+    this.assertWritable();
     const rec = this.get(agentId);
     this.note(rec, { type: 'network', category: CATEGORIES.NETWORK, amount: ZERO, lamports: String(lamports), paidBy: 'relay', signature, key });
     this.save();
@@ -332,6 +442,7 @@ export class AgentLedger {
 
   /** Moves `amount` from available to a pending withdrawal (to the agent's fixed payout). */
   holdWithdraw(agentId, amount) {
+    this.assertWritable();
     const rec = this.get(agentId);
     const a = big(amount);
     if (a <= 0n) throw new AgentError(ERR.BAD_REQUEST, 'withdraw amount must be positive');
@@ -345,6 +456,7 @@ export class AgentLedger {
   }
 
   withdrawSending(agentId, id, signature, lastValidBlockHeight = null, slotFloor = null) {
+    this.assertWritable();
     const w = this.get(agentId).withdrawals[id];
     w.state = 'sending';
     w.signature = signature;
@@ -359,6 +471,7 @@ export class AgentLedger {
    * (reserved / pendingWithdraw, never available), marked for the operator once, with the reason.
    */
   markUndecided(agentId, kind, id, why) {
+    this.assertWritable();
     const rec = this.get(agentId);
     const x = kind === 'withdrawal' ? rec.withdrawals[id] : rec.holds[id];
     if (!x || x.state !== 'sending') return false;
@@ -373,6 +486,7 @@ export class AgentLedger {
   }
 
   finishWithdraw(agentId, id) {
+    this.assertWritable();
     const rec = this.get(agentId);
     const w = rec.withdrawals[id];
     if (!w || w.state === 'done' || w.state === 'failed') return false;
@@ -386,6 +500,7 @@ export class AgentLedger {
 
   /** The withdrawal certainly did not land: its amount goes back to available. */
   failWithdraw(agentId, id, reason) {
+    this.assertWritable();
     const rec = this.get(agentId);
     const w = rec.withdrawals[id];
     if (!w || w.state === 'done' || w.state === 'failed') return false;
@@ -402,6 +517,7 @@ export class AgentLedger {
 
   /** A game action the gateway sent (or refused after a hold): history only. */
   recordAction(agentId, entry) {
+    this.assertWritable();
     this.note(this.get(agentId), { type: 'action', ...entry });
     this.save();
   }
@@ -412,6 +528,7 @@ export class AgentLedger {
    * when the free autopilot played instead of the model) and what the call cost. History only.
    */
   recordDecision(agentId, entry) {
+    this.assertWritable();
     const rec = this.get(agentId);
     const pick = ['key', 'by', 'driver', 'outcome', 'action', 'reason', 'cause', 'code', 'charged', 'signature', 'modelError'];
     this.note(rec, { type: 'decision', modeEpoch: rec.modeEpoch, ...Object.fromEntries(pick.filter(k => entry[k] !== undefined && entry[k] !== null).map(k => [k, entry[k]])) });
@@ -420,6 +537,7 @@ export class AgentLedger {
 
   /** The sha256 (hex) of the agent's current capability token; the token itself is never stored. */
   setCapability(agentId, hash) {
+    this.assertWritable();
     const rec = this.get(agentId);
     rec.capabilityHash = hash;
     rec.capabilityVersion += 1;
@@ -430,13 +548,37 @@ export class AgentLedger {
 
   // ------------------------------------------------------------ idempotency
 
-  request(agentId, key) { return this.get(agentId).requests[key] ?? null; }
+  /** Old saved sending holds have no request hash: block their key rather than guessing its identity. */
+  request(agentId, key) {
+    const rec = this.get(agentId);
+    const prior = rec.requests[key];
+    if (prior) return prior;
+    const old = Object.values(rec.holds).find(h => h.category === CATEGORIES.GAME && h.key === key && h.state === 'sending');
+    return old ? { hash: old.requestHash ?? null, result: null, signature: old.signature ?? null } : null;
+  }
+
+  #preserveActionKey(rec, hold) {
+    if (hold.category !== CATEGORIES.GAME || hold.state !== 'sending' || !hold.key) return;
+    const prior = rec.requests[hold.key];
+    if (prior) {
+      if (hold.requestHash && (prior.hash !== hold.requestHash || prior.holdId !== hold.id)) throw new Error('action request receipt is mismatched; refusing settlement');
+      return;
+    }
+    // A legacy signed hold may have reached the chain before its result was
+    // saved. Preserve a hash-unknown tombstone when reconcile removes it.
+    if (Object.keys(rec.requests).length >= REQUESTS_MAX) throw new Error('action request journal is full; refusing to erase a signed hold');
+    rec.requests[hold.key] = { hash: hold.requestHash ?? null, result: null, signature: hold.signature ?? null, at: this.now(), legacy: true };
+  }
 
   remember(agentId, key, hash, result) {
+    this.assertWritable();
     const rec = this.get(agentId);
-    rec.requests[key] = { hash, result, at: this.now() };
-    const keys = Object.keys(rec.requests);
-    if (keys.length > REQUESTS_MAX) for (const k of keys.slice(0, keys.length - REQUESTS_MAX)) delete rec.requests[k];
+    const prior = rec.requests[key];
+    if (prior && prior.hash !== hash) throw new Error('action request receipt hash is mismatched; refusing result');
+    if (!prior && Object.keys(rec.requests).length >= REQUESTS_MAX) throw new AgentError(ERR.SEND_FAILED, 'action request journal is full; refusing new results', 503);
+    // Never silently discard old keys. Reusing one after eviction can send a
+    // second signed transaction in a world that continues indefinitely.
+    rec.requests[key] = { ...prior, hash, result, at: this.now() };
     this.save();
   }
 
