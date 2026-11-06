@@ -38,6 +38,8 @@
 | 12 | ⑪ ab3a2f23（r7：patch 0006・0007、新しい帯は PASS にならない） | `8d68d89bb0382faedeadc63af2b7b96333e1bfaf` / `3c6b3cdb7f2cbd232a9f61363eaa547465d694d1` | 同上 | — |
 | 13 | verify：⑪ の 0007（0004・0005 の後。V0E の UnverifiedRecord） | `4c65aaa229cea9ba2a57229cac78cc2715c5df7d` / `d90de6b4b1df14c500434d3bf7751e945256b7f3` | 同上 | lib 17、unit 8、fixtures 8、camp_clear 3、missing_state 2、open_items 3、evidence 8、new_bands 4/5。**残る 1 件は⑪の仕掛けた検査**：⑳の RESIDENT_JOINED（kind 130）を、まだどの検査も扱っていない。そのため V0E は、その記録を UnverifiedRecord とする。kind 130 を扱う検査が要る（⑪・⑳・④）。試験は消していない |
 
+| 14 | ⑨ 872fe6a2（connect10 を外して⑩に合わせた。他人の再送には NotUser を返す修正は残した） | `34cee632a89b8e5d571eaa01a1aae8406f345e61` / `4f2d607be40bac20cd972d34855ac2e89bafc8ff` | 未作成 | ⑨ kernel 43、bridge10 28、⑩ adapter-09 16。**9・10 は一致した** |
+
 全体版の merge の commit message には「WS05=この木」で取った結果が書いてあります。公開版は同じ message を使っていますが、⑤の木は含みません。
 
 ### ⑯ への再現手順（公開版）
