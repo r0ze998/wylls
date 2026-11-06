@@ -35,7 +35,7 @@ async function setup({ storeFile = null } = {}) {
 /** ⑤'s autopilot sending one act the way it does (POST /f/agent/action with its own token, source ai, key ai:<id>). */
 async function fiveSends(w, token, requestId, source = 'ai') {
   const res = await w.fetch('http://relay.test/f/agent/action', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ capability: token,
-    request: { agentId: w.agentId, source, idempotencyKey: `${source}:${requestId}`, policyVersion: 1, action: { name: 'Rest', holding: [-3, 7, 11], fields: {} } } }) });
+    request: { agentId: w.agentId, source, idempotencyKey: `${source}:${requestId}`, policyVersion: 1, action: { name: 'Harvest', holding: [-3, 7, 11], fields: {} } } }) });
   return { status: res.status, json: await res.json() };
 }
 

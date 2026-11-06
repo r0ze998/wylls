@@ -97,7 +97,7 @@ test('③ (mcp, a ⑥ run) and ⑤ (ai, its autopilot run) on one agent and one 
     const { linkId } = await s.connectViaRelay();
     const p = await s.plan(linkId);
     const [r3, g5] = await Promise.all([s.tool(linkId, 'send_caravan', { planId: p.planId, requestId: 'req-run6-co1', runId: RUN6 }), reg5({ requestId: 'p05.co.1' })]);
-    const s5 = await (await w.fetch('http://relay.test/f/agent/action', { method: 'POST', body: JSON.stringify({ capability: ai, request: { agentId: w.agentId, source: 'ai', idempotencyKey: 'ai:p05.co.1', policyVersion: 1, action: { name: 'Rest', holding: [-3, 7, 11], fields: {} } } }) })).json();
+    const s5 = await (await w.fetch('http://relay.test/f/agent/action', { method: 'POST', body: JSON.stringify({ capability: ai, request: { agentId: w.agentId, source: 'ai', idempotencyKey: 'ai:p05.co.1', policyVersion: 1, action: { name: 'Harvest', holding: [-3, 7, 11], fields: {} } } }) })).json();
     assert.deepEqual([r3.state, g5.ok, s5.status], ['accepted', true, 'sent']);
     assert.deepEqual((await acts().list(RUN6)).acts.map(x => x.source), ['mcp']);
     assert.deepEqual((await acts().list(five.actsRunIdOf(w.agentId))).acts.map(x => x.source), ['ai']);

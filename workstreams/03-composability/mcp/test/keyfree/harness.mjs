@@ -24,7 +24,7 @@ import { pathToFileURL, fileURLToPath } from 'node:url';
 import { encode as base58 } from '../../../../../permutation-gateway/client/src/base58.mjs';
 import { encodeAccount } from '../../../../../permutation-gateway/client/src/frontier/codec.mjs';
 import { PRESETS as V2 } from '../../../../../permutation-gateway/client/src/frontier/abi-v2-presets.mjs';
-import { seasonAddresses, citizenTag } from '../../../../../permutation-server/web/frontier/faddr.mjs';
+import { citizenTag } from '../../../../../permutation-server/web/frontier/faddr.mjs';
 import { JsonStore } from '../../src/store.mjs';
 import { Sealer } from '../../src/seal.mjs';
 import { Game } from '../../src/game.mjs';
@@ -47,6 +47,17 @@ export const STRANGER = constant(23);
 export const PROGRAM = constant(37);
 const AGENT_KEY = constant(53);
 export const SEASON_ID = 5n;
+/** The world's addresses as fixed constants (Game's `addressesFor`): what production recomputes as PDAs. */
+export const CITIZEN = constant(67);
+const HOLDING = constant(71);
+export function constantAddresses(programId, seasonId) {
+  const of = (kind, key = {}) => {
+    if (kind === 'Citizen' && key.wallet === OWNER) return CITIZEN;
+    if (kind === 'Holding' && key.p === VILLAGE[0] && key.q === VILLAGE[1] && key.site === VILLAGE[2]) return HOLDING;
+    throw new Error(`constantAddresses: no constant for ${kind} ${JSON.stringify(key)} (this harness derives no address)`);
+  };
+  return Object.freeze({ programId, seasonId: String(seasonId), of, used: true });
+}
 export const GENESIS = 1_800_000_000;
 export const NOW = GENESIS + 3_600;
 export const VILLAGE = [-3, 7, 11];
@@ -80,12 +91,17 @@ export function scriptedNode() {
  */
 export async function keyfreeWorld({ relay = 'current' } = {}) {
   const keyring = { create: () => AGENT_KEY, isAgentKey: k => k === AGENT_KEY, sign: () => { throw new Error('KEY-FREE: nothing is signed in this harness'); } };
-  const W = seasonAddresses(PROGRAM, SEASON_ID);
-  const citizen = W.of('Citizen', { wallet: OWNER });
-  const tag = citizenTag(citizen);
-  const ctx = { addresses: { citizen: () => citizen }, log: () => {} };
+  const citizen = CITIZEN; // a fixed constant: no address is derived in this harness (no PDA)
+  const tag = citizenTag(citizen); // reads the address's first 8 bytes
+  // The chain as the wallet's real submit reads it before building (MOCK, no key): the Citizen's session is the agent's
+  // key and unexpired; `residents` is ⑳'s holder check (ctx.residents, the injectable part of residentRefusal): after
+  // an NFT transfer (`transferNft()`), the agent's key is no longer the current holder's session.
+  const nft = { transferred: false };
+  const ctx = { addresses: { citizen: () => citizen }, log: () => {},
+    chain: { season: async () => ({}), clock: async () => ({ unixTimestamp: BigInt(NOW) }), citizen: async () => ({ SESSION: keyBytes(AGENT_KEY), SESSION_EXPIRY: BigInt(NOW + 86_400) }) },
+    residents: { check: async () => (nft.transferred ? { ok: false, code: 'ResidentHolderChanged' } : { ok: true }) } };
   const g = new gw.AgentGateway({ ctx, ledger: new AgentLedger(), keyring, log: () => {} });
-  const made = g.createAgent({ owner: OWNER, village: VILLAGE, policy: { allowed: ['transport'], budget: { total: '1000000', perDay: '1000000' } } });
+  const made = g.createAgent({ owner: OWNER, village: VILLAGE, policy: { allowed: ['transport', 'economy'], budget: { total: '1000000', perDay: '1000000' } } });
   const agentId = made.agent.agentId;
   g.setMode(agentId, OWNER, 'auto');
   const node = scriptedNode();
@@ -116,6 +132,14 @@ export async function keyfreeWorld({ relay = 'current' } = {}) {
 
   async function action(body) {
     script.posts++;
+    // After an NFT transfer the REAL gateway decides: its submit authenticates, gates, holds and refuses in #build
+    // (residentRefusal) before building or signing anything (the fake keyring throws if signing were reached).
+    if (nft.transferred) {
+      let res;
+      try { res = await g.submit(body?.request, { capability: body?.capability }); } catch (e) { return { status: e.status ?? 400, json: { error: e.message, code: e.code } }; }
+      if (res.status === 'sent') script.chainSent++;
+      return { status: 200, json: res };
+    }
     let bound;
     try { bound = g.whoami(body?.request?.agentId, { capability: body?.capability }).capabilitySource; } catch (e) { return { status: e.status ?? 401, json: { error: e.message, code: e.code } }; }
     let r;
@@ -193,7 +217,7 @@ export async function keyfreeWorld({ relay = 'current' } = {}) {
     srv.listen(0, '127.0.0.1', () => resolve(srv));
   });
 
-  return { g, agentId, legacyToken: made.capability.token, citizen, tag, node, state, script, history, fetch, fatePort };
+  return { g, agentId, legacyToken: made.capability.token, citizen, tag, node, state, script, history, fetch, fatePort, transferNft: () => { nft.transferred = true; } };
 }
 
 /**
@@ -203,7 +227,7 @@ export async function keyfreeWorld({ relay = 'current' } = {}) {
 export function mcpServer(w, { storeFile = null, acts = null, clock = { t: NOW * 1000 }, allowGlobalRotate = false } = {}) {
   const now = () => clock.t;
   const store = new JsonStore(storeFile);
-  const game = new Game({ relay: RELAY, herald: HERALD, fetch: w.fetch, contextTtlMs: 0 });
+  const game = new Game({ relay: RELAY, herald: HERALD, fetch: w.fetch, contextTtlMs: 0, addressesFor: constantAddresses });
   const sealer = new Sealer(SEAL_KEY);
   const auth = new Auth({ issuer: 'http://127.0.0.1:9', resource: 'http://127.0.0.1:9/mcp', store, sealer, game, now, allowGlobalRotate });
   const mcp = createWyllsMcp({ auth, game, store, now, ...(acts ? { acts } : {}) });

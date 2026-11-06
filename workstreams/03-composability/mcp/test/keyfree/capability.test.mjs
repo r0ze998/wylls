@@ -8,6 +8,8 @@ import { HAS_0008, OWNER, keyfreeWorld, mcpServer } from './harness.mjs';
 
 const skip = HAS_0008 ? false : 'needs patch 0008 in WS03_GATEWAY_ROOT';
 const who = (w, token) => { try { const r = w.g.whoami(w.agentId, { capability: token }); return r.capabilitySource ?? r.source ?? 'unscoped'; } catch (e) { return e.code; } };
+const fiveSend = async (w, token, requestId) => (await w.fetch('http://relay.test/f/agent/action', { method: 'POST', body: JSON.stringify({ capability: token,
+  request: { agentId: w.agentId, source: 'ai', idempotencyKey: `ai:${requestId}`, policyVersion: 1, action: { name: 'Harvest', holding: [-3, 7, 11], fields: {} } } }) })).json();
 const five = async w => (await w.fetch('http://relay.test/f/agent/command', { method: 'POST', body: JSON.stringify({ command: { op: 'rotate-capability', owner: OWNER, agentId: w.agentId, params: { source: 'ai' } } }) })).json();
 
 test('issue: ③ asks for its own mcp token; ⑤\'s ai token (⑤\'s rotate-capability {source} form) keeps working; one whoami contract', { skip }, async () => {
@@ -28,13 +30,15 @@ test('renew: a new connection replaces ③\'s old token at the relay (the old on
   const s = mcpServer(w);
   const ai = (await five(w)).capability.token;
   const first = await s.connectViaRelay({ linkId: 'lnk_keyfree_old' });
+  assert.equal((await fiveSend(w, ai, 'p05.renew.1')).status, 'sent', '⑤ sends before ③ renews');
   const second = await s.connectViaRelay({ linkId: 'lnk_keyfree_new' });
+  assert.equal((await fiveSend(w, ai, 'p05.renew.2')).status, 'sent', '⑤ still sends after ③ renews (the AI side is not stopped)');
   assert.deepEqual([who(w, first.token), who(w, second.token), who(w, ai)], ['BadCapability', 'mcp', 'ai']);
   assert.equal(second.meta.version, 2);
   const p = await s.plan('lnk_keyfree_old');
   const r = await s.tool('lnk_keyfree_old', 'send_caravan', { planId: p.planId, requestId: 'req-kf-old01' });
   assert.equal(r.error?.code, 'BadCapability', 'the replaced token is refused by the relay itself');
-  assert.equal(w.script.chainSent, 0);
+  assert.equal(w.script.chainSent, 2, 'only ⑤\'s two sends');
   const p2 = await s.plan('lnk_keyfree_new');
   assert.equal((await s.tool('lnk_keyfree_new', 'send_caravan', { planId: p2.planId, requestId: 'req-kf-new01' })).state, 'accepted');
 });
@@ -74,4 +78,21 @@ test('a relay that answers a sender\'s request with the agent\'s one token: not 
   const s = mcpServer(w);
   await assert.rejects(s.connectViaRelay(), e => e.error === 'capability_separation_unavailable' && /not bound to the mcp sender/.test(e.message));
   assert.equal(Object.keys(s.auth.db.links).length, 0, 'no link, no token kept');
+});
+
+test('after an NFT transfer: neither the old holder\'s mcp nor ai token sends (the wallet\'s real submit refuses before building); the tokens themselves stay valid at the relay', { skip }, async () => {
+  const w = await keyfreeWorld();
+  const s = mcpServer(w);
+  const ai = (await five(w)).capability.token;
+  const { linkId, token } = await s.connectViaRelay();
+  const p = await s.plan(linkId);
+  w.transferNft(); // ⑳: the resident's NFT changes hands; the agent's key is no longer the current holder's session
+  const r = await s.tool(linkId, 'send_caravan', { planId: p.planId, requestId: 'req-kf-nft01' });
+  assert.deepEqual([r.error?.code, r.error?.receipt?.state, r.error?.receipt?.gateway?.status], ['SessionNotDelegated', 'failed', 'refused'], JSON.stringify(r.error ?? r).slice(0, 300));
+  assert.equal((await s.tool(linkId, 'get_connection')).grant.reserved, 0, 'nothing sent: the hold is given back');
+  const f = await fiveSend(w, ai, 'p05.nft.1');
+  assert.deepEqual([f.status, f.error?.code, f.sent], ['refused', 'SessionNotDelegated', false], 'the wallet says nothing left');
+  assert.equal(w.script.chainSent, 0, 'no transaction');
+  // What stops them is the chain's delegation, checked on every send; the relay tokens are not voided by a transfer.
+  assert.deepEqual([who(w, token), who(w, ai)], ['mcp', 'ai']);
 });

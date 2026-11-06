@@ -39,7 +39,13 @@ export class Game {
    *   it is read again after that, so a long-running server follows the world the relay serves instead of pinning
    *   the first one for its lifetime
    */
-  constructor({ relay, herald, fetch: f = globalThis.fetch, contextTtlMs = 15_000, now = Date.now }) {
+  /**
+   * `addressesFor(programId, seasonId)`: the world's account addresses (`{programId, seasonId, of(kind, key)}`). The
+   * default recomputes them (faddr.seasonAddresses: program-derived addresses). Key-free tests pass fixed constants,
+   * so that no address is derived in them.
+   */
+  constructor({ relay, herald, fetch: f = globalThis.fetch, contextTtlMs = 15_000, now = Date.now, addressesFor = seasonAddresses }) {
+    this.addressesFor = addressesFor;
     this.relay = String(relay).replace(/\/+$/, '');
     this.heraldBase = String(herald).replace(/\/+$/, '');
     this.fetch = f;
@@ -65,7 +71,7 @@ export class Game {
     if (!this.pinned || this.pinned.key !== key) {
       if (this.pinned) this.contextChanges.push({ ...this.pinned, until: new Date(t).toISOString() });
       this.pinned = { key, programId: s.json.programId, seasonId: String(s.json.seasonId), since: new Date(t).toISOString() };
-      this.addresses = seasonAddresses(this.pinned.programId, this.pinned.seasonId);
+      this.addresses = this.addressesFor(this.pinned.programId, this.pinned.seasonId);
       this.herald.pin(this.pinned.seasonId, this.addresses);
     }
     this.pinnedAt = t;
