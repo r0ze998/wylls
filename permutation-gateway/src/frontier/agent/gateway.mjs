@@ -325,10 +325,13 @@ export class AgentGateway {
     return { agent: this.view(agentId), capability: this.#issueCapability(agentId, source) };
   }
 
-  /** Removes one sender's token (owner command, A1): that sender stops at once; the others go on. */
+  /**
+   * Removes a token (owner command): one sender's ('ai' | 'mcp', A1) — that sender stops at once, the others go on —
+   * or the general one ('any'). A request that was let in by it and has not been sent yet sends nothing.
+   */
   revokeCapability(agentId, owner, source) {
     this.#own(agentId, owner);
-    this.#sender(source);
+    if (source !== 'any') this.#sender(source);
     return { agent: this.view(agentId), revoked: this.ledger.revokeCapability(agentId, source), source };
   }
 
@@ -538,7 +541,10 @@ export class AgentGateway {
     // Everything up to the hold inside #run happens before this function's first await: synchronous for concurrent callers.
     const r = parseActionRequest(request);
     const rec = this.ledger.get(r.agentId);
-    this.#authenticate(rec, credential, r.source);
+    // Which credential let this request in (null: the owner or the in-process runner). It is checked again when the
+    // request's turn in the Citizen's lane comes and right before its bytes leave: a token replaced or revoked while
+    // the request waited sends nothing.
+    const who = this.#authenticate(rec, credential, r.source);
     const hash = sha256hex(canonical({ action: r.action, policyVersion: r.policyVersion, modeEpoch: r.modeEpoch ?? null, source: r.source }));
     if (this.ledger.actionWritesFailed) throw new AgentError(ERR.SEND_FAILED, 'action state could not be saved; restart and audit before another send', 503);
     const flightKey = `${rec.agentId}\n${r.idempotencyKey}`;
@@ -556,7 +562,7 @@ export class AgentGateway {
     }
     // The idempotency record above is per request; the lane orders the Citizen's sends (B1). The gate and the hold run
     // when the request's turn comes, still synchronously before #run's first await.
-    const promise = this.lanes.run(laneOf(rec), () => this.#run(rec, r, hash)).finally(() => this.inflight.delete(flightKey));
+    const promise = this.lanes.run(laneOf(rec), () => this.#run(rec, r, hash, who)).finally(() => this.inflight.delete(flightKey));
     this.inflight.set(flightKey, { hash, promise });
     return promise;
   }
@@ -606,7 +612,18 @@ export class AgentGateway {
     if (r.action.holding.some((v, i) => v !== rec.village[i])) throw new AgentError(ERR.WRONG_VILLAGE, `the agent acts on its own village ${rec.village.join(',')} only`, 403, { village: rec.village });
   }
 
-  async #run(rec, r, hash) {
+  /** Whether the credential that let a request in is still the agent's current one (see submit). */
+  #stillCurrent(rec, who) {
+    if (!who) return true;
+    if (who.source === 'any') return !!rec.capabilityHash && rec.capabilityVersion === who.version;
+    return rec.capabilities?.[who.source]?.version === who.version;
+  }
+
+  #assertCurrent(rec, who) {
+    if (!this.#stillCurrent(rec, who)) throw new AgentError(ERR.BAD_CAPABILITY, `the ${who.source === 'any' ? 'general' : who.source} capability that let this request in was replaced or revoked before it was sent`, 401);
+  }
+
+  async #run(rec, r, hash, who = null) {
     const key = r.idempotencyKey;
     const refused = (e, status = RESULT_STATUS.REFUSED, charges = [], facts = {}) => {
       const err = e instanceof RouteError ? { code: e.code, message: e.message, ...(e.extra ?? {}) } : { code: ERR.SEND_FAILED, message: String(e?.message ?? e) };
@@ -616,6 +633,7 @@ export class AgentGateway {
     };
     let hold = null;
     try {
+      this.#assertCurrent(rec, who);
       this.#gate(rec, r);
       // Every check above and this hold are synchronous: a concurrent request cannot slip between them.
       hold = this.ledger.hold(rec.agentId, { category: CATEGORIES.GAME, amount: this.prices.game[r.action.name] ?? '0', key, ttlMs: ACTION_HOLD_TTL_MS, policyVersion: r.policyVersion, modeEpoch: rec.modeEpoch, requestHash: hash });
@@ -647,6 +665,7 @@ export class AgentGateway {
               // Synchronous, right before the bytes leave: a stop or a new policy in the meantime refuses.
               if (rec.mode !== MODES.AUTO || rec.modeEpoch !== epoch) throw new AgentError(ERR.AGENT_STOPPED, 'the agent was stopped while this action was being prepared', 409);
               if (rec.policy.version !== r.policyVersion) throw new AgentError(ERR.STALE_POLICY, 'the policy changed while this action was being prepared', 409);
+              this.#assertCurrent(rec, who);
               this.ledger.markSending(rec.agentId, hold.id, signature, lvbh, slotFloor);
               signed = { signature, lastValidBlockHeight: Number.isSafeInteger(lvbh) ? lvbh : null, slotFloor: Number.isSafeInteger(slotFloor) ? slotFloor : null, signedAt: this.ledger.now() };
               sending = true;

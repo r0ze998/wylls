@@ -14,7 +14,7 @@
 //          op withdraw           params {amount} | {all: true}                → {withdrawal, agent}
 //          op action             params {idempotencyKey?, policyVersion, modeEpoch?, action}  → ActionResult (source 'browser')
 //          op rotate-capability  params {source?: 'ai'|'mcp'}                → {agent, capability}  (with source: that sender's own token)
-//          op revoke-capability  params {source: 'ai'|'mcp'}                 → {agent, revoked}      (that sender's token only)
+//          op revoke-capability  params {source: 'ai'|'mcp'|'any'}           → {agent, revoked}      (that sender's token, or the general one)
 //   GET  /f/agent/by-owner?owner=            the owner's agents, briefly
 //   POST /f/agent/deposit {agentId, signature}   credits a confirmed owner-signed deposit to the custody account
 //   POST /f/agent/deposit {agentId, tx, lastValidBlockHeight?}
