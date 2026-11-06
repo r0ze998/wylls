@@ -26,6 +26,8 @@ pub const INCOMPLETE_LOGS: &str = "IncompleteLogs";
 pub const UNVERIFIED_INNER_INSTRUCTION: &str = "UnverifiedInnerInstruction";
 /// A written program account with no post-state in the archive (UNVERIFIABLE, V0E).
 pub const MISSING_POST_STATE: &str = "MissingPostState";
+/// A record no check judges where it stands (UNVERIFIABLE, V0E).
+pub const UNVERIFIED_RECORD: &str = "UnverifiedRecord";
 // V2 program and rules
 pub const PROGRAM_MISMATCH: &str = "ProgramMismatch";
 pub const RULESET_MISMATCH: &str = "RulesetMismatch";

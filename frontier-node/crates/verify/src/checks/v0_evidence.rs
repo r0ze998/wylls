@@ -28,11 +28,17 @@
 //!   `Close…` one: the recorded archives keep no post-state for a
 //!   transaction that only closes accounts (CloseArrivalDay and
 //!   CloseArrivalSlot in `march-program`), and V1 judges a closed chain by
-//!   its tombstone.
+//!   its tombstone;
+//! - `UnverifiedRecord` (r7): it carries a record no check judges where it
+//!   stands: a conquest kind outside [`MODELLED_CQ_KINDS`] (a kind a later
+//!   ABI adds, such as workstream 20's RESIDENT_JOINED, is not a PASS
+//!   until a check models it and the list names it), or a DIVERT in a
+//!   transaction without a TRANSIT_SETTLED (V13 judges DIVERTs only there).
 
 use std::collections::BTreeSet;
 
 use frontier_abi::layout::AccountKind;
+use frontier_abi::log::Kind;
 
 use super::Ctx;
 use crate::codes::*;
@@ -42,6 +48,13 @@ const V: &str = "V0E";
 
 /// The line the runtime appends when a transaction's logs exceed the limit.
 pub const LOG_TRUNCATED: &str = "Log truncated";
+
+/// The conquest record kinds (ABI v2, 80–103) the checks of this verifier
+/// read. Deliberately a literal list: a kind the ABI adds later is not
+/// judged by any check here until one models it.
+pub const MODELLED_CQ_KINDS: &[u8] = &[
+    80, 81, 82, 83, 84, 85, 86, 87, 88, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103,
+];
 
 fn program_kind(data: &[u8]) -> Option<AccountKind> {
     AccountKind::from_magic(data.get(..8)?.try_into().ok()?)
@@ -66,9 +79,35 @@ pub fn run(cx: &mut Ctx) {
         })
         .map(|(k, _)| *k)
         .collect();
+    for c in &w.cq_recs {
+        if !MODELLED_CQ_KINDS.contains(&(c.kind as u8)) {
+            cx.unverifiable(
+                V,
+                UNVERIFIED_RECORD,
+                format!("tx#{}", c.tx),
+                c.bell,
+                Some(c.tx),
+                format!(
+                    "record kind {} is judged by no check of this verifier",
+                    c.kind as u8
+                ),
+            );
+        }
+    }
     for (i, t) in w.txs.iter().enumerate() {
         if !t.ok {
             continue;
+        }
+        let kinds = || t.recs.iter().map(|&n| w.recs[n].kind);
+        if kinds().any(|k| k == Kind::DIVERT) && !kinds().any(|k| k == Kind::TRANSIT_SETTLED) {
+            cx.unverifiable(
+                V,
+                UNVERIFIED_RECORD,
+                format!("tx#{i}"),
+                0,
+                Some(i),
+                "a DIVERT outside a TRANSIT_SETTLED is judged by no check",
+            );
         }
         let logs = cx
             .input
