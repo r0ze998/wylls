@@ -76,3 +76,19 @@
 - **④の修正。** `claude/gallant-ride-cunptv` の `6984acfa4c0f9919c8c424a9bd5f2d59193d1639` で、patch の SHA-256 は `dcf29ef185feb7d52542dc889806039255be059854031e18b5f46bd2f66707fd`。`judge_outside_v2` に `s1` を渡し、`s1` のときだけ判定の対象にする。そうでなければ UNVERIFIABLE `UnverifiedInstruction` にする。試験には `s1 = false` の場合を足した。
 - **⑪の判断。** この修正をそのまま採る。別の版は出さない。V27 を `s1` の外でも動かす案は採らない。理由: `s1` が false の Season では、ほかの S1 の検査（V23–V25）も動いていない。その Season で JoinResident だけを判定しても、全体は PASS にできない。UNVERIFIABLE とするのが正直。
 - **0009 との関係。** ⑪の 0009 は変えていない。④の候補では、0009 の後に 6984acfa を当てた状態が正になる。
+
+## 7. r10: プログラムの版が分からない archive での、割り当て済みタグ（2026-11-06、パッチ 0010）
+
+**きっかけ。** ⑲が、取得範囲が完全と示せない履歴の判定（`history.rs`）を作っている。そこで「取得済みの取引の中だけで決まる FAIL」（V0、V27、V9 の RESIDENT_JOINED）は、履歴が欠けていても FAIL のまま残すことになった（⑪の提案を⑲が採用）。
+
+**見つけた穴。** 0009 の V0 は、CreateSeason が archive に無いとき（`program_version` が分からないとき）も、割り当て済みの帯のタグを FAIL にしていた。CreateSeason の無い archive は、途中から始まる履歴で起こりうる。どのプログラムが動いたか分からないのに「偽の命令」と言い切ることになり、「中だけで決まる FAIL」の分類に合わない。
+
+**0010 の直し方。** 割り当て済みのタグを FAIL にするのは、知っている版のときだけにする。版が分からないとき（`None`）は UNVERIFIABLE `UnverifiedInstruction` にする。割り当てのないタグは、これまでどおりどの場合も FAIL。⑳のタグも、NFT 版と分からなければ同じ扱いになる。
+
+| パッチ | 当て先 | SHA-256 | 当てた後の tree |
+|---|---|---|---|
+| `patches/0010-verify-v0-allocated-tag-without-program-version-on-ws04-6984acfa.patch` | ④の候補 `6984acfa4c0f9919c8c424a9bd5f2d59193d1639` | `6c8fe8342e4f0a8f45a0d7ef24bba5c608a34ef59b9fddd896d77a47e1cc691a` | `9ef386866b616629cabf46d496ddf030f93cb817` |
+
+**試験。** 許された試験 65 件が通過した。`tags_outside_abi_v2_are_told_apart` に `None` の場合を足した。fmt と clippy も通った（`results/verify-after-r10.log`）。鍵の生成・導出・署名は伴わず、CI も起動していない。
+
+**⑲への注意。** V0 の `Undecodable`（データの長さ）は、Season の種類（`v3`）によって v1 と v2 の長さを選ぶ。`v3` は Season 口座か ruleset の設定から決まる。どちらも無い archive では、CreateSeason のように v1 と v2 で長さが違う命令が誤って FAIL になりうる。今の RPC 取得では最終の Season 口座を取るので起こりにくいが、分類のときに覚えておいてほしい。
