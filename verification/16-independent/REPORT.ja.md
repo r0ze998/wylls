@@ -1117,3 +1117,46 @@ V27 が動かない版で JoinResident が PASS にならないことは §16.2 
 - 利用者が実装中の地図、賞金、荷車受付
 
 ログ: `logs/phase12/`
+
+## 17.7 ⑪ 0010＋0011 を ⑳ b2f7becc に当てた木（⑯が再構成）
+
+- ⑪ のブランチ `claude/kind-fermat-earbxe` を GitHub から取得した。
+  - HEAD は `6efd2f076e097f36119d77836729c0367a5c3df6`、tree は `5e64c03ed293f109301692bac37440e5585f3101` で、⑪ の連絡と一致した。
+- パッチの sha256 も、⑪ の連絡と一致した。
+  - 0010：`6c8fe8342e4f0a8f45a0d7ef24bba5c608a34ef59b9fddd896d77a47e1cc691a`
+  - 0011：`f59e1ab5c870d8adb9147611481f19152d1e843d2df464767dd37425073f253c`
+- ⑳ の `b2f7becc315e6ec891f78514abc9598ad6cf77b6` に `git apply` で 0010、0011 の順に当てた。
+  - 結果の tree は `9a9e49e0b1e38b516d29b9a6cff6afa386b7538a` で、⑪ の連絡と一致した。
+
+実行の前に、呼び出し先まで読んだ。
+
+- `tests/common` の `world()` は、固定 seed の `Keypair`（`[0xA1;32]`）と `TestKey` を作り、署名する。
+- 実行した試験は `world()` を呼ばない。
+  - 読むのは、コミット済みの fixture（`common::fixture`／`land`／`march`）だけ。
+  - `tamper::edit_ix`／`rechain` は、署名欄を書き換えない。
+- `fixtures.rs` の `march_fixture_is_fresh` は鍵で作り直すため、除外した。
+- lib の `#[cfg(test)]` に鍵の経路はない。
+
+| 試験（ホスト、鍵なし、PDA あり） | 結果 |
+|---|---|
+| lib（V27 7 件、V28 5 件、V9 6 件などを含む） | 33/33 |
+| camp_clear | 3/3 |
+| evidence | 8/8 |
+| missing_state | 2/2 |
+| new_bands | 7/7 |
+| open_items | 3/3 |
+| unit | 8/8 |
+| fixtures（1 件除外） | 8/8 |
+| 合計 | 72/72（⑪ の `verify-after-r11.log` と同数） |
+
+1 回目はディスクが満杯になり、リンクの途中で失敗した（`logs/phase12/w11-r11-diskfull/`）。試験は 1 件も動いていないので、結果に数えない。古いビルド出力を消して流し直した。
+
+読解での確認:
+
+- 0011 の `resident_program_of` は、成功した取引の、ゲームのプログラムの最上位命令だけを見る（`world.rs` の `Tx::ixs`）。
+- 別のプログラムが同じ tag の命令を出しても、方針の resident_program をすり替えることはできない。
+- 方針が命令にも状態にも無いときは Unverifiable（PASS にしない）。
+
+この試験は⑪の試験を⑯が同じ木で再現したもので、⑯の独自の試験ではない。V27・V28 を、NFT 版の Season をまるごと `verify()` に通して確かめることは、まだしていない（⑪ も未確認としている）。
+
+④ の r3（`15bed411bbfec103fafba7a1525ec650e82c1671`、tree `475f2ae92bd72d3731891a042bf7213c5b98b7e3`、sha256 `8937a364…`）と r4（`57c5c1714df8ffb4d5e145b32118b9590dc5459e`、tree `9c5c480c657b0895f63c270999abf7fb9e039889`、sha256 `094341c619b51b408d9f83e5b827920d00dddf4e294db6b1215d23aa3cdf8846`）は届いていない。どちらも照合も実行もしていない。④ が直したという照合器（`e-prize-run.json` を読む 31 項目）も未確認。
