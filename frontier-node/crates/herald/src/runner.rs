@@ -307,6 +307,15 @@ impl Ingest {
         }
     }
 
+    /// Records the source's coverage report for `/h/status`.
+    pub fn note_coverage(&self, c: Option<serde_json::Value>) {
+        if let Ok(mut f) = self.fold.write() {
+            if f.ingest.coverage != c {
+                f.ingest.coverage = c;
+            }
+        }
+    }
+
     /// Records the chain's latest slot and Clock for the live views.
     pub fn observe_clock(&self, slot: u64, unix: i64) {
         if let Ok(mut f) = self.fold.write() {
@@ -329,7 +338,9 @@ pub async fn run<S: Source, P: fclient::ports::ChainPort>(
         if *stop.borrow() {
             break;
         }
-        let n = match ing.step(&mut src).await {
+        let step = ing.step(&mut src).await;
+        ing.note_coverage(src.coverage());
+        let n = match step {
             Ok(n) => {
                 ing.note_ingest(None);
                 n

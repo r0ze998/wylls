@@ -87,11 +87,19 @@ pub struct IngestHealth {
     /// The store failed (findex poisoned): ingest has stopped until the
     /// herald reopens it.
     pub stopped: bool,
+    /// What the archived history covers, as the source reports it
+    /// (findex `RpcPoll::coverage`: `gap`, `not_fetched`, `unverifiable`
+    /// or `cross_checked`); `None` for an ordered feed. Kept across
+    /// failures and successes alike.
+    pub coverage: Option<Value>,
 }
 
 impl IngestHealth {
     pub fn ok(&mut self) {
-        *self = IngestHealth::default();
+        *self = IngestHealth {
+            coverage: self.coverage.take(),
+            ..IngestHealth::default()
+        };
     }
 
     pub fn failed(&mut self, e: &str, now_ms: u64, stopped: bool) {
@@ -108,6 +116,7 @@ impl IngestHealth {
             "state": if self.stopped { "stopped" } else if self.error.is_some() { "failing" } else { "ok" },
             "error": self.error, "failures": self.failures,
             "sinceMs": (self.failures > 0).then_some(self.since_ms),
+            "coverage": self.coverage,
         })
     }
 }

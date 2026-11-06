@@ -43,6 +43,10 @@ impl findex::Source for Gappy {
     fn restore(&mut self, v: &Value) {
         self.inner.restore(v)
     }
+    fn coverage(&self) -> Option<Value> {
+        let gap = self.fail.load(std::sync::atomic::Ordering::SeqCst) > 0;
+        Some(serde_json::json!({"state": if gap { "gap" } else { "unverifiable" }}))
+    }
 }
 
 async fn health(fold: &Arc<RwLock<Fold>>) -> (IngestHealth, u64) {
@@ -90,6 +94,10 @@ async fn a_failing_pull_shows_in_status_until_one_succeeds() {
     let j = h.json();
     assert_eq!(j["state"], "failing");
     assert!(j["error"].as_str().unwrap().contains("history gap"), "{j}");
+    assert_eq!(
+        j["coverage"]["state"], "gap",
+        "the source's coverage is shown"
+    );
 
     // The node serves again: the status clears, the views catch up.
     fail.store(0, std::sync::atomic::Ordering::SeqCst);
@@ -98,6 +106,11 @@ async fn a_failing_pull_shows_in_status_until_one_succeeds() {
         let (h, folded) = health(&fold).await;
         if h.failures == 0 && folded == txs.len() as u64 {
             assert_eq!(h.json()["state"], "ok");
+            assert_eq!(
+                h.json()["coverage"]["state"],
+                "unverifiable",
+                "a successful pull does not make the history complete"
+            );
             assert!(h.json()["sinceMs"].is_null());
             ok = true;
             break;
@@ -119,4 +132,16 @@ fn a_failed_store_reads_stopped() {
     assert_eq!(j["state"], "stopped");
     assert_eq!(j["failures"], 2);
     assert_eq!(j["sinceMs"], 7);
+}
+
+#[test]
+fn coverage_is_kept_when_a_pull_succeeds() {
+    let mut h = IngestHealth {
+        coverage: Some(serde_json::json!({"state": "unverifiable"})),
+        ..IngestHealth::default()
+    };
+    h.failed("history gap", 1, false);
+    h.ok();
+    assert_eq!(h.json()["coverage"]["state"], "unverifiable");
+    assert_eq!(IngestHealth::default().json()["coverage"], Value::Null);
 }
