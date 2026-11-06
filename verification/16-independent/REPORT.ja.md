@@ -989,3 +989,127 @@ A8 の旧試験（`v16_unknown_tag.rs` の v16_a8）は固定 seed の鍵で署�
 ## 16.3 一連の操作の検証への影響
 
 ゲームのプログラム（NFT 参加、荷車、閉鎖）、賞金プログラム（Pay・Claim・RecordNation）、検証器は、どれも実行の中で PDA を算出する。したがって新しい基準では、④が作る通しの場面（e2e-native の `Host::with_game` など）を⑯が**実行することはできない**。⑯ができるのは、(1) その場面のコードと fixture の読解、(2) PDA を通らない部品（findex、純関数、アドレスを入力として受け取る JS の部分）の実行、(3) ④の実行記録（④の結果）との突き合わせ、に限られる。通しの成立の**実行による**確認は、実行できない最終確認に入る。
+
+# 第12期（2026-11-06）：PDA の算出を再び許可、④の通しの場面と⑲ r2
+
+利用者の指示（2026-11-06、④と同じ基準）: PDA と `with_seed` による公開アドレスの算出は、試験コードの中でもプログラムの中でも**許可**。鍵ペアの生成・導出と署名は、固定 seed、共通セットアップ、CI を含めて**引き続き禁止**。⑯は試験を流す前に、呼び出し先まで読み、`Keypair`／`TestKey`／`sign`／`from_seed` の経路を通らないことを確かめた（検証器の `src/fixture`・`src/tamper.rs` は鍵で署名するので使わない）。
+
+## 17.1 第11期の扱いを戻す
+
+§16.1 の表の試験（⑯ 賞金 P1〜P6・F1〜F6、④の `legacy_season_claims`・`claims_vs_closes`、⑳ runtime、検証器を動かす試験）は、PDA の算出だけが理由で数えないことにしていた。鍵の生成・導出・署名は伴わない（読解済み）ため、**今の基準では有効な結果に戻す**。ただし対象の版はそれぞれの期のもので、最新の統合候補での結果ではない。§16.3 の「⑯は通しの場面を実行できない」も取り消す（下の 17.3 で実行した）。
+
+## 17.2 6984acfa の V27（検証器を動かす）
+
+対象 `6984acfa4c0f9919c8c424a9bd5f2d59193d1639`（tree `b38d2d8bb3a223be53f3da08a300256b48f32b7a`）。
+
+| 試験 | 結果 |
+|---|---|
+| V27（正直な参加、偽造、食い違い、重複、証拠の欠落） | 5/5 |
+| ⑪ evidence | 8/8 |
+| ⑪ new_bands | 7/7 |
+| ⑯ A8 | 6/6 |
+| ⑯ V27 の関門（`v16_v27_gate.rs`、純関数） | 3/3 |
+
+V27 が動かない版で JoinResident が PASS にならないことは §16.2 のとおり（関門 3/3 と `checks/mod.rs:269-276` の読解）。ログ: `logs/phase12/6984-verify.log`。
+
+## 17.3 ④の通しの場面（chain-flow、最新の統合候補）
+
+受領: `36dedc80-ws04-chain-flow-6984acfa.bundle`（sha256 `f863f1634ba135e7d2dc200db3e6348f177129c7c2e737b5a628b4f967703aba`）。空のリポジトリに復元して照合した。
+
+- HEAD `27651beddae7f493957bffe6618e1ca422422c18`
+- tree `1ea851ef0faf5e3a063ad62fe57604276136ff84`
+- 親 `5a65836e433c4a274bda6001785624587067a746`
+- 6984acfa の上に 5 コミット
+
+⑲ r2、⑰ RecordNation、⑮ bf7f43fc、⑳ 4b233e4a、⑪ 0010 は**この候補に入っていない**。この候補は「④の通し＋6984acfa」の版で、全担当の統合版ではない。
+
+### (a) 固定ファイルの照合（fixture、実行ではない）
+
+| 確認 | 結果 |
+|---|---|
+| コミット済みの fixture（`tools/chain-flow/fixtures-20261106/`）を `check-fixtures.mjs` で照合（PDA を使わない 24 項目） | 24/24 |
+| `run.sh` で作り直した出力とコミット済み fixture の比較 | **バイト単位で一致**（同じ入力から同じ出力が出る） |
+| 照合器の変異試験（fixture を 1 か所ずつ壊して照合器が気づくか） | 9 件中 7 件で検出、**2 件を見逃した** |
+
+見逃した 2 件:
+
+- M5: `e-prize-run.json` の Citizen を別のアドレスに書き換えた。
+- M7: `e-prize-run.json` の請求結果を「支払い済み」に書き換えた。
+
+どちらも 24/24 のままになる。照合器は `e-prize.json` の要約だけを見ていて、賞金段階の実行記録 `e-prize-run.json` と突き合わせていない。**fixture の照合だけでは、賞金段階の記録が偽でも通る**（④へ連絡する）。
+
+### (b) ホストでの実処理（鍵なし、署名なし、PDA あり）
+
+| 段階 | 中身 | 結果 | 位置づけ |
+|---|---|---|---|
+| A（`chain_nft`） | ゲームのプログラム本体の NFT 参加、NFT 譲渡後の権限撤回 | 2/2 | 実プログラムのコードをホストで実行（System と SPL Token は mock、署名は署名者フラグだけ） |
+| B（`chain_caravan`、`--ignored`） | runexec の荷車送信と結果 | 1/1 | **Sim の mock チェーン**。完成には数えない |
+| E（`chain_prize`） | 賞金プログラム本体、同じ Season の JoinResident | 2/2 | 実プログラムのコードをホストで実行。NFT 住民の請求はすべて BadAccount（仕様が未定） |
+| C・D（`stages-cde.mjs`、no-keys-guard の下） | ⑫ 記憶の取り込み、⑮ 成果の正規化 | 完了（照合 24/24） | JS の実処理。入力は A・B の出力 |
+
+⑯の独立した追加試験 `probes/v16_chain_caravan_faults.rs` は 4/4。④の chain の Citizen（`a-join.json`）を使い、runexec の Sim の上で次を確かめた（**mock チェーン、完成には数えない**）。
+
+- b1 重複: 同じ受付は Existing、別の内容は Conflict、完了後の再受付は Existing(Fulfilled)。
+- b2 応答消失: LoseResponse、Timeout、LandLater(3) のどれでも送信は 1 回。
+- b3 再起動: `ship.before_send` で落とし、同じ db の新しい executor で再開。
+- b4 重複配信: `feed_duplicates`。
+
+4 件すべてで、Fulfilled、搬入先の在庫 4、監査一致、sent と settled の受領がちょうど 1 件ずつ、`check_store` 合格。
+
+### (c) 通しの場面で確かめられていないこと
+
+- 荷車の受付に、依頼者の権限の確認がない。そのため **NFT 譲渡後の旧所有者が荷車を出せるか** は、どの段階でも試されていない（利用者が実装中の荷車受付）。
+- 記憶（⑫）の再起動の場面がない。⑫の鍵が要る 69 件は実行できない。
+- NFT 住民の賞金請求は仕様が未定で、E は「請求できない」ことだけを確かめる。
+- B は mock チェーンなので、荷車の結果が実際のプログラムの状態と一致するかは未確認。
+
+## 17.4 ⑲ r2（c022f4fc）
+
+受領: `ef186085-ws19-on-6984acfa-r2.bundle`（sha256 `a80df60b6e981a1a50cfd1bb25c324c37ae42f1e7acc20c12374fcae0e29cc7f`）。空のリポジトリに復元して照合した。
+
+- HEAD `c022f4fc0dbba51cdcb81fc91b416870e8d670ca`
+- tree `dcb6f98d5adfdd6362bcf21e2a706aa27a4b4d1d`
+- 親 `803e3b274d6ce3948002193a835dbcffd961e6c1`
+- 6984acfa の上に 5 コミット。④の chain の候補とは別の枝
+
+ホストでの実処理（鍵なし）:
+
+| 試験 | 結果 |
+|---|---|
+| findex coverage | 14/14 |
+| findex no_hidden_gap | 4/4 |
+| findex store_failure | 5/5 |
+| ⑯ v16_history_gaps | 3/3 |
+| herald ingest_health | 3/3 |
+| verify history | 13/13 |
+| ⑯ v16_history_coverage（新規、`probes/`） | 4/4 |
+
+⑯の新しい試験は、`RpcPoll::coverage()` の状態を G1・G3 の場面で確かめる。
+
+- c1: 既定の設定で G1（始まりが刈られている）は `unverifiable`。
+- c2: origin を置くと G1 は止まり、`gap`。
+- c3: 既定の設定で G3（途中が欠けている）は `cross_checked` にならない。witness を置くと止まり、`gap`。
+- c4: 対照。履歴が揃っていれば `cross_checked`、限界の文言も付く。
+
+既定の設定では G1・G3 を**取り込んでしまう**（止まらない）ことは変わらない。r2 では、それを「完全」と報告しないところまでが直った。origin と witness を置いたときだけ止まる。
+
+## 17.5 実チェーンで確かめていないこと（鍵・署名が要る）
+
+- SBF でビルドしたプログラムを LiteSVM、localnet、devnet で、署名付きの取引として流すこと（A〜E のすべて）。
+- 荷車の実送信と結果（B は mock）。
+- ⑫の鍵が要る 69 件。
+- keeper の World。
+- gateway の見本の世界。
+- ⑰の分配と口座。
+- 検証器の `coverage.rs` と `record.rs`（fixture が鍵で署名する）。
+- CI の key_tests ジョブ。
+- 公開 RPC の実ノードでの履歴の欠け（⑲、⑯の試験は JSON-RPC の代役ノード）。
+
+## 17.6 受け取っていないもの
+
+- ⑰ `wylls-17-rn-on-ws04.tgz`（sha 464144b8…）
+- ⑮ bf7f43fc の bundle
+- 全担当を入れた統合版（④の chain に ⑲ r2、⑰、⑮、⑳ 4b233e4a、⑪ 0010 を入れたもの）
+- 利用者が実装中の地図、賞金、荷車受付
+
+ログ: `logs/phase12/`

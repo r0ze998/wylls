@@ -1,0 +1,59 @@
+### findex HEAD c022f4fc0dbba51cdcb81fc91b416870e8d670ca tree dcb6f98d5adfdd6362bcf21e2a706aa27a4b4d1d
+?? frontier-node/crates/findex/tests/v16_history_gaps.rs
+   Compiling permutation-rules v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v19-r2/permutation-rules)
+   Compiling frontier-abi v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v19-r2/frontier-abi)
+   Compiling fclient v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v19-r2/frontier-node/crates/fclient)
+   Compiling findex v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v19-r2/frontier-node/crates/findex)
+   Compiling localnet v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v19-r2/frontier-node/crates/localnet)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 18.45s
+     Running tests/coverage.rs (/home/user/wylls/frontier-node/target/debug/deps/coverage-96c452cee905971b)
+
+running 14 tests
+test a_witness_behind_holds_the_batch_then_marks_it ... ok
+test an_unreadable_witness_leaves_the_range_unverifiable ... ok
+test coverage_survives_a_restart ... ok
+test enriched_reports_the_inner_coverage ... ok
+test g1_a_pruned_start_without_anchor_is_archived_as_unverifiable ... ok
+test g1_a_witness_with_the_start_stops_the_first_pull ... ok
+test g1_an_origin_with_older_history_before_it_stops ... ok
+test g1_the_origin_anchor_stops_a_first_pull_that_misses_the_start ... ok
+test g2_an_older_cursor_resumes_as_unverifiable ... ok
+test g2_an_unreadable_cursor_is_refused_not_restarted ... ok
+test g2_losing_the_last_archived_signature_shows_a_gap ... ok
+test g3_a_middle_gap_without_witness_is_reported_unverifiable ... ok
+test g3_a_witness_stops_a_middle_gap_and_the_range_fills_later ... ok
+test nothing_fetched_is_not_an_empty_history ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+
+     Running tests/no_hidden_gap.rs (/home/user/wylls/frontier-node/target/debug/deps/no_hidden_gap-8d64c7755efaaa9e)
+
+running 4 tests
+test a_damaged_frame_in_a_sealed_segment_is_an_error_not_a_shorter_archive ... ok
+test a_missing_sealed_segment_is_an_error ... ok
+test a_segment_missing_a_record_but_well_formed_is_an_error ... ok
+test the_index_rebuild_refuses_a_damaged_archive ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/store_failure.rs (/home/user/wylls/frontier-node/target/debug/deps/store_failure-93fe31534c84011a)
+
+running 5 tests
+test checkpoint_failure_cannot_publish_an_uncommitted_index ... ok
+test failed_roll_after_uncommitted_batch_truncates_the_ahead_index ... ok
+test index_failure_requires_reopen_and_catches_up_from_the_archive ... ok
+test manifest_write_failure_requires_reopen_and_replays_the_batch ... ok
+test mid_batch_roll_failure_discards_unnamed_frames_before_replay ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/v16_history_gaps.rs (/home/user/wylls/frontier-node/target/debug/deps/v16_history_gaps-c1df5848d05c6f69)
+
+running 3 tests
+test v16_g1_first_pull_on_a_pruned_node_archives_without_any_gap_signal ... ok
+test v16_g2_losing_the_last_archived_signature_stops_the_pull ... ok
+test v16_g3_a_gap_in_the_middle_behind_a_kept_last_signature_is_not_seen ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+exit=0

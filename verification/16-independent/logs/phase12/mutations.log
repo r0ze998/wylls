@@ -1,0 +1,9 @@
+M1-a-tag+1 exit=1 18 ok, 7 other: FAIL A: citizen_tag = LE u64 of the Citizen address's first 8 bytes FAIL B: run for stage A's Citizen 
+M2-b-other-citizen exit=1 23 ok, 2 other: FAIL B: run for stage A's Citizen 23/24 consistent 
+M3-c-fact-tag exit=1 23 ok, 2 other: FAIL C: identity_alias ties the tag to the pass 23/24 consistent 
+M4-d-ship-tag exit=1 23 ok, 2 other: FAIL D: ship id carries the citizen_tag 23/24 consistent 
+M5-e-other-citizen exit=0 24 ok, 1 other: 24/24 consistent 
+M6-a-no-transfer exit=1 23 ok, 2 other: FAIL A: one transfer, to another owner 23/24 consistent 
+M7-e-claim-paid exit=0 24 ok, 1 other: 24/24 consistent 
+M8-e-summary-citizen exit=1 FAIL E: the prize step ran with stage A's Citizen address 23/24 consistent 
+M9-e-summary-claim exit=1 FAIL E: every claim path of the pass is BadAccount; vault keeps the share 23/24 consistent 

@@ -1,0 +1,16 @@
+### v16 caravan faults at 27651beddae7f493957bffe6618e1ca422422c18 tree 1ea851ef0faf5e3a063ad62fe57604276136ff84
+?? permutation-gateway/node_modules
+?? workstreams/04-execution/tests/v16_chain_caravan_faults.rs
+   Compiling wylls-runexec v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v18-chain/workstreams/04-execution)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.86s
+     Running tests/v16_chain_caravan_faults.rs (target/debug/deps/v16_chain_caravan_faults-ef765da4c8e54be0)
+
+running 4 tests
+test v16_b1_duplicate_and_conflicting_acceptance ... ok
+test v16_b2_lost_answer_timeout_and_late_landing_send_once ... ok
+test v16_b3_crash_before_the_send_then_restart ... ok
+test v16_b4_a_feed_that_repeats_every_record_counts_once ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.27s
+
+exit=0

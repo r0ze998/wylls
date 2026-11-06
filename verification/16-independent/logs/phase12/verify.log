@@ -1,0 +1,24 @@
+### verify HEAD c022f4fc0dbba51cdcb81fc91b416870e8d670ca tree dcb6f98d5adfdd6362bcf21e2a706aa27a4b4d1d
+?? frontier-node/crates/findex/tests/v16_history_gaps.rs
+   Compiling verify v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v19-r2/frontier-node/crates/verify)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.33s
+     Running tests/history.rs (/home/user/wylls/frontier-node/target/debug/deps/history-85fc15cb716aac58)
+
+running 13 tests
+test a_detected_gap_is_not_verified_over ... ok
+test a_ledger_feed_or_a_fixture_keeps_the_verdict_without_claiming_completeness ... ok
+test a_missing_range_is_not_reported_as_a_forgery_of_an_unproven_history ... ok
+test a_saved_fixture_cannot_launder_an_rpc_history ... ok
+test a_self_contained_fail_still_fails_over_an_unproven_history ... ok
+test a_witness_behind_does_not_end_the_history_early ... ok
+test a_witness_down_leaves_the_history_unproven ... ok
+test an_rpc_archive_keeps_its_coverage ... ok
+test archives_report_where_their_records_came_from ... ok
+test cross_checked_is_still_not_a_complete_history ... ok
+test default_settings_fetch_an_unproven_history ... ok
+test every_rpc_coverage_state_is_unproven ... ok
+test the_verifier_never_passes_an_unproven_history ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 54.92s
+
+exit=0
