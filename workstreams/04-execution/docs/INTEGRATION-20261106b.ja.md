@@ -34,6 +34,10 @@
 | 9 | verify：⑪ の 0004、続いて 0005（0001 は取り下げ、0003 は適用済み） | `e401158a880006034e4b7d56b38df26b66012e57` / `339b0650a05e8247677a2d36e3dd86890a52ad3e` | `e095c0251a768d6da221521a0335eaff7ac4c3ef` / `96aa4f15ccd445ceae45b425f8382429f1760e30` | lib 17、unit 8、fixtures 8（`march_fixture_is_fresh` は署名するので除外）、camp_clear 3、missing_state 2、open_items 3、evidence 8。試験は fixture を読む関数しか呼ばない（`world()`・`send()` は使わない）。tamper・coverage・record は未実施 |
 | 10 | ABI 割当 rev 4（統合候補のコードには衝突なし。⑩の依頼への答え） | `624c002da3bfbc9fba814307d31de1d6b9e0da8f` / `24126ca2d35ff8be244e207c9ef0e6f1e987c7c8` | `cea9182f51b423232679d35a8f533aa68d5429b3` / `caa0d96e19578bf99855419d24100ecb2ad30bc4` | `abi_inventory.py`（`contracts/abi-inventory-20261106b.txt`） |
 
+| 11 | ⑳ 9e6b0c01（findex の `enumerate()`。clippy の explicit_counter_loop） | `213fa65515e7b5a4950fdf5435f59a8dcf8bacde` / `8926b723dfb38e7b49c8704fc1f599fc5cc56800` | 未作成（全体版は⑤の判断の後に作り直す） | findex lib 10。clippy はこの環境に 1.95 の clippy が無いため未実施（⑳は workspace 全体で通ると報告） |
+| 12 | ⑪ ab3a2f23（r7：patch 0006・0007、新しい帯は PASS にならない） | `8d68d89bb0382faedeadc63af2b7b96333e1bfaf` / `3c6b3cdb7f2cbd232a9f61363eaa547465d694d1` | 同上 | — |
+| 13 | verify：⑪ の 0007（0004・0005 の後。V0E の UnverifiedRecord） | `4c65aaa229cea9ba2a57229cac78cc2715c5df7d` / `d90de6b4b1df14c500434d3bf7751e945256b7f3` | 同上 | lib 17、unit 8、fixtures 8、camp_clear 3、missing_state 2、open_items 3、evidence 8、new_bands 4/5。**残る 1 件は⑪の仕掛けた検査**：⑳の RESIDENT_JOINED（kind 130）を、まだどの検査も扱っていない。そのため V0E は、その記録を UnverifiedRecord とする。kind 130 を扱う検査が要る（⑪・⑳・④）。試験は消していない |
+
 全体版の merge の commit message には「WS05=この木」で取った結果が書いてあります。公開版は同じ message を使っていますが、⑤の木は含みません。
 
 ### ⑯ への再現手順（公開版）
@@ -65,6 +69,13 @@ sh workstreams/12-memory/tools/test-nokey.sh
 | **12・13** | ⑫ `c6877a1a62a7a90891c8f268194a39593fafe541`、⑬ `745e7ec661450654b83d893b3440ecda314ea517`、⑤ `e9d1551a`、④ この候補 | `WS04_ACTS_CLIENT`＋`RUNEXEC_BIN`（④）、`WS05_E9D1551A`（⑤の木）、`WS12_ROOT`（⑫の木）。どれも全体版の木そのものを指せばよい | 全体版で、⑬ は 110 件中 103 件が合格、6 件が skip（署名する試験）、1 件は guard を二重に付けたためだけの失敗（⑬ の guard だけなら 4/4）。⑫ は FAILED 0 |
 | **1・14・15** | ① GitHub `preserve/ws01-coop-s1-3f3c8478` `3f3c8478b0a37a7ecfd6ca4641b8d47fb58aff52`。⑭ GitHub `preserve/ws14-7d7f2143` `7d7f2143d6f2696a3bc323d1d619b1d6961a7b18`（最新の b31803ff・5f4c0b99 は未 push）。⑮ GitHub `preserve/ws15-b1a09a0b` `b1a09a0b15dd44f587b1158fc40dd3f17577fcca`（⑯ が bundle から復元した cb87e30c は④に未着） | ⑮ の `fold()` の出力（協力の成果の判定）を、① と ⑭ が同じ版で読む | **⑮ cb87e30c、⑭ b31803ff・5f4c0b99 が④に未着**。三者とも、まだこの候補に入っていない |
 | **9・10** | ⑨ `8fe85cc95167e24fd5be4293c228a2f5c51e0533`、⑩ `563407d96e74934fd82141bf9ad09980ea94bf75`（両方この候補に入っている） | 一つの Lot 表（⑩ custody の lot module と adapter-09、⑨ の bridge10） | **合わない所が 1 つある。** ⑨ の `bridge10/tests/connect10.rs` は `wylls_custody_adapter_09::connect` を使うが、⑩ は c27b95eb で `connect` を削除した。そのため compile できない。どちらに合わせるかを⑨と⑩に依頼済み。④ は、試験も API も消していないし戻してもいない |
+
+## 2b. 公開と配備の確認（2026-11-06、GitHub の API を読むだけ）
+
+- repository は **公開（public）**。
+- commit の status は 0 件（④ 8e96f24d・232a5aa7、⑯ b9a4bfeb）。check run は `github-actions` だけで、`[skip ci]` の commit は 0 件。deployments は 0 件。
+- vercel・netlify・Pages の設定は repository の中にない。GitBook の設定は `claude/determined-ride-engpa4` にだけある。
+- GitHub の外にある GitBook の Git Sync の設定と、Pages の API（proxy に拒まれた）は、確かめられていない。
 
 ## 3. 届いていない成果（統合済みとして扱わない）
 
