@@ -1,6 +1,8 @@
 # permutation-nft-resident-spike：NFT で譲渡できる住民アカウント（隔離試作）
 
-**状態（2026-11-06、v0.15）**：ローカルのみ（模擬チェーン、LiteSVM、ループバック validator）。公開発行・devnet／mainnet・実資金・新しい鍵は無し。価格・無料／有料・供給数・公開発行・ロイヤリティは未決（`docs/UNDECIDED.ja.md`）。Metaplex Core は**試作の選定方式**で、本線採用は未決。継続世界は決定済み。依存パッケージ無し（Node 20+ の標準モジュールだけ。`test-gateway/` だけは `permutation-gateway` の依存を使う）。v0.8 で担当ブランチへ通常 push（根拠は `docs/PUSH-AUDIT.ja.md`）。merge・deploy はしていない。
+**状態（2026-11-06、v0.16）**：ローカルのみ（模擬チェーン、LiteSVM、ループバック validator）。公開発行・devnet／mainnet・実資金・新しい鍵は無し。価格・無料／有料・供給数・公開発行・ロイヤリティは未決（`docs/UNDECIDED.ja.md`）。Metaplex Core は**試作の選定方式**で、本線採用は未決。継続世界は決定済み。依存パッケージ無し（Node 20+ の標準モジュールだけ。`test-gateway/` だけは `permutation-gateway` の依存を使う）。v0.8 で担当ブランチへ通常 push（根拠は `docs/PUSH-AUDIT.ja.md`）。merge・deploy はしていない。
+
+**v0.16 の変更**：本番の NFT パスに向けて、住民プログラムの販売条件をすべて設定可能にした（供給上限と発行数、販売の開閉・開始・終了、1 ウォレットの上限、受取先の変更、NFT の名前・URI、config authority の二段階の引き渡し）。販売は閉じた状態で始まり、値は所有者が決めるまで入れていない。取得ページは条件をチェーンから読んで表示する。配備用ファイルとソースの不一致を検出する `archive/program-artifact.mjs` と手順 `docs/PROGRAM-BUILD.ja.md`。世界別の link（v0.15）はそのまま。
 
 **v0.15 の変更**：同じ NFT パスで新しい世界にも参加できるよう、link を Season ごとにした（所有者の決定、U45。④ と照合済み）。link の rent は参加する人が世界ごとに払う。各世界で 1 NFT・1 Citizen と、譲渡後は今の持ち主だけが操作できることは変わらない。資産・履歴の引き継ぎは未決のまま（何も移さない）。`docs/SEASON-SCOPE.ja.md` §6。
 

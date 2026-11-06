@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url';
 import { keypair, randomAddress, base58, sha256 } from './crypto.mjs';
 import { MPL_CORE_PROGRAM } from './core-asset.mjs';
 import { RpcClient } from './rpc-client.mjs';
-import { createCollectionIx, initConfigIx, pdas, signedTx } from './resident-ix.mjs';
+import { createCollectionIx, initConfigIx, pdas, setMetadataIx, setTermsIx, signedTx } from './resident-ix.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const DEFAULT_CORE_SO = path.join(ROOT, '.local', 'programs', 'mpl_core.so');
@@ -73,5 +73,14 @@ export async function setupWorld({ rpc, programId, priceLamports = 100_000_000n,
   const sig2 = await rpc.send(tx2.wire);
   const st2 = await rpc.confirm(sig2);
   if (!st2 || st2.err) throw new Error(`init config failed: ${JSON.stringify(st2?.err)}`);
+  // InitConfig leaves the sale closed (no supply, no metadata). This TEST world opens one with test values
+  // (a fixture of the local validator, not product terms; the real terms are the config authority's).
+  const bh3 = await rpc.latestBlockhash();
+  const tx3 = signedTx({ feePayer: setup.publicKey, blockhash: bh3.blockhash, instructions: [
+    setMetadataIx({ program: programId, authority: setup.publicKey, name: 'Wylls Resident (localnet test)', uri: 'https://wylls.test/resident.json' }),
+    setTermsIx({ program: programId, authority: setup.publicKey, maxSupply: 1_000_000n, open: true }),
+  ], signers: [setup] });
+  const st3 = await rpc.confirm(await rpc.send(tx3.wire));
+  if (!st3 || st3.err) throw new Error(`set terms failed: ${JSON.stringify(st3?.err)}`);
   return { setup, collection: collectionKey.publicKey, configPda: p.config, collectionAuthorityPda: p.collectionAuthority, treasury, priceLamports, signatures: { collection: sig1, config: sig2 }, genesisHash: await rpc.genesisHash() };
 }

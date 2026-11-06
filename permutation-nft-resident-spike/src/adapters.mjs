@@ -14,6 +14,13 @@ import { collectionFilter, decodeConfigAccount, decodeResidentAccount, pdas, RES
 /** Real Core asset account size seen in LiteSVM (base struct + plugin header and registry for the two permanent plugins). */
 export const REAL_ASSET_BYTES = 233;
 
+/** The sale terms as JSON (bigints as strings) for GET /mint/config. */
+export function termsJson(t) {
+  if (!t) return null;
+  return { open: !!t.open, maxSupply: String(t.maxSupply ?? 0), minted: String(t.minted ?? 0), saleStart: String(t.saleStart ?? 0), saleEnd: String(t.saleEnd ?? 0),
+    perWallet: Number(t.perWallet ?? 0), name: t.name ?? '', uri: t.uri ?? '' };
+}
+
 export class MockAdapter {
   constructor({ rpc, chain, collection, config }) { this.rpc = rpc; this.chain = chain; this.collection = collection; this.cfg = config; this.kind = 'mock'; this.knobs = rpc.knobs; }
   async config() {
@@ -21,6 +28,7 @@ export class MockAdapter {
     return {
       mode: 'mock', network: c.network, chainId: c.chainId, genesisHash: c.genesisHash, explorer: c.explorer,
       price: { lamports: String(c.priceLamports), label: c.priceLabel, test: true, changeable: true },
+      terms: termsJson(c.terms),
       estimate: { feeLamports: String(LAMPORTS_PER_SIGNATURE * 2n), rentAssetLamports: String(rentFor(ASSET_BYTES)), rentResidentLamports: String(rentFor(RESIDENT_BYTES)) },
       programs: { resident: RESIDENT_PROGRAM, core: MPL_CORE_PROGRAM, system: SYSTEM_PROGRAM }, collection: this.collection, treasury: c.treasury,
       collectionAuthorityPda: c.collectionAuthorityPda, configPda: c.configPda, residentPda: 'server-derived',
@@ -51,8 +59,9 @@ export class MockAdapter {
 
 export class RpcAdapter {
   /** `rpc`: RpcClient; `world`: setupWorld's result; `programId`; `network`/`chainId`/`explorer` for the page. */
-  constructor({ rpc, world, programId, network = 'localnet (real program, loopback validator)', chainId = 'solana:localnet', explorer = null, priceLabel = 'TEST PRICE — 試験用の仮値、本番価格ではない' }) {
-    this.rpc = rpc; this.world = world; this.programId = programId; this.network = network; this.chainId = chainId; this.explorer = explorer; this.priceLabel = priceLabel;
+  /** `test`: the price is a test value (the page says so); a production deployment passes `test: false` and its own label. */
+  constructor({ rpc, world, programId, network = 'localnet (real program, loopback validator)', chainId = 'solana:localnet', explorer = null, priceLabel = 'TEST PRICE — 試験用の仮値、本番価格ではない', test = true }) {
+    this.rpc = rpc; this.world = world; this.programId = programId; this.network = network; this.chainId = chainId; this.explorer = explorer; this.priceLabel = priceLabel; this.test = test;
     this.kind = 'rpc'; this.pdas = pdas(programId);
     /** Test knobs: `dropSendResponse` forwards the send but answers 504; `hideStatuses` answers null statuses. */
     this.knobs = { dropSendResponse: false, hideStatuses: false };
@@ -65,11 +74,13 @@ export class RpcAdapter {
     const [rentAsset, rentResident] = await Promise.all([this.rpc.rent(REAL_ASSET_BYTES), this.rpc.rent(RESIDENT.LEN)]);
     return {
       mode: 'rpc', network: this.network, chainId: this.chainId, genesisHash: await this.rpc.genesisHash(), explorer: this.explorer,
-      price: { lamports: String(cfg.price), label: this.priceLabel, test: true, changeable: true },
+      price: { lamports: String(cfg.price), label: this.priceLabel, test: this.test, changeable: true },
+      // Every sale value is read from the program's config (the authority's setting), never from this server.
+      terms: termsJson(cfg.terms),
       estimate: { feeLamports: String(5_000 * 2), rentAssetLamports: String(rentAsset), rentResidentLamports: String(rentResident) },
       programs: { resident: this.programId, core: MPL_CORE_PROGRAM, system: SYSTEM_PROGRAM }, collection: cfg.collection, treasury: cfg.treasury,
       collectionAuthorityPda: this.pdas.collectionAuthority, configPda: this.pdas.config, residentPda: 'page-derived ["resident", asset]',
-      instruction: { tag: 0x50, accounts: ['payer', 'treasury', 'asset', 'collection', 'collectionAuthority', 'resident', 'config', 'coreProgram', 'systemProgram'] },
+      instruction: { tag: 0x50, accounts: ['payer', 'treasury', 'asset', 'collection', 'collectionAuthority', 'resident', 'config', 'coreProgram', 'systemProgram', 'minter'] },
     };
   }
   /** Forward the page's JSON-RPC as is (the page only ever sends the methods it needs); the knobs shape what comes back. */
