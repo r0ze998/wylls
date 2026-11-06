@@ -736,7 +736,7 @@ export class Resident {
       try { r = port.read({ counterparty, worldBell: bell }); } catch (e) { summary.push({ counterparty, status: 'error', error: String(e.message).slice(0, 80) }); continue; }
       const broke = r.status === 'ok' ? (r.facts ?? []).filter(f => f.verified && f.breach) : [];
       summary.push({ counterparty, status: r.status, lines: r.lines.length, epistemic: [...new Set(r.lines.map(l => l.epistemic))],
-        ...(r.facts ? { basis, verifiedBreaches: broke.map(f => f.commitment), acted: broke.length > 0 && actOn, ...(broke.length && !actOn ? { notActedBecause: `basis ${basis}: not chain evidence` } : {}) } : {}) });
+        ...(r.facts ? { basis, verifiedBreaches: broke.map(f => f.commitment), acted: broke.length > 0 && actOn, ...(broke.length && !actOn ? { notActedBecause: `basis ${basis}: not chain evidence`, ...(port.basisWhy?.length ? { basisWhy: port.basisWhy.slice(0, 6) } : {}) } : {}) } : {}) });
       if (r.status !== 'ok') continue;
       if (broke.length && actOn) breaches.set(counterparty, { basis, commitments: broke.map(f => ({ commitment: f.commitment, state: f.state, due_bell: f.due_bell, sources: f.sources.slice(0, 4) })) });
       for (const l of r.lines.slice(0, 3)) {

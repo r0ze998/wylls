@@ -18,7 +18,7 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { small, run } from './helpers.mjs';
-import { ws12CanonicalEvidence, basisOf } from '../resident/ports/ws12-canonical.mjs';
+import { ws12CanonicalEvidence, basisOf, basisCheck } from '../resident/ports/ws12-canonical.mjs';
 import { seasonClock, MOCK_CLOCK } from '../resident/frame.mjs';
 import { decisionsOf } from '../demo/report.mjs';
 
@@ -65,13 +65,25 @@ test('baseline: without workstream 12, Ren accepts Kou\'s request', async () => 
   assert.deepEqual(r.held, []);
 });
 
-test('basis: chain only when every part is chain with a source; any fixture makes it fixture', () => {
+test('basis: chain only with every part chain and sourced and a finalized attestation; cross_checked counts as neither finality nor completeness', () => {
+  const W = { cluster: 'c', world_id: 'P/S' };
   const chain = { kind: 'chain', source: 'rpc getAccountInfo (finalized)' };
-  assert.equal(basisOf({ world: chain, clock: chain, finality: chain, identity: chain, records: chain }), 'chain');
+  const fin = { ...chain, commitment: 'finalized', slot: 900, world_id: 'P/S' };
+  const all = { world: chain, clock: chain, finality: fin, identity: chain, records: chain };
+  assert.deepEqual(basisCheck(all, { world: W }), { basis: 'chain', why: [] });
   assert.equal(basisOf({ ...ALL_FIXTURE }), 'fixture');
-  assert.equal(basisOf({ world: chain, clock: chain, finality: FIXTURE, identity: chain, records: chain }), 'fixture');
-  assert.equal(basisOf({ world: chain, clock: chain, finality: { kind: 'chain' }, identity: chain, records: chain }), 'unstated', 'a chain part needs its source');
+  assert.equal(basisOf({ ...all, finality: FIXTURE }), 'fixture');
+  assert.equal(basisOf({ ...all, finality: chain }, { world: W }), 'unstated', 'chain finality without commitment/slot/world_id');
+  assert.equal(basisOf({ ...all, finality: { ...fin, world_id: 'P/OTHER' } }, { world: W }), 'unstated');
+  assert.equal(basisOf({ ...all, world: { kind: 'chain' } }), 'unstated', 'a chain part needs its source');
+  assert.equal(basisOf({ ...all, records: { kind: 'integration-output', source: 'runexec demo' } }, { world: W }), 'integration-output');
   assert.equal(basisOf(null), 'unstated');
+  // workstream 19's cross_checked, offered as finality or as completeness of the history: refused, and said why
+  const x = basisCheck({ ...all, finality: { kind: 'chain', source: 'ws19', cross_checked: true } }, { world: W });
+  assert.equal(x.basis, 'unstated');
+  assert.ok(x.why.includes('finality: cross_checked is not finality'));
+  const y = basisCheck({ ...all, records: { kind: 'chain', source: 'ws19', cross_checked: true } }, { world: W });
+  assert.ok(y.why.includes('records: cross_checked is not completeness'));
 });
 
 test('success (fixture inputs, test switch on): world, clock, finality and identity line up; 12 decides not_sent; Ren does not send first', { skip }, async () => {
