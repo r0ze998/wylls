@@ -1,5 +1,7 @@
 # patches: 共有コアへの変更案
 
+> **r9（2026-11-06）。** ④の候補 `d0e96d53` へは、⑳の `45d95e31` を当ててから [0009](0009-verify-v27-join-resident-on-ws04-d0e96d53-after-ws20-45d95e31.patch) を当てる。0009 の SHA-256 は `39da19690fa070c019630e100c9535a2fe21f2d95bd5a3dc9bb3a7a2c4f2a823`、当てた後の tree は `1bec57a040640820c0032549470aab9c9300906c`。正しい JoinResident を検証する（V0 が NFT 版を知り、V27 で命令・記録・Citizen・link・時刻を照合する）。②の正当な命令（知らない版）と偽の命令は V0 で区別する。詳細は [15](../15-verifier-r9.ja.md)。
+
 > **r8（2026-11-06）。** ④の候補 `4c65aaa2`（0004→0005→0007 を適用済み、⑳の RESIDENT_JOINED 入り）へは [0008](0008-verify-v0e-resident-joined-beside-its-join-on-ws04-4c65aaa2.patch) を当てる。SHA-256 は `e71b7892329ccbf44dda028026ce2de4cffd3d7c42b5514782ae08698e5cf98f`。kind 130 は、一致する JoinResident の横にあるときだけ判定される側に数え、それ以外は UNVERIFIABLE とする。詳細は [14](../14-verifier-r7.ja.md) §6。
 
 > **r7（2026-11-06）。** ④の現在版 `claude/gallant-ride-cunptv` @ `8e96f24d` へは **0006 だけ**を当てる（0004＋0005＋r7 の判定を 1 つにしたもの。`ef63544c` にも当たる）。0004・0005 を当て済みなら 0007 を足す。どちらの順でも tree は `d72a025c16a62650920a495f9f1a1a9e756e42a2`。詳細は [14](../14-verifier-r7.ja.md)。
