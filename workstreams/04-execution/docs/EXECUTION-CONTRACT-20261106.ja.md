@@ -87,3 +87,50 @@
 - **結果不明のまま残った行動を、AI 住民・代理はどうするか。** 今は安全側で、確定するまで同じ行動を選ばず待つ（⑬ S5）。結果不明が長く続くと、その住民・代理はその行動をずっと控える。待つ上限（例：1 ゲーム日）を過ぎたら「起きなかったもの」として次の行動に進んでよいか、それとも運営が着地か失敗かを決めるまで止めておくか。
   - 進んでよいとすると、実際には着地していた場合に、同じ行動が二度起きうる（例：同じ荷を二度送る）。
   - 止めておくと、障害の間はその住民・代理が動かない。
+
+## 7. 登録簿の入口（2026-11-06 追加）：③・⑤・⑬ が使う方法
+
+登録簿（`src/acts.rs`）は④の Run の保存先（SQLite）にある。外のプロセスからは、④の既存の操作用コマンド `runexec` の `act` サブコマンドで使う。網を待ち受けるサーバーは足していない（新しい認証や公開の口は増えない）。JS からは `clients/acts.mjs` が同じコマンドを呼ぶ（shell を使わず、引数は配列）。
+
+### 7.1 コマンド（1 行の JSON を標準出力に出す）
+
+```text
+runexec act register --db <runs.db> --agent <agentId> --key <idempotencyKey> --source ai|mcp|browser|resident [--run <呼び出し側の runId>] [--slot <n>]
+runexec act status   --db <runs.db> (--run4 <run4Id> | --agent <agentId> --key <key>) [--gateway <127.0.0.1 の port> [--bridge]]
+runexec act list     --db <runs.db> --run <呼び出し側の runId>
+```
+
+| 終了コード | `error` | 意味 |
+|---|---|---|
+| 0 | — | 受領書（§3.3）。`state`・`next`・`newAttemptAllowed` を含む |
+| 2 | `BadRequest` | 引数の誤り（source が許可外、port が数でない等） |
+| 3 | `NoRecord` | その行動は登録されていない（状態ではない。⑬ の `null`） |
+| 4 | `Conflict` | 同じキーが別の source・runId で登録済み（混ぜない） |
+| 1 | `StoreError` | 保存先を開けない等 |
+
+- `status --gateway <port>`：代理の財布の `GET /f/agent/fate?id=&key=` を 127.0.0.1 で一度読み、記録して答える。読めなければ `unqueryable`（分かっていた署名・寿命は残す）。`--gateway` が無ければ保存済みの答えを返し、何も読まない。**どの場合も送信しない。**
+- 応答は Node の chunked 形式でも読める（財布の応答はこの形。今回見つけて直した。それまでの④の読み取りは本物の財布では常に失敗していた）。
+
+### 7.2 次にしてよいこと（`next`）
+
+| state | `next` | `newAttemptAllowed` | してよいこと |
+|---|---|---|---|
+| `registered` | `wait` | false | 送信の後に `status` を読む |
+| `pending` | `wait` | false | 待つ |
+| `unknown`（結果不明） | `hold` | false | **再送しない**。着地していたかもしれない。確定を待つか運営に回す |
+| `unqueryable`（照会不能） | `read-again` | false | 後で読み直す。行動については何も言っていない |
+| `landed`・`failed` | `done` | false | 終わり |
+| `expired`・`not-sent` | `new-attempt` | true | 新しいキーでの新しい試行だけ（同じキーは財布の replay） |
+
+### 7.3 各担当の使い方
+
+- **⑤（自動運転、`source: ai`）**：行動ごとに `register({agentId, key: 'ai:<requestId>', source: 'ai', runId})` → 財布へ `POST /f/agent/action`（同じ idempotencyKey）→ `status(…)`。RunReceipt の `from4` の欄は `toP05Act(receipt)`（`run4Id`・`signedAt`・`cancel.until`）。新しい試行は `mayStartNewAttempt(receipt)` が true のときだけ。
+- **③（MCP、`source: mcp`）**：同じ。MCP の `agent_act` の結果の `requestId` をキーに `register` し、`agent_status` 相当の照会は `status` で返す。
+- **⑬（住民、`source: resident`）**：実行ポートの `status(key)` を `statusFor13(client, agentId, key)` にする。登録されていないキーは `null`、読めないときは例外（R5）、`expired`・`not-sent` は `cancelled`、結果不明は `unknown`（R4、再送の理由にしない）。保持は無期限（`retentionBells: null`、R1・R2）。
+- 共通：`bin` は `workstreams/04-execution` で `cargo build --release --bin runexec` したもの、`db` は④の実行器と同じ保存先、`gatewayPort` は財布（中継）の 127.0.0.1 の port。
+
+### 7.4 試験（鍵を作らない・導出しない・署名しない）
+
+- `tests/act_cli.rs`（5 件）：本物の `runexec` を別のプロセスとして起動し、台本の `GET /f/agent/fate` に向けて、登録の冪等・拒否のコード・七つの state と `next`・読めない財布・確定後の食い違いを確かめる。
+- `clients/acts.test.mjs`（4 件、`RUNEXEC_BIN` を指定したときに実行）：JS の client を本物のバイナリと Node の台本サーバー（chunked で答える）に向けて、⑤・⑬ の対応づけまで確かめる。
+- `src/gateway.rs` の単体試験（chunked の解読）。
