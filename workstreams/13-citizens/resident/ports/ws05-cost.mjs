@@ -41,8 +41,11 @@ export function ws05LedgerCost({ book, ledger, provider, model }) {
       log.push(['settle', callKey, measured]);
     },
     restarted(callKey, phase) {
-      if (phase === 'calling') { ledger.undecided(callKey, 'restart while calling'); log.push(['undecided', callKey, 'restart']); }
-      else { ledger.release(callKey, 'restart before calling'); log.push(['release', callKey, 'restart']); }
+      if (phase === 'calling') { ledger.undecided(callKey, 'restart while calling'); log.push(['undecided', callKey, 'restart']); return; }
+      // 'reserving': the stop came before or after 5 reserved it; release is a no-op when 5 never did (or 5's own
+      // recovery already released it).
+      const r = ledger.release(callKey, 'restart before calling');
+      log.push(['release', callKey, r ? 'restart' : 'nothing reserved']);
     },
   });
 }
