@@ -83,7 +83,7 @@
 | 24 Grant | `gr` | `PSF2GRNT` | ② | `06-EVENTS.ja.md` §3：AccountKind 23 → **24** |
 | 25 CapacityPool、26 CapacityJob | `cp`、`cj` | 未定 | ⑨ | 要否・magic **未確認** |
 | 27 ExtRegistration、28 ExtGrant、29 ExtInstance、30 ExtBuffer | `xr`、`xg`、`xi`、`xb` | 未定 | ⑪ | 要否・magic **未確認** |
-| 31–32（予約） | — | `PSFNR001`（binding）、`PSFNP002`（policy） | ⑳ | AccountKind の要否**未確認** |
+| 31 resident policy、32 resident link（予約） | — | `PSFNP002`（policy）、`PSFNR001`（link） | ⑳ | 予約だけ。今は独自の 8 B magic で v2 の header を使わないので、読み手の `kind_by_magic` は飛ばす。header に移すのは layout の変更で、別に決める |
 
 seed tag と magic は、基準・各担当の間で重なりなし。
 
@@ -99,7 +99,7 @@ seed tag と magic は、基準・各担当の間で重なりなし。
 | 100–104 | ⑩ CustodyCapacity … LotNotEmpty | 5 | patch 0002 の `v2/error.rs`・`errors.json`・生成した JS：94–98 を **+6** |
 | 110–149 | ⑨（予約。カーネルの 1–30 を program の番号に写す。件数**未確認**） | ≤40 | 件数を④へ |
 | 150–169 | ⑪（予約、**未確認**） | ≤20 | — |
-| 170–179 | ⑳（予約、**未確認**） | ≤10 | — |
+| 170–175（176–179 予備） | ⑳ NotSigned、Asset、Resident、Unguarded、StaleGeneration、NotCurrentAuthority（`resident_auth::Refusal` の6つ。今はすべて InvalidAccountData に潰れている） | 6 | ⑳が配線する（2026-11-06 の申し出、仮） |
 | 200–213 | ② | 14 | なし（②の案のまま） |
 
 prize の program（`PrizeError`、0x100 から）：基準は 0x100–0x110 と 0x112。⑧の CeilingPastTally＝0x111 は空きに入っていて重ならない。次は 0x113。
