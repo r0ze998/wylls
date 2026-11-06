@@ -195,10 +195,10 @@ test("a stop in the middle of a model call, without 5's own recovery: the reside
 });
 
 // ---- together with workstreams 4 and 12 (each only when its tree is given) ------------------------------------------
-const ROOT12 = process.env.WS12_EA0636EB;
+const ROOT12 = process.env.WS12_ROOT ?? process.env.WS12_EA0636EB;
 const CLIENT4 = process.env.WS04_ACTS_CLIENT, BIN4 = process.env.RUNEXEC_BIN;
 
-test("5's ledger and 12's mirror together, through the demo, stopped in the middle of a model call", { skip: skip || (ROOT12 ? false : 'set WS12_EA0636EB'), timeout: 120_000 }, async () => {
+test("5's ledger and 12's mirror together, through the demo, stopped in the middle of a model call", { skip: skip || (ROOT12 ? false : 'set WS12_ROOT'), timeout: 120_000 }, async () => {
   const { createMemory } = await import(pathToFileURL(path.join(ROOT12, 'workstreams/12-memory/src/index.mjs')).href);
   const { mirrorMemoryPort } = await import(pathToFileURL(path.join(ROOT12, 'workstreams/12-memory/adapters/ws13-resident.mjs')).href);
   const out = tmp();

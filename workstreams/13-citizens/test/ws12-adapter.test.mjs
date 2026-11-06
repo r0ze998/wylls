@@ -7,10 +7,17 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { small, run } from './helpers.mjs';
 import { ws12PublicEvidence } from '../resident/ports/ws12-public-evidence.mjs';
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { NEEDS_KEYS } from '../world/identity.mjs';
-const NEEDS_FIXTURE = NEEDS_KEYS ? 'keyless run: workstream 12\'s fixture derives keys from fixed seeds when imported' : false;
-// Workstream 12's fixture derives test keys from fixed seeds when imported: not in keyless runs.
-const { newMemory, promise, coverage, PUBLIC } = NEEDS_KEYS ? {} : await import('../../12-memory/fixtures/scenario.mjs');
+// Workstream 12's fixture. Up to ea0636eb it derived its test keys from fixed seeds when imported, so keyless runs
+// skip it. From 1583026f the keys are lazy (derived only when a signed allocation is verified) and newMemory,
+// promise and coverage sign nothing: with WS12_ROOT pointing at such a tree, these tests run keyless (the guard
+// would fail them, not let them derive, if a key were touched).
+const ROOT12 = process.env.WS12_ROOT ?? null;
+const FIXTURE = ROOT12 ? pathToFileURL(path.join(ROOT12, 'workstreams/12-memory/fixtures/scenario.mjs')).href : '../../12-memory/fixtures/scenario.mjs';
+const NEEDS_FIXTURE = NEEDS_KEYS && !ROOT12 ? 'keyless run: this tree\'s workstream 12 fixture derives keys from fixed seeds when imported (set WS12_ROOT to 12 at 1583026f or later)' : false;
+const { newMemory, promise, coverage, PUBLIC } = NEEDS_FIXTURE ? {} : await import(FIXTURE);
 import { decisionsOf } from '../demo/report.mjs';
 
 /** Workstream 12's memory, read-only: any method other than knowledge() throws (and is counted). */

@@ -5,8 +5,8 @@
 //     fact, a commitment or reputation; what the residents do is the same as without the mirror.
 //   - the canonical evidence port (adapters/canonical.mjs ws12EvidencePort) through ws12-canonical.mjs: world, clock,
 //     identity and finality as 12 takes them from 8's herald (a synthetic /h/season and /h/me: no chain, no key).
-// Set WS12_EA0636EB to the root of a tree holding ea0636eb's workstreams/12-memory (and permutation-gateway beside
-// it); skipped otherwise. The tree's own tests are not run here (its fixture derives keys from fixed seeds).
+// Set WS12_ROOT (or WS12_EA0636EB) to the root of a tree holding workstream 12's workstreams/12-memory, ea0636eb or
+// later (and permutation-gateway beside it); skipped otherwise. The tree's own tests are not run here (its fixture derives keys from fixed seeds).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
@@ -19,8 +19,8 @@ import { ws12CanonicalEvidence } from '../resident/ports/ws12-canonical.mjs';
 import { seasonClock } from '../resident/frame.mjs';
 import { decisionsOf } from '../demo/report.mjs';
 
-const ROOT = process.env.WS12_EA0636EB;
-const skip = ROOT ? false : 'set WS12_EA0636EB to a tree with workstream 12 at ea0636eb';
+const ROOT = process.env.WS12_ROOT ?? process.env.WS12_EA0636EB;
+const skip = ROOT ? false : 'set WS12_ROOT to a tree with workstream 12 (ea0636eb or later)';
 const m12 = async rel => import(pathToFileURL(path.join(ROOT, 'workstreams/12-memory', rel)).href);
 
 const norm = s => s.replace(/[0-9a-f]{16}/g, 'ID').replace(/- ターン \d+: restart.*\n/g, '');
