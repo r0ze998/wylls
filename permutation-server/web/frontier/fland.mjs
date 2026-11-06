@@ -142,13 +142,16 @@ export function freeByWedge(overviews) {
  * provinces', not its wedge's. A placement the page cannot read (placement 1 without its 32-byte seed, or one the
  * page does not know) gives null: the count is unavailable, never zero and never the wedge's. The same upper bound
  * as `freeByWedge`; `freeByWedge` itself stays the program's per-wedge accounting (the §5.9 overflow rule).
+ * `ringsOpen`: the rings a first village may be placed in (home.mjs homeRingsOpen: the open rings, no further than
+ * the heartland on a v2 Season); rings from it on are left out of the count, under either rule. Unbounded by default.
  */
-export function freeByNation(overviews, place = undefined) {
-  if (place == null || Number(place.placement) === 0) return freeByWedge(overviews);
+export function freeByNation(overviews, place = undefined, { ringsOpen = Infinity } = {}) {
+  const within = ov => ov?.provinces && ov.ring >= FIRST_TICKET_RING && ov.ring < ringsOpen;
+  if (place == null || Number(place.placement) === 0) return freeByWedge(new Map([...overviews].filter(([, ov]) => within(ov))));
   if (Number(place.placement) !== 1 || !place.genesisSeed || typeof place.genesisSeed === 'string' || place.genesisSeed.length !== 32) return null;
   const out = [0, 0, 0, 0, 0, 0];
   for (const ov of overviews.values()) {
-    if (!ov?.provinces || ov.ring < FIRST_TICKET_RING) continue;
+    if (!within(ov)) continue;
     for (const pr of ov.provinces) {
       const f = homeNation(pr.p, pr.q, place);
       if (f === null) continue;

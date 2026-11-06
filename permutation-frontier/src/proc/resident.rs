@@ -200,11 +200,13 @@ pub(crate) fn act(p: &Pubkey, accounts: &[AccountInfo], generation: u32, inner: 
 /// a zero `WALLET`, no Frontier session, and its resident fields
 /// (`frontier_abi::resident_citizen::mark`).
 ///
-/// Not yet: the `RESIDENT_JOINED` record (kind 90, allocated; it needs the
-/// readers in the same change) and the JoinShard count (counting without the
-/// record would break the shard's record chain for wallet players). The
-/// shard index is derived from the asset as the wallet Join derives it from
-/// the wallet.
+/// Logs `RESIDENT_JOINED` (kind 130, `frontier_abi::v2::log::CqKind`; 90 is
+/// S1's VAULT_BUILT), keyed by the resident id with no links: the NFT
+/// Citizen's start for the keeper, herald, verifier (V27) and fclient. Not
+/// yet: the JoinShard count (`members += 1`; counting here would put a record
+/// the wallet players' shard chain does not expect). The shard index is
+/// derived from the asset as the wallet Join derives it from the wallet, and
+/// PlaceHome reads it back from the Citizen.
 #[cfg(feature = "nft-experimental")]
 pub(crate) fn join(p: &Pubkey, accounts: &[AccountInfo], generation: u32, faction: u8) -> R<()> {
     use crate::layout::{citizen as C, frontier as FR, init_header, join_shard as JS};

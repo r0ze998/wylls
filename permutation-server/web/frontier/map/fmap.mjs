@@ -2390,7 +2390,9 @@ export class FrontierMap {
     const waitSay = waiting && !src.wait?.said ? waitLine(src.wait ?? null) : null;
     // (with no request out, or one refused: the surveyors' marks, a station mark on every free site of the region,
     // where a village may be placed; with a request out its own candidate sites are what is looked at)
-    const waitSites = homeAt && !survey.candidates?.length ? wedgeSites(survey.faction, ringsOpen, recs, terrainOf, place) : null;
+    // (a mark says a village may be placed: only in the rings PlaceHome allows, `homeRings` of the source (home.mjs
+    // homeRingsOpen), the open rings no further than the heartland; the region itself, the nation's land, stays whole)
+    const waitSites = homeAt && !survey.candidates?.length ? wedgeSites(survey.faction, src.homeRings ?? ringsOpen, recs, terrainOf, place) : null;
     // the nation choice (UX brief §7.2): the home wedge of the nation that is looked at is lit on the chart
     const looked = !waiting && limited && Number.isInteger(src.focusNation) ? src.focusNation : null;
     // from afar: the viewer's land in its colour, and on the world chart its village as a gold beacon with its name

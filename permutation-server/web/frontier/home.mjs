@@ -33,6 +33,20 @@ export function seasonPlace(season) {
 }
 export const grantId = h => `${h.p},${h.q},${h.site},${h.gen}`;
 
+/**
+ * The rings a first village may be placed in, as a count like `ringsOpen` (rings 0 .. n−1): the season's open
+ * rings, and on a v2 Season (a conquest block with `heartlandMaxRing`) no further than the heartland, since PlaceHome
+ * refuses a ring above `heartland_max_ring` (ReservedSite) whether or not it is open. A map that has grown past the
+ * heartland (OpenRing, ExtendFrontier) opens land for marches and outposts, not for first homes: every reader of the
+ * home candidates (the planner, the tap on a tile, the nation choice's count, the wait view's site marks) takes this
+ * count, so none offers a site the program would refuse. A season without the block (M1 tickets) keeps its open rings.
+ */
+export function homeRingsOpen(season, ringsOpen) {
+  const open = Number.isInteger(ringsOpen) ? Math.max(0, ringsOpen) : 0;
+  const hmr = Number(season?.conquestParams?.heartlandMaxRing ?? season?.heartlandMaxRing);
+  return Number.isInteger(hmr) && hmr >= 0 ? Math.min(open, hmr + 1) : open;
+}
+
 /** Unsettled legacy tickets retain their claim on a whole Province. */
 /** `place` = {placement, heartlandMaxRing, genesisSeed} (fgeo `homeNation`); absent: the wedge rule. */
 export function homeSites(province, { faction = null, nowBell = 0, ringsOpen = Infinity, place = undefined } = {}) {

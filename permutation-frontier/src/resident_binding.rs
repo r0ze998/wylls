@@ -37,8 +37,10 @@ fn read_policy(
 }
 
 /// Create the global write-once policy with the program's actual LoaderV3
-/// upgrade authority. The payer is that signer. No instruction dispatches to
-/// this helper yet. Immutable programs (no upgrade authority) are refused.
+/// upgrade authority. The payer is that signer. `CreateResidentPolicy` (tag
+/// 0xE0, `nft_registration::dispatch`, feature `nft-experimental`) is the
+/// one instruction that reaches it. Immutable programs (no upgrade
+/// authority) are refused.
 pub fn create_policy<'a>(
     program: &Pubkey,
     authority: &AccountInfo<'a>,

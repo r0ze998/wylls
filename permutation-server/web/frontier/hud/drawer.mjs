@@ -72,7 +72,8 @@ export function drawerOf(FS) {
 export function joinKind(FS) {
   const stage = FS.land?.stage ?? 'none';
   if (stage === 'none') return 'nation';
-  if (!FS.wallet || !FS.session || FS.sessionProblem) return 'join';
+  // (⑳: an NFT Citizen has no in-game key to mend, its owner's wallet signs: it waits for its village like any other)
+  if (!FS.wallet || (!FS.resident && (!FS.session || FS.sessionProblem))) return 'join';
   return ['joined', 'ticket', 'refugee'].includes(stage) ? 'wait' : 'join';
 }
 

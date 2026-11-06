@@ -161,7 +161,7 @@ import { tileHex, ringProvinces, homeNation } from './fgeo.mjs';
 import { project, RADIUS } from '../map.mjs';
 import { identityOf, displayName, withProfile, tagKey } from './people/identity.mjs';
 import { lifeAt, lordLine } from './people/life.mjs';
-import { instantHomeEnabled, homeSites, seasonPlace, sameHome } from './home.mjs';
+import { instantHomeEnabled, homeSites, homeRingsOpen, seasonPlace, sameHome } from './home.mjs';
 
 const $ = id => globalThis.document?.getElementById(id);
 const setText = (id, text) => { const el = $(id); if (el && el.textContent !== text) el.textContent = text; };
@@ -3571,6 +3571,9 @@ export async function boot() {
           // where the season's map ends (map/world.mjs: its border is drawn once it is near the open land)
           rMax: FS.world?.rMax ?? null,
           rMaxCeiling: FS.world?.rMaxCeiling ?? null,
+          // the rings a first village may be placed in (home.mjs homeRingsOpen: the open rings, no further than the
+          // heartland): the wait view's site marks, 「村を置ける場所」, stop there (map/waitview.mjs wedgeSites)
+          homeRings: homeRingsOpen(FS.season, FS.record?.rings?.length ?? 1),
           // what this viewer has surveyed (map/survey.mjs): the one rule for the map, the minimap, tips, the inspector and search
           survey: surveyNow(),
           // art mode: the decoded Province (holdings' tiers, hosts on tiles, camp), loaded on demand
@@ -3660,7 +3663,8 @@ export async function boot() {
         // The inspector reads the province envelope (loaded once, on demand).
         const chooseHome = () => {
           if (FS.selected !== hit || !instantHomeEnabled(FS.season) || FS.holdings?.length || FS.homeChoice?.busy || !Number.isInteger(hit.idx)) return;
-          const candidate = homeSites(FS.provinces.get(`${hit.p},${hit.q}`)?.province, { faction: FS.citizen?.faction ?? null, nowBell: FS.nowBell, ringsOpen: FS.record?.rings?.length ?? 0, place: seasonPlace(FS.season) }).find(s => s.tile === hit.idx);
+          // (a tile past the heartland is no home candidate, however open its ring: PlaceHome refuses it, home.mjs homeRingsOpen)
+          const candidate = homeSites(FS.provinces.get(`${hit.p},${hit.q}`)?.province, { faction: FS.citizen?.faction ?? null, nowBell: FS.nowBell, ringsOpen: homeRingsOpen(FS.season, FS.record?.rings?.length ?? 0), place: seasonPlace(FS.season) }).find(s => s.tile === hit.idx);
           if (!candidate) return;
           const choice = FS.homeChoice;
           if (!choice) return;

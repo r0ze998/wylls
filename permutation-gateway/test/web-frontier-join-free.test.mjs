@@ -107,7 +107,7 @@ test('the nation choice shows the nation\'s count, and says the count is not kno
 
 test('join.mjs reads the nation\'s count through the placement; the program\'s per-wedge accounting stays where it is', () => {
   const WEB = new URL('../../permutation-server/web/frontier/', import.meta.url), src = f => readFileSync(new URL(f, WEB), 'utf8');
-  assert.match(src('screens/join.mjs'), /freeByNation\(FS\.overviews \?\? new Map\(\), seasonPlace\(FS\.season\)\)/);
+  assert.match(src('screens/join.mjs'), /freeByNation\(FS\.overviews \?\? new Map\(\), seasonPlace\(FS\.season\), \{ ringsOpen: Number\.isInteger\(open\) \? homeRingsOpen\(FS\.season, open\) : Infinity \}\)/);
   assert.doesNotMatch(src('screens/join.mjs'), /freeByWedge|homeWedge/);
   assert.match(src('onboarding.mjs'), /const free = freeByWedge\(overviews\);/, 'the adjacent-wedge offer (§5.9) still reads the wedge');
   assert.match(src('fland.mjs'), /export function freeByWedge\(overviews\) \{\n  const out = \[0, 0, 0, 0, 0, 0\];\n  for \(const ov of overviews\.values\(\)\) \{\n    if \(!ov\?\.provinces \|\| ov\.ring < FIRST_TICKET_RING\) continue;\n    for \(const pr of ov\.provinces\) \{\n      const w = wedgeOf\(pr\.p, pr\.q\);/, 'freeByWedge unchanged');
