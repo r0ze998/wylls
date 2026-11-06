@@ -248,6 +248,7 @@ pub fn run(input: &Input) -> Report {
     ran.push("V26:custody-guard");
     if v26_custody::custody_season(&cx) {
         ran.push("V26:custody-state");
+        ran.push("V26:custody-history");
     }
     ran.push("V10");
     counts(&mut cx);

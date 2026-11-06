@@ -162,6 +162,7 @@ pub const FAIL_CODES: &[&str] = &[
     CUSTODY_LOT_BROKEN,
     CUSTODY_OVER_CAPACITY,
     CUSTODY_VAULT_COUNTS,
+    CUSTODY_HISTORY_BROKEN,
 ];
 
 /// Warning codes (PASS with a warning).
@@ -195,3 +196,7 @@ pub const CUSTODY_VAULT_COUNTS: &str = "CustodyVaultCounts";
 /// V26 state audit: a lot a rule that is not decided applies to (a
 /// forfeited lot; an open lot in a seized vault). UNVERIFIABLE, not FAIL.
 pub const CUSTODY_RULE_UNDECIDED: &str = "CustodyRuleUndecided";
+/// V26 history (custody seasons): a Lot account's recorded change breaks
+/// what every custody step keeps (identity, the running totals that only
+/// grow, the state's order, an order's terms and remainder).
+pub const CUSTODY_HISTORY_BROKEN: &str = "CustodyHistoryBroken";

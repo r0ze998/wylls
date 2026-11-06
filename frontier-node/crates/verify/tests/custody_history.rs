@@ -1,0 +1,365 @@
+//! V26's history check (custody seasons): a Lot account's recorded
+//! changes, compared pairwise. What every custody step keeps is judged; a
+//! change that breaks it is a FAIL at the transaction that recorded it.
+//! The season stays not-PASS (no replay of the instructions themselves).
+
+mod common;
+
+use common::*;
+use permutation_rules::fixed::MILLI;
+use permutation_rules::frontier::custody as K;
+use permutation_rules::frontier::holding::Resource;
+use verify_core::checks::v26_custody::lot_transition_findings;
+use verify_core::codes::*;
+use verify_core::{Input, Verdict};
+
+const OWNER: [u8; 32] = [0xB2; 32];
+const KEEPER: [u8; 32] = [0x4B; 32];
+const GRANTEE: [u8; 32] = [0xC3; 32];
+const KEY: [u8; 32] = [0xD1; 32];
+
+fn act(k: [u8; 32]) -> K::Actor {
+    K::Actor {
+        citizen: k,
+        tag: k[0] as u64,
+        by_session: false,
+    }
+}
+
+fn view() -> K::VaultView {
+    K::VaultView {
+        p: 3,
+        q: -2,
+        tile: 7,
+        gen: 1,
+        live: true,
+        owner: KEEPER,
+        owner_tag: 0x4B,
+        stores: [0; 8],
+        cap: 100 * MILLI,
+        quota: [0; 8],
+        lots: 0,
+    }
+}
+
+fn bytes(l: &K::Lot) -> Vec<u8> {
+    let mut d = vec![0u8; K::layout::lot::SIZE];
+    l.encode(&mut d).unwrap();
+    d
+}
+
+/// A lot's states as the kernel writes them: opened, filled, an order,
+/// a use, a return of unused goods, a caravan expected and settled.
+fn kernel_states() -> Vec<K::Lot> {
+    let mut v = view();
+    let mut l = K::open(
+        &mut v,
+        &act(KEEPER),
+        (OWNER, 0xB2),
+        Resource::Ore as u8,
+        40 * MILLI,
+        10,
+        KEEPER,
+    )
+    .unwrap();
+    let mut out = vec![l];
+    K::begin_inbound(&v, &mut l, (0x77, 1), 30 * MILLI).unwrap();
+    out.push(l);
+    K::finish_inbound(Some(&v), &mut l, (0x77, 1), 30 * MILLI).unwrap();
+    out.push(l);
+    let spec = K::OrderSpec {
+        kind: K::ORDER_USE,
+        grantee: GRANTEE,
+        qty: 20 * MILLI,
+        expires_bell: 500,
+        dst: K::PlaceRef::default(),
+        purpose: 0x0901,
+    };
+    K::set_order(&v, &mut l, &act(OWNER), 0, 0, &spec, 20).unwrap();
+    out.push(l);
+    K::consume(&v, &mut l, &act(GRANTEE), 0, 0, 15 * MILLI, 0x0901, 30).unwrap();
+    out.push(l);
+    K::return_unused(&v, &mut l, 6 * MILLI).unwrap();
+    out.push(l);
+    K::spend_ship(
+        &v,
+        &mut l,
+        &act(OWNER),
+        K::By::Owner,
+        5 * MILLI,
+        K::ShipTo::OwnPlace(v.place()),
+        40,
+    )
+    .unwrap();
+    out.push(l);
+    out
+}
+
+/// A custody season whose landed transactions record `states` of one lot,
+/// in order (one state per transaction). Returns the input and the
+/// transactions' signatures.
+fn recorded(states: &[Vec<u8>]) -> (Input, Vec<String>) {
+    let mut inp = march();
+    inp.cfg.ruleset_hash = frontier_abi::v2::presets::RULESET_HASH_V4;
+    let program = inp.cfg.program;
+    let landed: Vec<usize> = inp
+        .txs
+        .iter()
+        .enumerate()
+        .filter(|(_, t)| t.err.is_none())
+        .map(|(i, _)| i)
+        .collect();
+    assert!(landed.len() >= states.len());
+    let mut sigs = vec![];
+    for (d, t) in states.iter().zip(landed) {
+        inp.txs[t].post.push((
+            fclient::Address::new_from_array(KEY),
+            Some(fclient::ports::Account {
+                lamports: 1,
+                data: d.clone(),
+                owner: program,
+                executable: false,
+            }),
+        ));
+        sigs.push(inp.txs[t].signature.to_string());
+    }
+    (inp, sigs)
+}
+
+fn history_fails(r: &verify_core::Report) -> Vec<(String, String)> {
+    r.findings
+        .iter()
+        .filter(|f| f.check == "V26" && f.code == CUSTODY_HISTORY_BROKEN)
+        .map(|f| (f.signature.clone(), f.detail.clone()))
+        .collect()
+}
+
+#[test]
+fn the_kernels_own_history_passes_and_the_season_is_still_not_a_pass() {
+    let states: Vec<Vec<u8>> = kernel_states().iter().map(bytes).collect();
+    for w in states.windows(2) {
+        assert!(
+            lot_transition_findings(&w[0], &w[1]).is_empty(),
+            "{:?}",
+            lot_transition_findings(&w[0], &w[1])
+        );
+    }
+    let (inp, _) = recorded(&states);
+    let r = verify_core::verify(&inp);
+    assert!(history_fails(&r).is_empty(), "{}", show(&r));
+    assert!(r.checks_run.contains(&"V26:custody-history"));
+    assert_ne!(r.verdict, Verdict::Pass, "{}", show(&r));
+    assert!(r.findings.iter().any(|f| f.code == CUSTODY_UNVERIFIED));
+}
+
+#[test]
+fn a_change_no_custody_step_makes_fails_at_its_transaction() {
+    let s = kernel_states();
+    let base = s[4]; // after the use: an order set, goods consumed
+    type Forge = fn(&mut K::Lot);
+    let cases: [(&str, Forge); 8] = [
+        ("IN_TOTAL went down", |l| {
+            l.in_total -= MILLI;
+            l.held -= MILLI;
+        }),
+        ("OUT_TOTAL went down", |l| {
+            l.out_total -= MILLI;
+            l.held += MILLI;
+        }),
+        ("NONCE went down", |l| l.nonce = 0),
+        ("the owner changed", |l| l.owner = [0xEE; 32]),
+        ("the vault generation changed", |l| l.vault_gen = 2),
+        ("a forfeited lot reopened", |l| l.state = K::LOT_OPEN),
+        ("an order changed its grantee", |l| {
+            l.orders[0].grantee = [0x77; 32]
+        }),
+        ("an order grew", |l| {
+            l.orders[0].qty_left += MILLI;
+        }),
+    ];
+    for (name, forge) in cases {
+        let mut prev = base;
+        if name == "a forfeited lot reopened" {
+            prev.state = K::LOT_FORFEITED;
+        }
+        let mut cur = base;
+        forge(&mut cur);
+        let (inp, sigs) = recorded(&[bytes(&prev), bytes(&cur)]);
+        let r = verify_core::verify(&inp);
+        let f = history_fails(&r);
+        assert!(
+            f.iter().any(|(sig, _)| *sig == sigs[1]),
+            "{name}: {}",
+            show(&r)
+        );
+        assert!(r.fails_with(CUSTODY_HISTORY_BROKEN), "{name}");
+    }
+}
+
+#[test]
+fn an_expected_caravan_keeps_its_quantity() {
+    let s = kernel_states();
+    let prev = s[1]; // a caravan expected
+    let mut cur = prev;
+    cur.inbound[0].qty += MILLI;
+    assert!(!lot_transition_findings(&bytes(&prev), &bytes(&cur)).is_empty());
+}
+
+#[test]
+fn a_closed_lot_opened_again_is_a_new_lot() {
+    let mut v = view();
+    let mut l = K::open(
+        &mut v,
+        &act(KEEPER),
+        (OWNER, 0xB2),
+        Resource::Ore as u8,
+        40 * MILLI,
+        10,
+        KEEPER,
+    )
+    .unwrap();
+    K::begin_inbound(&v, &mut l, (1, 1), 5 * MILLI).unwrap();
+    K::finish_inbound(Some(&v), &mut l, (1, 1), 5 * MILLI).unwrap();
+    K::spend_ship(
+        &v,
+        &mut l,
+        &act(OWNER),
+        K::By::Owner,
+        5 * MILLI,
+        K::ShipTo::OwnPlace(v.place()),
+        11,
+    )
+    .unwrap();
+    K::close(Some(&mut v), &mut l, Some(&act(OWNER)), 12).unwrap();
+    let fresh = K::open(
+        &mut v,
+        &act(KEEPER),
+        (OWNER, 0xB2),
+        Resource::Ore as u8,
+        40 * MILLI,
+        13,
+        KEEPER,
+    )
+    .unwrap();
+    assert!(lot_transition_findings(&bytes(&l), &bytes(&fresh)).is_empty());
+}
+
+/// Random kernel runs, every consecutive pair of states: never a finding
+/// (the check must not fail what the program writes).
+#[test]
+fn random_kernel_histories_never_fail() {
+    let mut x: u64 = 0x9E37_79B9_7F4A_7C15;
+    let mut rnd = |n: u64| {
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        x % n
+    };
+    let mut pairs = 0u64;
+    for _ in 0..300 {
+        let mut v = view();
+        let mut l = K::open(
+            &mut v,
+            &act(KEEPER),
+            (OWNER, 0xB2),
+            Resource::Ore as u8,
+            40 * MILLI,
+            0,
+            KEEPER,
+        )
+        .unwrap();
+        let (mut bell, mut seq) = (1u32, 1u32);
+        for _ in 0..60 {
+            let prev = bytes(&l);
+            bell += rnd(30) as u32;
+            let q = (1 + rnd(8) as i64) * MILLI;
+            let _ = match rnd(8) {
+                0 => {
+                    seq += 1;
+                    K::begin_inbound(&v, &mut l, (0x70, seq), q)
+                }
+                1 => match l
+                    .inbound
+                    .iter()
+                    .find(|i| i.live)
+                    .map(|i| (i.caravan_tag, i.seq, i.qty))
+                {
+                    Some((t, s, sent)) => K::finish_inbound(
+                        Some(&v),
+                        &mut l,
+                        (t, s),
+                        sent - (rnd(2) as i64 * MILLI).min(sent),
+                    )
+                    .map(|_| ()),
+                    None => Ok(()),
+                },
+                2 => {
+                    let spec = K::OrderSpec {
+                        kind: K::ORDER_USE,
+                        grantee: GRANTEE,
+                        qty: q,
+                        expires_bell: bell + 1 + rnd(200) as u32,
+                        dst: K::PlaceRef::default(),
+                        purpose: 0,
+                    };
+                    let n = l.nonce;
+                    K::set_order(&v, &mut l, &act(OWNER), rnd(4) as u8, n, &spec, bell).map(|_| ())
+                }
+                3 => {
+                    let s = rnd(4) as u8;
+                    let o = l.orders[s as usize];
+                    K::consume(
+                        &v,
+                        &mut l,
+                        &act(GRANTEE),
+                        s,
+                        o.id,
+                        q.min(o.qty_left.max(MILLI)),
+                        0,
+                        bell,
+                    )
+                }
+                4 => K::return_unused(&v, &mut l, q),
+                5 => {
+                    let s = rnd(4) as u8;
+                    let o = l.orders[s as usize];
+                    K::revoke_order(&mut l, &act(OWNER), s, o.id, bell).map(|_| ())
+                }
+                6 => K::spend_ship(
+                    &v,
+                    &mut l,
+                    &act(OWNER),
+                    K::By::Owner,
+                    q,
+                    K::ShipTo::OwnPlace(v.place()),
+                    bell,
+                ),
+                _ => match l
+                    .inbound
+                    .iter()
+                    .find(|i| i.live)
+                    .map(|i| (i.caravan_tag, i.seq))
+                {
+                    Some(c) => K::drop_inbound(&mut l, c, K::CaravanSeen::Absent).map(|_| ()),
+                    None => Ok(()),
+                },
+            };
+            let cur = bytes(&l);
+            assert!(
+                lot_transition_findings(&prev, &cur).is_empty(),
+                "{:?}",
+                lot_transition_findings(&prev, &cur)
+            );
+            pairs += 1;
+        }
+        // A seizure and the proposed forfeiture at the end, then a close.
+        let prev = bytes(&l);
+        let mut s = v;
+        s.gen = 2;
+        s.owner = [0xEE; 32];
+        if K::forfeit(&mut s, &mut l).is_ok() {
+            assert!(lot_transition_findings(&prev, &bytes(&l)).is_empty());
+        }
+    }
+    assert!(pairs >= 18_000);
+}
