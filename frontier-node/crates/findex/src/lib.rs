@@ -154,21 +154,37 @@ impl Findex {
         if got.is_empty() {
             return Ok(vec![]);
         }
-        self.index.mark_incomplete().map_err(IngestError::Store)?;
+        // The archive first (the source a reopen catches the index up
+        // from), then the index between its incomplete and complete marks.
+        // Every store write stops this ingester on failure (reopen
+        // required). A stop between the two leaves the index behind the
+        // archive, which open() and the check at the top of ingest() see.
         let stored = self.archive.append(&got, src.cursor()).map_err(|e| {
             self.poisoned = true;
             IngestError::Store(e.to_string())
+        })?;
+        self.index.mark_incomplete().map_err(|e| {
+            self.poisoned = true;
+            IngestError::Store(e)
         })?;
         self.index.add(&stored).map_err(|e| {
             self.poisoned = true;
             IngestError::Store(e)
         })?;
-        if self.index.last_seq().map_err(IngestError::Store)? != self.archive.last_seq() {
+        let caught_up = self.index.last_seq().map_err(|e| {
+            self.poisoned = true;
+            IngestError::Store(e)
+        })?;
+        if caught_up != self.archive.last_seq() {
+            self.poisoned = true;
             return Err(IngestError::Store(
                 "index did not catch up with archive".into(),
             ));
         }
-        self.index.mark_complete().map_err(IngestError::Store)?;
+        self.index.mark_complete().map_err(|e| {
+            self.poisoned = true;
+            IngestError::Store(e)
+        })?;
         Ok(stored)
     }
 }

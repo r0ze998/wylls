@@ -21,6 +21,18 @@
 
 単位 17–21 は「GitHub にある最新」です。各担当のもっと新しい版は、④に届いていません（§6）。
 
+## 2'. 更新（同夜）：findex の退行の修正と、0xE1 は ⑪ の V27 に置き換え
+
+| # | 内容 | 試験（鍵なし） |
+|---|---|---|
+| 24 | findex：archive を先に書く。どの書き込みが失敗しても止める（d8c876e4）。④ の 739618ae の merge で入った退行（⑯・⑲ が見つけた） | findex lib 10、store_failure 5/5（`index_failure_requires_reopen_and_catches_up_from_the_archive` を含む）、open_items 5 |
+| 25 | ④ の 25f7a655 を revert（ef8ce76e）。⑪ の 0009 と範囲が重なり、⑪ の版のほうが完全なため | — |
+| 26 | verify：⑪ の 0009。V0 が `0x8000\|4` を知り、JoinResident を V27 に渡す。V27 は、記録がちょうど 1 件あること、住所、bell、join_close、post-state を照合する。⑳ の V9・facts（偽造・不一致・重複）と ⑪ の 0008 はそのまま | verify の木は⑪が試験した木と一致（b630cb52）。lib 26、unit 8、fixtures 8、camp_clear 3、missing_state 2、open_items 3、evidence 8、new_bands 7 ＝ 65 件 |
+
+下の §2 の「V0・V9 の④の追加」は、単位 25 で取り消し、⑪ の V27 に置き換えました。完成の条件（正しい参加は通り、偽造・欠落・不一致・重複は拒否）は、V9・facts（⑳）、V27（⑪）、V0E の 0008（⑪）で満たします。
+
+⑱ の指摘：0x8004 が S1 として扱われるのと同じく、5..0x7fff の将来版も、他の検査の `>=` の比較では S1 として扱われます。今は V0 が UnknownProgramVersion で PASS を止めるので、問題はありません。
+
 ## 2. JoinResident を検証器の最後まで（⑳ 45d95e31 ＋ ⑪ 0008 ＋ ④）
 
 **完成の条件**は「正しい NFT の参加が通り、偽造・欠落・不一致・重複が拒否される」こと。検査ごとの担当は次のとおりです。

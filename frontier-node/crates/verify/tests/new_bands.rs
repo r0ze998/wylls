@@ -314,3 +314,64 @@ fn a_resident_joined_without_its_join_is_unverifiable() {
     }
     assert!(n > 0);
 }
+
+/// V0 (⑪ r9): a tag outside ABI v2 is judged by who may run it. In ⑳'s
+/// NFT program's seasons JoinResident is modelled (V27) and the other
+/// resident commands are UNVERIFIABLE; under a program version this
+/// verifier knows, an allocated tag it does not run is a FAIL naming its
+/// band (②'s Grant included: no known program runs it); under an unknown
+/// version, an allocated tag is UNVERIFIABLE (that program may run ②'s
+/// Grant legitimately), and an unallocated one a FAIL.
+#[test]
+fn tags_outside_abi_v2_are_told_apart() {
+    use verify_core::checks::v0_coverage::{judge_outside_v2, PROGRAM_VERSION_NFT_S1};
+    use verify_core::Severity::{Fail, Unverifiable};
+    let nft = Some(PROGRAM_VERSION_NFT_S1);
+    let s1 = Some(4u16);
+    let unknown = Some(9u16);
+    let join = [0xE1, 3, 0, 0, 0, 4];
+    let j = |tag: u8, data: &[u8], pv| judge_outside_v2(tag, data, pv, true).map(|x| (x.0, x.1));
+    // ⑳ in its own program's season.
+    assert_eq!(j(0xE1, &join, nft), None);
+    // ⑱: the same join where the S1 checks (V27) did not run is Unverifiable.
+    assert_eq!(
+        judge_outside_v2(0xE1, &join, nft, false).map(|x| (x.0, x.1)),
+        Some((Unverifiable, "UnverifiedInstruction"))
+    );
+    assert_eq!(j(0xE1, &join[..5], nft), Some((Fail, "Undecodable")));
+    assert_eq!(
+        j(0xE2, &[0xE2, 0, 0, 0, 0, 0x01], nft),
+        Some((Unverifiable, "UnverifiedInstruction"))
+    );
+    assert_eq!(
+        j(0xE0, &[0xE0; 129], nft),
+        Some((Unverifiable, "UnverifiedInstruction"))
+    );
+    // ⑳ under S1's program, which refuses it.
+    let r = judge_outside_v2(0xE1, &join, s1, true).unwrap();
+    assert_eq!((r.0, r.1), (Fail, "UnknownInstruction"));
+    assert!(r.2.contains("workstream 20"), "{}", r.2);
+    // ②'s Grant: refused by every known program (FAIL, named), possibly
+    // legitimate under a version this verifier does not know.
+    for tag in 0xD0..=0xD5u8 {
+        for pv in [s1, nft] {
+            let r = judge_outside_v2(tag, &[tag, 0, 0], pv, true).unwrap();
+            assert_eq!((r.0, r.1), (Fail, "UnknownInstruction"));
+            assert!(r.2.contains("workstream 2 "), "{}", r.2);
+        }
+        assert_eq!(
+            j(tag, &[tag], unknown),
+            Some((Unverifiable, "UnverifiedInstruction"))
+        );
+    }
+    // Unallocated tags fail under every version.
+    for tag in [0xD6, 0xEE, 0xFE] {
+        for pv in [s1, nft, unknown, None] {
+            assert_eq!(
+                j(tag, &[tag], pv),
+                Some((Fail, "UnknownInstruction")),
+                "{tag:#x}"
+            );
+        }
+    }
+}
