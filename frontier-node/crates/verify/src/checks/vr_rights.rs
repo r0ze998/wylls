@@ -26,8 +26,21 @@
 //!   a transaction with no Grant instruction, is `RightsUnexplainedAccount`;
 //!   a program account of no known kind at all is `UnknownAccount`.
 //! - **Evidence.** A Grant instruction whose post-states are not in the
-//!   archive, or a holding it names whose state before it is unknown, is
+//!   archive, or a holding it names whose state before it is unknown, or
+//!   a program account it holds writable without a post-state (r4), is
 //!   UNVERIFIABLE (`MissingData`), never a PASS.
+//! - **Lost logs and inner calls** (r4, in step with workstream 11's V0E,
+//!   which this does not replace). When a transaction's logs were cut
+//!   (`Log truncated`), lost their tail (an invocation of the program with
+//!   no `success` line) or show no invocation of the program at all, a
+//!   Grant instruction without its record is UNVERIFIABLE (`MissingData`),
+//!   not `RightsRecordMissing`: the record may be in the part the archive
+//!   lost. When the program ran inside another program (`invoke [n]`,
+//!   n > 1), a Grant record or Grant write with no top-level Grant
+//!   instruction is UNVERIFIABLE, not `RightsRecordOrphan` /
+//!   `RightsUnexplainedAccount`: the archive keeps top-level instructions
+//!   only. Neither case is ever a PASS; with intact logs and no inner call
+//!   both stay FAILs.
 
 use std::collections::BTreeMap;
 
@@ -183,6 +196,37 @@ impl Model {
 }
 
 /// Whether a program account's magic names a kind the verifier knows.
+/// Why the archive may lack some of the program's records in a
+/// successful transaction (`None`: its logs are whole). Mirrors workstream
+/// 11's V0E (`MissingLogs`, `TruncatedLogs`, `IncompleteLogs`), so that
+/// this check reaches the same verdict with or without it.
+pub fn records_lost(program: &str, logs: &[String]) -> Option<&'static str> {
+    let invoke = format!("Program {program} invoke [");
+    let ran = logs.iter().filter(|l| l.starts_with(&invoke)).count();
+    let ended = logs
+        .iter()
+        .filter(|l| **l == format!("Program {program} success"))
+        .count();
+    if logs.iter().any(|l| l == "Log truncated") {
+        Some("the runtime cut the transaction's logs: its records may be after the cut")
+    } else if ran == 0 {
+        Some("the logs show no invocation of the program: its records are not in the archive")
+    } else if ended < ran {
+        Some("an invocation of the program has no `success` line: the archive lost the tail of the logs")
+    } else {
+        None
+    }
+}
+
+/// Whether the program ran inside another program in this transaction
+/// (`Program <id> invoke [n]`, n > 1): the archive has no instruction for
+/// what it did there.
+pub fn ran_inside(program: &str, logs: &[String]) -> bool {
+    let invoke = format!("Program {program} invoke [");
+    logs.iter()
+        .any(|l| l.starts_with(&invoke) && !l.ends_with("[1]"))
+}
+
 fn known_magic(d: &[u8]) -> bool {
     let Some(m) = d.get(..8).and_then(|m| <[u8; 8]>::try_from(m).ok()) else {
         return false;
@@ -194,8 +238,23 @@ pub fn run(cx: &mut Ctx) {
     let w = cx.w;
     let f = cx.f;
     let sid = cx.cfg.season_id;
+    let program = cx.cfg.program.to_string();
+    let input = cx.input;
     let mut models: BTreeMap<Key, Model> = BTreeMap::new();
     let mut issued: std::collections::BTreeSet<Key> = Default::default();
+    // Grants whose records the archive lost part of (r4): from there on
+    // their state cannot be rebuilt, so nothing about them is judged.
+    let mut gapped: std::collections::BTreeSet<Key> = Default::default();
+    // Accounts the archive shows the program owns (a post-state or a
+    // final state).
+    let program_owned: std::collections::BTreeSet<Key> = w
+        .txs
+        .iter()
+        .flat_map(|t| t.post.iter())
+        .chain(w.finals.iter())
+        .filter(|(_, a)| a.as_ref().is_some_and(|a| a.owner.to_bytes() == w.program))
+        .map(|(k, _)| *k)
+        .collect();
     // Records of the Grant kinds, per transaction, in log order.
     let mut by_tx: BTreeMap<usize, Vec<&crate::world::CqRec>> = BTreeMap::new();
     for r in &w.cq_recs {
@@ -209,6 +268,9 @@ pub fn run(cx: &mut Ctx) {
         }
         let mut recs = by_tx.remove(&t).unwrap_or_default();
         recs.sort_by_key(|r| r.pos);
+        let logs = input.txs.get(t).map(|r| r.logs.as_slice()).unwrap_or(&[]);
+        let lost = records_lost(&program, logs);
+        let inner = ran_inside(&program, logs);
         let mut recs = recs.into_iter();
         let mut rights_ix = false;
         for ix in &tx.ixs {
@@ -254,15 +316,38 @@ pub fn run(cx: &mut Ctx) {
                 continue;
             }
             let grant = ix.accounts[gi].0;
-            let Some(r) = recs.next() else {
-                cx.fail(
+            if gapped.contains(&grant) {
+                let r = recs.next();
+                cx.missing(
                     V,
-                    RIGHTS_RECORD_MISSING,
                     ent("grant", &grant),
-                    0,
+                    r.map_or(0, |r| r.bell),
                     Some(t),
-                    format!("the instruction logged no {kind:?}"),
+                    "an earlier record of this Grant is not in the archive: its state cannot be rebuilt",
                 );
+                continue;
+            }
+            let Some(r) = recs.next() else {
+                if let Some(why) = lost {
+                    cx.missing(
+                        V,
+                        ent("grant", &grant),
+                        0,
+                        Some(t),
+                        format!("no {kind:?} in the archive, and {why}"),
+                    );
+                    models.remove(&grant);
+                    gapped.insert(grant);
+                } else {
+                    cx.fail(
+                        V,
+                        RIGHTS_RECORD_MISSING,
+                        ent("grant", &grant),
+                        0,
+                        Some(t),
+                        format!("the instruction logged no {kind:?}"),
+                    );
+                }
                 continue;
             };
             if r.kind != kind {
@@ -308,6 +393,22 @@ pub fn run(cx: &mut Ctx) {
                     "no post-states in the archive: a Grant cannot be replayed",
                 );
                 continue;
+            }
+            // Evidence (r4): every program account the instruction holds
+            // writable has its post-state (a Citizen's chain head, a
+            // holding), as workstream 11's V0E asks of all program
+            // accounts; this check asks it of its own instructions, with
+            // or without V0E. The Grant's own is judged below.
+            for (k, wr) in &ix.accounts {
+                if *wr && *k != grant && program_owned.contains(k) && !tx.post.contains_key(k) {
+                    cx.missing(
+                        V,
+                        ent("account", k),
+                        r.bell,
+                        Some(t),
+                        "a program account the Grant instruction holds writable has no post-state in the archive",
+                    );
+                }
             }
             let named = |site: u8, p: i32, q: i32| f.ctx.holding(p, q, site);
             let rule = |cx: &mut Ctx, what: String| {
@@ -611,14 +712,27 @@ pub fn run(cx: &mut Ctx) {
             }
         }
         for r in recs {
-            cx.fail(
-                V,
-                RIGHTS_RECORD_ORPHAN,
-                format!("tx#{t}"),
-                r.bell,
-                Some(t),
-                format!("{:?} without its Grant instruction", r.kind),
-            );
+            if inner {
+                cx.missing(
+                    V,
+                    format!("tx#{t}"),
+                    r.bell,
+                    Some(t),
+                    format!(
+                        "{:?} logged by the program run inside another program: the archive has no instruction to judge it against",
+                        r.kind
+                    ),
+                );
+            } else {
+                cx.fail(
+                    V,
+                    RIGHTS_RECORD_ORPHAN,
+                    format!("tx#{t}"),
+                    r.bell,
+                    Some(t),
+                    format!("{:?} without its Grant instruction", r.kind),
+                );
+            }
         }
         // A Grant written by a transaction with no Grant instruction.
         if !rights_ix {
@@ -626,6 +740,16 @@ pub fn run(cx: &mut Ctx) {
                 if a.as_ref().is_some_and(|a| {
                     a.owner.to_bytes() == w.program && a.data.get(..8) == Some(&G::MAGIC[..])
                 }) {
+                    if inner {
+                        cx.missing(
+                            V,
+                            ent("grant", k),
+                            0,
+                            Some(t),
+                            "a Grant written by the program run inside another program: the archive has no instruction to judge it against",
+                        );
+                        continue;
+                    }
                     cx.fail(
                         V,
                         RIGHTS_UNEXPLAINED_ACCOUNT,
@@ -672,6 +796,16 @@ pub fn run(cx: &mut Ctx) {
             continue;
         }
         if a.data.get(..8) == Some(&G::MAGIC[..]) {
+            if gapped.contains(k) {
+                cx.missing(
+                    V,
+                    ent("grant", k),
+                    0,
+                    None,
+                    "final state: part of this Grant's records is not in the archive",
+                );
+                continue;
+            }
             match models.get(k) {
                 None => cx.fail(
                     V,
@@ -716,6 +850,26 @@ pub fn run(cx: &mut Ctx) {
     let _ = issued;
 }
 
+/// Why V7 cannot rebuild holding `k` in transaction `t` from its Grant
+/// records (r4): a Grant instruction of `t` writes it and the logs may
+/// have lost records ([`records_lost`]). `None`: not a Grant write, or
+/// the logs are whole.
+pub fn holding_unjudged(
+    w: &crate::world::World,
+    input: &crate::input::Input,
+    t: usize,
+    k: &Key,
+) -> Option<&'static str> {
+    let writes = w.txs[t].ixs.iter().any(|ix| {
+        ix.tag().and_then(kind_of).is_some() && ix.accounts.iter().any(|(a, wr)| a == k && *wr)
+    });
+    if !writes {
+        return None;
+    }
+    let logs = input.txs.get(t).map(|r| r.logs.as_slice()).unwrap_or(&[]);
+    records_lost(&input.cfg.program.to_string(), logs)
+}
+
 /// The expected bytes of holding `k` after a Grant instruction of
 /// transaction `t` wrote it: its state `before`, settled to the block
 /// time without an owner touch, then every Grant record of `t` that names
@@ -723,6 +877,10 @@ pub fn run(cx: &mut Ctx) {
 /// `None` when no Grant instruction of `t` writes `k` (not this rule's);
 /// when one does but no record names `k`, the unchanged bytes (so V7's
 /// byte-identity reports the unrecorded write).
+///
+/// V7 asks [`holding_unjudged`] first: a Grant write in a transaction
+/// whose logs may have lost records is UNVERIFIABLE, not rebuilt from
+/// what is left.
 pub fn holding_write(
     w: &crate::world::World,
     f: &crate::facts::Facts,

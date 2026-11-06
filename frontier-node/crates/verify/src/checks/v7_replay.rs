@@ -994,6 +994,17 @@ fn continuity(cx: &mut Ctx) {
                     // S1 1b/1d: BuildVault, BuildStructure and a caravan's holding source pay
                     // after an owner touch; a delivery settles and credits.
                     (what, want)
+                } else if let Some(why) = super::vr_rights::holding_unjudged(w, cx.input, t, k) {
+                    // 02-rights (candidate, r4): its records may be in the
+                    // part of the logs the archive lost.
+                    cx.missing(
+                        V,
+                        format!("holding ({}, {}, {})", pqs.0, pqs.1, pqs.2),
+                        bell,
+                        Some(t),
+                        format!("a Grant instruction wrote it and {why}"),
+                    );
+                    continue;
                 } else if let Some((what, want)) =
                     super::vr_rights::holding_write(w, f, t, k, before)
                 {

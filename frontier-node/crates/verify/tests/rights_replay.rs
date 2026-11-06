@@ -679,6 +679,28 @@ fn has(found: &[(String, verify_core::Severity)], code: &str) -> bool {
         .any(|(l, s)| l.contains(code) && *s == verify_core::Severity::Fail)
 }
 
+/// The base's own verdict is FAIL (an M1 season judged as S1: V2's
+/// `RulesetMismatch`, V7's base mismatches, CQ2's artefact), so "the
+/// verdict is not PASS" proves nothing on it. What proves it: the change
+/// itself adds a FAIL or an UNVERIFIABLE finding (the CQ2 artefact, one
+/// per injected transaction, excepted), which alone keeps the verdict
+/// from PASS on any base.
+fn not_a_pass_by_itself(found: &[(String, verify_core::Severity)]) -> bool {
+    found.iter().any(|(l, s)| {
+        !l.starts_with("CQ2 SeasonIdentity Season")
+            && matches!(
+                s,
+                verify_core::Severity::Fail | verify_core::Severity::Unverifiable
+            )
+    })
+}
+
+#[test]
+fn the_base_is_not_a_pass_so_verdicts_alone_prove_nothing() {
+    let b = base();
+    assert_eq!(verify_core::verify(&b.inp).verdict, Verdict::Fail);
+}
+
 #[test]
 fn the_honest_flow_adds_no_finding() {
     let b = base();
@@ -796,7 +818,7 @@ fn an_issue_without_its_record_is_not_invisible() {
     let found = new_findings(&b.inp, &inp);
     assert!(has(&found, RIGHTS_RECORD_MISSING), "{found:#?}");
     assert!(has(&found, RIGHTS_UNEXPLAINED_ACCOUNT), "{found:#?}");
-    assert_eq!(verify_core::verify(&inp).verdict, Verdict::Fail);
+    assert!(not_a_pass_by_itself(&found), "{found:#?}");
 }
 
 #[test]
@@ -861,7 +883,7 @@ fn missing_evidence_is_never_a_pass() {
             .any(|(l, s)| l.contains(MISSING_DATA) && *s == verify_core::Severity::Unverifiable),
         "{found:#?}"
     );
-    assert_ne!(verify_core::verify(&fl.inp).verdict, Verdict::Pass);
+    assert!(not_a_pass_by_itself(&found), "{found:#?}");
 }
 
 /// The control of round 2, kept: a swap-shaped holding write with no
@@ -913,5 +935,212 @@ fn vr_finds_nothing_on_the_recorded_fixtures() {
         let vr: Vec<_> = r.findings.iter().filter(|f| f.check == "VR").collect();
         assert!(vr.is_empty(), "{name}: {vr:#?}");
         assert!(r.checks_run.contains(&"VR:rights"), "{name}");
+    }
+}
+
+/// Findings of check `check` with severity `sev` among `found`.
+fn of(
+    found: &[(String, verify_core::Severity)],
+    check: &str,
+    sev: verify_core::Severity,
+) -> Vec<String> {
+    found
+        .iter()
+        .filter(|(l, s)| l.starts_with(&format!("{check} ")) && *s == sev)
+        .map(|(l, _)| l.clone())
+        .collect()
+}
+
+/// r4 (workstream 11's lost-log cases, judged by VR and V7 themselves):
+/// the execute's logs cut by the runtime, cut without the runtime's
+/// marker, or absent. Its record may be in the part the archive lost, so
+/// VR and V7 say UNVERIFIABLE (`MissingData`), not a FAIL; the verdict is
+/// never PASS. The later records of the same Grant are not judged either
+/// (its state cannot be rebuilt past the gap), instead of being refused.
+#[test]
+fn a_grant_record_lost_with_the_logs_is_unverifiable_never_a_pass() {
+    use verify_core::Severity::{Fail, Unverifiable};
+    let b = base();
+    let (fl, _) = honest(&b);
+    let t = fl.inp.txs.len() - 5;
+    let head = fl.inp.txs[t].logs[..1].to_vec(); // `invoke [1]` only
+    let mut cut = head.clone();
+    cut.push("Log truncated".into());
+    for (name, logs) in [("cut", cut), ("tail lost", head), ("no logs", vec![])] {
+        let mut inp = fl.inp.clone();
+        inp.txs[t].logs = logs;
+        let found = new_findings(&b.inp, &inp);
+        for check in ["VR", "V7"] {
+            assert!(
+                of(&found, check, Fail).is_empty(),
+                "{name}: {check} accuses on lost logs: {found:#?}"
+            );
+            assert!(
+                of(&found, check, Unverifiable)
+                    .iter()
+                    .any(|l| l.contains(MISSING_DATA)),
+                "{name}: {check} says nothing: {found:#?}"
+            );
+        }
+        assert!(not_a_pass_by_itself(&found), "{name}: {found:#?}");
+    }
+}
+
+/// The same logs, whole, still FAIL: the relaxation above needs a sign
+/// that the archive lost logs.
+#[test]
+fn whole_logs_without_the_record_still_fail() {
+    let b = base();
+    let (mut fl, _) = honest(&b);
+    let t = fl.inp.txs.len() - 5;
+    let program = fl.inp.cfg.program;
+    fl.inp.txs[t].logs = fclient::log::in_frame(&program, Vec::<String>::new());
+    let found = new_findings(&b.inp, &fl.inp);
+    assert!(has(&found, RIGHTS_RECORD_MISSING), "{found:#?}");
+    assert!(has(&found, HOLDING_REPLAY_MISMATCH), "{found:#?}");
+}
+
+/// Transaction `t` rebuilt as if another program had called the Grant
+/// instruction (a CPI): the top-level instruction is the other program's,
+/// with the same accounts and the program's id; unsigned placeholders.
+fn as_cpi(inp: &mut Input, t: usize, with_logs: bool) {
+    let program = inp.cfg.program;
+    let other = Address::new_from_array([0x77; 32]);
+    let old = fclient::tx::from_wire(&inp.txs[t].tx).unwrap();
+    let m = &old.message;
+    let keys = &m.account_keys;
+    let h = &m.header;
+    let nsig = h.num_required_signatures as usize;
+    let writable = |i: usize| {
+        if i < nsig {
+            i < nsig - h.num_readonly_signed_accounts as usize
+        } else {
+            i < keys.len() - h.num_readonly_unsigned_accounts as usize
+        }
+    };
+    let ci = m
+        .instructions
+        .iter()
+        .find(|ci| keys[ci.program_id_index as usize] == program)
+        .expect("the Grant instruction");
+    let mut accounts: Vec<AccountMeta> = ci
+        .accounts
+        .iter()
+        .map(|&a| {
+            let a = a as usize;
+            let mut meta = if writable(a) {
+                AccountMeta::new(keys[a], a < nsig)
+            } else {
+                AccountMeta::new_readonly(keys[a], a < nsig)
+            };
+            meta.is_signer = a < nsig;
+            meta
+        })
+        .collect();
+    accounts.push(AccountMeta::new_readonly(program, false));
+    let outer = Instruction {
+        program_id: other,
+        accounts,
+        data: vec![0x01],
+    };
+    let budget = fclient::tx::TxBudget {
+        cu_limit: 200_000,
+        cu_price: 0,
+        loaded_limit: 1 << 20,
+        heap: None,
+    };
+    let msg = fclient::tx::message(&[outer], &budget, &keys[0], &m.recent_blockhash);
+    let n = msg.header.num_required_signatures as usize;
+    let mut wire = vec![n as u8];
+    for i in 0..n {
+        wire.extend_from_slice(&[0x31u8.wrapping_add(i as u8 * 16); 64]);
+    }
+    wire.extend_from_slice(&msg.serialize());
+    let tx = fclient::tx::from_wire(&wire).expect("the unsigned wire decodes");
+    let lines: Vec<String> = inp.txs[t]
+        .logs
+        .iter()
+        .filter(|l| l.starts_with("Program data: "))
+        .cloned()
+        .collect();
+    let r = &mut inp.txs[t];
+    r.tx = wire;
+    r.signature = fclient::tx::signature(&tx);
+    r.logs = if with_logs {
+        let mut v = vec![
+            format!("Program {other} invoke [1]"),
+            format!("Program {program} invoke [2]"),
+        ];
+        v.extend(lines);
+        v.push(format!("Program {program} success"));
+        v.push(format!("Program {other} success"));
+        v
+    } else {
+        vec![]
+    };
+}
+
+/// r4: a Grant instruction reached by CPI. The archive keeps top-level
+/// instructions only, so VR cannot pair the record with an instruction:
+/// UNVERIFIABLE, not `RightsRecordOrphan`. V7 still FAILs the holdings
+/// it wrote (no top-level instruction explains them). Without logs, the
+/// Grant write is unexplained (FAIL). Never a PASS either way.
+#[test]
+fn a_grant_instruction_reached_by_cpi_is_never_a_pass() {
+    use verify_core::Severity::{Fail, Unverifiable};
+    let b = base();
+    let (fl, _) = honest(&b);
+    let t = fl.inp.txs.len() - 5;
+    let mut inp = fl.inp.clone();
+    as_cpi(&mut inp, t, true);
+    let found = new_findings(&b.inp, &inp);
+    assert!(!has(&found, RIGHTS_RECORD_ORPHAN), "{found:#?}");
+    assert!(
+        of(&found, "VR", Unverifiable)
+            .iter()
+            .any(|l| l.contains(MISSING_DATA)),
+        "{found:#?}"
+    );
+    assert!(!of(&found, "V7", Fail).is_empty(), "{found:#?}");
+    assert!(not_a_pass_by_itself(&found), "{found:#?}");
+
+    let mut inp = fl.inp.clone();
+    as_cpi(&mut inp, t, false);
+    let found = new_findings(&b.inp, &inp);
+    assert!(has(&found, RIGHTS_UNEXPLAINED_ACCOUNT), "{found:#?}");
+    assert!(not_a_pass_by_itself(&found), "{found:#?}");
+}
+
+/// r4: post-states short of what the instruction wrote. The Grant's is
+/// covered by `missing_evidence_is_never_a_pass`; here the holdings'
+/// (the station's, then both) and the Citizen's are dropped from the
+/// execute. Never a PASS.
+#[test]
+fn post_states_short_of_the_writes_are_never_a_pass() {
+    let b = base();
+    let (fl, _) = honest(&b);
+    let t = fl.inp.txs.len() - 5;
+    let st = Address::new_from_array(b.station);
+    let fa = Address::new_from_array(b.facility);
+    let gc = Address::new_from_array(b.grantee_c);
+    for (name, drop) in [
+        ("station", vec![st]),
+        ("both holdings", vec![st, fa]),
+        ("grantee citizen", vec![gc]),
+    ] {
+        let mut inp = fl.inp.clone();
+        inp.txs[t].post.retain(|(k, _)| !drop.contains(k));
+        let found = new_findings(&b.inp, &inp);
+        assert!(not_a_pass_by_itself(&found), "{name}: {found:#?}");
+        if name == "grantee citizen" {
+            // Without workstream 11's V0E, only VR's own evidence rule
+            // sees this one.
+            assert!(
+                of(&found, "VR", verify_core::Severity::Unverifiable)
+                    .iter()
+                    .any(|l| l.contains(MISSING_DATA)),
+                "{found:#?}"
+            );
+        }
     }
 }
