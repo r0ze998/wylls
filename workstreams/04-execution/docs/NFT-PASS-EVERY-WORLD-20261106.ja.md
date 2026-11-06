@@ -14,15 +14,17 @@
   - 当てた後：resident の試験は 9/9、`permutation-frontier` の lib 試験（`nft-experimental`）は 103/103、`frontier-abi` の `resident_binding` は 1/1。rustfmt も通過。
   - 実行していないもの：SBF での build、LiteSVM、実チェーン。
 
-## 0. 追記（同日）：⑳は Season ごとの link（案 a）で実装する
+## 0. 追記（同日）：⑳がこの patch を採用した（確定）
 
-- ⑳は link の PDA を `["nft-citizen-link", season, asset]` にする案で実装を進めている。layout（PSFNR001、104 B、`{asset, resident, citizen}`、一度だけ書ける）、tag、kind、エラー番号はどれも変わらない。
-- まだどこにも deploy されていないので、下の「採らなかった案」に書いた、既存の link の移行という懸念はない。そのため④はこの案を受け入れ、⑳に伝えた。
-- AccountKind 32 の意味は「NFT の Season ごとの link」になる。番号・magic・大きさは同じなので、割当の変更はない。説明は⑳が push した後に直す。
-- 下の §2 の patch（global の link で、Citizen を比べない）は**代替案として残す**だけで、当てない。§3 の影響（譲渡、client、RESIDENT_JOINED、引き継ぎ）と §4 の確認項目は、案 a にもそのまま当てはまる。違いは 2 点ある。
-  - client の link の住所に、Season が入る。
-  - `/f/residents` の `link` が「この世界に参加済み」の意味になる。
-- 案 a では、世界ごとに link の rent（104 B）がかかり、参加する人（payer）が払う。
+- ⑳は、いったん Season ごとの link（案 a、`88d789b3`）を実装したが、revert した。そのうえで、この patch を当てた（`claude/funny-wozniak-cy4n64` `deebd3b5a89ea88daa16d7f31a0c09871a6e98f4`）。
+  - ④の側では、この patch を当てた結果と照合した。2 ファイルは byte 単位で同じ。試験のファイルだけ、⑳が clippy のために足した 5 行（first login で `w.season` と `w.ctx` を検査）が違う。
+  - ⑳の結果：resident 9/9、permutation-frontier lib 103/103（nft-experimental）と 94/94（既定）、frontier-abi resident_binding 1/1。clippy と fmt も通過。
+- 途中で④が「案 a で進めてよい」と送ったが、メッセージが行き違っただけで、取り消した。確定するのは deebd3b5（global の link で、Citizen を比べない）。
+- ⑳の確認：
+  - web は、どこでも `joined`（この世界）を使っていて、`link` を読む所はない。`/f/residents` の `link` は「どこかの世界で参加したことがある」と文書にした。
+  - herald・keeper・verifier は、それぞれ 1 つの program の 1 つの Season だけを扱う。そのため、RESIDENT_JOINED の key に Season がなくても重ならない。
+  - 文書（SEASON-SCOPE、CANDIDATE-20-REVIEW、NFT-ACCOUNT-WIRING）も更新済み。仕様の 2 つの論点は、SEASON-SCOPE §6 と U45 に未決として記録してある。
+- AccountKind 32 の説明は、ABI 割当（`contracts/ABI-ALLOCATION-20261106.ja.md` §2.4）で直した。番号・magic・大きさは変わらない。
 
 ## 1. 原因
 
