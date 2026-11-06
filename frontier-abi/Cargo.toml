@@ -21,5 +21,14 @@ path = "src/bin/abi-vectors.rs"
 [dependencies]
 permutation-rules = { path = "../permutation-rules" }
 
+[features]
+default = []
+# Experimental, opt-in, no production consumer: `world_index` (wide i64
+# province coordinates, world-scoped keys, versioned host references and
+# a sparse paginated opened-province index). Off by default, so the
+# program, the vectors and every hash are built exactly as before; it adds
+# no dependency (I-03 holds).
+world-index-experimental = []
+
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))'] }

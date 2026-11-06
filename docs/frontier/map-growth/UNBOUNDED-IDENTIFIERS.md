@@ -101,6 +101,10 @@ Each has a different cost in the keeper's settlement and in the verifier's trave
 - `host_id`, the account layouts, the record formats and the feed paths keep their current shapes for the current ABI version. A world identifier is a new version of whatever it touches.
 - The harness that shows growth (`map_growth_runtime_tests::map_growth_expansion_*`) runs the real `dispatch` on literal account bytes, derives only public addresses, and signs nothing. A world identifier would need the same kind of test, not a fixture.
 
+## 4a. An opt-in foundation under these bounds (2026-11-07)
+
+`frontier-abi/src/world_index/` (feature `world-index-experimental`, off by default, no consumer) implements wide `i64` coordinates with a lossless ring-ordered key, world-scoped keys and versioned host references, an exact adapter from `ProvinceCoord` / `host_id` within ring 128, and a sparse paginated opened-province index. It changes none of the bounds in the table above and decides none of §5. `WIDE-WORLD-INDEX.md` reviews what it can and cannot be used for.
+
 ## 5. Unknowns this note does not resolve
 
 - Which of the three readings (larger disk, several disks, one lattice) is wanted, and whether more than one world shares a season.
