@@ -1,0 +1,26 @@
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index a19457ec..fa09c102 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -312,3 +312,21 @@ jobs:
+           cargo fmt --all -- --check
+           cargo clippy --locked --all-targets -- -D warnings
+           cargo test --locked --release
++
++  memory12:
++    # Workstream 12 (memory, conversation, relationships), with key generation, derivation and signing disabled
++    # (workstreams/12-memory/tools/nokey-guard.mjs): tests that would need a key are listed as needs-key and not run.
++    # Also workstream 13's test of the 12 -> 13 read-only evidence sidecar, which imports 12, under the same guard.
++    # No network, no npm install (12 has no dependencies). Node 22: node:sqlite and JSON.parse source text (u64).
++    name: Workstream 12 memory tests (no key operations)
++    runs-on: ubuntu-24.04
++    steps:
++      - uses: actions/checkout@v7
++      - uses: actions/setup-node@v7
++        with:
++          node-version: 22
++      - name: Workstream 12 tests without key operations
++        run: sh workstreams/12-memory/tools/test-nokey.sh
++      - name: Workstream 13's ws12 public-evidence sidecar test, without key operations
++        if: hashFiles('workstreams/13-citizens/test/ws12-public-evidence.test.mjs') != ''
++        run: sh workstreams/12-memory/tools/test-nokey.sh workstreams/13-citizens/test/ws12-public-evidence.test.mjs

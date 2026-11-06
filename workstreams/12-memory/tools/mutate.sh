@@ -1,12 +1,12 @@
 #!/bin/sh
 # Mutation checks for workstream 12: break one guard, run the tests, restore the file. Prints "<label>: fail N";
 # every line must show fail >= 1 (a guard no test notices would print "fail 0"). Needs python3 and node.
-#   sh workstreams/12-memory/tools/mutate.sh
+#   sh workstreams/12-memory/tools/mutate.sh            (no key operations: only key-free tests run, so only they can catch a guard)
 set -u
 cd "$(dirname "$0")/.." || exit 1
 S=$(mktemp -d)
 trap 'rm -r "$S"' EXIT
-mut(){ cp "$1" "$S/bak"; python3 -c "import sys;p=sys.argv[1];s=open(p).read();assert sys.argv[2] in s;open(p,'w').write(s.replace(sys.argv[2],sys.argv[3],1))" "$1" "$2" "$3" 2>/dev/null || { echo "$4: PATTERN MISSING"; cp "$S/bak" "$1"; return; }; r=$(node --test test/*.test.mjs 2>&1 | grep -E "^# fail" | sed 's/# //'); cp "$S/bak" "$1"; echo "$4: $r"; }
+mut(){ cp "$1" "$S/bak"; python3 -c "import sys;p=sys.argv[1];s=open(p).read();assert sys.argv[2] in s;open(p,'w').write(s.replace(sys.argv[2],sys.argv[3],1))" "$1" "$2" "$3" 2>/dev/null || { echo "$4: PATTERN MISSING"; cp "$S/bak" "$1"; return; }; r=$(sh tools/test-nokey.sh 2>/dev/null | grep -E "^# FAILED" | sed 's/# FAILED:/fail/'); cp "$S/bak" "$1"; echo "$4: $r"; }
 echo "# v2 guards"
 mut src/fold.mjs "if (!cov.ok) {" "if (false) {" "missing record treated as failure"
 mut src/fold.mjs "(r.created_bell ?? r.bell) <= observedBy" "true" "observation time ignored"
@@ -71,3 +71,25 @@ echo "# v4.1 guards (sub-unit fractions; workstream 4 QUANTITY-CONTRACT)"
 mut src/fold.mjs "    const slack = ls2 => ls2.filter(l => l.at_bound).length;" "    const slack = ls2 => 0;" "sub-unit fractions ignored"
 mut src/fold.mjs "    else if (onTime + late >= c.qty && onTime + nOn <= c.qty) {" "    else if (onTime + late >= c.qty) {" "late without proving the on-time part short"
 mut src/fold.mjs "        else if (del.length) { c.state = 'partial';" "        else if (c.delivered_min > 0) { c.state = 'partial';" "partial only when b > 0"
+echo "# adapters (workstreams 4, 8, 13)"
+mut adapters/ws04-receipts.mjs "  if (!Number.isSafeInteger(ctx.finalizedSlot) || r.slot > ctx.finalizedSlot) return held('not_finalized');" "" "unfinalized receipts believed"
+mut adapters/ws04-receipts.mjs "    facts.push({ kind: 'identity_alias', bell: 0, created_bell: ctx.observedBell," "    facts.push({ kind: 'identity_alias', bell, created_bell: ctx.observedBell," "alias restated at each receipt's bell"
+mut adapters/ws04-receipts.mjs "  const src = kind => ({ chain: P, sig: \`\${kind}|\${r.subject}\`, ix: 0 });" "  const src = kind => ({ chain: P, sig: \`\${kind}|\${r.subject}|\${r.source}\`, ix: 0 });" "dedupe by read path instead of kind|subject"
+mut adapters/ws04-receipts.mjs "  else if (typeof u === 'number' && Number.isSafeInteger(u) && u >= 0) b = BigInt(u);" "  else if (typeof u === 'number' && u >= 0) b = BigInt(u);" "rounded u64 accepted"
+mut adapters/ws04-receipts.mjs "      if (!spec?.ship?.dst) return held('dst_unknown');" "      if (!spec?.ship?.dst) return { facts, held: null };" "sent receipt without destination dropped silently"
+mut adapters/ws08-world.mjs "  if (continuous !== true) return { world: null, partitions, partition: worldAccount, reasons: ['world_not_continuous'] };" "" "non-continuous account given a world"
+mut adapters/ws13-resident.mjs "      if (fresh) mirror(inner.all().find(e => e.id === ep.id) ?? ep);" "      mirror(ep);" "mirror writes for refused duplicates"
+echo "# canonical (4/8 as published) guards"
+mut adapters/canonical.mjs "  if (wallet !== me.wallet) return { why: 'citizen_names_another_wallet' };" "" "citizen of another wallet accepted"
+mut adapters/canonical.mjs "  if (addr.length !== 32 || u64le(addr, 0) !== tag) return { why: 'tag_not_the_address_prefix' };" "" "tag not cross-checked against address"
+mut adapters/canonical.mjs "  const resolve = tag => { const l = byTag.get(tag); return l && new Set(l.map(e => e.principal)).size === 1 ?" "  const resolve = tag => { const l = byTag.get(tag); return l ?" "conflicting wallets resolved"
+mut adapters/canonical.mjs "if (!s || s.size !== 1) return null;" "if (!s) return null;" "disagreeing herald bells accepted"
+mut adapters/canonical.mjs "s.add(r.bell === 0xffffffff ? null : r.bell);" "s.add(r.bell);" "pre-genesis bell used"
+mut adapters/canonical.mjs "  if (!att || att.commitment !== 'finalized' ||" "  if (!att ||" "unfinalized commitment accepted"
+mut adapters/canonical.mjs "  if (world && att.world_id !== world.world_id) return { slot: null, why: 'finality_for_another_world' };" "" "finality of another world accepted"
+mut adapters/canonical.mjs "  if (!decl || typeof decl.source !== 'string' || !decl.source) return 'world_binding_undeclared';" "  if (!decl) return 'world_binding_undeclared';" "unsourced world binding accepted"
+mut adapters/canonical.mjs "  if (decl.ws04World !== storeWorld) return 'ws04_store_bound_to_another_world';" "" "store of another world accepted"
+mut adapters/canonical.mjs "  const bellSecs = need('bellSecs', v => Number.isSafeInteger(v) && v > 0);" "  const bellSecs = 600;" "bellSecs assumed"
+mut adapters/canonical.mjs "      if (!Number.isSafeInteger(bell) || bell < 0) return { status: 'clock_unverified', lines: [] };" "      if (!Number.isSafeInteger(bell) || bell < 0) return { status: 'ok', lines: [] };" "resident bell used as world bell"
+mut adapters/canonical.mjs "      if (!known) return { status: 'identity_unverified', lines: [] };" "" "unpaired wallet answered"
+mut adapters/ws08-world.mjs "Math.floor((t - genesisTs) / bellSecs)" "Math.floor((t - genesisTs) / 600)" "block-time clock ignores bellSecs"
