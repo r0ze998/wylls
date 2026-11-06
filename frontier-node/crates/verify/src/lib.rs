@@ -230,7 +230,7 @@ pub fn verify(input: &Input) -> Report {
     } else {
         base
     };
-    // A history no source showed to be complete is never PASS or FAIL.
+    // An unproven history is never PASS; only self-contained failures remain FAIL.
     history::apply(&input.history, r)
 }
 

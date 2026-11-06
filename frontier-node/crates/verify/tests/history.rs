@@ -40,6 +40,7 @@ fn answer(n: &Node, req: &Value) -> Value {
     let p = req.get("params").cloned().unwrap_or(json!([]));
     let all = n.txs.lock().unwrap().clone();
     let result = match req.get("method").and_then(|m| m.as_str()).unwrap_or("") {
+        "frontier_feed" => json!([]),
         "getTransaction" => {
             let sig = p.get(0).and_then(|x| x.as_str()).unwrap_or("");
             match all.iter().find(|(s, _)| s == sig) {
@@ -726,4 +727,50 @@ async fn a_self_contained_fail_still_fails_over_an_unproven_history() {
         assert!(r.json()["history"]["selfContainedFails"].as_u64().unwrap() >= 1);
         assert_eq!(r.json()["history"]["complete"], false);
     }
+}
+
+/// These checks use only literal JSON and report values, never a keypair.
+#[test]
+fn malformed_feed_cursors_and_empty_archives_never_gain_dataset_trust() {
+    for cursor in [
+        json!({"feed_after": null}),
+        json!({"feed_after": "9"}),
+        json!({"feed_after": -1}),
+        json!({"feed_after": 1.5}),
+    ] {
+        let h = History::of_archive(&cursor, true, "literal cursor");
+        assert!(h.unproven());
+        unproven_verdicts(&h);
+    }
+    let h = History::of_archive(&json!({"feed_after": 9}), false, "empty");
+    assert!(h.unproven());
+    assert_eq!(h.state(), Some("not_fetched"));
+    assert!(!History::of_archive(&json!({"feed_after": 9}), true, "observed").unproven());
+}
+
+#[test]
+fn dataset_scope_is_explicit_and_conflicting_feed_coverage_is_unproven() {
+    for h in [History::default(), History::ledger_feed("local")] {
+        assert_eq!(h.report()["scope"], "dataset_only");
+        assert_eq!(h.report()["complete"], Value::Null);
+    }
+    for state in ["gap", "unverifiable", "cross_checked", "not_fetched"] {
+        let h = History::from_json(Some(&json!({
+            "source": "ledger_feed", "coverage": {"state": state}, "detail": "contradiction"
+        })));
+        assert!(h.unproven());
+        unproven_verdicts(&h);
+        assert_eq!(h.report()["scope"], "observed_transactions");
+    }
+}
+
+#[tokio::test]
+async fn empty_local_feed_is_an_observation_not_a_complete_season() {
+    let (_n, url) = node(&[]).await;
+    let (txs, h) = input::fetch_txs(&url, &program(), true, None, None)
+        .await
+        .unwrap();
+    assert!(txs.is_empty());
+    assert!(h.unproven());
+    unproven_verdicts(&h);
 }

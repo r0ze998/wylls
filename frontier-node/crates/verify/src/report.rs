@@ -83,7 +83,7 @@ pub fn markdown(r: &Report) -> String {
             if h["complete"] == serde_json::json!(false) {
                 " — not shown to be the whole history"
             } else {
-                ""
+                " — dataset-only verdict, not a whole-chain claim"
             }
         ));
     }

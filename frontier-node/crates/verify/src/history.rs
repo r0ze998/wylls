@@ -137,7 +137,7 @@ impl History {
         if let Some(c) = findex::ingest::coverage_from_cursor(cursor) {
             return History::rpc(c, format!("archive {dir}"));
         }
-        if cursor.get("feed_after").is_some() {
+        if has_records && cursor.get("feed_after").and_then(Value::as_u64).is_some() {
             return History::ledger_feed(format!("archive {dir} (local node feed)"));
         }
         if !has_records {
@@ -176,6 +176,7 @@ impl History {
         json!({
             "source": self.source.name(),
             "basis": self.basis(),
+            "scope": if self.unproven() { "observed_transactions" } else { "dataset_only" },
             // Never `true`: no source this verifier reads proves it.
             "complete": if self.unproven() { json!(false) } else { Value::Null },
             "state": self.state(),
@@ -214,6 +215,9 @@ impl History {
             Source::Fixture => {
                 History::unknown(format!("history.source \"fixture\" recorded: {detail}"))
             }
+            Source::LedgerFeed if coverage.is_some() => History::unknown(format!(
+                "ledger_feed history carries incompatible coverage: {detail}"
+            )),
             Source::Rpc if coverage.is_none() => {
                 History::unknown(format!("rpc history without its coverage: {detail}"))
             }

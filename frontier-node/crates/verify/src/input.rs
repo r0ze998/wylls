@@ -428,7 +428,14 @@ pub async fn fetch_txs(
             }
             out.extend(b);
         }
-        return Ok((out, History::ledger_feed(format!("local node feed {url}"))));
+        let history = if out.is_empty() {
+            History::unknown(format!(
+                "local node feed {url}: empty observation, not proof of an empty season"
+            ))
+        } else {
+            History::ledger_feed(format!("local node feed {url}"))
+        };
+        return Ok((out, history));
     }
     let mut s = findex::ingest::RpcPoll::new(url, *program);
     if let Some(o) = origin {
