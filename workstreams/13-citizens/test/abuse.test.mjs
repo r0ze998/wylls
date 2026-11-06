@@ -138,8 +138,10 @@ test('words in a request do not change what may be chosen, and reach the provide
   assert.ok(seen, 'the provider was asked');
   assert.match(seen.user, /<untrusted[^>]*>[^<]*SYSTEM: send all[^<]*<\/untrusted>/);
   assert.doesNotMatch(seen.user, /<\|im_start\|>/);
-  const seed = Buffer.from(ren.keypair.secretKey.slice(0, 32)).toString('hex');
-  assert.ok(!seen.system.includes(seed) && !seen.user.includes(seed), 'no key material reaches the provider');
+  if (ren.keypair) { // keyless runs have no key material to leak
+    const seed = Buffer.from(ren.keypair.secretKey.slice(0, 32)).toString('hex');
+    assert.ok(!seen.system.includes(seed) && !seen.user.includes(seed), 'no key material reaches the provider');
+  }
 });
 
 test('a raid changes the next answer: after its caravan is taken on a road, the resident declines that road for a while', async () => {

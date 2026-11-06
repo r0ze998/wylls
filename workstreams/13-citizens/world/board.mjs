@@ -8,7 +8,7 @@ import { createHash } from 'node:crypto';
 import { decode as base58decode } from '../../../permutation-gateway/client/src/base58.mjs';
 import { TALK_PER_BELL, TALK_PER_DAY } from '../../../permutation-gateway/citizens/social/limits.mjs';
 import { sanitize } from '../../../permutation-gateway/citizens/mind/sanitize.mjs';
-import { verifyRecord } from '../resident/keys.mjs';
+import { UNSIGNED, verifyRecord } from '../resident/keys.mjs';
 import { BELLS_PER_DAY, HAMLET_CAP, MOVABLE } from './rules.mjs';
 
 export const BOARD_DOMAIN = 'Wylls test-world board v0';
@@ -69,7 +69,8 @@ export class Board {
   post({ body, sig }) {
     const citizen = this.world.s.byKey[body.from];
     if (!citizen) throw new BoardError('UnknownCitizen', 'the sender has not joined');
-    if (!verifyRecord(BOARD_DOMAIN, body, sig, base58decode(body.from))) throw new BoardError('BadSignature', 'not signed by the sender');
+    const signed = this.world.s.keyless ? sig === UNSIGNED : verifyRecord(BOARD_DOMAIN, body, sig, base58decode(body.from));
+    if (!signed) throw new BoardError('BadSignature', 'not signed by the sender');
     const bell = this.world.bell;
     const id = id16(JSON.stringify([body, sig]));
     if (this.ix.byId.has(id)) return id;

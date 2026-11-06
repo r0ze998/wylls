@@ -15,6 +15,7 @@
 // restarted resident first asks the world for the fate of every unfinished
 // key instead of deciding again. Ledger and journal share one state file
 // written by rename, so a hold and the decision it paid for move together.
+import { clockId, sameClock, worldMismatch } from './frame.mjs';
 import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync } from 'node:fs';
 import path from 'node:path';
 import { AgentLedger } from '../../../permutation-gateway/src/frontier/agent/ledger.mjs';
@@ -25,8 +26,10 @@ import { BELL_SECS, BELLS_PER_DAY } from '../world/rules.mjs';
 import { buildCandidates } from './candidates.mjs';
 import { GOALS } from './goals.mjs';
 import { GIFT_WINDOW_BELLS } from './safety.mjs';
-import { addressOf, loadOrCreateKey, signRecord } from './keys.mjs';
+import { keyIdentity, loadOrCreateKey } from './keys.mjs';
 import { answerSchema, decideWithin, ProviderRefusal } from './ports/provider.mjs';
+import { assertPort } from './ports/execution.mjs';
+import { flatCost } from './ports/cost.mjs';
 import { JOIN_DOMAIN } from '../world/testworld.mjs';
 
 export const DEFAULT_LIMITS = Object.freeze({
@@ -50,12 +53,28 @@ export const DEFAULT_BUDGET = Object.freeze({ pricePerCall: '10000', total: '600
 // A UTC midnight: the agent ledger counts its daily budget by UTC day, so a game day (bell / 144) and a ledger day coincide.
 export const GENESIS_SECS = 1_799_971_200;
 const TRANSIENT = new Set(['BucketEmpty', 'QuotaExceeded', 'SendFailed', 'Transport']);
+/**
+ * Workstream 4's seven states after a send (docs/EXECUTION-CONTRACT-20261106.ja.md §1, the agent wallet's
+ * GET /f/agent/fate): landed and failed are final; expired and not-sent are final AND prove nothing happened, so a
+ * NEW attempt (a new key) may be made; pending waits; unknown (it may have landed) holds and is never re-sent;
+ * unqueryable (could not ask) is read again and says nothing about the act. `registered` (④'s registry before the
+ * first read) waits like pending.
+ */
+export const SEND_STATES = Object.freeze(['not-sent', 'landed', 'failed', 'expired', 'pending', 'unknown', 'unqueryable']);
+const NOTHING_HAPPENED = new Set(['expired', 'not-sent']);
 
 const dayOf = bell => Math.floor(bell / BELLS_PER_DAY);
 /** v2: counterparties by wallet address, observation cursors, prunable present state (v1 is migrated on open). */
 export const STATE_VERSION = 2;
 /** The most decisions one owner command may add to the allowance. */
 export const MAX_EXTEND = 1000;
+/**
+ * Journal states of work that is not finished. `unresolved`: the world gave no definite answer for a game day; the
+ * line is kept, reported and still blocks the same action, and a definite answer later still settles it.
+ */
+export const OPEN_STATES = Object.freeze(['intended', 'sent', 'unresolved']);
+/** Answers of "no record of this key" before a send whose reply was lost is re-sent under the same key. */
+export const UNCLEAR_BEFORE_RESUBMIT = 3;
 /** What makes two actions the same action (for the failure hold-off). */
 export const actionSig = a => `${a.name}:${JSON.stringify(a.fields)}`;
 const candidateAction = c => (c.kind === 'build' ? { name: 'Build', fields: { item: c.act.item } } : c.kind === 'accept' ? { name: 'SendCaravan', fields: { to: c.act.to, goods: c.act.goods } } : null);
@@ -91,13 +110,15 @@ export class Resident {
   /**
    * ports: observe() → {world, board}; join(record) → citizen; execution (ExecutionPort); board (BoardPort);
    * provider (ProviderPort); memory (MemoryPort); fallback(candidates) → candidate id (the seam for workstream 5's autopilot).
-   * crash: test hook {at: 'after-decision'|'after-intent'|'after-submit', turn?, key?} throws there once.
+   * crash: test hook {at: 'after-decision'|'after-intent'|'after-submit'|'during-inference', turn?, key?} throws there once.
    */
-  constructor({ dir, ports, crash = null, log = () => {} }) {
+  constructor({ dir, ports, crash = null, log = () => {}, identity = null }) {
     this.dir = dir;
     this.charter = JSON.parse(readFileSync(path.join(dir, 'charter.json'), 'utf8'));
-    this.keypair = loadOrCreateKey(path.join(dir, 'resident.key'));
-    this.address = addressOf(this.keypair);
+    // Its own key, made on first start (resident.key, 0600), unless the harness hands a keyless test identity.
+    this.identity = identity ?? keyIdentity(loadOrCreateKey(path.join(dir, 'resident.key')));
+    this.keypair = this.identity.keypair;
+    this.address = this.identity.address;
     this.ports = ports;
     this.crash = crash;
     this.log = log;
@@ -116,6 +137,22 @@ export class Resident {
     const rec = this.ledger.get(this.charter.id);
     for (const h of Object.values(rec.holds)) if (h.state === 'running') this.ledger.markUnresolved(this.charter.id, h.id, 'restart');
     this.store.save();
+  }
+
+  /**
+   * Calls the cost port's own ledger still holds as reserved or calling when this process starts were cut off by a
+   * stop: a call that was calling may have reached the provider (undecided: never released, never 0); one only
+   * reserved was not made (released). Told once, at the first step after the restart, when the ports are in place.
+   */
+  #costRestart() {
+    const open = this.state.costCalls;
+    if (!open || this.costRestartDone) return;
+    this.costRestartDone = true;
+    const cost = this.ports.cost;
+    for (const [callKey, c] of Object.entries(open)) {
+      cost?.restarted?.(callKey, c.phase);
+      delete open[callKey];
+    }
   }
 
   get state() { return this.store.state; }
@@ -166,7 +203,7 @@ export class Resident {
    */
   owed() {
     const started = Object.values(this.state.journal)
-      .filter(j => ['deliver', 'return'].includes(j.purpose?.type) && ['intended', 'sent'].includes(j.state))
+      .filter(j => ['deliver', 'return'].includes(j.purpose?.type) && OPEN_STATES.includes(j.state))
       .map(j => ({ key: j.key, type: j.purpose.type, request: j.purpose.request, state: j.state }));
     const waiting = (this.state.debts ?? []).filter(d => !started.some(s => s.request === d.request)).map(d => ({ type: 'return', ...d, state: 'not-started' }));
     return [...started, ...waiting];
@@ -262,6 +299,9 @@ export class Resident {
 
   async step() {
     const st = this.state;
+    // The execution port must promise to keep keys long enough (08-retention-contract.ja.md); checked once.
+    if (this.portsChecked !== this.ports.execution) { assertPort('execution', this.ports.execution); this.portsChecked = this.ports.execution; }
+    this.#costRestart();
     // Only what changed since the last step (events by sequence, board requests changed since a bell), plus the
     // gift window, so a long-lived resident reads a bounded amount however long the world has run.
     const obs = await this.ports.observe(this.address, { events: st.cursor?.events ?? 0, boardBell: Math.max(0, Math.min((st.cursor?.board ?? 0) - 1, (this.bell ?? 0) - GIFT_WINDOW_BELLS)) });
@@ -274,13 +314,14 @@ export class Resident {
       if (mine) { st.citizen = mine.citizen; this.save(); }
       else {
         const body = { name: this.charter.name, pos: this.charter.pos, key: this.address };
-        st.citizen = await this.ports.join({ body, sig: signRecord(JOIN_DOMAIN, body, this.keypair) });
+        st.citizen = await this.ports.join({ body, sig: this.identity.sign(JOIN_DOMAIN, body) });
         this.ports.memory.append({ id: `joined:${st.citizen}`, bell, kind: 'joined', importance: 1, entities: [this.address], text: { en: 'joined with the starter kit', ja: '初期資源で参加した' } });
         this.save();
         return { bell, did: 'joined' };
       }
     }
     const stop = this.#stopReason();
+    this.#settleReturns(obs);
     this.#noteDebts(obs);
     // A paused resident still reads (its cursors do not move, so nothing is missed when it resumes) and reports what it owes.
     if (stop && !stop.keepPromises) { await this.#reconcile({ send: false }); this.save(); return { bell, stopped: stop.why, owed: this.owed() }; }
@@ -319,7 +360,7 @@ export class Resident {
 
   #intent(key, spec) {
     const j = this.state.journal;
-    if (!j[key]) j[key] = { key, state: 'intended', attempts: 1, nextBell: this.bell, ...spec };
+    if (!j[key]) j[key] = { key, state: 'intended', attempts: 1, nextBell: this.bell, createdBell: this.bell, ...spec };
     return j[key];
   }
 
@@ -337,8 +378,11 @@ export class Resident {
       return it;
     }
     // A key already known to the world (a send made before a restart) is never sent twice: its recorded answer is taken.
-    let res = await this.ports.execution.status(sendKey);
+    // When the port cannot answer, going on to submit is safe: the same key never executes twice (08, R1/R2).
+    let res;
+    try { res = await this.ports.execution.status(sendKey); } catch { res = null; }
     if (!res) {
+      it.submittedBell = this.bell;
       try { res = await this.ports.execution.submit({ agentId: this.id, source: 'resident', idempotencyKey: sendKey, policyVersion: 1, modeEpoch: this.ledger.get(this.id).modeEpoch, action: it.action }); }
       // The world may have accepted the send before its reply was lost. A transport error
       // is not proof of failure, so retain this key and reconcile it instead of trying #a2.
@@ -346,15 +390,27 @@ export class Resident {
       this.#crashAt('after-submit', it.turn, it.key);
     }
     it.sendKey = sendKey;
-    if (res.status === 'sent') Object.assign(it, { state: 'sent', signature: res.signature });
-    else if (res.status === 'unknown' || (res.error?.code === 'Transport' && res.fate !== 'failed'))
-      Object.assign(it, { state: 'sent', lastError: 'Transport' });
+    // An action counts against the day's allowance once per key, the first time this journal line sees the world
+    // accept it (or maybe accept it: an ambiguous reply), also when that is read back after a crash. A send the
+    // world recorded before this line existed was not sent by it and is not counted (the phantom of a re-created
+    // obligation).
+    const ambiguous = res.status === 'unknown' || (res.error?.code === 'Transport' && res.fate !== 'failed');
+    const recordedBefore = Number.isInteger(res.landedBell) && Number.isInteger(it.createdBell) && res.landedBell < it.createdBell;
+    if ((res.status === 'sent' || ambiguous) && !recordedBefore) this.#countAction(it);
+    if (res.status === 'sent') { Object.assign(it, { state: 'sent', signature: res.signature }); delete it.lastError; }
+    else if (ambiguous) Object.assign(it, { state: 'sent', lastError: 'Transport' });
     else this.#retryOrFail(it, res.error?.code ?? 'Unknown');
     return it;
   }
 
+  #countAction(it) {
+    if (it.counted?.includes(it.sendKey)) return;
+    it.counted = [...(it.counted ?? []), it.sendKey];
+    this.#today(this.bell).actions += 1;
+  }
+
   #retryOrFail(it, code) {
-    if (TRANSIENT.has(code) && it.attempts <= this.charter.limits.maxRetries) {
+    if ((TRANSIENT.has(code) || NOTHING_HAPPENED.has(code)) && it.attempts <= this.charter.limits.maxRetries) {
       Object.assign(it, { state: 'intended', attempts: it.attempts + 1, nextBell: this.bell + this.charter.limits.retryBackoffBells * it.attempts, lastError: code });
       return;
     }
@@ -376,15 +432,29 @@ export class Resident {
   #prune(bell) {
     const st = this.state;
     for (const [k, it] of Object.entries(st.journal)) {
-      if (!['intended', 'sent'].includes(it.state) && bell - (it.landedBell ?? it.nextBell ?? bell) > BELLS_PER_DAY) delete st.journal[k];
+      if (!OPEN_STATES.includes(it.state) && bell - (it.settledBell ?? it.landedBell ?? it.nextBell ?? bell) > BELLS_PER_DAY) delete st.journal[k];
     }
     for (const [k, until] of Object.entries(st.cooldown)) if (until <= bell) delete st.cooldown[k];
     for (const [k, f] of Object.entries(st.failures)) if (f.until + BELLS_PER_DAY <= bell) delete st.failures[k];
-    for (const map of [st.accepted, st.returns]) {
-      for (const [k, v] of Object.entries(map)) {
-        const at = typeof v === 'object' ? v.bell : null;
-        if (at != null && bell - at > BELLS_PER_DAY && !Object.values(st.journal).some(j => j.purpose?.request === k && ['intended', 'sent'].includes(j.state))) delete map[k];
-      }
+    // An accept marker may go after a day: the board itself refuses a second reply to the same request.
+    // A return marker may NOT go by age (it is what stops a paid return from being created again once its
+    // journal line is pruned); #settleReturns drops it when the board shows the debt settled or gone.
+    for (const [k, v] of Object.entries(st.accepted)) {
+      const at = typeof v === 'object' ? v.bell : null;
+      if (at != null && bell - at > BELLS_PER_DAY && !Object.values(st.journal).some(j => j.purpose?.request === k && OPEN_STATES.includes(j.state))) delete st.accepted[k];
+    }
+  }
+
+  /**
+   * Return markers are dropped only when the board says the request no longer owes anything (returned, returned
+   * late, nothing promised) or no longer lists it (the board lists every request that can still move, so an
+   * absent one is settled). A marker for a return the board still counts as unpaid (a raided return) stays.
+   */
+  #settleReturns(obs) {
+    const seen = new Map(obs.board.requests.map(r => [r.id, r]));
+    for (const id of Object.keys(this.state.returns)) {
+      const r = seen.get(id);
+      if (!r || (r.status === 'fulfilled' && ['returned', 'returned-late', 'none-promised'].includes(r.returned))) delete this.state.returns[id];
     }
   }
 
@@ -393,16 +463,51 @@ export class Resident {
     this.state.cursor = { events: Math.max(this.state.cursor?.events ?? 0, last?.seq ?? 0), board: bell };
   }
 
+  /**
+   * Finishes or re-reads unfinished journal lines. A definite answer (landed, failed, cancelled) settles a line,
+   * also an `unresolved` one. Without one ("no record of this key", the port's `unknown`, or no answer at all):
+   *   - re-queries back off (1, 2, 4 … bells, at most the pulse), so an unclear line costs few reads;
+   *   - a send whose reply was lost (f637c7a keeps it `sent` under its key) is re-sent under the SAME key once the
+   *     port has said "no record" UNCLEAR_BEFORE_RESUBMIT times: within the port's retention a key never executes
+   *     twice, so this either replays the earlier answer or sends the action once. Never under a new key, never
+   *     after the retention window (the key may have been forgotten), never for the port's `unknown`;
+   *   - after a game day without a definite answer the line becomes `unresolved` and is reported (owed()).
+   */
   async #reconcile({ send }) {
     for (const it of Object.values(this.state.journal)) {
       if (it.state === 'intended' && send) await this.#run(it);
-      if (it.state === 'sent') {
-        const s = await this.ports.execution.status(it.sendKey);
-        if (s?.fate === 'landed') Object.assign(it, { state: 'landed', landedBell: s.landedBell });
-        else if (s?.fate === 'failed') this.#retryOrFail(it, s.fateError);
-        else if (s?.fate === 'cancelled') it.state = 'cancelled';
+      if (!['sent', 'unresolved'].includes(it.state) || (it.nextQueryBell ?? 0) > this.bell) continue;
+      let s;
+      try { s = await this.ports.execution.status(it.sendKey); } catch { s = { fate: 'unknown', unavailable: true }; }
+      if (s?.fate === 'landed') { Object.assign(it, { state: 'landed', landedBell: s.landedBell }); this.#clearUnclear(it); continue; }
+      if (s?.fate === 'failed') { this.#clearUnclear(it); this.#retryOrFail(it, s.fateError); continue; }
+      if (s?.fate === 'cancelled') { it.state = 'cancelled'; this.#clearUnclear(it); continue; }
+      // Proven not to have happened: a new attempt under a new key (#a2 …), within maxRetries.
+      if (NOTHING_HAPPENED.has(s?.fate)) { this.#clearUnclear(it); it.lastFate = s.fate; this.#retryOrFail(it, s.fate); continue; }
+      if (s?.fate === 'pending' || s?.fate === 'registered') continue; // accepted and on its way
+      // unknown (it may have landed) and unqueryable (could not ask) fall through: held, read again, never re-sent.
+      // No definite answer.
+      it.unclear = (it.unclear ?? 0) + 1;
+      it.firstUnclearBell ??= this.bell;
+      it.nextQueryBell = this.bell + Math.min(this.charter.limits.pulseBells, 2 ** Math.min(it.unclear - 1, 6));
+      const retention = this.ports.execution.retentionBells ?? 0;
+      const withinRetention = Number.isInteger(it.submittedBell) && this.bell - it.submittedBell < retention;
+      if (send && s === null && it.lastError === 'Transport' && it.unclear >= UNCLEAR_BEFORE_RESUBMIT && withinRetention && (it.resubmits ?? 0) < this.charter.limits.maxRetries) {
+        it.resubmits = (it.resubmits ?? 0) + 1;
+        it.state = 'intended';
+        await this.#run(it);
+        continue;
+      }
+      if (it.state === 'sent' && this.bell - it.firstUnclearBell >= BELLS_PER_DAY) {
+        Object.assign(it, { state: 'unresolved', unresolvedBell: this.bell, why: s === null ? 'no record of the key' : 'the port reports the result as unknown' });
       }
     }
+  }
+
+  /** A line that had no definite answer and now has one; `settledBell` keeps it in the journal for a day from now. */
+  #clearUnclear(it) {
+    if (it.unclear != null || it.unresolvedBell != null) it.settledBell = this.bell;
+    delete it.unclear; delete it.firstUnclearBell; delete it.nextQueryBell;
   }
 
   /** The owner's explicit withdrawal at a stop: unsent actions that promise nothing to anyone (builds) are dropped. */
@@ -471,7 +576,6 @@ export class Resident {
       if (r.from !== me || r.status !== 'fulfilled' || !['due', 'not-returned'].includes(r.returned) || this.state.returns[r.id]) continue;
       const key = `${this.id}:return:${r.id}`;
       this.state.returns[r.id] = { key, bell };
-      this.#today(bell).actions += 1;
       this.#intent(key, { port: 'action', turn: this.state.turn, purpose: { type: 'return', request: r.id }, action: { name: 'SendCaravan', fields: { to: r.by, goods: r.offer } } });
       this.save();
       await this.#run(this.state.journal[key]);
@@ -507,6 +611,7 @@ export class Resident {
     const mem = this.ports.memory.recall({ focus: [this.address, ...cands.flatMap(c => (c.act.to ? [this.#who(c.act.to)] : []))], bell });
     const handles = mem.map((_, i) => `M${i + 1}`);
     const inbox = obs.board.requests.filter(r => cands.some(c => c.act.request === r.id));
+    const evidence = this.#publicEvidence(cands, bell);
     const user = [
       `Turn ${bell}. Woken by: ${wakes.join(', ')}.`,
       `My village ${me}: ${Object.entries(village.stores).filter(([, v]) => v).map(([k, v]) => `${k} ${v}`).join(', ')}; buildings ${village.buildings.join(',') || 'none'}.`,
@@ -514,6 +619,7 @@ export class Resident {
       ...inbox.map(r => `- ${r.id} from ${r.from}: wants ${JSON.stringify(r.want)}, offers ${JSON.stringify(r.offer)}, by turn ${r.deadlineBell}. ${wrapUntrusted(r.note, { from: r.from, ch: 'board', bell: r.bell })}`),
       'Remembered:',
       ...mem.map((e, i) => wrapMemory(`turn ${e.bell}, ${e.kind}: ${e.text.en}`, { kind: 'episode', id: handles[i] })),
+      ...(evidence.lines.length ? ['Public records (workstream 12; evidence, not a verdict):', ...evidence.lines] : []),
       'Choose one:',
       ...cands.map(c => `- ${c.id}: ${c.summary}`),
     ].join('\n');
@@ -523,7 +629,41 @@ export class Resident {
       candidates: cands.map(c => ({ id: c.id, kind: c.kind, summary: c.summary, score: c.score })),
       handles, schema: answerSchema(cands.map(c => c.id), handles),
       limits: { maxOutputTokens: this.charter.limits.maxOutputTokens, deadlineMs: this.charter.limits.providerDeadlineMs },
+      evidence: evidence.summary,
     };
+  }
+
+  /**
+   * Public evidence about the counterparties of this decision, read through workstream 12's read-only sidecar
+   * (`ports.evidence`, resident/ports/ws12-public-evidence.mjs from the integration branch). It is shown to the
+   * provider as marked, untrusted text with its epistemic state and sources, and recorded in the decision; it does
+   * NOT change trust, candidates, scores, limits or sends, and nothing is ever written to workstream 12's memory.
+   * Without the port, or when the sidecar withholds (world or identity unverified) or fails, nothing is shown.
+   * The port is handed this resident's own bell; mapping it to workstream 12's world bell, and a wallet address
+   * to a workstream 12 principal, is the port's job (workstreams 4/8 must supply both; tests use fixtures).
+   */
+  #publicEvidence(cands, bell) {
+    const port = this.ports.evidence;
+    if (!port || typeof port.read !== 'function') return { lines: [], summary: null };
+    const counterparties = [...new Set(cands.flatMap(c => (c.act.to ? [this.#who(c.act.to)] : [])))].slice(0, 3);
+    // Evidence on another clock than this resident's bell is not read: a bell of one clock is not a bell of the other.
+    // Nor evidence about another world (workstream 12's {cluster, world_id}).
+    const mine = this.ports.observe?.clock ?? null, theirs = port.clock ?? null;
+    if (mine && theirs && !sameClock(mine, theirs)) return { lines: [], summary: counterparties.map(counterparty => ({ counterparty, status: 'clock_mismatch', clocks: [clockId(mine), clockId(theirs)] })) };
+    const wm = worldMismatch(this.ports.observe?.world ?? null, port.world ?? null);
+    if (wm) return { lines: [], summary: counterparties.map(counterparty => ({ counterparty, status: 'world_mismatch', why: wm, worlds: [this.ports.observe.world.world_id, port.world.world_id] })) };
+    const lines = [];
+    const summary = [];
+    for (const counterparty of counterparties) {
+      let r;
+      try { r = port.read({ counterparty, worldBell: bell }); } catch (e) { summary.push({ counterparty, status: 'error', error: String(e.message).slice(0, 80) }); continue; }
+      summary.push({ counterparty, status: r.status, lines: r.lines.length, epistemic: [...new Set(r.lines.map(l => l.epistemic))] });
+      if (r.status !== 'ok') continue;
+      for (const l of r.lines.slice(0, 3)) {
+        lines.push(`- about ${counterparty.slice(0, 8)} [${l.epistemic}; sources ${l.sources.slice(0, 2).join(', ')}]: ${wrapUntrusted(l.text, { from: 'workstream-12', ch: 'public-record', bell })}`);
+      }
+    }
+    return { lines, summary };
   }
 
   async #decide(obs, bell, wakes) {
@@ -540,7 +680,7 @@ export class Resident {
     });
     const { excluded, assessment } = built;
     // The same action is never chosen while an earlier one is still on its way, nor straight after it failed.
-    const inFlight = new Set(Object.values(st.journal).filter(j => j.action && ['intended', 'sent'].includes(j.state)).map(j => actionSig(j.action)));
+    const inFlight = new Set(Object.values(st.journal).filter(j => j.action && OPEN_STATES.includes(j.state)).map(j => actionSig(j.action)));
     const held = c => {
       const a = candidateAction(c);
       if (!a) return null;
@@ -556,25 +696,53 @@ export class Resident {
     else if (st.providerPausedUntil > bell) { d.refusal = 'ProviderPaused'; }
     else {
       const b = this.charter.budget;
+      // What the call is reserved at, and later charged: ports/cost.mjs (flat by default; workstream 5's price book
+      // when the owner configures one).
+      const cost = this.ports.cost ?? flatCost(b.pricePerCall);
+      const req = this.#request(obs, bell, turn, candidates, wakes);
+      const quote = cost.quote(req);
       let hold = null;
-      try { hold = this.ledger.hold(this.id, { category: 'inference', amount: b.pricePerCall, key: `${this.id}:t${turn}:infer`, policyVersion: 1, modeEpoch: this.ledger.get(this.id).modeEpoch }); }
+      try { hold = this.ledger.hold(this.id, { category: 'inference', amount: quote, key: `${this.id}:t${turn}:infer`, policyVersion: 1, modeEpoch: this.ledger.get(this.id).modeEpoch }); }
       catch (e) { d.refusal = e.code ?? 'BudgetRefused'; }
+      // A cost port with a ledger of its own (workstream 5's, ports/ws05-cost.mjs) reserves the same call under its
+      // own key, one per hold, before the call; its refusal (a cap, a lost process lease) means no call.
+      const callKey = hold ? `${this.id}:t${turn}:infer:${hold.id}` : null;
+      if (hold && typeof cost.reserve === 'function') {
+        try { cost.reserve(callKey, quote); (st.costCalls ??= {})[callKey] = { holdId: hold.id, phase: 'reserved', bell }; }
+        catch (e) { this.ledger.release(this.id, hold.id, `cost ledger refused: ${e.code ?? 'refused'}`); d.refusal = e.code ?? 'CostRefused'; d.cost = { kind: cost.kind, quote, refused: e.code ?? 'refused' }; hold = null; }
+      }
       if (hold) {
         this.ledger.markRunning(this.id, hold.id);
-        const req = this.#request(obs, bell, turn, candidates, wakes);
+        if (st.costCalls?.[callKey]) { cost.calling?.(callKey); st.costCalls[callKey].phase = 'calling'; }
+        this.save();
+        this.#crashAt('during-inference', turn);
+        if (req.evidence?.length) d.evidence = req.evidence;
+        let outcome = 'answered', usage = null;
         try {
           const ans = await decideWithin(this.ports.provider, req);
           choice = ans.choice;
           Object.assign(d, { by: 'provider', reason: ans.reason, mem: ans.mem, provider: ans.provider, model: ans.model, usage: ans.usage, promptChars: req.system.length + req.user.length });
+          usage = ans.rawUsage ?? ans.usage;
           st.providerFailures = 0;
         } catch (e) {
           d.refusal = e instanceof ProviderRefusal ? e.code : 'ProviderError';
+          outcome = e?.outcome ?? 'unknown';
+          usage = e?.usage ?? null;
           d.refusalDetail = String(e.message).slice(0, 120);
           st.providerFailures += 1;
           if (st.providerFailures >= this.charter.limits.providerFailuresBeforePause) { st.providerPausedUntil = bell + this.charter.limits.pulseBells; st.providerFailures = 0; }
         } finally {
-          // A call made is a call charged, answered or not (the agent wallet owner's decision of 2026-10-17).
-          this.ledger.settle(this.id, hold.id, b.pricePerCall, { kind: 'inference', turn });
+          // Flat: a call made is a call charged, answered or not (the agent wallet owner's decision of 2026-10-17).
+          // Price book: the measured usage, at most the quote; an unknown outcome stays undecided (unresolved hold).
+          const out = cost.settle({ outcome, usage, quote });
+          if (st.costCalls?.[callKey]) { cost.close?.(callKey, { ...out, outcome }); delete st.costCalls[callKey]; }
+          if (out.undecided) {
+            this.ledger.markUnresolved(this.id, hold.id, `inference ${out.reason}`);
+            d.cost = { kind: cost.kind, quote, undecided: out.reason };
+          } else {
+            this.ledger.settle(this.id, hold.id, out.charge, { kind: 'inference', turn });
+            d.cost = { kind: cost.kind, quote, charge: out.charge, ...(out.overrun ? { overrun: out.overrun } : {}) };
+          }
         }
       }
     }
@@ -599,7 +767,6 @@ export class Resident {
       if (d.kind === 'build') {
         keys.push(k(1));
         this.#intent(k(1), { port: 'action', turn: t, purpose: { type: 'build' }, action: { name: 'Build', fields: { item: d.act.item } } });
-        today.actions += 1;
       } else if (d.kind === 'request') {
         keys.push(k(1));
         this.#intent(k(1), { port: 'board', turn: t, purpose: { type: 'request' }, body: { kind: 'request', to: d.act.to, want: d.act.want, offer: d.act.offer, deadlineBell: d.act.deadlineBell, note: d.reason ?? '', nonce: k(1) } });
@@ -610,7 +777,7 @@ export class Resident {
         this.#intent(k(2), { port: 'action', turn: t, after: k(1), purpose: { type: 'deliver', request: d.act.request }, action: { name: 'SendCaravan', fields: { to: d.act.to, goods: d.act.goods } } });
         this.state.accepted[d.act.request] = { turn: t, bell };
         const units = Object.values(d.act.goods).reduce((s, v) => s + v, 0);
-        today.messages += 1; today.actions += 1; today.giveAway += units;
+        today.messages += 1; today.giveAway += units;
         if (d.act.gift) today.gifts += units;
         if (d.siblingTrade) today.sibling += units;
       } else if (d.kind === 'decline') {

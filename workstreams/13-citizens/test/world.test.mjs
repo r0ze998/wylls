@@ -7,8 +7,9 @@ import { small, run } from './helpers.mjs';
 import { STARTER_KIT } from '../world/rules.mjs';
 import { addressOf, newKeypair, signRecord } from '../resident/keys.mjs';
 import { ACTION_DOMAIN, JOIN_DOMAIN } from '../world/testworld.mjs';
+import { NEEDS_KEYS } from '../world/identity.mjs';
 
-test('a resident joins by the rule a person joins by: one village, the starter kit, nothing more', async () => {
+test('a resident joins by the rule a person joins by: one village, the starter kit, nothing more', { skip: NEEDS_KEYS }, async () => {
   const env = await small({ residents: [{ id: 'ren', pos: { q: 0, r: 0 } }], people: [{ name: 'Kou', pos: { q: 3, r: 1 } }] });
   const v = env.world.view(env.ps.Kou.address).villages;
   const kit = Object.fromEntries(['Food', 'Wood', 'Stone', 'Ore', 'Arms', 'Gold', 'Science', 'Influence'].map((r, i) => [r, STARTER_KIT[i]]));
@@ -31,7 +32,7 @@ test('every viewer reads the same public part; nobody is labelled AI or person; 
   assert.doesNotMatch(JSON.stringify(a), /"kind":"(ai|person|resident)"|"label"/);
 });
 
-test('actions: signed by the actor, idempotent per actor and key, cancellable only before they land', async () => {
+test('actions: signed by the actor, idempotent per actor and key, cancellable only before they land', { skip: NEEDS_KEYS }, async () => {
   const env = await small({ people: [{ name: 'Kou', pos: { q: 3, r: 1 } }, { name: 'Mio', pos: { q: -2, r: 0 } }] });
   const kou = env.ps.Kou;
   const body = { key: 'k1', actor: kou.address, action: { name: 'Build', fields: { item: 0 } } };
@@ -57,7 +58,7 @@ test('actions: signed by the actor, idempotent per actor and key, cancellable on
   assert.equal(env.world.submit({ body: op, sig: signRecord(ACTION_DOMAIN, op, kou.keypair) }).error.code, 'ActionNotAllowed');
 });
 
-test('a resident holds its own key (0600) and no participant can use it; its ports carry no operator power', async () => {
+test('a resident holds its own key (0600) and no participant can use it; its ports carry no operator power', { skip: NEEDS_KEYS }, async () => {
   const env = await small({ residents: [{ id: 'ren', pos: { q: 0, r: 0 } }], people: [{ name: 'Kou', pos: { q: 3, r: 1 } }] });
   const r = env.rs.ren;
   const keyFile = path.join(env.dir, 'ren', 'resident.key');

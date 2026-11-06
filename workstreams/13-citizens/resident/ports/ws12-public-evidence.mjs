@@ -8,15 +8,22 @@
 // does not use the resident's wallet as a workstream 12 principal by guess.
 import { memoryLines } from '../../../12-memory/src/view.mjs';
 
-const PRINCIPAL = /^[A-Za-z0-9_-]{1,32}$/;
+// Up to 64 characters: workstream 12 v4 (4bc76d05) widened principals so that 13's base58 wallet addresses fit.
+const PRINCIPAL = /^[A-Za-z0-9_-]{1,64}$/;
 const PUBLIC_VIEWER = Object.freeze({ tag: null, nation: null });
 
-export function ws12PublicEvidence(memory, { resolvePrincipal = null } = {}) {
+/**
+ * `clock`: which clock `worldBell` is on. Workstream 12's world bell is the Season bell of workstream 8
+ * (`bell_at(genesis_ts, t)`, ws12 adapters/ws08-world.mjs): 'season-bell'. The resident withholds the evidence when
+ * its own observe port declares another clock (the test world's is 'mock-world').
+ */
+export function ws12PublicEvidence(memory, { resolvePrincipal = null, clock = null } = {}) {
   if (typeof memory?.knowledge !== 'function') throw new TypeError('workstream 12 knowledge() is required');
   if (resolvePrincipal !== null && typeof resolvePrincipal !== 'function') throw new TypeError('resolvePrincipal must be a function');
 
   return Object.freeze({
     kind: 'ws12-public-evidence-readonly',
+    clock,
     read({ counterparty, worldBell, observedBy = worldBell }) {
       if (!Number.isSafeInteger(worldBell) || worldBell < 0 || !Number.isSafeInteger(observedBy) || observedBy < 0)
         throw new TypeError('worldBell and observedBy must be nonnegative world bells');
@@ -39,4 +46,15 @@ export function ws12PublicEvidence(memory, { resolvePrincipal = null } = {}) {
       };
     },
   });
+}
+
+/**
+ * A resolver for a world whose workstream 12 records name principals by wallet address (12 v4 does when workstream
+ * 4/8's identity_alias maps a citizen tag to its wallet). It claims nothing by itself: the caller names where that
+ * guarantee comes from in `source`, which every line then carries. Not a guess from the wallet's shape alone.
+ */
+export function walletPrincipal({ source }) {
+  if (typeof source !== 'string' || !source) throw new TypeError('walletPrincipal needs the source of the wallet = principal guarantee');
+  const B58 = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+  return counterparty => (B58.test(counterparty ?? '') ? { principal: counterparty, source } : null);
 }
