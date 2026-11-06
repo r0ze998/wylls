@@ -14,6 +14,16 @@
   - 当てた後：resident の試験は 9/9、`permutation-frontier` の lib 試験（`nft-experimental`）は 103/103、`frontier-abi` の `resident_binding` は 1/1。rustfmt も通過。
   - 実行していないもの：SBF での build、LiteSVM、実チェーン。
 
+## 0. 追記（同日）：⑳は Season ごとの link（案 a）で実装する
+
+- ⑳は link の PDA を `["nft-citizen-link", season, asset]` にする案で実装を進めている。layout（PSFNR001、104 B、`{asset, resident, citizen}`、一度だけ書ける）、tag、kind、エラー番号はどれも変わらない。
+- まだどこにも deploy されていないので、下の「採らなかった案」に書いた、既存の link の移行という懸念はない。そのため④はこの案を受け入れ、⑳に伝えた。
+- AccountKind 32 の意味は「NFT の Season ごとの link」になる。番号・magic・大きさは同じなので、割当の変更はない。説明は⑳が push した後に直す。
+- 下の §2 の patch（global の link で、Citizen を比べない）は**代替案として残す**だけで、当てない。§3 の影響（譲渡、client、RESIDENT_JOINED、引き継ぎ）と §4 の確認項目は、案 a にもそのまま当てはまる。違いは 2 点ある。
+  - client の link の住所に、Season が入る。
+  - `/f/residents` の `link` が「この世界に参加済み」の意味になる。
+- 案 a では、世界ごとに link の rent（104 B）がかかり、参加する人（payer）が払う。
+
 ## 1. 原因
 
 - link（`["nft-citizen-link", asset]`、AccountKind 32、`PSFNR001`、104 B）は、すべての世界で共通の 1 つです。中身は `{asset, resident, citizen}` で、一度だけ書けます。
