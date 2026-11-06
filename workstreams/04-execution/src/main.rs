@@ -295,7 +295,7 @@ fn demo(db: &Path, scenario: &str) -> Result<(), String> {
         owner: 0x77,
         stock,
         inbound: None,
-        facility: fac,
+        facility: Some(fac),
         inputs: one(1, 5),
         outputs: one(6, 3),
         rights_units: 1,

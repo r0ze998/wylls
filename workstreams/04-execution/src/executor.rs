@@ -272,6 +272,11 @@ impl<C: Chain, R: Rights> Executor<C, R> {
         if spec.ship.dst.slot_key() == spec.stock.slot_key() {
             return Err("a send's two places never share a tile".into());
         }
+        if spec.cargo_only()
+            && (!res_is_zero(&spec.inputs) || !res_is_zero(&spec.outputs) || spec.rights_units != 0)
+        {
+            return Err("a cargo-only run has no inputs, outputs or right units".into());
+        }
         if spec.budget.max_attempts == 0 || spec.budget.max_attempts > 16 {
             return Err("max_attempts must be 1..=16".into());
         }
@@ -579,13 +584,15 @@ impl<C: Chain, R: Rights> Executor<C, R> {
 
     fn rights_free(&self, row: &RunRow) -> Result<Result<(), Reason>, Fault> {
         let s = &row.spec;
-        let other = self.store.reserved_by_others(
-            ResKind::Rights,
-            &format!("{}:{:?}", s.owner, s.facility),
-            row.id(),
-        )?[0];
+        let (Some(facility), Some(place)) = (s.facility, s.rights_place()) else {
+            // A cargo-only run uses no right.
+            return Ok(Ok(()));
+        };
+        let other = self
+            .store
+            .reserved_by_others(ResKind::Rights, &place, row.id())?[0];
         Ok(
-            match self.rights.check(s.owner, &s.facility, s.rights_units)? {
+            match self.rights.check(s.owner, &facility, s.rights_units)? {
                 RightsVerdict::Allowed { remaining, .. } if remaining >= s.rights_units + other => {
                     Ok(())
                 }
@@ -635,13 +642,35 @@ impl<C: Chain, R: Rights> Executor<C, R> {
         if !v.live || v.owner != s.owner {
             return self.fail(row, now, Reason::InputShort);
         }
-        if !res_ge(&free, &s.inputs) {
+        // A cargo-only run needs its cargo at stock; a making run its inputs.
+        let need = if s.cargo_only() {
+            s.ship.cargo
+        } else {
+            s.inputs
+        };
+        if !res_ge(&free, &need) {
             // The materials have not arrived (or are spoken for): wait,
             // unless the caravan bringing them is known lost.
             if self.inbound_lost(row)? {
                 return self.fail(row, now, Reason::InputLost);
             }
             return Ok(Next::Wait(now + self.params.poll));
+        }
+        if s.cargo_only() {
+            // No facility step: the cargo is reserved and the run goes to
+            // the send, as a making run does once its facility use is read.
+            let mut c = change(
+                RunState::FacilityConfirmed,
+                row.detail.clone(),
+                now,
+                "cargo only: cargo reserved, no facility step",
+            );
+            c.ops = vec![Op::Reserve {
+                kind: ResKind::Stock,
+                place: s.stock.slot_key(),
+                amount: s.ship.cargo,
+            }];
+            return Ok(Next::Go(c));
         }
         if let Err(why) = self.rights_free(row)? {
             return self.fail(row, now, why);
@@ -662,7 +691,7 @@ impl<C: Chain, R: Rights> Executor<C, R> {
             },
             Op::Reserve {
                 kind: ResKind::Rights,
-                place: format!("{}:{:?}", s.owner, s.facility),
+                place: s.rights_place().unwrap_or_default(),
                 amount: units,
             },
         ];
@@ -693,8 +722,12 @@ impl<C: Chain, R: Rights> Executor<C, R> {
         if let Err(why) = self.rights_free(row)? {
             return self.fail(row, now, why);
         }
-        let fac = self.chain.place(&s.facility.place)?;
-        if !fac.is_some_and(|f| f.live && f.gen == s.facility.place.gen) {
+        let Some(facility) = s.facility else {
+            // Never reached: a cargo-only run leaves Accepted for the send.
+            return self.fail(row, now, Reason::FacilityGone);
+        };
+        let fac = self.chain.place(&facility.place)?;
+        if !fac.is_some_and(|f| f.live && f.gen == facility.place.gen) {
             return self.fail(row, now, Reason::FacilityGone);
         }
         let Some((_, free)) = self.free_stock(row, &s.stock)? else {
@@ -713,7 +746,7 @@ impl<C: Chain, R: Rights> Executor<C, R> {
         let req = Request::UseFacility {
             key: s.facility_key(),
             holder: s.owner,
-            facility: s.facility,
+            facility,
             stock: s.stock,
             inputs: s.inputs,
             outputs: s.outputs,

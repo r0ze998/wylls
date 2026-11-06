@@ -292,7 +292,7 @@ fn scene(name: &str, script: Script) -> G {
         owner: OWNER,
         stock,
         inbound: None,
-        facility,
+        facility: Some(facility),
         inputs: r(1, 5),
         outputs: r(6, 3),
         rights_units: 1,

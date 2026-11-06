@@ -17,7 +17,7 @@ use std::path::Path;
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use serde::{Deserialize, Serialize};
 
-use crate::model::{allowed, Detail, Res, RunSpec, RunState, ZERO};
+use crate::model::{Detail, Res, RunSpec, RunState, ZERO};
 use crate::ports::{EventRec, Prepared, Raid, Settle};
 
 fn sql<T>(r: rusqlite::Result<T>) -> Result<T, String> {
@@ -407,7 +407,7 @@ impl Store {
     /// Applies a change if `row` is still current and `me` still holds the
     /// lease at the row's epoch. `Ok(false)`: stale; nothing was written.
     pub fn transition(&self, row: &RunRow, me: &str, now: u64, c: &Change) -> Result<bool, String> {
-        if !allowed(row.state, c.to) {
+        if !crate::model::allowed_for(&row.spec, row.state, c.to) {
             return Err(format!(
                 "transition {} → {} is not in the table ({})",
                 row.state.name(),
