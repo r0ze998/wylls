@@ -38,7 +38,7 @@ pub use crate::codes::HISTORY_UNPROVEN;
 
 /// Whether a FAIL finding holds however much history is missing: decided
 /// inside fetched transactions alone (⑪, 2026-11-06):
-/// - V0: the instruction's tag, length and allocated band;
+/// - V0: the instruction's tag and allocated band (not its length, below);
 /// - V27: a JoinResident's address, bell, join close, faction range, the
 ///   Citizen and link post-states, two records in one transaction, a
 ///   record missing under complete logs;
@@ -48,10 +48,16 @@ pub use crate::codes::HISTORY_UNPROVEN;
 ///
 /// Everything else (V1's chains and heads, V5, V7 and the other replays
 /// over earlier state) is not, until its owner says otherwise.
+///
+/// V0's `Undecodable` is left out (⑪, r9 §7): its length range depends on
+/// the Season's version, read from the final Season account or the
+/// ruleset; an archive without them can make a valid instruction look the
+/// wrong length.
 pub fn self_contained(f: &Finding) -> bool {
     f.fail()
         && match f.check {
-            "V0" | "V27" => true,
+            "V0" => f.code != crate::codes::UNDECODABLE,
+            "V27" => true,
             "V9" => f.entity == "RESIDENT_JOINED",
             _ => false,
         }

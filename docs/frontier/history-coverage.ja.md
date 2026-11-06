@@ -23,7 +23,7 @@
 |---|---|---|---|
 | `as_given` | `history` 欄の無いフィクスチャ（記録済みの試験入力） | 変えない | `null`（完全だとは主張しない） |
 | `ledger_feed` | ローカルノード自身の台帳の feed（そのままか、アーカイブ経由） | 変えない | `null` |
-| `unproven` | 公開 RPC。coverage がどの状態でも該当し、`cross_checked` も含む。出どころの分からないアーカイブも含む | **PASS にはならない**（所見 `HistoryUnproven`）。FAIL になるのは、取得済みの取引の中だけで決まる FAIL（⑪ の一覧：V0、V27、⑳ の V9 の住民の参加）があるときだけ。それ以外は UNVERIFIABLE。すべての FAIL の所見は一覧に残るが、一覧外のものは欠落した範囲が原因の可能性がある（件数は `selfContainedFails`／`otherFails`） | `false` |
+| `unproven` | 公開 RPC。coverage がどの状態でも該当し、`cross_checked` も含む。出どころの分からないアーカイブも含む | **PASS にはならない**（所見 `HistoryUnproven`）。FAIL になるのは、取得済みの取引の中だけで決まる FAIL（⑪ の一覧：V0（`Undecodable` を除く）、V27、⑳ の V9 の住民の参加）があるときだけ。それ以外は UNVERIFIABLE。すべての FAIL の所見は一覧に残るが、一覧外のものは欠落した範囲が原因の可能性がある（件数は `selfContainedFails`／`otherFails`） | `false` |
 
 `complete` が `true` になることはありません。
 

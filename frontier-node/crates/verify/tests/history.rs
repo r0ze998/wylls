@@ -2,15 +2,18 @@
 //! history that no source showed to be complete (public RPC in any coverage
 //! state, `cross_checked` included; an archive whose source is unknown or
 //! whose cursor predates coverage) is never PASS, and FAIL only on a FAIL
-//! decided inside fetched transactions (⑪'s list: V0, V27, ⑳'s V9 joins). Default settings
-//! (no origin anchor, no witness), a witness behind or down, a gap, and a
-//! resume from an older cursor are each checked. `report.json` carries the
-//! meaning for its readers (`history.complete` is never `true`).
+//! decided inside fetched transactions (⑪'s list: V0 but its lengths, V27,
+//! ⑳'s V9 joins). Default settings (no origin anchor, no witness), a
+//! witness behind or down, a gap, and a resume from an older cursor are
+//! each checked, on the verdict rule alone and through the verifier's body
+//! over committed recorded fixtures with ranges cut out. `report.json`
+//! carries the meaning for its readers (`history.complete` is never `true`).
 //!
-//! Keyless and derivation-free: no check runs (the verdict rule is applied
-//! to a hand-built report), the JSON-RPC node is a stand-in over a plain
-//! socket, signatures are fixed byte patterns, transactions three opaque
-//! bytes; nothing is generated, derived (no PDA, no seed address) or signed.
+//! No keypair is generated, derived (fixed seed included) or used to sign:
+//! the JSON-RPC node is a stand-in over a plain socket, signatures are fixed
+//! byte patterns, the fixtures are read from disk, and the one edited
+//! transaction keeps its recorded signature. The checks compute PDA and
+//! seed addresses (allowed, 2026-11-06).
 
 use std::sync::{Arc, Mutex};
 
@@ -146,7 +149,10 @@ fn dead_url() -> String {
 }
 
 fn tmp(name: &str) -> std::path::PathBuf {
-    let d = std::env::temp_dir().join(format!("verify-history-{name}-{}", std::process::id()));
+    // Tests run in parallel and several build the same named archives.
+    static N: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let k = N.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    let d = std::env::temp_dir().join(format!("verify-history-{name}-{}-{k}", std::process::id()));
     let _ = std::fs::remove_dir_all(&d);
     d
 }
@@ -222,6 +228,7 @@ fn unproven_verdicts(h: &History) {
             Verdict::Fail,
             vec![fail_in("V9", "season", "NonCanonicalAddress")],
         ),
+        (Verdict::Fail, vec![fail_in("V0", "tx#3", "Undecodable")]),
     ] {
         let r = apply(h, report(v, f.clone()));
         assert_eq!(r.verdict, Verdict::Unverifiable, "{h:?} from {v:?} {f:?}");
@@ -511,4 +518,212 @@ async fn an_rpc_archive_keeps_its_coverage() {
     );
     assert_eq!(reasons(&h), vec![reason::NO_WITNESS.to_string()]);
     unproven_verdicts(&h);
+}
+
+// ------------------------------------------------------------ the verifier's body
+//
+// `verify_core::verify` over committed recorded fixtures (loaded from disk:
+// no keypair is made, derived or used to sign here; the checks compute PDA
+// and seed addresses, which is allowed). Each history comes from a real
+// RpcPoll run against the stand-in node or a real archive cursor, then
+// stands for the fixture's transactions.
+
+fn load(name: &str) -> Input {
+    let p = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../fixtures/verify")
+        .join(name);
+    Input::load(&p).unwrap_or_else(|e| panic!("{}: {e}", p.display()))
+}
+
+fn show(r: &Report) -> String {
+    r.findings
+        .iter()
+        .map(|f| format!("{:?} {} {} {}", f.severity, f.check, f.code, f.entity))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Histories produced by RpcPoll and archives in the situations to check.
+async fn histories() -> Vec<(&'static str, History)> {
+    let mut out = vec![];
+    let (_n, url) = node(&[1, 2, 3]).await;
+    out.push((
+        "default settings",
+        input::fetch_txs(&url, &program(), false, None, None)
+            .await
+            .unwrap()
+            .1,
+    ));
+    let (_w, wurl) = node(&[1, 2, 3]).await;
+    out.push((
+        "cross_checked",
+        input::fetch_txs(&url, &program(), false, Some(sig(1)), Some(&wurl))
+            .await
+            .unwrap()
+            .1,
+    ));
+    out.push((
+        "witness down",
+        input::fetch_txs(&url, &program(), false, Some(sig(1)), Some(&dead_url()))
+            .await
+            .unwrap()
+            .1,
+    ));
+    let (_p, purl) = node(&[1, 2, 3, 4]).await;
+    let (_l, lurl) = node(&[1, 2]).await;
+    out.push((
+        "witness behind",
+        input::fetch_txs(&purl, &program(), false, Some(sig(1)), Some(&lurl))
+            .await
+            .unwrap()
+            .1,
+    ));
+    let old = json!({"rpc_last": sig(2).to_string(), "rpc_last_slot": 2,
+                     "rpc_last_slot_sigs": [sig(2).to_string()]});
+    out.push((
+        "older cursor",
+        input::read_archive(&archive_with("body-old", old, 2))
+            .unwrap()
+            .1,
+    ));
+    out.push((
+        "unknown archive",
+        input::read_archive(&archive_with("body-unknown", json!({"x": 1}), 2))
+            .unwrap()
+            .1,
+    ));
+    out
+}
+
+/// Every fixture PASSes as given (the history does not change it) and is
+/// never PASS with an RPC or unknown history, `cross_checked` included.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_verifier_never_passes_an_unproven_history() {
+    let hs = histories().await;
+    for name in ["land-program.json", "march-synth.json"] {
+        let inp = load(name);
+        let r = verify_core::verify(&inp);
+        assert_eq!(r.verdict, Verdict::Pass, "{name} as given:\n{}", show(&r));
+        assert_eq!(r.json()["history"]["basis"], "as_given");
+        let mut feed = inp.clone();
+        feed.history = History::ledger_feed("local");
+        assert_eq!(verify_core::verify(&feed).verdict, Verdict::Pass, "{name}");
+        for (what, h) in &hs {
+            let mut i = inp.clone();
+            i.history = h.clone();
+            let r = verify_core::verify(&i);
+            assert_eq!(
+                r.verdict,
+                Verdict::Unverifiable,
+                "{name}, {what}:\n{}",
+                show(&r)
+            );
+            let j = r.json();
+            assert_eq!(j["history"]["complete"], false, "{name}, {what}");
+            assert_eq!(j["history"]["selfContainedFails"], 0);
+            assert!(r.codes().contains(&HISTORY_UNPROVEN), "{name}, {what}");
+        }
+    }
+}
+
+/// History with a range missing (mixed into a recorded season: the start,
+/// a stretch in the middle, the tail). As given, the checks see a broken
+/// season and FAIL; with an unproven history that FAIL can be the missing
+/// range, so the verdict is UNVERIFIABLE with the FAILs still listed.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_missing_range_is_not_reported_as_a_forgery_of_an_unproven_history() {
+    let hs = histories().await;
+    let full = load("land-program.json");
+    let n = full.txs.len();
+    assert!(n > 12, "a season to cut");
+    for (cut, range) in [
+        ("start", 0..3),
+        ("middle", n / 2..n / 2 + 3),
+        ("tail", n - 3..n),
+    ] {
+        let mut inp = full.clone();
+        inp.txs.drain(range);
+        let as_given = verify_core::verify(&inp);
+        assert_ne!(
+            as_given.verdict,
+            Verdict::Pass,
+            "{cut}: the cut is visible:\n{}",
+            show(&as_given)
+        );
+        for (what, h) in &hs {
+            let mut i = inp.clone();
+            i.history = h.clone();
+            let r = verify_core::verify(&i);
+            let own = r
+                .findings
+                .iter()
+                .filter(|f| verify_core::history::self_contained(f))
+                .count();
+            let expect = if own > 0 {
+                Verdict::Fail
+            } else {
+                Verdict::Unverifiable
+            };
+            assert_eq!(r.verdict, expect, "{cut}, {what}:\n{}", show(&r));
+            assert_eq!(
+                own,
+                0,
+                "{cut}, {what}: a cut leaves no self-contained FAIL:\n{}",
+                show(&r)
+            );
+            assert_eq!(
+                r.findings.iter().filter(|f| f.fail()).count(),
+                as_given.findings.iter().filter(|f| f.fail()).count(),
+                "{cut}, {what}: the FAIL findings stay listed"
+            );
+            assert_eq!(r.json()["history"]["complete"], false);
+        }
+    }
+}
+
+/// A FAIL decided inside one fetched transaction stays FAIL over an
+/// unproven history: a successful program instruction's tag rewritten to
+/// one no ABI allocates (the recorded wire bytes edited, nothing re-signed:
+/// the verifier reads the message, the signature is left as recorded).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_self_contained_fail_still_fails_over_an_unproven_history() {
+    let hs = histories().await;
+    let mut inp = load("land-program.json");
+    let program = inp.cfg.program;
+    let i = inp
+        .txs
+        .iter()
+        .rposition(|t| {
+            t.err.is_none()
+                && fclient::tx::from_wire(&t.tx).is_ok_and(|x| {
+                    x.message.instructions.iter().any(|ci| {
+                        x.message.account_keys[ci.program_id_index as usize] == program
+                            && !ci.data.is_empty()
+                    })
+                })
+        })
+        .expect("a successful program call");
+    let mut t = fclient::tx::from_wire(&inp.txs[i].tx).unwrap();
+    for ci in t.message.instructions.iter_mut() {
+        if t.message.account_keys[ci.program_id_index as usize] == program && !ci.data.is_empty() {
+            ci.data[0] = 0xFF;
+            break;
+        }
+    }
+    inp.txs[i].tx = fclient::tx::wire(&t);
+    for (what, h) in &hs {
+        let mut x = inp.clone();
+        x.history = h.clone();
+        let r = verify_core::verify(&x);
+        assert!(
+            r.findings
+                .iter()
+                .any(|f| f.fail() && f.check == "V0" && f.code == "UnknownInstruction"),
+            "{what}:\n{}",
+            show(&r)
+        );
+        assert_eq!(r.verdict, Verdict::Fail, "{what}:\n{}", show(&r));
+        assert!(r.json()["history"]["selfContainedFails"].as_u64().unwrap() >= 1);
+        assert_eq!(r.json()["history"]["complete"], false);
+    }
 }
