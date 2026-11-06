@@ -1,6 +1,7 @@
 test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
-test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
-.........random: 1496 lot deposits, 2766 replays answered without 10, 540 claims, 1310000 milli returned to lots
-test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.91s
+...........random: 1408 lot deposits applied, 2616 replays answered without 10, 630 claims
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
-# workstream 10 pin 9b38818718373e05a6b2db2fbbd72bd488173b01, trees custody f11af9190144abd185c68b2d50a33c786f24340f adapter-09 ad274e7fa8c203a5d7e7b52b22231be55cf6b7d8
+# workstream 10 pin 52a43745b4c06ba184c26634cc9489211c0cc48e, trees custody f11af9190144abd185c68b2d50a33c786f24340f adapter-09 f5784e40049b43b5b091807534c08fb85694cb38
