@@ -1,5 +1,5 @@
 //! **Workstream 02-rights (candidate, test only):** the verifier against
-//! the workshop-stock swap Grant's records (provisional kinds 200–205) and
+//! the workshop-stock swap Grant's records (provisional kinds 114–119) and
 //! its check VR.
 //!
 //! **No key is generated, derived or used, and nothing is signed.** The
@@ -847,6 +847,18 @@ fn an_unknown_instruction_or_account_fails() {
     let found = new_findings(&b.inp, &fl.inp);
     assert!(has(&found, UNKNOWN_INSTRUCTION), "{found:#?}");
     assert!(has(&found, UNKNOWN_ACCOUNT), "{found:#?}");
+    // 0xFE, the tag workstream 4's allocation (rev 3) keeps unassigned for
+    // the verifier's unknown-instruction tests, alone: V0 fails it.
+    let (mut fl, _) = honest(&b);
+    let t = fl.time();
+    let ix = Instruction {
+        program_id: fl.inp.cfg.program,
+        accounts: vec![meta(b.grantee_w, true, true)],
+        data: vec![0xFE],
+    };
+    fl.push(b.grantee_w, ix, vec![], &[], t);
+    let found = new_findings(&b.inp, &fl.inp);
+    assert!(has(&found, UNKNOWN_INSTRUCTION), "0xFE: {found:#?}");
 }
 
 #[test]

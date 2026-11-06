@@ -143,16 +143,17 @@ cq_kinds! {
     RAID_OPENED = 101; key ["owner_tag": 8, "seq": 4]; payload ["p": 4, "q": 4, "bell": 4, "raider_host": 8, "raider_tag": 8, "domestic": 1];
     FORT_GARRISONED = 102; key ["p": 4, "q": 4, "tile": 1]; payload ["owner_tag": 8, "troops": 4, "pend_bell": 4, "pend": 2, "holding_key": 8];
     REST = 103; key ["p": 4, "q": 4, "from": 4]; payload ["to": 4, "holder": 1, "territory": 4, "spawns": 1, "digest": 32];
-    // Workstream 02-rights (proposal, NOT allocated): the Grant records.
-    // Codes 200–205 are provisional (far from 104–112, which workstreams 8
-    // and 10 propose); the integrator confirms or moves them. Key: the
+    // Workstream 02-rights (proposal, NOT adopted): the Grant records.
+    // Codes 114–119 follow workstream 4's provisional allocation (rev 3,
+    // 2026-11-06: 8 has 104, 10 has 105–113); the integrator confirms
+    // them. Key: the
     // Grant (issuer tag, nonce); amounts in milli-units.
-    GRANT_ISSUED = 200; key ["issuer_tag": 8, "nonce": 4]; payload ["grantee_tag": 8, "p": 4, "q": 4, "facility_site": 1, "facility_gen": 1, "station_site": 1, "station_gen": 1, "max_swaps": 2, "max_units": 4, "expires_ts": 8, "rent": 8];
-    SWAP_RESERVED = 201; key ["issuer_tag": 8, "nonce": 4]; payload ["grantee_tag": 8, "p": 4, "q": 4, "facility_site": 1, "station_site": 1, "seq": 2, "units": 4, "ore": 8, "wood": 8, "arms": 8];
-    SWAP_EXECUTED = 202; key ["issuer_tag": 8, "nonce": 4]; payload ["grantee_tag": 8, "p": 4, "q": 4, "facility_site": 1, "station_site": 1, "seq": 2, "units": 4, "ore": 8, "wood": 8, "arms": 8];
-    SWAP_RELEASED = 203; key ["issuer_tag": 8, "nonce": 4]; payload ["by": 1, "p": 4, "q": 4, "facility_site": 1, "station_site": 1, "ret_ore": 8, "ret_wood": 8, "ret_arms": 8, "kept_ore": 8, "kept_wood": 8, "kept_arms": 8];
-    GRANT_REVOKED = 204; key ["issuer_tag": 8, "nonce": 4]; payload ["by": 1, "p": 4, "q": 4, "facility_site": 1, "station_site": 1, "ret_ore": 8, "ret_wood": 8, "ret_arms": 8, "kept_ore": 8, "kept_wood": 8, "kept_arms": 8];
-    GRANT_CLOSED = 205; key ["issuer_tag": 8, "nonce": 4]; payload ["rent": 8, "rent_to": 8];
+    GRANT_ISSUED = 114; key ["issuer_tag": 8, "nonce": 4]; payload ["grantee_tag": 8, "p": 4, "q": 4, "facility_site": 1, "facility_gen": 1, "station_site": 1, "station_gen": 1, "max_swaps": 2, "max_units": 4, "expires_ts": 8, "rent": 8];
+    SWAP_RESERVED = 115; key ["issuer_tag": 8, "nonce": 4]; payload ["grantee_tag": 8, "p": 4, "q": 4, "facility_site": 1, "station_site": 1, "seq": 2, "units": 4, "ore": 8, "wood": 8, "arms": 8];
+    SWAP_EXECUTED = 116; key ["issuer_tag": 8, "nonce": 4]; payload ["grantee_tag": 8, "p": 4, "q": 4, "facility_site": 1, "station_site": 1, "seq": 2, "units": 4, "ore": 8, "wood": 8, "arms": 8];
+    SWAP_RELEASED = 117; key ["issuer_tag": 8, "nonce": 4]; payload ["by": 1, "p": 4, "q": 4, "facility_site": 1, "station_site": 1, "ret_ore": 8, "ret_wood": 8, "ret_arms": 8, "kept_ore": 8, "kept_wood": 8, "kept_arms": 8];
+    GRANT_REVOKED = 118; key ["issuer_tag": 8, "nonce": 4]; payload ["by": 1, "p": 4, "q": 4, "facility_site": 1, "station_site": 1, "ret_ore": 8, "ret_wood": 8, "ret_arms": 8, "kept_ore": 8, "kept_wood": 8, "kept_arms": 8];
+    GRANT_CLOSED = 119; key ["issuer_tag": 8, "nonce": 4]; payload ["rent": 8, "rent_to": 8];
 }
 
 /// S1 caravan places as logged (8 B): `kind u8 ‖ p i16 ‖ q i16 ‖

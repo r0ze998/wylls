@@ -34,7 +34,7 @@
 //!   burned; ReleaseSwap that can return nothing is `ReturnBlocked`, and
 //!   CloseGrant waits (`StillLive`). A store above its cap keeps a return
 //!   (`Accrual::add` may exceed the cap; settle never lowers it).
-//! - **Records (candidate, provisional kinds 200–205).** Every instruction
+//! - **Records (candidate, provisional kinds 114–119).** Every instruction
 //!   logs one PS2 record (`frontier_abi::v2::rights::record`): GRANT_ISSUED
 //!   chains the issuer's Citizen; SWAP_RESERVED and SWAP_EXECUTED the
 //!   grantee's Citizen, the station and the facility; SWAP_RELEASED the

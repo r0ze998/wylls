@@ -369,8 +369,8 @@ pub mod cqlog {
     use crate::layout::{chain_of, set_chain};
 
     /// Highest kind code a v2 record carries (103: S1's REST; 02-rights
-    /// proposal: 205, its provisional Grant records 200–205).
-    pub const MAX_KIND: usize = 205;
+    /// proposal: 119, its provisional Grant records 114–119).
+    pub const MAX_KIND: usize = 119;
 
     /// `(defined, key width, payload width)` per kind: M1's and MC's.
     pub const WIDTHS: [(bool, u16, u16); MAX_KIND + 1] = {

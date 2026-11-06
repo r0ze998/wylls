@@ -1,5 +1,5 @@
 //! VR — the workshop-stock swap Grant (workstream 02-rights, **candidate**:
-//! the check name, its codes and the record kinds 200–205 are provisional,
+//! the check name, its codes and the record kinds 114–119 are provisional,
 //! not allocated).
 //!
 //! What it judges, over every successful program instruction:

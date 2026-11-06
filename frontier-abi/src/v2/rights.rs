@@ -287,7 +287,7 @@ ix_rights! {
 // ------------------------------------------------------------ PS2 records
 
 /// The Grant's PS2 records (kinds `GRANT_ISSUED` … `GRANT_CLOSED` of
-/// [`crate::v2::log::CqKind`], **provisional codes 200–205**): one shared
+/// [`crate::v2::log::CqKind`], **provisional codes 114–119**, workstream 4's allocation rev 3): one shared
 /// encoding for the program that logs them and the verifier that replays
 /// them. Every record is keyed by the Grant (`issuer_tag ‖ nonce`).
 pub mod record {
@@ -631,9 +631,9 @@ mod tests {
         ] {
             assert_eq!(AnyKind::Cq(k).key_len(), 12);
             assert!(record::is_rights(k));
-            // Provisional codes: outside every other proposal (8: 104,
-            // 10: 104–112) and the base table (up to 103).
-            assert!((200..=205).contains(&(k as u8)));
+            // Provisional codes (workstream 4's allocation rev 3): above
+            // the base table (up to 103), 8's 104 and 10's 105–113.
+            assert!((114..=119).contains(&(k as u8)));
         }
         let s = record::Swap {
             grantee_tag: 7,
