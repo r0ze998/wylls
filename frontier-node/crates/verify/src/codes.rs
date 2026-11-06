@@ -28,6 +28,8 @@ pub const UNVERIFIED_INNER_INSTRUCTION: &str = "UnverifiedInnerInstruction";
 pub const MISSING_POST_STATE: &str = "MissingPostState";
 /// A record no check judges where it stands (UNVERIFIABLE, V0E).
 pub const UNVERIFIED_RECORD: &str = "UnverifiedRecord";
+/// A history no source showed to be complete (UNVERIFIABLE, V0; ⑲ `history`).
+pub const HISTORY_UNPROVEN: &str = "HistoryUnproven";
 /// A JoinResident and the Citizen, record or link it left disagree (FAIL, V27).
 pub const RESIDENT_JOIN_MISMATCH: &str = "ResidentJoinMismatch";
 /// A ResidentAct and its inner instruction, accounts, join or Citizen disagree (FAIL, V28).

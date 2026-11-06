@@ -40,6 +40,7 @@ pub mod conquest;
 pub mod cqrec;
 pub mod facts;
 pub mod fixture;
+pub mod history;
 pub mod holding;
 pub mod input;
 pub mod report;
@@ -189,6 +190,9 @@ pub struct Report {
     /// The checks that ran (a `mutate-*` build lists fewer).
     pub checks_run: Vec<&'static str>,
     pub provenance: String,
+    /// Where the transactions came from and whether that shows them to be
+    /// the whole history ([`history::History::report`]); set by [`verify`].
+    pub history: Option<Value>,
 }
 
 impl Report {
@@ -221,10 +225,13 @@ pub fn exit_code(v: Verdict) -> i32 {
 /// (CQ1 walks every chain in V1's place).
 pub fn verify(input: &Input) -> Report {
     let base = checks::run(input);
-    if !conquest::applies(input) {
-        return base;
-    }
-    merge(base, conquest::verify(input))
+    let r = if conquest::applies(input) {
+        merge(base, conquest::verify(input))
+    } else {
+        base
+    };
+    // An unproven history is never PASS; only self-contained failures remain FAIL.
+    history::apply(&input.history, r)
 }
 
 /// One report of two suites over the same input: the worse verdict, every

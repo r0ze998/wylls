@@ -333,6 +333,7 @@ pub fn run(input: &Input) -> Report {
         liveness: cx.liveness,
         checks_run: ran,
         provenance: input.provenance.clone(),
+        history: None,
     }
 }
 
