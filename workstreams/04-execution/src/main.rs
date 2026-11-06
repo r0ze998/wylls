@@ -8,7 +8,19 @@
 //! runexec show   --db <path> --run <id>
 //! runexec cancel --db <path> --run <id>
 //! runexec resume --db <path> --run <id>
+//!
+//! # Agent acts (workstreams 03, 05, 13): machine-readable, one JSON line on stdout
+//! runexec act register --db <path> --agent <id> --key <idempotencyKey> --source ai|mcp|browser|resident [--run <callerRunId>] [--slot <n>]
+//! runexec act status   --db <path> (--run4 <id> | --agent <id> --key <key>) [--gateway <loopback port> [--bridge]]
+//! runexec act list     --db <path> --run <callerRunId>
 //! ```
+//!
+//! `act` exit codes: 0 ok; 2 bad request; 3 no record (never registered);
+//! 4 conflict (the key is registered for another source or caller run);
+//! 1 store error. On failure stdout is `{"error": code, "message": …}`.
+//! `status` with `--gateway` reads the agent wallet's
+//! `GET /f/agent/fate` on 127.0.0.1 (`--bridge`: the test bridge's `/fate`)
+//! once and records it; without it, answers from the store. It never sends.
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -24,8 +36,103 @@ fn arg(args: &[String], name: &str) -> Option<String> {
         .and_then(|i| args.get(i + 1).cloned())
 }
 
+/// One `act` failure: (exit code, machine code, message).
+type ActErr = (u8, &'static str, String);
+
+fn act(args: &[String], db: &Path) -> Result<serde_json::Value, ActErr> {
+    use runexec::acts;
+    let bad = |m: &str| (2u8, "BadRequest", m.to_string());
+    let store = Store::open(db).map_err(|e| (1, "StoreError", e))?;
+    let need = |n: &str| arg(args, n).ok_or_else(|| bad(&format!("{n} is required")));
+    match args.get(2).map(String::as_str) {
+        Some("register") => {
+            let agent = need("--agent")?;
+            let key = need("--key")?;
+            let source = need("--source")?;
+            let run = arg(args, "--run");
+            let slot = arg(args, "--slot")
+                .and_then(|x| x.parse().ok())
+                .unwrap_or(0);
+            if !acts::SOURCES.contains(&source.as_str()) {
+                return Err(bad(&format!(
+                    "--source must be one of {}",
+                    acts::SOURCES.join(", ")
+                )));
+            }
+            let id = acts::register(&store, &agent, &key, &source, run.as_deref(), slot).map_err(
+                |e| {
+                    if e.contains("is registered for") {
+                        (4, "Conflict", e)
+                    } else {
+                        bad(&e)
+                    }
+                },
+            )?;
+            acts::receipt(&store, &id).map_err(|e| (1, "StoreError", e))
+        }
+        Some("status") => {
+            let id = match arg(args, "--run4") {
+                Some(i) => i,
+                None => acts::run4_id(&need("--agent")?, &need("--key")?),
+            };
+            if acts::get(&store, &id)
+                .map_err(|e| (1, "StoreError", e))?
+                .is_none()
+            {
+                return Err((3, "NoRecord", format!("no act {id} is registered")));
+            }
+            match arg(args, "--gateway") {
+                Some(p) => {
+                    let port: u16 = p
+                        .parse()
+                        .map_err(|_| bad("--gateway is a loopback port number"))?;
+                    let reader = acts::HttpFateReader {
+                        port,
+                        gateway_path: !args.iter().any(|a| a == "--bridge"),
+                    };
+                    acts::refresh(&store, &reader, &id).map_err(|e| (1, "StoreError", e))
+                }
+                None => acts::receipt(&store, &id).map_err(|e| (1, "StoreError", e)),
+            }
+        }
+        Some("list") => {
+            let run = need("--run")?;
+            let rows = acts::by_ext_run(&store, &run).map_err(|e| (1, "StoreError", e))?;
+            let out: Result<Vec<_>, _> = rows
+                .iter()
+                .map(|r| acts::receipt(&store, &r.run4_id))
+                .collect();
+            out.map(|v| serde_json::json!({ "runId": run, "acts": v }))
+                .map_err(|e| (1, "StoreError", e))
+        }
+        _ => Err(bad("act register | status | list")),
+    }
+}
+
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().collect();
+    if args.get(1).map(String::as_str) == Some("act") {
+        let Some(db) = arg(&args, "--db").map(PathBuf::from) else {
+            println!(
+                "{}",
+                serde_json::json!({ "error": "BadRequest", "message": "--db <path> is required" })
+            );
+            return ExitCode::from(2);
+        };
+        return match act(&args, &db) {
+            Ok(v) => {
+                println!("{v}");
+                ExitCode::SUCCESS
+            }
+            Err((code, name, message)) => {
+                println!(
+                    "{}",
+                    serde_json::json!({ "error": name, "message": message })
+                );
+                ExitCode::from(code)
+            }
+        };
+    }
     let Some(cmd) = args.get(1).map(String::as_str) else {
         eprintln!("usage: runexec demo|status|show|cancel|resume --db <path> [...]");
         return ExitCode::from(2);

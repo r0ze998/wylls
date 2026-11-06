@@ -79,8 +79,55 @@ fn http(port: u16, method: &str, path: &str, body: Option<&Value>) -> Result<(u1
         .nth(1)
         .and_then(|c| c.parse().ok())
         .ok_or("no status code")?;
-    let v = serde_json::from_str(rest).unwrap_or(Value::Null);
+    // Node answers `writeHead` + `end(body)` (the gateway's way) chunked.
+    let chunked = head.lines().any(|l| {
+        let l = l.to_ascii_lowercase();
+        l.starts_with("transfer-encoding:") && l.contains("chunked")
+    });
+    let body = if chunked {
+        dechunk(rest)?
+    } else {
+        rest.to_string()
+    };
+    let v = serde_json::from_str(&body).unwrap_or(Value::Null);
     Ok((code, v))
+}
+
+/// A chunked HTTP/1.1 body (sizes in hex, `0` ends it; extensions and
+/// trailers ignored).
+pub fn dechunk(mut rest: &str) -> Result<String, String> {
+    let mut out = String::new();
+    loop {
+        let (line, after) = rest.split_once("\r\n").ok_or("truncated chunk size")?;
+        let size = usize::from_str_radix(line.split(';').next().unwrap_or("").trim(), 16)
+            .map_err(|_| format!("bad chunk size {line:?}"))?;
+        if size == 0 {
+            return Ok(out);
+        }
+        if after.len() < size {
+            return Err("truncated chunk".into());
+        }
+        out.push_str(&after[..size]);
+        rest = after[size..]
+            .strip_prefix("\r\n")
+            .ok_or("missing chunk end")?;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::dechunk;
+
+    #[test]
+    fn dechunks_what_node_sends() {
+        assert_eq!(dechunk("7\r\n{\"a\":1}\r\n0\r\n\r\n").unwrap(), "{\"a\":1}");
+        assert_eq!(
+            dechunk("3\r\n{\"a\r\n4;x=1\r\n\":1}\r\n0\r\n\r\n").unwrap(),
+            "{\"a\":1}"
+        );
+        assert!(dechunk("5\r\nab").is_err());
+        assert!(dechunk("zz\r\nab\r\n0\r\n\r\n").is_err());
+    }
 }
 
 /// The facts of a signed attempt, fixed when its bytes left the gateway.

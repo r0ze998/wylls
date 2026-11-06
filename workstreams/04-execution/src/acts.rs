@@ -36,6 +36,10 @@ use crate::store::Store;
 /// agent), which is why the registry keeps its own copy.
 pub const RETENTION_BELLS: Option<u64> = None;
 
+/// Who may register an act: the agent wallet's sources (`browser`, `ai`,
+/// `mcp`) and workstream 13's residents (`resident`, its patch 0002).
+pub const SOURCES: [&str; 4] = ["ai", "mcp", "browser", "resident"];
+
 /// The states that never change once recorded.
 pub const FINAL: [&str; 4] = ["landed", "failed", "expired", "not-sent"];
 
@@ -94,8 +98,11 @@ pub fn register(
     slot: u64,
 ) -> Result<String, String> {
     init(store)?;
-    if agent_id.is_empty() || key.is_empty() || source.is_empty() {
-        return Err("agent id, idempotency key and source are required".into());
+    if agent_id.is_empty() || key.is_empty() || agent_id.len() > 64 || key.len() > 128 {
+        return Err("agent id (<= 64) and idempotency key (<= 128) are required".into());
+    }
+    if !SOURCES.contains(&source) {
+        return Err(format!("source must be one of {}", SOURCES.join(", ")));
     }
     let id = run4_id(agent_id, key);
     if let Some(r) = get(store, &id)? {
@@ -148,6 +155,11 @@ pub fn get(store: &Store, run4_id: &str) -> Result<Option<ActRow>, String> {
             facts: serde_json::from_str(&facts).unwrap_or(Value::Null),
         },
     ))
+}
+
+/// The act registered for (agent, key), if any.
+pub fn find(store: &Store, agent_id: &str, key: &str) -> Result<Option<ActRow>, String> {
+    get(store, &run4_id(agent_id, key))
 }
 
 /// The acts registered for a caller's run (workstream 05's `runId`).
@@ -212,6 +224,22 @@ pub fn refresh(store: &Store, reader: &dyn FateReader, id: &str) -> Result<Value
     receipt(store, id)
 }
 
+/// What a caller may do next for a state. Only a final "nothing happened"
+/// (`not-sent`, `expired`) allows a new attempt, and that is a new attempt
+/// under a new idempotency key: the same key replays the gateway's answer.
+/// `unknown` is never a reason to send again (it may have landed), and
+/// `unqueryable` says nothing about the act (read again).
+pub fn next_step(state: &str) -> (&'static str, bool) {
+    match state {
+        "landed" | "failed" => ("done", false),
+        "not-sent" | "expired" => ("new-attempt", true),
+        "unknown" => ("hold", false),
+        "unqueryable" => ("read-again", false),
+        // `pending`, `registered` (not read yet) and anything new: wait.
+        _ => ("wait", false),
+    }
+}
+
 /// The receipt of one act, in workstream 05's field names where they exist.
 pub fn receipt(store: &Store, id: &str) -> Result<Value, String> {
     let r = get(store, id)?.ok_or_else(|| format!("no act {id}"))?;
@@ -249,6 +277,8 @@ pub fn receipt(store: &Store, id: &str) -> Result<Value, String> {
         "cancellable": false,
         "cancel": cancel,
         "retention": { "retentionBells": RETENTION_BELLS, "deleted": false },
+        "next": next_step(&r.state).0,
+        "newAttemptAllowed": next_step(&r.state).1,
     }))
 }
 
