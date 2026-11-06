@@ -1,0 +1,192 @@
+[
+  {
+    "file": "ok/front-supply.json",
+    "expect": [],
+    "note": "Aの前線補給（B：Wの工房へ接続）"
+  },
+  {
+    "file": "ok/mine-delivery.json",
+    "expect": [],
+    "note": "Mの鉱山の便"
+  },
+  {
+    "file": "ok/front-supply-river.json",
+    "expect": [],
+    "note": "Bの写しを編集したもの（C：Mの便の成果を使う）"
+  },
+  {
+    "file": "ok/base-only-caravan.json",
+    "expect": [],
+    "note": "main（S1）だけの世界で動く、荷車だけの定義",
+    "features": [
+      "base"
+    ]
+  },
+  {
+    "file": "ng/type-vault-as-workshop.json",
+    "expect": [
+      "GRANT_KIND_MISMATCH",
+      "TYPE_MISMATCH"
+    ],
+    "note": "工房を倉の型で受けている"
+  },
+  {
+    "file": "ng/type-unknown-resource.json",
+    "expect": [
+      "TYPE_MISMATCH"
+    ],
+    "note": "知らない資源"
+  },
+  {
+    "file": "ng/type-result-as-place.json",
+    "expect": [
+      "TYPE_MISMATCH"
+    ],
+    "note": "生産の記録を届け先の場所として使っている"
+  },
+  {
+    "file": "ng/type-param-is-grant.json",
+    "expect": [
+      "TYPE_UNKNOWN"
+    ],
+    "note": "札を入力にしている（札は uses を通す）"
+  },
+  {
+    "file": "ng/number-not-integer.json",
+    "expect": [
+      "NUMBER_NOT_INTEGER"
+    ],
+    "note": "小数"
+  },
+  {
+    "file": "ng/flow-place-mismatch.json",
+    "expect": [
+      "FLOW_PLACE_MISMATCH"
+    ],
+    "note": "材料を工房の倉でない場所へ運んでから、工房の倉で動かす"
+  },
+  {
+    "file": "ng/grant-kind-mismatch.json",
+    "expect": [
+      "GRANT_KIND_MISMATCH"
+    ],
+    "note": "工房に持ち分の札で接続しようとしている"
+  },
+  {
+    "file": "ng/manifest-expired.json",
+    "expect": [
+      "MANIFEST_EXPIRED"
+    ],
+    "note": "定義の利用期限切れ",
+    "today": 12
+  },
+  {
+    "file": "ng/step-cycle.json",
+    "expect": [
+      "STEP_CYCLE"
+    ],
+    "note": "手順の順番が循環"
+  },
+  {
+    "file": "ng/limit-runs-per-day.json",
+    "expect": [
+      "LIMIT_EXCEEDED"
+    ],
+    "note": "工房を1日48回（上限24）"
+  },
+  {
+    "file": "ng/limit-unbounded-runs.json",
+    "expect": [
+      "LIMIT_EXCEEDED"
+    ],
+    "note": "回数に上限がない"
+  },
+  {
+    "file": "ng/limit-steps.json",
+    "expect": [
+      "LIMIT_EXCEEDED"
+    ],
+    "note": "手順9つ・荷車9台（上限8・4）"
+  },
+  {
+    "file": "ng/limit-tx-per-day.json",
+    "expect": [
+      "LIMIT_EXCEEDED"
+    ],
+    "note": "1日の取引 144 件（上限 96）"
+  },
+  {
+    "file": "ng/claim-output.json",
+    "expect": [
+      "CLAIM_MISMATCH"
+    ],
+    "note": "兵器20と主張、機械では12"
+  },
+  {
+    "file": "ng/claim-trigger-daily.json",
+    "expect": [
+      "CLAIM_MISMATCH",
+      "TRIGGER_UNAVAILABLE"
+    ],
+    "note": "毎日自動と主張、段階3が未実装なので手で実行"
+  },
+  {
+    "file": "ng/claim-signer.json",
+    "expect": [
+      "CLAIM_MISMATCH"
+    ],
+    "note": "ゲーム内の鍵だけで動くと主張、届け先が他人ならウォレットが要る"
+  },
+  {
+    "file": "ng/claim-unknown.json",
+    "expect": [
+      "CLAIM_UNKNOWN"
+    ],
+    "note": "機械で確かめられない主張"
+  },
+  {
+    "file": "ng/claim-grants.json",
+    "expect": [
+      "CLAIM_MISMATCH"
+    ],
+    "note": "札は要らないと主張"
+  },
+  {
+    "file": "ng/note-promise.json",
+    "expect": [
+      "NOTE_PROMISE"
+    ],
+    "note": "説明に保証の言葉（警告）"
+  },
+  {
+    "file": "ng/effect-extension-trigger.json",
+    "expect": [
+      "EFFECT_UNKNOWN"
+    ],
+    "note": "自動の合図（コア拡張が要る）"
+  },
+  {
+    "file": "ng/effect-forbidden-teleport.json",
+    "expect": [
+      "EFFECT_FORBIDDEN"
+    ],
+    "note": "荷車なしで物を動かす（禁止）"
+  },
+  {
+    "file": "ng/effect-forbidden-code.json",
+    "expect": [
+      "EFFECT_FORBIDDEN"
+    ],
+    "note": "任意コード（禁止）"
+  },
+  {
+    "file": "ng/effect-unavailable-on-main.json",
+    "expect": [
+      "EFFECT_UNAVAILABLE"
+    ],
+    "note": "main（S1）には使用権の札がない",
+    "features": [
+      "base"
+    ]
+  }
+]

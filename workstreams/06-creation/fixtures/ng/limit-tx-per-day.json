@@ -1,0 +1,115 @@
+{
+  "format": "wylls.creation.manifest/0",
+  "name": "mine-delivery",
+  "version": "1.0.0",
+  "author": "$M",
+  "title": "鉱山の便（鉱石と木材を届ける）",
+  "note": "買い手の倉へ、鉱石と木材を荷車で届けます。代金の受け渡しは引き換えの預かりで別に行います。",
+  "params": {
+    "mine": {
+      "type": "vault",
+      "own": true,
+      "ja": "出す鉱山の倉",
+      "default": "vault:M-mine"
+    },
+    "buyer": {
+      "type": "vault",
+      "ja": "買い手の倉"
+    },
+    "ore": {
+      "type": "int",
+      "min": 0,
+      "max": 200,
+      "default": 24,
+      "ja": "鉱石の量"
+    },
+    "wood": {
+      "type": "int",
+      "min": 0,
+      "max": 100,
+      "default": 12,
+      "ja": "木材の量"
+    }
+  },
+  "uses": {},
+  "steps": [
+    {
+      "id": "ship0",
+      "effect": "caravan.send",
+      "args": {
+        "from": {
+          "param": "mine"
+        },
+        "to": {
+          "param": "buyer"
+        },
+        "cargo": {
+          "goods": {
+            "ore": {
+              "param": "ore"
+            },
+            "wood": {
+              "param": "wood"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "ship1",
+      "effect": "caravan.send",
+      "args": {
+        "from": {
+          "param": "mine"
+        },
+        "to": {
+          "param": "buyer"
+        },
+        "cargo": {
+          "goods": {
+            "ore": {
+              "param": "ore"
+            },
+            "wood": {
+              "param": "wood"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "ship2",
+      "effect": "caravan.send",
+      "args": {
+        "from": {
+          "param": "mine"
+        },
+        "to": {
+          "param": "buyer"
+        },
+        "cargo": {
+          "goods": {
+            "ore": {
+              "param": "ore"
+            },
+            "wood": {
+              "param": "wood"
+            }
+          }
+        }
+      }
+    }
+  ],
+  "trigger": "manual",
+  "limits": {
+    "runsPerDay": 24
+  },
+  "outputs": {
+    "delivered": {
+      "from": {
+        "step": "ship0",
+        "out": "delivered"
+      }
+    }
+  }
+}
