@@ -25,7 +25,8 @@
 // absent: no extension) and `rMaxHard` (128); for a ring only partly on
 // chain, `/h/world/ring/{d}` names its Provinces (`present`). An older
 // herald without the new fields gives `open` / `unopened` as before.
-// Pure: no DOM, no fetch.
+// Pure: no DOM, no fetch (applySeasonRecord asks a herald the caller hands
+// it for ring lists; it never fetches on its own).
 import { FLATTEN, RADIUS } from '../../map.mjs';
 import { L, fmtNum } from '../../lang.mjs';
 import { locate, ringOf, ringProvinces, ringSize } from '../fgeo.mjs';
@@ -91,6 +92,73 @@ export function placeOf(w, p, q, present = () => null) {
 export function placeNow(FS, p, q) {
   if (!FS.world && !FS.record) return null;
   return placeOf(FS.world ?? worldOf(FS.record), p, q, d => FS.worldRings?.get?.(d) ?? null);
+}
+
+/**
+ * What a fresh season record means for the page's world state (pure; nothing is fetched here): the new `world`,
+ * the partly created rings (`partial`: each wants its `/h/world/ring/{d}` list again, until it is whole) and the
+ * ring lists the page holds that are no longer wanted (`drop`: the ring is whole, or the record no longer says it
+ * is partial). `worldRings` is the page's Map of ring → Set of "p,q" (FS.worldRings), or null.
+ *
+ * Every poll of the season record goes through this, so a map that grew on chain (ExtendFrontier raised rMax,
+ * OpenRing opened a ring, OpenProvince put its Provinces on chain) is seen by the next poll without a reload:
+ * the inspector's state of a place, the border and the cloud sea all read `world`, never a copy taken at boot.
+ */
+export function worldSync(record, worldRings = null) {
+  const world = worldOf(record);
+  const partial = partialRings(world);
+  const drop = [...(worldRings?.keys?.() ?? [])].filter(d => !partial.includes(d));
+  return { world, partial, drop };
+}
+
+/**
+ * Applies a fresh season record to the page's state: `FS.record`, `FS.world`, and `FS.worldRings` (the lists no
+ * longer wanted dropped; each partly created ring asked of `herald.worldRing(d)` when a herald is given, `onRings(d)`
+ * once a list arrives). The one place the page keeps these three together: the boot, the poll and the ticket
+ * planner's re-read all call it, so none of them can leave `FS.world` behind `FS.record` (the controller's re-read
+ * did, and the inspector then called a ring the herald had just put inside the map "outside" until the next poll).
+ * Returns worldSync's answer.
+ */
+export function applySeasonRecord(FS, record, { herald = null, onRings = () => {} } = {}) {
+  const s = worldSync(record, FS.worldRings ?? null);
+  const revision = (FS.worldRevision ?? 0) + 1;
+  FS.worldRevision = revision;
+  FS.record = record;
+  FS.world = s.world;
+  for (const d of s.drop) FS.worldRings?.delete?.(d);
+  if (herald?.worldRing) {
+    for (const d of s.partial) {
+      Promise.resolve().then(() => herald.worldRing(d)).then(a => { if (a?.ok && FS.worldRevision === revision && FS.record === record) { (FS.worldRings ??= new Map()).set(d, a.present); onRings(d); } }).catch(() => {});
+    }
+  }
+  return s;
+}
+
+/**
+ * The rings whose overview the page should (re)load now: every open ring (`0 .. ringsOpen − 1`) it has no overview
+ * of yet, and every ring whose Province count in the season record rose or fell since its overview was taken (a
+ * ring being created on chain: each OpenProvince adds a record the next overview carries). `taken` is the page's
+ * Map of ring → the Province count the record showed when the overview was taken (null when the record carried no
+ * counts; such a ring is asked once). Pure: the caller fetches.
+ */
+export function overviewRings(world, taken = null) {
+  const out = [];
+  if (!world) return out;
+  for (let d = 0; d < world.ringsOpen; d++) {
+    const n = world.ringProvinces?.[d];
+    const had = taken?.get?.(d);
+    if (had === undefined || (int(n) && had !== n)) out.push(d);
+  }
+  return out;
+}
+
+/** Records that ring d's overview was just taken, with the Province count the page's world shows for it now. */
+export function overviewTaken(FS, d, requestedWorld = FS.world) {
+  // Never stamp an old response with a newer Province count. A later poll retries it.
+  if (FS.world !== requestedWorld) return false;
+  const n = requestedWorld?.ringProvinces?.[d];
+  (FS.overviewTaken ??= new Map()).set(d, int(n) ? n : null);
+  return true;
 }
 
 /** How many rings past the open land the season's border is drawn from (further out it lies off the sheet). */

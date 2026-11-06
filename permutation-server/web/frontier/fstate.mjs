@@ -30,6 +30,10 @@ export const FS = {
   book: [],              // marchbook entries
   // ---- the map
   overviews: new Map(),  // ring → decoded overview
+  overviewTaken: new Map(), // ring → the Province count the season record showed when its overview was taken (map/world.mjs overviewRings)
+  overviewsBooted: false, // the boot's own overview load is done: later season polls load the rings that newly want one
+  world: null,           // the world's extent from the season record (map/world.mjs worldOf): set by applySeasonRecord only
+  worldRings: null,      // ring → Set of "p,q" on chain, for a ring only partly created (map/world.mjs)
   provinces: new Map(),  // "P,Q" → parsed envelope
   view: { lod: 'world', fog: true, showAll: false },
   selected: null,        // {kind: 'province'|'tile', p, q, idx?}

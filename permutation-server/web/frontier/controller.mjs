@@ -31,6 +31,7 @@ import { regionOf, ringOf, ringProvinces, homeNation, hexDistance } from './fgeo
 import { hostParts, hostId } from './faddr.mjs';
 import { decodePage } from './flog.mjs';
 import { nextPoll, BELLS_PER_DAY } from './herald.mjs';
+import { applySeasonRecord, overviewTaken } from './map/world.mjs';
 import { kernel as loadKernel, UNITS } from './wasm.mjs';
 import { uiKey, uiStorage, loadUi, saveUi, landKey, loadLand, saveLand, LAND_DEFAULTS } from './fui.mjs';
 import * as wallet from '../wallet.mjs';
@@ -1378,11 +1379,15 @@ async function refreshOverviews(b) {
   FS.overviewsBell = b;
   try {
     const r = await herald.season();
-    if (r?.ok && r.record) { FS.record = r.record; if (r.season) FS.season = r.season; }
+    // (the record, the world's extent and the ring lists move together: map/world.mjs applySeasonRecord. Setting
+    // FS.record alone left FS.world at the boot's copy, so a ring the herald had just put inside the map was still
+    // "outside" to the inspector and the border until the page's own poll)
+    if (r?.ok && r.record) { applySeasonRecord(FS, r.record, { herald, onRings: () => invalidate('map', 'panel') }); if (r.season) FS.season = r.season; }
   } catch { /* keep the last record */ }
   const rings = Math.max(1, FS.record?.rings?.length ?? 1);
   for (let d = FIRST_TICKET_RING; d < rings; d++) {   // rings 0–1 hold no ticket sites (re-check 3)
-    try { const o = await (conquestEnabled(FS.season) && herald.overview2 ? herald.overview2(d) : herald.overview(d)); if (o.ok) FS.overviews.set(d, o); } catch { /* keep the last overview */ }
+    const requestedWorld = FS.world;
+    try { const o = await (conquestEnabled(FS.season) && herald.overview2 ? herald.overview2(d) : herald.overview(d)); if (o.ok && overviewTaken(FS, d, requestedWorld)) { FS.overviews.set(d, o); } } catch { /* keep the last overview */ }
   }
 }
 

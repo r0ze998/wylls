@@ -1,22 +1,41 @@
-//! Key-free host harness of the dispersed first home (map growth): the
-//! program's real `dispatch` runs PlaceHome (0x38) and ReleaseDormant
-//! (0x35) over hand-built accounts of a season with `placement` 1
-//! (dispersed) and `heartland_max_ring` 3, on a heartland province whose
-//! nation is **not** its wedge. It checks the JoinShard accounting
-//! (`holdings`, `holdings_by_wedge[province wedge]`, `released`) up on the
-//! placement and down on the release, the lifetime grant, the records
-//! logged, and the refusals the program raises.
+//! Key-free host harness of map growth: the program's real `dispatch` over
+//! hand-built accounts, in two groups of tests.
+//!
+//! **The dispersed first home** (`map_growth_dispersed_*`,
+//! `map_growth_release_*`): PlaceHome (0x38) and ReleaseDormant (0x35) on a
+//! season with `placement` 1 (dispersed) and `heartland_max_ring` 3, on a
+//! heartland province whose nation is **not** its wedge. They check the
+//! JoinShard accounting (`holdings`, `holdings_by_wedge[province wedge]`,
+//! `released`) up on the placement and down on the release, the lifetime
+//! grant, the records logged, and the refusals the program raises.
+//!
+//! **The growing map** (`map_growth_expansion_*`): FoldOccupancy (0x23),
+//! ExtendFrontier (0xC1), OpenRing (0x20) and OpenProvince (0x22), in the
+//! order the keeper would send them, on a season whose `r_max` is 4 and
+//! whose `r_max_ceiling` is 17 (the prize tally's last ring). They show the
+//! world actually growing: the effective `r_max` rising one ring at a time,
+//! a RingSeed created for the new ring, that ring's 30 Provinces created
+//! from the wedge funds with terrain, keep, camp and Free City, the funds'
+//! and the RingSeed's counters moving, and every record of it; then the
+//! waits (a bell since the last opening, the crowding rule θ on the folded
+//! values, a fund too low), the idempotency (a second ExtendFrontier,
+//! OpenRing or OpenProvince of the same ring or province is `AlreadyDone`),
+//! and the bounds that are kept: no ceiling means no growth, a ring past the
+//! ceiling is `BadData`, and nothing passes ring 128 (`R_MAX_HARD`).
 //!
 //! Separate from `resident_runtime_tests` (the NFT harness, built only
 //! under `nft-experimental`) so a run can be filtered to exactly
-//! `map_growth_runtime_tests::` and audited.
+//! `map_growth_runtime_tests::` (or `map_growth_runtime_tests::map_growth_expansion_`
+//! for the growth tests alone) and audited.
 //!
-//! **Contains public-address derivation; do not run under the no-PDA rule.**
-//! Wallets and payer addresses are literal bytes, but setup derives the
-//! Season PDA (`find_program_address`), and `AddrCtx` computes with-seed
-//! addresses. CPI emulation also calls `create_program_address`.
-//! No private keypair or cryptographic signature is created. This does not
-//! make the harness permitted when PDA/with-seed derivation is prohibited.
+//! **Public-address derivation only; no key.** Wallets and payer addresses
+//! are literal bytes. Setup derives the Season PDA (`find_program_address`:
+//! a public hash, the bump AnnounceSeason would store) and `AddrCtx`
+//! computes with-seed addresses (sha256); the CPI stub calls
+//! `create_program_address` to check the Season's signer seeds. No private
+//! keypair is generated or derived and no cryptographic signature is
+//! created or verified. A run that forbids even public PDA/with-seed
+//! arithmetic cannot use this harness.
 //!
 //! **Limits (what this does not show).**
 //! - Signatures: `is_signer` is set by the test, as the runtime would after
@@ -32,11 +51,22 @@
 //! - No rollback: a refused instruction keeps whatever it wrote before the
 //!   refusal (on chain the transaction reverts). Every refusal exercised
 //!   here is raised before any write other than the player bucket.
+//! - ConsumeRingSeed (0x21) is **not run**: it verifies a drand quicknet
+//!   BLS signature, which the host build cannot (the pairing syscalls are
+//!   stubs off chain) and which no test may produce (it would need the
+//!   beacon's private key). The growth tests write the two fields
+//!   ConsumeRingSeed writes (`RingSeed.seed`, `RingSeed.status = seeded`)
+//!   with a literal seed, as that instruction leaves them
+//!   ([`World::seed_ring_as_consume_ring_seed_would`]); nothing else of the
+//!   RingSeed is touched by the test. This is the one write of the growth
+//!   path that is not the program's.
 //! - The accounts are written as bytes in the states earlier instructions
-//!   leave (a Running Season, a Frontier with rings 0–3 open, a Province
-//!   with four free sites, a joined Citizen): OpenRing, OpenProvince, Join
-//!   and FoldOccupancy are not run, so the Frontier's folded counters are
-//!   not exercised.
+//!   leave (a Running Season, a Frontier with its rings open, six
+//!   ProvinceFunds, 48 JoinShards, a joined Citizen). The first-home tests
+//!   do not run OpenRing, OpenProvince or FoldOccupancy; the growth tests
+//!   do, so the Frontier's folded counters are exercised there.
+//! - The JoinShard occupancy the growth tests fold (`holdings_by_wedge`) is
+//!   written as pre-state; the first-home tests show PlaceHome producing it.
 //! - Clock and Rent: `prologue::set_test_clock` and the default rent
 //!   (`init::rent` under `cfg(test)`).
 //! - The syscall stubs and the log capture are process-global. The tests
@@ -50,14 +80,17 @@ use std::sync::{Mutex, MutexGuard};
 use frontier_abi::ix as aix;
 use frontier_abi::log::Kind;
 use frontier_abi::v2::layout::{write_header, AccountKind as K2};
-use frontier_abi::v2::log::{decode as decode_record, AnyKind, EntityKind};
+use frontier_abi::v2::log::{decode as decode_record, AnyKind, CqKind, EntityKind};
 use frontier_abi::v2::presets::{
     ConquestParams, FRONTIER_7, PLACEMENT_DISPERSED, SEASON_CQ_OFFSET,
 };
+use permutation_rules::fixed::MILLI;
+use permutation_rules::frontier::beacon::{ring_seed_round, BeaconClock};
 use permutation_rules::frontier::clash::NEUTRAL;
 use permutation_rules::frontier::geometry::{
-    home_nation, region_of, ring_provinces, ProvinceCoord,
+    home_nation, region_of, ring_provinces, ProvinceCoord, R_MAX_HARD,
 };
+use permutation_rules::frontier::terrain::{free_city_site, generate_province};
 use solana_program::{
     account_info::AccountInfo, instruction::Instruction, program_error::ProgramError,
     pubkey::Pubkey,
@@ -67,8 +100,10 @@ use crate::addr::{citizen_tag, citizen_tag15, join_shard_of, AddrCtx};
 use crate::layout::player::holding_ref as HR;
 use crate::layout::{
     citizen as C, citizen2 as C2, frontier as FR, holding as H, join_shard as JS, province as PV,
-    season as S, site as SM, Ro,
+    province2 as PV2, province_fund as PF, ring_seed as RS, season as S, site as SM, site2 as SM2,
+    Ro,
 };
+use crate::proc::map::{encode_terrain, terrain_digest, TERRAIN_BLOCK};
 use crate::FrontierError as E;
 
 /// One test at a time: the syscall stubs and the log capture are global.
@@ -101,6 +136,60 @@ const RINGS_OPENED: u16 = 4;
 const SITE_COUNT: u8 = 4;
 const SITE_TILES: [u8; 4] = [10, 20, 30, 40];
 const BIG: u64 = 10_000_000_000;
+/// The drand quicknet clock as CreateSeason stores it (the RingSeed round
+/// of a ring beyond the genesis ring is computed from it).
+const DRAND_GENESIS: i64 = 1_692_803_367;
+const DRAND_PERIOD: u32 = 3;
+const SEED_MARGIN: u32 = 60;
+/// The crowding rule θ: 60% of a wedge's open sites early, 10% after two
+/// days (`theta_switch_secs`). With 100 open sites and 60 first holdings in
+/// wedge 0 the early rule holds exactly, so any site the growth adds breaks
+/// it until the late rule applies.
+const THETA_EARLY_BPS: u16 = 6_000;
+const THETA_LATE_BPS: u16 = 1_000;
+const THETA_SWITCH_SECS: u32 = 2 * 86_400;
+/// Open sites each wedge fund reports before the growth (as rings 0–4's
+/// OpenProvince left it), and the first holdings wedge 0's members hold.
+const FUND_OPEN_SITES: u32 = 100;
+const WEDGE0_HOMES: u32 = 60;
+/// The literal seed the growth tests give a requested RingSeed, as
+/// ConsumeRingSeed would (see the module doc).
+const RING5_SEED: [u8; 32] = [0x5a; 32];
+const RING6_SEED: [u8; 32] = [0x6b; 32];
+
+/// How a world's Season and Frontier start: the season's `r_max`, its
+/// genesis ring `g`, its growth ceiling (0: none), the rings already opened
+/// and the Frontier's `r_max_ext` (0: never extended).
+#[derive(Clone, Copy)]
+struct Setup {
+    r_max: u16,
+    genesis_ring: u8,
+    ceiling: u16,
+    rings_opened: u16,
+    r_max_ext: u16,
+}
+
+/// The first-home world: `r_max` 8, rings 0–3 open, no growth ceiling (the
+/// default of every preset: the map ends at `r_max`).
+const HOME: Setup = Setup {
+    r_max: R_MAX,
+    genesis_ring: 0,
+    ceiling: 0,
+    rings_opened: RINGS_OPENED,
+    r_max_ext: 0,
+};
+
+/// The growing world: `r_max` 4 with rings 0–4 open (so the next ring needs
+/// an extension), genesis ring 2 (rings 3 and 4 were opened by the
+/// crowding rule, ring 5 will be), ceiling 17 (the prize tally's last ring,
+/// `permutation_prize::MAX_RING`; InitPool refuses a higher one).
+const GROWTH: Setup = Setup {
+    r_max: 4,
+    genesis_ring: 2,
+    ceiling: 17,
+    rings_opened: 5,
+    r_max_ext: 0,
+};
 
 /// Bytes kept before every data slice: `AccountInfo::resize` (the close of
 /// a Holding) writes the new length as a u64 at `data_ptr − 8`, the
@@ -301,22 +390,25 @@ fn season_bump(id: u64) -> u8 {
     .1
 }
 
-/// The season's conquest block: Frontier-7 with the dispersed placement.
-fn conquest() -> ConquestParams {
+/// The season's conquest block: Frontier-7 with the dispersed placement and
+/// the setup's growth ceiling.
+fn conquest(setup: &Setup) -> ConquestParams {
     let mut cq = FRONTIER_7;
     cq.placement = PLACEMENT_DISPERSED;
     cq.heartland_max_ring = HMR;
+    cq.r_max_ceiling = setup.ceiling;
     cq
 }
 
 /// A Running S1 Season of this program, as CreateSeason and
 /// ConsumeGenesisSeed leave it.
-fn season_bytes(bump: u8, cq: &ConquestParams) -> Vec<u8> {
+fn season_bytes(bump: u8, cq: &ConquestParams, setup: &Setup) -> Vec<u8> {
     let mut d = vec![0u8; K2::Season.size()];
     assert!(write_header(&mut d, K2::Season, SEASON_ID));
     d[S::STATUS] = S::STATUS_RUNNING;
     d[S::BUMP] = bump;
-    put(&mut d, S::R_MAX, &R_MAX.to_le_bytes());
+    d[S::GENESIS_RING] = setup.genesis_ring;
+    put(&mut d, S::R_MAX, &setup.r_max.to_le_bytes());
     put(&mut d, S::RULESET_HASH, &crate::RULESET_HASH);
     put(
         &mut d,
@@ -326,8 +418,18 @@ fn season_bytes(bump: u8, cq: &ConquestParams) -> Vec<u8> {
     put(&mut d, S::GENESIS_TS, &GENESIS.to_le_bytes());
     put(&mut d, S::JOIN_CLOSE_BELL, &100_000u32.to_le_bytes());
     put(&mut d, S::END_BELL, &200_000u32.to_le_bytes());
+    put(&mut d, S::DRAND_GENESIS, &DRAND_GENESIS.to_le_bytes());
+    put(&mut d, S::DRAND_PERIOD, &DRAND_PERIOD.to_le_bytes());
+    put(&mut d, S::SEED_MARGIN, &SEED_MARGIN.to_le_bytes());
     put(&mut d, S::BUCKET_RATE_PER_H, &60u16.to_le_bytes());
     put(&mut d, S::BUCKET_BURST, &20u16.to_le_bytes());
+    put(&mut d, S::THETA_EARLY_BPS, &THETA_EARLY_BPS.to_le_bytes());
+    put(&mut d, S::THETA_LATE_BPS, &THETA_LATE_BPS.to_le_bytes());
+    put(
+        &mut d,
+        S::THETA_SWITCH_SECS,
+        &THETA_SWITCH_SECS.to_le_bytes(),
+    );
     put(&mut d, S::GENESIS_SEED, &GENESIS_SEED);
     put(
         &mut d,
@@ -343,12 +445,24 @@ fn season_bytes(bump: u8, cq: &ConquestParams) -> Vec<u8> {
     d
 }
 
-/// A Frontier with rings 0–3 open.
-fn frontier_bytes() -> Vec<u8> {
+/// A Frontier with the setup's rings open, never folded (every wedge
+/// counter zero), `r_max_ext` as the setup says.
+fn frontier_bytes(setup: &Setup) -> Vec<u8> {
     let mut d = vec![0u8; K2::Frontier.size()];
     assert!(write_header(&mut d, K2::Frontier, SEASON_ID));
-    put(&mut d, FR::RINGS_OPENED, &RINGS_OPENED.to_le_bytes());
+    put(&mut d, FR::RINGS_OPENED, &setup.rings_opened.to_le_bytes());
+    put(&mut d, FR::R_MAX_EXT, &setup.r_max_ext.to_le_bytes());
     put(&mut d, FR::OPEN_SITES, &100u32.to_le_bytes());
+    d
+}
+
+/// A wedge's ProvinceFund as the openings of rings 0–4 left it:
+/// `open_sites` 100, nothing else counted (the lamports are the fund).
+fn fund_bytes(wedge: u8) -> Vec<u8> {
+    let mut d = vec![0u8; K2::ProvinceFund.size()];
+    assert!(write_header(&mut d, K2::ProvinceFund, SEASON_ID));
+    d[PF::WEDGE] = wedge;
+    put(&mut d, PF::OPEN_SITES, &FUND_OPEN_SITES.to_le_bytes());
     d
 }
 
@@ -442,6 +556,7 @@ struct Member {
 struct World {
     ctx: AddrCtx,
     cq: ConquestParams,
+    setup: Setup,
     season: AccountInfo<'static>,
     frontier: AccountInfo<'static>,
     dpool: AccountInfo<'static>,
@@ -450,24 +565,48 @@ struct World {
     provinces: HashMap<(i32, i32), AccountInfo<'static>>,
     shards: HashMap<(u8, u8), AccountInfo<'static>>,
     holdings: HashMap<(i32, i32, u8), AccountInfo<'static>>,
+    funds: HashMap<u8, AccountInfo<'static>>,
+    ring_seeds: HashMap<u16, AccountInfo<'static>>,
+}
+
+/// The same account with the writability a given instruction's table
+/// wants: a clone shares the account's lamports, data and owner (the
+/// `AccountInfo` fields are `Rc`s), only the flag differs. The program's
+/// account check refuses a program account listed read-only that is
+/// writable, so the Frontier, a fund or a shard is handed over with exactly
+/// the flag of the position it takes.
+fn with_writable(ai: &AccountInfo<'static>, writable: bool) -> AccountInfo<'static> {
+    let mut a = ai.clone();
+    a.is_writable = writable;
+    a
 }
 
 impl World {
     fn new() -> World {
+        World::with(HOME)
+    }
+
+    /// The growing world ([`GROWTH`]).
+    fn growing() -> World {
+        World::with(GROWTH)
+    }
+
+    fn with(setup: Setup) -> World {
         let bump = season_bump(SEASON_ID);
         let season = crate::addr::season_pda(SEASON_ID, bump, &PROGRAM);
         let ctx = crate::addr::ctx(&season, &PROGRAM);
-        let cq = conquest();
+        let cq = conquest(&setup);
         World {
             ctx,
             cq,
+            setup,
             season: info(
-                leak(season, PROGRAM, season_bytes(bump, &cq), 0, BIG),
+                leak(season, PROGRAM, season_bytes(bump, &cq, &setup), 0, BIG),
                 false,
                 false,
             ),
             frontier: info(
-                leak(ctx.frontier(), PROGRAM, frontier_bytes(), 0, BIG),
+                leak(ctx.frontier(), PROGRAM, frontier_bytes(&setup), 0, BIG),
                 false,
                 false,
             ),
@@ -481,6 +620,8 @@ impl World {
             provinces: HashMap::new(),
             shards: HashMap::new(),
             holdings: HashMap::new(),
+            funds: HashMap::new(),
+            ring_seeds: HashMap::new(),
         }
     }
 
@@ -490,6 +631,38 @@ impl World {
         self.provinces
             .entry((c.p, c.q))
             .or_insert_with(|| info(leak(key, PROGRAM, province_bytes(c), 0, BIG), false, true))
+            .clone()
+    }
+
+    /// The Province of `c` as it is before OpenProvince: absent
+    /// (System-owned, no data) at its canonical address, with room for the
+    /// full v2 size. Once the program creates it, [`World::province`] and
+    /// [`World::province_data`] read what the program wrote.
+    fn absent_province(&mut self, c: ProvinceCoord) -> AccountInfo<'static> {
+        let key = self.ctx.province(c.p, c.q);
+        self.provinces
+            .entry((c.p, c.q))
+            .or_insert_with(|| info(leak(key, SYSTEM, vec![], PV2::SIZE, 0), false, true))
+            .clone()
+    }
+
+    /// Wedge `w`'s ProvinceFund (created on first use, funded with `BIG`
+    /// lamports), read-only as OpenRing lists it.
+    fn fund(&mut self, w: u8) -> AccountInfo<'static> {
+        let key = self.ctx.province_fund(w);
+        self.funds
+            .entry(w)
+            .or_insert_with(|| info(leak(key, PROGRAM, fund_bytes(w), 0, BIG), false, false))
+            .clone()
+    }
+
+    /// Ring `d`'s RingSeed: absent until OpenRing creates it, at its
+    /// canonical address, with room for its full size.
+    fn ring_seed(&mut self, d: u16) -> AccountInfo<'static> {
+        let key = self.ctx.ring_seed(d);
+        self.ring_seeds
+            .entry(d)
+            .or_insert_with(|| info(leak(key, SYSTEM, vec![], RS::SIZE, 0), false, true))
             .clone()
     }
 
@@ -601,6 +774,142 @@ impl World {
     fn holding_data(&mut self, c: ProvinceCoord, site: u8) -> Vec<u8> {
         self.holding(c, site).try_borrow_data().unwrap().to_vec()
     }
+
+    // ---------------------------------------------------------- map growth
+
+    fn frontier_data(&self) -> Vec<u8> {
+        self.frontier.try_borrow_data().unwrap().to_vec()
+    }
+
+    fn ring_seed_data(&mut self, d: u16) -> Vec<u8> {
+        self.ring_seed(d).try_borrow_data().unwrap().to_vec()
+    }
+
+    fn fund_data(&mut self, w: u8) -> Vec<u8> {
+        self.fund(w).try_borrow_data().unwrap().to_vec()
+    }
+
+    /// The Frontier's `(rings_opened, r_max_ext, last_ring_open_bell,
+    /// wedge_open, wedge_occupied)`.
+    fn frontier_state(&self) -> (u16, u16, u32, [u32; 6], [u32; 6]) {
+        let d = self.frontier_data();
+        let mut open = [0u32; 6];
+        let mut occ = [0u32; 6];
+        for w in 0..6 {
+            open[w] = rd_u32(&d, FR::WEDGE_OPEN + 4 * w);
+            occ[w] = rd_u32(&d, FR::WEDGE_OCCUPIED + 4 * w);
+        }
+        (
+            rd_u16(&d, FR::RINGS_OPENED),
+            rd_u16(&d, FR::R_MAX_EXT),
+            rd_u32(&d, FR::LAST_RING_OPEN_BELL),
+            open,
+            occ,
+        )
+    }
+
+    /// Pre-state of a JoinShard: `n` first holdings of its members, all in
+    /// `wedge` (what `n` PlaceHomes leave, as the first-home tests show).
+    fn set_shard_homes(&mut self, faction: u8, shard: u8, wedge: usize, n: u32) {
+        let s = self.shard(faction, shard);
+        let mut d = s.try_borrow_mut_data().unwrap();
+        put(&mut d, JS::HOLDINGS, &n.to_le_bytes());
+        put(&mut d, JS::HOLDINGS_BY_WEDGE + 4 * wedge, &n.to_le_bytes());
+    }
+
+    /// ExtendFrontier(d) paid by the payer.
+    fn extend_frontier(&mut self, d: u16) -> Result<(), u32> {
+        let a = [
+            self.payer.clone(),
+            self.season.clone(),
+            with_writable(&self.frontier, true),
+        ];
+        run(&a, &frontier_abi::v2::ix::ExtendFrontier { d }.to_bytes())
+    }
+
+    /// OpenRing(d) paid by the payer: the six wedge funds read-only, in
+    /// wedge order.
+    fn open_ring(&mut self, d: u16) -> Result<(), u32> {
+        let mut a = vec![
+            self.payer.clone(),
+            self.season.clone(),
+            with_writable(&self.frontier, true),
+            self.ring_seed(d),
+        ];
+        for w in 0..6u8 {
+            a.push(with_writable(&self.fund(w), false));
+        }
+        a.push(self.system.clone());
+        run(&a, &aix::OpenRing { d }.to_bytes())
+    }
+
+    /// OpenProvince(P, Q) paid by the payer, funded by the wedge's fund.
+    fn open_province(&mut self, c: ProvinceCoord) -> Result<(), u32> {
+        let ring = c.ring() as u16;
+        let wedge = crate::proc::map::fund_wedge(c);
+        let a = [
+            self.payer.clone(),
+            self.season.clone(),
+            self.ring_seed(ring),
+            with_writable(&self.fund(wedge), true),
+            self.absent_province(c),
+            self.system.clone(),
+        ];
+        run(
+            &a,
+            &aix::OpenProvince {
+                p: c.p as i16,
+                q: c.q as i16,
+            }
+            .to_bytes(),
+        )
+    }
+
+    /// FoldOccupancy(part) by anyone: parts 0 and 1 list the 24 JoinShards
+    /// of factions 0–2 and 3–5, part 2 the six funds, all read-only.
+    fn fold_part(&mut self, part: u8) -> Result<(), u32> {
+        let mut a = vec![
+            wallet(ANYONE, true, false, 0),
+            self.season.clone(),
+            with_writable(&self.frontier, true),
+        ];
+        match aix::FoldOccupancy::factions_of(part) {
+            Some((f0, f1)) => {
+                for f in f0..f1 {
+                    for s in 0..JS::SHARDS_PER_FACTION {
+                        a.push(with_writable(&self.shard(f, s), false));
+                    }
+                }
+            }
+            None => {
+                for w in 0..6u8 {
+                    a.push(with_writable(&self.fund(w), false));
+                }
+            }
+        }
+        run(&a, &aix::FoldOccupancy { part }.to_bytes())
+    }
+
+    /// A whole fold: the three parts at the current bell.
+    fn fold(&mut self) {
+        for part in 0..aix::FoldOccupancy::PARTS {
+            assert_eq!(self.fold_part(part), Ok(()), "fold part {part}");
+        }
+    }
+
+    /// The two fields ConsumeRingSeed writes once the beacon round is
+    /// verified (`proc::map::consume_ring_seed`): the seed and the status.
+    /// Written by the test because the host build cannot verify a quicknet
+    /// signature and no test may sign one (module doc). Nothing else of the
+    /// RingSeed changes: its round, bell, time and payer stay the program's.
+    fn seed_ring_as_consume_ring_seed_would(&mut self, d: u16, seed: &[u8; 32]) {
+        let rs = self.ring_seed(d);
+        let mut data = rs.try_borrow_mut_data().unwrap();
+        assert_eq!(data.len(), RS::SIZE, "a RingSeed the program created");
+        assert_eq!(data[RS::STATUS], RS::STATUS_REQUESTED);
+        put(&mut data, RS::SEED, seed);
+        data[RS::STATUS] = RS::STATUS_SEEDED;
+    }
 }
 
 /// The program's custom error code of a result.
@@ -628,6 +937,20 @@ fn at_day(day: i64) -> i64 {
     let ts = GENESIS + 600 + day * 86_400;
     crate::prologue::set_test_clock(ts, 1_000 + day as u64);
     ts
+}
+
+/// The clock at the start of bell `b`; returns the time.
+fn at_bell(b: u32) -> i64 {
+    let ts = GENESIS + 600 * b as i64;
+    crate::prologue::set_test_clock(ts, 1_000 + b as u64);
+    ts
+}
+
+/// The decoded records logged since the last take, oldest first.
+fn kinds_of(recs: &[Vec<u8>]) -> Vec<AnyKind> {
+    recs.iter()
+        .map(|r| decode_record(r).unwrap().kind)
+        .collect()
 }
 
 fn records() -> Vec<Vec<u8>> {
@@ -715,8 +1038,8 @@ fn map_growth_dispersed_home_lands_off_its_wedge_and_counts_under_the_provinces_
     // The JoinShard: counted under the province's wedge, never the nation.
     let (h1, by1, released) = w.shard_counts(&a);
     assert_eq!(h1, 1);
-    for x in 0..6 {
-        assert_eq!(by1[x], u32::from(x == wedge), "wedge counter {x}");
+    for (x, count) in by1.iter().enumerate() {
+        assert_eq!(*count, u32::from(x == wedge), "wedge counter {x}");
     }
     assert_eq!(by1[nation as usize], 0, "the nation's index is untouched");
     assert_eq!(released, 0);
@@ -914,4 +1237,473 @@ fn map_growth_release_dormant_undoes_the_wedge_counter_and_keeps_the_lifetime_gr
         rd_u16(&w.frontier.try_borrow_data().unwrap(), FR::RINGS_OPENED),
         RINGS_OPENED
     );
+}
+
+// ------------------------------------------------------------------ growth
+
+/// Ring 5 of the growing world, grown as the keeper would grow it at bell
+/// 1: the fold, ExtendFrontier(5), OpenRing(5), the seed (the test's stand-in
+/// for ConsumeRingSeed) and the 30 OpenProvinces. Returns the open sites
+/// ring 5 added to wedge 0's fund. The records are drained.
+fn grow_ring_5(w: &mut World) -> u32 {
+    at_bell(1);
+    w.set_shard_homes(0, 0, 0, WEDGE0_HOMES);
+    w.fold();
+    assert_eq!(w.extend_frontier(5), Ok(()));
+    assert_eq!(w.open_ring(5), Ok(()));
+    w.seed_ring_as_consume_ring_seed_would(5, &RING5_SEED);
+    let mut sites0 = 0u32;
+    for c in ring_provinces(5) {
+        assert_eq!(w.open_province(c), Ok(()), "open {},{}", c.p, c.q);
+        if crate::proc::map::fund_wedge(c) == 0 {
+            sites0 += generate_province(&RING5_SEED, c).site_count as u32;
+        }
+    }
+    records();
+    sites0
+}
+
+/// The world grows by one ring, through the program: a fold of the
+/// occupancy, ExtendFrontier(5) raising the effective `r_max` from 4 to 5
+/// (FRONTIER_EXTENDED), OpenRing(5) creating the RingSeed with the beacon
+/// round and `rings_opened` 6 (RING_OPEN), then, once the ring is seeded,
+/// OpenProvince of each of its 30 provinces from the wedge funds: terrain
+/// from the seed, the Free City, the keep, the funds' and the RingSeed's
+/// counters, PROVINCE_OPEN with its terrain digest. Before the extension
+/// ring 5 is beyond the map (`BadData`); without a fold the crowding rule
+/// is not met (`Capacity`); a skipped ring is `TooEarly`; the same
+/// extension, ring or province a second time is `AlreadyDone`; a province
+/// of an unseeded ring is `SeedNotReady`; past the ceiling is `BadData`.
+#[test]
+fn map_growth_expansion_extends_the_frontier_opens_the_ring_and_creates_its_provinces() {
+    let _g = begin();
+    let now = at_bell(1);
+    let mut w = World::growing();
+    assert_eq!(w.cq.r_max_ceiling, 17, "the prize tally's last ring");
+    w.set_shard_homes(0, 0, 0, WEDGE0_HOMES);
+
+    // Before any growth the map ends at r_max 4: ring 5 opens nothing.
+    assert_eq!(w.open_ring(5), Err(E::BadData as u32));
+    assert_eq!(
+        w.open_province(ProvinceCoord::new(5, 0)),
+        Err(E::SeedNotReady as u32),
+        "inside the ceiling, but ring 5 has no RingSeed"
+    );
+    assert_eq!(
+        w.open_province(ProvinceCoord::new(18, 0)),
+        Err(E::BadData as u32),
+        "past the ceiling"
+    );
+    // Never folded: no wedge is at θ occupancy.
+    assert_eq!(w.extend_frontier(5), Err(E::Capacity as u32));
+    assert!(records().is_empty(), "a refusal logs nothing");
+    assert_eq!(w.frontier_state().1, 0);
+
+    // The fold: wedge 0 has 60 of its 100 open sites held (θ early 60%: met exactly).
+    w.fold();
+    let recs = records();
+    assert_eq!(recs.len(), 3);
+    assert!(kinds_of(&recs)
+        .iter()
+        .all(|k| *k == AnyKind::V1(Kind::FOLD)));
+    let (ro, ext, last, open, occ) = w.frontier_state();
+    assert_eq!((ro, ext, last), (5, 0, 0));
+    assert_eq!(open, [FUND_OPEN_SITES; 6]);
+    assert_eq!(occ, [WEDGE0_HOMES, 0, 0, 0, 0, 0]);
+    assert!(crate::proc::map::ring_occupancy_met(
+        &occ,
+        &open,
+        THETA_EARLY_BPS
+    ));
+
+    // ExtendFrontier: one ring at a time (6 skips 5), to 5.
+    assert_eq!(w.extend_frontier(6), Err(E::TooEarly as u32));
+    assert_eq!(w.extend_frontier(5), Ok(()));
+    let (ro, ext, last, ..) = w.frontier_state();
+    assert_eq!(
+        (ro, ext, last),
+        (5, 5, 0),
+        "r_max_ext 5, nothing else moved"
+    );
+    let recs = records();
+    assert_eq!(recs.len(), 1);
+    let r = decode_record(&recs[0]).unwrap();
+    assert_eq!(r.kind, AnyKind::Cq(CqKind::FRONTIER_EXTENDED));
+    assert_eq!(r.bell, 1);
+    assert_eq!(r.key, &5u16.to_le_bytes()[..]);
+    assert_eq!(
+        r.payload,
+        &[4u16.to_le_bytes(), w.setup.ceiling.to_le_bytes()].concat()[..],
+        "(from, ceiling)"
+    );
+    assert_eq!(r.n_links, 1);
+    assert_eq!(
+        r.links[0].as_ref().map(|l| l.entity as u8),
+        Some(EntityKind::Frontier as u8)
+    );
+    assert_eq!(w.extend_frontier(5), Err(E::AlreadyDone as u32));
+    assert_eq!(
+        w.open_ring(6),
+        Err(E::BadData as u32),
+        "still beyond the map"
+    );
+
+    // OpenRing(5): the RingSeed requested from the beacon, rings_opened 6.
+    let payer_before = w.payer.lamports();
+    assert_eq!(w.open_ring(5), Ok(()));
+    let rent_rs = crate::init::rent(RS::SIZE).unwrap();
+    let rs = w.ring_seed(5);
+    assert_eq!(*rs.owner, Pubkey::new_from_array(PROGRAM));
+    assert_eq!(rs.lamports(), rent_rs);
+    assert_eq!(
+        w.payer.lamports(),
+        payer_before - rent_rs,
+        "the payer paid the RingSeed's rent"
+    );
+    let rd = w.ring_seed_data(5);
+    assert_eq!(rd.len(), RS::SIZE);
+    assert_eq!(rd_u16(&rd, RS::D), 5);
+    assert_eq!(rd[RS::STATUS], RS::STATUS_REQUESTED);
+    assert_eq!(rd_u32(&rd, RS::OPENED_BELL), 1);
+    assert_eq!(rd_i64(&rd, RS::T_OPEN), now);
+    let round = ring_seed_round(
+        &BeaconClock {
+            genesis: DRAND_GENESIS,
+            period: DRAND_PERIOD as i64,
+        },
+        now,
+        SEED_MARGIN,
+    );
+    assert_eq!(Ro(&rd).u64(RS::ROUND).unwrap(), round);
+    assert_eq!(
+        &rd[RS::SEED..RS::SEED + 32],
+        &[0u8; 32],
+        "the seed is on its way"
+    );
+    assert_eq!(rd_u16(&rd, RS::PROVINCES_CREATED), 0);
+    assert_eq!(&rd[RS::PAYER..RS::PAYER + 32], &PAYER);
+    let (ro, ext, last, ..) = w.frontier_state();
+    assert_eq!((ro, ext, last), (6, 5, 1));
+    let recs = records();
+    assert_eq!(recs.len(), 1);
+    let r = decode_record(&recs[0]).unwrap();
+    assert_eq!(r.kind, AnyKind::V1(Kind::RING_OPEN));
+    assert_eq!(r.bell, 1);
+    assert_eq!(r.key, &5u16.to_le_bytes()[..]);
+    assert_eq!(&r.payload[..8], &now.to_le_bytes());
+    assert_eq!(&r.payload[8..16], &round.to_le_bytes());
+    assert_eq!(&r.payload[16..48], &[0u8; 32]);
+    assert_eq!(r.n_links, 1);
+    assert_eq!(w.open_ring(5), Err(E::AlreadyDone as u32));
+    assert_eq!(w.open_ring(6), Err(E::BadData as u32));
+    let c = ProvinceCoord::new(5, 0);
+    assert_eq!(
+        w.open_province(c),
+        Err(E::SeedNotReady as u32),
+        "requested, not seeded"
+    );
+    assert!(records().is_empty());
+
+    // The beacon round consumed (the test's stand-in, module doc).
+    w.seed_ring_as_consume_ring_seed_would(5, &RING5_SEED);
+
+    // OpenProvince(5, 0): the province from the wedge fund.
+    let wedge = c.wedge().unwrap();
+    let rent_pv = crate::init::rent(PV2::SIZE).unwrap();
+    let fund_before = w.fund(wedge).lamports();
+    let payer_before = w.payer.lamports();
+    assert_eq!(w.open_province(c), Ok(()));
+    let pv = w.province(c);
+    assert_eq!(*pv.owner, Pubkey::new_from_array(PROGRAM));
+    assert_eq!(pv.lamports(), rent_pv);
+    assert_eq!(
+        w.fund(wedge).lamports(),
+        fund_before - rent_pv,
+        "the wedge fund paid"
+    );
+    assert_eq!(w.payer.lamports(), payer_before, "not the payer");
+    let pd = w.province_data(c);
+    assert_eq!(pd.len(), PV2::SIZE);
+    assert_eq!(
+        (
+            rd_i16(&pd, PV::P),
+            rd_i16(&pd, PV::Q),
+            rd_u16(&pd, PV::RING)
+        ),
+        (5, 0, 5)
+    );
+    assert_eq!(pd[PV::WEDGE], wedge);
+    assert_eq!(pd[PV::REGION], region_of(c));
+    assert_eq!(rd_u32(&pd, PV::RESOLVED_NEXT), 1);
+    assert_eq!(rd_u32(&pd, PV::OPENED_BELL), 1);
+    // The terrain is the kernel's from the ring seed, byte for byte.
+    let t = generate_province(&RING5_SEED, c);
+    let mut want = vec![0u8; PV2::SIZE];
+    encode_terrain(&t, &mut want).unwrap();
+    assert_eq!(&pd[TERRAIN_BLOCK], &want[TERRAIN_BLOCK]);
+    assert_eq!(pd[PV::SITE_COUNT], t.site_count);
+    assert!(t.site_count > 0, "a ring-5 province has sites");
+    // The genesis Free City (ring ≥ 4) on its site; the other sites free.
+    let fc = free_city_site(&RING5_SEED, c, t.site_count) as usize;
+    let fo = PV::site(fc);
+    assert_eq!(pd[fo + SM2::STATE], SM2::STATE_FREE_CITY);
+    assert_eq!(pd[fo + SM2::FACTION], NEUTRAL);
+    assert_eq!(
+        rd_u32(&pd, fo + SM2::GARRISON),
+        w.cq.free_city_garrison * MILLI as u32
+    );
+    if let Some(i) = (0..t.site_count as usize).find(|i| *i != fc) {
+        assert_eq!(pd[PV::site(i) + SM::STATE], SM::STATE_FREE);
+    }
+    assert_eq!(pd[PV::N_SITES_USED], 0);
+    // The fund's live counters and the RingSeed's count; no Frontier write.
+    let fd = w.fund_data(wedge);
+    assert_eq!(
+        rd_u32(&fd, PF::OPEN_SITES),
+        FUND_OPEN_SITES + t.site_count as u32
+    );
+    assert_eq!(rd_u32(&fd, PF::PROVINCES_OPENED), 1);
+    assert_eq!(rd_u32(&fd, PF::PROVINCES_FUNDED), 1);
+    assert_eq!(Ro(&fd).u64(PF::SPENT_TOTAL).unwrap(), rent_pv);
+    assert_eq!(rd_u16(&w.ring_seed_data(5), RS::PROVINCES_CREATED), 1);
+    assert_eq!(w.frontier_state(), (6, 5, 1, open, occ));
+    // PROVINCE_OPEN (the Province), then its keep and its Free City.
+    let recs = records();
+    let kinds = kinds_of(&recs);
+    assert_eq!(kinds[0], AnyKind::V1(Kind::PROVINCE_OPEN));
+    assert!(kinds[1..]
+        .iter()
+        .all(|k| *k == AnyKind::Cq(CqKind::KEEP) || *k == AnyKind::Cq(CqKind::NEUTRAL)));
+    assert!(
+        kinds.contains(&AnyKind::Cq(CqKind::NEUTRAL)),
+        "the genesis Free City"
+    );
+    let r = decode_record(&recs[0]).unwrap();
+    assert_eq!(r.bell, 1);
+    assert_eq!(r.key, &crate::proc::map::raw_province(5, 0)[..]);
+    assert_eq!(&r.payload[..2], &5u16.to_le_bytes());
+    assert_eq!(r.payload[2], wedge);
+    assert_eq!(r.payload[3], region_of(c));
+    assert_eq!(&r.payload[4..36], &terrain_digest(&pd).unwrap());
+    assert_eq!(r.payload[36], t.site_count);
+    assert_eq!(r.payload[42], 0, "not a reserved ring");
+    assert_eq!(r.n_links, 1);
+    assert_eq!(
+        r.links[0].as_ref().map(|l| l.entity as u8),
+        Some(EntityKind::Province as u8)
+    );
+    assert_eq!(w.open_province(c), Err(E::AlreadyDone as u32));
+    assert!(records().is_empty());
+
+    // The rest of ring 5: 30 provinces, five per wedge, each paid once.
+    let ring5 = ring_provinces(5);
+    assert_eq!(ring5.len(), 30);
+    for x in ring5.iter().copied().filter(|x| (x.p, x.q) != (c.p, c.q)) {
+        assert_eq!(w.open_province(x), Ok(()), "open {},{}", x.p, x.q);
+    }
+    assert!(records().len() >= 29, "a PROVINCE_OPEN for each");
+    assert_eq!(rd_u16(&w.ring_seed_data(5), RS::PROVINCES_CREATED), 30);
+    for wd in 0..6u8 {
+        let fd = w.fund_data(wd);
+        assert_eq!(rd_u32(&fd, PF::PROVINCES_OPENED), 5, "wedge {wd}");
+        assert_eq!(rd_u32(&fd, PF::PROVINCES_FUNDED), 5);
+        assert_eq!(Ro(&fd).u64(PF::SPENT_TOTAL).unwrap(), 5 * rent_pv);
+        assert_eq!(w.fund(wd).lamports(), BIG - 5 * rent_pv);
+    }
+    // Ring 6 is still unopened land of the map.
+    assert_eq!(
+        w.open_province(ProvinceCoord::new(6, 0)),
+        Err(E::SeedNotReady as u32)
+    );
+}
+
+/// Growth repeats under the program's waits: a bell since the last ring
+/// opening (`TooEarly`), the crowding rule on the folded values (the sites
+/// ring 5 added break θ early: `Capacity`, until the late θ applies), a
+/// wedge fund short of the ring's rent (`Insufficient`, nothing created);
+/// then ExtendFrontier(6) and OpenRing(6) land, a second of either is
+/// `AlreadyDone`, a ring past the effective `r_max` is `BadData`, a ring
+/// past the ceiling is `BadData` whatever the state, and the new ring's
+/// provinces open once, the old ring's untouched.
+#[test]
+fn map_growth_expansion_waits_a_bell_and_the_crowding_rule_then_grows_again_within_the_funds() {
+    let _g = begin();
+    let mut w = World::growing();
+    let sites0 = grow_ring_5(&mut w);
+    assert!(sites0 > 0, "ring 5 added open sites to wedge 0");
+    let rent_pv = crate::init::rent(PV2::SIZE).unwrap();
+
+    // The bell of the opening of ring 5: too early for the next extension.
+    assert_eq!(w.extend_frontier(6), Err(E::TooEarly as u32));
+    // A bell later: the fold counts ring 5's sites; θ early no longer holds.
+    at_bell(2);
+    w.fold();
+    records();
+    let (ro, ext, last, open, occ) = w.frontier_state();
+    assert_eq!((ro, ext, last), (6, 5, 1));
+    assert_eq!(open[0], FUND_OPEN_SITES + sites0);
+    assert_eq!(occ, [WEDGE0_HOMES, 0, 0, 0, 0, 0]);
+    assert!(!crate::proc::map::ring_occupancy_met(
+        &occ,
+        &open,
+        THETA_EARLY_BPS
+    ));
+    assert_eq!(w.extend_frontier(6), Err(E::Capacity as u32));
+    assert!(records().is_empty());
+    assert_eq!(w.frontier_state().1, 5, "unchanged");
+
+    // Three days in: the late θ (10%) applies; the extension lands.
+    let now = at_day(3);
+    let bell = ((now - GENESIS) / 600) as u32;
+    assert!(crate::proc::map::ring_occupancy_met(
+        &occ,
+        &open,
+        THETA_LATE_BPS
+    ));
+    assert_eq!(w.extend_frontier(6), Ok(()));
+    let recs = records();
+    let r = decode_record(&recs[0]).unwrap();
+    assert_eq!(r.kind, AnyKind::Cq(CqKind::FRONTIER_EXTENDED));
+    assert_eq!(r.bell, bell);
+    assert_eq!(r.payload, &[5, 0, 17, 0][..]);
+    assert_eq!(w.frontier_state().1, 6);
+    assert_eq!(
+        w.extend_frontier(7),
+        Err(E::TooEarly as u32),
+        "ring 6 not opened yet"
+    );
+
+    // OpenRing(6) needs every wedge fund to cover six provinces above its rent.
+    let need = 6 * rent_pv;
+    let floor = crate::init::rent(PF::SIZE).unwrap();
+    {
+        let f = w.fund(3);
+        **f.try_borrow_mut_lamports().unwrap() = floor + need - 1;
+    }
+    assert_eq!(w.open_ring(6), Err(E::Insufficient as u32));
+    assert_eq!(w.ring_seed(6).data_len(), 0, "nothing created");
+    assert_eq!(w.frontier_state().0, 6);
+    assert!(records().is_empty());
+    {
+        let f = w.fund(3);
+        **f.try_borrow_mut_lamports().unwrap() = floor + need;
+    }
+    assert_eq!(w.open_ring(6), Ok(()));
+    let (ro, ext, last, ..) = w.frontier_state();
+    assert_eq!((ro, ext, last), (7, 6, bell));
+    let rd = w.ring_seed_data(6);
+    assert_eq!(rd[RS::STATUS], RS::STATUS_REQUESTED);
+    assert_eq!(rd_u32(&rd, RS::OPENED_BELL), bell);
+    assert_eq!(kinds_of(&records()), [AnyKind::V1(Kind::RING_OPEN)]);
+
+    // Idempotent and bounded.
+    assert_eq!(w.extend_frontier(6), Err(E::AlreadyDone as u32));
+    assert_eq!(w.open_ring(6), Err(E::AlreadyDone as u32));
+    assert_eq!(
+        w.open_ring(7),
+        Err(E::BadData as u32),
+        "beyond the effective r_max 6"
+    );
+    assert_eq!(
+        w.extend_frontier(7),
+        Err(E::TooEarly as u32),
+        "a bell since the opening"
+    );
+    assert_eq!(
+        w.extend_frontier(18),
+        Err(E::BadData as u32),
+        "past the ceiling 17"
+    );
+    assert!(records().is_empty());
+
+    // Ring 6 takes its provinces once seeded, each once; ring 5 is untouched.
+    w.seed_ring_as_consume_ring_seed_would(6, &RING6_SEED);
+    let c6 = ProvinceCoord::new(6, 0);
+    assert_eq!(w.open_province(c6), Ok(()));
+    assert_eq!(w.open_province(c6), Err(E::AlreadyDone as u32));
+    assert_eq!(rd_u16(&w.ring_seed_data(6), RS::PROVINCES_CREATED), 1);
+    assert_eq!(rd_u16(&w.ring_seed_data(5), RS::PROVINCES_CREATED), 30);
+    let c5 = ProvinceCoord::new(5, 0);
+    let pd = w.province_data(c5);
+    let mut want = vec![0u8; PV2::SIZE];
+    encode_terrain(&generate_province(&RING5_SEED, c5), &mut want).unwrap();
+    assert_eq!(
+        &pd[TERRAIN_BLOCK], &want[TERRAIN_BLOCK],
+        "the old land is unchanged"
+    );
+    assert_eq!(rd_u32(&pd, PV::OPENED_BELL), 1);
+    records();
+
+    // A bell later the next extension passes the bell rule (θ late still
+    // holds) and stops again at the unopened ring: one ring at a time.
+    at_bell(bell + 1);
+    assert_eq!(w.extend_frontier(7), Ok(()));
+    assert_eq!(w.frontier_state().1, 7);
+    assert_eq!(w.extend_frontier(8), Err(E::TooEarly as u32));
+    assert_eq!(w.open_ring(8), Err(E::BadData as u32));
+    assert_eq!(
+        kinds_of(&records()),
+        [AnyKind::Cq(CqKind::FRONTIER_EXTENDED)]
+    );
+}
+
+/// The bounds that stay: a season without a ceiling (every preset's
+/// default) never grows past its `r_max`, however crowded; a season at
+/// ring 128 (`R_MAX_HARD`, the most a ceiling may be) grows no further, and
+/// no province beyond ring 128 can be named.
+#[test]
+fn map_growth_expansion_is_refused_without_a_ceiling_and_never_past_ring_128() {
+    let _g = begin();
+    at_bell(1);
+    // No ceiling: r_max 8, rings 0–3 open, wedge 0 crowded.
+    let mut w = World::new();
+    assert_eq!(w.cq.r_max_ceiling, 0);
+    w.set_shard_homes(0, 0, 0, WEDGE0_HOMES);
+    w.fold();
+    records();
+    assert_eq!(
+        w.extend_frontier(9),
+        Err(E::BadData as u32),
+        "no ceiling: no growth"
+    );
+    assert_eq!(
+        w.extend_frontier(4),
+        Err(E::BadData as u32),
+        "no ceiling: refused before any other check (never AlreadyDone)"
+    );
+    assert_eq!(w.open_ring(9), Err(E::BadData as u32));
+    assert_eq!(
+        w.open_province(ProvinceCoord::new(9, 0)),
+        Err(E::BadData as u32)
+    );
+    let (ro, ext, ..) = w.frontier_state();
+    assert_eq!((ro, ext), (RINGS_OPENED, 0));
+    assert!(records().is_empty());
+
+    // Ring 128: a season extended to the program's hard maximum.
+    assert_eq!(R_MAX_HARD, 128);
+    let mut w = World::with(Setup {
+        r_max: 4,
+        genesis_ring: 2,
+        ceiling: R_MAX_HARD,
+        rings_opened: 129,
+        r_max_ext: R_MAX_HARD,
+    });
+    w.set_shard_homes(0, 0, 0, WEDGE0_HOMES);
+    w.fold();
+    records();
+    assert_eq!(w.extend_frontier(129), Err(E::BadData as u32));
+    assert_eq!(w.open_ring(129), Err(E::BadData as u32));
+    assert_eq!(
+        w.open_province(ProvinceCoord::new(129, 0)),
+        Err(E::BadData as u32)
+    );
+    assert!(ProvinceCoord::checked(128, 0, u16::MAX).is_ok());
+    assert!(
+        ProvinceCoord::checked(129, 0, u16::MAX).is_err(),
+        "no coordinate past ring 128"
+    );
+    let (ro, ext, ..) = w.frontier_state();
+    assert_eq!((ro, ext), (129, 128));
+    assert!(records().is_empty());
 }
