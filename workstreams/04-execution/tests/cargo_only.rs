@@ -40,6 +40,8 @@ fn a_cargo_only_run_ships_its_cargo_and_is_fulfilled() {
         assert_eq!(format!("{:?}", w.rights), rights_before, "no right used");
     });
     h.audit();
+    // Its transitions are in its own table (Accepted → FacilityConfirmed).
+    check_store(&h.ex.store);
 }
 
 #[test]
