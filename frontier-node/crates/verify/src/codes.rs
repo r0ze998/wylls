@@ -16,6 +16,16 @@ pub const UNKNOWN_INSTRUCTION: &str = "UnknownInstruction";
 pub const UNVERIFIED_INSTRUCTION: &str = "UnverifiedInstruction";
 /// A Season of a program version this verifier does not implement (UNVERIFIABLE).
 pub const UNKNOWN_PROGRAM_VERSION: &str = "UnknownProgramVersion";
+/// A successful program call whose logs are absent (UNVERIFIABLE, V0E).
+pub const MISSING_LOGS: &str = "MissingLogs";
+/// A successful program call whose logs the runtime cut (UNVERIFIABLE, V0E).
+pub const TRUNCATED_LOGS: &str = "TruncatedLogs";
+/// A program invocation of a successful transaction without its `success` line (UNVERIFIABLE, V0E).
+pub const INCOMPLETE_LOGS: &str = "IncompleteLogs";
+/// The program run inside another program; no inner instruction archived (UNVERIFIABLE, V0E).
+pub const UNVERIFIED_INNER_INSTRUCTION: &str = "UnverifiedInnerInstruction";
+/// A written program account with no post-state in the archive (UNVERIFIABLE, V0E).
+pub const MISSING_POST_STATE: &str = "MissingPostState";
 // V2 program and rules
 pub const PROGRAM_MISMATCH: &str = "ProgramMismatch";
 pub const RULESET_MISMATCH: &str = "RulesetMismatch";

@@ -3,6 +3,7 @@
 //! build leaves check `n` out (the checks of the checks).
 
 pub mod v0_coverage;
+pub mod v0_evidence;
 pub mod v11_land;
 pub mod v12_explore;
 pub mod v13_payments;
@@ -198,6 +199,11 @@ pub fn run(input: &Input) -> Report {
     // instructions and program versions are never a PASS (V0).
     v0_coverage::run(&mut cx);
     ran.push("V0");
+    // The evidence those judgements need: logs present and whole, no
+    // program call the archive does not show, post-states of what was
+    // written (V0E, ⑪).
+    v0_evidence::run(&mut cx);
+    ran.push("V0E");
     macro_rules! check {
         ($feat:literal, $name:literal, $m:ident) => {
             if !cfg!(feature = $feat) {
