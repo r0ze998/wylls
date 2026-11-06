@@ -2294,6 +2294,8 @@ export class FrontierMap {
     // the season's border (map/world.mjs): beyond ring rMax there is never land this season. Drawn once it is within
     // reach of the open land, over the cloud's edge, so "not open yet" and "outside the map" never look alike
     if (edgeNear(src.rMax, ringsOpen)) { const segs = edgeSegments(src.rMax); plain.push(g => paintEdge(g, segs, z)); }
+    // a season that may still be extended (ExtendFrontier): its ceiling, faint, once near enough to be on the sheet
+    if (Number.isInteger(src.rMaxCeiling) && src.rMaxCeiling > src.rMax && edgeNear(src.rMaxCeiling, ringsOpen)) { const segs = edgeSegments(src.rMaxCeiling); plain.push(g => paintEdge(g, segs, z, { faint: true })); }
     // what is the viewer's own and what the selection can do (UX brief §5): one bundle for this frame's passes
     const F = this.youFrame(src, survey, lod, z, terrainOf);
     F.seen = seen; F.up = up; F.dpr = dpr;

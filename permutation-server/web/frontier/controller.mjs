@@ -45,7 +45,7 @@ import { raidOffers, s1VillageModel, s1TileModel, siegeOffer, expelOffer, carava
 import { placeData, raidProvinces, cargoBytes, RAID_CHOICE } from './fplay.mjs';
 import { cachedReach, reachKey, reachableKeeps } from './fkeepreach.mjs';
 import * as fprize from './fprize.mjs';
-import { instantHomeEnabled, HOME_GRANTED, planHomes, homeSites, sameHome, homeKey, loadHome, saveHome, grantId } from './home.mjs';
+import { instantHomeEnabled, HOME_GRANTED, planHomes, homeSites, seasonPlace, sameHome, homeKey, loadHome, saveHome, grantId } from './home.mjs';
 // the prototype rule "banners" (a design tried in the sample world, never sent to a chain): its routes and the reading of its records
 import * as protoIo from './proto/orders.mjs';
 import * as pm from './proto/hand-model.mjs';
@@ -1157,7 +1157,7 @@ export async function refreshHomes({ force = false } = {}) {
   try {
     if (force) FS.overviewsBell = undefined;
     await refreshOverviews(nowBell());
-    const result = await planHomes({ overviews: FS.overviews, faction, nowBell: nowBell(), ringsOpen: conquestEnabled(FS.season) ? Math.min(FS.record?.rings?.length ?? 0, Number(FS.season.conquestParams?.heartlandMaxRing ?? FS.season.heartlandMaxRing ?? 3) + 1) : FS.record?.rings?.length ?? 0,
+    const result = await planHomes({ overviews: FS.overviews, faction, nowBell: nowBell(), place: seasonPlace(FS.season), ringsOpen: conquestEnabled(FS.season) ? Math.min(FS.record?.rings?.length ?? 0, Number(FS.season.conquestParams?.heartlandMaxRing ?? FS.season.heartlandMaxRing ?? 3) + 1) : FS.record?.rings?.length ?? 0,
       seed: `${FS.wallet?.address ?? 'visitor'}|${old.rotation ?? 0}`, rotation: old.rotation ?? 0,
       read: async (p, q) => { const env = await loadEnvelope(p, q); return env?.province ?? null; } });
     if (request !== homesRefresh) return;
@@ -1228,7 +1228,7 @@ export async function confirmHome() {
       return error('WrongFaction', L`参加済みの国の土地を選んでください。`);
     }
     const env = await loadEnvelope(site.p, site.q);
-    if (!homeSites(env?.province, { faction: site.faction, nowBell: nowBell(), ringsOpen: FS.record?.rings?.length ?? 0 }).some(s => sameHome(s, site))) {
+    if (!homeSites(env?.province, { faction: site.faction, nowBell: nowBell(), ringsOpen: FS.record?.rings?.length ?? 0, place: seasonPlace(FS.season) }).some(s => sameHome(s, site))) {
       FS.homeChoice.selected = null; saveHomePatch({ selected: null });
       return error('SiteUnavailable', L`この土地は現在選べません。候補を更新して別の土地を選んでください。`);
     }

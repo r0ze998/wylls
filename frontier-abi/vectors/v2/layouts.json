@@ -2,7 +2,7 @@
   "generator": "frontier-abi abi-vectors",
   "abi_version": 2,
   "contract": "docs/frontier/conquest/CONQUEST-CONTRACT.md v1.1",
-  "content": "ABI v2 account layouts (§5.2): 18 kinds, v2 sub-records, SeasonParams v2",
+  "content": "ABI v2 account layouts (\u00a75.2): 18 kinds, v2 sub-records, SeasonParams v2",
   "accounts": [
     {
       "kind": "Season",
@@ -491,10 +491,10 @@
           "ty": "u16"
         },
         {
-          "name": "RSV_66",
+          "name": "R_MAX_EXT",
           "off": 66,
           "len": 2,
-          "ty": "rsv"
+          "ty": "u16"
         },
         {
           "name": "LAST_RING_OPEN_BELL",
@@ -3987,10 +3987,16 @@
           "ty": "u8"
         },
         {
-          "name": "RSV_PRE_CONTINUOUS",
+          "name": "PLACEMENT",
           "off": 77,
-          "len": 3,
-          "ty": "rsv"
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "R_MAX_CEILING",
+          "off": 78,
+          "len": 2,
+          "ty": "u16"
         },
         {
           "name": "CONTINUOUS",

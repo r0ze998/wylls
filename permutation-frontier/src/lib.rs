@@ -235,6 +235,7 @@ pub fn dispatch(
         Ix::RaidDomestic => caravan::raid_domestic(p, a, data),
         // S1 (map growth): a resting Province in closed form.
         Ix::FastForward => clash::fast_forward(p, a, data),
+        Ix::ExtendFrontier => map::extend_frontier(p, a, data),
     };
     heap::trace_checkpoint(0xffff);
     r

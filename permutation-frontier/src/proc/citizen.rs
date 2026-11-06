@@ -88,7 +88,7 @@ use frontier_abi::v2::ix::FileOutpost as V2FileOutpost;
 use frontier_abi::v2::Ix as V2Ix;
 use permutation_rules::frontier::beacon;
 use permutation_rules::frontier::clash::NEUTRAL;
-use permutation_rules::frontier::geometry::ProvinceCoord;
+use permutation_rules::frontier::geometry::{self, ProvinceCoord};
 use permutation_rules::frontier::holding::{
     duplicate_cost, may_found_outpost, Holding, OutpostCheck, OutpostRefusal, Resource, Tier,
     RESOURCES,
@@ -368,7 +368,11 @@ pub fn join(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         (
             r.arr::<32>(S::JOIN_GATE)?,
             r.u16(S::RESERVE_BPS)?,
-            r.u16(S::R_MAX)?,
+            // Map growth: a ring can still open up to the ceiling.
+            r.u16(S::R_MAX)?.max(
+                frontier_abi::v2::presets::ConquestParams::of_season(&sd)
+                    .map_or(0, |c| c.r_max_ceiling),
+            ),
         )
     };
     match gate {
@@ -407,6 +411,7 @@ pub fn join(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         let open = r.u32(FR::OPEN_SITES)? as u64;
         let occupied = r.u32(FR::OCCUPIED_SITES)? as u64;
         let rings = r.u16(FR::RINGS_OPENED)?;
+        let r_max = r_max.max(r.u16(FR::R_MAX_EXT)?);
         let free_ok = open.saturating_sub(occupied) * 10_000 >= reserve_bps as u64 * open;
         if !free_ok && rings > r_max {
             return Err(FrontierError::Capacity.into());
@@ -792,13 +797,15 @@ pub(crate) fn file_outpost_as(
     };
     crate::heap::trace_checkpoint(0xA302);
     present_at(frontier, &ctx.frontier(), p, AccountKind::Frontier, hdr.id)?;
-    let (rings_opened, open_sites, occupied) = {
+    let (rings_opened, open_sites, occupied, r_max) = {
         let fd = frontier.try_borrow_data()?;
         let r = Ro(&fd);
         (
             r.u16(FR::RINGS_OPENED)?,
             r.u32(FR::OPEN_SITES)? as u64,
             r.u32(FR::OCCUPIED_SITES)? as u64,
+            // Map growth: the effective outermost ring.
+            r_max.max(r.u16(FR::R_MAX_EXT)?),
         )
     };
     let base = OutpostCheck {
@@ -1031,7 +1038,8 @@ pub(crate) fn file_ticket_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &sup
     };
     let r_max = {
         let sd = season_ai.try_borrow_data()?;
-        Ro(&sd).u16(S::R_MAX)?
+        // Map growth: the effective outermost ring.
+        super::map::effective_r_max(&sd, &frontier.try_borrow_data()?)?
     };
     let n = x.n as usize;
     let mut sites = [(0i16, 0i16, 0u8); 3];
@@ -1221,13 +1229,19 @@ pub(crate) fn place_home_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &supe
             r.u64(C::CITIZEN_TAG)?,
         )
     };
-    let (r_max, home_max_ring) = {
+    let (r_max, home_max_ring, placement, genesis_seed) = {
         let sd = season_ai.try_borrow_data()?;
         let r = Ro(&sd);
         if r.u16(S::PROGRAM_VERSION)? != crate::PROGRAM_VERSION {
             return Err(FrontierError::RulesetMismatch.into());
         }
-        (r.u16(S::R_MAX)?, season_cq(&sd)?.heartland_max_ring)
+        let cq = season_cq(&sd)?;
+        (
+            r.u16(S::R_MAX)?,
+            cq.heartland_max_ring,
+            cq.placement,
+            r.arr::<32>(S::GENESIS_SEED)?,
+        )
     };
     let coord = ProvinceCoord::checked(x.p as i32, x.q as i32, r_max)
         .map_err(|_| FrontierError::BadData)?;
@@ -1237,7 +1251,12 @@ pub(crate) fn place_home_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &supe
     present_at(frontier, &ctx.frontier(), p, AccountKind::Frontier, hdr.id)?;
     {
         let fd = frontier.try_borrow_data()?;
-        if coord.ring() >= Ro(&fd).u16(FR::RINGS_OPENED)? as u32 || coord.wedge() != Some(faction) {
+        // The season's placement names the nation of a heartland province
+        // (`home_nation`: the wedge under the wedge placement).
+        if coord.ring() >= Ro(&fd).u16(FR::RINGS_OPENED)? as u32
+            || geometry::home_nation(coord, placement, home_max_ring, &genesis_seed)
+                != Some(faction)
+        {
             return Err(FrontierError::BadData.into());
         }
     }
@@ -1253,7 +1272,10 @@ pub(crate) fn place_home_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &supe
     let (tile, gen) = {
         let pd = province.try_borrow_data()?;
         let r = Ro(&pd);
-        if r.i16(PV::P)? != x.p || r.i16(PV::Q)? != x.q || r.u8(PV::WEDGE)? != faction {
+        if r.i16(PV::P)? != x.p
+            || r.i16(PV::Q)? != x.q
+            || r.u8(PV::WEDGE)? != coord.wedge().unwrap_or(u8::MAX)
+        {
             return Err(BAD_ACCOUNT);
         }
         record_is_zero(&pd, x.site)?;

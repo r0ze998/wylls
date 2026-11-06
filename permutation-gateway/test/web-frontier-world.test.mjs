@@ -30,6 +30,24 @@ test('the four states of a place, from the season record', () => {
   assert.equal(W.placeOf(w, -3, -4), 'outside', 'every direction');
 });
 
+test('a growing map (ExtendFrontier): the herald\'s rMax rises and the border moves out with it', () => {
+  // Before: the season ends at ring 6 and every ring is open.
+  const before = W.worldOf({ rings: rings(7), ringsOpened: 7, rMax: 6, ringProvinces: [1, 6, 12, 18, 24, 30, 36] });
+  assert.equal(W.placeOf(before, 6, 0), 'open');
+  assert.equal(W.placeOf(before, 7, 0), 'outside');
+  // After ExtendFrontier(7): ring 7 is inside the map, not yet opened; ring 8 still outside.
+  const raised = W.worldOf({ rings: rings(7), ringsOpened: 7, rMax: 7, ringProvinces: [1, 6, 12, 18, 24, 30, 36] });
+  assert.equal(W.placeOf(raised, 6, 0), 'open', 'the old land is unchanged');
+  assert.equal(W.placeOf(raised, 7, 0), 'unopened');
+  assert.equal(W.placeOf(raised, 8, 0), 'outside');
+  // Then OpenRing(7): pending until its seed and Provinces land.
+  const opening = W.worldOf({ rings: rings(7), ringsOpened: 8, rMax: 7, ringProvinces: [1, 6, 12, 18, 24, 30, 36] });
+  assert.equal(W.placeOf(opening, 7, 0), 'pending');
+  // The border is drawn from the current rMax: 12·rMax + 6 sides.
+  assert.equal(W.edgeSegments(6).length, 12 * 6 + 6);
+  assert.equal(W.edgeSegments(7).length, 12 * 7 + 6);
+});
+
 test('an older herald (no ringsOpened, no ringProvinces) answers as before', () => {
   const w = W.worldOf({ rings: rings(5), rMax: 16 });
   assert.equal(w.ringsOpened, 5);

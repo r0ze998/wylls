@@ -18,7 +18,7 @@ const NO_END = 4294967295;
 const base = { genesisTs: 1000, drandGenesis: 0, drandPeriod: 3, seedMargin: 60, revealWindow: 600, windowFromBell: NO_END, endBell: 96 };
 
 // Season v2's conquest block begins at 896. The generated layout is sourced
-// from the same ABI vectors as the Rust reader, with 77..79 still reserved.
+// from the same ABI vectors as the Rust reader, with placement 77, ceiling 78..79 and continuous 80.
 const rawSeason = (continuous, endBell) => {
   const raw = new Uint8Array(2048);
   raw.set(Buffer.from('PSF1SEAS'));
@@ -31,10 +31,10 @@ const rawSeason = (continuous, endBell) => {
   return raw;
 };
 
-test('generated ABI keeps bytes 77..79 reserved and exposes continuous at byte 80', () => {
+test('generated ABI keeps placement, growth and continuity in disjoint bytes', () => {
   const cq = LAYOUTS.records.find(r => r.name === 'ConquestParams');
   assert.deepEqual(cq.fields.filter(f => f.off >= 77).map(f => [f.name, f.off, f.len]), [
-    ['RSV_PRE_CONTINUOUS', 77, 3], ['CONTINUOUS', 80, 1], ['RSV', 81, 47],
+    ['PLACEMENT', 77, 1], ['R_MAX_CEILING', 78, 2], ['CONTINUOUS', 80, 1], ['RSV', 81, 47],
   ]);
 });
 
@@ -62,7 +62,7 @@ test('invalid world flags, end bells and reserved bytes fail before the page see
   const cases = [rawSeason(2, NO_END), rawSeason(1, 96)];
   for (const off of [77, 81]) {
     const raw = rawSeason(1, NO_END);
-    raw[896 + off] = 1;
+    raw[896 + off] = off === 77 ? 2 : 1;
     cases.push(raw);
   }
   for (const raw of cases) {
@@ -134,4 +134,9 @@ test('the continuous wording has English text', () => {
   for (const k of ['この世界は続きます（終わりの時刻はありません）。戦期は未決定です。', '砦を保持する国がこの州を支配します。この世界は続きます。戦期の勝敗と集計は未決定です。']) {
     assert.equal(typeof EN[k], 'string', k);
   }
+});
+
+test('continuous raw Season also carries dispersed placement and extension ceiling', () => {
+ const raw = rawSeason(1, NO_END); raw[973] = 1; new DataView(raw.buffer).setUint16(974, 128, true);
+ const s = decode('Season', raw); assert.equal(s.conquestParams.placement, 1); assert.equal(s.conquestParams.rMaxCeiling, 128); assert.equal(worldContinues(s), true);
 });

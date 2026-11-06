@@ -55,10 +55,8 @@ pub mod cq_layout {
         RETIRE_HOSTS @ 74 : "u8" = 1;
         RELATIONS @ 75 : "u8" = 1;
         FLAGS @ 76 : "u8" = 1;
-        // 8's placement and map-growth fields at 77..79 are not in this
-        // isolated candidate. Preserve their reserved bytes, but pin the
-        // continuous-world flag to the same byte 80 as 8's source ABI.
-        RSV_PRE_CONTINUOUS @ 77 : "rsv" = 3;
+        PLACEMENT @ 77 : "u8" = 1;
+        R_MAX_CEILING @ 78 : "u16" = 2;
         CONTINUOUS @ 80 : "u8" = 1;
         RSV @ 81 : "rsv" = 47;
     );
@@ -163,10 +161,23 @@ pub struct ConquestParams {
     pub retire_hosts: u8,
     pub relations: u8,
     pub flags: u8,
+    /// First-home placement: [`PLACEMENT_WEDGE`] (each nation's homes in its
+    /// own wedge) or [`PLACEMENT_DISPERSED`] (each nation's homes in small
+    /// groups spread round the heartland rings,
+    /// `permutation_rules::frontier::geometry::home_nation`).
+    pub placement: u8,
+    /// Map growth: the outermost ring ExtendFrontier may raise the season
+    /// to (0 = no extension: `r_max` is final).
+    pub r_max_ceiling: u16,
     /// Byte 80 of the conquest block. A new continuous world keeps both its
     /// end and join deadline absent.
     pub continuous: u8,
 }
+
+/// `placement` 0: the wedge rule (every season before the field existed).
+pub const PLACEMENT_WEDGE: u8 = permutation_rules::frontier::geometry::PLACEMENT_WEDGE;
+/// `placement` 1: dispersed small groups in the heartland rings.
+pub const PLACEMENT_DISPERSED: u8 = permutation_rules::frontier::geometry::PLACEMENT_DISPERSED;
 
 impl ConquestParams {
     pub fn to_bytes(&self) -> [u8; CONQUEST_PARAMS_LEN] {
@@ -224,6 +235,8 @@ impl ConquestParams {
             & wr_u8(&mut d, L::RETIRE_HOSTS, self.retire_hosts)
             & wr_u8(&mut d, L::RELATIONS, self.relations)
             & wr_u8(&mut d, L::FLAGS, self.flags)
+            & wr_u8(&mut d, L::PLACEMENT, self.placement)
+            & wr_u16(&mut d, L::R_MAX_CEILING, self.r_max_ceiling)
             & wr_u8(&mut d, L::CONTINUOUS, self.continuous);
         d
     }
@@ -232,9 +245,7 @@ impl ConquestParams {
     pub fn from_bytes(d: &[u8]) -> Option<ConquestParams> {
         use cq_layout as L;
         if d.len() < CONQUEST_PARAMS_LEN
-            || d[L::RSV_PRE_CONTINUOUS..L::CONTINUOUS]
-                .iter()
-                .any(|b| *b != 0)
+            || d[L::PLACEMENT] > PLACEMENT_DISPERSED
             || d[L::CONTINUOUS] > 1
             || d[L::RSV..CONQUEST_PARAMS_LEN].iter().any(|b| *b != 0)
         {
@@ -272,6 +283,8 @@ impl ConquestParams {
             retire_hosts: rd_u8(d, L::RETIRE_HOSTS)?,
             relations: rd_u8(d, L::RELATIONS)?,
             flags: rd_u8(d, L::FLAGS)?,
+            placement: rd_u8(d, L::PLACEMENT)?,
+            r_max_ceiling: rd_u16(d, L::R_MAX_CEILING)?,
             continuous: rd_u8(d, L::CONTINUOUS)?,
         })
     }
@@ -289,7 +302,7 @@ impl ConquestParams {
         let secs_ok = |s: u32| s as u64 <= season_secs;
         use permutation_rules::frontier::conquest_bounds as B;
         let bells_ok = |b: u32| b <= MAX_TIMER_BELLS && b <= end_bell;
-        let checks: [(bool, &'static str); 26] = [
+        let checks: [(bool, &'static str); 27] = [
             (p.conquest_version == CONQUEST_VERSION, "conquest_version"),
             (p.relations == B::RELATIONS_MC, "relations"),
             (p.flags == B::FLAGS_MC, "flags"),
@@ -352,6 +365,7 @@ impl ConquestParams {
                 "release_after_secs",
             ),
             (p.retire_hosts <= 1, "retire_hosts"),
+            (p.placement <= PLACEMENT_DISPERSED, "placement"),
             (p.outpost_tier_min <= 3, "outpost_tier_min"),
             (p.outpost_share_bps <= 10_000, "outpost_share_bps"),
             ((1..=8).contains(&p.outpost_range), "outpost_range"),
@@ -415,6 +429,15 @@ impl SeasonParamsV2 {
         {
             return Err("dormancy timers differ");
         }
+        // Map growth: 0, or above `r_max` and within the program's hard
+        // maximum (geometry `R_MAX_HARD`).
+        let ceiling = self.cq.r_max_ceiling;
+        if ceiling != 0
+            && (ceiling <= self.base.r_max
+                || ceiling > permutation_rules::frontier::geometry::R_MAX_HARD)
+        {
+            return Err("r_max_ceiling");
+        }
         self.cq.validate(self.base.end_bell)
     }
 
@@ -476,6 +499,8 @@ pub const FRONTIER_7: ConquestParams = ConquestParams {
     retire_hosts: 1,
     relations: 0,
     flags: 0,
+    placement: PLACEMENT_WEDGE,
+    r_max_ceiling: 0,
     continuous: 0,
 };
 
@@ -708,6 +733,27 @@ mod tests {
         assert_eq!(bad(|p| p.base.program_version = 1), Err("program_version"));
         assert_eq!(bad(|p| p.cq.relations = 1), Err("relations"));
         assert_eq!(bad(|p| p.cq.flags = 1), Err("flags"));
+        assert_eq!(bad(|p| p.cq.placement = 2), Err("placement"));
+        // Map growth: 0 (no extension), or above r_max (16) and ≤ 128.
+        assert_eq!(bad(|p| p.cq.r_max_ceiling = 16), Err("r_max_ceiling"));
+        assert_eq!(bad(|p| p.cq.r_max_ceiling = 129), Err("r_max_ceiling"));
+        assert_eq!(bad(|p| p.cq.r_max_ceiling = 17), Ok(()));
+        assert_eq!(bad(|p| p.cq.r_max_ceiling = 128), Ok(()));
+        {
+            // The ceiling round-trips at bytes 78..80; existing presets keep 0.
+            let mut p = base;
+            p.cq.r_max_ceiling = 24;
+            let b = p.cq.to_bytes();
+            assert_eq!(
+                &b[cq_layout::R_MAX_CEILING..cq_layout::R_MAX_CEILING + 2],
+                &24u16.to_le_bytes()
+            );
+            assert_eq!(ConquestParams::from_bytes(&b), Some(p.cq));
+            assert_eq!(
+                base.cq.to_bytes()[cq_layout::PLACEMENT..cq_layout::CONTINUOUS],
+                [0u8; 3]
+            );
+        }
         assert_eq!(
             bad(|p| p.cq.heartland_max_ring = 1),
             Err("heartland_max_ring")
@@ -752,9 +798,9 @@ mod tests {
         let mut existing = base.cq.to_bytes();
         existing[cq_layout::CONTINUOUS] = 1;
         assert_eq!(ConquestParams::from_bytes(&existing).unwrap().continuous, 1);
-        existing[cq_layout::RSV_PRE_CONTINUOUS] = 1;
+        existing[cq_layout::RSV] = 1;
         assert_eq!(ConquestParams::from_bytes(&existing), None);
-        existing[cq_layout::RSV_PRE_CONTINUOUS] = 0;
+        existing[cq_layout::RSV] = 0;
         existing[cq_layout::CONTINUOUS] = 2;
         assert_eq!(ConquestParams::from_bytes(&existing), None);
         let mut d = base.to_bytes();
@@ -764,7 +810,7 @@ mod tests {
     }
 
     #[test]
-    fn continuous_creation_keeps_join_open_and_map_fixed() {
+    fn continuous_creation_keeps_join_open_and_default_map_fixed() {
         let finite = MC_LOCAL_7D;
         let finite_bytes = finite.to_bytes();
         let payout = permutation_rules::frontier::payout::PayoutParams::REV3.to_borsh();
@@ -784,7 +830,7 @@ mod tests {
         assert_eq!(continuous.validate(), Ok(()));
         let raw = continuous.to_bytes();
         assert_eq!(
-            raw[SEASON_PARAMS_LEN + cq_layout::RSV_PRE_CONTINUOUS
+            raw[SEASON_PARAMS_LEN + cq_layout::PLACEMENT
                 ..SEASON_PARAMS_LEN + cq_layout::CONTINUOUS],
             [0; 3]
         );
@@ -801,6 +847,31 @@ mod tests {
         continuous.base.end_bell = finite.base.end_bell;
         assert_eq!(continuous.validate(), Err("join_close_bell/end_bell"));
         assert_eq!(finite.to_bytes(), finite_bytes);
+    }
+
+    #[test]
+    fn continuous_dispersed_extension_fields_coexist_without_repacking() {
+        let mut p = S1_LOCAL_7D;
+        p.base.end_bell = crate::presets::NO_END_BELL;
+        p.base.join_close_bell = crate::presets::NO_END_BELL;
+        p.cq.placement = PLACEMENT_DISPERSED;
+        p.cq.r_max_ceiling = 128;
+        p.cq.continuous = 1;
+        assert_eq!(p.validate(), Ok(()));
+        let raw = p.cq.to_bytes();
+        assert_eq!(&raw[77..81], &[1, 128, 0, 1]);
+        assert!(raw[81..].iter().all(|b| *b == 0));
+        assert_eq!(ConquestParams::from_bytes(&raw), Some(p.cq));
+        assert_eq!(SeasonParamsV2::from_bytes(&p.to_bytes()), Some(p));
+        let mut bad = raw;
+        bad[80] = 2;
+        assert!(ConquestParams::from_bytes(&bad).is_none());
+        bad = raw;
+        bad[77] = 2;
+        assert!(ConquestParams::from_bytes(&bad).is_none());
+        bad = raw;
+        bad[81] = 1;
+        assert!(ConquestParams::from_bytes(&bad).is_none());
     }
 
     #[test]

@@ -92,6 +92,8 @@
           "retire_hosts": 1,
           "relations": 0,
           "flags": 0,
+          "placement": 0,
+          "r_max_ceiling": 0,
           "continuous": 0
         }
       },
@@ -178,6 +180,8 @@
           "retire_hosts": 1,
           "relations": 0,
           "flags": 0,
+          "placement": 0,
+          "r_max_ceiling": 0,
           "continuous": 0
         }
       },
@@ -264,6 +268,8 @@
           "retire_hosts": 1,
           "relations": 0,
           "flags": 0,
+          "placement": 0,
+          "r_max_ceiling": 0,
           "continuous": 0
         }
       },
@@ -350,6 +356,8 @@
           "retire_hosts": 1,
           "relations": 0,
           "flags": 0,
+          "placement": 0,
+          "r_max_ceiling": 0,
           "continuous": 0
         }
       },
@@ -442,6 +450,8 @@
           "retire_hosts": 1,
           "relations": 0,
           "flags": 0,
+          "placement": 0,
+          "r_max_ceiling": 0,
           "continuous": 0
         }
       },
@@ -528,6 +538,8 @@
           "retire_hosts": 1,
           "relations": 0,
           "flags": 0,
+          "placement": 0,
+          "r_max_ceiling": 0,
           "continuous": 0
         }
       },
@@ -614,6 +626,8 @@
           "retire_hosts": 1,
           "relations": 0,
           "flags": 0,
+          "placement": 0,
+          "r_max_ceiling": 0,
           "continuous": 0
         }
       },

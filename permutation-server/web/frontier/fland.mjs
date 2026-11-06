@@ -8,7 +8,7 @@
 // decoded accounts; the program decides every action.
 import { TRAIN_ARMS_PER_100, WORKSHOP, s1On } from './fs1.mjs';
 import { rent } from '../sdk/frontier/fees.mjs';
-import { ringOf, wedgeOf, provinceIndex, TILE_OFFSETS, DIRECTIONS } from './fgeo.mjs';
+import { ringOf, wedgeOf, homeNation, provinceIndex, TILE_OFFSETS, DIRECTIONS } from './fgeo.mjs';
 import { ACCOUNTS } from './abi.mjs';
 import { hostParts } from './faddr.mjs';
 import { bellStart, bellEnd } from './clock.mjs';
@@ -135,12 +135,12 @@ export function freeByWedge(overviews) {
 }
 
 /** Provinces of the home wedge worth opening in the site picker (open rings ≥ 2, some free site), nearest ring first. */
-export function candidateProvinces(overviews, faction) {
+export function candidateProvinces(overviews, faction, place = undefined) {
   const w = homeWedge(faction), out = [];
   for (const ov of overviews.values()) {
     if (!ov?.provinces || ov.ring < FIRST_TICKET_RING) continue;
     for (const pr of ov.provinces) {
-      if (wedgeOf(pr.p, pr.q) !== w) continue;
+      if ((place ? homeNation(pr.p, pr.q, place) : wedgeOf(pr.p, pr.q)) !== w) continue;
       const free = pr.sites.filter((s, i) => (s === 0 || s === 3) && pr.owners[i] === 7).length;
       if (free > 0) out.push({ p: pr.p, q: pr.q, ring: ringOf(pr.p, pr.q), free });
     }

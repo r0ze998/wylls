@@ -2,7 +2,7 @@
   "generator": "frontier-abi abi-vectors",
   "abi_version": 2,
   "contract": "docs/frontier/conquest/CONQUEST-CONTRACT.md v1.1",
-  "content": "ABI v2 PS2 log records (§6): kinds 80–88, entity kind 8, CONQUEST events",
+  "content": "ABI v2 PS2 log records (\u00a76): kinds 80\u201388, entity kind 8, CONQUEST events",
   "entity_kinds": [
     {
       "code": 1,
@@ -1524,6 +1524,43 @@
             "prev_head": "8aa5832421b4da8cbcea07ac0b29cd5db78e66958b7b5f041e2ebeff6709aa88",
             "seq": 4,
             "head": "2bcc26adf832f588bb8d517dc85c53d9bbb9e105f2e7d1a0625d48473021cace"
+          }
+        ]
+      }
+    },
+    {
+      "kind": 104,
+      "name": "FRONTIER_EXTENDED",
+      "key": [
+        {
+          "name": "d",
+          "len": 2
+        }
+      ],
+      "payload": [
+        {
+          "name": "from",
+          "len": 2
+        },
+        {
+          "name": "ceiling",
+          "len": 2
+        }
+      ],
+      "body_without_tail_len": 12,
+      "vector": {
+        "bell": 2104,
+        "body_without_tail": "016838080000213e6b886b88",
+        "body": "016838080000213e6b886b88010204000000000000000ecbf4f0a2553fa0c8ca066e0c0e3816e53a90573099bf9468f7a342b92f794e",
+        "decodes": true,
+        "chains": [
+          {
+            "entity": 2,
+            "who": "Base(Frontier)",
+            "prev_seq": 3,
+            "prev_head": "700888059424d2ad4f3ad59e549ad60e5c9202ee37c8362142d8175c4ce9ecb1",
+            "seq": 4,
+            "head": "0ecbf4f0a2553fa0c8ca066e0c0e3816e53a90573099bf9468f7a342b92f794e"
           }
         ]
       }

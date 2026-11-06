@@ -160,9 +160,9 @@ pub fn emit(
 
 // ------------------------------------------------------------ ABI v2
 
-/// Highest record kind code of ABI v2 (S1 map growth: REST = 103; 89
+/// Highest record kind code of ABI v2 (S1 map growth: FRONTIER_EXTENDED = 104; 89
 /// reserved, MC §6), widened to 134 for ⑳'s RESIDENT_JOINED = 130
-/// (workstream 4's allocation 130–134). 104–129 and 131–134 stay undefined
+/// (workstream 4's allocation 130–134). 105–129 and 131–134 stay undefined
 /// (other teams' provisional ranges), so the table accepts only 130 there.
 pub const MAX_KIND_V2: usize = 134;
 

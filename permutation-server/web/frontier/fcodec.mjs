@@ -64,6 +64,8 @@ function readRecord(bytes, dv, base, layout, records) {
 function checkWorldMode(bytes, season) {
   const mode = season.conquestParams?.continuous;
   if (mode !== 0 && mode !== 1) throw new CodecError('BadWorldMode', 'unknown continuous-world flag');
+  const placement = season.conquestParams?.placement;
+  if (placement !== 0 && placement !== 1) throw new CodecError('BadWorldMode', 'unknown placement mode');
   const base = SEASON_CQ_V2?.[1];
   if (base === undefined || !CQ_V2) throw new CodecError('BadLayout', 'missing conquest block');
   for (const [, off, len, ty] of CQ_V2.fields) {

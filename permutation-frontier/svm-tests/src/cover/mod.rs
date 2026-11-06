@@ -164,6 +164,7 @@ pub fn covered_by(ix: I) -> &'static [Cover] {
         I::RaidDomestic => caravan::RAID_DOMESTIC,
         // S1 (map growth)
         I::FastForward => rest::FAST_FORWARD,
+        I::ExtendFrontier => map::EXTEND_FRONTIER,
     }
 }
 

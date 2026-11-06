@@ -413,6 +413,17 @@ pub fn accounts_of(ix: Ix) -> &'static [Group] {
                 ]
             }
         }
+        // S1 (map growth): ExtendFrontier raises the Frontier's outermost
+        // ring; the Season is read for its ceiling, θ and clock.
+        Ix::ExtendFrontier => {
+            const {
+                &[one!(&[
+                    PAYER_SW,
+                    SEASON_R,
+                    s!("frontier", KindV2(K2::Frontier), false, W),
+                ])]
+            }
+        }
         Ix::DefaultRaid => {
             const {
                 &[
@@ -647,6 +658,7 @@ mod tests {
         assert_eq!(count_bounds(Ix::DefaultRaid), (7, 13));
         // S1 (map growth)
         assert_eq!(count_bounds(Ix::FastForward), (4, 31));
+        assert_eq!(count_bounds(Ix::ExtendFrontier), (3, 3));
         // Named positions, as off-chain readers look them up.
         let at = |ix, n, name| position(ix, n, name, 0);
         assert_eq!(at(Ix::FileOutpost, 11, "citizen"), Some(3));

@@ -74,7 +74,7 @@ use permutation_rules::fixed::MILLI;
 use permutation_rules::frontier::beacon;
 use permutation_rules::frontier::camp;
 use permutation_rules::frontier::clash::NEUTRAL;
-use permutation_rules::frontier::geometry::{region_of, ProvinceCoord, PROVINCE_TILES};
+use permutation_rules::frontier::geometry::{self, region_of, ProvinceCoord, PROVINCE_TILES};
 use permutation_rules::frontier::holding::Tier;
 use permutation_rules::frontier::terrain::{free_city_site, generate_province, ProvinceTerrain};
 use permutation_rules::hash::sha256;
@@ -112,6 +112,14 @@ pub const TERRAIN_BLOCK: core::ops::Range<usize> = PV::TERRAIN..PV::SITE_MIRROR;
 const _: () = assert!(PV::SITE_MIRROR - PV::TERRAIN == 168);
 
 // ------------------------------------------------------------ helpers
+
+/// The season's effective outermost ring: its `r_max`, or the Frontier's
+/// `r_max_ext` once ExtendFrontier raised it (map growth; 0 = never).
+pub(crate) fn effective_r_max(season: &[u8], frontier: &[u8]) -> R<u16> {
+    Ok(Ro(season)
+        .u16(S::R_MAX)?
+        .max(Ro(frontier).u16(FR::R_MAX_EXT)?))
+}
 
 /// The current bell, or 0 before genesis (stored bells: `opened_bell`,
 /// `resolved_next`, `last_ring_open_bell`, `fold_bell`).
@@ -307,7 +315,7 @@ pub fn open_ring(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         let r = Ro(&sd);
         (
             r.u8(S::GENESIS_RING)? as u16,
-            r.u16(S::R_MAX)?,
+            effective_r_max(&sd, &frontier.try_borrow_data()?)?,
             r.arr::<32>(S::GENESIS_SEED)?,
             r.u16(S::THETA_EARLY_BPS)?,
             r.u16(S::THETA_LATE_BPS)?,
@@ -430,6 +438,100 @@ pub fn open_ring(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     )
 }
 
+// ------------------------------------------------------------ ExtendFrontier
+
+/// 0xC1 ExtendFrontier(d): `[payer s,w] [season] [frontier w]`. Class D
+/// (S1, map growth). The season's outermost ring grows by one, up to its
+/// `r_max_ceiling`: effective Running; a ceiling (`BadData` without one);
+/// `d == effective r_max + 1` (`AlreadyDone` at or below it, `TooEarly`
+/// above) and `d ≤ ceiling` (`BadData`); every ring up to the effective
+/// `r_max` opened (`TooEarly`); a bell since the last ring opening
+/// (`TooEarly`); some wedge at `θ` occupancy on the folded values, as
+/// OpenRing (`Capacity`). Frontier `r_max_ext = d`; ring `d` is then
+/// opened by OpenRing as any other. Log `FRONTIER_EXTENDED` (Frontier).
+pub fn extend_frontier(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+    use super::conquest::{check_accounts_v2, cqlog as cq2, Chained2};
+    use frontier_abi::v2::log::{CqKind, EntityKind as E2};
+    use frontier_abi::v2::tags::Ix as Ix2;
+
+    check_accounts_v2(Ix2::ExtendFrontier, a, None)?;
+    let x = frontier_abi::v2::ix::ExtendFrontier::decode(d)?;
+    let [_payer, season_ai, frontier] = a else {
+        return Err(FrontierError::TooManyAccounts.into());
+    };
+    let now = prologue::now()?;
+    let hdr = prologue::season(
+        season_ai,
+        p,
+        Some(&crate::RULESET_HASH),
+        &[S::STATUS_RUNNING],
+        now.ts,
+    )?;
+    let ctx = addr::ctx(&key(season_ai), &p.to_bytes());
+    present_at(frontier, &ctx.frontier(), p, AccountKind::Frontier, hdr.id)?;
+    let (ceiling, theta_early, theta_late, theta_switch, from) = {
+        let sd = season_ai.try_borrow_data()?;
+        let r = Ro(&sd);
+        (
+            season_cq(&sd)?.r_max_ceiling,
+            r.u16(S::THETA_EARLY_BPS)?,
+            r.u16(S::THETA_LATE_BPS)?,
+            r.u32(S::THETA_SWITCH_SECS)?,
+            effective_r_max(&sd, &frontier.try_borrow_data()?)?,
+        )
+    };
+    if ceiling == 0 {
+        return Err(FrontierError::BadData.into());
+    }
+    if x.d <= from {
+        return Err(FrontierError::AlreadyDone.into());
+    }
+    if x.d > ceiling {
+        return Err(FrontierError::BadData.into());
+    }
+    if x.d > from.checked_add(1).ok_or(OVERFLOW)? {
+        return Err(FrontierError::TooEarly.into());
+    }
+    let (rings_opened, last_bell, occ, open) = {
+        let fd = frontier.try_borrow_data()?;
+        let r = Ro(&fd);
+        (
+            r.u16(FR::RINGS_OPENED)?,
+            r.u32(FR::LAST_RING_OPEN_BELL)?,
+            read_u32x6(&r, FR::WEDGE_OCCUPIED)?,
+            read_u32x6(&r, FR::WEDGE_OPEN)?,
+        )
+    };
+    if rings_opened != x.d {
+        return Err(FrontierError::TooEarly.into());
+    }
+    let now_bell = bell_or_zero(&hdr, now.ts);
+    if now_bell < last_bell.saturating_add(1) {
+        return Err(FrontierError::TooEarly.into());
+    }
+    let theta = if now.ts.saturating_sub(hdr.genesis_ts) < theta_switch as i64 {
+        theta_early
+    } else {
+        theta_late
+    };
+    if !ring_occupancy_met(&occ, &open, theta) {
+        return Err(FrontierError::Capacity.into());
+    }
+    let mut fd = frontier.try_borrow_mut_data()?;
+    Rw(&mut fd).set_u16(FR::R_MAX_EXT, x.d)?;
+    let payload = Buf::<4>::new().u16(from).u16(ceiling);
+    cq2::emit(
+        CqKind::FRONTIER_EXTENDED as u8,
+        log_bell(&hdr, now.ts),
+        &x.d.to_le_bytes(),
+        payload.get()?,
+        &mut [Chained2 {
+            entity: E2::Frontier,
+            data: &mut fd,
+        }],
+    )
+}
+
 // ------------------------------------------------------------ ConsumeRingSeed
 
 /// 0x21 ConsumeRingSeed(d): K + `[ringseed w]`, data `d, round, sig48,
@@ -531,7 +633,12 @@ pub fn open_province(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         (Ro(&sd).u16(S::R_MAX)?, season_cq(&sd)?)
     };
     let (pi, qi) = (x.p as i32, x.q as i32);
-    let coord = ProvinceCoord::checked(pi, qi, r_max).map_err(|_| FrontierError::BadData)?;
+    // Map growth: OpenProvince names no Frontier, so a ring past `r_max`
+    // is checked against the season's ceiling here and proven opened by
+    // its RingSeed below (OpenRing creates one only within the effective
+    // `r_max`). With no ceiling the bound is `r_max`, as before.
+    let bound = r_max.max(cq.r_max_ceiling);
+    let coord = ProvinceCoord::checked(pi, qi, bound).map_err(|_| FrontierError::BadData)?;
     let ring = coord.ring() as u16;
     let ctx = addr::ctx(&key(season_ai), &p.to_bytes());
     // THE RingSeed of the ring, seeded.
@@ -570,19 +677,39 @@ pub fn open_province(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     let day = addr::day_of(now_bell);
     let reserved_ring = ring < camp::CAMP_FIRST_RING as u16;
     // MC §3.2: the keep (rings ≥ 2) on the symmetric keep tile (A-8).
+    // The keep's tile follows the wedge (terrain symmetry); its holder and
+    // heartland safety follow the season's placement (`home_nation`; the
+    // wedge under the wedge placement, so unchanged there).
+    let genesis_seed = {
+        let sd = season_ai.try_borrow_data()?;
+        Ro(&sd).arr::<32>(S::GENESIS_SEED)?
+    };
     let keep = match coord.wedge() {
         Some(w) if coord.ring() >= 2 => {
             let tile = kkeep::keep_tile(&terrain, &terrain.sites, terrain.site_count, w)
                 .unwrap_or(kkeep::NO_KEEP_TILE);
+            let holder =
+                geometry::home_nation(coord, cq.placement, cq.heartland_max_ring, &genesis_seed)
+                    .unwrap_or(w);
             kkeep::try_open(
                 coord,
-                w,
+                holder,
                 cq.heartland_max_ring,
                 tile,
                 &cq.keep_params(),
                 now_bell,
             )
             .map_err(|_| crate::error::kernel(SUB_KEEP_CAP))?
+            .map(|mut k| {
+                k.heartland_safe = geometry::is_home_heartland(
+                    coord,
+                    holder,
+                    cq.placement,
+                    cq.heartland_max_ring,
+                    &genesis_seed,
+                );
+                k
+            })
         }
         _ => None,
     };
