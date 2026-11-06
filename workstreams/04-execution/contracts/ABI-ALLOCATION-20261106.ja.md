@@ -83,7 +83,7 @@
 | 24 Grant | `gr` | `PSF2GRNT` | ② | `06-EVENTS.ja.md` §3：AccountKind 23 → **24** |
 | 25 CapacityPool、26 CapacityJob | `cp`、`cj` | 未定 | ⑨ | 要否・magic **未確認** |
 | 27 ExtRegistration、28 ExtGrant、29 ExtInstance、30 ExtBuffer | `xr`、`xg`、`xi`、`xb` | 未定 | ⑪ | 要否・magic **未確認** |
-| 31 resident policy、32 resident link（予約） | — | `PSFNP002`（policy）、`PSFNR001`（link） | ⑳ | 予約だけ。32 の link は、NFT の **Season ごと**の link にする（`["nft-citizen-link", season, asset]`。layout、magic、大きさは変えない。⑳が実装中で、SHA は未着。U45、2026-11-06）。⑳の `deebd3b5a89ea88daa16d7f31a0c09871a6e98f4`（すべての世界で共通の link）は、置き換えられる。今は独自の 8 B magic で v2 の header を使わないので、読み手の `kind_by_magic` は飛ばす。header に移すのは layout の変更で、別に決める |
+| 31 resident policy、32 resident link（予約） | — | `PSFNP002`（policy）、`PSFNR001`（link） | ⑳ | 予約だけ。32 の link は、NFT の **Season ごと**の link にする（`["nft-citizen-link", season, asset]`。layout、magic、大きさは変えない。⑳ `dc55f15966d3256b118d645c36ba4591a41e6b3f`、U45、2026-11-06。④が試験を再実行して確認）。`deebd3b5`（すべての世界で共通の link）は置き換えられた。今は独自の 8 B magic で v2 の header を使わないので、読み手の `kind_by_magic` は飛ばす。header に移すのは layout の変更で、別に決める |
 
 seed tag と magic は、基準・各担当の間で重なりなし。
 

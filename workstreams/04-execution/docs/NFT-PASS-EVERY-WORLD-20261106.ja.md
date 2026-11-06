@@ -14,7 +14,7 @@
   - 当てた後：resident の試験は 9/9、`permutation-frontier` の lib 試験（`nft-experimental`）は 103/103、`frontier-abi` の `resident_binding` は 1/1。rustfmt も通過。
   - 実行していないもの：SBF での build、LiteSVM、実チェーン。
 
-## 0. 追記（同日）：最終は、⑳の Season ごとの link（案 a）。SHA は未着
+## 0. 追記（同日）：最終は、⑳の Season ごとの link（案 a）。確定
 
 - 経過：⑳は案 a（`88d789b3`）を作った。その後、この patch を採用して `deebd3b5a89ea88daa16d7f31a0c09871a6e98f4` にした。そこから再び案 a に戻すと宣言した。④と⑳のメッセージが 2 回、行き違ったためである。
 - 行き違いを止めるために、④は「コードを持つ⑳の最後の宣言で確定する」と⑳に伝えた。④は、どちらの案も利用者の条件（同じ NFT で新しい世界に参加できる、1 NFT・1 アカウント、引き継ぎは決めない）を満たすと判断している。
@@ -26,7 +26,11 @@
   - 世界ごとの link の rent（104 B）は、参加する人（payer）が払う。
 - まだどこにも deploy されていないので、既存の link の移行は要らない。
 - 下の §2 の patch と、deebd3b5 は、置き換えられた代替案として残す。§3 の影響（譲渡、引き継ぎ、仕様の論点）は、案 a にもそのまま当てはまる。
-- ⑳の SHA が届いたら、④が照合する。
+- **確定**：⑳ `claude/funny-wozniak-cy4n64` `dc55f15966d3256b118d645c36ba4591a41e6b3f`（tree `68e95ceeef8647d31aad7b1b9ac8a52bc8529c71`）。④が照合した結果は次のとおり。
+  - seed は `[LINK_SEED, Season の address, asset]`。JoinResident・authorize と、gateway・web の sdk の `linkAddress(programId, season, asset)` で同じものを使っている。
+  - frontier-abi の tags・log・error・layout・resident_binding は、9d0697c9 から変わっていない。
+  - ④の環境で再実行した結果：permutation-frontier lib 104/104（nft-experimental）、resident の試験 10/10（鍵の生成・導出・署名なし）。
+  - SBF と LiteSVM は未実施。
 
 ## 1. 原因
 
