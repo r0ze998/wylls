@@ -67,11 +67,15 @@
 | 応答に依頼主がない | `board_taken.poster`、`board_fulfilled.responder` | 依頼を引き直さずに、誰と誰の協力かが分かるように |
 | `world` なし | `world.ends: false` | 世界は終わらない |
 
-## 5. ⑮の受け取り側との照合（⑮ `preserve/ws15-b1a09a0b` の `src/adapters/ws14.mjs`）
+## 5. ⑮の受け取り側との照合
+
+**現在の状態（2026-11-06）：** ⑮の最新版 `cb87e30c` は契約 v1 に対応済みと報告されています。⑭はその版をまだ受け取っておらず、照合していません。手元・GitHub（全参照・API）・添付のどこにもありませんでした。**下の表は旧版 `b1a09a0b` についての記録で、⑮の今の不具合ではありません。**
+
+### 5.1 旧版 `b1a09a0b`（`preserve/ws15-b1a09a0b` の `src/adapters/ws14.mjs`）での記録（2026-11-05）
 
 `node workstreams/14-central-tower/proto/check-ws15.mjs <⑮の ws14.mjs>` で、⑭の実際の出力（B、種1、21日、7日ごとの区切り）を通した結果：
 
-| 項目 | 結果 | ⑮側で必要なこと（⑮の判断） |
+| 項目 | 旧版での結果 | 当時⑮側に必要だったこと（⑮の判断） |
 |---|---|---|
 | 版1 をそのまま渡す | スキーマ違いで拒否（0件）。誤読より安全 | 版1 を受け付ける |
 | 名前だけ版0にして通す | 掲示631件が `tower.sighting`（目撃）になる | 掲示を目撃に写さない。⑭の塔には目撃がない。P-scout（塔で見たことが他の人に使われた）は⑭の事実からは作れない |
@@ -81,3 +85,7 @@
 | 時刻 | ⑮は `map.bellOfHour(f.hour)` で変換する。版0には `hour` がなかった | 版1 の `hour` に `time.bellsPerHour` を掛ける |
 
 ⑭は⑮のコードを変えていません。
+
+### 5.2 最新版 `cb87e30c` との照合（未実施）
+
+照合に要るもの（⑮の `cb87e30c`、前提コミットを明記した bundle か GitHub の push）：`workstreams/15-coop-outcomes/src/adapters/ws14.mjs`、`src/contract.mjs`、⑭の出力を使う試験と fixture。受け取ったら、⑭が渡した契約 v1 の fixture（`bde8d1c1` で作った A・B・C）を⑮の受け取り側に通して、時刻・掲示と応答の意味・`actor`・`unverified` の扱いを確かめる。

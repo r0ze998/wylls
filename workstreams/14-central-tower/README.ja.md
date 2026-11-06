@@ -179,7 +179,7 @@ C を勧めない理由：中央に荷と襲撃が集中し、独占・連合・
 |---|---|---|---|
 | ① 依頼・協力 | `205058916c45839cbe18af165cdde4baaa7e85f0`（`ws/01-coop-s1`、11/5。①から受け取った bundle で復元。GitHub には未登録。13.5） | `adapters.mjs` の `REQUEST_PORT`。模型内の物々交換の依頼で代用。切り替え `requestVisibility` | 依頼の公開範囲を最新版で確認した（9.2）。模型の依頼は①の記録と同じ形ではない |
 | ⑧ 継続世界・配置 | 文書 `preserve/ws08-persistence-ca67d40e`、実装と検証 `preserve/ws08-cont-verify-b519cd18`（10/31） | `PERIOD_PORT`・`PLACEMENT_PORT`。切り替え `periodHours`・`placement` | ⑧は塔を扱っていない（26章「⑭ 中央の塔 扱っていない」）。期間の正本は未決（候補：Season v2 `RSV_552`） |
-| ⑮ 達成・評価 | `preserve/ws15-b1a09a0b`（10/31） | `toFacts(sim)`、スキーマ `wylls.ws14.tower-facts/1`。契約は [CONTRACT.ja.md](CONTRACT.ja.md) | ⑮の受け取り側は版0の欄を仮定していて、⑭の実際の事実と合っていない（CONTRACT 5章）。⑭は⑮のコードを変えていない |
+| ⑮ 達成・評価 | 最新版 `cb87e30c`（契約 v1 に対応済みと報告）は**未受領・未照合**。照合したのは旧版 `preserve/ws15-b1a09a0b`（10/31）だけ | `toFacts(sim)`、スキーマ `wylls.ws14.tower-facts/1`。契約は [CONTRACT.ja.md](CONTRACT.ja.md) | 旧版で見つけた欄の食い違い（CONTRACT 5.1）は旧版の記録で、⑮の今の不具合ではない。⑭は⑮のコードを変えていない |
 
 ### 9.1 ⑮へ渡す事実
 
