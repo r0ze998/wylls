@@ -328,8 +328,17 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
       op.gateway.signature = null;
       op.gateway.duplicateOf = res.duplicateOf ?? res.signature ?? null;
       delete op.lifetime;
-      uncertain(op, link, 'the relay answered Duplicate: the same transaction was already sent by an earlier request');
-      hold(op, 'Duplicate', 'the same transaction was already sent by an earlier request: not proven this request\'s own, not proven absent; held, counted, not re-sent', { evidence: { duplicateOf: op.gateway.duplicateOf } });
+      // The same signature is the same transaction (⑤: the relay's replay key is the agent key's signature over the
+      // message): one effect on chain. If another of this server's operations sent it, that operation carries the
+      // effect and the count; this one ends as its duplicate and gives its hold back (counted once, not twice).
+      const owner = op.gateway.duplicateOf && Object.values(db.operations).find(o => o.id !== op.id && o.gateway?.signature === op.gateway.duplicateOf);
+      if (owner) {
+        definite(op, link, 'DuplicateOfOperation', `the same transaction was already sent by this server's operation ${owner.id}: its outcome is that operation's`, 'agent wallet gateway (Duplicate)');
+        op.error.duplicateOfOperation = owner.id;
+      } else {
+        uncertain(op, link, 'the relay answered Duplicate: the same transaction was already sent by an earlier request');
+        hold(op, 'Duplicate', 'the same transaction was already sent by an earlier request: not proven this request\'s own, not proven absent; held, counted, not re-sent', { evidence: { duplicateOf: op.gateway.duplicateOf } });
+      }
     } else if (r.status === 200 && res.status === 'failed' && res.sent === false && !res.signature) {
       // The wallet's own record: nothing left the relay under this key (failed before sending). Same key = its replay.
       definite(op, link, code, res.error?.message ?? 'failed before anything was sent', 'agent wallet gateway (sent: false)');

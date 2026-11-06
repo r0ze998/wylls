@@ -153,7 +153,8 @@ export async function keyfreeWorld({ relay = 'current' } = {}) {
     let res;
     // ⑤'s Duplicate AS DESCRIBED: not rebuilt; failed, sent: null, code Duplicate, the earlier send's signature.
     if (mode === 'duplicate') {
-      const earlier = `sig-dup-${script.n}`;
+      const earlier = script.duplicateOf ?? `sig-dup-${script.n}`; // `script.duplicateOf`: name the earlier send
+      script.duplicateOf = null;
       res = { ok: false, requestId: r.idempotencyKey, agentId, status: 'failed', sent: null, charges: [], duplicateOf: earlier, signature: earlier, lastValidBlockHeight: 150, slotFloor: 70,
         error: { code: 'Duplicate', message: 'the same transaction was already sent by an earlier request (scripted)' } };
       script.sends.set(r.idempotencyKey, res);

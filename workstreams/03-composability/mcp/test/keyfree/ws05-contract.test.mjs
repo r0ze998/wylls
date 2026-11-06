@@ -63,3 +63,21 @@ test('on ⑤\'s relay ③ never sends 0008\'s issue-capability, and on an old re
   await assert.rejects(mcpServer(wo).auth.capabilityCommandFor(OWNER, wo.agentId, 'n', 0), e => e.error === 'capability_separation_unavailable');
   assert.deepEqual(wo.script.commands, []);
 });
+
+test('a Duplicate of this server\'s own earlier operation: that operation carries the transaction; this one ends as its duplicate and gives its hold back (counted once)', { skip }, async () => {
+  const w = await keyfreeWorld({ relay: 'ws05' });
+  const s = mcpServer(w);
+  const { linkId } = await s.connectViaRelay();
+  const p1 = await s.plan(linkId);
+  w.script.next = 'sent';
+  const first = await s.tool(linkId, 'send_caravan', { planId: p1.planId, requestId: 'req-kf-own01' });
+  // The relay answers a second request with Duplicate of the first one's signature (scripted, as ⑤ describes).
+  w.script.next = 'duplicate';
+  w.script.duplicateOf = first.gateway.signature;
+  const p2 = await s.plan(linkId);
+  const second = await s.tool(linkId, 'send_caravan', { planId: p2.planId, requestId: 'req-kf-own02' });
+  const r = second.error?.receipt ?? second;
+  assert.deepEqual([second.error?.code, r.state, r.error?.duplicateOfOperation], ['DuplicateOfOperation', 'failed', first.operationId], JSON.stringify(second).slice(0, 400));
+  const g = (await s.tool(linkId, 'get_connection')).grant;
+  assert.equal(g.used + g.reserved, 1, 'one transaction, counted once');
+});
