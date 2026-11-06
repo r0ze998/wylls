@@ -9,7 +9,8 @@
     "node": ">=22"
   },
   "scripts": {
-    "test": "node --test test/*.test.mjs"
+    "test": "node --test test/*.test.mjs",
+    "test:keyfree": "node --test test/ws04-mapping.test.mjs test/keyfree/*.test.mjs"
   },
   "devDependencies": {
     "@modelcontextprotocol/sdk": "1.32.1"

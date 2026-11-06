@@ -161,7 +161,7 @@ export function createHandler({ auth, mcp, origins = [], log = () => {}, rateLim
           const st = auth.statementOf(pending, { owner: request.owner, agentId: request.agentId, scopes, grant: stGrant, expiresAt });
           const out = { request, statementB64: toBase64(linkStatement(st)) };
           if (grant) {
-            const command = { op: 'rotate-capability', owner: request.owner, agentId: request.agentId, nonce: randomBytes(12).toString('base64url'), expiresAt: auth.now() + 5 * 60_000, params: {} };
+            const command = await auth.capabilityCommandFor(request.owner, request.agentId, randomBytes(12).toString('base64url'), auth.now() + 5 * 60_000);
             out.rotate = { command, bytesB64: toBase64(commandBytes(command)) };
           }
           return send(res, 200, out);

@@ -13,8 +13,9 @@
 // **The authorization server here is a local test one** (WYLLS_MCP_TEST_AS=1): it has no accounts of its own.
 // What it authorizes is a *link*: the owner's wallet signs a statement naming this server (`aud`), the OAuth
 // client, the scopes, the agent and the grant's limits; for a write scope the wallet also signs the agent
-// wallet's `rotate-capability` owner command, which this server forwards to the relay to receive the agent's
-// capability token directly (sealed at rest, never shown to anyone). A production deployment would put this
+// wallet's owner command that gives this server a capability, which it forwards to the relay to receive the token
+// directly (sealed at rest, never shown to anyone): `issue-capability {source: 'mcp'}` on a relay with per-sender
+// capabilities (patch 0008: ⑤'s `ai` token keeps working), else the global `rotate-capability` (it stops the others). A production deployment would put this
 // behind a real identity provider; nothing here creates a credential outside the local test stack.
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { canonical } from '../../../../permutation-gateway/src/frontier/agent/owner-auth.mjs';
@@ -178,6 +179,20 @@ export class Auth {
   }
 
   /** The statement a pending consent asks the owner to sign (`grant` only with the caravan scope). */
+  /**
+   * The owner command that gives this server the agent's capability. With a relay that issues one capability per
+   * sender (patch 0008, ④ AUTH-ROUTES A1: its agent view lists `capabilities`), `issue-capability {source: 'mcp'}`:
+   * a token for this server only, so ⑤'s `ai` token and any other sender's keep working. With an older relay, the
+   * global `rotate-capability`, which stops every other holder's token (the conflict 0008 removes).
+   */
+  async capabilityCommandFor(owner, agentId, nonce, expiresAt) {
+    const v = await this.game.json('GET', `${this.game.relay}/f/agent?id=${encodeURIComponent(String(agentId))}`);
+    const perSource = !v.transport && v.status === 200 && v.json && typeof v.json.capabilities === 'object' && v.json.capabilities !== null;
+    return perSource
+      ? { op: 'issue-capability', owner, agentId, nonce, expiresAt, params: { source: 'mcp' } }
+      : { op: 'rotate-capability', owner, agentId, nonce, expiresAt, params: {} };
+  }
+
   statementOf(pending, { owner, agentId, scopes, grant, expiresAt }) {
     return { type: 'wylls-mcp-link/1', aud: this.resource, clientId: pending.clientId, redirectUri: pending.redirectUri, nonce: pending.nonce,
       owner, agentId, scopes: [...scopes].sort(), grant: grant ?? null, expiresAt };
@@ -213,7 +228,10 @@ export class Auth {
     let sealed = null;
     if (grant) {
       const c = b.rotate?.command;
-      if (!c || c.op !== 'rotate-capability' || c.owner !== b.owner || c.agentId !== b.agentId) throw back('invalid_request', 'a caravan grant needs the owner\'s signed rotate-capability command for this agent');
+      const perSource = typeof view.json.capabilities === 'object' && view.json.capabilities !== null;
+      const okOp = c && (perSource ? c.op === 'issue-capability' && c.params?.source === 'mcp' : c.op === 'rotate-capability');
+      // A relay that issues per-sender capabilities never gets the global rotation from this server: it would stop ⑤'s.
+      if (!okOp || c.owner !== b.owner || c.agentId !== b.agentId) throw back('invalid_request', perSource ? 'a caravan grant needs the owner\'s signed issue-capability command (source mcp) for this agent' : 'a caravan grant needs the owner\'s signed rotate-capability command for this agent');
       const r = await this.game.ownerCommand({ command: c, signature: b.rotate.signature });
       if (r.transport || r.status !== 200 || typeof r.json?.capability?.token !== 'string') throw back('access_denied', `the relay refused the owner's command (${r.json?.code ?? r.status ?? 'unreachable'})`);
       sealed = this.sealer.seal(r.json.capability.token);
