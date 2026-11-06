@@ -13,7 +13,8 @@
 //          op mode               params {mode: 'manual'|'auto'}               → {agent}
 //          op withdraw           params {amount} | {all: true}                → {withdrawal, agent}
 //          op action             params {idempotencyKey?, policyVersion, modeEpoch?, action}  → ActionResult (source 'browser')
-//          op rotate-capability                                              → {agent, capability}
+//          op rotate-capability  params {source?: 'ai'|'mcp'}                → {agent, capability}  (with source: that sender's own token)
+//          op revoke-capability  params {source: 'ai'|'mcp'}                 → {agent, revoked}      (that sender's token only)
 //   GET  /f/agent/by-owner?owner=            the owner's agents, briefly
 //   POST /f/agent/deposit {agentId, signature}   credits a confirmed owner-signed deposit to the custody account
 //   POST /f/agent/deposit {agentId, tx, lastValidBlockHeight?}
@@ -101,7 +102,9 @@ export const agentRoutes = {
       case 'policy': return { body: { ok: true, agent: g.setPolicy(agentId, owner, p.policy) } };
       case 'mode': return { body: { ok: true, agent: g.setMode(agentId, owner, p.mode) } };
       case 'withdraw': return { body: { ok: true, ...(await g.withdraw(agentId, owner, { amount: p.amount, all: p.all === true })) } };
-      case 'rotate-capability': return { body: { ok: true, ...g.rotateCapability(agentId, owner) } };
+      // params.source ('ai' | 'mcp'): that sender's own token (A1); none: the general token, as before.
+      case 'rotate-capability': return { body: { ok: true, ...g.rotateCapability(agentId, owner, p.source ?? null) } };
+      case 'revoke-capability': return { body: { ok: true, ...g.revokeCapability(agentId, owner, p.source) } };
       case 'action': {
         const result = await g.submit({ agentId, source: 'browser', idempotencyKey: p.idempotencyKey ?? command.nonce, policyVersion: p.policyVersion, modeEpoch: p.modeEpoch, action: p.action }, { owner });
         return { body: result };

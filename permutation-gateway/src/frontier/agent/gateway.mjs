@@ -53,6 +53,8 @@ import { checkAllowed, normalisePolicy } from './policy.mjs';
 import { fateOf, slotFloorOf } from './fate.mjs';
 
 export const MAX_AGENTS_PER_OWNER = 8;
+/** The senders that hold a token of their own (A1). `browser` acts by the owner's signed command, never by a token. */
+export const SOURCES_WITH_TOKENS = Object.freeze(['ai', 'mcp']);
 /** Build's walls item: the only profile-1 Build that names the Province (web fplay.mjs ITEM_WALLS). */
 export const ITEM_WALLS = 6;
 /** How long an action's hold may stay `held` before `expire` gives it back (the relay path takes seconds). */
@@ -61,6 +63,8 @@ export const ACTION_HOLD_TTL_MS = 120_000;
 export const INFERENCE_HOLD_TTL_MS = 10 * 60_000;
 /** How many times an action is built again after its bytes collided with another request's (Duplicate before sending). */
 export const DUPLICATE_REBUILDS = 2;
+/** Actions that carry the Citizen's sequence number: never rebuilt on a Duplicate (workstream 04 AUTH-ROUTES §4). */
+export const SEQ_ACTIONS = Object.freeze(new Set(['SendCaravan']));
 /** Default per-call test price of one model call (base units; 0.01 test USDC). TEST VALUE. */
 export const DEFAULT_INFERENCE_PRICE = '10000';
 
@@ -277,16 +281,33 @@ export class AgentGateway {
     return { agent: this.view(agentId), capability };
   }
 
-  #issueCapability(agentId) {
+  #issueCapability(agentId, source = null) {
     const token = randomBytes(32).toString('base64url');
-    const version = this.ledger.setCapability(agentId, sha256hex(token));
-    return { token, version };
+    const version = this.ledger.setCapability(agentId, sha256hex(token), source);
+    return { token, version, source: source ?? 'any' };
   }
 
-  /** Replaces the capability token (owner command); the old one stops working at once. */
-  rotateCapability(agentId, owner) {
+  /**
+   * Replaces a capability token (owner command); the old one stops working at once. Without `source`, the general
+   * token (as before). With `source` ('ai' | 'mcp', workstream 04 AUTH-ROUTES A1), that sender's own token: it is
+   * accepted only for requests of that source, and issuing it leaves the general token and the other sender's alone —
+   * workstream 03's MCP consent and workstream 05's autopilot no longer turn each other's token into BadCapability.
+   */
+  rotateCapability(agentId, owner, source = null) {
     this.#own(agentId, owner);
-    return { agent: this.view(agentId), capability: this.#issueCapability(agentId) };
+    if (source !== null) this.#sender(source);
+    return { agent: this.view(agentId), capability: this.#issueCapability(agentId, source) };
+  }
+
+  /** Removes one sender's token (owner command, A1): that sender stops at once; the others go on. */
+  revokeCapability(agentId, owner, source) {
+    this.#own(agentId, owner);
+    this.#sender(source);
+    return { agent: this.view(agentId), revoked: this.ledger.revokeCapability(agentId, source), source };
+  }
+
+  #sender(source) {
+    if (source !== SOURCES_WITH_TOKENS[0] && source !== SOURCES_WITH_TOKENS[1]) throw new AgentError(ERR.BAD_REQUEST, `source must be one of ${SOURCES_WITH_TOKENS.join(', ')} (browser requests are owner commands)`);
   }
 
   setPolicy(agentId, owner, policy) {
@@ -491,7 +512,7 @@ export class AgentGateway {
     // Everything up to the hold inside #run happens before this function's first await: synchronous for concurrent callers.
     const r = parseActionRequest(request);
     const rec = this.ledger.get(r.agentId);
-    this.#authenticate(rec, credential);
+    this.#authenticate(rec, credential, r.source);
     const hash = sha256hex(canonical({ action: r.action, policyVersion: r.policyVersion, modeEpoch: r.modeEpoch ?? null, source: r.source }));
     if (this.ledger.actionWritesFailed) throw new AgentError(ERR.SEND_FAILED, 'action state could not be saved; restart and audit before another send', 503);
     const flightKey = `${rec.agentId}\n${r.idempotencyKey}`;
@@ -518,22 +539,33 @@ export class AgentGateway {
    */
   whoami(agentId, credential = {}) {
     const rec = this.ledger.get(agentId);
-    this.#authenticate(rec, credential);
-    return { agentId: rec.agentId, owner: rec.owner, capabilityVersion: rec.capabilityVersion ?? null, mode: rec.mode, modeEpoch: rec.modeEpoch,
+    const who = this.#authenticate(rec, credential);
+    return { agentId: rec.agentId, owner: rec.owner, capabilityVersion: rec.capabilityVersion ?? null, capabilitySource: who?.source ?? null, ...(who?.version ? { senderCapabilityVersion: who.version } : {}), mode: rec.mode, modeEpoch: rec.modeEpoch,
       policyVersion: rec.policy.version, allowed: [...rec.policy.allowed], village: [...rec.village] };
   }
 
-  #authenticate(rec, credential) {
-    if (credential.runner === true) return;
+  /**
+   * `source`: the request's sender (submit). A sender's own token (A1) is accepted for that source only; the general
+   * token for any. Returns {source, version} of the token that matched (whoami reports it).
+   */
+  #authenticate(rec, credential, source = null) {
+    if (credential.runner === true) return null;
     if (typeof credential.owner === 'string') {
       if (credential.owner !== rec.owner) throw new AgentError(ERR.NOT_OWNER, 'this agent belongs to another owner', 403);
-      return;
+      return null;
     }
     const token = credential.capability;
-    if (typeof token !== 'string' || !rec.capabilityHash) throw new AgentError(ERR.BAD_CAPABILITY, 'a valid capability token is required', 401);
+    const senders = Object.entries(rec.capabilities ?? {});
+    if (typeof token !== 'string' || (!rec.capabilityHash && !senders.length)) throw new AgentError(ERR.BAD_CAPABILITY, 'a valid capability token is required', 401);
     const a = Buffer.from(sha256hex(token), 'hex');
-    const b = Buffer.from(rec.capabilityHash, 'hex');
-    if (a.length !== b.length || !timingSafeEqual(a, b)) throw new AgentError(ERR.BAD_CAPABILITY, 'the capability token is not this agent\'s current one', 401);
+    const same = h => { const b = Buffer.from(h, 'hex'); return a.length === b.length && timingSafeEqual(a, b); };
+    for (const [s, c] of senders) {
+      if (!same(c.hash)) continue;
+      if (source !== null && s !== source) throw new AgentError(ERR.BAD_CAPABILITY, `this token is the ${s} sender's; the request says source ${source}`, 401);
+      return { source: s, version: c.version };
+    }
+    if (rec.capabilityHash && same(rec.capabilityHash)) return { source: 'any', version: rec.capabilityVersion };
+    throw new AgentError(ERR.BAD_CAPABILITY, 'the capability token is not this agent\'s current one', 401);
   }
 
   /** The synchronous gate every action passes before money moves; throws the refusal. */
@@ -593,7 +625,10 @@ export class AgentGateway {
             onSent: ({ signature, moved }) => this.ledger.recordNetwork(rec.agentId, { lamports: feeOf(shape) + BigInt(moved ?? 0), signature, key }),
           });
         } catch (e) {
-          if (!sending && e instanceof RouteError && e.code === 'Duplicate' && attempt < DUPLICATE_REBUILDS) { avoid.add(shape.feePayer); continue; }
+          // Not for an action that carries the Citizen's sequence number (SendCaravan: its caravan id is the Citizen's
+          // CARAVANS counter): a Duplicate there may be this Citizen's own earlier caravan with the same seq, and a
+          // rebuild with another fee payer could pay a second fee for the same seq (workstream 04 AUTH-ROUTES §4).
+          if (!sending && e instanceof RouteError && e.code === 'Duplicate' && attempt < DUPLICATE_REBUILDS && !SEQ_ACTIONS.has(r.action.name)) { avoid.add(shape.feePayer); continue; }
           throw e;
         }
         break;
@@ -818,7 +853,7 @@ export class AgentGateway {
     return {
       agentId: rec.agentId, owner: rec.owner, payout: rec.payout, agentKey: rec.agentKey, citizen: this.ctx.addresses.citizen(rec.owner), village: [...rec.village],
       mode: rec.mode, modeEpoch: rec.modeEpoch, policy: { ...rec.policy, allowed: [...rec.policy.allowed], budget: { ...rec.policy.budget } },
-      capabilityVersion: rec.capabilityVersion, balance: this.ledger.balance(agentId), day: this.#dayOf(rec), holds, withdrawals,
+      capabilityVersion: rec.capabilityVersion, senderCapabilities: Object.fromEntries(Object.entries(rec.capabilities ?? {}).map(([s, c]) => [s, { version: c.version }])), balance: this.ledger.balance(agentId), day: this.#dayOf(rec), holds, withdrawals,
       history: rec.history.slice(-50), historySeq: Number.isInteger(rec.seq) ? rec.seq : rec.history.length, driver: this.#driverOf(rec), createdAt: rec.createdAt, testAssetsOnly: true,
     };
   }
