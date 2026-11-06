@@ -84,7 +84,7 @@ export function mockResidents() {
 export async function realResidents() {
   const v = await startValidator({ programId: TEST_PROGRAM_ID });
   const rpc = v.rpc;
-  const world = await setupWorld({ rpc, programId: v.programId, priceLamports: 1_000_000n });
+  const world = await setupWorld({ rpc, programId: v.programId, priceLamports: 1_000_000n, setup: v.setup });
   const program = v.programId;
   const fund = async who => { const s = await rpc.airdrop(who.pub, 2_000_000_000); await rpc.confirm(s, { tries: 240 }); };
   const send = async (instructions, signers) => {

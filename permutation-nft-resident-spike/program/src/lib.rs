@@ -8,7 +8,9 @@
 //!   resident  `["resident", asset]`         asset, bound tag15, gen, session {key, expiry, gen, setter}, ops, bump
 //!
 //! Instructions (tag byte first; integers little-endian):
-//!   0x01 InitConfig  { price u64, treasury [u8;32], collection [u8;32] }   [authority s,w] [config w] [system]
+//!   0x01 InitConfig  { price u64, treasury [u8;32], collection [u8;32] }   [authority s,w] [config w] [system] [program] [programdata]
+//!        only the program's upgrade authority (LoaderV3 ProgramData) may write the config: otherwise anyone could
+//!        initialise it first after a deployment and set their own treasury and collection.
 //!   0x02 SetPrice    { price u64 }                                          [authority s] [config w]
 //!   0x50 MintResident{ price u64 }   [payer s,w] [treasury w] [asset s,w] [collection w] [coll_auth] [resident w] [config] [core] [system]
 //!        payer → treasury (price), Core CreateV1 into the collection (owner = payer, Permanent Freeze frozen=true and
@@ -101,6 +103,8 @@ pub enum ResidentError {
     AlreadyInitialized = 1008,
     NotInitialized = 1009,
     SessionExpiry = 1010,
+    /// InitConfig signed by a key that is not the program's upgrade authority (or the program is immutable).
+    NotUpgradeAuthority = 1011,
 }
 impl From<ResidentError> for ProgramError {
     fn from(e: ResidentError) -> Self {
@@ -167,13 +171,58 @@ fn create_pda<'a>(payer: &AccountInfo<'a>, account: &AccountInfo<'a>, system: &A
     )
 }
 
+/// The BPF Upgradeable Loader (LoaderV3).
+const LOADER_V3: Pubkey = solana_program::pubkey!("BPFLoaderUpgradeab1e11111111111111111111111");
+
+/// The upgrade authority stored in `programdata` for `program`: the Program
+/// account (`UpgradeableLoaderState::Program`, tag 2) names its ProgramData
+/// (tag 3), whose `Option<authority>` is at byte 12. `None` when immutable.
+pub fn upgrade_authority(
+    program_id: &Pubkey,
+    program_key: &Pubkey,
+    program_owner: &Pubkey,
+    program_data: &[u8],
+    programdata_key: &Pubkey,
+    programdata_owner: &Pubkey,
+    programdata: &[u8],
+) -> Result<Option<Pubkey>, ProgramError> {
+    if program_key != program_id || *program_owner != LOADER_V3 || *programdata_owner != LOADER_V3 {
+        return Err(ResidentError::BadAddress.into());
+    }
+    if rd_u32(program_data, 0)? != 2 || rd_key(program_data, 4)? != *programdata_key {
+        return Err(ResidentError::BadAddress.into());
+    }
+    if rd_u32(programdata, 0)? != 3 {
+        return Err(ResidentError::BadAddress.into());
+    }
+    match programdata.get(12) {
+        Some(1) => Ok(Some(rd_key(programdata, 13)?)),
+        Some(0) => Ok(None),
+        _ => Err(ResidentError::BadData.into()),
+    }
+}
+
 fn init_config(program_id: &Pubkey, accounts: &[AccountInfo], d: &[u8]) -> ProgramResult {
     let it = &mut accounts.iter();
     let authority = next_account_info(it)?;
     let cfg = next_account_info(it)?;
     let system = next_account_info(it)?;
+    let program = next_account_info(it)?;
+    let programdata = next_account_info(it)?;
     if !authority.is_signer {
         return Err(ResidentError::Auth.into());
+    }
+    let ua = upgrade_authority(
+        program_id,
+        program.key,
+        program.owner,
+        &program.try_borrow_data()?,
+        programdata.key,
+        programdata.owner,
+        &programdata.try_borrow_data()?,
+    )?;
+    if ua != Some(*authority.key) {
+        return Err(ResidentError::NotUpgradeAuthority.into());
     }
     let (addr, bump) = config_address(program_id);
     if *cfg.key != addr {
@@ -411,4 +460,57 @@ fn op(program_id: &Pubkey, accounts: &[AccountInfo], d: &[u8]) -> ProgramResult 
     let ops = rd_u32(&r, resident::OPS)?.checked_add(1).ok_or(ResidentError::BadData)?;
     wr(&mut r, resident::OPS, &ops.to_le_bytes());
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    //! Literal bytes only: no key is generated, derived or signed.
+    use super::*;
+
+    const P: Pubkey = Pubkey::new_from_array([0x11; 32]);
+    const PD: Pubkey = Pubkey::new_from_array([0x12; 32]);
+    const UA: Pubkey = Pubkey::new_from_array([0x13; 32]);
+
+    fn program_bytes(pd: &Pubkey) -> Vec<u8> {
+        let mut d = 2u32.to_le_bytes().to_vec();
+        d.extend_from_slice(pd.as_ref());
+        d
+    }
+    fn programdata_bytes(ua: Option<&Pubkey>) -> Vec<u8> {
+        let mut d = 3u32.to_le_bytes().to_vec();
+        d.extend_from_slice(&7u64.to_le_bytes());
+        match ua {
+            Some(k) => {
+                d.push(1);
+                d.extend_from_slice(k.as_ref());
+            }
+            None => d.push(0),
+        }
+        d
+    }
+
+    #[test]
+    fn the_upgrade_authority_is_read_from_the_programdata_of_this_program() {
+        let got = upgrade_authority(&P, &P, &LOADER_V3, &program_bytes(&PD), &PD, &LOADER_V3, &programdata_bytes(Some(&UA)));
+        assert_eq!(got, Ok(Some(UA)));
+        // Immutable program: no authority, so InitConfig is refused.
+        let none = upgrade_authority(&P, &P, &LOADER_V3, &program_bytes(&PD), &PD, &LOADER_V3, &programdata_bytes(None));
+        assert_eq!(none, Ok(None));
+    }
+
+    #[test]
+    fn another_programs_or_a_forged_programdata_is_refused() {
+        let other = Pubkey::new_from_array([0x21; 32]);
+        let bad = Err(ProgramError::from(ResidentError::BadAddress));
+        // Another program's accounts.
+        assert_eq!(upgrade_authority(&P, &other, &LOADER_V3, &program_bytes(&PD), &PD, &LOADER_V3, &programdata_bytes(Some(&UA))), bad);
+        // The Program account names another ProgramData.
+        assert_eq!(upgrade_authority(&P, &P, &LOADER_V3, &program_bytes(&other), &PD, &LOADER_V3, &programdata_bytes(Some(&UA))), bad);
+        // A ProgramData not owned by the loader (forged bytes).
+        assert_eq!(upgrade_authority(&P, &P, &LOADER_V3, &program_bytes(&PD), &PD, &other, &programdata_bytes(Some(&UA))), bad);
+        // Not a ProgramData (wrong tag).
+        let mut wrong = programdata_bytes(Some(&UA));
+        wrong[0] = 2;
+        assert_eq!(upgrade_authority(&P, &P, &LOADER_V3, &program_bytes(&PD), &PD, &LOADER_V3, &wrong), bad);
+    }
 }

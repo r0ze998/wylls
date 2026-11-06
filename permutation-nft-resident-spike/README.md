@@ -1,6 +1,8 @@
 # permutation-nft-resident-spike：NFT で譲渡できる住民アカウント（隔離試作）
 
-**状態（2026-11-06、v0.13）**：ローカルのみ（模擬チェーン、LiteSVM、ループバック validator）。公開発行・devnet／mainnet・実資金・新しい鍵は無し。価格・無料／有料・供給数・公開発行・ロイヤリティは未決（`docs/UNDECIDED.ja.md`）。Metaplex Core は**試作の選定方式**で、本線採用は未決。継続世界は決定済み。依存パッケージ無し（Node 20+ の標準モジュールだけ。`test-gateway/` だけは `permutation-gateway` の依存を使う）。v0.8 で担当ブランチへ通常 push（根拠は `docs/PUSH-AUDIT.ja.md`）。merge・deploy はしていない。
+**状態（2026-11-06、v0.14）**：ローカルのみ（模擬チェーン、LiteSVM、ループバック validator）。公開発行・devnet／mainnet・実資金・新しい鍵は無し。価格・無料／有料・供給数・公開発行・ロイヤリティは未決（`docs/UNDECIDED.ja.md`）。Metaplex Core は**試作の選定方式**で、本線採用は未決。継続世界は決定済み。依存パッケージ無し（Node 20+ の標準モジュールだけ。`test-gateway/` だけは `permutation-gateway` の依存を使う）。v0.8 で担当ブランチへ通常 push（根拠は `docs/PUSH-AUDIT.ja.md`）。merge・deploy はしていない。
+
+**v0.14 の変更**：本番の NFT パスを公開するまでの見積もり（`docs/PRODUCTION-PASS-ESTIMATE.ja.md`、すべて推測）。住民プログラムの `InitConfig` を upgrade authority だけに限った（配備直後の乗っ取りを防ぐ。SBF の再 build は未実施）。
 
 **v0.13 の変更**：作成の記録（kind 130）を program と keeper・herald・検証器・fclient に入れた。keeper の精算が NFT Citizen を正しく名指す。中継が `JoinResident`・`ResidentAct` を受け、web に住民 NFT の選択・初回ログイン・操作を入れた（操作はウォレットが署名）。鍵を使わない実行時の試験で、譲渡後の旧所有者・旧 session・旧世代と A→B→A の拒否を確かめた（限界は `docs/NFT-ACCOUNT-WIRING.ja.md` §5）。別の Season では今の link のためにログインできないことを確かめた（`docs/SEASON-SCOPE.ja.md`、未決 U45）。
 

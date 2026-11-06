@@ -34,9 +34,14 @@ export function pdas(program) {
 export function createCollectionIx({ collection, updateAuthority, payer, name, uri }) {
   return { programId: MPL_CORE_PROGRAM, keys: [meta(collection, true, true), meta(updateAuthority, false, false), meta(payer, true, true), meta(SYSTEM_PROGRAM, false, false)], data: cat([1], borshStr(name), borshStr(uri), [0]) };
 }
-export function initConfigIx({ program, authority, price, treasury, collection }) {
+/** The program's LoaderV3 ProgramData address (`[program]` under the upgradeable loader). */
+export const BPF_LOADER_UPGRADEABLE = 'BPFLoaderUpgradeab1e11111111111111111111111';
+export const programDataAddress = program => findProgramAddress([pubkeyBytes(program)], BPF_LOADER_UPGRADEABLE)[0];
+/** InitConfig: only the program's upgrade authority may sign it (the program reads its ProgramData). */
+export function initConfigIx({ program, authority, price, treasury, collection, programData = programDataAddress(program) }) {
   const p = pdas(program);
-  return { programId: program, keys: [meta(authority, true, true), meta(p.config, false, true), meta(SYSTEM_PROGRAM, false, false)], data: cat([TAG.INIT_CONFIG], u64(price), pubkeyBytes(treasury), pubkeyBytes(collection)) };
+  return { programId: program, keys: [meta(authority, true, true), meta(p.config, false, true), meta(SYSTEM_PROGRAM, false, false), meta(program, false, false), meta(programData, false, false)],
+    data: cat([TAG.INIT_CONFIG], u64(price), pubkeyBytes(treasury), pubkeyBytes(collection)) };
 }
 export function setPriceIx({ program, authority, price }) {
   const p = pdas(program);

@@ -26,7 +26,7 @@ export function mockMintStack({ port = 0, priceLamports = 100_000_000n } = {}) {
 export async function localnetMintStack({ port = 0, priceLamports = 100_000_000n } = {}) {
   if (!localnetAvailable()) throw new Error('localnet needs solana-test-validator, .local/programs/mpl_core.so and program/target/deploy/wylls_resident_program.so (docs/ENV-RECORD.ja.md)');
   const v = await startValidator({ programId: TEST_PROGRAM_ID });
-  const world = await setupWorld({ rpc: v.rpc, programId: v.programId, priceLamports });
+  const world = await setupWorld({ rpc: v.rpc, programId: v.programId, priceLamports, setup: v.setup });
   const adapter = new RpcAdapter({ rpc: v.rpc, world, programId: v.programId });
   return { validator: v, rpc: v.rpc, world, adapter, programId: v.programId, collection: world.collection, config: { treasury: world.treasury, priceLamports }, start: () => serveMint({ adapter, testWallet: true, port }), stop: () => v.stop() };
 }

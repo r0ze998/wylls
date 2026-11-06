@@ -27,10 +27,13 @@ export function localnetAvailable() {
 }
 
 /** Start the validator on loopback; resolves when `getHealth` is ok. */
-export async function startValidator({ rpcPort = 40000 + Math.floor(Math.random() * 20000), programId = TEST_PROGRAM_ID, coreSo = process.env.PSF_CORE_SO ?? DEFAULT_CORE_SO, residentSo = process.env.WYLLS_RESIDENT_SO ?? DEFAULT_RESIDENT_SO, quiet = true } = {}) {
+// The resident program is loaded as an upgradeable program whose upgrade
+// authority is the setup key: InitConfig only accepts the program's upgrade
+// authority (v0.14). The setup key is made here, in memory, for this process.
+export async function startValidator({ rpcPort = 40000 + Math.floor(Math.random() * 20000), programId = TEST_PROGRAM_ID, coreSo = process.env.PSF_CORE_SO ?? DEFAULT_CORE_SO, residentSo = process.env.WYLLS_RESIDENT_SO ?? DEFAULT_RESIDENT_SO, quiet = true, setup = keypair() } = {}) {
   const ledger = mkdtempSync(path.join(tmpdir(), 'wylls-localnet-'));
   const args = ['--reset', '--ledger', ledger, '--bind-address', '127.0.0.1', '--rpc-port', String(rpcPort), '--faucet-port', String(rpcPort + 1), '--limit-ledger-size', '10000',
-    '--bpf-program', MPL_CORE_PROGRAM, coreSo, '--bpf-program', programId, residentSo];
+    '--bpf-program', MPL_CORE_PROGRAM, coreSo, '--upgradeable-program', programId, residentSo, setup.publicKey];
   if (quiet) args.push('--quiet');
   const child = spawn(VALIDATOR, args, { stdio: ['ignore', 'ignore', 'pipe'] });
   let stderr = '';
@@ -45,7 +48,7 @@ export async function startValidator({ rpcPort = 40000 + Math.floor(Math.random(
   }
   if ((await rpc.health().catch(() => null)) !== 'ok') { child.kill('SIGKILL'); throw new Error(`validator not healthy in time: ${stderr.slice(-800)}`); }
   const stop = async () => { child.kill('SIGTERM'); await new Promise(r => setTimeout(r, 1500)); if (child.exitCode === null) child.kill('SIGKILL'); rmSync(ledger, { recursive: true, force: true }); };
-  return { url, rpc, programId, ledger, stop, child };
+  return { url, rpc, programId, ledger, stop, child, setup };
 }
 
 /**
@@ -54,8 +57,8 @@ export async function startValidator({ rpcPort = 40000 + Math.floor(Math.random(
  * the TEST price and a throwaway treasury. The setup key is random and in
  * memory; it is the config authority for the life of this process only.
  */
-export async function setupWorld({ rpc, programId, priceLamports = 100_000_000n, treasury = randomAddress() }) {
-  const setup = keypair();
+export async function setupWorld({ rpc, programId, priceLamports = 100_000_000n, treasury = randomAddress(), setup }) {
+  if (!setup) throw new Error('setupWorld: pass the validator\'s setup key (the program\'s upgrade authority)');
   await rpc.airdrop(setup.publicKey, 10_000_000_000);
   for (let i = 0; i < 40 && (await rpc.balance(setup.publicKey)) === 0n; i++) await new Promise(r => setTimeout(r, 250));
   const p = pdas(programId);
