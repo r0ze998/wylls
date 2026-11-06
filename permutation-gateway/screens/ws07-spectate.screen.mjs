@@ -77,3 +77,22 @@ for (const size of SIZES) {
     } finally { await ctx.close(); }
   });
 }
+
+for (const size of SIZES) {
+  test(`${size.name}, a reload while events still fail: the new page says not read again, never empty; once back, the record shows`, async () => {
+    const { ctx, page, errors, state } = await open(size, 'down');
+    try {
+      await until(page, /record of events could not be loaded/);
+      await page.reload();
+      const t = await until(page, /record of events could not be loaded/);
+      assert.match(t, /This does not mean the record is empty/);
+      assert.doesNotMatch(t, /No clash yet|No highlights yet|Nothing recorded yet/);
+      state.mode = 'up';
+      await page.reload();
+      await page.locator('[data-act="report-open"]').first().waitFor({ timeout: 15000 });
+      assert.doesNotMatch(await panel(page), /record of events could not be loaded/);
+      assert.deepEqual(errors, []);
+      assert.deepEqual(await page.evaluate(() => window.__keyUses), []);
+    } finally { await ctx.close(); }
+  });
+}

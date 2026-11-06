@@ -11,6 +11,7 @@ import * as io from '../../permutation-server/web/frontier/fchainio.mjs';
 import { FS } from '../../permutation-server/web/frontier/fstate.mjs';
 import { renderNfts } from '../../permutation-server/web/frontier/screens/join.mjs';
 import { setLang } from '../../permutation-server/web/lang.mjs';
+import { rulesetFor } from '../../permutation-server/web/sdk/frontier/profile.mjs';
 
 const A = 'Wa11et1111111111111111111111111111111111111', B = 'Wa11et2222222222222222222222222222222222222';
 const NFT = 'NFTasset11111111111111111111111111111111111';
@@ -70,6 +71,18 @@ test('a wallet change forgets the NFT played and the list; NFT login and logout 
     assert.equal(FS.resident, null);
     assert.deepEqual([FS.citizen, FS.holdings, FS.marches, FS.book], [null, [], [], []], "the NFT's Citizen, villages and marches are not shown as the wallet's");
     assert.deepEqual([FS.session, FS.prize], [{ publicKey: 'S' }, { pool: 1 }], "the wallet's own key session and prize stay");
+  });
+});
+
+test('the march book of an NFT resident is not its wallet\'s (the sealed marches and their reveal material kept apart)', async () => {
+  await withFS({ wallet: { address: A }, resident: null }, async () => {
+    const V = JSON.parse(readFileSync(new URL('./fixtures/s1-addresses-v1.json', import.meta.url), 'utf8'));
+    io.setPin({ programId: V.program, cluster: 'localnet', seasonId: V.seasonId, rulesetHash: rulesetFor(3) });
+    const own = C.bookKey();
+    FS.resident = { asset: NFT };
+    const nft = C.bookKey();
+    assert.ok(own && nft && own !== nft, `${own} / ${nft}`);
+    assert.ok(nft.includes(NFT));
   });
 });
 

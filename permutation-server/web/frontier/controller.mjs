@@ -71,7 +71,9 @@ const homeKeyNow = () => scope() ? homeKey(scope(), viewerKey()) : null;
 const readHome = () => homeKeyNow() ? loadHome(uiStorage, homeKeyNow()) : { selected: null, pending: null, seen: null };
 const saveHomePatch = patch => homeKeyNow() ? saveHome(uiStorage, homeKeyNow(), patch) : null;
 const saveLandPatch = patch => { const k = landKeyNow(); FS.landRec = k ? saveLand(uiStorage, k, patch) : { ...(FS.landRec ?? LAND_DEFAULTS), ...patch }; return FS.landRec; };
-const bookKey = () => (FS.wallet && scope() ? book.bookKey(scope(), FS.wallet.address) : null);
+// (workstream 07: an NFT resident (⑳) seals its own marches; its march book is kept apart from its wallet's Citizen's, or
+// the reconciliation against one Citizen's transits would write the other's entries off)
+export const bookKey = () => (FS.wallet && scope() ? book.bookKey(scope(), FS.resident?.asset ? `${FS.wallet.address}#nft:${FS.resident.asset}` : FS.wallet.address) : null);
 // Notices keep a thunk or the failure itself, so a language switch re-renders them in the new language.
 const setNotice = n => { FS.notice = n; invalidate('panel'); };
 const busy = text => setNotice({ busy: true, text });
