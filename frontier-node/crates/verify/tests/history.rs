@@ -596,19 +596,32 @@ async fn histories() -> Vec<(&'static str, History)> {
     out
 }
 
-/// Every fixture PASSes as given (the history does not change it) and is
-/// never PASS with an RPC or unknown history, `cross_checked` included.
+/// Dataset verdicts stay visible (including the old synthetic placement
+/// failure); RPC or unknown history never PASSes, `cross_checked` included.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_verifier_never_passes_an_unproven_history() {
     let hs = histories().await;
-    for name in ["land-program.json", "march-synth.json"] {
+    // The dispersed-placement integration deliberately rejects the old
+    // synthetic march tickets. Keep that known failure visible: it must
+    // not invalidate the history boundary test or be silently made PASS.
+    // The recorded land fixture remains the positive PASS control.
+    for (name, expected) in [
+        ("land-program.json", Verdict::Pass),
+        ("march-synth.json", Verdict::Fail),
+    ] {
         let inp = load(name);
         let r = verify_core::verify(&inp);
-        assert_eq!(r.verdict, Verdict::Pass, "{name} as given:\n{}", show(&r));
+        assert_eq!(r.verdict, expected, "{name} as given:\n{}", show(&r));
+        if name == "march-synth.json" {
+            assert!(r
+                .findings
+                .iter()
+                .any(|f| f.fail() && f.check == "V11" && f.code == "TicketPlacementMismatch"));
+        }
         assert_eq!(r.json()["history"]["basis"], "as_given");
         let mut feed = inp.clone();
         feed.history = History::ledger_feed("local");
-        assert_eq!(verify_core::verify(&feed).verdict, Verdict::Pass, "{name}");
+        assert_eq!(verify_core::verify(&feed).verdict, expected, "{name}");
         for (what, h) in &hs {
             let mut i = inp.clone();
             i.history = h.clone();
