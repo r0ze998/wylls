@@ -132,3 +132,15 @@ test('self-reveal never before T(arrive) is published (⑱): notBefore holds the
   // Without notBefore the old timing (bell start) is unchanged.
   assert.deepEqual(mb.revealStep(e, { now: start + d, bellStart: start }), { action: 'send' });
 });
+
+test('notBefore is judged on the chain time the herald observed, as the bots do (⑱)', () => {
+  const start = 1_800_060_000, tPub = start + 600 + 1 + mb.REVEAL_PUBLISH_MARGIN;
+  const e = { ...mb.entryOf(sealed(), () => 0.5), state: 'landed' };
+  const now = tPub + e.revealDelay + 30;
+  // The extrapolated clock is past tPub but the herald's last sample is not: wait.
+  assert.deepEqual(mb.revealStep(e, { now, bellStart: start, notBefore: tPub, seen: tPub - 1 }), { action: 'wait', at: tPub });
+  assert.deepEqual(mb.revealStep(e, { now, bellStart: start, notBefore: tPub, seen: tPub }), { action: 'send' });
+  // seen defaults to now; without notBefore it does not hold anything.
+  assert.deepEqual(mb.revealStep(e, { now, bellStart: start, notBefore: tPub }), { action: 'send' });
+  assert.deepEqual(mb.revealStep(e, { now: start + e.revealDelay, bellStart: start, seen: 0 }), { action: 'send' });
+});

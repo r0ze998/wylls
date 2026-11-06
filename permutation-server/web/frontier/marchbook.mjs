@@ -135,9 +135,11 @@ export function recordAttempt(book, m, attempt) {
  * material may leave this browser (T(arrive)'s publication time + margin,
  * ⑱); `windowOpen` whether THE anchor's
  * window is still open (true before the anchor exists); `slotPresent`
- * whether the herald shows this march's ArrivalSlot.
+ * whether the herald shows this march's ArrivalSlot. `seen` the chain time
+ * the herald has observed (default `now`): `notBefore` is judged on it, not
+ * on the extrapolated `now`, as the bots do (agents `owner_reveal_open`).
  */
-export function revealStep(entry, { now, bellStart, notBefore = -Infinity, windowOpen = true, slotPresent = false }) {
+export function revealStep(entry, { now, bellStart, notBefore = -Infinity, windowOpen = true, slotPresent = false, seen = now }) {
   if (!entry) return { action: 'none', reason: 'noEntry' };
   if (['revealed', 'settled', 'failed'].includes(entry.state)) return { action: 'none', reason: entry.state };
   if (entry.state === 'sealed' || entry.state === 'sent') return { action: 'none', reason: 'notLanded' };
@@ -148,6 +150,7 @@ export function revealStep(entry, { now, bellStart, notBefore = -Infinity, windo
   const from = Math.max(bellStart, notBefore);
   const due = self.length === 0 ? from + (entry.revealDelay ?? 0) : Math.max(from, self[self.length - 1].t + RETRY_AFTER);
   if (now < from || now < due) return { action: 'wait', at: due };
+  if (seen < notBefore) return { action: 'wait', at: notBefore };
   return { action: 'send' };
 }
 
