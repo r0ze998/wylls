@@ -130,23 +130,17 @@ pub fn run(cx: &mut Ctx) {
             }
         }
     }
-    // ⑳ RESIDENT_JOINED (kind 130): its key must be its asset's resident
-    // ID, the key the NFT Citizen's address derives from.
-    for c in
-        cx.w.cq_recs
-            .iter()
-            .filter(|c| c.kind == frontier_abi::v2::log::CqKind::RESIDENT_JOINED)
-    {
-        if crate::facts::resident_joined_tag(c).is_none() {
-            cx.fail(
-                V,
-                NON_CANONICAL_ADDRESS,
-                "RESIDENT_JOINED".to_string(),
-                c.bell,
-                Some(c.tx),
-                "the record's key is not its asset's resident ID",
-            );
-        }
+    // ⑳ RESIDENT_JOINED (kind 130): see `resident_joined_findings`.
+    for (n, why) in resident_joined_findings(cx.w) {
+        let c = &cx.w.cq_recs[n];
+        cx.fail(
+            V,
+            NON_CANONICAL_ADDRESS,
+            "RESIDENT_JOINED".to_string(),
+            c.bell,
+            Some(c.tx),
+            why,
+        );
     }
     // Pre-funded addresses (informational, §4.2): an init at an address
     // that already held lamports keeps them, so such an account ends above
@@ -172,6 +166,33 @@ pub fn run(cx: &mut Ctx) {
             format!("{prefunded} accounts hold more than their rent (pre-funded or escrow; informational)"),
         );
     }
+}
+
+/// The RESIDENT_JOINED records (by index into `cq_recs`) that do not stand:
+/// a key that is not its asset's resident ID; a record that does not stand
+/// for the JoinResident of its own transaction (asset, generation, faction,
+/// shard, bell; `facts::resident_joined_problem`); or a second record of a
+/// resident ID in the Season (one NFT, one Citizen per world).
+pub fn resident_joined_findings(w: &crate::world::World) -> Vec<(usize, &'static str)> {
+    let mut out = vec![];
+    let mut seen = std::collections::BTreeSet::new();
+    for (n, c) in w.cq_recs.iter().enumerate() {
+        if c.kind != frontier_abi::v2::log::CqKind::RESIDENT_JOINED {
+            continue;
+        }
+        let why = match w.txs.get(c.tx) {
+            Some(tx) => crate::facts::resident_joined_problem(c, tx),
+            None => Some("the record's transaction is missing"),
+        };
+        let why = why.or_else(|| {
+            (!seen.insert(c.key.clone()))
+                .then_some("a second RESIDENT_JOINED of this resident ID in the Season")
+        });
+        if let Some(why) = why {
+            out.push((n, why));
+        }
+    }
+    out
 }
 
 /// Kinds that hold lamports above rent by design (funds, pools, escrows).
@@ -233,5 +254,65 @@ mod resident_tests {
         d[RESIDENT_FLAGS] = FLAG_RESIDENT;
         assert_eq!(canonical(&ctx(), AccountKind::Citizen, &d), None);
         assert!(is_flagged(&d) && record_tag15(&d).is_none());
+    }
+}
+
+#[cfg(test)]
+mod resident_joined_tests {
+    //! ⑳ with workstream 11: literal bytes only (no key is generated, derived or signed).
+    use super::resident_joined_findings;
+    use crate::facts::resident_tests::{join_ix, joined, tx_with};
+    use crate::world::World;
+
+    #[test]
+    fn one_record_per_join_and_per_resident_id() {
+        let asset = [0x5a; 32];
+        let tag15 = frontier_abi::resident_citizen::resident_tag15(&asset);
+        // Two worlds' worth of joins in one Season's log: the second is refused.
+        let w = World {
+            cq_recs: vec![joined(tag15, asset, 4, 0, 0), joined(tag15, asset, 4, 0, 1)],
+            txs: vec![
+                tx_with(vec![join_ix(asset, 0, 4)]),
+                tx_with(vec![join_ix(asset, 0, 4)]),
+            ],
+            ..Default::default()
+        };
+        let f = resident_joined_findings(&w);
+        assert_eq!(f.len(), 1);
+        assert_eq!(f[0].0, 1);
+        assert!(f[0].1.contains("second"));
+    }
+
+    #[test]
+    fn a_record_without_its_join_or_with_a_forged_key_fails() {
+        let asset = [0x5a; 32];
+        let tag15 = frontier_abi::resident_citizen::resident_tag15(&asset);
+        let w = World {
+            cq_recs: vec![
+                joined(tag15, asset, 4, 0, 0),
+                joined([9; 15], asset, 4, 0, 1),
+                joined(tag15, asset, 4, 0, 7),
+            ],
+            // tx 0 ran no JoinResident; tx 1 did, but the key is forged; tx 7 is missing.
+            txs: vec![tx_with(vec![]), tx_with(vec![join_ix(asset, 0, 4)])],
+            ..Default::default()
+        };
+        let f = resident_joined_findings(&w);
+        assert_eq!(f.iter().map(|x| x.0).collect::<Vec<_>>(), vec![0, 1, 2]);
+        assert!(f[0].1.contains("JoinResident"));
+        assert!(f[1].1.contains("resident ID"));
+        assert!(f[2].1.contains("missing"));
+    }
+
+    #[test]
+    fn a_record_that_stands_for_its_join_passes() {
+        let asset = [0x5a; 32];
+        let tag15 = frontier_abi::resident_citizen::resident_tag15(&asset);
+        let w = World {
+            cq_recs: vec![joined(tag15, asset, 4, 3, 0)],
+            txs: vec![tx_with(vec![join_ix(asset, 3, 4)])],
+            ..Default::default()
+        };
+        assert!(resident_joined_findings(&w).is_empty());
     }
 }
