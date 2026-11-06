@@ -679,8 +679,7 @@ fn index_one(
             r.seq
         )
     })?;
-    let mut idx = 0usize;
-    for body in bodies.iter() {
+    for (idx, body) in bodies.iter().enumerate() {
         // MC (CQ2-E, R-22): the v2 decoder reads M1's kinds exactly as
         // `log::decode` does and MC's 80–89 (entity kind 8 in tails), so
         // an MC season's `/h/events` numbering matches the herald fold's.
@@ -690,9 +689,6 @@ fn index_one(
                 r.seq
             )
         })?;
-        let this = idx;
-        idx += 1;
-        let idx = this;
         sql(t.execute(
             "INSERT INTO record(seq, idx, kind, bell, key, payload, body) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![
