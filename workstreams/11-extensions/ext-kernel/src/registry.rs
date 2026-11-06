@@ -1,6 +1,15 @@
 //! The registry's minimal fields (contract §3). Workstream 06 owns
 //! publication, adoption and versions; this is only what the core and the
 //! verifier must be able to read from it.
+//!
+//! **Not a second registry of 06's definitions.** It holds only 11's own
+//! `WXM1` manifests, which 06's format cannot carry today (an unknown field
+//! is refused, and their ops are 06's case D), and their *execution* status
+//! (Active / Paused / Revoked), which 06 asked to keep apart from its
+//! publication status. 06's definitions are read, never copied, through
+//! `workstreams/11-extensions/creation-bridge`. If 06 comes to hold 11
+//! manifests, `publish` and `supersedes` here give way to 06's and this
+//! keeps the execution status alone (a pending decision, not adopted).
 
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;

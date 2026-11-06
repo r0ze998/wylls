@@ -15,6 +15,11 @@ fn hex(b: &[u8]) -> String {
 }
 
 fn res(r: u8) -> String {
+    // S1 keeps arms in the store the kernel names Horses
+    // (`permutation_rules::frontier::arms::ARMS`): say what the user holds.
+    if Resource::ALL.get(r as usize) == Some(&permutation_rules::frontier::arms::ARMS) {
+        return "Arms".into();
+    }
     Resource::ALL
         .get(r as usize)
         .map(|x| format!("{x:?}"))
