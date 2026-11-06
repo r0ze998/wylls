@@ -84,6 +84,12 @@ test('basis: chain only with every part chain and sourced and a finalized attest
   assert.ok(x.why.includes('finality: cross_checked is not finality'));
   const y = basisCheck({ ...all, records: { kind: 'chain', source: 'ws19', cross_checked: true } }, { world: W });
   assert.ok(y.why.includes('records: cross_checked is not completeness'));
+  // workstream 19's history words: never complete; not_fetched and gaps are not absence
+  for (const records of [{ ...chain, complete: null }, { ...chain, complete: false }, { ...chain, history_unproven: true }, { ...chain, coverage: [{ state: 'ledger_feed' }, { state: 'not_fetched' }] }]) {
+    const z = basisCheck({ ...all, records }, { world: W });
+    assert.equal(z.basis, 'unstated', JSON.stringify(records));
+    assert.ok(z.why.some(w => /history/.test(w)));
+  }
 });
 
 test('success (fixture inputs, test switch on): world, clock, finality and identity line up; 12 decides not_sent; Ren does not send first', { skip }, async () => {

@@ -43,6 +43,11 @@ export function basisCheck(provenance, { world = null } = {}) {
   for (const [p, x] of parts) {
     if (!x) { why.push(`${p}: not stated`); continue; }
     if (x.cross_checked !== undefined || x.proof === 'cross_checked' || x.commitment === 'cross_checked') why.push(`${p}: cross_checked is not ${p === 'records' ? 'completeness' : 'finality'}`);
+    // Workstream 19's history words (docs/frontier/history-coverage.ja.md, bundle ws19-on-6984acfa, as 19 described
+    // them to 13): history.complete is never true (false when unproven, else null); not_fetched, a gap or a range
+    // outside what was fetched is not "nothing happened"; HistoryUnproven makes other failures unconfirmed.
+    if ('complete' in x && x.complete !== true) why.push(`${p}: history not proven complete (complete: ${x.complete})`);
+    if (x.history_unproven || x.HistoryUnproven || (Array.isArray(x.coverage) && x.coverage.some(c => ['not_fetched', 'gap'].includes(c?.state ?? c)))) why.push(`${p}: history unproven (not_fetched or gap is not absence)`);
     if (x.kind !== 'chain') why.push(`${p}: ${x.kind ?? 'no kind'}`);
     else if (typeof x.source !== 'string' || !x.source) why.push(`${p}: chain without a source`);
   }
