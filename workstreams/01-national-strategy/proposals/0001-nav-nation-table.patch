@@ -1,0 +1,22 @@
+diff --git a/permutation-server/web/frontier/index.html b/permutation-server/web/frontier/index.html
+index 9daa6b2..aa498c2 100644
+--- a/permutation-server/web/frontier/index.html
++++ b/permutation-server/web/frontier/index.html
+@@ -74,6 +74,7 @@
+ <nav class="tabs" id="tabs" aria-label="画面" data-i18n-attr="aria-label">
+   <a class="tab" href="./" aria-current="page"><svg class="ic" aria-hidden="true" focusable="false"><use href="art/ui/icons.svg#chart"/></svg><span class="tab-label" data-i18n>地図</span></a>
+   <a class="tab" href="practice.html"><svg class="ic" aria-hidden="true" focusable="false"><use href="art/ui/icons.svg#swords"/></svg><span class="tab-label" data-i18n>練習</span></a>
++  <a class="tab" href="table.html"><svg class="ic" aria-hidden="true" focusable="false"><use href="art/ui/icons.svg#flag"/></svg><span class="tab-label" data-i18n>国の卓</span></a>
+   <a class="tab" href="spectate.html"><svg class="ic" aria-hidden="true" focusable="false"><use href="art/ui/icons.svg#eye"/></svg><span class="tab-label" data-i18n>観戦</span></a>
+ </nav>
+ <div class="intro" id="intro" role="dialog" aria-modal="true" aria-labelledby="intro-title" hidden></div>
+diff --git a/permutation-server/web/lang/en-frontier.mjs b/permutation-server/web/lang/en-frontier.mjs
+index b65530f..ae3ed16 100644
+--- a/permutation-server/web/lang/en-frontier.mjs
++++ b/permutation-server/web/lang/en-frontier.mjs
+@@ -718,4 +718,5 @@ export default {
+   '鍵を取り戻す': 'Take the key back',
+   '代理人のページ': 'Agent page',
+   '代理人のページ（テストUSDCで自動運転を任せる）': 'Agent page (hand the village to an agent, with test USDC)',
++  '国の卓': 'Nation table',
+ };
