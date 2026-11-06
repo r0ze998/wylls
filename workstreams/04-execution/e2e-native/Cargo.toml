@@ -11,6 +11,11 @@ description = "Workstream 04: one-world end-to-end path of the S1 prize season r
 # program is built with the versions it pins). No SBPF build, no LiteSVM.
 [workspace]
 
+[features]
+# The experimental NFT resident instructions of the game program (JoinResident
+# 0xE1, ResidentAct): tests/chain_nft.rs. Off by default.
+nft = ["permutation-frontier/nft-experimental"]
+
 [dependencies]
 permutation-prize = { path = "../../../permutation-prize", features = ["no-entrypoint"] }
 # The game program itself (host build, no entrypoint): CloseCitizen and CloseProvince
