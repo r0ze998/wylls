@@ -12,7 +12,13 @@
 //!   ⑳'s V9 FAIL;
 //! - **accounts:** the Season (2), the Frontier (3) and the Citizen (4) are
 //!   this Season's canonical ones, the Citizen at `citizen_by_tag15(resident
-//!   ID)`;
+//!   ID)`; the policy (6) is `["nft-resident-policy"]`, the link (7)
+//!   `["nft-citizen-link", season, asset]` under the program, and the
+//!   resident account (9) `["resident", asset]` under the policy's resident
+//!   program (r11: PDAs and `create_with_seed` arithmetic only, as the
+//!   program's `resident_binding::canonical`). A policy the archive does not
+//!   show (no CreateResidentPolicy, no state of it) leaves the resident
+//!   account UNVERIFIABLE (`MissingData`);
 //! - **time:** the record's bell is the bell of the transaction's time, and
 //!   before the Season's `join_close_bell`; the faction is a faction;
 //! - **state (archives with post-states):** the Citizen's post-state is a
@@ -25,7 +31,7 @@
 //! transfer guard and the resident program's current generation, which the
 //! program reads from read-only accounts; like a wallet's signature, the
 //! runtime accepted them. Codes: `ResidentJoinMismatch`,
-//! `NonCanonicalAddress`, `MissingPostState`.
+//! `NonCanonicalAddress`, `MissingPostState`, `MissingData`.
 
 use frontier_abi::layout::player::citizen as C;
 use frontier_abi::resident_wire::{self, Command};
@@ -42,6 +48,7 @@ const V: &str = "V27";
 const SEASON: usize = 2;
 const FRONTIER: usize = 3;
 const CITIZEN: usize = 4;
+const POLICY: usize = 6;
 const LINK: usize = 7;
 const ASSET: usize = 8;
 const RESIDENT: usize = 9;
@@ -69,6 +76,34 @@ fn logs_whole(logs: &[String], program: &str) -> bool {
         .filter(|l| **l == format!("Program {program} success"))
         .count();
     started > 0 && started == ended && !logs.iter().any(|l| l == super::v0_evidence::LOG_TRUNCATED)
+}
+
+/// The resident program the policy at `key` names: from a successful
+/// CreateResidentPolicy in the archive (its account 1 is the policy), else
+/// from any archived state of the policy account (written once) owned by
+/// the program.
+fn resident_program_of(w: &World, program: &[u8; 32], key: &[u8; 32]) -> Option<[u8; 32]> {
+    let created = w
+        .txs
+        .iter()
+        .filter(|t| t.ok)
+        .flat_map(|t| t.ixs.iter())
+        .filter(|x| x.tag() == Some(resident_wire::CREATE_RESIDENT_POLICY))
+        .filter(|x| x.key(1).as_ref() == Some(key))
+        .find_map(|x| match resident_wire::decode(&x.data) {
+            Some(Command::CreatePolicy(p)) => Some(p.resident_program),
+            _ => None,
+        });
+    created.or_else(|| {
+        w.txs
+            .iter()
+            .filter_map(|t| t.post.get(key))
+            .chain(w.finals.get(key))
+            .flatten()
+            .filter(|a| a.owner.to_bytes() == *program)
+            .find_map(|a| frontier_abi::resident_policy::read(&a.data))
+            .map(|p| p.resident_program)
+    })
 }
 
 fn le32(b: &[u8]) -> Option<u32> {
@@ -156,6 +191,38 @@ pub fn judge_tx(w: &World, jc: &JoinCtx, i: usize, t: &Tx, logs: &[String]) -> V
                 );
             }
         }
+        // The resident proof accounts (PDAs; `resident_binding::canonical`).
+        let adr = solana_address::Address::new_from_array;
+        let prog = adr(jc.program);
+        let policy = fclient::addr::resident_policy(&prog).to_bytes();
+        let link =
+            fclient::addr::resident_link(&prog, &adr(jc.addr.season), &adr(asset)).to_bytes();
+        for (pos, want, what) in [(POLICY, policy, "resident policy"), (LINK, link, "link")] {
+            if ix.key(pos) != Some(want) {
+                fail(
+                    NON_CANONICAL_ADDRESS,
+                    format!("JoinResident account {pos} is not the canonical {what}"),
+                );
+            }
+        }
+        match resident_program_of(w, &jc.program, &policy) {
+            Some(rp) => {
+                let want = fclient::addr::resident_account(&adr(rp), &adr(asset)).to_bytes();
+                if ix.key(RESIDENT) != Some(want) {
+                    fail(
+                        NON_CANONICAL_ADDRESS,
+                        format!("JoinResident account {RESIDENT} is not the asset's resident account under the policy's resident program"),
+                    );
+                }
+            }
+            None => out.push((
+                Severity::Unverifiable,
+                MISSING_DATA,
+                i,
+                "the resident policy is in neither the archive's instructions nor its states: the resident account is not judged".into(),
+            )),
+        }
+        let mut fail = |code: &'static str, d: String| out.push((Severity::Fail, code, i, d));
         if faction >= frontier_abi::layout::world::join_shard::FACTIONS {
             fail(
                 RESIDENT_JOIN_MISMATCH,
@@ -310,8 +377,38 @@ mod tests {
     const GENESIS: i64 = 1_000_000;
     const BELL: u32 = 40; // `joined`'s join bell and record bell
     const NFT: [u8; 32] = [0x5a; 32];
-    const RESIDENT_ACC: [u8; 32] = [0x79; 32];
-    const LINK_ACC: [u8; 32] = [0x77; 32];
+    /// The resident program the policy names (a literal address).
+    const RPROG: [u8; 32] = [0x33; 32];
+    fn adr(k: [u8; 32]) -> solana_address::Address {
+        solana_address::Address::new_from_array(k)
+    }
+    // PDAs (r11: allowed; no key pair, nothing signed).
+    #[allow(non_snake_case)]
+    fn POLICY_ACC() -> [u8; 32] {
+        fclient::addr::resident_policy(&adr([0x11; 32])).to_bytes()
+    }
+    #[allow(non_snake_case)]
+    fn LINK_ACC() -> [u8; 32] {
+        fclient::addr::resident_link(&adr([0x11; 32]), &adr([0x22; 32]), &adr(NFT)).to_bytes()
+    }
+    #[allow(non_snake_case)]
+    fn RESIDENT_ACC() -> [u8; 32] {
+        fclient::addr::resident_account(&adr(RPROG), &adr(NFT)).to_bytes()
+    }
+    /// The policy account as CreateResidentPolicy writes it.
+    fn policy_account() -> Option<Account> {
+        let mut d = vec![0u8; frontier_abi::resident_policy::LEN];
+        assert!(frontier_abi::resident_policy::write_once(
+            &mut d,
+            &frontier_abi::resident_auth::Policy {
+                core_program: [0x11; 32],
+                resident_program: RPROG,
+                collection: [0x44; 32],
+                guard_authority: [0x55; 32],
+            }
+        ));
+        acc(d)
+    }
     const GEN: u32 = 3;
     const FACTION: u8 = 4;
 
@@ -362,7 +459,7 @@ mod tests {
             &mut d,
             &resident_binding::Record {
                 asset: NFT,
-                resident: RESIDENT_ACC,
+                resident: RESIDENT_ACC(),
                 citizen,
             }
         ));
@@ -381,10 +478,10 @@ mod tests {
             j.addr.frontier(),
             citizen_addr(),
             [0; 32],
-            [0x76; 32],
-            LINK_ACC,
+            POLICY_ACC(),
+            LINK_ACC(),
             NFT,
-            RESIDENT_ACC,
+            RESIDENT_ACC(),
         ];
         Ix {
             index: 0,
@@ -397,7 +494,7 @@ mod tests {
     fn honest() -> (World, Vec<String>) {
         let mut post = BTreeMap::new();
         post.insert(citizen_addr(), acc(citizen_data()));
-        post.insert(LINK_ACC, acc(link_data(citizen_addr())));
+        post.insert(LINK_ACC(), acc(link_data(citizen_addr())));
         let tx = Tx {
             seq: 0,
             slot: 0,
@@ -420,6 +517,7 @@ mod tests {
             txs: vec![tx],
             has_post: true,
             program: [0x11; 32],
+            finals: [(POLICY_ACC(), policy_account())].into_iter().collect(),
             ..Default::default()
         };
         let p = solana_address::Address::new_from_array([0x11; 32]);
@@ -490,7 +588,7 @@ mod tests {
         assert!(fails(&judge(&w, &logs)), "record without its join");
         // The link binds another Citizen.
         let (mut w, logs) = honest();
-        w.txs[0].post.insert(LINK_ACC, acc(link_data([0x55; 32])));
+        w.txs[0].post.insert(LINK_ACC(), acc(link_data([0x55; 32])));
         assert!(fails(&judge(&w, &logs)), "link");
     }
 
@@ -512,7 +610,7 @@ mod tests {
             assert_eq!(judge(&w, &cut), vec![], "{cut:?}");
         }
         // The Citizen's or the link's post-state absent.
-        for k in [citizen_addr(), LINK_ACC] {
+        for k in [citizen_addr(), LINK_ACC()] {
             let (mut w, logs) = honest();
             w.txs[0].post.remove(&k);
             assert_eq!(
@@ -603,5 +701,73 @@ mod tests {
         assert_eq!(v9.len(), 1);
         assert!(v9[0].1.contains("second"));
         assert!(judge_tx(&w, &jc(), 1, &w.txs[1], &logs).is_empty());
+    }
+
+    #[test]
+    fn the_resident_proof_accounts_are_canonical() {
+        // Honest: policy, link and resident account at their PDAs (above).
+        let (w, logs) = honest();
+        assert_eq!(judge(&w, &logs), vec![]);
+        // Each one replaced by another address: a FAIL naming the account.
+        for pos in [POLICY, LINK, RESIDENT] {
+            let (mut w, logs) = honest();
+            w.txs[0].ixs[0].accounts[pos].0 = [0x66; 32];
+            let f = judge_tx(&w, &jc(), 0, &w.txs[0], &logs);
+            assert!(
+                f.iter().any(|x| x.0 == Severity::Fail
+                    && x.1 == NON_CANONICAL_ADDRESS
+                    && x.3.contains(&format!("account {pos}"))),
+                "{pos}: {f:?}"
+            );
+        }
+        // The resident account of another resident program: a FAIL.
+        let (mut w, logs) = honest();
+        w.txs[0].ixs[0].accounts[RESIDENT].0 =
+            fclient::addr::resident_account(&adr([0x34; 32]), &adr(NFT)).to_bytes();
+        assert!(fails(&judge(&w, &logs)));
+        // The link of another Season: a FAIL.
+        let (mut w, logs) = honest();
+        w.txs[0].ixs[0].accounts[LINK].0 =
+            fclient::addr::resident_link(&adr([0x11; 32]), &adr([0x23; 32]), &adr(NFT)).to_bytes();
+        assert!(fails(&judge(&w, &logs)));
+    }
+
+    #[test]
+    fn a_policy_the_archive_does_not_show_leaves_the_resident_unverifiable() {
+        // No policy state and no CreateResidentPolicy: not judged, never a PASS.
+        let (mut w, logs) = honest();
+        w.finals.clear();
+        assert_eq!(
+            judge(&w, &logs),
+            vec![(Severity::Unverifiable, MISSING_DATA)]
+        );
+        // A policy account the program does not own is not the policy.
+        let (mut w, logs) = honest();
+        if let Some(Some(a)) = w.finals.get_mut(&POLICY_ACC()) {
+            a.owner = adr([0x99; 32]);
+        }
+        assert_eq!(
+            judge(&w, &logs),
+            vec![(Severity::Unverifiable, MISSING_DATA)]
+        );
+        // The policy from a CreateResidentPolicy in the archive instead.
+        let (mut w, logs) = honest();
+        w.finals.clear();
+        let mut data = vec![resident_wire::CREATE_RESIDENT_POLICY];
+        for k in [[0x11; 32], RPROG, [0x44; 32], [0x55; 32]] {
+            data.extend_from_slice(&k);
+        }
+        let mut create = w.txs[0].clone();
+        create.ixs = vec![Ix {
+            index: 0,
+            data,
+            accounts: vec![([0x70; 32], true), (POLICY_ACC(), true)],
+        }];
+        create.post.clear();
+        w.txs.insert(0, create);
+        w.cq_recs[0].tx = 1;
+        let logs1 = logs.clone();
+        let f = judge_tx(&w, &jc(), 1, &w.txs[1], &logs1);
+        assert_eq!(f, vec![]);
     }
 }
