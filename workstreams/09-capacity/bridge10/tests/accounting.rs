@@ -351,3 +351,37 @@ fn returns_rests_resends_and_seizures_balance_on_one_lot_table() {
         paid > 0 && returned_seen > 500 && owed_seen > 500 && frozen_refused > 20 && captured > 50
     );
 }
+
+/// A resend of a lot deposit by someone other than the job's user is
+/// refused as 09's kernel refuses its own deposits (`NotUser`, checked
+/// before the resend is recognised), and changes nothing.
+#[test]
+fn a_resend_by_someone_else_is_refused_and_changes_nothing() {
+    let (mut b, g, lot, order) = setup();
+    let job = JobId { grant: g, seq: 1 };
+    b.apply(
+        T0 + 10,
+        B,
+        &Op::Reserve {
+            job,
+            units: 2,
+            start: T0 + HOUR,
+            end: T0 + 4 * HOUR,
+            max_output: 20 * MILLI,
+        },
+    )
+    .unwrap();
+    b.deposit_from_lot(T0 + 20, B, job, 1, lot, 0, order, 10)
+        .unwrap();
+    let before = b.clone();
+    assert_eq!(
+        b.deposit_from_lot(T0 + 30, C, job, 1, lot, 0, order, 10),
+        Err(BridgeError::Capacity(wylls_capacity::CapError::NotUser))
+    );
+    same(&b, &before, "a stranger's resend");
+    assert_eq!(
+        b.deposit_from_lot(T0 + 30, B, job, 1, lot, 0, order, 10),
+        Ok(Outcome::AlreadyApplied)
+    );
+    accounts(&b, lot, T0 + 30);
+}

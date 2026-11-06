@@ -152,7 +152,7 @@
 | T4 未返却の端数 | 1,000 milli 未満の端数、凍結・満杯で受けられない分は ⑩ の預かり（`owed`）に持ち、整数単位になれば ⑩ の `pay_owed` で入る。bridge の `owed()`・`returned()` は ⑩ の記録を読む | **解決** |
 | T2 拒否の理由 | ⑩ のアダプターの `nine-refused` で、⑩ の理由を ⑨ の `CustodyError::Refused(u16)` に載せる。`run.sh` は ⑩ の試験をこの feature で回す | **解決**（⑩ の feature として） |
 | B1・B2 | 通過用の置き場は ⑩ の `use_place`。bridge は ⑩ の `LotCustody` を前提にする | 解決（`a24defcf` から変わらず） |
-| T5 ⑩ の `connect` と差分試験 | ⑩ の判断 | 残る |
+| T5 ⑩ の `connect` と差分試験 | ⑩ が `c27b95eb` で `connect` を削除し、試験を ⑨ の bridge10 の上へ移した（§7.1） | **解決**（⑩ の判断） |
 
 **未決のまま（このパッチも決めていない）：** `MixedSource`（一つの予約は鉱石を一つの出どころから）、木材・兵器を区画で扱うか。
 
@@ -169,24 +169,17 @@
 
 ## 7. T5 の照合・単一 Lot 表の会計・④ への接続（2026-11-06、⑨ `06c817cc` から）
 
-`06c817cc` で取り込んだ ⑩ の修正（T1–T4）は**作り直していない**。⑩ の最新は `79fbce834c321ff58040c3b8bbf98f018b58f5c0` のままで、custody と adapter-09 の tree は `b237b581` と同じ（`b91cbfdd…`・`b8b5984c…`）。`run.sh` の pin を `79fbce83` に替えた（中身は同じ）。
+`06c817cc` で取り込んだ ⑩ の修正（T1–T4）は**作り直していない**。`run.sh` の pin は ⑩ の最新 `563407d9`（custody の tree `b91cbfdd…`、adapter-09 の tree `8d68b5dc…`）。
 
 ### 7.1 T5：⑨ の bridge と ⑩ の `connect`
 
-⑩ の差分試験 `adapter-09/diff-bridge10` は、⑩ の `connect`（⑩ が書いた ⑨ のカーネルと ⑩ の区画の接続）と、**区画表を自分で持っていた頃の ⑨ の bridge（`992f4ba5`）**を比べている。`06c817cc` からは両方が ⑩ の `LotCustody` の上で動くので、状態をまるごと比べられる。⑨ 側に `bridge10/tests/connect10.rs` を置いた（⑩ のファイルは変えていない）。
+`8fe85cc9` では、⑨ の bridge と ⑩ の `connect`（⑩ が書いた ⑨ のカーネルと ⑩ の区画の接続）を同じ区画表の上で比べる差分試験 `bridge10/tests/connect10.rs` を置き、1,000 通り × 60 手で harness 全体が一度も食い違わないことを確かめた。違いは 4 点（`MixedSource`・`TooFar`・決定どおりの受け取りは ⑨ だけ、他人の再送の理由）だった。
 
-- **同じ状態から同じ手**を打ち、毎手、結果と **harness 全体**（⑨ の施設・台帳・記録・時計、⑩ の預かり：各区画の口座のバイト列、倉、`uses`、未返却と返却の合計）が等しいこと、⑨ の `links` と ⑩ の `uses` の鍵が同じこと、両方の不変条件を確かめる。手は予約、区画からの投入（と再送）、利用者の木材、精算、取消、受取、⑩ の S1 の倉の押収（区画の凍結）、再起動。⑩ の `connect` にある `Hold` と `ToUser` の両方で。
-- 結果：1,000 通り × 60 手で**一度も食い違わない**（区画からの投入の適用 943、`Hold` で止めた受取 720、凍結中に拒否された投入 2,549、拒否 29,755）。
-- **違うところ**（`the_two_connections_differ_only_where_listed` に固定。どちらかが変われば試験が落ちる）：
+その後 ⑩ は `c27b95eb`（⑩ の最新 `563407d96e74934fd82141bf9ad09980ea94bf75` に含まれる）で `connect` を削除し、⑩ の試験を ⑨ の bridge10 の上へ移した（⑩ の `13-t5-and-v26-replay.ja.md`）。接続は ⑨ の bridge の一つだけになり、比べる相手がなくなったので、**⑨ は ⑩ に合わせて `connect10.rs` を外した**（④ の候補で compile できなくなっていた。④ からの連絡、2026-11-06）。
 
-| # | 場面 | ⑨ の bridge | ⑩ の `connect` | 扱い |
-|---|---|---|---|---|
-| 1 | 区画の鉱石を使う予約に自分の鉱石も入れる | `MixedSource` で拒否 | 受け付ける | **未決**（所有者の判断。⑨ は確認を求めて拒否のまま） |
-| 2 | 施設の州の外の区画 | `TooFar` で拒否 | 受け付ける | 所有者の決定 D6 は ⑨ だけが実装。⑩ が入れるかは ⑩ の判断 |
-| 3 | 決定どおりの受け取り（D1・D2） | 既定の `Decided` | 無い（`Hold`・`ToUser` だけ） | ⑩ が入れるかは ⑩ の判断 |
-| 4 | 同じ条件の投入を別の人が再送 | kernel と同じ `NotUser`（**今回直した**） | `Conflict` | どちらも拒否し、何も変えない。理由の番号だけが違う |
-
-**#4 は ⑨ の不具合だった。** ⑨ のカーネルは自分の預け入れの再送に対して、まず署名者が予約の利用者かを確かめる（`NotUser`）。bridge の再送の近道はそれを飛ばし、他人の再送にも `AlreadyApplied` と答えていた（状態は変えない）。カーネルと同じ順に直した（`bridge10/src/lib.rs` の `deposit_from_lot`）。仕様の判断ではない。
+- 上の 4 点のうち 3 点（`MixedSource`・`TooFar`・決定どおりの受け取り）は、二つ目の実装が無くなったので違いではなくなった。`MixedSource` は未決のまま。
+- 4 点目は ⑨ の不具合だった。⑨ のカーネルは自分の預け入れの再送に対して、まず署名者が予約の利用者かを確かめる（`NotUser`）。bridge の再送の近道はそれを飛ばし、他人の再送にも `AlreadyApplied` と答えていた（状態は変えない）。カーネルと同じ順に直した（`bridge10/src/lib.rs` の `deposit_from_lot`）。試験は `accounting.rs` の `a_resend_by_someone_else_is_refused_and_changes_nothing` に移した。
+- ⑩ の `patches-to-09/0002`（pin を `c27b95eb` に）は当てていない。同じ変更を、⑩ の最新 `563407d9`（adapter-09 の tree `8d68b5dc…`。`c27b95eb` との違いは ⑩ の結果ログを 1 つ消しただけ）への pin として入れた。
 
 ### 7.2 単一 Lot 表での会計（返却・端数・再送・押収）
 
@@ -233,8 +226,8 @@
 | 対象 | 結果 |
 |---|---|
 | ⑨ kernel | 43 件通過（既定）＋ `abi-04-provisional` の 4 件 |
-| bridge10（⑩ `79fbce83` に対して、fmt・clippy を含む） | 29 件通過（`connect10.rs` 2 件、`accounting.rs` 1 件を追加） |
-| ⑩ の adapter-09（このブランチの kernel、`--features nine-refused`） | 23 件通過 |
+| bridge10（⑩ `563407d9` に対して、fmt・clippy を含む） | 28 件通過（`accounting.rs` 2 件を追加。`connect10.rs` は §7.1 のとおり外した） |
+| ⑩ の adapter-09（このブランチの kernel、`--features nine-refused`） | 17 件通過（⑩ が `connect` の試験を外したため 23 → 17） |
 | パッチ 0001 を当てたコア（rules・ABI・program のホスト試験、kernel） | 通過 |
 | ④ `8e96f24d` + 0003 + 0004 の kernel（`abi-04-provisional`） | 47 件通過 |
 
@@ -246,7 +239,7 @@
 |---|---|
 | 所有者 | `MixedSource`（混合材料の残りの分け方）、区画に木材・兵器を入れるか、押収した倉の区画の扱い。**⑨ は決めていない** |
 | ④ | 記録の kind（20 種と帯 10 枠）、`ClaimSplit` の tag、magic、`RSV_700` を表に載せるか、0001 の版（S1 か S2 か） |
-| ⑩ | T5 の #2・#3（`TooFar`・`Decided` を ⑩ の `connect` に入れるか）、#4 の理由の番号、`diff-bridge10` の pin（`992f4ba5` のまま） |
+| ⑩ | なし（T5 は ⑩ が `connect` を外して解決） |
 
 ## 8. 再現
 
@@ -254,4 +247,4 @@
 workstreams/09-capacity/run.sh --no-patch   # カーネル、デモ、bridge10、⑩ の adapter 試験（⑩は pin から一時取り出し）
 ```
 
-⑩ の pin は `79fbce834c321ff58040c3b8bbf98f018b58f5c0`（custody の tree `b91cbfdd…`、adapter-09 の tree `b8b5984c…`。`b237b581` と同じ tree）。手元に無ければ、`run.sh` が `origin` の ⑩ の担当ブランチ `claude/great-babbage-3ogkqu` を取得します。
+⑩ の pin は `563407d96e74934fd82141bf9ad09980ea94bf75`（custody の tree `b91cbfdd…`、adapter-09 の tree `8d68b5dc…`）。手元に無ければ、`run.sh` が `origin` の ⑩ の担当ブランチ `claude/great-babbage-3ogkqu` を取得します。
