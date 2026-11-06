@@ -7,6 +7,7 @@
 //! anchors and signatures, V11 the land; the others read the facts and,
 //! where a fact they depend on is missing, say so (`MissingData`).
 
+use frontier_abi::v2::log::CqKind;
 use std::collections::{BTreeMap, HashMap};
 
 use frontier_abi::addr::AddrCtx;
@@ -130,7 +131,12 @@ impl Facts {
     }
 
     pub fn build(w: &World, cfg: &Config) -> Facts {
-        let ctx = findex::addr_ctx(&cfg.program, cfg.season_id);
+        Facts::build_with_ctx(w, cfg, findex::addr_ctx(&cfg.program, cfg.season_id))
+    }
+
+    /// [`Facts::build`] over a given address context (tests pass a literal
+    /// one instead of deriving the Season PDA).
+    pub fn build_with_ctx(w: &World, cfg: &Config, ctx: AddrCtx) -> Facts {
         let mut f = Facts {
             ctx,
             pk: cfg.quicknet_pk,
@@ -227,6 +233,37 @@ impl Facts {
             };
             f.window = WindowSchedule::fixed(p.reveal_window);
             f.margin = p.seed_margin;
+        }
+        // ⑳ RESIDENT_JOINED (kind 130, in the conquest records): an
+        // NFT-resident Citizen's start, at `citizen_by_tag15(resident id)`
+        // with a zero wallet. Taken up front, so the record loop below finds
+        // the Citizen by its tag as it finds a JOINed one; `rec` is the
+        // index of the first M1 record after it. A record whose key is not
+        // its asset's resident ID is not taken (V9 reports it).
+        for c in w
+            .cq_recs
+            .iter()
+            .filter(|c| c.kind == CqKind::RESIDENT_JOINED)
+        {
+            let Some(tag15) = resident_joined_tag(c) else {
+                continue;
+            };
+            let addr = f.ctx.citizen_by_tag15(&tag15);
+            let tag8 = u64::from_le_bytes(addr[..8].try_into().unwrap_or([0; 8]));
+            let rec = w.recs.partition_point(|r| (r.tx, r.pos) < (c.tx, c.pos));
+            f.citizens.insert(
+                addr,
+                CitizenFact {
+                    rec,
+                    addr,
+                    tag15,
+                    tag8,
+                    wallet: [0; 32],
+                    faction: c.field("faction", true).first().copied().unwrap_or(0),
+                    shard: c.field("shard", true).first().copied().unwrap_or(0),
+                },
+            );
+            f.by_tag8.insert(tag8, addr);
         }
         for (n, r) in w.recs.iter().enumerate() {
             match r.kind {
@@ -485,5 +522,71 @@ impl SigCache {
             .seen
             .entry((round, *sig))
             .or_insert_with(|| fclient::beacon::verify(round, sig, pk))
+    }
+}
+
+/// The key of a RESIDENT_JOINED record when it is its asset's resident ID
+/// (`sha256("PSF-RES" ‖ asset)[0..15]`), else `None`.
+pub fn resident_joined_tag(c: &crate::world::CqRec) -> Option<[u8; 15]> {
+    let asset: [u8; 32] = c.field("asset", true).try_into().ok()?;
+    let tag15: [u8; 15] = c.key.as_slice().try_into().ok()?;
+    (tag15 == frontier_abi::resident_citizen::resident_tag15(&asset)).then_some(tag15)
+}
+
+#[cfg(test)]
+mod resident_tests {
+    //! ⑳: literal bytes and a literal address context only (no key is
+    //! generated, derived or signed; the Season address is written in).
+    use super::*;
+    use crate::world::CqRec;
+
+    fn joined(key: [u8; 15], asset: [u8; 32], faction: u8, tx: usize) -> CqRec {
+        let mut payload = asset.to_vec();
+        payload.extend_from_slice(&[faction, 3]);
+        payload.extend_from_slice(&2u32.to_le_bytes());
+        payload.extend_from_slice(&40u32.to_le_bytes());
+        CqRec {
+            kind: CqKind::RESIDENT_JOINED,
+            bell: 40,
+            key: key.to_vec(),
+            payload,
+            tx,
+            pos: 0,
+        }
+    }
+
+    #[test]
+    fn resident_joined_makes_the_nft_citizen_known_by_its_tag() {
+        let asset = [0x5a; 32];
+        let tag15 = frontier_abi::resident_citizen::resident_tag15(&asset);
+        let w = World {
+            cq_recs: vec![
+                joined(tag15, asset, 4, 0),
+                joined([9; 15], [0x6b; 32], 1, 1),
+            ],
+            ..Default::default()
+        };
+        let cfg = Config {
+            program: solana_address::Address::new_from_array([0x11; 32]),
+            season_id: 7,
+            quicknet_pk: [0; 96],
+            ruleset_hash: [0; 32],
+            program_hash: None,
+        };
+        let ctx = AddrCtx {
+            season: [0x22; 32],
+            program: [0x11; 32],
+        };
+        let f = Facts::build_with_ctx(&w, &cfg, ctx);
+        let addr = ctx.citizen_by_tag15(&tag15);
+        let cf = f.citizens.get(&addr).expect("the NFT Citizen is known");
+        assert_eq!(
+            (cf.wallet, cf.faction, cf.shard, cf.tag15),
+            ([0; 32], 4, 3, tag15)
+        );
+        assert_eq!(f.by_tag8.get(&cf.tag8), Some(&addr));
+        // The forged record (key not its asset's resident ID) is not taken.
+        assert_eq!(f.citizens.len(), 1);
+        assert_eq!(resident_joined_tag(&w.cq_recs[1]), None);
     }
 }

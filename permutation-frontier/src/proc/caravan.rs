@@ -548,9 +548,15 @@ extern crate alloc;
 /// 0xB0 BuildVault(tile): P + `[holding w] [holding_province r] [province
 /// r] [vault w] [system]` (contract §3.1).
 pub fn build_vault(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+    build_vault_as(p, a, d, &super::Auth::Wallet)
+}
+
+/// [`build_vault`] for the Citizen's wallet or, through `Act`, an NFT
+/// resident's Citizen ([`super::Auth`]).
+pub(crate) fn build_vault_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &super::Auth) -> R<()> {
     check_accounts_v2(Ix2::BuildVault, a, None)?;
     let x = ix2::BuildVault::decode(d)?;
-    let pl: Player = hold::player(p, a)?;
+    let pl: Player = hold::player_as(p, a, auth)?;
     let [_, payer, season_ai, citizen, holding, holding_province, province, vault, _system] = a
     else {
         return Err(FrontierError::TooManyAccounts.into());
@@ -675,13 +681,24 @@ pub fn build_vault(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
 /// 0xB1 SendCaravan: P + `[src w] [dst r] [caravan w] [system]
 /// [path_province w ×1..4]` (contract §3.2).
 pub fn send_caravan(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+    send_caravan_as(p, a, d, &super::Auth::Wallet)
+}
+
+/// [`send_caravan`] for the Citizen's wallet or, through `Act`, an NFT
+/// resident's Citizen ([`super::Auth`]).
+pub(crate) fn send_caravan_as(
+    p: &Pubkey,
+    a: &[AccountInfo],
+    d: &[u8],
+    auth: &super::Auth,
+) -> R<()> {
     let n_prov = a
         .len()
         .checked_sub(8)
         .ok_or(FrontierError::TooManyAccounts)?;
     check_accounts_v2(Ix2::SendCaravan, a, Some(&[1, 1, n_prov as u8]))?;
     let x = ix2::SendCaravan::decode(d)?;
-    let pl: Player = hold::player(p, a)?;
+    let pl: Player = hold::player_as(p, a, auth)?;
     let [_, payer, season_ai, citizen, src, dst, caravan, _system, provinces @ ..] = a else {
         return Err(FrontierError::TooManyAccounts.into());
     };
@@ -1394,6 +1411,17 @@ fn settle_raid(
 /// 0xB3 RaidCaravan: P (the raider) + `[caravan w] [raider_holding r] [dst
 /// r] [path_province w ×1..7]` (contract §3.5, decision J2).
 pub fn raid_caravan(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+    raid_caravan_as(p, a, d, &super::Auth::Wallet)
+}
+
+/// [`raid_caravan`] for the Citizen's wallet or, through `Act`, an NFT
+/// resident's Citizen ([`super::Auth`]).
+pub(crate) fn raid_caravan_as(
+    p: &Pubkey,
+    a: &[AccountInfo],
+    d: &[u8],
+    auth: &super::Auth,
+) -> R<()> {
     let n_prov = a
         .len()
         .checked_sub(7)
@@ -1403,7 +1431,7 @@ pub fn raid_caravan(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     if x.choice != raid_choice::TAKE && x.choice != raid_choice::BURN {
         return Err(FrontierError::BadData.into());
     }
-    let pl: Player = hold::player(p, a)?;
+    let pl: Player = hold::player_as(p, a, auth)?;
     let [_, _payer, season_ai, citizen, caravan, raider_holding, dst, provinces @ ..] = a else {
         return Err(FrontierError::TooManyAccounts.into());
     };
@@ -1561,10 +1589,21 @@ pub fn default_raid(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
 /// as a clash opens it, its position `RAID_POS_DOMESTIC`; RaidCaravan or
 /// DefaultRaid settles it.
 pub fn raid_domestic(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+    raid_domestic_as(p, a, d, &super::Auth::Wallet)
+}
+
+/// [`raid_domestic`] for the Citizen's wallet or, through `Act`, an NFT
+/// resident's Citizen ([`super::Auth`]).
+pub(crate) fn raid_domestic_as(
+    p: &Pubkey,
+    a: &[AccountInfo],
+    d: &[u8],
+    auth: &super::Auth,
+) -> R<()> {
     use frontier_abi::layout::province::entry as E;
     check_accounts_v2(Ix2::RaidDomestic, a, None)?;
     let x = ix2::RaidDomestic::decode(d)?;
-    let pl: Player = hold::player(p, a)?;
+    let pl: Player = hold::player_as(p, a, auth)?;
     let [_, _payer, _season, citizen, caravan, province, host_holding, owner_citizen] = a else {
         return Err(FrontierError::TooManyAccounts.into());
     };
@@ -1691,10 +1730,16 @@ pub fn raid_domestic(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
 /// 0xB4 SeizeVault(entry): P (the captor) + `[vault w] [province r]
 /// [host_holding r] [owner_citizen w]` (contract §3.6).
 pub fn seize_vault(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+    seize_vault_as(p, a, d, &super::Auth::Wallet)
+}
+
+/// [`seize_vault`] for the Citizen's wallet or, through `Act`, an NFT
+/// resident's Citizen ([`super::Auth`]).
+pub(crate) fn seize_vault_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &super::Auth) -> R<()> {
     use frontier_abi::layout::province::entry as E;
     check_accounts_v2(Ix2::SeizeVault, a, None)?;
     let x = ix2::SeizeVault::decode(d)?;
-    let pl: Player = hold::player(p, a)?;
+    let pl: Player = hold::player_as(p, a, auth)?;
     let [_, _payer, _season, citizen, vault, province, host_holding, owner_citizen] = a else {
         return Err(FrontierError::TooManyAccounts.into());
     };
@@ -1849,9 +1894,15 @@ pub fn seize_vault(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
 /// 0xB5 CloseVault: P (the owner, by the wallet) + `[vault w] [rent_to w]`:
 /// an empty vault closes to its `RENT_TO` (contract §1.1).
 pub fn close_vault(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+    close_vault_as(p, a, d, &super::Auth::Wallet)
+}
+
+/// [`close_vault`] for the Citizen's wallet or, through `Act`, an NFT
+/// resident's Citizen ([`super::Auth`]).
+pub(crate) fn close_vault_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &super::Auth) -> R<()> {
     check_accounts_v2(Ix2::CloseVault, a, None)?;
     let _ = ix2::CloseVault::decode(d)?;
-    let pl: Player = hold::player(p, a)?;
+    let pl: Player = hold::player_as(p, a, auth)?;
     if pl.pc.by_session {
         return Err(cq(CqError::WalletRequired));
     }

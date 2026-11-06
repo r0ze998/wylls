@@ -20,6 +20,7 @@ import { compileMessage, wireTransaction } from '../sdk/solana-tx.mjs';
 import { decode as fromBase58 } from '../sdk/base58.mjs';
 import { toBase64 } from '../sdk/bytes.mjs';
 import { verify } from '../session.mjs';
+import { joinResidentIx, residentActIx, residentBudget } from '../sdk/frontier/resident.mjs';
 import * as io from './fchainio.mjs';
 import { joinShardOf, citizenTag } from './faddr.mjs';
 
@@ -45,6 +46,8 @@ export const campWinner = (mask, faction, i, fate) => fate === 1 && mask !== 0 &
 /** The shapes this page sends and who signs them. */
 export const SIGNED_BY = Object.freeze({
   Join: 'wallet', SetSession: 'wallet',
+  // ⑳ (provisional): an NFT's first login; the owner's wallet signs it.
+  JoinResident: 'wallet',
   SetVigil: 'session', FileTicket: 'session', PlaceHome: 'session', Harvest: 'session', Build: 'session', Train: 'session', Muster: 'session',
   DeclareSiege: 'session', FileOutpost: 'session', RetireHost: 'session', Dissolve: 'session', Garrison: 'session', Explore: 'session', Depart: 'session',
   SettleExplore: 'none', SettleTransit: 'none',
@@ -81,11 +84,16 @@ export function accountsFor(name, v) {
   const A = v.addresses;
   // MC and S1 (profile 2 and 3) share the ABI v2 account lists.
   const cq = isV2(v.profile ?? io.pinned()?.profile);
-  const citizen = A.of('Citizen', { wallet: v.wallet });
+  // ⑳: an NFT resident's Citizen is at its resident ID's address (`v.citizen`),
+  // and its JoinShard index comes from its asset (`v.shardKey`).
+  const citizen = v.citizen ?? A.of('Citizen', { wallet: v.wallet });
   const base = { actor: v.actor, season: A.season, citizen };
   const holding = () => A.of('Holding', v.holding);
   const province = () => A.of('Province', v.province ?? v.holding);
   switch (name) {
+    // ⑳: `v.resident` is fresident.joinAccounts(…) (the owner, the NFT Citizen, the proof accounts).
+    case 'JoinResident':
+      return { ...v.resident, ...(v.joinGate ? { joinGate: v.joinGate } : {}) };
     case 'Join':
       return { wallet: v.wallet, season: A.season, frontier: A.of('Frontier'), citizen,
         joinshard: A.of('JoinShard', { faction: v.faction, shard: joinShardOf(v.wallet) }), ...(v.joinGate ? { join_gate: v.joinGate } : {}) };
@@ -106,7 +114,7 @@ export function accountsFor(name, v) {
         captured_holding: A.of('Holding', v.captured), home_holding: A.of('Holding', v.home) };
     case 'PlaceHome':
       return { ...base, frontier: A.of('Frontier'), province: province(), holding: holding(),
-        joinshard: A.of('JoinShard', { faction: v.faction, shard: joinShardOf(v.wallet) }) };
+        joinshard: A.of('JoinShard', { faction: v.faction, shard: joinShardOf(v.shardKey ?? v.wallet) }) };
     case 'Harvest': case 'Train':
       return { ...base, holding: holding(), ...(cq ? { province: province() } : {}) };
     case 'Build':
@@ -187,12 +195,28 @@ export function cargoBytes(cargo) {
  * signers}` for `feePayer` and `blockhash`. `signers` are the instruction's
  * own signing keys besides the fee payer.
  */
-export function buildShape({ programId, name, accounts, fields, feePayer, blockhash, profile = 1 }) {
-  const expected = frontierIx(programId, name, { ...accounts, payer: feePayer }, fields, profile);
-  const message = compileMessage({ feePayer, recentBlockhash: blockhash, instructions: [...budgetPrefix(name, { profile }), expected] });
+export function buildShape({ programId, name, accounts, fields, feePayer, blockhash, profile = 1, resident = null }) {
+  let expected, budget, prefix;
+  if (name === 'JoinResident') {
+    // ⑳: an NFT's first login (owner, payer, season, frontier, citizen, policy, link, asset, resident, gate?).
+    expected = joinResidentIx({ programId, ...accounts, payer: feePayer, generation: fields.generation, faction: fields.faction });
+    budget = residentBudget('JoinResident', profile);
+    prefix = budgetPrefix('Join', { profile, cuLimit: budget.cuLimit, loadedLimit: budget.loadedLimit });
+  } else if (resident) {
+    // ⑳: the player instruction run for an NFT Citizen (ResidentAct), signed for its current generation.
+    const inner = frontierIx(programId, name, { ...accounts, payer: feePayer }, fields, profile);
+    expected = residentActIx(inner, { generation: resident.generation, ...resident.proof });
+    budget = residentBudget(name, profile);
+    prefix = budgetPrefix(name, { profile, cuLimit: budget.cuLimit, loadedLimit: budget.loadedLimit });
+  } else {
+    expected = frontierIx(programId, name, { ...accounts, payer: feePayer }, fields, profile);
+    budget = budgetOf(name, profile);
+    prefix = budgetPrefix(name, { profile });
+  }
+  const message = compileMessage({ feePayer, recentBlockhash: blockhash, instructions: [...prefix, expected] });
   const signers = [];
   for (const k of expected.keys) if (k.isSigner && k.pubkey !== feePayer && !signers.includes(k.pubkey)) signers.push(k.pubkey);
-  return { message, expected, budget: budgetOf(name, profile), signers };
+  return { message, expected, budget, signers };
 }
 
 /**
@@ -213,7 +237,7 @@ export async function submit(req) {
     // A settle names the fee payer inside its accounts and data (its beneficiary): functions of it.
     const accounts = typeof req.accounts === 'function' ? req.accounts(feePayer) : req.accounts;
     const fields = typeof req.fields === 'function' ? req.fields(feePayer) : (req.fields ?? {});
-    built = buildShape({ programId: pin.programId, name: req.name, accounts, fields, feePayer, blockhash, profile: pin.profile });
+    built = buildShape({ programId: pin.programId, name: req.name, accounts, fields, feePayer, blockhash, profile: pin.profile, resident: req.resident ?? null });
   } catch (e) {
     return fail('BuildFailed', String(e.message ?? e));
   }
@@ -242,7 +266,7 @@ export async function submit(req) {
     return fail(e?.code ?? 'SignFailed', String(e?.message ?? e));
   }
   if (wire.length > budget.txCeiling) return fail('TooLarge', `${wire.length} B over the ${budget.txCeiling}-B ceiling of ${req.name}`);
-  const r = req.name === 'Join'
+  const r = req.name === 'Join' || req.name === 'JoinResident'
     ? await io.sendJoin(wire, req.invite ?? null, { extra: { lastValidBlockHeight } })
     : await io.sendTx(wire, { extra: { ...extra, lastValidBlockHeight } });
   if (!r.ok) return r;

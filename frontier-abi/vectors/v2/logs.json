@@ -1527,6 +1527,46 @@
           }
         ]
       }
+    },
+    {
+      "kind": 130,
+      "name": "RESIDENT_JOINED",
+      "key": [
+        {
+          "name": "resident",
+          "len": 15
+        }
+      ],
+      "payload": [
+        {
+          "name": "asset",
+          "len": 32
+        },
+        {
+          "name": "faction",
+          "len": 1
+        },
+        {
+          "name": "shard",
+          "len": 1
+        },
+        {
+          "name": "generation",
+          "len": 4
+        },
+        {
+          "name": "join_bell",
+          "len": 4
+        }
+      ],
+      "body_without_tail_len": 63,
+      "vector": {
+        "bell": 2130,
+        "body_without_tail": "018252080000213e5b7895b2cfec092643607d9ab76b88a5c2dffc193653708daac7e4011e3b587592afcce90623405d7a97b4d1ee6b6b6b88a5c26b88a5c2",
+        "body": "018252080000213e5b7895b2cfec092643607d9ab76b88a5c2dffc193653708daac7e4011e3b587592afcce90623405d7a97b4d1ee6b6b6b88a5c26b88a5c200",
+        "decodes": true,
+        "chains": []
+      }
     }
   ],
   "reserved_kind": 89,

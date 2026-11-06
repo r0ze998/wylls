@@ -59,10 +59,16 @@ pub mod markers;
 
 #[cfg(feature = "program")]
 pub mod init;
+#[cfg(feature = "nft-experimental")]
+mod nft_registration;
 #[cfg(feature = "program")]
 pub mod proc;
 #[cfg(feature = "program")]
 pub mod prologue;
+#[cfg(feature = "program")]
+pub mod resident_binding;
+#[cfg(all(test, feature = "nft-experimental"))]
+mod resident_runtime_tests;
 
 pub use error::{CqError, Error, FrontierError, R};
 
@@ -102,7 +108,13 @@ pub const QUICKNET_PK_HASH: [u8; 32] = crypto::quick::PK_HASH;
 /// with every deployable change. Version 3 integrates first homes and
 /// authoritative province-time scoring on the conquest layout (version 2);
 /// version 4 is the S1 program (the arms economy on the same layout).
+#[cfg(not(feature = "nft-experimental"))]
 pub const PROGRAM_VERSION: u16 = frontier_abi::v2::presets::PROGRAM_VERSION_S1;
+/// The `nft-experimental` build carries its own program version, so its
+/// Seasons and the production Seasons never mix (workstream 4's allocation
+/// §4; the integrated value is 4's to set).
+#[cfg(feature = "nft-experimental")]
+pub const PROGRAM_VERSION: u16 = 0x8000 | frontier_abi::v2::presets::PROGRAM_VERSION_S1;
 
 /// Routes one instruction by its ABI v2 tag (M1 §5.5; MC contract §5.4:
 /// M1's 51 tags, 0xA0–0xA3, 0xA5–0xA7 and S1's 0xB0–0xBE). Unknown and reserved tags
@@ -114,6 +126,13 @@ pub fn dispatch(
     accounts: &[solana_program::account_info::AccountInfo],
     data: &[u8],
 ) -> R<()> {
+    #[cfg(feature = "nft-experimental")]
+    if data
+        .first()
+        .is_some_and(|t| frontier_abi::resident_wire::is_resident_tag(*t))
+    {
+        return nft_registration::dispatch(program_id, accounts, data);
+    }
     use frontier_abi::v2::Ix;
     use proc::*;
     markers::touch();

@@ -314,16 +314,42 @@ function renderInstantPlacing(FS) {
   </section>`;
 }
 
+const shortKey = k => `${String(k).slice(0, 4)}…${String(k).slice(-4)}`;
+
+/**
+ * ⑳ (provisional): the wallet's resident NFTs — one NFT, one Citizen. A
+ * joined NFT is played at once; a new one joins the chosen nation first.
+ * While an NFT is played, the wallet signs every action (no in-game key).
+ */
+export function renderNfts(FS) {
+  if (FS.resident) {
+    return html`<section class="vcard" aria-labelledby="join-nft">${cardHead({ id: 'join-nft', ic: 'seal', title: L`NFTで遊んでいます` })}
+      <p>${L`住民NFT ${shortKey(FS.resident.asset)} の住民として遊んでいます。操作のたびにウォレットが署名を求めます。NFTを譲渡すると、この端末からは操作できなくなります。`}</p>
+      <div class="actions"><button type="button" class="btn" data-act="nft-logout">${L`ウォレットの住民に戻る`}</button></div></section>`;
+  }
+  const list = FS.nfts?.residents ?? [];
+  if (!FS.wallet || !list.length) return '';
+  const pick = Number.isInteger(FS.joinDraft?.faction);
+  return html`<section class="vcard" aria-labelledby="join-nft">${cardHead({ id: 'join-nft', ic: 'seal', title: L`住民NFTで入る` })}
+    <p class="muted">${L`1枚のNFTにつき1人の住民です。NFTを譲渡すると、住民を操作できるのは新しい持ち主だけになります。`}</p>
+    <ul class="wallet-list">${list.map(n => {
+      const ok = Number.isInteger(n.generation);
+      const label = !ok ? L`住民の記録がありません` : n.joined ? L`このNFTで遊ぶ` : pick ? L`このNFTで参加する` : L`国を選ぶと参加できます`;
+      return html`<li><button type="button" class="btn" data-act="nft-login" data-asset="${n.asset}" ${raw(ok && (n.joined || pick) ? '' : 'disabled')}>${label}</button> <span class="muted">${shortKey(n.asset)}</span></li>`;
+    })}</ul></section>`;
+}
+
 /** Keep the nation choice; newer seasons place its first final village immediately. */
 export function render(FS) {
   const stage = FS.land?.stage ?? 'none';
   const instant = Number(FS.season?.programVersion ?? 1) >= 2;
   if (instant && FS.homeGrant?.state === 2) return renderGrant(FS);
-  if (stage === 'none') return renderNations(FS);
+  if (stage === 'none') return html`${renderNfts(FS)}${renderNations(FS)}`;
   if (!FS.wallet) return renderWallets(FS);
   // The key is the owner's agent's (handed over on the agent page): say so, rather than "this device has no game key".
   if (FS.sessionProblem === 'SessionMismatch' && FS.delegation) return renderDelegated(FS.delegation);
-  if (!FS.session || FS.sessionProblem) return renderSessionFix(FS);
+  // ⑳: an NFT Citizen has no in-game key (its wallet signs); no key to fix.
+  if (!FS.resident && (!FS.session || FS.sessionProblem)) return renderSessionFix(FS);
   if (stage === 'ticket') return renderTicket(FS);
   if (stage === 'provisional') return renderProvisional(FS);
   if (stage === 'final') return html`<p>${L`村が確定しました。「村」から始めましょう。`}</p>`;

@@ -488,7 +488,7 @@ async fn me(
     };
     let citizen = {
         let f = read_fold(&app);
-        Address::new_from_array(f.ctx.citizen(&w.to_bytes()))
+        Address::new_from_array(crate::conquest::me_citizen(&f, &w.to_bytes()))
     };
     let quota = match &app.relay {
         Some(r) => relay_quota(r, &citizen, client_ip(peer.ip(), &h)).await,

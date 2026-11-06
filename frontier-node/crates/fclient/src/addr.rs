@@ -356,6 +356,22 @@ impl Addresses {
     pub fn citizen(&self, wallet: &Address) -> Address {
         self.of(SeedKind::Citizen, &citizen_tag15(&wallet.to_bytes()))
     }
+    /// ⑳ (provisional): the NFT-resident Citizen of Core `asset` — the
+    /// same with-seed rule as [`Self::citizen`], keyed by the resident ID
+    /// `sha256("PSF-RES" ‖ asset)[0..15]` instead of the wallet's tag.
+    pub fn resident_citizen(&self, asset: &Address) -> Address {
+        self.of(
+            SeedKind::Citizen,
+            &frontier_abi::resident_citizen::resident_tag15(&asset.to_bytes()),
+        )
+    }
+    /// The address a Citizen's own bytes derive: the resident ID for a
+    /// resident-flagged Citizen, the wallet's tag otherwise (`None`: a
+    /// flagged Citizen without a resident asset, or short bytes).
+    pub fn citizen_of(&self, citizen: &[u8]) -> Option<Address> {
+        frontier_abi::resident_citizen::record_tag15(citizen)
+            .map(|t| self.of(SeedKind::Citizen, &t))
+    }
     pub fn holding(&self, p: i32, q: i32, site: u8) -> Address {
         self.of(SeedKind::Holding, &raw_holding(p, q, site))
     }
@@ -530,6 +546,63 @@ mod tests {
             seed_str(SeedKind::SealVerdict, &raw_seal_verdict(u64::MAX, 1)),
             "svffffffffffffffff01000000"
         );
+    }
+
+    /// ⑳: literal addresses only (no key generation, derivation of a
+    /// keypair, or signing); the Season address and bump are written in.
+    fn literal_ctx() -> Addresses {
+        Addresses {
+            program: Address::new_from_array([0x11; 32]),
+            season_id: 7,
+            season: Address::new_from_array([0x22; 32]),
+            bump: 255,
+        }
+    }
+
+    fn citizen_bytes(wallet: [u8; 32]) -> Vec<u8> {
+        use frontier_abi::v2::layout::player::citizen as C;
+        let mut c = vec![0u8; C::SIZE];
+        c[C::WALLET..C::WALLET + 32].copy_from_slice(&wallet);
+        c
+    }
+
+    #[test]
+    fn resident_citizen_address_follows_the_resident_id() {
+        use frontier_abi::resident_citizen as rc;
+        let a = literal_ctx();
+        let asset = [0x5a; 32];
+        let wallet = [0x07; 32];
+        // A wallet Citizen keeps its address (the wallet's tag).
+        let w = citizen_bytes(wallet);
+        assert_eq!(
+            a.citizen_of(&w),
+            Some(a.citizen(&Address::new_from_array(wallet)))
+        );
+        // The NFT Citizen sits at the resident ID's address, the same one
+        // the program's `AddrCtx::citizen_by_tag15` gives.
+        let mut n = citizen_bytes([0; 32]);
+        assert!(rc::mark(&mut n, &asset));
+        let want = a.resident_citizen(&Address::new_from_array(asset));
+        assert_eq!(a.citizen_of(&n), Some(want));
+        let ctx = frontier_abi::addr::AddrCtx {
+            season: a.season.to_bytes(),
+            program: a.program.to_bytes(),
+        };
+        assert_eq!(
+            want.to_bytes(),
+            ctx.citizen_by_tag15(&rc::resident_tag15(&asset))
+        );
+        // Never the zero wallet's Citizen, and never the asset as a wallet.
+        assert_ne!(
+            Some(a.citizen(&Address::new_from_array([0; 32]))),
+            a.citizen_of(&n)
+        );
+        assert_ne!(want, a.citizen(&Address::new_from_array(asset)));
+        // A flagged Citizen that still carries a wallet derives nothing.
+        let mut bad = citizen_bytes(wallet);
+        bad[rc::RESIDENT_ASSET..rc::RESIDENT_ASSET + 32].copy_from_slice(&asset);
+        bad[rc::RESIDENT_FLAGS] = rc::FLAG_RESIDENT;
+        assert_eq!(a.citizen_of(&bad), None);
     }
 
     #[test]

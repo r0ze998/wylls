@@ -14,6 +14,8 @@
 //     / DailyLimitReached; the price table is empty: existing actions stay
 //     free or resource-paid)
 //   → on chain, the Citizen's session key is the agent's key and unexpired
+//     (and, with `ctx.residents`, the resident's current holder set it in the
+//     current holder generation)
 //   → the transaction is built here (accountsFor), signed by the agent's
 //     key, and goes through the relay's own `sponsor()` (shape allowlist,
 //     quota, simulation, drain guard); `beforeSend` re-checks mode and
@@ -39,7 +41,7 @@ import { parseTransaction, wireTransaction } from '../../../client/src/solana-tx
 import { signatureOf, signedBy } from '../../cosign.mjs';
 import { simulateWatching } from '../chain.mjs';
 import { drainGuard } from '../shapes.mjs';
-import { citizenQuota, signAs } from '../routes/relay.mjs';
+import { citizenQuota, residentRefusal, signAs } from '../routes/relay.mjs';
 import { PublicKey } from '@solana/web3.js';
 import { RouteError } from '../../routes/errors.mjs';
 import { feeOf } from '../shapes.mjs';
@@ -602,6 +604,10 @@ export class AgentGateway {
     if (!citizen) throw new AgentError(ERR.SESSION_NOT_DELEGATED, 'the owner has no Citizen this season', 409);
     const live = base58(citizen.SESSION) === rec.agentKey && BigInt(citizen.SESSION_EXPIRY) > BigInt(clock.unixTimestamp);
     if (!live) throw new AgentError(ERR.SESSION_NOT_DELEGATED, 'the agent\'s key is not the Citizen\'s unexpired session key (the owner sets it with SetSession)', 409, { agentKey: rec.agentKey, sessionExpiry: String(citizen.SESSION_EXPIRY) });
+    // NFT-bound residents: the agent's key must be the session the resident's current holder set in the
+    // current holder generation. A transfer ends every delegation of an earlier holder, also after a buy-back.
+    const resident = await residentRefusal(ctx, ctx.addresses.citizen(rec.owner), rec.agentKey);
+    if (resident) throw new AgentError(ERR.SESSION_NOT_DELEGATED, `the agent's key is not the current session of the resident's holder (${resident}); the holder delegates again`, 409, { agentKey: rec.agentKey, resident });
     const profile = profileForSeason(season);
     const fields = normaliseFields(r.action.name, r.action.fields, profile);
     const accounts = accountsFor(r.action.name, { addresses: ctx.addresses, actor: rec.agentKey, owner: rec.owner, holding: r.action.holding, fields, route: r.action.route ?? null, profile });
@@ -800,7 +806,8 @@ export class AgentGateway {
     if (!citizen) return { citizen: false, delegated: false, session: null, expiry: null, now: clock.unixTimestamp };
     const session = base58(citizen.SESSION);
     const expiry = Number(citizen.SESSION_EXPIRY);
-    return { citizen: true, delegated: session === rec.agentKey && expiry > clock.unixTimestamp, session, expiry, now: clock.unixTimestamp };
+    const resident = await residentRefusal(this.ctx, this.ctx.addresses.citizen(rec.owner), rec.agentKey);
+    return { citizen: true, delegated: session === rec.agentKey && expiry > clock.unixTimestamp && !resident, session, expiry, now: clock.unixTimestamp, ...(resident ? { resident } : {}) };
   }
 
   /**

@@ -13,11 +13,12 @@ use frontier_abi::layout::{
     beacon::{anchor_archive as AA, bell_anchor as BA, defence_claim as DC, seed_cache as SC},
     clash::{arrival_day as AD, arrival_slot as AS, clash_inputs as CI},
     header as HD,
-    player::{citizen as C, holding as H},
+    player::holding as H,
     province::province as PV,
     world::{beacon_log as BL, join_shard as JS, province_fund as PF, ring_seed as RS},
     AccountKind,
 };
+use frontier_abi::resident_citizen::{is_flagged, record_tag15};
 
 use super::v1_chains::kind_by_magic;
 use super::{ent, Ctx};
@@ -53,7 +54,11 @@ pub fn canonical(ctx: &AddrCtx, kind: AccountKind, d: &[u8]) -> Option<Key> {
         JoinShard => ctx.join_shard(u8at(d, JS::FACTION), u8at(d, JS::SHARD)),
         BeaconLog => ctx.beacon_log(u8at(d, BL::REGION)),
         DefencePool => ctx.defence_pool(),
-        Citizen => ctx.citizen(&arr32(d, C::WALLET)),
+        // A wallet Citizen at its wallet's tag; a ⑳ NFT-resident Citizen
+        // (`nft-experimental` programs) at its resident ID's. A flagged
+        // Citizen without a resident asset derives nothing here and is
+        // failed by `run` itself.
+        Citizen => ctx.citizen_by_tag15(&record_tag15(d)?),
         Holding => ctx.holding(i16at(d, H::P), i16at(d, H::Q), u8at(d, H::SITE)),
         Province => ctx.province(i16at(d, PV::P), i16at(d, PV::Q)),
         ArrivalSlot => ctx.arrival_slot(
@@ -85,6 +90,17 @@ pub fn run(cx: &mut Ctx) {
         if le(d.get(HD::SEASON_ID..HD::SEASON_ID + 8).unwrap_or(&[])) != sid {
             return;
         }
+        if kind == AccountKind::Citizen && is_flagged(d) && record_tag15(d).is_none() {
+            cx.fail(
+                V,
+                NON_CANONICAL_ADDRESS,
+                ent(kind.name(), k),
+                0,
+                tx,
+                "a resident-flagged Citizen carries a wallet or no resident asset",
+            );
+            return;
+        }
         if let Some(want) = canonical(&f.ctx, kind, d) {
             if want != *k {
                 cx.fail(
@@ -112,6 +128,24 @@ pub fn run(cx: &mut Ctx) {
             if a.owner.to_bytes() == w.program {
                 check(cx, k, &a.data, None);
             }
+        }
+    }
+    // ⑳ RESIDENT_JOINED (kind 130): its key must be its asset's resident
+    // ID, the key the NFT Citizen's address derives from.
+    for c in
+        cx.w.cq_recs
+            .iter()
+            .filter(|c| c.kind == frontier_abi::v2::log::CqKind::RESIDENT_JOINED)
+    {
+        if crate::facts::resident_joined_tag(c).is_none() {
+            cx.fail(
+                V,
+                NON_CANONICAL_ADDRESS,
+                "RESIDENT_JOINED".to_string(),
+                c.bell,
+                Some(c.tx),
+                "the record's key is not its asset's resident ID",
+            );
         }
     }
     // Pre-funded addresses (informational, §4.2): an init at an address
@@ -149,4 +183,55 @@ fn is_pool(k: AccountKind) -> bool {
             | AccountKind::Holding
             | AccountKind::Citizen
     )
+}
+
+#[cfg(test)]
+mod resident_tests {
+    //! ⑳: literal addresses only — no key is generated, derived or signed.
+    use super::*;
+    use frontier_abi::layout::player::citizen as C;
+    use frontier_abi::resident_citizen::{mark, resident_tag15, FLAG_RESIDENT, RESIDENT_FLAGS};
+
+    fn ctx() -> AddrCtx {
+        AddrCtx {
+            season: [0x22; 32],
+            program: [0x11; 32],
+        }
+    }
+
+    fn citizen(wallet: [u8; 32]) -> Vec<u8> {
+        let mut d = vec![0u8; frontier_abi::v2::layout::player::citizen::SIZE];
+        d[C::WALLET..C::WALLET + 32].copy_from_slice(&wallet);
+        d
+    }
+
+    #[test]
+    fn wallet_citizen_address_is_unchanged() {
+        let c = ctx();
+        let d = citizen([7; 32]);
+        assert_eq!(
+            canonical(&c, AccountKind::Citizen, &d),
+            Some(c.citizen(&[7; 32]))
+        );
+    }
+
+    #[test]
+    fn nft_citizen_address_comes_from_the_resident_id() {
+        let c = ctx();
+        let asset = [0x5a; 32];
+        let mut d = citizen([0; 32]);
+        assert!(mark(&mut d, &asset));
+        let want = c.citizen_by_tag15(&resident_tag15(&asset));
+        assert_eq!(canonical(&c, AccountKind::Citizen, &d), Some(want));
+        // Not the zero wallet's Citizen (the old reading of WALLET).
+        assert_ne!(want, c.citizen(&[0; 32]));
+    }
+
+    #[test]
+    fn a_flagged_citizen_with_a_wallet_derives_nothing() {
+        let mut d = citizen([7; 32]);
+        d[RESIDENT_FLAGS] = FLAG_RESIDENT;
+        assert_eq!(canonical(&ctx(), AccountKind::Citizen, &d), None);
+        assert!(is_flagged(&d) && record_tag15(&d).is_none());
+    }
 }

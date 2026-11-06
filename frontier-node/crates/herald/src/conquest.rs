@@ -251,6 +251,8 @@ fn record_key(kind: CqKind, key: &[u8]) -> String {
             (_, 1) => rd_u8(key, o).map(|x| x.to_string()),
             (_, 4) => rd_u32(key, o).map(|x| x.to_string()),
             (_, 8) => rd_u64(key, o).map(|x| x.to_string()),
+            // ⑳ RESIDENT_JOINED's resident ID (the only 15-B key field).
+            ("resident", 15) => key.get(o..o + 15).map(hex::encode),
             _ => None,
         };
         parts.push(v.unwrap_or_default());
@@ -303,19 +305,20 @@ impl Cq {
         std::mem::take(&mut f.cq)
     }
 
-    /// Citizen tags → wallet and faction, from every captured Citizen.
+    /// Citizen tags → the `/h/me` key and faction, from every captured
+    /// Citizen. The key is the wallet; for a ⑳ NFT-resident Citizen
+    /// (WALLET zero, `nft-experimental` programs) it is the Core asset, so
+    /// NFT Citizens' alerts never pool under the zero wallet. A flagged
+    /// Citizen without a resident asset is not indexed.
     fn index_tags(&mut self, f: &Fold, tx: Option<&TxRecord>) {
         use frontier_abi::layout::player::citizen as C;
         let mut add = |d: &[u8]| {
             if kind_v1(d) != Some(frontier_abi::layout::AccountKind::Citizen) {
                 return;
             }
-            if let (Some(tag), Some(w), Some(fac)) = (
-                rd_u64(d, C::CITIZEN_TAG),
-                d.get(C::WALLET..C::WALLET + 32)
-                    .and_then(|x| <[u8; 32]>::try_from(x).ok()),
-                rd_u8(d, C::FACTION),
-            ) {
+            if let (Some(tag), Some(w), Some(fac)) =
+                (rd_u64(d, C::CITIZEN_TAG), me_key(d), rd_u8(d, C::FACTION))
+            {
                 if tag != 0 {
                     self.tags.insert(tag, (w, fac));
                 }
@@ -398,7 +401,9 @@ impl Cq {
 pub fn on_record(f: &mut Fold, tx: &TxRecord, body: &[u8]) -> bool {
     let Ok(r) = v2log::decode(body) else {
         // An undecodable body of an MC kind is counted here, not as M1's.
-        if body.len() >= 2 && (80..=94).contains(&body[1]) {
+        if body.len() >= 2
+            && ((80..=94).contains(&body[1]) || body[1] == CqKind::RESIDENT_JOINED as u8)
+        {
             f.st.alarms.bad_records += 1;
             f.cq.alarms.bad_records += 1;
             return true;
@@ -452,6 +457,8 @@ pub fn on_record(f: &mut Fold, tx: &TxRecord, body: &[u8]) -> bool {
             .and_then(|e| e.province())
             .map_or(Scope::None, |(p, q)| Scope::Province(p, q)),
         CqKind::MARCH_FOLD => Scope::None,
+        // ⑳: a Citizen's start has no Province (its key is a resident ID).
+        CqKind::RESIDENT_JOINED => Scope::None,
         CqKind::RETIRE => rd_u64(r.key, 0)
             .and_then(frontier_abi::addr::split_host_id)
             .map_or(Scope::None, |h| Scope::Province(h.province.p, h.province.q)),
@@ -551,6 +558,10 @@ fn fold_record(
         detail,
     };
     match kind {
+        // ⑳ RESIDENT_JOINED: numbered and sent as an event above; the
+        // Citizen itself is indexed from its account (`index_tags`, keyed by
+        // its Core asset), as a JOINed Citizen is.
+        CqKind::RESIDENT_JOINED => {}
         CqKind::SIEGE_DECLARED => {
             let site = rd_u8(r.key, 8).unwrap_or(0);
             let target = p8(r, "target");
@@ -2448,6 +2459,43 @@ fn final_file(cq: &mut Cq, f: &mut Fold, si: Option<&SeasonInfo>) {
 
 // ------------------------------------------------------------------ /h/me
 
+/// The `/h/me` key of a Citizen's bytes: its wallet, or the Core asset of
+/// a ⑳ NFT-resident Citizen (`None`: a flagged Citizen without an asset).
+pub(crate) fn me_key(d: &[u8]) -> Option<[u8; 32]> {
+    use frontier_abi::layout::player::citizen as C;
+    use frontier_abi::resident_citizen as rc;
+    if rc::is_flagged(d) {
+        return rc::resident_asset(d);
+    }
+    d.get(C::WALLET..C::WALLET + 32)
+        .and_then(|x| <[u8; 32]>::try_from(x).ok())
+}
+
+/// The Citizen address `/h/me/{key}` reads: the wallet's Citizen when it
+/// exists; otherwise the ⑳ NFT-resident Citizen of asset `key` when one
+/// exists and names that asset; otherwise the wallet's (absent) address,
+/// as before. A wallet Citizen's answer is unchanged.
+pub fn me_citizen(f: &Fold, key: &[u8; 32]) -> [u8; 32] {
+    me_citizen_in(&f.ctx, key, |a| f.account(a).map(|c| c.data.as_slice()))
+}
+
+fn me_citizen_in<'a>(
+    ctx: &frontier_abi::addr::AddrCtx,
+    key: &[u8; 32],
+    get: impl Fn(&[u8; 32]) -> Option<&'a [u8]>,
+) -> [u8; 32] {
+    use frontier_abi::resident_citizen as rc;
+    let wallet = ctx.citizen(key);
+    if get(&wallet).is_some() {
+        return wallet;
+    }
+    let nft = ctx.citizen_by_tag15(&rc::resident_tag15(key));
+    match get(&nft) {
+        Some(d) if rc::resident_asset(d) == Some(*key) => nft,
+        _ => wallet,
+    }
+}
+
 /// `/h/me` additions for an MC season: the wallet's alerts, the sieges
 /// on its holdings or by it, and its own `players.json` row (§8.4: "the
 /// caller's row via `/h/me`"; `null` before it has one).
@@ -2458,7 +2506,7 @@ pub fn me_additions(f: &Fold, wallet: &[u8; 32]) -> Option<(Value, Value, Value)
     use frontier_abi::layout::player::citizen as C;
     let alerts = Value::Array(f.cq.alerts.get(wallet).cloned().unwrap_or_default());
     let tag = f
-        .account(&f.ctx.citizen(wallet))
+        .account(&me_citizen(f, wallet))
         .and_then(|c| rd_u64(&c.data, C::CITIZEN_TAG));
     let mut sieges = vec![];
     if let Some(tag) = tag {
@@ -2857,6 +2905,74 @@ pub fn tag_hex_of(tag: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// ⑳: literal addresses only — no key is generated, derived or signed.
+    mod resident {
+        use super::super::{me_citizen_in, me_key};
+        use frontier_abi::addr::AddrCtx;
+        use frontier_abi::resident_citizen::{mark, FLAG_RESIDENT, RESIDENT_FLAGS};
+        use frontier_abi::v2::layout::player::citizen as C;
+        use std::collections::BTreeMap;
+
+        const ASSET: [u8; 32] = [0x5a; 32];
+        const WALLET: [u8; 32] = [0x07; 32];
+
+        fn ctx() -> AddrCtx {
+            AddrCtx {
+                season: [0x22; 32],
+                program: [0x11; 32],
+            }
+        }
+        fn wallet_citizen() -> Vec<u8> {
+            let mut d = vec![0u8; C::SIZE];
+            d[C::WALLET..C::WALLET + 32].copy_from_slice(&WALLET);
+            d
+        }
+        fn nft_citizen() -> Vec<u8> {
+            let mut d = vec![0u8; C::SIZE];
+            assert!(mark(&mut d, &ASSET));
+            d
+        }
+
+        #[test]
+        fn a_resident_joined_record_is_keyed_by_its_resident_id() {
+            use frontier_abi::v2::log::CqKind;
+            let k = super::super::record_key(CqKind::RESIDENT_JOINED, &[0xab; 15]);
+            assert_eq!(k, format!("RESIDENT_JOINED:{}", "ab".repeat(15)));
+        }
+
+        #[test]
+        fn the_me_key_is_the_wallet_or_the_asset_never_zero() {
+            assert_eq!(me_key(&wallet_citizen()), Some(WALLET));
+            assert_eq!(me_key(&nft_citizen()), Some(ASSET));
+            let mut bad = wallet_citizen();
+            bad[RESIDENT_FLAGS] = FLAG_RESIDENT;
+            assert_eq!(me_key(&bad), None);
+        }
+
+        #[test]
+        fn me_reads_the_wallet_citizen_first_then_the_nft_citizen() {
+            let c = ctx();
+            let mut accts: BTreeMap<[u8; 32], Vec<u8>> = BTreeMap::new();
+            let get = |m: &BTreeMap<[u8; 32], Vec<u8>>, k: &[u8; 32]| {
+                me_citizen_in(&c, k, |a| m.get(a).map(|d| d.as_slice()))
+            };
+            // Nothing captured: the wallet's address, as before.
+            assert_eq!(get(&accts, &ASSET), c.citizen(&ASSET));
+            accts.insert(c.citizen(&WALLET), wallet_citizen());
+            assert_eq!(get(&accts, &WALLET), c.citizen(&WALLET));
+            let nft = c.citizen_by_tag15(&frontier_abi::resident_citizen::resident_tag15(&ASSET));
+            accts.insert(nft, nft_citizen());
+            assert_eq!(get(&accts, &ASSET), nft);
+            // The zero wallet does not reach the NFT Citizen.
+            assert_eq!(get(&accts, &[0; 32]), c.citizen(&[0; 32]));
+            // An account at the NFT address naming another asset is not it.
+            let mut other = vec![0u8; C::SIZE];
+            assert!(mark(&mut other, &[0x6b; 32]));
+            accts.insert(nft, other);
+            assert_eq!(get(&accts, &ASSET), c.citizen(&ASSET));
+        }
+    }
 
     #[test]
     fn cq_empty_state_round_trips() {

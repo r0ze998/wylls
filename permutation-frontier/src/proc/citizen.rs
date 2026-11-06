@@ -133,11 +133,22 @@ const COHORT_BELLS: u32 = PV::COHORT_BELLS;
 /// canonical address with `actor == wallet` (or the unexpired session when
 /// `session_ok`); the action bucket; `bell < end_bell`. The account flags
 /// were checked by `check_accounts`. Writes the Citizen's bucket.
-pub(crate) fn player(p: &Pubkey, a: &[AccountInfo], now: i64, session_ok: bool) -> R<PlayerCtx> {
+/// Under `auth`: the wallet prologue, or for an NFT resident's Citizen the
+/// resident checks (`super::resident`) in place of the wallet and Frontier
+/// session; the rest is the same.
+pub(crate) fn player_as(
+    p: &Pubkey,
+    a: &[AccountInfo],
+    now: i64,
+    session_ok: bool,
+    auth: &super::Auth,
+) -> R<PlayerCtx> {
     let [actor, payer, season_ai, citizen, ..] = a else {
         return Err(FrontierError::TooManyAccounts.into());
     };
-    let start = {
+    let start = if let Some((proof, generation)) = super::resident::proof_of(auth) {
+        super::resident::start(p, a, proof, generation, session_ok, now)?
+    } else {
         let sd = season_ai.try_borrow_data()?;
         let sv = view(season_ai, &sd);
         let s = ap::read_season(&sv, p.as_array(), now)?;
@@ -163,9 +174,11 @@ fn present_province(ai: &AccountInfo, expected: &[u8; 32], p: &Pubkey, season_id
     prologue::present_v2(ai, p, AccountKindV2::Province, season_id)
 }
 
+/// The key of the Citizen's own records: the wallet tag, or for an NFT
+/// resident's Citizen its resident id (`frontier_abi::resident_citizen`;
+/// provisional). A flagged Citizen that is not a valid NFT Citizen is refused.
 fn tag15_of(citizen: &[u8]) -> R<[u8; 15]> {
-    let wallet: [u8; 32] = Ro(citizen).arr(C::WALLET)?;
-    Ok(addr::citizen_tag15(&wallet))
+    frontier_abi::resident_citizen::record_tag15(citizen).ok_or(BAD_ACCOUNT)
 }
 
 // ------------------------------------------------------------ pure rules
@@ -466,10 +479,22 @@ pub fn join(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
 /// replace itself: `Auth`); data `session, expiry`, `expiry ≤ now + 30 d`
 /// (`BadData`). Log `SESSION`.
 pub fn set_session(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+    set_session_as(p, a, d, &super::Auth::Wallet)
+}
+
+/// [`set_session`] for the Citizen's wallet or, through `Act`, an NFT
+/// resident's Citizen ([`super::Auth`]).
+pub(crate) fn set_session_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &super::Auth) -> R<()> {
+    // An NFT resident's session is set in the resident program, by the
+    // current holder, for the current generation; the Frontier session of
+    // such a Citizen is never read, so it is never set either.
+    if super::resident::proof_of(auth).is_some() {
+        return Err(FrontierError::Auth.into());
+    }
     check_accounts(Ix::SetSession, a, None)?;
     let x = aix::SetSession::decode(d)?;
     let now = prologue::now()?;
-    let pc = player(p, a, now.ts, false)?;
+    let pc = player_as(p, a, now.ts, false, auth)?;
     if x.expiry > now.ts.saturating_add(MAX_SESSION_SECS) {
         return Err(FrontierError::BadData.into());
     }
@@ -500,10 +525,16 @@ pub fn set_session(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
 /// new window takes effect at `siege::change_effective_at(now)` = the
 /// first UTC midnight at or after `now + 24 h` (CL-09). Log `VIGIL`.
 pub fn set_vigil(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+    set_vigil_as(p, a, d, &super::Auth::Wallet)
+}
+
+/// [`set_vigil`] for the Citizen's wallet or, through `Act`, an NFT
+/// resident's Citizen ([`super::Auth`]).
+pub(crate) fn set_vigil_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &super::Auth) -> R<()> {
     check_accounts(Ix::SetVigil, a, None)?;
     let x = aix::SetVigil::decode(d)?;
     let now = prologue::now()?;
-    let pc = player(p, a, now.ts, true)?;
+    let pc = player_as(p, a, now.ts, true, auth)?;
     if x.start_min >= DAY_MINUTES {
         return Err(FrontierError::BadData.into());
     }
@@ -644,10 +675,21 @@ pub fn settler_cost(holdings_n: u8) -> R<permutation_rules::frontier::catalog::C
 /// `HARVEST` of the anchor (its stores after the payment; Citizen,
 /// Holding).
 pub fn file_outpost(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+    file_outpost_as(p, a, d, &super::Auth::Wallet)
+}
+
+/// [`file_outpost`] for the Citizen's wallet or, through `Act`, an NFT
+/// resident's Citizen ([`super::Auth`]).
+pub(crate) fn file_outpost_as(
+    p: &Pubkey,
+    a: &[AccountInfo],
+    d: &[u8],
+    auth: &super::Auth,
+) -> R<()> {
     check_accounts(V2Ix::FileOutpost, a, None)?;
     let x = V2FileOutpost::decode(d)?;
     let now = prologue::now()?;
-    let pc = player(p, a, now.ts, true)?;
+    let pc = player_as(p, a, now.ts, true, auth)?;
     crate::heap::trace_checkpoint(0xA300);
     let [_actor, payer, season_ai, citizen, frontier, rest @ ..] = a else {
         return Err(FrontierError::TooManyAccounts.into());
@@ -936,10 +978,16 @@ pub fn file_outpost(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
 /// a ticket settles only after its bell's seed, so no ticket can end in
 /// the bell it was filed.) Log `TICKET` (Citizen, the m Provinces).
 pub fn file_ticket(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+    file_ticket_as(p, a, d, &super::Auth::Wallet)
+}
+
+/// [`file_ticket`] for the Citizen's wallet or, through `Act`, an NFT
+/// resident's Citizen ([`super::Auth`]).
+pub(crate) fn file_ticket_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &super::Auth) -> R<()> {
     check_accounts(Ix::FileTicket, a, None)?;
     let x = aix::FileTicket::decode(d)?;
     let now = prologue::now()?;
-    let pc = player(p, a, now.ts, true)?;
+    let pc = player_as(p, a, now.ts, true, auth)?;
     crate::heap::trace_checkpoint(300);
     let [_actor, payer, season_ai, citizen, frontier, rest @ ..] = a else {
         return Err(FrontierError::TooManyAccounts.into());
@@ -1148,10 +1196,16 @@ pub fn home_site(province: &[u8], site: u8, now_bell: u32) -> R<(u8, u8)> {
 /// the real Holding account; an unexpired session can place for its citizen.
 /// Legacy FileTicket/SettleTicket remains available and unchanged.
 pub fn place_home(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+    place_home_as(p, a, d, &super::Auth::Wallet)
+}
+
+/// [`place_home`] for the Citizen's wallet or, through `Act`, an NFT
+/// resident's Citizen ([`super::Auth`]).
+pub(crate) fn place_home_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &super::Auth) -> R<()> {
     check_accounts(V2Ix::PlaceHome, a, None)?;
     let x = aix::PlaceHome::decode(d)?;
     let now = prologue::now()?;
-    let pc = player(p, a, now.ts, true)?;
+    let pc = player_as(p, a, now.ts, true, auth)?;
     let [_, payer, season_ai, citizen, frontier, province, holding, shard, _system] = a else {
         return Err(FrontierError::TooManyAccounts.into());
     };
@@ -1510,7 +1564,7 @@ fn write_holding_ref(citizen: &mut [u8], slot: u8, p: i16, q: i16, site: u8, gen
 }
 
 /// Empties the Citizen's holding entry of `slot` (`gen = 0xFF`).
-fn clear_holding_ref(citizen: &mut [u8], slot: u8) -> R<()> {
+pub(crate) fn clear_holding_ref(citizen: &mut [u8], slot: u8) -> R<()> {
     write_holding_ref(citizen, slot, 0, 0, 0, C2::EMPTY_GEN)
 }
 
@@ -1657,7 +1711,7 @@ pub fn settle_ticket(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     let ctx = addr::ctx(&key(season_ai), &p.to_bytes());
     // The citizen and its ticket.
     prologue::present(citizen, p, AccountKind::Citizen, hdr.id)?;
-    let (tag15, faction, shard_i, ticket_bell, ticket_next, my_tag, escrow, funder, sites, n) = {
+    let (_tag15, faction, shard_i, ticket_bell, ticket_next, my_tag, escrow, funder, sites, n) = {
         let cd = citizen.try_borrow_data()?;
         let r = Ro(&cd);
         let (sites, n) = ticket_sites(&cd)?;
@@ -1674,7 +1728,10 @@ pub fn settle_ticket(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
             n,
         )
     };
-    expect_key(citizen, &ctx.citizen_by_tag15(&tag15))?;
+    {
+        let cd = citizen.try_borrow_data()?;
+        super::resident::expect_citizen_address(&ctx, citizen, &cd)?;
+    }
     if ticket_bell == C::NO_TICKET {
         return Err(FrontierError::NoTicket.into());
     }
@@ -2477,7 +2534,10 @@ pub fn close_citizen(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
             r.arr::<32>(C::TICKET_FUNDER)?,
         )
     };
-    expect_key(citizen, &ctx.citizen_by_tag15(&tag15))?;
+    {
+        let cd = citizen.try_borrow_data()?;
+        super::resident::expect_citizen_address(&ctx, citizen, &cd)?;
+    }
     expect_key(rent_payer, &c_payer)?;
     match (escrow > 0, funder) {
         (true, Some(f)) => {

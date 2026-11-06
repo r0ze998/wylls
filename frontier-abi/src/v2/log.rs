@@ -143,6 +143,10 @@ cq_kinds! {
     RAID_OPENED = 101; key ["owner_tag": 8, "seq": 4]; payload ["p": 4, "q": 4, "bell": 4, "raider_host": 8, "raider_tag": 8, "domestic": 1];
     FORT_GARRISONED = 102; key ["p": 4, "q": 4, "tile": 1]; payload ["owner_tag": 8, "troops": 4, "pend_bell": 4, "pend": 2, "holding_key": 8];
     REST = 103; key ["p": 4, "q": 4, "from": 4]; payload ["to": 4, "holder": 1, "territory": 4, "spawns": 1, "digest": 32];
+    // ⑳ (provisional; workstream 4's allocation 130–134, 131–134 spare):
+    // JoinResident created an NFT-resident Citizen. Key: the resident ID
+    // `sha256("PSF-RES" ‖ asset)[0..15]`; no links (64 B with the tail).
+    RESIDENT_JOINED = 130; key ["resident": 15]; payload ["asset": 32, "faction": 1, "shard": 1, "generation": 4, "join_bell": 4];
 }
 
 /// S1 caravan places as logged (8 B): `kind u8 ‖ p i16 ‖ q i16 ‖
@@ -814,6 +818,10 @@ pub fn chains_of(kind: AnyKind, key: &[u8], payload: &[u8]) -> Option<Chains> {
             let (p, q) = pq()?;
             c.push(E::Province, Base(EntityRef::Province { p, q }), false);
         }
+        // ⑳: no chain links (workstream 4's allocation: 64 B, no links).
+        // The NFT Citizen's chain starts at seq 0 with this record; its
+        // first chained record is the Citizen's first action.
+        CqKind::RESIDENT_JOINED => {}
     }
     c.sort();
     Some(c)
@@ -1071,7 +1079,16 @@ mod tests {
                 k.body_len()
             );
         }
-        assert_eq!(CQ_SPECS.len(), 23, "MC's 9 and S1's 14");
+        assert_eq!(CQ_SPECS.len(), 24, "MC's 9, S1's 14 and ⑳'s 1");
+        // ⑳: only 130 of workstream 4's 130–134; nothing between 104 and
+        // 134 is a kind here (the other teams' ranges are not yet merged).
+        for v in (104u8..=129).chain(131..=134) {
+            assert!(AnyKind::from_u8(v).is_none(), "{v} is not a kind");
+        }
+        let rj = AnyKind::Cq(CqKind::RESIDENT_JOINED);
+        assert_eq!(rj.key_len(), 15);
+        assert_eq!(rj.payload_len(), 42);
+        assert_eq!(chains_of(rj, &[0; 15], &[0; 42]).map(|c| c.len), Some(0));
         assert_eq!(AnyKind::Cq(CqKind::CONQUEST).body_len(), 137);
         assert_eq!(
             AnyKind::Cq(CqKind::CONQUEST).payload_len(),

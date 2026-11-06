@@ -29,6 +29,8 @@ import { profileForSeason } from '../../client/src/frontier/profile.mjs';
 import { RouteError } from '../routes/errors.mjs';
 
 export const CITIZEN_RENT = rent(layoutOf('Citizen').size);
+/** ⑳ (provisional): an NFT resident's first login also writes its link (104 B, once per asset). */
+export const LINK_RENT = rent(104);
 export const HOLDING_RENT = rent(layoutOf('Holding').size);
 /** S1: a vault's rent, and what one caravan (or loot) may cost the fee payer: its rent and the settle fee. */
 export const VAULT_RENT = rent(layoutOf('Vault', 2).size);
@@ -75,6 +77,9 @@ export function checkDepartArrival(shape, season) {
  * `{season, citizen}` are the decoded Season and (FileTicket) Citizen.
  */
 export function allowanceFor(shape, { season, citizen = null }) {
+  // ⑳: JoinResident pays the NFT Citizen's rent and, on the asset's first
+  // login, its link's; a ResidentAct is its inner shape's (`tag` is the inner's).
+  if (shape.wrapper === 'JoinResident') return CITIZEN_RENT + LINK_RENT;
   switch (shape.tag) {
     case JOIN_TAG: return CITIZEN_RENT;
     case PLACE_HOME_TAG: return HOLDING_RENT;
