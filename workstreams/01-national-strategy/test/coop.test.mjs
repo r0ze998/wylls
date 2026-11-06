@@ -198,7 +198,7 @@ test('失敗：行き先がない・世代が違う（LOST）と、別の場所�
   assert.equal(v.joint[0].progress[0].verified, 0);
 });
 
-test('略奪：奪われた（J2：奪った人の物）・焼かれた隊商は数えない。確定の記録がなくても、行き先が変われば奪われたとみる', async () => {
+test('略奪：奪われた（J2：奪った人の物）・焼かれた隊商は数えない。行き先が変わっただけでは奪われたとしない（原因を確認中）', async () => {
   const { a, b, c } = await people();
   const { H, board, put } = setup({ chain: standardChain(await people()) });
   const id = await request(put, a);
@@ -219,10 +219,11 @@ test('略奪：奪われた（J2：奪った人の物）・焼かれた隊商は
   v = await board.view({});
   assert.equal(v.joint[0].progress[0].verified, 0);
 
-  // ended のないヘラルドでも、行き先が変わった隊商は奪われたとみる
+  // 行き先が変わっただけ（襲撃の記録なし）は奪われたとしない：原因を確認中（④ QUANTITY-CONTRACT §3 R-1、§7 ①(d)。2026-11-06）
   const feed = indexFeed({ moving: [{ ownerTag: ownerTagOf(season, b.address), seq: 5, dst: { kind: 1, p: 9, q: 9, at: 0, gen: 1 }, cargo: [0, 1, 0, 0, 0, 0, 0, 0], raided: false }] });
   const x = arrivalOf({ id: 'r', need: { wood: 1 }, to: HOME_A }, { responder: b.address, caravan: { ownerTag: ownerTagOf(season, b.address), seq: 5 } }, feed);
-  assert.equal(x.state, 'raided-taken');
+  assert.equal(x.state, 'misdirected');
+  assert.equal(x.held, 'DestinationMismatch');
 });
 
 test('相手の退出：抜けた人の応答は取り下げになり、新しい結び付けはできない。抜ける前に送った隊商は届いて数える。別の相手に切り替えられる', async () => {

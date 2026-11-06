@@ -73,8 +73,8 @@ function renderJoint() {
     ${rows.length ? rows.map(j => `
       <div class="req" data-host="${esc(j.host)}">
         <div><b>${esc(short(j.host))}</b>（${j.hostNation === null ? `<span class="warn">国籍未検証</span>` : esc(nationName(j.hostNation))}）の貯蔵庫：
-          <span class="tag ${j.done ? 'ok' : 'warn'}" data-testid="joint-status">${j.done ? '達成（記録だけ）' : '未達成'}</span></div>
-        <div>${j.progress.map(p => `${esc(RESOURCE_JA[p.resource])} <b data-testid="joint-${p.resource}">${p.verified}</b>／${p.need}`).join('　')}（数えた入荷量だけ。資源ごと。合計しない）</div>
+          <span class="tag ${j.done ? 'ok' : 'warn'}" data-testid="joint-status">${j.done ? '達成（記録だけ）' : 'まだ達成と言えない'}</span></div>
+        <div>${j.progress.map(p => `${esc(RESOURCE_JA[p.resource])} <b data-testid="joint-${p.resource}">${p.verified}</b>／${p.need}`).join('　')}（数えた入荷量の下限。資源ごと。合計しない）</div>
         <div class="note" data-testid="joint-precision">整数単位。記録は到着1件ごとにミリ単位を切り捨てた値なので、本当の量は表示より ${j.progress.map(p => `${esc(RESOURCE_JA[p.resource])} ${p.underBy} 未満`).join('・')} 多いことがある（件数ぶん）</div>
         <div class="note" data-testid="joint-why">${esc(j.judgeLabel)}：${esc(j.why)}</div>
         <div class="note">確かめた他国：${j.otherNations.length ? j.otherNations.map(nationName).join('・') : 'なし'}${j.nationsUnverified.length ? `（<span class="warn" data-testid="nation-unverified">${esc(j.nationsUnverified.join('、'))}</span>）` : ''}。輸送中・不明の隊商 ${j.unverifiedCaravans} 本、到着したが数えられない隊商（入った量を確認できない・受取人や時刻が未検証）${j.unprovenDeliveries} 本（どちらも数えない。0 個とは言わない）</div>
@@ -119,7 +119,7 @@ function renderRequests() {
       <div><b>${esc(needText(q.need))}</b> → ${esc(short(q.requester))}（${esc(nationName(q.nation))}・申告。判定には使わない）の村 (${q.to.p},${q.to.q}) 村${q.to.site}
         <span class="tag" data-testid="req-state">${esc(REQ_JA[q.stateNow] ?? q.stateNow)}${q.cancel ? `：${esc(CANCEL_JA[q.cancel.reason] ?? q.cancel.reason)}` : ''}</span></div>
       <div class="note">応答：${esc(others || 'まだない')}</div>
-      <div class="note" data-testid="req-fulfilment" data-status="${esc(q.fulfilment?.status ?? '')}">依頼の充足：${esc(FULFILMENT_JA[q.fulfilment?.status] ?? '—')}${q.fulfilment && q.fulfilment.status !== 'none' ? `。数えた量 ${esc(needText(q.fulfilment.counted))}${Object.keys(q.fulfilment.shortBy).length ? `、不足 ${esc(needText(q.fulfilment.shortBy))}` : ''}${q.fulfilment.open ? `、結果待ち ${q.fulfilment.open} 本` : ''}${q.fulfilment.unproven ? `、到着したが数えられない ${q.fulfilment.unproven} 本` : ''}${q.fulfilment.knownZero ? `、届かなかった ${q.fulfilment.knownZero} 本` : ''}` : ''}</div>
+      <div class="note" data-testid="req-fulfilment" data-status="${esc(q.fulfilment?.status ?? '')}">依頼の充足：${esc(FULFILMENT_JA[q.fulfilment?.status] ?? '—')}${q.fulfilment && q.fulfilment.status !== 'none' ? `。数えた量の下限 ${esc(needText(q.fulfilment.lower))}${q.fulfilment.upperExclusive ? `、上限 ${esc(needText(q.fulfilment.upperExclusive))} 未満` : ''}${q.fulfilment.open ? `、終わっていない ${q.fulfilment.open} 本${q.fulfilment.held ? `（うち原因を確認中 ${q.fulfilment.held}）` : ''}` : ''}${q.fulfilment.unproven ? `、到着したが数えられない ${q.fulfilment.unproven} 本` : ''}${q.fulfilment.knownZero ? `、届かなかった ${q.fulfilment.knownZero} 本` : ''}` : ''}</div>
       <div class="row">
         ${mine && open ? `<button data-act="cancel-self" data-id="${esc(q.id)}">取り消す（自分で進める）</button><button data-act="cancel-other" data-id="${esc(q.id)}">取り消す（ほかの理由）</button>` : ''}
         ${!mine && open && !accepted ? `<button data-act="accept" data-id="${esc(q.id)}">応じる（送るつもり。義務はない）</button><button data-act="decline" data-id="${esc(q.id)}">断る</button>` : ''}
@@ -150,7 +150,7 @@ function renderArrivals() {
       <td>${x.currentOwner ? `世代 ${x.currentOwner.gen}・${esc(String(x.currentOwner.ownerCitizen).slice(0, 4))}…` : '—'}</td>
       <td data-testid="arrival-counted">${x.counted ? esc(needText(x.counted)) : `<span class="note">算入 0（${esc(x.notCountedWhy ?? '')}）</span>`}</td></tr>`).join('') || '<tr><td colspan="9" class="note">結び付けた隊商はまだない</td></tr>'}
     </tbody></table>
-    <div class="note">到着量の分類は④の契約に合わせた。村あては規則から（RuleDerived：記録の cargo を整数単位の入荷量とする）、倉あては credited が記録にないので分からない（Unverifiable）、届かなかったものは 0 と分かっている（KnownZero）。記録の cargo は上限で、数えない。量を確認できない到着は「0 個」「失敗」ではなく、数えた量（算入量）が 0 なだけ。④の終わりは隊商ごとに送った荷と比べ（以上 Fulfilled・未満 Partial・0 Failed）、依頼の充足は数えた量を依頼量と比べる。到着時の受取人は、村の世代が到着の記録と同じときだけ今の口座から決まる（世代が変わったら未検証）。</div>`;
+    <div class="note">到着量の分類は④の契約に合わせた。村あては規則から（RuleDerived：記録の cargo を整数単位の入荷量とする）、倉あては credited が記録にないので分からない（Unverifiable）、届かなかったものは 0 と分かっている（KnownZero）。記録の cargo は上限で、数えない。量を確認できない到着は「0 個」「失敗」ではなく、数えた量（算入量）が 0 なだけ。村あての量は下限（資源ごとに 1 未満多く入っていうる）。④の終わりは隊商ごとに送った荷と下限を比べ（以上 Fulfilled・未満 Partial）、0 と分かるのは焼却・奪取・LOST の証拠があるときだけ（Failed）。別の場所に着いたものは原因を確認中で、奪われたとは言わない。依頼の充足は、下限が依頼量以上なら届いた、すべて終わって上限が依頼量以下なら届かなかった、その間は判定できない。到着時の受取人は、村の世代が到着の記録と同じときだけ今の口座から決まる（世代が変わったら未検証）。</div>`;
 }
 
 async function refresh() {

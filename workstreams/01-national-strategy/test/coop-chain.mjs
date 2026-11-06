@@ -1,7 +1,7 @@
 // 国をまたぐ依頼のテストで使う偽のチェーン：口座のバイト列を、ゲームの画面と同じ v2 の配置（abi-v2-layouts.mjs）で書く。
 // citizen(who, faction)：このシーズンの Citizen、holding(to, who, faction)：その人の村。
 
-import { seasonAddresses } from '../../../permutation-server/web/frontier/faddr.mjs';
+import { addressesOf } from '../coop/ids.mjs';
 import { pubkeyBytes } from '../../../permutation-server/web/sdk/solana-tx.mjs';
 import { LOGS } from '../../../permutation-server/web/sdk/frontier/abi-v2-logs.mjs';
 import { toBase64 } from '../../../permutation-server/web/sdk/bytes.mjs';
@@ -48,7 +48,7 @@ const cargoLog = c => { const b = new Uint8Array(32), dv = new DataView(b.buffer
 
 export function fakeChain(programId, seasonId) {
   const accounts = new Map();
-  const A = seasonAddresses(programId, seasonId);
+  const A = addressesOf({ programId, seasonId });
   const head = (size, magic) => {
     const b = new Uint8Array(size), dv = new DataView(b.buffer);
     b.set(new TextEncoder().encode(magic), 0);

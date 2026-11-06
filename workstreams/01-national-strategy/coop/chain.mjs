@@ -6,7 +6,7 @@
 // 読む口座の形は、ゲームの画面と同じ表（fcodec.mjs、frontier-abi の v2 の配置）。
 
 import { decode } from '../../../permutation-server/web/frontier/fcodec.mjs';
-import { seasonAddresses } from '../../../permutation-server/web/frontier/faddr.mjs';
+import { addressesOf } from './ids.mjs';
 import { equal, fromBase64 } from '../../../permutation-server/web/sdk/bytes.mjs';
 import { pubkeyBytes, pubkeyString } from '../../../permutation-server/web/sdk/solana-tx.mjs';
 import { LAYOUTS as V2 } from '../../../permutation-server/web/sdk/frontier/abi-v2-layouts.mjs';
@@ -99,7 +99,7 @@ export const CARAVAN_STATE = Object.freeze({ 1: 'moving', 2: 'delivered', 3: 'lo
  */
 export async function caravanAccount(reader, season, caravan) {
   if (!reader) return { status: 'unverified', why: 'チェーンを読めない（板に --rpc がない）' };
-  const addr = seasonAddresses(season.programId, season.seasonId).of('Caravan', { ownerTag: BigInt(caravan.ownerTag), seq: caravan.seq });
+  const addr = addressesOf(season).of('Caravan', { ownerTag: BigInt(caravan.ownerTag), seq: caravan.seq });
   let bytes;
   try { bytes = await reader.account(addr); } catch (e) { return { status: 'unverified', why: `チェーンを読めない：${e.message ?? e}` }; }
   if (!bytes) return { status: 'absent', why: '隊商の口座がない（まだ載っていない、または確定して閉じた）', address: addr };
@@ -164,7 +164,7 @@ export async function caravanEndFromChain(reader, season, caravan) {
  */
 export async function caravanHistory(reader, season, caravan) {
   if (!reader?.signatures || !reader?.transaction) return { status: 'unverified', why: 'チェーンの取引を読めない（板に --rpc がない）' };
-  const A = seasonAddresses(season.programId, season.seasonId);
+  const A = addressesOf(season);
   const addr = A.of('Caravan', { ownerTag: BigInt(caravan.ownerTag), seq: caravan.seq });
   const tag = BigInt(caravan.ownerTag);
   let sigs;
@@ -207,7 +207,7 @@ export async function caravanHistory(reader, season, caravan) {
 export async function sendOutcome(reader, season, plan, ev = {}) {
   if (!reader?.transaction) return { status: 'unknown', why: 'チェーンを読めない' };
   const evidence = typeof ev === 'string' || ev === null ? { signature: ev } : ev;
-  const A = seasonAddresses(season.programId, season.seasonId);
+  const A = addressesOf(season);
   const caravanAddr = A.of('Caravan', { ownerTag: BigInt(plan.caravan.ownerTag), seq: plan.caravan.seq });
   let t = null;
   try {
@@ -270,7 +270,7 @@ function txMismatch(t, A, plan, caravanAddr, evidence) {
  */
 export async function seasonRules(reader, season) {
   if (!reader) return { status: 'unverified', why: 'チェーンを読めない（板に --rpc がない）' };
-  const A = seasonAddresses(season.programId, season.seasonId);
+  const A = addressesOf(season);
   let bytes;
   try { bytes = await reader.account(A.season); } catch (e) { return { status: 'unverified', why: `チェーンを読めない：${e.message ?? e}` }; }
   if (!bytes) return { status: 'unverified', why: 'シーズンの口座がない' };
@@ -286,7 +286,7 @@ export async function seasonRules(reader, season) {
  */
 export async function citizenOf(reader, season, wallet) {
   if (!reader) return { status: 'unverified', why: 'チェーンを読めない（板に --rpc がない）' };
-  const citizen = seasonAddresses(season.programId, season.seasonId).of('Citizen', { wallet });
+  const citizen = addressesOf(season).of('Citizen', { wallet });
   let bytes;
   try { bytes = await reader.account(citizen); } catch (e) { return { status: 'unverified', why: `チェーンを読めない：${e.message ?? e}` }; }
   if (!bytes) return { status: 'unverified', why: 'このシーズンの Citizen の口座がない（参加していない）' };
@@ -304,7 +304,7 @@ export async function citizenOf(reader, season, wallet) {
  */
 export async function holdingNow(reader, season, place) {
   if (!reader) return { status: 'unverified', why: 'チェーンを読めない（板に --rpc がない）' };
-  const A = seasonAddresses(season.programId, season.seasonId);
+  const A = addressesOf(season);
   let bytes;
   try { bytes = await reader.account(A.of('Holding', { p: place.p, q: place.q, site: place.site })); } catch (e) { return { status: 'unverified', why: `チェーンを読めない：${e.message ?? e}` }; }
   if (!bytes) return { status: 'unverified', why: '村の口座がない' };
@@ -320,7 +320,7 @@ export async function holdingNow(reader, season, place) {
  */
 export async function holdingOf(reader, season, to, wallet) {
   if (!reader) return { status: 'unverified', why: 'チェーンを読めない（板に --rpc がない）' };
-  const A = seasonAddresses(season.programId, season.seasonId);
+  const A = addressesOf(season);
   let bytes;
   try { bytes = await reader.account(A.of('Holding', { p: to.p, q: to.q, site: to.site })); } catch (e) { return { status: 'unverified', why: `チェーンを読めない：${e.message ?? e}` }; }
   if (!bytes) return { status: 'unverified', why: '届け先の村の口座がない' };

@@ -12,7 +12,7 @@
 import { sha256 } from '../../../permutation-server/web/sdk/sha256.mjs';
 import { concat, fromBase64, toBase64, toHex, utf8 } from '../../../permutation-server/web/sdk/bytes.mjs';
 import { decode as fromBase58, encode as toBase58 } from '../../../permutation-server/web/sdk/base58.mjs';
-import { citizenTag, seasonAddresses } from '../../../permutation-server/web/frontier/faddr.mjs';
+import { ownerTagOf } from './ids.mjs';
 
 export const DOMAIN = 'WYLLS-COOP-V1';
 export const KINDS = Object.freeze(['request', 'respond', 'withdraw', 'cancel', 'sending', 'link', 'leave']);
@@ -52,10 +52,7 @@ export function messageOf(rec) {
 export const recordId = rec => toHex(sha256(messageOf(rec)));
 
 /** 持ち主の印（S1 の Caravan の ownerTag）：ウォレット → Citizen の口座 → 先頭8バイト（faddr.mjs と同じ）。 */
-export function ownerTagOf(season, wallet) {
-  const A = seasonAddresses(season.programId, season.seasonId);
-  return citizenTag(A.of('Citizen', { wallet })).toString();
-}
+export { ownerTagOf };   // 住所の決め方は ids.mjs（試験では導出しない表に差し替えられる）
 
 // ------------------------------------------------------------------ 署名
 

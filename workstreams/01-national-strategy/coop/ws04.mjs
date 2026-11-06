@@ -44,88 +44,107 @@ export function toWs04Outcome(a) {
 }
 
 /**
- * ①の到着の状態と、④の実行器の終わりの状態の対応（④ STATE-MACHINE「到着量の判定」、executor.rs の Arrived → …）。
- * ④の run は隊商1本で、比べる「依頼量」はその run が送った荷（`ship.cargo`）。①の到着も隊商1本なので、送った荷（チェーンの
- * CARAVAN_SENT の cargo、整数単位）と比べる：
- *   delivered が null（Unverifiable）→ DeliveredUnverified、delivered が全部 0 → Failed、送った荷以上 → Fulfilled、少ない → Partial。
+ * ①の到着の状態と、④の実行器の終わりの状態の対応（④ QUANTITY-CONTRACT §4、executor.rs on_arrived。④ 8e96f24d で照合）。
+ * ④の run は隊商1本で、比べる「依頼量」はその run の荷（`spec.ship.cargo`、損耗の前）。①は送った荷（チェーンの最初の CARAVAN_SENT の
+ * cargo。命令の整数単位の荷と同じ）と、検証した量の下限 b を比べる：
+ *   delivered が null（Unverifiable）→ DeliveredUnverified
+ *   すべての資源で b ≥ 送った荷 → Fulfilled（証明）、どれかで b < 送った荷 → Partial（この run は届いていないと証明。b が 0 でも Partial：
+ *   1 未満の端数が入っていうる。④ HANDOFF §2「0 個以上」）
+ *   KnownZero（この隊商の焼却・奪取の記録、口座の持ち主の書き換え、LOST）→ Failed
+ *   別の場所に着いた・別の行き先へ向かう（襲撃の記録なし）→ 'DestinationMismatch'（④の保留。outcome なし）
  *   shipped：依頼の資源ごとの送った量（分からなければ null → 'Delivered'：Fulfilled と Partial を決めない。推測しない）。
  * 依頼（複数の隊商）ごとの充足は fulfilmentOf。
  */
 export function toWs04Terminal(a, shipped = null) {
+  if (a.held === 'DestinationMismatch') return 'DestinationMismatch';
+  if (a.verification === 'KnownZero') return 'Failed';
   if (a.state === 'delivered') {
     if (a.verification === 'Unverifiable' || a.delivered === null) return 'DeliveredUnverified';
-    if (!a.delivered) return 'Delivered';
-    const d = Object.values(a.delivered);
-    if (d.every(v => v === 0)) return 'Failed';
-    if (!shipped) return 'Delivered';
+    if (!a.delivered || !shipped) return 'Delivered';
     return Object.entries(shipped).every(([r, n]) => (a.delivered[r] ?? 0) >= n) ? 'Fulfilled' : 'Partial';
   }
-  if (['lost', 'misdelivered', 'raided-taken', 'raided-burned'].includes(a.state)) return 'Failed';
   if (a.state === 'moving') return 'InTransit';
-  return null;   // unknown：④の Indeterminate に近いが、①は送信の主体でないので状態を持たない
+  return null;   // unknown・襲われた印だけ：④の Indeterminate に近いが、①は送信の主体でないので状態を持たない
 }
 
-const qtyText = (o, ja) => Object.entries(o ?? {}).map(([r, v]) => `${ja[r] ?? r} ${v}`).join('・');
+/**
+ * 実際に入った量の区間（資源ごと、整数単位。④ QUANTITY-CONTRACT §3）。{kind, perResource: {r: {min, maxExclusive}}} か null（述べない）。
+ *   'lower-bound'：RuleDerived・Recorded（今の④は P1 を案 B＝切り捨てとして読む）。[b, b+1)
+ *   'unknown'    ：Unverifiable。[0, cargo_logged+1)。cargo_logged が無ければ上限も述べない（maxExclusive null）
+ *   'zero'       ：KnownZero。ちょうど 0
+ *   null         ：輸送中・分からない・原因を確認中（量を述べない）
+ */
+export function amountOf(a) {
+  const each = f => Object.fromEntries(Object.keys(a.delivered ?? a.cargoLogged ?? {}).map(r => [r, f(r)]));
+  if (a.verification === 'KnownZero') return { kind: 'zero', perResource: each(() => ({ min: 0, maxExclusive: 0, exact: true })) };
+  if (a.state !== 'delivered') return null;
+  if (a.verification === 'Unverifiable' || a.delivered === null) {
+    return { kind: 'unknown', perResource: Object.fromEntries(Object.entries(a.cargoLogged ?? {}).map(([r, v]) => [r, { min: 0, maxExclusive: v + 1 }])) };
+  }
+  if (a.delivered && ['RuleDerived', 'Recorded'].includes(a.verification)) return { kind: 'lower-bound', perResource: each(r => ({ min: a.delivered[r], maxExclusive: a.delivered[r] + 1 })) };
+  return null;
+}
+
+const qtyText = (o, ja, suffix = '') => Object.entries(o ?? {}).map(([r, v]) => `${ja[r] ?? r} ${v}${suffix}`).join('・');
 const REASON_JA = Object.freeze({
-  lost: '行き先がない・村の世代が変わった', misdelivered: '依頼の届け先とは別の場所に確定した', 'raided-taken': '襲撃で奪われた', 'raided-burned': '襲撃で焼かれた',
+  lost: '行き先がない・村の世代が変わった', 'raided-taken': '襲撃で奪われた', 'raided-burned': '襲撃で焼かれた',
 });
 
 /**
- * 到着量の言い方（④ HANDOFF §2、CONTRACTS §8.1）。実際の到着量の状態（分からない・0 と分かる・n と分かる）だけを言う。
+ * 到着量の言い方（④ HANDOFF §2・QUANTITY-CONTRACT §3、⑦への提案 §7 に合わせた）。実際の到着量の状態だけを言う。
  * 数えた量（算入量）は別の欄（goal.mjs の counted）。
- *   - 検証した量（Recorded・RuleDerived）：「届いた n 個」
- *   - Unverifiable：「到着したが、入った量を確認できない（最大 n 個）」。n は記録の cargo（上限）。「届いた」「0 個」「全損」「失敗」と言わない
+ *   - 下限（RuleDerived・Recorded）：「届いた 木材 196 以上」。0 でも「0 以上」（「0 個」「届かなかった」と言わない）
+ *   - Unverifiable：「到着したが、入った量を確認できない（最大 木材 200＋端数）」。「届いた」「0 個」「全損」「失敗」と言わない
  *   - KnownZero：「届かなかった（理由）」
- *   - 輸送中：「輸送中」（④の「輸送中 n 個」の n は送った荷。分かれば出す）、分からない：「分からない（まだ確かめていない）」
- * {kind: 'verified'|'unverifiable'|'known-zero'|'moving'|'unknown', text}
+ *   - 別の場所：「別の場所に着いた（原因を確認中）」。「奪われた」と言わず、相手の名前を出さない
+ *   - 輸送中：「輸送中 木材 200」（送った荷が分かれば）、分からない：「分からない（まだ確かめていない）」
+ * {kind: 'lower-bound'|'unknown'|'zero'|'held'|'moving'|'unknown-state', text}
  */
 export function deliveredText(a, ja, shipped = null) {
-  if (a.verification === 'KnownZero') return { kind: 'known-zero', text: `届かなかった（${REASON_JA[a.state] ?? a.note ?? '0 と分かっている'}）` };
+  if (a.verification === 'KnownZero') return { kind: 'zero', text: `届かなかった（${REASON_JA[a.state] ?? '0 と分かっている'}）` };
+  if (a.held === 'DestinationMismatch') return { kind: 'held', text: a.state === 'misdirected' ? '別の行き先へ向かっている（原因を確認中）' : '別の場所に着いた（原因を確認中）' };
   if (a.state === 'delivered' && (a.verification === 'Unverifiable' || a.delivered === null || a.delivered === undefined)) {
     const max = a.cargoLogged ? qtyText(a.cargoLogged, ja) : null;
-    return { kind: 'unverifiable', text: `到着したが、入った量を確認できない${max ? `（最大 ${max}）` : ''}` };
+    return { kind: 'unknown', text: `到着したが、入った量を確認できない${max ? `（最大 ${max}＋端数）` : ''}` };
   }
-  if (a.state === 'delivered' && a.delivered) return { kind: 'verified', text: `届いた ${qtyText(a.delivered, ja)}` };
+  if (a.state === 'delivered' && a.delivered) return { kind: 'lower-bound', text: `届いた ${qtyText(a.delivered, ja, ' 以上')}` };
   if (a.state === 'moving') return { kind: 'moving', text: `輸送中${shipped ? ` ${qtyText(shipped, ja)}` : ''}` };
-  return { kind: 'unknown', text: '分からない（まだ確かめていない）' };
+  if (a.state === 'raided-unconfirmed') return { kind: 'unknown-state', text: '襲われた印がある（焼かれたか奪われたかは記録で確かめていない）' };
+  return { kind: 'unknown-state', text: '分からない（まだ確かめていない）' };
 }
 
 /**
- * 依頼ごとの充足（④ STATE-MACHINE：検証できた入荷量が依頼量以上なら Fulfilled、少なければ Partial、0 なら Failed）。
- * ①の依頼は複数の隊商で満たしうるので、依頼に割り当てた到着の「数えた量」（counted：検証済みで、到着時の受取人が依頼した人で、
- * 応じた後の送信のもの）を資源ごとに足し、依頼の need と比べる。数えない到着（量を確認できない・未検証）は足さない。
+ * 依頼ごとの充足（④ QUANTITY-CONTRACT §4 の合計の目標の三つの区分。依頼量 G を資源ごとに）。
+ * ①の依頼は複数の隊商で満たしうるので、依頼に割り当てた到着の「数えられる量」の区間を足す（goal.mjs countOf の counted と countUpper）：
+ *   下限 L ＝ Σ 数えた量（検証済み・到着時の受取人が依頼した人・応じた後の送信）
+ *   上限 U ＝ Σ その到着が数えられうる量の上限（未満）：下限の到着は b+1、量を確認できない到着は cargo_logged+1、
+ *            受取人・時刻が未検証の到着も b+1（後で確かめられうる）、0 と分かる・数えないと決まった到着は 0
  *   status：
- *     'fulfilled'  資源ごとに、数えた量が依頼量以上
- *     'partial'    数えた量が 0 より多いが、どれかの資源で依頼量に足りない
- *     'failed'     結び付けた隊商がすべて終わり、どれも届かなかった（KnownZero）
- *     'unverified' 数えた量が 0 で、到着したが数えられないもの（量を確認できない・受取人や時刻が未検証）がある。0 とも失敗とも言わない
- *     'pending'    数えた量が 0 で、まだ終わっていない・分からない隊商がある
- *     'none'       結び付けた隊商がない
- *   counted：資源ごとの数えた量、shortBy：資源ごとの不足、open：まだ終わっていない隊商の数、unproven：到着したが数えられない隊商の数
- * 依頼量を超えた分も counted に残す（共同の目的は資源ごとの合計で判定するので、依頼で切らない）。
+ *     'fulfilled'    どの資源も L ≥ G（証明）
+ *     'not-reached'  結び付けた隊商がすべて終わり（final）、どれかの資源で U ≤ G … 実際の量 < U ≤ G なので届いていない（証明）
+ *     'undetermined' その間（下限が依頼量未満なだけでは「未達」と言わない）。輸送中・原因を確認中があればここ
+ *     'none'         結び付けた隊商がない
+ * 依頼量を超えた分も lower に残す（共同の目的は資源ごとの合計で判定するので、依頼で切らない）。
  */
 export function fulfilmentOf(q, arrivals) {
   const own = arrivals.filter(a => a.requestId === q.id && !a.duplicateOf);
-  const counted = Object.fromEntries(Object.keys(q.need).map(r => [r, 0]));
-  let open = 0, unproven = 0, zero = 0;
+  const lower = Object.fromEntries(Object.keys(q.need).map(r => [r, 0]));
+  const upperExclusive = Object.fromEntries(Object.keys(q.need).map(r => [r, 0]));
+  let open = 0, unproven = 0, zero = 0, held = 0;
   for (const a of own) {
-    if (a.counted) for (const [r, v] of Object.entries(a.counted)) counted[r] = (counted[r] ?? 0) + v;
-    else if (a.verification === 'KnownZero') zero += 1;
-    else if (a.state === 'delivered') unproven += 1;
-    else open += 1;
+    if (a.counted) for (const [r, v] of Object.entries(a.counted)) lower[r] = (lower[r] ?? 0) + v;
+    if (a.countUpper) for (const r of Object.keys(q.need)) upperExclusive[r] += a.countUpper[r] ?? 0;
+    if (a.countFinal === false) { open += 1; if (a.held) held += 1; }
+    else if (!a.counted && a.verification === 'KnownZero') zero += 1;
+    else if (!a.counted && a.state === 'delivered') unproven += 1;
   }
-  const shortBy = Object.fromEntries(Object.entries(q.need).map(([r, n]) => [r, Math.max(0, n - (counted[r] ?? 0))]).filter(([, v]) => v > 0));
-  const any = Object.values(counted).some(v => v > 0);
-  const status = !own.length ? 'none'
-    : !Object.keys(shortBy).length ? 'fulfilled'
-    : any ? 'partial'
-    : unproven ? 'unverified'
-    : open ? 'pending'
-    : 'failed';
-  return { status, counted, shortBy, open, unproven, knownZero: zero, links: own.length };
+  const shortBy = Object.fromEntries(Object.entries(q.need).map(([r, n]) => [r, Math.max(0, n - (lower[r] ?? 0))]).filter(([, v]) => v > 0));
+  const provenShort = open === 0 && Object.entries(q.need).some(([r, n]) => upperExclusive[r] <= n);
+  const status = !own.length ? 'none' : !Object.keys(shortBy).length ? 'fulfilled' : provenShort ? 'not-reached' : 'undetermined';
+  return { status, lower, upperExclusive: open ? null : upperExclusive, shortBy, open, held, unproven, knownZero: zero, links: own.length, counted: lower };
 }
 
 export const FULFILMENT_JA = Object.freeze({
-  fulfilled: '依頼量に届いた（Fulfilled）', partial: '一部（Partial）', failed: '届かなかった（Failed）',
-  unverified: '到着したが、数えられる量がまだない', pending: '輸送中・結果待ち', none: 'まだ隊商がない',
+  fulfilled: '依頼量に届いた（数えた量の下限で証明）', 'not-reached': '依頼量に届かなかった（すべて終わり、上限で証明）',
+  undetermined: '判定できない（下限は依頼量に届いていないが、届いていないとも言えない）', none: 'まだ隊商がない',
 });

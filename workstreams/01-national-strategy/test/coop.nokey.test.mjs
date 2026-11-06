@@ -11,7 +11,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { deliveredText, toWs04Terminal, fulfilmentOf, fromWs04Outcome, FULFILMENT_JA } from '../coop/ws04.mjs';
+import { deliveredText, toWs04Terminal, fulfilmentOf, fromWs04Outcome, FULFILMENT_JA, amountOf } from '../coop/ws04.mjs';
 import { pendingSendOf } from '../coop/pending.mjs';
 import { openStore, loadStore, ACTIVE, MANIFEST } from '../coop/store.mjs';
 import { RESOURCE_JA } from '../coop/record.mjs';
@@ -24,29 +24,40 @@ const tmp = p => fs.mkdtempSync(path.join(os.tmpdir(), p));
 
 // ---------------------------------------------------------------- ④の言い方
 
-test('到着量の言い方は④ HANDOFF §2 のとおり。量を確認できない到着を「届いた」「0 個」「失敗」と言わない', () => {
+test('到着量の言い方は④ HANDOFF §2・QUANTITY-CONTRACT §3 のとおり：下限は「以上」、量を確認できない到着を「届いた」「0 個」「失敗」と言わない', () => {
   const byCase = Object.fromEntries(fx.map(c => [c.case, c.outcome]));
-  const rd = deliveredText(arrivalFrom('delivered', byCase.holding_rule_derived), RESOURCE_JA);
-  assert.deepEqual(rd, { kind: 'verified', text: '届いた 木材 196' });
-  const rec = deliveredText(arrivalFrom('delivered', byCase.recorded_p1), RESOURCE_JA);
-  assert.deepEqual(rec, { kind: 'verified', text: '届いた 木材 150' });
-  const un = deliveredText(arrivalFrom('delivered', byCase.vault_unverifiable), RESOURCE_JA);
-  assert.deepEqual(un, { kind: 'unverifiable', text: '到着したが、入った量を確認できない（最大 木材 200）' });
+  const rd = arrivalFrom('delivered', byCase.holding_rule_derived);
+  assert.deepEqual(deliveredText(rd, RESOURCE_JA), { kind: 'lower-bound', text: '届いた 木材 196 以上' });
+  assert.deepEqual(amountOf(rd).perResource.wood, { min: 196, maxExclusive: 197 });
+  assert.deepEqual(deliveredText(arrivalFrom('delivered', byCase.recorded_p1), RESOURCE_JA), { kind: 'lower-bound', text: '届いた 木材 150 以上' });
+  const unA = arrivalFrom('delivered', byCase.vault_unverifiable);
+  const un = deliveredText(unA, RESOURCE_JA);
+  assert.deepEqual(un, { kind: 'unknown', text: '到着したが、入った量を確認できない（最大 木材 200＋端数）' });
   assert.doesNotMatch(un.text, /届いた|0 個|全損|失敗|一部/);
-  const lost = deliveredText(arrivalFrom('lost', byCase.lost_known_zero), RESOURCE_JA);
-  assert.deepEqual(lost, { kind: 'known-zero', text: '届かなかった（行き先がない・村の世代が変わった）' });
-  for (const [state, why] of [['raided-taken', '襲撃で奪われた'], ['raided-burned', '襲撃で焼かれた'], ['misdelivered', '依頼の届け先とは別の場所に確定した']]) {
+  assert.deepEqual(amountOf(unA), { kind: 'unknown', perResource: { wood: { min: 0, maxExclusive: 201 } } });
+  // 記録が 0 なだけ（1 未満の端数）：「0 以上」。0 個・届かなかったと言わない
+  const frac = { state: 'delivered', delivered: { wood: 0 }, verification: 'RuleDerived', cargoLogged: { wood: 0 } };
+  assert.equal(deliveredText(frac, RESOURCE_JA).text, '届いた 木材 0 以上');
+  assert.deepEqual(amountOf(frac).perResource.wood, { min: 0, maxExclusive: 1 });
+  const lost = arrivalFrom('lost', byCase.lost_known_zero);
+  assert.deepEqual(deliveredText(lost, RESOURCE_JA), { kind: 'zero', text: '届かなかった（行き先がない・村の世代が変わった）' });
+  assert.equal(amountOf(lost).kind, 'zero');
+  for (const [state, why] of [['raided-taken', '襲撃で奪われた'], ['raided-burned', '襲撃で焼かれた']]) {
     assert.equal(deliveredText({ state, delivered: { wood: 0 }, verification: 'KnownZero' }, RESOURCE_JA).text, `届かなかった（${why}）`);
   }
+  // 別の場所（襲撃の記録なし）：原因を確認中。奪われた・0 と言わない、量を述べない
+  const mis = { state: 'misdelivered', delivered: null, verification: null, held: 'DestinationMismatch', cargoLogged: { wood: 200 } };
+  assert.deepEqual(deliveredText(mis, RESOURCE_JA), { kind: 'held', text: '別の場所に着いた（原因を確認中）' });
+  assert.equal(amountOf(mis), null);
+  assert.equal(deliveredText({ ...mis, state: 'misdirected' }, RESOURCE_JA).text, '別の行き先へ向かっている（原因を確認中）');
   assert.equal(deliveredText({ state: 'moving', delivered: null, verification: null }, RESOURCE_JA, { wood: 200 }).text, '輸送中 木材 200');
-  assert.equal(deliveredText({ state: 'unknown', delivered: null, verification: null }, RESOURCE_JA).kind, 'unknown');
-  // 上限（cargo_logged）が無い Unverifiable は「最大」を出さない（推測しない）
+  assert.equal(deliveredText({ state: 'raided-unconfirmed', delivered: null, verification: null }, RESOURCE_JA).kind, 'unknown-state');
   assert.equal(deliveredText({ state: 'delivered', delivered: null, verification: 'Unverifiable', cargoLogged: null }, RESOURCE_JA).text, '到着したが、入った量を確認できない');
 });
 
 // ---------------------------------------------------------------- ④の終わり（隊商ごと）
 
-test('④の終わり：送った荷以上 Fulfilled、少ない Partial、0 Failed、量が分からない DeliveredUnverified。送った荷が分からなければ決めない', () => {
+test('④の終わり：下限が送った荷以上 Fulfilled、少ない Partial（0 でも）、証拠のある 0 Failed、量が分からない DeliveredUnverified、別の場所は保留', () => {
   const byCase = Object.fromEntries(fx.map(c => [c.case, c.outcome]));
   const rd = arrivalFrom('delivered', byCase.holding_rule_derived);   // 196
   assert.equal(toWs04Terminal(rd, { wood: 196 }), 'Fulfilled');
@@ -54,11 +65,11 @@ test('④の終わり：送った荷以上 Fulfilled、少ない Partial、0 Fai
   assert.equal(toWs04Terminal(rd, null), 'Delivered', '送った荷が分からない：Fulfilled とも Partial とも言わない');
   assert.equal(toWs04Terminal(arrivalFrom('delivered', byCase.recorded_p1), { wood: 200 }), 'Partial');
   assert.equal(toWs04Terminal(arrivalFrom('delivered', byCase.vault_unverifiable), { wood: 200 }), 'DeliveredUnverified');
-  assert.equal(toWs04Terminal({ state: 'delivered', delivered: { wood: 0 }, verification: 'Recorded' }, { wood: 200 }), 'Failed', '④：nothing kept');
+  assert.equal(toWs04Terminal({ state: 'delivered', delivered: { wood: 0 }, verification: 'RuleDerived' }, { wood: 1 }), 'Partial', '④ fraction_below_one_unit_is_not_known_zero');
   assert.equal(toWs04Terminal(arrivalFrom('lost', byCase.lost_known_zero), { wood: 200 }), 'Failed');
+  assert.equal(toWs04Terminal({ state: 'misdelivered', held: 'DestinationMismatch', verification: null }, { wood: 200 }), 'DestinationMismatch');
   assert.equal(toWs04Terminal({ state: 'moving' }), 'InTransit');
   assert.equal(toWs04Terminal({ state: 'unknown' }), null);
-  // 二つの資源：どちらかが足りなければ Partial（④ res_ge は全資源）
   assert.equal(toWs04Terminal({ state: 'delivered', delivered: { wood: 100, stone: 49 }, verification: 'RuleDerived' }, { wood: 100, stone: 50 }), 'Partial');
   assert.equal(toWs04Terminal({ state: 'delivered', delivered: { wood: 100, stone: 50 }, verification: 'RuleDerived' }, { wood: 100, stone: 50 }), 'Fulfilled');
 });
@@ -66,32 +77,38 @@ test('④の終わり：送った荷以上 Fulfilled、少ない Partial、0 Fai
 // ---------------------------------------------------------------- 依頼ごとの充足
 
 const Q = { id: 'q1', need: { wood: 200, stone: 100 } };
-const A = (o) => ({ requestId: 'q1', counted: null, state: 'delivered', verification: 'RuleDerived', ...o });
+const A = o => ({ requestId: 'q1', counted: null, state: 'delivered', verification: 'RuleDerived', countFinal: true, ...o });
+const up = (w, st) => ({ wood: w, stone: st });
 
-test('依頼の充足：数えた量（算入量）を依頼量と比べる。数えない到着は足さない', () => {
+test('依頼の充足（④ QUANTITY-CONTRACT §4 の三つの区分）：下限で届いた／すべて終わり上限で届かなかった／その間は判定できない', () => {
   assert.equal(fulfilmentOf(Q, []).status, 'none');
-  const f = fulfilmentOf(Q, [A({ counted: { wood: 150, stone: 100 } }), A({ counted: { wood: 60, stone: 0 } })]);
+  const f = fulfilmentOf(Q, [A({ counted: up(150, 100), countUpper: up(151, 101) }), A({ counted: up(60, 0), countUpper: up(61, 1) })]);
   assert.equal(f.status, 'fulfilled');
-  assert.deepEqual(f.counted, { wood: 210, stone: 100 }, '依頼量を超えた分も残す（共同の目的は資源ごとの合計）');
-  assert.deepEqual(f.shortBy, {});
-  const p = fulfilmentOf(Q, [A({ counted: { wood: 200, stone: 99 } }), A({ state: 'moving', verification: null })]);
-  assert.equal(p.status, 'partial');
-  assert.deepEqual(p.shortBy, { stone: 1 });
-  assert.equal(p.open, 1);
-  // 量を確認できない到着しかない：0 とも失敗とも言わない
-  const u = fulfilmentOf(Q, [A({ verification: 'Unverifiable', delivered: null }), A({ verification: 'KnownZero', state: 'lost' })]);
-  assert.equal(u.status, 'unverified');
-  assert.equal(u.unproven, 1);
-  assert.equal(u.knownZero, 1);
-  assert.match(FULFILMENT_JA[u.status], /到着したが/);
-  // 受取人や時刻が未検証で数えない RuleDerived も「数えられない到着」
-  assert.equal(fulfilmentOf(Q, [A({ notCountedWhy: '到着時の受取人が未検証' })]).status, 'unverified');
-  assert.equal(fulfilmentOf(Q, [A({ state: 'moving', verification: null }), A({ state: 'raided-burned', verification: 'KnownZero' })]).status, 'pending');
-  assert.equal(fulfilmentOf(Q, [A({ state: 'lost', verification: 'KnownZero' }), A({ state: 'raided-taken', verification: 'KnownZero' })]).status, 'failed');
-  // 別の依頼に割り当て済みの隊商（duplicateOf）は数えない
-  assert.equal(fulfilmentOf(Q, [A({ counted: { wood: 200, stone: 100 }, duplicateOf: 'q0' })]).status, 'none');
-  // 別の依頼の到着は混ぜない
-  assert.equal(fulfilmentOf(Q, [A({ requestId: 'q2', counted: { wood: 200, stone: 100 } })]).status, 'none');
+  assert.deepEqual(f.lower, up(210, 100), '依頼量を超えた分も残す');
+  // 下限 199・99 で終わり、上限 201・101 未満：届いていないとは言えない（端数で届いているかもしれない）
+  const u = fulfilmentOf(Q, [A({ counted: up(100, 50), countUpper: up(101, 51) }), A({ counted: up(99, 49), countUpper: up(100, 50) })]);
+  assert.equal(u.status, 'undetermined');
+  assert.deepEqual(u.upperExclusive, up(201, 101));
+  // 上限が依頼量以下ですべて終わった：届かなかった（証明）
+  const n = fulfilmentOf(Q, [A({ counted: up(150, 99), countUpper: up(151, 100) })]);
+  assert.equal(n.status, 'not-reached');
+  // 輸送中があれば、上限が小さくても届かなかったとは言わない
+  assert.equal(fulfilmentOf(Q, [A({ counted: up(150, 10), countUpper: up(151, 11) }), A({ state: 'moving', verification: null, countFinal: false, countUpper: null })]).status, 'undetermined');
+  // 量を確認できない到着：上限が cargo_logged+1 まで広がる。0 とも届かなかったとも言わない
+  const v = fulfilmentOf(Q, [A({ verification: 'Unverifiable', delivered: null, countUpper: up(201, 101) })]);
+  assert.equal(v.status, 'undetermined');
+  assert.equal(v.unproven, 1);
+  // 証拠のある 0 だけで終わった：上限 0 → 届かなかった
+  const z = fulfilmentOf(Q, [A({ state: 'lost', verification: 'KnownZero', countUpper: up(0, 0) })]);
+  assert.equal(z.status, 'not-reached');
+  assert.equal(z.knownZero, 1);
+  assert.match(FULFILMENT_JA.undetermined, /判定できない/);
+  // 原因を確認中（別の場所）は終わっていない
+  const h = fulfilmentOf(Q, [A({ state: 'misdelivered', verification: null, held: 'DestinationMismatch', countFinal: false, countUpper: null })]);
+  assert.equal(h.status, 'undetermined');
+  assert.equal(h.held, 1);
+  assert.equal(fulfilmentOf(Q, [A({ counted: up(200, 100), duplicateOf: 'q0' })]).status, 'none');
+  assert.equal(fulfilmentOf(Q, [A({ requestId: 'q2', counted: up(200, 100) })]).status, 'none');
 });
 
 // ---------------------------------------------------------------- 再起動の後の送信

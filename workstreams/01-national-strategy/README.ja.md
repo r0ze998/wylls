@@ -37,6 +37,7 @@ WYLLS の「国のチーム戦略」を、実装に渡せるゲーム設計と�
 | [docs/19-reconcile-04.ja.md](docs/19-reconcile-04.ja.md) | ④の受領版（2e536b6b）との到着量の照合、到着時の受取人と今の持ち主、まだ合っていない点 |
 | [docs/20-world-continuity.ja.md](docs/20-world-continuity.ja.md) | **世界の継続（2026-10-31）**：①に残っていたシーズン依存、変えた挙動、境界と長期運用の試験、④⑧に残る移行の判断 |
 | [docs/21-display-fulfil-restart-segments.ja.md](docs/21-display-fulfil-restart-segments.ja.md) | **到着量の言い方・依頼の充足・再起動の後の送信・記録の区間（2026-11-05）**：④ HANDOFF §2 の言い方、Fulfilled／Partial、着地したのに結び付けていない送信、追記ファイルの区間、提案 0002〜0004 と統合の最新版の照合、実行しなかった鍵の試験 |
+| [docs/22-ws04-current-e2e-ws15-fold.ja.md](docs/22-ws04-current-e2e-ws15-fold.ja.md) | **④の現在版との照合・依頼から照会までの一続き・⑮へ渡す fold()（2026-11-06）**：④ QUANTITY-CONTRACT に合わせた下限・不明・0・原因を確認中、依頼の充足の三つの区分、0002／0002b の照合、鍵を使わない一続きの試験、⑮の adapter との食い違い |
 | `coop/` | 国をまたぐ依頼の板と画面（`node coop/board.mjs --herald … --program … --season …`） |
 | `prototype/supply.html` | 国際供給網の最小デモ（配置は固定。交換は②を模したもの） |
 | [proposals/](proposals/README.ja.md) | 接続の差分の提案（未適用） |

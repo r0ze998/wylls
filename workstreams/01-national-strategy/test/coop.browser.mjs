@@ -163,9 +163,9 @@ try {
     await pa.waitForSelector('[data-testid=arrival-state]:has-text("到着（確定）")');
     assert.equal(await pa.textContent('[data-testid=joint-wood]'), '196');
     assert.equal(await pa.textContent('[data-testid=joint-stone]'), '0');
-    assert.equal(await pa.textContent('[data-testid=joint-status]'), '未達成');
+    assert.equal(await pa.textContent('[data-testid=joint-status]'), 'まだ達成と言えない');
     assert.match(await pa.textContent('[data-testid=joint-why]'), /石材 0／200/);
-    assert.match(await pa.textContent('[data-testid=arrival-qty]'), /木材 196・石材 0（規則から）/, '④の分類（RuleDerived）');
+    assert.match(await pa.textContent('[data-testid=arrival-qty]'), /届いた 木材 196 以上・石材 0 以上（規則から）/, '④の分類（RuleDerived、下限）');
     assert.match(await pa.textContent('[data-testid=arrival-recipient]'), /依頼した人（世代 1）/);
     assert.match(await pa.textContent('[data-testid=arrival-counted]'), /木材 196/);
     assert.match(await pa.textContent('#judgeMeans'), /使って建てた証拠ではない/, '判定の意味を画面に出す');

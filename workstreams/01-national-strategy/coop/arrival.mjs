@@ -12,7 +12,9 @@
 //   verification  ：'Recorded'（settle の記録に credited がある：④の提案 P1。今のプログラムには無いので①は作らない）
 //                   'RuleDerived'（村あて DELIVERED：Holding::credit は上限なしで全量を加える）
 //                   'Unverifiable'（倉あて DELIVERED で credited が無い：CAP で切り捨てた量が記録にない）
-//                   'KnownZero'（LOST・襲撃の奪取と焼却・依頼の届け先とは別の場所への確定）
+//                   'KnownZero'（証拠のある 0 だけ：この隊商の CARAVAN_RAIDED の焼却・奪取、隊商の口座の持ち主が送った人でなくなった（奪取だけが
+//                               書き換える）、CARAVAN_SETTLED の LOST。④ QUANTITY-CONTRACT §3 R-1）。記録の cargo が 0 なだけ・別の場所に確定しただけでは 0 としない
+//   held          ：'DestinationMismatch'（別の場所に確定・別の行き先へ向かう、襲撃の記録なし）。量を述べない・相手の名前や評判に使わない
 //                   null（まだ終わっていない、またはチェーンの記録を読めていない）
 //   cargoLogged   ：CARAVAN_SETTLED の cargo。上限であり入荷量ではない。進捗に足さない
 // 村あての RuleDerived の根拠（実際の加算処理との対応）：
@@ -25,9 +27,11 @@
 // 届け先の村の「到着時の持ち主」は goal.mjs で別に扱う（今の口座の持ち主と分ける）。
 
 import { RESOURCES } from './record.mjs';
+import { addressesOf } from './ids.mjs';
 
 export const STATE_JA = Object.freeze({
-  moving: '輸送中（まだ送り主の物）', delivered: '到着（確定）', misdelivered: '別の場所に到着', lost: '失われた（行き先がない・世代が違う）',
+  moving: '輸送中（まだ送り主の物）', delivered: '到着（確定）', misdelivered: '別の場所に着いた（原因を確認中）', misdirected: '別の行き先へ向かっている（原因を確認中）',
+  'raided-unconfirmed': '襲われた印がある（焼かれたか奪われたかは記録で確かめていない）', lost: '失われた（行き先がない・世代が違う）',
   'raided-taken': '奪われた（奪った人の物）', 'raided-burned': '焼かれた', unknown: '不明（未検証）',
 });
 
@@ -88,13 +92,19 @@ export function arrivalOf(request, link, feed, chainEnd) {
   const acc = chainEnd?.account;
   if (chainEnd?.status === 'none' && acc?.status === 'found') {
     const base = { requestId: request.id, caravanId: { ...link.caravan }, owner: { ownerTag: String(link.caravan.ownerTag) }, responder: link.responder, source: 'chain-account', delivered: null, verification: null };
-    if (!samePlace(acc.dst, request.to)) return { ...base, state: 'raided-taken', note: '隊商の口座の行き先が依頼の届け先と違う（奪われたとみられる）。数えない' };
+    if (!samePlace(acc.dst, request.to)) {
+      // 持ち主（OWNER_CITIZEN）を書き換えるのは奪取だけ（caravan.rs:1282）。持ち主が送った人でなければ奪われた証拠。同じなら原因未確認
+      const ctx = typeof link.caravan.ctx === 'string' ? link.caravan.ctx.split('/') : null;
+      const sender = ctx?.length === 2 ? addressesOf({ programId: ctx[0], seasonId: ctx[1] }).of('Citizen', { wallet: link.responder }) : null;
+      if (sender && acc.ownerCitizen && acc.ownerCitizen !== sender) return { ...base, state: 'raided-taken', delivered: zeros(request.need), verification: 'KnownZero', note: '隊商の口座の持ち主が送った人ではなくなった（奪取だけが書き換える）。依頼の届け先には 0' };
+      return { ...base, state: 'misdirected', held: 'DestinationMismatch', note: '隊商の口座の行き先が依頼の届け先と違う（原因を確認中。襲撃の記録はない）。数えない' };
+    }
     const ended = ['delivered', 'lost', 'misdelivered', 'raided-taken', 'raided-burned'].includes(h.state);
     return { ...base, state: 'moving', note: `輸送中（チェーンの隊商の口座）。まだ数えない${ended ? `（ヘラルドの写しは「${STATE_JA[h.state] ?? h.state}」で、チェーンと食い違う）` : ''}`, ...(ended ? { heraldDisagrees: h.state } : {}) };
   }
   const why = chainEnd === undefined ? 'チェーンの取引の記録と照合していない（板に --rpc がない）'
     : chainEnd.status === 'none' ? 'チェーンの取引の記録に、この隊商の確定・襲撃はまだない' : chainEnd.why;
-  if (['moving', 'raided-taken', 'raided-burned'].includes(h.state) && h.source === 'herald-moving') return { ...h, delivered: null, verification: null };
+  if (['moving', 'misdirected', 'raided-unconfirmed', 'raided-taken', 'raided-burned'].includes(h.state) && h.source === 'herald-moving') return { ...h, delivered: null, verification: null };
   return { ...h, delivered: null, verification: null, note: `${h.note}。${why}。量は分からない（数えない）` };
 }
 
@@ -111,10 +121,11 @@ function chainArrival(request, link, end) {
   const st = end.settled;
   const cargoLogged = pick(st.cargo);
   if (st.outcome !== 0) return { ...base, state: 'lost', ...known0, cargoLogged, dstGen: st.dst.gen, signature: st.signature, note: '行き先がない・世代が違うので失われた（CARAVAN_SETTLED の LOST）。0 と分かっている' };
-  if (!samePlace(st.dst, request.to)) return { ...base, state: 'misdelivered', ...known0, cargoLogged, dstGen: st.dst.gen, signature: st.signature, note: '依頼の届け先とは別の場所に確定した。依頼の届け先には 0' };
+  // 別の宛先で確定しただけでは「奪われた」「0」としない（襲撃の記録が無い）。④ DestinationMismatch：保留、量を述べない、相手の名前や評判に使わない
+  if (!samePlace(st.dst, request.to)) return { ...base, state: 'misdelivered', delivered: null, verification: null, held: 'DestinationMismatch', cargoLogged, dstGen: st.dst.gen, signature: st.signature, note: '依頼の届け先とは別の場所に着いた（原因を確認中。襲撃の記録はない）' };
   const c = creditedOf(st);
   if (c.qty === null) return { ...base, state: 'delivered', delivered: null, verification: c.verification, cargoLogged, dstGen: st.dst.gen, signature: st.signature, note: c.why };
-  return { ...base, state: 'delivered', delivered: pick(c.qty), verification: c.verification, basis: c.basis, cargoLogged, dstGen: st.dst.gen, signature: st.signature, note: '村あて（RuleDerived）：記録の cargo が整数単位の入荷量' };
+  return { ...base, state: 'delivered', delivered: pick(c.qty), verification: c.verification, basis: c.basis, cargoLogged, dstGen: st.dst.gen, signature: st.signature, note: '村あて（RuleDerived）：記録の cargo は入荷量の下限（資源ごとに 1 未満多く入っていうる）' };
 }
 
 /** ヘラルドの一覧だけから作る到着の記録（表示と突き合わせ用。量は呼び出し側で数えない）。 */
@@ -130,17 +141,17 @@ function heraldArrival(request, link, feed) {
   if (raid && raid.choice === 0) return { ...base, owner: { ownerTag: String(raid.raiderTag ?? '') }, state: 'raided-taken', source: 'herald-ended', note: '襲撃で奪われた（J2：荷車ごと奪った人の物）。数えない' };
   if (settled) {
     if (settled.outcome === 1) return { ...base, state: 'lost', source: 'herald-ended', note: '行き先がない・世代が違うので失われた（caravan.rs LOST）' };
-    if (!samePlace(settled.dst, request.to)) return { ...base, state: 'misdelivered', cargoLogged: pick(settled.cargo), source: 'herald-ended', note: '依頼の届け先とは別の場所に確定した。数えない' };
+    if (!samePlace(settled.dst, request.to)) return { ...base, state: 'misdelivered', held: 'DestinationMismatch', cargoLogged: pick(settled.cargo), source: 'herald-ended', note: '依頼の届け先とは別の場所に着いた（原因を確認中）。数えない' };
     const c = creditedOf(settled);
     if (c.qty === null) return { ...base, state: 'delivered', cargoLogged: pick(settled.cargo), source: 'herald-ended', note: c.why };
     return { ...base, state: 'delivered', cargoLogged: pick(settled.cargo), source: 'herald-ended', note: 'ヘラルドの写しでは村に確定' };
   }
   const m = feed.moving.get(k);
   if (m) {
-    if (m.raided) return { ...base, state: cargoOf(m.cargo).every(x => x === 0) ? 'raided-burned' : 'raided-taken', source: 'herald-moving', note: '襲われた（一覧の印）。数えない' };
-    // 奪われると、同じ隊商の ID のまま奪った人の行き先へ向かう（caravan.rs の RaidCaravan は同じ鍵で CARAVAN_SENT を出し、
-    // ヘラルドの一覧はそれで書き換わる）。行き先が依頼の届け先と違えば、奪われたとみる。
-    if (!samePlace(m.dst, request.to)) return { ...base, state: 'raided-taken', source: 'herald-moving', note: '行き先が依頼の届け先と違う（奪われて行き先が変わったとみられる）。数えない' };
+    // 一覧の印だけでは焼却・奪取を決めない（1 未満の積荷も 0 と出る。④ QUANTITY-CONTRACT §7 ①(d)）。記録（ended・チェーン）で決める
+    if (m.raided) return { ...base, state: 'raided-unconfirmed', source: 'herald-moving', note: '襲われた印がある（一覧）。焼かれたか奪われたかは記録で確かめていない。数えない' };
+    // 行き先が違うだけでは奪われたとしない（襲撃の証拠がない）。原因を確認中
+    if (!samePlace(m.dst, request.to)) return { ...base, state: 'misdirected', held: 'DestinationMismatch', source: 'herald-moving', note: '行き先が依頼の届け先と違う（原因を確認中）。数えない' };
     return { ...base, state: 'moving', source: 'herald-moving', note: `着く予定：${m.arriveTs ?? '?'}（まだ数えない）` };
   }
   return { ...base, state: 'unknown', source: 'none', note: feed.hasEnded ? '一覧にも確定の記録にもない' : 'このヘラルドは確定の記録（ended）を出していない。到着は未検証（④のパッチ待ち）' };

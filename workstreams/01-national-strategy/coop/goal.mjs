@@ -11,8 +11,8 @@
 
 import { RESOURCES, RESOURCE_JA, stateAt, ownerTagOf, ctxKey } from './record.mjs';
 import { arrivalsOf, caravanKeyOf } from './arrival.mjs';
-import { toWs04Terminal, fulfilmentOf, pickNeed } from './ws04.mjs';
-import { seasonAddresses } from '../../../permutation-server/web/frontier/faddr.mjs';
+import { toWs04Terminal, fulfilmentOf, pickNeed, amountOf } from './ws04.mjs';
+import { addressesOf } from './ids.mjs';
 import { PRESETS as V2PRESETS } from '../../../permutation-server/web/sdk/frontier/abi-v2-presets.mjs';
 import { VAULT_COST } from '../../../permutation-server/web/frontier/fcaravan.mjs';
 
@@ -41,7 +41,8 @@ export const JUDGES = Object.freeze({
     means: '依頼の届け先（依頼した人の村）に、確定の記録と規則で証明できた入荷量を資源ごとに数える。届いた物を何に使ったか、使ったかどうかは見ない',
     judge: c => {
       const short = Object.entries(c.goal.fromOthers).filter(([r, n]) => (c.perResource[r] ?? 0) < n);
-      if (short.length) return { done: false, why: `足りない：${short.map(([r, n]) => `${RESOURCE_JA[r]} ${c.perResource[r] ?? 0}／${n}`).join('、')}` };
+      // 下限が基準に届かないだけでは「未達」と言わない（端数が足されて届いているかもしれない。④ QUANTITY-CONTRACT §4）
+      if (short.length) return { done: false, why: `まだ達成と言えない（数えた量の下限：${short.map(([r, n]) => `${RESOURCE_JA[r]} ${c.perResource[r] ?? 0}／${n}`).join('、')}）` };
       if (c.nations.size < c.goal.crossNations) {
         return { done: false, why: c.unverified.length ? `国籍未検証のため、国をまたぐ協力は確定しない（${c.unverified.join('、')}）` : `確かめた他国からの到着が ${c.nations.size}／${c.goal.crossNations} か国` };
       }
@@ -125,15 +126,25 @@ export function recipientOf(arrival, now, requesterCitizen, rules = { status: 'v
     basis: '同じ世代の間、村の持ち主は変わらない（OWNER_CITIZEN を書くのは世代を進める占領・入植だけ）' };
 }
 
-/** 一つの到着を、共同の目的に数える量（依頼の資源ごと）と、数えない理由。 */
-function countOf(a, recipient, timing) {
-  if (a.duplicateOf) return { counted: null, why: '同じ隊商は別の依頼に割り当て済み' };
-  if (a.state !== 'delivered') return { counted: null, why: a.verification === 'KnownZero' ? '届かなかった（0 と分かっている）' : 'まだ届いていない・分からない' };
-  if (!COUNTABLE.includes(a.verification)) return { counted: null, why: a.verification === 'Unverifiable' ? '到着したが、入った量を確認できない' : 'チェーンの記録で確かめていない' };
-  if (recipient?.status !== 'verified') return { counted: null, why: `到着時の受取人が未検証：${recipient?.why ?? ''}` };
-  if (!recipient.isRequester) return { counted: null, why: '到着時の受取人が依頼した人ではない' };
-  if (timing?.status !== 'after') return { counted: null, why: timing?.status === 'before' ? '応じる前に送った隊商' : `応じた後の送信か証明できない（保留）：${timing?.why ?? ''}` };
-  return { counted: a.delivered, why: null };
+/**
+ * 一つの到着を、共同の目的に数える量（依頼の資源ごと）と、数えない理由。
+ * あわせて、この到着が数えられうる量の上限（未満、資源ごと：countUpper）と、もう変わらないか（final）を返す（④ QUANTITY-CONTRACT §4）。
+ */
+function countOf(a, recipient, timing, need) {
+  const zero = () => Object.fromEntries(Object.keys(need).map(r => [r, 0]));
+  const plus1 = o => Object.fromEntries(Object.keys(need).map(r => [r, (o?.[r] ?? 0) + 1]));
+  if (a.duplicateOf) return { counted: null, why: '同じ隊商は別の依頼に割り当て済み', upper: zero(), final: true };
+  if (a.verification === 'KnownZero') return { counted: null, why: '届かなかった（0 と分かっている）', upper: zero(), final: true };
+  if (a.held === 'DestinationMismatch') return { counted: null, why: '別の場所（原因を確認中）', upper: null, final: false };
+  if (a.state !== 'delivered') return { counted: null, why: 'まだ届いていない・分からない', upper: null, final: false };
+  const notMine = recipient?.status === 'verified' && !recipient.isRequester;
+  const before = timing?.status === 'before';
+  if (notMine) return { counted: null, why: '到着時の受取人が依頼した人ではない', upper: zero(), final: true };
+  if (before) return { counted: null, why: '応じる前に送った隊商', upper: zero(), final: true };
+  if (!COUNTABLE.includes(a.verification)) return { counted: null, why: a.verification === 'Unverifiable' ? '到着したが、入った量を確認できない' : 'チェーンの記録で確かめていない', upper: a.cargoLogged ? plus1(a.cargoLogged) : null, final: !!a.cargoLogged };
+  if (recipient?.status !== 'verified') return { counted: null, why: `到着時の受取人が未検証：${recipient?.why ?? ''}`, upper: plus1(a.delivered), final: true };
+  if (timing?.status !== 'after') return { counted: null, why: `応じた後の送信か証明できない（保留）：${timing?.why ?? ''}`, upper: plus1(a.delivered), final: true };
+  return { counted: a.delivered, why: null, upper: plus1(a.delivered), final: true };
 }
 
 /**
@@ -152,15 +163,15 @@ export function coopView({ state, file, obs = { ended: {}, vaults: {} }, checks 
     const q = state.requests[a.requestId];
     const now = checks.holdings?.[a.requestId];
     const c0 = ctxOf(q);
-    const recipient = recipientOf(a, now, c0 ? seasonAddresses(c0.programId, c0.seasonId).of('Citizen', { wallet: q.requester }) : null, rulesOf(q));
+    const recipient = recipientOf(a, now, c0 ? addressesOf(c0).of('Citizen', { wallet: q.requester }) : null, rulesOf(q));
     const sent = checks.caravans?.[caravanKey(a.caravanId)]?.sent;
     const resp = q.responses[a.responder];
     const timing = timingOf(sent?.blockTime, checks.times?.[resp?.id] ?? null);
-    const c = countOf(a, recipient, timing);
+    const c = countOf(a, recipient, timing, q.need);
     // 送った荷（チェーンの最初の CARAVAN_SENT、整数単位、依頼の資源だけ）。④の Fulfilled／Partial は隊商ごとにこれと比べる
     const shipped = sent?.cargo ? pickNeed(sent.cargo, q.need) : null;
     return { ...a, recipient, timing, currentOwner: now?.status === 'found' ? { gen: now.gen, ownerCitizen: now.ownerCitizen } : null, counted: c.counted, notCountedWhy: c.why,
-      shipped, terminal: toWs04Terminal(a, shipped) };
+      countUpper: c.upper, countFinal: c.final, amount: amountOf(a), shipped, terminal: toWs04Terminal(a, shipped) };
   });
   const byReq = {};
   for (const a of arrivals) (byReq[a.requestId] ??= []).push(a);
@@ -185,7 +196,7 @@ export function coopView({ state, file, obs = { ended: {}, vaults: {} }, checks 
         if (rf === null) h.unverified.add(`届けた人 ${a.responder.slice(0, 4)}… の国が未検証`);
         if (hf !== null && rf !== null && hf !== rf) h.otherNations.add(rf);
       } else if (a.state === 'delivered') { h.unprovenDeliveries += 1; if (a.notCountedWhy) h.holdingIssues.add(a.notCountedWhy); }
-      else if (a.state === 'moving' || a.state === 'unknown') h.unverifiedCaravans += 1;
+      else if (a.countFinal === false) h.unverifiedCaravans += 1;
     }
   }
   const joint = Object.values(hosts).map(h => {
@@ -201,7 +212,9 @@ export function coopView({ state, file, obs = { ended: {}, vaults: {} }, checks 
       judge: judge.id, judgeLabel: judge.label, judgeMeans: judge.means,
       // 単位は整数（記録の cargo はミリ単位を1件ずつ切り捨てた値）。k 件を足した合計は、ミリ単位で足してから切り捨てた値より最大 k−1 少なく、
       // 本当の入荷量（ミリ単位）より k 未満少ない。underBy はその k（数えた到着の件数）。
-      progress: Object.entries(h.goal.fromOthers).map(([r, n]) => ({ resource: r, verified: h.perResource[r], need: n, unit: 'whole', underBy: h.records[r] ?? 0 })),
+      // verified は下限（lower bound）。④ QUANTITY-CONTRACT §4：Σb ≥ G なら達成。共同の目的は依頼が増えうるので「未達」は証明しない
+      progress: Object.entries(h.goal.fromOthers).map(([r, n]) => ({ resource: r, verified: h.perResource[r], need: n, unit: 'whole', bound: 'lower', underBy: h.records[r] ?? 0 })),
+      verdict: verdict.done ? 'achieved' : 'undetermined',
       otherNations: [...h.otherNations], nationsUnverified: [...h.unverified], holdingIssues: [...h.holdingIssues], contributors: [...h.contributors],
       unverifiedCaravans: h.unverifiedCaravans, unprovenDeliveries: h.unprovenDeliveries,
       done: verdict.done, why: verdict.done || !h.holdingIssues.size ? verdict.why : `${verdict.why}（数えなかった到着：${[...h.holdingIssues].join('、')}）`, vaultSeenAfter,

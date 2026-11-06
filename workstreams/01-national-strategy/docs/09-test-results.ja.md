@@ -153,3 +153,14 @@ node workstreams/01-national-strategy/test/browser.smoke.mjs --shots  # 11 件�
 | `browser.smoke.mjs`（国の卓） | 14／14 通過 |
 | ヘラルド `cargo test --offline -p herald --lib caravan`（統合 `ef63544c` に 0002b を当てた使い捨ての worktree） | 4／4 通過 |
 | `coop.test`・`coop.send.test`・`coop.continuity.test`・`coop.longrun.test`・`coop.browser`・`coop.realrelay` | 実行していない（鍵・署名・住所の導出） |
+
+## 9-3k. ④の現在版との照合・依頼から照会までの一続き・⑮へ渡す fold()（2026-11-06）
+
+鍵の生成・導出・署名を伴う試験は、共通の準備も含めて実行していない（22章 22-6）。
+
+| 試験 | 結果 |
+|---|---|
+| `node --test` 試作8ファイル＋`coop.contract04`＋`coop.nokey`＋`coop.e2e`（新） | 183／183 通過 |
+| ヘラルド `cargo test --offline -p herald --lib`（④ `8e96f24d` に 0002b を当てた使い捨ての worktree） | 40／40 通過 |
+| `browser.smoke.mjs`（国の卓） | 14／14 通過 |
+| `coop.test`・`coop.send.test`・`coop.continuity.test`・`coop.longrun.test`・`coop.browser`・`coop.realrelay` | 実行していない |

@@ -29,7 +29,7 @@ import { citizenOf, holdingNow, rpcReader, caravanAccount, caravanHistory, sendO
 import { caravanKeyOf } from './arrival.mjs';
 import { pendingSendOf } from './pending.mjs';
 import { openStore, loadStore, readLines, DEFAULT_SEGMENT_BYTES } from './store.mjs';
-import { seasonAddresses } from '../../../permutation-server/web/frontier/faddr.mjs';
+import { addressesOf } from './ids.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(here, '../../..');
@@ -53,7 +53,8 @@ export function loadRecords(file) {
  * 観測の時刻（observed.json）が失われると、再起動の後に初めて見た時刻になる（仮B は「到着より後」を確かめられず、達成にならない側に倒れる）。
  */
 export function createBoard({ herald, programId, seasonId, dataDir, judge = 'arrivals', now = () => Math.floor(Date.now() / 1000), fetchHerald = null, reader = null, relay = '/gw', rpc = null,
-  previous = [], legacyDirs = [], segmentBytes = DEFAULT_SEGMENT_BYTES }) {
+  previous = [], legacyDirs = [], segmentBytes = DEFAULT_SEGMENT_BYTES, verify = verifySig }) {
+  // verify：記録の署名の確かめ（既定は Ed25519 の verifySig）。試験だけが、署名を使わない確かめに差し替える（CLI からは変えられない）
   // 今の文脈（新しい依頼・ヘラルド・見ている人の国）と、前の文脈（読み続ける）。文脈を世界の正本として決めるのは④⑧。①は渡された一覧を使う。
   const season = { programId, seasonId: String(seasonId) };
   const contexts = [season, ...previous.map(c => ({ programId: c.programId, seasonId: String(c.seasonId) }))];
@@ -106,7 +107,7 @@ export function createBoard({ herald, programId, seasonId, dataDir, judge = 'arr
   async function submitOne(rec) {
     const shape = shapeProblem(rec, GOALS);
     if (shape) return { ok: false, why: shape };
-    if (!(await verifySig(rec))) return { ok: false, why: '署名が合わない' };
+    if (!(await verify(rec))) return { ok: false, why: '署名が合わない' };
     if (Math.abs(rec.at - now()) > CLOCK_SKEW) return { ok: false, why: `時刻が板の時計と ${CLOCK_SKEW} 秒より離れている` };
     const q = rec.request ? state().requests[rec.request] : null;
     const ctx = q?.ctx ?? rec.season;
@@ -123,7 +124,7 @@ export function createBoard({ herald, programId, seasonId, dataDir, judge = 'arr
       if (reader) {
         // 元の送り主：隊商の鍵（OWNER_TAG）は送った人の印。奪われると OWNER_CITIZEN は奪った人になるが鍵は変わらない
         if (String(rec.caravan.ownerTag) !== ownerTagOf(ctx, rec.signer)) return { ok: false, why: 'この隊商を送った人（隊商の鍵の持ち主の印）ではない' };
-        const me = seasonAddresses(ctx.programId, ctx.seasonId).of('Citizen', { wallet: rec.signer });
+        const me = addressesOf(ctx).of('Citizen', { wallet: rec.signer });
         // 正本：チェーンの隊商の口座（輸送中なら口座がある）
         const c = await caravanAccount(reader, ctx, rec.caravan);
         if (c.status === 'found') {

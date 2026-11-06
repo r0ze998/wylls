@@ -14,7 +14,7 @@
 import { fastestPath, pack, landsWanted, landOfProvince, CARAVAN_FEE } from '../../../permutation-server/web/frontier/fcaravan.mjs';
 import * as fplay from '../../../permutation-server/web/frontier/fplay.mjs';
 import * as io from '../../../permutation-server/web/frontier/fchainio.mjs';
-import { seasonAddresses } from '../../../permutation-server/web/frontier/faddr.mjs';
+import { addressesOf } from './ids.mjs';
 import { decode } from '../../../permutation-server/web/frontier/fcodec.mjs';
 import { RESOURCES, ownerTagOf } from './record.mjs';
 import { PRESETS as V2 } from '../../../permutation-server/web/sdk/frontier/abi-v2-presets.mjs';
@@ -31,7 +31,7 @@ const fail = (code, why) => ({ ok: false, code, why });
 
 /** 村の口座（v2）から、送り元・届け先に要る欄。 */
 async function holdingAt(reader, season, ref) {
-  const A = seasonAddresses(season.programId, season.seasonId);
+  const A = addressesOf(season);
   const bytes = await reader.account(A.of('Holding', ref));
   if (!bytes) return null;
   const h = decode('Holding', bytes, { seasonId: season.seasonId });
@@ -40,7 +40,7 @@ async function holdingAt(reader, season, ref) {
 
 /** 州の口座から、道を探すのに要る地形の印（ゲームの画面が herald の封筒から得るのと同じ欄）。 */
 async function landsFromChain(reader, season, a, b) {
-  const A = seasonAddresses(season.programId, season.seasonId);
+  const A = addressesOf(season);
   const out = [];
   for (const c of landsWanted(a, b)) {
     const bytes = await reader.account(A.of('Province', c));
@@ -74,7 +74,7 @@ export async function planSend({ reader, season, wallet, request, cargo, source 
   if (!ref) return fail('NoVillage', '送り元の村がない');
   const src = await holdingAt(reader, season, { p: ref.p, q: ref.q, site: ref.site });
   if (!src) return fail('NoVillage', '送り元の村の口座がない');
-  const A = seasonAddresses(season.programId, season.seasonId);
+  const A = addressesOf(season);
   if (src.ownerCitizen !== me.citizen) return fail('NotYourVillage', '送り元の村の持ち主ではない');
   // 届け先：依頼の村が、依頼した人の村で、世代が同じ
   const host = await holdingOf(reader, season, request.to, request.requester);
