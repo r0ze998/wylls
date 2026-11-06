@@ -701,3 +701,40 @@ A8 の旧試験（`v16_unknown_tag.rs` の v16_a8）は固定 seed の鍵で署�
 - ゲームのプログラムの CloseCitizen・CloseProvince・EndSeason を実際に動かすこと（時刻の条件、誰でも呼べること）。SBF か、ゲームのプログラムのホスト実行が要る。
 - 実配備されているプログラムで同じ条件が成り立つか、実害があったか。
 - 賞金の運用（Tally・Finalize・SetShares を 72 時間以内に行う規則）が実際に守られているか。
+
+## 13.6 ④の修正候補 RecordNation（f43eb4eb）の照合
+
+対象: GitHub `claude/gallant-ride-cunptv` の `f43eb4eb86f9aec6949ecf361ea13d35694ff639`（tree `38a2eb5a48716f57ba5cd5e23796ed9a8ef7f5ad`、親 `b858e40d`）。説明の文書は `e0a48010ddcbf5eede5d88b79e08b7c7c5640ed2`（tree `d107d8395d343e2fa1a6651c0cc979f93ec31193`、④の申告と一致）。採用も配備もされていない候補。
+
+**修正の中身（読解）**: 賞金プログラムに tag 7 RecordNation（口座 `[pool] [entry w] [citizen]`、署名不要、どの pool の状態でも可）を足す。生きている Citizen の国を Entry の byte 10–11 に写す。同じ国の再記録は何もしない。違う国は `BadAccount`。Claim は Citizen が生きていればそれを読み、Citizen のアドレスが空（データ無し、かつ System の持ち物か lamports 0）のときだけ記録を使う。
+
+**前提の確認（読解）**: ゲームのコードで Citizen の `C::FACTION` を書くのは Join（`permutation-frontier/src/proc/citizen.rs:421`）だけ。占領で国が変わるのは Holding（`H::FACTION`）で、Citizen ではない。したがって「記録は Claim が Citizen から読む値と同じ」は今のゲームのコードでは成り立つ。
+
+**実行（ホスト、鍵なし）**: ④の `e2e-native` は、この版からゲームのプログラムの `dispatch` を `Host::with_game` で実際に動かす（CloseCitizen・CloseProvince は代役ではない。Join・EndSeason は動かさず、口座は layout で直接書く）。⑯の `probes/v16_record_nation.rs`（補助関数は④の `claims_vs_closes.rs` を写し、場面は⑯）:
+
+| 場面 | f43eb4eb | 判定 |
+|---|---|---|
+| F1 第三者（b の署名なし）が b の国を記録 → 本物の CloseCitizen（end+72h、第三者）→ b の Claim は正しい額で通る。2 回目は `AlreadyClaimed` | 通過 | **修正を確認** |
+| F2 記録なしで閉じられると、従来どおり `BadAccount` | 通過 | **残る**（誰かが期限内に記録しない限り失われる） |
+| F3 閉じられた後は記録できない | 通過 | **残る**（記録の窓は CloseCitizen まで。その起点は予定の終了時刻＋72h） |
+| F4 閉じたアドレスに第三者が lamports を送っても、記録済みは通り、未記録は同じ `BadAccount` | 通過 | 新しい抜け道なし |
+| F5（代役で国の値を書き換え）記録と生きている Citizen が食い違うと、再記録は `BadAccount`、Citizen が生きている間は Citizen の国（`NotWinner`）、閉じた後は記録の国で通る | 通過 | 挙動の記録。今のゲームでは国は変わらないので起きないが、将来国を変える命令を足すと、閉じる前と後で結果が変わる |
+| F6 他の wallet の Citizen、払っていない wallet、プログラム以外が持つ Entry には記録できない | 通過 | 偽装の拒否を確認 |
+| ⑯の P1〜P6（記録しない場面） | 6/6 通過 | 修正後も同じ（記録の無い Entry の挙動は変わらない） |
+| ④の `claims_vs_closes.rs` 12 件（本物の CloseCitizen・CloseProvince。A＝P1、B＝P3、C＝P2、D＝P4、E＝P5 と修正後の場面） | 12/12 通過 | ④の試験を⑯が実行。P2・P3 は本物の CloseProvince でも再現 |
+| ④の `legacy_season_claims.rs` 4 件 | 4/4 通過 | |
+
+ログ: `logs/phase8/f43e-fix.log`。
+
+**修正前後のまとめ**
+
+| 問題 | b858e40d（修正前） | f43eb4eb（修正候補） |
+|---|---|---|
+| CloseCitizen で shares の受取権が消える | 再現 | **記録済みなら直る**。未記録は残る（記録は誰でもできるが、誰かが閉鎖前に送る運用が要る） |
+| refund 方式 | 影響なし | 影響なし |
+| Tally 後の州の閉鎖で Finalize 固着（P2） | 再現 | **残る**（この修正の対象外） |
+| 未集計の州の閉鎖で勝者が変わる（P3） | 再現 | **残る** |
+| 終了後の Pay（P4） | 再現 | **残る** |
+| Aborted の季の参加費（P5） | 再現 | **残る** |
+
+**未照合**: ⑰の候補 Attest（同じ tag 7。⑰によれば Ended の後だけ記録でき、Entry の byte 104–105）。⑰の `wylls-17-claimrights-b858.tgz`（sha256 `d100f170b07f5adc337276a6ef5e28dd2b453d4ecf12c85b5ae44f2b9bf3ccc9`、前提 b858e40d、HEAD `a4c8cc96fec2746ca3af22f3b2b1759cf9516461`、tree `be4be82d17601ab002912f2cb88e5a0f220957e0`）を受け取っていない。④と⑰の候補は同じ tag を使うので、どちらか 1 つに決める必要がある（④・⑰が相談中）。Ended の後だけ記録できる案では、EndSeason が予定より 72 時間以上遅れると記録の窓が 0 になる（13.1 の 72 時間の起点）。
