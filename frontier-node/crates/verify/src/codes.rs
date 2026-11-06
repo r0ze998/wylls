@@ -30,6 +30,16 @@ pub const MISSING_POST_STATE: &str = "MissingPostState";
 pub const UNVERIFIED_RECORD: &str = "UnverifiedRecord";
 /// A JoinResident and the Citizen, record or link it left disagree (FAIL, V27).
 pub const RESIDENT_JOIN_MISMATCH: &str = "ResidentJoinMismatch";
+/// A ResidentAct and its inner instruction, accounts, join or Citizen disagree (FAIL, V28).
+pub const RESIDENT_ACT_MISMATCH: &str = "ResidentActMismatch";
+/// A ResidentAct accepted for a signature, owner or session that was not the
+/// pass's holder at the time: an earlier generation, a previous owner, a
+/// previous owner's session (FAIL, V28).
+pub const RESIDENT_OLD_AUTHORITY: &str = "ResidentOldAuthority";
+/// A ResidentAct whose holder or join the record cannot show (UNVERIFIABLE, V28).
+pub const RESIDENT_ACT_UNPROVEN: &str = "ResidentActUnproven";
+/// A ResidentAct's inner instruction, whose own effects no check replays yet (UNVERIFIABLE, V28).
+pub const RESIDENT_INNER_UNMODELLED: &str = "ResidentInnerUnmodelled";
 // V2 program and rules
 pub const PROGRAM_MISMATCH: &str = "ProgramMismatch";
 pub const RULESET_MISMATCH: &str = "RulesetMismatch";
