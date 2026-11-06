@@ -138,6 +138,10 @@ pub struct RpcPoll {
     gap: Option<String>,
     /// Consecutive pulls the witness was behind the whole batch.
     witness_behind: u32,
+    /// Signatures the node listed that the last pull did not hand back
+    /// (the witness behind, or a transaction not retrievable yet): an empty
+    /// pull with signatures held back is not "caught up".
+    held_back: usize,
 }
 
 /// Coverage reasons ([`RpcPoll::coverage`]).
@@ -151,7 +155,7 @@ pub mod reason {
 }
 
 /// What RPC answers cannot establish, stated with every coverage report.
-pub const COVERAGE_LIMIT: &str = "RPC answers cannot prove a complete history: a witness on the same storage misses the same range, and a record absent from the archive is no evidence that the transaction did not happen";
+pub const COVERAGE_LIMIT: &str = "RPC answers cannot prove a complete history: cross_checked only records that the node and the witness agreed (a witness on the same storage misses the same range); it is not proof of completeness or of finality, and a record absent from the archive is no evidence that the transaction did not happen";
 
 const SEEN_KEEP: usize = 20_000;
 /// Signatures read below the oldest new one to find the last archived one
@@ -176,6 +180,7 @@ impl RpcPoll {
             refused: None,
             gap: None,
             witness_behind: 0,
+            held_back: 0,
         }
     }
 
@@ -219,8 +224,15 @@ impl RpcPoll {
             "unverifiable": self.cov_unverified.iter().map(|(r, s)| json!({"reason": r, "fromSlot": s})).collect::<Vec<_>>(),
             "origin": self.origin.map(|s| s.to_string()),
             "witness": self.witness.is_some(),
+            "heldBack": self.held_back,
             "limit": COVERAGE_LIMIT,
         })
+    }
+
+    /// Signatures the node listed that the last pull did not hand back
+    /// (see `heldBack` in [`RpcPoll::coverage`]).
+    pub fn held_back(&self) -> usize {
+        self.held_back
     }
 
     fn unverified(&mut self, reason: &str, slot: u64) {
@@ -402,6 +414,7 @@ const WITNESS_BEHIND_MAX: u32 = 30;
 
 impl RpcPoll {
     async fn pull_checked(&mut self) -> PortResult<Vec<TxRecord>> {
+        self.held_back = 0;
         if let Some(r) = &self.refused {
             return Err(PortError::Unavailable(r.clone()));
         }
@@ -460,10 +473,12 @@ impl RpcPoll {
                 match self.check_witness(w, &newest_first, &collected).await? {
                     WitnessSaw::Agrees(keep) => {
                         self.witness_behind = 0;
-                        newest_first.drain(..newest_first.len() - keep);
+                        self.held_back = newest_first.len() - keep;
+                        newest_first.drain(..self.held_back);
                     }
                     WitnessSaw::Behind if self.witness_behind < WITNESS_BEHIND_MAX => {
                         self.witness_behind += 1;
+                        self.held_back = newest_first.len();
                         return Ok(vec![]);
                     }
                     WitnessSaw::Behind | WitnessSaw::Lacks => {
@@ -476,6 +491,7 @@ impl RpcPoll {
             Some(_) => {}
         }
         let mut out = vec![];
+        let listed = newest_first.len();
         for s in newest_first.into_iter().rev() {
             // The cursor advances with each transaction handed back, so a
             // failure after some of them returns those (they are archived,
@@ -510,8 +526,28 @@ impl RpcPoll {
                 None => break,
             }
         }
+        self.held_back += listed - out.len();
         Ok(out)
     }
+}
+
+/// The coverage an archived `RpcPoll` cursor records (the verifier reads
+/// it from a findex archive's manifest): [`RpcPoll::coverage`] without the
+/// reading poller's own settings (`origin`, `witness`, `heldBack` are
+/// `null`: what they checked is in `unverifiable`). `None` when the cursor
+/// is not an `RpcPoll` one (an ordered feed's `feed_after`, or `null`).
+pub fn coverage_from_cursor(cursor: &Value) -> Option<Value> {
+    let ours = ["rpc_last", "rpc_refused", "rpc_coverage"];
+    if !ours.iter().any(|k| cursor.get(k).is_some()) {
+        return None;
+    }
+    let mut p = RpcPoll::new(String::new(), Address::default());
+    p.restore(cursor);
+    let mut c = p.coverage();
+    for k in ["origin", "witness", "heldBack"] {
+        c[k] = Value::Null;
+    }
+    Some(c)
 }
 
 impl Source for RpcPoll {

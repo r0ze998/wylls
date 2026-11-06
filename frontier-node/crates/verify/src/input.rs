@@ -25,6 +25,7 @@ use fclient::rpc::{account_json, parse_account};
 use serde_json::{json, Value};
 use solana_address::Address;
 
+use crate::history::History;
 use crate::world::Key;
 
 /// Fixture file format tag.
@@ -98,11 +99,14 @@ pub struct Input {
     /// Honest-but-adverse scenarios the fixture claims to contain (checked
     /// by the fixture tests, not by the verifier).
     pub scenarios: Vec<String>,
+    /// Where `txs` came from and whether that shows them to be the whole
+    /// history ([`crate::history`]).
+    pub history: History,
 }
 
 impl Input {
     pub fn to_json(&self) -> Value {
-        json!({
+        let mut v = json!({
             "format": FIXTURE_FORMAT,
             "provenance": self.provenance,
             "scenarios": self.scenarios,
@@ -111,7 +115,13 @@ impl Input {
             "program_hashes": self.program_hashes.iter().map(|(s, h)| json!([s, hex::encode(h)])).collect::<Vec<_>>(),
             "txs": self.txs.iter().map(findex::archive::record_to_json).collect::<Vec<_>>(),
             "finals": self.finals.iter().map(|(k, a)| json!([Address::new_from_array(*k).to_string(), a.as_ref().map(account_json)])).collect::<Vec<_>>(),
-        })
+        });
+        // Saved from RPC or an archive, a fixture keeps where its
+        // transactions came from (it does not become `as_given`).
+        if let Some(h) = self.history.to_json() {
+            v["history"] = h;
+        }
+        v
     }
 
     pub fn from_json(v: &Value) -> Result<Input, String> {
@@ -156,6 +166,7 @@ impl Input {
                         .collect()
                 })
                 .unwrap_or_default(),
+            history: History::from_json(v.get("history")),
         })
     }
 
@@ -248,12 +259,16 @@ pub fn written_keys(txs: &[TxRecord]) -> Vec<Address> {
     v.into_iter().map(Address::new_from_array).collect()
 }
 
-/// Reads a findex archive directory (`manifest.json` + segments).
-pub fn read_archive(dir: &Path) -> Result<Vec<TxRecord>, String> {
+/// Reads a findex archive directory (`manifest.json` + segments) and where
+/// its records came from (the cursor its manifest holds, see
+/// [`History::of_archive`]).
+pub fn read_archive(dir: &Path) -> Result<(Vec<TxRecord>, History), String> {
     let a = findex::archive::Archive::open(dir, findex::archive::SEGMENT_BYTES)
         .map_err(|e| format!("{}: {e}", dir.display()))?;
     a.verify()?;
-    a.read_after(0).map_err(|e| e.to_string())
+    let txs = a.read_after(0).map_err(|e| e.to_string())?;
+    let h = History::of_archive(a.cursor(), !txs.is_empty(), &dir.display().to_string());
+    Ok((txs, h))
 }
 
 /// The final states of `keys` and the slot they were read at, over RPC.
@@ -384,13 +399,23 @@ pub fn elf_len(b: &[u8]) -> Option<usize> {
     usize::try_from(end).ok().filter(|&n| n <= b.len())
 }
 
+/// Empty pulls with signatures held back that [`fetch_txs`] waits through.
+pub const HELD_WAITS: u32 = 60;
+pub const HELD_WAIT: std::time::Duration = std::time::Duration::from_millis(400);
+
 /// The program's transactions over RPC: `frontier_feed` on a local node,
-/// else `getSignaturesForAddress` + `getTransaction` (findex `RpcPoll`).
+/// else `getSignaturesForAddress` + `getTransaction` (findex `RpcPoll`),
+/// with where they came from. Over public RPC the [`History`] carries
+/// `RpcPoll`'s coverage (never complete, see [`crate::history`]); `origin`
+/// and `witness` are its optional G1/G3 checks. A history gap (or an
+/// unreadable source) is an error: nothing is verified over it.
 pub async fn fetch_txs(
     url: &str,
     program: &Address,
     localnet: bool,
-) -> Result<Vec<TxRecord>, String> {
+    origin: Option<fclient::ports::Signature>,
+    witness: Option<&str>,
+) -> Result<(Vec<TxRecord>, History), String> {
     use findex::ingest::Source;
     let mut out = vec![];
     if localnet {
@@ -403,15 +428,31 @@ pub async fn fetch_txs(
             }
             out.extend(b);
         }
-    } else {
-        let mut s = findex::ingest::RpcPoll::new(url, *program);
-        loop {
-            let b = s.pull().await.map_err(|e| e.to_string())?;
-            if b.is_empty() {
+        return Ok((out, History::ledger_feed(format!("local node feed {url}"))));
+    }
+    let mut s = findex::ingest::RpcPoll::new(url, *program);
+    if let Some(o) = origin {
+        s = s.with_origin(o);
+    }
+    if let Some(w) = witness {
+        s = s.with_witness(w);
+    }
+    let mut waits = 0;
+    loop {
+        let b = s.pull().await.map_err(|e| e.to_string())?;
+        if b.is_empty() {
+            // An empty pull with signatures held back (a witness behind, a
+            // transaction not retrievable yet) is not the end of the history:
+            // pull again (RpcPoll archives them unchecked after a bound). A
+            // tail still held back after `HELD_WAITS` stays in `heldBack`.
+            if s.held_back() == 0 || waits >= HELD_WAITS {
                 break;
             }
-            out.extend(b);
+            waits += 1;
+            tokio::time::sleep(HELD_WAIT).await;
+            continue;
         }
+        out.extend(b);
     }
-    Ok(out)
+    Ok((out, History::rpc(s.coverage(), format!("rpc {url}"))))
 }

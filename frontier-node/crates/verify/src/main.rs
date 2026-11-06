@@ -12,6 +12,8 @@
 //!          --out DIR                        report directory (default: verify-report)
 //!          --json                           print the JSON report instead of the Markdown
 //!          --save FILE                      also write the input read as a fixture (.gz: gzip)
+//!          --origin SIG | --witness URL     public RPC: findex's history checks (G1, G3);
+//!                                           an RPC history is never PASS (history.rs)
 //!          --jobs N                         tamper: classes judged at a time (default: cores, ≤ 8)
 //!          --fallback-fixtures DIR          tamper: judge a class the run cannot express on the
 //!                                           committed fixtures in DIR instead (labelled)
@@ -38,7 +40,7 @@ fn usage(msg: &str) -> ! {
         include_str!("main.rs")
             .lines()
             .skip(4)
-            .take(14)
+            .take(16)
             .map(|l| {
                 l.strip_prefix("//! ")
                     .or_else(|| l.strip_prefix("//!"))
@@ -78,6 +80,8 @@ fn main() {
     let mut finals: Option<PathBuf> = None;
     let mut rpc: Option<String> = None;
     let mut localnet = false;
+    let mut origin: Option<fclient::ports::Signature> = None;
+    let mut witness: Option<String> = None;
     let mut program: Option<String> = None;
     let mut season: Option<u64> = None;
     let mut pk: Option<[u8; 96]> = None;
@@ -98,6 +102,8 @@ fn main() {
             "--finals" => finals = Some(val().into()),
             "--rpc" => rpc = Some(val()),
             "--localnet" => localnet = true,
+            "--origin" => origin = Some(val().parse().unwrap_or_else(|_| usage("bad --origin"))),
+            "--witness" => witness = Some(val()),
             "--program" => program = Some(val()),
             "--season" => season = Some(val().parse().unwrap_or_else(|_| usage("bad --season"))),
             "--test-key" => pk = Some(fclient::beacon::TestKey::new().pk96),
@@ -128,10 +134,16 @@ fn main() {
             .enable_all()
             .build()
             .expect("runtime");
-        let txs = match (&archive, &rpc) {
+        let (txs, history) = match (&archive, &rpc) {
             (Some(d), _) => input::read_archive(d).unwrap_or_else(|e| usage(&e)),
             (None, Some(u)) => rt
-                .block_on(input::fetch_txs(u, &program, localnet))
+                .block_on(input::fetch_txs(
+                    u,
+                    &program,
+                    localnet,
+                    origin,
+                    witness.as_deref(),
+                ))
                 .unwrap_or_else(|e| usage(&e)),
             (None, None) => usage("--archive or --rpc is required"),
         };
@@ -194,6 +206,7 @@ fn main() {
                 .map(|d| format!("archive {}", d.display()))
                 .unwrap_or_else(|| format!("rpc {}", rpc.clone().unwrap_or_default())),
             scenarios: vec![],
+            history,
         }
     };
     // A fixture carries its own trust roots; say so when the operator did

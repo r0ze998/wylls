@@ -191,6 +191,7 @@ impl World {
             program_hashes: vec![(0, so_hash)],
             provenance: provenance.into(),
             scenarios: scenarios.iter().map(|s| s.to_string()).collect(),
+            history: Default::default(),
         }
     }
 }
