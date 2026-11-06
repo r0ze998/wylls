@@ -1,12 +1,13 @@
 #!/bin/sh
 # Mutation checks for workstream 12: break one guard, run the tests, restore the file. Prints "<label>: fail N";
 # every line must show fail >= 1 (a guard no test notices would print "fail 0"). Needs python3 and node.
-#   sh workstreams/12-memory/tools/mutate.sh
+#   sh workstreams/12-memory/tools/mutate.sh            (no key operations: only the no-key tests can catch a guard)
+#   WITH_KEYS=1 sh workstreams/12-memory/tools/mutate.sh (also the key-using suite, test-only fixed keys)
 set -u
 cd "$(dirname "$0")/.." || exit 1
 S=$(mktemp -d)
 trap 'rm -r "$S"' EXIT
-mut(){ cp "$1" "$S/bak"; python3 -c "import sys;p=sys.argv[1];s=open(p).read();assert sys.argv[2] in s;open(p,'w').write(s.replace(sys.argv[2],sys.argv[3],1))" "$1" "$2" "$3" 2>/dev/null || { echo "$4: PATTERN MISSING"; cp "$S/bak" "$1"; return; }; r=$(node --test test/*.test.mjs 2>&1 | grep -E "^# fail" | sed 's/# //'); cp "$S/bak" "$1"; echo "$4: $r"; }
+mut(){ cp "$1" "$S/bak"; python3 -c "import sys;p=sys.argv[1];s=open(p).read();assert sys.argv[2] in s;open(p,'w').write(s.replace(sys.argv[2],sys.argv[3],1))" "$1" "$2" "$3" 2>/dev/null || { echo "$4: PATTERN MISSING"; cp "$S/bak" "$1"; return; }; r=$(if [ "${WITH_KEYS:-}" = 1 ]; then node --test test/*.test.mjs 2>&1 | grep -E "^# fail" | sed 's/# //'; else sh tools/test-nokey.sh 2>/dev/null | grep -E "^# FAILED" | sed 's/# FAILED:/fail/'; fi); cp "$S/bak" "$1"; echo "$4: $r"; }
 echo "# v2 guards"
 mut src/fold.mjs "if (!cov.ok) {" "if (false) {" "missing record treated as failure"
 mut src/fold.mjs "(r.created_bell ?? r.bell) <= observedBy" "true" "observation time ignored"

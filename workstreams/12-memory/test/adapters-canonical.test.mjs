@@ -14,7 +14,7 @@ import {
   b58decode, b58encode, clockFromHeraldEvents, connectCanonical, currentBellFromSeason, finalizedSlotFrom,
   identityFromHeraldMe, readWs04Store, resolverFromIdentity, storeWorldMismatch, worldFromSeason, ws12EvidencePort,
 } from '../adapters/canonical.mjs';
-import { dm } from '../fixtures/scenario.mjs';
+const dm = (...members) => ({ scope: 'parties', members });
 
 const bytes = (fill, head = []) => { const b = Buffer.alloc(32, fill); Buffer.from(head).copy(b); return b; };
 const PROGRAM = b58encode(bytes(0x21));
@@ -223,4 +223,77 @@ test("canonical 4 (real store): runexec's own SQLite reads to the same receipts 
   const r = connectCanonical(m, full({ store: s, binding: { ...BINDING, ws04World: s.world } }));
   assert.equal(r.status, 'ok');
   assert.ok(r.ingest.added > 0 && r.ingest.collision === 0 && r.ingest.refused === 0);
+});
+
+// ---------------------------------------------------------------- nothing unfounded becomes a verdict (no keys)
+test('canonical: a promise is never judged from missing, unfinalized or unallocated records, across a restart', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ws12-verdict-'));
+  const path = join(dir, 'memory.jsonl');
+  const w = worldFromSeason(SEASON);
+  const open = () => createMemory({ path, world: w.world, partitions: w.partitions });
+  const m0 = open();
+  const req = m0.say({ speaker: WALLET_A, bell: 100, visibility: { scope: 'public' }, act: { type: 'request', to: WALLET_B, resource: 'science', qty: 3, by_bell: 130, place: { partition: w.partition, kind: 2, p: 1, q: 0, at: 5, gen: 1 } } });
+  m0.say({ speaker: WALLET_B, bell: 101, visibility: { scope: 'public' }, act: { type: 'accept', ref: req.id, qty: 3, by_bell: 130 } });
+  const VERDICTS = ['fulfilled', 'late', 'partial', 'not_sent'];
+  const look = m => { const k = m.knowledge({ tag: WALLET_A, nation: null }, 300); return { c: k.commitments[0], rel: k.reliability }; };
+  const stages = [
+    ['nothing published', null],
+    ['finality missing', { finality: null }],
+    ['events missing (clock unknown)', { events: [] }],
+    ['identity missing', { me: [] }],
+    ['finalized only up to the send', { finality: FINAL(4) }],
+    ['everything published, no allocation', {}],
+  ];
+  const seen = [];
+  for (const [label, over] of stages) {
+    const m = open(); // a restart before each stage
+    if (over) connectCanonical(m, full(over));
+    const { c, rel } = look(m);
+    assert.ok(!VERDICTS.includes(c.state), `${label}: ${c.state}`);
+    assert.equal(c.state, 'unconfirmed', label);
+    assert.equal(c.delivered_max, 0, label);
+    const rb = rel[WALLET_B];
+    assert.deepEqual([rb.r, rb.s, rb.evidence.length], [0, 0, 0], `${label}: reliability moved`);
+    assert.equal(rb.unresolved.length, 1, `${label}: the open promise is listed as unknown, beside the score`);
+    seen.push(c.reasons.join(','));
+  }
+  assert.ok(seen.every(r => r.length > 0), 'each stage says why it is unconfirmed');
+  // restart after all stages: the journal holds each fact once
+  const ids = open().journal.records().map(r => r.id);
+  assert.equal(new Set(ids).size, ids.length);
+});
+
+test('canonical: one event reported by several runs and read paths is one fact; a later re-read is a duplicate; another body collides', () => {
+  const m = memFor();
+  const r = connectCanonical(m, full({ store: readWs04Store(storeFrom(['happy', 'crash', 'lost-response'])) }));
+  assert.deepEqual([r.ingest.collision, r.ingest.refused], [0, 0]);
+  const count = k => m.journal.records().filter(x => x.kind === k).length;
+  assert.deepEqual(['caravan_sent', 'caravan_settled', 'caravan_credited', 'identity_alias'].map(count), [1, 1, 1, 1]);
+  // observed again, later (the herald's clock moved on): nothing new, nothing colliding
+  const n = m.journal.records().length;
+  const again = connectCanonical(m, full({ store: readWs04Store(storeFrom(['happy', 'crash'])), season: { ...SEASON, latestUnix: SEASON.latestUnix + 50 * 600 } }));
+  assert.deepEqual([again.ingest.added, again.ingest.collision], [0, 0]);
+  assert.equal(m.journal.records().length, n);
+  // the same kind|subject with another body: a collision, the first kept
+  const path = storeFrom(['happy']);
+  const db = new DatabaseSync(path);
+  const row = db.prepare("SELECT body FROM receipts WHERE kind = 'caravan_settled'").get();
+  assert.ok(row.body.includes('"cargo":[0,0,0,0,0,0,3,0]'));
+  db.prepare('INSERT INTO receipts VALUES(?,?,?,?,?,?,?)').run('forged', 'demo-happy', 'caravan_settled', 'cv:77:0', 'history:x', 24, row.body.replace('"cargo":[0,0,0,0,0,0,3,0]', '"cargo":[0,0,0,0,0,0,2,0]'));
+  db.close();
+  const m2 = memFor();
+  const r2 = connectCanonical(m2, full({ store: readWs04Store(path) }));
+  assert.ok(r2.ingest.collision >= 1);
+  assert.equal(m2.journal.records().filter(x => x.kind === 'caravan_settled').length, 1);
+});
+
+test('canonical: a send whose run spec is missing is held (dst_unknown), never dropped or guessed', () => {
+  const path = storeFrom(['happy']);
+  const db = new DatabaseSync(path);
+  db.exec('DELETE FROM runs');
+  db.close();
+  const m = memFor();
+  const r = connectCanonical(m, full({ store: readWs04Store(path) }));
+  assert.deepEqual(r.held.filter(h => h.why === 'dst_unknown').map(h => h.receipt.split('|')[1]), ['caravan_sent']);
+  assert.equal(m.journal.records().filter(x => x.kind === 'caravan_sent').length, 0);
 });

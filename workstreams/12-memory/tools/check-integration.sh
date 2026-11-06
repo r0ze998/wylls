@@ -7,25 +7,41 @@
 #   - with --regen-ws04: build 4's runexec, rerun its demo scenarios and diff the receipt vectors in
 #     fixtures/ws04-receipts, and read each real store with adapters/canonical.mjs (needs cargo; the
 #     vectors' provenance names the commit they came from).
-#   sh workstreams/12-memory/tools/check-integration.sh [REF] [--regen-ws04]
+#   sh workstreams/12-memory/tools/check-integration.sh [REF | FILE.bundle#SHA] [--regen-ws04]
+# A commit that is not on GitHub can be checked from a git bundle: FILE.bundle#SHA fetches SHA from the bundle
+# (after `git bundle verify`) into this clone's object store without touching any branch.
+# Tests run with key generation, derivation and signing disabled (tools/test-nokey.sh); tests that need a key are
+# listed as needs-key and not run. Set WITH_KEYS=1 to also run the key-using suite.
 set -eu
 here=$(cd "$(dirname "$0")/.." && pwd)
 repo=$(git -C "$here" rev-parse --show-toplevel)
 ref=${1:-origin/integration/ws09-13-v16-d0949fd4}
 regen=${2:-}
+case "$ref" in
+  *.bundle\#*)
+    bundle=${ref%%#*}; ref=${ref#*#}
+    git -C "$repo" bundle verify "$bundle" >/dev/null
+    git -C "$repo" fetch -q "$bundle" "$ref" 2>/dev/null || git -C "$repo" fetch -q "$bundle" "refs/*:refs/ws12-check/*"
+    git -C "$repo" cat-file -e "$ref^{commit}" ;;
+esac
 wt=$(mktemp -d)
 trap 'git -C "$repo" worktree remove --force "$wt" >/dev/null 2>&1 || true' EXIT
 git -C "$repo" worktree add -q --detach "$wt" "$ref"
 echo "integration ref: $ref = $(git -C "$wt" rev-parse HEAD)"
 cp -R "$here/." "$wt/workstreams/12-memory/"
 cd "$wt"
-echo "== 12's tests on the integration tree"
-node --test workstreams/12-memory/test/*.test.mjs 2>&1 | grep -E "^# (tests|pass|fail|skipped)|^not ok|# SKIP" || true
+echo "== 12's tests on the integration tree (no key operations)"
+sh workstreams/12-memory/tools/test-nokey.sh || true
+if [ "${WITH_KEYS:-}" = 1 ]; then
+  echo "== 12's key-using suite (test-only fixed keys)"
+  node --test workstreams/12-memory/test/*.test.mjs 2>&1 | grep -E "^# (tests|pass|fail|skipped)|^not ok|# SKIP" || true
+fi
 echo "== 13's own ws12 tests against this 12 (those present at REF)"
 for t in workstreams/13-citizens/test/ws12-public-evidence.test.mjs workstreams/13-citizens/test/ws12-adapter.test.mjs; do
   [ -f "$t" ] || { echo "$t: not at this ref"; continue; }
   echo "-- $t"
-  node --test "$t" 2>&1 | grep -E "^# (tests|pass|fail|skipped)|^not ok|# SKIP|ERR_MODULE_NOT_FOUND" || true
+  sh workstreams/12-memory/tools/test-nokey.sh "$t" || true
+  node --import ./workstreams/12-memory/tools/nokey-guard.mjs --test "$t" 2>&1 | grep -E "ERR_MODULE_NOT_FOUND" | head -1 || true
 done
 if [ "$regen" = "--regen-ws04" ]; then
   echo "== 4's receipt vectors"
