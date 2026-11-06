@@ -1,8 +1,7 @@
-//! An NFT resident's Citizen: what marks it in the v2 Citizen layout and how
-//! its own records are keyed. **Provisional** (2026-11-06): the offsets inside
-//! `RSV_348`, the value of `WALLET` and the record key are proposed to the
-//! integrator (workstream 4) and not yet allocated; they live here only, so
-//! one change moves them.
+//! An NFT resident's Citizen: what marks it in the v2 Citizen layout, where
+//! it lives and how its own records are keyed. Allocated by workstream 4 on
+//! 2026-11-06 (`ABI-ALLOCATION-20261106.ja.md` §3, §5; provisional until
+//! integration). They live here only, so one change moves them.
 //!
 //! - `WALLET` is all zero for an NFT Citizen. No signer is the zero key, so
 //!   every wallet or Frontier-session check, and every check of the
@@ -12,9 +11,14 @@
 //! - `RESIDENT_ASSET` (32 bytes at 348) names the Core asset, and
 //!   `RESIDENT_FLAGS` (1 byte at 380) carries `FLAG_RESIDENT`. Bytes 381..384
 //!   stay reserved (zero).
-//! - Its records are keyed by the resident id `sha256("PSF-RES" ‖ asset)[0..15]`,
-//!   the tag the resident program stores in its own account, instead of the
-//!   wallet tag (which would be the same for every NFT Citizen).
+//! - Its account address and its records' key come from the resident id
+//!   `sha256("PSF-RES" ‖ asset)[0..15]` (the tag the resident program stores in
+//!   its own account) exactly as a wallet Citizen's come from its wallet tag:
+//!   the Citizen is at `citizen_by_tag15(resident id)` of its Season. The
+//!   wallet tag of a zero wallet would be the same for every NFT Citizen; the
+//!   different domain ("PSF-RES", "PSF-CIT") keeps the two kinds of tag apart.
+//!   So every reader that maps a record key to a Citizen address (keeper,
+//!   herald, verifier) finds an NFT Citizen the same way.
 
 use crate::v2::layout::player::citizen as C;
 use permutation_rules::frontier::addr::citizen_tag15;
