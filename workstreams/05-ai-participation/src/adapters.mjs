@@ -14,7 +14,8 @@
 // party that refuses (DESIGN.md §5.1). The journal records; it never decides
 // that something happened without the chain's or the world's answer.
 import { appendFileSync, existsSync, readFileSync } from 'node:fs';
-import { AGENT_ACTIONS, CANDIDATES, CATALOG_S1, FrontierAddresses, NEVER_DELEGATED, accountsFor, ixOf } from './deps.mjs';
+import { AGENT_ACTIONS, CANDIDATES, CATALOG_S1, NEVER_DELEGATED, ixOf } from './deps.mjs';
+import { GATEWAY_SOURCE } from './deps.mjs';
 
 export const ADAPTER_STATUS = Object.freeze({
   grant: 'provisional: ② rights contract not received; reads the agent wallet policy + mode + delegation, narrowed by the owner\'s local mandate',
@@ -60,16 +61,20 @@ const FIELD_RANGES = Object.freeze({
   Harvest: {},
 });
 
-const PROBE_ADDR = new FrontierAddresses({ programId: '11111111111111111111111111111111', seasonId: 1n });
-const PROBE_KEY = '11111111111111111111111111111111';
+/**
+ * The commands the agent gateway can build: the `case` labels of its accountsFor, read from the gateway's SOURCE TEXT.
+ * Not by calling accountsFor: that derives the game's account addresses (PDAs and seeded addresses), and nothing in
+ * this workstream's checks may derive an address (no key or address derivation in tests or set-up).
+ */
+export const GATEWAY_BUILDS = (() => {
+  const at = GATEWAY_SOURCE.indexOf('export function accountsFor(');
+  if (at < 0) throw new Error('the agent gateway has no accountsFor: deps.mjs must follow it');
+  const body = GATEWAY_SOURCE.slice(at, GATEWAY_SOURCE.indexOf('\n}\n', at));
+  return Object.freeze(new Set([...body.matchAll(/case '([A-Za-z]+)':/g)].map(m => m[1])));
+})();
 
-/** Whether the agent gateway can build this command at all (its accountsFor knows it), read from the code. */
-export function gatewayBuilds(name, profile = 3) {
-  try {
-    accountsFor(name, { addresses: PROBE_ADDR, actor: PROBE_KEY, owner: PROBE_KEY, holding: [0, 0, 0], fields: {}, profile });
-    return true;
-  } catch { return false; }
-}
+/** Whether the agent gateway can build this command at all (its accountsFor has a case for it). */
+export function gatewayBuilds(name) { return GATEWAY_BUILDS.has(name); }
 
 /**
  * The provisional command contract. `describe(name)` says what exists and
