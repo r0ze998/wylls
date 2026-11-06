@@ -34,7 +34,7 @@ NFT 賞金は所有者側の CC が実装している。⑳ は賞金を実装�
 
 賞金の検証も、ゲームの操作と同じ証拠（§3 の住民プログラムの記録）で判定できる。
 
-## 3. 検証器 V28（ResidentAct、番号は仮）
+## 3. 検証器 V28（ResidentAct、番号は ④ が確定：割当 rev 6）
 
 `frontier-node/crates/verify/src/checks/v28_resident_acts.rs`。成功した `ResidentAct` ごとに：
 
@@ -115,5 +115,9 @@ v0.17 の持ち主の定義への置き換え（`authorize` = `holder` + `author
 |---|---|
 | 接続済み・実行で確認 | ゲームの権限検査（`authorize` = 持ち主の定義）。譲渡後の旧所有者・旧 session・旧世代の拒否と A→B→A（実行時の試験、署名の検証は外して `is_signer` を試験が立てる） |
 | 接続済み・固定のデータで確認 | V28 の判定（内側の命令の種類、アカウント、正規の住所、参加時の link、実行後の Citizen、記録があるときの持ち主と世代） |
-| 未接続 | V28 に住民プログラムの記録を渡す入力（`Input` は ④ の形式。今は記録なしで動く）。Frontier と住民プログラムを一つの feed で保存する索引。NFT 賞金（所有者側の CC。契約は §2 の提案）。V28 の番号の確定（⑪ は ⑳ に任せた。④ 未回答） |
+| 未接続 | V28 に住民プログラムの記録を渡す入力（`Input` は ④ の形式。今は記録なしで動く）。Frontier と住民プログラムを一つの feed で保存する索引。NFT 賞金（所有者側の CC。契約は §2 の提案）。V28 に記録を渡す `Input` の欄（④ の案はあるが未決）と、それを作る archiver の担当 |
 | UNVERIFIABLE のまま | 記録が無いときの持ち主と世代。記録に抜けがあるときの旧所有者・旧 session（世代の後戻りだけは FAIL）。参加の記録が無いときの link の中身。policy が分からないときの住民アカウントの住所。内側の命令そのものの効果（NFT Citizen の命令の再生は未実装）。V0 は ResidentAct を `UnverifiedInstruction` のままにする（⑪ の求め） |
+
+## 7. ④ の統合（2026-11-06）
+
+④ は ⑳ b2f7becc を統合候補 4ebc0dc3（tree c809045b…）に衝突なく merge した（⑪ 0010 も同じ木）。④ の通しの場面の「撤回」の段は、所有者と世代を `resident_auth::holder` と `Holder::authority` で読む（第二の定義は無い）。結果は program の拒否と一致する。④ の段 E（chain_prize）は、今の prize program が NFT Citizen に払えないこと（どの経路も BadAccount）を本物のコードで示した。§2 は ④ の文書 §9 に、所有者側の CC への接点として載っている。いずれも ④ の報告で、⑳ はその木を見ていない（④ はまだ push していない）。
