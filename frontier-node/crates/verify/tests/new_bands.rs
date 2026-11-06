@@ -217,21 +217,100 @@ fn a_divert_outside_a_transit_settlement_is_unverifiable() {
     assert!(n > 0, "no DIVERT case reached V0E");
 }
 
-/// A conquest kind the ABI adds (⑳'s RESIDENT_JOINED, 130) fails this
-/// test until a check models it and `MODELLED_CQ_KINDS` names it; until
-/// then V0E reports its records `UnverifiedRecord`.
+/// A conquest kind the ABI adds fails this test until a check models it
+/// and `MODELLED_CQ_KINDS` names it (or `CONDITIONAL_CQ_KINDS`, judged only
+/// beside the instruction that emits it); until then V0E reports its
+/// records `UnverifiedRecord`.
 #[test]
 fn every_conquest_kind_the_abi_knows_is_modelled() {
-    use verify_core::checks::v0_evidence::MODELLED_CQ_KINDS;
+    use verify_core::checks::v0_evidence::{CONDITIONAL_CQ_KINDS, MODELLED_CQ_KINDS};
     for k in 0..=255u8 {
         if frontier_abi::v2::log::CqKind::from_u8(k).is_some() {
             assert!(
-                MODELLED_CQ_KINDS.contains(&k),
+                MODELLED_CQ_KINDS.contains(&k) || CONDITIONAL_CQ_KINDS.contains(&k),
                 "conquest kind {k} is not modelled"
             );
         }
     }
-    for &k in MODELLED_CQ_KINDS {
+    for &k in MODELLED_CQ_KINDS.iter().chain(CONDITIONAL_CQ_KINDS) {
         assert!(frontier_abi::v2::log::CqKind::from_u8(k).is_some(), "{k}");
     }
+}
+
+/// A well-formed RESIDENT_JOINED (⑳, kind 130: key = the asset's resident
+/// ID, a SHA-256 of a literal asset id; no key is generated or signed).
+fn resident_joined(bell: u32, faction: u8, generation: u32) -> Vec<u8> {
+    let asset = [0x5a; 32];
+    let mut b = vec![frontier_abi::log::VERSION, 130];
+    b.extend_from_slice(&bell.to_le_bytes());
+    b.extend_from_slice(&frontier_abi::resident_citizen::resident_tag15(&asset));
+    b.extend_from_slice(&asset);
+    b.extend_from_slice(&[faction, 0]);
+    b.extend_from_slice(&generation.to_le_bytes());
+    b.extend_from_slice(&bell.to_le_bytes());
+    b.push(0);
+    assert!(frontier_abi::v2::log::decode(&b).is_ok());
+    b
+}
+
+/// The first top-level program instruction's data set to `data`.
+fn redata(base: &Input, t: usize, data: Vec<u8>) -> Option<Input> {
+    let p = base.cfg.program;
+    let mut tx = fclient::tx::from_wire(&base.txs[t].tx).ok()?;
+    let keys = tx.message.account_keys.clone();
+    let c = tx
+        .message
+        .instructions
+        .iter_mut()
+        .find(|c| keys[c.program_id_index as usize] == p)?;
+    c.data = data;
+    let mut inp = base.clone();
+    inp.txs[t].tx = fclient::tx::wire(&tx);
+    Some(inp)
+}
+
+fn unverified_records(r: &verify_core::Report) -> usize {
+    r.findings
+        .iter()
+        .filter(|f| f.check == "V0E" && f.code == "UnverifiedRecord")
+        .count()
+}
+
+/// RESIDENT_JOINED is judged only beside a JoinResident that names its
+/// generation and faction; elsewhere, or not matching, it is
+/// `UnverifiedRecord`, and never a PASS.
+#[test]
+fn a_resident_joined_without_its_join_is_unverifiable() {
+    use frontier_abi::resident_wire::JOIN_RESIDENT;
+    let base = land();
+    let mut n = 0;
+    for (t, bell) in spread(calls(&base), 6) {
+        let line = |g: u32, f: u8| fclient::log::log_line(&resident_joined(bell, f, g));
+        // In a transaction that did not join anyone.
+        let lone = inject(&base, t, line(7, 2)).expect("frame");
+        let r = verify_core::verify(&lone);
+        assert_ne!(r.verdict, Verdict::Pass, "tx#{t}");
+        assert_eq!(unverified_records(&r), 1, "tx#{t}: {}", show(&r));
+        // Beside a JoinResident of another generation or faction.
+        for (g, f) in [(8u32, 2u8), (7, 1)] {
+            let mut d = vec![JOIN_RESIDENT];
+            d.extend_from_slice(&g.to_le_bytes());
+            d.push(f);
+            let inp = redata(&inject(&base, t, line(7, 2)).unwrap(), t, d).unwrap();
+            let r = verify_core::verify(&inp);
+            assert_ne!(r.verdict, Verdict::Pass, "tx#{t}");
+            assert_eq!(unverified_records(&r), 1, "tx#{t} ({g}, {f}): {}", show(&r));
+        }
+        // Beside its own JoinResident: V0E leaves it to V0 (which judges
+        // the instruction), V9 and V12; still not a PASS here.
+        let mut d = vec![JOIN_RESIDENT];
+        d.extend_from_slice(&7u32.to_le_bytes());
+        d.push(2);
+        let inp = redata(&inject(&base, t, line(7, 2)).unwrap(), t, d).unwrap();
+        let r = verify_core::verify(&inp);
+        assert_ne!(r.verdict, Verdict::Pass, "tx#{t}");
+        assert_eq!(unverified_records(&r), 0, "tx#{t}: {}", show(&r));
+        n += 1;
+    }
+    assert!(n > 0);
 }

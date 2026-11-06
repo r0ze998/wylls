@@ -34,6 +34,12 @@
 //!   ABI adds, such as workstream 20's RESIDENT_JOINED, is not a PASS
 //!   until a check models it and the list names it), or a DIVERT in a
 //!   transaction without a TRANSIT_SETTLED (V13 judges DIVERTs only there).
+//!   Workstream 20's RESIDENT_JOINED (130, [`CONDITIONAL_CQ_KINDS`]) is
+//!   judged only where the program emits it: a transaction whose top-level
+//!   JoinResident (`resident_wire::JOIN_RESIDENT`) names the record's
+//!   generation and faction (V0 judges that instruction, V9 the record's
+//!   key, V12 its explore floor). Anywhere else, or not matching, it is
+//!   `UnverifiedRecord` (r8).
 
 use std::collections::BTreeSet;
 
@@ -55,6 +61,33 @@ pub const LOG_TRUNCATED: &str = "Log truncated";
 pub const MODELLED_CQ_KINDS: &[u8] = &[
     80, 81, 82, 83, 84, 85, 86, 87, 88, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103,
 ];
+
+/// Conquest kinds judged only beside the instruction that emits them (see
+/// [`explained`]): ⑳'s RESIDENT_JOINED (130), emitted by JoinResident only.
+pub const CONDITIONAL_CQ_KINDS: &[u8] = &[130];
+
+/// Whether `c` (a kind of [`CONDITIONAL_CQ_KINDS`]) stands beside the
+/// instruction that emits it: a top-level JoinResident of the same
+/// transaction (`tag ‖ generation u32 ‖ faction u8`) with the record's
+/// generation and faction.
+fn explained(w: &crate::world::World, c: &crate::world::CqRec) -> bool {
+    if c.kind as u8 != 130 {
+        return false;
+    }
+    let (Ok(g), [f]) = (
+        <[u8; 4]>::try_from(c.field("generation", true)),
+        c.field("faction", true),
+    ) else {
+        return false;
+    };
+    w.txs.get(c.tx).is_some_and(|t| {
+        t.ixs.iter().any(|ix| {
+            ix.tag() == Some(frontier_abi::resident_wire::JOIN_RESIDENT)
+                && ix.data.get(1..5) == Some(&g[..])
+                && ix.data.get(5) == Some(f)
+        })
+    })
+}
 
 fn program_kind(data: &[u8]) -> Option<AccountKind> {
     AccountKind::from_magic(data.get(..8)?.try_into().ok()?)
@@ -80,7 +113,10 @@ pub fn run(cx: &mut Ctx) {
         .map(|(k, _)| *k)
         .collect();
     for c in &w.cq_recs {
-        if !MODELLED_CQ_KINDS.contains(&(c.kind as u8)) {
+        let k = c.kind as u8;
+        let judged = MODELLED_CQ_KINDS.contains(&k)
+            || (CONDITIONAL_CQ_KINDS.contains(&k) && explained(w, c));
+        if !judged {
             cx.unverifiable(
                 V,
                 UNVERIFIED_RECORD,
