@@ -84,3 +84,37 @@ cd frontier-node && cargo +1.95.0 test --locked -p verify --lib --test unit --te
   --test missing_state --test open_items --test evidence --test new_bands
 cargo +1.95.0 test --locked -p verify --test fixtures -- --skip march_fixture_is_fresh
 ```
+
+## 6. r8: RESIDENT_JOINED（kind 130）の扱い（2026-11-06、④の依頼）
+
+④は r7（0004→0005→0007）を候補 `claude/gallant-ride-cunptv` @ `4c65aaa229cea9ba2a57229cac78cc2715c5df7d` に入れた（HEAD `3187205a`）。この候補には⑳の RESIDENT_JOINED が入っているので、仕掛けの試験 `every_conquest_kind_the_abi_knows_is_modelled` が狙いどおり「conquest kind 130 is not modelled」で失敗した。④は 130 を扱う検査を⑪と⑳で決めるよう求めた。
+
+**コードの事実（候補の木）。**
+- RESIDENT_JOINED を出すのは JoinResident（0xE1）だけ。出す場所は `permutation-frontier/src/proc/resident.rs` 331–346 行で、payload は asset、faction、shard、generation、join_bell。
+- JoinResident のデータは `tag ‖ generation u32 LE ‖ faction u8`（`resident_wire::decode`）。
+- 検証器のうち V9 は記録の key が asset の resident ID かを見て、V12 は探索の下限を与える。どちらも、記録をそれを出した命令と結び付けてはいない。
+- 0xE1 は `v2::Ix` の外にあるので、⑱の V0 が FAIL `UnknownInstruction` にする。
+
+**r8 の判定（パッチ 0008）。**
+- 130 は `MODELLED_CQ_KINDS` に入れず、新しい `CONDITIONAL_CQ_KINDS` に入れる。
+- 130 は、同じ取引の最上位に JoinResident があり、その generation と faction が記録と一致するときだけ「判定される側」に数える。その命令は V0 が、key は V9 が、下限は V12 が見る。
+- それ以外の場所にある 130、または一致しない 130 は、V0E `UnverifiedRecord`（UNVERIFIABLE）のまま。
+- 仕掛けの試験は「`MODELLED` か `CONDITIONAL` のどちらかにあること」を求める形に変えた。⑳が後で記録と命令の照合を検査に入れたら、130 を `MODELLED_CQ_KINDS` に移せる。
+
+| パッチ | 当て先 | SHA-256 | 当てた後の tree |
+|---|---|---|---|
+| `patches/0008-verify-v0e-resident-joined-beside-its-join-on-ws04-4c65aaa2.patch` | `4c65aaa2`（HEAD `3187205a` にも当たる） | `e71b7892329ccbf44dda028026ce2de4cffd3d7c42b5514782ae08698e5cf98f` | `4c65aaa2` に当てると `7774a6e9560a514771635ee2bef0e88546c89a7d`、`3187205a` に当てると `04f87fb3fbdb21ccfed15a7bd83b318b7e02083a` |
+
+**試験。** 候補＋0008 で許された試験は **55 件通過**した（lib 17、unit 8、fixtures 8（1 件除外）、camp_clear 3、missing_state 2、open_items 3、evidence 8、new_bands 6）。fmt と clippy `-D warnings` も通った（Rust 1.95.0）。ログは `results/verify-after-r8.log`。
+
+新しい試験 `a_resident_joined_without_its_join_is_unverifiable` は land の 6 取引で次の 3 通りを確かめた。どれも PASS ではない。
+- join の無い取引に入れた 130 は `UnverifiedRecord`。
+- generation か faction が違う JoinResident の横にある 130 も `UnverifiedRecord`。
+- 一致する JoinResident の横にある 130 は、V0E は報告しない。その取引は V0 の FAIL のまま。
+
+鍵の生成・導出・署名は行っていない。resident ID は literal の asset id の SHA-256。
+
+**⑳・④・⑱に残ること。**
+- 0xE1 を ABI の表と V0 の `supported()` に入れる。
+- 記録の asset・shard・join_bell を、命令の口座（Core asset）・取引の鐘と照合する検査を入れる。
+- それが済んだら 130 を `MODELLED_CQ_KINDS` へ移す。
