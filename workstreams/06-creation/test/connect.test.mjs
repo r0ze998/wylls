@@ -17,7 +17,9 @@ for (const k of ["generateKey", "importKey", "exportKey", "deriveKey", "deriveBi
 import assert from "node:assert/strict";
 import { contentHash } from "../src/canonical.mjs";
 import { frontSupply, mineDelivery } from "../src/scenario.mjs";
-import { connectability, coreCargo, dedupeReceipts, resultOf, resultOfAct, toMcpCaravans, toRunSpecs, CORE_RESOURCES, REQUEST_ID } from "../src/connect/caravan.mjs";
+import { readFileSync } from "node:fs";
+import { bindInbound, connectability, coreCargo, dedupeReceipts, resultOf, resultOfAct, resultOfRun4, toMcpCaravans, toRunSpecs, CORE_RESOURCES, REQUEST_ID } from "../src/connect/caravan.mjs";
+import { fixtureText, relayManifest, relaySpecs } from "../cli/connect-fixture.mjs";
 
 const AUTHOR = "ab".repeat(32); // public-key-shaped strings: no key behind them
 const USER = "cd".repeat(32);
@@ -65,7 +67,7 @@ test("an adopted caravan definition becomes ④ run specs: places, cargo[8] in t
   assert.equal(r.runs[0].walletRequired, false);
   assert.deepEqual(r.runs[0].pin.manifest, a.plan.manifest);
   assert.ok(r.gaps.some((g) => g.includes("facility")));
-  assert.equal(r.acceptedBy4, false, "④'s RunSpec needs a facility: this spec is not accepted as is");
+  assert.equal(r.needs4, "P06-4a", "④'s RunSpec takes a null facility only with the proposal");
   assert.ok(r.runs[0].leftToExecutor.some((x) => x.startsWith("seq")), "the seq is ④'s to fix");
   // the same request gives the same run id; another nonce another one
   assert.equal(spec(a).runs[0].spec.run_id, s.run_id);
@@ -102,7 +104,7 @@ test("what does not connect says why: the workshop (S2 mock), a consume dependen
   assert.equal(CORE_RESOURCES[4], "arms");
   assert.deepEqual(coreCargo({ arms: 12 }).cargo, [0, 0, 0, 0, 12, 0, 0, 0]);
   assert.ok(why.includes("ws"));
-  assert.ok(c.reasons.some((r) => r.step === "ship" && r.why.includes("seq")));
+  assert.ok(c.reasons.some((r) => r.step === "ship" && r.why.includes("inbound")));
   assert.deepEqual(coreCargo({ science: 1 }).problems.map((p) => p.resource), ["science"]);
   assert.deepEqual(coreCargo({ ore: -1 }).problems.map((p) => p.resource), ["ore"]);
   assert.equal(connectability(mineDelivery(AUTHOR)).connectable, true);
@@ -203,4 +205,49 @@ test("④ act receipts: a send is never complete or counted; unknown holds; only
   assert.equal(resultOfAct(act("landed", { newAttemptAllowed: true })).newRequestAllowed, false, "a landed send is never retried");
   assert.equal(resultOfAct(act("teleported")).ok, false);
   assert.equal(resultOfAct({ ...act("landed"), receiptVersion: "p04-acts/9" }).ok, false);
+});
+
+// ④'s run views (`runexec run view`, p04-run/0.1), written by ④'s proposal test P06-4a on the specs below
+const VIEW4 = (name) => JSON.parse(readFileSync(new URL(`../fixtures/connect/run4-view-${name}.json`, import.meta.url), "utf8"));
+
+test("a two-caravan plan becomes two ④ runs; the second waits for the first (its caravan as inbound)", () => {
+  assert.equal(fixtureText(), readFileSync(new URL("../fixtures/connect/ws06-runspecs.json", import.meta.url), "utf8"), "the fixture ④ reads is what 06 writes now");
+  const r = relaySpecs();
+  assert.equal(r.ok, true, JSON.stringify(r.findings));
+  const [haul, forward] = r.runs;
+  assert.equal(forward.awaits, "haul");
+  assert.equal(forward.spec.inbound, null, "bound only once the first caravan is on the road");
+  // before the first ships: wait; once it is in transit: its key
+  const early = { ...VIEW4("haul-in-transit"), state: "FacilityConfirmed", detail: { ...VIEW4("haul-in-transit").detail, ship_seq: null } };
+  assert.equal(bindInbound(forward, haul, early).code, "WAIT");
+  const b = bindInbound(forward, haul, VIEW4("haul-in-transit"));
+  assert.equal(b.ok, true, JSON.stringify(b));
+  assert.deepEqual(b.spec.inbound, { owner: 119, seq: 0 });
+  assert.equal(bindInbound(forward, haul, { ...VIEW4("haul-in-transit"), state: "Failed" }).code, "INBOUND_STOPPED");
+  assert.equal(bindInbound(forward, haul, { ...VIEW4("haul-in-transit"), runId: "other" }).code, "SHAPE");
+  assert.equal(bindInbound(haul, forward, VIEW4("haul-in-transit")).ok, false, "the first waits for nothing");
+  // ③'s MCP route plans one caravan at a time: a chain does not go that way
+  assert.equal(connectability(relayManifest()).connectable, false);
+  assert.equal(connectability(relayManifest(), { chains: true }).connectable, true);
+  const bent = relayManifest();
+  bent.steps[1].args.from = { param: "home" };
+  assert.equal(connectability(bent, { chains: true }).connectable, false, "waiting needs the earlier destination as the source");
+});
+
+test("④'s run views read as 06 results: arrival and amount from ④'s judgement, never from the send", () => {
+  const transit = resultOfRun4(VIEW4("haul-in-transit"));
+  assert.equal(transit.final, false);
+  assert.deepEqual(transit.counted, {}, "in transit counts nothing");
+  const haul = resultOfRun4(VIEW4("haul-fulfilled"));
+  assert.equal(haul.state, "Fulfilled");
+  assert.deepEqual(haul.counted, { wood: 4 });
+  assert.equal(haul.evidence.usable, true);
+  const fwd = resultOfRun4(VIEW4("forward-fulfilled"));
+  assert.deepEqual(fwd.counted, { wood: 4 });
+  assert.deepEqual(fwd.effects, ["caravan_sent cv:77:1", "caravan_settled cv:77:1"]);
+  const lost = resultOfRun4(VIEW4("forward-input-lost"));
+  assert.equal(lost.state, "Failed");
+  assert.equal(lost.actual.kind, "none");
+  assert.deepEqual(lost.counted, {});
+  assert.equal(resultOfRun4({ ...VIEW4("haul-fulfilled"), viewVersion: "p04-run/9" }).ok, false);
 });

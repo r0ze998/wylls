@@ -18,7 +18,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -105,11 +106,48 @@ test("④'s gateway accepts the action ③ would build from 06's call; the key f
   assert.throws(() => parseActionRequest({ ...request, source: "ws06" }), (e) => e.code === "BadRequest");
 });
 
-test("④'s RunSpec still needs a facility: 06's ship-only spec is reported as not accepted", { skip }, () => {
+/** Whether this ④ has 06's proposal P06-4a (a caravan-only RunSpec and `runexec run accept|view`). */
+function has4a() {
   const model = readFileSync(join(WS04_ROOT, "workstreams/04-execution/src/model.rs"), "utf8");
   const spec = model.slice(model.indexOf("pub struct RunSpec"), model.indexOf("}", model.indexOf("pub struct RunSpec")));
+  if (/pub facility: Option<FacilityRef>,/.test(spec)) return true;
   assert.match(spec, /pub facility: FacilityRef,/);
-  assert.doesNotMatch(spec, /facility: Option</);
+  return false;
+}
+
+test("④'s RunSpec: a required facility (as published) or 06's caravan-only proposal (P06-4a applied)", { skip }, (t) => {
+  t.diagnostic(has4a() ? "④ with P06-4a: facility is Option" : "④ as published: facility is required; 06's specs need P06-4a");
+});
+
+test("④ with P06-4a: runexec takes 06's RunSpec JSON and gives the run back by its id", { skip }, (t) => {
+  if (!has4a()) return t.skip("④ without P06-4a (handoff/patches/P06-4a-ws04-caravan-only-run.patch)");
+  const fixture = readFileSync(new URL("../fixtures/connect/ws06-runspecs.json", import.meta.url), "utf8");
+  assert.equal(readFileSync(join(WS04_ROOT, "workstreams/04-execution/tests/fixtures/ws06-runspecs.json"), "utf8"), fixture, "④'s test reads the specs 06 writes");
+  const dir = mkdtempSync(join(tmpdir(), "ws06-run4-"));
+  const db = join(dir, "runs.db");
+  const [haul] = JSON.parse(fixture);
+  const specFile = join(dir, "haul.json");
+  writeFileSync(specFile, JSON.stringify(haul));
+  const cli = (...a) => {
+    try { return { code: 0, out: JSON.parse(execFileSync(RUNEXEC_BIN, ["run", ...a, "--db", db], { encoding: "utf8" }).trim().split("\n").at(-1)) }; }
+    catch (e) { return { code: e.status, out: JSON.parse(String(e.stdout).trim().split("\n").at(-1)) }; }
+  };
+  assert.deepEqual(cli("accept", "--spec", specFile).out, { runId: haul.run_id, accepted: "Created" });
+  assert.equal(cli("accept", "--spec", specFile).out.accepted, "Existing(Accepted)");
+  writeFileSync(specFile, JSON.stringify({ ...haul, ship: { ...haul.ship, cargo: [0, 5, 0, 0, 0, 0, 0, 0] } }));
+  assert.equal(cli("accept", "--spec", specFile).code, 4, "same run id, another spec: Conflict");
+  writeFileSync(specFile, JSON.stringify({ ...haul, run_id: `${haul.run_id}:x`, rights_units: 1 }));
+  assert.equal(cli("accept", "--spec", specFile).code, 2, "a caravan-only run with right units is refused");
+  const v = cli("view", "--run", haul.run_id);
+  assert.equal(v.code, 0);
+  assert.equal(v.out.viewVersion, "p04-run/0.1");
+  assert.equal(v.out.state, "Accepted");
+  assert.equal(v.out.spec.facility, null);
+  const r = C.resultOfRun4(v.out);
+  assert.equal(r.ok, true);
+  assert.equal(r.final, false);
+  assert.deepEqual(r.counted, {});
+  assert.equal(cli("view", "--run", "ws06:none").code, 3, "NoRecord");
 });
 
 /** A loopback GET /f/agent/fate?id=&key= answering per key, chunked like the wallet. */

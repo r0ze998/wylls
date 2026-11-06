@@ -140,3 +140,42 @@ Receipt は種類と対象（`kind|subject`）で重複を除きます。出ど�
 3. **③④：** 場所と Citizen の読み取り（③の `get_village_status`）は、ヘラルドとリレーを読む。照合は③の形の fixture で行い、実際のヘラルド・チェーンは読んでいない。
 4. 代理の財布の要求の形の検査（`parseActionRequest`）は未実行（§8.2）。
 5. 他人の場所あての荷車は、この経路では送らない（送り手の財布の署名が要る）。
+
+## 9. ④の最新統合候補への接続：送る・追跡する・到着と量・次の手順（2026-11-06）
+
+**照合先：**
+- ④：最新統合候補（公開版）`claude/gallant-ride-cunptv` = `d0e96d5394d88decf878676f37bc3782654d1045`。④の INTEGRATION-20261106b によれば、⑤を含む全体版は未 push。
+- ③：GitHub 上の最新は今も `acdcd0bf`。④の文書にある③の最新 `7923f900`（共有パッチ 0008）は GitHub に無く（`not our ref`）、受け取れていない。
+
+### 9.1 接続できた範囲
+
+| 区間 | 状態 | 根拠 |
+|---|---|---|
+| 計画 → ④の RunSpec（荷車だけ、前の荷車を待つ2段目も） | **実装**：`toRunSpecs`（`after` で前の荷車を1つ待つ。前の届け先がこの送り元であること） | `connect` |
+| 前の Run の連番 → 次の Run の `inbound` | **実装**：`bindInbound`（前が道に出るまでは WAIT、止まったら INBOUND_STOPPED） | `connect`（④が出した Run の JSON で） |
+| ④が RunSpec を受け付け、実行 id で返す | **④への提案 P06-4a**（`runexec run accept|view`、`p04-run/0.1`） | `connect-live`（パッチを当てた `runexec`） |
+| ④の Run：送る → 到着 → 量の判定 → 次の Run が待って送る | **P06-4a の④の試験**（模擬の世界） | ④ `tests/ship_only.rs` 4件 |
+| ④の Run の結果 → ⑥の結果（数える量・到着量の確度・C の証拠） | **実装**：`resultOfRun4`（④の数量契約。履行完了・部分履行の検証済みだけを数える） | `connect`（④が出した JSON で） |
+| 送信の結果（act の7状態） → ⑥の読み | **実装**：`resultOfAct`。`landed` は送信の確定で、到着・完了ではない。`unknown` は保留で、再送しない | `connect`・`connect-live`（④の `runexec act`、d0e96d53 でも同じ） |
+| ③ MCP の準備・送信の引数 | **実装**：`toMcpCaravans`（③の placeId・requestId・荷の8枠） | `connect-live`（③ `acdcd0bf` の実物） |
+
+次の手順に渡すのは、④が読む**正本の在庫**です（次の Run は `stock` に荷がそろうまで待つ）。前の Run が報告した量を、次の手順の量として使うことはしません。
+
+### 9.2 依存待ち（代用しない）
+
+| 項目 | 何を待つか | 代用しないもの |
+|---|---|---|
+| ④の荷車だけの Run | ④が P06-4a を採るか、別の形（新しい状態など）にするか | 仮の施設を入れた RunSpec |
+| ③から④への実行 id の受け渡し | ③の最新（`7923f900`）の受領と、P06-3a の採否 | ⑥が③の linkId を推測して④に登録すること |
+| ④の Run を実チェーンで動かす | ④の実チェーンの読み取り口（決着の記録・正本の在庫）。今は模擬の世界だけ | ⑥が③の feed から到着や量を自分で判定すること |
+| 財布の要求の形の検査 | gateway の依存（npm）の導入の許可 | ― |
+| 施設の貸出（工房） | ②の加工能力の貸出の契約 | StockSwap・④の MOCK の施設 |
+| 完了結果の消費（C）・束 | 採否が未決定 | ― |
+
+### 9.3 鍵と CI
+
+- ⑥の試験のうち鍵を使わないのは `test/connect.test.mjs` と `test/connect-live.test.mjs` の2ファイルだけ。
+  - どちらも、鍵の API を呼ぶと失敗する guard を付けて走らせる。
+  - ④の候補の `scripts/ci/node-keyfree.sh` と `no-keys-guard.mjs` の下でも通った（15件中14件通過、1件未実行）。
+- ⑥のほかの試験は、試作の固定の種から鍵を導出して署名する。④の guard の下では `importKey (private key)` で拒否される。CI では走らせない。
+- `handoff/ci.diff`（2026-10-30）は、署名する試験まで CI で走らせる内容だったので**取り下げる**。代わりに [handoff/ci-keyfree.diff](../handoff/ci-keyfree.diff)（④の候補の `ci.yml` への提案。鍵なしの2ファイルだけを、名前を挙げて走らせる。未適用）を置く。

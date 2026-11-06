@@ -13,12 +13,18 @@
  *   ④ preserve/ws04-a967f5f1        a967f5f1c64facc32facf07010f39a679c77d80a
  *       RunSpec, the 15 run states, Outcome and Verification
  *       (src/model.rs), Receipt (docs/CONTRACTS §3), the quantity contract.
- *   ④ claude/gallant-ride-cunptv    8e96f24df4aa4ed51277fa42de6a354a21cd2bc6
- *       the act registry (`runexec act`, clients/acts.mjs) and the seven
- *       send fates (docs/EXECUTION-CONTRACT-20261106). RunSpec still needs a
- *       facility there, so a caravan-only run goes the act route:
- *       06 plan → ③ prepare_caravan / send_caravan → the agent wallet →
- *       ④ `act register --run <06 run id>` → `act status` / `act list`.
+ *   ④ claude/gallant-ride-cunptv    d0e96d5394d88decf878676f37bc3782654d1045
+ *       (first read at 8e96f24d) the act registry (`runexec act`,
+ *       clients/acts.mjs) and the seven send fates
+ *       (docs/EXECUTION-CONTRACT-20261106). RunSpec still needs a facility
+ *       there; 06's proposal P06-4a (handoff/patches) makes it optional and
+ *       adds `runexec run accept|view`, so a caravan-only run (and a second
+ *       one waiting for it as its inbound) is ④'s run end to end.
+ *   Two routes, both here: the act route (06 plan → ③ prepare_caravan /
+ *       send_caravan → the agent wallet → ④ `act register --run <06 run
+ *       id>`), which knows the send only; and the run route (06 plan → ④
+ *       `run accept` → ④'s executor → `run view`), which judges arrival and
+ *       the amount under ④'s quantity contract.
  *
  * Only `caravan.send` connects: it is the one instruction in main's S1
  * among 06's effects. A workshop step is S2's UseRun, copied as a mock.
@@ -30,13 +36,14 @@
 
 import { confirmedRev, effectRev } from "../catalog.mjs";
 import { resolve } from "../plan.mjs";
+import { stepOrder } from "../manifest.mjs";
 import { contentHash } from "../canonical.mjs";
 
 export const SOURCES = Object.freeze({
   rights: { ws: "02", ref: "preserve/ws02-rights-dc3bd3d", sha: "dc3bd3d93465eebb65f1815eb702ca779cc31827" },
   instructions: { ws: "03", ref: "preserve/ws03-mcp-acdcd0bf", sha: "acdcd0bf795d10a65f6b8192076c4f8d6357e557" },
   execution: { ws: "04", ref: "preserve/ws04-a967f5f1", sha: "a967f5f1c64facc32facf07010f39a679c77d80a" },
-  acts: { ws: "04", ref: "claude/gallant-ride-cunptv", sha: "8e96f24df4aa4ed51277fa42de6a354a21cd2bc6" },
+  acts: { ws: "04", ref: "claude/gallant-ride-cunptv", sha: "d0e96d5394d88decf878676f37bc3782654d1045" },
   extensions: { ws: "11", ref: "integration/ws09-13-v16-d0949fd4", sha: "ef63544c727490fc6801d30affd11c5b7106c480" },
 });
 
@@ -84,16 +91,28 @@ export function coreCargo(goods) {
 /**
  * Whether a definition connects to the delivered contracts, step by step.
  * Static: it reads the manifest only.
+ *
+ * `chains`: a caravan step may wait for one earlier caravan step whose
+ * destination is its source (④'s run carries the earlier caravan as its
+ * `inbound` and waits for the goods at its stock). Only ④'s run route
+ * takes it; ③'s MCP route plans one caravan at a time.
  */
-export function connectability(m) {
+export function connectability(m, { chains = false } = {}) {
   const reasons = [];
+  const byId = new Map(m.steps.map((s) => [s.id, s]));
+  const same = (a, b) => { try { return contentHash(a ?? null) === contentHash(b ?? null); } catch { return false; } };
   for (const s of m.steps) {
     if (s.effect !== "caravan.send") {
       reasons.push({ step: s.id, effect: s.effect, why: NOT_CONNECTED[s.effect] ?? "既存の命令にない" });
       continue;
     }
-    if ((s.after ?? []).length) {
-      reasons.push({ step: s.id, why: "前の手順を待つ荷車。④の Run は荷車を1つ送るだけで、前の荷車の seq は前の Run が固定するまで分からない（④の inbound の受け渡しが未接続）" });
+    const after = s.after ?? [];
+    if (after.length && !chains) {
+      reasons.push({ step: s.id, why: "前の手順を待つ荷車。③の MCP は荷車を1つずつ計画するので、この経路では待てない（④の Run の経路で inbound として待つ）" });
+    } else if (after.length) {
+      const prev = after.length === 1 && typeof after[0] === "string" ? byId.get(after[0]) : null;
+      if (!prev || prev.effect !== "caravan.send") reasons.push({ step: s.id, why: "待てるのは、前の荷車の手順1つだけ" });
+      else if (!same(prev.args?.to, s.args?.from)) reasons.push({ step: s.id, why: "前の荷車の届け先が、この荷車の送り元でない（④の inbound は同じ倉で待つ）" });
     }
     for (const r of Object.keys(s.args?.cargo?.goods ?? {})) {
       if (!CORE_RESOURCES.includes(r)) reasons.push({ step: s.id, resource: r, why: "S1 の資源にない（cargo[8] に枠がない）" });
@@ -126,12 +145,13 @@ const placeRef = (p) => ({ kind: p.kind, p: p.p, q: p.q, at: p.at, gen: p.gen })
  * a placeholder facility.
  */
 export function toRunSpecs({ plan, planHash, env, nonce, places, ownerTag, deadlineSlot, budget, effectRevs }) {
+  // see the doc above: with ④'s caravan-only run (06's proposal P06-4a) the spec is accepted as is
   const findings = [];
   const m = env.manifest;
   if (plan.manifest?.hash !== env.hash || plan.manifest?.version !== m.version || plan.manifest?.name !== m.name || plan.manifest?.author !== m.author) {
     return { ok: false, findings: [{ code: "PIN_MISMATCH", pinned: plan.manifest, given: { author: m.author, name: m.name, version: m.version, hash: env.hash } }] };
   }
-  const c = connectability(m);
+  const c = connectability(m, { chains: true });
   if (!c.connectable) return { ok: false, findings: c.reasons.map((r) => ({ code: "NOT_CONNECTED", ...r })) };
   const now = effectRev({ effectRevs }, "caravan.send");
   if (confirmedRev(plan, "caravan.send") !== now) {
@@ -140,7 +160,7 @@ export function toRunSpecs({ plan, planHash, env, nonce, places, ownerTag, deadl
   if (typeof nonce !== "string" || !nonce) return { ok: false, findings: [{ code: "SHAPE", detail: "nonce" }] };
   const params = plan.bindings?.params ?? {};
   const runs = [];
-  for (const s of m.steps) {
+  for (const s of stepOrder(m)) {
     const fromId = resolve(s.args.from, m, params), toId = resolve(s.args.to, m, params);
     const src = typeof fromId === "string" ? places(fromId) : null;
     const dst = typeof toId === "string" ? places(toId) : null;
@@ -169,6 +189,8 @@ export function toRunSpecs({ plan, planHash, env, nonce, places, ownerTag, deadl
       },
       // ④ holds a send to another's place for the sender's own wallet (WalletRequired)
       walletRequired: dst.ownerTag !== ownerTag,
+      // the earlier caravan step this run waits for: its caravan becomes this spec's inbound (bindInbound)
+      awaits: typeof s.after?.[0] === "string" ? s.after[0] : null,
       // kept by 06 beside the run id: ④'s Run has no field for the definition it came from
       pin: { planHash, manifest: { ...plan.manifest }, effects: { "caravan.send": confirmedRev(plan, "caravan.send") } },
       leftToExecutor: ["seq（④が署名の時に Citizen.CARAVANS から固定）", "steps・path（③の命令の組み立て）", `fee（${CARAVAN_FEE_MIN} lamports 以上、③）`],
@@ -177,10 +199,46 @@ export function toRunSpecs({ plan, planHash, env, nonce, places, ownerTag, deadl
   if (findings.length) return { ok: false, findings };
   return {
     ok: true, findings: [], runs,
-    // checked against ④ 8e96f24d src/model.rs: `pub facility: FacilityRef`, not an Option
-    acceptedBy4: false,
-    gaps: ["④の RunSpec.facility は必須（8e96f24d でも）。荷車だけの Run は④の Run に載らない。仮の施設で埋めず、送信は act の経路（toMcpCaravans）で行う"],
+    // ④ d0e96d53 `pub facility: FacilityRef` refuses `null`; with 06's proposal P06-4a (`Option<FacilityRef>`) it is accepted
+    needs4: "P06-4a",
+    gaps: ["④の RunSpec.facility は d0e96d53 でも必須。⑥の提案パッチ P06-4a（Option にし、荷車だけの Run は Accepted から FacilityConfirmed へ）が入るまで、④はこの spec を受け付けない。仮の施設では埋めない"],
   };
+}
+
+/** ④'s states after which a run's caravan is known: its key may be another run's inbound. */
+const SHIPPED = ["InTransit", "Arrived", "Fulfilled", "Partial", "DeliveredUnverified"];
+
+/**
+ * The next step's spec, once the step it waits for has shipped: its
+ * caravan (owner, seq, read from ④'s run view) becomes the inbound. ④ then
+ * waits for the goods at the next run's stock, and fails it (InputLost)
+ * only on evidence that the caravan was lost. The next step relies on the
+ * canonical stock, never on the amount the earlier run reported.
+ */
+export function bindInbound(entry, prevEntry, prevView) {
+  if (!entry.awaits || entry.awaits !== prevEntry.step) return { ok: false, code: "SHAPE", detail: "this run does not wait for that step" };
+  const v = readRunView(prevView);
+  if (!v.ok) return v;
+  if (v.runId !== prevEntry.spec.run_id) return { ok: false, code: "SHAPE", detail: "the view is of another run" };
+  if (["Failed", "Cancelled", "Expired"].includes(v.state)) return { ok: false, code: "INBOUND_STOPPED", state: v.state, why: "前の荷車は送られなかった・止まった。次の手順は始めない" };
+  if (!SHIPPED.includes(v.state) || !Number.isSafeInteger(v.view.detail?.ship_seq)) return { ok: false, code: "WAIT", state: v.state, why: "前の荷車がまだ道に出ていない（連番が決まっていない）" };
+  return { ok: true, spec: { ...entry.spec, inbound: { owner: v.view.spec.owner, seq: v.view.detail.ship_seq } } };
+}
+
+function readRunView(view) {
+  if (view?.viewVersion !== "p04-run/0.1") return { ok: false, code: "SHAPE", detail: `view version ${view?.viewVersion}` };
+  if (!RUN_STATES.includes(view.state)) return { ok: false, code: "SHAPE", detail: `unknown run state ${view.state}` };
+  return { ok: true, runId: view.runId, state: view.state, view };
+}
+
+/**
+ * 06's result from ④'s run view (`runexec run view`, `p04-run/0.1`, from
+ * 06's proposal P06-4a): the same reading as `resultOf`, from ④'s own JSON.
+ */
+export function resultOfRun4(view) {
+  const v = readRunView(view);
+  if (!v.ok) return v;
+  return resultOf({ run_id: view.runId, state: view.state, outcome: view.detail?.outcome ?? null, held_reason: view.held ?? null, cancel_phase: view.cancel ?? null });
 }
 
 /** ③'s placeIds: `vault:p,q,tile` and `village:p,q,site` (mcp/src/game.mjs). */

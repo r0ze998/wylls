@@ -97,3 +97,20 @@
 - **完了扱いにしない：** act の状態のどれも⑥の実行を完了にしない。`landed` は送信の確定で、到着・量は未検証。`unknown` は再送しない。
 - **訂正：** 「arms はコアの資源にない」は誤り。S1 では5番目の枠が arms。
 - **残る不一致：** ③の `send_caravan` に⑥の実行 id を渡す欄がない。③は④の登録簿をまだ呼ばない。④に荷車だけの Run がない。
+
+## 9. ④の最新統合候補への接続（2026-11-06）と、④・⑯ が使えるもの
+
+詳しくは [docs/11](docs/11-connection.ja.md) §9、提案パッチは [handoff/patches](handoff/patches/README.ja.md)。
+
+- **接続できた範囲：**
+  - 計画 → ④の RunSpec（荷車だけ、2段目は前の荷車を `inbound` で待つ）。
+  - ④の Run の JSON → ⑥の結果（数える量・到着量の確度）。
+  - act の7状態 → ⑥の読み（`landed` は送信の確定で、到着・完了ではない。結果不明は再送しない）。
+  - ③ MCP の引数。
+- **④への提案 P06-4a：** 荷車だけの Run と `runexec run accept|view`。④の試験で、2段の荷車が「送る → 到着 → 量の判定 → 次の送り」まで通る（模擬の世界）。採否と状態の名前は④の判断。
+- **依存待ち：** ④が P06-4a を採るか。③の最新 `7923f900`（GitHub に無い）と実行 id の受け渡し（P06-3a）。④の実チェーンの読み取り口。施設の貸出（②）。
+- **⑯ 向けの再現（鍵なし）：** パッケージの `RESTORE.txt`。
+  - ⑥の bundle を GitHub の base の上に復元する。
+  - ③ `acdcd0bf`・④ `d0e96d53` を checkout し、④に P06-4a を当てて `runexec` をビルドする。
+  - `node --test test/connect.test.mjs test/connect-live.test.mjs` と、④の `cargo test --test ship_only` ほかを走らせる。
+- **CI：** 旧 `ci.diff` は取り下げ（署名する試験を含む）。`ci-keyfree.diff` は④の候補への提案で、未適用。

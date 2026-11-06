@@ -1,0 +1,595 @@
+diff --git a/workstreams/04-execution/src/executor.rs b/workstreams/04-execution/src/executor.rs
+index d96eebae..c7c6665e 100644
+--- a/workstreams/04-execution/src/executor.rs
++++ b/workstreams/04-execution/src/executor.rs
+@@ -114,6 +114,25 @@ pub struct TickReport {
+     pub reconciled: usize,
+ }
+ 
++/// The checks every acceptance makes, by the executor or by `runexec run
++/// accept`. A caravan-only run (no facility) carries no inputs, outputs or
++/// right units: they would mean a facility step it does not have.
++pub fn validate_spec(spec: &RunSpec) -> Result<(), String> {
++    if res_is_zero(&spec.ship.cargo) {
++        return Err("empty cargo".into());
++    }
++    if spec.ship.dst.slot_key() == spec.stock.slot_key() {
++        return Err("a send's two places never share a tile".into());
++    }
++    if spec.budget.max_attempts == 0 || spec.budget.max_attempts > 16 {
++        return Err("max_attempts must be 1..=16".into());
++    }
++    if spec.facility.is_none() && (!res_is_zero(&spec.inputs) || !res_is_zero(&spec.outputs) || spec.rights_units != 0) {
++        return Err("a caravan-only run has no inputs, outputs or right units".into());
++    }
++    Ok(())
++}
++
+ pub struct Executor<C: Chain, R: Rights> {
+     pub id: String,
+     pub store: Store,
+@@ -266,15 +285,7 @@ impl<C: Chain, R: Rights> Executor<C, R> {
+     /// Accepts a run (validated first: no step outside the allow-list can
+     /// be expressed, and an empty cargo is refused).
+     pub fn accept(&self, spec: &RunSpec) -> Result<crate::store::Accept, String> {
+-        if res_is_zero(&spec.ship.cargo) {
+-            return Err("empty cargo".into());
+-        }
+-        if spec.ship.dst.slot_key() == spec.stock.slot_key() {
+-            return Err("a send's two places never share a tile".into());
+-        }
+-        if spec.budget.max_attempts == 0 || spec.budget.max_attempts > 16 {
+-            return Err("max_attempts must be 1..=16".into());
+-        }
++        validate_spec(spec)?;
+         let now = self.chain.slot().map_err(|e| format!("{e:?}"))?;
+         self.store.accept(spec, now)
+     }
+@@ -579,13 +590,16 @@ impl<C: Chain, R: Rights> Executor<C, R> {
+ 
+     fn rights_free(&self, row: &RunRow) -> Result<Result<(), Reason>, Fault> {
+         let s = &row.spec;
++        let Some(facility) = s.facility else {
++            return Ok(Ok(())); // a caravan-only run holds no right
++        };
+         let other = self.store.reserved_by_others(
+             ResKind::Rights,
+-            &format!("{}:{:?}", s.owner, s.facility),
++            &format!("{}:{:?}", s.owner, facility),
+             row.id(),
+         )?[0];
+         Ok(
+-            match self.rights.check(s.owner, &s.facility, s.rights_units)? {
++            match self.rights.check(s.owner, &facility, s.rights_units)? {
+                 RightsVerdict::Allowed { remaining, .. } if remaining >= s.rights_units + other => {
+                     Ok(())
+                 }
+@@ -635,6 +649,24 @@ impl<C: Chain, R: Rights> Executor<C, R> {
+         if !v.live || v.owner != s.owner {
+             return self.fail(row, now, Reason::InputShort);
+         }
++        if s.facility.is_none() {
++            // A caravan-only run: nothing to make, no right to hold. Wait for
++            // the cargo at `stock` (an inbound caravan may bring it), then go
++            // straight to the send; FacilityConfirmed re-reads the stock and
++            // the destination just before it pins the seq.
++            if !res_ge(&free, &s.ship.cargo) {
++                if self.inbound_lost(row)? {
++                    return self.fail(row, now, Reason::InputLost);
++                }
++                return Ok(Next::Wait(now + self.params.poll));
++            }
++            return Ok(Next::Go(change(
++                RunState::FacilityConfirmed,
++                row.detail.clone(),
++                now,
++                "caravan-only run: no facility step",
++            )));
++        }
+         if !res_ge(&free, &s.inputs) {
+             // The materials have not arrived (or are spoken for): wait,
+             // unless the caravan bringing them is known lost.
+@@ -662,7 +694,7 @@ impl<C: Chain, R: Rights> Executor<C, R> {
+             },
+             Op::Reserve {
+                 kind: ResKind::Rights,
+-                place: format!("{}:{:?}", s.owner, s.facility),
++                place: format!("{}:{:?}", s.owner, s.facility.expect("a run with a facility")),
+                 amount: units,
+             },
+         ];
+@@ -693,8 +725,11 @@ impl<C: Chain, R: Rights> Executor<C, R> {
+         if let Err(why) = self.rights_free(row)? {
+             return self.fail(row, now, why);
+         }
+-        let fac = self.chain.place(&s.facility.place)?;
+-        if !fac.is_some_and(|f| f.live && f.gen == s.facility.place.gen) {
++        let Some(facility) = s.facility else {
++            return self.fail(row, now, Reason::FacilityGone); // never reached: a caravan-only run skips Reserved
++        };
++        let fac = self.chain.place(&facility.place)?;
++        if !fac.is_some_and(|f| f.live && f.gen == facility.place.gen) {
+             return self.fail(row, now, Reason::FacilityGone);
+         }
+         let Some((_, free)) = self.free_stock(row, &s.stock)? else {
+@@ -713,7 +748,7 @@ impl<C: Chain, R: Rights> Executor<C, R> {
+         let req = Request::UseFacility {
+             key: s.facility_key(),
+             holder: s.owner,
+-            facility: s.facility,
++            facility,
+             stock: s.stock,
+             inputs: s.inputs,
+             outputs: s.outputs,
+diff --git a/workstreams/04-execution/src/main.rs b/workstreams/04-execution/src/main.rs
+index b400ad26..f3b119f4 100644
+--- a/workstreams/04-execution/src/main.rs
++++ b/workstreams/04-execution/src/main.rs
+@@ -109,8 +109,54 @@ fn act(args: &[String], db: &Path) -> Result<serde_json::Value, ActErr> {
+     }
+ }
+ 
++/// `runexec run accept|view`: a caller (workstream 06) hands a RunSpec as
++/// JSON and reads its run back by run id. One line of JSON on stdout, the
++/// same exit codes as `act` (0 ok, 2 BadRequest, 3 NoRecord, 4 Conflict,
++/// 1 StoreError). It stores and reads only: the executor that ticks the
++/// run is the same as for any other run. Nothing is signed or sent here.
++fn run_cmd(args: &[String], db: &Path) -> Result<serde_json::Value, ActErr> {
++    let bad = |m: &str| (2u8, "BadRequest", m.to_string());
++    let store = Store::open(db).map_err(|e| (1, "StoreError", e))?;
++    match args.get(2).map(String::as_str) {
++        Some("accept") => {
++            let path = arg(args, "--spec").ok_or_else(|| bad("--spec <file> is required"))?;
++            let text = std::fs::read_to_string(&path).map_err(|e| bad(&format!("--spec: {e}")))?;
++            let spec: RunSpec = serde_json::from_str(&text).map_err(|e| bad(&format!("spec: {e}")))?;
++            runexec::executor::validate_spec(&spec).map_err(|e| bad(&e))?;
++            let slot = arg(args, "--slot").and_then(|x| x.parse().ok()).unwrap_or(0);
++            match store.accept(&spec, slot).map_err(|e| (1, "StoreError", e))? {
++                runexec::store::Accept::Conflict => Err((4, "Conflict", format!("{} was accepted with another spec", spec.run_id))),
++                a => Ok(serde_json::json!({ "runId": spec.run_id, "accepted": format!("{a:?}") })),
++            }
++        }
++        Some("view") => {
++            let id = arg(args, "--run").ok_or_else(|| bad("--run <id> is required"))?;
++            let r = store.load(&id).map_err(|e| (1, "StoreError", e))?.ok_or((3, "NoRecord", format!("no run {id}")))?;
++            let receipts = store.receipts(&id).map_err(|e| (1, "StoreError", e))?;
++            Ok(runexec::store::run_view(&r, &receipts))
++        }
++        _ => Err(bad("run accept --spec <file> | run view --run <id>")),
++    }
++}
++
+ fn main() -> ExitCode {
+     let args: Vec<String> = std::env::args().collect();
++    if args.get(1).map(String::as_str) == Some("run") {
++        let Some(db) = arg(&args, "--db").map(PathBuf::from) else {
++            println!("{}", serde_json::json!({ "error": "BadRequest", "message": "--db <path> is required" }));
++            return ExitCode::from(2);
++        };
++        return match run_cmd(&args, &db) {
++            Ok(v) => {
++                println!("{v}");
++                ExitCode::SUCCESS
++            }
++            Err((code, name, message)) => {
++                println!("{}", serde_json::json!({ "error": name, "message": message }));
++                ExitCode::from(code)
++            }
++        };
++    }
+     if args.get(1).map(String::as_str) == Some("act") {
+         let Some(db) = arg(&args, "--db").map(PathBuf::from) else {
+             println!(
+@@ -295,7 +341,7 @@ fn demo(db: &Path, scenario: &str) -> Result<(), String> {
+         owner: 0x77,
+         stock,
+         inbound: None,
+-        facility: fac,
++        facility: Some(fac),
+         inputs: one(1, 5),
+         outputs: one(6, 3),
+         rights_units: 1,
+diff --git a/workstreams/04-execution/src/model.rs b/workstreams/04-execution/src/model.rs
+index d6766595..fd718983 100644
+--- a/workstreams/04-execution/src/model.rs
++++ b/workstreams/04-execution/src/model.rs
+@@ -118,7 +118,12 @@ pub struct RunSpec {
+     pub stock: PlaceRef,
+     /// The caravan bringing the inputs, if one is awaited.
+     pub inbound: Option<CaravanKey>,
+-    pub facility: FacilityRef,
++    /// The facility to use, or none for a caravan-only run (workstream 06's
++    /// definitions that only ship): no right, no facility step; the run goes
++    /// from Accepted to FacilityConfirmed once the cargo is at `stock`
++    /// (proposal from 06, 2026-11-06). A stored spec with a facility reads
++    /// as `Some`.
++    pub facility: Option<FacilityRef>,
+     pub inputs: Res,
+     pub outputs: Res,
+     /// Units of the use right one execution consumes.
+@@ -257,7 +262,8 @@ pub fn allowed(from: RunState, to: RunState) -> bool {
+         return !from.terminal();
+     }
+     match from {
+-        Accepted => matches!(to, Reserved | Failed | Cancelled | Expired),
++        // Accepted → FacilityConfirmed: a caravan-only run (no facility step).
++        Accepted => matches!(to, Reserved | FacilityConfirmed | Failed | Cancelled | Expired),
+         // Back to Accepted: the stock fell short at the last check.
+         Reserved => matches!(
+             to,
+diff --git a/workstreams/04-execution/src/store.rs b/workstreams/04-execution/src/store.rs
+index 06234722..65f003a3 100644
+--- a/workstreams/04-execution/src/store.rs
++++ b/workstreams/04-execution/src/store.rs
+@@ -961,3 +961,20 @@ impl Store {
+         }))
+     }
+ }
++
++/// A run as JSON for callers outside this crate (06's resultOfRun4).
++pub fn run_view(r: &RunRow, receipts: &[Receipt]) -> serde_json::Value {
++    serde_json::json!({
++        "viewVersion": "p04-run/0.1",
++        "runId": r.spec.run_id,
++        "state": r.state.name(),
++        "terminal": r.state.terminal(),
++        "held": r.held,
++        "cancelRequested": r.cancel_requested,
++        "cancel": r.cancel_phase(),
++        "detail": r.detail,
++        "spec": r.spec,
++        "receipts": receipts,
++    })
++}
++
+diff --git a/workstreams/04-execution/tests/common/mod.rs b/workstreams/04-execution/tests/common/mod.rs
+index 6feb640d..64158ea0 100644
+--- a/workstreams/04-execution/tests/common/mod.rs
++++ b/workstreams/04-execution/tests/common/mod.rs
+@@ -94,7 +94,7 @@ pub fn spec(id: &str, s: &Scene) -> RunSpec {
+         owner: OWNER,
+         stock: s.stock,
+         inbound: None,
+-        facility: s.facility,
++        facility: Some(s.facility),
+         inputs: r(1, 5),
+         outputs: r(6, 3),
+         rights_units: 1,
+diff --git a/workstreams/04-execution/tests/faults.rs b/workstreams/04-execution/tests/faults.rs
+index 552f97a9..2a95304a 100644
+--- a/workstreams/04-execution/tests/faults.rs
++++ b/workstreams/04-execution/tests/faults.rs
+@@ -1039,7 +1039,10 @@ fn every_state_has_an_ownership_row_and_terminal_states_are_final() {
+         }
+     }
+     // No path skips confirmation: nothing reaches InTransit but from a ship
+-    // request, nothing reaches FacilityConfirmed but from a facility request.
++    // request, nothing reaches FacilityConfirmed but from a facility request
++    // (or, for a caravan-only run with no facility step, from Accepted: 06's
++    // proposal P06-4a; the executor takes that edge only when the spec has
++    // no facility, tests/ship_only.rs).
+     for s in RunState::ALL {
+         if allowed(s, RunState::InTransit) && s != RunState::InTransit {
+             assert!(matches!(
+@@ -1054,6 +1057,7 @@ fn every_state_has_an_ownership_row_and_terminal_states_are_final() {
+                     | RunState::FacilitySubmitted
+                     | RunState::ShipRequested
+                     | RunState::ShipSubmitted
++                    | RunState::Accepted
+             ));
+         }
+     }
+diff --git a/workstreams/04-execution/tests/fixtures/ws06-runspecs.json b/workstreams/04-execution/tests/fixtures/ws06-runspecs.json
+new file mode 100644
+index 00000000..34101d63
+--- /dev/null
++++ b/workstreams/04-execution/tests/fixtures/ws06-runspecs.json
+@@ -0,0 +1,120 @@
++[
++  {
++    "run_id": "ws06:10442184bb06d9953641c47f952500e0ba835d582005544b377d1c8db4fa073b:r1:haul",
++    "owner": 119,
++    "stock": {
++      "kind": 1,
++      "p": 0,
++      "q": 0,
++      "at": 1,
++      "gen": 1
++    },
++    "inbound": null,
++    "facility": null,
++    "inputs": [
++      0,
++      0,
++      0,
++      0,
++      0,
++      0,
++      0,
++      0
++    ],
++    "outputs": [
++      0,
++      0,
++      0,
++      0,
++      0,
++      0,
++      0,
++      0
++    ],
++    "rights_units": 0,
++    "ship": {
++      "dst": {
++        "kind": 2,
++        "p": 1,
++        "q": 0,
++        "at": 5,
++        "gen": 1
++      },
++      "cargo": [
++        0,
++        4,
++        0,
++        0,
++        0,
++        0,
++        0,
++        0
++      ]
++    },
++    "deadline_slot": 400,
++    "budget": {
++      "max_attempts": 3,
++      "max_fee": 200000,
++      "max_port_errors": 5
++    }
++  },
++  {
++    "run_id": "ws06:10442184bb06d9953641c47f952500e0ba835d582005544b377d1c8db4fa073b:r1:forward",
++    "owner": 119,
++    "stock": {
++      "kind": 2,
++      "p": 1,
++      "q": 0,
++      "at": 5,
++      "gen": 1
++    },
++    "inbound": null,
++    "facility": null,
++    "inputs": [
++      0,
++      0,
++      0,
++      0,
++      0,
++      0,
++      0,
++      0
++    ],
++    "outputs": [
++      0,
++      0,
++      0,
++      0,
++      0,
++      0,
++      0,
++      0
++    ],
++    "rights_units": 0,
++    "ship": {
++      "dst": {
++        "kind": 1,
++        "p": 1,
++        "q": 1,
++        "at": 3,
++        "gen": 1
++      },
++      "cargo": [
++        0,
++        4,
++        0,
++        0,
++        0,
++        0,
++        0,
++        0
++      ]
++    },
++    "deadline_slot": 400,
++    "budget": {
++      "max_attempts": 3,
++      "max_fee": 200000,
++      "max_port_errors": 5
++    }
++  }
++]
+diff --git a/workstreams/04-execution/tests/gateway.rs b/workstreams/04-execution/tests/gateway.rs
+index ec8b8c9f..ccc4056e 100644
+--- a/workstreams/04-execution/tests/gateway.rs
++++ b/workstreams/04-execution/tests/gateway.rs
+@@ -129,7 +129,7 @@ fn scene(name: &str, setup: Value) -> G {
+         owner: OWNER,
+         stock,
+         inbound: None,
+-        facility,
++        facility: Some(facility),
+         inputs: r(1, 5),
+         outputs: r(6, 3),
+         rights_units: 1,
+@@ -438,7 +438,7 @@ fn source_other_than_the_village_is_refused_before_any_call() {
+         owner: OWNER,
+         stock,
+         inbound: None,
+-        facility,
++        facility: Some(facility),
+         inputs: r(1, 5),
+         outputs: r(6, 3),
+         rights_units: 1,
+diff --git a/workstreams/04-execution/tests/gateway_facts.rs b/workstreams/04-execution/tests/gateway_facts.rs
+index 7f4747ba..b7b46dfd 100644
+--- a/workstreams/04-execution/tests/gateway_facts.rs
++++ b/workstreams/04-execution/tests/gateway_facts.rs
+@@ -292,7 +292,7 @@ fn scene(name: &str, script: Script) -> G {
+         owner: OWNER,
+         stock,
+         inbound: None,
+-        facility,
++        facility: Some(facility),
+         inputs: r(1, 5),
+         outputs: r(6, 3),
+         rights_units: 1,
+diff --git a/workstreams/04-execution/tests/ship_only.rs b/workstreams/04-execution/tests/ship_only.rs
+new file mode 100644
+index 00000000..d1a91310
+--- /dev/null
++++ b/workstreams/04-execution/tests/ship_only.rs
+@@ -0,0 +1,147 @@
++//! Caravan-only runs (workstream 06's proposal P06-4a): a run with no
++//! facility ships from its stock, is judged on arrival like any other run,
++//! and may wait for an earlier run's caravan as its inbound. The specs are
++//! the JSON workstream 06 hands over (tests/fixtures/ws06-runspecs.json,
++//! written by 06's cli/connect-fixture.mjs). MOCK world; no keys, no
++//! signatures (the simulated chain's signatures are strings).
++
++mod common;
++use common::*;
++use runexec::model::*;
++use runexec::store::run_view;
++
++fn ws06_specs() -> Vec<RunSpec> {
++    serde_json::from_str(include_str!("fixtures/ws06-runspecs.json")).expect("06's RunSpec JSON")
++}
++
++fn view(h: &H, id: &str) -> serde_json::Value {
++    let r = h.run(id);
++    run_view(&r, &h.ex.store.receipts(id).unwrap())
++}
++
++fn out(name: &str, v: &serde_json::Value) {
++    if let Ok(dir) = std::env::var("WS06_VIEW_OUT") {
++        std::fs::write(format!("{dir}/{name}.json"), format!("{}\n", serde_json::to_string_pretty(v).unwrap())).unwrap();
++    }
++}
++
++#[test]
++fn ws06_specs_parse_and_validate() {
++    let specs = ws06_specs();
++    assert_eq!(specs.len(), 2);
++    for s in &specs {
++        assert!(s.facility.is_none());
++        runexec::executor::validate_spec(s).unwrap();
++    }
++    let mut bad = specs[0].clone();
++    bad.inputs[1] = 1;
++    assert!(runexec::executor::validate_spec(&bad).is_err(), "a caravan-only run has no inputs");
++    bad = specs[0].clone();
++    bad.rights_units = 1;
++    assert!(runexec::executor::validate_spec(&bad).is_err());
++}
++
++/// 06's two-caravan plan: the first ships to the depot vault; once it is on
++/// the road its key becomes the second's inbound; the second waits for the
++/// goods at the depot, then ships them on. Both are judged on arrival.
++#[test]
++fn ws06_chain_ships_waits_and_is_judged() {
++    let mut h = H::new("ship-only-chain");
++    let end = holding(1, 1, 3);
++    h.sim.with(|w| w.add_place(end, OWNER, ZERO, None));
++    let mut specs = ws06_specs();
++    let (a, b) = (specs[0].run_id.clone(), specs[1].run_id.clone());
++    h.accept(&specs[0]);
++    for _ in 0..40 {
++        if h.run(&a).state == RunState::InTransit {
++            break;
++        }
++        h.ex.tick().unwrap();
++        h.sim.with(|w| w.advance(1));
++    }
++    let va = view(&h, &a);
++    assert_eq!(va["state"], "InTransit");
++    out("view-haul-in-transit", &va);
++    // what 06's bindInbound does with the view
++    specs[1].inbound = Some(CaravanKey { owner: va["spec"]["owner"].as_u64().unwrap(), seq: va["detail"]["ship_seq"].as_u64().unwrap() as u32 });
++    h.accept(&specs[1]);
++    // the second waits at Accepted while the depot does not hold the goods
++    h.ex.tick().unwrap();
++    assert_eq!(h.run(&b).state, RunState::Accepted);
++    for _ in 0..200 {
++        if h.run(&a).state.terminal() && h.run(&b).state.terminal() {
++            break;
++        }
++        h.ex.tick().unwrap();
++        h.sim.with(|w| w.advance(1));
++    }
++    for id in [&a, &b] {
++        let r = h.run(id);
++        assert_eq!(r.state, RunState::Fulfilled, "{id}");
++        let hist: Vec<(String, String)> = h.ex.store.history(id).unwrap().into_iter().map(|(f, t, _, _)| (f, t)).collect();
++        assert!(hist.contains(&("Accepted".into(), "FacilityConfirmed".into())), "{id}: no facility step");
++        assert!(!hist.iter().any(|(_, t)| t.starts_with("Facility") && t != "FacilityConfirmed"), "{id}: never a facility request");
++        assert_eq!(h.ex.store.reservations_of(id).unwrap(), 0);
++    }
++    let (vb, vfa) = (view(&h, &b), view(&h, &a));
++    // the simulated settle record carries `credited` (proposal P1): both are recorded amounts
++    for v in [&vfa, &vb] {
++        assert!(["Recorded", "RuleDerived"].contains(&v["detail"]["outcome"]["verification"].as_str().unwrap()));
++    }
++    assert_eq!(vb["detail"]["outcome"]["delivered"][1], 4);
++    // the second shipped only after the first arrived
++    let slot_of = |id: &str, kind: &str| h.ex.store.receipts(id).unwrap().into_iter().find(|r| r.kind == kind).map(|r| r.slot).unwrap();
++    assert!(slot_of(&b, "caravan_sent") >= slot_of(&a, "caravan_settled"));
++    out("view-haul-fulfilled", &vfa);
++    out("view-forward-fulfilled", &vb);
++    check_store(&h.ex.store);
++    h.audit();
++}
++
++/// The awaited caravan is burned on the road: the waiting run fails with
++/// InputLost on that evidence, and the first is KnownZero.
++#[test]
++fn ws06_chain_stops_when_the_inbound_is_lost() {
++    let mut h = H::new("ship-only-lost");
++    let end = holding(1, 1, 3);
++    h.sim.with(|w| w.add_place(end, OWNER, ZERO, None));
++    let mut specs = ws06_specs();
++    let (a, b) = (specs[0].run_id.clone(), specs[1].run_id.clone());
++    h.accept(&specs[0]);
++    for _ in 0..40 {
++        if h.run(&a).state == RunState::InTransit {
++            break;
++        }
++        h.ex.tick().unwrap();
++        h.sim.with(|w| w.advance(1));
++    }
++    let key = CaravanKey { owner: OWNER, seq: h.run(&a).detail.ship_seq.unwrap() };
++    specs[1].inbound = Some(key);
++    h.accept(&specs[1]);
++    let home = h.scene.raider_home;
++    h.sim.with(|w| w.raid(key, false, RAIDER, home));
++    for _ in 0..200 {
++        if h.run(&a).state.terminal() && h.run(&b).state.terminal() {
++            break;
++        }
++        h.ex.tick().unwrap();
++        h.sim.with(|w| w.advance(1));
++    }
++    assert_eq!(h.run(&a).detail.outcome.as_ref().unwrap().verification, Verification::KnownZero);
++    assert_eq!(h.run(&b).state, RunState::Failed);
++    assert_eq!(h.run(&b).detail.reason, Some(Reason::InputLost));
++    out("view-forward-input-lost", &view(&h, &b));
++    check_store(&h.ex.store);
++}
++
++/// A run with a facility is unchanged: the standard scene still goes
++/// through Reserved and the facility.
++#[test]
++fn a_run_with_a_facility_still_uses_it() {
++    let mut h = H::new("ship-only-facility-kept");
++    h.accept(&spec("r1", &h.scene));
++    assert!(h.drive("r1", 80).is_none());
++    let hist: Vec<String> = h.ex.store.history("r1").unwrap().into_iter().map(|(_, t, _, _)| t).collect();
++    assert!(hist.contains(&"Reserved".to_string()) && hist.contains(&"FacilityConfirmed".to_string()));
++    assert_eq!(h.run("r1").state, RunState::Fulfilled);
++}

@@ -20,7 +20,8 @@
 | ③ 命令型 | [03-command-types.ja.md](03-command-types.ja.md) | 組み合わせてよい命令の、引数・出力の型、使う物・作る物、費用、署名の規則、失敗の仕方 | `src/catalog.mjs` |
 | ④ Run/Receipt | [04-run-receipt.ja.md](04-run-receipt.ja.md) | 採用（固定版の確認）と実行の依頼に基づく実行の認可、手順ごとの原子的な検査と更新、過去の出来事の証明（記録）、消費する権利（束）の扱い | `src/adoption.mjs`、`src/execute.mjs`、`src/ledger.mjs` |
 | 共有UI | [05-shared-ui.ja.md](05-shared-ui.ja.md) | 一覧・紙・使う準備・採用・実行の依頼・更新の確認を、ゲームの画面のどこに置くか | `proto/`（独立した試作の画面） |
-| CI | [ci.diff](ci.diff) | ⑥のテストを CI に足す差分。**適用していない**（`git apply --check` で当たることだけ確認） | ― |
+| CI | [ci-keyfree.diff](ci-keyfree.diff)（2026-11-06） | ④の候補の鍵なし CI に、⑥の鍵なし試験2ファイルだけを足す差分。**適用していない**。旧 [ci.diff](ci.diff) は署名する試験まで走らせるので**取り下げ** | ― |
+| ③④への提案パッチ | [patches/](patches/README.ja.md) | ④ P06-4a（荷車だけの Run、Run の受け渡し口）、③ P06-3a（実行 id の受け渡し、契約だけ） | ― |
 
 ## 受け入れの確認に使えるもの
 

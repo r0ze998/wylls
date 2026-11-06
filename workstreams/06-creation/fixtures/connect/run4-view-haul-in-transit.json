@@ -1,0 +1,114 @@
+{
+  "cancel": null,
+  "cancelRequested": false,
+  "detail": {
+    "cancel": null,
+    "fac_attempts": 0,
+    "outcome": null,
+    "pending": null,
+    "port_errors": 0,
+    "raid": null,
+    "reason": null,
+    "sent_cargo": [
+      0,
+      4,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "settle": null,
+    "ship_attempts": 1,
+    "ship_seq": 0,
+    "unresolved": 0
+  },
+  "held": null,
+  "receipts": [
+    {
+      "body": {
+        "cargo": [
+          0,
+          4,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "content_from": "event:b9315e828ab2d4bdc45e6c4442d984e594c47f1f:0",
+        "seq": 0
+      },
+      "kind": "caravan_sent",
+      "run_id": "ws06:10442184bb06d9953641c47f952500e0ba835d582005544b377d1c8db4fa073b:r1:haul",
+      "slot": 2,
+      "source": "sig:b9315e828ab2d4bdc45e6c4442d984e594c47f1f",
+      "subject": "cv:77:0"
+    }
+  ],
+  "runId": "ws06:10442184bb06d9953641c47f952500e0ba835d582005544b377d1c8db4fa073b:r1:haul",
+  "spec": {
+    "budget": {
+      "max_attempts": 3,
+      "max_fee": 200000,
+      "max_port_errors": 5
+    },
+    "deadline_slot": 400,
+    "facility": null,
+    "inbound": null,
+    "inputs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "outputs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "owner": 119,
+    "rights_units": 0,
+    "run_id": "ws06:10442184bb06d9953641c47f952500e0ba835d582005544b377d1c8db4fa073b:r1:haul",
+    "ship": {
+      "cargo": [
+        0,
+        4,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "dst": {
+        "at": 5,
+        "gen": 1,
+        "kind": 2,
+        "p": 1,
+        "q": 0
+      }
+    },
+    "stock": {
+      "at": 1,
+      "gen": 1,
+      "kind": 1,
+      "p": 0,
+      "q": 0
+    }
+  },
+  "state": "InTransit",
+  "terminal": false,
+  "viewVersion": "p04-run/0.1"
+}

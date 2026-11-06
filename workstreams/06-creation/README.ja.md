@@ -106,8 +106,8 @@ node workstreams/06-creation/proto/e2e.mjs [画像の保存先]
 | `node --test workstreams/06-creation/test/*.test.mjs`（Node 22.22.0） | **106 通過・0 失敗** |
 | 同上（Node 20.20.0、今の CI の版） | **106 通過・0 失敗** |
 | うち 2026-10-30 の決定・資源・実行時の検査（`policy` 8・`resources` 6・`runtime` 15） | すべて通過 |
-| うち③④の実物との照合（`connect-live` 4：③の資源の順・場所・requestId・命令の欄、④の RunSpec、④の `runexec act` の登録・照会・7状態） | 2026-11-06、③ `acdcd0bf`・④ `8e96f24d` の checkout と、そこからビルドした `runexec` で実行。3件通過、1件未実行（④の gateway の依存が未導入）。環境変数がなければ全件スキップ |
-| うち荷車の接続（`connect` 8：④の RunSpec への変換、他人あての保留、固定と効果の版、つながらない理由、④の結果の変換、Receipt の重複除去、③の経路、④の act の受領書） | 鍵の生成・導出・署名を一切しない試験（呼ぶと失敗する）。2026-11-06 に実行し、すべて通過 |
+| うち③④の実物との照合（`connect-live` 5：③の資源の順・場所・requestId・命令の欄、④の RunSpec、④の `run accept|view`（P06-4a）、④の `runexec act`） | 2026-11-06、③ `acdcd0bf` と④ `d0e96d53`（P06-4a を当てたもの）の checkout、そこからビルドした `runexec` で実行。4件通過、1件未実行（④の gateway の依存が未導入）。環境変数がなければ全件スキップ |
+| うち荷車の接続（`connect` 10：④の RunSpec への変換、他人あての保留、固定と効果の版、つながらない理由、④の結果の変換、Receipt の重複除去、③の経路、④の act の受領書、2段の荷車と inbound、④の Run の JSON の読み取り） | 鍵の生成・導出・署名を一切しない試験（呼ぶと失敗する）。2026-11-06 に実行し、すべて通過 |
 | うち継続する世界（`continuity` 5：日の境界と再起動、束の持ち越し、コアの変更、依頼の期間、400日の長い運用） | すべて通過。使い捨て番号を捨てる処理を外すと、長い運用の試験は失敗する（保存数 800） |
 | 独立レビュー1回目の再現（`review` 9）／2回目（`review2` 6） | すべて通過。修正前の commit（`4f3a6921`／`308087dc`）ではそれぞれ全件失敗（[docs/09](docs/09-review-findings.ja.md)） |
 | 揺れの確認（`review2`・`resources`・`runtime` を15回） | 15回とも失敗なし |
