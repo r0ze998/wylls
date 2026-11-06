@@ -125,3 +125,19 @@ game program、prize、⑫、⑮、⑳ のファイルは変えていません�
     - 確かめる内容：citizen_tag と Citizen の address の関係、記録の key、receipt の owner（u64 で正確に）、⑫ の sender、⑮ の event。
     - 結果：22/22 が整合しました。
   - **限界**：address そのものは、段 A で program が計算した値をそのまま使います。この照合は段どうしが一致することを示すだけで、address が正しいことは示しません。
+
+## 8. 利用者の確認（2026-11-06、追記）
+
+**確認の結果**：④でも、PDA の算出は禁止です。
+
+**この木での扱い**
+- `run.sh` は、既定では PDA なしの照合（`check-fixtures.mjs`）だけを動かします。
+- 段 A〜E は、`CHAIN_PDA=approved` を付けたときだけ動きます。付けるには利用者の承認が要ります。
+- §1 の手順 3 は、この承認がある場合だけ行えます。
+
+**④の作業の範囲**
+- 段 A・B と e2e-native の既存の試験は、④は実行しません。e2e-native の既存の試験も、prize と game の PDA を算出します。
+
+**未対応**：CI の提案（KEY-FREE-CI）は、まだ見直していません。
+- 提案の `exec-native` と、Frontier・prize の host の試験などに、PDA を算出するものが含まれます。
+- この規則に合わせた見直しが必要です。
