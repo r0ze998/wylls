@@ -11,10 +11,9 @@
 
 use alloc::vec::Vec;
 
-use solana_program::{
-    account_info::AccountInfo, clock::Clock, instruction::get_stack_height, pubkey::Pubkey,
-    sysvar::Sysvar,
-};
+#[cfg(not(test))]
+use solana_program::sysvar::Sysvar;
+use solana_program::{account_info::AccountInfo, instruction::get_stack_height, pubkey::Pubkey};
 
 use frontier_abi::layout::AccountKind;
 use frontier_abi::prologue::{self as ap, Acc, AccountView, SeasonHdr, Spec, Wr};
@@ -35,11 +34,15 @@ pub struct Now {
 
 /// Reads the Clock sysvar.
 pub fn now() -> R<Now> {
-    let c = Clock::get()?;
-    Ok(Now {
-        ts: c.unix_timestamp,
-        slot: c.slot,
-    })
+    // 02-rights: the host harness's clock in tests (`host_test`).
+    #[cfg(test)]
+    let (ts, slot) = crate::host_test::clock();
+    #[cfg(not(test))]
+    let (ts, slot) = {
+        let c = solana_program::clock::Clock::get()?;
+        (c.unix_timestamp, c.slot)
+    };
+    Ok(Now { ts, slot })
 }
 
 /// The 32 raw bytes of a key.

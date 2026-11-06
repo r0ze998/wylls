@@ -94,6 +94,12 @@ pub fn run(cx: &mut Ctx) {
                 continue;
             };
             let Some(known) = Ix::from_tag(tag) else {
+                // 02-rights (candidate): a Grant instruction is outside the
+                // v2 table by design; in an S1 season VR judges it (its
+                // tag, data, record and Grant). Anywhere else it is unknown.
+                if s1 && frontier_abi::v2::rights::is_rights_tag(tag) {
+                    continue;
+                }
                 cx.fail(
                     V,
                     UNKNOWN_INSTRUCTION,

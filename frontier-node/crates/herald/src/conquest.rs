@@ -815,6 +815,14 @@ fn fold_record(
         | CqKind::NATION_DECIDED
         | CqKind::RAID_OPENED
         | CqKind::FORT_GARRISONED => {}
+        // 02-rights (proposal): the Grant's records are not conquest events
+        // either; no herald feed reads them yet.
+        CqKind::GRANT_ISSUED
+        | CqKind::SWAP_RESERVED
+        | CqKind::SWAP_EXECUTED
+        | CqKind::SWAP_RELEASED
+        | CqKind::GRANT_REVOKED
+        | CqKind::GRANT_CLOSED => {}
         // Map growth: a FastForward's rest. Its bells reach the files
         // through the Province's bytes (`after_records`) or, earlier, the
         // herald's own projection (`crate::rest`); the record's digest is
