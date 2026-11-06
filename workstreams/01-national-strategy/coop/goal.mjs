@@ -1,0 +1,160 @@
+// 共同の目的（最初の1件）と、達成の判定（仮・切り替え可能）。共同・国・個人を別々に表示する形を作る。
+//
+//   - 目的は具体的な1件：依頼した人の村の近くに貯蔵庫を1つ建てる。その材料のうち木材と石材を、ほかの人から受け取る。
+//     貯蔵庫の費用は S1 の値（permutation-server/web/frontier/fcaravan.mjs VAULT_COST = caravan.rs）：木材200・石材200・金50。
+//   - 貢献は「送った量」ではなく、④の確定の記録で確かめた到着の量。未検証の量は数えず、未検証と表示する。
+//   - 資源は合計しない。木材と石材を別々に判定する（50 の単純合計は使わない）。
+//   - 判定は仮。`JUDGES` から選ぶ。報酬はない。勝利条件・世界の終了・中央塔とは結び付けない。
+//   - 国は、チェーンの Citizen の口座で確かめた陣営だけを使う（chain.mjs）。確かめられなければ「国籍未検証」で、国際協力の達成は確定しない。
+//   - 同じ隊商の到着は、一つの依頼にだけ割り当てる（重複の割当をしない）。一つの到着が、共同の目的・国の記録・個人の記録の
+//     三つの表示に出るのは、別々の評価に寄与しているだけで、資源の重複割当ではない。
+
+import { RESOURCES, RESOURCE_JA, stateAt, ownerTagOf } from './record.mjs';
+import { arrivalsOf } from './arrival.mjs';
+import { VAULT_COST } from '../../../permutation-server/web/frontier/fcaravan.mjs';
+
+const vaultCost = Object.fromEntries(RESOURCES.map((r, i) => [r, VAULT_COST[i] ?? 0]).filter(([, v]) => v > 0));
+
+export const GOALS = Object.freeze({
+  'crossing-storehouse-v1': Object.freeze({
+    id: 'crossing-storehouse-v1',
+    title: '渡り場の貯蔵庫を建てる',
+    what: '依頼した人の村の近くに、貯蔵庫（倉）を1つ建てる。建てるのも、建てた倉も、依頼した人のもの（国の共有の物ではない）',
+    cost: vaultCost,                       // 建てる費用（S1）：木材200・石材200・金50
+    fromOthers: { wood: 200, stone: 200 }, // ほかの人から受け取りたい分（依頼の上限ではなく、判定の基準）［仮］
+    crossNations: 1,                       // 依頼した人の国と違う国から、少なくとも何か国［仮］。国はチェーンの Citizen で確かめたものだけ（申告は使わない）
+    facility: 'vault',
+  }),
+});
+
+/**
+ * 達成の判定（どれも仮）。`{id, label, means, judge(ctx) → {done, why}}`。`means` は画面にそのまま出す説明。
+ * ctx：{goal, perResource: {r: 証明できた量}, nations: Set（確かめた他国）, unverified: [理由], vaultSeenAfter: bool | null}
+ */
+export const JUDGES = Object.freeze({
+  arrivals: {
+    id: 'arrivals',
+    label: '仮A：確定した到着の量だけ',
+    means: '依頼の届け先（依頼した人の村）に、確定の記録と規則で証明できた入荷量を資源ごとに数える。届いた物を何に使ったか、使ったかどうかは見ない',
+    judge: c => {
+      const short = Object.entries(c.goal.fromOthers).filter(([r, n]) => (c.perResource[r] ?? 0) < n);
+      if (short.length) return { done: false, why: `足りない：${short.map(([r, n]) => `${RESOURCE_JA[r]} ${c.perResource[r] ?? 0}／${n}`).join('、')}` };
+      if (c.nations.size < c.goal.crossNations) {
+        return { done: false, why: c.unverified.length ? `国籍未検証のため、国をまたぐ協力は確定しない（${c.unverified.join('、')}）` : `確かめた他国からの到着が ${c.nations.size}／${c.goal.crossNations} か国` };
+      }
+      return { done: true, why: '資源ごとに、証明できた入荷量が基準に届き、確かめた他国からの到着がある' };
+    },
+  },
+  'arrivals-and-facility': {
+    id: 'arrivals-and-facility',
+    label: '仮B：仮A＋到着の後に新しい貯蔵庫が見えた',
+    means: '仮Aに加えて、到着を板が見た後に、依頼した人の新しい貯蔵庫がヘラルドの一覧に初めて見えたこと。これは時刻の前後を見るだけで、届いた物を使って建てた証拠ではない（在庫は混ざる。自分の物で建てても同じに見える）',
+    judge: c => {
+      const a = JUDGES.arrivals.judge(c);
+      if (!a.done) return a;
+      if (c.vaultSeenAfter === null) return { done: false, why: '貯蔵庫の一覧がない（ヘラルドが読めない）' };
+      if (!c.vaultSeenAfter) return { done: false, why: '到着を見た後に、依頼した人の新しい貯蔵庫がまだ見えない' };
+      return { done: true, why: '到着を見た後に、依頼した人の新しい貯蔵庫が見えた（届いた物を使った証拠ではない）' };
+    },
+  },
+});
+
+const blank = () => Object.fromEntries(RESOURCES.map(r => [r, 0]));
+const caravanKey = c => `${c.ownerTag}:${c.seq}`;
+
+/**
+ * 到着を依頼に割り当てる。同じ隊商は、最初に結び付けた（記録の順）依頼にだけ割り当て、二つ目からは `duplicateOf` を付けて数えない。
+ * 板は同じ隊商の二度目の結び付けを断るが、記録が欠けた板や別の板の記録を混ぜたときにも二重に数えないための守り。
+ */
+export function allocate(arrivals, state) {
+  const order = new Map();
+  for (const q of Object.values(state.requests)) for (const l of q.links) order.set(`${q.id}|${caravanKey(l.caravan)}`, l.n ?? 0);
+  const sorted = [...arrivals].sort((a, b) => (order.get(`${a.requestId}|${caravanKey(a.caravanId)}`) ?? 0) - (order.get(`${b.requestId}|${caravanKey(b.caravanId)}`) ?? 0));
+  const first = new Map();
+  return sorted.map(a => {
+    const k = caravanKey(a.caravanId);
+    if (!first.has(k)) { first.set(k, a.requestId); return a; }
+    return { ...a, duplicateOf: first.get(k), verifiedQty: null, note: `同じ隊商はもう依頼 ${first.get(k).slice(0, 8)} に割り当てた。二重に数えない` };
+  });
+}
+
+/**
+ * 表示の形。共同・国・個人を別々に返す。
+ *   state：record.mjs の fold の結果、file：ヘラルドの caravans.json、obs：板の観測（{ended: {key: t}, vaults: {key: t}}）、
+ *   checks：チェーンで確かめた結果（{citizens: {wallet: citizenOf}, holdings: {requestId: holdingOf}, caravans: {ownerTag:seq: caravanEndFromChain}}。
+ *     caravans がない（undefined）のは、チェーンを読まない板で、量はすべて未検証）、
+ *   viewer：見ている人のウォレット（なくてもよい）、now：秒、judgeId：JUDGES の鍵。
+ */
+export function coopView({ state, file, obs = { ended: {}, vaults: {} }, checks = { citizens: {}, holdings: {} }, viewer = null, now, judgeId = 'arrivals', season }) {
+  const judge = JUDGES[judgeId] ?? JUDGES.arrivals;
+  const arrivals = allocate(arrivalsOf(state, file, checks.caravans), state);
+  const byReq = {};
+  for (const a of arrivals) (byReq[a.requestId] ??= []).push(a);
+  const requests = Object.values(state.requests).map(q => ({ ...q, stateNow: stateAt(q, now), arrivals: byReq[q.id] ?? [] }));
+  const citizen = w => checks.citizens?.[w] ?? { status: 'unverified', why: 'まだ確かめていない' };
+  const factionOf = w => (citizen(w).status === 'verified' ? citizen(w).faction : null);
+
+  // ---------------------------------------------------------------- 共同（依頼した人＝施設の持ち主ごと）
+  const hosts = {};
+  for (const q of requests) {
+    const h = (hosts[`${q.goalId}|${q.requester}`] ??= { goal: GOALS[q.goalId], host: q.requester, perResource: blank(), contributors: new Set(), otherNations: new Set(), unverified: new Set(), unverifiedCaravans: 0, unprovenDeliveries: 0, lastArrivalSeen: 0, holdingIssues: new Set() });
+    const hc = checks.holdings?.[q.id];
+    if (q.arrivals.some(a => a.state === 'delivered') && hc?.status !== 'verified') h.holdingIssues.add(hc?.why ?? '届け先の村の持ち主をまだ確かめていない');
+    for (const a of q.arrivals) {
+      if (a.duplicateOf) continue;
+      if (a.state === 'delivered' && a.verifiedQty) {
+        if (hc?.status !== 'verified') continue;   // 届け先が依頼した人の村だと確かめられない到着は数えない
+        for (const [r, v] of Object.entries(a.verifiedQty)) h.perResource[r] += v;
+        h.contributors.add(a.responder);
+        h.lastArrivalSeen = Math.max(h.lastArrivalSeen, obs.ended?.[caravanKey(a.caravanId)] ?? 0);
+        const hf = factionOf(q.requester), rf = factionOf(a.responder);
+        if (hf === null) h.unverified.add('依頼した人の国が未検証');
+        if (rf === null) h.unverified.add(`届けた人 ${a.responder.slice(0, 4)}… の国が未検証`);
+        if (hf !== null && rf !== null && hf !== rf) h.otherNations.add(rf);
+      } else if (a.state === 'delivered') h.unprovenDeliveries += 1;
+      else if (a.state === 'moving' || a.state === 'unknown') h.unverifiedCaravans += 1;
+    }
+  }
+  const joint = Object.values(hosts).map(h => {
+    let vaultSeenAfter = null;
+    if (Array.isArray(file?.vaults) && season) {
+      const tag = ownerTagOf(season, h.host);
+      vaultSeenAfter = h.lastArrivalSeen > 0 && file.vaults.some(v => String(v.ownerTag) === tag && (obs.vaults?.[`${v.p},${v.q},${v.tile}`] ?? 0) > h.lastArrivalSeen);
+    }
+    const verdict = judge.judge({ goal: h.goal, perResource: h.perResource, nations: h.otherNations, unverified: [...h.unverified], vaultSeenAfter });
+    const hostCit = citizen(h.host);
+    return {
+      goalId: h.goal.id, title: h.goal.title, host: h.host, hostNation: hostCit.status === 'verified' ? hostCit.faction : null, hostNationWhy: hostCit.status === 'verified' ? null : hostCit.why,
+      judge: judge.id, judgeLabel: judge.label, judgeMeans: judge.means,
+      progress: Object.entries(h.goal.fromOthers).map(([r, n]) => ({ resource: r, verified: h.perResource[r], need: n })),
+      otherNations: [...h.otherNations], nationsUnverified: [...h.unverified], holdingIssues: [...h.holdingIssues], contributors: [...h.contributors],
+      unverifiedCaravans: h.unverifiedCaravans, unprovenDeliveries: h.unprovenDeliveries,
+      done: verdict.done && h.holdingIssues.size === 0, why: h.holdingIssues.size ? [...h.holdingIssues].join('、') : verdict.why, vaultSeenAfter,
+    };
+  });
+
+  // ---------------------------------------------------------------- 国（チェーンで確かめた国ごとの記録。国の目標はこの版では決めない）
+  const vf = viewer ? citizen(viewer) : null;
+  const nation = !viewer ? null : vf.status !== 'verified' ? { nation: null, why: vf.why, note: '国籍未検証。国の記録は出さない' } : {
+    nation: vf.faction,
+    note: '国の目標はこの版では設定しない（誰がどう決めるかは未決定）。国の議会の構え・投票は既存の画面にある',
+    requests: requests.filter(q => factionOf(q.requester) === vf.faction).length,
+    deliveredFromNation: arrivals.filter(a => !a.duplicateOf && a.state === 'delivered' && a.verifiedQty && factionOf(a.responder) === vf.faction).length,
+  };
+
+  // ---------------------------------------------------------------- 個人
+  const personal = viewer === null ? null : {
+    viewer,
+    nation: vf.status === 'verified' ? vf.faction : null, nationWhy: vf.status === 'verified' ? null : vf.why,
+    myRequests: requests.filter(q => q.requester === viewer).map(q => ({ id: q.id, state: q.stateNow, need: q.need, responses: q.responses, arrivals: q.arrivals })),
+    myResponses: requests.filter(q => q.responses[viewer]).map(q => ({ id: q.id, requester: q.requester, response: q.responses[viewer], arrivals: q.arrivals.filter(a => a.responder === viewer) })),
+    myVerified: (() => {
+      const t = blank();
+      for (const a of arrivals) if (a.responder === viewer && !a.duplicateOf && a.state === 'delivered' && a.verifiedQty) for (const [r, v] of Object.entries(a.verifiedQty)) t[r] += v;
+      return Object.fromEntries(Object.entries(t).filter(([, v]) => v > 0));
+    })(),
+    left: Object.entries(state.left).filter(([, ws]) => ws.includes(viewer)).map(([g]) => g),
+  };
+
+  return { requests, arrivals, joint, nation, personal, rejected: state.rejected, judges: Object.values(JUDGES).map(j => ({ id: j.id, label: j.label, means: j.means })) };
+}

@@ -1,0 +1,126 @@
+{
+ "a": {
+  "bell": 28,
+  "slot": 4538,
+  "accounts": 1142,
+  "holdings": 6,
+  "citizens": 6,
+  "lamports": 43423375360,
+  "continuous": true,
+  "end_bell": 4294967295
+ },
+ "b": {
+  "bell": 29,
+  "slot": 4654,
+  "accounts": 1174,
+  "holdings": 6,
+  "citizens": 6,
+  "lamports": 43467591680,
+  "continuous": true,
+  "end_bell": 4294967295
+ },
+ "accounts_added": 32,
+ "accounts_missing": 0,
+ "accounts_changed": 186,
+ "kinds_a": {
+  "PSF1ANCH": {
+   "lamports": 619028480,
+   "n": 448
+  },
+  "PSF1BLOG": {
+   "lamports": 20807680,
+   "n": 16
+  },
+  "PSF1CITZ": {
+   "lamports": 15605760,
+   "n": 6
+  },
+  "PSF1DPOL": {
+   "lamports": 20001950720,
+   "n": 1
+  },
+  "PSF1FRNT": {
+   "lamports": 3251200,
+   "n": 1
+  },
+  "PSF1HOLD": {
+   "lamports": 42915840,
+   "n": 6
+  },
+  "PSF1JSHD": {
+   "lamports": 93634560,
+   "n": 48
+  },
+  "PSF1PFND": {
+   "lamports": 16831961600,
+   "n": 6
+  },
+  "PSF1PROV": {
+   "lamports": 4175841280,
+   "n": 169
+  },
+  "PSF1RING": {
+   "lamports": 10403840,
+   "n": 8
+  },
+  "PSF1SEAS": {
+   "lamports": 1011054080,
+   "n": 1
+  },
+  "PSF1SEED": {
+   "lamports": 596920320,
+   "n": 432
+  }
+ },
+ "kinds_b": {
+  "PSF1ANCH": {
+   "lamports": 641136640,
+   "n": 464
+  },
+  "PSF1BLOG": {
+   "lamports": 20807680,
+   "n": 16
+  },
+  "PSF1CITZ": {
+   "lamports": 15605760,
+   "n": 6
+  },
+  "PSF1DPOL": {
+   "lamports": 20001950720,
+   "n": 1
+  },
+  "PSF1FRNT": {
+   "lamports": 3251200,
+   "n": 1
+  },
+  "PSF1HOLD": {
+   "lamports": 42915840,
+   "n": 6
+  },
+  "PSF1JSHD": {
+   "lamports": 93634560,
+   "n": 48
+  },
+  "PSF1PFND": {
+   "lamports": 16831961600,
+   "n": 6
+  },
+  "PSF1PROV": {
+   "lamports": 4175841280,
+   "n": 169
+  },
+  "PSF1RING": {
+   "lamports": 10403840,
+   "n": 8
+  },
+  "PSF1SEAS": {
+   "lamports": 1011054080,
+   "n": 1
+  },
+  "PSF1SEED": {
+   "lamports": 619028480,
+   "n": 448
+  }
+ },
+ "failures": []
+}

@@ -1,0 +1,537 @@
+From b7aebd38c380aca66c77d2a563cb7132f0ce07aa Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 30 Oct 2026 13:04:50 +0000
+Subject: [PATCH] Herald and page: placement, seed and the extension ceiling on
+ screen
+
+The herald's season record and /h/world now state the effective rMax
+(the Frontier's r_max_ext once ExtendFrontier raised it), the season's
+own r_max, the extension ceiling (0: none), the hard limit 128, the
+prize tally's last ring 17 (shown, not changed), the first-home
+placement, the heartland rings and the genesis seed.
+
+The page already decodes placement and seed from the Season bytes the
+record carries; a test now drives that path from a herald-shaped record
+to the join panel's candidates (the program's pinned home_nation
+vector). A season with a ceiling tells three more place states apart:
+extendable (within the ceiling, not on the map yet), beyond the ceiling,
+and beyond ring 128; the ceiling is drawn as a faint second border.
+Seasons without a ceiling keep the four states and their words. A march
+planned by frontier.wasm crosses from ring 4 into a newly seeded ring 5.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01C5Nj2bji8di3758qGdC2v1
+---
+ frontier-node/crates/herald/src/views.rs      |  13 ++
+ frontier-node/crates/herald/src/world.rs      |  30 ++++
+ frontier-node/crates/herald/tests/cq_fold.rs  |  74 +++++++++
+ frontier-node/crates/herald/tests/server.rs   |  10 ++
+ .../test/web-frontier-live-map.test.mjs       | 154 ++++++++++++++++++
+ permutation-server/web/frontier/app.mjs       |   1 +
+ permutation-server/web/frontier/map/fmap.mjs  |   2 +
+ permutation-server/web/frontier/map/world.mjs |  49 +++++-
+ .../web/lang/en-frontier-play.mjs             |   6 +
+ 9 files changed, 331 insertions(+), 8 deletions(-)
+ create mode 100644 permutation-gateway/test/web-frontier-live-map.test.mjs
+
+diff --git a/frontier-node/crates/herald/src/views.rs b/frontier-node/crates/herald/src/views.rs
+index 050980a2..3b35f6e8 100644
+--- a/frontier-node/crates/herald/src/views.rs
++++ b/frontier-node/crates/herald/src/views.rs
+@@ -93,6 +93,19 @@ pub fn season_json(f: &Fold, s: &SeasonStatic) -> Option<Value> {
+     let states = crate::world::ring_states(f);
+     v["ringsOpened"] = json!(states.len());
+     v["ringProvinces"] = json!(states.iter().map(|r| r.provinces).collect::<Vec<_>>());
++    // Map growth and first-home placement (the same as the Season bytes say;
++    // spelled out for readers that do not decode them): the ceiling (0: none),
++    // the hard limit, the prize tally's last ring, the placement, the
++    // heartland rings and the genesis seed `home_nation` reads.
++    v["rMaxCeiling"] = json!(crate::world::r_max_ceiling(f));
++    v["rMaxHard"] = json!(permutation_rules::frontier::geometry::R_MAX_HARD);
++    v["prizeMaxRing"] = json!(crate::world::PRIZE_MAX_RING);
++    v["placement"] = json!(crate::world::placement(f));
++    v["heartlandMaxRing"] = se
++        .conquest
++        .as_ref()
++        .map_or(Value::Null, |c| json!(c.heartland_max_ring));
++    v["genesisSeed"] = json!(hex::encode(se.genesis_seed));
+     Some(v)
+ }
+ 
+diff --git a/frontier-node/crates/herald/src/world.rs b/frontier-node/crates/herald/src/world.rs
+index 12ee6778..de83eaf4 100644
+--- a/frontier-node/crates/herald/src/world.rs
++++ b/frontier-node/crates/herald/src/world.rs
+@@ -62,6 +62,30 @@ pub fn r_max(f: &Fold) -> Option<u16> {
+     Some(se.r_max.max(ext))
+ }
+ 
++/// The prize program's outermost ring (`permutation_prize::MAX_RING`): its
++/// tally covers rings 0–17 only, and its InitPool refuses a season whose
++/// map may reach beyond (a larger `r_max`, or an extension ceiling above 17).
++/// Shown, never changed, by the herald.
++pub const PRIZE_MAX_RING: u16 = 17;
++
++/// The season's map-growth ceiling (`r_max_ceiling`; 0: no extension, the
++/// map ends at the season's `r_max` as before map growth).
++pub fn r_max_ceiling(f: &Fold) -> u16 {
++    f.season
++        .as_ref()
++        .and_then(|s| s.conquest.as_ref())
++        .map_or(0, |c| c.r_max_ceiling)
++}
++
++/// The season's first-home placement (`placement`; 0: each nation in its
++/// own wedge, 1: dispersed small groups, `geometry::home_nation`).
++pub fn placement(f: &Fold) -> u8 {
++    f.season
++        .as_ref()
++        .and_then(|s| s.conquest.as_ref())
++        .map_or(0, |c| c.placement)
++}
++
+ /// `Frontier.rings_opened`, or (before the Frontier is captured) one past
+ /// the last seeded ring.
+ pub fn rings_opened(f: &Fold) -> u16 {
+@@ -106,6 +130,12 @@ pub fn world_json(f: &Fold) -> Option<Value> {
+         "season": f.cfg.season_id.to_string(),
+         "rMax": r_max(f).unwrap_or(se.r_max),
+         "rMaxHard": R_MAX_HARD,
++        // map growth: the season's own r_max, the ceiling ExtendFrontier may raise it to (0: none) and the
++        // prize tally's last ring (a season with a prize pool never reaches past it)
++        "rMaxSeason": se.r_max,
++        "rMaxCeiling": r_max_ceiling(f),
++        "prizeMaxRing": PRIZE_MAX_RING,
++        "placement": placement(f),
+         "genesisRing": se.genesis_ring,
+         "ringsOpened": rings.len(),
+         "provinces": f.provinces.len(),
+diff --git a/frontier-node/crates/herald/tests/cq_fold.rs b/frontier-node/crates/herald/tests/cq_fold.rs
+index d84116a6..aa1be57e 100644
+--- a/frontier-node/crates/herald/tests/cq_fold.rs
++++ b/frontier-node/crates/herald/tests/cq_fold.rs
+@@ -810,3 +810,77 @@ fn cq_a_close_linking_an_s1_entity_is_an_event_not_a_bad_record() {
+     let _ = std::fs::remove_dir_all(&d0);
+     let _ = std::fs::remove_dir_all(&d1);
+ }
++
++/// Map growth and dispersed placement as the herald states them: the world
++/// manifest and the season record carry the effective rMax (the Frontier's
++/// `r_max_ext` once ExtendFrontier raised it), the ceiling, the hard limit
++/// (128, never "infinite"), the prize tally's last ring (17, shown, never
++/// changed), the placement and the genesis seed. A season without the new
++/// parameters reads 0 for both and its rMax is the season's own.
++#[test]
++fn world_and_season_state_growth_and_placement() {
++    use frontier_abi::layout::world::frontier as FR;
++    use herald_fold::fold::Capture;
++    use herald_fold::views::{season_json, SeasonStatic};
++    use herald_fold::world::{world_json, PRIZE_MAX_RING};
++    let d = tmp("cqworldgrowth");
++    let mut f = Fold::new(cfg(), Out::new(&d));
++    for tx in cqfixture::mini_season() {
++        f.apply(&tx);
++    }
++    let st = SeasonStatic {
++        cluster: "fixture".into(),
++        drand: fclient::beacon::TestKey::new().info(),
++        quotas: serde_json::json!({}),
++    };
++    let r = f.season.as_ref().unwrap().r_max;
++    let seed = hex::encode(f.season.as_ref().unwrap().genesis_seed);
++    // Before: no ceiling, the wedge placement — the season's own rMax.
++    let w = world_json(&f).unwrap();
++    assert_eq!(w["rMax"], r);
++    assert_eq!(w["rMaxSeason"], r);
++    assert_eq!(w["rMaxCeiling"], 0);
++    assert_eq!(w["rMaxHard"], 128);
++    assert_eq!(w["prizeMaxRing"], PRIZE_MAX_RING);
++    assert_eq!(PRIZE_MAX_RING, 17);
++    assert_eq!(w["placement"], 0);
++    let s = season_json(&f, &st).unwrap();
++    assert_eq!(s["rMax"], r);
++    assert_eq!(s["rMaxCeiling"], 0);
++    assert_eq!(s["placement"], 0);
++    assert_eq!(s["genesisSeed"], seed);
++    assert!(s["heartlandMaxRing"].as_u64().is_some());
++    // A season with a ceiling and the dispersed placement, after one
++    // ExtendFrontier (the Frontier account's r_max_ext).
++    {
++        let cq = f.season.as_mut().unwrap().conquest.as_mut().unwrap();
++        cq.r_max_ceiling = r + 3;
++        cq.placement = 1;
++    }
++    let mut fr = vec![0u8; FR::SIZE];
++    fr[..8].copy_from_slice(b"PSF1FRNT");
++    fr[8..16].copy_from_slice(&SEASON_ID.to_le_bytes());
++    fr[FR::RINGS_OPENED..FR::RINGS_OPENED + 2].copy_from_slice(&(r + 1).to_le_bytes());
++    fr[FR::R_MAX_EXT..FR::R_MAX_EXT + 2].copy_from_slice(&(r + 1).to_le_bytes());
++    let fa = f.ctx.frontier();
++    f.st.accounts.insert(
++        fa,
++        Capture {
++            slot: 1,
++            tx: 1,
++            data: fr,
++        },
++    );
++    let w = world_json(&f).unwrap();
++    assert_eq!(w["rMax"], r + 1, "the effective rMax follows r_max_ext");
++    assert_eq!(w["rMaxSeason"], r);
++    assert_eq!(w["rMaxCeiling"], r + 3);
++    assert_eq!(w["placement"], 1);
++    let s = season_json(&f, &st).unwrap();
++    assert_eq!(s["rMax"], r + 1);
++    assert_eq!(s["rMaxCeiling"], r + 3);
++    assert_eq!(s["rMaxHard"], 128);
++    assert_eq!(s["prizeMaxRing"], 17);
++    assert_eq!(s["placement"], 1);
++    let _ = std::fs::remove_dir_all(d);
++}
+diff --git a/frontier-node/crates/herald/tests/server.rs b/frontier-node/crates/herald/tests/server.rs
+index 2f1b846b..e65f6706 100644
+--- a/frontier-node/crates/herald/tests/server.rs
++++ b/frontier-node/crates/herald/tests/server.rs
+@@ -317,6 +317,12 @@ async fn h_routes_caching_and_headers() {
+     let wj = w.json();
+     assert_eq!(wj["rMax"], 16);
+     assert_eq!(wj["rMaxHard"], 128);
++    // an M1 season: no extension ceiling, the wedge placement; the prize
++    // tally's last ring is stated, never changed
++    assert_eq!(wj["rMaxSeason"], 16);
++    assert_eq!(wj["rMaxCeiling"], 0);
++    assert_eq!(wj["prizeMaxRing"], 17);
++    assert_eq!(wj["placement"], 0);
+     assert_eq!(wj["ringsOpened"], 4);
+     assert_eq!(wj["provinces"], 4);
+     let rings = wj["rings"].as_array().unwrap();
+@@ -349,6 +355,10 @@ async fn h_routes_caching_and_headers() {
+     let sj = get(a, "/h/season").await.json();
+     assert_eq!(sj["ringsOpened"], 4);
+     assert_eq!(sj["ringProvinces"], json!([0, 0, 3, 1]));
++    assert_eq!(sj["rMaxCeiling"], 0);
++    assert_eq!(sj["placement"], 0);
++    assert_eq!(sj["rMaxHard"], 128);
++    assert_eq!(sj["genesisSeed"].as_str().map(str::len), Some(64));
+     // Unknown paths.
+     assert_eq!(get(a, "/h/nothing").await.status, 404);
+     let _ = std::fs::remove_dir_all(&st.dir);
+diff --git a/permutation-gateway/test/web-frontier-live-map.test.mjs b/permutation-gateway/test/web-frontier-live-map.test.mjs
+new file mode 100644
+index 00000000..e2b67349
+--- /dev/null
++++ b/permutation-gateway/test/web-frontier-live-map.test.mjs
+@@ -0,0 +1,154 @@
++// Map growth and dispersed placement, end to end on the page's side
++// (workstream 08): the herald's season record → the decoded Season → the
++// join panel's candidates; the place states of a season with an extension
++// ceiling (open · pending · unopened · extendable · beyondCeiling ·
++// beyondHard) and the unchanged four of every other season; a march planned
++// by the rules module (frontier.wasm) from an inner province into a ring
++// added by ExtendFrontier; the hex keys of the program's outermost ring.
++// The map is bounded (ring 128 at most): nothing here is "infinite".
++import { test, afterEach } from 'node:test';
++import assert from 'node:assert/strict';
++import { existsSync, readFileSync } from 'node:fs';
++import { createHash } from 'node:crypto';
++import * as W from '../../permutation-server/web/frontier/map/world.mjs';
++import * as Wasm from '../../permutation-server/web/frontier/wasm.mjs';
++import { createHerald } from '../../permutation-server/web/frontier/herald.mjs';
++import { homeNation, ringProvinces, ringOf, wedgeOf } from '../../permutation-server/web/frontier/fgeo.mjs';
++import { planHomes, seasonPlace } from '../../permutation-server/web/frontier/home.mjs';
++import { planRoute } from '../../permutation-server/web/frontier/fmarch.mjs';
++import { hexKey, keyHex } from '../../permutation-server/web/frontier/map/survey.mjs';
++import { setLang } from '../../permutation-server/web/lang.mjs';
++
++afterEach(() => setLang('ja'));
++
++const SEASON_ID = 71;
++/** A v2 Season account as the program writes it: the fields this path reads. */
++function seasonBytes({ placement = 0, ceiling = 0, seed = 1, hmr = 3, rMax = 6 } = {}) {
++  const b = new Uint8Array(2048);
++  b.set([...'PSF1SEAS'].map(c => c.charCodeAt(0)), 0);
++  new DataView(b.buffer).setBigUint64(8, BigInt(SEASON_ID), true);
++  b[16] = 2; b[17] = 0;
++  new DataView(b.buffer).setUint16(68, rMax, true);
++  b.fill(seed, 240, 272);
++  b[896 + 1] = hmr; b[896 + 77] = placement;
++  new DataView(b.buffer).setUint16(896 + 78, ceiling, true);
++  return b;
++}
++/** The herald's /h/season record around those bytes (views.rs season_json). */
++const record = (opts = {}) => ({
++  v: 1, season: String(SEASON_ID), rMax: opts.rMax ?? 6, rings: Array.from({ length: 4 }, (_, d) => ({ d, seed: '00'.repeat(32) })),
++  ringsOpened: 4, ringProvinces: [1, 6, 12, 18], placement: opts.placement ?? 0, heartlandMaxRing: 3, rMaxCeiling: opts.ceiling ?? 0,
++  rMaxHard: 128, prizeMaxRing: 17, genesisSeed: '01'.repeat(32), bytes_b64: Buffer.from(seasonBytes(opts)).toString('base64'),
++});
++const fetchOf = rec => async url => ({ ok: true, status: 200, headers: { get: () => 'application/json' }, json: async () => rec, text: async () => JSON.stringify(rec), arrayBuffer: async () => new ArrayBuffer(0), url });
++
++const province = (p, q) => ({ p, q, siteCount: 2, sites: [5, 14], siteMirror: [{ state: 0, gen: 0 }, { state: 0, gen: 0 }], ticketCohorts: [] });
++const overviews = () => new Map([2, 3].map(ring => [ring, { ring, provinces: ringProvinces(ring).map(p => ({ ...p, sites: [0, 0], owners: [7, 7] })) }]));
++// permutation-rules home_nation_dispersed_pinned_vector (seed 1, rings 2 and 3)
++const PINNED = [4, 5, 0, 1, 2, 3, 4, 5, 0, 1, 2, 3, 5, 0, 1, 2, 3, 4, 5, 0, 1, 2, 3, 4, 5, 0, 1, 2, 3, 4];
++
++test('the herald\'s season record carries the placement and seed the join panel uses (placement 1)', async () => {
++  const h = createHerald({ base: 'http://h', fetch: fetchOf(record({ placement: 1, ceiling: 9 })) });
++  const r = await h.season();
++  assert.ok(r.ok, String(r.code));
++  const place = seasonPlace(r.season);
++  assert.equal(place.placement, 1);
++  assert.equal(place.heartlandMaxRing, 3);
++  const cells = [...ringProvinces(2), ...ringProvinces(3)];
++  assert.deepEqual(cells.map(c => homeNation(c.p, c.q, place)), PINNED, 'the program\'s rule, from the decoded Season');
++  for (let f = 0; f < 6; f++) {
++    const got = await planHomes({ overviews: overviews(), read: async (p, q) => province(p, q), faction: f, ringsOpen: 4, seed: 'x', place, max: 5 });
++    assert.equal(got.candidates.length, 5);
++    for (const s of got.candidates) assert.equal(PINNED[cells.findIndex(c => c.p === s.p && c.q === s.q)], f);
++    assert.ok(new Set(got.candidates.map(s => wedgeOf(s.p, s.q))).size >= 3, 'small groups in several wedges');
++  }
++  assert.equal(r.record.placement, 1);
++  assert.equal(r.record.genesisSeed, '01'.repeat(32));
++});
++
++test('placement 0 (every season before the parameter): the wedge rule, unchanged', async () => {
++  const h = createHerald({ base: 'http://h', fetch: fetchOf(record()) });
++  const r = await h.season();
++  assert.equal(seasonPlace(r.season), undefined);
++  const got = await planHomes({ overviews: overviews(), read: async (p, q) => province(p, q), faction: 2, ringsOpen: 4, seed: 'x', place: seasonPlace(r.season), max: 5 });
++  assert.ok(got.candidates.length > 0 && got.candidates.every(s => wedgeOf(s.p, s.q) === 2));
++});
++
++const rings = n => Array.from({ length: n }, (_, d) => ({ d, seed: '00' }));
++
++test('a season with a ceiling: extendable, beyond the ceiling and beyond ring 128 are told apart', () => {
++  const w = W.worldOf({ rings: rings(7), ringsOpened: 7, rMax: 6, rMaxCeiling: 9, rMaxHard: 128, ringProvinces: [1, 6, 12, 18, 24, 30, 36] });
++  assert.equal(w.rMaxCeiling, 9);
++  assert.equal(W.placeOf(w, 6, 0), 'open');
++  assert.equal(W.placeOf(w, 7, 0), 'extendable');
++  assert.equal(W.placeOf(w, 9, 0), 'extendable');
++  assert.equal(W.placeOf(w, 10, 0), 'beyondCeiling');
++  assert.equal(W.placeOf(w, 129, 0), 'beyondHard');
++  // after ExtendFrontier(7): ring 7 is on the map (not opened yet), ring 8 may still be added
++  const up = W.worldOf({ rings: rings(7), ringsOpened: 7, rMax: 7, rMaxCeiling: 9, ringProvinces: [1, 6, 12, 18, 24, 30, 36] });
++  assert.equal(W.placeOf(up, 7, 0), 'unopened');
++  assert.equal(W.placeOf(up, 8, 0), 'extendable');
++  // the ceiling reached: nothing extendable any more
++  const top = W.worldOf({ rings: rings(10), ringsOpened: 10, rMax: 9, rMaxCeiling: 9 });
++  assert.equal(top.rMaxCeiling, undefined);
++  assert.equal(W.placeOf(top, 10, 0), 'outside');
++});
++
++test('without a ceiling every season keeps its four states and its old words', () => {
++  for (const ceiling of [undefined, 0, 6, 3]) {
++    const w = W.worldOf({ rings: rings(5), ringsOpened: 6, rMax: 6, rMaxCeiling: ceiling, ringProvinces: [1, 6, 12, 18, 24] });
++    assert.deepEqual(Object.keys(w), ['ringsOpen', 'ringsOpened', 'rMax', 'ringProvinces']);
++    assert.equal(W.placeOf(w, 7, 0), 'outside');
++    assert.equal(W.placeOf(w, 200, 0), 'outside');
++  }
++});
++
++test('the words of the new states, in both languages; the hard limit is named as ring 128', () => {
++  assert.equal(W.ringText('extendable', 8), '第8輪（広げられるが、まだ地図の外）');
++  assert.equal(W.ringText('beyondCeiling', 10), '第10輪（このシーズンの上限の外）');
++  assert.equal(W.ringText('beyondHard', 129), '第129輪（プログラムの上限・第128輪の外）');
++  assert.match(W.PLACE_NOTE.extendable(), /広げられます/);
++  setLang('en');
++  assert.equal(W.ringText('extendable', 8), 'Ring 8 (may be added, not on the map yet)');
++  assert.equal(W.ringText('beyondCeiling', 10), 'Ring 10 (beyond this season’s limit)');
++  assert.equal(W.ringText('beyondHard', 129), 'Ring 129 (beyond the program’s limit, ring 128)');
++  assert.equal(W.PLACE_NOTE.beyondHard(), 'This is beyond the program’s limit (ring 128)');
++  for (const k of ['extendable', 'beyondCeiling', 'beyondHard']) assert.doesNotMatch(W.PLACE_NOTE[k]() + W.ringText(k, 1), /[ぁ-んァ-ン一-龯]|infinite/i);
++});
++
++test('the ceiling\'s border: drawn faint from the same sides as the season border', () => {
++  assert.equal(W.edgeSegments(9).length, 12 * 9 + 6);
++  const calls = [];
++  const ctx = { save() {}, restore() {}, beginPath() {}, moveTo() {}, lineTo() {}, stroke() { calls.push([this.strokeStyle, this.lineWidth]); }, setLineDash() {} };
++  W.paintEdge(ctx, W.edgeSegments(9), 1, { faint: true });
++  assert.equal(calls[1][1], 1.5);
++  W.paintEdge(ctx, W.edgeSegments(6), 1);
++  assert.equal(calls[3][1], 2.5);
++});
++
++test('the program\'s outermost ring fits the page\'s hex keys (ring 128 is far inside ±2047)', () => {
++  for (const { p, q } of ringProvinces(128).filter((_, i) => i % 64 === 0)) {
++    // the province's centre P·(9,−4) + Q·(4,5) and a tile four hexes off it
++    const cq = 9 * p + 4 * q, cr = -4 * p + 5 * q;
++    for (const [dq, dr] of [[0, 0], [4, 0], [-4, 4], [0, -4]]) assert.deepEqual(keyHex(hexKey(cq + dq, cr + dr)), { q: cq + dq, r: cr + dr });
++  }
++});
++
++const WASM = new URL('../../permutation-server/web/frontier/wasm/frontier.wasm', import.meta.url);
++test('a march across the old edge: the rules module routes from ring 4 into ring 5 once ring 5 is seeded', async t => {
++  if (!existsSync(WASM)) { t.skip('frontier.wasm not built'); return; }
++  const bytes = readFileSync(WASM);
++  const sha = createHash('sha256').update(bytes).digest('hex');
++  const k = await Wasm.loadKernel({ url: WASM.href, sha256Hex: sha, fetch: async () => ({ ok: true, arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.length) }) });
++  const seeds = d => Array.from({ length: d }, (_, r) => ({ ring: r, seed: createHash('sha256').update(`ring${r}`).digest('hex') }));
++  let crossed = null;
++  for (let a = 0; a < 61 && !crossed; a += 5) for (let b = 0; b < 61 && !crossed; b += 5) {
++    const r = planRoute(k, { from: { p: 4, q: 0, tile: a }, to: { p: 5, q: 0, tile: b }, unit: 0, seeds: seeds(6) });
++    if (r.ok) crossed = r.route;
++  }
++  assert.ok(crossed, 'some tile of ring 4 reaches ring 5 once its seed is known');
++  assert.deepEqual(crossed.provinces.map(x => ringOf(x.p, x.q)), [4, 5], 'from ring 4 into the extended ring 5');
++  // without ring 5's seed (the ring not opened yet) the planner has no land there
++  const none = planRoute(k, { from: { p: 4, q: 0, tile: 0 }, to: { p: 5, q: 0, tile: 30 }, unit: 0, seeds: seeds(5) });
++  assert.equal(none.ok, false);
++});
+diff --git a/permutation-server/web/frontier/app.mjs b/permutation-server/web/frontier/app.mjs
+index 5019097a..b47f862f 100644
+--- a/permutation-server/web/frontier/app.mjs
++++ b/permutation-server/web/frontier/app.mjs
+@@ -3569,6 +3569,7 @@ export async function boot() {
+         return { overviews: FS.overviews, ringsOpen: FS.record?.rings?.length ?? 1, own, selected: FS.selected, terrainOf,
+           // where the season's map ends (map/world.mjs: its border is drawn once it is near the open land)
+           rMax: FS.world?.rMax ?? null,
++          rMaxCeiling: FS.world?.rMaxCeiling ?? null,
+           // what this viewer has surveyed (map/survey.mjs): the one rule for the map, the minimap, tips, the inspector and search
+           survey: surveyNow(),
+           // art mode: the decoded Province (holdings' tiers, hosts on tiles, camp), loaded on demand
+diff --git a/permutation-server/web/frontier/map/fmap.mjs b/permutation-server/web/frontier/map/fmap.mjs
+index c7cb5796..70d50fc4 100644
+--- a/permutation-server/web/frontier/map/fmap.mjs
++++ b/permutation-server/web/frontier/map/fmap.mjs
+@@ -2294,6 +2294,8 @@ export class FrontierMap {
+     // the season's border (map/world.mjs): beyond ring rMax there is never land this season. Drawn once it is within
+     // reach of the open land, over the cloud's edge, so "not open yet" and "outside the map" never look alike
+     if (edgeNear(src.rMax, ringsOpen)) { const segs = edgeSegments(src.rMax); plain.push(g => paintEdge(g, segs, z)); }
++    // a season that may still be extended (ExtendFrontier): its ceiling, faint, once near enough to be on the sheet
++    if (Number.isInteger(src.rMaxCeiling) && src.rMaxCeiling > src.rMax && edgeNear(src.rMaxCeiling, ringsOpen)) { const segs = edgeSegments(src.rMaxCeiling); plain.push(g => paintEdge(g, segs, z, { faint: true })); }
+     // what is the viewer's own and what the selection can do (UX brief §5): one bundle for this frame's passes
+     const F = this.youFrame(src, survey, lod, z, terrainOf);
+     F.seen = seen; F.up = up; F.dpr = dpr;
+diff --git a/permutation-server/web/frontier/map/world.mjs b/permutation-server/web/frontier/map/world.mjs
+index 485e5ae8..59fb05bf 100644
+--- a/permutation-server/web/frontier/map/world.mjs
++++ b/permutation-server/web/frontier/map/world.mjs
+@@ -2,6 +2,14 @@
+ // is before any question of what the viewer has seen.
+ //
+ //   outside    its ring is beyond the season's rMax: never land this season
++//              (a season without a ceiling, as every season before map growth)
++//   extendable a season with a ceiling (r_max_ceiling, ExtendFrontier): beyond
++//              the current rMax but within the ceiling — not on the map yet,
++//              the map may still be extended to it one ring at a time
++//   beyondCeiling  a season with a ceiling: beyond it — never land this season
++//   beyondHard a season with a ceiling: beyond ring 128, the program's hard
++//              limit (R_MAX_HARD); no season reaches it. The map is bounded,
++//              never infinite
+ //   unopened   its ring is not open: no land yet (OpenRing opens the next ring
+ //              when the crowding rule holds; the cloud sea lies there)
+ //   pending    its ring is open but its seed is still on its way, or the
+@@ -12,7 +20,9 @@
+ //
+ // From the herald's season record: `rings` (the seeded rings, 0..n−1),
+ // `ringsOpened` (also the rings whose seed is on its way), `ringProvinces`
+-// (Provinces on chain per ring) and `rMax`; for a ring only partly on
++// (Provinces on chain per ring), `rMax` (the effective outermost ring:
++// the season's r_max or the Frontier's r_max_ext), `rMaxCeiling` (0 or
++// absent: no extension) and `rMaxHard` (128); for a ring only partly on
+ // chain, `/h/world/ring/{d}` names its Provinces (`present`). An older
+ // herald without the new fields gives `open` / `unopened` as before.
+ // Pure: no DOM, no fetch.
+@@ -21,7 +31,9 @@ import { L, fmtNum } from '../../lang.mjs';
+ import { locate, ringOf, ringProvinces, ringSize } from '../fgeo.mjs';
+ import { provinceCorners, provincePixel } from './layers.mjs';
+ 
+-export const PLACE = Object.freeze({ open: 'open', pending: 'pending', unopened: 'unopened', outside: 'outside' });
++export const PLACE = Object.freeze({ open: 'open', pending: 'pending', unopened: 'unopened', outside: 'outside', extendable: 'extendable', beyondCeiling: 'beyondCeiling', beyondHard: 'beyondHard' });
++/** The program's hard limit of any season's outermost ring (geometry R_MAX_HARD). */
++export const R_MAX_HARD = 128;
+ 
+ const int = Number.isInteger;
+ 
+@@ -31,7 +43,14 @@ export function worldOf(record) {
+   const ringsOpened = int(record?.ringsOpened) ? Math.max(ringsOpen, record.ringsOpened) : ringsOpen;
+   const rMax = int(record?.rMax) ? record.rMax : null;
+   const ringProvinces = Array.isArray(record?.ringProvinces) ? record.ringProvinces : null;
+-  return { ringsOpen, ringsOpened, rMax, ringProvinces };
++  const w = { ringsOpen, ringsOpened, rMax, ringProvinces };
++  // map growth: only a season with a ceiling above its map carries one (every other season keeps the four states)
++  const ceiling = record?.rMaxCeiling;
++  if (int(ceiling) && rMax !== null && ceiling > rMax) {
++    w.rMaxCeiling = Math.min(ceiling, R_MAX_HARD);
++    w.rMaxHard = int(record?.rMaxHard) ? record.rMaxHard : R_MAX_HARD;
++  }
++  return w;
+ }
+ 
+ /** Seeded rings with some of their Provinces not on chain yet (each wants its `/h/world/ring/{d}` list). */
+@@ -50,7 +69,11 @@ export function partialRings(w) {
+  */
+ export function placeOf(w, p, q, present = () => null) {
+   const d = ringOf(p, q);
+-  if (w.rMax !== null && d > w.rMax) return PLACE.outside;
++  if (w.rMax !== null && d > w.rMax) {
++    if (!int(w.rMaxCeiling)) return PLACE.outside;
++    if (d > (w.rMaxHard ?? R_MAX_HARD)) return PLACE.beyondHard;
++    return d <= w.rMaxCeiling ? PLACE.extendable : PLACE.beyondCeiling;
++  }
+   if (d >= w.ringsOpened) return PLACE.unopened;
+   if (d >= w.ringsOpen) return PLACE.pending;
+   const n = w.ringProvinces?.[d];
+@@ -75,15 +98,19 @@ export const EDGE_NEAR_RINGS = 2;
+ /** Whether the border of a map of `rMax` rings is near enough to `ringsOpen` open rings to be drawn. */
+ export const edgeNear = (rMax, ringsOpen) => int(rMax) && rMax <= Math.max(0, ringsOpen - 1) + EDGE_NEAR_RINGS;
+ 
+-/** The season's border (edgeSegments) on a world-transformed canvas: a dark dashed ink over a paper halo, widths in screen px. */
+-export function paintEdge(ctx, segs, scale = 1) {
++/**
++ * The season's border (edgeSegments) on a world-transformed canvas: a dark dashed ink over a paper halo, widths in
++ * screen px. `faint`: the ceiling of a season that may still be extended (a thinner, lighter, sparser dash).
++ */
++export function paintEdge(ctx, segs, scale = 1, { faint = false } = {}) {
+   if (!segs.length) return;
+   ctx.save();
+   ctx.beginPath();
+   for (const [x0, y0, x1, y1] of segs) { ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); }
+   ctx.lineCap = 'round';
+-  ctx.strokeStyle = 'rgba(244,239,224,.9)'; ctx.lineWidth = 6 / scale; ctx.setLineDash([]); ctx.stroke();
+-  ctx.strokeStyle = '#3a2a22'; ctx.lineWidth = 2.5 / scale; ctx.setLineDash([10 / scale, 7 / scale]); ctx.stroke();
++  ctx.strokeStyle = 'rgba(244,239,224,.9)'; ctx.lineWidth = (faint ? 4 : 6) / scale; ctx.setLineDash([]); ctx.stroke();
++  ctx.strokeStyle = faint ? 'rgba(58,42,34,.55)' : '#3a2a22'; ctx.lineWidth = (faint ? 1.5 : 2.5) / scale;
++  ctx.setLineDash(faint ? [4 / scale, 9 / scale] : [10 / scale, 7 / scale]); ctx.stroke();
+   ctx.restore();
+ }
+ 
+@@ -92,6 +119,9 @@ export const PLACE_NOTE = Object.freeze({
+   outside: () => L`ここはこのシーズンの地図の外です`,
+   unopened: () => L`まだひらいていない土地です`,
+   pending: () => L`この土地は生まれるところです（しばらくお待ちください）`,
++  extendable: () => L`ここはまだ地図の外です（このシーズンは、ここまで地図を広げられます）`,
++  beyondCeiling: () => L`ここはこのシーズンの上限の外です`,
++  beyondHard: () => L`ここはプログラムの上限（第128輪）の外です`,
+ });
+ 
+ /** The ring as the inspector says it, with what the place is. */
+@@ -99,6 +129,9 @@ export function ringText(state, ring) {
+   if (state === PLACE.outside) return L`第${fmtNum(ring)}輪（このシーズンの地図の外）`;
+   if (state === PLACE.unopened) return L`第${fmtNum(ring)}輪（まだひらいていません）`;
+   if (state === PLACE.pending) return L`第${fmtNum(ring)}輪（生まれるところです）`;
++  if (state === PLACE.extendable) return L`第${fmtNum(ring)}輪（広げられるが、まだ地図の外）`;
++  if (state === PLACE.beyondCeiling) return L`第${fmtNum(ring)}輪（このシーズンの上限の外）`;
++  if (state === PLACE.beyondHard) return L`第${fmtNum(ring)}輪（プログラムの上限・第128輪の外）`;
+   return L`第${fmtNum(ring)}輪`;
+ }
+ 
+diff --git a/permutation-server/web/lang/en-frontier-play.mjs b/permutation-server/web/lang/en-frontier-play.mjs
+index 59a9247a..cb540606 100644
+--- a/permutation-server/web/lang/en-frontier-play.mjs
++++ b/permutation-server/web/lang/en-frontier-play.mjs
+@@ -352,6 +352,12 @@ export default {
+   '第{0}輪（このシーズンの地図の外）': 'Ring {0} (outside this season’s map)',
+   '第{0}輪（生まれるところです）': 'Ring {0} (being made)',
+   'ここはこのシーズンの地図の外です': 'This is outside this season’s map',
++  'ここはまだ地図の外です（このシーズンは、ここまで地図を広げられます）': 'This is not on the map yet (this season’s map may still be extended this far)',
++  'ここはこのシーズンの上限の外です': 'This is beyond this season’s limit',
++  'ここはプログラムの上限（第128輪）の外です': 'This is beyond the program’s limit (ring 128)',
++  '第{0}輪（広げられるが、まだ地図の外）': 'Ring {0} (may be added, not on the map yet)',
++  '第{0}輪（このシーズンの上限の外）': 'Ring {0} (beyond this season’s limit)',
++  '第{0}輪（プログラムの上限・第128輪の外）': 'Ring {0} (beyond the program’s limit, ring 128)',
+   'この土地は生まれるところです（しばらくお待ちください）': 'This land is being made (a moment, please)',
+   '地形': 'Terrain',
+   '村を持つ国': 'Nations with villages here',
+-- 
+2.43.0
+

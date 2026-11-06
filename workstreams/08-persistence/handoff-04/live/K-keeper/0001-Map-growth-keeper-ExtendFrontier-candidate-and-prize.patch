@@ -1,0 +1,811 @@
+From ddf1b7547680a35ee32a4485500445a928daeb3b Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 30 Oct 2026 13:18:02 +0000
+Subject: [PATCH] Map growth: keeper ExtendFrontier candidate and prize ceiling
+ refusal
+
+Keeper (local candidate, off by default): with `extend = true` the rings
+duty sends ExtendFrontier(effective r_max + 1) only when the program's
+rule holds (fclient::land::frontier_extend_check mirrors proc/map.rs:
+a ceiling, d <= ceiling, Running, every ring opened, a bell since the
+last opening, some wedge crowded past theta), the outermost ring is
+complete and folded by a later bell, and d <= extend_max_ring (default
+17, the prize program's MAX_RING; the keeper cannot see a pool). d is
+recomputed from the chain every tick; the engine dedups by key and
+treats AlreadyDone as landed. The open-ring policy now uses the
+effective r_max so the extended ring is opened. frontier-stack gains
+--keeper-extend and --r-max-ceiling (conquest only; <= 17 with
+--prize-so).
+
+Prize: InitPool refuses a season whose r_max_ceiling exceeds MAX_RING
+with CeilingPastTally (0x111). The ring-17 limit is unchanged.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01C5Nj2bji8di3758qGdC2v1
+---
+ docs/frontier/map-growth/prize-finalize.ja.md |   1 +
+ frontier-node/crates/fclient/src/land.rs      | 115 +++++++++++
+ frontier-node/crates/keeper/src/config.rs     |  35 ++++
+ frontier-node/crates/keeper/src/lib.rs        |   1 +
+ frontier-node/crates/keeper/src/rings.rs      | 189 +++++++++++++++++-
+ frontier-node/crates/stack/src/config.rs      |  37 ++++
+ frontier-node/crates/stack/src/setup.rs       |   6 +
+ frontier-node/crates/stack/src/up.rs          |   6 +
+ permutation-prize/src/lib.rs                  |  57 +++++-
+ permutation-prize/svm-tests/tests/pool.rs     |  24 +++
+ 10 files changed, 462 insertions(+), 9 deletions(-)
+
+diff --git a/docs/frontier/map-growth/prize-finalize.ja.md b/docs/frontier/map-growth/prize-finalize.ja.md
+index d3a320a3..f3130990 100644
+--- a/docs/frontier/map-growth/prize-finalize.ja.md
++++ b/docs/frontier/map-growth/prize-finalize.ja.md
+@@ -119,6 +119,7 @@ Tally と Finalize は `permutation-prize/src/lib.rs` にあります。
+ - **Tally（P1'）**：州の `opened_bell ≥ end_bell` なら、ビットマップに印を付けて `counted` を+1し、面積と同点用の値には何も足しません。このとき `resolved_next` と砦の `since_bell` は見ません。
+   - `opened_bell < end_bell` の州は今までどおりです（`since_bell ≥ end_bell` なら `ProvinceNotFinal`）。
+ - **InitPool（B）**：Season の `r_max` が17を超えると `BadParams` で断ります（定数 `MAX_RING` = 17）。
++  - **追記（地図の拡張、2026-10-30、ローカルの候補）：** Season の征服ブロックの `r_max_ceiling`（ExtendFrontier で広げられる上限）が17を超える場合も、InitPool は `CeilingPastTally`（0x111）で断ります。17の上限そのものは変えていません。ゲームのプログラムはプールの有無を知らないので、守りは InitPool のこの拒否と、keeper の拡張の上限（既定17）の2つです。
+ 
+ ### そのほかの部品
+ 
+diff --git a/frontier-node/crates/fclient/src/land.rs b/frontier-node/crates/fclient/src/land.rs
+index 8929ca2f..5963ab5b 100644
+--- a/frontier-node/crates/fclient/src/land.rs
++++ b/frontier-node/crates/fclient/src/land.rs
+@@ -195,6 +195,59 @@ pub fn ring_open_check(
+     Ok(())
+ }
+ 
++/// Why ExtendFrontier(d) cannot land yet (map growth, S1).
++#[derive(Clone, Debug, PartialEq, Eq)]
++pub enum ExtendWait {
++    /// The season has no `r_max_ceiling` (0): its `r_max` is final.
++    NoCeiling,
++    /// The effective `r_max` is already the ceiling.
++    AtCeiling,
++    /// Not Running.
++    NotRunning,
++    /// Some ring up to the effective `r_max` is not opened yet.
++    RingsNotOpened,
++    /// Less than one bell since the last ring opened.
++    TooSoon,
++    /// No wedge has `wedge_occupied ≥ θ × wedge_open` on the folded values.
++    NotCrowded,
++}
++
++/// The ExtendFrontier rule (`proc/map.rs` `extend_frontier`) on the
++/// decoded accounts: `Ok(d)` with `d = effective r_max + 1` when the
++/// program would accept ExtendFrontier(d) now. The same checks, in the
++/// program's order: a ceiling, `d ≤ ceiling`, Running, `rings_opened ==
++/// d` (every ring up to the effective `r_max` opened), a bell since the
++/// last ring opening, some wedge crowded past θ.
++pub fn frontier_extend_check(s: &Season, fr: &Frontier, now: i64) -> Result<u16, ExtendWait> {
++    let ceiling = s.conquest.as_ref().map_or(0, |c| c.r_max_ceiling);
++    if ceiling == 0 {
++        return Err(ExtendWait::NoCeiling);
++    }
++    let d = s.r_max.max(fr.r_max_ext).saturating_add(1);
++    if d > ceiling {
++        return Err(ExtendWait::AtCeiling);
++    }
++    if s.effective_status(now) != crate::abi::status::RUNNING {
++        return Err(ExtendWait::NotRunning);
++    }
++    if fr.rings_opened != d {
++        return Err(ExtendWait::RingsNotOpened);
++    }
++    let bell = crate::clock::bell_at(s.genesis_ts, now).unwrap_or(0);
++    if bell < fr.last_ring_open_bell.saturating_add(1) {
++        return Err(ExtendWait::TooSoon);
++    }
++    let theta = theta_bps(s, now) as u64;
++    let crowded = (0..6).any(|w| {
++        let open = fr.wedge_open[w] as u64;
++        open > 0 && fr.wedge_occupied[w] as u64 * 10_000 >= theta * open
++    });
++    if !crowded {
++        return Err(ExtendWait::NotCrowded);
++    }
++    Ok(d)
++}
++
+ /// A ring opening the chain is in (W6-C: the stack's `frontier-fund` hold
+ /// aims at it, §13.4 "hold Frontier and one ProvinceFund during a ring
+ /// opening").
+@@ -389,6 +442,68 @@ mod tests {
+         );
+     }
+ 
++    /// Map growth: the ExtendFrontier rule, in the program's order.
++    #[test]
++    fn the_extend_frontier_rule() {
++        let g = 1_000_000;
++        let now = g + 10 * 600;
++        let mut s = season(g);
++        // r_max 16, rings 0..=16 opened (rings_opened 17), wedge 2 crowded.
++        let fr = frontier(17, 3, [100; 6], [0, 0, 60, 0, 0, 0]);
++        // No conquest block, or a ceiling of 0: never.
++        assert_eq!(
++            frontier_extend_check(&s, &fr, now),
++            Err(ExtendWait::NoCeiling)
++        );
++        let mut cq = frontier_abi::v2::presets::FRONTIER_7;
++        s.conquest = Some(cq);
++        assert_eq!(
++            frontier_extend_check(&s, &fr, now),
++            Err(ExtendWait::NoCeiling)
++        );
++        cq.r_max_ceiling = 18;
++        s.conquest = Some(cq);
++        assert_eq!(frontier_extend_check(&s, &fr, now), Ok(17));
++        // Not Running yet.
++        assert_eq!(
++            frontier_extend_check(&s, &fr, g - 1),
++            Err(ExtendWait::NotRunning)
++        );
++        // Ring 16 not opened yet.
++        let fr16 = frontier(16, 3, [100; 6], [0, 0, 60, 0, 0, 0]);
++        assert_eq!(
++            frontier_extend_check(&s, &fr16, now),
++            Err(ExtendWait::RingsNotOpened)
++        );
++        // A ring opened this bell; nothing crowded.
++        let fr = frontier(17, 10, [100; 6], [0, 0, 60, 0, 0, 0]);
++        assert_eq!(
++            frontier_extend_check(&s, &fr, now),
++            Err(ExtendWait::TooSoon)
++        );
++        let fr = frontier(17, 3, [100; 6], [0, 0, 54, 0, 0, 0]);
++        assert_eq!(
++            frontier_extend_check(&s, &fr, now),
++            Err(ExtendWait::NotCrowded)
++        );
++        // Extended to 17: ring 17 not opened, then the next is 18 = ceiling,
++        // then nothing above the ceiling.
++        let mut fr = frontier(17, 3, [100; 6], [0, 0, 60, 0, 0, 0]);
++        fr.r_max_ext = 17;
++        assert_eq!(
++            frontier_extend_check(&s, &fr, now),
++            Err(ExtendWait::RingsNotOpened)
++        );
++        fr.rings_opened = 18;
++        assert_eq!(frontier_extend_check(&s, &fr, now), Ok(18));
++        fr.r_max_ext = 18;
++        fr.rings_opened = 19;
++        assert_eq!(
++            frontier_extend_check(&s, &fr, now),
++            Err(ExtendWait::AtCeiling)
++        );
++    }
++
+     /// W6-C: the ring opening the `frontier-fund` hold aims at: a ring
+     /// with provinces still to open (its first missing province's wedge),
+     /// else a crowding ring that may open now (the most crowded wedge).
+diff --git a/frontier-node/crates/keeper/src/config.rs b/frontier-node/crates/keeper/src/config.rs
+index 3a6e0750..310c127f 100644
+--- a/frontier-node/crates/keeper/src/config.rs
++++ b/frontier-node/crates/keeper/src/config.rs
+@@ -33,6 +33,10 @@ use std::path::PathBuf;
+ 
+ use solana_address::Address;
+ 
++/// The default ExtendFrontier cap of the keeper: `permutation_prize::MAX_RING`
++/// (17), restated here: the keeper does not link the prize program.
++pub const EXTEND_MAX_RING_DEFAULT: u16 = 17;
++
+ /// Duties (§8.2 `roles`). W2-F runs `beacon` (genesis seed, anchors, seed
+ /// caches, beacon logs) and `archive`; W3-C runs `rings` (every ring, its
+ /// seed and provinces), `fold`, `tickets`, `explore`, `dormancy` (releases
+@@ -256,6 +260,17 @@ pub struct KeeperConfig {
+     /// fast-forwarded (FastForward) when something wakes it and at the
+     /// season's end. Off (every Province every turn, as before) by default.
+     pub rest: bool,
++    /// Map growth, a local candidate (off by default): the `rings` duty
++    /// also sends ExtendFrontier when the season has an `r_max_ceiling`
++    /// and the program would accept it, after the same waits as a
++    /// crowding ring ([`crate::rings::extend_due`]). Never past
++    /// [`KeeperConfig::extend_max_ring`].
++    pub extend: bool,
++    /// The outermost ring this keeper extends to (default 17: the prize
++    /// program's `MAX_RING`, its tally covers rings 0–17; the keeper cannot
++    /// see whether the season has a prize pool, so it keeps the cap unless
++    /// told otherwise). At most 128 (`R_MAX_HARD`).
++    pub extend_max_ring: u16,
+ }
+ 
+ impl KeeperConfig {
+@@ -302,6 +317,8 @@ impl KeeperConfig {
+             race_jitter_slots: 0,
+             backup_delay_slots: 0,
+             rest: false,
++            extend: false,
++            extend_max_ring: EXTEND_MAX_RING_DEFAULT,
+         }
+     }
+ 
+@@ -415,6 +432,16 @@ impl KeeperConfig {
+         if let Some(v) = take("rest") {
+             c.rest = matches!(v, Value::Bool(true));
+         }
++        if let Some(v) = take("extend") {
++            c.extend = matches!(v, Value::Bool(true));
++        }
++        if let Some(v) = take("extend_max_ring") {
++            let r = int(v, "extend_max_ring")?;
++            if r > u64::from(permutation_rules::frontier::geometry::R_MAX_HARD) {
++                return Err("`extend_max_ring` must be at most 128".into());
++            }
++            c.extend_max_ring = r as u16;
++        }
+         if let Some(v) = take("api") {
+             let a: SocketAddr = s(v, "api")?
+                 .parse()
+@@ -500,5 +527,13 @@ mod tests {
+         assert!(!c.rest && !KeeperConfig::new(p, 1, b).rest);
+         let rest = KeeperConfig::from_toml(&format!("{text}\nrest = true\n")).unwrap();
+         assert!(rest.rest);
++        // map growth: ExtendFrontier only when asked, capped at ring 17
++        assert!(!c.extend && !KeeperConfig::new(p, 1, b).extend);
++        assert_eq!(c.extend_max_ring, 17);
++        let ext =
++            KeeperConfig::from_toml(&format!("{text}\nextend = true\nextend_max_ring = 24\n"))
++                .unwrap();
++        assert!(ext.extend && ext.extend_max_ring == 24);
++        assert!(KeeperConfig::from_toml(&format!("{text}\nextend_max_ring = 129\n")).is_err());
+     }
+ }
+diff --git a/frontier-node/crates/keeper/src/lib.rs b/frontier-node/crates/keeper/src/lib.rs
+index df08d424..f5abaa58 100644
+--- a/frontier-node/crates/keeper/src/lib.rs
++++ b/frontier-node/crates/keeper/src/lib.rs
+@@ -1124,6 +1124,7 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
+                 "provinces_opened": self.rings.opened.len(),
+                 "rings_complete": self.rings.complete.iter().collect::<Vec<_>>(),
+                 "ring_waiting": self.rings.waiting.as_ref().map(|w| format!("{w:?}")),
++                "extend_waiting": self.rings.extend_waiting.as_ref().map(|w| format!("{w:?}")),
+                 "rings_unsupported": self.rings.unsupported,
+                 "folded_bells": self.fold.folded.len(),
+                 "tickets_open": self.index.tickets.len(),
+diff --git a/frontier-node/crates/keeper/src/rings.rs b/frontier-node/crates/keeper/src/rings.rs
+index 97423694..b700d5d0 100644
+--- a/frontier-node/crates/keeper/src/rings.rs
++++ b/frontier-node/crates/keeper/src/rings.rs
+@@ -22,9 +22,9 @@ use std::sync::Arc;
+ use solana_address::Address;
+ 
+ use fclient::abi::{status, tag, Class};
+-use fclient::decode::{Frontier, RingSeed};
++use fclient::decode::{Frontier, RingSeed, Season};
+ use fclient::ix;
+-use fclient::land::{ring_open_check, RingWait};
++use fclient::land::{frontier_extend_check, ring_open_check, ExtendWait, RingWait};
+ use fclient::ports::{ChainPort, DrandPort, PortResult};
+ use permutation_rules::frontier::geometry::ring_provinces;
+ 
+@@ -41,6 +41,9 @@ pub fn ring_seed_key(d: u16) -> String {
+ pub fn province_key(p: i32, q: i32) -> String {
+     format!("open-province:{p},{q}")
+ }
++pub fn extend_key(d: u16) -> String {
++    format!("extend-frontier:{d}")
++}
+ 
+ #[derive(Default)]
+ pub struct RingDuty {
+@@ -54,6 +57,9 @@ pub struct RingDuty {
+     pub genesis_done: bool,
+     /// Why the next crowding ring waits (status).
+     pub waiting: Option<RingWait>,
++    /// Why ExtendFrontier waits (status; `None` while the duty is off or
++    /// the season has no ceiling).
++    pub extend_waiting: Option<ExtendWait2>,
+     /// `(d, slot)` when this keeper first saw ring d opened / seeded.
+     pub opened_at: Vec<(u16, u64)>,
+     pub seeded_at: Vec<(u16, u64)>,
+@@ -80,6 +86,50 @@ pub fn crowding_ring_allowed(
+     d <= genesis || complete_bell.is_some_and(|cb| fold_bell > cb && fold_part == 0)
+ }
+ 
++/// Why this keeper does not send ExtendFrontier now: the program's rule
++/// ([`fclient::land::frontier_extend_check`]) or one of the keeper's own
++/// waits.
++#[derive(Clone, Debug, PartialEq, Eq)]
++pub enum ExtendWait2 {
++    /// The program would refuse it.
++    Rule(ExtendWait),
++    /// The outermost ring is not complete (every province on chain) and
++    /// folded by a later bell yet ([`crowding_ring_allowed`]).
++    RingIncomplete,
++    /// `d` is past the keeper's cap (`extend_max_ring`, default 17: the
++    /// prize program's `MAX_RING`).
++    PastCap { d: u16, cap: u16 },
++}
++
++/// The keeper's ExtendFrontier policy (map growth, a local candidate; off
++/// unless `extend = true`): `Ok(d)` to send ExtendFrontier(d) now. `d` is
++/// computed from the chain on every tick (`effective r_max + 1`), never
++/// remembered: once it lands the effective `r_max` is `d` and the next
++/// tick asks for `d + 1` only after ring `d` is opened, complete and folded.
++///
++/// - the program's rule holds now ([`frontier_extend_check`]: a ceiling,
++///   `d ≤ ceiling`, Running, every ring up to the effective `r_max`
++///   opened, a bell since the last opening, some wedge crowded past θ);
++/// - the outermost ring is complete and a whole fold of a later bell has
++///   landed (the wait of a crowding ring, so the fold counts its sites);
++/// - `d ≤ cap` (the keeper's `extend_max_ring`).
++pub fn extend_due(
++    s: &Season,
++    fr: &Frontier,
++    now: i64,
++    outer_complete_bell: Option<u32>,
++    cap: u16,
++) -> Result<u16, ExtendWait2> {
++    let d = frontier_extend_check(s, fr, now).map_err(ExtendWait2::Rule)?;
++    if d > cap {
++        return Err(ExtendWait2::PastCap { d, cap });
++    }
++    if !crowding_ring_allowed(d, 0, outer_complete_bell, fr.fold_bell, fr.fold_part) {
++        return Err(ExtendWait2::RingIncomplete);
++    }
++    Ok(d)
++}
++
+ impl RingDuty {
+     pub async fn plan<P: ChainPort, D: DrandPort>(
+         &mut self,
+@@ -109,12 +159,14 @@ impl RingDuty {
+                 self.opened_at.push((d, t.slot));
+             }
+         }
+-        // The next ring.
++        // The next ring (map growth: up to the effective r_max, the Season's
++        // or the Frontier's `r_max_ext` after ExtendFrontier).
++        let r_max = s.r_max.max(fr.r_max_ext);
+         let d = opened;
+         let ready = if d <= g {
+             self.waiting = None;
+             true
+-        } else if d <= s.r_max
++        } else if d <= r_max
+             && !crowding_ring_allowed(
+                 d,
+                 g,
+@@ -125,7 +177,7 @@ impl RingDuty {
+         {
+             self.waiting = Some(RingWait::TooSoon);
+             false
+-        } else if d <= s.r_max {
++        } else if d <= r_max {
+             let funds = port.accounts(&t.addrs.province_funds(), 0).await?;
+             let lam: [u64; 6] =
+                 core::array::from_fn(|w| funds[w].as_ref().map_or(0, |a| a.lamports));
+@@ -141,6 +193,41 @@ impl RingDuty {
+             }
+         } else {
+             self.waiting = Some(RingWait::AtMax);
++            // Map growth (local candidate, off by default): every ring up
++            // to the effective r_max is opened; extend by one ring when the
++            // program would accept it and the keeper's waits hold.
++            if t.cfg.extend && s.conquest.as_ref().is_some_and(|c| c.r_max_ceiling != 0) {
++                match extend_due(
++                    s,
++                    &fr,
++                    t.now,
++                    self.complete_bell.get(&r_max).copied(),
++                    t.cfg.extend_max_ring,
++                ) {
++                    Ok(e) => {
++                        self.extend_waiting = None;
++                        let a = t.addrs.clone();
++                        engine.ensure(
++                            WriteSpec {
++                                key: extend_key(e),
++                                kind: "extend-frontier",
++                                tag: tag::EXTEND_FRONTIER,
++                                class: Class::D,
++                                bell: None,
++                                region: None,
++                                build: Arc::new(move |c: &BuildCtx| {
++                                    vec![ix::v2::extend_frontier(&a, c.payer, e)]
++                                }),
++                                deadline_slot: None,
++                                not_before_slot: 0,
++                                fixed_payer: None,
++                            },
++                            t.slot,
++                        );
++                    }
++                    Err(w) => self.extend_waiting = Some(w),
++                }
++            }
+             false
+         };
+         if ready {
+@@ -308,4 +395,96 @@ mod tests {
+         assert!(!crowding_ring_allowed(4, 3, Some(40), 41, 1));
+         assert!(crowding_ring_allowed(4, 3, Some(40), 41, 0));
+     }
++
++    fn put(d: &mut [u8], o: usize, v: &[u8]) {
++        d[o..o + v.len()].copy_from_slice(v);
++    }
++
++    /// A Running S1-shaped season: r_max 16, θ 55% early, `ceiling` (0: none).
++    fn season(genesis: i64, ceiling: u16) -> Season {
++        use fclient::abi::layout::season as l;
++        let mut d = vec![0u8; fclient::abi::size::SEASON];
++        put(&mut d, 0, fclient::abi::magic::SEASON);
++        d[l::STATUS] = status::SEEDED;
++        put(&mut d, l::GENESIS_TS, &genesis.to_le_bytes());
++        put(&mut d, l::R_MAX, &16u16.to_le_bytes());
++        put(&mut d, l::THETA_EARLY_BPS, &5_500u16.to_le_bytes());
++        put(&mut d, l::THETA_LATE_BPS, &6_500u16.to_le_bytes());
++        put(&mut d, l::THETA_SWITCH_SECS, &259_200u32.to_le_bytes());
++        let mut s = Season::decode(&d).unwrap();
++        let mut cq = frontier_abi::v2::presets::FRONTIER_7;
++        cq.r_max_ceiling = ceiling;
++        s.conquest = Some(cq);
++        s
++    }
++
++    /// Rings 0..opened−1 opened, the last at bell 3, wedge 2 crowded (60%),
++    /// a whole fold of bell `fold_bell`.
++    fn frontier(opened: u16, ext: u16, fold_bell: u32) -> Frontier {
++        use fclient::abi::layout::frontier as l;
++        let mut b = vec![0u8; fclient::abi::size::FRONTIER];
++        put(&mut b, 0, fclient::abi::magic::FRONTIER);
++        put(&mut b, l::RINGS_OPENED, &opened.to_le_bytes());
++        put(&mut b, l::LAST_RING_OPEN_BELL, &3u32.to_le_bytes());
++        put(&mut b, l::FOLD_BELL, &fold_bell.to_le_bytes());
++        for w in 0..6 {
++            put(&mut b, l::WEDGE_OPEN + 4 * w, &100u32.to_le_bytes());
++        }
++        put(&mut b, l::WEDGE_OCCUPIED + 8, &60u32.to_le_bytes());
++        let mut fr = Frontier::decode(&b).unwrap();
++        fr.r_max_ext = ext;
++        fr
++    }
++
++    /// Map growth (local candidate): the keeper's ExtendFrontier policy.
++    #[test]
++    fn extend_waits_for_the_rule_the_outer_ring_and_the_cap() {
++        let g = 1_000_000;
++        let now = g + 10 * 600; // bell 10
++                                // A season without a ceiling: never.
++        let s0 = season(g, 0);
++        assert_eq!(
++            extend_due(&s0, &frontier(17, 0, 9), now, Some(5), 17),
++            Err(ExtendWait2::Rule(ExtendWait::NoCeiling))
++        );
++        let s = season(g, 24);
++        // All rules met: ring 16 complete at bell 5, folded at bell 9.
++        assert_eq!(
++            extend_due(&s, &frontier(17, 0, 9), now, Some(5), 24),
++            Ok(17)
++        );
++        // Ring 16 not opened yet; not complete; not folded after completing.
++        assert_eq!(
++            extend_due(&s, &frontier(16, 0, 9), now, Some(5), 24),
++            Err(ExtendWait2::Rule(ExtendWait::RingsNotOpened))
++        );
++        assert_eq!(
++            extend_due(&s, &frontier(17, 0, 9), now, None, 24),
++            Err(ExtendWait2::RingIncomplete)
++        );
++        assert_eq!(
++            extend_due(&s, &frontier(17, 0, 5), now, Some(5), 24),
++            Err(ExtendWait2::RingIncomplete)
++        );
++        // The keeper's cap (the prize program's ring 17 by default).
++        assert_eq!(
++            extend_due(&s, &frontier(17, 0, 9), now, Some(5), 17),
++            Ok(17)
++        );
++        assert_eq!(
++            extend_due(&s, &frontier(18, 17, 9), now, Some(5), 17),
++            Err(ExtendWait2::PastCap { d: 18, cap: 17 })
++        );
++        // After it landed (r_max_ext 17): nothing until ring 17 is opened,
++        // then d is 18, recomputed from the chain.
++        assert_eq!(
++            extend_due(&s, &frontier(17, 17, 9), now, Some(5), 24),
++            Err(ExtendWait2::Rule(ExtendWait::RingsNotOpened))
++        );
++        assert_eq!(
++            extend_due(&s, &frontier(18, 17, 9), now, Some(5), 24),
++            Ok(18)
++        );
++        assert_eq!(crate::config::EXTEND_MAX_RING_DEFAULT, 17);
++    }
+ }
+diff --git a/frontier-node/crates/stack/src/config.rs b/frontier-node/crates/stack/src/config.rs
+index 45a1143e..ac59444b 100644
+--- a/frontier-node/crates/stack/src/config.rs
++++ b/frontier-node/crates/stack/src/config.rs
+@@ -151,6 +151,14 @@ pub struct StackConfig {
+     /// fast-forwarded when woken instead of written every turn;
+     /// `docs/frontier/map-growth/keeper-load-rules.ja.md`). Off by default.
+     pub keeper_rest: bool,
++    /// Map growth, a local candidate: keeper A writes `extend = true` and
++    /// sends ExtendFrontier when the season's `r_max_ceiling` allows it
++    /// (keeper cap: ring 17, the prize program's). Off by default.
++    pub keeper_extend: bool,
++    /// Map growth: the season's `r_max_ceiling` (`--r-max-ceiling N`,
++    /// `--conquest` only; above `r_max`, at most 128; with `--prize-so` at
++    /// most 17, the pool's tally). Unset: 0, the preset (no extension).
++    pub r_max_ceiling: Option<u16>,
+     /// Test-asset prize pool: the permutation-prize build to deploy next to
+     /// the game (scripts/build-prize.sh). With it the season's join gate is
+     /// a key the relay holds, a test mint and the season's pool are created,
+@@ -291,6 +299,8 @@ impl Default for StackConfig {
+             ring_theta_bps: None,
+             r_max: None,
+             keeper_rest: false,
++            keeper_extend: false,
++            r_max_ceiling: None,
+             prize_so: None,
+             entry_fee: 25_000_000,
+             prize_ops_bps: 2_000,
+@@ -450,6 +460,12 @@ impl StackConfig {
+         if let Some(v) = b!("keeper_rest") {
+             c.keeper_rest = v;
+         }
++        if let Some(v) = b!("keeper_extend") {
++            c.keeper_extend = v;
++        }
++        if let Some(v) = i!("r_max_ceiling") {
++            c.r_max_ceiling = Some(r_max(v as u64)?);
++        }
+         if let Some(v) = s!("prize_so") {
+             c.prize_so = Some(v.into());
+         }
+@@ -692,6 +708,13 @@ impl StackConfig {
+             if self.r_max.is_some_and(|r| r > 17) {
+                 return Err("--prize-so: the prize pool takes --r-max ≤ 17".into());
+             }
++            // Map growth: InitPool refuses a ceiling past its tally too.
++            if self.r_max_ceiling.is_some_and(|r| r > 17) {
++                return Err("--prize-so: the prize pool takes --r-max-ceiling ≤ 17".into());
++            }
++        }
++        if self.r_max_ceiling.is_some() && !self.conquest {
++            return Err("--r-max-ceiling: map growth is an S1 season's (needs --conquest)".into());
+         }
+         if !(self.preseason_scale > 0.0 && self.preseason_scale <= 100_000.0) {
+             return Err("preseason_scale in (0, 100000]".into());
+@@ -818,6 +841,8 @@ impl StackConfig {
+         v["ring_theta_bps"] = json!(self.ring_theta_bps);
+         v["r_max"] = json!(self.r_max);
+         v["keeper_rest"] = json!(self.keeper_rest);
++        v["keeper_extend"] = json!(self.keeper_extend);
++        v["r_max_ceiling"] = json!(self.r_max_ceiling);
+         v
+     }
+ 
+@@ -949,6 +974,7 @@ pub fn apply_flags(c: &mut StackConfig, flags: &[(String, Option<String>)]) -> R
+             "keep-bells" => c.keep_bells = Some(count(k, v)? as u16),
+             "ring-theta-bps" => c.ring_theta_bps = Some(theta_bps(count(k, v)?)?),
+             "r-max" => c.r_max = Some(r_max(count(k, v)?)?),
++            "r-max-ceiling" => c.r_max_ceiling = Some(r_max(count(k, v)?)?),
+             "prize-so" => c.prize_so = Some(need(k, v)?.into()),
+             "entry-fee" => c.entry_fee = count(k, v)?,
+             "prize-ops-bps" => c.prize_ops_bps = count(k, v)? as u16,
+@@ -1001,6 +1027,7 @@ pub fn apply_flags(c: &mut StackConfig, flags: &[(String, Option<String>)]) -> R
+             "runs-dir" => c.runs_dir = Some(need(k, v)?.into()),
+             "season-end-at-play-end" => c.season_end_at_play_end = true,
+             "keeper-rest" => c.keeper_rest = true,
++            "keeper-extend" => c.keeper_extend = true,
+             "no-season-end-at-play-end" => c.season_end_at_play_end = false,
+             "chaos-force" => c.chaos_force.push(parse_force(&need(k, v)?)?),
+             "viewer-think-ms" => c.viewer_think_ms = count(k, v)?,
+@@ -1033,6 +1060,7 @@ pub const SWITCHES: &[&str] = &[
+     "season-end-at-play-end",
+     "no-season-end-at-play-end",
+     "keeper-rest",
++    "keeper-extend",
+     "no-viewer-follow-status",
+     "json",
+     "strict",
+@@ -1340,5 +1368,14 @@ mod tests {
+         let f = split_flags(&["--keeper-rest"].map(String::from)).unwrap();
+         apply_flags(&mut c, &f).unwrap();
+         assert_eq!(c.to_json()["keeper_rest"], json!(true));
++        // --keeper-extend and --r-max-ceiling: off / unset by default
++        assert!(!c.keeper_extend && c.r_max_ceiling.is_none());
++        let f =
++            split_flags(&["--keeper-extend", "--r-max-ceiling", "8"].map(String::from)).unwrap();
++        apply_flags(&mut c, &f).unwrap();
++        assert_eq!(c.to_json()["keeper_extend"], json!(true));
++        assert_eq!(c.to_json()["r_max_ceiling"], json!(8));
++        let f = split_flags(&["--r-max-ceiling", "129"].map(String::from)).unwrap();
++        assert!(apply_flags(&mut StackConfig::default(), &f).is_err());
+     }
+ }
+diff --git a/frontier-node/crates/stack/src/setup.rs b/frontier-node/crates/stack/src/setup.rs
+index 38059fb9..b114a7ff 100644
+--- a/frontier-node/crates/stack/src/setup.rs
++++ b/frontier-node/crates/stack/src/setup.rs
+@@ -107,6 +107,8 @@ pub fn with_ring_theta(p: &mut frontier_abi::presets::SeasonParams, bps: u16) {
+ pub struct LandOverrides {
+     pub ring_theta_bps: Option<u16>,
+     pub r_max: Option<u16>,
++    /// Map growth (`--r-max-ceiling`): the conquest block's `r_max_ceiling`.
++    pub r_max_ceiling: Option<u16>,
+ }
+ 
+ impl LandOverrides {
+@@ -145,6 +147,9 @@ pub async fn run(
+             p.cq.keep_bells = k;
+         }
+         land_overrides.apply(&mut p.base);
++        if let Some(c) = land_overrides.r_max_ceiling {
++            p.cq.r_max_ceiling = c;
++        }
+         if let Some(g) = join_gate {
+             p.base.join_gate = g;
+         }
+@@ -361,6 +366,7 @@ mod short_season_tests {
+         let land = |r| LandOverrides {
+             ring_theta_bps: None,
+             r_max: Some(r),
++            r_max_ceiling: None,
+         };
+         for (r, ok) in [(6u16, true), (128, true), (4, false), (129, false)] {
+             let mut p = p0;
+diff --git a/frontier-node/crates/stack/src/up.rs b/frontier-node/crates/stack/src/up.rs
+index 65a64bf5..2369e22f 100644
+--- a/frontier-node/crates/stack/src/up.rs
++++ b/frontier-node/crates/stack/src/up.rs
+@@ -388,6 +388,11 @@ pub fn keeper_toml(
+         } else {
+             ""
+         }
++        + if which == 'a' && cfg.keeper_extend {
++            "extend = true\n"
++        } else {
++            ""
++        }
+ }
+ 
+ pub struct Stack {
+@@ -1085,6 +1090,7 @@ async fn run_all(st: &mut Stack) -> Result<(), String> {
+         setup::LandOverrides {
+             ring_theta_bps: st.cfg.ring_theta_bps,
+             r_max: st.cfg.r_max,
++            r_max_ceiling: st.cfg.r_max_ceiling,
+         },
+         st.prize.as_ref().map(|p| p.gate.pubkey().to_bytes()),
+         st.cfg.season_end_bell(),
+diff --git a/permutation-prize/src/lib.rs b/permutation-prize/src/lib.rs
+index c0b7d006..8e5c6e23 100644
+--- a/permutation-prize/src/lib.rs
++++ b/permutation-prize/src/lib.rs
+@@ -24,7 +24,11 @@
+ //! (between the end bell and EndSeason) did not exist at the end: it is
+ //! counted with no area and no territory. A counted Province is never read
+ //! again (bitmap), and Finalize closes the tally for good. The bitmap
+-//! covers rings 0–17, so InitPool refuses a season with `r_max` > 17.
++//! covers rings 0–17, so InitPool refuses a season with `r_max` > 17,
++//! and (map growth) one whose conquest `r_max_ceiling` > 17
++//! (`CeilingPastTally`): ExtendFrontier may raise such a season's map past
++//! the bitmap, and the game program cannot see the pool. The limit stays
++//! 17; a ceiling of at most 17 keeps the whole map inside the tally.
+ //!
+ //! **Decided** (owner): the winner is the nation holding the most provinces
+ //! at the end; 80% of each fee is prize, 20% the operator's. **Provisional**
+@@ -182,6 +186,9 @@ pub enum PrizeError {
+     NothingToPay = 0x10E,
+     Overflow = 0x10F,
+     WrongExpectedCount = 0x110,
++    /// InitPool: the season's `r_max_ceiling` lets ExtendFrontier grow the
++    /// map past [`MAX_RING`] (the tally bitmap's rings 0–17).
++    CeilingPastTally = 0x111,
+ }
+ 
+ impl From<PrizeError> for ProgramError {
+@@ -438,9 +445,7 @@ fn init_pool(program: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+             return Err(E::NotOperator.into());
+         }
+         // A map that may grow past the bitmap could never be tallied whole.
+-        if u16_at(&sd, S::R_MAX)? > MAX_RING {
+-            return Err(E::BadParams.into());
+-        }
++        season_rings_fit(&sd)?;
+         (u64_at(&sd, S::SEASON_ID)?, u32_at(&sd, S::END_BELL)?)
+     };
+     let (season_pda, _) =
+@@ -940,6 +945,24 @@ pub fn process_instruction(program: &Pubkey, a: &[AccountInfo], data: &[u8]) ->
+     }
+ }
+ 
++/// InitPool's map check: the season's `r_max` (`BadParams` past
++/// [`MAX_RING`]) and, map growth, its conquest `r_max_ceiling` (0: no
++/// extension; `CeilingPastTally` past [`MAX_RING`]).
++fn season_rings_fit(sd: &[u8]) -> R<()> {
++    if u16_at(sd, S::R_MAX)? > MAX_RING {
++        return Err(E::BadParams.into());
++    }
++    let ceiling = u16_at(
++        sd,
++        frontier_abi::v2::presets::SEASON_CQ_OFFSET
++            + frontier_abi::v2::presets::cq_layout::R_MAX_CEILING,
++    )?;
++    if ceiling > MAX_RING {
++        return Err(E::CeilingPastTally.into());
++    }
++    Ok(())
++}
++
+ #[cfg(not(feature = "no-entrypoint"))]
+ solana_program::entrypoint!(process_instruction);
+ 
+@@ -947,6 +970,32 @@ solana_program::entrypoint!(process_instruction);
+ mod tests {
+     use super::*;
+ 
++    /// Map growth: a ceiling past ring 17 is refused by name; up to 17 (or
++    /// none) is taken; `r_max` past 17 stays `BadParams`.
++    #[test]
++    fn the_map_must_fit_the_tally_ceiling_included() {
++        let at = frontier_abi::v2::presets::SEASON_CQ_OFFSET
++            + frontier_abi::v2::presets::cq_layout::R_MAX_CEILING;
++        let season = |r_max: u16, ceiling: u16| {
++            let mut d = vec![0u8; S::SIZE];
++            d[S::R_MAX..S::R_MAX + 2].copy_from_slice(&r_max.to_le_bytes());
++            d[at..at + 2].copy_from_slice(&ceiling.to_le_bytes());
++            d
++        };
++        assert_eq!(season_rings_fit(&season(16, 0)), Ok(()));
++        assert_eq!(season_rings_fit(&season(16, 17)), Ok(()));
++        assert_eq!(
++            season_rings_fit(&season(16, 18)),
++            Err(E::CeilingPastTally.into())
++        );
++        assert_eq!(
++            season_rings_fit(&season(16, 128)),
++            Err(E::CeilingPastTally.into())
++        );
++        assert_eq!(season_rings_fit(&season(18, 0)), Err(E::BadParams.into()));
++        assert_eq!(MAX_RING, 17);
++    }
++
+     #[test]
+     fn fee_split_is_80_20() {
+         assert_eq!(ops_part(10_000_000, 2_000), 2_000_000);
+diff --git a/permutation-prize/svm-tests/tests/pool.rs b/permutation-prize/svm-tests/tests/pool.rs
+index 508549e4..e2b5b867 100644
+--- a/permutation-prize/svm-tests/tests/pool.rs
++++ b/permutation-prize/svm-tests/tests/pool.rs
+@@ -1154,6 +1154,30 @@ fn finalize_needs_the_end() {
+     finalize(&mut w).unwrap();
+ }
+ 
++/// Map growth: a season whose `r_max_ceiling` lets ExtendFrontier grow the
++/// map past ring 17 gets no pool (`CeilingPastTally`); a ceiling of 17 does.
++#[test]
++fn no_pool_for_a_season_whose_ceiling_passes_ring_17() {
++    let mut w = world();
++    let op = w.operator.insecure_clone();
++    let at = frontier_abi::v2::presets::SEASON_CQ_OFFSET
++        + frontier_abi::v2::presets::cq_layout::R_MAX_CEILING;
++    let with_ceiling = |w: &mut World, ceiling: u16| {
++        set_season_with(w, S::STATUS_RUNNING, 16);
++        let k = w.season.to_bytes();
++        let mut d = w.svm.get_account(&w.season).unwrap().data;
++        d[at..at + 2].copy_from_slice(&ceiling.to_le_bytes());
++        game_account(w, k, d);
++    };
++    for ceiling in [18u16, 128] {
++        with_ceiling(&mut w, ceiling);
++        let ix = init_ix(&w, &op.pubkey(), FEE, 2_000, 0);
++        fails(send(&mut w.svm, &[ix], &[&op]), E::CeilingPastTally);
++    }
++    with_ceiling(&mut w, 17);
++    init_with(&mut w, 0);
++}
++
+ /// The tally bitmap covers rings 0–17: a season whose map may grow past it
+ /// gets no pool.
+ #[test]
+-- 
+2.43.0
+

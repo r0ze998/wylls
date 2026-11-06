@@ -245,9 +245,14 @@ impl Facts {
             .iter()
             .filter(|c| c.kind == CqKind::RESIDENT_JOINED)
         {
-            let Some(tag15) = resident_joined_tag(c) else {
+            // Only a record that stands for its JoinResident, and only the
+            // first one of a resident ID (V9 reports the rest).
+            let Some(tag15) = resident_joined_valid(w, c) else {
                 continue;
             };
+            if f.citizens.contains_key(&f.ctx.citizen_by_tag15(&tag15)) {
+                continue;
+            }
             let addr = f.ctx.citizen_by_tag15(&tag15);
             let tag8 = u64::from_le_bytes(addr[..8].try_into().unwrap_or([0; 8]));
             let rec = w.recs.partition_point(|r| (r.tx, r.pos) < (c.tx, c.pos));
@@ -533,17 +538,87 @@ pub fn resident_joined_tag(c: &crate::world::CqRec) -> Option<[u8; 15]> {
     (tag15 == frontier_abi::resident_citizen::resident_tag15(&asset)).then_some(tag15)
 }
 
+/// JoinResident's tag (workstream 4's allocation) and its asset account's
+/// position: `[owner] [payer] [season] [frontier] [citizen] [system]
+/// [policy] [link] [asset] [resident] [join_gate?]`.
+const JOIN_RESIDENT: u8 = frontier_abi::resident_wire::JOIN_RESIDENT;
+const JOIN_RESIDENT_ASSET: usize = 8;
+
+/// Why a RESIDENT_JOINED record does not stand for the JoinResident that
+/// must have written it (`None`: it does). The record's key is its asset's
+/// resident ID; its transaction has a top-level JoinResident (0xE1) naming
+/// that asset, with the record's generation and faction; the shard is the
+/// asset's; `join_bell` is the record's own bell. Only JoinResident writes
+/// this kind (workstream 11's review: a well-formed record in any other
+/// transaction must not create a Citizen).
+pub fn resident_joined_problem(
+    c: &crate::world::CqRec,
+    tx: &crate::world::Tx,
+) -> Option<&'static str> {
+    if resident_joined_tag(c).is_none() {
+        return Some("the record's key is not its asset's resident ID");
+    }
+    let bad = Some("the record's payload does not decode");
+    let Ok(asset) = <[u8; 32]>::try_from(c.field("asset", true)) else {
+        return bad;
+    };
+    let le32 = |b: &[u8]| <[u8; 4]>::try_from(b).ok().map(u32::from_le_bytes);
+    let (Some(generation), Some(&faction), Some(&shard), Some(join_bell)) = (
+        le32(c.field("generation", true)),
+        c.field("faction", true).first(),
+        c.field("shard", true).first(),
+        le32(c.field("join_bell", true)),
+    ) else {
+        return bad;
+    };
+    if shard != frontier_abi::addr::join_shard_of(&asset) {
+        return Some("the record's shard is not its asset's");
+    }
+    if join_bell != c.bell {
+        return Some("the record's join bell is not its own bell");
+    }
+    let joined = tx.ixs.iter().any(|ix| {
+        ix.data.len() == 6
+            && ix.data[0] == JOIN_RESIDENT
+            && u32::from_le_bytes([ix.data[1], ix.data[2], ix.data[3], ix.data[4]]) == generation
+            && ix.data[5] == faction
+            && ix.key(JOIN_RESIDENT_ASSET) == Some(asset)
+    });
+    if !joined {
+        return Some("no JoinResident in its transaction names this asset, generation and faction");
+    }
+    None
+}
+
+/// `resident_joined_tag` for a record that also stands for its JoinResident
+/// (the only records the facts take a Citizen from).
+pub fn resident_joined_valid(w: &World, c: &crate::world::CqRec) -> Option<[u8; 15]> {
+    let tx = w.txs.get(c.tx)?;
+    if resident_joined_problem(c, tx).is_some() {
+        return None;
+    }
+    resident_joined_tag(c)
+}
+
 #[cfg(test)]
-mod resident_tests {
+pub(crate) mod resident_tests {
     //! ⑳: literal bytes and a literal address context only (no key is
     //! generated, derived or signed; the Season address is written in).
     use super::*;
-    use crate::world::CqRec;
+    use crate::world::{CqRec, Ix, Tx};
 
-    fn joined(key: [u8; 15], asset: [u8; 32], faction: u8, tx: usize) -> CqRec {
+    /// A RESIDENT_JOINED as JoinResident writes it: the asset's shard, the
+    /// record's own bell as the join bell.
+    pub(crate) fn joined(
+        key: [u8; 15],
+        asset: [u8; 32],
+        faction: u8,
+        generation: u32,
+        tx: usize,
+    ) -> CqRec {
         let mut payload = asset.to_vec();
-        payload.extend_from_slice(&[faction, 3]);
-        payload.extend_from_slice(&2u32.to_le_bytes());
+        payload.extend_from_slice(&[faction, frontier_abi::addr::join_shard_of(&asset)]);
+        payload.extend_from_slice(&generation.to_le_bytes());
         payload.extend_from_slice(&40u32.to_le_bytes());
         CqRec {
             kind: CqKind::RESIDENT_JOINED,
@@ -555,38 +630,115 @@ mod resident_tests {
         }
     }
 
+    /// A transaction whose top-level program instructions are `ixs`.
+    pub(crate) fn tx_with(ixs: Vec<Ix>) -> Tx {
+        Tx {
+            seq: 0,
+            slot: 0,
+            time: 0,
+            sig: String::new(),
+            ok: true,
+            code: None,
+            fee_payer: None,
+            keys: vec![],
+            ixs,
+            recs: vec![],
+            post: BTreeMap::new(),
+            cu_price: 0,
+            cu_limit: 0,
+            loaded_limit: 0,
+        }
+    }
+
+    /// JoinResident's instruction naming `asset` (accounts by position; the
+    /// other keys are literal fill).
+    pub(crate) fn join_ix(asset: [u8; 32], generation: u32, faction: u8) -> Ix {
+        let mut data = vec![frontier_abi::resident_wire::JOIN_RESIDENT];
+        data.extend_from_slice(&generation.to_le_bytes());
+        data.push(faction);
+        let accounts = (0..10u8)
+            .map(|i| (if i == 8 { asset } else { [0x70 + i; 32] }, false))
+            .collect();
+        Ix {
+            index: 0,
+            data,
+            accounts,
+        }
+    }
+
+    fn cfg() -> Config {
+        Config {
+            program: solana_address::Address::new_from_array([0x11; 32]),
+            season_id: 7,
+            quicknet_pk: [0; 96],
+            ruleset_hash: [0; 32],
+            program_hash: None,
+        }
+    }
+    const CTX: AddrCtx = AddrCtx {
+        season: [0x22; 32],
+        program: [0x11; 32],
+    };
+
     #[test]
     fn resident_joined_makes_the_nft_citizen_known_by_its_tag() {
         let asset = [0x5a; 32];
         let tag15 = frontier_abi::resident_citizen::resident_tag15(&asset);
         let w = World {
             cq_recs: vec![
-                joined(tag15, asset, 4, 0),
-                joined([9; 15], [0x6b; 32], 1, 1),
+                joined(tag15, asset, 4, 2, 0),
+                joined([9; 15], [0x6b; 32], 1, 0, 0),
             ],
+            txs: vec![tx_with(vec![join_ix(asset, 2, 4)])],
             ..Default::default()
         };
-        let cfg = Config {
-            program: solana_address::Address::new_from_array([0x11; 32]),
-            season_id: 7,
-            quicknet_pk: [0; 96],
-            ruleset_hash: [0; 32],
-            program_hash: None,
-        };
-        let ctx = AddrCtx {
-            season: [0x22; 32],
-            program: [0x11; 32],
-        };
-        let f = Facts::build_with_ctx(&w, &cfg, ctx);
-        let addr = ctx.citizen_by_tag15(&tag15);
+        let f = Facts::build_with_ctx(&w, &cfg(), CTX);
+        let addr = CTX.citizen_by_tag15(&tag15);
         let cf = f.citizens.get(&addr).expect("the NFT Citizen is known");
         assert_eq!(
             (cf.wallet, cf.faction, cf.shard, cf.tag15),
-            ([0; 32], 4, 3, tag15)
+            ([0; 32], 4, frontier_abi::addr::join_shard_of(&asset), tag15)
         );
         assert_eq!(f.by_tag8.get(&cf.tag8), Some(&addr));
         // The forged record (key not its asset's resident ID) is not taken.
         assert_eq!(f.citizens.len(), 1);
         assert_eq!(resident_joined_tag(&w.cq_recs[1]), None);
+    }
+
+    #[test]
+    fn a_resident_joined_without_its_join_resident_creates_no_citizen() {
+        // Workstream 11's case: a well-formed record in a transaction that
+        // never ran JoinResident (or ran it for something else).
+        let asset = [0x5a; 32];
+        let tag15 = frontier_abi::resident_citizen::resident_tag15(&asset);
+        let rec = joined(tag15, asset, 4, 2, 0);
+        let cases: Vec<(Vec<Ix>, &str)> = vec![
+            (vec![], "no JoinResident"),
+            (vec![join_ix([0x5b; 32], 2, 4)], "another asset"),
+            (vec![join_ix(asset, 3, 4)], "another generation"),
+            (vec![join_ix(asset, 2, 5)], "another faction"),
+        ];
+        for (ixs, what) in cases {
+            let tx = tx_with(ixs);
+            assert!(resident_joined_problem(&rec, &tx).is_some(), "{what}");
+            let w = World {
+                cq_recs: vec![rec.clone()],
+                txs: vec![tx],
+                ..Default::default()
+            };
+            assert!(
+                Facts::build_with_ctx(&w, &cfg(), CTX).citizens.is_empty(),
+                "{what}"
+            );
+        }
+        // The record's own fields: the shard and the join bell.
+        let tx = tx_with(vec![join_ix(asset, 2, 4)]);
+        assert_eq!(resident_joined_problem(&rec, &tx), None);
+        let mut shard = rec.clone();
+        shard.payload[33] ^= 1;
+        assert!(resident_joined_problem(&shard, &tx).is_some());
+        let mut bell = rec.clone();
+        bell.bell = 41;
+        assert!(resident_joined_problem(&bell, &tx).is_some());
     }
 }

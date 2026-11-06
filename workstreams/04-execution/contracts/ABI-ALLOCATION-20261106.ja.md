@@ -150,3 +150,11 @@ prize の program（`PrizeError`、0x100 から）：基準は 0x100–0x110 と
 | 利用注文の用途 `0x0901`（工房の兵器） | ⑨・⑩ の共有値として仮に確定 |
 | プログラムの版 | `custody-preview` の build は版 5（`RULESET_HASH_V4`）のまま。未統合の S2 stage 2e も 5 を名乗るが、S2 は割り当てていないので、統合するときに S2 側を動かす |
 | 検証器の検査番号 | **V26 は ⑩（custody-history）**。V0E は ⑪（0004・0005 で統合候補に入った）。V18・V21 は空き。今の統合候補で使用中の番号は V0–V17、V19、V20、V22–V25、V0E |
+
+## rev 5（2026-11-06 夜）
+
+| 項目 | 割当（仮、統合で確定） |
+|---|---|
+| nft-experimental の S1 build のプログラムの版 | `0x8000 \| PROGRAM_VERSION_S1`（= 0x8004、⑳ の `permutation-frontier` の値のまま）。検証器は、この版を「S1 の規則＋住民の命令 0xE0–0xE2」として扱う（`verify::checks::v0_coverage::PROGRAM_VERSION_RESIDENT_S1`） |
+| 住民の命令 0xE0–0xE2 | rev 3 のまま（0xE3–0xE7 は予備）。この版の Season の外で成功すれば、検証器は FAIL |
+| 記録 kind 130 | ⑪ の 0008 で CONDITIONAL（同じ取引の JoinResident と一致するときだけ判定）。⑳ の 45d95e31 と ④ の V9 で、偽造・欠落・不一致・重複を拒否 |

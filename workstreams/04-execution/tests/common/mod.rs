@@ -94,7 +94,7 @@ pub fn spec(id: &str, s: &Scene) -> RunSpec {
         owner: OWNER,
         stock: s.stock,
         inbound: None,
-        facility: s.facility,
+        facility: Some(s.facility),
         inputs: r(1, 5),
         outputs: r(6, 3),
         rights_units: 1,
