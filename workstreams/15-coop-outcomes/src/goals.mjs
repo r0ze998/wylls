@@ -390,7 +390,9 @@ function judgePersonalGoal(W, g, a, credited) {
     // are never a fact of the game: they give 'model_only', never 'achieved'.
     const mine = W.board.filter(b => b.taken.some(t => t.actor === a.id));
     if (!mine.length) return null;
-    const done = mine.filter(b => b.fulfilled && inWindow(W, b.fulfilled.at) && b.taken.some(t => t.actor === a.id && t.cross === true && t.cluster !== b.posted?.cluster));
+    // ⑭ v1 names the responder whose goods arrived; without it (v0) any of the actor's takes stands in.
+    const answered = b => (b.fulfilled.responder !== undefined ? b.fulfilled.responder === a.id : true);
+    const done = mine.filter(b => b.fulfilled && inWindow(W, b.fulfilled.at) && answered(b) && b.taken.some(t => t.actor === a.id && t.cross === true && t.cluster !== b.posted?.cluster));
     const evidence = mine.flatMap(b => [b.posted?.id, ...b.taken.filter(t => t.actor === a.id).map(t => t.id), b.fulfilled?.id].filter(Boolean));
     if (!done.length) return { status: 'not_achieved', reasons: [R('taken_not_arrived', evidence)] };
     const model = done.some(b => [b.posted, b.fulfilled, ...b.taken].some(x => x && x.verified === 'model'));

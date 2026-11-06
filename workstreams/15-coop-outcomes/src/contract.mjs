@@ -74,6 +74,9 @@ export const KINDS = Object.freeze({
   'tower.request.taken': ['req', 'actor'],
   'tower.request.fulfilled': ['req', 'actor'],
   'tower.relay.swap': ['actor'],
+  // A boundary a model was asked to mark (⑭'s `period.boundary`): recorded and reported only. It is not an
+  // evaluation window and not a war period; it closes, resets and settles nothing.
+  'model.boundary': ['index'],
   // A source record with nothing to judge: it holds its stream position so it is not taken for a gap.
   'position': [],
 });
@@ -145,7 +148,7 @@ export function shapeProblems(e) {
   for (const f of ['qty', 'taken', 'burned', 'bells', 'cargo']) if (f in e && !isQty(e[f])) return ['malformed'];
   if (e.qtyKind !== undefined && !QTY_KINDS.includes(e.qtyKind)) return ['malformed'];
   if (e.qtyKind === 'zero' && e.qty !== 0) return ['malformed'];
-  if (e.verified === 'model' && !e.kind.startsWith('tower.') && e.kind !== 'position') return ['malformed'];
+  if (e.verified === 'model' && !e.kind.startsWith('tower.') && !e.kind.startsWith('model.') && e.kind !== 'position') return ['malformed'];
   return [];
 }
 

@@ -114,6 +114,9 @@ export function evaluate(ruleset, input, { window = null, asOf = null, world = n
     },
     records: { conflicts: norm.notes.conflicts, rejected: norm.notes.rejected, gaps: norm.notes.gaps, refused: W.outcomes.filter(o => !o.ok).map(o => ({ id: o.id, kind: o.kind, code: o.code })) },
     window: win,
+    // Marks a model was asked to make (⑭'s period.boundary) that fall in this window: reported only.
+    // They are not evaluation windows or war periods; the window above comes from the input.
+    ...(W.modelBoundaries.length ? { modelBoundaries: { note: 'model marks, not evaluation windows or war periods: nothing closes at them', inWindow: W.modelBoundaries.filter(b => b.at >= w.opensAt && b.at < V.closeAt).map(b => ({ index: b.index, at: b.at })) } } : {}),
     world: {
       ends: false,
       note: '評価期間を閉じても世界は終わらない。荷・建物・移動中の隊商・未完成の計画・記録は次の評価期間に引き継がれる',

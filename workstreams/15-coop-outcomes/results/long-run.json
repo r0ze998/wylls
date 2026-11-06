@@ -4,8 +4,8 @@
  "small": {
   "windows": 40,
   "events": 1469,
-  "totalMs": 1424,
-  "perWindowMs": 35.6,
+  "totalMs": 891,
+  "perWindowMs": 22.3,
   "sizes": [
    {
     "window": 10,
@@ -63,8 +63,8 @@
  "large": {
   "windows": 160,
   "events": 5889,
-  "totalMs": 19912,
-  "perWindowMs": 124.4,
+  "totalMs": 10563,
+  "perWindowMs": 66,
   "sizes": [
    {
     "window": 40,
@@ -125,5 +125,5 @@
   "restartAllMatch": true,
   "achievedBuilds": 35
  },
- "perWindowRatio": 3.49
+ "perWindowRatio": 2.96
 }

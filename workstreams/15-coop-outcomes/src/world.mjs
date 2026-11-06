@@ -268,7 +268,9 @@ export function buildWorld({ state, events, taint = {}, gapFrom = {}, costs, joi
         const k = String(e.req);
         const b = W.board.find(x => x.req === k) ?? (W.board.push({ req: k, posted: null, taken: [], fulfilled: null }), W.board[W.board.length - 1]);
         const a = W.actors.get(e.actor);
-        const rec = { id: e.id, at: e.at, actor: e.actor, nation: a?.nation ?? e.nation ?? null, cluster: a?.cluster ?? e.actor, cross: e.cross ?? null, verified: e.verified, tainted: tainted(taint, e) };
+        const rec = { id: e.id, at: e.at, actor: e.actor, nation: a?.nation ?? e.nation ?? null, cluster: a?.cluster ?? e.actor, cross: e.cross ?? null, verified: e.verified, tainted: tainted(taint, e),
+          // ⑭ v1 names both sides: the poster on a take, the responder on a fulfilment.
+          ...(e.poster !== undefined ? { poster: e.poster } : {}), ...(e.responder !== undefined ? { responder: e.responder } : {}) };
         if (e.kind === 'tower.request.posted') b.posted ??= rec;
         else if (e.kind === 'tower.request.taken') b.taken.push(rec);
         else b.fulfilled ??= rec;
@@ -279,6 +281,12 @@ export function buildWorld({ state, events, taint = {}, gapFrom = {}, costs, joi
         W.towerInput = true;
         W.relaySwaps.push({ id: e.id, at: e.at, actor: e.actor, cross: e.cross ?? null, verified: e.verified });
         out(e, true, e.verified === 'model' ? 'model_only' : null);
+        break;
+      }
+      case 'model.boundary': {
+        // Kept and reported; nothing closes, resets or settles here.
+        W.modelBoundaries.push({ id: e.id, index: e.index, at: e.at, verified: e.verified });
+        out(e, true, 'model_only');
         break;
       }
       case 'tower.sighting': {
@@ -308,7 +316,7 @@ function fresh(state) {
   const W = {
     at: t0, startedAt: t0, applied: {},
     actors: new Map(), lots: new Map(), ships: new Map(), projects: new Map(), structures: new Map(),
-    keepHistory: [], territoryHistory: [], nationGoals: [], sightings: new Map(), raids: [], outcomes: [], towerInput: false, board: [], relaySwaps: [],
+    keepHistory: [], territoryHistory: [], nationGoals: [], sightings: new Map(), raids: [], outcomes: [], towerInput: false, board: [], relaySwaps: [], modelBoundaries: [],
     nations: (state.nations ?? []).map(n => (typeof n === 'string' ? n : n.id)).sort(),
     settledShips: new Set(), spentLots: new Set(), names: new Map(), fungible: new Map(), newest: new Map(), nationSince: {},
     flow: Object.fromEntries(RESOURCES.map(r => [r, { initial: 0, produced: 0, enteredAtSend: 0, sent: 0, arrived: { exact: 0, lowerBound: 0, unverified: 0 }, raidedTaken: 0, burned: 0, lost: 0 }])),
@@ -337,6 +345,8 @@ export function snapshotOf(W, at = W.at) {
   const out = { version: 1, at, startedAt: W.startedAt, applied: W.applied };
   for (const k of MAPS) out[k] = [...W[k].values()].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   for (const k of ['keepHistory', 'territoryHistory', 'nationGoals', 'raids', 'nations', 'flow', 'towerInput', 'board', 'relaySwaps']) out[k] = W[k];
+  // Saved only when present, so a world without them keeps its digest.
+  if (W.modelBoundaries.length) out.modelBoundaries = W.modelBoundaries;
   out.settledShips = [...W.settledShips].sort();
   out.spentLots = [...W.spentLots].sort();
   out.names = [...W.names].sort((a, b) => (a[0] < b[0] ? -1 : 1));
@@ -351,7 +361,7 @@ function restore(snap) {
   const s = structuredClone(snap);
   const W = { at: s.at, startedAt: s.startedAt, applied: s.applied, outcomes: [], settledShips: new Set(s.settledShips), spentLots: new Set(s.spentLots), names: new Map(s.names), fungible: new Map(s.fungible), newest: new Map(s.newest), nationSince: s.nationSince };
   for (const k of MAPS) W[k] = new Map(s[k].map(x => [x.id, x]));
-  for (const k of ['keepHistory', 'territoryHistory', 'nationGoals', 'raids', 'nations', 'flow', 'towerInput', 'board', 'relaySwaps']) W[k] = s[k] ?? (k === 'board' || k === 'relaySwaps' ? [] : s[k]);
+  for (const k of ['keepHistory', 'territoryHistory', 'nationGoals', 'raids', 'nations', 'flow', 'towerInput', 'board', 'relaySwaps', 'modelBoundaries']) W[k] = s[k] ?? (k === 'board' || k === 'relaySwaps' || k === 'modelBoundaries' ? [] : s[k]);
   return W;
 }
 
