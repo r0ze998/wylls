@@ -111,7 +111,7 @@ test('the pass builders name the accounts the program checks, in its order', () 
   const c5 = claimIx({ prize: PRIZE, wallet: OWNER, citizen: CITIZEN });
   assert.deepEqual([c5.data[0], c5.keys.length], [PRIZE_TAG.CLAIM, 8]);
   assert.deepEqual(Object.entries(PRIZE_ERRORS).filter(([c]) => Number(c) >= 0x113).map(([, n]) => n),
-    ['ResidentNotSigned', 'ResidentAsset', 'ResidentAccount', 'ResidentUnguarded', 'ResidentStaleGeneration', 'ResidentNotCurrentAuthority', 'ResidentPolicy', 'ResidentRefundUndecided']);
+    ['ResidentNotSigned', 'ResidentAsset', 'ResidentAccount', 'ResidentUnguarded', 'ResidentStaleGeneration', 'ResidentNotCurrentAuthority', 'ResidentPolicy', 'ResidentRefundUndecided', 'ResidentDepositsDisabled']);
 });
 
 test('the paid JoinResident is exactly [limit, price 0, loaded, PayResident, JoinResident] of one pass; anything else is refused', () => {

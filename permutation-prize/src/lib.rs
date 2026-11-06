@@ -72,7 +72,11 @@
 //! 0x00, a node with 0x01), under the one shares root. Everything the legacy
 //! wallet path does is unchanged. Undecided and therefore refused (fail
 //! closed): a pass claim in refund mode (`ResidentRefundUndecided`: whom a
-//! refund follows is not decided); nothing about legacy-to-NFT migration.
+//! refund follows is not decided), and for the same reason **every new pass
+//! deposit**: PayResident (tag 8) is answered `ResidentDepositsDisabled` at
+//! dispatch, before any read, write or CPI, so no pass fee the pool could
+//! never return is taken. An NFT Entry that already exists keeps its shares
+//! claim. Nothing about legacy-to-NFT migration.
 //!
 //! **RecordNation** (candidate, 2026-11-06; changes no rule and no amount).
 //! A shares claim needs the wallet's nation, which the game keeps in its
@@ -296,6 +300,12 @@ pub enum PrizeError {
     /// A pass claim in refund mode: whom a refund follows (the payer or the
     /// holder) is undecided, so it is refused and nothing moves.
     ResidentRefundUndecided = 0x11A,
+    /// PayResident: new pass deposits are disabled at dispatch, before any
+    /// read, write or CPI, until the pass refund right is decided (a
+    /// deposit the pool could never return in refund mode is not taken).
+    /// Existing NFT Entries keep their shares claim; the wallet Pay is as
+    /// before.
+    ResidentDepositsDisabled = 0x11B,
 }
 
 impl From<PrizeError> for ProgramError {
@@ -1255,6 +1265,12 @@ mod resident {
     /// 8 PayResident: the pass's current owner pays the fee from its own
     /// token account; the NFT Entry names the pass. As Pay: while the pool is
     /// Open and nothing is tallied, once per pass (`AlreadyPaid`).
+    ///
+    /// **Not dispatched.** `process_instruction` answers the tag with
+    /// `ResidentDepositsDisabled` before calling anything: until whom a
+    /// pass's refund belongs to is decided, a deposit the pool could never
+    /// return is not taken. Kept, unreachable, for that decision.
+    #[allow(dead_code)]
     pub fn pay_resident(program: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         let [owner, payer, pool_ai, entry_ai, from, vault, mint, token, system, policy_ai, asset, resident] =
             a
@@ -1572,8 +1588,12 @@ pub fn process_instruction(program: &Pubkey, a: &[AccountInfo], data: &[u8]) -> 
         tag::WITHDRAW_OPS if d.is_empty() => withdraw_ops(program, a),
         tag::RECORD_NATION if d.is_empty() => record_nation(program, a),
         // NFT pass (experimental): only with the feature; `BadData` otherwise.
+        // PayResident is refused here, before anything is read, written or
+        // invoked: a pass's refund right is undecided, so no new pass deposit
+        // is taken (`ResidentDepositsDisabled`). The handler stays for the
+        // day the rule is decided; nothing dispatches to it.
         #[cfg(feature = "nft-experimental")]
-        tag::PAY_RESIDENT => resident::pay_resident(program, a, d),
+        tag::PAY_RESIDENT => Err(E::ResidentDepositsDisabled.into()),
         #[cfg(feature = "nft-experimental")]
         tag::CLAIM_RESIDENT => resident::claim_resident(program, a, d),
         #[cfg(feature = "nft-experimental")]
@@ -1836,6 +1856,7 @@ mod tests {
             PrizeError::ResidentNotCurrentAuthority,
             PrizeError::ResidentPolicy,
             PrizeError::ResidentRefundUndecided,
+            PrizeError::ResidentDepositsDisabled,
         ];
         for (e, code) in band.iter().zip(0x113u32..) {
             assert_eq!(*e as u32, code, "{e:?}");

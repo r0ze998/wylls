@@ -222,6 +222,8 @@ export async function refreshPrize({ force = false, at = Date.now() } = {}) {
   invalidate('panel');
 }
 
+/** NFT pass deposits (PayResident) are disabled everywhere until the pass refund right is decided (permutation-prize NFT-PRIZE.md §8.3). */
+export const PASS_DEPOSITS_ENABLED = false;
 /** The relay's and the page's refusal codes for a pass claim the model will not offer (fprize.passClaimModel states). */
 const PASS_CLAIM_REFUSAL = Object.freeze({ unpaid: 'PassNotPaid', claimed: 'AlreadyClaimed', pending: 'ClaimInFlight', notPosted: 'ClaimNotOpen', refund: 'PassRefundUnavailable', noShare: 'PassNoShare', notHeld: 'NftNotHeld' });
 
@@ -264,7 +266,9 @@ async function claimPass() {
     if (!m || m.state !== 'claimable') { invalidate('panel'); return failed({ code: PASS_CLAIM_REFUSAL[m?.state] ?? 'ClaimNotOpen' }); }
     const r = await prizeIo.claimPass({ wallet: w, prize: { program: FS.prize.program, pool: FS.prize.pool, vault: FS.prize.vault, mint: FS.prize.mint }, id: FS.resident, generation: g, share: m.share });
     if (!live()) return failed({ code: 'NftNotHeld' });
-    const record = o => ({ wallet: op.wallet, asset, generation: g, state: o.state, notSent: !!o.notSent, code: o.code, signature: r.signature ?? null, amount: r.amount ?? null });
+    const record = o => ({ wallet: op.wallet, asset, generation: g, state: o.state, notSent: !!o.notSent, code: o.code, signature: r.signature ?? null, amount: r.amount ?? null,
+      // Claimed by an earlier owner or generation (never this owner's success; never resent): who, and when.
+      priorClaim: r.priorClaim ?? null });
     // `failed` only for a definite failure (before the POST, or proven by the
     // chain); every uncertain outcome after the POST is `unknown`, which holds
     // the offer back until the Entry reads claimed (fprize.claimOutcome).
@@ -300,6 +304,11 @@ async function paidJoinPass(id) {
   const w = wallet.connected();
   if (!w || w.address !== (FS.wallet?.address ?? null)) return failed({ code: 'NoWallet' });
   if (!FS.nfts?.policy?.residentProgram) return failed({ code: 'NoResidentPolicy' });
+  // New pass deposits are disabled: the program refuses PayResident at
+  // dispatch and the relay refuses the shape (a pass's refund right is
+  // undecided). Nothing is read, signed or sent; the rest of this function
+  // stays for the day the rule is decided.
+  if (!PASS_DEPOSITS_ENABLED) return failed({ code: 'ResidentDepositsDisabled', asset: id.asset });
   // Nothing is written for this wallet once another is connected (every await below may outlive a switch).
   const same = () => (FS.wallet?.address ?? null) === w.address;
   const residentProgram = FS.nfts.policy.residentProgram;

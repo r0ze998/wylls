@@ -15,6 +15,19 @@ build with the feature, refuses a manifest that makes it a default, and
 refuses an artefact that carries the pass handlers; `Cargo.toml` says the
 same. Nothing here decides or authorises a refund rule.
 
+**New pass deposits are DISABLED at every layer** (2026-11-07, after
+independent review): `process_instruction` answers tag 8 (PayResident) with
+`ResidentDepositsDisabled` (0x11B) before any account is read, written or
+invoked; the relay's x402 route refuses the `[prefix, PayResident,
+JoinResident]` shape before any signature or simulation and advertises
+`resident.depositsDisabled`; the SDK's `joinResidentViaX402` refuses to
+build or sign when the relay says so; the page refuses before anything is
+read. So no pass fee the pool could never return is ever taken. An NFT
+Entry that already exists keeps its shares claim (`ClaimResident`), and
+the legacy wallet Pay and Claim are unchanged. Every claim test rests on a
+**fixture** Entry written as a deposit would have left it
+(`fixture_pass_entry`), never on a deposit the program accepted.
+
 ## 1. What it does
 
 Every player of the `nft-experimental` game holds an **NFT pass**: a
@@ -48,7 +61,7 @@ This change makes the prize pool follow the same rule:
 
 | tag | instruction | data | accounts |
 |---|---|---|---|
-| 8 | PayResident | `generation u32` | `[owner s] [payer s,w] [pool w] [entry w] [owner token w] [vault w] [mint] [token] [system] [policy] [asset] [resident]` |
+| 8 | PayResident — **refused at dispatch (`ResidentDepositsDisabled`)** | `generation u32` | `[owner s] [payer s,w] [pool w] [entry w] [owner token w] [vault w] [mint] [token] [system] [policy] [asset] [resident]` (the handler is kept, unreachable, for the refund decision) |
 | 9 | ClaimResident | `generation u32 ‖ nation u8 ‖ points u64 ‖ n u8 ‖ proof 32×n` | `[owner s] [pool w] [entry w] [citizen] [link] [vault w] [owner token w] [mint] [token] [policy] [asset] [resident]` |
 | 10 | RecordResidentNation | — | `[pool] [entry w] [citizen]` (no signer) |
 
@@ -155,10 +168,22 @@ PDA), 0x11A ResidentRefundUndecided (§8). 0x111 stays free for workstream
 
 ## 6. Tests, by execution class
 
-Written by the author; the author executed none. The supervisor reported:
-prize `cargo check` (both feature sets) passes, `nft_pass_prize` compiles,
-the pure prize unit tests pass 8/8, and `resident_auth`'s literal-byte tests
-pass 2/2. No key is generated, derived or signed in any test below.
+Written by the author; the author executed none. Earlier in the work the
+supervisor reported: prize `cargo check` (both feature sets) passed,
+`nft_pass_prize` compiled, the pure prize unit tests passed 8/8 and the
+pure page tests 5/5. **Those results predate the later changes** (the
+destination binding, `ResidentDepositsDisabled`, the fixture Entry, the
+new pure tests): nothing has been revalidated since, and no Rust or Node
+result below is claimed as current. No key is generated, derived or signed
+in any test.
+
+The claim tests of `nft_pass_prize.rs` rest on `fixture_pass_entry`
+(an NFT Entry written as a deposit would have left it, with the fee minted
+into the vault and the pool's counters moved as `credit_fee` moves them),
+because the program refuses every PayResident; the test
+`pass_deposits_are_refused_at_dispatch` asserts that refusal for every
+variant (owner, stale generation, unsigned, unguarded, a bare tag, after
+the tally) with no account created, no token moved and no counter moved.
 
 **Pure (safe to execute now: no key, no address derivation of any kind).**
 
@@ -211,8 +236,12 @@ node --check permutation-gateway/test/frontier-prize-resident.test.mjs        # 
 
 - `permutation-gateway/test/frontier-prize.test.mjs` (existing file,
   `Keypair.generate`): three relay route tests appended: `GET
-  /f/prize?asset=`, the x402 `[prefix, PayResident, JoinResident]` path
-  and `POST /f/prize/claim` with ClaimResident, over the scripted chain.
+  /f/prize?asset=`, the x402 `[prefix, PayResident, JoinResident]` shape
+  refused as `ResidentDepositsDisabled` with nothing simulated or sent, and
+  `POST /f/prize/claim` with ClaimResident over the scripted chain,
+  including the claimer's own `already`, a prior owner's claim (A → B →
+  A: `409 AlreadyClaimedByPriorOwner`, nothing sent, the pending record
+  never released) and the same wallet at another generation.
 
 Static checks that derive nothing: `cargo fmt` (not run by the author),
 `cargo clippy --features nft-experimental -- -D warnings` in
@@ -278,10 +307,23 @@ screen) and the wallet's passes (`FS.nfts`). No new selector was added.
   answers with the earlier transaction's signature, which signs another
   message: the page does not check it against the message it just built
   (that would always fail), treats this message as not sent, and re-reads
-  the pass's Entry; only an Entry that reads claimed is success, otherwise
-  the outcome is recorded as unknown. (The relay itself answers `already`
-  only after reading the finalized Entry; the page's re-read is at the
-  relay's confirmed commitment.)
+  the pass's Entry. Success is only an Entry that reads claimed **by this
+  wallet at the generation this claim signed** (`claimIsMine`: `claimedBy`
+  and `claimGeneration`); an Entry claimed by an earlier owner, or by the
+  same wallet at another generation (A → B → A), is that claim, not this
+  one's success: the page records `claimedByOther`, names who claimed and
+  at which generation, offers nothing and resends nothing. Anything else
+  is unknown. The relay applies the same rule: a claimed Entry closes the
+  pending record for good (`landed` or `superseded`, never released for a
+  retry) and answers `already` only to the claimer at its generation,
+  `409 AlreadyClaimedByPriorOwner` to anyone else; a wallet claim keeps
+  its former behaviour. (The relay reads the finalized Entry; the page's
+  re-read is at the relay's confirmed commitment.)
+- **Deposits.** The page's NFT login in a season with a pool answers
+  `ResidentDepositsDisabled` before reading anything (`PASS_DEPOSITS_ENABLED
+  = false`). A pass whose Entry already exists but has no Citizen joins
+  through the invite path (`/f/join`) as before; the page does not build
+  that case specially.
 - **Exact points.** Ledger points are kept as exact u64 bigints from the
   ledger (a JSON number only if it is a safe integer, else a decimal
   string; anything else gives no share) through the model, the estimate
@@ -320,14 +362,20 @@ that closes a link today. If one is added, a recorded pass claim after
 both closes would be refused (fail closed, the share stranded), so that
 instruction must be designed with this in mind.
 
-### 8.3 Fee acceptance and the refund mode (risk)
+### 8.3 Fee acceptance and the refund mode (risk; deposits now refused)
 
-`PayResident` accepts fees whenever the wallet `Pay` would. If the pool
-later settles in **refund mode** (no eligible member of the winning
-nation), the pass's part of the prize has **no exit**: `ClaimResident`
-refuses (`ResidentRefundUndecided`), `Claim` cannot read an NFT Entry,
-`WithdrawOps` moves only the operator's part. The funds stay in the vault
-until a program change decides the rule. The wallet refund is unaffected.
+If a pass Entry exists and the pool settles in **refund mode** (no
+eligible member of the winning nation), the pass's part of the prize has
+**no exit**: `ClaimResident` refuses (`ResidentRefundUndecided`), `Claim`
+cannot read an NFT Entry, `WithdrawOps` moves only the operator's part.
+The funds stay in the vault until a program change decides the rule. The
+wallet refund is unaffected. **Because of this, the program takes no new
+pass deposit at all**: `PayResident` is answered `ResidentDepositsDisabled`
+at dispatch (before any read, write or CPI), the relay and the SDK refuse
+the shape before signing, and the page before reading. No pass Entry can
+be created by this code; the risk applies only to an Entry created by a
+future decision. The handler is kept unreachable for that decision and
+nothing here decides it.
 This is deliberate (nothing is decided silently) but it means: **the
 feature is not deployable; do not enable `nft-experimental` on any pool
 until the refund rule is decided.** The build script enforces it

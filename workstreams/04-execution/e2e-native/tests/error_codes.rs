@@ -135,6 +135,7 @@ fn prize_error_numbers_are_unique_and_every_copy_agrees() {
         P::ResidentNotCurrentAuthority,
         P::ResidentPolicy,
         P::ResidentRefundUndecided,
+        P::ResidentDepositsDisabled,
     ]
     .iter()
     .map(|e| (*e as u32, format!("{e:?}")))

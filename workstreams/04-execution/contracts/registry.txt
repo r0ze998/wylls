@@ -50,6 +50,7 @@ prize_entry_resident = 192 bytes
 0x118 ResidentNotCurrentAuthority
 0x119 ResidentPolicy
 0x11a ResidentRefundUndecided
+0x11b ResidentDepositsDisabled
 
 [prize_reads_game_accounts] # name size / field offsets (frozen while an old pool can still claim)
 season size 2048 magic PSF1SEAS season_id 8 status 64 end_bell 164 authority 72 r_max 68
@@ -159,7 +160,7 @@ bell = u32 index of bell_secs seconds since genesis_ts
 5 Claim
 6 WithdrawOps
 7 RecordNation (provisional, ws04/ws17 2026-11-06)
-8 PayResident (nft-experimental only; provisional 2026-11-07)
+8 PayResident (nft-experimental only; provisional 2026-11-07; refused at dispatch: ResidentDepositsDisabled)
 9 ClaimResident (nft-experimental only; provisional 2026-11-07)
 10 RecordResidentNation (nft-experimental only; provisional 2026-11-07)
 

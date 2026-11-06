@@ -11,7 +11,7 @@
 // are left to a run under approval.
 import { test, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { claimOpLive, claimOpOf, claimOutcome, nextPassEpoch, passClaimModel, passShareOf, pointsOf, prizeModel } from '../../permutation-server/web/frontier/fprize.mjs';
+import { claimIsMine, claimOpLive, claimOpOf, claimOutcome, nextPassEpoch, passClaimModel, passShareOf, pointsOf, prizeModel } from '../../permutation-server/web/frontier/fprize.mjs';
 import { render as panel, renderPass } from '../../permutation-server/web/frontier/screens/prize.mjs';
 import { failureText } from '../../permutation-server/web/frontier/fi18n.mjs';
 import { setLang } from '../../permutation-server/web/lang.mjs';
@@ -228,9 +228,50 @@ test('the panel shows the pass section for a pass player only; the claim button 
   assert.doesNotMatch(unknown.length ? plain(renderPass(fs({ prize: posted({ pass: pass() }), prizeLedger: ledger(), resident: resident(2), prizePass: { asset: ASSET, generation: 2, state: 'unknown', signature: 'sigU' } }))) : '', /[぀-ヿ㐀-鿿]/);
 });
 
+test('a claimed Entry is this owner\'s only when it names this wallet at this generation: A → B → A never resurrects B\'s claim as A\'s', () => {
+  const claimed = (claimedBy, claimGeneration) => entry({ claimed: true, claimedBy, claimGeneration, claimAmount: '25000000' });
+  // B claimed at generation 1.
+  const byB = claimed(OWNER_B, 1);
+  assert.equal(claimIsMine(byB, OWNER_B, 1), true);
+  assert.equal(claimIsMine(byB, WALLET, 2), false, 'A, back at generation 2: not A\'s claim');
+  assert.equal(claimIsMine(byB, WALLET, 1), false, 'A at B\'s generation: another wallet');
+  assert.equal(claimIsMine(byB, OWNER_B, 2), false, 'B after selling and buying back: another generation');
+  assert.equal(claimIsMine(claimed(WALLET, 2), WALLET, 2), true);
+  assert.equal(claimIsMine(entry(), WALLET, 0), false, 'unclaimed');
+  assert.equal(claimIsMine(claimed(WALLET, 2), WALLET, null), false, 'no generation known');
+  assert.equal(claimIsMine(claimed(WALLET, 2), null, 2), false);
+  // The outcome of a claim the relay or the page found to be a prior owner's: closed, never failed, never resent.
+  assert.deepEqual(claimOutcome({ ok: false, code: 'AlreadyClaimedByPriorOwner', notSent: false, priorClaim: { claimedBy: OWNER_B, claimGeneration: 1 } }),
+    { state: 'claimedByOther', notSent: false, code: 'AlreadyClaimedByPriorOwner' });
+  // The model: A (generation 2) sees B's claim as a prior owner's, with no offer; B at generation 1 sees its own.
+  const prizeB = posted({ pass: pass({ entry: byB }) });
+  const asA = passClaimModel({ prize: prizeB, prizeLedger: ledger(), resident: resident(2), wallet: { address: WALLET } });
+  assert.deepEqual([asA.state, asA.entry.claimedByOther, asA.entry.claimedBy, asA.entry.claimGeneration, asA.offer], ['claimed', true, OWNER_B, 1, null]);
+  const asB = passClaimModel({ prize: prizeB, prizeLedger: ledger(), resident: resident(1), wallet: { address: OWNER_B } });
+  assert.deepEqual([asB.state, asB.entry.claimedByOther], ['claimed', false]);
+  const asBLater = passClaimModel({ prize: prizeB, prizeLedger: ledger(), resident: resident(2), wallet: { address: OWNER_B } });
+  assert.equal(asBLater.entry.claimedByOther, true, 'B after a buy-back: the claim was an earlier generation\'s');
+  // A record of a prior owner's claim holds the offer back even before the Entry re-read shows it claimed.
+  const held = passClaimModel({ prize: posted({ pass: pass() }), prizeLedger: ledger(), resident: resident(2), wallet: { address: WALLET },
+    prizePass: { wallet: WALLET, asset: ASSET, generation: 2, state: 'claimedByOther', code: 'AlreadyClaimedByPriorOwner', priorClaim: { claimedBy: OWNER_B, claimGeneration: 1 } } });
+  assert.deepEqual([held.state, held.pending.state, held.pending.priorClaim.claimedBy, held.offer], ['pending', 'claimedByOther', OWNER_B, null]);
+  // Rendered: the prior owner is named, no button, never "did not land".
+  const page = plain(String(panel(fs({ prize: prizeB, prizeLedger: ledger(), resident: resident(2) }))));
+  assert.match(page, /前の持ち主が受け取り済みです：25 テストUSDC/);
+  assert.match(page, /世代 1/);
+  assert.doesNotMatch(page, /prize-claim-pass|届きませんでした/);
+  const heldPage = plain(String(renderPass(fs({ prize: posted({ pass: pass() }), prizeLedger: ledger(), resident: resident(2),
+    prizePass: { wallet: WALLET, asset: ASSET, generation: 2, state: 'claimedByOther', priorClaim: { claimedBy: OWNER_B, claimGeneration: 1 } } }))));
+  assert.match(heldPage, /前の持ち主が受け取り済みです/);
+  assert.doesNotMatch(heldPage, /prize-claim-pass|届きませんでした|送信しました/);
+  setLang('en');
+  assert.doesNotMatch(plain(String(renderPass(fs({ prize: prizeB, prizeLedger: ledger(), resident: resident(2) })))), /[぀-ヿ㐀-鿿]/);
+});
+
 test('every pass refusal code has words of its own', () => {
   for (const code of ['ResidentNotSigned', 'ResidentAsset', 'ResidentAccount', 'ResidentUnguarded', 'ResidentStaleGeneration', 'ResidentNotCurrentAuthority', 'ResidentPolicy',
-    'ResidentRefundUndecided', 'NoResidentPolicy', 'X402NoPass', 'PassNotPaid', 'PassNoShare', 'PassRefundUnavailable', 'ClaimNotOpen', 'ClaimOutcomeUnknown', 'ClaimInFlight']) {
+    'ResidentRefundUndecided', 'ResidentDepositsDisabled', 'AlreadyClaimedByPriorOwner', 'NoResidentPolicy', 'X402NoPass', 'PassNotPaid', 'PassNoShare', 'PassRefundUnavailable',
+    'ClaimNotOpen', 'ClaimOutcomeUnknown', 'ClaimInFlight']) {
     const t = String(failureText({ code }));
     assert.ok(t && !t.includes(code), code);
   }

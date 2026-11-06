@@ -106,6 +106,7 @@ fn render() -> String {
         P::ResidentNotCurrentAuthority,
         P::ResidentPolicy,
         P::ResidentRefundUndecided,
+        P::ResidentDepositsDisabled,
     ] {
         s.push_str(&format!("0x{:x} {e:?}\n", e as u32));
     }
@@ -175,7 +176,7 @@ fn render() -> String {
             t::RECORD_NATION,
         ),
         (
-            "PayResident (nft-experimental only; provisional 2026-11-07)",
+            "PayResident (nft-experimental only; provisional 2026-11-07; refused at dispatch: ResidentDepositsDisabled)",
             t::PAY_RESIDENT,
         ),
         (

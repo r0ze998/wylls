@@ -13,7 +13,11 @@
 //!              their real addresses: the resident policy (`resident_policy`),
 //!              the per-world link (`resident_binding`), the NFT Citizen
 //!              (`resident_citizen::mark`), the Season, Provinces and
-//!              ProvinceFunds at the end. The Core asset and the resident
+//!              ProvinceFunds at the end;
+//!   [fixture]  the NFT Entry of a pass (`fixture_pass_entry`): PayResident is
+//!              refused at dispatch (`ResidentDepositsDisabled`, deposits
+//!              undecided), so no test obtains an Entry from the program; the
+//!              claim tests write one as a deposit would have left it. The Core asset and the resident
 //!              program's record are written as those programs leave them
 //!              (the same bytes as permutation-frontier's
 //!              resident_runtime_tests): a transfer rewrites the asset's owner
@@ -865,9 +869,9 @@ fn settled(w: &mut World) -> Settled {
     w.h.fund(key(B), SOL);
     let ta = token_account(w, 111, &key(A));
     let tb = token_account(w, 112, &key(B));
-    faucet(w, &ta, FEE);
     let pass = mint_pass(w, key(ASSET), &key(A));
-    pay_resident(w, &pass, &key(A), true, &ta, 0).unwrap();
+    // [fixture] the pass's Entry (deposits are refused at dispatch).
+    fixture_pass_entry(w, &pass, &key(A));
     let (citizen, link) = join_pass(w, &pass, 1);
     let (b, tb_wallet) = player(w, 2, FEE);
     pay(w, &b, &tb_wallet).unwrap();
@@ -916,99 +920,148 @@ fn try_claim(w: &mut World, p: &Pass, lb: [u8; 32], o: u8, g: u32) -> Result<(),
 
 // ------------------------------------------------------------ tests
 
-/// PayResident: the pass's current owner pays from its own token account at
-/// the generation it signed; the NFT Entry names the pass (not a wallet);
-/// once per pass. A stale generation, another key, a session key, an
-/// unsigned owner and an unguarded pass are refused. The legacy Pay is as
-/// before, into the same pool.
+/// [fixture] An NFT Entry of `pass` paid by `paid_by`. NOT a PayResident:
+/// the program refuses every pass deposit at dispatch
+/// (`ResidentDepositsDisabled`, the test below). The Entry's bytes are
+/// written as a deposit would have left them, the fee is minted into the
+/// vault and the pool's counters are moved as `credit_fee` moves them, so
+/// the Entry stands for one that exists on a chain from before deposits were
+/// refused. Every claim test below rests on this fixture, not on a deposit
+/// the program accepted.
+fn fixture_pass_entry(w: &mut World, pass: &Pass, paid_by: &Pubkey) -> Pubkey {
+    let (entry, bump) = Pubkey::find_program_address(
+        &[b"entry-nft", w.pool.as_ref(), pass.asset.as_ref()],
+        &w.h.prize,
+    );
+    let mut d = vec![0u8; N::SIZE];
+    put(&mut d, N::HDR_MAGIC, &N::MAGIC);
+    d[N::BUMP] = bump;
+    put(&mut d, N::PAY_GENERATION, &pass.generation.to_le_bytes());
+    put(&mut d, N::POOL, w.pool.as_ref());
+    put(&mut d, N::ASSET, pass.asset.as_ref());
+    put(&mut d, N::AMOUNT, &FEE.to_le_bytes());
+    put(&mut d, N::PAID_BY, paid_by.as_ref());
+    let prize = w.h.prize;
+    set_acct(w, entry, prize, d);
+    let vault = w.vault;
+    faucet(w, &vault, FEE);
+    // ops_bps 2,000: the operator's fifth, the prize the rest (lib.rs `credit_fee`).
+    let ops = FEE / 5;
+    let mut p = w.h.get(&w.pool).unwrap().clone();
+    let entries = u32_at(&p.data, pool::ENTRIES) + 1;
+    put(&mut p.data, pool::ENTRIES, &entries.to_le_bytes());
+    let collected = u64_at(&p.data, pool::COLLECTED) + FEE;
+    put(&mut p.data, pool::COLLECTED, &collected.to_le_bytes());
+    let prize_total = u64_at(&p.data, pool::PRIZE) + FEE - ops;
+    put(&mut p.data, pool::PRIZE, &prize_total.to_le_bytes());
+    let ops_total = u64_at(&p.data, pool::OPS) + ops;
+    put(&mut p.data, pool::OPS, &ops_total.to_le_bytes());
+    w.h.set(w.pool, p);
+    entry
+}
+
+/// PayResident is refused at dispatch (`ResidentDepositsDisabled`): a
+/// pass's refund right is undecided, so no new pass deposit is taken — not
+/// from the owner at its generation, not from anyone else, whatever the
+/// data, before any account is read or any token moves. Nothing is created
+/// and no counter moves. The wallet Pay beside it is as before.
 #[test]
-fn the_pass_owner_pays_once_and_the_entry_names_the_pass() {
+fn pass_deposits_are_refused_at_dispatch() {
     let mut w = world();
     init_pool(&mut w);
     w.h.fund(key(A), SOL);
     w.h.fund(key(B), SOL);
     let ta = token_account(&mut w, 111, &key(A));
     let tb = token_account(&mut w, 112, &key(B));
-    faucet(&mut w, &ta, 3 * FEE);
-    faucet(&mut w, &tb, 2 * FEE);
+    faucet(&mut w, &ta, 2 * FEE);
+    faucet(&mut w, &tb, FEE);
     let p = mint_pass(&mut w, key(ASSET), &key(A));
+    let mut q = mint_pass(&mut w, key(ASSET2), &key(B));
+    let pool_before = w.h.get(&w.pool).unwrap().data.clone();
+    // The owner itself, at its generation, with everything in order: refused.
+    fails(
+        pay_resident(&mut w, &p, &key(A), true, &ta, 0),
+        E::ResidentDepositsDisabled,
+    );
+    // Every other variant gets the same answer: nothing is read first.
+    fails(
+        pay_resident(&mut w, &q, &key(B), true, &tb, 1),
+        E::ResidentDepositsDisabled,
+    );
+    fails(
+        pay_resident(&mut w, &q, &key(A), true, &ta, 0),
+        E::ResidentDepositsDisabled,
+    );
+    fails(
+        pay_resident(&mut w, &q, &key(B), false, &tb, 0),
+        E::ResidentDepositsDisabled,
+    );
+    set_acct(&mut w, q.asset, key(CORE), asset_bytes(&key(B), true));
+    fails(
+        pay_resident(&mut w, &q, &key(B), true, &tb, 0),
+        E::ResidentDepositsDisabled,
+    );
+    set_acct(&mut w, q.asset, key(CORE), asset_bytes(&key(B), false));
+    transfer(&mut w, &mut q, &key(A));
+    transfer(&mut w, &mut q, &key(B));
+    fails(
+        pay_resident(&mut w, &q, &key(B), true, &tb, 2),
+        E::ResidentDepositsDisabled,
+    );
+    // The tag alone, with no data and one account: answered before the data
+    // or the accounts are looked at.
+    let bare = pix(
+        &w,
+        vec![AccountMeta::new(w.pool, false)],
+        vec![tag::PAY_RESIDENT],
+    );
+    fails(w.h.send(&[bare], &[]), E::ResidentDepositsDisabled);
+    // Nothing happened: no Entry, no token moved, no counter moved.
+    assert!(w.h.get(&nft_entry_of(&w, &p.asset)).is_none());
+    assert!(w.h.get(&nft_entry_of(&w, &q.asset)).is_none());
+    assert_eq!(bal(&w, &w.vault), 0);
+    assert_eq!(bal(&w, &ta), 2 * FEE);
+    assert_eq!(bal(&w, &tb), FEE);
+    assert_eq!(w.h.get(&w.pool).unwrap().data, pool_before);
+    // The wallet path beside it, unchanged.
+    let (c, tc) = player(&mut w, 3, FEE);
+    pay(&mut w, &c, &tc).unwrap();
+    assert_eq!(u32_at(&w.h.get(&w.pool).unwrap().data, pool::ENTRIES), 1);
+    assert_eq!(bal(&w, &w.vault), FEE);
+    // After the tally starts the answer is the same (refused first, as always).
+    let provinces = set_provinces(&mut w, &close_race());
+    set_season(&mut w, S::STATUS_ENDED);
+    tally(&mut w, &provinces[..1]).unwrap();
+    fails(
+        pay_resident(&mut w, &p, &key(A), true, &ta, 0),
+        E::ResidentDepositsDisabled,
+    );
+}
 
-    pay_resident(&mut w, &p, &key(A), true, &ta, 0).unwrap();
-    let e = entry_bytes(&w, &nft_entry_of(&w, &p.asset));
+/// The fixture Entry (§ above) is what the claim tests rest on: it reads as
+/// a deposit would have left it, and the pool's figures agree with it.
+#[test]
+fn the_fixture_entry_reads_as_a_deposit_would_have_left_it() {
+    let mut w = world();
+    init_pool(&mut w);
+    let p = mint_pass(&mut w, key(ASSET), &key(A));
+    let entry = fixture_pass_entry(&mut w, &p, &key(A));
+    assert_eq!(entry, nft_entry_of(&w, &p.asset));
+    let e = entry_bytes(&w, &entry);
     assert_eq!(e.len(), N::SIZE);
     assert_eq!(&e[..8], &N::MAGIC);
     assert_eq!(&e[N::ASSET..N::ASSET + 32], p.asset.as_ref());
     assert_eq!(&e[N::POOL..N::POOL + 32], w.pool.as_ref());
     assert_eq!(u64_at(&e, N::AMOUNT), FEE);
     assert_eq!(&e[N::PAID_BY..N::PAID_BY + 32], key(A).as_ref());
-    assert_eq!(u32_at(&e, N::PAY_GENERATION), 0);
     assert_eq!(e[N::CLAIMED], 0);
-    assert!(e[172..].iter().all(|b| *b == 0), "reserved bytes are zero");
     assert_eq!(bal(&w, &w.vault), FEE);
-    assert_eq!(bal(&w, &ta), 2 * FEE);
     let pd = &w.h.get(&w.pool).unwrap().data;
     assert_eq!(u32_at(pd, pool::ENTRIES), 1);
     assert_eq!(u64_at(pd, pool::COLLECTED), FEE);
     assert_eq!(u64_at(pd, pool::PRIZE), FEE - FEE / 5);
-    // Once per pass.
-    fails(
-        pay_resident(&mut w, &p, &key(A), true, &ta, 0),
-        E::AlreadyPaid,
-    );
-    // No wallet Entry was made for A by the pass payment.
+    // The legacy RecordNation and Claim never read it (its size and magic are the pass's).
     assert!(w.h.get(&entry_of(&w, &key(A))).is_none());
-
-    // A second pass, B's: the wrong generation, another key, a session key
-    // and an unsigned owner are refused; nothing leaves B's account.
-    let mut q = mint_pass(&mut w, key(ASSET2), &key(B));
-    fails(
-        pay_resident(&mut w, &q, &key(B), true, &tb, 1),
-        E::ResidentStaleGeneration,
-    );
-    fails(
-        pay_resident(&mut w, &q, &key(A), true, &ta, 0),
-        E::ResidentNotCurrentAuthority,
-    );
-    set_resident(&mut w, &q, Some((key(SESSION), 0, key(B))));
-    fails(
-        pay_resident(&mut w, &q, &key(SESSION), true, &tb, 0),
-        E::ResidentNotCurrentAuthority,
-    );
-    fails(
-        pay_resident(&mut w, &q, &key(B), false, &tb, 0),
-        E::BadAccount,
-    );
-    assert_eq!(bal(&w, &tb), 2 * FEE);
-    // An unguarded pass (a plain Core transfer could move it): refused.
-    set_acct(&mut w, q.asset, key(CORE), asset_bytes(&key(B), true));
-    fails(
-        pay_resident(&mut w, &q, &key(B), true, &tb, 0),
-        E::ResidentUnguarded,
-    );
-    set_acct(&mut w, q.asset, key(CORE), asset_bytes(&key(B), false));
-    // A pass B bought from A pays at B's generation only.
-    transfer(&mut w, &mut q, &key(A));
-    transfer(&mut w, &mut q, &key(B));
-    assert_eq!(q.generation, 2);
-    fails(
-        pay_resident(&mut w, &q, &key(B), true, &tb, 0),
-        E::ResidentStaleGeneration,
-    );
-    pay_resident(&mut w, &q, &key(B), true, &tb, 2).unwrap();
-    // The wallet path beside it, unchanged.
-    let (c, tc) = player(&mut w, 3, FEE);
-    pay(&mut w, &c, &tc).unwrap();
-    assert_eq!(u32_at(&w.h.get(&w.pool).unwrap().data, pool::ENTRIES), 3);
-    assert_eq!(bal(&w, &w.vault), 3 * FEE);
-    // After the tally starts, no pass pays either.
-    let provinces = set_provinces(&mut w, &close_race());
-    set_season(&mut w, S::STATUS_ENDED);
-    tally(&mut w, &provinces[..1]).unwrap();
-    let r = mint_pass(&mut w, key(0x5c), &key(A));
-    fails(
-        pay_resident(&mut w, &r, &key(A), true, &ta, 0),
-        E::WrongState,
-    );
 }
 
 /// The unclaimed share follows the pass: A paid at generation 0; after
@@ -1082,9 +1135,9 @@ fn a_transfer_before_the_settlement_moves_the_right_too() {
     w.h.fund(key(B), SOL);
     let ta = token_account(&mut w, 111, &key(A));
     let tb = token_account(&mut w, 112, &key(B));
-    faucet(&mut w, &ta, FEE);
     let mut p = mint_pass(&mut w, key(ASSET), &key(A));
-    pay_resident(&mut w, &p, &key(A), true, &ta, 0).unwrap();
+    // [fixture] the pass's Entry (deposits are refused at dispatch).
+    fixture_pass_entry(&mut w, &p, &key(A));
     join_pass(&mut w, &p, 1);
     transfer(&mut w, &mut p, &key(B));
     end_and_finalize(&mut w);
@@ -1359,9 +1412,9 @@ fn wallet_and_pass_entries_never_stand_for_each_other() {
     init_pool(&mut w2);
     w2.h.fund(key(A), SOL);
     let ta = token_account(&mut w2, 111, &key(A));
-    faucet(&mut w2, &ta, FEE);
     let p2 = mint_pass(&mut w2, key(ASSET), &key(A));
-    pay_resident(&mut w2, &p2, &key(A), true, &ta, 0).unwrap();
+    // [fixture] the pass's Entry (deposits are refused at dispatch).
+    fixture_pass_entry(&mut w2, &p2, &key(A));
     join_pass(&mut w2, &p2, 1);
     end_and_finalize(&mut w2);
     let wrong = leaf(&w2.pool.to_bytes(), p2.asset.as_array(), 1, 1);
@@ -1467,9 +1520,9 @@ fn refund_mode_refuses_a_pass_claim_and_keeps_wallet_refunds_unchanged() {
     w.h.fund(key(B), SOL);
     let ta = token_account(&mut w, 111, &key(A));
     let tb = token_account(&mut w, 112, &key(B));
-    faucet(&mut w, &ta, FEE);
     let mut p = mint_pass(&mut w, key(ASSET), &key(A));
-    pay_resident(&mut w, &p, &key(A), true, &ta, 0).unwrap();
+    // [fixture] the pass's Entry (deposits are refused at dispatch).
+    fixture_pass_entry(&mut w, &p, &key(A));
     let (citizen, _) = join_pass(&mut w, &p, 0);
     let (b, tbw) = player(&mut w, 2, FEE);
     pay(&mut w, &b, &tbw).unwrap();

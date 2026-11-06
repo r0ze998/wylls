@@ -574,12 +574,14 @@ function policyData() {
   d.fill(0x44, 8, 40); put(d, 40, new PublicKey(RESIDENT_PROGRAM).toBytes()); d.fill(0x55, 72, 104); d.fill(0x66, 104, 136);
   return d;
 }
-function entryResidentData(asset, { amount = FEE, claimed = false, nation = null } = {}) {
+// A fixture only: PayResident is refused at dispatch (ResidentDepositsDisabled), so no Entry comes from the program.
+function entryResidentData(asset, { amount = FEE, claimed = false, nation = null, claimedBy = null, claimGeneration = 0 } = {}) {
   const d = new Uint8Array(ENTRY_RESIDENT_SIZE);
   put(d, 0, new TextEncoder().encode('WYPRNFTE'));
   d[9] = claimed ? 1 : 0;
   if (nation !== null) { d[10] = 1; d[11] = nation; }
   put(d, 16, new PublicKey(PRIZE.pool).toBytes()); put(d, 48, new PublicKey(asset).toBytes()); put(d, 80, u64le(amount));
+  if (claimedBy) { put(d, 136, new PublicKey(claimedBy).toBytes()); d[168] = claimGeneration & 255; d[169] = (claimGeneration >> 8) & 255; }
   return d;
 }
 const passAccounts = asset => ({ citizen: residentCitizen(A, asset), link: linkAddress(PROGRAM, A.season, asset), policy: policyAddress(PROGRAM), resident: residentAddress(RESIDENT_PROGRAM, asset) });
@@ -595,24 +597,21 @@ test('GET /f/prize?asset= reads a pass\'s NFT Entry and NFT Citizen; a pass with
   assert.equal((await call(r.public, 'GET', '/f/prize?asset=x')).status, 400);
 });
 
-test('POST /f/x402/join takes [prefix, PayResident, JoinResident] of a pass: the relay adds the fee payer and the gate and sends', async () => {
+test('POST /f/x402/join refuses [prefix, PayResident, JoinResident] of a pass before anything is signed or sent: pass deposits are disabled', async () => {
   const w = Keypair.generate();
   const owner = w.publicKey.toBase58();
-  const chain = fakeChain({ debit: () => rent(384) + rent(104) + rent(ENTRY_RESIDENT_SIZE), onSent: (_, c) => c.set(PRIZE.pool, { data: poolData({ entries: 1 }) }) });
+  const chain = fakeChain({ debit: () => rent(384) + rent(104) + rent(ENTRY_RESIDENT_SIZE) });
   const r = relay({ chain });
   const q = await requirements(r);
-  assert.deepEqual([q.extra.resident.instruction, q.extra.resident.entrySeed], ['PayResident+JoinResident', 'entry-nft']);
+  assert.deepEqual([q.extra.resident.instruction, q.extra.resident.entrySeed, q.extra.resident.depositsDisabled, q.extra.resident.reason],
+    ['PayResident+JoinResident', 'entry-nft', true, 'ResidentDepositsDisabled']);
   const join = { owner, season: A.season, frontier: A.frontier, ...passAccounts(ASSET), asset: ASSET, joinGate: gate.publicKey.toBase58(), generation: 0, faction: 2 };
   const message = paidJoinResidentMessage({ programId: PROGRAM, prize: PRIZE, feePayer: q.extra.feePayer, recentBlockhash: BLOCKHASH, profile: q.extra.profile, join });
   const a = await post(r, payment(signedBy(message, w)));
-  assert.equal(a.status, 200, JSON.stringify(a.json));
-  assert.deepEqual([a.json.mode, a.json.wallet, a.json.asset, a.json.paid, a.json.citizen], ['atomic-pass', owner, ASSET, '25000000', residentCitizen(A, ASSET)]);
-  const sent = chain.sent[0];
-  assert.ok(sent.signers.includes(gate.publicKey.toBase58()) && sent.signers.includes(owner));
-  assert.deepEqual(sent.instructions.slice(3).map(ix => [ix.programId, ix.data[0]]), [[PRIZE_PROGRAM, PRIZE_TAG.PAY_RESIDENT], [PROGRAM, 0xe1]]);
-  // Unsigned by the owner: refused, nothing sent.
-  assert.notEqual((await post(r, payment(wireTransaction(message)))).status, 200);
-  assert.equal(chain.sent.length, 1);
+  assert.deepEqual([a.status, a.json.code, a.json.asset], [409, 'ResidentDepositsDisabled', ASSET]);
+  assert.deepEqual([chain.sent.length, chain.simulated], [0, 0], 'nothing simulated, nothing sent');
+  // The message was the pass shape (the refusal is the relay's rule, not a shape problem).
+  assert.equal(parseTransaction(wireTransaction(message)).instructions[3].data[0], PRIZE_TAG.PAY_RESIDENT);
 });
 
 test('POST /f/prize/claim sponsors a ClaimResident whose accounts are this season\'s pool, the pass\'s entry, Citizen, link, policy and resident record', async () => {
@@ -620,7 +619,8 @@ test('POST /f/prize/claim sponsors a ClaimResident whose accounts are this seaso
   const owner = w.publicKey.toBase58();
   const chain = fakeChain();
   const r = relay({ chain });
-  chain.set(entryResidentAddress(PRIZE_PROGRAM, PRIZE.pool, ASSET), { data: entryResidentData(ASSET, { claimed: true }) });
+  // The scripted chain lands at once: the Entry fixture already reads claimed by THIS owner at THIS generation (1).
+  chain.set(entryResidentAddress(PRIZE_PROGRAM, PRIZE.pool, ASSET), { data: entryResidentData(ASSET, { claimed: true, claimedBy: owner, claimGeneration: 1 }) });
   const fp = (await call(r.public, 'GET', '/f/relay')).json.feePayer;
   const tx = (ix, ...keys) => toBase64(signedBy(compileMessage({ feePayer: fp, recentBlockhash: BLOCKHASH, instructions: [ix] }), ...keys));
   const good = claimResidentIx({ prize: PRIZE, owner, asset: ASSET, ...passAccounts(ASSET), generation: 1, nation: 2, points: 10n, proof: [new Uint8Array(32)] });
@@ -639,4 +639,18 @@ test('POST /f/prize/claim sponsors a ClaimResident whose accounts are this seaso
   assert.deepEqual([ok.status, ok.json.ok, chain.sent.length], [200, true, 1]);
   assert.equal(r.store.state.claimPending[`pass:${ASSET}`].status, 'landed');
   assert.equal(r.store.state.claimPending[owner], undefined, 'the pass, not the signer, is the claim\'s subject');
+  // The prior landed claim is this owner's at this generation: reported as already claimed, nothing resent.
+  const again = await claim({ tx: tx(good, w) });
+  assert.deepEqual([again.status, again.json.already, again.json.claimedBy, again.json.claimGeneration, chain.sent.length], [200, true, owner, 1, 1]);
+  // A → B → A: the Entry now reads claimed by B at generation 1; A, at generation 2, is told a prior owner claimed it, never a success, nothing sent.
+  const b = Keypair.generate().publicKey.toBase58();
+  chain.set(entryResidentAddress(PRIZE_PROGRAM, PRIZE.pool, ASSET), { data: entryResidentData(ASSET, { claimed: true, claimedBy: b, claimGeneration: 1 }) });
+  const later = claimResidentIx({ prize: PRIZE, owner, asset: ASSET, ...passAccounts(ASSET), generation: 2, nation: 2, points: 10n, proof: [new Uint8Array(32)] });
+  const prior = await claim({ tx: tx(later, w) });
+  assert.deepEqual([prior.status, prior.json.code, prior.json.claimedBy, prior.json.claimGeneration, prior.json.already, chain.sent.length], [409, 'AlreadyClaimedByPriorOwner', b, 1, undefined, 1]);
+  assert.notEqual(r.store.state.claimPending[`pass:${ASSET}`], undefined, 'a claimed entry never releases the pending record for a retry');
+  // The same wallet at another generation (sold and bought back) is a prior generation's claim too.
+  chain.set(entryResidentAddress(PRIZE_PROGRAM, PRIZE.pool, ASSET), { data: entryResidentData(ASSET, { claimed: true, claimedBy: owner, claimGeneration: 1 }) });
+  assert.equal((await claim({ tx: tx(later, w) })).json.code, 'AlreadyClaimedByPriorOwner');
+  assert.equal(chain.sent.length, 1);
 });

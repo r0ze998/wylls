@@ -32,10 +32,14 @@ export function renderPass(FS) {
     ? html`<p class="notice error" role="alert">${L`前回の受け取りは届きませんでした：${failureText({ code: m.pending.code ?? 'TransactionFailed' })}`}</p>` : '';
   const body = {
     unpaid: () => html`<p class="muted">${L`この住民NFTには参加費の記録がありません。参加費は、NFTでこの季節に参加するときに支払います。`}</p>`,
-    claimed: () => html`<p class="callout"><strong>${L`受け取り済みです：${m.entry.claimAmount} テストUSDC`}</strong><span>${L`受け取ったウォレット ${short(m.entry.claimedBy)}。賞金は一度だけ受け取れます。譲渡しても二度目はありません。`}</span></p>`,
+    claimed: () => (m.entry.claimedByOther
+      ? html`<p class="callout"><strong>${L`前の持ち主が受け取り済みです：${m.entry.claimAmount} テストUSDC`}</strong><span>${L`受け取ったウォレット ${short(m.entry.claimedBy)}（世代 ${m.entry.claimGeneration ?? '—'}）。この賞金はこのNFTの前の持ち主、または前の世代で受け取られました。賞金は一度だけで、いまの持ち主には残っていません。`}</span></p>`
+      : html`<p class="callout"><strong>${L`受け取り済みです：${m.entry.claimAmount} テストUSDC`}</strong><span>${L`受け取ったウォレット ${short(m.entry.claimedBy)}。賞金は一度だけ受け取れます。譲渡しても二度目はありません。`}</span></p>`),
     pending: () => (m.pending?.state === 'unknown'
       ? html`<p class="notice" role="status">${L`賞金の受け取りの結果がまだ確認できません。署名の結果を確認するまで、再び受け取らないでください。`} <code>${m.pending.signature ?? ''}</code></p>`
-      : html`<p role="status">${L`賞金の受け取りを送信しました。結果を確認しています…`} <code>${m.pending?.signature ?? ''}</code></p>`),
+      : m.pending?.state === 'claimedByOther'
+        ? html`<p class="callout"><strong>${L`前の持ち主が受け取り済みです`}</strong><span>${L`受け取ったウォレット ${short(m.pending.priorClaim?.claimedBy)}（世代 ${m.pending.priorClaim?.claimGeneration ?? '—'}）。賞金は一度だけで、いまの持ち主には残っていません。何も送られていません。`}</span></p>`
+        : html`<p role="status">${L`賞金の受け取りを送信しました。結果を確認しています…`} <code>${m.pending?.signature ?? ''}</code></p>`),
     notPosted: () => html`<p class="muted">${L`季節の結果が確定し、分配がチェーンに登録されると、そのときの持ち主が受け取れます。`}</p>`,
     refund: () => html`<p class="callout pz-est"><strong>${L`住民NFTの参加費は、いまは受け取れません`}</strong><span>${L`この季節は該当者なしのため返金になりました。住民NFTの参加費の返金先（支払ったウォレットか、いまの持ち主か）は未決定のため、プログラムはNFTの返金を受け付けません。ウォレットで参加した人の返金は従来どおりです。`}</span></p>`,
     noShare: () => html`<p class="muted">${L`この住民NFTに配点はありません（勝った国のメンバーでないか、功績の記録に載っていません）。`}</p>`,

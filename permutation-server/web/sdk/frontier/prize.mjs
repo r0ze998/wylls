@@ -44,7 +44,7 @@ export const PRIZE_ERRORS = Object.freeze({ 0x100: 'BadData', 0x101: 'BadAccount
   0x106: 'SeasonNotEnded', 0x107: 'ProvinceNotFinal', 0x108: 'NoKeep', 0x109: 'TallyIncomplete', 0x10A: 'BadShares', 0x10B: 'BadProof', 0x10C: 'NotWinner',
   0x10D: 'AlreadyClaimed', 0x10E: 'NothingToPay', 0x10F: 'Overflow', 0x110: 'WrongExpectedCount', 0x112: 'ContinuousSeason',
   0x113: 'ResidentNotSigned', 0x114: 'ResidentAsset', 0x115: 'ResidentAccount', 0x116: 'ResidentUnguarded', 0x117: 'ResidentStaleGeneration',
-  0x118: 'ResidentNotCurrentAuthority', 0x119: 'ResidentPolicy', 0x11A: 'ResidentRefundUndecided' });
+  0x118: 'ResidentNotCurrentAuthority', 0x119: 'ResidentPolicy', 0x11A: 'ResidentRefundUndecided', 0x11B: 'ResidentDepositsDisabled' });
 /** What Pay adds to a Join's compute-unit and loaded-data limits (the prize and token programs, five more accounts). */
 export const PAID_JOIN_EXTRA_CU = 80_000;
 export const PAID_JOIN_EXTRA_LOADED = 524_288;
@@ -463,6 +463,8 @@ export async function joinResidentViaX402(relay, { owner, asset, generation, fac
   if (!req || req.scheme !== 'exact') throw new X402Error('X402Scheme', 'the relay did not offer the "exact" scheme');
   const x = req.extra;
   if (!x?.resident) throw new X402Error('X402NoPass', 'the relay does not take NFT pass payments');
+  // New pass deposits are disabled (the program refuses PayResident at dispatch): nothing is built or signed.
+  if (x.resident.depositsDisabled) throw new X402Error('ResidentDepositsDisabled', 'new NFT pass deposits are disabled until the pass refund right is decided');
   if (maxFee !== null && BigInt(req.maxAmountRequired) > BigInt(maxFee)) throw new X402Error('X402TooExpensive', `the entry fee ${req.maxAmountRequired} is above the limit ${maxFee}`);
   // Never sign for another pool, vault or season than the ones derived here.
   const addresses = new FrontierAddresses({ programId: x.programId, seasonId: BigInt(x.seasonId) });

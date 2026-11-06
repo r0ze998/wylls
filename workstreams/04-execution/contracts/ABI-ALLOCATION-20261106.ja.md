@@ -227,7 +227,7 @@ prize の program（`PrizeError`、0x100 から）：基準は 0x100–0x110 と
 | 空間 | 番号 | 内容 |
 |---|---|---|
 | 賞金の命令 tag | 8 PayResident、9 ClaimResident、10 RecordResidentNation | パスの今の持ち主が払う・受け取る。国の記録は誰でも |
-| 賞金のエラー | 0x113–0x118（`resident_auth` の 6 つの拒否を賞金の番号で）、0x119 ResidentPolicy、0x11A ResidentRefundUndecided | 0x111 は⑧の CeilingPastTally のために空けたまま |
+| 賞金のエラー | 0x113–0x118（`resident_auth` の 6 つの拒否を賞金の番号で）、0x119 ResidentPolicy、0x11A ResidentRefundUndecided、0x11B ResidentDepositsDisabled（tag 8 は dispatch で必ずこれを返す。返金先が決まるまで NFT の入金は受けない） | 0x111 は⑧の CeilingPastTally のために空けたまま |
 | 賞金の口座 | NFT Entry：PDA `["entry-nft", pool, asset]`、192 B、magic `WYPRNFTE` | 財布の Entry（128 B、`WYPRENTR`）とは大きさも magic も違う。欄は registry.txt `[prize_entry_resident_fields]` |
 | shares の leaf | `sha256(0x02 ‖ pool ‖ asset ‖ nation ‖ points)` | 財布の leaf は 0x00、node は 0x01。同じ root に両方を入れる |
 

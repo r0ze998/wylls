@@ -271,8 +271,11 @@ export const prizeRoutes = {
         programId: ctx.programId, seasonId: ctx.addresses.seasonId.toString(), season: ctx.addresses.season, profile, joinGate: gate,
         prizeProgram: prize.program, pool: prize.pool, decimals: pool.decimals, opsBps: pool.opsBps, instruction: 'Pay+Join', budget: paidJoinBudget(profile),
         entries: pool.entries, prize: String(pool.prize),
-        // NFT pass (experimental): the same price, paid by the pass's current owner with `[prefix, PayResident, JoinResident]`.
-        resident: { instruction: 'PayResident+JoinResident', budget: paidJoinResidentBudget(profile), entrySeed: 'entry-nft', experimental: true },
+        // NFT pass (experimental): new pass deposits are DISABLED (the program refuses PayResident at dispatch,
+        // ResidentDepositsDisabled: a pass's refund right is undecided). The shape is described for the record only;
+        // the relay refuses it below before anything is signed or simulated. A pass whose Entry already exists may
+        // still join with a plain JoinResident.
+        resident: { instruction: 'PayResident+JoinResident', depositsDisabled: true, reason: 'ResidentDepositsDisabled', budget: paidJoinResidentBudget(profile), entrySeed: 'entry-nft', experimental: true },
       },
     };
     const refuse402 = (error, code, extra = {}) => ({ status: 402, body: { x402Version: 1, error, code, ...extra, accepts: [requirements] } });
@@ -302,7 +305,12 @@ export const prizeRoutes = {
     if (paid.ok) {
       [shape, mode, extraAllowance] = [paid.join, 'atomic', ENTRY_RENT];
     } else if (paidPass.ok) {
-      [shape, mode, extraAllowance, asset] = [paidPass.join, 'atomic-pass', ENTRY_RESIDENT_RENT, paidPass.asset];
+      // New pass deposits are disabled (the program would refuse PayResident
+      // at dispatch, ResidentDepositsDisabled); refused here before any
+      // signature, simulation or send. `ENTRY_RESIDENT_RENT` stays for the
+      // day the rule is decided.
+      void ENTRY_RESIDENT_RENT;
+      throw new RouteError(409, 'new NFT pass deposits are disabled until the pass refund right is decided; nothing was sent (a pass with an existing entry may join with a plain JoinResident)', 'ResidentDepositsDisabled', { asset: paidPass.asset });
     } else {
       const plain = classify(tx, { programId: ctx.programId, wireBytes: wire.length, profile });
       if (!plain.ok || (plain.tag !== JOIN_TAG && plain.wrapper !== 'JoinResident')) return refuse402(`invalid payment: ${paid.problem}`, 'InvalidPayment');
@@ -381,20 +389,29 @@ export const prizeRoutes = {
     // experimental) whose current owner signs. The relay pins the accounts to
     // this season's pool, program and policy; who may claim the pass now is
     // the program's judgement from the live asset and resident record.
+    // `owns`: the Entry is the subject's; `mine`: the Entry's claim is THIS
+    // requester's (a wallet Entry is claimed by its wallet only; a pass Entry
+    // records who claimed it and at which generation, and a claim by an
+    // earlier owner or generation is not this owner's success).
     let claim;
     if (ix.data[0] === PRIZE_TAG.CLAIM) {
       const want = claimIx({ prize, wallet, citizen: ctx.addresses.citizen(wallet) });
-      claim = { subject: wallet, want, entry: entryAddress(prize.program, prize.pool, wallet), decode: decodeEntry, owns: e => e?.wallet === wallet,
+      claim = { subject: wallet, want, entry: entryAddress(prize.program, prize.pool, wallet), decode: decodeEntry, owns: e => e?.wallet === wallet, mine: () => true,
         what: 'Claim must name this season\'s pool, the wallet\'s entry, citizen and token account' };
     } else {
       const asset = ix.keys[10]?.pubkey;
       if (!asset || ix.data.length < 14) throw bad('ClaimResident: the generation, nation, points and proof, and twelve accounts');
+      const generation = (ix.data[1] | (ix.data[2] << 8) | (ix.data[3] << 16) | (ix.data[4] * 2 ** 24)) >>> 0;
       const pass = await residentClaimAccounts(ctx, asset);
       if (!pass) throw new RouteError(503, 'this season\'s program has no resident policy on chain: no pass can claim', 'NoResidentPolicy');
       const want = claimResidentIx({ prize, owner: wallet, asset, ...pass, generation: 0 });
-      claim = { subject: `pass:${asset}`, want, entry: entryResidentAddress(prize.program, prize.pool, asset), decode: decodeEntryResident, owns: e => e?.asset === asset,
+      claim = { subject: `pass:${asset}`, pass: true, want, entry: entryResidentAddress(prize.program, prize.pool, asset), decode: decodeEntryResident, owns: e => e?.asset === asset,
+        mine: e => e?.claimedBy === wallet && e?.claimGeneration === generation,
         what: 'ClaimResident must name this season\'s pool, the pass\'s entry, NFT Citizen, link, the program\'s policy, the asset, its resident record and the owner\'s token account' };
     }
+    /** 409: the Entry is claimed, but not by this requester at this generation (an earlier owner or generation). Nothing is sent. */
+    const claimedByOther = (entry, signature = null) => new RouteError(409, 'this entry was already claimed by another owner or at another generation; nothing to send', 'AlreadyClaimedByPriorOwner',
+      { claimedBy: entry.claimedBy ?? null, claimGeneration: entry.claimGeneration ?? null, signature });
     if (ix.keys.length !== claim.want.keys.length || claim.want.keys.some((k, i) => k.pubkey !== ix.keys[i].pubkey)) throw bad(claim.what);
     if (tx.accountKeys.length !== new Set([feePayer, prize.program, ...claim.want.keys.map(k => k.pubkey)]).size) throw bad('the message names account keys the claim does not use');
     if (!signedBy(tx, wallet)) throw new RouteError(400, 'the wallet\'s signature is missing or invalid', 'BadSignature');
@@ -421,13 +438,16 @@ export const prizeRoutes = {
         } catch {
           throw new RouteError(409, 'the prior claim has no verified final outcome; inspect its signature before retrying', 'ClaimOutcomeUnknown', { signature: prior.signature });
         }
-        if (status?.confirmationStatus === 'finalized' && !status.err
-            && claim.owns(entry) && entry.pool === prize.pool && entry.claimed) {
-          if (prior.status !== 'landed') {
-            state.claimPending[subject] = { ...prior, status: 'landed' };
+        if (claim.owns(entry) && entry.pool === prize.pool && entry.claimed) {
+          // A claimed Entry is claimed for good, whoever claimed it: the prior
+          // attempt is closed and never released for a retry. It is this
+          // requester's success only if the Entry names it at this generation.
+          if (prior.status !== 'landed' && prior.status !== 'superseded') {
+            state.claimPending[subject] = { ...prior, status: status?.confirmationStatus === 'finalized' && !status.err ? 'landed' : 'superseded' };
             ctx.store.save();
           }
-          return { body: { ok: true, already: true, signature: prior.signature, amount: String(entry.claimAmount), testAssetsOnly: true } };
+          if (!claim.mine(entry)) throw claimedByOther(entry, prior.signature);
+          return { body: { ok: true, already: true, signature: prior.signature, amount: String(entry.claimAmount), claimedBy: entry.claimedBy ?? wallet, claimGeneration: entry.claimGeneration ?? null, testAssetsOnly: true } };
         }
         if (status?.confirmationStatus === 'finalized' && status.err) {
           // This signature is conclusively failed, and the finalized Entry is
@@ -446,6 +466,19 @@ export const prizeRoutes = {
         sim = await simulateWatching(ctx.connection, signed, [feePayer], ctx.programId);
       } catch (e) {
         const code = PRIZE_ERRORS[Number(/custom program error: (0x1[0-9a-f]{2})\b/i.exec((e.extra?.logs ?? []).join('\n'))?.[1])];
+        if (e instanceof RouteError && code === 'AlreadyClaimed' && claim.pass) {
+          // A pass claimed on chain already: by this requester at this
+          // generation (its earlier claim landed elsewhere), or by an earlier
+          // owner or generation. Either way nothing is sent. (A wallet claim
+          // keeps its 409 AlreadyClaimed below, as before.)
+          let entry = null;
+          try { entry = await readEntry(); } catch { /* answered below as AlreadyClaimed */ }
+          if (entry && claim.owns(entry) && entry.pool === prize.pool && entry.claimed) {
+            if (!claim.mine(entry)) throw claimedByOther(entry);
+            return { body: { ok: true, already: true, signature: null, amount: String(entry.claimAmount), claimedBy: entry.claimedBy ?? wallet, claimGeneration: entry.claimGeneration ?? null, testAssetsOnly: true } };
+          }
+          throw new RouteError(409, `the claim would fail: ${code}`, code, e.extra);
+        }
         if (e instanceof RouteError && code) throw new RouteError(code === 'AlreadyClaimed' ? 409 : 400, `the claim would fail: ${code}`, code, e.extra);
         throw e;
       }
@@ -470,6 +503,14 @@ export const prizeRoutes = {
       }
       if (!claim.owns(entry) || entry.pool !== prize.pool || !entry.claimed) {
         throw new RouteError(504, 'the claim has no finalized Entry result yet; inspect its signature before retrying', 'ClaimOutcomeUnknown', { signature });
+      }
+      if (!claim.mine(entry)) {
+        // Claimed, but not by this requester at this generation: another
+        // owner's claim landed first. This attempt is closed, never retried.
+        const pending = state.claimPending[subject];
+        state.claimPending[subject] = { ...pending, status: 'superseded' };
+        try { ctx.store.save(); } catch { /* the 409 below stands either way */ }
+        throw claimedByOther(entry, signature);
       }
       // A later request still rechecks the finalized signature and Entry
       // before reporting `already`, even if this save worked.

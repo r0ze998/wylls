@@ -32,3 +32,11 @@ The 9 host dispatch scenarios and SDK address/message tests derive public addres
 ## Integration
 
 Review this candidate independently before merging. Map work may also modify controller.mjs; preserve both changes and rerun permitted checks. Do not call this candidate production-ready or the complete 1–20 integration.
+
+## Independent-review follow-up (supersedes the deposit and final-test status above)
+
+- New NFT deposits are now disabled in program dispatch (tag 8, ResidentDepositsDisabled 0x11B), before account reads, mutations or CPI. Relay and page also refuse new pass deposits. Existing NFT shares claims and legacy wallet paths remain. Refund ownership is still undecided; no refund or migration right was invented.
+- Prior-owner or prior-generation claims are distinguished using both claimedBy and claimGeneration. They close the attempt without success attribution or resubmission, including A-to-B-to-A cases.
+- After these edits: pure literal-value page/model tests passed 9/9 (no skips) under the no-keys guard; changed JavaScript syntax and git diff --check passed. These tests do not execute transaction/signing/address derivation paths.
+- Rust, host dispatch and key-using relay tests were NOT run or recompiled in this follow-up. The earlier rejection was not retried or bypassed. Host claim tests now create explicit synthetic pre-existing Entry fixtures; they no longer assert successful real NFT deposits.
+- Feature remains off and NOT DEPLOYABLE. Continuous-world prize economics, unrecorded Citizen closure, existing hypothetical NFT refund balances and real-chain/runtime proof remain unresolved.

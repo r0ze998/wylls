@@ -123,10 +123,17 @@ export async function claimPass({ wallet, prize, id, generation, share, fetch: f
   if (r.already) {
     // The relay answered with an EARLIER claim's signature: it signs another
     // message, so it is not checked against this one, and this message was
-    // never sent. Success is only what the pass's Entry says now; otherwise
-    // the outcome is unknown (never "failed").
+    // never sent. Success is only what the pass's Entry says now, and only
+    // if the Entry names THIS owner at THIS generation (claimIsMine); an
+    // Entry claimed by an earlier owner or generation is that owner's claim,
+    // not this one's success. Otherwise the outcome is unknown (never
+    // "failed").
     const p = await loadPrize(wallet.address, { asset: id.asset, ...opts });
     const e = p.ok && p.pool?.pass?.asset === id.asset ? p.pool.pass.entry : null;
+    if (e?.claimed && !claimIsMine(e, wallet.address, generation)) {
+      return { ok: false, notSent: false, code: 'AlreadyClaimedByPriorOwner', error: 'already claimed by another owner or at another generation', httpStatus: 0,
+        priorClaim: { claimedBy: e.claimedBy ?? null, claimGeneration: e.claimGeneration ?? null }, signature: r.signature ?? null };
+    }
     const landed = !!e?.claimed;
     return { ok: true, already: true, sent: false, landed, signature: r.signature ?? null, amount: landed ? e.claimAmount : null };
   }
@@ -147,9 +154,20 @@ export async function claimPass({ wallet, prize, id, generation, share, fetch: f
  * track. An unknown outcome is never offered for resubmission by the page;
  * the relay's own pending lookup answers the next attempt.
  */
+/**
+ * Whether a claimed pass Entry (the relay's view: `claimedBy`,
+ * `claimGeneration`) is the claim of `wallet` signed at `generation`. An
+ * Entry claimed by an earlier owner, or by the same wallet at another
+ * generation (sold and bought back since), is not this claim.
+ */
+export const claimIsMine = (entry, wallet, generation) => !!entry?.claimed && !!wallet && Number.isInteger(generation)
+  && entry.claimedBy === wallet && entry.claimGeneration === generation;
+
 export function claimOutcome(r, t = null) {
   if (!r?.ok) {
     const code = r?.code ?? 'ClaimFailed';
+    // Claimed by an earlier owner or generation (the relay's or the page's finding): closed, nothing to send or resend.
+    if (code === 'AlreadyClaimedByPriorOwner') return { state: 'claimedByOther', notSent: !!r?.notSent, code };
     return r?.notSent ? { state: 'failed', notSent: true, code } : { state: 'unknown', notSent: false, code };
   }
   if (r.already) return r.landed ? { state: 'landed', notSent: false, code: null } : { state: 'unknown', notSent: false, code: 'ClaimOutcomeUnknown' };
@@ -268,13 +286,18 @@ export function passClaimModel({ prize, prizeLedger = null, resident = null, pri
   const p = prize.pass && prize.pass.asset === asset ? prize.pass : null;
   const e = p?.entry ?? null;
   const sameWallet = !prizePass?.wallet || !wallet?.address || prizePass.wallet === wallet.address;
-  const open = prizePass?.state === 'pending' || prizePass?.state === 'unknown';
+  // Open: the offer is held back — a sent claim, an unknown outcome, or a
+  // claim found to be an earlier owner's (closed; nothing to resend).
+  const open = prizePass?.state === 'pending' || prizePass?.state === 'unknown' || prizePass?.state === 'claimedByOther';
   const pend = prizePass && sameWallet && prizePass.asset === asset && (open || prizePass.generation === resident.generation) ? prizePass : null;
   const out = {
     asset, generation: Number.isInteger(resident.generation) ? resident.generation : null, faction: p?.faction ?? null,
     entry: e ? { paid: u(e.paid), paidBy: e.paidBy ?? null, payGeneration: e.payGeneration ?? null, claimed: !!e.claimed, claimedBy: e.claimedBy ?? null,
+      claimGeneration: Number.isInteger(e.claimGeneration) ? e.claimGeneration : null,
+      // The claim is this viewer's only if the Entry names this wallet at the generation the pass has now.
+      claimedByOther: !!e.claimed && !claimIsMine(e, wallet?.address ?? null, resident.generation),
       claimAmount: e.claimed ? u(e.claimAmount) : null, nation: e.nation ?? null } : null,
-    pending: pend ? { state: pend.state, signature: pend.signature ?? null, code: pend.code ?? null, amount: big(pend.amount) !== null ? u(big(pend.amount)) : null } : null,
+    pending: pend ? { state: pend.state, signature: pend.signature ?? null, code: pend.code ?? null, amount: big(pend.amount) !== null ? u(big(pend.amount)) : null, priorClaim: pend.priorClaim ?? null } : null,
     mode: prize.shares?.mode ?? null, share: null, offer: null,
   };
   let state;
