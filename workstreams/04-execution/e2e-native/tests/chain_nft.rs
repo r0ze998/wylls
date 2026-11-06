@@ -275,6 +275,41 @@ impl World {
         self.h.send(&[ix], &signers)
     }
 
+    /// The pass's current holder, read with ⑳'s definition from the asset and
+    /// resident account bytes in the host (no second definition here).
+    fn holder(&self) -> frontier_abi::resident_auth::Holder {
+        use frontier_abi::resident_auth::{holder, Account, Binding, Policy};
+        let acct = |k: [u8; 32]| {
+            let a = self.h.get(&pk(k)).expect("account");
+            (a.owner.to_bytes(), a.data.clone())
+        };
+        let (ao, ad) = acct(ASSET);
+        let (ro, rd) = acct(self.resident);
+        holder(
+            &Binding {
+                asset: ASSET,
+                resident: self.resident,
+            },
+            &Policy {
+                core_program: CORE,
+                resident_program: RESIDENT_PROGRAM,
+                collection: COLLECTION,
+                guard_authority: guard(),
+            },
+            &Account {
+                key: ASSET,
+                owner: ao,
+                data: &ad,
+            },
+            &Account {
+                key: self.resident,
+                owner: ro,
+                data: &rd,
+            },
+        )
+        .expect("the pass's holder")
+    }
+
     fn at_day(&mut self, day: i64) {
         self.h.clock.unix_timestamp = GENESIS + 600 + day * 86_400;
         self.h.clock.slot = 1_000 + day as u64;
@@ -375,7 +410,21 @@ fn nft_join_then_transfer_revokes_the_old_owner() {
     // The Citizen stayed where it was: the pass carries it (and its tag).
     let c2 = w.h.get(&pk(w.citizen)).unwrap();
     assert_eq!(rc::resident_asset(&c2.data), Some(ASSET));
-    hand_off(&w, &record, &B);
+    // The holder as ⑳'s single definition reads it (frontier_abi::resident_auth
+    // holder + Holder::authority, ⑳ 4b233e4a): the same answers the program
+    // gave above. The hand-off takes the owner and generation from it.
+    let h = w.holder();
+    assert_eq!((h.owner, h.generation), (B, 1));
+    use frontier_abi::resident_auth::{Authority, Refusal};
+    let now = w.h.clock.unix_timestamp;
+    assert_eq!(h.authority(&A, 0, now, true), Err(Refusal::StaleGeneration));
+    assert_eq!(
+        h.authority(&A, 1, now, true),
+        Err(Refusal::NotCurrentAuthority)
+    );
+    assert_eq!(h.authority(&B, 1, now, true), Ok(Authority::Owner));
+    assert_eq!(w.generation, h.generation);
+    hand_off(&w, &record, &h.owner);
 }
 
 /// The completion conditions' refusals, through the loader path: forged,
