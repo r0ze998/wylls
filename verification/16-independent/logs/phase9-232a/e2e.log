@@ -1,0 +1,156 @@
+### e2e HEAD 232a5aa700f72b04b810d765c3dbb6d51d56f7d6 tree 6807a9adb372ba35164d6257a650b31cd994b270
+### local test files:
+?? frontier-abi/tests/v16_period_boundary.rs
+?? frontier-node/crates/agents/tests/v16_owner_reveal_open.rs
+?? frontier-node/crates/findex/tests/v16_history_gaps.rs
+?? frontier-node/crates/herald/tests/v16_caravan_holder.rs
+?? frontier-node/crates/keeper/tests/v16_version_cap.rs
+?? frontier-node/crates/verify/tests/v16_cpi_keyfree.rs
+?? permutation-gateway/test/v16-agent-fate-view.test.mjs
+?? permutation-gateway/test/v16-public-ops.test.mjs
+?? permutation-gateway/test/v16-web-caravan-holder.test.mjs
+?? permutation-gateway/test/v16-web-reveal-not-before.test.mjs
+?? permutation-gateway/test/v16-web-wallet-switch-adopt.test.mjs
+?? workstreams/04-execution/e2e-native/tests/v16_prize_claim_rights.rs
+?? workstreams/04-execution/e2e-native/tests/v16_record_nation.rs
+   Compiling solana-get-sysvar v1.0.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v12-int/workstreams/04-execution/e2e-native/vendor/solana-get-sysvar)
+   Compiling permutation-rules v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v12-int/permutation-rules)
+   Compiling solana-clock v4.0.0
+   Compiling solana-slot-history v3.2.0
+   Compiling solana-last-restart-slot v3.2.0
+   Compiling solana-clock v3.2.1
+   Compiling solana-slot-hashes v3.2.0
+   Compiling solana-stake-history v1.1.0
+   Compiling solana-rent v4.4.0
+   Compiling solana-epoch-schedule v3.3.0
+   Compiling solana-epoch-rewards v3.2.0
+   Compiling solana-sysvar v4.3.0
+   Compiling solana-program v4.0.0
+   Compiling frontier-abi v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v12-int/frontier-abi)
+   Compiling permutation-frontier v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v12-int/permutation-frontier)
+   Compiling permutation-prize v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v12-int/permutation-prize)
+   Compiling wylls-e2e-native v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v12-int/workstreams/04-execution/e2e-native)
+warning: unused import: `share_amount`
+  --> tests/v16_prize_claim_rights.rs:30:43
+   |
+30 | use permutation_prize::{leaf, node, pool, share_amount, tag, PrizeError as E};
+   |                                           ^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `entry`
+  --> tests/v16_record_nation.rs:20:25
+   |
+20 | use permutation_prize::{entry, leaf, node, pool, share_amount, tag, PrizeError as E};
+   |                         ^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `spl`
+  --> tests/v16_prize_claim_rights.rs:33:37
+   |
+33 | use wylls_e2e_native::{rent_exempt, spl, token_balance, Acct, Host, SYSTEM, TOKEN};
+   |                                     ^^^
+
+warning: function `u64_at` is never used
+  --> tests/v16_prize_claim_rights.rs:67:4
+   |
+67 | fn u64_at(d: &[u8], o: usize) -> u64 {
+   |    ^^^^^^
+   |
+   = note: `#[warn(dead_code)]` on by default
+
+warning: function `u16_at` is never used
+  --> tests/v16_prize_claim_rights.rs:71:4
+   |
+71 | fn u16_at(d: &[u8], o: usize) -> u16 {
+   |    ^^^^^^
+
+warning: constant `GAME_TOO_EARLY` is never used
+  --> tests/v16_record_nation.rs:38:7
+   |
+38 | const GAME_TOO_EARLY: u32 = 13;
+   |       ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` on by default
+
+warning: function `u16_at` is never used
+  --> tests/v16_record_nation.rs:60:4
+   |
+60 | fn u16_at(d: &[u8], o: usize) -> u16 {
+   |    ^^^^^^
+
+warning: function `u32_at` is never used
+  --> tests/v16_record_nation.rs:64:4
+   |
+64 | fn u32_at(d: &[u8], o: usize) -> u32 {
+   |    ^^^^^^
+
+warning: function `opened_total` is never used
+   --> tests/v16_record_nation.rs:133:4
+    |
+133 | fn opened_total(w: &World) -> u32 {
+    |    ^^^^^^^^^^^^
+
+warning: function `close_province` is never used
+   --> tests/v16_record_nation.rs:434:4
+    |
+434 | fn close_province(w: &mut World, caller: &Pubkey, p: i16, q: i16) -> Result<(), String> {
+    |    ^^^^^^^^^^^^^^
+
+warning: `wylls-e2e-native` (test "v16_record_nation") generated 6 warnings (run `cargo fix --test "v16_record_nation"` to apply 1 suggestion)
+warning: `wylls-e2e-native` (test "v16_prize_claim_rights") generated 4 warnings (run `cargo fix --test "v16_prize_claim_rights"` to apply 2 suggestions)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 13.92s
+     Running tests/claims_vs_closes.rs (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/target-e2e/debug/deps/claims_vs_closes-69f92bdc36348fd0)
+
+running 12 tests
+test a_province_closed_after_tally_makes_finalize_impossible ... ok
+test a_province_closed_before_tally_is_left_out_silently ... ok
+test a_record_of_a_losing_nation_is_refused_like_the_citizen ... ok
+test a_recorded_nation_keeps_the_claim_after_the_citizen_is_closed ... ok
+test a_third_partys_close_citizen_after_the_grace_strands_an_unclaimed_share ... ok
+test an_aborted_season_leaves_the_pool_without_an_exit ... ok
+test entry_spare_bytes_are_unused ... ok
+test pay_is_accepted_after_the_end ... ok
+test record_nation_takes_only_the_entrys_own_citizen ... ok
+test refund_mode_needs_no_citizen_with_or_without_the_fix ... ok
+test tally_and_finalize_within_the_grace_are_unaffected_by_later_closes ... ok
+test without_a_record_the_old_behaviour_is_unchanged ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.16s
+
+     Running tests/legacy_season_claims.rs (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/target-e2e/debug/deps/legacy_season_claims-0cda8ea853f0b671)
+
+running 4 tests
+test a_closed_citizen_loses_its_shares_claim_but_not_a_refund ... ok
+test legacy_paid_entry_claim_pays_out_exactly ... ok
+test unpaid_winner_cannot_claim ... ok
+test while_the_world_runs_deposits_have_no_exit ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+
+     Running tests/v16_prize_claim_rights.rs (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/target-e2e/debug/deps/v16_prize_claim_rights-39e0ea5af0ee3c20)
+
+running 6 tests
+test v16_p1_a_closed_winner_citizen_strands_its_share_for_good ... ok
+test v16_p2_a_tallied_province_closed_before_finalize_locks_every_fee ... ok
+test v16_p3_closing_untallied_keeps_before_finalize_changes_the_winner ... ok
+test v16_p4_pay_after_the_end_lands_until_the_first_tally ... ok
+test v16_p5_an_aborted_season_locks_every_fee ... ok
+test v16_p6_refund_mode_needs_no_citizen ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+
+     Running tests/v16_record_nation.rs (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/target-e2e/debug/deps/v16_record_nation-6497b0cb09e3b52b)
+
+running 6 tests
+test v16_f1_recorded_before_the_close_the_claim_survives_it ... ok
+test v16_f2_without_a_record_the_close_still_strands_the_share ... ok
+test v16_f3_nothing_can_be_recorded_after_the_close ... ok
+test v16_f4_lamports_sent_to_the_closed_address_change_nothing ... ok
+test v16_f5_record_and_live_citizen_disagree ... ok
+test v16_f6_record_needs_this_pools_entry_and_its_wallets_citizen ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+
+exit=0

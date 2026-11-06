@@ -826,3 +826,28 @@ A8 の旧試験（`v16_unknown_tag.rs` の v16_a8）は固定 seed の鍵で署�
 **後続版 bf7f43fc**: `bf7f43fca3f4425160ab8a4c318fb45073261955`（tree `109be0c7f5ce9be402c1a844067d0f33e7087d6c`、親 cb87e30c。⑮の申告では ①の fold() と④の runexec の書き出しへの接続、記録の残し方が入力の順に依存する不具合の修正、試験 113 件）。bundle `ws15-cb87e30c-to-bf7f43fc.bundle`（23,249 B、sha256 `7793cf404094c536def537470ba6d9dcdda87a73e7acd355c42092de01cfb8cb`、前提 cb87e30c）は**未受領**で、検証していない。cb87e30c は⑯の手元に復元済みなので、bundle が届けば復元できる。
 
 **未確認**: bf7f43fc、`ws15-full.bundle`、④の実際の JSON 出力（⑮の `fixtures/ws04-types-a967f5f1.json` は型定義から書いたもので実行の出力ではない、と⑮が明記）、①の実物の fold()。
+
+## 14.6 ⑯の push が起動した CI（鍵を使う試験）
+
+④の連絡（2026-11-06T13:31Z）を受けて確かめた。`.github/workflows/ci.yml`（⑯ブランチの版）は `on: push` で、どのブランチの push でも起動し、gateway の `npm test`（鍵を生成する試験を含む）、LiteSVM、SBF ビルド、frontier-node の workspace 試験（鍵で署名）を走らせる。⑯の担当ブランチへの push で CI が **11 回**起動していた（11/05 の 7bce86ff から 11/06 の b9a4bfeb まで。完了した 10 回はすべて failure、b9a4bfeb の回は 13:33Z 時点で実行中）。⑯は手元で鍵を使う試験を流していないが、push によって GitHub の runner でそれらを起動させていた。**第6期以降の「鍵を使う試験は実行していない」は「⑯の手元では」と読む。** CI の結果は⑯の検証結果に数えていない（中身も見ていない）。以後、⑯の push は最後の commit に `[skip ci]` を付ける。④の統合候補 232a5aa7 の `ci.yml` は、push と pull request では鍵を使わず、鍵を使う試験を手動（`key_tests: approved`）の job に分ける形になっている（④の案 525a623f。採否は利用者）。
+
+## 14.7 ④の統合候補 2026-11-06b（232a5aa7）
+
+対象: GitHub `claude/gallant-ride-cunptv` の `232a5aa700f72b04b810d765c3dbb6d51d56f7d6`（tree `6807a9adb372ba35164d6257a650b31cd994b270`、起点 8e96f24d、`[skip ci]`）。中身は④の申告どおり（⑳ dc55f159・41552f0d、CI の鍵なし化 525a623f、⑬ 745e7ec6、⑫ c6877a1a、⑨ 8fe85cc9、⑩ 563407d9、⑪ c8d694bd と verify への 0004→0005、ABI 割当 rev 4）。**⑱は含まない**、⑤ e9d1551a も含まない。賞金プログラムは 8e96f24d と同じ。ゲームのプログラム、検証器、keeper、findex、herald、ABI、Web、gateway は変わっている。
+
+**読解（⑳の NFT 住民と賞金）**: ⑳の `proc/resident.rs:312` が NFT 住民の Citizen を作るときに `C::FACTION` を書く。作成時の 1 回だけで、RecordNation の前提（国は作成時にだけ書かれる）は保たれる。ただし NFT 住民の Citizen は `WALLET` が 0 で、アドレスは資産から決まる（`citizen_by_tag15(resident id)`）。賞金の shares 方式の Claim と RecordNation は `ctx.citizen(wallet)` のアドレスと `C::WALLET == wallet` を要求するので、**NFT 住民は shares 方式の賞金を請求も記録もできない**見込み（未実行。旧経路の賞金と NFT 住民の組み合わせの問題として、④・⑰・⑳に判断を預ける）。
+
+**実行（ホスト、鍵なし）**: ログ `logs/phase9-232a/`。
+
+| 試験 | 232a5aa7 | ⑯が重ねた版（34dbdd77）との違い |
+|---|---|---|
+| ⑯ A8（K0〜K5）・⑪ evidence 8 | 6/6、8/8 | 同じ（⑪の 0004→0005 が入っている） |
+| ⑯ 賞金 P1〜P6・F1〜F6、④ claims_vs_closes 12・legacy 4 | 28/28 | 同じ（⑳の変更後もゲームの CloseCitizen・CloseProvince で同じ結果） |
+| ⑯ 履歴欠落 G1〜G3 | 3/3（G1・G3 は見逃し） | 同じ |
+| ⑯ herald 4 | 4/4 | 同じ |
+| ⑯ ABI P2〜P4 | 再現 | 同じ |
+| ⑯ C3b、agent の状態語 F1〜F3、A1・A1b | 通過 | 同じ |
+| ⑯ T18-1b〜1d（Web）、bots の公開時刻、版の上限 | 失敗・コンパイル不可 | **⑱が未取り込み**のため（34dbdd77 では通過） |
+| A7、旧 T18-1、T19-1 | 失敗のまま | 同じ |
+
+**既知の未解決（④の申告、⑯は未確認）**: ⑨の `bridge10/tests/connect10.rs` がコンパイルできない。⑤の relay-tree の試験が未合格。
