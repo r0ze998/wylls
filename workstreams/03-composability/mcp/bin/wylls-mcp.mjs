@@ -10,6 +10,8 @@
 //   WYLLS_MCP_TEST_AS=1                         the local test authorization server (the only one implemented)
 //   WYLLS_MCP_RECEIPT_PORT=local                  local, or ws04-mapped (the same tracking in ④'s proposed vocabulary; both MOCK). ④'s real adapter is not in this build
 //   WYLLS_MCP_REDIRECT_PROFILES=chatgpt,loopback which clients may be redirected to (chatgpt, claude, loopback; default chatgpt,loopback)
+//   WYLLS_MCP_ALLOW_GLOBAL_ROTATE=1             on a relay WITHOUT per-sender capabilities, allow write connections that
+//                                              rotate the agent's one capability (stops the autopilot's). Off by default.
 //   WYLLS_MCP_WS04_ACTS=<④ clients/acts.mjs>   register operations in workstream 04's act registry (off when unset), with:
 //   WYLLS_MCP_WS04_RUNEXEC=<runexec>            ④'s binary; WYLLS_MCP_WS04_DB=<runs.db> ④'s run store;
 //   WYLLS_MCP_WS04_GATEWAY_PORT=<n>             the relay's 127.0.0.1 port that runexec reads GET /f/agent/fate from
@@ -32,7 +34,7 @@ const log = m => process.stderr.write(`[wylls-mcp] ${m}\n`);
 const store = new JsonStore(env.WYLLS_MCP_STORE ?? null);
 const game = new Game({ relay: env.WYLLS_MCP_RELAY ?? 'http://127.0.0.1:41933', herald: env.WYLLS_MCP_HERALD ?? 'http://127.0.0.1:41940' });
 const redirectProfiles = env.WYLLS_MCP_REDIRECT_PROFILES ? env.WYLLS_MCP_REDIRECT_PROFILES.split(',').map(x => x.trim()).filter(Boolean) : undefined;
-const auth = new Auth({ issuer, resource: `${issuer}/mcp`, store, sealer: new Sealer(env.WYLLS_MCP_SEAL_KEY ?? null), game, log, ...(redirectProfiles ? { redirectProfiles } : {}) });
+const auth = new Auth({ issuer, resource: `${issuer}/mcp`, store, sealer: new Sealer(env.WYLLS_MCP_SEAL_KEY ?? null), game, log, ...(redirectProfiles ? { redirectProfiles } : {}), allowGlobalRotate: env.WYLLS_MCP_ALLOW_GLOBAL_ROTATE === '1' });
 log(`redirect profiles: ${auth.redirectProfiles.join(', ')}`);
 const receipts = receiptPortFor(env.WYLLS_MCP_RECEIPT_PORT ?? 'local');
 // Workstream 04's act registry, through ④'s own client (never re-implemented here). All three settings or none.

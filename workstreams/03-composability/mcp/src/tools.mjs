@@ -5,6 +5,8 @@
 import { SCOPES } from './auth.mjs';
 
 export const REQUEST_ID = /^[A-Za-z0-9._:-]{8,100}$/;
+/** A caller's run id (workstream 06's, or any caller's): carried to workstream 04's registry as the run. */
+export const RUN_ID = /^[A-Za-z0-9._:-]{8,128}$/;
 const oauth = scopes => [{ type: 'oauth2', scopes }];
 const read = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 const cargoSchema = {
@@ -57,7 +59,8 @@ export const TOOLS = Object.freeze([
     description: 'Sends the caravan of a planId through the agent wallet. Checked by the server, not by this conversation: the connection\'s caravan scope, the owner\'s signed limits, the agent\'s policy and budget, the on-chain delegation and the game\'s rules. A caravan cannot be recalled, and on the road it can be raided. requestId is the retry key: retry the same decision with the same requestId (it is never sent twice); a new decision needs a new requestId and a new plan. Returns an operationId; sending is not arriving: follow it with get_operation_status.',
     inputSchema: {
       type: 'object', additionalProperties: false, required: ['planId', 'requestId'],
-      properties: { planId: { type: 'string', maxLength: 64 }, requestId: { type: 'string', pattern: REQUEST_ID.source } },
+      properties: { planId: { type: 'string', maxLength: 64 }, requestId: { type: 'string', pattern: REQUEST_ID.source },
+        runId: { type: 'string', pattern: RUN_ID.source, description: 'Optional: the caller\'s run this send belongs to (for example a workstream 06 run). It is registered with the send in workstream 04\'s act registry, and get_run_status answers by it. Fixed for the requestId.' } },
     },
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false, title: 'Send caravan' },
     securitySchemes: oauth([SCOPES.READ, SCOPES.CARAVAN]),
@@ -68,6 +71,14 @@ export const TOOLS = Object.freeze([
     description: 'The state of an operation by operationId (or the requestId it was sent with): requested, accepted (the relay sent the transaction), processing (it landed; the caravan is on the road), completed (settled: delivered, lost, taken or burned in a raid) or failed (with the reason and what can be done). Works after a reconnect. No change.',
     inputSchema: { type: 'object', additionalProperties: false, properties: { operationId: { type: 'string', maxLength: 64 }, requestId: { type: 'string', pattern: REQUEST_ID.source } } },
     annotations: { ...read, title: 'Operation status' },
+    securitySchemes: oauth([SCOPES.READ]),
+  },
+  {
+    name: 'get_run_status',
+    title: 'Run status',
+    description: 'Every operation of this connection sent with this runId, each followed as get_operation_status does, and workstream 04\'s registry receipts for the run when a registry is configured. Sends nothing. No change.',
+    inputSchema: { type: 'object', additionalProperties: false, required: ['runId'], properties: { runId: { type: 'string', pattern: RUN_ID.source } } },
+    annotations: { ...read, title: 'Run status' },
     securitySchemes: oauth([SCOPES.READ]),
   },
   {

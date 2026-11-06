@@ -8,7 +8,7 @@ import http from 'node:http';
 import { randomBytes } from 'node:crypto';
 import { toBase64 } from '../../../../permutation-gateway/client/src/bytes.mjs';
 import { commandBytes } from '../../../../permutation-gateway/src/frontier/agent/owner-auth.mjs';
-import { linkStatement, ownerQueryStatement, OAuthError, SCOPE_TEXT, SCOPES, TTL } from './auth.mjs';
+import { linkStatement, ownerQueryStatement, revokeStatement, OAuthError, SCOPE_TEXT, SCOPES, TTL } from './auth.mjs';
 import { PROTOCOL_VERSIONS } from './server.mjs';
 
 const MAX_BODY = 64 * 1024;
@@ -119,7 +119,7 @@ export function createHandler({ auth, mcp, origins = [], log = () => {}, rateLim
     b.tokens -= 1;
     return false;
   };
-  const KEEPING = new Set(['POST /oauth/register', 'GET /oauth/authorize', 'POST /oauth/statement', 'POST /oauth/consent', 'POST /owner/statement', 'POST /owner/operations']);
+  const KEEPING = new Set(['POST /oauth/register', 'GET /oauth/authorize', 'POST /oauth/statement', 'POST /oauth/consent', 'POST /owner/statement', 'POST /owner/operations', 'POST /link/revoke/statement', 'POST /link/revoke']);
 
   return async function handler(req, res) {
     const url = new URL(req.url, auth.issuer);
@@ -175,8 +175,21 @@ export function createHandler({ auth, mcp, origins = [], log = () => {}, rateLim
         case 'POST /oauth/revoke':
           auth.revokeToken((await body(req)).token);
           return send(res, 200, {});
+        case 'POST /link/revoke/statement': {
+          // What the owner's wallet signs to revoke a link: the link's statement, and the relay's revoke-capability
+          // {source: mcp} for the agent, so that the token stops working at the relay too (built here: byte for byte).
+          const link = auth.link(String((await body(req))?.linkId ?? ''));
+          if (!link) throw new OAuthError(404, 'invalid_request', 'unknown link');
+          const at = auth.now();
+          const out = { linkId: link.linkId, owner: link.owner, at, statementB64: toBase64(revokeStatement({ linkId: link.linkId, owner: link.owner, at })) };
+          if (link.capabilityMeta?.source === 'mcp') {
+            const command = { op: 'revoke-capability', owner: link.owner, agentId: link.agentId, nonce: randomBytes(12).toString('base64url'), expiresAt: at + 5 * 60_000, params: { source: 'mcp' } };
+            out.relay = { command, bytesB64: toBase64(commandBytes(command)) };
+          }
+          return send(res, 200, out);
+        }
         case 'POST /link/revoke':
-          return send(res, 200, auth.ownerRevoke(await body(req)));
+          return send(res, 200, await auth.ownerRevoke(await body(req)));
         case 'GET /owner': {
           const nonce = randomBytes(16).toString('base64');
           res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'x-frame-options': 'DENY', 'referrer-policy': 'no-referrer',

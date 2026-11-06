@@ -9,6 +9,11 @@
 //     gateway (whoami: the same check submit makes), validates the request with the real contract, then records a
 //     scripted answer under the idempotency key (once; a repeat is the record's replay) — no transaction is built.
 //   - The chain node (for fateOf) and the herald are scripted (MOCK).
+//   - POST /f/agent/command runs the owner's command on the real gateway WITHOUT the relay's signature check (MOCK:
+//     that check is the relay's unchanged route code, and running it needs a signature). `relay: 'old'` scripts a
+//     relay without per-sender capabilities (no `capabilities` in the view; issue-capability unknown; a
+//     rotate-capability, with or without params.source, rotates the agent's one token), as before patch 0008; `relay: 'unbound'`
+//     lists capabilities but answers issue-capability with the agent's one token (a relay that ignored the source).
 //   - Owner-signed steps are not run: the consent's wallet signature, the owner's signed query and revocation
 //     statements. The harness calls what runs after those checks (auth.revokeLink, mcp.ownerOperations) and writes
 //     the link the consent would write. Sealing at rest uses a fixed constant key (encryption, not signing).
@@ -73,7 +78,7 @@ export function scriptedNode() {
  * `w.script.next` decides the next new send's answer: 'sent' (default) | 'drop' (sent, the answer lost) |
  * 'failed-signed' (the bytes left, the call failed) | 'failed-unsent' (failed before anything left) | 'unreachable'.
  */
-export async function keyfreeWorld() {
+export async function keyfreeWorld({ relay = 'current' } = {}) {
   const keyring = { create: () => AGENT_KEY, isAgentKey: k => k === AGENT_KEY, sign: () => { throw new Error('KEY-FREE: nothing is signed in this harness'); } };
   const W = seasonAddresses(PROGRAM, SEASON_ID);
   const citizen = W.of('Citizen', { wallet: OWNER });
@@ -85,7 +90,7 @@ export async function keyfreeWorld() {
   g.setMode(agentId, OWNER, 'auto');
   const node = scriptedNode();
   const state = { caravans: 0, stores: [500, 500, 50, 500, 0, 100, 0, 0], vault: [0, 0, 400, 0, 0, 0, 0, 0], events: [], moving: [], down: null };
-  const script = { next: 'sent', sends: new Map(), n: 0, posts: 0, chainSent: 0 };
+  const script = { next: 'sent', sends: new Map(), n: 0, posts: 0, chainSent: 0, commands: [] };
   const history = []; // the wallet's action lines for this harness's sends (the real ledger's shape)
 
   const v2 = (kind, values) => encodeAccount(kind, { SEASON_ID, LAYOUT_VERSION: 2, ...values }, { profile: 2 });
@@ -112,7 +117,7 @@ export async function keyfreeWorld() {
   async function action(body) {
     script.posts++;
     let bound;
-    try { bound = g.whoami(body?.request?.agentId, { capability: body?.capability }).source; } catch (e) { return { status: e.status ?? 401, json: { error: e.message, code: e.code } }; }
+    try { bound = g.whoami(body?.request?.agentId, { capability: body?.capability }).capabilitySource; } catch (e) { return { status: e.status ?? 401, json: { error: e.message, code: e.code } }; }
     let r;
     try { r = parseActionRequest(body.request); } catch (e) { return { status: 400, json: { error: e.message, code: e.code ?? 'BadRequest' } }; }
     if (bound && r.source !== bound) return { status: 401, json: { error: `this capability is issued for source ${bound}, not ${r.source}`, code: 'BadCapability' } };
@@ -138,7 +143,29 @@ export async function keyfreeWorld() {
     if (u.origin === RELAY) {
       const p = u.pathname;
       if (p === '/f/season') return json(200, { programId: PROGRAM, seasonId: String(SEASON_ID) });
-      if (p === '/f/agent') { const id = u.searchParams.get('id'); if (id !== agentId) return json(404, { error: 'no such agent', code: 'UnknownAgent' }); return json(200, { ...g.view(id), history: history.slice(-50) }); }
+      if (p === '/f/agent') {
+        const id = u.searchParams.get('id');
+        if (id !== agentId) return json(404, { error: 'no such agent', code: 'UnknownAgent' });
+        const v = { ...g.view(id), history: history.slice(-50) };
+        if (relay === 'old') delete v.capabilities;
+        return json(200, v);
+      }
+      if (p === '/f/agent/command' && init.method === 'POST') {
+        const { command: c } = JSON.parse(init.body);
+        script.commands.push(c.op);
+        try {
+          if (relay === 'old') {
+            if (c.op === 'rotate-capability') return json(200, { ok: true, ...g.rotateCapability(c.agentId, c.owner) }); // params ignored, as an older relay does
+            return json(400, { error: 'unknown op', code: 'BadRequest' });
+          }
+          // `relay: 'unbound'`: a relay that lists capabilities but answers a sender's request with the agent's one token.
+          if (c.op === 'issue-capability' && relay === 'unbound') return json(200, { ok: true, ...g.rotateCapability(c.agentId, c.owner) });
+          if (c.op === 'issue-capability') return json(200, { ok: true, ...g.issueSourceCapability(c.agentId, c.owner, c.params?.source) });
+          if (c.op === 'revoke-capability') return json(200, { ok: true, ...g.revokeSourceCapability(c.agentId, c.owner, c.params?.source) });
+          if (c.op === 'rotate-capability') return json(200, { ok: true, ...(c.params?.source === undefined ? g.rotateCapability(c.agentId, c.owner) : g.issueSourceCapability(c.agentId, c.owner, c.params.source)) });
+          return json(400, { error: 'unknown op', code: 'BadRequest' });
+        } catch (e) { return json(e.status ?? 400, { error: e.message, code: e.code }); }
+      }
       if (p === '/f/agent/fate') { const r = await fate(u.searchParams.get('id'), u.searchParams.get('key')); return json(r.status, r.json); }
       if (p === '/f/agent/action' && init.method === 'POST') { const r = await action(JSON.parse(init.body)); if (r.transport) throw new Error('socket hang up (scripted)'); return json(r.status, r.json); }
       if (p.startsWith('/f/tx/')) return json(200, { state: 'unknown' });
@@ -173,20 +200,32 @@ export async function keyfreeWorld() {
  * ③'s server on `storeFile` (null: memory) over the world. `connectAs(token)` writes the link the owner's consent
  * would write (its wallet signature is the step not run here) with the agent capability sealed.
  */
-export function mcpServer(w, { storeFile = null, acts = null, clock = { t: NOW * 1000 } } = {}) {
+export function mcpServer(w, { storeFile = null, acts = null, clock = { t: NOW * 1000 }, allowGlobalRotate = false } = {}) {
   const now = () => clock.t;
   const store = new JsonStore(storeFile);
   const game = new Game({ relay: RELAY, herald: HERALD, fetch: w.fetch, contextTtlMs: 0 });
   const sealer = new Sealer(SEAL_KEY);
-  const auth = new Auth({ issuer: 'http://127.0.0.1:9', resource: 'http://127.0.0.1:9/mcp', store, sealer, game, now });
+  const auth = new Auth({ issuer: 'http://127.0.0.1:9', resource: 'http://127.0.0.1:9/mcp', store, sealer, game, now, allowGlobalRotate });
   const mcp = createWyllsMcp({ auth, game, store, now, ...(acts ? { acts } : {}) });
   let id = 0;
   const principalOf = linkId => { const l = auth.link(linkId); return { linkId, owner: l.owner, agentId: l.agentId, scopes: l.scopes, tokenExpiresAt: l.expiresAt }; };
   const tool = async (linkId, name, args = {}) => (await mcp.handle({ jsonrpc: '2.0', id: ++id, method: 'tools/call', params: { name, arguments: args } }, principalOf(linkId))).result.structuredContent;
-  function connectAs(token, { linkId = 'lnk_keyfree_01' } = {}) {
+  /**
+   * The consent's relay step as auth.consent runs it after the owner's signature (not run here): the command this
+   * server builds (capabilityCommandFor), the relay's answer, the binding check, and the link with the sealed token.
+   */
+  async function connectViaRelay({ linkId = 'lnk_keyfree_01' } = {}) {
+    const command = await auth.capabilityCommandFor(OWNER, w.agentId, `nonce-${linkId}`, now() + 300_000);
+    const view = (await game.json('GET', `${RELAY}/f/agent?id=${w.agentId}`)).json;
+    const { sealed, capabilityMeta } = await auth.capabilityFromRelay({ owner: OWNER, agentId: w.agentId, view, command, signature: 'not-run-in-this-harness' });
+    const token = sealer.open(sealed);
+    connectAs(token, { linkId, meta: capabilityMeta });
+    return { linkId, command, meta: capabilityMeta, token };
+  }
+  function connectAs(token, { linkId = 'lnk_keyfree_01', meta = { source: 'mcp', version: null } } = {}) {
     auth.db.links[linkId] = { linkId, owner: OWNER, agentId: w.agentId, clientId: 'keyfree-client', scopes: ['wylls.read', 'wylls.caravan'],
       grant: { contract: 'wylls.mock-grant/0', actions: ['SendCaravan'], maxSends: 3, maxCargo: Array(8).fill(500), expiresAt: now() + 86_400_000 },
-      grantUse: { used: 0, reserved: {} }, expiresAt: now() + 86_400_000, createdAt: now(), revokedAt: null, capability: sealer.seal(token), statementHash: 'keyfree' };
+      grantUse: { used: 0, reserved: {} }, expiresAt: now() + 86_400_000, createdAt: now(), revokedAt: null, capability: sealer.seal(token), capabilityMeta: meta, statementHash: 'keyfree' };
     store.save();
     return linkId;
   }
@@ -194,5 +233,5 @@ export function mcpServer(w, { storeFile = null, acts = null, clock = { t: NOW *
     const st = await tool(linkId, 'get_village_status');
     return tool(linkId, 'prepare_caravan', { from: st.storehouses[0].placeId, to: st.village.placeId, cargo: { Stone: n } });
   };
-  return { auth, mcp, store, game, tool, connectAs, plan, clock };
+  return { auth, mcp, store, game, tool, connectAs, connectViaRelay, plan, clock };
 }

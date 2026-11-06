@@ -82,7 +82,9 @@ export class Auth {
    * @param {string[]} [o.redirects] extra allowed redirect URI prefixes (exact strings)
    * @param {string[]} [o.redirectProfiles] names in REDIRECT_PROFILES (default: chatgpt and loopback)
    */
-  constructor({ issuer, resource, store, sealer, game, redirects = [], redirectProfiles = DEFAULT_REDIRECT_PROFILES, now = Date.now, log = () => {} }) {
+  constructor({ issuer, resource, store, sealer, game, redirects = [], redirectProfiles = DEFAULT_REDIRECT_PROFILES, now = Date.now, log = () => {}, allowGlobalRotate = false }) {
+    /** Off (the default): a relay without per-sender capabilities gets no write connection (the rotation would stop ⑤). */
+    this.allowGlobalRotate = allowGlobalRotate === true;
     const unknown = redirectProfiles.filter(n => !REDIRECT_PROFILES[n]);
     if (unknown.length || !redirectProfiles.length) throw new Error(`redirect profiles: one or more of ${Object.keys(REDIRECT_PROFILES).join(', ')} (got ${redirectProfiles.join(', ') || 'none'})`);
     this.redirectProfiles = [...new Set(redirectProfiles)];
@@ -187,10 +189,59 @@ export class Auth {
    */
   async capabilityCommandFor(owner, agentId, nonce, expiresAt) {
     const v = await this.game.json('GET', `${this.game.relay}/f/agent?id=${encodeURIComponent(String(agentId))}`);
-    const perSource = !v.transport && v.status === 200 && v.json && typeof v.json.capabilities === 'object' && v.json.capabilities !== null;
-    return perSource
-      ? { op: 'issue-capability', owner, agentId, nonce, expiresAt, params: { source: 'mcp' } }
-      : { op: 'rotate-capability', owner, agentId, nonce, expiresAt, params: {} };
+    if (v.transport || v.status >= 500) throw new OAuthError(503, 'temporarily_unavailable', 'the relay did not answer');
+    const perSource = v.status === 200 && v.json && typeof v.json.capabilities === 'object' && v.json.capabilities !== null;
+    if (perSource) return { op: 'issue-capability', owner, agentId, nonce, expiresAt, params: { source: 'mcp' } };
+    // An older relay has one capability per agent: rotating it stops every other holder (⑤'s autopilot). Stopped here,
+    // with the reason, unless the operator opted in. A read-only connection needs no capability and is not affected.
+    if (!this.allowGlobalRotate) throw new OAuthError(409, 'capability_separation_unavailable', 'this relay has one capability per agent (no per-sender capabilities, patch 0008): a write connection would rotate it and stop the agent\'s other senders, such as the autopilot. Connect read-only, or update the relay.');
+    return { op: 'rotate-capability', owner, agentId, nonce, expiresAt, params: {} };
+  }
+
+  /**
+   * The consent's relay step, after the owner's signature on the link statement was verified: forwards the owner's
+   * signed capability command and keeps the token only when it is this server's own. On a relay with per-sender
+   * capabilities only `issue-capability {source: 'mcp'}` is sent, and the answer must be bound to `mcp`; on an older
+   * relay the write connection is refused (the rotation would stop the agent's other senders) unless the operator
+   * opted in. Returns the sealed token and what it is.
+   */
+  async capabilityFromRelay({ owner, agentId, view, command: c, signature }) {
+    const perSource = typeof view?.capabilities === 'object' && view.capabilities !== null;
+    if (!perSource && !this.allowGlobalRotate) throw new OAuthError(409, 'capability_separation_unavailable', 'this relay has one capability per agent: a write connection would stop the agent\'s other senders. Connect read-only, or update the relay.');
+    const okOp = c && (perSource ? c.op === 'issue-capability' && c.params?.source === 'mcp' : c.op === 'rotate-capability');
+    // A relay that issues per-sender capabilities never gets the global rotation from this server: it would stop ⑤'s.
+    if (!okOp || c.owner !== owner || c.agentId !== agentId) throw new OAuthError(400, 'invalid_request', perSource ? 'a caravan grant needs the owner\'s signed issue-capability command (source mcp) for this agent' : 'a caravan grant needs the owner\'s signed rotate-capability command for this agent');
+    const r = await this.game.ownerCommand({ command: c, signature });
+    if (r.transport || r.status !== 200 || typeof r.json?.capability?.token !== 'string') throw new OAuthError(403, 'access_denied', `the relay refused the owner's command (${r.json?.code ?? r.status ?? 'unreachable'})`);
+    // The token must be the mcp sender's own: anything else (an unscoped token from a relay that ignored the source)
+    // is not kept, and the owner is told that the agent's other senders may have to be issued theirs again.
+    if (perSource && r.json.capability.source !== 'mcp') throw new OAuthError(409, 'capability_separation_unavailable', 'the relay answered with a token not bound to the mcp sender: it was not kept; check the agent\'s other senders (they may need a new capability)');
+    return { sealed: this.sealer.seal(r.json.capability.token), capabilityMeta: { source: perSource ? 'mcp' : null, version: r.json.capability.version ?? null } };
+  }
+
+  /**
+   * Withdraws this server's sender capability at the relay, with the owner's signed `revoke-capability {source: 'mcp'}`
+   * command (the relay checks the signature), then reads the agent view to see that the relay no longer lists an `mcp`
+   * capability. Called after the owner's revocation of the link was verified. The result is recorded on the link.
+   */
+  async revokeAtRelay(linkId, relay) {
+    const link = this.db.links[linkId];
+    if (!link) throw new OAuthError(404, 'invalid_request', 'unknown link');
+    const c = relay?.command;
+    if (!c || c.op !== 'revoke-capability' || c.params?.source !== 'mcp' || c.owner !== link.owner || c.agentId !== link.agentId) throw new OAuthError(400, 'invalid_request', 'the relay command must be the owner\'s revoke-capability {source: mcp} for this link\'s agent');
+    const r = await this.game.ownerCommand({ command: c, signature: relay.signature });
+    const at = this.now();
+    if (r.transport || r.status !== 200) {
+      link.relayRevoke = { at, confirmed: false, why: `the relay did not take the command (${r.json?.code ?? r.status ?? 'unreachable'})` };
+    } else {
+      const v = await this.game.json('GET', `${this.game.relay}/f/agent?id=${encodeURIComponent(link.agentId)}`);
+      const listed = v.json?.capabilities?.mcp ?? null;
+      link.relayRevoke = v.status === 200 && listed === null ? { at, confirmed: true, by: 'the relay\'s agent view lists no mcp capability' }
+        : { at, confirmed: false, why: v.status === 200 ? `the relay still lists an mcp capability (version ${listed?.version})` : 'the relay\'s agent view could not be read' };
+    }
+    this.store.save();
+    this.log(`mcp: link ${linkId} relay capability revoke: ${link.relayRevoke.confirmed ? 'confirmed' : link.relayRevoke.why}`);
+    return link.relayRevoke;
   }
 
   statementOf(pending, { owner, agentId, scopes, grant, expiresAt }) {
@@ -226,19 +277,14 @@ export class Auth {
     if (view.status !== 200) throw back('access_denied', `the relay knows no such agent (${view.json?.code ?? view.status})`);
     if (view.json.owner !== b.owner) throw back('access_denied', 'this agent belongs to another owner');
     let sealed = null;
+    let capabilityMeta = null;
     if (grant) {
-      const c = b.rotate?.command;
-      const perSource = typeof view.json.capabilities === 'object' && view.json.capabilities !== null;
-      const okOp = c && (perSource ? c.op === 'issue-capability' && c.params?.source === 'mcp' : c.op === 'rotate-capability');
-      // A relay that issues per-sender capabilities never gets the global rotation from this server: it would stop ⑤'s.
-      if (!okOp || c.owner !== b.owner || c.agentId !== b.agentId) throw back('invalid_request', perSource ? 'a caravan grant needs the owner\'s signed issue-capability command (source mcp) for this agent' : 'a caravan grant needs the owner\'s signed rotate-capability command for this agent');
-      const r = await this.game.ownerCommand({ command: c, signature: b.rotate.signature });
-      if (r.transport || r.status !== 200 || typeof r.json?.capability?.token !== 'string') throw back('access_denied', `the relay refused the owner's command (${r.json?.code ?? r.status ?? 'unreachable'})`);
-      sealed = this.sealer.seal(r.json.capability.token);
+      try { ({ sealed, capabilityMeta } = await this.capabilityFromRelay({ owner: b.owner, agentId: b.agentId, view: view.json, command: b.rotate?.command, signature: b.rotate?.signature })); }
+      catch (e) { if (e instanceof OAuthError) throw back(e.error, e.message); throw e; }
     }
     const linkId = `lnk_${randomBytes(12).toString('base64url')}`;
     this.db.links[linkId] = { linkId, owner: b.owner, agentId: b.agentId, clientId: pending.clientId, scopes, grant, grantUse: { used: 0, reserved: {} },
-      expiresAt: b.expiresAt, createdAt: now, revokedAt: null, capability: sealed, statementHash: sha(linkStatement(st)) };
+      expiresAt: b.expiresAt, createdAt: now, revokedAt: null, capability: sealed, ...(capabilityMeta ? { capabilityMeta } : {}), statementHash: sha(linkStatement(st)) };
     const code = token();
     this.db.codes[sha(code)] = { linkId, clientId: pending.clientId, redirectUri: pending.redirectUri, codeChallenge: pending.codeChallenge, resource: pending.resource, scopes, expiresAt: now + TTL.code };
     this.store.save();
@@ -331,14 +377,16 @@ export class Auth {
     return true;
   }
 
-  ownerRevoke(b) {
+  async ownerRevoke(b) {
     const link = this.db.links[b?.linkId];
     if (!link) throw new OAuthError(404, 'invalid_request', 'unknown link');
     const at = Number(b.at);
     if (!Number.isInteger(at) || Math.abs(at - this.now()) > 10 * 60_000) throw new OAuthError(400, 'invalid_request', 'at must be within 10 minutes of now (ms)');
     if (b.owner !== link.owner || !verifySig(revokeStatement({ linkId: link.linkId, owner: link.owner, at }), b.signature, link.owner)) throw new OAuthError(401, 'access_denied', 'not signed by the link\'s owner');
     this.revokeLink(link.linkId, 'owner');
-    return { linkId: link.linkId, revokedAt: link.revokedAt };
+    // The relay side too, when the owner signed the relay's revoke-capability {source: mcp} with it.
+    const relay = b.relay ? await this.revokeAtRelay(link.linkId, b.relay) : null;
+    return { linkId: link.linkId, revokedAt: link.revokedAt, relayRevoke: relay ?? { confirmed: false, why: 'no relay command: this server dropped its copy; the token stays valid at the relay until the owner revokes it there or a new connection replaces it' } };
   }
 
   // ------------------------------------------------------------ the resource side

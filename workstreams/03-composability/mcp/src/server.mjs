@@ -12,7 +12,7 @@ import { MockGrantPort, STATES, TERMINAL } from './ports.mjs';
 import { LocalReceiptPort, assertReceiptPort } from './receipt-port.mjs';
 import { budgetOf, refusalOf } from './budget-port.mjs';
 import { KINDS, SETTLE_OUTCOME, RAID_CHOICE, caravanEvent, cargoOf, placeOfLog } from './events.mjs';
-import { REQUEST_ID, SERVER_INSTRUCTIONS, TOOLS } from './tools.mjs';
+import { REQUEST_ID, RUN_ID, SERVER_INSTRUCTIONS, TOOLS } from './tools.mjs';
 
 export const PROTOCOL_VERSIONS = Object.freeze(['2025-11-25', '2025-06-18', '2025-03-26']);
 export const SERVER_INFO = Object.freeze({ name: 'wylls-mcp', title: 'Wylls (local test stack)', version: '0.1.0' });
@@ -150,12 +150,15 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
     const requestId = String(args?.requestId ?? '');
     if (!REQUEST_ID.test(requestId)) return fail('BadRequest', 'requestId: 8–100 characters of A–Z a–z 0–9 . _ : -');
     const planId = String(args?.planId ?? '');
+    const runId = args?.runId === undefined ? null : String(args.runId);
+    if (runId !== null && !RUN_ID.test(runId)) return fail('BadRequest', 'runId: 8–128 characters of A–Z a–z 0–9 . _ : -');
     const opId = opIdOf(principal, requestId);
     return single(opId, async () => {
       // A retry of a decision already taken: the same operation, never a second send.
       const prior = store.operation(opId);
       if (prior) {
         if (prior.planId !== planId) return fail('IdempotencyConflict', 'this requestId was used for another plan: use a new requestId', { operationId: opId });
+        if ((prior.runId ?? null) !== runId) return fail('IdempotencyConflict', 'this requestId was sent under another runId: the run is fixed for the requestId', { operationId: opId, runId: prior.runId ?? null });
         if (prior.state === STATES.REQUESTED) {
           // An attempt whose answer was lost: ask the wallet first, without sending.
           const f = await consult(prior);
@@ -185,7 +188,7 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
       const link = auth.link(principal.linkId);
       const op = { id: opId, requestId, planId, linkId: principal.linkId, kind: 'caravan.send', state: null, createdAt: new Date(now()).toISOString(), updatedAt: null, steps: [],
         planSummary: plan.summary, caravan: { seq: plan.seq, ownerTag: v.citizenTag, arriveAt: null, outcome: null }, eventsCursor: '0', attempts: 0, unknownSince: null, grant: 'none',
-        context: plan.context ?? null };
+        context: plan.context ?? null, ...(runId !== null ? { runId } : {}) };
       const g = grants.reserve(link, { name: 'SendCaravan', cargo: plan.cargo }, opId);
       if (!g.ok) {
         step(op, STATES.REQUESTED);
@@ -219,7 +222,9 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
    */
   async function register(op, link) {
     if (!acts) return null;
-    const args = { agentId: link.agentId, key: keyOf(op), source: 'mcp', runId: op.id };
+    // The caller's run (a workstream 06 run, say) when one was given, else this operation: fixed at creation, so a retry
+    // or a restart registers under the same run (④ refuses a key under another run).
+    const args = { agentId: link.agentId, key: keyOf(op), source: 'mcp', runId: op.runId ?? op.id };
     let r;
     try { r = await acts.register(args); } catch (e) {
       // ④'s register reads then writes: a concurrent first registration of the same key loses with the store's UNIQUE
@@ -227,7 +232,7 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
       if (e?.code !== 'BadRequest' || !/UNIQUE/i.test(String(e?.message))) throw e;
       r = await acts.register(args);
     }
-    op.ws04Act = { ...(op.ws04Act ?? {}), run4Id: r.run4Id, runId: r.runId ?? op.id, registeredAt: op.ws04Act?.registeredAt ?? new Date(now()).toISOString(), receiptVersion: r.receiptVersion ?? null, state: op.ws04Act?.state ?? r.state };
+    op.ws04Act = { ...(op.ws04Act ?? {}), run4Id: r.run4Id, runId: r.runId ?? args.runId, registeredAt: op.ws04Act?.registeredAt ?? new Date(now()).toISOString(), receiptVersion: r.receiptVersion ?? null, state: op.ws04Act?.state ?? r.state };
     return r;
   }
 
@@ -658,12 +663,27 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
     return answer(await track(op, principal));
   }
 
+  /** A caller's run: this connection's operations sent with it (each followed, nothing sent) and ④'s receipts for it. */
+  async function runStatus(principal, args) {
+    const runId = String(args?.runId ?? '');
+    if (!RUN_ID.test(runId)) return fail('BadRequest', 'runId: 8–128 characters of A–Z a–z 0–9 . _ : -');
+    const ops = store.operationsOf([principal.linkId], 1000).filter(op => op.runId === runId);
+    const operations = [];
+    for (const op of ops) operations.push(receiptOf(await track(op, principal)));
+    let registry = null;
+    if (acts) {
+      try { const l = await acts.list(runId); registry = { read: true, acts: l.acts ?? [] }; }
+      catch (e) { registry = { read: false, error: `${e?.code ?? 'Error'}: ${scrub(e?.message)}` }; }
+    }
+    return ok({ runId, operations, registry, notes: ['Read only: nothing is sent. The registry lists every act registered under this run (other senders\' included, each with its source).'] });
+  }
+
   async function listOps(principal) {
     const mine = store.operationsOf([principal.linkId], 20);
     return ok({ operations: mine.map(op => ({ operationId: op.id, requestId: op.requestId, state: op.state, outcome: op.outcome ?? null, createdAt: op.createdAt, updatedAt: op.updatedAt, summary: op.planSummary })) });
   }
 
-  const tools = { get_connection: connection, get_village_status: status, check_resource_shortfall: shortfall, prepare_caravan: prepare, send_caravan: send, get_operation_status: opStatus, list_operations: listOps };
+  const tools = { get_connection: connection, get_village_status: status, check_resource_shortfall: shortfall, prepare_caravan: prepare, send_caravan: send, get_operation_status: opStatus, get_run_status: runStatus, list_operations: listOps };
 
   /** One JSON-RPC message for `principal` (null: unauthenticated) → the response (null for a notification). */
   async function handle(msg, principal) {

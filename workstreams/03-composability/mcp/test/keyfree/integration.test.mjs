@@ -3,7 +3,7 @@
 // with patch 0008, view, actionFateView, fateOf); ④'s runexec and clients/acts.mjs; ⑤'s acts-port.mjs. MOCK: the
 // send's answer, the chain node, the herald; the owner's signed steps are not run (see harness.mjs).
 //
-//   WS03_GATEWAY_ROOT=<④ 8e96f24d + ⑤ shared patches + ③ 0008>/permutation-gateway
+//   WS03_GATEWAY_ROOT=<④ d0e96d53 + ⑤ shared patches + ③ 0008/0008b>/permutation-gateway
 //   RUNEXEC_BIN=<④ runexec>  WS04_ROOT=<④ tree>  WS05_ROOT=<⑤ e9d1551a tree>
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -19,7 +19,7 @@ const PORT5 = process.env.WS05_ROOT && path.join(process.env.WS05_ROOT, 'workstr
 const need = (...xs) => xs.find(Boolean) ?? false;
 const skipCap = need(!HAS_FATE && 'needs the wallet with GET /f/agent/fate', !HAS_0008 && 'needs patch 0008 in WS03_GATEWAY_ROOT');
 const skipAll = need(skipCap, (!BIN || !existsSync(BIN)) && 'set RUNEXEC_BIN', (!CLIENT4 || !existsSync(CLIENT4)) && 'set WS04_ROOT', (!PORT5 || !existsSync(PORT5)) && 'set WS05_ROOT');
-const who = (w, token) => { try { return w.g.whoami(w.agentId, { capability: token }).source ?? 'unscoped'; } catch (e) { return e.code; } };
+const who = (w, token) => { try { return w.g.whoami(w.agentId, { capability: token }).capabilitySource ?? 'unscoped'; } catch (e) { return e.code; } };
 
 async function setup({ storeFile = null } = {}) {
   const { createActsClient } = await import(pathToFileURL(CLIENT4).href);
