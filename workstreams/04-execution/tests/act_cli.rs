@@ -415,3 +415,70 @@ fn final_states_survive_later_contradicting_reads() {
         "kept for the operator, not applied"
     );
 }
+
+/// Workstream 05's finding: processes registering the same new key at the
+/// same moment must all get the same run4Id (exit 0), never a BadRequest
+/// from the losing insert; another source under that key is still a
+/// Conflict. 8 processes per key, 10 keys, at once.
+#[test]
+fn concurrent_first_registrations_of_one_key_agree() {
+    let db = db_path("act-cli-race");
+    // Create the store and table first, as a running executor would have.
+    act(&db, &["list", "--run", "none"]);
+    let mut fails = vec![];
+    let mut ids = std::collections::BTreeMap::<String, std::collections::BTreeSet<String>>::new();
+    for round in 0..3 {
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(80));
+        let handles: Vec<_> = (0..80)
+            .map(|i| {
+                let db = db.clone();
+                let b = barrier.clone();
+                std::thread::spawn(move || {
+                    let key = format!("ai:race{round}.{}", i % 10);
+                    b.wait();
+                    let r = act(
+                        &db,
+                        &[
+                            "register", "--agent", "a", "--key", &key, "--source", "ai", "--run",
+                            "r",
+                        ],
+                    );
+                    (key, r)
+                })
+            })
+            .collect();
+        for h in handles {
+            let (key, (c, v)) = h.join().unwrap();
+            if c == 0 {
+                ids.entry(key)
+                    .or_default()
+                    .insert(v["run4Id"].as_str().unwrap().to_string());
+            } else {
+                fails.push(format!("{key}: exit {c} {v}"));
+            }
+        }
+    }
+    assert!(
+        fails.is_empty(),
+        "{} of 240 failed: {:?}",
+        fails.len(),
+        &fails[..fails.len().min(3)]
+    );
+    assert_eq!(ids.len(), 30);
+    assert!(ids.values().all(|s| s.len() == 1), "one run4Id per key");
+    let (c, v) = act(
+        &db,
+        &[
+            "register",
+            "--agent",
+            "a",
+            "--key",
+            "ai:race0.0",
+            "--source",
+            "mcp",
+            "--run",
+            "r",
+        ],
+    );
+    assert_eq!((c, v["error"].as_str()), (4, Some("Conflict")));
+}

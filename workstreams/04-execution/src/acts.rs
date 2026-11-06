@@ -114,11 +114,20 @@ pub fn register(
         }
         return Ok(id);
     }
+    // Atomic against another process registering the same new key at the same moment: the loser's insert does
+    // nothing, and the row that won is compared like an existing one (same answer, or a Conflict), never an error.
     sql(store.conn.execute(
         "INSERT INTO act_runs(run4_id, agent_id, idem_key, source, ext_run, registered_slot, state, facts)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'registered', '{}')",
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'registered', '{}') ON CONFLICT DO NOTHING",
         params![id, agent_id, key, source, ext_run, slot as i64],
     ))?;
+    let r = get(store, &id)?.ok_or_else(|| format!("{id} was not recorded"))?;
+    if r.source != source || r.ext_run.as_deref() != ext_run {
+        return Err(format!(
+            "{id} is registered for source {} run {:?}, not {source} {ext_run:?}",
+            r.source, r.ext_run
+        ));
+    }
     Ok(id)
 }
 
