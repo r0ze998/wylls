@@ -843,6 +843,35 @@ pub fn consume(
     Ok(())
 }
 
+/// ReturnUnused: goods a use order let out and the user did not use come
+/// back into the lot they left (the owner's decision of 2026-11-06, as
+/// recorded by workstream 9: unused ore goes back to its lot). They were
+/// booked as `CONSUMED` when they left, so they are **un-consumed**, not
+/// received again: `CONSUMED −= qty`, `HELD += qty`, and `IN_TOTAL` does
+/// not move (a return through [`begin_inbound`]/[`finish_inbound`] would
+/// count the same goods as used and as newly in). Whole units only; never
+/// more than the lot has consumed; the lot must be usable and have room
+/// (`HELD + expected + qty ≤ QUOTA`). The order is not restored: the use
+/// happened, only less of it. Who may call it is the caller's (the
+/// program's workshop instruction), as for [`consume`].
+pub fn return_unused(v: &VaultView, lot: &mut Lot, qty: i64) -> CResult<()> {
+    lot.usable(v)?;
+    whole(qty)?;
+    if qty > lot.consumed {
+        return Err(CustodyError::Quantity);
+    }
+    let held = lot.held.checked_add(qty).ok_or(CustodyError::Overflow)?;
+    if held
+        .checked_add(lot.incoming())
+        .is_none_or(|n| n > lot.quota)
+    {
+        return Err(CustodyError::Capacity);
+    }
+    lot.held = held;
+    lot.consumed -= qty;
+    Ok(())
+}
+
 // ------------------------------------------------------------ seizure
 
 /// What [`forfeit`] moved.

@@ -29,8 +29,8 @@ use frontier_abi::v2::Ix;
 
 use super::{ent, Ctx};
 use crate::codes::{
-    CUSTODY_IN_PROGRAM_WITHOUT_IT, CUSTODY_LOT_BROKEN, CUSTODY_OVER_CAPACITY,
-    CUSTODY_RULE_UNDECIDED, CUSTODY_UNVERIFIED, CUSTODY_VAULT_COUNTS,
+    CUSTODY_HISTORY_BROKEN, CUSTODY_IN_PROGRAM_WITHOUT_IT, CUSTODY_LOT_BROKEN,
+    CUSTODY_OVER_CAPACITY, CUSTODY_RULE_UNDECIDED, CUSTODY_UNVERIFIED, CUSTODY_VAULT_COUNTS,
 };
 use crate::Severity;
 
@@ -192,6 +192,7 @@ pub fn run(cx: &mut Ctx) {
     let custody = custody_season(cx);
     if custody {
         audit(cx);
+        history(cx);
     }
     let n = traces.len();
     for (i, (entity, bell, tx, what)) in traces.into_iter().enumerate() {
@@ -564,5 +565,152 @@ pub fn audit(cx: &mut Ctx) {
             break;
         }
         fail_or_unverifiable(cx, V, code, fail, entity, tx, what);
+    }
+}
+
+// ------------------------------------------------------- history (partial)
+
+/// What one Lot account's change between two recorded states settles,
+/// whatever the instructions were (their arguments are not decoded: the
+/// ABI numbers are provisional). Every custody step keeps these, so a
+/// change that breaks one was not the custody program's:
+///
+/// - the lot's identity (`P, Q, tile, VAULT_GEN, RESOURCE, OWNER`, its
+///   tags, `OPENED_BELL`) never changes;
+/// - `IN_TOTAL`, `OUT_TOTAL`, `FORFEITED` and `NONCE` never go down
+///   (`CONSUMED` may: `return_unused` gives unused goods back);
+/// - the state only goes forward: open → forfeited → closed, open → closed;
+/// - an order keeps its terms (kind, purpose, expiry, destination,
+///   grantee) while it keeps its id, and its `QTY_LEFT` never grows;
+/// - an inbound caravan expected under the same tag and sequence keeps
+///   its quantity.
+///
+/// A closed lot's account may be opened again at the same address (a new
+/// lot): no comparison across a close. Not judged (the replay proper,
+/// still to come): which instruction did it, who signed, the amounts each
+/// step should have moved.
+pub fn lot_transition_findings(prev: &[u8], cur: &[u8]) -> Vec<String> {
+    use permutation_rules::frontier::custody as K;
+    let (Some(a), Some(b)) = (K::Lot::decode(prev), K::Lot::decode(cur)) else {
+        return vec![]; // a lot that does not decode is the audit's
+    };
+    if a.state == K::LOT_NONE {
+        return vec![];
+    }
+    let mut out = vec![];
+    let id = |l: &K::Lot| {
+        (
+            (l.p, l.q, l.tile, l.vault_gen, l.resource),
+            (l.owner, l.owner_tag, l.custodian_tag, l.opened_bell),
+        )
+    };
+    if id(&a) != id(&b) {
+        out.push("the lot's identity changed".to_string());
+    }
+    for (name, x, y) in [
+        ("IN_TOTAL", a.in_total, b.in_total),
+        ("OUT_TOTAL", a.out_total, b.out_total),
+        ("FORFEITED", a.forfeited, b.forfeited),
+        ("NONCE", a.nonce as i64, b.nonce as i64),
+    ] {
+        if y < x {
+            out.push(format!("{name} went down from {x} to {y}"));
+        }
+    }
+    let forward = matches!(
+        (a.state, b.state),
+        (K::LOT_OPEN, K::LOT_OPEN | K::LOT_FORFEITED | K::LOT_NONE)
+            | (K::LOT_FORFEITED, K::LOT_FORFEITED | K::LOT_NONE)
+    );
+    if !forward {
+        out.push(format!("STATE went from {} to {}", a.state, b.state));
+    }
+    for (i, (x, y)) in a.orders.iter().zip(b.orders.iter()).enumerate() {
+        if x.kind == K::ORDER_FREE || y.kind == K::ORDER_FREE || x.id != y.id {
+            continue;
+        }
+        let terms = |o: &K::Order| (o.kind, o.purpose, o.expires_bell, o.dst, o.grantee);
+        if terms(x) != terms(y) {
+            out.push(format!("order {i} (id {}) changed its terms", x.id));
+        }
+        if y.qty_left > x.qty_left {
+            out.push(format!(
+                "order {i} (id {}) grew from {} to {}",
+                x.id, x.qty_left, y.qty_left
+            ));
+        }
+    }
+    for x in a.inbound.iter().filter(|i| i.live) {
+        if let Some(y) = b.inbound.iter().find(|y| y.is(x.caravan_tag, x.seq)) {
+            if y.qty != x.qty {
+                out.push(format!(
+                    "inbound {:#x}/{} changed from {} to {}",
+                    x.caravan_tag, x.seq, x.qty, y.qty
+                ));
+            }
+        }
+    }
+    out
+}
+
+/// `V26:custody-history`: every Lot account's recorded states, in
+/// transaction order (post-states), then the pinned slot, compared pairwise
+/// by [`lot_transition_findings`]. A FAIL names the transaction that
+/// recorded the later state.
+pub fn history(cx: &mut Ctx) {
+    let w = cx.w;
+    let program = w.program;
+    let mut last: std::collections::BTreeMap<[u8; 32], Vec<u8>> = Default::default();
+    let mut found: Vec<(String, Option<usize>, String)> = vec![];
+    let is_lot = |d: &[u8]| d.get(..8) == Some(&LT::MAGIC[..]);
+    for (t, tx) in w.txs.iter().enumerate() {
+        if !tx.ok {
+            continue;
+        }
+        for (k, a) in &tx.post {
+            let Some(a) = a
+                .as_ref()
+                .filter(|a| a.owner.to_bytes() == program && is_lot(&a.data))
+            else {
+                continue;
+            };
+            if let Some(prev) = last.get(k) {
+                for what in lot_transition_findings(prev, &a.data) {
+                    found.push((ent("account", k), Some(t), what));
+                }
+            }
+            last.insert(*k, a.data.clone());
+        }
+    }
+    for (k, a) in &w.finals {
+        if let (Some(a), Some(prev)) = (
+            a.as_ref().filter(|a| a.owner.to_bytes() == program),
+            last.get(k),
+        ) {
+            if is_lot(&a.data) {
+                for what in lot_transition_findings(prev, &a.data) {
+                    found.push((
+                        ent("account", k),
+                        None,
+                        format!("{what} (at the pinned slot)"),
+                    ));
+                }
+            }
+        }
+    }
+    let n = found.len();
+    for (i, (entity, tx, what)) in found.into_iter().enumerate() {
+        if i == LISTED {
+            cx.fail(
+                V,
+                CUSTODY_HISTORY_BROKEN,
+                "season",
+                u32::MAX,
+                None,
+                format!("{} more custody history findings", n - LISTED),
+            );
+            break;
+        }
+        cx.fail(V, CUSTODY_HISTORY_BROKEN, entity, u32::MAX, tx, what);
     }
 }
