@@ -13,6 +13,7 @@ import { ownTag } from './people/ui.mjs';
 import { updateLife } from './people/life.mjs';
 import * as io from './fchainio.mjs';
 import * as fsession from './fsession.mjs';
+import * as fresident from './fresident.mjs';
 import { AGENTS_REFRESH_MS, delegatedTo, loadAgents, refusalNote, takenBackNote } from './fdelegation.mjs';
 import * as book from './marchbook.mjs';
 import { submit, track, accountsFor, campMaskOf, campWinner } from './fplay.mjs';
@@ -103,7 +104,24 @@ async function refreshDelegation() {
 /** The addresses and signer context of a player action. */
 function ctx(extra = {}) {
   const pin = io.pinned();
-  return { addresses: pin.addresses, wallet: FS.wallet.address, actor: FS.session?.publicKey, faction: FS.citizen?.faction, profile: pin.profile, ...extra };
+  // ⑳: playing an NFT, the owner's wallet acts for the NFT's Citizen.
+  const nft = FS.resident ? fresident.actorContext(FS.resident, FS.wallet.address) : {};
+  return { addresses: pin.addresses, wallet: FS.wallet.address, actor: FS.session?.publicKey, faction: FS.citizen?.faction, profile: pin.profile, ...nft, ...extra };
+}
+
+/** The address `/h/me` and the quota are read for: the NFT played (⑳), else the wallet. */
+const viewerKey = () => FS.resident?.asset ?? FS.wallet?.address;
+const viewerCitizen = () => FS.resident?.citizen ?? io.pinned().addresses.of('Citizen', { wallet: FS.wallet.address });
+
+/** ⑳: the wallet's resident NFTs (GET /f/residents); none when the relay has no resident policy. */
+async function loadNfts() {
+  FS.nfts = null;
+  // Only a season of the nft-experimental program (its program version
+  // carries 0x8000) has residents; other seasons never ask.
+  if (!FS.wallet || !io.relay() || !(Number(FS.season?.programVersion ?? 0) & 0x8000)) return;
+  const r = await fresident.loadResidents(FS.wallet.address).catch(() => null);
+  if (r?.ok && r.policy) FS.nfts = { residents: r.residents, policy: r.policy };
+  invalidate('panel');
 }
 
 /** The send and the follow-up (fplay.mjs); tests put stand-ins here to play a relay and a chain. */
@@ -243,8 +261,18 @@ async function actOnce(name, { v, fields, signer, requester, label, after, onSen
   if (!io.pinned()) return early({ code: 'NoPin' });
   if (!FS.wallet) return early({ code: 'NoWallet' });
   let sign = null;
+  // ⑳: an NFT Citizen has no Frontier session; its owner's wallet signs, for
+  // the generation read fresh now (a transfer since the page loaded changes it).
+  let resident = null;
+  if (FS.resident && signer !== null && name !== 'JoinResident') {
+    if (name === 'SetSession') return early({ code: 'NftNoSession' });
+    const g = await fresident.currentGeneration(FS.wallet.address, FS.resident.asset);
+    if (g === null) return early({ code: 'NftNotHeld' });
+    FS.resident = { ...FS.resident, generation: g };
+    resident = { generation: g, proof: FS.resident.proof };
+  }
   if (signer !== null) {
-    if (name === 'Join' || name === 'SetSession' || signer === 'wallet') {
+    if (name === 'Join' || name === 'JoinResident' || name === 'SetSession' || signer === 'wallet' || resident) {
       const w = wallet.connected();
       if (!w) return early({ code: 'NoWallet' });
       sign = { wallet: w };
@@ -260,7 +288,7 @@ async function actOnce(name, { v, fields, signer, requester, label, after, onSen
   FS.inFlight = (FS.inFlight ?? 0) + 1;
   try {
     const accounts = typeof v === 'function' ? fp => accountsFor(name, v(fp)) : accountsFor(name, ctx(v));
-    const send = () => tx.submit({ name, accounts, fields, signer: sign, requester, citizen: requester ? io.pinned().addresses.of('Citizen', { wallet: FS.wallet.address }) : undefined, invite: v.invite });
+    const send = () => tx.submit({ name, accounts, fields, signer: sign, requester, citizen: requester ? viewerCitizen() : undefined, invite: v.invite, resident });
     let r = await send();
     // the transaction left this browser (a refusal before sending never reaches here)
     if (r.ok) { sent = true; onSent?.(r); fxEmit('action:sent', fxa); }
@@ -794,7 +822,8 @@ export async function refresh() {
   syncProto();
   if (FS.wallet) {
     const address = FS.wallet.address;
-    const me = await herald.me(address).catch(e => ({ ok: false, code: e?.code ?? 'Unavailable' }));
+    // ⑳: herald's /h/me/{asset} answers an NFT's Citizen (the wallet's own Citizen first).
+    const me = await herald.me(viewerKey()).catch(e => ({ ok: false, code: e?.code ?? 'Unavailable' }));
     // A previous poll or wallet must not replace the viewer selected by a newer refresh.
     if (request !== viewerRefresh || FS.wallet?.address !== address) return;
     if (FS.proto) await refreshProto(me.ok ? me.record : undefined);
@@ -822,7 +851,7 @@ export async function refresh() {
     }
     await refreshMarches();
     if (FS.citizen && io.pinned()) {
-      const q = await io.quota(io.pinned().addresses.of('Citizen', { wallet: FS.wallet.address }));
+      const q = await io.quota(viewerCitizen());
       if (q.ok) FS.quota = q;
     }
   } else { FS.meStatus = 'ready'; FS.meError = null; }
@@ -1661,8 +1690,33 @@ export const ACTIONS = {
     FS.wallet = wallet.connected();
     FS.meStatus = 'loading'; FS.meError = null; FS.homeGrant = null;
     FS.session = await fsession.restore(scope(), FS.wallet.address);
+    FS.resident = null;
+    await loadNfts();
     await refresh();
   },
+  // ⑳ (provisional): play one of the wallet's resident NFTs — the first login
+  // (JoinResident) when its Citizen does not exist yet in this season.
+  'nft-login': async d => {
+    if (!FS.wallet) return failed({ code: 'NoWallet' });
+    const entry = (FS.nfts?.residents ?? []).find(x => x.asset === d.asset);
+    if (!entry || !FS.nfts.policy) return failed({ code: 'NftNotHeld' });
+    const pin = io.pinned();
+    const id = fresident.identityOf(entry, FS.nfts.policy, { addresses: pin.addresses, programId: pin.programId });
+    if (!Number.isInteger(id.generation)) return failed({ code: 'NftNotHeld' });
+    if (!id.joined) {
+      if (!Number.isInteger(FS.joinDraft?.faction)) return failed({ code: 'PickFaction' });
+      const gate = FS.season.joinGate.some(x => x !== 0) ? toBase58(FS.season.joinGate) : null;
+      const r = await act('JoinResident', {
+        v: { resident: fresident.joinAccounts(id, { addresses: pin.addresses, owner: FS.wallet.address }), joinGate: gate, invite: FS.joinDraft.invite },
+        fields: { generation: id.generation, faction: FS.joinDraft.faction },
+      });
+      if (!r?.ok) return r;
+    }
+    FS.resident = { ...id, joined: true };
+    invalidate('panel');
+    await refresh();
+  },
+  'nft-logout': async () => { FS.resident = null; invalidate('panel'); await refresh(); },
   'pick-faction': d => { FS.joinDraft = { ...(FS.joinDraft ?? {}), faction: num(d.f) }; invalidate('panel'); if (needsHomeChoice()) return refreshHomes({ force: true }); },
   join: async () => {
     const pin = io.pinned();

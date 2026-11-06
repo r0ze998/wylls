@@ -231,7 +231,7 @@ export const relayRoutes = {
   'POST /f/relay': async (ctx, req) => {
     const b = await req.json();
     const { wire, tx, shape } = await parseAndClassify(ctx, b);
-    if (shape.tag === JOIN_TAG) throw new RouteError(400, 'relay refused: a Join goes through POST /f/join', 'RelayRejected');
+    if (shape.tag === JOIN_TAG || shape.wrapper === 'JoinResident') throw new RouteError(400, 'relay refused: a Join goes through POST /f/join', 'RelayRejected');
     const requester = shape.kind === 'settle' ? requesterOf(tx, b) : null;
     return { body: await sponsor(ctx, req, { tx, wire, shape, requester, requesterCitizenAddr: b.citizen ?? null, lastValidBlockHeight: b.lastValidBlockHeight }) };
   },
@@ -239,7 +239,9 @@ export const relayRoutes = {
   'POST /f/join': async (ctx, req) => {
     const b = await req.json();
     const { wire, tx, shape } = await parseAndClassify(ctx, b);
-    if (shape.tag !== JOIN_TAG) throw new RouteError(400, 'relay refused: POST /f/join takes a Join only', 'RelayRejected');
+    // ⑳ (provisional): an NFT resident's first login (JoinResident) is a Join
+    // too: same season gate, same join limits.
+    if (shape.tag !== JOIN_TAG && shape.wrapper !== 'JoinResident') throw new RouteError(400, 'relay refused: POST /f/join takes a Join only', 'RelayRejected');
     const season = await ctx.chain.season();
     const gate = base58(season.JOIN_GATE);
     const gated = season.JOIN_GATE.some(x => x !== 0);

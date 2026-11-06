@@ -114,6 +114,32 @@
 
 **規則違反の報告**：v0.12 の作業中、fclient の lib の試験を名前を絞らずに 1 回実行した（77 件）。この中に既存の試験 `tx::tests::budget_prefix_round_trips`（固定 seed `[3; 32]` の鍵で取引に署名）、`beacon::tests::test_key_signs_and_verifies`、`seal` の試験（試験用の鍵で署名）が含まれ、「固定 seed を含む鍵生成・導出・署名の試験は禁止」に反した。秘密鍵の出力・保存・送信はしていない。以後は名前を指定した試験だけを実行している。workspace 全体の試験も一度始めたが、build の途中で止めた（試験は 1 件も動いていない）。
 
+### v0.13 の追加（記録 130・実行時の試験・中継・ページ、2026-11-06）
+
+**鍵の扱い（今回、実行の前に確かめたこと）**：実行したのは、下に名前を挙げた試験だけ。それぞれの試験と、その共通の準備・読み込む部品（`frontier-abi`、`permutation-frontier/src`、`client/src/frontier` の resident・shapes・budgets・codec・addresses・`solana-tx.mjs`、web の `fplay.mjs`・`fresident.mjs`・`session.mjs` の読み込み時の動き、`abi-vectors`、`sync-web-sdk.mjs`）に、鍵の生成・導出・署名がないことを事前に grep と読みで確かめた。鍵を使う既存の試験（fclient の `tx`・`beacon`・`seal`・`vectors`、keeper・localnet の結合試験、gateway の relay 試験など）は動かしていない。デモも動かしていない。
+
+**住所の計算について**：実行時の試験（下）では、program 自身が住所を出すのと同じ計算（Season の PDA、policy・link・住民の記録の `find_program_address`、Citizen・Frontier の `with_seed`）を試験の側でもして、口座をそこに置いた。どれも公開の住所のハッシュで、秘密鍵や鍵の組はどこにも無い。gateway と web の試験は PDA も計算しない（住所はすべて固定の値）。
+
+**接続した（今回）**
+
+| 所 | 内容 |
+|---|---|
+| ABI | `RESIDENT_JOINED` = 130（④ の割り当て。90 は `VAULT_BUILT`）。key＝住民 ID 15 B、payload＝asset・国・shard・世代・参加の bell 42 B、link 無しで 64 B。104–129・131–134 は kind ではない |
+| program | `MAX_KIND_V2` と二つの幅の表を 134 へ（130 だけが定義）。`JoinResident` が 130 を出す |
+| fclient | `CqEvent::ResidentJoined`。`CitizenAt`（program が名指す Citizen＝住所と JoinShard の番号）と `settle_ticket_at`・`release_dormant_at`・`settle_explore_at`（財布の版は中身そのまま、新しい版を呼ぶだけ） |
+| keeper | 索引が 130 を読む（key が asset の住民 ID か確かめる）。`citizen_of` が `CitizenAt` を返すので、精算（SettleTicket・ReleaseDormant・SettleExplore）が NFT Citizen を住民 ID の住所と asset の shard で名指す |
+| 検証器 | facts が 130 から NFT Citizen を知る（記録の順序どおり）。V12 の探索の下限。V9 が key と asset の食い違いを失敗にする |
+| herald | 130 を事件として番号を振って配る（州なし、key は住民 ID の 16 進） |
+| 中継 | `classify` が `ResidentAct`（中の player の形をそのまま確かめ、証明口座 4 つは読み取りのみ・署名なし、予算は中の命令＋仮の上乗せ）と `JoinResident` を分類。`POST /f/join` が `JoinResident` を受け、`POST /f/relay` は断る。`JoinResident` の上限額は Citizen と link の rent。`GET /f/residents?owner=`（その財布の住民 NFT、世代、参加済みか。RPC の結果は一つずつ確かめ直す） |
+| SDK（client と web） | `resident.mjs`：住民 ID、NFT Citizen・policy・link・住民の記録の住所、`JoinResident`・`ResidentAct` の組み立て、住民の記録と asset の持ち主の読み取り |
+| web | 参加画面に「住民NFTで入る」（NFT の一覧、参加済みなら遊ぶ、未参加なら国を選んで `JoinResident`）。NFT で遊ぶ間は、操作のたびに今の世代を読み直し、ウォレットが `ResidentAct` に署名する。`/h/me` と枠は NFT の Citizen で読む。NFT の一覧は実験版の program の Season（版に 0x8000）でだけ読む |
+
+**実行時の試験（鍵なし）**：`permutation-frontier/src/resident_runtime_tests.rs`（`cargo test -p permutation-frontier --features nft-experimental --lib resident_runtime_tests`、6 件）。program の本物の `dispatch` を手元で動かす。初回ログインで Citizen が一つでき、130 が出て、二度目は `AlreadyDone`。譲渡後の旧所有者（174・175）、旧 session（175）、旧世代の署名（174）、A→B→A で最初の所有の署名（174）と B の署名（174・175）を拒否し、新所有者と世代 2 の A は通る。署名なし（`Auth`）、別の asset の記録（172）、別の collection（171）、保護の無い asset（173）、`ResidentAct(SetSession)` と財布の経路も拒否。
+
+**この試験の限界**：署名の検証は動かしていない（`is_signer` は試験が立てる。LiteSVM で sigverify を切った場合と同じ）。SBF の build ではない（計算量・ローダー・口座の大きさや所有者の強制は無い）。System program は試験の代わりの部品で、Core と住民プログラムは動かしていない（譲渡は住民プログラムが残す状態をバイトで書いて表した）。時刻と rent は試験用の値。**実際に動かしたのは `JoinResident` と `ResidentAct(SetVigil)`・`ResidentAct(SetSession)` の拒否だけ**で、ほかの 25 の命令の NFT 経路は実行時には確かめていない。
+
+**未接続**：NFT の住民の session（住民プログラムの SetSession。web はまだ呼ばないので、操作のたびにウォレットが署名する）、agent wallet・賞金、検証器 V23（隊商の送り手の再判定）、`ResidentAct` の予算（CU・読み込み量の上乗せ 40,000・4,096 は実測していない）、中継の `ResidentAct` の上限額の見直し、web の行進（`fmarch`）と練習の経路、新しい Season での再ログイン（SEASON-SCOPE.ja.md、U45）。
+
 ## 6. ④ との調整
 
 2026-11-06 に提案を送り、同日 ④ から割り当てが届いた（§4）。④ の意見に合わせ、NFT Citizen の住所を候補 20 の `["nft-citizen", asset]` から `citizen_by_tag15(住民 ID)` に改めた。§3 の一覧を ④ に送った。

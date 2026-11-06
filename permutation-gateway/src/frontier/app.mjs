@@ -31,8 +31,9 @@ import { prizeRoutes } from './routes/prize.mjs';
 import { agentRoutes } from './routes/agent.mjs';
 import { relayRoutes } from './routes/relay.mjs';
 import { seasonRoutes } from './routes/season.mjs';
+import { residentRoutes } from './routes/residents.mjs';
 
-export const FRONTIER_ROUTES = Object.freeze({ ...seasonRoutes, ...relayRoutes, ...keeperRoutes, ...operatorRoutes, ...prizeRoutes, ...agentRoutes });
+export const FRONTIER_ROUTES = Object.freeze({ ...seasonRoutes, ...relayRoutes, ...keeperRoutes, ...operatorRoutes, ...prizeRoutes, ...agentRoutes, ...residentRoutes });
 
 /** What the public listener serves ('GET /f/tx/' is a prefix: /f/tx/{signature}). */
 export const FRONTIER_PUBLIC_ROUTES = Object.freeze([
@@ -41,6 +42,8 @@ export const FRONTIER_PUBLIC_ROUTES = Object.freeze([
   'GET /f/prize', 'GET /f/prize/ledger', 'POST /f/faucet', 'POST /f/x402/join', 'POST /f/prize/claim',
   // The agent wallet (404 AgentWalletDisabled unless --agent-wallet); the operator's reconcile is not public.
   'GET /f/agent', 'GET /f/agent/terms', 'GET /f/agent/session-terms', 'GET /f/agent/by-owner', 'POST /f/agent/command', 'POST /f/agent/deposit', 'POST /f/agent/action',
+  // ⑳ (provisional): the NFT choice of the first login.
+  'GET /f/residents',
 ]);
 
 /** Routes that make the relay pool pay: paused (503 OperatorLowFunds) while the pool is below its minimum. */
@@ -56,6 +59,8 @@ export const FRONTIER_IP_LIMITS = Object.freeze({
   'GET /f/season': { burst: 20, perSecond: 2 },
   'GET /f/quota': { burst: 20, perSecond: 2 },
   'GET /f/tx/': { burst: 40, perSecond: 4 },
+  // ⑳: one getProgramAccounts per call.
+  'GET /f/residents': { burst: 5, perSecond: 0.2 },
   'GET /f/prize': { burst: 20, perSecond: 2 },
   'GET /f/prize/ledger': { burst: 10, perSecond: 1 },
   'POST /f/faucet': { burst: 5, perSecond: 0.1 },

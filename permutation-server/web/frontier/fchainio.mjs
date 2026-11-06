@@ -14,6 +14,7 @@
 // relay co-signs, the message must come back unchanged.
 //
 // Every call answers `{…body, ok, httpStatus, code, error}` and never rejects.
+import { isResidentTag } from '../sdk/frontier/resident.mjs';
 import { equal, toBase64 } from '../sdk/bytes.mjs';
 import { COMPUTE_BUDGET_PROGRAM, messageOf, parseMessage, pubkeyString } from '../sdk/solana-tx.mjs';
 import { profileForHash } from '../sdk/frontier/profile.mjs';
@@ -156,7 +157,7 @@ export function messageProblems(message, { feePayer, blockhash, tag, signers = [
   else {
     const t = f.data[0];
     if (t === REVEAL_TAG) out.push('UseRevealRoute');
-    else if (!PLAYER_TAGS.includes(t) && !SETTLE_TAGS.includes(t)) out.push(`tag 0x${t?.toString(16)} is not a player or settle shape`);
+    else if (!PLAYER_TAGS.includes(t) && !SETTLE_TAGS.includes(t) && !isResidentTag(t)) out.push(`tag 0x${t?.toString(16)} is not a player or settle shape`);
     else if (tag !== undefined && t !== tag) out.push(`tag 0x${t.toString(16)} is not the expected 0x${tag.toString(16)}`);
   }
   for (const i of ix) if (i.programId !== COMPUTE_BUDGET_PROGRAM && i.programId !== pin.programId) out.push(`unexpected program ${i.programId}`);

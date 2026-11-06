@@ -280,6 +280,10 @@ const CLIENT_TEXT = {
   WalletError: () => L`ウォレットのエラーです`,
   NoWallet: () => L`ウォレットが接続されていません`,
   NoSession: () => L`ゲーム内の鍵がありません。鍵を作ってください。`,
+  // ⑳ (provisional): NFT residents
+  NftNoSession: () => L`NFTの住民には、ゲーム内の鍵はまだ使えません。操作はウォレットが署名します。`,
+  NftNotHeld: () => L`この住民NFTは、いまこのウォレットにありません。`,
+  PickFaction: () => L`先に国を選んでください。`,
   SessionMismatch: () => L`このゲーム内の鍵は、登録されているものと違います`,
   ResidentHolderChanged: () => L`この住民の NFT は、いまは別のウォレットが持っています。この鍵では操作できません。`,
   ResidentSessionStale: () => L`この鍵は、住民の今の持ち主が今の世代で任せた鍵ではありません。持ち主が任せ直す必要があります。`,
