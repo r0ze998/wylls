@@ -1,0 +1,26 @@
+### keeper-lib18 HEAD b954990dd148c51b6591907cf61d8931cb9334a5 tree 96c8eaafbc9a103f61f7504f42d758101fba7923
+### local test files:
+?? frontier-abi/tests/v16_period_boundary.rs
+?? frontier-node/crates/agents/tests/v16_owner_reveal_open.rs
+?? frontier-node/crates/findex/tests/v16_history_gaps.rs
+?? frontier-node/crates/herald/tests/v16_caravan_holder.rs
+?? frontier-node/crates/keeper/tests/v16_version_cap.rs
+?? frontier-node/crates/verify/tests/v16_cpi_keyfree.rs
+?? permutation-gateway/test/v16-agent-fate-view.test.mjs
+?? permutation-gateway/test/v16-public-ops.test.mjs
+?? permutation-gateway/test/v16-web-caravan-holder.test.mjs
+?? permutation-gateway/test/v16-web-reveal-not-before.test.mjs
+?? permutation-gateway/test/v16-web-wallet-switch-adopt.test.mjs
+?? workstreams/04-execution/e2e-native/tests/v16_prize_claim_rights.rs
+?? workstreams/04-execution/e2e-native/tests/v16_record_nation.rs
+   Compiling keeper v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v12-int/frontier-node/crates/keeper)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 12.03s
+     Running unittests src/lib.rs (/home/user/wylls/frontier-node/target/debug/deps/keeper_core-31f8f2889bb80bf0)
+
+running 2 tests
+test api::tests::journal_failure_refuses_without_leaking_or_queueing ... ok
+test api::tests::journal_write_failure_refuses_without_leaking_or_queueing ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 132 filtered out; finished in 0.02s
+
+exit=0

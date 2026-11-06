@@ -1,0 +1,36 @@
+### agents HEAD b954990dd148c51b6591907cf61d8931cb9334a5 tree 96c8eaafbc9a103f61f7504f42d758101fba7923
+### local test files:
+?? frontier-abi/tests/v16_period_boundary.rs
+?? frontier-node/crates/agents/tests/v16_owner_reveal_open.rs
+?? frontier-node/crates/findex/tests/v16_history_gaps.rs
+?? frontier-node/crates/herald/tests/v16_caravan_holder.rs
+?? frontier-node/crates/keeper/tests/v16_version_cap.rs
+?? frontier-node/crates/verify/tests/v16_cpi_keyfree.rs
+?? permutation-gateway/test/v16-agent-fate-view.test.mjs
+?? permutation-gateway/test/v16-public-ops.test.mjs
+?? permutation-gateway/test/v16-web-caravan-holder.test.mjs
+?? permutation-gateway/test/v16-web-reveal-not-before.test.mjs
+?? permutation-gateway/test/v16-web-wallet-switch-adopt.test.mjs
+?? workstreams/04-execution/e2e-native/tests/v16_prize_claim_rights.rs
+?? workstreams/04-execution/e2e-native/tests/v16_record_nation.rs
+   Compiling frontier-abi v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v12-int/frontier-abi)
+   Compiling fclient v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v12-int/frontier-node/crates/fclient)
+   Compiling agents v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v12-int/frontier-node/crates/agents)
+error[E0432]: unresolved imports `frontier_agents::policy::owner_reveal_open`, `frontier_agents::policy::REVEAL_PUBLISH_MARGIN_SECS`
+ --> crates/agents/tests/v16_owner_reveal_open.rs:7:31
+  |
+7 | use frontier_agents::policy::{owner_reveal_open, REVEAL_PUBLISH_MARGIN_SECS};
+  |                               ^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^^^^^^ no `REVEAL_PUBLISH_MARGIN_SECS` in `policy`
+  |                               |
+  |                               no `owner_reveal_open` in `policy`
+
+error[E0599]: no method named `published_at` found for struct `SeasonView` in the current scope
+  --> crates/agents/tests/v16_owner_reveal_open.rs:40:23
+   |
+40 |             let p = s.published_at(arrive);
+   |                       ^^^^^^^^^^^^ method not found in `SeasonView`
+
+Some errors have detailed explanations: E0432, E0599.
+For more information about an error, try `rustc --explain E0432`.
+error: could not compile `agents` (test "v16_owner_reveal_open") due to 2 previous errors
+exit=101

@@ -1,0 +1,37 @@
+### findex-store HEAD 59f52eaf51935203b32b4310c207dc2da7b5f2d5 tree 78247f490f06908bc6284eaefb4c006efbaff139
+?? frontier-abi/tests/v16_period_boundary.rs
+?? frontier-node/crates/agents/tests/v16_owner_reveal_open.rs
+?? frontier-node/crates/findex/tests/v16_history_gaps.rs
+?? frontier-node/crates/herald/tests/v16_caravan_holder.rs
+?? frontier-node/crates/keeper/tests/v16_version_cap.rs
+?? frontier-node/crates/verify/tests/v16_cpi_keyfree.rs
+?? permutation-gateway/test/v16-agent-fate-view.test.mjs
+?? permutation-gateway/test/v16-public-ops.test.mjs
+?? permutation-gateway/test/v16-web-caravan-holder.test.mjs
+?? permutation-gateway/test/v16-web-reveal-not-before.test.mjs
+?? permutation-gateway/test/v16-web-wallet-switch-adopt.test.mjs
+?? workstreams/04-execution/e2e-native/tests/v16_prize_claim_rights.rs
+?? workstreams/04-execution/e2e-native/tests/v16_record_nation.rs
+   Compiling findex v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v12-int/frontier-node/crates/findex)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.49s
+     Running tests/store_failure.rs (/home/user/wylls/frontier-node/target/debug/deps/store_failure-51ca814b6bd32c32)
+
+running 5 tests
+test checkpoint_failure_cannot_publish_an_uncommitted_index ... ok
+test failed_roll_after_uncommitted_batch_truncates_the_ahead_index ... ok
+test index_failure_requires_reopen_and_catches_up_from_the_archive ... ok
+test manifest_write_failure_requires_reopen_and_replays_the_batch ... ok
+test mid_batch_roll_failure_discards_unnamed_frames_before_replay ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+
+     Running tests/v16_history_gaps.rs (/home/user/wylls/frontier-node/target/debug/deps/v16_history_gaps-94a659223ef79d53)
+
+running 3 tests
+test v16_g1_first_pull_on_a_pruned_node_archives_without_any_gap_signal ... ok
+test v16_g2_losing_the_last_archived_signature_stops_the_pull ... ok
+test v16_g3_a_gap_in_the_middle_behind_a_kept_last_signature_is_not_seen ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+exit=0

@@ -1,0 +1,4 @@
+15:37:29 findex-store exit=0
+15:38:01 nft-runtime exit=0
+15:59:32 verify exit=0
+ALL DONE

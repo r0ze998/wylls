@@ -1,0 +1,13 @@
+15:14:24 node exit=1
+15:14:35 e2e exit=0
+15:14:40 abi exit=101
+15:21:30 verify exit=0
+15:21:35 keeper exit=101
+15:21:47 keeper-lib18 exit=0
+15:21:57 agents exit=101
+15:22:00 agents-lib18 exit=0
+15:22:02 findex exit=0
+15:22:14 herald exit=0
+15:22:15 findex-store exit=101
+15:36:58 verify-bands exit=0
+ALL DONE

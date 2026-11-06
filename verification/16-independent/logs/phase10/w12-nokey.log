@@ -1,0 +1,76 @@
+### ⑫ test-nokey on b954990d b954990dd148c51b6591907cf61d8931cb9334a5
+# ran: 49
+# needs-key: 69
+# skipped: 1
+# FAILED: 0
+needs-key	adapters.test.mjs: ws04: a delivered run (happy) becomes a fulfilled promise only through its finalized receipts and the allocation
+needs-key	adapters.test.mjs: ws04: a raided run is neutral; the raider is named exactly; no reputation moves
+needs-key	adapters.test.mjs: ws04: the same caravan reported by several runs, or read from the feed and from history, is one fact
+needs-key	adapters.test.mjs: ws04: receipts in any order give the same memory
+needs-key	adapters.test.mjs: ws04: unfinalized receipts are held, not believed; they enter once finalized, without doubling
+needs-key	adapters.test.mjs: ws04: missing pieces stay unknown: no run spec, no clock, no identity
+needs-key	adapters.test.mjs: ws04: a restart replays to the same memory, and re-feeding everything adds nothing
+needs-key	adapters.test.mjs: ws04/ws08: records on both sides of a war-period mark are one continuing memory (no reset, no second partition)
+needs-key	continuity.test.mjs: boundary: a promise made in p1 and delivered in p2 is fulfilled only through 4's continuity attestations
+needs-key	continuity.test.mjs: boundary: a caravan that left in p1 and settles after the boundary is still the same delivery
+needs-key	continuity.test.mjs: boundary: reliability accrues to the principal across partitions and decays continuously (no reset)
+needs-key	continuity.test.mjs: boundary: an allocation signed in p1 stays in force in p2; nonces continue per signer across partitions
+needs-key	continuity.test.mjs: boundary: conflicting identity attestations, or an allocation for another world, are not used
+needs-key	continuity.test.mjs: boundary: a restart at the boundary gives the same state as no restart; re-delivered records are duplicates
+needs-key	continuity.test.mjs: boundary: facts of a partition 4 has not registered are kept, reported unusable, and used once registered
+needs-key	continuity.test.mjs: boundary: a decision before the boundary is reassessed with p1 records observed after it
+needs-key	continuity.test.mjs: legacy: v3 journals load under v4, their signatures verify as written, and the verdicts are the same
+needs-key	continuity.test.mjs: legacy: v3 records are not trusted under a registry that does not match the season they were written in
+needs-key	continuity.test.mjs: legacy: a v3 promise is fulfilled by a v4 delivery in the next partition (migration path, no rewrite)
+needs-key	contract-v3.test.mjs: credit: a village (holding) delivery is credited by the pinned rule, with its basis, unit and inputs
+needs-key	contract-v3.test.mjs: credit: an execution record that disagrees with the village rule is a conflict, not a choice
+needs-key	contract-v3.test.mjs: credit: a vault delivery without 4's execution record stays unverified; with it, it counts with its basis
+needs-key	contract-v3.test.mjs: credit: a capped vault credit is partial only once a sufficient index rules out more
+needs-key	contract-v3.test.mjs: not sent is not "not arrived": a caravan that left without a settle record is unknown even with full coverage
+needs-key	contract-v3.test.mjs: allocation: what a message says allocates nothing; only a valid signature of a party does
+needs-key	contract-v3.test.mjs: allocation: a resend is a duplicate, a reused nonce with other content is refused, a replayed old op changes nothing
+needs-key	contract-v3.test.mjs: allocation: operations that arrive out of order are applied by nonce, not by arrival
+needs-key	contract-v3.test.mjs: allocation: a correction and a revoke free capacity; the same quantity is never used twice
+needs-key	contract-v3.test.mjs: allocation: concurrent allocations of one caravan by both parties are capped by its cargo, in signing order
+needs-key	contract-v3.test.mjs: allocation: when the debtor revokes and the creditor still allocates, the link is disputed
+needs-key	contract-v3.test.mjs: allocation: private to the parties, and an edited journal line fails verification on replay
+needs-key	contract-v3.test.mjs: reassess: late arrivals of past facts are used; events after the decision are listed, not used; backdated records are excluded
+needs-key	contract-v3.test.mjs: reassess: a good deed done after the decision does not rewrite the past judgement
+needs-key	evidence.test.mjs: absence: in transit, past arrival without a settle, and a departure the index lists without its record are unknown
+needs-key	evidence.test.mjs: absence: "sent" and "delivered" are different claims and neither is a fact
+needs-key	evidence.test.mjs: allocation: parallel promises with the same partner, each with its own caravan
+needs-key	evidence.test.mjs: allocation: one caravan split over two promises, and never the same quantity twice
+needs-key	evidence.test.mjs: allocation: a short credit shared by two allocations gives bounds, not a guessed split
+needs-key	evidence.test.mjs: allocation: a third party cannot allocate, and a party disagreement takes the smaller quantity
+needs-key	evidence.test.mjs: quantity: DELIVERED without a measured credit is unverified; the settle record is not the credited amount
+needs-key	evidence.test.mjs: quantity: a partial delivery before the index is complete stays open for the rest
+needs-key	evidence.test.mjs: recipient: the owner AT THE SETTLE BELL decides, not the current owner; unknown owner is unknown
+needs-key	evidence.test.mjs: recipient: a place of another generation is a different place (misdirected), not the promised one
+needs-key	evidence.test.mjs: time: an on-time delivery observed late is on time, not late; before it is observed it is unknown
+needs-key	evidence.test.mjs: time: a decision taken before evidence arrived can be reassessed; the original decision is kept
+needs-key	evidence.test.mjs: time: a wrong index attestation rolled back restores the previous judgement and the decision recovers
+needs-key	longrun.test.mjs: long run: 300 partitions of history stay whole; nothing is evicted or reset
+needs-key	longrun.test.mjs: long run: reputation is bounded and converges instead of growing with the length of history
+needs-key	longrun.test.mjs: long run: the journal replays to the same state after a restart, and a fold stays fast
+needs-key	longrun.test.mjs: long run: decisions keep their inputs; each adds a bounded record
+needs-key	longrun.test.mjs: limits: world bells, caravan seq and allocation nonces are range-checked
+needs-key	memory12.test.mjs: demo: same world, seven histories; memory is one term among price, distance and stock
+needs-key	memory12.test.mjs: a raid or a lost destination is not held against the sender
+needs-key	memory12.test.mjs: a duplicate fact is a no-op even when observed again later; another body under the same reference is a collision
+needs-key	memory12.test.mjs: a rollback retracts a fact and the derived memory follows; nothing is deleted
+needs-key	memory12.test.mjs: testimony is shown, cross-checked and never counted; conflicting testimony is flagged
+needs-key	memory12.test.mjs: isolation: private talk, sealed marches and another nation's council never reach A
+needs-key	memory12.test.mjs: instructions in conversation cannot change budget, permissions or the choice
+needs-key	memory12.test.mjs: a valid model answer is accepted, logged with its citations and input; unknown citations are refused
+needs-key	memory12.test.mjs: reliability is not a counter that only rises: a verified failure lowers it, age fades it toward the prior
+needs-key	memory12.test.mjs: every summary line carries sources the viewer can resolve, and an epistemic label
+needs-key	memory12.test.mjs: restart: the journal replays to the same state and decision; a torn last line is ignored
+needs-key	quantity-units.test.mjs: units: two deliveries of 49 (each possibly 49.x) do not prove a shortfall against 99
+needs-key	quantity-units.test.mjs: units: two deliveries of 40 prove a shortfall against 99 (40.x + 40.x < 82 <= 99)
+needs-key	quantity-units.test.mjs: units: a caravan that carried less than one unit (logged 0) is never read as "not sent"
+needs-key	quantity-units.test.mjs: units: a single delivery credited below the promise is partial (b + 1 <= qty), and rounding never makes it "not sent"
+needs-key	quantity-units.test.mjs: units: "late" needs the on-time part proven short; otherwise it stays undecided
+needs-key	quantity-units.test.mjs: units: a vault credit from 4's execution record carries the same margin
+needs-key	quantity-units.test.mjs: units: a delivery a full vault credited as 0 is "partial", never "not sent" (it was sent and settled)
+skipped	adapters-canonical.test.mjs: canonical 4 (real store): runexec's own SQLite reads to the same receipts as the vectors # SKIP set WS04_DB to a runexec demo db (tools/check-integration.sh --regen-ws04)
+exit=0

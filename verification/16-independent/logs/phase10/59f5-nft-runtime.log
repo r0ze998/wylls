@@ -1,0 +1,174 @@
+### nft-runtime HEAD 59f52eaf51935203b32b4310c207dc2da7b5f2d5 tree 78247f490f06908bc6284eaefb4c006efbaff139
+?? frontier-abi/tests/v16_period_boundary.rs
+?? frontier-node/crates/agents/tests/v16_owner_reveal_open.rs
+?? frontier-node/crates/findex/tests/v16_history_gaps.rs
+?? frontier-node/crates/herald/tests/v16_caravan_holder.rs
+?? frontier-node/crates/keeper/tests/v16_version_cap.rs
+?? frontier-node/crates/verify/tests/v16_cpi_keyfree.rs
+?? permutation-gateway/test/v16-agent-fate-view.test.mjs
+?? permutation-gateway/test/v16-public-ops.test.mjs
+?? permutation-gateway/test/v16-web-caravan-holder.test.mjs
+?? permutation-gateway/test/v16-web-reveal-not-before.test.mjs
+?? permutation-gateway/test/v16-web-wallet-switch-adopt.test.mjs
+?? workstreams/04-execution/e2e-native/tests/v16_prize_claim_rights.rs
+?? workstreams/04-execution/e2e-native/tests/v16_record_nation.rs
+   Compiling syn v2.0.119
+   Compiling generic-array v0.14.7
+   Compiling syn v3.0.6
+   Compiling subtle v2.6.1
+   Compiling const-oid v0.9.6
+   Compiling libc v0.2.189
+   Compiling serde_core v1.0.229
+   Compiling serde v1.0.229
+   Compiling borsh v1.6.1
+   Compiling getrandom v0.2.17
+   Compiling rand_core v0.6.4
+   Compiling five8_core v0.1.2
+   Compiling five8 v1.0.0
+   Compiling semver v1.0.28
+   Compiling serde_derive v1.0.229
+   Compiling bytemuck_derive v1.12.1
+   Compiling bytemuck v1.25.2
+   Compiling rustc_version v0.4.1
+   Compiling autocfg v1.5.1
+   Compiling curve25519-dalek v4.1.3
+   Compiling five8_const v1.0.0
+   Compiling solana-atomic-u64 v3.0.1
+   Compiling sha2-const-stable v0.1.0
+   Compiling solana-sanitize v3.0.1
+   Compiling num-traits v0.2.19
+   Compiling zerocopy v0.8.57
+   Compiling zeroize_derive v1.5.0
+   Compiling borsh-derive v1.6.1
+   Compiling curve25519-dalek-derive v0.1.1
+   Compiling zeroize v1.8.2
+   Compiling crypto-common v0.1.7
+   Compiling block-buffer v0.10.4
+   Compiling bincode v1.3.3
+   Compiling digest v0.10.7
+   Compiling sha2 v0.10.9
+   Compiling bs58 v0.5.1
+   Compiling solana-sdk-macro v3.0.1
+   Compiling solana-hash v4.6.0
+   Compiling solana-program-error v3.0.1
+   Compiling solana-sha256-hasher v3.1.0
+   Compiling solana-address v2.7.0
+   Compiling solana-instruction-error v2.5.0
+   Compiling num-integer v0.1.47
+   Compiling der v0.7.10
+   Compiling solana-sdk-ids v3.1.0
+   Compiling solana-pubkey v4.3.0
+   Compiling solana-sysvar-id v3.1.0
+   Compiling solana-get-sysvar v1.0.0
+   Compiling arrayvec v0.7.8
+   Compiling solana-instruction v4.0.0
+   Compiling num-bigint v0.4.8
+   Compiling once_cell v1.21.4
+   Compiling ppv-lite86 v0.2.21
+   Compiling spki v0.7.3
+   Compiling solana-instruction v3.5.1
+   Compiling enum-ordinalize-derive v4.4.2
+   Compiling rand_chacha v0.3.1
+   Compiling ff v0.13.1
+   Compiling shlex v2.0.1
+   Compiling rand v0.8.8
+   Compiling feature-probe v0.1.1
+   Compiling find-msvc-tools v0.1.13
+   Compiling base16ct v0.2.0
+   Compiling solana-program-memory v3.1.0
+   Compiling paste v1.0.15
+   Compiling solana-account-info v3.1.1
+   Compiling ark-std v0.5.0
+   Compiling sec1 v0.7.3
+   Compiling cc v1.4.7
+   Compiling enum-ordinalize v4.4.2
+   Compiling bv v0.11.1
+   Compiling group v0.13.0
+   Compiling pkcs8 v0.10.2
+   Compiling hmac v0.12.1
+   Compiling crypto-bigint v0.5.5
+   Compiling ark-serialize-derive v0.5.0
+   Compiling ahash v0.8.12
+   Compiling thiserror v2.0.20
+   Compiling log v0.4.34
+   Compiling either v1.18.0
+   Compiling blake3 v1.5.5
+   Compiling ark-ff-macros v0.5.0
+   Compiling itertools v0.13.0
+   Compiling elliptic-curve v0.13.8
+   Compiling solana-fee-calculator v3.3.0
+   Compiling ark-serialize v0.5.0
+   Compiling rfc6979 v0.4.0
+   Compiling educe v0.6.0
+   Compiling solana-clock v4.0.0
+   Compiling signature v2.2.0
+   Compiling ark-ff-asm v0.5.0
+   Compiling thiserror-impl v2.0.20
+   Compiling allocator-api2 v0.2.21
+   Compiling ecdsa v0.16.9
+   Compiling hashbrown v0.15.5
+   Compiling solana-clock v3.2.1
+   Compiling memoffset v0.9.1
+   Compiling keccak v0.1.6
+   Compiling solana-define-syscall v4.0.1
+   Compiling arrayref v0.3.9
+   Compiling constant_time_eq v0.3.1
+   Compiling ark-ff v0.5.0
+   Compiling solana-msg v3.1.0
+   Compiling solana-program-entrypoint v3.1.1
+   Compiling solana-system-interface v3.3.0
+   Compiling sha3 v0.10.9
+   Compiling solana-slot-history v3.2.0
+   Compiling solana-stake-history v1.1.0
+   Compiling k256 v0.13.4
+   Compiling solana-nonce v3.3.0
+   Compiling solana-last-restart-slot v3.2.0
+   Compiling solana-rent v4.4.0
+   Compiling solana-slot-hashes v3.2.0
+   Compiling solana-epoch-schedule v3.3.0
+   Compiling solana-epoch-rewards v3.2.0
+   Compiling solana-serialize-utils v3.1.2
+   Compiling lazy_static v1.5.0
+   Compiling bitflags v2.13.2
+   Compiling base64 v0.22.1
+   Compiling solana-instructions-sysvar v3.0.1
+   Compiling solana-sysvar v4.3.0
+   Compiling solana-secp256k1-recover v3.3.0
+   Compiling solana-example-mocks v4.0.0
+   Compiling solana-keccak-hasher v3.1.0
+   Compiling solana-cpi v3.1.0
+   Compiling solana-stable-layout v3.0.1
+   Compiling solana-big-mod-exp v3.0.0
+   Compiling solana-epoch-stake v3.0.1
+   Compiling solana-program-pack v3.1.0
+   Compiling permutation-rules v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v12-int/permutation-rules)
+   Compiling solana-borsh v3.0.2
+   Compiling solana-serde-varint v3.0.1
+   Compiling solana-native-token v3.0.0
+   Compiling solana-short-vec v3.3.0
+   Compiling solana-program-option v3.1.0
+   Compiling ark-poly v0.5.0
+   Compiling solana-blake3-hasher v3.1.0
+   Compiling solana-program v4.0.0
+   Compiling ark-ec v0.5.0
+   Compiling ark-bls12-381 v0.5.0
+   Compiling frontier-abi v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v12-int/frontier-abi)
+   Compiling permutation-frontier v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v12-int/permutation-frontier)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 32.35s
+     Running unittests src/lib.rs (/home/user/wylls/target/debug/deps/permutation_frontier-58902690ba682415)
+
+running 10 tests
+test resident_runtime_tests::a_new_owner_logs_in_to_a_new_world_and_the_old_owner_cannot ... ok
+test resident_runtime_tests::after_a_transfer_only_the_current_owner_acts_in_every_world ... ok
+test resident_runtime_tests::an_account_at_the_old_global_link_address_is_never_used ... ok
+test resident_runtime_tests::first_login_creates_one_citizen_and_logs_resident_joined ... ok
+test resident_runtime_tests::one_worlds_link_or_citizen_never_stands_for_another_worlds ... ok
+test resident_runtime_tests::only_the_current_owner_logs_in ... ok
+test resident_runtime_tests::the_frontier_session_and_the_wallet_paths_never_act_for_an_nft_citizen ... ok
+test resident_runtime_tests::the_same_nft_joins_a_new_world_with_its_own_citizen ... ok
+test resident_runtime_tests::transfer_and_buy_back_refuse_every_old_authority ... ok
+test resident_runtime_tests::unsigned_unguarded_and_substituted_accounts_are_refused ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 95 filtered out; finished in 0.02s
+
+exit=0
