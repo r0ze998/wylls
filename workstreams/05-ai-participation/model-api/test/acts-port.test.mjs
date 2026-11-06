@@ -124,3 +124,19 @@ test('S4 ③\'s status from the registry: never registered, unreadable and resul
     assert.deepEqual([q.registry, q.fate.state, q.next, q.connection], ['unreadable', 'unqueryable', 'read-again', 'real']);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('S5 with per-sender tokens, the autopilot refuses another sender\'s token before any model call (OtherSendersToken)', async () => {
+  const { checkAccess } = await import('../src/access-check.mjs');
+  const view = { agentId: 'agent1', owner: 'o1', mode: 'auto', modeEpoch: 3, policy: { version: 2, allowed: ['Train'] }, delegation: { delegated: true } };
+  const mcpWith = who => ({ tools: ['agent_view', 'agent_whoami'], async handle(req) {
+    const sc = req.params.name === 'agent_view' ? view : { ok: true, agentId: 'agent1', owner: 'o1', ...who };
+    return { result: { isError: false, structuredContent: sc } };
+  } });
+  const mandate = { agentId: 'agent1', allowed: ['Train'] };
+  const mine = await checkAccess(mcpWith({ capabilitySource: 'ai' }), { mandate });
+  assert.deepEqual([mine.ok, mine.tokenSource], [true, 'ai']);
+  assert.equal((await checkAccess(mcpWith({ capabilitySource: 'any' }), { mandate })).ok, true, 'the general token, as before');
+  assert.equal((await checkAccess(mcpWith({}), { mandate })).tokenSource, 'not reported (relay without per-sender tokens)');
+  const theirs = await checkAccess(mcpWith({ capabilitySource: 'mcp' }), { mandate });
+  assert.deepEqual([theirs.ok, theirs.code], [false, 'OtherSendersToken']);
+});

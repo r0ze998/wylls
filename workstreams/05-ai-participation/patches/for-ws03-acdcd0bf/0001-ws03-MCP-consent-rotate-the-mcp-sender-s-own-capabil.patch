@@ -1,0 +1,54 @@
+From ff0e20a5526d4511b3ede54b3c010c36ddfba7e4 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 6 Nov 2026 12:28:31 +0000
+Subject: [PATCH] ws03 MCP consent: rotate the mcp sender's own capability only
+ (workstream 04 AUTH-ROUTES A1)
+
+Proposal from workstream 05 (not applied by 05; with 05's gateway patch
+0005-sender-capabilities). The consent's rotate-capability command names
+params.source 'mcp', and the server accepts only such a command and only
+an mcp token back, so a consent no longer turns workstream 05's
+autopilot token (source ai) into BadCapability. Against a relay without
+per-sender tokens the command rotates the one token, as before.
+
+Not run here: workstream 03's tests make keys (owner signatures).
+---
+ workstreams/03-composability/mcp/src/auth.mjs | 4 ++++
+ workstreams/03-composability/mcp/src/http.mjs | 4 +++-
+ 2 files changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/workstreams/03-composability/mcp/src/auth.mjs b/workstreams/03-composability/mcp/src/auth.mjs
+index 1d607b28..82581bf3 100644
+--- a/workstreams/03-composability/mcp/src/auth.mjs
++++ b/workstreams/03-composability/mcp/src/auth.mjs
+@@ -214,8 +214,12 @@ export class Auth {
+     if (grant) {
+       const c = b.rotate?.command;
+       if (!c || c.op !== 'rotate-capability' || c.owner !== b.owner || c.agentId !== b.agentId) throw back('invalid_request', 'a caravan grant needs the owner\'s signed rotate-capability command for this agent');
++      // Only this sender's token (A1): a signed command for the general token would stop the owner's other senders.
++      if (c.params?.source !== 'mcp') throw back('invalid_request', 'the rotate-capability command must name source mcp');
+       const r = await this.game.ownerCommand({ command: c, signature: b.rotate.signature });
+       if (r.transport || r.status !== 200 || typeof r.json?.capability?.token !== 'string') throw back('access_denied', `the relay refused the owner's command (${r.json?.code ?? r.status ?? 'unreachable'})`);
++      // A relay with per-sender tokens says which it issued; an older relay (no `source`) rotates its one token, as before.
++      if (r.json.capability.source !== undefined && r.json.capability.source !== 'mcp') throw back('access_denied', `the relay issued a ${r.json.capability.source} token, not mcp`);
+       sealed = this.sealer.seal(r.json.capability.token);
+     }
+     const linkId = `lnk_${randomBytes(12).toString('base64url')}`;
+diff --git a/workstreams/03-composability/mcp/src/http.mjs b/workstreams/03-composability/mcp/src/http.mjs
+index cb129a31..7db1e671 100644
+--- a/workstreams/03-composability/mcp/src/http.mjs
++++ b/workstreams/03-composability/mcp/src/http.mjs
+@@ -161,7 +161,9 @@ export function createHandler({ auth, mcp, origins = [], log = () => {}, rateLim
+           const st = auth.statementOf(pending, { owner: request.owner, agentId: request.agentId, scopes, grant: stGrant, expiresAt });
+           const out = { request, statementB64: toBase64(linkStatement(st)) };
+           if (grant) {
+-            const command = { op: 'rotate-capability', owner: request.owner, agentId: request.agentId, nonce: randomBytes(12).toString('base64url'), expiresAt: auth.now() + 5 * 60_000, params: {} };
++            const command = { op: 'rotate-capability', owner: request.owner, agentId: request.agentId, nonce: randomBytes(12).toString('base64url'), expiresAt: auth.now() + 5 * 60_000, params: { source: 'mcp' } };
++            // params.source 'mcp' (workstream 04 AUTH-ROUTES A1): only this MCP sender's own token is replaced; the
++            // owner's other senders (workstream 05's autopilot, source 'ai') keep theirs.
+             out.rotate = { command, bytesB64: toBase64(commandBytes(command)) };
+           }
+           return send(res, 200, out);
+-- 
+2.43.0
+

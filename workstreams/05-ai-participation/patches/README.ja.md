@@ -87,3 +87,11 @@
 - `0001-ws04-acts-register-atomically-…patch`：④の `acts.rs` の `register` を、同じ新しいキーの同時の登録に対して1つの取引にする提案。⑤は当てていません。
 - 確かめたこと：⑤の手元で当てて試し、元に戻しました。詳しくは `model-api/ACTS-REAL-5.ja.md` §3。
 - ⑤の共有パッチ（`on-ws04-77c5cbe2/`）は、④の `95686606` にもそのまま当たります（`permutation-gateway` は 77c5cbe2 から変わっていない）。
+
+## ④ `8e96f24d` の上に当てる場合（2026-11-06）
+
+- `on-ws04-8e96f24d/` に、0002c → 0003 → 0004b → **0005**（送り手ごとの capability、④ AUTH-ROUTES A1 と、SendCaravan を作り直さないこと）の順で置きました。
+- 当てた後の `permutation-gateway` の木は `45ed645dd8a882b8e0783fb5242f03d7c9801db2` です。
+- `for-ws04-95686606/` の同時登録の修正案は、④が `b858e40d` として採用しました。
+- `for-ws03-acdcd0bf/` は③への提案です：同意の `rotate-capability` に `source: 'mcp'` を付けます。
+- 詳しくは `model-api/CONNECT-6.ja.md` §2。

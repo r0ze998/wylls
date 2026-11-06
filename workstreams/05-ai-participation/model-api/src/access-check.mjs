@@ -54,7 +54,12 @@ export class ProbeBudget {
  * @param {string|null} [o.owner]       the owner this autopilot works for (fixed at the first start)
  * @param {object|null} [o.probe]       {enabled: true, relayTree, budget: ProbeBudget, key?: () => requestId} — opt-in
  */
-export async function checkAccess(mcp, { mandate, owner = null, probe = null }) {
+/**
+ * @param {string} [o.sender]  the sender this autopilot acts as ('ai'). With per-sender tokens (shared patch 0005, ④
+ *                             AUTH-ROUTES A1), agent_whoami says whose token it is: another sender's (③'s 'mcp') is
+ *                             refused here, before any model call — it would be BadCapability at the first act.
+ */
+export async function checkAccess(mcp, { mandate, owner = null, probe = null, sender = 'ai' }) {
   const fail = (code, detail, extra = {}) => ({ ok: false, code, detail, ...extra });
   const v = (await tool(mcp, 'agent_view')).structuredContent;
   if (!v || v.error) return fail('ViewFailed', v?.error?.code ?? 'agent_view did not answer');
@@ -71,7 +76,9 @@ export async function checkAccess(mcp, { mandate, owner = null, probe = null }) 
     const w = (await tool(mcp, 'agent_whoami')).structuredContent;
     if (w?.error?.code === 'BadCapability') return fail('BadCapability', 'the relay does not take this token for this agent');
     if (!w || w.error || w.agentId !== v.agentId || w.owner !== v.owner) return fail('TokenUnverifiable', `agent_whoami answered ${w?.error?.code ?? 'another agent or owner'}`);
-    return { ok: true, ...base, method: 'agent_whoami (read-only)', sideEffects: 'none' };
+    const src = w.capabilitySource ?? null;
+    if (src !== null && src !== 'any' && src !== sender) return fail('OtherSendersToken', `this token is the ${src} sender's; this autopilot acts as ${sender}`);
+    return { ok: true, ...base, method: 'agent_whoami (read-only)', sideEffects: 'none', tokenSource: src ?? 'not reported (relay without per-sender tokens)' };
   }
 
   // 2. The quarantined probe, only where its guarantee was established.

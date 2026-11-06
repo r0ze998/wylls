@@ -51,3 +51,9 @@ rm -rf <作業用の一時フォルダ>/recv/repo/workstreams/04-execution/targe
 - 新しい取得はありません：ツールチェーン・crate・ネットワークのどれも使っていません。
 - 出力は一時フォルダの `target` の中だけです。`runexec` の sha256 は `0b5a13e73dbe6ea876028fecc073d219b6fc3d7433626e2d19ed3b69af0bbf11`（2回のビルドで同じ値）。
 - ④の提案パッチを確かめるために、同じ方法でもう一度ビルドし、`cargo test --offline --locked --test acts --test act_cli` を実行しました。その後、④の木に戻して、元のバイナリを作り直しました。
+
+## 6. 2026-11-06（2回目）：④ `8e96f24d` の `runexec`（取得なし）
+
+- ④の `Cargo.lock`・`Cargo.toml`・`rust-toolchain.toml` と、path で使う `permutation-rules`・`frontier-abi` は、95686606 と同じでした。
+- 同じ offline の方法でビルドしました。sha256 は `da8755f6f9aaa49d9bb3d178a0dc5cedb416798ea9728f8ae2a7c8ce1d8105e9` です。
+- 新しい取得はありません。
