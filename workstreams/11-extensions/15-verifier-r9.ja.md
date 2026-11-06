@@ -69,3 +69,10 @@
 | ResidentAct（0xE2。NFT の Citizen の操作を包む）の内側の命令の判定。今は UNVERIFIABLE なので、NFT の Citizen が操作した Season は PASS にならない | ⑳・⑱ |
 | 記録を含む NFT 版の Season の記録済み fixture（SBF の build と実行、または合成。どちらも署名を伴う） | ④・⑳（オーナーの承認が要る） |
 | ②を採用するときの、タグの ABI 表への追加と検査 | ②・④・⑱ |
+
+## 6. ⑱が見つけた穴と④の修正（2026-11-06、採用）
+
+- **穴（⑱が見つけた）。** 0009 の V0 は、CreateSeason の `program_version` だけを見て JoinResident を「判定の対象」とした。ところが V27 は `cx.s1` のときしか動かない。期間の終わりに Season が Closed の tombstone になり、V3 の ruleset も設定されていないと `s1` は false になる。すると V27 が動かず、JoinResident は判定されないまま PASS に数えられうる。
+- **④の修正。** `claude/gallant-ride-cunptv` の `6984acfa4c0f9919c8c424a9bd5f2d59193d1639` で、patch の SHA-256 は `dcf29ef185feb7d52542dc889806039255be059854031e18b5f46bd2f66707fd`。`judge_outside_v2` に `s1` を渡し、`s1` のときだけ判定の対象にする。そうでなければ UNVERIFIABLE `UnverifiedInstruction` にする。試験には `s1 = false` の場合を足した。
+- **⑪の判断。** この修正をそのまま採る。別の版は出さない。V27 を `s1` の外でも動かす案は採らない。理由: `s1` が false の Season では、ほかの S1 の検査（V23–V25）も動いていない。その Season で JoinResident だけを判定しても、全体は PASS にできない。UNVERIFIABLE とするのが正直。
+- **0009 との関係。** ⑪の 0009 は変えていない。④の候補では、0009 の後に 6984acfa を当てた状態が正になる。
