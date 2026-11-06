@@ -29,8 +29,9 @@ use frontier_abi::v2::Ix;
 
 use super::{ent, Ctx};
 use crate::codes::{
-    CUSTODY_HISTORY_BROKEN, CUSTODY_IN_PROGRAM_WITHOUT_IT, CUSTODY_LOT_BROKEN,
-    CUSTODY_OVER_CAPACITY, CUSTODY_RULE_UNDECIDED, CUSTODY_UNVERIFIED, CUSTODY_VAULT_COUNTS,
+    CUSTODY_HISTORY_BROKEN, CUSTODY_HISTORY_UNEXPLAINED, CUSTODY_IN_PROGRAM_WITHOUT_IT,
+    CUSTODY_LOT_BROKEN, CUSTODY_OVER_CAPACITY, CUSTODY_RULE_UNDECIDED, CUSTODY_UNVERIFIED,
+    CUSTODY_VAULT_COUNTS,
 };
 use crate::Severity;
 
@@ -640,6 +641,56 @@ pub fn lot_transition_findings(prev: &[u8], cur: &[u8]) -> Vec<String> {
             ));
         }
     }
+    // Order bookkeeping. `set_order` gives a new order the id NONCE and
+    // then moves NONCE on; so a new order's id lies in [old NONCE, new
+    // NONCE), and there are no more new orders than NONCE moved.
+    let new_orders: Vec<&K::Order> = b
+        .orders
+        .iter()
+        .zip(a.orders.iter())
+        .filter(|(y, x)| y.kind != K::ORDER_FREE && !(x.kind != K::ORDER_FREE && x.id == y.id))
+        .map(|(y, _)| y)
+        .collect();
+    for y in &new_orders {
+        if y.id < a.nonce || y.id >= b.nonce {
+            out.push(format!(
+                "a new order has id {} outside [{}, {})",
+                y.id, a.nonce, b.nonce
+            ));
+        }
+    }
+    if (new_orders.len() as u64) > (b.nonce as u64).saturating_sub(a.nonce as u64) {
+        out.push(format!(
+            "{} new orders but NONCE moved by {}",
+            new_orders.len(),
+            b.nonce.saturating_sub(a.nonce)
+        ));
+    }
+    // Only a use order's grantee consumes, from that order's remainder.
+    // With no order set in between (NONCE unchanged), what was consumed is
+    // at most what the use orders already there gave up (returns only
+    // lower CONSUMED, so the bound holds for the net change too).
+    if a.nonce == b.nonce {
+        let gave: i64 = a
+            .orders
+            .iter()
+            .zip(b.orders.iter())
+            .filter(|(x, _)| x.kind == K::ORDER_USE)
+            .map(|(x, y)| {
+                if y.kind == x.kind && y.id == x.id {
+                    (x.qty_left - y.qty_left).max(0)
+                } else {
+                    x.qty_left
+                }
+            })
+            .sum();
+        if b.consumed - a.consumed > gave {
+            out.push(format!(
+                "CONSUMED grew by {} with no new order; the use orders gave {gave}",
+                b.consumed - a.consumed
+            ));
+        }
+    }
     for x in a.inbound.iter().filter(|i| i.live) {
         if let Some(y) = b.inbound.iter().find(|y| y.is(x.caravan_tag, x.seq)) {
             if y.qty != x.qty {
@@ -653,6 +704,36 @@ pub fn lot_transition_findings(prev: &[u8], cur: &[u8]) -> Vec<String> {
     out
 }
 
+/// What the recorded change does not show the cause of, though no rule
+/// is broken: `IN_TOTAL` grew by more than the caravans expected before
+/// and gone after could deliver (a caravan delivers at most what it was
+/// expected with). The program may have begun and settled one between two
+/// records; without the instructions replayed this is UNVERIFIABLE, not a
+/// FAIL.
+pub fn lot_transition_unexplained(prev: &[u8], cur: &[u8]) -> Vec<String> {
+    use permutation_rules::frontier::custody as K;
+    let (Some(a), Some(b)) = (K::Lot::decode(prev), K::Lot::decode(cur)) else {
+        return vec![];
+    };
+    if a.state == K::LOT_NONE {
+        return vec![];
+    }
+    let settled: i64 = a
+        .inbound
+        .iter()
+        .filter(|x| x.live && !b.inbound.iter().any(|y| y.is(x.caravan_tag, x.seq)))
+        .map(|x| x.qty)
+        .sum();
+    let grew = b.in_total - a.in_total;
+    if grew > settled {
+        vec![format!(
+            "IN_TOTAL grew by {grew}; the caravans settled since could deliver {settled}"
+        )]
+    } else {
+        vec![]
+    }
+}
+
 /// `V26:custody-history`: every Lot account's recorded states, in
 /// transaction order (post-states), then the pinned slot, compared pairwise
 /// by [`lot_transition_findings`]. A FAIL names the transaction that
@@ -662,6 +743,7 @@ pub fn history(cx: &mut Ctx) {
     let program = w.program;
     let mut last: std::collections::BTreeMap<[u8; 32], Vec<u8>> = Default::default();
     let mut found: Vec<(String, Option<usize>, String)> = vec![];
+    let mut unexplained: Vec<(String, Option<usize>, String)> = vec![];
     let is_lot = |d: &[u8]| d.get(..8) == Some(&LT::MAGIC[..]);
     for (t, tx) in w.txs.iter().enumerate() {
         if !tx.ok {
@@ -677,6 +759,9 @@ pub fn history(cx: &mut Ctx) {
             if let Some(prev) = last.get(k) {
                 for what in lot_transition_findings(prev, &a.data) {
                     found.push((ent("account", k), Some(t), what));
+                }
+                for what in lot_transition_unexplained(prev, &a.data) {
+                    unexplained.push((ent("account", k), Some(t), what));
                 }
             }
             last.insert(*k, a.data.clone());
@@ -697,6 +782,17 @@ pub fn history(cx: &mut Ctx) {
                 }
             }
         }
+    }
+    for (entity, tx, what) in unexplained.into_iter().take(LISTED) {
+        unverifiable(
+            cx,
+            V,
+            CUSTODY_HISTORY_UNEXPLAINED,
+            entity,
+            u32::MAX,
+            tx,
+            what,
+        );
     }
     let n = found.len();
     for (i, (entity, tx, what)) in found.into_iter().enumerate() {
