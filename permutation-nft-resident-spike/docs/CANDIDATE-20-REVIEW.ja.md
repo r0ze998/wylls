@@ -17,7 +17,7 @@
 |---|---|---|
 | 認可の規則 | `frontier-abi/src/resident_auth.rs` | 署名者が「asset の今の Core owner」か「住民プログラムの session（現 owner が設定、現世代、期限内）」か。住民口座の世代＝命令に署名された世代でなければ `StaleGeneration`。asset は Core 所有・AssetV1・`Collection(x)`、住民口座は住民プログラム所有・133 byte・同じ asset |
 | 方針の記録 | `resident_policy.rs`、program の `create_policy` | Core・住民プログラム・collection を固定する書き込み一回の PDA。作れるのは program の upgrade authority だけ |
-| 一対一の記録 | `resident_binding.rs`（ABI と program） | `["nft-citizen-link", asset]` に {asset, resident, citizen} を一回だけ書く。Citizen の住所は `["nft-citizen", asset]`。`register_new` は Citizen がまだ無いうちに対応だけを先に作る |
+| 一対一の記録 | `resident_binding.rs`（ABI と program） | `["nft-citizen-link", asset]` に {asset, resident, citizen} を一回だけ書く。Citizen の住所は `["nft-citizen", asset]`。`register_new` は Citizen がまだ無いうちに対応だけを先に作る（**v0.15 で改めた**：Citizen は各 Season の `citizen_by_tag15(住民 ID)`、記録の `citizen` は最初の Citizen（履歴）で、照合は asset と住民だけ。1 NFT・1 アカウントは**各世界で**。SEASON-SCOPE §6） |
 | 試験用命令 | `resident_wire.rs`、`nft_registration.rs`、`proc/holding.rs` | 未割当の tag `0xff`（`nft-experimental` の build だけ）：CreatePolicy、Register、Harvest |
 | Join の記録案 | `resident_join_candidate.rs` | 旧 JOIN と別の固定長記録（214 B）。番号・版は未割当 |
 | 索引 | `findex` | 読めない記録・欠落で止める（以前は黙って飛ばした）。古い索引は使わない |

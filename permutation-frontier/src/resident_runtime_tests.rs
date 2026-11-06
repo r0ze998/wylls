@@ -356,7 +356,7 @@ impl World {
             ),
             link: info(
                 leak(
-                    pda(&[b"nft-citizen-link", &season, &ASSET], &PROGRAM),
+                    pda(&[b"nft-citizen-link", &ASSET], &PROGRAM),
                     SYSTEM,
                     vec![],
                     frontier_abi::resident_binding::LEN,
@@ -390,20 +390,6 @@ impl World {
             system: info(leak(SYSTEM, [0; 32], vec![], 0, 1), false, false),
             generation: 0,
         }
-    }
-
-    /// Another world (Season `season_id`) of the same program: its own
-    /// Season, Frontier, link and Citizen; the same policy, NFT, resident
-    /// record and payer (the accounts are shared, so a transfer is seen in
-    /// every world, as on chain).
-    fn next_world(&self, season_id: u64) -> World {
-        let mut w = World::new(season_id);
-        w.config = self.config.clone();
-        w.asset = self.asset.clone();
-        w.resident = self.resident.clone();
-        w.payer = self.payer.clone();
-        w.generation = self.generation;
-        w
     }
 
     /// TransferResident as the resident program leaves it: the asset's
@@ -478,17 +464,11 @@ fn readonly(a: &AccountInfo<'static>) -> AccountInfo<'static> {
     r
 }
 
-/// A refusal as `InvalidAccountData` (not a custom code): the address and
-/// link checks of `resident_binding` answer so.
-const INVALID_ACCOUNT_DATA: u32 = u32::MAX;
-
-/// The program's custom error code of a result (`INVALID_ACCOUNT_DATA` for
-/// that one non-custom refusal).
+/// The program's custom error code of a result.
 fn run(accounts: &[AccountInfo<'static>], data: &[u8]) -> Result<(), u32> {
     crate::dispatch(&Pubkey::new_from_array(PROGRAM), accounts, data).map_err(|e| {
         match ProgramError::from(e) {
             ProgramError::Custom(c) => c,
-            ProgramError::InvalidAccountData => INVALID_ACCOUNT_DATA,
             other => panic!("not a program error code: {other:?}"),
         }
     })
@@ -537,6 +517,11 @@ fn first_login_creates_one_citizen_and_logs_resident_joined() {
     let w = World::new(7);
     assert_eq!(w.join(A, 0), Ok(()));
     // The Citizen: at citizen_by_tag15(resident id), marked, zero wallet.
+    assert_eq!(w.season_ai.key.to_bytes(), w.season);
+    assert_eq!(
+        w.citizen.key.to_bytes(),
+        w.ctx.citizen_by_tag15(&rc::resident_tag15(&ASSET))
+    );
     let cd = w.citizen.try_borrow_data().unwrap().to_vec();
     assert_eq!(*w.citizen.owner, Pubkey::new_from_array(PROGRAM));
     assert_eq!(rc::resident_asset(&cd), Some(ASSET));
@@ -644,147 +629,137 @@ fn unsigned_unguarded_and_substituted_accounts_are_refused() {
     assert_eq!(w.vigil(A, true, 0), Ok(()));
 }
 
+/// A later Season of the same program, sharing this world's global
+/// accounts (policy, link, asset, resident record): the NFT and its one
+/// account are the same; only the Season (and so the Citizen's address) is
+/// new.
+fn later_season(first: &World, season_id: u64) -> World {
+    let mut w = World::new(season_id);
+    w.config = first.config.clone();
+    w.link = first.link.clone();
+    w.asset = first.asset.clone();
+    w.resident = first.resident.clone();
+    w.generation = first.generation;
+    w
+}
+
 #[test]
-fn the_same_nft_joins_a_new_world_with_its_own_citizen() {
-    // U45 (owner's decision 2026-11-06): the same pass joins a rebuilt world.
-    // Nothing carries over (U11 undecided): the new world's Citizen is new,
-    // and the first world's Citizen and link are left as they were.
+fn the_same_nft_joins_a_later_season_with_its_one_link() {
+    // 2026-11-06 candidate for U45: the link binds the asset to its resident
+    // account for every Season; the Citizen it names is the first (history).
     let _g = begin();
     let w1 = World::new(7);
     assert_eq!(w1.join(A, 0), Ok(()));
-    let first = w1.citizen.try_borrow_data().unwrap().to_vec();
-    let first_link = w1.link.try_borrow_data().unwrap().to_vec();
-    let w2 = w1.next_world(8);
-    assert_ne!(w1.citizen.key, w2.citizen.key, "a Citizen per world");
-    assert_ne!(w1.link.key, w2.link.key, "a link per world");
-    records();
-    assert_eq!(w2.join(A, 0), Ok(()), "the same NFT joins world 8");
-    // World 8's link names world 8's Citizen; world 7 is untouched.
-    let l2 = frontier_abi::resident_binding::read(&w2.link.try_borrow_data().unwrap()).unwrap();
-    assert_eq!(l2.citizen, w2.citizen.key.to_bytes());
-    assert_eq!(l2.asset, ASSET);
-    assert_eq!(w1.citizen.try_borrow_data().unwrap().to_vec(), first);
-    assert_eq!(w1.link.try_borrow_data().unwrap().to_vec(), first_link);
-    // A fresh Citizen: the resident fields set, nothing copied from world 7
-    // (its join bell is world 8's, its own chain starts at 0).
-    let c2 = w2.citizen.try_borrow_data().unwrap().to_vec();
-    assert_eq!(rc::resident_asset(&c2), Some(ASSET));
-    let sid = u64::from_le_bytes(
-        c2[crate::layout::header::SEASON_ID..crate::layout::header::SEASON_ID + 8]
-            .try_into()
-            .unwrap(),
-    );
-    assert_eq!(sid, 8, "world 8's own Citizen");
-    // One RESIDENT_JOINED, in world 8.
-    assert_eq!(records().len(), 1);
-    // Still one NFT, one Citizen in each world.
+    let link_before = w1.link.try_borrow_data().unwrap().to_vec();
+    let w2 = later_season(&w1, 8);
+    assert_ne!(w1.citizen.key, w2.citizen.key, "per-Season Citizen address");
+    assert_eq!(w2.join(A, 0), Ok(()), "the same NFT joins Season 8");
+    // One link, unchanged: it still names Season 7's Citizen as the first.
+    assert_eq!(w1.link.try_borrow_data().unwrap().to_vec(), link_before);
+    let link = frontier_abi::resident_binding::read(&link_before).unwrap();
+    assert_eq!(link.citizen, w1.citizen.key.to_bytes());
+    // Season 8's Citizen is this asset's, under the same resident id.
+    let cd = w2.citizen.try_borrow_data().unwrap().to_vec();
+    assert_eq!(rc::resident_asset(&cd), Some(ASSET));
+    assert_eq!(rc::record_tag15(&cd), Some(rc::resident_tag15(&ASSET)));
+    // Still one Citizen per NFT per Season.
     assert_eq!(w2.join(A, 0), Err(crate::FrontierError::AlreadyDone as u32));
     assert_eq!(w1.join(A, 0), Err(crate::FrontierError::AlreadyDone as u32));
-}
-
-#[test]
-fn after_a_transfer_only_the_current_owner_acts_in_every_world() {
-    let _g = begin();
-    let mut w1 = World::new(7);
-    assert_eq!(w1.join(A, 0), Ok(()));
-    let mut w2 = w1.next_world(8);
-    assert_eq!(w2.join(A, 0), Ok(()));
+    // The owner acts in both Seasons through the same link.
     assert_eq!(w1.vigil(A, true, 0), Ok(()));
     assert_eq!(w2.vigil(A, true, 0), Ok(()));
-    // A → B: one transfer of the one NFT, seen by both worlds.
-    w1.transfer(&B, None);
-    w2.generation = w1.generation;
-    at_day(10);
-    for w in [&w1, &w2] {
-        assert_eq!(w.vigil(A, true, 0), Err(STALE), "A's old signature");
-        assert_eq!(w.vigil(A, true, 1), Err(NOT_CURRENT), "A, fresh signature");
-        assert_eq!(w.vigil(B, true, 1), Ok(()), "B acts at once in every world");
-    }
-    // B → A (generation 2): B and its old signatures are refused everywhere.
-    w1.transfer(&A, None);
-    w2.generation = w1.generation;
-    at_day(20);
-    for w in [&w1, &w2] {
-        assert_eq!(w.vigil(B, true, 1), Err(STALE));
-        assert_eq!(w.vigil(B, true, 2), Err(NOT_CURRENT));
-        assert_eq!(
-            w.vigil(A, true, 0),
-            Err(STALE),
-            "A's first-ownership signature"
-        );
-        assert_eq!(w.vigil(A, true, 2), Ok(()));
-    }
-}
-
-#[test]
-fn a_new_owner_logs_in_to_a_new_world_and_the_old_owner_cannot() {
-    let _g = begin();
-    let mut w1 = World::new(7);
-    assert_eq!(w1.join(A, 0), Ok(()));
-    w1.transfer(&B, None);
-    let w2 = w1.next_world(8);
-    assert_eq!(w2.join(A, 0), Err(STALE));
-    assert_eq!(w2.join(A, 1), Err(NOT_CURRENT));
-    assert_eq!(
-        w2.join(B, 1),
-        Ok(()),
-        "the current owner's first login in world 8"
-    );
-}
-
-#[test]
-fn one_worlds_link_or_citizen_never_stands_for_another_worlds() {
-    let _g = begin();
-    let w1 = World::new(7);
-    assert_eq!(w1.join(A, 0), Ok(()));
-    let w2 = w1.next_world(8);
-    assert_eq!(w2.join(A, 0), Ok(()));
-    // ResidentAct in world 8 naming world 7's link: refused.
+    // The Seasons are not mixed: Season 7's Citizen in Season 8 is refused.
     let mut a = vec![
-        w2.actor(A, true),
-        w2.payer.clone(),
-        w2.season_ai.clone(),
-        w2.citizen.clone(),
-    ];
-    a.extend([
-        w2.config.clone(),
-        readonly(&w1.link),
-        w2.asset.clone(),
-        w2.resident.clone(),
-    ]);
-    let mut d = vec![wire::RESIDENT_ACT];
-    d.extend_from_slice(&0u32.to_le_bytes());
-    d.push(frontier_abi::v2::Ix::SetVigil.tag());
-    d.extend_from_slice(&600u16.to_le_bytes());
-    assert_eq!(run(&a, &d), Err(INVALID_ACCOUNT_DATA));
-    // World 7's Citizen in world 8 (its address is not world 8's): refused.
-    let mut b = vec![
         w2.actor(A, true),
         w2.payer.clone(),
         w2.season_ai.clone(),
         w1.citizen.clone(),
     ];
-    b.extend(w2.proof());
-    assert!(run(&b, &d).is_err());
-    // A JoinResident in world 8 naming world 7's link: refused (wrong address).
-    let mut j = vec![
-        w2.actor(A, true),
-        w2.payer.clone(),
-        w2.season_ai.clone(),
-        w2.frontier.clone(),
-        w2.citizen.clone(),
-        w2.system.clone(),
-        w2.config.clone(),
-        w1.link.clone(),
-        w2.asset.clone(),
-        w2.resident.clone(),
-    ];
-    j.shrink_to_fit();
-    let mut jd = vec![wire::JOIN_RESIDENT];
-    jd.extend_from_slice(&0u32.to_le_bytes());
-    jd.push(2);
-    assert_eq!(run(&j, &jd), Err(crate::FrontierError::BadAddress as u32));
-    let _ = (w1.ctx, w2.season, bad_account());
+    a.extend(w2.proof());
+    let mut d = vec![wire::RESIDENT_ACT];
+    d.extend_from_slice(&0u32.to_le_bytes());
+    d.push(frontier_abi::v2::Ix::SetVigil.tag());
+    d.extend_from_slice(&600u16.to_le_bytes());
+    assert_eq!(
+        crate::dispatch(&Pubkey::new_from_array(PROGRAM), &a, &d).map_err(ProgramError::from),
+        Err(ProgramError::InvalidAccountData),
+        "another Season's Citizen is refused"
+    );
+}
+
+#[test]
+fn a_transfer_moves_the_one_account_in_every_season_at_once() {
+    let _g = begin();
+    let mut w1 = World::new(7);
+    assert_eq!(w1.join(A, 0), Ok(()));
+    let w2 = later_season(&w1, 8);
+    assert_eq!(w2.join(A, 0), Ok(()));
+    // A → B (generation 1): the resident record is global, so both Seasons
+    // follow it at once.
+    w1.transfer(&B, None);
+    at_day(10);
+    for w in [&w1, &w2] {
+        assert_eq!(w.vigil(A, true, 0), Err(STALE));
+        assert_eq!(w.vigil(A, true, 1), Err(NOT_CURRENT));
+        assert_eq!(w.vigil(B, true, 1), Ok(()));
+    }
+    // A new Season after the transfer: only the current owner joins.
+    let w3 = later_season(&w1, 9);
+    assert_eq!(w3.join(A, 1), Err(NOT_CURRENT));
+    assert_eq!(w3.join(A, 0), Err(STALE));
+    assert_eq!(w3.join(B, 1), Ok(()));
+    assert_eq!(w3.vigil(B, true, 1), Ok(()));
+}
+
+#[test]
+fn a_later_season_refuses_a_link_of_another_asset_or_resident() {
+    let _g = begin();
+    let w1 = World::new(7);
+    assert_eq!(w1.join(A, 0), Ok(()));
+    let w2 = later_season(&w1, 8);
+    let keep = w1.link.try_borrow_data().unwrap().to_vec();
+    // The link's resident (bytes 40..72) altered: not this account's link.
+    w1.link.try_borrow_mut_data().unwrap()[40] ^= 1;
+    assert_eq!(w2.join(A, 0), Err(bad_account()));
+    w1.link
+        .try_borrow_mut_data()
+        .unwrap()
+        .copy_from_slice(&keep);
+    // The link's asset (bytes 8..40) altered.
+    w1.link.try_borrow_mut_data().unwrap()[8] ^= 1;
+    assert_eq!(w2.join(A, 0), Err(bad_account()));
+    w1.link
+        .try_borrow_mut_data()
+        .unwrap()
+        .copy_from_slice(&keep);
+    // Restored, it joins; the link is still write-once.
+    assert_eq!(w2.join(A, 0), Ok(()));
+    assert_eq!(w1.link.try_borrow_data().unwrap().to_vec(), keep);
+}
+
+#[test]
+fn a_citizen_without_this_assets_mark_is_refused() {
+    // The link no longer names the Season's Citizen, so the Citizen's own
+    // resident mark (the asset) carries that check (proc::resident::check).
+    let _g = begin();
+    let w1 = World::new(7);
+    assert_eq!(w1.join(A, 0), Ok(()));
+    let w2 = later_season(&w1, 8);
+    assert_eq!(w2.join(A, 0), Ok(()));
+    let keep = w2.citizen.try_borrow_data().unwrap().to_vec();
+    let mut other = keep.clone();
+    assert!(rc::mark(&mut other, &[0x6b; 32]));
+    assert_ne!([0x6b; 32], ASSET);
+    w2.citizen
+        .try_borrow_mut_data()
+        .unwrap()
+        .copy_from_slice(&other);
+    assert_eq!(w2.vigil(A, true, 0), Err(bad_account()));
+    w2.citizen
+        .try_borrow_mut_data()
+        .unwrap()
+        .copy_from_slice(&keep);
+    assert_eq!(w2.vigil(A, true, 0), Ok(()));
 }
 
 #[test]

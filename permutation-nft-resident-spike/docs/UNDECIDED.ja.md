@@ -48,5 +48,5 @@
 | U42 | relay・agent wallet・client・web が NFT Citizen の `Act`・`Join` を組み、中継するか（今は `0xff` を知らない） | 未接続（NFT-ACCOUNT-WIRING §3） | ④・⑦ |
 | U43 | NFT の Join でも、season の join gate（招待・有料の参加）を求めるか | 財布の Join と同じく求める（仮） | 所有者・⑰ |
 | U44 | herald の `/h/me/{key}` を NFT 住民では Core の asset で引く（財布の Citizen が先）。web の画面が asset と財布のどちらで引くか、asset を公開の識別に使ってよいか | herald は asset で引けるようにした（仮）。画面側は未接続 | ⑦・所有者 |
-| U45 | 新しい Season で同じ NFT をどう扱うか | **所有者が決定（2026-11-06）**：同じパスで新しい世界に参加できる。link を Season ごとにした（v0.15、SEASON-SCOPE §6）。資産・履歴の引き継ぎは U11 のまま未決。AccountKind 32 の意味は ④ に照合中 | 所有者（決定）・④（照合） |
+| U45 | 新しい Season で同じ NFT をどう扱うか | **所有者が決定（2026-11-06）**：同じパスで新しい世界に参加できる。④ の案を採用（link は 1 NFT に 1 つのまま、世界ごとの Citizen は住所・世界・印で確認。SEASON-SCOPE §6）。資産・履歴の引き継ぎは U11 のまま未決。複数の世界が同時に動くときの扱い（売買で各世界の持ち物が一緒に移る）も未決 | 所有者（決定）・④ |
 | U46 | NFT 住民の操作の予算（CU・読み込み量の上乗せ）。今の 40,000・4,096 は仮で、SBF での実測が要る | 未実測 | ④ |

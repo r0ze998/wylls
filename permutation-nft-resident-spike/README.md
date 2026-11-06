@@ -2,7 +2,7 @@
 
 **状態（2026-11-06、v0.15）**：ローカルのみ（模擬チェーン、LiteSVM、ループバック validator）。公開発行・devnet／mainnet・実資金・新しい鍵は無し。価格・無料／有料・供給数・公開発行・ロイヤリティは未決（`docs/UNDECIDED.ja.md`）。Metaplex Core は**試作の選定方式**で、本線採用は未決。継続世界は決定済み。依存パッケージ無し（Node 20+ の標準モジュールだけ。`test-gateway/` だけは `permutation-gateway` の依存を使う）。v0.8 で担当ブランチへ通常 push（根拠は `docs/PUSH-AUDIT.ja.md`）。merge・deploy はしていない。
 
-**v0.15 の変更**：同じ NFT パスで新しい世界にも参加できるよう、link を Season ごとにした（所有者の決定、U45）。各世界で 1 NFT・1 Citizen と、譲渡後は今の持ち主だけが操作できることは変わらない。資産・履歴の引き継ぎは未決のまま（何も移さない）。`docs/SEASON-SCOPE.ja.md` §6。
+**v0.15 の変更**：同じ NFT パスで新しい世界にも参加できるようにした（所有者の決定、U45）。④ の案を採用：link は 1 NFT に 1 つで一度だけ書くまま、世界ごとの Citizen は住所・世界・印で確かめる。各世界で 1 NFT・1 Citizen と、譲渡後は今の持ち主だけが操作できることは変わらない。資産・履歴の引き継ぎは未決のまま（何も移さない）。`docs/SEASON-SCOPE.ja.md` §6。
 
 **v0.14 の変更**：本番の NFT パスを公開するまでの見積もり（`docs/PRODUCTION-PASS-ESTIMATE.ja.md`、すべて推測）。住民プログラムの `InitConfig` を upgrade authority だけに限った（配備直後の乗っ取りを防ぐ。SBF の再 build は未実施）。
 

@@ -9,7 +9,6 @@
 //   ResidentAct   <the inner player instruction's accounts> [policy] [link] [asset] [resident]
 //                 data: 0xE2 ‖ generation u32 ‖ <the inner instruction's data>
 //
-// One link and one NFT Citizen per season: the same pass joins every world.
 // The NFT Citizen sits where a wallet Citizen would, keyed by the resident ID
 // `sha256("PSF-RES" ‖ asset)[0..15]` instead of the wallet's tag. The
 // `generation` is the resident program's holder generation the owner (or
@@ -56,14 +55,14 @@ export const residentTag15 = asset => sha256(utf8('PSF-RES'), pubkeyBytes(asset)
 export const residentCitizen = (addresses, asset) => withSeed(addresses.season, seed(SEED_TAGS.Citizen, residentTag15(asset)), addresses.programId);
 /** The Frontier program's resident policy (global). */
 export const policyAddress = programId => findProgramAddress([utf8('nft-resident-policy')], programId)[0];
-/** The link of `asset` in the season `season` (one per season and NFT: the same pass joins every world; SEASON-SCOPE.ja.md). */
-export const linkAddress = (programId, season, asset) => findProgramAddress([utf8('nft-citizen-link'), pubkeyBytes(season), pubkeyBytes(asset)], programId)[0];
+/** The link of `asset` (global per asset; it records the first season's Citizen — SEASON-SCOPE.ja.md). */
+export const linkAddress = (programId, asset) => findProgramAddress([utf8('nft-citizen-link'), pubkeyBytes(asset)], programId)[0];
 /** The resident program's record of `asset`. */
 export const residentAddress = (residentProgram, asset) => findProgramAddress([utf8('resident'), pubkeyBytes(asset)], residentProgram)[0];
-/** The four proof accounts every ResidentAct and JoinResident names (in the season `season`). */
-export const proofAccounts = ({ programId, season, residentProgram, asset }) => ({
+/** The four proof accounts every ResidentAct and JoinResident names. */
+export const proofAccounts = ({ programId, residentProgram, asset }) => ({
   policy: policyAddress(programId),
-  link: linkAddress(programId, season, asset),
+  link: linkAddress(programId, asset),
   asset: typeof asset === 'string' ? asset : null,
   resident: residentAddress(residentProgram, asset),
 });

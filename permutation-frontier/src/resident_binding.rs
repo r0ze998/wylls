@@ -6,11 +6,13 @@
 //! world configuration, `now` from the runtime clock, and `generation` from
 //! signed instruction data, never untrusted substitutions. The configuration
 //! account creation helper below has not been exercised in a runtime test.
-//! The policy is global to this Frontier program. The link is per Season
-//! (`["nft-citizen-link", season, asset]`) and the NFT Citizen is per
-//! Season, at `citizen_by_tag15(resident id)`: one NFT, one Citizen in each
-//! world, the same pass in every world. The holder's authority (Core owner,
-//! resident generation and session) is global and read on every instruction.
+//! The link and the policy are global to this Frontier program; the NFT
+//! Citizen is per Season, at `citizen_by_tag15(resident id)`. The link binds
+//! the asset to its resident account once, for every Season; the Citizen it
+//! names is the first one (history). A Season's NFT Citizen is checked by its
+//! canonical address, its presence in that Season and its own resident mark
+//! (the asset), not by the link's first Citizen — so the same NFT can join a
+//! later Season (2026-11-06 candidate, workstream 04 for 20's U45).
 
 use frontier_abi::{resident_auth, resident_binding, resident_policy};
 use solana_program::{account_info::AccountInfo, program_error::ProgramError, pubkey::Pubkey};
@@ -86,11 +88,7 @@ fn canonical(
     asset: &Pubkey,
     season: &Pubkey,
 ) -> (Pubkey, Pubkey, Pubkey) {
-    // One link per (Season, NFT): the same NFT pass joins every world of
-    // this program, each time with that world's own Citizen (U45, owner's
-    // decision 2026-11-06). Nothing carries over between Seasons (U11).
-    let link =
-        Pubkey::find_program_address(&[LINK_SEED, season.as_ref(), asset.as_ref()], program).0;
+    let link = Pubkey::find_program_address(&[LINK_SEED, asset.as_ref()], program).0;
     // The NFT Citizen lives where a wallet Citizen would, keyed by the
     // resident id instead of the wallet tag (ABI allocation §5).
     let tag15 = frontier_abi::resident_citizen::resident_tag15(&asset.to_bytes());
@@ -195,14 +193,12 @@ pub fn authorize(
     )?;
     let data = link.try_borrow_data()?;
     let record = resident_binding::read(&data).ok_or(ProgramError::InvalidAccountData)?;
-    if !resident_binding::matches(
-        &record,
-        asset.key.as_array(),
-        resident.key.as_array(),
-        citizen.key.as_array(),
-    ) {
+    if !resident_binding::same_identity(&record, asset.key.as_array(), resident.key.as_array()) {
         return Err(ProgramError::InvalidAccountData);
     }
+    // This Season's Citizen is checked by its canonical address and its
+    // presence in this Season (`check_addresses`), and its resident mark (the
+    // asset) by the caller (`proc::resident::check`).
     check_actor(
         &policy,
         asset,
@@ -219,10 +215,12 @@ pub fn authorize(
 /// `citizen_by_tag15(resident id)`) and the resident at the asset's canonical
 /// addresses, the Citizen absent, and the actor the asset's current owner (no
 /// session) at the signed generation with the transfer guard in place, create
-/// the link if it is absent; an existing link must name exactly this asset,
-/// resident and Citizen. The caller creates and writes the Citizen. One NFT
-/// has one link and one Citizen address per Season, so a second Join of the
-/// same NFT finds the Citizen present and is refused.
+/// the link if it is absent (recording this Citizen as the first); an
+/// existing link must bind exactly this asset and resident — the Citizen it
+/// recorded first, in another Season, is history and not compared. The
+/// caller creates and writes the Citizen. One NFT has one link and one
+/// Citizen address per Season, so a second Join of the same NFT in the same
+/// Season finds the Citizen present and is refused.
 #[cfg(feature = "nft-experimental")]
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn join_accounts<'a>(
@@ -264,7 +262,7 @@ pub(crate) fn join_accounts<'a>(
         crate::init::init_nft_pda(
             payer,
             link,
-            &[LINK_SEED, season.as_ref(), asset.key.as_ref()],
+            &[LINK_SEED, asset.key.as_ref()],
             resident_binding::LEN,
             program,
         )?;
@@ -279,7 +277,11 @@ pub(crate) fn join_accounts<'a>(
         }
         let data = link.try_borrow_data()?;
         match resident_binding::read(&data) {
-            Some(found) if found == record => Ok(()),
+            Some(found)
+                if resident_binding::same_identity(&found, &record.asset, &record.resident) =>
+            {
+                Ok(())
+            }
             _ => Err(crate::error::BAD_ACCOUNT),
         }
     }
