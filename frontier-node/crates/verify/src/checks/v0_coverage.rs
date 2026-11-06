@@ -17,6 +17,18 @@
 //!   `Unverifiable` (`UnknownProgramVersion`): the checks choose their
 //!   rules by version, and a later version must not borrow S1's.
 //!
+//! - ⑪ r9: workstream 20's `nft-experimental` program
+//!   ([`PROGRAM_VERSION_NFT_S1`], S1's rules plus the resident tags
+//!   0xE0–0xE7) is a known version. In its seasons JoinResident (0xE1) is
+//!   judged (V27, with ⑳'s V9 and facts); CreateResidentPolicy and
+//!   ResidentAct decode but are `UnverifiedInstruction`. Elsewhere, and for
+//!   every tag workstream 4 allocated to a workstream (see
+//!   [`allocated_band`]) that a known program version does not run, the
+//!   FAIL names the band: a known program refuses it. Under a program
+//!   version this verifier does not know, an allocated tag is
+//!   `UnverifiedInstruction` instead (that program may run it, e.g. ②'s
+//!   Grant), never a PASS and not a forgery claim.
+//!
 //! Failed transactions changed nothing and are not judged here.
 
 use frontier_abi::v2::ix::data_len_range;
@@ -31,6 +43,79 @@ const V: &str = "V0";
 /// Program versions whose rules this verifier implements (M1 1–2, the
 /// conquest program 3, S1 4).
 pub const KNOWN_PROGRAM_VERSIONS: std::ops::RangeInclusive<u16> = 1..=PROGRAM_VERSION_S1;
+
+/// Workstream 20's `nft-experimental` build (`permutation-frontier`
+/// `PROGRAM_VERSION`; provisional, workstream 4 fixes the integrated value).
+pub const PROGRAM_VERSION_NFT_S1: u16 = 0x8000 | PROGRAM_VERSION_S1;
+
+/// Whether this verifier implements `pv`'s rules.
+pub fn known_version(pv: u16) -> bool {
+    KNOWN_PROGRAM_VERSIONS.contains(&pv) || pv == PROGRAM_VERSION_NFT_S1
+}
+
+/// The workstream a tag outside ABI v2 is allocated to (workstream 4's
+/// `ABI-ALLOCATION-20261106`, provisional).
+pub fn allocated_band(tag: u8) -> Option<&'static str> {
+    Some(match tag {
+        0xC1 => "workstream 8 (ExtendFrontier)",
+        0xC2..=0xCC => "workstream 10 (lots)",
+        0xD0..=0xD5 => "workstream 2 (Grant)",
+        0xE0..=0xE7 => "workstream 20 (NFT residents)",
+        0xE8..=0xED => "workstream 11 (extensions)",
+        0xF0..=0xFD => "workstream 9 (capacity pools)",
+        _ => return None,
+    })
+}
+
+/// V0's judgement of a tag outside ABI v2 under program version `pv`:
+/// `None` when a check models it (JoinResident in an NFT season), else the
+/// severity, code and detail.
+pub fn judge_outside_v2(
+    tag: u8,
+    data: &[u8],
+    pv: Option<u16>,
+) -> Option<(crate::Severity, &'static str, String)> {
+    use crate::Severity::{Fail, Unverifiable};
+    use frontier_abi::resident_wire::{self as rw, Command};
+    let nft = pv == Some(PROGRAM_VERSION_NFT_S1);
+    if nft && rw::is_resident_tag(tag) {
+        return match rw::decode(data) {
+            None => Some((
+                Fail,
+                UNDECODABLE,
+                format!("resident tag 0x{tag:02x} with {} bytes does not decode", data.len()),
+            )),
+            Some(Command::Join { .. }) => None,
+            Some(_) => Some((
+                Unverifiable,
+                UNVERIFIED_INSTRUCTION,
+                format!("resident instruction 0x{tag:02x} succeeded, and no check of this verifier models it"),
+            )),
+        };
+    }
+    let Some(band) = allocated_band(tag) else {
+        return Some((
+            Fail,
+            UNKNOWN_INSTRUCTION,
+            format!("tag 0x{tag:02x}, not in ABI v2, succeeded"),
+        ));
+    };
+    match pv {
+        Some(v) if !known_version(v) => Some((
+            Unverifiable,
+            UNVERIFIED_INSTRUCTION,
+            format!("tag 0x{tag:02x} is allocated to {band}; program version {v} may run it, and no check of this verifier models it"),
+        )),
+        _ => Some((
+            Fail,
+            UNKNOWN_INSTRUCTION,
+            format!(
+                "tag 0x{tag:02x} is allocated to {band}, and program version {} does not run it, yet it succeeded",
+                pv.map_or("(unknown)".into(), |v| v.to_string())
+            ),
+        )),
+    }
+}
 
 /// Whether the checks model `ix` for a season of this kind (`v3`: the
 /// conquest rules apply; `s1`: S1's). M1's instructions are modelled by
@@ -61,7 +146,7 @@ pub fn run(cx: &mut Ctx) {
     // The version CreateSeason named (the Season account may be a Closed
     // tombstone by the end; V2 ties the two together).
     if let Some(pv) = cx.f.params.as_ref().map(|p| p.program_version) {
-        if !KNOWN_PROGRAM_VERSIONS.contains(&pv) {
+        if !known_version(pv) {
             cx.unverifiable(
                 V,
                 UNKNOWN_PROGRAM_VERSION,
@@ -69,7 +154,7 @@ pub fn run(cx: &mut Ctx) {
                 0,
                 None,
                 format!(
-                    "program_version {pv} is not one this verifier implements ({KNOWN_PROGRAM_VERSIONS:?})"
+                    "program_version {pv} is not one this verifier implements ({KNOWN_PROGRAM_VERSIONS:?}, {PROGRAM_VERSION_NFT_S1:#06x})"
                 ),
             );
         }
@@ -94,17 +179,14 @@ pub fn run(cx: &mut Ctx) {
                 continue;
             };
             let Some(known) = Ix::from_tag(tag) else {
-                cx.fail(
-                    V,
-                    UNKNOWN_INSTRUCTION,
-                    format!("tx#{i}"),
-                    0,
-                    Some(i),
-                    format!(
-                        "instruction {} has tag 0x{tag:02x}, not in ABI v2, and succeeded",
-                        ix.index
-                    ),
-                );
+                let pv = cx.f.params.as_ref().map(|p| p.program_version);
+                if let Some((sev, code, d)) = judge_outside_v2(tag, &ix.data, pv) {
+                    let d = format!("instruction {}: {d}", ix.index);
+                    match sev {
+                        crate::Severity::Fail => cx.fail(V, code, format!("tx#{i}"), 0, Some(i), d),
+                        _ => cx.unverifiable(V, code, format!("tx#{i}"), 0, Some(i), d),
+                    }
+                }
                 continue;
             };
             // An M1 season's instructions are ABI v1's (CreateSeason is

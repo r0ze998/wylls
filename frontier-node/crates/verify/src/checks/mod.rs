@@ -18,6 +18,7 @@ pub mod v22_outposts;
 pub mod v23_caravans;
 pub mod v24_structures;
 pub mod v25_nations;
+pub mod v27_residents;
 pub mod v2_program;
 pub mod v3_random;
 pub mod v4_windows;
@@ -272,6 +273,8 @@ pub fn run(input: &Input) -> Report {
         ran.push("V24:structures");
         v25_nations::run(&mut cx);
         ran.push("V25:nations");
+        v27_residents::run(&mut cx);
+        ran.push("V27:residents");
     }
     ran.push("V10");
     counts(&mut cx);
