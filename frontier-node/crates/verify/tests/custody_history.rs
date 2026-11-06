@@ -9,7 +9,7 @@ use common::*;
 use permutation_rules::fixed::MILLI;
 use permutation_rules::frontier::custody as K;
 use permutation_rules::frontier::holding::Resource;
-use verify_core::checks::v26_custody::lot_transition_findings;
+use verify_core::checks::v26_custody::{lot_transition_findings, lot_transition_unexplained};
 use verify_core::codes::*;
 use verify_core::{Input, Verdict};
 
@@ -362,4 +362,204 @@ fn random_kernel_histories_never_fail() {
         }
     }
     assert!(pairs >= 18_000);
+}
+
+#[test]
+fn order_bookkeeping_that_no_step_makes_fails() {
+    let s = kernel_states();
+    let prev = s[4]; // after the use: order id 0 set, NONCE 1
+    type Forge = fn(&mut K::Lot);
+    let cases: [(&str, Forge); 3] = [
+        ("a new order with an id from before", |l| {
+            l.orders[1] = l.orders[0];
+            l.orders[1].id = 0;
+            l.orders[1].qty_left = MILLI;
+            l.nonce += 1;
+        }),
+        ("two new orders, NONCE moved by one", |l| {
+            let o = K::Order {
+                kind: K::ORDER_USE,
+                id: 1,
+                qty_left: MILLI,
+                grantee: GRANTEE,
+                expires_bell: 500,
+                ..Default::default()
+            };
+            l.orders[1] = o;
+            l.orders[2] = K::Order { id: 2, ..o };
+            l.nonce += 1;
+        }),
+        ("goods used that no order gave", |l| {
+            l.consumed += 2 * MILLI;
+            l.held -= 2 * MILLI;
+        }),
+    ];
+    for (name, forge) in cases {
+        let mut cur = prev;
+        forge(&mut cur);
+        assert!(
+            !lot_transition_findings(&bytes(&prev), &bytes(&cur)).is_empty(),
+            "{name}"
+        );
+        let (inp, sigs) = recorded(&[bytes(&prev), bytes(&cur)]);
+        let r = verify_core::verify(&inp);
+        assert!(
+            history_fails(&r).iter().any(|(sig, _)| *sig == sigs[1]),
+            "{name}: {}",
+            show(&r)
+        );
+    }
+}
+
+#[test]
+fn goods_in_without_a_caravan_to_explain_them_are_unverifiable_not_fail() {
+    let s = kernel_states();
+    let prev = s[6];
+    let mut cur = prev;
+    cur.in_total += 3 * MILLI;
+    cur.held += 3 * MILLI;
+    assert!(lot_transition_findings(&bytes(&prev), &bytes(&cur)).is_empty());
+    assert_eq!(
+        lot_transition_unexplained(&bytes(&prev), &bytes(&cur)).len(),
+        1
+    );
+    let (inp, _) = recorded(&[bytes(&prev), bytes(&cur)]);
+    let r = verify_core::verify(&inp);
+    assert!(history_fails(&r).is_empty(), "{}", show(&r));
+    assert!(
+        r.findings
+            .iter()
+            .any(|f| f.code == CUSTODY_HISTORY_UNEXPLAINED && !f.fail()),
+        "{}",
+        show(&r)
+    );
+    assert_ne!(r.verdict, Verdict::Pass);
+}
+
+/// Several kernel steps between two recorded states (a transaction with
+/// many instructions, or states not recorded): the FAIL rules must still
+/// never fire on what the program writes.
+#[test]
+fn composed_kernel_steps_never_fail() {
+    let mut x: u64 = 0x2545_F491_4F6C_DD1D;
+    let mut rnd = |n: u64| {
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        x % n
+    };
+    let (mut windows, mut unexplained) = (0u64, 0u64);
+    for _ in 0..300 {
+        let mut v = view();
+        let mut l = K::open(
+            &mut v,
+            &act(KEEPER),
+            (OWNER, 0xB2),
+            Resource::Ore as u8,
+            40 * MILLI,
+            0,
+            KEEPER,
+        )
+        .unwrap();
+        let (mut bell, mut seq) = (1u32, 1u32);
+        for _ in 0..30 {
+            let prev = bytes(&l);
+            for _ in 0..1 + rnd(4) {
+                bell += rnd(30) as u32;
+                let q = (1 + rnd(8) as i64) * MILLI;
+                let _ = match rnd(8) {
+                    0 => {
+                        seq += 1;
+                        K::begin_inbound(&v, &mut l, (0x70, seq), q)
+                    }
+                    1 => match l
+                        .inbound
+                        .iter()
+                        .find(|i| i.live)
+                        .map(|i| (i.caravan_tag, i.seq, i.qty))
+                    {
+                        Some((t, s, sent)) => K::finish_inbound(
+                            Some(&v),
+                            &mut l,
+                            (t, s),
+                            sent - (rnd(2) as i64 * MILLI).min(sent),
+                        )
+                        .map(|_| ()),
+                        None => Ok(()),
+                    },
+                    2 => {
+                        let spec = K::OrderSpec {
+                            kind: if rnd(3) == 0 {
+                                K::ORDER_SHIP
+                            } else {
+                                K::ORDER_USE
+                            },
+                            grantee: GRANTEE,
+                            qty: q,
+                            expires_bell: bell + 1 + rnd(200) as u32,
+                            dst: K::PlaceRef::vault(9, 9, 1, 1),
+                            purpose: 0,
+                        };
+                        let n = l.nonce;
+                        K::set_order(&v, &mut l, &act(OWNER), rnd(4) as u8, n, &spec, bell)
+                            .map(|_| ())
+                    }
+                    3 => {
+                        let s = rnd(4) as u8;
+                        let o = l.orders[s as usize];
+                        K::consume(
+                            &v,
+                            &mut l,
+                            &act(GRANTEE),
+                            s,
+                            o.id,
+                            q.min(o.qty_left.max(MILLI)),
+                            0,
+                            bell,
+                        )
+                    }
+                    4 => K::return_unused(&v, &mut l, q),
+                    5 => {
+                        let s = rnd(4) as u8;
+                        let o = l.orders[s as usize];
+                        K::revoke_order(&mut l, &act(OWNER), s, o.id, bell).map(|_| ())
+                    }
+                    6 => {
+                        let s = rnd(4) as u8;
+                        let o = l.orders[s as usize];
+                        K::spend_ship(
+                            &v,
+                            &mut l,
+                            &act(GRANTEE),
+                            K::By::Order { slot: s, id: o.id },
+                            q.min(o.qty_left.max(MILLI)),
+                            K::ShipTo::Lot(o.dst),
+                            bell,
+                        )
+                    }
+                    _ => K::spend_ship(
+                        &v,
+                        &mut l,
+                        &act(OWNER),
+                        K::By::Owner,
+                        q,
+                        K::ShipTo::OwnPlace(v.place()),
+                        bell,
+                    ),
+                };
+            }
+            let cur = bytes(&l);
+            assert!(
+                lot_transition_findings(&prev, &cur).is_empty(),
+                "{:?}",
+                lot_transition_findings(&prev, &cur)
+            );
+            unexplained += !lot_transition_unexplained(&prev, &cur).is_empty() as u64;
+            windows += 1;
+        }
+    }
+    println!(
+        "composed windows {windows}, unexplained (begun and settled inside one) {unexplained}"
+    );
+    assert!(windows >= 9_000);
 }

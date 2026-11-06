@@ -200,3 +200,7 @@ pub const CUSTODY_RULE_UNDECIDED: &str = "CustodyRuleUndecided";
 /// what every custody step keeps (identity, the running totals that only
 /// grow, the state's order, an order's terms and remainder).
 pub const CUSTODY_HISTORY_BROKEN: &str = "CustodyHistoryBroken";
+/// V26 history: a Lot's recorded change whose cause the accounts do not
+/// show (IN_TOTAL grew beyond what the caravans settled since could
+/// deliver). UNVERIFIABLE, never PASS, until the instructions are replayed.
+pub const CUSTODY_HISTORY_UNEXPLAINED: &str = "CustodyHistoryUnexplained";
