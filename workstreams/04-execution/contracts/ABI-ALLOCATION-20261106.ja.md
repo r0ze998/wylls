@@ -19,17 +19,25 @@
 
 注意：⑪の検証器の試験は「知らない tag」として 0xD4 を使っている（`11-extensions/patches/0001…`）。⑨の帯に入るので、0xFE に替える（0xFE は割り当てない）。
 
-## 2. 記録の kind（`frontier-abi/src/log.rs`、`VERSION = 1`）
+## 2. 記録の kind（**訂正 2026-11-06**：初版は v1 の表しか数えず、v2 の表と重なる 90–94 を⑳に割り当てていた。⑳の指摘で直した）
 
-使用中：1–17、20–28、30–32、34、40–43、50–53、60–62、70。
+記録の kind は二つの表を合わせた一つの番号空間（`frontier-abi/src/log.rs` の v1 と、`frontier-abi/src/v2/log.rs` の `cq_kinds!`）。program 側の上限は `permutation-frontier/src/events.rs` の `MAX_KIND_V2`（今 103）と `WIDTHS_V2`。
+
+使用中：v1 は 1–17、20–28、30–32、34、40–43、50–53、60–62、70。v2 は 80–88（SIEGE_DECLARED … OUTPOST_SETTLED）、89（RESERVED_KIND）、90–94（VAULT_BUILT、CARAVAN_SENT・SETTLED・RAIDED、VAULT_SEIZED）、95–102（STRUCTURE_*・NATION_*・RAID_OPENED・FORT_GARRISONED）、103（REST）。
 
 | kind | 担当 | 内容 | 状態 |
 |---|---|---|---|
-| 90 | ⑳ | RESIDENT_JOINED：key＝住民 ID（`sha256("PSF-RES" ‖ asset)[0..15]`、15 B）、payload＝asset 32・faction 1・shard 1・generation 4・join_bell 4（42 B） | 仮 |
-| 91–94 | ⑳ | 予備 | 仮 |
+| 104 | ⑧ | FRONTIER_EXTENDED（⑧の branch `b519cd18` で使用中） | そのまま |
+| 105–109 | ⑩ | 保管の記録。⑩ の仮 104 は⑧と衝突するので 105 から | 仮 |
+| 110–124 | S2（stage 2e、`ccr-184d6862-fqutoz`、未統合） | その branch の 103–115 は main の REST=103 と衝突している。使う場合は 110–122 に移す。それまで予約 | 予約 |
+| 125–129 | ⑨ | 能力の記録が要る場合 | 仮 |
+| 130 | ⑳ | RESIDENT_JOINED：key＝住民 ID（15 B）、payload＝asset 32・faction 1・shard 1・generation 4・join_bell 4（42 B） | 仮 |
+| 131–134 | ⑳ | 予備 | 仮 |
 
-- `VERSION` は上げない（kind の表を足すだけ）。ただし今の `decode` は知らない kind を `UnknownKind` で拒否するので、新しい kind を出す program と、それを読む keeper・herald・検証器・fclient は同じ変更で更新する。古い読み手は、新しい命令を使う世界を読まない（下の §4 の program の版で分ける）。
-- 本文の上限（`SOFT_BODY_MAX = 128`）：kind 90 は 版 1＋kind 1＋bell 4＋key 15＋payload 42＋links 1 = 64 B（link 無し）。
+- 新しい kind を出すときは、`MAX_KIND_V2` と `WIDTHS_V2` を広げる（同じ変更で）。
+- `VERSION` は上げない。ただし今の `decode` は知らない kind を `UnknownKind` で拒否するので、program と読み手（keeper・herald・検証器・fclient）は同じ変更で更新する。
+- 本文の上限（`SOFT_BODY_MAX = 128`）：kind 130 は link 無しで 64 B。
+- 照合の道具が要る：命令 tag と記録の kind の重なりを検査する試験を、エラー番号の照合（`e2e-native/tests/error_codes.rs`）と同じ形で足す（④の残件）。
 
 ## 3. Citizen の予約領域（`frontier-abi/src/v2/layout/player.rs` の `citizen`）
 
