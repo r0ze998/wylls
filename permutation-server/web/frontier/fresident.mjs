@@ -38,7 +38,7 @@ export function identityOf(entry, policy, { addresses, programId }) {
     citizen: residentCitizen(addresses, asset),
     generation: entry.generation,
     joined: !!entry.joined,
-    proof: { policy: policyAddress(programId), link: linkAddress(programId, asset), asset, resident: residentAddress(policy.residentProgram, asset) },
+    proof: { policy: policyAddress(programId), link: linkAddress(programId, addresses.season, asset), asset, resident: residentAddress(policy.residentProgram, asset) },
   };
 }
 

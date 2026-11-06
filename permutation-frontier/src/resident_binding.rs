@@ -6,8 +6,11 @@
 //! world configuration, `now` from the runtime clock, and `generation` from
 //! signed instruction data, never untrusted substitutions. The configuration
 //! account creation helper below has not been exercised in a runtime test.
-//! The link and the policy are global to this Frontier program; the NFT
-//! Citizen is per Season, at `citizen_by_tag15(resident id)`.
+//! The policy is global to this Frontier program. The link is per Season
+//! (`["nft-citizen-link", season, asset]`) and the NFT Citizen is per
+//! Season, at `citizen_by_tag15(resident id)`: one NFT, one Citizen in each
+//! world, the same pass in every world. The holder's authority (Core owner,
+//! resident generation and session) is global and read on every instruction.
 
 use frontier_abi::{resident_auth, resident_binding, resident_policy};
 use solana_program::{account_info::AccountInfo, program_error::ProgramError, pubkey::Pubkey};
@@ -83,7 +86,11 @@ fn canonical(
     asset: &Pubkey,
     season: &Pubkey,
 ) -> (Pubkey, Pubkey, Pubkey) {
-    let link = Pubkey::find_program_address(&[LINK_SEED, asset.as_ref()], program).0;
+    // One link per (Season, NFT): the same NFT pass joins every world of
+    // this program, each time with that world's own Citizen (U45, owner's
+    // decision 2026-11-06). Nothing carries over between Seasons (U11).
+    let link =
+        Pubkey::find_program_address(&[LINK_SEED, season.as_ref(), asset.as_ref()], program).0;
     // The NFT Citizen lives where a wallet Citizen would, keyed by the
     // resident id instead of the wallet tag (ABI allocation §5).
     let tag15 = frontier_abi::resident_citizen::resident_tag15(&asset.to_bytes());
@@ -257,7 +264,7 @@ pub(crate) fn join_accounts<'a>(
         crate::init::init_nft_pda(
             payer,
             link,
-            &[LINK_SEED, asset.key.as_ref()],
+            &[LINK_SEED, season.as_ref(), asset.key.as_ref()],
             resident_binding::LEN,
             program,
         )?;

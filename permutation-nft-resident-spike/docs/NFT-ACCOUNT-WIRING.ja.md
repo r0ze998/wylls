@@ -138,7 +138,7 @@
 
 **この試験の限界**：署名の検証は動かしていない（`is_signer` は試験が立てる。LiteSVM で sigverify を切った場合と同じ）。SBF の build ではない（計算量・ローダー・口座の大きさや所有者の強制は無い）。System program は試験の代わりの部品で、Core と住民プログラムは動かしていない（譲渡は住民プログラムが残す状態をバイトで書いて表した）。時刻と rent は試験用の値。**実際に動かしたのは `JoinResident` と `ResidentAct(SetVigil)`・`ResidentAct(SetSession)` の拒否だけ**で、ほかの 25 の命令の NFT 経路は実行時には確かめていない。
 
-**未接続**：NFT の住民の session（住民プログラムの SetSession。web はまだ呼ばないので、操作のたびにウォレットが署名する）、agent wallet・賞金、検証器 V23（隊商の送り手の再判定）、`ResidentAct` の予算（CU・読み込み量の上乗せ 40,000・4,096 は実測していない）、中継の `ResidentAct` の上限額の見直し、web の行進（`fmarch`）と練習の経路、新しい Season での再ログイン（SEASON-SCOPE.ja.md、U45）。
+**未接続**：NFT の住民の session（住民プログラムの SetSession。web はまだ呼ばないので、操作のたびにウォレットが署名する）、agent wallet・賞金、検証器 V23（隊商の送り手の再判定）、`ResidentAct` の予算（CU・読み込み量の上乗せ 40,000・4,096 は実測していない）、中継の `ResidentAct` の上限額の見直し、web の行進（`fmarch`）と練習の経路、新しい Season での再ログイン（v0.15 で解消：link を Season ごとに。SEASON-SCOPE.ja.md §6）。
 
 ## 6. ④ との調整
 

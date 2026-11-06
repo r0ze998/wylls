@@ -69,7 +69,7 @@ export async function listResidents({ connection, owner, addrs }) {
 /** The route's addresses for this relay's season. */
 export const residentAddrs = ctx => ({
   policy: policyAddress(ctx.programId),
-  link: asset => linkAddress(ctx.programId, asset),
+  link: asset => linkAddress(ctx.programId, ctx.addresses.season, asset),
   resident: (residentProgram, asset) => residentAddress(residentProgram, asset),
   citizen: asset => residentCitizen(ctx.addresses, asset),
 });

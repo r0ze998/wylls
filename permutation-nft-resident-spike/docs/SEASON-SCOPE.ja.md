@@ -1,4 +1,7 @@
-# NFT 住民のアカウントと Season の関係（2026-11-06）
+# NFT 住民のアカウントと Season の関係（2026-11-06、v0.15 で修正）
+
+**v0.15（所有者の決定、2026-11-06）**：NFT パスは同じものを使い続け、世界を作り直しても同じパスで新しい世界に参加できる。そのため link を **Season ごと**にした（`["nft-citizen-link", season, asset]`）。各世界で 1 NFT につき 1 Citizen、譲渡後は今の持ち主だけが操作できることは変わらない。資産や履歴を世界の間で引き継ぐかは**未決**（U11）で、何も移さない。④ に照合を依頼した（§6）。以下 §1〜§5 は v0.14 までの調査の記録で、§2 の「ログインできない」は v0.15 で解消した。
+
 
 「1 NFT につき 1 アカウント」が、Season をまたいでも同じアカウントとして扱えるかを確かめた。結論：**同じ Season の中では成り立つ。別の Season では、今の実装では NFT がログインできない。** どう直すかは決めていない（U45）。移行方法・市場の扱いも決めていない。
 
@@ -47,3 +50,32 @@ Citizen の中身（国・持ち村・行動の記録）は、財布の住民と
 ## 5. herald・web の扱い
 
 herald の `/h/me/{asset}` は、その herald が見ている Season の NFT Citizen を返す（Season ごと）。web が asset と財布のどちらで引くかは U44 のとおり未決。
+
+## 6. v0.15 の修正と確認（2026-11-06）
+
+**変えたこと**
+
+| 所 | 前 | 後 |
+|---|---|---|
+| link の住所（program `resident_binding.rs`） | `["nft-citizen-link", asset]`（全 Season で一つ） | `["nft-citizen-link", season, asset]`（Season ごと） |
+| link の中身 | `PSFNR001`、104 B、`{asset, resident, citizen}`、一度だけ書ける | **同じ**。その Season の Citizen だけを結ぶ |
+| SDK・中継・web の住所計算（`linkAddress`） | `(programId, asset)` | `(programId, season, asset)` |
+| ABI（命令 tag、記録 130、エラー 170–175、Citizen の予約領域） | — | **変更なし** |
+
+**変えていないこと**：権限の読み方（Core の今の持ち主、住民プログラムの世代と session を毎回読む。これらは Season によらない）。Citizen の住所（`citizen_by_tag15(住民 ID)`、Season ごと）。資産・履歴の引き継ぎ（何も移さない。新しい世界の Citizen は新しく作られる）。
+
+**既存データへの影響**
+
+- チェーン上：devnet・mainnet とも未配備なので、古い住所の link は**どこにも無い**。
+- もし古い版（`nft-experimental`）で動いている世界があれば、その世界の NFT Citizen の link は古い住所にあり、新しい版では見つからず操作できなくなる。今は該当なし。統合の前に入れれば影響しない。
+- 財布の Citizen、記録、herald・keeper・検証器：link を読まないので影響なし。中継の `GET /f/residents` の `link` は「この Season の link があるか」の意味になる。
+- 費用：世界ごとの初回ログインで link の rent（104 B）を払う。中継の上限額（Citizen と link の rent）は前から含めている。
+
+**鍵を使わずに確かめたこと**（`permutation-frontier/src/resident_runtime_tests.rs`、program の本物の `dispatch` を手元で、限界は同ファイルの先頭）：
+
+1. 同じ NFT が世界 7 と世界 8 の両方に初回ログインでき、それぞれ別の Citizen と別の link ができる。世界 8 の link は世界 8 の Citizen を名指す。世界 7 の Citizen と link のバイトは世界 8 のログインの前後で変わらない。世界 8 の Citizen は新しく作られ、何も写されない。各世界で二度目のログインは `AlreadyDone`。
+2. A→B の譲渡は両方の世界に同時に効く。両方の世界で A の古い署名（174）と新しい署名（175）を拒否し、B はすぐ操作できる。B→A でも、両方の世界で B（174・175）と A の最初の所有の署名（174）を拒否し、世代 2 の A は通る。
+3. 譲渡のあとに作られた世界では、今の持ち主 B だけが初回ログインでき、A は拒否される（174・175）。
+4. 世界 8 の操作に世界 7 の link や Citizen を混ぜると拒否される。世界 8 の初回ログインに世界 7 の link を渡すと `BadAddress`。
+
+未実施：SBF の build と、Core・住民プログラムを含めた実行時の確認（鍵の生成を伴う。U37）。
