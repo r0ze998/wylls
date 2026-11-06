@@ -5,7 +5,10 @@
 #
 #   A  e2e-native, --features nft: the game program's own JoinResident / ResidentAct (tests/chain_nft.rs)
 #   B  runexec: the NFT Citizen's cargo-only caravan on the simulated world (tests/chain_caravan.rs, --ignored)
-#   C  12 memory, D 15 outcome, E prize (not run): tools/chain-flow/stages-cde.mjs
+#   C  12 memory, D 15 outcome: tools/chain-flow/stages-cde.mjs
+#   E  prize: the prize program's own Pay/Tally/Finalize/SetShares/Claim/RecordNation with the game's own
+#      JoinResident in one Season (e2e-native tests/chain_prize.rs): what the current prize program does for the
+#      pass's Citizen (no NFT prize is implemented here; the owner's CC builds it)
 #
 # Stages A and B compute public PDA and with_seed addresses (Season, link, policy, Citizen). The owner's rule
 # (2026-11-06, latest): computing those public addresses is allowed; generating or deriving a keypair and signing
@@ -37,7 +40,11 @@ echo "== B: the Citizen's caravan (run executor, simulated world)"
 (cd "$ws04" && cargo test --offline --test chain_caravan -- --ignored --test-threads 1)
 test -s "$out/b-caravan.json"
 
-echo "== C, D, E: memory (12), outcome (15), prize (not run)"
+echo "== E: the prize program with the pass's Citizen (game + prize programs, host build)"
+(cd "$ws04/e2e-native" && cargo test --offline --features nft --test chain_prize -- --test-threads 1)
+test -s "$out/e-prize-run.json"
+
+echo "== C, D (and E's summary): memory (12), outcome (15)"
 (cd "$root" && node --import ./scripts/ci/no-keys-guard.mjs workstreams/04-execution/tools/chain-flow/stages-cde.mjs)
 
 echo "== PDA-free check of this run's outputs"

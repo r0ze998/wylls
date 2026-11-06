@@ -12,6 +12,12 @@ const read = f => JSON.parse(readFileSync(join(dir, f), 'utf8'));
 const A = read('a-join.json'), B = read('b-caravan.json'), S = read('b-store-dump.json');
 const C = read('c-memory.json'), D = read('d-outcome.json'), E = read('e-prize.json');
 let n = 0, bad = 0;
+const B58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+function bs58ToHex(s) {
+  let x = 0n;
+  for (const c of s) x = x * 58n + BigInt(B58.indexOf(c));
+  return x.toString(16).padStart(64, '0');
+}
 const check = (ok, what) => { n++; if (!ok) { bad++; console.error(`FAIL ${what}`); } else console.log(`ok   ${what}`); };
 
 // A: the Citizen's tag is its address's first 8 bytes (LE); the record names the resident id and the pass.
@@ -56,6 +62,15 @@ check(D.normalize.rejected.length === 0, 'D: ⑮ normalize rejects nothing');
 
 // E: the prize step's inputs are stage A's.
 check(E.inputs_available.citizen === A.citizen && E.inputs_available.citizen_tag === A.citizen_tag, 'E: prize inputs = stage A\'s Citizen');
+
+// E (run): the prize program's refusals are for this pass's Citizen.
+const ER = E.run;
+if (ER) {
+  check(ER.nft_citizen && Buffer.from(bs58ToHex(ER.nft_citizen), 'hex').equals(citizen), 'E: the prize step ran with stage A\'s Citizen address');
+  const bad = `Custom(${ER.prize_error_bad_account})`;
+  check(['claim_A_with_pass_citizen', 'claim_A_with_wallet_citizen', 'record_nation_with_pass_citizen', 'claim_B_after_transfer'].every(k => ER[k] === bad),
+    'E: every claim path of the pass is BadAccount; vault keeps the share');
+}
 
 console.log(`${n - bad}/${n} consistent`);
 process.exitCode = bad ? 1 : 0;

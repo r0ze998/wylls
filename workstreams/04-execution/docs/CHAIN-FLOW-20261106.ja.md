@@ -143,3 +143,52 @@ game program、prize、⑫、⑮、⑳ のファイルは変えていません�
 - 出力の照合：22/22
 
 **§7 の扱い**：§7 の「PDA を算出する段を再び実行しない」は、この確認で解除しました。
+
+## 9. 賞金の段まで通した（2026-11-06、利用者の指示による）
+
+**規則**
+- PDA と with_seed の公開アドレスの算出：試験のコードでも program の内部でも**可**
+- 鍵ペアの生成・導出と署名：固定 seed、共通セットアップ、CI を含めて引き続き**禁止**
+
+### 9.1 実行前の確認（呼び出し先を含む）
+
+- **source**：次の範囲を grep しました。
+  - 対象：permutation-prize、permutation-frontier、frontier-abi、permutation-rules、runexec の src、e2e-native の src と chain の試験 3 本、runexec の tests/common
+  - 探したもの：`Keypair`、`.sign(`、`SigningKey`、`SecretKey`、`from_seed`、`generate_key`、`derive_key`、`ed25519_dalek`、`secp256k1`、`k256`、`ecdsa`、`rand::`、`getrandom`、`test_rng`、`curve25519`
+  - 結果：呼び出しは 0 件。注記に 2 件ある文字だけです。
+- **依存**（`cargo tree`）：鍵に関係しうる crate が含まれていますが、次のとおり、この流れから呼ばれていません。
+
+| crate | 何が持ち込むか | この流れでの扱い |
+|---|---|---|
+| curve25519-dalek | solana-address | `find_program_address` の off-curve の判定（PDA の算出。許可の範囲） |
+| k256、ecdsa、hmac、rfc6979、getrandom | solana-program の secp256k1_recover | 呼び出しは 0 件 |
+| rand | ark（BLS の検証） | この流れは beacon の命令を通らない。呼び出しは 0 件 |
+
+- runexec（段 B）は、鍵に関係する crate を持っていません。
+- **Node**（段 C・D）：`no-keys-guard.mjs` の下で動かしました。guard が拒否した件数は 0 件です。
+
+### 9.2 段 E（`e2e-native/tests/chain_prize.rs`、2/2）
+
+- **同じ世界**：段 A と同じ game program の id で動かしました。Season と、パスの Citizen の address は、全段で同じです。照合で確かめています。
+- **流れ**：A が自分の wallet で参加料を払う（Pay）→ 本物の JoinResident でパスの Citizen ができる → 季節が終わる → Tally → Finalize → SetShares（A に 10 点、nation 2 が勝ち）。
+- **結果**：今の prize program では、パスの Citizen に払えません。次の経路はどれも BadAccount（257）で、vault の 25,000,000 は動きませんでした。
+  - パスの Citizen を渡して Claim する。理由は、Claim が `citizen(wallet)` を要求するためです。
+  - `citizen(wallet)` を渡して Claim する。空で、nation も記録されていないため。
+  - パスの Citizen から RecordNation する。
+  - 譲渡後に B が Claim する。B には Entry がありません。
+  - A の Entry は A のまま、未受取で残ります。
+  - このため「譲渡前の未受取賞金はパスとともに移る」という方針は、今の program では満たせません。
+- **対照**：同じ pool で、wallet の Citizen なら Claim で払われます。準備は正しく、拒否はパスの Citizen が原因だと分かります。
+- **NFT 賞金**：利用者の CC の担当です。④は実装していません。接点の提案は §4 と `e-prize.json` にあります。
+  - 権限は、⑳ 4b233e4a の `resident_auth::holder` と `Holder::authority`（現在の所有者で、現在の世代）。
+  - 権利は、パス（または Citizen）に紐づける。
+
+### 9.3 本物・模擬・未検証
+
+| 区分 | 中身 |
+|---|---|
+| **本物（実処理）** | game program の JoinResident と ResidentAct（`nft-experimental`）。prize program の InitPool、Pay、Tally、Finalize、SetShares、Claim、RecordNation。runexec の受付から履行までの状態機械と store。⑫ の adapter と journal。⑮ の adapter と normalize。PDA と with_seed の address（program 自身が算出） |
+| **模擬（MOCK・stand-in）** | System と SPL Token（e2e-native の host）。Clock と Rent。署名者の集合（署名は存在しない）。Metaplex Core の asset と resident program の record（⑳ の配置どおりの byte）。譲渡（owner の交代と世代の +1 として表した）。季節の終わり（Season Ended、Province、ProvinceFund を frontier-abi の配置で置いた）。runexec の chain（SimWorld）。⑫ と ⑮ に渡した時計（bell = slot）と確定（全 slot が確定）。nation の表し方（faction の byte を `faction-2` とした）。⑮ に渡す receipt の欄の対応付け（④の提案） |
+| **未検証** | 署名の検証そのもの。SBF の build、compute budget、LiteSVM と本物の runtime。Metaplex Core と resident program の実際の命令。Join、play、EndSeason を本物で通すこと（季節の終わりは stand-in）。CPI で荷車を出すこと（段 B は模擬の chain）。V27 と V28 による RESIDENT_JOINED と ResidentAct の検証（検証器はこの流れに入れていない）。NFT 賞金そのもの。Refund mode の振る舞い（コードを読んだだけで、動かしていない）。⑫ と ⑮ の本物の時計・確定・世界の束ね（herald）|
+
+- **照合**：`check-fixtures.mjs` は 24/24 です（固定ファイルでも、この実行の出力でも）。

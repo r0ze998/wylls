@@ -121,9 +121,15 @@ const D = {
 };
 writeFileSync(join(out, 'd-outcome.json'), JSON.stringify(D, null, 2));
 
-// ------------------------------------------------------------------ E: prize (not run)
+// ------------------------------------------------------------------ E: prize (run in Rust, summarised here)
+// tests/chain_prize.rs ran the prize program's own code with the game's own JoinResident (e-prize-run.json).
+const ER = JSON.parse(readFileSync(join(out, 'e-prize-run.json'), 'utf8'));
+const bad = `Custom(${ER.prize_error_bad_account})`;
+check(['claim_A_with_pass_citizen', 'claim_A_with_wallet_citizen', 'record_nation_with_pass_citizen', 'claim_B_after_transfer']
+  .every(k => ER[k] === bad), 'E: the current prize program refuses every claim path of the pass (BadAccount)');
 const E = {
-  stage: 'E', status: 'not run: the owner\'s CC implements the NFT prize (no overlapping implementation here)',
+  stage: 'E', status: 'run: the current prize program with the pass\'s Citizen; the NFT prize itself is the owner\'s CC\'s (not implemented here)',
+  run: ER,
   inputs_available: {
     season: A.season, season_id: A.season_id, citizen: A.citizen, citizen_tag: A.citizen_tag, asset: A.asset,
     nation_stand_in: nation, outcome_events: proposed.events.length, owner_now: A.owner_after_transfer, generation: A.generation,
@@ -132,12 +138,14 @@ const E = {
   what_the_chain_shows: [
     'the Citizen (and its tag, which the caravan, memory and outcome key on) stays with the pass across the transfer',
     'the old owner is refused at once (stale generation, not current authority); the new owner acts with the new generation',
+    'the current prize program is wallet-keyed: Entry = PDA(pool, wallet), Claim needs citizen(wallet); the pass\'s Citizen is at citizen_by_tag15(resident id) with a zero wallet, so every claim path is BadAccount and the share stays in the vault',
+    'after a transfer the buyer has no Entry; the first owner\'s Entry stays the first owner\'s (contrary to the policy, which the NFT prize must meet)',
   ],
   for_the_prize_step: [
-    'Claim\'s authority for an NFT Citizen: the pass\'s current owner at the current generation (as ResidentAct), not the wallet that joined',
-    'Entry/RecordNation: keyed by the Citizen, so a claim recorded before the transfer is the new owner\'s to take',
+    'Claim\'s authority for an NFT Citizen: the pass\'s current holder at the current generation (⑳ 4b233e4a resident_auth::holder / Holder::authority), not the wallet that paid or joined',
+    'the right keyed by the pass (or its Citizen), so a share owed before a transfer is the new holder\'s to take',
   ],
-  undecided: ['refunds', 'moving other assets or history'],
+  undecided: ['refunds (read from the code, not run: the current Refund mode pays the Entry of the wallet that paid; not decided for passes)', 'moving other assets or history'],
 };
 writeFileSync(join(out, 'e-prize.json'), JSON.stringify(E, null, 2));
 
