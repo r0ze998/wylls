@@ -564,6 +564,12 @@ export class AgentLedger {
   revokeCapability(agentId, source) {
     this.assertWritable();
     const rec = this.get(agentId);
+    if (source === 'any') {
+      // The general token: gone (its version moves on, so nothing let in by it is still current).
+      const had = !!rec.capabilityHash;
+      if (had) { rec.capabilityHash = null; rec.capabilityVersion += 1; this.note(rec, { type: 'capability-revoked', source: 'any', version: rec.capabilityVersion }); this.save(); }
+      return had;
+    }
     const had = !!rec.capabilities?.[source];
     if (had) {
       const version = rec.capabilities[source].version;
