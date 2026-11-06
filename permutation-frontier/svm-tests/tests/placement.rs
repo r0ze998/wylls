@@ -4,12 +4,12 @@
 //! heartland rings; the placement-0 rule is `first_home.rs`.
 use fclient::ix::Site;
 use frontier_abi::conquest_model::read_keep;
-use frontier_abi::layout::world::season as SE;
+use frontier_abi::layout::world::{join_shard as JS, season as SE};
 use frontier_abi::v2::layout::player::{citizen as C, holding as H};
 use frontier_abi::v2::layout::province::{province as P, site as S};
 use frontier_abi::v2::presets::{SeasonParamsV2, MC_LOCAL_7D, PLACEMENT_DISPERSED};
 use permutation_frontier_svm_tests::chain::{assert_code, expect_lands, Chain};
-use permutation_frontier_svm_tests::world::land::{rd_i64, Citizen};
+use permutation_frontier_svm_tests::world::land::{rd_i64, rd_u32, Citizen};
 use permutation_frontier_svm_tests::world::World;
 use permutation_frontier_svm_tests::FrontierError as E;
 use permutation_rules::frontier::geometry::{home_nation, ProvinceCoord};
@@ -46,6 +46,21 @@ fn place(c: &Chain, w: &World, who: &Citizen, s: Site) -> Instruction {
     fclient::ix::place_home(&w.a, &who.player(), s, who.faction, d[C::JOIN_SHARD])
 }
 
+/// The citizen's JoinShard bytes.
+fn shard_data(c: &Chain, w: &World, who: &Citizen) -> Vec<u8> {
+    let d = w.citizen_data(c, who);
+    c.data(&w.a.join_shard(who.faction, d[C::JOIN_SHARD]))
+}
+
+/// The shard's `holdings_by_wedge`.
+fn by_wedge(d: &[u8]) -> [u32; 6] {
+    let mut v = [0u32; 6];
+    for (i, x) in v.iter_mut().enumerate() {
+        *x = rd_u32(d, JS::HOLDINGS_BY_WEDGE + 4 * i);
+    }
+    v
+}
+
 /// A dispersed season with every province of rings 2 and 3 open.
 fn setup() -> (Chain, World, [u8; 32], Vec<(i16, i16)>) {
     let mut c = Chain::test_beacon();
@@ -80,10 +95,27 @@ fn placement_six_nations_place_homes_in_groups_spread_over_wedges() {
                     q: pq.1,
                     site: k,
                 };
+                let shard_before = shard_data(&c, &w, &who);
                 expect_lands(
                     c.send(&[place(&c, &w, &who, s)], &[&who.wallet]),
                     "PlaceHome",
                 );
+                // The JoinShard counts the home under the province's wedge
+                // (the index the wedge funds, SettleTicket and ReleaseDormant
+                // use), not under the nation: here they differ for most homes.
+                let shard_after = shard_data(&c, &w, &who);
+                let wedge = ProvinceCoord::new(pq.0 as i32, pq.1 as i32)
+                    .wedge()
+                    .unwrap() as usize;
+                let (before, after) = (by_wedge(&shard_before), by_wedge(&shard_after));
+                assert_eq!(
+                    rd_u32(&shard_after, JS::HOLDINGS),
+                    rd_u32(&shard_before, JS::HOLDINGS) + 1
+                );
+                for x in 0..6 {
+                    let want = before[x] + u32::from(x == wedge);
+                    assert_eq!(after[x], want, "nation {f} at {pq:?}: wedge counter {x}");
+                }
                 let hd = c.data(&w.a.holding(pq.0 as i32, pq.1 as i32, k));
                 assert_eq!(hd[H::STATE], H::STATE_FINAL);
                 // shield: the season's first-holding shield, unchanged by the placement

@@ -20,9 +20,37 @@
 //!   every CAMP spawn = the program's day check (`camp_seed` from the
 //!   Province's terrain block, v1.6 §22), a clear (`troops = 0`) a present
 //!   camp gone.
+//! - **Tickets (map growth):** every TICKET of a FileTicket is re-judged
+//!   from the Citizen and the Frontier before its transaction as the
+//!   program's `file_ticket` judges its sites ([`judge_ticket`]): no first
+//!   holding and no open ticket, each site in an opened ring ≥ 2 within
+//!   the effective `r_max`, no duplicate, and the season's placement rule
+//!   ([`ticket_site_rule`]): inside a dispersed heartland (`placement` 1,
+//!   rings `2..=heartland_max_ring`) the province's nation
+//!   (`geometry::home_nation`, as PlaceHome), everywhere else the legacy
+//!   wedge rule with its adjacent-wedge overflow unchanged; the record is
+//!   the filing's and the Citizen after it carries the ticket. Missing
+//!   evidence (no post-states, a conquest season without its block, a
+//!   dispersed season without its GENESIS_SEED) is `MissingData`, never a
+//!   wedge guess. **Attribution** ([`route_ticket`]): the archive holds
+//!   states per transaction, so a TICKET is judged only when exactly one
+//!   FileTicket of the transaction names the record's Citizen and no other
+//!   instruction of the program in it may write that Citizen or the
+//!   Frontier (`Ix::writes`); a record whose citizen's only filing is a
+//!   FileOutpost is V22's (it logs TICKET too); two filings of one citizen,
+//!   a FileTicket beside a FileOutpost of the same citizen, another writer
+//!   of the Citizen or the Frontier in the transaction, or no top-level
+//!   instruction at all (an inner call) are `MissingData`, never a silent
+//!   skip; a TICKET no filing of its citizen accounts for is a FAIL. The
+//!   season-side evidence (placement, heartland ring, `r_max`, the genesis
+//!   seed) is CreateSeason's data and the GENESIS_SEED record, fields no
+//!   later instruction rewrites, not a Season pre-state of the
+//!   transaction, so a Season writer bundled with the filing does not
+//!   disturb it.
 //!
 //! Codes: `TicketScoreMismatch`, `DisplacementRule`, `CohortMismatch`,
-//! `TerrainMismatch`, `CampMismatch`.
+//! `TerrainMismatch`, `CampMismatch`, `HomePlacementMismatch`,
+//! `TicketPlacementMismatch`.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -37,7 +65,7 @@ use permutation_rules::hash::sha256;
 
 use super::Ctx;
 use crate::codes::*;
-use crate::world::le;
+use crate::world::{le, Ix, Key};
 
 const V: &str = "V11";
 /// Bells a ticket cohort stays open (I-47).
@@ -307,6 +335,7 @@ pub fn run(cx: &mut Ctx) {
                     tally.entry((*p, *q, t.bell)).or_default().0 += 1;
                 }
                 tickets.insert(f.ctx.citizen_by_tag15(&tag15), t);
+                filed_ticket(cx, r);
             }
             Kind::SETTLE => settle(cx, n, r, &mut tickets, &mut tally),
             Kind::HOME_PLACED => placed_home(cx, r),
@@ -552,6 +581,7 @@ fn placed_home(cx: &mut Ctx, r: &crate::world::Rec) {
     use frontier_abi::layout::player::{citizen as C, holding as H};
     use frontier_abi::layout::province::{cohort as CO, site as SM};
     use frontier_abi::tags::Ix;
+    use frontier_abi::v2::layout::player::{citizen as C2, holding as H2};
     let w = cx.w;
     let f = cx.f;
     let tx = &w.txs[r.tx];
@@ -566,8 +596,15 @@ fn placed_home(cx: &mut Ctx, r: &crate::world::Rec) {
         let pk = f.ctx.province(p, q);
         let hk = f.ctx.holding(p, q, site);
         let decode_err = |_| "invalid account bytes".to_owned();
-        let cb = Citizen::decode(w.state_before(&ck, r.tx).ok_or("no citizen pre-state")?)
-            .map_err(decode_err)?;
+        let cbd = w.state_before(&ck, r.tx).ok_or("no citizen pre-state")?;
+        let cb = Citizen::decode(cbd).map_err(decode_err)?;
+        // S1 1e: an expelled citizen's home carries the expelled flag
+        // (`nation::mark_holding`), beside the intro build.
+        let expelled = cbd
+            .get(C2::EXPELLED_SINCE..C2::EXPELLED_SINCE + 8)
+            .is_some_and(|b| le(b) != 0);
+        let want_flags =
+            H::FLAG_INTRO_BUILD_AVAILABLE | if expelled { H2::FLAG_EXPELLED } else { 0 };
         let ca = Citizen::decode(tx.post_data(&ck).ok_or("no citizen post-state")?)
             .map_err(decode_err)?;
         let pb = Province::decode(w.state_before(&pk, r.tx).ok_or("no province pre-state")?)
@@ -601,8 +638,19 @@ fn placed_home(cx: &mut Ctx, r: &crate::world::Rec) {
         let held = ca.holding[0];
         let now_bell = frontier_abi::prologue::bell_at(f.genesis_ts, tx.time).unwrap_or(0);
         let shield_bell = ((h.shield_until.saturating_sub(f.genesis_ts).max(0) + 599) / 600) as u32;
-        let home_nation =
-            home_nation_of(f, coord).ok_or("missing or unsupported placement evidence")?;
+        let (home_nation, home_max_ring) =
+            home_rule_of(f.cq.as_ref(), f.genesis_seed.as_ref(), coord)
+                .ok_or("missing or unsupported placement evidence")?;
+        // The program counts the home under the province's wedge (its
+        // `holding_wedge`, the index SettleTicket and the release use), which
+        // is the nation only under placement 0.
+        let wedge = coord.wedge().ok_or("a home in the Concord")? as usize;
+        let shard_counted = sa
+            .holdings_by_wedge
+            .iter()
+            .zip(sb.holdings_by_wedge.iter())
+            .enumerate()
+            .all(|(i, (a, b))| if i == wedge { *a == b + 1 } else { a == b });
         Ok(ix.accounts.len() == 9
             && (arg.p as i32, arg.q as i32, arg.site) == (p, q, site)
             && ix.key(2) == Some(f.ctx.season)
@@ -612,6 +660,7 @@ fn placed_home(cx: &mut Ctx, r: &crate::world::Rec) {
             && ix.key(7) == Some(sk)
             && season.program_version >= 2
             && coord.ring() >= 2
+            && coord.ring() <= home_max_ring as u32
             && coord.ring() < frontier.rings_opened as u32
             && home_nation == cb.faction
             && cb.flags
@@ -634,7 +683,7 @@ fn placed_home(cx: &mut Ctx, r: &crate::world::Rec) {
             && ca.ticket_escrow == cb.ticket_escrow
             && h.owner_citizen.to_bytes() == ck
             && h.state == H::STATE_FINAL
-            && h.flags == H::FLAG_INTRO_BUILD_AVAILABLE
+            && h.flags == want_flags
             && h.gen == gen
             && h.tile == pb.sites[site as usize]
             && h.faction == cb.faction
@@ -654,8 +703,7 @@ fn placed_home(cx: &mut Ctx, r: &crate::world::Rec) {
             && pa.roster_epoch == pb.roster_epoch.wrapping_add(1)
             && pa.cohorts == pb.cohorts
             && sa.holdings == sb.holdings + 1
-            && sa.holdings_by_wedge[cb.faction as usize]
-                == sb.holdings_by_wedge[cb.faction as usize] + 1
+            && shard_counted
             && r.pu64("citizen_tag") == cb.citizen_tag
             && r.pu8("gen") == gen
             && r.pi64("final_ts") == tx.time
@@ -675,22 +723,993 @@ fn placed_home(cx: &mut Ctx, r: &crate::world::Rec) {
     }
 }
 
-/// The program's PlaceHome nation test (`geometry::home_nation` with the
-/// season's conquest `placement`). Missing evidence is never a wedge fallback.
-fn home_nation_of(
-    f: &crate::facts::Facts,
-    coord: permutation_rules::frontier::geometry::ProvinceCoord,
-) -> Option<u8> {
-    match (f.cq.as_ref(), f.genesis_seed.as_ref()) {
-        (Some(cq), _) if cq.placement == 0 => coord.wedge(),
-        (Some(cq), Some(seed)) if cq.placement == 1 => {
-            permutation_rules::frontier::geometry::home_nation(
-                coord,
-                cq.placement,
-                cq.heartland_max_ring,
-                seed,
-            )
+/// The program's PlaceHome placement rule from the season's evidence: the
+/// province's nation (`geometry::home_nation` with the conquest block's
+/// `placement`) and the last heartland ring a home may take
+/// (`heartland_max_ring`). Missing evidence (no conquest block, a dispersed
+/// season without its GENESIS_SEED, an unknown placement) is `None`, never
+/// a wedge fallback.
+fn home_rule_of(
+    cq: Option<&frontier_abi::v2::presets::ConquestParams>,
+    genesis_seed: Option<&[u8; 32]>,
+    coord: ProvinceCoord,
+) -> Option<(u8, u8)> {
+    use permutation_rules::frontier::geometry::{
+        home_nation, PLACEMENT_DISPERSED, PLACEMENT_WEDGE,
+    };
+    let cq = cq?;
+    let nation = match (cq.placement, genesis_seed) {
+        (PLACEMENT_WEDGE, _) => coord.wedge()?,
+        (PLACEMENT_DISPERSED, Some(seed)) => {
+            home_nation(coord, cq.placement, cq.heartland_max_ring, seed)?
+        }
+        _ => return None,
+    };
+    Some((nation, cq.heartland_max_ring))
+}
+
+// ------------------------------------------------------------ tickets
+
+/// What a check made of one instruction from its evidence: a PASS, a FAIL
+/// with its detail, or evidence the archive does not hold (`MissingData`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Judgement {
+    Pass,
+    Fail(String),
+    Missing(String),
+}
+
+/// The program's legacy FileTicket wedge rule (`proc/citizen.rs::
+/// wedge_allowed`, pinned here byte for byte): the citizen's own wedge, or
+/// (when the folded Frontier shows no free site left in it) the outermost
+/// open ring of an adjacent wedge.
+pub fn legacy_wedge_allowed(
+    faction: u8,
+    site_wedge: u8,
+    site_ring: u32,
+    own_open: u32,
+    own_occupied: u32,
+    rings_opened: u16,
+) -> bool {
+    if site_wedge == faction {
+        return true;
+    }
+    let adjacent = site_wedge == (faction + 1) % 6 || site_wedge == (faction + 5) % 6;
+    own_open.saturating_sub(own_occupied) == 0
+        && adjacent
+        && rings_opened > 0
+        && site_ring == rings_opened as u32 - 1
+}
+
+/// The program's FileTicket site rule from the season's evidence (its
+/// `ticket_nation_allowed` over `wedge_allowed`): inside a dispersed
+/// heartland (`placement` 1, rings `2..=heartland_max_ring`) the site's
+/// province must be the nation's (`home_nation`, the rule PlaceHome uses);
+/// everywhere else — the wedge placement, an M1 season, the rings outside
+/// the heartland — the legacy wedge rule with its adjacent-wedge overflow.
+/// `None` when the evidence is missing: a conquest season (`v3`) without
+/// its conquest block, a dispersed heartland site without the GENESIS_SEED,
+/// an unknown placement. An M1 season has no conquest block by design and
+/// runs the legacy rule. The Concord is never a ticket site.
+#[allow(clippy::too_many_arguments)]
+pub fn ticket_site_rule(
+    v3: bool,
+    cq: Option<&frontier_abi::v2::presets::ConquestParams>,
+    genesis_seed: Option<&[u8; 32]>,
+    coord: ProvinceCoord,
+    faction: u8,
+    own_open: u32,
+    own_occupied: u32,
+    rings_opened: u16,
+) -> Option<bool> {
+    use permutation_rules::frontier::geometry::{
+        home_nation, PLACEMENT_DISPERSED, PLACEMENT_WEDGE,
+    };
+    let Some(wedge) = coord.wedge() else {
+        return Some(false);
+    };
+    let legacy = legacy_wedge_allowed(
+        faction,
+        wedge,
+        coord.ring(),
+        own_open,
+        own_occupied,
+        rings_opened,
+    );
+    let Some(cq) = cq else {
+        return if v3 { None } else { Some(legacy) };
+    };
+    match cq.placement {
+        PLACEMENT_WEDGE => Some(legacy),
+        PLACEMENT_DISPERSED => {
+            let ring = coord.ring();
+            if ring < 2 || ring > cq.heartland_max_ring as u32 {
+                return Some(legacy);
+            }
+            let seed = genesis_seed?;
+            Some(home_nation(coord, PLACEMENT_DISPERSED, cq.heartland_max_ring, seed)? == faction)
         }
         _ => None,
+    }
+}
+
+/// The evidence a FileTicket is judged from.
+pub struct TicketEvidence<'a> {
+    /// A conquest season (program version ≥ 3): its conquest block is
+    /// required evidence.
+    pub v3: bool,
+    pub cq: Option<&'a frontier_abi::v2::presets::ConquestParams>,
+    pub genesis_seed: Option<&'a [u8; 32]>,
+    /// The Season's `r_max` (CreateSeason's).
+    pub r_max: Option<u16>,
+    /// The FileTicket instruction data.
+    pub data: &'a [u8],
+    pub citizen_before: Option<&'a [u8]>,
+    pub citizen_after: Option<&'a [u8]>,
+    pub frontier_before: Option<&'a [u8]>,
+    /// The TICKET record: its bell and payload fields.
+    pub bell: u32,
+    pub ticket_bell: u32,
+    pub n: u8,
+    pub sites: &'a [u8],
+}
+
+/// A FileTicket re-judged as the program's `file_ticket` judges it (module
+/// doc). The accounts the instruction names are the caller's to check.
+pub fn judge_ticket(e: &TicketEvidence) -> Judgement {
+    use frontier_abi::layout::player::citizen as C;
+    use frontier_abi::layout::world::frontier as FR;
+    use Judgement::{Fail, Missing};
+    let Ok(x) = aix::FileTicket::decode(e.data) else {
+        return Fail("the FileTicket data does not decode".into());
+    };
+    let (Some(cd), Some(fd)) = (e.citizen_before, e.frontier_before) else {
+        return Missing("no state of the Citizen or the Frontier before the filing".into());
+    };
+    if cd.len() < C::SIZE || fd.len() < FR::SIZE {
+        return Fail("the Citizen or the Frontier before the filing is not that account".into());
+    }
+    let Some(r_max) = e.r_max else {
+        return Missing("no CreateSeason parameters: r_max unknown".into());
+    };
+    if e.v3 && e.cq.is_none() {
+        return Missing(
+            "a conquest season without its conquest block: the placement is unknown".into(),
+        );
+    }
+    let faction = cd[C::FACTION];
+    if faction >= 6 {
+        return Fail(format!("the citizen's faction is {faction}"));
+    }
+    if cd[C::FLAGS] & (C::FLAG_PROVISIONAL | C::FLAG_FIRST_HOLDING_FINAL) != 0
+        || le(&cd[C::TICKET_BELL..C::TICKET_BELL + 4]) as u32 != C::NO_TICKET
+    {
+        return Fail("the citizen had a first holding or an open ticket".into());
+    }
+    let rings_opened = le(&fd[FR::RINGS_OPENED..FR::RINGS_OPENED + 2]) as u16;
+    let r_max = r_max.max(le(&fd[FR::R_MAX_EXT..FR::R_MAX_EXT + 2]) as u16);
+    let at =
+        |base: usize| le(&fd[base + 4 * faction as usize..base + 4 * faction as usize + 4]) as u32;
+    let (own_open, own_occ) = (at(FR::WEDGE_OPEN), at(FR::WEDGE_OCCUPIED));
+    if e.ticket_bell != e.bell || e.n != x.n {
+        return Fail("the TICKET record's bell or site count is not the filing's".into());
+    }
+    let n = x.n as usize;
+    if e.sites.len() != 15 || n == 0 || n > 3 {
+        return Fail("the TICKET record's sites are not three entries".into());
+    }
+    let mut seen: Vec<(i16, i16, u8)> = Vec::with_capacity(3);
+    for (i, s) in x.sites.iter().take(n).enumerate() {
+        let rec = (
+            le(&e.sites[5 * i..5 * i + 2]) as u16 as i16,
+            le(&e.sites[5 * i + 2..5 * i + 4]) as u16 as i16,
+            e.sites[5 * i + 4],
+        );
+        let what = format!("site {i} ({}, {}, {})", s.p, s.q, s.site);
+        if rec != (s.p, s.q, s.site) {
+            return Fail(format!("{what} is not the record's {rec:?}"));
+        }
+        if seen.contains(&rec) {
+            return Fail(format!("{what} is named twice"));
+        }
+        seen.push(rec);
+        let Ok(coord) = ProvinceCoord::checked(s.p as i32, s.q as i32, r_max) else {
+            return Fail(format!("{what} lies beyond the effective r_max {r_max}"));
+        };
+        let ring = coord.ring();
+        if ring < 2 {
+            return Fail(format!("{what} lies in a reserved ring"));
+        }
+        if ring >= rings_opened as u32 {
+            return Fail(format!(
+                "{what} lies in ring {ring}, not opened ({rings_opened} rings)"
+            ));
+        }
+        if s.site as usize >= 12 {
+            return Fail(format!("{what} is not a site index"));
+        }
+        match ticket_site_rule(
+            e.v3,
+            e.cq,
+            e.genesis_seed,
+            coord,
+            faction,
+            own_open,
+            own_occ,
+            rings_opened,
+        ) {
+            None => {
+                return Missing(format!(
+                    "missing or unsupported placement evidence for {what}"
+                ))
+            }
+            Some(false) => {
+                return Fail(format!(
+                    "{what} is outside the placement rule of nation {faction} (own wedge {own_occ} of {own_open} occupied, {rings_opened} rings)"
+                ))
+            }
+            Some(true) => {}
+        }
+    }
+    if e.sites[5 * n..].iter().any(|b| *b != 0) {
+        return Fail("the record's unused site entries are not zero".into());
+    }
+    let Some(ca) = e.citizen_after else {
+        return Missing("no Citizen post-state".into());
+    };
+    if ca.len() < C::SIZE
+        || le(&ca[C::TICKET_BELL..C::TICKET_BELL + 4]) as u32 != e.bell
+        || ca[C::TICKET_SITES..C::TICKET_SITES + 15] != e.sites[..]
+    {
+        return Fail("the Citizen after the filing does not carry this ticket".into());
+    }
+    Judgement::Pass
+}
+
+/// Which instruction a TICKET record stands for (module doc,
+/// "Attribution").
+#[derive(Debug)]
+pub enum TicketRoute<'a> {
+    /// One FileTicket of the record's citizen, and nothing else in the
+    /// transaction may write that Citizen or the Frontier: judge it from
+    /// the transaction's states.
+    Isolated(&'a Ix),
+    /// The citizen's only filing in the transaction is a FileOutpost: V22's.
+    Outpost,
+    /// The record cannot be attributed to one instruction's states:
+    /// `MissingData`.
+    Mixed(String),
+    /// No filing of this citizen accounts for the record: a FAIL.
+    Fail(String),
+}
+
+/// The attribution of a TICKET record of `citizen` (its account) among the
+/// transaction's top-level program instructions `ixs`; `n_records` the
+/// TICKET records of that citizen in the transaction.
+pub fn route_ticket<'a>(
+    ixs: &'a [Ix],
+    citizen: &Key,
+    frontier: &Key,
+    n_records: usize,
+) -> TicketRoute<'a> {
+    use frontier_abi::tags::Ix as V1Ix;
+    let of_citizen = |tag: u8| -> Vec<&'a Ix> {
+        ixs.iter()
+            .filter(|i| i.tag() == Some(tag) && i.key(3) == Some(*citizen))
+            .collect()
+    };
+    let tickets = of_citizen(V1Ix::FileTicket.tag());
+    let outposts = of_citizen(frontier_abi::v2::tags::Ix::FileOutpost.tag());
+    match (tickets.as_slice(), outposts.as_slice()) {
+        ([], []) if ixs.is_empty() => TicketRoute::Mixed(
+            "no top-level instruction of the program: the filing is an inner instruction the archive does not show (V0E reports it)".into(),
+        ),
+        ([], []) => TicketRoute::Fail(
+            "no FileTicket or FileOutpost of the transaction names this citizen".into(),
+        ),
+        ([], [_]) => TicketRoute::Outpost,
+        ([ix], []) => {
+            let writers: Vec<usize> = ixs
+                .iter()
+                .filter(|i| i.index != ix.index && (i.writes(citizen) || i.writes(frontier)))
+                .map(|i| i.index)
+                .collect();
+            if !writers.is_empty() {
+                return TicketRoute::Mixed(format!(
+                    "instruction(s) {writers:?} of the transaction may write this Citizen or the Frontier too: the states before and after the transaction cannot be attributed to the FileTicket alone"
+                ));
+            }
+            if n_records != 1 {
+                return TicketRoute::Fail(format!(
+                    "{n_records} TICKET records of this citizen for one FileTicket"
+                ));
+            }
+            TicketRoute::Isolated(ix)
+        }
+        (t, o) => TicketRoute::Mixed(format!(
+            "{} FileTicket and {} FileOutpost of this citizen in one transaction: the record cannot be attributed to one of them",
+            t.len(),
+            o.len()
+        )),
+    }
+}
+
+/// A TICKET record, attributed ([`route_ticket`]) and judged from the
+/// states before its transaction ([`judge_ticket`]).
+fn filed_ticket(cx: &mut Ctx, r: &crate::world::Rec) {
+    let w = cx.w;
+    let f = cx.f;
+    let v3 = cx.v3;
+    let tx = &w.txs[r.tx];
+    let tag15: [u8; 15] = r.k("citizen_tag15").try_into().unwrap_or([0; 15]);
+    let what = format!(
+        "ticket of citizen {} at bell {}",
+        hex::encode(tag15),
+        r.bell
+    );
+    let ck = f.ctx.citizen_by_tag15(&tag15);
+    let n_records = tx
+        .recs
+        .iter()
+        .filter(|&&n| w.recs[n].kind == Kind::TICKET && w.recs[n].k("citizen_tag15") == &tag15[..])
+        .count();
+    let judged = (|| -> Judgement {
+        let ix = match route_ticket(&tx.ixs, &ck, &f.ctx.frontier(), n_records) {
+            TicketRoute::Isolated(ix) => ix,
+            TicketRoute::Outpost => return Judgement::Pass,
+            TicketRoute::Mixed(why) => return Judgement::Missing(why),
+            TicketRoute::Fail(why) => return Judgement::Fail(why),
+        };
+        if ix.key(4) != Some(f.ctx.frontier()) {
+            return Judgement::Fail("the instruction's Frontier is not the season's".into());
+        }
+        if !w.has_post {
+            return Judgement::Missing(
+                "no post-states: the Citizen and the Frontier before the filing are unknown".into(),
+            );
+        }
+        judge_ticket(&TicketEvidence {
+            v3,
+            cq: f.cq.as_ref(),
+            genesis_seed: f.genesis_seed.as_ref(),
+            r_max: f.params.as_ref().map(|p| p.r_max),
+            data: &ix.data,
+            citizen_before: w.state_before(&ck, r.tx),
+            citizen_after: tx.post_data(&ck),
+            frontier_before: w.state_before(&f.ctx.frontier(), r.tx),
+            bell: r.bell,
+            ticket_bell: r.pu32("ticket_bell"),
+            n: r.pu8("n"),
+            sites: r.p("sites"),
+        })
+    })();
+    match judged {
+        Judgement::Pass => {}
+        Judgement::Fail(why) => {
+            cx.fail(V, TICKET_PLACEMENT_MISMATCH, what, r.bell, Some(r.tx), why)
+        }
+        Judgement::Missing(why) => cx.missing(V, what, r.bell, Some(r.tx), why),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use frontier_abi::v2::presets::{ConquestParams, FRONTIER_7, PLACEMENT_DISPERSED};
+    use permutation_rules::frontier::geometry::{home_nation, ring_provinces};
+
+    fn cq(placement: u8, hmr: u8) -> ConquestParams {
+        let mut c = FRONTIER_7;
+        c.placement = placement;
+        c.heartland_max_ring = hmr;
+        c
+    }
+
+    /// The placement evidence is read as the program reads it, and every
+    /// gap in it is `None` (a MISSING finding), never the wedge.
+    #[test]
+    fn home_rule_follows_the_program_and_fails_closed_without_evidence() {
+        let seed = [1u8; 32];
+        let ring2 = ring_provinces(2);
+        for c in &ring2 {
+            // placement 0: the wedge, with or without a seed
+            assert_eq!(
+                home_rule_of(Some(&cq(0, 3)), None, *c),
+                Some((c.wedge().unwrap(), 3))
+            );
+            assert_eq!(
+                home_rule_of(Some(&cq(0, 4)), Some(&seed), *c),
+                Some((c.wedge().unwrap(), 4))
+            );
+            // placement 1: the program's rule from the genesis seed
+            assert_eq!(
+                home_rule_of(Some(&cq(1, 3)), Some(&seed), *c),
+                Some((home_nation(*c, PLACEMENT_DISPERSED, 3, &seed).unwrap(), 3))
+            );
+            // no conquest block, a dispersed season without its seed, an unknown placement
+            assert_eq!(home_rule_of(None, Some(&seed), *c), None);
+            assert_eq!(home_rule_of(Some(&cq(1, 3)), None, *c), None);
+            assert_eq!(home_rule_of(Some(&cq(2, 3)), Some(&seed), *c), None);
+        }
+        // the Concord has no nation under either placement
+        assert_eq!(
+            home_rule_of(Some(&cq(0, 3)), Some(&seed), ProvinceCoord::CONCORD),
+            None
+        );
+        assert_eq!(
+            home_rule_of(Some(&cq(1, 3)), Some(&seed), ProvinceCoord::CONCORD),
+            None
+        );
+        // the dispersed placement names a nation off its wedge somewhere
+        assert!(ring2.iter().any(|c| {
+            home_rule_of(Some(&cq(1, 3)), Some(&seed), *c).map(|(n, _)| n) != c.wedge()
+        }));
+    }
+
+    /// The legacy wedge rule, pinned to the program's `wedge_allowed` with
+    /// its own test vectors.
+    #[test]
+    fn legacy_wedge_rule_is_the_programs() {
+        assert!(legacy_wedge_allowed(2, 2, 3, 10, 0, 4));
+        assert!(!legacy_wedge_allowed(2, 3, 3, 10, 9, 4));
+        assert!(legacy_wedge_allowed(2, 3, 3, 10, 10, 4));
+        assert!(legacy_wedge_allowed(2, 1, 3, 10, 10, 4));
+        assert!(!legacy_wedge_allowed(2, 4, 3, 10, 10, 4));
+        assert!(!legacy_wedge_allowed(2, 3, 2, 10, 10, 4));
+        assert!(legacy_wedge_allowed(0, 5, 3, 0, 0, 4));
+        // no ring open: no overflow anywhere
+        assert!(!legacy_wedge_allowed(0, 1, 0, 0, 0, 0));
+    }
+
+    /// The ticket site rule is the program's `ticket_nation_allowed` over
+    /// `wedge_allowed`: the nation inside a dispersed heartland, the legacy
+    /// wedge and overflow rule everywhere else, and `None` (MISSING) for
+    /// every gap in the evidence, never the wedge.
+    #[test]
+    fn ticket_site_rule_follows_the_program_and_fails_closed_without_evidence() {
+        let seed = [1u8; 32];
+        let (open, occ, rings) = (10u32, 0u32, 4u16);
+        let heart: Vec<ProvinceCoord> = ring_provinces(2)
+            .into_iter()
+            .chain(ring_provinces(3))
+            .collect();
+        let mut off_wedge = 0;
+        for c in &heart {
+            let wedge = c.wedge().unwrap();
+            let nation = home_nation(*c, PLACEMENT_DISPERSED, 3, &seed).unwrap();
+            off_wedge += usize::from(nation != wedge);
+            for f in 0..6u8 {
+                let legacy = legacy_wedge_allowed(f, wedge, c.ring(), open, occ, rings);
+                // placement 0, and an M1 season (no block by design): the legacy rule
+                assert_eq!(
+                    ticket_site_rule(true, Some(&cq(0, 3)), None, *c, f, open, occ, rings),
+                    Some(legacy)
+                );
+                assert_eq!(
+                    ticket_site_rule(false, None, None, *c, f, open, occ, rings),
+                    Some(legacy)
+                );
+                // placement 1 inside the heartland: the nation, whatever the
+                // wedge rule or the overflow would say
+                for occ in [occ, open] {
+                    assert_eq!(
+                        ticket_site_rule(
+                            true,
+                            Some(&cq(1, 3)),
+                            Some(&seed),
+                            *c,
+                            f,
+                            open,
+                            occ,
+                            rings
+                        ),
+                        Some(nation == f)
+                    );
+                }
+                // a conquest season without its block, a dispersed heartland
+                // site without the seed, an unknown placement: no answer
+                assert_eq!(
+                    ticket_site_rule(true, None, Some(&seed), *c, f, open, occ, rings),
+                    None
+                );
+                assert_eq!(
+                    ticket_site_rule(true, Some(&cq(1, 3)), None, *c, f, open, occ, rings),
+                    None
+                );
+                assert_eq!(
+                    ticket_site_rule(true, Some(&cq(2, 3)), Some(&seed), *c, f, open, occ, rings),
+                    None
+                );
+            }
+        }
+        assert!(
+            off_wedge > 0,
+            "the dispersed placement puts homes off their wedge"
+        );
+        // Outside the heartland the dispersed season keeps the legacy
+        // overflow rule, seed or not: a full own wedge may file in an
+        // adjacent wedge's outermost open ring, an empty one may not.
+        let out = ProvinceCoord::new(4, 0);
+        assert_eq!(out.ring(), 4);
+        let w4 = out.wedge().unwrap();
+        for (open, occ) in [(10u32, 0u32), (10, 10)] {
+            for f in 0..6u8 {
+                let legacy = legacy_wedge_allowed(f, w4, 4, open, occ, 5);
+                for seed in [Some(&seed), None] {
+                    assert_eq!(
+                        ticket_site_rule(true, Some(&cq(1, 3)), seed, out, f, open, occ, 5),
+                        Some(legacy)
+                    );
+                }
+            }
+        }
+        assert!(legacy_wedge_allowed((w4 + 1) % 6, w4, 4, 10, 10, 5));
+        assert!(!legacy_wedge_allowed((w4 + 1) % 6, w4, 4, 10, 9, 5));
+        // the Concord is never a ticket site
+        assert_eq!(
+            ticket_site_rule(
+                true,
+                Some(&cq(1, 3)),
+                Some(&seed),
+                ProvinceCoord::CONCORD,
+                0,
+                10,
+                0,
+                5
+            ),
+            Some(false)
+        );
+    }
+
+    // --- the FileTicket judgement over literal account bytes (no key, no chain)
+
+    #[derive(Clone)]
+    struct Case {
+        v3: bool,
+        cq: Option<ConquestParams>,
+        seed: Option<[u8; 32]>,
+        r_max: Option<u16>,
+        data: Vec<u8>,
+        before: Option<Vec<u8>>,
+        after: Option<Vec<u8>>,
+        frontier: Option<Vec<u8>>,
+        bell: u32,
+        ticket_bell: u32,
+        n: u8,
+        sites: [u8; 15],
+    }
+
+    impl Case {
+        fn judge(&self) -> Judgement {
+            judge_ticket(&TicketEvidence {
+                v3: self.v3,
+                cq: self.cq.as_ref(),
+                genesis_seed: self.seed.as_ref(),
+                r_max: self.r_max,
+                data: &self.data,
+                citizen_before: self.before.as_deref(),
+                citizen_after: self.after.as_deref(),
+                frontier_before: self.frontier.as_deref(),
+                bell: self.bell,
+                ticket_bell: self.ticket_bell,
+                n: self.n,
+                sites: &self.sites,
+            })
+        }
+        fn fails(&self) -> bool {
+            matches!(self.judge(), Judgement::Fail(_))
+        }
+        fn missing(&self) -> bool {
+            matches!(self.judge(), Judgement::Missing(_))
+        }
+    }
+
+    fn citizen_bytes(faction: u8, flags: u8, ticket_bell: u32) -> Vec<u8> {
+        use frontier_abi::layout::player::citizen as C;
+        let mut d = vec![0u8; C::SIZE];
+        d[C::FACTION] = faction;
+        d[C::FLAGS] = flags;
+        d[C::TICKET_BELL..C::TICKET_BELL + 4].copy_from_slice(&ticket_bell.to_le_bytes());
+        d
+    }
+
+    fn frontier_bytes(rings_opened: u16, r_max_ext: u16, open: [u32; 6], occ: [u32; 6]) -> Vec<u8> {
+        use frontier_abi::layout::world::frontier as FR;
+        let mut d = vec![0u8; FR::SIZE];
+        d[FR::RINGS_OPENED..FR::RINGS_OPENED + 2].copy_from_slice(&rings_opened.to_le_bytes());
+        d[FR::R_MAX_EXT..FR::R_MAX_EXT + 2].copy_from_slice(&r_max_ext.to_le_bytes());
+        for w in 0..6 {
+            d[FR::WEDGE_OPEN + 4 * w..FR::WEDGE_OPEN + 4 * w + 4]
+                .copy_from_slice(&open[w].to_le_bytes());
+            d[FR::WEDGE_OCCUPIED + 4 * w..FR::WEDGE_OCCUPIED + 4 * w + 4]
+                .copy_from_slice(&occ[w].to_le_bytes());
+        }
+        d
+    }
+
+    fn sites_payload(sites: &[(i16, i16, u8)]) -> [u8; 15] {
+        let mut p = [0u8; 15];
+        for (i, s) in sites.iter().enumerate() {
+            p[5 * i..5 * i + 2].copy_from_slice(&s.0.to_le_bytes());
+            p[5 * i + 2..5 * i + 4].copy_from_slice(&s.1.to_le_bytes());
+            p[5 * i + 4] = s.2;
+        }
+        p
+    }
+
+    fn ticket_data(sites: &[(i16, i16, u8)]) -> Vec<u8> {
+        use frontier_abi::ix::TicketSite;
+        let mut x = aix::FileTicket {
+            n: sites.len() as u8,
+            sites: [TicketSite::default(); 3],
+        };
+        for (i, s) in sites.iter().enumerate() {
+            x.sites[i] = TicketSite {
+                p: s.0,
+                q: s.1,
+                site: s.2,
+            };
+        }
+        let mut out = vec![0u8; x.data_len()];
+        x.encode(&mut out).unwrap();
+        out
+    }
+
+    /// A filing at bell 40 by a citizen of `faction` with no holding and no
+    /// ticket, the Citizen after it carrying the ticket.
+    fn case(
+        faction: u8,
+        sites: &[(i16, i16, u8)],
+        cq: Option<ConquestParams>,
+        seed: Option<[u8; 32]>,
+        frontier: Vec<u8>,
+    ) -> Case {
+        use frontier_abi::layout::player::citizen as C;
+        let before = citizen_bytes(faction, C::FLAG_JOINED, C::NO_TICKET);
+        let payload = sites_payload(sites);
+        let mut after = before.clone();
+        after[C::TICKET_BELL..C::TICKET_BELL + 4].copy_from_slice(&40u32.to_le_bytes());
+        after[C::TICKET_SITES..C::TICKET_SITES + 15].copy_from_slice(&payload);
+        Case {
+            v3: true,
+            cq,
+            seed,
+            r_max: Some(8),
+            data: ticket_data(sites),
+            before: Some(before),
+            after: Some(after),
+            frontier: Some(frontier),
+            bell: 40,
+            ticket_bell: 40,
+            n: sites.len() as u8,
+            sites: payload,
+        }
+    }
+
+    /// Valid, invalid and incomplete FileTicket evidence: the dispersed
+    /// heartland's nation rule (PlaceHome's), the legacy wedge and overflow
+    /// rule outside it, the effective `r_max` of map growth, and every
+    /// missing piece of evidence reported as such.
+    #[test]
+    fn dispersed_ticket_judgement_follows_the_program_and_fails_closed() {
+        use frontier_abi::layout::player::citizen as C;
+        let seed = [1u8; 32];
+        let c = ring_provinces(2)
+            .into_iter()
+            .chain(ring_provinces(3))
+            .find(|c| home_nation(*c, PLACEMENT_DISPERSED, 3, &seed) != c.wedge())
+            .expect("a heartland province off its nation's wedge");
+        let nation = home_nation(c, PLACEMENT_DISPERSED, 3, &seed).unwrap();
+        let wedge = c.wedge().unwrap();
+        let site = (c.p as i16, c.q as i16, 0u8);
+        let quiet = frontier_bytes(5, 0, [10; 6], [0; 6]);
+
+        // Valid: the nation's own heartland province, off its wedge.
+        let ok = case(nation, &[site], Some(cq(1, 3)), Some(seed), quiet.clone());
+        assert_eq!(ok.judge(), Judgement::Pass);
+        // Invalid: the wedge's nation (the wedge rule would allow it).
+        assert!(case(wedge, &[site], Some(cq(1, 3)), Some(seed), quiet.clone()).fails());
+        // The same filing under placement 0 is the wedge's and not the nation's.
+        assert_eq!(
+            case(wedge, &[site], Some(cq(0, 3)), None, quiet.clone()).judge(),
+            Judgement::Pass
+        );
+        assert!(case(nation, &[site], Some(cq(0, 3)), None, quiet.clone()).fails());
+        // An M1 season (no block): the legacy rule.
+        let mut m1 = case(wedge, &[site], None, None, quiet.clone());
+        m1.v3 = false;
+        assert_eq!(m1.judge(), Judgement::Pass);
+
+        // Outside the heartland the legacy overflow rule is preserved.
+        let out = ProvinceCoord::new(4, 0);
+        let w4 = out.wedge().unwrap();
+        let adj = (w4 + 5) % 6; // `out` lies in adj's next wedge
+        let s4 = (4i16, 0i16, 1u8);
+        assert_eq!(
+            case(w4, &[s4], Some(cq(1, 3)), Some(seed), quiet.clone()).judge(),
+            Judgement::Pass
+        );
+        assert!(case(adj, &[s4], Some(cq(1, 3)), Some(seed), quiet.clone()).fails());
+        let full = frontier_bytes(5, 0, [10; 6], [10; 6]);
+        assert_eq!(
+            case(adj, &[s4], Some(cq(1, 3)), Some(seed), full.clone()).judge(),
+            Judgement::Pass
+        );
+        // the seed is not needed there
+        assert_eq!(
+            case(adj, &[s4], Some(cq(1, 3)), None, full.clone()).judge(),
+            Judgement::Pass
+        );
+        // not the outermost open ring: no overflow
+        assert!(case(
+            adj,
+            &[s4],
+            Some(cq(1, 3)),
+            Some(seed),
+            frontier_bytes(6, 0, [10; 6], [10; 6])
+        )
+        .fails());
+
+        // Map growth: the effective r_max is the larger of the Season's and
+        // the Frontier's `r_max_ext`.
+        let mut small = case(w4, &[s4], Some(cq(1, 3)), Some(seed), quiet.clone());
+        small.r_max = Some(3);
+        assert!(small.fails());
+        small.frontier = Some(frontier_bytes(5, 4, [10; 6], [0; 6]));
+        assert_eq!(small.judge(), Judgement::Pass);
+
+        // Incomplete evidence: never a PASS, never a FAIL.
+        let mut m = ok.clone();
+        m.seed = None;
+        assert!(m.missing(), "a dispersed heartland site without the seed");
+        let mut m = ok.clone();
+        m.cq = None;
+        assert!(m.missing(), "a conquest season without its block");
+        let mut m = ok.clone();
+        m.frontier = None;
+        assert!(m.missing());
+        let mut m = ok.clone();
+        m.before = None;
+        assert!(m.missing());
+        let mut m = ok.clone();
+        m.after = None;
+        assert!(m.missing());
+        let mut m = ok.clone();
+        m.r_max = None;
+        assert!(m.missing());
+
+        // Invalid evidence: the record, the citizen's state, the sites.
+        let mut m = ok.clone();
+        m.n = 2;
+        assert!(m.fails(), "the record's site count");
+        let mut m = ok.clone();
+        m.ticket_bell = 41;
+        assert!(m.fails(), "the record's ticket bell");
+        let mut m = ok.clone();
+        m.before = Some(citizen_bytes(
+            nation,
+            C::FLAG_JOINED | C::FLAG_FIRST_HOLDING_FINAL,
+            C::NO_TICKET,
+        ));
+        assert!(m.fails(), "a first holding already");
+        let mut m = ok.clone();
+        m.before = Some(citizen_bytes(nation, C::FLAG_JOINED, 5));
+        assert!(m.fails(), "an open ticket already");
+        let mut m = ok.clone();
+        m.after = m.before.clone();
+        assert!(m.fails(), "the Citizen after it carries no ticket");
+        let mut m = ok.clone();
+        m.data = ticket_data(&[(c.p as i16, c.q as i16, 1)]);
+        assert!(m.fails(), "the record is not the instruction's");
+        assert!(case(
+            nation,
+            &[(c.p as i16, c.q as i16, 12)],
+            Some(cq(1, 3)),
+            Some(seed),
+            quiet.clone()
+        )
+        .fails());
+        assert!(case(
+            nation,
+            &[site, site],
+            Some(cq(1, 3)),
+            Some(seed),
+            quiet.clone()
+        )
+        .fails());
+        assert!(case(0, &[(1, 0, 0)], Some(cq(1, 3)), Some(seed), quiet.clone()).fails());
+        assert!(case(
+            w4,
+            &[s4],
+            Some(cq(1, 3)),
+            Some(seed),
+            frontier_bytes(4, 0, [10; 6], [0; 6])
+        )
+        .fails());
+        let mut m = ok.clone();
+        m.data = vec![frontier_abi::tags::Ix::FileTicket.tag(), 0];
+        assert!(m.fails(), "undecodable data");
+    }
+
+    // --- the attribution of a TICKET record (literal keys and instruction bytes)
+
+    const SEASON_K: Key = [0x22; 32];
+    const FRONTIER_K: Key = [0x33; 32];
+    const PAYER_K: Key = [0x44; 32];
+    const CITIZEN_A: Key = [0xa1; 32];
+    const CITIZEN_B: Key = [0xb2; 32];
+
+    /// FileTicket of one site by `citizen`: `[actor] [payer] [season]
+    /// [citizen w] [frontier r] [province w] [system]`.
+    fn ticket_ix(index: usize, citizen: Key) -> Ix {
+        Ix {
+            index,
+            data: ticket_data(&[(2, 0, 0)]),
+            accounts: vec![
+                ([0x77; 32], true),
+                (PAYER_K, true),
+                (SEASON_K, false),
+                (citizen, true),
+                (FRONTIER_K, false),
+                ([0x78; 32], true),
+                ([0; 32], false),
+            ],
+        }
+    }
+
+    /// FileOutpost by `citizen` (its data is not read here: the tag and the
+    /// citizen position are the attribution): the player prologue, the
+    /// Frontier read-only, a province, the system, the anchor and its
+    /// province, the previous holding and its province.
+    fn outpost_ix(index: usize, citizen: Key) -> Ix {
+        Ix {
+            index,
+            data: vec![frontier_abi::v2::tags::Ix::FileOutpost.tag()],
+            accounts: vec![
+                ([0x77; 32], true),
+                (PAYER_K, true),
+                (SEASON_K, false),
+                (citizen, true),
+                (FRONTIER_K, false),
+                ([0x78; 32], true),
+                ([0; 32], false),
+                ([0x79; 32], true),
+                ([0x7a; 32], false),
+                ([0x79; 32], true),
+                ([0x7a; 32], false),
+            ],
+        }
+    }
+
+    /// SetVigil by `citizen`: writes the Citizen, names no Frontier.
+    fn vigil_ix(index: usize, citizen: Key) -> Ix {
+        Ix {
+            index,
+            data: vec![frontier_abi::tags::Ix::SetVigil.tag(), 0x58, 0x02],
+            accounts: vec![
+                ([0x77; 32], true),
+                (PAYER_K, true),
+                (SEASON_K, false),
+                (citizen, true),
+            ],
+        }
+    }
+
+    /// OpenRing(5): writes the Frontier.
+    fn open_ring_ix(index: usize) -> Ix {
+        let mut accounts = vec![
+            (PAYER_K, true),
+            (SEASON_K, false),
+            (FRONTIER_K, true),
+            ([0x66; 32], true),
+        ];
+        accounts.extend((0..6u8).map(|w| ([0x70 + w; 32], false)));
+        accounts.push(([0; 32], false));
+        Ix {
+            index,
+            data: frontier_abi::ix::OpenRing { d: 5 }.to_bytes().to_vec(),
+            accounts,
+        }
+    }
+
+    fn isolated(r: &TicketRoute, index: usize) -> bool {
+        matches!(r, TicketRoute::Isolated(ix) if ix.index == index)
+    }
+    fn mixed(r: &TicketRoute) -> bool {
+        matches!(r, TicketRoute::Mixed(_))
+    }
+
+    /// A TICKET is judged only from the one FileTicket of its citizen that
+    /// stands alone in the transaction; a FileOutpost beside it, a second
+    /// FileTicket of the citizen, another writer of the Citizen or the
+    /// Frontier, or no top-level instruction is `MissingData` (never a
+    /// silent skip, never a PASS); an outpost's own TICKET is V22's; a
+    /// TICKET no filing accounts for is a FAIL. Other citizens' filings in
+    /// the same transaction do not disturb an isolated one.
+    #[test]
+    fn tickets_are_attributed_by_instruction_evidence_and_mixed_transactions_never_pass() {
+        let route = |ixs: &[Ix], c: &Key, n: usize| -> String {
+            let r = route_ticket(ixs, c, &FRONTIER_K, n);
+            match r {
+                TicketRoute::Isolated(ix) => format!("isolated {}", ix.index),
+                TicketRoute::Outpost => "outpost".into(),
+                TicketRoute::Mixed(_) => "mixed".into(),
+                TicketRoute::Fail(_) => "fail".into(),
+            }
+        };
+        // the plain case stays checked
+        assert!(isolated(
+            &route_ticket(&[ticket_ix(0, CITIZEN_A)], &CITIZEN_A, &FRONTIER_K, 1),
+            0
+        ));
+        // FileTicket + FileOutpost of the same citizen: never judged from the transaction's states
+        assert!(mixed(&route_ticket(
+            &[ticket_ix(0, CITIZEN_A), outpost_ix(1, CITIZEN_A)],
+            &CITIZEN_A,
+            &FRONTIER_K,
+            2
+        )));
+        assert!(mixed(&route_ticket(
+            &[outpost_ix(0, CITIZEN_A), ticket_ix(1, CITIZEN_A)],
+            &CITIZEN_A,
+            &FRONTIER_K,
+            2
+        )));
+        // two FileTicket of the same citizen
+        assert!(mixed(&route_ticket(
+            &[ticket_ix(0, CITIZEN_A), ticket_ix(1, CITIZEN_A)],
+            &CITIZEN_A,
+            &FRONTIER_K,
+            2
+        )));
+        // another citizen's filings beside it: A's is isolated, B's is its own
+        let mixed_citizens = [
+            ticket_ix(0, CITIZEN_A),
+            outpost_ix(1, CITIZEN_B),
+            ticket_ix(2, CITIZEN_B),
+        ];
+        assert_eq!(route(&mixed_citizens, &CITIZEN_A, 1), "isolated 0");
+        assert_eq!(route(&mixed_citizens, &CITIZEN_B, 2), "mixed");
+        let two_citizens = [ticket_ix(0, CITIZEN_A), ticket_ix(1, CITIZEN_B)];
+        assert_eq!(route(&two_citizens, &CITIZEN_A, 1), "isolated 0");
+        assert_eq!(route(&two_citizens, &CITIZEN_B, 1), "isolated 1");
+        let outpost_only = [outpost_ix(0, CITIZEN_B), ticket_ix(1, CITIZEN_A)];
+        assert_eq!(route(&outpost_only, &CITIZEN_B, 1), "outpost");
+        assert_eq!(route(&outpost_only, &CITIZEN_A, 1), "isolated 1");
+        // another writer of the Citizen (SetVigil) or of the Frontier (OpenRing)
+        assert_eq!(
+            route(
+                &[ticket_ix(0, CITIZEN_A), vigil_ix(1, CITIZEN_A)],
+                &CITIZEN_A,
+                1
+            ),
+            "mixed"
+        );
+        assert_eq!(
+            route(
+                &[vigil_ix(0, CITIZEN_A), ticket_ix(1, CITIZEN_A)],
+                &CITIZEN_A,
+                1
+            ),
+            "mixed"
+        );
+        assert_eq!(
+            route(
+                &[ticket_ix(0, CITIZEN_A), vigil_ix(1, CITIZEN_B)],
+                &CITIZEN_A,
+                1
+            ),
+            "isolated 0"
+        );
+        assert_eq!(
+            route(&[open_ring_ix(0), ticket_ix(1, CITIZEN_A)], &CITIZEN_A, 1),
+            "mixed"
+        );
+        // no top-level instruction (an inner call): unverifiable; a record no filing accounts for: a FAIL
+        assert_eq!(route(&[], &CITIZEN_A, 1), "mixed");
+        assert_eq!(route(&[vigil_ix(0, CITIZEN_A)], &CITIZEN_A, 1), "fail");
+        assert_eq!(route(&[ticket_ix(0, CITIZEN_B)], &CITIZEN_A, 1), "fail");
+        // two TICKET records of one citizen for one FileTicket: a FAIL
+        assert_eq!(route(&[ticket_ix(0, CITIZEN_A)], &CITIZEN_A, 2), "fail");
     }
 }

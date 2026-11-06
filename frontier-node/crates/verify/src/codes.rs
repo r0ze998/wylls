@@ -72,6 +72,14 @@ pub const DISPLACEMENT_RULE: &str = "DisplacementRule";
 pub const COHORT_MISMATCH: &str = "CohortMismatch";
 pub const TERRAIN_MISMATCH: &str = "TerrainMismatch";
 pub const CAMP_MISMATCH: &str = "CampMismatch";
+/// A FileTicket whose sites break the season's placement rule (the
+/// dispersed heartland's nation, else the legacy wedge and overflow
+/// rule), or a TICKET record that is not its filing's (V11, map growth).
+pub const TICKET_PLACEMENT_MISMATCH: &str = "TicketPlacementMismatch";
+// V26 map growth (S1 ExtendFrontier; a local candidate)
+/// An ExtendFrontier whose preconditions, Frontier post-state or
+/// FRONTIER_EXTENDED record are not the program's.
+pub const FRONTIER_EXTENSION_MISMATCH: &str = "FrontierExtensionMismatch";
 // V12 explore
 pub const EXPLORE_ROLL_MISMATCH: &str = "ExploreRollMismatch";
 // V13 payments
@@ -157,6 +165,8 @@ pub const FAIL_CODES: &[&str] = &[
     COHORT_MISMATCH,
     TERRAIN_MISMATCH,
     CAMP_MISMATCH,
+    TICKET_PLACEMENT_MISMATCH,
+    FRONTIER_EXTENSION_MISMATCH,
     EXPLORE_ROLL_MISMATCH,
     PAYMENT_MISMATCH,
     DEFENCE_REFUND_MISMATCH,

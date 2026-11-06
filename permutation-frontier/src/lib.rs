@@ -69,6 +69,11 @@ pub mod prologue;
 pub mod resident_binding;
 #[cfg(all(test, feature = "nft-experimental"))]
 mod resident_runtime_tests;
+// Key-free host harness of the dispersed first home and its release (map
+// growth): PlaceHome and ReleaseDormant through the real `dispatch`. A
+// separate module so a run can be filtered to `map_growth_runtime_tests::`.
+#[cfg(all(test, feature = "program"))]
+mod map_growth_runtime_tests;
 
 pub use error::{CqError, Error, FrontierError, R};
 

@@ -18,6 +18,7 @@ pub mod v22_outposts;
 pub mod v23_caravans;
 pub mod v24_structures;
 pub mod v25_nations;
+pub mod v26_growth;
 pub mod v27_residents;
 pub mod v2_program;
 pub mod v3_random;
@@ -263,6 +264,12 @@ pub fn run(input: &Input) -> Report {
         ran.push("V20:season-end");
         v22_outposts::run(&mut cx);
         ran.push("V22:outpost-filing");
+        // Map growth (a local candidate): every ExtendFrontier that stands
+        // alone in its transaction re-judged from the states before it, its
+        // Frontier post-state and its FRONTIER_EXTENDED record; a bundle
+        // with another Frontier writer is MissingData (`v26_growth::guard`).
+        v26_growth::run(&mut cx);
+        ran.push("V26:map-growth");
     }
     // S1 stages 1b, 1d and 1e: vaults, caravans, structures and nations, on
     // an S1 season only.

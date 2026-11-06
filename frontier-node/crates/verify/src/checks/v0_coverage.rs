@@ -131,10 +131,12 @@ pub fn judge_outside_v2(
 /// V1–V13 in every season; the conquest ones by V14–V22 (DeclareSiege,
 /// SettleSiege, SettleCapture, FileOutpost, FoldMarch, RetireHost through
 /// their records); S1's vault, caravan, structure and nation ones by
-/// V23–V25. Not modelled anywhere: **CloseMarch** (0xA7, MarchState rent
-/// after the Season ended) and **FastForward** (0xC0, a resting Province
-/// advanced in closed form: its CAMP/REST records are chained, the
-/// transition itself is not replayed).
+/// V23–V25; map growth's **ExtendFrontier** (0xC1) by V26 (its
+/// preconditions from the states before it, its Frontier post-state and
+/// its FRONTIER_EXTENDED record). Not modelled anywhere: **CloseMarch**
+/// (0xA7, MarchState rent after the Season ended) and **FastForward**
+/// (0xC0, a resting Province advanced in closed form: its CAMP/REST
+/// records are chained, the transition itself is not replayed).
 pub fn supported(ix: Ix, v3: bool, s1: bool) -> bool {
     use Ix::*;
     if ix.to_v1().is_some() {
@@ -144,7 +146,7 @@ pub fn supported(ix: Ix, v3: bool, s1: bool) -> bool {
         DeclareSiege | SettleSiege | SettleCapture | FileOutpost | FoldMarch | RetireHost => v3,
         BuildVault | SendCaravan | SettleCaravan | RaidCaravan | SeizeVault | CloseVault
         | DefaultRaid | BuildStructure | SeizeStructure | CloseStructure | FortGarrison
-        | Propose | Vote | SettleProposal | RaidDomestic => s1,
+        | Propose | Vote | SettleProposal | RaidDomestic | ExtendFrontier => s1,
         _ => false,
     }
 }
@@ -246,5 +248,9 @@ mod tests {
         assert!(!supported(Ix::DeclareSiege, false, false));
         assert!(!supported(Ix::SendCaravan, true, false));
         assert!(supported(Ix::SendCaravan, true, true));
+        // Map growth: ExtendFrontier is V26's, in an S1 season only.
+        assert!(supported(Ix::ExtendFrontier, true, true));
+        assert!(!supported(Ix::ExtendFrontier, true, false));
+        assert!(!supported(Ix::ExtendFrontier, false, false));
     }
 }

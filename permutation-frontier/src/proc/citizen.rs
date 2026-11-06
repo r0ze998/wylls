@@ -1213,7 +1213,9 @@ pub fn home_site(province: &[u8], site: u8, now_bell: u32) -> R<(u8, u8)> {
 /// 0x38 PlaceHome(P, Q, site): P + [frontier r, province w, holding w,
 /// joinshard w, system]. Program-version 3 seasons only. A sponsor funds
 /// the real Holding account; an unexpired session can place for its citizen.
-/// Legacy FileTicket/SettleTicket remains available and unchanged.
+/// Legacy FileTicket/SettleTicket remains available and unchanged. The
+/// JoinShard counts the home under the province's wedge ([`holding_wedge`],
+/// as SettleTicket does), which is the nation only under placement 0.
 pub fn place_home(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     place_home_as(p, a, d, &super::Auth::Wallet)
 }
@@ -1385,7 +1387,9 @@ pub(crate) fn place_home_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &supe
         .i64(now.ts)
         .bytes(payer.key.as_ref());
     let mut jd = shard.try_borrow_mut_data()?;
-    shard_holdings(&mut jd, faction, 1)?;
+    // The wedge counter is the province's wedge (as SettleTicket and the
+    // release), not the nation: they differ under the dispersed placement.
+    shard_holdings(&mut jd, holding_wedge(coord), 1)?;
     let mut cd = citizen.try_borrow_mut_data()?;
     let mut hd = holding.try_borrow_mut_data()?;
     let mut pd = province.try_borrow_mut_data()?;
@@ -1886,7 +1890,7 @@ pub fn settle_ticket(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     let mut gen = 0u8;
     let mut displaced_tag = 0u64;
     let mut shield_until = 0i64;
-    let wedge = coord.wedge().unwrap_or(0);
+    let wedge = holding_wedge(coord);
     let rent_h = init::rent(H::SIZE)?;
     if won {
         let (tile, old_gen, ore) = {
@@ -2349,7 +2353,7 @@ pub fn release_dormant(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         hdr.id,
     )?;
     let bell = log_bell(&hdr, now.ts);
-    let wedge = ProvinceCoord::new(pi, qi).wedge().unwrap_or(0);
+    let wedge = holding_wedge(ProvinceCoord::new(pi, qi));
     {
         let mut pd = province.try_borrow_mut_data()?;
         // MC S3: refused while the site's conquest record is live or owes a
@@ -2601,6 +2605,16 @@ pub fn close_citizen(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     Ok(())
 }
 
+/// The JoinShard wedge counter (`holdings_by_wedge`) a first holding at
+/// `coord` lives in: the province's own wedge, the index `wedge_open` is
+/// folded by (one ProvinceFund per wedge) and the one SettleTicket and
+/// ReleaseDormant use. Never the citizen's nation: under the dispersed
+/// placement a nation's heartland province may lie in another wedge, and
+/// a counter bumped by nation would never be undone by the release.
+pub(crate) fn holding_wedge(coord: ProvinceCoord) -> u8 {
+    coord.wedge().unwrap_or(0)
+}
+
 /// Inside dispersed heartland, tickets use the same nation assignment as PlaceHome.
 /// Outside heartland the existing ticket/overflow rule remains unchanged.
 fn ticket_nation_allowed(
@@ -2650,6 +2664,53 @@ mod tests {
             assert_eq!(
                 ticket_nation_allowed(ProvinceCoord::new(2, 0), 2, 0, 3, &seed, allowed),
                 allowed
+            );
+        }
+    }
+
+    /// Under the dispersed placement a nation's heartland province may lie
+    /// in another wedge. PlaceHome's shard counter is the province's wedge
+    /// (the index `wedge_open` is folded by and the one SettleTicket and
+    /// ReleaseDormant use), so a placed home and its later release touch
+    /// the same counter and the nation's index is never bumped by mistake.
+    #[test]
+    fn dispersed_first_home_counts_in_the_provinces_wedge_not_the_nation() {
+        let seed = [1u8; 32];
+        let mut off_wedge = 0;
+        for d in 2..=3u32 {
+            for c in geometry::ring_provinces(d) {
+                let nation = geometry::home_nation(c, geometry::PLACEMENT_DISPERSED, 3, &seed)
+                    .expect("a heartland province has a nation");
+                let wedge = c.wedge().expect("not the Concord");
+                assert_eq!(holding_wedge(c), wedge);
+                let mut js = alloc::vec![0u8; JS::SIZE];
+                let by =
+                    |d: &[u8], w: u8| Ro(d).u32(JS::HOLDINGS_BY_WEDGE + 4 * w as usize).unwrap();
+                // PlaceHome: the province's wedge, as SettleTicket.
+                shard_holdings(&mut js, holding_wedge(c), 1).unwrap();
+                assert_eq!(Ro(&js).u32(JS::HOLDINGS).unwrap(), 1);
+                assert_eq!(by(&js, wedge), 1);
+                if nation != wedge {
+                    off_wedge += 1;
+                    assert_eq!(by(&js, nation), 0, "{c:?}: the nation's index is untouched");
+                }
+                // ReleaseDormant undoes exactly what PlaceHome counted.
+                shard_holdings(&mut js, holding_wedge(c), -1).unwrap();
+                assert_eq!(Ro(&js).u32(JS::HOLDINGS).unwrap(), 0);
+                for w in 0..6u8 {
+                    assert_eq!(by(&js, w), 0, "{c:?}: wedge {w} back to zero");
+                }
+            }
+        }
+        assert!(
+            off_wedge > 0,
+            "the dispersed placement puts homes off their wedge"
+        );
+        // The wedge placement: the nation is the wedge, so nothing changes there.
+        for c in geometry::ring_provinces(2) {
+            assert_eq!(
+                Some(holding_wedge(c)),
+                geometry::home_nation(c, geometry::PLACEMENT_WEDGE, 3, &seed)
             );
         }
     }
