@@ -11,6 +11,11 @@ description = "Workstream 10: workstream 9's Custody trait implemented on workst
 # the core workspace changes, and ⑨'s and ⑩'s crates are used unmodified.
 [workspace]
 
+[features]
+# Workstream 9's kernel from 004836e2 has CustodyError::Refused(u16): map
+# 10's reasons onto it (this branch's copy of 9's kernel predates it).
+nine-refused = []
+
 [dependencies]
 wylls-capacity = { path = "../../09-capacity/kernel" }
 wylls-custody = { path = "../custody", default-features = false }

@@ -6,6 +6,14 @@
 
 > **2026-10-31 方針訂正（世界は終わらない）への対応**：[06-continuity.ja.md](06-continuity.ja.md)。custody 自身からシーズン終了の前提を除き（凍結の条件、カーネルの語彙、累計の桁あふれ）、期間の境界をまたぐ通し試験と長期運用の試験を足した。コアに残るシーズン依存（アドレス空間、`end_bell` での命令拒否、閉鎖、隊商 id など）は④・⑧へ。コア候補は `96fe6abff2004d05967854c4edc75c10ce2af7a4`。
 
+> **2026-11-05 ⑨との接続と V26 の再判定**：[08-adapter-09.ja.md](08-adapter-09.ja.md)（⑨の `Custody` を⑩の区画で実装したアダプター `adapter-09/` と、⑨自身の `Harness` を動かす契約試験。⑨と⑩本体のコードは変えていない）と [09-v26-state.ja.md](09-v26-state.ja.md)（core 差分 0010：custody シーズンの口座の再判定。証拠不足は PASS にしない）。本体 `3aef9673`・core `96fe6abf` はそのまま保持し、このブランチ `workstream/10-custody-adapter` は④の統合候補 `d0949fd4` を基点にしている。
+
+> **2026-11-06（3）**：⑨ `06c817cc`（⑩の差分を取り込み済み）との T5 の解消 [13-t5-and-v26-replay.ja.md](13-t5-and-v26-replay.ja.md)：アダプターの `connect` を削除し、単一の区画表の試験を⑨自身の bridge10 の上へ（`adapter-09/with-bridge10`）。V26 は注文の帳簿の再生（core `1624d14a`、patch 0013。core は先端に適用せず別の親として保存）。⑨への差分 `patches-to-09/0002`（pin の更新だけ）。
+
+> **2026-11-06（2）**：⑨の最新 `a24defcf` との照合 [12-connect-09-a24defcf.ja.md](12-connect-09-a24defcf.ja.md)。本人の区画と利用注文の区画を一つの表に、使わなかった鉱石は `return_unused` で消費を戻す（入庫に二重に数えない）、端数は預かりの中の未返却、⑨への差分 [patches-to-09/](patches-to-09/)、V26 の履歴の検査（core `38a273a9`、patch 0012。core は担当ブランチの先端には適用せず、別の親として保存）。
+
+> **2026-11-06**：⑨の `992f4ba5`（bridge10）との照合と揃え [10-adapter-bridge.ja.md](10-adapter-bridge.ja.md)（自分の区画と他人の区画の利用注文を一つの区画の置き場に、bridge10 との差分試験）、V26 の続き（core `5bb79786` を起点に 0011、⑱と組み合わせてビルド）[09](09-v26-state.ja.md) §7、④への ABI 番号の依頼 [11-abi-request-04.ja.md](11-abi-request-04.ja.md)。
+
 > **読み方。** 「確認した」は実行して確かめたこと、「コードを読んだ」は未実行、「提案」は判断待ち。[04-results.ja.md](04-results.ja.md) に実行したもの・していないものを分けて書いています。
 
 ## 結論
@@ -25,7 +33,7 @@
 | 版：custody が v3 を名乗らない | **差分で分離した** | 既定ビルドは V3・版 4 で custody タグを拒否、custody は `custody-preview`（V4・版 5）だけ（[05](05-integration-review.ja.md) §1） |
 | 検証器：未対応の痕跡を PASS にしない | **ガードを足した（本体はまだ）** | 修正前は偽の custody 命令が PASS だった。今は FAIL（custody のないシーズン）／UNVERIFIABLE（custody シーズン）（[05](05-integration-review.ja.md) §2） |
 | 宛先容量の予約 | **一般在庫を書く経路が今の3つである限り保証。配達は保証しない** | 競合・解放の試験と不変条件（[05](05-integration-review.ja.md) §3） |
-| ⑨との接続 | **未接続** | ⑨の契約は手元にない。資源は鉱石だけ、加工中・成果物・返却の入口なし（[05](05-integration-review.ja.md) §4） |
+| ⑨との接続 | **アダプターと契約試験（モデル）** | ⑨の trait を⑩の区画で実装。材料利用・加工中の返却予約・返却と完了の通知を照合し、重複・再起動でも二重消費・二重返却・予約の解放漏れなし（[08](08-adapter-09.ja.md)）。成果物の所有者・多資源・押収は未決のまま |
 
 **名前を画面で変えるだけの模擬ではない**ことの根拠：保管者が使える命令の経路そのものが区画に届かない（口座が別）こと、そして実装の誤りを11種わざと入れると試験が必ず落ちること（[04](04-results.ja.md) §1.2）。
 
@@ -39,6 +47,14 @@
 | [02-contract.ja.md](02-contract.ja.md) | **⑨・④への引き渡し**：データ形式、状態遷移、署名、保存則、イベント、命令、エラー、⑨の接続点 |
 | [03-rules-and-conflicts.ja.md](03-rules-and-conflicts.ja.md) | 略奪・占領・障害で所有権がどう変わるか、採用ルールとの衝突、足さなかった例外、判断待ち |
 | [04-results.ja.md](04-results.ja.md) | 実行した試験・していない試験、変異試験、測っていないもの |
+| [08-adapter-09.ja.md](08-adapter-09.ja.md) | **⑨との接続（2026-11-05）**：アダプター、双方の入出力、食い違い、試験 |
+| [09-v26-state.ja.md](09-v26-state.ja.md) | **V26 の再判定（2026-11-05）**：口座だけで決まる法則の再判定、⑱の V0 との関係、回帰試験 |
+| [10-adapter-bridge.ja.md](10-adapter-bridge.ja.md) | **⑨ bridge10 との照合（2026-11-06）**：揃えた点・合わなかった点、差分試験、所有と押収の問い |
+| [12-connect-09-a24defcf.ja.md](12-connect-09-a24defcf.ja.md) | **⑨ `a24defcf` との照合（2026-11-06）**：一つの区画表、返却・端数・二重計上、⑨への差分、V26 の履歴 |
+| [13-t5-and-v26-replay.ja.md](13-t5-and-v26-replay.ja.md) | **T5 と V26 の再生（2026-11-06）**：`connect` の削除、⑨ bridge10 の上の試験、注文の帳簿の再生、⑨・④への差分 |
+| [patches-to-09/](patches-to-09/) | ⑨の `a24defcf` に当てる差分（`git am`）と、当てた上での⑨の `run.sh` のログ |
+| [11-abi-request-04.ja.md](11-abi-request-04.ja.md) | **④への依頼（2026-11-06）**：ABI 番号と版の衝突（統合候補でエラー 94 が埋まった）と決めてほしいこと |
+| [adapter-09/](adapter-09/) | crate `wylls-custody-adapter-09`（独立 workspace）：⑨の `Custody` の実装と契約試験 |
 | [07-handoff-status.ja.md](07-handoff-status.ja.md) | **引き渡しの現状（2026-11-03）**：ABI 番号の衝突一覧（⑧と tag 0xC1・記録 104・error 94）、V4・V26・⑨接続の修正済み／未解決／仕様判断待ち |
 | [06-continuity.ja.md](06-continuity.ja.md) | **世界の継続**：残っていたシーズン依存、変更した挙動、境界・長期の試験、④・⑧への論点 |
 | [05-integration-review.ja.md](05-integration-review.ja.md) | **統合前の4点**：版の対応、検証器、容量予約の範囲と限界、⑨との照合と押収の扱いの分け方 |
