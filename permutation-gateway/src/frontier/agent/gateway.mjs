@@ -65,6 +65,30 @@ export const INFERENCE_HOLD_TTL_MS = 10 * 60_000;
 export const DUPLICATE_REBUILDS = 2;
 /** Actions that carry the Citizen's sequence number: never rebuilt on a Duplicate (workstream 04 AUTH-ROUTES §4). */
 export const SEQ_ACTIONS = Object.freeze(new Set(['SendCaravan']));
+
+/**
+ * One lane per Citizen (workstream 04 AUTH-ROUTES B1): every action for agents of the same owner (one Citizen, one
+ * session key) runs its build → sign → send one at a time, in arrival order, in THIS relay process. A failure or a
+ * refusal frees the lane for the next. Other relay processes and other machines are not in this lane (see
+ * workstream 05 CONNECT-7 §3: the agent wallet's own state file allows one relay process).
+ */
+export class CitizenLanes {
+  constructor() { this.tails = new Map(); this.depth = new Map(); }
+  run(key, fn) {
+    const prev = this.tails.get(key) ?? Promise.resolve();
+    this.depth.set(key, (this.depth.get(key) ?? 0) + 1);
+    const p = prev.then(fn, fn);
+    const tail = p.then(() => {}, () => {}).finally(() => {
+      const d = this.depth.get(key) - 1;
+      if (d === 0) { this.depth.delete(key); if (this.tails.get(key) === tail) this.tails.delete(key); } else this.depth.set(key, d);
+    });
+    this.tails.set(key, tail);
+    return p;
+  }
+  waiting(key) { return this.depth.get(key) ?? 0; }
+}
+/** The lane of an agent: its owner's Citizen (all of an owner's agents act through the one Citizen and its session key). */
+export const laneOf = rec => `citizen-of:${rec.owner}`;
 /** Default per-call test price of one model call (base units; 0.01 test USDC). TEST VALUE. */
 export const DEFAULT_INFERENCE_PRICE = '10000';
 
@@ -177,7 +201,9 @@ export class AgentGateway {
    * @param {object} [o.prices]  {inference: base units per model call, game: {actionName: base units}}
    * @param {object} [o.waits]   {withdraw: {tries, every}} how long `withdraw` waits for the chain before leaving it to reconcile
    */
-  constructor({ ctx, ledger, keyring, custody = null, prices = {}, waits = {}, unresolvedReleaseMs = null, fullHistory = false, now = Date.now, log = () => {} }) {
+  constructor({ ctx, ledger, keyring, custody = null, prices = {}, waits = {}, unresolvedReleaseMs = null, fullHistory = false, now = Date.now, log = () => {}, lanes = new CitizenLanes() }) {
+    /** Per-Citizen serial lanes (B1): build, sign and send of one Citizen's actions never overlap in this process. */
+    this.lanes = lanes;
     /** The node keeps every transaction (the in-process local chain): see fate.mjs. Off: the node must prove its history. */
     this.fullHistory = fullHistory === true;
     /** The proposed deadline rule (§6.5): null keeps unresolved holds until the operator decides. Not a default. */
@@ -528,7 +554,9 @@ export class AgentGateway {
       if (!prior.result) throw new AgentError(ERR.SEND_FAILED, 'this action key has a saved request without a final response; inspect its prior signature', 409, { signature: prior.signature ?? null });
       return { ...prior.result, replayed: true, balance: this.ledger.balance(rec.agentId) };
     }
-    const promise = this.#run(rec, r, hash).finally(() => this.inflight.delete(flightKey));
+    // The idempotency record above is per request; the lane orders the Citizen's sends (B1). The gate and the hold run
+    // when the request's turn comes, still synchronously before #run's first await.
+    const promise = this.lanes.run(laneOf(rec), () => this.#run(rec, r, hash)).finally(() => this.inflight.delete(flightKey));
     this.inflight.set(flightKey, { hash, promise });
     return promise;
   }
@@ -611,6 +639,7 @@ export class AgentGateway {
       let sent;
       for (let attempt = 0; ; attempt++) {
         const { shape, tx, wire, lastValidBlockHeight, slotFloor } = await this.#build(rec, r, avoid);
+        const built = { lastValidBlockHeight, slotFloor };
         try {
           sent = await sponsor(this.ctx, { ip: '127.0.0.1', surface: 'agent' }, {
             tx, wire, shape, lastValidBlockHeight, viaAgent: true,
@@ -629,6 +658,10 @@ export class AgentGateway {
           // CARAVANS counter): a Duplicate there may be this Citizen's own earlier caravan with the same seq, and a
           // rebuild with another fee payer could pay a second fee for the same seq (workstream 04 AUTH-ROUTES §4).
           if (!sending && e instanceof RouteError && e.code === 'Duplicate' && attempt < DUPLICATE_REBUILDS && !SEQ_ACTIONS.has(r.action.name)) { avoid.add(shape.feePayer); continue; }
+          // A Duplicate of a seq action is NOT proof that nothing of it was sent: these exact bytes (the same Citizen
+          // seq, so the same effect) already left in an earlier submission. It goes back as `failed` with `sent: null`
+          // and that transaction's signature, so the caller follows its fate and holds while the fate is unknown.
+          if (!sending && e instanceof RouteError && e.code === 'Duplicate' && SEQ_ACTIONS.has(r.action.name)) e.duplicateOf = { signature: e.extra?.signature ?? null, ...built };
           throw e;
         }
         break;
@@ -641,7 +674,15 @@ export class AgentGateway {
       this.log(`agent wallet: ${rec.agentId} ${r.action.name} sent ${sent.signature} (${r.source}, key ${key})`);
     } catch (e) {
       if (this.ledger.actionWritesFailed) throw e;
-      if (!sending) {
+      if (!sending && e.duplicateOf) {
+        // Nothing of THIS request left, so its own hold comes back; but the same bytes did leave before: not `not-sent`.
+        this.ledger.release(rec.agentId, hold.id, 'duplicate');
+        const d = e.duplicateOf;
+        res = refused(e, RESULT_STATUS.FAILED, [], d.signature
+          ? { sent: null, duplicateOf: d.signature, signature: d.signature, lastValidBlockHeight: d.lastValidBlockHeight ?? null, slotFloor: d.slotFloor ?? null }
+          : { sent: null });
+        this.log(`agent wallet: ${rec.agentId} ${r.action.name} is a duplicate of ${d.signature ?? 'an earlier submission'}; follow it, do not resend`);
+      } else if (!sending) {
         // Nothing left this process: the hold comes back whole.
         this.ledger.release(rec.agentId, hold.id, 'refused');
         // A refusal of the gateway's or the relay's (a RouteError) is 'refused'; an exception on the way (RPC down) is 'failed'.
