@@ -1,5 +1,7 @@
 # 0002 コアに案 B を組み込む場合の命令・口座・記録（案、未適用・未実行）
 
+> **r7（2026-11-06、④の割当てに合わせる）。** ④の `workstreams/04-execution/contracts/ABI-ALLOCATION-20261106.ja.md`（暫定）は⑪に **命令タグ 0xE8–0xED**、**記録種別 135–144**、**AccountKind 27–30** を割り当てた。下の表の 0xD0–0xD5 は②の Grant（`frontier-abi/src/v2/rights.rs`）と重なるので、次のとおり読み替える: 0xD0→0xE8 ExtWriteManifest、0xD1→0xE9 ExtPublish、0xD2→0xEA ExtSetStatus、0xD3→0xEB ExtGrant、0xD4→0xEC ExtCall、0xD5→0xED ExtWithdraw。§3 の記録は EXT_PUBLISHED 135、EXT_STATUS 136、EXT_RECEIPT 137（138–144 は予備）、§2 の口座は ExtRegistration 27、ExtGrant 28、ExtInstance 29、ExtBuffer 30。§4 の「V2 で知らないタグを UNVERIFIABLE（0001）」は取り下げ済みで、統合候補では⑱の V0 が FAIL `UnknownInstruction` にする。案 B は未採用で、このどれも有効にしていない。どれも ABI の表に入るまでは検証器が PASS にしないこと（命令・記録とも）は `results/verify-new-bands-r7.log` で確かめた（[14](../14-verifier-r7.ja.md)）。
+
 > **r4（2026-10-31、継続世界への方針訂正を反映）。** 下の表の初版は、拡張の口座を Season PDA から導き（`[season r]`、`create_with_seed(season, …)`）、ExtCall・ExtWithdraw を `player_prologue` に通していた。今のコアでは `player_prologue` が `bell(now) ≥ end_bell` と Running 以外の Season を `WrongStatus` で拒否し（`frontier-abi/src/prologue.rs` 1056–1070、1102–1108 行）、Holding・Citizen は終了の 72 時間後に閉じられる（`permutation-frontier/src/proc/citizen.rs` 2405–2411、2446–2450 行。CloseHolding は未決済の輸送の預かりを含めて Holding を `rent_payer` へ閉じる）。**そのままでは、期間の終わりで拡張の状態が別の Season の下に取り残され、預かりの返却も拒否される。** r4 では次のとおり改める（共有コアの変更は④に集約するので、ここでは要件として書く）:
 >
 > 1. 拡張の口座（登録・Grant・instance・buffer）の根は、期間ごとに変わらない根（④が決める。仮に `world_root` と書く）。Season PDA を根にしない。

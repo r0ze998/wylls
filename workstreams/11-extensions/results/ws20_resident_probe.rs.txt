@@ -1,0 +1,59 @@
+//! ⑪ r7, on a trial merge of workstream 20 (scratch only): a well-formed
+//! RESIDENT_JOINED (kind 130; its key is its asset's resident ID) written
+//! into a transaction that did not join anyone. No key is generated,
+//! derived or signed (the resident ID is a SHA-256 of a literal asset id).
+
+mod common;
+
+use common::*;
+use verify_core::input::Input;
+use verify_core::Verdict;
+
+fn calls(inp: &Input) -> Vec<(usize, u32)> {
+    let p = inp.cfg.program;
+    (0..inp.txs.len())
+        .filter_map(|t| {
+            let x = &inp.txs[t];
+            if x.err.is_some() {
+                return None;
+            }
+            let bodies = fclient::log::bodies_from_logs(&x.logs, &p).ok()?;
+            let r = frontier_abi::v2::log::decode(bodies.first()?).ok()?;
+            Some((t, r.bell))
+        })
+        .collect()
+}
+
+#[test]
+fn a_resident_joined_no_instruction_left_is_not_a_pass() {
+    let (mut cases, mut passed) = (0, vec![]);
+    for (fx, base) in [("land", land()), ("march_program", march_program())] {
+        let p = base.cfg.program;
+        let v = calls(&base);
+        let pick: Vec<_> = (0..12.min(v.len())).map(|i| v[i * v.len() / 12.min(v.len())]).collect();
+        for (t, bell) in pick {
+            let asset = [0x5a; 32];
+            let mut b = vec![frontier_abi::log::VERSION, 130];
+            b.extend_from_slice(&bell.to_le_bytes());
+            b.extend_from_slice(&frontier_abi::resident_citizen::resident_tag15(&asset));
+            b.extend_from_slice(&asset);
+            b.extend_from_slice(&[0, 0]);
+            b.extend_from_slice(&0u32.to_le_bytes());
+            b.extend_from_slice(&bell.to_le_bytes());
+            b.push(0);
+            assert!(frontier_abi::v2::log::decode(&b).is_ok());
+            let end = format!("Program {p} success");
+            let Some(at) = base.txs[t].logs.iter().rposition(|l| *l == end) else {
+                continue;
+            };
+            let mut inp = base.clone();
+            inp.txs[t].logs.insert(at, fclient::log::log_line(&b));
+            cases += 1;
+            if verify_core::verify(&inp).verdict == Verdict::Pass {
+                passed.push(format!("{fx} tx#{t}"));
+            }
+        }
+    }
+    println!("resident joined, injected: {cases} cases, {} PASS {:?}", passed.len(), passed.iter().take(5).collect::<Vec<_>>());
+    assert!(cases > 0 && passed.is_empty());
+}

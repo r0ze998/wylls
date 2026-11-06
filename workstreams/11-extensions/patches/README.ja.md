@@ -1,5 +1,12 @@
 # patches: 共有コアへの変更案
 
+> **r7（2026-11-06）。** ④の現在版 `claude/gallant-ride-cunptv` @ `8e96f24d` へは **0006 だけ**を当てる（0004＋0005＋r7 の判定を 1 つにしたもの。`ef63544c` にも当たる）。0004・0005 を当て済みなら 0007 を足す。どちらの順でも tree は `d72a025c16a62650920a495f9f1a1a9e756e42a2`。詳細は [14](../14-verifier-r7.ja.md)。
+>
+> | パッチ | 当て先 | 状態 | SHA-256 |
+> |---|---|---|---|
+> | [0006-verify-v0e-evidence-and-records-on-ws04-8e96f24d.patch](0006-verify-v0e-evidence-and-records-on-ws04-8e96f24d.patch) | `8e96f24d` | 未適用。許された試験 50 件通過。新しい帯の命令・記録と記録の書き足しで PASS 0 | `81841f83b984ee8f340609db64bf055fe7323471fac7563af32a430e78d3f391` |
+> | [0007-verify-v0e-unverified-record-after-0005.patch](0007-verify-v0e-unverified-record-after-0005.patch) | 0004 → 0005 の後 | 未適用 | `0ee4510c4e8982d4f1364d173a5d789523c523e49d6ad335cd8048a793dd1aa5` |
+
 > **r6（2026-11-06）。** 統合候補の先端は `ef63544c`。④へは **0004 → 0005** の順（どちらも未適用）。0005 は 0004 が残した 2 つの PASS の経路（ログの無い CPI だけの取引、印なしに失われたログの末尾）を塞ぐ。⑯の P1 は統合候補に当たらず、その内容は⑱の V0＋0004＋0005 が覆う。詳細は [13](../13-verifier-r6.ja.md)。
 >
 > | パッチ | 当て先 | 状態 | SHA-256 |

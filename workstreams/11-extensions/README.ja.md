@@ -1,6 +1,6 @@
 # ⑪ 拡張方式: 利用者や AI が世界の機能を増やす方法
 
-作業日 2026-10-30〜11-06（r6 まで）。**r6: 検証器パッチ 0005（0004 の上）、⑥の公開状態と⑪の実行状態の分離の契約試験。****r5: ⑥との接続準備（`creation-bridge/`）と検証器の残件（パッチ 0004）。****r4: 世界は終了・リセットしない（2026-10-31 の方針訂正）。⑪の対応は [09](09-continuing-world.ja.md)。**基準 commit `4cd901de9f8e0d6c0b2016851d30595c4a70aa46`。この担当の成果物はすべてこのディレクトリにあり、共有コア（`permutation-frontier`、`frontier-abi`、`permutation-rules`、`frontier-node`、`permutation-gateway`）は一行も変えていない。
+作業日 2026-10-30〜11-06（r7 まで）。**r7: ④の現在版 `8e96f24d` へ 1 つで当たる検証器パッチ 0006、②⑳の新しい命令・記録との照合、DIVERT の PASS の経路を塞いだ。****r6: 検証器パッチ 0005（0004 の上）、⑥の公開状態と⑪の実行状態の分離の契約試験。****r5: ⑥との接続準備（`creation-bridge/`）と検証器の残件（パッチ 0004）。****r4: 世界は終了・リセットしない（2026-10-31 の方針訂正）。⑪の対応は [09](09-continuing-world.ja.md)。**基準 commit `4cd901de9f8e0d6c0b2016851d30595c4a70aa46`。この担当の成果物はすべてこのディレクトリにあり、共有コア（`permutation-frontier`、`frontier-abi`、`permutation-rules`、`frontier-node`、`permutation-gateway`）は一行も変えていない。
 
 > **これは本番に任意コード実行を開く決定ではない。案 B、Burn、運営の停止権限はいずれも採用していない（2026-10-30）。** 以下の結果はホスト上の試験で、オンチェーンの保証ではない（[08](08-host-vs-onchain.ja.md)）。 比較と試作の許可の範囲で、案を比べ、推奨案をホスト上の隔離した crate で試作した。例の機能（「見張りの誓い」）は例であり、採用したゲームルールではない。
 
@@ -32,6 +32,7 @@
 | [05-results](05-results.ja.md) | 試験結果、測定、未実行 |
 | [06-adoption](06-adoption.ja.md) | 採用前に決めること（オーナーの判断・技術の確認・他担当との照合） |
 | [07-discrepancies](07-discrepancies.ja.md) | 文書とコードの食い違い |
+| [14-verifier-r7](14-verifier-r7.ja.md) | **r7**: ④の現在版へのパッチ 0006（0004＋0005＋r7）、②⑳⑪の新しいタグ・記録種別が PASS にならないこと、TRANSIT_SETTLED の外の DIVERT、未知の conquest 種別の仕掛け |
 | [13-verifier-r6](13-verifier-r6.ja.md) | **r6**: 0004 を統合候補 `ef63544c` と照合、⑯の P1 との関係、残っていた PASS の経路（ログの無い CPI だけの取引、印なしに失われたログの末尾）を塞ぐパッチ 0005、③④⑯との分担 |
 | [11-creation-boundary](11-creation-boundary.ja.md) | **r5**: ⑥との境界（⑥が登録・版固定・公開状態、⑪が実行時の検証）、意味を変えずに対応する部分と拒否する部分、⑥自身のコードで作った期待値による契約試験 10 件 |
 | [12-verifier-r5](12-verifier-r5.ja.md) | **r5**: 統合の先端での検証器の残件（CPI、切れたログ、ログ無し、Holding 以外の post-state）、パッチ 0004、0001 を再適用しない理由 |
