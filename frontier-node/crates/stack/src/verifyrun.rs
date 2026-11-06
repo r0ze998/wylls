@@ -77,7 +77,9 @@ pub async fn read_input(st: &Value) -> Result<Input, String> {
         .map_err(|_| "state: program is not base58")?;
     let season_id = st["season_id"].as_u64().ok_or("state: season_id")?;
     let (pk, so) = pins(st)?;
-    let txs = input::fetch_txs(&rpc, &program, true).await?;
+    // The run's own node's feed: the harness's dataset (verifier V0H
+    // `local-feed`), kept in the saved input.
+    let (txs, history) = input::observe_txs(&rpc, &program, true).await?;
     let mut keys = input::written_keys(&txs);
     for k in input::program_accounts(&rpc, &program, season_id).await? {
         if !keys.contains(&k) {
@@ -112,6 +114,7 @@ pub async fn read_input(st: &Value) -> Result<Input, String> {
             st["config"]["bots"]
         ),
         scenarios: vec![],
+        history,
     })
 }
 

@@ -26,6 +26,14 @@
 //!
 //! A fixture file carries its own configuration; the options override it
 //! (the tamper classes T10 and T11 are a wrong key and a wrong ruleset).
+//!
+//! History evidence (V0H, `verify_core::input::HistoryEvidence`): a
+//! fixture is judged as a dataset and the report says so; `--archive` and
+//! `--rpc` without `--localnet` are real-chain sources with nothing to
+//! show their history is whole, so their verdict is at best UNVERIFIABLE
+//! (exit 2) until coverage evidence exists; `--rpc --localnet` is the
+//! local harness's own feed, judged as its dataset. `--save` keeps the
+//! evidence in the file, so a saved run verifies the same way later.
 
 use std::path::PathBuf;
 
@@ -128,11 +136,23 @@ fn main() {
             .enable_all()
             .build()
             .expect("runtime");
-        let txs = match (&archive, &rpc) {
-            (Some(d), _) => input::read_archive(d).unwrap_or_else(|e| usage(&e)),
-            (None, Some(u)) => rt
-                .block_on(input::fetch_txs(u, &program, localnet))
-                .unwrap_or_else(|e| usage(&e)),
+        // The transactions and what was observed about them (V0H): an
+        // archive or one node's poll is judged Unverifiable for coverage, a
+        // local node's feed as the harness's dataset.
+        let (txs, history) = match (&archive, &rpc) {
+            (Some(d), _) => input::read_archive_observed(d).unwrap_or_else(|e| usage(&e)),
+            (None, Some(u)) => match rt.block_on(input::observe_txs(u, &program, localnet)) {
+                Ok(x) => x,
+                // A gap the poll detected: what was read before it is a
+                // known partial history; judging it would blame the program
+                // for the missing data. Nothing is verified (exit 2).
+                Err(e) if input::is_history_gap(&e) => {
+                    eprintln!("frontier-verify: {e}");
+                    eprintln!("frontier-verify: the node's history has a gap: nothing is verified (a node with longer history must serve it)");
+                    std::process::exit(verify_core::EXIT_UNVERIFIABLE);
+                }
+                Err(e) => usage(&e),
+            },
             (None, None) => usage("--archive or --rpc is required"),
         };
         let (finals, final_slot) = match (&finals, &rpc) {
@@ -194,6 +214,7 @@ fn main() {
                 .map(|d| format!("archive {}", d.display()))
                 .unwrap_or_else(|| format!("rpc {}", rpc.clone().unwrap_or_default())),
             scenarios: vec![],
+            history,
         }
     };
     // A fixture carries its own trust roots; say so when the operator did

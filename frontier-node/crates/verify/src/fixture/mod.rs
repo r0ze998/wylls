@@ -380,6 +380,10 @@ impl Gen {
             program_hashes: vec![],
             provenance: provenance.into(),
             scenarios: scenarios.iter().map(|s| s.to_string()).collect(),
+            // Built in process: a dataset, nothing fetched (V0H).
+            history: crate::input::HistoryEvidence::dataset(
+                "synthetic season built in process (verify_core::fixture)",
+            ),
         }
     }
 

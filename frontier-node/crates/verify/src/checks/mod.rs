@@ -4,6 +4,7 @@
 
 pub mod v0_coverage;
 pub mod v0_evidence;
+pub mod v0_history;
 pub mod v11_land;
 pub mod v12_explore;
 pub mod v13_payments;
@@ -205,6 +206,11 @@ pub fn run(input: &Input) -> Report {
     // written (V0E, ⑪).
     v0_evidence::run(&mut cx);
     ran.push("V0E");
+    // Whether the transactions given are all of the season's: a real-chain
+    // source without coverage evidence is never a PASS; a dataset is judged
+    // as one and labelled (V0H, 2026-11-07).
+    v0_history::run(&mut cx);
+    ran.push("V0H");
     macro_rules! check {
         ($feat:literal, $name:literal, $m:ident) => {
             if !cfg!(feature = $feat) {
@@ -323,6 +329,7 @@ pub fn run(input: &Input) -> Report {
         liveness: cx.liveness,
         checks_run: ran,
         provenance: input.provenance.clone(),
+        history: input.history.clone(),
     }
 }
 

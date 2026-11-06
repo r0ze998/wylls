@@ -351,6 +351,12 @@ async fn verify_dump(w: &World, path: &Path, cfg: &DayCfg) -> Result<(), String>
     }
     let so = std::fs::read(&w.so.path).map_err(|e| e.to_string())?;
     let so_hash = permutation_rules::hash::sha256(&[&so]);
+    // The in-process chain's own feed, read from the start: the harness's
+    // dataset (verifier V0H `local-feed`).
+    let history = verify_core::input::HistoryEvidence::local_feed(
+        "localnet in process (itest::inproc_day)",
+        &txs,
+    );
     let inp = {
         let c = w.ip.lock();
         let finals = owned
@@ -380,6 +386,7 @@ async fn verify_dump(w: &World, path: &Path, cfg: &DayCfg) -> Result<(), String>
                 w.so.sha256, cfg.bots, cfg.play_bells, cfg.drain_bells
             ),
             scenarios: vec![],
+            history,
         }
     };
     inp.save(path)

@@ -30,6 +30,16 @@ pub const MISSING_POST_STATE: &str = "MissingPostState";
 pub const UNVERIFIED_RECORD: &str = "UnverifiedRecord";
 /// A JoinResident and the Citizen, record or link it left disagree (FAIL, V27).
 pub const RESIDENT_JOIN_MISMATCH: &str = "ResidentJoinMismatch";
+// V0H history evidence (2026-11-07): all UNVERIFIABLE, never a PASS.
+/// A real-chain source (archive, one node's poll) with nothing to show its
+/// history is whole, or a source that returned no transactions at all.
+pub const HISTORY_COVERAGE_UNVERIFIABLE: &str = "HistoryCoverageUnverifiable";
+/// The source reported a gap in its history.
+pub const HISTORY_GAP: &str = "HistoryGap";
+/// The source was named but not read.
+pub const HISTORY_NOT_OBSERVED: &str = "HistoryNotObserved";
+/// The input's recorded history evidence cannot be read.
+pub const HISTORY_EVIDENCE_MALFORMED: &str = "HistoryEvidenceMalformed";
 // V2 program and rules
 pub const PROGRAM_MISMATCH: &str = "ProgramMismatch";
 pub const RULESET_MISMATCH: &str = "RulesetMismatch";

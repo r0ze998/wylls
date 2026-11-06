@@ -177,6 +177,10 @@ impl World {
             })
             .collect();
         let so_hash: [u8; 32] = sha2_256(&self.so);
+        // The in-process chain's own feed, read from the start: the
+        // harness's dataset (V0H `local-feed`).
+        let history =
+            verify_core::input::HistoryEvidence::local_feed("localnet in process (tests)", &txs);
         Input {
             cfg: Config {
                 program: self.program,
@@ -191,6 +195,7 @@ impl World {
             program_hashes: vec![(0, so_hash)],
             provenance: provenance.into(),
             scenarios: scenarios.iter().map(|s| s.to_string()).collect(),
+            history,
         }
     }
 }

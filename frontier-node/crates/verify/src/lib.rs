@@ -12,6 +12,7 @@
 //! | module | check |
 //! |---|---|
 //! | [`checks::v0_coverage`] | V0 the instructions and program versions this verifier can judge (an unknown or unmodelled one is never a PASS) |
+//! | [`checks::v0_history`] | V0H the history evidence: a real-chain source without coverage evidence, an empty read, a gap, an unread source or a malformed block is never a PASS; a dataset is judged as one and labelled |
 //! | [`checks::v1_chains`] | V1 entity chains, final heads, duplicates, K4 state |
 //! | [`checks::v2_program`] | V2 program id, `.so` hash, ruleset hash, announce → create |
 //! | [`checks::v3_random`] | V3 anchors, caches, beacons, genesis and ring rounds (blstrs) |
@@ -49,7 +50,7 @@ pub mod world;
 
 use serde_json::Value;
 
-pub use input::{Config, Input};
+pub use input::{Config, HistoryEvidence, Input};
 
 /// The `mutate-*` feature this build was compiled with, if any (wave-5
 /// review of W5-D): such a build has a check disabled and is **not a
@@ -189,6 +190,9 @@ pub struct Report {
     /// The checks that ran (a `mutate-*` build lists fewer).
     pub checks_run: Vec<&'static str>,
     pub provenance: String,
+    /// How the transactions were observed, and what the verdict may
+    /// therefore claim (`history.assurance()`; V0H).
+    pub history: HistoryEvidence,
 }
 
 impl Report {

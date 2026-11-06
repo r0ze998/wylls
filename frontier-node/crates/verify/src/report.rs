@@ -44,6 +44,11 @@ pub fn json(r: &Report) -> Value {
         },
         "checks_run": r.checks_run,
         "provenance": r.provenance,
+        // V0H: source, observation, bounds, cross-checks and what the
+        // verdict may claim (`assurance`: "dataset-only" and "local-feed"
+        // mean the verdict judges the transactions given, not the season's
+        // whole history; the rest carry an Unverifiable finding).
+        "history": r.history.to_json(),
         "mutated_build": crate::mutated(),
     });
     if r.checks_run.iter().any(|c| c.starts_with("CQ")) && !r.checks_run.contains(&"V5") {
@@ -69,6 +74,15 @@ pub fn markdown(r: &Report) -> String {
     ));
     if !r.provenance.is_empty() {
         s.push_str(&format!("- Input: {}\n", r.provenance));
+    }
+    let a = r.history.assurance();
+    s.push_str(&format!(
+        "- History evidence ({}): {}\n",
+        a.name(),
+        r.history.describe()
+    ));
+    if a.judged_as_dataset() {
+        s.push_str("- Scope: the verdict judges the transactions given as a dataset; it is not a claim that they are the season's whole on-chain history\n");
     }
     s.push_str(&format!("- Checks run: {}\n", r.checks_run.join(", ")));
     let c = &r.counts;

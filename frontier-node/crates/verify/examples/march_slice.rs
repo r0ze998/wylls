@@ -110,6 +110,10 @@ fn main() {
             "w6-s7 slice (7dcacdf, .so 072b1205): the settled marches of host {host} with their DEPART, T(arrive) carrier, failed Reveals, SettleTransit and the Holding and path Provinces the Reveals read"
         ),
         scenarios: vec![],
+        // A slice is a dataset cut from a run, whatever the run observed.
+        history: verify_core::input::HistoryEvidence::dataset(
+            "slice cut from a run by examples/march_slice.rs",
+        ),
         ..inp
     };
     eprintln!("{} transactions", out.txs.len());
