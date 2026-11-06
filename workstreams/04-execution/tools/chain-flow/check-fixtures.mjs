@@ -63,14 +63,20 @@ check(D.normalize.rejected.length === 0, 'D: ⑮ normalize rejects nothing');
 // E: the prize step's inputs are stage A's.
 check(E.inputs_available.citizen === A.citizen && E.inputs_available.citizen_tag === A.citizen_tag, 'E: prize inputs = stage A\'s Citizen');
 
-// E (run): the prize program's refusals are for this pass's Citizen.
-const ER = E.run;
-if (ER) {
-  check(ER.nft_citizen && Buffer.from(bs58ToHex(ER.nft_citizen), 'hex').equals(citizen), 'E: the prize step ran with stage A\'s Citizen address');
-  const bad = `Custom(${ER.prize_error_bad_account})`;
-  check(['claim_A_with_pass_citizen', 'claim_A_with_wallet_citizen', 'record_nation_with_pass_citizen', 'claim_B_after_transfer'].every(k => ER[k] === bad),
-    'E: every claim path of the pass is BadAccount; vault keeps the share');
+// E (run): the run record itself (e-prize-run.json, written by tests/chain_prize.rs), and the summary must agree with
+// it. (⑯'s mutations M5/M7 changed only the run record and passed before: the run record was not read.)
+const ER = read('e-prize-run.json');
+const stable = v => JSON.stringify(v, Object.keys(v).sort());
+check(ER.stage === 'E' && E.run && stable(E.run) === stable(ER), 'E: the summary\'s run equals the run record (e-prize-run.json)');
+check(Buffer.from(bs58ToHex(ER.nft_citizen), 'hex').equals(citizen), 'E: the prize step ran with stage A\'s Citizen address');
+check(ER.wallet_citizen_of_A !== ER.nft_citizen, 'E: the pass\'s Citizen is not citizen(wallet)');
+const badAccount = `Custom(${ER.prize_error_bad_account})`;
+check(ER.prize_error_bad_account === 257, 'E: BadAccount is the prize program\'s 257');
+for (const k of ['claim_A_with_pass_citizen', 'claim_A_with_wallet_citizen', 'record_nation_with_pass_citizen', 'claim_B_after_transfer']) {
+  check(ER[k] === badAccount, `E: ${k} refused (BadAccount)`);
 }
+// One entry fee (25,000,000) was paid; every claim was refused, so the vault still holds exactly that.
+check(ER.vault_after === 25_000_000, 'E: the vault keeps the one entry fee (nothing paid out)');
 
 console.log(`${n - bad}/${n} consistent`);
 process.exitCode = bad ? 1 : 0;
