@@ -15,6 +15,7 @@
 // restarted resident first asks the world for the fate of every unfinished
 // key instead of deciding again. Ledger and journal share one state file
 // written by rename, so a hold and the decision it paid for move together.
+import { clockId, sameClock, worldMismatch } from './frame.mjs';
 import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync } from 'node:fs';
 import path from 'node:path';
 import { AgentLedger } from '../../../permutation-gateway/src/frontier/agent/ledger.mjs';
@@ -52,6 +53,15 @@ export const DEFAULT_BUDGET = Object.freeze({ pricePerCall: '10000', total: '600
 // A UTC midnight: the agent ledger counts its daily budget by UTC day, so a game day (bell / 144) and a ledger day coincide.
 export const GENESIS_SECS = 1_799_971_200;
 const TRANSIENT = new Set(['BucketEmpty', 'QuotaExceeded', 'SendFailed', 'Transport']);
+/**
+ * Workstream 4's seven states after a send (docs/EXECUTION-CONTRACT-20261106.ja.md §1, the agent wallet's
+ * GET /f/agent/fate): landed and failed are final; expired and not-sent are final AND prove nothing happened, so a
+ * NEW attempt (a new key) may be made; pending waits; unknown (it may have landed) holds and is never re-sent;
+ * unqueryable (could not ask) is read again and says nothing about the act. `registered` (④'s registry before the
+ * first read) waits like pending.
+ */
+export const SEND_STATES = Object.freeze(['not-sent', 'landed', 'failed', 'expired', 'pending', 'unknown', 'unqueryable']);
+const NOTHING_HAPPENED = new Set(['expired', 'not-sent']);
 
 const dayOf = bell => Math.floor(bell / BELLS_PER_DAY);
 /** v2: counterparties by wallet address, observation cursors, prunable present state (v1 is migrated on open). */
@@ -383,7 +393,7 @@ export class Resident {
   }
 
   #retryOrFail(it, code) {
-    if (TRANSIENT.has(code) && it.attempts <= this.charter.limits.maxRetries) {
+    if ((TRANSIENT.has(code) || NOTHING_HAPPENED.has(code)) && it.attempts <= this.charter.limits.maxRetries) {
       Object.assign(it, { state: 'intended', attempts: it.attempts + 1, nextBell: this.bell + this.charter.limits.retryBackoffBells * it.attempts, lastError: code });
       return;
     }
@@ -455,7 +465,10 @@ export class Resident {
       if (s?.fate === 'landed') { Object.assign(it, { state: 'landed', landedBell: s.landedBell }); this.#clearUnclear(it); continue; }
       if (s?.fate === 'failed') { this.#clearUnclear(it); this.#retryOrFail(it, s.fateError); continue; }
       if (s?.fate === 'cancelled') { it.state = 'cancelled'; this.#clearUnclear(it); continue; }
-      if (s?.fate === 'pending') continue; // accepted and on its way: lands at the next bell
+      // Proven not to have happened: a new attempt under a new key (#a2 …), within maxRetries.
+      if (NOTHING_HAPPENED.has(s?.fate)) { this.#clearUnclear(it); it.lastFate = s.fate; this.#retryOrFail(it, s.fate); continue; }
+      if (s?.fate === 'pending' || s?.fate === 'registered') continue; // accepted and on its way
+      // unknown (it may have landed) and unqueryable (could not ask) fall through: held, read again, never re-sent.
       // No definite answer.
       it.unclear = (it.unclear ?? 0) + 1;
       it.firstUnclearBell ??= this.bell;
@@ -617,8 +630,11 @@ export class Resident {
     if (!port || typeof port.read !== 'function') return { lines: [], summary: null };
     const counterparties = [...new Set(cands.flatMap(c => (c.act.to ? [this.#who(c.act.to)] : [])))].slice(0, 3);
     // Evidence on another clock than this resident's bell is not read: a bell of one clock is not a bell of the other.
+    // Nor evidence about another world (workstream 12's {cluster, world_id}).
     const mine = this.ports.observe?.clock ?? null, theirs = port.clock ?? null;
-    if (mine && theirs && mine !== theirs) return { lines: [], summary: counterparties.map(counterparty => ({ counterparty, status: 'clock_mismatch', clocks: [mine, theirs] })) };
+    if (mine && theirs && !sameClock(mine, theirs)) return { lines: [], summary: counterparties.map(counterparty => ({ counterparty, status: 'clock_mismatch', clocks: [clockId(mine), clockId(theirs)] })) };
+    const wm = worldMismatch(this.ports.observe?.world ?? null, port.world ?? null);
+    if (wm) return { lines: [], summary: counterparties.map(counterparty => ({ counterparty, status: 'world_mismatch', why: wm, worlds: [this.ports.observe.world.world_id, port.world.world_id] })) };
     const lines = [];
     const summary = [];
     for (const counterparty of counterparties) {

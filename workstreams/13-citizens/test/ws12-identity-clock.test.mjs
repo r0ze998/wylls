@@ -39,7 +39,8 @@ test('the test world declares its clock; evidence on another clock is not read, 
     let reads = 0;
     const env = await small({ residents: [{ id: 'ren', goal: 'surplus-use', pos: { q: 0, r: 0 } }], people: [{ name: 'Kou', pos: { q: 2, r: 0 },
       async script(bell, me) { if (bell === 2) await me.post({ kind: 'request', to: 'c1', want: { Food: 40 }, offer: { Ore: 40 }, deadlineBell: 30 }); } }] });
-    assert.equal(env.rs.ren.ports.observe.clock, 'mock-world');
+    assert.equal(env.rs.ren.ports.observe.clock.kind, 'mock-world');
+    assert.equal(env.rs.ren.ports.observe.world.world_id, null, 'the test world is not a workstream 8 world');
     env.rs.ren.ports.evidence = { clock, read: () => { reads++; return { status: 'ok', lines: [] }; } };
     await run(env, 6);
     return { reads, d: decisionsOf(env.rs.ren).find(x => x.evidence) };

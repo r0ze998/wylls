@@ -10,6 +10,7 @@ import { identityFor, KEYLESS } from './identity.mjs';
 import { Resident, safeFallback } from '../resident/resident.mjs';
 import { localMemory } from '../resident/ports/memory.mjs';
 import { testWorldBoard, testWorldExecution } from '../resident/ports/execution.mjs';
+import { MOCK_CLOCK, MOCK_WORLD } from '../resident/frame.mjs';
 import { Board } from './board.mjs';
 import { JOIN_DOMAIN, TestWorld } from './testworld.mjs';
 
@@ -29,8 +30,8 @@ export function portsFor(world, board, who) {
   return {
     // `since`: {events: last event sequence read, boardBell: requests changed since this bell}; without it, everything.
     observe: Object.assign(async (_, since = {}) => ({ world: world.view(id.address, { since: since.events ?? 0 }), board: board.view({ sinceBell: since.boardBell ?? 0 }) }),
-      // Whose clock `world.bell` is: the test world's own turn counter, not the game's Season bell (08/09).
-      { clock: 'mock-world' }),
+      // Whose world and clock `world.bell` is: the test world's own turn counter, not the game's Season bell (08/09).
+      { world: MOCK_WORLD, clock: MOCK_CLOCK }),
     join: async record => world.join(record),
     execution: testWorldExecution(world, id),
     board: testWorldBoard(board, id),

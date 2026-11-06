@@ -2,7 +2,7 @@
 # Workstream 13: the residents' tests and the demo, locally only.
 #
 #   workstreams/13-citizens/run.sh              # KEYLESS (default): no key is generated, derived or used
-#   workstreams/13-citizens/run.sh --with-keys  # the signed mode: every participant makes an ed25519 test key
+#   workstreams/13-citizens/run.sh --with-keys  # the signed mode (WS13_WITH_KEYS=1): every participant makes an ed25519 test key
 #
 # The keyless run preloads test/keyless-guard.mjs, which sets WS13_KEYLESS=1 and makes every node:crypto key,
 # signature and HMAC function throw, so shared set-up cannot make or use a key by accident; tests that sign or check
@@ -20,7 +20,7 @@ mkdir -p "$out"
 work="$(mktemp -d "${TMPDIR:-/tmp}/ws13.XXXXXX")"
 trap 'rm -rf "$work"' EXIT
 if [ "${1:-}" = "--with-keys" ]; then
-  mode=keyed; pre=(); files=("$here"/test/*.test.mjs)
+  mode=keyed; pre=(); files=("$here"/test/*.test.mjs); export WS13_WITH_KEYS=1
 else
   mode=keyless; pre=(--import "$here/test/keyless-guard.mjs")
   files=(); for f in "$here"/test/*.test.mjs; do [ "$(basename "$f")" = ws12-public-evidence.test.mjs ] || files+=("$f"); done

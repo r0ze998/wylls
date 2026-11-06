@@ -4,6 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto, { createHash, generateKeyPairSync, createPrivateKey, sign, createHmac } from 'node:crypto';
 import { readdirSync, statSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { KEYLESS } from '../world/identity.mjs';
 import { small, run, tmp } from './helpers.mjs';
@@ -14,7 +15,17 @@ const ONLY_KEYLESS = KEYLESS ? false : 'needs the keyless guard (node --import .
 
 const files = dir => readdirSync(dir).flatMap(f => { const p = path.join(dir, f); return statSync(p).isDirectory() ? files(p) : [p]; });
 
-test('the guard blocks key making, signing and HMAC; hashing still works', { skip: ONLY_KEYLESS }, () => {
+const GUARDED = globalThis.__WS13_KEYLESS_GUARD__ ? false : 'needs the keyless guard (node --import ./test/keyless-guard.mjs)';
+
+test('without the guard and without WS13_WITH_KEYS=1 the harness is keyless too (checked in a child: nothing is made)', () => {
+  const env = { ...process.env };
+  delete env.WS13_KEYLESS; delete env.WS13_WITH_KEYS;
+  const url = new URL('../world/identity.mjs', import.meta.url).href;
+  const out = execFileSync(process.execPath, ['--input-type=module', '-e', `const m = await import(${JSON.stringify(url)}); console.log(m.KEYLESS, m.identityFor('x').keyed)`], { env, encoding: 'utf8' });
+  assert.equal(out.trim(), 'true false');
+});
+
+test('the guard blocks key making, signing and HMAC; hashing still works', { skip: GUARDED }, () => {
   assert.ok(globalThis.__WS13_KEYLESS_GUARD__, 'the guard was preloaded');
   for (const f of [() => generateKeyPairSync('ed25519'), () => createPrivateKey('x'), () => sign(null, Buffer.from('x'), 'k'), () => createHmac('sha256', 'k'), () => crypto.generateKeyPairSync('ed25519')]) {
     assert.throws(f, /keyless guard/);
