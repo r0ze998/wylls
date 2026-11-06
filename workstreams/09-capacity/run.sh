@@ -32,14 +32,15 @@ echo "demo: $out/demo.txt ($(wc -l < "$out/demo.txt") lines)"
 
 echo "== bridge10 (09 <-> 10, against workstream 10's pinned crates) =="
 # Workstream 10's crates are not in this branch. They are checked out from
-# the integration branch's commit that added its adapter for 09, and their
-# trees are checked (custody: the kernel; adapter-09: 09's Custody trait on
-# 10's lots). The custody tree is the one 9f3ac2f8 staged first.
-pin10=52a43745b4c06ba184c26634cc9489211c0cc48e
+# 10's latest commit touching them (on 10's branch claude/great-babbage-
+# 3ogkqu: one table of lots, use orders in the adapter), and their trees
+# are checked (custody: the kernel, unchanged since 9f3ac2f8; adapter-09:
+# 09's Custody trait on 10's lots).
+pin10=9b38818718373e05a6b2db2fbbd72bd488173b01
 tree10=f11af9190144abd185c68b2d50a33c786f24340f
-tree10a=f5784e40049b43b5b091807534c08fb85694cb38
+tree10a=ad274e7fa8c203a5d7e7b52b22231be55cf6b7d8
 if ! git -C "$root" cat-file -e "$pin10^{commit}" 2>/dev/null; then
-  git -C "$root" fetch -q origin integration/ws09-13-v16-d0949fd4 || true
+  git -C "$root" fetch -q origin claude/great-babbage-3ogkqu || true
 fi
 if [ "$(git -C "$root" rev-parse "$pin10:workstreams/10-custody/custody" 2>/dev/null)" != "$tree10" ] ||
    [ "$(git -C "$root" rev-parse "$pin10:workstreams/10-custody/adapter-09" 2>/dev/null)" != "$tree10a" ]; then

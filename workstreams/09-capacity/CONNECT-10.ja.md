@@ -38,7 +38,7 @@
 | ⑩ の倉の押収（投入の前） | 区画は凍結（`Forfeited`）、投入は拒否 | ⑨ は何も変わらない |
 | ⑩ の倉の押収（投入の後） | ⑩ の没収は `HELD` だけを対象にする | 投入済みの分は ⑨ 側にあり、⑨ の規則に従う |
 
-## 3. 契約試験（`bridge10/tests/contract10.rs` 12 件、`tests/lots.rs` 6 件。すべて通過）
+## 3. 契約試験（2026-11-05 時点の記録。現在の試験は §6.2）
 
 2026-11-06 から、この表の 12 件も ⑨ の預かりに ⑩ の `LotCustody` を使って動く（§5）。`tests/lots.rs` の 6 件は §5 に。
 
@@ -114,7 +114,7 @@
 | 項目 | 判断 | 実装（`bridge10`、既定 `Release::Decided`） | 試験（`tests/decided.rs` 7 件ほか） |
 |---|---|---|---|
 | D1 他人の区画の鉱石で作った兵器 | **利用者 B のもの** | 成果物は B の宛先へ | `products_go_to_the_user_and_unused_ore_back_to_the_lot` |
-| D2 使われなかった他人の区画の鉱石 | **M の区画へ戻す** | 整数単位は ⑩ の `begin_inbound`→`finish_inbound`（すぐ着く返却の隊商として）で M の区画へ。1,000 milli 未満の端数は区画ごとに「未返却」として積み、整数単位になった時点で戻す。区画が凍結・満杯なら全量を未返却のまま残す（失われない）。B が鉱石の宛先を指定しても使わない | `rests_owed_to_a_lot_add_up_to_whole_units`、`a_frozen_lot_keeps_its_ore_owed_until_it_can_take_it`、`a_split_claim_sends_…` |
+| D2 使われなかった他人の区画の鉱石 | **M の区画へ戻す** | 整数単位は ⑩ の入口で M の区画へ（⑩ の単一の区画表に移った後は、⑩ の到着の入口 `import`。§6.1 T3）。1,000 milli 未満の端数は区画ごとに「未返却」として積み、整数単位になった時点で戻す。区画が凍結・満杯なら全量を未返却のまま残す（失われない）。B が鉱石の宛先を指定しても使わない | `rests_owed_to_a_lot_add_up_to_whole_units`、`a_frozen_lot_keeps_its_ore_owed_until_it_can_take_it`、`a_split_claim_sends_…` |
 | D6 倉と工房の距離 | **同じ州なら直接** | 区画の倉が施設と同じ州でなければ `TooFar` で拒否（⑩ のアダプターの仮置きと同じ）。遠い区画の物は先に保管品の隊商で運ぶ | `a_lot_outside_the_facilitys_province_is_too_far` |
 | D4 施設の占領・押収 | **占領者が取る** | ⑨ の既定の喪失規則のまま：施設にある成果物と未使用の材料（M の鉱石、B の木材）は占領者へ。M の区画へは何も戻らない | `a_captor_takes_what_is_at_the_facility_and_nothing_returns` |
 | D3 木材・兵器を区画で扱うか | 未決（今回は聞いていない） | ⑩ が鉱石だけを許す。木材は利用者自身の物 | — |
@@ -128,10 +128,53 @@
 | T3 | 利用注文で出した物を区画へ戻す専用の口。今は「すぐ着く返却の隊商」（`begin_inbound`/`finish_inbound`）で戻すため、⑩ の区画では消費（`CONSUMED`）が残ったまま、同じ量が新しい入庫（`IN_TOTAL`）として記録される。⑩ の保存則は保たれるが、「使った量」の記録としては多めに見える |
 | T4 | 端数の未返却（区画ごとの milli）を ⑩ の区画の口座に持つか。今は bridge が `owed` として持つ |
 
-## 6. 再現
+## 6. ⑩ の単一の区画表に合わせた（2026-11-06、⑩ `9b388187`）
+
+⑩ は `claude/great-babbage-3ogkqu`（先端 `b4a0d9a8`、⑩ のファイルの最終変更 `9b388187`）で、アダプター `LotCustody` に利用注文の口（`set_use_order`・`release_by_order`、`(job, 投入 id)` で一度だけ）を足し、区画の表を一本にした（⑩ の `10-adapter-bridge.ja.md`、⑨ の `992f4ba5` を相手にした照合）。⑨ は `a24defcf` の bridge をこれに合わせた。**⑩ の表が正本で、bridge は区画を持たない。**
+
+### 6.1 古い前提の項目の照合
+
+| 項目 | 出した側 | `a24defcf` の時点 | 今回（⑩ `9b388187` に対して） |
+|---|---|---|---|
+| T1 区画表を一つに | ⑨→⑩ | 残っていた（bridge が利用注文の区画を別に持つ） | **解決**：⑩ が `release_by_order` を出し、bridge は自前の `vaults`・`lots`・`links` を捨てて ⑩ の表と ⑩ の `uses` 記録だけを使う |
+| T2 `Refused(u16)` に ⑩ のコード | ⑨→⑩ | 残っていた | **残る**：⑩ の `to_nine` は今も `Insufficient` 以外を `Forbidden` に寄せる。bridge 自身の経路（`release_by_order`）は ⑩ の正確な理由（`Refusal::Lot`）をそのまま返す |
+| T3 利用注文で出した物を区画へ戻す口 | ⑨→⑩ | 残っていた（bridge が ⑩ のカーネル関数で自前の表に戻していた） | **残る（形を変えた）**：⑩ にまだ専用の口がない。暫定で ⑩ の公開の入口「区画への到着」（`import` を `Vault(v)`・所有者 M へ、整数単位、空き容量で受ける）を使う。⑩ の保存則（C2）と区画の式は保たれるが、区画の `CONSUMED` は戻した分を含んだままで、戻した分は新しい入庫に見える。返却容量の予約もない（区画が満杯なら未返却で持つ） |
+| T4 端数の未返却の置き場 | ⑨→⑩ | 残っていた | **残る**：bridge の `owed`（区画ごとの milli）。⑩ の区画の口座に持つかは ⑩ の判断 |
+| B1 通過用の置き場を `Vault` 以外に | ⑩→⑨ | `a24defcf` で解決済み（`Caravan`） | **解決**：⑩ の `use_place(uid)` をそのまま使う（同じ置き場を二つ作らない） |
+| B2 `Bridge` を `C: Custody` で一般化 | ⑩→⑨ | `LotCustody` に固定（`MockCustody` 固定はやめていた） | **別の形で解決**：利用注文は ⑩ の `LotCustody` にしかない口なので、bridge は `LotCustody` を前提にする。⑨ の規則（容量・予約・精算）は ⑨ の `Harness` だけが持つ。⑩ の `connect::Connected` と差分試験（`diff-bridge10`、⑨ の旧 tree `58971113` を pin）は、この bridge と役割が重なる。残すか引き取るかは ⑩ の判断 |
+| ⑩ Q1–Q4（所有・余り・混在・押収） | ⑩→所有者 | Q1・Q2・Q4 は 11-06 に所有者が決定（§5.5） | ⑩ の文書は決定前の記述のまま。Q3（混ざった余りの分け方）は混在を拒否して避けている（決定ではない） |
+
+### 6.2 揃えた会計（試験 `tests/contract10.rs` 10 件、`tests/accounting.rs` 11 件）
+
+| 項目 | 揃え方 |
+|---|---|
+| 再送 | 区画からの投入の再送は ⑩ の `uses` で答え、⑩ も ⑨ も動かない。同じ id で中身が違えば `Conflict`。自分の木材で使った id は区画に使えない |
+| 再起動 | bridge は ⑨ の `Harness<LotCustody>`（⑩ の区画は ⑩ の 576 B の口座）と bridge の記録を Borsh で保存・復元する。精算の各時点・受取の前後で、再起動なしと完全に一致 |
+| 分割受取 | ⑨ の `ClaimSplit`。他人の区画の鉱石だった分は、利用者の指定によらず元の区画へ |
+| 返却保留 | 区画が凍結（倉の押収）・満杯（quota の削減）なら、戻す量を全部 `owed` で持つ。失わない |
+| 端数 | 1,000 milli 未満は `owed` に積み、整数単位になったら同じ入口で戻す（2 回で 69 単位戻り 0.336 が残る） |
+| 押収 | 施設の占領：占領者が施設の物（M の鉱石・B の木材・兵器）を取り、M へは戻らない（`forfeited` に記録）。倉の押収：⑩ の区画は凍結し、投入は ⑩ の理由（`Forfeited`）で拒否、返却は保留 |
+| 不変条件（`Bridge::check`） | ⑩ 自身の `check`（区画・利用注文の累計 `used_total` と `CONSUMED`・保存則）、区画ごとに 戻した量＋未返却 ≤ 利用注文で出した量、予約の口座が釣り合う、通過用の置き場が空 |
+| ランダム | 200 通り × 2 規則（ToUser・Decided）× 60 手：区画からの投入 1,496、⑩ を呼ばない再送 2,766、受取 540、区画へ戻った鉱石 1,310 単位。毎手 `check` と ⑩ の `CONSUMED` ＝ 取った量 |
+
+### 6.3 広げていないもの
+
+- **`MixedSource`**（一つの予約は鉱石を一つの出どころから）：未決のまま拒否として残した。
+- **区画で扱う資源**：⑩ の `ENABLED_RESOURCES`（鉱石だけ）のまま。木材・兵器の区画は開けない（試験 `only_ore_lots_exist`）。
+
+### 6.4 ⑩ に頼みたいこと（更新）
+
+| # | 内容 |
+|---|---|
+| T2 | `to_nine` で ⑩ のコードを `CustodyError::Refused(u16)` に載せる |
+| T3 | 利用注文で出した物を元の区画へ戻す専用の口（所有者の決定 D2 の実装先）。できれば利用注文の時点で返却容量を予約し、戻した分を `CONSUMED` から差し引く形 |
+| T4 | 端数の未返却を ⑩ の区画の口座で持つか |
+| T5 | `connect::Connected` と `diff-bridge10`（⑨ の旧 tree を pin）の扱い。bridge はもう ⑩ の表の上にあるので、差分試験の相手を `a24defcf` 以降の bridge に替えるか、`connect` を引き取る |
+
+## 7. 再現
 
 ```sh
 workstreams/09-capacity/run.sh --no-patch   # カーネル、デモ、bridge10、⑩ の adapter 試験（⑩は pin から一時取り出し）
 ```
 
-⑩ の pin は `52a43745b4c06ba184c26634cc9489211c0cc48e`（custody の tree `f11af919…`、adapter-09 の tree `f5784e40…`）。手元に無ければ、`run.sh` が `origin` の `integration/ws09-13-v16-d0949fd4` を取得します。
+⑩ の pin は `9b38818718373e05a6b2db2fbbd72bd488173b01`（custody の tree `f11af919…`、adapter-09 の tree `ad274e7f…`）。手元に無ければ、`run.sh` が `origin` の `claude/great-babbage-3ogkqu` を取得します。
