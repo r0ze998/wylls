@@ -16,10 +16,11 @@
 //! every wallet path (the wallet prologue, RetireHost, CloseCitizen, the
 //! transit camp settle) refuses it by address and by signer.
 //!
-//! **Provisional**: wire tags and sub-codes, the Citizen's resident fields
-//! and the record key await workstream 4's allocation; Join emits no record
-//! yet (no kind is allocated), so keeper, herald and verifier do not see an
-//! NFT Citizen.
+//! Tags, the Citizen's resident fields, its address and record key follow
+//! workstream 4's allocation of 2026-11-06 (provisional until integration).
+//! JoinResident does not yet emit `RESIDENT_JOINED` (kind 90): the program
+//! and every reader (keeper, herald, verifier, fclient) must take the new
+//! kind in the same change, since today's decoders refuse an unknown kind.
 
 use frontier_abi::prologue::{self as ap, SeasonHdr};
 use frontier_abi::resident_citizen;
@@ -47,6 +48,7 @@ pub(crate) fn check(
     generation: u32,
     now: i64,
     session_ok: bool,
+    season: &Pubkey,
     season_id: u64,
 ) -> R<bool> {
     let [config, link, asset, resident] = proof else {
@@ -56,7 +58,8 @@ pub(crate) fn check(
         return Err(BAD_ACCOUNT);
     }
     crate::resident_binding::authorize(
-        p, config, link, citizen, asset, resident, actor, generation, now, session_ok, season_id,
+        p, config, link, citizen, asset, resident, actor, generation, now, session_ok, season,
+        season_id,
     )?;
     {
         let cd = citizen.try_borrow_data()?;
@@ -83,11 +86,11 @@ pub(crate) fn start(
     now: i64,
 ) -> R<ap::PlayerStart> {
     let hdr = season_running(p, a, now)?;
-    let [actor, _, _, citizen, ..] = a else {
+    let [actor, _, season, citizen, ..] = a else {
         return Err(FrontierError::TooManyAccounts.into());
     };
     let by_session = check(
-        p, actor, citizen, proof, generation, now, session_ok, hdr.id,
+        p, actor, citizen, proof, generation, now, session_ok, season.key, hdr.id,
     )?;
     Ok(ap::PlayerStart {
         season: hdr,
@@ -113,24 +116,17 @@ fn season_running(p: &Pubkey, a: &[AccountInfo], now: i64) -> R<SeasonHdr> {
 
 /// The canonical address check of a Citizen account whose data is `cd`, for
 /// paths that name a Citizen without its actor (the keeper's settles, the
-/// close): a wallet Citizen at the address its wallet derives, an NFT
-/// resident's Citizen at `["nft-citizen", asset]` of its stored asset
-/// (`BadAddress` otherwise). A Citizen flagged as an NFT Citizen but not a
-/// valid one is refused (`BadAccount`). For a wallet Citizen this is exactly
-/// the check these paths made before.
+/// close): the Citizen is at `citizen_by_tag15` of its record key, the wallet
+/// tag for a wallet Citizen (exactly the check these paths made before) and
+/// the resident id for an NFT resident's Citizen (`BadAddress` otherwise). A
+/// Citizen flagged as an NFT Citizen but not a valid one is refused.
 pub(crate) fn expect_citizen_address(
-    p: &Pubkey,
     ctx: &crate::addr::AddrCtx,
     ai: &AccountInfo,
     cd: &[u8],
 ) -> R<()> {
-    if resident_citizen::is_flagged(cd) {
-        let asset = resident_citizen::resident_asset(cd).ok_or(BAD_ACCOUNT)?;
-        let expected = crate::resident_binding::citizen_address(p, &Pubkey::new_from_array(asset));
-        return prologue::expect_key(ai, &expected.to_bytes());
-    }
-    let wallet: [u8; 32] = crate::layout::Ro(cd).arr(crate::layout::citizen::WALLET)?;
-    prologue::expect_key(ai, &ctx.citizen_by_tag15(&addr::citizen_tag15(&wallet)))
+    let tag15 = resident_citizen::record_tag15(cd).ok_or(BAD_ACCOUNT)?;
+    prologue::expect_key(ai, &ctx.citizen_by_tag15(&tag15))
 }
 
 /// The resident proof of `auth`, or `None` for a wallet Citizen.
@@ -141,7 +137,7 @@ pub(crate) fn proof_of<'a, 'b>(auth: &Auth<'a, 'b>) -> Option<(&'a [AccountInfo<
     }
 }
 
-/// `Act` (experimental): run the player instruction `inner` for an NFT
+/// `ResidentAct` (experimental): run the player instruction `inner` for an NFT
 /// resident's Citizen. `accounts` is that instruction's own account list
 /// followed by the four proof accounts `[policy, link, asset, resident]`.
 /// Every instruction that runs the player prologue is reachable (27); any
@@ -190,7 +186,7 @@ pub(crate) fn act(p: &Pubkey, accounts: &[AccountInfo], generation: u32, inner: 
     }
 }
 
-/// `Join` (experimental): the first login of an NFT resident. Accounts:
+/// `JoinResident` (experimental): the first login of an NFT resident. Accounts:
 /// `[owner s] [payer s w] [season] [frontier] [citizen w] [system] [policy]
 /// [link w] [asset] [resident] [join_gate s?]`. As the wallet Join (§5.9):
 /// Running and `bell < join_close_bell` (`WrongStatus`), the Season's join
@@ -198,14 +194,17 @@ pub(crate) fn act(p: &Pubkey, accounts: &[AccountInfo], generation: u32, inner: 
 /// the folded Frontier (`Capacity`). Then the link and the Citizen at the
 /// asset's addresses (`resident_binding::join_accounts`: one NFT, one
 /// Citizen; the owner itself, not a session, at the signed generation, the
-/// asset guarded). The Citizen is written as the wallet Join writes it, with
+/// asset guarded); the Citizen is created from the Season at
+/// `citizen_by_tag15(resident id)` exactly as the wallet Join creates one at
+/// `citizen_by_tag15(wallet tag)`. The Citizen is written as the wallet Join writes it, with
 /// a zero `WALLET`, no Frontier session, and its resident fields
 /// (`frontier_abi::resident_citizen::mark`).
 ///
-/// **Provisional** (awaiting workstream 4): no record is emitted (no kind is
-/// allocated) and the JoinShard is neither listed nor counted, so a wallet
-/// player's shard chain is not touched; the shard index is derived from the
-/// asset as the wallet Join derives it from the wallet.
+/// Not yet: the `RESIDENT_JOINED` record (kind 90, allocated; it needs the
+/// readers in the same change) and the JoinShard count (counting without the
+/// record would break the shard's record chain for wallet players). The
+/// shard index is derived from the asset as the wallet Join derives it from
+/// the wallet.
 #[cfg(feature = "nft-experimental")]
 pub(crate) fn join(p: &Pubkey, accounts: &[AccountInfo], generation: u32, faction: u8) -> R<()> {
     use crate::layout::{citizen as C, frontier as FR, init_header, join_shard as JS};
@@ -288,9 +287,22 @@ pub(crate) fn join(p: &Pubkey, accounts: &[AccountInfo], generation: u32, factio
         owner,
         generation,
         now.ts,
-        C::SIZE,
+        season_ai.key,
     )?;
     let asset_bytes = asset.key.to_bytes();
+    let tag15 = resident_citizen::resident_tag15(&asset_bytes);
+    // The Citizen at its Season's citizen_by_tag15(resident id), created as
+    // the wallet Join creates one at citizen_by_tag15(wallet tag).
+    crate::init::init_with_seed(
+        payer,
+        citizen,
+        season_ai,
+        &crate::init::SeasonSigner::new(hdr.id, hdr.bump),
+        &frontier_abi::addr::citizen_seed(&tag15),
+        C::SIZE,
+        crate::init::rent(C::SIZE)?,
+        p,
+    )?;
     let bucket_t = u32::try_from(now.ts.saturating_sub(hdr.genesis_ts).max(0))
         .map_err(|_| FrontierError::Overflow)?;
     let mut cd = citizen.try_borrow_mut_data()?;

@@ -834,7 +834,7 @@ pub fn settle_transit(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
             prologue::present(c, p, AccountKind::Citizen, hdr.id)?;
             let cd = c.try_borrow_data()?;
             let r = Ro(&cd);
-            super::resident::expect_citizen_address(p, &ctx, c, &cd)?;
+            super::resident::expect_citizen_address(&ctx, c, &cd)?;
             if r.u64(crate::layout::citizen::CITIZEN_TAG)? != prev_owner_tag {
                 return Err(FrontierError::BadAddress.into());
             }

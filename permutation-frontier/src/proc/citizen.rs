@@ -1730,7 +1730,7 @@ pub fn settle_ticket(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     };
     {
         let cd = citizen.try_borrow_data()?;
-        super::resident::expect_citizen_address(p, &ctx, citizen, &cd)?;
+        super::resident::expect_citizen_address(&ctx, citizen, &cd)?;
     }
     if ticket_bell == C::NO_TICKET {
         return Err(FrontierError::NoTicket.into());
@@ -2536,7 +2536,7 @@ pub fn close_citizen(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     };
     {
         let cd = citizen.try_borrow_data()?;
-        super::resident::expect_citizen_address(p, &ctx, citizen, &cd)?;
+        super::resident::expect_citizen_address(&ctx, citizen, &cd)?;
     }
     expect_key(rent_payer, &c_payer)?;
     match (escrow > 0, funder) {

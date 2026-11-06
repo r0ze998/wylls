@@ -1,18 +1,18 @@
 //! Experimental program-side checks for one NFT / one Citizen.
 //!
-//! No instruction calls these functions yet. In particular world configuration
-//! wiring, Citizen creation, legacy migration and the player prologue are NOT
-//! implemented here. Callers must obtain `season_id` from trusted program-owned
+//! `authorize` is called by `proc::resident` for every NFT Citizen's player
+//! instruction; `join_accounts` by `JoinResident`; `create_policy` by
+//! `CreateResidentPolicy`. Legacy migration is NOT implemented here. Callers must obtain `season_id` from trusted program-owned
 //! world configuration, `now` from the runtime clock, and `generation` from
 //! signed instruction data, never untrusted substitutions. The configuration
 //! account creation helper below has not been exercised in a runtime test.
-//! The proposed addresses are global to this Frontier program, not per season.
+//! The link and the policy are global to this Frontier program; the NFT
+//! Citizen is per Season, at `citizen_by_tag15(resident id)`.
 
 use frontier_abi::{resident_auth, resident_binding, resident_policy};
 use solana_program::{account_info::AccountInfo, program_error::ProgramError, pubkey::Pubkey};
 
 const LINK_SEED: &[u8] = b"nft-citizen-link";
-const CITIZEN_SEED: &[u8] = b"nft-citizen";
 const RESIDENT_SEED: &[u8] = b"resident";
 const POLICY_SEED: &[u8] = b"nft-resident-policy";
 /// The resident program's collection-authority seed (permutation-nft-resident-spike/program).
@@ -77,24 +77,26 @@ pub fn create_policy<'a>(
     Ok(())
 }
 
-/// The program address of `asset`'s NFT Citizen, `["nft-citizen", asset]`.
-pub(crate) fn citizen_address(program: &Pubkey, asset: &Pubkey) -> Pubkey {
-    Pubkey::find_program_address(&[CITIZEN_SEED, asset.as_ref()], program).0
-}
-
 fn canonical(
     program: &Pubkey,
     resident_program: &Pubkey,
     asset: &Pubkey,
+    season: &Pubkey,
 ) -> (Pubkey, Pubkey, Pubkey) {
     let link = Pubkey::find_program_address(&[LINK_SEED, asset.as_ref()], program).0;
-    let citizen = Pubkey::find_program_address(&[CITIZEN_SEED, asset.as_ref()], program).0;
+    // The NFT Citizen lives where a wallet Citizen would, keyed by the
+    // resident id instead of the wallet tag (ABI allocation §5).
+    let tag15 = frontier_abi::resident_citizen::resident_tag15(&asset.to_bytes());
+    let citizen = Pubkey::new_from_array(
+        crate::addr::ctx(&season.to_bytes(), &program.to_bytes()).citizen_by_tag15(&tag15),
+    );
     let resident =
         Pubkey::find_program_address(&[RESIDENT_SEED, asset.as_ref()], resident_program).0;
     (link, citizen, resident)
 }
 
 /// Refuse any noncanonical account even if its data looks like a valid link.
+#[allow(clippy::too_many_arguments)]
 fn check_addresses(
     program: &Pubkey,
     policy: &resident_auth::Policy,
@@ -102,11 +104,12 @@ fn check_addresses(
     citizen: &AccountInfo<'_>,
     asset: &AccountInfo<'_>,
     resident: &AccountInfo<'_>,
+    season: &Pubkey,
     season_id: u64,
 ) -> Result<(), ProgramError> {
     let resident_program = Pubkey::new_from_array(policy.resident_program);
     let (expected_link, expected_citizen, expected_resident) =
-        canonical(program, &resident_program, asset.key);
+        canonical(program, &resident_program, asset.key, season);
     if link.key != &expected_link
         || citizen.key != &expected_citizen
         || resident.key != &expected_resident
@@ -162,138 +165,6 @@ fn check_actor(
     .map_err(|_| ProgramError::InvalidAccountData)
 }
 
-/// Initialize an already allocated, program-owned link exactly once. The
-/// Citizen must already exist at the asset-derived address. This function does
-/// not create either account; it requires the current asset owner, not a
-/// delegated session. The supplied generation must come from signed data.
-#[allow(clippy::too_many_arguments)]
-pub fn initialize(
-    program: &Pubkey,
-    config: &AccountInfo<'_>,
-    link: &AccountInfo<'_>,
-    citizen: &AccountInfo<'_>,
-    asset: &AccountInfo<'_>,
-    resident: &AccountInfo<'_>,
-    actor: &AccountInfo<'_>,
-    generation: u32,
-    now: i64,
-    season_id: u64,
-) -> Result<(), ProgramError> {
-    let policy = read_policy(program, config)?;
-    check_addresses(program, &policy, link, citizen, asset, resident, season_id)?;
-    if !link.is_writable {
-        return Err(ProgramError::InvalidAccountData);
-    }
-    check_actor(&policy, asset, resident, actor, generation, now, false)?;
-    let mut data = link.try_borrow_mut_data()?;
-    let record = resident_binding::Record {
-        asset: asset.key.to_bytes(),
-        resident: resident.key.to_bytes(),
-        citizen: citizen.key.to_bytes(),
-    };
-    if !resident_binding::write_once(&mut data, &record) {
-        return Err(ProgramError::AccountAlreadyInitialized);
-    }
-    Ok(())
-}
-
-/// Create the canonical link and initialize it in the same instruction. The
-/// owner and payer are checked separately; the Citizen must already exist at
-/// its proposed canonical address. A second creation is refused as present.
-/// No instruction dispatches to this helper yet.
-#[allow(clippy::too_many_arguments)]
-pub fn create_and_initialize<'a>(
-    program: &Pubkey,
-    config: &AccountInfo<'a>,
-    payer: &AccountInfo<'a>,
-    link: &AccountInfo<'a>,
-    citizen: &AccountInfo<'a>,
-    asset: &AccountInfo<'a>,
-    resident: &AccountInfo<'a>,
-    actor: &AccountInfo<'a>,
-    generation: u32,
-    now: i64,
-    season_id: u64,
-) -> crate::R<()> {
-    let policy = read_policy(program, config)?;
-    let resident_program = Pubkey::new_from_array(policy.resident_program);
-    let (expected_link, expected_citizen, expected_resident) =
-        canonical(program, &resident_program, asset.key);
-    if link.key != &expected_link
-        || citizen.key != &expected_citizen
-        || resident.key != &expected_resident
-    {
-        return Err(crate::FrontierError::BadAddress.into());
-    }
-    crate::prologue::present_v2(
-        citizen,
-        program,
-        frontier_abi::v2::layout::AccountKind::Citizen,
-        season_id,
-    )?;
-    check_actor(&policy, asset, resident, actor, generation, now, false)?;
-    crate::init::init_nft_pda(
-        payer,
-        link,
-        &[LINK_SEED, asset.key.as_ref()],
-        resident_binding::LEN,
-        program,
-    )?;
-    initialize(
-        program, config, link, citizen, asset, resident, actor, generation, now, season_id,
-    )?;
-    Ok(())
-}
-
-/// Register an NFT before its game Citizen exists. The future Citizen address
-/// is deterministic; the link's creation and initial write happen together.
-/// This does not create a playable Citizen or change the old player prologue.
-#[allow(clippy::too_many_arguments)]
-pub fn register_new<'a>(
-    program: &Pubkey,
-    config: &AccountInfo<'a>,
-    payer: &AccountInfo<'a>,
-    link: &AccountInfo<'a>,
-    citizen: &AccountInfo<'a>,
-    asset: &AccountInfo<'a>,
-    resident: &AccountInfo<'a>,
-    actor: &AccountInfo<'a>,
-    generation: u32,
-    now: i64,
-) -> crate::R<()> {
-    let policy = read_policy(program, config)?;
-    let resident_program = Pubkey::new_from_array(policy.resident_program);
-    let (expected_link, expected_citizen, expected_resident) =
-        canonical(program, &resident_program, asset.key);
-    if link.key != &expected_link
-        || citizen.key != &expected_citizen
-        || resident.key != &expected_resident
-    {
-        return Err(crate::FrontierError::BadAddress.into());
-    }
-    if !crate::init::is_absent(citizen) {
-        return Err(crate::error::BAD_ACCOUNT);
-    }
-    check_actor(&policy, asset, resident, actor, generation, now, false)?;
-    crate::init::init_nft_pda(
-        payer,
-        link,
-        &[LINK_SEED, asset.key.as_ref()],
-        resident_binding::LEN,
-        program,
-    )?;
-    let record = resident_binding::Record {
-        asset: asset.key.to_bytes(),
-        resident: resident.key.to_bytes(),
-        citizen: citizen.key.to_bytes(),
-    };
-    let mut data = link.try_borrow_mut_data()?;
-    if !resident_binding::write_once(&mut data, &record) {
-        return Err(crate::error::BAD_ACCOUNT);
-    }
-    Ok(())
-}
-
 /// Verify the immutable canonical link and current owner/session at the same
 /// runtime invocation. The signed instruction must include `generation`.
 #[allow(clippy::too_many_arguments)]
@@ -308,10 +179,13 @@ pub fn authorize(
     generation: u32,
     now: i64,
     session_allowed: bool,
+    season: &Pubkey,
     season_id: u64,
 ) -> Result<(), ProgramError> {
     let policy = read_policy(program, config)?;
-    check_addresses(program, &policy, link, citizen, asset, resident, season_id)?;
+    check_addresses(
+        program, &policy, link, citizen, asset, resident, season, season_id,
+    )?;
     let data = link.try_borrow_data()?;
     let record = resident_binding::read(&data).ok_or(ProgramError::InvalidAccountData)?;
     if !resident_binding::matches(
@@ -333,15 +207,14 @@ pub fn authorize(
     )
 }
 
-/// The first login of an NFT resident (`Join`, experimental): with the
-/// policy, the link, the future Citizen and the resident at the asset's
-/// canonical addresses, the Citizen absent, and the actor the asset's
-/// current owner (no session) at the signed generation with the transfer
-/// guard in place, create the link if it is absent (an existing link must
-/// name exactly this asset, resident and Citizen: `Register` may have made
-/// it first), then allocate the Citizen at `["nft-citizen", asset]` with
-/// `space` bytes, owned by this program. The caller writes the Citizen.
-/// One NFT has one link and one Citizen address, so a second Join of the
+/// The first login of an NFT resident (`JoinResident`, experimental): with
+/// the policy, the link, the future Citizen (at its Season's
+/// `citizen_by_tag15(resident id)`) and the resident at the asset's canonical
+/// addresses, the Citizen absent, and the actor the asset's current owner (no
+/// session) at the signed generation with the transfer guard in place, create
+/// the link if it is absent; an existing link must name exactly this asset,
+/// resident and Citizen. The caller creates and writes the Citizen. One NFT
+/// has one link and one Citizen address per Season, so a second Join of the
 /// same NFT finds the Citizen present and is refused.
 #[cfg(feature = "nft-experimental")]
 #[allow(clippy::too_many_arguments)]
@@ -356,12 +229,12 @@ pub(crate) fn join_accounts<'a>(
     actor: &AccountInfo<'a>,
     generation: u32,
     now: i64,
-    space: usize,
+    season: &Pubkey,
 ) -> crate::R<()> {
     let policy = read_policy(program, config)?;
     let resident_program = Pubkey::new_from_array(policy.resident_program);
     let (expected_link, expected_citizen, expected_resident) =
-        canonical(program, &resident_program, asset.key);
+        canonical(program, &resident_program, asset.key, season);
     if link.key != &expected_link
         || citizen.key != &expected_citizen
         || resident.key != &expected_resident
@@ -392,21 +265,15 @@ pub(crate) fn join_accounts<'a>(
         if !resident_binding::write_once(&mut data, &record) {
             return Err(crate::error::BAD_ACCOUNT);
         }
+        Ok(())
     } else {
         if link.owner != program {
             return Err(crate::error::BAD_ACCOUNT);
         }
         let data = link.try_borrow_data()?;
-        let found = resident_binding::read(&data).ok_or(crate::error::BAD_ACCOUNT)?;
-        if found != record {
-            return Err(crate::error::BAD_ACCOUNT);
+        match resident_binding::read(&data) {
+            Some(found) if found == record => Ok(()),
+            _ => Err(crate::error::BAD_ACCOUNT),
         }
     }
-    crate::init::init_nft_pda(
-        payer,
-        citizen,
-        &[CITIZEN_SEED, asset.key.as_ref()],
-        space,
-        program,
-    )
 }

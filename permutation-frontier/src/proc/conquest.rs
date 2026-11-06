@@ -270,7 +270,7 @@ fn citizen_v2(p: &Pubkey, ctx: &AddrCtx, sid: u64, ai: &AccountInfo) -> R<(u64, 
     present_v2(ai, p, K2::Citizen, sid)?;
     let d = ai.try_borrow_data()?;
     let r = Ro(&d);
-    super::resident::expect_citizen_address(p, ctx, ai, &d)?;
+    super::resident::expect_citizen_address(ctx, ai, &d)?;
     let tag = r.u64(C::CITIZEN_TAG)?;
     if tag != citizen_tag(ai.key.as_array()) {
         return Err(BAD_ACCOUNT);
@@ -1666,7 +1666,17 @@ pub(crate) fn retire_host_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &sup
             if !actor.is_signer {
                 return Err(FrontierError::Auth.into());
             }
-            super::resident::check(p, actor, victim_c, proof, generation, now.ts, true, sid)?;
+            super::resident::check(
+                p,
+                actor,
+                victim_c,
+                proof,
+                generation,
+                now.ts,
+                true,
+                season_ai.key,
+                sid,
+            )?;
             // The resident checks put the Citizen at its asset's canonical
             // address; its tag is still the one derived from that address.
             let tag = {
