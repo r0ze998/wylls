@@ -14,6 +14,8 @@
 //!   instruction yet; patch 0002 specifies them);
 //! * custody: [`custody::MockCustody`], a stand-in for ⑩.
 
+#[cfg(feature = "abi-04-provisional")]
+pub mod abi;
 pub mod custody;
 pub mod error;
 pub mod event;

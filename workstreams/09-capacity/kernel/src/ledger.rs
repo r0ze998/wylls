@@ -24,9 +24,10 @@
 use std::collections::BTreeMap;
 
 use borsh::{BorshDeserialize, BorshSerialize};
+use permutation_rules::fixed::MILLI;
 use permutation_rules::frontier::holding::{Resource, DAY};
 
-use crate::custody::{By, Custody, Key};
+use crate::custody::{By, Custody, CustodyError, Key};
 use crate::error::CapError;
 use crate::event::Event;
 use crate::facility::Facility;
@@ -102,6 +103,49 @@ pub struct Job {
     pub claimed: i64,
     /// The rest of the hopper was handed out.
     pub refunded: bool,
+    /// Inputs handed back to the user (per recipe input, milli).
+    pub returned: [i64; 2],
+    /// Inputs and output a facility loss moved to a captor (milli).
+    pub forfeited_in: [i64; 2],
+    pub forfeited_out: i64,
+}
+
+/// One resource of a job as an account, in workstream 10's terms
+/// (`Lot`: `IN_TOTAL = HELD + OUT_TOTAL + CONSUMED + FORFEITED`). For an
+/// input, `in_total` is what was deposited and `consumed` what the recipe
+/// used; for the output, `in_total` is what was made and `consumed` is 0.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub struct Account {
+    pub in_total: i64,
+    pub held: i64,
+    pub out_total: i64,
+    pub consumed: i64,
+    pub forfeited: i64,
+}
+
+impl Account {
+    /// The balance law and its bounds.
+    pub fn balanced(&self) -> bool {
+        self.held >= 0
+            && self.out_total >= 0
+            && self.consumed >= 0
+            && self.forfeited >= 0
+            && self.in_total == self.held + self.out_total + self.consumed + self.forfeited
+    }
+}
+
+/// A job's accounts: its two inputs and its output (the record of its
+/// processing; logged as [`Event::Receipt`] when the job is retired).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub struct Accounts {
+    pub inputs: [Account; 2],
+    pub output: Account,
+}
+
+impl Accounts {
+    pub fn balanced(&self) -> bool {
+        self.inputs.iter().all(Account::balanced) && self.output.balanced()
+    }
 }
 
 impl Job {
@@ -170,6 +214,27 @@ impl Job {
     pub fn rest(&self) -> [i64; 2] {
         let used = self.recipe().used_for(self.settled);
         [self.hopper[0] - used[0], self.hopper[1] - used[1]]
+    }
+
+    /// The job as accounts (what its hopper and output places hold, and
+    /// where the rest went), as of its last settlement.
+    pub fn accounts(&self) -> Accounts {
+        let used = self.recipe().used_for(self.settled);
+        let inputs = core::array::from_fn(|i| Account {
+            in_total: self.hopper[i],
+            held: self.hopper[i] - used[i] - self.returned[i] - self.forfeited_in[i],
+            out_total: self.returned[i],
+            consumed: used[i],
+            forfeited: self.forfeited_in[i],
+        });
+        let output = Account {
+            in_total: self.settled,
+            held: self.settled - self.claimed,
+            out_total: self.claimed - self.forfeited_out,
+            consumed: 0,
+            forfeited: self.forfeited_out,
+        };
+        Accounts { inputs, output }
     }
 }
 
@@ -318,6 +383,17 @@ pub enum Op {
         job: JobId,
         to: Place,
     },
+    /// A claim to separate places: the output to `output_to`, each unused
+    /// input's whole units to its own `refund_to` (in recipe input order:
+    /// ore, wood), the sub-unit rest (under 1,000 milli) of both to
+    /// `remainder_to`. For refunds into places that take whole units of one
+    /// resource only (workstream 10's lots; its requests R3, R4).
+    ClaimSplit {
+        job: JobId,
+        output_to: Place,
+        refund_to: [Place; 2],
+        remainder_to: Place,
+    },
     FacilityLost {
         facility: FacilityId,
     },
@@ -356,14 +432,62 @@ impl Op {
             | Op::Reclaim { .. }
             | Op::Grant { .. }
             | Op::Revoke { .. } => Class::Owner,
-            Op::Reserve { .. } | Op::Deposit { .. } | Op::Cancel { .. } | Op::Claim { .. } => {
-                Class::User
-            }
+            Op::Reserve { .. }
+            | Op::Deposit { .. }
+            | Op::Cancel { .. }
+            | Op::Claim { .. }
+            | Op::ClaimSplit { .. } => Class::User,
             Op::Settle { .. }
             | Op::FacilityLost { .. }
             | Op::Retire { .. }
             | Op::RetireGrant { .. }
             | Op::RetirePool { .. } => Class::Anyone,
+        }
+    }
+}
+
+/// Why an operation failed inside the kernel: its own reason, or the
+/// custody's (which [`Refusal`] keeps for the caller).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Fail {
+    Cap(CapError),
+    Custody(CustodyError),
+}
+
+impl From<CapError> for Fail {
+    fn from(e: CapError) -> Fail {
+        Fail::Cap(e)
+    }
+}
+
+/// A refused operation: the kernel's code (what [`Harness::apply`]
+/// returns; `Custody` when custody refused) and custody's own reason.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Refusal {
+    pub code: CapError,
+    pub custody: Option<CustodyError>,
+}
+
+impl From<CapError> for Refusal {
+    fn from(code: CapError) -> Refusal {
+        Refusal {
+            code,
+            custody: None,
+        }
+    }
+}
+
+impl From<Fail> for Refusal {
+    fn from(f: Fail) -> Refusal {
+        match f {
+            Fail::Cap(code) => Refusal {
+                code,
+                custody: None,
+            },
+            Fail::Custody(e) => Refusal {
+                code: CapError::Custody,
+                custody: Some(e),
+            },
         }
     }
 }
@@ -437,8 +561,15 @@ impl<C: Custody + Clone> Harness<C> {
 
     /// Apply `op` signed by `signer` at `now`, atomically.
     pub fn apply(&mut self, now: i64, signer: Actor, op: &Op) -> Result<Outcome, CapError> {
+        self.apply_detailed(now, signer, op).map_err(|r| r.code)
+    }
+
+    /// [`Self::apply`], keeping the custody's own reason when custody
+    /// refused (⑩'s request R5: "no room", "frozen" and "not whole units"
+    /// are told apart).
+    pub fn apply_detailed(&mut self, now: i64, signer: Actor, op: &Op) -> Result<Outcome, Refusal> {
         if now < self.clock {
-            return Err(CapError::TimeReversed);
+            return Err(CapError::TimeReversed.into());
         }
         let saved = self.clone();
         let mut ev = Vec::new();
@@ -455,7 +586,7 @@ impl<C: Custody + Clone> Harness<C> {
             }
             Err(e) => {
                 *self = saved;
-                Err(e)
+                Err(e.into())
             }
         }
     }
@@ -490,31 +621,25 @@ impl<C: Custody + Clone> Harness<C> {
     }
 
     /// `Ok(false)`: already applied.
-    fn run(
-        &mut self,
-        now: i64,
-        signer: Actor,
-        op: &Op,
-        ev: &mut Vec<Event>,
-    ) -> Result<bool, CapError> {
+    fn run(&mut self, now: i64, signer: Actor, op: &Op, ev: &mut Vec<Event>) -> Result<bool, Fail> {
         match *op {
             Op::OpenPool { facility, policies } => {
                 if let Some(p) = self.ledger.pools.get(&facility) {
                     if p.lost_at.is_some() {
                         // A wrapped generation number meets a lost pool
                         // whose records are still open (contract §10).
-                        return Err(CapError::GenerationReused);
+                        return Err(CapError::GenerationReused.into());
                     }
                     self.live(facility)?;
                     return if p.owner == signer && p.policies == policies {
                         Ok(false)
                     } else {
-                        Err(CapError::Conflict)
+                        Err(CapError::Conflict.into())
                     };
                 }
                 let fac = self.live(facility)?;
                 if fac.owner != signer {
-                    return Err(CapError::NotOwner);
+                    return Err(CapError::NotOwner.into());
                 }
                 self.ledger.pools.insert(
                     facility,
@@ -551,17 +676,17 @@ impl<C: Custody + Clone> Harness<C> {
                 let lend = matches!(op, Op::Lend { .. });
                 let p = self.pool_live(facility)?;
                 if p.owner != signer {
-                    return Err(CapError::NotOwner);
+                    return Err(CapError::NotOwner.into());
                 }
                 if seq != p.owner_seq {
                     return if seq + 1 == p.owner_seq && p.last_owner_op.as_ref() == Some(op) {
                         Ok(false)
                     } else {
-                        Err(CapError::Conflict)
+                        Err(CapError::Conflict.into())
                     };
                 }
                 if units == 0 {
-                    return Err(CapError::BadWindow);
+                    return Err(CapError::BadWindow.into());
                 }
                 let lent = if lend {
                     p.lent.checked_add(units).ok_or(CapError::Overflow)?
@@ -569,7 +694,7 @@ impl<C: Custody + Clone> Harness<C> {
                     let left = p.lent.checked_sub(units).ok_or(CapError::ReclaimBlocked)?;
                     // Every future instant must still fit.
                     if p.peak(now, now, i64::MAX, |_| true) > left {
-                        return Err(CapError::ReclaimBlocked);
+                        return Err(CapError::ReclaimBlocked.into());
                     }
                     left
                 };
@@ -615,7 +740,7 @@ impl<C: Custody + Clone> Harness<C> {
             } => {
                 let p = self.pool_live(grant.facility)?;
                 if p.owner != signer {
-                    return Err(CapError::NotOwner);
+                    return Err(CapError::NotOwner.into());
                 }
                 let g = Grant {
                     id: grant,
@@ -639,20 +764,20 @@ impl<C: Custody + Clone> Harness<C> {
                     {
                         Ok(false)
                     } else {
-                        Err(CapError::Conflict)
+                        Err(CapError::Conflict.into())
                     };
                 }
                 if recipe(rid).is_none() {
-                    return Err(CapError::WrongRecipe);
+                    return Err(CapError::WrongRecipe.into());
                 }
                 if max_units == 0 || max_output <= 0 || from >= until || until <= now {
-                    return Err(CapError::BadWindow);
+                    return Err(CapError::BadWindow.into());
                 }
                 if p.last_grant_seq.is_some_and(|l| grant.seq <= l) {
-                    return Err(CapError::Retired);
+                    return Err(CapError::Retired.into());
                 }
                 if p.grants.len() >= MAX_GRANTS {
-                    return Err(CapError::TooMany);
+                    return Err(CapError::TooMany.into());
                 }
                 let pm = self.pool_mut(grant.facility);
                 pm.grants.push(g);
@@ -663,7 +788,7 @@ impl<C: Custody + Clone> Harness<C> {
             Op::Revoke { grant } => {
                 let p = self.pool_live(grant.facility)?;
                 if p.owner != signer {
-                    return Err(CapError::NotOwner);
+                    return Err(CapError::NotOwner.into());
                 }
                 if p.grant(grant)?.revoked_at.is_some() {
                     return Ok(false);
@@ -713,7 +838,7 @@ impl<C: Custody + Clone> Harness<C> {
                 let p = self.pool_live(job.grant.facility)?;
                 let j = p.job(job)?;
                 if j.user != signer {
-                    return Err(CapError::NotUser);
+                    return Err(CapError::NotUser.into());
                 }
                 let i = j
                     .recipe()
@@ -723,20 +848,20 @@ impl<C: Custody + Clone> Harness<C> {
                     return if *d == (deposit, i as u8, amount, from) {
                         Ok(false)
                     } else {
-                        Err(CapError::Conflict)
+                        Err(CapError::Conflict.into())
                     };
                 }
                 if j.fin != Fin::Open {
-                    return Err(CapError::AlreadyFinal);
+                    return Err(CapError::AlreadyFinal.into());
                 }
                 if now >= j.start {
-                    return Err(CapError::AlreadyStarted);
+                    return Err(CapError::AlreadyStarted.into());
                 }
                 if amount <= 0 {
-                    return Err(CapError::WrongResource);
+                    return Err(CapError::WrongResource.into());
                 }
                 if j.deposits.len() >= MAX_DEPOSITS {
-                    return Err(CapError::TooMany);
+                    return Err(CapError::TooMany.into());
                 }
                 let (user, uid) = (j.user, j.uid);
                 self.custody
@@ -749,7 +874,7 @@ impl<C: Custody + Clone> Harness<C> {
                         amount,
                         user,
                     )
-                    .map_err(|_| CapError::Custody)?;
+                    .map_err(Fail::Custody)?;
                 let j = self.pool_mut(job.grant.facility).job_mut(job)?;
                 j.hopper[i] = j.hopper[i].checked_add(amount).ok_or(CapError::Overflow)?;
                 j.deposits.push((deposit, i as u8, amount, from));
@@ -765,13 +890,13 @@ impl<C: Custody + Clone> Harness<C> {
                 let p = self.pool_live(job.grant.facility)?;
                 let j = p.job(job)?;
                 if j.user != signer {
-                    return Err(CapError::NotUser);
+                    return Err(CapError::NotUser.into());
                 }
                 if matches!(j.fin, Fin::Cancelled(_)) {
                     return Ok(false);
                 }
                 if j.fin != Fin::Open || now >= j.end_eff() && now >= j.start {
-                    return Err(CapError::AlreadyFinal);
+                    return Err(CapError::AlreadyFinal.into());
                 }
                 self.settle(now, job, ev)?;
                 let j = self.pool_mut(job.grant.facility).job_mut(job)?;
@@ -787,7 +912,20 @@ impl<C: Custody + Clone> Harness<C> {
                 self.settle(now, job, ev)?;
                 Ok(ev.len() > before)
             }
-            Op::Claim { job, to } => self.claim(now, signer, job, to, ev),
+            Op::Claim { job, to } => self.claim(now, signer, job, [to; 4], false, ev),
+            Op::ClaimSplit {
+                job,
+                output_to,
+                refund_to,
+                remainder_to,
+            } => self.claim(
+                now,
+                signer,
+                job,
+                [output_to, refund_to[0], refund_to[1], remainder_to],
+                true,
+                ev,
+            ),
             Op::FacilityLost { facility } => self.lose(facility, ev),
             Op::Retire { job } => {
                 let p = self
@@ -801,7 +939,7 @@ impl<C: Custody + Clone> Harness<C> {
                 };
                 let handed_out = j.claimed == j.settled && (j.refunded || j.rest() == [0, 0]);
                 if j.fin == Fin::Open || !handed_out {
-                    return Err(CapError::NotRetirable);
+                    return Err(CapError::NotRetirable.into());
                 }
                 let pm = self.pool_mut(job.grant.facility);
                 pm.jobs.retain(|x| x.id != job);
@@ -812,6 +950,11 @@ impl<C: Custody + Clone> Harness<C> {
                     .expect("a job's grant outlives it");
                 g.spent = g.spent.checked_add(j.settled).ok_or(CapError::Overflow)?;
                 self.custody.forget(j.uid);
+                ev.push(Event::Receipt {
+                    job,
+                    uid: j.uid,
+                    accounts: j.accounts(),
+                });
                 ev.push(Event::Retired {
                     job,
                     uid: j.uid,
@@ -831,7 +974,7 @@ impl<C: Custody + Clone> Harness<C> {
                 };
                 let over = g.revoked_at.is_some() || now >= g.until || p.lost_at.is_some();
                 if !over || p.jobs.iter().any(|j| j.id.grant == grant) {
-                    return Err(CapError::NotRetirable);
+                    return Err(CapError::NotRetirable.into());
                 }
                 self.pool_mut(grant.facility)
                     .grants
@@ -846,7 +989,7 @@ impl<C: Custody + Clone> Harness<C> {
                     .get(&facility)
                     .ok_or(CapError::UnknownPool)?;
                 if p.lost_at.is_none() || !p.jobs.is_empty() {
-                    return Err(CapError::NotRetirable);
+                    return Err(CapError::NotRetirable.into());
                 }
                 self.ledger.pools.remove(&facility);
                 ev.push(Event::PoolRetired { facility });
@@ -866,50 +1009,50 @@ impl<C: Custody + Clone> Harness<C> {
         end: i64,
         max_output: i64,
         ev: &mut Vec<Event>,
-    ) -> Result<bool, CapError> {
+    ) -> Result<bool, Fail> {
         let p = self.pool_live(job.grant.facility)?;
         let g = p.grant(job.grant)?;
         if g.user != signer {
-            return Err(CapError::NotUser);
+            return Err(CapError::NotUser.into());
         }
         if let Some(j) = p.jobs.iter().find(|j| j.id == job) {
             let same = (j.units, j.start, j.end, j.max_output) == (units, start, end, max_output);
             return if same {
                 Ok(false)
             } else {
-                Err(CapError::Conflict)
+                Err(CapError::Conflict.into())
             };
         }
         if g.last_job_seq.is_some_and(|l| job.seq <= l) {
-            return Err(CapError::Retired);
+            return Err(CapError::Retired.into());
         }
         if g.revoked_at.is_some() {
-            return Err(CapError::GrantRevoked);
+            return Err(CapError::GrantRevoked.into());
         }
         if units == 0 || max_output <= 0 || start >= end || start < now || end - start > MAX_WINDOW
         {
-            return Err(CapError::BadWindow);
+            return Err(CapError::BadWindow.into());
         }
         if start < g.from || end > g.until {
-            return Err(CapError::OutsideGrantWindow);
+            return Err(CapError::OutsideGrantWindow.into());
         }
         if p.policies.dormancy == DormancyPolicy::RefuseNewWhenDormant
             && self.live(job.grant.facility)?.dormant(now)
         {
-            return Err(CapError::OwnerAway);
+            return Err(CapError::OwnerAway.into());
         }
         let same_grant = p.peak(now, start, end, |j| j.id.grant == job.grant);
         if same_grant + units > g.max_units {
-            return Err(CapError::GrantUnitsExceeded);
+            return Err(CapError::GrantUnitsExceeded.into());
         }
         if p.grant_output(job.grant) + max_output > g.max_output {
-            return Err(CapError::GrantOutputExceeded);
+            return Err(CapError::GrantOutputExceeded.into());
         }
         if p.peak(now, start, end, |_| true) + units > p.lent {
-            return Err(CapError::CapacityExceeded);
+            return Err(CapError::CapacityExceeded.into());
         }
         if p.jobs.len() >= MAX_JOBS {
-            return Err(CapError::TooMany);
+            return Err(CapError::TooMany.into());
         }
         let uid = self.ledger.next_uid;
         let j = Job {
@@ -928,6 +1071,9 @@ impl<C: Custody + Clone> Harness<C> {
             started_logged: false,
             claimed: 0,
             refunded: false,
+            returned: [0, 0],
+            forfeited_in: [0, 0],
+            forfeited_out: 0,
         };
         self.ledger.next_uid = uid.checked_add(1).ok_or(CapError::Overflow)?;
         let pm = self.pool_mut(job.grant.facility);
@@ -949,7 +1095,7 @@ impl<C: Custody + Clone> Harness<C> {
 
     /// Credit the output made by `now` (or by the job's stop) and use its
     /// inputs; finalize a job whose conversion has ended.
-    fn settle(&mut self, now: i64, job: JobId, ev: &mut Vec<Event>) -> Result<(), CapError> {
+    fn settle(&mut self, now: i64, job: JobId, ev: &mut Vec<Event>) -> Result<(), Fail> {
         let p = self
             .ledger
             .pools
@@ -972,7 +1118,7 @@ impl<C: Custody + Clone> Harness<C> {
                         *res,
                         used[i],
                     )
-                    .map_err(|_| CapError::Custody)?;
+                    .map_err(Fail::Custody)?;
             }
             self.custody
                 .produce(
@@ -982,7 +1128,7 @@ impl<C: Custody + Clone> Harness<C> {
                     r.output,
                     delta,
                 )
-                .map_err(|_| CapError::Custody)?;
+                .map_err(Fail::Custody)?;
             ev.push(Event::Settled {
                 job,
                 out: delta,
@@ -1003,14 +1149,20 @@ impl<C: Custody + Clone> Harness<C> {
         Ok(())
     }
 
+    /// Hand out what a job has made and, once it is final, what it did not
+    /// use. `to` is `[output, refund of input 0, refund of input 1,
+    /// remainder]`; with `split` each refund goes in whole units to its
+    /// place and the sub-unit rest to `to[3]`, without it everything goes to
+    /// `to[0]` (the four are equal).
     fn claim(
         &mut self,
         now: i64,
         signer: Actor,
         job: JobId,
-        to: Place,
+        to: [Place; 4],
+        split: bool,
         ev: &mut Vec<Event>,
-    ) -> Result<bool, CapError> {
+    ) -> Result<bool, Fail> {
         let p = self
             .ledger
             .pools
@@ -1022,12 +1174,12 @@ impl<C: Custody + Clone> Harness<C> {
         }
         let j = p.job(job)?;
         if j.user != signer {
-            return Err(CapError::NotUser);
+            return Err(CapError::NotUser.into());
         }
         // A job's own places are kept by its books: goods put into another
         // job's hopper or output there would be stranded outside them.
-        if to.kernel_only() {
-            return Err(CapError::BadPlace);
+        if to.iter().any(|t| t.kernel_only()) {
+            return Err(CapError::BadPlace.into());
         }
         if !lost {
             self.settle(now, job, ev)?;
@@ -1050,46 +1202,69 @@ impl<C: Custody + Clone> Harness<C> {
                     key(j.uid, K_CLAIM_OUT, j.settled as u64),
                     By::Kernel,
                     Place::Output(job),
-                    to,
+                    to[0],
                     r.output,
                     output,
                     j.user,
                 )
-                .map_err(|_| CapError::Custody)?;
+                .map_err(Fail::Custody)?;
         }
+        let (whole, rest) = if split {
+            (
+                core::array::from_fn(|i| refund[i] / MILLI * MILLI),
+                core::array::from_fn(|i| refund[i] % MILLI),
+            )
+        } else {
+            (refund, [0, 0])
+        };
         for (i, (res, _)) in r.inputs.iter().enumerate() {
-            if refund[i] > 0 {
-                self.custody
-                    .transfer(
-                        key(j.uid, K_REFUND * 16 + i as u8, 0),
-                        By::Kernel,
-                        Place::Hopper(job),
-                        to,
-                        *res,
-                        refund[i],
-                        j.user,
-                    )
-                    .map_err(|_| CapError::Custody)?;
+            let place = if split { to[1 + i] } else { to[0] };
+            for (n, amount, at) in [(0, whole[i], place), (1, rest[i], to[3])] {
+                if amount > 0 {
+                    self.custody
+                        .transfer(
+                            key(j.uid, K_REFUND * 16 + i as u8, n),
+                            By::Kernel,
+                            Place::Hopper(job),
+                            at,
+                            *res,
+                            amount,
+                            j.user,
+                        )
+                        .map_err(Fail::Custody)?;
+                }
             }
         }
         let jm = self.pool_mut(job.grant.facility).job_mut(job)?;
         jm.claimed = jm.settled;
         if jm.fin != Fin::Open {
             jm.refunded = true;
+            for (i, x) in refund.iter().enumerate() {
+                jm.returned[i] = jm.returned[i].checked_add(*x).ok_or(CapError::Overflow)?;
+            }
         }
         ev.push(Event::Claimed {
             job,
             output,
             refund,
-            to,
+            to: to[0],
         });
+        if split && refund != [0, 0] {
+            ev.push(Event::Refunded {
+                job,
+                whole,
+                remainder: rest,
+                refund_to: [to[1], to[2]],
+                remainder_to: to[3],
+            });
+        }
         Ok(true)
     }
 
     /// The facility's generation ended (capture or release, written by the
     /// core): every job stops at that time, the pool closes, and what the
     /// jobs keep at the facility follows the loss policy.
-    fn lose(&mut self, facility: FacilityId, ev: &mut Vec<Event>) -> Result<bool, CapError> {
+    fn lose(&mut self, facility: FacilityId, ev: &mut Vec<Event>) -> Result<bool, Fail> {
         let p = self
             .ledger
             .pools
@@ -1148,8 +1323,13 @@ impl<C: Custody + Clone> Harness<C> {
                             output,
                             c,
                         )
-                        .map_err(|_| CapError::Custody)?;
-                    self.pool_mut(facility).job_mut(id)?.claimed = j.settled;
+                        .map_err(Fail::Custody)?;
+                    let jm = self.pool_mut(facility).job_mut(id)?;
+                    jm.claimed = j.settled;
+                    jm.forfeited_out = jm
+                        .forfeited_out
+                        .checked_add(output)
+                        .ok_or(CapError::Overflow)?;
                 }
             }
             if let Some(c) = in_to {
@@ -1166,10 +1346,16 @@ impl<C: Custody + Clone> Harness<C> {
                                     refund[i],
                                     c,
                                 )
-                                .map_err(|_| CapError::Custody)?;
+                                .map_err(Fail::Custody)?;
                         }
                     }
-                    self.pool_mut(facility).job_mut(id)?.refunded = true;
+                    let jm = self.pool_mut(facility).job_mut(id)?;
+                    jm.refunded = true;
+                    for (i, x) in refund.iter().enumerate() {
+                        jm.forfeited_in[i] = jm.forfeited_in[i]
+                            .checked_add(*x)
+                            .ok_or(CapError::Overflow)?;
+                    }
                 }
             }
             let fo = if out_to.is_some() { output } else { 0 };
