@@ -112,3 +112,12 @@ PlaceHome は `holdings_by_wedge` を申請者の国（faction）で加算して
 - 変更したRust3ファイルのrustfmtとgit diff --checkは成功。鍵の生成・導出・署名、CI、push、deployは行っていない。
 
 これはゲーム本体dispatchの鍵なしホスト試験と検証器の証拠判定試験であり、署名・実SBF・チェーン・全命令の統合動作を証明しない。最新④ 6984acfaへのmergeは未実行。
+
+
+## 6984acfa統合後の監査訂正
+
+ローカルの56914060にCCの7107127eを取り込み、mod.rsの宣言競合はV26とV27を両方残して解消した。V27本体とV9本体は6984acfaと同一で、V0の「S1検査が実際に走らないJoinResidentは未検証」という修正も保持した。
+
+以前の「map_growth_runtime_tests 3/3は鍵の導出なし」という報告は不正確だった。共通のWorld::newはseason_bumpでfind_program_addressを呼び、AddrCtxによるwith-seedアドレス計算も行う。CPI模擬はcreate_program_addressを呼ぶ。秘密鍵生成・暗号署名とは異なるが、PDA/with-seed禁止の条件を満たさない。以前の3件成功はその条件に準拠した試験結果として数えない。本統合作業ではこの試験を実行していない。
+
+V11/V26の限定単体試験は固定バイトと純粋な配置・証拠判定を使うが、本統合SHAでの再実行・全検証器実行は未実施。以前の承認エラーとなった試験の代替実行は行っていない。静的差分検査のみで実ゲーム・実チェーン・完成を証明しない。push・CI・deployなし。

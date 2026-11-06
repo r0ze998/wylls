@@ -11,14 +11,12 @@
 //! under `nft-experimental`) so a run can be filtered to exactly
 //! `map_growth_runtime_tests::` and audited.
 //!
-//! **No key is generated, derived or signed.** Every address is a literal
-//! 32-byte value (the program id, the wallets, the payer, the caller of the
-//! release) or one the program itself computes by hashing: the Season PDA
-//! (`find_program_address`, as AnnounceSeason finds its bump) and the
-//! with-seed addresses of the Frontier, the Citizen, the Province, the
-//! Holding, the JoinShard and the DefencePool (`AddrCtx`, SHA-256). The
-//! test computes the same hashes to place the accounts there. No keypair,
-//! secret or signature exists anywhere.
+//! **Contains public-address derivation; do not run under the no-PDA rule.**
+//! Wallets and payer addresses are literal bytes, but setup derives the
+//! Season PDA (`find_program_address`), and `AddrCtx` computes with-seed
+//! addresses. CPI emulation also calls `create_program_address`.
+//! No private keypair or cryptographic signature is created. This does not
+//! make the harness permitted when PDA/with-seed derivation is prohibited.
 //!
 //! **Limits (what this does not show).**
 //! - Signatures: `is_signer` is set by the test, as the runtime would after
