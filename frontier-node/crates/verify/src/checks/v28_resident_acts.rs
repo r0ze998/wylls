@@ -103,9 +103,68 @@ impl ResidentFeed {
 
 /// What V28 reads besides the archive.
 pub struct ActCtx<'a> {
-    pub season: Key,
-    pub program: Key,
+    /// This Season's address context (its Season and program).
+    pub addr: frontier_abi::addr::AddrCtx,
     pub feed: Option<&'a ResidentFeed>,
+}
+
+/// The policy at `key`: from a successful CreateResidentPolicy in the
+/// archive (its data is the policy, its account 1 the policy account), else
+/// from the resident record's policy accounts (written once: any read is its
+/// value), owned by the program.
+fn policy_of(w: &World, ac: &ActCtx, key: &Key) -> Option<ra::Policy> {
+    let created = w
+        .txs
+        .iter()
+        .filter(|t| t.ok)
+        .flat_map(|t| t.ixs.iter())
+        .filter(|x| x.tag() == Some(resident_wire::CREATE_RESIDENT_POLICY))
+        .filter(|x| x.key(1).as_ref() == Some(key))
+        .find_map(|x| match resident_wire::decode(&x.data) {
+            Some(Command::CreatePolicy(p)) => Some(p),
+            _ => None,
+        });
+    created.or_else(|| {
+        ac.feed?
+            .policies
+            .get(key)
+            .filter(|a| a.owner.to_bytes() == ac.addr.program)
+            .and_then(|a| frontier_abi::resident_policy::read(&a.data))
+    })
+}
+
+/// Which of the act's accounts are not at their canonical addresses (the
+/// program's `resident_binding::canonical` and `read_policy`; PDAs and the
+/// Citizen's seeded address of public program addresses, no key involved).
+fn non_canonical(
+    ac: &ActCtx,
+    policy_data: Option<&ra::Policy>,
+    [policy, link, asset, resident, citizen]: [Key; 5],
+) -> Vec<&'static str> {
+    use fclient::addr as fa;
+    let a = solana_address::Address::new_from_array;
+    let program = a(ac.addr.program);
+    let mut bad = vec![];
+    if policy != fa::resident_policy(&program).to_bytes() {
+        bad.push("policy");
+    }
+    if link != fa::resident_link(&program, &a(ac.addr.season), &a(asset)).to_bytes() {
+        bad.push("link");
+    }
+    let tag15 = frontier_abi::resident_citizen::resident_tag15(&asset);
+    if citizen != ac.addr.citizen_by_tag15(&tag15) {
+        bad.push("Citizen");
+    }
+    if let Some(p) = policy_data {
+        let rp = a(p.resident_program);
+        if resident != fa::resident_account(&rp, &a(asset)).to_bytes() {
+            bad.push("resident account");
+        }
+        if p.guard_authority != fa::resident_guard(&rp).to_bytes() {
+            bad.push("policy's guard authority");
+        }
+    }
+    bad
 }
 
 /// Whether the two feeds are one feed (no `seq` in both) and whether that
@@ -178,13 +237,10 @@ fn judge_holder(
     if !order.combined {
         return unproven("the resident program's record is not in the archive's feed order");
     }
-    let Some(policy) = feed
-        .policies
-        .get(policy_key)
-        .filter(|a| a.owner.to_bytes() == ac.program)
-        .and_then(|a| frontier_abi::resident_policy::read(&a.data))
-    else {
-        return unproven("the policy account the act names is not in the record");
+    let Some(policy) = policy_of(w, ac, policy_key) else {
+        return unproven(
+            "the policy account the act names is in neither the archive nor the record",
+        );
     };
     let (Some(asset), Some(resident)) = (
         feed.state_before(&binding.asset, t.seq),
@@ -309,11 +365,26 @@ pub fn judge_tx(w: &World, ac: &ActCtx, i: usize, t: &Tx) -> Vec<Found> {
                 "the ResidentAct's Citizen is read-only (the program refuses it)".into(),
             );
         }
-        if key(SEASON) != ac.season {
+        if key(SEASON) != ac.addr.season {
             push(
                 Severity::Fail,
                 NON_CANONICAL_ADDRESS,
                 "the ResidentAct's Season is not this Season".into(),
+            );
+        }
+        let bad = non_canonical(
+            ac,
+            policy_of(w, ac, &policy).as_ref(),
+            [policy, link, asset, resident, citizen],
+        );
+        if !bad.is_empty() {
+            push(
+                Severity::Fail,
+                NON_CANONICAL_ADDRESS,
+                format!(
+                    "the ResidentAct's {} are not this pass's canonical ones in this Season",
+                    bad.join(", ")
+                ),
             );
         }
         // The accounts this pass joined with in this Season (one link per Season).
@@ -400,8 +471,7 @@ pub fn judge_tx(w: &World, ac: &ActCtx, i: usize, t: &Tx) -> Vec<Found> {
 /// the input format for it is workstream 4's to fix).
 pub fn run_with(cx: &mut Ctx, feed: Option<&ResidentFeed>) {
     let ac = ActCtx {
-        season: cx.f.ctx.season,
-        program: cx.w.program,
+        addr: cx.f.ctx,
         feed,
     };
     let w = cx.w;
@@ -426,9 +496,11 @@ pub fn run(cx: &mut Ctx) {
 
 #[cfg(test)]
 mod tests {
-    //! Literal bytes, literal addresses and a literal feed only. No key is
-    //! generated, derived or signed; no program, PDA or seeded address is
-    //! computed (every address below is written in).
+    //! Literal bytes and a literal feed. No key pair is generated or
+    //! derived and nothing is signed. The policy, link, resident account,
+    //! guard authority and Citizen are the canonical addresses of literal
+    //! program, Season and asset addresses (PDAs and the Citizen's seeded
+    //! address: sha256 and the curve check, allowed by the owner 2026-11-06).
     use super::*;
     use solana_address::Address;
 
@@ -437,13 +509,37 @@ mod tests {
     const CORE: Key = [0x33; 32];
     const RPROG: Key = [0x44; 32];
     const COLLECTION: Key = [0x55; 32];
-    const GUARD: Key = [0x66; 32];
-    const POLICY: Key = [0x76; 32];
-    const LINK: Key = [0x77; 32];
     const NFT: Key = [0x5a; 32];
-    const RES: Key = [0x79; 32];
-    const CIT: Key = [0x7c; 32];
     const A: Key = [0xa1; 32];
+    fn adr(k: Key) -> solana_address::Address {
+        solana_address::Address::new_from_array(k)
+    }
+    fn addr_ctx() -> frontier_abi::addr::AddrCtx {
+        frontier_abi::addr::AddrCtx {
+            season: SEASON_K,
+            program: PROGRAM,
+        }
+    }
+    #[allow(non_snake_case)]
+    fn GUARD() -> Key {
+        fclient::addr::resident_guard(&adr(RPROG)).to_bytes()
+    }
+    #[allow(non_snake_case)]
+    fn POLICY() -> Key {
+        fclient::addr::resident_policy(&adr(PROGRAM)).to_bytes()
+    }
+    #[allow(non_snake_case)]
+    fn LINK() -> Key {
+        fclient::addr::resident_link(&adr(PROGRAM), &adr(SEASON_K), &adr(NFT)).to_bytes()
+    }
+    #[allow(non_snake_case)]
+    fn RES() -> Key {
+        fclient::addr::resident_account(&adr(RPROG), &adr(NFT)).to_bytes()
+    }
+    #[allow(non_snake_case)]
+    fn CIT() -> Key {
+        addr_ctx().citizen_by_tag15(&frontier_abi::resident_citizen::resident_tag15(&NFT))
+    }
     const B: Key = [0xb2; 32];
     const SA: Key = [0xa5; 32];
     const SB: Key = [0xb5; 32];
@@ -474,7 +570,7 @@ mod tests {
         d.extend_from_slice(&2u32.to_le_bytes());
         for (kind, at) in [(5u8, freeze_at), (7u8, transfer_at)] {
             d.extend_from_slice(&[kind, 3]);
-            d.extend_from_slice(&GUARD);
+            d.extend_from_slice(&GUARD());
             d.extend_from_slice(&(at as u64).to_le_bytes());
         }
         d.extend_from_slice(&0u32.to_le_bytes());
@@ -504,7 +600,7 @@ mod tests {
                 core_program: CORE,
                 resident_program: RPROG,
                 collection: COLLECTION,
-                guard_authority: GUARD,
+                guard_authority: GUARD(),
             }
         ));
         acc(PROGRAM, d)
@@ -539,7 +635,16 @@ mod tests {
 
     fn join() -> Ix {
         let keys: [Key; 10] = [
-            A, A, SEASON_K, [0x33; 32], CIT, [0; 32], POLICY, LINK, NFT, RES,
+            A,
+            A,
+            SEASON_K,
+            [0x33; 32],
+            CIT(),
+            [0; 32],
+            POLICY(),
+            LINK(),
+            NFT,
+            RES(),
         ];
         Ix {
             index: 0,
@@ -557,11 +662,11 @@ mod tests {
             (actor, false),
             (actor, true),
             (SEASON_K, false),
-            (CIT, true),
-            (POLICY, false),
-            (LINK, false),
+            (CIT(), true),
+            (POLICY(), false),
+            (LINK(), false),
             (NFT, false),
-            (RES, false),
+            (RES(), false),
         ];
         Ix {
             index: 0,
@@ -573,10 +678,10 @@ mod tests {
     /// A Season: the join at seq 1, then the acts at the given seqs; the
     /// feed's transactions fill the other seqs (a whole combined feed).
     fn season(acts: Vec<(u64, Ix)>) -> World {
-        let mut txs = vec![tx(1, vec![join()], vec![(CIT, citizen_after(T + 1))])];
+        let mut txs = vec![tx(1, vec![join()], vec![(CIT(), citizen_after(T + 1))])];
         for (seq, ix) in acts {
             let t = T + seq as i64;
-            txs.push(tx(seq, vec![ix], vec![(CIT, citizen_after(t))]));
+            txs.push(tx(seq, vec![ix], vec![(CIT(), citizen_after(t))]));
         }
         World {
             program: PROGRAM,
@@ -597,14 +702,13 @@ mod tests {
     fn feed(txs: Vec<ResidentTx>) -> ResidentFeed {
         ResidentFeed {
             txs,
-            policies: [(POLICY, policy_account())].into_iter().collect(),
+            policies: [(POLICY(), policy_account())].into_iter().collect(),
         }
     }
 
     fn judge(w: &World, f: Option<&ResidentFeed>) -> Vec<(usize, Severity, &'static str)> {
         let ac = ActCtx {
-            season: SEASON_K,
-            program: PROGRAM,
+            addr: addr_ctx(),
             feed: f,
         };
         let mut out = vec![];
@@ -628,13 +732,13 @@ mod tests {
     /// to A (generation 2).
     fn history() -> Vec<ResidentTx> {
         vec![
-            rtx(2, vec![(NFT, asset(A)), (RES, resident(0, None))]),
-            rtx(3, vec![(RES, resident(0, Some((SA, A))))]),
+            rtx(2, vec![(NFT, asset(A)), (RES(), resident(0, None))]),
+            rtx(3, vec![(RES(), resident(0, Some((SA, A))))]),
             // seq 4: A acts (owner), seq 5: A's session acts.
-            rtx(6, vec![(NFT, asset(B)), (RES, resident(1, None))]),
-            rtx(7, vec![(RES, resident(1, Some((SB, B))))]),
+            rtx(6, vec![(NFT, asset(B)), (RES(), resident(1, None))]),
+            rtx(7, vec![(RES(), resident(1, Some((SB, B))))]),
             // seq 8: B acts, seq 9: B's session acts.
-            rtx(10, vec![(NFT, asset(A)), (RES, resident(2, None))]),
+            rtx(10, vec![(NFT, asset(A)), (RES(), resident(2, None))]),
             // seq 11: A acts at generation 2.
         ]
     }
@@ -753,13 +857,13 @@ mod tests {
             fails(&judge(&w, Some(&f))),
             vec![(1, RESIDENT_ACT_MISMATCH)]
         );
-        // Another pass's link, or a writable proof account.
+        // Another pass's link: not canonical, and not the one it joined with.
         let mut ix = act(A, 0);
         ix.accounts[5].0 = [0x78; 32];
         let w = season(vec![(4, ix)]);
         assert_eq!(
             fails(&judge(&w, Some(&f))),
-            vec![(1, RESIDENT_ACT_MISMATCH)]
+            vec![(1, NON_CANONICAL_ADDRESS), (1, RESIDENT_ACT_MISMATCH)]
         );
         let mut ix = act(A, 0);
         ix.accounts[7].1 = true;
@@ -778,7 +882,7 @@ mod tests {
         );
         // The Citizen after the act is not this pass's, or not acted at this time.
         let mut w = season(vec![(4, act(A, 0))]);
-        w.txs[1].post.insert(CIT, Some(citizen_after(T)));
+        w.txs[1].post.insert(CIT(), Some(citizen_after(T)));
         assert_eq!(
             fails(&judge(&w, Some(&f))),
             vec![(1, RESIDENT_ACT_MISMATCH)]
@@ -786,7 +890,7 @@ mod tests {
         let mut w = season(vec![(4, act(A, 0))]);
         let mut c = citizen_after(T + 4);
         c.data[C::WALLET] = 1;
-        w.txs[1].post.insert(CIT, Some(c));
+        w.txs[1].post.insert(CIT(), Some(c));
         assert_eq!(
             fails(&judge(&w, Some(&f))),
             vec![(1, RESIDENT_ACT_MISMATCH)]
@@ -797,5 +901,64 @@ mod tests {
         let v = judge(&w, Some(&f));
         assert_eq!(fails(&v), vec![]);
         assert!(v.contains(&(1, Severity::Unverifiable, RESIDENT_ACT_UNPROVEN)));
+    }
+
+    /// CreateResidentPolicy in the archive: `[authority] [policy] ..` and its data.
+    fn create_policy(guard: Key) -> Ix {
+        let mut data = vec![resident_wire::CREATE_RESIDENT_POLICY];
+        for k in [CORE, RPROG, COLLECTION, guard] {
+            data.extend_from_slice(&k);
+        }
+        Ix {
+            index: 0,
+            data,
+            accounts: vec![([0x70; 32], true), (POLICY(), true)],
+        }
+    }
+
+    #[test]
+    fn canonical_addresses_are_judged_with_or_without_the_join() {
+        // Without the JoinResident and without the record: the addresses are
+        // still the program's to compute, so a wrong one is a FAIL.
+        let mut w = season(vec![(4, act(A, 0))]);
+        w.txs[0].ixs.clear();
+        let v = judge(&w, None);
+        assert_eq!(fails(&v), vec![], "canonical: only UNVERIFIABLE");
+        for (pos, what) in [(4, "policy"), (5, "link"), (3, "Citizen")] {
+            let mut ix = act(A, 0);
+            ix.accounts[pos].0 = [0x78; 32];
+            let mut w = season(vec![(4, ix)]);
+            w.txs[0].ixs.clear();
+            assert_eq!(
+                fails(&judge(&w, None)),
+                vec![(1, NON_CANONICAL_ADDRESS)],
+                "{what}"
+            );
+        }
+        // The link of the same pass in another Season is not this Season's.
+        let mut ix = act(A, 0);
+        ix.accounts[5].0 =
+            fclient::addr::resident_link(&adr(PROGRAM), &adr([0x23; 32]), &adr(NFT)).to_bytes();
+        let mut w = season(vec![(4, ix)]);
+        w.txs[0].ixs.clear();
+        assert_eq!(fails(&judge(&w, None)), vec![(1, NON_CANONICAL_ADDRESS)]);
+        // The resident account is judged once the policy is known: from the
+        // archive's CreateResidentPolicy, with no record.
+        let mut ix = act(A, 0);
+        ix.accounts[7].0 = [0x78; 32];
+        let mut w = season(vec![(4, ix.clone())]);
+        w.txs[0].ixs = vec![create_policy(GUARD())];
+        assert_eq!(fails(&judge(&w, None)), vec![(1, NON_CANONICAL_ADDRESS)]);
+        let mut w = season(vec![(4, ix)]);
+        w.txs[0].ixs.clear();
+        assert_eq!(
+            fails(&judge(&w, None)),
+            vec![],
+            "policy unknown: not judged"
+        );
+        // A policy whose guard authority is not the resident program's.
+        let mut w = season(vec![(4, act(A, 0))]);
+        w.txs[0].ixs = vec![create_policy([0x67; 32]), join()];
+        assert_eq!(fails(&judge(&w, None)), vec![(1, NON_CANONICAL_ADDRESS)]);
     }
 }

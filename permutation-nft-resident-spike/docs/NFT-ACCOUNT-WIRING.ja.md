@@ -144,6 +144,8 @@
 
 所有者の指示（「鍵の生成・導出（PDA を含む）・署名は CI やセットアップも含め実行しない」）により、次は**実行しない**：`permutation-frontier` の `resident_runtime_tests`（試験の中で Season の PDA を `find_program_address` で求め、program も join・act の中で link・住民・policy の PDA を計算する）、program を動かすその他の試験、V27 の試験（Citizen の住所を seed から計算する）、LiteSVM・SBF・Node の鍵の試験、CI（push は `[skip ci]`）。v0.13 までに実行した結果は記録として残るが、v0.17 の変更の後には再実行していない。v0.17 で実行したのは `docs/HOLDER-CONTRACT.ja.md` §4 の 9 件だけ（固定のバイトと書き込んだ住所のみ）。
 
+v0.18（同日、所有者が PDA・with_seed の計算を試験の中でもプログラムの中でも許可。鍵ペアと署名は引き続き禁止）：`resident_runtime_tests` 10 件と V27 の試験を、呼び出し先まで鍵ペア・署名が無いことを確かめたうえで再実行し、すべて合格（`docs/HOLDER-CONTRACT.ja.md` §5）。
+
 ## 6. ④ との調整
 
 2026-11-06 に提案を送り、同日 ④ から割り当てが届いた（§4）。④ の意見に合わせ、NFT Citizen の住所を候補 20 の `["nft-citizen", asset]` から `citizen_by_tag15(住民 ID)` に改めた。§3 の一覧を ④ に送った。

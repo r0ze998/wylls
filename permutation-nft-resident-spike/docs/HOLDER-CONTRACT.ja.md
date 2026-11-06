@@ -42,7 +42,9 @@ NFT 賞金は所有者側の CC が実装している。⑳ は賞金を実装�
 |---|---|---|
 | 内側の命令が、program が NFT Citizen に走らせる 26 命令のどれか（`resident_wire::ACT_RUNS`。SetSession などは拒否） | 命令データ | 違えば FAIL |
 | 証明の 4 アカウントが読み取り専用、Citizen が書き込み可、Season がこの Season | 命令のアカウント | 違えば FAIL |
+| policy・link（この Season のもの）・Citizen が正規の住所。policy が分かれば住民アカウントと policy の guard authority も正規 | 公開のプログラムアドレスから計算（PDA と seed の住所。v0.18） | 違えば FAIL。policy が分からなければ住民アカウントと guard は未判定 |
 | policy・link・住民アカウント・Citizen が、この Season でこのパスが参加した JoinResident と同じ | 保存された JoinResident | 違えば FAIL、参加が無ければ UNVERIFIABLE |
+| policy の中身（Core・住民プログラム・collection・guard） | 保存物の CreateResidentPolicy、または住民プログラムの記録の policy アカウント | どちらにも無ければ、持ち主と住民アカウントの住所は未判定 |
 | 実行結果：Citizen がこの asset の NFT Citizen のまま（財布はゼロ）、この時刻に操作された（`LAST_ACTION_TS`） | Citizen の実行後の状態 | 違えば FAIL、状態が無ければ UNVERIFIABLE |
 | 持ち主と世代：署名した世代が持ち主の世代、操作した鍵が持ち主か生きた session | 住民プログラムの記録（`ResidentFeed`） | 下の表 |
 | 内側の命令そのものの効果 | （NFT Citizen の命令の再生は未実装） | 常に UNVERIFIABLE |
@@ -63,7 +65,7 @@ NFT 賞金は所有者側の CC が実装している。⑳ は賞金を実装�
 ### V28 の限界
 
 - 住民プログラムの記録（`ResidentFeed`）を検証器に渡す入力の形は、まだ無い（`Input` は ④ の形式。`run` は記録なしで動き、持ち主の判定はすべて UNVERIFIABLE）。`run_with(cx, Some(&feed))` で渡せる。
-- 署名そのものは見ない（ウォレットの Citizen と同じく、実行環境が確かめた）。policy の住所も見ない（program が参加時と操作時に確かめる）。
+- 署名そのものは見ない（ウォレットの Citizen と同じく、実行環境が確かめた）。
 - V0 は ResidentAct を引き続き UNVERIFIABLE（`UnverifiedInstruction`）とする。V28 は、証拠で否定できるものを FAIL にし、残りを UNVERIFIABLE のまま残す。PASS にはならない。
 
 ## 4. 鍵を使わずに確かめたこと（2026-11-06）
@@ -80,3 +82,38 @@ NFT 賞金は所有者側の CC が実装している。⑳ は賞金を実装�
 V28 の試験は、判定を一つずつ壊すと落ちることも確かめた（4 か所）。
 
 実行していないもの：program を実際に動かす試験（`resident_runtime_tests` など。program の中で PDA を計算する）、LiteSVM・SBF・Node の鍵を使う試験、CI。
+
+## 5. v0.18：PDA・with_seed の計算が許可された後（2026-11-06）
+
+所有者の指示：PDA と with_seed による公開アドレスの算出は、試験の中でもプログラムの中でも許可。鍵ペアの生成・導出と署名は、固定 seed・共通セットアップ・CI を含め引き続き禁止。
+
+変更：
+- `fclient::addr` に `resident_policy`・`resident_link`・`resident_account`・`resident_guard`（PDA）を加えた。web の SDK（`resident.mjs`）と同じ値になることを、web の関数で計算した固定の値と比べて確かめた。
+- V28 が policy・link・Citizen・住民アカウント・guard authority の正規の住所を照合する（§3 の表）。参加の記録が無くても住所の誤りは FAIL になる。policy は保存物の CreateResidentPolicy からも読む。
+
+実行前の確認（呼び出し先まで）：
+- 試験と、試験が呼ぶ関数に、鍵ペアの生成（`Keypair`・`new_unique`・`from_seed`・`SigningKey`）と署名・署名検証が無いことを grep と読みで確かめた。PDA は sha256 と曲線上かどうかの判定だけ、with_seed は sha256 だけ。
+- 実行時の試験（`resident_runtime_tests`）は本物の `dispatch` を動かす。操作者は書き込んだ住所で、署名の印（`is_signer`）は試験が立てる。program が呼ぶ `invoke_signed`（PDA の権限での system 命令）は試験の中の代替が処理し、暗号の署名は起きない。join・SetVigil の経路に署名の検証（ed25519・secp・BLS）は無い。
+
+実行した試験（名前で絞って実行、すべて合格）：
+
+| 試験 | 件数 |
+|---|---|
+| `permutation-frontier` `resident_runtime_tests::*`（実行時：初回ログイン、今の持ち主だけ、譲渡と買い戻しで旧所有者・旧 session・旧世代を拒否、無署名・guard なし・差し替えの拒否、世界ごと、旧グローバル link を使わない、Frontier の session と財布の経路は NFT Citizen に効かない）＋ `proc::resident::act_list::*` | 10 ＋ 1 |
+| `verify` `checks::v28_resident_acts::tests::*` | 5 |
+| `verify` `checks::v27_residents::tests::*`（⑪）・`facts::resident_tests::*`・`checks::v9_addresses::resident*` | 5 ＋ 2 ＋ 6 |
+| `fclient` `addr::tests::resident_pdas_match_the_web_client` | 1 |
+| `frontier-abi` `resident_auth::tests::*`・`resident_wire::tests::act_runs_*` | 3 ＋ 1 |
+
+v0.17 の持ち主の定義への置き換え（`authorize` = `holder` + `authority`）の後で、実行時の試験が 10 件とも通ることも、これで確かめた。
+
+実行していない：LiteSVM・SBF・Node の試験（鍵ペアを作り署名する）、CI（push は `[skip ci]`）。
+
+## 6. 接続済み・未接続・UNVERIFIABLE の区別（2026-11-06）
+
+| 区分 | 内容 |
+|---|---|
+| 接続済み・実行で確認 | ゲームの権限検査（`authorize` = 持ち主の定義）。譲渡後の旧所有者・旧 session・旧世代の拒否と A→B→A（実行時の試験、署名の検証は外して `is_signer` を試験が立てる） |
+| 接続済み・固定のデータで確認 | V28 の判定（内側の命令の種類、アカウント、正規の住所、参加時の link、実行後の Citizen、記録があるときの持ち主と世代） |
+| 未接続 | V28 に住民プログラムの記録を渡す入力（`Input` は ④ の形式。今は記録なしで動く）。Frontier と住民プログラムを一つの feed で保存する索引。NFT 賞金（所有者側の CC。契約は §2 の提案）。V28 の番号の確定（⑪ は ⑳ に任せた。④ 未回答） |
+| UNVERIFIABLE のまま | 記録が無いときの持ち主と世代。記録に抜けがあるときの旧所有者・旧 session（世代の後戻りだけは FAIL）。参加の記録が無いときの link の中身。policy が分からないときの住民アカウントの住所。内側の命令そのものの効果（NFT Citizen の命令の再生は未実装）。V0 は ResidentAct を `UnverifiedInstruction` のままにする（⑪ の求め） |

@@ -1,6 +1,8 @@
 # permutation-nft-resident-spike：NFT で譲渡できる住民アカウント（隔離試作）
 
-**状態（2026-11-06、v0.17）**：ローカルのみ（模擬チェーン、LiteSVM、ループバック validator）。公開発行・devnet／mainnet・実資金・新しい鍵は無し。価格・無料／有料・供給数・公開発行・ロイヤリティは未決（`docs/UNDECIDED.ja.md`）。Metaplex Core は**試作の選定方式**で、本線採用は未決。継続世界は決定済み。依存パッケージ無し（Node 20+ の標準モジュールだけ。`test-gateway/` だけは `permutation-gateway` の依存を使う）。v0.8 で担当ブランチへ通常 push（根拠は `docs/PUSH-AUDIT.ja.md`）。merge・deploy はしていない。
+**状態（2026-11-06、v0.18）**：ローカルのみ（模擬チェーン、LiteSVM、ループバック validator）。公開発行・devnet／mainnet・実資金・新しい鍵は無し。価格・無料／有料・供給数・公開発行・ロイヤリティは未決（`docs/UNDECIDED.ja.md`）。Metaplex Core は**試作の選定方式**で、本線採用は未決。継続世界は決定済み。依存パッケージ無し（Node 20+ の標準モジュールだけ。`test-gateway/` だけは `permutation-gateway` の依存を使う）。v0.8 で担当ブランチへ通常 push（根拠は `docs/PUSH-AUDIT.ja.md`）。merge・deploy はしていない。
+
+**v0.18 の変更**：PDA・with_seed の計算が許可されたので（鍵ペアと署名は引き続き禁止）、V28 が policy・link・Citizen・住民アカウント・guard authority の正規の住所を照合するようにした。その住所の計算を fclient に置き、web の SDK と同じ値になることを確かめた。v0.17 で止めていた実行時の試験を、持ち主の定義への置き換えの後で再実行し、10 件とも通った。接続済み・未接続・UNVERIFIABLE の区別は `docs/HOLDER-CONTRACT.ja.md` §6。
 
 **v0.17 の変更**：パスの持ち主（今の所有者・世代・生きた session）の定義を一つにした（`frontier_abi::resident_auth::holder`・`Holder::authority`）。ゲームの権限検査はこれを使う形に置き換え（判定は同じ）、NFT 賞金（所有者側の CC が実装）が合わせる契約を書いた（`docs/HOLDER-CONTRACT.ja.md`）。検証器に V28（ResidentAct、番号は仮）を入れた：内側の命令・アカウント・参加時の link・実行後の Citizen を照合し、住民プログラムの記録があれば、譲渡前の署名・旧所有者・旧 session を通した操作を FAIL にする。記録が無い・抜けがあるときと、内側の命令の効果は UNVERIFIABLE のまま。④ の統合版 6984acfa を取り込んで、その上に作った。PDA を含む導出も行わない規則のもと、program を動かす試験は実行していない。
 

@@ -123,6 +123,33 @@ pub fn season_pda(program: &Address, id: u64) -> (Address, u8) {
     Address::find_program_address(&[b"season", &id.to_le_bytes()], program)
 }
 
+/// The NFT resident policy (`["nft-resident-policy"]` under the Frontier
+/// program; `permutation-frontier` `resident_binding`).
+pub fn resident_policy(program: &Address) -> Address {
+    Address::find_program_address(&[b"nft-resident-policy"], program).0
+}
+
+/// The per-Season link of an NFT (`["nft-citizen-link", season, asset]` under
+/// the Frontier program; one per world, U45).
+pub fn resident_link(program: &Address, season: &Address, asset: &Address) -> Address {
+    Address::find_program_address(
+        &[b"nft-citizen-link", season.as_ref(), asset.as_ref()],
+        program,
+    )
+    .0
+}
+
+/// The resident program's account of an asset (`["resident", asset]`).
+pub fn resident_account(resident_program: &Address, asset: &Address) -> Address {
+    Address::find_program_address(&[b"resident", asset.as_ref()], resident_program).0
+}
+
+/// The resident program's collection authority (`["collection-authority"]`):
+/// the transfer guard's delegate, the policy's `guard_authority`.
+pub fn resident_guard(resident_program: &Address) -> Address {
+    Address::find_program_address(&[b"collection-authority"], resident_program).0
+}
+
 /// The LoaderV3 ProgramData address of `program`.
 pub fn programdata(program: &Address) -> Address {
     Address::find_program_address(&[program.as_ref()], &address(abi::LOADER_V3)).0
@@ -699,5 +726,34 @@ mod tests {
         }
         assert!(host_id(129, 0, 0, 0, 0).is_err());
         assert!(host_parts(u64::MAX).is_err());
+    }
+
+    // PDAs of public program addresses (sha256 and the curve check only; no
+    // key pair, no signature). The values are the web client's
+    // (`permutation-gateway/client/src/frontier/resident.mjs`) for the same inputs.
+    #[test]
+    fn resident_pdas_match_the_web_client() {
+        let k = |b: u8| Address::new_from_array([b; 32]);
+        let s = |a: Address| a.to_string();
+        assert_eq!(
+            s(resident_policy(&k(0x11))),
+            "7CpPZYgFCzrktaTmHRYxhiTKGiyVTAUP3UU2xaKmXk3g"
+        );
+        assert_eq!(
+            s(resident_link(&k(0x11), &k(0x22), &k(0x5a))),
+            "2KorWrLVc1ChnryiZtSmoYGsdVBXrSYB6pVzNMEJjxUf"
+        );
+        assert_eq!(
+            s(resident_link(&k(0x11), &k(0x23), &k(0x5a))),
+            "Fo6RrVtU7rLfjUuouy3HXJg1jJdnTdFQRjrZX4qqPZeM"
+        );
+        assert_eq!(
+            s(resident_account(&k(0x44), &k(0x5a))),
+            "DPE8kc1CiobXC9s7YbSiN5na3cGi2CfYZhFWojRD8Vio"
+        );
+        assert_eq!(
+            s(resident_guard(&k(0x44))),
+            "C5Xh7XDydB6czwh6nqVeFd6MB7CZRZYfKAZ9Y8bn8Qff"
+        );
     }
 }
