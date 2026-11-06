@@ -36,14 +36,13 @@ echo "demo: $out/demo.txt ($(wc -l < "$out/demo.txt") lines)"
 
 echo "== bridge10 (09 <-> 10, against workstream 10's pinned crates) =="
 # Workstream 10's crates are not in this branch. They are checked out from
-# workstream 10's branch at its latest commit (79fbce83; its custody and
-# adapter-09 trees are those of b237b581, which put own lots and lots used
-# under an order in one table), and their trees are checked (custody: the
-# kernel; adapter-09: 09's Custody trait on 10's lots, and 10's own
-# connection `connect` that tests/connect10.rs compares with the bridge).
-pin10=79fbce834c321ff58040c3b8bbf98f018b58f5c0
+# workstream 10's branch at its latest commit (563407d9: its adapter no
+# longer has a connection of its own, c27b95eb, so this bridge is the one
+# connection), and their trees are checked (custody: the kernel;
+# adapter-09: 09's Custody trait on 10's lots).
+pin10=563407d96e74934fd82141bf9ad09980ea94bf75
 tree10=b91cbfdd0da956148cbbecc1f7d639a03999a58c
-tree10a=b8b5984c06d91b6a6000e5eeb07c9871e64e0627
+tree10a=8d68b5dce11c2536932115fbb4436b3a8ce9a35b
 if ! git -C "$root" cat-file -e "$pin10^{commit}" 2>/dev/null; then
   git -C "$root" fetch -q origin claude/great-babbage-3ogkqu || true
 fi
@@ -65,7 +64,7 @@ rm -rf "$btmp/w/workstreams/09-capacity/kernel/target" "$btmp/w/workstreams/09-c
   export CARGO_TARGET_DIR="$here/bridge10/target"
   cargo fmt -- --check
   cargo clippy -q --all-targets -- -D warnings
-  cargo test -q -- --nocapture 2>&1 | grep -E "^test result|FAILED|panicked|random:|accounting:|T5:"
+  cargo test -q -- --nocapture 2>&1 | grep -E "^test result|FAILED|panicked|random:|accounting:"
 ) | tee "$out/bridge10-tests.log"
 grep -q FAILED "$out/bridge10-tests.log" && { echo "bridge10 tests failed" >&2; exit 1; }
 echo "# workstream 10 pin $pin10, trees custody $tree10 adapter-09 $tree10a" >> "$out/bridge10-tests.log"
