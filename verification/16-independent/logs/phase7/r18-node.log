@@ -1,0 +1,240 @@
+### node HEAD b71b8197190ff05e9e999eff45a2ddea6b2b8d1f tree ff7b7fccb6d8b2eb331dec9b4601527cf4dee05b
+?? frontier-node/crates/agents/tests/v16_owner_reveal_open.rs
+?? frontier-node/crates/keeper/tests/v16_version_cap.rs
+?? permutation-gateway/test/v16-agent-fate-view.test.mjs
+?? permutation-gateway/test/v16-public-ops.test.mjs
+?? permutation-gateway/test/v16-web-caravan-holder.test.mjs
+?? permutation-gateway/test/v16-web-reveal-not-before.test.mjs
+?? permutation-gateway/test/v16-web-wallet-switch-adopt.test.mjs
+TAP version 13
+# Subtest: T18-1: a march stays sealed until its arrival turn has ended (README.md:25); the self-reveal is not due before that
+not ok 1 - T18-1: a march stays sealed until its arrival turn has ended (README.md:25); the self-reveal is not due before that
+  ---
+  duration_ms: 1.782143
+  type: 'test'
+  location: '/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v7-r18/permutation-gateway/test/v16-public-ops.test.mjs:26:1'
+  failureType: 'testCodeFailure'
+  error: "the destination must not be sent in clear before the arrival turn has ended; the self-reveal is due at bell start + 0 s, 600 s before the seal's round 35734812 (send)"
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: true
+  actual: false
+  operator: '=='
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v7-r18/permutation-gateway/test/v16-public-ops.test.mjs:38:10)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.start (node:internal/test_runner/test:944:17)
+    startSubtestAfterBootstrap (node:internal/test_runner/harness:296:17)
+  ...
+# Subtest: T19-1: the prototype crank undelegates in the order the program requires (chunks 1..19, nations, chunk 0)
+not ok 2 - T19-1: the prototype crank undelegates in the order the program requires (chunks 1..19, nations, chunk 0)
+  ---
+  duration_ms: 2.283747
+  type: 'test'
+  location: '/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v7-r18/permutation-gateway/test/v16-public-ops.test.mjs:42:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    the crank's first intent is [1000,1001,1002]; the program takes world chunk 1 first and refuses anything else with UndelegationOrder
+    + actual - expected
+    ... Skipped lines
+    
+      [
+    +   1000,
+    +   1001,
+    +   1002,
+    +   1003,
+    +   1004,
+    +   1005,
+        1,
+        2,
+        3,
+        4,
+        5,
+    ...
+        19,
+    -   1000,
+    -   1001,
+    -   1002,
+    -   1003,
+    -   1004,
+    -   1005,
+        0
+      ]
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+    0: 1
+    1: 2
+    2: 3
+    3: 4
+    4: 5
+    5: 6
+    6: 7
+    7: 8
+    8: 9
+    9: 10
+    10: 11
+    11: 12
+    12: 13
+    13: 14
+    14: 15
+    15: 16
+    16: 17
+    17: 18
+    18: 19
+    19: 1000
+    20: 1001
+    21: 1002
+    22: 1003
+    23: 1004
+    24: 1005
+    25: 0
+  actual:
+    0: 1000
+    1: 1001
+    2: 1002
+    3: 1003
+    4: 1004
+    5: 1005
+    6: 1
+    7: 2
+    8: 3
+    9: 4
+    10: 5
+    11: 6
+    12: 7
+    13: 8
+    14: 9
+    15: 10
+    16: 11
+    17: 12
+    18: 13
+    19: 14
+    20: 15
+    21: 16
+    22: 17
+    23: 18
+    24: 19
+    25: 0
+  operator: 'deepStrictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v7-r18/permutation-gateway/test/v16-public-ops.test.mjs:46:10)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+# Subtest: V16-A1: after a raid takes the caravan, the raider sees it among their caravans and the victim no longer does (S1-1B §3.5)
+ok 3 - V16-A1: after a raid takes the caravan, the raider sees it among their caravans and the victim no longer does (S1-1B §3.5)
+  ---
+  duration_ms: 71.899959
+  type: 'test'
+  ...
+# Subtest: V16-A1b: the map marks the taken caravan as the raider's own, not the victim's
+ok 4 - V16-A1b: the map marks the taken caravan as the raider's own, not the victim's
+  ---
+  duration_ms: 0.808724
+  type: 'test'
+  ...
+# Subtest: V16-A7: a Citizen whose session key is a third program's PDA (③ courier mandate) is not mistaken for "no key on this device"
+not ok 5 - V16-A7: a Citizen whose session key is a third program's PDA (③ courier mandate) is not mistaken for "no key on this device"
+  ---
+  duration_ms: 1.507102
+  type: 'test'
+  location: '/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v7-r18/permutation-gateway/test/v16-web-caravan-holder.test.mjs:66:1'
+  failureType: 'testCodeFailure'
+  error: 'a foreign session key must be told apart from a missing key (got null: the page offers "鍵を作り直す", which takes the key back without saying so)'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: ~
+  actual: ~
+  operator: 'notStrictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v7-r18/permutation-gateway/test/v16-web-caravan-holder.test.mjs:72:10)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: V16-T18-1b: with notBefore the self-reveal is never due before the seal's round is published, for every arrival bell and delay
+ok 6 - V16-T18-1b: with notBefore the self-reveal is never due before the seal's round is published, for every arrival bell and delay
+  ---
+  duration_ms: 187.635648
+  type: 'test'
+  ...
+# Subtest: V16-T18-1c: the retry after a first self attempt also stays after the publication
+ok 7 - V16-T18-1c: the retry after a first self attempt also stays after the publication
+  ---
+  duration_ms: 2.460763
+  type: 'test'
+  ...
+# Subtest: V16-T18-1d (reading): the controller passes notBefore computed from tlockRound and the margin
+ok 8 - V16-T18-1d (reading): the controller passes notBefore computed from tlockRound and the margin
+  ---
+  duration_ms: 1.390616
+  type: 'test'
+  ...
+# Subtest: V16-C3b: switching to another account leaves none of the previous account's identity, session, Citizen or holdings
+ok 9 - V16-C3b: switching to another account leaves none of the previous account's identity, session, Citizen or holdings
+  ---
+  duration_ms: 2.393598
+  type: 'test'
+  ...
+# Subtest: entries: season- and wallet-scoped key, v1 fields, never k or σ, written before sending
+ok 10 - entries: season- and wallet-scoped key, v1 fields, never k or σ, written before sending
+  ---
+  duration_ms: 4.167699
+  type: 'test'
+  ...
+# Subtest: a re-seal replaces an unsent entry; a sent march cannot be sealed again
+ok 11 - a re-seal replaces an unsent entry; a sent march cannot be sealed again
+  ---
+  duration_ms: 0.611409
+  type: 'test'
+  ...
+# Subtest: self-reveal timing: never before the bell starts, delay 0–20 s, a second try only after 60 s with the slot absent and the window open
+ok 12 - self-reveal timing: never before the bell starts, delay 0–20 s, a second try only after 60 s with the slot absent and the window open
+  ---
+  duration_ms: 0.65754
+  type: 'test'
+  ...
+# Subtest: reveal material is the /gw/f/reveal body: holding, slot, plaintext, salt, ct_hash — base64, nothing else
+ok 13 - reveal material is the /gw/f/reveal body: holding, slot, plaintext, salt, ct_hash — base64, nothing else
+  ---
+  duration_ms: 0.722326
+  type: 'test'
+  ...
+# Subtest: reconcile: landed, a swapped seal root, revealed, settled
+ok 14 - reconcile: landed, a swapped seal root, revealed, settled
+  ---
+  duration_ms: 0.510566
+  type: 'test'
+  ...
+# Subtest: a lost book: keepers reveal; the book stays bounded
+ok 15 - a lost book: keepers reveal; the book stays bounded
+  ---
+  duration_ms: 4.056375
+  type: 'test'
+  ...
+# Subtest: self-reveal never before T(arrive) is published (⑱): notBefore holds the material in the browser
+ok 16 - self-reveal never before T(arrive) is published (⑱): notBefore holds the material in the browser
+  ---
+  duration_ms: 0.321116
+  type: 'test'
+  ...
+1..16
+# tests 16
+# suites 0
+# pass 13
+# fail 3
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 2032.699166
+exit=1

@@ -1,0 +1,129 @@
+### rust-keyfree HEAD b71b8197190ff05e9e999eff45a2ddea6b2b8d1f tree ff7b7fccb6d8b2eb331dec9b4601527cf4dee05b
+?? frontier-node/crates/agents/tests/v16_owner_reveal_open.rs
+?? frontier-node/crates/keeper/tests/v16_version_cap.rs
+?? permutation-gateway/test/v16-agent-fate-view.test.mjs
+?? permutation-gateway/test/v16-public-ops.test.mjs
+?? permutation-gateway/test/v16-web-caravan-holder.test.mjs
+?? permutation-gateway/test/v16-web-reveal-not-before.test.mjs
+?? permutation-gateway/test/v16-web-wallet-switch-adopt.test.mjs
+   Compiling generic-array v0.14.7
+   Compiling num-traits v0.2.19
+   Compiling serde_core v1.0.229
+   Compiling rand v0.8.8
+   Compiling num-integer v0.1.47
+   Compiling wincode v0.5.5
+   Compiling block-buffer v0.10.4
+   Compiling crypto-common v0.1.7
+   Compiling digest v0.10.7
+   Compiling num-bigint v0.4.8
+   Compiling sha2 v0.10.9
+   Compiling serde v1.0.229
+   Compiling curve25519-dalek v4.1.3
+   Compiling ahash v0.8.12
+   Compiling equivalent v1.0.2
+   Compiling indexmap v2.14.2
+   Compiling solana-hash v4.5.0
+   Compiling solana-sha256-hasher v3.1.0
+   Compiling solana-address v2.6.1
+   Compiling solana-instruction-error v2.4.0
+   Compiling ark-std v0.6.0
+   Compiling signature v2.2.0
+   Compiling toml_edit v0.25.15+spec-1.1.0
+   Compiling ed25519 v2.2.3
+   Compiling ark-serialize v0.6.0
+   Compiling solana-pubkey v4.2.1
+   Compiling ark-std v0.5.0
+   Compiling ark-ff-macros v0.6.0
+   Compiling borsh v1.6.1
+   Compiling ark-serialize v0.5.0
+   Compiling ark-ff-macros v0.5.0
+   Compiling proc-macro-crate v3.5.0
+   Compiling ed25519-dalek v2.2.0
+   Compiling solana-transaction-error v3.3.2
+   Compiling hashbrown v0.17.1
+   Compiling blake3 v1.8.7
+   Compiling serde-big-array v0.5.1
+   Compiling solana-signature v3.4.1
+   Compiling borsh-derive v1.6.1
+   Compiling ark-ff v0.5.0
+   Compiling ark-ff v0.6.0
+   Compiling itertools v0.14.0
+   Compiling constant_time_eq v0.4.2
+   Compiling group v0.13.0
+   Compiling solana-signer v3.0.1
+   Compiling solana-instruction v3.4.1
+   Compiling solana-sdk-ids v3.1.0
+   Compiling solana-short-vec v3.2.2
+   Compiling hmac v0.12.1
+   Compiling pbkdf2 v0.11.0
+   Compiling serde_json v1.0.151
+   Compiling solana-seed-phrase v3.0.0
+   Compiling solana-message v4.4.1
+   Compiling ark-poly v0.6.0
+   Compiling ark-poly v0.5.0
+   Compiling serde_with v3.23.0
+   Compiling permutation-rules v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v7-r18/permutation-rules)
+   Compiling ark-ec v0.6.0
+   Compiling ark-ec v0.5.0
+   Compiling pairing v0.23.0
+   Compiling memchr v2.8.3
+   Compiling ark-bls12-381 v0.6.0
+   Compiling tlock v0.0.10
+   Compiling frontier-abi v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v7-r18/frontier-abi)
+   Compiling ark-bls12-381 v0.5.0
+   Compiling blstrs v0.7.1
+   Compiling solana-keypair v3.1.2
+   Compiling solana-transaction v4.1.6
+   Compiling bincode v1.3.3
+   Compiling agents v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v7-r18/frontier-node/crates/agents)
+   Compiling fclient v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v7-r18/frontier-node/crates/fclient)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 48s
+     Running tests/v16_owner_reveal_open.rs (/home/user/wylls/frontier-node/target/debug/deps/v16_owner_reveal_open-52503b4c412ba5b0)
+
+running 1 test
+test v16_r1_opens_exactly_at_publication_plus_margin_for_many_bells_and_genesis_offsets ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Compiling agents v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v7-r18/frontier-node/crates/agents)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.71s
+     Running unittests src/lib.rs (/home/user/wylls/frontier-node/target/debug/deps/frontier_agents-556cdbe01a85dcee)
+
+running 1 test
+test policy::reveal_time_tests::owners_send_only_after_t_arrive_is_published ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 11 filtered out; finished in 0.00s
+
+   Compiling permutation-rules v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v7-r18/permutation-rules)
+   Compiling frontier-abi v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v7-r18/frontier-abi)
+   Compiling fclient v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v7-r18/frontier-node/crates/fclient)
+   Compiling keeper v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v7-r18/frontier-node/crates/keeper)
+   Compiling agents v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v7-r18/frontier-node/crates/agents)
+   Compiling localnet v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v7-r18/frontier-node/crates/localnet)
+   Compiling findex v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v7-r18/frontier-node/crates/findex)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 49.67s
+     Running tests/v16_version_cap.rs (/home/user/wylls/frontier-node/target/debug/deps/v16_version_cap-849dd1a5c3987d6a)
+
+running 2 tests
+test v16_c1_only_unsettled_versions_within_blockhash_validity_count ... ok
+test v16_c2_the_keeper_default_is_2_and_the_engine_default_is_off ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Compiling keeper v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v7-r18/frontier-node/crates/keeper)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 12.02s
+     Running unittests src/lib.rs (/home/user/wylls/frontier-node/target/debug/deps/keeper_core-d543d4d6b5e83d72)
+
+running 8 tests
+test api::tests::journal_failure_refuses_without_leaking_or_queueing ... ok
+test api::tests::journal_write_failure_refuses_without_leaking_or_queueing ... ok
+test config::tests::max_unknown_w_versions_defaults_to_2_and_parses ... ok
+test engine::tests::live_unknown_versions_counts_only_what_can_still_land ... ok
+test play::owner_track_tests::a_landing_seen_on_chain_after_expired_says_landed ... ok
+test play::owner_track_tests::a_restored_track_answers_again_then_lands_from_the_chain ... ok
+test play::owner_track_tests::an_engine_landing_is_not_overwritten_by_the_chain ... ok
+test play::owner_track_tests::another_march_on_chain_leaves_the_track_alone ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 131 filtered out; finished in 0.08s
+
+exit=0

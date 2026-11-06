@@ -600,3 +600,43 @@ A8 の旧試験（`v16_unknown_tag.rs` の v16_a8）は固定 seed の鍵で署�
 - ⑮ `b295ca3e`、⑱ `b71b8197`、⑲ `6b5f0621`: bundle を受け取っていない（12.1 の表）。
 - ⑪ 0004＋0005 を当てた状態での、検証器の既存の試験のうち鍵や World を使うもの（`record.rs` など）。実行していない。
 - 実 SBF・実チェーン・LiteSVM: 実行なし。
+
+## 12.5 ⑱ r18-on-integration.bundle（受領後）
+
+受領物: `r18-on-integration.bundle`（12,541 バイト、sha256 `a1d0c8b63fd264cdd5c730cc14e0e5f900f7681ea51c8405e728a6b899bcdd69`、申告と一致）。前提は `ef63544c727490fc6801d30affd11c5b7106c480` だけ。空の検証用リポジトリに `ef63544c` だけを入れ、bundle から `refs/heads/r18/on-integration-ws09-13-v16` を取り込んだ。HEAD `b71b8197190ff05e9e999eff45a2ddea6b2b8d1f`、tree `ff7b7fccb6d8b2eb331dec9b4601527cf4dee05b` で申告と一致。`git fsck` は問題なし。
+
+### ⑱の変更と現在版の区別
+
+- ⑱の 4 commit（`ef63544c` の上）: `70843bb5…`（keeper: 所有者の追跡をチェーン上の REVEAL から landed にする、再起動後の追跡を返す）、`0147a885…`（keeper: まだ着地しうる W 版を N 件まで。keeper.toml の既定 2、`EngineParams::default` は 0）、`3b7c090e…`（Web: 自己公開は T(arrive) の公開＋5 秒以降）、`b71b8197…`（bots: 所有者の material は T(arrive) の公開＋5 秒以降）。
+- 変更は 9 ファイル（keeper の `config.rs`・`engine.rs`・`lib.rs`・`play.rs`、agents の `obs.rs`・`policy.rs`、Web の `controller.mjs`・`marchbook.mjs`、試験 `web-frontier-marchbook.test.mjs`）。④の現在版 `95686606` の変更（`workstreams/04-execution/` だけ）と重ならず、`git merge-tree` で衝突なしに合わさる（合わせた tree `1953c4872c466cf442c3c3f3363e5353bd462fa0`、⑯は commit していない）。
+- 検証器、findex、herald、ABI、`reveal_accept.rs` は⑱の変更の外。そこでの判定（A8、G1・G3、P2〜P4、T18-2 の早期受付）は⑱の版でも変わらない（コード同一）。
+
+### 実行した試験（鍵なし、ホスト）
+
+| 試験 | ⑱ b71b8197 | 対照 ef63544c |
+|---|---|---|
+| ⑯ V16-T18-1b: 本物の marchbook・clock・seal で、到着ターン 1〜300、遅延 0・7・20 秒、1 秒ごとに問い合わせ、自己公開が封の round の公開＋5 秒より前に出ない | 通過 | 失敗 |
+| ⑯ V16-T18-1c: 公開前に記録された 1 回目の後の再試行も、公開まで待つ | 通過 | 失敗 |
+| ⑯ V16-T18-1d（読解）: controller の `revealStep` 呼び出しがすべて `notBefore` を渡し、それが `tlockRound` と余裕から計算されている | 通過 | 失敗 |
+| ⑯ v16_r1（agents）: bots の所有者が開くのは公開＋5 秒ちょうどからで、1 秒前は閉じている。到着ターンの開始と arrive+2 では閉じている（ターン 8 通り、genesis のずれ 0〜2 秒） | 通過 | — |
+| ⑯ v16_c1・c2（keeper）: 版の上限は、決着しておらず blockhash が有効な版だけを数える。keeper の既定は 2、engine の既定は 0、負の値は拒否 | 通過 | — |
+| ⑱自身の試験（⑯が実行）: keeper の owner_track 4 件、`live_unknown_versions`、config、api の journal 2 件、agents の reveal_time 1 件、web の marchbook 7 件 | 全通過 | — |
+| ⑯の旧 T18-1（`revealStep` を `notBefore` なしで呼ぶ） | 失敗のまま（`notBefore` を渡さない呼び出しは従来の時刻。想定どおり） | 失敗 |
+| A1・A1b・C3b・A7・T19-1 | 第6期と同じ（A7・T19-1 は失敗のまま） | 同じ |
+
+ログ: `logs/phase7/r18-node.log`、`r18-rust-keyfree.log`、`ef-control-reveal-not-before.log`。
+
+### 判定
+
+- **T18-1（Web の自己公開が到着ターン開始時）: ⑱の候補で修正を確認**（関数と controller の呼び出しの読解。ブラウザでの実行はしていない）。④の現在版には未取り込み。
+- **bots の所有者の公開時刻: ⑱の候補で修正を確認**（関数の実行）。
+- **Reveal の版の上限 N=2:** 数え方と設定の受け渡しは確認した（純関数と設定の読み込み）。上限が実際に送信の件数・手数料を減らすか、窓を逃さないかは、engine が鍵で署名して送る試験が要るため**未確認**。コード読解では、上限にかかった書込みは捨てられず次の巡回まで待つ（`continue`）。古い版が失効する 151 スロット（約 60 秒）までは新しい版を出さない。Reveal の窓 W は 600 秒なので締め切りは越えないが、混雑時に着地が遅れる可能性はある。
+- **所有者の追跡状態（landed／再起動後の queued）:** ⑱の単体試験 4 件の実行だけ。API を通した確認は鍵を使う World の試験が要り、未確認。
+- **T18-2（keeper の `/v1/reveal` が到着前の平文を受け付けて保持する）:** ⑱の版でも変わらない（`reveal_accept.rs` は変更外）。送信は保留される設計で、受付の下限は未決の仕様（10.6.1）。
+
+### 実行できない試験（鍵の生成・導出・署名を伴う）
+
+- `web-frontier-marches.test.mjs`（サンプル世界が鍵を作って署名する）。⑱によれば、到着ターン内の Reveal を前提にした 4 件が失敗する見込み。
+- keeper の `tests/play.rs` の場面と④の Reveal 試験（N=2 で送信件数・手数料・crash injection の件数が変わる見込み）。
+- ⑯の T18-2（World）、T18-3（engine の送信）、BeaconLog の再起動試験。
+- `cargo clippy`（1.95）は実行していない。
