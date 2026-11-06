@@ -62,6 +62,26 @@ const notReceived = (key, errors) => ({ ok: false, key, symbol: '?', text: L`状
  * `settled` is what took effect before the cancel (null: not received yet,
  * [] : nothing took effect).
  */
+/**
+ * 04's seven states of a signed send (workstreams/04-execution/docs/EXECUTION-CONTRACT-20261106.ja.md §1, the agent
+ * wallet's GET /f/agent/fate `state`), each said apart. Only landed, failed, expired and not-sent are final; pending,
+ * unknown and unqueryable are not, and none of them is said as a failure. `x`: `{state}`.
+ */
+export const SEND_STATES = Object.freeze(['not-sent', 'landed', 'failed', 'expired', 'pending', 'unknown', 'unqueryable']);
+export function sendView(x) {
+  if (!x || !SEND_STATES.includes(x.state)) return notReceived('send', [`state: ${x?.state ?? 'missing'}`]);
+  const v = {
+    'not-sent': ['○', 'unknown', L`送られていません`, L`何も送られていないため、効果はありません（確定）`],
+    landed: ['●', 'result', L`記録されました`, L`確定した記録で、誤りはありません（確定）`],
+    failed: ['✕', 'loss', L`記録されましたが失敗しました`, L`手数料は払われ、効果はありません（確定）`],
+    expired: ['⌛', 'loss', L`期限までに記録されませんでした`, L`有効期限を過ぎ、記録が無いことを確かめました（確定）`],
+    pending: ['…', 'unknown', L`確定を待っています`, L`まだ確定していません。失敗したという意味ではありません`],
+    unknown: ['?', 'unknown', L`結果は不明です`, L`有効期限は過ぎましたが、記録されなかったとは示せません。失敗とも成功とも言いません`],
+    unqueryable: ['?', 'unknown', L`状態を照会できませんでした`, L`記録を読めませんでした。取引については何も分かっていません。失敗したという意味ではありません`],
+  }[x.state];
+  return { ok: true, key: `send:${x.state}`, symbol: v[0], tone: v[1], errors: [], text: v[2], details: [v[3]] };
+}
+
 export function cancelView(x) {
   if (!x || !CANCEL_STAGES.includes(x.stage)) return notReceived('cancel', [`stage: ${x?.stage ?? 'missing'}`]);
   const n = count(x.signedPending);

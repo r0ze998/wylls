@@ -503,6 +503,7 @@ export default {
   '住民の持ち主を確かめられなかったため、送りませんでした。あとでもう一度試してください。': 'The resident\'s holder could not be confirmed, so nothing was sent. Try again later.',
   'この鍵は、このシーズンのどの参加者の鍵とも一致しません': 'This key does not match any player\'s key in this season.',
   '取引がまだ確認できません。あとで状態を確かめます。': 'The transaction is not confirmed yet. It will be checked again later.',
+  '取引の状態を照会できませんでした。失敗したという意味ではなく、記録されている場合もあります。あとで状態を確かめます。': 'The transaction\'s state could not be queried. This does not mean it failed: it may have been recorded. It will be checked again later.',
   'ルールがまだ読み込まれていません': 'The rules are not loaded yet.',
   'このサーバーにはルールのファイルがまだありません': 'This server does not have the rules file yet.',
   '封の回が到着のターンと合いません': 'The seal\'s round does not match the arrival turn.',

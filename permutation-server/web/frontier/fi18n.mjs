@@ -299,6 +299,8 @@ const CLIENT_TEXT = {
   ResidentUnverified: () => L`住民の持ち主を確かめられなかったため、送りませんでした。あとでもう一度試してください。`,
   Expired: () => L`取引は期限までに記録されませんでした`,
   Unconfirmed: () => L`取引がまだ確認できません。あとで状態を確かめます。`,
+  // (workstream 07: no read of the transaction's state answered — not a failure, it may still land)
+  TxUnqueryable: () => L`取引の状態を照会できませんでした。失敗したという意味ではなく、記録されている場合もあります。あとで状態を確かめます。`,
   TransactionFailed: () => L`取引は記録されましたが失敗しました`,
   NotSaved: () => L`この端末に進軍の記録を保存できないため、送りませんでした`,
   BadName: () => L`名前は1〜24文字の文字・数字・空白・「-」「_」「.」で付けてください`,

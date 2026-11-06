@@ -806,9 +806,14 @@ async function readMarches() {
 
 async function refreshChronicle() {
   if (cursor === 0 && FS.record?.headSeq !== undefined) cursor = chronicleStart(FS.record.headSeq);
+  // (workstream 07: a page that could not be read is said as such — screens/chronicle.mjs chronicleState —, never as an
+  // empty record: FS.chronicle stays undefined until a page has been read, and FS.chronicleRead says how the last poll went)
+  let failed = null, pages = 0;
   for (let page = 0; page < CHRONICLE_PAGES; page++) {
-    const r = await herald.events(cursor);
-    if (!r.ok) break;
+    let r;
+    try { r = await herald.events(cursor); } catch (e) { r = { ok: false, code: e?.code ?? 'network' }; }
+    if (!r?.ok) { failed = String(r?.code ?? 'Unavailable'); break; }
+    pages++;
     const { records } = decodePage(r.events);
     // (the prototype's own records ride on the same pages, in a sample world that serves them)
     if (FS.proto) { const had = FS.proto.log, log = pm.mergeLog(had, pm.landRecords(r.events)); if (log.length !== had.length || log.at(-1)?.seq !== had.at(-1)?.seq) { FS.proto.log = log; FS.proto.rev = (FS.proto.rev ?? 0) + 1; } }
@@ -818,13 +823,15 @@ async function refreshChronicle() {
     if (r.next !== null && r.next !== undefined) cursor = r.next;
     if (!r.full) break;
   }
+  if (pages > 0 && FS.chronicle === undefined) FS.chronicle = [];
+  FS.chronicleRead = { ok: failed === null, code: failed, pages, bell: nowBell() };
   const own = FS.holdings ?? [];
   FS.isMine = rec => {
     if (rec.host_id !== undefined) { const h = hostParts(rec.host_id); return !!h && own.some(o => o.p === h.p && o.q === h.q && o.site === h.site); }
     return rec.p !== undefined && own.some(o => o.p === rec.p && o.q === rec.q && (rec.site === undefined || rec.site === o.site));
   };
   // Incoming (§7.7): public departures from other factions' holdings.
-  const departures = FS.chronicle.filter(x => x.record.name === 'DEPART').map(x => {
+  const departures = (FS.chronicle ?? []).filter(x => x.record.name === 'DEPART').map(x => {
     const h = hostParts(x.record.host_id);
     const ov = h && [...FS.overviews.values()].flatMap(o => o.provinces).find(pr => pr.p === h.p && pr.q === h.q);
     return { ...x.record, faction: ov && h ? ov.owners[h.site] : null };

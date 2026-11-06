@@ -322,6 +322,26 @@ export default {
 
   // ---- the spectator (screens/spectate.mjs)
   'まだ衝突はありません': 'No clash yet',
+  // workstream 07: 04's seven states of a signed send (hud/statusview.mjs sendView)
+  '送られていません': 'Not sent',
+  '何も送られていないため、効果はありません（確定）': 'Nothing was sent, so it had no effect (final)',
+  '記録されました': 'Recorded',
+  '確定した記録で、誤りはありません（確定）': 'Finalized, with no error (final)',
+  '記録されましたが失敗しました': 'Recorded, but it failed',
+  '手数料は払われ、効果はありません（確定）': 'The fee was paid, and it had no effect (final)',
+  '期限までに記録されませんでした': 'Not recorded before its deadline',
+  '有効期限を過ぎ、記録が無いことを確かめました（確定）': 'Its validity ran out, and it was shown that it was not recorded (final)',
+  '確定を待っています': 'Waiting to be finalized',
+  'まだ確定していません。失敗したという意味ではありません': 'It has not been finalized yet. This does not mean it failed',
+  '結果は不明です': 'The outcome is unknown',
+  '有効期限は過ぎましたが、記録されなかったとは示せません。失敗とも成功とも言いません': 'Its validity ran out, but it cannot be shown that it was not recorded. It is said to be neither a failure nor a success',
+  '状態を照会できませんでした': 'Its state could not be queried',
+  '記録を読めませんでした。取引については何も分かっていません。失敗したという意味ではありません': 'The record could not be read. Nothing is known about the transaction. This does not mean it failed',
+  // workstream 07: the record pages not read are said as such, never as an empty record (screens/chronicle.mjs readLine)
+  '出来事の記録を読み込んでいます': 'Loading the record of events',
+  '出来事の記録を読み込めませんでした（{0}）。記録が空という意味ではありません。次の読み込みでもう一度試します': 'The record of events could not be loaded ({0}). This does not mean the record is empty. It will be tried again on the next load',
+  '最新の出来事の記録を読み込めませんでした（{0}）。ここに出ているのは前に読めた分です': 'The latest record of events could not be loaded ({0}). What is shown here is what was loaded before',
+  '記録を読めていないため、衝突があったかは分かりません': 'The record could not be loaded, so whether there was a clash is not known',
   'スロット {0} 時点': 'As of slot {0}',
   'ターン {0} の時点の世界です': 'The world as of turn {0}',
 
