@@ -18,9 +18,9 @@
 //!
 //! Tags, the Citizen's resident fields, its address and record key follow
 //! workstream 4's allocation of 2026-11-06 (provisional until integration).
-//! JoinResident does not yet emit `RESIDENT_JOINED` (kind 90): the program
-//! and every reader (keeper, herald, verifier, fclient) must take the new
-//! kind in the same change, since today's decoders refuse an unknown kind.
+//! JoinResident emits `RESIDENT_JOINED` (kind 130; 90 is S1's VAULT_BUILT),
+//! keyed by the resident ID with no links; the keeper, herald, verifier and
+//! fclient take it as the NFT Citizen's start.
 
 use frontier_abi::prologue::{self as ap, SeasonHdr};
 use frontier_abi::resident_citizen;
@@ -328,5 +328,19 @@ pub(crate) fn join(p: &Pubkey, accounts: &[AccountInfo], generation: u32, factio
     if !resident_citizen::mark(&mut cd, &asset_bytes) {
         return Err(BAD_ACCOUNT);
     }
-    Ok(())
+    // RESIDENT_JOINED (kind 130, workstream 4's allocation): the Citizen's
+    // start for the readers, keyed by the resident ID, with no links.
+    let payload = crate::events::Buf::<42>::new()
+        .bytes(&asset_bytes)
+        .u8(faction)
+        .u8(addr::join_shard_of(&asset_bytes))
+        .u32(generation)
+        .u32(now_bell);
+    crate::events::emit_cq(
+        frontier_abi::v2::log::CqKind::RESIDENT_JOINED,
+        now_bell,
+        &tag15,
+        payload.get()?,
+        &mut [],
+    )
 }

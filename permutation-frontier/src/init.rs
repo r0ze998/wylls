@@ -36,7 +36,6 @@ use solana_program::{
     program::{invoke, invoke_signed},
     pubkey::Pubkey,
     rent::Rent,
-    sysvar::Sysvar,
 };
 
 use frontier_abi::layout::player::holding as H;
@@ -81,7 +80,12 @@ impl SeasonSigner {
 
 /// The rent-exempt minimum of `space` bytes (Rent sysvar).
 pub fn rent(space: usize) -> R<u64> {
-    Ok(Rent::get()?.minimum_balance(space))
+    // Tests only: the host build cannot read the Rent sysvar (see
+    // `prologue::set_test_clock`); the default rent stands in.
+    #[cfg(test)]
+    return Ok(Rent::default().minimum_balance(space));
+    #[cfg(not(test))]
+    Ok(<Rent as solana_program::sysvar::Sysvar>::get()?.minimum_balance(space))
 }
 
 /// Absent: owned by the System program with no data (lamports ignored).

@@ -160,8 +160,11 @@ pub fn emit(
 
 // ------------------------------------------------------------ ABI v2
 
-/// Highest record kind code of ABI v2 (S1 map growth: REST; 89 reserved, MC §6).
-pub const MAX_KIND_V2: usize = 103;
+/// Highest record kind code of ABI v2 (S1 map growth: REST = 103; 89
+/// reserved, MC §6), widened to 134 for ⑳'s RESIDENT_JOINED = 130
+/// (workstream 4's allocation 130–134). 104–129 and 131–134 stay undefined
+/// (other teams' provisional ranges), so the table accepts only 130 there.
+pub const MAX_KIND_V2: usize = 134;
 
 /// `(defined, key width, payload width)` per record kind code of ABI v2:
 /// [`WIDTHS`] for M1's kinds and `frontier_abi::v2::log::CQ_SPECS` for
@@ -481,6 +484,31 @@ mod tests {
             assert_eq!(&a[..na], &b[..nb], "{}", kind.name());
         }
         assert_eq!(WIDTHS_V2[89], (false, 0, 0), "89 reserved");
+        // ⑳: of 104–134 only RESIDENT_JOINED (130) is a kind; the body
+        // writer refuses every other code there, and anything past 134.
+        for (code, w) in WIDTHS_V2.iter().enumerate().skip(104) {
+            assert_eq!(w.0, code == 130, "{code}");
+            if code != 130 {
+                assert_eq!(
+                    write_body_v2(code as u8, 9, &[], &[], &mut [0u8; MAX_RECORD]),
+                    None,
+                    "{code}"
+                );
+            }
+        }
+        assert_eq!(WIDTHS_V2[130], (true, 15, 42));
+        assert_eq!(
+            write_body_v2(135, 9, &[], &[], &mut [0u8; MAX_RECORD]),
+            None
+        );
+        let mut rj = [0u8; MAX_RECORD];
+        let n = record_v2(130, 9, &[1; 15], &[2; 42], &mut [], &mut rj).unwrap();
+        assert_eq!(n, 64, "64 B with the empty tail");
+        let d = l2::decode(&rj[..n]).unwrap();
+        assert_eq!(
+            (d.kind, d.n_links),
+            (AnyKind::Cq(CqKind::RESIDENT_JOINED), 0)
+        );
         let mut march = alloc::vec![0u8; K2::MarchState.size()];
         let mut prov = alloc::vec![0u8; K2::Province.size()];
         assert!(frontier_abi::v2::layout::write_header(

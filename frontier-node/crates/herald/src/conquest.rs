@@ -251,6 +251,8 @@ fn record_key(kind: CqKind, key: &[u8]) -> String {
             (_, 1) => rd_u8(key, o).map(|x| x.to_string()),
             (_, 4) => rd_u32(key, o).map(|x| x.to_string()),
             (_, 8) => rd_u64(key, o).map(|x| x.to_string()),
+            // ⑳ RESIDENT_JOINED's resident ID (the only 15-B key field).
+            ("resident", 15) => key.get(o..o + 15).map(hex::encode),
             _ => None,
         };
         parts.push(v.unwrap_or_default());
@@ -399,7 +401,9 @@ impl Cq {
 pub fn on_record(f: &mut Fold, tx: &TxRecord, body: &[u8]) -> bool {
     let Ok(r) = v2log::decode(body) else {
         // An undecodable body of an MC kind is counted here, not as M1's.
-        if body.len() >= 2 && (80..=94).contains(&body[1]) {
+        if body.len() >= 2
+            && ((80..=94).contains(&body[1]) || body[1] == CqKind::RESIDENT_JOINED as u8)
+        {
             f.st.alarms.bad_records += 1;
             f.cq.alarms.bad_records += 1;
             return true;
@@ -453,6 +457,8 @@ pub fn on_record(f: &mut Fold, tx: &TxRecord, body: &[u8]) -> bool {
             .and_then(|e| e.province())
             .map_or(Scope::None, |(p, q)| Scope::Province(p, q)),
         CqKind::MARCH_FOLD => Scope::None,
+        // ⑳: a Citizen's start has no Province (its key is a resident ID).
+        CqKind::RESIDENT_JOINED => Scope::None,
         CqKind::RETIRE => rd_u64(r.key, 0)
             .and_then(frontier_abi::addr::split_host_id)
             .map_or(Scope::None, |h| Scope::Province(h.province.p, h.province.q)),
@@ -552,6 +558,10 @@ fn fold_record(
         detail,
     };
     match kind {
+        // ⑳ RESIDENT_JOINED: numbered and sent as an event above; the
+        // Citizen itself is indexed from its account (`index_tags`, keyed by
+        // its Core asset), as a JOINed Citizen is.
+        CqKind::RESIDENT_JOINED => {}
         CqKind::SIEGE_DECLARED => {
             let site = rd_u8(r.key, 8).unwrap_or(0);
             let target = p8(r, "target");
@@ -2922,6 +2932,13 @@ mod tests {
             let mut d = vec![0u8; C::SIZE];
             assert!(mark(&mut d, &ASSET));
             d
+        }
+
+        #[test]
+        fn a_resident_joined_record_is_keyed_by_its_resident_id() {
+            use frontier_abi::v2::log::CqKind;
+            let k = super::super::record_key(CqKind::RESIDENT_JOINED, &[0xab; 15]);
+            assert_eq!(k, format!("RESIDENT_JOINED:{}", "ab".repeat(15)));
         }
 
         #[test]

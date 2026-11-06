@@ -67,6 +67,8 @@ pub mod proc;
 pub mod prologue;
 #[cfg(feature = "program")]
 pub mod resident_binding;
+#[cfg(all(test, feature = "nft-experimental"))]
+mod resident_runtime_tests;
 
 pub use error::{CqError, Error, FrontierError, R};
 

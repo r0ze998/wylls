@@ -130,6 +130,24 @@ pub fn run(cx: &mut Ctx) {
             }
         }
     }
+    // ⑳ RESIDENT_JOINED (kind 130): its key must be its asset's resident
+    // ID, the key the NFT Citizen's address derives from.
+    for c in
+        cx.w.cq_recs
+            .iter()
+            .filter(|c| c.kind == frontier_abi::v2::log::CqKind::RESIDENT_JOINED)
+    {
+        if crate::facts::resident_joined_tag(c).is_none() {
+            cx.fail(
+                V,
+                NON_CANONICAL_ADDRESS,
+                "RESIDENT_JOINED".to_string(),
+                c.bell,
+                Some(c.tx),
+                "the record's key is not its asset's resident ID",
+            );
+        }
+    }
     // Pre-funded addresses (informational, §4.2): an init at an address
     // that already held lamports keeps them, so such an account ends above
     // its rent minimum; none of them blocked an init (the init that

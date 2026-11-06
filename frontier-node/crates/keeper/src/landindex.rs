@@ -19,6 +19,7 @@
 //! A restarted keeper re-reads the feed from the start (cursor 0): the
 //! index is small and rebuilt, never trusted over the chain.
 
+use fclient::ix::CitizenAt;
 use std::collections::{BTreeMap, BTreeSet};
 
 use solana_address::Address;
@@ -43,7 +44,8 @@ pub struct TicketRec {
 #[derive(Default)]
 pub struct LandIndex {
     pub cursor: Cursor,
-    /// citizen address → (wallet, faction) from JOIN.
+    /// citizen address → (wallet, faction) from JOIN; for a ⑳ NFT-resident
+    /// Citizen, (Core asset, faction) from RESIDENT_JOINED (kind 130).
     pub citizens: BTreeMap<Address, (Address, u8)>,
     /// Citizens with a ticket filed and not yet seen ended.
     pub tickets: BTreeMap<Address, TicketRec>,
@@ -86,29 +88,42 @@ impl LandIndex {
     /// canonical Citizen address is `citizen`; otherwise (or when unknown)
     /// read from the Citizen account and checked the same way (wave-3
     /// review, W3-C: a feed record alone never names a displaced holder).
+    ///
+    /// ⑳: the answer is the Citizen as the program names it
+    /// ([`fclient::ix::CitizenAt`]: its address and JoinShard index), so
+    /// an NFT-resident Citizen (zero `WALLET`) is named at its resident
+    /// ID's address, never at the zero wallet's.
     pub async fn citizen_of<P: ChainPort>(
         &mut self,
         port: &P,
         addrs: &Addresses,
         citizen: &Address,
-    ) -> PortResult<Option<(Address, u8)>> {
+    ) -> PortResult<Option<(CitizenAt, u8)>> {
         if let Some(&(w, f)) = self.citizens.get(citizen) {
             if addrs.citizen(&w) == *citizen {
-                return Ok(Some((w, f)));
+                return Ok(Some((CitizenAt::wallet(addrs, &w), f)));
+            }
+            if addrs.resident_citizen(&w) == *citizen {
+                return Ok(Some((CitizenAt::resident(addrs, &w), f)));
             }
         }
         let got = port.accounts(&[*citizen], 0).await?;
-        let hc = got
+        let acct = got
             .first()
             .and_then(|a| a.as_ref())
-            .filter(|a| a.owner == addrs.program)
-            .and_then(|a| fclient::decode::Citizen::decode(&a.data).ok());
+            .filter(|a| a.owner == addrs.program);
+        let hc = acct.and_then(|a| {
+            let c = fclient::decode::Citizen::decode(&a.data).ok()?;
+            let at = CitizenAt::of_account(addrs, citizen, &a.data)?;
+            Some((c, at))
+        });
         match hc {
-            Some(c) if addrs.citizen(&c.wallet) == *citizen => {
-                self.citizens.insert(*citizen, (c.wallet, c.faction));
-                Ok(Some((c.wallet, c.faction)))
+            Some((c, at)) => {
+                let key = c.resident_asset.unwrap_or(c.wallet);
+                self.citizens.insert(*citizen, (key, c.faction));
+                Ok(Some((at, c.faction)))
             }
-            _ => {
+            None => {
                 self.citizens.remove(citizen);
                 Ok(None)
             }
@@ -157,6 +172,20 @@ impl LandIndex {
         // itself before every write), so a capture's change of owner
         // leaves nothing stale here; only a Free City capture (outcome 2)
         // founds a Holding, which joins `holdings` like a SETTLE does.
+        // ⑳ RESIDENT_JOINED (kind 130): an NFT-resident Citizen's start,
+        // keyed by its resident ID. Trusted only when the key is the
+        // asset's resident ID (§3.3: a reader recomputes every keyed
+        // address it trusts).
+        if body.get(1) == Some(&(frontier_abi::v2::log::CqKind::RESIDENT_JOINED as u8)) {
+            *self.counts.entry("RESIDENT_JOINED").or_default() += 1;
+            match resident_joined(body, addrs) {
+                Some((c, asset, faction)) => {
+                    self.citizens.insert(c, (asset, faction));
+                }
+                None => self.bad += 1,
+            }
+            return;
+        }
         if body
             .get(1)
             .is_some_and(|k| *k >= fclient::abi::kind::SIEGE_DECLARED)
@@ -272,6 +301,24 @@ impl LandIndex {
     }
 }
 
+/// `(citizen, asset, faction)` of a RESIDENT_JOINED body whose key is its
+/// asset's resident ID (`None` otherwise, or when it does not decode).
+fn resident_joined(body: &[u8], addrs: &Addresses) -> Option<(Address, Address, u8)> {
+    let r = frontier_abi::v2::log::decode(body).ok()?;
+    let k = r.kind;
+    let field = |name: &str| -> Option<&[u8]> {
+        let (o, w) = frontier_abi::v2::log::field(k, name, true)?;
+        r.payload.get(o..o + w)
+    };
+    let asset: [u8; 32] = field("asset")?.try_into().ok()?;
+    let faction = *field("faction")?.first()?;
+    if r.key != frontier_abi::resident_citizen::resident_tag15(&asset) {
+        return None;
+    }
+    let asset = Address::new_from_array(asset);
+    Some((addrs.resident_citizen(&asset), asset, faction))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -282,6 +329,63 @@ mod tests {
         b.truncate(n);
         b.push(0); // no links
         b
+    }
+
+    /// ⑳: literal addresses only (no key is generated, derived or
+    /// signed; the Season address is written in, not derived).
+    fn literal_addrs() -> Addresses {
+        Addresses {
+            program: Address::new_from_array([0x11; 32]),
+            season_id: 7,
+            season: Address::new_from_array([0x22; 32]),
+            bump: 255,
+        }
+    }
+
+    fn resident_joined(key: &[u8; 15], asset: &[u8; 32], faction: u8) -> Vec<u8> {
+        let mut payload = asset.to_vec();
+        payload.extend_from_slice(&[faction, 3]);
+        payload.extend_from_slice(&2u32.to_le_bytes());
+        payload.extend_from_slice(&40u32.to_le_bytes());
+        let mut b = vec![0u8; 256];
+        let n = frontier_abi::v2::log::write_body(
+            frontier_abi::v2::log::AnyKind::Cq(frontier_abi::v2::log::CqKind::RESIDENT_JOINED),
+            40,
+            key,
+            &payload,
+            &mut b,
+        )
+        .unwrap();
+        b.truncate(n);
+        b.push(0); // no links
+        b
+    }
+
+    #[test]
+    fn resident_joined_feeds_the_index_at_the_resident_address() {
+        let a = literal_addrs();
+        let asset = [0x5a; 32];
+        let tag = frontier_abi::resident_citizen::resident_tag15(&asset);
+        let mut ix = LandIndex::default();
+        ix.ingest(&resident_joined(&tag, &asset, 4), 1, &a);
+        let c = a.resident_citizen(&Address::new_from_array(asset));
+        assert_eq!(
+            ix.citizens.get(&c),
+            Some(&(Address::new_from_array(asset), 4))
+        );
+        // Never at the zero wallet's or at the asset-as-wallet's address.
+        assert!(!ix
+            .citizens
+            .contains_key(&a.citizen(&Address::new_from_array([0; 32]))));
+        assert!(!ix
+            .citizens
+            .contains_key(&a.citizen(&Address::new_from_array(asset))));
+        assert_eq!(ix.bad, 0);
+        // A key that is not the asset's resident ID is refused.
+        let mut forged = LandIndex::default();
+        forged.ingest(&resident_joined(&[9; 15], &asset, 4), 2, &a);
+        assert!(forged.citizens.is_empty());
+        assert_eq!(forged.bad, 1);
     }
 
     #[test]

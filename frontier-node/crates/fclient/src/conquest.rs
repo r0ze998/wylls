@@ -25,6 +25,16 @@ pub const SNAP_RING_HOURS: u32 = p2::SNAP_N as u32;
 /// typed fields.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CqEvent {
+    /// ⑳ RESIDENT_JOINED (kind 130): an NFT-resident Citizen's start,
+    /// keyed by its resident ID (`sha256("PSF-RES" ‖ asset)[0..15]`).
+    ResidentJoined {
+        resident: [u8; 15],
+        asset: [u8; 32],
+        faction: u8,
+        shard: u8,
+        generation: u32,
+        join_bell: u32,
+    },
     SiegeDeclared {
         p: i32,
         q: i32,
@@ -381,6 +391,7 @@ impl CqEvent {
             | StructureSeized { p, q, .. }
             | StructureClosed { p, q, .. } => Some((*p, *q)),
             MarchFold { .. }
+            | ResidentJoined { .. }
             | Retire { .. }
             | NationProposed { .. }
             | NationVoted { .. }
@@ -597,6 +608,14 @@ pub fn parse(body: &[u8]) -> Option<CqLog> {
             pend_bell: u("pend_bell")? as u32,
             pend: u("pend")? as u16,
             holding_key: u("holding_key")?,
+        },
+        CqKind::RESIDENT_JOINED => CqEvent::ResidentJoined {
+            resident: f("resident")?.try_into().ok()?,
+            asset: f("asset")?.try_into().ok()?,
+            faction: b8("faction")?,
+            shard: b8("shard")?,
+            generation: u("generation")? as u32,
+            join_bell: u("join_bell")? as u32,
         },
         CqKind::REST => CqEvent::Rest {
             p: i("p")?,
@@ -907,6 +926,41 @@ pub fn fold_lag_hours(h: u32, now_bell: u32) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// ⑳: a RESIDENT_JOINED body (literal bytes) parses to its fields.
+    #[test]
+    fn resident_joined_parses() {
+        use frontier_abi::v2::log::{write_body, AnyKind, CqKind};
+        let mut payload = [0x5au8; 32].to_vec();
+        payload.extend_from_slice(&[4, 3]);
+        payload.extend_from_slice(&2u32.to_le_bytes());
+        payload.extend_from_slice(&40u32.to_le_bytes());
+        let mut b = vec![0u8; 256];
+        let n = write_body(
+            AnyKind::Cq(CqKind::RESIDENT_JOINED),
+            40,
+            &[9; 15],
+            &payload,
+            &mut b,
+        )
+        .unwrap();
+        b.truncate(n);
+        b.push(0);
+        assert_eq!(
+            parse(&b),
+            Some(CqLog {
+                bell: 40,
+                event: CqEvent::ResidentJoined {
+                    resident: [9; 15],
+                    asset: [0x5a; 32],
+                    faction: 4,
+                    shard: 3,
+                    generation: 2,
+                    join_bell: 40,
+                },
+            })
+        );
+    }
     use frontier_abi::v2::layout::{write_header, AccountKind as K2};
 
     fn province(rn: u32, opened: u32) -> Vec<u8> {
