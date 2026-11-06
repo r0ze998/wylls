@@ -53,3 +53,14 @@ else if (mode === 'acts') {
   }
   out({ ids, refused });
 }
+else if (mode === 'ws13-stop') {
+  // Workstream 13's order for one model call (resident/ports/ws05-cost.mjs): reserve → (13 saves its state) →
+  // calling → the call. Die at `after-reserve` (13's state not saved yet) or `after-calling` (the call may have left).
+  const [at, key, amount] = rest;
+  const lease = new ProcessLease({ dir, agentId, ttlMs: 3_600_000 });
+  const { ledger } = FileCostLedger.openFenced({ dir, lease, init: { available: '10000', caps: { total: '10000', perCall: '6000' } } });
+  ledger.reserve(key, amount);
+  if (at === 'after-calling') ledger.calling(key);
+  out({ ready: true, leaseId: lease.leaseId });
+  process.kill(process.pid, 'SIGKILL');
+}

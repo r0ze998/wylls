@@ -95,3 +95,10 @@
 - `for-ws04-95686606/` の同時登録の修正案は、④が `b858e40d` として採用しました。
 - `for-ws03-acdcd0bf/` は③への提案です：同意の `rotate-capability` に `source: 'mcp'` を付けます。
 - 詳しくは `model-api/CONNECT-6.ja.md` §2。
+
+## ④ `d0e96d53` の上に当てる場合（2026-11-06、2回目）
+
+- `on-ws04-d0e96d53/` に、0002c → 0003 → 0004b → 0005 → **0006**（Citizen ごとの送信の列と、SendCaravan の重複拒否を `sent: null` で追うこと）の順で置きました。
+- 当てた後の `permutation-gateway` の木は `d08f1f6a6980ec8e60a325dc893c3e13ab12b9ee` です。
+- ③の `7923f900`（0008）はまだ届いていないので、一本化は⑤の側の案までです。
+- 詳しくは `model-api/CONNECT-7.ja.md`。

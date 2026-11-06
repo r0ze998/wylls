@@ -75,6 +75,21 @@ export class FileCostLedger {
    * After a crash: items held by a process whose lease is no longer live get the restart rule (calling → undecided,
    * reserved → released). Items without a holder (written by a lease-less process) are left alone.
    */
+  /**
+   * The safe way to open the ledger in a (re)started process: take the agent's lease FIRST (a live other process
+   * refuses with AlreadyRunning; a dead or hung one is taken over at the next epoch), THEN apply the restart rule to
+   * whatever the earlier holder left: reserved-but-not-called → released (no call can have left), calling → UNDECIDED
+   * (the provider may have billed; never released, never 0). A process stopped right after `reserve` (workstream 13's
+   * case: before its own state was saved, so it does not know the key) is covered here, without its help.
+   * @returns {{ledger: FileCostLedger, lease: object, recovered: {undecided: string[], released: string[]}}}
+   */
+  static openFenced({ dir, lease, init = null, now, ttlMs }) {
+    const l = lease.acquire();
+    const ledger = new FileCostLedger({ dir, init, lease, ...(now ? { now } : {}) });
+    const recovered = ledger.recoverStale({ ttlMs: ttlMs ?? lease.ttlMs, ...(lease.isAlive ? { isAlive: lease.isAlive } : {}) });
+    return { ledger, lease: l, recovered };
+  }
+
   recoverStale({ ttlMs = 30_000, isAlive } = {}) {
     const files = readdirSync(this.dir).filter(f => /^lease-.*\.json$/.test(f));
     const live = ProcessLease.liveLeaseIds({ dir: this.dir, now: this.now, ttlMs, ...(isAlive ? { isAlive } : {}), files });

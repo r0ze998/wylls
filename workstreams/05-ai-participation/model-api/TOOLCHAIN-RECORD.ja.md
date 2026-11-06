@@ -57,3 +57,9 @@ rm -rf <作業用の一時フォルダ>/recv/repo/workstreams/04-execution/targe
 - ④の `Cargo.lock`・`Cargo.toml`・`rust-toolchain.toml` と、path で使う `permutation-rules`・`frontier-abi` は、95686606 と同じでした。
 - 同じ offline の方法でビルドしました。sha256 は `da8755f6f9aaa49d9bb3d178a0dc5cedb416798ea9728f8ae2a7c8ce1d8105e9` です。
 - 新しい取得はありません。
+
+## 7. 2026-11-06（3回目）：④ `d0e96d53` の `runexec`（取得なし）
+
+- `frontier-abi` は変わっていましたが、`Cargo.lock`・`Cargo.toml`・`rust-toolchain.toml` は同じでした。
+- 同じ offline の方法でビルドしました。sha256 は `dd022fc2be1948b36b4ed13b8d2eea3ffcb4d901ac7ef11da0337169af3f5f15` です。
+- 新しい取得はありません。
