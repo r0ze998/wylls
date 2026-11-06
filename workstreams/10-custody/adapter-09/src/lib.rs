@@ -1232,6 +1232,21 @@ impl LotCustody {
     /// C5, C6 by construction) and ⑩ (each lot's own law, the vault's
     /// capacity, reservations paired with jobs that still hold the goods).
     pub fn check(&self) -> Result<(), String> {
+        self.check_between()?;
+        // Between operations no released ore waits outside a job.
+        for ((p, r), (_, a)) in &self.plain {
+            if let Place::Caravan(id) = p {
+                if id & USE_PLACE_TAG != 0 {
+                    return Err(format!("{a} of {r} left in a use place {p:?}"));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// [`Self::check`] without the transit rule: what holds also halfway
+    /// through a bridge operation (ore released and not yet deposited).
+    pub fn check_between(&self) -> Result<(), String> {
         for ((p, r), (_, a)) in &self.plain {
             if *a <= 0 {
                 return Err(format!("C1: {p:?}/{r} holds {a}"));
@@ -1357,13 +1372,7 @@ impl LotCustody {
                 ));
             }
         }
-        for ((p, r), (_, a)) in &self.plain {
-            if let Place::Caravan(id) = p {
-                if id & USE_PLACE_TAG != 0 {
-                    return Err(format!("{a} of {r} left in a use place {p:?}"));
-                }
-            }
-        }
+
         if let Some(s) = self.stranded.first() {
             return Err(format!("job scope {s} forgotten with goods in it"));
         }
@@ -1482,173 +1491,6 @@ impl Custody for LotCustody {
             }
             self.jobs.remove(&j);
             self.uses.retain(|(x, _), _| *x != j);
-        }
-    }
-}
-
-/// ⑨'s operations over [`LotCustody`], with the deposit fed by another
-/// owner's lot under a use order: the same contract as ⑨'s `bridge10`
-/// (992f4ba5; `CONNECT-10.ja.md`) but on **one** lot store, the adapter's,
-/// so a user's own lots and other owners' lots are the same accounts.
-/// A stand-in until ⑨'s bridge is generic over its custody (see
-/// `../10-adapter-bridge.ja.md`); not a second implementation of ⑨'s rules:
-/// every capacity decision is ⑨'s `Harness::apply`.
-pub mod connect {
-    use super::*;
-    use wylls_capacity::ledger::{Harness, Op, Outcome};
-    use wylls_capacity::recipe::recipe;
-    use wylls_capacity::CapError;
-
-    /// The purpose ⑨ presents (⑨'s `PURPOSE_WORKSHOP_ARMS`, a proposal).
-    pub const PURPOSE_WORKSHOP_ARMS: u16 = 0x0901;
-    /// Seconds per bell (⑨'s stand-in for the season clock).
-    pub const BELL_SECS: i64 = 600;
-
-    /// What a job fed from another's lot may hand out (undecided; as ⑨).
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
-    pub enum Release {
-        /// [default] Products and leftovers stay in the job's places.
-        Hold,
-        /// The job's user claims them (comparison case, not a decision).
-        ToUser,
-    }
-
-    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-    pub enum ConnError {
-        Capacity(CapError),
-        Custody(Refusal),
-        Resource,
-        Conflict,
-        OwnershipUndecided,
-        Internal,
-    }
-
-    #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
-    pub struct Connected {
-        pub w: Harness<LotCustody>,
-        pub release: Release,
-        pub genesis: i64,
-    }
-
-    impl Connected {
-        pub fn new(w: Harness<LotCustody>, genesis: i64) -> Connected {
-            Connected {
-                w,
-                release: Release::Hold,
-                genesis,
-            }
-        }
-
-        pub fn bell(&self, now: i64) -> u32 {
-            ((now - self.genesis).max(0) / BELL_SECS) as u32
-        }
-
-        /// `user` deposits `units` of ore from `owner`'s lot in vault `v`
-        /// into its job, under the use order `(slot, order)`, as deposit
-        /// `deposit`. Atomic: a refusal by ⑨ after ⑩ accepted restores both.
-        #[allow(clippy::too_many_arguments)]
-        pub fn deposit_from_lot(
-            &mut self,
-            now: i64,
-            user: Actor,
-            job: JobId,
-            deposit: u64,
-            v: u64,
-            owner: Actor,
-            slot: u8,
-            order: u32,
-            units: u32,
-        ) -> Result<Outcome, ConnError> {
-            let qty = units as i64 * MILLI;
-            if let Some(l) = self.w.custody.uses.get(&(job, deposit)) {
-                return if (l.vault, l.owner, l.grantee, l.slot, l.order, l.qty)
-                    == (v, owner, user, slot, order, qty)
-                {
-                    Ok(Outcome::AlreadyApplied)
-                } else {
-                    Err(ConnError::Conflict)
-                };
-            }
-            let saved = self.clone();
-            let r = self.once(now, user, job, deposit, v, owner, slot, order, qty);
-            if r.is_err() {
-                *self = saved;
-            }
-            r
-        }
-
-        #[allow(clippy::too_many_arguments)]
-        fn once(
-            &mut self,
-            now: i64,
-            user: Actor,
-            job: JobId,
-            deposit: u64,
-            v: u64,
-            owner: Actor,
-            slot: u8,
-            order: u32,
-            qty: i64,
-        ) -> Result<Outcome, ConnError> {
-            let j = self
-                .w
-                .job(job)
-                .ok_or(ConnError::Capacity(CapError::UnknownJob))?
-                .clone();
-            let rc = recipe(j.recipe).ok_or(ConnError::Resource)?;
-            if rc.input_index(Resource::Ore).is_none() {
-                return Err(ConnError::Resource);
-            }
-            let link = UseLink {
-                vault: v,
-                owner,
-                grantee: user,
-                slot,
-                order,
-                qty,
-                bell: self.bell(now),
-            };
-            self.w
-                .custody
-                .release_by_order(job, j.uid, deposit, link, PURPOSE_WORKSHOP_ARMS)
-                .map_err(ConnError::Custody)?;
-            let out = self
-                .w
-                .apply(
-                    now,
-                    user,
-                    &Op::Deposit {
-                        job,
-                        deposit,
-                        resource: Resource::Ore,
-                        amount: qty,
-                        from: use_place(j.uid),
-                    },
-                )
-                .map_err(ConnError::Capacity)?;
-            if out == Outcome::AlreadyApplied {
-                return Err(ConnError::Conflict);
-            }
-            if self
-                .w
-                .custody
-                .held_plain(use_place(j.uid), Resource::Ore as u8)
-                != 0
-            {
-                return Err(ConnError::Internal);
-            }
-            Ok(out)
-        }
-
-        /// Any of ⑨'s operations; a claim of a job fed from another's lot
-        /// is held under [`Release::Hold`].
-        pub fn apply(&mut self, now: i64, signer: Actor, op: &Op) -> Result<Outcome, ConnError> {
-            if let Op::Claim { job, .. } = op {
-                if self.release == Release::Hold && self.w.custody.lot_fed(*job) {
-                    return Err(ConnError::OwnershipUndecided);
-                }
-            }
-            self.w.apply(now, signer, op).map_err(ConnError::Capacity)
         }
     }
 }
