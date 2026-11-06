@@ -514,6 +514,10 @@ pub struct Citizen {
     pub ticket_funder: Address,
     /// ABI v2 (MC §5.2.3): the siege counter and the holding slots.
     pub cq: Option<CitizenCq>,
+    /// ⑳ (provisional, `nft-experimental` programs only): the Core asset
+    /// of an NFT-resident Citizen (`RESIDENT_FLAGS` bit 0 set, `wallet`
+    /// zero). `None` for every wallet Citizen.
+    pub resident_asset: Option<Address>,
 }
 
 /// Citizen v2 fields (MC contract §5.2.3). In an MC season `holding[i]`
@@ -600,6 +604,8 @@ impl Citizen {
                     caravans: b.u32(c2::CARAVANS),
                 }
             }),
+            resident_asset: frontier_abi::resident_citizen::resident_asset(d)
+                .map(Address::new_from_array),
         })
     }
 }
@@ -1767,6 +1773,14 @@ mod tests {
         c[frontier_abi::v2::layout::player::citizen::SLOTS] = 0b1000 | 2;
         let cc = Citizen::decode(&c).unwrap().cq.unwrap();
         assert!(cc.reserved(3) && !cc.reserved(2));
+        // ⑳: a wallet Citizen has no resident asset; a marked one does,
+        // with its wallet zero (literal bytes; no key is made).
+        assert_eq!(Citizen::decode(&c).unwrap().resident_asset, None);
+        let mut n = c.clone();
+        assert!(frontier_abi::resident_citizen::mark(&mut n, &[0x5a; 32]));
+        let nc = Citizen::decode(&n).unwrap();
+        assert_eq!(nc.resident_asset, Some(Address::new_from_array([0x5a; 32])));
+        assert_eq!(nc.wallet, Address::new_from_array([0; 32]));
         // A v1 Holding has none.
         let mut h1 = vec![0u8; size::HOLDING];
         put(&mut h1, 0, magic::HOLDING);

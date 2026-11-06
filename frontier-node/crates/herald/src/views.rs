@@ -124,7 +124,7 @@ fn acct(f: &Fold, a: &[u8; 32]) -> Value {
 /// hosts wherever they stand, transit records, open ArrivalSlots, settled
 /// seal codes, and the relay quota (`quota`, fetched by the caller).
 pub fn me_json(f: &Fold, wallet: &Address, quota: Value) -> Value {
-    let ca = f.ctx.citizen(&wallet.to_bytes());
+    let ca = crate::conquest::me_citizen(f, &wallet.to_bytes());
     let citizen = f.account(&ca).and_then(|c| Citizen::decode(&c.data).ok());
     let mut holdings = vec![];
     let mut keys = vec![];

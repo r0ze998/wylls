@@ -52,26 +52,26 @@
 | 箇所 | 今の動き | 要る変更 |
 |---|---|---|
 | program：SettleTicket、CloseCitizen、SettleTransit の野営の Citizen、`citizen_v2`（SettleSiege、SettleCapture、RetireHost）、記録の key（`tag15_of`） | **今回直した**：住所＝`citizen_by_tag15(記録の key)`、key＝住民 ID | — |
-| 検証器 `checks/v9_addresses.rs:56` | Citizen の住所を `WALLET` から検算 → NFT Citizen は失敗 | 印のある Citizen は住民 ID から検算 |
+| 検証器 `checks/v9_addresses.rs` | **直した（v0.12）**：住所を `record_tag15`（財布の Citizen は財布の tag、印のある Citizen は住民 ID）から検算。印があって asset が無い・財布が残る Citizen は `NonCanonicalAddress` で失敗 | — |
 | 検証器 `checks/v23_caravans.rs:511` | 他人あての隊商の送り手を `WALLET` で再判定 → NFT Citizen は失敗 | その時点の Core の owner と住民の世代での再判定（住民プログラムの状態が要る） |
 | 検証器 `facts.rs`、`v1_chains`、`v11_land`、`v12_explore`、`conquest.rs` | 記録の key から `citizen_by_tag15` → NFT Citizen の住所も正しく出る | `RESIDENT_JOINED`（kind 90）を Citizen の始まりとして読む |
 | keeper `landindex.rs` | 記録の key から住所 → 正しく出る | `RESIDENT_JOINED` を読む（JOIN の代わり） |
-| herald `conquest.rs:315`（tag → 財布・国） | NFT Citizen は財布 0 と表示 | 印のある Citizen は asset（または住民 ID）を持ち主の識別に |
-| fclient `addr.rs`（`citizen(wallet)`）、`decode.rs` | 財布からしか住所を出せない | 住民 ID からの住所、resident 欄の読み取り |
+| herald `conquest.rs`（tag → 識別・国）、`fold.rs`（WS の範囲）、`/h/me` | **直した（v0.12）**：NFT Citizen の識別は Core の asset（全 0 の財布に集めない）。`/h/me/{key}` は財布の Citizen があればそれ、無ければ asset `key` の NFT Citizen（その asset を名乗るものだけ）。財布の Citizen の答えは不変 | `/h/me` を asset で引く方式を web の画面側でどう使うかは未定（U44） |
+| fclient `addr.rs`、`decode.rs` | **直した（v0.12）**：`resident_citizen(asset)`、Citizen の bytes から住所を出す `citizen_of`、`Citizen::resident_asset` | 取引の組み立て（`JoinResident`・`ResidentAct`）は未着手 |
 | gateway relay の shape 分類 | 0xE0–0xE2 を知らない → **NFT Citizen の操作を中継できない** | `JoinResident`・`ResidentAct` の shape（中の命令＋証明口座 4 つ） |
 | client・web の SDK `addresses.mjs`、`faddr.mjs`、`prize.mjs` | Citizen の住所＝財布から | 住民 ID からの住所、`JoinResident`・`ResidentAct` の取引の組み立て、ログイン画面 |
 | ④ の executor・acts（`agentId` を key に） | — | ④ が確認する |
 
-**記録 `RESIDENT_JOINED`（kind 90）**：④ の割り当て済み。program と読み手（keeper・herald・検証器・fclient）を同じ変更で更新する必要がある（今の decode は知らない kind を拒否）ので、まだ出していない。
+**記録 `RESIDENT_JOINED`**：④ の初版の kind 90 は v2 の `VAULT_BUILT` と重なっていた（91–94 も隊商と倉庫）。⑳ の指摘で ④ が振り直し、**kind 130**（131–134 予備、形式は同じ：key＝住民 ID、payload 42 B、link 無しで 64 B）になった（`claude/gallant-ride-cunptv` `33bb6c893c798c2719cda0fd08498c34f2e7bb8e`、ABI-ALLOCATION §2）。記録の emit、`MAX_KIND_V2`・`WIDTHS_V2` の拡張（134 まで）、それを Citizen の始まりとして読む keeper・検証器は、同じ変更で入れる予定で、まだ未実装。
 
 ## 4. 割り当て（④、2026-11-06、統合まで仮）
 
-④ の記録：`claude/gallant-ride-cunptv` の `6057256bc9845454ebc89b97610b65f814ea69bc`、`workstreams/04-execution/contracts/ABI-ALLOCATION-20261106.ja.md`。
+④ の記録：`claude/gallant-ride-cunptv` の `6057256bc9845454ebc89b97610b65f814ea69bc`（記録の kind は `33bb6c893c798c2719cda0fd08498c34f2e7bb8e` で訂正）、`workstreams/04-execution/contracts/ABI-ALLOCATION-20261106.ja.md`。
 
 | 項目 | 値 | 実装の場所 |
 |---|---|---|
 | 命令 tag | 0xE0 CreateResidentPolicy、0xE1 JoinResident、0xE2 ResidentAct、0xE3–0xE7 予備、0xFF は試験だけ | `frontier-abi/src/resident_wire.rs`、`permutation-frontier/src/lib.rs` |
-| 記録 | kind 90 `RESIDENT_JOINED`（key＝住民 ID、payload 42 B）、91–94 予備。ログの VERSION は上げない | **未実装**（program と読み手を同じ変更で） |
+| 記録 | kind 130 `RESIDENT_JOINED`（key＝住民 ID、payload 42 B）、131–134 予備（初版の 90–94 は v2 と重なり訂正済み）。ログの VERSION は上げない | **未実装**（program の emit・`MAX_KIND_V2`・読み手を同じ変更で） |
 | Citizen の `WALLET` | 全 0 | `frontier-abi/src/resident_citizen.rs` |
 | 予約領域 | `RESIDENT_ASSET` @348（32）、`RESIDENT_FLAGS` @380（1、bit0）、381–383 予約。LAYOUT_VERSION は 2 のまま | 同上 |
 | Citizen の住所と記録の key | 住民 ID から（`citizen_by_tag15(住民 ID)`） | 同上、`proc/resident.rs` |
@@ -83,6 +83,19 @@
 実行：ABI の 11 件（すべて固定のバイト列、名前で 1 件ずつ）。新規は、住民 ID が実際の住民プログラムの値と一致すること、財布と NFT の Citizen の区別と記録の key、偽の印の拒否、0xE0–0xE7 が v2 の命令表で空いていること、`CreateResidentPolicy`・`JoinResident`・`ResidentAct` の符号。build・静的検査：`cargo clippy -D warnings`（frontier-abi、permutation-frontier の既定と `nft-experimental`、全 target）、`cargo fmt --check`（workspace 全体）すべて通過。
 
 実行していない：program を実際に動かす試験（LiteSVM・validator。鍵の生成と署名を伴うため未承認）、既存の固定 seed の試験、SBF の build、keeper・herald・検証器・gateway の試験。つまり、JoinResident・ResidentAct・各命令の NFT 経路が実行時に正しく動くことは**未確認**。
+
+### v0.12 の追加（読み手、2026-11-06）
+
+実行（名前を指定して 1 件ずつ。固定のバイト列の住所だけで、鍵の生成・導出・署名なし）：
+- 検証器 `checks::v9_addresses::resident_tests` の 3 件：財布の Citizen の住所は不変、NFT Citizen は住民 ID から、印があって財布が残る Citizen は何も導かない。
+- herald `conquest::tests::resident` の 2 件：識別は財布か asset（全 0 にならない）、`/h/me` は財布の Citizen が先、別の asset を名乗る口座は採らない。
+- fclient `addr::tests::resident_citizen_address_follows_the_resident_id`（fclient の住所と program の `AddrCtx::citizen_by_tag15` が一致）、`decode::tests::cq_march_state_season_and_holding_v2`（`resident_asset` の読み取りを追記）。
+
+静的検査：`cargo +stable fmt --all -- --check`、`cargo +stable clippy -p fclient -p herald -p verify --all-targets -D warnings`（findex の既存の指摘 `explicit_counter_loop` 1 件だけ除外。stable 1.97 の新しい lint で、CI の 1.95 では出ない見込み。手元の 1.95 には rustfmt・clippy が無い）。
+
+型検査：`cargo check --locked --workspace --all-targets`（frontier-node 全体、1.95.0）通過。fclient の `Citizen` に欄を足したが、構造体を直接組む箇所は decode だけ。workspace 全体の試験の build と実行はしていない（鍵を使う既存の試験を含むため。build もディスク不足で中断）。
+
+**規則違反の報告**：v0.12 の作業中、fclient の lib の試験を名前を絞らずに 1 回実行した（77 件）。この中に既存の試験 `tx::tests::budget_prefix_round_trips`（固定 seed `[3; 32]` の鍵で取引に署名）、`beacon::tests::test_key_signs_and_verifies`、`seal` の試験（試験用の鍵で署名）が含まれ、「固定 seed を含む鍵生成・導出・署名の試験は禁止」に反した。秘密鍵の出力・保存・送信はしていない。以後は名前を指定した試験だけを実行している。workspace 全体の試験も一度始めたが、build の途中で止めた（試験は 1 件も動いていない）。
 
 ## 6. ④ との調整
 

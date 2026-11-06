@@ -326,8 +326,9 @@ impl Fold {
                 }
             }
             Some(AccountKind::Citizen) => {
-                if let Some(w) = d.get(64..96) {
-                    self.wallet_of.insert(*k, w.try_into().unwrap_or_default());
+                // The `/h/me` key: the wallet, or a ⑳ NFT Citizen's asset.
+                if let Some(w) = crate::conquest::me_key(d) {
+                    self.wallet_of.insert(*k, w);
                 }
             }
             Some(AccountKind::Season) if *k == self.ctx.season => {
@@ -384,9 +385,10 @@ impl Fold {
                 pq(64)
             }
             AccountKind::ArrivalSlot | AccountKind::ArrivalDay if d.len() >= 20 => pq(16),
-            AccountKind::Citizen if d.len() >= 96 => {
-                Scope::Wallet(d[64..96].try_into().unwrap_or_default())
-            }
+            AccountKind::Citizen if d.len() >= 96 => match crate::conquest::me_key(d) {
+                Some(w) => Scope::Wallet(w),
+                None => Scope::None,
+            },
             AccountKind::BellAnchor
             | AccountKind::SeedCache
             | AccountKind::AnchorArchive

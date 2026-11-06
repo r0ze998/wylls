@@ -43,7 +43,8 @@
 | U37 | 固定 seed を含む鍵の生成・導出・署名の試験の禁止のもとで、program をどう試験するか（例：LiteSVM の署名検査を切り、秘密鍵の無い公開鍵だけで命令を組む）。既存の固定 seed の試験を残すか・隔離するか・書き直すか | 今回は鍵を使う試験を一つも実行していない（FRONTIER-HOLDER §7） | 所有者 |
 | U38 | 既存の Citizen（財布で作られたもの）を住民 NFT に移すか。移すなら、誰がどの NFT とどう結ぶか | 決めていない | 所有者 |
 | U39 | Frontier の操作者の更新を、住民プログラムからの CPI（F1）で行うか、毎回 Core を読む（F2）か | 候補 20 が F2。F2 を推奨に改めた（CANDIDATE-20-REVIEW §3） | ④・所有者 |
-| U40 | NFT Citizen の作成命令の記録の番号と版、Citizen の `WALLET` 欄、命令 tag、予約領域、住所と記録の key | 2026-11-06 に ④ が割り当て（統合まで仮）、実装済み。記録（kind 90）は program と読み手を同じ変更で入れる必要があり未実装（NFT-ACCOUNT-WIRING §4） | ④ |
+| U40 | NFT Citizen の作成命令の記録の番号と版、Citizen の `WALLET` 欄、命令 tag、予約領域、住所と記録の key | 2026-11-06 に ④ が割り当て（統合まで仮）、実装済み。記録の kind は初版の 90 が v2 と重なり、④ が 130 に訂正（`33bb6c89`）。記録は program と読み手を同じ変更で入れる（未実装）（NFT-ACCOUNT-WIRING §3・§4） | ④ |
 | U41 | 索引が未知の記録で止まる方針（候補 20 の findex）を採るか。herald の可用性との兼ね合い | 候補のまま取り込み、未判断 | ⑲・④ |
 | U42 | relay・agent wallet・client・web が NFT Citizen の `Act`・`Join` を組み、中継するか（今は `0xff` を知らない） | 未接続（NFT-ACCOUNT-WIRING §3） | ④・⑦ |
 | U43 | NFT の Join でも、season の join gate（招待・有料の参加）を求めるか | 財布の Join と同じく求める（仮） | 所有者・⑰ |
+| U44 | herald の `/h/me/{key}` を NFT 住民では Core の asset で引く（財布の Citizen が先）。web の画面が asset と財布のどちらで引くか、asset を公開の識別に使ってよいか | herald は asset で引けるようにした（仮）。画面側は未接続 | ⑦・所有者 |
