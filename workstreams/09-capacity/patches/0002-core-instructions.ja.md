@@ -18,28 +18,30 @@
 
 ## 2. 命令（タグは未割当。④ が割り当てる）
 
-> **2026-11-05：仮タグを取り下げた。** 下の表の `0xC1`〜`0xCE` は並びの目印にすぎない。⑧ の `0xC1 ExtendFrontier`、⑩ の `0xC1–0xCB` と衝突していたため、⑨ は番号を主張せず、④ の共有 ABI の割当に従う（[CONNECT-10.ja.md](../CONNECT-10.ja.md) §4 D7）。⑩ の区画から材料を取る場合、`DepositToJob` は ⑩ の区画と倉の口座を加え、同じトランザクションで ⑩ の `consume` を呼ぶ（同 §2）。
+> **2026-11-05：仮タグを取り下げた**（当時の表は `0xC1`〜`0xCE`）。⑧ の `0xC1 ExtendFrontier`、⑩ の `0xC1–0xCB` と衝突していたため、⑨ は番号を主張せず、④ の共有 ABI の割当に従う（[CONNECT-10.ja.md](../CONNECT-10.ja.md) §4 D7）。⑩ の区画から材料を取る場合、`DepositToJob` は ⑩ の区画と倉の口座を加え、同じトランザクションで ⑩ の `consume` を呼ぶ（同 §2）。
 
-| 仮タグ | 命令 | 種別 | 署名者 | 口座（w = 書込） | 引数 | 主なエラー（`CapError` → プログラムのコードは ④） |
+> **2026-11-06：④ の仮割当（`ABI-ALLOCATION-20261106.ja.md` 改訂 3、④ `8e96f24d`）に合わせた。** 命令は `0xF0–0xFD`（下の表）。プログラムのエラーは `109 + カーネルの番号`（110–139、④ の帯 110–149）、口座は AccountKind 25 CapacityPool・26 CapacityJob（seed `cp`・`cj`、magic は提案 `PSF1CPOL`・`PSF1CJOB`）。記録の kind は **未割当**：⑨ の記録は 20 種で、④ の帯（120–129、10 枠）に入らない。どちらにするかは ④ の判断（[patches/0004](0004-kernel-abi-04-provisional.patch)、[CONNECT-10](../CONNECT-10.ja.md) §7）。番号は kernel の feature `abi-04-provisional` の内側だけにある。
+
+| タグ（④ の仮割当） | 命令 | 種別 | 署名者 | 口座（w = 書込） | 引数 | 主なエラー（`CapError` → プログラムのコードは ④） |
 |---|---|---|---|---|---|---|
-| 0xC1 | OpenCapacityPool | P | owner の財布 | owner, Citizen, Holding, Province（占領中の検査）, Pool(w, 作成), System | policies(3 B) | NotOwner, WrongGeneration（占領待ち `CapturePending` と同じ検査） |
-| 0xC2 | LendCapacity | P | owner の財布 | owner, Citizen, Holding(w), Province, Pool(w) | units u32, seq u32 | NotEnoughWorkshops, Conflict（seq） |
-| 0xC3 | ReclaimCapacity | P | owner の財布 | 同上 | units u32, seq u32 | ReclaimBlocked, Conflict |
-| 0xC4 | GrantCapacity | P | owner の財布 | owner, Citizen, Holding, Pool(w) | grant_seq, user(Citizen key), recipe, max_units, max_output, from, until | BadWindow, TooMany, Conflict |
-| 0xC5 | RevokeCapacity | P | owner の財布 | owner, Citizen, Pool(w), [未開始の Job(w)…]（CancelBooked のとき） | grant_seq | UnknownGrant |
-| 0xC6 | ReserveCapacity | P | user（session 可の候補） | user, Citizen, Holding（世代・休眠）, Pool(w), Job(w, 作成), System | grant_seq, job_seq, units, start, end, max_output | CapacityExceeded, GrantUnitsExceeded, GrantOutputExceeded, OutsideGrantWindow, GrantRevoked, OwnerAway, BadWindow |
-| 0xC7 | DepositToJob | P | user | user, Citizen, **出どころ（施設の隣の user の Vault）(w)**, Pool, Job(w) | deposit_id u64, resource u8, amount u64 | AlreadyStarted, WrongResource, Custody（Vault の残高不足） |
-| 0xC8 | SettleJob | N（誰でも） | 手数料の支払者だけ | Pool(w: 占有表), Job(w), Holding（世代） | — | WrongGeneration |
-| 0xC9 | CancelJob | P | user | user, Citizen, Pool(w), Job(w) | — | AlreadyFinal |
-| 0xCA | ClaimJob | P | user | user, Citizen, Pool, Job(w), **宛先（施設の隣の user の Vault）(w)** | — | （受け取るものが無ければ何もしない） |
-| 0xCB | RecordFacilityLoss | N | 手数料の支払者だけ | Pool(w), Holding（GEN・CAPTURED_BELL・STATE）, [Job(w)…], 宛先（占領した Holding）(w) | — | FacilityLive |
-| 0xCC | RetireJob | N | 手数料の支払者だけ | Pool(w), Job(w, 閉じる), 家賃の受取人 | — | NotRetirable（加工中・未受取） |
-| 0xCD | RetireGrant | N | 手数料の支払者だけ | Pool(w) | grant_seq | NotRetirable（予約が残る、期限前で取消なし） |
-| 0xCE | RetirePool | N | 手数料の支払者だけ | Pool(w, 閉じる), 家賃の受取人 | — | NotRetirable（世代が生きている、予約が残る） |
+| 0xF0 | OpenCapacityPool | P | owner の財布 | owner, Citizen, Holding, Province（占領中の検査）, Pool(w, 作成), System | policies(3 B) | NotOwner, WrongGeneration（占領待ち `CapturePending` と同じ検査） |
+| 0xF1 | LendCapacity | P | owner の財布 | owner, Citizen, Holding(w), Province, Pool(w) | units u32, seq u32 | NotEnoughWorkshops, Conflict（seq） |
+| 0xF2 | ReclaimCapacity | P | owner の財布 | 同上 | units u32, seq u32 | ReclaimBlocked, Conflict |
+| 0xF3 | GrantCapacity | P | owner の財布 | owner, Citizen, Holding, Pool(w) | grant_seq, user(Citizen key), recipe, max_units, max_output, from, until | BadWindow, TooMany, Conflict |
+| 0xF4 | RevokeCapacity | P | owner の財布 | owner, Citizen, Pool(w), [未開始の Job(w)…]（CancelBooked のとき） | grant_seq | UnknownGrant |
+| 0xF5 | ReserveCapacity | P | user（session 可の候補） | user, Citizen, Holding（世代・休眠）, Pool(w), Job(w, 作成), System | grant_seq, job_seq, units, start, end, max_output | CapacityExceeded, GrantUnitsExceeded, GrantOutputExceeded, OutsideGrantWindow, GrantRevoked, OwnerAway, BadWindow |
+| 0xF6 | DepositToJob | P | user | user, Citizen, **出どころ（施設の隣の user の Vault）(w)**, Pool, Job(w) | deposit_id u64, resource u8, amount u64 | AlreadyStarted, WrongResource, Custody（Vault の残高不足） |
+| 0xF7 | SettleJob | N（誰でも） | 手数料の支払者だけ | Pool(w: 占有表), Job(w), Holding（世代） | — | WrongGeneration |
+| 0xF8 | CancelJob | P | user | user, Citizen, Pool(w), Job(w) | — | AlreadyFinal |
+| 0xF9 | ClaimJob | P | user | user, Citizen, Pool, Job(w), **宛先（施設の隣の user の Vault）(w)** | — | （受け取るものが無ければ何もしない） |
+| 0xFA | RecordFacilityLoss | N | 手数料の支払者だけ | Pool(w), Holding（GEN・CAPTURED_BELL・STATE）, [Job(w)…], 宛先（占領した Holding）(w) | — | FacilityLive |
+| 0xFB | RetireJob | N | 手数料の支払者だけ | Pool(w), Job(w, 閉じる), 家賃の受取人 | — | NotRetirable（加工中・未受取） |
+| 0xFC | RetireGrant | N | 手数料の支払者だけ | Pool(w) | grant_seq | NotRetirable（予約が残る、期限前で取消なし） |
+| 0xFD | RetirePool | N | 手数料の支払者だけ | Pool(w, 閉じる), 家賃の受取人 | — | NotRetirable（世代が生きている、予約が残る） |
 
 **番号と鍵（継続世界）。** grant_seq は Pool ごと、job_seq は許可ごとに増えるだけ（閉じた番号への操作は `Retired`）。Job には再利用しない uid を持たせ、預かりの冪等キーの範囲にする（Job の口座と一緒に閉じる）。世代が一周したときに古い世代の Pool が残っていれば `OpenCapacityPool` は `GenerationReused`。
 
-**種類と境界。** 所有者・利用者の命令（0xC1–0xC7, 0xC9, 0xCA）も、誰でも送れる命令（0xC8, 0xCB–0xCE）も、戦期の境界では拒否しない。特に `CancelJob`・`ClaimJob`（物を返す・渡す）は、どの状態でも通す。
+**種類と境界。** 所有者・利用者の命令（0xF0–0xF6, 0xF8, 0xF9）も、誰でも送れる命令（0xF7, 0xFA–0xFD）も、戦期の境界では拒否しない。特に `CancelJob`・`ClaimJob`（物を返す・渡す）は、どの状態でも通す。
 
 **材料の出入口の暫定案（既存の実経路につなぐ）。** S1 には、他人の村へ届く隊商（PR #20）と、タイルに置く Vault がすでにある。利用者は施設の隣のタイルに**自分の Vault** を建て、隊商で材料をそこへ送る（BuildVault は村の site のタイルそのものを拒むが、州の持ち主や距離は検査しない。`proc/caravan.rs` `build_vault`。設計 14 の「自分の村の土地は持ち主だけが建てられる」とは食い違うので、コードに従った）。`DepositToJob` はその Vault から Job へ、`ClaimJob` は Job からその Vault へ移す。持ち帰りは既存の SendCaravan。これで「運搬と襲撃の遊び」（決定ログ 29 の A2）が残り、新しい運搬命令は要らない。⑩ の預かりが来たら、Vault の代わりに ⑩ の口座を使う。
 
@@ -57,15 +59,15 @@
 
 | カーネル | 命令 |
 |---|---|
-| `Op::OpenPool` | 0xC1 |
-| `Op::Lend` / `Op::Reclaim` | 0xC2 / 0xC3 |
-| `Op::Grant` / `Op::Revoke` | 0xC4 / 0xC5 |
-| `Op::Reserve` | 0xC6 |
-| `Op::Deposit` | 0xC7 |
-| `Op::Settle` | 0xC8 |
-| `Op::Cancel` | 0xC9 |
-| `Op::Claim` | 0xCA |
-| `Op::FacilityLost` | 0xCB |
-| `Op::Retire` / `Op::RetireGrant` / `Op::RetirePool` | 0xCC / 0xCD / 0xCE |
+| `Op::OpenPool` | 0xF0 |
+| `Op::Lend` / `Op::Reclaim` | 0xF1 / 0xF2 |
+| `Op::Grant` / `Op::Revoke` | 0xF3 / 0xF4 |
+| `Op::Reserve` | 0xF5 |
+| `Op::Deposit` | 0xF6 |
+| `Op::Settle` | 0xF7 |
+| `Op::Cancel` | 0xF8 |
+| `Op::Claim`・`Op::ClaimSplit`（提案：同じ命令で分割の引数を任意に） | 0xF9 |
+| `Op::FacilityLost` | 0xFA |
+| `Op::Retire` / `Op::RetireGrant` / `Op::RetirePool` | 0xFB / 0xFC / 0xFD |
 
 カーネルの `World::apply` が「失敗したら何も変えない」のは、取引の失敗と同じ扱い。自然キー（grant_seq, job_seq, deposit_id）は PDA の住所と Job 内の投入表になる。

@@ -274,8 +274,12 @@ impl Bridge {
         units: u32,
     ) -> Result<Outcome, BridgeError> {
         let qty = units as i64 * MILLI;
-        // A replay is answered from the record, before 10 is called.
+        // A replay is answered from the record, before 10 is called; only
+        // to the job's user, as 09's kernel answers its own deposits.
         if let Some(l) = self.links.get(&(job, deposit)) {
+            if self.cap.job(job).is_some_and(|j| j.user != user) {
+                return Err(BridgeError::Capacity(CapError::NotUser));
+            }
             return if (l.lot, l.slot, l.order, l.qty) == (lot, slot, order, qty) {
                 Ok(Outcome::AlreadyApplied)
             } else {
