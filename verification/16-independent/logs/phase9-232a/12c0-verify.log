@@ -1,0 +1,56 @@
+### 12c054f9 HEAD 12c054f951d000c33c7e054a371d9f9c035d8197 tree 24bb51874eb4a8e60f0e65155f07b2402128c6bc; local: ?? frontier-abi/tests/v16_period_boundary.rs ?? frontier-node/crates/agents/tests/v16_owner_reveal_open.rs ?? frontier-node/crates/findex/tests/v16_history_gaps.rs ?? frontier-node/crates/herald/tests/v16_caravan_holder.rs ?? frontier-node/crates/keeper/tests/v16_version_cap.rs ?? frontier-node/crates/verify/tests/v16_cpi_keyfree.rs ?? permutation-gateway/test/v16-agent-fate-view.test.mjs ?? permutation-gateway/test/v16-public-ops.test.mjs ?? permutation-gateway/test/v16-web-caravan-holder.test.mjs ?? permutation-gateway/test/v16-web-reveal-not-before.test.mjs ?? permutation-gateway/test/v16-web-wallet-switch-adopt.test.mjs ?? workstreams/04-execution/e2e-native/tests/v16_prize_claim_rights.rs ?? workstreams/04-execution/e2e-native/tests/v16_record_nation.rs 
+   Compiling findex v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v12-int/frontier-node/crates/findex)
+   Compiling verify v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v12-int/frontier-node/crates/verify)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 17.18s
+     Running tests/evidence.rs (/home/user/wylls/frontier-node/target/debug/deps/evidence-6cbb1584aab0b1d5)
+
+running 8 tests
+test a_call_without_logs_is_not_a_pass ... ok
+test a_cpi_only_transaction_without_logs_is_not_a_pass ... ok
+test a_mention_whose_logs_show_no_run_is_not_reported ... ok
+test a_written_account_without_its_post_state_is_not_a_pass ... ok
+test logs_that_lose_their_tail_are_not_a_pass ... ok
+test logs_the_runtime_cut_are_not_a_pass ... ok
+test the_fixtures_have_nothing_for_v0e ... ok
+test the_program_run_by_another_program_is_not_a_pass ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 381.65s
+
+     Running tests/new_bands.rs (/home/user/wylls/frontier-node/target/debug/deps/new_bands-f08c011b43a8a8d1)
+
+running 5 tests
+test a_divert_outside_a_transit_settlement_is_unverifiable ... ok
+test a_record_no_instruction_left_is_not_a_pass ... ok
+test a_record_of_a_new_kind_is_not_a_pass ... ok
+test an_instruction_of_a_new_band_is_not_a_pass ... ok
+test every_conquest_kind_the_abi_knows_is_modelled ... FAILED
+
+failures:
+
+---- every_conquest_kind_the_abi_knows_is_modelled stdout ----
+
+thread 'every_conquest_kind_the_abi_knows_is_modelled' (749) panicked at crates/verify/tests/new_bands.rs:228:13:
+conquest kind 130 is not modelled
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/core/src/panicking.rs:80:14
+   2: new_bands::every_conquest_kind_the_abi_knows_is_modelled
+             at ./tests/new_bands.rs:228:13
+   3: new_bands::every_conquest_kind_the_abi_knows_is_modelled::{{closure}}
+             at ./tests/new_bands.rs:224:51
+   4: core::ops::function::FnOnce::call_once
+             at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/core/src/ops/function.rs:250:5
+   5: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+
+failures:
+    every_conquest_kind_the_abi_knows_is_modelled
+
+test result: FAILED. 4 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 898.81s
+
+error: test failed, to rerun pass `-p verify --test new_bands`
+exit=101

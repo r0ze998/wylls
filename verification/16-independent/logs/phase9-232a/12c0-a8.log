@@ -1,0 +1,15 @@
+### 12c054f9 HEAD 12c054f951d000c33c7e054a371d9f9c035d8197
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.26s
+     Running tests/v16_cpi_keyfree.rs (/home/user/wylls/frontier-node/target/debug/deps/v16_cpi_keyfree-d5e1fd6aa9370d8a)
+
+running 6 tests
+test v16_k0_control_the_fixture_passes ... ok
+test v16_k1_a_nested_invocation_of_the_program_is_not_a_pass ... ok
+test v16_k2_a_transaction_naming_the_program_with_no_logs_is_not_a_pass ... ok
+test v16_k3_truncated_logs_of_a_transaction_naming_the_program_are_not_a_pass ... ok
+test v16_k4_measured_complete_logs_showing_the_program_never_ran ... ok
+test v16_k5_a_successful_call_whose_log_tail_was_lost_is_not_a_pass ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 16.82s
+
+exit=0

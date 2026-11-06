@@ -851,3 +851,16 @@ A8 の旧試験（`v16_unknown_tag.rs` の v16_a8）は固定 seed の鍵で署�
 | A7、旧 T18-1、T19-1 | 失敗のまま | 同じ |
 
 **既知の未解決（④の申告、⑯は未確認）**: ⑨の `bridge10/tests/connect10.rs` がコンパイルできない。⑤の relay-tree の試験が未合格。
+
+## 14.8 ④の統合候補 12c054f9
+
+対象: `claude/gallant-ride-cunptv` の `12c054f951d000c33c7e054a371d9f9c035d8197`（tree `24bb51874eb4a8e60f0e65155f07b2402128c6bc`、232a5aa7 の子孫、`[skip ci]`）。232a5aa7 からのコードの差分は findex の `index.rs`（⑳ 9e6b0c01、clippy）と検証器（⑪ 0007：`v0_evidence.rs`・`codes.rs`、新しい試験 `new_bands.rs`）だけ。
+
+| 試験（ホスト、鍵なし） | 結果 |
+|---|---|
+| ⑯ A8（K0〜K5） | 6/6（0007 の後も変わらない） |
+| ⑪ evidence | 8/8 |
+| ⑪ new_bands（鍵の操作なしを確認） | 4/5。`every_conquest_kind_the_abi_knows_is_modelled` が「conquest kind 130 is not modelled」で失敗。⑳の RESIDENT_JOINED（kind 130）を検証器がまだ扱わないことを知らせる、⑪が意図した検査（④の申告と一致）。**検証器が⑳の記録をまだ判定しない**ことの再現として扱う |
+| ⑯ 履歴欠落 G1〜G3 | 3/3（G1・G3 は見逃し、変わらない） |
+
+ログ: `logs/phase9-232a/12c0-*.log`。その他の項目（賞金・Web・ABI など）は 232a5aa7 からコードが変わらないので 14.7 の結果のまま（コード同一による引き継ぎ、12c054f9 では未実行）。
