@@ -1,0 +1,42 @@
+### d0e96d53 HEAD d0e96d5394d88decf878676f37bc3782654d1045 tree 1e1a95055467fc38d23c47a0bbe9d27f349b7631
+   Compiling verify v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v12-int/frontier-node/crates/verify)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 10.20s
+     Running tests/evidence.rs (/home/user/wylls/frontier-node/target/debug/deps/evidence-6cbb1584aab0b1d5)
+
+running 8 tests
+test a_call_without_logs_is_not_a_pass ... ok
+test a_cpi_only_transaction_without_logs_is_not_a_pass ... ok
+test a_mention_whose_logs_show_no_run_is_not_reported ... ok
+test a_written_account_without_its_post_state_is_not_a_pass ... ok
+test logs_that_lose_their_tail_are_not_a_pass ... ok
+test logs_the_runtime_cut_are_not_a_pass ... ok
+test the_fixtures_have_nothing_for_v0e ... ok
+test the_program_run_by_another_program_is_not_a_pass ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 381.77s
+
+     Running tests/new_bands.rs (/home/user/wylls/frontier-node/target/debug/deps/new_bands-f08c011b43a8a8d1)
+
+running 6 tests
+test a_divert_outside_a_transit_settlement_is_unverifiable ... ok
+test a_record_no_instruction_left_is_not_a_pass ... ok
+test a_record_of_a_new_kind_is_not_a_pass ... ok
+test a_resident_joined_without_its_join_is_unverifiable ... ok
+test an_instruction_of_a_new_band_is_not_a_pass ... ok
+test every_conquest_kind_the_abi_knows_is_modelled ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 892.13s
+
+     Running tests/v16_cpi_keyfree.rs (/home/user/wylls/frontier-node/target/debug/deps/v16_cpi_keyfree-d5e1fd6aa9370d8a)
+
+running 6 tests
+test v16_k0_control_the_fixture_passes ... ok
+test v16_k1_a_nested_invocation_of_the_program_is_not_a_pass ... ok
+test v16_k2_a_transaction_naming_the_program_with_no_logs_is_not_a_pass ... ok
+test v16_k3_truncated_logs_of_a_transaction_naming_the_program_are_not_a_pass ... ok
+test v16_k4_measured_complete_logs_showing_the_program_never_ran ... ok
+test v16_k5_a_successful_call_whose_log_tail_was_lost_is_not_a_pass ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 17.03s
+
+exit=0
