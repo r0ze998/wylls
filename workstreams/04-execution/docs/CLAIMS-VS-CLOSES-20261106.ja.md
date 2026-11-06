@@ -132,6 +132,8 @@
 
 - **72 h の起点**（⑯の指摘 (4)、コードで確認）：起点は予定の終了時刻（`bell_start(genesis, end_bell)`）で、EndSeason を送った時刻ではない。EndSeason が予定の終了＋72 h より遅れると、Ended になった瞬間から CloseCitizen・CloseProvince が通る。そのため、Tally・Finalize・記録の猶予は 0 になりうる。RecordNation は Ended を待たずに Join の直後から送れるので、この競争を避けられる。
 - **⑰の Attest との一本化（決着）**：⑰が RecordNation を照合した。規則を変えずに受取権を守れていて、誤った国を記録する経路はない、という判断だった。⑰は Attest を取り下げた（⑰本線 `59d883ad0084dfac7a78089f796ab89b9a5e0fa6` で revert）。tag 7 は RecordNation に一本化する。⑰の ws17-on-ws04-b858 にある Attest の commit（c72cca35・a4c8cc96）は使わない。registry に tag 7 と Entry の欄を載せた（仮）。
+- **⑯の独立照合**（`claude/dreamy-ramanujan-ijj8qj` `bdf708b2` の REPORT.ja.md §13.6、F1〜F6。本物の CloseCitizen を使い、鍵は使っていない）：結果は④の結果と一致した。P1〜P6 は 6/6、④の試験は 16/16。P2〜P5（close の順序、終了後の Pay、Aborted）は、この修正の対象外として残る。
+- **前提（守るべき不変条件）**（⑯ F5）：RecordNation が正しいのは、ゲームが Citizen の国を Join のときだけ書くからである。将来、国を変える命令（移籍など）をゲームに足すと、閉じる前（Citizen の国）と閉じた後（記録の国）で判定が変わる。その命令を足すときは、記録を取り直すか、記録を無効にする設計が要る。
 - **配備の前に必要なこと（未実施）**：SBF での build と、LiteSVM・実チェーンでの確認。LiteSVM の試験は鍵を生成して署名するので、今回の条件では流していない。
 - ⑯の probe（`claude/dreamy-ramanujan-ijj8qj` `32b367b741b57bc69cfa92cb312bc6aa6441ee8f` の `verification/16-independent/probes/v16_prize_claim_rights.rs`）は、f43eb4eb の上で 6/6 合格した（一時的に置いて流しただけで、commit はしていない）。記録のない Entry の動きは変えていないので、修正の後も同じく通る。
 
