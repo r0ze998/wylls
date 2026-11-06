@@ -128,7 +128,46 @@
 | T3 | 利用注文で出した物を区画へ戻す専用の口。今は「すぐ着く返却の隊商」（`begin_inbound`/`finish_inbound`）で戻すため、⑩ の区画では消費（`CONSUMED`）が残ったまま、同じ量が新しい入庫（`IN_TOTAL`）として記録される。⑩ の保存則は保たれるが、「使った量」の記録としては多めに見える |
 | T4 | 端数の未返却（区画ごとの milli）を ⑩ の区画の口座に持つか。今は bridge が `owed` として持つ |
 
-## 6. 再現
+## 6. ⑩ のパッチの取り込み（2026-11-06、⑩ `79fbce83`）
+
+⑩ は最新版 `79fbce834c321ff58040c3b8bbf98f018b58f5c0`（ブランチ `claude/great-babbage-3ogkqu`）に、⑨ の `a24defcf` 向けのパッチ `workstreams/10-custody/patches-to-09/0001-Workstream-09-bridge10-on-workstream-10-s-one-lot-ta.patch` を置いた（同じ場所の `SHA256SUMS` で一致を確認）。⑨ はこれをそのまま取り込んだ。
+
+### 6.1 取り込み方
+
+| commit | 内容 |
+|---|---|
+| `cca8481d` | ⑨ が同じ日に ⑩ の旧版（`9b388187`）へ合わせた版。⑩ のパッチと同じファイルを別の形で書き換えていた |
+| `00c26b49` | `cca8481d` を revert（tree を `a24defcf` と同じ `5f0c22ee…` に戻す。履歴は消さない） |
+| `01229410` | ⑩ のパッチを `git am` で適用（作者は ⑩ のまま）。**tree `437c2246c80457c491d4680c6f49d53898dee1e7`、期待値と一致** |
+| （この commit） | この節、bridge の冒頭の説明の古い記述（既定が `Hold`）の訂正、試験の記録 |
+
+`cca8481d` で作った試験（会計 11 件）は、⑩ のパッチの試験（`decided.rs`・`lots.rs`・`contract10.rs` の更新と、自分の区画と利用注文の区画が一つの表であることの試験）と重なるので、持ち越していない。履歴には残る。
+
+### 6.2 パッチの中身と、残っていた項目
+
+| 項目 | 内容 | 状態 |
+|---|---|---|
+| T1 区画表を一つに | 利用注文の区画も ⑩ の `LotCustody` の表。bridge の `add_lot`・`lot`・`edit_lot`・`vault_mut` は ⑩ の表を読み書きする窓口 | **解決** |
+| T3 返却の二重計上 | 戻す鉱石は ⑩ の `try_return_unused` で**消費を取り消して**戻る（`CONSUMED −= q`、`IN_TOTAL` は変えない）。以前の「すぐ着く返却の隊商」は、戻した分を使った量にも新しい入庫にも数えていた。区画の式は `CONSUMED = 取った量 − 戻した量` | **解決** |
+| T4 未返却の端数 | 1,000 milli 未満の端数、凍結・満杯で受けられない分は ⑩ の預かり（`owed`）に持ち、整数単位になれば ⑩ の `pay_owed` で入る。bridge の `owed()`・`returned()` は ⑩ の記録を読む | **解決** |
+| T2 拒否の理由 | ⑩ のアダプターの `nine-refused` で、⑩ の理由を ⑨ の `CustodyError::Refused(u16)` に載せる。`run.sh` は ⑩ の試験をこの feature で回す | **解決**（⑩ の feature として） |
+| B1・B2 | 通過用の置き場は ⑩ の `use_place`。bridge は ⑩ の `LotCustody` を前提にする | 解決（`a24defcf` から変わらず） |
+| T5 ⑩ の `connect` と差分試験 | ⑩ の判断 | 残る |
+
+**未決のまま（このパッチも決めていない）：** `MixedSource`（一つの予約は鉱石を一つの出どころから）、木材・兵器を区画で扱うか。
+
+### 6.3 確認した試験（2026-11-06、`run.sh` 全段、終了コード 0。鍵の生成・導出・署名を伴う試験はない）
+
+| 対象 | 結果 |
+|---|---|
+| ⑨ kernel | 43 件通過（変更なし） |
+| bridge10（⑩ `b237b581` に対して。fmt・clippy を含む） | 26 件通過。ランダム：区画からの投入 1,408、⑩ を呼ばない再送 2,616、受取 630 |
+| ⑩ の adapter-09（このブランチの kernel、`--features nine-refused`） | 23 件通過 |
+| パッチ 0001 を当てたコア（rules・ABI・program のホスト試験、kernel） | 通過 |
+
+⑩ の pin：`b237b581c7068f0f4b36bf9869c304205369a226`（custody の tree `b91cbfdd0da956148cbbecc1f7d639a03999a58c`、adapter-09 の tree `b8b5984c06d91b6a6000e5eeb07c9871e64e0627`）。④ 向けの kernel パッチ 0003 は変わらない（この取り込みは kernel に触れていない）。
+
+## 7. 再現
 
 ```sh
 workstreams/09-capacity/run.sh --no-patch   # カーネル、デモ、bridge10、⑩ の adapter 試験（⑩は pin から一時取り出し）

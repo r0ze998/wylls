@@ -1,5 +1,7 @@
 # ⑨ 他人の工房の「加工能力」を借りる
 
+> **2026-11-06（⑩ のパッチを取り込み）：区画の表は ⑩ の一本、返却は消費の取り消し、端数は ⑩ が持つ。** [CONNECT-10.ja.md](CONNECT-10.ja.md) §6。
+>
 > **2026-11-06（所有者の判断を反映）：他人の区画の鉱石で作った兵器は利用者のもの、余った鉱石は元の区画へ戻す、同じ州なら直接使える、占領者は施設の物を取る。** [CONNECT-10.ja.md](CONNECT-10.ja.md) §5.5。
 >
 > **2026-11-06：⑩ の adapter-09 の上で動かし、⑩ の要求 R1–R6 に答えた（`ClaimSplit`、`apply_detailed`、予約の口座と受領書）。** [CONNECT-10.ja.md](CONNECT-10.ja.md) §5。共有の kernel 変更は [patches/0003](patches/0003-kernel-claimsplit-accounts-refusal.patch)。

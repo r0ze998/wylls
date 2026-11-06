@@ -24,10 +24,12 @@
 //!   conflicts), everything is restored: nothing is consumed.
 //! * **Ore only from lots.** 10 enables only ore. Wood comes by 09's own
 //!   deposit; arms stay in 09's output place (10 has no entry for them).
-//! * **No ownership decided.** Who owns the arms made from M's ore, and the
-//!   ore left unused, is open. By default ([`Release::Hold`]) a job fed
-//!   from a lot keeps its products and leftovers until that is decided;
-//!   [`Release::ToUser`] (09's existing behaviour) is a comparison case.
+//! * **The owner's decisions of 2026-11-06** ([`Release::Decided`], the
+//!   default): the arms made from M's ore are B's; the ore left unused goes
+//!   back to M's lot. [`Release::Hold`] (nothing handed out) and
+//!   [`Release::ToUser`] (everything to B) stay for comparison. Mixing
+//!   sources in one job (`MixedSource`) and the resources lots hold are
+//!   not decided and not widened.
 //!
 //! 09's custody (the job's hopper and output, places, the user's own lots)
 //! is workstream 10's adapter, `wylls_custody_adapter_09::LotCustody`
@@ -97,9 +99,10 @@ impl LotId {
 pub enum Release {
     /// [default; the owner's decisions of 2026-11-06] The products go to
     /// the job's user; the ore left unused goes back into the lot it came
-    /// from (whole units through 10's inbound functions; the sub-unit rest
-    /// is owed to the lot and credited once it makes whole units). If the
-    /// lot cannot take it (frozen, no room), all of it stays owed.
+    /// from, un-consumed (whole units through 10's `try_return_unused`; the
+    /// sub-unit rest is owed in 10's custody and credited once it makes
+    /// whole units). If the lot cannot take it (frozen, no room), all of it
+    /// stays owed.
     Decided,
     /// Nothing: products and leftovers stay in the job's places (the rule
     /// before the decision; kept for comparison).
