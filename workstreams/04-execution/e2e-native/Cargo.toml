@@ -13,6 +13,9 @@ description = "Workstream 04: one-world end-to-end path of the S1 prize season r
 
 [dependencies]
 permutation-prize = { path = "../../../permutation-prize", features = ["no-entrypoint"] }
+# The game program itself (host build, no entrypoint): CloseCitizen and CloseProvince
+# run as the real code in the claims-versus-closes reproduction.
+permutation-frontier = { path = "../../../permutation-frontier", default-features = false, features = ["program", "no-entrypoint"] }
 frontier-abi = { path = "../../../frontier-abi" }
 permutation-rules = { path = "../../../permutation-rules" }
 solana-program = "=4.0.0"

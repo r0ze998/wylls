@@ -17,9 +17,14 @@
 //!   (through the vendored `solana-get-sysvar` hook); signatures are a set of
 //!   keys said to have signed (no ed25519); no fees, compute budget,
 //!   transaction size or account-lock limits.
-//! - **Not run**: the game program. Game accounts (Season, Province,
-//!   ProvinceFund, Citizen) are written directly with frontier-abi layouts as
-//!   stand-ins, as `permutation-prize/svm-tests` does under LiteSVM.
+//! - **Optionally real, the game program** ([`Host::with_game`]): its own
+//!   `dispatch` (built for the host without its entrypoint) runs the
+//!   instructions sent to its id, e.g. CloseCitizen and CloseProvince in
+//!   `tests/claims_vs_closes.rs`. Its accounts are still
+//!   written directly with frontier-abi layouts (no CreateSeason or Join is
+//!   run: those need the drand and signature machinery this host does not
+//!   have). Without `with_game`, the game program is not run at all, as in
+//!   `permutation-prize/svm-tests` under LiteSVM.
 
 use std::collections::BTreeMap;
 use std::sync::Mutex;
@@ -62,6 +67,8 @@ static LOGS: Mutex<Vec<String>> = Mutex::new(Vec::new());
 pub struct Host {
     pub accounts: BTreeMap<Pubkey, Acct>,
     pub prize: Pubkey,
+    /// The game program's id when it runs here (`with_game`).
+    pub game: Option<Pubkey>,
     pub clock: Clock,
     /// Program logs of the last transaction.
     pub logs: Vec<String>,
@@ -84,6 +91,7 @@ impl Host {
         Host {
             accounts,
             prize,
+            game: None,
             clock: Clock {
                 slot: 1,
                 unix_timestamp: 1_800_000_000,
@@ -91,6 +99,22 @@ impl Host {
             },
             logs: vec![],
         }
+    }
+
+    /// The same world with the game program `game` run for real.
+    pub fn with_game(prize: Pubkey, game: Pubkey) -> Host {
+        let mut h = Host::new(prize);
+        h.accounts.insert(
+            game,
+            Acct {
+                lamports: 1,
+                data: vec![],
+                owner: LOADER,
+                executable: true,
+            },
+        );
+        h.game = Some(game);
+        h
     }
 
     pub fn set(&mut self, key: Pubkey, a: Acct) {
@@ -149,7 +173,7 @@ impl Host {
         // SAFETY: `buf` is in the loader's aligned input format, built just
         // above, and outlives every AccountInfo read from it.
         let (pid, infos, data) = unsafe { deserialize(buf.as_mut_ptr() as *mut u8) };
-        if let Err(e) = dispatch(pid, &infos, data, &self.prize) {
+        if let Err(e) = dispatch(pid, &infos, data, &self.prize, self.game.as_ref()) {
             return Err(err_text(&e));
         }
         let mut out = vec![];
@@ -229,8 +253,19 @@ fn serialize(accounts: &BTreeMap<Pubkey, Acct>, ix: &Instruction) -> Vec<u64> {
     out
 }
 
-fn dispatch(pid: &Pubkey, infos: &[AccountInfo], data: &[u8], prize: &Pubkey) -> ProgramResult {
-    if pid == prize {
+fn dispatch(
+    pid: &Pubkey,
+    infos: &[AccountInfo],
+    data: &[u8],
+    prize: &Pubkey,
+    game: Option<&Pubkey>,
+) -> ProgramResult {
+    if Some(pid) == game {
+        CALLERS.lock().unwrap().push(*pid);
+        let r = permutation_frontier::dispatch(pid, infos, data).map_err(ProgramError::from);
+        CALLERS.lock().unwrap().pop();
+        r
+    } else if pid == prize {
         CALLERS.lock().unwrap().push(*pid);
         let r = permutation_prize::process_instruction(pid, infos, data);
         CALLERS.lock().unwrap().pop();
