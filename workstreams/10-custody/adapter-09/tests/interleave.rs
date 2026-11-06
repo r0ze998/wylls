@@ -110,7 +110,7 @@ fn fold(
             Note::Consumed { job, r, qty } => *cons.entry((job, r)).or_default() += qty,
             Note::Produced { job, qty, .. } => *prod.entry(job).or_default() += qty,
             Note::Stranded { scope } => panic!("job scope {scope} forgotten with goods"),
-            Note::Used { .. } => panic!("no use orders in this run"),
+            Note::Used { .. } | Note::Unused { .. } => panic!("no use orders in this run"),
         }
     }
 }

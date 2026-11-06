@@ -1,4 +1,4 @@
 == differential: ⑨ bridge10 (992f4ba5) vs this adapter
 seeds 1000: steps by kind (lot deposit x2, replay, wood, settle x2, cancel, claim, restart) [6692, 6477, 6740, 6632, 6675, 6810, 6582, 6727, 6665]; lot deposits applied 1278, claims held 3718, refusals 23927
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.24s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.23s
 caught   no rollback after ⑨ refuses (differential)

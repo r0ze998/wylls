@@ -67,6 +67,11 @@ mutate "settlement keeps the reservation" src/lot.rs "    lot.inbound[i] = Inbou
 mutate "running totals wrap" src/lot.rs "            lot.in_total
                 .checked_add(cargo)
                 .ok_or(CustodyError::Overflow)?," "            lot.in_total.wrapping_add(cargo),"
+mutate "a return of unused goods counts them in again" src/lot.rs "    lot.held = held;
+    lot.consumed -= qty;
+    Ok(())" "    lot.held = held;
+    lot.in_total += qty;
+    Ok(())"
 mutate "reconciliation keeps the reservation" src/lot.rs "            let q = lot.inbound[i].qty;
             lot.inbound[i] = Inbound::default();" "            let q = lot.inbound[i].qty;"
 

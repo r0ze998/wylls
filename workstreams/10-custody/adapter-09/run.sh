@@ -79,6 +79,21 @@ mutate "a lot-fed job's claim is not held" $L "                if self.release =
 mutate "no rollback when ⑨ refuses after ⑩ accepted" $L "            if r.is_err() {
                 *self = saved;
             }" "            let _ = saved;"
+mutate "a return is booked as a new arrival" $L "        if L::return_unused(&vault.view(), &mut lot, due).is_err() {
+            return 0;
+        }" "        let tr = (RETURN_TAG, TRANSIENT_SEQ - 1);
+        if L::begin_inbound(&vault.view(), &mut lot, tr, due)
+            .and_then(|_| L::finish_inbound(Some(&vault.view()), &mut lot, tr, due))
+            .is_err()
+        {
+            return 0;
+        }"
+mutate "owed goods drop out of the books" $L "        let owed: i64 = if r == Resource::Ore {
+            self.owed.values().sum()
+        } else {
+            0
+        };" "        let owed: i64 = 0;"
+mutate "more can come back than was taken" $L "            if back.checked_add(amount).is_none_or(|n| n > used) {" "            if back.checked_add(amount).is_none_or(|n| n > used + used) {"
 mutate "an actor's move may change the owner" $L "            By::Actor(a) if a != owner => return Err(CustodyError::Forbidden.into())," "            By::Actor(a) if a != owner && false => return Err(CustodyError::Forbidden.into()),"
 
 # ⑨'s bridge10 at the pinned commit, beside this adapter, in a temporary
@@ -91,7 +106,11 @@ git -C "$root" cat-file -e "$pin9^{commit}" 2>/dev/null || git -C "$root" fetch 
 [ "$(git -C "$root" rev-parse "$pin9:workstreams/09-capacity/bridge10")" = "$tree9" ] || { echo "bridge10 tree mismatch" | tee -a "$out/diff-bridge10.log"; exit 1; }
 dt="$(mktemp -d)"
 trap 'rm -rf "${dt:?}"' EXIT
-git -C "$root" archive HEAD permutation-rules workstreams/09-capacity/kernel workstreams/10-custody/custody | tar -x -C "$dt"
+git -C "$root" archive HEAD permutation-rules workstreams/09-capacity/kernel | tar -x -C "$dt"
+# ⑩'s own crates from the working tree (what is being checked).
+mkdir -p "$dt/workstreams/10-custody"
+cp -r "$here/../custody" "$dt/workstreams/10-custody/"
+rm -rf "$dt/workstreams/10-custody/custody/target"
 git -C "$root" archive "$pin9" workstreams/09-capacity/bridge10 | tar -x -C "$dt"
 mkdir -p "$dt/workstreams/10-custody/adapter-09"
 cp -r "$here/Cargo.toml" "$here/Cargo.lock" "$here/rust-toolchain.toml" "$here/src" "$here/diff-bridge10" "$dt/workstreams/10-custody/adapter-09/"

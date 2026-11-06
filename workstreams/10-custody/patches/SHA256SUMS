@@ -9,3 +9,4 @@ f7c8e2c724036beaa0941747eb77810dad722e1090b1fd9772de21f4fee8754a  0006-Verifier-
 fac316b6fd327d158638365cdfe143c89f2462099a0e8ee4395a611d34f19618  0009-Custody-kernel-running-totals-checked-no-period-in-t.patch
 efe275a0f4bfaa98b8366d93403bd496d540d3086df10d8745dcf3f43ff74fdc  0010-Verifier-V26-re-judge-what-custody-accounts-alone-se.patch
 a0102b82ae130ef923522c8e90b756c8afaa7c14e770d1bf8994211f9e5c231d  0011-Verifier-V26-no-Ctx-helper-of-its-own-two-more-settl.patch
+3ef2356e68fd4b8d6575afc6d9705898de1529a1282f44ee2cb4b720f284d1ed  0012-Custody-kernel-return_unused-verifier-V26-history-of.patch

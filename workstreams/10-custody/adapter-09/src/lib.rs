@@ -87,8 +87,42 @@ pub fn to_nine(r: Refusal) -> CustodyError {
     match r {
         Refusal::Nine(e) => e,
         Refusal::Lot(LotError::Insufficient) => CustodyError::Insufficient,
+        #[cfg(feature = "nine-refused")]
+        Refusal::Lot(e) => CustodyError::Refused(lot_code(e)),
+        #[cfg(not(feature = "nine-refused"))]
         Refusal::Lot(_) => CustodyError::Forbidden,
     }
+}
+
+/// ⑩'s lot kernel's reasons as numbers for ⑨'s `CustodyError::Refused`
+/// (⑨'s kernel from `004836e2`; feature `nine-refused`). These are the
+/// kernel's own reasons in declaration order, **not** ABI error codes (the
+/// program's numbers are ④'s to assign: `11-abi-request-04.ja.md`).
+pub const fn lot_code(e: LotError) -> u16 {
+    match e {
+        LotError::NotAuthorized => 1,
+        LotError::WalletRequired => 2,
+        LotError::Resource => 3,
+        LotError::Quantity => 4,
+        LotError::Insufficient => 5,
+        LotError::Capacity => 6,
+        LotError::NoSlot => 7,
+        LotError::Order => 8,
+        LotError::Expired => 9,
+        LotError::Stale => 10,
+        LotError::Forfeited => 11,
+        LotError::State => 12,
+        LotError::NotEmpty => 13,
+        LotError::InTransit => 14,
+        LotError::SelfDealing => 15,
+        LotError::Overflow => 16,
+    }
+}
+
+/// A vault's id from its tile (the S1 Vault's address is `va‖P,Q,tile`):
+/// the id ⑨'s bridge uses for a lot it knows by `(P, Q, tile, …)`.
+pub const fn vault_id(p: i16, q: i16, tile: u8) -> u64 {
+    ((p as u16 as u64) << 24) | ((q as u16 as u64) << 8) | tile as u64
 }
 
 type R<T> = Result<T, Refusal>;
@@ -195,6 +229,15 @@ pub enum Note {
     Stranded { scope: u64 },
     /// Under `owner`'s use order `(slot, order)`, `grantee` took `qty` from
     /// the owner's lot for `job` (⑩'s `consume`: the lot's `CONSUMED`).
+    /// Unused goods for `owner`'s lot in `vault`: `taken` from the job,
+    /// `paid` into the lot now (un-consumed), `owed` still due to it.
+    Unused {
+        vault: u64,
+        owner: Actor,
+        taken: i64,
+        paid: i64,
+        owed: i64,
+    },
     Used {
         job: JobId,
         deposit: u64,
@@ -232,6 +275,13 @@ pub struct LotCustody {
     /// Running total each lot gave under use orders (kept after ⑨ forgets
     /// a job, so a lot's `CONSUMED` stays explained).
     pub used_total: BTreeMap<(u64, Actor), i64>,
+    /// Unused goods given back into each lot (un-consumed), whole units.
+    pub returned_total: BTreeMap<(u64, Actor), i64>,
+    /// Unused goods owed back to each lot and not yet in it: the sub-unit
+    /// rest until it makes whole units, and whole units the lot could not
+    /// take (frozen, no room). Kept in custody (counted by `held`), the lot
+    /// owner's, never lost.
+    pub owed: BTreeMap<(u64, Actor), i64>,
 }
 
 /// One deposit fed by another owner's lot under a use order.
@@ -323,6 +373,8 @@ impl LotCustody {
             notes: Vec::new(),
             uses: BTreeMap::new(),
             used_total: BTreeMap::new(),
+            returned_total: BTreeMap::new(),
+            owed: BTreeMap::new(),
         }
     }
 
@@ -438,6 +490,146 @@ impl LotCustody {
         });
         *self = t;
         Ok(true)
+    }
+
+    /// Registers a vault and a lot account built by ⑩'s kernel functions
+    /// elsewhere (⑨'s bridge tests build them so); the lot is keyed by its
+    /// own owner and resource. Refused if that lot exists already.
+    pub fn adopt_lot(&mut self, view: &VaultView, lot: &Lot) -> R<u64> {
+        let v = vault_id(view.p, view.q, view.tile);
+        let owner = Actor(lot.owner);
+        if self.lots.contains_key(&(v, owner, lot.resource)) {
+            return Err(LotError::State.into());
+        }
+        self.vaults.insert(
+            v,
+            Vault {
+                p: view.p,
+                q: view.q,
+                tile: view.tile,
+                gen: view.gen,
+                live: view.live,
+                owner: Actor(view.owner),
+                stores: view.stores,
+                cap: view.cap,
+                quota: view.quota,
+                lots: view.lots,
+            },
+        );
+        // What the lot holds enters custody's books here (else C2 would
+        // see goods from nowhere).
+        if (lot.resource as usize) < RESOURCES {
+            add(&mut self.imported[lot.resource as usize], lot.held)?;
+        }
+        let mut d = vec![0u8; layout::lot::SIZE];
+        lot.encode(&mut d).expect("a lot fits its account");
+        self.lots.insert((v, owner, lot.resource), d);
+        Ok(v)
+    }
+
+    /// Runs `f` on a lot account and writes it back (for callers that
+    /// drive ⑩'s kernel functions directly, as ⑨'s bridge tests do to set
+    /// an order). The vault is read, not written.
+    pub fn with_lot<T>(
+        &mut self,
+        v: u64,
+        owner: Actor,
+        r: u8,
+        f: impl FnOnce(&VaultView, &mut Lot) -> T,
+    ) -> Option<T> {
+        let view = self.vaults.get(&v)?.view();
+        let mut l = self.lot(v, owner, r)?;
+        let out = f(&view, &mut l);
+        self.put_lot(v, owner, r, &l);
+        Some(out)
+    }
+
+    /// The lot in vault `v` of the owner whose tag is `owner_tag`.
+    pub fn find_lot(&self, v: u64, owner_tag: u64, r: u8) -> Option<(Actor, Lot)> {
+        self.lots
+            .iter()
+            .filter(|((x, o, rr), _)| *x == v && *rr == r && tag(*o) == owner_tag)
+            .find_map(|((_, o, _), d)| Lot::decode(d).map(|l| (*o, l)))
+    }
+
+    /// Unused goods back to the lot they came from under use orders: takes
+    /// `amount` (milli, any) from `from` (a job's place or a transit place,
+    /// by the kernel) into what is owed to `owner`'s lot in `v`, then pays
+    /// the whole units owed if the lot can take them ([`L::return_unused`]:
+    /// un-consumed, not counted in again). Never more than the lot gave
+    /// under orders and has not had back. Idempotent by `key`. Returns
+    /// (paid now, still owed).
+    pub fn try_return_unused(
+        &mut self,
+        key: Key,
+        from: Place,
+        v: u64,
+        owner: Actor,
+        amount: i64,
+    ) -> R<(i64, i64)> {
+        let r = Resource::Ore as u8;
+        if amount < 0 {
+            return Err(CustodyError::Negative.into());
+        }
+        let m = Move::Transfer {
+            from,
+            to: Place::Vault(v),
+            owner,
+            r,
+            amount,
+        };
+        if !self.fresh(key, &m)? {
+            return Ok((0, self.owed.get(&(v, owner)).copied().unwrap_or(0)));
+        }
+        let mut t = self.clone();
+        t.see_job(key.scope, from);
+        if amount > 0 {
+            if matches!(from, Place::Vault(_)) {
+                return Err(CustodyError::Forbidden.into());
+            }
+            let used = t.used_total.get(&(v, owner)).copied().unwrap_or(0);
+            let back = t.returned_total.get(&(v, owner)).copied().unwrap_or(0)
+                + t.owed.get(&(v, owner)).copied().unwrap_or(0);
+            if back.checked_add(amount).is_none_or(|n| n > used) {
+                return Err(LotError::Quantity.into());
+            }
+            t.take_plain(from, r, amount, By::Kernel)?;
+            add(t.owed.entry((v, owner)).or_default(), amount)?;
+            if let Place::Hopper(j) = from {
+                t.release_if_empty(j, r);
+            }
+        }
+        let paid = t.pay_owed(v, owner);
+        let owed = t.owed.get(&(v, owner)).copied().unwrap_or(0);
+        t.notes.push(Note::Unused {
+            vault: v,
+            owner,
+            taken: amount,
+            paid,
+            owed,
+        });
+        self.commit(t, key, m);
+        Ok((paid, owed))
+    }
+
+    /// Pays the whole units owed to a lot if it can take them now (it may
+    /// have been frozen or full). Returns what was paid; the rest stays owed.
+    pub fn pay_owed(&mut self, v: u64, owner: Actor) -> i64 {
+        let r = Resource::Ore as u8;
+        let due = self.owed.get(&(v, owner)).copied().unwrap_or(0) / MILLI * MILLI;
+        if due == 0 {
+            return 0;
+        }
+        let (Some(vault), Some(mut lot)) = (self.vaults.get(&v), self.lot(v, owner, r)) else {
+            return 0;
+        };
+        if L::return_unused(&vault.view(), &mut lot, due).is_err() {
+            return 0;
+        }
+        self.put_lot(v, owner, r, &lot);
+        *self.owed.get_mut(&(v, owner)).expect("owed") -= due;
+        *self.returned_total.entry((v, owner)).or_default() += due;
+        due
     }
 
     /// Whether a job took goods from another owner's lot.
@@ -1028,7 +1220,12 @@ impl LotCustody {
             .filter(|((_, _, x), _)| *x == r as u8)
             .map(|(_, d)| Lot::decode(d).map(|l| l.held).unwrap_or(0))
             .sum();
-        plain + lots
+        let owed: i64 = if r == Resource::Ore {
+            self.owed.values().sum()
+        } else {
+            0
+        };
+        plain + lots + owed
     }
 
     /// Every invariant the adapter promises ⑨ (C1, C2, C4 by construction,
@@ -1134,11 +1331,25 @@ impl LotCustody {
         // and no released ore waits outside a job.
         for ((v, owner, r), d) in &self.lots {
             let l = Lot::decode(d).ok_or("lot")?;
-            let taken = if *r == Resource::Ore as u8 {
-                self.used_total.get(&(*v, *owner)).copied().unwrap_or(0)
+            let (taken, back, owed) = if *r == Resource::Ore as u8 {
+                let k = (*v, *owner);
+                (
+                    self.used_total.get(&k).copied().unwrap_or(0),
+                    self.returned_total.get(&k).copied().unwrap_or(0),
+                    self.owed.get(&k).copied().unwrap_or(0),
+                )
             } else {
-                0
+                (0, 0, 0)
             };
+            // Neither consumed twice nor returned twice: CONSUMED is what
+            // left under orders less what came back; what came back and
+            // what is owed never exceed what left.
+            if owed < 0 || back < 0 || back + owed > taken {
+                return Err(format!(
+                    "lot {v}/{owner:?}: back {back} + owed {owed} > taken {taken}"
+                ));
+            }
+            let taken = taken - back;
             if l.consumed != taken {
                 return Err(format!(
                     "lot {v}/{owner:?}: CONSUMED {} != used by jobs {taken}",
