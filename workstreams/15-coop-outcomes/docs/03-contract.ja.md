@@ -105,6 +105,6 @@
 
 | 相手 | ほしいもの | 今の扱い |
 |---|---|---|
-| ① | `fold()` の実物の形、`link` の caravan の `ownerTag` の表し方（10進の文字列か） | 伝え聞いた形で [adapters/ws01.mjs](../src/adapters/ws01.mjs) を書いた。量は①の到着の見え方ではなく S1 の記録から取る（二重に数えない） |
-| ④ | Run Receipt の `body` の欄、P1（`credited`）の採否 | [adapters/ws04.mjs](../src/adapters/ws04.mjs) は欄を仮定。村あての `RuleDerived` を正確な量とするか下限とするかは呼び出し側で選ぶ（既定は①の下限） |
+| ① | 板が受け付けた署名つきの記録の列 | `fold()` は①のコードで動かした（[08](08-peer-contracts.ja.md) §5d）。`ownerTag` は 10 進の文字列（2⁵³ を超える）。量は①の到着の記録のうち chain-log だけから取る（二重に数えない） |
+| ④ | run の outcome を含む書き出し、P1（`credited`）の採否 | ④の runexec の書き出し（⑫が d0949fd4 で作成）を `fromRunexecDump` で読む。body は JSON の文字列、u64 は `parseExact` で正確に読む |
 | ⑭ | `tower-facts/0` の各事実の欄 | [adapters/ws14.mjs](../src/adapters/ws14.mjs) は欄を仮定。塔は任意入力 |

@@ -150,11 +150,46 @@
 - 全体で `node --test` 99 件すべて通過、画面 5 件、長期も通過。
 - 比較表は、判定の hash まで前と同じ。
 
+## 5d. ①の fold() と④の現在の JSON 出力への接続（2026-11-06）
+
+起点は `cb87e30ceace7b959657d43b3c07cd4873aae9c7`。勝利条件・評価期間・賞金は決めていない。模型（⑭）の事実を数えないこと、⑭の境界から評価期間を作らないことは、そのまま（既存の試験が通る）。
+
+**① fold() の実出力**
+- 版：GitHub で最新の① `3f3c8478b0a37a7ecfd6ca4641b8d47fb58aff52`（これより新しい①の commit は、どのブランチにもない）。
+- `gen-ws01-fold.mjs` が①のコード（`coop/record.mjs` の `fold`・`recordId`・`ownerTagOf`、`coop/goal.mjs` の `GOALS`、`coop/arrival.mjs` の `arrivalOf`）をそのまま動かし、その返り値を `scenarios/fixtures/ws01-fold-3f3c8478.json` に置いた。作り直してもバイト単位で同じ。
+- 鍵・署名は使っていない：`fold()` は `sig` が文字列かどうかしか見ない（署名の検査は板が記録を受け取るときにする）。記録には `sig: 'unsigned'` を入れた。財布は 32 バイトの固定の公開アドレス（0x11… など）で、対になる秘密鍵はない。それに対する唯一の計算は①の `ownerTagOf`。公開データの hash で Citizen の口座アドレス（createWithSeed と Season の PDA）を求め、先頭 8 バイトを取る。秘密鍵の生成・導出・署名ではない。
+- 15 件の記録のうち 9 件を fold() が受け付け、6 件を①自身の理由で拒んだ：自分の依頼への応答、同じ記録の二度目、他人の隊商の結び付け、同じ隊商の二度目の結び付け、取消の後の結び付け、別のシーズン。
+- u64：①の持ち主の印は 2⁵³ を超える（例 `17278127443140898241`）。①は 10 進の文字列で書き、⑮もそのまま文字列で扱う（隊商の id に丸めずに入る）。
+- 到着量：村あては①の `lower-bound` → 下限、失われた隊商（LOST）は何も届かない、倉あて（①は量を示さない）は不明、ヘラルドだけの写しは数えない。①には「ゼロ」の区分がない。焼かれた・奪われた隊商は計画に何も届けない、として扱う。
+- 重複・順序：同じ出力を二度入れても一度だけ数え、並びを逆にしても判定の hash は同じ。fold() だけからは、達成・報酬枠・賞金は何も出ない。
+
+**④ の現在の JSON 出力**
+- ④の最新は `8e96f24d`（`origin/claude/gallant-ride-cunptv`）。④自身は実行結果の JSON を commit していない。
+- 実出力として、⑫が④の `runexec demo`（happy・crash・raid・lost-response）を `d0949fd4` で build・実行し、SQLite から原文のまま書き出したものがある（⑫ の commit `4bc76d05`、`origin/claude/trusting-allen-dox8j6`）。⑮はこれをバイト単位で写した：`scenarios/fixtures/ws04-runexec-d0949fd4/`。出どころと SHA-256 は `source.json` にある。
+- d0949fd4 から 8e96f24d までに、Receipt を書くコード（`executor.rs`・`store.rs`・`model.rs`・`ports.rs`・`sim.rs`）と数量契約は変わっていない。変わったのは `acts.rs`・`gateway.rs`・`lib.rs`・`main.rs`（代理の行為）だけ。⑮は④を build も実行もしていない。
+
+**④の実出力で分かった、型からの想定との違い（⑮で直した）**
+
+| 点 | 実出力 | ⑮の扱い |
+|---|---|---|
+| body と spec | オブジェクトではなく JSON の**文字列**（`body_json`、`run_specs_json`）。u64 は JSON の数 | `parseExact`：2⁵³ を超える整数は 10 進の文字列のまま読む（Node の JSON.parse の source text）。`fromRunexecDump` で読む |
+| 持ち主の照合 | subject の 16 進（`cv:77:0`）と body の `key.owner`（119）の両方にある | 両方が正確に一致するときだけ使う。一致しない・正確でないときは欠落として残し、別の人に付け替えない |
+| run の outcome | 書き出しにない（delivered・verification なし） | settle の記録から決める（④ §3）：倉あてで `credited` があれば下限［b, b+1）、なければ不明［0, cargo+1）、LOST はゼロ。outcome を渡せばそれを使う（KnownZero → ゼロ） |
+| demo の積荷 | 8 枠の 6 番（Science）に 3 | 評価器は Science・Influence を持たない。**黙って捨てず**、「数えない資源」として報告し、記録の位置は保つ（欠落にしない） |
+| 同じ隊商を 3 つの run が報告 | `caravan_sent`・`caravan_settled` が同じ中身で 3 回 | 1 件ずつに減らし、量も 1 回だけ（3 であって 9 ではない） |
+| 重複の選び方 | — | **直した不具合**：同じ中身のうちどれを残すかが入力の順で変わり、判定の hash が変わっていた。run の id と source で決めるようにした |
+
+量の区別（正確・下限・ゼロ・不明）と u64 の試験は、④のバイト列に一か所だけ文字を置き換えて行った（積荷を 6 番から 1 番の木材へ、持ち主を 2⁶⁴−59、襲撃者を 2⁶³+1、`credited` を除く）。どれを置き換えたかは試験に書いてある。
+
+**試験**
+- `test/contract-ws01-fold.test.mjs`（6 件）、`test/contract-ws04-runexec.test.mjs`（8 件）を足した。
+- 全体で `node --test` 113 件すべて通過。比較表は前と同じ。
+
 ## 6. 残っていること
 
 1. 差分の基点 `32ad894d`・`1913625d` と、もとの候補 commit の本体（照合できていない）。
-2. ④の実際の JSON 出力（今は型からの形だけ）。u64 を文字列にするかの判断。
-3. ①の `fold()` の実出力（署名つきの記録が要るので、今回は作っていない）。
+2. ④の実出力は⑫が d0949fd4 で書き出したもの（§5d）。④自身の 8e96f24d での書き出しと、run の outcome（delivered・verification）を含む出力は未受領。u64 を JSON で文字列にするかは④の判断（⑮はどちらでも正確に読む）。demo の積荷が Science だけで、資源の量はまだ④のバイトそのものでは試せていない。
+3. ①の `fold()` は署名なしで動かした（§5d）。①の板が受け付けた本物の（署名つきの）記録の列と、チェーンから読んだ隊商の確定（`caravanEndFromChain` の実際の返り値）は未受領。
 4. ⑭の `toFacts()` が `period.boundary` を渡さない件。⑭が直すか、⑮が `sim.facts` から受け取る今の形を続けるか。
 5. 目撃の個人目標の出どころ（S1 の物見櫓に記録を足すか、目標をやめるか）。
 6. （直した。§5b）
