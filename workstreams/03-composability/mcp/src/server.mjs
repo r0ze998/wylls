@@ -219,7 +219,14 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
    */
   async function register(op, link) {
     if (!acts) return null;
-    const r = await acts.register({ agentId: link.agentId, key: keyOf(op), source: 'mcp', runId: op.id });
+    const args = { agentId: link.agentId, key: keyOf(op), source: 'mcp', runId: op.id };
+    let r;
+    try { r = await acts.register(args); } catch (e) {
+      // ④'s register reads then writes: a concurrent first registration of the same key loses with the store's UNIQUE
+      // error (found by ⑤ e9d1551a). Registering is idempotent, so this one error is retried once; nothing else is.
+      if (e?.code !== 'BadRequest' || !/UNIQUE/i.test(String(e?.message))) throw e;
+      r = await acts.register(args);
+    }
     op.ws04Act = { ...(op.ws04Act ?? {}), run4Id: r.run4Id, runId: r.runId ?? op.id, registeredAt: op.ws04Act?.registeredAt ?? new Date(now()).toISOString(), receiptVersion: r.receiptVersion ?? null, state: op.ws04Act?.state ?? r.state };
     return r;
   }
