@@ -1,0 +1,107 @@
+### abi HEAD b65c3b40c8488ef7dba64ceef62b2256fbef443e tree 34dbdd77e479b75721f068f31262144d19a167c1
+### local test files:
+?? frontier-abi/tests/v16_period_boundary.rs
+?? frontier-node/crates/agents/tests/v16_owner_reveal_open.rs
+?? frontier-node/crates/findex/tests/v16_history_gaps.rs
+?? frontier-node/crates/herald/tests/v16_caravan_holder.rs
+?? frontier-node/crates/keeper/tests/v16_version_cap.rs
+?? frontier-node/crates/verify/tests/v16_cpi_keyfree.rs
+?? permutation-gateway/test/v16-agent-fate-view.test.mjs
+?? permutation-gateway/test/v16-public-ops.test.mjs
+?? permutation-gateway/test/v16-web-caravan-holder.test.mjs
+?? permutation-gateway/test/v16-web-reveal-not-before.test.mjs
+?? permutation-gateway/test/v16-web-wallet-switch-adopt.test.mjs
+?? workstreams/04-execution/e2e-native/tests/v16_prize_claim_rights.rs
+?? workstreams/04-execution/e2e-native/tests/v16_record_nation.rs
+   Compiling permutation-rules v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v10-comb/permutation-rules)
+   Compiling frontier-abi v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v10-comb/frontier-abi)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 12.51s
+     Running tests/v16_period_boundary.rs (/home/user/wylls/target/debug/deps/v16_period_boundary-bdef9d6e9dafb734)
+
+running 4 tests
+test v16_p1_a_routine_action_in_the_last_bell_before_the_boundary_is_accepted_today ... ok
+test v16_p2_a_routine_action_at_the_period_boundary_is_still_accepted ... FAILED
+test v16_p3_the_worlds_length_is_not_capped_by_a_season_parameter ... FAILED
+test v16_p4_a_caravan_sent_before_the_boundary_can_still_be_settled_after_it ... FAILED
+
+failures:
+
+---- v16_p2_a_routine_action_at_the_period_boundary_is_still_accepted stdout ----
+
+thread 'v16_p2_a_routine_action_at_the_period_boundary_is_still_accepted' panicked at frontier-abi/tests/v16_period_boundary.rs:60:5:
+assertion `left == right` failed: a player instruction at the boundary bell must be accepted; today step 4 of the player prologue answers WrongStatus
+  left: Err(WrongStatus)
+ right: Ok(1008)
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/std/src/panicking.rs:697:5
+   1: core::panicking::panic_fmt
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/panicking.rs:75:14
+   2: core::panicking::assert_failed_inner
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/panicking.rs:427:23
+   3: core::panicking::assert_failed
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/panicking.rs:387:5
+   4: v16_period_boundary::v16_p2_a_routine_action_at_the_period_boundary_is_still_accepted
+             at ./tests/v16_period_boundary.rs:60:5
+   5: v16_period_boundary::v16_p2_a_routine_action_at_the_period_boundary_is_still_accepted::{{closure}}
+             at ./tests/v16_period_boundary.rs:57:70
+   6: core::ops::function::FnOnce::call_once
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/ops/function.rs:250:5
+   7: core::ops::function::FnOnce::call_once
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- v16_p3_the_worlds_length_is_not_capped_by_a_season_parameter stdout ----
+
+thread 'v16_p3_the_worlds_length_is_not_capped_by_a_season_parameter' panicked at frontier-abi/tests/v16_period_boundary.rs:74:5:
+assertion `left == right` failed: a season longer than 28 days must be creatable for a world that does not end; today validate() refuses it
+  left: Err("join_close_bell/end_bell")
+ right: Ok(())
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/std/src/panicking.rs:697:5
+   1: core::panicking::panic_fmt
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/panicking.rs:75:14
+   2: core::panicking::assert_failed_inner
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/panicking.rs:427:23
+   3: core::panicking::assert_failed
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/panicking.rs:387:5
+   4: v16_period_boundary::v16_p3_the_worlds_length_is_not_capped_by_a_season_parameter
+             at ./tests/v16_period_boundary.rs:74:5
+   5: v16_period_boundary::v16_p3_the_worlds_length_is_not_capped_by_a_season_parameter::{{closure}}
+             at ./tests/v16_period_boundary.rs:69:66
+   6: core::ops::function::FnOnce::call_once
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/ops/function.rs:250:5
+   7: core::ops::function::FnOnce::call_once
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- v16_p4_a_caravan_sent_before_the_boundary_can_still_be_settled_after_it stdout ----
+
+thread 'v16_p4_a_caravan_sent_before_the_boundary_can_still_be_settled_after_it' panicked at frontier-abi/tests/v16_period_boundary.rs:112:5:
+a caravan sent before the boundary must be settleable after it; today it waits for bell 1009 to resolve, which never happens (CaravanEarly for ever: cargo and rent stuck)
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/std/src/panicking.rs:697:5
+   1: core::panicking::panic_fmt
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/panicking.rs:75:14
+   2: v16_period_boundary::v16_p4_a_caravan_sent_before_the_boundary_can_still_be_settled_after_it
+             at ./tests/v16_period_boundary.rs:112:5
+   3: v16_period_boundary::v16_p4_a_caravan_sent_before_the_boundary_can_still_be_settled_after_it::{{closure}}
+             at ./tests/v16_period_boundary.rs:92:77
+   4: core::ops::function::FnOnce::call_once
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/ops/function.rs:250:5
+   5: core::ops::function::FnOnce::call_once
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+
+failures:
+    v16_p2_a_routine_action_at_the_period_boundary_is_still_accepted
+    v16_p3_the_worlds_length_is_not_capped_by_a_season_parameter
+    v16_p4_a_caravan_sent_before_the_boundary_can_still_be_settled_after_it
+
+test result: FAILED. 1 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.38s
+
+error: test failed, to rerun pass `-p frontier-abi --test v16_period_boundary`
+exit=101

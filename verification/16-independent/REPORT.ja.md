@@ -738,3 +738,63 @@ A8 の旧試験（`v16_unknown_tag.rs` の v16_a8）は固定 seed の鍵で署�
 | Aborted の季の参加費（P5） | 再現 | **残る** |
 
 **未照合**: ⑰の候補 Attest（同じ tag 7。⑰によれば Ended の後だけ記録でき、Entry の byte 104–105）。⑰の `wylls-17-claimrights-b858.tgz`（sha256 `d100f170b07f5adc337276a6ef5e28dd2b453d4ecf12c85b5ae44f2b9bf3ccc9`、前提 b858e40d、HEAD `a4c8cc96fec2746ca3af22f3b2b1759cf9516461`、tree `be4be82d17601ab002912f2cb88e5a0f220957e0`）を受け取っていない。④と⑰の候補は同じ tag を使うので、どちらか 1 つに決める必要がある（④・⑰が相談中）。Ended の後だけ記録できる案では、EndSeason が予定より 72 時間以上遅れると記録の窓が 0 になる（13.1 の 72 時間の起点）。
+
+
+# 第9期（2026-11-06）：④の現在版に⑪・⑱を重ねた版、⑮・⑰・⑲ の新しい版
+
+鍵の生成・導出・署名は、共通セットアップを含めて行っていない。プログラムと補助関数が program-derived address（公開のアドレス）を計算するのは第8期と同じ扱い。実 SBF・LiteSVM・実チェーンは未実行。⑰の Attest は撤回済み（対象外）。
+
+## 14.1 固定した版と適用順
+
+| 段階 | 内容 | tree |
+|---|---|---|
+| 0 | ④ `8e96f24df4aa4ed51277fa42de6a354a21cd2bc6`（GitHub `claude/gallant-ride-cunptv`。RecordNation 入り。f43eb4eb からはプログラムのコードが変わらず、④の文書と ABI の一覧だけ） | `ebbc0f764dd02490e2cea15ce0403d9480f59a65` |
+| 1 | ＋⑪ `0004-verify-v0e-evidence-is-unverifiable.patch`（sha256 `258ad759…dd21660`、⑪ `c8d694bd` から取得） | `4acd1346da2ee6ad2e0a710a8e6b2f3c954a966e` |
+| 2 | ＋⑪ `0005-verify-v0e-cpi-only-and-lost-tail.patch`（sha256 `09beb7bc…4067639`） | `d094201993c7a6b03042e5c66600bcca2c80f894` |
+| 3 | ＋⑱ `ef63544c..b71b8197` の 4 commit（`r18-on-integration.bundle` から。cherry-pick、衝突なし） | `34dbdd77e479b75721f068f31262144d19a167c1` |
+
+⑯の検証用 commit（ローカル、push しない）の HEAD は `b65c3b40c8488ef7dba64ceef62b2256fbef443e`。tree が同じなら同じ中身。再構築の手順は `phase5-scripts/compose-phase9.sh`。
+
+**未適用（ファイル未受領）**:
+
+| 担当 | 版（申告） | 必要なファイル | sha256（申告） | 前提 |
+|---|---|---|---|---|
+| ⑰ RecordNation 対応 | HEAD `9abceecdfece14e4dd979525ac0b517d10c7bf87`、tree `dc6879ad916c3becc44a8b72d01e4586aa28cf0e`（SDK・精算ツール・危険の報告の 3 commit） | `wylls-17-rn-on-ws04.tgz`（中に `wylls-17-rn-on-ws04-8e96f24d.bundle`） | `464144b8d244da63c9549621de35c4341919336a170091c7b2b9e0426424cc42` | `8e96f24d` |
+| ⑲ | HEAD `4ee79eccc7a5f1d23a3a926e1884cf9003566b8d`、tree `116d8977ffbdd4c28d3e7f64624def88c832dcde`（archive の破損検出、herald の ingest 状態） | `ws19-on-8e96f24d.bundle` | `4b00b549a5afb8f67462160ecc7690a91250a092aa9ae2a58e363c4c28a0accc` | `8e96f24d` |
+| ⑮ | `cb87e30ceace7b959657d43b3c07cd4873aae9c7`、tree `1e423b210b389b98559435577393c3b4e41255b7`（親 `b295ca3e`）。その次 `bf7f43fca3f4425160ab8a4c318fb45073261955`（tree `109be0c7…`） | `ws15-cb87e30c-restore.tar.gz`（中の `ws15-from-b1a09a0b.bundle`）、次の版は `ws15-cb87e30c-to-bf7f43fc.bundle` | `af2e5fbe775689bff1bf57f10328e5f1e2e5960147c99f9e42d512530c98c0bb`、`7793cf404094c536def537470ba6d9dcdda87a73e7acd355c42092de01cfb8cb` | `b1a09a0b`（⑯にある）、次の版は `cb87e30c` |
+
+⑰・⑲は④の現在版の上に作られているので、受け取れば段階 3 の上に重ねられる見込み（⑰の変更は gateway の SDK・精算ツール、⑲は findex・herald で、段階 1〜3 と同じファイルは無い。重ねた結果は受領後に確かめる）。⑮は `workstreams/15-coop-outcomes/` だけで、統合の木とは別に検証する。
+
+## 14.2 段階 3 の tree での結果（ホスト、鍵なし）
+
+| 試験 | 結果 |
+|---|---|
+| ⑯ A8（`v16_cpi_keyfree`、K0〜K5） | 6/6 通過（⑪で修正を確認。段階 0 だけでは K1〜K3・K5 が PASS＝再現、第7期） |
+| ⑪ `evidence` | 8/8 |
+| ⑯ T18-1b〜1d（Web）、⑱の marchbook 7 件 | すべて通過 |
+| ⑯ bots の公開時刻（agents）、⑱の reveal_time | 1/1、1/1 |
+| ⑯ 版の上限（keeper）、⑱の keeper 単体 8 件 | 2/2、8/8 |
+| ⑯ C3b、⑯ agent の状態語（V16-F1〜F3）、A1・A1b | 通過 |
+| A7、旧 T18-1、T19-1 | 失敗のまま（A7 は表示の開示だけ、旧 T18-1 は `notBefore` なしの呼び出し、T19-1 は旧試作） |
+| ⑯ 賞金 P1〜P6、F1〜F6、④の `claims_vs_closes` 12・`legacy` 4 | 28/28 |
+| ⑯ 履歴欠落 G1〜G3（findex） | 3/3（G2 は検出、G1・G3 は見逃す） |
+| ⑯ herald A1・A1c・A2・C2 | 4/4 |
+| ⑯ ABI P2〜P4（有限シーズンの境界） | 1/4（P2〜P4 は再現） |
+
+ログ: `logs/phase9/`。
+
+## 14.3 完全修正と扱わない 4 項目の修正前後
+
+| 項目 | 修正前（b858e40d） | 段階 3（④ RecordNation ＋⑪＋⑱） | 判定 |
+|---|---|---|---|
+| 事前記録のない Citizen の閉鎖 | 受取権が消える（P1） | 記録済みは守られる（F1）。**記録が無ければ従来どおり消える（F2）、閉鎖後は記録できない（F3）** | 一部修正。⑰の精算ツールの危険の報告（未受領）で、記録漏れを見つけられるかは未確認 |
+| 州の閉鎖と集計 | Tally 後の閉鎖で固着（P2）、未集計の閉鎖で勝者が変わる（P3） | 同じ（P2・P3、④の B・C も本物の CloseProvince で再現） | **未修正** |
+| 終了後の Pay | 最初の Tally まで通る（P4） | 同じ（P4、④の D） | **未修正** |
+| 中止時の資金 | 出口が無い（P5） | 同じ（P5、④の E） | **未修正** |
+
+## 14.4 未確認
+
+- ⑰・⑲・⑮の新しい版（ファイル未受領）。
+- 本物のゲームのプログラムの EndSeason と、時刻の経過を含む通しの流れ（SBF か、ゲームの全命令のホスト実行が要る）。
+- 鍵を使う試験（gateway のサンプル世界、keeper の World、⑰の shares・accounts の試験など）。
+- 実配備と実害。
