@@ -40,6 +40,8 @@
 
 | 14 | ⑨ 872fe6a2（connect10 を外して⑩に合わせた。他人の再送には NotUser を返す修正は残した） | `34cee632a89b8e5d571eaa01a1aae8406f345e61` / `4f2d607be40bac20cd972d34855ac2e89bafc8ff` | 未作成 | ⑨ kernel 43、bridge10 28、⑩ adapter-09 16。**9・10 は一致した** |
 
+| 15 | ⑪ 24956acc を merge し、続けて verify に⑪の 0008 を当てた（kind 130 は、同じ取引に JoinResident（0xE1）があり、generation と faction が一致するときだけ判定される） | `a11c86cc3008d7242d4ecaba27746d07ddc5d1a8` / `bdcb24318face20d16b5a728cf1f6935adf1eac6` | 未作成 | verifier の鍵なしの試験 55 件がすべて合格（new_bands 6/6。kind 130 の検査は解消）。kind 130 を MODELLED に移すには、⑳・⑱ が 0xE1 を検証器に入れ、asset・shard・join_bell を照合する必要がある |
+
 全体版の merge の commit message には「WS05=この木」で取った結果が書いてあります。公開版は同じ message を使っていますが、⑤の木は含みません。
 
 ### ⑯ への再現手順（公開版）
