@@ -1,13 +1,5 @@
 //! Experimental immutable NFT-to-Citizen binding record.
 //!
-//! One record per asset, for every world (the link is global): it binds the
-//! asset to its resident account, once and for good ("one NFT, one
-//! account"). `citizen` is the Citizen the NFT created first, in whichever
-//! world that was: a fact of history kept as written, **not** the Citizen a
-//! later world must use. Each world's NFT Citizen is at that world's
-//! `citizen_by_tag15(resident id)` and carries the asset in its own resident
-//! fields; the runtime checks those, and [`same_identity`] here.
-//!
 //! This codec does not establish account ownership or canonical addresses;
 //! the runtime adapter must check those before using or creating a record.
 
@@ -36,12 +28,6 @@ pub fn read(data: &[u8]) -> Option<Record> {
 /// A decoded record must name the exact three accounts supplied by the runtime.
 pub fn matches(record: &Record, asset: &[u8; 32], resident: &[u8; 32], citizen: &[u8; 32]) -> bool {
     &record.asset == asset && &record.resident == resident && &record.citizen == citizen
-}
-
-/// The record binds exactly this asset to exactly this resident account, in
-/// any world (the stored first Citizen is not compared).
-pub fn same_identity(record: &Record, asset: &[u8; 32], resident: &[u8; 32]) -> bool {
-    &record.asset == asset && &record.resident == resident
 }
 
 /// Write exactly once to an entirely zeroed record. The caller must first

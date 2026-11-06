@@ -2,7 +2,7 @@
 // choice before the first login.
 //
 //   GET /f/residents?owner=<wallet>  → {residents: [{asset, generation, citizen, joined, link}], policy} | {residents: [], policy: null}
-//   (`joined`: this season's NFT Citizen exists; `link`: the NFT joined some world before — the link is one per NFT)
+//   (`joined`: this season's NFT Citizen exists; `link`: this season's link exists — one link per season and NFT, so it matches `joined`)
 //
 // The relay reads, for the season it serves: the Frontier program's resident
 // policy (Core program, resident program, collection), the Core assets of
@@ -70,7 +70,7 @@ export async function listResidents({ connection, owner, addrs }) {
 /** The route's addresses for this relay's season. */
 export const residentAddrs = ctx => ({
   policy: policyAddress(ctx.programId),
-  link: asset => linkAddress(ctx.programId, asset),
+  link: asset => linkAddress(ctx.programId, ctx.addresses.season, asset),
   resident: (residentProgram, asset) => residentAddress(residentProgram, asset),
   citizen: asset => residentCitizen(ctx.addresses, asset),
 });

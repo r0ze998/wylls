@@ -6,7 +6,7 @@
 
 | 仕様 | どう成り立たせたか |
 |---|---|
-| 最初に NFT でログイン、1 NFT につき 1 アカウント | `JoinResident`（0xE1）：対応の記録 `["nft-citizen-link", asset]` と Citizen を同じ取引で作る。Citizen は Season の `citizen_by_tag15(住民 ID)` に、財布の Join と同じ方法で作る（住民 ID＝`sha256("PSF-RES" ‖ asset)[0..15]`）。署名者は asset の今の owner 本人（session は不可）、署名された世代が今の世代、asset に transfer guard。同じ世界での 2 回目は Citizen が既にあるので `AlreadyDone`。対応の記録は 1 NFT に 1 つで一回だけ書け、別の世界への参加ではその記録の asset と住民だけを照合する（v0.15、SEASON-SCOPE §6） |
+| 最初に NFT でログイン、1 NFT につき 1 アカウント | `JoinResident`（0xE1）：対応の記録 `["nft-citizen-link", season, asset]`（v0.15 から Season ごと）と Citizen を同じ取引で作る。Citizen は Season の `citizen_by_tag15(住民 ID)` に、財布の Join と同じ方法で作る（住民 ID＝`sha256("PSF-RES" ‖ asset)[0..15]`）。署名者は asset の今の owner 本人（session は不可）、署名された世代が今の世代、asset に transfer guard。同じ世界での 2 回目は Citizen が既にあるので `AlreadyDone`。対応の記録は一回だけ書ける |
 | 譲渡で操作権が新所有者へ | 毎回、同じ呼び出しの中で Core の今の owner を読む。譲渡（住民プログラムの `TransferResident`）の直後から新所有者が通る。Frontier 側に「操作者」の欄を持たないので、反映の遅れが無い |
 | 旧所有者は操作できない | owner でない署名は `NotCurrentAuthority`。NFT Citizen の `WALLET` は全 0 なので、財布の経路（共通入口、RetireHost の自前判定、Frontier の session）も一致しない。全 0 の財布は署名できず、NFT Citizen は全 0 の財布の tag の住所にも無い |
 | 旧 session の拒否 | NFT Citizen の session は住民プログラムのものだけを見る（Frontier の SetSession は NFT Citizen では拒否）。住民プログラムは譲渡ごとに session を消し、session には設定した世代と設定者が残る。今の owner が今の世代で設定したものだけが通る |
@@ -138,7 +138,7 @@
 
 **この試験の限界**：署名の検証は動かしていない（`is_signer` は試験が立てる。LiteSVM で sigverify を切った場合と同じ）。SBF の build ではない（計算量・ローダー・口座の大きさや所有者の強制は無い）。System program は試験の代わりの部品で、Core と住民プログラムは動かしていない（譲渡は住民プログラムが残す状態をバイトで書いて表した）。時刻と rent は試験用の値。**実際に動かしたのは `JoinResident` と `ResidentAct(SetVigil)`・`ResidentAct(SetSession)` の拒否だけ**で、ほかの 25 の命令の NFT 経路は実行時には確かめていない。
 
-**未接続**：NFT の住民の session（住民プログラムの SetSession。web はまだ呼ばないので、操作のたびにウォレットが署名する）、agent wallet・賞金、検証器 V23（隊商の送り手の再判定）、`ResidentAct` の予算（CU・読み込み量の上乗せ 40,000・4,096 は実測していない）、中継の `ResidentAct` の上限額の見直し、web の行進（`fmarch`）と練習の経路、新しい Season での再ログイン（v0.15 で解消。SEASON-SCOPE.ja.md §6）。
+**未接続**：NFT の住民の session（住民プログラムの SetSession。web はまだ呼ばないので、操作のたびにウォレットが署名する）、agent wallet・賞金、検証器 V23（隊商の送り手の再判定）、`ResidentAct` の予算（CU・読み込み量の上乗せ 40,000・4,096 は実測していない）、中継の `ResidentAct` の上限額の見直し、web の行進（`fmarch`）と練習の経路、新しい Season での再ログイン（v0.15 で解消：link を Season ごとに。SEASON-SCOPE.ja.md §6）。
 
 ## 6. ④ との調整
 
