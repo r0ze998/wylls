@@ -347,3 +347,28 @@ pub(crate) fn join(p: &Pubkey, accounts: &[AccountInfo], generation: u32, factio
         &mut [],
     )
 }
+
+#[cfg(test)]
+mod act_list {
+    // Text only: no account, key, address or signature is made.
+    #[test]
+    fn act_runs_exactly_the_abi_list_and_refuses_set_session() {
+        let src = include_str!("resident.rs");
+        let body =
+            &src[src.find("pub(crate) fn act(").unwrap()..src.find("pub(crate) fn join(").unwrap()];
+        let arms: Vec<&str> = body
+            .lines()
+            .filter_map(|l| l.trim().strip_prefix("Ix::"))
+            .filter_map(|l| l.split_whitespace().next())
+            .collect();
+        let mut want: Vec<String> = frontier_abi::resident_wire::ACT_RUNS
+            .iter()
+            .map(|ix| format!("{ix:?}"))
+            .collect();
+        want.push("SetSession".into());
+        let mut got: Vec<String> = arms.iter().map(|s| s.to_string()).collect();
+        want.sort();
+        got.sort();
+        assert_eq!(got, want);
+    }
+}

@@ -20,6 +20,7 @@ pub mod v24_structures;
 pub mod v25_nations;
 pub mod v26_growth;
 pub mod v27_residents;
+pub mod v28_resident_acts;
 pub mod v2_program;
 pub mod v3_random;
 pub mod v4_windows;
@@ -282,6 +283,8 @@ pub fn run(input: &Input) -> Report {
         ran.push("V25:nations");
         v27_residents::run(&mut cx);
         ran.push("V27:residents");
+        v28_resident_acts::run(&mut cx);
+        ran.push("V28:resident-acts");
     }
     ran.push("V10");
     counts(&mut cx);
