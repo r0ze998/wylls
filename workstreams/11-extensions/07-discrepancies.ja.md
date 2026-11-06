@@ -29,6 +29,15 @@
 | 12 | ⑯ `patches/README.ja.md`「各パッチは基点 `4cd901de` の tree に `git apply` できる」 | P1 は統合候補 `ef63544c` には当たらない（`codes.rs` が⑱の V0 と衝突） | 統合候補での扱いは [13](13-verifier-r6.ja.md) §1 |
 | 13 | ⑪ r5 の文書「統合の先端で clippy が通らない（keeper）」 | 統合候補の `4a5230b7`（Fix Rust 1.95 workspace Clippy warnings）で直っている | r5 の記録は当時の事実として残す |
 
+## r7 で見つけたもの（2026-11-06）
+
+| # | 記述 | 事実 | 扱い |
+|---|---|---|---|
+| 14 | ④ `ABI-ALLOCATION-20261106` は②に記録種別 114–119 を割り当てる | ②のコード（`dc3bd3d`）は記録を出さない（`rights.rs` に記録種別が無い） | 割当ては予約として扱った。検証器は ABI に無い種別を FAIL にする（[14](14-verifier-r7.ja.md) §2） |
+| 15 | ②・⑳の命令は「v2 の表の外」（`rights.rs`、`resident_wire.rs` の注記） | コアの `dispatch` は `Ix` の前にこれらを実行するが、⑱の V0 は `v2::Ix` に無いタグを「固定したプログラムは拒否する」として FAIL にする | ②・⑳を採用すると正しい取引が FAIL になる（PASS にはならない）。④・⑱への申し送り（[14](14-verifier-r7.ja.md) §2） |
+| 16 | ⑪ `patches/0002` の命令表 0xD0–0xD5 | ②の Grant と重なる。④の割当てでは⑪は 0xE8–0xED | 0002 に読替えの注記を足した（表は初版のまま） |
+| 17 | V13 の注記「DIVERT records of the same transaction」 | DIVERT は TRANSIT_SETTLED の中でしか判定されず、ほかの取引の DIVERT はどの検査も見ない（書き足しで PASS） | 0006 の V0E `UnverifiedRecord` |
+
 ## 他担当の要約との食い違い（参考）
 
 - ⑥の要約では「回数制限の正本」を補遺で「統合案（3 層）」に訂正している。⑪の契約では回数（`calls_left`）と seq は**チェーンが強制する層**に置いた（`Host::call` と検証器の両方）。⑥の 3 層のどれに当たるかは統合時に照合する（⑥への確認の往復はオーナーの指示で止めた）。ただし⑪の層は**ホストの試作の中**の強制で、チェーン上の強制は未実装（[08](08-host-vs-onchain.ja.md)）。
