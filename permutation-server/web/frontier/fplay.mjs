@@ -20,7 +20,8 @@ import { compileMessage, wireTransaction } from '../sdk/solana-tx.mjs';
 import { decode as fromBase58 } from '../sdk/base58.mjs';
 import { toBase64 } from '../sdk/bytes.mjs';
 import { verify } from '../session.mjs';
-import { joinResidentIx, residentActIx, residentBudget, wideResidentActIx } from '../sdk/frontier/resident.mjs';
+import { JOIN_RESIDENT_TAG, joinResidentIx, residentActIx, residentBudget, wideResidentActIx } from '../sdk/frontier/resident.mjs';
+import { x402Network } from '../sdk/frontier/prize.mjs';
 import * as io from './fchainio.mjs';
 import { joinShardOf, citizenTag } from './faddr.mjs';
 
@@ -240,7 +241,9 @@ export function buildWideResidentShape({ inner, resident, feePayer, blockhash, b
 /**
  * Send one shape through the relay:
  *   {name, accounts, fields, signer: {session}|{wallet}|null, requester?: session key,
- *    citizen?: Citizen address (a settle's requester), invite?}
+ *    citizen?: Citizen address (a settle's requester), invite?,
+ *    via?: 'x402' — a plain JoinResident of a pass whose NFT Entry already exists, through the
+ *          relay's settled x402 path (POST /f/x402/join; no fee, no PayResident; JoinResident only)}
  * (`accounts` and `fields` may be functions of the relay's fee payer.)
  * → `{ok: true, signature, message, feePayer, lastValidBlockHeight, bytes}` or `{ok: false, code, error, …}`.
  */
@@ -284,9 +287,13 @@ export async function submit(req) {
     return fail(e?.code ?? 'SignFailed', String(e?.message ?? e));
   }
   if (wire.length > budget.txCeiling) return fail('TooLarge', `${wire.length} B over the ${budget.txCeiling}-B ceiling of ${req.name}`);
-  const r = req.name === 'Join' || req.name === 'JoinResident'
-    ? await io.sendJoin(wire, req.invite ?? null, { extra: { lastValidBlockHeight } })
-    : await io.sendTx(wire, { extra: { ...extra, lastValidBlockHeight } });
+  // The settled x402 path takes a plain JoinResident only (the message holds that one Frontier instruction: no PayResident, no fee).
+  if (req.via === 'x402' && (req.name !== 'JoinResident' || expected.data[0] !== JOIN_RESIDENT_TAG)) return fail('BuildFailed', 'the x402 path takes a plain JoinResident only');
+  const r = req.via === 'x402'
+    ? await io.sendPaidJoin(wire, { network: x402Network(pin.cluster), lastValidBlockHeight })
+    : req.name === 'Join' || req.name === 'JoinResident'
+      ? await io.sendJoin(wire, req.invite ?? null, { extra: { lastValidBlockHeight } })
+      : await io.sendTx(wire, { extra: { ...extra, lastValidBlockHeight } });
   if (!r.ok) return r;
   // The answer names the transaction by its first signature: the fee
   // payer's. It must sign exactly the message this page built and signed.

@@ -38,10 +38,12 @@ resident program's holder generation (`frontier_abi::resident_auth`).
 
 This change makes the prize pool follow the same rule:
 
-- **The entry belongs to the pass.** `PayResident` (tag 8) takes the fee
-  from the pass's current owner and writes an **NFT Entry**
-  (`["entry-nft", pool, asset]`, 192 B, magic `WYPRNFTE`) that names the
-  asset, not a wallet.
+- **The entry belongs to the pass.** An **NFT Entry**
+  (`["entry-nft", pool, asset]`, 192 B, magic `WYPRNFTE`) names the asset,
+  not a wallet. `PayResident` (tag 8) would write it from the pass's
+  current owner's fee, but **is refused at dispatch**
+  (`ResidentDepositsDisabled`) until the pass refund right is decided: no
+  deposit is taken by this code.
 - **Unclaimed prize rights follow the pass to its current owner, whoever
   paid and whenever it accrued.** `ClaimResident` (tag 9) pays the pass's
   share to the signer only if that signer is the asset's owner *now*, at
@@ -160,7 +162,7 @@ PDA), 0x11A ResidentRefundUndecided (§8). 0x111 stays free for workstream
 |---|---|
 | program | `permutation-prize/src/lib.rs` (`entry_resident`, `leaf_resident`, `PrizeError` 0x113–0x11A, module `resident`), `Cargo.toml` (feature) |
 | SDK | `permutation-gateway/client/src/frontier/prize.mjs` (`entryResidentAddress`, `decodeEntryResident`, `leafResidentHash`, `payResidentIx`, `claimResidentIx`, `recordResidentNationIx`, `recordNationIx`, `paidJoinResidentMessage`, `classifyPaidResidentJoin`, `joinResidentViaX402`); the generated copy `permutation-server/web/sdk/frontier/prize.mjs` |
-| relay | `permutation-gateway/src/frontier/routes/prize.mjs` (`GET /f/prize?asset=`, `POST /f/x402/join` with `[prefix, PayResident, JoinResident]` or a plain JoinResident of a paid pass, `POST /f/prize/claim` with ClaimResident) |
+| relay | `permutation-gateway/src/frontier/routes/prize.mjs` (`GET /f/prize?asset=` via `src/frontier/prize-view.mjs`, `POST /f/x402/join` refusing `[prefix, PayResident, JoinResident]` and taking a plain JoinResident of a pass with an existing Entry, `POST /f/prize/claim` with ClaimResident) |
 | settlement | `permutation-gateway/scripts/prize-settle.mjs`, `src/frontier/achievements.mjs` (`playerOfCitizen`, `pass:<asset>` ids, pass leaves) |
 | web page | `permutation-server/web/frontier/fprize.mjs` (`loadPrize` with `asset`, `payAndJoinResident`, `claimPass`, `passShareOf`, `passClaimModel`), `screens/prize.mjs` (`renderPass`), `controller.mjs` (`claimPass`, `paidJoinPass`, the `nft-login` paid path, `prize-claim-pass`), `fi18n.mjs` and `lang/en-frontier-play.mjs` (texts) |
 | registry | `workstreams/04-execution/contracts/registry.txt`, `e2e-native/tests/registry.rs`, `error_codes.rs` |
@@ -195,10 +197,28 @@ the tally) with no account created, no token moved and no counter moved.
   and strings; exact points at the u64 boundary; the pending / unknown /
   failed records and their wallet and generation; the claim operation's
   identity guard; the wallet panel unchanged; the English texts.
+- `permutation-gateway/test/web-frontier-prize-dto.test.mjs`: the relay's
+  pass view contract (real decoder over literal bytes, real mapper, real
+  JSON) into `claimIsMine` / `passClaimModel`: same owner and generation,
+  old owner, A → B → A at an old generation, unclaimed and absent
+  Entries, and the detection of an omitted `claimGeneration`.
+- `permutation-gateway/test/frontier-prize-claim-outcome.test.mjs`: the
+  relay's claimed-Entry rule (`claim-outcome.mjs`): legacy wallet and NFT
+  pass, finalized-ok / failed / confirmed / null status, no prior attempt,
+  owner and generation mismatch, unclaimed, absent, another subject's or
+  pool's Entry.
+- `web-frontier-prize-pass.test.mjs` also covers the NFT login's branch
+  (`passJoinPlan`: already paid → plain JoinResident over x402, unpaid in
+  a pool season → refused, no pool → invite path, joined → play) and the
+  x402 envelope around the signed bytes as given (`x402Envelope`).
+
+Not executed by any test (they sign and send): `fplay.submit({via:
+'x402'})`, `fchainio.sendPaidJoin`, the relay's settled JoinResident
+acceptance for a pass, and the login's end-to-end path.
 
 ```sh
 (cd permutation-prize && cargo test --lib && cargo test --lib --features nft-experimental)
-(cd permutation-gateway && node --import ../scripts/ci/no-keys-guard.mjs --test test/web-frontier-prize-pass.test.mjs)
+(cd permutation-gateway && node --import ../scripts/ci/no-keys-guard.mjs --test test/web-frontier-prize-pass.test.mjs test/web-frontier-prize-dto.test.mjs test/frontier-prize-claim-outcome.test.mjs)
 ```
 
 **Address-deriving (compile- or syntax-check only until a run is
@@ -261,12 +281,21 @@ screen) and the wallet's passes (`FS.nfts`). No new selector was added.
   (`FS.prize.pass`). The ledger marks the pass's own lines as "you"
   (`pass:<asset>`).
 - **Entry.** On the join screen, "Join with this NFT" in a season with a
-  pool pays the fee and joins in one signed transaction
-  (`paidJoinPass` → `payAndJoinResident` → SDK `joinResidentViaX402`:
-  `[prefix, PayResident, JoinResident]`), for the generation read fresh
-  from the relay right before signing. The pass accounts are derived in the
-  SDK from the 402's season, never taken from the answer. Without a pool
-  the former invite path is unchanged.
+  pool answers `ResidentDepositsDisabled` before reading anything: new
+  pass deposits are disabled at every layer (program dispatch, relay,
+  SDK, page). The paid path (`paidJoinPass` → `payAndJoinResident` →
+  `joinResidentViaX402`: `[prefix, PayResident, JoinResident]`) is kept in
+  the code, unreachable, for the refund decision. Without a pool the
+  former invite path is unchanged.
+- **The pass view.** `GET /f/prize?asset=` is projected by
+  `src/frontier/prize-view.mjs` (`passView`), the one mapper the route
+  serializes: the Entry's `claimedBy` **and** `claimGeneration` travel
+  together (the key is present even unclaimed). The pure contract test
+  `test/web-frontier-prize-dto.test.mjs` runs the real decoder over
+  literal bytes, the real mapper and real JSON into `claimIsMine` and
+  `passClaimModel`, and shows that a view without `claimGeneration` would
+  mislabel the rightful same-generation owner. The route's RPC reads and
+  Citizen-address derivation are not executed by that test.
 - **Claim.** The 賞金 panel shows a pass section only for a pass player
   (`renderPass`; the wallet panel is as before). The claim button appears in
   exactly one state (`passClaimModel`: shares posted in shares mode, a
@@ -319,11 +348,27 @@ screen) and the wallet's passes (`FS.nfts`). No new selector was added.
   `409 AlreadyClaimedByPriorOwner` to anyone else; a wallet claim keeps
   its former behaviour. (The relay reads the finalized Entry; the page's
   re-read is at the relay's confirmed commitment.)
-- **Deposits.** The page's NFT login in a season with a pool answers
-  `ResidentDepositsDisabled` before reading anything (`PASS_DEPOSITS_ENABLED
-  = false`). A pass whose Entry already exists but has no Citizen joins
-  through the invite path (`/f/join`) as before; the page does not build
-  that case specially.
+- **Deposits and the NFT login's branch** (`fprize.passJoinPlan`, pure).
+  No pool: the plain JoinResident through `POST /f/join` (an invite when
+  gated), as before. A pool and an Entry the pass already has (read now
+  from `GET /f/prize?asset=`): the same plain JoinResident, signed by the
+  wallet for the generation read again from the relay, sent through the
+  relay's existing settled x402 path (`fchainio.sendPaidJoin`: the signed
+  bytes in the X-PAYMENT envelope, `fplay.submit({via: 'x402'})`, which
+  refuses anything but a lone JoinResident), so no PayResident and no fee:
+  an existing right is kept. A pool and no Entry: `ResidentDepositsDisabled`
+  before anything is read or signed (`PASS_DEPOSITS_ENABLED = false`). The
+  login's writes are guarded by the wallet and the pass epoch, as the
+  claim's are.
+- **The relay's answer for a claimed Entry** (`src/frontier/claim-outcome.mjs`,
+  the one helper the route applies to wallet and pass claims alike): the
+  received fact (claimed, for good; the pending record is closed as
+  `landed` or `superseded` and never released for a retry) is kept apart
+  from the transaction evidence: the prior attempt's signature is handed
+  back only when its status is finalized without error, else `signature:
+  null`, for a wallet and a pass alike. A pass claim is `already` only for
+  the claimer at its signed generation; anyone else gets `409
+  AlreadyClaimedByPriorOwner` naming who and when.
 - **Exact points.** Ledger points are kept as exact u64 bigints from the
   ledger (a JSON number only if it is a safe integer, else a decimal
   string; anything else gives no share) through the model, the estimate

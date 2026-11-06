@@ -40,3 +40,10 @@ Review this candidate independently before merging. Map work may also modify con
 - After these edits: pure literal-value page/model tests passed 9/9 (no skips) under the no-keys guard; changed JavaScript syntax and git diff --check passed. These tests do not execute transaction/signing/address derivation paths.
 - Rust, host dispatch and key-using relay tests were NOT run or recompiled in this follow-up. The earlier rejection was not retried or bypassed. Host claim tests now create explicit synthetic pre-existing Entry fixtures; they no longer assert successful real NFT deposits.
 - Feature remains off and NOT DEPLOYABLE. Continuous-world prize economics, unrecorded Citizen closure, existing hypothetical NFT refund balances and real-chain/runtime proof remain unresolved.
+
+## API-contract and existing-paid-pass follow-up
+
+- The actual GET route now uses prize-view.mjs to include claimGeneration. Tests run the real fixed-byte Entry decoder through the real DTO mapper and JSON into actual UI models, including a control that omits the field. RPC reads and PDA derivations are not run.
+- A shared claimedEntryAnswer helper used by the actual relay separates receipt facts from transaction evidence for both legacy and NFT claims. A prior signature is returned only with finalized success; otherwise null. Claimed entries stay closed to retry.
+- Existing already-paid passes without a Citizen now select plain JoinResident over the settled x402 route; no PayResident is added. Unpaid passes remain blocked. The page refreshes generation and checks wallet/pass epoch. Pure branch and envelope tests passed; real signed transactions and browser flow remain unexecuted.
+- Final permitted pure Node tests: 16 passed, 0 skipped, across web-frontier-prize-pass, web-frontier-prize-dto, and frontier-prize-claim-outcome under no-keys guard. Changed JavaScript syntax and git diff --check passed. No additional Rust commands were run.

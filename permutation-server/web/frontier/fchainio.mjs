@@ -15,7 +15,7 @@
 //
 // Every call answers `{…body, ok, httpStatus, code, error}` and never rejects.
 import { isResidentTag } from '../sdk/frontier/resident.mjs';
-import { equal, toBase64 } from '../sdk/bytes.mjs';
+import { equal, toBase64, utf8 } from '../sdk/bytes.mjs';
 import { COMPUTE_BUDGET_PROGRAM, messageOf, parseMessage, pubkeyString } from '../sdk/solana-tx.mjs';
 import { profileForHash } from '../sdk/frontier/profile.mjs';
 import { classify, REVEAL_TAG } from '../sdk/frontier/shapes.mjs';
@@ -52,13 +52,13 @@ export const fail = (code, error, extra = {}) => ({ ok: false, httpStatus: 0, co
 
 // ------------------------------------------------------------------ HTTP
 const TIMEOUT = { GET: 12_000, POST: 45_000 };
-export async function request(method, path, { body, fetch: f = (...a) => globalThis.fetch(...a) } = {}) {
+export async function request(method, path, { body, headers = {}, fetch: f = (...a) => globalThis.fetch(...a) } = {}) {
   if (!relayBase) return fail('NoRelay', L`中継サーバーの場所がわかりません`);
   let r;
   try {
     r = await f(`${relayBase}${path}`, {
       method, cache: 'no-store', signal: AbortSignal.timeout?.(TIMEOUT[method] ?? 12_000),
-      headers: body === undefined ? {} : { 'Content-Type': 'application/json' },
+      headers: body === undefined ? { ...headers } : { 'Content-Type': 'application/json', ...headers },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
   } catch {
@@ -94,6 +94,22 @@ export async function relayInfo(opts) {
 export const sendTx = (wire, { extra = {}, ...opts } = {}) => request('POST', '/f/relay', { ...opts, body: { ...extra, tx: toBase64(wire) } });
 /** POST /f/join: the wallet-signed Join (with an invite when the season is gated). */
 export const sendJoin = (wire, invite, { extra = {}, ...opts } = {}) => request('POST', '/f/join', { ...opts, body: { ...extra, tx: toBase64(wire), ...(invite ? { invite } : {}) } });
+/**
+ * The x402 envelope the relay's POST /f/x402/join reads from its X-PAYMENT
+ * header (sdk prize.mjs `joinViaX402` builds the same): base64 JSON naming
+ * the scheme, the network and the signed transaction. Pure.
+ */
+export const x402Envelope = (wire, { network, lastValidBlockHeight = null }) => toBase64(utf8(JSON.stringify({ x402Version: 1, scheme: 'exact', network,
+  payload: { transaction: toBase64(wire), ...(lastValidBlockHeight ? { lastValidBlockHeight } : {}) } })));
+/**
+ * POST /f/x402/join with a signed PLAIN JoinResident (one Frontier
+ * instruction; never a PayResident): the relay's settled path for a pass
+ * whose NFT Entry already exists and is finalized. No fee moves. (New pass
+ * deposits are disabled; `[prefix, PayResident, JoinResident]` is refused
+ * by the relay before anything is simulated.)
+ */
+export const sendPaidJoin = (wire, { network, lastValidBlockHeight = null, ...opts } = {}) =>
+  request('POST', '/f/x402/join', { ...opts, headers: { 'X-PAYMENT': x402Envelope(wire, { network, lastValidBlockHeight }) }, body: {} });
 /** POST /f/reveal: reveal material, no signature (I-24; marchbook.revealMaterial). */
 export const reveal = (material, opts) => request('POST', '/f/reveal', { ...opts, body: material });
 /** POST /f/nudge: ask the keeper to catch a province up (a resident action waits on it). */

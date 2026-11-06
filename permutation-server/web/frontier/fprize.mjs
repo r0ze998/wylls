@@ -8,13 +8,19 @@
 //
 // NFT pass (experimental, permutation-prize `nft-experimental`): while an
 // NFT is played (FS.resident), the pool is read with the pass's Entry and
-// NFT Citizen (`GET /f/prize?asset=`), the pass joins by paying its fee over
-// x402 (`joinResidentViaX402`: PayResident + JoinResident), and its share is
-// claimed with ClaimResident signed by the pass's current owner for the
-// generation read fresh at that moment (`claimPass`). Whether the signer is
-// the owner now is the program's judgement from the live asset; this page
-// only refuses to offer a claim it already knows the program would refuse
-// (`passClaimModel`). A pass's refund is undecided and never offered.
+// NFT Citizen (`GET /f/prize?asset=`: `claimedBy` and `claimGeneration`
+// together), and its share is claimed with ClaimResident signed by the
+// pass's current owner for the generation read fresh at that moment
+// (`claimPass`). **New pass deposits are disabled**: `payAndJoinResident`
+// stays for the day the pass refund right is decided, but the program
+// refuses PayResident at dispatch, the relay refuses the shape, the SDK
+// refuses to sign it and the controller refuses before reading
+// (ResidentDepositsDisabled). Whether the signer is the owner now is the
+// program's judgement from the live asset; this page only refuses to offer
+// a claim it already knows the program would refuse (`passClaimModel`), and
+// counts a claimed Entry as this owner's only when it names this wallet at
+// this generation (`claimIsMine`). A pass's refund is undecided and never
+// offered.
 import * as io from './fchainio.mjs';
 import { claimResidentIx, joinResidentViaX402, joinViaX402 } from '../sdk/frontier/prize.mjs';
 import { compileMessage, wireTransaction } from '../sdk/solana-tx.mjs';
@@ -245,6 +251,24 @@ export function prizeModel(pool) {
     wallet: pool.wallet ? { address: pool.wallet.address, balance: u(pool.wallet.balance), paid: !!pool.wallet.entry, canPay: BigInt(pool.wallet.balance) >= BigInt(pool.fee),
       faction: pool.wallet.faction, claimed: !!pool.wallet.entry?.claimed, claimAmount: pool.wallet.entry ? u(pool.wallet.entry.claimAmount) : null } : null,
   };
+}
+
+/** NFT pass deposits (PayResident) are disabled everywhere until the pass refund right is decided (permutation-prize NFT-PRIZE.md §8.3). */
+export const PASS_DEPOSITS_ENABLED = false;
+
+/**
+ * How a pass enters this season (the NFT login's branch; pure):
+ *   play             its NFT Citizen exists: nothing to send
+ *   joinInvite       no prize pool: the plain JoinResident through POST /f/join (an invite when gated), as before
+ *   joinPaid         a pool, and the pass's NFT Entry already exists (paid before deposits were refused): the plain
+ *                    JoinResident through the relay's settled x402 path — no PayResident, no fee, an existing right
+ *   depositDisabled  a pool, and no Entry: a new deposit would be needed; refused (ResidentDepositsDisabled)
+ * `entry` is the pass's Entry from GET /f/prize?asset= (prize-view.mjs `passEntryView`), null when there is none.
+ */
+export function passJoinPlan({ prize, entry = null, joined = false } = {}) {
+  if (joined) return 'play';
+  if (!prize) return 'joinInvite';
+  return entry && entry.paid !== undefined ? 'joinPaid' : 'depositDisabled';
 }
 
 /**

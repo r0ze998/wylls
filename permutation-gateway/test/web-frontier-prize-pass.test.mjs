@@ -11,9 +11,11 @@
 // are left to a run under approval.
 import { test, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { claimIsMine, claimOpLive, claimOpOf, claimOutcome, nextPassEpoch, passClaimModel, passShareOf, pointsOf, prizeModel } from '../../permutation-server/web/frontier/fprize.mjs';
+import { claimIsMine, claimOpLive, claimOpOf, claimOutcome, nextPassEpoch, PASS_DEPOSITS_ENABLED, passClaimModel, passJoinPlan, passShareOf, pointsOf, prizeModel } from '../../permutation-server/web/frontier/fprize.mjs';
 import { render as panel, renderPass } from '../../permutation-server/web/frontier/screens/prize.mjs';
 import { failureText } from '../../permutation-server/web/frontier/fi18n.mjs';
+import { x402Envelope } from '../../permutation-server/web/frontier/fchainio.mjs';
+import { fromBase64, toBase64 } from '../../permutation-server/web/sdk/bytes.mjs';
 import { setLang } from '../../permutation-server/web/lang.mjs';
 
 afterEach(() => setLang('ja'));
@@ -266,6 +268,28 @@ test('a claimed Entry is this owner\'s only when it names this wallet at this ge
   assert.doesNotMatch(heldPage, /prize-claim-pass|届きませんでした|送信しました/);
   setLang('en');
   assert.doesNotMatch(plain(String(renderPass(fs({ prize: prizeB, prizeLedger: ledger(), resident: resident(2) })))), /[぀-ヿ㐀-鿿]/);
+});
+
+test('the NFT login\'s branch: an already-paid pass joins with a plain JoinResident over the settled x402 path; an unpaid pass in a pool season is refused; no pool keeps the invite path', () => {
+  assert.equal(PASS_DEPOSITS_ENABLED, false, 'new deposits stay disabled');
+  const paidEntry = entry();
+  assert.equal(passJoinPlan({ prize: pool(), entry: paidEntry }), 'joinPaid', 'an existing Entry: its right to join, no deposit');
+  assert.equal(passJoinPlan({ prize: pool(), entry: null }), 'depositDisabled', 'no Entry in a pool season: a deposit would be needed');
+  assert.equal(passJoinPlan({ prize: pool(), entry: undefined }), 'depositDisabled');
+  assert.equal(passJoinPlan({ prize: pool(), entry: {} }), 'depositDisabled', 'a view without an amount is no Entry');
+  assert.equal(passJoinPlan({ prize: null, entry: null }), 'joinInvite', 'no pool: the invite path as before');
+  assert.equal(passJoinPlan({ prize: null, entry: paidEntry }), 'joinInvite');
+  assert.equal(passJoinPlan({ prize: pool(), entry: paidEntry, joined: true }), 'play');
+  assert.equal(passJoinPlan({ prize: pool(), entry: null, joined: true }), 'play');
+  assert.equal(passJoinPlan({}), 'joinInvite');
+  // The transaction plan of the paid branch: the relay's x402 envelope around the SIGNED PLAIN JoinResident bytes as given —
+  // nothing is added in front of them (no PayResident), and the network and block height travel beside them.
+  const wire = Uint8Array.from([1, 2, 3, 4, 5]);
+  const env = JSON.parse(new TextDecoder().decode(fromBase64(x402Envelope(wire, { network: 'solana-localnet', lastValidBlockHeight: 150 }))));
+  assert.deepEqual(env, { x402Version: 1, scheme: 'exact', network: 'solana-localnet', payload: { transaction: toBase64(wire), lastValidBlockHeight: 150 } });
+  assert.deepEqual([...fromBase64(env.payload.transaction)], [1, 2, 3, 4, 5]);
+  const bare = JSON.parse(new TextDecoder().decode(fromBase64(x402Envelope(wire, { network: 'solana-devnet' }))));
+  assert.deepEqual(bare.payload, { transaction: toBase64(wire) });
 });
 
 test('every pass refusal code has words of its own', () => {

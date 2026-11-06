@@ -10,9 +10,11 @@
 //   x402        `joinViaX402`: one request, a 402 with the price, the paid retry
 //   NFT pass    (experimental, permutation-prize `nft-experimental`, tags 8–10; permutation-prize/NFT-PRIZE.md)
 //               the pass's Entry `["entry-nft", pool, asset]` (192 B), its leaf `sha256(0x02 ‖ pool ‖ asset ‖ nation ‖ points)`,
-//               PayResident / ClaimResident / RecordResidentNation, the paid JoinResident `[prefix, PayResident, JoinResident]`
-//               and its classifier. The pass's CURRENT owner signs with the resident program's generation; the program
-//               reads the owner from the live Core asset, never from these builders.
+//               ClaimResident / RecordResidentNation, and — kept for the day the pass refund right is decided — PayResident,
+//               the paid JoinResident `[prefix, PayResident, JoinResident]` and its classifier: NEW PASS DEPOSITS ARE DISABLED
+//               (the program answers PayResident with ResidentDepositsDisabled at dispatch; the relay refuses the shape;
+//               `joinResidentViaX402` refuses to sign when the relay says so). The pass's CURRENT owner signs with the
+//               resident program's generation; the program reads the owner from the live Core asset, never from these builders.
 //
 // Layouts and tags are permutation-prize/src/lib.rs's (`tag`, `pool`,
 // `entry`, `entry_resident`); test/frontier-prize.test.mjs checks the hashes

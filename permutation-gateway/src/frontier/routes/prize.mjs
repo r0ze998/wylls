@@ -17,14 +17,20 @@
 //                              or (NFT pass, experimental) an owner-signed ClaimResident (tag 9)
 //
 // NFT pass (experimental, permutation-prize `nft-experimental`): the same
-// routes take the pass's instructions. POST /f/x402/join accepts
-// `[prefix, PayResident, JoinResident]` (sdk prize.mjs `classifyPaidResidentJoin`)
-// and a plain JoinResident of a pass whose NFT Entry is finalized; GET
-// /f/prize?asset= reads a pass's Entry and NFT Citizen; POST /f/prize/claim
-// takes ClaimResident. The relay pins the accounts to this season's pool,
-// program and policy and adds its signature; the program alone judges who
-// holds the pass now (the live Core asset and resident record) and refuses
-// an old owner, a session key or a stale generation.
+// routes take the pass's instructions. **New pass deposits are disabled**:
+// POST /f/x402/join refuses `[prefix, PayResident, JoinResident]` (sdk
+// prize.mjs `classifyPaidResidentJoin`) with 409 ResidentDepositsDisabled
+// before anything is signed or simulated (the program refuses PayResident
+// at dispatch; a pass's refund right is undecided), and still takes a plain
+// JoinResident of a pass whose NFT Entry already exists and is finalized.
+// GET /f/prize?asset= reads a pass's Entry and NFT Citizen (prize-view.mjs:
+// `claimedBy` and `claimGeneration` together); POST /f/prize/claim takes
+// ClaimResident and answers `already` only to the claimer at its generation
+// (409 AlreadyClaimedByPriorOwner to anyone else). The relay pins the
+// accounts to this season's pool, program and policy and adds its
+// signature; the program alone judges who holds the pass now (the live Core
+// asset and resident record) and refuses an old owner, a session key or a
+// stale generation.
 //
 // The relay cannot change the amount or the payee: Pay moves exactly the
 // pool's fee into the pool's vault, and the relay only adds signatures.
@@ -52,6 +58,8 @@ import { RouteError } from '../../routes/errors.mjs';
 import { simulateWatching } from '../chain.mjs';
 import { signAs, sponsor } from './relay.mjs';
 import { decodePolicy } from './residents.mjs';
+import { passView, walletEntryView } from '../prize-view.mjs';
+import { claimedEntryAnswer } from '../claim-outcome.mjs';
 
 const ENTRY_RENT = rent(ENTRY_SIZE);
 /** The NFT pass's Entry rent (experimental): what PayResident may cost the fee payer beyond a JoinResident. */
@@ -181,19 +189,19 @@ export const prizeRoutes = {
       if (!isKey(wallet)) throw new RouteError(400, 'wallet must be a base58 address', 'BadRequest');
       const tokenAccount = ata(wallet, prize.mint);
       const [token, entry, citizen] = await Promise.all([account(ctx, tokenAccount), account(ctx, entryAddress(prize.program, prize.pool, wallet)), ctx.chain.citizen(ctx.addresses.citizen(wallet))]);
-      const e = decodeEntry(entry);
       body.wallet = { address: wallet, tokenAccount, balance: String(decodeTokenAccount(token).amount), faction: citizen ? citizen.FACTION : null,
-        entry: e ? { paid: String(e.amount), claimed: e.claimed, claimAmount: String(e.claimAmount), nation: e.nation } : null };
+        entry: walletEntryView(decodeEntry(entry)) };
     }
-    // NFT pass (experimental): the pass's Entry and its NFT Citizen of this season (who may claim is the program's to judge, from the live asset).
+    // NFT pass (experimental): the pass's Entry and its NFT Citizen of this
+    // season, projected by prize-view.mjs (`claimedBy` AND `claimGeneration`:
+    // the page judges a claim its own only when both name the viewer). Who
+    // may claim is the program's to judge, from the live asset.
     const asset = req.url.searchParams.get('asset');
     if (asset) {
       if (!isKey(asset)) throw new RouteError(400, 'asset must be a base58 address', 'BadRequest');
       const citizenAddress = residentCitizen(ctx.addresses, asset);
       const [entry, citizen] = await Promise.all([account(ctx, entryResidentAddress(prize.program, prize.pool, asset)), ctx.chain.citizen(citizenAddress)]);
-      const e = decodeEntryResident(entry);
-      body.pass = { asset, citizen: citizenAddress, faction: citizen ? citizen.FACTION : null,
-        entry: e ? { paid: String(e.amount), paidBy: e.paidBy, payGeneration: e.payGeneration, claimed: e.claimed, claimedBy: e.claimedBy, claimAmount: String(e.claimAmount), nation: e.nation } : null };
+      body.pass = passView({ asset, citizen: citizenAddress, citizenAccount: citizen, entry: decodeEntryResident(entry) });
     }
     return { body };
   },
@@ -409,9 +417,12 @@ export const prizeRoutes = {
         mine: e => e?.claimedBy === wallet && e?.claimGeneration === generation,
         what: 'ClaimResident must name this season\'s pool, the pass\'s entry, NFT Citizen, link, the program\'s policy, the asset, its resident record and the owner\'s token account' };
     }
+    /** The one rule for a claimed Entry (claim-outcome.mjs): the fact, who was paid, and the prior signature only as finalized-ok evidence. */
+    const claimedAnswer = (entry, prior = null, status = null) => claimedEntryAnswer({ entry, pool: prize.pool, owns: claim.owns, mine: claim.mine, prior, status, fallbackClaimer: wallet });
+    const alreadyBody = a => ({ ok: true, already: true, signature: a.signature, amount: a.amount, claimedBy: a.claimedBy, claimGeneration: a.claimGeneration, testAssetsOnly: true });
     /** 409: the Entry is claimed, but not by this requester at this generation (an earlier owner or generation). Nothing is sent. */
-    const claimedByOther = (entry, signature = null) => new RouteError(409, 'this entry was already claimed by another owner or at another generation; nothing to send', 'AlreadyClaimedByPriorOwner',
-      { claimedBy: entry.claimedBy ?? null, claimGeneration: entry.claimGeneration ?? null, signature });
+    const claimedByOther = a => new RouteError(409, 'this entry was already claimed by another owner or at another generation; nothing to send', 'AlreadyClaimedByPriorOwner',
+      { claimedBy: a.claimedBy, claimGeneration: a.claimGeneration, signature: a.signature });
     if (ix.keys.length !== claim.want.keys.length || claim.want.keys.some((k, i) => k.pubkey !== ix.keys[i].pubkey)) throw bad(claim.what);
     if (tx.accountKeys.length !== new Set([feePayer, prize.program, ...claim.want.keys.map(k => k.pubkey)]).size) throw bad('the message names account keys the claim does not use');
     if (!signedBy(tx, wallet)) throw new RouteError(400, 'the wallet\'s signature is missing or invalid', 'BadSignature');
@@ -438,16 +449,18 @@ export const prizeRoutes = {
         } catch {
           throw new RouteError(409, 'the prior claim has no verified final outcome; inspect its signature before retrying', 'ClaimOutcomeUnknown', { signature: prior.signature });
         }
-        if (claim.owns(entry) && entry.pool === prize.pool && entry.claimed) {
+        const a = claimedAnswer(entry, prior, status);
+        if (a.kind !== 'unclaimed') {
           // A claimed Entry is claimed for good, whoever claimed it: the prior
-          // attempt is closed and never released for a retry. It is this
+          // attempt is closed and never released for a retry. The prior
+          // signature is handed back only as finalized-ok evidence; it is this
           // requester's success only if the Entry names it at this generation.
           if (prior.status !== 'landed' && prior.status !== 'superseded') {
-            state.claimPending[subject] = { ...prior, status: status?.confirmationStatus === 'finalized' && !status.err ? 'landed' : 'superseded' };
+            state.claimPending[subject] = { ...prior, status: a.priorStatus };
             ctx.store.save();
           }
-          if (!claim.mine(entry)) throw claimedByOther(entry, prior.signature);
-          return { body: { ok: true, already: true, signature: prior.signature, amount: String(entry.claimAmount), claimedBy: entry.claimedBy ?? wallet, claimGeneration: entry.claimGeneration ?? null, testAssetsOnly: true } };
+          if (a.kind === 'claimedByOther') throw claimedByOther(a);
+          return { body: alreadyBody(a) };
         }
         if (status?.confirmationStatus === 'finalized' && status.err) {
           // This signature is conclusively failed, and the finalized Entry is
@@ -473,10 +486,9 @@ export const prizeRoutes = {
           // keeps its 409 AlreadyClaimed below, as before.)
           let entry = null;
           try { entry = await readEntry(); } catch { /* answered below as AlreadyClaimed */ }
-          if (entry && claim.owns(entry) && entry.pool === prize.pool && entry.claimed) {
-            if (!claim.mine(entry)) throw claimedByOther(entry);
-            return { body: { ok: true, already: true, signature: null, amount: String(entry.claimAmount), claimedBy: entry.claimedBy ?? wallet, claimGeneration: entry.claimGeneration ?? null, testAssetsOnly: true } };
-          }
+          const a = claimedAnswer(entry);
+          if (a.kind === 'claimedByOther') throw claimedByOther(a);
+          if (a.kind === 'already') return { body: alreadyBody(a) };
           throw new RouteError(409, `the claim would fail: ${code}`, code, e.extra);
         }
         if (e instanceof RouteError && code) throw new RouteError(code === 'AlreadyClaimed' ? 409 : 400, `the claim would fail: ${code}`, code, e.extra);
@@ -507,10 +519,12 @@ export const prizeRoutes = {
       if (!claim.mine(entry)) {
         // Claimed, but not by this requester at this generation: another
         // owner's claim landed first. This attempt is closed, never retried.
+        // (`landed` proved this signature finalized without error, so it is
+        // handed back as evidence of the send, not of the claim.)
         const pending = state.claimPending[subject];
         state.claimPending[subject] = { ...pending, status: 'superseded' };
         try { ctx.store.save(); } catch { /* the 409 below stands either way */ }
-        throw claimedByOther(entry, signature);
+        throw claimedByOther(claimedAnswer(entry, { signature }, { confirmationStatus: 'finalized', err: null }));
       }
       // A later request still rechecks the finalized signature and Entry
       // before reporting `already`, even if this save worked.
