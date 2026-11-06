@@ -136,3 +136,16 @@ bell = u32 index of bell_secs seconds since genesis_ts
 4 SetShares
 5 Claim
 6 WithdrawOps
+7 RecordNation (provisional, ws04/ws17 2026-11-06)
+
+[prize_entry_fields] # offset name (128 B Entry; 10-11 provisional)
+0 magic
+8 bump
+9 claimed
+10 nation_recorded
+11 nation
+16 pool
+48 wallet
+80 amount
+88 paid_slot
+96 claim_amount

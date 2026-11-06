@@ -72,11 +72,16 @@
 | 運用だけ（精算が済むまで Close* を送らない） | 第三者の close は止められない（class N） | なし | なし | 守れない |
 | **RecordNation（④）** | 記録してあれば守れる | なし（同じ値を、同じ出所から先に写すだけ） | 賞金だけ（ゲームは変えない） | 閉じられる前の crank が要る |
 
+⑰による補足（2026-11-06）：
+
+- (i) で守るなら、tombstone の後の CloseCitizen（時刻を見ずに通る）にも、同じ検査が要る。
+- (ii) は、国の判定が移るだけではない。「その wallet が実際に Join したか」という chain 上の保証もなくなり、Pay だけをした wallet にも leaf を与えられるようになる。
+
 ④の推奨は次のとおりです。
 
-- RecordNation を入れ、Join・Pay の後、遅くとも `end + 72 h` の前に、すべての Entry に crank します。
+- RecordNation を入れ、Join と Pay の後すぐに、遅くとも Ended になる前に、すべての Entry に crank します（§4 の 3.）。
 - (i) は、program 間の依存と rent の永久ロックを伴います。(ii) は信頼の変化を伴います。どちらも賞金・ゲームの規則の判断なので、④だけでは決めません。
-- ⑰に照合を依頼しました（返事待ち。返事は §5 に追記します）。
+- ⑰の照合では、規則を変えずに受取権を守れていて、誤った国を記録する経路はない、という判断でした。⑰は Attest を取り下げました（§5）。
 
 ## 3. close の順序による集計漏れ・確定不能（B・C・E）：修正候補（未実装・判断が要る）
 
@@ -99,27 +104,35 @@
 2. **RecordNation には program の upgrade が要る**：
    - pool・Entry の大きさは変わりません。既存の Entry の byte 10–11 は 0（記録なし）なので、upgrade の直後も以前と同じ動きです。
    - Claim の口座の並びは変わりません。Citizen が閉じられていても、正しい address を渡します。
-3. **upgrade の直後に、Citizen が生きているすべての Entry に crank する**：
-   - 対象は、まだ `end + 72 h` 前の pool のすべてです。期限後でも、Citizen が残っている Entry はすべて対象です。
-   - crank は受け取る本人の署名を要りません。署名は手数料を払う人だけです（鍵の扱いは運用側。④は試していません）。
+3. **crank は「Ended になる前」、できれば Join の直後に送る**（⑰の指摘で訂正。旧版は「end + 72 h の前」と書いていた）：
+   - 72 h は予定の終了時刻から数える。そのため、EndSeason が遅れると、Ended になった瞬間から close が通る。
+   - RecordNation は Running の間も送れる。upgrade の直後に、生きている Citizen があるすべての Entry へ送る。その後は、新しい参加者ごとに Join の後すぐ送る。
+   - 受け取る本人の署名は要らない。手数料を払う人の署名だけが要る（鍵の扱いは運用側。④は試していない）。
+   - x402 の Pay＋Join の取引に RecordNation を同じ取引で足すと、中継が受け付ける形（classifyPaidJoin の 5 命令）が変わる。これは⑰の判断。当面は crank で行う。
 4. **すでに Citizen が閉じられた未受取の Entry は、この修正では戻せない**：
    - chain の上に国の証拠が残っていないからです。
    - CloseCitizen の取引の記録（log）に残る内容から国を示せるかは、④は確かめていません。
    - 救済するなら、operator の証言などの別の信頼に頼ることになります。賞金の規則の判断です。
-5. **close の順序**：
+5. **精算ツール**（⑰が対応、`9d4245a5426003197327b2d61cf4dfc2ea306f70`）：
+   - prize-settle は、参加者の国を Citizen から読んでいた。そのため Citizen が閉じられた後に精算すると、記録があっても、その wallet は台帳と root から漏れていた。
+   - ⑰が、Citizen がなければ Entry の記録を使うように直した。SDK にも `decodeEntry` の nation と `recordNationIx` を足した。
+   - program だけを upgrade しても、受取は届かない。精算ツールも合わせて更新する必要がある。
+6. **Pay だけで Join していない Entry**：Citizen がないので、記録できない。shares では受け取れない。これは今と同じで、規則は変わらない。
+7. **close の順序**：
    - Finalize 前の pool がある season では、まず Tally と Finalize を済ませます。
    - その前に CloseProvince や CloseSeason が送られた場合：
      - Tally 後に閉じられたもの → C。確定できない。
      - Tally 前に閉じられたもの → B。黙って漏れる。
    - 該当がないかを、`counted` と ProvinceFund の合計で確かめてから進めます。
-6. **Pay**：
+8. **Pay**：
    - 終了後も受け付けられています。終了済みの pool への支払いが届いていないか、Entry の `PAID_SLOT` と Season の終了時刻で確かめます。
    - 扱いは賞金の規則です。
 
 ## 5. 未解決・判断待ち
 
 - **72 h の起点**（⑯の指摘 (4)、コードで確認）：起点は予定の終了時刻（`bell_start(genesis, end_bell)`）で、EndSeason を送った時刻ではない。EndSeason が予定の終了＋72 h より遅れると、Ended になった瞬間から CloseCitizen・CloseProvince が通る。そのため、Tally・Finalize・記録の猶予は 0 になりうる。RecordNation は Ended を待たずに Join の直後から送れるので、この競争を避けられる。
-- **⑰の Attest との一本化**：⑰も同じ tag 7 に別の候補 Attest を作った（Ended の後だけ記録でき、Entry の byte 104–105 を使う。⑰の bundle は④には未受領）。上の理由で「Ended を要求しない」ことを⑰に提案し、program 本体は⑰に任せる案で調整中。合意できれば、④の RecordNation は revert で取り下げる。
+- **⑰の Attest との一本化（決着）**：⑰が RecordNation を照合した。規則を変えずに受取権を守れていて、誤った国を記録する経路はない、という判断だった。⑰は Attest を取り下げた（⑰本線 `59d883ad0084dfac7a78089f796ab89b9a5e0fa6` で revert）。tag 7 は RecordNation に一本化する。⑰の ws17-on-ws04-b858 にある Attest の commit（c72cca35・a4c8cc96）は使わない。registry に tag 7 と Entry の欄を載せた（仮）。
+- **配備の前に必要なこと（未実施）**：SBF での build と、LiteSVM・実チェーンでの確認。LiteSVM の試験は鍵を生成して署名するので、今回の条件では流していない。
 - ⑯の probe（`claude/dreamy-ramanujan-ijj8qj` `32b367b741b57bc69cfa92cb312bc6aa6441ee8f` の `verification/16-independent/probes/v16_prize_claim_rights.rs`）は、f43eb4eb の上で 6/6 合格した（一時的に置いて流しただけで、commit はしていない）。記録のない Entry の動きは変えていないので、修正の後も同じく通る。
 
 - ⑰の照合結果（送付済み・返事待ち）。
