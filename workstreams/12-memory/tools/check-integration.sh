@@ -11,7 +11,7 @@
 # A commit that is not on GitHub can be checked from a git bundle: FILE.bundle#SHA fetches SHA from the bundle
 # (after `git bundle verify`) into this clone's object store without touching any branch.
 # Tests run with key generation, derivation and signing disabled (tools/test-nokey.sh); tests that need a key are
-# listed as needs-key and not run. Set WITH_KEYS=1 to also run the key-using suite.
+# listed as needs-key and not run. There is no mode that runs them.
 set -eu
 here=$(cd "$(dirname "$0")/.." && pwd)
 repo=$(git -C "$here" rev-parse --show-toplevel)
@@ -32,12 +32,10 @@ cp -R "$here/." "$wt/workstreams/12-memory/"
 cd "$wt"
 echo "== 12's tests on the integration tree (no key operations)"
 sh workstreams/12-memory/tools/test-nokey.sh || true
-if [ "${WITH_KEYS:-}" = 1 ]; then
-  echo "== 12's key-using suite (test-only fixed keys)"
-  node --test workstreams/12-memory/test/*.test.mjs 2>&1 | grep -E "^# (tests|pass|fail|skipped)|^not ok|# SKIP" || true
-fi
 echo "== 13's own ws12 tests against this 12 (those present at REF)"
-for t in workstreams/13-citizens/test/ws12-public-evidence.test.mjs workstreams/13-citizens/test/ws12-adapter.test.mjs; do
+export WS12_EA0636EB="$wt" # 13's name for "a tree with workstream 12": here, this 12 overlaid on REF
+for t in workstreams/13-citizens/test/ws12-public-evidence.test.mjs workstreams/13-citizens/test/ws12-adapter.test.mjs \
+         workstreams/13-citizens/test/ws12-identity-clock.test.mjs workstreams/13-citizens/test/ws12-canonical.test.mjs; do
   [ -f "$t" ] || { echo "$t: not at this ref"; continue; }
   echo "-- $t"
   sh workstreams/12-memory/tools/test-nokey.sh "$t" || true
@@ -57,6 +55,6 @@ now = [dict(run_id=r[0], kind=r[1], subject=r[2], source=r[3], slot=r[4], body_j
 was = json.load(open(fixture))['receipts']
 print(sc, 'receipts identical' if now == was else 'RECEIPTS DIFFER')
 PY
-    WS04_DB="$out/$sc.db" WS04_SCENARIO="$sc" node --test --test-name-pattern="real store" workstreams/12-memory/test/adapters-canonical.test.mjs 2>&1 | grep -E "^(not )?ok" || true
+    WS04_DB="$out/$sc.db" WS04_SCENARIO="$sc" node --import ./workstreams/12-memory/tools/nokey-guard.mjs --test --test-name-pattern="real store" workstreams/12-memory/test/adapters-canonical.test.mjs 2>&1 | grep -E "^(not )?ok" || true
   done
 fi

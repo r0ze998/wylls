@@ -3,7 +3,7 @@
 # Each test ends in one of four ways:
 #   ran        passed without any key operation
 #   needs-key  stopped at the guard before making or using a key: a test of signed allocations, NOT run here
-#              (it belongs to the separate key-using suite, `node --test test/*.test.mjs`)
+#              (no tool of workstream 12 runs those tests: none enables signing)
 #   skipped    skipped with its stated reason
 #   FAILED     failed for any other reason: a real failure (exit status 1)
 #   sh workstreams/12-memory/tools/test-nokey.sh [test files...]      (default: test/*.test.mjs)

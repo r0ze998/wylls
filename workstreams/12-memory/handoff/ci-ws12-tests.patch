@@ -2,7 +2,7 @@ diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
 index a19457ec..fa09c102 100644
 --- a/.github/workflows/ci.yml
 +++ b/.github/workflows/ci.yml
-@@ -312,3 +312,36 @@ jobs:
+@@ -312,3 +312,21 @@ jobs:
            cargo fmt --all -- --check
            cargo clippy --locked --all-targets -- -D warnings
            cargo test --locked --release
@@ -24,18 +24,3 @@ index a19457ec..fa09c102 100644
 +      - name: Workstream 13's ws12 public-evidence sidecar test, without key operations
 +        if: hashFiles('workstreams/13-citizens/test/ws12-public-evidence.test.mjs') != ''
 +        run: sh workstreams/12-memory/tools/test-nokey.sh workstreams/13-citizens/test/ws12-public-evidence.test.mjs
-+
-+  memory12-signed:
-+    # Separate on purpose: workstream 12's signed-allocation tests sign with deterministic TEST-ONLY ed25519 keys
-+    # (seed = a constant per fixture principal, workstreams/12-memory/fixtures/scenario.mjs). No real key, no secret.
-+    # Enable only if the project accepts test-only signing in CI; the job above does not depend on it.
-+    name: Workstream 12 signed-allocation tests (test-only fixed keys)
-+    if: ${{ vars.WS12_SIGNED_TESTS == 'true' }}
-+    runs-on: ubuntu-24.04
-+    steps:
-+      - uses: actions/checkout@v7
-+      - uses: actions/setup-node@v7
-+        with:
-+          node-version: 22
-+      - name: Workstream 12 full suite
-+        run: node --test workstreams/12-memory/test/*.test.mjs
