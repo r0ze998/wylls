@@ -13,6 +13,12 @@
  *   ④ preserve/ws04-a967f5f1        a967f5f1c64facc32facf07010f39a679c77d80a
  *       RunSpec, the 15 run states, Outcome and Verification
  *       (src/model.rs), Receipt (docs/CONTRACTS §3), the quantity contract.
+ *   ④ claude/gallant-ride-cunptv    8e96f24df4aa4ed51277fa42de6a354a21cd2bc6
+ *       the act registry (`runexec act`, clients/acts.mjs) and the seven
+ *       send fates (docs/EXECUTION-CONTRACT-20261106). RunSpec still needs a
+ *       facility there, so a caravan-only run goes the act route:
+ *       06 plan → ③ prepare_caravan / send_caravan → the agent wallet →
+ *       ④ `act register --run <06 run id>` → `act status` / `act list`.
  *
  * Only `caravan.send` connects: it is the one instruction in main's S1
  * among 06's effects. A workshop step is S2's UseRun, copied as a mock.
@@ -24,16 +30,22 @@
 
 import { confirmedRev, effectRev } from "../catalog.mjs";
 import { resolve } from "../plan.mjs";
+import { contentHash } from "../canonical.mjs";
 
 export const SOURCES = Object.freeze({
   rights: { ws: "02", ref: "preserve/ws02-rights-dc3bd3d", sha: "dc3bd3d93465eebb65f1815eb702ca779cc31827" },
   instructions: { ws: "03", ref: "preserve/ws03-mcp-acdcd0bf", sha: "acdcd0bf795d10a65f6b8192076c4f8d6357e557" },
   execution: { ws: "04", ref: "preserve/ws04-a967f5f1", sha: "a967f5f1c64facc32facf07010f39a679c77d80a" },
+  acts: { ws: "04", ref: "claude/gallant-ride-cunptv", sha: "8e96f24df4aa4ed51277fa42de6a354a21cd2bc6" },
   extensions: { ws: "11", ref: "integration/ws09-13-v16-d0949fd4", sha: "ef63544c727490fc6801d30affd11c5b7106c480" },
 });
 
-/** The core's resource order (permutation-rules frontier/holding.rs `Resource`): cargo[8]. */
-export const CORE_RESOURCES = Object.freeze(["food", "wood", "stone", "ore", "horses", "gold", "science", "influence"]);
+/**
+ * cargo[8] in S1's resource order: permutation-rules frontier/holding.rs
+ * `Resource`, where S1's arms take the Horses slot (arms.rs `ARMS =
+ * Resource::Horses`; ③'s `RESOURCES_S1`). The same order as 06's types.
+ */
+export const CORE_RESOURCES = Object.freeze(["food", "wood", "stone", "ore", "arms", "gold", "science", "influence"]);
 /** Science and influence can only be pledged, never moved (holding.rs). */
 export const PLEDGE_ONLY = Object.freeze(["science", "influence"]);
 /** ③ 02-instruction-matrix: SendCaravan's fee is at least 50,000 lamports. */
@@ -61,7 +73,7 @@ export function coreCargo(goods) {
   const problems = [];
   for (const [r, n] of Object.entries(goods)) {
     const i = CORE_RESOURCES.indexOf(r);
-    if (i < 0) problems.push({ resource: r, why: "コアの資源にない（cargo[8] に枠がない）" });
+    if (i < 0) problems.push({ resource: r, why: "S1 の資源にない（cargo[8] に枠がない）" });
     else if (PLEDGE_ONLY.includes(r)) problems.push({ resource: r, why: "誓約にしか使えず、運べない" });
     else if (!Number.isSafeInteger(n) || n < 0 || n > 0xffffffff) problems.push({ resource: r, why: "u32 の整数単位でない" });
     else cargo[i] = n;
@@ -84,7 +96,7 @@ export function connectability(m) {
       reasons.push({ step: s.id, why: "前の手順を待つ荷車。④の Run は荷車を1つ送るだけで、前の荷車の seq は前の Run が固定するまで分からない（④の inbound の受け渡しが未接続）" });
     }
     for (const r of Object.keys(s.args?.cargo?.goods ?? {})) {
-      if (!CORE_RESOURCES.includes(r)) reasons.push({ step: s.id, resource: r, why: "コアの資源にない（cargo[8] に枠がない）" });
+      if (!CORE_RESOURCES.includes(r)) reasons.push({ step: s.id, resource: r, why: "S1 の資源にない（cargo[8] に枠がない）" });
       else if (PLEDGE_ONLY.includes(r)) reasons.push({ step: s.id, resource: r, why: "誓約にしか使えず、運べない" });
     }
   }
@@ -163,7 +175,115 @@ export function toRunSpecs({ plan, planHash, env, nonce, places, ownerTag, deadl
     });
   }
   if (findings.length) return { ok: false, findings };
-  return { ok: true, findings: [], runs, gaps: ["④の RunSpec.facility は必須。荷車だけの Run には facility を省ける形（Option）が要る（④への提案。仮の施設で埋めない）"] };
+  return {
+    ok: true, findings: [], runs,
+    // checked against ④ 8e96f24d src/model.rs: `pub facility: FacilityRef`, not an Option
+    acceptedBy4: false,
+    gaps: ["④の RunSpec.facility は必須（8e96f24d でも）。荷車だけの Run は④の Run に載らない。仮の施設で埋めず、送信は act の経路（toMcpCaravans）で行う"],
+  };
+}
+
+/** ③'s placeIds: `vault:p,q,tile` and `village:p,q,site` (mcp/src/game.mjs). */
+export const PLACE_ID = /^(vault|village):-?\d+,-?\d+,\d+$/;
+/** ③'s requestId (mcp/src/tools.mjs REQUEST_ID). */
+export const REQUEST_ID = /^[A-Za-z0-9._:-]{8,100}$/;
+
+/**
+ * The ③ MCP calls for one accepted run request of an adopted plan, on the
+ * owner's view as ③'s `get_village_status` returns it (`places` lists only
+ * the owner's own village and storehouses, with `placeId` and `gen`).
+ * The plan binds its place params to those placeIds.
+ *
+ * For each step: the `prepare_caravan` arguments ({from, to, cargo[8]}),
+ * the `send_caravan` requestId (derived from the plan, the request and the
+ * step, so a retry of the same decision reuses it), and 06's run id, which
+ * ③ passes to ④ as `act register --run` so the act stays tied to the
+ * pinned definition. ③ computes the road, the seq and the fields; 06 does
+ * not. A place that is not the owner's is refused: ③ plans only between
+ * the owner's places, and a send to another player needs the sender's
+ * wallet, which this route never holds.
+ */
+export function toMcpCaravans({ plan, planHash, env, nonce, view, effectRevs }) {
+  const m = env.manifest;
+  if (plan.manifest?.hash !== env.hash || plan.manifest?.version !== m.version || plan.manifest?.name !== m.name || plan.manifest?.author !== m.author) {
+    return { ok: false, findings: [{ code: "PIN_MISMATCH", pinned: plan.manifest, given: { author: m.author, name: m.name, version: m.version, hash: env.hash } }] };
+  }
+  const c = connectability(m);
+  if (!c.connectable) return { ok: false, findings: c.reasons.map((r) => ({ code: "NOT_CONNECTED", ...r })) };
+  const now = effectRev({ effectRevs }, "caravan.send");
+  if (confirmedRev(plan, "caravan.send") !== now) return { ok: false, findings: [{ code: "EFFECT_REVISED", effect: "caravan.send", confirmed: confirmedRev(plan, "caravan.send"), now }] };
+  if (typeof nonce !== "string" || !/^[A-Za-z0-9._-]{1,32}$/.test(nonce)) return { ok: false, findings: [{ code: "SHAPE", detail: "nonce: 1–32 of A–Z a–z 0–9 . _ -" }] };
+  if (!/^[0-9a-f]{64}$/.test(planHash)) return { ok: false, findings: [{ code: "SHAPE", detail: "planHash" }] };
+  const mine = new Map((view?.places ?? []).map((p) => [p.placeId, p]));
+  const params = plan.bindings?.params ?? {};
+  const findings = [];
+  const calls = [];
+  for (const s of m.steps) {
+    const from = resolve(s.args.from, m, params), to = resolve(s.args.to, m, params);
+    for (const [end, id] of [["from", from], ["to", to]]) {
+      if (typeof id !== "string" || !PLACE_ID.test(id)) findings.push({ code: "PLACE_UNRESOLVED", step: s.id, end, place: id ?? null, why: "③ の placeId（vault:p,q,tile / village:p,q,site）で束ねる" });
+      else if (!mine.has(id)) findings.push({ code: "NOT_YOUR_PLACE", step: s.id, end, place: id, why: "③ は持ち主の場所の間だけを計画する。他人の場所あては送り手の財布の署名が要り、この経路では送らない" });
+    }
+    const goods = {};
+    for (const [r, x] of Object.entries(s.args.cargo?.goods ?? {})) goods[r] = resolve(x, m, params);
+    const { cargo, problems } = coreCargo(goods);
+    for (const p of problems) findings.push({ code: "CARGO", step: s.id, ...p });
+    if (!cargo.some((n) => n > 0)) findings.push({ code: "CARGO", step: s.id, why: "空の荷車（③ は NoCargo）" });
+    if (findings.length) continue;
+    const runId = `ws06:${planHash}:${nonce}:${s.id}`;
+    calls.push({
+      step: s.id,
+      prepare: { from, to, cargo },
+      requestId: `ws06.${contentHash({ planHash, nonce, step: s.id }).slice(0, 48)}`,
+      runId,
+      // what 06 saw of the places when it prepared: ③ puts dst.gen in the fields; a later change of gen is a new place
+      places: { from: { placeId: from, gen: mine.get(from).gen }, to: { placeId: to, gen: mine.get(to).gen } },
+      pin: { planHash, manifest: { ...plan.manifest }, effects: { "caravan.send": confirmedRev(plan, "caravan.send") } },
+      register: { source: "mcp", runId, keyOf: "ws03:<linkId>:<requestId>（③ が linkId を入れる）" },
+    });
+  }
+  if (findings.length) return { ok: false, findings };
+  return { ok: true, findings: [], calls, citizenTag: view.citizenTag ?? null };
+}
+
+const ACT_STATES = ["registered", "not-sent", "landed", "failed", "expired", "pending", "unknown", "unqueryable"];
+const ACT_SAYS = {
+  registered: "登録だけ。まだ照会していない",
+  pending: "送信は未確定（待つ）",
+  unknown: "結果不明：着地したかもしれない。再送しない（保留）",
+  unqueryable: "照会できなかった：送信について何も言っていない（読み直す）",
+  landed: "送信が確定した（荷車は道の上）。到着と量はまだ分からない",
+  failed: "送信が確定的に失敗した（手数料は払った、効果なし）",
+  expired: "送信が届かなかったと証明された。新しい依頼でだけやり直せる",
+  "not-sent": "何も送られていない。新しい依頼でだけやり直せる",
+};
+
+/**
+ * 06's reading of a ④ act receipt (`p04-acts/0.1`). An act is the send
+ * only: `landed` means the caravan left, not that it arrived, so nothing
+ * here is ever complete or counted. Arrival and the amount kept come from
+ * the settle record under ④'s quantity contract (`resultOf` on a run),
+ * which the act registry does not hold. A retry is a new 06 run request
+ * (a new nonce, so a new requestId and key), never the same key.
+ */
+export function resultOfAct(receipt) {
+  if (receipt?.receiptVersion !== "p04-acts/0.1") return { ok: false, code: "SHAPE", detail: `receipt version ${receipt?.receiptVersion}` };
+  if (!ACT_STATES.includes(receipt.state)) return { ok: false, code: "SHAPE", detail: `unknown act state ${receipt.state}` };
+  const s = receipt.state;
+  return {
+    ok: true,
+    runId: receipt.runId ?? null,
+    state: s,
+    says: ACT_SAYS[s],
+    sendFinal: ["not-sent", "landed", "failed", "expired"].includes(s),
+    complete: false,
+    counted: {},
+    delivery: s === "landed" ? "not-verified" : "none-yet",
+    hold: s === "unknown",
+    newRequestAllowed: receipt.newAttemptAllowed === true && (s === "expired" || s === "not-sent"),
+    conflict: receipt.conflict ?? null,
+    signature: receipt.signature ?? null,
+  };
 }
 
 const byName = (res) => Object.fromEntries(CORE_RESOURCES.map((r, i) => [r, res[i]]).filter(([, n]) => n));

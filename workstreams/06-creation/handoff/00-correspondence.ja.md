@@ -6,7 +6,7 @@
 
 | ⑥の要素 | ⑥が求める性質 | ②の契約 | ④（③）の契約 | 状態 | 足りないもの・不一致 |
 |---|---|---|---|---|---|
-| **荷車**（⑥の `caravan.send`。採用済みの S1 の命令） | 採用済みの計画の手順を、固定した版のまま送る | ― | ④ RunSpec（`run_id`、`owner`、`stock`、`ship{dst, cargo[8]}`、`deadline_slot`、`budget`）。③ SendCaravan（seq・path・fee は④③が決める）。他人あては `WalletRequired` で保留 | **接続（変換）**：`src/connect/caravan.mjs` | ④の RunSpec は `facility` が必須で、荷車だけの Run が書けない（**不一致**）。Run に定義の固定の欄がない。場所の記録の読み取り口が未接続。前の荷車を待つ手順は未接続 |
+| **荷車**（⑥の `caravan.send`。採用済みの S1 の命令） | 採用済みの計画の手順を、固定した版のまま送る | ― | **2026-11-06：** ③ `prepare_caravan`・`send_caravan` → 代理の財布 → ④の行動の登録簿（`runexec act`、8e96f24d）。④ RunSpec は `facility` が必須のまま | **接続（実物で照合）**：`toMcpCaravans`・`resultOfAct`。③の資源の順・場所の引き方・requestId、④の登録・照会・7状態を、③④のコードとビルドした `runexec` で確かめた（[docs/11](../docs/11-connection.ja.md) §8） | ③の `send_caravan` に⑥の実行 id を④へ渡す欄がない。③は④の登録簿をまだ呼ばない。④の荷車だけの Run がない（到着・量はこの経路では得られない）。財布の要求の形の検査は未実行 |
 | **結果**（到着・数える量・C の証拠） | 確定した配達だけを証拠にする。到着量が分からないものを 0 と書かない | ― | ④の15状態、`Verification`（Recorded / RuleDerived / KnownZero / Unverifiable / NotShipped）、数量契約、Receipt（`kind|subject` で重複除去） | **接続（変換）**：`resultOf`・`dedupeReceipts` | ⑥の模擬の記録（`delivered/made/raided/failed`）は④の状態の部分集合。⑥の模擬は置き換えていない |
 | **工房**（B：他人の工房を使用権で動かす。⑥の `workshop.run`） | 施設所有者が出した使用権で、利用者の倉の中で加工する | **StockSwap は交換で、加工能力の貸出ではない。未採用。⑥の工房の代替にしない**（補遺 §2、② HANDOFF §0） | ④の Run の施設は MOCK（`fac:<run_id>`、P3） | **つながらない** | 加工能力の貸出の契約がない。⑥の工房は S2 の `UseRun` の模擬のまま。最初の体験にどちらを採るかは未決定 |
 | **束**（C：配送で届いた物を押さえ、一度だけ消費。採用保留） | 配送の物そのものを排他的に確保 | 押さえの契約なし（StockSwap の預かりは交換の両側のもの） | Receipt は「過去の出来事の証拠で、今も物が残っている証明ではない」。押さえの契約なし | **つながらない／採用保留** | 予約・escrow の一般化（必要な場面が出たときだけ） |

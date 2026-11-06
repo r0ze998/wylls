@@ -29,7 +29,7 @@
 |---|---|---|
 | 計画のハッシュ＋実行の依頼の使い捨て番号＋手順の id | `run_id`（④の冪等キー） | `ws06:<計画のハッシュ>:<番号>:<手順>`。同じ依頼は同じ id |
 | 送り元・届け先の論理名（`vault:M-mine` など） | `stock`・`ship.dst`：`{kind, p, q, at, gen}` | ④③が読んだ場所の記録で引く。⑥は位置も世代も作らない。世代は識別の一部 |
-| 積荷（⑥の資源名） | `ship.cargo`：8枠、整数単位、コアの順（food, wood, stone, ore, horses, gold, science, influence） | 名前で枠に入れる。**arms はコアの資源になく、運べない**。science・influence は誓約だけで運べない |
+| 積荷（⑥の資源名） | `ship.cargo`：8枠、整数単位、S1 の順（food, wood, stone, ore, arms, gold, science, influence） | 名前で枠に入れる。S1 では5番目の枠（コアの Horses）が arms（`arms.rs`：`ARMS = Resource::Horses`、③の `RESOURCES_S1`）。science・influence は誓約だけで運べない。**2026-11-05 版の「arms はコアの資源にない」は誤りで、2026-11-06 に訂正した** |
 | 利用者 | `owner`：Citizen の tag | 送り元の持ち主と一致しなければ拒否 |
 | 他人の場所あて | ④の保留 `WalletRequired`（session は自分の場所の間だけ。③ 02） | `walletRequired: true` を付ける |
 | 定義の版・内容ハッシュ・効果の版 | ④の Run に欄がない | ⑥が `run_id` の横に持つ（`pin`） |
@@ -84,7 +84,59 @@ Receipt は種類と対象（`kind|subject`）で重複を除きます。出ど�
 2. **④：** Run に、定義の固定（作者・名前・版・内容ハッシュ・効果の版）を載せる欄を持つか。今は⑥が `run_id` の横に持つ。
 3. **④③：** 論理名から `{kind, p, q, at, gen}` と Citizen の tag を引く読み取り口（herald・findex）。⑥は fixture でしか試していない。
 4. **④：** 前の手順を待つ荷車の受け渡し（`inbound` に前の Run の seq を渡す）。
-5. **⑥の資源名：** ⑥の模擬は `arms` を資源に持つが、コアの8つにない（コアは `horses`）。⑥の模擬の資源表を直すかは、署名済みの見本データ（fixtures）に影響するので、今回は直していない。
+5. （取り消し）⑥の資源名：⑥の `arms` は S1 の5番目の枠と一致していた（§3、2026-11-06 の訂正）。
 6. **②：** 加工能力の貸出の契約がない限り、工房は模擬のまま。
 7. **⑪：** 計画に manifest_id を含める契約を作るか。
 8. 補遺 §1 の回数の正本、緊急停止、束の採否、docs/10 §4 の継続世界の判断は、変わらず未決定。
+
+## 8. ④の行動の登録簿と③の実装への接続（2026-11-06）
+
+**読んだもの：** ④ `claude/gallant-ride-cunptv` = `8e96f24df4aa4ed51277fa42de6a354a21cd2bc6`（`docs/EXECUTION-CONTRACT-20261106.ja.md`、`src/acts.rs`、`clients/acts.mjs`、`src/model.rs`）、③ `acdcd0bf…`（`mcp/src/game.mjs`・`server.mjs`・`tools.mjs`）、④ の枝にある代理の財布（`permutation-gateway/src/frontier/agent/contract.mjs`・`gateway.mjs`）。③ に新しい版はない。
+
+### 8.1 経路
+
+④の RunSpec は 8e96f24d でも `facility` が必須（`pub facility: FacilityRef`）なので、荷車だけの Run は④の Run に載らない。荷車の送信は、④が⑤⑬③に示した act の経路に載せる。
+
+```
+⑥ 採用済みの計画（版・内容ハッシュ・効果の版に固定）
+  → toMcpCaravans：③ prepare_caravan の引数 {from, to, cargo[8]}、send_caravan の requestId、⑥の実行 id
+  → ③ prepare_caravan（道・seq・命令の欄は③が計算する。⑥は計算しない）
+  → ③ send_caravan → 代理の財布 POST /f/agent/action（source mcp、key ws03:<linkId>:<requestId>）
+  → ④ runexec act register --source mcp --run <⑥の実行 id>
+  → ④ runexec act status / list → resultOfAct（⑥の結果）
+```
+
+### 8.2 実物で照合したこと（`test/connect-live.test.mjs`）
+
+| 照合 | 相手の実物 | 結果 |
+|---|---|---|
+| 資源の順 | ③ `game.mjs` の `RESOURCES_S1` | 一致（⑥の訂正後） |
+| 場所 | ③ `Game.placeOf`：⑥の placeId を引ける。他人の場所は `NotYourPlace` | 一致 |
+| requestId | ③ `tools.mjs` の `REQUEST_ID`（8〜100文字） | 一致。⑥の requestId は計画・依頼・手順から決まり、同じ判断の再試行は同じ値 |
+| 命令の欄 | ③が使う web の `cargoBytes`・`placeData` | 荷の8枠（u32 LE）、届け先の kind/p/q/at/gen が⑥の値と一致 |
+| 荷車だけの Run | ④ `src/model.rs` | **不一致を確認**：`facility` は必須 |
+| 登録と照会 | ④ `runexec`（8e96f24d からビルド）と `clients/acts.mjs`、台本の `GET /f/agent/fate` | 登録は冪等。同じキーで別の実行 id は `Conflict`。⑥の実行 id は受領書の `runId` に残る。7つの状態がそのまま読める。確定した状態は後の食い違う読みで変わらない（`conflict` として残る）。`list --run` で⑥の実行 id の行動が引ける |
+| 財布の要求の形 | ④の枝の `parseActionRequest` | **未実行。** 依存（`@solana/web3.js` など）がこのコンテナに入っておらず、入れていない |
+
+### 8.3 完了扱いにしないもの
+
+`resultOfAct` は、act の受領書から次のように読む。**どの状態も⑥の実行を完了にせず、量も数えない。**
+
+| ④の状態 | ⑥の読み |
+|---|---|
+| `registered`・`pending` | 待つ |
+| `unknown`（結果不明） | 保留。着地したかもしれないので、再送しない |
+| `unqueryable`（照会不能） | 読み直す。送信について何も言っていない |
+| `landed` | 送信が確定した（荷車は道の上）。**到着と量は未検証** |
+| `failed` | 送信が確定的に失敗した |
+| `expired`・`not-sent` | 何も起きていないと示せた。やり直すなら、⑥の新しい依頼（新しい番号、新しい requestId）でだけ |
+
+到着と量は、決着の記録を④の数量契約で判定したもの（`resultOf`）からだけ得る。act の登録簿はそれを持たない。
+
+### 8.4 残る不一致・未接続
+
+1. **③：** `send_caravan` の入力は `{planId, requestId}` だけで、⑥の実行 id を④の `act register --run` に渡す欄がない。また③の今の実装は④の登録簿を呼んでいない（④ EXECUTION-CONTRACT §5）。どちらかが要る：③が呼び出し側の実行 id を受け取って登録する、または④が requestId で行動を引ける。
+2. **④：** 荷車だけの Run（`facility` を省ける形）。これがない限り、到着・量の判定（`resultOf`）は④の act の経路からは得られない。
+3. **③④：** 場所と Citizen の読み取り（③の `get_village_status`）は、ヘラルドとリレーを読む。照合は③の形の fixture で行い、実際のヘラルド・チェーンは読んでいない。
+4. 代理の財布の要求の形の検査（`parseActionRequest`）は未実行（§8.2）。
+5. 他人の場所あての荷車は、この経路では送らない（送り手の財布の署名が要る）。

@@ -17,7 +17,7 @@ for (const k of ["generateKey", "importKey", "exportKey", "deriveKey", "deriveBi
 import assert from "node:assert/strict";
 import { contentHash } from "../src/canonical.mjs";
 import { frontSupply, mineDelivery } from "../src/scenario.mjs";
-import { connectability, coreCargo, dedupeReceipts, resultOf, toRunSpecs, CORE_RESOURCES } from "../src/connect/caravan.mjs";
+import { connectability, coreCargo, dedupeReceipts, resultOf, resultOfAct, toMcpCaravans, toRunSpecs, CORE_RESOURCES, REQUEST_ID } from "../src/connect/caravan.mjs";
 
 const AUTHOR = "ab".repeat(32); // public-key-shaped strings: no key behind them
 const USER = "cd".repeat(32);
@@ -65,6 +65,7 @@ test("an adopted caravan definition becomes ④ run specs: places, cargo[8] in t
   assert.equal(r.runs[0].walletRequired, false);
   assert.deepEqual(r.runs[0].pin.manifest, a.plan.manifest);
   assert.ok(r.gaps.some((g) => g.includes("facility")));
+  assert.equal(r.acceptedBy4, false, "④'s RunSpec needs a facility: this spec is not accepted as is");
   assert.ok(r.runs[0].leftToExecutor.some((x) => x.startsWith("seq")), "the seq is ④'s to fix");
   // the same request gives the same run id; another nonce another one
   assert.equal(spec(a).runs[0].spec.run_id, s.run_id);
@@ -92,12 +93,14 @@ test("the plan's pin and effect revision are checked; a source that is not the a
   assert.equal(spec(a, { places: () => null }).findings[0].code, "PLACE_UNRESOLVED");
 });
 
-test("what does not connect says why: the workshop (S2 mock), arms, a consume dependency, chained caravans", () => {
+test("what does not connect says why: the workshop (S2 mock), a consume dependency, chained caravans; arms ride in S1's slot 4", () => {
   const c = connectability(frontSupply(AUTHOR));
   assert.equal(c.connectable, false);
   const why = c.reasons.map((r) => r.effect ?? r.resource ?? r.use ?? r.step);
   assert.ok(why.includes("workshop.run"));
-  assert.ok(why.includes("arms"), "arms are not one of the core's eight resources");
+  assert.ok(!why.includes("arms"), "S1's arms take the Horses slot (arms.rs ARMS = Resource::Horses)");
+  assert.equal(CORE_RESOURCES[4], "arms");
+  assert.deepEqual(coreCargo({ arms: 12 }).cargo, [0, 0, 0, 0, 12, 0, 0, 0]);
   assert.ok(why.includes("ws"));
   assert.ok(c.reasons.some((r) => r.step === "ship" && r.why.includes("seq")));
   assert.deepEqual(coreCargo({ science: 1 }).problems.map((p) => p.resource), ["science"]);
@@ -120,7 +123,7 @@ test("④ outcomes become 06 results: counted only when verified; unverified is 
   const unv = resultOf(run("DeliveredUnverified", { delivered: null, verification: "Unverifiable", cargo_logged: res(24, 12), effects: [] }));
   assert.deepEqual(unv.counted, {}, "counts 0");
   assert.equal(unv.actual.kind, "unknown", "but the amount is unknown, not 0");
-  assert.deepEqual(unv.actual.below, { food: 1, wood: 13, stone: 1, ore: 25, horses: 1, gold: 1, science: 1, influence: 1 });
+  assert.deepEqual(unv.actual.below, { food: 1, wood: 13, stone: 1, ore: 25, arms: 1, gold: 1, science: 1, influence: 1 });
   assert.equal(unv.evidence.usable, false);
 
   const burned = resultOf(run("Failed", { delivered: res(0, 0), verification: "KnownZero", cargo_logged: null, effects: ["caravan_raided cv:29:7"] }));
@@ -146,4 +149,58 @@ test("④ receipts are deduplicated by kind and subject, not by source", () => {
   const b = { ...a, source: "history:4" };
   const c = { ...a, kind: "caravan_sent", source: "sig:s" };
   assert.deepEqual(dedupeReceipts([a, b, c]).map((r) => r.kind), ["caravan_settled", "caravan_sent"]);
+});
+
+// ③'s view of the owner (get_village_status): only the owner's own places, with placeIds and generations
+const VIEW = {
+  citizenTag: "41",
+  village: { kind: "holding", p: 2, q: -1, site: 3, gen: 1, tile: 11, placeId: "village:2,-1,3" },
+  places: [
+    { kind: "holding", p: 2, q: -1, site: 3, gen: 1, tile: 11, placeId: "village:2,-1,3" },
+    { kind: "vault", p: 2, q: -1, tile: 7, gen: 1, known: true, placeId: "vault:2,-1,7" },
+    { kind: "vault", p: 3, q: -1, tile: 4, gen: 2, known: true, placeId: "vault:3,-1,4" },
+  ],
+};
+
+test("the ③ route: prepare_caravan arguments, a requestId ③ accepts, 06's run id for ④'s act registry", () => {
+  const a = adopted(mineDelivery(AUTHOR), { mine: "vault:2,-1,7", buyer: "vault:3,-1,4", ore: 24, wood: 12 });
+  const r = toMcpCaravans({ ...a, nonce: "r1", view: VIEW });
+  assert.equal(r.ok, true, JSON.stringify(r.findings));
+  const c = r.calls[0];
+  assert.deepEqual(c.prepare, { from: "vault:2,-1,7", to: "vault:3,-1,4", cargo: [0, 12, 0, 24, 0, 0, 0, 0] });
+  assert.ok(REQUEST_ID.test(c.requestId), c.requestId);
+  assert.equal(toMcpCaravans({ ...a, nonce: "r1", view: VIEW }).calls[0].requestId, c.requestId, "a retry of the same decision reuses it");
+  assert.notEqual(toMcpCaravans({ ...a, nonce: "r2", view: VIEW }).calls[0].requestId, c.requestId);
+  assert.equal(c.runId, `ws06:${a.planHash}:r1:ship`);
+  assert.equal(c.register.source, "mcp");
+  assert.deepEqual(c.places.to, { placeId: "vault:3,-1,4", gen: 2 });
+  assert.equal(r.citizenTag, "41");
+  // another player's place is not planned on this route; a logical name is not a placeId
+  const other = adopted(mineDelivery(AUTHOR), { mine: "vault:2,-1,7", buyer: "vault:9,9,1" });
+  assert.equal(toMcpCaravans({ ...other, nonce: "r1", view: VIEW }).findings[0].code, "NOT_YOUR_PLACE");
+  const logical = adopted(mineDelivery(AUTHOR), { mine: "vault:M-mine", buyer: "vault:3,-1,4" });
+  assert.equal(toMcpCaravans({ ...logical, nonce: "r1", view: VIEW }).findings[0].code, "PLACE_UNRESOLVED");
+  const empty = adopted(mineDelivery(AUTHOR), { mine: "vault:2,-1,7", buyer: "vault:3,-1,4", ore: 0, wood: 0 });
+  assert.equal(toMcpCaravans({ ...empty, nonce: "r1", view: VIEW }).findings[0].code, "CARGO");
+  assert.equal(toMcpCaravans({ ...a, nonce: "bad nonce", view: VIEW }).findings[0].code, "SHAPE");
+});
+
+const act = (state, extra = {}) => ({ receiptVersion: "p04-acts/0.1", runId: "ws06:x:r1:ship", state, newAttemptAllowed: state === "expired" || state === "not-sent", ...extra });
+
+test("④ act receipts: a send is never complete or counted; unknown holds; only proved non-sends allow a new request", () => {
+  for (const s of ["registered", "pending", "unknown", "unqueryable", "landed", "failed", "expired", "not-sent"]) {
+    const r = resultOfAct(act(s));
+    assert.equal(r.ok, true, s);
+    assert.equal(r.complete, false, `${s} is never complete`);
+    assert.deepEqual(r.counted, {}, `${s} counts nothing`);
+  }
+  assert.equal(resultOfAct(act("landed")).delivery, "not-verified");
+  assert.equal(resultOfAct(act("landed")).sendFinal, true);
+  assert.equal(resultOfAct(act("unknown")).hold, true);
+  assert.equal(resultOfAct(act("unknown")).newRequestAllowed, false);
+  assert.equal(resultOfAct(act("unqueryable")).sendFinal, false);
+  assert.equal(resultOfAct(act("expired")).newRequestAllowed, true);
+  assert.equal(resultOfAct(act("landed", { newAttemptAllowed: true })).newRequestAllowed, false, "a landed send is never retried");
+  assert.equal(resultOfAct(act("teleported")).ok, false);
+  assert.equal(resultOfAct({ ...act("landed"), receiptVersion: "p04-acts/9" }).ok, false);
 });
