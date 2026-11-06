@@ -248,6 +248,7 @@ test('the answer was lost after the relay sent, then a seal-key mismatch and a r
   const sealKey = randomBytes(32).toString('base64url');
   const clock = { t: Date.now() };
   const w = await world();
+  w.state.noFate = true; // the older wallet's path (no fate route): its history view
   const s1 = await server(w, { storeFile, sealKey, clock, uncertainWindowMs: 60_000 });
   const c = await connect(s1, w);
   const m1 = client(s1, c.access_token);
@@ -295,6 +296,7 @@ test('the answer was lost after the relay sent, then a seal-key mismatch and a r
 test('the relay\'s "expired" is not proof of absence: the send stays counted (held) until its own signature is proven absent', { skip: needsPatch }, async () => {
   const clock = { t: Date.now() };
   const w = await world();
+  w.state.noFate = true; // the older wallet's path (no fate route): its history view
   const s = await server(w, { clock, uncertainWindowMs: 60_000 });
   try {
     w.r.chain.confirm = false; // sent, not seen landing

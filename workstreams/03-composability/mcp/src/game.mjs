@@ -101,6 +101,23 @@ export class Game {
   }
 
   /**
+   * One action's state by its idempotency key, from the agent wallet's `GET /f/agent/fate?id=&key=` (read-only, no
+   * capability; workstream 04's execution contract 2026-11-06 §1): `not-sent | landed | failed | expired` (final),
+   * `pending` (wait), `unknown` (past its lifetime, absence not provable: may have landed), `unqueryable` (not asked:
+   * the node, or the record is not retained here — `retained: false` — which is "not known here", never "not sent").
+   * The relay not answering is `unqueryable` too (`retained: null`). Null only for a wallet without the route (older).
+   */
+  async actFate(agentId, key) {
+    const r = await this.json('GET', `${this.relay}/f/agent/fate?id=${encodeURIComponent(agentId)}&key=${encodeURIComponent(key)}`);
+    const at = new Date().toISOString();
+    if (r.transport) return { state: 'unqueryable', retained: null, why: 'the relay did not answer', source: 'relay', at };
+    // The relay's answer for a route it does not have (an older wallet): NotFound. UnknownAgent is an answer.
+    if (r.status === 404 && (r.json?.code ?? 'NotFound') === 'NotFound') return null;
+    if (r.status !== 200 || !FATE_STATES.includes(r.json?.state)) return { state: 'unqueryable', retained: null, why: `the relay answered HTTP ${r.status}${r.json?.code ? ` ${r.json.code}` : ''}`, source: 'relay', at };
+    return { ...r.json, source: 'agent wallet GET /f/agent/fate', at };
+  }
+
+  /**
    * What the agent wallet recorded for one idempotency key, read from its public view (`GET /f/agent?id=`, the same
    * read-only view ④'s gateway port reads for a lost answer). Sends nothing and needs no capability, so it works
    * after a connection is revoked. Null when the relay did not answer or the agent is not `owner`'s.
@@ -250,5 +267,8 @@ export class Game {
     return this.json('POST', `${this.relay}/f/agent/command`, body);
   }
 }
+
+/** The seven states of workstream 04's execution contract (2026-11-06 §1). */
+export const FATE_STATES = Object.freeze(['not-sent', 'landed', 'failed', 'expired', 'pending', 'unknown', 'unqueryable']);
 
 export { placeId, feedPlaceId };

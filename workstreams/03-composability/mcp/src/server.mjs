@@ -37,7 +37,7 @@ const cargoArray = c => RESOURCE_NAMES.map(r => (Number.isInteger(c?.[r]) ? c[r]
  * @param {Game} o.game
  * @param {JsonStore} o.store
  */
-export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => {}, grants = new MockGrantPort({ now }), receipts = new LocalReceiptPort(), uncertainWindowMs = UNCERTAIN_WINDOW_MS, archiveAfterMs = ARCHIVE_AFTER_MS }) {
+export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => {}, grants = new MockGrantPort({ now }), receipts = new LocalReceiptPort(), uncertainWindowMs = UNCERTAIN_WINDOW_MS, archiveAfterMs = ARCHIVE_AFTER_MS, acts = null }) {
   assertReceiptPort(receipts);
   const receiptOf = op => receipts.receipt(op);
   const db = store.state;
@@ -157,9 +157,18 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
       if (prior) {
         if (prior.planId !== planId) return fail('IdempotencyConflict', 'this requestId was used for another plan: use a new requestId', { operationId: opId });
         if (prior.state === STATES.REQUESTED) {
-          // An attempt whose answer was lost: ask the agent wallet's record first; re-send (its replay) only if it cannot tell.
-          await recover(prior);
+          // An attempt whose answer was lost: ask the wallet first, without sending.
+          const f = await consult(prior);
+          if (f === null) await recover(prior); // an older wallet: its history view
           if (prior.state !== STATES.REQUESTED) { store.save(); return joined(answer(await track(prior, principal))); }
+          // The same key goes out again only when the wallet answered and holds nothing under it (it never forgets a
+          // key: a POST is then its replay, or the first send if the first never arrived). It could not be asked, or
+          // knows the act and has not decided: nothing is sent.
+          if (f && !(f.state === 'unqueryable' && f.retained === false)) {
+            prior.updatedAt = new Date(now()).toISOString();
+            store.save();
+            return fail('NotResent', `nothing was sent again: the agent wallet's state for this request is ${f.state}${f.why ? ` (${scrub(f.why)})` : ''}; ask again later with the same requestId`, { operationId: prior.id, retrySameRequestId: true, fate: prior.fate, receipt: receiptOf(prior) });
+          }
           return joined(await resume(principal, prior));
         }
         return joined(answer(await track(prior, principal)));
@@ -198,6 +207,22 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
   // The grant's hold follows what can have happened: released only when nothing can have been sent.
   const grantRelease = (link, op) => { if (op.grant === 'reserved') grants.release(link, op.id); else if (op.grant === 'consumed') grants.refund(link); op.grant = 'none'; };
   const grantConsume = (link, op) => { if (op.grant === 'reserved') { grants.consume(link, op.id); op.grant = 'consumed'; } };
+
+  const keyOf = op => `ws03:${op.linkId}:${op.requestId}`;
+  const lifetimeOf = (f, source) => (f?.lastValidBlockHeight == null ? null
+    : { lastValidBlockHeight: f.lastValidBlockHeight, slotFloor: f.slotFloor ?? null, signedAt: f.signedAt ?? null, unit: 'block height', signature: f.signature ?? null, source });
+
+  /**
+   * Registers the operation in workstream 04's act registry (`acts`: ④'s clients/acts.mjs, `runexec act register`),
+   * source `mcp`, the operation id as the caller's run id. Idempotent: the same key, source and run id give the same
+   * run4Id every time (a retry, a restart). Null without a registry. Throws ActsError (Conflict, StoreError, Spawn).
+   */
+  async function register(op, link) {
+    if (!acts) return null;
+    const r = await acts.register({ agentId: link.agentId, key: keyOf(op), source: 'mcp', runId: op.id });
+    op.ws04Act = { ...(op.ws04Act ?? {}), run4Id: r.run4Id, runId: r.runId ?? op.id, registeredAt: op.ws04Act?.registeredAt ?? new Date(now()).toISOString(), receiptVersion: r.receiptVersion ?? null, state: op.ws04Act?.state ?? r.state };
+    return r;
+  }
 
   /** Nothing was sent and nothing will be: failed, the grant's hold given back. */
   function definite(op, link, code, message, by) {
@@ -252,7 +277,14 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
       store.save();
       return answer(op);
     }
-    const request = { agentId: principal.agentId, source: 'mcp', idempotencyKey: `ws03:${op.linkId}:${op.requestId}`, policyVersion: plan.policyVersion, modeEpoch: plan.modeEpoch,
+    try { await register(op, link); } catch (e) {
+      // Not registered with ④: nothing is sent (the registry is the run's record). Nothing changes; retry later.
+      if (e?.code === 'Conflict' && op.attempts === 0) { definite(op, link, 'RunConflict', `workstream 04's registry has this key under another run: ${e.message}`, 'ws04 act registry'); store.save(); return answer(op); }
+      op.updatedAt = new Date(now()).toISOString();
+      store.save();
+      return fail('RunRegistryUnavailable', `workstream 04's act registry did not register this operation (${e?.code ?? 'error'}): nothing was sent; retry with the same requestId`, { operationId: op.id, retrySameRequestId: true, receipt: receiptOf(op) });
+    }
+    const request = { agentId: principal.agentId, source: 'mcp', idempotencyKey: keyOf(op), policyVersion: plan.policyVersion, modeEpoch: plan.modeEpoch,
       action: { name: 'SendCaravan', holding: plan.holding, fields: plan.fields, route: plan.route } };
     delete op.hold;
     if (op.error?.code === 'CapabilityUnavailable') delete op.error;
@@ -269,14 +301,21 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
     }
     const res = r.json ?? {};
     const code = res.error?.code ?? res.code ?? `HTTP${r.status}`;
-    op.gateway = { status: res.status ?? null, signature: res.signature ?? null, code: res.error?.code ?? res.code ?? null, replayed: res.replayed === true, charges: res.charges ?? [] };
+    op.gateway = { status: res.status ?? null, signature: res.signature ?? null, code: res.error?.code ?? res.code ?? null, replayed: res.replayed === true, charges: res.charges ?? [],
+      ...(typeof res.sent === 'boolean' ? { sent: res.sent } : {}), ...(res.signedAt != null ? { signedAt: res.signedAt } : {}) };
+    // The signature's lifetime, fixed when the bytes left (the wallet's ActionResult, workstream 04's change).
+    if (res.signature && res.lastValidBlockHeight != null) op.lifetime = lifetimeOf(res, 'agent wallet ActionResult');
     if (r.status === 200 && res.status === 'sent') {
       delete op.error;
       grantConsume(link, op);
       step(op, STATES.ACCEPTED, 'the relay sent the transaction');
+    } else if (r.status === 200 && res.status === 'failed' && res.sent === false && !res.signature) {
+      // The wallet's own record: nothing left the relay under this key (failed before sending). Same key = its replay.
+      definite(op, link, code, res.error?.message ?? 'failed before anything was sent', 'agent wallet gateway (sent: false)');
     } else if (r.status === 200 && res.status === 'failed') {
-      // The gateway attempted the send and its outcome is the chain's (it gives no signature then).
-      uncertain(op, link, 'the send was attempted and its outcome is unknown: the chain decides');
+      // Signed and possibly sent (`sent: true` with its signature), or an older wallet that does not say: the chain
+      // decides by this request's own signature. Never re-sent.
+      uncertain(op, link, res.signature ? 'the send left signed and its answer says failed: it may still land; its own signature decides' : 'the send was attempted and its outcome is unknown: the chain decides');
     } else if (r.status === 200 && res.status === 'refused') {
       // The gateway's own record for this key: nothing was sent under it, ever.
       definite(op, link, code, res.error?.message ?? 'refused', 'agent wallet gateway / relay');
@@ -360,7 +399,7 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
         const bad = contentMismatch(op, x.payload);
         if (bad) { hold(op, 'Inconsistent', bad, { evidence: ref }); continue; }
         op.caravan.mine = { by: 'CARAVAN_SENT signed by this request, content as planned', ...ref };
-        if (op.hold && ['Indeterminate', 'SeqUsedByAnotherSend'].includes(op.hold.code)) delete op.hold;
+        if (op.hold && ['Indeterminate', 'SeqUsedByAnotherSend', 'ResultUnknown'].includes(op.hold.code)) delete op.hold;
         op.caravan.sentCargo = named(x.payload.cargo ?? []);
         op.caravan.wornBps = x.payload.worn_bps ?? 0;
         if (x.payload.arrive_ts) op.caravan.arriveAt ??= new Date(x.payload.arrive_ts * 1000).toISOString();
@@ -430,14 +469,91 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
     }
   }
 
+  /**
+   * Applies the wallet's answer for this request's key (④'s seven states). Only what is final or proven decides:
+   * landed (finalized) puts the caravan on the road; failed (finalized) and expired (proven never to land) fail it;
+   * not-sent (the wallet's own record) fails it with the hold given back. pending waits; unknown is held (it may have
+   * landed: never re-sent, never released); unqueryable says nothing about the act and changes nothing.
+   */
+  function applyFate(op, link, f) {
+    const at = new Date(now()).toISOString();
+    op.fate = { state: f.state, retained: f.retained ?? null, signature: f.signature ?? null, commitment: f.commitment ?? null, queryFailed: f.queryFailed === true,
+      why: f.why ?? null, source: f.source, at, ...(f.code ? { code: f.code } : {}) };
+    if (TERMINAL.includes(op.state)) return;
+    if (f.signature && op.gateway?.signature && f.signature !== op.gateway.signature) {
+      hold(op, 'Inconsistent', 'the agent wallet\'s record for this key names another signature than the answer this server received: nothing is decided', { evidence: { recorded: f.signature, answered: op.gateway.signature } });
+      return;
+    }
+    if (f.signature && !op.gateway?.signature) {
+      op.gateway = { ...(op.gateway ?? { charges: [], replayed: false, code: null }), status: f.status ?? op.gateway?.status ?? null, signature: f.signature, sent: true,
+        recoveredFrom: 'agent wallet GET /f/agent/fate (read only)' };
+      if (op.error?.code === 'RelayUnreachable') delete op.error;
+      if (op.state === STATES.REQUESTED) { grantConsume(link, op); op.uncertain = true; step(op, STATES.ACCEPTED, 'the agent wallet\'s record shows this request\'s signature (read without re-sending)'); }
+      else op.steps.push({ state: op.state, at, detail: 'this request\'s signature read from the agent wallet\'s record (without re-sending)' });
+    }
+    if (f.signature && f.lastValidBlockHeight != null) op.lifetime = lifetimeOf(f, f.source);
+    const open = [STATES.REQUESTED, STATES.ACCEPTED].includes(op.state);
+    switch (f.state) {
+      case 'not-sent':
+        if (open && f.retained !== false && !op.gateway?.signature) definite(op, link, f.code ?? 'NotSent', `the agent wallet's record for this key: nothing was sent (${f.why ?? 'not sent'})`, 'agent wallet (its record, read without re-sending)');
+        break;
+      case 'landed':
+        if (op.state === STATES.ACCEPTED) {
+          op.chain = { state: 'landed', commitment: f.commitment ?? 'finalized', source: f.source };
+          op.caravan.mine ??= { by: 'this request\'s own signature landed at finalized (agent wallet fate)', signature: op.gateway.signature };
+          if (op.hold && ['Indeterminate', 'ResultUnknown'].includes(op.hold.code)) delete op.hold;
+          step(op, STATES.PROCESSING, 'the transaction landed (finalized): the caravan is on the road');
+        }
+        break;
+      case 'failed':
+        if (open) { op.chain = { state: 'failed', commitment: f.commitment ?? 'finalized', why: f.why ?? null, source: f.source }; definite(op, link, 'TransactionFailed', `this request's own transaction failed at finalized: it ran and moved nothing (${f.why ?? 'failed'})`, 'program'); }
+        break;
+      case 'expired':
+        if (open) { op.chain = { state: 'expired', absenceProven: true, why: f.why ?? null, source: f.source }; definite(op, link, 'NotLanded', 'this request\'s own signature is proven never to land: past its lifetime, with the node\'s history covering it'); }
+        break;
+      case 'unknown':
+        if (open) hold(op, 'ResultUnknown', `the result is unknown: ${f.why ?? 'past its lifetime and its absence cannot be shown'}. It may have landed: it is not sent again and nothing is released; it stays held until a final answer`);
+        break;
+      default: break; // pending: wait. unqueryable: nothing is known about the act.
+    }
+  }
+
+  /**
+   * Asks, without sending anything, for the state of this request's own act: the wallet's GET /f/agent/fate for its
+   * key, and workstream 04's registry receipt when a registry is configured (registered first if it is not yet: a
+   * restart or an operation from before). Returns the wallet's answer (applied), undefined when nothing was ever
+   * attempted, or null for a wallet without the route (then the older reads apply).
+   */
+  async function consult(op) {
+    if (op.attempts === 0 && !op.gateway?.signature) return undefined;
+    const link = auth.link(op.linkId);
+    if (!link?.agentId) return undefined;
+    const f = await game.actFate(link.agentId, keyOf(op));
+    if (acts) {
+      const at = new Date(now()).toISOString();
+      try {
+        if (!op.ws04Act?.run4Id) await register(op, link);
+        const a = await acts.status({ agentId: link.agentId, key: keyOf(op) });
+        op.ws04Act = { ...op.ws04Act, run4Id: a.run4Id, receiptVersion: a.receiptVersion ?? null, state: a.state, final: a.final === true, next: a.next ?? null, newAttemptAllowed: a.newAttemptAllowed === true,
+          cancel: a.cancel ?? null, retention: a.retention ?? null, conflict: a.conflict ?? null, at };
+      } catch (e) { op.ws04Act = { ...(op.ws04Act ?? {}), readError: `${e?.code ?? 'Error'}: ${scrub(e?.message)}`, at }; }
+    }
+    if (f === null) return null;
+    applyFate(op, link, f);
+    return f;
+  }
+
   async function track(op, principal = null) {
     if (TERMINAL.includes(op.state)) return op;
     // A request that never reached the relay has nothing to look for (unless an attempt's outcome is unknown).
     if (op.state === STATES.REQUESTED && op.unknownSince === null) return op;
     const link = auth.link(op.linkId);
-    await recover(op);
+    const f = await consult(op);
     if (TERMINAL.includes(op.state)) { store.save(); return op; }
-    if (op.state === STATES.ACCEPTED && op.gateway?.signature) {
+    // An older wallet (no fate route): its history view and the relay's /f/tx, as before.
+    if (f === null) await recover(op);
+    if (TERMINAL.includes(op.state)) { store.save(); return op; }
+    if (f === null && op.state === STATES.ACCEPTED && op.gateway?.signature) {
       const tx = await game.txStatus(op.gateway.signature);
       const d = tx?.detail ?? null;
       const finality = d?.commitment ?? 'not reported';
@@ -471,7 +587,7 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
     if (!TERMINAL.includes(op.state)) {
       const mine = await evidence(op);
       if (mine && op.hold?.code === 'Indeterminate') { delete op.hold; op.steps.push({ state: op.state, at: new Date(now()).toISOString(), detail: 'no longer held: the caravan is proven this request\'s own' }); }
-      if (!mine && op.unknownSince !== null && op.state !== STATES.PROCESSING && now() - op.unknownSince >= uncertainWindowMs) {
+      if (!mine && op.unknownSince !== null && op.state !== STATES.PROCESSING && !['pending', 'unknown'].includes(op.fate?.state) && now() - op.unknownSince >= uncertainWindowMs) {
         hold(op, 'Indeterminate', op.gateway?.signature
           ? 'no evidence for this request\'s own signature, and its absence is not proven (the relay cannot show finalized history over its lifetime): not decided; the grant stays counted'
           : 'this server does not know its own signature (the answer was lost) and the caravan number alone proves nothing: not decided; each status query reads the agent wallet\'s record for this key (without re-sending), and its signature, once shown there, decides');

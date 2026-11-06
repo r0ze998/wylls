@@ -153,6 +153,7 @@ test('raids and lost destinations are outcomes, not server failures: taken, burn
 
 test('this request\'s own transaction failed: decided only at finalized (0007 reports the commitment); before that it is held', { skip: needsPatch }, async () => {
   const { w, s, m } = await setup();
+  w.state.noFate = true; // the older wallet's path (no fate route): its history view and /f/tx
   try {
     w.r.chain.confirm = false;
     const { plan } = await planned(m);
@@ -160,7 +161,10 @@ test('this request\'s own transaction failed: decided only at finalized (0007 re
     const sig = r.gateway.signature;
     w.r.chain.statuses.set(sig, { slot: 80, err: { InstructionError: [3, { Custom: 4 }] }, confirmationStatus: 'confirmed' });
     const early = (await m.tool('get_operation_status', { operationId: r.operationId })).structuredContent;
-    assert.deepEqual([early.state, early.hold?.code], ['accepted', 'Indeterminate'], 'a failure at confirmed is not final');
+    // Not final at confirmed: held (a relay reporting `failed` at confirmed), or not decided (workstream 04's /f/tx,
+    // finalized-only, answers `unknown`). Either way not failed, still counted.
+    assert.equal(early.state, 'accepted', 'a failure at confirmed is not final');
+    assert.ok([undefined, 'Indeterminate'].includes(early.hold?.code), early.hold?.code);
     assert.equal((await m.tool('get_connection')).structuredContent.grant.used, 1);
     w.r.chain.statuses.set(sig, { slot: 80, err: { InstructionError: [3, { Custom: 4 }] }, confirmationStatus: 'finalized' });
     if (!HAS_0007) {
@@ -263,6 +267,7 @@ test('the relay answered but the MCP server never recorded it (crash): after a r
 
 test('the send left but its answer says failed (no signature): records under its caravan number decide nothing; held, still counted', { skip: needsPatch }, async () => {
   const { w, s, m } = await setup({}, { grant: { actions: ['SendCaravan'], maxSends: 1, maxCargo: Array(8).fill(500) } }, { uncertainWindowMs: 0 });
+  w.state.noFate = true; // the older wallet's path (no fate route): its history view and /f/tx
   try {
     const original = w.r.chain.sendRawTransaction;
     w.r.chain.sendRawTransaction = async raw => { await original(raw); throw new Error('RPC timeout after the bytes left (scripted)'); };
@@ -294,6 +299,7 @@ test('the send left but its answer says failed (no signature): records under its
 test('outcome unknown and no trace: after the window it is held (Indeterminate), never NotSent from the caravan counter; the grant stays counted', { skip: needsPatch }, async () => {
   const clock = { t: Date.now() };
   const { w, s, m } = await setup({}, {}, { clock, uncertainWindowMs: 5 * 60_000 });
+  w.state.noFate = true; // the older wallet's path (no fate route): its history view and /f/tx
   try {
     w.r.chain.sendRawTransaction = async () => { throw new Error('RPC down (scripted)'); };
     const { plan } = await planned(m);

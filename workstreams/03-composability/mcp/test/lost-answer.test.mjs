@@ -1,4 +1,5 @@
-// A lost answer, asked again without sending anything. When the relay's answer to send_caravan is lost, a status
+// A lost answer, asked again without sending anything — against an OLDER wallet (no GET /f/agent/fate: its
+// history view). The current wallet's seven states are fate.test.mjs. When the relay's answer to send_caravan is lost, a status
 // query reads the agent wallet's own record for this request's key from its public view (GET /f/agent?id=, ⑤'s
 // gateway as it is; the same read ④'s gateway port makes). A signature found there is this request's own and
 // decides as an answer received would; a refusal before signing means nothing was sent; anything else (not found,
@@ -36,6 +37,7 @@ function loseNextAnswer(w) {
 
 async function lostSend({ requestId = 'req-lost-0001' } = {}) {
   const w = await world();
+  w.state.noFate = true; // this file: an older wallet without GET /f/agent/fate (its history view); fate.test.mjs is the current one
   const s = await server(w);
   w.r.chain.confirm = false; // sent, no status yet
   const c = await connect(s, w);
@@ -121,6 +123,7 @@ test('records that decide nothing: not found, failed without a signature; a refu
     ['refused', key => [{ type: 'action', key, status: 'refused', code: 'BudgetExceeded', seq: 9 }], o => { assert.deepEqual([o.state, o.error.code, o.gateway.status], ['failed', 'BudgetExceeded', 'refused']); }],
   ]) {
     const w = await world();
+    w.state.noFate = true;
     const s = await server(w);
     try {
       const m = client(s, (await connect(s, w)).access_token);

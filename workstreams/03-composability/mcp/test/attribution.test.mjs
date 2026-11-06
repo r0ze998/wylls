@@ -97,6 +97,7 @@ test('a raid that takes its own caravan (matching record): KnownZero in ④\'s v
 
 test('records seen before the signature is known are kept: when the retry brings the signature, the earlier record makes the caravan its own', { skip: needsPatch }, async () => {
   const w = await world();
+  w.state.noFate = true; // the older wallet's path (no fate route): its history view
   const s = await server(w);
   try {
     const m = client(s, (await connect(s, w)).access_token);

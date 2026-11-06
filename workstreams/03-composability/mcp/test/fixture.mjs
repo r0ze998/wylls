@@ -40,6 +40,8 @@ export const contract = await import(pathToFileURL(path.join(GATEWAY_ROOT, 'src/
 /** Whether the gateway tree has patch 0005 (SendCaravan as an agent action). */
 export const PATCHED = Object.keys(contract.ACTION_GROUPS).includes('transport');
 /** The gateway tree has patch 0007 (GET /f/tx?detail=1: commitment, fee, proven absence). */
+/** The wallet has workstream 04's GET /f/agent/fate (the seven states) and the send facts on its ActionResult. */
+export const HAS_FATE = readFileSync(path.join(GATEWAY_ROOT, 'src/frontier/routes/agent.mjs'), 'utf8').includes("'GET /f/agent/fate'");
 export const HAS_0007 = readFileSync(path.join(GATEWAY_ROOT, 'src/frontier/routes/season.mjs'), 'utf8').includes('?detail=1');
 
 export const RELAY = 'http://relay.test';
@@ -89,6 +91,7 @@ export async function world({ allowed = PATCHED ? ['transport'] : ['economy'], b
     events: [],
     moving: [],
     fail: null, // a path → status to fail
+    noFate: false, // true: an older wallet (no GET /f/agent/fate; no signature or lifetime on a failure after signing)
   };
   const page = {
     season: () => ({ v: 1, season: String(state.seasonId), bytes_b64: b64(v2('Season', { RULESET_HASH: hex(V2.ruleset_hash_v3), PROGRAM_VERSION: 4, GENESIS_TS: BigInt(fx.GENESIS), STATUS: 2 })), latestUnix: NOW }),
@@ -110,12 +113,20 @@ export async function world({ allowed = PATCHED ? ['transport'] : ['economy'], b
     const u = new URL(url);
     calls.push(`${init.method ?? 'GET'} ${u.origin}${u.pathname}`);
     if (state.fail?.(u)) throw new Error('connect ECONNREFUSED (scripted)');
+    // An older wallet: no GET /f/agent/fate (the relay's answer for a route it does not have).
+    if (state.noFate && u.pathname === '/f/agent/fate') return { status: 404, json: async () => ({ error: 'not found', code: 'NotFound' }) };
     if (state.intercept) { const x = await state.intercept(u, init); if (x) return x; }
     if (u.origin === RELAY) {
       const res = await fx.call(r.public, init.method ?? 'GET', u.pathname + u.search, { body: init.body === undefined ? undefined : JSON.parse(init.body) });
       // After switchContext: the relay answers for the other context (only /f/season is rewritten; the scripted
       // relay's own addresses stay the first context's, so tests must not send new plans after a switch).
       if (u.pathname === '/f/season' && res.status === 200 && state.seasonId !== fx.SEASON_ID) return { status: 200, json: async () => ({ ...res.json, seasonId: String(state.seasonId) }) };
+      // An older wallet (before workstream 04's change): a failure after signing carried no signature, and no lifetime.
+      if (state.noFate && res.json && (u.pathname === '/f/agent/action' || u.pathname === '/f/agent')) {
+        const strip = x => { if (!x || typeof x !== 'object') return x; const { sent, lastValidBlockHeight, slotFloor, signedAt, ...rest } = x; return x.status === 'failed' ? (({ signature, ...r }) => r)(rest) : rest; };
+        const j = u.pathname === '/f/agent' ? { ...res.json, history: (res.json.history ?? []).map(h => (h.type === 'action' ? strip(h) : h)) } : strip(res.json);
+        return { status: res.status, json: async () => j };
+      }
       return { status: res.status, json: async () => res.json };
     }
     const json = data => ({ status: 200, ok: true, json: async () => data });
@@ -134,7 +145,7 @@ export async function world({ allowed = PATCHED ? ['transport'] : ['economy'], b
 }
 
 /** The MCP server over the world, on a loopback port; `clock` is the server's `now` (ms). */
-export async function server(w, { storeFile = null, clock = { t: Date.now() }, sealKey = null, uncertainWindowMs, archiveAfterMs, rateLimit = { burst: 10_000, everySecs: 2 }, redirectProfiles } = {}) {
+export async function server(w, { storeFile = null, clock = { t: Date.now() }, sealKey = null, uncertainWindowMs, archiveAfterMs, rateLimit = { burst: 10_000, everySecs: 2 }, redirectProfiles, acts = null } = {}) {
   const now = () => clock.t;
   const store = new JsonStore(storeFile);
   const game = new Game({ relay: RELAY, herald: HERALD, fetch: w.fetch, contextTtlMs: 0 });
@@ -145,7 +156,7 @@ export async function server(w, { storeFile = null, clock = { t: Date.now() }, s
   const srv = await listen(async (req, res) => handler(req, res));
   const issuer = `http://127.0.0.1:${srv.address().port}`;
   auth = new Auth({ issuer, resource: `${issuer}/mcp`, store, sealer, game, now, log, ...(redirectProfiles ? { redirectProfiles } : {}) });
-  const mcp = createWyllsMcp({ auth, game, store, now, log, ...(uncertainWindowMs !== undefined ? { uncertainWindowMs } : {}), ...(archiveAfterMs !== undefined ? { archiveAfterMs } : {}) });
+  const mcp = createWyllsMcp({ auth, game, store, now, log, ...(uncertainWindowMs !== undefined ? { uncertainWindowMs } : {}), ...(archiveAfterMs !== undefined ? { archiveAfterMs } : {}), ...(acts ? { acts } : {}) });
   const handler = createHandler({ auth, mcp, log, rateLimit });
   return { srv, issuer, auth, mcp, store, game, logs, clock, close: () => new Promise(r => srv.close(r)) };
 }

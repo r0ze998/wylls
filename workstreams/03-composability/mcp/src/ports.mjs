@@ -123,6 +123,9 @@ export function receiptOf(op) {
     // request's key when the answer was lost (read without re-sending).
     ...(op.lifetime ? { lifetime: op.lifetime } : {}),
     ...(op.agentRecord ? { agentRecord: op.agentRecord } : {}),
+    // The wallet's answer for this request's key (workstream 04's seven states), and ④'s registry receipt.
+    ...(op.fate ? { fate: op.fate } : {}),
+    ...(op.ws04Act ? { ws04Act: op.ws04Act } : {}),
     caravan: op.caravan ?? null,
     // The world context the operation was made in (null: made before contexts were recorded; never assumed to be the
     // current one).
