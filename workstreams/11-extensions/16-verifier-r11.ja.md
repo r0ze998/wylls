@@ -81,3 +81,19 @@ JoinResident の口座 `[owner] [payer] [season] [frontier] [citizen] [system] [
 | **実装した** | V27 の policy、link、resident の正規アドレスの照合。policy の中身の取り方（CreateResidentPolicy の命令、または archive の状態）。policy が無いときは UNVERIFIABLE |
 | **試験した** | 上の新しい試験 2 件と、r9 の 5 件（正規アドレスに合わせたもの）。許された全試験。fmt と clippy `-D warnings`（Rust 1.95.0）。どれも鍵ペアと署名を使わない（呼び出し先まで確かめた） |
 | **未確認** | NFT 版の Season を丸ごと `verify()` に通して PASS になること（記録済みの fixture が無い。作るには鍵ペアと署名が要る）。⑲の `history.rs` と同じ木で試すこと。CI。チェーン上の動作。asset（Core）の所有者と guard、resident program の現在の世代（archive に証拠が無い。r9 §2 と同じ） |
+
+## 6. ⑲による同じ木での確認（2026-11-06、⑲から報告を受けた）
+
+⑲が同じ木で確かめた（⑪自身はこの木を走らせていない）。
+
+- **使った木:** ⑲の `ws19-on-6984acfa-r2`（`c022f4fc`）に、⑪の 0010 と 0011、⑳の `b2f7becc` のうち `fclient/src/addr.rs` の差分だけを重ねたもの。
+- **結果:**
+  - 0010 と 0011 は衝突なく当たった。
+  - ⑲の `tests/history.rs` は 13 件すべて通った。検証器の本体を通る 3 件（記録済みの fixture、欠落を混ぜたもの、自己完結の FAIL）を含む。
+  - 0011 の FAIL は check `V27` で出るので、⑲の self_contained に入る。
+- **鍵:** 鍵ペアの生成・導出と署名は使っていない。
+- **注意（⑲）:**
+  - 0011 は⑳の `b2f7becc`（`fclient::addr`）に依存する。④は先にそれを入れる必要がある。
+  - `b2f7becc` には⑳の V28 も入っている。V28 の FAIL は self_contained に入っていない。V28 を self_contained にするかは⑳と④が決める。
+
+§3 の「未確認」のうち、⑲の `history.rs` と同じ木での試験は、⑲が確かめた（上）。④の統合の木での確認は、まだ残っている。
