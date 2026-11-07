@@ -2247,6 +2247,135 @@ queues; every candidate is denied; every gate stays closed; **arrival
 processing is still not complete** and the game is not playable from
 this.
 
+## Thirteenth slice (2026-11-08, on `08969fae`): the return branches through the real dispatcher, compared with the planner
+
+**What was missing.** No program test executed the settle handler's
+return-home, bounce or rout branch; the twelfth slice's parity rested on
+reading. This slice adds **host dispatcher tests** of those branches in
+`permutation-frontier/src/wide_land_runtime_tests.rs`, under the existing
+opt-in native build (`--features native-crypto-tests`, not `test-beacon`,
+host target), over the existing literal `AccountInfo` harness and the
+shipped **public** seal and beacon vectors, and a keeper test that checks
+the planner's predictions against the **same** expectation file.
+
+**The shared fixture.**
+`permutation-rules/vectors/wide-settle-return-expectations-v1.json`:
+world-independent rules as flat string fields (the shape of
+`seal-vectors-v1.json`, parsed by the program's line scanner
+`crypto::seal::tests::cases_in` — a two-line refactor of `cases` — and by
+the keeper's `serde_json`): for the record's outranked bounce
+(`bounce_unranked_roster_entry`: 101,000 milli, outcome 6, the transit's
+stamina dated `effective_bell(depart)`, tip → rent payer, fee → resolver,
+bond → rent payer, a roster entry, 101,000 credited, two records, chain
+deltas holding 2 / home 1 / destination 1), the rout
+(`routed_reserve_fallback_rounding`: 401,000 milli, outcome 7,
+`rout_survivors` 200,500, stamina 0 at `now_bell`, tip → `pool_owed`, the
+reserve under the faction cap of 8, +200 whole units, 200,000 credited),
+the bounced final-set host (`bounced_final_set_roster_entry`: 300,000
+milli, outcome 3, the record's stamina dated the arrival, tip → the slot's
+beneficiary, a roster entry, the slot closed to its rent recipient), and
+three refusals (historical generation → `NotImplemented` /
+`HistoricalGeneration`; another account in the home position →
+`BadAddress` / not reproducible by the planner, which derives the address;
+an unpaired home roster → `BadAccount` / `RosterUnpaired`; each writing
+nothing). It is a fixture of **rules**, not chain evidence: each test
+derives its own literal world and checks these fields against what it
+observed (dispatcher) or predicted (planner).
+
+**The dispatcher tests** (both call `crate::dispatch` through `run_tx`,
+which snapshots every account and restores it on a refusal):
+
+- `wide_land_native_settles_unrevealed_marches_home_as_the_record_says`:
+  the first native settle test's world with four marches staged as
+  WideDepart writes them (the debit gate stays closed): A 300 and D 101
+  and E 401 troops of Citizen a on one holding, B 200 of Citizen b on
+  another; all four seals **valid** (the vector's IBE block and recovered
+  key, each plaintext naming the destination); THE anchor of bell 20
+  staged with the vector's round-T signature **verified against the
+  production key** before staging; A and B reveal, D and E never do; the
+  record gathered and resolved by a third wallet. Then, at the settle
+  time: three refusals that write nothing — the holding's `GEN` set to 2
+  (a fixture of what the lottery leaves) → `NotImplemented`; the
+  destination province handed in the home position (test-only helper
+  `settle_transit_home`) → `BadAddress`; a roster reference claimed with
+  no entry (released again after) → `BadAccount`; balances, chains and
+  receipts unchanged. **D** settles as the record's outranked bounce: the
+  tip and the bond to the holding's rent payer (with the record's rent),
+  the fee to the resolver, nothing to the slot beneficiary or the
+  settler's beneficiary; the escrow and the open count down by one march;
+  the record closed; A's slot at position 0 byte-identical (another
+  host's slot is not read, kept or closed); `settled_mask` unchanged; a
+  muster-pending entry at the first free index with 101,000 troops, the
+  transit's `stamina_after`, `stamina_bell = effective_bell(6) = 7`,
+  `from = 24`, `ready = max(6 + ready_bell_off, 24)`, the doctrine's Hold
+  `dealt`, its reference claimed in the roster, `n_entries + 1`; two
+  receipts (TransitSettled `[slot, 6, VALID]`, troops 101,000, the three
+  amounts, `home_credited`; Return credited 101,000, unit 0, the entry
+  index); the holding's chain + 2, the home's + 1, the destination's + 1;
+  no DIVERT; replay `TransitState`. Then the home at the faction cap (D's
+  entry plus seven **staged** residents of the faction, `stage_resident`,
+  a test-only fixture of settled musters paired in the roster) and **E**
+  settles as the rout: the tip **owed** (`pool_owed` + tip, the holding's
+  lamports down by fee + bond only, no DIVERT since the holding is its own
+  recipient), the fee and the bond as before, `rout_survivors(401,000) =
+  200,500` → the reserve + 200 whole units, no entry, Return credited
+  200,000 with entry `0xFF`; chains + 2 / + 1 / + 1; replay refused.
+- `wide_land_native_settles_a_bounced_final_set_host_home`: the same
+  world with `FACTION_RESIDENT_CAP` (8) resident hosts of the faction
+  **staged** at the destination before its resolves (fixtures of settled
+  musters, the destination's roster staged as the resolve creates it);
+  the room rule bounces A and B at the resolve (`FATE_BOUNCED` in the
+  record, troops intact). A then B settle: the tip to the slot's
+  beneficiary, the fee to the resolver, the bond to the rent payer with
+  the slot's and the record's rent (both closed to their immutable
+  recipients), the position marked settled, a muster-pending entry at
+  home with the record's troops and stamina dated the **arrival bell**,
+  `from = 24`; two receipts; chains + 2 / + 1 / + 1; replays refused.
+
+Every observed value that the fixture names is asserted equal to the
+fixture's field, so a drift in either the handler or the fixture fails the
+test.
+
+**The keeper test**
+`settle_transit_return_predictions_match_the_shared_dispatcher_expectations`
+(`wide_reveal.rs`): the planner over equivalent literal fixtures (101,000
+milli bounced by a larger same-Citizen host; 401,000 routed with eight
+own-faction entries at home; 300,000 bounced in the final set with its own
+slot whose `rent_to` is the listed payer) predicts the same outcome codes,
+set membership, troops and stamina rules, payee roles, roster entry or
+reserve, credited amounts and reserve deltas, slot dispositions; and
+refuses `HistoricalGeneration` and `RosterUnpaired` by the fixture's
+names. The chain deltas are the dispatcher's alone (the planner checks
+headroom, not counts), and the home-address refusal is the dispatcher's
+alone (the planner derives the address).
+
+**How no signing is guaranteed.** The harness has no keypair and no
+signer: every wallet is a literal 32-byte address with `is_signer` set by
+the test on the `AccountInfo`; `run_tx` calls `crate::dispatch` directly;
+the only signatures anywhere are the shipped **public** quicknet round
+signatures of the seal vectors, verified against the production key with
+`quick::verify` before staging, as the existing native tests do. No
+network, no funds, no deployment, no production handler or gate change
+(`DEPART_DEBIT_ENABLED` is read, never set; the departures are staged
+fixtures in these two tests). Test-only helpers added to the harness:
+`settle_transit_home`, `free_tiles`, `stage_resident`, `native_q3_scene`,
+`return_expectations` / `expectation` / `expected_u64`, all under the
+native cfg.
+
+**Limits, stated.** `Retreated` is not produced: it needs a battle with a
+retreat ratio (the routes end away from garrisons by construction), so
+the planner's Retreated path has keeper pins only. The residents and the
+departures are fixtures in the shapes the program writes, not the
+program's own writes; the first native test already shows the real
+WideDepart and the real posts in the open-gate build. The fixture file
+pins rules, not a chain. Not compiled or run by its author; the parent
+runs the three new tests by exact name under the native feature
+(`cargo test -p permutation-frontier --features native-crypto-tests
+map_growth_runtime_tests::wide_land::wide_land_native_settles_unrevealed_marches_home_as_the_record_says`
+and `..._settles_a_bounced_final_set_host_home`; the keeper test under
+`--features wide-world-experimental --test wide_reveal`). Arrival
+processing is still not complete; every keeper candidate stays denied.
+
 ## Touched files
 
 `frontier-abi/src/world_index/settle.rs` (new, tenth slice: the pure
@@ -2324,7 +2453,15 @@ observer's chain heads, `ChainHead`, `chain()`, `MAX_CHAIN_KEYS`; seventh:
 runtime dependency change),
 `frontier-node/crates/keeper/tests/wide_duties.rs` (new),
 `frontier-node/crates/keeper/tests/wide_reveal.rs` (new), this document.
-No fclient, ABI, program, engine, herald, web or UI file.
+Thirteenth slice (test modules and public fixtures only):
+`permutation-rules/vectors/wide-settle-return-expectations-v1.json`
+(new), `permutation-frontier/src/crypto/seal.rs` (the test module's
+`cases` split into `cases_in(text)`),
+`permutation-frontier/src/wide_land_runtime_tests.rs` (the native-cfg
+helpers `settle_transit_home`, `free_tiles`, `stage_resident`, the
+`Q3Scene` / `native_q3_scene` setup, the expectation readers, two native
+tests). No production handler, fclient, ABI, engine, herald, web or UI
+file.
 
 ### Nonce qualification after independent review
 
@@ -2444,3 +2581,35 @@ historical generations remain refused. Predictions are over read account
 shapes, not executed transfers. All source/history/send gates remain closed.
 No keypair generation/derivation, signing, Keeper startup, real transaction,
 simulation, main merge or deployment was performed.
+
+### Thirteenth-slice verification checkpoint
+
+Both new exact-name native dispatcher tests passed on the final tree:
+`map_growth_runtime_tests::wide_land::wide_land_native_settles_unrevealed_marches_home_as_the_record_says`
+and
+`map_growth_runtime_tests::wide_land::wide_land_native_settles_a_bounced_final_set_host_home`.
+They execute real Reveal/Gather/Resolve/SettleTransit dispatch against literal
+host accounts and the published quicknet seal/signature vector. They check
+return entries/reserve, wallet and holding balances, pool_owed, immutable rent
+refunds, slot/transit close, receipts and chain increments. Refusals assert
+that no write occurred before rollback. The two previously audited native
+settlement/departure tests also passed after the test-only parser refactor.
+
+The keeper's shared-expectation test passed, as did all 132 focused keeper
+tests (14 discovery, 70 duties, 12 guard, 30 reveal, 6 snapshot RPC). Keeper
+feature-on library/binary/changed-test clippy passed. Program lib/test clippy
+was attempted but fails on six pre-existing findings in unchanged code:
+items_after_test_module in proc/wide.rs; four err_expect uses and one
+needless_range_loop in older wide_land_runtime_tests.rs cases. No lint
+exception or unrelated code change was made.
+
+The JSON contains fixed expectations consumed independently by dispatcher
+and planner tests; it is not generated from either output. The two sides use
+different complete account worlds, so this demonstrates shared semantic
+results, not byte-identical whole-world execution. New dispatcher evidence
+covers unranked bounce, rout, final-set Bounced and roster/faction-cap fallback.
+Retreated, 500/999-milli boundaries and same-home/destination behavior still
+have planner tests/static review only, not new dispatcher evidence here.
+Departures/resident setup are staged fixtures, not a full fresh on-chain game.
+No private signing key, keypair generation/derivation, cryptographic signing,
+network submission, actual funds, production gate change or deployment was used.

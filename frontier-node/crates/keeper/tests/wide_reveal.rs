@@ -6098,3 +6098,296 @@ fn settle_transit_refuses_a_return_the_handler_would_refuse() {
     }
     assert_eq!(engine.pending_len(), 0);
 }
+
+// ------------------------------------------------------------ the shared dispatcher expectations
+
+/// `permutation-rules/vectors/wide-settle-return-expectations-v1.json`:
+/// the world-independent expectations the program's host dispatcher
+/// tests (`wide_land_native_settles_unrevealed_marches_home_as_the_record_says`,
+/// `wide_land_native_settles_a_bounced_final_set_host_home`) check their
+/// observations against; the planner's predictions are checked against
+/// the same fields here. A public fixture of rules, not chain evidence.
+fn return_expectations() -> Value {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../permutation-rules/vectors/wide-settle-return-expectations-v1.json");
+    serde_json::from_str(&std::fs::read_to_string(path).expect("expectations")).expect("json")
+}
+fn expectation<'a>(j: &'a Value, name: &str) -> &'a Value {
+    j["cases"]
+        .as_array()
+        .expect("cases")
+        .iter()
+        .find(|c| c["name"] == name)
+        .unwrap_or_else(|| panic!("expectation {name}"))
+}
+fn expected_u64(c: &Value, key: &str) -> u64 {
+    c[key]
+        .as_str()
+        .unwrap_or_else(|| panic!("expectation field {key}"))
+        .parse()
+        .unwrap()
+}
+/// The planner's recipient names in the expectation file's vocabulary.
+fn role_of(to: &str) -> &str {
+    match to {
+        "holding_rent_payer" => "rent_payer",
+        other => other,
+    }
+}
+/// The fixture march with `dep_mass` milli departed and settled at the
+/// origin with the same troops (no clash), the fee and the bond escrowed.
+fn mass_transit(dep_mass: u32, root: [u8; 32]) -> WideTransit {
+    let mut t = transit_full(
+        host(),
+        origin(),
+        DEPART_BELL,
+        ARRIVE_BELL,
+        root,
+        depart_ts(),
+        dep_mass,
+        61,
+        TIP,
+    )
+    .step(
+        MarchEvent::SettleDeparture { destroyed: false },
+        Some((dep_mass, 61, 0)),
+    )
+    .unwrap();
+    t.flags |= TL::FLAG_FEE_ESCROWED | TL::FLAG_BOND_ESCROWED;
+    t.rent_to = TRANSIT_RENT_TO;
+    t
+}
+
+/// The planner's predictions for the three return branches the program's
+/// host dispatcher tests settle for real — the record's outranked bounce
+/// into a roster entry, the rout into the reserve under the faction cap
+/// with its rounding, a bounced final-set host into a roster entry — and
+/// its refusals, each checked against the **same** expectation file those
+/// tests check their observations against: outcome code, set membership,
+/// the troops and stamina rules, the payees' roles, roster entry or
+/// reserve, the credited amount and the reserve delta, the slot's
+/// disposition. The chain deltas are the dispatcher's alone (the planner
+/// checks headroom, not counts).
+#[test]
+fn settle_transit_return_predictions_match_the_shared_dispatcher_expectations() {
+    let j = return_expectations();
+    let pay_roles = |f: &SettleTransitFacts| -> Vec<(&'static str, String)> {
+        f.nominal_payments
+            .iter()
+            .map(|p| (p.what, role_of(p.to).to_string()))
+            .collect()
+    };
+    let escrowed_season = {
+        let mut s = season_bytes(SL::STATUS_RUNNING, 10_000);
+        assert!(wr_u64(&mut s, SL::MARCH_FEE, MARCH_FEE));
+        assert!(wr_u64(&mut s, SL::SEAL_BOND, SEAL_BOND));
+        s
+    };
+    // --- The outranked bounce (D of the dispatcher test): 101,000 milli,
+    // a larger host of the same Citizen present, no slot of its own, the
+    // home roster paired and empty.
+    let c1 = expectation(&j, "bounce_unranked_roster_entry");
+    let mut fx = SettleFx::new();
+    fx.season = escrowed_season.clone();
+    fx.holding = settle_holding_bytes(GEN, TIP + MARCH_FEE + SEAL_BOND, 1);
+    let mass = expected_u64(c1, "dep_mass_milli") as u32;
+    fx.transit = Some(mass_transit(mass, fx.proof.seal_root).to_bytes().to_vec());
+    fx.proof.dep_mass_milli = mass;
+    fx.slot = None;
+    fx.inputs = Some(resolved_inputs_with(
+        away(),
+        &[(
+            0,
+            arrival_of(
+                host_b(),
+                citizen(),
+                TROOPS,
+                wa::wide_arrival::FATE_STAYS,
+                TROOPS,
+            ),
+        )],
+    ));
+    let (pd, rd) = home_with_entries(&[]);
+    fx.home = Some(pd);
+    fx.home_roster = Some(rd);
+    let c = fx.plan().unwrap_or_else(|b| panic!("blocked: {b:?}"));
+    let f = settle_facts(&c);
+    assert_eq!(f.outcome_code as u64, expected_u64(c1, "outcome_code"));
+    assert_eq!(c1["in_final_set"], f.in_final_set.to_string());
+    let r = f.return_home.unwrap();
+    assert_eq!(r.troops_milli as u64, expected_u64(c1, "troops_home_milli"));
+    assert_eq!(c1["stamina_rule"], "transit_after");
+    assert_eq!(r.stamina, 61, "the transit's stamina_after");
+    assert_eq!(c1["stamina_bell_rule"], "effective_depart");
+    assert_eq!(r.stamina_bell, effective_bell(DEPART_BELL));
+    assert_eq!(
+        pay_roles(f),
+        vec![
+            ("tip", c1["tip_to"].as_str().unwrap().to_string()),
+            ("march_fee", c1["fee_to"].as_str().unwrap().to_string()),
+            ("bond", c1["bond_to"].as_str().unwrap().to_string()),
+        ]
+    );
+    assert_eq!(c1["home"], "roster_entry");
+    assert!(r.entry.is_some() && r.home_roster_present);
+    assert_eq!(r.credited_milli as u64, expected_u64(c1, "credited_milli"));
+    assert_eq!(
+        (r.reserve_after - r.reserve_before) as u64,
+        expected_u64(c1, "reserve_delta_units")
+    );
+    assert_eq!(c1["slot"], "none");
+    assert_eq!(f.slot_disposition, SlotDisposition::NotOwn);
+    assert_eq!(
+        expected_u64(c1, "records"),
+        2,
+        "TransitSettled and Return: the headroom asked of the holding is two"
+    );
+    // --- The rout (E): 401,000 milli, another Citizen's host present and
+    // a free position, the home at the faction cap → the reserve, 200,500
+    // milli as 200 whole units.
+    let c2 = expectation(&j, "routed_reserve_fallback_rounding");
+    let mut fx = SettleFx::new();
+    fx.season = escrowed_season.clone();
+    fx.holding = settle_holding_bytes(GEN, TIP + MARCH_FEE + SEAL_BOND, 1);
+    let mass = expected_u64(c2, "dep_mass_milli") as u32;
+    fx.transit = Some(mass_transit(mass, fx.proof.seal_root).to_bytes().to_vec());
+    fx.proof.dep_mass_milli = mass;
+    fx.slot = None;
+    fx.inputs = Some(resolved_inputs_with(
+        away(),
+        &[(
+            0,
+            arrival_of(
+                host_c(9),
+                other_citizen(),
+                TROOPS,
+                wa::wide_arrival::FATE_STAYS,
+                TROOPS,
+            ),
+        )],
+    ));
+    assert_eq!(c2["home_reason"], "faction_cap_8");
+    let eight: Vec<(usize, WideHostRef, u8, u8)> = (0..PV::FACTION_CAP)
+        .map(|i| (i, host_c(300 + i as u32), E::STATE_ROSTER, 0u8))
+        .collect();
+    let (pd, rd) = home_with_entries(&eight);
+    fx.home = Some(pd);
+    fx.home_roster = Some(rd);
+    let c = fx.plan().unwrap_or_else(|b| panic!("blocked: {b:?}"));
+    let f = settle_facts(&c);
+    assert_eq!(f.outcome_code as u64, expected_u64(c2, "outcome_code"));
+    assert_eq!(c2["in_final_set"], f.in_final_set.to_string());
+    let r = f.return_home.unwrap();
+    assert_eq!(r.troops_milli as u64, expected_u64(c2, "troops_home_milli"));
+    assert_eq!(r.troops_milli, rout_survivors(mass));
+    assert_eq!(c2["stamina_rule"], "zero");
+    assert_eq!(r.stamina, 0);
+    assert_eq!(c2["stamina_bell_rule"], "now_bell");
+    assert_eq!(r.stamina_bell, now_bell_of(&fx));
+    assert!(r.routed);
+    assert_eq!(
+        pay_roles(f),
+        vec![
+            ("tip", c2["tip_to"].as_str().unwrap().to_string()),
+            ("march_fee", c2["fee_to"].as_str().unwrap().to_string()),
+            ("bond", c2["bond_to"].as_str().unwrap().to_string()),
+        ]
+    );
+    assert_eq!(f.nominal_payments[0].route, PayRoute::OwedPool);
+    assert_eq!(f.pool_owed_after, TIP, "the tip owed, kept in the holding");
+    assert_eq!(c2["home"], "reserve");
+    assert!(r.entry.is_none() && r.home_roster_present && r.live_own == 8);
+    assert_eq!(r.credited_milli as u64, expected_u64(c2, "credited_milli"));
+    assert_eq!(
+        (r.reserve_after - r.reserve_before) as u64,
+        expected_u64(c2, "reserve_delta_units")
+    );
+    assert_eq!(f.slot_disposition, SlotDisposition::NotOwn);
+    // --- The bounced final-set host (A): 300,000 milli, its own slot
+    // whose rent recipient is the listed fee payer, the home roster
+    // paired and empty.
+    let c3 = expectation(&j, "bounced_final_set_roster_entry");
+    let mut fx = SettleFx::new();
+    fx.season = escrowed_season;
+    fx.holding = settle_holding_bytes(GEN, TIP + MARCH_FEE + SEAL_BOND, 1);
+    let mass = expected_u64(c3, "dep_mass_milli") as u32;
+    assert_eq!(mass, TROOPS);
+    fx.transit = Some(mass_transit(mass, fx.proof.seal_root).to_bytes().to_vec());
+    fx.inputs = Some(bounced_inputs(mass));
+    let mut sd = slot_bytes_at(away(), 1, host());
+    assert!(wr_arr(
+        &mut sd,
+        wa::wide_arrival_slot::RENT_TO,
+        &payer().to_bytes()
+    ));
+    fx.slot = Some(sd);
+    let (pd, rd) = home_with_entries(&[]);
+    fx.home = Some(pd);
+    fx.home_roster = Some(rd);
+    let c = fx.plan().unwrap_or_else(|b| panic!("blocked: {b:?}"));
+    let f = settle_facts(&c);
+    assert_eq!(f.outcome_code as u64, expected_u64(c3, "outcome_code"));
+    assert_eq!(c3["in_final_set"], f.in_final_set.to_string());
+    assert!(f.own_slot);
+    let r = f.return_home.unwrap();
+    assert_eq!(r.troops_milli as u64, expected_u64(c3, "troops_home_milli"));
+    assert_eq!(c3["stamina_rule"], "record");
+    assert_eq!(r.stamina, 61, "the record's arrival stamina");
+    assert_eq!(c3["stamina_bell_rule"], "arrive");
+    assert_eq!(r.stamina_bell, ARRIVE_BELL);
+    assert_eq!(
+        pay_roles(f),
+        vec![
+            ("tip", c3["tip_to"].as_str().unwrap().to_string()),
+            ("march_fee", c3["fee_to"].as_str().unwrap().to_string()),
+            ("bond", c3["bond_to"].as_str().unwrap().to_string()),
+        ]
+    );
+    assert_eq!(c3["home"], "roster_entry");
+    assert!(r.entry.is_some());
+    assert_eq!(r.credited_milli as u64, expected_u64(c3, "credited_milli"));
+    assert_eq!(
+        (r.reserve_after - r.reserve_before) as u64,
+        expected_u64(c3, "reserve_delta_units")
+    );
+    assert_eq!(c3["slot"], "closed_to_rent_to");
+    assert_eq!(
+        f.slot_disposition,
+        SlotDisposition::ClosedTo {
+            position: 0,
+            lamports: FUNDED_WALLET
+        }
+    );
+    // --- The refusals the dispatcher tests pin, by name.
+    let r1 = expectation(&j, "refusal_historical_generation");
+    assert_eq!(r1["keeper_block"], "HistoricalGeneration");
+    let mut fx = SettleFx::new();
+    fx.inputs = Some(bounced_inputs(TROOPS / 2));
+    fx.holding = settle_holding_bytes(GEN + 1, TIP, 1);
+    assert!(matches!(
+        fx.plan().unwrap_err(),
+        Block::HistoricalGeneration { .. }
+    ));
+    let r2 = expectation(&j, "refusal_home_roster_unpaired");
+    assert_eq!(r2["keeper_block"], "RosterUnpaired");
+    let mut fx = SettleFx::new();
+    fx.inputs = Some(bounced_inputs(TROOPS / 2));
+    let (pd, mut rd) = home_with_entries(&[]);
+    frontier_abi::world_index::roster::WideRoster::new(SEASON_ID, home(), [0xaa; 32])
+        .claim(&mut rd, 3, &host_c(5))
+        .unwrap();
+    fx.home = Some(pd);
+    fx.home_roster = Some(rd);
+    assert_eq!(fx.plan().unwrap_err(), Block::RosterUnpaired);
+    let r3 = expectation(&j, "refusal_home_not_canonical");
+    assert!(
+        r3["keeper_block"]
+            .as_str()
+            .unwrap()
+            .starts_with("not_reproducible"),
+        "the planner derives the home address itself; only the dispatcher can be handed another account there"
+    );
+    for r in [r1, r2, r3] {
+        assert_eq!(r["writes"], "none");
+    }
+}

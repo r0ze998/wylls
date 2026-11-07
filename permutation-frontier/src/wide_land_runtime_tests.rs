@@ -2357,6 +2357,161 @@ impl Wide {
             })
             .collect()
     }
+
+    /// [`Wide::settle_transit_full`] with the **home province position**
+    /// given (the handler's `expect_key` against the holding's own
+    /// province; another account there is `BadAddress`). Test-only.
+    #[cfg(all(
+        feature = "native-crypto-tests",
+        not(feature = "test-beacon"),
+        not(target_os = "solana")
+    ))]
+    #[allow(clippy::too_many_arguments)]
+    fn settle_transit_home(
+        &mut self,
+        host: WideHostRef,
+        slot: u8,
+        dest: WideCoord,
+        arrive: u32,
+        faction: u8,
+        slot_i: u8,
+        commit: [u8; 32],
+        seal: [u8; frontier_abi::world_index::seal::WIDE_SEAL_LEN],
+        slot_ben: AccountInfo<'static>,
+        resolver: AccountInfo<'static>,
+        beneficiary: AccountInfo<'static>,
+        home: AccountInfo<'static>,
+    ) -> Result<(), Refused> {
+        let coord = host.key().coord();
+        let region = WideProvince::read(&self.province_data(dest))
+            .map(|p| p.region)
+            .unwrap_or(0);
+        let anchor = self.stage_seed(arrive, region, &BELL_SEED).1;
+        let payer = self.w.payer.clone();
+        let ben_key = *beneficiary.key.as_array();
+        let a = [
+            payer.clone(),
+            self.w.season.clone(),
+            self.holding(coord, host.site()),
+            self.province(dest),
+            self.inputs(dest, arrive),
+            self.slot(dest, arrive, faction, slot_i),
+            home,
+            anchor,
+            unsigned(&slot_ben),
+            unsigned(&resolver),
+            unsigned(&payer),
+            unsigned(&beneficiary),
+            self.transit(coord, host.site(), slot),
+            self.roster(coord),
+            self.w.system.clone(),
+            self.roster(dest),
+            unsigned(&payer),
+        ];
+        run_tx(
+            &a,
+            &wix::SettleTransit {
+                transit_slot: slot,
+                commit,
+                seal,
+                beneficiary: ben_key,
+            }
+            .to_bytes(),
+        )
+    }
+
+    /// `n` passable tiles of `coord` that are not the keep, the camp, a
+    /// site or one of `avoid` (the native tests' tile choice).
+    #[cfg(all(
+        feature = "native-crypto-tests",
+        not(feature = "test-beacon"),
+        not(target_os = "solana")
+    ))]
+    fn free_tiles(&mut self, coord: WideCoord, n: usize, avoid: &[u8]) -> Vec<u8> {
+        let pd = self.province_data(coord);
+        let passable = Ro(&pd).u64(PV::PASSABLE_MASK).unwrap();
+        let keep_tile = read_keep(&pd).unwrap().map(|k| k.tile);
+        let camp = Camp::read(&pd).unwrap();
+        let camp_tile = camp.present().then_some(camp.tile);
+        let n_sites = pd[PV::SITE_COUNT] as usize;
+        let sites = pd[PV::SITES..PV::SITES + n_sites].to_vec();
+        let v: Vec<u8> = (1..61u8)
+            .filter(|t| {
+                passable & (1 << t) != 0
+                    && Some(*t) != keep_tile
+                    && Some(*t) != camp_tile
+                    && !sites.contains(t)
+                    && !avoid.contains(t)
+            })
+            .take(n)
+            .collect();
+        assert_eq!(v.len(), n, "enough free passable tiles");
+        v
+    }
+
+    /// **Fixture**: a resident host of `faction` with `troops` milli on
+    /// `tile` of `coord`, written as a settled muster leaves it — a roster
+    /// entry (state 1, Hold, `from_bell` 1) at the first free index, its
+    /// full reference **claimed** in the province's roster under the
+    /// alias the entry carries (the pairing every reader checks). The
+    /// roster record is staged as the resolve creates it when absent.
+    /// Returns the entry index. Test-only.
+    #[cfg(all(
+        feature = "native-crypto-tests",
+        not(feature = "test-beacon"),
+        not(target_os = "solana")
+    ))]
+    fn stage_resident(
+        &mut self,
+        coord: WideCoord,
+        host: WideHostRef,
+        faction: u8,
+        tile: u8,
+        troops: u32,
+    ) -> usize {
+        let pa = self.province(coord);
+        let ra = self.roster(coord);
+        if absent(&ra) {
+            let k = ProvinceKey::new(self.world_id(), coord);
+            let mut rd = vec![0u8; wro::wide_roster::SIZE];
+            WideRoster::new(SEASON_ID, k, PAYER)
+                .write_header(&mut rd)
+                .unwrap();
+            restore(
+                &ra,
+                crate::init::rent(wro::wide_roster::SIZE).unwrap(),
+                &rd,
+                Pubkey::new_from_array(PROGRAM),
+            );
+        }
+        let roster = WideRoster::read(&ra.try_borrow_data().unwrap()).unwrap();
+        let mut pd = pa.try_borrow_mut_data().unwrap();
+        let i = (0..PV::ENTRIES_N)
+            .find(|&i| read_entry(&pd, i).unwrap().state == EN::STATE_FREE)
+            .expect("a free entry");
+        let alias = {
+            let mut rd = ra.try_borrow_mut_data().unwrap();
+            roster.claim(&mut rd, i, &host).unwrap()
+        };
+        let e = frontier_abi::entry::Entry {
+            id: alias,
+            faction,
+            unit: 0,
+            tile,
+            state: EN::STATE_ROSTER,
+            troops,
+            stamina_value: 61,
+            dealt_bps: 0,
+            stamina_bell: 1,
+            ready_bell: 1,
+            from_bell: 1,
+            pend_bell: 0,
+            op: EntryOp::None,
+        };
+        write_entry(&mut pd, i, &e).unwrap();
+        pd[PV::N_ENTRIES] += 1;
+        i
+    }
 }
 
 impl Nft {
@@ -6818,6 +6973,1251 @@ fn wide_land_native_departs_posts_the_beacon_and_settles_for_real() {
         code(w.settle_return_from(dest, own.clone(), Some(own_province))),
         Err(E::AlreadyDone as u32)
     );
+    assert!(wide_records().is_empty() && records().is_empty());
+}
+
+// ------------------------------------------------------------ the host that comes home
+
+/// The staged native world the two return-branch tests share (the first
+/// native settle test's construction, with four marches): the Season under
+/// the real beacon (genesis making `T(20)` the vector's round, the
+/// deployed window, a fee and a bond), two Citizens of one faction with
+/// rim homes and wide holdings on the origin, four hosts mustered (A 300,
+/// B 200 on the second holding, D 101, E 401 troops), THE anchor of bell
+/// 20 staged with the vector's **verified** round signature, four valid
+/// seals of the vector's IBE block and key (every plaintext naming the
+/// destination), the departures **staged** as WideDepart writes them (the
+/// debit gate stays closed; the escrow `tip + fee + bond` per march in
+/// the holding), the departures settled at the origin, A and B revealed
+/// at the destination (D and E never reveal), the destination resolved
+/// through bell 19, the two arrivals gathered and the record resolved by
+/// a third wallet; optionally `dest_residents` resident hosts of the
+/// faction **staged** at the destination before its resolves (the room
+/// rule: `FACTION_RESIDENT_CAP` residents bounce the faction's arrivals).
+/// Nothing is signed: every wallet is a literal with `is_signer` set by
+/// the test; the only signatures are the public round signatures of the
+/// shipped vectors, verified against the production key.
+#[cfg(all(
+    feature = "native-crypto-tests",
+    not(feature = "test-beacon"),
+    not(target_os = "solana")
+))]
+struct Q3Scene {
+    w: Wide,
+    a: Member,
+    coord: WideCoord,
+    site: u8,
+    site_b: u8,
+    dest: WideCoord,
+    key: ProvinceKey,
+    dkey: ProvinceKey,
+    arrive: u32,
+    fee: u64,
+    bond: u64,
+    tip: u64,
+    total: u64,
+    rent_t: u64,
+    rent_s: u64,
+    payer: AccountInfo<'static>,
+    payer2: AccountInfo<'static>,
+    payer3: AccountInfo<'static>,
+    payer4: AccountInfo<'static>,
+    /// A, B, D, E.
+    hosts: [WideHostRef; 4],
+    /// Their `(transit slot, commitment, seal)`.
+    marches: [(
+        u8,
+        [u8; 32],
+        [u8; frontier_abi::world_index::seal::WIDE_SEAL_LEN],
+    ); 4],
+    /// The faction's first ClashInputs position.
+    k0: usize,
+}
+
+#[cfg(all(
+    feature = "native-crypto-tests",
+    not(feature = "test-beacon"),
+    not(target_os = "solana")
+))]
+fn native_q3_scene(dest_residents: usize) -> Q3Scene {
+    use crate::crypto::quick;
+    use crate::crypto::seal::tests::{cases, get, hex};
+    use crate::crypto::sys;
+    use frontier_abi::world_index::march::{MarchState, WideTransit, WIDE_TRANSIT_LEN};
+    use frontier_abi::world_index::seal as wseal;
+    use frontier_abi::world_index::tiles::TileAddress;
+    use permutation_rules::frontier::beacon::{bell_end, NO_WINDOW_CHANGE};
+    use permutation_rules::frontier::doctrine::of_faction_v3;
+    use permutation_rules::frontier::seal as ks;
+    use permutation_rules::frontier::stance::{Posture, Stance};
+    const Q3_ROUND: u64 = 32_556_137;
+    const Q3_ROUND_TS: i64 = 1_790_471_775;
+    const Q3_GENESIS: i64 = 1_790_459_175;
+    const PAYER3: [u8; 32] = [0xd6; 32];
+    const PAYER4: [u8; 32] = [0xd7; 32];
+    let mut w = Wide::rim();
+    let (fee, bond) = (7_000u64, 11_000u64);
+    {
+        let mut sd = w.w.season.try_borrow_mut_data().unwrap();
+        put(&mut sd, S::GENESIS_TS, &Q3_GENESIS.to_le_bytes());
+        put(&mut sd, S::REVEAL_WINDOW, &600u32.to_le_bytes());
+        put(
+            &mut sd,
+            S::WINDOW_FROM_BELL,
+            &NO_WINDOW_CHANGE.to_le_bytes(),
+        );
+        put(&mut sd, S::MARCH_FEE, &fee.to_le_bytes());
+        put(&mut sd, S::SEAL_BOND, &bond.to_le_bytes());
+    }
+    w.beacon_t = true;
+    let clock = w.clock();
+    assert_eq!(bell_end(Q3_GENESIS, 20), Q3_ROUND_TS);
+    assert_eq!(
+        clock.tlock_round(20),
+        Q3_ROUND,
+        "T(20) is the vector's round"
+    );
+    let arrive = 20u32;
+    // The public seal material, verified against the production key.
+    let fixtures = cases();
+    let vec_q3 = fixtures
+        .iter()
+        .find(|c| get(c, "name") == "valid_q3")
+        .unwrap();
+    let legacy: [u8; ks::SEAL_LEN] = hex(get(vec_q3, "seal")).try_into().unwrap();
+    let ibe: [u8; wseal::IBE_LEN] = legacy[..wseal::IBE_LEN].try_into().unwrap();
+    let k: [u8; ks::K_LEN] = hex(get(vec_q3, "k")).try_into().unwrap();
+    let sig48: [u8; 48] = hex(get(vec_q3, "open_sig")).try_into().unwrap();
+    let sig96 = sys::bls_g1_decompress(&sig48).unwrap();
+    assert_eq!(
+        quick::verify(Q3_ROUND, &sig48, &quick::tests::hints_for_round(Q3_ROUND)),
+        Ok(sig96),
+        "the production key signed round 32556137 = T(20) with this signature"
+    );
+    let salt = ks::salt_of(&k);
+
+    w.at(1, 0);
+    let (coord, site, a, template) = w.land();
+    let payer = w.w.payer.clone();
+    let payer2 = w.wallet_of(PAYER2);
+    let payer3 = w.wallet_of(PAYER3);
+    let payer4 = w.wallet_of(PAYER4);
+    let dest = c(129, -1);
+    assert_eq!(w.open_province(129, -1), Ok(()));
+    let region = wr::wide_region(dest);
+    let b = w.w.member(WALLET_B, a.faction);
+    w.fixture_rim_home(&a, &template, 0, 1_500 * MILLI);
+    w.fixture_rim_home(&b, &template, 1, 1_500 * MILLI);
+    let site_b = {
+        let pd = w.province_data(coord);
+        (0..pd[PV::SITE_COUNT])
+            .find(|s| *s != site && pd[PV::site(*s as usize) + SM::STATE] == SM::STATE_FREE)
+            .expect("a free site for the second holding")
+    };
+    assert_eq!(
+        code(w.file(&a, WALLET_A, coord, site, 2, 0, payer.clone(), None)),
+        Ok(())
+    );
+    assert_eq!(
+        code(w.file(&b, WALLET_B, coord, site_b, 2, 1, payer.clone(), None)),
+        Ok(())
+    );
+    assert_eq!(code(w.settle(&a, 0, coord, site, 1, None)), Ok(()));
+    assert_eq!(code(w.settle(&b, 0, coord, site_b, 1, None)), Ok(()));
+    records();
+    wide_records();
+    let key = ProvinceKey::new(w.world_id(), coord);
+    let dkey = ProvinceKey::new(w.world_id(), dest);
+
+    // Bell 4 + 120 s: the holdings final, the origin resolved through bell
+    // 2, the four hosts mustered (the reserve of both holdings 1,000 units).
+    let ts = w.at(4, 120);
+    assert!(w.final_ts_of(1) <= ts, "the tickets' finality is due");
+    assert_eq!(code(w.finalize(coord, site)), Ok(()));
+    assert_eq!(code(w.finalize(coord, site_b)), Ok(()));
+    for bell in 1..=2 {
+        assert_eq!(code(w.resolve(coord, bell)), Ok(()), "origin bell {bell}");
+    }
+    for s in [site, site_b] {
+        let hai = w.holding(coord, s);
+        let mut hd = hai.try_borrow_mut_data().unwrap();
+        put(&mut hd, H::reserve(0), &1_000u32.to_le_bytes());
+    }
+    let tiles = w.free_tiles(coord, 4, &[]);
+    let (tile_a, tile_b, tile_d, tile_e) = (tiles[0], tiles[1], tiles[2], tiles[3]);
+    assert_eq!(
+        code(w.muster(&a, WALLET_A, coord, site, 0, 300, tile_a)),
+        Ok(())
+    );
+    assert_eq!(
+        code(w.muster(&b, WALLET_B, coord, site_b, 0, 200, tile_b)),
+        Ok(())
+    );
+    assert_eq!(
+        code(w.muster(&a, WALLET_A, coord, site, 0, 101, tile_d)),
+        Ok(())
+    );
+    assert_eq!(
+        code(w.muster(&a, WALLET_A, coord, site, 0, 401, tile_e)),
+        Ok(())
+    );
+    let host_a = WideHostRef::new(key, site, 1, 0).unwrap();
+    let host_b = WideHostRef::new(key, site_b, 1, 0).unwrap();
+    let host_d = WideHostRef::new(key, site, 1, 1).unwrap();
+    let host_e = WideHostRef::new(key, site, 1, 2).unwrap();
+    records();
+    wide_records();
+
+    // Bell 6 + 60 s: bells 3 and 4 resolved, the hosts resident.
+    w.at(6, 60);
+    for bell in 3..=4 {
+        assert_eq!(code(w.resolve(coord, bell)), Ok(()), "origin bell {bell}");
+    }
+    let entry_of = |pd: &[u8], host: &WideHostRef| {
+        (0..PV::ENTRIES_N)
+            .find(|&i| read_entry(pd, i).unwrap().id == wide_host_alias(host))
+            .expect("the host's entry")
+    };
+    let idx = {
+        let pd = w.province_data(coord);
+        let idx = [
+            entry_of(&pd, &host_a),
+            entry_of(&pd, &host_b),
+            entry_of(&pd, &host_d),
+            entry_of(&pd, &host_e),
+        ];
+        for i in idx {
+            assert_eq!(read_entry(&pd, i).unwrap().state, EN::STATE_ROSTER);
+        }
+        idx
+    };
+
+    // THE anchor of bell 20 with the verified signature, before any reader.
+    let (_, anchor20) = w.stage_beacon_signed(arrive, region, &BELL_SEED, sig48);
+    {
+        let an = crate::layout::beacon::Anchor::read(&anchor20.try_borrow_data().unwrap()).unwrap();
+        assert_eq!(
+            (an.bell, an.region, an.round, an.sig48),
+            (arrive, region, Q3_ROUND, sig48)
+        );
+    }
+    let hosts = [host_a, host_b, host_d, host_e];
+    let origin_tiles = [tile_a, tile_b, tile_d, tile_e];
+    let mut routes = Vec::new();
+    for t in origin_tiles {
+        routes.push(march_route(&mut w, coord, dest, t));
+    }
+    let seal_of = |host: WideHostRef, dest_tile: u8, dirs: &[u8]| {
+        let (path_len, path) = ks::encode_path(dirs).unwrap();
+        let plain = wseal::WidePlain {
+            version: wseal::WIDE_PLAIN_VERSION,
+            host,
+            arrive_bell: arrive,
+            dest: dkey,
+            dest_tile,
+            stance: 0,
+            retreat_bps: 0,
+            path_len,
+            path,
+            reserved: [0; wseal::WIDE_RESERVED_BYTES],
+        };
+        assert_eq!(wseal::validate(&plain, &host, arrive), Ok(()));
+        let pt = wseal::pack(&plain);
+        let seal = wseal::assemble(&ibe, &wseal::body_xor(&k, &pt));
+        let commit = wseal::commit(&pt, &salt);
+        let ct_hash = wseal::ct_hash(&seal);
+        let root = wseal::seal_root(&commit, &ct_hash);
+        (pt, seal, commit, ct_hash, root)
+    };
+    let mut sealed = Vec::new();
+    for (h, (dest_tile, dirs, _)) in hosts.iter().zip(routes.iter()) {
+        sealed.push(seal_of(*h, *dest_tile, dirs));
+    }
+
+    // The departures as WideDepart would write them after the gate
+    // (**fixtures**: the gate is closed): bell 6 to bell 20, the fee and
+    // the bond escrowed, the entries' `Spend`, each holding's escrow and
+    // open count. Slots: A 0, D 1, E 2 of the first holding; B 0 of the
+    // second.
+    let dealt = of_faction_v3(a.faction)
+        .unwrap()
+        .dealt_bps(Posture::Stance(Stance::Hold), true) as u16;
+    let tip = w.min_tip();
+    let total = tip + fee + bond;
+    let rent_t = crate::init::rent(WIDE_TRANSIT_LEN).unwrap();
+    let rent_s = crate::init::rent(wa::wide_arrival_slot::SIZE).unwrap();
+    let depart_ts = w.genesis() + 600 * 6 + 60;
+    let plan = [
+        (site, 0u8, host_a, tile_a, 300_000u32),
+        (site_b, 0, host_b, tile_b, 200_000),
+        (site, 1, host_d, tile_d, 101_000),
+        (site, 2, host_e, tile_e, 401_000),
+    ];
+    for (n, (hsite, slot, host, tile, mass)) in plan.iter().enumerate() {
+        let staged = WideTransit::depart(
+            HOST_IDENTITY_FULL_REF_V1,
+            *host,
+            0,
+            a.faction,
+            TileAddress::new(key, *tile).unwrap(),
+            6,
+            arrive,
+            depart_ts,
+            *mass,
+            crate::proc::host::DEPART_STAMINA,
+            dealt,
+            sealed[n].4,
+            tip,
+            crate::layout::transit::FLAG_FEE_ESCROWED | crate::layout::transit::FLAG_BOND_ESCROWED,
+            PAYER,
+        )
+        .unwrap();
+        let t = w.transit(coord, *hsite, *slot);
+        restore(
+            &t,
+            rent_t,
+            &staged.to_bytes(),
+            Pubkey::new_from_array(PROGRAM),
+        );
+    }
+    {
+        let pa = w.province(coord);
+        let mut pd = pa.try_borrow_mut_data().unwrap();
+        for i in idx {
+            let mut e = read_entry(&pd, i).unwrap();
+            let mut kh = e.to_host().unwrap();
+            kh.depart(6, crate::proc::host::DEPART_STAMINA, 5).unwrap();
+            e.set_host(&kh);
+            write_entry(&mut pd, i, &e).unwrap();
+            assert!(matches!(e.op, EntryOp::Spend { .. }));
+        }
+    }
+    for (hsite, n) in [(site, 3u8), (site_b, 1)] {
+        let hai = w.holding(coord, hsite);
+        **hai.try_borrow_mut_lamports().unwrap() += total * n as u64;
+        let mut hd = hai.try_borrow_mut_data().unwrap();
+        put(&mut hd, H::ESCROW, &(total * n as u64).to_le_bytes());
+        hd[wh::wide_holding::OPEN_TRANSITS] = n;
+    }
+    wide_records();
+
+    // Bell 8 + 60 s: bells 5 and 6 resolved, the four departures settled.
+    w.at(8, 60);
+    for bell in 5..=6 {
+        assert_eq!(code(w.resolve(coord, bell)), Ok(()), "origin bell {bell}");
+    }
+    for (hsite, slot, host, _, mass) in plan {
+        assert_eq!(code(w.settle_departure(host, coord, slot)), Ok(()));
+        let t = WideTransit::from_bytes(&w.transit(coord, hsite, slot).try_borrow_data().unwrap())
+            .unwrap();
+        assert_eq!((t.state, t.troops_after), (MarchState::Settled, mass));
+    }
+    // The destination's residents (fixtures), before its first resolve:
+    // on free tiles away from the two arrivals' tiles.
+    if dest_residents > 0 {
+        let avoid = [routes[0].0, routes[1].0];
+        let tiles = w.free_tiles(dest, dest_residents, &avoid);
+        for (i, tile) in tiles.into_iter().enumerate() {
+            let r = WideHostRef::new(dkey, 0, 1, 100 + i as u32).unwrap();
+            w.stage_resident(dest, r, a.faction, tile, 1_000);
+        }
+    }
+    // Bell 21 + 60 s: A and B reveal (the public T signature available),
+    // the destination resolved through bell 19.
+    w.at(21, 60);
+    for (n, target) in [(0usize, 0u8), (1, 1)] {
+        let (h, slot) = (hosts[n], plan[n].1);
+        assert_eq!(
+            code(w.reveal_as(
+                h,
+                slot,
+                dest,
+                arrive,
+                target,
+                sealed[n].0,
+                salt,
+                sealed[n].3,
+                &routes[n].2,
+                PAYER2
+            )),
+            Ok(()),
+            "reveal {n}"
+        );
+    }
+    wide_records();
+    let rn0 = Ro(&w.province_data(dest)).u32(PV::RESOLVED_NEXT).unwrap();
+    for bell in rn0..arrive {
+        assert_eq!(code(w.resolve(dest, bell)), Ok(()), "dest bell {bell}");
+    }
+    wide_records();
+    // Bell 22 + 60 s: the gather of both arrivals, the resolve by the
+    // third wallet (the resolver).
+    w.at(22, 60);
+    let k0 = wa::wide_clash_inputs::position(a.faction, 0);
+    let mut ts = vec![w.w.system.clone(); 24];
+    ts[k0] = w.transit(coord, site, 0);
+    ts[k0 + 1] = w.transit(coord, site_b, 0);
+    assert_eq!(code(w.gather(dest, arrive, 0, 24, &ts)), Ok(()));
+    assert_eq!(code(w.resolve_gathered_as(dest, arrive, PAYER3)), Ok(()));
+    wide_records();
+    records();
+    {
+        let cd = w.inputs(dest, arrive).try_borrow_data().unwrap().to_vec();
+        let ih = wa::WideClashInputsHdr::read(&cd).unwrap();
+        assert_eq!((ih.n_present, ih.resolver), (2, PAYER3));
+    }
+    Q3Scene {
+        w,
+        a,
+        coord,
+        site,
+        site_b,
+        dest,
+        key,
+        dkey,
+        arrive,
+        fee,
+        bond,
+        tip,
+        total,
+        rent_t,
+        rent_s,
+        payer,
+        payer2,
+        payer3,
+        payer4,
+        hosts,
+        marches: [
+            (plan[0].1, sealed[0].2, sealed[0].1),
+            (plan[1].1, sealed[1].2, sealed[1].1),
+            (plan[2].1, sealed[2].2, sealed[2].1),
+            (plan[3].1, sealed[3].2, sealed[3].1),
+        ],
+        k0,
+    }
+}
+
+/// The shared expectations
+/// (`permutation-rules/vectors/wide-settle-return-expectations-v1.json`)
+/// as (key, value) cases; `case` picks one by name.
+#[cfg(all(
+    feature = "native-crypto-tests",
+    not(feature = "test-beacon"),
+    not(target_os = "solana")
+))]
+fn return_expectations() -> Vec<Vec<(String, String)>> {
+    crate::crypto::seal::tests::cases_in(include_str!(
+        "../../permutation-rules/vectors/wide-settle-return-expectations-v1.json"
+    ))
+}
+
+#[cfg(all(
+    feature = "native-crypto-tests",
+    not(feature = "test-beacon"),
+    not(target_os = "solana")
+))]
+fn expectation<'a>(cases: &'a [Vec<(String, String)>], name: &str) -> &'a [(String, String)] {
+    cases
+        .iter()
+        .find(|c| crate::crypto::seal::tests::get(c, "name") == name)
+        .unwrap_or_else(|| panic!("expectation {name}"))
+}
+
+#[cfg(all(
+    feature = "native-crypto-tests",
+    not(feature = "test-beacon"),
+    not(target_os = "solana")
+))]
+fn expected_u64(c: &[(String, String)], key: &str) -> u64 {
+    crate::crypto::seal::tests::get(c, key)
+        .parse()
+        .unwrap_or_else(|_| panic!("expectation field {key}"))
+}
+
+/// **Opt-in native crypto.** The real dispatcher settles two marches whose
+/// hosts **never revealed** and come home as the record says — the
+/// branches the keeper's `widesettle` planner plans from the shared
+/// `wide_valid_outcome` / `plan_settlement` and its mirror of
+/// `stage_return_home`:
+///
+/// * **D (101 troops, Citizen a)**: outranked by A, Citizen a's larger
+///   present arrival — the record's **bounce** (`BOUNCED_UNRANKED`): the
+///   tip to the holding's rent payer, the fee to the resolver, the bond to
+///   the rent payer; the transit's post-origin troops and stamina home,
+///   the stamina dated `effective_bell(6)`; the home roster paired and
+///   free → a **muster-pending entry** at the first free index with the
+///   exact troops, `from = 24`, `ready = max(6 + off, 24)`, the doctrine's
+///   Hold `dealt`, its reference claimed in the roster; `n_entries + 1`;
+///   two records (TransitSettled with `home_credited`, Return with the
+///   entry index); the holding's chain + 2, the home's + 1, the
+///   destination's + 1; the transit record whole to its immutable rent
+///   recipient; another host's slot at position 0 untouched.
+/// * **E (401 troops, Citizen a)**: would have displaced A — the record's
+///   **rout** (`ROUTED`): the tip **owed** in `pool_owed` (no DIVERT log:
+///   the holding is its own recipient), `rout_survivors(401,000) =
+///   200,500` home with stamina 0 dated `now_bell`; the home at the
+///   faction cap (D's entry plus seven staged residents of the faction) →
+///   the **reserve** `+ 200` whole units, 500 milli not credited (the
+///   Return logs 200,000 and entry `0xFF`).
+/// * Before them, refusals that write nothing: the holding at generation 2
+///   (`NotImplemented`), another province in the home position
+///   (`BadAddress`), the home roster unpaired (`BadAccount`); after them,
+///   replays (`TransitState`).
+///
+/// Each observation is checked against the shared expectation file the
+/// keeper's planner test checks its predictions against. Retreated and a
+/// final-set host without its own slot are not produced here (a retreat
+/// needs a battle; see the limits in the docs).
+#[cfg(all(
+    feature = "native-crypto-tests",
+    not(feature = "test-beacon"),
+    not(target_os = "solana")
+))]
+#[test]
+fn wide_land_native_settles_unrevealed_marches_home_as_the_record_says() {
+    use crate::crypto::seal::tests::get;
+    use frontier_abi::log::{seal_code, transit_outcome as TO};
+    use frontier_abi::world_index::march::WideTransit;
+    use permutation_rules::frontier::doctrine::of_faction_v3;
+    use permutation_rules::frontier::host::{effective_bell, rout_survivors};
+    use permutation_rules::frontier::stance::{Posture, Stance};
+    let _g = begin();
+    let Q3Scene {
+        mut w,
+        a,
+        coord,
+        site,
+        site_b,
+        dest,
+        key,
+        dkey,
+        arrive,
+        fee,
+        bond,
+        tip,
+        total,
+        rent_t,
+        payer,
+        payer2,
+        payer3,
+        payer4,
+        hosts,
+        marches,
+        k0,
+        ..
+    } = native_q3_scene(0);
+    let [host_a, _host_b, host_d, host_e] = hosts;
+    let exp = return_expectations();
+    // The record: A and B stay; D and E are not in it.
+    {
+        let cd = w.inputs(dest, arrive).try_borrow_data().unwrap().to_vec();
+        for (i, h) in [(0usize, hosts[0]), (1, hosts[1])] {
+            let r = wa::WideArrival::read_at(&cd, k0 + i).unwrap().unwrap();
+            assert_eq!(
+                (r.host, r.present, r.fate),
+                (h, true, wa::wide_arrival::FATE_STAYS)
+            );
+        }
+        for i in 2..4 {
+            assert!(wa::WideArrival::read_at(&cd, k0 + i)
+                .unwrap()
+                .is_none_or(|r| !r.present));
+        }
+    }
+    let balances = |w: &mut Wide| {
+        (
+            payer.lamports(),
+            payer2.lamports(),
+            payer3.lamports(),
+            payer4.lamports(),
+            w.holding(coord, site).lamports(),
+            w.holding(coord, site_b).lamports(),
+        )
+    };
+    let chains = |w: &mut Wide| {
+        (
+            chain(&w.holding(coord, site)).0,
+            chain(&w.province(coord)).0,
+            chain(&w.province(dest)).0,
+        )
+    };
+    let hold_dealt = of_faction_v3(a.faction)
+        .unwrap()
+        .dealt_bps(Posture::Stance(Stance::Hold), false) as u16;
+    let home_tile = w.holding_data(coord, site)[H::TILE];
+    let slot_a = w.slot(dest, arrive, a.faction, 0);
+    let slot_a_bytes = slot_a.try_borrow_data().unwrap().to_vec();
+    assert!(!absent(&slot_a), "A's slot at position 0 is present");
+
+    // --- Bell 23 + 60 s: the settle time. Refusals first, nothing written.
+    w.at(23, 60);
+    let before = balances(&mut w);
+    let chains_before = chains(&mut w);
+    let (slot_d, commit_d, seal_d) = marches[2];
+    let (slot_e, commit_e, seal_e) = marches[3];
+    {
+        // The holding re-founded at generation 2 (fixture: the lottery
+        // would leave `GEN` so); the record's host is of generation 1.
+        let hai = w.holding(coord, site);
+        hai.try_borrow_mut_data().unwrap()[H::GEN] = 2;
+    }
+    assert_eq!(
+        code(w.settle_transit_full(
+            host_d,
+            slot_d,
+            dest,
+            arrive,
+            a.faction,
+            0,
+            commit_d,
+            seal_d,
+            payer.clone(),
+            payer2.clone(),
+            payer3.clone(),
+            payer4.clone(),
+            None
+        )),
+        Err(E::NotImplemented as u32),
+        "{}",
+        get(
+            expectation(&exp, "refusal_historical_generation"),
+            "program_error"
+        )
+    );
+    w.holding(coord, site).try_borrow_mut_data().unwrap()[H::GEN] = 1;
+    let other_home = w.province(dest);
+    assert_eq!(
+        code(w.settle_transit_home(
+            host_d,
+            slot_d,
+            dest,
+            arrive,
+            a.faction,
+            0,
+            commit_d,
+            seal_d,
+            payer2.clone(),
+            payer3.clone(),
+            payer4.clone(),
+            other_home
+        )),
+        Err(E::BadAddress as u32),
+        "{}",
+        get(
+            expectation(&exp, "refusal_home_not_canonical"),
+            "program_error"
+        )
+    );
+    {
+        // The home roster vouching for a reference whose entry is free:
+        // unpaired (fixture), then released again.
+        let ra = w.roster(coord);
+        let roster = WideRoster::read(&ra.try_borrow_data().unwrap()).unwrap();
+        let stray = WideHostRef::new(key, site, 1, 77).unwrap();
+        roster
+            .claim(&mut ra.try_borrow_mut_data().unwrap(), 40, &stray)
+            .unwrap();
+        assert_eq!(
+            code(w.settle_transit_full(
+                host_d,
+                slot_d,
+                dest,
+                arrive,
+                a.faction,
+                0,
+                commit_d,
+                seal_d,
+                payer.clone(),
+                payer2.clone(),
+                payer3.clone(),
+                payer4.clone(),
+                None
+            )),
+            Err(E::BadAccount as u32),
+            "{}",
+            get(
+                expectation(&exp, "refusal_home_roster_unpaired"),
+                "program_error"
+            )
+        );
+        assert_eq!(
+            roster
+                .release(&mut ra.try_borrow_mut_data().unwrap(), 40)
+                .unwrap(),
+            Some(stray)
+        );
+    }
+    assert_eq!(balances(&mut w), before, "refusals move nothing");
+    assert_eq!(chains(&mut w), chains_before);
+    assert!(wide_records().is_empty() && records().is_empty());
+
+    // --- D: the record's outranked bounce, home into the roster.
+    let t_d = WideTransit::from_bytes(&w.transit(coord, site, slot_d).try_borrow_data().unwrap())
+        .unwrap();
+    assert_eq!(t_d.troops_after, 101_000);
+    let n_before = w.province_data(coord)[PV::N_ENTRIES];
+    let reserve_before = rd_u32(&w.holding_data(coord, site), H::reserve(0));
+    assert_eq!(
+        code(w.settle_transit_full(
+            host_d,
+            slot_d,
+            dest,
+            arrive,
+            a.faction,
+            0,
+            commit_d,
+            seal_d,
+            payer.clone(),
+            payer2.clone(),
+            payer3.clone(),
+            payer4.clone(),
+            None
+        )),
+        Ok(()),
+        "a valid seal of a host the record outranks"
+    );
+    let after = balances(&mut w);
+    let c1 = expectation(&exp, "bounce_unranked_roster_entry");
+    assert_eq!(get(c1, "tip_to"), "rent_payer");
+    assert_eq!(get(c1, "fee_to"), "resolver");
+    assert_eq!(get(c1, "bond_to"), "rent_payer");
+    assert_eq!(
+        after.0 - before.0,
+        tip + bond + rent_t,
+        "the tip and the bond to the holding's rent payer, with the record's rent"
+    );
+    assert_eq!(after.2 - before.2, fee, "the fee to the resolver");
+    assert_eq!(
+        (after.1, after.3),
+        (before.1, before.3),
+        "no slot beneficiary, no reward"
+    );
+    assert_eq!(before.4 - after.4, total);
+    assert_eq!(after.5, before.5);
+    {
+        let hd = w.holding_data(coord, site);
+        assert_eq!(Ro(&hd).u64(H::ESCROW).unwrap(), total * 2);
+        assert_eq!(Ro(&hd).u64(H::POOL_OWED).unwrap(), 0);
+        assert_eq!(WideHolding::read(&hd).unwrap().open_transits, 2);
+        assert_eq!(
+            rd_u32(&hd, H::reserve(0)) - reserve_before,
+            expected_u64(c1, "reserve_delta_units") as u32
+        );
+    }
+    assert!(
+        absent(&w.transit(coord, site, slot_d)),
+        "the record to its rent recipient"
+    );
+    assert_eq!(
+        *slot_a.try_borrow_data().unwrap(),
+        &slot_a_bytes[..],
+        "{}: another host's slot at the position is untouched",
+        get(c1, "slot")
+    );
+    {
+        let cd = w.inputs(dest, arrive).try_borrow_data().unwrap().to_vec();
+        assert_eq!(wa::WideClashInputsHdr::read(&cd).unwrap().settled_mask, 0);
+    }
+    let i_d = {
+        let pd = w.province_data(coord);
+        assert_eq!(pd[PV::N_ENTRIES], n_before + 1, "n_entries + 1");
+        let i = (0..PV::ENTRIES_N)
+            .find(|&i| read_entry(&pd, i).unwrap().id == wide_host_alias(&host_d))
+            .expect("D's muster-pending entry");
+        let e = read_entry(&pd, i).unwrap();
+        assert_eq!(get(c1, "home"), "roster_entry");
+        assert_eq!(
+            (e.state, e.faction, e.unit, e.tile, e.troops, e.op),
+            (
+                EN::STATE_MUSTER_PENDING,
+                a.faction,
+                0,
+                home_tile,
+                101_000,
+                EntryOp::None
+            )
+        );
+        assert_eq!(e.troops as u64, expected_u64(c1, "troops_home_milli"));
+        assert_eq!(get(c1, "stamina_rule"), "transit_after");
+        assert_eq!(e.stamina_value, t_d.stamina_after);
+        assert_eq!(get(c1, "stamina_bell_rule"), "effective_depart");
+        assert_eq!(e.stamina_bell, effective_bell(6));
+        assert_eq!(e.from_bell, 24, "now_bell + 1");
+        assert_eq!(
+            e.ready_bell,
+            (6 + t_d.ready_bell_off as u32).max(24),
+            "max(depart + ready_bell_off, from)"
+        );
+        assert_eq!(e.dealt_bps, hold_dealt);
+        let ra = w.roster(coord);
+        let roster = WideRoster::read(&ra.try_borrow_data().unwrap()).unwrap();
+        assert_eq!(
+            roster.ref_at(&ra.try_borrow_data().unwrap(), i).unwrap(),
+            Some(host_d),
+            "the reference claimed under the entry's alias"
+        );
+        i
+    };
+    let wr = wide_records();
+    assert_eq!(
+        wr.len() as u64,
+        expected_u64(c1, "records"),
+        "TransitSettled, Return"
+    );
+    {
+        let r = WideRecord::decode(&wr[0]).unwrap();
+        assert_eq!((r.kind, r.bell), (WideKind::TransitSettled, 23));
+        assert_eq!((r.host(), r.standing()), (Some(host_d), Some(dkey)));
+        assert_eq!(
+            &r.payload[..3],
+            &[slot_d, TO::BOUNCED_UNRANKED, seal_code::VALID]
+        );
+        assert_eq!(
+            TO::BOUNCED_UNRANKED as u64,
+            expected_u64(c1, "outcome_code")
+        );
+        assert_eq!(&r.payload[3..7], &101_000u32.to_le_bytes());
+        assert_eq!(&r.payload[7..15], &tip.to_le_bytes());
+        assert_eq!(&r.payload[15..23], &fee.to_le_bytes());
+        assert_eq!(&r.payload[23..31], &bond.to_le_bytes());
+        assert_eq!(r.payload[31], 1, "home credited");
+        assert_eq!(r.sealed_dest(), Some(dkey));
+        assert!(r.link(WideEntity::Province).is_some() && r.link(WideEntity::Holding).is_some());
+        let r = WideRecord::decode(&wr[1]).unwrap();
+        assert_eq!((r.kind, r.bell), (WideKind::Return, 23));
+        assert_eq!((r.host(), r.standing()), (Some(host_d), Some(key)));
+        assert_eq!(&r.payload[..4], &101_000u32.to_le_bytes());
+        assert_eq!(101_000u64, expected_u64(c1, "credited_milli"));
+        assert_eq!(&r.payload[4..6], &[0, i_d as u8], "the unit, the entry");
+        assert!(r.link(WideEntity::Province).is_some() && r.link(WideEntity::Holding).is_some());
+    }
+    assert!(records().is_empty(), "no DIVERT");
+    let chains_after = chains(&mut w);
+    assert_eq!(
+        (
+            chains_after.0 - chains_before.0,
+            chains_after.1 - chains_before.1,
+            chains_after.2 - chains_before.2
+        ),
+        (
+            expected_u64(c1, "holding_chain_delta"),
+            expected_u64(c1, "home_chain_delta"),
+            expected_u64(c1, "dest_chain_delta")
+        ),
+        "the holding's chain + 2, the home's + 1, the destination's + 1"
+    );
+    let before = after;
+    let chains_before = chains_after;
+    assert_eq!(
+        code(w.settle_transit_full(
+            host_d,
+            slot_d,
+            dest,
+            arrive,
+            a.faction,
+            0,
+            commit_d,
+            seal_d,
+            payer.clone(),
+            payer2.clone(),
+            payer3.clone(),
+            payer4.clone(),
+            None
+        )),
+        Err(E::TransitState as u32),
+        "replay: the record is gone"
+    );
+    assert_eq!(balances(&mut w), before);
+
+    // --- The home at the faction cap: D's entry and seven staged residents
+    // of the faction (fixtures). Then E: the rout, home into the reserve.
+    let tiles = w.free_tiles(coord, 7, &[]);
+    for (i, tile) in tiles.into_iter().enumerate() {
+        let r = WideHostRef::new(key, site, 1, 50 + i as u32).unwrap();
+        w.stage_resident(coord, r, a.faction, tile, 1_000);
+    }
+    {
+        let pd = w.province_data(coord);
+        let own = (0..PV::ENTRIES_N)
+            .map(|i| read_entry(&pd, i).unwrap())
+            .filter(|e| {
+                matches!(e.state, EN::STATE_ROSTER | EN::STATE_MUSTER_PENDING)
+                    && e.faction == a.faction
+            })
+            .count();
+        assert_eq!(own, PV::FACTION_CAP, "the faction's cap is reached");
+    }
+    let t_e = WideTransit::from_bytes(&w.transit(coord, site, slot_e).try_borrow_data().unwrap())
+        .unwrap();
+    assert_eq!(t_e.troops_after, 401_000);
+    let n_before = w.province_data(coord)[PV::N_ENTRIES];
+    let reserve_before = rd_u32(&w.holding_data(coord, site), H::reserve(0));
+    assert_eq!(
+        code(w.settle_transit_full(
+            host_e,
+            slot_e,
+            dest,
+            arrive,
+            a.faction,
+            0,
+            commit_e,
+            seal_e,
+            payer.clone(),
+            payer2.clone(),
+            payer3.clone(),
+            payer4.clone(),
+            None
+        )),
+        Ok(()),
+        "a valid seal of a host the record would have admitted"
+    );
+    let after = balances(&mut w);
+    let c2 = expectation(&exp, "routed_reserve_fallback_rounding");
+    assert_eq!(get(c2, "tip_to"), "pool_owed");
+    assert_eq!(
+        after.0 - before.0,
+        bond + rent_t,
+        "the bond to the rent payer with the record's rent; the tip stays in the holding"
+    );
+    assert_eq!(after.2 - before.2, fee);
+    assert_eq!((after.1, after.3), (before.1, before.3));
+    assert_eq!(
+        before.4 - after.4,
+        fee + bond,
+        "the holding keeps the owed tip"
+    );
+    {
+        let hd = w.holding_data(coord, site);
+        assert_eq!(Ro(&hd).u64(H::ESCROW).unwrap(), total);
+        assert_eq!(Ro(&hd).u64(H::POOL_OWED).unwrap(), tip, "the tip owed");
+        assert_eq!(WideHolding::read(&hd).unwrap().open_transits, 1);
+        assert_eq!(get(c2, "home"), "reserve");
+        assert_eq!(
+            (rd_u32(&hd, H::reserve(0)) - reserve_before) as u64,
+            expected_u64(c2, "reserve_delta_units"),
+            "200,500 milli → 200 whole units"
+        );
+        assert_eq!(
+            rout_survivors(401_000) as u64,
+            expected_u64(c2, "troops_home_milli")
+        );
+    }
+    assert!(absent(&w.transit(coord, site, slot_e)));
+    {
+        let pd = w.province_data(coord);
+        assert_eq!(pd[PV::N_ENTRIES], n_before, "no entry under the cap");
+        assert!(
+            (0..PV::ENTRIES_N).all(|i| read_entry(&pd, i).unwrap().id != wide_host_alias(&host_e))
+        );
+    }
+    let wr = wide_records();
+    assert_eq!(wr.len() as u64, expected_u64(c2, "records"));
+    {
+        let r = WideRecord::decode(&wr[0]).unwrap();
+        assert_eq!((r.kind, r.host()), (WideKind::TransitSettled, Some(host_e)));
+        assert_eq!(&r.payload[..3], &[slot_e, TO::ROUTED, seal_code::VALID]);
+        assert_eq!(TO::ROUTED as u64, expected_u64(c2, "outcome_code"));
+        assert_eq!(
+            &r.payload[3..7],
+            &200_500u32.to_le_bytes(),
+            "rout_survivors"
+        );
+        assert_eq!(
+            &r.payload[7..15],
+            &tip.to_le_bytes(),
+            "the plan's tip, owed"
+        );
+        assert_eq!(r.payload[31], 1);
+        let r = WideRecord::decode(&wr[1]).unwrap();
+        assert_eq!(
+            (r.kind, r.host(), r.standing()),
+            (WideKind::Return, Some(host_e), Some(key))
+        );
+        assert_eq!(
+            &r.payload[..4],
+            &200_000u32.to_le_bytes(),
+            "whole units credited"
+        );
+        assert_eq!(200_000u64, expected_u64(c2, "credited_milli"));
+        assert_eq!(&r.payload[4..6], &[0, wev::RETURN_TO_RESERVE]);
+    }
+    assert!(
+        records().is_empty(),
+        "no DIVERT: the holding is its own recipient"
+    );
+    let chains_after = chains(&mut w);
+    assert_eq!(
+        (
+            chains_after.0 - chains_before.0,
+            chains_after.1 - chains_before.1,
+            chains_after.2 - chains_before.2
+        ),
+        (2, 1, 1)
+    );
+    let before = after;
+    assert_eq!(
+        code(w.settle_transit_full(
+            host_e,
+            slot_e,
+            dest,
+            arrive,
+            a.faction,
+            0,
+            commit_e,
+            seal_e,
+            payer.clone(),
+            payer2.clone(),
+            payer3.clone(),
+            payer4.clone(),
+            None
+        )),
+        Err(E::TransitState as u32),
+        "replay"
+    );
+    assert_eq!(balances(&mut w), before);
+    assert_eq!(get(c2, "stamina_rule"), "zero");
+    assert_eq!(get(c2, "stamina_bell_rule"), "now_bell");
+    let _ = (host_a, site_b);
+    assert!(wide_records().is_empty() && records().is_empty());
+}
+
+/// **Opt-in native crypto.** The real dispatcher settles a host the
+/// **resolved final set** sent home: with `FACTION_RESIDENT_CAP` residents
+/// of the faction at the destination (fixtures staged before its
+/// resolves), the room rule bounces A and B at the resolve (`FATE_BOUNCED`
+/// in the record, their troops intact); A's settlement pays the tip to
+/// its **own slot's** beneficiary, the fee to the resolver, the bond to
+/// the rent payer, stages A home into the paired home roster with the
+/// record's troops and stamina dated the **arrival bell**, marks its
+/// position settled, closes its slot (not claim-eligible) and its transit
+/// record to their immutable rent recipients, and logs TransitSettled and
+/// Return. B does the same from its own holding. Checked against the
+/// shared expectation file.
+#[cfg(all(
+    feature = "native-crypto-tests",
+    not(feature = "test-beacon"),
+    not(target_os = "solana")
+))]
+#[test]
+fn wide_land_native_settles_a_bounced_final_set_host_home() {
+    use crate::crypto::seal::tests::get;
+    use frontier_abi::log::seal_code;
+    let _g = begin();
+    let Q3Scene {
+        mut w,
+        a,
+        coord,
+        site,
+        site_b,
+        dest,
+        key,
+        dkey,
+        arrive,
+        fee,
+        bond,
+        tip,
+        total,
+        rent_t,
+        rent_s,
+        payer,
+        payer2,
+        payer3,
+        payer4,
+        hosts,
+        marches,
+        k0,
+    } = native_q3_scene(PV::FACTION_CAP);
+    let [host_a, host_b, _, _] = hosts;
+    let exp = return_expectations();
+    let c3 = expectation(&exp, "bounced_final_set_roster_entry");
+    // The record: both arrivals bounced by the room rule, their troops
+    // intact; no entry of theirs at the destination.
+    let (rec_a, rec_b) = {
+        let cd = w.inputs(dest, arrive).try_borrow_data().unwrap().to_vec();
+        let ra = wa::WideArrival::read_at(&cd, k0).unwrap().unwrap();
+        let rb = wa::WideArrival::read_at(&cd, k0 + 1).unwrap().unwrap();
+        assert_eq!(
+            (ra.host, ra.present, ra.fate),
+            (host_a, true, wa::wide_arrival::FATE_BOUNCED)
+        );
+        assert_eq!(
+            (rb.host, rb.present, rb.fate),
+            (host_b, true, wa::wide_arrival::FATE_BOUNCED)
+        );
+        assert_eq!(
+            ra.troops_after as u64,
+            expected_u64(c3, "troops_home_milli")
+        );
+        assert_eq!(rb.troops_after, 200_000);
+        (ra, rb)
+    };
+    {
+        let pd = w.province_data(dest);
+        for h in [host_a, host_b] {
+            assert!(
+                (0..PV::ENTRIES_N).all(|i| read_entry(&pd, i).unwrap().id != wide_host_alias(&h))
+            );
+        }
+    }
+    let balances = |w: &mut Wide| {
+        (
+            payer.lamports(),
+            payer2.lamports(),
+            payer3.lamports(),
+            payer4.lamports(),
+            w.holding(coord, site).lamports(),
+            w.holding(coord, site_b).lamports(),
+        )
+    };
+    w.at(23, 60);
+    for (n, host, hsite, rec, expect_troops) in [
+        (0usize, host_a, site, rec_a, 300_000u32),
+        (1, host_b, site_b, rec_b, 200_000),
+    ] {
+        let (slot, commit, seal) = marches[n];
+        let before = balances(&mut w);
+        let chains_before = (
+            chain(&w.holding(coord, hsite)).0,
+            chain(&w.province(coord)).0,
+            chain(&w.province(dest)).0,
+        );
+        let slot_ai = w.slot(dest, arrive, a.faction, n as u8);
+        let transit_ai = w.transit(coord, hsite, slot);
+        let n_before = w.province_data(coord)[PV::N_ENTRIES];
+        let reserve_before = rd_u32(&w.holding_data(coord, hsite), H::reserve(0));
+        assert_eq!(
+            code(w.settle_transit_full(
+                host,
+                slot,
+                dest,
+                arrive,
+                a.faction,
+                n as u8,
+                commit,
+                seal,
+                payer.clone(),
+                payer2.clone(),
+                payer3.clone(),
+                payer4.clone(),
+                None
+            )),
+            Ok(()),
+            "host {n}: a valid seal, a bounced final-set fate"
+        );
+        let after = balances(&mut w);
+        assert_eq!(get(c3, "tip_to"), "slot_beneficiary");
+        assert_eq!(after.1 - before.1, tip, "the tip to the slot's beneficiary");
+        assert_eq!(after.2 - before.2, fee, "the fee to the resolver");
+        assert_eq!(
+            after.0 - before.0,
+            bond + rent_s + rent_t,
+            "the bond to the rent payer with the slot's and the record's rent"
+        );
+        assert_eq!(after.3, before.3);
+        if n == 0 {
+            assert_eq!((before.4 - after.4, after.5), (total, before.5));
+        } else {
+            assert_eq!((before.5 - after.5, after.4), (total, before.4));
+        }
+        assert_eq!(get(c3, "slot"), "closed_to_rent_to");
+        assert!(absent(&slot_ai) && absent(&transit_ai));
+        {
+            let cd = w.inputs(dest, arrive).try_borrow_data().unwrap().to_vec();
+            let m = wa::WideClashInputsHdr::read(&cd).unwrap().settled_mask;
+            assert_ne!(m & (1 << (k0 + n)), 0, "the position settled");
+        }
+        {
+            let hd = w.holding_data(coord, hsite);
+            assert_eq!(Ro(&hd).u64(H::POOL_OWED).unwrap(), 0);
+            assert_eq!(
+                rd_u32(&hd, H::reserve(0)),
+                reserve_before,
+                "{}",
+                get(c3, "reserve_delta_units")
+            );
+        }
+        {
+            let pd = w.province_data(coord);
+            assert_eq!(pd[PV::N_ENTRIES], n_before + 1);
+            let i = (0..PV::ENTRIES_N)
+                .find(|&i| read_entry(&pd, i).unwrap().id == wide_host_alias(&host))
+                .expect("the host's muster-pending entry at home");
+            let e = read_entry(&pd, i).unwrap();
+            assert_eq!(get(c3, "home"), "roster_entry");
+            assert_eq!(
+                (e.state, e.troops),
+                (EN::STATE_MUSTER_PENDING, expect_troops)
+            );
+            assert_eq!(get(c3, "stamina_rule"), "record");
+            assert_eq!(e.stamina_value, rec.stamina);
+            assert_eq!(get(c3, "stamina_bell_rule"), "arrive");
+            assert_eq!(e.stamina_bell, arrive);
+            assert_eq!(e.from_bell, 24);
+            let wr = wide_records();
+            assert_eq!(wr.len() as u64, expected_u64(c3, "records"));
+            let r = WideRecord::decode(&wr[0]).unwrap();
+            assert_eq!(
+                (r.kind, r.host(), r.standing()),
+                (WideKind::TransitSettled, Some(host), Some(dkey))
+            );
+            assert_eq!(
+                &r.payload[..3],
+                &[slot, wa::wide_arrival::FATE_BOUNCED, seal_code::VALID]
+            );
+            assert_eq!(
+                wa::wide_arrival::FATE_BOUNCED as u64,
+                expected_u64(c3, "outcome_code")
+            );
+            assert_eq!(&r.payload[3..7], &expect_troops.to_le_bytes());
+            assert_eq!(r.payload[31], 1);
+            let r = WideRecord::decode(&wr[1]).unwrap();
+            assert_eq!(
+                (r.kind, r.host(), r.standing()),
+                (WideKind::Return, Some(host), Some(key))
+            );
+            assert_eq!(&r.payload[..4], &expect_troops.to_le_bytes());
+            assert_eq!(&r.payload[4..6], &[0, i as u8]);
+        }
+        assert!(records().is_empty());
+        let chains_after = (
+            chain(&w.holding(coord, hsite)).0,
+            chain(&w.province(coord)).0,
+            chain(&w.province(dest)).0,
+        );
+        assert_eq!(
+            (
+                chains_after.0 - chains_before.0,
+                chains_after.1 - chains_before.1,
+                chains_after.2 - chains_before.2
+            ),
+            (
+                expected_u64(c3, "holding_chain_delta"),
+                expected_u64(c3, "home_chain_delta"),
+                expected_u64(c3, "dest_chain_delta")
+            )
+        );
+        let before = after;
+        assert_eq!(
+            code(w.settle_transit_full(
+                host,
+                slot,
+                dest,
+                arrive,
+                a.faction,
+                n as u8,
+                commit,
+                seal,
+                payer.clone(),
+                payer2.clone(),
+                payer3.clone(),
+                payer4.clone(),
+                None
+            )),
+            Err(E::TransitState as u32),
+            "replay"
+        );
+        assert_eq!(balances(&mut w), before);
+    }
     assert!(wide_records().is_empty() && records().is_empty());
 }
 
