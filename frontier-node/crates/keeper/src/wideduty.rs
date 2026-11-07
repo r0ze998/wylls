@@ -216,6 +216,61 @@ pub enum Block {
     NothingToReturn,
     /// Return: a credit would overflow the reserve (`Overflow`).
     ReserveOverflow { unit: u8 },
+    // ---- the reveal planner (`crate::widereveal`) ----
+    /// Reveal: the Season is stored `Ended` and the arrival bell is at or
+    /// past its end bell (`WrongStatus`).
+    SeasonEnded,
+    /// Reveal: the transit record and the supplied proof disagree (named
+    /// field): the record moved on or the proof is another march's.
+    ProofMismatch(&'static str),
+    /// Reveal: the opening supplied does not reproduce the transit record's
+    /// seal root (`CommitMismatch`).
+    CommitMismatch,
+    /// Reveal: the IBE block does not open under the supplied signature
+    /// (the stock opener's refusal, named).
+    SealOpen(String),
+    /// Reveal: the plaintext does not validate against the record
+    /// (`BadPlaintext`, the codec's reason).
+    BadPlaintext(String),
+    /// Reveal: no opening was supplied; the planner never derives one.
+    NoOpening,
+    /// Reveal: an anchor is present and the window test needs a clock,
+    /// which was not observed.
+    TimingNeedsClock,
+    /// Reveal: the window is closed by the observed clock or by the beacon
+    /// log (`WindowClosed`, named).
+    WindowClosed(&'static str),
+    /// Reveal: THE canonical BellAnchor of `(arrive, region)` is not
+    /// present (`"absent"`, or `"archive-only"` when only its archive is).
+    /// The handler would read the archive; the keeper does not publish a
+    /// plaintext without THE anchor and the round's verified signature.
+    AnchorRequired(&'static str),
+    /// Reveal: no public drand beacon of `T(arrive)` was supplied; the
+    /// planner never exports a destination-bearing candidate without one.
+    PublicationMissing,
+    /// Reveal: the supplied beacon is not of `SeasonClock::tlock_round(arrive)`.
+    BeaconRound { expected: u64, got: u64 },
+    /// Reveal: the supplied public key does not hash to the Season's
+    /// `quicknet_pk_hash`.
+    BeaconKey,
+    /// Reveal: the supplied signature does not verify for the round under
+    /// the supplied key (`fclient::beacon::verify`).
+    BeaconSignatureInvalid,
+    /// Reveal: the latch is closed (`LatchClosed`, named).
+    LatchClosed(&'static str),
+    /// Reveal: the committed path does not walk (`Path`, named step).
+    Path(&'static str),
+    /// Reveal: the arrival bell is outside the doctrine's travel bounds.
+    ArrivalBell,
+    /// Reveal: the destination site is shielded (`Shielded`).
+    Shielded,
+    /// Reveal: this host already holds a slot at the destination
+    /// (`AlreadyDone`).
+    AlreadyRevealed,
+    /// Reveal: the quota refuses the arrival (`QuotaRefused`, named).
+    QuotaRefused(&'static str),
+    /// An arithmetic overflow the handler would refuse.
+    Overflow(&'static str),
 }
 
 // ------------------------------------------------------------ candidates
@@ -363,19 +418,19 @@ impl Candidate {
 
 // ------------------------------------------------------------ helpers
 
-fn ctx_of(scope: &Scope) -> AddrCtx {
+pub(crate) fn ctx_of(scope: &Scope) -> AddrCtx {
     AddrCtx {
         season: scope.season.to_bytes(),
         program: scope.program.to_bytes(),
     }
 }
 
-fn addr(b: [u8; 32]) -> Address {
+pub(crate) fn addr(b: [u8; 32]) -> Address {
     Address::new_from_array(b)
 }
 
 /// The addresses among `want` that `reads` does not hold yet.
-fn missing(reads: &Reads, want: &[Address]) -> Vec<Address> {
+pub(crate) fn missing(reads: &Reads, want: &[Address]) -> Vec<Address> {
     want.iter()
         .filter(|a| !reads.accounts.contains_key(a))
         .copied()
@@ -402,7 +457,7 @@ macro_rules! tri {
 
 /// A read account at `a`: `None` when absent (System-owned, no data),
 /// `Some` when present and program-owned (`ForeignOwner` otherwise).
-fn presence<'a>(
+pub(crate) fn presence<'a>(
     reads: &'a Reads,
     a: &Address,
     program: &Address,
@@ -431,7 +486,7 @@ fn presence<'a>(
 /// `SeasonNotStarted` before genesis); the **pinned** exact program version
 /// (which must also carry the wide bit) and ruleset hash. Returns the
 /// Season and whether the status came from the clock.
-fn season_of(scope: &Scope, reads: &Reads) -> Result<(Season, bool), Block> {
+pub(crate) fn season_of(scope: &Scope, reads: &Reads) -> Result<(Season, bool), Block> {
     let acc =
         presence(reads, &scope.season, &scope.program, "season")?.ok_or(Block::Absent("season"))?;
     let s = Season::decode(&acc.data).map_err(|_| Block::Unreadable("season"))?;
@@ -484,7 +539,7 @@ fn chain_headroom(d: &[u8], n: u64, what: &'static str) -> Result<(), Block> {
 
 /// A wide province of this season and world at `a`, canonical; `None`
 /// when absent.
-fn province_at<'a>(
+pub(crate) fn province_at<'a>(
     reads: &'a Reads,
     scope: &Scope,
     ctx: &AddrCtx,
@@ -509,7 +564,7 @@ fn province_at<'a>(
     Ok(Some((p, acc.data.as_slice())))
 }
 
-fn holding_at<'a>(
+pub(crate) fn holding_at<'a>(
     reads: &'a Reads,
     scope: &Scope,
     ctx: &AddrCtx,
@@ -550,7 +605,11 @@ fn roster_at<'a>(
     Ok(Some((r, acc.data.as_slice())))
 }
 
-fn transit_at(reads: &Reads, scope: &Scope, a: &Address) -> Result<Option<WideTransit>, Block> {
+pub(crate) fn transit_at(
+    reads: &Reads,
+    scope: &Scope,
+    a: &Address,
+) -> Result<Option<WideTransit>, Block> {
     let Some(acc) = presence(reads, a, &scope.program, "transit")? else {
         return Ok(None);
     };
@@ -578,7 +637,7 @@ fn capture_lock_of(pd: &[u8], hd: &[u8]) -> Result<(), Block> {
 
 /// Account metas from an ABI table and the keys in table order. The
 /// optional groups are filled as far as the keys go.
-fn metas(table: &[Group], keys: &[Address]) -> Vec<AccountMeta> {
+pub(crate) fn metas(table: &[Group], keys: &[Address]) -> Vec<AccountMeta> {
     let specs: Vec<_> = table.iter().flat_map(|g| g.specs.iter()).collect();
     keys.iter()
         .zip(specs)

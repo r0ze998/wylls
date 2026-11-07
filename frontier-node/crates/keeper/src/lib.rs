@@ -25,6 +25,8 @@
 //! | `wideindex` (feature `wide-world-experimental`) | **read-only** discovery of the wide world from explicitly supplied, authenticated PSW1 bodies: provinces, full holding and host references, transit slots, reveals, settlements, closes; read-account plans only, no duty, no write |
 //! | `wideproof` (feature `wide-world-experimental`) | **read-only**: the Depart commitment and 264-byte seal of a committed WideDepart, taken from a feed record's wire and bound to the `Departed` record inside the same instruction's log frame; unavailable on any CPI, rollback or mismatch; no signature verified, no key |
 //! | `wideduty` (feature `wide-world-experimental`) | **read-only, unsigned**: WideSettleDeparture and WideReturn instructions planned from current account reads with the dispatcher's tables and refusals; explicit block reasons; never signed, simulated, sent or queued |
+//! | `widereveal` (feature `wide-world-experimental`) | **read-only, unsigned**: a WideReveal candidate planned from a `wideproof::DepartProof`, a caller-supplied seal opening and current account reads; the handler's timing, latch, path, shield, quota and ArrivalDay rules replayed; a matching commitment is never called a cryptographic verification |
+//! | `widereview` (feature `wide-world-experimental`) | **read-only** admission review of a wide candidate against the engine's public state: a typed full-identity key, kind, tag, class and concrete denials; never a `WriteSpec`, never `ensure`/`poll`/`send`; not wired into the tick |
 //!
 //! [`Keeper::tick`] runs once per slot: it reads the Clock, plans every
 //! duty from chain reads (the chain is the state), then lets the engine
@@ -67,6 +69,10 @@ pub mod wideindex;
 pub mod wideproof;
 #[cfg(feature = "wide-world-experimental")]
 pub mod wideduty;
+#[cfg(feature = "wide-world-experimental")]
+pub mod widereveal;
+#[cfg(feature = "wide-world-experimental")]
+pub mod widereview;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
