@@ -23,7 +23,7 @@ permutation-rules = { path = "../permutation-rules" }
 
 [features]
 default = []
-# Experimental, opt-in, no production consumer: `world_index` (wide i64
+# Experimental, opt-in reader and geometry foundation: `world_index` (wide i64
 # province coordinates, world-scoped keys, versioned host references and
 # a sparse paginated opened-province index). Off by default, so the
 # program, the vectors and every hash are built exactly as before; it adds
