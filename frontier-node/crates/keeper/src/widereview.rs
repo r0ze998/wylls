@@ -45,6 +45,7 @@ pub const KIND_SETTLE_DEPARTURE: &str = "wide-settle-departure";
 pub const KIND_RETURN: &str = "wide-return";
 pub const KIND_REVEAL: &str = "wide-reveal";
 pub const KIND_GATHER: &str = "wide-gather";
+pub const KIND_RESOLVE: &str = "wide-resolve";
 
 /// What is reviewed: a stable key by full identity, the engine's filing
 /// facts, and the instruction's shape. No account bytes, no key material.
@@ -53,7 +54,8 @@ pub struct Subject {
     /// `wide-settle-departure:<world>:<host ref>:<slot>`,
     /// `wide-return:<world>:<standing key>:<holding ref>`,
     /// `wide-reveal:<world>:<host ref>:<slot>:<arrive bell>`,
-    /// `wide-gather:<world>:<dest key>:<bell>:<start>` (hex of the
+    /// `wide-gather:<world>:<dest key>:<bell>:<start>`,
+    /// `wide-resolve:<world>:<province key>:<bell>` (hex of the
     /// canonical bytes; never a `u64` alias).
     pub key: String,
     pub kind: &'static str,
@@ -93,6 +95,15 @@ impl Subject {
                     f.start
                 ),
                 KIND_GATHER,
+            ),
+            Duty::Resolve(f) => (
+                format!(
+                    "{KIND_RESOLVE}:{}:{}:{}",
+                    hex::encode(f.province.world().as_bytes()),
+                    hex::encode(f.province.to_bytes()),
+                    f.bell
+                ),
+                KIND_RESOLVE,
             ),
         };
         Subject {

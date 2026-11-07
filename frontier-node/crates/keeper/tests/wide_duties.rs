@@ -14,6 +14,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
 
 use base64::Engine as _;
+use fclient::beacon::{QUICKNET_GENESIS, QUICKNET_PERIOD};
 use fclient::budgets::Budgets;
 use fclient::clock::SeasonClock;
 use fclient::decode::{is_absent, Season};
@@ -29,18 +30,24 @@ use findex::wide_store::WideFindex;
 use findex::Source;
 use frontier_abi::addr::{archive_part_of, AddrCtx};
 use frontier_abi::bytes::{wr_arr, wr_u16, wr_u32, wr_u64, wr_u8};
+use frontier_abi::clash_model::{Camp, DAY_BELLS, RESOURCES, TERRAINS};
+use frontier_abi::conquest_model::write_keep;
 use frontier_abi::entry::{write_entry, Entry, EntryOp};
-use frontier_abi::layout::beacon::{anchor_archive as AA, archive_entry as AE, bell_anchor as BA};
+use frontier_abi::layout::beacon::{
+    anchor_archive as AA, archive_entry as AE, bell_anchor as BA, seed_cache as SC,
+};
 use frontier_abi::layout::header;
+use frontier_abi::layout::province::camp as CP;
 use frontier_abi::layout::province::entry as E;
 use frontier_abi::layout::province::province as PV;
 use frontier_abi::layout::world::season as SL;
 use frontier_abi::v2::layout::player::holding as H;
 use frontier_abi::v2::layout::province::{province as PV2, site as SM};
+use frontier_abi::v2::presets::{CONQUEST_PARAMS_LEN, MC_LOCAL_7D, SEASON_CQ_OFFSET};
 use frontier_abi::world_index::event::WideTarget;
 use frontier_abi::world_index::event::{self as wev, encode, WideEntity, WideKind, WideLink};
 use frontier_abi::world_index::wide_ix::{
-    self as wix, Depart, Gather, ResidentAct, Return, SettleDeparture,
+    self as wix, Depart, Gather, ResidentAct, Resolve, Return, SettleDeparture,
 };
 use frontier_abi::world_index::{
     arrival as wa, holding as wh, land as wl, march as wm, roster as wro, seal as wseal,
@@ -72,6 +79,12 @@ use keeper_core::widetick::{
     PAYER_UNSET, REFRESH_SLOTS, REVEAL_REFRESH_SLOTS,
 };
 use permutation_rules::frontier::beacon::bell_end;
+use permutation_rules::frontier::clash::NEUTRAL;
+use permutation_rules::frontier::doctrine::of_faction_v3;
+use permutation_rules::frontier::geometry::{ProvinceCoord, PROVINCE_TILES};
+use permutation_rules::frontier::keep::{Keep, NO_FACTION};
+use permutation_rules::frontier::stance::{Posture, Stance};
+use permutation_rules::frontier::terrain::{generate_province, ProvinceTerrain};
 use serde_json::Value as JsonValue;
 use serde_json::{json, Value};
 use solana_address::Address;
@@ -222,12 +235,16 @@ fn clock_at(ts: i64) -> ClockSysvar {
 }
 
 fn province_bytes(k: ProvinceKey, resolved_next: u32) -> Vec<u8> {
+    province_bytes_in(k, resolved_next, 0)
+}
+/// [`province_bytes`] with a stored region.
+fn province_bytes_in(k: ProvinceKey, resolved_next: u32, region: u8) -> Vec<u8> {
     let p = WideProvince {
         season_id: SEASON_ID,
         world: k.world(),
         coord: k.coord(),
         wedge: k.coord().wedge().unwrap(),
-        region: 0,
+        region,
         opened_bell: 1,
         readiness: wl::readiness::REQUIRED,
         seed_round: 1,
@@ -2700,7 +2717,10 @@ const RENT_FIXTURE: RentSysvar = RentSysvar {
 /// A literal-JSON `SnapshotPort` over an account map (records the keys of
 /// every request). A `SnapshotSource` through the blanket impl. The
 /// response's Clock is at `clock_ts` (the genesis timestamp unless set);
-/// the Rent rides along exactly when the request asks for it.
+/// the Rent rides along exactly when the request asks for it. The context
+/// slot is 900 — or, with `serve_at_requested_slot`, the request's
+/// `minContextSlot` when that is later (what a live RPC answers; a fixed
+/// 900 is `Stale` for any plan at a later tick).
 struct LiteralSnapshots {
     accounts: BTreeMap<Address, Option<Account>>,
     calls: AtomicUsize,
@@ -2709,6 +2729,7 @@ struct LiteralSnapshots {
     error: Option<SnapshotError>,
     clock_ts: i64,
     rent: Option<RentSysvar>,
+    serve_at_requested_slot: bool,
 }
 impl LiteralSnapshots {
     fn new(accounts: BTreeMap<Address, Option<Account>>) -> LiteralSnapshots {
@@ -2719,6 +2740,7 @@ impl LiteralSnapshots {
             error: None,
             clock_ts: GENESIS_TS,
             rent: Some(RENT_FIXTURE),
+            serve_at_requested_slot: false,
         }
     }
 }
@@ -2732,13 +2754,18 @@ impl SnapshotPort for LiteralSnapshots {
     {
         self.calls.fetch_add(1, Ordering::SeqCst);
         self.keys.lock().unwrap().push(keys.to_vec());
+        let slot = if self.serve_at_requested_slot {
+            min_slot.max(900)
+        } else {
+            900
+        };
         let r = match &self.error {
             Some(e) => Err(e.clone()),
             None => parse_snapshot_response(
                 &snapshot_json_rent(
                     &self.accounts,
                     keys,
-                    clock_at(self.clock_ts),
+                    clock_ts(slot, self.clock_ts),
                     if with_rent { self.rent } else { None },
                 ),
                 keys,
@@ -6256,6 +6283,18 @@ fn archive_bytes(bell: u32, region: u8, a_off: Option<u32>) -> Vec<u8> {
     }
     d
 }
+/// The doctrine multiplier the reveal writes into a slot for a faction-0
+/// host holding (`doctrine.dealt_bps(Hold, arrival)`, `proc/wide.rs::
+/// reveal`): the kernel requires it in `[BPS_ONE, COMBAT_MAX_BPS]`
+/// (`BadMultiplier` otherwise). The actual rule's value, not a literal.
+fn arrival_dealt_bps() -> u16 {
+    u16::try_from(
+        of_faction_v3(0)
+            .unwrap()
+            .dealt_bps(Posture::Stance(Stance::Hold), true),
+    )
+    .unwrap()
+}
 fn gather_slot_bytes(
     dest: ProvinceKey,
     bell: u32,
@@ -6276,7 +6315,7 @@ fn gather_slot_bytes(
         stance: 0,
         tile: 1,
         retreat_bps: 0,
-        dealt_bps: 0,
+        dealt_bps: arrival_dealt_bps(),
         dep_mass: TROOPS,
         flags: 0,
         beneficiary: [0xB2; 32],
@@ -6323,7 +6362,7 @@ fn inputs_bytes(
             troops: TROOPS,
             stamina: 61,
             retreat_bps: 0,
-            dealt_bps: 0,
+            dealt_bps: arrival_dealt_bps(),
             faction: k / 4,
             unit: 2,
             tile: 1,
@@ -7459,6 +7498,1494 @@ fn the_tick_plans_a_gather_candidate_reviews_it_and_enqueues_nothing() {
     assert_eq!(cold.forbidden.load(Ordering::SeqCst), 0);
 }
 
+// ------------------------------------------------------------ resolve fixture
+
+/// The bell the fixture province resolves next (the gather fixture's
+/// arrival bell, so THE anchor fixture is shared).
+const RESOLVE_BELL: u32 = ARRIVE_BELL;
+/// The SeedCache nonce the fixture poster chose (a literal: the handler
+/// recomputes the address from the stored nonce).
+const CACHE_NONCE: u8 = 3;
+/// The bell seed the fixture cache carries (a literal 32 bytes).
+const BELL_SEED: [u8; 32] = [0x5d; 32];
+/// The ring seed the fixture terrain is generated from (public math).
+const RING_SEED: [u8; 32] = [0x5e; 32];
+
+/// The gather fixture Season with the quicknet clock and the MC conquest
+/// block (`MC_LOCAL_7D`): what `SeasonClock::seed_round` and
+/// `StepParams::of_season` read.
+fn season_resolve() -> Vec<u8> {
+    let mut d = season_ok();
+    assert!(wr_arr(
+        &mut d,
+        SL::DRAND_GENESIS,
+        &QUICKNET_GENESIS.to_le_bytes()
+    ));
+    assert!(wr_u32(&mut d, SL::DRAND_PERIOD, QUICKNET_PERIOD));
+    d[SEASON_CQ_OFFSET..SEASON_CQ_OFFSET + CONQUEST_PARAMS_LEN]
+        .copy_from_slice(&MC_LOCAL_7D.cq.to_bytes());
+    d
+}
+fn resolve_clock() -> SeasonClock {
+    SeasonClock::from_season(&Season::decode(&season_resolve()).unwrap())
+}
+fn resolve_close() -> i64 {
+    resolve_clock().reveal_close(RESOLVE_BELL, A_TS)
+}
+fn resolve_seed_round() -> u64 {
+    resolve_clock().seed_round(RESOLVE_BELL, A_TS)
+}
+fn cache_addr(nonce: u8) -> Address {
+    addr(ctx().seed_cache(RESOLVE_BELL, REGION, nonce))
+}
+/// A SeedCache as the beacon duty posts it: the fields `bell_seed` reads.
+fn cache_bytes(
+    bell: u32,
+    region: u8,
+    nonce: u8,
+    round: u64,
+    a: i64,
+    anchor_key: Address,
+) -> Vec<u8> {
+    let mut d = vec![0u8; SC::SIZE];
+    assert!(wr_arr(&mut d, SC::HDR_MAGIC, &SC::MAGIC));
+    assert!(wr_u64(&mut d, SC::SEASON_ID, SEASON_ID));
+    assert!(wr_u32(&mut d, SC::BELL, bell));
+    assert!(wr_u8(&mut d, SC::REGION, region));
+    assert!(wr_u8(&mut d, SC::NONCE, nonce));
+    assert!(wr_u64(&mut d, SC::ROUND, round));
+    assert!(wr_arr(&mut d, SC::SEED, &BELL_SEED));
+    assert!(wr_arr(&mut d, SC::ANCHOR_KEY, &anchor_key.to_bytes()));
+    assert!(wr_arr(&mut d, SC::A, &a.to_le_bytes()));
+    d
+}
+/// The archive of the bell holding its entry with `a_off` **and** the
+/// bell seed (the resolve's archive path takes the seed from it).
+fn archive_with_seed(bell: u32, region: u8, a_off: u32) -> Vec<u8> {
+    let mut d = archive_bytes(bell, region, Some(a_off));
+    assert!(wr_arr(&mut d, AA::entry(bell) + AE::SEED, &BELL_SEED));
+    d
+}
+fn fixture_terrain() -> ProvinceTerrain {
+    generate_province(&RING_SEED, ProvinceCoord::new(3, -1))
+}
+/// A passable non-site tile of the fixture terrain that is not `not`.
+fn free_tile(t: &ProvinceTerrain, not: Option<u8>) -> u8 {
+    (1..PROVINCE_TILES as u8)
+        .find(|&x| t.passable(x) && !t.is_site(x) && Some(x) != not)
+        .unwrap()
+}
+/// A wide province the ABI's own bell model accepts (the layout the ABI's
+/// `resolve` tests build): the identity, the generated terrain and sites,
+/// `resolved_next` and the score bell at `b0`, every site free, a keep of
+/// `holder` on a free tile with the preset's `keep_bells`, no camp with the
+/// day's check due. Resident-only: no entry, no roster.
+fn resolvable_province(k: ProvinceKey, b0: u32, holder: u8) -> Vec<u8> {
+    resolvable_province_in(k, b0, holder, REGION)
+}
+/// [`resolvable_province`] with a stored region.
+fn resolvable_province_in(k: ProvinceKey, b0: u32, holder: u8, region: u8) -> Vec<u8> {
+    let mut pd = province_bytes_in(k, b0, region);
+    let t = fixture_terrain();
+    for i in 0..PROVINCE_TILES {
+        pd[PV::TERRAIN + i] = TERRAINS.iter().position(|x| *x == t.terrain[i]).unwrap() as u8;
+        pd[PV::RESOURCE + i] = match t.resource[i] {
+            None => 0,
+            Some(r) => 1 + RESOURCES.iter().position(|x| *x == r).unwrap() as u8,
+        };
+    }
+    pd[PV::SITES..PV::SITES + PV::SITES_N].copy_from_slice(&t.sites);
+    pd[PV::SITE_COUNT] = t.site_count;
+    assert!(wr_u32(&mut pd, PV2::SCORE_NEXT_BELL, b0));
+    for s in 0..PV::SITES_N {
+        let o = PV::site(s);
+        pd[o + SM::STATE] = SM::STATE_FREE;
+        pd[o + SM::FACTION] = NEUTRAL;
+        for pb in [SM::PEND0_BELL, SM::PEND1_BELL] {
+            assert!(wr_u32(&mut pd, o + pb, SM::NO_BELL));
+        }
+    }
+    let keep_tile = free_tile(&t, None);
+    write_keep(
+        &mut pd,
+        &Keep {
+            tile: keep_tile,
+            holder,
+            contender: NO_FACTION,
+            progress: 0,
+            required: MC_LOCAL_7D.cq.keep_bells as u8,
+            heartland_safe: false,
+            paused: false,
+            changes: 0,
+            troops: 100,
+            since_bell: b0,
+            consolidated_until_bell: 0,
+            contest_from_bell: 0,
+            gen: 0,
+            last_taken_from: NO_FACTION,
+        },
+    )
+    .unwrap();
+    Camp {
+        tile: 0,
+        state: CP::STATE_NONE,
+        troops: 0,
+        next_check_day: b0 / DAY_BELLS,
+        gen: 0,
+    }
+    .write(&mut pd)
+    .unwrap();
+    pd
+}
+/// A fully gathered ClashInputs of `(dest, bell)` with one present arrival
+/// of `host` (faction 0) at position 0 on `tile`.
+fn resolve_inputs_bytes(dest: ProvinceKey, bell: u32, host: WideHostRef, tile: u8) -> Vec<u8> {
+    let mut h = wa::WideClashInputsHdr::new(SEASON_ID, dest, bell, [0xB5; 32]);
+    h.arrivals_mask = wa::wide_clash_inputs::ALL_GATHERED;
+    h.n_present = 1;
+    let mut d = vec![0u8; wa::wide_clash_inputs::SIZE];
+    h.write(&mut d).unwrap();
+    wa::WideArrival {
+        host,
+        citizen: citizen(),
+        dep_mass: TROOPS,
+        troops: TROOPS,
+        stamina: 61,
+        retreat_bps: 0,
+        dealt_bps: arrival_dealt_bps(),
+        faction: 0,
+        unit: 2,
+        tile,
+        stance: 0,
+        present: true,
+        fate: wa::wide_arrival::FATE_NONE,
+        troops_after: 0,
+    }
+    .write_at(&mut d, 0)
+    .unwrap();
+    d
+}
+
+/// Every account a WideResolve of `home()` at `RESOLVE_BELL` reads, as it
+/// would be when the bell is resolvable resident-only: THE anchor at
+/// `A_TS`, a SeedCache of it at `CACHE_NONCE` with the seed round, no
+/// roster (no entry is live), no ClashInputs, no ArrivalDay, the clock at
+/// the Season's own reveal close.
+struct ResolveFx {
+    season: Vec<u8>,
+    province: Option<Vec<u8>>,
+    roster: Option<Vec<u8>>,
+    anchor: Option<Vec<u8>>,
+    archive: Option<Vec<u8>>,
+    /// SeedCaches by nonce.
+    caches: BTreeMap<u8, Vec<u8>>,
+    inputs: Option<Vec<u8>>,
+    day: Option<Vec<u8>>,
+    clock: Option<ClockSysvar>,
+}
+impl ResolveFx {
+    fn new() -> ResolveFx {
+        let mut caches = BTreeMap::new();
+        caches.insert(
+            CACHE_NONCE,
+            cache_bytes(
+                RESOLVE_BELL,
+                REGION,
+                CACHE_NONCE,
+                resolve_seed_round(),
+                A_TS,
+                anchor_addr(RESOLVE_BELL, REGION),
+            ),
+        );
+        ResolveFx {
+            season: season_resolve(),
+            province: Some(resolvable_province(home(), RESOLVE_BELL, 0)),
+            roster: None,
+            anchor: Some(anchor_bytes(RESOLVE_BELL, REGION, A_TS, 1)),
+            archive: None,
+            caches,
+            inputs: None,
+            day: None,
+            clock: Some(clock_ts(900, resolve_close())),
+        }
+    }
+    fn accounts(&self) -> BTreeMap<Address, Option<Account>> {
+        let mut m = BTreeMap::new();
+        m.insert(season_pda().0, acct(self.season.clone()));
+        m.insert(province_addr(home()), self.province.clone().and_then(acct));
+        m.insert(roster_addr(home()), self.roster.clone().and_then(acct));
+        m.insert(
+            anchor_addr(RESOLVE_BELL, REGION),
+            self.anchor.clone().and_then(acct),
+        );
+        m.insert(
+            archive_addr(RESOLVE_BELL, REGION),
+            self.archive.clone().and_then(acct),
+        );
+        for (n, c) in &self.caches {
+            m.insert(cache_addr(*n), acct(c.clone()));
+        }
+        m.insert(
+            inputs_addr(home(), RESOLVE_BELL),
+            self.inputs.clone().and_then(acct),
+        );
+        m.insert(
+            day_addr(home(), RESOLVE_BELL),
+            self.day.clone().and_then(acct),
+        );
+        m
+    }
+    fn reads(&self) -> Reads {
+        let mut r = Reads::new(0);
+        r.accounts = self.accounts();
+        // The cache the plan may ask for at the fixture nonce, absent when
+        // the fixture holds none (an unread key would stop `done`).
+        r.accounts.entry(cache_addr(CACHE_NONCE)).or_insert(None);
+        r.clock = self.clock;
+        r
+    }
+    fn plan(&self, nonce: Option<u8>) -> Result<Candidate, Block> {
+        done(wideduty::plan_resolve(
+            &dscope(),
+            payer(),
+            actor(),
+            home(),
+            nonce,
+            &self.reads(),
+        ))
+    }
+}
+
+fn resolve_facts(c: &Candidate) -> &wideduty::ResolveFacts {
+    match &c.duty {
+        Duty::Resolve(f) => f,
+        other => panic!("not a resolve: {other:?}"),
+    }
+}
+
+/// The newest review ledger entry (its hint, outcome and block code or
+/// candidate), for assertion messages: a failed expectation names the
+/// Block the planner hit.
+fn last_entry(review: &WideReview) -> Value {
+    review.status()["recent"][0].clone()
+}
+/// The newest entry is a candidate; the message is the entry otherwise.
+fn assert_last_is_candidate(review: &WideReview) {
+    let e = last_entry(review);
+    assert_eq!(e["outcome"], "candidate", "last review entry: {e}");
+}
+
+/// Resident-only: the handler's nine accounts in its roles (the inputs
+/// read-only when absent), the ABI's `Resolve` data, the seed from the
+/// cache at the stored nonce, the bell model run on scratch bytes (no
+/// entry, no roster: nothing created), the input digest the test computes
+/// itself, the fee review creating nothing; the same through the live
+/// read driver in three waves.
+#[test]
+fn a_resident_only_resolve_candidate_runs_the_bell_model_on_scratch_bytes() {
+    let fx = ResolveFx::new();
+    let c = fx.plan(Some(CACHE_NONCE)).unwrap();
+    let f = resolve_facts(&c);
+    assert_eq!(
+        (f.province, f.bell, f.region, f.beneficiary),
+        (home(), RESOLVE_BELL, REGION, actor())
+    );
+    assert_eq!(
+        (f.seed_source, f.seed_nonce, f.seed_round),
+        ("cache", Some(CACHE_NONCE), resolve_seed_round())
+    );
+    assert_eq!(
+        (f.anchor_source, f.a_ts, f.reveal_close, f.judged_at),
+        ("anchor", A_TS, resolve_close(), resolve_close())
+    );
+    assert!(!f.arrivals_expected && !f.inputs_present && f.n_arrivals == 0);
+    assert!(!f.roster_present && !f.roster_created);
+    assert_eq!(
+        (f.live_entries_before, f.engagements, f.destroyed, f.bounced),
+        (0, 0, 0, 0)
+    );
+    assert_eq!(
+        f.resolved_ts_at_observed_clock,
+        (resolve_close() - GENESIS_TS) as u32
+    );
+    // The input commitment over the bytes as read: the Season whole, the
+    // province, the would-be roster header with the payer as its rent
+    // recipient, no inputs.
+    let mut roster_hdr = vec![0u8; wro::wide_roster::SIZE];
+    WideRoster::new(SEASON_ID, home(), payer().to_bytes())
+        .write_header(&mut roster_hdr)
+        .unwrap();
+    assert_eq!(
+        f.input_digest,
+        wev::resolve_input_digest(
+            home(),
+            RESOLVE_BELL,
+            &BELL_SEED,
+            &fx.season,
+            fx.province.as_ref().unwrap(),
+            &roster_hdr,
+            &[]
+        )
+    );
+    let a = &c.instruction.accounts;
+    let roles: Vec<(Address, bool, bool)> = a
+        .iter()
+        .map(|m| (m.pubkey, m.is_signer, m.is_writable))
+        .collect();
+    assert_eq!(
+        roles,
+        vec![
+            (payer(), true, true),
+            (season_pda().0, false, false),
+            (province_addr(home()), false, true),
+            (roster_addr(home()), false, true),
+            (cache_addr(CACHE_NONCE), false, false),
+            (anchor_addr(RESOLVE_BELL, REGION), false, false),
+            (inputs_addr(home(), RESOLVE_BELL), false, false),
+            (day_addr(home(), RESOLVE_BELL), false, false),
+            (fclient::addr::system_program(), false, false),
+        ]
+    );
+    assert_eq!(
+        c.instruction.data,
+        Resolve {
+            bell: RESOLVE_BELL,
+            beneficiary: actor().to_bytes(),
+        }
+        .to_bytes()
+        .to_vec()
+    );
+    assert!(!c.signed && !c.automatic_send && !c.coherent());
+    let d = c.describe();
+    assert_eq!(d["kind"], "WideResolve");
+    assert_eq!(d["facts"]["seed_source"], "cache");
+    let needs = widefees::duty_needs(&c, &fx.reads()).unwrap();
+    assert!(needs.creates.is_empty());
+    assert_eq!(needs.rent_rule, widefees::RENT_RULE_NONE);
+    // A present roster of the province: taken as is.
+    let mut with_roster = ResolveFx::new();
+    with_roster.roster = Some(roster_bytes(home(), &[]).0);
+    let f2 = resolve_facts(&with_roster.plan(Some(CACHE_NONCE)).unwrap()).clone();
+    assert!(f2.roster_present && !f2.roster_created);
+    // Through the live read driver: three waves at the requested bound.
+    let port = ClockedPort::new(fx.accounts(), resolve_close());
+    let via = block_on(wideduty::resolve_via(
+        &port,
+        &dscope(),
+        payer(),
+        actor(),
+        home(),
+        Some(CACHE_NONCE),
+        321,
+    ))
+    .unwrap();
+    assert_eq!(via.instruction, c.instruction);
+    assert_eq!(*port.min_slots.lock().unwrap(), vec![321, 321, 321]);
+    assert_eq!(port.forbidden.load(Ordering::SeqCst), 0);
+}
+
+/// Gathered arrivals: the ArrivalDay's bit set and the record complete,
+/// the inputs writable, the bell model taking the one arrival; an arrival
+/// that stays claims an entry in the absent roster, so the handler creates
+/// the roster from the fee payer, who must hold its **full** minimum
+/// balance (the handler's guard; not the gather's top-up netting).
+/// Incomplete or resolved records and another bell's record are refused.
+#[test]
+fn a_resolve_with_gathered_arrivals_predicts_the_roster_creation_and_its_full_rent() {
+    let t = fixture_terrain();
+    let keep_tile = free_tile(&t, None);
+    let tile = free_tile(&t, Some(keep_tile));
+    let mut fx = ResolveFx::new();
+    fx.day = Some(gather_day_bytes(home(), RESOLVE_BELL, true));
+    fx.inputs = Some(resolve_inputs_bytes(home(), RESOLVE_BELL, host_b(), tile));
+    let c = fx.plan(Some(CACHE_NONCE)).unwrap();
+    let f = resolve_facts(&c);
+    assert!(f.arrivals_expected && f.inputs_present);
+    assert_eq!(f.n_arrivals, 1);
+    assert!(
+        c.instruction.accounts[6].is_writable,
+        "the record is written"
+    );
+    assert!(
+        f.roster_created,
+        "the lone arrival of the keep holder's faction stays and claims an entry"
+    );
+    assert!(!f.roster_present);
+    let needs = widefees::duty_needs(&c, &fx.reads()).unwrap();
+    assert_eq!(needs.creates, vec![("wide Roster", wro::wide_roster::SIZE)]);
+    assert_eq!(needs.rent_rule, widefees::RENT_RULE_FULL);
+    // Over one snapshot with the Rent: the payer must hold the full
+    // minimum plus the fee; one lamport short is unmet.
+    let minimum = RENT_FIXTURE
+        .minimum_balance(wro::wide_roster::SIZE)
+        .unwrap();
+    let wallet = |lamports: u64| {
+        Some(Account {
+            lamports,
+            data: vec![],
+            owner: fclient::addr::system_program(),
+            executable: false,
+        })
+    };
+    let needs_with = |payer_lamports: u64| {
+        let mut accounts = fx.accounts();
+        accounts.insert(payer(), wallet(payer_lamports));
+        let keys: Vec<Address> = accounts.keys().copied().collect();
+        let snap = snapshot_of_rent(&accounts, &keys, clock_ts(2_000, resolve_close()), 7);
+        let reads = snap.reads();
+        let c = done(wideduty::plan_resolve(
+            &dscope(),
+            payer(),
+            actor(),
+            home(),
+            Some(CACHE_NONCE),
+            &reads,
+        ))
+        .unwrap();
+        assert!(c.coherent());
+        widefees::duty_needs(&c, &reads).unwrap()
+    };
+    let n = needs_with(minimum + 5_000);
+    assert_eq!(n.rent_lamports, Known::Known(minimum));
+    assert_eq!(n.prefunded_lamports, 0);
+    assert_eq!(n.required_lower_bound, Known::Known(minimum + 5_000));
+    assert_eq!(
+        n.funding,
+        Funding::MetLowerBound {
+            payer_lamports: minimum + 5_000,
+            required: minimum + 5_000
+        }
+    );
+    let n = needs_with(minimum + 4_999);
+    assert_eq!(
+        n.funding,
+        Funding::Unmet {
+            payer_lamports: minimum + 4_999,
+            required: minimum + 5_000,
+            short: 1
+        }
+    );
+    // The bit set and no record: a gather comes first.
+    let mut fx = ResolveFx::new();
+    fx.day = Some(gather_day_bytes(home(), RESOLVE_BELL, true));
+    assert_eq!(
+        fx.plan(Some(CACHE_NONCE)).unwrap_err(),
+        Block::NotGathered { bell: RESOLVE_BELL }
+    );
+    // A partial record.
+    fx.inputs = Some(inputs_bytes(home(), RESOLVE_BELL, 0b111, 0, &[]));
+    assert_eq!(
+        fx.plan(Some(CACHE_NONCE)).unwrap_err(),
+        Block::NotGathered { bell: RESOLVE_BELL }
+    );
+    // A resolved record.
+    fx.inputs = Some(inputs_bytes(
+        home(),
+        RESOLVE_BELL,
+        wa::wide_clash_inputs::ALL_GATHERED,
+        wa::wide_clash_inputs::FLAG_RESOLVED,
+        &[],
+    ));
+    assert_eq!(
+        fx.plan(Some(CACHE_NONCE)).unwrap_err(),
+        Block::AlreadyResolved
+    );
+    // Another bell's record at the address.
+    fx.inputs = Some(inputs_bytes(
+        home(),
+        RESOLVE_BELL + 1,
+        wa::wide_clash_inputs::ALL_GATHERED,
+        0,
+        &[],
+    ));
+    assert_eq!(
+        fx.plan(Some(CACHE_NONCE)).unwrap_err(),
+        Block::NotCanonical("inputs")
+    );
+    // The bit clear with a complete record: the residents and the record
+    // (the handler takes a present record whatever the bit says).
+    let mut fx = ResolveFx::new();
+    fx.inputs = Some(inputs_bytes(
+        home(),
+        RESOLVE_BELL,
+        wa::wide_clash_inputs::ALL_GATHERED,
+        0,
+        &[],
+    ));
+    let f = resolve_facts(&fx.plan(Some(CACHE_NONCE)).unwrap()).clone();
+    assert!(!f.arrivals_expected && f.inputs_present && f.n_arrivals == 0);
+}
+
+/// The seed, the anchor, the identities and the timing, each from literal
+/// bytes: no nonce supplied; the cache absent at the nonce; another
+/// bell's cache; a cache whose stored nonce is not the address's; a cache
+/// of another round or another anchor; the archive path with the same
+/// account in both positions; an archive without the bell; another
+/// province's roster; the province absent, legacy, of another world; the
+/// window open by a second; no clock; the end bell; a Season without the
+/// conquest block.
+#[test]
+fn a_resolve_blocks_on_wrong_cache_archive_identity_and_timing() {
+    let fx = ResolveFx::new();
+    assert_eq!(
+        fx.plan(None).unwrap_err(),
+        Block::SeedNonceUnknown {
+            bell: RESOLVE_BELL,
+            region: REGION
+        }
+    );
+    let mut fx = ResolveFx::new();
+    fx.caches.clear();
+    assert_eq!(
+        fx.plan(Some(CACHE_NONCE)).unwrap_err(),
+        Block::SeedNotReady("cache absent at the nonce")
+    );
+    let anchor_key = anchor_addr(RESOLVE_BELL, REGION);
+    let mut fx = ResolveFx::new();
+    fx.caches.insert(
+        CACHE_NONCE,
+        cache_bytes(
+            RESOLVE_BELL + 1,
+            REGION,
+            CACHE_NONCE,
+            resolve_seed_round(),
+            A_TS,
+            anchor_key,
+        ),
+    );
+    assert_eq!(
+        fx.plan(Some(CACHE_NONCE)).unwrap_err(),
+        Block::NotCanonical("seedcache")
+    );
+    let mut fx = ResolveFx::new();
+    fx.caches.insert(
+        CACHE_NONCE,
+        cache_bytes(
+            RESOLVE_BELL,
+            REGION,
+            CACHE_NONCE + 1,
+            resolve_seed_round(),
+            A_TS,
+            anchor_key,
+        ),
+    );
+    assert_eq!(
+        fx.plan(Some(CACHE_NONCE)).unwrap_err(),
+        Block::NotCanonical("seedcache"),
+        "the stored nonce recomputes another address"
+    );
+    let mut fx = ResolveFx::new();
+    fx.caches.insert(
+        CACHE_NONCE,
+        cache_bytes(
+            RESOLVE_BELL,
+            REGION,
+            CACHE_NONCE,
+            resolve_seed_round() + 1,
+            A_TS,
+            anchor_key,
+        ),
+    );
+    assert_eq!(
+        fx.plan(Some(CACHE_NONCE)).unwrap_err(),
+        Block::SeedNotReady("cache does not match THE anchor")
+    );
+    let mut fx = ResolveFx::new();
+    fx.caches.insert(
+        CACHE_NONCE,
+        cache_bytes(
+            RESOLVE_BELL,
+            REGION,
+            CACHE_NONCE,
+            resolve_seed_round(),
+            A_TS,
+            actor(),
+        ),
+    );
+    assert_eq!(
+        fx.plan(Some(CACHE_NONCE)).unwrap_err(),
+        Block::SeedNotReady("cache does not match THE anchor")
+    );
+    // The archive path: THE anchor gone, the bell archived with its seed:
+    // the same account in the seed and the anchor positions, no nonce.
+    let mut fx = ResolveFx::new();
+    fx.anchor = None;
+    fx.caches.clear();
+    fx.archive = Some(archive_with_seed(RESOLVE_BELL, REGION, 5));
+    let a_arch = bell_end(GENESIS_TS, RESOLVE_BELL) + 5;
+    fx.clock = Some(clock_ts(
+        900,
+        resolve_clock().reveal_close(RESOLVE_BELL, a_arch),
+    ));
+    let c = fx.plan(None).unwrap();
+    let f = resolve_facts(&c);
+    assert_eq!(
+        (f.seed_source, f.seed_nonce, f.anchor_source, f.a_ts),
+        ("archive", None, "archive", a_arch)
+    );
+    assert_eq!(
+        f.seed_round,
+        resolve_clock().seed_round(RESOLVE_BELL, a_arch)
+    );
+    let arch = archive_addr(RESOLVE_BELL, REGION);
+    assert_eq!(
+        (
+            c.instruction.accounts[4].pubkey,
+            c.instruction.accounts[5].pubkey
+        ),
+        (arch, arch)
+    );
+    fx.archive = Some(archive_bytes(RESOLVE_BELL, REGION, None));
+    assert_eq!(
+        fx.plan(None).unwrap_err(),
+        Block::NoAnchor("archive without the bell")
+    );
+    // Identities.
+    let mut fx = ResolveFx::new();
+    fx.roster = Some(roster_bytes(away(), &[]).0);
+    assert_eq!(
+        fx.plan(Some(CACHE_NONCE)).unwrap_err(),
+        Block::NotCanonical("roster")
+    );
+    let mut fx = ResolveFx::new();
+    fx.province = None;
+    assert_eq!(
+        fx.plan(Some(CACHE_NONCE)).unwrap_err(),
+        Block::Absent("province")
+    );
+    let mut fx = ResolveFx::new();
+    fx.province = Some(legacy_province_bytes());
+    assert_eq!(
+        fx.plan(Some(CACHE_NONCE)).unwrap_err(),
+        Block::Unreadable("province")
+    );
+    let fx = ResolveFx::new();
+    assert_eq!(
+        done(wideduty::plan_resolve(
+            &dscope(),
+            payer(),
+            actor(),
+            ProvinceKey::new(other_world(), home().coord()),
+            Some(CACHE_NONCE),
+            &fx.reads()
+        ))
+        .unwrap_err(),
+        Block::World
+    );
+    // Timing.
+    let mut fx = ResolveFx::new();
+    fx.clock = Some(clock_ts(900, resolve_close() - 1));
+    assert_eq!(
+        fx.plan(Some(CACHE_NONCE)).unwrap_err(),
+        Block::WindowOpen {
+            reveal_close: resolve_close(),
+            now: resolve_close() - 1
+        }
+    );
+    let mut fx = ResolveFx::new();
+    fx.clock = None;
+    assert_eq!(
+        fx.plan(Some(CACHE_NONCE)).unwrap_err(),
+        Block::TimingNeedsClock
+    );
+    let mut fx = ResolveFx::new();
+    let mut ended = season_resolve();
+    assert!(wr_u32(&mut ended, SL::END_BELL, RESOLVE_BELL));
+    fx.season = ended;
+    assert_eq!(fx.plan(Some(CACHE_NONCE)).unwrap_err(), Block::SeasonEnded);
+    // No conquest block: the step parameters are unknown.
+    let mut fx = ResolveFx::new();
+    let mut plain = season_ok();
+    assert!(wr_arr(
+        &mut plain,
+        SL::DRAND_GENESIS,
+        &QUICKNET_GENESIS.to_le_bytes()
+    ));
+    assert!(wr_u32(&mut plain, SL::DRAND_PERIOD, QUICKNET_PERIOD));
+    fx.season = plain;
+    assert_eq!(
+        fx.plan(Some(CACHE_NONCE)).unwrap_err(),
+        Block::ConquestParams
+    );
+}
+
+/// A resolve candidate planned over one snapshot is coherent and bound to
+/// its content: another resolver, another roster claim or another digest
+/// loses the snapshot, the fee bound and the snapshot denial change; every
+/// hard denial stands.
+#[test]
+fn a_resolve_candidate_is_bound_to_its_snapshot_and_content() {
+    let fx = ResolveFx::new();
+    let accounts = fx.accounts();
+    let keys: Vec<Address> = accounts.keys().copied().collect();
+    let snap = snapshot_of_rent(&accounts, &keys, clock_ts(2_000, resolve_close()), 7);
+    let reads = snap.reads();
+    let c = done(wideduty::plan_resolve(
+        &dscope(),
+        payer(),
+        actor(),
+        home(),
+        Some(CACHE_NONCE),
+        &reads,
+    ))
+    .unwrap();
+    assert!(c.coherent());
+    let engine = Engine::new(Budgets::default(), EngineParams::default());
+    let open = EngineView::of(&engine, &widereview::Subject::of_duty(&c));
+    let a = widereview::review_candidate(&c, &reads, &open);
+    assert!(!a.review.admitted);
+    assert!(a.snapshot.is_some());
+    for d in [
+        Deny::SourceUnproven,
+        Deny::HistoryUnknown,
+        Deny::SignerAbsent,
+        Deny::SliceDoesNotEnqueue,
+    ] {
+        assert!(a.review.denials.contains(&d), "{d:?}");
+    }
+    assert!(a.review.subject.key.starts_with("wide-resolve:"));
+    assert!(a.review.subject.key.ends_with(&format!(":{RESOLVE_BELL}")));
+    let mut m = c.clone();
+    if let Duty::Resolve(f) = &mut m.duty {
+        f.beneficiary = payer();
+    }
+    lost_everything("beneficiary", &m, &reads, &open);
+    let mut m = c.clone();
+    if let Duty::Resolve(f) = &mut m.duty {
+        f.roster_created = true;
+    }
+    lost_everything("roster_created", &m, &reads, &open);
+    let mut m = c.clone();
+    if let Duty::Resolve(f) = &mut m.duty {
+        f.output_digest_at_observed_clock[0] ^= 1;
+    }
+    lost_everything("output digest", &m, &reads, &open);
+    let mut m = c.clone();
+    m.instruction.accounts[6].is_writable = true;
+    lost_everything("inputs flag", &m, &reads, &open);
+}
+
+/// Resolve hints are the observed provinces not seen closed, in key order;
+/// the plan reads the current bell from the chain.
+#[test]
+fn resolve_hints_are_the_observed_open_provinces() {
+    let mut d = WideDiscovery::new(
+        IndexScope {
+            program: program(),
+            season: season_pda().0,
+            world: world(),
+            source: "test: literal bodies".into(),
+        },
+        Limits::default(),
+    );
+    assert!(wideduty::resolve_candidates(&d).is_empty());
+    d.apply(&WideBatch {
+        seq: 1,
+        slot: 1_001,
+        signature: "sig-1".into(),
+        bodies: vec![departed_ok(home())],
+    })
+    .unwrap();
+    assert_eq!(wideduty::resolve_candidates(&d), vec![home()]);
+    d.apply(&WideBatch {
+        seq: 2,
+        slot: 1_002,
+        signature: "sig-2".into(),
+        bodies: vec![encode(
+            WideKind::ProvinceClosed,
+            DEPART_BELL + 1,
+            &home().to_bytes(),
+            &wev::province_closed_payload(&[0xd5; 32], 5),
+            &[link(WideEntity::Province, 1)],
+        )
+        .unwrap()],
+    })
+    .unwrap();
+    assert!(
+        wideduty::resolve_candidates(&d).is_empty(),
+        "closed: no hint"
+    );
+}
+
+/// The tick: no resolve hint without a configured resolver; with one, the
+/// province's current bell is planned **once** per tick — the nonce
+/// unknown, the tick's one bounded probe of the 256 cache addresses stores
+/// what it found and the hint waits for the next slot; then the plan with
+/// the nonce over one snapshot with the Rent — a coherent candidate
+/// reviewed with every hard denial and nothing enqueued; every tick's port
+/// reads counted; a bell whose arrivals are not gathered blocks
+/// `NotGathered` and lists a gather of that bell next.
+#[test]
+fn the_tick_plans_a_resolve_after_a_bounded_nonce_probe_and_enqueues_nothing() {
+    let mut model = WideDiscovery::new(
+        IndexScope {
+            program: program(),
+            season: season_pda().0,
+            world: world(),
+            source: "test: literal bodies".into(),
+        },
+        Limits::default(),
+    );
+    model
+        .apply(&WideBatch {
+            seq: 1,
+            slot: 1_001,
+            signature: "sig-1".into(),
+            bodies: vec![departed_ok(home())],
+        })
+        .unwrap();
+    model
+        .apply(&WideBatch {
+            seq: 2,
+            slot: 1_002,
+            signature: "sig-2".into(),
+            bodies: vec![both(
+                WideKind::DepartureSettled,
+                DEPART_BELL + 1,
+                &wev::host_key(&host(), home()),
+                &wev::departure_settled_payload(SLOT, false, TROOPS, 61, 0, 4),
+            )],
+        })
+        .unwrap();
+    let fx = ResolveFx::new();
+    let port = ClockedPort::new(fx.accounts(), resolve_close());
+    let mut lit = LiteralSnapshots::new(fx.accounts());
+    lit.clock_ts = resolve_close();
+    lit.serve_at_requested_slot = true;
+    let engine = Engine::new(Budgets::default(), EngineParams::default());
+    let mut review = WideReview::new(Deployment {
+        program_version: WIDE_VERSION,
+        ruleset_hash: RULESET,
+    });
+    // No resolver configured: no resolve hint.
+    assert_eq!(
+        block_on(review.step(
+            &port,
+            &engine,
+            &model,
+            program(),
+            season_pda().0,
+            900,
+            Some(&lit),
+            None
+        )),
+        0
+    );
+    assert!(review.set_resolve_beneficiary(Address::default()).is_err());
+    review.set_resolve_beneficiary(actor()).unwrap();
+    let made = block_on(review.step(
+        &port,
+        &engine,
+        &model,
+        program(),
+        season_pda().0,
+        900,
+        Some(&lit),
+        None,
+    ));
+    assert_eq!(made, 1);
+    // Discovery: one plan (two learning reads), the tick's one probe (four
+    // chunks), nothing else — no second plan, no snapshot; the hint waits
+    // for the next slot with the found nonce pending.
+    assert_eq!(
+        (
+            review.plans,
+            review.resolve_plans,
+            review.seed_probes,
+            review.resolve_candidates,
+            review.blocked
+        ),
+        (1, 1, 1, 0, 1)
+    );
+    assert_eq!(port.min_slots.lock().unwrap().len(), 2 + 4);
+    assert!(lit.keys.lock().unwrap().is_empty());
+    assert_eq!(
+        review.pending_nonces(RESOLVE_BELL, REGION),
+        vec![CACHE_NONCE]
+    );
+    assert_eq!(review.remembered_nonce(RESOLVE_BELL, REGION), None);
+    {
+        let r0 = &review.status()["recent"][0];
+        assert_eq!(r0["outcome"], "blocked");
+        assert!(r0["block"]
+            .as_str()
+            .unwrap()
+            .starts_with("SeedNonceUnknown"));
+        assert_eq!(r0["next"], "next slot: a nonce to try");
+    }
+    // The next slot: the one plan with the pending nonce, over one
+    // snapshot holding the cache's address.
+    let made = block_on(review.step(
+        &port,
+        &engine,
+        &model,
+        program(),
+        season_pda().0,
+        901,
+        Some(&lit),
+        None,
+    ));
+    assert_eq!(made, 1);
+    assert_last_is_candidate(&review);
+    assert_eq!(
+        (
+            review.plans,
+            review.resolve_plans,
+            review.seed_probes,
+            review.resolve_candidates,
+            review.coherent,
+            review.blocked
+        ),
+        (2, 2, 1, 1, 1, 1)
+    );
+    assert_eq!(port.min_slots.lock().unwrap().len(), 2 + 4 + 3);
+    let keys = lit.keys.lock().unwrap().clone();
+    assert_eq!(keys.len(), 1);
+    assert!(keys[0].contains(&cache_addr(CACHE_NONCE)));
+    assert_eq!(
+        review.remembered_nonce(RESOLVE_BELL, REGION),
+        Some(CACHE_NONCE)
+    );
+    assert!(review.pending_nonces(RESOLVE_BELL, REGION).is_empty());
+    let st = review.status();
+    let r = &st["recent"][0];
+    assert_eq!(
+        r["hint"],
+        format!("resolve:{}", hex::encode(home().to_bytes()))
+    );
+    assert_eq!(r["outcome"], "candidate");
+    assert_eq!(r["candidate"]["kind"], "WideResolve");
+    assert_eq!(r["candidate"]["coherent"], true);
+    assert_eq!(r["candidate"]["facts"]["seed_nonce"], CACHE_NONCE);
+    let denials = r["assessment"]["review"]["denials"].as_array().unwrap();
+    for d in [
+        "SourceUnproven",
+        "HistoryUnknown",
+        "SignerAbsent",
+        "SliceDoesNotEnqueue",
+    ] {
+        assert!(denials.iter().any(|x| x == d), "{d}");
+    }
+    assert_eq!(r["assessment"]["review"]["admitted"], false);
+    assert_eq!(engine.pending_len(), 0);
+    assert_eq!(port.forbidden.load(Ordering::SeqCst), 0);
+    assert_eq!(st["resolve"]["candidates"], 1);
+    assert_eq!(st["resolve"]["seed_nonces_remembered"], 1);
+    assert_eq!(st["enqueued"], 0);
+    assert!(review.gather_followups().is_empty());
+    // The remembered nonce: no probe the next time.
+    let mut again = ResolveFx::new();
+    again.day = Some(gather_day_bytes(home(), RESOLVE_BELL, true));
+    let port2 = ClockedPort::new(again.accounts(), resolve_close());
+    let mut lit2 = LiteralSnapshots::new(again.accounts());
+    lit2.clock_ts = resolve_close();
+    lit2.serve_at_requested_slot = true;
+    let made = block_on(review.step(
+        &port2,
+        &engine,
+        &model,
+        program(),
+        season_pda().0,
+        1_000,
+        Some(&lit2),
+        None,
+    ));
+    assert_eq!(made, 1);
+    assert_eq!((review.seed_probes, review.blocked), (1, 2));
+    assert_eq!(
+        port2.min_slots.lock().unwrap().len(),
+        3,
+        "one plan with the remembered nonce"
+    );
+    let r2 = &review.status()["recent"][0];
+    assert_eq!(r2["outcome"], "blocked");
+    assert_eq!(
+        r2["block"],
+        format!("NotGathered {{ bell: {RESOLVE_BELL} }}")
+    );
+    assert_eq!(review.gather_followups(), vec![(home(), RESOLVE_BELL)]);
+    // The next tick lists the gather of that bell (and plans it).
+    let made = block_on(review.step(
+        &port2,
+        &engine,
+        &model,
+        program(),
+        season_pda().0,
+        1_100,
+        Some(&lit2),
+        None,
+    ));
+    assert!(made >= 1);
+    let st3 = review.status();
+    let hints: Vec<String> = st3["recent"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| e["hint"].as_str().unwrap().to_string())
+        .collect();
+    assert!(
+        hints.contains(&format!(
+            "gather:{}:{}",
+            hex::encode(home().to_bytes()),
+            RESOLVE_BELL
+        )),
+        "{hints:?}"
+    );
+    assert_eq!(engine.pending_len(), 0);
+    assert_eq!(port2.forbidden.load(Ordering::SeqCst), 0);
+}
+
+/// Liveness: seventy observed provinces (more than any fixed hint window)
+/// are all listed, and the tick's rotating cursor reaches every one of
+/// them under the two-plans-per-tick cap — the one ready province among
+/// them is planned to a candidate wherever its key sorts; the others block
+/// on their absence and never starve it or each other.
+#[test]
+fn resolve_hints_rotate_over_every_observed_province_under_the_plan_cap() {
+    let mut model = WideDiscovery::new(
+        IndexScope {
+            program: program(),
+            season: season_pda().0,
+            world: world(),
+            source: "test: literal bodies".into(),
+        },
+        Limits::default(),
+    );
+    // Musters (no transit: no settle or return hint) in seventy provinces
+    // of the home ring: `home()` and sixty-nine others.
+    let mut bodies: Vec<Vec<u8>> = Vec::new();
+    for i in 0..70u32 {
+        let standing = if i == 0 {
+            home()
+        } else {
+            key(world(), 129, -(i as i64))
+        };
+        let h = WideHostRef::new(home(), SITE, GEN, 100 + i).unwrap();
+        bodies.push(both(
+            WideKind::Muster,
+            4,
+            &wev::host_key(&h, standing),
+            &wev::muster_payload(2, TROOPS, 5, 0, 1 + i as u64),
+        ));
+    }
+    for (n, chunk) in bodies.chunks(32).enumerate() {
+        model
+            .apply(&WideBatch {
+                seq: n as u64 + 1,
+                slot: 1_000 + n as u64,
+                signature: format!("sig-{n}"),
+                bodies: chunk.to_vec(),
+            })
+            .unwrap();
+    }
+    assert_eq!(
+        wideduty::resolve_candidates(&model).len(),
+        70,
+        "nothing is cut"
+    );
+    assert!(wideduty::settle_candidates(&model).is_empty());
+    assert!(wideduty::return_candidates(&model).is_empty());
+    let fx = ResolveFx::new();
+    let port = ClockedPort::new(fx.accounts(), resolve_close());
+    let mut lit = LiteralSnapshots::new(fx.accounts());
+    lit.clock_ts = resolve_close();
+    lit.serve_at_requested_slot = true;
+    let engine = Engine::new(Budgets::default(), EngineParams::default());
+    let mut review = WideReview::new(Deployment {
+        program_version: WIDE_VERSION,
+        ruleset_hash: RULESET,
+    });
+    review.set_resolve_beneficiary(actor()).unwrap();
+    assert_eq!(review.cap(), 2);
+    // Thirty-five ticks, each exactly two plans: every hint once (the
+    // ready one reaches its discovery: the tick's probe, its nonce
+    // pending).
+    for i in 0..35u64 {
+        let made = block_on(review.step(
+            &port,
+            &engine,
+            &model,
+            program(),
+            season_pda().0,
+            900 + 100 * i,
+            Some(&lit),
+            None,
+        ));
+        assert_eq!(made, 2, "tick {i}");
+    }
+    assert_eq!((review.plans, review.resolve_plans), (70, 70));
+    assert_eq!(
+        review.status()["ledger"],
+        70,
+        "every province inspected once"
+    );
+    assert_eq!(
+        (
+            review.resolve_candidates,
+            review.seed_probes,
+            review.blocked
+        ),
+        (0, 1, 70),
+        "one discovery, every absent province blocked"
+    );
+    // Thirty-five more: the second rotation plans the ready one with its
+    // pending nonce.
+    for i in 35..70u64 {
+        let made = block_on(review.step(
+            &port,
+            &engine,
+            &model,
+            program(),
+            season_pda().0,
+            900 + 100 * i,
+            Some(&lit),
+            None,
+        ));
+        assert_eq!(made, 2, "tick {i}");
+    }
+    assert_eq!((review.plans, review.resolve_plans), (140, 140));
+    assert_eq!(review.status()["ledger"], 70);
+    assert_eq!(
+        (
+            review.resolve_candidates,
+            review.seed_probes,
+            review.blocked
+        ),
+        (1, 1, 139),
+        "the ready one planned to a candidate wherever its key sorts; recent entries: {}",
+        review.status()["recent"]
+    );
+    // Reads: one per absent province per rotation (its first wave finds
+    // it absent), the ready one's discovery (2 + 4) and its plan (3).
+    assert_eq!(port.min_slots.lock().unwrap().len(), 69 * 2 + (2 + 4) + 3);
+    assert_eq!(engine.pending_len(), 0);
+    assert_eq!(port.forbidden.load(Ordering::SeqCst), 0);
+    // The next tick starts the rotation again (the first two hints, now
+    // past their refresh).
+    assert_eq!(
+        block_on(review.step(
+            &port,
+            &engine,
+            &model,
+            program(),
+            season_pda().0,
+            900 + 7_000,
+            Some(&lit),
+            None
+        )),
+        2
+    );
+    assert_eq!(review.resolve_plans, 142);
+}
+
+/// The shared cap holds across resolve hints: two provinces of different
+/// regions both needing discovery in one tick make exactly two plans and
+/// one probe — the second hint is deferred, reading nothing — and both
+/// reach a candidate over the following slots; the counters are the
+/// port's calls.
+#[test]
+fn two_resolve_hints_share_the_plan_cap_and_the_one_probe_per_tick() {
+    let mut model = WideDiscovery::new(
+        IndexScope {
+            program: program(),
+            season: season_pda().0,
+            world: world(),
+            source: "test: literal bodies".into(),
+        },
+        Limits::default(),
+    );
+    let mut bodies = Vec::new();
+    for (i, standing) in [home(), away()].into_iter().enumerate() {
+        let h = WideHostRef::new(home(), SITE, GEN, 200 + i as u32).unwrap();
+        bodies.push(both(
+            WideKind::Muster,
+            4,
+            &wev::host_key(&h, standing),
+            &wev::muster_payload(2, TROOPS, 5, 0, 1 + i as u64),
+        ));
+    }
+    model
+        .apply(&WideBatch {
+            seq: 1,
+            slot: 1_001,
+            signature: "sig-1".into(),
+            bodies,
+        })
+        .unwrap();
+    assert_eq!(wideduty::resolve_candidates(&model).len(), 2);
+    // `home()` in region 0 (the fixture), `away()` in region 1 with its
+    // own anchor and a cache at nonce 5.
+    let fx = ResolveFx::new();
+    let mut accounts = fx.accounts();
+    accounts.insert(
+        province_addr(away()),
+        acct(resolvable_province_in(away(), RESOLVE_BELL, 0, 1)),
+    );
+    accounts.insert(
+        anchor_addr(RESOLVE_BELL, 1),
+        acct(anchor_bytes(RESOLVE_BELL, 1, A_TS, 1)),
+    );
+    accounts.insert(
+        addr(ctx().seed_cache(RESOLVE_BELL, 1, 5)),
+        acct(cache_bytes(
+            RESOLVE_BELL,
+            1,
+            5,
+            resolve_seed_round(),
+            A_TS,
+            anchor_addr(RESOLVE_BELL, 1),
+        )),
+    );
+    let port = ClockedPort::new(accounts.clone(), resolve_close());
+    let mut lit = LiteralSnapshots::new(accounts);
+    lit.clock_ts = resolve_close();
+    lit.serve_at_requested_slot = true;
+    let engine = Engine::new(Budgets::default(), EngineParams::default());
+    let mut review = WideReview::new(Deployment {
+        program_version: WIDE_VERSION,
+        ruleset_hash: RULESET,
+    });
+    review.set_resolve_beneficiary(actor()).unwrap();
+    // Tick 1: two plans (two learning reads each), one probe (four
+    // chunks), the other hint deferred.
+    let made = block_on(review.step(
+        &port,
+        &engine,
+        &model,
+        program(),
+        season_pda().0,
+        900,
+        Some(&lit),
+        None,
+    ));
+    assert_eq!(made, 2);
+    assert_eq!(
+        (
+            review.plans,
+            review.seed_probes,
+            review.seed_probes_deferred,
+            review.resolve_candidates
+        ),
+        (2, 1, 1, 0)
+    );
+    assert_eq!(port.min_slots.lock().unwrap().len(), 2 + 4 + 2);
+    assert!(lit.keys.lock().unwrap().is_empty());
+    // Tick 2: the probed one plans with its nonce (a candidate); the
+    // deferred one gets this tick's probe.
+    let made = block_on(review.step(
+        &port,
+        &engine,
+        &model,
+        program(),
+        season_pda().0,
+        901,
+        Some(&lit),
+        None,
+    ));
+    assert_eq!(made, 2);
+    assert_eq!(
+        (
+            review.plans,
+            review.seed_probes,
+            review.seed_probes_deferred,
+            review.resolve_candidates
+        ),
+        (4, 2, 1, 1),
+        "recent entries: {}",
+        review.status()["recent"]
+    );
+    assert_eq!(port.min_slots.lock().unwrap().len(), 8 + 3 + 2 + 4);
+    assert_eq!(lit.keys.lock().unwrap().len(), 1);
+    // Tick 3: the other one plans with its nonce; the first waits for its
+    // refresh.
+    let made = block_on(review.step(
+        &port,
+        &engine,
+        &model,
+        program(),
+        season_pda().0,
+        902,
+        Some(&lit),
+        None,
+    ));
+    assert_eq!(made, 1);
+    assert_last_is_candidate(&review);
+    assert_eq!(
+        (review.plans, review.seed_probes, review.resolve_candidates),
+        (5, 2, 2)
+    );
+    assert_eq!(port.min_slots.lock().unwrap().len(), 17 + 3);
+    assert_eq!(lit.keys.lock().unwrap().len(), 2);
+    assert_eq!(review.remembered_nonce(RESOLVE_BELL, 0), Some(CACHE_NONCE));
+    assert_eq!(review.remembered_nonce(RESOLVE_BELL, 1), Some(5));
+    assert_eq!(engine.pending_len(), 0);
+    assert_eq!(port.forbidden.load(Ordering::SeqCst), 0);
+}
+
+/// Recovery, one plan per tick: a probed nonce whose cache the plan
+/// refuses cools down (not blacklisted) and the next probed nonce is tried
+/// at the next slot; a remembered nonce whose cache stops matching THE
+/// anchor is forgotten and cools down; while every probed nonce cools the
+/// hint blocks and nothing is substituted inside a sealed snapshot; once
+/// the cooldown ends the **same** nonce is tried again and, its cache
+/// corrected, accepted. Every tick's port reads are counted.
+#[test]
+fn a_refused_seed_cache_is_forgotten_and_rediscovered_with_bounded_reads() {
+    let mut model = WideDiscovery::new(
+        IndexScope {
+            program: program(),
+            season: season_pda().0,
+            world: world(),
+            source: "test: literal bodies".into(),
+        },
+        Limits::default(),
+    );
+    model
+        .apply(&WideBatch {
+            seq: 1,
+            slot: 1_001,
+            signature: "sig-1".into(),
+            bodies: vec![
+                departed_ok(home()),
+                both(
+                    WideKind::DepartureSettled,
+                    DEPART_BELL + 1,
+                    &wev::host_key(&host(), home()),
+                    &wev::departure_settled_payload(SLOT, false, TROOPS, 61, 0, 4),
+                ),
+            ],
+        })
+        .unwrap();
+    let anchor_key = anchor_addr(RESOLVE_BELL, REGION);
+    let good = |nonce: u8| {
+        cache_bytes(
+            RESOLVE_BELL,
+            REGION,
+            nonce,
+            resolve_seed_round(),
+            A_TS,
+            anchor_key,
+        )
+    };
+    let bad = |nonce: u8| {
+        cache_bytes(
+            RESOLVE_BELL,
+            REGION,
+            nonce,
+            resolve_seed_round() + 1,
+            A_TS,
+            anchor_key,
+        )
+    };
+    let mut fx = ResolveFx::new();
+    fx.caches.clear();
+    fx.caches.insert(1, bad(1));
+    fx.caches.insert(3, good(3));
+    let engine = Engine::new(Budgets::default(), EngineParams::default());
+    let mut review = WideReview::new(Deployment {
+        program_version: WIDE_VERSION,
+        ruleset_hash: RULESET,
+    });
+    review.set_resolve_beneficiary(actor()).unwrap();
+    let cooldown = keeper_core::widetick::BAD_NONCE_COOLDOWN_SLOTS;
+    // One tick: a fresh port and snapshot source over the fixture as it
+    // stands; returns (made, port reads, snapshots taken).
+    let tick = |review: &mut WideReview, fx: &ResolveFx, slot: u64| -> (u64, usize, usize) {
+        let port = ClockedPort::new(fx.accounts(), resolve_close());
+        let mut lit = LiteralSnapshots::new(fx.accounts());
+        lit.clock_ts = resolve_close();
+        lit.serve_at_requested_slot = true;
+        let made = block_on(review.step(
+            &port,
+            &engine,
+            &model,
+            program(),
+            season_pda().0,
+            slot,
+            Some(&lit),
+            None,
+        ));
+        assert_eq!(port.forbidden.load(Ordering::SeqCst), 0);
+        let reads = port.min_slots.lock().unwrap().len();
+        let snaps = lit.keys.lock().unwrap().len();
+        (made, reads, snaps)
+    };
+    // Slot 900: discovery — the plan (2 reads), the probe (4): nonces 1
+    // and 3 pending; nothing else this tick.
+    assert_eq!(tick(&mut review, &fx, 900), (1, 6, 0));
+    assert_eq!(review.pending_nonces(RESOLVE_BELL, REGION), vec![1, 3]);
+    // Slot 901: nonce 1 tried (3 reads), refused: cooling down, no
+    // snapshot; 3 waits for the next slot; the key is learned again.
+    assert_eq!(tick(&mut review, &fx, 901), (1, 3, 0));
+    assert_eq!(
+        review.bad_nonces(RESOLVE_BELL, REGION),
+        vec![(1, 901 + cooldown)]
+    );
+    assert_eq!(review.pending_nonces(RESOLVE_BELL, REGION), vec![3]);
+    assert_eq!(review.seed_nonces_forgotten, 0, "1 was never remembered");
+    // Slot 902: the key learned again (2 reads), 3 pending: no probe.
+    assert_eq!(tick(&mut review, &fx, 902), (1, 2, 0));
+    assert_eq!(review.seed_probes, 1);
+    // Slot 903: nonce 3 tried (3 reads), accepted over its own snapshot,
+    // remembered.
+    let t = tick(&mut review, &fx, 903);
+    assert_last_is_candidate(&review);
+    assert_eq!(t, (1, 3, 1));
+    assert_eq!(review.resolve_candidates, 1);
+    assert_eq!(review.remembered_nonce(RESOLVE_BELL, REGION), Some(3));
+    assert!(review.pending_nonces(RESOLVE_BELL, REGION).is_empty());
+    assert_eq!(
+        review.status()["recent"][0]["candidate"]["facts"]["seed_nonce"],
+        3
+    );
+    // Slot 1,000: the remembered cache no longer matches THE anchor (3
+    // reads): forgotten, cooling down; nothing pending; blocked.
+    fx.caches.insert(3, bad(3));
+    assert_eq!(tick(&mut review, &fx, 1_000), (1, 3, 0));
+    assert_eq!(review.seed_nonces_forgotten, 1);
+    assert_eq!(review.remembered_nonce(RESOLVE_BELL, REGION), None);
+    assert_eq!(
+        review.bad_nonces(RESOLVE_BELL, REGION),
+        vec![(1, 901 + cooldown), (3, 1_000 + cooldown)]
+    );
+    let r = &review.status()["recent"][0];
+    assert_eq!(r["outcome"], "blocked");
+    assert!(r["block"].as_str().unwrap().starts_with("SeedNotReady"));
+    // Slot 1,100 (the refresh): the key again (2), a probe (4) finds 1 and
+    // 3, both cooling: nothing tried, blocked; no snapshot. The key stays
+    // learned (nothing was refused).
+    assert_eq!(tick(&mut review, &fx, 1_100), (1, 6, 0));
+    assert_eq!(review.seed_probes, 2);
+    assert_eq!(review.pending_nonces(RESOLVE_BELL, REGION), vec![1, 3]);
+    assert!(review.status()["recent"][0]["block"]
+        .as_str()
+        .unwrap()
+        .starts_with("SeedNonceUnknown"));
+    // The cache at nonce 1 is corrected on chain. Slot 1,200 (past nonce
+    // 1's cooldown, not 3's): the key is known and 1 is pending and no
+    // longer cooling, so the **same** nonce 1 is tried again (3 reads) —
+    // no probe — and accepted over its own snapshot; its cooldown entry
+    // cleared, 3's kept.
+    fx.caches.insert(1, good(1));
+    assert!(1_200 >= 901 + cooldown && 1_200 < 1_000 + cooldown);
+    let t = tick(&mut review, &fx, 1_200);
+    assert_last_is_candidate(&review);
+    assert_eq!(t, (1, 3, 1));
+    assert_eq!(review.seed_probes, 2);
+    assert_eq!(review.resolve_candidates, 2);
+    assert_eq!(review.remembered_nonce(RESOLVE_BELL, REGION), Some(1));
+    assert_eq!(
+        review.bad_nonces(RESOLVE_BELL, REGION),
+        vec![(3, 1_000 + cooldown)]
+    );
+    assert_eq!(
+        review.status()["recent"][0]["candidate"]["facts"]["seed_nonce"],
+        1
+    );
+    assert_eq!(review.status()["resolve"]["bad_nonces"], 1);
+    assert_eq!(engine.pending_len(), 0);
+}
+
 // ------------------------------------------------------------ content sealing
 
 /// One `getMultipleAccounts` response for `keys ‖ Clock` written as literal
@@ -7630,25 +9157,25 @@ fn a_mutated_settle_candidate_loses_its_snapshot_fee_bound_and_review() {
     let mut m = c.clone();
     match &mut m.duty {
         Duty::SettleDeparture(f) => f.predicted_destroyed = !f.predicted_destroyed,
-        Duty::Return(_) | Duty::Gather(_) => unreachable!(),
+        Duty::Return(_) | Duty::Gather(_) | Duty::Resolve(_) => unreachable!(),
     }
     lost_everything("predicted_destroyed", &m, &reads, &open);
     let mut m = c.clone();
     match &mut m.duty {
         Duty::SettleDeparture(f) => f.troops_after_milli += 1,
-        Duty::Return(_) | Duty::Gather(_) => unreachable!(),
+        Duty::Return(_) | Duty::Gather(_) | Duty::Resolve(_) => unreachable!(),
     }
     lost_everything("troops_after_milli", &m, &reads, &open);
     let mut m = c.clone();
     match &mut m.duty {
         Duty::SettleDeparture(f) => f.origin_is_home = !f.origin_is_home,
-        Duty::Return(_) | Duty::Gather(_) => unreachable!(),
+        Duty::Return(_) | Duty::Gather(_) | Duty::Resolve(_) => unreachable!(),
     }
     lost_everything("origin_is_home", &m, &reads, &open);
     let mut m = c.clone();
     match &mut m.duty {
         Duty::SettleDeparture(f) => f.entry_index += 1,
-        Duty::Return(_) | Duty::Gather(_) => unreachable!(),
+        Duty::Return(_) | Duty::Gather(_) | Duty::Resolve(_) => unreachable!(),
     }
     lost_everything("entry_index", &m, &reads, &open);
     // The duty's kind.
@@ -7855,7 +9382,7 @@ fn world_bytes_past_the_debug_prefix_are_candidate_content() {
         let mut m = c.clone();
         match &mut m.duty {
             Duty::SettleDeparture(f) => f.host = rehost(f.host, i),
-            Duty::Return(_) | Duty::Gather(_) => unreachable!(),
+            Duty::Return(_) | Duty::Gather(_) | Duty::Resolve(_) => unreachable!(),
         }
         assert_eq!(m.instruction, c.instruction);
         assert_eq!(
@@ -7869,7 +9396,7 @@ fn world_bytes_past_the_debug_prefix_are_candidate_content() {
         let mut m = c.clone();
         match &mut m.duty {
             Duty::SettleDeparture(f) => f.origin = rekey(f.origin, i),
-            Duty::Return(_) | Duty::Gather(_) => unreachable!(),
+            Duty::Return(_) | Duty::Gather(_) | Duty::Resolve(_) => unreachable!(),
         }
         assert_eq!(m.instruction, c.instruction);
         assert_eq!(
@@ -7908,7 +9435,7 @@ fn world_bytes_past_the_debug_prefix_are_candidate_content() {
         let mut m = r.clone();
         match &mut m.duty {
             Duty::Return(f) => f.standing = rekey(f.standing, i),
-            Duty::SettleDeparture(_) | Duty::Gather(_) => unreachable!(),
+            Duty::SettleDeparture(_) | Duty::Gather(_) | Duty::Resolve(_) => unreachable!(),
         }
         assert_eq!(m.instruction, r.instruction);
         assert_eq!(
@@ -7920,7 +9447,7 @@ fn world_bytes_past_the_debug_prefix_are_candidate_content() {
         let mut m = r.clone();
         match &mut m.duty {
             Duty::Return(f) => f.holding = rehost(f.holding, i),
-            Duty::SettleDeparture(_) | Duty::Gather(_) => unreachable!(),
+            Duty::SettleDeparture(_) | Duty::Gather(_) | Duty::Resolve(_) => unreachable!(),
         }
         assert_eq!(m.instruction, r.instruction);
         assert_eq!(
@@ -7932,7 +9459,7 @@ fn world_bytes_past_the_debug_prefix_are_candidate_content() {
         let mut m = r.clone();
         match &mut m.duty {
             Duty::Return(f) => f.picks[0].host = rehost(f.picks[0].host, i),
-            Duty::SettleDeparture(_) | Duty::Gather(_) => unreachable!(),
+            Duty::SettleDeparture(_) | Duty::Gather(_) | Duty::Resolve(_) => unreachable!(),
         }
         assert_eq!(m.instruction, r.instruction);
         assert_eq!(
@@ -7946,25 +9473,25 @@ fn world_bytes_past_the_debug_prefix_are_candidate_content() {
     let mut m = r.clone();
     match &mut m.duty {
         Duty::Return(f) => f.live_gen = None,
-        Duty::SettleDeparture(_) | Duty::Gather(_) => unreachable!(),
+        Duty::SettleDeparture(_) | Duty::Gather(_) | Duty::Resolve(_) => unreachable!(),
     }
     lost_everything("return live_gen", &m, &reads_r, &open);
     let mut m = r.clone();
     match &mut m.duty {
         Duty::Return(f) => f.picks[0].credited = !f.picks[0].credited,
-        Duty::SettleDeparture(_) | Duty::Gather(_) => unreachable!(),
+        Duty::SettleDeparture(_) | Duty::Gather(_) | Duty::Resolve(_) => unreachable!(),
     }
     lost_everything("return pick credited", &m, &reads_r, &open);
     let mut m = r.clone();
     match &mut m.duty {
         Duty::Return(f) => f.picks.clear(),
-        Duty::SettleDeparture(_) | Duty::Gather(_) => unreachable!(),
+        Duty::SettleDeparture(_) | Duty::Gather(_) | Duty::Resolve(_) => unreachable!(),
     }
     lost_everything("return picks cleared", &m, &reads_r, &open);
     let mut m = r.clone();
     match &mut m.duty {
         Duty::Return(f) => f.skipped_in_transit += 1,
-        Duty::SettleDeparture(_) | Duty::Gather(_) => unreachable!(),
+        Duty::SettleDeparture(_) | Duty::Gather(_) | Duty::Resolve(_) => unreachable!(),
     }
     lost_everything("return skipped_in_transit", &m, &reads_r, &open);
     let mut m = r.clone();
@@ -7978,7 +9505,7 @@ fn world_bytes_past_the_debug_prefix_are_candidate_content() {
     let mut m = c.clone();
     match &mut m.duty {
         Duty::SettleDeparture(f) => f.host = rehost(rehost(f.host, 9), 9),
-        Duty::Return(_) | Duty::Gather(_) => unreachable!(),
+        Duty::Return(_) | Duty::Gather(_) | Duty::Resolve(_) => unreachable!(),
     }
     assert!(m.coherent());
     assert!(c.coherent() && r.coherent());

@@ -12,7 +12,7 @@ Explicit --follow-wide (requiring --observe-wide) now continues read-only wide o
 
 The archive/index interoperability test now drives real WideFindex, SQLite rebuild, archive transaction reads, keeper observer/proofs, and a snapshot-backed unsigned candidate. Raw program-filtered feed sequences (10/20/30), archive sequences (1/2/3), and event-page IDs are distinct. Observer verifies local per-identity head continuity after its first observed unverified anchor; dedicated index validates from genesis. Neither proves source authenticity. Raw sequence holes remain unknown, not automatically corrupted.
 
-The eighth slice adds the unsigned WideGather candidate (`wideduty::plan_gather`, hinted from revealed open marches, planned over a snapshot with the Rent, reviewed and counted in the tick): the handler's latch, end bell, anchor-or-archive window, ClashInputs and ArrivalDay rules replayed from the accounts at their canonical addresses; the cursor bounded to at most eight positions before any slot is read (one packet even when every position is present) and cut before a later unsettled transit; present slots judged from their transit records; absent slots' transit positions the slot's own address; the present count the handler's scan of every position; a clear day bit over a partial record planned as the completing gather; the fee review netting a prefunded ClashInputs as the handler's top-up does. The ArrivalDay account is the only arrival evidence; missing feed events are never read as no arrivals. **Arrival processing is not complete**: WideResolve is not planned (its seed authentication and model replay — roster creation, digests — are not claimed), so a gathered bell still has no planned resolve. Not compiled or run by its author.
+The eighth slice adds the unsigned WideGather candidate (`wideduty::plan_gather`, hinted from revealed open marches, planned over a snapshot with the Rent, reviewed and counted in the tick): the handler's latch, end bell, anchor-or-archive window, ClashInputs and ArrivalDay rules replayed from the accounts at their canonical addresses; the cursor bounded to at most eight positions before any slot is read (one packet even when every position is present) and cut before a later unsettled transit; present slots judged from their transit records; absent slots' transit positions the slot's own address; the present count the handler's scan of every position; a clear day bit over a partial record planned as the completing gather; the fee review netting a prefunded ClashInputs as the handler's top-up does. The ArrivalDay account is the only arrival evidence; missing feed events are never read as no arrivals. The ninth slice adds the unsigned WideResolve candidate (`wideduty::plan_resolve`): each observed province at its current `resolved_next` read from the chain, the window against THE anchor or its archive, the bell seed as the handler's `bell_seed` takes it (a SeedCache whose stored nonce recomputes its address and which names THE anchor and the seed round, found by a bounded 256-nonce probe; or the archive entry in both positions), the ArrivalDay bit against a complete unresolved ClashInputs, the conquest block, the roster or its absence, and the ABI's own `resolve_bell` replayed on scratch bytes for the outcome, the roster creation (full-minimum payer guard, exact) and the digests (the output digest at the observed clock). Resolve hints need a configured public resolver; a `NotGathered` bell schedules its gather so intermediate bells are not skipped. **Arrival processing is still not complete**: WideSettleTransit is not planned, so a resolved bell has no planned settlement. Not compiled or run by its author.
 
 Every candidate is still denied by Engine review: history authenticity/completeness, live fee quotation and future balance remain unproven. No enqueue, simulation, signing, transaction sending, production gate change, main merge or deployment is introduced. Existing PSW1 feed guards can prevent further discovery; this slice does not make the game playable. The actual Keeper constructor/full tick was not executed because it uses keys; its wiring and CLI are compile-checked, while independent review-step tests use literal accounts and public vectors. UI is unchanged.
 
@@ -1567,18 +1567,8 @@ present fitting the packet with the placeholder payer. Fixture additions:
 requested), `snapshot_json_rent`, `snapshot_of_rent`, `ClockedPort` (a
 fake port whose Clock is settable and whose read bounds are recorded).
 
-**Why Resolve is not planned (blocker, stated).** WideResolve
-(`proc/wide.rs::resolve`) needs (a) the bell seed from the SeedCache or
-the archive entry under `hold::bell_seed`'s authentication, (b) the
-Season's conquest step parameters and the program's ruleset, and (c) the
-exact model replay `world_index::resolve::resolve_bell` over the province,
-the roster and the gathered inputs to know whether the bell **creates a
-roster from the fee payer** (an arrival that stays claims an entry) and
-what the input/output digests are. A candidate that skipped (c) would
-mis-state what the handler creates and pays for; one that replayed it
-would need an independent parity audit of the model against the program.
-This slice does neither and claims nothing about Resolve beyond
-`remaining_after == 0` being its gathered precondition.
+**Resolve.** Not planned in this slice; the ninth slice below plans it
+with the actual bell model on scratch bytes.
 
 **Exact limits.** The candidate is unsigned and unsent; the history
 before the applied records is unknown; the snapshot is coherence at a
@@ -1591,6 +1581,192 @@ canonical address; whether a reveal the feed never showed exists is
 learned only from that account. No live game was read; nothing here makes
 the game playable.
 
+## Ninth slice (2026-11-08, on `2552d91f`): the unsigned WideResolve candidate
+
+**Scope.** `wideduty::plan_resolve(scope, payer, beneficiary, province,
+seed_nonce, reads)` plans WideResolve (0xDC op 1, `proc/wide.rs::resolve`
+as it is — nine accounts, `wide_ix::RESOLVE`: `[fee_payer s,w] [season r]
+[province w] [roster w] [seedcache|archive r] [anchor|archive r]
+[clash_inputs r|w] [arrivalday r] [system]`; the handler's own doc
+comment is stale) of an observed province's **current `resolved_next`**,
+as an unsigned `Candidate` with `Duty::Resolve(ResolveFacts)`, reviewed
+in the tick like the others. **WideSettleTransit is not planned**: a
+resolved bell has no planned settlement; arrival processing is **not**
+complete. Nothing signs, simulates, sends or queues; every Engine denial
+stands; no gate, game rule, fee, custody, payout, recipient or legacy/wide
+boundary changes; no fclient, ABI or program file is edited.
+
+**The handler's rules, in its order.** The keeper prologue (`season_of`);
+the province canonical and of this world (`province_at`); the bell is the
+province's `resolved_next` as read (the model's `NotDue` would be
+`OutOfOrder`); `bell < end_bell` else `SeasonEnded`; the reveal window
+closed against THE anchor or its archive entry of the province's stored
+region (the gather's `anchor_read`; `NoAnchor`, `WindowOpen`,
+`TimingNeedsClock`); **the bell seed as `hold::bell_seed` takes it**: with
+THE anchor present, a SeedCache of this season, bell and region whose
+**stored nonce recomputes the address** it stands at, naming THE anchor's
+key and `A` and the round `SeasonClock::seed_round(bell, A)`
+(`NotCanonical("seedcache")` / `SeedNotReady`); with THE anchor archived,
+the archive entry's seed with **the same archive account in both the seed
+and the anchor positions**. The nonce is the poster's choice and is not
+derivable: `plan_resolve` takes it from the caller and returns
+`SeedNonceUnknown { bell, region }` without one; `find_seed_nonces` is
+the legacy keeper's probe of the 256 canonical cache addresses through
+`accounts` in chunks of 64 (four reads, always), returning **every**
+present, program-owned, decodable cache whose stored bell, region and
+nonce are the address's, in nonce order (`find_seed_nonce` is its first).
+The ArrivalDay's bit as the arrival evidence: set, the
+ClashInputs must be present, canonical, fully gathered and unresolved
+(`NotGathered { bell }`, `AlreadyResolved`), and it is writable; absent
+with the bit clear the bell runs over the residents alone; a present
+complete record with the bit clear is taken (the handler takes a present
+record whatever the bit says). The Season's conquest block of this
+build's version (`StepParams::of_season`, `CONQUEST_VERSION`;
+`ConquestParams` otherwise). The roster present and canonical
+(`NotCanonical("roster")`), or absent while no entry is live
+(`Absent("roster")` otherwise), modelled as the empty table under its
+would-be header with the fee payer as rent recipient — as the handler
+does. The province's event chain has room for the record.
+
+**The model on scratch bytes.** `world_index::resolve::resolve_bell(pd,
+roster, rd, inputs, bell, seed, frontier_ruleset(), StepParams)` over
+copies of the province, the roster and the record, then the handler's
+write-backs: the resolved arrivals (`write_resolved`), the resolver
+(`beneficiary`) and `resolved_ts = observed clock − genesis` into the
+record, the summary (bell, engagements, arrivals, destroyed, bounced, the
+resolver's first eight bytes) into the province. The facts carry the
+engagements, destroyed, bounced, `settled`, `n_arrivals`, the roster's
+presence and **`roster_created`** (`!present && roster bytes changed`:
+an arrival that stays claims an entry; the handler then requires `live
+entries ≠ ∅`, mirrored), the **input digest** over the bytes as read
+(`resolve_input_digest`) and the **output digest at the observed clock**
+(`resolve_output_digest`): the landed record carries the execution
+clock's `resolved_ts`, so the digest equals this one only when executed
+at that second — said on the facts and in the status. The model's
+refusals of unported S1/S2 state (a live fort, a caravan, a conquest
+record, a packed pending op) are kept as `Unported(name)`; every other
+model refusal is `ResolveModel(name)` (sanitized to its name in status).
+The program applies its own model.
+
+**The roster rent, exact to the handler.** When `roster_created`, the
+handler requires `fee_payer.lamports() ≥ init::rent(roster size)` before
+the creation (`Insufficient` otherwise) and only then tops the address up:
+`widefees::duty_needs` therefore requires the roster's **full** minimum
+plus the fee (`RENT_RULE_FULL`), not the gather's netting; a lamport short
+of it is unmet.
+
+**Wiring.** `wideduty::resolve_candidates(model)`: **every** observed
+province not seen closed, in key order — bounded by the observer's own
+province limit (`Limits::max_provinces`, 4,096 by default), never cut
+here, so the tick's rotating cursor reaches each in turn under the plan
+cap (the first version cut the list at 64 and would have starved every
+later province for good; fixed after independent review). The plan takes
+the current bell from the chain, so **resident-only bells are planned and
+no intermediate bell is skipped**. `widetick`: resolve hints are listed
+only once `WideReview::set_resolve_beneficiary` names the public resolver
+(the all-zero address refused; no recipient is invented);
+`Hint::Resolve(province)` is planned over the snapshot with the Rent,
+**exactly once per tick**, under the shared two-plans-per-tick cap that
+counts every plan evaluation of every duty (`plans` is the number of
+`plan_*` drivers run; nothing is planned twice for one hint in one tick).
+The plan is given the nonce known for the `(bell, region)` the province's
+last `SeedNonceUnknown` named — the remembered one, else the first probed
+one not cooling down — or none. On `SeedNonceUnknown` the tick learns the
+key and, when no nonce is known for it, spends **the tick's one probe**
+(`find_seed_nonces`, four reads, at most one per tick across every hint;
+a second hint needing one is deferred, reading nothing,
+`seed_probes_deferred`) and stores the found nonces as pending; the hint
+is then retried at the **next slot** (bounded by `MAX_TRANSIENT_RETRIES`,
+then the ordinary refresh). A plan that refuses its cache
+(`SeedNotReady`, `NotCanonical("seedcache")`, `Unreadable("seedcache")`)
+forgets the nonce if it was remembered, puts it on a **cooldown**
+(`BAD_NONCE_COOLDOWN_SLOTS`, 256 slots — a cache can be posted, corrected
+or superseded later, a fork can resolve; nothing is blacklisted for
+good), drops the learned key so it is read again from the chain, and
+retries next slot if another pending nonce is not cooling. An accepted
+nonce is remembered and its cooldown entry cleared. Each attempt is a
+whole plan over its own snapshot — **no nonce is ever substituted inside
+a sealed snapshot**; a contradictory cache blocks. The learned-key,
+remembered, pending and cooldown maps are bounded. `NotGathered { bell }`
+records a
+**gather follow-up** `(province,
+bell)` (bounded set) listed as a gather hint from the next tick, so a bell
+whose arrivals the feed never showed is still gathered and the province
+advances; any other resolve outcome clears the province's follow-ups. The
+hint list order is settles, returns, gathers (model ∪ follow-ups),
+resolves, reveals, under the existing two-plans-per-tick cap with the
+rotating cursor (no hint starves another). `widereview::KIND_RESOLVE`
+(`wide-resolve:<world>:<key>:<bell>`); counters `resolve_plans`,
+`resolve_candidates`, `seed_probes`; a `resolve` status entry.
+
+**Tests** (`wide_duties.rs`, literal bytes and public math; a `ResolveFx`
+whose province is the ABI's own resolvable layout — the generated terrain
+and sites of a literal ring seed, every site free, a keep on a free tile,
+no camp — under a Season with the quicknet clock and the `MC_LOCAL_7D`
+conquest block, THE anchor at `A_TS`, a SeedCache at nonce 3 with the
+Season's own seed round):
+`a_resident_only_resolve_candidate_runs_the_bell_model_on_scratch_bytes`
+(the nine roles, the data, the cache seed, nothing created, the input
+digest recomputed by the test, a present roster taken as is, three live
+read waves), `a_resolve_with_gathered_arrivals_predicts_the_roster_creation_and_its_full_rent`
+(the bit set, the record complete and writable, one arrival of the keep
+holder's faction on a free tile stays and claims an entry — the one
+assertion that rests on the kernel's outcome — the roster created, the
+full minimum plus the fee required and a lamport short unmet; no record,
+a partial record, a resolved record, another bell's record refused; a
+complete record with the bit clear taken),
+`a_resolve_blocks_on_wrong_cache_archive_identity_and_timing` (no nonce,
+the cache absent, another bell's cache, a stored nonce that recomputes
+another address, another round, another anchor key, the archive path
+with the same account in both positions and no nonce, an archive without
+the bell, another province's roster, the province absent / legacy /
+another world, the window by a second, no clock, the end bell, no
+conquest block), `a_resolve_candidate_is_bound_to_its_snapshot_and_content`
+(four mutations lose everything), `resolve_hints_are_the_observed_open_provinces`,
+`the_tick_plans_a_resolve_after_a_bounded_nonce_probe_and_enqueues_nothing`
+(no hint without a resolver; two learning reads, four probe chunks, three
+reads with the nonce, one snapshot holding the cache; a coherent
+candidate, every hard denial, nothing pending; the remembered nonce
+needs no probe; `NotGathered` lists the gather of that bell next). After
+the independent review:
+`resolve_hints_rotate_over_every_observed_province_under_the_plan_cap`
+(seventy observed provinces, the one ready among them wherever its key
+sorts: thirty-five ticks of exactly two plans inspect all seventy once —
+the ready one reaching its discovery — and thirty-five more plan it to a
+candidate; the port's reads counted; the rotation then starts over),
+`two_resolve_hints_share_the_plan_cap_and_the_one_probe_per_tick` (two
+provinces of different regions both needing discovery: two plans and one
+probe in the tick, the second hint deferred reading nothing, both
+candidates over the following slots, every read counted), and
+`a_refused_seed_cache_is_forgotten_and_rediscovered_with_bounded_reads`
+(one plan per tick throughout: discovery stores nonces 1 and 3; 1 refused
+and cooling, 3 tried next slot and accepted; the remembered 3 turning bad:
+forgotten and cooling, blocked; a probe finding only cooling nonces:
+blocked, nothing tried; the cache at 1 corrected and 1's cooldown over:
+the **same** nonce tried again and accepted; every tick's reads and
+snapshots counted). The tick test now shows discovery and the plan with
+the nonce in two consecutive slots with the reads of each. After the
+parent's first run: the arrival fixtures carry the doctrine's dealt
+multiplier (`of_faction_v3(0).dealt_bps(Hold, arrival)`, what the reveal
+writes; the kernel refuses anything outside `[BPS_ONE, COMBAT_MAX_BPS]`
+as `BadMultiplier` — the fixture was wrong, not the planner), and the
+literal snapshot fixture serves its context slot at the request's
+`minContextSlot` when asked (`serve_at_requested_slot`), as a live RPC
+does — a fixed slot 900 made every plan at a later tick `Snapshot(Stale)`
+before the planner ran, which is what the four zero-candidate runtime
+failures were. Runtime assertions now print the newest review entry (hint,
+outcome, Block code) when a candidate was expected.
+
+**Exact limits.** The candidate is unsigned and unsent; the model is the
+ABI's, replayed here, and the program applies its own; the output digest
+is at the observed clock; the nonce probe trusts the chain's account
+bytes at their canonical addresses, nothing else; history before the
+applied records is unknown; the snapshot is coherence at a context slot,
+not currency. The kernel-dependent expectation (the lone arrival stays)
+is one assertion of one test, stated as such. Not compiled or run by its
+author. **WideSettleTransit is the next slice; nothing here settles an
+arrival, pays a resolver or closes a record.**
+
 ## Touched files
 
 `frontier-node/crates/keeper/src/wideproof.rs` (new),
@@ -1600,7 +1776,10 @@ the crate-private `Candidate.bound` (`Bound`, the `Canon` encoder and the
 `canon` methods), snapshot drivers; eighth: `plan_gather`, `gather_via`,
 `gather_snapshot`, `gather_candidates`, `Duty::Gather`, `GatherFacts`,
 `GatherPosition`, `GatherSlot`, `packet_len`, `GATHER_PACKET_BYTES`,
-`GATHER_POSITIONS`, six `Block` variants, `candidate_with`),
+`GATHER_POSITIONS`, six `Block` variants, `candidate_with`; ninth:
+`plan_resolve`, `resolve_via`, `resolve_snapshot`, `find_seed_nonce`,
+`resolve_candidates`, `Duty::Resolve`, `ResolveFacts`, `AnchorRead` /
+`anchor_read` shared with the gather, seven `Block` variants),
 `frontier-node/crates/keeper/src/widefees.rs` (eighth: the ClashInputs in
 `duty_needs`), `frontier-node/crates/keeper/src/widereview.rs` (eighth:
 `KIND_GATHER`, the `Subject` arm), `frontier-node/crates/keeper/src/widetick.rs`
@@ -1677,3 +1856,18 @@ A malformed later slot inside the bounded cursor may conservatively block a read
 prefix; no unsafe candidate is produced. Resolve and SettleTransit keeper duties
 remain unimplemented, and the arrival-to-battle flow is not complete. Actual Keeper
 startup/tick and real-chain submission were not executed; all send gates stay closed.
+
+### Ninth-slice verification checkpoint
+
+Final focused tests passed: wide_discovery 14, wide_duties 69,
+wide_feed_guard 12, wide_reveal 18, wide_snapshot_rpc 6 (119 total).
+Feature-on lib/binaries and selected tests, and default lib/binaries,
+passed clippy. Five initially failing new tests exposed invalid literal
+combat multipliers and stale fixed snapshot slots; fixtures were corrected
+to actual doctrine values and explicitly requested response slots, without
+weakening production checks. Independent review verified bounded two-driver
+scheduling, one shared four-read nonce probe, all-province rotation, and
+expiry/retry of transiently rejected nonce hints. No keypair generation,
+signing, simulation, queue admission, actual Keeper startup or chain sending
+was run. Resolve now produces a snapshot-bound unsigned instruction using
+the shared combat kernel; SettleTransit keeper integration remains absent.

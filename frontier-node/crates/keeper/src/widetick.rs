@@ -90,12 +90,14 @@
 //!
 //! **Bounds.** ≤ `CANDIDATES_PER_TICK` plans per tick, each ≤ 6 account
 //! read rounds plus one clock read, plus at most one snapshot request and
-//! (reveal) one beacon ask; ≤ [`MAX_EXTRACT_PER_PAGE`] proof extractions per
+//! (reveal) one beacon ask. Resolve discovery additionally allows one shared
+//! nonce probe per tick (four reads of at most 64 addresses); it saves a hint
+//! for a later tick rather than invoking another planner. ≤ [`MAX_EXTRACT_PER_PAGE`] proof extractions per
 //! feed page; the proof store keeps ≤ [`MAX_PROOFS`] proofs, the beacon
 //! cache ≤ [`MAX_BEACON_CACHE`] rounds, the review ledger ≤ [`MAX_LEDGER`]
 //! entries (oldest dropped).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::future::Future;
 use std::pin::Pin;
 
@@ -482,6 +484,7 @@ pub fn block_code(b: &Block) -> String {
         Block::SealOpen(_) => "SealOpen".into(),
         Block::BadPlaintext(_) => "BadPlaintext".into(),
         Block::MarchValues(_) => "MarchValues".into(),
+        Block::ResolveModel(_) => "ResolveModel".into(),
         other => format!("{other:?}"),
     }
 }
@@ -546,6 +549,38 @@ pub struct WideReview {
     /// Gather plans (`wideduty::plan_gather`) and the candidates they made.
     pub gather_plans: u64,
     pub gather_candidates: u64,
+    /// Resolve plans (`wideduty::plan_resolve`), the candidates they made,
+    /// and the SeedCache nonce probes run for them.
+    pub resolve_plans: u64,
+    pub resolve_candidates: u64,
+    pub seed_probes: u64,
+    /// Remembered nonces dropped because the plan refused their cache
+    /// (absent, non-canonical, not THE anchor's).
+    pub seed_nonces_forgotten: u64,
+    /// Resolve hints that needed a probe in a tick whose one probe was
+    /// already spent: deferred to the next slot, nothing read for them.
+    pub seed_probes_deferred: u64,
+    /// The resolver the resolve candidates name; without it no resolve
+    /// hint is planned (no recipient is invented).
+    resolve_beneficiary: Option<Address>,
+    /// The `(bell, region)` a province's last resolve plan asked a nonce
+    /// for (its `SeedNonceUnknown`); dropped when a nonce is refused, so
+    /// the key is learned again from the chain. Bounded.
+    resolve_keys: BTreeMap<ProvinceKey, (u32, u8)>,
+    /// SeedCache nonces whose cache the plan accepted, by `(bell, region)`;
+    /// bounded. Dropped as soon as a plan refuses the cache again.
+    seed_nonces: BTreeMap<(u32, u8), u8>,
+    /// Nonces a probe found and no plan has tried yet, by `(bell, region)`;
+    /// bounded (one probe's result per key).
+    pending_nonces: BTreeMap<(u32, u8), Vec<u8>>,
+    /// Nonces whose cache a plan refused, by `(bell, region)`, with the
+    /// slot their cooldown ends: not tried before it (a cache can be
+    /// posted, fixed or forked later), tried again after. Bounded.
+    bad_nonces: BTreeMap<(u32, u8), BTreeMap<u8, u64>>,
+    /// `(province, bell)` a resolve plan found `NotGathered`: a gather hint
+    /// of that bell is listed from the next tick, so a bell whose arrivals
+    /// the feed never showed is still gathered and the province advances.
+    gather_followups: BTreeSet<(ProvinceKey, u32)>,
     /// Reveal plans whose publication the source did not serve.
     pub publications_missing: u64,
     /// Reveal plans retried at the next slot after a transient outcome.
@@ -584,6 +619,17 @@ impl WideReview {
             reveal_candidates: 0,
             gather_plans: 0,
             gather_candidates: 0,
+            resolve_plans: 0,
+            resolve_candidates: 0,
+            seed_probes: 0,
+            seed_nonces_forgotten: 0,
+            seed_probes_deferred: 0,
+            resolve_beneficiary: None,
+            resolve_keys: BTreeMap::new(),
+            seed_nonces: BTreeMap::new(),
+            pending_nonces: BTreeMap::new(),
+            bad_nonces: BTreeMap::new(),
+            gather_followups: BTreeSet::new(),
             publications_missing: 0,
             transient_retries: 0,
             proofs_renewed: 0,
@@ -647,6 +693,99 @@ impl WideReview {
         self.review_payer
     }
 
+    /// The public address the resolve candidates name as the resolver
+    /// (`Resolve.beneficiary`: written into the gathered record and the
+    /// province summary by the handler). Resolve hints are listed only
+    /// once it is set; the all-zero address is refused.
+    pub fn set_resolve_beneficiary(&mut self, beneficiary: Address) -> Result<(), &'static str> {
+        if beneficiary == Address::default() {
+            return Err("the all-zero address is the System Program, not a resolver");
+        }
+        self.resolve_beneficiary = Some(beneficiary);
+        Ok(())
+    }
+
+    pub fn resolve_beneficiary(&self) -> Option<Address> {
+        self.resolve_beneficiary
+    }
+
+    /// The gather follow-ups a resolve plan asked for, as `(province, bell)`.
+    pub fn gather_followups(&self) -> Vec<(ProvinceKey, u32)> {
+        self.gather_followups.iter().copied().collect()
+    }
+
+    fn remember_nonce(&mut self, bell: u32, region: u8, nonce: u8) {
+        while self.seed_nonces.len() >= MAX_SEED_NONCES {
+            let Some(first) = self.seed_nonces.keys().next().copied() else {
+                break;
+            };
+            self.seed_nonces.remove(&first);
+        }
+        self.seed_nonces.insert((bell, region), nonce);
+    }
+
+    /// A nonce whose cache the plan refused: not tried again for that
+    /// `(bell, region)` before `until`.
+    fn mark_bad_nonce(&mut self, key: (u32, u8), nonce: u8, until: u64) {
+        while self.bad_nonces.len() >= MAX_SEED_NONCES && !self.bad_nonces.contains_key(&key) {
+            let Some(first) = self.bad_nonces.keys().next().copied() else {
+                break;
+            };
+            self.bad_nonces.remove(&first);
+        }
+        self.bad_nonces.entry(key).or_default().insert(nonce, until);
+    }
+
+    fn bounded_insert<K: Ord + Copy, V>(map: &mut BTreeMap<K, V>, key: K, value: V) {
+        while map.len() >= MAX_SEED_NONCES && !map.contains_key(&key) {
+            let Some(first) = map.keys().next().copied() else {
+                break;
+            };
+            map.remove(&first);
+        }
+        map.insert(key, value);
+    }
+
+    /// Whether `nonce` of `(bell, region)` is still cooling down at `slot`.
+    fn cooling(&self, key: (u32, u8), nonce: u8, slot: u64) -> bool {
+        self.bad_nonces
+            .get(&key)
+            .and_then(|m| m.get(&nonce))
+            .is_some_and(|until| slot < *until)
+    }
+
+    /// The nonce the next plan of `(bell, region)` tries at `slot`: the
+    /// remembered one, else the first probed one not cooling down.
+    fn nonce_for(&self, key: (u32, u8), slot: u64) -> Option<u8> {
+        if let Some(n) = self.seed_nonces.get(&key) {
+            return Some(*n);
+        }
+        self.pending_nonces
+            .get(&key)
+            .and_then(|v| v.iter().copied().find(|n| !self.cooling(key, *n, slot)))
+    }
+
+    /// The nonces a plan has refused for `(bell, region)` and the slot
+    /// each cooldown ends.
+    pub fn bad_nonces(&self, bell: u32, region: u8) -> Vec<(u8, u64)> {
+        self.bad_nonces
+            .get(&(bell, region))
+            .map(|m| m.iter().map(|(n, u)| (*n, *u)).collect())
+            .unwrap_or_default()
+    }
+
+    pub fn remembered_nonce(&self, bell: u32, region: u8) -> Option<u8> {
+        self.seed_nonces.get(&(bell, region)).copied()
+    }
+
+    /// The probed nonces of `(bell, region)` no plan has tried yet.
+    pub fn pending_nonces(&self, bell: u32, region: u8) -> Vec<u8> {
+        self.pending_nonces
+            .get(&(bell, region))
+            .cloned()
+            .unwrap_or_default()
+    }
+
     /// The hints the model offers, as `(id, Hint)`: settles, returns,
     /// gathers, then (with reveal inputs) the stored proofs' marches.
     fn hints(&self, model: &WideDiscovery, with_reveal: bool) -> Vec<(String, Hint)> {
@@ -673,16 +812,25 @@ impl WideReview {
                     )
                 }),
         );
-        v.extend(
-            wideduty::gather_candidates(model)
-                .into_iter()
-                .map(|(p, b)| {
-                    (
-                        format!("gather:{}:{b}", hex::encode(p.to_bytes())),
-                        Hint::Gather(p, b),
-                    )
-                }),
-        );
+        // The model's gather hints and the resolve plans' follow-ups, once
+        // each.
+        let mut gathers: BTreeSet<(ProvinceKey, u32)> =
+            wideduty::gather_candidates(model).into_iter().collect();
+        gathers.extend(self.gather_followups.iter().copied());
+        v.extend(gathers.into_iter().map(|(p, b)| {
+            (
+                format!("gather:{}:{b}", hex::encode(p.to_bytes())),
+                Hint::Gather(p, b),
+            )
+        }));
+        if self.resolve_beneficiary.is_some() {
+            v.extend(wideduty::resolve_candidates(model).into_iter().map(|p| {
+                (
+                    format!("resolve:{}", hex::encode(p.to_bytes())),
+                    Hint::Resolve(p),
+                )
+            }));
+        }
         if with_reveal {
             v.extend(self.proofs.hints(model).into_iter().map(|(h, s)| {
                 (
@@ -771,6 +919,9 @@ impl WideReview {
         let n = hints.len();
         let mut made = 0usize;
         let mut inspected = 0usize;
+        // One SeedCache probe (four reads) per tick across every resolve
+        // hint; a second hint needing one is deferred to the next slot.
+        let mut probe_used = false;
         for k in 0..n {
             if made >= cap {
                 break;
@@ -824,6 +975,117 @@ impl WideReview {
                             .map(|c| (c, None)),
                     };
                     self.duty_entry(id, slot, engine, planned, &scope, observer)
+                }
+                Hint::Resolve(p) => {
+                    self.resolve_plans += 1;
+                    let Some(beneficiary) = self.resolve_beneficiary else {
+                        // Listed only when set.
+                        continue;
+                    };
+                    // Exactly **one** plan for this hint this tick (the shared
+                    // cap counts it), with the nonce the province's last
+                    // `SeedNonceUnknown` key has — remembered, or probed and
+                    // not cooling down — or none. Discovery never plans again
+                    // in the same tick: it stores what it learned and the hint
+                    // is retried at the next slot (bounded retries).
+                    let key = self.resolve_keys.get(p).copied();
+                    let nonce = key.and_then(|k| self.nonce_for(k, slot));
+                    let planned = plan_resolve_once(
+                        port,
+                        snapshot,
+                        &scope,
+                        payer,
+                        beneficiary,
+                        *p,
+                        nonce,
+                        slot,
+                        &extra,
+                    )
+                    .await;
+                    let mut retry_next_slot = false;
+                    match &planned {
+                        // THE anchor is present and the plan had no nonce for
+                        // this bell: learn the key; a nonce already known for
+                        // it is tried next slot; else the tick's one probe
+                        // (four reads) stores the found nonces for next slot;
+                        // a probe already spent defers the hint, reading
+                        // nothing.
+                        Err(Block::SeedNonceUnknown { bell, region }) => {
+                            let k = (*bell, *region);
+                            Self::bounded_insert(&mut self.resolve_keys, *p, k);
+                            if self.nonce_for(k, slot).is_some() {
+                                retry_next_slot = true;
+                            } else if !probe_used {
+                                probe_used = true;
+                                self.seed_probes += 1;
+                                if let Ok(found) =
+                                    wideduty::find_seed_nonces(port, &scope, k.0, k.1, slot).await
+                                {
+                                    Self::bounded_insert(&mut self.pending_nonces, k, found);
+                                    retry_next_slot = self.nonce_for(k, slot).is_some();
+                                }
+                            } else {
+                                self.seed_probes_deferred += 1;
+                                retry_next_slot = true;
+                            }
+                        }
+                        // The cache at the tried nonce refused: forgotten if
+                        // remembered, cooling down for a while, the key learned
+                        // again from the chain next time; another probed nonce
+                        // waits for the next slot.
+                        r if seed_refused(r) => {
+                            if let (Some(k), Some(n)) = (key, nonce) {
+                                if self.seed_nonces.get(&k) == Some(&n) {
+                                    self.seed_nonces.remove(&k);
+                                    self.seed_nonces_forgotten += 1;
+                                }
+                                self.mark_bad_nonce(
+                                    k,
+                                    n,
+                                    slot.saturating_add(BAD_NONCE_COOLDOWN_SLOTS),
+                                );
+                                if let Some(v) = self.pending_nonces.get_mut(&k) {
+                                    v.retain(|x| *x != n);
+                                }
+                                self.resolve_keys.remove(p);
+                                retry_next_slot = self.nonce_for(k, slot).is_some();
+                            }
+                        }
+                        Ok(_) => {
+                            if let (Some(k), Some(n)) = (key, nonce) {
+                                self.remember_nonce(k.0, k.1, n);
+                                self.pending_nonces.remove(&k);
+                                if let Some(m) = self.bad_nonces.get_mut(&k) {
+                                    m.remove(&n);
+                                }
+                            }
+                        }
+                        Err(_) => {}
+                    }
+                    // A bell whose arrivals are not gathered yet: a gather of
+                    // that bell is listed from the next tick; any other
+                    // outcome clears the province's follow-ups.
+                    match &planned {
+                        Err(Block::NotGathered { bell }) => {
+                            if self.gather_followups.len() < MAX_GATHER_FOLLOWUPS {
+                                self.gather_followups.insert((*p, *bell));
+                            }
+                        }
+                        _ => self.gather_followups.retain(|(k, _)| k != p),
+                    }
+                    let prior_transient = self.ledger.get(id.as_str()).map_or(0, |e| e.transient);
+                    let mut entry = self.duty_entry(id, slot, engine, planned, &scope, observer);
+                    if retry_next_slot {
+                        let count = prior_transient + 1;
+                        if count <= MAX_TRANSIENT_RETRIES {
+                            entry.transient = count;
+                            entry.next = slot.saturating_add(1);
+                            entry.summary["next"] = json!("next slot: a nonce to try");
+                        } else {
+                            entry.summary["next"] = json!("retries used; refresh");
+                        }
+                    }
+                    entry
                 }
                 Hint::Reveal(h, s) => {
                     self.reveal_plans += 1;
@@ -959,6 +1221,9 @@ impl WideReview {
                 if matches!(c.duty, Duty::Gather(_)) {
                     self.gather_candidates += 1;
                 }
+                if matches!(c.duty, Duty::Resolve(_)) {
+                    self.resolve_candidates += 1;
+                }
                 if c.coherent() {
                     self.coherent += 1;
                 }
@@ -997,6 +1262,7 @@ impl WideReview {
                         );
                         v
                     }
+                    Duty::Resolve(f) => vec![WideTarget::Province(f.province)],
                 };
                 let reconcile = self.reconcile_targets(scope, observer, &targets, &reads);
                 json!({
@@ -1206,7 +1472,26 @@ impl WideReview {
                 "hints": "open marches with a Revealed record in the applied history whose destination bell is not resolved or fully gathered as the records say; read hints only",
                 "arrival_evidence": "the wide ArrivalDay at its canonical address; the absence of feed events is never read as no arrivals",
                 "cursor": "the first ungathered position and the contiguous run after it, at most GATHER_MAX_POSITIONS, bounded before any slot is read and cut before a later unsettled transit; a resolve needs every position gathered",
-                "resolve": "not planned: the seed and the model replay are not claimed by this slice; arrival processing is not complete",
+                "followups": self.gather_followups.len(),
+            },
+            "resolve": {
+                "beneficiary": match self.resolve_beneficiary {
+                    Some(b) => json!(b.to_string()),
+                    None => json!("unset: no resolve hint is planned; no resolver is invented"),
+                },
+                "plans": self.resolve_plans,
+                "candidates": self.resolve_candidates,
+                "seed_probes": self.seed_probes,
+                "seed_nonces_remembered": self.seed_nonces.len(),
+                "seed_nonces_forgotten": self.seed_nonces_forgotten,
+                "seed_probes_deferred": self.seed_probes_deferred,
+                "pending_nonces": self.pending_nonces.values().map(Vec::len).sum::<usize>(),
+                "bad_nonces": self.bad_nonces.values().map(BTreeMap::len).sum::<usize>(),
+                "bad_nonce_cooldown_slots": BAD_NONCE_COOLDOWN_SLOTS,
+                "hints": "every observed province not seen closed (the observer's province bound, never cut here), rotated by the tick cursor; at its current resolved_next read from the chain (resident-only bells included; no intermediate bell skipped)",
+                "seed_rule": "one plan per hint per tick under the shared cap; at most one 256-address probe (four reads) per tick, its nonces tried one per later slot over their own snapshots; a refused nonce cools down and is tried again after; nothing is substituted inside a sealed snapshot",
+                "model": "world_index::resolve::resolve_bell replayed on scratch bytes; the output digest is at the observed clock; the program applies its own",
+                "not_planned": "WideSettleTransit: a resolved bell has no planned settlement; arrival processing is not complete",
             },
             "reconcile": {
                 "agree": self.reconcile_agree,
@@ -1237,6 +1522,54 @@ enum Hint {
     Return(ProvinceKey, WideHostRef),
     /// A destination and arrival bell with a revealed open march.
     Gather(ProvinceKey, u32),
+    /// An observed province, resolved at its current `resolved_next`.
+    Resolve(ProvinceKey),
     /// A stored proof's march, by `(host, transit slot)`.
     Reveal(WideHostRef, u8),
+}
+
+/// SeedCache nonces remembered (and `(bell, region)` keys of refused
+/// nonces kept), at most.
+const MAX_SEED_NONCES: usize = 256;
+/// Gather follow-ups kept, at most.
+const MAX_GATHER_FOLLOWUPS: usize = 64;
+/// Slots a refused SeedCache nonce is not tried again for (a cache can be
+/// posted, corrected or superseded later; a fork can resolve).
+pub const BAD_NONCE_COOLDOWN_SLOTS: u64 = 256;
+
+/// A resolve plan refused because of the SeedCache it was given: absent
+/// at the nonce, unreadable, not canonical, or not THE anchor's.
+fn seed_refused(r: &Result<(Candidate, Option<Snapshot>), Block>) -> bool {
+    matches!(
+        r,
+        Err(Block::SeedNotReady(_))
+            | Err(Block::NotCanonical("seedcache"))
+            | Err(Block::Unreadable("seedcache"))
+    )
+}
+
+/// One resolve plan: over the snapshot with the Rent (the bell may create
+/// the roster), or live reads.
+#[allow(clippy::too_many_arguments)]
+async fn plan_resolve_once<P: ChainPort>(
+    port: &P,
+    snapshot: Option<&dyn SnapshotSource>,
+    scope: &Scope,
+    payer: Address,
+    beneficiary: Address,
+    province: ProvinceKey,
+    seed_nonce: Option<u8>,
+    slot: u64,
+    extra: &[Address],
+) -> Result<(Candidate, Option<Snapshot>), Block> {
+    match snapshot {
+        Some(src) => snapshot_plan_with(port, src, slot, true, extra, |r| {
+            wideduty::plan_resolve(scope, payer, beneficiary, province, seed_nonce, r)
+        })
+        .await
+        .map(|(c, snap)| (c, Some(snap))),
+        None => wideduty::resolve_via(port, scope, payer, beneficiary, province, seed_nonce, slot)
+            .await
+            .map(|c| (c, None)),
+    }
 }

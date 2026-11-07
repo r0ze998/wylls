@@ -44,6 +44,7 @@ use fclient::abi::CU_MAX;
 use fclient::budgets::Budget;
 use fclient::fees::{DEFAULT_LOADED_LIMIT, LAMPORTS_PER_SIGNATURE};
 use frontier_abi::world_index::arrival::{wide_arrival_day, wide_arrival_slot, wide_clash_inputs};
+use frontier_abi::world_index::roster::wide_roster;
 use serde_json::{json, Value};
 use solana_instruction::Instruction;
 
@@ -362,6 +363,12 @@ pub fn duty_needs(c: &Candidate, reads: &Reads) -> Result<ExecutionNeeds, Block>
             f.inputs_prefunded_lamports,
             RENT_RULE_TOP_UP,
         ),
+        // The resolve's roster: the handler requires the fee payer to hold
+        // the full minimum (`fee_payer.lamports() < rent_r → Insufficient`)
+        // before the creation tops the address up — the full rule, exact.
+        Duty::Resolve(f) if f.roster_created => {
+            (vec![("wide Roster", wide_roster::SIZE)], 0, RENT_RULE_FULL)
+        }
         _ => (Vec::new(), 0, RENT_RULE_NONE),
     };
     needs_of(
