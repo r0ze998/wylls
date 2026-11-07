@@ -100,11 +100,16 @@ fn fixtures() -> Vec<(&'static str, Input, usize)> {
 
 #[test]
 fn the_fixtures_have_nothing_for_v0e() {
-    for inp in [land(), march(), march_program()] {
+    for inp in [land(), march_program()] {
         let r = verify_core::verify(&inp);
         assert_eq!(v0e(&r), Vec::<String>::new(), "{}", show(&r));
         assert_eq!(r.verdict, Verdict::Pass);
     }
+    // The synthetic march season: nothing for V0E either; its only failures
+    // are its six impossible tickets (V11, `common::MARCH_SYNTH_IMPOSSIBLE_TICKETS`).
+    let r = verify_core::verify(&march());
+    assert_eq!(v0e(&r), Vec::<String>::new(), "{}", show(&r));
+    assert_only_the_impossible_tickets(&r);
 }
 
 #[test]

@@ -100,11 +100,14 @@ fn march_program_passes() {
     assert!(bad >= 5, "{bad} bad-seal settlements");
 }
 
+/// The synthetic march season: everything holds but its six impossible
+/// tickets, which V11 fails (`common::MARCH_SYNTH_IMPOSSIBLE_TICKETS`; the
+/// fixture predates V11's ticket judgement and re-recording it signs).
 #[test]
-fn march_synth_passes() {
+fn march_synth_passes_but_for_its_six_impossible_tickets() {
     let inp = march();
     let r = verify_core::verify(&inp);
-    assert_eq!(r.verdict, Verdict::Pass, "{}", show(&r));
+    assert_only_the_impossible_tickets(&r);
     let k = kinds(&inp);
     for (kind, min) in [
         (Kind::DEPART, 12),
