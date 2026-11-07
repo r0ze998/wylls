@@ -293,3 +293,135 @@ fn new_holding_open_transits_field_is_captured_and_unknown_layout_is_not_empty()
     );
     assert_eq!(wide::manifest_json(&f).unwrap()["refused"], 1);
 }
+
+#[test]
+fn current_close_wire_shapes_remain_unsupported_by_legacy_history() {
+    use base64::Engine;
+    use fclient::log::{bodies_from_logs, body_of_line, LogError};
+    use frontier_abi::world_index::{event as e, ProvinceKey, WideHostRef};
+    let f = fold();
+    let key = ProvinceKey::new(
+        f.wide.as_ref().unwrap().world(),
+        WideCoord::checked(9_007_199_254_740_993, -130).unwrap(),
+    );
+    let host = WideHostRef::new(key, 2, 1, 7).unwrap();
+    // Literal link tests the ProvinceClosed wire shape, not terminal chain validity.
+    let link = e::WideLink {
+        entity: e::WideEntity::Province,
+        seq: 9,
+        head: [4; 32],
+    };
+    let cases = [
+        (
+            e::WideKind::RecordClosed,
+            e::encode(
+                e::WideKind::RecordClosed,
+                42,
+                &key.to_bytes(),
+                &e::record_closed_payload(2, 40, 1, 0, &[5; 32], 100),
+                &[],
+            )
+            .unwrap(),
+        ),
+        (
+            e::WideKind::TransitClosed,
+            e::encode(
+                e::WideKind::TransitClosed,
+                42,
+                &e::host_key(&host, key),
+                &e::transit_closed_payload(0, &[5; 32], 100),
+                &[],
+            )
+            .unwrap(),
+        ),
+        (
+            e::WideKind::ProvinceClosed,
+            e::encode(
+                e::WideKind::ProvinceClosed,
+                42,
+                &key.to_bytes(),
+                &e::province_closed_payload(&[6; 32], 100),
+                &[link],
+            )
+            .unwrap(),
+        ),
+    ];
+    let b64 = base64::engine::general_purpose::STANDARD;
+    for (kind, body) in cases {
+        assert_eq!(&body[..2], &[0x82, kind as u8]);
+        let record = e::WideRecord::decode(&body).unwrap();
+        assert_eq!(record.kind, kind);
+        assert_eq!(record.province_of(), Some(key));
+        if kind == e::WideKind::ProvinceClosed {
+            assert_eq!(record.links, [Some(link), None]);
+        } else {
+            assert_eq!(record.links, [None, None]);
+        }
+        let line = format!(
+            "Program data: {} {}",
+            b64.encode(b"PSW1"),
+            b64.encode(&body)
+        );
+        let logs = vec![
+            format!("Program {} invoke [1]", f.cfg.program),
+            line.clone(),
+            format!("Program {} success", f.cfg.program),
+        ];
+        assert_eq!(body_of_line(&line), Err(LogError::UnsupportedWideRecord));
+        assert_eq!(
+            bodies_from_logs(&logs, &f.cfg.program),
+            Err(LogError::UnsupportedWideRecord)
+        );
+    }
+}
+
+#[test]
+fn current_close_account_tables_match_the_writer_without_legacy_dispatch() {
+    use frontier_abi::{
+        prologue::{bounds_in, position_in},
+        world_index::wide_ix as ix,
+    };
+    for (what, bounds, target, position) in [
+        (2, (4, 5), "slot", 2),
+        (3, (5, 5), "day", 3),
+        (4, (5, 5), "inputs", 3),
+        (5, (5, 5), "transit", 2),
+        (6, (4, 4), "province", 2),
+    ] {
+        let bytes = [ix::Close::IX.tag(), what];
+        let command = ix::WideCommand::decode(&bytes).unwrap();
+        assert_eq!(command, ix::WideCommand::Close(ix::Close { what }));
+        assert_eq!(bounds_in(command.accounts()), bounds);
+        assert_eq!(
+            position_in(command.accounts(), bounds.0, target, 0),
+            Some(position)
+        );
+        assert_eq!(command.class(), frontier_abi::tags::Class::N);
+        assert!(!command.is_player() && !command.march_stage());
+    }
+    assert!(ix::WideCommand::decode(&[ix::Close::IX.tag(), 7]).is_err());
+}
+
+#[test]
+fn explicit_province_and_holding_closes_work_in_either_order_without_reopening_land() {
+    for province_first in [true, false] {
+        let mut f = fold();
+        let c = WideCoord::checked(9_007_199_254_740_993, -130).unwrap();
+        let (pk, pd) = province(&f, c);
+        let (hk, hd) = holding(&f, c, 2);
+        apply(&mut f, pk, Some(pd), fixture::program());
+        apply(&mut f, hk, Some(hd), fixture::program());
+        let order = if province_first { [pk, hk] } else { [hk, pk] };
+        apply(&mut f, order[0], None, fixture::program());
+        assert_eq!(
+            entry(&f, c)["state"],
+            if province_first { "closed" } else { "open" }
+        );
+        apply(&mut f, order[1], None, fixture::program());
+        assert_eq!(entry(&f, c)["state"], "closed");
+        assert!(entry(&f, c)["wide"].is_null());
+        assert!(f.account(&pk).is_none());
+        assert!(f.account(&hk).is_none());
+        assert_eq!(wide::manifest_json(&f).unwrap()["refused"], 0);
+    }
+}

@@ -420,3 +420,19 @@ async fn direct_play_and_land_duty_calls_cannot_bypass_block() {
     assert!(!e.feed_writes_allowed());
     assert!(port.cursors.lock().unwrap().is_empty());
 }
+
+#[test]
+fn all_new_close_kinds_block_both_indexes_without_advancing_the_cursor() {
+    for kind in [12, 13, 14] {
+        // Prefix probes only, not evidence of a complete close record or valid chain.
+        let close = tx(2, vec![line(b"PSW1", &[0x82, kind])]);
+        for_play_and_land(
+            &[legacy(1), close, legacy(3)],
+            |cursor, provinces, blocked| {
+                assert_eq!(cursor, Cursor(1));
+                assert_eq!(provinces, 1);
+                assert!(blocked);
+            },
+        );
+    }
+}

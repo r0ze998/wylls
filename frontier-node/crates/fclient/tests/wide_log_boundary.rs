@@ -13,8 +13,11 @@ fn line(tag: &[u8], body: &[u8]) -> String {
 #[test]
 fn wide_program_record_is_unsupported_not_empty_legacy_history() {
     let p = Address::new_from_array([23; 32]);
-    for version in [0x81, 0x82, 0x83] {
-        let wide = line(b"PSW1", &[version, 1]);
+    for (version, kind) in [0x81, 0x82, 0x83]
+        .into_iter()
+        .flat_map(|version| [1, 12, 13, 14, 255].map(|kind| (version, kind)))
+    {
+        let wide = line(b"PSW1", &[version, kind]);
         let logs = vec![
             format!("Program {p} invoke [1]"),
             wide.clone(),

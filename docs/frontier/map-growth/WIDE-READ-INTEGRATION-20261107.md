@@ -70,3 +70,37 @@ not enabled supported wide gameplay ingestion. The captured read-only sheet
 is not the normal playable terrain/holding UI. Future writer revisions must
 rerun these checks against their exact layouts. Nothing here enables the debit
 gate or turns a fixture into a live-game result.
+
+## Close-writer integration checkpoint
+
+Writer `d8c62f2d` (including the opt-in test-only native crypto checkpoint
+`a78a50f1`) was merged normally into the read integration as `d2d50f8a`.
+The merge had no conflicts. This reader pass did not run cryptographic or
+program-runtime suites; it compiled and exercised only the named read-side
+suites below. Departure debit is still disabled.
+
+The additional writer events remain PSW1 body version 0x82: `RecordClosed`
+(kind 12) and `TransitClosed` (13) have no event-chain links;
+`ProvinceClosed` (14) has the terminal Province link. Full-sized synthetic
+bodies decode with those shapes, yet fclient explicitly refuses all three
+as unsupported history. Prefix probes for kinds 12–14 also leave findex's
+index cursor unadvanced, preserve its raw archive and refuse reopening it
+as supported history. Both keeper indexes stop before those probes. These
+probes are not evidence that an event chain or a real close was verified.
+
+The wide Close instruction's account tables were checked for all new
+variants: ArrivalSlot takes 4–5 accounts, ArrivalDay and ClashInputs take
+5 each, Transit takes 5 (including the canonical Holding position), and
+Province takes 4. The account codecs in `land.rs`, `holding.rs`, and
+`arrival.rs` did not change between writer `641b1b15` and `d8c62f2d`.
+Existing fixed capture/DOM fixtures remain compatible. Explicit captured
+Province and Holding removals in either order leave the province closed;
+removing the Holding after the Province cannot reopen it. No log omission
+is interpreted as an account close.
+
+Checks on this combined tree passed: herald feature-on 12/12 (including
+nine capture tests), feature-off 1/1, fclient 2/2, findex 7/7, keeper 12/12
+(34 named Rust tests total), and the same 28 JavaScript tests. Four-library
+clippy with warnings denied, edited Rust formatting and `git diff --check`
+passed. No signing, key generation, live writes, deployment or browser
+visual acceptance was performed. PSW1 indexing remains deliberately disabled.

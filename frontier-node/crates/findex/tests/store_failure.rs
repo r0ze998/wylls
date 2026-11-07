@@ -221,7 +221,8 @@ async fn index_failure_requires_reopen_and_catches_up_from_the_archive() {
 
 #[tokio::test]
 async fn unsupported_wide_log_is_archived_but_never_advances_legacy_index() {
-    for encoded_body in ["gQE=", "ggE="] {
+    // Literal prefix probes: old/current Muster and current close kinds 12–14.
+    for encoded_body in ["gQE=", "ggE=", "ggw=", "gg0=", "gg4="] {
         let d = tmp("unsupported-wide");
         let mut fx = open(&d, 1 << 20);
         let mut src = VecSource::new(1);
