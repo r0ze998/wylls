@@ -23,14 +23,14 @@ cd "$here/kernel"
 echo "== kernel (unpatched rules crate, emulated lending) =="
 cargo fmt -- --check
 cargo clippy -q --all-targets -- -D warnings
-cargo test -q 2>&1 | tee "$out/kernel-tests.log" | grep -E "^test result|FAILED|panicked" || true
+cargo test -q 2>&1 | tee "$out/kernel-tests.log" | grep -E "^test result|FAILED|panicked"
 # 09's numbers as workstream 4 allocated them (provisional, src/abi.rs).
 echo "## --features abi-04-provisional" >> "$out/kernel-tests.log"
 cargo clippy -q --all-targets --features abi-04-provisional -- -D warnings
-cargo test -q --features abi-04-provisional --test abi 2>&1 | tee -a "$out/kernel-tests.log" | grep -E "^test result|FAILED|panicked" || true
+cargo test -q --features abi-04-provisional --test abi 2>&1 | tee -a "$out/kernel-tests.log" | grep -E "^test result|FAILED|panicked"
 grep -q FAILED "$out/kernel-tests.log" && { echo "kernel tests failed" >&2; exit 1; }
-cargo test -q --release --test contention -- --nocapture 2>&1 | grep -E "applied per kind" > "$out/contention-coverage.log" || true
-cargo test -q --release --test continuity a_long_run -- --nocapture 2>&1 | grep -E "long run:" > "$out/continuity-long-run.log" || true
+cargo test -q --release --test contention -- --nocapture 2>&1 | grep -E "applied per kind" > "$out/contention-coverage.log"
+cargo test -q --release --test continuity a_long_run -- --nocapture 2>&1 | grep -E "long run:" > "$out/continuity-long-run.log"
 cargo run -q --example demo > "$out/demo.txt"
 echo "demo: $out/demo.txt ($(wc -l < "$out/demo.txt") lines)"
 
