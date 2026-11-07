@@ -1,0 +1,7 @@
+[package]
+name = "wedge-probe"
+version = "0.0.0"
+edition = "2021"
+[dependencies]
+permutation-rules = { path = "/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v21-gh/permutation-rules" }
+[workspace]
