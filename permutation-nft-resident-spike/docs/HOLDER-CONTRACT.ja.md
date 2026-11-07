@@ -34,7 +34,7 @@ NFT 賞金は所有者側の CC が実装している。⑳ は賞金を実装�
 
 賞金の検証も、ゲームの操作と同じ証拠（§3 の住民プログラムの記録）で判定できる。
 
-## 3. 検証器 V28（ResidentAct、番号は仮）
+## 3. 検証器 V28（ResidentAct、番号は ④ が確定：割当 rev 6）
 
 `frontier-node/crates/verify/src/checks/v28_resident_acts.rs`。成功した `ResidentAct` ごとに：
 
@@ -115,5 +115,67 @@ v0.17 の持ち主の定義への置き換え（`authorize` = `holder` + `author
 |---|---|
 | 接続済み・実行で確認 | ゲームの権限検査（`authorize` = 持ち主の定義）。譲渡後の旧所有者・旧 session・旧世代の拒否と A→B→A（実行時の試験、署名の検証は外して `is_signer` を試験が立てる） |
 | 接続済み・固定のデータで確認 | V28 の判定（内側の命令の種類、アカウント、正規の住所、参加時の link、実行後の Citizen、記録があるときの持ち主と世代） |
-| 未接続 | V28 に住民プログラムの記録を渡す入力（`Input` は ④ の形式。今は記録なしで動く）。Frontier と住民プログラムを一つの feed で保存する索引。NFT 賞金（所有者側の CC。契約は §2 の提案）。V28 の番号の確定（⑪ は ⑳ に任せた。④ 未回答） |
+| 未接続 | V28 に住民プログラムの記録を渡す入力（`Input` は ④ の形式。今は記録なしで動く）。Frontier と住民プログラムを一つの feed で保存する索引。NFT 賞金（所有者側の CC。契約は §2 の提案）。V28 に記録を渡す `Input` の欄（④ の案はあるが未決）と、それを作る archiver の担当 |
 | UNVERIFIABLE のまま | 記録が無いときの持ち主と世代。記録に抜けがあるときの旧所有者・旧 session（世代の後戻りだけは FAIL）。参加の記録が無いときの link の中身。policy が分からないときの住民アカウントの住所。内側の命令そのものの効果（NFT Citizen の命令の再生は未実装）。V0 は ResidentAct を `UnverifiedInstruction` のままにする（⑪ の求め） |
+
+## 7. ④ の統合（2026-11-06）
+
+④ は ⑳ b2f7becc を統合候補 4ebc0dc3（tree c809045b…）に衝突なく merge した（⑪ 0010 も同じ木）。④ の通しの場面の「撤回」の段は、所有者と世代を `resident_auth::holder` と `Holder::authority` で読む（第二の定義は無い）。結果は program の拒否と一致する。④ の段 E（chain_prize）は、今の prize program が NFT Citizen に払えないこと（どの経路も BadAccount）を本物のコードで示した。§2 は ④ の文書 §9 に、所有者側の CC への接点として載っている。いずれも ④ の報告で、⑳ はその木を見ていない（④ はまだ push していない）。
+
+## 8. 住民プログラムの記録（ResidentFeed）と両プログラムの共有履歴（2026-11-07、v0.19）
+
+統合候補 3ad0bcdb（ゲーム・NFT 初期配置・④ r2・⑲ r2 の履歴の扱い・⑪ 0011）を取り込み、その上に作った。
+
+### 一つの順序の根拠
+
+- ローカルノード（`frontier-localnet`）は、着地したすべての取引に一つの `seq` を振る（airdrop も含む）。`frontier_feed` はその台帳を program で絞るだけ。だから同じノードから住民プログラムで絞った feed は、Frontier の取引と同じ順序になる。両方の program に関わる取引は、両方の feed に同じ `seq`・同じ署名で現れる。
+- `through`：住民プログラムの取引のうち `after < seq <= through` のものはすべて feed にある、という範囲。`fetch` は Frontier の取引を読んだ**後で**住民プログラムの feed を読み切り、`through` を Frontier の最後の `seq` にする。台帳は増えるだけなので、後から読み切れば少なくともそこまでは含む。
+- 公開 RPC には同じ順序が無い（⑲ の `unproven`）。`fetch` はローカルノードの feed だけを受け付ける。
+
+### 実装済み
+
+| 項目 | 場所 |
+|---|---|
+| `ResidentFeed`（program・⑲ の `History`・`after`・`through`・取引（seq・署名・成否・実行後の状態）・policy）と fixture の JSON | `frontier-node/crates/verify/src/resident_feed.rs` |
+| 検証器の入力 `Input.resident_feed`（④ の案どおり `Option`）。fixture の `resident_feed` 欄。読めない欄はエラー（黙って無しにしない） | `verify/src/input.rs` |
+| 取得：`frontier-verify --rpc URL --localnet --resident-program ID`、`frontier-stack` の状態に `resident_program` があるとき | `verify/src/main.rs`、`stack/src/verifyrun.rs` |
+| V28 が入力の feed を使う。持ち主の FAIL は `gaps_before` が空のときだけ | `verify/src/checks/v28_resident_acts.rs` |
+| `gaps_before`：feed の出所が `unproven`、ゲームの履歴が `unproven`、出所が違う（ローカルノードなら URL まで同じ）、`after ≠ 0`、`through` が操作の前で止まっている（古い控え）、範囲外・同じ seq が二つ、同じ seq で Frontier と署名が違う | `resident_feed.rs` |
+| ⑲ の判定規則：V28 の FAIL のうち、取得した取引の中だけで決まるもの（内側の命令・アカウントの書き込み可否・Season・正規の住所・参加時の link・実行後の Citizen）は不完全な履歴でも FAIL のまま。`ResidentOldAuthority`（feed に依る）は外す | `verify/src/history.rs` `self_contained` |
+
+### 未検証・未接続
+
+- **実ノードで試していない**：`fetch` と `--resident-program` は、住民プログラムを載せたローカルノードで動かしていない（試験は固定の feed だけ）。
+- **ノードが同じであることの証明は無い**：出所の一致は記録された説明（URL）の比較で、証明ではない。
+- **findex の保存物に住民プログラムの feed は無い**：`--archive` から読むときは feed が付かない（V28 の持ち主は UNVERIFIABLE）。保存物の形にするのは ④ と ⑲ との合意が要る。
+- **観測範囲と取引の一対一の照合**：feed に「範囲内のすべての取引がある」ことは、ノードの台帳を信じたうえでの主張。v0.19 の追補で、feed を読んだ**後**の台帳の長さ（`frontier_status` の `transactions`、`tip`）を記録し、読んだ seq がそれを超えていれば「読み取りが食い違う」として whole にしないようにした。これは鮮度の確認だけで、完全性の根拠は増えない（同じノードの数なので、そのノードが欠けていれば数も欠ける。⑲ の指摘）。
+- **住民プログラムの取引の中身**：V28 は住民プログラムの命令（TransferResident・SetSession）そのものは検証せず、その実行後の状態を使う。
+- `gaps_before` の「feed の出所が unproven」の規則は、「出所が同じ」と「ゲームの履歴が unproven でない」から導かれる重複の守り（壊しても試験は落ちない）。
+
+### 実行した試験（鍵ペアの生成・導出・署名なし。PDA・with_seed の計算はあり）
+
+| 試験 | 件数 |
+|---|---|
+| `verify` `resident_feed::tests::*`（一つの順序・古い控え・RPC・別ノード・fixture と feed の混在・同じ seq の別取引・範囲外・二重・`after`、JSON の往復） | 2 |
+| `verify` `checks::v28_resident_acts::tests::*`（feed の読み取り範囲で古い控えを UNVERIFIABLE、ゲームの履歴が RPC なら UNVERIFIABLE を追加） | 5 |
+
+`gaps_before` の規則を一つずつ壊すと、範囲と署名の規則では試験が落ちることを確かめた。実行しなかった：`tests/common` を使う試験（鍵ペアを作り署名する）、LiteSVM・SBF・Node、CI。
+
+### ⑲ の確認（2026-11-07、読んだだけで試験は未実行）と保存物の方針
+
+- `history.rs` の V28 の行と、`ResidentOldAuthority` を外すことに同意。
+- `fetch` の注記を直した：ローカルノードの feed は、空でも台帳の feed（`ledger_feed`）。
+- findex の `Archive::append` は seq を振り直す。保存物から読んだ Frontier の入力の seq は台帳の seq ではない。今は出所の説明（URL）の一致を求めるので、保存物と実ノードの組合せは whole にならない（安全側）。
+- 保存物の持ち方の提案（⑲）：二つの保存物ではなく、**一本の保存物に両方のプログラムを台帳の順で**入れる（`frontier_feed` の絞り込みを「どちらかのプログラム」に、カーソルは台帳の seq の `feed_after` のまま）。両方に関わる取引は一件になり、照合は保存物の seq ではなく署名で行う。二本にするなら、記録ごとに台帳の seq を別の欄に残す必要がある。公開 RPC には二つのプログラムに共通の順序が無く、whole にならないのが正しい。**未実装**（localnet の `frontier_feed` と findex は ④・⑲ の領分。担当と形の合意が要る）。
+
+### ④ の考え（2026-11-07）と、決まっていないこと
+
+- ④ は 552c1d14 の上に ④ r4（57c5c171）を衝突なく merge した（fdfd76d1、ローカルのみ）。④ の報告では、通しの場面 A 2/2・B 1/1・E 2/2・照合 31/31、verify lib 45/45。
+- `tip`：④ も記録に賛成。合わなければ UNVERIFIABLE で、FAIL にはしない（ノードの再起動で番号が変わりうる）。v0.19 の追補はそのとおり（`gaps_before` に理由が入り、V28 は UNVERIFIABLE にする）。
+- **保存物の形は未決**：④ はプログラムごとに一本ずつ（findex は今プログラムごとの feed が前提で、一本にすると G1〜G3 の範囲の判定を作り直すことになる）。⑲ は両方を一本に（台帳の順がそのまま残る）。⑲ の指摘では `Archive::append` が seq を振り直すので、二本にするなら記録ごとに台帳の seq を別の欄に残す必要がある。findex は ⑲ の担当なので ⑲ が決める（④ も同じ考え）。⑳ はどちらでも、台帳の seq と署名が残れば `gaps_before` をそのまま使える。
+
+### ⑲ の決定（2026-11-07）
+
+保存物は**プログラムごとに一本**（④ の案）。各記録のフレームの JSON に、台帳の seq を任意の欄 `feed_seq` として残す（順序付きの feed から来たときだけ。`TxRecord` は変えず、記録の seq と `feed_seq` の対応を返す読み出しを別に用意する）。二本にまとめない理由：`frontier_feed` に二つのプログラムの絞り込みが要り、herald の fold・index が住民プログラムの取引も受け取ることになる。公開 RPC からの住民の feed は、どちらの形でも unproven のまま。
+
+⑳ 側で要ること（未実装、⑲ の実装を待つ）：保存物から読むときは、Frontier の取引と住民の取引の両方で `feed_seq`（台帳の seq）を `seq` として使い、署名で突き合わせる。`feed_seq` か署名の欠けた記録があれば whole にしない。実装されるまでは、保存物と実ノードの組合せは whole にならない（今の安全側の挙動）。⑲ は利用者の指示を待ってから実装する。

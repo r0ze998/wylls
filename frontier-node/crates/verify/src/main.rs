@@ -13,6 +13,8 @@
 //!          --json                           print the JSON report instead of the Markdown
 //!          --save FILE                      also write the input read as a fixture (.gz: gzip)
 //!          --origin SIG | --witness URL     public RPC: findex's history checks (G1, G3);
+//!          --resident-program ID            with --rpc --localnet: the NFT resident program's
+//!                                           feed for V28 (same node, one ledger order);
 //!                                           an RPC history is never PASS (history.rs)
 //!          --jobs N                         tamper: classes judged at a time (default: cores, ≤ 8)
 //!          --fallback-fixtures DIR          tamper: judge a class the run cannot express on the
@@ -82,6 +84,7 @@ fn main() {
     let mut localnet = false;
     let mut origin: Option<fclient::ports::Signature> = None;
     let mut witness: Option<String> = None;
+    let mut resident_program: Option<String> = None;
     let mut program: Option<String> = None;
     let mut season: Option<u64> = None;
     let mut pk: Option<[u8; 96]> = None;
@@ -104,6 +107,7 @@ fn main() {
             "--localnet" => localnet = true,
             "--origin" => origin = Some(val().parse().unwrap_or_else(|_| usage("bad --origin"))),
             "--witness" => witness = Some(val()),
+            "--resident-program" => resident_program = Some(val()),
             "--program" => program = Some(val()),
             "--season" => season = Some(val().parse().unwrap_or_else(|_| usage("bad --season"))),
             "--test-key" => pk = Some(fclient::beacon::TestKey::new().pk96),
@@ -190,6 +194,24 @@ fn main() {
             },
             None => vec![],
         };
+        // ⑳ V28: the resident program's feed, from the same local node, read
+        // after the Frontier transactions (one ledger order). Only a local
+        // node's feed gives that order; elsewhere V28's holder stays
+        // UNVERIFIABLE.
+        let resident_feed = match (&resident_program, &rpc, localnet) {
+            (None, _, _) => None,
+            (Some(r), Some(u), true) => {
+                let rp = r
+                    .parse()
+                    .unwrap_or_else(|_| usage("bad --resident-program"));
+                let policy = fclient::addr::resident_policy(&program);
+                Some(
+                    rt.block_on(verify_core::resident_feed::fetch(u, &rp, &policy, &txs))
+                        .unwrap_or_else(|e| usage(&e)),
+                )
+            }
+            _ => usage("--resident-program needs --rpc URL --localnet"),
+        };
         Input {
             cfg: Config {
                 program,
@@ -207,6 +229,7 @@ fn main() {
                 .unwrap_or_else(|| format!("rpc {}", rpc.clone().unwrap_or_default())),
             scenarios: vec![],
             history,
+            resident_feed,
         }
     };
     // A fixture carries its own trust roots; say so when the operator did

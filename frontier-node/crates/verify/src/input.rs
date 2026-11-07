@@ -102,6 +102,10 @@ pub struct Input {
     /// Where `txs` came from and whether that shows them to be the whole
     /// history ([`crate::history`]).
     pub history: History,
+    /// The resident program's transactions in the same ledger order, for
+    /// V28's holder judgements (⑳, [`crate::resident_feed`]); `None`: the
+    /// holder of every ResidentAct is UNVERIFIABLE.
+    pub resident_feed: Option<crate::resident_feed::ResidentFeed>,
 }
 
 impl Input {
@@ -120,6 +124,9 @@ impl Input {
         // transactions came from (it does not become `as_given`).
         if let Some(h) = self.history.to_json() {
             v["history"] = h;
+        }
+        if let Some(f) = &self.resident_feed {
+            v["resident_feed"] = f.to_json();
         }
         v
     }
@@ -167,6 +174,11 @@ impl Input {
                 })
                 .unwrap_or_default(),
             history: History::from_json(v.get("history")),
+            // Present but unreadable is an error, never silently absent.
+            resident_feed: v
+                .get("resident_feed")
+                .map(crate::resident_feed::ResidentFeed::from_json)
+                .transpose()?,
         })
     }
 
