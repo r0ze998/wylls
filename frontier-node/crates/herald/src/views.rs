@@ -55,6 +55,7 @@ pub fn season_json(f: &Fold, s: &SeasonStatic) -> Option<Value> {
         "v": 1,
         "programId": f.cfg.program.to_string(),
         "cluster": s.cluster,
+        "sample": s.cluster.trim().eq_ignore_ascii_case("fixture"),
         "season": f.cfg.season_id.to_string(),
         "seasonAddress": Address::new_from_array(addr).to_string(),
         "genesisTs": se.genesis_ts,

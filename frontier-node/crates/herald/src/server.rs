@@ -344,6 +344,9 @@ async fn world_ring(State(app): State<Shared>, Path(d): Path<String>) -> Respons
 /// `/h/world/wide` (`wide.rs`): the recorded wide world's manifest.
 #[cfg(feature = "wide-world-experimental")]
 async fn world_wide(State(app): State<Shared>) -> Response {
+    if app.season.cluster.trim().eq_ignore_ascii_case("fixture") {
+        return err(StatusCode::SERVICE_UNAVAILABLE, "FixtureWorldUnavailable");
+    }
     let f = read_fold(&app);
     match crate::wide::manifest_json(&f) {
         Ok(v) => json_answer(&v, "public, max-age=5"),
@@ -357,6 +360,9 @@ async fn world_wide_page(
     State(app): State<Shared>,
     Query(q): Query<std::collections::HashMap<String, String>>,
 ) -> Response {
+    if app.season.cluster.trim().eq_ignore_ascii_case("fixture") {
+        return err(StatusCode::SERVICE_UNAVAILABLE, "FixtureWorldUnavailable");
+    }
     let limit = match q.get("limit").map(|s| s.parse::<usize>()) {
         None => None,
         Some(Ok(n)) => Some(n),
