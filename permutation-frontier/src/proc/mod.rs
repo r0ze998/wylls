@@ -67,6 +67,10 @@ pub mod reveal;
 pub mod season;
 pub mod structure;
 pub mod transit;
+/// Experimental (`wide-world-experimental`): the draft wide land handlers
+/// on the provisional band 0xD6–0xDA; absent from every default build.
+#[cfg(feature = "wide-world-experimental")]
+pub mod wide;
 
 /// Who must sign for the Citizen of a player instruction (every handler that
 /// runs the player prologue has an `_as` form taking this; the plain handler
