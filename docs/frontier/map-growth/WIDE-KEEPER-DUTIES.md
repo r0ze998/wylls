@@ -2,11 +2,13 @@
 
 ## Current checkpoint: snapshot-backed runtime review (2026-11-08)
 
-The current source passes 85 audited tests: discovery 14, duties 35, legacy guard 12, Reveal 18 and real RpcPort loopback snapshot 6. Feature-enabled library/binary and the three snapshot/duty/Reveal test targets, plus default library/binary, pass clippy with warnings denied. Public FromBeacon opening uses pre-existing recorded IBE material and shipped quicknet signatures; no keypair or signature was generated.
+The current source passes 93 audited tests: discovery 14, duties 43, legacy guard 12, Reveal 18 and real RpcPort loopback snapshot 6. Feature-enabled library/binary and the three snapshot/duty/Reveal test targets, plus default library/binary, pass clippy with warnings denied. Public FromBeacon opening uses pre-existing recorded IBE material and shipped quicknet signatures; no keypair or signature was generated.
 
 The opt-in runtime now uses its actual port through an additive snapshot callback. Settle/Return and bounded Reveal diagnostic review use a single response for their final account/Clock/Rent judgement. Reveal proofs are extracted only from the observer-accepted portion of shared feed pages; supplied provenance remains unverified. Public beacon reads use a separate bounded cache, and transient readiness failures have bounded next-slot retries. Unset payer funding remains unknown. Status excludes raw RPC error strings and opened material.
 
 A further parity review keeps settled-but-unrevealed departures eligible for Reveal hints, validates known-ineligible payer shapes and aliases, leaves System data/nonce eligibility Unknown, and exposes downstream generation-mismatch settlement risk without changing game rules.
+
+Explicit --follow-wide (requiring --observe-wide) now continues read-only wide observation with an independent in-memory cursor after legacy feed guards stop. It never advances legacy cursors or reopens write gates. Strict page/record/aggregate-byte limits reject before observer processing; network response allocation itself is outside these limits. Restart replays from empty observation, and source completeness remains unknown.
 
 Every candidate is still denied by Engine review: history authenticity/completeness, live fee quotation and future balance remain unproven. No enqueue, simulation, signing, transaction sending, production gate change, main merge or deployment is introduced. Existing PSW1 feed guards can prevent further discovery; this slice does not make the game playable. The actual Keeper constructor/full tick was not executed because it uses keys; its wiring and CLI are compile-checked, while independent review-step tests use literal accounts and public vectors. UI is unchanged.
 
@@ -1068,6 +1070,90 @@ closes, `rent_to`) have no planner and are not claimed.
   `Departed`, `Settled` and `Free` records in each of the four slots hold
   the host back; another host's record does not.
 
+## Fifth slice (2026-11-08, on `1129d1b1`): observation after the legacy feed gate
+
+**Policy found.** `Keeper::refresh_discovery` pulls feed pages from the
+legacy cursor only while both legacy indexes are unblocked; the wide
+observer is shown each page before the legacy guard ingests it. Once a
+legacy index blocks (the PSW1 guard that stops game writes), nothing is
+pulled and the observer sees no later record. Beacon-only deployments
+(no land/play/rings/archive role) never pull at all.
+
+**`widefollow`, opt in.** `Keeper::enable_wide_follow` (needs the
+observer) creates a `WideFollow` with its **own** cursor, starting after
+what the observer has processed. In a tick where `refresh_discovery` did
+not pull (the gate blocked, or no gameplay role — a `wide_legacy_pulled`
+flag set by the pulling branches), the follower pulls at most
+`PAGES_PER_TICK` (2, a hard cap) pages from its cursor and shows each to
+the same observer and proof store, through the same `observe_page`,
+accepted-prefix and `wideproof` extraction as the legacy pull. Nothing
+else changes: no legacy cursor is read or advanced, no gate or feed
+readiness moves, nothing is signed or sent, the observer keeps
+`source_complete: false`, the review keeps `HistoryUnknown` and
+`SourceUnproven`. Default runtime behaviour is unchanged unless the method
+is called; `main.rs` exposes it as `--follow-wide`, which requires
+`--observe-wide` (usage error otherwise) and nothing else.
+
+Fail-closed rules: in a tick the legacy path pulled, the follower stands
+aside (`idle_shared_feed`); before a pull its cursor catches up to the
+observer's last processed sequence (`caught_up_to_observer`), so a page
+the observer saw through the legacy path is never pulled again; every
+page must be past the cursor and strictly increasing, else the follower
+stops (`page-order`) **before** the observer sees it; when the observer
+blocks — before or during a page — the follower stops
+(`observer-blocked`) with its cursor at the last accepted record and the
+proof store given the accepted prefix only, and stays stopped (a new
+process starts both empty); a page longer than `MAX_PAGE_RECORDS` (1,000,
+the RPC's page size) is **refused unread** — before the order scan, the
+observer or the store sees it, the cursor unchanged — with a typed stop
+(`oversized-page`) recording only the count and the first sequence; then
+the **byte preflight** (`widefollow::preflight`), because the observer
+fingerprints a whole record through `Debug` before decoding it: by
+reading lengths alone — no `Debug`, no base64, no copy — every record's
+wire (≤ 1,232 B, the packet), log lines (≤ 1,024), log line (≤ 4,096 B),
+aggregate log bytes (≤ 256 KiB), error text (≤ 4,096 B), post-state
+accounts (≤ 64) and aggregate post data (≤ 1 MiB), the record in all
+(≤ 1 MiB) and the page in all (≤ 8 MiB) are bounded before any record is
+fingerprinted, decoded or copied; a record or page past a bound is a
+typed stop (`record-wire`, `record-logs`, `record-err`, `record-post`,
+`record-bytes`, `page-bytes`) at that record's sequence with the cursor,
+the observer and the store untouched. The bytes were received by the
+port already; the preflight bounds what is done with them, not the
+receipt. The legacy pull path and the observer's general behaviour are
+unchanged. A feed error is counted and ends the tick, its text never in
+the status;
+`caught_up` is cleared at the start of every step (idle, error or stop
+included) and set only by an empty page received in that step; the
+observer's block is final for the follower whatever produced it — a
+conflicting replay through the legacy path included — never cleared or
+reinterpreted. The status under
+`wide.follow` carries counts, the cursor, the last slot, the typed stop
+with its sequence, and the constant lines `automatic_writes: false`,
+`source_complete: false`, `history_authenticated: false`,
+`legacy_cursors_touched: false`.
+
+Tests (`wide_duties.rs`, a literal-record feed port):
+`the_follower_pulls_bounded_pages_after_the_gate_and_feeds_observer_and_proofs`,
+`the_follower_resumes_after_the_observers_position_and_never_repulls_it`,
+`the_follower_stops_when_the_observer_blocks_and_never_pulls_past_it`,
+`the_follower_refuses_a_page_that_is_not_past_its_cursor_before_the_observer_sees_it`,
+`follower_feed_errors_are_counted_without_text_and_non_wide_records_pass_through`
+(also: a caught-up claim does not survive an idle tick or a failed read),
+`an_oversized_page_is_refused_unread_before_the_observer_or_the_store_sees_it`
+(1,001 cheap records, the first out of order, never noticed; exactly 1,000
+processed),
+`a_legacy_replay_that_blocks_the_observer_stops_the_follower_without_reinterpretation`,
+`the_byte_preflight_refuses_oversized_records_and_pages_before_the_observer`
+(every bound at and just past it; each refusal through the follower with
+a fine record on the same page; the page aggregate naming the crossing
+record; ordinary records measured).
+The `Keeper` wiring (`enable_wide_follow`, the tick hook before the review
+step, the `follow` status entry, `--follow-wide`) is compile-only
+coverage, as before.
+
+Limits: the follower sees only what the program feed serves after the
+gate and says so; a stopped follower does not restart in-process.
+
 ## Touched files
 
 `frontier-node/crates/keeper/src/wideproof.rs` (new),
@@ -1087,6 +1173,7 @@ fourth: `SnapshotSource`, `snapshot_plan_with`, `SnapshotError::code`,
 the placeholder-payer rule `NO_PAYER`),
 `frontier-node/crates/keeper/src/wideproof.rs` (fourth: `METHOD_FEED`,
 `METHOD_SUPPLIED`),
+`frontier-node/crates/keeper/src/widefollow.rs` (new, fifth slice),
 `frontier-node/crates/keeper/src/widetick.rs` (new, third slice; fourth:
 `ProofStore`, `BeaconCache`, `PublicationSource`, `DrandPublications`,
 `RevealInputs`, `block_code`, the snapshot argument, reveal hints and
@@ -1099,7 +1186,8 @@ module-table rows; third slice: the `wide_review` field,
 the observer's block sequence, reveal inputs and the snapshot passed to the
 step, `snapshot_mode` in the status),
 `frontier-node/crates/keeper/src/main.rs` (third slice: `--review-wide`;
-fourth: `enable_wide_snapshot_via_port` under the same flag),
+fourth: `enable_wide_snapshot_via_port` under the same flag; fifth:
+`--follow-wide`, requiring `--observe-wide`),
 `frontier-node/crates/keeper/tests/wide_duties.rs` (new),
 `frontier-node/crates/keeper/tests/wide_reveal.rs` (new), this document.
 No `Cargo.toml`, fclient, ABI, program, engine, herald, web or UI file.
@@ -1107,3 +1195,7 @@ No `Cargo.toml`, fclient, ABI, program, engine, herald, web or UI file.
 ### Nonce qualification after independent review
 
 System-owned data accounts are not categorically invalid fee payers: initialized nonce accounts may pay fees subject to runtime and rent-reserve checks, while a System transfer requires additional eligibility. This slice does not perform those checks or prove a positive transfer debit. Such accounts therefore produce Funding::Unknown and FundingUnknown, not Ineligible. Program-owned/executable accounts and conflicting state-account aliases remain Ineligible. Beneficiary is encoded in Reveal data, so beneficiary equal to payer is not refused as an account alias.
+
+### Generation mismatch: why the refusal remains
+
+Legacy capture authenticates PREV_OWNER_TAG/PREV_GEN/PREV_HOME, refunds old bonds and clears flags before owner change (CONQUEST-CONTRACT.md 293–318; proc/conquest.rs 1402–1492), and sends surviving troops only to the recorded previous home (proc/transit.rs 552–598,949–998). Wide capture and equivalent historical full-reference provenance do not yet exist. Re-founded-site mismatch is not proof of capture. Removing wide.rs generation refusal would invent ownership and escrow recipients; no such rule change was made. Terminal CloseTransit returns its whole account balance to immutable rent_to, while CloseHolding expiry can refund remaining holding escrow after pool obligations to its stored rent payer. These are distinct from normal settlement and must not be described as reimbursement of the historical departure payer.

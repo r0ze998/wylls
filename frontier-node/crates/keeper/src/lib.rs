@@ -30,6 +30,7 @@
 //! | `widesnapshot` (feature `wide-world-experimental`) | the additive same-response account snapshot (`SnapshotPort`, default `Unsupported`; the JSON-RPC port implements it): all keys + Clock (+ Rent) in one `getMultipleAccounts` response with its context slot; coherence, never currency or permission |
 //! | `widefees` (feature `wide-world-experimental`) | what executing a wide candidate requires of its fee payer, calculated only from a same-response Rent sysvar and payer account (ABI sizes), every assumption named, unmet or unknown declared |
 //! | `widetick` (feature `wide-world-experimental`) | the bounded per-tick **read-only** review of the observer's candidates for `/v1/status` (`Keeper::enable_wide_review`): plans and reviews, enqueues nothing; over one snapshot response through the keeper's own port when `Keeper::enable_wide_snapshot_via_port` was called; reveal hints only from proofs extracted from the observer-accepted feed prefix, a verified public beacon and the public opening, when the runtime has them |
+//! | `widefollow` (feature `wide-world-experimental`) | **read-only, opt-in** (`Keeper::enable_wide_follow`): after the legacy feed gate blocks, bounded pulls from the follower's own cursor shown to the same observer and proof store; never a legacy cursor, gate, signature or completeness claim |
 //!
 //! [`Keeper::tick`] runs once per slot: it reads the Clock, plans every
 //! duty from chain reads (the chain is the state), then lets the engine
@@ -70,6 +71,8 @@ pub mod tickets;
 pub mod wideduty;
 #[cfg(feature = "wide-world-experimental")]
 pub mod widefees;
+#[cfg(feature = "wide-world-experimental")]
+pub mod widefollow;
 #[cfg(feature = "wide-world-experimental")]
 pub mod wideindex;
 #[cfg(feature = "wide-world-experimental")]
@@ -327,6 +330,15 @@ pub struct Keeper<P: ChainPort, D: DrandPort> {
     /// relation to the read port is not verified (`enable_wide_snapshot`).
     #[cfg(feature = "wide-world-experimental")]
     pub wide_snapshot: widesnapshot::SnapshotMode<P>,
+    /// The read-only observation follower (`widefollow`), enabled by
+    /// [`Keeper::enable_wide_follow`]: pulls from its own cursor only in
+    /// ticks the legacy discovery did not pull.
+    #[cfg(feature = "wide-world-experimental")]
+    pub wide_follow: Option<widefollow::WideFollow>,
+    /// Whether `refresh_discovery` pulled feed pages this tick (the
+    /// follower stands aside then).
+    #[cfg(feature = "wide-world-experimental")]
+    wide_legacy_pulled: bool,
 }
 
 /// Slots between two cares while a pool is below its minimum (the top-up
@@ -469,6 +481,10 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
             wide_beacon: None,
             #[cfg(feature = "wide-world-experimental")]
             wide_snapshot: widesnapshot::SnapshotMode::Off,
+            #[cfg(feature = "wide-world-experimental")]
+            wide_follow: None,
+            #[cfg(feature = "wide-world-experimental")]
+            wide_legacy_pulled: false,
             cfg,
             port,
             drand,
@@ -534,6 +550,27 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
         }
         self.wide_snapshot = widesnapshot::SnapshotMode::Separate(source);
         Ok(())
+    }
+
+    /// Enables the read-only observation follower (`widefollow`): in ticks
+    /// the legacy discovery does not pull (its feed gate blocked, or no
+    /// gameplay role), at most `widefollow::PAGES_PER_TICK` pages are
+    /// pulled from the follower's own cursor — starting after what the
+    /// observer has processed — and shown to the observer and the review's
+    /// proof store exactly as the legacy pull shows them. Requires the
+    /// observer. Touches no legacy cursor, gate or signer; claims no
+    /// completeness.
+    #[cfg(feature = "wide-world-experimental")]
+    pub fn enable_wide_follow(&mut self) -> Result<(), String> {
+        match self.wide_observer.as_ref() {
+            Some(o) => {
+                self.wide_follow = Some(widefollow::WideFollow::from_observer(o));
+                Ok(())
+            }
+            None => {
+                Err("wide follow needs the wide observer (enable_wide_observation first)".into())
+            }
+        }
     }
 
     /// Enables the read-only wide observer over this Season's one legacy
@@ -681,6 +718,10 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
     /// blocker, and never plan from a partial restart prefix. Beacon-only
     /// deployments need no gameplay feed and keep their previous behavior.
     async fn refresh_discovery(&mut self) -> Result<(), String> {
+        #[cfg(feature = "wide-world-experimental")]
+        {
+            self.wide_legacy_pulled = false;
+        }
         if !LAND_ROLES
             .iter()
             .chain(PLAY_ROLES.iter())
@@ -705,6 +746,10 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
         {
             Ok(())
         } else if self.index.cursor == self.play.index.cursor {
+            #[cfg(feature = "wide-world-experimental")]
+            {
+                self.wide_legacy_pulled = true;
+            }
             self.index.feed.begin_pull();
             self.play.index.feed.begin_pull();
             let mut result = Ok(());
@@ -758,6 +803,10 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
             }
             result
         } else {
+            #[cfg(feature = "wide-world-experimental")]
+            {
+                self.wide_legacy_pulled = true;
+            }
             let land = self.index.pull(&self.port, &self.addrs).await;
             let play = self.play.index.pull(&self.port, &self.addrs).await;
             land.and(play).map(|_| ()).map_err(|e| e.to_string())
@@ -1081,6 +1130,23 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
             // Keep beacon publication ahead of the potentially slow feed
             // catch-up. No game write is sent until this shared gate runs.
             let result = self.refresh_discovery().await;
+            // The read-only observation follower (feature
+            // `wide-world-experimental`, opt in): in a tick the legacy
+            // discovery did not pull, bounded pages from its own cursor
+            // to the same observer and proof store. No legacy cursor, no
+            // gate, no readiness change; the discovery result stands.
+            #[cfg(feature = "wide-world-experimental")]
+            if let (Some(o), Some(f)) = (self.wide_observer.as_mut(), self.wide_follow.as_mut()) {
+                let scope = wideproof::ProofScope {
+                    program: self.addrs.program,
+                    season: self.addrs.season,
+                };
+                let proofs = self.wide_review.as_mut().map(|r| &mut r.proofs);
+                let pulled = f
+                    .step(&self.port, o, proofs, &scope, self.wide_legacy_pulled)
+                    .await;
+                phase(&mut rep, "wide-follow", pulled);
+            }
             // The bounded read-only wide review (feature
             // `wide-world-experimental`): plans and reviews, enqueues
             // nothing; runs before the status is published, whether or not
@@ -1566,6 +1632,12 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
                     None => json!({"mode": "disabled", "automatic_writes": false}),
                 };
                 v["snapshot_mode"] = json!(self.wide_snapshot.label());
+                v["follow"] = match &self.wide_follow {
+                    Some(f) => f.status(),
+                    None => {
+                        json!({"mode": "disabled", "automatic_writes": false, "source_complete": false})
+                    }
+                };
                 v
             }
             None => {

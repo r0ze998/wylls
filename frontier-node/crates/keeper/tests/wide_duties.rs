@@ -44,6 +44,14 @@ use frontier_abi::world_index::{
 use keeper_core::engine::{Engine, EngineParams};
 use keeper_core::wideduty::{self, Block, Candidate, Deployment, Duty, Reads, Step, RETURN_MAX};
 use keeper_core::widefees::{self, Funding, Known};
+use keeper_core::widefollow::{
+    preflight, WideFollow, MAX_PAGE_BYTES, MAX_PAGE_RECORDS, MAX_RECORD_BYTES,
+    MAX_RECORD_ERR_BYTES, MAX_RECORD_LOG_BYTES, MAX_RECORD_LOG_LINES, MAX_RECORD_LOG_LINE_BYTES,
+    MAX_RECORD_POST_ACCOUNTS, MAX_RECORD_POST_DATA_BYTES, MAX_RECORD_WIRE_BYTES,
+    PAGES_PER_TICK as FOLLOW_PAGES_PER_TICK, STOP_OBSERVER_BLOCKED, STOP_OVERSIZED,
+    STOP_PAGE_BYTES, STOP_PAGE_ORDER, STOP_RECORD_BYTES, STOP_RECORD_ERR, STOP_RECORD_LOGS,
+    STOP_RECORD_POST, STOP_RECORD_WIRE,
+};
 use keeper_core::wideindex::{Limits, Scope as IndexScope, WideBatch, WideDiscovery, WideObserver};
 use keeper_core::wideproof::{depart_proof, ProofScope, Unavailable};
 use keeper_core::wideproof::{METHOD_FEED, METHOD_SUPPLIED};
@@ -59,6 +67,7 @@ use keeper_core::widetick::{
 use serde_json::{json, Value};
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
+use std::sync::atomic::AtomicBool;
 
 // ------------------------------------------------------------ identities
 
@@ -3715,6 +3724,711 @@ fn funding_is_reported_only_for_an_eligible_ordinary_wallet() {
         n.funding,
         Funding::Ineligible(keeper_core::widefees::PAYER_ALIASES)
     );
+}
+
+// ------------------------------------------------------------ the follower
+
+/// A feed port over literal records: `feed(after)` returns the records
+/// past `after` in sequence order, at most `page` per call; the cursors
+/// asked are recorded; `fail` makes every call an error carrying a
+/// secret-looking text; simulate/send are counted as forbidden.
+struct FeedPort {
+    records: Mutex<Vec<TxRecord>>,
+    page: usize,
+    asked: Mutex<Vec<u64>>,
+    fail: AtomicBool,
+    forbidden: AtomicUsize,
+}
+impl FeedPort {
+    fn new(records: Vec<TxRecord>, page: usize) -> FeedPort {
+        FeedPort {
+            records: Mutex::new(records),
+            page,
+            asked: Mutex::new(vec![]),
+            fail: AtomicBool::new(false),
+            forbidden: AtomicUsize::new(0),
+        }
+    }
+}
+impl ChainPort for FeedPort {
+    async fn clock(&self) -> PortResult<ClockSysvar> {
+        Ok(clock_at(GENESIS_TS))
+    }
+    async fn accounts(&self, keys: &[Address], _min_slot: u64) -> PortResult<Vec<Option<Account>>> {
+        Ok(vec![None; keys.len()])
+    }
+    async fn simulate(&self, _tx: &[u8]) -> PortResult<SimResult> {
+        self.forbidden.fetch_add(1, Ordering::SeqCst);
+        Err(PortError::Unsupported("simulate is forbidden here"))
+    }
+    async fn send(&self, _tx: &[u8]) -> PortResult<Signature> {
+        self.forbidden.fetch_add(1, Ordering::SeqCst);
+        Err(PortError::Unsupported("send is forbidden here"))
+    }
+    async fn statuses(&self, _sigs: &[Signature]) -> PortResult<Vec<Option<Status>>> {
+        Ok(vec![])
+    }
+    fn feed(&self, after: Cursor) -> impl Future<Output = PortResult<Vec<TxRecord>>> + Send {
+        self.asked.lock().unwrap().push(after.0);
+        let r = if self.fail.load(Ordering::SeqCst) {
+            Err(PortError::Io(
+                "http://user:hunter2@feed.example/?token=abc refused".into(),
+            ))
+        } else {
+            Ok(self
+                .records
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|r| r.seq > after.0)
+                .take(self.page)
+                .cloned()
+                .collect())
+        };
+        async move { r }
+    }
+    async fn blockhash(&self) -> PortResult<(Hash, u64)> {
+        Ok((Hash::default(), 0))
+    }
+}
+
+fn follow_observer() -> WideObserver {
+    WideObserver::new(
+        IndexScope {
+            program: program(),
+            season: season_pda().0,
+            world: world(),
+            source: "test: the follower".into(),
+        },
+        Limits::default(),
+    )
+}
+
+/// A committed WideDepart record at `seq` (slot `1_000 + seq`).
+fn depart_at(seq: u64) -> TxRecord {
+    let mut r = record(wire_of(&[depart_ix(home())]), frame(&[departed_ok(home())]));
+    r.seq = seq;
+    r.slot = 1_000 + seq;
+    r
+}
+
+/// The follower pulls bounded pages from its own cursor only in ticks the
+/// legacy path did not pull, shows them to the observer and the proof
+/// store exactly as the legacy pull does, advances its cursor to the last
+/// record the observer accepted, and reports a caught-up empty page; the
+/// public knob cannot raise the cap; simulate/send are never called.
+#[test]
+fn the_follower_pulls_bounded_pages_after_the_gate_and_feeds_observer_and_proofs() {
+    let port = FeedPort::new((11..=16).map(depart_at).collect(), 2);
+    let mut o = follow_observer();
+    let mut store = ProofStore::default();
+    let mut f = WideFollow::from_observer(&o);
+    assert_eq!(f.cursor().0, 0, "an empty observer: from the start");
+    f.pages_per_tick = 99;
+    assert_eq!(
+        f.cap(),
+        FOLLOW_PAGES_PER_TICK,
+        "the public knob cannot raise the cap"
+    );
+    // The legacy path pulled this tick: the follower stands aside.
+    assert_eq!(
+        block_on(f.step(&port, &mut o, Some(&mut store), &scope(), true)),
+        0
+    );
+    assert_eq!((f.ticks, f.idle_shared_feed), (1, 1));
+    assert!(
+        port.asked.lock().unwrap().is_empty(),
+        "the shared feed was not pulled twice"
+    );
+    // The gate blocked (no legacy pull): two pages of two, the observer and
+    // the store see four records, the cursor stands at 14.
+    assert_eq!(
+        block_on(f.step(&port, &mut o, Some(&mut store), &scope(), false)),
+        2
+    );
+    assert_eq!(*port.asked.lock().unwrap(), vec![0, 12]);
+    assert_eq!(
+        (f.pages, f.records, f.cursor().0, f.last_slot),
+        (2, 4, 14, Some(1_014))
+    );
+    assert_eq!(o.last_seq_seen, Some(14));
+    assert_eq!(o.wide_txs, 4);
+    assert_eq!(o.model.cursor(), Some(14));
+    assert_eq!(
+        (store.from_feed, store.get(host(), SLOT).unwrap().seq),
+        (4, 14)
+    );
+    assert!(!f.caught_up);
+    // Next tick: the last page, then the empty page — caught up.
+    assert_eq!(
+        block_on(f.step(&port, &mut o, Some(&mut store), &scope(), false)),
+        2
+    );
+    assert_eq!(*port.asked.lock().unwrap(), vec![0, 12, 14, 16]);
+    assert_eq!((f.pages, f.records, f.cursor().0), (4, 6, 16));
+    assert!(f.caught_up);
+    assert_eq!(o.last_seq_seen, Some(16));
+    assert_eq!(store.get(host(), SLOT).unwrap().seq, 16);
+    // `caught_up` is the last step's, not a standing claim: an idle tick
+    // clears it.
+    assert_eq!(
+        block_on(f.step(&port, &mut o, Some(&mut store), &scope(), true)),
+        0
+    );
+    assert!(!f.caught_up, "an idle tick says nothing about currency");
+    // Without a proof store the observer still sees the pages.
+    let port2 = FeedPort::new(vec![depart_at(17)], 2);
+    assert_eq!(block_on(f.step(&port2, &mut o, None, &scope(), false)), 2);
+    assert!(f.caught_up, "this step ended on an empty page");
+    assert_eq!(o.last_seq_seen, Some(17));
+    assert_eq!(
+        store.get(host(), SLOT).unwrap().seq,
+        16,
+        "no store, no extraction"
+    );
+    assert_eq!(
+        port.forbidden.load(Ordering::SeqCst) + port2.forbidden.load(Ordering::SeqCst),
+        0
+    );
+    let st = f.status();
+    assert_eq!(st["automatic_writes"], false);
+    assert_eq!(st["source_complete"], false);
+    assert_eq!(st["history_authenticated"], false);
+    assert_eq!(st["legacy_cursors_touched"], false);
+    assert_eq!(st["hard_cap"], FOLLOW_PAGES_PER_TICK);
+    assert_eq!(st["pages_per_tick"], FOLLOW_PAGES_PER_TICK);
+    assert_eq!(st["cursor"], 17);
+    assert!(st["stopped"].is_null());
+    // The observer's own statement is unchanged by any of it.
+    assert_eq!(o.status()["source_complete"], false);
+    assert_eq!(o.status()["automatic_writes"], false);
+}
+
+/// The follower resumes after what the observer processed, and before a
+/// pull it catches up to the observer when the legacy path moved it
+/// further: a page the observer already saw is never pulled again.
+#[test]
+fn the_follower_resumes_after_the_observers_position_and_never_repulls_it() {
+    let mut o = follow_observer();
+    // The legacy path showed the observer seqs 11 and 12.
+    assert_eq!(
+        o.observe_page(&[depart_at(11), depart_at(12)], &program()),
+        2
+    );
+    let mut f = WideFollow::from_observer(&o);
+    assert_eq!(f.cursor().0, 12);
+    let port = FeedPort::new((11..=14).map(depart_at).collect(), 10);
+    assert_eq!(block_on(f.step(&port, &mut o, None, &scope(), false)), 2);
+    assert_eq!(
+        *port.asked.lock().unwrap(),
+        vec![12, 14],
+        "after 12, then the empty page"
+    );
+    assert_eq!(o.wide_txs, 4);
+    // The legacy path pulled 15 and 16 while the follower stood aside; the
+    // follower catches up before its next pull.
+    assert_eq!(
+        o.observe_page(&[depart_at(15), depart_at(16)], &program()),
+        2
+    );
+    assert_eq!(block_on(f.step(&port, &mut o, None, &scope(), true)), 0);
+    assert_eq!(f.cursor().0, 14);
+    let port = FeedPort::new((11..=17).map(depart_at).collect(), 10);
+    assert_eq!(block_on(f.step(&port, &mut o, None, &scope(), false)), 2);
+    assert_eq!(*port.asked.lock().unwrap(), vec![16, 17]);
+    assert_eq!((f.caught_up_to_observer, f.cursor().0), (1, 17));
+    assert_eq!(o.last_seq_seen, Some(17));
+    assert_eq!(f.status()["caught_up_to_observer"], 1);
+}
+
+/// When the observer blocks — at a record of a page, or before the page —
+/// the follower stops fail-closed: its cursor at the last accepted record,
+/// the proof store given the accepted prefix only, no further pull in any
+/// later tick, the typed stop in the status. Nothing bypasses the
+/// observer's refusal.
+#[test]
+fn the_follower_stops_when_the_observer_blocks_and_never_pulls_past_it() {
+    let mut bad = depart_at(18);
+    bad.logs.push("Log truncated".into());
+    let port = FeedPort::new(vec![depart_at(17), bad, depart_at(19), depart_at(20)], 3);
+    let mut o = follow_observer();
+    let mut store = ProofStore::default();
+    let mut f = WideFollow::new(Some(16));
+    assert_eq!(
+        block_on(f.step(&port, &mut o, Some(&mut store), &scope(), false)),
+        1
+    );
+    assert_eq!(o.model.blocked().map(|b| b.seq), Some(18));
+    assert_eq!(
+        (o.accepted_prefix, o.wide_txs, o.decode_failures),
+        (1, 1, 1)
+    );
+    assert_eq!(f.cursor().0, 17, "the last record the observer accepted");
+    assert_eq!(f.last_slot, Some(1_017));
+    assert_eq!(
+        f.stopped().map(|s| (s.code, s.seq)),
+        Some((STOP_OBSERVER_BLOCKED, 18))
+    );
+    assert_eq!(store.get(host(), SLOT).unwrap().seq, 17);
+    assert_eq!(store.dropped_unaccepted, 2, "18 and 19 were never offered");
+    // Later ticks: no pull at all, stopped stays.
+    for _ in 0..3 {
+        assert_eq!(
+            block_on(f.step(&port, &mut o, Some(&mut store), &scope(), false)),
+            0
+        );
+    }
+    assert_eq!(*port.asked.lock().unwrap(), vec![16]);
+    assert_eq!(f.cursor().0, 17);
+    assert_eq!(f.stopped().map(|s| s.code), Some(STOP_OBSERVER_BLOCKED));
+    let st = f.status();
+    assert_eq!(st["stopped"]["code"], STOP_OBSERVER_BLOCKED);
+    assert_eq!(st["stopped"]["seq"], 18);
+    assert!(
+        !st.to_string().contains("Truncated"),
+        "the observer's reason text is the observer's"
+    );
+    // An observer blocked before the follower's first pull: stopped at
+    // once, nothing pulled.
+    let mut o2 = follow_observer();
+    let mut t = depart_at(5);
+    t.logs.push("Log truncated".into());
+    assert_eq!(o2.observe_page(&[t], &program()), 0);
+    let mut f2 = WideFollow::from_observer(&o2);
+    let port2 = FeedPort::new(vec![depart_at(6)], 2);
+    assert_eq!(block_on(f2.step(&port2, &mut o2, None, &scope(), false)), 0);
+    assert!(port2.asked.lock().unwrap().is_empty());
+    assert_eq!(
+        f2.stopped().map(|s| (s.code, s.seq)),
+        Some((STOP_OBSERVER_BLOCKED, 5))
+    );
+}
+
+/// A page that is not past the cursor or not strictly increasing is the
+/// follower's own fail-closed stop: the observer is not shown it, the
+/// cursor does not move, nothing is pulled later.
+#[test]
+fn the_follower_refuses_a_page_that_is_not_past_its_cursor_before_the_observer_sees_it() {
+    // Overlap: a record at the cursor (the literal fake serves exactly
+    // what it is given, overlap included).
+    let mut o = follow_observer();
+    let mut f = WideFollow::new(Some(12));
+    struct Overlap(Vec<TxRecord>);
+    impl ChainPort for Overlap {
+        async fn clock(&self) -> PortResult<ClockSysvar> {
+            Ok(clock_at(GENESIS_TS))
+        }
+        async fn accounts(&self, keys: &[Address], _m: u64) -> PortResult<Vec<Option<Account>>> {
+            Ok(vec![None; keys.len()])
+        }
+        async fn simulate(&self, _tx: &[u8]) -> PortResult<SimResult> {
+            panic!("simulate must never be called")
+        }
+        async fn send(&self, _tx: &[u8]) -> PortResult<Signature> {
+            panic!("send must never be called")
+        }
+        async fn statuses(&self, _sigs: &[Signature]) -> PortResult<Vec<Option<Status>>> {
+            Ok(vec![])
+        }
+        async fn feed(&self, _after: Cursor) -> PortResult<Vec<TxRecord>> {
+            Ok(self.0.clone())
+        }
+        async fn blockhash(&self) -> PortResult<(Hash, u64)> {
+            Ok((Hash::default(), 0))
+        }
+    }
+    let overlap = Overlap(vec![depart_at(12), depart_at(13)]);
+    assert_eq!(block_on(f.step(&overlap, &mut o, None, &scope(), false)), 1);
+    assert_eq!(
+        f.stopped().map(|s| (s.code, s.seq)),
+        Some((STOP_PAGE_ORDER, 12))
+    );
+    assert_eq!(
+        (o.wide_txs, o.last_seq_seen),
+        (0, None),
+        "the observer was not shown it"
+    );
+    assert_eq!(f.cursor().0, 12);
+    assert_eq!(block_on(f.step(&overlap, &mut o, None, &scope(), false)), 0);
+    // Out of order within the page.
+    let mut o = follow_observer();
+    let mut f = WideFollow::new(Some(12));
+    let disorder = Overlap(vec![depart_at(13), depart_at(15), depart_at(14)]);
+    assert_eq!(
+        block_on(f.step(&disorder, &mut o, None, &scope(), false)),
+        1
+    );
+    assert_eq!(
+        f.stopped().map(|s| (s.code, s.seq)),
+        Some((STOP_PAGE_ORDER, 14))
+    );
+    assert_eq!(o.wide_txs, 0);
+    assert_eq!(f.cursor().0, 12);
+}
+
+/// A feed error is counted and ends the tick; the port's text (which may
+/// carry a URL with credentials) never reaches the status; the follower is
+/// not stopped and pulls again next tick. Legacy and non-wide records pass
+/// through the observer as its counts, the cursor advancing.
+#[test]
+fn follower_feed_errors_are_counted_without_text_and_non_wide_records_pass_through() {
+    // A committed transaction of the program with no PSW1 body: the
+    // observer's `Legacy`; no proof extracts from it.
+    let legacy = {
+        let mut r = record(wire_of(&[depart_ix(home())]), frame(&[]));
+        r.seq = 21;
+        r.slot = 1_021;
+        r
+    };
+    let port = FeedPort::new(vec![depart_at(20), legacy, depart_at(22)], 10);
+    let mut o = follow_observer();
+    let mut store = ProofStore::default();
+    let mut f = WideFollow::new(Some(19));
+    // A caught-up claim from an earlier step does not survive the error.
+    let empty = FeedPort::new(vec![], 10);
+    assert_eq!(block_on(f.step(&empty, &mut o, None, &scope(), false)), 1);
+    assert!(f.caught_up);
+    port.fail.store(true, Ordering::SeqCst);
+    assert_eq!(
+        block_on(f.step(&port, &mut o, Some(&mut store), &scope(), false)),
+        0
+    );
+    assert_eq!((f.read_errors, f.pages), (1, 1));
+    assert!(!f.caught_up, "a failed read is not a current empty page");
+    assert!(f.stopped().is_none());
+    let text = f.status().to_string();
+    assert!(
+        !text.contains("hunter2") && !text.contains("feed.example") && !text.contains("token=")
+    );
+    assert_eq!(f.status()["read_errors"], 1);
+    // Recovered: the page with a wireless (non-wide) record in the middle.
+    port.fail.store(false, Ordering::SeqCst);
+    assert_eq!(
+        block_on(f.step(&port, &mut o, Some(&mut store), &scope(), false)),
+        2
+    );
+    assert_eq!(f.cursor().0, 22);
+    assert_eq!(o.last_seq_seen, Some(22));
+    assert_eq!((o.wide_txs, o.legacy_txs, o.decode_failures), (2, 1, 0));
+    assert_eq!((store.records_offered, store.from_feed), (3, 2));
+    assert!(o.model.blocked().is_none());
+    assert_eq!(f.status()["max_page_records"], MAX_PAGE_RECORDS);
+    assert_eq!(port.forbidden.load(Ordering::SeqCst), 0);
+}
+
+/// A page longer than `MAX_PAGE_RECORDS` is refused **before** any record
+/// is read: no order scan, the observer and the proof store untouched, the
+/// cursor unchanged, a typed stop with the count and the first sequence
+/// only; a page of exactly the bound is processed. The records are small
+/// and literal; nothing about their content is consulted.
+#[test]
+fn an_oversized_page_is_refused_unread_before_the_observer_or_the_store_sees_it() {
+    // A malicious server: a huge page of cheap wireless records, one of
+    // them a duplicate sequence deep inside (never noticed: the length
+    // bound comes before the order scan).
+    let huge: Vec<TxRecord> = (0..MAX_PAGE_RECORDS as u64 + 1)
+        .map(|i| {
+            let mut r = record(vec![], vec![]);
+            r.seq = if i == 500 { 100 } else { 100 + i };
+            r.slot = 1_000 + i;
+            r
+        })
+        .collect();
+    let port = FeedPort::new(huge, MAX_PAGE_RECORDS + 1);
+    let mut o = follow_observer();
+    let mut store = ProofStore::default();
+    let mut f = WideFollow::new(Some(99));
+    assert_eq!(
+        block_on(f.step(&port, &mut o, Some(&mut store), &scope(), false)),
+        1
+    );
+    assert_eq!(
+        f.stopped().map(|s| (s.code, s.seq)),
+        Some((STOP_OVERSIZED, 100))
+    );
+    assert_eq!((f.oversized_pages, f.records, f.cursor().0), (1, 0, 99));
+    assert_eq!(
+        (o.last_seq_seen, o.legacy_txs, o.decode_failures),
+        (None, 0, 0)
+    );
+    assert!(o.model.blocked().is_none(), "the observer never saw it");
+    assert_eq!((store.records_seen, store.records_offered), (0, 0));
+    // Stopped: no further pull.
+    assert_eq!(
+        block_on(f.step(&port, &mut o, Some(&mut store), &scope(), false)),
+        0
+    );
+    assert_eq!(*port.asked.lock().unwrap(), vec![99]);
+    let st = f.status();
+    assert_eq!(st["stopped"]["code"], STOP_OVERSIZED);
+    assert_eq!(st["oversized_pages"], 1);
+    assert_eq!(st["records"], 0);
+    assert!(
+        !st.to_string().contains("1001"),
+        "nothing of the page but its count and first sequence"
+    );
+    // Exactly the bound: processed (one wide record then legacy-shaped
+    // ones with wires that decode as committed program transactions
+    // without bodies).
+    let exact: Vec<TxRecord> = (0..MAX_PAGE_RECORDS as u64)
+        .map(|i| {
+            let mut r = if i == 0 {
+                record(wire_of(&[depart_ix(home())]), frame(&[departed_ok(home())]))
+            } else {
+                record(wire_of(&[depart_ix(home())]), frame(&[]))
+            };
+            r.seq = 200 + i;
+            r.slot = 1_200 + i;
+            r
+        })
+        .collect();
+    let port = FeedPort::new(exact, MAX_PAGE_RECORDS);
+    let mut o = follow_observer();
+    let mut store = ProofStore::default();
+    let mut f = WideFollow::new(Some(199));
+    assert_eq!(
+        block_on(f.step(&port, &mut o, Some(&mut store), &scope(), false)),
+        2
+    );
+    assert!(f.stopped().is_none());
+    assert_eq!(f.cursor().0, 199 + MAX_PAGE_RECORDS as u64);
+    assert_eq!(o.last_seq_seen, Some(199 + MAX_PAGE_RECORDS as u64));
+    assert_eq!((o.wide_txs, o.legacy_txs), (1, MAX_PAGE_RECORDS as u64 - 1));
+    assert_eq!(store.from_feed, 1);
+    assert_eq!(
+        store.records_offered as usize,
+        keeper_core::widetick::MAX_EXTRACT_PER_PAGE,
+        "the store's own per-page bound"
+    );
+}
+
+/// The byte preflight refuses a record or a page past its bounds before
+/// the observer fingerprints anything: every bound by a literal record
+/// just past it, each a typed stop at that record's sequence with the
+/// cursor, the observer and the store untouched; records at the bounds
+/// pass; the status lists the bounds.
+#[test]
+fn the_byte_preflight_refuses_oversized_records_and_pages_before_the_observer() {
+    let plain = |seq: u64| {
+        let mut r = record(vec![], vec![]);
+        r.seq = seq;
+        r.slot = 1_000 + seq;
+        r
+    };
+    let post = |n: usize, data: usize| -> Vec<(Address, Option<Account>)> {
+        (0..n)
+            .map(|i| {
+                (
+                    Address::new_from_array([i as u8; 32]),
+                    Some(Account {
+                        lamports: 1,
+                        data: vec![0u8; data],
+                        owner: program(),
+                        executable: false,
+                    }),
+                )
+            })
+            .collect()
+    };
+    // The preflight itself, record by record.
+    let mut r = plain(1);
+    r.tx = vec![0; MAX_RECORD_WIRE_BYTES];
+    assert!(preflight(&r).is_ok(), "at the wire bound");
+    r.tx = vec![0; MAX_RECORD_WIRE_BYTES + 1];
+    assert_eq!(preflight(&r), Err(STOP_RECORD_WIRE));
+    let mut r = plain(1);
+    r.logs = vec!["x".into(); MAX_RECORD_LOG_LINES];
+    assert!(preflight(&r).is_ok(), "at the line-count bound");
+    r.logs.push("x".into());
+    assert_eq!(preflight(&r), Err(STOP_RECORD_LOGS));
+    let mut r = plain(1);
+    r.logs = vec!["x".repeat(MAX_RECORD_LOG_LINE_BYTES)];
+    assert!(preflight(&r).is_ok(), "at the line-length bound");
+    r.logs = vec!["x".repeat(MAX_RECORD_LOG_LINE_BYTES + 1)];
+    assert_eq!(preflight(&r), Err(STOP_RECORD_LOGS));
+    let mut r = plain(1);
+    let line = "x".repeat(4_000);
+    r.logs = vec![line.clone(); MAX_RECORD_LOG_BYTES / 4_000 + 1];
+    assert_eq!(preflight(&r), Err(STOP_RECORD_LOGS), "aggregate log bytes");
+    let mut r = plain(1);
+    r.err = Some("e".repeat(MAX_RECORD_ERR_BYTES));
+    assert!(preflight(&r).is_ok(), "at the error bound");
+    r.err = Some("e".repeat(MAX_RECORD_ERR_BYTES + 1));
+    assert_eq!(preflight(&r), Err(STOP_RECORD_ERR));
+    let mut r = plain(1);
+    r.post = post(MAX_RECORD_POST_ACCOUNTS, 0);
+    assert!(preflight(&r).is_ok(), "at the account-count bound");
+    r.post = post(MAX_RECORD_POST_ACCOUNTS + 1, 0);
+    assert_eq!(preflight(&r), Err(STOP_RECORD_POST));
+    let mut r = plain(1);
+    r.post = post(3, MAX_RECORD_POST_DATA_BYTES / 3 + 1);
+    assert_eq!(preflight(&r), Err(STOP_RECORD_POST), "aggregate post data");
+    // Within every field bound but past the record's total: post data
+    // near its bound plus logs near theirs.
+    let mut r = plain(1);
+    r.post = post(1, MAX_RECORD_POST_DATA_BYTES - 100);
+    r.logs = vec![line.clone(); MAX_RECORD_LOG_BYTES / 4_000 - 1];
+    assert_eq!(preflight(&r), Err(STOP_RECORD_BYTES));
+    const { assert!(MAX_RECORD_BYTES <= MAX_RECORD_POST_DATA_BYTES + MAX_RECORD_LOG_BYTES) };
+    // Through the follower: each refusal leaves everything untouched.
+    let cases: Vec<(&str, TxRecord)> = vec![
+        (STOP_RECORD_WIRE, {
+            let mut r = plain(30);
+            r.tx = vec![0; MAX_RECORD_WIRE_BYTES + 1];
+            r
+        }),
+        (STOP_RECORD_LOGS, {
+            let mut r = plain(30);
+            r.logs = vec!["x".into(); MAX_RECORD_LOG_LINES + 1];
+            r
+        }),
+        (STOP_RECORD_ERR, {
+            let mut r = plain(30);
+            r.err = Some("e".repeat(MAX_RECORD_ERR_BYTES + 1));
+            r
+        }),
+        (STOP_RECORD_POST, {
+            let mut r = plain(30);
+            r.post = post(MAX_RECORD_POST_ACCOUNTS + 1, 0);
+            r
+        }),
+        (STOP_RECORD_BYTES, {
+            let mut r = plain(30);
+            r.post = post(1, MAX_RECORD_POST_DATA_BYTES - 100);
+            r.logs = vec![line.clone(); MAX_RECORD_LOG_BYTES / 4_000 - 1];
+            r
+        }),
+    ];
+    for (code, bad) in cases {
+        // A fine record first, the bad one second: the whole page is
+        // refused, the fine one included.
+        let port = FeedPort::new(vec![depart_at(29), bad], 10);
+        let mut o = follow_observer();
+        let mut store = ProofStore::default();
+        let mut f = WideFollow::new(Some(28));
+        assert_eq!(
+            block_on(f.step(&port, &mut o, Some(&mut store), &scope(), false)),
+            1,
+            "{code}"
+        );
+        assert_eq!(
+            f.stopped().map(|s| (s.code, s.seq)),
+            Some((code, 30)),
+            "{code}"
+        );
+        assert_eq!(
+            (f.cursor().0, f.records, f.bytes, f.preflight_rejections),
+            (28, 0, 0, 1),
+            "{code}"
+        );
+        assert_eq!(
+            (o.last_seq_seen, o.wide_txs, o.legacy_txs),
+            (None, 0, 0),
+            "{code}"
+        );
+        assert!(o.model.blocked().is_none(), "{code}");
+        assert_eq!(store.records_seen, 0, "{code}");
+        assert_eq!(
+            block_on(f.step(&port, &mut o, Some(&mut store), &scope(), false)),
+            0,
+            "{code}: stopped"
+        );
+        assert_eq!(*port.asked.lock().unwrap(), vec![28], "{code}");
+        assert_eq!(f.status()["stopped"]["code"], code);
+    }
+    // The page aggregate: ten records each within its own bounds, together
+    // past the page's; the stop names the record that crossed it.
+    let per = MAX_PAGE_BYTES / 10 + 1;
+    assert!(per < MAX_RECORD_POST_DATA_BYTES && per + 4_096 < MAX_RECORD_BYTES);
+    let page: Vec<TxRecord> = (40..50u64)
+        .map(|seq| {
+            let mut r = plain(seq);
+            r.post = post(1, per);
+            assert!(preflight(&r).is_ok(), "each record alone is within bounds");
+            r
+        })
+        .collect();
+    let port = FeedPort::new(page, 10);
+    let mut o = follow_observer();
+    let mut f = WideFollow::new(Some(39));
+    assert_eq!(block_on(f.step(&port, &mut o, None, &scope(), false)), 1);
+    assert_eq!(f.stopped().map(|s| s.code), Some(STOP_PAGE_BYTES));
+    assert_eq!(
+        f.stopped().map(|s| s.seq),
+        Some(49),
+        "the tenth record crossed it"
+    );
+    assert_eq!((f.cursor().0, f.records, f.bytes), (39, 0, 0));
+    assert_eq!((o.last_seq_seen, o.legacy_txs), (None, 0));
+    // The status lists every bound.
+    let b = &f.status()["bounds"];
+    assert_eq!(b["record_wire_bytes"], MAX_RECORD_WIRE_BYTES);
+    assert_eq!(b["record_log_lines"], MAX_RECORD_LOG_LINES);
+    assert_eq!(b["record_log_line_bytes"], MAX_RECORD_LOG_LINE_BYTES);
+    assert_eq!(b["record_log_bytes"], MAX_RECORD_LOG_BYTES);
+    assert_eq!(b["record_err_bytes"], MAX_RECORD_ERR_BYTES);
+    assert_eq!(b["record_post_accounts"], MAX_RECORD_POST_ACCOUNTS);
+    assert_eq!(b["record_post_data_bytes"], MAX_RECORD_POST_DATA_BYTES);
+    assert_eq!(b["record_bytes"], MAX_RECORD_BYTES);
+    assert_eq!(b["page_bytes"], MAX_PAGE_BYTES);
+    // Ordinary records pass and are measured.
+    let port = FeedPort::new(vec![depart_at(60), depart_at(61)], 10);
+    let mut o = follow_observer();
+    let mut f = WideFollow::new(Some(59));
+    assert_eq!(block_on(f.step(&port, &mut o, None, &scope(), false)), 2);
+    assert!(f.stopped().is_none());
+    assert_eq!((f.records, f.preflight_rejections), (2, 0));
+    let expect: usize = [depart_at(60), depart_at(61)]
+        .iter()
+        .map(|r| preflight(r).unwrap())
+        .sum();
+    assert_eq!(f.bytes as usize, expect);
+    assert_eq!(o.last_seq_seen, Some(61));
+}
+
+/// The observer's block is final for the follower whatever produced it: a
+/// conflicting replay through the **legacy** path (a divergent legacy
+/// cursor re-serving a sequence with other bytes) blocks the observer
+/// between two follower ticks; the follower's next step stops at that
+/// sequence, pulls nothing, and never reinterprets or clears the block.
+#[test]
+fn a_legacy_replay_that_blocks_the_observer_stops_the_follower_without_reinterpretation() {
+    let port = FeedPort::new((11..=14).map(depart_at).collect(), 10);
+    let mut o = follow_observer();
+    let mut f = WideFollow::from_observer(&o);
+    assert_eq!(block_on(f.step(&port, &mut o, None, &scope(), false)), 2);
+    assert_eq!((f.cursor().0, o.last_seq_seen), (14, Some(14)));
+    // The legacy path replays seq 12 with other bytes (a different slot):
+    // a conflicting replay, the observer blocks there.
+    let mut conflicting = depart_at(12);
+    conflicting.slot = 9_999;
+    assert_eq!(o.observe_page(&[conflicting], &program()), 0);
+    assert_eq!(o.model.blocked().map(|b| b.seq), Some(12));
+    assert!(o.model.blocked().unwrap().reason.contains("conflicting"));
+    // The follower stood aside in that tick (the legacy path pulled).
+    assert_eq!(block_on(f.step(&port, &mut o, None, &scope(), true)), 0);
+    assert!(f.stopped().is_none(), "idle: nothing judged");
+    // Its next own step: stopped at the observer's block, nothing pulled,
+    // the cursor as it was, the block untouched.
+    let before = o.model.blocked().map(|b| (b.seq, b.slot, b.reason.clone()));
+    assert_eq!(block_on(f.step(&port, &mut o, None, &scope(), false)), 0);
+    assert_eq!(
+        f.stopped().map(|s| (s.code, s.seq)),
+        Some((STOP_OBSERVER_BLOCKED, 12))
+    );
+    assert_eq!(f.cursor().0, 14);
+    assert_eq!(*port.asked.lock().unwrap(), vec![0, 14]);
+    assert_eq!(
+        o.model.blocked().map(|b| (b.seq, b.slot, b.reason.clone())),
+        before,
+        "never cleared or rewritten"
+    );
+    assert!(!f.caught_up);
+    // A fresh follower over the same blocked observer stops at once too.
+    let mut f2 = WideFollow::from_observer(&o);
+    assert_eq!(block_on(f2.step(&port, &mut o, None, &scope(), false)), 0);
+    assert_eq!(f2.stopped().map(|s| s.code), Some(STOP_OBSERVER_BLOCKED));
+    assert_eq!(*port.asked.lock().unwrap(), vec![0, 14]);
 }
 
 /// A port whose account reads fail (the clock is served).
