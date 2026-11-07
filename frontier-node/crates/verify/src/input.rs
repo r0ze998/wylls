@@ -274,13 +274,88 @@ pub fn written_keys(txs: &[TxRecord]) -> Vec<Address> {
 /// Reads a findex archive directory (`manifest.json` + segments) and where
 /// its records came from (the cursor its manifest holds, see
 /// [`History::of_archive`]).
+///
+/// Restores original ledger sequence numbers when archive parts are structurally
+/// consistent. This does not establish freshness: a stale part after same-run
+/// rollback can pass those checks. Archive history therefore remains Unknown
+/// until a shared rollback/freshness proof is implemented.
 pub fn read_archive(dir: &Path) -> Result<(Vec<TxRecord>, History), String> {
     let a = findex::archive::Archive::open(dir, findex::archive::SEGMENT_BYTES)
         .map_err(|e| format!("{}: {e}", dir.display()))?;
     a.verify()?;
+    let shown = dir.display().to_string();
+    if a.cursor().get("feed_after").is_some() || a.cursor().get("feed_refused").is_some() {
+        let part =
+            findex::ledger::Part::of_archive(shown.clone(), &a).map_err(|e| e.to_string())?;
+        let j = findex::ledger::join(std::slice::from_ref(&part));
+        let mut txs: Vec<TxRecord> = part.records.into_iter().map(|(r, _)| r).collect();
+        if txs.is_empty() {
+            let h = History::unknown(format!(
+                "archive {shown}: an empty local feed archive, not proof of an empty season"
+            ));
+            return Ok((txs, h));
+        }
+        if !j.whole() {
+            let h = History::unknown(format!(
+                "archive {shown}: not the ledger's whole feed: {}",
+                j.problems.join("; ")
+            ));
+            return Ok((txs, h));
+        }
+        for (t, e) in txs.iter_mut().zip(&j.entries) {
+            t.seq = e.feed_seq;
+        }
+        let id = j.ledger.unwrap_or_default();
+        return Ok((txs, History::unknown(format!(
+            "archive {shown}: ledger {id} numbers restored, but same-run rollback freshness is not established"
+        ))));
+    }
     let txs = a.read_after(0).map_err(|e| e.to_string())?;
-    let h = History::of_archive(a.cursor(), !txs.is_empty(), &dir.display().to_string());
+    let h = History::of_archive(a.cursor(), !txs.is_empty(), &shown);
     Ok((txs, h))
+}
+
+/// The detail suffix of an archive's `ledger_feed` not checked against the
+/// node (see [`confirm_archive`]).
+pub const ARCHIVE_ONLY: &str =
+    " (archive only: not checked against the node; a later rewind of its ledger is not seen)";
+
+/// Observational cross-check against the node: discrepancies are Unknown.
+/// Even a matching tail is not an atomic whole-ledger snapshot, so the
+/// returned history remains Unknown until that freshness contract exists.
+pub async fn confirm_archive(dir: &Path, url: &str, h: History) -> Result<History, String> {
+    let a = findex::archive::Archive::open(dir, findex::archive::SEGMENT_BYTES)
+        .map_err(|e| format!("{}: {e}", dir.display()))?;
+    let part = findex::ledger::Part::of_archive(dir.display().to_string(), &a)
+        .map_err(|e| e.to_string())?;
+    let joined = findex::ledger::join(std::slice::from_ref(&part));
+    if !joined.whole() {
+        return Ok(History::unknown(format!(
+            "archive structure unproven: {}",
+            joined.problems.join("; ")
+        )));
+    }
+    let why = findex::ledger::check_node(url, std::slice::from_ref(&part)).await;
+    if !why.is_empty() {
+        return Ok(History::unknown(format!(
+            "archive {}: not confirmed against the node {url}: {}",
+            dir.display(),
+            why.join("; ")
+        )));
+    }
+    Ok(History::unknown(format!(
+        "archive {}: node tail cross-check matched; not an atomic ledger snapshot, completeness remains unproven ({})",
+        dir.display(), h.detail
+    )))
+}
+
+/// The ledger a local node serves (`frontier_status.runId`), if it says.
+pub async fn ledger_id(url: &str) -> Option<String> {
+    let v = fclient::rpc::RpcClient::new(url)
+        .call("frontier_status", json!([]))
+        .await
+        .ok()?;
+    v.get("runId").and_then(|x| x.as_str()).map(String::from)
 }
 
 /// The final states of `keys` and the slot they were read at, over RPC.
@@ -431,8 +506,12 @@ pub async fn fetch_txs(
     use findex::ingest::Source;
     let mut out = vec![];
     if localnet {
+        // The ledger is read before and after the feed: a node that started
+        // a new ledger in between numbers its feed afresh.
+        let before = findex::ledger::node_status(url).await.ok();
         let mut s =
-            findex::ingest::LocalnetFeed::new(fclient::rpc::RpcPort::localnet(url, *program));
+            findex::ingest::LocalnetFeed::new(fclient::rpc::RpcPort::localnet(url, *program))
+                .with_program(*program);
         loop {
             let b = s.pull().await.map_err(|e| e.to_string())?;
             if b.is_empty() {
@@ -440,12 +519,38 @@ pub async fn fetch_txs(
             }
             out.extend(b);
         }
+        let after = findex::ledger::node_status(url).await.ok();
+        let id = |s: &Option<findex::ledger::NodeStatus>| s.as_ref().and_then(|s| s.run_id.clone());
+        let bytes =
+            |s: &Option<findex::ledger::NodeStatus>| s.as_ref().and_then(|s| s.ledger_bytes);
+        let shrank = bytes(&before).zip(bytes(&after)).filter(|(b, a)| a < b);
         let history = if out.is_empty() {
             History::unknown(format!(
                 "local node feed {url}: empty observation, not proof of an empty season"
             ))
+        } else if before.is_none()
+            || after.is_none()
+            || id(&before).is_none()
+            || id(&after).is_none()
+        {
+            History::unknown(format!(
+                "local node feed {url}: ledger status unavailable; nothing confirmed"
+            ))
+        } else if id(&before) != id(&after) {
+            History::unknown(format!(
+                "local node feed {url}: the ledger changed while it was read ({:?} to {:?})",
+                id(&before),
+                id(&after)
+            ))
+        } else if let Some((b, a)) = shrank {
+            History::unknown(format!(
+                "local node feed {url}: the ledger shrank while it was read ({b} to {a} bytes): rewound"
+            ))
         } else {
-            History::ledger_feed(format!("local node feed {url}"))
+            History::unknown(format!(
+                "local node feed {url}: ledger {:?} status matched; not an atomic ledger snapshot, completeness remains unproven",
+                id(&after)
+            ))
         };
         return Ok((out, history));
     }

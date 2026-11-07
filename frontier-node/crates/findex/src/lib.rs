@@ -16,6 +16,7 @@
 pub mod archive;
 pub mod index;
 pub mod ingest;
+pub mod ledger;
 pub mod provenance;
 
 use std::path::{Path, PathBuf};
@@ -168,7 +169,12 @@ impl Findex {
         // Every store write stops this ingester on failure (reopen
         // required). A stop between the two leaves the index behind the
         // archive, which open() and the check at the top of ingest() see.
-        let stored = self.archive.append(&got, src.cursor()).map_err(|e| {
+        let stored = if src.ledger_seq() {
+            self.archive.append_feed(&got, src.cursor())
+        } else {
+            self.archive.append(&got, src.cursor())
+        }
+        .map_err(|e| {
             self.poisoned = true;
             IngestError::Store(e.to_string())
         })?;

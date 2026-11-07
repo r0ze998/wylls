@@ -67,12 +67,48 @@ pub trait Source: Send {
     fn coverage(&self) -> Option<Value> {
         None
     }
+    /// Whether each record's `seq` is the source's own ledger number, to
+    /// keep in the archive as `feed_seq` (an ordered feed: [`LocalnetFeed`]).
+    fn ledger_seq(&self) -> bool {
+        false
+    }
 }
 
 /// The local node's (or the in-process chain's) ordered feed.
+///
+/// Its records' `seq` is the node's ledger number (one numbering over every
+/// landed transaction, the feed filtered by program), kept in the archive as
+/// `feed_seq`. The cursor also says where the archived feed started
+/// (`feed_start`: 0 is the ledger's start; absent in cursors written before
+/// it was kept) and which ledger it is (`ledger`: the node's
+/// `frontier_status.runId`, kept across restarts and new for a new ledger;
+/// set with [`LocalnetFeed::with_ledger`]). Resuming a cursor of another
+/// ledger, or a cursor that is not this feed's, is refused (every pull
+/// fails) instead of numbering on from a seq that means something else.
+/// `findex::ledger` joins archives of one ledger and says when they are not
+/// the whole history.
 pub struct LocalnetFeed<P: ChainPort> {
     pub port: P,
     pub after: Cursor,
+    /// The ledger the node serves now (`runId`), if known.
+    pub ledger: Option<String>,
+    /// The node's ledger size (`ledgerBytes`) seen when this feed started:
+    /// kept in the cursor (the largest seen), so a later check sees a ledger
+    /// that shrank (`findex::ledger::check_node`).
+    pub ledger_bytes: Option<u64>,
+    /// The program the feed is filtered by: every record handed back must
+    /// mention it (a node that does not read the filter answers with every
+    /// program's transactions). `None`: not checked.
+    pub program: Option<solana_address::Address>,
+    /// The last archived record (`seq`, signature): on resume the node must
+    /// still hold it there, else its ledger was rewound or rebuilt.
+    last: Option<(u64, Signature)>,
+    check_last: bool,
+    /// Where the archived feed started (`None`: not known).
+    start: Option<u64>,
+    /// The ledger the archived records came from (`None`: not known).
+    cursor_ledger: Option<String>,
+    refused: Option<String>,
 }
 
 impl<P: ChainPort> LocalnetFeed<P> {
@@ -80,28 +116,163 @@ impl<P: ChainPort> LocalnetFeed<P> {
         LocalnetFeed {
             port,
             after: Cursor(0),
+            ledger: None,
+            ledger_bytes: None,
+            program: None,
+            last: None,
+            check_last: false,
+            start: Some(0),
+            cursor_ledger: None,
+            refused: None,
         }
+    }
+
+    /// The node's ledger size now (`frontier_status.ledgerBytes`).
+    pub fn with_ledger_bytes(mut self, bytes: u64) -> Self {
+        self.ledger_bytes = Some(self.ledger_bytes.map_or(bytes, |b| b.max(bytes)));
+        self
+    }
+
+    /// Checks that every record mentions `program` (the feed's filter).
+    pub fn with_program(mut self, program: solana_address::Address) -> Self {
+        self.program = Some(program);
+        self
+    }
+
+    /// The ledger the node serves (`frontier_status.runId`).
+    pub fn with_ledger(mut self, run_id: impl Into<String>) -> Self {
+        let id = run_id.into();
+        if self.after.0 == 0 && self.start == Some(0) {
+            self.cursor_ledger = Some(id.clone());
+        }
+        self.ledger = Some(id);
+        self
     }
 }
 
 impl<P: ChainPort> Source for LocalnetFeed<P> {
     async fn pull(&mut self) -> PortResult<Vec<TxRecord>> {
-        let mut out = vec![];
+        if let Some(r) = &self.refused {
+            return Err(PortError::Unavailable(r.clone()));
+        }
+        if self.check_last {
+            // The archive's last record must still be at its seq: a ledger
+            // rewound (its tail lost without fsync) or rebuilt numbers other
+            // transactions there, under the same runId in the first case.
+            if let Some((seq, s)) = self.last {
+                let got = self.port.feed(Cursor(seq.saturating_sub(1))).await?;
+                match got.first() {
+                    Some(r) if r.seq == seq && r.signature == s => {}
+                    other => {
+                        return Err(PortError::Unavailable(format!(
+                            "history gap: the ledger no longer holds the archive's last transaction {s} at seq {seq} (it has {}): rewound or rebuilt",
+                            other.map_or("nothing there".into(), |r| format!("{} at seq {}", r.signature, r.seq))
+                        )))
+                    }
+                }
+            }
+            self.check_last = false;
+        }
+        let mut out: Vec<TxRecord> = vec![];
         loop {
             let got = self.port.feed(self.after).await?;
             let Some(last) = got.last() else { break };
+            for r in &got {
+                if out.last().map_or(self.after.0, |p| p.seq) >= r.seq {
+                    return Err(PortError::Decode(format!(
+                        "feed: seq {} does not follow {}",
+                        r.seq,
+                        out.last().map_or(self.after.0, |p| p.seq)
+                    )));
+                }
+                if let Some(p) = &self.program {
+                    let mentions =
+                        fclient::tx::from_wire(&r.tx).map(|t| t.message.account_keys.contains(p));
+                    if mentions != Ok(true) {
+                        return Err(PortError::Decode(format!(
+                            "feed: seq {} ({}) does not mention the program {p}: the node did not filter the feed",
+                            r.seq, r.signature
+                        )));
+                    }
+                }
+                out.push(r.clone());
+            }
             self.after = Cursor(last.seq);
-            out.extend(got);
+        }
+        if let Some(r) = out.last() {
+            self.last = Some((r.seq, r.signature));
         }
         Ok(out)
     }
     fn cursor(&self) -> Value {
-        json!({"feed_after": self.after.0})
+        if let Some(r) = &self.refused {
+            return json!({ "feed_refused": r });
+        }
+        json!({
+            "feed_after": self.after.0,
+            "feed_start": self.start,
+            "ledger": self.cursor_ledger,
+            "feed_last": self.last.map(|(q, s)| json!({"seq": q, "signature": s.to_string()})),
+            "ledger_bytes": self.ledger_bytes,
+        })
     }
     fn restore(&mut self, v: &Value) {
-        if let Some(a) = v.get("feed_after").and_then(|x| x.as_u64()) {
-            self.after = Cursor(a);
+        self.refused = None;
+        if v.is_null() {
+            // An empty archive: the next pull starts the ledger.
+            self.after = Cursor(0);
+            self.start = Some(0);
+            self.cursor_ledger = self.ledger.clone();
+            self.last = None;
+            self.check_last = false;
+            return;
         }
+        if let Some(r) = v.get("feed_refused").and_then(|x| x.as_str()) {
+            self.refused = Some(r.to_string());
+            return;
+        }
+        let Some(a) = v.get("feed_after").and_then(|x| x.as_u64()) else {
+            self.refused = Some(format!(
+                "history gap: the stored cursor is not a local feed's ({}): where the archive ends on the ledger is unknown",
+                truncate(&v.to_string(), 120)
+            ));
+            return;
+        };
+        let theirs = v.get("ledger").and_then(|x| x.as_str()).map(String::from);
+        if let (Some(t), Some(now)) = (&theirs, &self.ledger) {
+            if t != now {
+                self.refused = Some(format!(
+                    "history gap: the archive is of ledger {t}, the node serves ledger {now}: its seq numbers mean other transactions"
+                ));
+                return;
+            }
+        }
+        self.after = Cursor(a);
+        self.start = v.get("feed_start").and_then(|x| x.as_u64());
+        self.cursor_ledger = theirs;
+        self.last = v.get("feed_last").and_then(|l| {
+            Some((
+                l.get("seq")?.as_u64()?,
+                l.get("signature")?.as_str()?.parse().ok()?,
+            ))
+        });
+        self.check_last = self.last.is_some();
+        if let Some(b) = v.get("ledger_bytes").and_then(|x| x.as_u64()) {
+            self.ledger_bytes = Some(self.ledger_bytes.map_or(b, |m| m.max(b)));
+        }
+    }
+    fn coverage(&self) -> Option<Value> {
+        Some(json!({
+            "state": if self.refused.is_some() { "gap" } else { "ledger_feed" },
+            "gap": self.refused,
+            "feedStart": self.start,
+            "feedAfter": self.after.0,
+            "ledger": self.cursor_ledger,
+            "limit": "a local node's feed is its ledger; an archive of it is whole only from feed_start 0, of one ledger, with every record's feed_seq (findex::ledger)",
+        }))
+    }
+    fn ledger_seq(&self) -> bool {
+        true
     }
 }
 
@@ -740,6 +911,9 @@ impl<S: Source> Source for Enriched<S> {
     }
     fn coverage(&self) -> Option<Value> {
         self.inner.coverage()
+    }
+    fn ledger_seq(&self) -> bool {
+        self.inner.ledger_seq()
     }
 }
 
