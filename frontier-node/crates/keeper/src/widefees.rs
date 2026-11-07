@@ -39,6 +39,7 @@ use fclient::budgets::Budget;
 use fclient::fees::{DEFAULT_LOADED_LIMIT, LAMPORTS_PER_SIGNATURE};
 use frontier_abi::world_index::arrival::{wide_arrival_day, wide_arrival_slot};
 use serde_json::{json, Value};
+use solana_instruction::Instruction;
 
 use crate::wideduty::{Block, Candidate, Reads};
 use crate::widereveal::RevealCandidate;
@@ -62,7 +63,12 @@ impl<T: Copy> Known<T> {
 }
 
 /// Whether the payer's balance in the snapshot covers the calculated
-/// lower bound.
+/// lower bound — for a payer that **can** pay: an ordinary System wallet
+/// (System-owned, no data, not executable) that is not another account of
+/// the instruction. A program-owned or executable account, or a conflicting state-account alias, is
+/// [`Funding::Ineligible`]. System-owned data accounts need nonce/runtime
+/// and transfer validation and remain [`Funding::Unknown`], never a
+/// balance-based eligibility claim.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Funding {
     /// Covers the lower bound at the snapshot's context slot (nothing
@@ -75,6 +81,36 @@ pub enum Funding {
     },
     /// The payer's account or the requirement itself is not known.
     Unknown(&'static str),
+    /// The payer is known and cannot be this instruction's fee payer
+    /// (named reason); its balance is not reported as funding.
+    Ineligible(&'static str),
+}
+
+/// The payer names another account of the instruction (the Season, a
+/// record): one address in two roles, one of them writable, is an invalid
+/// transaction, not a funding question.
+pub const PAYER_ALIASES: &str =
+    "the payer is also another account of the instruction (role alias); not a fee payer";
+/// An executable account.
+pub const PAYER_EXECUTABLE: &str = "the payer account is executable: a program, not a wallet";
+/// A program-owned account.
+pub const PAYER_PROGRAM_OWNED: &str =
+    "the payer account is not System-owned: a program's account cannot fund a System transfer";
+/// A System-owned account carrying data.
+pub const PAYER_SYSTEM_DATA: &str =
+    "System account data needs nonce, rent-reserve and transfer validation; eligibility is unknown";
+
+/// Why a present payer account cannot pay, if it cannot.
+fn ineligible(a: &fclient::ports::Account) -> Option<&'static str> {
+    if a.executable {
+        Some(PAYER_EXECUTABLE)
+    } else if a.owner != fclient::addr::system_program() {
+        Some(PAYER_PROGRAM_OWNED)
+    } else if !a.data.is_empty() {
+        Some(PAYER_SYSTEM_DATA)
+    } else {
+        None
+    }
 }
 
 /// The requirements of executing one candidate.
@@ -161,6 +197,7 @@ fn bound<'a>(
 fn needs_of(
     creates: Vec<(&'static str, usize)>,
     payer: &solana_address::Address,
+    instruction: &Instruction,
     reads: &Reads,
     candidate_snapshot: Option<&SnapshotMeta>,
 ) -> Result<ExecutionNeeds, Block> {
@@ -189,17 +226,47 @@ fn needs_of(
         ),
         Known::Unchecked(why) => Known::Unchecked(why),
     };
-    let funding = match (required, snap, reads.accounts.get(payer)) {
-        // The all-zero address is the System Program: a placeholder an
-        // unsigned candidate names when no payer is set, never a wallet
-        // whose balance could fund anything.
-        _ if *payer == solana_address::Address::default() => Funding::Unknown(NO_PAYER),
-        (Known::Unchecked(why), _, _) => Funding::Unknown(why),
-        (Known::Known(_), None, _) => Funding::Unknown(NOT_BOUND),
-        (Known::Known(_), Some(_), None) => {
+    // The payer in another role of the same instruction (position 0 is the
+    // payer itself): an invalid transaction, judged from the candidate
+    // alone.
+    let aliases = instruction
+        .accounts
+        .iter()
+        .skip(1)
+        .any(|m| m.pubkey == *payer);
+    let payer_account = reads.accounts.get(payer);
+    // A present payer that cannot pay, by its shape (owner, data,
+    // executable) — only from the bound snapshot's bytes.
+    let shape = match (snap, payer_account) {
+        (Some(_), Some(Some(a))) => ineligible(a),
+        _ => None,
+    };
+    // The all-zero address is the System Program: a placeholder an
+    // unsigned candidate names when no payer is set, never a wallet whose
+    // balance could fund anything. Then the alias, then the shape: a
+    // balance is reported only for an eligible payer.
+    let early = if *payer == solana_address::Address::default() {
+        Some(Funding::Unknown(NO_PAYER))
+    } else if aliases {
+        Some(Funding::Ineligible(PAYER_ALIASES))
+    } else {
+        shape.map(|reason| {
+            if reason == PAYER_SYSTEM_DATA {
+                Funding::Unknown(reason)
+            } else {
+                Funding::Ineligible(reason)
+            }
+        })
+    };
+    let funding = match (early, required, snap, payer_account) {
+        (Some(f), _, _, _) => f,
+        (None, Known::Unchecked(why), _, _) => Funding::Unknown(why),
+        (None, Known::Known(_), None, _) => Funding::Unknown(NOT_BOUND),
+        (None, Known::Known(_), Some(_), None) => {
             Funding::Unknown("the payer's account is not in the snapshot")
         }
-        (Known::Known(req), Some(_), Some(acc)) => {
+        (None, Known::Known(req), Some(_), Some(acc)) => {
+            // Absent: a wallet that holds nothing yet (ordinary, empty).
             let lamports = acc.as_ref().map_or(0, |a| a.lamports);
             if lamports >= req {
                 Funding::MetLowerBound {
@@ -241,13 +308,13 @@ pub fn reveal_needs(c: &RevealCandidate, reads: &Reads) -> Result<ExecutionNeeds
     if !c.facts.day_present {
         creates.push(("wide ArrivalDay", wide_arrival_day::SIZE));
     }
-    needs_of(creates, &c.fee_payer, reads, c.snapshot())
+    needs_of(creates, &c.fee_payer, &c.instruction, reads, c.snapshot())
 }
 
 /// The needs of a WideSettleDeparture or WideReturn candidate: no account
 /// is created.
 pub fn duty_needs(c: &Candidate, reads: &Reads) -> Result<ExecutionNeeds, Block> {
-    needs_of(Vec::new(), &c.payer, reads, c.snapshot())
+    needs_of(Vec::new(), &c.payer, &c.instruction, reads, c.snapshot())
 }
 
 /// A one-line summary of the assumptions, for status output.

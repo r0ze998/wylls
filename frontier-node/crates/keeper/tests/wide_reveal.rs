@@ -43,8 +43,8 @@ use keeper_core::widefees::{self, Funding, Known};
 use keeper_core::wideindex::{Limits, Scope as IndexScope, WideDiscovery};
 use keeper_core::wideproof::{DepartProof, Provenance};
 use keeper_core::widereveal::{
-    self, Crypto, Opening, Publication, RevealCandidate, UNVERIFIED, UNVERIFIED_COHERENCE,
-    UNVERIFIED_CURRENCY,
+    self, Crypto, Opening, Publication, RevealCandidate, DOWNSTREAM_GENERATION, UNVERIFIED,
+    UNVERIFIED_COHERENCE, UNVERIFIED_CURRENCY,
 };
 use keeper_core::widereview::{self, Deny, EngineView, Subject, HARD_DENIALS};
 use keeper_core::widesnapshot::{
@@ -2773,6 +2773,82 @@ fn world_bytes_past_the_debug_prefix_are_reveal_candidate_content() {
     assert!(m.coherent());
     assert!(c.coherent());
     assert_eq!(widefees::reveal_needs(&c, &reads).unwrap(), pristine);
+}
+
+/// The handler's Reveal accepts a holding whose generation is not the
+/// march host's (it compares coordinate and site only); the planner does
+/// the same — no refusal of a valid Reveal — and says what follows: the
+/// downstream WideSettleTransit refuses exactly that `NotImplemented`, and
+/// a close refunds the transit account balance, not holding escrow. Both generations are on the
+/// candidate; the line is content (a mutated copy loses coherence).
+#[test]
+fn a_generation_mismatch_is_accepted_as_the_handler_does_and_the_downstream_risk_is_said() {
+    // Equal generations: no such line, the usual count.
+    let fx = Fx::new();
+    let c = fx.plan().unwrap();
+    assert_eq!((c.facts.holding_gen, c.facts.host.gen()), (GEN, GEN));
+    assert!(!c.facts.unverified.contains(&DOWNSTREAM_GENERATION));
+    assert_eq!(c.facts.unverified.len(), UNVERIFIED.len() + 1);
+    assert_eq!(c.describe()["downstream_settlement_at_risk"], false);
+    // The holding one generation on: the plan still stands (the handler's
+    // rule), the risk is stated with both generations.
+    let mut fx = Fx::new();
+    fx.holding[H::GEN] = GEN + 1;
+    let c = fx.plan().unwrap();
+    assert_eq!((c.facts.holding_gen, c.facts.host.gen()), (GEN + 1, GEN));
+    assert!(c.facts.unverified.contains(&DOWNSTREAM_GENERATION));
+    assert_eq!(c.facts.unverified.len(), UNVERIFIED.len() + 2);
+    assert!(DOWNSTREAM_GENERATION.contains("NotImplemented"));
+    assert!(DOWNSTREAM_GENERATION.contains("transit account balance"));
+    let d = c.describe();
+    assert_eq!(d["holding_gen"], GEN + 1);
+    assert_eq!(d["host_gen"], GEN);
+    assert_eq!(d["downstream_settlement_at_risk"], true);
+    assert_eq!(c.instruction.accounts, fx.expected_accounts(0, true));
+    assert!(!c.signed && !c.automatic_send);
+    // The review still denies on every hard reason; nothing is enqueued.
+    let open = EngineView {
+        feed_writes_allowed: true,
+        kind_allowed: true,
+        already_pending: false,
+        care_unresolved: false,
+    };
+    let a = widereview::review_reveal(&c, &fx.reads(), &open);
+    assert!(!a.review.admitted);
+    assert!(a.review.denials.contains(&Deny::SourceUnproven));
+    assert!(a.review.denials.contains(&Deny::HistoryUnknown));
+    // The generation is sealed content on a coherent candidate: a copy
+    // with the holding's generation edited loses its snapshot.
+    let mut accounts = fx.reads().accounts;
+    accounts.insert(
+        payer(),
+        Some(Account {
+            lamports: 10_000_000,
+            data: vec![],
+            owner: fclient::addr::system_program(),
+            executable: false,
+        }),
+    );
+    let port = FakePort::new(accounts, clock_at(a_ts() + 10));
+    let (cc, _snap) = block_on(widereveal::reveal_snapshot(
+        &port,
+        &scope(),
+        payer(),
+        beneficiary(),
+        &fx.proof,
+        Some(&fx.opening),
+        fx.publication.as_ref(),
+        7,
+    ))
+    .unwrap();
+    assert!(cc.coherent());
+    assert!(cc.facts.unverified.contains(&DOWNSTREAM_GENERATION));
+    let mut m = cc.clone();
+    m.facts.holding_gen = GEN;
+    assert!(!m.coherent(), "the generation is content");
+    let mut m = cc.clone();
+    m.facts.unverified.retain(|l| *l != DOWNSTREAM_GENERATION);
+    assert!(!m.coherent(), "the downstream line is content");
 }
 
 // ------------------------------------------------------------ the tick's reveal

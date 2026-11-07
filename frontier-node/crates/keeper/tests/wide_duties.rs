@@ -15,7 +15,7 @@ use std::sync::Mutex;
 
 use base64::Engine as _;
 use fclient::budgets::Budgets;
-use fclient::decode::Season;
+use fclient::decode::{is_absent, Season};
 use fclient::ports::{
     Account, ChainPort, ClockSysvar, Cursor, PortError, PortResult, Signature, SimResult, Status,
     TxRecord,
@@ -47,7 +47,7 @@ use keeper_core::widefees::{self, Funding, Known};
 use keeper_core::wideindex::{Limits, Scope as IndexScope, WideBatch, WideDiscovery, WideObserver};
 use keeper_core::wideproof::{depart_proof, ProofScope, Unavailable};
 use keeper_core::wideproof::{METHOD_FEED, METHOD_SUPPLIED};
-use keeper_core::widereveal::Publication;
+use keeper_core::widereveal::{proofs_for, Publication};
 use keeper_core::widereview::{self, Deny, EngineView};
 use keeper_core::widesnapshot::{parse_snapshot_response, sysvar_owner, Snapshot};
 use keeper_core::widesnapshot::{snapshot_via, PortSnapshot, SnapshotError, SnapshotPort};
@@ -3286,6 +3286,435 @@ fn the_keepers_own_port_serves_the_snapshot_through_the_function_pointer() {
     assert_eq!(st["recent"][0]["candidate"]["coherent"], true);
     assert_eq!(st["recent"][0]["snapshot"]["context_slot"], 900);
     assert_eq!(engine.pending_len(), 0);
+}
+
+// ------------------------------------------------------------ handler parity pins
+
+/// The planner's Season judgement is exactly the ABI rule the handlers
+/// apply (`settle_season` → `read_season` → `effective_status`, then the
+/// allowed list `[Running, Ended]`): for every stored status and a clock
+/// before, at and after genesis, the planner plans iff the effective
+/// status is allowed, says "promoted" iff the promotion did it, and names
+/// the handler's refusal otherwise.
+#[test]
+fn season_judgement_matches_the_abi_effective_status_rule() {
+    let allowed = [SL::STATUS_RUNNING, SL::STATUS_ENDED];
+    for stored in [
+        SL::STATUS_ANNOUNCED,
+        SL::STATUS_CREATED,
+        SL::STATUS_SEEDED,
+        SL::STATUS_RUNNING,
+        SL::STATUS_ENDED,
+        SL::STATUS_CLOSED,
+        SL::STATUS_ABORTED,
+    ] {
+        for now in [GENESIS_TS - 1, GENESIS_TS, GENESIS_TS + 1] {
+            let effective = SL::effective_status(stored, GENESIS_TS, now);
+            let mut fx = SettleFx::new(home());
+            fx.season = season_bytes(stored, WIDE_VERSION);
+            let mut reads = fx.reads();
+            reads.clock = Some(clock_at(now));
+            let r = done(wideduty::plan_settle_departure(
+                &dscope(),
+                payer(),
+                host(),
+                SLOT,
+                &reads,
+            ));
+            if allowed.contains(&effective) {
+                let c = r.unwrap_or_else(|b| panic!("stored {stored} at {now}: {b:?}"));
+                assert_eq!(
+                    c.status_promoted_by_clock,
+                    stored == SL::STATUS_SEEDED,
+                    "stored {stored} at {now}"
+                );
+            } else if stored == SL::STATUS_SEEDED {
+                assert_eq!(
+                    r,
+                    Err(Block::SeasonNotStarted {
+                        genesis_ts: GENESIS_TS,
+                        observed: now
+                    }),
+                    "stored {stored} at {now}"
+                );
+            } else {
+                assert_eq!(
+                    r,
+                    Err(Block::SeasonStatus(stored)),
+                    "stored {stored} at {now}"
+                );
+            }
+        }
+    }
+    // The same rule the handler's `effective_status` states: only Seeded
+    // moves, and only at or after genesis.
+    assert_eq!(
+        SL::effective_status(SL::STATUS_SEEDED, GENESIS_TS, GENESIS_TS),
+        SL::STATUS_RUNNING
+    );
+    assert_eq!(
+        SL::effective_status(SL::STATUS_SEEDED, GENESIS_TS, GENESIS_TS - 1),
+        SL::STATUS_SEEDED
+    );
+    assert_eq!(
+        SL::effective_status(SL::STATUS_CREATED, GENESIS_TS, i64::MAX),
+        SL::STATUS_CREATED
+    );
+}
+
+/// The planner's notion of an absent account is the program's (`addr::absent`,
+/// §4.1: System-owned **and** no data; lamports ignored). Every other shape
+/// at a canonical position is a refusal on both sides — `BadAccount` there,
+/// a typed block here — never a plan.
+#[test]
+fn absence_rule_matches_the_programs_definition_at_every_position() {
+    let system = fclient::addr::system_program();
+    assert!(is_absent(&system, &[]));
+    assert!(!is_absent(&system, &[0]), "data makes it present");
+    assert!(
+        !is_absent(&program(), &[]),
+        "a program-owned empty account is present"
+    );
+    assert!(!is_absent(&actor(), &[]));
+    let acc = |owner: Address, data: Vec<u8>, lamports: u64| {
+        Some(Account {
+            lamports,
+            data,
+            owner,
+            executable: false,
+        })
+    };
+    let fx = SettleFx::new(home());
+    let plan = |reads: &Reads| {
+        done(wideduty::plan_settle_departure(
+            &dscope(),
+            payer(),
+            host(),
+            SLOT,
+            reads,
+        ))
+    };
+    // System-owned, no data, lamports: absent (the handler's `BadAccount`
+    // for a missing holding; the planner's typed `Absent`).
+    let mut reads = fx.reads();
+    reads
+        .accounts
+        .insert(fx.holding_addr(), acc(system, vec![], 5_000_000));
+    assert_eq!(plan(&reads), Err(Block::Absent("holding")));
+    // System-owned with data: present but foreign (`BadAccount` there).
+    let mut reads = fx.reads();
+    reads
+        .accounts
+        .insert(fx.holding_addr(), acc(system, vec![1], 1));
+    assert_eq!(plan(&reads), Err(Block::ForeignOwner("holding")));
+    // Program-owned, no data: present and unreadable (`BadAccount` there).
+    let mut reads = fx.reads();
+    reads
+        .accounts
+        .insert(fx.holding_addr(), acc(program(), vec![], 1));
+    assert_eq!(plan(&reads), Err(Block::Unreadable("holding")));
+    // The same three shapes at the transit position: absent is "no march"
+    // (`TransitState` there), the others refusals.
+    let mut reads = fx.reads();
+    reads
+        .accounts
+        .insert(fx.transit_addr(), acc(system, vec![], 1));
+    assert_eq!(plan(&reads), Err(Block::NoMarch));
+    let mut reads = fx.reads();
+    reads
+        .accounts
+        .insert(fx.transit_addr(), acc(actor(), vec![0; 288], 1));
+    assert_eq!(plan(&reads), Err(Block::ForeignOwner("transit")));
+    let mut reads = fx.reads();
+    reads
+        .accounts
+        .insert(fx.transit_addr(), acc(program(), vec![], 1));
+    assert_eq!(plan(&reads), Err(Block::Unreadable("transit")));
+    // A key the planner asked for and did not get is a read failure, never
+    // treated as absent.
+    let mut reads = fx.reads();
+    reads.accounts.remove(&fx.transit_addr());
+    assert!(matches!(
+        wideduty::plan_settle_departure(&dscope(), payer(), host(), SLOT, &reads),
+        Step::Need(ref a) if a == &vec![fx.transit_addr()]
+    ));
+}
+
+/// The handler's `open_transits_of` returns every **present** record of the
+/// holding's four slots, in any state — `Departed`, `Settled`, even `Free`
+/// after the transit settled but before its close — and a Leave entry whose
+/// host appears in one is skipped (`HostInTransit` when nothing else
+/// returns). The planner mirrors that exactly; it does not relax the rule
+/// to in-transit states.
+#[test]
+fn a_present_transit_record_in_any_state_holds_the_return_back_as_the_handler_does() {
+    let departed = transit_bytes(host(), home(), false, root());
+    let settled = transit_bytes(host(), home(), true, root());
+    let free = {
+        let t = WideTransit::from_bytes(&settled).unwrap();
+        let f = t.step(MarchEvent::SettleTransit, None).unwrap();
+        assert_eq!(f.state, MarchState::Free);
+        assert!(!f.state.in_transit());
+        f.to_bytes().to_vec()
+    };
+    for (label, bytes) in [("departed", departed), ("settled", settled), ("free", free)] {
+        for slot in 0..4 {
+            let mut fx = ReturnFx::new(home(), &[host()]);
+            fx.transits[slot] = Some(bytes.clone());
+            assert_eq!(
+                fx.plan(),
+                Err(Block::HostInTransit),
+                "{label} in slot {slot}"
+            );
+        }
+        // Another host's record of any state does not hold this one back.
+        let other = WideHostRef::new(home(), SITE, GEN, 99).unwrap();
+        let mut fx = ReturnFx::new(home(), &[host()]);
+        let mut t = WideTransit::from_bytes(&bytes).unwrap();
+        t.host = other;
+        fx.transits[1] = Some(t.to_bytes().to_vec());
+        let c = fx.plan().unwrap_or_else(|b| panic!("{label}: {b:?}"));
+        assert_eq!(return_facts(&c).skipped_in_transit, 0, "{label}");
+        assert_eq!(return_facts(&c).picks.len(), 1, "{label}");
+    }
+    // No record at all: the host returns.
+    let fx = ReturnFx::new(home(), &[host()]);
+    let c = fx.plan().unwrap();
+    assert_eq!(return_facts(&c).picks[0].host, host());
+}
+
+/// `proofs_for` keeps a proof while its march is open and unrevealed,
+/// **including after the departure settled at the origin** (the handler's
+/// Reveal accepts every in-transit state); it drops it once the march is
+/// revealed or settled, and never names a slot the model does not show
+/// departed. `ProofStore::hints` agrees at every step.
+#[test]
+fn proofs_for_keeps_a_settled_departure_until_revealed_or_settled() {
+    let rec = record(wire_of(&[depart_ix(home())]), frame(&[departed_ok(home())]));
+    let proof = depart_proof(&rec, &scope()).unwrap();
+    let proofs = [proof.clone()];
+    let mut store = ProofStore::default();
+    assert_eq!(store.observe_page(&[rec], &scope(), 1), 1);
+    let model = |bodies: Vec<Vec<Vec<u8>>>| {
+        let mut m = WideDiscovery::new(
+            IndexScope {
+                program: program(),
+                season: season_pda().0,
+                world: world(),
+                source: "test".into(),
+            },
+            Limits::default(),
+        );
+        for (i, b) in bodies.into_iter().enumerate() {
+            m.apply(&WideBatch {
+                seq: 1 + i as u64,
+                slot: 1_001 + i as u64,
+                signature: format!("sig-{i}"),
+                bodies: b,
+            })
+            .unwrap();
+        }
+        m
+    };
+    let departed = departed_ok(home());
+    let settled_at_origin = both(
+        WideKind::DepartureSettled,
+        DEPART_BELL + 1,
+        &wev::host_key(&host(), home()),
+        &wev::departure_settled_payload(SLOT, false, TROOPS, 61, 0, 4),
+    );
+    let revealed = encode(
+        WideKind::Revealed,
+        ARRIVE_BELL,
+        &wev::host_key(&host(), home()),
+        &wev::revealed_payload(SLOT, 0, 0, 33, 0, 0, TROOPS, false),
+        &[],
+    )
+    .unwrap();
+    let transit_settled = both(
+        WideKind::TransitSettled,
+        ARRIVE_BELL + 3,
+        &wev::host_key(&host(), home()),
+        &wev::transit_settled_payload(SLOT, 1, 0, TROOPS, TIP, 7_000, 11_000, false, home()),
+    );
+    // Nothing departed: no hint (the model does not show the march).
+    let m = model(vec![]);
+    assert!(proofs_for(&m, &proofs).is_empty());
+    assert_eq!(
+        store.hints(&m),
+        vec![(host(), SLOT)],
+        "the store trusts the chain when the model knows nothing"
+    );
+    // Departed: the proof is a reveal hint and a settle hint.
+    let m = model(vec![vec![departed.clone()]]);
+    assert_eq!(proofs_for(&m, &proofs), proofs.to_vec());
+    assert_eq!(wideduty::settle_candidates(&m), vec![(host(), SLOT)]);
+    assert_eq!(store.hints(&m), vec![(host(), SLOT)]);
+    // Departure settled at the origin: no longer a settle hint, **still**
+    // a reveal hint (the regression: `settle_candidates` would drop it).
+    let m = model(vec![
+        vec![departed.clone()],
+        vec![settled_at_origin.clone()],
+    ]);
+    assert!(wideduty::settle_candidates(&m).is_empty());
+    assert_eq!(proofs_for(&m, &proofs), proofs.to_vec());
+    assert_eq!(store.hints(&m), vec![(host(), SLOT)]);
+    // Revealed: gone from both.
+    let m = model(vec![
+        vec![departed.clone()],
+        vec![settled_at_origin.clone()],
+        vec![revealed],
+    ]);
+    assert!(proofs_for(&m, &proofs).is_empty());
+    assert!(store.hints(&m).is_empty());
+    // Transit settled (the march over): gone from both.
+    let m = model(vec![
+        vec![departed.clone()],
+        vec![settled_at_origin],
+        vec![transit_settled],
+    ]);
+    assert!(proofs_for(&m, &proofs).is_empty());
+    assert!(store.hints(&m).is_empty());
+    // A proof of another slot than the model's open march: not a hint.
+    let mut other_slot = proof;
+    other_slot.transit_slot = SLOT + 1;
+    let m = model(vec![vec![departed]]);
+    assert!(proofs_for(&m, &[other_slot]).is_empty());
+}
+
+/// The fee review reports funding only for a payer that can pay: an
+/// ordinary System wallet that is not another account of the instruction.
+/// A program-owned or executable account, a System account with data (a
+/// nonce) is unknown until runtime/nonce checks; program accounts and the
+/// Season alias are ineligible. None is reported as funded from balance alone.
+#[test]
+fn funding_is_reported_only_for_an_eligible_ordinary_wallet() {
+    let fx = SettleFx::new(home());
+    let clock = clock_at(1_790_444_847);
+    let plan_over = |payer: Address, payer_account: Option<Account>| {
+        let mut accounts = fx.reads().accounts;
+        let mut keys: Vec<Address> = accounts.keys().copied().collect();
+        if !keys.contains(&payer) {
+            keys.push(payer);
+        }
+        if let Some(a) = payer_account {
+            accounts.insert(payer, Some(a));
+        }
+        let snap = snapshot_of(&accounts, &keys, clock, 7);
+        let reads = snap.reads();
+        let c = done(wideduty::plan_settle_departure(
+            &dscope(),
+            payer,
+            host(),
+            SLOT,
+            &reads,
+        ))
+        .unwrap();
+        assert!(c.coherent());
+        let needs = widefees::duty_needs(&c, &reads).unwrap();
+        let open = EngineView {
+            feed_writes_allowed: true,
+            kind_allowed: true,
+            already_pending: false,
+            care_unresolved: false,
+        };
+        let a = widereview::review_candidate(&c, &reads, &open);
+        assert!(!a.review.admitted);
+        (needs, a.review.denials)
+    };
+    let wallet = |lamports: u64, owner: Address, data: Vec<u8>, executable: bool| Account {
+        lamports,
+        data,
+        owner,
+        executable,
+    };
+    let system = fclient::addr::system_program();
+    // An ordinary funded wallet: met (the base fee only; a settle creates
+    // nothing).
+    let (n, d) = plan_over(actor(), Some(wallet(1_000_000, system, vec![], false)));
+    assert_eq!(
+        n.funding,
+        Funding::MetLowerBound {
+            payer_lamports: 1_000_000,
+            required: 5_000
+        }
+    );
+    assert!(!d.contains(&Deny::FundingIneligible) && !d.contains(&Deny::FundingUnknown));
+    // An ordinary wallet that holds nothing yet (absent): unmet, not
+    // ineligible.
+    let (n, d) = plan_over(actor(), None);
+    assert!(matches!(
+        n.funding,
+        Funding::Unmet {
+            payer_lamports: 0,
+            ..
+        }
+    ));
+    assert!(d.contains(&Deny::FundingUnmet));
+    // A program-owned executable account with a large balance: ineligible,
+    // the balance never reported.
+    let (n, d) = plan_over(
+        actor(),
+        Some(wallet(1_000_000_000, program(), vec![1, 2, 3], true)),
+    );
+    assert_eq!(
+        n.funding,
+        Funding::Ineligible(keeper_core::widefees::PAYER_EXECUTABLE)
+    );
+    assert!(d.contains(&Deny::FundingIneligible));
+    assert!(!d.contains(&Deny::FundingUnmet) && !d.contains(&Deny::FundingUnknown));
+    assert!(!n.describe().to_string().contains("1000000000"));
+    // A program-owned, non-executable account (a record).
+    let (n, _) = plan_over(
+        actor(),
+        Some(wallet(1_000_000_000, program(), vec![0; 64], false)),
+    );
+    assert_eq!(
+        n.funding,
+        Funding::Ineligible(keeper_core::widefees::PAYER_PROGRAM_OWNED)
+    );
+    // A System-owned account with data (a nonce): not an ordinary wallet.
+    let (n, d) = plan_over(
+        actor(),
+        Some(wallet(1_000_000_000, system, vec![0; 80], false)),
+    );
+    assert_eq!(
+        n.funding,
+        Funding::Unknown(keeper_core::widefees::PAYER_SYSTEM_DATA)
+    );
+    assert!(d.contains(&Deny::FundingUnknown));
+    assert!(!d.contains(&Deny::FundingIneligible));
+    // The Season named as payer: an alias of another account of the
+    // instruction (writable payer, read-only Season: an invalid
+    // transaction), refused from the candidate alone, whatever the
+    // Season account holds.
+    let (n, d) = plan_over(season_pda().0, None);
+    assert_eq!(
+        n.funding,
+        Funding::Ineligible(keeper_core::widefees::PAYER_ALIASES)
+    );
+    assert!(d.contains(&Deny::FundingIneligible));
+    // Any other account of the instruction named as payer likewise.
+    let (n, _) = plan_over(fx.holding_addr(), None);
+    assert_eq!(
+        n.funding,
+        Funding::Ineligible(keeper_core::widefees::PAYER_ALIASES)
+    );
+    // The alias is judged without a snapshot too (diagnostic, not
+    // funding): over ordinary reads the reason is still the alias.
+    let c = done(wideduty::plan_settle_departure(
+        &dscope(),
+        season_pda().0,
+        host(),
+        SLOT,
+        &fx.reads(),
+    ))
+    .unwrap();
+    let n = widefees::duty_needs(&c, &fx.reads()).unwrap();
+    assert_eq!(
+        n.funding,
+        Funding::Ineligible(keeper_core::widefees::PAYER_ALIASES)
+    );
 }
 
 /// A port whose account reads fail (the clock is served).

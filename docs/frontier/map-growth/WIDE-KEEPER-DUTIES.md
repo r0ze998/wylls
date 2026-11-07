@@ -2,9 +2,11 @@
 
 ## Current checkpoint: snapshot-backed runtime review (2026-11-08)
 
-The current source passes 79 audited tests: discovery 14, duties 30, legacy guard 12, Reveal 17 and real RpcPort loopback snapshot 6. Feature-enabled library/binary and the three snapshot/duty/Reveal test targets, plus default library/binary, pass clippy with warnings denied. Public FromBeacon opening uses pre-existing recorded IBE material and shipped quicknet signatures; no keypair or signature was generated.
+The current source passes 85 audited tests: discovery 14, duties 35, legacy guard 12, Reveal 18 and real RpcPort loopback snapshot 6. Feature-enabled library/binary and the three snapshot/duty/Reveal test targets, plus default library/binary, pass clippy with warnings denied. Public FromBeacon opening uses pre-existing recorded IBE material and shipped quicknet signatures; no keypair or signature was generated.
 
 The opt-in runtime now uses its actual port through an additive snapshot callback. Settle/Return and bounded Reveal diagnostic review use a single response for their final account/Clock/Rent judgement. Reveal proofs are extracted only from the observer-accepted portion of shared feed pages; supplied provenance remains unverified. Public beacon reads use a separate bounded cache, and transient readiness failures have bounded next-slot retries. Unset payer funding remains unknown. Status excludes raw RPC error strings and opened material.
+
+A further parity review keeps settled-but-unrevealed departures eligible for Reveal hints, validates known-ineligible payer shapes and aliases, leaves System data/nonce eligibility Unknown, and exposes downstream generation-mismatch settlement risk without changing game rules.
 
 Every candidate is still denied by Engine review: history authenticity/completeness, live fee quotation and future balance remain unproven. No enqueue, simulation, signing, transaction sending, production gate change, main merge or deployment is introduced. Existing PSW1 feed guards can prevent further discovery; this slice does not make the game playable. The actual Keeper constructor/full tick was not executed because it uses keys; its wiring and CLI are compile-checked, while independent review-step tests use literal accounts and public vectors. UI is unchanged.
 
@@ -928,6 +930,144 @@ requested and funding is unknown; the existing tick tests take the new
   march; the planner answers `AlreadyRevealed` (a non-transient block,
   64-slot wait) until the model sees the record.
 
+## Parity inspection (2026-11-08, on `acd95624`): planners against the handlers
+
+Static, line by line, `permutation-frontier/src/proc/wide.rs`
+(`settle_departure`, `settle_return`, `reveal` and the helpers they call:
+`settle_season` → `prologue::season` → `read_season`/`check_season`,
+`require_wide_season`, `holding_at`, `transit_at`, `province_at`,
+`canonical_province`, `roster_at`, `host_entry`, `open_transits_of`,
+`capture_lock_of` → `capture_locked`, `walk_wide`, `wide_admit`,
+`init::is_absent` → `addr::absent`, `init::rent`) against
+`wideduty::plan_settle_departure`, `wideduty::plan_return`,
+`widereveal::plan_reveal` and their helpers. Nothing was run.
+
+**No direct-handler parity discrepancy found** — a claim about the three
+planners against the three handlers they mirror, and nothing wider: the
+independent audit found three problems **outside** that comparison (the
+reveal hint filter, the fee review's payer eligibility, the downstream
+settlement of a generation mismatch), fixed below. Within the comparison,
+every refusal the handlers make, the planners make at the same point with
+the same inputs; every extra check the planners make is stricter (a
+refusal where the handler would proceed), never looser. Checked
+equivalences, in handler order:
+
+- *Season*: `effective_status` (only Seeded moves, at or after genesis)
+  then `[Running, Ended]`; the ruleset hash; the build's version with the
+  wide bit — the planner: the same promotion against the observed clock,
+  the pinned deployment (version + bit, ruleset). The planner refuses
+  without a clock where the handler always has one (stricter).
+- *Absence*: System-owned **and** no data, lamports ignored, on both sides;
+  any other shape at a canonical position is `BadAccount` there and a typed
+  block here.
+- *SettleDeparture*: host world; holding at the reference's canonical
+  address (record coord/site re-derived); `transit_slot < 4`; the record
+  present (`TransitState` ↔ `NoMarch`), the host's, `Departed`
+  (`AlreadyDone` ↔ `AlreadySettled`, else `TransitState`); the origin the
+  record names, canonical; the capture lock only when the origin is the
+  holding's own; `resolved_next > depart_bell` (`TooEarly`); the roster
+  present and paired (`validate_paired` over `live_ids`); the entry at the
+  host's alias paired with its reference (`host_entry` ↔ `find_entry` +
+  `entry_matches`) in state departed; `Host::march_values`; `destroyed =
+  troops < DESTROYED_BELOW` with zero values stored; `ready_bell_off`
+  saturating; the record chained to the origin and the holding
+  (`chain_headroom`). `WideTransit::step` cannot fail from `Departed`.
+- *Return*: the standing province canonical; the roster present
+  (`AlreadyDone` ↔ `NoRoster`) and paired; the holding present (canonical
+  for its own coord/site, world) or absent; the capture lock in the
+  holding's **own** province (the standing one, or the optional tenth
+  account, canonical, present — `BadAccount` ↔ `Absent("holding_province")`);
+  live generation only for Provisional/Final; `open_transits_of` = every
+  **present** record of the four slots in **any** state (a `Free` record
+  after SettleTransit and before its close still holds its host back); the
+  selection of departed Leave entries by full identity, `RETURN_MAX`;
+  `HostInTransit` vs `AlreadyDone` ↔ `NothingToReturn`; the reserve's
+  checked add; `Return` chains province + holding, `Stranded` the province.
+- *Reveal*: `target_i < 4` and exactly that slot writable; the keeper
+  prologue (fee payer signer and writable, `[Running, Ended]`); the holding
+  and its record (`in_transit`, the host's coord/site); the Ended clause;
+  `unpack` + `validate` (version, reserved, host, arrival bell, world, path
+  bits, directions, tile, stance, retreat); the commitment via `ct_hash`;
+  the destination canonical; anchor/archive/log addresses; **the handler
+  proceeds with no window test when neither THE anchor nor its archive is
+  present** — the planner refuses (`AnchorRequired`), stricter; with the
+  anchor: bell/region, `reveal_close`, the log's region and
+  `latest < seed_round`; the latch (inputs absent, `resolved_next ≤
+  arrive`); `walk_wide` ↔ `walk` (identical algorithm; path accounts in
+  first-entered order, ≤ `MAX_PATH_PROVINCES`); `check_arrival_bell`; the
+  site under the committed tile and both shields; the four slots (owner,
+  fields) and `wide_admit` ↔ `admit` (identical ranking: troops, slot key,
+  host bytes; one per host, one per Citizen, fill, displace lowest);
+  `SlotMoved` cannot arise (the planner sets `target_i` from the same
+  decision); the ArrivalDay (owner, fields, bit, writable iff the bit is
+  not set); the rent precondition `fee_payer.lamports() ≥ rent(slot if new)
+  + rent(day if created)` ↔ `widefees` (full minimum per created account
+  + the one-signature base fee, stricter).
+
+Observations, not discrepancies (reported for the auditing reviewer): the
+Reveal handler's no-anchor path above; `open_transits_of` treating a
+settled-but-unclosed (`Free`) record as holding a Leave back (deployed
+behaviour; liveness only); the planners cover three of the lifecycle's
+handlers — the closes and refunds (`close_roster`, the transit/slot/day
+closes, `rent_to`) have no planner and are not claimed.
+
+### Audit findings outside the direct comparison, fixed
+
+1. **`widereveal::proofs_for` dropped settled departures.** It filtered
+   through `wideduty::settle_candidates` (departure seen **and not
+   settled**), while the handler's Reveal accepts every in-transit state
+   (`Departed`, `Settled`, `DestroyedAtOrigin`): a proof whose departure
+   had been settled at the origin lost its reveal hint. It now keeps a
+   proof while the model shows its `(host, slot)` departed, open and
+   unrevealed, like `ProofStore::hints`. Test
+   `proofs_for_keeps_a_settled_departure_until_revealed_or_settled`
+   (`wide_duties.rs`): nothing departed → none; departed → hint;
+   `DepartureSettled` → still a reveal hint and no longer a settle hint;
+   `Revealed` → none; `TransitSettled` → none; another slot → none; the
+   store's hints agree at every step.
+2. **`widefees` called any lamports "funding".** A program-owned or
+   executable payer, or the Season itself named as payer is not eligible
+   for these instructions, yet `MetLowerBound` was reported from balance.
+   System data accounts instead require nonce/runtime checks and are Unknown.
+   `Funding::Ineligible(reason)` now names the shape (`PAYER_EXECUTABLE`,
+   `PAYER_PROGRAM_OWNED`) from the bound snapshot's
+   bytes, and `PAYER_ALIASES` when the payer is any other account of the
+   candidate's instruction (judged from the candidate alone, snapshot or
+   not); the review adds `Deny::FundingIneligible`. An ordinary wallet
+   (System-owned, no data, not executable) is bounded as before; an absent
+   one is `Unmet`, not ineligible. Test
+   `funding_is_reported_only_for_an_eligible_ordinary_wallet`
+   (`wide_duties.rs`).
+3. **Generation mismatch, downstream.** The handler's Reveal accepts a
+   holding whose generation is not the march host's (coordinate and site
+   only), and the planner does the same — a valid Reveal is not refused and
+   no game rule changed. But `WideSettleTransit` refuses exactly that
+   `NotImplemented` (`proc/wide.rs`, `t.host.gen() != h.gen`), so such a
+   march cannot use that normal settlement path. `WideCloseTransit` returns
+   the whole transit account balance to immutable rent_to, not holding
+   escrow. Season-end CloseHolding can refund remaining escrow to the
+   holding rent payer after pool obligations; this is a separate path. `RevealFacts.holding_gen` (sealed
+   content) and `DOWNSTREAM_GENERATION` in `unverified` state it; the
+   description shows both generations and `downstream_settlement_at_risk`.
+   Test
+   `a_generation_mismatch_is_accepted_as_the_handler_does_and_the_downstream_risk_is_said`
+   (`wide_reveal.rs`). The source/history gates are unchanged.
+
+### Parity pins added (`wide_duties.rs`, keyless, existing fixtures)
+
+- `season_judgement_matches_the_abi_effective_status_rule`: every stored
+  status × a clock before/at/after genesis against
+  `frontier_abi::layout::world::season::effective_status` and the
+  `[Running, Ended]` list — plans iff allowed, promoted iff Seeded moved,
+  `SeasonNotStarted` / `SeasonStatus` otherwise.
+- `absence_rule_matches_the_programs_definition_at_every_position`:
+  `fclient::decode::is_absent` is `addr::absent` (System-owned and empty,
+  lamports ignored); the three non-absent shapes at the holding and transit
+  positions are typed refusals; an unread key is `Need`, never absent.
+- `a_present_transit_record_in_any_state_holds_the_return_back_as_the_handler_does`:
+  `Departed`, `Settled` and `Free` records in each of the four slots hold
+  the host back; another host's record does not.
+
 ## Touched files
 
 `frontier-node/crates/keeper/src/wideproof.rs` (new),
@@ -963,3 +1103,7 @@ fourth: `enable_wide_snapshot_via_port` under the same flag),
 `frontier-node/crates/keeper/tests/wide_duties.rs` (new),
 `frontier-node/crates/keeper/tests/wide_reveal.rs` (new), this document.
 No `Cargo.toml`, fclient, ABI, program, engine, herald, web or UI file.
+
+### Nonce qualification after independent review
+
+System-owned data accounts are not categorically invalid fee payers: initialized nonce accounts may pay fees subject to runtime and rent-reserve checks, while a System transfer requires additional eligibility. This slice does not perform those checks or prove a positive transfer debit. Such accounts therefore produce Funding::Unknown and FundingUnknown, not Ineligible. Program-owned/executable accounts and conflicting state-account aliases remain Ineligible. Beneficiary is encoded in Reveal data, so beneficiary equal to payer is not refused as an account alias.

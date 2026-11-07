@@ -105,8 +105,8 @@ use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
 
 use crate::wideduty::{
-    self, addr, ctx_of, holding_at, metas, missing, presence, province_at, season_of, transit_at,
-    Block, Bound, Canon, Reads, Scope, Step, AUTOMATIC_SEND,
+    addr, ctx_of, holding_at, metas, missing, presence, province_at, season_of, transit_at, Block,
+    Bound, Canon, Reads, Scope, Step, AUTOMATIC_SEND,
 };
 use crate::wideindex::WideDiscovery;
 use crate::wideproof::{DepartProof, Provenance};
@@ -186,6 +186,16 @@ pub const UNVERIFIED: [&str; 5] = [
 /// Appended when the reads are not one response.
 pub const UNVERIFIED_COHERENCE: &str =
     "coherence: the account reads are a lower-bound snapshot and the clock a separate call";
+/// Appended when the holding's generation is not the march host's: the
+/// handler's Reveal accepts it (coord and site only), the downstream
+/// WideSettleTransit refuses exactly that `NotImplemented`
+/// (`proc/wide.rs`, `t.host.gen() != h.gen`), so the march may never
+/// settle normally. WideCloseTransit returns the whole transit account
+/// balance to immutable `rent_to`, not holding escrow. Season-end
+/// CloseHolding may refund remaining escrow to its rent payer after pool
+/// obligations; that is not normal march settlement.
+/// A statement about what follows, not a refusal of a valid Reveal.
+pub const DOWNSTREAM_GENERATION: &str = "downstream settlement: the holding's generation differs from the march host's; WideReveal accepts it, WideSettleTransit refuses it NotImplemented, so normal march settlement is blocked; WideCloseTransit returns the transit account balance to immutable rent_to, not holding escrow; season-end holding refunds are a separate path";
 /// Appended when the reads are one response: coherent, but not current.
 pub const UNVERIFIED_CURRENCY: &str =
     "currency: the snapshot's context slot is the slot the RPC served, not proof the data is current";
@@ -210,6 +220,11 @@ pub struct RevealFacts {
     pub path_provinces: Vec<ProvinceKey>,
     pub travel_secs: u32,
     pub crypto: Crypto,
+    /// The holding record's generation as read. The march host's is
+    /// `host.gen()`; when they differ the handler's Reveal still accepts
+    /// (coord and site only) and [`DOWNSTREAM_GENERATION`] is appended to
+    /// `unverified`.
+    pub holding_gen: u8,
     /// The proof's provenance, carried verbatim (unproven source).
     pub source: Provenance,
     /// Keeper policy, not a handler mandate: the legacy keeper sends a
@@ -295,6 +310,7 @@ impl RevealFacts {
             Crypto::CommitmentOnly => 1,
             Crypto::IbeOpened => 2,
         });
+        c.u8(self.holding_gen);
         self.source.canon(c);
         c.str(self.budget_prefix_policy);
         c.len(self.unverified.len());
@@ -362,6 +378,9 @@ impl RevealCandidate {
             "path_provinces": f.path_provinces.len(),
             "travel_secs": f.travel_secs,
             "crypto": format!("{:?}", f.crypto),
+            "holding_gen": f.holding_gen,
+            "host_gen": f.host.gen(),
+            "downstream_settlement_at_risk": f.holding_gen != f.host.gen(),
             "source_signatures_verified": f.source.signatures_verified,
             "source_method": f.source.method,
             "budget_prefix_policy": f.budget_prefix_policy,
@@ -1001,6 +1020,7 @@ pub fn plan_reveal(
         path_provinces: path_keys,
         travel_secs: secs,
         crypto,
+        holding_gen: h.gen,
         source: proof.provenance.clone(),
         budget_prefix_policy: "keeper policy: send a ComputeBudget prefix so the fee evidence is explicit; the handler's evidence parser accepts defaults when none is present; not verified here",
         unverified: {
@@ -1010,6 +1030,14 @@ pub fn plan_reveal(
             } else {
                 UNVERIFIED_COHERENCE
             });
+            // The handler's Reveal accepts a holding whose generation is
+            // not the march host's (it compares coord and site only); the
+            // downstream WideSettleTransit refuses exactly that
+            // `NotImplemented`. Said on the candidate, never a refusal
+            // here: the game rule is the handler's.
+            if h.gen != host.gen() {
+                u.push(DOWNSTREAM_GENERATION);
+            }
             u
         },
     };
@@ -1110,17 +1138,28 @@ pub async fn reveal_via<P: ChainPort>(
 }
 
 /// A **hint only**: of the proofs a page of feed records yielded, those
-/// whose `(host, transit slot)` the discovery model still shows as an open
-/// departure. It says nothing about the transit record now — a slot may
-/// have been re-used by a later march, which [`plan_reveal`] refuses by
-/// rebinding the proof to the record (`ProofMismatch`).
+/// whose `(host, transit slot)` the discovery model shows as a departure
+/// still **open and unrevealed** — whether or not the departure has been
+/// settled at the origin (`DepartureSettled`): the handler's Reveal accepts
+/// every in-transit state (`Departed`, `Settled`, `DestroyedAtOrigin`), so
+/// a settled departure keeps its reveal pending. Not [`crate::wideduty::settle_candidates`],
+/// which names only unsettled departures. It says nothing about the
+/// transit record now — a slot may have been re-used by a later march,
+/// which [`plan_reveal`] refuses by rebinding the proof to the record
+/// (`ProofMismatch`).
 pub fn proofs_for(d: &WideDiscovery, proofs: &[DepartProof]) -> Vec<DepartProof> {
-    let open = wideduty::settle_candidates(d);
     proofs
         .iter()
         .filter(|p| {
-            open.iter()
-                .any(|(h, s)| *h == p.host && *s == p.transit_slot)
+            d.hosts
+                .get(&p.host)
+                .and_then(|st| st.transit.as_ref())
+                .is_some_and(|t| {
+                    t.slot == p.transit_slot
+                        && t.departure.is_some()
+                        && t.open()
+                        && t.reveal.is_none()
+                })
         })
         .cloned()
         .collect()

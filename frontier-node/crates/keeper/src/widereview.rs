@@ -149,6 +149,11 @@ pub enum Deny {
     /// The payer's balance at the context slot does not cover the
     /// calculated lower bound (rent + base fee).
     FundingUnmet,
+    /// The payer cannot be this instruction's fee payer: executable,
+    /// program-owned, or a conflicting state account of
+    /// the instruction (`widefees::Funding::Ineligible`); its balance is
+    /// not funding.
+    FundingIneligible,
 }
 
 /// The engine facts the review reads, through public methods only.
@@ -278,6 +283,7 @@ fn assess(
     match needs.as_ref().map(|n| n.funding) {
         None | Some(Funding::Unknown(_)) => r.denials.push(Deny::FundingUnknown),
         Some(Funding::Unmet { .. }) => r.denials.push(Deny::FundingUnmet),
+        Some(Funding::Ineligible(_)) => r.denials.push(Deny::FundingIneligible),
         Some(Funding::MetLowerBound { .. }) => {}
     }
     r.denials.sort();
