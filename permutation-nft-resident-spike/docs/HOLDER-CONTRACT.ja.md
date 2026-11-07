@@ -223,3 +223,41 @@ v0.17 の持ち主の定義への置き換え（`authorize` = `holder` + `author
 4. 試験：記録を超えた `feed_scanned` を持つ保存物（落ちた場合の再現）で、最後の記録より後が whole にならない。
 
 ⑳ 側の変更（受領後）：生の読み取りの `fetch` で、`through` を住民プログラムの読み取り応答の `scannedThrough`、`tip` を同じ応答の `ledgerLen` にし、別の `frontier_status` の呼び出しをやめる。保存物は c7b3c54c の方針どおり Unknown のまま。
+
+## 11. ④ の scan を受け取ってから（2026-11-07、v0.21）
+
+④ が利用者の許可で push した `claude/gallant-ride-cunptv` の 6cd6dd14（tree fdad2bcb、⑳ 85a48c7c の上に ④ db5398d1 と ⑪ 0012）に fast-forward した。
+
+### 4 条件の照合（コードを読んで確認）
+
+| 条件 | 場所 | 結果 |
+|---|---|---|
+| 1. 走査の範囲を記録と同じ書き込みで残す | `Findex::ingest` は記録があるときだけ `append_feed(&got, cursor)`。`Archive::commit` は区画のフレームを同期してから manifest（cursor と記録の数を含む）を書く。落ちれば古い manifest が残り、範囲も記録も前のまま | 確認 |
+| 2. 範囲の検査 | `LocalnetFeed::check_scan`：`scannedThrough > ledgerLen`、`ledgerLen < after`、`scannedThrough < after`、cursor の取引の署名違い、台帳の縮み、runId 違いを拒否。join は `feed_scanned < feed_after` を拒否 | 確認 |
+| 3. 再開 | `restore` は `feed_last` があるとき（または after 0）だけ `feed_scanned` を残す。次の読み取りで `atAfter` を `feed_last` と照合 | 確認 |
+| 4. 記録より先の範囲 | `findex::ledger::check_node`：最後の記録から `feed_scanned` までに、その program の取引がノードに無いことを確かめる（program が記録されていない・読めない・範囲内に取引がある、はどれも不合格） | 確認 |
+
+ノード側（`localnet::chain::scan_ledger`）：`scannedThrough` は、上限で切れなければ台帳の長さ、切れれば最後に返した記録の seq。記録と同じロックの中で返す。確認。
+
+### ⑳ の変更
+
+`resident_feed::fetch` を、findex の `LocalnetFeed`（読み取りごとに上の検査をする）で住民プログラムの feed を読むように変えた。`through` と `tip` は、その読み取り自身の答えの走査範囲（`feed_scanned`）。別の `frontier_status` の呼び出しはやめた。ノードが走査範囲か台帳の名を返さないとき、feed が空のとき、走査範囲がゲームの最後の seq より前のときは `unknown`（whole にならない）。保存物は c7b3c54c の方針どおり Unknown のまま。
+
+### 実行した試験（鍵ペアの生成・導出・署名なし、すべて合格）
+
+| 試験 | 件数 |
+|---|---|
+| `verify --test resident_ledger`（生の読み取り：範囲が同じ答えから来る、読み取りの間に台帳が伸びればその先まで、scan の無いノードと住民の取引の無い読み取りは whole にならない。保存物 2 件） | 4 |
+| `verify --test ws04_scan_resident`（④） | 4 |
+| `verify --test ledger_history`・`--test history`（⑲） | 6・16 |
+| `findex --test ledger`・`ws04_feed_scan`・`ws04_join_adversarial` | 15・11・7 |
+| `verify` lib の `resident_feed`・V28 | 9 |
+| `localnet` lib の `chain::feed_scan_tests` | 3 |
+
+`fetch` の三つの規則（空の feed、範囲を走査の答えから取る、`tip`）を一つずつ壊すと、試験が落ちることを確かめた。clippy 合格。
+
+### 未確認
+
+- 本物の `frontier-localnet` に住民プログラムを載せての読み取り（代替ノードだけ）。
+- 生の読み取りを完全とみなすかは利用者が確認中（④ の連絡）。⑳ の側は、確認されていない履歴を PASS にしない。V0 は ResidentAct を引き続き UNVERIFIABLE にし、内側の命令の効果は再生しない。
+- ④ が報告した c7b3c54c 由来の 2 件の FAIL（V0 の custody 命令 11 個の答え、conquest kind 105）は、⑪ の 0012 で扱われたと ④ の版の記述にあるが、⑳ は `verify --lib` 全体と `new_bands` を実行していない。
