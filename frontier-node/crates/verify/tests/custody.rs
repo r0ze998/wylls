@@ -11,7 +11,7 @@ mod common;
 
 use common::*;
 use verify_core::codes::{CUSTODY_IN_PROGRAM_WITHOUT_IT, CUSTODY_UNVERIFIED};
-use verify_core::{Input, Verdict};
+use verify_core::Input;
 
 const LOT_MAGIC: &[u8; 8] = b"PSF1CLOT";
 
@@ -51,6 +51,25 @@ fn inject_ix(inp: &mut Input, t: usize, data: &[u8]) {
     inp.txs[t].tx = fclient::tx::wire(&tx);
 }
 
+/// V26's own findings: (code, FAIL?, entity, detail, signature). The
+/// fixture already FAILs elsewhere (V11), so the report's verdict says
+/// nothing about custody; these do.
+fn v26(r: &verify_core::Report) -> Vec<(String, bool, String, String, String)> {
+    r.findings
+        .iter()
+        .filter(|f| f.check == "V26")
+        .map(|f| {
+            (
+                f.code.clone(),
+                f.fail(),
+                f.entity.clone(),
+                f.detail.clone(),
+                f.signature.clone(),
+            )
+        })
+        .collect()
+}
+
 fn verdict(inp: &Input) -> verify_core::Report {
     verify_core::verify(inp)
 }
@@ -74,8 +93,23 @@ fn a_landed_custody_instruction_in_a_season_without_custody_fails() {
         let t = landed_with_ix(&inp);
         inject_ix(&mut inp, t, &[tag.tag()]);
         let r = verdict(&inp);
-        assert_eq!(r.verdict, Verdict::Fail, "{}: {}", tag.name(), show(&r));
-        assert!(r.fails_with(CUSTODY_IN_PROGRAM_WITHOUT_IT), "{}", show(&r));
+        let sig = inp.txs[t].signature.to_string();
+        assert_eq!(
+            v26(&r),
+            vec![(
+                CUSTODY_IN_PROGRAM_WITHOUT_IT.to_string(),
+                true,
+                "transaction".to_string(),
+                format!(
+                    "a landed {} instruction in a season whose program has no custody",
+                    tag.name()
+                ),
+                sig,
+            )],
+            "{}: {}",
+            tag.name(),
+            show(&r)
+        );
     }
 }
 
@@ -88,7 +122,7 @@ fn a_failed_custody_instruction_is_not_flagged() {
     inject_ix(&mut inp, t, &[frontier_abi::v2::Ix::ShipLot.tag()]);
     inp.txs[t].err = Some("custom program error: 0x1".into());
     let r = verdict(&inp);
-    assert!(!r.fails_with(CUSTODY_IN_PROGRAM_WITHOUT_IT), "{}", show(&r));
+    assert!(v26(&r).is_empty(), "{}", show(&r));
 }
 
 #[test]
@@ -107,8 +141,18 @@ fn a_lot_account_in_a_season_without_custody_fails() {
         }),
     );
     let r = verdict(&inp);
-    assert_eq!(r.verdict, Verdict::Fail, "{}", show(&r));
-    assert!(r.fails_with(CUSTODY_IN_PROGRAM_WITHOUT_IT), "{}", show(&r));
+    assert_eq!(
+        v26(&r),
+        vec![(
+            CUSTODY_IN_PROGRAM_WITHOUT_IT.to_string(),
+            true,
+            format!("account:{}", fclient::Address::new_from_array([0xC1; 32])),
+            "a Lot account at the pinned slot in a season whose program has no custody".to_string(),
+            String::new(),
+        )],
+        "{}",
+        show(&r)
+    );
 }
 
 #[test]
@@ -146,9 +190,33 @@ fn a_custody_season_is_never_a_pass() {
     let t = landed_with_ix(&inp);
     inject_ix(&mut inp, t, &[frontier_abi::v2::Ix::ConsumeLot.tag()]);
     let r = verdict(&inp);
-    assert_ne!(r.verdict, Verdict::Pass, "{}", show(&r));
-    assert!(
-        r.findings.iter().any(|f| f.code == CUSTODY_UNVERIFIED),
+    // The fixture FAILs elsewhere already (V11), so judge V26 alone:
+    // exactly one finding, UNVERIFIABLE, naming the landed instruction at
+    // its transaction.
+    let sig = inp.txs[t].signature.to_string();
+    let v26: Vec<_> = r
+        .findings
+        .iter()
+        .filter(|f| f.check == "V26")
+        .map(|f| {
+            (
+                f.code.as_str(),
+                f.fail(),
+                f.entity.as_str(),
+                f.detail.as_str(),
+                f.signature.as_str(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        v26,
+        vec![(
+            CUSTODY_UNVERIFIED,
+            false,
+            "transaction",
+            "a landed ConsumeLot instruction: custody is not verified (no V26 replay yet)",
+            sig.as_str(),
+        )],
         "{}",
         show(&r)
     );
