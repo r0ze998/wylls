@@ -17,7 +17,7 @@
 //! | `conquest` (MC: DeclareSiege, SettleSiege, SettleCapture, FoldMarch, RetireHost, CloseMarch) | CQ2-C |
 //! | `caravan` (S1 1b: BuildVault, SendCaravan, SettleCaravan, RaidCaravan, SeizeVault, CloseVault, DefaultRaid) | S1 |
 //! | `tower` (S1 1d: BuildStructure, SeizeStructure, CloseStructure) | S1 |
-//! | `custody` (0xC1–0xCB, the `custody-preview` build) | workstream 10 (Pending) |
+//! | `custody` (0xC2–0xCC, the `custody-preview` build) | workstream 10 (Pending) |
 //!
 //! **MC (ABI v2, conquest contract §13.3 G13).** [`covered_by`] matches
 //! `frontier_abi::v2::Ix` (73 tags), so the MC and S1 instructions are in

@@ -437,7 +437,7 @@ pub fn parse(body: &[u8]) -> Option<CqLog> {
     let b8 = |name: &str| -> Option<u8> { u(name).map(|v| v as u8) };
     let event = match k {
         // Custody (workstream 10): not a conquest event; a custody reader
-        // decodes these records (`frontier_abi::v2::log`, kinds 104–112).
+        // decodes these records (`frontier_abi::v2::log`, kinds 105–113).
         CqKind::LOT_OPENED
         | CqKind::LOT_QUOTA
         | CqKind::LOT_INBOUND

@@ -94,7 +94,7 @@ pub use error::{CqError, Error, FrontierError, R};
 /// **Custody preview (workstream 10, feature `custody-preview`):** the
 /// binary is a different program: it embeds `RULESET_HASH_V4` and writes
 /// `program_version` 5, so it refuses every S1 Season, and dispatches the
-/// custody tags 0xC1–0xCB, which the S1 build refuses (`BadData`). Hash,
+/// custody tags 0xC2–0xCC, which the S1 build refuses (`BadData`). Hash,
 /// version and dispatch switch together; there is no build that runs
 /// custody under the S1 hash.
 #[cfg(not(feature = "custody-preview"))]

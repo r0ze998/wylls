@@ -15,7 +15,7 @@
 //! is a FAIL whatever the history. That never upgrades the season: with the
 //! history not replayed, the best a custody season gets is UNVERIFIABLE.
 //!
-//! A trace is: a custody instruction (0xC1–0xCB) of a landed transaction
+//! A trace is: a custody instruction (0xC2–0xCC) of a landed transaction
 //! (top level: a CPI is caught by what it leaves), a custody record
 //! (`LOT_*`, a Lot's CLOSE), or, in any post-state or final account of the
 //! program, a Lot, a Vault with custody counts, a Caravan with custody
