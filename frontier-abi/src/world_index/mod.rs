@@ -44,6 +44,7 @@ pub mod coord;
 pub mod index;
 pub mod key;
 pub mod legacy;
+pub mod movement;
 pub mod tiles;
 
 pub use coord::{CoordError, RingPosition, WideCoord, SORT_KEY_LEN, WIDE_BOUND};
