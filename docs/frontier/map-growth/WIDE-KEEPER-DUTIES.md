@@ -1,5 +1,13 @@
 # Wide keeper duties, first slice: proof extraction and unsigned planning (2026-11-07, revised 2026-11-08 after independent review, on `d132baec`)
 
+## Current checkpoint: snapshot and runtime review
+
+The latest local source passes 70 audited tests: discovery 14, duties 23, legacy guard 12, Reveal 15 and real RpcPort loopback snapshot 6. Feature-enabled library/binary/all new tests and default library/binary pass clippy with warnings denied. Public FromBeacon opening now succeeds with the pre-existing recorded IBE material and shipped quicknet signature; no keypair or signature was generated.
+
+Runtime tick integration is opt-in and read-only for Settle/Return only. Reveal and same-response snapshot planners remain explicit orchestrator calls, not tick-connected. The Engine review still denies every candidate; no ensure, send, simulation, signer or production gate change is introduced. Main, deployment and UI are unchanged. Actual chain freshness/history, live fee quotation and future payer balance remain unproven.
+
+Earlier sections record previous checkpoints; their untested opening and always-incoherent limitations are superseded only to the extent described in the third slice below.
+
 Two **read-only, opt-in** keeper modules behind the existing feature
 `wide-world-experimental`: `frontier-node/crates/keeper/src/wideproof.rs` and
 `frontier-node/crates/keeper/src/wideduty.rs`. Neither signs, simulates, sends
@@ -427,15 +435,289 @@ cargo clippy --locked --offline -p keeper --lib -- -D warnings
 
 On the final local source, all 9 Reveal/review tests, 20 duty tests, 14 discovery tests and 12 legacy guard tests passed (55 total). The feature-enabled keeper library and both new test targets passed clippy with warnings denied; default-feature library clippy and feature-enabled binary compilation also passed. No keeper process was started. Independent static review found no remaining safety blocker in this read-only slice. The initial arrival-mismatch test expected the later proof comparison, while the publication round gate correctly refused first; both that early refusal and a current-transit arrival mismatch now have explicit assertions. Public quicknet verification succeeded, but positive FromBeacon wide-seal opening remains untested.
 
+## Third slice (2026-11-08, on `c30dc259`): public-vector opening, snapshot, fees, tick review
+
+Four additive pieces, same feature, same rules: nothing signs, simulates,
+sends or enqueues; `Engine::ensure` stays unreachable from these modules;
+the legacy PSW1 guard still stops game writes; no production handler, gate,
+fclient, ABI or UI file changes. **Not compiled or run by the author.**
+
+### Real `FromBeacon` opening of a recorded public vector
+
+The recorded seal vector `valid_spv2_32551361`
+(`permutation-rules/vectors/seal-vectors-v1.json`) carries the IBE block
+sealed to quicknet round 32551361 and the key `k` the stock opener
+recovers from it; the shipped quicknet fixture of that round carries its
+real signature. The test `from_beacon_opens_the_recorded_public_vector_and_corruptions_refuse`
+assembles a wide seal from the vector's IBE block and the fixture
+plaintext's body under `k` (`seal::assemble`/`body_xor`), commits under
+`salt_of(k)`, lays the fixture Season out so that `T(20)` is that round
+(as `wide_land_runtime_tests` does), and plans with `Opening::FromBeacon`:
+the publication gate verifies the shipped signature under the published
+key, `fclient::seal::open_ibe` recovers `k` (real pairing and FO check,
+the stock opener), `open_body` reproduces the commitment, and the
+candidate is `Crypto::IbeOpened` with the derived salt in its data. A
+flipped `V` byte is `SealOpen`; a flipped body byte is `CommitMismatch`;
+another shipped round's real signature is `BeaconRound`; a record with
+another root is `ProofMismatch("seal_root")`. **This is a fixture over
+public material, not a live chain**; nothing was generated.
+
+### `widesnapshot`: same-response accounts, additive
+
+`SnapshotPort` (default `Unsupported`; implemented for `fclient::rpc::RpcPort`)
+returns all requested keys, the Clock and, when asked, the Rent sysvar in
+**one** `getMultipleAccounts` response with its exact `context.slot`
+(`SnapshotMeta`, constructed only by the module). Bounds and refusals: at
+most 98 keys (`TooManyKeys`), never chunked; a response with another entry
+count (`Partial`), without `context.slot` (`Malformed`), or whose Clock or
+Rent entry is absent or undecodable (`MissingClock`/`MissingRent`) is
+refused. `Snapshot::reads` gives the planners `Reads` with the snapshot's
+Clock and Rent; a `Candidate`/`RevealCandidate` planned over it is
+`coherent: true` and carries the meta. `snapshot_plan` first learns the
+key set through ordinary reads, then takes one snapshot of every key plus
+the fee payer, then plans over that response alone — a plan that asks for
+a key the response lacks is `SnapshotIncomplete`, never patched.
+**Coherence is not currency** (the context slot is what the RPC served),
+not source completeness, and not permission: the review replaces
+`NoCoherentSnapshot` with `SnapshotCurrencyUnknown` and every other denial
+stays. An equal `min_slot` on separate calls is never coherence; the
+existing `ChainPort` and every port keep their behaviour.
+
+### `widefees`: calculated requirements, declared assumptions
+
+From the handler: `reveal` reads the fee evidence from the instructions
+sysvar through `evidence::parse`, which yields **zero when a ComputeBudget
+instruction is absent** — the prefix is keeper policy, not a mandate; it
+creates the ArrivalSlot (288 B) when the arrival fills a free slot and the
+ArrivalDay (144 B) when none exists, from the fee payer at the Rent
+sysvar's minimum. `reveal_needs`/`duty_needs` calculate the rent of the
+created accounts **only** from a same-response Rent sysvar (ABI sizes,
+the runtime's `minimum_balance`, checked arithmetic), the base fee as
+`5,000 × one signature assumed` (named), leave the priority fee and the
+compute budget unchecked (no price is chosen; no measured row exists for
+the draft band — the engine would request `CU_MAX` and the default loaded
+limit), and bound the payer only from its account in the same response:
+`MetLowerBound` means the balance at the context slot covers rent + base
+fee and nothing about the fee or balance at send time; otherwise `Unmet`
+with the shortfall or `Unknown` with the reason. The review adds
+`FundingUnmet`/`FundingUnknown` accordingly and keeps
+`ExecutionEvidenceUnverified` always.
+
+### `widetick`: the bounded read-only tick review
+
+`Keeper::enable_wide_review(Deployment)` (binary flag `--review-wide
+<version_hex>:<ruleset_hash_hex>`, requires `--observe-wide`) adds one step
+after `refresh_discovery`: at most `CANDIDATES_PER_TICK` (2) hints from the
+observer's model per tick, round-robin, each not re-reviewed within
+`REFRESH_SLOTS` (64), planned through the ordinary `ChainPort` reads
+(≤ 3 rounds each plus one clock read; `coherent: false`, said so),
+reviewed with the engine's public state and the fee review, recorded in a
+ledger of at most 256 entries, and shown under `wide.review` in
+`/v1/status` (addresses and hex identities only; no key material). The
+payer named in those unsigned candidates is the zero address: no payer is
+drawn. The step runs whether or not the legacy guard has fired and only
+reads. **Why no snapshot here**: the keeper is generic over `ChainPort`
+and the snapshot is an additive capability; requiring it would change the
+keeper's bound for every port. An orchestrator with an `RpcPort` uses
+`settle_departure_snapshot`/`return_snapshot`/`reveal_snapshot` directly.
+A `Keeper` cannot be constructed in the keyless tests (its constructor
+derives signing keys), so the step is tested directly
+(`the_tick_review_plans_reviews_and_enqueues_nothing`) and the wiring is
+compile-only.
+
+### Review fixes (independent static review of the first version)
+
+- **Sealed provenance, re-verified by every consumer.** `SnapshotMeta`
+  now carries a SHA-256 digest over the whole response (requested and
+  context slots, commitment, every key with presence, lamports, owner,
+  executable flag and data, the Clock bytes, the Rent bytes) and is
+  constructed only by `parse_snapshot_response`; `Snapshot`'s contents sit
+  behind accessors. The public `Reads` stays mutable for compatibility, but
+  `Reads::coherent_snapshot()` recomputes the digest over the reads it is
+  given, and the planners, the fee review and the admission review decide
+  coherence through it alone: an edited account, an added or removed key,
+  a changed `min_slot`, a swapped clock or rent, or a meta cloned onto
+  other bytes verify as nothing. `Candidate`/`RevealCandidate` hold the
+  verified meta in a crate-private field (`coherent()` and `snapshot()` are
+  methods); no caller constructs a candidate or sets a flag.
+- **Candidate/fee/review binding.** `duty_needs`/`reveal_needs` calculate
+  only when the reads re-verify as the snapshot **the candidate itself**
+  carries (digest equality); otherwise rent is `Unchecked` and funding
+  `Unknown`. `review_candidate(c, reads, view)` / `review_reveal(c, reads,
+  view)` take the candidate and its reads and return an `Assessment`
+  (review, needs, bound snapshot); the former free-form `Evidence` input
+  is gone. A/B mixing (candidate of one response, reads of another) binds
+  nothing and keeps `NoCoherentSnapshot`.
+- **Response validation.** The request carries `minContextSlot`; the
+  response's `context.slot` must be at or past it (`Stale`); the Clock and
+  Rent entries must be owned by the sysvar owner, non-executable, of their
+  exact lengths (40 and 17) and decodable, and the Clock's own slot must
+  equal the context slot (`BadClock`, `BadRent`); duplicate requested keys
+  are refused (`DuplicateKey`); cardinality exact; one request, no chunk
+  merge.
+- **Tick hook.** The read-only step runs **before** `publish`, whatever the
+  discovery result, and the discovery result and every gate are handled
+  exactly as before; the planners' lower bound is the tick's slot; the
+  cap is `min(candidates_per_tick, CANDIDATES_PER_TICK)` at every step;
+  the round-robin cursor advances by the positions inspected. The step is
+  tested directly with a read-failing port and a three-hint model (a
+  `Keeper` is not built: its constructor derives keys).
+- **Rent.** The full `minimum_balance(size)` per created account is what
+  the fee review requires (it never nets a prefunded account); the base
+  fee stays a named one-signature lower bound;
+  `ExecutionEvidenceUnverified` stays on every review.
+
+### Second review round (independent static review of the fixed version)
+
+- **Candidate content sealed to the snapshot.** The private snapshot field
+  alone did not stop a caller from editing a candidate's public fields
+  (`facts`, `duty`, `instruction`, `payer`/`fee_payer`, `min_slot`,
+  `observed_clock`) and having the fee review calculate against the
+  original response — e.g. `day_present = true` or `displaced = Some(..)`
+  would have dropped a creation's rent. `Candidate` and `RevealCandidate`
+  now hold a crate-private `Bound { meta, content }`: the verified
+  `SnapshotMeta` together with a SHA-256 **content digest** computed by
+  the planner over the instruction (program id, every account meta's key,
+  signer and writable flags, data), every fact (`Duty`/`RevealFacts`,
+  including the source provenance, publication facts and unverified
+  lines), the payer (and beneficiary), `min_slot`, the observed clock and
+  the status flag. The content digest never covers the bound itself, so
+  there is no recursion between the snapshot binding and the content.
+  `snapshot()` recomputes the content digest and returns the meta only
+  when it matches; `coherent()`, `describe()`, `duty_needs`/`reveal_needs`
+  and `review_candidate`/`review_reveal` all go through `snapshot()`, so a
+  mutated candidate loses coherence, rent, funding and the bound
+  assessment over the very reads that still verify as its snapshot. The `signed`/`automatic_send` flags are also encoded in the final content digest; modifying them loses the binding, and they never grant admission.
+- **Sysvar `executable` strictness.** `fclient::rpc::parse_account`
+  defaults a missing or non-boolean `executable` to `false`; the snapshot
+  parser now requires the Clock and Rent JSON to carry
+  `executable.as_bool() == Some(false)` before parsing the entry
+  (`BadClock("executable")`/`BadRent("executable")` for missing, string,
+  numeric, null or `true`). Ordinary accounts keep the generic parser's
+  behaviour.
+- **Rent wording.** The module doc and the `rent_rule` status line now
+  distinguish the handler's **precondition** — `init::rent(size)`, the
+  full minimum balance for the created size — from the creation's actual
+  system transfer, which tops up only a prefunded address's shortfall. The
+  review keeps requiring the full minimum as the safe bound and does not
+  model the netting.
+- **Provenance test fixed.** `snapshot_provenance_cannot_be_moved_onto_other_bytes`
+  built its key list from the planned reads without the payer, so the
+  "other response" never differed and the moved-meta assertion failed
+  with identical snapshots. The test now requests the payer, asserts the
+  two snapshots' digests differ and each verifies on its own, and checks
+  both directions of moving a meta onto the other's bytes. The integrity
+  check itself is unchanged.
+
+### Third review round (canonical content bytes)
+
+- **No `Debug` in the content digest.** The first content digest hashed
+  `format!("{:?}")` of the facts; `WorldId`'s `Debug` prints four of its
+  32 bytes, so two identities differing only later (a host, a holding, an
+  origin, a standing, a destination, a displaced host, a path province, a
+  return pick) hashed the same. `wideduty::Canon` is now a canonical,
+  lossless encoder: scalars little-endian at full width, byte strings and
+  sequences length-prefixed, options tagged, enums by a tag byte, strings
+  by their bytes, identities by their full ABI bytes (`ProvinceKey` 50,
+  `WideHostRef` 56, both carrying the 32-byte world). `SettleFacts`,
+  `ReturnPick`, `ReturnFacts`, `Duty`, `Window`, `PublicationFacts`,
+  `Provenance` and `RevealFacts` each write every field in declaration
+  order; both `content()` methods (domains `…-v2`) hash the instruction,
+  the facts, payer (and beneficiary), `min_slot`, the observed clock,
+  `status_promoted_by_clock`, **and `signed`/`automatic_send`** — every
+  exposed field. The parent's Rent `minimum_balance` boundary fix
+  (`v >= u64::MAX as f64` refused) is kept.
+- **Regressions.** `world_bytes_past_the_debug_prefix_are_candidate_content`
+  (`wide_duties.rs`: a coherent settle and a coherent return candidate;
+  the host's, origin's, standing's, holding reference's and pick host's
+  world bytes 4/5/17/31 flipped with the instruction unchanged and
+  `Debug` output asserted equal; every remaining return fact; each flag;
+  flipped back is coherent again) and
+  `world_bytes_past_the_debug_prefix_are_reveal_candidate_content`
+  (`wide_reveal.rs`: a displacing arrival planned over one parsed
+  response; host, destination and displaced worlds at bytes 4/5/17/31; a
+  path province of a look-alike world; every remaining source, window,
+  publication and label field; each flag). The earlier mutation tests
+  now treat the flags as content.
+
+### Tests added
+
+- `from_beacon_opens_the_recorded_public_vector_and_corruptions_refuse`
+  (recorded `k`, IBE block and public round signature only; nothing
+  generated)
+- `snapshot_parsing_refuses_partial_malformed_oversized_stale_and_bad_sysvar_responses`
+  (second round: Clock/Rent `executable` missing, string, numeric, null,
+  `true`; a plain account without the flag still parses)
+- `snapshot_provenance_cannot_be_moved_onto_other_bytes` (every reads
+  mutation and the A/B mixing cases; second round: the payer requested,
+  digests asserted different, both directions of a moved meta)
+- `snapshot_reveal_is_coherent_at_the_context_slot_and_the_fee_review_bounds_the_payer`
+- `a_mutated_reveal_candidate_loses_its_snapshot_fee_bound_and_review`
+  (second round: a funded, coherent reveal candidate; mutations of
+  `day_present`, `displaced`, `day_bit_set`, `target_i`, `arrive_bell`,
+  `crypto`, the publication flag, the source signature, the unverified
+  lines, `fee_payer`, `beneficiary`, program id, data first/last/longer,
+  account key/signer/writable/fewer/more/reordered, `min_slot`, clock
+  changed/dropped, `status_promoted_by_clock`; A/B mixing of two coherent
+  candidates over each other's reads and of mutated ones; the pristine
+  pair still binds afterwards)
+- `a_mutated_settle_candidate_loses_its_snapshot_fee_bound_and_review`
+  (in `wide_duties.rs`, second round: a settle candidate planned over a
+  literal-JSON snapshot parsed by `parse_snapshot_response` with the payer
+  requested; the same mutation classes over `duty` fields and kind,
+  `payer`, instruction, `min_slot`, clock, status flag; A/B mixing)
+- `the_tick_review_plans_reviews_and_enqueues_nothing` (in `wide_duties.rs`:
+  tick-slot bound, refresh window, blocked hint, read failure, hard cap and
+  cursor, the settle subject key)
+
+**Exact runtime coverage, stated.** The tick path reviews **Settle and
+Return** hints over non-coherent `ChainPort` reads. It does **not** plan
+Reveal (no proof, opening or beacon on that path) and does **not** use the
+snapshot RPC; the snapshot planners (`settle_departure_snapshot`,
+`return_snapshot`, `reveal_snapshot`) are orchestrator-callable and **not
+runtime-connected**.
+
+The earlier assertions on `unverified` now expect the coherence line to be
+appended (or the currency line over a snapshot); no test constructs a
+`Candidate` or `RevealCandidate` literal (the bound is crate-private). Run
+the same commands as the second slice; the `--bin` build (`cargo build
+--locked --offline -p keeper --features wide-world-experimental`) covers the
+flag and the tick wiring, compile only.
+
+Final validation: all 70 tests above passed on the same final source after canonical encoding and flag-binding fixes. The actual RpcPort was exercised against a local loopback HTTP stand-in, confirming one request, exact keys and configuration, context/Clock binding, stale-context refusal, foreign sysvar refusal and oversized input producing zero requests. No actual chain or keeper process was started. Independent final static review found no remaining blocker in the narrowed read-only slice.
+
+### Limitations of this slice (stated)
+
+- The tick path reviews with non-coherent reads; snapshot planning is
+  orchestrator-only.
+- The snapshot's `commitment` is the requested one (`confirmed`); the RPC
+  does not echo it.
+- The fee review names a one-signature base fee and reads no network fee;
+  rent is calculated only with a same-response Rent sysvar; funding is a
+  lower bound at the context slot.
+- `FromBeacon` success is demonstrated on a recorded vector whose round
+  signature is the shipped quicknet round; a live chain's anchor and
+  records were not read.
+
 ## Touched files
 
 `frontier-node/crates/keeper/src/wideproof.rs` (new),
-`frontier-node/crates/keeper/src/wideduty.rs` (new; second slice: new
-`Block` variants and `pub(crate)` helpers),
-`frontier-node/crates/keeper/src/widereveal.rs` (new, second slice),
-`frontier-node/crates/keeper/src/widereview.rs` (new, second slice),
-`frontier-node/crates/keeper/src/lib.rs` (four gated `pub mod` lines and
-four module-table rows), `frontier-node/crates/keeper/tests/wide_duties.rs`
-(new), `frontier-node/crates/keeper/tests/wide_reveal.rs` (new, second
-slice), this document. No `Cargo.toml`, fclient, ABI, program, engine,
-herald, web or UI file.
+`frontier-node/crates/keeper/src/wideduty.rs` (new; later slices: new
+`Block` variants, `pub(crate)` helpers, `Reads.snapshot`/`rent`,
+the crate-private `Candidate.bound` (`Bound`, the `Canon` encoder and the
+`canon` methods), snapshot drivers),
+`frontier-node/crates/keeper/src/widereveal.rs` (new; third slice:
+the crate-private `RevealCandidate.bound`, `reveal_snapshot`, the
+unverified lines),
+`frontier-node/crates/keeper/src/widereview.rs` (new; third slice:
+`Evidence`, `review_with_evidence`, three denials),
+`frontier-node/crates/keeper/src/widesnapshot.rs` (new, third slice),
+`frontier-node/crates/keeper/src/widefees.rs` (new, third slice),
+`frontier-node/crates/keeper/src/widetick.rs` (new, third slice),
+`frontier-node/crates/keeper/src/lib.rs` (gated `pub mod` lines and
+module-table rows; third slice: the `wide_review` field,
+`enable_wide_review`, the tick step, the `review` status entry),
+`frontier-node/crates/keeper/src/main.rs` (third slice: `--review-wide`),
+`frontier-node/crates/keeper/tests/wide_duties.rs` (new),
+`frontier-node/crates/keeper/tests/wide_reveal.rs` (new), this document.
+No `Cargo.toml`, fclient, ABI, program, engine, herald, web or UI file.

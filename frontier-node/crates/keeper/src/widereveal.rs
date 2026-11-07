@@ -57,7 +57,10 @@
 //! is refused.
 //!
 //! **What stays unverified, said on the candidate.** The reads are a
-//! lower-bound snapshot and the clock a separate call (`coherent: false`);
+//! lower-bound snapshot and the clock a separate call (not coherent) unless
+//! they re-verify as one sealed same-response snapshot
+//! (`Reads::coherent_snapshot`, `crate::widesnapshot`), which is coherence
+//! at a context slot and nothing more;
 //! the march's history before the applied records is unknown; the proof's
 //! source is a feed record bound by wire and frame, its signatures
 //! unverified; the fee evidence the handler reads from the instructions
@@ -103,10 +106,11 @@ use solana_instruction::{AccountMeta, Instruction};
 
 use crate::wideduty::{
     self, addr, ctx_of, holding_at, metas, missing, presence, province_at, season_of, transit_at,
-    Block, Reads, Scope, Step, AUTOMATIC_SEND,
+    Block, Bound, Canon, Reads, Scope, Step, AUTOMATIC_SEND,
 };
 use crate::wideindex::WideDiscovery;
 use crate::wideproof::{DepartProof, Provenance};
+use crate::widesnapshot::{snapshot_plan, Snapshot, SnapshotMeta, SnapshotPort};
 
 /// The public drand beacon of `T(arrive)`: the round, its signature and
 /// the public key it is claimed under. Verified by the planner against
@@ -169,15 +173,22 @@ pub struct Window {
     pub judged_at: i64,
 }
 
-/// What this slice does not verify, named on every candidate.
-pub const UNVERIFIED: [&str; 6] = [
-    "fee evidence: the handler reads the ComputeBudget prefix from the instructions sysvar; the prefix is keeper policy, the evidence parser accepts defaults when none is present; not checked here",
-    "rent: the slot and the day account the reveal may create are funded by the fee payer; not checked here",
-    "payer funding: the fee payer's balance is not read",
+/// What this slice does not verify, named on every candidate (the planner
+/// itself; `crate::widefees` calculates rent, base fee and the payer bound
+/// from a same-response snapshot where one exists, and declares the rest).
+pub const UNVERIFIED: [&str; 5] = [
+    "fee evidence: the handler reads the ComputeBudget prefix from the instructions sysvar; the prefix is keeper policy, the evidence parser accepts defaults when none is present; not checked by the planner",
+    "rent: the slot and the day account the reveal may create are funded by the fee payer; calculated by the fee review only from a same-response Rent sysvar",
+    "payer funding: bounded by the fee review only from the payer's account in the same response; never a future balance",
     "history: the march's records before the applied history are unknown",
     "source: the departure proof is a feed record bound by wire and frame; its signatures were not verified",
-    "coherence: the account reads are a lower-bound snapshot and the clock a separate call",
 ];
+/// Appended when the reads are not one response.
+pub const UNVERIFIED_COHERENCE: &str =
+    "coherence: the account reads are a lower-bound snapshot and the clock a separate call";
+/// Appended when the reads are one response: coherent, but not current.
+pub const UNVERIFIED_CURRENCY: &str =
+    "currency: the snapshot's context slot is the slot the RPC served, not proof the data is current";
 
 /// What a Reveal plan established from the reads.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -220,8 +231,10 @@ pub struct RevealCandidate {
     pub beneficiary: Address,
     pub min_slot: u64,
     pub observed_clock: Option<ClockSysvar>,
-    /// Always `false`.
-    pub coherent: bool,
+    /// The verified same-response snapshot the plan ran over, bound to a
+    /// digest of this candidate's content (crate-private, set only by the
+    /// planner). Read through [`RevealCandidate::snapshot`].
+    pub(crate) bound: Option<Bound>,
     pub status_promoted_by_clock: bool,
     /// Always `false`.
     pub signed: bool,
@@ -229,7 +242,105 @@ pub struct RevealCandidate {
     pub automatic_send: bool,
 }
 
+impl Window {
+    pub(crate) fn canon(&self, c: &mut Canon) {
+        c.i64(self.a_ts);
+        c.i64(self.reveal_close);
+        c.u64(self.seed_round);
+        c.u64(self.latest_round);
+        c.i64(self.judged_at);
+    }
+}
+
+impl PublicationFacts {
+    pub(crate) fn canon(&self, c: &mut Canon) {
+        c.u64(self.round);
+        c.bytes(&self.pk_hash);
+        c.bool(self.signature_verified);
+    }
+}
+
+impl Provenance {
+    pub(crate) fn canon(&self, c: &mut Canon) {
+        c.u64(self.seq);
+        c.u64(self.slot);
+        c.bytes(&self.signature);
+        c.usize(self.instruction_index);
+        c.bool(self.signatures_verified);
+        c.str(self.method);
+    }
+}
+
+impl RevealFacts {
+    /// Every field, in declaration order, by full canonical bytes.
+    pub(crate) fn canon(&self, c: &mut Canon) {
+        c.host(&self.host);
+        c.u8(self.transit_slot);
+        c.u32(self.arrive_bell);
+        c.province(&self.dest);
+        c.u8(self.dest_tile);
+        c.u8(self.region);
+        c.u8(self.target_i);
+        c.option(self.displaced.as_ref(), Canon::host);
+        c.bool(self.day_present);
+        c.bool(self.day_bit_set);
+        self.window.canon(c);
+        self.publication.canon(c);
+        c.len(self.path_provinces.len());
+        for k in &self.path_provinces {
+            c.province(k);
+        }
+        c.u32(self.travel_secs);
+        c.u8(match self.crypto {
+            Crypto::CommitmentOnly => 1,
+            Crypto::IbeOpened => 2,
+        });
+        self.source.canon(c);
+        c.str(self.budget_prefix_policy);
+        c.len(self.unverified.len());
+        for s in &self.unverified {
+            c.str(s);
+        }
+    }
+}
+
 impl RevealCandidate {
+    /// The digest of everything the candidate exposes: the instruction,
+    /// every fact (full identity bytes), the fee payer, the beneficiary,
+    /// the slot bound, the observed clock, the status flag and the two
+    /// always-false flags. Not the bound. Canonical bytes, never `Debug`.
+    fn content(&self) -> [u8; 32] {
+        let mut c = Canon::new(b"PSF-KEEPER-WIDE-REVEAL-CANDIDATE-v2");
+        c.instruction(&self.instruction);
+        self.facts.canon(&mut c);
+        c.address(&self.fee_payer);
+        c.address(&self.beneficiary);
+        c.u64(self.min_slot);
+        c.clock(self.observed_clock);
+        c.bool(self.status_promoted_by_clock);
+        c.bool(self.signed);
+        c.bool(self.automatic_send);
+        c.digest()
+    }
+
+    /// `true` exactly when every account and the clock the plan used came
+    /// from one verified `getMultipleAccounts` response **and** the
+    /// candidate is still exactly what the planner produced: coherence at
+    /// that context slot — not currency, not completeness, not permission.
+    pub fn coherent(&self) -> bool {
+        self.snapshot().is_some()
+    }
+
+    /// The sealed meta of the response the plan ran over, if any and if
+    /// the candidate's content still matches the digest it was bound with.
+    pub fn snapshot(&self) -> Option<&SnapshotMeta> {
+        let content = self.content();
+        self.bound
+            .as_ref()
+            .filter(|b| b.content == content)
+            .map(|b| &b.meta)
+    }
+
     pub fn describe(&self) -> Value {
         let f = &self.facts;
         json!({
@@ -259,7 +370,8 @@ impl RevealCandidate {
             "fee_payer": self.fee_payer.to_string(),
             "min_slot": self.min_slot,
             "observed_clock_slot": self.observed_clock.map(|c| c.slot),
-            "coherent": self.coherent,
+            "coherent": self.coherent(),
+            "snapshot": self.snapshot().map(SnapshotMeta::describe),
             "status_promoted_by_clock": self.status_promoted_by_clock,
             "signed": self.signed,
             "automatic_send": self.automatic_send,
@@ -891,9 +1003,17 @@ pub fn plan_reveal(
         crypto,
         source: proof.provenance.clone(),
         budget_prefix_policy: "keeper policy: send a ComputeBudget prefix so the fee evidence is explicit; the handler's evidence parser accepts defaults when none is present; not verified here",
-        unverified: UNVERIFIED.to_vec(),
+        unverified: {
+            let mut u = UNVERIFIED.to_vec();
+            u.push(if reads.coherent_snapshot().is_some() {
+                UNVERIFIED_CURRENCY
+            } else {
+                UNVERIFIED_COHERENCE
+            });
+            u
+        },
     };
-    Step::Done(Ok(RevealCandidate {
+    let mut c = RevealCandidate {
         facts,
         instruction: Instruction {
             program_id: scope.program,
@@ -904,11 +1024,45 @@ pub fn plan_reveal(
         beneficiary,
         min_slot: reads.min_slot,
         observed_clock: reads.clock,
-        coherent: false,
+        bound: None,
         status_promoted_by_clock: promoted,
         signed: false,
         automatic_send: AUTOMATIC_SEND,
-    }))
+    };
+    c.bound = reads.coherent_snapshot().cloned().map(|meta| Bound {
+        meta,
+        content: c.content(),
+    });
+    Step::Done(Ok(c))
+}
+
+/// [`plan_reveal`] over **one** snapshot response
+/// ([`crate::widesnapshot::snapshot_plan`]) with the Rent sysvar and the
+/// fee payer's account in the same response, for the fee review. The
+/// publication gate and every other check are unchanged.
+#[allow(clippy::too_many_arguments)]
+pub async fn reveal_snapshot<P: ChainPort + SnapshotPort>(
+    port: &P,
+    scope: &Scope,
+    fee_payer: Address,
+    beneficiary: Address,
+    proof: &DepartProof,
+    opening: Option<&Opening>,
+    publication: Option<&Publication>,
+    min_slot: u64,
+) -> Result<(RevealCandidate, Snapshot), Block> {
+    snapshot_plan(port, min_slot, true, &[fee_payer], |r| {
+        plan_reveal(
+            scope,
+            fee_payer,
+            beneficiary,
+            proof,
+            opening,
+            publication,
+            r,
+        )
+    })
+    .await
 }
 
 /// [`plan_reveal`] over live reads: at least `min_slot`, the Clock read

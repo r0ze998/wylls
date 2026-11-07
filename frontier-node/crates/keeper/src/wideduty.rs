@@ -80,6 +80,7 @@ use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
 
 use crate::wideindex::{Presence, WideDiscovery};
+use crate::widesnapshot::{snapshot_plan, RentSysvar, Snapshot, SnapshotMeta, SnapshotPort};
 
 /// The deployed program the caller **pins**: the exact `program_version`
 /// the Season must carry and the exact ruleset hash (`settle_season`
@@ -114,13 +115,21 @@ pub const AUTOMATIC_SEND: bool = false;
 // ------------------------------------------------------------ reads
 
 /// The accounts a planner was given, by address, with the lower bound they
-/// were requested at and the clock observed **separately** (if at all).
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+/// were requested at and the clock observed **separately** (if at all) —
+/// or, when built by [`crate::widesnapshot::Snapshot::reads`], the
+/// accounts, the Clock and the Rent of **one** RPC response with its
+/// context (`snapshot`). Only the snapshot module constructs a
+/// [`SnapshotMeta`]; a caller cannot assert coherence by hand.
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Reads {
     pub min_slot: u64,
     pub clock: Option<ClockSysvar>,
     /// `None` = the chain said absent; a missing key = not read yet.
     pub accounts: BTreeMap<Address, Option<Account>>,
+    /// The one response these reads came from, if they did.
+    pub snapshot: Option<SnapshotMeta>,
+    /// The Rent sysvar of that response, when it was requested.
+    pub rent: Option<RentSysvar>,
 }
 
 impl Reads {
@@ -129,6 +138,22 @@ impl Reads {
             min_slot,
             ..Reads::default()
         }
+    }
+
+    /// The sealed snapshot these reads **still** are, if any: the meta's
+    /// digest re-verified over the current `min_slot`, clock, rent and
+    /// every account. A meta cloned onto other bytes, or reads edited
+    /// after the snapshot, verify as nothing. Every planner and fee
+    /// consumer decides coherence through this and nothing else.
+    pub fn coherent_snapshot(&self) -> Option<&SnapshotMeta> {
+        self.snapshot.as_ref().filter(|m| {
+            m.verify(
+                self.min_slot,
+                self.clock.as_ref(),
+                self.rent.as_ref(),
+                &self.accounts,
+            )
+        })
     }
 }
 
@@ -271,6 +296,12 @@ pub enum Block {
     QuotaRefused(&'static str),
     /// An arithmetic overflow the handler would refuse.
     Overflow(&'static str),
+    /// The same-response snapshot could not be taken (the port's reason).
+    Snapshot(String),
+    /// Planned over one response, the plan asked for keys the response
+    /// does not hold (the state moved between learning the keys and the
+    /// snapshot): not patched from another read.
+    SnapshotIncomplete(usize),
 }
 
 // ------------------------------------------------------------ candidates
@@ -344,14 +375,17 @@ pub struct Candidate {
     pub payer: Address,
     /// The lower bound the reads were requested at (not their context slot).
     pub min_slot: u64,
-    /// The clock, observed by a separate call, if the driver made one.
+    /// The clock the plan was judged by: a separate call, or the Clock of
+    /// the snapshot response when [`Candidate::snapshot`] is set.
     pub observed_clock: Option<ClockSysvar>,
-    /// Always `false`: reads and clock are not one context.
-    pub coherent: bool,
+    /// The verified same-response snapshot the plan ran over, bound to a
+    /// digest of this candidate's content as the planner produced it
+    /// (crate-private: no caller attaches one). Read through
+    /// [`Candidate::snapshot`], which re-verifies the content first.
+    pub(crate) bound: Option<Bound>,
     /// The Season was stored `Seeded` and judged `Running` only by the
-    /// separately observed clock (`now ≥ genesis_ts`): the handler's
-    /// `effective_status`, applied to an observation that is not coherent
-    /// with the account reads.
+    /// observed clock (`now ≥ genesis_ts`): the handler's
+    /// `effective_status`, applied to an observation.
     pub status_promoted_by_clock: bool,
     /// Always `false`.
     pub signed: bool,
@@ -359,7 +393,204 @@ pub struct Candidate {
     pub automatic_send: bool,
 }
 
+/// A verified snapshot meta bound to the digest of a candidate's content
+/// (instruction, facts, payer, slot bound, observed clock, every flag) as
+/// the planner produced it. The content digest never covers the bound
+/// itself. A candidate whose public fields were changed afterwards no
+/// longer matches and loses every coherence and funding claim.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Bound {
+    pub meta: SnapshotMeta,
+    pub content: [u8; 32],
+}
+
+/// A canonical, lossless byte encoding for a content digest: every scalar
+/// little-endian at its full width, every byte string and sequence
+/// length-prefixed, every option tagged, every identity by its full ABI
+/// bytes (`WorldId` is 32 bytes; its `Debug` prints four). Fields are
+/// written in declaration order by the `canon` methods below; **no
+/// `Debug`/`Display` output is ever hashed**.
+pub(crate) struct Canon {
+    buf: Vec<u8>,
+}
+
+impl Canon {
+    pub fn new(domain: &[u8]) -> Canon {
+        let mut c = Canon {
+            buf: Vec::with_capacity(1024),
+        };
+        c.bytes(domain);
+        c
+    }
+    pub fn u8(&mut self, v: u8) {
+        self.buf.push(v);
+    }
+    pub fn bool(&mut self, v: bool) {
+        self.buf.push(v as u8);
+    }
+    pub fn u16(&mut self, v: u16) {
+        self.buf.extend_from_slice(&v.to_le_bytes());
+    }
+    pub fn u32(&mut self, v: u32) {
+        self.buf.extend_from_slice(&v.to_le_bytes());
+    }
+    pub fn u64(&mut self, v: u64) {
+        self.buf.extend_from_slice(&v.to_le_bytes());
+    }
+    pub fn i64(&mut self, v: i64) {
+        self.buf.extend_from_slice(&v.to_le_bytes());
+    }
+    pub fn usize(&mut self, v: usize) {
+        self.u64(v as u64);
+    }
+    /// `le32(len) ‖ bytes`.
+    pub fn bytes(&mut self, b: &[u8]) {
+        self.u32(b.len() as u32);
+        self.buf.extend_from_slice(b);
+    }
+    pub fn str(&mut self, s: &str) {
+        self.bytes(s.as_bytes());
+    }
+    /// The count that precedes a sequence's elements.
+    pub fn len(&mut self, n: usize) {
+        self.u32(n as u32);
+    }
+    /// `0`, or `1 ‖ value`.
+    pub fn option<T>(&mut self, v: Option<T>, f: impl FnOnce(&mut Canon, T)) {
+        match v {
+            None => self.u8(0),
+            Some(x) => {
+                self.u8(1);
+                f(self, x)
+            }
+        }
+    }
+    pub fn address(&mut self, a: &Address) {
+        self.bytes(&a.to_bytes());
+    }
+    /// The full 50 bytes (version, 32-byte world, sort key).
+    pub fn province(&mut self, k: &ProvinceKey) {
+        self.bytes(&k.to_bytes());
+    }
+    /// The full 56 bytes (version, 32-byte world, sort key, site, gen, seq).
+    pub fn host(&mut self, h: &WideHostRef) {
+        self.bytes(&h.to_bytes());
+    }
+    /// The instruction: program, every meta (key, signer, writable), data.
+    pub fn instruction(&mut self, ix: &Instruction) {
+        self.address(&ix.program_id);
+        self.len(ix.accounts.len());
+        for m in &ix.accounts {
+            self.address(&m.pubkey);
+            self.bool(m.is_signer);
+            self.bool(m.is_writable);
+        }
+        self.bytes(&ix.data);
+    }
+    pub fn clock(&mut self, c: Option<ClockSysvar>) {
+        self.option(c, |w, k| w.bytes(&k.encode()));
+    }
+    pub fn digest(self) -> [u8; 32] {
+        use sha2::{Digest, Sha256};
+        Sha256::digest(&self.buf).into()
+    }
+}
+
+impl SettleFacts {
+    pub(crate) fn canon(&self, c: &mut Canon) {
+        c.host(&self.host);
+        c.u8(self.transit_slot);
+        c.province(&self.origin);
+        c.u32(self.depart_bell);
+        c.u32(self.resolved_next);
+        c.usize(self.entry_index);
+        c.u32(self.kernel_troops_milli);
+        c.u16(self.kernel_stamina);
+        c.bool(self.predicted_destroyed);
+        c.u32(self.troops_after_milli);
+        c.u16(self.stamina_after);
+        c.u16(self.ready_bell_off);
+        c.bool(self.origin_is_home);
+    }
+}
+
+impl ReturnPick {
+    pub(crate) fn canon(&self, c: &mut Canon) {
+        c.usize(self.entry_index);
+        c.host(&self.host);
+        c.bool(self.credited);
+        c.u8(self.unit);
+        c.u32(self.whole_troops);
+    }
+}
+
+impl ReturnFacts {
+    pub(crate) fn canon(&self, c: &mut Canon) {
+        c.province(&self.standing);
+        c.host(&self.holding);
+        c.bool(self.holding_present);
+        c.option(self.live_gen, Canon::u8);
+        c.bool(self.foreign);
+        c.len(self.picks.len());
+        for p in &self.picks {
+            p.canon(c);
+        }
+        c.usize(self.skipped_in_transit);
+    }
+}
+
+impl Duty {
+    pub(crate) fn canon(&self, c: &mut Canon) {
+        match self {
+            Duty::SettleDeparture(f) => {
+                c.u8(1);
+                f.canon(c);
+            }
+            Duty::Return(f) => {
+                c.u8(2);
+                f.canon(c);
+            }
+        }
+    }
+}
+
 impl Candidate {
+    /// The digest of everything the candidate exposes: the instruction,
+    /// the duty's facts (full identity bytes), the payer, the slot bound,
+    /// the observed clock, the status flag and the two always-false
+    /// flags. Not the bound. Canonical bytes, never `Debug` output.
+    fn content(&self) -> [u8; 32] {
+        let mut c = Canon::new(b"PSF-KEEPER-WIDE-CANDIDATE-v2");
+        c.instruction(&self.instruction);
+        self.duty.canon(&mut c);
+        c.address(&self.payer);
+        c.u64(self.min_slot);
+        c.clock(self.observed_clock);
+        c.bool(self.status_promoted_by_clock);
+        c.bool(self.signed);
+        c.bool(self.automatic_send);
+        c.digest()
+    }
+
+    /// `true` exactly when every account and the clock the plan used came
+    /// from one verified `getMultipleAccounts` response **and** the
+    /// candidate is still exactly what the planner produced: account/clock
+    /// coherence at that response's context slot — not currency, not
+    /// source completeness, not permission to execute.
+    pub fn coherent(&self) -> bool {
+        self.snapshot().is_some()
+    }
+
+    /// The sealed meta of the response the plan ran over, if any and if
+    /// the candidate's content still matches the digest it was bound with.
+    pub fn snapshot(&self) -> Option<&SnapshotMeta> {
+        let content = self.content();
+        self.bound
+            .as_ref()
+            .filter(|b| b.content == content)
+            .map(|b| &b.meta)
+    }
+
     /// An operator-facing summary (no account bytes, no key material).
     pub fn describe(&self) -> Value {
         let (kind, facts) = match &self.duty {
@@ -408,7 +639,8 @@ impl Candidate {
             "payer": self.payer.to_string(),
             "min_slot": self.min_slot,
             "observed_clock_slot": self.observed_clock.map(|c| c.slot),
-            "coherent": self.coherent,
+            "coherent": self.coherent(),
+            "snapshot": self.snapshot().map(SnapshotMeta::describe),
             "status_promoted_by_clock": self.status_promoted_by_clock,
             "signed": self.signed,
             "automatic_send": self.automatic_send,
@@ -660,7 +892,7 @@ fn candidate(
     data: Vec<u8>,
     status_promoted_by_clock: bool,
 ) -> Candidate {
-    Candidate {
+    let mut c = Candidate {
         duty,
         instruction: Instruction {
             program_id: scope.program,
@@ -670,11 +902,20 @@ fn candidate(
         payer,
         min_slot: reads.min_slot,
         observed_clock: reads.clock,
-        coherent: false,
+        bound: None,
         status_promoted_by_clock,
         signed: false,
         automatic_send: AUTOMATIC_SEND,
-    }
+    };
+    // Coherence is decided by re-verifying the sealed meta over the very
+    // reads this plan used; a meta present but not verifying is dropped
+    // (non-coherent), never carried. The meta is bound to the digest of
+    // the content as produced here.
+    c.bound = reads.coherent_snapshot().cloned().map(|meta| Bound {
+        meta,
+        content: c.content(),
+    });
+    c
 }
 
 // ------------------------------------------------------------ SettleDeparture
@@ -1077,6 +1318,39 @@ pub async fn return_via<P: ChainPort>(
     min_slot: u64,
 ) -> Result<Candidate, Block> {
     drive(port, min_slot, |r| {
+        plan_return(scope, payer, standing, holding, r)
+    })
+    .await
+}
+
+/// [`plan_settle_departure`] over **one** snapshot response
+/// ([`crate::widesnapshot::snapshot_plan`]): the candidate is `coherent`
+/// at the response's context slot; the payer's account is in the same
+/// response for the fee review. Nothing else changes.
+pub async fn settle_departure_snapshot<P: ChainPort + SnapshotPort>(
+    port: &P,
+    scope: &Scope,
+    payer: Address,
+    host: WideHostRef,
+    transit_slot: u8,
+    min_slot: u64,
+) -> Result<(Candidate, Snapshot), Block> {
+    snapshot_plan(port, min_slot, false, &[payer], |r| {
+        plan_settle_departure(scope, payer, host, transit_slot, r)
+    })
+    .await
+}
+
+/// [`plan_return`] over one snapshot response.
+pub async fn return_snapshot<P: ChainPort + SnapshotPort>(
+    port: &P,
+    scope: &Scope,
+    payer: Address,
+    standing: ProvinceKey,
+    holding: WideHostRef,
+    min_slot: u64,
+) -> Result<(Candidate, Snapshot), Block> {
+    snapshot_plan(port, min_slot, false, &[payer], |r| {
         plan_return(scope, payer, standing, holding, r)
     })
     .await

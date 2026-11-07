@@ -23,7 +23,7 @@ use keeper_core::{api, Keeper};
 
 fn usage() -> ! {
     eprintln!(
-        "usage: frontier-keeper --config <keeper.toml> [--dev] [--peace-start <fraction>] [--init-seed] [--require-existing-journal] [--observe-wide]"
+        "usage: frontier-keeper --config <keeper.toml> [--dev] [--peace-start <fraction>] [--init-seed] [--require-existing-journal] [--observe-wide] [--review-wide <version_hex>:<ruleset_hash_hex>]"
     );
     std::process::exit(2);
 }
@@ -66,6 +66,10 @@ async fn main() {
     let (mut dev, mut init, mut require_existing_journal) = (false, false, false);
     #[cfg(feature = "wide-world-experimental")]
     let mut observe_wide = false;
+    // `--review-wide <program_version_hex>:<ruleset_hash_hex>`: the pinned
+    // deployment of the read-only wide review (needs `--observe-wide`).
+    #[cfg(feature = "wide-world-experimental")]
+    let mut review_wide: Option<keeper_core::wideduty::Deployment> = None;
     let mut peace: Option<f64> = None;
     let mut i = 1;
     while i < args.len() {
@@ -77,6 +81,22 @@ async fn main() {
             "--dev" => dev = true,
             #[cfg(feature = "wide-world-experimental")]
             "--observe-wide" => observe_wide = true,
+            #[cfg(feature = "wide-world-experimental")]
+            "--review-wide" => {
+                let spec = args.get(i + 1).cloned().unwrap_or_else(|| usage());
+                let (v, h) = spec.split_once(':').unwrap_or_else(|| usage());
+                let program_version =
+                    u16::from_str_radix(v.trim_start_matches("0x"), 16).unwrap_or_else(|_| usage());
+                let ruleset_hash: [u8; 32] = hex::decode(h)
+                    .ok()
+                    .and_then(|b| b.try_into().ok())
+                    .unwrap_or_else(|| usage());
+                review_wide = Some(keeper_core::wideduty::Deployment {
+                    program_version,
+                    ruleset_hash,
+                });
+                i += 1;
+            }
             "--peace-start" => {
                 let f: f64 = args
                     .get(i + 1)
@@ -215,6 +235,15 @@ async fn main() {
                 eprintln!("wide observation: {e}");
                 std::process::exit(2)
             });
+    }
+    // Read-only review of the observer's candidates under the pinned
+    // deployment; plans and reviews only, never enqueues.
+    #[cfg(feature = "wide-world-experimental")]
+    if let Some(dep) = review_wide {
+        k.enable_wide_review(dep).unwrap_or_else(|e| {
+            eprintln!("wide review: {e}");
+            std::process::exit(2)
+        });
     }
     if let Some(seed) = claim_seed {
         let kp = fclient::Keypair::new_from_array(seed);

@@ -33,8 +33,10 @@ use frontier_abi::world_index::wide_ix as wix;
 use serde_json::{json, Value};
 
 use crate::engine::Engine;
-use crate::wideduty::{Candidate, Duty};
+use crate::wideduty::{Candidate, Duty, Reads};
+use crate::widefees::{ExecutionNeeds, Funding};
 use crate::widereveal::RevealCandidate;
+use crate::widesnapshot::SnapshotMeta;
 
 /// The duty kinds the review files wide candidates under. The engine
 /// accepts any kind while feed writes are allowed; none of these is in its
@@ -138,6 +140,15 @@ pub enum Deny {
     AlreadyPending,
     /// An undecided payer-care transfer blocks new writes.
     CareUnresolved,
+    /// A same-response snapshot exists, so the accounts and the clock are
+    /// coherent at its context slot — but that slot is not proven current.
+    SnapshotCurrencyUnknown,
+    /// The fee review could not bound the payer (no snapshot, no payer
+    /// account in it, or no Rent sysvar for the accounts created).
+    FundingUnknown,
+    /// The payer's balance at the context slot does not cover the
+    /// calculated lower bound (rent + base fee).
+    FundingUnmet,
 }
 
 /// The engine facts the review reads, through public methods only.
@@ -216,6 +227,90 @@ pub fn review(subject: Subject, view: &EngineView) -> Review {
         denials,
         admitted: false,
     }
+}
+
+/// A candidate reviewed together with the reads it was planned over: the
+/// subject, the fee review's needs bound to that candidate and those reads
+/// (`widefees`), and the review. Built only by [`review_candidate`] and
+/// [`review_reveal`], which take the candidate and the reads themselves —
+/// no caller attaches a snapshot meta or needs to an unrelated subject.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Assessment {
+    pub review: Review,
+    pub needs: Option<ExecutionNeeds>,
+    /// The verified snapshot both the candidate and the reads are, if any.
+    pub snapshot: Option<SnapshotMeta>,
+}
+
+impl Assessment {
+    pub fn describe(&self) -> Value {
+        json!({
+            "review": self.review.describe(),
+            "needs": self.needs.as_ref().map(ExecutionNeeds::describe),
+            "snapshot": self.snapshot.as_ref().map(SnapshotMeta::describe),
+        })
+    }
+}
+
+/// The hard denials stay except `NoCoherentSnapshot`, which a verified
+/// snapshot replaces with `SnapshotCurrencyUnknown`; the fee review adds
+/// `FundingUnknown` or `FundingUnmet`. `ExecutionEvidenceUnverified` stays
+/// in every case: the fee at send time and the stored evidence are the
+/// sent transaction's. `admitted` is `false` by construction.
+fn assess(
+    subject: Subject,
+    view: &EngineView,
+    snapshot: Option<&SnapshotMeta>,
+    needs: Result<ExecutionNeeds, crate::wideduty::Block>,
+) -> Assessment {
+    let mut r = review(subject, view);
+    let needs = needs.ok();
+    // The snapshot counts only when the fee review bound the same one to
+    // the candidate (its digest equals the candidate's and the reads').
+    let bound = match (&needs, snapshot) {
+        (Some(n), Some(m)) if n.snapshot_digest == Some(m.digest()) => Some(m.clone()),
+        _ => None,
+    };
+    if bound.is_some() {
+        r.denials.retain(|d| *d != Deny::NoCoherentSnapshot);
+        r.denials.push(Deny::SnapshotCurrencyUnknown);
+    }
+    match needs.as_ref().map(|n| n.funding) {
+        None | Some(Funding::Unknown(_)) => r.denials.push(Deny::FundingUnknown),
+        Some(Funding::Unmet { .. }) => r.denials.push(Deny::FundingUnmet),
+        Some(Funding::MetLowerBound { .. }) => {}
+    }
+    r.denials.sort();
+    r.denials.dedup();
+    r.admitted = false;
+    Assessment {
+        review: r,
+        needs,
+        snapshot: bound,
+    }
+}
+
+/// Reviews a settle or return candidate with the reads it was planned
+/// over. The candidate's own flags are not consulted; its snapshot (set
+/// only by the planner) must re-verify over `reads` for the snapshot
+/// denial to change.
+pub fn review_candidate(c: &Candidate, reads: &Reads, view: &EngineView) -> Assessment {
+    assess(
+        Subject::of_duty(c),
+        view,
+        c.snapshot(),
+        crate::widefees::duty_needs(c, reads),
+    )
+}
+
+/// Reviews a reveal candidate with the reads it was planned over.
+pub fn review_reveal(c: &RevealCandidate, reads: &Reads, view: &EngineView) -> Assessment {
+    assess(
+        Subject::of_reveal(c),
+        view,
+        c.snapshot(),
+        crate::widefees::reveal_needs(c, reads),
+    )
 }
 
 /// [`review`] against a live engine, read only.

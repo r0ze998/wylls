@@ -21,6 +21,7 @@ use fclient::ports::{
     Account, ChainPort, ClockSysvar, Cursor, PortError, PortResult, Signature, SimResult, Status,
     TxRecord,
 };
+use fclient::rpc::account_json;
 use fclient::Hash;
 use frontier_abi::addr::{archive_part_of, AddrCtx};
 use frontier_abi::bytes::{wr_arr, wr_u16, wr_u32, wr_u64, wr_u8};
@@ -37,13 +38,23 @@ use frontier_abi::world_index::{
 };
 use keeper_core::engine::{Engine, EngineParams};
 use keeper_core::wideduty::{self, Block, Deployment, Reads, Step};
+use keeper_core::widefees::{self, Funding, Known};
 use keeper_core::wideproof::{DepartProof, Provenance};
-use keeper_core::widereveal::{self, Crypto, Opening, Publication, RevealCandidate, UNVERIFIED};
+use keeper_core::widereveal::{
+    self, Crypto, Opening, Publication, RevealCandidate, UNVERIFIED, UNVERIFIED_COHERENCE,
+    UNVERIFIED_CURRENCY,
+};
 use keeper_core::widereview::{self, Deny, EngineView, Subject, HARD_DENIALS};
+use keeper_core::widesnapshot::{
+    parse_snapshot_response, rent_sysvar, sysvar_owner, RentSysvar, Snapshot, SnapshotError,
+    SnapshotPort, MAX_SNAPSHOT_KEYS,
+};
 use permutation_rules::frontier::beacon::{bell_start, first_round_from};
 use permutation_rules::frontier::seal::encode_path;
+use permutation_rules::frontier::seal::salt_of;
+use serde_json::{json, Value};
 use solana_address::Address;
-use solana_instruction::{AccountMeta, Instruction};
+use solana_instruction::AccountMeta;
 
 // ------------------------------------------------------------ identities
 
@@ -207,6 +218,10 @@ fn day_addr() -> Address {
 fn slot_addr(i: u8) -> Address {
     addr(wa::arrival_slot_address(&ctx(), home(), ARRIVE_BELL, 0, i))
 }
+/// The slot the fixture arrival fills (`target_i = 0`).
+fn wide_slot_addr0() -> Address {
+    slot_addr(0)
+}
 
 // ------------------------------------------------------------ the march
 
@@ -251,15 +266,64 @@ fn seal() -> [u8; WIDE_SEAL_LEN] {
     s
 }
 
-/// The commitment and root of `plain` under the literal salt and seal.
-fn roots(plain: &[u8; WIDE_PLAIN_LEN]) -> ([u8; 32], [u8; 32]) {
-    let c = wseal::commit(plain, &SALT);
-    (c, wseal::seal_root(&c, &wseal::ct_hash(&seal())))
+/// The commitment and root of `plain` under `salt` and `seal`.
+fn roots(
+    plain: &[u8; WIDE_PLAIN_LEN],
+    salt: &[u8; 32],
+    seal: &[u8; WIDE_SEAL_LEN],
+) -> ([u8; 32], [u8; 32]) {
+    let c = wseal::commit(plain, salt);
+    (c, wseal::seal_root(&c, &wseal::ct_hash(seal)))
+}
+
+/// The recorded **public** seal vector `valid_spv2_32551361`
+/// (`permutation-rules/vectors/seal-vectors-v1.json`): its IBE block
+/// (sealed to quicknet round 32551361, the shipped fixture round) and the
+/// key `k` the stock opener recovers from it. Public, recorded material;
+/// nothing is generated here.
+fn recorded_vector() -> ([u8; wseal::IBE_LEN], [u8; 16]) {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../permutation-rules/vectors/seal-vectors-v1.json");
+    let j: Value =
+        serde_json::from_str(&std::fs::read_to_string(path).expect("vectors")).expect("json");
+    let c = j["cases"]
+        .as_array()
+        .expect("cases")
+        .iter()
+        .find(|c| c["name"] == "valid_spv2_32551361")
+        .expect("the recorded vector");
+    assert_eq!(
+        c["round"].as_u64(),
+        Some(vector().0),
+        "the vector's round is the fixture round"
+    );
+    let legacy = hex::decode(c["seal"].as_str().unwrap()).unwrap();
+    let k: [u8; 16] = hex::decode(c["k"].as_str().unwrap())
+        .unwrap()
+        .try_into()
+        .unwrap();
+    let open_sig: [u8; 48] = hex::decode(c["open_sig"].as_str().unwrap())
+        .unwrap()
+        .try_into()
+        .unwrap();
+    assert_eq!(
+        open_sig,
+        vector().1,
+        "the vector's round signature is the shipped quicknet one"
+    );
+    let mut ibe = [0u8; wseal::IBE_LEN];
+    ibe.copy_from_slice(&legacy[..wseal::IBE_LEN]);
+    (ibe, k)
 }
 
 /// A **fixture** proof: literal, labelled, not extracted from a record.
-fn proof_for(plain: &[u8; WIDE_PLAIN_LEN], arrive: u32) -> DepartProof {
-    let (commit, root) = roots(plain);
+fn proof_for(
+    plain: &[u8; WIDE_PLAIN_LEN],
+    arrive: u32,
+    salt: &[u8; 32],
+    seal: &[u8; WIDE_SEAL_LEN],
+) -> DepartProof {
+    let (commit, root) = roots(plain, salt, seal);
     DepartProof {
         host: host(),
         standing: home(),
@@ -268,7 +332,7 @@ fn proof_for(plain: &[u8; WIDE_PLAIN_LEN], arrive: u32) -> DepartProof {
         arrive_bell: arrive,
         tip: TIP,
         commit,
-        seal: seal(),
+        seal: *seal,
         seal_root: root,
         dep_mass_milli: TROOPS,
         march_stamina: 61,
@@ -514,16 +578,22 @@ impl Fx {
     fn new() -> Fx {
         Fx::with_plain(plain_for(host(), ARRIVE_BELL), ARRIVE_BELL)
     }
-    /// A fixture whose transit record and proof commit to `plain`.
+    /// A fixture whose transit record and proof commit to `plain` under
+    /// the literal salt and the literal (unopenable) seal.
     fn with_plain(pt: WidePlain, arrive: u32) -> Fx {
+        Fx::with_material(pt, arrive, SALT, seal())
+    }
+    /// A fixture whose transit record and proof commit to `plain` under
+    /// `salt` and `seal`.
+    fn with_material(pt: WidePlain, arrive: u32, salt: [u8; 32], seal: [u8; WIDE_SEAL_LEN]) -> Fx {
         let plain = wseal::pack(&pt);
-        let proof = proof_for(&plain, arrive);
+        let proof = proof_for(&plain, arrive, &salt, &seal);
         let t = transit_with(host(), arrive, proof.seal_root, depart_ts());
         let (round, _) = vector();
         Fx {
             plain,
             proof,
-            opening: Opening::Supplied { plain, salt: SALT },
+            opening: Opening::Supplied { plain, salt },
             publication: Some(publication()),
             season: season_bytes(SL::STATUS_RUNNING, 10_000),
             holding: holding_bytes(),
@@ -607,12 +677,15 @@ impl Fx {
         v
     }
     fn expected_data(&self, target_i: u8) -> Vec<u8> {
+        self.expected_data_with(target_i, SALT)
+    }
+    fn expected_data_with(&self, target_i: u8, salt: [u8; 32]) -> Vec<u8> {
         Reveal {
             transit_slot: SLOT,
             target_i,
             plain: self.plain,
-            salt: SALT,
-            ct_hash: wseal::ct_hash(&seal()),
+            salt,
+            ct_hash: wseal::ct_hash(&self.proof.seal),
             beneficiary: beneficiary().to_bytes(),
         }
         .to_bytes()
@@ -735,15 +808,115 @@ fn reveal_plan_reads_in_rounds_builds_the_exact_accounts_and_labels_a_supplied_o
         (seed_round(), vector().0 - 1)
     );
     assert!(!f.source.signatures_verified);
-    assert_eq!(f.unverified, UNVERIFIED.to_vec());
+    assert_eq!(f.unverified.len(), UNVERIFIED.len() + 1);
+    assert!(f.unverified.starts_with(&UNVERIFIED));
+    assert!(
+        f.unverified.contains(&UNVERIFIED_COHERENCE),
+        "ordinary reads: not one response"
+    );
+    assert!(!f.unverified.contains(&UNVERIFIED_CURRENCY));
     assert!(f.budget_prefix_policy.contains("keeper policy"));
-    assert!(!c.coherent && !c.signed && !c.automatic_send && !c.status_promoted_by_clock);
+    assert!(!c.coherent() && !c.signed && !c.automatic_send && !c.status_promoted_by_clock);
+    assert!(c.snapshot().is_none());
     let d = c.describe();
     assert_eq!(d["crypto"], "CommitmentOnly");
     assert_eq!(d["automatic_send"], false);
     assert_eq!(d["coherent"], false);
     assert_eq!(d["executable"], "unverified");
-    assert_eq!(d["unverified"].as_array().unwrap().len(), UNVERIFIED.len());
+    assert_eq!(
+        d["unverified"].as_array().unwrap().len(),
+        UNVERIFIED.len() + 1
+    );
+}
+
+/// The recorded public vector under `Opening::FromBeacon`: the IBE block
+/// of `valid_spv2_32551361` opens with the stock opener under the shipped
+/// quicknet signature of round 32551361 (the fixture Season's `T(20)`),
+/// the wide body sealed under the recorded key reproduces the proof's
+/// commitment, and the candidate is labelled `Crypto::IbeOpened`. A
+/// fixture over public material, not a live chain; every corruption
+/// refuses.
+#[test]
+fn from_beacon_opens_the_recorded_public_vector_and_corruptions_refuse() {
+    let (ibe, k) = recorded_vector();
+    let pt = plain_for(host(), ARRIVE_BELL);
+    let plain = wseal::pack(&pt);
+    let seal = wseal::assemble(&ibe, &wseal::body_xor(&k, &plain));
+    let salt = salt_of(&k);
+    let mut fx = Fx::with_material(pt, ARRIVE_BELL, salt, seal);
+    fx.opening = Opening::FromBeacon;
+    let c = fx.plan().unwrap();
+    assert_eq!(c.facts.crypto, Crypto::IbeOpened);
+    assert_eq!(c.instruction.data, fx.expected_data_with(0, salt));
+    assert_eq!(c.instruction.accounts, fx.expected_accounts(0, true));
+    assert_eq!(
+        (
+            c.facts.publication.round,
+            c.facts.publication.signature_verified
+        ),
+        (vector().0, true)
+    );
+    assert!(!c.coherent() && !c.signed && !c.automatic_send);
+    // The same material under a supplied opening with the derived salt.
+    fx.opening = Opening::Supplied { plain, salt };
+    let c2 = fx.plan().unwrap();
+    assert_eq!(c2.facts.crypto, Crypto::CommitmentOnly);
+    assert_eq!(c2.instruction.data, c.instruction.data);
+    // Corruptions. A flipped byte in the IBE block's `V`: the FO check
+    // fails, nothing is derived from the root.
+    let mut bad = Fx::with_material(pt, ARRIVE_BELL, salt, seal);
+    bad.opening = Opening::FromBeacon;
+    bad.proof.seal[96] ^= 1;
+    bad.proof.seal_root = roots(&plain, &salt, &bad.proof.seal).1;
+    bad.transit = Some(
+        transit_with(host(), ARRIVE_BELL, bad.proof.seal_root, depart_ts())
+            .to_bytes()
+            .to_vec(),
+    );
+    assert!(matches!(bad.plan(), Err(Block::SealOpen(_))));
+    // A flipped body byte: the block opens, the body does not reproduce
+    // the commitment.
+    let mut bad = Fx::with_material(pt, ARRIVE_BELL, salt, seal);
+    bad.opening = Opening::FromBeacon;
+    bad.proof.seal[wseal::IBE_LEN] ^= 1;
+    bad.proof.seal_root = roots(&plain, &salt, &bad.proof.seal).1;
+    bad.transit = Some(
+        transit_with(host(), ARRIVE_BELL, bad.proof.seal_root, depart_ts())
+            .to_bytes()
+            .to_vec(),
+    );
+    assert_eq!(blocked(bad.plan()), Err(Block::CommitMismatch));
+    // The opener's key is the publication's signature: another round's
+    // real signature is refused by the gate before any opening.
+    let mut bad = Fx::with_material(pt, ARRIVE_BELL, salt, seal);
+    bad.opening = Opening::FromBeacon;
+    let (r2, sig2) = {
+        let f = FixtureDrand::load(&beacon::fixture_dir(), beacon::quicknet_info()).unwrap();
+        let (r, b) = f.rounds.iter().nth(1).expect("a second shipped round");
+        (*r, b.sig48)
+    };
+    bad.publication = Some(Publication {
+        round: r2,
+        sig48: sig2,
+        pk96: pk96(),
+    });
+    assert_eq!(
+        blocked(bad.plan()),
+        Err(Block::BeaconRound {
+            expected: vector().0,
+            got: r2
+        })
+    );
+    // The record's root of another seal (a later march reused the slot):
+    // the proof is not this record's, whatever the opening.
+    let mut bad = Fx::with_material(pt, ARRIVE_BELL, salt, seal);
+    bad.opening = Opening::FromBeacon;
+    bad.transit = Some(
+        transit_with(host(), ARRIVE_BELL, [0xCD; 32], depart_ts())
+            .to_bytes()
+            .to_vec(),
+    );
+    assert_eq!(blocked(bad.plan()), Err(Block::ProofMismatch("seal_root")));
 }
 
 #[test]
@@ -1123,6 +1296,85 @@ struct FakePort {
     clock: ClockSysvar,
     min_slots: Mutex<Vec<u64>>,
     forbidden: AtomicUsize,
+    /// The Rent sysvar the fake serves in a snapshot (`None`: absent).
+    rent: Option<RentSysvar>,
+    /// The context slot the fake's snapshot responses carry.
+    context_slot: u64,
+    snapshot_calls: AtomicUsize,
+}
+
+impl FakePort {
+    fn new(accounts: BTreeMap<Address, Option<Account>>, clock: ClockSysvar) -> FakePort {
+        FakePort {
+            accounts,
+            clock,
+            min_slots: Mutex::new(vec![]),
+            forbidden: AtomicUsize::new(0),
+            rent: Some(RENT),
+            // A coherent response: the Clock's slot is the context slot.
+            context_slot: clock.slot,
+            snapshot_calls: AtomicUsize::new(0),
+        }
+    }
+    /// The `getMultipleAccounts` JSON the fake would return for one
+    /// snapshot request: the accounts, then the Clock, then the Rent.
+    fn snapshot_json(&self, keys: &[Address], with_rent: bool) -> Value {
+        let mut value: Vec<Value> = keys
+            .iter()
+            .map(|k| match self.accounts.get(k).cloned().flatten() {
+                Some(a) => account_json(&a),
+                None => Value::Null,
+            })
+            .collect();
+        value.push(account_json(&sysvar_account(self.clock.encode().to_vec())));
+        if with_rent {
+            value.push(match self.rent {
+                Some(r) => account_json(&sysvar_account(rent_bytes(&r))),
+                None => Value::Null,
+            });
+        }
+        json!({"context": {"slot": self.context_slot, "apiVersion": "fixture"}, "value": value})
+    }
+}
+
+/// The default Rent parameters (3,480 lamports per byte-year, two years).
+const RENT: RentSysvar = RentSysvar {
+    lamports_per_byte_year: 3_480,
+    exemption_threshold: 2.0,
+    burn_percent: 50,
+};
+fn rent_bytes(r: &RentSysvar) -> Vec<u8> {
+    let mut d = Vec::with_capacity(17);
+    d.extend_from_slice(&r.lamports_per_byte_year.to_le_bytes());
+    d.extend_from_slice(&r.exemption_threshold.to_le_bytes());
+    d.push(r.burn_percent);
+    d
+}
+fn sysvar_account(data: Vec<u8>) -> Account {
+    Account {
+        lamports: 1,
+        data,
+        owner: sysvar_owner(),
+        executable: false,
+    }
+}
+
+impl SnapshotPort for FakePort {
+    fn snapshot(
+        &self,
+        keys: &[Address],
+        with_rent: bool,
+        min_slot: u64,
+    ) -> impl Future<Output = Result<Snapshot, SnapshotError>> + Send {
+        self.snapshot_calls.fetch_add(1, Ordering::SeqCst);
+        let r = parse_snapshot_response(
+            &self.snapshot_json(keys, with_rent),
+            keys,
+            with_rent,
+            min_slot,
+        );
+        async move { r }
+    }
 }
 
 impl ChainPort for FakePort {
@@ -1172,12 +1424,7 @@ fn block_on<F: Future>(f: F) -> F::Output {
 fn reveal_driver_reads_in_three_rounds_at_the_bound_and_never_simulates_or_sends() {
     let fx = Fx::new();
     let pb = publication();
-    let port = FakePort {
-        accounts: fx.reads().accounts,
-        clock: clock_at(a_ts() + 10),
-        min_slots: Mutex::new(vec![]),
-        forbidden: AtomicUsize::new(0),
-    };
+    let port = FakePort::new(fx.reads().accounts, clock_at(a_ts() + 10));
     let c = block_on(widereveal::reveal_via(
         &port,
         &scope(),
@@ -1192,17 +1439,12 @@ fn reveal_driver_reads_in_three_rounds_at_the_bound_and_never_simulates_or_sends
     assert_eq!(c.instruction.accounts, fx.expected_accounts(0, true));
     assert_eq!(c.min_slot, 42);
     assert_eq!(c.observed_clock.map(|c| c.slot), Some(900));
-    assert!(!c.coherent);
+    assert!(!c.coherent());
     assert_eq!(*port.min_slots.lock().unwrap(), vec![42, 42, 42]);
     assert_eq!(port.forbidden.load(Ordering::SeqCst), 0);
     // Without the publication the driver stops after the first round:
     // nothing destination-bearing is read or produced.
-    let port = FakePort {
-        accounts: fx.reads().accounts,
-        clock: clock_at(a_ts() + 10),
-        min_slots: Mutex::new(vec![]),
-        forbidden: AtomicUsize::new(0),
-    };
+    let port = FakePort::new(fx.reads().accounts, clock_at(a_ts() + 10));
     let r = block_on(widereveal::reveal_via(
         &port,
         &scope(),
@@ -1217,12 +1459,10 @@ fn reveal_driver_reads_in_three_rounds_at_the_bound_and_never_simulates_or_sends
     assert_eq!(*port.min_slots.lock().unwrap(), vec![42]);
     assert_eq!(port.forbidden.load(Ordering::SeqCst), 0);
     // A port whose clock is past the close: blocked by the observed clock.
-    let port = FakePort {
-        accounts: fx.reads().accounts,
-        clock: clock_at(a_ts() + REVEAL_WINDOW as i64 + 1),
-        min_slots: Mutex::new(vec![]),
-        forbidden: AtomicUsize::new(0),
-    };
+    let port = FakePort::new(
+        fx.reads().accounts,
+        clock_at(a_ts() + REVEAL_WINDOW as i64 + 1),
+    );
     let r = block_on(widereveal::reveal_via(
         &port,
         &scope(),
@@ -1235,6 +1475,724 @@ fn reveal_driver_reads_in_three_rounds_at_the_bound_and_never_simulates_or_sends
     ));
     assert!(matches!(r, Err(Block::WindowClosed(_))));
     assert_eq!(port.forbidden.load(Ordering::SeqCst), 0);
+}
+
+// ------------------------------------------------------------ the snapshot
+
+#[test]
+fn snapshot_parsing_refuses_partial_malformed_oversized_stale_and_bad_sysvar_responses() {
+    let fx = Fx::new();
+    let clock = clock_at(a_ts() + 10);
+    let port = FakePort::new(fx.reads().accounts, clock);
+    let keys = [season_pda().0, holding_addr(), transit_addr(), payer()];
+    let parse = |v: &Value, keys: &[Address], rent: bool, min: u64| {
+        parse_snapshot_response(v, keys, rent, min)
+    };
+    // A complete response: every key, the Clock, the Rent, the context at
+    // or past the requested minimum.
+    let ok = parse(&port.snapshot_json(&keys, true), &keys, true, 900).unwrap();
+    assert_eq!(ok.meta().context_slot(), 900);
+    assert_eq!(ok.meta().min_slot(), 900);
+    assert_eq!(ok.meta().commitment(), "confirmed");
+    assert_eq!((ok.meta().keys(), ok.meta().rent_included()), (4, true));
+    assert_eq!(ok.clock(), clock);
+    assert_eq!(ok.rent(), Some(RENT));
+    assert_eq!(ok.accounts().len(), 4);
+    assert_eq!(
+        ok.accounts()[&payer()],
+        None,
+        "the payer is absent in this fixture"
+    );
+    let reads = ok.reads();
+    assert_eq!(reads.min_slot, 900);
+    assert_eq!(reads.clock, Some(clock));
+    assert!(
+        reads.coherent_snapshot().is_some(),
+        "untouched reads re-verify"
+    );
+    // A lower requested minimum is fine and part of the digest.
+    let ok7 = parse(&port.snapshot_json(&keys, true), &keys, true, 7).unwrap();
+    assert_eq!(ok7.meta().min_slot(), 7);
+    assert_ne!(
+        ok7.meta().digest(),
+        ok.meta().digest(),
+        "the requested slot is bound"
+    );
+    // Stale: the context below the requested minimum.
+    assert_eq!(
+        parse(&port.snapshot_json(&keys, true), &keys, true, 901),
+        Err(SnapshotError::Stale {
+            context_slot: 900,
+            min_slot: 901
+        })
+    );
+    // Without the Rent when not asked.
+    let no_rent = parse(&port.snapshot_json(&keys, false), &keys, false, 0).unwrap();
+    assert_eq!(no_rent.rent(), None);
+    assert!(!no_rent.meta().rent_included());
+    // Rent asked for and absent, short, foreign-owned or executable.
+    let mut v = port.snapshot_json(&keys, true);
+    v["value"][5] = Value::Null;
+    assert_eq!(
+        parse(&v, &keys, true, 0),
+        Err(SnapshotError::BadRent("absent"))
+    );
+    let mut v = port.snapshot_json(&keys, true);
+    v["value"][5] = account_json(&sysvar_account(vec![0u8; 3]));
+    assert_eq!(
+        parse(&v, &keys, true, 0),
+        Err(SnapshotError::BadRent("length"))
+    );
+    let mut v = port.snapshot_json(&keys, true);
+    let mut foreign = sysvar_account(rent_bytes(&RENT));
+    foreign.owner = program();
+    v["value"][5] = account_json(&foreign);
+    assert_eq!(
+        parse(&v, &keys, true, 0),
+        Err(SnapshotError::BadRent("not owned by the sysvar owner"))
+    );
+    let mut v = port.snapshot_json(&keys, true);
+    let mut exec = sysvar_account(rent_bytes(&RENT));
+    exec.executable = true;
+    v["value"][5] = account_json(&exec);
+    assert_eq!(
+        parse(&v, &keys, true, 0),
+        Err(SnapshotError::BadRent("executable"))
+    );
+    // The sysvar JSON must say `"executable": false` itself: a missing or
+    // non-boolean field is not taken as false (the generic account parser
+    // would default it).
+    let mut v = port.snapshot_json(&keys, true);
+    v["value"][5].as_object_mut().unwrap().remove("executable");
+    assert_eq!(
+        parse(&v, &keys, true, 0),
+        Err(SnapshotError::BadRent("executable"))
+    );
+    let mut v = port.snapshot_json(&keys, true);
+    v["value"][5]["executable"] = json!("false");
+    assert_eq!(
+        parse(&v, &keys, true, 0),
+        Err(SnapshotError::BadRent("executable"))
+    );
+    let mut v = port.snapshot_json(&keys, true);
+    v["value"][5]["executable"] = json!(0);
+    assert_eq!(
+        parse(&v, &keys, true, 0),
+        Err(SnapshotError::BadRent("executable"))
+    );
+    let mut v = port.snapshot_json(&keys, true);
+    v["value"][5]["executable"] = json!(true);
+    assert_eq!(
+        parse(&v, &keys, true, 0),
+        Err(SnapshotError::BadRent("executable"))
+    );
+    // The Clock absent, short, long, foreign-owned, executable (said,
+    // unsaid or said as a string), or of another slot than the context.
+    let mut v = port.snapshot_json(&keys, true);
+    v["value"][4] = Value::Null;
+    assert_eq!(
+        parse(&v, &keys, true, 0),
+        Err(SnapshotError::BadClock("absent"))
+    );
+    let mut v = port.snapshot_json(&keys, true);
+    v["value"][4]["executable"] = json!(true);
+    assert_eq!(
+        parse(&v, &keys, true, 0),
+        Err(SnapshotError::BadClock("executable"))
+    );
+    let mut v = port.snapshot_json(&keys, true);
+    v["value"][4].as_object_mut().unwrap().remove("executable");
+    assert_eq!(
+        parse(&v, &keys, true, 0),
+        Err(SnapshotError::BadClock("executable"))
+    );
+    let mut v = port.snapshot_json(&keys, true);
+    v["value"][4]["executable"] = json!("false");
+    assert_eq!(
+        parse(&v, &keys, true, 0),
+        Err(SnapshotError::BadClock("executable"))
+    );
+    let mut v = port.snapshot_json(&keys, true);
+    v["value"][4]["executable"] = Value::Null;
+    assert_eq!(
+        parse(&v, &keys, true, 0),
+        Err(SnapshotError::BadClock("executable"))
+    );
+    // An ordinary account's missing flag is still the generic parser's
+    // business: only the sysvars are strict.
+    let mut v = port.snapshot_json(&keys, true);
+    v["value"][1].as_object_mut().unwrap().remove("executable");
+    assert!(
+        parse(&v, &keys, true, 0).is_ok(),
+        "a plain account without the flag parses as before"
+    );
+    let mut v = port.snapshot_json(&keys, true);
+    v["value"][4] = account_json(&sysvar_account(vec![0u8; 39]));
+    assert_eq!(
+        parse(&v, &keys, true, 0),
+        Err(SnapshotError::BadClock("length"))
+    );
+    let mut v = port.snapshot_json(&keys, true);
+    v["value"][4] = account_json(&sysvar_account(vec![0u8; 41]));
+    assert_eq!(
+        parse(&v, &keys, true, 0),
+        Err(SnapshotError::BadClock("length"))
+    );
+    let mut v = port.snapshot_json(&keys, true);
+    let mut foreign = sysvar_account(clock.encode().to_vec());
+    foreign.owner = program();
+    v["value"][4] = account_json(&foreign);
+    assert_eq!(
+        parse(&v, &keys, true, 0),
+        Err(SnapshotError::BadClock("not owned by the sysvar owner"))
+    );
+    let mut v = port.snapshot_json(&keys, true);
+    let mut other = clock;
+    other.slot = 899;
+    v["value"][4] = account_json(&sysvar_account(other.encode().to_vec()));
+    assert_eq!(
+        parse(&v, &keys, true, 0),
+        Err(SnapshotError::BadClock(
+            "slot differs from the context slot"
+        ))
+    );
+    // A chunked or partial response: not the requested count.
+    let mut v = port.snapshot_json(&keys, true);
+    v["value"].as_array_mut().unwrap().pop();
+    assert_eq!(
+        parse(&v, &keys, true, 0),
+        Err(SnapshotError::Partial { want: 6, got: 5 })
+    );
+    // No context slot.
+    let mut v = port.snapshot_json(&keys, true);
+    v["context"] = json!({});
+    assert_eq!(
+        parse(&v, &keys, true, 0),
+        Err(SnapshotError::Malformed("no context.slot"))
+    );
+    // A duplicate key: the response cannot be bound to the request.
+    let dup = [payer(), holding_addr(), payer()];
+    assert_eq!(
+        parse(&port.snapshot_json(&dup, false), &dup, false, 0),
+        Err(SnapshotError::DuplicateKey)
+    );
+    // Too many keys for one response: refused before any request.
+    let many: Vec<Address> = (0..=MAX_SNAPSHOT_KEYS as u8)
+        .map(|i| Address::new_from_array([i; 32]))
+        .collect();
+    assert_eq!(
+        parse(&json!({}), &many, false, 0),
+        Err(SnapshotError::TooManyKeys {
+            n: MAX_SNAPSHOT_KEYS + 1,
+            max: MAX_SNAPSHOT_KEYS
+        })
+    );
+    // The default capability: a port that cannot report a context.
+    struct Nothing;
+    impl SnapshotPort for Nothing {}
+    assert_eq!(
+        block_on(Nothing.snapshot(&keys, true, 0)),
+        Err(SnapshotError::Unsupported)
+    );
+    assert_eq!(
+        rent_sysvar().to_string(),
+        "SysvarRent111111111111111111111111111111111"
+    );
+    assert_eq!(
+        sysvar_owner().to_string(),
+        "Sysvar1111111111111111111111111111111111111"
+    );
+    // The runtime's full minimum balance at the default parameters.
+    assert_eq!(
+        RENT.minimum_balance(wa::wide_arrival_slot::SIZE),
+        Some((128 + 288) * 3_480 * 2)
+    );
+    assert_eq!(
+        RENT.minimum_balance(wa::wide_arrival_day::SIZE),
+        Some((128 + 144) * 3_480 * 2)
+    );
+    assert_eq!(
+        RENT.minimum_balance(usize::MAX),
+        None,
+        "overflow is refused"
+    );
+    assert_eq!(
+        RentSysvar {
+            lamports_per_byte_year: 1,
+            exemption_threshold: 144_115_188_075_855_872.0,
+            burn_percent: 0
+        }
+        .minimum_balance(0),
+        None,
+        "2^64 float boundary is not a u64"
+    );
+    assert_eq!(RentSysvar::decode(&rent_bytes(&RENT)), Some(RENT));
+    assert_eq!(RentSysvar::decode(&rent_bytes(&RENT)[..16]), None);
+}
+
+/// Provenance is sealed: a meta is worth exactly the bytes it was built
+/// over. Any edit to reads that carry one, or a meta carried onto other
+/// reads, re-verifies as nothing, and a plan over such reads is not
+/// coherent.
+#[test]
+fn snapshot_provenance_cannot_be_moved_onto_other_bytes() {
+    let fx = Fx::new();
+    let clock = clock_at(a_ts() + 10);
+    let port = FakePort::new(fx.reads().accounts, clock);
+    // Every planned key **and** the payer: the payer's balance is what the
+    // second response below differs in.
+    let mut keys: Vec<Address> = fx.reads().accounts.keys().copied().collect();
+    keys.push(payer());
+    let snap = parse_snapshot_response(&port.snapshot_json(&keys, true), &keys, true, 900).unwrap();
+    let pristine = snap.reads();
+    assert!(pristine.coherent_snapshot().is_some());
+    assert!(
+        pristine.accounts.contains_key(&payer()),
+        "the payer was requested"
+    );
+    // An account's lamports edited.
+    let mut r = snap.reads();
+    if let Some(Some(a)) = r.accounts.get_mut(&holding_addr()) {
+        a.lamports += 1;
+    }
+    assert!(r.coherent_snapshot().is_none(), "edited lamports");
+    // An account's data edited.
+    let mut r = snap.reads();
+    if let Some(Some(a)) = r.accounts.get_mut(&holding_addr()) {
+        a.data[0] ^= 1;
+    }
+    assert!(r.coherent_snapshot().is_none(), "edited data");
+    // An account added, or removed.
+    let mut r = snap.reads();
+    r.accounts.insert(Address::new_from_array([0x99; 32]), None);
+    assert!(r.coherent_snapshot().is_none(), "added key");
+    let mut r = snap.reads();
+    r.accounts.remove(&transit_addr());
+    assert!(r.coherent_snapshot().is_none(), "removed key");
+    // An absent account made present.
+    let mut r = snap.reads();
+    r.accounts.insert(
+        inputs_addr(),
+        Some(Account {
+            lamports: 1,
+            data: vec![0; 16],
+            owner: program(),
+            executable: false,
+        }),
+    );
+    assert!(r.coherent_snapshot().is_none(), "presence flipped");
+    // The requested slot, the clock or the rent changed.
+    let mut r = snap.reads();
+    r.min_slot = 7;
+    assert!(r.coherent_snapshot().is_none(), "min_slot");
+    let mut r = snap.reads();
+    r.clock = Some(clock_at(a_ts() + 11));
+    assert!(r.coherent_snapshot().is_none(), "clock");
+    let mut r = snap.reads();
+    r.clock = None;
+    assert!(r.coherent_snapshot().is_none(), "no clock");
+    let mut r = snap.reads();
+    r.rent = None;
+    assert!(r.coherent_snapshot().is_none(), "rent dropped");
+    let mut r = snap.reads();
+    r.rent = Some(RentSysvar {
+        lamports_per_byte_year: 1,
+        ..RENT
+    });
+    assert!(r.coherent_snapshot().is_none(), "rent swapped");
+    // The meta cloned onto reads of another response (same keys, another
+    // payer balance): nothing.
+    let mut other_accounts = fx.reads().accounts;
+    other_accounts.insert(
+        payer(),
+        Some(Account {
+            lamports: 5,
+            data: vec![],
+            owner: fclient::addr::system_program(),
+            executable: false,
+        }),
+    );
+    let other_port = FakePort::new(other_accounts, clock);
+    let other =
+        parse_snapshot_response(&other_port.snapshot_json(&keys, true), &keys, true, 900).unwrap();
+    assert_ne!(
+        other.reads().accounts.get(&payer()),
+        snap.reads().accounts.get(&payer()),
+        "the two responses differ in the payer's bytes"
+    );
+    assert_ne!(
+        other.meta().digest(),
+        snap.meta().digest(),
+        "the two snapshots differ"
+    );
+    assert!(
+        other.reads().coherent_snapshot().is_some(),
+        "the other response verifies on its own"
+    );
+    let mut forged = other.reads();
+    forged.snapshot = Some(snap.meta().clone());
+    assert!(
+        forged.coherent_snapshot().is_none(),
+        "a meta moved onto other bytes"
+    );
+    let mut forged = snap.reads();
+    forged.snapshot = Some(other.meta().clone());
+    assert!(
+        forged.coherent_snapshot().is_none(),
+        "the other meta moved onto these bytes"
+    );
+    // A plan over edited snapshot reads is not coherent and says so; the
+    // plan over the pristine reads is.
+    let pb = publication();
+    let mut edited = snap.reads();
+    if let Some(Some(a)) = edited.accounts.get_mut(&holding_addr()) {
+        a.lamports += 1;
+    }
+    let plan = |reads: &Reads| match widereveal::plan_reveal(
+        &scope(),
+        payer(),
+        beneficiary(),
+        &fx.proof,
+        Some(&fx.opening),
+        Some(&pb),
+        reads,
+    ) {
+        Step::Done(r) => r,
+        Step::Need(a) => panic!("{a:?}"),
+    };
+    let c_edited = plan(&edited).unwrap();
+    assert!(!c_edited.coherent());
+    assert!(c_edited.snapshot().is_none());
+    assert!(c_edited.facts.unverified.contains(&UNVERIFIED_COHERENCE));
+    let c_ok = plan(&pristine).unwrap();
+    assert!(c_ok.coherent());
+    assert_eq!(
+        c_ok.snapshot().map(|m| m.digest()),
+        Some(snap.meta().digest())
+    );
+    assert!(c_ok.facts.unverified.contains(&UNVERIFIED_CURRENCY));
+    // A/B mixing: the coherent candidate's needs over another snapshot's
+    // reads (or over the edited ones) bind nothing — unknown, never a
+    // number borrowed from the wrong response.
+    let open = EngineView {
+        feed_writes_allowed: true,
+        kind_allowed: true,
+        already_pending: false,
+        care_unresolved: false,
+    };
+    let mixed = widefees::reveal_needs(&c_ok, &other.reads()).unwrap();
+    assert!(matches!(mixed.rent_lamports, Known::Unchecked(_)));
+    assert!(matches!(mixed.funding, Funding::Unknown(_)));
+    assert_eq!(mixed.snapshot_digest, None);
+    let a = widereview::review_reveal(&c_ok, &other.reads(), &open);
+    assert!(a.snapshot.is_none());
+    assert!(a.review.denials.contains(&Deny::NoCoherentSnapshot));
+    assert!(a.review.denials.contains(&Deny::FundingUnknown));
+    assert!(!a.review.admitted);
+    let a = widereview::review_reveal(&c_ok, &edited, &open);
+    assert!(a.snapshot.is_none());
+    assert!(a.review.denials.contains(&Deny::NoCoherentSnapshot));
+    // And the edited candidate over the pristine reads: the candidate has
+    // no snapshot, so the pristine reads bind nothing either.
+    let a = widereview::review_reveal(&c_edited, &pristine, &open);
+    assert!(a.snapshot.is_none());
+    assert!(a.review.denials.contains(&Deny::NoCoherentSnapshot));
+    // The matching pair binds.
+    let a = widereview::review_reveal(&c_ok, &pristine, &open);
+    assert_eq!(
+        a.snapshot.as_ref().map(|m| m.digest()),
+        Some(snap.meta().digest())
+    );
+    assert!(!a.review.denials.contains(&Deny::NoCoherentSnapshot));
+    assert!(a.review.denials.contains(&Deny::SnapshotCurrencyUnknown));
+    assert!(!a.review.admitted);
+}
+
+#[test]
+fn snapshot_reveal_is_coherent_at_the_context_slot_and_the_fee_review_bounds_the_payer() {
+    let fx = Fx::new();
+    let pb = publication();
+    // The payer in the fixture world holds one million lamports.
+    let mut accounts = fx.reads().accounts;
+    accounts.insert(
+        payer(),
+        Some(Account {
+            lamports: 1_000_000,
+            data: vec![],
+            owner: fclient::addr::system_program(),
+            executable: false,
+        }),
+    );
+    let port = FakePort::new(accounts, clock_at(a_ts() + 10));
+    let (c, snap) = block_on(widereveal::reveal_snapshot(
+        &port,
+        &scope(),
+        payer(),
+        beneficiary(),
+        &fx.proof,
+        Some(&fx.opening),
+        Some(&pb),
+        7,
+    ))
+    .unwrap();
+    // Three ordinary rounds to learn the keys, then one snapshot at the
+    // same requested minimum.
+    assert_eq!(*port.min_slots.lock().unwrap(), vec![7, 7, 7]);
+    assert_eq!(port.snapshot_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(port.forbidden.load(Ordering::SeqCst), 0);
+    assert!(
+        c.coherent(),
+        "every account and the clock came from one response"
+    );
+    let meta = c.snapshot().expect("the snapshot meta");
+    assert_eq!(meta.context_slot(), 900);
+    assert_eq!(meta.min_slot(), 7);
+    assert_eq!(c.min_slot, 7);
+    assert_eq!(c.observed_clock, Some(clock_at(a_ts() + 10)));
+    assert!(meta.rent_included());
+    assert_eq!(meta.keys(), snap.accounts().len());
+    assert!(
+        snap.accounts().contains_key(&payer()),
+        "the payer rides along for the fee review"
+    );
+    assert_eq!(meta.digest(), snap.meta().digest());
+    assert!(c.facts.unverified.contains(&UNVERIFIED_CURRENCY));
+    assert!(!c.facts.unverified.contains(&UNVERIFIED_COHERENCE));
+    assert_eq!(c.instruction.accounts, fx.expected_accounts(0, true));
+    assert_eq!(c.describe()["coherent"], true);
+    assert_eq!(c.describe()["snapshot"]["current"], "unknown");
+    assert_eq!(c.describe()["snapshot"]["source_complete"], false);
+    // A stale response (the fake's context below the requested minimum)
+    // is refused by the snapshot, not planned over.
+    let r = block_on(widereveal::reveal_snapshot(
+        &port,
+        &scope(),
+        payer(),
+        beneficiary(),
+        &fx.proof,
+        Some(&fx.opening),
+        Some(&pb),
+        901,
+    ));
+    assert!(matches!(r, Err(Block::Snapshot(ref s)) if s.contains("Stale")));
+    // The fee review: the slot and the day are created (no displacement,
+    // no day), their rent from the same response's Rent sysvar; the base
+    // fee under one signature; the payer's balance at the context slot
+    // falls short by the difference.
+    let reads = snap.reads();
+    let needs = widefees::reveal_needs(&c, &reads).unwrap();
+    assert_eq!(
+        needs.creates,
+        vec![
+            ("wide ArrivalSlot", wa::wide_arrival_slot::SIZE),
+            ("wide ArrivalDay", wa::wide_arrival_day::SIZE)
+        ]
+    );
+    let rent = (128 + 288) * 3_480 * 2 + (128 + 144) * 3_480 * 2;
+    assert_eq!(needs.rent_lamports, Known::Known(rent));
+    assert_eq!(needs.base_fee_lamports, Known::Known(5_000));
+    assert_eq!(needs.signatures_assumed, 1);
+    assert!(matches!(needs.priority_fee_lamports, Known::Unchecked(_)));
+    assert!(!needs.budget_measured);
+    assert_eq!(needs.required_lower_bound, Known::Known(rent + 5_000));
+    assert_eq!(
+        needs.funding,
+        Funding::Unmet {
+            payer_lamports: 1_000_000,
+            required: rent + 5_000,
+            short: rent + 5_000 - 1_000_000
+        }
+    );
+    assert_eq!(needs.snapshot_digest, Some(meta.digest()));
+    let d = needs.describe();
+    assert_eq!(d["network_fee_at_send"], "not read");
+    assert_eq!(d["future_balance"], "not proven");
+    assert_eq!(d["live_fee_assurance"], false);
+    // The full minimum is required even when the target address already
+    // holds lamports: the fee review never nets a prefunded account.
+    let mut prefunded = snap.reads();
+    prefunded.accounts.insert(
+        wide_slot_addr0(),
+        Some(Account {
+            lamports: 1_000,
+            data: vec![],
+            owner: fclient::addr::system_program(),
+            executable: false,
+        }),
+    );
+    let n = widefees::reveal_needs(&c, &prefunded).unwrap();
+    assert!(
+        matches!(n.rent_lamports, Known::Unchecked(_)),
+        "edited reads are no longer the candidate's snapshot: nothing is netted, nothing is calculated"
+    );
+    // The review bound to the candidate and its reads: the coherent
+    // snapshot replaces the no-snapshot denial with the currency one; the
+    // funding shortfall is a denial; everything else stays; admitted
+    // stays false.
+    let open = EngineView {
+        feed_writes_allowed: true,
+        kind_allowed: true,
+        already_pending: false,
+        care_unresolved: false,
+    };
+    let a = widereview::review_reveal(&c, &reads, &open);
+    assert_eq!(a.snapshot.as_ref().map(|m| m.digest()), Some(meta.digest()));
+    assert_eq!(a.needs.as_ref().map(|n| n.funding), Some(needs.funding));
+    let r = a.review;
+    assert!(!r.denials.contains(&Deny::NoCoherentSnapshot));
+    assert!(r.denials.contains(&Deny::SnapshotCurrencyUnknown));
+    assert!(r.denials.contains(&Deny::FundingUnmet));
+    for d in [
+        Deny::SourceUnproven,
+        Deny::HistoryUnknown,
+        Deny::ExecutionEvidenceUnverified,
+        Deny::SignerAbsent,
+        Deny::SliceDoesNotEnqueue,
+    ] {
+        assert!(r.denials.contains(&d), "{d:?}");
+    }
+    assert!(!r.admitted);
+    // A funded payer meets the lower bound; the review still denies on
+    // everything else, and a met bound is never an execution grant.
+    let mut accounts = fx.reads().accounts;
+    accounts.insert(
+        payer(),
+        Some(Account {
+            lamports: 10_000_000,
+            data: vec![],
+            owner: fclient::addr::system_program(),
+            executable: false,
+        }),
+    );
+    let port = FakePort::new(accounts, clock_at(a_ts() + 10));
+    let (c2, snap2) = block_on(widereveal::reveal_snapshot(
+        &port,
+        &scope(),
+        payer(),
+        beneficiary(),
+        &fx.proof,
+        Some(&fx.opening),
+        Some(&pb),
+        7,
+    ))
+    .unwrap();
+    let needs2 = widefees::reveal_needs(&c2, &snap2.reads()).unwrap();
+    assert_eq!(
+        needs2.funding,
+        Funding::MetLowerBound {
+            payer_lamports: 10_000_000,
+            required: rent + 5_000
+        }
+    );
+    let r2 = widereview::review_reveal(&c2, &snap2.reads(), &open).review;
+    assert!(
+        !r2.denials.contains(&Deny::FundingUnmet) && !r2.denials.contains(&Deny::FundingUnknown)
+    );
+    assert!(r2.denials.contains(&Deny::SnapshotCurrencyUnknown));
+    assert!(
+        r2.denials.contains(&Deny::ExecutionEvidenceUnverified),
+        "a met lower bound is never a live fee assurance"
+    );
+    assert!(!r2.admitted);
+    assert_eq!(r2.denials.len(), 6);
+    // No Rent in the snapshot while accounts would be created: the rent
+    // and the funding are declared unknown, never guessed.
+    let mut port = FakePort::new(fx.reads().accounts, clock_at(a_ts() + 10));
+    port.rent = None;
+    let r = block_on(widereveal::reveal_snapshot(
+        &port,
+        &scope(),
+        payer(),
+        beneficiary(),
+        &fx.proof,
+        Some(&fx.opening),
+        Some(&pb),
+        7,
+    ));
+    assert!(matches!(r, Err(Block::Snapshot(ref s)) if s.contains("BadRent")));
+    // Ordinary reads (no snapshot): the fee review knows nothing of rent
+    // or funding, and the review denies with `NoCoherentSnapshot` and
+    // `FundingUnknown`.
+    let plain = fx.plan().unwrap();
+    let needs3 = widefees::reveal_needs(&plain, &fx.reads()).unwrap();
+    assert!(matches!(needs3.rent_lamports, Known::Unchecked(_)));
+    assert!(matches!(needs3.funding, Funding::Unknown(_)));
+    let r3 = widereview::review_reveal(&plain, &fx.reads(), &open).review;
+    assert!(r3.denials.contains(&Deny::NoCoherentSnapshot));
+    assert!(r3.denials.contains(&Deny::FundingUnknown));
+    assert!(!r3.admitted);
+    // A snapshot whose state moved between learning the keys and the one
+    // response (a slot appeared, so the plan asks for nothing new; here a
+    // key missing from the response): refused, never patched.
+    struct Shrinking(FakePort);
+    impl ChainPort for Shrinking {
+        fn clock(&self) -> impl Future<Output = PortResult<ClockSysvar>> + Send {
+            self.0.clock()
+        }
+        fn accounts(
+            &self,
+            keys: &[Address],
+            min_slot: u64,
+        ) -> impl Future<Output = PortResult<Vec<Option<Account>>>> + Send {
+            self.0.accounts(keys, min_slot)
+        }
+        fn simulate(&self, tx: &[u8]) -> impl Future<Output = PortResult<SimResult>> + Send {
+            self.0.simulate(tx)
+        }
+        fn send(&self, tx: &[u8]) -> impl Future<Output = PortResult<Signature>> + Send {
+            self.0.send(tx)
+        }
+        fn statuses(
+            &self,
+            sigs: &[Signature],
+        ) -> impl Future<Output = PortResult<Vec<Option<Status>>>> + Send {
+            self.0.statuses(sigs)
+        }
+        fn feed(&self, after: Cursor) -> impl Future<Output = PortResult<Vec<TxRecord>>> + Send {
+            self.0.feed(after)
+        }
+        fn blockhash(&self) -> impl Future<Output = PortResult<(Hash, u64)>> + Send {
+            self.0.blockhash()
+        }
+    }
+    impl SnapshotPort for Shrinking {
+        fn snapshot(
+            &self,
+            keys: &[Address],
+            with_rent: bool,
+            min_slot: u64,
+        ) -> impl Future<Output = Result<Snapshot, SnapshotError>> + Send {
+            // The response drops the destination province: the plan over
+            // it asks for a key the response does not hold.
+            let kept: Vec<Address> = keys
+                .iter()
+                .copied()
+                .filter(|k| *k != province_addr(home()))
+                .collect();
+            let r = parse_snapshot_response(
+                &self.0.snapshot_json(&kept, with_rent),
+                &kept,
+                with_rent,
+                min_slot,
+            );
+            async move { r }
+        }
+    }
+    let port = Shrinking(FakePort::new(fx.reads().accounts, clock_at(a_ts() + 10)));
+    let r = block_on(widereveal::reveal_snapshot(
+        &port,
+        &scope(),
+        payer(),
+        beneficiary(),
+        &fx.proof,
+        Some(&fx.opening),
+        Some(&pb),
+        7,
+    ));
+    assert_eq!(
+        blocked(r.map(|(c, _)| c)),
+        Err(Block::SnapshotIncomplete(1))
+    );
 }
 
 // ------------------------------------------------------------ the review
@@ -1279,7 +2237,6 @@ fn review_denies_every_wide_candidate_with_concrete_reasons_and_enqueues_nothing
     // A caller that flips the candidate's own flags changes nothing: the
     // review does not read them.
     let mut flipped = c.clone();
-    flipped.coherent = true;
     flipped.automatic_send = true;
     flipped.signed = true;
     flipped.facts.unverified.clear();
@@ -1323,52 +2280,488 @@ fn review_denies_every_wide_candidate_with_concrete_reasons_and_enqueues_nothing
     );
     assert_eq!(engine.pending_len(), 0);
     assert!(!engine.is_pending(&r5.subject.key));
-    // A settle candidate's subject: the key by full identity, class D.
-    let settle = wideduty::Candidate {
-        duty: wideduty::Duty::SettleDeparture(wideduty::SettleFacts {
-            host: host(),
-            transit_slot: SLOT,
-            origin: home(),
-            depart_bell: DEPART_BELL,
-            resolved_next: DEPART_BELL + 1,
-            entry_index: 4,
-            kernel_troops_milli: TROOPS,
-            kernel_stamina: 61,
-            predicted_destroyed: false,
-            troops_after_milli: TROOPS,
-            stamina_after: 61,
-            ready_bell_off: 0,
-            origin_is_home: true,
-        }),
-        instruction: Instruction {
-            program_id: program(),
-            accounts: vec![],
-            data: vec![],
-        },
-        payer: payer(),
-        min_slot: 0,
-        observed_clock: None,
-        coherent: false,
-        status_promoted_by_clock: false,
-        signed: false,
-        automatic_send: false,
+    // The review of this candidate with the reads it was planned over
+    // (ordinary reads: no snapshot binds) — the same denials plus the
+    // funding one; never admitted.
+    let a = widereview::review_reveal(&c, &fx.reads(), &open);
+    assert!(a.snapshot.is_none());
+    assert!(a.review.denials.contains(&Deny::NoCoherentSnapshot));
+    assert!(a.review.denials.contains(&Deny::FundingUnknown));
+    assert!(!a.review.admitted);
+    assert_eq!(a.describe()["review"]["enqueued"], false);
+    // (The settle candidate's subject key is checked in `wide_duties.rs`,
+    // where a planner-made settle candidate exists; a `Candidate` cannot be
+    // assembled by hand here, which is the point.)
+}
+
+/// What a coherent, funded reveal candidate loses the moment any of its
+/// public fields differs from what the planner produced: the snapshot, the
+/// coherence, the calculated rent and funding, the bound review — even over
+/// the very reads that still verify as its snapshot.
+fn lost_everything(label: &str, m: &RevealCandidate, reads: &Reads, open: &EngineView) {
+    assert!(
+        reads.coherent_snapshot().is_some(),
+        "{label}: the reads themselves still verify; it is the candidate that no longer matches"
+    );
+    assert!(!m.coherent(), "{label}: coherent");
+    assert!(m.snapshot().is_none(), "{label}: snapshot");
+    assert_eq!(m.describe()["coherent"], false, "{label}: describe");
+    assert!(
+        m.describe()["snapshot"].is_null(),
+        "{label}: described snapshot"
+    );
+    let n = widefees::reveal_needs(m, reads).unwrap();
+    assert!(
+        matches!(n.rent_lamports, Known::Unchecked(_)),
+        "{label}: rent {:?}",
+        n.rent_lamports
+    );
+    assert!(
+        matches!(n.required_lower_bound, Known::Unchecked(_)),
+        "{label}: bound"
+    );
+    assert!(
+        matches!(n.funding, Funding::Unknown(_)),
+        "{label}: funding {:?}",
+        n.funding
+    );
+    assert_eq!(n.snapshot_digest, None, "{label}: digest");
+    let a = widereview::review_reveal(m, reads, open);
+    assert!(a.snapshot.is_none(), "{label}: assessment snapshot");
+    assert!(
+        a.review.denials.contains(&Deny::NoCoherentSnapshot),
+        "{label}: denial"
+    );
+    assert!(
+        a.review.denials.contains(&Deny::FundingUnknown),
+        "{label}: funding denial"
+    );
+    assert!(
+        !a.review.denials.contains(&Deny::FundingUnmet),
+        "{label}: no number was borrowed"
+    );
+    assert!(!a.review.admitted, "{label}: admitted");
+}
+
+#[test]
+fn a_mutated_reveal_candidate_loses_its_snapshot_fee_bound_and_review() {
+    let fx = Fx::new();
+    let pb = publication();
+    let open = EngineView {
+        feed_writes_allowed: true,
+        kind_allowed: true,
+        already_pending: false,
+        care_unresolved: false,
     };
-    let s = Subject::of_duty(&settle);
-    assert_eq!(
-        s.key,
-        format!(
-            "wide-settle-departure:{}:{}:{}",
-            hex::encode(world().as_bytes()),
-            hex::encode(host().to_bytes()),
-            SLOT
-        )
+    // A funded payer: the pristine candidate meets its lower bound, so a
+    // wrong fee review over mutated facts would be visible as a wrong
+    // number (a day or a slot not created: rent 0) — it must be no number.
+    let mut accounts = fx.reads().accounts;
+    accounts.insert(
+        payer(),
+        Some(Account {
+            lamports: 10_000_000,
+            data: vec![],
+            owner: fclient::addr::system_program(),
+            executable: false,
+        }),
     );
-    assert_eq!(
-        (s.kind, s.tag, s.class),
-        (
-            widereview::KIND_SETTLE_DEPARTURE,
-            wix::TAG_SETTLE_TICKET,
-            fclient::abi::Class::D
-        )
+    let port = FakePort::new(accounts, clock_at(a_ts() + 10));
+    let (c, snap) = block_on(widereveal::reveal_snapshot(
+        &port,
+        &scope(),
+        payer(),
+        beneficiary(),
+        &fx.proof,
+        Some(&fx.opening),
+        Some(&pb),
+        7,
+    ))
+    .unwrap();
+    let reads = snap.reads();
+    assert!(c.coherent());
+    assert!(
+        !c.facts.day_present && c.facts.displaced.is_none(),
+        "the fixture creates both"
     );
+    let rent = (128 + 288) * 3_480 * 2 + (128 + 144) * 3_480 * 2;
+    let pristine = widefees::reveal_needs(&c, &reads).unwrap();
+    assert_eq!(pristine.rent_lamports, Known::Known(rent));
+    assert_eq!(
+        pristine.funding,
+        Funding::MetLowerBound {
+            payer_lamports: 10_000_000,
+            required: rent + 5_000
+        }
+    );
+    let a = widereview::review_reveal(&c, &reads, &open);
+    assert_eq!(
+        a.snapshot.as_ref().map(|m| m.digest()),
+        Some(snap.meta().digest())
+    );
+    assert!(!a.review.denials.contains(&Deny::NoCoherentSnapshot));
+    assert!(!a.review.denials.contains(&Deny::FundingUnknown));
+    assert!(
+        !a.review.admitted,
+        "a bound, funded candidate is still never admitted"
+    );
+    // An untouched clone is the same candidate.
+    let same = c.clone();
+    assert!(same.coherent());
+    assert_eq!(
+        same.snapshot().map(|m| m.digest()),
+        Some(snap.meta().digest())
+    );
+    assert_eq!(widefees::reveal_needs(&same, &reads).unwrap(), pristine);
+    // Facts: the day said present (would drop the day's rent).
+    let mut m = c.clone();
+    m.facts.day_present = true;
+    lost_everything("day_present", &m, &reads, &open);
+    // Facts: a displacement claimed (would drop the slot's rent).
+    let mut m = c.clone();
+    m.facts.displaced = Some(host_b());
+    lost_everything("displaced", &m, &reads, &open);
+    // Facts: any other field — the day bit, the target, the arrival bell,
+    // the crypto label, the publication's verified flag, the source's
+    // signature, the unverified lines.
+    let mut m = c.clone();
+    m.facts.day_bit_set = !m.facts.day_bit_set;
+    lost_everything("day_bit_set", &m, &reads, &open);
+    let mut m = c.clone();
+    m.facts.target_i ^= 1;
+    lost_everything("target_i", &m, &reads, &open);
+    let mut m = c.clone();
+    m.facts.arrive_bell += 1;
+    lost_everything("arrive_bell", &m, &reads, &open);
+    let mut m = c.clone();
+    m.facts.crypto = Crypto::IbeOpened;
+    lost_everything("crypto", &m, &reads, &open);
+    let mut m = c.clone();
+    m.facts.publication.signature_verified = !m.facts.publication.signature_verified;
+    lost_everything("publication", &m, &reads, &open);
+    let mut m = c.clone();
+    m.facts.source.signature[0] ^= 1;
+    lost_everything("source", &m, &reads, &open);
+    let mut m = c.clone();
+    m.facts.unverified.clear();
+    lost_everything("unverified", &m, &reads, &open);
+    // The fee payer (the funding would be read for another account).
+    let mut m = c.clone();
+    m.fee_payer = beneficiary();
+    lost_everything("fee_payer", &m, &reads, &open);
+    let mut m = c.clone();
+    m.beneficiary = payer();
+    lost_everything("beneficiary", &m, &reads, &open);
+    // The instruction: program, data, an account's key, signer flag,
+    // writable flag, one account fewer, one more.
+    let mut m = c.clone();
+    m.instruction.program_id = beneficiary();
+    lost_everything("program_id", &m, &reads, &open);
+    let mut m = c.clone();
+    m.instruction.data[0] ^= 1;
+    lost_everything("data[0]", &m, &reads, &open);
+    let mut m = c.clone();
+    let last = m.instruction.data.len() - 1;
+    m.instruction.data[last] ^= 1;
+    lost_everything("data[last]", &m, &reads, &open);
+    let mut m = c.clone();
+    m.instruction.data.push(0);
+    lost_everything("data longer", &m, &reads, &open);
+    let mut m = c.clone();
+    m.instruction.accounts[0].pubkey = beneficiary();
+    lost_everything("accounts[0].pubkey", &m, &reads, &open);
+    let mut m = c.clone();
+    m.instruction.accounts[0].is_signer = false;
+    lost_everything("accounts[0].is_signer", &m, &reads, &open);
+    let mut m = c.clone();
+    m.instruction.accounts[1].is_writable = !m.instruction.accounts[1].is_writable;
+    lost_everything("accounts[1].is_writable", &m, &reads, &open);
+    let mut m = c.clone();
+    m.instruction.accounts.pop();
+    lost_everything("accounts fewer", &m, &reads, &open);
+    let mut m = c.clone();
+    m.instruction
+        .accounts
+        .push(AccountMeta::new_readonly(beneficiary(), false));
+    lost_everything("accounts more", &m, &reads, &open);
+    let mut m = c.clone();
+    m.instruction.accounts.swap(2, 3);
+    lost_everything("accounts reordered", &m, &reads, &open);
+    // The observed metadata: the slot bound, the clock (changed, dropped),
+    // the status flag.
+    let mut m = c.clone();
+    m.min_slot = 8;
+    lost_everything("min_slot", &m, &reads, &open);
+    let mut m = c.clone();
+    m.observed_clock = Some(clock_at(a_ts() + 11));
+    lost_everything("observed_clock", &m, &reads, &open);
+    let mut m = c.clone();
+    m.observed_clock = None;
+    lost_everything("observed_clock dropped", &m, &reads, &open);
+    let mut m = c.clone();
+    m.status_promoted_by_clock = !m.status_promoted_by_clock;
+    lost_everything("status_promoted_by_clock", &m, &reads, &open);
+    // The always-false flags are content too: a flipped `signed` or
+    // `automatic_send` is not the planner's candidate (and the review
+    // never read them to begin with: still unsigned, still not enqueued).
+    let mut m = c.clone();
+    m.signed = true;
+    lost_everything("signed", &m, &reads, &open);
+    let mut m = c.clone();
+    m.automatic_send = true;
+    lost_everything("automatic_send", &m, &reads, &open);
+    let mut m = c.clone();
+    m.signed = true;
+    m.automatic_send = true;
+    lost_everything("both flags", &m, &reads, &open);
+    let a = widereview::review_reveal(&m, &reads, &open);
+    assert!(!a.review.admitted);
+    assert!(a.review.denials.contains(&Deny::SignerAbsent));
+    assert!(a.review.denials.contains(&Deny::SliceDoesNotEnqueue));
+    // A/B mixing. Candidate B is planned over another response (the payer
+    // at five lamports, otherwise the same bytes): both are coherent on
+    // their own, neither over the other's reads, and a candidate carrying
+    // A's facts with B's payer balance in mind is not constructible — the
+    // content of A over the reads of B binds nothing.
+    let mut accounts_b = fx.reads().accounts;
+    accounts_b.insert(
+        payer(),
+        Some(Account {
+            lamports: 5,
+            data: vec![],
+            owner: fclient::addr::system_program(),
+            executable: false,
+        }),
+    );
+    let port_b = FakePort::new(accounts_b, clock_at(a_ts() + 10));
+    let (cb, snap_b) = block_on(widereveal::reveal_snapshot(
+        &port_b,
+        &scope(),
+        payer(),
+        beneficiary(),
+        &fx.proof,
+        Some(&fx.opening),
+        Some(&pb),
+        7,
+    ))
+    .unwrap();
+    let reads_b = snap_b.reads();
+    assert_ne!(snap.meta().digest(), snap_b.meta().digest());
+    assert!(cb.coherent());
+    assert_eq!(cb.facts, c.facts, "the same plan over the same game bytes");
+    assert_eq!(cb.instruction, c.instruction);
+    let nb = widefees::reveal_needs(&cb, &reads_b).unwrap();
+    assert_eq!(
+        nb.funding,
+        Funding::Unmet {
+            payer_lamports: 5,
+            required: rent + 5_000,
+            short: rent + 5_000 - 5
+        }
+    );
+    // A over B's reads, B over A's reads: unknown, never the other's number.
+    for (label, cand, other) in [("A over B", &c, &reads_b), ("B over A", &cb, &reads)] {
+        let n = widefees::reveal_needs(cand, other).unwrap();
+        assert!(matches!(n.funding, Funding::Unknown(_)), "{label}");
+        assert_eq!(n.snapshot_digest, None, "{label}");
+        let a = widereview::review_reveal(cand, other, &open);
+        assert!(a.snapshot.is_none(), "{label}");
+        assert!(
+            a.review.denials.contains(&Deny::NoCoherentSnapshot),
+            "{label}"
+        );
+        assert!(a.review.denials.contains(&Deny::FundingUnknown), "{label}");
+        assert!(!a.review.denials.contains(&Deny::FundingUnmet), "{label}");
+    }
+    // A mutated B over A's reads, a mutated A over B's reads: still nothing.
+    let mut mb = cb.clone();
+    mb.facts.day_present = true;
+    let n = widefees::reveal_needs(&mb, &reads).unwrap();
+    assert!(matches!(n.funding, Funding::Unknown(_)));
+    assert!(!mb.coherent());
+    let mut ma = c.clone();
+    ma.fee_payer = beneficiary();
+    assert!(!ma.coherent());
+    assert!(widereview::review_reveal(&ma, &reads_b, &open)
+        .review
+        .denials
+        .contains(&Deny::NoCoherentSnapshot));
+    // The pristine pair still binds after all of this: nothing above was a
+    // side effect on `c`, `reads` or the snapshot.
+    assert!(c.coherent());
+    assert_eq!(widefees::reveal_needs(&c, &reads).unwrap(), pristine);
+}
+
+/// `w` with byte `i` flipped: another world whose `Debug` (the first four
+/// bytes) is the same when `i ≥ 4`.
+fn flip_world(w: WorldId, i: usize) -> WorldId {
+    let mut b = *w.as_bytes();
+    b[i] ^= 1;
+    WorldId::new(b).unwrap()
+}
+fn rekey(k: ProvinceKey, i: usize) -> ProvinceKey {
+    ProvinceKey::new(flip_world(k.world(), i), k.coord())
+}
+fn rehost(h: WideHostRef, i: usize) -> WideHostRef {
+    WideHostRef::new(rekey(h.key(), i), h.site(), h.gen(), h.seq()).unwrap()
+}
+
+#[test]
+fn world_bytes_past_the_debug_prefix_are_reveal_candidate_content() {
+    // `WorldId`'s Debug prints four of its 32 bytes; the content digest
+    // hashes the full ABI bytes of every identity.
+    assert_eq!(format!("{:?}", rehost(host(), 5)), format!("{:?}", host()));
+    assert_ne!(rehost(host(), 5), host());
+    let open = EngineView {
+        feed_writes_allowed: true,
+        kind_allowed: true,
+        already_pending: false,
+        care_unresolved: false,
+    };
+    // A displacing arrival (the same Citizen's smaller host in slot 3), the
+    // payer funded, planned over one parsed response.
+    let mut fx = Fx::new();
+    fx.slots[3] = Some(slot_bytes(3, host_b(), citizen(), TROOPS - 1));
+    let pb = publication();
+    let mut accounts = fx.reads().accounts;
+    accounts.insert(
+        payer(),
+        Some(Account {
+            lamports: 10_000_000,
+            data: vec![],
+            owner: fclient::addr::system_program(),
+            executable: false,
+        }),
+    );
+    let mut keys: Vec<Address> = accounts.keys().copied().collect();
+    keys.sort();
+    keys.dedup();
+    let port = FakePort::new(accounts, clock_at(a_ts() + 10));
+    let snap = parse_snapshot_response(&port.snapshot_json(&keys, true), &keys, true, 7).unwrap();
+    let reads = snap.reads();
+    let c = match widereveal::plan_reveal(
+        &scope(),
+        payer(),
+        beneficiary(),
+        &fx.proof,
+        Some(&fx.opening),
+        Some(&pb),
+        &reads,
+    ) {
+        Step::Done(r) => r.unwrap(),
+        Step::Need(a) => panic!("{a:?}"),
+    };
+    assert!(c.coherent());
+    assert_eq!((c.facts.target_i, c.facts.displaced), (3, Some(host_b())));
+    assert!(c.facts.path_provinces.is_empty());
+    let pristine = widefees::reveal_needs(&c, &reads).unwrap();
+    // A displacement reuses the slot: only the day is created.
+    assert_eq!(
+        pristine.creates,
+        vec![("wide ArrivalDay", wa::wide_arrival_day::SIZE)]
+    );
+    assert!(matches!(pristine.funding, Funding::MetLowerBound { .. }));
+    // The host's, the destination's and the displaced host's worlds, each
+    // at bytes past the Debug prefix; the instruction untouched.
+    for i in [4usize, 5, 17, 31] {
+        let mut m = c.clone();
+        m.facts.host = rehost(m.facts.host, i);
+        assert_eq!(m.instruction, c.instruction);
+        assert_eq!(
+            format!("{:?}", m.facts),
+            format!("{:?}", c.facts),
+            "Debug cannot tell"
+        );
+        lost_everything(&format!("host world[{i}]"), &m, &reads, &open);
+        let mut m = c.clone();
+        m.facts.dest = rekey(m.facts.dest, i);
+        assert_eq!(m.instruction, c.instruction);
+        assert_eq!(
+            format!("{:?}", m.facts),
+            format!("{:?}", c.facts),
+            "Debug cannot tell"
+        );
+        lost_everything(&format!("dest world[{i}]"), &m, &reads, &open);
+        let mut m = c.clone();
+        m.facts.displaced = Some(rehost(host_b(), i));
+        assert_eq!(m.instruction, c.instruction);
+        assert_eq!(
+            format!("{:?}", m.facts),
+            format!("{:?}", c.facts),
+            "Debug cannot tell"
+        );
+        lost_everything(&format!("displaced world[{i}]"), &m, &reads, &open);
+    }
+    // A path province of a look-alike world (the fixture's path is empty:
+    // a path at all is a change, and so is its world).
+    let mut m = c.clone();
+    m.facts.path_provinces = vec![rekey(away(), 9)];
+    assert_eq!(m.instruction, c.instruction);
+    lost_everything("path province", &m, &reads, &open);
+    let mut m = c.clone();
+    m.facts.path_provinces = vec![away()];
+    lost_everything("path province (same world)", &m, &reads, &open);
+    // The source's slot and sequence, the window, the travel time, the
+    // budget-policy label: every remaining fact, once.
+    let mut m = c.clone();
+    m.facts.source.seq += 1;
+    lost_everything("source.seq", &m, &reads, &open);
+    let mut m = c.clone();
+    m.facts.source.slot += 1;
+    lost_everything("source.slot", &m, &reads, &open);
+    let mut m = c.clone();
+    m.facts.source.instruction_index += 1;
+    lost_everything("source.instruction_index", &m, &reads, &open);
+    let mut m = c.clone();
+    m.facts.source.signatures_verified = true;
+    lost_everything("source.signatures_verified", &m, &reads, &open);
+    let mut m = c.clone();
+    m.facts.source.method = "another method";
+    lost_everything("source.method", &m, &reads, &open);
+    let mut m = c.clone();
+    m.facts.window.judged_at += 1;
+    lost_everything("window.judged_at", &m, &reads, &open);
+    let mut m = c.clone();
+    m.facts.window.seed_round += 1;
+    lost_everything("window.seed_round", &m, &reads, &open);
+    let mut m = c.clone();
+    m.facts.publication.round += 1;
+    lost_everything("publication.round", &m, &reads, &open);
+    let mut m = c.clone();
+    m.facts.publication.pk_hash[31] ^= 1;
+    lost_everything("publication.pk_hash", &m, &reads, &open);
+    let mut m = c.clone();
+    m.facts.travel_secs += 1;
+    lost_everything("travel_secs", &m, &reads, &open);
+    let mut m = c.clone();
+    m.facts.transit_slot ^= 1;
+    lost_everything("transit_slot", &m, &reads, &open);
+    let mut m = c.clone();
+    m.facts.dest_tile ^= 1;
+    lost_everything("dest_tile", &m, &reads, &open);
+    let mut m = c.clone();
+    m.facts.region ^= 1;
+    lost_everything("region", &m, &reads, &open);
+    let mut m = c.clone();
+    m.facts.budget_prefix_policy = "another policy";
+    lost_everything("budget_prefix_policy", &m, &reads, &open);
+    let mut m = c.clone();
+    m.facts.unverified.push("one more line");
+    lost_everything("unverified appended", &m, &reads, &open);
+    let mut m = c.clone();
+    m.facts.unverified.swap(0, 1);
+    lost_everything("unverified reordered", &m, &reads, &open);
+    // The flags, each alone.
+    let mut m = c.clone();
+    m.signed = true;
+    lost_everything("signed", &m, &reads, &open);
+    let mut m = c.clone();
+    m.automatic_send = true;
+    lost_everything("automatic_send", &m, &reads, &open);
+    // Flipped back: the planner's bytes again.
+    let mut m = c.clone();
+    m.facts.host = rehost(rehost(m.facts.host, 9), 9);
+    assert!(m.coherent());
+    assert!(c.coherent());
+    assert_eq!(widefees::reveal_needs(&c, &reads).unwrap(), pristine);
 }

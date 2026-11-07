@@ -14,10 +14,12 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
 
 use base64::Engine as _;
+use fclient::budgets::Budgets;
 use fclient::ports::{
     Account, ChainPort, ClockSysvar, Cursor, PortError, PortResult, Signature, SimResult, Status,
     TxRecord,
 };
+use fclient::rpc::account_json;
 use fclient::tx::{self, TxBudget};
 use fclient::{Hash, Transaction};
 use frontier_abi::addr::AddrCtx;
@@ -38,9 +40,15 @@ use frontier_abi::world_index::{
     ProvinceKey, TileAddress, WideCoord, WideHolding, WideHostRef, WideProvince, WideRoster,
     WideTransit, WorldId, HOST_IDENTITY_FULL_REF_V1, WIDE_SEAL_LEN,
 };
+use keeper_core::engine::{Engine, EngineParams};
 use keeper_core::wideduty::{self, Block, Candidate, Deployment, Duty, Reads, Step, RETURN_MAX};
+use keeper_core::widefees::{self, Funding, Known};
 use keeper_core::wideindex::{Limits, Scope as IndexScope, WideBatch, WideDiscovery};
 use keeper_core::wideproof::{depart_proof, ProofScope, Unavailable};
+use keeper_core::widereview::{self, Deny, EngineView};
+use keeper_core::widesnapshot::{parse_snapshot_response, sysvar_owner, Snapshot};
+use keeper_core::widetick::{WideReview, CANDIDATES_PER_TICK, REFRESH_SLOTS};
+use serde_json::{json, Value};
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
 
@@ -434,7 +442,7 @@ fn settle_plan_asks_for_reads_in_two_steps_then_builds_the_exact_six_accounts() 
     assert_eq!(c.instruction.accounts.len(), 6);
     assert_eq!(c.instruction.data[0], wix::TAG_SETTLE_TICKET);
     assert_eq!(c.instruction.data[3], wix::OP_SETTLE_DEPARTURE);
-    assert!(!c.signed && !c.automatic_send && !c.coherent);
+    assert!(!c.signed && !c.automatic_send && !c.coherent());
     assert_eq!(c.observed_clock, None);
     let Duty::SettleDeparture(f) = &c.duty else {
         panic!("a settle");
@@ -700,7 +708,7 @@ fn settle_plan_requires_the_pinned_deployment_and_judges_seeded_only_by_the_obse
     ))
     .unwrap();
     assert!(c.status_promoted_by_clock);
-    assert!(!c.coherent);
+    assert!(!c.coherent());
     assert_eq!(c.describe()["status_promoted_by_clock"], true);
     // Running needs no clock and is not "promoted".
     let fx = SettleFx::new(home());
@@ -890,7 +898,7 @@ fn return_plan_credits_a_live_holding_at_the_reference_generation_and_strands_ot
         ),
         (2, host(), true, TROOPS / 1_000)
     );
-    assert!(!c.signed && !c.automatic_send && !c.coherent);
+    assert!(!c.signed && !c.automatic_send && !c.coherent());
     // The site re-founded at generation 2 (a transfer, a new owner): the
     // return still plans; the troops strand.
     let mut fx = ReturnFx::new(home(), &[host()]);
@@ -1160,7 +1168,10 @@ fn the_driver_reads_through_the_port_at_the_requested_bound_and_never_simulates_
     assert_eq!(c.instruction, fx.expected_instruction());
     assert_eq!(c.min_slot, 777);
     assert_eq!(c.observed_clock.map(|c| c.slot), Some(900));
-    assert!(!c.coherent, "a separately observed clock is never coherent");
+    assert!(
+        !c.coherent(),
+        "a separately observed clock is never coherent"
+    );
     assert_eq!(*port.min_slots.lock().unwrap(), vec![777, 777]);
     assert_eq!(port.forbidden.load(Ordering::SeqCst), 0);
     // A return through the port, foreign (three read rounds).
@@ -2038,6 +2049,262 @@ fn proof_refuses_legacy_rings_bad_seal_flags_and_out_of_bound_inputs() {
 
 // ------------------------------------------------------------ the observer tie
 
+/// The bounded per-tick review the keeper runs when both the observer and
+/// the review are enabled, exercised directly (a `Keeper` cannot be built
+/// here: its constructor derives signing keys). The model offers one
+/// settle hint; the step plans it through the fake port's ordinary reads,
+/// reviews it against a real, empty `Engine`, records a summary, enqueues
+/// nothing, and does not re-review within the refresh window.
+#[test]
+fn the_tick_review_plans_reviews_and_enqueues_nothing() {
+    let mut model = WideDiscovery::new(
+        IndexScope {
+            program: program(),
+            season: season_pda().0,
+            world: world(),
+            source: "test: literal bodies".into(),
+        },
+        Limits::default(),
+    );
+    model
+        .apply(&WideBatch {
+            seq: 1,
+            slot: 1_001,
+            signature: "sig-1".into(),
+            bodies: vec![departed_ok(home())],
+        })
+        .unwrap();
+    let fx = SettleFx::new(home());
+    let port = FakePort {
+        accounts: fx.reads().accounts,
+        min_slots: Mutex::new(vec![]),
+        forbidden: AtomicUsize::new(0),
+    };
+    let engine = Engine::new(Budgets::default(), EngineParams::default());
+    let mut review = WideReview::new(Deployment {
+        program_version: WIDE_VERSION,
+        ruleset_hash: RULESET,
+    });
+    assert_eq!(review.candidates_per_tick, CANDIDATES_PER_TICK);
+    let made = block_on(review.step(&port, &engine, &model, program(), season_pda().0, 5_000));
+    assert_eq!(made, 1, "one hint, one plan");
+    assert_eq!((review.plans, review.candidates, review.blocked), (1, 1, 0));
+    assert_eq!(
+        *port.min_slots.lock().unwrap(),
+        vec![5_000, 5_000],
+        "two read rounds for a settle, each at the tick's slot as the lower bound"
+    );
+    assert_eq!(port.forbidden.load(Ordering::SeqCst), 0);
+    assert_eq!(engine.pending_len(), 0, "nothing enqueued");
+    let st = review.status();
+    assert_eq!(st["mode"], "review-only");
+    assert_eq!(st["automatic_writes"], false);
+    assert_eq!(st["enqueued"], 0);
+    assert_eq!(st["ledger"], 1);
+    assert_eq!(st["hard_cap"], CANDIDATES_PER_TICK);
+    let recent = st["recent"].as_array().unwrap();
+    assert_eq!(recent.len(), 1);
+    assert_eq!(recent[0]["outcome"], "candidate");
+    let rv = &recent[0]["assessment"]["review"];
+    assert_eq!(rv["admitted"], false);
+    assert_eq!(rv["enqueued"], false);
+    assert_eq!(
+        rv["key"],
+        format!(
+            "wide-settle-departure:{}:{}:{}",
+            hex::encode(world().as_bytes()),
+            hex::encode(host().to_bytes()),
+            SLOT
+        ),
+        "the settle subject key by full identity"
+    );
+    assert_eq!(rv["kind"], "wide-settle-departure");
+    assert_eq!(rv["tag"], wix::TAG_SETTLE_TICKET);
+    assert_eq!(rv["class"], "D");
+    assert_eq!(
+        recent[0]["candidate"]["coherent"], false,
+        "ordinary reads on the tick path"
+    );
+    assert_eq!(
+        recent[0]["candidate"]["payer"],
+        Address::default().to_string(),
+        "no payer drawn"
+    );
+    assert_eq!(recent[0]["assessment"]["snapshot"], serde_json::Value::Null);
+    let denials = rv["denials"].as_array().unwrap();
+    assert!(denials.iter().any(|d| d == "NoCoherentSnapshot"));
+    assert!(denials.iter().any(|d| d == "FundingUnknown"));
+    assert!(denials.iter().any(|d| d == "SliceDoesNotEnqueue"));
+    assert!(st.to_string().contains("unsupported on the tick path"));
+    assert!(st["covers"].as_str().unwrap().contains("not reveal"));
+    // Within the refresh window the same hint is not planned again.
+    let made = block_on(review.step(&port, &engine, &model, program(), season_pda().0, 5_000 + 1));
+    assert_eq!(made, 0);
+    assert_eq!(*port.min_slots.lock().unwrap(), vec![5_000, 5_000]);
+    // Past it, it is.
+    let made = block_on(review.step(
+        &port,
+        &engine,
+        &model,
+        program(),
+        season_pda().0,
+        5_000 + REFRESH_SLOTS,
+    ));
+    assert_eq!(made, 1);
+    assert_eq!(review.plans, 2);
+    assert_eq!(engine.pending_len(), 0);
+    // A hint the chain refuses (the transit absent) is recorded as blocked.
+    let mut fx2 = SettleFx::new(home());
+    fx2.transit = None;
+    let port2 = FakePort {
+        accounts: fx2.reads().accounts,
+        min_slots: Mutex::new(vec![]),
+        forbidden: AtomicUsize::new(0),
+    };
+    let mut review2 = WideReview::new(Deployment {
+        program_version: WIDE_VERSION,
+        ruleset_hash: RULESET,
+    });
+    assert_eq!(
+        block_on(review2.step(&port2, &engine, &model, program(), season_pda().0, 1)),
+        1
+    );
+    assert_eq!((review2.candidates, review2.blocked), (0, 1));
+    let st2 = review2.status();
+    assert_eq!(st2["recent"][0]["outcome"], "blocked");
+    assert!(st2["recent"][0]["block"]
+        .as_str()
+        .unwrap()
+        .contains("NoMarch"));
+    // A port whose reads fail: recorded as a read error, the status still
+    // composes, nothing is enqueued, the step returns.
+    let failing = FailingPort;
+    let mut review3 = WideReview::new(Deployment {
+        program_version: WIDE_VERSION,
+        ruleset_hash: RULESET,
+    });
+    assert_eq!(
+        block_on(review3.step(&failing, &engine, &model, program(), season_pda().0, 9)),
+        1
+    );
+    assert_eq!(
+        (review3.candidates, review3.blocked, review3.read_errors),
+        (0, 1, 1)
+    );
+    let st3 = review3.status();
+    assert_eq!(st3["recent"][0]["outcome"], "blocked");
+    assert!(st3["recent"][0]["block"].as_str().unwrap().contains("Read"));
+    assert_eq!(st3["read_errors"], 1);
+    assert_eq!(engine.pending_len(), 0);
+    // The hard cap holds whatever the public knob says, and the cursor
+    // advances by the positions inspected: three hints, cap 2 → two plans
+    // this tick (the first two), then the third next tick.
+    let mut three = WideDiscovery::new(
+        IndexScope {
+            program: program(),
+            season: season_pda().0,
+            world: world(),
+            source: "test: literal bodies".into(),
+        },
+        Limits::default(),
+    );
+    let third = WideHostRef::new(home(), SITE, GEN, 9).unwrap();
+    three
+        .apply(&WideBatch {
+            seq: 1,
+            slot: 1_001,
+            signature: "sig-1".into(),
+            bodies: vec![
+                departed_ok(home()),
+                departed_body(
+                    host_b(),
+                    home(),
+                    DEPART_BELL,
+                    0,
+                    DEPART_BELL,
+                    ARRIVE_BELL,
+                    TIP,
+                    root(),
+                ),
+                departed_body(
+                    third,
+                    home(),
+                    DEPART_BELL,
+                    2,
+                    DEPART_BELL,
+                    ARRIVE_BELL,
+                    TIP,
+                    root(),
+                ),
+            ],
+        })
+        .unwrap();
+    assert_eq!(wideduty::settle_candidates(&three).len(), 3);
+    let mut review4 = WideReview::new(Deployment {
+        program_version: WIDE_VERSION,
+        ruleset_hash: RULESET,
+    });
+    review4.candidates_per_tick = 99;
+    assert_eq!(
+        review4.cap(),
+        CANDIDATES_PER_TICK,
+        "the public knob cannot raise the cap"
+    );
+    let made = block_on(review4.step(&port2, &engine, &three, program(), season_pda().0, 10));
+    assert_eq!(made as usize, CANDIDATES_PER_TICK);
+    assert_eq!(review4.status()["cursor"], CANDIDATES_PER_TICK);
+    let made = block_on(review4.step(&port2, &engine, &three, program(), season_pda().0, 11));
+    assert_eq!(made, 1, "the third hint, not the first two again");
+    assert_eq!(review4.status()["ledger"], 3);
+    assert_eq!(engine.pending_len(), 0);
+    // The duty fee review over ordinary reads: nothing is created by a
+    // settle, the base fee is the one-signature assumption, rent and
+    // funding unknown (no verified snapshot binds these reads).
+    let c = fx.plan().unwrap();
+    assert!(!c.coherent() && c.snapshot().is_none());
+    let needs = widefees::duty_needs(&c, &fx.reads()).unwrap();
+    assert!(needs.creates.is_empty());
+    assert_eq!(needs.base_fee_lamports, Known::Known(5_000));
+    assert!(matches!(needs.rent_lamports, Known::Unchecked(_)));
+    assert!(matches!(needs.funding, Funding::Unknown(_)));
+    assert_eq!(needs.snapshot_digest, None);
+}
+
+/// A port whose account reads fail (the clock is served).
+struct FailingPort;
+
+impl ChainPort for FailingPort {
+    async fn clock(&self) -> PortResult<ClockSysvar> {
+        Ok(ClockSysvar {
+            slot: 9,
+            unix_timestamp: 1_790_444_847,
+            ..ClockSysvar::default()
+        })
+    }
+    async fn accounts(
+        &self,
+        _keys: &[Address],
+        _min_slot: u64,
+    ) -> PortResult<Vec<Option<Account>>> {
+        Err(PortError::Io("the fixture RPC is down".into()))
+    }
+    async fn simulate(&self, _tx: &[u8]) -> PortResult<SimResult> {
+        panic!("simulate must never be called")
+    }
+    async fn send(&self, _tx: &[u8]) -> PortResult<Signature> {
+        panic!("send must never be called")
+    }
+    async fn statuses(&self, _sigs: &[Signature]) -> PortResult<Vec<Option<Status>>> {
+        Ok(vec![])
+    }
+    async fn feed(&self, _after: Cursor) -> PortResult<Vec<TxRecord>> {
+        Ok(vec![])
+    }
+    async fn blockhash(&self) -> PortResult<(Hash, u64)> {
+        Ok((Hash::default(), 0))
+    }
+}
+
 #[test]
 fn candidates_come_from_the_discovery_model_as_hints_only() {
     let mut d = WideDiscovery::new(
@@ -2091,4 +2358,495 @@ fn candidates_come_from_the_discovery_model_as_hints_only() {
         wideduty::return_candidates(&d),
         vec![(away(), host().holding_ref())]
     );
+}
+
+// ------------------------------------------------------------ content sealing
+
+/// One `getMultipleAccounts` response for `keys ‖ Clock` written as literal
+/// JSON from `accounts` (the Clock's slot is the context slot), parsed by
+/// the snapshot parser itself. No rent (settle creates nothing).
+fn snapshot_of(
+    accounts: &BTreeMap<Address, Option<Account>>,
+    keys: &[Address],
+    clock: ClockSysvar,
+    min_slot: u64,
+) -> Snapshot {
+    let mut value: Vec<Value> = keys
+        .iter()
+        .map(|k| match accounts.get(k).cloned().flatten() {
+            Some(a) => account_json(&a),
+            None => Value::Null,
+        })
+        .collect();
+    value.push(account_json(&Account {
+        lamports: 1,
+        data: clock.encode().to_vec(),
+        owner: sysvar_owner(),
+        executable: false,
+    }));
+    parse_snapshot_response(
+        &json!({"context": {"slot": clock.slot}, "value": value}),
+        keys,
+        false,
+        min_slot,
+    )
+    .unwrap()
+}
+
+/// What a coherent settle candidate loses when any public field differs
+/// from what the planner produced, over reads that still verify.
+fn lost_everything(label: &str, m: &Candidate, reads: &Reads, open: &EngineView) {
+    assert!(
+        reads.coherent_snapshot().is_some(),
+        "{label}: the reads still verify"
+    );
+    assert!(!m.coherent(), "{label}: coherent");
+    assert!(m.snapshot().is_none(), "{label}: snapshot");
+    assert_eq!(m.describe()["coherent"], false, "{label}: describe");
+    let n = widefees::duty_needs(m, reads).unwrap();
+    assert!(
+        matches!(n.rent_lamports, Known::Unchecked(_)),
+        "{label}: rent {:?}",
+        n.rent_lamports
+    );
+    assert!(
+        matches!(n.funding, Funding::Unknown(_)),
+        "{label}: funding {:?}",
+        n.funding
+    );
+    assert_eq!(n.snapshot_digest, None, "{label}: digest");
+    let a = widereview::review_candidate(m, reads, open);
+    assert!(a.snapshot.is_none(), "{label}: assessment snapshot");
+    assert!(
+        a.review.denials.contains(&Deny::NoCoherentSnapshot),
+        "{label}: denial"
+    );
+    assert!(
+        a.review.denials.contains(&Deny::FundingUnknown),
+        "{label}: funding denial"
+    );
+    assert!(!a.review.admitted, "{label}: admitted");
+}
+
+#[test]
+fn a_mutated_settle_candidate_loses_its_snapshot_fee_bound_and_review() {
+    let fx = SettleFx::new(home());
+    let open = EngineView {
+        feed_writes_allowed: true,
+        kind_allowed: true,
+        already_pending: false,
+        care_unresolved: false,
+    };
+    let clock = clock_at(1_790_444_847);
+    let mut accounts = fx.reads().accounts;
+    let mut keys: Vec<Address> = accounts.keys().copied().collect();
+    keys.push(payer());
+    accounts.insert(
+        payer(),
+        Some(Account {
+            lamports: 1_000_000,
+            data: vec![],
+            owner: fclient::addr::system_program(),
+            executable: false,
+        }),
+    );
+    let snap = snapshot_of(&accounts, &keys, clock, 7);
+    let reads = snap.reads();
+    assert_eq!((reads.min_slot, reads.clock), (7, Some(clock)));
+    let c = done(wideduty::plan_settle_departure(
+        &dscope(),
+        payer(),
+        host(),
+        SLOT,
+        &reads,
+    ))
+    .unwrap();
+    assert_eq!(c.instruction, fx.expected_instruction());
+    assert!(c.coherent());
+    assert_eq!(c.snapshot().map(|m| m.digest()), Some(snap.meta().digest()));
+    assert_eq!((c.min_slot, c.observed_clock), (7, Some(clock)));
+    assert!(!c.status_promoted_by_clock);
+    // Bound: nothing created, rent zero, the one-signature base fee met by
+    // the payer at the context slot; still never admitted.
+    let pristine = widefees::duty_needs(&c, &reads).unwrap();
+    assert!(pristine.creates.is_empty());
+    assert_eq!(pristine.rent_lamports, Known::Known(0));
+    assert_eq!(pristine.required_lower_bound, Known::Known(5_000));
+    assert_eq!(
+        pristine.funding,
+        Funding::MetLowerBound {
+            payer_lamports: 1_000_000,
+            required: 5_000
+        }
+    );
+    assert_eq!(pristine.snapshot_digest, Some(snap.meta().digest()));
+    let a = widereview::review_candidate(&c, &reads, &open);
+    assert_eq!(
+        a.snapshot.as_ref().map(|m| m.digest()),
+        Some(snap.meta().digest())
+    );
+    assert!(!a.review.denials.contains(&Deny::NoCoherentSnapshot));
+    assert!(!a.review.denials.contains(&Deny::FundingUnknown));
+    assert!(a.review.denials.contains(&Deny::SnapshotCurrencyUnknown));
+    assert!(!a.review.admitted);
+    // An untouched clone is the same candidate.
+    let same = c.clone();
+    assert!(same.coherent());
+    assert_eq!(widefees::duty_needs(&same, &reads).unwrap(), pristine);
+    // The duty's facts: any field.
+    let mut m = c.clone();
+    match &mut m.duty {
+        Duty::SettleDeparture(f) => f.predicted_destroyed = !f.predicted_destroyed,
+        Duty::Return(_) => unreachable!(),
+    }
+    lost_everything("predicted_destroyed", &m, &reads, &open);
+    let mut m = c.clone();
+    match &mut m.duty {
+        Duty::SettleDeparture(f) => f.troops_after_milli += 1,
+        Duty::Return(_) => unreachable!(),
+    }
+    lost_everything("troops_after_milli", &m, &reads, &open);
+    let mut m = c.clone();
+    match &mut m.duty {
+        Duty::SettleDeparture(f) => f.origin_is_home = !f.origin_is_home,
+        Duty::Return(_) => unreachable!(),
+    }
+    lost_everything("origin_is_home", &m, &reads, &open);
+    let mut m = c.clone();
+    match &mut m.duty {
+        Duty::SettleDeparture(f) => f.entry_index += 1,
+        Duty::Return(_) => unreachable!(),
+    }
+    lost_everything("entry_index", &m, &reads, &open);
+    // The duty's kind.
+    let mut m = c.clone();
+    m.duty = Duty::Return(wideduty::ReturnFacts {
+        standing: home(),
+        holding: host().holding_ref(),
+        holding_present: true,
+        live_gen: Some(GEN),
+        foreign: false,
+        picks: vec![],
+        skipped_in_transit: 0,
+    });
+    lost_everything("duty kind", &m, &reads, &open);
+    // The payer.
+    let mut m = c.clone();
+    m.payer = actor();
+    lost_everything("payer", &m, &reads, &open);
+    // The instruction: program, data, keys, flags, cardinality, order.
+    let mut m = c.clone();
+    m.instruction.program_id = actor();
+    lost_everything("program_id", &m, &reads, &open);
+    let mut m = c.clone();
+    m.instruction.data[0] ^= 1;
+    lost_everything("data[0]", &m, &reads, &open);
+    let mut m = c.clone();
+    let last = m.instruction.data.len() - 1;
+    m.instruction.data[last] ^= 1;
+    lost_everything("data[last]", &m, &reads, &open);
+    let mut m = c.clone();
+    m.instruction.data.push(0);
+    lost_everything("data longer", &m, &reads, &open);
+    let mut m = c.clone();
+    m.instruction.accounts[0].pubkey = actor();
+    lost_everything("accounts[0].pubkey", &m, &reads, &open);
+    let mut m = c.clone();
+    m.instruction.accounts[0].is_signer = false;
+    lost_everything("accounts[0].is_signer", &m, &reads, &open);
+    let mut m = c.clone();
+    m.instruction.accounts[1].is_writable = true;
+    lost_everything("accounts[1].is_writable", &m, &reads, &open);
+    let mut m = c.clone();
+    m.instruction.accounts.pop();
+    lost_everything("accounts fewer", &m, &reads, &open);
+    let mut m = c.clone();
+    m.instruction
+        .accounts
+        .push(AccountMeta::new_readonly(actor(), false));
+    lost_everything("accounts more", &m, &reads, &open);
+    let mut m = c.clone();
+    m.instruction.accounts.swap(2, 3);
+    lost_everything("accounts reordered", &m, &reads, &open);
+    // The observed metadata.
+    let mut m = c.clone();
+    m.min_slot = 8;
+    lost_everything("min_slot", &m, &reads, &open);
+    let mut m = c.clone();
+    m.observed_clock = Some(clock_at(1_790_444_848));
+    lost_everything("observed_clock", &m, &reads, &open);
+    let mut m = c.clone();
+    m.observed_clock = None;
+    lost_everything("observed_clock dropped", &m, &reads, &open);
+    let mut m = c.clone();
+    m.status_promoted_by_clock = true;
+    lost_everything("status_promoted_by_clock", &m, &reads, &open);
+    // The always-false flags are content too; the review never read them
+    // and still denies the signer.
+    let mut m = c.clone();
+    m.signed = true;
+    lost_everything("signed", &m, &reads, &open);
+    let mut m = c.clone();
+    m.automatic_send = true;
+    lost_everything("automatic_send", &m, &reads, &open);
+    let mut m = c.clone();
+    m.signed = true;
+    m.automatic_send = true;
+    lost_everything("both flags", &m, &reads, &open);
+    let a = widereview::review_candidate(&m, &reads, &open);
+    assert!(!a.review.admitted);
+    assert!(a.review.denials.contains(&Deny::SignerAbsent));
+    // A/B: the same plan over another response (the payer at five
+    // lamports): each coherent over its own reads, neither over the
+    // other's; the other's number is never borrowed.
+    let mut accounts_b = accounts.clone();
+    accounts_b.insert(
+        payer(),
+        Some(Account {
+            lamports: 5,
+            data: vec![],
+            owner: fclient::addr::system_program(),
+            executable: false,
+        }),
+    );
+    let snap_b = snapshot_of(&accounts_b, &keys, clock, 7);
+    let reads_b = snap_b.reads();
+    assert_ne!(snap.meta().digest(), snap_b.meta().digest());
+    let cb = done(wideduty::plan_settle_departure(
+        &dscope(),
+        payer(),
+        host(),
+        SLOT,
+        &reads_b,
+    ))
+    .unwrap();
+    assert!(cb.coherent());
+    assert_eq!(
+        (cb.duty.clone(), cb.instruction.clone()),
+        (c.duty.clone(), c.instruction.clone())
+    );
+    assert_eq!(
+        widefees::duty_needs(&cb, &reads_b).unwrap().funding,
+        Funding::Unmet {
+            payer_lamports: 5,
+            required: 5_000,
+            short: 4_995
+        }
+    );
+    for (label, cand, other) in [("A over B", &c, &reads_b), ("B over A", &cb, &reads)] {
+        let n = widefees::duty_needs(cand, other).unwrap();
+        assert!(matches!(n.funding, Funding::Unknown(_)), "{label}");
+        assert_eq!(n.snapshot_digest, None, "{label}");
+        let a = widereview::review_candidate(cand, other, &open);
+        assert!(a.snapshot.is_none(), "{label}");
+        assert!(
+            a.review.denials.contains(&Deny::NoCoherentSnapshot),
+            "{label}"
+        );
+        assert!(a.review.denials.contains(&Deny::FundingUnknown), "{label}");
+        assert!(!a.review.denials.contains(&Deny::FundingUnmet), "{label}");
+    }
+    // A mutated B over A's reads binds nothing either.
+    let mut mb = cb.clone();
+    mb.payer = actor();
+    assert!(!mb.coherent());
+    assert!(widereview::review_candidate(&mb, &reads, &open)
+        .review
+        .denials
+        .contains(&Deny::NoCoherentSnapshot));
+    // The pristine pair still binds: nothing above touched `c` or `reads`.
+    assert!(c.coherent());
+    assert_eq!(widefees::duty_needs(&c, &reads).unwrap(), pristine);
+}
+
+/// `w` with byte `i` flipped: another world whose `Debug` (the first four
+/// bytes) is the same when `i ≥ 4`.
+fn flip_world(w: WorldId, i: usize) -> WorldId {
+    let mut b = *w.as_bytes();
+    b[i] ^= 1;
+    WorldId::new(b).unwrap()
+}
+fn rekey(k: ProvinceKey, i: usize) -> ProvinceKey {
+    ProvinceKey::new(flip_world(k.world(), i), k.coord())
+}
+fn rehost(h: WideHostRef, i: usize) -> WideHostRef {
+    WideHostRef::new(rekey(h.key(), i), h.site(), h.gen(), h.seq()).unwrap()
+}
+
+#[test]
+fn world_bytes_past_the_debug_prefix_are_candidate_content() {
+    // `WorldId`'s Debug prints four of its 32 bytes: two identities that
+    // differ only later print the same. The content digest hashes the
+    // full ABI bytes, never Debug output.
+    assert_eq!(format!("{:?}", rehost(host(), 5)), format!("{:?}", host()));
+    assert_ne!(rehost(host(), 5), host());
+    assert_eq!(format!("{:?}", rekey(home(), 31)), format!("{:?}", home()));
+    assert_ne!(rekey(home(), 31).to_bytes(), home().to_bytes());
+    let open = EngineView {
+        feed_writes_allowed: true,
+        kind_allowed: true,
+        already_pending: false,
+        care_unresolved: false,
+    };
+    let clock = clock_at(1_790_444_847);
+    let funded = Some(Account {
+        lamports: 1_000_000,
+        data: vec![],
+        owner: fclient::addr::system_program(),
+        executable: false,
+    });
+    // A coherent settle candidate.
+    let fx = SettleFx::new(home());
+    let mut accounts = fx.reads().accounts;
+    let mut keys: Vec<Address> = accounts.keys().copied().collect();
+    keys.push(payer());
+    accounts.insert(payer(), funded.clone());
+    let snap = snapshot_of(&accounts, &keys, clock, 7);
+    let reads = snap.reads();
+    let c = done(wideduty::plan_settle_departure(
+        &dscope(),
+        payer(),
+        host(),
+        SLOT,
+        &reads,
+    ))
+    .unwrap();
+    assert!(c.coherent());
+    assert!(matches!(
+        widefees::duty_needs(&c, &reads).unwrap().funding,
+        Funding::MetLowerBound { .. }
+    ));
+    // The host's world, bytes 4, 5, 17 and 31; the origin's world, bytes 4
+    // and 31. The instruction is left exactly as planned.
+    for i in [4usize, 5, 17, 31] {
+        let mut m = c.clone();
+        match &mut m.duty {
+            Duty::SettleDeparture(f) => f.host = rehost(f.host, i),
+            Duty::Return(_) => unreachable!(),
+        }
+        assert_eq!(m.instruction, c.instruction);
+        assert_eq!(
+            format!("{:?}", m.duty),
+            format!("{:?}", c.duty),
+            "Debug cannot tell"
+        );
+        lost_everything(&format!("settle host world[{i}]"), &m, &reads, &open);
+    }
+    for i in [4usize, 31] {
+        let mut m = c.clone();
+        match &mut m.duty {
+            Duty::SettleDeparture(f) => f.origin = rekey(f.origin, i),
+            Duty::Return(_) => unreachable!(),
+        }
+        assert_eq!(m.instruction, c.instruction);
+        assert_eq!(
+            format!("{:?}", m.duty),
+            format!("{:?}", c.duty),
+            "Debug cannot tell"
+        );
+        lost_everything(&format!("settle origin world[{i}]"), &m, &reads, &open);
+    }
+    // A coherent return candidate (one host of the home holding standing
+    // in `away`, the tenth account present).
+    let rfx = ReturnFx::new(away(), &[host()]);
+    let mut accounts = rfx.reads().accounts;
+    let mut keys: Vec<Address> = accounts.keys().copied().collect();
+    keys.push(payer());
+    accounts.insert(payer(), funded);
+    let snap_r = snapshot_of(&accounts, &keys, clock, 7);
+    let reads_r = snap_r.reads();
+    let r = done(wideduty::plan_return(
+        &dscope(),
+        payer(),
+        away(),
+        host().holding_ref(),
+        &reads_r,
+    ))
+    .unwrap();
+    assert!(r.coherent());
+    assert_eq!(return_facts(&r).picks.len(), 1);
+    assert!(matches!(
+        widefees::duty_needs(&r, &reads_r).unwrap().funding,
+        Funding::MetLowerBound { .. }
+    ));
+    // The standing's world, the holding reference's world, the pick's
+    // host's world — each past the Debug prefix, instruction unchanged.
+    for i in [4usize, 31] {
+        let mut m = r.clone();
+        match &mut m.duty {
+            Duty::Return(f) => f.standing = rekey(f.standing, i),
+            Duty::SettleDeparture(_) => unreachable!(),
+        }
+        assert_eq!(m.instruction, r.instruction);
+        assert_eq!(
+            format!("{:?}", m.duty),
+            format!("{:?}", r.duty),
+            "Debug cannot tell"
+        );
+        lost_everything(&format!("return standing world[{i}]"), &m, &reads_r, &open);
+        let mut m = r.clone();
+        match &mut m.duty {
+            Duty::Return(f) => f.holding = rehost(f.holding, i),
+            Duty::SettleDeparture(_) => unreachable!(),
+        }
+        assert_eq!(m.instruction, r.instruction);
+        assert_eq!(
+            format!("{:?}", m.duty),
+            format!("{:?}", r.duty),
+            "Debug cannot tell"
+        );
+        lost_everything(&format!("return holding world[{i}]"), &m, &reads_r, &open);
+        let mut m = r.clone();
+        match &mut m.duty {
+            Duty::Return(f) => f.picks[0].host = rehost(f.picks[0].host, i),
+            Duty::SettleDeparture(_) => unreachable!(),
+        }
+        assert_eq!(m.instruction, r.instruction);
+        assert_eq!(
+            format!("{:?}", m.duty),
+            format!("{:?}", r.duty),
+            "Debug cannot tell"
+        );
+        lost_everything(&format!("return pick host world[{i}]"), &m, &reads_r, &open);
+    }
+    // Every other return fact and the flags, once each.
+    let mut m = r.clone();
+    match &mut m.duty {
+        Duty::Return(f) => f.live_gen = None,
+        Duty::SettleDeparture(_) => unreachable!(),
+    }
+    lost_everything("return live_gen", &m, &reads_r, &open);
+    let mut m = r.clone();
+    match &mut m.duty {
+        Duty::Return(f) => f.picks[0].credited = !f.picks[0].credited,
+        Duty::SettleDeparture(_) => unreachable!(),
+    }
+    lost_everything("return pick credited", &m, &reads_r, &open);
+    let mut m = r.clone();
+    match &mut m.duty {
+        Duty::Return(f) => f.picks.clear(),
+        Duty::SettleDeparture(_) => unreachable!(),
+    }
+    lost_everything("return picks cleared", &m, &reads_r, &open);
+    let mut m = r.clone();
+    match &mut m.duty {
+        Duty::Return(f) => f.skipped_in_transit += 1,
+        Duty::SettleDeparture(_) => unreachable!(),
+    }
+    lost_everything("return skipped_in_transit", &m, &reads_r, &open);
+    let mut m = r.clone();
+    m.signed = true;
+    lost_everything("return signed", &m, &reads_r, &open);
+    let mut m = r.clone();
+    m.automatic_send = true;
+    lost_everything("return automatic_send", &m, &reads_r, &open);
+    // The world byte flipped back is the planner's candidate again: the
+    // digest is of the bytes, not of the edit.
+    let mut m = c.clone();
+    match &mut m.duty {
+        Duty::SettleDeparture(f) => f.host = rehost(rehost(f.host, 9), 9),
+        Duty::Return(_) => unreachable!(),
+    }
+    assert!(m.coherent());
+    assert!(c.coherent() && r.coherent());
 }

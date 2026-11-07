@@ -26,7 +26,10 @@
 //! | `wideproof` (feature `wide-world-experimental`) | **read-only**: the Depart commitment and 264-byte seal of a committed WideDepart, taken from a feed record's wire and bound to the `Departed` record inside the same instruction's log frame; unavailable on any CPI, rollback or mismatch; no signature verified, no key |
 //! | `wideduty` (feature `wide-world-experimental`) | **read-only, unsigned**: WideSettleDeparture and WideReturn instructions planned from current account reads with the dispatcher's tables and refusals; explicit block reasons; never signed, simulated, sent or queued |
 //! | `widereveal` (feature `wide-world-experimental`) | **read-only, unsigned**: a WideReveal candidate planned from a `wideproof::DepartProof`, a caller-supplied seal opening and current account reads; the handler's timing, latch, path, shield, quota and ArrivalDay rules replayed; a matching commitment is never called a cryptographic verification |
-//! | `widereview` (feature `wide-world-experimental`) | **read-only** admission review of a wide candidate against the engine's public state: a typed full-identity key, kind, tag, class and concrete denials; never a `WriteSpec`, never `ensure`/`poll`/`send`; not wired into the tick |
+//! | `widereview` (feature `wide-world-experimental`) | **read-only** admission review of a wide candidate against the engine's public state: a typed full-identity key, kind, tag, class and concrete denials; never a `WriteSpec`, never `ensure`/`poll`/`send` |
+//! | `widesnapshot` (feature `wide-world-experimental`) | the additive same-response account snapshot (`SnapshotPort`, default `Unsupported`; the JSON-RPC port implements it): all keys + Clock (+ Rent) in one `getMultipleAccounts` response with its context slot; coherence, never currency or permission |
+//! | `widefees` (feature `wide-world-experimental`) | what executing a wide candidate requires of its fee payer, calculated only from a same-response Rent sysvar and payer account (ABI sizes), every assumption named, unmet or unknown declared |
+//! | `widetick` (feature `wide-world-experimental`) | the bounded per-tick **read-only** review of the observer's candidates for `/v1/status` (`Keeper::enable_wide_review`): plans and reviews, enqueues nothing |
 //!
 //! [`Keeper::tick`] runs once per slot: it reads the Clock, plans every
 //! duty from chain reads (the chain is the state), then lets the engine
@@ -64,15 +67,21 @@ pub mod seeds;
 pub(crate) mod testkit;
 pub mod tickets;
 #[cfg(feature = "wide-world-experimental")]
+pub mod wideduty;
+#[cfg(feature = "wide-world-experimental")]
+pub mod widefees;
+#[cfg(feature = "wide-world-experimental")]
 pub mod wideindex;
 #[cfg(feature = "wide-world-experimental")]
 pub mod wideproof;
 #[cfg(feature = "wide-world-experimental")]
-pub mod wideduty;
-#[cfg(feature = "wide-world-experimental")]
 pub mod widereveal;
 #[cfg(feature = "wide-world-experimental")]
 pub mod widereview;
+#[cfg(feature = "wide-world-experimental")]
+pub mod widesnapshot;
+#[cfg(feature = "wide-world-experimental")]
+pub mod widetick;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
@@ -302,6 +311,11 @@ pub struct Keeper<P: ChainPort, D: DrandPort> {
     /// them. It never plans, sends, signs or unblocks anything.
     #[cfg(feature = "wide-world-experimental")]
     pub wide_observer: Option<wideindex::WideObserver>,
+    /// The bounded read-only review of the observer's candidates
+    /// (`widetick`), enabled by [`Keeper::enable_wide_review`]. It plans
+    /// and reviews; it enqueues, signs and sends nothing.
+    #[cfg(feature = "wide-world-experimental")]
+    pub wide_review: Option<widetick::WideReview>,
 }
 
 /// Slots between two cares while a pool is below its minimum (the top-up
@@ -438,10 +452,28 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
             budgets_version: abi::PROGRAM_VERSION_V1,
             #[cfg(feature = "wide-world-experimental")]
             wide_observer: None,
+            #[cfg(feature = "wide-world-experimental")]
+            wide_review: None,
             cfg,
             port,
             drand,
         })
+    }
+
+    /// Enables the bounded read-only review of the wide observer's
+    /// candidates under a pinned deployment (`widetick`). Requires the
+    /// observer. Adds at most `widetick::CANDIDATES_PER_TICK` plans of
+    /// account reads per tick and a `review` entry under `wide` in the
+    /// status; no write gate, cursor or signer changes.
+    #[cfg(feature = "wide-world-experimental")]
+    pub fn enable_wide_review(&mut self, deployment: wideduty::Deployment) -> Result<(), String> {
+        if self.wide_observer.is_none() {
+            return Err(
+                "wide review needs the wide observer (enable_wide_observation first)".into(),
+            );
+        }
+        self.wide_review = Some(widetick::WideReview::new(deployment));
+        Ok(())
     }
 
     /// Enables the read-only wide observer over this Season's one legacy
@@ -966,6 +998,25 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
             // Keep beacon publication ahead of the potentially slow feed
             // catch-up. No game write is sent until this shared gate runs.
             let result = self.refresh_discovery().await;
+            // The bounded read-only wide review (feature
+            // `wide-world-experimental`): plans and reviews, enqueues
+            // nothing; runs before the status is published, whether or not
+            // the discovery pull failed or the legacy guard has fired, and
+            // leaves the discovery result and every gate as they were.
+            #[cfg(feature = "wide-world-experimental")]
+            if let (Some(o), Some(r)) = (self.wide_observer.as_ref(), self.wide_review.as_mut()) {
+                let plans = r
+                    .step(
+                        &self.port,
+                        &self.engine,
+                        &o.model,
+                        self.addrs.program,
+                        self.addrs.season,
+                        slot,
+                    )
+                    .await;
+                phase(&mut rep, "wide-review", plans);
+            }
             self.publish(slot, now, bell);
             result?;
             // Both indexes are gated before the land and play duties.
@@ -1385,8 +1436,17 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
     #[cfg(feature = "wide-world-experimental")]
     fn wide_status(&self) -> Option<Value> {
         Some(match &self.wide_observer {
-            Some(o) => o.status(),
-            None => json!({"mode": "disabled", "automatic_writes": false, "source_complete": false}),
+            Some(o) => {
+                let mut v = o.status();
+                v["review"] = match &self.wide_review {
+                    Some(r) => r.status(),
+                    None => json!({"mode": "disabled", "automatic_writes": false}),
+                };
+                v
+            }
+            None => {
+                json!({"mode": "disabled", "automatic_writes": false, "source_complete": false})
+            }
         })
     }
 
