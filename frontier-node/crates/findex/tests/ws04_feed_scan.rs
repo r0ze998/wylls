@@ -82,6 +82,8 @@ struct Node {
     cap: Arc<Mutex<usize>>,
     /// Answer the old array form (a node without the scan).
     old: Arc<Mutex<bool>>,
+    /// Answer a scanned extent past the ledger's length (an inconsistent node).
+    over_scan: Arc<Mutex<bool>>,
     calls: Arc<Mutex<usize>>,
     script: Arc<Mutex<Vec<(usize, After)>>>,
 }
@@ -150,7 +152,8 @@ async fn rpc(State(n): State<Node>, Json(req): Json<Value>) -> Json<Value> {
                 .flatten()
                 .map(|(s, _)| sig(*s).to_string());
             let v = if scan && !*n.old.lock().unwrap() {
-                json!({"txs": txs, "scannedThrough": extent.scanned_through, "ledgerLen": extent.ledger_len,
+                let over = if *n.over_scan.lock().unwrap() { 5 } else { 0 };
+                json!({"txs": txs, "scannedThrough": extent.scanned_through + over, "ledgerLen": extent.ledger_len,
                     "atAfter": at_after, "runId": *n.run_id.lock().unwrap(), "ledgerBytes": *n.bytes.lock().unwrap(),
                     "durable": false})
             } else {
@@ -466,4 +469,40 @@ async fn a_ledger_shorter_than_the_cursor_is_refused() {
     n.lose_tail(6); // 2 entries left; A's cursor is 5
     let e = archive(&da, &url, a()).await.err().expect("refused");
     assert!(e.contains("rewound or rebuilt"), "{e}");
+}
+
+/// 20's condition 2: a scanned extent past the ledger's length in the same
+/// answer is refused, not taken.
+#[tokio::test]
+async fn a_scan_past_the_ledger_length_is_refused() {
+    let n = node();
+    *n.over_scan.lock().unwrap() = true;
+    let url = start(n).await;
+    let e = archive(&tmp("over"), &url, a())
+        .await
+        .err()
+        .expect("refused");
+    assert!(e.contains("inconsistent answer"), "{e}");
+}
+
+/// 20's condition 3: on resume the extent carries over only with the record
+/// it was read after (checked by the next read); a cursor without it drops
+/// the extent and falls back to the own last seq.
+#[test]
+fn the_extent_carries_over_only_with_its_last_record() {
+    use findex::ingest::Source;
+    let port = fclient::rpc::RpcPort::localnet("http://127.0.0.1:9", a());
+    let mut f = LocalnetFeed::new(port)
+        .with_program(a())
+        .with_ledger("run1");
+    let with_last = json!({"feed_after": 5, "feed_start": 0, "ledger": "run1", "feed_scanned": 8,
+        "feed_last": {"seq": 5, "signature": sig(15).to_string()}});
+    f.restore(&with_last);
+    assert_eq!(f.cursor()["feed_scanned"], 8);
+    let without = json!({"feed_after": 5, "feed_start": 0, "ledger": "run1", "feed_scanned": 8});
+    f.restore(&without);
+    assert!(f.cursor()["feed_scanned"].is_null(), "{}", f.cursor());
+    // An empty archive's cursor (from the ledger's start) keeps its extent.
+    f.restore(&json!({"feed_after": 0, "feed_start": 0, "ledger": "run1", "feed_scanned": 3}));
+    assert_eq!(f.cursor()["feed_scanned"], 3);
 }

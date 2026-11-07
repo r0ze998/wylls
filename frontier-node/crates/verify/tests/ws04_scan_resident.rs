@@ -170,7 +170,8 @@ fn tmp(name: &str) -> std::path::PathBuf {
 async fn archive_of(url: &str, p: Address, run: Option<&str>) -> std::path::PathBuf {
     let d = tmp("arch");
     let mut f = findex::Findex::open(&d, p, None, 1 << 20).unwrap();
-    let mut s = findex::ingest::LocalnetFeed::new(fclient::rpc::RpcPort::localnet(url, p));
+    let mut s =
+        findex::ingest::LocalnetFeed::new(fclient::rpc::RpcPort::localnet(url, p)).with_program(p);
     if let Some(r) = run {
         s = s.with_ledger(r);
     }
@@ -302,4 +303,69 @@ async fn a_stale_archive_is_never_whole_until_the_node_confirms_it() {
         hr.detail
     );
     assert!(!rfc.gaps_before(&w, &hr, 6).is_empty());
+}
+
+/// Rewrites an archive's stored cursor field `k` (a crash or a bad write
+/// that left the cursor ahead of the records it covers).
+fn tamper_cursor(dir: &std::path::Path, k: &str, v: Value) {
+    let mp = dir.join("manifest.json");
+    let mut m: Value = serde_json::from_slice(&std::fs::read(&mp).unwrap()).unwrap();
+    m["cursor"][k] = v;
+    std::fs::write(&mp, serde_json::to_vec_pretty(&m).unwrap()).unwrap();
+}
+
+/// 20's condition (2026-11-07): an archive whose cursor says it was scanned
+/// further than the records it holds (here: a resident transaction landed at
+/// 9 after the read, and the cursor was set to 11 without it) never lets the
+/// resident feed be whole past its last record: archive-only it is unproven,
+/// and the node check finds the program's transaction inside the claimed
+/// extent. A claimed extent past the node's ledger is a rewind.
+#[tokio::test]
+async fn a_cursor_ahead_of_its_records_never_makes_the_feed_whole() {
+    let (n, url) = node(&["run1"], &two_programs()).await;
+    let fd = archive_of(&url, prog(), Some("run1")).await;
+    let rd = archive_of(&url, other(), Some("run1")).await;
+    n.ledger.lock().unwrap().push((19, other())); // 9: resident, not archived
+    n.ledger.lock().unwrap().push((20, prog())); // 10
+    n.ledger.lock().unwrap().push((21, prog())); // 11
+    tamper_cursor(&rd, "feed_scanned", json!(11));
+    let (txs, h) = input::read_archive(&fd).unwrap();
+    let h = input::confirm_archive(&fd, &url, h).await.unwrap();
+    assert_eq!(h.detail, "ledger run1", "the game archive itself is fine");
+    let w = World::parse(&prog(), &txs, BTreeMap::new(), 0);
+    let mut rf = ResidentFeed::from_archive(&rd, other(), BTreeMap::new()).unwrap();
+    assert_eq!(rf.through, 11, "the cursor's claim");
+    // Archive only: unproven, not whole anywhere.
+    assert!(rf.history.unproven());
+    assert!(!rf.gaps_before(&w, &h, 6).is_empty());
+    // Checked against the node: the resident transaction at 9 is inside the
+    // claimed extent and not in the archive: not confirmed.
+    rf.history = input::confirm_archive(&rd, &url, rf.history.clone())
+        .await
+        .unwrap();
+    assert!(rf.history.unproven(), "{:?}", rf.history);
+    assert!(
+        rf.history.detail.contains("claims more than it holds"),
+        "{}",
+        rf.history.detail
+    );
+    for act in [6u64, 9, 10, 12] {
+        assert!(!rf.gaps_before(&w, &h, act).is_empty(), "act {act}");
+    }
+    // A claimed extent past the node's ledger (now 11 entries): rewound.
+    tamper_cursor(&rd, "feed_scanned", json!(40));
+    let rf2 = ResidentFeed::from_archive(&rd, other(), BTreeMap::new()).unwrap();
+    let h2 = input::confirm_archive(&rd, &url, rf2.history.clone())
+        .await
+        .unwrap();
+    assert!(h2.unproven(), "{h2:?}");
+    // The cursor without its program: the extent cannot be checked.
+    tamper_cursor(&rd, "feed_scanned", json!(8));
+    tamper_cursor(&rd, "feed_program", Value::Null);
+    let rf3 = ResidentFeed::from_archive(&rd, other(), BTreeMap::new()).unwrap();
+    let h3 = input::confirm_archive(&rd, &url, rf3.history.clone())
+        .await
+        .unwrap();
+    assert!(h3.unproven(), "{h3:?}");
+    assert!(h3.detail.contains("cannot be checked"), "{}", h3.detail);
 }

@@ -387,6 +387,52 @@ pub async fn check_node(url: &str, parts: &[Part]) -> Vec<String> {
                 len.unwrap_or(0)
             ));
         }
+        // The extent past the last record (workstream 04, after 20's review):
+        // the node must hold no transaction of the archive's program in
+        // (last, feed_scanned], else the archive missed it (a cursor written
+        // ahead of its records) and claims more than it holds.
+        if let Some(sc) = p.cursor.get("feed_scanned").and_then(|x| x.as_u64()) {
+            if sc > at {
+                match p
+                    .cursor
+                    .get("feed_program")
+                    .and_then(|x| x.as_str())
+                {
+                    None => why.push(format!(
+                        "{}: scanned through {sc} past its last record {at}, but its program is not recorded: the extent cannot be checked",
+                        p.name
+                    )),
+                    Some(prog) => {
+                        let got = fclient::rpc::RpcClient::new(url)
+                            .call("frontier_feed", json!([at, 1, prog]))
+                            .await;
+                        let next = got
+                            .ok()
+                            .and_then(|v| {
+                                v.as_array()
+                                    .or_else(|| v.get("txs").and_then(|t| t.as_array()))
+                                    .map(|a| a.first().cloned())
+                            });
+                        match next {
+                            None => why.push(format!(
+                                "{}: the node could not be read past its last record: the extent is not confirmed",
+                                p.name
+                            )),
+                            Some(Some(r)) => {
+                                let q = r.get("seq").and_then(|x| x.as_u64()).unwrap_or(0);
+                                if q <= sc {
+                                    why.push(format!(
+                                        "{}: the node holds the program's transaction at ledger seq {q}, inside the archive's extent {sc} but not in the archive: it claims more than it holds",
+                                        p.name
+                                    ));
+                                }
+                            }
+                            Some(None) => {}
+                        }
+                    }
+                }
+            }
+        }
         let Some((sig, fs)) = last else {
             continue;
         };

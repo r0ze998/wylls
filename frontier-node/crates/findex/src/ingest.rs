@@ -177,6 +177,12 @@ impl<P: ChainPort> LocalnetFeed<P> {
             }
             self.ledger.get_or_insert_with(|| id.clone());
         }
+        if sc.scanned_through > sc.ledger_len {
+            return Err(format!(
+                "history gap: the node says it scanned through {} of a ledger of {} entries (an inconsistent answer)",
+                sc.scanned_through, sc.ledger_len
+            ));
+        }
         if sc.ledger_len < after || sc.scanned_through < after {
             return Err(format!(
                 "history gap: the ledger has {} entries, fewer than the archive's cursor {after}: rewound or rebuilt",
@@ -299,6 +305,7 @@ impl<P: ChainPort> Source for LocalnetFeed<P> {
             "ledger": self.cursor_ledger,
             "feed_last": self.last.map(|(q, s)| json!({"seq": q, "signature": s.to_string()})),
             "feed_scanned": self.scanned,
+            "feed_program": self.program.map(|p| p.to_string()),
             "ledger_bytes": self.ledger_bytes,
             "ledger_durable": self.durable,
         })
@@ -346,7 +353,13 @@ impl<P: ChainPort> Source for LocalnetFeed<P> {
             ))
         });
         self.check_last = self.last.is_some();
-        self.scanned = v.get("feed_scanned").and_then(|x| x.as_u64());
+        // The extent carries over only with the record it was read after (or
+        // from the ledger's start): on resume the next read checks that
+        // record (atAfter); without it the extent is not kept (20, 2026-11-07).
+        self.scanned = v
+            .get("feed_scanned")
+            .and_then(|x| x.as_u64())
+            .filter(|_| self.last.is_some() || a == 0);
         // Never below a size already seen (19 and 04, 2026-11-07): the
         // stored value only lowers what a later read is compared with if it
         // were taken as is.
