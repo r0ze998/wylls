@@ -46,6 +46,9 @@ impl ExploreDuty {
         seeds: &mut SeedFinder,
         anchors: &BTreeMap<(u32, u8), AnchorInfo>,
     ) -> PortResult<()> {
+        if !index.feed.gate(engine, None)? {
+            return Ok(());
+        }
         let eff = t.season.effective_status(t.now);
         if !t.cfg.has_role("explore")
             || !(eff == status::RUNNING || eff == status::ENDED)

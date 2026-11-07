@@ -41,6 +41,7 @@ pub mod config;
 pub mod conquest;
 pub mod engine;
 pub mod explore;
+pub mod feedguard;
 pub mod fold;
 pub mod genesis;
 pub mod holdings;
@@ -178,6 +179,8 @@ pub struct Tick<'a> {
 pub struct Shared {
     /// The status snapshot of the last tick (published after its sends).
     pub status: Value,
+    /// Discovery is incomplete or has an unsupported record; do not accept new work.
+    pub feed_paused: bool,
     pub metrics: String,
     /// Owner reveal material queued by `/v1/reveal` (W3-C accepts, W4-C sends).
     pub reveals: Vec<(String, Value)>,
@@ -369,6 +372,7 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
         };
         let pk96 = drand.info().public_key;
         let mut engine = Engine::new(budgets, params);
+        engine.restore_feed_block(journal.as_ref())?;
         // Payer care: plain System transfers (tag 0 is no Frontier instruction).
         engine.budgets.set(
             0,
@@ -399,6 +403,7 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
             // Never `null` (W6T-2): the API answers from the process start.
             shared: Arc::new(Mutex::new(Shared {
                 status: json!({"starting": true}),
+                feed_paused: true,
                 ..Shared::default()
             })),
             last_slot: None,
@@ -529,6 +534,90 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
             .await
             .map_err(|e| e.to_string())?;
         Ok(adopted)
+    }
+
+    /// One feed pass shared by both legacy indexes. Never advance past a
+    /// blocker, and never plan from a partial restart prefix. Beacon-only
+    /// deployments need no gameplay feed and keep their previous behavior.
+    async fn refresh_discovery(&mut self) -> Result<(), String> {
+        if !LAND_ROLES
+            .iter()
+            .chain(PLAY_ROLES.iter())
+            .any(|r| self.cfg.has_role(r))
+            && !self.cfg.has_role("rings")
+            && !self.cfg.has_role("archive")
+        {
+            return Ok(());
+        }
+        self.engine.restore_feed_block(self.journal.as_ref())?;
+        if let Some(block) = self.engine.feed_block().cloned() {
+            self.index.feed.restore(block.clone());
+            self.play.index.feed.restore(block);
+        }
+        self.engine.set_feed_ready(false);
+        self.shared
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .feed_paused = true;
+        let result = if self.index.feed.blocked().is_some()
+            || self.play.index.feed.blocked().is_some()
+        {
+            Ok(())
+        } else if self.index.cursor == self.play.index.cursor {
+            self.index.feed.begin_pull();
+            self.play.index.feed.begin_pull();
+            let mut result = Ok(());
+            for _ in 0..crate::landindex::PAGES_PER_TICK {
+                let page = match self.port.feed(self.index.cursor).await {
+                    Ok(page) => page,
+                    Err(e) => {
+                        result = Err(e.to_string());
+                        break;
+                    }
+                };
+                if page.is_empty() {
+                    self.index.feed.caught_up();
+                    self.play.index.feed.caught_up();
+                    break;
+                }
+                self.index.ingest_page(&page, &self.addrs);
+                self.play.index.ingest_page(&page, &self.addrs);
+                if self.index.feed.blocked().is_some() || self.play.index.feed.blocked().is_some() {
+                    break;
+                }
+            }
+            result
+        } else {
+            let land = self.index.pull(&self.port, &self.addrs).await;
+            let play = self.play.index.pull(&self.port, &self.addrs).await;
+            land.and(play).map(|_| ()).map_err(|e| e.to_string())
+        };
+        if let Some(block) = self
+            .index
+            .feed
+            .blocked()
+            .or(self.play.index.feed.blocked())
+            .cloned()
+        {
+            self.engine.block_feed(block.clone());
+            self.index.feed.restore(block.clone());
+            self.play.index.feed.restore(block);
+        }
+        // Latch in memory before the fallible durable write. A storage error
+        // cannot accidentally authorize the next tick or direct Engine send.
+        self.engine.persist_feed_block(self.journal.as_ref())?;
+        self.engine
+            .set_feed_ready(self.index.feed.ready() && self.play.index.feed.ready());
+        self.play.feed_read = true;
+        self.shared
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .feed_paused = !self.engine.feed_writes_allowed();
+        if self.engine.feed_block().is_some() {
+            Ok(())
+        } else {
+            result
+        }
     }
 
     /// R-22: an MC season's writes take the v2 budgets table (`L(kind)`
@@ -751,23 +840,17 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
                 );
             }
             // Roles the program lacks (99) are off for the rest of the run.
-            let cfg_eff;
-            let cfg = if self.unsupported_roles.is_empty() {
-                &self.cfg
-            } else {
-                let mut c = self.cfg.clone();
-                c.roles
-                    .retain(|r| !self.unsupported_roles.contains(r.as_str()));
-                cfg_eff = c;
-                &cfg_eff
-            };
+            let mut cfg = self.cfg.clone();
+            cfg.roles
+                .retain(|r| !self.unsupported_roles.contains(r.as_str()));
+            let addrs = self.addrs.clone();
             let t = Tick {
                 slot,
                 now,
                 season: &season,
                 clock: sclock,
-                addrs: &self.addrs,
-                cfg,
+                addrs: &addrs,
+                cfg: &cfg,
             };
             if key_ok {
                 self.genesis
@@ -825,44 +908,13 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
                 rep.chain_at_send = self.engine.last_send_chain_slot;
             }
             phase(&mut rep, "send0", 0);
-            // One feed read for both indexes (W6T-2): while their cursors
-            // agree (always, from a start), a page is read once and ingested
-            // by the land and the play index. A restarted keeper re-reads
-            // the whole feed; two readers made its catch-up ticks ≈ 0.45 s,
-            // longer than a 20× slot (R2).
-            let play_pulls = PLAY_ROLES.iter().any(|r| t.cfg.has_role(r))
-                && matches!(
-                    season.effective_status(now),
-                    status::RUNNING | status::ENDED
-                );
-            let shared_read = LAND_ROLES.iter().any(|r| t.cfg.has_role(r))
-                && play_pulls
-                && self.index.cursor == self.play.index.cursor;
-            if shared_read {
-                for _ in 0..crate::landindex::PAGES_PER_TICK {
-                    let page = self
-                        .port
-                        .feed(self.index.cursor)
-                        .await
-                        .map_err(|e| e.to_string())?;
-                    if page.is_empty() {
-                        break;
-                    }
-                    self.index.ingest_page(&page, &self.addrs);
-                    self.play.index.ingest_page(&page, &self.addrs);
-                }
-            }
-            // The play duty's own read is skipped this tick (the cursors
-            // stay together).
-            self.play.feed_read = shared_read;
-            // Land (W3-C).
-            if LAND_ROLES.iter().any(|r| t.cfg.has_role(r)) {
-                if !shared_read {
-                    self.index
-                        .pull(&self.port, &self.addrs)
-                        .await
-                        .map_err(|e| e.to_string())?;
-                }
+            // Keep beacon publication ahead of the potentially slow feed
+            // catch-up. No game write is sent until this shared gate runs.
+            let result = self.refresh_discovery().await;
+            self.publish(slot, now, bell);
+            result?;
+            // Both indexes are gated before the land and play duties.
+            if self.engine.feed_writes_allowed() && LAND_ROLES.iter().any(|r| t.cfg.has_role(r)) {
                 self.fold
                     .plan(&t, &self.port, &mut self.engine)
                     .await
@@ -910,7 +962,8 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
             phase(&mut rep, "land", 0);
         }
         // Play (W4-C).
-        let play_on = PLAY_ROLES.iter().any(|r| self.cfg.has_role(r))
+        let play_on = self.engine.feed_writes_allowed()
+            && PLAY_ROLES.iter().any(|r| self.cfg.has_role(r))
             && !PLAY_ROLES
                 .iter()
                 .all(|r| self.unsupported_roles.contains(r));
@@ -1239,6 +1292,12 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
                 "archive_unsupported": self.archive.unsupported,
                 "archived_bells": self.archive.archived_bells,
             },
+            "discovery": {
+                "automatic_writes": self.engine.feed_writes_allowed(),
+                "blocker": self.engine.feed_block().map(crate::feedguard::FeedBlock::status),
+                "land_cursor": self.index.cursor.0, "play_cursor": self.play.index.cursor.0,
+                "land": self.index.feed.status(), "play": self.play.index.feed.status(),
+            },
             "pending": self.engine.pending_len(),
             "kinds": kinds,
             "pools": {
@@ -1331,6 +1390,14 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
         line(
             "frontier_keeper_rounds_bad_total",
             self.rounds.bad.to_string(),
+        );
+        line(
+            "frontier_keeper_discovery_blocked",
+            u8::from(self.engine.feed_block().is_some()).to_string(),
+        );
+        line(
+            "frontier_keeper_game_writes_paused",
+            u8::from(!self.engine.feed_writes_allowed()).to_string(),
         );
         let ps = &self.play.stats;
         for (k, v) in [
