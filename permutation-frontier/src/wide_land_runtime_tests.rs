@@ -113,6 +113,10 @@ use crate::layout::{
 };
 use crate::CqError as CE;
 
+// The host-only wide economy (0xDA op 3) shares this harness as a child.
+#[path = "wide_economy_runtime_tests.rs"]
+mod wide_economy;
+
 /// The literal seed the legacy RingSeed of ring 128 carries in the
 /// pre-state (as OpenRing(128) and ConsumeRingSeed left it).
 const RING128_SEED: [u8; 32] = [0x80; 32];

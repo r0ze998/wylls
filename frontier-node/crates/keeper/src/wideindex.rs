@@ -57,6 +57,15 @@
 //! indexed); a `TransitSettled` carries the verdict and payments, not the
 //! account bytes. [`WideDiscovery::settlement_inputs`] lists, per host, what
 //! a future keeper settlement would still have to obtain and from where.
+//!
+//! **Economy receipts** (kinds 15 `Economy` and 16 `EconomyMirror`, the
+//! host-only wide economy) are holding-keyed: the model parses the holding
+//! reference and the canonical receipt strictly (a key of another world or
+//! a non-receipt payload blocks like any malformed body), counts the record
+//! on the holding's own province and stamps the holding's `last_seq`. It
+//! derives no host from the key, creates no host or transit entry, and no
+//! duty planner reads them. The receipt's digests are not checked and its
+//! economy is not replayed here (that is the verifier's `wide_economy`).
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -592,6 +601,16 @@ enum Ev {
         province: ProvinceKey,
         close: CloseInfo,
     },
+    /// An economy receipt (kind 15 `Economy` or 16 `EconomyMirror`): keyed
+    /// by the 56-byte holding reference (sequence 0), attributed to the
+    /// holding's own province, with a canonical receipt payload. It names
+    /// no host and plans no duty: the model counts it on the province and
+    /// stamps the holding's `last_seq`, nothing else.
+    Economy {
+        holding: WideHostRef,
+        province: ProvinceKey,
+        kind: WideKind,
+    },
 }
 
 fn u16_at(p: &[u8], o: usize) -> Option<u16> {
@@ -787,6 +806,20 @@ fn parse(r: &WideRecord<'_>, seq: u64, world: WorldId) -> Result<Ev, Option<[u8;
             province: province()?,
             close: close_at(0).ok_or(None)?,
         },
+        WideKind::Economy | WideKind::EconomyMirror => {
+            // The holding reference (sequence 0, the codec's own check),
+            // of this world, and a canonical receipt: nothing of the
+            // receipt's content is interpreted here (no digest is checked,
+            // no economy is replayed), and no host is derived from the key.
+            let holding = r.holding().ok_or(None)?;
+            let province = same(holding.key())?;
+            r.receipt().ok_or(None)?;
+            Ev::Economy {
+                holding,
+                province,
+                kind: r.kind,
+            }
+        }
     })
 }
 
@@ -1620,6 +1653,16 @@ impl WideDiscovery {
                     p.closed = Some(close);
                 }
             }
+            Ev::Economy {
+                holding,
+                province,
+                kind,
+            } => {
+                // Counted on the holding's own province and stamped on the
+                // holding; no host entry, no standing, no transit, no duty.
+                self.touch(province, seq, kind, applied);
+                self.holdings.entry(holding).or_default().last_seq = seq;
+            }
         }
     }
 
@@ -1702,7 +1745,7 @@ impl WideDiscovery {
             want(
                 WideAccount::Holding(*h),
                 wh::holding_address(&self.ctx, h.key().coord(), h.site()),
-                "a host of this holding was named: its escrow and counters are the account's",
+                "this holding or one of its hosts was named: its escrow and counters are the account's",
             );
         }
         for (host, s) in &self.hosts {

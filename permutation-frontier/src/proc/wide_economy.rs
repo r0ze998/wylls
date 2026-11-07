@@ -2,7 +2,12 @@
 //! actions Harvest, Build and Train staged over detached `Vec` copies of a
 //! wide holding and its wide province. A host-only, detached preview: no
 //! `AccountInfo`, no wire route, no event, no write to anything the caller
-//! owns. The kernel diagnostic calls reached through the existing helpers
+//! owns. Since phase B (2026-11-08) it is also the **economic body** of the
+//! authenticated handler of 0xDA op 3 (`proc::wide`'s private
+//! `economy_exec`), which calls it over copies of records it has itself
+//! authenticated, under pins it derived from them and the real clock, after
+//! the player prologue; that handler, and nothing else, applies what it
+//! returns. The kernel diagnostic calls reached through the existing helpers
 //! (`error.rs` 112-117) are no-ops on the native host, and the wide
 //! feature is forbidden on the Solana target (`lib.rs` 49-50), so nothing
 //! here runs on chain today; any future target support must revisit this
@@ -25,9 +30,17 @@
 //! self-consistent, not that either account exists at its canonical
 //! address, not that the snapshot is fresh, not that the named Citizen
 //! owns anything now, not that anyone is authorised to act.
-//! The outputs are **not instruction data and not authorised writes**:
-//! nothing here may be copied into an account or sent anywhere. The checks
-//! a handler runs and this module does **not** are listed on [`preview`].
+//! The outputs are **not instruction data and not authorised writes** on
+//! their own: a preview computed by a caller is an unauthenticated
+//! snapshot and may not be copied into an account or sent anywhere. The
+//! one consumer that applies a preview is the authenticated handler of
+//! 0xDA op 3 (`proc::wide`, phase B), and only a preview it computed
+//! itself, over the account bytes it loaded and checked, under the pins
+//! those bytes gave it and the clock it read, after every check listed
+//! below as "not checked here" has passed in that handler. That is no
+//! general permission to apply a preview: a preview supplied from outside
+//! the handler is never applied. The checks a handler runs and this module
+//! does **not** are listed on [`preview`].
 //!
 //! Numbers and rules come from the existing helpers only: costs and
 //! seconds from `arms::building`, `catalog::tier_up_item` and
@@ -163,7 +176,10 @@ pub struct Preview {
 /// holding, its action bucket, its flags and last action); the freshness
 /// of both snapshots against the chain; the event chain (no HARVEST, BUILD,
 /// TRAIN or HOLDING_FINAL record is produced and no chain head or sequence
-/// moves). A passing preview authorises nothing.
+/// moves). A passing preview authorises nothing. The authenticated handler
+/// of 0xDA op 3 performs every item of this list itself before it calls
+/// this function and applies the result (module doc); no other caller may
+/// apply one.
 pub fn preview(
     holding: &[u8],
     province: &[u8],

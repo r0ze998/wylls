@@ -73,9 +73,12 @@ pub mod transit;
 /// on the provisional band 0xD6–0xDA; absent from every default build.
 #[cfg(feature = "wide-world-experimental")]
 pub mod wide;
-/// Experimental (`wide-world-experimental`): the pure, non-executable
-/// S1 economy preview over detached wide holding and province snapshots
-/// (no accounts, routes or events); absent from every default build.
+/// Experimental (`wide-world-experimental`): the pure S1 economy preview
+/// over detached wide holding and province snapshots (no accounts, routes
+/// or events of its own); absent from every default build. Since phase B
+/// it is the economic body the authenticated 0xDA op 3 handler in `wide`
+/// runs over records it loaded and checked itself; a preview from any
+/// other caller stays an unauthenticated snapshot and is never applied.
 #[cfg(feature = "wide-world-experimental")]
 pub mod wide_economy;
 

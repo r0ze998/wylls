@@ -109,6 +109,25 @@ impl Chains {
         )
     }
 }
+/// A canonical economy receipt payload (the holding-keyed kinds refuse a
+/// zero payload at the codec): a Harvest under `Economy`, a walls Build
+/// under `EconomyMirror`. Literal digests: nothing here verifies them.
+fn economy_payload(kind: e::WideKind) -> Vec<u8> {
+    let action = if kind == e::WideKind::EconomyMirror {
+        frontier_abi::world_index::EconomyAction::Build { item: 6 }
+    } else {
+        frontier_abi::world_index::EconomyAction::Harvest
+    };
+    e::economy_payload(&frontier_abi::world_index::EconomyReceipt {
+        action,
+        now_ts: 1_700_060_000,
+        became_final: false,
+        input_digest: [0x1A; 32],
+        output_digest: [0x0B; 32],
+    })
+    .unwrap()
+    .to_vec()
+}
 fn ps2() -> Vec<u8> {
     let mut b = vec![0; 512];
     let k = frontier_abi::log::Kind::ANCHOR;
@@ -187,29 +206,78 @@ fn every_kind_has_a_separate_wide_record_and_canonical_attribution() {
     let mut i = index(&path);
     let p = key(9_007_199_254_740_993);
     let mut c = Chains::default();
-    // Zero payloads test codec widths, not gameplay semantics or valid outcomes.
+    // Zero payloads test codec widths, not gameplay semantics or valid
+    // outcomes; the holding-keyed economy kinds need a canonical receipt.
+    // `ProvinceClosed` is the terminal record of a province chain, so it
+    // is generated last whatever `ALL_KINDS`' code order says (the
+    // terminal rule is not weakened for the enumeration).
+    let mut kinds: Vec<e::WideKind> = e::ALL_KINDS
+        .iter()
+        .copied()
+        .filter(|k| *k != e::WideKind::ProvinceClosed)
+        .collect();
+    kinds.push(e::WideKind::ProvinceClosed);
+    assert_eq!(kinds.len(), 16);
     let mut lines = Vec::new();
-    for kind in e::ALL_KINDS {
+    for kind in kinds {
         let kb = if kind.host_keyed() {
             e::host_key(&host(), p).to_vec()
+        } else if kind.holding_keyed() {
+            host().holding_ref().to_bytes().to_vec()
         } else {
             p.to_bytes().to_vec()
         };
-        let mut payload = vec![0; kind.payload_len()];
-        if kind == e::WideKind::TransitSettled {
-            payload[e::TRANSIT_SETTLED_DEST_AT..].copy_from_slice(&p.to_bytes());
-        }
+        let payload = if kind.holding_keyed() {
+            economy_payload(kind)
+        } else {
+            let mut payload = vec![0; kind.payload_len()];
+            if kind == e::WideKind::TransitSettled {
+                payload[e::TRANSIT_SETTLED_DEST_AT..].copy_from_slice(&p.to_bytes());
+            }
+            payload
+        };
         lines.push(line(b"PSW1", &c.record(kind, &kb, &payload)));
     }
     i.add(&[tx(1, lines)]).unwrap();
     i.mark_caught_up(1).unwrap();
     let page = i.events(0, 256).unwrap();
-    assert_eq!(page.events.len(), 14);
+    assert_eq!(page.events.len(), 16);
     assert!(
         i.chain(e::WideTarget::Province(p))
             .unwrap()
             .unwrap()
             .terminal
+    );
+    // The economy receipts are attributed to the holding's own province
+    // (`host().key()`, not the standing `p`), name the holding and no host;
+    // the mirror receipt alone chains that province.
+    let own = host().key();
+    let economy: Vec<_> = page
+        .events
+        .iter()
+        .filter(|ev| {
+            ev.body[1] == e::WideKind::Economy as u8
+                || ev.body[1] == e::WideKind::EconomyMirror as u8
+        })
+        .collect();
+    assert_eq!(economy.len(), 2);
+    for ev in &economy {
+        assert_eq!(ev.province, Some(own.to_bytes().to_vec()));
+        assert_eq!(ev.holding, Some(host().holding_ref().to_bytes().to_vec()));
+        assert!(ev.host.is_none(), "no phantom host from a holding key");
+    }
+    assert_eq!(
+        i.chain(e::WideTarget::Province(own)).unwrap().unwrap().seq,
+        1
+    );
+    // Muster, Dissolve, Return, Departed, TransitSettled, DepartureSettled,
+    // Economy, EconomyMirror chain the holding: eight.
+    assert_eq!(
+        i.chain(e::WideTarget::Holding(host()))
+            .unwrap()
+            .unwrap()
+            .seq,
+        8
     );
     drop(i);
     std::fs::remove_file(path).unwrap();

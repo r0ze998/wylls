@@ -47,6 +47,12 @@ pub mod report;
 pub mod resident_feed;
 pub mod skip;
 pub mod tamper;
+/// Experimental, opt-in (`wide-economy-experimental`): the independent
+/// state-transition replay of one wide S1 economy receipt (event kinds 15
+/// and 16) over caller-supplied snapshots. Not a check of [`verify`]; it
+/// produces no season verdict.
+#[cfg(feature = "wide-economy-experimental")]
+pub mod wide_economy;
 pub mod world;
 
 use serde_json::Value;
