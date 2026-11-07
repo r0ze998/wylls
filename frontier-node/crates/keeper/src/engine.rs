@@ -289,6 +289,8 @@ pub struct KindStats {
 }
 
 pub struct Engine {
+    feed_block: Option<crate::feedguard::FeedBlock>,
+    feed_ready: bool,
     pending: BTreeMap<String, Pending>,
     backoff: HashMap<String, u64>,
     /// Consecutive program refusals per key (the backoff doubles with each).
@@ -357,6 +359,8 @@ pub const PAYER_CARE_KIND: &str = "payer-care";
 impl Engine {
     pub fn new(budgets: Budgets, params: EngineParams) -> Engine {
         Engine {
+            feed_block: None,
+            feed_ready: true,
             pending: BTreeMap::new(),
             backoff: HashMap::new(),
             failures: HashMap::new(),
@@ -376,6 +380,66 @@ impl Engine {
             last_send_chain_slot: None,
             care_settled_slot: None,
         }
+    }
+
+    /// A discovery failure pauses game writes, including already queued retries.
+    /// Outstanding signatures are still polled: pausing is not chain cancellation.
+    pub fn block_feed(&mut self, block: crate::feedguard::FeedBlock) {
+        if self.feed_block.is_none() {
+            self.feed_block = Some(block);
+        }
+    }
+
+    pub fn set_feed_ready(&mut self, ready: bool) {
+        self.feed_ready = ready;
+    }
+    pub fn feed_writes_allowed(&self) -> bool {
+        self.feed_block.is_none() && self.feed_ready
+    }
+    pub fn feed_block(&self) -> Option<&crate::feedguard::FeedBlock> {
+        self.feed_block.as_ref()
+    }
+
+    /// Only independent beacon publication and payer bookkeeping may continue.
+    /// This same predicate protects enqueue and send, so old retries cannot leak.
+    pub fn allows_write_kind(&self, kind: &str) -> bool {
+        self.feed_writes_allowed()
+            || matches!(
+                kind,
+                "anchor"
+                    | "anchor-multi"
+                    | "seed"
+                    | "beacon-log"
+                    | "genesis-seed"
+                    | PAYER_CARE_KIND
+            )
+    }
+
+    /// Feed/kind eligible queue entries; the send loop performs its usual
+    /// timing, budget and payer checks only after this fail-safe filter.
+    pub fn send_candidates(&self, kinds: Option<&[&str]>) -> Vec<String> {
+        self.pending
+            .iter()
+            .filter(|(_, p)| self.allows_write_kind(p.spec.kind))
+            .filter(|(_, p)| kinds.is_none_or(|ks| ks.contains(&p.spec.kind)))
+            .map(|(k, _)| k.clone())
+            .collect()
+    }
+
+    pub fn persist_feed_block(&self, journal: Option<&Journal>) -> Result<(), String> {
+        if let (Some(block), Some(j)) = (&self.feed_block, journal) {
+            block.save(j)?;
+        }
+        Ok(())
+    }
+
+    pub fn restore_feed_block(&mut self, journal: Option<&Journal>) -> Result<(), String> {
+        if let Some(j) = journal {
+            if let Some(block) = crate::feedguard::FeedBlock::restore(j)? {
+                self.block_feed(block);
+            }
+        }
+        Ok(())
     }
 
     /// An undecided care transfer blocks every new top-up and sweep. This
@@ -453,7 +517,8 @@ impl Engine {
     /// Adds a write unless it is already pending or in backoff. Returns
     /// whether it was added.
     pub fn ensure(&mut self, spec: WriteSpec, slot: u64) -> bool {
-        if self.pending.contains_key(&spec.key)
+        if !self.allows_write_kind(spec.kind)
+            || self.pending.contains_key(&spec.key)
             || self.backoff.get(&spec.key).is_some_and(|&s| slot < s)
             || self.held_replans.contains_key(&spec.key)
             || self.adopted_ambiguous.contains(&spec.key)
@@ -1011,12 +1076,20 @@ impl Engine {
         report: &mut StepReport,
         kinds: Option<&[&str]>,
     ) {
-        let keys: Vec<String> = self
-            .pending
-            .iter()
-            .filter(|(_, p)| kinds.is_none_or(|ks| ks.contains(&p.spec.kind)))
-            .map(|(k, _)| k.clone())
-            .collect();
+        // Library callers may skip Keeper::start; durable refusal still applies.
+        if let Err(reason) = self
+            .restore_feed_block(journal)
+            .and_then(|_| self.persist_feed_block(journal))
+        {
+            self.block_feed(crate::feedguard::FeedBlock {
+                seq: 0,
+                slot,
+                signature: String::new(),
+                reason,
+            });
+            return;
+        }
+        let keys = self.send_candidates(kinds);
         let mut blockhash: Option<Hash> = None;
         let mut last_valid_block_height: Option<u64> = None;
         let mut chain_slot: Option<u64> = None;
