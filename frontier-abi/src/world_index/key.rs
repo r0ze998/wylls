@@ -228,7 +228,10 @@ impl WideHostRef {
     }
 
     /// Inverse of [`WideHostRef::to_bytes`] with the same refusals as
-    /// [`ProvinceKey::from_bytes`], plus the site bound.
+    /// [`ProvinceKey::from_bytes`], plus the site bound (a strict host
+    /// codec: a site at or above 12 never decodes; the camp and the keep
+    /// are not hosts and have their own tagged combat identity in
+    /// `super::march::WideCombatant`).
     pub fn from_bytes(bytes: &[u8]) -> Result<WideHostRef, KeyError> {
         if bytes.len() != HOST_REF_LEN {
             return Err(KeyError::Length {
@@ -442,5 +445,20 @@ mod tests {
         let concord = ProvinceKey::new(world(3), c(0, 0));
         let other = WideHostRef::new(concord, 11, 255, u32::MAX).unwrap();
         assert!(other < a, "ring 0 precedes ring 300 whatever the site");
+    }
+
+    /// The host codec is strict: no byte at or above site 12 decodes, with
+    /// or without a sequence number (the camp and the keep are not hosts).
+    #[test]
+    fn host_codec_decodes_no_site_at_or_above_twelve() {
+        let k = ProvinceKey::new(world(3), c(129, 0));
+        for site in 12u8..=255 {
+            for seq in [0u32, 1, u32::MAX] {
+                let mut b = WideHostRef::new(k, 1, 2, 3).unwrap().to_bytes();
+                b[50] = site;
+                b[52..56].copy_from_slice(&seq.to_le_bytes());
+                assert_eq!(WideHostRef::from_bytes(&b), Err(KeyError::Site(site)));
+            }
+        }
     }
 }

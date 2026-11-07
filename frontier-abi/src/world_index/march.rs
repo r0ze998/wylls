@@ -181,69 +181,203 @@ pub fn wide_clash_seed(seed: &Seed, key: ProvinceKey, bell: u32) -> Seed {
 
 // ------------------------------------------------------------ the wide clash
 
-/// The full host reference as the clash kernel's identity scheme
-/// (`clash::ClashIdentity`; experimental, decides no production rule). The
-/// province is the world-scoped [`ProvinceKey`]; the clash seed is
-/// [`wide_clash_seed`]; the tie key is [`wide_tie_key`]; the engagement key
-/// is `city ‖ the 56-byte reference`; the withdraw search turns by the
-/// coordinate's **exact geometric wedge** (`WideCoord::wedge`, the rule the
-/// legacy `ProvinceCoord::wedge` states, 0 for the Concord: no new retreat
-/// rule); the sorts are the stable `sort_by_key` over the reference's own
-/// order (`world ‖ sort key ‖ site ‖ gen ‖ seq`). The roster alias
-/// ([`wide_host_alias`]) is never read by the kernel.
-impl ClashIdentity for WideHostRef {
+/// Tag byte of a [`WideCombatant`] in its bytes and its engagement key.
+pub const COMBATANT_TAG_HOST: u8 = 1;
+pub const COMBATANT_TAG_CAMP: u8 = 2;
+pub const COMBATANT_TAG_KEEP: u8 = 3;
+/// Bytes of a combatant: tag, then a 56-byte payload (a host reference, or
+/// a 50-byte province key ‖ synthetic marker ‖ LE32 generation ‖ zero byte).
+pub const COMBATANT_LEN: usize = 1 + HOST_REF_LEN;
+
+/// What fights in a wide clash: the kernel's identity scheme
+/// (`clash::ClashIdentity`; experimental, decides no production rule). A
+/// **host** is a strict [`WideHostRef`] (the host codec decodes no other
+/// site); the **camp** and the **keep** are the province's synthetic
+/// garrisons, tagged variants that carry the province key and the full
+/// `u32` generation the deployed records keep (no truncation, no repeated
+/// derivation), so they can never be read as a host and no host can be
+/// read as one of them. Residents and arrivals must be hosts
+/// ([`resolve_wide_clash`] refuses a synthetic fighter); garrisons may be
+/// any variant (a holding's garrison is `Host(holding_ref)`, as the legacy
+/// garrison id is `host_id(P, Q, site, gen, 0)`).
+///
+/// The province is the world-scoped [`ProvinceKey`]; the clash seed is
+/// [`wide_clash_seed`]; a host's tie key is [`wide_tie_key`] (a synthetic
+/// garrison has none: the kernel gives garrisons no tie); the engagement
+/// key is `city ‖ tag ‖ payload`; the withdraw search turns by the
+/// coordinate's **exact geometric wedge** (`WideCoord::wedge`, the legacy
+/// `ProvinceCoord::wedge` rule, 0 for the Concord: no new retreat rule);
+/// the sorts are the stable `sort_by_key` over the variant's own order
+/// (hosts first, then camps, then keeps; within a variant the key's
+/// order). The roster alias ([`wide_host_alias`]) is never read here.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum WideCombatant {
+    Host(WideHostRef),
+    Camp { key: ProvinceKey, gen: u32 },
+    Keep { key: ProvinceKey, gen: u32 },
+}
+
+impl WideCombatant {
+    /// The host behind a `Host`; `None` for a synthetic garrison.
+    pub const fn host(&self) -> Option<WideHostRef> {
+        match self {
+            WideCombatant::Host(h) => Some(*h),
+            _ => None,
+        }
+    }
+
+    /// A synthetic garrison identity (the camp or the keep).
+    pub const fn is_synthetic(&self) -> bool {
+        !matches!(self, WideCombatant::Host(_))
+    }
+
+    /// The province the combatant belongs to (a host's issuing province).
+    pub const fn province(&self) -> ProvinceKey {
+        match self {
+            WideCombatant::Host(h) => h.key(),
+            WideCombatant::Camp { key, .. } | WideCombatant::Keep { key, .. } => *key,
+        }
+    }
+
+    /// `tag ‖ payload` (module doc).
+    pub fn to_bytes(&self) -> [u8; COMBATANT_LEN] {
+        let mut b = [0u8; COMBATANT_LEN];
+        match self {
+            WideCombatant::Host(h) => {
+                b[0] = COMBATANT_TAG_HOST;
+                b[1..].copy_from_slice(&h.to_bytes());
+            }
+            WideCombatant::Camp { key, gen } | WideCombatant::Keep { key, gen } => {
+                b[0] = if matches!(self, WideCombatant::Camp { .. }) {
+                    COMBATANT_TAG_CAMP
+                } else {
+                    COMBATANT_TAG_KEEP
+                };
+                b[1..1 + PROVINCE_KEY_LEN].copy_from_slice(&key.to_bytes());
+                b[1 + PROVINCE_KEY_LEN] = 0xfc | b[0];
+                b[2 + PROVINCE_KEY_LEN..2 + PROVINCE_KEY_LEN + 4]
+                    .copy_from_slice(&gen.to_le_bytes());
+            }
+        }
+        b
+    }
+
+    /// Inverse of [`WideCombatant::to_bytes`]: a known tag, a strict host
+    /// reference or a province key, a disjoint synthetic marker, full generation and zero pad.
+    pub fn from_bytes(b: &[u8]) -> Result<WideCombatant, MarchError> {
+        if b.len() != COMBATANT_LEN {
+            return Err(MarchError::Length {
+                expected: COMBATANT_LEN,
+                got: b.len(),
+            });
+        }
+        match b[0] {
+            COMBATANT_TAG_HOST => Ok(WideCombatant::Host(WideHostRef::from_bytes(&b[1..])?)),
+            t @ (COMBATANT_TAG_CAMP | COMBATANT_TAG_KEEP) => {
+                let key = ProvinceKey::from_bytes(&b[1..1 + PROVINCE_KEY_LEN])?;
+                let mut g = [0u8; 4];
+                g.copy_from_slice(&b[2 + PROVINCE_KEY_LEN..2 + PROVINCE_KEY_LEN + 4]);
+                if b[1 + PROVINCE_KEY_LEN] != (0xfc | t)
+                    || b[2 + PROVINCE_KEY_LEN + 4..].iter().any(|x| *x != 0)
+                {
+                    return Err(MarchError::Reserved);
+                }
+                let gen = u32::from_le_bytes(g);
+                Ok(if t == COMBATANT_TAG_CAMP {
+                    WideCombatant::Camp { key, gen }
+                } else {
+                    WideCombatant::Keep { key, gen }
+                })
+            }
+            t => Err(MarchError::CombatantTag(t)),
+        }
+    }
+}
+
+impl ClashIdentity for WideCombatant {
     type Province = ProvinceKey;
-    type Key = [u8; 1 + HOST_REF_LEN];
+    type Key = [u8; 1 + COMBATANT_LEN];
     fn clash_seed(seed: &Seed, province: &ProvinceKey, bell: u32) -> Seed {
         wide_clash_seed(seed, *province, bell)
     }
     fn wedge(province: &ProvinceKey) -> u8 {
         province.coord().wedge().unwrap_or(0)
     }
-    fn tie(cs: &Seed, id: &WideHostRef) -> u64 {
-        wide_tie_key(cs, id)
+    fn tie(cs: &Seed, id: &WideCombatant) -> u64 {
+        match id {
+            WideCombatant::Host(h) => wide_tie_key(cs, h),
+            // A garrison never takes a tie key (the kernel sets 0); kept
+            // explicit so no caller can draw one for a synthetic identity.
+            _ => 0,
+        }
     }
-    fn key(&self, city: bool) -> [u8; 1 + HOST_REF_LEN] {
-        let mut k = [0u8; 1 + HOST_REF_LEN];
+    fn key(&self, city: bool) -> [u8; 1 + COMBATANT_LEN] {
+        let mut k = [0u8; 1 + COMBATANT_LEN];
         k[0] = city as u8;
         k[1..].copy_from_slice(&self.to_bytes());
         k
     }
-    fn sort_by_order<T: Copy>(v: &mut [T], key: impl Fn(&T) -> (u64, u64, WideHostRef)) {
+    fn sort_by_order<T: Copy>(v: &mut [T], key: impl Fn(&T) -> (u64, u64, WideCombatant)) {
         v.sort_by_key(key)
     }
-    fn sort_by_id<T: Copy>(v: &mut [T], key: impl Fn(&T) -> WideHostRef) {
+    fn sort_by_id<T: Copy>(v: &mut [T], key: impl Fn(&T) -> WideCombatant) {
         v.sort_by_key(key)
     }
 }
 
-/// A host of a wide clash (the kernel's fighter under the full reference).
-pub type WideFighter = FighterOf<WideHostRef>;
-/// A garrison of a wide clash: its id is the holding's reference
-/// (`WideHostRef::holding_ref`, `seq` 0), as the legacy garrison id is
-/// `host_id(P, Q, site, gen, 0)`.
-pub type WideGarrison = GarrisonOf<WideHostRef>;
+/// A host of a wide clash (the kernel's fighter under the tagged identity;
+/// always a `Host` variant, enforced by [`resolve_wide_clash`]).
+pub type WideFighter = FighterOf<WideCombatant>;
+/// A garrison of a wide clash: a holding's (`Host(holding_ref)`), the
+/// camp's or the keep's.
+pub type WideGarrison = GarrisonOf<WideCombatant>;
 /// Everything one wide clash reads.
-pub type WideClashInput<'a> = ClashInputOf<'a, WideHostRef>;
-/// A wide clash's refusal, naming the host by its full reference.
-pub type WideClashError = ClashErrorOf<WideHostRef>;
+pub type WideClashInput<'a> = ClashInputOf<'a, WideCombatant>;
+
+/// A wide clash's refusal.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WideClashError {
+    /// The kernel's refusal, naming the combatant.
+    Kernel(ClashErrorOf<WideCombatant>),
+    /// A resident or an arrival that is a synthetic garrison identity.
+    SyntheticFighter(WideCombatant),
+}
+
+impl From<ClashErrorOf<WideCombatant>> for WideClashError {
+    fn from(e: ClashErrorOf<WideCombatant>) -> Self {
+        WideClashError::Kernel(e)
+    }
+}
 
 /// Domain of [`WideClashOutcome::digest`].
 pub const CLASH_OUTCOME_DOMAIN_WIDE: &[u8] = b"PSF-WIDE-CLASH-OUTCOME-v1";
 
-/// The outcome of a wide clash: the kernel's results under the full
-/// reference, with the province key. No event record kind carries it yet
+/// The outcome of a wide clash: the kernel's results under the tagged
+/// identity, with the province key. No event record kind carries it yet
 /// (nothing logs a wide clash); [`WideClashOutcome::digest`] hashes its
 /// canonical bytes under [`CLASH_OUTCOME_DOMAIN_WIDE`].
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WideClashOutcome {
     pub province: ProvinceKey,
     pub bell: u32,
-    /// Sorted by reference.
-    pub fighters: Vec<FighterResultOf<WideHostRef>>,
-    /// Sorted by reference.
-    pub garrisons: Vec<GarrisonResultOf<WideHostRef>>,
+    /// Sorted by identity.
+    pub fighters: Vec<FighterResultOf<WideCombatant>>,
+    /// Sorted by identity.
+    pub garrisons: Vec<GarrisonResultOf<WideCombatant>>,
     pub engagements: u32,
+}
+
+/// Every resident and arrival must be a host.
+fn check_fighters(inp: &WideClashInput) -> Result<(), WideClashError> {
+    if let Some(s) = inp
+        .residents
+        .iter()
+        .chain(inp.arrivals.iter())
+        .find(|f| f.id.is_synthetic())
+    {
+        return Err(WideClashError::SyntheticFighter(s.id));
+    }
+    Ok(())
 }
 
 /// `(code, tile)` of a fate: Stays 0, Withdrew 1, Bounced 2, Retreated 3,
@@ -259,18 +393,18 @@ pub const fn fate_code(f: Fate) -> (u8, u8) {
 }
 
 impl WideClashOutcome {
-    pub fn fighter(&self, id: &WideHostRef) -> Option<&FighterResultOf<WideHostRef>> {
+    pub fn fighter(&self, id: &WideCombatant) -> Option<&FighterResultOf<WideCombatant>> {
         self.fighters.iter().find(|f| f.id == *id)
     }
 
     /// `sha256(domain ‖ province key ‖ LE32(bell) ‖ LE32(n) ‖ fighters ‖
-    /// LE32(m) ‖ garrisons ‖ LE32(engagements))`, each fighter `ref ‖ arrival
-    /// ‖ LE32(troops) ‖ LE16(stamina) ‖ fate code ‖ fate tile ‖ engaged`,
-    /// each garrison `ref ‖ LE32(troops) ‖ attackers_hold ‖ holders ‖
-    /// defender_present`.
+    /// LE32(m) ‖ garrisons ‖ LE32(engagements))`, each fighter `combatant
+    /// bytes ‖ arrival ‖ LE32(troops) ‖ LE16(stamina) ‖ fate code ‖ fate
+    /// tile ‖ engaged`, each garrison `combatant bytes ‖ LE32(troops) ‖
+    /// attackers_hold ‖ holders ‖ defender_present`.
     pub fn digest(&self) -> [u8; 32] {
         let mut b: Vec<u8> = Vec::with_capacity(
-            PROVINCE_KEY_LEN + 12 + self.fighters.len() * 66 + self.garrisons.len() * 63,
+            PROVINCE_KEY_LEN + 12 + self.fighters.len() * 67 + self.garrisons.len() * 64,
         );
         b.extend_from_slice(&self.province.to_bytes());
         b.extend_from_slice(&self.bell.to_le_bytes());
@@ -299,14 +433,17 @@ impl WideClashOutcome {
 }
 
 /// The clash kernel's production body (`clash::resolve_clash_core`, the
-/// one the chain runs for the legacy scheme) over the full reference. Pure:
-/// it reads what it is given and writes nothing; no handler calls it yet
-/// (no wide roster, arrival or ClashInputs exists), so it is the
+/// one the chain runs for the legacy scheme) over the tagged identity.
+/// Every resident and arrival must be a host (`SyntheticFighter`
+/// otherwise, before the kernel runs). Pure: it reads what it is given and
+/// writes nothing; no handler calls it yet (no wide roster, arrival or
+/// ClashInputs record is written by any instruction), so it is the
 /// **executable combat core** of the wide world and not a movement.
 pub fn resolve_wide_clash(
     rules: &Ruleset,
     inp: &WideClashInput,
 ) -> Result<WideClashOutcome, WideClashError> {
+    check_fighters(inp)?;
     let c = resolve_clash_core(rules, inp)?;
     Ok(WideClashOutcome {
         province: inp.province,
@@ -317,13 +454,14 @@ pub fn resolve_wide_clash(
     })
 }
 
-/// The kernel's step-by-step reference over the full reference (host
+/// The kernel's step-by-step reference over the tagged identity (host
 /// only), the oracle [`resolve_wide_clash`] is held to.
 #[cfg(not(any(target_os = "solana", target_arch = "wasm32")))]
 pub fn resolve_wide_clash_ref(
     rules: &Ruleset,
     inp: &WideClashInput,
 ) -> Result<WideClashOutcome, WideClashError> {
+    check_fighters(inp)?;
     let c = permutation_rules::frontier::clash::resolve_clash_ref_core(rules, inp)?;
     Ok(WideClashOutcome {
         province: inp.province,
@@ -358,7 +496,26 @@ pub enum AliasError {
 /// comparison; the alias alone proves nothing. A roster or transit writer
 /// must call this before writing an alias, and store the reference beside
 /// it.
+/// Validates every existing mapping and uniqueness, independently of a new candidate.
+pub fn validate_alias_table(table: &[(u64, WideHostRef)]) -> Result<(), AliasError> {
+    for (i, (alias, host)) in table.iter().enumerate() {
+        if wide_host_alias(host) != *alias {
+            return Err(AliasError::Unauthenticated { alias: *alias });
+        }
+        for (other_alias, other_host) in &table[..i] {
+            if other_host == host {
+                return Err(AliasError::AlreadyPresent { alias: *alias });
+            }
+            if other_alias == alias {
+                return Err(AliasError::Collision { alias: *alias });
+            }
+        }
+    }
+    Ok(())
+}
+
 pub fn claim_alias(table: &[(u64, WideHostRef)], host: &WideHostRef) -> Result<u64, AliasError> {
+    validate_alias_table(table)?;
     let alias = wide_host_alias(host);
     for (a, h) in table {
         if wide_host_alias(h) != *a {
@@ -500,6 +657,8 @@ pub enum MarchError {
     /// A `Gathered` record without a destination, or a destination on an
     /// ungathered record.
     Destination,
+    /// A combatant tag that is not host, camp or keep.
+    CombatantTag(u8),
 }
 
 impl From<KeyError> for MarchError {
@@ -1292,11 +1451,13 @@ mod tests {
         ));
     }
 
-    /// The clash kernel over the full reference: the production body and
+    /// The clash kernel over the tagged identity: the production body and
     /// the reference body agree on fixed data that fights; results are
-    /// named by full references (the garrison by its holding's), sorted by
-    /// reference; input order and an unrelated host's insertion change
-    /// nothing; the wedge is the coordinate's exact geometric one.
+    /// named by full identities (a holding's garrison by its holding's
+    /// reference, the keep by its tagged variant with the full `u32`
+    /// generation), sorted by identity; input order and an unrelated
+    /// host's insertion change nothing; a synthetic fighter is refused; the
+    /// wedge is the coordinate's exact geometric one.
     mod wide_clash {
         use super::*;
         use permutation_rules::fixed::BPS_ONE;
@@ -1320,6 +1481,17 @@ mod tests {
             WideHostRef::new(key(), site, gen, seq).unwrap()
         }
 
+        fn h(site: u8, gen: u8, seq: u32) -> WideCombatant {
+            WideCombatant::Host(r(site, gen, seq))
+        }
+
+        fn keep() -> WideCombatant {
+            WideCombatant::Keep {
+                key: key(),
+                gen: 70_001,
+            }
+        }
+
         /// A fixture terrain: the legacy generator's tiles, all plains (the
         /// wide terrain kernel is not what this test is about).
         fn plains() -> ProvinceTerrain {
@@ -1329,7 +1501,7 @@ mod tests {
         }
 
         fn fighter(
-            id: WideHostRef,
+            id: WideCombatant,
             faction: u8,
             unit: UnitType,
             troops: u32,
@@ -1349,7 +1521,7 @@ mod tests {
         }
 
         fn arrival(
-            id: WideHostRef,
+            id: WideCombatant,
             faction: u8,
             unit: UnitType,
             troops: u32,
@@ -1372,21 +1544,32 @@ mod tests {
             Fixture {
                 terrain: plains(),
                 residents: std::vec![
-                    fighter(r(2, 1, 1), 0, UnitType::Spearman, 9_000, FIELD),
-                    fighter(r(2, 1, 2), 0, UnitType::Archer, 6_000, FIELD),
-                    fighter(r(5, 1, 1), 2, UnitType::Pikeman, 7_000, 44),
+                    fighter(h(2, 1, 1), 0, UnitType::Spearman, 9_000, FIELD),
+                    fighter(h(2, 1, 2), 0, UnitType::Archer, 6_000, FIELD),
+                    fighter(h(5, 1, 1), 2, UnitType::Pikeman, 7_000, 44),
                 ],
-                garrisons: std::vec![WideGarrison {
-                    id: r(2, 1, 1).holding_ref(),
-                    faction: 0,
-                    tile: FIELD,
-                    troops: 4_000 * 1000,
-                    walls: true,
-                    posture: Posture::default(),
-                }],
+                garrisons: std::vec![
+                    WideGarrison {
+                        id: WideCombatant::Host(r(2, 1, 1).holding_ref()),
+                        faction: 0,
+                        tile: FIELD,
+                        troops: 4_000 * 1000,
+                        walls: true,
+                        posture: Posture::default(),
+                    },
+                    // the keep: a synthetic garrison on an uncontested hex
+                    WideGarrison {
+                        id: keep(),
+                        faction: 4,
+                        tile: 10,
+                        troops: 3_000 * 1000,
+                        walls: false,
+                        posture: Posture::default(),
+                    },
+                ],
                 arrivals: std::vec![
-                    arrival(r(7, 2, 1), 1, UnitType::Knight, 12_000, FIELD),
-                    arrival(r(7, 2, 2), 1, UnitType::Horseman, 8_000, FIELD),
+                    arrival(h(7, 2, 1), 1, UnitType::Knight, 12_000, FIELD),
+                    arrival(h(7, 2, 2), 1, UnitType::Horseman, 8_000, FIELD),
                 ],
             }
         }
@@ -1414,30 +1597,53 @@ mod tests {
             assert_eq!(a.digest(), b.digest());
             assert_eq!(a.province, key());
             assert!(a.engagements > 0, "{a:?}");
-            assert_eq!(a.garrisons.len(), 1);
-            assert_eq!(a.garrisons[0].id, r(2, 1, 1).holding_ref());
+            assert_eq!(a.garrisons.len(), 2);
+            // sorted by identity: hosts before keeps
+            assert_eq!(
+                a.garrisons[0].id,
+                WideCombatant::Host(r(2, 1, 1).holding_ref())
+            );
+            assert_eq!(a.garrisons[1].id, keep());
             assert!(a.garrisons[0].troops < 4_000 * 1000);
+            assert_eq!(
+                a.garrisons[1].troops,
+                3_000 * 1000,
+                "the keep was not fought"
+            );
             assert!(a
                 .fighters
                 .iter()
                 .any(|x| x.engaged && x.troops < 6_000 * 1000));
-            let outsider = a.fighter(&r(5, 1, 1)).unwrap();
+            let outsider = a.fighter(&h(5, 1, 1)).unwrap();
             assert_eq!(
                 (outsider.fate, outsider.engaged, outsider.troops),
                 (Fate::Stays { tile: 44 }, false, 7_000 * 1000)
             );
             assert!(a.fighters.windows(2).all(|w| w[0].id < w[1].id));
-            // the scheme's inputs: the exact geometric wedge, the full
-            // reference as the engagement key
+            assert!(a.fighters.iter().all(|f| !f.id.is_synthetic()));
+            // the scheme's inputs: the exact geometric wedge, the tagged
+            // identity as the engagement key, no tie for a garrison
             assert_eq!(
-                <WideHostRef as ClashIdentity>::wedge(&key()),
+                <WideCombatant as ClashIdentity>::wedge(&key()),
                 key().coord().wedge().unwrap()
             );
-            let k = <WideHostRef as ClashIdentity>::key(&r(7, 2, 1), true);
-            assert_eq!(k[0], 1);
-            assert_eq!(&k[1..], &r(7, 2, 1).to_bytes());
+            let k = <WideCombatant as ClashIdentity>::key(&h(7, 2, 1), true);
+            assert_eq!((k[0], k[1]), (1, COMBATANT_TAG_HOST));
+            assert_eq!(&k[2..], &r(7, 2, 1).to_bytes());
+            let kk = <WideCombatant as ClashIdentity>::key(&keep(), true);
+            assert_eq!((kk[0], kk[1]), (1, COMBATANT_TAG_KEEP));
+            assert_eq!(&kk[2..2 + PROVINCE_KEY_LEN], &key().to_bytes());
             assert_eq!(
-                <WideHostRef as ClashIdentity>::clash_seed(&[9; 32], &key(), 11),
+                &kk[2 + PROVINCE_KEY_LEN..2 + PROVINCE_KEY_LEN + 4],
+                &70_001u32.to_le_bytes()
+            );
+            assert_eq!(
+                <WideCombatant as ClashIdentity>::tie(&[9; 32], &h(7, 2, 1)),
+                wide_tie_key(&[9; 32], &r(7, 2, 1))
+            );
+            assert_eq!(<WideCombatant as ClashIdentity>::tie(&[9; 32], &keep()), 0);
+            assert_eq!(
+                <WideCombatant as ClashIdentity>::clash_seed(&[9; 32], &key(), 11),
                 wide_clash_seed(&[9; 32], key(), 11)
             );
             // the digest is a function of the results
@@ -1452,12 +1658,20 @@ mod tests {
                 let mut coord = WideCoord::checked(radius, 0).unwrap();
                 for _ in 0..6 {
                     let province = ProvinceKey::new(world(9), coord);
-                    let remap = |id: WideHostRef| {
-                        WideHostRef::new(province, id.site(), id.gen(), id.seq()).unwrap()
+                    let remap = |id: WideCombatant| match id {
+                        WideCombatant::Host(x) => WideCombatant::Host(
+                            WideHostRef::new(province, x.site(), x.gen(), x.seq()).unwrap(),
+                        ),
+                        WideCombatant::Camp { gen, .. } => {
+                            WideCombatant::Camp { key: province, gen }
+                        }
+                        WideCombatant::Keep { gen, .. } => {
+                            WideCombatant::Keep { key: province, gen }
+                        }
                     };
                     let mut f = fixture();
                     f.garrisons.push(WideGarrison {
-                        id: r(5, 1, 0),
+                        id: WideCombatant::Host(r(5, 1, 0)),
                         faction: 2,
                         tile: 44,
                         troops: 4_000_000,
@@ -1478,7 +1692,8 @@ mod tests {
                         let a = resolve_wide_clash(&frontier_ruleset(), &i).unwrap();
                         assert_eq!(a, resolve_wide_clash_ref(&frontier_ruleset(), &i).unwrap());
                         assert!(a.engagements > 0);
-                        assert_eq!(a.garrisons.len(), 2);
+                        assert_eq!(a.garrisons.len(), 3);
+                        assert!(a.garrisons.iter().any(|g| g.id == remap(keep())));
                         a
                     };
                     f.residents.reverse();
@@ -1496,7 +1711,7 @@ mod tests {
                         expected
                     );
                     assert_eq!(
-                        <WideHostRef as ClashIdentity>::wedge(&province),
+                        <WideCombatant as ClashIdentity>::wedge(&province),
                         coord.wedge().unwrap()
                     );
                     coord = coord.rotate().unwrap();
@@ -1515,16 +1730,16 @@ mod tests {
                 resolve_wide_clash(&frontier_ruleset(), &input(&g)).unwrap(),
                 base
             );
-            // a newcomer whose reference sorts before every other (site 0):
+            // a newcomer whose identity sorts before every other (site 0):
             // every unit index shifts; no result does
-            let mut h = fixture();
-            let newcomer = r(0, 0, 1);
-            assert!(h.residents.iter().all(|x| newcomer < x.id));
-            h.residents
+            let mut g2 = fixture();
+            let newcomer = h(0, 0, 1);
+            assert!(g2.residents.iter().all(|x| newcomer < x.id));
+            g2.residents
                 .push(fighter(newcomer, 3, UnitType::Crossbowman, 5_000, FAR));
             for out in [
-                resolve_wide_clash(&frontier_ruleset(), &input(&h)).unwrap(),
-                resolve_wide_clash_ref(&frontier_ruleset(), &input(&h)).unwrap(),
+                resolve_wide_clash(&frontier_ruleset(), &input(&g2)).unwrap(),
+                resolve_wide_clash_ref(&frontier_ruleset(), &input(&g2)).unwrap(),
             ] {
                 assert_eq!(out.engagements, base.engagements);
                 assert_eq!(out.garrisons, base.garrisons);
@@ -1541,7 +1756,7 @@ mod tests {
         }
 
         #[test]
-        fn a_duplicate_reference_is_refused_by_reference() {
+        fn a_duplicate_identity_is_refused_and_a_synthetic_fighter_never_fights() {
             let mut f = fixture();
             let dup = f.residents[0];
             f.arrivals.push(WideFighter {
@@ -1550,7 +1765,99 @@ mod tests {
             });
             assert_eq!(
                 resolve_wide_clash(&frontier_ruleset(), &input(&f)),
-                Err(ClashErrorOf::DuplicateId(dup.id))
+                Err(WideClashError::Kernel(ClashErrorOf::DuplicateId(dup.id)))
+            );
+            // the keep as an arrival: refused before the kernel runs, by
+            // both bodies
+            let mut s = fixture();
+            s.arrivals
+                .push(arrival(keep(), 4, UnitType::Knight, 1_000, FAR));
+            assert_eq!(
+                resolve_wide_clash(&frontier_ruleset(), &input(&s)),
+                Err(WideClashError::SyntheticFighter(keep()))
+            );
+            assert_eq!(
+                resolve_wide_clash_ref(&frontier_ruleset(), &input(&s)),
+                Err(WideClashError::SyntheticFighter(keep()))
+            );
+            let camp = WideCombatant::Camp {
+                key: key(),
+                gen: u32::MAX,
+            };
+            let mut c = fixture();
+            c.residents
+                .push(fighter(camp, 5, UnitType::Spearman, 1_000, FAR));
+            assert_eq!(
+                resolve_wide_clash(&frontier_ruleset(), &input(&c)),
+                Err(WideClashError::SyntheticFighter(camp))
+            );
+        }
+
+        /// The tagged identity's bytes: a host is its strict reference
+        /// behind the host tag; the camp and the keep carry the province
+        /// key and the full `u32` generation; no variant decodes as another,
+        /// an unknown tag or a non-zero pad is refused, and the order is
+        /// hosts, camps, keeps.
+        #[test]
+        fn combatant_bytes_round_trip_and_never_cross_variants() {
+            let host = h(7, 2, 1);
+            let camp = WideCombatant::Camp {
+                key: key(),
+                gen: 0xdead_beef,
+            };
+            let kp = keep();
+            for c in [host, camp, kp] {
+                let b = c.to_bytes();
+                assert_eq!(b.len(), COMBATANT_LEN);
+                assert_eq!(WideCombatant::from_bytes(&b), Ok(c));
+                assert_eq!(c.province(), key());
+            }
+            assert_eq!(host.host(), Some(r(7, 2, 1)));
+            assert_eq!(camp.host(), None);
+            assert!(!host.is_synthetic() && camp.is_synthetic() && kp.is_synthetic());
+            assert!(host < camp && camp < kp);
+            // the generation is lossless
+            assert!(matches!(
+                WideCombatant::from_bytes(&camp.to_bytes()),
+                Ok(WideCombatant::Camp {
+                    gen: 0xdead_beef,
+                    ..
+                })
+            ));
+            // a host's bytes under the camp tag: the payload is not a key
+            // with zero padding (a reference's site/gen/seq bytes follow)
+            let mut x = host.to_bytes();
+            x[0] = COMBATANT_TAG_CAMP;
+            assert!(WideCombatant::from_bytes(&x).is_err());
+            // a camp's bytes under the host tag: the payload is not a
+            // strict host reference (its version byte is the key's)
+            let mut y = camp.to_bytes();
+            y[0] = COMBATANT_TAG_HOST;
+            assert!(WideCombatant::from_bytes(&y).is_err());
+            let mut z = camp.to_bytes();
+            z[0] = 9;
+            assert_eq!(
+                WideCombatant::from_bytes(&z),
+                Err(MarchError::CombatantTag(9))
+            );
+            let mut p = kp.to_bytes();
+            p[COMBATANT_LEN - 1] = 1;
+            assert_eq!(WideCombatant::from_bytes(&p), Err(MarchError::Reserved));
+            assert_eq!(
+                WideCombatant::from_bytes(&p[..56]),
+                Err(MarchError::Length {
+                    expected: 57,
+                    got: 56
+                })
+            );
+            // a camp and a keep of the same province and generation differ
+            assert_ne!(
+                WideCombatant::Camp { key: key(), gen: 1 },
+                WideCombatant::Keep { key: key(), gen: 1 }
+            );
+            assert_ne!(
+                WideCombatant::Camp { key: key(), gen: 1 }.to_bytes(),
+                WideCombatant::Keep { key: key(), gen: 1 }.to_bytes()
             );
         }
 
