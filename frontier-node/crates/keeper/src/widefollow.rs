@@ -27,9 +27,19 @@
 //!   saw through the legacy path is not pulled again.
 //! - *Order.* Every record of a page must be past the cursor and strictly
 //!   increasing (the feed contract); any other page stops the follower
-//!   (`page-order`) before the observer sees it. Exact replays are the
-//!   observer's business when pages overlap through the legacy path; the
-//!   follower itself never offers a replay.
+//!   (`page-order`) before the observer sees it. **Not contiguous**: the
+//!   raw feed's sequence is the chain's global transaction order filtered
+//!   to this program, so a skipped number is unknown to this reader —
+//!   another program's transaction, an airdrop, or a program record it
+//!   never received. Counted as `sequence_holes_unknown`, never a stop,
+//!   never a claim either way: it may hide missing program records, and
+//!   only a missing linked record between two observed links of the same
+//!   province or holding is detected (the observer's chain check); a
+//!   missing prefix, tail, never-seen entity or non-wide record is not.
+//!   Only the archive's renumbered rows are contiguous, and only the typed
+//!   index over them refuses a gap. Exact replays are the observer's
+//!   business when pages overlap through the legacy path; the follower
+//!   itself never offers a replay.
 //! - *The observer decides.* The observer's own validation (program, page
 //!   order, fingerprinted replays, the typed reader's refusals, the model's
 //!   caps) is untouched. When it blocks — before this page, or at some
@@ -209,6 +219,16 @@ pub struct WideFollow {
     pub caught_up_to_observer: u64,
     pub pages: u64,
     pub records: u64,
+    /// Sequence numbers skipped between consecutive records pulled: the
+    /// raw feed is the chain's global order filtered to this program, so
+    /// each is **unknown** to this reader — another program's transaction,
+    /// an airdrop, or a program record it never received. Reported, never
+    /// a stop, never a claim either way: a hole **may** hide missing
+    /// program records; only a missing linked record between two observed
+    /// links of the same province or holding is detected (the observer's
+    /// chain check), not a missing prefix, tail, new entity or non-wide
+    /// record.
+    pub sequence_holes: u64,
     /// Bytes of the records processed (the preflight's measure).
     pub bytes: u64,
     /// Pages refused unread for their length (at most one: it stops).
@@ -236,6 +256,7 @@ impl WideFollow {
             caught_up_to_observer: 0,
             pages: 0,
             records: 0,
+            sequence_holes: 0,
             bytes: 0,
             oversized_pages: 0,
             preflight_rejections: 0,
@@ -359,8 +380,16 @@ impl WideFollow {
                 }
             }
             self.bytes = self.bytes.saturating_add(page_bytes as u64);
-            // The feed contract: past the cursor, strictly increasing.
+            // The feed contract: past the cursor and strictly increasing.
+            // Not contiguous: the raw feed's sequence is the chain's global
+            // transaction order filtered to this program (airdrops and
+            // other programs' transactions take numbers too), so a skipped
+            // number is **unknown** to this reader and may hide missing
+            // program records — counted and reported
+            // (`sequence_holes_unknown`), never a stop and never a claim.
+            // Only the archive's renumbered rows are contiguous.
             let mut prev = self.cursor.0;
+            let mut holes = 0u64;
             for r in &page {
                 if r.seq <= prev {
                     self.stopped = Some(Stopped {
@@ -369,8 +398,10 @@ impl WideFollow {
                     });
                     return pulled;
                 }
+                holes = holes.saturating_add(r.seq - prev - 1);
                 prev = r.seq;
             }
+            self.sequence_holes = self.sequence_holes.saturating_add(holes);
             self.records += page.len() as u64;
             observer.observe_page(&page, &scope.program);
             let accepted = observer.accepted_prefix;
@@ -415,6 +446,8 @@ impl WideFollow {
             "caught_up_to_observer": self.caught_up_to_observer,
             "pages": self.pages,
             "records": self.records,
+            "sequence_holes_unknown": self.sequence_holes,
+            "sequence_note": "the raw feed's sequence is the chain's global order filtered to this program; a skipped number is unknown to this reader: another program's transaction, an airdrop, or a program record it never received — it may hide missing program records, and only a missing linked record between two observed links of the same province or holding is detected (by the chain check)",
             "bytes": self.bytes,
             "oversized_pages": self.oversized_pages,
             "preflight_rejections": self.preflight_rejections,

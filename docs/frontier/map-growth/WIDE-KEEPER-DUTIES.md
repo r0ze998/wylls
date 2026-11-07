@@ -2,13 +2,15 @@
 
 ## Current checkpoint: snapshot-backed runtime review (2026-11-08)
 
-The current source passes 93 audited tests: discovery 14, duties 43, legacy guard 12, Reveal 18 and real RpcPort loopback snapshot 6. Feature-enabled library/binary and the three snapshot/duty/Reveal test targets, plus default library/binary, pass clippy with warnings denied. Public FromBeacon opening uses pre-existing recorded IBE material and shipped quicknet signatures; no keypair or signature was generated.
+The current source passes 96 audited tests: discovery 14, duties 46, legacy guard 12, Reveal 18 and real RpcPort loopback snapshot 6. Feature-enabled library/binary and the three snapshot/duty/Reveal test targets, plus default library/binary, pass clippy with warnings denied. Public FromBeacon opening uses pre-existing recorded IBE material and shipped quicknet signatures; no keypair or signature was generated.
 
 The opt-in runtime now uses its actual port through an additive snapshot callback. Settle/Return and bounded Reveal diagnostic review use a single response for their final account/Clock/Rent judgement. Reveal proofs are extracted only from the observer-accepted portion of shared feed pages; supplied provenance remains unverified. Public beacon reads use a separate bounded cache, and transient readiness failures have bounded next-slot retries. Unset payer funding remains unknown. Status excludes raw RPC error strings and opened material.
 
 A further parity review keeps settled-but-unrevealed departures eligible for Reveal hints, validates known-ineligible payer shapes and aliases, leaves System data/nonce eligibility Unknown, and exposes downstream generation-mismatch settlement risk without changing game rules.
 
 Explicit --follow-wide (requiring --observe-wide) now continues read-only wide observation with an independent in-memory cursor after legacy feed guards stop. It never advances legacy cursors or reopens write gates. Strict page/record/aggregate-byte limits reject before observer processing; network response allocation itself is outside these limits. Restart replays from empty observation, and source completeness remains unknown.
+
+The archive/index interoperability test now drives real WideFindex, SQLite rebuild, archive transaction reads, keeper observer/proofs, and a snapshot-backed unsigned candidate. Raw program-filtered feed sequences (10/20/30), archive sequences (1/2/3), and event-page IDs are distinct. Observer verifies local per-identity head continuity after its first observed unverified anchor; dedicated index validates from genesis. Neither proves source authenticity. Raw sequence holes remain unknown, not automatically corrupted.
 
 Every candidate is still denied by Engine review: history authenticity/completeness, live fee quotation and future balance remain unproven. No enqueue, simulation, signing, transaction sending, production gate change, main merge or deployment is introduced. Existing PSW1 feed guards can prevent further discovery; this slice does not make the game playable. The actual Keeper constructor/full tick was not executed because it uses keys; its wiring and CLI are compile-checked, while independent review-step tests use literal accounts and public vectors. UI is unchanged.
 
@@ -1154,6 +1156,142 @@ coverage, as before.
 Limits: the follower sees only what the program feed serves after the
 gate and says so; a stopped follower does not restart in-process.
 
+## Sixth slice (2026-11-08, on `1129d1b1`+): archive/index ↔ keeper observation parity
+
+**Inspected.** `findex::wide_index::WideIndex` (the dedicated SQLite
+index: `wide_tx`, `wide_event`, `wide_chain`, `wide_link`; chain
+continuity verified **from zero** per `(entity, full key)` with
+`event::advance`; contiguous sequences; slot regression refused; a
+malformed record, gap, replay, wrong world or chain mismatch rolls the
+batch back and latches a durable block), `WideReader` (read-only pages
+pinned to `indexed_through` and the content stamp), `WideFindex` (archive
+first, index second; reopen catches up from the archive; an index ahead
+of the archive is refused), `fclient::typed_log` (the one decode both
+sides use), against `keeper::wideindex::WideObserver`/`WideDiscovery` and
+`widefollow`.
+
+**Finding (fixed).** The typed index verifies every record's chain links
+against the previous head of that province or holding; the keeper's
+observer verified none — `WideDiscovery::apply` checks caps, the sequence
+against its fingerprints, decoding and the model's caps, and ignores the
+link tail (the test helpers even carried literal `seq 1 / head [seq; 32]`
+links). A record the archive/index refuses as chain-broken therefore
+still produced a keeper hint. Now `WideObserver` keeps the chains the
+index keeps (`chain(target) -> ChainHead { seq, head, terminal }`), checks
+each wide batch's links with the index's rule before the model applies it,
+blocks on a mismatch or on a continuation after `ProvinceClosed` with the
+index's wording, and commits the heads only when the model accepted the
+batch. One difference, stated: the index starts from zero and requires the
+first link to be sequence 1; the observer may start mid-history, so the
+**first link seen** per entity is its anchor (`chain_anchored`), and
+continuity is verified from there (`chain_verified`); the status says so.
+Bounded by `MAX_CHAIN_KEYS` (4,096; one more blocks). `WideDiscovery::apply`
+itself is unchanged (its tests still drive it directly).
+
+**Sequences, three numberings.** The raw `ChainPort::feed` sequence is
+the chain's **global** transaction order filtered to this program
+(`localnet/src/chain.rs::feed` skips airdrops and other programs'
+transactions after numbering; the JSON-RPC feed filters by program), so it
+is not contiguous and a skipped number says nothing about the program's
+history. The archive renumbers what it stores contiguously (1, 2, 3…) and
+stores the source's raw cursor beside it; the typed index is contiguous
+over the archive's rows and refuses a gap there. The event page cursor is
+a third numbering (event ordinal). The follower therefore keeps
+**increasing-only** (`page-order`) and reports skipped numbers as
+`sequence_holes_unknown` — never a stop, never a claim either way: a hole
+is **unknown** (another program's transaction, an airdrop, or a program
+record this reader never received) and **may hide missing program
+records**; a review-round `gap` stop was wrong and is removed. What the
+chain check detects is exactly one case: a missing **linked** record
+between two observed links of the **same** province or holding (the next
+link does not continue the previous head). A missing prefix before the
+anchor, a missing tail after the last record seen, a never-seen entity,
+or a missing non-wide record is **not** detected.
+
+Test `a_multi_event_transaction_separates_event_ordinals_from_archive_and_feed_cursors`
+(`wide_duties.rs`; literal synthetic bodies, valid public ABI encodings
+chained with `advance`, not any handler's output): one transaction with
+three events and one with one → two archived transactions, four indexed
+events `(event, archive_seq, ordinal)` = (1,1,0), (2,1,1), (3,1,2),
+(4,2,0); a page of two ends inside transaction A with `next == 2 ==
+indexed_through`, and `archive.read_after(next)` reads nothing while two
+events remain — the event cursor is not a transaction cursor; the raw
+source cursor is 20, a third numbering; the observer sees two
+transactions and four records with chains at 4 equal to the index's head;
+and atomicity stated as it is: the index rolls a page back whole, the
+observer applies transaction A whole and blocks at C.
+
+**Input-cap wording.** The observer's pre-chain cap check saves the
+chain plan's work; the typed reader has already decoded the frame in
+`observe_tx` (that decode is unavoidable to know the batch at all).
+
+**Input caps before chain work.** The observer applies the model's own
+input caps (`max_bodies_per_batch` 64, `max_body_bytes`, `max_batch_bytes`)
+by lengths alone **before** `chain_plan`, so an oversized wide transaction
+is refused with no further decode of its bodies (the typed reader decoded
+the frame already), no staged scan and no head or model change; the
+chain plan's staged lookups are then bounded by 64 bodies × their links.
+Test `an_oversized_wide_batch_is_refused_before_any_chain_work`
+(`wide_duties.rs`): 65 chained bodies in one frame (block names the cap, no
+head anchored, the follower stops at it), the aggregate-bytes cap under a
+tight limit, and the same two bodies accepted under the defaults.
+
+**Wording.** The `wideindex` module doc no longer calls its inputs
+"already authenticated" or the chain "the typed reader's job": inputs are
+format-checked through the typed reader; the observer verifies local chain
+continuity from an anchor that is verified only when it is the first link
+from the zero head; nothing verifies a signature or the source's coverage.
+
+**Build note.** `findex` is a **dev**-dependency of the keeper with its
+`wide-records-experimental` feature, so test builds of the keeper compile
+the findex wide modules; the production default binary (`cargo build -p
+keeper` without features) is unaffected — dev-dependencies and their
+features never enter it.
+
+**Anchors, explicitly.** `ChainHead.from_genesis` is `true` only when the
+first link seen for the entity was sequence 1 and `advance` from the zero
+head reproduced it — the index's own first step; then the equivalence with
+the index's head is earned. Any other first link is an anchor **on trust**
+(`chain_anchored_unverified`): continuity after it is verified, its prefix
+is unknown, and no equivalence with the typed index is claimed; the status
+says so.
+
+**Test** `archive_index_and_keeper_observation_agree_on_literal_records`
+(`wide_duties.rs`; `findex` is a dev-dependency with its
+`wide-records-experimental` feature, test builds only): three chained
+`Departed` records (built with the ABI's `advance`; a signature unique to
+the sequence on the record **and** as the wire's first signature, which
+the extractor binds) carrying raw sequences 10, 20, 30, archived as 1, 2,
+3 with the source cursor 30 kept, into a real `WideFindex` through a
+literal `Source` labelled a fixture; the raw-feed follower reports 27
+skipped numbers and stops nowhere while reaching the same heads; a
+follower joining mid-history anchors on trust and claims no equivalence;
+full province/holding/host identities on every event; reopen and resume at
+the archived cursor; the SQLite file removed and the index **rebuilt from
+the archive alone** with identical heads; the archive's own records fed to
+`WideObserver` + `WideFollow` + `ProofStore`; observer chain heads equal
+the index's for the province and the holding; the settle hint, the
+extracted proof (record 3, `METHOD_FEED`, unverified) and the reveal hint
+agree; one snapshot-backed unsigned SettleDeparture candidate over literal
+accounts, coherent, with every hard denial and nothing pending; the
+unknown source stated by the index, the observer and the follower; a lost
+response leaves the store unpoisoned and the archive standing; and on
+fresh indexes and observers: a duplicate, the same sequence with other
+content, a malformed body, an archive-numbering gap (the index refuses;
+the follower reports the hole and the observer blocks on the discontinuous
+chain link), a chain-broken record (the index rolls back and blocks; the
+observer blocks at the same record with the heads at 1; the follower stops
+there) and a continuation after `ProvinceClosed`. The follower fixtures
+now carry properly chained records (`Chains`), and `sign_as` keeps the
+record's signature and the wire's first signature equal.
+
+Limits: `WideReader` (the HTTP read side) is covered by the herald's own
+tests, not here; the observer's mid-history anchor is a stated difference
+from the index's from-zero rule; the typed index remains source-coverage
+"unknown" and the keeper's review keeps `HistoryUnknown` and
+`SourceUnproven` on every candidate; nothing in this slice signs, sends,
+reopens a gate, or infers a generation-mismatch payout.
+
 ## Touched files
 
 `frontier-node/crates/keeper/src/wideproof.rs` (new),
@@ -1188,9 +1326,14 @@ step, `snapshot_mode` in the status),
 `frontier-node/crates/keeper/src/main.rs` (third slice: `--review-wide`;
 fourth: `enable_wide_snapshot_via_port` under the same flag; fifth:
 `--follow-wide`, requiring `--observe-wide`),
+`frontier-node/crates/keeper/src/wideindex.rs` (sixth slice: the
+observer's chain heads, `ChainHead`, `chain()`, `MAX_CHAIN_KEYS`),
+`frontier-node/crates/keeper/Cargo.toml` (sixth slice: the `findex`
+**dev**-dependency gains `features = ["wide-records-experimental"]`; no
+runtime dependency change),
 `frontier-node/crates/keeper/tests/wide_duties.rs` (new),
 `frontier-node/crates/keeper/tests/wide_reveal.rs` (new), this document.
-No `Cargo.toml`, fclient, ABI, program, engine, herald, web or UI file.
+No fclient, ABI, program, engine, herald, web or UI file.
 
 ### Nonce qualification after independent review
 

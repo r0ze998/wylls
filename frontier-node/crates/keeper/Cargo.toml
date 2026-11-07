@@ -48,5 +48,7 @@ localnet.workspace = true
 # integ-W4 review (W4-C): the play scenario plans its marches with the bots'
 # kernel path planner (a workspace crate; no new external crate).
 agents = { path = "../agents" }
-findex = { path = "../findex" }
+# The wide archive/typed-index parity test (`tests/wide_duties.rs`) drives
+# the real `WideFindex` over literal records; dev only, never the binary.
+findex = { path = "../findex", features = ["wide-records-experimental"] }
 solana-program-runtime.workspace = true

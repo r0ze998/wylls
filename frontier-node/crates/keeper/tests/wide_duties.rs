@@ -23,6 +23,9 @@ use fclient::ports::{
 use fclient::rpc::account_json;
 use fclient::tx::{self, TxBudget};
 use fclient::{Hash, Transaction};
+use findex::wide_index::WideIndex;
+use findex::wide_store::WideFindex;
+use findex::Source;
 use frontier_abi::addr::AddrCtx;
 use frontier_abi::bytes::{wr_arr, wr_u16, wr_u32, wr_u64, wr_u8};
 use frontier_abi::entry::{write_entry, Entry, EntryOp};
@@ -32,6 +35,7 @@ use frontier_abi::layout::province::province as PV;
 use frontier_abi::layout::world::season as SL;
 use frontier_abi::v2::layout::player::holding as H;
 use frontier_abi::v2::layout::province::{province as PV2, site as SM};
+use frontier_abi::world_index::event::WideTarget;
 use frontier_abi::world_index::event::{self as wev, encode, WideEntity, WideKind, WideLink};
 use frontier_abi::world_index::wide_ix::{
     self as wix, Depart, ResidentAct, Return, SettleDeparture,
@@ -64,6 +68,7 @@ use keeper_core::widetick::{
     MAX_EXTRACT_PER_PAGE, MAX_PROOFS, MAX_TRANSIENT_RETRIES, ORIGIN_FEED, ORIGIN_SUPPLIED,
     PAYER_UNSET, REFRESH_SLOTS, REVEAL_REFRESH_SLOTS,
 };
+use serde_json::Value as JsonValue;
 use serde_json::{json, Value};
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
@@ -2759,12 +2764,10 @@ fn a_supplied_proof_never_keeps_the_callers_provenance_claims() {
 /// observer's cursor and replay behaviour are untouched.
 #[test]
 fn proof_extraction_follows_the_observers_accepted_prefix_not_a_sequence_threshold() {
-    let at = |seq: u64| {
-        let mut r = record(wire_of(&[depart_ix(home())]), frame(&[departed_ok(home())]));
-        r.seq = seq;
-        r.slot = 1_000 + seq;
-        r
-    };
+    // Chained in the order built (the observer verifies continuity from
+    // the first link it sees).
+    let mut chains = Chains::default();
+    let mut at = |seq: u64| chains.depart_at(seq);
     let observer = || {
         WideObserver::new(
             IndexScope {
@@ -2832,9 +2835,10 @@ fn proof_extraction_follows_the_observers_accepted_prefix_not_a_sequence_thresho
     assert_eq!((store.records_offered, store.superseded), (4, 1));
     // (e) A record that blocks the observer in the middle of a page
     // [13, 14(truncated), 15]: 13 processed, 14 blocks, 15 never reached.
+    let first = at(13);
     let mut bad = at(14);
     bad.logs.push("Log truncated".into());
-    let page = vec![at(13), bad, at(15)];
+    let page = vec![first, bad, at(15)];
     assert_eq!(o.observe_page(&page, &program()), 1);
     assert_eq!(o.accepted_prefix, 1);
     assert_eq!(o.model.blocked().map(|b| b.seq), Some(14));
@@ -3804,12 +3808,93 @@ fn follow_observer() -> WideObserver {
     )
 }
 
-/// A committed WideDepart record at `seq` (slot `1_000 + seq`).
-fn depart_at(seq: u64) -> TxRecord {
-    let mut r = record(wire_of(&[depart_ix(home())]), frame(&[departed_ok(home())]));
-    r.seq = seq;
-    r.slot = 1_000 + seq;
-    r
+/// Event chains as the program emits them and the typed index verifies
+/// them: per `(entity, full key)` the last `(seq, head)`, each new record's
+/// links computed with the ABI's `advance` over its body without tail
+/// (SHA-256 only; nothing signed).
+#[derive(Default)]
+struct Chains(BTreeMap<(u8, Vec<u8>), (u64, [u8; 32])>);
+impl Chains {
+    fn body(&mut self, kind: WideKind, bell: u32, keybytes: &[u8], payload: &[u8]) -> Vec<u8> {
+        let mut b = vec![0u8; wev::MAX_BODY];
+        let n = wev::write_body(kind, bell, keybytes, payload, &mut b).unwrap();
+        b.truncate(n);
+        // A zero-link-shaped encoding gives the record's canonical
+        // attribution (province, holding) to key the chains by.
+        let shape: Vec<WideLink> = kind
+            .links()
+            .iter()
+            .map(|e| WideLink {
+                entity: *e,
+                seq: 0,
+                head: [0; 32],
+            })
+            .collect();
+        let probe = encode(kind, bell, keybytes, payload, &shape).unwrap();
+        let r = wev::WideRecord::decode(&probe).unwrap();
+        let links: Vec<WideLink> = kind
+            .links()
+            .iter()
+            .map(|e| {
+                let identity = match e {
+                    WideEntity::Province => r.province_of().unwrap().to_bytes().to_vec(),
+                    WideEntity::Holding => r.holding_of().unwrap().to_bytes().to_vec(),
+                };
+                let old = self.0.entry((*e as u8, identity)).or_insert((0, [0; 32]));
+                let next = wev::advance(*e, old.0, &old.1, &b).unwrap();
+                *old = (next.seq, next.head);
+                next
+            })
+            .collect();
+        encode(kind, bell, keybytes, payload, &links).unwrap()
+    }
+    /// The `Departed` body of `host()` standing at home, the fixture's
+    /// values (the ones `departed_ok` carries), properly chained.
+    fn departed(&mut self) -> Vec<u8> {
+        self.body(
+            WideKind::Departed,
+            DEPART_BELL,
+            &wev::host_key(&host(), home()),
+            &wev::departed_payload(
+                SLOT,
+                DEPART_BELL,
+                ARRIVE_BELL,
+                TROOPS,
+                61,
+                TIP,
+                7_000,
+                11_000,
+                &root(),
+            ),
+        )
+    }
+    /// A committed WideDepart transaction at `seq` (slot `1_000 + seq`, a
+    /// signature unique to the sequence): the wire's Depart and its
+    /// frame's chained `Departed` record.
+    fn depart_at(&mut self, seq: u64) -> TxRecord {
+        let body = self.departed();
+        self.depart_record_with(seq, body)
+    }
+    fn depart_record_with(&mut self, seq: u64, body: Vec<u8>) -> TxRecord {
+        let mut r = record(wire_of(&[depart_ix(home())]), frame(&[body]));
+        r.seq = seq;
+        r.slot = 1_000 + seq;
+        sign_as(&mut r, seq);
+        r
+    }
+}
+
+/// A signature unique to `seq`, on the record **and** as the wire's first
+/// signature (the extractor binds the two; the typed index wants
+/// signatures unique). Literal bytes, nothing signed.
+fn sign_as(r: &mut TxRecord, seq: u64) {
+    let mut sig = SIG_PAYER;
+    sig[..8].copy_from_slice(&seq.to_le_bytes());
+    r.signature = Signature::from(sig);
+    if r.tx.len() >= 65 {
+        // One-byte signature count, then the signatures.
+        r.tx[1..65].copy_from_slice(&sig);
+    }
 }
 
 /// The follower pulls bounded pages from its own cursor only in ticks the
@@ -3819,11 +3904,17 @@ fn depart_at(seq: u64) -> TxRecord {
 /// public knob cannot raise the cap; simulate/send are never called.
 #[test]
 fn the_follower_pulls_bounded_pages_after_the_gate_and_feeds_observer_and_proofs() {
-    let port = FeedPort::new((11..=16).map(depart_at).collect(), 2);
+    let mut c = Chains::default();
+    let port = FeedPort::new((11..=16).map(|s| c.depart_at(s)).collect(), 2);
     let mut o = follow_observer();
     let mut store = ProofStore::default();
-    let mut f = WideFollow::from_observer(&o);
-    assert_eq!(f.cursor().0, 0, "an empty observer: from the start");
+    assert_eq!(
+        WideFollow::from_observer(&o).cursor().0,
+        0,
+        "an empty observer: from the start"
+    );
+    // The literal feed begins at 11: resume after 10 (contiguity is a rule).
+    let mut f = WideFollow::new(Some(10));
     f.pages_per_tick = 99;
     assert_eq!(
         f.cap(),
@@ -3846,11 +3937,17 @@ fn the_follower_pulls_bounded_pages_after_the_gate_and_feeds_observer_and_proofs
         block_on(f.step(&port, &mut o, Some(&mut store), &scope(), false)),
         2
     );
-    assert_eq!(*port.asked.lock().unwrap(), vec![0, 12]);
+    assert_eq!(*port.asked.lock().unwrap(), vec![10, 12]);
     assert_eq!(
         (f.pages, f.records, f.cursor().0, f.last_slot),
         (2, 4, 14, Some(1_014))
     );
+    assert_eq!(
+        (o.chain_anchored_from_genesis, o.chain_anchored_unverified, o.chain_verified),
+        (2, 0, 6),
+        "the first record's links were the first from the zero head: verified from genesis; three more verified both"
+    );
+    assert!(o.chain(WideTarget::Province(home())).unwrap().from_genesis);
     assert_eq!(o.last_seq_seen, Some(14));
     assert_eq!(o.wide_txs, 4);
     assert_eq!(o.model.cursor(), Some(14));
@@ -3864,7 +3961,7 @@ fn the_follower_pulls_bounded_pages_after_the_gate_and_feeds_observer_and_proofs
         block_on(f.step(&port, &mut o, Some(&mut store), &scope(), false)),
         2
     );
-    assert_eq!(*port.asked.lock().unwrap(), vec![0, 12, 14, 16]);
+    assert_eq!(*port.asked.lock().unwrap(), vec![10, 12, 14, 16]);
     assert_eq!((f.pages, f.records, f.cursor().0), (4, 6, 16));
     assert!(f.caught_up);
     assert_eq!(o.last_seq_seen, Some(16));
@@ -3877,7 +3974,7 @@ fn the_follower_pulls_bounded_pages_after_the_gate_and_feeds_observer_and_proofs
     );
     assert!(!f.caught_up, "an idle tick says nothing about currency");
     // Without a proof store the observer still sees the pages.
-    let port2 = FeedPort::new(vec![depart_at(17)], 2);
+    let port2 = FeedPort::new(vec![c.depart_at(17)], 2);
     assert_eq!(block_on(f.step(&port2, &mut o, None, &scope(), false)), 2);
     assert!(f.caught_up, "this step ended on an empty page");
     assert_eq!(o.last_seq_seen, Some(17));
@@ -3910,14 +4007,14 @@ fn the_follower_pulls_bounded_pages_after_the_gate_and_feeds_observer_and_proofs
 #[test]
 fn the_follower_resumes_after_the_observers_position_and_never_repulls_it() {
     let mut o = follow_observer();
+    // One chained history, 11..=17, served in parts by both paths.
+    let mut c = Chains::default();
+    let recs: Vec<TxRecord> = (11..=17).map(|s| c.depart_at(s)).collect();
     // The legacy path showed the observer seqs 11 and 12.
-    assert_eq!(
-        o.observe_page(&[depart_at(11), depart_at(12)], &program()),
-        2
-    );
+    assert_eq!(o.observe_page(&recs[0..2], &program()), 2);
     let mut f = WideFollow::from_observer(&o);
     assert_eq!(f.cursor().0, 12);
-    let port = FeedPort::new((11..=14).map(depart_at).collect(), 10);
+    let port = FeedPort::new(recs[0..4].to_vec(), 10);
     assert_eq!(block_on(f.step(&port, &mut o, None, &scope(), false)), 2);
     assert_eq!(
         *port.asked.lock().unwrap(),
@@ -3925,15 +4022,21 @@ fn the_follower_resumes_after_the_observers_position_and_never_repulls_it() {
         "after 12, then the empty page"
     );
     assert_eq!(o.wide_txs, 4);
+    assert_eq!(
+        (
+            o.chain_anchored_from_genesis,
+            o.chain_anchored_unverified,
+            o.chain_verified
+        ),
+        (2, 0, 6),
+        "the chains continued across the two paths"
+    );
     // The legacy path pulled 15 and 16 while the follower stood aside; the
     // follower catches up before its next pull.
-    assert_eq!(
-        o.observe_page(&[depart_at(15), depart_at(16)], &program()),
-        2
-    );
+    assert_eq!(o.observe_page(&recs[4..6], &program()), 2);
     assert_eq!(block_on(f.step(&port, &mut o, None, &scope(), true)), 0);
     assert_eq!(f.cursor().0, 14);
-    let port = FeedPort::new((11..=17).map(depart_at).collect(), 10);
+    let port = FeedPort::new(recs.clone(), 10);
     assert_eq!(block_on(f.step(&port, &mut o, None, &scope(), false)), 2);
     assert_eq!(*port.asked.lock().unwrap(), vec![16, 17]);
     assert_eq!((f.caught_up_to_observer, f.cursor().0), (1, 17));
@@ -3948,9 +4051,11 @@ fn the_follower_resumes_after_the_observers_position_and_never_repulls_it() {
 /// observer's refusal.
 #[test]
 fn the_follower_stops_when_the_observer_blocks_and_never_pulls_past_it() {
-    let mut bad = depart_at(18);
+    let mut c = Chains::default();
+    let first = c.depart_at(17);
+    let mut bad = c.depart_at(18);
     bad.logs.push("Log truncated".into());
-    let port = FeedPort::new(vec![depart_at(17), bad, depart_at(19), depart_at(20)], 3);
+    let port = FeedPort::new(vec![first, bad, c.depart_at(19), c.depart_at(20)], 3);
     let mut o = follow_observer();
     let mut store = ProofStore::default();
     let mut f = WideFollow::new(Some(16));
@@ -3991,11 +4096,12 @@ fn the_follower_stops_when_the_observer_blocks_and_never_pulls_past_it() {
     // An observer blocked before the follower's first pull: stopped at
     // once, nothing pulled.
     let mut o2 = follow_observer();
-    let mut t = depart_at(5);
+    let mut c2 = Chains::default();
+    let mut t = c2.depart_at(5);
     t.logs.push("Log truncated".into());
     assert_eq!(o2.observe_page(&[t], &program()), 0);
     let mut f2 = WideFollow::from_observer(&o2);
-    let port2 = FeedPort::new(vec![depart_at(6)], 2);
+    let port2 = FeedPort::new(vec![c2.depart_at(6)], 2);
     assert_eq!(block_on(f2.step(&port2, &mut o2, None, &scope(), false)), 0);
     assert!(port2.asked.lock().unwrap().is_empty());
     assert_eq!(
@@ -4037,7 +4143,8 @@ fn the_follower_refuses_a_page_that_is_not_past_its_cursor_before_the_observer_s
             Ok((Hash::default(), 0))
         }
     }
-    let overlap = Overlap(vec![depart_at(12), depart_at(13)]);
+    let mut c = Chains::default();
+    let overlap = Overlap(vec![c.depart_at(12), c.depart_at(13)]);
     assert_eq!(block_on(f.step(&overlap, &mut o, None, &scope(), false)), 1);
     assert_eq!(
         f.stopped().map(|s| (s.code, s.seq)),
@@ -4050,10 +4157,29 @@ fn the_follower_refuses_a_page_that_is_not_past_its_cursor_before_the_observer_s
     );
     assert_eq!(f.cursor().0, 12);
     assert_eq!(block_on(f.step(&overlap, &mut o, None, &scope(), false)), 0);
+    // A skipped number: the raw feed is the chain's global sequence filtered
+    // to this program, so it is a range this reader cannot judge — counted
+    // and reported, the page processed, no stop and no claim.
+    let mut o = follow_observer();
+    let mut f = WideFollow::new(Some(12));
+    let skipped = FeedPort::new(vec![c.depart_at(14)], 1);
+    // One data page followed by an empty page, rather than replaying it.
+    assert_eq!(block_on(f.step(&skipped, &mut o, None, &scope(), false)), 2);
+    assert!(f.stopped().is_none());
+    assert_eq!(
+        (o.wide_txs, o.last_seq_seen, f.cursor().0),
+        (1, Some(14), 14)
+    );
+    assert_eq!(f.sequence_holes, 1);
+    assert_eq!(f.status()["sequence_holes_unknown"], 1);
+    assert!(f.status()["sequence_note"]
+        .as_str()
+        .unwrap()
+        .contains("unknown to this reader"));
     // Out of order within the page.
     let mut o = follow_observer();
     let mut f = WideFollow::new(Some(12));
-    let disorder = Overlap(vec![depart_at(13), depart_at(15), depart_at(14)]);
+    let disorder = Overlap(vec![c.depart_at(13), c.depart_at(15), c.depart_at(14)]);
     assert_eq!(
         block_on(f.step(&disorder, &mut o, None, &scope(), false)),
         1
@@ -4080,7 +4206,8 @@ fn follower_feed_errors_are_counted_without_text_and_non_wide_records_pass_throu
         r.slot = 1_021;
         r
     };
-    let port = FeedPort::new(vec![depart_at(20), legacy, depart_at(22)], 10);
+    let mut c = Chains::default();
+    let port = FeedPort::new(vec![c.depart_at(20), legacy, c.depart_at(22)], 10);
     let mut o = follow_observer();
     let mut store = ProofStore::default();
     let mut f = WideFollow::new(Some(19));
@@ -4302,7 +4429,7 @@ fn the_byte_preflight_refuses_oversized_records_and_pages_before_the_observer() 
     for (code, bad) in cases {
         // A fine record first, the bad one second: the whole page is
         // refused, the fine one included.
-        let port = FeedPort::new(vec![depart_at(29), bad], 10);
+        let port = FeedPort::new(vec![Chains::default().depart_at(29), bad], 10);
         let mut o = follow_observer();
         let mut store = ProofStore::default();
         let mut f = WideFollow::new(Some(28));
@@ -4372,18 +4499,267 @@ fn the_byte_preflight_refuses_oversized_records_and_pages_before_the_observer() 
     assert_eq!(b["record_bytes"], MAX_RECORD_BYTES);
     assert_eq!(b["page_bytes"], MAX_PAGE_BYTES);
     // Ordinary records pass and are measured.
-    let port = FeedPort::new(vec![depart_at(60), depart_at(61)], 10);
+    let mut c = Chains::default();
+    let pair = vec![c.depart_at(60), c.depart_at(61)];
+    let port = FeedPort::new(pair.clone(), 10);
     let mut o = follow_observer();
     let mut f = WideFollow::new(Some(59));
     assert_eq!(block_on(f.step(&port, &mut o, None, &scope(), false)), 2);
     assert!(f.stopped().is_none());
     assert_eq!((f.records, f.preflight_rejections), (2, 0));
-    let expect: usize = [depart_at(60), depart_at(61)]
-        .iter()
-        .map(|r| preflight(r).unwrap())
-        .sum();
+    let expect: usize = pair.iter().map(|r| preflight(r).unwrap()).sum();
     assert_eq!(f.bytes as usize, expect);
     assert_eq!(o.last_seq_seen, Some(61));
+}
+
+/// One transaction carrying several PSW1 events: event ordinals are not
+/// archive sequences and an event-page cursor is not a transaction feed
+/// cursor; a batch's atomicity is per transaction on the observer and per
+/// page on the index. **Literal synthetic bodies**: valid public ABI
+/// encodings (`frontier_abi::world_index::event`), chained with the ABI's
+/// `advance`, inside a literal frame — not the output of any handler
+/// execution, and no claim that a real program emits these stages
+/// together.
+#[test]
+fn a_multi_event_transaction_separates_event_ordinals_from_archive_and_feed_cursors() {
+    // Transaction A: three events of one host — Muster, Departed,
+    // DepartureSettled — one frame; transaction B: one Departed.
+    let mut c = Chains::default();
+    let muster = c.body(
+        WideKind::Muster,
+        DEPART_BELL - 1,
+        &wev::host_key(&host(), home()),
+        &wev::muster_payload(2, TROOPS / 1_000, 5, 4, 7),
+    );
+    let departed = c.departed();
+    let settled = c.body(
+        WideKind::DepartureSettled,
+        DEPART_BELL + 1,
+        &wev::host_key(&host(), home()),
+        &wev::departure_settled_payload(SLOT, false, TROOPS, 61, 0, 4),
+    );
+    let with_bodies = |seq: u64, bodies: &[Vec<u8>]| {
+        let mut r = record(wire_of(&[depart_ix(home())]), frame(bodies));
+        r.seq = seq;
+        r.slot = 1_000 + seq;
+        sign_as(&mut r, seq);
+        r
+    };
+    let tx_a = with_bodies(10, &[muster, departed, settled]);
+    let tx_b = with_bodies(20, &[c.departed()]);
+    // 1. The store: two archived transactions, four indexed events.
+    let dir = parity_dir("multi");
+    let mut store = WideFindex::open(&dir, program(), world(), 1 << 20).unwrap();
+    let mut rows = Rows {
+        rows: vec![tx_a.clone(), tx_b.clone()],
+        after: 0,
+        pulls: 0,
+        fail_next: false,
+    };
+    let stored = block_on(store.ingest(&mut rows)).unwrap();
+    store.commit().unwrap();
+    assert_eq!(stored.iter().map(|r| r.seq).collect::<Vec<_>>(), vec![1, 2]);
+    assert_eq!(
+        store.archive().last_seq(),
+        2,
+        "archive sequence: transactions"
+    );
+    let all = store.index.events(0, 10).unwrap();
+    assert_eq!(all.events.len(), 4, "event ordinal: records");
+    assert_eq!(
+        all.events
+            .iter()
+            .map(|e| (e.event, e.archive_seq, e.ordinal))
+            .collect::<Vec<_>>(),
+        vec![(1, 1, 0), (2, 1, 1), (3, 1, 2), (4, 2, 0)]
+    );
+    assert!(all
+        .events
+        .iter()
+        .all(|e| e.host == Some(host().to_bytes().to_vec())));
+    assert_eq!(all.indexed_through, 2);
+    // 2. A page boundary inside transaction A: `next` is an event number
+    //    (2) that happens to equal `indexed_through` (2 transactions) and
+    //    means something else. Fed to the archive as a transaction cursor
+    //    it reads nothing although two events remain; fed back to
+    //    `events` it reads exactly those two.
+    let page = store.index.events(0, 2).unwrap();
+    assert_eq!(page.events.len(), 2);
+    assert!(page.more);
+    assert_eq!(page.next, 2);
+    assert_eq!(page.indexed_through, 2);
+    assert!(
+        store.archive().read_after(page.next).unwrap().is_empty(),
+        "an event cursor is not a transaction cursor: after archive seq 2 there is nothing, yet events remain"
+    );
+    let rest = store.index.events(page.next, 10).unwrap();
+    assert_eq!(
+        rest.events.iter().map(|e| e.event).collect::<Vec<_>>(),
+        vec![3, 4]
+    );
+    assert!(!rest.more);
+    assert_eq!(
+        rows.after, 20,
+        "and the source cursor is the raw feed sequence, a third numbering"
+    );
+    // 3. The observer over the archived transactions: two transactions,
+    //    four records, the chains advanced four times, equal to the index.
+    let archived = store.archive().read_after(0).unwrap();
+    let mut o = follow_observer();
+    assert_eq!(o.observe_page(&archived, &program()), 2);
+    assert_eq!(o.last_seq_seen, Some(2), "transactions, not events");
+    assert_eq!(o.model.coverage().records, 4, "records, not transactions");
+    let idx = store
+        .index
+        .chain(WideTarget::Province(home()))
+        .unwrap()
+        .unwrap();
+    let obs = o.chain(WideTarget::Province(home())).unwrap();
+    assert_eq!((obs.seq, obs.head, obs.from_genesis), (4, idx.head, true));
+    assert_eq!(
+        (
+            o.chain_anchored_from_genesis,
+            o.chain_anchored_unverified,
+            o.chain_verified
+        ),
+        (2, 0, 6)
+    );
+    drop(store);
+    std::fs::remove_dir_all(&dir).unwrap();
+    // 4. Atomicity, stated as it is. A batch [A, C] with C's link broken:
+    //    the index rolls back the **whole page** (A's three events too);
+    //    the observer applies A whole (three events, chains at 3) and
+    //    blocks at C — atomic per transaction, not per page.
+    let mut c2 = Chains::default();
+    let a_bodies = [
+        c2.body(
+            WideKind::Muster,
+            DEPART_BELL - 1,
+            &wev::host_key(&host(), home()),
+            &wev::muster_payload(2, TROOPS / 1_000, 5, 4, 7),
+        ),
+        c2.departed(),
+        c2.body(
+            WideKind::DepartureSettled,
+            DEPART_BELL + 1,
+            &wev::host_key(&host(), home()),
+            &wev::departure_settled_payload(SLOT, false, TROOPS, 61, 0, 4),
+        ),
+    ];
+    let mut broken = c2.departed();
+    *broken.last_mut().unwrap() ^= 1;
+    let tx_a2 = with_bodies(1, &a_bodies);
+    let tx_c = with_bodies(2, &[broken]);
+    let p = parity_dir("multi-atomic");
+    let mut idx = WideIndex::open(&p, program(), world()).unwrap();
+    assert!(idx.add(&[tx_a2.clone(), tx_c.clone()]).is_err());
+    let st = idx.status().unwrap();
+    assert_eq!(st.last_seq, 0, "the page rolled back whole");
+    assert!(st.blocked.is_some());
+    drop(idx);
+    std::fs::remove_file(p).unwrap();
+    let mut o = follow_observer();
+    assert_eq!(o.observe_page(&[tx_a2, tx_c], &program()), 1);
+    assert_eq!(o.accepted_prefix, 1);
+    assert_eq!(
+        o.model.coverage().records,
+        3,
+        "A's three events applied whole"
+    );
+    assert_eq!(o.chain(WideTarget::Province(home())).unwrap().seq, 3);
+    assert_eq!(o.model.blocked().map(|b| b.seq), Some(2));
+}
+
+/// A wide transaction past the model's input caps is refused by the
+/// observer by lengths alone — before any chain work: no head anchored or
+/// verified, no model change, the block naming the cap; the follower stops
+/// at it with its cursor unchanged. Both the body-count cap and the
+/// aggregate-bytes cap.
+#[test]
+fn an_oversized_wide_batch_is_refused_before_any_chain_work() {
+    // 65 chained departures in one transaction's frame: one over the
+    // default `max_bodies_per_batch`.
+    let mut c = Chains::default();
+    let bodies: Vec<Vec<u8>> = (0..65).map(|_| c.departed()).collect();
+    let mut r = record(wire_of(&[depart_ix(home())]), frame(&bodies));
+    r.seq = 7;
+    r.slot = 1_007;
+    sign_as(&mut r, 7);
+    let mut o = follow_observer();
+    assert_eq!(o.observe_page(&[r.clone()], &program()), 0);
+    let b = o.model.blocked().expect("blocked at the oversized batch");
+    assert_eq!(b.seq, 7);
+    assert!(b.reason.contains("bodies per batch") && b.reason.contains("65"));
+    assert!(
+        o.chain(WideTarget::Province(home())).is_none(),
+        "no head anchored"
+    );
+    assert_eq!(
+        (
+            o.chain_anchored_from_genesis,
+            o.chain_anchored_unverified,
+            o.chain_verified
+        ),
+        (0, 0, 0)
+    );
+    assert!(o.model.hosts.is_empty(), "no model change");
+    assert_eq!((o.accepted_prefix, o.wide_txs), (0, 0));
+    let st = o.status();
+    assert_eq!(st["chain"]["keys"], 0);
+    // Through the follower: stopped at the observer's block, cursor as it was.
+    let mut o2 = follow_observer();
+    let mut f = WideFollow::new(Some(6));
+    assert_eq!(
+        block_on(f.step(&LiteralFeed(vec![r]), &mut o2, None, &scope(), false)),
+        1
+    );
+    assert_eq!(
+        f.stopped().map(|s| (s.code, s.seq)),
+        Some((STOP_OBSERVER_BLOCKED, 7))
+    );
+    assert_eq!(f.cursor().0, 6);
+    assert!(o2.chain(WideTarget::Province(home())).is_none());
+    // The aggregate-bytes cap under a tight limit: two bodies within the
+    // per-body cap, together over the batch cap; refused the same way.
+    let mut c = Chains::default();
+    let two: Vec<Vec<u8>> = (0..2).map(|_| c.departed()).collect();
+    let one_len = two[0].len();
+    let mut r2 = record(wire_of(&[depart_ix(home())]), frame(&two));
+    r2.seq = 8;
+    r2.slot = 1_008;
+    sign_as(&mut r2, 8);
+    let mut o3 = WideObserver::new(
+        IndexScope {
+            program: program(),
+            season: season_pda().0,
+            world: world(),
+            source: "test: tight batch bytes".into(),
+        },
+        Limits {
+            max_batch_bytes: one_len + one_len / 2,
+            ..Limits::default()
+        },
+    );
+    assert_eq!(o3.observe_page(&[r2], &program()), 0);
+    assert!(o3
+        .model
+        .blocked()
+        .unwrap()
+        .reason
+        .contains("bytes of the batch"));
+    assert!(o3.chain(WideTarget::Province(home())).is_none());
+    assert_eq!(o3.chain_verified + o3.chain_anchored_from_genesis, 0);
+    // The same record within a default observer is fine: the cap, not the
+    // content, was the refusal.
+    let mut c = Chains::default();
+    let two: Vec<Vec<u8>> = (0..2).map(|_| c.departed()).collect();
+    let mut ok = record(wire_of(&[depart_ix(home())]), frame(&two));
+    ok.seq = 8;
+    ok.slot = 1_008;
+    sign_as(&mut ok, 8);
+    let mut o4 = follow_observer();
+    assert_eq!(o4.observe_page(&[ok], &program()), 1);
+    assert_eq!(o4.chain(WideTarget::Province(home())).unwrap().seq, 2);
 }
 
 /// The observer's block is final for the follower whatever produced it: a
@@ -4393,14 +4769,16 @@ fn the_byte_preflight_refuses_oversized_records_and_pages_before_the_observer() 
 /// sequence, pulls nothing, and never reinterprets or clears the block.
 #[test]
 fn a_legacy_replay_that_blocks_the_observer_stops_the_follower_without_reinterpretation() {
-    let port = FeedPort::new((11..=14).map(depart_at).collect(), 10);
+    let mut c = Chains::default();
+    let recs: Vec<TxRecord> = (11..=14).map(|s| c.depart_at(s)).collect();
+    let port = FeedPort::new(recs.clone(), 10);
     let mut o = follow_observer();
-    let mut f = WideFollow::from_observer(&o);
+    let mut f = WideFollow::new(Some(10));
     assert_eq!(block_on(f.step(&port, &mut o, None, &scope(), false)), 2);
     assert_eq!((f.cursor().0, o.last_seq_seen), (14, Some(14)));
     // The legacy path replays seq 12 with other bytes (a different slot):
     // a conflicting replay, the observer blocks there.
-    let mut conflicting = depart_at(12);
+    let mut conflicting = recs[1].clone();
     conflicting.slot = 9_999;
     assert_eq!(o.observe_page(&[conflicting], &program()), 0);
     assert_eq!(o.model.blocked().map(|b| b.seq), Some(12));
@@ -4417,7 +4795,7 @@ fn a_legacy_replay_that_blocks_the_observer_stops_the_follower_without_reinterpr
         Some((STOP_OBSERVER_BLOCKED, 12))
     );
     assert_eq!(f.cursor().0, 14);
-    assert_eq!(*port.asked.lock().unwrap(), vec![0, 14]);
+    assert_eq!(*port.asked.lock().unwrap(), vec![10, 14]);
     assert_eq!(
         o.model.blocked().map(|b| (b.seq, b.slot, b.reason.clone())),
         before,
@@ -4428,7 +4806,574 @@ fn a_legacy_replay_that_blocks_the_observer_stops_the_follower_without_reinterpr
     let mut f2 = WideFollow::from_observer(&o);
     assert_eq!(block_on(f2.step(&port, &mut o, None, &scope(), false)), 0);
     assert_eq!(f2.stopped().map(|s| s.code), Some(STOP_OBSERVER_BLOCKED));
-    assert_eq!(*port.asked.lock().unwrap(), vec![0, 14]);
+    assert_eq!(*port.asked.lock().unwrap(), vec![10, 14]);
+}
+
+// ------------------------------------------------------------ archive / index parity
+
+/// A literal `findex::Source` over fixed records (a **fixture**, labelled
+/// so: never a live or complete feed): records past its cursor, oldest
+/// first; `fail_next` makes one pull a lost response.
+struct Rows {
+    rows: Vec<TxRecord>,
+    after: u64,
+    pulls: usize,
+    fail_next: bool,
+}
+impl Source for Rows {
+    async fn pull(&mut self) -> PortResult<Vec<TxRecord>> {
+        self.pulls += 1;
+        if self.fail_next {
+            self.fail_next = false;
+            return Err(PortError::Io(
+                "http://user:hunter2@archive.example/ lost the response".into(),
+            ));
+        }
+        let out: Vec<_> = self
+            .rows
+            .iter()
+            .filter(|r| r.seq > self.after)
+            .cloned()
+            .collect();
+        if let Some(r) = out.last() {
+            self.after = r.seq;
+        }
+        Ok(out)
+    }
+    fn cursor(&self) -> JsonValue {
+        json!({"after": self.after, "fixture": "literal rows; not a live feed"})
+    }
+    fn restore(&mut self, v: &JsonValue) {
+        self.after = v["after"].as_u64().unwrap_or(0);
+    }
+}
+
+/// A feed port that serves exactly the page it holds, whatever the cursor
+/// (to present duplicates, gaps and conflicts the filtering fake cannot).
+struct LiteralFeed(Vec<TxRecord>);
+impl ChainPort for LiteralFeed {
+    async fn clock(&self) -> PortResult<ClockSysvar> {
+        Ok(clock_at(GENESIS_TS))
+    }
+    async fn accounts(&self, keys: &[Address], _m: u64) -> PortResult<Vec<Option<Account>>> {
+        Ok(vec![None; keys.len()])
+    }
+    async fn simulate(&self, _tx: &[u8]) -> PortResult<SimResult> {
+        panic!("simulate must never be called")
+    }
+    async fn send(&self, _tx: &[u8]) -> PortResult<Signature> {
+        panic!("send must never be called")
+    }
+    async fn statuses(&self, _sigs: &[Signature]) -> PortResult<Vec<Option<Status>>> {
+        Ok(vec![])
+    }
+    async fn feed(&self, _after: Cursor) -> PortResult<Vec<TxRecord>> {
+        Ok(self.0.clone())
+    }
+    async fn blockhash(&self) -> PortResult<(Hash, u64)> {
+        Ok((Hash::default(), 0))
+    }
+}
+
+fn parity_dir(tag: &str) -> std::path::PathBuf {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = NEXT.fetch_add(1, Ordering::Relaxed);
+    std::env::temp_dir().join(format!(
+        "wide-parity-{tag}-{}-{n}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ))
+}
+
+/// A truncated PSW1 body in a committed frame at `seq`: the typed reader
+/// refuses it on both sides.
+fn malformed_at(seq: u64) -> TxRecord {
+    let mut r = record(wire_of(&[depart_ix(home())]), frame(&[vec![0x82, 255]]));
+    r.seq = seq;
+    r.slot = 1_000 + seq;
+    sign_as(&mut r, seq);
+    r
+}
+
+/// The real PSW1 archive and typed index (`findex::WideFindex`: an
+/// append-only archive plus a dedicated SQLite index) and the keeper's
+/// observation (`WideObserver` + `WideFollow` + `ProofStore`) over the
+/// **same literal records**, through the same typed decode, agree on the
+/// full identities, the chain heads and the open march — and the hint they
+/// both imply plans one snapshot-backed, unsigned, denied candidate.
+/// Reconstruction from the archive, duplicates, a lost response, a
+/// malformed body, a gap, a chain-broken record and the unknown source are
+/// refused or stated on both sides. Nothing here is live or complete: the
+/// source is a labelled fixture; no signature is verified.
+#[test]
+fn archive_index_and_keeper_observation_agree_on_literal_records() {
+    let dir = parity_dir("store");
+    let mut c = Chains::default();
+    // The raw feed's sequence is the chain's global order filtered to this
+    // program: the fixture's three records carry 10, 20 and 30. The archive
+    // renumbers what it stores 1, 2, 3; the index is contiguous over those.
+    let raw: Vec<TxRecord> = [10u64, 20, 30].iter().map(|&s| c.depart_at(s)).collect();
+    // 1. The dedicated store ingests the fixture rows: archived first, then
+    //    indexed with the chains verified from zero.
+    let mut store = WideFindex::open(&dir, program(), world(), 1 << 20).unwrap();
+    let mut rows = Rows {
+        rows: raw.clone(),
+        after: 0,
+        pulls: 0,
+        fail_next: false,
+    };
+    let stored = block_on(store.ingest(&mut rows)).unwrap();
+    store.commit().unwrap();
+    assert_eq!(stored.len(), 3);
+    assert_eq!(
+        stored.iter().map(|r| r.seq).collect::<Vec<_>>(),
+        vec![1, 2, 3],
+        "the archive's own contiguous numbering"
+    );
+    assert_eq!(rows.after, 30, "the source's cursor is the raw sequence");
+    assert_eq!(store.archive().cursor()["after"], 30);
+    assert_eq!(store.archive().last_seq(), 3);
+    // The archived records are the raw ones, renumbered: same slots,
+    // signatures, wires and logs.
+    for (a, r) in stored.iter().zip(raw.iter()) {
+        assert_eq!(
+            (a.slot, a.signature, &a.tx, &a.logs),
+            (r.slot, r.signature, &r.tx, &r.logs)
+        );
+    }
+    let recs = stored.clone();
+    let st = store.index.status().unwrap();
+    assert_eq!((st.last_seq, st.caught_up, st.blocked), (3, true, None));
+    assert_eq!(st.source_coverage, "unknown");
+    assert_eq!(st.capture_verification, "unverified");
+    let page = store.index.events(0, 10).unwrap();
+    assert_eq!(page.events.len(), 3);
+    assert_eq!(page.source_coverage, "unknown");
+    for (i, ev) in page.events.iter().enumerate() {
+        assert_eq!(ev.format, "PSW1");
+        assert_eq!(ev.archive_seq, i as u64 + 1);
+        assert_eq!(
+            ev.province,
+            Some(home().to_bytes().to_vec()),
+            "full province key"
+        );
+        assert_eq!(
+            ev.holding,
+            Some(host().holding_ref().to_bytes().to_vec()),
+            "full holding reference"
+        );
+        assert_eq!(
+            ev.host,
+            Some(host().to_bytes().to_vec()),
+            "full host reference"
+        );
+    }
+    let idx_province = store
+        .index
+        .chain(WideTarget::Province(home()))
+        .unwrap()
+        .unwrap();
+    let idx_holding = store
+        .index
+        .chain(WideTarget::Holding(host()))
+        .unwrap()
+        .unwrap();
+    assert_eq!((idx_province.seq, idx_holding.seq), (3, 3));
+    assert!(!idx_province.terminal);
+    // 2. Reopen: the index catches up from the durable archive; the source
+    //    resumes at the archived cursor. Then reconstruct: the SQLite file
+    //    removed, the index is rebuilt from the archive alone, identical.
+    drop(store);
+    let store = WideFindex::open(&dir, program(), world(), 1 << 20).unwrap();
+    rows.after = 0;
+    store.resume(&mut rows);
+    assert_eq!(
+        rows.after, 30,
+        "the archived source cursor (raw sequence), not the archive's row count"
+    );
+    assert_eq!(store.index.status().unwrap().last_seq, 3);
+    assert_eq!(
+        store.index.events(0, 10).unwrap().next,
+        3,
+        "the event page cursor is an event number, a third numbering"
+    );
+    drop(store);
+    std::fs::remove_file(dir.join("wide-index.sqlite")).unwrap();
+    let mut store = WideFindex::open(&dir, program(), world(), 1 << 20).unwrap();
+    let st = store.index.status().unwrap();
+    assert_eq!((st.last_seq, st.caught_up), (3, true));
+    let rebuilt = store
+        .index
+        .chain(WideTarget::Province(home()))
+        .unwrap()
+        .unwrap();
+    assert_eq!(rebuilt, idx_province, "rebuilt from the archive alone");
+    // 3. The keeper's observation from the archive's own records (what a
+    //    follower would pull after the legacy gate): the same typed
+    //    decode, the chains verified link by link.
+    let archived = store.archive().read_after(0).unwrap();
+    assert_eq!(archived.len(), 3);
+    for (a, r) in archived.iter().zip(recs.iter()) {
+        assert_eq!(
+            (a.seq, a.slot, a.signature, &a.tx, &a.logs),
+            (r.seq, r.slot, r.signature, &r.tx, &r.logs)
+        );
+    }
+    let port = FeedPort::new(archived, 2);
+    let mut o = follow_observer();
+    let mut proofs = ProofStore::default();
+    let mut f = WideFollow::from_observer(&o);
+    assert_eq!(
+        block_on(f.step(&port, &mut o, Some(&mut proofs), &scope(), false)),
+        2,
+        "pages [1, 2] and [3]"
+    );
+    assert_eq!(
+        block_on(f.step(&port, &mut o, Some(&mut proofs), &scope(), false)),
+        1,
+        "the empty page: caught up to the archive"
+    );
+    assert!(f.caught_up);
+    assert_eq!((f.cursor().0, o.last_seq_seen), (3, Some(3)));
+    assert_eq!(f.sequence_holes, 0, "the archive's rows are contiguous");
+    assert_eq!(
+        (
+            o.wide_txs,
+            o.chain_anchored_from_genesis,
+            o.chain_anchored_unverified,
+            o.chain_verified
+        ),
+        (3, 2, 0, 4)
+    );
+    assert!(o.model.blocked().is_none());
+    let obs_province = o.chain(WideTarget::Province(home())).unwrap();
+    let obs_holding = o.chain(WideTarget::Holding(host())).unwrap();
+    assert!(
+        obs_province.from_genesis && obs_holding.from_genesis,
+        "verified from the zero head: the equivalence below is earned, not assumed"
+    );
+    assert_eq!(
+        (obs_province.seq, obs_province.head, obs_province.terminal),
+        (idx_province.seq, idx_province.head, idx_province.terminal),
+        "the province chain head: observer == typed index"
+    );
+    assert_eq!(
+        (obs_holding.seq, obs_holding.head, obs_holding.terminal),
+        (idx_holding.seq, idx_holding.head, idx_holding.terminal),
+        "the holding chain head: observer == typed index"
+    );
+    // 3b. The same records as the raw feed serves them (10, 20, 30): the
+    //     follower reports the skipped numbers as ranges it cannot judge,
+    //     stops nowhere, and the observer reaches the same heads — chains
+    //     bind records, not sequence numbers.
+    let raw_port = FeedPort::new(raw.clone(), 10);
+    let mut o_raw = follow_observer();
+    let mut f_raw = WideFollow::from_observer(&o_raw);
+    assert_eq!(
+        block_on(f_raw.step(&raw_port, &mut o_raw, None, &scope(), false)),
+        2
+    );
+    assert!(f_raw.stopped().is_none());
+    assert_eq!((f_raw.cursor().0, o_raw.last_seq_seen), (30, Some(30)));
+    assert_eq!(
+        f_raw.sequence_holes, 27,
+        "9 before 10, 9 between 10 and 20, 9 between 20 and 30"
+    );
+    assert_eq!(
+        o_raw.gaps, 2,
+        "the observer counts the discontinuities it saw"
+    );
+    assert_eq!(f_raw.status()["sequence_holes_unknown"], 27);
+    let raw_head = o_raw.chain(WideTarget::Province(home())).unwrap();
+    assert_eq!(
+        (raw_head.seq, raw_head.head, raw_head.from_genesis),
+        (obs_province.seq, obs_province.head, true)
+    );
+    // 3c. A follower that joins mid-history (its first record is the
+    //     second departure) anchors on trust and says so: the heads match
+    //     the index's numbers, but no from-genesis equivalence is claimed.
+    let mid_port = FeedPort::new(raw[1..].to_vec(), 10);
+    let mut o_mid = follow_observer();
+    let mut f_mid = WideFollow::new(Some(10));
+    assert_eq!(
+        block_on(f_mid.step(&mid_port, &mut o_mid, None, &scope(), false)),
+        2
+    );
+    let mid_head = o_mid.chain(WideTarget::Province(home())).unwrap();
+    assert_eq!(
+        (mid_head.seq, mid_head.head),
+        (idx_province.seq, idx_province.head)
+    );
+    assert!(
+        !mid_head.from_genesis,
+        "anchored on trust: unverified prefix"
+    );
+    assert_eq!(
+        (
+            o_mid.chain_anchored_from_genesis,
+            o_mid.chain_anchored_unverified,
+            o_mid.chain_verified
+        ),
+        (0, 2, 2)
+    );
+    assert_eq!(o_mid.status()["chain"]["anchored_unverified"], 2);
+    // 4. The hint both imply: the march of record 3 is open and unsettled;
+    //    the extracted proof is record 3's; the reveal hint stands too.
+    assert_eq!(wideduty::settle_candidates(&o.model), vec![(host(), SLOT)]);
+    let proof = proofs
+        .get(host(), SLOT)
+        .expect("extracted from the archive's record")
+        .proof
+        .clone();
+    assert_eq!(proof.provenance.seq, 3);
+    assert_eq!(proof.provenance.method, METHOD_FEED);
+    assert!(!proof.provenance.signatures_verified);
+    assert_eq!(
+        proofs_for(&o.model, std::slice::from_ref(&proof)),
+        vec![proof]
+    );
+    // 5. One snapshot-backed, unsigned plan from that hint over literal
+    //    accounts: coherent at the response's context slot, every hard
+    //    denial kept, nothing enqueued.
+    let fx = SettleFx::new(home());
+    let mut accounts = fx.reads().accounts;
+    let mut keys: Vec<Address> = accounts.keys().copied().collect();
+    keys.push(actor());
+    accounts.insert(
+        actor(),
+        Some(Account {
+            lamports: 1_000_000,
+            data: vec![],
+            owner: fclient::addr::system_program(),
+            executable: false,
+        }),
+    );
+    let snap = snapshot_of(&accounts, &keys, clock_at(GENESIS_TS), 7);
+    let reads = snap.reads();
+    let cand = done(wideduty::plan_settle_departure(
+        &dscope(),
+        actor(),
+        host(),
+        SLOT,
+        &reads,
+    ))
+    .unwrap();
+    assert!(cand.coherent() && !cand.signed && !cand.automatic_send);
+    let engine = Engine::new(Budgets::default(), EngineParams::default());
+    let view = EngineView::of(&engine, &widereview::Subject::of_duty(&cand));
+    let a = widereview::review_candidate(&cand, &reads, &view);
+    assert!(!a.review.admitted);
+    for d in [
+        Deny::SourceUnproven,
+        Deny::HistoryUnknown,
+        Deny::ExecutionEvidenceUnverified,
+        Deny::SignerAbsent,
+        Deny::SliceDoesNotEnqueue,
+        Deny::SnapshotCurrencyUnknown,
+    ] {
+        assert!(a.review.denials.contains(&d), "{d:?}");
+    }
+    assert!(!a.review.denials.contains(&Deny::NoCoherentSnapshot));
+    assert!(!a.review.denials.contains(&Deny::FundingUnknown));
+    assert_eq!(engine.pending_len(), 0);
+    // 6. The unknown source, said on every side.
+    assert_eq!(o.status()["source_complete"], false);
+    assert_eq!(f.status()["history_authenticated"], false);
+    assert_eq!(store.index.status().unwrap().source_coverage, "unknown");
+    // 7. A lost response: the store reports the port error, is not
+    //    poisoned, and the archive stands; the next pull proceeds.
+    rows.fail_next = true;
+    let r = block_on(store.ingest(&mut rows));
+    assert!(matches!(r, Err(findex::IngestError::Port(_))));
+    assert!(!store.is_poisoned());
+    assert_eq!(store.archive().last_seq(), 3);
+    assert!(block_on(store.ingest(&mut rows)).unwrap().is_empty());
+    drop(store);
+    std::fs::remove_dir_all(&dir).unwrap();
+    // 8. Refusals on both sides, each on a fresh index and observer.
+    let fresh_index = |tag: &str| {
+        let p = parity_dir(tag);
+        (WideIndex::open(&p, program(), world()).unwrap(), p)
+    };
+    // (a) The same record again: the index refuses (sequence replay) and
+    //     blocks; the observer treats an exact replay as a no-op; the
+    //     follower, which pulls alone, refuses the page before the
+    //     observer (`page-order`).
+    let (mut idx, p) = fresh_index("dup");
+    idx.add(&recs[0..2]).unwrap();
+    assert!(idx.add(&[recs[1].clone()]).is_err());
+    assert!(idx.status().unwrap().blocked.is_some());
+    assert_eq!(idx.status().unwrap().last_seq, 2);
+    drop(idx);
+    std::fs::remove_file(p).unwrap();
+    let mut o = follow_observer();
+    assert_eq!(o.observe_page(&recs[0..2], &program()), 2);
+    assert_eq!(o.observe_page(&recs[1..2], &program()), 0);
+    assert_eq!(
+        (o.accepted_prefix, o.wide_txs),
+        (1, 2),
+        "an exact replay: a no-op"
+    );
+    let mut f = WideFollow::from_observer(&o);
+    assert_eq!(
+        block_on(f.step(
+            &LiteralFeed(recs[1..2].to_vec()),
+            &mut o,
+            None,
+            &scope(),
+            false
+        )),
+        1
+    );
+    assert_eq!(
+        f.stopped().map(|s| (s.code, s.seq)),
+        Some((STOP_PAGE_ORDER, 2))
+    );
+    // (b) The same sequence with other content: the index refuses; the
+    //     observer blocks on the conflicting replay (fingerprints).
+    let (mut idx, p) = fresh_index("conflict");
+    idx.add(&recs[0..1]).unwrap();
+    let mut conflict = recs[1].clone();
+    conflict.seq = 1;
+    assert!(idx.add(&[conflict.clone()]).is_err());
+    drop(idx);
+    std::fs::remove_file(p).unwrap();
+    let mut o = follow_observer();
+    assert_eq!(o.observe_page(&recs[0..1], &program()), 1);
+    assert_eq!(o.observe_page(&[conflict], &program()), 0);
+    assert!(o.model.blocked().unwrap().reason.contains("conflicting"));
+    // (c) A malformed PSW1 body: the typed reader refuses it on both sides;
+    //     the follower stops at the observer's block.
+    let (mut idx, p) = fresh_index("malformed");
+    assert!(idx.add(&[malformed_at(1)]).is_err());
+    assert_eq!(idx.status().unwrap().last_seq, 0);
+    assert!(idx.status().unwrap().blocked.is_some());
+    drop(idx);
+    std::fs::remove_file(p).unwrap();
+    let mut o = follow_observer();
+    let mut f = WideFollow::from_observer(&o);
+    assert_eq!(
+        block_on(f.step(
+            &LiteralFeed(vec![malformed_at(1)]),
+            &mut o,
+            None,
+            &scope(),
+            false
+        )),
+        1
+    );
+    assert_eq!(o.decode_failures, 1);
+    assert_eq!(
+        f.stopped().map(|s| (s.code, s.seq)),
+        Some((STOP_OBSERVER_BLOCKED, 1))
+    );
+    assert_eq!(f.cursor().0, 0);
+    // (d) A gap in the **archive's** numbering: the typed index refuses it
+    //     (its rows are contiguous by construction). The raw-feed follower
+    //     cannot judge a skipped number (above); but a record whose chain
+    //     link does not continue the previous head — which is what a
+    //     genuinely missing program record leaves behind — blocks the
+    //     observer, and the follower stops there.
+    let (mut idx, p) = fresh_index("gap");
+    idx.add(&recs[0..1]).unwrap();
+    assert!(idx.add(&recs[2..3]).is_err());
+    assert_eq!(idx.status().unwrap().last_seq, 1);
+    drop(idx);
+    std::fs::remove_file(p).unwrap();
+    let mut o = follow_observer();
+    assert_eq!(o.observe_page(&recs[0..1], &program()), 1);
+    let mut f = WideFollow::from_observer(&o);
+    assert_eq!(
+        block_on(f.step(
+            &LiteralFeed(recs[2..3].to_vec()),
+            &mut o,
+            None,
+            &scope(),
+            false
+        )),
+        1
+    );
+    assert_eq!(f.sequence_holes, 1, "the skipped number is reported");
+    assert_eq!(
+        f.stopped().map(|s| (s.code, s.seq)),
+        Some((STOP_OBSERVER_BLOCKED, 3)),
+        "the third record's links do not continue the first's heads"
+    );
+    assert!(o.model.blocked().unwrap().reason.contains("chain"));
+    assert_eq!(o.last_seq_seen, Some(1));
+    assert_eq!(f.cursor().0, 1);
+    // (e) A chain-broken record (the second record's link head altered by
+    //     one bit): the index rolls the batch back and blocks; the observer
+    //     — which before this slice accepted any link tail — blocks at the
+    //     same record with the same reason, the first record applied, the
+    //     heads at 1; the follower stops there.
+    let mut c2 = Chains::default();
+    let b1 = c2.departed();
+    let mut b2 = c2.departed();
+    *b2.last_mut().unwrap() ^= 1;
+    let r1 = c2.depart_record_with(1, b1);
+    let r2 = c2.depart_record_with(2, b2);
+    let (mut idx, p) = fresh_index("chain");
+    assert!(idx.add(&[r1.clone(), r2.clone()]).is_err());
+    let st = idx.status().unwrap();
+    assert_eq!(st.last_seq, 0, "the whole batch rolled back");
+    assert!(st.blocked.as_deref().unwrap().contains("chain"));
+    drop(idx);
+    std::fs::remove_file(p).unwrap();
+    let mut o = follow_observer();
+    assert_eq!(o.observe_page(&[r1.clone(), r2.clone()], &program()), 1);
+    assert_eq!(o.accepted_prefix, 1);
+    let b = o.model.blocked().expect("blocked at the broken link");
+    assert_eq!(b.seq, 2);
+    assert!(b.reason.contains("chain") && b.reason.contains("mismatch"));
+    assert_eq!(o.chain(WideTarget::Province(home())).unwrap().seq, 1);
+    assert_eq!(o.chain(WideTarget::Holding(host())).unwrap().seq, 1);
+    assert!(o.model.hosts.contains_key(&host()), "record 1 applied");
+    let mut o = follow_observer();
+    let mut f = WideFollow::from_observer(&o);
+    assert_eq!(
+        block_on(f.step(&LiteralFeed(vec![r1, r2]), &mut o, None, &scope(), false)),
+        1
+    );
+    assert_eq!(
+        f.stopped().map(|s| (s.code, s.seq)),
+        Some((STOP_OBSERVER_BLOCKED, 2))
+    );
+    assert_eq!(f.cursor().0, 1);
+    // (f) A province closed is terminal on both sides: a later record of
+    //     that province is refused.
+    let mut c3 = Chains::default();
+    let d1 = c3.departed();
+    let closed = c3.body(
+        WideKind::ProvinceClosed,
+        DEPART_BELL + 1,
+        &home().to_bytes(),
+        &wev::province_closed_payload(&[0xd5; 32], 5),
+    );
+    let after_close = c3.departed();
+    let t1 = c3.depart_record_with(1, d1);
+    let t2 = c3.depart_record_with(2, closed);
+    let t3 = c3.depart_record_with(3, after_close);
+    let (mut idx, p) = fresh_index("terminal");
+    idx.add(&[t1.clone(), t2.clone()]).unwrap();
+    assert!(idx.add(std::slice::from_ref(&t3)).is_err());
+    assert!(idx
+        .status()
+        .unwrap()
+        .blocked
+        .as_deref()
+        .unwrap()
+        .contains("ProvinceClosed"));
+    drop(idx);
+    std::fs::remove_file(p).unwrap();
+    let mut o = follow_observer();
+    assert_eq!(o.observe_page(&[t1, t2], &program()), 2);
+    assert!(o.chain(WideTarget::Province(home())).unwrap().terminal);
+    assert_eq!(o.observe_page(&[t3], &program()), 0);
+    assert!(o.model.blocked().unwrap().reason.contains("ProvinceClosed"));
 }
 
 /// A port whose account reads fail (the clock is served).
