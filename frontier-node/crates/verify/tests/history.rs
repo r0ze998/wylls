@@ -457,8 +457,9 @@ fn archive_with(name: &str, cursor: Value, n: u8) -> std::path::PathBuf {
 
 /// Archives: an RpcPoll cursor gives its coverage; an older RpcPoll cursor
 /// (before coverage was recorded) resumes as unproven with that reason; a
-/// cursor that says nothing about its source is unproven; the local
-/// node's feed is `ledger_feed`.
+/// cursor that says nothing about its source is unproven; so is a local
+/// feed's archive without its ledger numbers (`tests/ledger_history.rs`
+/// has the whole one).
 #[test]
 fn archives_report_where_their_records_came_from() {
     // Written by RpcPoll before coverage: no `rpc_coverage`.
@@ -483,10 +484,11 @@ fn archives_report_where_their_records_came_from() {
     assert_eq!(h.state(), Some("gap"));
     unproven_verdicts(&h);
 
-    // The local node's ordered feed.
+    // The local node's ordered feed, archived without the ledger numbers,
+    // start or ledger (`findex::ledger`, 2026-11-07): not shown whole.
     let d = archive_with("feed", json!({"feed_after": 9}), 2);
     let (_, h) = input::read_archive(&d).unwrap();
-    assert_eq!(h.basis(), "ledger_feed");
+    assert!(h.unproven(), "{h:?}");
 
     // An empty archive: nothing fetched, which is not an empty history.
     let d = archive_with("empty", Value::Null, 0);
@@ -760,7 +762,9 @@ fn malformed_feed_cursors_and_empty_archives_never_gain_dataset_trust() {
     let h = History::of_archive(&json!({"feed_after": 9}), false, "empty");
     assert!(h.unproven());
     assert_eq!(h.state(), Some("not_fetched"));
-    assert!(!History::of_archive(&json!({"feed_after": 9}), true, "observed").unproven());
+    // A local feed's cursor alone does not show the ledger numbers of the
+    // records (`input::read_archive` checks them, `findex::ledger`).
+    assert!(History::of_archive(&json!({"feed_after": 9}), true, "observed").unproven());
 }
 
 #[test]

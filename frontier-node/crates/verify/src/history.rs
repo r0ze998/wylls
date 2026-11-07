@@ -12,7 +12,7 @@
 //! | source | basis | verdict |
 //! |---|---|---|
 //! | a fixture file without a `history` field | `as_given`: the file's claim (recorded runs, vouched for by the fixture tests) | unchanged |
-//! | the local node's `frontier_feed` (live or as a findex archive) | `ledger_feed`: the node's own ledger, in order | unchanged |
+//! | the local node's `frontier_feed`, live, or as a findex archive whose every record keeps its ledger number from the ledger's start (`findex::ledger`) | `ledger_feed`: the node's own ledger, in order (detail `ledger <runId>`) | unchanged |
 //! | public RPC (findex `RpcPoll`, live or as a findex archive), in **any** coverage state, `cross_checked` included | `unproven` | never PASS: `UNVERIFIABLE` with [`HISTORY_UNPROVEN`], or FAIL only on a [self-contained](self_contained) FAIL |
 //! | an archive or fixture whose source is not recorded or not readable | `unproven` | the same |
 //!
@@ -143,8 +143,13 @@ impl History {
         if let Some(c) = findex::ingest::coverage_from_cursor(cursor) {
             return History::rpc(c, format!("archive {dir}"));
         }
+        // A local feed's archive is the ledger's only when every record kept
+        // its ledger number: `input::read_archive` checks that
+        // (`findex::ledger`); from the cursor alone it is not known.
         if has_records && cursor.get("feed_after").and_then(Value::as_u64).is_some() {
-            return History::ledger_feed(format!("archive {dir} (local node feed)"));
+            return History::unknown(format!(
+                "archive {dir} (local node feed): read it with input::read_archive to check its ledger numbers"
+            ));
         }
         if !has_records {
             return History::rpc(
