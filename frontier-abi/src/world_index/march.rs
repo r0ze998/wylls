@@ -1633,8 +1633,9 @@ mod tests {
             let kk = <WideCombatant as ClashIdentity>::key(&keep(), true);
             assert_eq!((kk[0], kk[1]), (1, COMBATANT_TAG_KEEP));
             assert_eq!(&kk[2..2 + PROVINCE_KEY_LEN], &key().to_bytes());
+            assert_eq!(kk[2 + PROVINCE_KEY_LEN], 0xfc | COMBATANT_TAG_KEEP);
             assert_eq!(
-                &kk[2 + PROVINCE_KEY_LEN..2 + PROVINCE_KEY_LEN + 4],
+                &kk[3 + PROVINCE_KEY_LEN..3 + PROVINCE_KEY_LEN + 4],
                 &70_001u32.to_le_bytes()
             );
             assert_eq!(
