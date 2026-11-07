@@ -426,3 +426,49 @@ test('the screen refuses a source that changes during loading', async () => {
     assert.equal(mode.state().phase,'error'); assert.equal(mode.state().code,'WorldChanged'); assert.equal(mode.state().walk,null);
   } finally { mode.unmount(); }
 });
+
+// Synthetic wire data only. These fixed bytes test the display contract,
+// not ABI authentication, live captures, event verification or gameplay.
+function capturedEntry(p = '9007199254740993') {
+  const capture = n => ({address: SEASON_ADDR, slot: '9007199254740994', archiveSequence: '12',
+    verification: 'captured-unverified', postState: 'at-or-after-transaction', bytes_b64: Buffer.alloc(n).toString('base64')});
+  return entry(p, 0, p, 0, 0, {legacy: null, wide: {world:WORLD,p,q:'0',region:3,openedBell:5,keepHolder:4,
+    capture:capture(4864), holdings:[{world:WORLD,p,q:'0',site:2,generation:1,inventorySlot:2,
+      ownerCitizen:SEASON_ADDR,capture:capture(1344)}]}});
+}
+test('captured wide land retains exact keys, bounded holdings and explicit unverified timing', () => {
+  const e = parseWidePage(page([capturedEntry()]), {world:WORLD}).entries[0];
+  assert.equal(e.p, 9007199254740993n);
+  assert.equal(e.legacy, null);
+  assert.equal(e.wide.keepHolder, 4);
+  assert.equal(e.wide.holdings[0].p, e.p);
+  assert.equal(e.wide.capture.slot, 9007199254740994n);
+  assert.equal(e.wide.capture.verification, 'captured-unverified');
+  assert.equal(e.wide.capture.postState, 'at-or-after-transaction');
+  for (const mutate of [
+    x => { x.wide.world = OTHER_WORLD; },
+    x => { x.wide.holdings[0].p = '129'; },
+    x => { x.wide.capture.verification = 'verified'; },
+    x => { x.wide.capture.bytes_b64 = 'AA=='; },
+    x => { x.wide.holdings.push({...x.wide.holdings[0]}); },
+    x => { x.wide.holdings[0].inventorySlot = 1; },
+    x => { x.state = 'closed'; },
+    x => { x.wide.keepHolder = 7; },
+  ]) { const bad = capturedEntry(); mutate(bad); refused(() => parseWidePage(page([bad]), {world:WORLD}), 'BadWideCapture'); }
+});
+test('the screen shows captured wide land past the legacy cap without aliasing it', async () => {
+  const client = {wideWorld:async()=>({ok:true,manifest:parseWideManifest(manifest({recorded:1}))}),
+    wideWorldPage:async()=>({ok:true,json:page([capturedEntry()])})};
+  const mode = modeHarness(client,()=>({season:'5',seasonAddress:SEASON_ADDR,programId:PROGRAM,cluster:'localnet'}));
+  try {
+    mode.open(); await flush();
+    assert.equal(mode.state().phase,'ready');
+    const row = mode.elements().sheet.querySelector('#wide-list').children[0].children[0];
+    assert.match(row.textContent,/9007199254740993/);
+    assert.match(row.textContent,/9007199254740994/);
+    assert.doesNotMatch(row.textContent,/捕捉なし/);
+    assert.equal(mode.state().walk.list()[0].wide.holdings.length,1);
+    mode.close(); mode.open(); await flush();
+    assert.equal(mode.state().walk.list().length,1);
+  } finally { mode.unmount(); }
+});

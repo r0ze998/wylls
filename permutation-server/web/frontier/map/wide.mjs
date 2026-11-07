@@ -159,7 +159,7 @@ export function parseWideManifest(j, { seasonId, seasonAddress, programId } = {}
 }
 
 // ------------------------------------------------------------------ a page
-function entryOf(e, i) {
+function entryOf(e, i, world) {
   const at = `entries[${i}]`;
   check(isObj(e), 'BadPage', `${at}: not an object`);
   const p = parseWideInt(e.p), q = parseWideInt(e.q);
@@ -189,7 +189,52 @@ function entryOf(e, i) {
       address: typeof l.address === 'string' ? l.address : null,
     });
   }
-  return Object.freeze({ p, q, key: coordKey(p, q), ring: rp.ring, wedge: rp.wedge, pos: rp.pos, state: e.state, revision, observedAt, legacy });
+  const wide = capturedWide(e.wide, { world, p, q, ring: rp.ring, state: e.state, legacy });
+  return Object.freeze({ p, q, key: coordKey(p, q), ring: rp.ring, wedge: rp.wedge, pos: rp.pos, state: e.state, revision, observedAt, legacy, wide });
+}
+
+// Captured wide accounts are explicit, bounded and never reinterpreted as legacy
+// P/Q fields. These are server-reported captures, not client-verified event history.
+function capturedWide(j, { world, p, q, ring, state, legacy }) {
+  if (j === null || j === undefined) return null;
+  const valid = (yes, why) => check(yes, 'BadWideCapture', why);
+  const identity = h => {
+    valid(isObj(h) && h.world === world, 'capture world');
+    valid(parseWideInt(h.p) === p && parseWideInt(h.q) === q, 'capture coordinate');
+  };
+  const address = s => {
+    valid(typeof s === 'string' && s.length <= 44, 'capture address');
+    try { valid(fromB58(s).length === 32, 'capture address'); }
+    catch { throw new WideError('BadWideCapture', 'capture address'); }
+    return s;
+  };
+  const capture = (c, byteLength) => {
+    valid(isObj(c) && c.verification === 'captured-unverified', 'capture verification');
+    valid(c.postState === 'transaction' || c.postState === 'at-or-after-transaction', 'capture timing');
+    valid(typeof c.bytes_b64 === 'string' && c.bytes_b64.length === 4 * Math.ceil(byteLength / 3)
+      && /^[A-Za-z0-9+/]+={0,2}$/.test(c.bytes_b64), 'capture bytes');
+    return Object.freeze({ address: address(c.address), slot: parseU64(c.slot, 'BadWideCapture'),
+      archiveSequence: parseU64(c.archiveSequence, 'BadWideCapture'), postState: c.postState,
+      verification: c.verification, bytes_b64: c.bytes_b64 });
+  };
+  valid(ring > 128n && state === 'open' && legacy === null, 'wide record is not legacy or closed');
+  identity(j);
+  valid(Number.isInteger(j.openedBell) && j.openedBell >= 0 && j.openedBell <= 0xffffffff, 'opened bell');
+  valid(Number.isInteger(j.region) && j.region >= 0 && j.region <= 255, 'region');
+  valid(Number.isInteger(j.keepHolder) && j.keepHolder >= 0 && j.keepHolder <= 6, 'keep holder');
+  valid(Array.isArray(j.holdings) && j.holdings.length <= 12, 'holdings');
+  const seen = new Set();
+  const holdings = j.holdings.map(h => {
+    identity(h);
+    valid(Number.isInteger(h.site) && h.site >= 0 && h.site < 12 && !seen.has(h.site), 'holding site');
+    seen.add(h.site);
+    valid(Number.isInteger(h.generation) && h.generation >= 1 && h.generation < 255, 'holding generation');
+    valid(h.inventorySlot === 2 || h.inventorySlot === 3, 'holding slot');
+    return Object.freeze({ world, p, q, site: h.site, generation: h.generation,
+      inventorySlot: h.inventorySlot, ownerCitizen: address(h.ownerCitizen), capture: capture(h.capture, 1344) });
+  });
+  return Object.freeze({ world, p, q, openedBell: j.openedBell, region: j.region,
+    keepHolder: j.keepHolder, capture: capture(j.capture, 4864), holdings: Object.freeze(holdings) });
 }
 
 /**
@@ -210,7 +255,7 @@ export function parseWidePage(j, { world, snapshot, after = null, limit = PAGE_D
   check((j.after ?? null) === after, 'WrongPage', `asked after ${after}, got a page after ${j.after ?? null}`);
   check(Array.isArray(j.entries), 'BadPage', 'entries');
   check(j.entries.length <= limit, 'BadPage', `${j.entries.length} entries for a limit of ${limit}`);
-  const entries = j.entries.map(entryOf);
+  const entries = j.entries.map((e, i) => entryOf(e, i, w));
   let last = previous;
   for (const e of entries) {
     if (last) {

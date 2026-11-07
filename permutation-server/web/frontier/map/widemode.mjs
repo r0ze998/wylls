@@ -14,6 +14,7 @@
 //
 // Nothing here signs or sends anything.
 import { L, fmtNum, onLangChange } from '../../lang.mjs';
+import { FACTION_COLORS, factionName } from '../fi18n.mjs';
 import { provinceCorners, provincePixel } from './layers.mjs';
 import { loadWide, WideWalk, originAt, ORIGIN_CONCORD, layoutWide, nearestTo, formatCoord, describeWalk, ringOfWide, parseWideInt, WideError, sourcePins } from './wide.mjs';
 
@@ -160,6 +161,10 @@ export function mountWideMode({ herald, canvas, doc = canvas?.ownerDocument ?? g
   const entryLine = e => {
     const st = e.state === 'open' ? L`開` : L`閉`;
     const ring = L`第${String(e.ring)}輪`;
+    if (e.wide) {
+      const timing = e.wide.capture.postState === 'transaction' ? L`取引直後` : L`取引以降`;
+      return `${st} / ${ring} / ${L`城砦 ${factionName(e.wide.keepHolder)}`} / ${L`保有地 ${e.wide.holdings.length} 件`} / ${L`取引スロット ${String(e.wide.capture.slot)}`} (${timing}) / ${L`履歴未検証`}`;
+    }
     const leg = e.legacy ? L`捕捉スロット ${e.legacy.slot === null ? '?' : fmtNum(e.legacy.slot)}・開始ターン ${e.legacy.openedBell === null ? '?' : fmtNum(e.legacy.openedBell)}` : L`捕捉なし`;
     return `${st} / ${ring} / ${leg}`;
   };
@@ -212,7 +217,7 @@ export function mountWideMode({ herald, canvas, doc = canvas?.ownerDocument ?? g
     for (const { entry, dp, dq } of near) {
       const pts = provinceCorners(dp, dq, 2);
       ctx.beginPath(); pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.closePath();
-      ctx.fillStyle = entry.state === 'open' ? 'rgba(201,162,74,.55)' : 'rgba(120,120,120,.35)';
+      ctx.fillStyle = entry.state === 'open' ? (FACTION_COLORS[entry.wide?.keepHolder] ?? 'rgba(201,162,74,.55)') : 'rgba(120,120,120,.35)';
       ctx.fill();
       ctx.strokeStyle = S.selected?.key === entry.key ? '#f0d48a' : 'rgba(244,239,224,.6)';
       ctx.lineWidth = (S.selected?.key === entry.key ? 3 : 1) / S.zoom;
