@@ -92,6 +92,10 @@ pub struct LocalnetFeed<P: ChainPort> {
     pub after: Cursor,
     /// The ledger the node serves now (`runId`), if known.
     pub ledger: Option<String>,
+    /// The node's ledger size (`ledgerBytes`) seen when this feed started:
+    /// kept in the cursor (the largest seen), so a later check sees a ledger
+    /// that shrank (`findex::ledger::check_node`).
+    pub ledger_bytes: Option<u64>,
     /// The program the feed is filtered by: every record handed back must
     /// mention it (a node that does not read the filter answers with every
     /// program's transactions). `None`: not checked.
@@ -113,6 +117,7 @@ impl<P: ChainPort> LocalnetFeed<P> {
             port,
             after: Cursor(0),
             ledger: None,
+            ledger_bytes: None,
             program: None,
             last: None,
             check_last: false,
@@ -120,6 +125,12 @@ impl<P: ChainPort> LocalnetFeed<P> {
             cursor_ledger: None,
             refused: None,
         }
+    }
+
+    /// The node's ledger size now (`frontier_status.ledgerBytes`).
+    pub fn with_ledger_bytes(mut self, bytes: u64) -> Self {
+        self.ledger_bytes = Some(self.ledger_bytes.map_or(bytes, |b| b.max(bytes)));
+        self
     }
 
     /// Checks that every record mentions `program` (the feed's filter).
@@ -202,6 +213,7 @@ impl<P: ChainPort> Source for LocalnetFeed<P> {
             "feed_start": self.start,
             "ledger": self.cursor_ledger,
             "feed_last": self.last.map(|(q, s)| json!({"seq": q, "signature": s.to_string()})),
+            "ledger_bytes": self.ledger_bytes,
         })
     }
     fn restore(&mut self, v: &Value) {
@@ -245,6 +257,9 @@ impl<P: ChainPort> Source for LocalnetFeed<P> {
             ))
         });
         self.check_last = self.last.is_some();
+        if let Some(b) = v.get("ledger_bytes").and_then(|x| x.as_u64()) {
+            self.ledger_bytes = Some(self.ledger_bytes.map_or(b, |m| m.max(b)));
+        }
     }
     fn coverage(&self) -> Option<Value> {
         Some(json!({
