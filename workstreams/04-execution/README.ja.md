@@ -63,7 +63,12 @@ cargo run --bin runexec -- status --db /tmp/x.sqlite --slot 100
 cargo run --bin runexec -- show   --db /tmp/x.sqlite --run demo-crash
 cargo run --bin runexec -- cancel --db /tmp/x.sqlite --run <id>
 cargo run --bin runexec -- resume --db /tmp/x.sqlite --run <id>
+# 機械可読（1 行の JSON）：Run の受付と閲覧（⑥の荷車だけの Run、⑬の実行ポート）。送信はしない
+cargo run --bin runexec -- run accept --db /tmp/x.sqlite --spec spec.json [--slot <n>]   # --spec - で標準入力
+cargo run --bin runexec -- run view   --db /tmp/x.sqlite --run <id>
 ```
+
+`run accept` / `run view` の欄と終了コードは [docs/EXECUTION-CONTRACT-20261106.ja.md](docs/EXECUTION-CONTRACT-20261106.ja.md) §8。試験は `tests/run_cli.rs`（鍵なし、模擬の世界）。
 
 この crate は独自の `[workspace]` と lock を持ち、root の workspace と frontier-node には加えていない。ビルドの出力先は `workstreams/04-execution/target`（`.cargo/config.toml`）。
 

@@ -134,3 +134,61 @@ runexec act list     --db <runs.db> --run <呼び出し側の runId>
 - `tests/act_cli.rs`（5 件）：本物の `runexec` を別のプロセスとして起動し、台本の `GET /f/agent/fate` に向けて、登録の冪等・拒否のコード・七つの state と `next`・読めない財布・確定後の食い違いを確かめる。
 - `clients/acts.test.mjs`（4 件、`RUNEXEC_BIN` を指定したときに実行）：JS の client を本物のバイナリと Node の台本サーバー（chunked で答える）に向けて、⑤・⑬ の対応づけまで確かめる。
 - `src/gateway.rs` の単体試験（chunked の解読）。
+
+## 8. Run の入口（2026-11-07 追加）：⑥の荷車だけの Run と ⑬ の実行ポートが使う方法
+
+④の Run（`RunSpec`、`src/model.rs`）を外のプロセスから受け付け、保存されている状態を読むコマンド。登録簿（§7）と同じく `runexec` の subcommand で、網を待ち受けるサーバーも、新しい認証の口も足していない。**受付は依頼の保存であり、送信ではない。** 署名も送信もしない。送るかどうかは、同じ store を見る実行器（`Executor`）が、正本を読み直してから決める。
+
+### 8.1 コマンド（1 行の JSON を標準出力に出す）
+
+```text
+runexec run accept --db <runs.db> --spec <spec.json | -> [--slot <n>]
+runexec run view   --db <runs.db> --run <run_id>
+```
+
+| 終了コード | `error` | 意味 |
+|---|---|---|
+| 0 | — | `accept`：受け付けた（`accept: "Created"`）か、同じ `run_id` に同じ spec が既にある（`accept: "Existing"`、`replayed: true`。何も書かない）。`view`：保存されている Run |
+| 2 | `BadRequest` | 引数の誤り（知らない option、値の無い option、二度与えた option、`--slot` が数でないか `i64::MAX`＝9223372036854775807 を超える：store は slot を SQLite の整数で持つ）、または spec の誤り（JSON でない、object でない、**同じ名前の欄が一つの object に二度ある**（serde は後の方を黙って採る。名前は decode して比べる）、`RunSpec` に無い欄がある（`null` でも。例外は spec が省略する `facility` の `null` だけ）、欄の型が違う、`run_id` が空か 128 byte 超、実行器の受付と同じ検査：荷が空、送り元と宛先が同じ tile、荷車だけの Run に材料・出来上がり・使用権がある、`max_attempts` が 1..=16 の外）。**store を開く前に拒否する**（新しい store は作られない） |
+| 3 | `NoRecord` | `view`：**開いて読めた run store に**、その `run_id` の Run が無い（状態ではない。⑬ の `null`）。これだけが「受け付けられていない」の答え |
+| 4 | `Conflict` | `accept`：同じ `run_id` に別の spec が保存されている（digest が違う）。混ぜない。別の spec は別の `run_id` で出す |
+| 5 | `StoreUnavailable` | `view`：path に store が無い、または届かない（消えた・mount されていない・path の誤り・権限）。**Run について何も言っていない**。そこで受け付けて送ったかもしれない Run が「無かった」ことの証拠にはならない。store は作らない |
+| 1 | `StoreError` | store はあるが開けない・読めない（database でないファイル、`runs` 表の無い database、SQLite の誤り）。これも Run について何も言っていない |
+
+- **5 と 1 は答えではない**（§1 の `unqueryable` と同じ扱い）：呼び出し側はこれを `not-sent`・「受け付けられていない」と読まず、**再送しない**。読み直すか、運営に回す。⑬ の `client.run(runId)` は `NoRecord` だけを `null` にし、`StoreUnavailable`・`StoreError` は例外にする（R5）。
+- `view` は**読むだけ**：store を読み取り専用で開き（`Store::open_read_only`）、作らず、表の作成や移行の文を一つも実行せず、何も書かない（SQLite が WAL を読むために `-shm`／`-wal` を作ることはある。database 本体は変わらない）。`accept` だけが `Store::open`（表の作成を含む）を使う。
+- `view` の欄は**一つの snapshot**：Run の行・遷移・attempt・Receipt・費用を一つの読み取り transaction（`Store::read_snapshot`、WAL の snapshot）で読む。実行器が横で書いていても、別の時点が混ざることはない（`src/view.rs`。`accept` の答えも同じ関数）。
+- `--spec` は **1 MiB（1,048,576 byte）まで**（file も標準入力も）。それを超える入力と UTF-8 でない入力は、読みながら拒否し、store を開かない。`RunSpec` は数百 byte。
+
+- `--spec`：`RunSpec` の JSON（`-` で標準入力）。欄は `src/model.rs` の `RunSpec` のとおり（`run_id`・`owner`・`stock`・`inbound`・`facility`・`inputs`・`outputs`・`rights_units`・`ship`・`deadline_slot`・`budget`）。**荷車だけの Run は `facility` を省く（または `null`）**。`inputs`・`outputs` は全部 0、`rights_units` は 0。施設のある spec は今までどおりの JSON で、保存される文字列も digest も変わらない。
+- `--slot <n>`（既定 0）：受付の slot。`created_slot` と最初の `next_check` になる（実行器はこの slot 以降に見る）。
+- `accept` は、実行器の `Executor::accept` と同じ検査（`executor::validate_spec`）を通す。したがって、ここで受け付けた spec を実行器が後から `accept` すると `Existing` になり、`Conflict` にはならない（`tests/run_cli.rs` で確かめている）。
+- 同じ spec の再送は `Existing`（`version`・`next_check` は変わらない）。重複した Run は作られない。
+
+### 8.2 `view` の欄（`accept` の答えも同じ欄に `accept`・`replayed` を足したもの）
+
+| 欄 | 内容 |
+|---|---|
+| `view_version` | `p04-run/0.1` |
+| `run_id`・`cargo_only` | id と、荷車だけの Run か |
+| `state`・`terminal`・`in_flight` | 15 の状態（STATE-MACHINE）と、終端か、署名済みの要求が着地しうるか |
+| `held_reason` | 保留の理由（`null`：保留なし）。⑬ の `fateOfRun` が読む欄 |
+| `cancel_requested`・`cancel_phase` | 取消の要求と段階（`StoppingNew`・`AwaitingSigned`・`Completed`・`Ineffective`） |
+| `version`・`next_check` | 保存されている版と、次に見る slot |
+| `spec`・`spec_digest` | 保存されている spec と digest |
+| `detail`・`reason`・`outcome` | 保存されている detail、失敗・保留の理由、終端の結果（`delivered`・`verification`・`cargo_logged`・`effects`・`note`） |
+| `sent`・`settled`・`effects` | **Receipt から**：`caravan_sent`（自分の署名と中身を正本で確認した発送）、`caravan_settled`（決着の記録）があるか。`effects` は Receipt の種類の列。受付だけでは全部 false／空。状態からは推定しない |
+| `fees` | `reserved`・`charged`・`unconfirmed`・`released`（CONTRACTS §6.2） |
+| `transitions`・`attempts`・`receipts` | 遷移（実行者と理由つき）、attempt（段階・要求キー・署名・有効期限・手数料・状態）、Receipt |
+
+⑬ の `resident/ports/ws04-run.mjs` の `fateOfRun` が読む `state`・`held_reason`・`outcome.effects` は、この欄の名前のまま。`client.run(runId)` は `view` を呼び、`NoRecord` だけを `null` に、`StoreUnavailable`・`StoreError` を例外にする（R5：答えられないことを「無い」にしない）。
+
+### 8.3 試験（`tests/run_cli.rs`。鍵を作らない・導出しない・署名しない）
+
+本物の `runexec` を別のプロセスとして起動し、固定の JSON（⑥の荷車だけの Run：鉄 4 を自分の倉から自分の金庫へ。作る Run：鉄 5 → 武器 3 を金庫へ）で確かめる：受付・閲覧・同じ spec の再送（file と標準入力）が重複を作らないこと、既存の `cancel`・`show` がその Run に効くこと、施設のある spec の保存文字列と digest が変わらないこと、同じ id の別の spec（量が違う・施設の有無が違う）が `Conflict` で何も変えないこと、壊れた JSON・知らない欄（`facilty`）・型違い・受付の検査・option の誤りがすべて store を作る前に拒否されること、読めた store に無い id が `NoRecord`、path に store が無い（消した・移した後を含む）場合が `StoreUnavailable`、database でないファイルが `StoreError` であること、`view` の読みの途中で別の接続が commit した遷移が答えに混ざらないこと（`run_view_at` の hook で決定的に）、実行器が 7 つの Run を運ぶ横で別 thread の読み手が取る view がすべて一つの時点であること（`version` と遷移の数、状態と最後の遷移、発送の Receipt と InTransit、attempt の数）、`--spec` が 1 MiB ちょうどは受け付けられ 1 byte 超・4 MiB・UTF-8 でないものが file・標準入力とも store を作る前に拒否されること、`view` が store を作らず既存の store の byte を変えず `runs` 表の無い database や空のファイルに表を作らないこと、`facility: null` が同じ Run（replay）で他の `null` の欄（入れ子を含む）は拒否されること、同じ名前の欄の二度目（入れ子・JSON の escape で書いた名前を含む）が拒否されること、`--slot` が `i64::MAX` を超えると拒否され `i64::MAX` ちょうどは保存されること、受け付けた Run を模擬の世界の実行器（途中で再起動）が `Existing` として引き取り Fulfilled まで運び、別のプロセスの `view` がその結果（`sent`・`settled`・`outcome.delivered`・attempt の `landed`・手数料）を読むこと。
+
+### 8.4 まだ無いもの
+
+- JS の client（`clients/acts.mjs` に相当する `run accept`／`view` の wrapper）と、⑥の計画→`RunSpec` の adapter（INTEGRATION-20261106c §3 のとおり、⑥の新しい版を待つ）。
+- ⑥の Receipt の欄（`manifest`・`planHash`・`run`・`outputs`・`port`・`beneficiary`）。`view` は④の Run の欄だけを出す。
+- `run cancel` の JSON 版。取消は既存の `runexec cancel`（文字列の出力）で、段階は `view` の `cancel_phase` で読む。

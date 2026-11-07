@@ -120,8 +120,8 @@ struct Chain {
 }
 
 impl Passes for Chain {
-    fn pass_of(&self, owner_tag: u64) -> Result<Option<PassView>, String> {
-        Ok(if owner_tag == OWNER {
+    fn pass_of(&self, c: &[u8; 32]) -> Result<Option<PassView>, String> {
+        Ok(if *c == citizen() {
             self.view.borrow().clone()
         } else {
             None
@@ -190,7 +190,11 @@ fn cargo(id: &str, h: &H) -> RunSpec {
 }
 
 fn req(actor: [u8; 32], generation: u32) -> Requester {
-    Requester { actor, generation }
+    Requester {
+        actor,
+        generation,
+        citizen: citizen(),
+    }
 }
 
 fn refused(r: Result<runexec::store::Accept, String>, why: &str) {
@@ -315,7 +319,18 @@ fn a_run_without_a_sound_pass_is_refused() {
     let chain = Chain::new(A, 0, None);
     let mut other = cargo("p0", &h);
     other.owner = OTHER;
-    refused(h.ex.accept_as(&other, &req(A, 0), &chain), "no NFT pass");
+    let mut no_pass = [0x9du8; 32];
+    no_pass[..8].copy_from_slice(&OTHER.to_le_bytes());
+    let r0 = Requester {
+        citizen: no_pass,
+        ..req(A, 0)
+    };
+    refused(h.ex.accept_as(&other, &r0, &chain), "no NFT pass");
+    // A requester naming another citizen than the run's.
+    refused(
+        h.ex.accept_as(&cargo("p0b", &h), &r0, &chain),
+        "requester's citizen is not the run's",
+    );
     // The link names another citizen.
     let c = Chain::new(A, 0, None);
     c.edit(|v| v.link.data = link_bytes([0x01; 32]));

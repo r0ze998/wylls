@@ -25,7 +25,7 @@
 
 ## 2. 一つの run を調べる
 
-`runexec show --db <path> --run <id>` は、状態、`detail`、所有表の行、遷移（実行者と理由つき）、attempt（要求キー、署名、有効期間、状態）、Receipt（出典つき）を表示する。
+`runexec show --db <path> --run <id>` は、状態、`detail`、所有表の行、遷移（実行者と理由つき）、attempt（要求キー、署名、有効期間、状態）、Receipt（出典つき）を表示する。同じ内容を 1 行の JSON で読むのは `runexec run view --db <path> --run <id>`（読めた store に無い id は終了コード 3 `NoRecord`、path に store が無ければ 5 `StoreUnavailable`、store を読めなければ 1 `StoreError`。5 と 1 は Run について何も言わない。[EXECUTION-CONTRACT-20261106](EXECUTION-CONTRACT-20261106.ja.md) §8）。
 
 attempt の状態：
 - `intent`：記録済み。送信したかどうかは不明。

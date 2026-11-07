@@ -242,3 +242,21 @@
 - 依頼の署名そのものの検証。依頼者の鍵は、呼び出し側（gateway の資格情報の層、③⑤）で認証済みとして受け取ります。
 - `Passes` の本物の chain の実装（link・policy の PDA を計算し、asset・resident を読む）。試験は、stand-in の chain で行いました。
 - 受付 CLI（7d2fbe0d）への接続。CLI は preserve の branch にあり、統合されていません。
+
+## 11. NFT譲渡後の荷車受付（所有者の決定 2026-11-07 に沿った実装）
+
+決定: 受付済みの荷車は譲渡後も完了まで続行。譲渡後の新規受付は、新しい所有者（またはその所有者が現世代で設定した期限内のセッション）だけを通す。
+
+| 部分 | 実装 | 試験（鍵なし） |
+|---|---|---|
+| 実チェーンからの所有者情報 | `src/intake_rpc.rs` `RpcPasses`: Citizen → link `["nft-citizen-link", season, asset]`・policy → asset・resident `["resident", asset]`・Clock を `getMultipleAccounts`（confirmed）で読む。最後の3つは1回で読み、所有者・世代・セッション・時刻が同じスロットのものになる | `tests/intake_chain.rs`（PDA上の口座を返すスタンドインノード `tests/common/passnode.rs`） |
+| 外部受付 → 権限確認 | `runexec run accept --requester <file> --rpc --program --season`。`intake::authorize` が拒否すれば exit 5 `NotAuthorized`、ストアを開く前（何も書かない）。通れば確認結果を初回detailに記録 | 同上 + `tests/run_cli.rs`（全acceptが依頼者付き） |
+| executor | `accept_as(spec, req, passes)` → `intake::accept_checked` | `tests/intake.rs`, `tests/intake_chain.rs` |
+| gateway → 依頼者の受け渡し | `clients/runs.mjs` `createRunsClient().accept(spec, {actor, generation, citizen, authenticatedBy})`。依頼者ファイルは0600で一時作成し、終了後に削除 | `clients/runs.test.mjs`（スタブと実バイナリ） |
+
+譲渡前と譲渡後は分けて試験しています。
+- 譲渡前: Aの依頼、およびAのセッションの依頼が受け付けられ、A→B譲渡（世代1）の後も Fulfilled まで続く。記録された権限は A・世代0 のまま。
+- 譲渡後: Aは世代0では StaleGeneration、世代1では NotCurrentAuthority で拒否。Aの残存セッションも、同じrun_idでの再依頼も、Bの世代0も拒否し、ストアには残らない。Bと、Bが世代1で設定したセッションは受付。期限切れのセッションは拒否。
+- CLI: 譲渡後のAは exit 5、Bは Created。依頼者なしは exit 2。
+
+**ここで試験していない部分:** 署名の検証そのもの（gatewayの認証層、③/⑤）は、試験に署名が要るため対象外です。`authenticatedBy` は、検証した層の名前を記録するだけです。実ノード（frontier-localnet）での読み取りも未実施です。

@@ -265,6 +265,50 @@ impl Store {
         Ok(Store { conn })
     }
 
+    /// Opens an existing store for reading only: no file is created, no
+    /// schema statement runs, nothing is written (SQLite may still create
+    /// the `-shm` file it needs to read a WAL database). `Err`: the path
+    /// cannot be opened as a database (absent, unreadable, not a database)
+    /// or is not a run store (no `runs` table).
+    pub fn open_read_only(path: &Path) -> Result<Store, String> {
+        use rusqlite::OpenFlags;
+        let conn = sql(Connection::open_with_flags(
+            path,
+            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        ))?;
+        sql(conn.busy_timeout(std::time::Duration::from_secs(10)))?;
+        let has_runs: bool = sql(conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'runs')",
+            [],
+            |r| r.get(0),
+        ))?;
+        if !has_runs {
+            return Err(format!(
+                "{} is not a run store (no runs table)",
+                path.display()
+            ));
+        }
+        Ok(Store { conn })
+    }
+
+    /// Runs `f` inside one read transaction: every read in it sees the
+    /// same committed state (the WAL snapshot taken at the first read),
+    /// however many executors write beside it. Nothing is written; the
+    /// transaction ends on return, on `Err` too (the drop rolls it back).
+    /// Not for use inside another transaction on this connection.
+    pub fn read_snapshot<T>(
+        &self,
+        f: impl FnOnce(&Store) -> Result<T, String>,
+    ) -> Result<T, String> {
+        let tx = sql(rusqlite::Transaction::new_unchecked(
+            &self.conn,
+            TransactionBehavior::Deferred,
+        ))?;
+        let out = f(self)?;
+        sql(tx.commit())?;
+        Ok(out)
+    }
+
     /// Accepts a run, idempotently by `run_id`.
     pub fn accept(&self, spec: &RunSpec, now: u64) -> Result<Accept, String> {
         self.accept_with(spec, now, &Detail::default())

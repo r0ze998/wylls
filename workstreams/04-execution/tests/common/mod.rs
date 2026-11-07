@@ -2,6 +2,8 @@
 //! that can be stopped and restarted on it.
 #![allow(dead_code)]
 
+pub mod passnode;
+
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
